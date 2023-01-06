@@ -3,6 +3,7 @@ module github.com/kubewharf/katalyst-core
 go 1.17
 
 require (
+	github.com/NVIDIA/gpu-monitoring-tools v0.0.0-20211102125545-5a2c58442e48
 	github.com/alecthomas/units v0.0.0-20190924025748-f65c72e2690d
 	github.com/cespare/xxhash v1.1.0
 	github.com/containerd/cgroups v1.0.1
