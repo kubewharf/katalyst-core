@@ -39,8 +39,9 @@ const MetricSyncerNameNode = "node"
 // nodeRawMetricNameMapping maps the raw metricName (collected from agent.MetricsFetcher)
 // to the standard metricName (used by custom-metric-api-server)
 var nodeRawMetricNameMapping = map[string]string{
-	consts.MetricLoad1MinSystem: apimetricnode.CustomMetricNodeCPULoad1Min,
-	consts.MetricMemUsedSystem:  apimetricnode.CustomMetricNodeMemoryRSS,
+	consts.MetricLoad1MinSystem:     apimetricnode.CustomMetricNodeCPULoad1Min,
+	consts.MetricMemFreeSystem:      apimetricnode.CustomMetricNodeMemoryFree,
+	consts.MetricMemAvailableSystem: apimetricnode.CustomMetricNodeMemoryAvailable,
 }
 
 // nodeCachedMetricNameMapping maps the cached metricName (processed by plugin.SysAdvisorPlugin)

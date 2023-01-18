@@ -25,6 +25,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/klog/v2"
 
+	apimetricpod "github.com/kubewharf/katalyst-api/pkg/metric/pod"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	metricemitter "github.com/kubewharf/katalyst-core/pkg/config/agent/sysadvisor/metric-emitter"
@@ -40,7 +41,7 @@ const MetricSyncerNamePod = "pod"
 // podRawMetricNameMapping maps the raw metricName (collected from agent.MetricsFetcher)
 // to the standard metricName (used by custom-metric-api-server)
 var podRawMetricNameMapping = map[string]string{
-	consts.MetricCPUUsageContainer: "cpu_usage",
+	consts.MetricLoad1MinContainer: apimetricpod.CustomMetricPodCPULoad1Min,
 }
 
 type podRawChanel struct {
