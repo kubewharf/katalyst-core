@@ -56,7 +56,7 @@ func Run(opt *options.Options, genericOptions ...katalystbase.GenericOptions) er
 	ctx := process.SetupSignalHandler()
 
 	controllerCtx, err := katalystbase.NewGenericContext(clientSet, conf.GenericControllerConfiguration.LabelSelector,
-		ControllersDisabledByDefault, conf.GenericConfiguration.GenericEndpoint, consts.KatalystComponentController)
+		ControllersDisabledByDefault, conf.GenericConfiguration, consts.KatalystComponentController)
 	if err != nil {
 		return err
 	}

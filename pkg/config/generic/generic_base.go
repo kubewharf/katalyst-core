@@ -19,7 +19,10 @@ package generic
 // GenericConfiguration stores all the generic configurations needed
 // by core katalyst components
 type GenericConfiguration struct {
-	GenericEndpoint string
+	GenericEndpoint             string
+	GenericEndpointHandleChains []string
+	GenericAuthStaticUser       string
+	GenericAuthStaticPasswd     string
 
 	*QoSConfiguration
 }

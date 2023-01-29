@@ -25,21 +25,28 @@ import (
 	"k8s.io/klog/v2"
 
 	"github.com/kubewharf/katalyst-core/pkg/config/generic"
+	"github.com/kubewharf/katalyst-core/pkg/util/process"
 )
 
 // GenericOptions holds the configurations for multi components.
 type GenericOptions struct {
-	MasterURL       string
-	KubeConfig      string
-	GenericEndpoint string
+	MasterURL  string
+	KubeConfig string
+
+	GenericEndpoint             string
+	GenericEndpointHandleChains []string
+	// todo actually those auth info should be stored in secrets or somewhere like that
+	GenericAuthStaticUser   string
+	GenericAuthStaticPasswd string
 
 	qosOptions *QoSOptions
 }
 
 func NewGenericOptions() *GenericOptions {
 	return &GenericOptions{
-		GenericEndpoint: ":9316",
-		qosOptions:      NewQoSOptions(),
+		GenericEndpoint:             ":9316",
+		qosOptions:                  NewQoSOptions(),
+		GenericEndpointHandleChains: []string{process.HTTPChainRateLimiter},
 	}
 }
 
@@ -56,8 +63,15 @@ func (o *GenericOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 	fs.StringVar(&o.MasterURL, "master", o.MasterURL,
 		`The url of the Kubernetes API server, will overrides any value in kubeconfig, only required if out-of-cluster.`)
 	fs.StringVar(&o.KubeConfig, "kubeconfig", o.KubeConfig, "The path of kubeconfig file")
+
 	fs.StringVar(&o.GenericEndpoint, "generic-endpoint", o.GenericEndpoint,
 		"the endpoint of generic purpose, which will use as prometheus, health check and profiling")
+	fs.StringSliceVar(&o.GenericEndpointHandleChains, "generic-handler-chains", o.GenericEndpointHandleChains,
+		"this flag defines the handler chains that should be enabled")
+	fs.StringVar(&o.GenericAuthStaticUser, "generic-auth-static-user", o.GenericAuthStaticUser,
+		"basic auth is build auth chain for http, and this defines the static user")
+	fs.StringVar(&o.GenericAuthStaticPasswd, "generic-auth-static-passwd", o.GenericAuthStaticPasswd,
+		"basic auth is build auth chain for http, and this defines the static passwd")
 
 	o.qosOptions.AddFlags(fs)
 }
@@ -65,6 +79,9 @@ func (o *GenericOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 // ApplyTo fills up config with options
 func (o *GenericOptions) ApplyTo(c *generic.GenericConfiguration) error {
 	c.GenericEndpoint = o.GenericEndpoint
+	c.GenericEndpointHandleChains = o.GenericEndpointHandleChains
+	c.GenericAuthStaticUser = o.GenericAuthStaticUser
+	c.GenericAuthStaticPasswd = o.GenericAuthStaticPasswd
 
 	errList := make([]error, 0, 1)
 	errList = append(errList, o.qosOptions.ApplyTo(c.QoSConfiguration))

@@ -32,10 +32,12 @@ import (
 
 	"github.com/kubewharf/katalyst-api/pkg/client/informers/externalversions"
 	"github.com/kubewharf/katalyst-core/pkg/client"
+	"github.com/kubewharf/katalyst-core/pkg/config/generic"
 	"github.com/kubewharf/katalyst-core/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	metricspool "github.com/kubewharf/katalyst-core/pkg/metrics/metrics-pool"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
+	"github.com/kubewharf/katalyst-core/pkg/util/process"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
@@ -48,6 +50,7 @@ type GenericOptions func(i interface{})
 
 type GenericContext struct {
 	*http.Server
+	httpHandler *process.HTTPHandler
 
 	// those following components are shared by all generic components
 	BroadcastAdapter events.EventBroadcasterAdapter
@@ -73,7 +76,7 @@ func NewGenericContext(
 	clientSet *client.GenericClientSet,
 	labelSelector string,
 	disabledByDefault sets.String,
-	endpoint string,
+	genericConf *generic.GenericConfiguration,
 	component consts.KatalystComponent,
 ) (*GenericContext, error) {
 	var (
@@ -125,10 +128,14 @@ func NewGenericContext(
 	// it will use corev1 event recorder and wrap it with a v1 event recorder adapter.
 	broadcastAdapter := events.NewEventBroadcasterAdapter(clientSet.KubeClient)
 
+	httpHandler := process.NewHTTPHandler(getStaticAuth(genericConf.GenericAuthStaticUser,
+		genericConf.GenericAuthStaticPasswd), genericConf.GenericEndpointHandleChains)
+
 	return &GenericContext{
+		httpHandler: httpHandler,
 		Server: &http.Server{
-			Handler: mux,
-			Addr:    endpoint,
+			Handler: httpHandler.WithHandleChain(mux),
+			Addr:    genericConf.GenericEndpoint,
 		},
 		DisabledByDefault:       disabledByDefault,
 		KubeInformerFactory:     kubeInformerFactory,
@@ -153,6 +160,7 @@ func (c *GenericContext) SetDefaultMetricsEmitter(metricEmitter metrics.MetricEm
 
 // Run starts the generic components
 func (c *GenericContext) Run(ctx context.Context) {
+	c.httpHandler.Run(ctx)
 	c.EmitterPool.Run(ctx)
 	c.BroadcastAdapter.StartRecordingToSink(ctx.Done())
 	go func() {
@@ -198,4 +206,11 @@ func serveHealthZHTTP(mux *http.ServeMux) {
 		w.WriteHeader(200)
 		_, _ = w.Write([]byte("ok"))
 	})
+}
+
+// getStaticAuth returns static auth info
+func getStaticAuth(user, passwd string) process.GetAuthPair {
+	return func() (map[string]string, error) {
+		return map[string]string{user: passwd}, nil
+	}
 }

@@ -32,6 +32,7 @@ import (
 	"github.com/kubewharf/katalyst-api/pkg/apis/config/v1alpha1"
 	externalfake "github.com/kubewharf/katalyst-api/pkg/client/clientset/versioned/fake"
 	"github.com/kubewharf/katalyst-core/pkg/client"
+	"github.com/kubewharf/katalyst-core/pkg/config/generic"
 )
 
 func GenerateFakeGenericContext(kubeObjects, internalObjects, dynamicObjects []runtime.Object) (*GenericContext, error) {
@@ -84,6 +85,6 @@ func GenerateFakeGenericContext(kubeObjects, internalObjects, dynamicObjects []r
 		DiscoveryClient: fakeDiscoveryClient,
 	}
 
-	controlCtx, err := NewGenericContext(&clientSet, "", sets.NewString(), "", "")
+	controlCtx, err := NewGenericContext(&clientSet, "", sets.NewString(), &generic.GenericConfiguration{}, "")
 	return controlCtx, err
 }

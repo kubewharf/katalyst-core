@@ -20,7 +20,6 @@ package app
 import (
 	"context"
 	"fmt"
-	"github.com/kubewharf/katalyst-core/pkg/scheduler/util"
 	"net/http"
 	"os"
 	goruntime "runtime"
@@ -62,6 +61,7 @@ import (
 	schedulerserverconfig "github.com/kubewharf/katalyst-core/cmd/katalyst-scheduler/app/config"
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-scheduler/app/options"
 	"github.com/kubewharf/katalyst-core/pkg/scheduler/eventhandlers"
+	"github.com/kubewharf/katalyst-core/pkg/scheduler/util"
 )
 
 func init() {

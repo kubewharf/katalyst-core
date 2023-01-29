@@ -59,7 +59,7 @@ func Run(opt *options.Options, genericOptions ...katalystbase.GenericOptions) er
 	ctx := process.SetupSignalHandler()
 
 	webhookCtx, err := katalystbase.NewGenericContext(clientSet, conf.GenericControllerConfiguration.LabelSelector,
-		WebhooksDisabledByDefault, conf.GenericConfiguration.GenericEndpoint, consts.KatalystComponentWebhook)
+		WebhooksDisabledByDefault, conf.GenericConfiguration, consts.KatalystComponentWebhook)
 	if err != nil {
 		return err
 	}
@@ -146,6 +146,7 @@ func startWebhooks(ctx context.Context, webhookCtx *katalystbase.GenericContext,
 		if err != nil {
 			klog.Fatalf("create %v webhook handler error: %v", wrapper.Name, err)
 		}
+		// todo checks whether we should build http chain here for webhook
 		mux.Handle("/"+wrapper.Name, httplog.WithLogging(webhookServer, httplog.DefaultStacktracePred))
 
 		klog.Infof("Started %q", wrapper.Name)

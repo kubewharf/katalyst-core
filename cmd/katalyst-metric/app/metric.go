@@ -52,7 +52,7 @@ func Run(opt *options.Options, genericOptions ...katalystbase.GenericOptions) er
 	ctx := process.SetupSignalHandler()
 
 	baseCtx, err := katalystbase.NewGenericContext(clientSet, "",
-		sets.String{}, conf.GenericConfiguration.GenericEndpoint, consts.KatalystComponentMetric)
+		sets.String{}, conf.GenericConfiguration, consts.KatalystComponentMetric)
 	if err != nil {
 		return err
 	}
