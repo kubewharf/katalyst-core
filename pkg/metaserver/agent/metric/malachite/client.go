@@ -87,11 +87,12 @@ func (c *client) GetCgroupStats(cgroupPath string) ([]byte, error) {
 		return nil, fmt.Errorf("failed to http.DefaultClient.Do, url: %s, err %s", req.URL, err)
 	}
 
+	defer rsp.Body.Close()
+
 	if rsp.StatusCode != 200 {
 		return nil, fmt.Errorf("invalid http response status code %d, url: %s", rsp.StatusCode, req.URL)
 	}
 
-	defer rsp.Body.Close()
 	return ioutil.ReadAll(rsp.Body)
 }
 
@@ -125,10 +126,11 @@ func (c *client) GetSystemStats(kind SystemResourceKind) ([]byte, error) {
 		return nil, fmt.Errorf("failed to http.DefaultClient.Do, url: %s, err %s", req.URL, err)
 	}
 
+	defer rsp.Body.Close()
+
 	if rsp.StatusCode != 200 {
 		return nil, fmt.Errorf("invalid http response status code %d, url: %s", rsp.StatusCode, req.URL)
 	}
 
-	defer rsp.Body.Close()
 	return ioutil.ReadAll(rsp.Body)
 }
