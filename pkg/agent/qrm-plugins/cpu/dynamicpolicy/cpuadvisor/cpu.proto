@@ -84,6 +84,7 @@ message NumaCalculationResult {
 message Block {
     uint64 result = 1;
     repeated OverlapTarget overlap_targets = 2;
+    string block_id = 3;
 }
 
 message OverlapTarget {
