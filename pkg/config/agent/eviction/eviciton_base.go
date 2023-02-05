@@ -41,6 +41,9 @@ type GenericEvictionConfiguration struct {
 	// those two variables are used to filter out eviction-free pods
 	EvictionSkippedAnnotationKeys sets.String
 	EvictionSkippedLabelKeys      sets.String
+
+	// EvictionBurst limit the burst eviction counts
+	EvictionBurst int
 }
 
 type EvictionPluginsConfiguration struct {

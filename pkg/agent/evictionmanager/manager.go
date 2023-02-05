@@ -21,7 +21,6 @@ package evictionmanager // import "github.com/kubewharf/katalyst-core/pkg/evicti
 import (
 	"context"
 	"fmt"
-	"sort"
 	"sync"
 	"time"
 
@@ -39,6 +38,7 @@ import (
 	endpointpkg "github.com/kubewharf/katalyst-core/pkg/agent/evictionmanager/endpoint"
 	"github.com/kubewharf/katalyst-core/pkg/agent/evictionmanager/plugin"
 	"github.com/kubewharf/katalyst-core/pkg/agent/evictionmanager/podkiller"
+	"github.com/kubewharf/katalyst-core/pkg/agent/evictionmanager/rule"
 	"github.com/kubewharf/katalyst-core/pkg/client"
 	pkgconfig "github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
@@ -63,7 +63,20 @@ type LatestPodsGetter func() []*v1.Pod
 // EvictionManger reconciles to check if some threshold has been met, and
 // trigger pod eviction actions if needed.
 type EvictionManger struct {
+	conf          *pkgconfig.Configuration
+	genericClient *client.GenericClientSet
+
+	endpointLock  sync.RWMutex
+	conditionLock sync.RWMutex
+
+	// clock is an interface that provides time related functionality in a way that makes it
+	// easy to test the code.
+	clock clock.Clock
+
 	podKiller podkiller.PodKiller
+
+	killQueue    rule.EvictionQueue
+	killStrategy rule.EvictionStrategy
 
 	// metaGetter is used to collect metadata universal metaServer.
 	metaGetter *metaserver.MetaServer
@@ -79,17 +92,6 @@ type EvictionManger struct {
 	conditionsLastObservedAt map[string]conditionObservedAt
 	// thresholdsFirstObservedAt map eviction plugin name to *pluginapi.Condition with firstly observed timestamp.
 	thresholdsFirstObservedAt map[string]thresholdObservedAt
-
-	// clock is an interface that provides time related functionality in a way that makes it
-	// easy to test the code.
-	clock clock.Clock
-
-	conf *pkgconfig.Configuration
-
-	genericClient *client.GenericClientSet
-
-	endpointLock  sync.RWMutex
-	conditionLock sync.RWMutex
 }
 
 func (m *EvictionManger) ApplyConfig(conf *pkgconfig.DynamicConfiguration) {
@@ -113,10 +115,15 @@ func NewInnerEvictionPluginInitializers() map[string]plugin.InitFunc {
 
 func NewEvictionManager(genericClient *client.GenericClientSet, recorder events.EventRecorder,
 	metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter, conf *pkgconfig.Configuration) *EvictionManger {
+	queue := rule.NewFIFOEvictionQueue(conf.EvictionBurst)
+
 	killer := podkiller.NewEvictionAPIKiller(genericClient.KubeClient, recorder)
 	podKiller := podkiller.NewAsynchronizedPodKiller(killer, genericClient.KubeClient)
 
 	e := &EvictionManger{
+		killQueue:    queue,
+		killStrategy: rule.NewEvictionStrategyImpl(conf),
+
 		metaGetter:                metaServer,
 		emitter:                   emitter,
 		podKiller:                 podKiller,
@@ -130,7 +137,6 @@ func NewEvictionManager(genericClient *client.GenericClientSet, recorder events.
 	}
 
 	e.getEvictionPlugins(genericClient, recorder, metaServer, emitter, conf, NewInnerEvictionPluginInitializers())
-
 	return e
 }
 
@@ -144,7 +150,6 @@ func (m *EvictionManger) getEvictionPlugins(genericClient *client.GenericClientS
 		}
 
 		curPlugin := initFn(genericClient, recorder, metaServer, emitter, conf)
-
 		m.endpoints[curPlugin.Name()] = curPlugin
 	}
 	m.endpointLock.Unlock()
@@ -168,19 +173,19 @@ func (m *EvictionManger) sync(ctx context.Context) {
 	}
 
 	klog.Infof("[eviction manager] currently, there are %v active pods", len(activePods))
-
 	_ = m.emitter.StoreInt64(MetricsNameRunningPodCNT, int64(len(activePods)), metrics.MetricTypeNameRaw)
 
 	pods := native.FilterOutSkipEvictionPods(activePods, m.conf.EvictionSkippedAnnotationKeys, m.conf.EvictionSkippedLabelKeys)
-
 	klog.Infof("[eviction manager] currently, there are %v candidate pods", len(pods))
-
 	_ = m.emitter.StoreInt64(MetricsNameCandidatePodCNT, int64(len(pods)), metrics.MetricTypeNameRaw)
 
-	currentConditions := make(map[string]*pluginapi.Condition)
 	currentMetThresholds := make(map[string]*pluginapi.ThresholdMetResponse)
-	forceEvictPods := make(map[string]*pluginapi.EvictPod)
-	candidateEvictPods := make(map[string]*pluginapi.EvictPod)
+	currentConditions := make(map[string]*pluginapi.Condition)
+
+	// softEvictPods are candidates (among which only one will be chosen);
+	// forceEvictPods are pods that should be killed immediately (but can be withdrawn)
+	softEvictPods := make(map[string]*rule.RuledEvictPod)
+	forceEvictPods := make(map[string]*rule.RuledEvictPod)
 
 	m.endpointLock.RLock()
 	for pluginName, ep := range m.endpoints {
@@ -192,9 +197,7 @@ func (m *EvictionManger) sync(ctx context.Context) {
 		} else if getEvictResp == nil {
 			klog.Errorf("[eviction manager] calling GetEvictPods of plugin: %s and getting nil resp", pluginName)
 		} else {
-
 			klog.Infof("[eviction manager] GetEvictPods of plugin: %s with %d pods to evict", pluginName, len(getEvictResp.EvictPods))
-
 			for _, evictPod := range getEvictResp.EvictPods {
 				if evictPod == nil || evictPod.Pod == nil {
 					klog.Errorf("[eviction manager] skip nil evict pod of plugin: %s", pluginName)
@@ -203,14 +206,19 @@ func (m *EvictionManger) sync(ctx context.Context) {
 
 				// to avoid plugins forget to set EvictionPluginName property
 				evictPod.EvictionPluginName = pluginName
-
 				klog.Infof("[eviction manager] plugin: %s requests to evict pod: %s/%s with reason: %s, forceEvict: %v",
 					pluginName, evictPod.Pod.Namespace, evictPod.Pod.Name, evictPod.Reason, evictPod.ForceEvict)
 
 				if evictPod.ForceEvict {
-					forceEvictPods[string(evictPod.Pod.UID)] = proto.Clone(evictPod).(*pluginapi.EvictPod)
+					forceEvictPods[string(evictPod.Pod.UID)] = &rule.RuledEvictPod{
+						EvictPod: proto.Clone(evictPod).(*pluginapi.EvictPod),
+						Scope:    rule.EvictionScopeForce,
+					}
 				} else {
-					candidateEvictPods[string(evictPod.Pod.UID)] = proto.Clone(evictPod).(*pluginapi.EvictPod)
+					softEvictPods[string(evictPod.Pod.UID)] = &rule.RuledEvictPod{
+						EvictPod: proto.Clone(evictPod).(*pluginapi.EvictPod),
+						Scope:    rule.EvictionScopeSoft,
+					}
 				}
 			}
 
@@ -237,7 +245,6 @@ func (m *EvictionManger) sync(ctx context.Context) {
 		}
 
 		klog.Infof("[eviction manager] plugin: %s met threshold: %s", pluginName, metResp.String())
-
 		if metResp.Condition != nil && metResp.Condition.MetCondition {
 			klog.Infof("[eviction manager] plugin: %s requests to set condition: %s of type: %s",
 				pluginName, metResp.Condition.ConditionName, metResp.Condition.ConditionType.String())
@@ -285,7 +292,6 @@ func (m *EvictionManger) sync(ctx context.Context) {
 		})
 
 		m.endpointLock.RUnlock()
-
 		if err != nil {
 			klog.Errorf("[eviction manager] calling GetTopEvictionPods of plugin: %s failed with error: %v", pluginName, err)
 			continue
@@ -307,55 +313,55 @@ func (m *EvictionManger) sync(ctx context.Context) {
 
 			forceEvictPod := forceEvictPods[string(pod.UID)]
 			if forceEvictPod != nil {
-				if deletionOptions != nil && forceEvictPod.DeletionOptions != nil {
-					deletionOptions.GracePeriodSeconds = general.MaxInt64(deletionOptions.GracePeriodSeconds, forceEvictPod.DeletionOptions.GracePeriodSeconds)
-				} else if forceEvictPod.DeletionOptions != nil {
-					deletionOptions.GracePeriodSeconds = forceEvictPod.DeletionOptions.GracePeriodSeconds
+				if deletionOptions != nil && forceEvictPod.EvictPod.DeletionOptions != nil {
+					deletionOptions.GracePeriodSeconds = general.MaxInt64(deletionOptions.GracePeriodSeconds,
+						forceEvictPod.EvictPod.DeletionOptions.GracePeriodSeconds)
+				} else if forceEvictPod.EvictPod.DeletionOptions != nil {
+					deletionOptions.GracePeriodSeconds = forceEvictPod.EvictPod.DeletionOptions.GracePeriodSeconds
 				}
-				reason = fmt.Sprintf("%s; %s", reason, forceEvictPod.Reason)
+				reason = fmt.Sprintf("%s; %s", reason, forceEvictPod.EvictPod.Reason)
 			}
 
-			forceEvictPods[string(pod.UID)] = &pluginapi.EvictPod{
-				Pod:                pod.DeepCopy(),
-				Reason:             reason,
-				DeletionOptions:    deletionOptions,
-				ForceEvict:         true,
-				EvictionPluginName: pluginName, // only count this pod to one plugin
+			forceEvictPods[string(pod.UID)] = &rule.RuledEvictPod{
+				EvictPod: &pluginapi.EvictPod{
+					Pod:                pod.DeepCopy(),
+					Reason:             reason,
+					DeletionOptions:    deletionOptions,
+					ForceEvict:         true,
+					EvictionPluginName: pluginName, // only count this pod to one plugin
+				},
+				Scope: threshold.EvictionScope,
 			}
 		}
 	}
 
-	candidateEvictPods = filterOutCandidatePodsWithForcePods(candidateEvictPods, forceEvictPods)
-	bestSuitedCandidate := getEvictPodFromCandidates(candidateEvictPods, m.conf.CheckReclaimedQoSForPod)
-
+	softEvictPods = filterOutCandidatePodsWithForcePods(softEvictPods, forceEvictPods)
+	bestSuitedCandidate := m.getEvictPodFromCandidates(softEvictPods)
 	if bestSuitedCandidate != nil && bestSuitedCandidate.Pod != nil {
 		klog.Infof("[eviction manager] choose best suited pod: %s/%s", bestSuitedCandidate.Pod.Namespace, bestSuitedCandidate.Pod.Name)
-
 		forceEvictPods[string(bestSuitedCandidate.Pod.UID)] = bestSuitedCandidate
 	}
 
-	podsToEvict := make([]*pluginapi.EvictPod, 0, len(forceEvictPods))
-	for _, ePod := range forceEvictPods {
-		if ePod != nil && ePod.Pod != nil {
-			klog.Infof("[eviction manager] ready to evict %s/%s, reason: %s", ePod.Pod.Namespace, ePod.Pod.Name, ePod.Reason)
-
-			podsToEvict = append(podsToEvict, ePod)
+	rpList := rule.RuledEvictPodList{}
+	for _, rp := range forceEvictPods {
+		if rp != nil && rp.EvictPod.Pod != nil && m.killStrategy.CandidateValidate(rp) {
+			klog.Infof("[eviction manager] ready to evict %s/%s, reason: %s", rp.Pod.Namespace, rp.Pod.Name, rp.Reason)
+			rpList = append(rpList, rp)
 		} else {
 			klog.Warningf("[eviction manager] found nil pod in forceEvictPods")
 		}
 	}
 
-	err = m.podKiller.EvictPods(podsToEvict)
-
+	err = m.killWithRules(rpList)
 	if err != nil {
 		klog.Errorf("[eviction manager] got err: %v in EvictPods", err)
+		return
 	}
 
-	klog.Infof("[eviction manager] evict %d pods in evictionmanager", len(podsToEvict))
-	_ = m.emitter.StoreInt64(MetricsNameVictimPodCNT, int64(len(podsToEvict)), metrics.MetricTypeNameRaw,
+	klog.Infof("[eviction manager] evict %d pods in evictionmanager", len(rpList))
+	_ = m.emitter.StoreInt64(MetricsNameVictimPodCNT, int64(len(rpList)), metrics.MetricTypeNameRaw,
 		metrics.MetricTag{Key: "type", Val: "total"})
-
-	metricPodsToEvict(m.emitter, podsToEvict)
+	metricPodsToEvict(m.emitter, rpList)
 }
 
 // ValidatePlugin validates a plugin if the version is correct and the name has the format of an extended resource
@@ -400,7 +406,6 @@ func (m *EvictionManger) registerEndpoint(pluginName string, e endpointpkg.Endpo
 	defer m.endpointLock.Unlock()
 
 	old, ok := m.endpoints[pluginName]
-
 	if ok && !old.IsStopped() {
 		klog.Infof("[eviction manager] stop old endpoint: %s", pluginName)
 		old.Stop()
@@ -420,6 +425,31 @@ func (m *EvictionManger) isVersionCompatibleWithPlugin(versions []string) bool {
 		}
 	}
 	return false
+}
+
+// killWithRules send killing requests according to pre-defined rules
+// currently, we will use FIFO (with rate limiting) to
+func (m *EvictionManger) killWithRules(rpList rule.RuledEvictPodList) error {
+	// withdraw previous candidate killing pods by set override params as true
+	m.killQueue.Add(rpList, true)
+	return m.podKiller.EvictPods(m.killQueue.Pop())
+}
+
+// getEvictPodFromCandidates returns the most critical pod to be evicted
+func (m *EvictionManger) getEvictPodFromCandidates(candidateEvictPods map[string]*rule.RuledEvictPod) *rule.RuledEvictPod {
+	rpList := rule.RuledEvictPodList{}
+	for _, rp := range candidateEvictPods {
+		// only killing pods that pass candidate validation
+		if rp != nil && rp.Pod != nil && m.killStrategy.CandidateValidate(rp) {
+			rpList = append(rpList, rp)
+		}
+	}
+	if len(rpList) == 0 {
+		return nil
+	}
+
+	m.killStrategy.CandidateSort(rpList)
+	return rpList[0]
 }
 
 // thresholdsFirstObservedAt merges the input set of thresholds with the previous observation to determine when active set of thresholds were initially met.
@@ -499,8 +529,8 @@ func thresholdsMetGracePeriod(thresholdsObservedAt map[string]thresholdObservedA
 }
 
 // filterOutCandidatePodsWithForcePods returns candidateEvictPods that are not forced to be evicted
-func filterOutCandidatePodsWithForcePods(candidateEvictPods, forceEvictPods map[string]*pluginapi.EvictPod) map[string]*pluginapi.EvictPod {
-	ret := make(map[string]*pluginapi.EvictPod)
+func filterOutCandidatePodsWithForcePods(candidateEvictPods, forceEvictPods map[string]*rule.RuledEvictPod) map[string]*rule.RuledEvictPod {
+	ret := make(map[string]*rule.RuledEvictPod)
 
 	for podUID, pod := range candidateEvictPods {
 		if forceEvictPods[podUID] != nil {
@@ -511,38 +541,6 @@ func filterOutCandidatePodsWithForcePods(candidateEvictPods, forceEvictPods map[
 	}
 
 	return ret
-}
-
-// getEvictPodFromCandidates returns the most critical pod to be evicted
-func getEvictPodFromCandidates(candidateEvictPods map[string]*pluginapi.EvictPod, isReclaimedPodFunc func(pod *v1.Pod) (bool, error)) *pluginapi.EvictPod {
-	pods := make([]*pluginapi.EvictPod, 0, len(candidateEvictPods))
-
-	for _, ePod := range candidateEvictPods {
-		if ePod != nil && ePod.Pod != nil {
-			pods = append(pods, ePod)
-		}
-	}
-
-	if len(pods) == 0 {
-		return nil
-	}
-
-	// todo: the method to choose the most suited pod from candidates should be refined later
-	// eg.
-	//  1. map candidate to plugin
-	//	2. rank plugin
-	//  3. customize ranking function for the plugin to rank pods
-	sort.Slice(pods, func(i, j int) bool {
-		reclaimedI, _ := isReclaimedPodFunc(pods[i].Pod)
-		reclaimedJ, _ := isReclaimedPodFunc(pods[j].Pod)
-		if reclaimedI && !reclaimedJ {
-			return true
-		} else {
-			return false
-		}
-	})
-
-	return pods[0]
 }
 
 func logConfirmedConditions(conditions map[string]*pluginapi.Condition) {
@@ -573,16 +571,16 @@ func logConfirmedThresholdMet(thresholds map[string]*pluginapi.ThresholdMetRespo
 	}
 }
 
-func metricPodsToEvict(emitter metrics.MetricEmitter, ePods []*pluginapi.EvictPod) {
+func metricPodsToEvict(emitter metrics.MetricEmitter, rpList rule.RuledEvictPodList) {
 	if emitter == nil {
 		klog.Errorf("[eviction manager] metricPodsToEvict got nil emitter")
 		return
 	}
 
-	for _, ePod := range ePods {
-		if ePod != nil && ePod.EvictionPluginName != "" {
+	for _, rp := range rpList {
+		if rp != nil && rp.EvictionPluginName != "" {
 			_ = emitter.StoreInt64(MetricsNameVictimPodCNT, 1, metrics.MetricTypeNameRaw,
-				metrics.MetricTag{Key: "name", Val: ePod.EvictionPluginName},
+				metrics.MetricTag{Key: "name", Val: rp.EvictionPluginName},
 				metrics.MetricTag{Key: "type", Val: "plugin"})
 		}
 	}

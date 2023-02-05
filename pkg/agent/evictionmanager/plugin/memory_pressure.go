@@ -507,7 +507,7 @@ func (m *MemoryPressureEvictionPlugin) selectPodsToEvict(activePods []*v1.Pod, t
 	action int, rankingMetrics []string, podToEvictMap map[string]*v1.Pod) {
 	filteredPods := m.filterPods(activePods, action)
 	if filteredPods != nil {
-		native.NewMultiSorter(m.getEvictionCmpFuncs(rankingMetrics, numaID)...).Sort(filteredPods)
+		general.NewMultiSorter(m.getEvictionCmpFuncs(rankingMetrics, numaID)...).Sort(native.NewPodSourceImpList(filteredPods))
 		for i := 0; uint64(i) < general.MinUInt64(topN, uint64(len(filteredPods))); i++ {
 			podToEvictMap[string(filteredPods[i].UID)] = filteredPods[i]
 		}
@@ -526,12 +526,13 @@ func (m *MemoryPressureEvictionPlugin) filterPods(pods []*v1.Pod, action int) []
 }
 
 // getEvictionCmpFuncs returns a comparison function list to judge the eviction order of different pods
-func (m *MemoryPressureEvictionPlugin) getEvictionCmpFuncs(rankingMetrics []string, numaID int) []native.CmpFunc {
-	cmpFuncs := make([]native.CmpFunc, 0, len(rankingMetrics))
+func (m *MemoryPressureEvictionPlugin) getEvictionCmpFuncs(rankingMetrics []string, numaID int) []general.CmpFunc {
+	cmpFuncs := make([]general.CmpFunc, 0, len(rankingMetrics))
 
 	for _, metric := range rankingMetrics {
 		currentMetric := metric
-		cmpFuncs = append(cmpFuncs, func(p1, p2 *v1.Pod) int {
+		cmpFuncs = append(cmpFuncs, func(s1, s2 interface{}) int {
+			p1, p2 := s1.(*v1.Pod), s2.(*v1.Pod)
 			switch currentMetric {
 			case evictionconfig.FakeMetricQoSLevel:
 				isReclaimedPod1, err1 := m.reclaimedPodFilter(p1)
@@ -546,14 +547,14 @@ func (m *MemoryPressureEvictionPlugin) getEvictionCmpFuncs(rankingMetrics []stri
 
 				if err1 != nil || err2 != nil {
 					// prioritize evicting the pod for which no error is returned
-					return native.CmpError(err1, err2)
+					return general.CmpError(err1, err2)
 				}
 
 				// prioritize evicting the pod whose QoS level is reclaimed_cores
-				return native.CmpBool(isReclaimedPod1, isReclaimedPod2)
+				return general.CmpBool(isReclaimedPod1, isReclaimedPod2)
 			case evictionconfig.FakeMetricPriority:
 				// prioritize evicting the pod whose priority is lower
-				return native.ReverseCmpFunc(native.PodPriorityCmpFunc)(p1, p2)
+				return general.ReverseCmpFunc(native.PodPriorityCmpFunc)(p1, p2)
 			default:
 				p1Metric, p1Found := m.getPodMetric(p1, currentMetric, numaID)
 				p2Metric, p2Found := m.getPodMetric(p2, currentMetric, numaID)
@@ -563,11 +564,11 @@ func (m *MemoryPressureEvictionPlugin) getEvictionCmpFuncs(rankingMetrics []stri
 							metricsTagKeyNumaID: strconv.Itoa(numaID),
 						})...)
 					// prioritize evicting the pod for which no stats were found
-					return native.CmpBool(!p1Found, !p2Found)
+					return general.CmpBool(!p1Found, !p2Found)
 				}
 
 				// prioritize evicting the pod whose metric value is greater
-				return native.CmpFloat64(p1Metric, p2Metric)
+				return general.CmpFloat64(p1Metric, p2Metric)
 			}
 		})
 	}

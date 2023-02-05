@@ -27,6 +27,7 @@ import (
 
 	"github.com/kubewharf/katalyst-api/pkg/protocol/evictionplugin/v1alpha1"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
+	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/native"
 	"github.com/kubewharf/katalyst-core/pkg/util/qos"
 )
@@ -54,10 +55,10 @@ func (p *cpuPressureEvictionPlugin) getEvictOverSuppressionTolerancePods(activeP
 	}
 
 	// prioritize evicting the pod whose cpu request is larger and priority is lower
-	native.NewMultiSorter(
-		native.ReverseCmpFunc(native.PodCPURequestCmpFunc),
-		native.ReverseCmpFunc(native.PodPriorityCmpFunc),
-	).Sort(filteredPods)
+	general.NewMultiSorter(
+		general.ReverseCmpFunc(native.PodCPURequestCmpFunc),
+		general.ReverseCmpFunc(native.PodPriorityCmpFunc),
+	).Sort(native.NewPodSourceImpList(filteredPods))
 
 	// sum all pod cpu request
 	totalCPURequest := resource.Quantity{}

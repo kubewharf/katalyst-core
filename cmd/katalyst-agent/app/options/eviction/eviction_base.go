@@ -39,6 +39,9 @@ type GenericEvictionOptions struct {
 	// those two variables are used to filter out eviction-free pods
 	EvictionSkippedAnnotationKeys []string
 	EvictionSkippedLabelKeys      []string
+
+	// EvictionBurst limit the burst eviction counts
+	EvictionBurst int
 }
 
 // NewGenericEvictionOptions creates a new Options with a default config.
@@ -49,6 +52,7 @@ func NewGenericEvictionOptions() *GenericEvictionOptions {
 		EvictionManagerSyncPeriod:     5 * time.Second,
 		EvictionSkippedAnnotationKeys: []string{},
 		EvictionSkippedLabelKeys:      []string{},
+		EvictionBurst:                 3,
 	}
 }
 
@@ -60,15 +64,19 @@ func (o *GenericEvictionOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 		"A list of eviction plugins to enable. '*' enables all on-by-default eviction plugins, 'foo' enables the eviction plugin "+
 		"named 'foo', '-foo' disables the eviction plugin named 'foo'"))
 
-	fs.DurationVar(&o.ConditionTransitionPeriod, "eviction-condition-transition-period", o.ConditionTransitionPeriod, "duration the eviction manager has to wait before transitioning out of a condition")
+	fs.DurationVar(&o.ConditionTransitionPeriod, "eviction-condition-transition-period", o.ConditionTransitionPeriod,
+		"duration the eviction manager has to wait before transitioning out of a condition")
 
-	fs.DurationVar(&o.EvictionManagerSyncPeriod, "eviction-manager-sync-period", o.EvictionManagerSyncPeriod, "interval duration that eviction manager fetches information from registered plugins")
+	fs.DurationVar(&o.EvictionManagerSyncPeriod, "eviction-manager-sync-period", o.EvictionManagerSyncPeriod,
+		"interval duration that eviction manager fetches information from registered plugins")
 
 	fs.StringSliceVar(&o.EvictionSkippedAnnotationKeys, "eviction-skipped-annotation", o.EvictionSkippedAnnotationKeys,
-		fmt.Sprintf("A list of annotations to indentify a bunch of pods that should be filtered out during eviction"))
-
+		"A list of annotations to identify a bunch of pods that should be filtered out during eviction")
 	fs.StringSliceVar(&o.EvictionSkippedLabelKeys, "eviction-skipped-labels", o.EvictionSkippedLabelKeys,
-		fmt.Sprintf("A list of labels to indentify a bunch of pods that should be filtered out during eviction"))
+		"A list of labels to identify a bunch of pods that should be filtered out during eviction")
+
+	fs.IntVar(&o.EvictionBurst, "eviction-burst", o.EvictionBurst,
+		"The burst amount of pods to be evicted by edition manager")
 }
 
 // ApplyTo fills up config with options
@@ -78,6 +86,7 @@ func (o *GenericEvictionOptions) ApplyTo(c *evictionconfig.GenericEvictionConfig
 	c.EvictionManagerSyncPeriod = o.EvictionManagerSyncPeriod
 	c.EvictionSkippedAnnotationKeys.Insert(o.EvictionSkippedAnnotationKeys...)
 	c.EvictionSkippedLabelKeys.Insert(o.EvictionSkippedLabelKeys...)
+	c.EvictionBurst = o.EvictionBurst
 	return nil
 }
 

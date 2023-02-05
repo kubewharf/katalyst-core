@@ -35,6 +35,14 @@ func Max(a, b int) int {
 	}
 }
 
+func Min(a, b int) int {
+	if a >= b {
+		return b
+	} else {
+		return a
+	}
+}
+
 func MaxUInt64(a, b uint64) uint64 {
 	if a >= b {
 		return a

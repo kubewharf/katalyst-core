@@ -1,3 +1,19 @@
+/*
+Copyright 2022 The Katalyst Authors.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
 package vpa
 
 import (
@@ -79,7 +95,7 @@ func (vs *vpaStatusManager) updateVPAStatus() {
 			if _, err := vs.vpaUpdater.UpdateVPAStatus(context.TODO(), vpa, metav1.UpdateOptions{}); err != nil {
 				klog.Errorf("failed to update vpa for %s: %v", vpa.Name, err)
 			}
-			klog.Infof("successfully updated vpa status %s to %+v", vpa.Name, vpa.Status)
+			klog.V(3).Infof("successfully updated vpa status %s to %+v", vpa.Name, vpa.Status)
 		case <-vs.ctx.Done():
 			klog.Infoln("stop vpa statusQueue worker.")
 			return
@@ -129,12 +145,13 @@ func (vs *vpaStatusManager) getEventStatus(key string) *apis.KatalystVerticalPod
 		return nil
 	}
 
-	// skip a write if we wouldn't need to update
+	// skip to write if we wouldn't need to update
 	if apiequality.Semantic.DeepEqual(vpa.Status, event.status) {
 		klog.Infof("vpa %s/%s uid changed from %v to %v", event.namespace, event.name, event.uid, vpa.UID)
 		return nil
 	}
 
-	vpa.Status = *event.status
-	return vpa
+	vpaCopy := vpa.DeepCopy()
+	vpaCopy.Status = *event.status
+	return vpaCopy
 }

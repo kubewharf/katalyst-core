@@ -36,6 +36,7 @@ import (
 	"k8s.io/klog/v2"
 
 	pluginapi "github.com/kubewharf/katalyst-api/pkg/protocol/evictionplugin/v1alpha1"
+	"github.com/kubewharf/katalyst-core/pkg/agent/evictionmanager/rule"
 	"github.com/kubewharf/katalyst-core/pkg/consts"
 )
 
@@ -48,19 +49,19 @@ type PodKiller interface {
 	Start(ctx context.Context)
 
 	// EvictPods send on-killing pods to pod killer.
-	EvictPods(ePod []*pluginapi.EvictPod) error
+	EvictPods(rpList rule.RuledEvictPodList) error
 
 	// EvictPod a pod with the specified grace period.
-	EvictPod(ePod *pluginapi.EvictPod) error
+	EvictPod(rp *rule.RuledEvictPod) error
 }
 
 // DummyPodKiller is a stub implementation for Killer interface.
 type DummyPodKiller struct{}
 
-func (d DummyPodKiller) Name() string                          { return "dummy-pod-killer" }
-func (d DummyPodKiller) Start(_ context.Context)               {}
-func (d DummyPodKiller) EvictPods([]*pluginapi.EvictPod) error { return nil }
-func (d DummyPodKiller) EvictPod(*pluginapi.EvictPod) error    { return nil }
+func (d DummyPodKiller) Name() string                           { return "dummy-pod-killer" }
+func (d DummyPodKiller) Start(_ context.Context)                {}
+func (d DummyPodKiller) EvictPods(rule.RuledEvictPodList) error { return nil }
+func (d DummyPodKiller) EvictPod(*rule.RuledEvictPod) error     { return nil }
 
 var _ PodKiller = DummyPodKiller{}
 
@@ -84,32 +85,31 @@ func (s *SynchronizedPodKiller) Start(_ context.Context) {
 	defer klog.Infof("[synchronized] pod-killer started")
 }
 
-func (s *SynchronizedPodKiller) EvictPod(ePod *pluginapi.EvictPod) error {
-	if ePod == nil || ePod.Pod == nil {
+func (s *SynchronizedPodKiller) EvictPod(rp *rule.RuledEvictPod) error {
+	if rp == nil || rp.Pod == nil {
 		return fmt.Errorf("EvictPod got nil pod")
 	}
 
-	gracePeriod, err := getGracefulDeletionPeriod(ePod.Pod, ePod.DeletionOptions)
+	gracePeriod, err := getGracefulDeletionPeriod(rp.Pod, rp.DeletionOptions)
 	if err != nil {
-		return fmt.Errorf("getGracefulDeletionPeriod for pod: %s/%s failed with error: %v", ePod.Pod.Namespace, ePod.Pod.Name, err)
+		return fmt.Errorf("getGracefulDeletionPeriod for pod: %s/%s failed with error: %v", rp.Pod.Namespace, rp.Pod.Name, err)
 	}
 
-	err = s.killer.Evict(context.Background(), ePod.Pod, gracePeriod, ePod.Reason)
+	err = s.killer.Evict(context.Background(), rp.Pod, gracePeriod, rp.Reason)
 	if err != nil {
-		return fmt.Errorf("evict pod: %s/%s failed with error: %v", ePod.Pod.Namespace, ePod.Pod.Name, err)
+		return fmt.Errorf("evict pod: %s/%s failed with error: %v", rp.Pod.Namespace, rp.Pod.Name, err)
 	}
 
 	return nil
 }
 
-func (s *SynchronizedPodKiller) EvictPods(ePods []*pluginapi.EvictPod) error {
+func (s *SynchronizedPodKiller) EvictPods(rpList rule.RuledEvictPodList) error {
 	var errList []error
 	var mtx sync.Mutex
 
-	klog.Infof("[synchronized] pod-killer evict %d totally", len(ePods))
-
+	klog.Infof("[synchronized] pod-killer evict %d totally", len(rpList))
 	syncNodeUtilizationAndAdjust := func(i int) {
-		err := s.EvictPod(ePods[i])
+		err := s.EvictPod(rpList[i])
 
 		mtx.Lock()
 		if err != nil {
@@ -118,10 +118,9 @@ func (s *SynchronizedPodKiller) EvictPods(ePods []*pluginapi.EvictPod) error {
 		mtx.Unlock()
 
 	}
-	workqueue.ParallelizeUntil(context.Background(), 3, len(ePods), syncNodeUtilizationAndAdjust)
+	workqueue.ParallelizeUntil(context.Background(), 3, len(rpList), syncNodeUtilizationAndAdjust)
 
-	klog.Infof("[synchronized] successfully evict %d totally", len(ePods)-len(errList))
-
+	klog.Infof("[synchronized] successfully evict %d totally", len(rpList)-len(errList))
 	return errors.NewAggregate(errList)
 }
 
@@ -148,10 +147,10 @@ type evictPodInfo struct {
 	Reason string
 }
 
-func getEvictPodInfo(ePod *pluginapi.EvictPod) *evictPodInfo {
+func getEvictPodInfo(rp *rule.RuledEvictPod) *evictPodInfo {
 	return &evictPodInfo{
-		Pod:    ePod.Pod.DeepCopy(),
-		Reason: ePod.Reason,
+		Pod:    rp.Pod.DeepCopy(),
+		Reason: rp.Reason,
 	}
 }
 
@@ -176,34 +175,31 @@ func (a *AsynchronizedPodKiller) Start(ctx context.Context) {
 	}
 }
 
-func (a *AsynchronizedPodKiller) EvictPods(ePods []*pluginapi.EvictPod) error {
-	klog.Infof("[asynchronous] pod-killer evict %d totally", len(ePods))
+func (a *AsynchronizedPodKiller) EvictPods(rpList rule.RuledEvictPodList) error {
+	klog.Infof("[asynchronous] pod-killer evict %d totally", len(rpList))
 
-	errList := make([]error, 0, len(ePods))
-	for _, ePod := range ePods {
-		err := a.EvictPod(ePod)
-
+	errList := make([]error, 0, len(rpList))
+	for _, rp := range rpList {
+		err := a.EvictPod(rp)
 		if err != nil {
 			errList = append(errList, err)
 		}
 	}
 
-	klog.Infof("[asynchronous] successfully add %d pods to eviction queue", len(ePods)-len(errList))
-
+	klog.Infof("[asynchronous] successfully add %d pods to eviction queue", len(rpList)-len(errList))
 	return errors.NewAggregate(errList)
 }
 
-func (a *AsynchronizedPodKiller) EvictPod(ePod *pluginapi.EvictPod) error {
-	if ePod == nil || ePod.Pod == nil {
-		return fmt.Errorf("EvictPod got nil pod")
+func (a *AsynchronizedPodKiller) EvictPod(rp *rule.RuledEvictPod) error {
+	if rp == nil || rp.Pod == nil {
+		return fmt.Errorf("evictPod got nil pod")
 	}
 
-	gracePeriod, err := getGracefulDeletionPeriod(ePod.Pod, ePod.DeletionOptions)
+	gracePeriod, err := getGracefulDeletionPeriod(rp.Pod, rp.DeletionOptions)
 	if err != nil {
-		return fmt.Errorf("getGracefulDeletionPeriod for pod: %s/%s failed with error: %v", ePod.Pod.Namespace, ePod.Pod.Name, err)
+		return fmt.Errorf("getGracefulDeletionPeriod for pod: %s/%s failed with error: %v", rp.Pod.Namespace, rp.Pod.Name, err)
 	}
-
-	podKey := podKeyFunc(ePod.Pod.Namespace, ePod.Pod.Name)
+	podKey := podKeyFunc(rp.Pod.Namespace, rp.Pod.Name)
 
 	a.Lock()
 	if a.processingPods[podKey] != nil {
@@ -216,7 +212,7 @@ func (a *AsynchronizedPodKiller) EvictPod(ePod *pluginapi.EvictPod) error {
 
 		if gracePeriod >= minOne {
 			a.Unlock()
-			klog.Infof("[asynchronous] pod: %s/%s is being processed with smaller grace period, skip it", ePod.Pod.Namespace, ePod.Pod.Name)
+			klog.Infof("[asynchronous] pod: %s/%s is being processed with smaller grace period, skip it", rp.Pod.Namespace, rp.Pod.Name)
 			return nil
 		}
 	}
@@ -225,7 +221,7 @@ func (a *AsynchronizedPodKiller) EvictPod(ePod *pluginapi.EvictPod) error {
 		a.processingPods[podKey] = make(map[int64]*evictPodInfo)
 	}
 
-	a.processingPods[podKey][gracePeriod] = getEvictPodInfo(ePod)
+	a.processingPods[podKey][gracePeriod] = getEvictPodInfo(rp)
 	a.Unlock()
 
 	a.queue.AddRateLimited(evictionKeyFunc(podKey, gracePeriod))
@@ -299,7 +295,7 @@ func (a *AsynchronizedPodKiller) processNextItem() bool {
 }
 
 func (a *AsynchronizedPodKiller) sync(key string) (retError error, requeue bool) {
-	namespace, name, gracePeriodSeconds, err := splitEvicitonKey(key)
+	namespace, name, gracePeriodSeconds, err := splitEvictionKey(key)
 
 	if err != nil {
 		return fmt.Errorf("[asynchronous] invalid resource key: %s got error: %v", key, err), false
@@ -357,7 +353,7 @@ func evictionKeyFunc(podKey string, gracePeriodSeconds int64) string {
 	return strings.Join([]string{podKey, fmt.Sprintf("%d", gracePeriodSeconds)}, consts.KeySeparator)
 }
 
-func splitEvicitonKey(key string) (string, string, int64, error) {
+func splitEvictionKey(key string) (string, string, int64, error) {
 	parts := strings.Split(key, consts.KeySeparator)
 
 	if len(parts) != 3 {

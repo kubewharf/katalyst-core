@@ -34,6 +34,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
+	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 	"github.com/kubewharf/katalyst-core/pkg/util/native"
 )
@@ -620,8 +621,7 @@ func TestMultiSorter(t *testing.T) {
 	for i, pod := range pods {
 		fakeMetricsFetcher.SetContainerMetric(string(pod.UID), pod.Spec.Containers[0].Name, consts.MetricMemUsageContainer, podUsageSystem[i])
 	}
-
-	native.NewMultiSorter(plugin.getEvictionCmpFuncs(plugin.systemEvictionRankingMetrics, nonExistNumaID)...).Sort(pods)
+	general.NewMultiSorter(plugin.getEvictionCmpFuncs(plugin.systemEvictionRankingMetrics, nonExistNumaID)...).Sort(native.NewPodSourceImpList(pods))
 
 	wantPodNameList := []string{
 		"pod-2",

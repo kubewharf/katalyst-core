@@ -462,7 +462,6 @@ func (vc *VPAController) syncVPA(key string) error {
 func (vc *VPAController) syncPerformance(namespace, name string, times map[string]time.Time, tags []metrics.MetricTag) {
 	now := time.Now()
 	timeSets := []string{
-		metricNameVAPControlVPASync,
 		metricNameVAPControlVPASyncCosts,
 		metricNameVAPControlGetWorkloadCosts,
 		metricNameVAPControlVPAPatchCosts,
@@ -473,7 +472,7 @@ func (vc *VPAController) syncPerformance(namespace, name string, times map[strin
 	for _, timeSet := range timeSets {
 		if begin, ok := times[timeSet]; ok {
 			costs := now.Sub(begin).Microseconds()
-			klog.Infof("[vpa] [%v/%v] %v costs %v us", namespace, name, timeSet, costs)
+			klog.V(3).Infof("[vpa] [%v/%v] %v costs %v us", namespace, name, timeSet, costs)
 			_ = vc.metricsEmitter.StoreInt64(timeSet, costs, metrics.MetricTypeNameRaw, tags...)
 		}
 	}
