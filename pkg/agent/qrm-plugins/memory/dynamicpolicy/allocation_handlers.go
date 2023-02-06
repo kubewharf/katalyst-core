@@ -47,7 +47,10 @@ func (p *DynamicPolicy) reclaimedCoresAllocationHandler(ctx context.Context,
 		return nil, fmt.Errorf("reclaimedCoresAllocationHandler got nil request")
 	}
 
-	return p.allocateNUMAsWithoutNUMABindingPods(ctx, req, apiconsts.PodAnnotationQoSLevelReclaimedCores)
+	// [TODO]: currently we set all numas as cpuset.mems for reclaimed_cores containers,
+	// we will support adjusting cpuset.mems for reclaimed_cores dynamically according to memory advisor.
+	// [Notice]: before supporting dynamic adjustment, not to hybrid reclaimed_cores with dedicated_cores numa_binding containers.
+	return p.allocateAllNUMAs(ctx, req, apiconsts.PodAnnotationQoSLevelReclaimedCores)
 }
 
 func (p *DynamicPolicy) dedicatedCoresAllocationHandler(ctx context.Context,
@@ -351,6 +354,9 @@ func (p *DynamicPolicy) adjustAllocationEntries() error {
 				allocationInfo.Annotations[apiconsts.PodAnnotationMemoryEnhancementNumaBinding] == apiconsts.PodAnnotationMemoryEnhancementNumaBindingEnable {
 				// not to adjust NUMA binding containers
 				continue
+			} else if allocationInfo.QoSLevel == apiconsts.PodAnnotationQoSLevelReclaimedCores {
+				// [TODO]: consider strategy here after supporting cpuset.mems dynamic adjustment
+				continue
 			}
 
 			// todo: currently we only set cpuset.mems to NUMAs without NUMA binding for pods isn't NUMA binding
@@ -530,4 +536,54 @@ func packMemoryResourceAllocationResponseByAllocationInfo(allocationInfo *state.
 		Labels:      general.DeepCopyMap(req.Labels),
 		Annotations: general.DeepCopyMap(req.Annotations),
 	}, nil
+}
+
+func (p *DynamicPolicy) allocateAllNUMAs(ctx context.Context, req *pluginapi.ResourceRequest, qosLevel string) (*pluginapi.ResourceAllocationResponse, error) {
+	if !pluginapi.SupportedKatalystQoSLevels.Has(qosLevel) {
+		return nil, fmt.Errorf("invalid qosLevel: %s", qosLevel)
+	}
+
+	allNUMAs := p.topology.CPUDetails.NUMANodes()
+
+	allocationInfo := p.state.GetAllocationInfo(v1.ResourceMemory, req.PodUid, req.ContainerName)
+	if allocationInfo != nil && !allocationInfo.NumaAllocationResult.Equals(allNUMAs) {
+		klog.Infof("[MemoryDynamicPolicy.allocateNUMAsWithoutNUMABindingPods] pod: %s/%s, container: %s change cpuset.mems from: %s to %s",
+			req.PodNamespace, req.PodName, req.ContainerName, allocationInfo.NumaAllocationResult.String(), allNUMAs.String())
+	}
+
+	allocationInfo = &state.AllocationInfo{
+		PodUid:               req.PodUid,
+		PodNamespace:         req.PodNamespace,
+		PodName:              req.PodName,
+		ContainerName:        req.ContainerName,
+		ContainerType:        req.ContainerType.String(),
+		ContainerIndex:       req.ContainerIndex,
+		PodRole:              req.PodRole,
+		PodType:              req.PodType,
+		NumaAllocationResult: allNUMAs.Clone(),
+		Labels:               general.DeepCopyMap(req.Labels),
+		Annotations:          general.DeepCopyMap(req.Annotations),
+		QoSLevel:             qosLevel,
+	}
+
+	p.state.SetAllocationInfo(v1.ResourceMemory, allocationInfo.PodUid, allocationInfo.ContainerName, allocationInfo)
+	podResourceEntries := p.state.GetPodResourceEntries()
+
+	resourcesMachineState, err := state.GenerateResourcesMachineStateFromPodEntries(p.state.GetMachineInfo(), podResourceEntries, p.state.GetReservedMemory())
+	if err != nil {
+		klog.Errorf("[MemoryDynamicPolicy.allocateAllNUMAs] pod: %s/%s, container: %s GenerateResourcesMachineStateFromPodEntries failed with error: %v",
+			req.PodNamespace, req.PodName, req.ContainerName, err)
+		return nil, fmt.Errorf("calculate machineState by updated pod entries failed with error: %v", err)
+	}
+
+	resp, err := packMemoryResourceAllocationResponseByAllocationInfo(allocationInfo, req)
+	if err != nil {
+		klog.Errorf("[MemoryDynamicPolicy.allocateAllNUMAs] pod: %s/%s, container: %s packMemoryResourceAllocationResponseByAllocationInfo failed with error: %v",
+			req.PodNamespace, req.PodName, req.ContainerName, err)
+		return nil, fmt.Errorf("packMemoryResourceAllocationResponseByAllocationInfo failed with error: %v", err)
+	}
+
+	p.state.SetMachineState(resourcesMachineState)
+
+	return resp, nil
 }

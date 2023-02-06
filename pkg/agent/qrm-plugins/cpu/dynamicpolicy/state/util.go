@@ -19,13 +19,17 @@ package state
 import (
 	"fmt"
 
+	"k8s.io/apimachinery/pkg/util/errors"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/klog/v2"
 
 	"github.com/kubewharf/katalyst-api/pkg/consts"
 	advisorapi "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/cpuadvisor"
+	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
+
+type ListAndWatchResponseValidator func(entries PodEntries, resp *advisorapi.ListAndWatchResponse) error
 
 const (
 	PoolNameShare     = "share"
@@ -51,6 +55,12 @@ var (
 )
 
 var GetContainerRequestedCores func(allocationInfo *AllocationInfo) int
+
+// [TODO]: valida all shared_cores and reclaimed_cores haven't numa results
+var listAndWatchResponseValidators = []ListAndWatchResponseValidator{
+	validateStaticPools,
+	validateDedicatedEntries,
+}
 
 // GetPoolsQuantityMapFromCPUAdvisorResp GetQuantityMap returns a map from cpu-set pool to cpu size;
 // this info is constructed by advisor response, and this response contain cpu-set pool
@@ -442,4 +452,256 @@ func UpdateOwnerPoolsForSharedCoresByCPUAdvisorResp(chkEntries PodEntries, resp 
 	}
 
 	return nil
+}
+
+func validateDedicatedEntries(entries PodEntries, resp *advisorapi.ListAndWatchResponse) error {
+	dedicatedAllocationInfos := FilterDedicatedAllocationInfos(entries)
+	dedicatedCalculationInfos := FilterDedicatedCalculationInfos(resp)
+
+	if len(dedicatedAllocationInfos) != len(dedicatedCalculationInfos) {
+		return fmt.Errorf("dedicatedAllocationInfos length: %d and dedicatedCalculationInfos length: %d mismatch",
+			len(dedicatedAllocationInfos), len(dedicatedCalculationInfos))
+	}
+
+	for podUID, containerEntries := range dedicatedAllocationInfos {
+		for containerName, allocationInfo := range containerEntries {
+
+			calculationInfo := dedicatedCalculationInfos[podUID][containerName]
+
+			if calculationInfo == nil {
+				return fmt.Errorf("missing CalculationInfo for pod: %s container: %s", podUID, containerName)
+			}
+
+			if allocationInfo.Annotations[consts.PodAnnotationMemoryEnhancementNumaBinding] == consts.PodAnnotationMemoryEnhancementNumaBindingEnable {
+				numaCalculationQuantities, err := GetCalculationInfoNUMAQuantities(calculationInfo)
+
+				if err != nil {
+					return fmt.Errorf("GetCalculationInfoNUMAQuantities failed with error: %v, pod: %s container: %s",
+						err, podUID, containerName)
+				}
+
+				// currently we don't support strategy to adjust cpuset of dedicated_cores containers.
+				// for stability if the dedicated_cores container calculation result and allocation result,
+				// we will return error.
+
+				for numaId, cset := range allocationInfo.TopologyAwareAssignments {
+					if cset.Size() != numaCalculationQuantities[numaId] {
+						return fmt.Errorf("NUMA: %d calculation quantity: %d and allocation quantity: %d mismatch, pod: %s container: %s",
+							numaId, numaCalculationQuantities[numaId], cset.Size(), podUID, containerName)
+					}
+				}
+
+				for numaId, calQuantity := range numaCalculationQuantities {
+					if calQuantity != allocationInfo.TopologyAwareAssignments[numaId].Size() {
+						return fmt.Errorf("NUMA: %d calculation quantity: %d and allocation quantity: %d mismatch, pod: %s container: %s",
+							numaId, calQuantity, allocationInfo.TopologyAwareAssignments[numaId].Size(), podUID, containerName)
+					}
+				}
+			} else {
+				calculationQuantity, err := GetCalculationInfoTotalQuantity(calculationInfo)
+
+				if err != nil {
+					return fmt.Errorf("GetCalculationInfoTotalQuantity failed with error: %v, pod: %s container: %s",
+						err, podUID, containerName)
+				}
+
+				// currently we don't support strategy to adjust cpuset of dedicated_cores containers.
+				// for stability if the dedicated_cores container calculation result and allocation result,
+				// we will return error.
+				if calculationQuantity != allocationInfo.AllocationResult.Size() {
+					return fmt.Errorf("pod: %s container: %s calculation result: %d and allocation result: %s mismatch",
+						podUID, containerName, calculationQuantity, allocationInfo.AllocationResult.Size())
+				}
+			}
+		}
+	}
+
+	return nil
+}
+
+func validateStaticPools(entries PodEntries, resp *advisorapi.ListAndWatchResponse) error {
+	for _, poolName := range StaticPools.List() {
+
+		var nilStateEntry, nilRespEntry bool
+		if entries[poolName] == nil || entries[poolName][""] == nil {
+			nilStateEntry = true
+		}
+
+		if resp.Entries[poolName] == nil || resp.Entries[poolName].Entries[""] == nil {
+			nilRespEntry = true
+		}
+
+		if nilStateEntry != nilRespEntry {
+			return fmt.Errorf("pool: %s nilStateEntry: %v and nilRespEntry: %v mismatch",
+				poolName, nilStateEntry, nilStateEntry)
+		}
+
+		if nilStateEntry {
+			klog.Warningf("[validateStaticPools] got nil state entry for static pool: %s", poolName)
+			continue
+		}
+
+		allocationInfo := entries[poolName][""]
+		calculationInfo := resp.Entries[poolName].Entries[""]
+
+		if calculationInfo.OwnerPoolName != poolName {
+			return fmt.Errorf("pool: %s has invalid owner pool name: %s in cpu advisor resp",
+				poolName, calculationInfo.OwnerPoolName)
+		}
+
+		if len(calculationInfo.CalculationResultsByNumas) != 1 ||
+			calculationInfo.CalculationResultsByNumas[-1] == nil ||
+			len(calculationInfo.CalculationResultsByNumas[-1].Blocks) != 1 {
+			return fmt.Errorf("static pool: %s has invalid calculationInfo", poolName)
+		}
+
+		calculationQuantity, err := GetCalculationInfoTotalQuantity(calculationInfo)
+
+		if err != nil {
+			return fmt.Errorf("GetCalculationInfoTotalQuantity failed with error: %v, pool: %s",
+				err, poolName)
+		}
+
+		// currently we don't support strategy to adjust cpuset of static pools.
+		// for stability if the static pool calculation result and allocation result,
+		// we will return error.
+		if calculationQuantity != allocationInfo.AllocationResult.Size() {
+			return fmt.Errorf("static pool: %s calculation result: %d and allocation result: %s mismatch",
+				poolName, calculationQuantity, allocationInfo.AllocationResult.Size())
+		}
+	}
+
+	return nil
+}
+
+func ValidateCPUAdvisorResp(entries PodEntries, resp *advisorapi.ListAndWatchResponse) error {
+
+	if resp == nil {
+		return fmt.Errorf("got nil cpu advisor resp")
+	}
+
+	var errList []error
+
+	for _, validator := range listAndWatchResponseValidators {
+		errList = append(errList, validator(entries, resp))
+	}
+
+	return errors.NewAggregate(errList)
+}
+
+func FilterDedicatedCalculationInfos(resp *advisorapi.ListAndWatchResponse) map[string]map[string]*advisorapi.CalculationInfo {
+	dedicatedCalculationInfos := make(map[string]map[string]*advisorapi.CalculationInfo)
+
+	for entryName, entry := range resp.Entries {
+		for subEntryName, calculationInfo := range entry.Entries {
+			if calculationInfo != nil && calculationInfo.OwnerPoolName == PoolNameDedicated {
+
+				if dedicatedCalculationInfos[entryName] == nil {
+					dedicatedCalculationInfos[entryName] = make(map[string]*advisorapi.CalculationInfo)
+				}
+
+				dedicatedCalculationInfos[entryName][subEntryName] = calculationInfo
+			}
+		}
+	}
+
+	return dedicatedCalculationInfos
+}
+
+func FilterDedicatedAllocationInfos(entries PodEntries) PodEntries {
+	numaBindingEntries := make(PodEntries)
+
+	for podUID, containerEntries := range entries {
+		if containerEntries.IsPoolEntry() {
+			continue
+		}
+
+		for containerName, allocationInfo := range containerEntries {
+			if allocationInfo != nil &&
+				allocationInfo.QoSLevel == consts.PodAnnotationQoSLevelDedicatedCores {
+
+				if numaBindingEntries[podUID] == nil {
+					numaBindingEntries[podUID] = make(ContainerEntries)
+				}
+
+				numaBindingEntries[podUID][containerName] = allocationInfo.Clone()
+			}
+		}
+	}
+
+	return numaBindingEntries
+}
+
+func GetCalculationInfoNUMAQuantities(calculationInfo *advisorapi.CalculationInfo) (map[int]int, error) {
+	if calculationInfo == nil {
+		return nil, fmt.Errorf("got nil calculationInfo")
+	}
+
+	numaQuantities := make(map[int]int)
+	for numaId, numaResult := range calculationInfo.CalculationResultsByNumas {
+		if numaResult == nil {
+			klog.Warningf("[GetCalculationInfoTotalQuantity] got nil NUMA result")
+			continue
+		}
+
+		var quantityUInt64 uint64 = 0
+		for _, block := range numaResult.Blocks {
+			if block == nil {
+				klog.Warningf("[GetCalculationInfoTotalQuantity] got nil block")
+				continue
+			}
+
+			quantityUInt64 += block.Result
+		}
+
+		quantityInt, err := general.CovertUInt64ToInt(quantityUInt64)
+
+		if err != nil {
+			return nil, fmt.Errorf("converting quantity: %s to int failed with error: %v",
+				quantityUInt64, err)
+		}
+
+		numaIdInt, err := general.CovertInt64ToInt(numaId)
+
+		if err != nil {
+			return nil, fmt.Errorf("converting quantity: %s to int failed with error: %v",
+				numaId, err)
+		}
+
+		numaQuantities[numaIdInt] = quantityInt
+	}
+
+	return numaQuantities, nil
+}
+
+func GetCalculationInfoTotalQuantity(calculationInfo *advisorapi.CalculationInfo) (int, error) {
+	if calculationInfo == nil {
+		return 0, fmt.Errorf("got nil calculationInfo")
+	}
+
+	var quantityUInt64 uint64 = 0
+	for _, numaResult := range calculationInfo.CalculationResultsByNumas {
+		if numaResult == nil {
+			klog.Warningf("[GetCalculationInfoTotalQuantity] got nil NUMA result")
+			continue
+		}
+
+		for _, block := range numaResult.Blocks {
+			if block == nil {
+				klog.Warningf("[GetCalculationInfoTotalQuantity] got nil block")
+				continue
+			}
+
+			quantityUInt64 += block.Result
+		}
+	}
+
+	quantityInt, err := general.CovertUInt64ToInt(quantityUInt64)
+
+	if err != nil {
+		return 0, fmt.Errorf("converting quantity: %s to int failed with error: %v",
+			quantityUInt64, err)
+	}
+
+	return quantityInt, nil
 }

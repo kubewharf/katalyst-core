@@ -299,6 +299,7 @@ func (p *DynamicPolicy) dedicatedCoresWithNUMABindingAllocationHandler(ctx conte
 		ContainerName:                    req.ContainerName,
 		ContainerType:                    req.ContainerType.String(),
 		ContainerIndex:                   req.ContainerIndex,
+		RampUp:                           true,
 		PodRole:                          req.PodRole,
 		PodType:                          req.PodType,
 		OwnerPoolName:                    state.PoolNameDedicated,

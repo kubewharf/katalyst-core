@@ -247,3 +247,23 @@ func ParseMapWithPrefix(prefix, selector string) (map[string]string, error) {
 	}
 	return labelsMap, nil
 }
+
+func CovertInt64ToInt(numInt64 int64) (int, error) {
+	numInt := int(numInt64)
+
+	if int64(numInt) != numInt64 {
+		return 0, fmt.Errorf("convert numInt64: %d to numInt: %d failed", numInt64, numInt)
+	}
+
+	return numInt, nil
+}
+
+func CovertUInt64ToInt(numUInt64 uint64) (int, error) {
+	numInt := int(numUInt64)
+
+	if numInt < 0 || uint64(numInt) != numUInt64 {
+		return 0, fmt.Errorf("convert numUInt64: %d to numInt: %d failed", numUInt64, numInt)
+	}
+
+	return numInt, nil
+}

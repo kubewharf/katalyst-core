@@ -385,7 +385,8 @@ func (p *DynamicPolicy) GetResourcesAllocation(ctx context.Context,
 				allocationInfo.InitTimestamp = time.Now().Format(util.QRMTimeFormat)
 				p.state.SetAllocationInfo(podUID, containerName, allocationInfo)
 			} else if allocationInfo.RampUp && time.Now().After(initTs.Add(transitionPeriod)) {
-				klog.Infof("[CPUDynamicPolicy.GetResourcesAllocation] pod: %s/%s, container: %s ramp up finished", allocationInfo.PodNamespace, allocationInfo.PodName, allocationInfo.ContainerName)
+				klog.Infof("[CPUDynamicPolicy.GetResourcesAllocation] pod: %s/%s, container: %s ramp up finished",
+					allocationInfo.PodNamespace, allocationInfo.PodName, allocationInfo.ContainerName)
 				allocationInfo.RampUp = false
 				p.state.SetAllocationInfo(podUID, containerName, allocationInfo)
 
@@ -990,7 +991,7 @@ func (p *DynamicPolicy) initReclaimPool() error {
 		}
 
 		// for residual pools, we must make them exist even if cause overlap
-		allAvailableCPUs := p.machineInfo.CPUDetails.CPUs().Difference(p.reservedCPUs).Clone()
+		allAvailableCPUs := p.machineInfo.CPUDetails.CPUs().Difference(p.reservedCPUs)
 		if reclaimedCPUSet.IsEmpty() {
 			reclaimedCPUSet, allAvailableCPUs, err = calculator.TakeByNUMABalance(p.machineInfo, allAvailableCPUs, reservedReclaimedCPUsSize)
 			if err != nil {
@@ -1099,7 +1100,7 @@ func (p *DynamicPolicy) generatePoolsAndIsolation(poolsQuantityMap map[string]in
 	// clear entry with zero quantity
 	for poolName, quantity := range poolsQuantityMap {
 		if quantity == 0 {
-			klog.Warningf("[CPUDynamicPolicy.applyPoolsAndIsolatedInfo] pool: %s with 0 quantity, skip generateit", poolName)
+			klog.Warningf("[CPUDynamicPolicy.generatePoolsAndIsolation] pool: %s with 0 quantity, skip generateit", poolName)
 			delete(poolsQuantityMap, poolName)
 		}
 	}
@@ -1107,12 +1108,12 @@ func (p *DynamicPolicy) generatePoolsAndIsolation(poolsQuantityMap map[string]in
 	for podUID, containerEntries := range isolatedQuantityMap {
 		for containerName, quantity := range containerEntries {
 			if quantity == 0 {
-				klog.Warningf("[CPUDynamicPolicy.applyPoolsAndIsolatedInfo] isolated pod: %s, container: %swith 0 quantity, skip generate it", podUID, containerName)
+				klog.Warningf("[CPUDynamicPolicy.generatePoolsAndIsolation] isolated pod: %s, container: %swith 0 quantity, skip generate it", podUID, containerName)
 				delete(containerEntries, containerName)
 			}
 		}
 		if len(containerEntries) == 0 {
-			klog.Warningf("[CPUDynamicPolicy.applyPoolsAndIsolatedInfo] isolated pod: %s all container entries skipped", podUID)
+			klog.Warningf("[CPUDynamicPolicy.generatePoolsAndIsolation] isolated pod: %s all container entries skipped", podUID)
 			delete(isolatedQuantityMap, podUID)
 		}
 	}
@@ -1350,6 +1351,60 @@ func (p *DynamicPolicy) adjustAllocationEntries() error {
 	return nil
 }
 
+// relclaimOverlapNUMABinding uses reclaim pool cpuset result in empty NUMA
+// union intersection of current reclaim pool and non-ramp-up dedicated_cores numa_binding containers
+func (p *DynamicPolicy) relclaimOverlapNUMABinding(poolsCPUSet map[string]machine.CPUSet, entries state.PodEntries) error {
+	p.configLock.RLock()
+	enableReclaim := p.enableReclaim
+	p.configLock.RUnlock()
+
+	// relclaimOverlapNUMABinding only works with cpu advisor and reclaim enabled
+	if !(p.enableCPUSysAdvisor && enableReclaim) {
+		return nil
+	}
+
+	if entries[state.PoolNameReclaim][""] == nil || entries[state.PoolNameReclaim][""].AllocationResult.IsEmpty() {
+		return fmt.Errorf("reclaim pool misses in current entries")
+	}
+
+	curReclaimCPUSet := entries[state.PoolNameReclaim][""].AllocationResult.Clone()
+
+	klog.Infof("[CPUDynamicPolicy.relclaimOverlapNUMABinding] curReclaimCPUSet: %s", curReclaimCPUSet.String())
+
+	nonOverlapReclaimCPUSet := poolsCPUSet[state.PoolNameReclaim].Clone()
+
+	for _, containerEntries := range entries {
+		if containerEntries.IsPoolEntry() {
+			continue
+		}
+
+		for _, allocationInfo := range containerEntries {
+
+			if !(allocationInfo != nil &&
+				allocationInfo.QoSLevel == consts.PodAnnotationQoSLevelDedicatedCores &&
+				allocationInfo.Annotations[consts.PodAnnotationMemoryEnhancementNumaBinding] == consts.PodAnnotationMemoryEnhancementNumaBindingEnable &&
+				allocationInfo.ContainerType == pluginapi.ContainerType_MAIN.String()) {
+				continue
+			} else if allocationInfo.RampUp {
+				klog.Infof("[CPUDynamicPolicy.relclaimOverlapNUMABinding] dedicated numa_binding pod: %s/%s container: %s is in ramp up, not to overlap reclaim pool with it",
+					allocationInfo.PodNamespace, allocationInfo.PodName, allocationInfo.ContainerName)
+				continue
+			}
+
+			poolsCPUSet[state.PoolNameReclaim] = poolsCPUSet[state.PoolNameReclaim].Union(curReclaimCPUSet.Intersection(allocationInfo.AllocationResult))
+		}
+	}
+
+	if poolsCPUSet[state.PoolNameReclaim].IsEmpty() {
+		return fmt.Errorf("reclaim pool is empty after overlapping with dedicated_cores numa_binding containers")
+	}
+
+	klog.Infof("[CPUDynamicPolicy.relclaimOverlapNUMABinding] nonOverlapReclaimCPUSet: %s, finalReclaimCPUSet: %s",
+		nonOverlapReclaimCPUSet.String(), poolsCPUSet[state.PoolNameReclaim].String())
+
+	return nil
+}
+
 // adjustPoolsAndIsolatedEntries calculates pools and isolated cpusets according to expectant quantities,
 // and then apply them to local state. this function is used as the fundamental
 // helper function.
@@ -1360,6 +1415,12 @@ func (p *DynamicPolicy) adjustPoolsAndIsolatedEntries(poolsQuantityMap map[strin
 
 	if err != nil {
 		return fmt.Errorf("generatePoolsAndIsolation failed with error: %v", err)
+	}
+
+	err = p.relclaimOverlapNUMABinding(poolsCPUSet, entries)
+
+	if err != nil {
+		return fmt.Errorf("relclaimOverlapNUMABinding failed with error: %v", err)
 	}
 
 	err = p.applyPoolsAndIsolatedInfo(poolsCPUSet, isolatedCPUSet, entries, machineState)
@@ -1658,6 +1719,158 @@ func (p *DynamicPolicy) lwCPUAdvisorServer(stopCh <-chan struct{}) error {
 	}
 }
 
+func validateBlocksByTopology(numaToBlocks map[int]map[string]*advisorapi.Block, topology *machine.CPUTopology) error {
+	if topology == nil {
+		return fmt.Errorf("validateBlocksByTopology got nil topology")
+	}
+
+	totalQuantity := 0
+
+	numas := topology.CPUDetails.NUMANodes()
+
+	for numaId, blocksMap := range numaToBlocks {
+		if numaId != -1 && !numas.Contains(numaId) {
+			return fmt.Errorf("NUMA: %d referred by blocks isn't in topology", numaId)
+		}
+
+		numaQuantity := 0
+
+		for blockId, block := range blocksMap {
+			if block == nil {
+				klog.Warningf("[validateBlocksByTopology] got nil block: %d", blockId)
+				continue
+			}
+
+			quantityInt, err := general.CovertUInt64ToInt(block.Result)
+
+			if err != nil {
+				return fmt.Errorf("CovertUInt64ToInt failed with error: %v, blockId: %s, numaId: %d",
+					err, blockId, numaId)
+			}
+
+			numaQuantity += quantityInt
+		}
+
+		if numaId != -1 {
+			numaCapacity := topology.CPUDetails.CPUsInNUMANodes(numaId).Size()
+
+			if numaQuantity > numaCapacity {
+				return fmt.Errorf("numaQuantity: %d exceeds NUMA capacity: %d in NUMA: %d",
+					numaQuantity, numaCapacity, numaId)
+			}
+		}
+
+		totalQuantity += numaQuantity
+	}
+
+	if totalQuantity > topology.NumCPUs {
+		return fmt.Errorf("numaQuantity: %d exceeds total capacity: %d",
+			totalQuantity, topology.NumCPUs)
+	}
+
+	return nil
+}
+
+func allocateByBlocks(resp *advisorapi.ListAndWatchResponse,
+	entries state.PodEntries,
+	numaToBlocks map[int]map[string]*advisorapi.Block,
+	topology *machine.CPUTopology,
+	machineInfo *machine.KatalystMachineInfo) (map[string]machine.CPUSet, error) {
+
+	if machineInfo == nil {
+		return nil, fmt.Errorf("got nil machineInfo")
+	} else if topology == nil {
+		return nil, fmt.Errorf("got nil topology")
+	} else if resp == nil {
+		return nil, fmt.Errorf("got nil resp")
+	}
+
+	availableCPUs := topology.CPUDetails.CPUs()
+	blockToCPUSet := make(map[string]machine.CPUSet)
+	for _, poolName := range state.StaticPools.List() {
+		allocationInfo := entries[poolName][""]
+
+		if allocationInfo == nil {
+			continue
+		}
+
+		// validation already guarantees that
+		// calculationInfo of static pool only has one block isn't topology aware
+		blockId := resp.Entries[poolName].Entries[""].CalculationResultsByNumas[-1].Blocks[0].BlockId
+		blockToCPUSet[blockId] = allocationInfo.AllocationResult.Clone()
+		availableCPUs = availableCPUs.Difference(blockToCPUSet[blockId])
+	}
+
+	for numaId, blocksMap := range numaToBlocks {
+		if numaId == -1 {
+			continue
+		}
+
+		numaAvailableCPUs := availableCPUs.Intersection(topology.CPUDetails.CPUsInNUMANodes(numaId))
+
+		for blockId, block := range blocksMap {
+			if block == nil {
+				klog.Warningf("[allocateByBlocks] got nil block")
+				continue
+			} else if _, found := blockToCPUSet[blockId]; found {
+				klog.Warningf("[allocateByBlocks] block: %d already allocated", blockId)
+				continue
+			}
+
+			blockResult, err := general.CovertUInt64ToInt(block.Result)
+
+			if err != nil {
+				return nil, fmt.Errorf("parse block: %s result failed with error: %v",
+					blockId, err)
+			}
+
+			cset, err := calculator.TakeByTopology(machineInfo, numaAvailableCPUs, blockResult)
+
+			if err != nil {
+				return nil, fmt.Errorf("allocate cpuset for "+
+					"NUMA Aware block: %s in NUMA: %d failed with error: %v, numaAvailableCPUs: %d(%s), blockResult: %d",
+					blockId, numaId, err,
+					numaAvailableCPUs.Size(), numaAvailableCPUs.String(), blockResult)
+			}
+
+			blockToCPUSet[blockId] = cset
+			numaAvailableCPUs = numaAvailableCPUs.Difference(cset)
+			availableCPUs = availableCPUs.Difference(cset)
+		}
+	}
+
+	for blockId, block := range numaToBlocks[-1] {
+		if block == nil {
+			klog.Warningf("[allocateByBlocks] got nil block")
+			continue
+		} else if _, found := blockToCPUSet[blockId]; found {
+			klog.Warningf("[allocateByBlocks] block: %s already allocated", blockId)
+			continue
+		}
+
+		blockResult, err := general.CovertUInt64ToInt(block.Result)
+
+		if err != nil {
+			return nil, fmt.Errorf("parse block: %s result failed with error: %v",
+				blockId, err)
+		}
+
+		cset, err := calculator.TakeByTopology(machineInfo, availableCPUs, blockResult)
+
+		if err != nil {
+			return nil, fmt.Errorf("allocate cpuset for "+
+				"non NUMA Aware block: %s failed with error: %v, availableCPUs: %d(%s), blockResult: %d",
+				blockId, err,
+				availableCPUs.Size(), availableCPUs.String(), blockResult)
+		}
+
+		blockToCPUSet[blockId] = cset
+		availableCPUs = availableCPUs.Difference(cset)
+	}
+
+	return blockToCPUSet, nil
+}
+
 func (p *DynamicPolicy) allocateByCPUAdvisorServerListAndWatchResp(resp *advisorapi.ListAndWatchResponse) (err error) {
 	if resp == nil {
 		return fmt.Errorf("allocateByCPUAdvisorServerListAndWatchResp got nil qos aware lw response")
@@ -1675,28 +1888,39 @@ func (p *DynamicPolicy) allocateByCPUAdvisorServerListAndWatchResp(resp *advisor
 	}()
 
 	entries := p.state.GetPodEntries()
-	machineState := p.state.GetMachineState()
 
-	isolatedQuantityMap, err := state.GetIsolatedQuantityMapFromPodEntriesAndCPUAdvisorResp(entries, resp)
-	if err != nil {
-		return fmt.Errorf("GetIsolatedQuantityMapFromPodEntriesAndCPUAdvisorRes failed with error: %v", err)
+	vErr := state.ValidateCPUAdvisorResp(entries, resp)
+
+	if vErr != nil {
+		return fmt.Errorf("ValidateCPUAdvisorResp failed with error: %v", vErr)
 	}
 
-	poolsQuantityMap, err := state.GetPoolsQuantityMapFromPodEntriesAndCPUAdvisorResp(entries, resp)
-	if err != nil {
-		return fmt.Errorf("GetIsolatedQuantityMapFromPodEntriesAndCPUAdvisorRes failed with error: %v", err)
+	numaToBlocks, gErr := resp.GetBlocks()
+
+	if gErr != nil {
+		return fmt.Errorf("GetBlocks failed with error: %v", gErr)
 	}
 
-	err = state.UpdateOwnerPoolsForSharedCoresByCPUAdvisorResp(entries, resp, poolsQuantityMap)
-	if err != nil {
-		return fmt.Errorf("UpdateOwnerPoolsForSharedCoresByCPUAdvisorResp failed with error: %v", err)
+	vErr = validateBlocksByTopology(numaToBlocks, p.machineInfo.CPUTopology)
+
+	if vErr != nil {
+		return fmt.Errorf("validateBlocksByTopology failed with error: %v", vErr)
 	}
 
-	// todo: adjust dedicated_cores with numa_binding if qos aware server has the ability
+	blockToCPUSet, alocErr := allocateByBlocks(resp,
+		entries,
+		numaToBlocks,
+		p.machineInfo.CPUTopology,
+		p.machineInfo)
 
-	err = p.adjustPoolsAndIsolatedEntries(poolsQuantityMap, isolatedQuantityMap, entries, machineState)
-	if err != nil {
-		return fmt.Errorf("adjustPoolsAndIsolatedEntries failed with error: %v", err)
+	if alocErr != nil {
+		return fmt.Errorf("allocateByBlocks failed with error: %v", alocErr)
+	}
+
+	aplyErr := p.applyBlocks(blockToCPUSet, entries, resp)
+
+	if aplyErr != nil {
+		return fmt.Errorf("applyBlocks failed with error: %v", aplyErr)
 	}
 
 	return nil
@@ -1952,4 +2176,280 @@ podsLoop:
 	}
 
 	klog.Infof("[CPUDynamicPolicy.checkCPUSet] finish checkCPUSet")
+}
+
+func (p *DynamicPolicy) applyBlocks(blockToCPUSet map[string]machine.CPUSet,
+	curEntries state.PodEntries, resp *advisorapi.ListAndWatchResponse) error {
+
+	if resp == nil {
+		return fmt.Errorf("applyBlocks got nil resp")
+	}
+
+	newEntries := make(state.PodEntries)
+
+	dedicatedCPUSet := machine.NewCPUSet()
+	pooledUnionDedicatedCPUSet := machine.NewCPUSet()
+
+	// deal with blocks of dedicated_cores and pools
+	for entryName, entry := range resp.Entries {
+		for subEntryName, calculationInfo := range entry.Entries {
+
+			if calculationInfo == nil {
+				klog.Warningf("[applyBlocks] got nil calculationInfo entry: %s, subEntry: %s",
+					entryName, subEntryName)
+				continue
+			}
+
+			// skip shared_cores and reclaimed_cores temporarily
+			if !(subEntryName == "" || calculationInfo.OwnerPoolName == state.PoolNameDedicated) {
+				continue
+			}
+
+			entryCPUSet := machine.NewCPUSet()
+
+			for _, calculationResult := range calculationInfo.CalculationResultsByNumas {
+				if calculationResult == nil {
+					klog.Warningf("[applyBlocks] got nil NUMA result entry: %s, subEntry: %s",
+						entryName, subEntryName)
+					continue
+				}
+
+				for _, block := range calculationResult.Blocks {
+					if block == nil {
+						klog.Warningf("[applyBlocks] got nil block result entry: %s, subEntry: %s",
+							entryName, subEntryName)
+						continue
+					}
+
+					blockId := block.BlockId
+
+					if cset, found := blockToCPUSet[blockId]; !found {
+						return fmt.Errorf("block %s not found, entry: %s, subEntry: %s",
+							blockId, entryName, subEntryName)
+					} else {
+						entryCPUSet = entryCPUSet.Union(cset)
+					}
+				}
+			}
+
+			topologyAwareAssignments, err := machine.GetNumaAwareAssignments(p.machineInfo.CPUTopology, entryCPUSet)
+
+			if err != nil {
+				return fmt.Errorf("unable to calculate topologyAwareAssignments for entry: %s, subEntry: %s, entry cpuset: %s, error: %v",
+					entryName, subEntryName, entryCPUSet.String(), err)
+			}
+
+			allocationInfo := curEntries[entryName][subEntryName].Clone()
+
+			if allocationInfo == nil {
+				// only pool can be created by cpu advisor
+				if calculationInfo.OwnerPoolName == state.PoolNameDedicated || subEntryName != "" {
+					return fmt.Errorf("no-pool entry isn't found in plugin cache, entry: %s, subEntry: %s",
+						entryName, subEntryName)
+				} else if entryName != calculationInfo.OwnerPoolName {
+					return fmt.Errorf("pool entryName: %s and OwnerPoolName: %s mismatch", entryName, calculationInfo.OwnerPoolName)
+				}
+
+				klog.Infof("[CPUDynamicPolicy.applyBlocks] create new pool: %s cpuset result %s",
+					entryName, entryCPUSet.String())
+
+				allocationInfo = &state.AllocationInfo{
+					PodUid:                           entryName,
+					OwnerPoolName:                    entryName,
+					AllocationResult:                 entryCPUSet.Clone(),
+					OriginalAllocationResult:         entryCPUSet.Clone(),
+					TopologyAwareAssignments:         topologyAwareAssignments,
+					OriginalTopologyAwareAssignments: util.DeepCopyTopologyAwareAssignments(topologyAwareAssignments),
+				}
+			} else {
+				klog.Infof("[CPUDynamicPolicy.applyBlocks] entry: %s, subEntryName: %s cpuset allocation result transform from %s to %s",
+					entryName, subEntryName, allocationInfo.AllocationResult.String(), entryCPUSet.String())
+
+				allocationInfo.OwnerPoolName = calculationInfo.OwnerPoolName
+				allocationInfo.AllocationResult = entryCPUSet.Clone()
+				allocationInfo.OriginalAllocationResult = entryCPUSet.Clone()
+				allocationInfo.TopologyAwareAssignments = topologyAwareAssignments
+				allocationInfo.OriginalTopologyAwareAssignments = util.DeepCopyTopologyAwareAssignments(topologyAwareAssignments)
+			}
+
+			if newEntries[entryName] == nil {
+				newEntries[entryName] = make(state.ContainerEntries)
+			}
+
+			newEntries[entryName][subEntryName] = allocationInfo
+			pooledUnionDedicatedCPUSet = pooledUnionDedicatedCPUSet.Union(allocationInfo.AllocationResult)
+
+			if allocationInfo.OwnerPoolName == state.PoolNameDedicated {
+				dedicatedCPUSet = dedicatedCPUSet.Union(allocationInfo.AllocationResult)
+
+				klog.Infof("[CPUDynamicPolicy.applyBlocks] try to apply dedicated_cores: %s/%s %s: %s",
+					allocationInfo.PodNamespace, allocationInfo.PodName,
+					allocationInfo.ContainerName, allocationInfo.AllocationResult.String())
+
+				if allocationInfo.RampUp {
+					allocationInfo.RampUp = false
+					klog.Infof("[CPUDynamicPolicy.applyBlocks] pod: %s/%s, container: %s ramp up finished",
+						allocationInfo.PodNamespace, allocationInfo.PodName, allocationInfo.ContainerName)
+				}
+			} else {
+				_ = p.emitter.StoreInt64(util.MetricNamePoolSize, int64(allocationInfo.AllocationResult.Size()), metrics.MetricTypeNameRaw,
+					metrics.MetricTag{Key: "poolName", Val: allocationInfo.OwnerPoolName})
+
+				klog.Infof("[CPUDynamicPolicy.applyBlocks] try to apply pool %s: %s",
+					allocationInfo.OwnerPoolName, allocationInfo.AllocationResult.String())
+			}
+		}
+	}
+
+	rampUpCPUs := p.machineInfo.CPUDetails.CPUs().Difference(p.reservedCPUs).Difference(dedicatedCPUSet)
+	rampUpCPUsTopologyAwareAssignments, err := machine.GetNumaAwareAssignments(p.machineInfo.CPUTopology, rampUpCPUs)
+	if err != nil {
+		return fmt.Errorf("unable to calculate topologyAwareAssignments for rampUpCPUs, result cpuset: %s, error: %v",
+			rampUpCPUs.String(), err)
+	}
+
+	if newEntries[state.PoolNameReclaim][""] == nil || newEntries[state.PoolNameReclaim][""].AllocationResult.IsEmpty() {
+		reclaimPoolCPUSet := p.machineInfo.CPUDetails.CPUs().Difference(p.reservedCPUs).Difference(pooledUnionDedicatedCPUSet)
+
+		if reclaimPoolCPUSet.IsEmpty() {
+			// for state.PoolNameReclaim, we must make them exist when the node isn't in hybrid mode even if cause overlap
+			allAvailableCPUs := p.machineInfo.CPUDetails.CPUs().Difference(p.reservedCPUs)
+			var tErr error
+			reclaimPoolCPUSet, _, tErr = calculator.TakeByNUMABalance(p.machineInfo, allAvailableCPUs, reservedReclaimedCPUsSize)
+			if tErr != nil {
+				return fmt.Errorf("fallback takeByNUMABalance faild in applyBlocks for reclaimPoolCPUSet with error: %v", tErr)
+			}
+
+			klog.Infof("[CPUDynamicPolicy.applyBlocks] fallback takeByNUMABalance for reclaimPoolCPUSet: %s", reclaimPoolCPUSet.String())
+		}
+
+		klog.Infof("[CPUDynamicPolicy.applyBlocks] set reclaimPoolCPUSet: %s", reclaimPoolCPUSet.String())
+
+		topologyAwareAssignments, err := machine.GetNumaAwareAssignments(p.machineInfo.CPUTopology, reclaimPoolCPUSet)
+		if err != nil {
+			return fmt.Errorf("unable to calculate topologyAwareAssignments for pool: %s, "+
+				"result cpuset: %s, error: %v", state.PoolNameReclaim, reclaimPoolCPUSet.String(), err)
+		}
+
+		newEntries[state.PoolNameReclaim][""] = &state.AllocationInfo{
+			PodUid:                           state.PoolNameReclaim,
+			OwnerPoolName:                    state.PoolNameReclaim,
+			AllocationResult:                 reclaimPoolCPUSet.Clone(),
+			OriginalAllocationResult:         reclaimPoolCPUSet.Clone(),
+			TopologyAwareAssignments:         topologyAwareAssignments,
+			OriginalTopologyAwareAssignments: util.DeepCopyTopologyAwareAssignments(topologyAwareAssignments),
+		}
+	} else {
+		klog.Infof("[CPUDynamicPolicy.applyBlocks] detected reclaimPoolCPUSet: %s", newEntries[state.PoolNameReclaim][""].AllocationResult.String())
+	}
+
+	// deal with blocks of reclaimed_cores and share_cores
+	for podUID, containerEntries := range curEntries {
+		if containerEntries.IsPoolEntry() {
+			continue
+		}
+
+	containerLoop:
+		for containerName, allocationInfo := range containerEntries {
+			if allocationInfo == nil {
+				klog.Errorf("[CPUDynamicPolicy.applyBlocks] pod: %s, container: %s has nil allocationInfo",
+					podUID, containerName)
+				continue
+			}
+
+			reqInt := state.GetContainerRequestedCores(allocationInfo)
+			if newEntries[podUID][containerName] != nil {
+				// adapt to old checkpoint without RequestQuantity property
+				newEntries[podUID][containerName].RequestQuantity = reqInt
+				continue
+			}
+
+			if newEntries[podUID] == nil {
+				newEntries[podUID] = make(state.ContainerEntries)
+			}
+
+			newEntries[podUID][containerName] = allocationInfo.Clone()
+			switch allocationInfo.QoSLevel {
+			case consts.PodAnnotationQoSLevelDedicatedCores:
+				errMsg := fmt.Sprintf("dedicated_cores blocks aren't applied, pod: %s/%s, container: %s",
+					allocationInfo.PodNamespace, allocationInfo.PodName, allocationInfo.ContainerName)
+				klog.Errorf(errMsg)
+				return fmt.Errorf(errMsg)
+			case consts.PodAnnotationQoSLevelSharedCores, consts.PodAnnotationQoSLevelReclaimedCores:
+				// may be indicated by qos aware server
+				ownerPoolName := state.GetRealOwnerPoolName(allocationInfo)
+
+				if ownerPoolName == "" {
+					ownerPoolName = state.GetSpecifiedPoolName(allocationInfo)
+				}
+
+				if resp.Entries[podUID].Entries[containerName] != nil {
+					klog.Infof("[CPUDynamicPolicy.applyBlocks] cpu advisor put pod: %s/%s, container: %s from %s to %s",
+						allocationInfo.PodNamespace, allocationInfo.PodName,
+						allocationInfo.ContainerName, ownerPoolName,
+						resp.Entries[podUID].Entries[containerName].OwnerPoolName)
+					ownerPoolName = resp.Entries[podUID].Entries[containerName].OwnerPoolName
+				} else {
+					klog.Warningf("[CPUDynamicPolicy.applyBlocks] cpu advisor doesn't return entry for pod: %s/%s, container: %s, qosLevel: %s",
+						allocationInfo.PodNamespace, allocationInfo.PodName,
+						allocationInfo.ContainerName, allocationInfo.QoSLevel)
+				}
+
+				if allocationInfo.RampUp {
+					klog.Infof("[CPUDynamicPolicy.applyBlocks] pod: %s/%s container: %s is in ramp up, set its allocation result from %s to rampUpCPUs :%s",
+						allocationInfo.PodNamespace, allocationInfo.PodName,
+						allocationInfo.ContainerName, allocationInfo.AllocationResult.String(),
+						rampUpCPUs.String())
+
+					if rampUpCPUs.IsEmpty() {
+						klog.Warningf("[CPUDynamicPolicy.applyBlocks] rampUpCPUs is empty. pod: %s/%s container: %s reuses its allocation result: %s",
+							allocationInfo.PodNamespace, allocationInfo.PodName, allocationInfo.ContainerName, allocationInfo.AllocationResult.String())
+						continue containerLoop
+					}
+
+					newEntries[podUID][containerName].OwnerPoolName = ""
+					newEntries[podUID][containerName].AllocationResult = rampUpCPUs.Clone()
+					newEntries[podUID][containerName].OriginalAllocationResult = rampUpCPUs.Clone()
+					newEntries[podUID][containerName].TopologyAwareAssignments = util.DeepCopyTopologyAwareAssignments(rampUpCPUsTopologyAwareAssignments)
+					newEntries[podUID][containerName].OriginalTopologyAwareAssignments = util.DeepCopyTopologyAwareAssignments(rampUpCPUsTopologyAwareAssignments)
+				} else if newEntries[ownerPoolName][""] == nil {
+					errMsg := fmt.Sprintf("[CPUDynamicPolicy.applyBlocks] cpu advisor doesn't return entry for pool: %s and it's referred by"+
+						" pod: %s/%s, container: %s, qosLevel: %s",
+						ownerPoolName, allocationInfo.PodNamespace,
+						allocationInfo.PodName, allocationInfo.ContainerName,
+						allocationInfo.QoSLevel)
+					klog.Errorf(errMsg)
+					return fmt.Errorf(errMsg)
+				} else {
+					poolEntry := newEntries[ownerPoolName][""]
+
+					klog.Infof("[CPUDynamicPolicy.applyBlocks] put pod: %s/%s container: %s to pool: %s, set its allocation result from %s to %s",
+						allocationInfo.PodNamespace, allocationInfo.PodName,
+						allocationInfo.ContainerName, ownerPoolName,
+						allocationInfo.AllocationResult.String(), poolEntry.AllocationResult.String())
+
+					newEntries[podUID][containerName].OwnerPoolName = ownerPoolName
+					newEntries[podUID][containerName].AllocationResult = poolEntry.AllocationResult.Clone()
+					newEntries[podUID][containerName].OriginalAllocationResult = poolEntry.OriginalAllocationResult.Clone()
+					newEntries[podUID][containerName].TopologyAwareAssignments = util.DeepCopyTopologyAwareAssignments(poolEntry.TopologyAwareAssignments)
+					newEntries[podUID][containerName].OriginalTopologyAwareAssignments = util.DeepCopyTopologyAwareAssignments(poolEntry.TopologyAwareAssignments)
+				}
+			default:
+				return fmt.Errorf("invalid qosLevel: %s for pod: %s/%s container: %s",
+					allocationInfo.QoSLevel, allocationInfo.PodNamespace,
+					allocationInfo.PodName, allocationInfo.ContainerName)
+			}
+		}
+	}
+
+	// use pod entries generated above to generate machine state info, and store in local state
+	newMachineState, err := state.GenerateCPUMachineStateByPodEntries(p.machineInfo.CPUTopology, newEntries)
+	if err != nil {
+		return fmt.Errorf("calculate machineState by newPodEntries failed with error: %v", err)
+	}
+
+	p.state.SetPodEntries(newEntries)
+	p.state.SetMachineState(newMachineState)
+
+	return nil
 }
