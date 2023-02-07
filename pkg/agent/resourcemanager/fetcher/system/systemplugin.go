@@ -32,7 +32,6 @@ import (
 	"github.com/kubewharf/katalyst-api/pkg/protocol/reporterplugin/v1alpha1"
 	"github.com/kubewharf/katalyst-core/pkg/agent/resourcemanager/fetcher/plugin"
 	pluginutil "github.com/kubewharf/katalyst-core/pkg/agent/resourcemanager/fetcher/util"
-	nvidiautil "github.com/kubewharf/katalyst-core/pkg/agent/resourcemanager/fetcher/util/nvidia"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
@@ -45,9 +44,8 @@ const (
 
 	ResourceNameNBW v1.ResourceName = "nbw"
 
-	PropertyNameCIS       = "cis"
-	PropertyNameTopology  = "topology"
-	PropertyNameGPUMemory = "gpu_memory"
+	PropertyNameCIS      = "cis"
+	PropertyNameTopology = "topology"
 )
 
 // systemPlugin implements the endpoint interface, and it's an in-tree reporter plugin
@@ -128,7 +126,6 @@ func (p *systemPlugin) getResourceProperties() ([]*v1alpha1.ReportContent, error
 		p.getMemoryCapacity(),
 		p.getCISProperty(),
 		p.getNetworkTopologyProperty(),
-		p.getGPUMemoryProperty(),
 	)
 
 	value, err := json.Marshal(&properties)
@@ -186,23 +183,6 @@ func (p *systemPlugin) getCISProperty() *nodev1alpha1.Property {
 	return &nodev1alpha1.Property{
 		PropertyName:   PropertyNameCIS,
 		PropertyValues: p.metaServer.SupportInstructionSet.List(),
-	}
-}
-
-// getGPUMemoryProperty get gpu memory of this machine.
-func (p *systemPlugin) getGPUMemoryProperty() *nodev1alpha1.Property {
-	gpumem, err := nvidiautil.GetGPUMemory()
-	if err != nil {
-		klog.Warningf("get gpu memory info failed: %s", err)
-		return nil
-	}
-
-	var propertyValues []string
-	propertyValues = append(propertyValues, gpumem)
-
-	return &nodev1alpha1.Property{
-		PropertyName:   PropertyNameGPUMemory,
-		PropertyValues: propertyValues,
 	}
 }
 
