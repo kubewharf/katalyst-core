@@ -18,17 +18,21 @@ package cpu
 
 import (
 	"context"
+	"encoding/json"
 	"io/ioutil"
 	"reflect"
+	"sort"
 	"testing"
 
-	"github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
+	"k8s.io/apimachinery/pkg/api/resource"
 
+	"github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/options"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/cpuadvisor"
+	qrmstate "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource/cpu"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
@@ -182,28 +186,63 @@ func (_m *mockCPUServerService_ListAndWatchServer) Send(res *cpuadvisor.ListAndW
 	return nil
 }
 
+func DeepCopyResponse(response *cpuadvisor.ListAndWatchResponse) (*cpuadvisor.ListAndWatchResponse, error) {
+	data, err := json.Marshal(response)
+	if err != nil {
+		return nil, err
+	}
+	copyResponse := &cpuadvisor.ListAndWatchResponse{}
+	err = json.Unmarshal(data, copyResponse)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, entry := range copyResponse.Entries {
+		for _, ci := range entry.Entries {
+			for _, c := range ci.CalculationResultsByNumas {
+				sort.Slice(c.Blocks, func(i, j int) bool {
+					return c.Blocks[i].String() < c.Blocks[j].String()
+				})
+				for _, block := range c.Blocks {
+					block.BlockId = ""
+					sort.Slice(block.OverlapTargets, func(i, j int) bool {
+						return block.OverlapTargets[i].String() < block.OverlapTargets[j].String()
+					})
+				}
+			}
+		}
+	}
+	return copyResponse, nil
+}
+
 func TestCPUServerListAndWatch(t *testing.T) {
+	type ContainerInfo struct {
+		request        *cpuadvisor.AddContainerRequest
+		allocationInfo *cpuadvisor.AllocationInfo
+	}
+
 	tests := []struct {
 		name      string
 		empty     *cpuadvisor.Empty
 		provision cpu.CPUProvision
+		infos     []*ContainerInfo
 		wantErr   bool
 		wantRes   *cpuadvisor.ListAndWatchResponse
 	}{
 		{
-			name:  "test1",
+			name:  "reclaim pool with shared pool",
 			empty: &cpuadvisor.Empty{},
-			provision: cpu.CPUProvision{PoolSizeMap: map[string]int{
-				consts.PodAnnotationQoSLevelSharedCores:    2,
-				consts.PodAnnotationQoSLevelReclaimedCores: 4,
+			provision: cpu.CPUProvision{PoolSizeMap: map[string]map[int]resource.Quantity{
+				qrmstate.PoolNameShare:   {-1: *resource.NewQuantity(2, resource.DecimalSI)},
+				qrmstate.PoolNameReclaim: {-1: *resource.NewQuantity(4, resource.DecimalSI)},
 			}},
 			wantErr: false,
 			wantRes: &cpuadvisor.ListAndWatchResponse{
 				Entries: map[string]*cpuadvisor.CalculationEntries{
-					consts.PodAnnotationQoSLevelSharedCores: {
+					qrmstate.PoolNameShare: {
 						Entries: map[string]*cpuadvisor.CalculationInfo{
 							"": {
-								OwnerPoolName: consts.PodAnnotationQoSLevelSharedCores,
+								OwnerPoolName: qrmstate.PoolNameShare,
 								CalculationResultsByNumas: map[int64]*cpuadvisor.NumaCalculationResult{
 									-1: {
 										Blocks: []*cpuadvisor.Block{
@@ -216,10 +255,10 @@ func TestCPUServerListAndWatch(t *testing.T) {
 							},
 						},
 					},
-					consts.PodAnnotationQoSLevelReclaimedCores: {
+					qrmstate.PoolNameReclaim: {
 						Entries: map[string]*cpuadvisor.CalculationInfo{
 							"": {
-								OwnerPoolName: consts.PodAnnotationQoSLevelReclaimedCores,
+								OwnerPoolName: qrmstate.PoolNameReclaim,
 								CalculationResultsByNumas: map[int64]*cpuadvisor.NumaCalculationResult{
 									-1: {
 										Blocks: []*cpuadvisor.Block{
@@ -235,21 +274,344 @@ func TestCPUServerListAndWatch(t *testing.T) {
 				},
 			},
 		},
+		{
+			name:  "reclaim pool with dedicated pod",
+			empty: &cpuadvisor.Empty{},
+			provision: cpu.CPUProvision{PoolSizeMap: map[string]map[int]resource.Quantity{
+				qrmstate.PoolNameReclaim: {
+					0: *resource.NewQuantity(4, resource.DecimalSI),
+					1: *resource.NewQuantity(8, resource.DecimalSI),
+				},
+			}},
+			infos: []*ContainerInfo{
+				{
+					request: &cpuadvisor.AddContainerRequest{
+						PodUid:        "pod1",
+						ContainerName: "c1",
+						Annotations: map[string]string{
+							consts.PodAnnotationMemoryEnhancementNumaBinding: consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
+						},
+						QosLevel: consts.PodAnnotationQoSLevelDedicatedCores,
+					},
+					allocationInfo: &cpuadvisor.AllocationInfo{
+						OwnerPoolName: qrmstate.PoolNameDedicated,
+						TopologyAwareAssignments: map[uint64]string{
+							0: "0-3",
+							1: "24-47",
+						},
+					},
+				},
+			},
+			wantErr: false,
+			wantRes: &cpuadvisor.ListAndWatchResponse{
+				Entries: map[string]*cpuadvisor.CalculationEntries{
+					qrmstate.PoolNameReclaim: {
+						Entries: map[string]*cpuadvisor.CalculationInfo{
+							"": {
+								OwnerPoolName: qrmstate.PoolNameReclaim,
+								CalculationResultsByNumas: map[int64]*cpuadvisor.NumaCalculationResult{
+									0: {
+										Blocks: []*cpuadvisor.Block{
+											{
+												Result: 4,
+												OverlapTargets: []*cpuadvisor.OverlapTarget{
+													{
+														OverlapTargetPodUid:        "pod1",
+														OverlapTargetContainerName: "c1",
+														OverlapType:                cpuadvisor.OverlapType_OverlapWithPod,
+													},
+												},
+											},
+										},
+									},
+									1: {
+										Blocks: []*cpuadvisor.Block{
+											{
+												Result: 8,
+												OverlapTargets: []*cpuadvisor.OverlapTarget{
+													{
+														OverlapTargetPodUid:        "pod1",
+														OverlapTargetContainerName: "c1",
+														OverlapType:                cpuadvisor.OverlapType_OverlapWithPod,
+													},
+												},
+											},
+										},
+									},
+								},
+							},
+						},
+					},
+					"pod1": {
+						Entries: map[string]*cpuadvisor.CalculationInfo{
+							"c1": {
+								OwnerPoolName: qrmstate.PoolNameDedicated,
+								CalculationResultsByNumas: map[int64]*cpuadvisor.NumaCalculationResult{
+									0: {
+										Blocks: []*cpuadvisor.Block{
+											{
+												Result: 4,
+												OverlapTargets: []*cpuadvisor.OverlapTarget{
+													{
+														OverlapTargetPoolName: qrmstate.PoolNameReclaim,
+														OverlapType:           cpuadvisor.OverlapType_OverlapWithPool,
+													},
+												},
+											},
+										},
+									},
+									1: {
+										Blocks: []*cpuadvisor.Block{
+											{
+												Result:         16,
+												OverlapTargets: nil,
+											},
+											{
+												Result: 8,
+												OverlapTargets: []*cpuadvisor.OverlapTarget{
+													{
+														OverlapTargetPoolName: qrmstate.PoolNameReclaim,
+														OverlapType:           cpuadvisor.OverlapType_OverlapWithPool,
+													},
+												},
+											},
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+		{
+			name:  "reclaim pool colocated with dedicated pod(2 containers)",
+			empty: &cpuadvisor.Empty{},
+			provision: cpu.CPUProvision{PoolSizeMap: map[string]map[int]resource.Quantity{
+				qrmstate.PoolNameReclaim: {
+					0: *resource.NewQuantity(4, resource.DecimalSI),
+					1: *resource.NewQuantity(8, resource.DecimalSI),
+				},
+			}},
+			infos: []*ContainerInfo{
+				{
+					request: &cpuadvisor.AddContainerRequest{
+						PodUid:        "pod1",
+						ContainerName: "c1",
+						Annotations: map[string]string{
+							consts.PodAnnotationMemoryEnhancementNumaBinding: consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
+						},
+						QosLevel: consts.PodAnnotationQoSLevelDedicatedCores,
+					},
+					allocationInfo: &cpuadvisor.AllocationInfo{
+						OwnerPoolName: qrmstate.PoolNameDedicated,
+						TopologyAwareAssignments: map[uint64]string{
+							0: "0-3",
+							1: "24-47",
+						},
+					},
+				},
+				{
+					request: &cpuadvisor.AddContainerRequest{
+						PodUid:        "pod1",
+						ContainerName: "c2",
+						Annotations: map[string]string{
+							consts.PodAnnotationMemoryEnhancementNumaBinding: consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
+						},
+						QosLevel: consts.PodAnnotationQoSLevelDedicatedCores,
+					},
+					allocationInfo: &cpuadvisor.AllocationInfo{
+						OwnerPoolName: qrmstate.PoolNameDedicated,
+						TopologyAwareAssignments: map[uint64]string{
+							0: "0-3",
+							1: "24-47",
+						},
+					},
+				},
+			},
+			wantErr: false,
+			wantRes: &cpuadvisor.ListAndWatchResponse{
+				Entries: map[string]*cpuadvisor.CalculationEntries{
+					qrmstate.PoolNameReclaim: {
+						Entries: map[string]*cpuadvisor.CalculationInfo{
+							"": {
+								OwnerPoolName: qrmstate.PoolNameReclaim,
+								CalculationResultsByNumas: map[int64]*cpuadvisor.NumaCalculationResult{
+									0: {
+										Blocks: []*cpuadvisor.Block{
+											{
+												Result: 4,
+												OverlapTargets: []*cpuadvisor.OverlapTarget{
+													{
+														OverlapTargetPodUid:        "pod1",
+														OverlapTargetContainerName: "c1",
+														OverlapType:                cpuadvisor.OverlapType_OverlapWithPod,
+													},
+													{
+														OverlapTargetPodUid:        "pod1",
+														OverlapTargetContainerName: "c2",
+														OverlapType:                cpuadvisor.OverlapType_OverlapWithPod,
+													},
+												},
+											},
+										},
+									},
+									1: {
+										Blocks: []*cpuadvisor.Block{
+											{
+												Result: 8,
+												OverlapTargets: []*cpuadvisor.OverlapTarget{
+													{
+														OverlapTargetPodUid:        "pod1",
+														OverlapTargetContainerName: "c1",
+														OverlapType:                cpuadvisor.OverlapType_OverlapWithPod,
+													},
+													{
+														OverlapTargetPodUid:        "pod1",
+														OverlapTargetContainerName: "c2",
+														OverlapType:                cpuadvisor.OverlapType_OverlapWithPod,
+													},
+												},
+											},
+										},
+									},
+								},
+							},
+						},
+					},
+					"pod1": {
+						Entries: map[string]*cpuadvisor.CalculationInfo{
+							"c1": {
+								OwnerPoolName: qrmstate.PoolNameDedicated,
+								CalculationResultsByNumas: map[int64]*cpuadvisor.NumaCalculationResult{
+									0: {
+										Blocks: []*cpuadvisor.Block{
+											{
+												Result: 4,
+												OverlapTargets: []*cpuadvisor.OverlapTarget{
+													{
+														OverlapTargetPodUid:        "pod1",
+														OverlapTargetContainerName: "c2",
+														OverlapType:                cpuadvisor.OverlapType_OverlapWithPod,
+													},
+													{
+														OverlapTargetPoolName: qrmstate.PoolNameReclaim,
+														OverlapType:           cpuadvisor.OverlapType_OverlapWithPool,
+													},
+												},
+											},
+										},
+									},
+									1: {
+										Blocks: []*cpuadvisor.Block{
+											{
+												Result: 16,
+												OverlapTargets: []*cpuadvisor.OverlapTarget{
+													{
+														OverlapTargetPodUid:        "pod1",
+														OverlapTargetContainerName: "c2",
+														OverlapType:                cpuadvisor.OverlapType_OverlapWithPod,
+													},
+												},
+											},
+											{
+												Result: 8,
+												OverlapTargets: []*cpuadvisor.OverlapTarget{
+													{
+														OverlapTargetPodUid:        "pod1",
+														OverlapTargetContainerName: "c2",
+														OverlapType:                cpuadvisor.OverlapType_OverlapWithPod,
+													},
+													{
+														OverlapTargetPoolName: qrmstate.PoolNameReclaim,
+														OverlapType:           cpuadvisor.OverlapType_OverlapWithPool,
+													},
+												},
+											},
+										},
+									},
+								},
+							},
+							"c2": {
+								OwnerPoolName: qrmstate.PoolNameDedicated,
+								CalculationResultsByNumas: map[int64]*cpuadvisor.NumaCalculationResult{
+									0: {
+										Blocks: []*cpuadvisor.Block{
+											{
+												Result: 4,
+												OverlapTargets: []*cpuadvisor.OverlapTarget{
+													{
+														OverlapTargetPodUid:        "pod1",
+														OverlapTargetContainerName: "c1",
+														OverlapType:                cpuadvisor.OverlapType_OverlapWithPod,
+													},
+													{
+														OverlapTargetPoolName: qrmstate.PoolNameReclaim,
+														OverlapType:           cpuadvisor.OverlapType_OverlapWithPool,
+													},
+												},
+											},
+										},
+									},
+									1: {
+										Blocks: []*cpuadvisor.Block{
+											{
+												Result: 16,
+												OverlapTargets: []*cpuadvisor.OverlapTarget{
+													{
+														OverlapTargetPodUid:        "pod1",
+														OverlapTargetContainerName: "c1",
+														OverlapType:                cpuadvisor.OverlapType_OverlapWithPod,
+													},
+												},
+											},
+											{
+												Result: 8,
+												OverlapTargets: []*cpuadvisor.OverlapTarget{
+													{
+														OverlapTargetPodUid:        "pod1",
+														OverlapTargetContainerName: "c1",
+														OverlapType:                cpuadvisor.OverlapType_OverlapWithPod,
+													},
+													{
+														OverlapTargetPoolName: qrmstate.PoolNameReclaim,
+														OverlapType:           cpuadvisor.OverlapType_OverlapWithPool,
+													},
+												},
+											},
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			cs := newTestCPUServer(t)
 			s := &mockCPUServerService_ListAndWatchServer{ResultsChan: make(chan *cpuadvisor.ListAndWatchResponse)}
+			for _, info := range tt.infos {
+				assert.NoError(t, cs.addContainer(info.request))
+				assert.NoError(t, cs.updateContainerInfo(info.request.PodUid, info.request.ContainerName, info.allocationInfo))
+			}
+			stop := make(chan struct{})
 			go func() {
 				if err := cs.ListAndWatch(tt.empty, s); (err != nil) != tt.wantErr {
 					t.Errorf("ListAndWatch() error = %v, wantErr %v", err, tt.wantErr)
 				}
+				stop <- struct{}{}
 			}()
 			cs.advisorCh <- tt.provision
 			res := <-s.ResultsChan
 			close(cs.stopCh)
-			if !reflect.DeepEqual(res, tt.wantRes) {
-				t.Errorf("RemovePod() got = %+v, want %+v", res, tt.wantRes)
+			<-stop
+			copyres, err := DeepCopyResponse(res)
+			assert.NoError(t, err)
+			if !reflect.DeepEqual(copyres, tt.wantRes) {
+				t.Errorf("ListAndWatch()\ngot = %+v, \nwant= %+v", res, tt.wantRes)
 			}
 		})
 	}

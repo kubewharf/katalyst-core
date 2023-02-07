@@ -113,10 +113,10 @@ func TestUpdate(t *testing.T) {
 				},
 			},
 			wantCPUProvision: CPUProvision{
-				map[string]int{
-					state.PoolNameReserve: 2,
-					state.PoolNameShare:   4,
-					state.PoolNameReclaim: 90,
+				map[string]map[int]resource.Quantity{
+					state.PoolNameReserve: {-1: *resource.NewQuantity(2, resource.DecimalSI)},
+					state.PoolNameShare:   {-1: *resource.NewQuantity(4, resource.DecimalSI)},
+					state.PoolNameReclaim: {-1: *resource.NewQuantity(90, resource.DecimalSI)},
 				},
 			},
 			wantGetHeadroomErr: false,
@@ -149,10 +149,10 @@ func TestUpdate(t *testing.T) {
 				},
 			},
 			wantCPUProvision: CPUProvision{
-				map[string]int{
-					state.PoolNameReserve: 2,
-					state.PoolNameShare:   4,
-					state.PoolNameReclaim: 90,
+				map[string]map[int]resource.Quantity{
+					state.PoolNameReserve: {-1: *resource.NewQuantity(2, resource.DecimalSI)},
+					state.PoolNameShare:   {-1: *resource.NewQuantity(4, resource.DecimalSI)},
+					state.PoolNameReclaim: {-1: *resource.NewQuantity(90, resource.DecimalSI)},
 				},
 			},
 			wantGetHeadroomErr: false,
@@ -185,10 +185,10 @@ func TestUpdate(t *testing.T) {
 				},
 			},
 			wantCPUProvision: CPUProvision{
-				map[string]int{
-					state.PoolNameReserve: 2,
-					state.PoolNameShare:   90,
-					state.PoolNameReclaim: 4,
+				map[string]map[int]resource.Quantity{
+					state.PoolNameReserve: {-1: *resource.NewQuantity(2, resource.DecimalSI)},
+					state.PoolNameShare:   {-1: *resource.NewQuantity(90, resource.DecimalSI)},
+					state.PoolNameReclaim: {-1: *resource.NewQuantity(4, resource.DecimalSI)},
 				},
 			},
 			wantGetHeadroomErr: false,
@@ -221,10 +221,10 @@ func TestUpdate(t *testing.T) {
 				},
 			},
 			wantCPUProvision: CPUProvision{
-				map[string]int{
-					state.PoolNameReserve: 2,
-					state.PoolNameShare:   20,
-					state.PoolNameReclaim: 74,
+				map[string]map[int]resource.Quantity{
+					state.PoolNameReserve: {-1: *resource.NewQuantity(2, resource.DecimalSI)},
+					state.PoolNameShare:   {-1: *resource.NewQuantity(20, resource.DecimalSI)},
+					state.PoolNameReclaim: {-1: *resource.NewQuantity(74, resource.DecimalSI)},
 				},
 			},
 			wantGetHeadroomErr: false,

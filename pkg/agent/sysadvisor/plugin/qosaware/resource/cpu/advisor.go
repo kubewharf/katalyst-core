@@ -46,7 +46,8 @@ const (
 // CPUProvision is the internal data structure for pushing minimal provision result to cpu server.
 // todo: update this when switching to multi qos region.
 type CPUProvision struct {
-	PoolSizeMap map[string]int
+	// [poolName][numaId]cores
+	PoolSizeMap map[string]map[int]resource.Quantity
 }
 
 // cpuResourceAdvisor is the entrance of updating cpu resource provision advice for all possible
@@ -133,10 +134,16 @@ func (cra *cpuResourceAdvisor) Update() {
 	// Notify cpu server
 	cpuProvision := CPUProvision{
 		// Must make sure pool names from cpu provision following qrm definition!
-		PoolSizeMap: map[string]int{
-			state.PoolNameReserve: reservePoolSize,
-			state.PoolNameShare:   sharePoolCPURequirement,
-			state.PoolNameReclaim: reclaimPoolCPURequirement,
+		PoolSizeMap: map[string]map[int]resource.Quantity{
+			state.PoolNameReserve: {
+				-1: *resource.NewQuantity(int64(reservePoolSize), resource.DecimalSI),
+			},
+			state.PoolNameShare: {
+				-1: *resource.NewQuantity(int64(sharePoolCPURequirement), resource.DecimalSI),
+			},
+			state.PoolNameReclaim: {
+				-1: *resource.NewQuantity(int64(reclaimPoolCPURequirement), resource.DecimalSI),
+			},
 		},
 	}
 	cra.advisorCh <- cpuProvision
