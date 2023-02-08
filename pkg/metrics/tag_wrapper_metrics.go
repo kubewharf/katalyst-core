@@ -47,6 +47,10 @@ func (t *MetricTagWrapper) StoreFloat64(key string, val float64, emitType Metric
 func (t *MetricTagWrapper) Run(_ context.Context) {}
 
 func (t *MetricTagWrapper) WithTags(unit string, commonTags ...MetricTag) MetricEmitter {
+	return t.deepCopy().withTags(unit, commonTags...)
+}
+
+func (t *MetricTagWrapper) withTags(unit string, commonTags ...MetricTag) MetricEmitter {
 	t.unitTag = MetricTag{
 		Key: "emmit_unit",
 		Val: unit,
@@ -54,6 +58,13 @@ func (t *MetricTagWrapper) WithTags(unit string, commonTags ...MetricTag) Metric
 
 	t.addOrUpdateCommonTags(commonTags)
 	return t
+}
+
+func (t *MetricTagWrapper) deepCopy() *MetricTagWrapper {
+	newMetricTagWrapper := &MetricTagWrapper{MetricEmitter: t.MetricEmitter}
+	newMetricTagWrapper.unitTag = t.unitTag
+	newMetricTagWrapper.commonTags = append(newMetricTagWrapper.commonTags, t.commonTags...)
+	return newMetricTagWrapper
 }
 
 // addOrUpdateCommonTags tries to add a tag to common tags list.
