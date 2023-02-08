@@ -72,7 +72,7 @@ func RegisterFileEventWatcher(stop <-chan struct{}, fileWatcherInfo FileWatcherI
 			err = watcher.Add(watcherInfoPath)
 			if err != nil {
 				klog.Errorf("failed add event path %s: %s", watcherInfoPath, err)
-				return
+				continue
 			}
 		}
 
