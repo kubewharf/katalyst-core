@@ -621,7 +621,7 @@ func TestMultiSorter(t *testing.T) {
 		fakeMetricsFetcher.SetContainerMetric(string(pod.UID), pod.Spec.Containers[0].Name, consts.MetricMemUsageContainer, podUsageSystem[i])
 	}
 
-	native.NewMultiSorter(plugin.getEvictionCmpFuncs(plugin.systemEvictionRankingMetrics, nonExistNumaID)).Sort(pods)
+	native.NewMultiSorter(plugin.getEvictionCmpFuncs(plugin.systemEvictionRankingMetrics, nonExistNumaID)...).Sort(pods)
 
 	wantPodNameList := []string{
 		"pod-2",

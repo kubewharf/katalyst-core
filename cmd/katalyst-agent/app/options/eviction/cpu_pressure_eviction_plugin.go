@@ -22,6 +22,17 @@ import (
 	evictionconfig "github.com/kubewharf/katalyst-core/pkg/config/agent/eviction"
 )
 
+const (
+	defaultEnableCPUPressureEviction                = false
+	defaultLoadUpperBoundRatio                      = 1.8
+	defaultLoadThresholdMetPercentage               = 0.8
+	defaultCPUPressureEvictionPodGracePeriodSeconds = -1
+	defaultMetricRingSize                           = 10
+	defaultCPUPressureEvictionSyncPeriod            = 30 * time.Second
+	defaultCPUPressureEvictionColdPeriod            = 300 * time.Second
+	defaultMaxCPUSuppressionToleranceRate           = 5
+)
+
 // CPUPressureEvictionPluginOptions is the options of CPUPressureEvictionPlugin
 type CPUPressureEvictionPluginOptions struct {
 	EnableCPUPressureEviction                bool
@@ -31,18 +42,20 @@ type CPUPressureEvictionPluginOptions struct {
 	MetricRingSize                           int
 	CPUPressureEvictionSyncPeriod            time.Duration
 	CPUPressureEvictionColdPeriod            time.Duration
+	MaxCPUSuppressionToleranceRate           float64
 }
 
 // NewCPUPressureEvictionPluginOptions returns a new CPUPressureEvictionPluginOptions
 func NewCPUPressureEvictionPluginOptions() *CPUPressureEvictionPluginOptions {
 	return &CPUPressureEvictionPluginOptions{
-		EnableCPUPressureEviction:                false,
-		LoadUpperBoundRatio:                      1.8,
-		LoadThresholdMetPercentage:               0.8,
-		CPUPressureEvictionPodGracePeriodSeconds: -1,
-		MetricRingSize:                           10,
-		CPUPressureEvictionSyncPeriod:            30 * time.Second,
-		CPUPressureEvictionColdPeriod:            300 * time.Second,
+		EnableCPUPressureEviction:                defaultEnableCPUPressureEviction,
+		LoadUpperBoundRatio:                      defaultLoadUpperBoundRatio,
+		LoadThresholdMetPercentage:               defaultLoadThresholdMetPercentage,
+		CPUPressureEvictionPodGracePeriodSeconds: defaultCPUPressureEvictionPodGracePeriodSeconds,
+		MetricRingSize:                           defaultMetricRingSize,
+		CPUPressureEvictionSyncPeriod:            defaultCPUPressureEvictionSyncPeriod,
+		CPUPressureEvictionColdPeriod:            defaultCPUPressureEvictionColdPeriod,
+		MaxCPUSuppressionToleranceRate:           defaultMaxCPUSuppressionToleranceRate,
 	}
 }
 
@@ -71,6 +84,8 @@ func (o *CPUPressureEvictionPluginOptions) AddFlags(fss *cliflag.NamedFlagSets) 
 		o.CPUPressureEvictionSyncPeriod, "cpu pressure eviction syncing period")
 	fs.DurationVar(&o.CPUPressureEvictionColdPeriod, "cpu-pressure-eviction-cold-period",
 		o.CPUPressureEvictionColdPeriod, "specify a cold period after eviction")
+	fs.Float64Var(&o.MaxCPUSuppressionToleranceRate, "max-cpu-suppression-tolerance-rate",
+		o.MaxCPUSuppressionToleranceRate, "the maximum cpu suppression tolerance rate that can be set by the pod")
 }
 
 // ApplyTo applies CPUPressureEvictionPluginOptions to CPUPressureEvictionPluginConfiguration
@@ -82,5 +97,6 @@ func (o *CPUPressureEvictionPluginOptions) ApplyTo(c *evictionconfig.CPUPressure
 	c.MetricRingSize = o.MetricRingSize
 	c.CPUPressureEvictionSyncPeriod = o.CPUPressureEvictionSyncPeriod
 	c.CPUPressureEvictionColdPeriod = o.CPUPressureEvictionColdPeriod
+	c.MaxCPUSuppressionToleranceRate = o.MaxCPUSuppressionToleranceRate
 	return nil
 }

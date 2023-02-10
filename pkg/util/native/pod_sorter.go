@@ -18,6 +18,7 @@ import (
 	"sort"
 
 	v1 "k8s.io/api/core/v1"
+	corev1helpers "k8s.io/component-helpers/scheduling/corev1"
 )
 
 // CmpFunc compares p1 and p2 and returns:
@@ -36,7 +37,7 @@ type MultiPodSorter struct {
 
 // NewMultiSorter returns a Sorter that sorts using the cmp functions, in order.
 // Call its Sort method to sort the data.
-func NewMultiSorter(cmp []CmpFunc) *MultiPodSorter {
+func NewMultiSorter(cmp ...CmpFunc) *MultiPodSorter {
 	return &MultiPodSorter{
 		cmp: cmp,
 	}
@@ -76,6 +77,32 @@ func (ms *MultiPodSorter) Less(i, j int) bool {
 	}
 	// the last cmp func is the final decider
 	return ms.cmp[k](p1, p2) < 0
+}
+
+// PodCPURequestCmpFunc is to compare two pods cpu request, placing smaller before greater
+func PodCPURequestCmpFunc(p1, p2 *v1.Pod) int {
+	p1Request := SumUpPodRequestResources(p1)
+	p2Request := SumUpPodRequestResources(p2)
+
+	p1CPUQuantity := GetCPUQuantity(p1Request)
+	p2CPUQuantity := GetCPUQuantity(p2Request)
+
+	return p1CPUQuantity.Cmp(p2CPUQuantity)
+}
+
+// PodPriorityCmpFunc compares two priority of pods, placing higher priority before lower one if reverse is true
+func PodPriorityCmpFunc(p1, p2 *v1.Pod) int {
+	priority1 := corev1helpers.PodPriority(p1)
+	priority2 := corev1helpers.PodPriority(p2)
+
+	return CmpInt32(priority1, priority2)
+}
+
+// ReverseCmpFunc reverse cmp func
+func ReverseCmpFunc(cmpFunc CmpFunc) CmpFunc {
+	return func(p1, p2 *v1.Pod) int {
+		return -cmpFunc(p1, p2)
+	}
 }
 
 // CmpBool compares booleans, placing true before false

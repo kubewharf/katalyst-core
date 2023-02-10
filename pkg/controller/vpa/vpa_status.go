@@ -93,7 +93,7 @@ func (vs *vpaStatusManager) addEventStatus(vpa *apis.KatalystVerticalPodAutoscal
 		namespace: vpa.Namespace,
 		name:      vpa.Name,
 		uid:       vpa.UID,
-		status:    &vpa.Status,
+		status:    vpa.Status.DeepCopy(),
 	}
 
 	vs.statusMtx.Lock()

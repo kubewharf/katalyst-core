@@ -21,6 +21,7 @@ import (
 	"testing"
 
 	v1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
@@ -48,6 +49,7 @@ var (
 	defaultCPUPressureEvictionPodGracePeriodSeconds = -1
 	defaultLoadUpperBoundRatio                      = 1.8
 	defaultLoadThresholdMetPercentage               = 0.8
+	defaultCPUMaxSuppressionToleranceRate           = 5
 )
 
 func makeCPUPressureEvictionPlugin(emitter metrics.MetricEmitter, metaServer *metaserver.MetaServer,
@@ -58,10 +60,12 @@ func makeCPUPressureEvictionPlugin(emitter metrics.MetricEmitter, metaServer *me
 		emitter:                                  emitter,
 		metaServer:                               metaServer,
 		metricsHistory:                           make(map[string]Entries),
+		qosConf:                                  conf.QoSConfiguration,
 		metricRingSize:                           conf.MetricRingSize,
 		loadUpperBoundRatio:                      conf.LoadUpperBoundRatio,
 		loadThresholdMetPercentage:               conf.LoadThresholdMetPercentage,
 		cpuPressureEvictionPodGracePeriodSeconds: conf.CPUPressureEvictionPodGracePeriodSeconds,
+		maxCPUSuppressionToleranceRate:           conf.MaxCPUSuppressionToleranceRate,
 	}
 
 	plugin.poolMetricCollectHandlers = map[string]PoolMetricCollectHandler{
@@ -84,12 +88,14 @@ func makeMetaServer(metricsFetcher metric.MetricsFetcher, cpuTopology *machine.C
 	return metaServer
 }
 
-func makeConf(metricRingSize int, cpuPressureEvictionPodGracePeriodSeconds int64, loadUpperBoundRatio, loadThresholdMetPercentage float64) *config.Configuration {
+func makeConf(metricRingSize int, cpuPressureEvictionPodGracePeriodSeconds int64, loadUpperBoundRatio,
+	loadThresholdMetPercentage, cpuMaxSuppressionToleranceRate float64) *config.Configuration {
 	conf := config.NewConfiguration()
 	conf.MetricRingSize = metricRingSize
 	conf.LoadUpperBoundRatio = loadUpperBoundRatio
 	conf.LoadThresholdMetPercentage = loadThresholdMetPercentage
 	conf.CPUPressureEvictionPodGracePeriodSeconds = cpuPressureEvictionPodGracePeriodSeconds
+	conf.MaxCPUSuppressionToleranceRate = cpuMaxSuppressionToleranceRate
 	return conf
 }
 
@@ -106,7 +112,8 @@ func TestNewCPUPressureEvictionPlugin(t *testing.T) {
 
 	cpuTopology, err := machine.GenerateDummyCPUTopology(16, 2, 4)
 	as.Nil(err)
-	conf := makeConf(defaultMetricRingSize, int64(defaultCPUPressureEvictionPodGracePeriodSeconds), defaultLoadUpperBoundRatio, defaultLoadThresholdMetPercentage)
+	conf := makeConf(defaultMetricRingSize, int64(defaultCPUPressureEvictionPodGracePeriodSeconds),
+		defaultLoadUpperBoundRatio, defaultLoadThresholdMetPercentage, defaultLoadUpperBoundRatio)
 	metaServer := makeMetaServer(metric.NewFakeMetricsFetcher(metrics.DummyMetrics{}), cpuTopology)
 	stateImpl, err := makeState(cpuTopology)
 	as.Nil(err)
@@ -128,7 +135,8 @@ func TestThresholdMet(t *testing.T) {
 
 	cpuTopology, err := machine.GenerateDummyCPUTopology(16, 2, 4)
 	as.Nil(err)
-	conf := makeConf(defaultMetricRingSize, int64(defaultCPUPressureEvictionPodGracePeriodSeconds), defaultLoadUpperBoundRatio, defaultLoadThresholdMetPercentage)
+	conf := makeConf(defaultMetricRingSize, int64(defaultCPUPressureEvictionPodGracePeriodSeconds),
+		defaultLoadUpperBoundRatio, defaultLoadThresholdMetPercentage, defaultLoadUpperBoundRatio)
 	metaServer := makeMetaServer(metric.NewFakeMetricsFetcher(metrics.DummyMetrics{}), cpuTopology)
 	stateImpl, err := makeState(cpuTopology)
 	as.Nil(err)
@@ -409,7 +417,8 @@ func TestGetTopEvictionPods(t *testing.T) {
 
 	cpuTopology, err := machine.GenerateDummyCPUTopology(16, 2, 4)
 	as.Nil(err)
-	conf := makeConf(defaultMetricRingSize, int64(defaultCPUPressureEvictionPodGracePeriodSeconds), defaultLoadUpperBoundRatio, defaultLoadThresholdMetPercentage)
+	conf := makeConf(defaultMetricRingSize, int64(defaultCPUPressureEvictionPodGracePeriodSeconds),
+		defaultLoadUpperBoundRatio, defaultLoadThresholdMetPercentage, defaultLoadUpperBoundRatio)
 	metaServer := makeMetaServer(metric.NewFakeMetricsFetcher(metrics.DummyMetrics{}), cpuTopology)
 	stateImpl, err := makeState(cpuTopology)
 	as.Nil(err)
@@ -793,6 +802,251 @@ func TestGetTopEvictionPods(t *testing.T) {
 				}
 			}
 			as.Equal(tt.wantResp, resp)
+		})
+	}
+}
+
+func TestGetEvictPods(t *testing.T) {
+	as := require.New(t)
+
+	cpuTopology, err := machine.GenerateDummyCPUTopology(16, 2, 4)
+	as.Nil(err)
+	conf := makeConf(defaultMetricRingSize, int64(defaultCPUPressureEvictionPodGracePeriodSeconds),
+		defaultLoadUpperBoundRatio, defaultLoadThresholdMetPercentage, defaultLoadUpperBoundRatio)
+	metaServer := makeMetaServer(metric.NewFakeMetricsFetcher(metrics.DummyMetrics{}), cpuTopology)
+	stateImpl, err := makeState(cpuTopology)
+	as.Nil(err)
+
+	plugin, err := makeCPUPressureEvictionPlugin(metrics.DummyMetrics{}, metaServer, conf, stateImpl)
+	as.Nil(err)
+	as.NotNil(plugin)
+
+	pod1UID := string(uuid.NewUUID())
+	pod1Name := "pod-1"
+	pod2UID := string(uuid.NewUUID())
+	pod2Name := "pod-2"
+
+	tests := []struct {
+		name               string
+		podEntries         statepkg.PodEntries
+		wantEvictPodUIDSet sets.String
+	}{
+		{
+			name: "no over tolerance rate pod",
+			podEntries: statepkg.PodEntries{
+				pod1UID: statepkg.ContainerEntries{
+					pod1Name: &statepkg.AllocationInfo{
+						PodUid:                   pod1UID,
+						PodNamespace:             pod1Name,
+						PodName:                  pod1Name,
+						ContainerName:            pod1Name,
+						ContainerType:            pluginapi.ContainerType_MAIN.String(),
+						ContainerIndex:           0,
+						RampUp:                   false,
+						OwnerPoolName:            statepkg.PoolNameReclaim,
+						AllocationResult:         machine.MustParse("1,3-6,9,11-14"),
+						OriginalAllocationResult: machine.MustParse("1,3-6,9,11-14"),
+						TopologyAwareAssignments: map[int]machine.CPUSet{
+							0: machine.NewCPUSet(1, 9),
+							1: machine.NewCPUSet(3, 11),
+							2: machine.NewCPUSet(4, 5, 11, 12),
+							3: machine.NewCPUSet(6, 14),
+						},
+						OriginalTopologyAwareAssignments: map[int]machine.CPUSet{
+							0: machine.NewCPUSet(1, 9),
+							1: machine.NewCPUSet(3, 11),
+							2: machine.NewCPUSet(4, 5, 11, 12),
+							3: machine.NewCPUSet(6, 14),
+						},
+						Labels: map[string]string{
+							apiconsts.PodAnnotationQoSLevelKey: apiconsts.PodAnnotationQoSLevelReclaimedCores,
+						},
+						Annotations: map[string]string{
+							apiconsts.PodAnnotationQoSLevelKey:       apiconsts.PodAnnotationQoSLevelReclaimedCores,
+							apiconsts.PodAnnotationCPUEnhancementKey: `{"suppression_tolerance_rate": "1.2"}`,
+						},
+						QoSLevel:        apiconsts.PodAnnotationQoSLevelReclaimedCores,
+						RequestQuantity: 2,
+					},
+				},
+				state.PoolNameReclaim: state.ContainerEntries{
+					"": &state.AllocationInfo{
+						PodUid:                   state.PoolNameReclaim,
+						OwnerPoolName:            state.PoolNameReclaim,
+						AllocationResult:         machine.MustParse("1,3-6,9,11-14"),
+						OriginalAllocationResult: machine.MustParse("1,3-6,9,11-14"),
+						TopologyAwareAssignments: map[int]machine.CPUSet{
+							0: machine.NewCPUSet(1, 9),
+							1: machine.NewCPUSet(3, 11),
+							2: machine.NewCPUSet(4, 5, 11, 12),
+							3: machine.NewCPUSet(6, 14),
+						},
+						OriginalTopologyAwareAssignments: map[int]machine.CPUSet{
+							0: machine.NewCPUSet(1, 9),
+							1: machine.NewCPUSet(3, 11),
+							2: machine.NewCPUSet(4, 5, 11, 12),
+							3: machine.NewCPUSet(6, 14),
+						},
+					},
+				},
+			},
+			wantEvictPodUIDSet: sets.NewString(),
+		},
+		{
+			name: "over tolerance rate",
+			podEntries: statepkg.PodEntries{
+				pod1UID: statepkg.ContainerEntries{
+					pod1Name: &statepkg.AllocationInfo{
+						PodUid:                   pod1UID,
+						PodNamespace:             pod1Name,
+						PodName:                  pod1Name,
+						ContainerName:            pod1Name,
+						ContainerType:            pluginapi.ContainerType_MAIN.String(),
+						ContainerIndex:           0,
+						RampUp:                   false,
+						OwnerPoolName:            statepkg.PoolNameReclaim,
+						AllocationResult:         machine.MustParse("1,3-6,9,11-14"),
+						OriginalAllocationResult: machine.MustParse("1,3-6,9,11-14"),
+						TopologyAwareAssignments: map[int]machine.CPUSet{
+							0: machine.NewCPUSet(1, 9),
+							1: machine.NewCPUSet(3, 11),
+							2: machine.NewCPUSet(4, 5, 11, 12),
+							3: machine.NewCPUSet(6, 14),
+						},
+						OriginalTopologyAwareAssignments: map[int]machine.CPUSet{
+							0: machine.NewCPUSet(1, 9),
+							1: machine.NewCPUSet(3, 11),
+							2: machine.NewCPUSet(4, 5, 11, 12),
+							3: machine.NewCPUSet(6, 14),
+						},
+						Labels: map[string]string{
+							apiconsts.PodAnnotationQoSLevelKey: apiconsts.PodAnnotationQoSLevelReclaimedCores,
+						},
+						Annotations: map[string]string{
+							apiconsts.PodAnnotationQoSLevelKey:       apiconsts.PodAnnotationQoSLevelReclaimedCores,
+							apiconsts.PodAnnotationCPUEnhancementKey: `{"suppression_tolerance_rate": "1.2"}`,
+						},
+						QoSLevel:        apiconsts.PodAnnotationQoSLevelReclaimedCores,
+						RequestQuantity: 15,
+					},
+				},
+				pod2UID: statepkg.ContainerEntries{
+					pod1Name: &statepkg.AllocationInfo{
+						PodUid:                   pod2UID,
+						PodNamespace:             pod2Name,
+						PodName:                  pod2Name,
+						ContainerName:            pod2Name,
+						ContainerType:            pluginapi.ContainerType_MAIN.String(),
+						ContainerIndex:           0,
+						RampUp:                   false,
+						OwnerPoolName:            statepkg.PoolNameReclaim,
+						AllocationResult:         machine.MustParse("1,3-6,9,11-14"),
+						OriginalAllocationResult: machine.MustParse("1,3-6,9,11-14"),
+						TopologyAwareAssignments: map[int]machine.CPUSet{
+							0: machine.NewCPUSet(1, 9),
+							1: machine.NewCPUSet(3, 11),
+							2: machine.NewCPUSet(4, 5, 11, 12),
+							3: machine.NewCPUSet(6, 14),
+						},
+						OriginalTopologyAwareAssignments: map[int]machine.CPUSet{
+							0: machine.NewCPUSet(1, 9),
+							1: machine.NewCPUSet(3, 11),
+							2: machine.NewCPUSet(4, 5, 11, 12),
+							3: machine.NewCPUSet(6, 14),
+						},
+						Labels: map[string]string{
+							apiconsts.PodAnnotationQoSLevelKey: apiconsts.PodAnnotationQoSLevelReclaimedCores,
+						},
+						Annotations: map[string]string{
+							apiconsts.PodAnnotationQoSLevelKey:       apiconsts.PodAnnotationQoSLevelReclaimedCores,
+							apiconsts.PodAnnotationCPUEnhancementKey: `{"suppression_tolerance_rate": "1.2"}`,
+						},
+						QoSLevel:        apiconsts.PodAnnotationQoSLevelReclaimedCores,
+						RequestQuantity: 4,
+					},
+				},
+				state.PoolNameReclaim: state.ContainerEntries{
+					"": &state.AllocationInfo{
+						PodUid:                   state.PoolNameReclaim,
+						OwnerPoolName:            state.PoolNameReclaim,
+						AllocationResult:         machine.MustParse("1,3-6,9,11-14"),
+						OriginalAllocationResult: machine.MustParse("1,3-6,9,11-14"),
+						TopologyAwareAssignments: map[int]machine.CPUSet{
+							0: machine.NewCPUSet(1, 9),
+							1: machine.NewCPUSet(3, 11),
+							2: machine.NewCPUSet(4, 5, 11, 12),
+							3: machine.NewCPUSet(6, 14),
+						},
+						OriginalTopologyAwareAssignments: map[int]machine.CPUSet{
+							0: machine.NewCPUSet(1, 9),
+							1: machine.NewCPUSet(3, 11),
+							2: machine.NewCPUSet(4, 5, 11, 12),
+							3: machine.NewCPUSet(6, 14),
+						},
+					},
+				},
+			},
+			wantEvictPodUIDSet: sets.NewString(pod1UID),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			stateImpl, err := makeState(cpuTopology)
+			as.Nil(err)
+
+			pods := make([]*v1.Pod, 0, len(tt.podEntries))
+
+			for entryName, entries := range tt.podEntries {
+				for subEntryName, entry := range entries {
+					stateImpl.SetAllocationInfo(entryName, subEntryName, entry)
+
+					if entries.IsPoolEntry() {
+						continue
+					}
+
+					pod := &v1.Pod{
+						ObjectMeta: metav1.ObjectMeta{
+							UID:         types.UID(entry.PodUid),
+							Name:        entry.PodName,
+							Namespace:   entry.PodNamespace,
+							Annotations: maputil.CopySS(entry.Annotations),
+							Labels:      maputil.CopySS(entry.Labels),
+						},
+						Spec: v1.PodSpec{
+							Containers: []v1.Container{
+								{
+									Name: entry.ContainerName,
+									Resources: v1.ResourceRequirements{
+										Requests: v1.ResourceList{
+											apiconsts.ReclaimedResourceMilliCPU: *resource.NewQuantity(int64(entry.RequestQuantity*1000), resource.DecimalSI),
+										},
+										Limits: v1.ResourceList{
+											apiconsts.ReclaimedResourceMilliCPU: *resource.NewQuantity(int64(entry.RequestQuantity*1000), resource.DecimalSI),
+										},
+									},
+								},
+							},
+						},
+					}
+
+					pods = append(pods, pod)
+				}
+			}
+
+			plugin.state = stateImpl
+
+			resp, err := plugin.GetEvictPods(context.TODO(), &evictionpluginapi.GetEvictPodsRequest{
+				ActivePods: pods,
+			})
+			assert.NoError(t, err)
+			assert.NotNil(t, resp)
+
+			evictPodUIDSet := sets.String{}
+			for _, pod := range resp.EvictPods {
+				evictPodUIDSet.Insert(string(pod.Pod.GetUID()))
+			}
+			assert.Equal(t, tt.wantEvictPodUIDSet, evictPodUIDSet)
 		})
 	}
 }

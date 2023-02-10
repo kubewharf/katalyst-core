@@ -34,6 +34,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
 	statepkg "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
 	"github.com/kubewharf/katalyst-core/pkg/config"
+	"github.com/kubewharf/katalyst-core/pkg/config/generic"
 	"github.com/kubewharf/katalyst-core/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
@@ -98,12 +99,14 @@ type cpuPressureEvictionPlugin struct {
 	emitter                   metrics.MetricEmitter
 	metaServer                *metaserver.MetaServer
 	poolMetricCollectHandlers map[string]PoolMetricCollectHandler
+	qosConf                   *generic.QoSConfiguration
 	evictionPoolName          string
 
 	metricRingSize                           int
 	loadUpperBoundRatio                      float64
 	loadThresholdMetPercentage               float64
 	cpuPressureEvictionPodGracePeriodSeconds int64
+	maxCPUSuppressionToleranceRate           float64
 	syncPeriod                               time.Duration
 	evictionColdPeriod                       time.Duration
 	lastEvictionTime                         time.Time
@@ -120,10 +123,12 @@ func newCPUPressureEvictionPlugin(emitter metrics.MetricEmitter, metaServer *met
 		emitter:                                  wrappedEmitter,
 		metaServer:                               metaServer,
 		metricsHistory:                           make(map[string]Entries),
+		qosConf:                                  conf.QoSConfiguration,
 		metricRingSize:                           conf.MetricRingSize,
 		loadUpperBoundRatio:                      conf.LoadUpperBoundRatio,
 		loadThresholdMetPercentage:               conf.LoadThresholdMetPercentage,
 		cpuPressureEvictionPodGracePeriodSeconds: conf.CPUPressureEvictionPodGracePeriodSeconds,
+		maxCPUSuppressionToleranceRate:           conf.MaxCPUSuppressionToleranceRate,
 		syncPeriod:                               conf.CPUPressureEvictionSyncPeriod,
 		evictionColdPeriod:                       conf.CPUPressureEvictionColdPeriod,
 	}
@@ -378,7 +383,16 @@ func (p *cpuPressureEvictionPlugin) GetEvictPods(ctx context.Context, request *p
 		return nil, fmt.Errorf("GetEvictPods got nil request")
 	}
 
-	return &pluginapi.GetEvictPodsResponse{}, nil
+	if len(request.ActivePods) == 0 {
+		return &pluginapi.GetEvictPodsResponse{}, nil
+	}
+
+	var evictPods []*pluginapi.EvictPod
+	evictPods = append(evictPods, p.getEvictOverSuppressionTolerancePods(request.ActivePods)...)
+
+	return &pluginapi.GetEvictPodsResponse{
+		EvictPods: evictPods,
+	}, nil
 }
 
 func (p *cpuPressureEvictionPlugin) clearEvictionPoolName() {

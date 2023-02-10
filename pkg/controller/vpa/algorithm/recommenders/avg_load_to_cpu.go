@@ -27,6 +27,7 @@ import (
 
 	apis "github.com/kubewharf/katalyst-api/pkg/apis/autoscaling/v1alpha1"
 	workload "github.com/kubewharf/katalyst-api/pkg/apis/workload/v1alpha1"
+	apimetricpod "github.com/kubewharf/katalyst-api/pkg/metric/pod"
 	"github.com/kubewharf/katalyst-core/pkg/controller/vpa/algorithm"
 )
 
@@ -54,7 +55,7 @@ func (r *SimpleCPURecommender) GetRecommendedPodResources(
 
 	for _, aggPodMetrics := range spd.Status.AggMetrics {
 		if aggPodMetrics.Aggregator == workload.Avg {
-			containerLoads := r.computeAVGPodMetrics(aggPodMetrics.Items, workload.Load1h)
+			containerLoads := r.computeAVGPodMetrics(aggPodMetrics.Items, apimetricpod.CustomMetricPodCPULoad1Min)
 			if len(containerLoads) == 0 {
 				return nil, nil, fmt.Errorf("failed to compute avg loads")
 			}

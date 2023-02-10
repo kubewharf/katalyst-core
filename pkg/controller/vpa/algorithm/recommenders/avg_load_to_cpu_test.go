@@ -30,6 +30,7 @@ import (
 
 	apis "github.com/kubewharf/katalyst-api/pkg/apis/autoscaling/v1alpha1"
 	workload "github.com/kubewharf/katalyst-api/pkg/apis/workload/v1alpha1"
+	apimetricpod "github.com/kubewharf/katalyst-api/pkg/metric/pod"
 )
 
 func TestGetRecommendedPodResources(t *testing.T) {
@@ -56,7 +57,7 @@ func TestGetRecommendedPodResources(t *testing.T) {
 										{
 											Name: "c1",
 											Usage: map[v1.ResourceName]resource.Quantity{
-												workload.Load1h: *resource.NewQuantity(20, resource.DecimalSI),
+												apimetricpod.CustomMetricPodCPULoad1Min: *resource.NewQuantity(20, resource.DecimalSI),
 											},
 										},
 									},
@@ -73,7 +74,7 @@ func TestGetRecommendedPodResources(t *testing.T) {
 										{
 											Name: "c1",
 											Usage: map[v1.ResourceName]resource.Quantity{
-												workload.Load1h: *resource.NewQuantity(20, resource.DecimalSI),
+												apimetricpod.CustomMetricPodCPULoad1Min: *resource.NewQuantity(20, resource.DecimalSI),
 											},
 										},
 									},

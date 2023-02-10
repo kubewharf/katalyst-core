@@ -29,6 +29,7 @@ type CPUPressureEvictionPluginConfiguration struct {
 	MetricRingSize                           int
 	CPUPressureEvictionSyncPeriod            time.Duration
 	CPUPressureEvictionColdPeriod            time.Duration
+	MaxCPUSuppressionToleranceRate           float64
 }
 
 // NewCPUPressureEvictionPluginConfiguration returns a new CPUPressureEvictionPluginConfiguration

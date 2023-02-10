@@ -24,6 +24,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/klog/v2"
 
+	"github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 )
 
@@ -57,6 +58,36 @@ func AddResources(a, b v1.ResourceList) v1.ResourceList {
 		res[resourceName] = quantity
 	}
 	return res
+}
+
+// GetCPUQuantity returns cpu quantity for resourceList. since we may have
+// different representations for cpu resource name, the prioritizes will be:
+// native cpu name -> reclaimed milli cpu name
+func GetCPUQuantity(resourceList v1.ResourceList) resource.Quantity {
+	if quantity, ok := resourceList[v1.ResourceCPU]; ok {
+		return quantity
+	}
+
+	if quantity, ok := resourceList[consts.ReclaimedResourceMilliCPU]; ok {
+		return *resource.NewMilliQuantity(quantity.Value(), quantity.Format)
+	}
+
+	return resource.Quantity{}
+}
+
+// GetMemoryQuantity returns memory quantity for resourceList. since we may have
+// different representations for memory resource name, the prioritizes will be:
+// native memory name -> reclaimed memory name
+func GetMemoryQuantity(resourceList v1.ResourceList) resource.Quantity {
+	if quantity, ok := resourceList[v1.ResourceMemory]; ok {
+		return quantity
+	}
+
+	if quantity, ok := resourceList[consts.ReclaimedResourceMemory]; ok {
+		return quantity
+	}
+
+	return resource.Quantity{}
 }
 
 // MergeResources merge multi ResourceList into one ResourceList, the resource of

@@ -22,7 +22,6 @@ import (
 
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/tools/events"
-	corev1helpers "k8s.io/component-helpers/scheduling/corev1"
 	"k8s.io/klog/v2"
 
 	pluginapi "github.com/kubewharf/katalyst-api/pkg/protocol/evictionplugin/v1alpha1"
@@ -508,7 +507,7 @@ func (m *MemoryPressureEvictionPlugin) selectPodsToEvict(activePods []*v1.Pod, t
 	action int, rankingMetrics []string, podToEvictMap map[string]*v1.Pod) {
 	filteredPods := m.filterPods(activePods, action)
 	if filteredPods != nil {
-		native.NewMultiSorter(m.getEvictionCmpFuncs(rankingMetrics, numaID)).Sort(filteredPods)
+		native.NewMultiSorter(m.getEvictionCmpFuncs(rankingMetrics, numaID)...).Sort(filteredPods)
 		for i := 0; uint64(i) < general.MinUInt64(topN, uint64(len(filteredPods))); i++ {
 			podToEvictMap[string(filteredPods[i].UID)] = filteredPods[i]
 		}
@@ -553,11 +552,8 @@ func (m *MemoryPressureEvictionPlugin) getEvictionCmpFuncs(rankingMetrics []stri
 				// prioritize evicting the pod whose QoS level is reclaimed_cores
 				return native.CmpBool(isReclaimedPod1, isReclaimedPod2)
 			case evictionconfig.FakeMetricPriority:
-				priority1 := corev1helpers.PodPriority(p1)
-				priority2 := corev1helpers.PodPriority(p2)
-
 				// prioritize evicting the pod whose priority is lower
-				return native.CmpInt32(-priority1, -priority2)
+				return native.ReverseCmpFunc(native.PodPriorityCmpFunc)(p1, p2)
 			default:
 				p1Metric, p1Found := m.getPodMetric(p1, currentMetric, numaID)
 				p2Metric, p2Found := m.getPodMetric(p2, currentMetric, numaID)

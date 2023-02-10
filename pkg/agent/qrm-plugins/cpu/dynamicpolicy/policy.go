@@ -49,6 +49,7 @@ import (
 	cgroupcmutils "github.com/kubewharf/katalyst-core/pkg/util/cgroup/manager"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
+	"github.com/kubewharf/katalyst-core/pkg/util/native"
 	"github.com/kubewharf/katalyst-core/pkg/util/process"
 )
 
@@ -1766,17 +1767,8 @@ func (p *DynamicPolicy) getContainerRequestedCores(allocationInfo *state.Allocat
 			return 0
 		}
 
-		cpuQuantity := 0
-		for key, val := range container.Resources.Requests {
-			switch key {
-			case v1.ResourceCPU:
-				cpuQuantity = general.Max(int(val.Value()), 0)
-			case consts.ReclaimedResourceMilliCPU:
-				cpuQuantity = general.Max(int(math.Ceil(val.AsApproximateFloat64()/1000.0)), 0)
-			}
-		}
-
-		allocationInfo.RequestQuantity = cpuQuantity
+		cpuQuantity := native.GetCPUQuantity(container.Resources.Requests)
+		allocationInfo.RequestQuantity = general.Max(int(cpuQuantity.Value()), 0)
 		klog.Infof("[getContainerRequestedCores] get cpu request quantity: %d for pod: %s/%s container: %s from podWatcher",
 			allocationInfo.RequestQuantity, allocationInfo.PodNamespace, allocationInfo.PodName, allocationInfo.ContainerName)
 	}
