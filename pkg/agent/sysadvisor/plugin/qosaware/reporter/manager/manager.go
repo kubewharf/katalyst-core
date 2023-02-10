@@ -39,8 +39,6 @@ type HeadroomManager interface {
 	GetAllocatable() (resource.Quantity, error)
 	// GetCapacity return the capacity of this resource
 	GetCapacity() (resource.Quantity, error)
-	// GetOrigin return the original recommendation result
-	GetOrigin() (resource.Quantity, error)
 	// Run this resource manager
 	Run(ctx context.Context)
 }

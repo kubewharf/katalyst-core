@@ -34,7 +34,6 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/reporter/manager/resource"
 	hmadvisor "github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource"
 	"github.com/kubewharf/katalyst-core/pkg/config"
-	"github.com/kubewharf/katalyst-core/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util"
@@ -84,7 +83,6 @@ func (r *headroomReporterImpl) Run(ctx context.Context) {
 type reclaimedResource struct {
 	allocatable v1.ResourceList
 	capacity    v1.ResourceList
-	origin      v1.ResourceList
 }
 
 type headroomReporterPlugin struct {
@@ -205,7 +203,6 @@ func (r *headroomReporterPlugin) getReclaimedResource() (*reclaimedResource, err
 
 	allocatable := make(v1.ResourceList)
 	capacity := make(v1.ResourceList)
-	origin := make(v1.ResourceList)
 	for resourceName, rm := range r.headroomManagers {
 		allocatable[resourceName], err = rm.GetAllocatable()
 		if err != nil {
@@ -216,11 +213,6 @@ func (r *headroomReporterPlugin) getReclaimedResource() (*reclaimedResource, err
 		if err != nil {
 			errList = append(errList, err, fmt.Errorf("get reclaimed %s capacity failed: %s", resourceName, err))
 		}
-
-		origin[resourceName], err = rm.GetOrigin()
-		if err != nil {
-			errList = append(errList, err, fmt.Errorf("get reclaimed %s oversold rate failed: %s", resourceName, err))
-		}
 	}
 
 	if len(errList) > 0 {
@@ -230,7 +222,6 @@ func (r *headroomReporterPlugin) getReclaimedResource() (*reclaimedResource, err
 	return &reclaimedResource{
 		allocatable: allocatable,
 		capacity:    capacity,
-		origin:      origin,
 	}, err
 }
 
@@ -249,16 +240,6 @@ func getReportReclaimedResourceForCNR(reclaimedResource *reclaimedResource) (*v1
 		return nil, err
 	}
 
-	originReclaimedResource, err := generateOriginReclaimedResourceAnnotation(reclaimedResource.origin)
-	if err != nil {
-		return nil, err
-	}
-
-	originReclaimedResourceString, err := json.Marshal(originReclaimedResource)
-	if err != nil {
-		return nil, err
-	}
-
 	return &v1alpha1.ReportContent{
 		GroupVersionKind: &util.CNRGroupVersionKind,
 		Field: []*v1alpha1.ReportField{
@@ -272,22 +253,6 @@ func getReportReclaimedResourceForCNR(reclaimedResource *reclaimedResource) (*v1
 				FieldName: util.CNRFieldNameResourceCapacity,
 				Value:     capacity,
 			},
-			{
-				FieldType: v1alpha1.FieldType_Metadata,
-				FieldName: "Annotations",
-				Value:     originReclaimedResourceString,
-			},
 		},
 	}, nil
-}
-
-func generateOriginReclaimedResourceAnnotation(origin v1.ResourceList) (map[string]string, error) {
-	originReclaimedResource, err := json.Marshal(origin)
-	if err != nil {
-		return nil, err
-	}
-
-	return map[string]string{
-		consts.CNRAnnotationKeyOriginReclaimedResource: string(originReclaimedResource),
-	}, err
 }

@@ -34,7 +34,6 @@ import (
 )
 
 const (
-	metricsNameHeadroomOriginResult = "headroom_origin_result"
 	metricsNameHeadroomReportResult = "headroom_report_result"
 )
 
@@ -59,7 +58,6 @@ type GenericSlidingWindowOptions struct {
 type GenericHeadroomManager struct {
 	sync.RWMutex
 	lastReportResult *resource.Quantity
-	lastOriginResult *resource.Quantity
 
 	headroomAdvisor     hmadvisor.ResourceAdvisor
 	broker              broker.Broker
@@ -133,10 +131,6 @@ func (m *GenericHeadroomManager) GetCapacity() (resource.Quantity, error) {
 	return m.getLastReportResult()
 }
 
-func (m *GenericHeadroomManager) GetOrigin() (resource.Quantity, error) {
-	return m.getLastOriginResult()
-}
-
 func (m *GenericHeadroomManager) Run(ctx context.Context) {
 	go m.broker.Run(ctx)
 	go wait.UntilWithContext(ctx, m.sync, m.syncPeriod)
@@ -153,22 +147,11 @@ func (m *GenericHeadroomManager) getLastReportResult() (resource.Quantity, error
 	return m.reportResultTransformer(lastReportResult.DeepCopy()), nil
 }
 
-func (m *GenericHeadroomManager) getLastOriginResult() (resource.Quantity, error) {
-	m.RLock()
-	lastOriginResult := m.lastOriginResult
-	m.RUnlock()
-	if lastOriginResult == nil {
-		return resource.Quantity{}, fmt.Errorf("resource %s last origin result not found", m.resourceName)
-	}
-	return m.reportResultTransformer(lastOriginResult.DeepCopy()), nil
-}
-
 func (m *GenericHeadroomManager) sync(_ context.Context) {
 	m.Lock()
 	defer m.Unlock()
 	if !m.reclaimOptions.EnableReclaim {
 		m.lastReportResult = &resource.Quantity{}
-		m.lastOriginResult = &resource.Quantity{}
 		return
 	}
 
@@ -184,9 +167,8 @@ func (m *GenericHeadroomManager) sync(_ context.Context) {
 		return
 	}
 
-	originResult := m.originSlidingWindow.GetWindowedResources(originResultFromAdvisor)
 	reportResult := m.reportSlidingWindow.GetWindowedResources(reportResultFromBroker)
-	if originResult == nil || reportResult == nil {
+	if reportResult == nil {
 		klog.Infof("skip update reclaimed resource %s without enough valid sample", m.resourceName)
 		return
 	}
@@ -197,14 +179,12 @@ func (m *GenericHeadroomManager) sync(_ context.Context) {
 	}
 
 	klog.Infof("headroom manager for %s with originResultFromAdvisor: %s, reportResultFromBroker: %s, "+
-		"originResult: %s, reportResult: %s, reservedResourceForReport: %s", m.resourceName, originResultFromAdvisor.String(),
-		reportResultFromBroker.String(), originResult.String(), reportResult.String(), m.reclaimOptions.ReservedResourceForReport.String())
+		"reportResult: %s, reservedResourceForReport: %s", m.resourceName, originResultFromAdvisor.String(),
+		reportResultFromBroker.String(), reportResult.String(), m.reclaimOptions.ReservedResourceForReport.String())
 
-	m.emitResourceToMetric(metricsNameHeadroomOriginResult, m.reportResultTransformer(*originResult))
 	m.emitResourceToMetric(metricsNameHeadroomReportResult, m.reportResultTransformer(*reportResult))
 
 	m.lastReportResult = reportResult
-	m.lastOriginResult = originResult
 }
 
 func (m *GenericHeadroomManager) emitResourceToMetric(metricsName string, value resource.Quantity) {
