@@ -23,23 +23,28 @@ import (
 	cliflag "k8s.io/component-base/cli/flag"
 
 	metricemitter "github.com/kubewharf/katalyst-core/pkg/config/agent/sysadvisor/metric-emitter"
+	"github.com/kubewharf/katalyst-core/pkg/util/general"
 )
 
 // MetricEmitterPluginOptions holds the configurations for custom-metric emitter plugin.
 type MetricEmitterPluginOptions struct {
-	PodMetricLabels  []string
-	NodeMetricLabels []string
+	PodMetricLabels    []string
+	PodSkipAnnotations string
+	PodSkipLabels      string
+	PodSyncPeriod      time.Duration
 
-	PodSyncPeriod time.Duration
+	NodeMetricLabels []string
 }
 
 // NewMetricEmitterPluginOptions creates a new Options with a default config.
 func NewMetricEmitterPluginOptions() *MetricEmitterPluginOptions {
 	return &MetricEmitterPluginOptions{
-		PodMetricLabels:  []string{},
-		NodeMetricLabels: []string{},
+		PodMetricLabels:    []string{},
+		PodSkipAnnotations: "",
+		PodSkipLabels:      "",
+		PodSyncPeriod:      30 * time.Second,
 
-		PodSyncPeriod: 30 * time.Second,
+		NodeMetricLabels: []string{},
 	}
 }
 
@@ -49,18 +54,34 @@ func (o *MetricEmitterPluginOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 
 	fs.StringSliceVar(&o.PodMetricLabels, "metric-pod-labels", o.PodMetricLabels,
 		"pod labels to be added in metric selector lists")
-	fs.StringSliceVar(&o.NodeMetricLabels, "metric-node-labels", o.NodeMetricLabels,
-		"node labels to be added in metric selector lists")
-
+	fs.StringVar(&o.PodSkipAnnotations, "metric-pod-skip-annotations", o.PodSkipAnnotations,
+		"if any pod has annotations as defined, skip to collect metrics for them")
+	fs.StringVar(&o.PodSkipLabels, "metric-pod-skip-labels", o.PodSkipLabels,
+		"if any pod has annotations as defined, skip to collect metrics for them")
 	fs.DurationVar(&o.PodSyncPeriod, "metric-pod-sync-period", o.PodSyncPeriod,
 		"the period that pod sync logic")
+
+	fs.StringSliceVar(&o.NodeMetricLabels, "metric-node-labels", o.NodeMetricLabels,
+		"node labels to be added in metric selector lists")
 }
 
 // ApplyTo fills up config with options
 func (o *MetricEmitterPluginOptions) ApplyTo(c *metricemitter.MetricEmitterPluginConfiguration) error {
 	c.PodMetricLabel = sets.NewString(o.PodMetricLabels...)
-	c.NodeMetricLabel = sets.NewString(o.NodeMetricLabels...)
-
 	c.PodSyncPeriod = o.PodSyncPeriod
+
+	podSkipLabels, err := general.ParseMapWithPrefix("", o.PodSkipLabels)
+	if err != nil {
+		return err
+	}
+	c.PodSkipLabels = podSkipLabels
+
+	podSkipAnnotations, err := general.ParseMapWithPrefix("", o.PodSkipAnnotations)
+	if err != nil {
+		return err
+	}
+	c.PodSkipAnnotations = podSkipAnnotations
+
+	c.NodeMetricLabel = sets.NewString(o.NodeMetricLabels...)
 	return nil
 }

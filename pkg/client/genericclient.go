@@ -26,6 +26,7 @@ import (
 	"k8s.io/client-go/discovery"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/metadata"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/metrics/pkg/client/custom_metrics"
@@ -43,6 +44,7 @@ import (
 type GenericClientSet struct {
 	cfg *rest.Config
 
+	MetaClient      metadata.Interface
 	KubeClient      kubernetes.Interface
 	InternalClient  clientset.Interface
 	DynamicClient   dynamic.Interface
@@ -63,6 +65,11 @@ func (g *GenericClientSet) BuildMetricClient(mapper *dynamicmapper.RegeneratingD
 func newForConfig(cfg *rest.Config) (*GenericClientSet, error) {
 	cWithProtobuf := rest.CopyConfig(cfg)
 	cWithProtobuf.ContentType = runtime.ContentTypeProtobuf
+
+	metaClient, err := metadata.NewForConfig(cWithProtobuf)
+	if err != nil {
+		return nil, err
+	}
 
 	kubeClient, err := kubernetes.NewForConfig(cWithProtobuf)
 	if err != nil {
@@ -86,6 +93,7 @@ func newForConfig(cfg *rest.Config) (*GenericClientSet, error) {
 
 	return &GenericClientSet{
 		cfg:             cfg,
+		MetaClient:      metaClient,
 		KubeClient:      kubeClient,
 		InternalClient:  internalClient,
 		DynamicClient:   dynamicClient,

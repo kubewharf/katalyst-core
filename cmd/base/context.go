@@ -26,6 +26,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/dynamic/dynamicinformer"
 	"k8s.io/client-go/informers"
+	"k8s.io/client-go/metadata/metadatainformer"
 	"k8s.io/client-go/tools/events"
 	"k8s.io/klog/v2"
 	"sigs.k8s.io/custom-metrics-apiserver/pkg/dynamicmapper"
@@ -63,6 +64,7 @@ type GenericContext struct {
 	//
 	// since those variables may be un-initialized in some component, we must be
 	// very careful when we use them
+	MetaInformerFactory     metadatainformer.SharedInformerFactory
 	KubeInformerFactory     informers.SharedInformerFactory
 	InternalInformerFactory externalversions.SharedInformerFactory
 	DynamicInformerFactory  dynamicinformer.DynamicSharedInformerFactory
@@ -81,6 +83,7 @@ func NewGenericContext(
 ) (*GenericContext, error) {
 	var (
 		err                     error
+		metaInformerFactory     metadatainformer.SharedInformerFactory
 		kubeInformerFactory     informers.SharedInformerFactory
 		internalInformerFactory externalversions.SharedInformerFactory
 		dynamicInformerFactory  dynamicinformer.DynamicSharedInformerFactory
@@ -89,6 +92,11 @@ func NewGenericContext(
 
 	// agent no need initialize informer
 	if component != consts.KatalystComponentAgent {
+		metaInformerFactory = metadatainformer.NewFilteredSharedInformerFactory(clientSet.MetaClient, time.Hour*24, "",
+			func(options *metav1.ListOptions) {
+				options.LabelSelector = labelSelector
+			})
+
 		kubeInformerFactory = informers.NewSharedInformerFactoryWithOptions(clientSet.KubeClient, time.Hour*24,
 			informers.WithTweakListOptions(func(options *metav1.ListOptions) {
 				options.LabelSelector = labelSelector
@@ -114,7 +122,7 @@ func NewGenericContext(
 	}
 
 	mux := http.NewServeMux()
-	emitterPool, err := metricspool.NewOpenTelemetryPrometheusMetricsEmitterPool(mux)
+	emitterPool, err := metricspool.NewOpenTelemetryPrometheusMetricsEmitterPool(genericConf.MetricsConfiguration, mux)
 	if err != nil {
 		return nil, err
 	}
@@ -138,6 +146,7 @@ func NewGenericContext(
 			Addr:    genericConf.GenericEndpoint,
 		},
 		DisabledByDefault:       disabledByDefault,
+		MetaInformerFactory:     metaInformerFactory,
 		KubeInformerFactory:     kubeInformerFactory,
 		InternalInformerFactory: internalInformerFactory,
 		DynamicInformerFactory:  dynamicInformerFactory,
@@ -172,6 +181,10 @@ func (c *GenericContext) Run(ctx context.Context) {
 // StartInformer starts the shared informer factories;
 // informer is reentrant, so it's no need to check if context has been started
 func (c *GenericContext) StartInformer(ctx context.Context) {
+	if c.MetaInformerFactory != nil {
+		c.MetaInformerFactory.Start(ctx.Done())
+	}
+
 	if c.KubeInformerFactory != nil {
 		c.KubeInformerFactory.Start(ctx.Done())
 	}

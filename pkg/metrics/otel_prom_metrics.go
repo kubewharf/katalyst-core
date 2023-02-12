@@ -35,11 +35,12 @@ import (
 	"go.opentelemetry.io/otel/sdk/resource"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/klog/v2"
+
+	"github.com/kubewharf/katalyst-core/pkg/config/generic"
 )
 
 const (
 	openTelemetryPrometheusCollectPeriod = time.Second * 3
-	openTelemetryPrometheusGCPeriod      = time.Minute * 10
 )
 
 type PrometheusMetricPathName string
@@ -85,8 +86,9 @@ func (c *prometheusClock) C() <-chan time.Time {
 }
 
 type openTelemetryPrometheusMetricsEmitter struct {
-	c        *prometheusClock
-	pathName PrometheusMetricPathName
+	c           *prometheusClock
+	pathName    PrometheusMetricPathName
+	metricsConf *generic.MetricsConfiguration
 
 	exporter *prometheus.Exporter
 	meter    metric.Meter
@@ -110,7 +112,8 @@ func (c customExportKindSelectorWrapper) ExportKindFor(desc *metric.Descriptor, 
 }
 
 // NewOpenTelemetryPrometheusMetricsEmitter implement a MetricEmitter use open-telemetry sdk.
-func NewOpenTelemetryPrometheusMetricsEmitter(pathName PrometheusMetricPathName, mux *http.ServeMux) (MetricEmitter, error) {
+func NewOpenTelemetryPrometheusMetricsEmitter(metricsConf *generic.MetricsConfiguration, pathName PrometheusMetricPathName,
+	mux *http.ServeMux) (MetricEmitter, error) {
 	exporter, err := prometheus.NewExporter(prometheus.Config{}, controller.New(
 		processor.New(
 			selector.NewWithInexpensiveDistribution(),
@@ -130,8 +133,9 @@ func NewOpenTelemetryPrometheusMetricsEmitter(pathName PrometheusMetricPathName,
 
 	meter := exporter.MeterProvider().Meter("")
 	p := &openTelemetryPrometheusMetricsEmitter{
-		c:        c,
-		pathName: pathName,
+		c:           c,
+		pathName:    pathName,
+		metricsConf: metricsConf,
 
 		exporter: exporter,
 		meter:    meter,
@@ -159,12 +163,13 @@ func (p *openTelemetryPrometheusMetricsEmitter) WithTags(
 }
 
 func (p *openTelemetryPrometheusMetricsEmitter) Run(ctx context.Context) {
+	klog.Infof("openTelemetry runs")
 	go wait.Until(p.gc, time.Minute, ctx.Done())
 }
 
 func (p *openTelemetryPrometheusMetricsEmitter) gc() {
 	// usw c.clock.Now() to judge whether we have collected
-	if time.Since(p.c.last) > openTelemetryPrometheusGCPeriod {
+	if time.Since(p.c.last) > p.metricsConf.EmitterPrometheusGCTimeout {
 		klog.Infof("trigger manual gc for %v", p.pathName)
 		_ = p.exporter.Controller().Collect(context.Background())
 	}
@@ -220,7 +225,7 @@ func (p *openTelemetryPrometheusMetricsEmitter) storeRawInt64(key string, val in
 		return err
 	}
 
-	instrument.Bind(p.convertMapToKeyValues(tags)).RecordOne(context.TODO(), number.NewInt64Number(val))
+	instrument.RecordOne(context.TODO(), number.NewInt64Number(val), p.convertMapToKeyValues(tags))
 	return err
 }
 
@@ -230,7 +235,7 @@ func (p *openTelemetryPrometheusMetricsEmitter) storeRawFloat64(key string, val 
 		return err
 	}
 
-	instrument.Bind(p.convertMapToKeyValues(tags)).RecordOne(context.TODO(), number.NewFloat64Number(val))
+	instrument.RecordOne(context.TODO(), number.NewFloat64Number(val), p.convertMapToKeyValues(tags))
 	return err
 }
 

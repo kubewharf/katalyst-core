@@ -54,7 +54,7 @@ without_timestamp{label_test="without_timestamp",namespace="n1",object="pod",obj
 	defer server.Close()
 
 	client, _ := newPrometheusClient()
-	s, _ := NewScrapeManager(ctx, client, "fake-node", server.URL, metrics.DummyMetrics{})
+	s, _ := NewScrapeManager(ctx, time.Hour, client, "fake-node", server.URL, metrics.DummyMetrics{})
 	// to make sure the metric will only be collected once
 	s.Start(time.Minute * 30)
 	time.Sleep(time.Second * 5)

@@ -17,8 +17,6 @@ limitations under the License.
 package metric
 
 import (
-	"time"
-
 	"k8s.io/apimachinery/pkg/labels"
 )
 
@@ -28,8 +26,6 @@ type StoreConfiguration struct {
 	StoreServerSelector     labels.Selector
 
 	StoreName string
-
-	OutOfDataPeriod time.Duration
 }
 
 func NewStoreConfiguration() *StoreConfiguration {

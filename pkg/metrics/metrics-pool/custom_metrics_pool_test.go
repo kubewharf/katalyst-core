@@ -21,10 +21,12 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+
+	"github.com/kubewharf/katalyst-core/pkg/config/generic"
 )
 
 func TestNewCustomMetricsEmitterPool(t *testing.T) {
-	m, err := NewOpenTelemetryPrometheusMetricsEmitterPool(http.NewServeMux())
+	m, err := NewOpenTelemetryPrometheusMetricsEmitterPool(generic.NewMetricsConfiguration(), http.NewServeMux())
 	assert.NoError(t, err)
 
 	p := NewCustomMetricsEmitterPool(m)

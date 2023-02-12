@@ -26,6 +26,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/klog/v2"
 
+	"github.com/kubewharf/katalyst-core/pkg/config/generic"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 )
 
@@ -36,6 +37,7 @@ type PrometheusMetricOptions struct {
 // openTelemetryPrometheusMetricsEmitterPool is a metrics emitter mux for metrics.openTelemetryPrometheusMetricsEmitter.
 type openTelemetryPrometheusMetricsEmitterPool struct {
 	sync.Mutex
+	genericConf *generic.MetricsConfiguration
 
 	mux      *http.ServeMux
 	emitters map[metrics.PrometheusMetricPathName]metrics.MetricEmitter
@@ -44,11 +46,12 @@ type openTelemetryPrometheusMetricsEmitterPool struct {
 
 var _ MetricsEmitterPool = &openTelemetryPrometheusMetricsEmitterPool{}
 
-func NewOpenTelemetryPrometheusMetricsEmitterPool(mux *http.ServeMux) (MetricsEmitterPool, error) {
+func NewOpenTelemetryPrometheusMetricsEmitterPool(genericConf *generic.MetricsConfiguration, mux *http.ServeMux) (MetricsEmitterPool, error) {
 	m := &openTelemetryPrometheusMetricsEmitterPool{
-		mux:      mux,
-		emitters: make(map[metrics.PrometheusMetricPathName]metrics.MetricEmitter),
-		started:  make(map[metrics.PrometheusMetricPathName]bool),
+		mux:         mux,
+		genericConf: genericConf,
+		emitters:    make(map[metrics.PrometheusMetricPathName]metrics.MetricEmitter),
+		started:     make(map[metrics.PrometheusMetricPathName]bool),
 	}
 
 	if _, err := m.GetMetricsEmitter(PrometheusMetricOptions{
@@ -83,7 +86,7 @@ func (m *openTelemetryPrometheusMetricsEmitterPool) GetMetricsEmitter(para inter
 
 	pathName := options.Path
 	if _, ok := m.emitters[pathName]; !ok {
-		e, err := metrics.NewOpenTelemetryPrometheusMetricsEmitter(pathName, m.mux)
+		e, err := metrics.NewOpenTelemetryPrometheusMetricsEmitter(m.genericConf, pathName, m.mux)
 		if err != nil {
 			return nil, err
 		}

@@ -206,6 +206,7 @@ func (c *MetricStore) GCPodsMetric(livingPodUIDSet map[string]bool) {
 	for podUID := range c.podContainerMetricMap {
 		if _, ok := livingPodUIDSet[podUID]; !ok {
 			delete(c.podContainerMetricMap, podUID)
+			delete(c.podContainerNumaMetricMap, podUID)
 		}
 	}
 }

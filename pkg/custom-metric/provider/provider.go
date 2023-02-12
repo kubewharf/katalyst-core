@@ -82,6 +82,8 @@ func (m *MetricProviderImp) GetMetricByName(ctx context.Context, namespacedName 
 	var res *custom_metrics.MetricValue
 	for _, internal := range internalList {
 		if internal.GetObject() == "" || internal.GetObjectName() == "" {
+			klog.Errorf("custom metric %v doesn't have object %v/%v",
+				internal.Name, internal.GetObject(), internal.GetObjectName())
 			continue
 		}
 
@@ -112,6 +114,8 @@ func (m *MetricProviderImp) GetMetricBySelector(ctx context.Context, namespace s
 	var items []custom_metrics.MetricValue
 	for _, internal := range internalList {
 		if internal.GetObject() == "" || internal.GetObjectName() == "" {
+			klog.Errorf("custom metric %v doesn't have object %v/%v",
+				internal.Name, internal.GetObject(), internal.GetObjectName())
 			continue
 		}
 
@@ -171,6 +175,8 @@ func (m *MetricProviderImp) GetExternalMetric(ctx context.Context, namespace str
 	var items []external_metrics.ExternalMetricValue
 	for _, internal := range internalList {
 		if internal.GetObject() != "" || internal.GetObjectName() != "" {
+			klog.Errorf("internal metric %v has object %v/%v unexpectedly",
+				internal.Name, internal.GetObject(), internal.GetObjectName())
 			continue
 		}
 

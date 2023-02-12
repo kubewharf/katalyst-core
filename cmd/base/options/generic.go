@@ -39,13 +39,15 @@ type GenericOptions struct {
 	GenericAuthStaticUser   string
 	GenericAuthStaticPasswd string
 
-	qosOptions *QoSOptions
+	qosOptions     *QoSOptions
+	metricsOptions *MetricsOptions
 }
 
 func NewGenericOptions() *GenericOptions {
 	return &GenericOptions{
 		GenericEndpoint:             ":9316",
 		qosOptions:                  NewQoSOptions(),
+		metricsOptions:              NewMetricsOptions(),
 		GenericEndpointHandleChains: []string{process.HTTPChainRateLimiter},
 	}
 }
@@ -74,6 +76,7 @@ func (o *GenericOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 		"basic auth is build auth chain for http, and this defines the static passwd")
 
 	o.qosOptions.AddFlags(fs)
+	o.metricsOptions.AddFlags(fs)
 }
 
 // ApplyTo fills up config with options
@@ -85,6 +88,7 @@ func (o *GenericOptions) ApplyTo(c *generic.GenericConfiguration) error {
 
 	errList := make([]error, 0, 1)
 	errList = append(errList, o.qosOptions.ApplyTo(c.QoSConfiguration))
+	errList = append(errList, o.metricsOptions.ApplyTo(c.MetricsConfiguration))
 
 	return errors.NewAggregate(errList)
 }

@@ -36,7 +36,7 @@ import (
 func StartCustomMetricCollect(ctx context.Context, baseCtx *katalystbase.GenericContext, conf *config.Configuration,
 	metricStore store.MetricStore) (func() error, func() error, error) {
 
-	metricCollector, err := prometheus.NewPrometheusCollector(ctx, baseCtx, conf.CollectorConfiguration, metricStore)
+	metricCollector, err := prometheus.NewPrometheusCollector(ctx, baseCtx, conf.GenericMetricConfiguration, conf.CollectorConfiguration, metricStore)
 	if err != nil {
 		return nil, nil, fmt.Errorf("init collector failed: %v", err)
 	}

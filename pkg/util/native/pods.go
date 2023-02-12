@@ -282,3 +282,13 @@ func GetNamespacedNameListFromSlice(podSlice []*v1.Pod) []string {
 	}
 	return namespacedNameList
 }
+
+// CheckDaemonPod returns true if pod is for DaemonSet
+func CheckDaemonPod(pod *v1.Pod) bool {
+	for _, owner := range pod.OwnerReferences {
+		if owner.Kind == "DaemonSet" {
+			return true
+		}
+	}
+	return false
+}

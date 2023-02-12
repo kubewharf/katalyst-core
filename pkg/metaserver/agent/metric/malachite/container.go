@@ -19,6 +19,8 @@ package malachite
 import (
 	"encoding/json"
 	"fmt"
+
+	"k8s.io/klog/v2"
 )
 
 func GetCgroupStats(cgroupPath string) (*MalachiteCgroupInfo, error) {
@@ -89,7 +91,7 @@ func GetAllPodsContainersStats() (map[string]map[string]*MalachiteCgroupInfo, er
 		for containerName, cgroupsPath := range containersCgroupsPath {
 			cgStats, err := GetCgroupStats(cgroupsPath)
 			if err != nil {
-				fmt.Printf("failed to GetCgroupStats for cgroup %s in pod %s, err %s", cgroupsPath, podUid, err)
+				klog.V(4).ErrorS(fmt.Errorf("failed to GetCgroupStats for cgroup %s in pod %s, err %s", cgroupsPath, podUid, err), "")
 				continue
 			}
 			containersStats[containerName] = cgStats

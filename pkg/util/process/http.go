@@ -87,7 +87,7 @@ func (h *HTTPHandler) getHTTPVisitor(addr string) *rate.Limiter {
 
 	v, exists := h.visitors[addr]
 	if !exists {
-		limiter := rate.NewLimiter(0.2, 1)
+		limiter := rate.NewLimiter(0.5, 1)
 		h.visitors[addr] = &visitor{limiter, time.Now()}
 		return limiter
 	}

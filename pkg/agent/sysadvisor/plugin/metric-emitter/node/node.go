@@ -103,7 +103,7 @@ func (n *MetricSyncerNode) receiveRawNode(ctx context.Context, rChan chan metric
 				continue
 			}
 
-			klog.Infof("get metric %v for node", response.Req.MetricName)
+			klog.V(4).Infof("get metric %v for node", response.Req.MetricName)
 			if tags := n.generateMetricTag(ctx); len(tags) > 0 {
 				_ = n.dataEmitter.StoreFloat64(targetMetricName, response.Result, metrics.MetricTypeNameRaw, append(tags,
 					metrics.MetricTag{

@@ -49,9 +49,10 @@ const MetricStoreNameRemoteMemory = "remote-memory-store"
 // RemoteMemoryMetricStore itself will be responsible for shard-splitting logic,
 // and it should be a wrapper of LocalMemoryMetricStore to reuse its internalMetric structure.
 type RemoteMemoryMetricStore struct {
-	ctx context.Context
+	ctx         context.Context
+	storeConf   *metricconf.StoreConfiguration
+	genericConf *metricconf.GenericMetricConfiguration
 
-	conf    *metricconf.StoreConfiguration
 	client  *http.Client
 	emitter metrics.MetricEmitter
 
@@ -61,19 +62,20 @@ type RemoteMemoryMetricStore struct {
 var _ store.MetricStore = &RemoteMemoryMetricStore{}
 
 func NewRemoteMemoryMetricStore(ctx context.Context, baseCtx *katalystbase.GenericContext,
-	conf *metricconf.StoreConfiguration) (*RemoteMemoryMetricStore, error) {
+	genericConf *metricconf.GenericMetricConfiguration, storeConf *metricconf.StoreConfiguration) (*RemoteMemoryMetricStore, error) {
 	client := process.NewDefaultHTTPClient()
 
-	if conf.StoreServerReplicaTotal <= 0 {
+	if storeConf.StoreServerReplicaTotal <= 0 {
 		return nil, fmt.Errorf("total store server replica must be positive")
 	}
 
 	return &RemoteMemoryMetricStore{
-		ctx:      ctx,
-		conf:     conf,
-		client:   client,
-		emitter:  baseCtx.EmitterPool.GetDefaultMetricsEmitter().WithTags("remote_store"),
-		sharding: NewShardingController(ctx, baseCtx, conf.StoreServerSelector, conf.StoreServerReplicaTotal),
+		ctx:         ctx,
+		genericConf: genericConf,
+		storeConf:   storeConf,
+		client:      client,
+		emitter:     baseCtx.EmitterPool.GetDefaultMetricsEmitter().WithTags("remote_store"),
+		sharding:    NewShardingController(ctx, baseCtx, storeConf.StoreServerSelector, storeConf.StoreServerReplicaTotal),
 	}, nil
 }
 

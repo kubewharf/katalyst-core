@@ -65,6 +65,12 @@ func (l *LocalMemoryMetricStore) Serve(mux *http.ServeMux) {
 }
 
 func (l *LocalMemoryMetricStore) handleMetricList(w http.ResponseWriter, r *http.Request) {
+	if !l.syncSuccess {
+		w.WriteHeader(http.StatusNotAcceptable)
+		_, _ = fmt.Fprintf(w, "store is in initializing status")
+		return
+	}
+
 	klog.V(6).Infof("receive list requests")
 
 	if r == nil || r.Method != "GET" || r.URL == nil {
@@ -116,10 +122,15 @@ func (l *LocalMemoryMetricStore) handleMetricList(w http.ResponseWriter, r *http
 		writeRespFinished.Sub(jsonMarshalFinished),
 		writeRespFinished.Sub(start),
 		len(internalList))
-
 }
 
 func (l *LocalMemoryMetricStore) handleMetricGet(w http.ResponseWriter, r *http.Request) {
+	if !l.syncSuccess {
+		w.WriteHeader(http.StatusNotAcceptable)
+		_, _ = fmt.Fprintf(w, "store is in initializing status")
+		return
+	}
+
 	klog.V(6).Infof("receive get requests")
 
 	if r == nil || r.Method != "GET" || r.URL == nil || r.URL.Query() == nil {
@@ -219,6 +230,12 @@ func (l *LocalMemoryMetricStore) handleMetricGet(w http.ResponseWriter, r *http.
 }
 
 func (l *LocalMemoryMetricStore) handleMetricSet(w http.ResponseWriter, r *http.Request) {
+	if !l.syncSuccess {
+		w.WriteHeader(http.StatusNotAcceptable)
+		_, _ = fmt.Fprintf(w, "store is in initializing status")
+		return
+	}
+
 	klog.V(6).Infof("receive set requests")
 
 	if r == nil || r.Method != "POST" || r.Body == nil {

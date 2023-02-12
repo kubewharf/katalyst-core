@@ -14,23 +14,18 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package metrics_pool
+package generic
 
-import (
-	"net/http"
-	"testing"
+import "time"
 
-	"github.com/stretchr/testify/assert"
+// MetricsConfiguration defines metrics used by metrics,
+// including all kinds of metrics implementations and metrics pool implementations.
+type MetricsConfiguration struct {
+	EmitterPrometheusGCTimeout time.Duration
+}
 
-	"github.com/kubewharf/katalyst-core/pkg/config/generic"
-)
-
-func TestNewMetricEmitterMux(t *testing.T) {
-	m, err := NewOpenTelemetryPrometheusMetricsEmitterPool(generic.NewMetricsConfiguration(), http.NewServeMux())
-	assert.NoError(t, err)
-
-	_, err = m.GetMetricsEmitter(PrometheusMetricOptions{
-		Path: "/custom-metrics",
-	})
-	assert.NoError(t, err)
+func NewMetricsConfiguration() *MetricsConfiguration {
+	return &MetricsConfiguration{
+		EmitterPrometheusGCTimeout: time.Minute * 5,
+	}
 }

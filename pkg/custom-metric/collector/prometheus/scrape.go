@@ -57,6 +57,7 @@ type ScrapeManager struct {
 
 	// lastScrapeSize is used to initialize the buffer size using historical length
 	sync.Mutex
+	outOfDataPeriod time.Duration
 	storedSeriesMap map[uint64]*data.MetricSeries
 
 	node string
@@ -67,7 +68,7 @@ type ScrapeManager struct {
 	emitter metrics.MetricEmitter
 }
 
-func NewScrapeManager(ctx context.Context, client *http.Client, node, url string, emitter metrics.MetricEmitter) (*ScrapeManager, error) {
+func NewScrapeManager(ctx context.Context, outOfDataPeriod time.Duration, client *http.Client, node, url string, emitter metrics.MetricEmitter) (*ScrapeManager, error) {
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
 		return nil, err
@@ -88,6 +89,7 @@ func NewScrapeManager(ctx context.Context, client *http.Client, node, url string
 		url:     url,
 		emitter: emitter,
 
+		outOfDataPeriod: outOfDataPeriod,
 		storedSeriesMap: make(map[uint64]*data.MetricSeries),
 	}, nil
 }
@@ -95,6 +97,7 @@ func NewScrapeManager(ctx context.Context, client *http.Client, node, url string
 func (s *ScrapeManager) Start(duration time.Duration) {
 	klog.Infof("start scrape manger with url: %v", s.url)
 	go wait.Until(func() { s.scrape() }, duration, s.ctx.Done())
+	go wait.Until(func() { s.gc() }, time.Second*10, s.ctx.Done())
 }
 
 func (s *ScrapeManager) Stop() {
@@ -119,12 +122,34 @@ func (s *ScrapeManager) HandleMetric(f func(d *data.MetricSeries) error) {
 	s.storedSeriesMap = unSucceedSeries
 }
 
+func (s *ScrapeManager) gc() {
+	s.Lock()
+	defer s.Unlock()
+
+	expiredTime := time.Now().Add(-1 * s.outOfDataPeriod).UnixMilli()
+	for hash, seriesMap := range s.storedSeriesMap {
+		var updatedSeries []*data.MetricData
+
+		for _, series := range seriesMap.Series {
+			if series.Timestamp > expiredTime {
+				updatedSeries = append(updatedSeries, series)
+			}
+		}
+
+		if len(updatedSeries) == 0 {
+			delete(s.storedSeriesMap, hash)
+		} else {
+			s.storedSeriesMap[hash].Series = updatedSeries
+		}
+	}
+}
+
 // scrape periodically scrape metric info from prometheus service, and then puts in the given store.
 func (s *ScrapeManager) scrape() {
 	buf := bytes.NewBuffer([]byte{})
 
 	if err := s.fetch(s.ctx, s.url, buf); err != nil {
-		klog.Errorf("fetch contents failed: %v", err)
+		klog.Errorf("fetch contents %v failed: %v", s.url, err)
 		return
 	}
 

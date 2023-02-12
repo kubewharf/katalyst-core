@@ -25,9 +25,11 @@ import (
 
 	"k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/apimachinery/pkg/util/wait"
+	"k8s.io/client-go/informers"
 	corelisters "k8s.io/client-go/listers/core/v1"
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/util/workqueue"
@@ -50,8 +52,9 @@ const MetricCollectorNamePrometheus = "prometheus-collector"
 // todo: if we restarts, we may lose some metric since the collecting logic interrupts
 //  need to consider a more reliable way to handle this
 type prometheusCollector struct {
-	ctx  context.Context
-	conf *metric.CollectorConfiguration
+	ctx         context.Context
+	collectConf *metric.CollectorConfiguration
+	genericConf *metric.GenericMetricConfiguration
 
 	client      *http.Client
 	emitter     metrics.MetricEmitter
@@ -71,21 +74,33 @@ type prometheusCollector struct {
 
 var _ collector.MetricCollector = &prometheusCollector{}
 
-func NewPrometheusCollector(ctx context.Context, baseCtx *katalystbase.GenericContext,
-	conf *metric.CollectorConfiguration, metricStore store.MetricStore) (collector.MetricCollector, error) {
+func NewPrometheusCollector(ctx context.Context, baseCtx *katalystbase.GenericContext, genericConf *metric.GenericMetricConfiguration,
+	collectConf *metric.CollectorConfiguration, metricStore store.MetricStore) (collector.MetricCollector, error) {
 	client, err := newPrometheusClient()
 	if err != nil {
 		return nil, fmt.Errorf("creating HTTP client failed: %v", err)
 	}
 
-	klog.Infof("enabled with pod selector: %v, node selector: %v", conf.PodSelector.String(), conf.NodeSelector.String())
-	podInformer := baseCtx.KubeInformerFactory.Core().V1().Pods()
-	nodeInformer := baseCtx.KubeInformerFactory.Core().V1().Nodes()
+	// since collector will define its own pod/node label selectors, so we will construct informer separately
+	klog.Infof("enabled with pod selector: %v, node selector: %v", collectConf.PodSelector.String(), collectConf.NodeSelector.String())
+	podFactory := informers.NewSharedInformerFactoryWithOptions(baseCtx.Client.KubeClient, time.Hour*24,
+		informers.WithTweakListOptions(func(options *metav1.ListOptions) {
+			options.LabelSelector = collectConf.PodSelector.String()
+		}))
+	podInformer := podFactory.Core().V1().Pods()
+
+	nodeFactory := informers.NewSharedInformerFactoryWithOptions(baseCtx.Client.KubeClient, time.Hour*24,
+		informers.WithTweakListOptions(func(options *metav1.ListOptions) {
+			options.LabelSelector = collectConf.NodeSelector.String()
+		}))
+	nodeInformer := nodeFactory.Core().V1().Nodes()
+
 	p := &prometheusCollector{
-		ctx:        ctx,
-		conf:       conf,
-		podLister:  podInformer.Lister(),
-		nodeLister: nodeInformer.Lister(),
+		ctx:         ctx,
+		genericConf: genericConf,
+		collectConf: collectConf,
+		podLister:   podInformer.Lister(),
+		nodeLister:  nodeInformer.Lister(),
 		syncedFunc: []cache.InformerSynced{
 			podInformer.Informer().HasSynced,
 			nodeInformer.Informer().HasSynced,
@@ -101,10 +116,10 @@ func NewPrometheusCollector(ctx context.Context, baseCtx *katalystbase.GenericCo
 		FilterFunc: func(obj interface{}) bool {
 			switch t := obj.(type) {
 			case *v1.Pod:
-				return p.conf.PodSelector.Matches(labels.Set(t.Labels))
+				return p.collectConf.PodSelector.Matches(labels.Set(t.Labels))
 			case cache.DeletedFinalStateUnknown:
 				if pod, ok := t.Obj.(*v1.Pod); ok {
-					return p.conf.PodSelector.Matches(labels.Set(pod.Labels))
+					return p.collectConf.PodSelector.Matches(labels.Set(pod.Labels))
 				}
 				utilruntime.HandleError(fmt.Errorf("unable to convert object %T to *v1.Pod", obj))
 				return false
@@ -120,6 +135,9 @@ func NewPrometheusCollector(ctx context.Context, baseCtx *katalystbase.GenericCo
 		},
 	})
 
+	podFactory.Start(ctx.Done())
+	nodeFactory.Start(ctx.Done())
+
 	return p, nil
 }
 
@@ -133,7 +151,7 @@ func (p *prometheusCollector) Start() error {
 	klog.Info("started scrape prometheus to collect contents")
 	p.syncSuccess = true
 
-	go wait.Until(p.sync, p.conf.SyncInterval, p.ctx.Done())
+	go wait.Until(p.sync, p.collectConf.SyncInterval, p.ctx.Done())
 	go wait.Until(p.reviseRequest, time.Minute*5, p.ctx.Done())
 	return nil
 }
@@ -206,24 +224,24 @@ func (p *prometheusCollector) checkTargetPod(pod *v1.Pod) bool {
 	}
 
 	klog.V(6).Infof("check for pod %v: %v, %v, %v",
-		pod.Name, native.PodIsReady(pod), p.conf.PodSelector.Matches(labels.Set(pod.Labels)), p.checkTargetNode(node))
+		pod.Name, native.PodIsReady(pod), p.collectConf.PodSelector.Matches(labels.Set(pod.Labels)), p.checkTargetNode(node))
 
-	return native.PodIsReady(pod) && p.conf.PodSelector.Matches(labels.Set(pod.Labels)) && p.checkTargetNode(node)
+	return native.PodIsReady(pod) && p.collectConf.PodSelector.Matches(labels.Set(pod.Labels)) && p.checkTargetNode(node)
 }
 
 // checkTargetNode checks whether the given node is targeted
 // for metric scrapping logic.
 func (p *prometheusCollector) checkTargetNode(node *v1.Node) bool {
 	klog.V(6).Infof("check for node %v: %v, %v, %v",
-		node.Name, native.NodeReady(node), p.conf.NodeSelector.Matches(labels.Set(node.Labels)))
+		node.Name, native.NodeReady(node), p.collectConf.NodeSelector.Matches(labels.Set(node.Labels)))
 
-	return node != nil && native.NodeReady(node) && p.conf.NodeSelector.Matches(labels.Set(node.Labels))
+	return node != nil && native.NodeReady(node) && p.collectConf.NodeSelector.Matches(labels.Set(node.Labels))
 }
 
 // reviseRequest is used to maintain requests based on current status
 func (p *prometheusCollector) reviseRequest() {
 	klog.Info("revise requests for requests")
-	candidatePods, err := p.podLister.List(p.conf.PodSelector)
+	candidatePods, err := p.podLister.List(p.collectConf.PodSelector)
 	if err != nil {
 		klog.Errorf("failed to list pods: %v", err)
 		return
@@ -266,13 +284,13 @@ func (p *prometheusCollector) addRequest(pod *v1.Pod) {
 
 		// all ScrapeManager will share the same http connection now,
 		// reconsider whether it's reasonable in production
-		s, err := NewScrapeManager(p.ctx, p.client, pod.Spec.NodeName, url, p.emitter)
+		s, err := NewScrapeManager(p.ctx, p.genericConf.OutOfDataPeriod, p.client, pod.Spec.NodeName, url, p.emitter)
 		if err != nil {
 			klog.Errorf("failed to new http.Request: %v", err)
 			continue
 		}
 
-		s.Start(p.conf.SyncInterval)
+		s.Start(p.collectConf.SyncInterval)
 		p.scrapes[key][port] = s
 	}
 }

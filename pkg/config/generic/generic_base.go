@@ -25,11 +25,13 @@ type GenericConfiguration struct {
 	GenericAuthStaticPasswd     string
 
 	*QoSConfiguration
+	*MetricsConfiguration
 }
 
 // NewGenericConfiguration creates a new generic configuration.
 func NewGenericConfiguration() *GenericConfiguration {
 	return &GenericConfiguration{
-		QoSConfiguration: NewQoSConfiguration(),
+		QoSConfiguration:     NewQoSConfiguration(),
+		MetricsConfiguration: NewMetricsConfiguration(),
 	}
 }

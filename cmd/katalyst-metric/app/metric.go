@@ -132,9 +132,9 @@ func Run(opt *options.Options, genericOptions ...katalystbase.GenericOptions) er
 func initStore(ctx context.Context, baseCtx *katalystbase.GenericContext, conf *config.Configuration) (store.MetricStore, error) {
 	switch conf.CustomMetricConfiguration.StoreConfiguration.StoreName {
 	case local.MetricStoreNameLocalMemory:
-		return local.NewLocalMemoryMetricStore(ctx, baseCtx, conf.StoreConfiguration)
+		return local.NewLocalMemoryMetricStore(ctx, baseCtx, conf.GenericMetricConfiguration, conf.StoreConfiguration)
 	case remote.MetricStoreNameRemoteMemory:
-		return remote.NewRemoteMemoryMetricStore(ctx, baseCtx, conf.StoreConfiguration)
+		return remote.NewRemoteMemoryMetricStore(ctx, baseCtx, conf.GenericMetricConfiguration, conf.StoreConfiguration)
 	}
 
 	return nil, fmt.Errorf("unsupported store name: %v", conf.CustomMetricConfiguration.StoreConfiguration.StoreName)

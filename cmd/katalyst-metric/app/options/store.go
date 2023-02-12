@@ -18,8 +18,6 @@ package options
 
 import (
 	"fmt"
-	"time"
-
 	"k8s.io/apimachinery/pkg/labels"
 	cliflag "k8s.io/component-base/cli/flag"
 
@@ -29,8 +27,7 @@ import (
 
 // StoreOptions holds the configurations for katalyst metrics stores.
 type StoreOptions struct {
-	StoreName       string
-	OutOfDataPeriod time.Duration
+	StoreName string
 
 	StoreServerShardCount   int
 	StoreServerReplicaTotal int
@@ -41,7 +38,6 @@ type StoreOptions struct {
 func NewStoreOptions() *StoreOptions {
 	return &StoreOptions{
 		StoreName:               local.MetricStoreNameLocalMemory,
-		OutOfDataPeriod:         time.Minute * 5,
 		StoreServerShardCount:   1,
 		StoreServerReplicaTotal: 3,
 		StoreServerSelector:     "katalyst-custom-metric=store-server",
@@ -54,8 +50,6 @@ func (o *StoreOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 
 	fs.StringVar(&o.StoreName, "store-name", o.StoreName, fmt.Sprintf(
 		"which store implementation will be started"))
-	fs.DurationVar(&o.OutOfDataPeriod, "store-gc-period", o.OutOfDataPeriod, fmt.Sprintf(
-		"how long we should keep the metric data as useful"))
 
 	fs.IntVar(&o.StoreServerShardCount, "store-server-shard", o.StoreServerShardCount, fmt.Sprintf(
 		"the amount of shardings this store implementation splits, only valid in store-server mode"))
@@ -68,7 +62,6 @@ func (o *StoreOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 // ApplyTo fills up config with options
 func (o *StoreOptions) ApplyTo(c *metric.StoreConfiguration) error {
 	c.StoreName = o.StoreName
-	c.OutOfDataPeriod = o.OutOfDataPeriod
 
 	c.StoreServerShardCount = o.StoreServerShardCount
 	c.StoreServerReplicaTotal = o.StoreServerReplicaTotal

@@ -26,16 +26,23 @@ import (
 
 // MetricEmitterPluginConfiguration stores configurations of custom-metric emitter plugin
 type MetricEmitterPluginConfiguration struct {
-	PodMetricLabel  sets.String
-	NodeMetricLabel sets.String
+	PodMetricLabel sets.String
+	PodSyncPeriod  time.Duration
+	// nominated annotations and labels to skip to avoid too many metrics;
+	// if multiple key-value pairs are nominated, skip if any pair matches
+	PodSkipAnnotations map[string]string
+	PodSkipLabels      map[string]string
 
-	PodSyncPeriod time.Duration
+	NodeMetricLabel sets.String
 }
 
 // NewMetricEmitterPluginConfiguration creates a new custom-metric emitter plugin configuration.
 func NewMetricEmitterPluginConfiguration() *MetricEmitterPluginConfiguration {
 	return &MetricEmitterPluginConfiguration{
-		PodMetricLabel:  make(sets.String),
+		PodMetricLabel:     make(sets.String),
+		PodSkipAnnotations: make(map[string]string),
+		PodSkipLabels:      make(map[string]string),
+
 		NodeMetricLabel: make(sets.String),
 	}
 }

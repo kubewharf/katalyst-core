@@ -46,14 +46,17 @@ const MetricStoreNameLocalMemory = "local-memory-store"
 // todo: this implementation may be not efficient noe, so we may need to use more
 //  complicated structures in the future, such as indexer/aggregator/sort or so on.
 type LocalMemoryMetricStore struct {
-	ctx     context.Context
-	conf    *metricconf.StoreConfiguration
-	emitter metrics.MetricEmitter
+	ctx         context.Context
+	storeConf   *metricconf.StoreConfiguration
+	genericConf *metricconf.GenericMetricConfiguration
+	emitter     metrics.MetricEmitter
 
 	// validMetricObject is used to map kubernetes objects to gvk and informer
 	validMetricObject map[string]schema.GroupVersionResource
-	syncedFunc        []cache.InformerSynced
 	objectInformer    map[string]cache.GenericLister
+
+	syncedFunc  []cache.InformerSynced
+	syncSuccess bool
 
 	cache *data.CachedMetric
 }
@@ -61,10 +64,11 @@ type LocalMemoryMetricStore struct {
 var _ store.MetricStore = &LocalMemoryMetricStore{}
 
 func NewLocalMemoryMetricStore(ctx context.Context, baseCtx *katalystbase.GenericContext,
-	conf *metricconf.StoreConfiguration) (store.MetricStore, error) {
+	genericConf *metricconf.GenericMetricConfiguration, storeConf *metricconf.StoreConfiguration) (store.MetricStore, error) {
 	l := &LocalMemoryMetricStore{
 		ctx:               ctx,
-		conf:              conf,
+		genericConf:       genericConf,
+		storeConf:         storeConf,
 		cache:             data.NewCachedMetric(),
 		validMetricObject: data.GetSupportedMetricObject(),
 		objectInformer:    make(map[string]cache.GenericLister),
@@ -72,7 +76,7 @@ func NewLocalMemoryMetricStore(ctx context.Context, baseCtx *katalystbase.Generi
 	}
 
 	for r, gvrSchema := range l.validMetricObject {
-		wf := baseCtx.DynamicInformerFactory.ForResource(gvrSchema)
+		wf := baseCtx.MetaInformerFactory.ForResource(gvrSchema)
 		l.objectInformer[r] = wf.Lister()
 		l.syncedFunc = append(l.syncedFunc, wf.Informer().HasSynced)
 	}
@@ -88,6 +92,7 @@ func (l *LocalMemoryMetricStore) Start() error {
 		return fmt.Errorf("unable to sync caches for %s", MetricStoreNameLocalMemory)
 	}
 	klog.Info("started local memory store")
+	l.syncSuccess = true
 
 	go wait.Until(l.gc, 10*time.Second, l.ctx.Done())
 	go wait.Until(l.log, time.Minute*3, l.ctx.Done())
@@ -126,6 +131,7 @@ func (l *LocalMemoryMetricStore) GetMetric(_ context.Context, namespace, metricN
 			if valid, err := l.checkInternalMetricMatchedWithMetricInfo(internal, namespace, metricSelector); err != nil {
 				klog.Errorf("check %+v metric selector %v err %v", internal.GetName(), metricSelector, err)
 			} else if !valid {
+				klog.V(6).Infof("%v invalid metricSelector", internal.String())
 				continue
 			}
 		}
@@ -134,6 +140,7 @@ func (l *LocalMemoryMetricStore) GetMetric(_ context.Context, namespace, metricN
 			if valid, err := l.checkInternalMetricMatchedWithObject(internal, gr, namespace, objName); err != nil {
 				klog.Errorf("check %+v object %v err %v", internal.GetName(), objName, err)
 			} else if !valid {
+				klog.V(6).Infof("%v invalid object", internal.String())
 				continue
 			}
 		}
@@ -142,6 +149,7 @@ func (l *LocalMemoryMetricStore) GetMetric(_ context.Context, namespace, metricN
 			if valid, err := l.checkInternalMetricMatchedWithObjectList(internal, gr, namespace, objSelector); err != nil {
 				klog.Errorf("check %+v object selector %v err %v", internal.GetName(), objSelector, err)
 			} else if !valid {
+				klog.V(6).Infof("%v invalid objectSelector", internal.String())
 				continue
 			}
 		}
@@ -154,7 +162,7 @@ func (l *LocalMemoryMetricStore) GetMetric(_ context.Context, namespace, metricN
 func (l *LocalMemoryMetricStore) ListMetricWithObjects(_ context.Context) ([]*data.InternalMetric, error) {
 	var res []*data.InternalMetric
 
-	internalList := l.cache.ListAllMetric()
+	internalList := l.cache.ListAllMetricWithoutValues()
 	for _, internal := range internalList {
 		if internal.GetObject() == "" || internal.GetObjectName() == "" {
 			continue
@@ -168,7 +176,7 @@ func (l *LocalMemoryMetricStore) ListMetricWithObjects(_ context.Context) ([]*da
 func (l *LocalMemoryMetricStore) ListMetricWithoutObjects(_ context.Context) ([]*data.InternalMetric, error) {
 	var res []*data.InternalMetric
 
-	internalList := l.cache.ListAllMetric()
+	internalList := l.cache.ListAllMetricWithoutValues()
 	for _, internal := range internalList {
 		if internal.GetObject() != "" || internal.GetObjectName() != "" {
 			continue
@@ -181,7 +189,7 @@ func (l *LocalMemoryMetricStore) ListMetricWithoutObjects(_ context.Context) ([]
 
 // gc is used to clean those custom metric internalMetric that has been out-of-date
 func (l *LocalMemoryMetricStore) gc() {
-	expiredTime := time.Now().Add(-1 * l.conf.OutOfDataPeriod)
+	expiredTime := time.Now().Add(-1 * l.genericConf.OutOfDataPeriod)
 	l.cache.GC(expiredTime)
 }
 
@@ -194,7 +202,7 @@ func (l *LocalMemoryMetricStore) log() {
 func (l *LocalMemoryMetricStore) parseMetricSeries(series *data.MetricSeries) (*data.InternalMetric,
 	[]data.CustomMetricLabelAggregateFunc) {
 	// skip already out-of-dated metric contents
-	expiredTime := time.Now().Add(-1 * l.conf.OutOfDataPeriod).UnixMilli()
+	expiredTime := time.Now().Add(-1 * l.genericConf.OutOfDataPeriod).UnixMilli()
 
 	res := data.NewInternalMetric(series.Name)
 	var aggList []data.CustomMetricLabelAggregateFunc
@@ -248,7 +256,7 @@ func (l *LocalMemoryMetricStore) parseMetricSeries(series *data.MetricSeries) (*
 // if not, return an error to represent the unmatched reasons
 func (l *LocalMemoryMetricStore) checkInternalMetricMatchedWithMetricInfo(internal *data.InternalMetric, namespace string,
 	metricSelector labels.Selector) (bool, error) {
-	if namespace != "" && namespace != internal.GetNamespace() {
+	if namespace != "" && namespace != "*" && namespace != internal.GetNamespace() {
 		klog.V(5).Infof("%v namespace %v not match metric namespace %v", internal.GetName(), namespace, internal.GetNamespace())
 		return false, nil
 	}

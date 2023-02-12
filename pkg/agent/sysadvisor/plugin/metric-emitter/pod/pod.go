@@ -29,11 +29,13 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	metricemitter "github.com/kubewharf/katalyst-core/pkg/config/agent/sysadvisor/metric-emitter"
+	"github.com/kubewharf/katalyst-core/pkg/config/generic"
 	"github.com/kubewharf/katalyst-core/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/custom-metric/store/data"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
+	"github.com/kubewharf/katalyst-core/pkg/util/native"
 )
 
 const MetricSyncerNamePod = "pod"
@@ -53,8 +55,9 @@ type podRawChanel struct {
 // to the standard metricName (used by custom-metric-api-server)
 
 type MetricSyncerPod struct {
-	ctx  context.Context
-	conf *metricemitter.MetricEmitterPluginConfiguration
+	ctx         context.Context
+	emitterConf *metricemitter.MetricEmitterPluginConfiguration
+	qosConf     *generic.QoSConfiguration
 
 	// no need to lock this map, since we only refer to it in syncChanel
 	rawNotifier map[string]podRawChanel
@@ -68,8 +71,11 @@ type MetricSyncerPod struct {
 
 func NewMetricSyncerPod(conf *config.Configuration, metricEmitter, dataEmitter metrics.MetricEmitter,
 	metaServer *metaserver.MetaServer, metaCache *metacache.MetaCache) *MetricSyncerPod {
+	klog.Infof("skip anno: %v, skip label: %v", conf.AgentConfiguration.PodSkipAnnotations, conf.AgentConfiguration.PodSkipLabels)
+
 	return &MetricSyncerPod{
-		conf:        conf.AgentConfiguration.MetricEmitterPluginConfiguration,
+		emitterConf: conf.AgentConfiguration.MetricEmitterPluginConfiguration,
+		qosConf:     conf.GenericConfiguration.QoSConfiguration,
 		rawNotifier: make(map[string]podRawChanel),
 
 		metricEmitter: metricEmitter,
@@ -85,13 +91,11 @@ func (p *MetricSyncerPod) Name() string {
 
 func (p *MetricSyncerPod) Run(ctx context.Context) {
 	p.ctx = ctx
-	go wait.Until(p.syncChanel, p.conf.PodSyncPeriod, ctx.Done())
+	go wait.Until(p.syncChanel, p.emitterConf.PodSyncPeriod, ctx.Done())
 }
 
 func (p *MetricSyncerPod) syncChanel() {
-	podList, err := p.metaServer.GetPodList(p.ctx, func(_ *v1.Pod) bool {
-		return true
-	})
+	podList, err := p.metaServer.GetPodList(p.ctx, p.metricPod)
 	if err != nil {
 		klog.Errorf("failed to get pod list: %v", err)
 		return
@@ -147,11 +151,13 @@ func (p *MetricSyncerPod) syncChanel() {
 
 // receiveRawPod receives notified response from raw data source
 func (p *MetricSyncerPod) receiveRawPod(ctx context.Context, pod *v1.Pod, rChan chan metric.NotifiedResponse) {
+	name, tags := pod.Name, p.generateMetricTag(pod)
+
 	for {
 		select {
 		case response, ok := <-rChan:
 			if !ok {
-				klog.Infof("pod %v receive chanel has been stopped", pod.Name)
+				klog.Infof("pod %v receive chanel has been stopped", name)
 				return
 			}
 
@@ -165,9 +171,9 @@ func (p *MetricSyncerPod) receiveRawPod(ctx context.Context, pod *v1.Pod, rChan 
 				continue
 			}
 
-			klog.Infof("get metric %v for pod %v, collect time %v, left len %v",
-				response.Req.MetricName, pod.Name, response.Timestamp, len(rChan))
-			if tags := p.generateMetricTag(pod); len(tags) > 0 {
+			klog.V(4).Infof("get metric %v for pod %v, collect time %v, left len %v",
+				response.Req.MetricName, name, response.Timestamp, len(rChan))
+			if len(tags) > 0 {
 				_ = p.dataEmitter.StoreFloat64(targetMetricName, response.Result, metrics.MetricTypeNameRaw, append(tags,
 					metrics.MetricTag{
 						Key: fmt.Sprintf("%s", data.CustomMetricLabelKeyTimestamp),
@@ -180,7 +186,7 @@ func (p *MetricSyncerPod) receiveRawPod(ctx context.Context, pod *v1.Pod, rChan 
 				)...)
 			}
 		case <-ctx.Done():
-			klog.Infof("all metric emitters should be stopped, pod %v", pod.Name)
+			klog.Infof("all metric emitters should be stopped, pod %v", name)
 			return
 		}
 	}
@@ -203,7 +209,7 @@ func (p *MetricSyncerPod) generateMetricTag(pod *v1.Pod) (tags []metrics.MetricT
 		},
 	}
 	for key, value := range pod.Labels {
-		if p.conf.PodMetricLabel.Has(key) {
+		if p.emitterConf.PodMetricLabel.Has(key) {
 			tags = append(tags, metrics.MetricTag{
 				Key: fmt.Sprintf("%s%s", data.CustomMetricLabelSelectorPrefixKey, key),
 				Val: value,
@@ -212,4 +218,31 @@ func (p *MetricSyncerPod) generateMetricTag(pod *v1.Pod) (tags []metrics.MetricT
 	}
 
 	return
+}
+
+// metricPod filter out pods that won't be needed by custom metrics apiserver
+func (p *MetricSyncerPod) metricPod(pod *v1.Pod) bool {
+	if ok, err := p.qosConf.CheckSystemQoSForPod(pod); err != nil {
+		klog.Errorf("failed to get qos for pod %v, err: %v", pod.Name, err)
+	} else if ok {
+		return false
+	}
+
+	if !native.PodIsReady(pod) || !native.PodIsActive(pod) || native.CheckDaemonPod(pod) {
+		return false
+	}
+
+	for key, value := range pod.Annotations {
+		if v, ok := p.emitterConf.PodSkipAnnotations[key]; ok && v == value {
+			return false
+		}
+	}
+
+	for key, value := range pod.Labels {
+		if v, ok := p.emitterConf.PodSkipLabels[key]; ok && v == value {
+			return false
+		}
+	}
+
+	return true
 }

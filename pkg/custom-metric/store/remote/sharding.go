@@ -25,9 +25,11 @@ import (
 
 	"k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/apimachinery/pkg/util/wait"
+	"k8s.io/client-go/informers"
 	corelisters "k8s.io/client-go/listers/core/v1"
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/klog/v2"
@@ -57,7 +59,13 @@ type ShardingController struct {
 }
 
 func NewShardingController(ctx context.Context, baseCtx *katalystbase.GenericContext, podSelector labels.Selector, totalCount int) *ShardingController {
-	podInformer := baseCtx.KubeInformerFactory.Core().V1().Pods()
+	// since collector will define its own pod/node label selectors, so we will construct informer separately
+	klog.Infof("enabled with pod selector: %v", podSelector.String())
+	podFactory := informers.NewSharedInformerFactoryWithOptions(baseCtx.Client.KubeClient, time.Hour*24,
+		informers.WithTweakListOptions(func(options *metav1.ListOptions) {
+			options.LabelSelector = podSelector.String()
+		}))
+	podInformer := podFactory.Core().V1().Pods()
 
 	s := &ShardingController{
 		ctx:         ctx,
@@ -92,6 +100,8 @@ func NewShardingController(ctx context.Context, baseCtx *katalystbase.GenericCon
 			DeleteFunc: s.deletePod,
 		},
 	})
+
+	podFactory.Start(ctx.Done())
 
 	return s
 }

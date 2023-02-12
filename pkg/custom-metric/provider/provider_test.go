@@ -26,6 +26,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/kubewharf/katalyst-core/pkg/util/native"
 	"github.com/stretchr/testify/assert"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -44,8 +45,39 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/custom-metric/store/data"
 	"github.com/kubewharf/katalyst-core/pkg/custom-metric/store/local"
 	"github.com/kubewharf/katalyst-core/pkg/custom-metric/store/remote"
-	"github.com/kubewharf/katalyst-core/pkg/util/native"
 )
+
+func generateStorePodMeta(namespace, name, nameLabel string, port int32) *metav1.PartialObjectMetadata {
+	return &metav1.PartialObjectMetadata{
+		TypeMeta: metav1.TypeMeta{
+			APIVersion: "v1",
+			Kind:       "Pod",
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace: namespace,
+			Name:      name,
+			Labels: map[string]string{
+				"test": "local-store",
+				"name": nameLabel,
+			},
+		},
+	}
+}
+
+func generateStoreNodeMeta(name, nameLabel string) *metav1.PartialObjectMetadata {
+	return &metav1.PartialObjectMetadata{
+		TypeMeta: metav1.TypeMeta{
+			APIVersion: "v1",
+			Kind:       "Node",
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			Name: name,
+			Labels: map[string]string{
+				"name": nameLabel,
+			},
+		},
+	}
+}
 
 func generateStorePod(namespace, name, nameLabel string, port int32) *v1.Pod {
 	return &v1.Pod{
@@ -81,40 +113,26 @@ func generateStorePod(namespace, name, nameLabel string, port int32) *v1.Pod {
 	}
 }
 
-func generateStoreNode(name, nameLabel string) *v1.Node {
-	return &v1.Node{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: name,
-			Labels: map[string]string{
-				"name": nameLabel,
-			},
-		},
-		Status: v1.NodeStatus{
-			Allocatable: v1.ResourceList{
-				v1.ResourceCPU: resource.MustParse("10"),
-			},
-		},
-	}
-}
-
 func TestWithLocalStore(t *testing.T) {
 	ctx := context.Background()
 
-	p1 := generateStorePod("ns-1", "pod-1", "full_metric_with_conflict_time", 11)
-	p2 := generateStorePod("ns-2", "pod-2", "full_metric_with_multiple_data", 11)
-	n1 := generateStoreNode("node-1", "full_metric_with_node")
+	p1 := generateStorePodMeta("ns-1", "pod-1", "full_metric_with_conflict_time", 11)
+	p2 := generateStorePodMeta("ns-2", "pod-2", "full_metric_with_multiple_data", 11)
+	n1 := generateStoreNodeMeta("node-1", "full_metric_with_node")
 
-	baseCtx, err := katalystbase.GenerateFakeGenericContext(nil, nil, []runtime.Object{p1, p2, n1})
+	baseCtx, err := katalystbase.GenerateFakeGenericContext(nil, nil, nil, []runtime.Object{p1, p2, n1})
 	assert.NoError(t, err)
 
-	conf := &metricconf.StoreConfiguration{
+	genericConf := &metricconf.GenericMetricConfiguration{
 		OutOfDataPeriod: time.Second * 20,
+	}
+	storeConf := &metricconf.StoreConfiguration{
 		StoreServerSelector: labels.SelectorFromSet(map[string]string{
 			"test": "local-store",
 		}),
 	}
 
-	s, err := local.NewLocalMemoryMetricStore(ctx, baseCtx, conf)
+	s, err := local.NewLocalMemoryMetricStore(ctx, baseCtx, genericConf, storeConf)
 	assert.NoError(t, err)
 
 	baseCtx.StartInformer(ctx)
@@ -122,7 +140,7 @@ func TestWithLocalStore(t *testing.T) {
 	assert.NoError(t, err)
 
 	p := NewMetricProviderImp(ctx, s)
-	testProvider(t, p, s, ctx, baseCtx, conf)
+	testProvider(t, p, s, ctx, baseCtx, genericConf, storeConf)
 }
 
 func TestWithRemoteStore(t *testing.T) {
@@ -134,17 +152,19 @@ func TestWithRemoteStore(t *testing.T) {
 func testWithRemoteStoreWithIndex(t *testing.T, index []int) {
 	ctx := context.Background()
 
-	conf := &metricconf.StoreConfiguration{
+	genericConf := &metricconf.GenericMetricConfiguration{
 		OutOfDataPeriod: time.Second * 20,
+	}
+	storeConf := &metricconf.StoreConfiguration{
 		StoreServerSelector: labels.SelectorFromSet(labels.Set(map[string]string{
 			"test": "local-store",
 		})),
 		StoreServerReplicaTotal: len(index),
 	}
 
-	lp1 := generateStorePod("ns-1", "pod-1", "full_metric_with_conflict_time", 11)
-	lp2 := generateStorePod("ns-2", "pod-2", "full_metric_with_multiple_data", 22)
-	ln1 := generateStoreNode("node-1", "full_metric_with_node")
+	lp1 := generateStorePodMeta("ns-1", "pod-1", "full_metric_with_conflict_time", 11)
+	lp2 := generateStorePodMeta("ns-2", "pod-2", "full_metric_with_multiple_data", 22)
+	ln1 := generateStoreNodeMeta("node-1", "full_metric_with_node")
 
 	var podList []runtime.Object
 	for i := range index {
@@ -158,11 +178,11 @@ func testWithRemoteStoreWithIndex(t *testing.T, index []int) {
 		port, err := strconv.Atoi(strings.TrimSpace(urlList[2]))
 		assert.NoError(t, err)
 
-		baseCtx, err := katalystbase.GenerateFakeGenericContext(nil, nil, []runtime.Object{lp1, lp2, ln1})
+		baseCtx, err := katalystbase.GenerateFakeGenericContext(nil, nil, nil, []runtime.Object{lp1, lp2, ln1})
 		assert.NoError(t, err)
 		baseCtx.Handler = mux
 
-		l, err := local.NewLocalMemoryMetricStore(ctx, baseCtx, conf)
+		l, err := local.NewLocalMemoryMetricStore(ctx, baseCtx, genericConf, storeConf)
 		assert.NoError(t, err)
 		baseCtx.StartInformer(ctx)
 
@@ -177,7 +197,7 @@ func testWithRemoteStoreWithIndex(t *testing.T, index []int) {
 	baseCtx, err := katalystbase.GenerateFakeGenericContext(podList, nil, nil)
 	assert.NoError(t, err)
 
-	r, err := remote.NewRemoteMemoryMetricStore(ctx, baseCtx, conf)
+	r, err := remote.NewRemoteMemoryMetricStore(ctx, baseCtx, genericConf, storeConf)
 	assert.NoError(t, err)
 	baseCtx.StartInformer(ctx)
 
@@ -185,11 +205,11 @@ func testWithRemoteStoreWithIndex(t *testing.T, index []int) {
 	assert.NoError(t, err)
 
 	p := NewMetricProviderImp(ctx, r)
-	testProvider(t, p, r, ctx, baseCtx, conf)
+	testProvider(t, p, r, ctx, baseCtx, genericConf, storeConf)
 }
 
-func testProvider(t *testing.T, p MetricProvider, s store.MetricStore,
-	ctx context.Context, baseCtx *katalystbase.GenericContext, conf *metricconf.StoreConfiguration) {
+func testProvider(t *testing.T, p MetricProvider, s store.MetricStore, ctx context.Context, baseCtx *katalystbase.GenericContext,
+	genericConf *metricconf.GenericMetricConfiguration, storeConf *metricconf.StoreConfiguration) {
 	var err error
 
 	podGR := schema.GroupVersionResource{Version: "v1", Resource: "pods"}.GroupResource()
@@ -210,7 +230,7 @@ func testProvider(t *testing.T, p MetricProvider, s store.MetricStore,
 				},
 				{
 					Data:      2,
-					Timestamp: now.UnixMilli() - int64(conf.OutOfDataPeriod.Milliseconds()+time.Second.Milliseconds()*5),
+					Timestamp: now.UnixMilli() - int64(genericConf.OutOfDataPeriod.Milliseconds()+time.Second.Milliseconds()*5),
 				},
 			},
 		},
@@ -223,7 +243,7 @@ func testProvider(t *testing.T, p MetricProvider, s store.MetricStore,
 			Series: []*data.MetricData{
 				{
 					Data:      2,
-					Timestamp: now.UnixMilli() - int64(conf.OutOfDataPeriod.Milliseconds()+time.Second.Milliseconds()*5),
+					Timestamp: now.UnixMilli() - int64(genericConf.OutOfDataPeriod.Milliseconds()+time.Second.Milliseconds()*5),
 				},
 			},
 		},
@@ -240,7 +260,7 @@ func testProvider(t *testing.T, p MetricProvider, s store.MetricStore,
 				},
 				{
 					Data:      23,
-					Timestamp: now.UnixMilli() - int64(conf.OutOfDataPeriod.Milliseconds()),
+					Timestamp: now.UnixMilli() - int64(genericConf.OutOfDataPeriod.Milliseconds()),
 				},
 			},
 		},
@@ -307,7 +327,7 @@ func testProvider(t *testing.T, p MetricProvider, s store.MetricStore,
 				},
 				{
 					Data:      44,
-					Timestamp: now.UnixMilli() - int64(conf.OutOfDataPeriod.Milliseconds()-time.Second.Milliseconds()*3),
+					Timestamp: now.UnixMilli() - int64(genericConf.OutOfDataPeriod.Milliseconds()-time.Second.Milliseconds()*3),
 				},
 			},
 		},
@@ -337,7 +357,7 @@ func testProvider(t *testing.T, p MetricProvider, s store.MetricStore,
 			Series: []*data.MetricData{
 				{
 					Data:      86,
-					Timestamp: now.UnixMilli() - int64(conf.OutOfDataPeriod.Milliseconds()-time.Second.Milliseconds()*2),
+					Timestamp: now.UnixMilli() - int64(genericConf.OutOfDataPeriod.Milliseconds()-time.Second.Milliseconds()*2),
 				},
 			},
 		},
@@ -351,7 +371,7 @@ func testProvider(t *testing.T, p MetricProvider, s store.MetricStore,
 			Series: []*data.MetricData{
 				{
 					Data:      73,
-					Timestamp: now.UnixMilli() - int64(conf.OutOfDataPeriod.Milliseconds()-time.Second.Milliseconds()*2),
+					Timestamp: now.UnixMilli() - int64(genericConf.OutOfDataPeriod.Milliseconds()-time.Second.Milliseconds()*2),
 				},
 			},
 		},
@@ -412,7 +432,7 @@ func testProvider(t *testing.T, p MetricProvider, s store.MetricStore,
 				},
 			},
 		},
-		Timestamp: metav1.NewTime(time.UnixMilli(now.UnixMilli() - int64(conf.OutOfDataPeriod.Milliseconds()-time.Second.Milliseconds()*2))),
+		Timestamp: metav1.NewTime(time.UnixMilli(now.UnixMilli() - int64(genericConf.OutOfDataPeriod.Milliseconds()-time.Second.Milliseconds()*2))),
 		Value:     *resource.NewQuantity(73, resource.DecimalSI),
 	}, oneMetric)
 
@@ -466,7 +486,7 @@ func testProvider(t *testing.T, p MetricProvider, s store.MetricStore,
 					},
 				},
 			},
-			Timestamp: metav1.NewTime(time.UnixMilli(now.UnixMilli() - int64(conf.OutOfDataPeriod.Milliseconds()-time.Second.Milliseconds()*2))),
+			Timestamp: metav1.NewTime(time.UnixMilli(now.UnixMilli() - int64(genericConf.OutOfDataPeriod.Milliseconds()-time.Second.Milliseconds()*2))),
 			Value:     *resource.NewQuantity(73, resource.DecimalSI),
 		},
 	}, batchMetric.Items)
@@ -533,7 +553,7 @@ func testProvider(t *testing.T, p MetricProvider, s store.MetricStore,
 					},
 				},
 			},
-			Timestamp: metav1.NewTime(time.UnixMilli(now.UnixMilli() - int64(conf.OutOfDataPeriod.Milliseconds()-time.Second.Milliseconds()*3))),
+			Timestamp: metav1.NewTime(time.UnixMilli(now.UnixMilli() - int64(genericConf.OutOfDataPeriod.Milliseconds()-time.Second.Milliseconds()*3))),
 			Value:     *resource.NewQuantity(44, resource.DecimalSI),
 		},
 		{
@@ -550,7 +570,7 @@ func testProvider(t *testing.T, p MetricProvider, s store.MetricStore,
 					},
 				},
 			},
-			Timestamp: metav1.NewTime(time.UnixMilli(now.UnixMilli() - int64(conf.OutOfDataPeriod.Milliseconds()-time.Second.Milliseconds()*2))),
+			Timestamp: metav1.NewTime(time.UnixMilli(now.UnixMilli() - int64(genericConf.OutOfDataPeriod.Milliseconds()-time.Second.Milliseconds()*2))),
 			Value:     *resource.NewQuantity(86, resource.DecimalSI),
 		},
 	}, batchMetric.Items)
@@ -590,7 +610,7 @@ func testProvider(t *testing.T, p MetricProvider, s store.MetricStore,
 			MetricLabels: map[string]string{
 				"name": "none_namespace_metric",
 			},
-			Timestamp: metav1.NewTime(time.UnixMilli(now.UnixMilli() - int64(conf.OutOfDataPeriod.Milliseconds()+time.Second.Milliseconds()*5))),
+			Timestamp: metav1.NewTime(time.UnixMilli(now.UnixMilli() - int64(genericConf.OutOfDataPeriod.Milliseconds()+time.Second.Milliseconds()*5))),
 			Value:     *resource.NewQuantity(2, resource.DecimalSI),
 		},
 		{
@@ -598,7 +618,7 @@ func testProvider(t *testing.T, p MetricProvider, s store.MetricStore,
 			MetricLabels: map[string]string{
 				"name": "none_namespace_metric_all_timeout",
 			},
-			Timestamp: metav1.NewTime(time.UnixMilli(now.UnixMilli() - int64(conf.OutOfDataPeriod.Milliseconds()+time.Second.Milliseconds()*5))),
+			Timestamp: metav1.NewTime(time.UnixMilli(now.UnixMilli() - int64(genericConf.OutOfDataPeriod.Milliseconds()+time.Second.Milliseconds()*5))),
 			Value:     *resource.NewQuantity(2, resource.DecimalSI),
 		},
 	}, batchExternal.Items)
@@ -622,7 +642,7 @@ func testProvider(t *testing.T, p MetricProvider, s store.MetricStore,
 			MetricLabels: map[string]string{
 				"name": "none_object_metric",
 			},
-			Timestamp: metav1.NewTime(time.UnixMilli(now.UnixMilli() - int64(conf.OutOfDataPeriod.Milliseconds()))),
+			Timestamp: metav1.NewTime(time.UnixMilli(now.UnixMilli() - int64(genericConf.OutOfDataPeriod.Milliseconds()))),
 			Value:     *resource.NewQuantity(23, resource.DecimalSI),
 		},
 	}, batchExternal.Items)

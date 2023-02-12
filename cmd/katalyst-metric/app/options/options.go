@@ -42,7 +42,8 @@ type Options struct {
 	election.LeaderElectionConfiguration
 	componentbaseconfig.ClientConnectionConfiguration
 
-	WorkMode []string
+	WorkMode        []string
+	OutOfDataPeriod time.Duration
 
 	*StoreOptions
 	*ProviderOptions
@@ -52,7 +53,8 @@ type Options struct {
 // NewOptions creates a new Options with a default config.
 func NewOptions() *Options {
 	return &Options{
-		WorkMode: []string{WorkModeProvider, WorkModeCollector},
+		WorkMode:        []string{WorkModeProvider, WorkModeCollector},
+		OutOfDataPeriod: time.Minute * 5,
 
 		LeaderElectionConfiguration: election.LeaderElectionConfiguration{
 			LeaderElect:       true,
@@ -75,6 +77,8 @@ func NewOptions() *Options {
 func (o *Options) AddFlags(fss *cliflag.NamedFlagSets) {
 	fs := fss.FlagSet("metric")
 	fs.StringSliceVar(&o.WorkMode, "work-mode", o.WorkMode, fmt.Sprintf("in which mode current process works on"))
+	fs.DurationVar(&o.OutOfDataPeriod, "store-gc-period", o.OutOfDataPeriod, fmt.Sprintf(
+		"how long we should keep the metric data as useful"))
 
 	fs.BoolVar(&o.LeaderElect, "leader-elect", o.LeaderElect, ""+
 		"Start a leader election client and gain leadership before "+
@@ -113,6 +117,8 @@ func (o *Options) AddFlags(fss *cliflag.NamedFlagSets) {
 
 // ApplyTo fills up config with options
 func (o *Options) ApplyTo(c *config.Configuration) error {
+	c.GenericMetricConfiguration.OutOfDataPeriod = o.OutOfDataPeriod
+
 	c.GenericMetricConfiguration.LeaderElection.LeaderElect = o.LeaderElect
 	c.GenericMetricConfiguration.LeaderElection.LeaseDuration = o.LeaseDuration
 	c.GenericMetricConfiguration.LeaderElection.RenewDeadline = o.RenewDeadline

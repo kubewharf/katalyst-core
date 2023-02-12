@@ -19,7 +19,6 @@ package data
 import (
 	"encoding/json"
 	"fmt"
-
 	"sort"
 	"sync"
 	"time"
@@ -90,6 +89,8 @@ func (a *InternalMetric) DeepCopyWithLimit(limit int) *InternalMetric {
 	b := a.DeepCopy()
 
 	total := len(b.InternalValue)
+	sort.Sort(b)
+
 	if limit > 0 && total > limit {
 		b.InternalValue = b.InternalValue[total-limit:]
 	}
@@ -109,6 +110,14 @@ func (a *InternalMetric) SetObject(object string)         { a.Object = object }
 func (a *InternalMetric) SetObjectName(objectName string) { a.ObjectName = objectName }
 func (a *InternalMetric) SetLabel(key, value string)      { a.Labels[key] = value }
 func (a *InternalMetric) AppendMetric(i *InternalValue)   { a.InternalValue = append(a.InternalValue, i) }
+
+func (a *InternalMetric) Len() int { return len(a.InternalValue) }
+func (a *InternalMetric) Less(i, j int) bool {
+	return a.InternalValue[i].Timestamp < a.InternalValue[j].Timestamp
+}
+func (a *InternalMetric) Swap(i, j int) {
+	a.InternalValue[i], a.InternalValue[j] = a.InternalValue[j], a.InternalValue[i]
+}
 
 func Marshal(internalList []*InternalMetric) ([]byte, error) {
 	return json.Marshal(internalList)
@@ -147,7 +156,6 @@ func (c *CachedMetric) Add(dList ...*InternalMetric) {
 		}
 
 		namespace := d.Namespace
-
 		if _, ok := c.namespaced[namespace]; !ok {
 			c.namespaced[namespace] = newNamespacedMetric()
 		}
@@ -183,6 +191,23 @@ func (c *CachedMetric) ListAllMetric() []*InternalMetric {
 	var res []*InternalMetric
 	for _, internalMap := range c.metricMap {
 		for _, internal := range internalMap {
+			res = append(res, internal.DeepCopy())
+		}
+	}
+	return res
+}
+
+// ListAllMetricWithoutValues returns all metric with a flattened slice without values
+func (c *CachedMetric) ListAllMetricWithoutValues() []*InternalMetric {
+	c.RLock()
+	defer c.RUnlock()
+
+	var res []*InternalMetric
+	for _, internalMap := range c.metricMap {
+		for _, internal := range internalMap {
+			internalCopy := internal.DeepCopy()
+			internalCopy.Labels = make(map[string]string)
+			internalCopy.InternalValue = []*InternalValue{}
 			res = append(res, internal.DeepCopy())
 		}
 	}

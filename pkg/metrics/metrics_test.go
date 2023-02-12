@@ -25,10 +25,12 @@ import (
 	"github.com/stretchr/testify/assert"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/klog/v2"
+
+	"github.com/kubewharf/katalyst-core/pkg/config/generic"
 )
 
 func newMetricsEmitter() (MetricEmitter, error) {
-	return NewOpenTelemetryPrometheusMetricsEmitter("/metrics", http.DefaultServeMux)
+	return NewOpenTelemetryPrometheusMetricsEmitter(generic.NewMetricsConfiguration(), "/metrics", http.DefaultServeMux)
 }
 
 func TestMetrics(t *testing.T) {

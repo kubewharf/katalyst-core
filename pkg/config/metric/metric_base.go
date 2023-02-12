@@ -17,6 +17,8 @@ limitations under the License.
 package metric
 
 import (
+	"time"
+
 	componentbaseconfig "k8s.io/component-base/config"
 )
 
@@ -27,6 +29,8 @@ type GenericMetricConfiguration struct {
 
 	// leaderElection defines the configuration of leader election client.
 	LeaderElection componentbaseconfig.LeaderElectionConfiguration
+
+	OutOfDataPeriod time.Duration
 }
 
 type CustomMetricConfiguration struct {

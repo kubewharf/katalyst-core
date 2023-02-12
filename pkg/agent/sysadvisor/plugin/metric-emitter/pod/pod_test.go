@@ -64,6 +64,27 @@ func Test_podAddAndRemoved(t *testing.T) {
 							},
 						},
 					},
+					{
+						ObjectMeta: metav1.ObjectMeta{
+							UID:  "000002",
+							Name: "pod-2",
+						},
+						Spec: v1.PodSpec{
+							Containers: []v1.Container{
+								{
+									Name: "c-2",
+								},
+							},
+						},
+						Status: v1.PodStatus{
+							ContainerStatuses: []v1.ContainerStatus{
+								{
+									Name:  "c-2",
+									Ready: true,
+								},
+							},
+						},
+					},
 				},
 			},
 			MetricsFetcher: metric.NewFakeMetricsFetcher(metrics.DummyMetrics{}),
