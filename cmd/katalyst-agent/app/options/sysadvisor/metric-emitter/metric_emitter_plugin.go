@@ -22,6 +22,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 	cliflag "k8s.io/component-base/cli/flag"
 
+	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/metric-emitter/emitter"
 	metricemitter "github.com/kubewharf/katalyst-core/pkg/config/agent/sysadvisor/metric-emitter"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 )
@@ -34,6 +35,8 @@ type MetricEmitterPluginOptions struct {
 	PodSyncPeriod      time.Duration
 
 	NodeMetricLabels []string
+
+	MetricSyncers []string
 }
 
 // NewMetricEmitterPluginOptions creates a new Options with a default config.
@@ -45,6 +48,8 @@ func NewMetricEmitterPluginOptions() *MetricEmitterPluginOptions {
 		PodSyncPeriod:      30 * time.Second,
 
 		NodeMetricLabels: []string{},
+
+		MetricSyncers: []string{emitter.MetricSyncerNamePod, emitter.MetricSyncerNameNode},
 	}
 }
 
@@ -63,6 +68,9 @@ func (o *MetricEmitterPluginOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 
 	fs.StringSliceVar(&o.NodeMetricLabels, "metric-node-labels", o.NodeMetricLabels,
 		"node labels to be added in metric selector lists")
+
+	fs.StringSliceVar(&o.MetricSyncers, "metric-syncers", o.MetricSyncers,
+		"those syncers that should be enabled")
 }
 
 // ApplyTo fills up config with options
@@ -83,5 +91,7 @@ func (o *MetricEmitterPluginOptions) ApplyTo(c *metricemitter.MetricEmitterPlugi
 	c.PodSkipAnnotations = podSkipAnnotations
 
 	c.NodeMetricLabel = sets.NewString(o.NodeMetricLabels...)
+
+	c.MetricSyncers = o.MetricSyncers
 	return nil
 }

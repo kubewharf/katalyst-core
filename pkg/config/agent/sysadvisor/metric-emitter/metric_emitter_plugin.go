@@ -34,6 +34,9 @@ type MetricEmitterPluginConfiguration struct {
 	PodSkipLabels      map[string]string
 
 	NodeMetricLabel sets.String
+
+	// MetricSyncers defines those syncers that should be enabled
+	MetricSyncers []string
 }
 
 // NewMetricEmitterPluginConfiguration creates a new custom-metric emitter plugin configuration.

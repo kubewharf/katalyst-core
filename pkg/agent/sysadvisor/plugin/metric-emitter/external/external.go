@@ -21,10 +21,13 @@ import (
 	"fmt"
 	"time"
 
+	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/rand"
 	"k8s.io/apimachinery/pkg/util/wait"
+	"k8s.io/klog/v2"
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
+	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/metric-emitter/emitter"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	metricemitter "github.com/kubewharf/katalyst-core/pkg/config/agent/sysadvisor/metric-emitter"
 	"github.com/kubewharf/katalyst-core/pkg/custom-metric/store/data"
@@ -32,10 +35,9 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 )
 
-const MetricSyncerNameExternal = "external"
-
 type MetricSyncerExternal struct {
 	conf *metricemitter.MetricEmitterPluginConfiguration
+	node *v1.Node
 
 	metricEmitter metrics.MetricEmitter
 	dataEmitter   metrics.MetricEmitter
@@ -45,7 +47,7 @@ type MetricSyncerExternal struct {
 }
 
 func NewMetricSyncerExternal(conf *config.Configuration, metricEmitter, dataEmitter metrics.MetricEmitter,
-	metaServer *metaserver.MetaServer, metaCache *metacache.MetaCache) *MetricSyncerExternal {
+	metaServer *metaserver.MetaServer, metaCache *metacache.MetaCache) emitter.CustomMetricSyncer {
 	return &MetricSyncerExternal{
 		conf: conf.AgentConfiguration.MetricEmitterPluginConfiguration,
 
@@ -57,13 +59,22 @@ func NewMetricSyncerExternal(conf *config.Configuration, metricEmitter, dataEmit
 }
 
 func (e *MetricSyncerExternal) Name() string {
-	return MetricSyncerNameExternal
+	return emitter.MetricSyncerNameExternal
 }
 
 func (e *MetricSyncerExternal) Run(ctx context.Context) {
 	// todo: replace demo metrics for real external-metrics produced by sys-advisor
 	go wait.Until(func() {
-		_ = e.dataEmitter.StoreFloat64("external.demo", float64(rand.Intn(100)), metrics.MetricTypeNameRaw, []metrics.MetricTag{
+		if e.node == nil {
+			node, err := e.metaServer.GetNode(ctx)
+			if err != nil {
+				klog.Warningf("get current node failed: %v", err)
+				return
+			}
+			e.node = node
+		}
+
+		tags := []metrics.MetricTag{
 			{
 				Key: "timestamp",
 				Val: fmt.Sprintf("%v", time.Now().UnixMilli()),
@@ -72,6 +83,18 @@ func (e *MetricSyncerExternal) Run(ctx context.Context) {
 				Key: fmt.Sprintf("%stest", data.CustomMetricLabelSelectorPrefixKey),
 				Val: "fake",
 			},
-		}...)
-	}, time.Second*10, ctx.Done())
+			{
+				Key: fmt.Sprintf("%stest", data.CustomMetricLabelSelectorPrefixKey),
+				Val: "fake",
+			},
+		}
+		if e.node != nil {
+			tags = append(tags, metrics.MetricTag{
+				Key: fmt.Sprintf("%s", data.CustomMetricLabelKeyObjectName),
+				Val: e.node.Name,
+			})
+		}
+
+		_ = e.dataEmitter.StoreFloat64("external.demo", float64(rand.Intn(100)), metrics.MetricTypeNameRaw, tags...)
+	}, time.Minute, ctx.Done())
 }
