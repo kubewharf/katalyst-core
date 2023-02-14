@@ -29,6 +29,19 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/consts"
 )
 
+var GetPodHostIP = func(pod *v1.Pod) (string, error) {
+	if pod == nil {
+		return "", fmt.Errorf("empty pod")
+	}
+
+	hostIP := pod.Status.HostIP
+	if len(hostIP) == 0 {
+		return "", fmt.Errorf("empty hostIP")
+	}
+
+	return hostIP, nil
+}
+
 // PodAnnotationFilter is used to filter pods annotated with a pair of specific key and value
 func PodAnnotationFilter(pod *v1.Pod, key, value string) bool {
 	if pod == nil || pod.Annotations == nil {

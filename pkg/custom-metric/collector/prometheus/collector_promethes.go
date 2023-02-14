@@ -47,6 +47,11 @@ import (
 
 const MetricCollectorNamePrometheus = "prometheus-collector"
 
+const (
+	metricNamePromCollectorSyncCosts = "prom_collector_sync_costs"
+	metricNamePromCollectorSyncCount = "prom_collector_sync_count"
+)
+
 // prometheusCollector implements MetricCollector using self-defined parser functionality
 // for prometheus formatted contents, and sends to store will standard formats.
 // todo: if we restarts, we may lose some metric since the collecting logic interrupts
@@ -59,6 +64,9 @@ type prometheusCollector struct {
 	client      *http.Client
 	emitter     metrics.MetricEmitter
 	metricStore store.MetricStore
+
+	podFactory  informers.SharedInformerFactory
+	nodeFactory informers.SharedInformerFactory
 
 	podLister  corelisters.PodLister
 	nodeLister corelisters.NodeLister
@@ -99,6 +107,8 @@ func NewPrometheusCollector(ctx context.Context, baseCtx *katalystbase.GenericCo
 		ctx:         ctx,
 		genericConf: genericConf,
 		collectConf: collectConf,
+		podFactory:  podFactory,
+		nodeFactory: nodeFactory,
 		podLister:   podInformer.Lister(),
 		nodeLister:  nodeInformer.Lister(),
 		syncedFunc: []cache.InformerSynced{
@@ -144,6 +154,8 @@ func NewPrometheusCollector(ctx context.Context, baseCtx *katalystbase.GenericCo
 func (p *prometheusCollector) Name() string { return MetricCollectorNamePrometheus }
 
 func (p *prometheusCollector) Start() error {
+	p.podFactory.Start(p.ctx.Done())
+	p.nodeFactory.Start(p.ctx.Done())
 	klog.Info("starting scrape prometheus to collect contents")
 	if !cache.WaitForCacheSync(p.ctx.Done(), p.syncedFunc...) {
 		return fmt.Errorf("unable to scrape caches for %s", MetricCollectorNamePrometheus)
@@ -273,13 +285,19 @@ func (p *prometheusCollector) addRequest(pod *v1.Pod) {
 		p.scrapes[key] = make(map[int32]*ScrapeManager)
 	}
 
+	hostIP, err := native.GetPodHostIP(pod)
+	if err != nil {
+		klog.Errorf("get pod %v hostIP failed: %v", key, err)
+		return
+	}
+
 	ports := native.ParseHostPortsForPod(pod, native.ContainerMetricPortName)
 	for _, port := range ports {
 		if _, ok := p.scrapes[key][port]; ok {
 			continue
 		}
 
-		url := fmt.Sprintf(httpMetricURL, pod.Status.HostIP, port)
+		url := fmt.Sprintf(httpMetricURL, hostIP, port)
 		klog.Infof("add requests for pod %v with url %v", pod.Name, url)
 
 		// all ScrapeManager will share the same http connection now,
@@ -349,9 +367,16 @@ func (p *prometheusCollector) sync() {
 	}
 	p.Unlock()
 
-	klog.Infof("handled with total %v requests", len(scrapeManagers))
-	handler := func(d *data.MetricSeries) error {
-		return p.metricStore.InsertMetric([]*data.MetricSeries{d})
+	begin := time.Now()
+	defer func() {
+		costs := time.Since(begin)
+		klog.Infof("prom collector handled with total %v requests, cost %s", len(scrapeManagers), costs.String())
+		_ = p.emitter.StoreInt64(metricNamePromCollectorSyncCosts, costs.Microseconds(), metrics.MetricTypeNameRaw)
+		_ = p.emitter.StoreInt64(metricNamePromCollectorSyncCount, int64(len(scrapeManagers)), metrics.MetricTypeNameRaw)
+	}()
+
+	handler := func(d []*data.MetricSeries) error {
+		return p.metricStore.InsertMetric(d)
 	}
 	scrape := func(i int) {
 		scrapeManagers[i].HandleMetric(handler)

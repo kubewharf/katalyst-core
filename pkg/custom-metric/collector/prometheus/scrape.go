@@ -107,19 +107,30 @@ func (s *ScrapeManager) Stop() {
 
 // HandleMetric handles the in-cached metric, clears those metric if handle successes
 // keep them in memory otherwise
-func (s *ScrapeManager) HandleMetric(f func(d *data.MetricSeries) error) {
+func (s *ScrapeManager) HandleMetric(f func(d []*data.MetricSeries) error) {
 	s.Lock()
 	defer s.Unlock()
 
-	unSucceedSeries := make(map[uint64]*data.MetricSeries)
-	for key, series := range s.storedSeriesMap {
-		if err := f(series); err != nil {
-			klog.Errorf("failed to handle series %v: %v", series.Name, err)
-			unSucceedSeries[key] = series
-		}
+	if len(s.storedSeriesMap) == 0 {
+		return
 	}
-	klog.Infof("scrape [%v] total %v, handled %v", s.url, len(s.storedSeriesMap), len(unSucceedSeries))
-	s.storedSeriesMap = unSucceedSeries
+
+	var totalMetricDataCount int64
+	storedSeriesList := make([]*data.MetricSeries, 0, len(s.storedSeriesMap))
+	for _, series := range s.storedSeriesMap {
+		storedSeriesList = append(storedSeriesList, series)
+		totalMetricDataCount += int64(len(series.Series))
+	}
+
+	if err := f(storedSeriesList); err != nil {
+		klog.Errorf("failed to scrape [%v] total metric series: %v, total metric data count: %v, err: %v",
+			s.url, len(s.storedSeriesMap), totalMetricDataCount, err)
+		return
+	}
+
+	klog.V(6).Infof("success scrape [%v] total metric series: %v, total metric data count: %v",
+		s.url, len(s.storedSeriesMap), totalMetricDataCount)
+	s.storedSeriesMap = make(map[uint64]*data.MetricSeries)
 }
 
 func (s *ScrapeManager) gc() {
@@ -159,7 +170,7 @@ func (s *ScrapeManager) scrape() {
 		klog.Errorf("node %v parseContents contents failed: %v", s.node, err)
 		return
 	}
-	klog.Infof("node %v parseContents contents successfully", s.node)
+	klog.V(6).Infof("node %v parseContents contents successfully", s.node)
 
 	s.Lock()
 	defer s.Unlock()
@@ -181,21 +192,25 @@ func (s *ScrapeManager) scrape() {
 				continue
 			}
 
+			// calculating hash does not need to consider timestamp
+			delete(labels, string(data.CustomMetricLabelKeyTimestamp))
 			hash := calculateHash(*v.Name, labels, m)
 			if _, ok := s.storedSeriesMap[hash]; ok {
 				continue
 			}
 
-			s.storedSeriesMap[hash] = &data.MetricSeries{
-				Name:   *v.Name,
-				Labels: labels,
-				Series: []*data.MetricData{
-					{
-						Data:      int64(*m.Gauge.Value),
-						Timestamp: timestamp,
-					},
-				},
+			if _, ok := s.storedSeriesMap[hash]; !ok {
+				s.storedSeriesMap[hash] = &data.MetricSeries{
+					Name:   *v.Name,
+					Labels: labels,
+					Series: []*data.MetricData{},
+				}
 			}
+
+			s.storedSeriesMap[hash].Series = append(s.storedSeriesMap[hash].Series, &data.MetricData{
+				Data:      int64(*m.Gauge.Value),
+				Timestamp: timestamp,
+			})
 		}
 	}
 }

@@ -71,7 +71,6 @@ func (m *MetricProviderImp) GetMetricByName(ctx context.Context, namespacedName 
 	info provider.CustomMetricInfo, metricSelector labels.Selector) (*custom_metrics.MetricValue, error) {
 	klog.Infof("GetMetricByName: metric name %v, object %v, namespace %v, object name %v, metricSelector %v",
 		info.Metric, info.GroupResource, namespacedName.Namespace, namespacedName.Name, metricSelector)
-
 	internalList, err := m.storeImp.GetMetric(ctx, namespacedName.Namespace, info.Metric, namespacedName.Name,
 		&info.GroupResource, nil, metricSelector, 1)
 	if err != nil {
@@ -81,9 +80,9 @@ func (m *MetricProviderImp) GetMetricByName(ctx context.Context, namespacedName 
 
 	var res *custom_metrics.MetricValue
 	for _, internal := range internalList {
-		if internal.GetObject() == "" || internal.GetObjectName() == "" {
+		if internal.GetObjectKind() == "" || internal.GetObjectName() == "" {
 			klog.Errorf("custom metric %v doesn't have object %v/%v",
-				internal.Name, internal.GetObject(), internal.GetObjectName())
+				internal.Name, internal.GetObjectKind(), internal.GetObjectName())
 			continue
 		}
 
@@ -104,8 +103,8 @@ func (m *MetricProviderImp) GetMetricBySelector(ctx context.Context, namespace s
 	info provider.CustomMetricInfo, metricSelector labels.Selector) (*custom_metrics.MetricValueList, error) {
 	klog.Infof("GetMetricBySelector: metric name %v, object %v, namespace %v, objSelector %v, metricSelector %v",
 		info.Metric, info.GroupResource, namespace, objSelector, metricSelector)
-
-	internalList, err := m.storeImp.GetMetric(ctx, namespace, info.Metric, "", nil, objSelector, metricSelector, -1)
+	internalList, err := m.storeImp.GetMetric(ctx, namespace, info.Metric, "",
+		&info.GroupResource, objSelector, metricSelector, -1)
 	if err != nil {
 		klog.Errorf("GetMetric err: %v", err)
 		return nil, err
@@ -113,9 +112,9 @@ func (m *MetricProviderImp) GetMetricBySelector(ctx context.Context, namespace s
 
 	var items []custom_metrics.MetricValue
 	for _, internal := range internalList {
-		if internal.GetObject() == "" || internal.GetObjectName() == "" {
+		if internal.GetObjectKind() == "" || internal.GetObjectName() == "" {
 			klog.Errorf("custom metric %v doesn't have object %v/%v",
-				internal.Name, internal.GetObject(), internal.GetObjectName())
+				internal.Name, internal.GetObjectKind(), internal.GetObjectName())
 			continue
 		}
 
@@ -124,33 +123,27 @@ func (m *MetricProviderImp) GetMetricBySelector(ctx context.Context, namespace s
 	return &custom_metrics.MetricValueList{
 		Items: items,
 	}, nil
-
 }
 
 func (m *MetricProviderImp) ListAllMetrics() []provider.CustomMetricInfo {
 	klog.V(6).Info("ListAllMetrics")
-	internalList, err := m.storeImp.ListMetricWithObjects(context.Background())
+	metricTypeList, err := m.storeImp.ListMetricMeta(context.Background(), true)
 	if err != nil {
 		klog.Errorf("ListAllMetrics err: %v", err)
 		return []provider.CustomMetricInfo{}
 	}
 
 	infoMap := make(map[provider.CustomMetricInfo]interface{})
-	for _, internal := range internalList {
-		if internal.GetObject() == "" || internal.GetObjectName() == "" {
+	for _, metricType := range metricTypeList {
+		if metricType.GetObjectKind() == "" {
 			continue
 		}
 
-		namespaced := true
-		if internal.GetNamespace() == "" {
-			namespaced = false
-		}
-
-		_, gr := schema.ParseResourceArg(internal.GetObject())
+		_, gr := schema.ParseResourceArg(metricType.GetObjectKind())
 		infoMap[provider.CustomMetricInfo{
 			GroupResource: gr,
-			Namespaced:    namespaced,
-			Metric:        internal.GetName(),
+			Namespaced:    metricType.GetNamespaced(),
+			Metric:        metricType.GetName(),
 		}] = struct{}{}
 	}
 
@@ -174,9 +167,9 @@ func (m *MetricProviderImp) GetExternalMetric(ctx context.Context, namespace str
 
 	var items []external_metrics.ExternalMetricValue
 	for _, internal := range internalList {
-		if internal.GetObject() != "" || internal.GetObjectName() != "" {
+		if internal.GetObjectKind() != "" || internal.GetObjectName() != "" {
 			klog.Errorf("internal metric %v has object %v/%v unexpectedly",
-				internal.Name, internal.GetObject(), internal.GetObjectName())
+				internal.Name, internal.GetObjectKind(), internal.GetObjectName())
 			continue
 		}
 
@@ -189,7 +182,7 @@ func (m *MetricProviderImp) GetExternalMetric(ctx context.Context, namespace str
 
 func (m *MetricProviderImp) ListAllExternalMetrics() []provider.ExternalMetricInfo {
 	klog.V(6).Info("ListAllExternalMetrics")
-	internalList, err := m.storeImp.ListMetricWithoutObjects(context.Background())
+	internalList, err := m.storeImp.ListMetricMeta(context.Background(), false)
 	if err != nil {
 		klog.Errorf("ListAllExternalMetrics err: %v", err)
 		return []provider.ExternalMetricInfo{}
@@ -197,7 +190,7 @@ func (m *MetricProviderImp) ListAllExternalMetrics() []provider.ExternalMetricIn
 
 	infoMap := make(map[provider.ExternalMetricInfo]interface{})
 	for _, internal := range internalList {
-		if internal.GetObject() != "" || internal.GetObjectName() != "" {
+		if internal.GetObjectKind() != "" {
 			continue
 		}
 

@@ -107,7 +107,7 @@ func NewShardingController(ctx context.Context, baseCtx *katalystbase.GenericCon
 }
 
 func (s *ShardingController) Start() error {
-	klog.Info("starting sharding controller with count: %v", s.totalCount)
+	klog.Infof("starting sharding controller with count: %v", s.totalCount)
 	if !cache.WaitForCacheSync(s.ctx.Done(), s.syncedFunc...) {
 		return fmt.Errorf("unable to sync caches for %s", "sharding controller")
 	}
@@ -225,13 +225,13 @@ func (s *ShardingController) addRequest(pod *v1.Pod) {
 	}
 	port := ports[0]
 
-	hostIP := pod.Status.HostIP
-	if len(hostIP) == 0 {
-		klog.Errorf("pod %v has empty hostIP", key)
+	hostIP, err := native.GetPodHostIP(pod)
+	if err != nil {
+		klog.Errorf("get pod %v hostIP failed: %v", key, err)
 		return
 	}
 
-	url := fmt.Sprintf(httpMetricURL, pod.Status.HostIP, port)
+	url := fmt.Sprintf(httpMetricURL, hostIP, port)
 
 	if originURL, exist := s.requests[key]; exist && originURL == url {
 		return

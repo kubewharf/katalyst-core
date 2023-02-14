@@ -59,16 +59,16 @@ without_timestamp{label_test="without_timestamp",namespace="n1",object="pod",obj
 	s.Start(time.Minute * 30)
 	time.Sleep(time.Second * 5)
 
-	handler := func(d *data.MetricSeries) error {
+	handler := func(d []*data.MetricSeries) error {
 		assert.NotNil(t, d)
 		return fmt.Errorf("test error")
 	}
 	s.HandleMetric(handler)
 
 	var dataList []*data.MetricSeries
-	handler = func(d *data.MetricSeries) error {
+	handler = func(d []*data.MetricSeries) error {
 		assert.NotNil(t, d)
-		dataList = append(dataList, d)
+		dataList = append(dataList, d...)
 		return nil
 	}
 	s.HandleMetric(handler)
@@ -107,7 +107,6 @@ without_timestamp{label_test="without_timestamp",namespace="n1",object="pod",obj
 				"namespace":   "n1",
 				"object":      "pod",
 				"object_name": "pod_1",
-				"timestamp":   "12",
 			},
 			Series: []*data.MetricData{
 				{
@@ -123,7 +122,6 @@ without_timestamp{label_test="without_timestamp",namespace="n1",object="pod",obj
 				"namespace":   "n1",
 				"object":      "pod",
 				"object_name": "pod_2",
-				"timestamp":   "123",
 			},
 			Series: []*data.MetricData{
 				{

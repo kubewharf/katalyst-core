@@ -48,8 +48,6 @@ type MetricStore interface {
 	// as a specific MetricStore inner logic.
 	GetMetric(ctx context.Context, namespace, metricName, objName string, gr *schema.GroupResource,
 		objSelector, metricSelector labels.Selector, limited int) ([]*data.InternalMetric, error)
-	// ListMetricWithObjects returns all metrics bounded with a kubernetes objects
-	// ListMetricWithoutObjects returns all metrics not bounded with a kubernetes objects
-	ListMetricWithObjects(ctx context.Context) ([]*data.InternalMetric, error)
-	ListMetricWithoutObjects(ctx context.Context) ([]*data.InternalMetric, error)
+	// ListMetricMeta returns all metrics type bounded with a kubernetes objects if withObject is true
+	ListMetricMeta(ctx context.Context, withObject bool) ([]data.MetricMeta, error)
 }

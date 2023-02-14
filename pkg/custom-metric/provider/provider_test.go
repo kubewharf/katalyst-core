@@ -469,7 +469,7 @@ func testProvider(t *testing.T, p MetricProvider, s store.MetricStore, ctx conte
 
 	t.Log("#### 1.3.1: GetMetricBySelector empty ns")
 
-	batchMetric, err = p.GetMetricBySelector(ctx, "", labels.Everything(), provider.CustomMetricInfo{}, labels.Everything())
+	batchMetric, err = p.GetMetricBySelector(ctx, "", labels.Everything(), provider.CustomMetricInfo{GroupResource: nodeGR}, labels.Everything())
 	assert.NoError(t, err)
 	assert.Equal(t, 1, len(batchMetric.Items))
 	assert.ElementsMatch(t, []custom_metrics.MetricValue{
@@ -493,7 +493,7 @@ func testProvider(t *testing.T, p MetricProvider, s store.MetricStore, ctx conte
 
 	t.Log("#### 1.3.2: GetMetricBySelector ns-1")
 
-	batchMetric, err = p.GetMetricBySelector(ctx, "ns-1", labels.Everything(), provider.CustomMetricInfo{}, labels.Everything())
+	batchMetric, err = p.GetMetricBySelector(ctx, "ns-1", labels.Everything(), provider.CustomMetricInfo{GroupResource: podGR}, labels.Everything())
 	assert.NoError(t, err)
 	assert.Equal(t, 1, len(batchMetric.Items))
 	assert.ElementsMatch(t, []custom_metrics.MetricValue{
@@ -518,7 +518,7 @@ func testProvider(t *testing.T, p MetricProvider, s store.MetricStore, ctx conte
 
 	t.Log("#### 1.3.3: GetMetricBySelector ns-2")
 
-	batchMetric, err = p.GetMetricBySelector(ctx, "ns-2", labels.Everything(), provider.CustomMetricInfo{}, labels.Everything())
+	batchMetric, err = p.GetMetricBySelector(ctx, "ns-2", labels.Everything(), provider.CustomMetricInfo{GroupResource: podGR}, labels.Everything())
 	assert.NoError(t, err)
 	assert.Equal(t, 3, len(batchMetric.Items))
 	assert.ElementsMatch(t, []custom_metrics.MetricValue{
@@ -669,13 +669,13 @@ func testProvider(t *testing.T, p MetricProvider, s store.MetricStore, ctx conte
 
 	t.Log("#### 2.3.1: GetMetricBySelector empty ns")
 
-	batchMetric, err = p.GetMetricBySelector(ctx, "", labels.Everything(), provider.CustomMetricInfo{}, labels.Everything())
+	batchMetric, err = p.GetMetricBySelector(ctx, "", labels.Everything(), provider.CustomMetricInfo{GroupResource: podGR}, labels.Everything())
 	assert.NoError(t, err)
 	assert.Equal(t, 0, len(batchMetric.Items))
 
 	t.Log("#### 2.3.2: GetMetricBySelector ns-1")
 
-	batchMetric, err = p.GetMetricBySelector(ctx, "ns-1", labels.Everything(), provider.CustomMetricInfo{}, labels.Everything())
+	batchMetric, err = p.GetMetricBySelector(ctx, "ns-1", labels.Everything(), provider.CustomMetricInfo{GroupResource: podGR}, labels.Everything())
 	assert.NoError(t, err)
 	assert.Equal(t, 1, len(batchMetric.Items))
 	assert.ElementsMatch(t, []custom_metrics.MetricValue{
@@ -700,7 +700,7 @@ func testProvider(t *testing.T, p MetricProvider, s store.MetricStore, ctx conte
 
 	t.Log("#### 2.3.3: GetMetricBySelector ns-2")
 
-	batchMetric, err = p.GetMetricBySelector(ctx, "ns-2", labels.Everything(), provider.CustomMetricInfo{}, labels.Everything())
+	batchMetric, err = p.GetMetricBySelector(ctx, "ns-2", labels.Everything(), provider.CustomMetricInfo{GroupResource: podGR}, labels.Everything())
 	assert.NoError(t, err)
 	assert.Equal(t, 1, len(batchMetric.Items))
 	assert.ElementsMatch(t, []custom_metrics.MetricValue{

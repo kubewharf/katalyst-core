@@ -104,12 +104,17 @@ func (l *LocalMemoryMetricStore) Stop() error {
 }
 
 func (l *LocalMemoryMetricStore) InsertMetric(seriesList []*data.MetricSeries) error {
+	begin := time.Now()
+	defer func() {
+		klog.V(5).Infof("[LocalMemoryMetricStore] InsertMetric costs %s", time.Since(begin).String())
+	}()
 	// todo: handle aggregate functions in the future if needed
 	for _, series := range seriesList {
+		begin := time.Now()
 		internalData, _ := l.parseMetricSeries(series)
 
-		klog.Infof("insert with %v", internalData.String())
 		l.cache.Add(internalData)
+		klog.V(6).Infof("insert with %v, costs %s", internalData.String(), time.Since(begin).String())
 	}
 	return nil
 }
@@ -121,7 +126,7 @@ func (l *LocalMemoryMetricStore) GetMetric(_ context.Context, namespace, metricN
 
 	// always try to get by metric-name if nominated, otherwise list all internal metrics
 	if metricName != "" && metricName != "*" {
-		internalList, _ = l.cache.GetMetricWithLimit(metricName, limited)
+		internalList, _ = l.cache.GetMetricWithLimit(namespace, metricName, gr, limited)
 	} else {
 		internalList = l.cache.GetMetricInNamespaceWithLimit(namespace, limited)
 	}
@@ -159,41 +164,30 @@ func (l *LocalMemoryMetricStore) GetMetric(_ context.Context, namespace, metricN
 	return res, nil
 }
 
-func (l *LocalMemoryMetricStore) ListMetricWithObjects(_ context.Context) ([]*data.InternalMetric, error) {
-	var res []*data.InternalMetric
+func (l *LocalMemoryMetricStore) ListMetricMeta(_ context.Context, withObject bool) ([]data.MetricMeta, error) {
+	begin := time.Now()
+	defer func() {
+		klog.V(5).Infof("[LocalMemoryMetricStore] ListMetricMeta costs %s", time.Since(begin).String())
+	}()
 
-	internalList := l.cache.ListAllMetricWithoutValues()
-	for _, internal := range internalList {
-		if internal.GetObject() == "" || internal.GetObjectName() == "" {
-			continue
-		}
-
-		res = append(res, internal)
-	}
-	return res, nil
-}
-
-func (l *LocalMemoryMetricStore) ListMetricWithoutObjects(_ context.Context) ([]*data.InternalMetric, error) {
-	var res []*data.InternalMetric
-
-	internalList := l.cache.ListAllMetricWithoutValues()
-	for _, internal := range internalList {
-		if internal.GetObject() != "" || internal.GetObjectName() != "" {
-			continue
-		}
-
-		res = append(res, internal)
-	}
-	return res, nil
+	return l.cache.ListAllMetricMeta(withObject), nil
 }
 
 // gc is used to clean those custom metric internalMetric that has been out-of-date
 func (l *LocalMemoryMetricStore) gc() {
-	expiredTime := time.Now().Add(-1 * l.genericConf.OutOfDataPeriod)
+	begin := time.Now()
+	defer func() {
+		klog.Infof("[LocalMemoryMetricStore] gc costs %s", time.Since(begin).String())
+	}()
+	expiredTime := begin.Add(-1 * l.genericConf.OutOfDataPeriod)
 	l.cache.GC(expiredTime)
 }
 
 func (l *LocalMemoryMetricStore) log() {
+	begin := time.Now()
+	defer func() {
+		klog.Infof("[LocalMemoryMetricStore] log costs %s", time.Since(begin).String())
+	}()
 	names := l.cache.ListAllMetricNames()
 	klog.Infof("currently with %v metric: %v", len(names), names)
 }
@@ -210,9 +204,9 @@ func (l *LocalMemoryMetricStore) parseMetricSeries(series *data.MetricSeries) (*
 	for key, value := range series.Labels {
 		switch data.CustomMetricLabelKey(key) {
 		case data.CustomMetricLabelKeyNamespace:
-			res.SetNamespace(value)
+			res.SetObjectNamespace(value)
 		case data.CustomMetricLabelKeyObject:
-			res.SetObject(value)
+			res.SetObjectKind(value)
 		case data.CustomMetricLabelKeyObjectName:
 			res.SetObjectName(value)
 		default:
@@ -229,14 +223,14 @@ func (l *LocalMemoryMetricStore) parseMetricSeries(series *data.MetricSeries) (*
 		}
 	}
 
-	if res.GetObject() != "" {
+	if res.GetObjectKind() != "" {
 		if res.GetObjectName() == "" {
 			return &data.InternalMetric{}, aggList
 		}
 
-		_, err := l.getObject(res.GetObject(), res.GetNamespace(), res.GetObjectName())
+		_, err := l.getObject(res.GetObjectKind(), res.GetObjectNamespace(), res.GetObjectName())
 		if err != nil {
-			klog.Errorf("invalid objects %v %v/%v: %v", res.GetObject(), res.GetNamespace(), res.GetObjectName(), err)
+			klog.Errorf("invalid objects %v %v/%v: %v", res.GetObjectKind(), res.GetObjectNamespace(), res.GetObjectName(), err)
 			return &data.InternalMetric{}, aggList
 		}
 	}
@@ -256,8 +250,8 @@ func (l *LocalMemoryMetricStore) parseMetricSeries(series *data.MetricSeries) (*
 // if not, return an error to represent the unmatched reasons
 func (l *LocalMemoryMetricStore) checkInternalMetricMatchedWithMetricInfo(internal *data.InternalMetric, namespace string,
 	metricSelector labels.Selector) (bool, error) {
-	if namespace != "" && namespace != "*" && namespace != internal.GetNamespace() {
-		klog.V(5).Infof("%v namespace %v not match metric namespace %v", internal.GetName(), namespace, internal.GetNamespace())
+	if namespace != "" && namespace != "*" && namespace != internal.GetObjectNamespace() {
+		klog.V(5).Infof("%v namespace %v not match metric namespace %v", internal.GetName(), namespace, internal.GetObjectNamespace())
 		return false, nil
 	}
 
@@ -274,8 +268,8 @@ func (l *LocalMemoryMetricStore) checkInternalMetricMatchedWithMetricInfo(intern
 // if not, return an error to represent the unmatched reasons
 func (l *LocalMemoryMetricStore) checkInternalMetricMatchedWithObject(internal *data.InternalMetric,
 	gr *schema.GroupResource, namespace, name string) (bool, error) {
-	if gr != nil && gr.String() != internal.GetObject() {
-		klog.V(5).Infof("gvr %+v not match with objects %v", gr, internal.GetObject())
+	if gr != nil && gr.String() != internal.GetObjectKind() {
+		klog.V(5).Infof("gvr %+v not match with objects %v", gr, internal.GetObjectKind())
 		return false, nil
 	}
 
@@ -284,7 +278,7 @@ func (l *LocalMemoryMetricStore) checkInternalMetricMatchedWithObject(internal *
 		return false, nil
 	}
 
-	_, err := l.getObject(internal.GetObject(), namespace, name)
+	_, err := l.getObject(internal.GetObjectKind(), namespace, name)
 	if err != nil {
 		return false, err
 	}
@@ -297,12 +291,12 @@ func (l *LocalMemoryMetricStore) checkInternalMetricMatchedWithObject(internal *
 // if not, return an error to represent the unmatched reasons
 func (l *LocalMemoryMetricStore) checkInternalMetricMatchedWithObjectList(internal *data.InternalMetric,
 	gr *schema.GroupResource, namespace string, selector labels.Selector) (bool, error) {
-	if gr != nil && gr.String() != internal.GetObject() {
-		klog.V(5).Infof("gvr %+v not match with objects %v", gr, internal.GetObject())
+	if gr != nil && gr.String() != internal.GetObjectKind() {
+		klog.V(5).Infof("gvr %+v not match with objects %v", gr, internal.GetObjectKind())
 		return false, nil
 	}
 
-	obj, err := l.getObject(internal.GetObject(), namespace, internal.GetObjectName())
+	obj, err := l.getObject(internal.GetObjectKind(), namespace, internal.GetObjectName())
 	if err != nil {
 		return false, err
 	}

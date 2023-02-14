@@ -23,6 +23,8 @@ import (
 	"sync"
 	"time"
 
+	"k8s.io/apimachinery/pkg/runtime/schema"
+
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 )
 
@@ -48,34 +50,58 @@ func (i *InternalValue) DeepCopy() *InternalValue {
 func (i *InternalValue) GetValue() int64     { return i.Value }
 func (i *InternalValue) GetTimestamp() int64 { return i.Timestamp }
 
+type MetricMeta struct {
+	Name       string `json:"name,omitempty"`
+	Namespaced bool   `json:"namespaced,omitempty"`
+	ObjectKind string `json:"objectKind,omitempty"`
+}
+
+func (m *MetricMeta) GetName() string       { return m.Name }
+func (m *MetricMeta) GetNamespaced() bool   { return m.Namespaced }
+func (m *MetricMeta) GetObjectKind() string { return m.ObjectKind }
+
+func (m *MetricMeta) SetObjectKind(objectKind string) { m.ObjectKind = objectKind }
+func (m *MetricMeta) SetNamespaced(namespaced bool)   { m.Namespaced = namespaced }
+func (m *MetricMeta) SetName(name string)             { m.Name = name }
+
+type ObjectMeta struct {
+	ObjectNamespace string `json:"objectNamespace,omitempty"`
+	ObjectName      string `json:"objectName,omitempty"`
+}
+
+func (m *ObjectMeta) GetObjectNamespace() string { return m.ObjectNamespace }
+func (m *ObjectMeta) GetObjectName() string      { return m.ObjectName }
+
+func (m *ObjectMeta) SetObjectNamespace(objectNamespace string) { m.ObjectNamespace = objectNamespace }
+func (m *ObjectMeta) SetObjectName(objectName string)           { m.ObjectName = objectName }
+
 // InternalMetric is used as an internal version of metricItem
 type InternalMetric struct {
-	Namespace     string            `json:"namespace,omitempty"`
-	Name          string            `json:"name,omitempty"`
-	Object        string            `json:"object,omitempty"`
-	ObjectName    string            `json:"objectName,omitempty"`
+	MetricMeta `json:",inline"`
+	ObjectMeta `json:",inline"`
+
 	Labels        map[string]string `json:"labels,omitempty"`
 	InternalValue []*InternalValue  `json:"internalValue,omitempty"`
 }
 
 func NewInternalMetric(name string) *InternalMetric {
 	return &InternalMetric{
-		Name:   name,
+		MetricMeta: MetricMeta{
+			Name: name,
+		},
 		Labels: make(map[string]string),
 	}
 }
 
 func (a *InternalMetric) String() string {
-	return fmt.Sprintf("{Namespace: %v, Name: %v, Object: %v, ObjectName: %v}",
-		a.Namespace, a.Name, a.Object, a.ObjectName)
+	return fmt.Sprintf("{ObjectNamespace: %v, Name: %v, ObjectKind: %v, ObjectName: %v}",
+		a.ObjectNamespace, a.Name, a.ObjectKind, a.ObjectName)
 }
 
 func (a *InternalMetric) DeepCopy() *InternalMetric {
 	b := &InternalMetric{
-		Namespace:  a.Namespace,
-		Name:       a.Name,
-		Object:     a.Object,
-		ObjectName: a.ObjectName,
+		MetricMeta: a.MetricMeta,
+		ObjectMeta: a.ObjectMeta,
 		Labels:     general.DeepCopyMap(a.Labels),
 	}
 
@@ -98,18 +124,16 @@ func (a *InternalMetric) DeepCopyWithLimit(limit int) *InternalMetric {
 	return b
 }
 
-func (a *InternalMetric) GetNamespace() string         { return a.Namespace }
-func (a *InternalMetric) GetName() string              { return a.Name }
-func (a *InternalMetric) GetObject() string            { return a.Object }
-func (a *InternalMetric) GetObjectName() string        { return a.ObjectName }
 func (a *InternalMetric) GetLabels() map[string]string { return a.Labels }
 func (a *InternalMetric) GetValues() []*InternalValue  { return a.InternalValue }
 
-func (a *InternalMetric) SetNamespace(namespace string)   { a.Namespace = namespace }
-func (a *InternalMetric) SetObject(object string)         { a.Object = object }
-func (a *InternalMetric) SetObjectName(objectName string) { a.ObjectName = objectName }
-func (a *InternalMetric) SetLabel(key, value string)      { a.Labels[key] = value }
-func (a *InternalMetric) AppendMetric(i *InternalValue)   { a.InternalValue = append(a.InternalValue, i) }
+func (a *InternalMetric) SetObjectNamespace(objectNamespace string) {
+	a.ObjectMeta.SetObjectNamespace(objectNamespace)
+	a.SetNamespaced(objectNamespace != "")
+}
+
+func (a *InternalMetric) SetLabel(key, value string)    { a.Labels[key] = value }
+func (a *InternalMetric) AppendMetric(i *InternalValue) { a.InternalValue = append(a.InternalValue, i) }
 
 func (a *InternalMetric) Len() int { return len(a.InternalValue) }
 func (a *InternalMetric) Less(i, j int) bool {
@@ -129,6 +153,41 @@ func Unmarshal(bytes []byte) ([]*InternalMetric, error) {
 	return res, err
 }
 
+// MergeInternalMetricList merges internal metric lists and sort them, if the same
+// timestamp appears in different list (which should happen actually), we will
+// randomly choose one item.
+func MergeInternalMetricList(internalLists ...[]*InternalMetric) []*InternalMetric {
+	if len(internalLists) == 0 {
+		return []*InternalMetric{}
+	} else if len(internalLists) == 1 {
+		return internalLists[0]
+	}
+
+	c := NewCachedMetric()
+	for _, internalList := range internalLists {
+		c.Add(internalList...)
+	}
+	return c.ListAllMetric()
+}
+
+// MergeMetricMetaList merges MetricMeta lists and removes duplicates
+func MergeMetricMetaList(metricMetaLists ...[]MetricMeta) []MetricMeta {
+	metricTypeMap := make(map[MetricMeta]interface{})
+	for _, metricsTypeList := range metricMetaLists {
+		for _, metricsType := range metricsTypeList {
+			if _, ok := metricTypeMap[metricsType]; !ok {
+				metricTypeMap[metricsType] = struct{}{}
+			}
+		}
+	}
+
+	var res []MetricMeta
+	for metricType := range metricTypeMap {
+		res = append(res, metricType)
+	}
+	return res
+}
+
 // CachedMetric stores all metricItems in an organized way;
 type CachedMetric struct {
 	sync.RWMutex
@@ -136,13 +195,13 @@ type CachedMetric struct {
 	// namespaced is used as a normal storage format, while
 	// metricMap flatten the metrics as a reversed index to make refer faster
 	namespaced map[string]*namespacedMetric
-	metricMap  map[string]map[string]*InternalMetric
+	metricMap  map[MetricMeta]map[ObjectMeta]*InternalMetric
 }
 
 func NewCachedMetric() *CachedMetric {
 	return &CachedMetric{
 		namespaced: make(map[string]*namespacedMetric),
-		metricMap:  make(map[string]map[string]*InternalMetric),
+		metricMap:  make(map[MetricMeta]map[ObjectMeta]*InternalMetric),
 	}
 }
 
@@ -155,31 +214,27 @@ func (c *CachedMetric) Add(dList ...*InternalMetric) {
 			continue
 		}
 
-		namespace := d.Namespace
-		if _, ok := c.namespaced[namespace]; !ok {
-			c.namespaced[namespace] = newNamespacedMetric()
+		objectNamespace := d.ObjectNamespace
+		if _, ok := c.namespaced[objectNamespace]; !ok {
+			c.namespaced[objectNamespace] = newNamespacedMetric()
 		}
-		addedValues := c.namespaced[namespace].add(d)
+		addedValues := c.namespaced[objectNamespace].add(d)
 		if len(addedValues) == 0 {
 			continue
 		}
 
-		dStr := d.String()
-		if _, ok := c.metricMap[d.Name]; !ok {
-			c.metricMap[d.Name] = make(map[string]*InternalMetric)
+		if _, ok := c.metricMap[d.MetricMeta]; !ok {
+			c.metricMap[d.MetricMeta] = make(map[ObjectMeta]*InternalMetric)
 		}
-		if _, ok := c.metricMap[d.Name][dStr]; !ok {
-			c.metricMap[d.Name][dStr] = &InternalMetric{
-				Namespace:  d.Namespace,
-				Name:       d.Name,
-				Object:     d.Object,
-				ObjectName: d.ObjectName,
-				Labels:     d.Labels,
+		if _, ok := c.metricMap[d.MetricMeta][d.ObjectMeta]; !ok {
+			c.metricMap[d.MetricMeta][d.ObjectMeta] = &InternalMetric{
+				MetricMeta: d.MetricMeta,
+				ObjectMeta: d.ObjectMeta,
 			}
 		}
 
-		c.metricMap[d.Name][dStr].Labels = d.Labels
-		c.metricMap[d.Name][dStr].InternalValue = append(c.metricMap[d.Name][dStr].InternalValue, addedValues...)
+		c.metricMap[d.MetricMeta][d.ObjectMeta].Labels = d.Labels
+		c.metricMap[d.MetricMeta][d.ObjectMeta].InternalValue = append(c.metricMap[d.MetricMeta][d.ObjectMeta].InternalValue, addedValues...)
 	}
 }
 
@@ -197,19 +252,18 @@ func (c *CachedMetric) ListAllMetric() []*InternalMetric {
 	return res
 }
 
-// ListAllMetricWithoutValues returns all metric with a flattened slice without values
-func (c *CachedMetric) ListAllMetricWithoutValues() []*InternalMetric {
+// ListAllMetricMeta returns all metric meta with a flattened slice
+func (c *CachedMetric) ListAllMetricMeta(withObject bool) []MetricMeta {
 	c.RLock()
 	defer c.RUnlock()
 
-	var res []*InternalMetric
-	for _, internalMap := range c.metricMap {
-		for _, internal := range internalMap {
-			internalCopy := internal.DeepCopy()
-			internalCopy.Labels = make(map[string]string)
-			internalCopy.InternalValue = []*InternalValue{}
-			res = append(res, internal.DeepCopy())
+	var res []MetricMeta
+	for metricMeta := range c.metricMap {
+		if (withObject && metricMeta.GetObjectKind() == "") ||
+			(!withObject && metricMeta.GetObjectKind() != "") {
+			continue
 		}
+		res = append(res, metricMeta)
 	}
 	return res
 }
@@ -220,26 +274,33 @@ func (c *CachedMetric) ListAllMetricNames() []string {
 	defer c.RUnlock()
 
 	var res []string
-	for name, internalMap := range c.metricMap {
+	for metricMeta, internalMap := range c.metricMap {
 		if len(internalMap) == 0 {
 			continue
 		}
-		res = append(res, name)
+		res = append(res, metricMeta.Name)
 	}
 	return res
 }
 
 // GetMetric returns the metric matched with the given key
-func (c *CachedMetric) GetMetric(metricName string) ([]*InternalMetric, bool) {
-	return c.GetMetricWithLimit(metricName, -1)
+func (c *CachedMetric) GetMetric(namespace, metricName string, gr *schema.GroupResource) ([]*InternalMetric, bool) {
+	return c.GetMetricWithLimit(namespace, metricName, gr, -1)
 }
 
-func (c *CachedMetric) GetMetricWithLimit(metricName string, limit int) ([]*InternalMetric, bool) {
+func (c *CachedMetric) GetMetricWithLimit(namespace, metricName string, gr *schema.GroupResource, limit int) ([]*InternalMetric, bool) {
 	c.RLock()
 	defer c.RUnlock()
 
 	var res []*InternalMetric
-	if internalMap, ok := c.metricMap[metricName]; ok {
+	metricMeta := MetricMeta{
+		Name:       metricName,
+		Namespaced: namespace != "",
+	}
+	if gr != nil {
+		metricMeta.SetObjectKind(gr.String())
+	}
+	if internalMap, ok := c.metricMap[metricMeta]; ok {
 		for _, internal := range internalMap {
 			res = append(res, internal.DeepCopyWithLimit(limit))
 		}
@@ -264,7 +325,7 @@ func (c *CachedMetric) GetMetricInNamespaceWithLimit(namespace string, limit int
 	}
 
 	for _, internal := range c.namespaced[namespace].listAllMetric() {
-		internal.Namespace = namespace
+		internal.SetObjectNamespace(namespace)
 		res = append(res, internal.DeepCopyWithLimit(limit))
 	}
 	return res
@@ -324,9 +385,9 @@ func (n *namespacedMetric) listAllMetric() []*InternalMetric {
 	defer n.RUnlock()
 
 	var res []*InternalMetric
-	for object, resourced := range n.resourced {
+	for objectKind, resourced := range n.resourced {
 		for _, internal := range resourced.listAllMetric() {
-			internal.Object = object
+			internal.SetObjectKind(objectKind)
 			res = append(res, internal)
 		}
 	}
@@ -334,15 +395,15 @@ func (n *namespacedMetric) listAllMetric() []*InternalMetric {
 }
 
 func (n *namespacedMetric) add(d *InternalMetric) []*InternalValue {
-	object := d.Object
+	objectKind := d.ObjectKind
 
 	n.Lock()
 	defer n.Unlock()
 
-	if _, ok := n.resourced[object]; !ok {
-		n.resourced[object] = newResourcedMetric()
+	if _, ok := n.resourced[objectKind]; !ok {
+		n.resourced[objectKind] = newResourcedMetric()
 	}
-	return n.resourced[object].add(d)
+	return n.resourced[objectKind].add(d)
 }
 
 func (n *namespacedMetric) gc(expiredTimestamp int64) {
@@ -381,7 +442,7 @@ func (r *resourcedMetric) listAllMetric() []*InternalMetric {
 	var res []*InternalMetric
 	for objectName, objected := range r.objected {
 		for _, internal := range objected.listAllMetric() {
-			internal.ObjectName = objectName
+			internal.SetObjectName(objectName)
 			res = append(res, internal)
 		}
 	}
@@ -436,7 +497,7 @@ func (o *objectedMetric) listAllMetric() []*InternalMetric {
 	var res []*InternalMetric
 	for name, series := range o.series {
 		internal := series.listAllMetric()
-		internal.Name = name
+		internal.SetName(name)
 
 		res = append(res, internal)
 	}

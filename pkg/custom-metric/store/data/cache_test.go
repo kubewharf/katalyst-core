@@ -20,6 +20,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 )
 
 func Test_cache(t *testing.T) {
@@ -36,7 +37,9 @@ func Test_cache(t *testing.T) {
 	t.Log("#### 1: Add with none-namespaced metric")
 
 	c.Add(&InternalMetric{
-		Name: "m-1",
+		MetricMeta: MetricMeta{
+			Name: "m-1",
+		},
 		Labels: map[string]string{
 			"Name": "m-1",
 		},
@@ -51,10 +54,12 @@ func Test_cache(t *testing.T) {
 	names = c.ListAllMetricNames()
 	assert.ElementsMatch(t, []string{"m-1"}, names)
 
-	oneMetric, exist = c.GetMetric("m-1")
+	oneMetric, exist = c.GetMetric("", "m-1", nil)
 	assert.Equal(t, true, exist)
 	assert.Equal(t, &InternalMetric{
-		Name: "m-1",
+		MetricMeta: MetricMeta{
+			Name: "m-1",
+		},
 		Labels: map[string]string{
 			"Name": "m-1",
 		},
@@ -66,14 +71,19 @@ func Test_cache(t *testing.T) {
 		},
 	}, oneMetric[0])
 
-	oneMetric, exist = c.GetMetric("m-2")
+	oneMetric, exist = c.GetMetric("", "m-2", nil)
 	assert.Equal(t, false, exist)
 
 	t.Log("#### 2: Add with namespaced metric")
 
 	c.Add(&InternalMetric{
-		Name:      "m-2",
-		Namespace: "n-2",
+		MetricMeta: MetricMeta{
+			Name:       "m-2",
+			Namespaced: true,
+		},
+		ObjectMeta: ObjectMeta{
+			ObjectNamespace: "n-2",
+		},
 		Labels: map[string]string{
 			"Name": "m-2",
 		},
@@ -88,10 +98,12 @@ func Test_cache(t *testing.T) {
 	names = c.ListAllMetricNames()
 	assert.ElementsMatch(t, []string{"m-1", "m-2"}, names)
 
-	oneMetric, exist = c.GetMetric("m-1")
+	oneMetric, exist = c.GetMetric("", "m-1", nil)
 	assert.Equal(t, true, exist)
 	assert.Equal(t, &InternalMetric{
-		Name: "m-1",
+		MetricMeta: MetricMeta{
+			Name: "m-1",
+		},
 		Labels: map[string]string{
 			"Name": "m-1",
 		},
@@ -103,11 +115,16 @@ func Test_cache(t *testing.T) {
 		},
 	}, oneMetric[0])
 
-	oneMetric, exist = c.GetMetric("m-2")
+	oneMetric, exist = c.GetMetric("n-2", "m-2", nil)
 	assert.Equal(t, true, exist)
 	assert.Equal(t, &InternalMetric{
-		Name:      "m-2",
-		Namespace: "n-2",
+		MetricMeta: MetricMeta{
+			Name:       "m-2",
+			Namespaced: true,
+		},
+		ObjectMeta: ObjectMeta{
+			ObjectNamespace: "n-2",
+		},
 		Labels: map[string]string{
 			"Name": "m-2",
 		},
@@ -122,10 +139,15 @@ func Test_cache(t *testing.T) {
 	t.Log("#### 3: Add pod with objected metric")
 
 	c.Add(&InternalMetric{
-		Name:       "m-3",
-		Namespace:  "n-3",
-		Object:     "pod",
-		ObjectName: "pod-3",
+		MetricMeta: MetricMeta{
+			Name:       "m-3",
+			Namespaced: true,
+			ObjectKind: "pod",
+		},
+		ObjectMeta: ObjectMeta{
+			ObjectNamespace: "n-3",
+			ObjectName:      "pod-3",
+		},
 		Labels: map[string]string{
 			"Name": "m-3",
 		},
@@ -140,16 +162,21 @@ func Test_cache(t *testing.T) {
 	names = c.ListAllMetricNames()
 	assert.ElementsMatch(t, []string{"m-1", "m-2", "m-3"}, names)
 
-	oneMetric, exist = c.GetMetric("m-3")
+	oneMetric, exist = c.GetMetric("n-3", "m-3", &schema.GroupResource{Resource: "pod"})
 	assert.Equal(t, true, exist)
 	assert.Equal(t, &InternalMetric{
-		Name:      "m-3",
-		Namespace: "n-3",
+		MetricMeta: MetricMeta{
+			Name:       "m-3",
+			Namespaced: true,
+			ObjectKind: "pod",
+		},
+		ObjectMeta: ObjectMeta{
+			ObjectNamespace: "n-3",
+			ObjectName:      "pod-3",
+		},
 		Labels: map[string]string{
 			"Name": "m-3",
 		},
-		Object:     "pod",
-		ObjectName: "pod-3",
 		InternalValue: []*InternalValue{
 			{
 				Value:     4,
@@ -161,10 +188,15 @@ func Test_cache(t *testing.T) {
 	t.Log("#### 4: Add pod with the same metric Name")
 
 	c.Add(&InternalMetric{
-		Name:       "m-3",
-		Namespace:  "n-3",
-		Object:     "pod",
-		ObjectName: "pod-3",
+		MetricMeta: MetricMeta{
+			Name:       "m-3",
+			Namespaced: true,
+			ObjectKind: "pod",
+		},
+		ObjectMeta: ObjectMeta{
+			ObjectNamespace: "n-3",
+			ObjectName:      "pod-3",
+		},
 		Labels: map[string]string{
 			"Name": "m-3",
 		},
@@ -179,16 +211,21 @@ func Test_cache(t *testing.T) {
 	names = c.ListAllMetricNames()
 	assert.ElementsMatch(t, []string{"m-1", "m-2", "m-3"}, names)
 
-	oneMetric, exist = c.GetMetric("m-3")
+	oneMetric, exist = c.GetMetric("n-3", "m-3", &schema.GroupResource{Resource: "pod"})
 	assert.Equal(t, true, exist)
 	assert.Equal(t, &InternalMetric{
-		Name:      "m-3",
-		Namespace: "n-3",
+		MetricMeta: MetricMeta{
+			Name:       "m-3",
+			Namespaced: true,
+			ObjectKind: "pod",
+		},
+		ObjectMeta: ObjectMeta{
+			ObjectNamespace: "n-3",
+			ObjectName:      "pod-3",
+		},
 		Labels: map[string]string{
 			"Name": "m-3",
 		},
-		Object:     "pod",
-		ObjectName: "pod-3",
 		InternalValue: []*InternalValue{
 			{
 				Value:     4,
@@ -204,10 +241,15 @@ func Test_cache(t *testing.T) {
 	t.Log("#### 5: Add pod another meta")
 
 	c.Add(&InternalMetric{
-		Name:       "m-3",
-		Namespace:  "n-3",
-		Object:     "pod",
-		ObjectName: "pod-4",
+		MetricMeta: MetricMeta{
+			Name:       "m-3",
+			Namespaced: true,
+			ObjectKind: "pod",
+		},
+		ObjectMeta: ObjectMeta{
+			ObjectNamespace: "n-3",
+			ObjectName:      "pod-4",
+		},
 		Labels: map[string]string{
 			"Name": "m-3",
 		},
@@ -222,17 +264,22 @@ func Test_cache(t *testing.T) {
 	names = c.ListAllMetricNames()
 	assert.ElementsMatch(t, []string{"m-1", "m-2", "m-3"}, names)
 
-	oneMetric, exist = c.GetMetric("m-3")
+	oneMetric, exist = c.GetMetric("n-3", "m-3", &schema.GroupResource{Resource: "pod"})
 	assert.Equal(t, true, exist)
 	assert.ElementsMatch(t, []*InternalMetric{
 		{
-			Name:      "m-3",
-			Namespace: "n-3",
+			MetricMeta: MetricMeta{
+				Name:       "m-3",
+				Namespaced: true,
+				ObjectKind: "pod",
+			},
+			ObjectMeta: ObjectMeta{
+				ObjectNamespace: "n-3",
+				ObjectName:      "pod-3",
+			},
 			Labels: map[string]string{
 				"Name": "m-3",
 			},
-			Object:     "pod",
-			ObjectName: "pod-3",
 			InternalValue: []*InternalValue{
 				{
 					Value:     4,
@@ -245,13 +292,18 @@ func Test_cache(t *testing.T) {
 			},
 		},
 		{
-			Name:      "m-3",
-			Namespace: "n-3",
+			MetricMeta: MetricMeta{
+				Name:       "m-3",
+				Namespaced: true,
+				ObjectKind: "pod",
+			},
+			ObjectMeta: ObjectMeta{
+				ObjectNamespace: "n-3",
+				ObjectName:      "pod-4",
+			},
 			Labels: map[string]string{
 				"Name": "m-3",
 			},
-			Object:     "pod",
-			ObjectName: "pod-4",
 			InternalValue: []*InternalValue{
 				{
 					Value:     10,
@@ -264,10 +316,15 @@ func Test_cache(t *testing.T) {
 	t.Log("#### 6: Add pod with the duplicated Timestamp")
 
 	c.Add(&InternalMetric{
-		Name:       "m-3",
-		Namespace:  "n-3",
-		Object:     "pod",
-		ObjectName: "pod-3",
+		MetricMeta: MetricMeta{
+			Name:       "m-3",
+			Namespaced: true,
+			ObjectKind: "pod",
+		},
+		ObjectMeta: ObjectMeta{
+			ObjectNamespace: "n-3",
+			ObjectName:      "pod-3",
+		},
 		Labels: map[string]string{
 			"Name":  "m-3",
 			"extra": "m-3",
@@ -287,18 +344,23 @@ func Test_cache(t *testing.T) {
 	names = c.ListAllMetricNames()
 	assert.ElementsMatch(t, []string{"m-1", "m-2", "m-3"}, names)
 
-	oneMetric, exist = c.GetMetric("m-3")
+	oneMetric, exist = c.GetMetric("n-3", "m-3", &schema.GroupResource{Resource: "pod"})
 	assert.Equal(t, true, exist)
 	assert.ElementsMatch(t, []*InternalMetric{
 		{
-			Name:      "m-3",
-			Namespace: "n-3",
+			MetricMeta: MetricMeta{
+				Name:       "m-3",
+				Namespaced: true,
+				ObjectKind: "pod",
+			},
+			ObjectMeta: ObjectMeta{
+				ObjectNamespace: "n-3",
+				ObjectName:      "pod-3",
+			},
 			Labels: map[string]string{
 				"Name":  "m-3",
 				"extra": "m-3",
 			},
-			Object:     "pod",
-			ObjectName: "pod-3",
 			InternalValue: []*InternalValue{
 				{
 					Value:     4,
@@ -315,13 +377,18 @@ func Test_cache(t *testing.T) {
 			},
 		},
 		{
-			Name:      "m-3",
-			Namespace: "n-3",
+			MetricMeta: MetricMeta{
+				Name:       "m-3",
+				Namespaced: true,
+				ObjectKind: "pod",
+			},
+			ObjectMeta: ObjectMeta{
+				ObjectNamespace: "n-3",
+				ObjectName:      "pod-4",
+			},
 			Labels: map[string]string{
 				"Name": "m-3",
 			},
-			Object:     "pod",
-			ObjectName: "pod-4",
 			InternalValue: []*InternalValue{
 				{
 					Value:     10,
@@ -336,7 +403,9 @@ func Test_cache(t *testing.T) {
 	spacedMetric = c.GetMetricInNamespace("")
 	assert.ElementsMatch(t, []*InternalMetric{
 		{
-			Name: "m-1",
+			MetricMeta: MetricMeta{
+				Name: "m-1",
+			},
 			Labels: map[string]string{
 				"Name": "m-1",
 			},
@@ -352,8 +421,13 @@ func Test_cache(t *testing.T) {
 	spacedMetric = c.GetMetricInNamespace("n-2")
 	assert.ElementsMatch(t, []*InternalMetric{
 		{
-			Name:      "m-2",
-			Namespace: "n-2",
+			MetricMeta: MetricMeta{
+				Name:       "m-2",
+				Namespaced: true,
+			},
+			ObjectMeta: ObjectMeta{
+				ObjectNamespace: "n-2",
+			},
 			Labels: map[string]string{
 				"Name": "m-2",
 			},
@@ -369,14 +443,19 @@ func Test_cache(t *testing.T) {
 	spacedMetric = c.GetMetricInNamespace("n-3")
 	assert.ElementsMatch(t, []*InternalMetric{
 		{
-			Name:      "m-3",
-			Namespace: "n-3",
+			MetricMeta: MetricMeta{
+				Name:       "m-3",
+				Namespaced: true,
+				ObjectKind: "pod",
+			},
+			ObjectMeta: ObjectMeta{
+				ObjectNamespace: "n-3",
+				ObjectName:      "pod-3",
+			},
 			Labels: map[string]string{
 				"Name":  "m-3",
 				"extra": "m-3",
 			},
-			Object:     "pod",
-			ObjectName: "pod-3",
 			InternalValue: []*InternalValue{
 				{
 					Value:     4,
@@ -393,13 +472,18 @@ func Test_cache(t *testing.T) {
 			},
 		},
 		{
-			Name:      "m-3",
-			Namespace: "n-3",
+			MetricMeta: MetricMeta{
+				Name:       "m-3",
+				Namespaced: true,
+				ObjectKind: "pod",
+			},
+			ObjectMeta: ObjectMeta{
+				ObjectNamespace: "n-3",
+				ObjectName:      "pod-4",
+			},
 			Labels: map[string]string{
 				"Name": "m-3",
 			},
-			Object:     "pod",
-			ObjectName: "pod-4",
 			InternalValue: []*InternalValue{
 				{
 					Value:     10,
@@ -412,7 +496,9 @@ func Test_cache(t *testing.T) {
 	allMetric = c.ListAllMetric()
 	assert.ElementsMatch(t, []*InternalMetric{
 		{
-			Name: "m-1",
+			MetricMeta: MetricMeta{
+				Name: "m-1",
+			},
 			Labels: map[string]string{
 				"Name": "m-1",
 			},
@@ -424,8 +510,13 @@ func Test_cache(t *testing.T) {
 			},
 		},
 		{
-			Name:      "m-2",
-			Namespace: "n-2",
+			MetricMeta: MetricMeta{
+				Name:       "m-2",
+				Namespaced: true,
+			},
+			ObjectMeta: ObjectMeta{
+				ObjectNamespace: "n-2",
+			},
 			Labels: map[string]string{
 				"Name": "m-2",
 			},
@@ -437,14 +528,19 @@ func Test_cache(t *testing.T) {
 			},
 		},
 		{
-			Name:      "m-3",
-			Namespace: "n-3",
+			MetricMeta: MetricMeta{
+				Name:       "m-3",
+				Namespaced: true,
+				ObjectKind: "pod",
+			},
+			ObjectMeta: ObjectMeta{
+				ObjectNamespace: "n-3",
+				ObjectName:      "pod-3",
+			},
 			Labels: map[string]string{
 				"Name":  "m-3",
 				"extra": "m-3",
 			},
-			Object:     "pod",
-			ObjectName: "pod-3",
 			InternalValue: []*InternalValue{
 				{
 					Value:     4,
@@ -461,13 +557,18 @@ func Test_cache(t *testing.T) {
 			},
 		},
 		{
-			Name:      "m-3",
-			Namespace: "n-3",
+			MetricMeta: MetricMeta{
+				Name:       "m-3",
+				Namespaced: true,
+				ObjectKind: "pod",
+			},
+			ObjectMeta: ObjectMeta{
+				ObjectNamespace: "n-3",
+				ObjectName:      "pod-4",
+			},
 			Labels: map[string]string{
 				"Name": "m-3",
 			},
-			Object:     "pod",
-			ObjectName: "pod-4",
 			InternalValue: []*InternalValue{
 				{
 					Value:     10,
@@ -484,14 +585,19 @@ func Test_cache(t *testing.T) {
 	allMetric = c.ListAllMetric()
 	assert.ElementsMatch(t, []*InternalMetric{
 		{
-			Name:      "m-3",
-			Namespace: "n-3",
+			MetricMeta: MetricMeta{
+				Name:       "m-3",
+				Namespaced: true,
+				ObjectKind: "pod",
+			},
+			ObjectMeta: ObjectMeta{
+				ObjectNamespace: "n-3",
+				ObjectName:      "pod-3",
+			},
 			Labels: map[string]string{
 				"Name":  "m-3",
 				"extra": "m-3",
 			},
-			Object:     "pod",
-			ObjectName: "pod-3",
 			InternalValue: []*InternalValue{
 				{
 					Value:     4,
@@ -508,13 +614,18 @@ func Test_cache(t *testing.T) {
 			},
 		},
 		{
-			Name:      "m-3",
-			Namespace: "n-3",
+			MetricMeta: MetricMeta{
+				Name:       "m-3",
+				Namespaced: true,
+				ObjectKind: "pod",
+			},
+			ObjectMeta: ObjectMeta{
+				ObjectNamespace: "n-3",
+				ObjectName:      "pod-4",
+			},
 			Labels: map[string]string{
 				"Name": "m-3",
 			},
-			Object:     "pod",
-			ObjectName: "pod-4",
 			InternalValue: []*InternalValue{
 				{
 					Value:     10,
@@ -530,14 +641,19 @@ func Test_cache(t *testing.T) {
 	allMetric = c.ListAllMetric()
 	assert.ElementsMatch(t, []*InternalMetric{
 		{
-			Name:      "m-3",
-			Namespace: "n-3",
+			MetricMeta: MetricMeta{
+				Name:       "m-3",
+				Namespaced: true,
+				ObjectKind: "pod",
+			},
+			ObjectMeta: ObjectMeta{
+				ObjectNamespace: "n-3",
+				ObjectName:      "pod-3",
+			},
 			Labels: map[string]string{
 				"Name":  "m-3",
 				"extra": "m-3",
 			},
-			Object:     "pod",
-			ObjectName: "pod-3",
 			InternalValue: []*InternalValue{
 				{
 					Value:     10,
@@ -546,13 +662,18 @@ func Test_cache(t *testing.T) {
 			},
 		},
 		{
-			Name:      "m-3",
-			Namespace: "n-3",
+			MetricMeta: MetricMeta{
+				Name:       "m-3",
+				Namespaced: true,
+				ObjectKind: "pod",
+			},
+			ObjectMeta: ObjectMeta{
+				ObjectNamespace: "n-3",
+				ObjectName:      "pod-4",
+			},
 			Labels: map[string]string{
 				"Name": "m-3",
 			},
-			Object:     "pod",
-			ObjectName: "pod-4",
 			InternalValue: []*InternalValue{
 				{
 					Value:     10,
@@ -567,7 +688,9 @@ func Test_marshal(t *testing.T) {
 	c := NewCachedMetric()
 
 	c.Add(&InternalMetric{
-		Name: "m-1",
+		MetricMeta: MetricMeta{
+			Name: "m-1",
+		},
 		Labels: map[string]string{
 			"Name": "m-1",
 		},
@@ -579,8 +702,13 @@ func Test_marshal(t *testing.T) {
 		},
 	})
 	c.Add(&InternalMetric{
-		Name:      "m-2",
-		Namespace: "n-2",
+		MetricMeta: MetricMeta{
+			Name:       "m-2",
+			Namespaced: true,
+		},
+		ObjectMeta: ObjectMeta{
+			ObjectNamespace: "n-2",
+		},
 		Labels: map[string]string{
 			"Name": "m-2",
 		},
@@ -592,10 +720,15 @@ func Test_marshal(t *testing.T) {
 		},
 	})
 	c.Add(&InternalMetric{
-		Name:       "m-3",
-		Namespace:  "n-3",
-		Object:     "pod",
-		ObjectName: "pod-3",
+		MetricMeta: MetricMeta{
+			Name:       "m-3",
+			Namespaced: true,
+			ObjectKind: "pod",
+		},
+		ObjectMeta: ObjectMeta{
+			ObjectNamespace: "n-3",
+			ObjectName:      "pod-3",
+		},
 		Labels: map[string]string{
 			"Name": "m-3",
 		},
@@ -607,10 +740,15 @@ func Test_marshal(t *testing.T) {
 		},
 	})
 	c.Add(&InternalMetric{
-		Name:       "m-3",
-		Namespace:  "n-3",
-		Object:     "pod",
-		ObjectName: "pod-3",
+		MetricMeta: MetricMeta{
+			Name:       "m-3",
+			Namespaced: true,
+			ObjectKind: "pod",
+		},
+		ObjectMeta: ObjectMeta{
+			ObjectNamespace: "n-3",
+			ObjectName:      "pod-3",
+		},
 		Labels: map[string]string{
 			"Name": "m-3",
 		},
@@ -622,10 +760,15 @@ func Test_marshal(t *testing.T) {
 		},
 	})
 	c.Add(&InternalMetric{
-		Name:       "m-3",
-		Namespace:  "n-3",
-		Object:     "pod",
-		ObjectName: "pod-4",
+		MetricMeta: MetricMeta{
+			Name:       "m-3",
+			Namespaced: true,
+			ObjectKind: "pod",
+		},
+		ObjectMeta: ObjectMeta{
+			ObjectNamespace: "n-3",
+			ObjectName:      "pod-4",
+		},
 		Labels: map[string]string{
 			"Name": "m-3",
 		},
@@ -637,10 +780,15 @@ func Test_marshal(t *testing.T) {
 		},
 	})
 	c.Add(&InternalMetric{
-		Name:       "m-3",
-		Namespace:  "n-3",
-		Object:     "pod",
-		ObjectName: "pod-3",
+		MetricMeta: MetricMeta{
+			Name:       "m-3",
+			Namespaced: true,
+			ObjectKind: "pod",
+		},
+		ObjectMeta: ObjectMeta{
+			ObjectNamespace: "n-3",
+			ObjectName:      "pod-3",
+		},
 		Labels: map[string]string{
 			"Name":  "m-3",
 			"extra": "m-3",
@@ -659,7 +807,9 @@ func Test_marshal(t *testing.T) {
 
 	target := []*InternalMetric{
 		{
-			Name: "m-1",
+			MetricMeta: MetricMeta{
+				Name: "m-1",
+			},
 			Labels: map[string]string{
 				"Name": "m-1",
 			},
@@ -671,8 +821,13 @@ func Test_marshal(t *testing.T) {
 			},
 		},
 		{
-			Name:      "m-2",
-			Namespace: "n-2",
+			MetricMeta: MetricMeta{
+				Name:       "m-2",
+				Namespaced: true,
+			},
+			ObjectMeta: ObjectMeta{
+				ObjectNamespace: "n-2",
+			},
 			Labels: map[string]string{
 				"Name": "m-2",
 			},
@@ -684,14 +839,19 @@ func Test_marshal(t *testing.T) {
 			},
 		},
 		{
-			Name:      "m-3",
-			Namespace: "n-3",
+			MetricMeta: MetricMeta{
+				Name:       "m-3",
+				Namespaced: true,
+				ObjectKind: "pod",
+			},
+			ObjectMeta: ObjectMeta{
+				ObjectNamespace: "n-3",
+				ObjectName:      "pod-3",
+			},
 			Labels: map[string]string{
 				"Name":  "m-3",
 				"extra": "m-3",
 			},
-			Object:     "pod",
-			ObjectName: "pod-3",
 			InternalValue: []*InternalValue{
 				{
 					Value:     4,
@@ -708,13 +868,18 @@ func Test_marshal(t *testing.T) {
 			},
 		},
 		{
-			Name:      "m-3",
-			Namespace: "n-3",
+			MetricMeta: MetricMeta{
+				Name:       "m-3",
+				Namespaced: true,
+				ObjectKind: "pod",
+			},
+			ObjectMeta: ObjectMeta{
+				ObjectNamespace: "n-3",
+				ObjectName:      "pod-4",
+			},
 			Labels: map[string]string{
 				"Name": "m-3",
 			},
-			Object:     "pod",
-			ObjectName: "pod-4",
 			InternalValue: []*InternalValue{
 				{
 					Value:     10,

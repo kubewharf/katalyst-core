@@ -106,8 +106,6 @@ func (r *RemoteMemoryMetricStore) InsertMetric(seriesList []*data.MetricSeries) 
 	})
 	if err != nil {
 		return err
-	} else if len(bodyList) < wCnt {
-		return fmt.Errorf("failed to perform quorum write actual %v expect %v", len(bodyList), wCnt)
 	}
 
 	defer func() {
@@ -116,8 +114,12 @@ func (r *RemoteMemoryMetricStore) InsertMetric(seriesList []*data.MetricSeries) 
 		}
 
 		finished := time.Now()
-		klog.Infof("insert cost %v", finished.Sub(start))
+		klog.V(6).Infof("insert cost %v", finished.Sub(start))
 	}()
+
+	if len(bodyList) < wCnt {
+		return fmt.Errorf("failed to perform quorum write actual %v expect %v", len(bodyList), wCnt)
+	}
 
 	klog.V(4).Infof("successfully set with len %v", len(seriesList))
 	return nil
@@ -159,8 +161,6 @@ func (r *RemoteMemoryMetricStore) GetMetric(ctx context.Context, namespace, metr
 	})
 	if err != nil {
 		return nil, err
-	} else if len(bodyList) < rCnt {
-		return nil, fmt.Errorf("failed to perform quorum read actual %v expect %v", len(bodyList), rCnt)
 	}
 
 	defer func() {
@@ -172,6 +172,10 @@ func (r *RemoteMemoryMetricStore) GetMetric(ctx context.Context, namespace, metr
 		klog.Infof("get cost %v", finished.Sub(start))
 	}()
 
+	if len(bodyList) < rCnt {
+		return nil, fmt.Errorf("failed to perform quorum read actual %v expect %v", len(bodyList), rCnt)
+	}
+
 	var internalLists [][]*data.InternalMetric
 	for _, body := range bodyList[0:rCnt] {
 		var internalList []*data.InternalMetric
@@ -182,12 +186,12 @@ func (r *RemoteMemoryMetricStore) GetMetric(ctx context.Context, namespace, metr
 		internalLists = append(internalLists, internalList)
 	}
 
-	res := r.mergeInternalMetric(internalLists...)
+	res := data.MergeInternalMetricList(internalLists...)
 	klog.V(4).Infof("successfully get with len %v", len(res))
 	return res, nil
 }
 
-func (r *RemoteMemoryMetricStore) ListMetricWithObjects(ctx context.Context) ([]*data.InternalMetric, error) {
+func (r *RemoteMemoryMetricStore) ListMetricMeta(ctx context.Context, withObject bool) ([]data.MetricMeta, error) {
 	start := time.Now()
 
 	requests := r.sharding.GetRequests(local.ServingListPath)
@@ -196,14 +200,13 @@ func (r *RemoteMemoryMetricStore) ListMetricWithObjects(ctx context.Context) ([]
 
 	bodyList, err := r.sendRequests(ctx, requests, func(req *http.Request) {
 		values := req.URL.Query()
-		values.Set(local.StoreListParamObjected, "true")
-
+		if withObject {
+			values.Set(local.StoreListParamObjected, "true")
+		}
 		req.URL.RawQuery = values.Encode()
 	})
 	if err != nil {
 		return nil, err
-	} else if len(bodyList) < rCnt {
-		return nil, fmt.Errorf("failed to perform quorum read actual %v expect %v", len(bodyList), rCnt)
 	}
 
 	defer func() {
@@ -215,55 +218,21 @@ func (r *RemoteMemoryMetricStore) ListMetricWithObjects(ctx context.Context) ([]
 		klog.V(6).Infof("list with objects cost %v", finished.Sub(start))
 	}()
 
-	var internalLists [][]*data.InternalMetric
-	for _, body := range bodyList[0:rCnt] {
-		var internalList []*data.InternalMetric
-		if err := json.NewDecoder(body).Decode(&internalList); err != nil {
-			return nil, fmt.Errorf("decode response err: %v", err)
-		}
-
-		internalLists = append(internalLists, internalList)
-	}
-
-	res := r.mergeInternalMetric(internalLists...)
-	klog.V(4).Infof("successfully list with len %v", len(res))
-	return res, nil
-}
-
-func (r *RemoteMemoryMetricStore) ListMetricWithoutObjects(ctx context.Context) ([]*data.InternalMetric, error) {
-	start := time.Now()
-
-	requests := r.sharding.GetRequests(local.ServingListPath)
-	rCnt, _ := r.sharding.GetRWCount()
-	klog.V(6).Infof("list without objects need to read %v among %v", rCnt, len(requests))
-
-	bodyList, err := r.sendRequests(ctx, requests, func(req *http.Request) {})
-	if err != nil {
-		return nil, err
-	} else if len(bodyList) < rCnt {
+	if len(bodyList) < rCnt {
 		return nil, fmt.Errorf("failed to perform quorum read actual %v expect %v", len(bodyList), rCnt)
 	}
 
-	defer func() {
-		for _, body := range bodyList {
-			_ = body.Close()
-		}
-
-		finished := time.Now()
-		klog.V(6).Infof("list without objects cost %v", finished.Sub(start))
-	}()
-
-	var internalLists [][]*data.InternalMetric
+	var metricMetaLists [][]data.MetricMeta
 	for _, body := range bodyList[0:rCnt] {
-		var internalList []*data.InternalMetric
-		if err := json.NewDecoder(body).Decode(&internalList); err != nil {
+		var metricMetaList []data.MetricMeta
+		if err := json.NewDecoder(body).Decode(&metricMetaList); err != nil {
 			return nil, fmt.Errorf("decode response err: %v", err)
 		}
 
-		internalLists = append(internalLists, internalList)
+		metricMetaLists = append(metricMetaLists, metricMetaList)
 	}
 
-	res := r.mergeInternalMetric(internalLists...)
+	res := data.MergeMetricMetaList(metricMetaLists...)
 	klog.V(4).Infof("successfully list with len %v", len(res))
 	return res, nil
 }
@@ -323,21 +292,4 @@ func (r *RemoteMemoryMetricStore) sendRequest(ctx context.Context, req *http.Req
 	}
 
 	return resp.Body, nil
-}
-
-// mergeInternalMetric merges internal metric list from different downstream stores;
-// if the same timestamp appears in different stores (which should happen actually),
-// we will randomly choose one item.
-func (r *RemoteMemoryMetricStore) mergeInternalMetric(internalLists ...[]*data.InternalMetric) []*data.InternalMetric {
-	if len(internalLists) == 0 {
-		return []*data.InternalMetric{}
-	} else if len(internalLists) == 1 {
-		return internalLists[0]
-	}
-
-	c := data.NewCachedMetric()
-	for _, internalList := range internalLists {
-		c.Add(internalList...)
-	}
-	return c.ListAllMetric()
 }

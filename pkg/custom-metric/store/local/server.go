@@ -83,13 +83,13 @@ func (l *LocalMemoryMetricStore) handleMetricList(w http.ResponseWriter, r *http
 	start := time.Now()
 
 	var (
-		err          error
-		internalList []*data.InternalMetric
+		err             error
+		metricMetalList []data.MetricMeta
 	)
 	if r.URL.Query() == nil || len(getQueryParam(r, StoreListParamObjected)) == 0 {
-		internalList, err = l.ListMetricWithoutObjects(context.Background())
+		metricMetalList, err = l.ListMetricMeta(context.Background(), false)
 	} else {
-		internalList, err = l.ListMetricWithObjects(context.Background())
+		metricMetalList, err = l.ListMetricMeta(context.Background(), true)
 	}
 
 	if err != nil {
@@ -101,7 +101,7 @@ func (l *LocalMemoryMetricStore) handleMetricList(w http.ResponseWriter, r *http
 
 	readFinished := time.Now()
 
-	bytes, err := json.Marshal(internalList)
+	bytes, err := json.Marshal(metricMetalList)
 	if err != nil {
 		klog.Errorf("marshal internal list err: %v", err)
 		w.WriteHeader(http.StatusNotAcceptable)
@@ -121,7 +121,7 @@ func (l *LocalMemoryMetricStore) handleMetricList(w http.ResponseWriter, r *http
 		jsonMarshalFinished.Sub(readFinished),
 		writeRespFinished.Sub(jsonMarshalFinished),
 		writeRespFinished.Sub(start),
-		len(internalList))
+		len(metricMetalList))
 }
 
 func (l *LocalMemoryMetricStore) handleMetricGet(w http.ResponseWriter, r *http.Request) {
@@ -271,7 +271,7 @@ func (l *LocalMemoryMetricStore) handleMetricSet(w http.ResponseWriter, r *http.
 
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write([]byte("success"))
-	klog.Infof("set cost read&json: %v, resp: %v, total %v",
+	klog.V(6).Infof("set cost read&json: %v, resp: %v, total %v",
 		jsonMarshalFinished.Sub(start),
 		writeRespFinished.Sub(jsonMarshalFinished),
 		writeRespFinished.Sub(start))

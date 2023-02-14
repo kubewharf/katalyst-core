@@ -55,8 +55,8 @@ func PackMetricValueList(internal *data.InternalMetric) []custom_metrics.MetricV
 func PackMetricValue(internal *data.InternalMetric, value *data.InternalValue) *custom_metrics.MetricValue {
 	return &custom_metrics.MetricValue{
 		DescribedObject: custom_metrics.ObjectReference{
-			Kind:      internal.GetObject(),
-			Namespace: internal.GetNamespace(),
+			Kind:      internal.GetObjectKind(),
+			Namespace: internal.GetObjectNamespace(),
 			Name:      internal.GetObjectName(),
 		},
 		Metric: custom_metrics.MetricIdentifier{
