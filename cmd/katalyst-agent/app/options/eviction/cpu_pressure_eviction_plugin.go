@@ -31,6 +31,7 @@ const (
 	defaultCPUPressureEvictionSyncPeriod            = 30 * time.Second
 	defaultCPUPressureEvictionColdPeriod            = 300 * time.Second
 	defaultMaxCPUSuppressionToleranceRate           = 5
+	defaultMinCPUSuppressionToleranceDuration       = 300 * time.Second
 )
 
 // CPUPressureEvictionPluginOptions is the options of CPUPressureEvictionPlugin
@@ -43,6 +44,7 @@ type CPUPressureEvictionPluginOptions struct {
 	CPUPressureEvictionSyncPeriod            time.Duration
 	CPUPressureEvictionColdPeriod            time.Duration
 	MaxCPUSuppressionToleranceRate           float64
+	MinCPUSuppressionToleranceDuration       time.Duration
 }
 
 // NewCPUPressureEvictionPluginOptions returns a new CPUPressureEvictionPluginOptions
@@ -56,6 +58,7 @@ func NewCPUPressureEvictionPluginOptions() *CPUPressureEvictionPluginOptions {
 		CPUPressureEvictionSyncPeriod:            defaultCPUPressureEvictionSyncPeriod,
 		CPUPressureEvictionColdPeriod:            defaultCPUPressureEvictionColdPeriod,
 		MaxCPUSuppressionToleranceRate:           defaultMaxCPUSuppressionToleranceRate,
+		MinCPUSuppressionToleranceDuration:       defaultMinCPUSuppressionToleranceDuration,
 	}
 }
 
@@ -86,6 +89,8 @@ func (o *CPUPressureEvictionPluginOptions) AddFlags(fss *cliflag.NamedFlagSets) 
 		o.CPUPressureEvictionColdPeriod, "specify a cold period after eviction")
 	fs.Float64Var(&o.MaxCPUSuppressionToleranceRate, "max-cpu-suppression-tolerance-rate",
 		o.MaxCPUSuppressionToleranceRate, "the maximum cpu suppression tolerance rate that can be set by the pod")
+	fs.DurationVar(&o.MinCPUSuppressionToleranceDuration, "min-cpu-suppression-tolerance-duration",
+		o.MinCPUSuppressionToleranceDuration, "the minimum duration a pod can tolerate cpu suppression")
 }
 
 // ApplyTo applies CPUPressureEvictionPluginOptions to CPUPressureEvictionPluginConfiguration
@@ -98,5 +103,6 @@ func (o *CPUPressureEvictionPluginOptions) ApplyTo(c *evictionconfig.CPUPressure
 	c.CPUPressureEvictionSyncPeriod = o.CPUPressureEvictionSyncPeriod
 	c.CPUPressureEvictionColdPeriod = o.CPUPressureEvictionColdPeriod
 	c.MaxCPUSuppressionToleranceRate = o.MaxCPUSuppressionToleranceRate
+	c.MinCPUSuppressionToleranceDuration = o.MinCPUSuppressionToleranceDuration
 	return nil
 }

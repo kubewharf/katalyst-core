@@ -30,6 +30,7 @@ type CPUPressureEvictionPluginConfiguration struct {
 	CPUPressureEvictionSyncPeriod            time.Duration
 	CPUPressureEvictionColdPeriod            time.Duration
 	MaxCPUSuppressionToleranceRate           float64
+	MinCPUSuppressionToleranceDuration       time.Duration
 }
 
 // NewCPUPressureEvictionPluginConfiguration returns a new CPUPressureEvictionPluginConfiguration

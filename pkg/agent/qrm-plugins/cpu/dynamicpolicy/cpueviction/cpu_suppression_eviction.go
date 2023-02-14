@@ -19,6 +19,7 @@ package cpueviction
 import (
 	"fmt"
 	"math"
+	"time"
 
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -64,18 +65,39 @@ func (p *cpuPressureEvictionPlugin) getEvictOverSuppressionTolerancePods(activeP
 		totalCPURequest.Add(native.GetCPUQuantity(native.SumUpPodRequestResources(pod)))
 	}
 
+	now := time.Now()
 	var evictPods []*v1alpha1.EvictPod
 	for _, pod := range filteredPods {
+		key := native.GenerateUniqObjectNameKey(pod)
 		poolSuppressionRate := float64(totalCPURequest.Value()) / float64(poolSize)
 		if podSuppressionToleranceRate := p.getPodSuppressionToleranceRate(pod); podSuppressionToleranceRate < poolSuppressionRate {
-			evictPods = append(evictPods, &v1alpha1.EvictPod{
-				Pod: pod,
-				Reason: fmt.Sprintf("current pool suppression rate %.2f is over than the "+
-					"pod suppression tolerance rate %.2f", poolSuppressionRate, podSuppressionToleranceRate),
-			})
-			totalCPURequest.Sub(native.GetCPUQuantity(native.SumUpPodRequestResources(pod)))
+			last, _ := p.lastOverSuppressionToleranceTime.LoadOrStore(key, now)
+			lastDuration := now.Sub(last.(time.Time))
+			klog.Infof("[cpu-pressure-eviction-plugin.getEvictOverSuppressionTolerancePods] current pool suppression rate %.2f, "+
+				"and it is over than suppression tolerance rate %.2f of pod %s, last duration: %s secs", poolSuppressionRate,
+				podSuppressionToleranceRate, key, now.Sub(last.(time.Time)))
+			// a pod will only be evicted if its cpu suppression lasts longer than minCPUSuppressionToleranceDuration
+			if lastDuration > p.minCPUSuppressionToleranceDuration {
+				evictPods = append(evictPods, &v1alpha1.EvictPod{
+					Pod: pod,
+					Reason: fmt.Sprintf("current pool suppression rate %.2f is over than the "+
+						"pod suppression tolerance rate %.2f", poolSuppressionRate, podSuppressionToleranceRate),
+				})
+				totalCPURequest.Sub(native.GetCPUQuantity(native.SumUpPodRequestResources(pod)))
+			}
+		} else {
+			p.lastOverSuppressionToleranceTime.Delete(key)
 		}
 	}
+
+	// clear inactive filtered pod from lastOverSuppressionToleranceTime
+	filteredPodsMap := native.GetPodNamespaceNameKeyMap(filteredPods)
+	p.lastOverSuppressionToleranceTime.Range(func(key, _ interface{}) bool {
+		if _, ok := filteredPodsMap[key.(string)]; !ok {
+			p.lastOverSuppressionToleranceTime.Delete(key)
+		}
+		return true
+	})
 
 	return evictPods
 }

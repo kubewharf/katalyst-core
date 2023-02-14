@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"testing"
+	"time"
 
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -49,7 +50,8 @@ var (
 	defaultCPUPressureEvictionPodGracePeriodSeconds = -1
 	defaultLoadUpperBoundRatio                      = 1.8
 	defaultLoadThresholdMetPercentage               = 0.8
-	defaultCPUMaxSuppressionToleranceRate           = 5
+	defaultCPUMaxSuppressionToleranceRate           = 5.0
+	defaultCPUMinSuppressionToleranceDuration       = 1 * time.Second
 )
 
 func makeCPUPressureEvictionPlugin(emitter metrics.MetricEmitter, metaServer *metaserver.MetaServer,
@@ -96,6 +98,7 @@ func makeConf(metricRingSize int, cpuPressureEvictionPodGracePeriodSeconds int64
 	conf.LoadThresholdMetPercentage = loadThresholdMetPercentage
 	conf.CPUPressureEvictionPodGracePeriodSeconds = cpuPressureEvictionPodGracePeriodSeconds
 	conf.MaxCPUSuppressionToleranceRate = cpuMaxSuppressionToleranceRate
+	conf.MinCPUSuppressionToleranceDuration = defaultCPUMinSuppressionToleranceDuration
 	return conf
 }
 
@@ -113,7 +116,7 @@ func TestNewCPUPressureEvictionPlugin(t *testing.T) {
 	cpuTopology, err := machine.GenerateDummyCPUTopology(16, 2, 4)
 	as.Nil(err)
 	conf := makeConf(defaultMetricRingSize, int64(defaultCPUPressureEvictionPodGracePeriodSeconds),
-		defaultLoadUpperBoundRatio, defaultLoadThresholdMetPercentage, defaultLoadUpperBoundRatio)
+		defaultLoadUpperBoundRatio, defaultLoadThresholdMetPercentage, defaultCPUMaxSuppressionToleranceRate)
 	metaServer := makeMetaServer(metric.NewFakeMetricsFetcher(metrics.DummyMetrics{}), cpuTopology)
 	stateImpl, err := makeState(cpuTopology)
 	as.Nil(err)
@@ -136,7 +139,7 @@ func TestThresholdMet(t *testing.T) {
 	cpuTopology, err := machine.GenerateDummyCPUTopology(16, 2, 4)
 	as.Nil(err)
 	conf := makeConf(defaultMetricRingSize, int64(defaultCPUPressureEvictionPodGracePeriodSeconds),
-		defaultLoadUpperBoundRatio, defaultLoadThresholdMetPercentage, defaultLoadUpperBoundRatio)
+		defaultLoadUpperBoundRatio, defaultLoadThresholdMetPercentage, defaultCPUMaxSuppressionToleranceRate)
 	metaServer := makeMetaServer(metric.NewFakeMetricsFetcher(metrics.DummyMetrics{}), cpuTopology)
 	stateImpl, err := makeState(cpuTopology)
 	as.Nil(err)
@@ -418,7 +421,7 @@ func TestGetTopEvictionPods(t *testing.T) {
 	cpuTopology, err := machine.GenerateDummyCPUTopology(16, 2, 4)
 	as.Nil(err)
 	conf := makeConf(defaultMetricRingSize, int64(defaultCPUPressureEvictionPodGracePeriodSeconds),
-		defaultLoadUpperBoundRatio, defaultLoadThresholdMetPercentage, defaultLoadUpperBoundRatio)
+		defaultLoadUpperBoundRatio, defaultLoadThresholdMetPercentage, defaultCPUMaxSuppressionToleranceRate)
 	metaServer := makeMetaServer(metric.NewFakeMetricsFetcher(metrics.DummyMetrics{}), cpuTopology)
 	stateImpl, err := makeState(cpuTopology)
 	as.Nil(err)
@@ -812,7 +815,7 @@ func TestGetEvictPods(t *testing.T) {
 	cpuTopology, err := machine.GenerateDummyCPUTopology(16, 2, 4)
 	as.Nil(err)
 	conf := makeConf(defaultMetricRingSize, int64(defaultCPUPressureEvictionPodGracePeriodSeconds),
-		defaultLoadUpperBoundRatio, defaultLoadThresholdMetPercentage, defaultLoadUpperBoundRatio)
+		defaultLoadUpperBoundRatio, defaultLoadThresholdMetPercentage, defaultCPUMaxSuppressionToleranceRate)
 	metaServer := makeMetaServer(metric.NewFakeMetricsFetcher(metrics.DummyMetrics{}), cpuTopology)
 	stateImpl, err := makeState(cpuTopology)
 	as.Nil(err)
@@ -1037,6 +1040,14 @@ func TestGetEvictPods(t *testing.T) {
 			plugin.state = stateImpl
 
 			resp, err := plugin.GetEvictPods(context.TODO(), &evictionpluginapi.GetEvictPodsRequest{
+				ActivePods: pods,
+			})
+			assert.NoError(t, err)
+			assert.NotNil(t, resp)
+
+			time.Sleep(1 * time.Second)
+
+			resp, err = plugin.GetEvictPods(context.TODO(), &evictionpluginapi.GetEvictPodsRequest{
 				ActivePods: pods,
 			})
 			assert.NoError(t, err)

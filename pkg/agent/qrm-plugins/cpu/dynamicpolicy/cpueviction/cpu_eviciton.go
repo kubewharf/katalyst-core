@@ -91,22 +91,24 @@ func NewCPUPressureEvictionPlugin(emitter metrics.MetricEmitter, metaServer *met
 }
 
 type cpuPressureEvictionPlugin struct {
-	ctx                       context.Context
-	cancel                    context.CancelFunc
-	started                   bool
-	state                     statepkg.State
-	metricsHistory            map[string]Entries
-	emitter                   metrics.MetricEmitter
-	metaServer                *metaserver.MetaServer
-	poolMetricCollectHandlers map[string]PoolMetricCollectHandler
-	qosConf                   *generic.QoSConfiguration
-	evictionPoolName          string
+	ctx                              context.Context
+	cancel                           context.CancelFunc
+	started                          bool
+	state                            statepkg.State
+	metricsHistory                   map[string]Entries
+	lastOverSuppressionToleranceTime sync.Map
+	emitter                          metrics.MetricEmitter
+	metaServer                       *metaserver.MetaServer
+	poolMetricCollectHandlers        map[string]PoolMetricCollectHandler
+	qosConf                          *generic.QoSConfiguration
+	evictionPoolName                 string
 
 	metricRingSize                           int
 	loadUpperBoundRatio                      float64
 	loadThresholdMetPercentage               float64
 	cpuPressureEvictionPodGracePeriodSeconds int64
 	maxCPUSuppressionToleranceRate           float64
+	minCPUSuppressionToleranceDuration       time.Duration
 	syncPeriod                               time.Duration
 	evictionColdPeriod                       time.Duration
 	lastEvictionTime                         time.Time
@@ -129,6 +131,7 @@ func newCPUPressureEvictionPlugin(emitter metrics.MetricEmitter, metaServer *met
 		loadThresholdMetPercentage:               conf.LoadThresholdMetPercentage,
 		cpuPressureEvictionPodGracePeriodSeconds: conf.CPUPressureEvictionPodGracePeriodSeconds,
 		maxCPUSuppressionToleranceRate:           conf.MaxCPUSuppressionToleranceRate,
+		minCPUSuppressionToleranceDuration:       conf.MinCPUSuppressionToleranceDuration,
 		syncPeriod:                               conf.CPUPressureEvictionSyncPeriod,
 		evictionColdPeriod:                       conf.CPUPressureEvictionColdPeriod,
 	}
