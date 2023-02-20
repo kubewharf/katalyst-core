@@ -101,9 +101,26 @@ func (m *manager) ApplyCPU(absCgroupPath string, data *common.CPUData) error {
 		}
 	}
 
+	if data.CpuIdlePtr != nil {
+		var cpuIdleValue int64
+		if *data.CpuIdlePtr {
+			cpuIdleValue = 1
+
+		} else {
+			cpuIdleValue = 0
+		}
+
+		if err, applied, oldData := common.WriteFileIfChange(absCgroupPath, "cpu.idle", strconv.FormatInt(cpuIdleValue, 10)); err != nil {
+			lastErrors = append(lastErrors, err)
+		} else if applied {
+			klog.Infof("[CgroupV1] apply cpu.idle successfully, cgroupPath: %s, data: %d, old data: %s\n", absCgroupPath, cpuIdleValue, oldData)
+		}
+	}
+
 	if len(lastErrors) == 0 {
 		return nil
 	}
+
 	errMsg := ""
 	for i, err := range lastErrors {
 		if i == 0 {

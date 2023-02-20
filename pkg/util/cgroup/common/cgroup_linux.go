@@ -93,3 +93,10 @@ func WriteFileIfChange(dir, file, data string) (error, bool, string) {
 	}
 	return nil, false, oldData
 }
+
+// IsCPUIdleSupported checks if cpu idle supported by
+// checking if the cpu.idle interface file exists
+func IsCPUIdleSupported() bool {
+	_, err := GetKubernetesAnyExistAbsCgroupPath(CgroupSubsysCPU, "cpu.idle")
+	return err == nil
+}

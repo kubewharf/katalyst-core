@@ -38,3 +38,7 @@ func GetCgroupParamInt(cgroupPath, cgroupFile string) (int64, error) {
 func WriteFileIfChange(dir, file, data string) (error, bool, string) {
 	return fmt.Errorf("unsupported write file"), false, ""
 }
+
+func IsCPUIdleSupported() bool {
+	return false
+}

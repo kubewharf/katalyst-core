@@ -21,9 +21,10 @@ import (
 )
 
 type GenericQRMPluginConfiguration struct {
-	StateFileDirectory    string
-	QRMPluginSocketDirs   []string
-	ExtraStateFileAbsPath string
+	StateFileDirectory            string
+	QRMPluginSocketDirs           []string
+	ExtraStateFileAbsPath         string
+	ReclaimRelativeRootCgroupPath string
 }
 
 type QRMPluginsConfiguration struct {

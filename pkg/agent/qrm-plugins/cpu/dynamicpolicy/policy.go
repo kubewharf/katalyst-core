@@ -46,6 +46,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/config/generic"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
+	cgroupcm "github.com/kubewharf/katalyst-core/pkg/util/cgroup/common"
 	cgroupcmutils "github.com/kubewharf/katalyst-core/pkg/util/cgroup/manager"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
@@ -64,6 +65,7 @@ const (
 	cpusetCheckPeriod = 10 * time.Second
 	stateCheckPeriod  = 30 * time.Second
 	maxResidualTime   = 5 * time.Minute
+	syncCPUIdlePeriod = 30 * time.Second
 )
 
 var (
@@ -103,13 +105,16 @@ type DynamicPolicy struct {
 	sync.RWMutex
 
 	// those are parsed from configurations
-	enableCPUSysAdvisor       bool
-	reservedCPUs              machine.CPUSet
-	cpuAdvisorSocketAbsPath   string
-	cpuPluginSocketAbsPath    string
-	enableReclaim             bool
-	extraStateFileAbsPath     string
-	enableCPUPressureEviction bool
+	enableCPUSysAdvisor           bool
+	reservedCPUs                  machine.CPUSet
+	cpuAdvisorSocketAbsPath       string
+	cpuPluginSocketAbsPath        string
+	enableReclaim                 bool
+	extraStateFileAbsPath         string
+	enableCPUPressureEviction     bool
+	enableCPUIdle                 bool
+	enableSyncingCPUIdle          bool
+	reclaimRelativeRootCgroupPath string
 }
 
 func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration, _ interface{}, agentName string) (bool, agent.Component, error) {
@@ -148,22 +153,25 @@ func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration
 	// for those pods have already been allocated reservedCPUs,
 	// we won't touch them and wait them to be deleted the next update.
 	policyImplement := &DynamicPolicy{
-		machineInfo:               agentCtx.KatalystMachineInfo,
-		qosConfig:                 conf.QoSConfiguration,
-		emitter:                   wrappedEmitter,
-		metaServer:                agentCtx.MetaServer,
-		state:                     stateImpl,
-		cpuAdvisorSocketAbsPath:   conf.CPUAdvisorSocketAbsPath,
-		cpuPluginSocketAbsPath:    conf.CPUPluginSocketAbsPath,
-		stopCh:                    make(chan struct{}),
-		enableCPUSysAdvisor:       conf.CPUQRMPluginConfig.EnableSysAdvisor,
-		reservedCPUs:              reservedCPUs,
-		residualHitMap:            make(map[string]int64),
-		extraStateFileAbsPath:     conf.ExtraStateFileAbsPath,
-		name:                      fmt.Sprintf("%s_%s", agentName, CPUResourcePluginPolicyNameDynamic),
-		enableReclaim:             conf.EnableReclaim,
-		enableCPUPressureEviction: conf.EnableCPUPressureEviction,
-		cpuEvictionPlugin:         cpuEvictionPlugin,
+		machineInfo:                   agentCtx.KatalystMachineInfo,
+		qosConfig:                     conf.QoSConfiguration,
+		emitter:                       wrappedEmitter,
+		metaServer:                    agentCtx.MetaServer,
+		state:                         stateImpl,
+		cpuAdvisorSocketAbsPath:       conf.CPUAdvisorSocketAbsPath,
+		cpuPluginSocketAbsPath:        conf.CPUPluginSocketAbsPath,
+		stopCh:                        make(chan struct{}),
+		enableCPUSysAdvisor:           conf.CPUQRMPluginConfig.EnableSysAdvisor,
+		reservedCPUs:                  reservedCPUs,
+		residualHitMap:                make(map[string]int64),
+		extraStateFileAbsPath:         conf.ExtraStateFileAbsPath,
+		name:                          fmt.Sprintf("%s_%s", agentName, CPUResourcePluginPolicyNameDynamic),
+		enableReclaim:                 conf.EnableReclaim,
+		enableCPUPressureEviction:     conf.EnableCPUPressureEviction,
+		cpuEvictionPlugin:             cpuEvictionPlugin,
+		enableSyncingCPUIdle:          conf.CPUQRMPluginConfig.EnableSyncingCPUIdle,
+		enableCPUIdle:                 conf.CPUQRMPluginConfig.EnableCPUIdle,
+		reclaimRelativeRootCgroupPath: conf.ReclaimRelativeRootCgroupPath,
 	}
 
 	// register allocation behaviors for pods with different QoS level
@@ -245,6 +253,16 @@ func (p *DynamicPolicy) Start() (err error) {
 	}, time.Second*30, p.stopCh)
 	go wait.Until(p.clearResidualState, stateCheckPeriod, p.stopCh)
 	go wait.Until(p.checkCPUSet, cpusetCheckPeriod, p.stopCh)
+
+	if p.enableSyncingCPUIdle {
+		if !cgroupcm.IsCPUIdleSupported() {
+			return fmt.Errorf("enable cpu idle in unsupported environment")
+		} else if p.reclaimRelativeRootCgroupPath == "" {
+			return fmt.Errorf("enable syncing cpu idle but not set reclaiemd relative root cgroup path in configuration")
+		}
+
+		go wait.Until(p.syncCPUIdle, syncCPUIdlePeriod, p.stopCh)
+	}
 
 	if p.enableCPUPressureEviction {
 		var ctx context.Context
@@ -2093,7 +2111,20 @@ func GetReadonlyState() (state.ReadonlyState, error) {
 	return readonlyState, nil
 }
 
+func (p *DynamicPolicy) syncCPUIdle() {
+	klog.Infof("[CPUDynamicPolicy] exec syncCPUIdle")
+
+	err := cgroupcmutils.ApplyCPUWithRelativePath(p.reclaimRelativeRootCgroupPath, &cgroupcm.CPUData{CpuIdlePtr: &p.enableCPUIdle})
+
+	if err != nil {
+		klog.Errorf("[CPUDynamicPolicy.syncCPUIdle] ApplyCPUWithRelativePath in %s with enableCPUIdle: %s in failed with error: %v",
+			p.reclaimRelativeRootCgroupPath, p.enableCPUIdle, err)
+	}
+}
+
 func (p *DynamicPolicy) checkCPUSet() {
+	klog.Infof("[CPUDynamicPolicy] exec checkCPUSet")
+
 	podEntries := p.state.GetPodEntries()
 	actualCPUSets := make(map[string]map[string]machine.CPUSet)
 

@@ -28,6 +28,7 @@ const (
 
 	CgroupSubsysCPUSet = "cpuset"
 	CgroupSubsysMemory = "memory"
+	CgroupSubsysCPU    = "cpu"
 
 	PodCgroupPathPrefix        = "pod"
 	CgroupFsRootPath           = "/kubepods"
@@ -56,9 +57,10 @@ type MemoryData struct {
 
 // CPUData set cgroup cpu data
 type CPUData struct {
-	Shares    uint64
-	CpuPeriod uint64
-	CpuQuota  int64
+	Shares     uint64
+	CpuPeriod  uint64
+	CpuQuota   int64
+	CpuIdlePtr *bool
 }
 
 // CPUSetData set cgroup cpuset data

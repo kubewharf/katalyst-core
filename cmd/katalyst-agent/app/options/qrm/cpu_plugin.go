@@ -27,6 +27,8 @@ type CPUOptions struct {
 	EnableSysAdvisor       bool
 	ReservedCPUCores       int
 	SkipCPUStateCorruption bool
+	EnableSyncingCPUIdle   bool
+	EnableCPUIdle          bool
 }
 
 func NewCPUOptions() *CPUOptions {
@@ -35,6 +37,8 @@ func NewCPUOptions() *CPUOptions {
 		EnableSysAdvisor:       false,
 		ReservedCPUCores:       0,
 		SkipCPUStateCorruption: false,
+		EnableSyncingCPUIdle:   false,
+		EnableCPUIdle:          false,
 	}
 }
 
@@ -49,6 +53,12 @@ func (o *CPUOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 		o.ReservedCPUCores, "The total cores cpu resource plugin should reserve")
 	fs.BoolVar(&o.SkipCPUStateCorruption, "skip-cpu-state-corruption",
 		o.SkipCPUStateCorruption, "if set true, we will skip cpu state corruption")
+	fs.BoolVar(&o.EnableSyncingCPUIdle, "enable-syncing-cpu-idle",
+		o.EnableSyncingCPUIdle, "if set true, we will sync specific cgroup paths with value specified by --enable-cpu-idle option")
+	fs.BoolVar(&o.EnableCPUIdle, "enable-cpu-idle",
+		o.EnableCPUIdle,
+		"if set true, we will enable cpu idle for "+
+			"specific cgroup paths and it requires --enable-syncing-cpu-idle=true to make effect")
 }
 
 func (o *CPUOptions) ApplyTo(conf *qrmconfig.CPUQRMPluginConfig) error {
@@ -56,5 +66,7 @@ func (o *CPUOptions) ApplyTo(conf *qrmconfig.CPUQRMPluginConfig) error {
 	conf.EnableSysAdvisor = o.EnableSysAdvisor
 	conf.ReservedCPUCores = o.ReservedCPUCores
 	conf.SkipCPUStateCorruption = o.SkipCPUStateCorruption
+	conf.EnableSyncingCPUIdle = o.EnableSyncingCPUIdle
+	conf.EnableCPUIdle = o.EnableCPUIdle
 	return nil
 }

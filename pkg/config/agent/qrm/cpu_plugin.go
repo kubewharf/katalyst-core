@@ -27,8 +27,12 @@ type CPUQRMPluginConfig struct {
 	EnableSysAdvisor bool
 	// ReservedCPUCores indicates reserved cpus number for system agents
 	ReservedCPUCores int
-	// skip cpu state corruption and it will be used after updating state properties
+	// SkipCPUStateCorruption is set to skip cpu state corruption and it will be used after updating state properties
 	SkipCPUStateCorruption bool
+	// EnableSyncingCPUIdle is set to sync specific cgroup path with EnableCPUIdle
+	EnableSyncingCPUIdle bool
+	// EnableCPUIdle indicateds whether enabling cpu idle
+	EnableCPUIdle bool
 }
 
 func NewCPUQRMPluginConfig() *CPUQRMPluginConfig {
