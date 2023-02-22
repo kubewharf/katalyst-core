@@ -36,7 +36,7 @@ var (
 	testTargetGVR = metav1.GroupVersionResource{
 		Group:    v1alpha1.SchemeGroupVersion.Group,
 		Version:  v1alpha1.SchemeGroupVersion.Version,
-		Resource: v1alpha1.ResourceNameKatalystAgentConfigs,
+		Resource: v1alpha1.ResourceNameEvictionConfigurations,
 	}
 )
 
@@ -68,24 +68,26 @@ func constructKatalystCustomConfigLoader() ConfigurationLoader {
 		},
 	}
 
-	kac := &v1alpha1.KatalystAgentConfig{
+	ec := &v1alpha1.EvictionConfiguration{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "default",
 			Namespace: "test-namespace",
 		},
-		Spec: v1alpha1.KatalystAgentConfigSpec{
-			Config: v1alpha1.AgentConfig{
-				ReclaimedResourcesEvictionPluginConfig: v1alpha1.ReclaimedResourcesEvictionPluginConfig{
-					EvictionThreshold: map[v1.ResourceName]float64{
-						v1.ResourceCPU:    1.2,
-						v1.ResourceMemory: 1.3,
+		Spec: v1alpha1.EvictionConfigurationSpec{
+			Config: v1alpha1.EvictionConfig{
+				EvictionPluginsConfig: v1alpha1.EvictionPluginsConfig{
+					ReclaimedResourcesEvictionPluginConfig: v1alpha1.ReclaimedResourcesEvictionPluginConfig{
+						EvictionThreshold: map[v1.ResourceName]float64{
+							v1.ResourceCPU:    1.2,
+							v1.ResourceMemory: 1.3,
+						},
 					},
 				},
 			},
 		},
 	}
 
-	clientSet := generateTestGenericClientSet(cnc, kac)
+	clientSet := generateTestGenericClientSet(cnc, ec)
 
 	return NewKatalystCustomConfigLoader(clientSet, 1*time.Second, nodeName)
 }
@@ -106,7 +108,7 @@ func Test_katalystCustomConfigLoader_LoadConfig(t *testing.T) {
 			args: args{
 				ctx:  context.TODO(),
 				gvr:  testTargetGVR,
-				conf: &v1alpha1.KatalystAgentConfig{},
+				conf: &v1alpha1.EvictionConfiguration{},
 			},
 		},
 	}

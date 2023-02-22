@@ -72,7 +72,7 @@ func TestKatalystCustomConfigController_Run(t *testing.T) {
 							TargetType: v1.GroupVersionResource{
 								Group:    v1alpha1.SchemeGroupVersion.Group,
 								Version:  v1alpha1.SchemeGroupVersion.Version,
-								Resource: v1alpha1.ResourceNameKatalystAgentConfigs,
+								Resource: v1alpha1.ResourceNameEvictionConfigurations,
 							},
 							NodeLabelSelectorKey: "aa",
 						},
@@ -93,27 +93,29 @@ func TestKatalystCustomConfigController_Run(t *testing.T) {
 							TargetType: v1.GroupVersionResource{
 								Group:    v1alpha1.SchemeGroupVersion.Group,
 								Version:  v1alpha1.SchemeGroupVersion.Version,
-								Resource: v1alpha1.ResourceNameKatalystAgentConfigs,
+								Resource: v1alpha1.ResourceNameEvictionConfigurations,
 							},
 							NodeLabelSelectorKey: "aa",
 						},
 					},
 				},
 				kccTargetList: []runtime.Object{
-					&v1alpha1.KatalystAgentConfig{
+					&v1alpha1.EvictionConfiguration{
 						TypeMeta: v1.TypeMeta{
-							Kind:       "KatalystAgentConfig",
+							Kind:       "EvictionConfiguration",
 							APIVersion: "config.katalyst.kubewharf.io/v1alpha1",
 						},
 						ObjectMeta: v1.ObjectMeta{
 							Name:      "default",
 							Namespace: "default",
 						},
-						Spec: v1alpha1.KatalystAgentConfigSpec{
-							Config: v1alpha1.AgentConfig{
-								ReclaimedResourcesEvictionPluginConfig: v1alpha1.ReclaimedResourcesEvictionPluginConfig{
-									EvictionThreshold: map[corev1.ResourceName]float64{
-										corev1.ResourceCPU: 5.0,
+						Spec: v1alpha1.EvictionConfigurationSpec{
+							Config: v1alpha1.EvictionConfig{
+								EvictionPluginsConfig: v1alpha1.EvictionPluginsConfig{
+									ReclaimedResourcesEvictionPluginConfig: v1alpha1.ReclaimedResourcesEvictionPluginConfig{
+										EvictionThreshold: map[corev1.ResourceName]float64{
+											corev1.ResourceCPU: 5.0,
+										},
 									},
 								},
 							},
@@ -135,7 +137,7 @@ func TestKatalystCustomConfigController_Run(t *testing.T) {
 							TargetType: v1.GroupVersionResource{
 								Group:    v1alpha1.SchemeGroupVersion.Group,
 								Version:  v1alpha1.SchemeGroupVersion.Version,
-								Resource: v1alpha1.ResourceNameKatalystAgentConfigs,
+								Resource: v1alpha1.ResourceNameEvictionConfigurations,
 							},
 							NodeLabelSelectorKey: "aa",
 						},
@@ -149,27 +151,29 @@ func TestKatalystCustomConfigController_Run(t *testing.T) {
 							TargetType: v1.GroupVersionResource{
 								Group:    v1alpha1.SchemeGroupVersion.Group,
 								Version:  v1alpha1.SchemeGroupVersion.Version,
-								Resource: v1alpha1.ResourceNameKatalystAgentConfigs,
+								Resource: v1alpha1.ResourceNameEvictionConfigurations,
 							},
 							NodeLabelSelectorKey: "bb",
 						},
 					},
 				},
 				kccTargetList: []runtime.Object{
-					&v1alpha1.KatalystAgentConfig{
+					&v1alpha1.EvictionConfiguration{
 						TypeMeta: v1.TypeMeta{
-							Kind:       "KatalystAgentConfig",
+							Kind:       "EvictionConfiguration",
 							APIVersion: "config.katalyst.kubewharf.io/v1alpha1",
 						},
 						ObjectMeta: v1.ObjectMeta{
 							Name:      "default",
 							Namespace: "default",
 						},
-						Spec: v1alpha1.KatalystAgentConfigSpec{
-							Config: v1alpha1.AgentConfig{
-								ReclaimedResourcesEvictionPluginConfig: v1alpha1.ReclaimedResourcesEvictionPluginConfig{
-									EvictionThreshold: map[corev1.ResourceName]float64{
-										corev1.ResourceCPU: 5.0,
+						Spec: v1alpha1.EvictionConfigurationSpec{
+							Config: v1alpha1.EvictionConfig{
+								EvictionPluginsConfig: v1alpha1.EvictionPluginsConfig{
+									ReclaimedResourcesEvictionPluginConfig: v1alpha1.ReclaimedResourcesEvictionPluginConfig{
+										EvictionThreshold: map[corev1.ResourceName]float64{
+											corev1.ResourceCPU: 5.0,
+										},
 									},
 								},
 							},
@@ -195,7 +199,7 @@ func TestKatalystCustomConfigController_Run(t *testing.T) {
 							TargetType: v1.GroupVersionResource{
 								Group:    v1alpha1.SchemeGroupVersion.Group,
 								Version:  v1alpha1.SchemeGroupVersion.Version,
-								Resource: v1alpha1.ResourceNameKatalystAgentConfigs,
+								Resource: v1alpha1.ResourceNameEvictionConfigurations,
 							},
 							NodeLabelSelectorKey: "aa",
 						},
@@ -209,27 +213,29 @@ func TestKatalystCustomConfigController_Run(t *testing.T) {
 							TargetType: v1.GroupVersionResource{
 								Group:    v1alpha1.SchemeGroupVersion.Group,
 								Version:  v1alpha1.SchemeGroupVersion.Version,
-								Resource: v1alpha1.ResourceNameKatalystAgentConfigs,
+								Resource: v1alpha1.ResourceNameEvictionConfigurations,
 							},
 							NodeLabelSelectorKey: "bb",
 						},
 					},
 				},
 				kccTargetList: []runtime.Object{
-					&v1alpha1.KatalystAgentConfig{
+					&v1alpha1.EvictionConfiguration{
 						TypeMeta: v1.TypeMeta{
-							Kind:       "KatalystAgentConfig",
+							Kind:       "EvictionConfiguration",
 							APIVersion: "config.katalyst.kubewharf.io/v1alpha1",
 						},
 						ObjectMeta: v1.ObjectMeta{
 							Name:      "default",
 							Namespace: "default",
 						},
-						Spec: v1alpha1.KatalystAgentConfigSpec{
-							Config: v1alpha1.AgentConfig{
-								ReclaimedResourcesEvictionPluginConfig: v1alpha1.ReclaimedResourcesEvictionPluginConfig{
-									EvictionThreshold: map[corev1.ResourceName]float64{
-										corev1.ResourceCPU: 5.0,
+						Spec: v1alpha1.EvictionConfigurationSpec{
+							Config: v1alpha1.EvictionConfig{
+								EvictionPluginsConfig: v1alpha1.EvictionPluginsConfig{
+									ReclaimedResourcesEvictionPluginConfig: v1alpha1.ReclaimedResourcesEvictionPluginConfig{
+										EvictionThreshold: map[corev1.ResourceName]float64{
+											corev1.ResourceCPU: 5.0,
+										},
 									},
 								},
 							},
@@ -255,7 +261,7 @@ func TestKatalystCustomConfigController_Run(t *testing.T) {
 							TargetType: v1.GroupVersionResource{
 								Group:    v1alpha1.SchemeGroupVersion.Group,
 								Version:  v1alpha1.SchemeGroupVersion.Version,
-								Resource: v1alpha1.ResourceNameKatalystAgentConfigs,
+								Resource: v1alpha1.ResourceNameEvictionConfigurations,
 							},
 							NodeLabelSelectorKey: "aa",
 						},
@@ -269,7 +275,7 @@ func TestKatalystCustomConfigController_Run(t *testing.T) {
 							TargetType: v1.GroupVersionResource{
 								Group:    v1alpha1.SchemeGroupVersion.Group,
 								Version:  v1alpha1.SchemeGroupVersion.Version,
-								Resource: v1alpha1.ResourceNameKatalystAgentConfigs,
+								Resource: v1alpha1.ResourceNameEvictionConfigurations,
 							},
 							NodeLabelSelectorKey: "bb",
 						},

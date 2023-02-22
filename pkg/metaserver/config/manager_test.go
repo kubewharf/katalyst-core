@@ -101,31 +101,33 @@ func generateTestCNC(nodeName string) *v1alpha1.CustomNodeConfig {
 	}
 }
 
-func generateTestKAC(evictionThreshold map[v1.ResourceName]float64) *v1alpha1.KatalystAgentConfig {
-	return &v1alpha1.KatalystAgentConfig{
+func generateTestEvictionConfiguration(evictionThreshold map[v1.ResourceName]float64) *v1alpha1.EvictionConfiguration {
+	return &v1alpha1.EvictionConfiguration{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "default",
 			Namespace: "test-namespace",
 		},
-		Spec: v1alpha1.KatalystAgentConfigSpec{
-			Config: v1alpha1.AgentConfig{
-				ReclaimedResourcesEvictionPluginConfig: v1alpha1.ReclaimedResourcesEvictionPluginConfig{
-					EvictionThreshold: evictionThreshold,
-				},
-				MemoryEvictionPluginConfig: v1alpha1.MemoryEvictionPluginConfig{
-					NumaFreeBelowWatermarkTimesThreshold: &defaultNumaFreeBelowWatermarkTimesThreshold,
-					SystemKswapdRateThreshold:            &defaultSystemKswapdRateThreshold,
-					SystemKswapdRateExceedTimesThreshold: &defaultSystemKswapdRateExceedTimesThreshold,
-					NumaEvictionRankingMetrics:           evictionconfig.DefaultNumaEvictionRankingMetrics,
-					SystemEvictionRankingMetrics:         evictionconfig.DefaultSystemEvictionRankingMetrics,
+		Spec: v1alpha1.EvictionConfigurationSpec{
+			Config: v1alpha1.EvictionConfig{
+				EvictionPluginsConfig: v1alpha1.EvictionPluginsConfig{
+					ReclaimedResourcesEvictionPluginConfig: v1alpha1.ReclaimedResourcesEvictionPluginConfig{
+						EvictionThreshold: evictionThreshold,
+					},
+					MemoryEvictionPluginConfig: v1alpha1.MemoryEvictionPluginConfig{
+						NumaFreeBelowWatermarkTimesThreshold: &defaultNumaFreeBelowWatermarkTimesThreshold,
+						SystemKswapdRateThreshold:            &defaultSystemKswapdRateThreshold,
+						SystemKswapdRateExceedTimesThreshold: &defaultSystemKswapdRateExceedTimesThreshold,
+						NumaEvictionRankingMetrics:           evictionconfig.DefaultNumaEvictionRankingMetrics,
+						SystemEvictionRankingMetrics:         evictionconfig.DefaultSystemEvictionRankingMetrics,
+					},
 				},
 			},
 		},
 	}
 }
 
-func constructTestDynamicConfigManager(t *testing.T, nodeName string, kac *v1alpha1.KatalystAgentConfig) *DynamicConfigManager {
-	clientSet := generateTestGenericClientSet(generateTestCNC(nodeName), kac)
+func constructTestDynamicConfigManager(t *testing.T, nodeName string, evictionConfiguration *v1alpha1.EvictionConfiguration) *DynamicConfigManager {
+	clientSet := generateTestGenericClientSet(generateTestCNC(nodeName), evictionConfiguration)
 	conf := generateTestConfiguration(t, nodeName)
 
 	err := os.MkdirAll(testConfigCheckpointDir, os.FileMode(0755))
@@ -152,11 +154,11 @@ func constructTestDynamicConfigManager(t *testing.T, nodeName string, kac *v1alp
 
 func TestNewDynamicConfigManager(t *testing.T) {
 	nodeName := "test-node"
-	kac := generateTestKAC(map[v1.ResourceName]float64{
+	evictionConfiguration := generateTestEvictionConfiguration(map[v1.ResourceName]float64{
 		v1.ResourceCPU:    1.2,
 		v1.ResourceMemory: 1.3,
 	})
-	clientSet := generateTestGenericClientSet(generateTestCNC(nodeName), kac)
+	clientSet := generateTestGenericClientSet(generateTestCNC(nodeName), evictionConfiguration)
 	conf := generateTestConfiguration(t, nodeName)
 
 	err := os.MkdirAll(testConfigCheckpointDir, os.FileMode(0755))
@@ -191,7 +193,7 @@ func TestDynamicConfigManager_getConfig(t *testing.T) {
 			name: "test-1",
 			fields: fields{
 				manager: constructTestDynamicConfigManager(t, "test-node",
-					generateTestKAC(map[v1.ResourceName]float64{
+					generateTestEvictionConfiguration(map[v1.ResourceName]float64{
 						v1.ResourceCPU:    1.2,
 						v1.ResourceMemory: 1.3,
 					})),
@@ -211,7 +213,7 @@ func TestDynamicConfigManager_getConfig(t *testing.T) {
 			name: "test-no-change",
 			fields: fields{
 				manager: constructTestDynamicConfigManager(t, "test-node",
-					generateTestKAC(generateTestConfiguration(t, "test-node").EvictionThreshold)),
+					generateTestEvictionConfiguration(generateTestConfiguration(t, "test-node").EvictionThreshold)),
 			},
 			args: args{
 				ctx: context.TODO(),
@@ -288,15 +290,17 @@ func Test_applyDynamicConfig(t *testing.T) {
 					return d
 				}(),
 				dynamicConf: &dynamic.DynamicConfigCRD{
-					KatalystAgentConfig: &v1alpha1.KatalystAgentConfig{
-						Spec: v1alpha1.KatalystAgentConfigSpec{
-							Config: v1alpha1.AgentConfig{
-								ReclaimedResourcesEvictionPluginConfig: v1alpha1.ReclaimedResourcesEvictionPluginConfig{
-									EvictionThreshold: map[v1.ResourceName]float64{
-										"cpu": 1.3,
+					EvictionConfiguration: &v1alpha1.EvictionConfiguration{
+						Spec: v1alpha1.EvictionConfigurationSpec{
+							Config: v1alpha1.EvictionConfig{
+								EvictionPluginsConfig: v1alpha1.EvictionPluginsConfig{
+									ReclaimedResourcesEvictionPluginConfig: v1alpha1.ReclaimedResourcesEvictionPluginConfig{
+										EvictionThreshold: map[v1.ResourceName]float64{
+											"cpu": 1.3,
+										},
 									},
+									MemoryEvictionPluginConfig: nonDefaultMemoryEvictionPluginConfig,
 								},
-								MemoryEvictionPluginConfig: nonDefaultMemoryEvictionPluginConfig,
 							},
 						},
 					},
@@ -362,15 +366,17 @@ func Test_applyDynamicConfig(t *testing.T) {
 					return d
 				}(),
 				dynamicConf: &dynamic.DynamicConfigCRD{
-					KatalystAgentConfig: &v1alpha1.KatalystAgentConfig{
-						Spec: v1alpha1.KatalystAgentConfigSpec{
-							Config: v1alpha1.AgentConfig{
-								ReclaimedResourcesEvictionPluginConfig: v1alpha1.ReclaimedResourcesEvictionPluginConfig{
-									EvictionThreshold: map[v1.ResourceName]float64{
-										"cpu": 1.3,
+					EvictionConfiguration: &v1alpha1.EvictionConfiguration{
+						Spec: v1alpha1.EvictionConfigurationSpec{
+							Config: v1alpha1.EvictionConfig{
+								EvictionPluginsConfig: v1alpha1.EvictionPluginsConfig{
+									ReclaimedResourcesEvictionPluginConfig: v1alpha1.ReclaimedResourcesEvictionPluginConfig{
+										EvictionThreshold: map[v1.ResourceName]float64{
+											"cpu": 1.3,
+										},
 									},
+									MemoryEvictionPluginConfig: nonDefaultMemoryEvictionPluginConfig,
 								},
-								MemoryEvictionPluginConfig: nonDefaultMemoryEvictionPluginConfig,
 							},
 						},
 					},
@@ -417,16 +423,16 @@ func Test_getGVRToKindMap(t *testing.T) {
 		wantGVK schema.GroupVersionKind
 	}{
 		{
-			name: "kac",
+			name: "ec",
 			wantGVR: schema.GroupVersionResource{
 				Group:    v1alpha1.SchemeGroupVersion.Group,
 				Version:  v1alpha1.SchemeGroupVersion.Version,
-				Resource: v1alpha1.ResourceNameKatalystAgentConfigs,
+				Resource: v1alpha1.ResourceNameEvictionConfigurations,
 			},
 			wantGVK: schema.GroupVersionKind{
 				Group:   v1alpha1.SchemeGroupVersion.Group,
 				Version: v1alpha1.SchemeGroupVersion.Version,
-				Kind:    "KatalystAgentConfig",
+				Kind:    "EvictionConfiguration",
 			},
 		},
 	}
@@ -466,19 +472,21 @@ func Test_updateDynamicConf(t *testing.T) {
 			args: args{
 				resourceGVRMap: generateTestResourceGVRMap(),
 				gvrToKind:      getGVRToGVKMap(),
-				loader: generateTestLoader(toTestUnstructured(&v1alpha1.KatalystAgentConfig{
+				loader: generateTestLoader(toTestUnstructured(&v1alpha1.EvictionConfiguration{
 					ObjectMeta: metav1.ObjectMeta{
 						Name: "config-1",
 					},
-					Spec: v1alpha1.KatalystAgentConfigSpec{
+					Spec: v1alpha1.EvictionConfigurationSpec{
 						GenericConfigSpec: v1alpha1.GenericConfigSpec{
 							NodeLabelSelector: "aa=bb",
 						},
-						Config: v1alpha1.AgentConfig{
-							ReclaimedResourcesEvictionPluginConfig: v1alpha1.ReclaimedResourcesEvictionPluginConfig{
-								EvictionThreshold: map[v1.ResourceName]float64{
-									v1.ResourceCPU:    1.3,
-									v1.ResourceMemory: 1.5,
+						Config: v1alpha1.EvictionConfig{
+							EvictionPluginsConfig: v1alpha1.EvictionPluginsConfig{
+								ReclaimedResourcesEvictionPluginConfig: v1alpha1.ReclaimedResourcesEvictionPluginConfig{
+									EvictionThreshold: map[v1.ResourceName]float64{
+										v1.ResourceCPU:    1.3,
+										v1.ResourceMemory: 1.5,
+									},
 								},
 							},
 						},
@@ -486,19 +494,21 @@ func Test_updateDynamicConf(t *testing.T) {
 				})),
 			},
 			want: &dynamic.DynamicConfigCRD{
-				KatalystAgentConfig: &v1alpha1.KatalystAgentConfig{
+				EvictionConfiguration: &v1alpha1.EvictionConfiguration{
 					ObjectMeta: metav1.ObjectMeta{
 						Name: "config-1",
 					},
-					Spec: v1alpha1.KatalystAgentConfigSpec{
+					Spec: v1alpha1.EvictionConfigurationSpec{
 						GenericConfigSpec: v1alpha1.GenericConfigSpec{
 							NodeLabelSelector: "aa=bb",
 						},
-						Config: v1alpha1.AgentConfig{
-							ReclaimedResourcesEvictionPluginConfig: v1alpha1.ReclaimedResourcesEvictionPluginConfig{
-								EvictionThreshold: map[v1.ResourceName]float64{
-									v1.ResourceCPU:    1.3,
-									v1.ResourceMemory: 1.5,
+						Config: v1alpha1.EvictionConfig{
+							EvictionPluginsConfig: v1alpha1.EvictionPluginsConfig{
+								ReclaimedResourcesEvictionPluginConfig: v1alpha1.ReclaimedResourcesEvictionPluginConfig{
+									EvictionThreshold: map[v1.ResourceName]float64{
+										v1.ResourceCPU:    1.3,
+										v1.ResourceMemory: 1.5,
+									},
 								},
 							},
 						},
@@ -510,11 +520,11 @@ func Test_updateDynamicConf(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			kac := generateTestKAC(map[v1.ResourceName]float64{
+			ec := generateTestEvictionConfiguration(map[v1.ResourceName]float64{
 				v1.ResourceCPU:    1.2,
 				v1.ResourceMemory: 1.3,
 			})
-			manager := constructTestDynamicConfigManager(t, "node-name", kac)
+			manager := constructTestDynamicConfigManager(t, "node-name", ec)
 			got, got1, _ := manager.updateDynamicConfig(tt.args.resourceGVRMap, tt.args.gvrToKind, tt.args.loader)
 			if !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("updateDynamicConfig() got = %v, want %v", got, tt.want)
@@ -528,10 +538,10 @@ func Test_updateDynamicConf(t *testing.T) {
 
 func generateTestResourceGVRMap() map[string]metav1.GroupVersionResource {
 	return map[string]metav1.GroupVersionResource{
-		v1alpha1.ResourceNameKatalystAgentConfigs: {
+		v1alpha1.ResourceNameEvictionConfigurations: {
 			Group:    v1alpha1.SchemeGroupVersion.Group,
 			Version:  v1alpha1.SchemeGroupVersion.Version,
-			Resource: v1alpha1.ResourceNameKatalystAgentConfigs,
+			Resource: v1alpha1.ResourceNameEvictionConfigurations,
 		},
 	}
 }

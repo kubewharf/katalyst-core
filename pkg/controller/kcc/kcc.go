@@ -157,22 +157,22 @@ func (k *KatalystCustomConfigController) Run() {
 func (k *KatalystCustomConfigController) addKatalystCustomConfigEventHandle(obj interface{}) {
 	t, ok := obj.(*configapis.KatalystCustomConfig)
 	if !ok {
-		klog.Errorf("cannot convert obj to *KatalystAgentConfig: %v", obj)
+		klog.Errorf("cannot convert obj to *KatalystCustomConfig: %v", obj)
 		return
 	}
 
-	klog.V(4).Infof("notice addition of KatalystAgentConfig %s", native.GenerateUniqObjectNameKey(t))
+	klog.V(4).Infof("notice addition of KatalystCustomConfig %s", native.GenerateUniqObjectNameKey(t))
 	k.enqueueKatalystCustomConfig(t)
 }
 
 func (k *KatalystCustomConfigController) updateKatalystCustomConfigEventHandle(_, new interface{}) {
 	t, ok := new.(*configapis.KatalystCustomConfig)
 	if !ok {
-		klog.Errorf("cannot convert obj to *KatalystAgentConfig: %v", new)
+		klog.Errorf("cannot convert obj to *KatalystCustomConfig: %v", new)
 		return
 	}
 
-	klog.V(4).Infof("notice update of KatalystAgentConfig %s", native.GenerateUniqObjectNameKey(t))
+	klog.V(4).Infof("notice update of KatalystCustomConfig %s", native.GenerateUniqObjectNameKey(t))
 	k.enqueueKatalystCustomConfig(t)
 }
 

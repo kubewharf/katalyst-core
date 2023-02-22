@@ -24,5 +24,5 @@ import (
 // and managed by KCC; KCC components are responsible to identify
 // those CRs and trigger notification
 type DynamicConfigCRD struct {
-	*v1alpha1.KatalystAgentConfig
+	*v1alpha1.EvictionConfiguration
 }

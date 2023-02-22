@@ -75,8 +75,8 @@ func NewReclaimedResourcesEvictionPluginConfiguration() *ReclaimedResourcesEvict
 }
 
 func (c *ReclaimedResourcesEvictionPluginConfiguration) ApplyConfiguration(conf *dynamic.DynamicConfigCRD) {
-	if kac := conf.KatalystAgentConfig; kac != nil {
-		for resourceName, value := range kac.Spec.Config.ReclaimedResourcesEvictionPluginConfig.EvictionThreshold {
+	if ec := conf.EvictionConfiguration; ec != nil {
+		for resourceName, value := range ec.Spec.Config.EvictionPluginsConfig.ReclaimedResourcesEvictionPluginConfig.EvictionThreshold {
 			c.EvictionThreshold[resourceName] = value
 		}
 	}

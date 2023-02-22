@@ -123,7 +123,7 @@ func (k *KatalystCustomConfigTargetHandler) RangeGVRTargetAccessor(f func(gvr me
 func (k *KatalystCustomConfigTargetHandler) addKatalystCustomConfigEventHandle(obj interface{}) {
 	kcc, ok := obj.(*configapis.KatalystCustomConfig)
 	if !ok {
-		klog.Errorf("cannot convert obj to *KatalystAgentConfig: %v", obj)
+		klog.Errorf("cannot convert obj to *KatalystCustomConfig: %v", obj)
 		return
 	}
 
@@ -143,7 +143,7 @@ func (k *KatalystCustomConfigTargetHandler) addKatalystCustomConfigEventHandle(o
 func (k *KatalystCustomConfigTargetHandler) updateKatalystCustomConfigEventHandle(_ interface{}, obj interface{}) {
 	kcc, ok := obj.(*configapis.KatalystCustomConfig)
 	if !ok {
-		klog.Errorf("cannot convert obj to *KatalystAgentConfig: %v", obj)
+		klog.Errorf("cannot convert obj to *KatalystCustomConfig: %v", obj)
 		return
 	}
 
@@ -163,7 +163,7 @@ func (k *KatalystCustomConfigTargetHandler) updateKatalystCustomConfigEventHandl
 func (k *KatalystCustomConfigTargetHandler) deleteKatalystCustomConfigEventHandle(obj interface{}) {
 	kcc, ok := obj.(*configapis.KatalystCustomConfig)
 	if !ok {
-		klog.Errorf("cannot convert obj to *KatalystAgentConfig: %v", obj)
+		klog.Errorf("cannot convert obj to *KatalystCustomConfig: %v", obj)
 		return
 	}
 

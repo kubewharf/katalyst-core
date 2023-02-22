@@ -37,12 +37,12 @@ func InitEvictionManager(agentCtx *GenericContext, conf *config.Configuration, _
 	evictionMgr := evict.NewEvictionManager(agentCtx.Client, recorder, agentCtx.MetaServer,
 		agentCtx.EmitterPool.GetDefaultMetricsEmitter(), conf)
 
-	// add kac to dynamic configuration watch list
+	// add eviction configuration to dynamic configuration watch list
 	err := agentCtx.MetaServer.AddConfigWatcher(
 		metav1.GroupVersionResource{
 			Group:    v1alpha1.SchemeGroupVersion.Group,
 			Version:  v1alpha1.SchemeGroupVersion.Version,
-			Resource: v1alpha1.ResourceNameKatalystAgentConfigs,
+			Resource: v1alpha1.ResourceNameEvictionConfigurations,
 		})
 	if err != nil {
 		return false, ComponentStub{}, fmt.Errorf("failed register dynamic config: %s", err)

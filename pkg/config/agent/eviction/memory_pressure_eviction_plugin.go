@@ -70,37 +70,37 @@ func NewMemoryPressureEvictionPluginConfiguration() *MemoryPressureEvictionPlugi
 
 // ApplyConfiguration applies dynamic.DynamicConfigCRD to MemoryPressureEvictionPluginConfiguration
 func (c *MemoryPressureEvictionPluginConfiguration) ApplyConfiguration(conf *dynamic.DynamicConfigCRD) {
-	if kac := conf.KatalystAgentConfig; kac != nil {
-		if kac.Spec.Config.MemoryEvictionPluginConfig.EnableNumaLevelDetection != nil {
-			c.EnableNumaLevelDetection = *(kac.Spec.Config.MemoryEvictionPluginConfig.EnableNumaLevelDetection)
+	if ec := conf.EvictionConfiguration; ec != nil {
+		if ec.Spec.Config.EvictionPluginsConfig.MemoryEvictionPluginConfig.EnableNumaLevelDetection != nil {
+			c.EnableNumaLevelDetection = *(ec.Spec.Config.EvictionPluginsConfig.MemoryEvictionPluginConfig.EnableNumaLevelDetection)
 		}
 
-		if kac.Spec.Config.MemoryEvictionPluginConfig.EnableSystemLevelDetection != nil {
-			c.EnableSystemLevelDetection = *(kac.Spec.Config.MemoryEvictionPluginConfig.EnableSystemLevelDetection)
+		if ec.Spec.Config.EvictionPluginsConfig.MemoryEvictionPluginConfig.EnableSystemLevelDetection != nil {
+			c.EnableSystemLevelDetection = *(ec.Spec.Config.EvictionPluginsConfig.MemoryEvictionPluginConfig.EnableSystemLevelDetection)
 		}
 
-		if kac.Spec.Config.MemoryEvictionPluginConfig.NumaFreeBelowWatermarkTimesThreshold != nil {
-			c.NumaFreeBelowWatermarkTimesThreshold = *(kac.Spec.Config.MemoryEvictionPluginConfig.NumaFreeBelowWatermarkTimesThreshold)
+		if ec.Spec.Config.EvictionPluginsConfig.MemoryEvictionPluginConfig.NumaFreeBelowWatermarkTimesThreshold != nil {
+			c.NumaFreeBelowWatermarkTimesThreshold = *(ec.Spec.Config.EvictionPluginsConfig.MemoryEvictionPluginConfig.NumaFreeBelowWatermarkTimesThreshold)
 		}
 
-		if kac.Spec.Config.MemoryEvictionPluginConfig.SystemKswapdRateThreshold != nil {
-			c.SystemKswapdRateThreshold = *(kac.Spec.Config.MemoryEvictionPluginConfig.SystemKswapdRateThreshold)
+		if ec.Spec.Config.EvictionPluginsConfig.MemoryEvictionPluginConfig.SystemKswapdRateThreshold != nil {
+			c.SystemKswapdRateThreshold = *(ec.Spec.Config.EvictionPluginsConfig.MemoryEvictionPluginConfig.SystemKswapdRateThreshold)
 		}
 
-		if kac.Spec.Config.MemoryEvictionPluginConfig.SystemKswapdRateExceedTimesThreshold != nil {
-			c.SystemKswapdRateExceedTimesThreshold = *(kac.Spec.Config.MemoryEvictionPluginConfig.SystemKswapdRateExceedTimesThreshold)
+		if ec.Spec.Config.EvictionPluginsConfig.MemoryEvictionPluginConfig.SystemKswapdRateExceedTimesThreshold != nil {
+			c.SystemKswapdRateExceedTimesThreshold = *(ec.Spec.Config.EvictionPluginsConfig.MemoryEvictionPluginConfig.SystemKswapdRateExceedTimesThreshold)
 		}
 
-		if len(kac.Spec.Config.MemoryEvictionPluginConfig.NumaEvictionRankingMetrics) > 0 {
-			c.NumaEvictionRankingMetrics = kac.Spec.Config.MemoryEvictionPluginConfig.NumaEvictionRankingMetrics
+		if len(ec.Spec.Config.EvictionPluginsConfig.MemoryEvictionPluginConfig.NumaEvictionRankingMetrics) > 0 {
+			c.NumaEvictionRankingMetrics = ec.Spec.Config.EvictionPluginsConfig.MemoryEvictionPluginConfig.NumaEvictionRankingMetrics
 		}
 
-		if len(kac.Spec.Config.MemoryEvictionPluginConfig.SystemEvictionRankingMetrics) > 0 {
-			c.SystemEvictionRankingMetrics = kac.Spec.Config.MemoryEvictionPluginConfig.SystemEvictionRankingMetrics
+		if len(ec.Spec.Config.EvictionPluginsConfig.MemoryEvictionPluginConfig.SystemEvictionRankingMetrics) > 0 {
+			c.SystemEvictionRankingMetrics = ec.Spec.Config.EvictionPluginsConfig.MemoryEvictionPluginConfig.SystemEvictionRankingMetrics
 		}
 
-		if kac.Spec.Config.MemoryEvictionPluginConfig.GracePeriod != nil {
-			c.GracePeriod = *(kac.Spec.Config.MemoryEvictionPluginConfig.GracePeriod)
+		if ec.Spec.Config.EvictionPluginsConfig.MemoryEvictionPluginConfig.GracePeriod != nil {
+			c.GracePeriod = *(ec.Spec.Config.EvictionPluginsConfig.MemoryEvictionPluginConfig.GracePeriod)
 		}
 	}
 }

@@ -154,17 +154,17 @@ func (k *KatalystCustomConfigTargetController) Run() {
 func (k *KatalystCustomConfigTargetController) updateKatalystCustomConfigEventHandle(old, new interface{}) {
 	oldKCC, ok := old.(*configapis.KatalystCustomConfig)
 	if !ok {
-		klog.Errorf("cannot convert obj to *KatalystAgentConfig: %v", new)
+		klog.Errorf("cannot convert obj to *KatalystCustomConfig: %v", new)
 		return
 	}
 
 	newKCC, ok := new.(*configapis.KatalystCustomConfig)
 	if !ok {
-		klog.Errorf("cannot convert obj to *KatalystAgentConfig: %v", new)
+		klog.Errorf("cannot convert obj to *KatalystCustomConfig: %v", new)
 		return
 	}
 
-	klog.V(4).Infof("notice update of KatalystAgentConfig %s", native.GenerateUniqObjectNameKey(newKCC))
+	klog.V(4).Infof("notice update of KatalystCustomConfig %s", native.GenerateUniqObjectNameKey(newKCC))
 	// if kcc has updated, it needs trigger all kcc target to reconcile
 	if newKCC.GetGeneration() == newKCC.Status.ObservedGeneration &&
 		oldKCC.Status.ObservedGeneration != newKCC.Status.ObservedGeneration {

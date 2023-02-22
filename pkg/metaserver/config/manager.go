@@ -194,16 +194,20 @@ func (c *DynamicConfigManager) tryUpdateConfig(ctx context.Context, skipError bo
 	defer c.mux.RUnlock()
 
 	config, updated, err := c.getConfig(ctx)
-	if !skipError && err != nil {
+	if err != nil {
 		_ = c.emitter.StoreInt64(metricsNameUpdateConfig, 1, metrics.MetricTypeNameCount, metrics.MetricTag{
 			Key: "status", Val: "failed",
 		})
-		return err
-	}
 
-	_ = c.emitter.StoreInt64(metricsNameUpdateConfig, 1, metrics.MetricTypeNameCount, metrics.MetricTag{
-		Key: "status", Val: "success",
-	})
+		// return an error if skipError is false to make sure the config is correct at startup
+		if !skipError {
+			return err
+		}
+	} else {
+		_ = c.emitter.StoreInt64(metricsNameUpdateConfig, 1, metrics.MetricTypeNameCount, metrics.MetricTag{
+			Key: "status", Val: "success",
+		})
+	}
 
 	if !updated {
 		return nil

@@ -66,7 +66,7 @@ var fakeDiscoveryClient = &fakedisco.FakeDiscovery{Fake: &coretesting.Fake{
 		{
 			GroupVersion: v1alpha1.SchemeGroupVersion.String(),
 			APIResources: []metav1.APIResource{
-				{Name: "katalystagentconfigs", Namespaced: true, Kind: "KatalystAgentConfig"},
+				{Name: v1alpha1.ResourceNameEvictionConfigurations, Namespaced: true, Kind: "EvictionConfiguration"},
 			},
 		},
 	},
