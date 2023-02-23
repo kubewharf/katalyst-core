@@ -1,0 +1,80 @@
+# Copyright 2022 The Katalyst Authors.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: katalyst-scheduler-config
+  namespace: katalyst-system
+data:
+  scheduler-config.yaml: |-
+    apiVersion: kubescheduler.config.k8s.io/v1beta3
+    kind: KubeSchedulerConfiguration
+    leaderElection:
+      leaderElect: true
+      resourceLock: leases
+      resourceName: katalyst-scheduler
+      resourceNamespace: katalyst-system
+    profiles:
+      - schedulerName: katalyst-scheduler
+        plugins:
+          preFilter:
+            enabled:
+              - name: QoSAwareNodeResourcesFit
+          filter:
+            enabled:
+              - name: QoSAwareNodeResourcesFit
+          score:
+            enabled:
+              - name: QoSAwareNodeResourcesFit
+                weight: 15
+              - name: QoSAwareNodeResourcesBalancedAllocation
+                weight: 1
+            disabled:
+              - name: NodeResourcesFit
+              - name: NodeResourcesBalancedAllocation
+          reserve:
+            enabled:
+              - name: QoSAwareNodeResourcesFit
+        pluginConfig:
+          - name: NodeResourcesFit
+            args:
+              ignoredResourceGroups:
+                - katalyst.kubewharf.io
+          - name: QoSAwareNodeResourcesFit
+            args:
+              scoringStrategy:
+                type: MostAllocated
+                resources:
+                  - name: cpu
+                    weight: 1
+                  - name: memory
+                    weight: 1
+                reclaimedResources:
+                  - name: "katalyst.kubewharf.io/reclaimed_millicpu"
+                    weight: 1
+                  - name: "katalyst.kubewharf.io/reclaimed_memory"
+                    weight: 1
+          - name: QoSAwareNodeResourcesBalancedAllocation
+            args:
+              resources:
+                - name: cpu
+                  weight: 1
+                - name: memory
+                  weight: 1
+              reclaimedResources:
+                - name: "katalyst.kubewharf.io/reclaimed_millicpu"
+                  weight: 1
+                - name: "katalyst.kubewharf.io/reclaimed_memory"
+                  weight: 1  

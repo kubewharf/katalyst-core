@@ -21,7 +21,7 @@ More Detailed Introduction will be presented in the future.
 
 <div align="center">
   <picture>
-    <img src="docs/katalyst-overview.jpg" width=80% title="Katalyst Overview" loading="eager" />
+    <img src="docs/imgs/katalyst-overview.jpg" width=80% title="Katalyst Overview" loading="eager" />
   </picture>
 </div>
 
@@ -36,7 +36,7 @@ Since Kubewharf enhanced kubernetes is developed based on specific versions of u
 
 ## Getting started
 
-Katalyst provides several example yaml to demonstrate the common use cases. (todo)
+Katalyst provides several example yaml to demonstrate the common use cases. For more information, please refer to [tutorials](./docs/tutorial/collocation.md).
 
 ## Community
 

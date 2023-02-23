@@ -15,21 +15,22 @@
 apiVersion: config.katalyst.kubewharf.io/v1alpha1
 kind: KatalystCustomConfig
 metadata:
-  name: katalyst-agent-config
+  name: eviction-configuration
 spec:
   targetType:
     group: config.katalyst.kubewharf.io
-    resource: katalystagentconfigs
+    resource: evictionconfigurations
     version: v1alpha1
 
 ---
 apiVersion: config.katalyst.kubewharf.io/v1alpha1
-kind: KatalystAgentConfig
+kind: EvictionConfiguration
 metadata:
   name: default
 spec:
   config:
-    reclaimedResourcesEvictionPluginConfig:
-      evictionThreshold:
-        "katalyst.kubewharf.io/reclaimed_millicpu": 10
-        "katalyst.kubewharf.io/reclaimed_memory": 10
+    evictionPluginsConfig:
+      memoryEvictionPluginConfig:
+        enableNumaLevelDetection: false
+        systemKswapdRateExceedTimesThreshold: 1
+        systemKswapdRateThreshold: 2000

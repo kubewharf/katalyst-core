@@ -19,7 +19,7 @@ Katalyst 分为三个主要 Project：
 
 <div align="center">
   <picture>
-    <img src="docs/katalyst-overview.jpg" width=80% title="Katalyst Overview" loading="eager" />
+    <img src="docs/imgs/katalyst-overview.jpg" width=80% title="Katalyst Overview" loading="eager" />
   </picture>
 </div>
 
