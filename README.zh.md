@@ -33,7 +33,7 @@ Katalyst 基于 Kubewharf 增强版 Kubernetes 发行版进行开发， 请参�
 
 ## 示例
 
-Katalyst 提供了丰富的样例为您展示相关的使用；相关内容将在后续补充
+Katalyst 提供了丰富的样例为您展示相关的使用；详细内容请参考 [tutorials](./docs/tutorial/colocation.md)。
 
 ## 社区
 

@@ -1,5 +1,5 @@
-# Tutorial - katalyst collocation best-practices
-This guide introduces best-practices for collocation in katalyst with an end-to-end example. Follow the steps below to take a glance at the integrated functionality, and then you can replace the sample yamls with your workload when applying the system in your own production environment.
+# Tutorial - katalyst colocation best-practices
+This guide introduces best-practices for colocation in katalyst with an end-to-end example. Follow the steps below to take a glance at the integrated functionality, and then you can replace the sample yamls with your workload when applying the system in your own production environment.
 
 ## Prerequisite
 Please make sure you have deployed all pre-dependent components before moving on to the next step.

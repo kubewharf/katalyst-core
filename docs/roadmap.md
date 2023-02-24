@@ -10,7 +10,7 @@ This roadmap defines the core functionalities and features that katalyst plans t
       <th align="right">Milestone breakdown</th>
     </tr>
     <tr>
-      <td>Collocation for Pods with all QoS</td>
+      <td>Colocation for Pods with all QoS</td>
       <td>
         <ul>
           <li>Improve the isolation mechanism</li>

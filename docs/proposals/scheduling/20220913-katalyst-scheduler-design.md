@@ -153,7 +153,7 @@ unit when scheduling and allocating resources, so that some NUMA nodes will be d
 
 <div align="center">
   <picture>
-    <img src="/docs/imgs/scheduler-overall-arch.jpg" width=50% title="Scheduler Overall Architecture" loading="eager" />
+    <img src="./scheduler-overall-arch.jpg" width=50% title="Scheduler Overall Architecture" loading="eager" />
   </picture>
 </div>
 
@@ -270,7 +270,7 @@ events are registered to the informer.
 
 <div align="center">
   <picture>
-    <img src="/docs/imgs/scheduler-fit-plugin.jpg" width=80% title="QoSAwareNodeResourcesFit Plugin" loading="eager" />
+    <img src="./scheduler-fit-plugin.jpg" width=80% title="QoSAwareNodeResourcesFit Plugin" loading="eager" />
   </picture>
 </div>
 
@@ -320,7 +320,7 @@ We will implement the following extension points:
 
 <div align="center">
   <picture>
-    <img src="/docs/imgs/scheduler-balanced-plugin.jpg" width=80% title="QoSAwareNodeResourcesBalancedAllocation Plugin" loading="eager" />
+    <img src="./scheduler-balanced-plugin.jpg" width=80% title="QoSAwareNodeResourcesBalancedAllocation Plugin" loading="eager" />
   </picture>
 </div>
 

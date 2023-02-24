@@ -36,7 +36,7 @@ Since Kubewharf enhanced kubernetes is developed based on specific versions of u
 
 ## Getting started
 
-Katalyst provides several example yaml to demonstrate the common use cases. For more information, please refer to [tutorials](./docs/tutorial/collocation.md).
+Katalyst provides several example yaml to demonstrate the common use cases. For more information, please refer to [tutorials](./docs/tutorial/colocation.md).
 
 ## Community
 
