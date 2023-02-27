@@ -54,7 +54,7 @@ func (m *ListAndWatchResponse) GetBlocks() (map[int]map[string]*Block, error) {
 					blockId := block.BlockId
 					if foundNUMAId, found := visBlocksToNUMA[blockId]; found && blocks[foundNUMAId][blockId] != nil {
 						if foundNUMAId != numaIdInt {
-							return nil, fmt.Errorf("found block: %d both in NUMA: %d and NUMA: %d, entry: %s, subEntry: %s",
+							return nil, fmt.Errorf("found block: %s both in NUMA: %d and NUMA: %d, entry: %s, subEntry: %s",
 								blockId, foundNUMAId, numaIdInt, entryName, subEntryName)
 						} else if blocks[foundNUMAId][blockId].Result != block.Result {
 							return nil, fmt.Errorf("found block: %s result is different with current block: %s result, entry: %s, subEntry: %s",

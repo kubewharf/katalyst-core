@@ -2362,6 +2362,10 @@ func (p *DynamicPolicy) applyBlocks(blockToCPUSet map[string]machine.CPUSet,
 				"result cpuset: %s, error: %v", state.PoolNameReclaim, reclaimPoolCPUSet.String(), err)
 		}
 
+		if newEntries[state.PoolNameReclaim] == nil {
+			newEntries[state.PoolNameReclaim] = make(state.ContainerEntries)
+		}
+
 		newEntries[state.PoolNameReclaim][""] = &state.AllocationInfo{
 			PodUid:                           state.PoolNameReclaim,
 			OwnerPoolName:                    state.PoolNameReclaim,
@@ -2414,7 +2418,7 @@ func (p *DynamicPolicy) applyBlocks(blockToCPUSet map[string]machine.CPUSet,
 					ownerPoolName = state.GetSpecifiedPoolName(allocationInfo)
 				}
 
-				if resp.Entries[podUID].Entries[containerName] != nil {
+				if resp.Entries[podUID] != nil && resp.Entries[podUID].Entries[containerName] != nil {
 					klog.Infof("[CPUDynamicPolicy.applyBlocks] cpu advisor put pod: %s/%s, container: %s from %s to %s",
 						allocationInfo.PodNamespace, allocationInfo.PodName,
 						allocationInfo.ContainerName, ownerPoolName,

@@ -62,172 +62,6 @@ var listAndWatchResponseValidators = []ListAndWatchResponseValidator{
 	validateDedicatedEntries,
 }
 
-// GetPoolsQuantityMapFromCPUAdvisorResp GetQuantityMap returns a map from cpu-set pool to cpu size;
-// this info is constructed by advisor response, and this response contain cpu-set pool
-// by a special container name .i.e empty string
-func GetPoolsQuantityMapFromCPUAdvisorResp(resp *advisorapi.ListAndWatchResponse) (map[string]int, error) {
-	ret := make(map[string]int)
-
-	if resp == nil {
-		return ret, nil
-	}
-
-	for poolName, entry := range resp.Entries {
-		calculationEntries := entry.Entries
-
-		// only deal with pool
-		if len(calculationEntries) != 1 || calculationEntries[""] == nil {
-			continue
-		}
-
-		calculationInfo := calculationEntries[""]
-
-		// todo: currently sys advisor only returns calculation results
-		//  for pools which are npt overlapped with others and isn't NUMA aware.
-		// 	and we should refine judgement here when sys advisor supports NUMA
-		// 	aware pool results overlapped with others.
-		if calculationInfo == nil ||
-			len(calculationInfo.CalculationResultsByNumas) != 1 ||
-			calculationInfo.CalculationResultsByNumas[-1] == nil ||
-			len(calculationInfo.CalculationResultsByNumas[-1].Blocks) != 1 ||
-			len(calculationInfo.CalculationResultsByNumas[-1].Blocks[0].OverlapTargets) != 0 ||
-			calculationInfo.OwnerPoolName != poolName {
-			return nil, fmt.Errorf("invalid calculation result: %s for pool: %s", calculationInfo.String(), poolName)
-		}
-
-		if StaticPools.Has(poolName) {
-			klog.Infof("[GetPoolsQuantityMapFromCPUAdvisorResp] skip static pool: %s in cpu advisor resp", poolName)
-			continue
-		}
-
-		ret[poolName] = int(calculationInfo.CalculationResultsByNumas[-1].Blocks[0].Result)
-	}
-	return ret, nil
-}
-
-// GetPoolsQuantityMapFromPodEntriesAndCPUAdvisorResp returns a map from cpu-set pool to cpu size;
-// this info is constructed by combine advisor response and given pod entry list
-func GetPoolsQuantityMapFromPodEntriesAndCPUAdvisorResp(entries PodEntries, resp *advisorapi.ListAndWatchResponse) (map[string]int, error) {
-	entriesQuantityMap := machine.GetQuantityMap(entries.GetPoolsCPUset(ResidentPools))
-
-	qosAwarePoolsQuantityMap, err := GetPoolsQuantityMapFromCPUAdvisorResp(resp)
-	if err != nil {
-		return nil, fmt.Errorf("GetPoolsQuantityMapFromCPUAdvisorResp failed with error: %v", err)
-	}
-
-	poolsQuantityMap := make(map[string]int)
-	for poolName, quantity := range entriesQuantityMap {
-		poolsQuantityMap[poolName] = quantity
-
-		if _, found := qosAwarePoolsQuantityMap[poolName]; !found {
-			klog.Warningf("[GetPoolsQuantityMapFromPodEntriesAndCPUAdvisorResp] pool: %s isn't found in qos aware resp", poolName)
-		}
-	}
-
-	// overwrite entriesQuantityMap by qosAwarePoolsQuantityMap
-	for poolName, quantity := range qosAwarePoolsQuantityMap {
-		if prevQuantity, found := poolsQuantityMap[poolName]; found && prevQuantity != quantity {
-			klog.Infof("[GetPoolsQuantityMapFromPodEntriesAndCPUAdvisorResp] pool: %s overwrite quantity: %d by quantity: %d provided by qos aware",
-				poolName, prevQuantity, quantity)
-		}
-		poolsQuantityMap[poolName] = quantity
-	}
-
-	return poolsQuantityMap, nil
-}
-
-func GetIsolatedQuantityMapFromPodEntriesAndCPUAdvisorResp(entries PodEntries, resp *advisorapi.ListAndWatchResponse) (map[string]map[string]int, error) {
-	dedicatedCoresIsolatedQuantityMap := GetIsolatedQuantityMapFromPodEntries(entries, nil)
-	qosAwareIsolatedQuantityMap, err := GetIsolatedQuantityMapFromCPUAdvisorResp(resp, entries)
-	if err != nil {
-		return nil, fmt.Errorf("GetIsolatedQuantityMapFromCPUAdvisorResp failed with error: %v", err)
-	}
-
-	isolatedQuantityMap := make(map[string]map[string]int)
-	for podUID, containerEntries := range dedicatedCoresIsolatedQuantityMap {
-		if isolatedQuantityMap[podUID] == nil {
-			isolatedQuantityMap[podUID] = make(map[string]int)
-		}
-
-		for containerName, quantity := range containerEntries {
-			isolatedQuantityMap[podUID][containerName] = quantity
-		}
-	}
-
-	// overwrite dedicatedCoresIsolatedQuantityMap by qosAwareIsolatedQuantityMap
-	for podUID, containerEntries := range qosAwareIsolatedQuantityMap {
-		if isolatedQuantityMap[podUID] == nil {
-			isolatedQuantityMap[podUID] = make(map[string]int)
-		}
-
-		for containerName, quantity := range containerEntries {
-			if prevQuantity, found := isolatedQuantityMap[podUID][containerName]; found && prevQuantity != quantity {
-				klog.Infof("[GetIsolatedQuantityMapFromPodEntriesAndCPUAdvisorResp] pod: %s, container: %s overwrite quantity: %d by quantity: %d provided by qos aware",
-					podUID, containerName, prevQuantity, quantity)
-			}
-			isolatedQuantityMap[podUID][containerName] = quantity
-		}
-	}
-
-	return isolatedQuantityMap, nil
-}
-
-func GetIsolatedQuantityMapFromCPUAdvisorResp(resp *advisorapi.ListAndWatchResponse, chkEntries PodEntries) (map[string]map[string]int, error) {
-	ret := make(map[string]map[string]int)
-
-	if resp == nil {
-		return ret, nil
-	}
-
-	for podUID, entry := range resp.Entries {
-		calculationEntries := entry.Entries
-
-		// not deal with pool
-		if len(calculationEntries) == 1 && calculationEntries[""] != nil {
-			continue
-		}
-
-		for containerName, calculationInfo := range calculationEntries {
-			if calculationInfo == nil ||
-				calculationInfo.OwnerPoolName != PoolNameDedicated {
-				continue
-			}
-
-			allocationInfo := chkEntries[podUID][containerName]
-
-			if allocationInfo == nil {
-				klog.Warningf("[GetIsolatedQuantityMapFromCPUAdvisorResp] qos aware server get entry for pod: %s, container: %s which isn't in checkpoint", podUID, containerName)
-				continue
-			} else if allocationInfo.Annotations[consts.PodAnnotationMemoryEnhancementNumaBinding] == consts.PodAnnotationMemoryEnhancementNumaBindingEnable {
-				continue
-			}
-
-			// todo: currently not support per NUMA calculation results for dedicated_cores without numa_binding
-			if len(calculationInfo.CalculationResultsByNumas) != 1 ||
-				calculationInfo.CalculationResultsByNumas[-1] == nil ||
-				len(calculationInfo.CalculationResultsByNumas[-1].Blocks) != 1 {
-				return nil, fmt.Errorf("invalid calculation result for pod: %s/%s, container: %s, owner pool: %s",
-					allocationInfo.PodNamespace, allocationInfo.PodName, allocationInfo.ContainerName, calculationInfo.OwnerPoolName)
-			}
-
-			quantity := int(calculationInfo.CalculationResultsByNumas[-1].Blocks[0].Result)
-
-			if quantity == 0 {
-				klog.Warningf("[GetIsolatedQuantityMapFromCPUAdvisorResp] dedicated_cores pod: %s/%s container: %s get zero quantity",
-					allocationInfo.PodNamespace, allocationInfo.PodName, allocationInfo.ContainerName)
-				continue
-			}
-
-			if ret[podUID] == nil {
-				ret[podUID] = make(map[string]int)
-			}
-			ret[podUID][containerName] = quantity
-		}
-	}
-
-	return ret, nil
-}
-
 func GetIsolatedQuantityMapFromPodEntries(podEntries PodEntries, ignoreAllocationInfos []*AllocationInfo) map[string]map[string]int {
 	ret := make(map[string]map[string]int)
 
@@ -406,54 +240,6 @@ func GenerateCPUMachineStateByPodEntries(topology *machine.CPUTopology, podEntri
 	return machineState, nil
 }
 
-func UpdateOwnerPoolsForSharedCoresByCPUAdvisorResp(chkEntries PodEntries, resp *advisorapi.ListAndWatchResponse, poolsQuantityMap map[string]int) error {
-	if resp == nil {
-		return nil
-	}
-
-	for podUID, entry := range resp.Entries {
-
-		calculationEntries := entry.Entries
-
-		// not deal with pool
-		if len(calculationEntries) == 1 && calculationEntries[""] != nil {
-			continue
-		}
-
-		for containerName, calculationInfo := range calculationEntries {
-			if calculationInfo == nil ||
-				calculationInfo.OwnerPoolName == "" ||
-				calculationInfo.OwnerPoolName == PoolNameDedicated {
-				continue
-			}
-
-			allocationInfo := chkEntries[podUID][containerName]
-
-			if allocationInfo == nil {
-				klog.Warningf("[UpdateOwnerPoolsForSharedCoresByCPUAdvisorResp] qos aware server get entry for pod: %s, container: %s which isn't in checkpoint", podUID, containerName)
-				continue
-			} else if allocationInfo.QoSLevel != consts.PodAnnotationQoSLevelSharedCores && allocationInfo.QoSLevel != consts.PodAnnotationQoSLevelReclaimedCores {
-				return fmt.Errorf("qos aware server return entry for pod: %s, container: %s, qosLevel: %s with invalid ownerPoolName: %s",
-					podUID, containerName, allocationInfo.QoSLevel, calculationInfo.OwnerPoolName)
-			} else if calculationInfo.CalculationResultsByNumas != nil {
-				return fmt.Errorf("qos aware server return entry for pod: %s, container: %s, qosLevel: %s with non-empty CalculationResultsByNumas",
-					podUID, containerName, allocationInfo.QoSLevel)
-			} else if _, found := poolsQuantityMap[calculationInfo.OwnerPoolName]; !found {
-				return fmt.Errorf("qos aware server return entry for pod: %s, container: %s, qosLevel: %s with non-empty CalculationResultsByNumas",
-					podUID, containerName, allocationInfo.QoSLevel)
-			}
-
-			if allocationInfo.OwnerPoolName != calculationInfo.OwnerPoolName {
-				klog.Infof("[UpdateOwnerPoolsForSharedCoresByCPUAdvisorResp] qos aware server put pod: %s/%s, container: %s from %s to %s", allocationInfo.PodNamespace, allocationInfo.PodName, allocationInfo.ContainerName, allocationInfo.OwnerPoolName, calculationInfo.OwnerPoolName)
-			}
-			// set allocationInfo.OwnerPoolName as qos aware sever indicates
-			allocationInfo.OwnerPoolName = calculationInfo.OwnerPoolName
-		}
-	}
-
-	return nil
-}
-
 func validateDedicatedEntries(entries PodEntries, resp *advisorapi.ListAndWatchResponse) error {
 	dedicatedAllocationInfos := FilterDedicatedAllocationInfos(entries)
 	dedicatedCalculationInfos := FilterDedicatedCalculationInfos(resp)
@@ -509,7 +295,7 @@ func validateDedicatedEntries(entries PodEntries, resp *advisorapi.ListAndWatchR
 				// for stability if the dedicated_cores container calculation result and allocation result,
 				// we will return error.
 				if calculationQuantity != allocationInfo.AllocationResult.Size() {
-					return fmt.Errorf("pod: %s container: %s calculation result: %d and allocation result: %s mismatch",
+					return fmt.Errorf("pod: %s container: %s calculation result: %d and allocation result: %d mismatch",
 						podUID, containerName, calculationQuantity, allocationInfo.AllocationResult.Size())
 				}
 			}
@@ -566,7 +352,7 @@ func validateStaticPools(entries PodEntries, resp *advisorapi.ListAndWatchRespon
 		// for stability if the static pool calculation result and allocation result,
 		// we will return error.
 		if calculationQuantity != allocationInfo.AllocationResult.Size() {
-			return fmt.Errorf("static pool: %s calculation result: %d and allocation result: %s mismatch",
+			return fmt.Errorf("static pool: %s calculation result: %d and allocation result: %d mismatch",
 				poolName, calculationQuantity, allocationInfo.AllocationResult.Size())
 		}
 	}
@@ -657,14 +443,14 @@ func GetCalculationInfoNUMAQuantities(calculationInfo *advisorapi.CalculationInf
 		quantityInt, err := general.CovertUInt64ToInt(quantityUInt64)
 
 		if err != nil {
-			return nil, fmt.Errorf("converting quantity: %s to int failed with error: %v",
+			return nil, fmt.Errorf("converting quantity: %d to int failed with error: %v",
 				quantityUInt64, err)
 		}
 
 		numaIdInt, err := general.CovertInt64ToInt(numaId)
 
 		if err != nil {
-			return nil, fmt.Errorf("converting quantity: %s to int failed with error: %v",
+			return nil, fmt.Errorf("converting quantity: %d to int failed with error: %v",
 				numaId, err)
 		}
 
@@ -699,7 +485,7 @@ func GetCalculationInfoTotalQuantity(calculationInfo *advisorapi.CalculationInfo
 	quantityInt, err := general.CovertUInt64ToInt(quantityUInt64)
 
 	if err != nil {
-		return 0, fmt.Errorf("converting quantity: %s to int failed with error: %v",
+		return 0, fmt.Errorf("converting quantity: %d to int failed with error: %v",
 			quantityUInt64, err)
 	}
 
