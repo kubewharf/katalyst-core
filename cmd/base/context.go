@@ -51,7 +51,8 @@ type GenericOptions func(i interface{})
 
 type GenericContext struct {
 	*http.Server
-	httpHandler *process.HTTPHandler
+	httpHandler   *process.HTTPHandler
+	healthChecker *HealthzChecker
 
 	// those following components are shared by all generic components
 	BroadcastAdapter events.EventBroadcasterAdapter
@@ -127,10 +128,6 @@ func NewGenericContext(
 		return nil, err
 	}
 
-	// add profiling and health check http paths listening on generic endpoint
-	serveProfilingHTTP(mux)
-	serveHealthZHTTP(mux)
-
 	// CreateEventRecorder create a v1 event (k8s 1.19 or later supported) recorder,
 	// which uses discovery client to check whether api server support v1 event, if not,
 	// it will use corev1 event recorder and wrap it with a v1 event recorder adapter.
@@ -139,12 +136,13 @@ func NewGenericContext(
 	httpHandler := process.NewHTTPHandler(getStaticAuth(genericConf.GenericAuthStaticUser,
 		genericConf.GenericAuthStaticPasswd), genericConf.GenericEndpointHandleChains)
 
-	return &GenericContext{
+	c := &GenericContext{
 		httpHandler: httpHandler,
 		Server: &http.Server{
 			Handler: httpHandler.WithHandleChain(mux),
 			Addr:    genericConf.GenericEndpoint,
 		},
+		healthChecker:           NewHealthzChecker(),
 		DisabledByDefault:       disabledByDefault,
 		MetaInformerFactory:     metaInformerFactory,
 		KubeInformerFactory:     kubeInformerFactory,
@@ -154,7 +152,13 @@ func NewGenericContext(
 		Client:                  clientSet,
 		EmitterPool:             metricspool.NewCustomMetricsEmitterPool(emitterPool),
 		Mapper:                  mapper,
-	}, nil
+	}
+
+	// add profiling and health check http paths listening on generic endpoint
+	serveProfilingHTTP(mux)
+	c.serveHealthZHTTP(mux)
+
+	return c, nil
 }
 
 // IsEnabled checks if the context's components enabled or not
@@ -170,6 +174,7 @@ func (c *GenericContext) SetDefaultMetricsEmitter(metricEmitter metrics.MetricEm
 // Run starts the generic components
 func (c *GenericContext) Run(ctx context.Context) {
 	c.httpHandler.Run(ctx)
+	c.healthChecker.Run(ctx)
 	c.EmitterPool.Run(ctx)
 	c.BroadcastAdapter.StartRecordingToSink(ctx.Done())
 	go func() {
@@ -202,6 +207,20 @@ func (c *GenericContext) StartInformer(ctx context.Context) {
 	}
 }
 
+// serveHealthZHTTP is used to provide health check for current running components.
+func (c *GenericContext) serveHealthZHTTP(mux *http.ServeMux) {
+	mux.HandleFunc(healthZPath, func(w http.ResponseWriter, r *http.Request) {
+		ok, reason := c.healthChecker.CheckHealthy()
+		if ok {
+			w.WriteHeader(200)
+			_, _ = w.Write([]byte("ok"))
+		} else {
+			w.WriteHeader(500)
+			_, _ = w.Write([]byte(reason))
+		}
+	})
+}
+
 // serveProfilingHTTP is used to provide pprof metrics for current running components.
 func serveProfilingHTTP(mux *http.ServeMux) {
 	mux.Handle("/debug/pprof/", http.HandlerFunc(pprof.Index))
@@ -211,14 +230,6 @@ func serveProfilingHTTP(mux *http.ServeMux) {
 	mux.Handle("/debug/pprof/trace", http.HandlerFunc(pprof.Trace))
 
 	mux.Handle("/debug/metrics", promhttp.Handler())
-}
-
-// serveHealthZHTTP is used to provide health check for current running components.
-func serveHealthZHTTP(mux *http.ServeMux) {
-	mux.HandleFunc(healthZPath, func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(200)
-		_, _ = w.Write([]byte("ok"))
-	})
 }
 
 // getStaticAuth returns static auth info

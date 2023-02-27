@@ -50,6 +50,8 @@ import (
 
 const reporterManagerCheckpoint = "reporter_manager_checkpoint"
 
+const healthzNameReporterFetcherReady = "ReporterFetcherReady"
+
 // ReporterPluginManager is used to manage in-tree or out-tree reporter plugin registrations and
 // get report content from these plugins to aggregate them into the Reporter Manager
 type ReporterPluginManager struct {
@@ -69,6 +71,9 @@ type ReporterPluginManager struct {
 	// reconcilePeriod is the duration between calls to sync.
 	reconcilePeriod time.Duration
 	syncFunc        func(ctx context.Context)
+
+	// healthzState records last time that the corresponding module is determined as healthy.
+	healthzState sync.Map
 }
 
 var innerReporterPluginsDisabledByDefault = sets.NewString()
@@ -201,6 +206,8 @@ func (m *ReporterPluginManager) Run(ctx context.Context) {
 
 	klog.Infof("reporter plugin manager started")
 	m.reporter.Run(ctx)
+
+	general.RegisterHealthzCheckRules(healthzNameReporterFetcherReady, m.healthz)
 }
 
 func (m *ReporterPluginManager) isVersionCompatibleWithPlugin(versions []string) bool {
@@ -300,6 +307,8 @@ func (m *ReporterPluginManager) genericSync(ctx context.Context) {
 		_ = m.emitter.StoreInt64("reporter_plugin_sync_push_failed", 1, metrics.MetricTypeNameCount)
 		klog.Errorf("report plugin failed with error: %v", err)
 	}
+
+	m.healthzSyncLoop()
 }
 
 // clearUnhealthyPlugin is to clear stopped plugins from cache which exceeded grace period

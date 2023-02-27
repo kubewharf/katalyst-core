@@ -43,6 +43,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/global"
 	reporterconfig "github.com/kubewharf/katalyst-core/pkg/config/agent/reporter"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
+	"github.com/kubewharf/katalyst-core/pkg/util/general"
 )
 
 const (
@@ -166,6 +167,53 @@ func TestReporterPluginReRegistration(t *testing.T) {
 	// test the scenario that plugin de-register and graceful shut down
 	p1.Stop()
 	p2.Stop()
+}
+
+func TestHealthz(t *testing.T) {
+	// change default klog level
+	flagSet := flag.FlagSet{}
+	klog.InitFlags(&flagSet)
+	_ = flagSet.Parse([]string{
+		"-v", "0",
+	})
+
+	socketDir, err := tmpSocketDir()
+	require.NoError(t, err)
+	defer os.RemoveAll(socketDir)
+
+	content1 := []*v1alpha1.ReportContent{
+		{
+			GroupVersionKind: &testGroupVersionKind,
+			Field: []*v1alpha1.ReportField{
+				{
+					FieldType: v1alpha1.FieldType_Spec,
+					FieldName: "fieldName_a",
+					Value:     []byte("Value_a"),
+				},
+			},
+		},
+	}
+
+	testReporter := reporter.NewReporterManagerStub()
+
+	ctx, cancel := context.WithCancel(context.TODO())
+	defer cancel()
+	_, ch, p := setup(t, ctx, content1, nil, socketDir, testPluginName, testReporter)
+
+	select {
+	case <-ch:
+	case <-time.After(6 * time.Second):
+		t.Fatalf("timeout while waiting for manager update")
+	}
+
+	results := general.CheckHealthz()
+	for name, response := range results {
+		if reporterFetcherRules.Has(string(name)) {
+			require.Equal(t, response.State, general.HealthzCheckStateReady)
+		}
+	}
+
+	p.Stop()
 }
 
 func setup(t *testing.T, ctx context.Context, content []*v1alpha1.ReportContent, callback plugin.ListAndWatchCallback, socketDir string, pluginSocketName string, reporter reporter.Manager) (registration.AgentPluginHandler, <-chan interface{}, skeleton.GenericPlugin) {
