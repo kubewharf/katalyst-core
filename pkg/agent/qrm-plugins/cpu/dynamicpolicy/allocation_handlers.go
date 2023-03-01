@@ -47,6 +47,12 @@ func (p *DynamicPolicy) sharedCoresAllocationHandler(ctx context.Context,
 	machineState := p.state.GetMachineState()
 	pooledCPUs := machineState.GetAvailableCPUSetExcludeDedicatedCoresPods(p.reservedCPUs)
 
+	if pooledCPUs.IsEmpty() {
+		klog.Errorf("[CPUDynamicPolicy.sharedCoresAllocationHandler] pod: %s/%s, container: %s get empty pooledCPUs",
+			req.PodNamespace, req.PodName, req.ContainerName)
+		return nil, fmt.Errorf("get empty pooledCPUs")
+	}
+
 	pooledCPUsTopologyAwareAssignments, err := machine.GetNumaAwareAssignments(p.machineInfo.CPUTopology, pooledCPUs)
 	if err != nil {
 		klog.Errorf("[CPUDynamicPolicy.sharedCoresAllocationHandler] pod: %s/%s, container: %s GetTopologyAwareAssignmentsByCPUSet failed with error: %v",
