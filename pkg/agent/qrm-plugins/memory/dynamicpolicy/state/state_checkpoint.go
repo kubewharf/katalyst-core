@@ -132,7 +132,7 @@ func (sc *stateCheckpoint) restoreState(machineInfo *info.MachineInfo, reservedM
 		}
 	}
 
-	klog.V(2).InfoS("[memory_plugin] state checkpoint: restored state from checkpoint")
+	klog.InfoS("[memory_plugin] state checkpoint: restored state from checkpoint")
 
 	return nil
 }

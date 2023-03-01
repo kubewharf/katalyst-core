@@ -2134,11 +2134,8 @@ func (p *DynamicPolicy) checkCPUSet() {
 		}
 
 		for containerName, allocationInfo := range containerEntries {
-
-			if !(allocationInfo != nil &&
-				allocationInfo.QoSLevel == consts.PodAnnotationQoSLevelDedicatedCores &&
-				allocationInfo.Annotations[consts.PodAnnotationMemoryEnhancementNumaBinding] == consts.PodAnnotationMemoryEnhancementNumaBindingEnable &&
-				allocationInfo.ContainerType == pluginapi.ContainerType_MAIN.String()) {
+			if allocationInfo == nil ||
+				allocationInfo.ContainerType != pluginapi.ContainerType_MAIN.String() {
 				continue
 			}
 
@@ -2177,6 +2174,13 @@ func (p *DynamicPolicy) checkCPUSet() {
 				allocationInfo.ContainerName, allocationInfo.AllocationResult.String(),
 				actualCPUSets[podUID][containerName].String())
 
+			// only do comparison for dedicated_cores with numa_biding to avoid effect of adjustment for shared_cores
+			if !(allocationInfo.QoSLevel == consts.PodAnnotationQoSLevelDedicatedCores &&
+				allocationInfo.Annotations[consts.PodAnnotationMemoryEnhancementNumaBinding] ==
+					consts.PodAnnotationMemoryEnhancementNumaBindingEnable) {
+				continue
+			}
+
 			if !actualCPUSets[podUID][containerName].Equals(allocationInfo.OriginalAllocationResult) {
 				klog.Errorf("[CPUDynamicPolicy.checkCPUSet] pod: %s/%s, container: %s, cpuset invalid",
 					allocationInfo.PodNamespace, allocationInfo.PodName,
@@ -2187,18 +2191,47 @@ func (p *DynamicPolicy) checkCPUSet() {
 		}
 	}
 
-	var unionCPUSet machine.CPUSet
+	unionDedicatedCPUSet := machine.NewCPUSet()
+	unionSharedCPUSet := machine.NewCPUSet()
 	var cpuSetOverlap bool
-podsLoop:
-	for _, containerEntries := range actualCPUSets {
-		for _, cset := range containerEntries {
-			if !cpuSetOverlap && cset.Intersection(unionCPUSet).Size() != 0 {
-				cpuSetOverlap = true
-				break podsLoop
+
+	for podUID, containerEntries := range actualCPUSets {
+		for containerName, cset := range containerEntries {
+
+			allocationInfo := podEntries[podUID][containerName]
+
+			if allocationInfo == nil {
+				continue
 			}
 
-			unionCPUSet = unionCPUSet.Union(cset)
+			switch allocationInfo.QoSLevel {
+			case consts.PodAnnotationQoSLevelDedicatedCores:
+				if !cpuSetOverlap && cset.Intersection(unionDedicatedCPUSet).Size() != 0 {
+					cpuSetOverlap = true
+					klog.Errorf("[CPUDynamicPolicy.checkCPUSet] pod: %s/%s, container: %s cpuset: %s overlaps with others",
+						allocationInfo.PodNamespace,
+						allocationInfo.PodName,
+						allocationInfo.ContainerName,
+						cset.String())
+				}
+
+				unionDedicatedCPUSet = unionDedicatedCPUSet.Union(cset)
+			case consts.PodAnnotationQoSLevelSharedCores:
+				unionSharedCPUSet = unionSharedCPUSet.Union(cset)
+			}
 		}
+	}
+
+	regionOverlap := unionSharedCPUSet.Intersection(unionDedicatedCPUSet).Size() != 0
+
+	if regionOverlap {
+		klog.Errorf("[CPUDynamicPolicy.checkCPUSet] shared_cores union cpuset: %s overlaps with dedicated_cores union cpuset: %s",
+			unionSharedCPUSet.String(),
+			unionDedicatedCPUSet.String())
+	}
+
+	if !cpuSetOverlap {
+		cpuSetOverlap = regionOverlap
 	}
 
 	if cpuSetOverlap {

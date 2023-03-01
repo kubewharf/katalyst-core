@@ -122,7 +122,7 @@ func (sc *stateCheckpoint) restoreState(topology *machine.CPUTopology) error {
 		}
 	}
 
-	klog.V(2).InfoS("[cpu_plugin] State checkpoint: restored state from checkpoint")
+	klog.InfoS("[cpu_plugin] State checkpoint: restored state from checkpoint")
 
 	return nil
 }

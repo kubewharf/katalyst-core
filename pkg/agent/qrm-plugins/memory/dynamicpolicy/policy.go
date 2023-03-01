@@ -619,7 +619,7 @@ func (p *DynamicPolicy) clearResidualState() {
 	ctx := context.Background()
 	podList, err := p.metaServer.GetPodList(ctx, nil)
 	if err != nil {
-		klog.Errorf("[CPUDynamicPolicy.clearResidualState] get pod list failed: %v", err)
+		klog.Errorf("[MemoryDynamicPolicy.clearResidualState] get pod list failed: %v", err)
 		return
 	}
 
@@ -786,18 +786,13 @@ func (p *DynamicPolicy) checkMemorySet() {
 	podEntries := p.state.GetPodResourceEntries()[v1.ResourceMemory]
 	actualMemorySets := make(map[string]map[string]machine.CPUSet)
 
-	unionStateMemorySet := machine.NewCPUSet()
+	unionNUMABindingStateMemorySet := machine.NewCPUSet()
 	for podUID, containerEntries := range podEntries {
 		for containerName, allocationInfo := range containerEntries {
 
-			if !(allocationInfo != nil &&
-				allocationInfo.QoSLevel == consts.PodAnnotationQoSLevelDedicatedCores &&
-				allocationInfo.Annotations[consts.PodAnnotationMemoryEnhancementNumaBinding] == consts.PodAnnotationMemoryEnhancementNumaBindingEnable &&
-				allocationInfo.ContainerType == pluginapi.ContainerType_MAIN.String()) {
+			if allocationInfo == nil || allocationInfo.ContainerType != pluginapi.ContainerType_MAIN.String() {
 				continue
 			}
-
-			unionStateMemorySet = unionStateMemorySet.Union(allocationInfo.NumaAllocationResult)
 
 			tags := metrics.ConvertMapToTags(map[string]string{
 				"podNamespace":  allocationInfo.PodNamespace,
@@ -834,6 +829,14 @@ func (p *DynamicPolicy) checkMemorySet() {
 				allocationInfo.ContainerName, allocationInfo.NumaAllocationResult.String(),
 				actualMemorySets[podUID][containerName].String())
 
+			// only do comparison for dedicated_cores with numa_biding to avoid effect of adjustment for shared_cores
+			if !(allocationInfo.QoSLevel == consts.PodAnnotationQoSLevelDedicatedCores &&
+				allocationInfo.Annotations[consts.PodAnnotationMemoryEnhancementNumaBinding] == consts.PodAnnotationMemoryEnhancementNumaBindingEnable) {
+				continue
+			}
+
+			unionNUMABindingStateMemorySet = unionNUMABindingStateMemorySet.Union(allocationInfo.NumaAllocationResult)
+
 			if !actualMemorySets[podUID][containerName].Equals(allocationInfo.NumaAllocationResult) {
 				klog.Errorf("[MemoryDynamicPolicy.checkMemorySet] pod: %s/%s, container: %s, memset invalid",
 					allocationInfo.PodNamespace, allocationInfo.PodName,
@@ -844,18 +847,55 @@ func (p *DynamicPolicy) checkMemorySet() {
 		}
 	}
 
-	unionActualMemorySet := machine.NewCPUSet()
+	unionNUMABindingActualMemorySet := machine.NewCPUSet()
+	unionDedicatedActualMemorySet := machine.NewCPUSet()
+	unionSharedActualMemorySet := machine.NewCPUSet()
 	var memorySetOverlap bool
-podsLoop:
-	for _, containerEntries := range actualMemorySets {
-		for _, cset := range containerEntries {
-			if cset.Intersection(unionActualMemorySet).Size() != 0 {
-				memorySetOverlap = true
-				break podsLoop
+
+	for podUID, containerEntries := range actualMemorySets {
+		for containerName, cset := range containerEntries {
+
+			allocationInfo := podEntries[podUID][containerName]
+
+			if allocationInfo == nil {
+				continue
 			}
 
-			unionActualMemorySet = unionActualMemorySet.Union(cset)
+			switch allocationInfo.QoSLevel {
+			case consts.PodAnnotationQoSLevelDedicatedCores:
+				if allocationInfo.Annotations[consts.PodAnnotationMemoryEnhancementNumaBinding] == consts.PodAnnotationMemoryEnhancementNumaBindingEnable {
+					if !memorySetOverlap && cset.Intersection(unionNUMABindingActualMemorySet).Size() != 0 {
+						memorySetOverlap = true
+						klog.Errorf("[MemoryDynamicPolicy.checkMemorySet] pod: %s/%s, container: %s memset: %s overlaps with others",
+							allocationInfo.PodNamespace,
+							allocationInfo.PodName,
+							allocationInfo.ContainerName,
+							cset.String())
+					}
+
+					unionNUMABindingActualMemorySet = unionNUMABindingActualMemorySet.Union(cset)
+				} else {
+					unionDedicatedActualMemorySet = unionDedicatedActualMemorySet.Union(cset)
+				}
+			case consts.PodAnnotationQoSLevelSharedCores:
+				unionSharedActualMemorySet = unionSharedActualMemorySet.Union(cset)
+			}
 		}
+	}
+
+	regionOverlap := unionNUMABindingActualMemorySet.Intersection(unionSharedActualMemorySet).Size() != 0 ||
+		unionNUMABindingActualMemorySet.Intersection(unionDedicatedActualMemorySet).Size() != 0
+
+	if regionOverlap {
+		klog.Errorf("[MemoryDynamicPolicy.checkMemorySet] shared_cores union memset: %s,"+
+			" dedicated_cores union memset: %s overlap with numa_binding union memset: %s",
+			unionSharedActualMemorySet.String(),
+			unionDedicatedActualMemorySet.String(),
+			unionNUMABindingActualMemorySet.String())
+	}
+
+	if !memorySetOverlap {
+		memorySetOverlap = regionOverlap
 	}
 
 	if memorySetOverlap {
@@ -865,9 +905,9 @@ podsLoop:
 
 	machineState := p.state.GetMachineState()[v1.ResourceMemory]
 	notAssignedMemSet := machineState.GetNUMANodesWithoutNUMABindingPods()
-	if !unionStateMemorySet.Union(notAssignedMemSet).Equals(p.topology.CPUDetails.NUMANodes()) {
-		klog.Infof("[MemoryDynamicPolicy.checkMemorySet] found node memset invalid. unionStateMemorySet: %s, notAssignedMemSet: %s, topology: %s",
-			unionStateMemorySet.String(), notAssignedMemSet.String(), p.topology.CPUDetails.NUMANodes().String())
+	if !unionNUMABindingStateMemorySet.Union(notAssignedMemSet).Equals(p.topology.CPUDetails.NUMANodes()) {
+		klog.Infof("[MemoryDynamicPolicy.checkMemorySet] found node memset invalid. unionNUMABindingStateMemorySet: %s, notAssignedMemSet: %s, topology: %s",
+			unionNUMABindingStateMemorySet.String(), notAssignedMemSet.String(), p.topology.CPUDetails.NUMANodes().String())
 
 		_ = p.emitter.StoreInt64(util.MetricNameNodeMemsetInvalid, 1, metrics.MetricTypeNameRaw)
 	}
