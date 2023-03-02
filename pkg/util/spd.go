@@ -210,3 +210,64 @@ func CheckSPDMatchWithPod(pod *core.Pod, spd *apiworkload.ServiceProfileDescript
 
 	return selector.Matches(labels.Set(pod.Labels))
 }
+
+/*
+ helper functions to update spd info in-place
+*/
+
+func InsertSPDBusinessIndicatorSpec(spec *apiworkload.ServiceProfileDescriptorSpec,
+	serviceBusinessIndicatorSpec *apiworkload.ServiceBusinessIndicatorSpec) {
+	if spec == nil || serviceBusinessIndicatorSpec == nil {
+		return
+	}
+
+	if spec.BusinessIndicator == nil {
+		spec.BusinessIndicator = []apiworkload.ServiceBusinessIndicatorSpec{}
+	}
+
+	for i := range spec.BusinessIndicator {
+		if spec.BusinessIndicator[i].Name == serviceBusinessIndicatorSpec.Name {
+			spec.BusinessIndicator[i].Indicators = serviceBusinessIndicatorSpec.Indicators
+			return
+		}
+	}
+	spec.BusinessIndicator = append(spec.BusinessIndicator, *serviceBusinessIndicatorSpec)
+}
+
+func InsertSPDSystemIndicatorSpec(spec *apiworkload.ServiceProfileDescriptorSpec,
+	serviceSystemIndicatorSpec *apiworkload.ServiceSystemIndicatorSpec) {
+	if spec == nil || serviceSystemIndicatorSpec == nil {
+		return
+	}
+
+	if spec.SystemIndicator == nil {
+		spec.SystemIndicator = []apiworkload.ServiceSystemIndicatorSpec{}
+	}
+
+	for i := range spec.SystemIndicator {
+		if spec.SystemIndicator[i].Name == serviceSystemIndicatorSpec.Name {
+			spec.SystemIndicator[i].Indicators = serviceSystemIndicatorSpec.Indicators
+			return
+		}
+	}
+	spec.SystemIndicator = append(spec.SystemIndicator, *serviceSystemIndicatorSpec)
+}
+
+func InsertSPDBusinessIndicatorStatus(status *apiworkload.ServiceProfileDescriptorStatus,
+	serviceBusinessIndicatorStatus *apiworkload.ServiceBusinessIndicatorStatus) {
+	if status == nil || serviceBusinessIndicatorStatus == nil {
+		return
+	}
+
+	if status.BusinessStatus == nil {
+		status.BusinessStatus = []apiworkload.ServiceBusinessIndicatorStatus{}
+	}
+
+	for i := range status.BusinessStatus {
+		if status.BusinessStatus[i].Name == serviceBusinessIndicatorStatus.Name {
+			status.BusinessStatus[i].Current = serviceBusinessIndicatorStatus.Current
+			return
+		}
+	}
+	status.BusinessStatus = append(status.BusinessStatus, *serviceBusinessIndicatorStatus)
+}

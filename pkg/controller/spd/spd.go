@@ -45,6 +45,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/client/control"
 	"github.com/kubewharf/katalyst-core/pkg/config/controller"
 	"github.com/kubewharf/katalyst-core/pkg/consts"
+	indicator_plugin "github.com/kubewharf/katalyst-core/pkg/controller/spd/indicator-plugin"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util"
 	"github.com/kubewharf/katalyst-core/pkg/util/native"
@@ -53,8 +54,10 @@ import (
 const spdControllerName = "spd"
 
 const (
-	workloadWorkerCount = 1
-	spdWorkerCount      = 1
+	workloadWorkerCount        = 1
+	spdWorkerCount             = 1
+	indicatorSpecWorkerCount   = 1
+	indicatorStatusWorkerCount = 1
 )
 
 // SPDController is responsible to maintain lifecycle of SPD CR,
@@ -83,10 +86,16 @@ type SPDController struct {
 	workloadSyncQueue workqueue.RateLimitingInterface
 
 	metricsEmitter metrics.MetricEmitter
+
+	indicatorUpdater         indicator_plugin.IndicatorUpdater
+	indicatorPlugins         map[string]indicator_plugin.IndicatorPlugin
+	indicatorsSpecBusiness   map[apiworkload.ServiceBusinessIndicatorName]interface{}
+	indicatorsSpecSystem     map[apiworkload.TargetIndicatorName]interface{}
+	indicatorsStatusBusiness map[apiworkload.ServiceBusinessIndicatorName]interface{}
 }
 
-func NewSPDController(ctx context.Context, controlCtx *katalystbase.GenericContext,
-	conf *controller.SPDConfig, generalConf *controller.GenericControllerConfiguration) (*SPDController, error) {
+func NewSPDController(ctx context.Context, controlCtx *katalystbase.GenericContext, conf *controller.SPDConfig,
+	generalConf *controller.GenericControllerConfiguration, extraConf interface{}) (*SPDController, error) {
 	if conf == nil || controlCtx.Client == nil || generalConf == nil {
 		return nil, fmt.Errorf("client, conf and generalConf can't be nil")
 	}
@@ -174,6 +183,10 @@ func NewSPDController(ctx context.Context, controlCtx *katalystbase.GenericConte
 		spdController.metricsEmitter = metrics.DummyMetrics{}
 	}
 
+	if err := spdController.initializeIndicatorPlugins(controlCtx, extraConf); err != nil {
+		return nil, err
+	}
+
 	return spdController, nil
 }
 
@@ -197,7 +210,52 @@ func (sc *SPDController) Run() {
 	}
 	go wait.Until(sc.cleanSPD, time.Minute*5, sc.ctx.Done())
 
+	for _, plugin := range sc.indicatorPlugins {
+		go plugin.Run()
+	}
+	for i := 0; i < indicatorSpecWorkerCount; i++ {
+		go wait.Until(sc.syncIndicatorSpec, time.Second, sc.ctx.Done())
+	}
+	for i := 0; i < indicatorStatusWorkerCount; i++ {
+		go wait.Until(sc.syncIndicatorStatus, time.Second, sc.ctx.Done())
+	}
+
 	<-sc.ctx.Done()
+}
+
+func (sc *SPDController) GetIndicatorPlugins() (plugins []indicator_plugin.IndicatorPlugin) {
+	for _, p := range sc.indicatorPlugins {
+		plugins = append(plugins, p)
+	}
+	return plugins
+}
+
+func (sc *SPDController) initializeIndicatorPlugins(controlCtx *katalystbase.GenericContext, extraConf interface{}) error {
+	sc.indicatorUpdater = indicator_plugin.NewIndicatorUpdaterImpl()
+	sc.indicatorPlugins = make(map[string]indicator_plugin.IndicatorPlugin)
+	sc.indicatorsSpecBusiness = make(map[apiworkload.ServiceBusinessIndicatorName]interface{})
+	sc.indicatorsSpecSystem = make(map[apiworkload.TargetIndicatorName]interface{})
+	sc.indicatorsStatusBusiness = make(map[apiworkload.ServiceBusinessIndicatorName]interface{})
+
+	for pluginName, initFunc := range indicator_plugin.GetPluginInitializers() {
+		plugin, err := initFunc(sc.ctx, sc.conf, extraConf, sc.workloadLister, controlCtx, sc.indicatorUpdater)
+		if err != nil {
+			return err
+		}
+
+		klog.Infof("indicator plugin %s initialized", pluginName)
+		sc.indicatorPlugins[pluginName] = plugin
+		for _, name := range plugin.GetSupportedBusinessIndicatorSpec() {
+			sc.indicatorsSpecBusiness[name] = struct{}{}
+		}
+		for _, name := range plugin.GetSupportedSystemIndicatorSpec() {
+			sc.indicatorsSpecSystem[name] = struct{}{}
+		}
+		for _, name := range plugin.GetSupportedBusinessIndicatorStatus() {
+			sc.indicatorsStatusBusiness[name] = struct{}{}
+		}
+	}
+	return nil
 }
 
 func (sc *SPDController) addWorkload(workloadGVR string) func(obj interface{}) {

@@ -32,7 +32,7 @@ const (
 )
 
 func StartSPDController(ctx context.Context, controlCtx *katalyst.GenericContext,
-	conf *config.Configuration, _ interface{}, _ string) (bool, error) {
+	conf *config.Configuration, extraConf interface{}, _ string) (bool, error) {
 	if controlCtx == nil || conf == nil {
 		err := fmt.Errorf("controlCtx and controllerConf can't be nil")
 		klog.Error(err.Error())
@@ -41,7 +41,7 @@ func StartSPDController(ctx context.Context, controlCtx *katalyst.GenericContext
 
 	spdController, err := spd.NewSPDController(ctx, controlCtx,
 		conf.ControllersConfiguration.SPDConfig,
-		conf.GenericControllerConfiguration)
+		conf.GenericControllerConfiguration, extraConf)
 	if err != nil {
 		klog.Errorf("failed to new spd controller")
 		return false, err

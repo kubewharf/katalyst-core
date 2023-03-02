@@ -27,6 +27,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/cache"
 
 	apis "github.com/kubewharf/katalyst-api/pkg/apis/autoscaling/v1alpha1"
@@ -35,6 +36,7 @@ import (
 	apiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
 	katalystbase "github.com/kubewharf/katalyst-core/cmd/base"
 	"github.com/kubewharf/katalyst-core/pkg/config/controller"
+	indicator_plugin "github.com/kubewharf/katalyst-core/pkg/controller/spd/indicator-plugin"
 )
 
 var (
@@ -216,7 +218,7 @@ func TestSPDController_Run(t *testing.T) {
 				[]runtime.Object{tt.fields.spd}, []runtime.Object{tt.fields.workload})
 			assert.NoError(t, err)
 
-			spdController, err := NewSPDController(ctx, controlCtx, spdConfig, generalConf)
+			spdController, err := NewSPDController(ctx, controlCtx, spdConfig, generalConf, struct{}{})
 			assert.NoError(t, err)
 
 			controlCtx.StartInformer(ctx)
@@ -252,14 +254,334 @@ func TestPodIndexerDuplicate(t *testing.T) {
 
 	spdConf.SPDPodLabelIndexerKeys = []string{"test-1"}
 
-	_, err = NewSPDController(context.TODO(), controlCtx, spdConf, generalConf)
+	_, err = NewSPDController(context.TODO(), controlCtx, spdConf, generalConf, struct{}{})
 	assert.NoError(t, err)
 
-	_, err = NewSPDController(context.TODO(), controlCtx, spdConf, generalConf)
+	_, err = NewSPDController(context.TODO(), controlCtx, spdConf, generalConf, struct{}{})
 	assert.NoError(t, err)
 
 	indexers := controlCtx.KubeInformerFactory.Core().V1().Pods().Informer().GetIndexer().GetIndexers()
 	assert.Equal(t, 2, len(indexers))
 	_, exist := indexers["test-1"]
 	assert.Equal(t, true, exist)
+}
+
+func TestIndicatorUpdater(t *testing.T) {
+	var current float32 = 8.3
+	var value float32 = 23.1
+
+	workload := &appsv1.StatefulSet{
+		TypeMeta: metav1.TypeMeta{
+			Kind:       "StatefulSet",
+			APIVersion: "apps/v1",
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "sts1",
+			Namespace: "default",
+			Annotations: map[string]string{
+				consts.WorkloadAnnotationSPDEnableKey: consts.WorkloadAnnotationSPDEnabled,
+				consts.WorkloadAnnotationSPDNameKey:   "sts1",
+			},
+		},
+		Spec: appsv1.StatefulSetSpec{
+			Selector: &metav1.LabelSelector{
+				MatchLabels: map[string]string{
+					"workload": "sts1",
+				},
+			},
+		},
+	}
+
+	spd := &apiworkload.ServiceProfileDescriptor{
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace: "default",
+			Name:      "spd1",
+		},
+		Spec: apiworkload.ServiceProfileDescriptorSpec{
+			TargetRef: apis.CrossVersionObjectReference{
+				Kind:       stsGVK.Kind,
+				Name:       "sts1",
+				APIVersion: stsGVK.GroupVersion().String(),
+			},
+			BusinessIndicator: []apiworkload.ServiceBusinessIndicatorSpec{
+				{
+					Name: "none-exist-b",
+					Indicators: []apiworkload.Indicator{
+						{
+							IndicatorLevel: apiworkload.IndicatorLevelLowerBound,
+							Value:          10.2,
+						},
+					},
+				},
+			},
+			SystemIndicator: []apiworkload.ServiceSystemIndicatorSpec{
+				{
+					Name: "none-exist-s",
+					Indicators: []apiworkload.Indicator{
+						{
+							IndicatorLevel: apiworkload.IndicatorLevelUpperBound,
+							Value:          10.5,
+						},
+					},
+				},
+				{
+					Name: "system-3",
+					Indicators: []apiworkload.Indicator{
+						{
+							IndicatorLevel: apiworkload.IndicatorLevelUpperBound,
+							Value:          4.5,
+						},
+					},
+				},
+			},
+		},
+		Status: apiworkload.ServiceProfileDescriptorStatus{
+			BusinessStatus: []apiworkload.ServiceBusinessIndicatorStatus{
+				{
+					Name:    "none-exist-status",
+					Current: &current,
+				},
+				{
+					Name:    "system-2",
+					Current: &current,
+				},
+			},
+		},
+	}
+
+	expectedSpd := &apiworkload.ServiceProfileDescriptor{
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace: "default",
+			Name:      "spd1",
+		},
+		Spec: apiworkload.ServiceProfileDescriptorSpec{
+			TargetRef: apis.CrossVersionObjectReference{
+				Kind:       stsGVK.Kind,
+				Name:       "sts1",
+				APIVersion: stsGVK.GroupVersion().String(),
+			},
+			BusinessIndicator: []apiworkload.ServiceBusinessIndicatorSpec{
+				{
+					Name: "business-1",
+					Indicators: []apiworkload.Indicator{
+						{
+							IndicatorLevel: apiworkload.IndicatorLevelLowerBound,
+							Value:          10.2,
+						},
+					},
+				},
+				{
+					Name: "business-2",
+					Indicators: []apiworkload.Indicator{
+						{
+							IndicatorLevel: apiworkload.IndicatorLevelUpperBound,
+							Value:          18.3,
+						},
+					},
+				},
+				{
+					Name: "business-3",
+					Indicators: []apiworkload.Indicator{
+						{
+							IndicatorLevel: apiworkload.IndicatorLevelUpperBound,
+							Value:          16.8,
+						},
+					},
+				},
+			},
+			SystemIndicator: []apiworkload.ServiceSystemIndicatorSpec{
+				{
+					Name: "system-3",
+					Indicators: []apiworkload.Indicator{
+						{
+							IndicatorLevel: apiworkload.IndicatorLevelUpperBound,
+							Value:          4.5,
+						},
+					},
+				},
+				{
+					Name: "system-1",
+					Indicators: []apiworkload.Indicator{
+						{
+							IndicatorLevel: apiworkload.IndicatorLevelLowerBound,
+							Value:          10.5,
+						},
+						{
+							IndicatorLevel: apiworkload.IndicatorLevelUpperBound,
+							Value:          10.5,
+						},
+					},
+				},
+				{
+					Name: "system-2",
+					Indicators: []apiworkload.Indicator{
+						{
+							IndicatorLevel: apiworkload.IndicatorLevelUpperBound,
+							Value:          10.5,
+						},
+					},
+				},
+			},
+		},
+		Status: apiworkload.ServiceProfileDescriptorStatus{
+			BusinessStatus: []apiworkload.ServiceBusinessIndicatorStatus{
+				{
+					Name:    "system-2",
+					Current: &value,
+				},
+			},
+		},
+	}
+
+	nn := types.NamespacedName{
+		Namespace: "default",
+		Name:      "spd1",
+	}
+
+	d1 := indicator_plugin.DummyIndicatorPlugin{
+		SystemSpecNames: []apiworkload.TargetIndicatorName{
+			"system-1",
+		},
+		BusinessSpecNames: []apiworkload.ServiceBusinessIndicatorName{
+			"business-1",
+			"business-2",
+		},
+		BusinessStatusNames: []apiworkload.ServiceBusinessIndicatorName{
+			"business-2",
+		},
+	}
+	d2 := indicator_plugin.DummyIndicatorPlugin{
+		SystemSpecNames: []apiworkload.TargetIndicatorName{
+			"system-2",
+			"system-3",
+		},
+		BusinessSpecNames: []apiworkload.ServiceBusinessIndicatorName{
+			"business-3",
+		},
+		BusinessStatusNames: []apiworkload.ServiceBusinessIndicatorName{
+			"business-3",
+		},
+	}
+
+	indicator_plugin.RegisterPluginInitializer("d1", func(_ context.Context, _ *controller.SPDConfig,
+		_ interface{}, _ map[schema.GroupVersionResource]cache.GenericLister, _ *katalystbase.GenericContext,
+		_ indicator_plugin.IndicatorUpdater) (indicator_plugin.IndicatorPlugin, error) {
+		return d1, nil
+	})
+	indicator_plugin.RegisterPluginInitializer("d2", func(_ context.Context, _ *controller.SPDConfig,
+		_ interface{}, _ map[schema.GroupVersionResource]cache.GenericLister, _ *katalystbase.GenericContext,
+		_ indicator_plugin.IndicatorUpdater) (indicator_plugin.IndicatorPlugin, error) {
+		return d2, nil
+	})
+
+	spdConfig := &controller.SPDConfig{
+		SPDWorkloadGVResources: []string{"statefulsets.v1.apps"},
+	}
+	generalConf := &controller.GenericControllerConfiguration{
+		DynamicGVResources: []string{"statefulsets.v1.apps"},
+	}
+
+	ctx := context.TODO()
+	controlCtx, err := katalystbase.GenerateFakeGenericContext([]runtime.Object{},
+		[]runtime.Object{spd}, []runtime.Object{workload})
+	assert.NoError(t, err)
+
+	sc, err := NewSPDController(ctx, controlCtx, spdConfig, generalConf, struct{}{})
+	controlCtx.StartInformer(ctx)
+	go sc.Run()
+	synced := cache.WaitForCacheSync(ctx.Done(), sc.syncedFunc...)
+	assert.True(t, synced)
+
+	sc.indicatorUpdater.AddBusinessIndicatorSpec(nn, []apiworkload.ServiceBusinessIndicatorSpec{
+		{
+			Name: "business-1",
+			Indicators: []apiworkload.Indicator{
+				{
+					IndicatorLevel: apiworkload.IndicatorLevelLowerBound,
+					Value:          10.2,
+				},
+			},
+		},
+		{
+			Name: "business-2",
+			Indicators: []apiworkload.Indicator{
+				{
+					IndicatorLevel: apiworkload.IndicatorLevelUpperBound,
+					Value:          18.3,
+				},
+			},
+		},
+	})
+	sc.indicatorUpdater.AddBusinessIndicatorSpec(nn, []apiworkload.ServiceBusinessIndicatorSpec{
+		{
+			Name: "business-3",
+			Indicators: []apiworkload.Indicator{
+				{
+					IndicatorLevel: apiworkload.IndicatorLevelUpperBound,
+					Value:          13.3,
+				},
+			},
+		},
+		{
+			Name: "business-3",
+			Indicators: []apiworkload.Indicator{
+				{
+					IndicatorLevel: apiworkload.IndicatorLevelUpperBound,
+					Value:          16.8,
+				},
+			},
+		},
+	})
+
+	sc.indicatorUpdater.AddSystemIndicatorSpec(nn, []apiworkload.ServiceSystemIndicatorSpec{
+		{
+			Name: "system-1",
+			Indicators: []apiworkload.Indicator{
+				{
+					IndicatorLevel: apiworkload.IndicatorLevelLowerBound,
+					Value:          10.5,
+				},
+				{
+					IndicatorLevel: apiworkload.IndicatorLevelUpperBound,
+					Value:          10.5,
+				},
+			},
+		},
+	})
+	sc.indicatorUpdater.AddSystemIndicatorSpec(nn, []apiworkload.ServiceSystemIndicatorSpec{
+		{
+			Name: "system-2",
+			Indicators: []apiworkload.Indicator{
+				{
+					IndicatorLevel: apiworkload.IndicatorLevelUpperBound,
+					Value:          10.5,
+				},
+			},
+		},
+	})
+
+	time.Sleep(time.Second * 3)
+	newSPD, err := controlCtx.Client.InternalClient.WorkloadV1alpha1().
+		ServiceProfileDescriptors("default").Get(ctx, "spd1", metav1.GetOptions{})
+	assert.NoError(t, err)
+	assert.Equal(t, expectedSpd.Spec.BusinessIndicator, newSPD.Spec.BusinessIndicator)
+	assert.Equal(t, expectedSpd.Spec.SystemIndicator, newSPD.Spec.SystemIndicator)
+
+	sc.indicatorUpdater.AddBusinessIndicatorStatus(nn, []apiworkload.ServiceBusinessIndicatorStatus{
+		{
+			Name:    "system-1",
+			Current: &value,
+		},
+		{
+			Name:    "system-2",
+			Current: &value,
+		},
+	})
+	time.Sleep(time.Second * 3)
+	newSPD, err = controlCtx.Client.InternalClient.WorkloadV1alpha1().
+		ServiceProfileDescriptors("default").Get(ctx, "spd1", metav1.GetOptions{})
+	assert.NoError(t, err)
+	assert.Equal(t, expectedSpd.Spec.BusinessIndicator, newSPD.Spec.BusinessIndicator)
+	assert.Equal(t, expectedSpd.Spec.SystemIndicator, newSPD.Spec.SystemIndicator)
+	assert.Equal(t, expectedSpd.Status.BusinessStatus, newSPD.Status.BusinessStatus)
 }
