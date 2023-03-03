@@ -113,14 +113,10 @@ func startAgent(ctx context.Context, genericCtx *agent.GenericContext,
 		klog.Infof("needToRun %q", agentName)
 	}
 
-	// update dynamic config first before components run.
-	err := genericCtx.UpdateConfig(ctx)
+	// initialize dynamic config first before components run.
+	err := genericCtx.InitializeConfig(ctx)
 	if err != nil {
-		if conf.ConfigSkipFailedDynamicUpdate {
-			klog.Errorf("unable to update dynamic config: %v, fallback to default config", err)
-		} else {
-			return fmt.Errorf("update dynamic config error: %v", err)
-		}
+		return fmt.Errorf("initialize dynamic config failed: %v", err)
 	}
 
 	wg := sync.WaitGroup{}

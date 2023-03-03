@@ -26,8 +26,20 @@ import (
 )
 
 const (
-	defaultKubeletReadOnlyPort   = 10255
-	defaultRemoteRuntimeEndpoint = "unix:///run/containerd/containerd.sock"
+	defaultCustomNodeConfigCacheTTL       = 15 * time.Second
+	defaultServiceProfileCacheTTL         = 15 * time.Second
+	defaultConfigCacheTTL                 = 15 * time.Second
+	defaultConfigSkipFailedInitialization = true
+	defaultConfigCheckpointGraceTime      = 2 * time.Hour
+)
+
+const (
+	defaultKubeletReadOnlyPort          = 10255
+	defaultRemoteRuntimeEndpoint        = "unix:///run/containerd/containerd.sock"
+	defaultKubeletPodCacheSyncPeriod    = 30 * time.Second
+	defaultRuntimePodCacheSyncPeriod    = 30 * time.Second
+	defaultKubeletPodCacheSyncMaxRate   = 5
+	defaultKubeletPodCacheSyncBurstBulk = 1
 )
 
 const (
@@ -35,9 +47,11 @@ const (
 )
 
 type MetaServerOptions struct {
-	ConfigTTL                     time.Duration
-	ConfigSkipFailedDynamicUpdate bool
-	ConfigCheckpointGraceTime     time.Duration
+	CustomNodeConfigCacheTTL       time.Duration
+	ServiceProfileCacheTTL         time.Duration
+	ConfigCacheTTL                 time.Duration
+	ConfigSkipFailedInitialization bool
+	ConfigCheckpointGraceTime      time.Duration
 
 	KubeletReadOnlyPort          int
 	KubeletPodCacheSyncPeriod    time.Duration
@@ -52,16 +66,18 @@ type MetaServerOptions struct {
 
 func NewMetaServerOptions() *MetaServerOptions {
 	return &MetaServerOptions{
-		ConfigTTL:                     15 * time.Second,
-		ConfigSkipFailedDynamicUpdate: true,
-		ConfigCheckpointGraceTime:     2 * time.Hour,
-		KubeletReadOnlyPort:           defaultKubeletReadOnlyPort,
-		RemoteRuntimeEndpoint:         defaultRemoteRuntimeEndpoint,
-		KubeletPodCacheSyncPeriod:     30 * time.Second,
-		RuntimePodCacheSyncPeriod:     30 * time.Second,
-		KubeletPodCacheSyncMaxRate:    5,
-		KubeletPodCacheSyncBurstBulk:  1,
-		CheckpointManagerDir:          defaultCheckpointManagerDir,
+		CustomNodeConfigCacheTTL:       defaultCustomNodeConfigCacheTTL,
+		ServiceProfileCacheTTL:         defaultServiceProfileCacheTTL,
+		ConfigCacheTTL:                 defaultConfigCacheTTL,
+		ConfigSkipFailedInitialization: defaultConfigSkipFailedInitialization,
+		ConfigCheckpointGraceTime:      defaultConfigCheckpointGraceTime,
+		KubeletReadOnlyPort:            defaultKubeletReadOnlyPort,
+		RemoteRuntimeEndpoint:          defaultRemoteRuntimeEndpoint,
+		KubeletPodCacheSyncPeriod:      defaultKubeletPodCacheSyncPeriod,
+		RuntimePodCacheSyncPeriod:      defaultRuntimePodCacheSyncPeriod,
+		KubeletPodCacheSyncMaxRate:     defaultKubeletPodCacheSyncMaxRate,
+		KubeletPodCacheSyncBurstBulk:   defaultKubeletPodCacheSyncBurstBulk,
+		CheckpointManagerDir:           defaultCheckpointManagerDir,
 	}
 }
 
@@ -69,9 +85,13 @@ func NewMetaServerOptions() *MetaServerOptions {
 func (o *MetaServerOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 	fs := fss.FlagSet("meta-server")
 
-	fs.DurationVar(&o.ConfigTTL, "config-ttl", o.ConfigTTL,
-		"The ttl of config server fetch local config cache")
-	fs.BoolVar(&o.ConfigSkipFailedDynamicUpdate, "config-skip-failed-dynamic-update", o.ConfigSkipFailedDynamicUpdate,
+	fs.DurationVar(&o.CustomNodeConfigCacheTTL, "custom-node-config-ttl", o.CustomNodeConfigCacheTTL,
+		"The ttl of custom node config fetcher cache remote cnc")
+	fs.DurationVar(&o.ServiceProfileCacheTTL, "service-profile-cache-ttl", o.ServiceProfileCacheTTL,
+		"The ttl of service profile manager cache remote spd")
+	fs.DurationVar(&o.ConfigCacheTTL, "config-cache-ttl", o.ConfigCacheTTL,
+		"The ttl of katalyst custom config loader cache remote config")
+	fs.BoolVar(&o.ConfigSkipFailedInitialization, "config-skip-failed-initialization", o.ConfigSkipFailedInitialization,
 		"Whether skip if updating dynamic configuration fails")
 	fs.DurationVar(&o.ConfigCheckpointGraceTime, "config-checkpoint-grace-time", o.ConfigCheckpointGraceTime,
 		"The grace time of meta server config checkpoint")
@@ -93,8 +113,10 @@ func (o *MetaServerOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 
 // ApplyTo fills up config with options
 func (o *MetaServerOptions) ApplyTo(c *global.MetaServerConfiguration) error {
-	c.ConfigTTL = o.ConfigTTL
-	c.ConfigSkipFailedDynamicUpdate = o.ConfigSkipFailedDynamicUpdate
+	c.CustomNodeConfigCacheTTL = o.CustomNodeConfigCacheTTL
+	c.ServiceProfileCacheTTL = o.ServiceProfileCacheTTL
+	c.ConfigCacheTTL = o.ConfigCacheTTL
+	c.ConfigSkipFailedInitialization = o.ConfigSkipFailedInitialization
 	c.ConfigCheckpointGraceTime = o.ConfigCheckpointGraceTime
 	c.KubeletReadOnlyPort = o.KubeletReadOnlyPort
 	c.RemoteRuntimeEndpoint = o.RemoteRuntimeEndpoint

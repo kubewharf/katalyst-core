@@ -38,6 +38,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/eviction"
 	evictionconfig "github.com/kubewharf/katalyst-core/pkg/config/agent/eviction"
 	"github.com/kubewharf/katalyst-core/pkg/config/dynamic"
+	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/cnc"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util"
 	"github.com/kubewharf/katalyst-core/pkg/util/native"
@@ -129,6 +130,8 @@ func generateTestEvictionConfiguration(evictionThreshold map[v1.ResourceName]flo
 func constructTestDynamicConfigManager(t *testing.T, nodeName string, evictionConfiguration *v1alpha1.EvictionConfiguration) *DynamicConfigManager {
 	clientSet := generateTestGenericClientSet(generateTestCNC(nodeName), evictionConfiguration)
 	conf := generateTestConfiguration(t, nodeName)
+	cncFetcher := cnc.NewCachedCNCFetcher(conf.NodeName, conf.ConfigCacheTTL,
+		clientSet.InternalClient.ConfigV1alpha1().CustomNodeConfigs())
 
 	err := os.MkdirAll(testConfigCheckpointDir, os.FileMode(0755))
 	require.NoError(t, err)
@@ -136,7 +139,7 @@ func constructTestDynamicConfigManager(t *testing.T, nodeName string, evictionCo
 	checkpointManager, err := checkpointmanager.NewCheckpointManager(conf.CheckpointManagerDir)
 	require.NoError(t, err)
 
-	configLoader := NewKatalystCustomConfigLoader(clientSet, 1*time.Second, conf.NodeName)
+	configLoader := NewKatalystCustomConfigLoader(clientSet, 1*time.Second, cncFetcher)
 	manager := &DynamicConfigManager{
 		defaultConfig:       conf.DynamicConfiguration,
 		currentConfig:       deepCopy(conf.DynamicConfiguration),
@@ -160,18 +163,20 @@ func TestNewDynamicConfigManager(t *testing.T) {
 	})
 	clientSet := generateTestGenericClientSet(generateTestCNC(nodeName), evictionConfiguration)
 	conf := generateTestConfiguration(t, nodeName)
+	cncFetcher := cnc.NewCachedCNCFetcher(conf.NodeName, conf.ConfigCacheTTL,
+		clientSet.InternalClient.ConfigV1alpha1().CustomNodeConfigs())
 
 	err := os.MkdirAll(testConfigCheckpointDir, os.FileMode(0755))
 	require.NoError(t, err)
 
-	manager, err := NewDynamicConfigManager(clientSet, &metrics.DummyMetrics{}, conf)
+	manager, err := NewDynamicConfigManager(clientSet, &metrics.DummyMetrics{}, cncFetcher, conf)
 	require.NotNil(t, manager)
 
 	err = manager.AddConfigWatcher(testTargetGVR)
 	require.NoError(t, err)
 
 	manager.Register(&DummyConfigurationRegister{})
-	manager.UpdateConfig(context.TODO())
+	manager.InitializeConfig(context.TODO())
 	go manager.Run(context.TODO())
 }
 

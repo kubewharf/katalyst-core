@@ -54,10 +54,6 @@ const (
 )
 
 const (
-	configHashLength = 12
-)
-
-const (
 	kccTargetConditionReasonNormal                    = "Normal"
 	kccTargetConditionReasonHashFailed                = "HashFailed"
 	kccTargetConditionReasonMatchMoreOrLessThanOneKCC = "MatchMoreOrLessThanOneKCC"
@@ -263,7 +259,7 @@ func (k *KatalystCustomConfigTargetController) katalystCustomConfigTargetHandler
 
 	if isValid {
 		// update target resource hash only when config is valid
-		hash, err = targetResource.GenerateConfigHash(configHashLength)
+		hash, err = targetResource.GenerateConfigHash()
 		if err != nil {
 			// if generate config hash failed set target resource invalid
 			isValid = false

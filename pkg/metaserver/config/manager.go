@@ -38,6 +38,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/client"
 	pkgconfig "github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/config/dynamic"
+	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/cnc"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/native"
 	"github.com/kubewharf/katalyst-core/pkg/util/syntax"
@@ -86,8 +87,8 @@ func (d *DummyConfigurationRegister) ApplyConfig(*pkgconfig.DynamicConfiguration
 
 // ConfigurationManager is a user for ConfigurationLoader working for dynamic configuration manager
 type ConfigurationManager interface {
-	// UpdateConfig trigger dynamic configuration update directly
-	UpdateConfig(ctx context.Context) error
+	// InitializeConfig trigger dynamic configuration initialize directly
+	InitializeConfig(ctx context.Context) error
 	// AddConfigWatcher add gvr to list which will be watched to get dynamic configuration
 	AddConfigWatcher(gvrs ...metav1.GroupVersionResource) error
 	// Register is used when a user wants to get dynamic configuration
@@ -122,8 +123,9 @@ type DynamicConfigManager struct {
 }
 
 // NewDynamicConfigManager new a dynamic config manager use katalyst custom config sdk.
-func NewDynamicConfigManager(clientSet *client.GenericClientSet, emitter metrics.MetricEmitter, conf *pkgconfig.Configuration) (ConfigurationManager, error) {
-	configLoader := NewKatalystCustomConfigLoader(clientSet, conf.ConfigTTL, conf.NodeName)
+func NewDynamicConfigManager(clientSet *client.GenericClientSet, emitter metrics.MetricEmitter,
+	cncFetcher cnc.CNCFetcher, conf *pkgconfig.Configuration) (ConfigurationManager, error) {
+	configLoader := NewKatalystCustomConfigLoader(clientSet, conf.ConfigCacheTTL, cncFetcher)
 
 	checkpointManager, err := checkpointmanager.NewCheckpointManager(conf.CheckpointManagerDir)
 	if err != nil {
@@ -177,8 +179,8 @@ func (c *DynamicConfigManager) Run(ctx context.Context) {
 	<-ctx.Done()
 }
 
-// UpdateConfig is to update dynamic config directly
-func (c *DynamicConfigManager) UpdateConfig(ctx context.Context) error {
+// InitializeConfig will try to initialize dynamic config
+func (c *DynamicConfigManager) InitializeConfig(ctx context.Context) error {
 	err := wait.ExponentialBackoff(updateConfigBackoff, func() (bool, error) {
 		err := c.tryUpdateConfig(ctx, false)
 		if err == nil {
@@ -186,7 +188,14 @@ func (c *DynamicConfigManager) UpdateConfig(ctx context.Context) error {
 		}
 		return false, nil
 	})
-	return err
+
+	if err != nil {
+		if !c.defaultConfig.ConfigSkipFailedInitialization {
+			return err
+		}
+		klog.Errorf("unable to update dynamic config: %v, fallback to default config", err)
+	}
+	return nil
 }
 
 func (c *DynamicConfigManager) tryUpdateConfig(ctx context.Context, skipError bool) error {

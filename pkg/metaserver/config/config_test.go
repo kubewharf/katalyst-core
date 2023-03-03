@@ -29,6 +29,7 @@ import (
 	"github.com/kubewharf/katalyst-api/pkg/apis/config/v1alpha1"
 	internalfake "github.com/kubewharf/katalyst-api/pkg/client/clientset/versioned/fake"
 	"github.com/kubewharf/katalyst-core/pkg/client"
+	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/cnc"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -52,7 +53,7 @@ func generateTestGenericClientSet(objects ...runtime.Object) *client.GenericClie
 
 func constructKatalystCustomConfigLoader() ConfigurationLoader {
 	nodeName := "test-node"
-	cnc := &v1alpha1.CustomNodeConfig{
+	c := &v1alpha1.CustomNodeConfig{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: nodeName,
 		},
@@ -87,9 +88,11 @@ func constructKatalystCustomConfigLoader() ConfigurationLoader {
 		},
 	}
 
-	clientSet := generateTestGenericClientSet(cnc, ec)
+	clientSet := generateTestGenericClientSet(c, ec)
+	cncFetcher := cnc.NewCachedCNCFetcher(nodeName, 1*time.Second,
+		clientSet.InternalClient.ConfigV1alpha1().CustomNodeConfigs())
 
-	return NewKatalystCustomConfigLoader(clientSet, 1*time.Second, nodeName)
+	return NewKatalystCustomConfigLoader(clientSet, 1*time.Second, cncFetcher)
 }
 
 func Test_katalystCustomConfigLoader_LoadConfig(t *testing.T) {

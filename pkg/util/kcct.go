@@ -29,6 +29,10 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 )
 
+const (
+	kccConfigHashLength = 12
+)
+
 // KCCTargetResource is used to provide util function to get detailed information
 // about KCC Target fields.
 type KCCTargetResource struct {
@@ -141,7 +145,7 @@ func (g KCCTargetResource) SetCollisionCount(count *int32) {
 	}
 }
 
-func (g KCCTargetResource) GenerateConfigHash(length int) (string, error) {
+func (g KCCTargetResource) GenerateConfigHash() (string, error) {
 	val, _, err := unstructured.NestedFieldCopy(g.Object, consts.ObjectFieldNameSpec, consts.KCCTargetConfFieldNameConfig)
 	if err != nil {
 		return "", err
@@ -152,7 +156,7 @@ func (g KCCTargetResource) GenerateConfigHash(length int) (string, error) {
 		return "", err
 	}
 
-	return general.GenerateHash(data, length), nil
+	return general.GenerateHash(data, kccConfigHashLength), nil
 }
 
 func (g KCCTargetResource) DeepCopy() KCCTargetResource {

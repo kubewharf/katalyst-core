@@ -27,6 +27,7 @@ import (
 
 	"github.com/kubewharf/katalyst-core/pkg/client"
 	"github.com/kubewharf/katalyst-core/pkg/config"
+	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/cnc"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/cnr"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/node"
@@ -46,6 +47,7 @@ type MetaAgent struct {
 	node.NodeFetcher
 	metric.MetricsFetcher
 	cnr.CNRFetcher
+	cnc.CNCFetcher
 
 	// machine info is fetched from once and stored in meta-server
 	*machine.KatalystMachineInfo
@@ -69,6 +71,7 @@ func NewMetaAgent(conf *config.Configuration, clientSet *client.GenericClientSet
 		NodeFetcher:         node.NewRemoteNodeFetcher(conf.NodeName, clientSet.KubeClient.CoreV1().Nodes()),
 		MetricsFetcher:      metric.NewMalachiteMetricsFetcher(emitter),
 		CNRFetcher:          cnr.NewRemoteCNRFetcher(conf.NodeName, clientSet.InternalClient.NodeV1alpha1().CustomNodeResources()),
+		CNCFetcher:          cnc.NewCachedCNCFetcher(conf.NodeName, conf.CustomNodeConfigCacheTTL, clientSet.InternalClient.ConfigV1alpha1().CustomNodeConfigs()),
 		KatalystMachineInfo: machineInfo,
 	}, nil
 }

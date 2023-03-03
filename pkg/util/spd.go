@@ -17,6 +17,7 @@ limitations under the License.
 package util
 
 import (
+	"encoding/json"
 	"fmt"
 
 	"github.com/pkg/errors"
@@ -36,7 +37,12 @@ import (
 	workloadlister "github.com/kubewharf/katalyst-api/pkg/client/listers/workload/v1alpha1"
 	apiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/consts"
+	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/native"
+)
+
+const (
+	spdConfigHashLength = 12
 )
 
 /*
@@ -122,8 +128,8 @@ func GetSPDForWorkload(workload *unstructured.Unstructured, spdIndexer cache.Ind
 func GetSPDForPod(pod *core.Pod, spdIndexer cache.Indexer, workloadListerMap map[schema.GroupVersionKind]cache.GenericLister,
 	spdLister workloadlister.ServiceProfileDescriptorLister) (*apiworkload.ServiceProfileDescriptor, error) {
 	// different with vpa, we will store spd name in pod name, so we will check whether it's still valid
-	if spaName, ok := pod.GetAnnotations()[apiconsts.PodAnnotationSPDNameKey]; ok {
-		spd, err := spdLister.ServiceProfileDescriptors(pod.GetNamespace()).Get(spaName)
+	if spdName, ok := pod.GetAnnotations()[apiconsts.PodAnnotationSPDNameKey]; ok {
+		spd, err := spdLister.ServiceProfileDescriptors(pod.GetNamespace()).Get(spdName)
 		if err == nil && CheckSPDMatchWithPod(pod, spd, workloadListerMap) {
 			return spd, nil
 		}
@@ -270,4 +276,59 @@ func InsertSPDBusinessIndicatorStatus(status *apiworkload.ServiceProfileDescript
 		}
 	}
 	status.BusinessStatus = append(status.BusinessStatus, *serviceBusinessIndicatorStatus)
+}
+
+/*
+ helper functions to do spd sdk
+*/
+
+// GetSPDHash get spd hash from spd annotation
+func GetSPDHash(spd *apiworkload.ServiceProfileDescriptor) string {
+	if spd == nil || spd.Annotations == nil {
+		return ""
+	}
+	return spd.Annotations[consts.ServiceProfileDescriptorAnnotationKeyConfigHash]
+}
+
+// SetSPDHash set spd h
+func SetSPDHash(spd *apiworkload.ServiceProfileDescriptor, hash string) {
+	if spd == nil {
+		return
+	}
+
+	if spd.Annotations == nil {
+		spd.Annotations = map[string]string{}
+	}
+
+	spd.Annotations[consts.ServiceProfileDescriptorAnnotationKeyConfigHash] = hash
+}
+
+func CalculateSPDHash(spd *apiworkload.ServiceProfileDescriptor) (string, error) {
+	if spd == nil {
+		return "", fmt.Errorf("spd is nil")
+	}
+
+	spdCopy := &apiworkload.ServiceProfileDescriptor{}
+	spdCopy.Spec = spd.Spec
+	spdCopy.Status = spd.Status
+	data, err := json.Marshal(spdCopy)
+	if err != nil {
+		return "", err
+	}
+
+	return general.GenerateHash(data, spdConfigHashLength), nil
+}
+
+// GetPodSPDName gets spd name from pod annotation
+func GetPodSPDName(pod *core.Pod) (string, error) {
+	if pod == nil {
+		return "", fmt.Errorf("pod is nil")
+	}
+
+	spdName, ok := pod.GetAnnotations()[apiconsts.PodAnnotationSPDNameKey]
+	if !ok {
+		return "", fmt.Errorf("pod without spd annotation")
+	}
+
+	return spdName, nil
 }

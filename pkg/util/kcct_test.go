@@ -790,13 +790,9 @@ func Test_kccTargetResource_GenerateConfigHash(t *testing.T) {
 	type fields struct {
 		Unstructured *unstructured.Unstructured
 	}
-	type args struct {
-		length int
-	}
 	tests := []struct {
 		name    string
 		fields  fields
-		args    args
 		want    string
 		wantErr bool
 	}{
@@ -824,9 +820,6 @@ func Test_kccTargetResource_GenerateConfigHash(t *testing.T) {
 					},
 				}),
 			},
-			args: args{
-				12,
-			},
 			want: "a7f80116f4bf",
 		},
 		{
@@ -838,9 +831,6 @@ func Test_kccTargetResource_GenerateConfigHash(t *testing.T) {
 					},
 				}),
 			},
-			args: args{
-				length: 12,
-			},
 			want: "507ae5ec8961",
 		},
 	}
@@ -849,7 +839,7 @@ func Test_kccTargetResource_GenerateConfigHash(t *testing.T) {
 			g := &KCCTargetResource{
 				Unstructured: tt.fields.Unstructured,
 			}
-			got, err := g.GenerateConfigHash(tt.args.length)
+			got, err := g.GenerateConfigHash()
 			if (err != nil) != tt.wantErr {
 				t.Errorf("GenerateConfigHash() error = %v, wantErr %v", err, tt.wantErr)
 				return

@@ -18,7 +18,7 @@ package consts
 
 // KatalystCustomConfigAnnotationKeyConfigHash defines const variables for kcc annotations about config hash.
 const (
-	KatalystCustomConfigAnnotationKeyConfigHash = "katalyst.kubewharf.io/config.hash"
+	KatalystCustomConfigAnnotationKeyConfigHash = "kcc.katalyst.kubewharf.io/config.hash"
 )
 
 // KatalystCustomConfigFinalizerKCC defines const variables for kcc finalizer

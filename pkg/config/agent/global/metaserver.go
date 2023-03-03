@@ -25,9 +25,11 @@ import (
 )
 
 type MetaServerConfiguration struct {
-	ConfigTTL                     time.Duration
-	ConfigSkipFailedDynamicUpdate bool
-	ConfigCheckpointGraceTime     time.Duration
+	CustomNodeConfigCacheTTL       time.Duration
+	ServiceProfileCacheTTL         time.Duration
+	ConfigCacheTTL                 time.Duration
+	ConfigSkipFailedInitialization bool
+	ConfigCheckpointGraceTime      time.Duration
 
 	KubeletReadOnlyPort          int
 	KubeletPodCacheSyncPeriod    time.Duration

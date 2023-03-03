@@ -28,6 +28,7 @@ import (
 	pkgconfig "github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/config"
+	"github.com/kubewharf/katalyst-core/pkg/metaserver/spd"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 )
 
@@ -36,6 +37,7 @@ import (
 type MetaServer struct {
 	*agent.MetaAgent
 	config.ConfigurationManager
+	spd.ServiceProfileManager
 }
 
 // NewMetaServer returns the instance of MetaServer.
@@ -51,19 +53,27 @@ func NewMetaServer(clientSet *client.GenericClientSet, emitter metrics.MetricEmi
 		return nil, fmt.Errorf("initializes meta server checkpoint dir failed: %s", err)
 	}
 
-	configurationManager, err := config.NewDynamicConfigManager(clientSet, emitter, conf)
+	configurationManager, err := config.NewDynamicConfigManager(clientSet, emitter,
+		metaAgent.CNCFetcher, conf)
+	if err != nil {
+		return nil, err
+	}
+
+	serviceProfileManager, err := spd.NewSPDManager(clientSet, emitter, metaAgent.CNCFetcher, conf)
 	if err != nil {
 		return nil, err
 	}
 
 	return &MetaServer{
-		MetaAgent:            metaAgent,
-		ConfigurationManager: configurationManager,
+		MetaAgent:             metaAgent,
+		ConfigurationManager:  configurationManager,
+		ServiceProfileManager: serviceProfileManager,
 	}, nil
 }
 
 func (m *MetaServer) Run(ctx context.Context) {
 	go m.MetaAgent.Run(ctx)
 	go m.ConfigurationManager.Run(ctx)
+	go m.ServiceProfileManager.Run(ctx)
 	<-ctx.Done()
 }
