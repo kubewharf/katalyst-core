@@ -12,17 +12,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# todo
-# once all code is public, enable multi-stage build
-# FROM --platform=${BUILDPLATFORM} golang:1.18 as builder
-# ADD . /build
-# ARG TARGETOS TARGETARCH GIT_VERSION
-# ARG BINARY
-# WORKDIR /build/
-# RUN  make build-linux TARGET=${BINARY}
+FROM --platform=${BUILDPLATFORM} golang:1.18 as builder
+ADD . /build
+ARG TARGETOS TARGETARCH GIT_VERSION
+ARG BINARY
+WORKDIR /build/
+RUN  make build-binaries TARGET=${BINARY} TARGET_ARCHS=${TARGETARCH}
 
 FROM --platform=${BUILDPLATFORM} kubewharf/distroless-base-debian11:latest
 ARG TARGETOS TARGETARCH
 ARG BINARY
-#COPY --from=builder /build/output/bin/${TARGETOS}/${TARGETARCH}/${BINARY} /usr/local/bin/${BINARY}
-COPY ./output/bin/${TARGETOS}/${TARGETARCH}/${BINARY} /usr/local/bin/${BINARY}
+COPY --from=builder /build/output/bin/${TARGETOS}/${TARGETARCH}/${BINARY} /usr/local/bin/${BINARY}
