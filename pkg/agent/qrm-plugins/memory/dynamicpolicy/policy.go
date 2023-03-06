@@ -792,6 +792,9 @@ func (p *DynamicPolicy) checkMemorySet() {
 
 			if allocationInfo == nil || allocationInfo.ContainerType != pluginapi.ContainerType_MAIN.String() {
 				continue
+			} else if allocationInfo.QoSLevel == consts.PodAnnotationQoSLevelDedicatedCores &&
+				allocationInfo.Annotations[consts.PodAnnotationMemoryEnhancementNumaBinding] == consts.PodAnnotationMemoryEnhancementNumaBindingEnable {
+				unionNUMABindingStateMemorySet = unionNUMABindingStateMemorySet.Union(allocationInfo.NumaAllocationResult)
 			}
 
 			tags := metrics.ConvertMapToTags(map[string]string{
@@ -834,8 +837,6 @@ func (p *DynamicPolicy) checkMemorySet() {
 				allocationInfo.Annotations[consts.PodAnnotationMemoryEnhancementNumaBinding] == consts.PodAnnotationMemoryEnhancementNumaBindingEnable) {
 				continue
 			}
-
-			unionNUMABindingStateMemorySet = unionNUMABindingStateMemorySet.Union(allocationInfo.NumaAllocationResult)
 
 			if !actualMemorySets[podUID][containerName].Equals(allocationInfo.NumaAllocationResult) {
 				klog.Errorf("[MemoryDynamicPolicy.checkMemorySet] pod: %s/%s, container: %s, memset invalid",

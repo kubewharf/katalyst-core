@@ -1148,7 +1148,7 @@ func (p *DynamicPolicy) generatePoolsAndIsolation(poolsQuantityMap map[string]in
 
 	var tErr error
 	if poolsTotalQuantity+isolatedTotalQuantity <= availableSize {
-		klog.Infof("[CPUDynamicPolicy.generatePoolsAndIsolation] all pools and dedicated_cores isolated containers could be allocated, shared_cores isolated containers would be put to pools")
+		klog.Infof("[CPUDynamicPolicy.generatePoolsAndIsolation] all pools and isolated containers could be allocated")
 
 		isolatedCPUSet, availableCPUs, tErr = p.takeCPUsForContainers(isolatedQuantityMap, availableCPUs)
 		if tErr != nil {
