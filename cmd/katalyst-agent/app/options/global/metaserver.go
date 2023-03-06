@@ -26,6 +26,7 @@ import (
 )
 
 const (
+	defaultCustomNodeResourceCacheTTL 	  = 15 * time.Second
 	defaultCustomNodeConfigCacheTTL       = 15 * time.Second
 	defaultServiceProfileCacheTTL         = 15 * time.Second
 	defaultConfigCacheTTL                 = 15 * time.Second
@@ -47,6 +48,7 @@ const (
 )
 
 type MetaServerOptions struct {
+	CNRCacheTTL time.Duration
 	CustomNodeConfigCacheTTL       time.Duration
 	ServiceProfileCacheTTL         time.Duration
 	ConfigCacheTTL                 time.Duration
@@ -66,6 +68,7 @@ type MetaServerOptions struct {
 
 func NewMetaServerOptions() *MetaServerOptions {
 	return &MetaServerOptions{
+		CNRCacheTTL:                   defaultCustomNodeResourceCacheTTL,
 		CustomNodeConfigCacheTTL:       defaultCustomNodeConfigCacheTTL,
 		ServiceProfileCacheTTL:         defaultServiceProfileCacheTTL,
 		ConfigCacheTTL:                 defaultConfigCacheTTL,
@@ -85,7 +88,9 @@ func NewMetaServerOptions() *MetaServerOptions {
 func (o *MetaServerOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 	fs := fss.FlagSet("meta-server")
 
-	fs.DurationVar(&o.CustomNodeConfigCacheTTL, "custom-node-config-ttl", o.CustomNodeConfigCacheTTL,
+	fs.DurationVar(&o.CNRCacheTTL, "cnr-cache-ttl", o.CNRCacheTTL,
+		"The sync period of cnr fetcher to sync remote to local")
+	fs.DurationVar(&o.CustomNodeConfigCacheTTL, "custom-node-config-cache-ttl", o.CustomNodeConfigCacheTTL,
 		"The ttl of custom node config fetcher cache remote cnc")
 	fs.DurationVar(&o.ServiceProfileCacheTTL, "service-profile-cache-ttl", o.ServiceProfileCacheTTL,
 		"The ttl of service profile manager cache remote spd")
@@ -113,6 +118,7 @@ func (o *MetaServerOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 
 // ApplyTo fills up config with options
 func (o *MetaServerOptions) ApplyTo(c *global.MetaServerConfiguration) error {
+	c.CNRCacheTTL = o.CNRCacheTTL
 	c.CustomNodeConfigCacheTTL = o.CustomNodeConfigCacheTTL
 	c.ServiceProfileCacheTTL = o.ServiceProfileCacheTTL
 	c.ConfigCacheTTL = o.ConfigCacheTTL

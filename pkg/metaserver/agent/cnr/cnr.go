@@ -18,6 +18,9 @@ package cnr
 
 import (
 	"context"
+	"fmt"
+	"sync"
+	"time"
 
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/klog/v2"
@@ -32,19 +35,49 @@ type CNRFetcher interface {
 	GetCNR(ctx context.Context) (*nodev1alpha1.CustomNodeResource, error)
 }
 
-type remoteCNRFetcher struct {
+type cachedCNRFetcher struct {
+	sync.Mutex
+
 	nodeName string
 	client   v1alpha1.CustomNodeResourceInterface
+
+	cnr          *nodev1alpha1.CustomNodeResource
+	lastSyncTime time.Time
+	ttl          time.Duration
 }
 
-func NewRemoteCNRFetcher(nodeName string, client v1alpha1.CustomNodeResourceInterface) CNRFetcher {
-	return &remoteCNRFetcher{
+func NewCachedCNRFetcher(nodeName string, ttl time.Duration, client v1alpha1.CustomNodeResourceInterface) CNRFetcher {
+	return &cachedCNRFetcher{
 		nodeName: nodeName,
+		ttl:      ttl,
 		client:   client,
 	}
 }
 
-func (r *remoteCNRFetcher) GetCNR(ctx context.Context) (*nodev1alpha1.CustomNodeResource, error) {
-	klog.Warningf("use remote CNR fetcher notice with API requests")
-	return r.client.Get(ctx, r.nodeName, v1.GetOptions{ResourceVersion: "0"})
+func (c *cachedCNRFetcher) GetCNR(ctx context.Context) (*nodev1alpha1.CustomNodeResource, error) {
+	c.Lock()
+	defer c.Unlock()
+
+	now := time.Now()
+	if c.lastSyncTime.Add(c.ttl).Before(now) {
+		c.syncCNR(ctx)
+		c.lastSyncTime = now
+	}
+
+	if c.cnr != nil {
+		return c.cnr, nil
+	}
+
+	return nil, fmt.Errorf("cannot get cnr from cache and remote")
+}
+
+func (c *cachedCNRFetcher) syncCNR(ctx context.Context) {
+	klog.Infof("[cnr] sync cnr from remote")
+	cnr, err := c.client.Get(ctx, c.nodeName, v1.GetOptions{ResourceVersion: "0"})
+	if err != nil {
+		klog.Errorf("syncCNR failed: %v", err)
+		return
+	}
+
+	c.cnr = cnr
 }

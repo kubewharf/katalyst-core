@@ -87,7 +87,7 @@ func TestFetcher(t *testing.T) {
 	// before start, we can set component implementations for metaServer
 	agent.SetPodFetcher(constructPodFetcher([]string{"test-pod-1", "test-pod-2"}))
 	agent.SetNodeFetcher(node.NewRemoteNodeFetcher("test-node-1", constructNodeInterface("test-node-1")))
-	agent.SetCNRFetcher(cnrmeta.NewRemoteCNRFetcher("test-cnr-1", constructCNRInterface("test-cnr-1")))
+	agent.SetCNRFetcher(cnrmeta.NewCachedCNRFetcher("test-cnr-1", conf.CNRCacheTTL, constructCNRInterface("test-cnr-1")))
 	agent.SetMetricFetcher(metric.NewFakeMetricsFetcher(metrics.DummyMetrics{}))
 
 	podObjList, err := agent.GetPodList(ctx, func(*v1.Pod) bool { return true })
@@ -105,7 +105,7 @@ func TestFetcher(t *testing.T) {
 	// before start, we can set component implementations for metaServer
 	agent.SetPodFetcher(constructPodFetcher([]string{"test-pod-3", "test-pod-4", "test-pod-5"}))
 	agent.SetNodeFetcher(node.NewRemoteNodeFetcher("test-node-2", constructNodeInterface("test-node-2")))
-	agent.SetCNRFetcher(cnrmeta.NewRemoteCNRFetcher("test-cnr-2", constructCNRInterface("test-cnr-2")))
+	agent.SetCNRFetcher(cnrmeta.NewCachedCNRFetcher("test-cnr-2", conf.CNRCacheTTL, constructCNRInterface("test-cnr-2")))
 
 	podObjList, err = agent.GetPodList(ctx, func(*v1.Pod) bool { return true })
 	assert.NoError(t, err)
@@ -125,7 +125,7 @@ func TestFetcher(t *testing.T) {
 
 	agent.SetPodFetcher(constructPodFetcher([]string{"test-pod-6"}))
 	agent.SetNodeFetcher(node.NewRemoteNodeFetcher("test-node-3", constructNodeInterface("test-node-3")))
-	agent.SetCNRFetcher(cnrmeta.NewRemoteCNRFetcher("test-cnr-3", constructCNRInterface("test-cnr-3")))
+	agent.SetCNRFetcher(cnrmeta.NewCachedCNRFetcher("test-cnr-3", conf.CNRCacheTTL, constructCNRInterface("test-cnr-3")))
 
 	podObjList, err = agent.GetPodList(ctx, func(*v1.Pod) bool { return true })
 	assert.NoError(t, err)

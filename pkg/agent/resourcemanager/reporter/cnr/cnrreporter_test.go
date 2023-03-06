@@ -24,6 +24,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	v1 "k8s.io/api/core/v1"
+	apiequality "k8s.io/apimachinery/pkg/api/equality"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -44,7 +45,6 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util"
 	"github.com/kubewharf/katalyst-core/pkg/util/syntax"
-	apiequality "k8s.io/apimachinery/pkg/api/equality"
 )
 
 func generateTestGenericClientSet(objects ...runtime.Object) *client.GenericClientSet {
@@ -59,7 +59,7 @@ func generateTestMetaServer(clientSet *client.GenericClientSet, conf *config.Con
 	return &metaserver.MetaServer{
 		MetaAgent: &agent.MetaAgent{
 			NodeFetcher: node.NewRemoteNodeFetcher(conf.NodeName, clientSet.KubeClient.CoreV1().Nodes()),
-			CNRFetcher:  cnr.NewRemoteCNRFetcher(conf.NodeName, clientSet.InternalClient.NodeV1alpha1().CustomNodeResources()),
+			CNRFetcher:  cnr.NewCachedCNRFetcher(conf.NodeName, conf.CNRCacheTTL, clientSet.InternalClient.NodeV1alpha1().CustomNodeResources()),
 		},
 	}
 }

@@ -66,12 +66,13 @@ func NewMetaAgent(conf *config.Configuration, clientSet *client.GenericClientSet
 	}
 
 	return &MetaAgent{
-		start:               false,
-		PodFetcher:          podFetcher,
-		NodeFetcher:         node.NewRemoteNodeFetcher(conf.NodeName, clientSet.KubeClient.CoreV1().Nodes()),
-		MetricsFetcher:      metric.NewMalachiteMetricsFetcher(emitter),
-		CNRFetcher:          cnr.NewRemoteCNRFetcher(conf.NodeName, clientSet.InternalClient.NodeV1alpha1().CustomNodeResources()),
-		CNCFetcher:          cnc.NewCachedCNCFetcher(conf.NodeName, conf.CustomNodeConfigCacheTTL, clientSet.InternalClient.ConfigV1alpha1().CustomNodeConfigs()),
+		start:          false,
+		PodFetcher:     podFetcher,
+		NodeFetcher:    node.NewRemoteNodeFetcher(conf.NodeName, clientSet.KubeClient.CoreV1().Nodes()),
+		MetricsFetcher: metric.NewMalachiteMetricsFetcher(emitter),
+		CNRFetcher:     cnr.NewCachedCNRFetcher(conf.NodeName, conf.CNRCacheTTL,
+			clientSet.InternalClient.NodeV1alpha1().CustomNodeResources()),
+		CNCFetcher:     cnc.NewCachedCNCFetcher(conf.NodeName, conf.CustomNodeConfigCacheTTL, clientSet.InternalClient.ConfigV1alpha1().CustomNodeConfigs()),
 		KatalystMachineInfo: machineInfo,
 	}, nil
 }

@@ -57,7 +57,7 @@ func generateTestMetaServer(clientSet *client.GenericClientSet, conf *config.Con
 		MetaAgent: &agent.MetaAgent{
 			PodFetcher:  &pod.PodFetcherStub{PodList: pods},
 			NodeFetcher: node.NewRemoteNodeFetcher(conf.NodeName, clientSet.KubeClient.CoreV1().Nodes()),
-			CNRFetcher: cnr.NewRemoteCNRFetcher(conf.NodeName,
+			CNRFetcher: cnr.NewCachedCNRFetcher(conf.NodeName, conf.CNRCacheTTL,
 				clientSet.InternalClient.NodeV1alpha1().CustomNodeResources()),
 		},
 	}
