@@ -33,10 +33,12 @@ import (
 )
 
 type spdInfo struct {
-	// lastFetchRemoteTime records the last fetch remote spd timestamp
+	// lastFetchRemoteTime records the timestamp of the last attempt to fetch
+	// the remote spd, not the actual fetch
 	lastFetchRemoteTime time.Time
 
-	// lastGetTime records the last get spd timestamp
+	// lastGetTime records the timestamp of the last time GetSPD was called to
+	// get spd, which is used for gc spd cache
 	lastGetTime time.Time
 
 	// spd is target spd
@@ -74,7 +76,7 @@ func (s *Cache) SetLastFetchRemoteTime(key string, t time.Time) {
 	s.Lock()
 	defer s.Unlock()
 
-	s.initSPDInfoIfNeedWithoutLock(key)
+	s.initSPDInfoWithoutLock(key)
 	s.spdInfo[key].lastFetchRemoteTime = t
 }
 
@@ -105,11 +107,28 @@ func (s *Cache) SetSPD(key string, spd *workloadapis.ServiceProfileDescriptor) e
 		util.SetSPDHash(spd, hash)
 	}
 
-	s.initSPDInfoIfNeedWithoutLock(key)
-	s.spdInfo[key].spd = spd
+	s.initSPDInfoWithoutLock(key)
 	err := checkpoint.WriteSPD(s.manager, spd)
 	if err != nil {
 		return err
+	}
+
+	s.spdInfo[key].spd = spd
+	return nil
+}
+
+// DeleteSPD delete target spd by namespace/name key
+func (s *Cache) DeleteSPD(key string) error {
+	s.Lock()
+	defer s.Unlock()
+
+	info, ok := s.spdInfo[key]
+	if ok && info != nil {
+		err := checkpoint.DeleteSPD(s.manager, info.spd)
+		if err != nil {
+			return err
+		}
+		delete(s.spdInfo, key)
 	}
 
 	return nil
@@ -119,6 +138,10 @@ func (s *Cache) SetSPD(key string, spd *workloadapis.ServiceProfileDescriptor) e
 func (s *Cache) GetSPD(key string) *workloadapis.ServiceProfileDescriptor {
 	s.RLock()
 	defer s.RUnlock()
+
+	s.initSPDInfoWithoutLock(key)
+	// update last get spd time
+	s.spdInfo[key].lastGetTime = time.Now()
 
 	info, ok := s.spdInfo[key]
 	if ok && info != nil {
@@ -146,7 +169,7 @@ func (s *Cache) restore() error {
 	now := time.Now()
 	for _, spd := range spdList {
 		key := native.GenerateUniqObjectNameKey(spd)
-		s.initSPDInfoIfNeedWithoutLock(key)
+		s.initSPDInfoWithoutLock(key)
 		s.spdInfo[key].spd = spd
 		s.spdInfo[key].lastGetTime = now
 	}
@@ -164,6 +187,7 @@ func (s *Cache) clearUnusedSPDs(_ context.Context) {
 		if info != nil && info.lastGetTime.Add(s.expiredTime).Before(now) {
 			err := checkpoint.DeleteSPD(s.manager, info.spd)
 			if err != nil {
+				klog.Errorf("clear unused spd %s failed: %v", key, err)
 				continue
 			}
 			delete(s.spdInfo, key)
@@ -171,7 +195,7 @@ func (s *Cache) clearUnusedSPDs(_ context.Context) {
 	}
 }
 
-func (s *Cache) initSPDInfoIfNeedWithoutLock(key string) {
+func (s *Cache) initSPDInfoWithoutLock(key string) {
 	info, ok := s.spdInfo[key]
 	if !ok || info == nil {
 		s.spdInfo[key] = &spdInfo{}

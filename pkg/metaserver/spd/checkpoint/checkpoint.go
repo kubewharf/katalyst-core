@@ -21,7 +21,6 @@ import (
 	"fmt"
 	"strings"
 
-	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/klog/v2"
 
 	"github.com/kubewharf/katalyst-api/pkg/apis/workload/v1alpha1"
@@ -49,10 +48,6 @@ type Data struct {
 
 // NewServiceProfileCheckpoint returns new spd checkpoint
 func NewServiceProfileCheckpoint(spd *v1alpha1.ServiceProfileDescriptor) ServiceProfileCheckpoint {
-	if spd != nil {
-		spd.CreationTimestamp = v1.Time{}
-		spd.DeletionTimestamp = nil
-	}
 	return &Data{SPD: spd}
 }
 

@@ -34,6 +34,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util"
 	"github.com/kubewharf/katalyst-core/pkg/util/native"
+	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/kubernetes/pkg/kubelet/checkpointmanager"
 )
@@ -139,7 +140,7 @@ func (s *spdManager) getSPDByNamespaceName(ctx context.Context, namespace, name 
 	// hash with cnc target config hash, if cnc target config not found it will get remote spd directly
 	targetConfig, err := s.getSPDTargetConfig(ctx, namespace, name)
 	if err != nil {
-		klog.Errorf("[spd-manager] get spd targetConfig config failed: %s, use local cache instead", err)
+		klog.Errorf("[spd-manager] get spd targetConfig config failed: %v, use local cache instead", err)
 		targetConfig = &configapis.TargetConfig{
 			ConfigNamespace: namespace,
 			ConfigName:      name,
@@ -151,7 +152,7 @@ func (s *spdManager) getSPDByNamespaceName(ctx context.Context, namespace, name 
 	// the rate of getting remote spd will be limited by spd ServiceProfileCacheTTL
 	err = s.updateSPDCacheIfNeed(ctx, originSPD, targetConfig)
 	if err != nil {
-		klog.Errorf("[spd-manager] failed update spd cache from remote: %s, use local cache instead", err)
+		klog.Errorf("[spd-manager] failed update spd cache from remote: %v, use local cache instead", err)
 		_ = s.emitter.StoreInt64(metricsNameUpdateCacheFailed, 1, metrics.MetricTypeNameCount, baseTag...)
 	}
 
@@ -166,7 +167,7 @@ func (s *spdManager) getSPDByNamespaceName(ctx context.Context, namespace, name 
 	return nil, fmt.Errorf("get spd cache for %s not found", key)
 }
 
-// getSPDTargetConfig get spd target config from cnc。
+// getSPDTargetConfig get spd target config from cnc
 func (s *spdManager) getSPDTargetConfig(ctx context.Context, namespace, name string) (*configapis.TargetConfig, error) {
 	currentCNC, err := s.cncFetcher.GetCNC(ctx)
 	if err != nil {
@@ -199,22 +200,31 @@ func (s *spdManager) updateSPDCacheIfNeed(ctx context.Context, originSPD *worklo
 		if lastFetchRemoteTime := s.spdCache.GetLastFetchRemoteTime(key); lastFetchRemoteTime.Add(s.ServiceProfileCacheTTL).After(time.Now()) {
 			return nil
 		} else {
-			// update last fetch remote config timestamp first
+			// first update the timestamp of the last attempt to fetch the remote spd to
+			// avoid frequent requests to the api-server in some bad situations
 			s.spdCache.SetLastFetchRemoteTime(key, now)
 		}
 
-		klog.Infof("[spd-manager] %s targetConfig hash is changed from %s to %s", key, util.GetSPDHash(originSPD), targetConfig.Hash)
+		klog.Infof("[spd-manager] spd %s targetConfig hash is changed from %s to %s", key, util.GetSPDHash(originSPD), targetConfig.Hash)
 		spd, err := s.client.InternalClient.WorkloadV1alpha1().ServiceProfileDescriptors(targetConfig.ConfigNamespace).
 			Get(ctx, targetConfig.ConfigName, metav1.GetOptions{ResourceVersion: "0"})
-		if err != nil {
-			return err
+		if err != nil && !errors.IsNotFound(err) {
+			return fmt.Errorf("get spd %s from remote failed: %v", key, err)
+		} else if err != nil {
+			err = s.spdCache.DeleteSPD(key)
+			if err != nil {
+				return fmt.Errorf("delete spd %s from cache failed: %v", key, err)
+			}
+
+			klog.Infof("[spd-manager] spd %s cache has been deleted", key)
+			return nil
 		}
 
 		err = s.spdCache.SetSPD(key, spd)
 		if err != nil {
 			return err
 		}
-		klog.Infof("[spd-manager] %s spd cache has been updated to %v", key, spd)
+		klog.Infof("[spd-manager] spd %s cache has been updated to %v", key, spd)
 	}
 
 	return nil

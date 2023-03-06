@@ -18,11 +18,10 @@ package config
 
 import (
 	"encoding/json"
-	"reflect"
-
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/kubernetes/pkg/kubelet/checkpointmanager"
 	"k8s.io/kubernetes/pkg/kubelet/checkpointmanager/checksum"
+	"reflect"
 
 	"github.com/kubewharf/katalyst-core/pkg/config/dynamic"
 )
@@ -36,7 +35,7 @@ type ConfigManagerCheckpoint interface {
 type TargetConfigData struct {
 	// Value only store spec of dynamic config crd
 	Value     *dynamic.DynamicConfigCRD
-	Timestamp metav1.Timestamp
+	Timestamp metav1.Time
 }
 
 // Data holds checkpoint data and its checksum
@@ -69,7 +68,7 @@ func (d *Data) VerifyChecksum() error {
 func (d *Data) GetData(kind string) (reflect.Value, metav1.Time) {
 	if data, ok := d.Data[kind]; ok {
 		configField := reflect.ValueOf(data.Value).Elem().FieldByName(kind)
-		return configField, metav1.Unix(data.Timestamp.Seconds, int64(data.Timestamp.Nanos))
+		return configField, data.Timestamp
 	}
 
 	return reflect.Value{}, metav1.Time{}
@@ -92,6 +91,6 @@ func (d *Data) SetData(kind string, val reflect.Value, t metav1.Time) {
 
 	d.Data[kind] = TargetConfigData{
 		Value:     dynamicConfiguration,
-		Timestamp: *t.ProtoTime(),
+		Timestamp: metav1.Unix(t.Unix(), 0),
 	}
 }

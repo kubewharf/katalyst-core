@@ -61,11 +61,10 @@ func TestNewCheckpoint(t *testing.T) {
 	err = cp.VerifyChecksum()
 	assert.NoError(t, err)
 
-	pt := now.ProtoTime()
 	dynamicConfigCRD := &dynamic.DynamicConfigCRD{}
 	configData, timestamp := cp.GetData(kind)
 	configField = reflect.ValueOf(dynamicConfigCRD).Elem().FieldByName(kind)
 	configField.Set(configData)
-	assert.Equal(t, metav1.Unix(pt.Seconds, int64(pt.Nanos)), timestamp)
+	assert.Equal(t, metav1.Unix(now.Unix(), 0), timestamp)
 	assert.Equal(t, crd, dynamicConfigCRD)
 }

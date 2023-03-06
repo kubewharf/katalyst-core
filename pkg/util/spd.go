@@ -279,7 +279,7 @@ func InsertSPDBusinessIndicatorStatus(status *apiworkload.ServiceProfileDescript
 }
 
 /*
- helper functions to do spd sdk
+ helper functions to get the spd hash and the pod's spd name
 */
 
 // GetSPDHash get spd hash from spd annotation
@@ -290,7 +290,7 @@ func GetSPDHash(spd *apiworkload.ServiceProfileDescriptor) string {
 	return spd.Annotations[consts.ServiceProfileDescriptorAnnotationKeyConfigHash]
 }
 
-// SetSPDHash set spd h
+// SetSPDHash set spd hash to spd annotation
 func SetSPDHash(spd *apiworkload.ServiceProfileDescriptor, hash string) {
 	if spd == nil {
 		return
@@ -303,6 +303,7 @@ func SetSPDHash(spd *apiworkload.ServiceProfileDescriptor, hash string) {
 	spd.Annotations[consts.ServiceProfileDescriptorAnnotationKeyConfigHash] = hash
 }
 
+// CalculateSPDHash calculate current spd hash by its spec and status
 func CalculateSPDHash(spd *apiworkload.ServiceProfileDescriptor) (string, error) {
 	if spd == nil {
 		return "", fmt.Errorf("spd is nil")

@@ -21,7 +21,6 @@ import (
 	"os"
 	"reflect"
 	"testing"
-	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/kubernetes/pkg/kubelet/checkpointmanager"
@@ -36,7 +35,7 @@ func TestWriteLoadDeleteSPDs(t *testing.T) {
 			ObjectMeta: metav1.ObjectMeta{
 				Namespace:         "default",
 				Name:              "spd-1",
-				CreationTimestamp: metav1.Now(),
+				CreationTimestamp: metav1.Unix(metav1.Now().Unix(), 0),
 			},
 			Spec: v1alpha1.ServiceProfileDescriptorSpec{
 				BusinessIndicator: []v1alpha1.ServiceBusinessIndicatorSpec{
@@ -50,7 +49,7 @@ func TestWriteLoadDeleteSPDs(t *testing.T) {
 			ObjectMeta: metav1.ObjectMeta{
 				Namespace:         "default",
 				Name:              "spd-2",
-				DeletionTimestamp: &metav1.Time{Time: time.Now()},
+				DeletionTimestamp: &metav1.Time{Time: metav1.Unix(metav1.Now().Unix(), 0).Time},
 			},
 			Status: v1alpha1.ServiceProfileDescriptorStatus{
 				BusinessStatus: []v1alpha1.ServiceBusinessIndicatorStatus{
