@@ -1369,14 +1369,14 @@ func (p *DynamicPolicy) adjustAllocationEntries() error {
 	return nil
 }
 
-// relclaimOverlapNUMABinding uses reclaim pool cpuset result in empty NUMA
+// reclaimOverlapNUMABinding uses reclaim pool cpuset result in empty NUMA
 // union intersection of current reclaim pool and non-ramp-up dedicated_cores numa_binding containers
-func (p *DynamicPolicy) relclaimOverlapNUMABinding(poolsCPUSet map[string]machine.CPUSet, entries state.PodEntries) error {
+func (p *DynamicPolicy) reclaimOverlapNUMABinding(poolsCPUSet map[string]machine.CPUSet, entries state.PodEntries) error {
 	p.configLock.RLock()
 	enableReclaim := p.enableReclaim
 	p.configLock.RUnlock()
 
-	// relclaimOverlapNUMABinding only works with cpu advisor and reclaim enabled
+	// reclaimOverlapNUMABinding only works with cpu advisor and reclaim enabled
 	if !(p.enableCPUSysAdvisor && enableReclaim) {
 		return nil
 	}
@@ -1387,7 +1387,7 @@ func (p *DynamicPolicy) relclaimOverlapNUMABinding(poolsCPUSet map[string]machin
 
 	curReclaimCPUSet := entries[state.PoolNameReclaim][""].AllocationResult.Clone()
 
-	klog.Infof("[CPUDynamicPolicy.relclaimOverlapNUMABinding] curReclaimCPUSet: %s", curReclaimCPUSet.String())
+	klog.Infof("[CPUDynamicPolicy.reclaimOverlapNUMABinding] curReclaimCPUSet: %s", curReclaimCPUSet.String())
 
 	nonOverlapReclaimCPUSet := poolsCPUSet[state.PoolNameReclaim].Clone()
 
@@ -1404,7 +1404,7 @@ func (p *DynamicPolicy) relclaimOverlapNUMABinding(poolsCPUSet map[string]machin
 				allocationInfo.ContainerType == pluginapi.ContainerType_MAIN.String()) {
 				continue
 			} else if allocationInfo.RampUp {
-				klog.Infof("[CPUDynamicPolicy.relclaimOverlapNUMABinding] dedicated numa_binding pod: %s/%s container: %s is in ramp up, not to overlap reclaim pool with it",
+				klog.Infof("[CPUDynamicPolicy.reclaimOverlapNUMABinding] dedicated numa_binding pod: %s/%s container: %s is in ramp up, not to overlap reclaim pool with it",
 					allocationInfo.PodNamespace, allocationInfo.PodName, allocationInfo.ContainerName)
 				continue
 			}
@@ -1417,7 +1417,7 @@ func (p *DynamicPolicy) relclaimOverlapNUMABinding(poolsCPUSet map[string]machin
 		return fmt.Errorf("reclaim pool is empty after overlapping with dedicated_cores numa_binding containers")
 	}
 
-	klog.Infof("[CPUDynamicPolicy.relclaimOverlapNUMABinding] nonOverlapReclaimCPUSet: %s, finalReclaimCPUSet: %s",
+	klog.Infof("[CPUDynamicPolicy.reclaimOverlapNUMABinding] nonOverlapReclaimCPUSet: %s, finalReclaimCPUSet: %s",
 		nonOverlapReclaimCPUSet.String(), poolsCPUSet[state.PoolNameReclaim].String())
 
 	return nil
@@ -1435,10 +1435,10 @@ func (p *DynamicPolicy) adjustPoolsAndIsolatedEntries(poolsQuantityMap map[strin
 		return fmt.Errorf("generatePoolsAndIsolation failed with error: %v", err)
 	}
 
-	err = p.relclaimOverlapNUMABinding(poolsCPUSet, entries)
+	err = p.reclaimOverlapNUMABinding(poolsCPUSet, entries)
 
 	if err != nil {
-		return fmt.Errorf("relclaimOverlapNUMABinding failed with error: %v", err)
+		return fmt.Errorf("reclaimOverlapNUMABinding failed with error: %v", err)
 	}
 
 	err = p.applyPoolsAndIsolatedInfo(poolsCPUSet, isolatedCPUSet, entries, machineState)
@@ -1925,20 +1925,20 @@ func (p *DynamicPolicy) allocateByCPUAdvisorServerListAndWatchResp(resp *advisor
 		return fmt.Errorf("validateBlocksByTopology failed with error: %v", vErr)
 	}
 
-	blockToCPUSet, alocErr := allocateByBlocks(resp,
+	blockToCPUSet, allocateErr := allocateByBlocks(resp,
 		entries,
 		numaToBlocks,
 		p.machineInfo.CPUTopology,
 		p.machineInfo)
 
-	if alocErr != nil {
-		return fmt.Errorf("allocateByBlocks failed with error: %v", alocErr)
+	if allocateErr != nil {
+		return fmt.Errorf("allocateByBlocks failed with error: %v", allocateErr)
 	}
 
-	aplyErr := p.applyBlocks(blockToCPUSet, entries, resp)
+	applyErr := p.applyBlocks(blockToCPUSet, entries, resp)
 
-	if aplyErr != nil {
-		return fmt.Errorf("applyBlocks failed with error: %v", aplyErr)
+	if applyErr != nil {
+		return fmt.Errorf("applyBlocks failed with error: %v", applyErr)
 	}
 
 	return nil
