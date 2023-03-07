@@ -66,7 +66,7 @@ type ContainerInfo struct {
 	OriginalTopologyAwareAssignments map[int]machine.CPUSet
 }
 
-// PoolInfo contains pool infomation for sysadvisor plugins
+// PoolInfo contains pool information for sysadvisor plugins
 type PoolInfo struct {
 	PoolName                         string
 	TopologyAwareAssignments         map[int]machine.CPUSet

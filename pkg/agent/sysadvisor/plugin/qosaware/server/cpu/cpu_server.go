@@ -200,90 +200,15 @@ func (cs *cpuServer) ListAndWatch(empty *cpuadvisor.Empty, server cpuadvisor.CPU
 			klog.Infof("[qosaware-server-cpu] get advisor update: %+v", advisorResp)
 
 			calculationEntriesMap := make(map[string]*cpuadvisor.CalculationEntries)
-			// In order to split or merge blocks, we need to used blockID2Blocks to track blocks with same block.
-			blockID2Blocks := cpuadvisor.NewBlockSet()
+			blockID2Blocks := NewBlockSet()
 
-			// Assemble pool entries
-			for poolName, sizeMap := range advisorResp.PoolSizeMap {
-				poolEntry := cpuadvisor.NewPoolCalculationEntries(poolName)
-				for numaID, size := range sizeMap {
-					block := cpuadvisor.NewBlock(uint64(size.Value()), "")
-					numaCalculationResult := &cpuadvisor.NumaCalculationResult{Blocks: []*cpuadvisor.Block{}}
-					blockWrapper := cpuadvisor.NewBlockWrapper(block, poolName, nil, numaCalculationResult)
-					numaCalculationResult.Blocks = append(numaCalculationResult.Blocks, block)
-					blockWrapper.Join(block.BlockId, blockID2Blocks)
-
-					poolEntry.Entries[""].CalculationResultsByNumas[int64(numaID)] = numaCalculationResult
-				}
-				calculationEntriesMap[poolName] = poolEntry
-			}
+			cs.assemblePoolEntries(&advisorResp, calculationEntriesMap, blockID2Blocks)
 
 			// Assemble pod entries
 			f := func(podUID string, containerName string, ci *types.ContainerInfo) bool {
-				poolName, ok := qosLevel2PoolName[ci.QoSLevel]
-				if !ok {
-					klog.Errorf("[qosaware-server-cpu] not supported qos level %v of %v/%v", ci.QoSLevel, podUID, containerName)
-					return true
+				if err := cs.assemblePodEntries(calculationEntriesMap, blockID2Blocks, podUID, containerName, ci); err != nil {
+					klog.Errorf("[qosaware-server-cpu] assemblePodEntries err: %v", err)
 				}
-
-				calculationInfo := &cpuadvisor.CalculationInfo{
-					OwnerPoolName:             poolName,
-					CalculationResultsByNumas: nil,
-				}
-
-				if ci.QoSLevel == consts.PodAnnotationQoSLevelDedicatedCores &&
-					ci.Annotations[consts.PodAnnotationMemoryEnhancementNumaBinding] == consts.PodAnnotationMemoryEnhancementNumaBindingEnable {
-					calculationResultsByNumas := make(map[int64]*cpuadvisor.NumaCalculationResult)
-					for numaID, cpuset := range ci.TopologyAwareAssignments {
-						numaCalculationResult := &cpuadvisor.NumaCalculationResult{Blocks: []*cpuadvisor.Block{}}
-
-						// make new CalculationResults with same blocks against the last container if already have calculationEntries with same PodUid
-						if podEntries, ok := calculationEntriesMap[podUID]; ok {
-							for _, entry := range podEntries.Entries {
-								if result, ok := entry.CalculationResultsByNumas[int64(numaID)]; ok {
-									for _, block := range result.Blocks {
-										blockID := block.BlockId
-										// new blocks overlapped with others
-										newBlock := cpuadvisor.NewBlock(block.Result, blockID)
-										newBlockWrapper := cpuadvisor.NewBlockWrapper(newBlock, "", ci, numaCalculationResult)
-										numaCalculationResult.Blocks = append(numaCalculationResult.Blocks, newBlock)
-										newBlockWrapper.Join(blockID, blockID2Blocks)
-									}
-								}
-							}
-						} else {
-							// no reclaimed pool here, so make a new block for dedicated_cores pod
-							entries, ok := calculationEntriesMap[qrmstate.PoolNameReclaim]
-							if !ok || entries.Entries[""] == nil || entries.Entries[""].CalculationResultsByNumas[int64(numaID)] == nil {
-								block := cpuadvisor.NewBlock(uint64(cpuset.Size()), "")
-								blockWrapper := cpuadvisor.NewBlockWrapper(block, "", ci, numaCalculationResult)
-								numaCalculationResult.Blocks = append(numaCalculationResult.Blocks, block)
-								blockWrapper.Join(block.BlockId, blockID2Blocks)
-							} else {
-								reclaimPoolCalculationResults := entries.Entries[""].CalculationResultsByNumas[int64(numaID)]
-								for _, block := range reclaimPoolCalculationResults.Blocks {
-									if block.OverlapTargets == nil || len(block.OverlapTargets) == 0 {
-										newBlock := cpuadvisor.NewBlock(uint64(cpuset.Size()), "")
-										newBlockWrapper := cpuadvisor.NewBlockWrapper(newBlock, "", ci, numaCalculationResult)
-										numaCalculationResult.Blocks = append(numaCalculationResult.Blocks, newBlock)
-										newBlockWrapper.Join(block.BlockId, blockID2Blocks)
-									}
-								}
-							}
-						}
-						calculationResultsByNumas[int64(numaID)] = numaCalculationResult
-					}
-					calculationInfo.CalculationResultsByNumas = calculationResultsByNumas
-				}
-
-				calculationEntries, ok := calculationEntriesMap[podUID]
-				if !ok {
-					calculationEntriesMap[podUID] = &cpuadvisor.CalculationEntries{
-						Entries: make(map[string]*cpuadvisor.CalculationInfo),
-					}
-					calculationEntries = calculationEntriesMap[podUID]
-				}
-				calculationEntries.Entries[ci.ContainerName] = calculationInfo
 				return true
 			}
 			cs.metaCache.RangeContainer(f)
@@ -334,7 +259,7 @@ func (cs *cpuServer) startToGetCheckpointFromCPUPlugin() error {
 
 		// Parse checkpoint
 		for entryName, entry := range resp.Entries {
-			if poolInfo, ok := entry.Entries[""]; ok {
+			if poolInfo, ok := entry.Entries[cpuadvisor.FakedContainerID]; ok {
 				// Update pool info
 				poolName := entryName
 				livingPoolNameSet[poolName] = struct{}{}
@@ -476,4 +401,99 @@ func (cs *cpuServer) updateContainerInfo(podUID string, containerName string, in
 
 	// Need to set back because of deep copy
 	return cs.metaCache.SetContainerInfo(podUID, containerName, ci)
+}
+
+// assemblePoolEntries fills up calculationEntriesMap and blockSet based on cpu.CPUProvision
+// - for each [pool, numa] set, there exists a new Block (and corresponding internalBlock)
+func (cs *cpuServer) assemblePoolEntries(advisorResp *cpu.CPUProvision, calculationEntriesMap map[string]*cpuadvisor.CalculationEntries, bs blockSet) {
+	for poolName, sizeMap := range advisorResp.PoolSizeMap {
+		poolEntry := NewPoolCalculationEntries(poolName)
+		for numaID, size := range sizeMap {
+			block := NewBlock(uint64(size.Value()), "")
+			numaCalculationResult := &cpuadvisor.NumaCalculationResult{Blocks: []*cpuadvisor.Block{block}}
+
+			innerBlock := NewInnerBlock(block, int64(numaID), poolName, nil, numaCalculationResult)
+			innerBlock.join(block.BlockId, bs)
+
+			poolEntry.Entries[cpuadvisor.FakedContainerID].CalculationResultsByNumas[int64(numaID)] = numaCalculationResult
+		}
+		calculationEntriesMap[poolName] = poolEntry
+	}
+}
+
+func (cs *cpuServer) assemblePodEntries(calculationEntriesMap map[string]*cpuadvisor.CalculationEntries,
+	bs blockSet, podUID string, containerName string, ci *types.ContainerInfo) error {
+	poolName, ok := qosLevel2PoolName[ci.QoSLevel]
+	if !ok {
+		return fmt.Errorf("not supported qos level %v of %v/%v", ci.QoSLevel, podUID, containerName)
+	}
+
+	calculationInfo := &cpuadvisor.CalculationInfo{
+		OwnerPoolName:             poolName,
+		CalculationResultsByNumas: nil,
+	}
+
+	// currently, only pods in "dedicated_nums with numa binding" has topology aware allocations
+	if ci.IsNumaBinding() {
+		calculationResultsByNumas := make(map[int64]*cpuadvisor.NumaCalculationResult)
+
+		for numaID, cpuset := range ci.TopologyAwareAssignments {
+			numaCalculationResult := &cpuadvisor.NumaCalculationResult{Blocks: []*cpuadvisor.Block{}}
+
+			// the same podUID appears twice iff there exists multiple containers in one pod;
+			// in this case, reuse the same blocks as the last container.
+			// i.e. sidecar container will always follow up with the main container.
+			if podEntries, ok := calculationEntriesMap[podUID]; ok {
+				for _, entry := range podEntries.Entries {
+					if result, ok := entry.CalculationResultsByNumas[int64(numaID)]; ok {
+						for _, block := range result.Blocks {
+							newBlock := NewBlock(block.Result, block.BlockId)
+							newInnerBlock := NewInnerBlock(newBlock, int64(numaID), "", ci, numaCalculationResult)
+							numaCalculationResult.Blocks = append(numaCalculationResult.Blocks, newBlock)
+							newInnerBlock.join(block.BlockId, bs)
+						}
+					}
+				}
+			} else {
+				// if this podUID appears firstly, we should generate a new Block
+
+				reclaimPoolCalculationResults, ok := GetNumaCalculationResult(calculationEntriesMap, qrmstate.PoolNameReclaim,
+					cpuadvisor.FakedContainerID, int64(numaID))
+				if !ok {
+					// if no reclaimed pool exists, return the generated Block
+
+					block := NewBlock(uint64(cpuset.Size()), "")
+					innerBlock := NewInnerBlock(block, int64(numaID), "", ci, numaCalculationResult)
+					numaCalculationResult.Blocks = append(numaCalculationResult.Blocks, block)
+					innerBlock.join(block.BlockId, bs)
+				} else {
+					// if reclaimed pool exists, join the generated Block with Block in reclaimed pool
+
+					for _, block := range reclaimPoolCalculationResults.Blocks {
+						if block.OverlapTargets == nil || len(block.OverlapTargets) == 0 {
+							newBlock := NewBlock(uint64(cpuset.Size()), "")
+							innerBlock := NewInnerBlock(newBlock, int64(numaID), "", ci, numaCalculationResult)
+							numaCalculationResult.Blocks = append(numaCalculationResult.Blocks, newBlock)
+							innerBlock.join(block.BlockId, bs)
+						}
+					}
+				}
+			}
+
+			calculationResultsByNumas[int64(numaID)] = numaCalculationResult
+		}
+
+		calculationInfo.CalculationResultsByNumas = calculationResultsByNumas
+	}
+
+	calculationEntries, ok := calculationEntriesMap[podUID]
+	if !ok {
+		calculationEntriesMap[podUID] = &cpuadvisor.CalculationEntries{
+			Entries: make(map[string]*cpuadvisor.CalculationInfo),
+		}
+		calculationEntries = calculationEntriesMap[podUID]
+	}
+	calculationEntries.Entries[ci.ContainerName] = calculationInfo
+
+	return nil
 }

@@ -17,9 +17,16 @@ limitations under the License.
 package types
 
 import (
+	"github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
+
+// IsNumaBinding returns true iff current container is for dedicated_cores with numa binding
+func (ci *ContainerInfo) IsNumaBinding() bool {
+	return ci.QoSLevel == consts.PodAnnotationQoSLevelDedicatedCores &&
+		ci.Annotations[consts.PodAnnotationMemoryEnhancementNumaBinding] == consts.PodAnnotationMemoryEnhancementNumaBindingEnable
+}
 
 func (ci *ContainerInfo) Clone() *ContainerInfo {
 	if ci == nil {

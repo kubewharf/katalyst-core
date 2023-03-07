@@ -133,7 +133,8 @@ func (cra *cpuResourceAdvisor) Update() {
 
 	// Notify cpu server
 	cpuProvision := CPUProvision{
-		// Must make sure pool names from cpu provision following qrm definition!
+		// Must make sure pool names from cpu provision following qrm definition;
+		// numa ID set as -1 means no numa-preference is needed
 		PoolSizeMap: map[string]map[int]resource.Quantity{
 			state.PoolNameReserve: {
 				-1: *resource.NewQuantity(int64(reservePoolSize), resource.DecimalSI),
