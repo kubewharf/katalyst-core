@@ -81,8 +81,8 @@ var fakeDiscoveryClient = &fakedisco.FakeDiscovery{Fake: &coretesting.Fake{
 	},
 }}
 
-// versionedUpdate is to increase object resource version if needed, and if the resourceVersion of needed update object
-// is not equal to origin one, it will return a conflict error
+// versionedUpdate increases object resource version if needed;
+// and if the resourceVersion of is not equal to origin one, returns a conflict error
 func versionedUpdate(tracker coretesting.ObjectTracker, gvr schema.GroupVersionResource,
 	obj runtime.Object, ns string) error {
 	accessor, err := meta.Accessor(obj)
@@ -192,8 +192,8 @@ func versionedPatchReactor(tracker coretesting.ObjectTracker,
 	return false, nil, nil
 }
 
-// prependVersionedUpdateAndPatchReactor add a ResourceVersion change reactor to support fake client CAS update or patch an object
-// if its ResourceVersion already set
+// prependVersionedUpdateAndPatchReactor adds a ResourceVersion change reactor to support
+// fake client CAS update or patch an object if its ResourceVersion already set
 func prependVersionedUpdateAndPatchReactor(fakeClient coretesting.FakeClient) {
 	fakeClient.PrependReactor("*", "*", func(action coretesting.Action) (handled bool, ret runtime.Object, err error) {
 		tracker := fakeClient.Tracker()

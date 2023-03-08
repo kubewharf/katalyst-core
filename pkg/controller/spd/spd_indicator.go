@@ -18,10 +18,17 @@ package spd
 
 import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/util/retry"
 	"k8s.io/klog/v2"
 
 	apiworkload "github.com/kubewharf/katalyst-api/pkg/apis/workload/v1alpha1"
+	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util"
+)
+
+const (
+	metricsNameSPDControllerSyncIndicatorSpec   = "spd_controller_sync_indicator_spec"
+	metricsNameSPDControllerSyncIndicatorStatus = "spd_controller_sync_indicator_status"
 )
 
 func (sc *SPDController) syncIndicatorSpec() {
@@ -41,23 +48,37 @@ func (sc *SPDController) syncIndicatorSpec() {
 				continue
 			}
 
-			namespace, name := nn.Namespace, nn.Name
-			spd, err := sc.spdLister.ServiceProfileDescriptors(namespace).Get(name)
+			err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
+				spd, err := sc.spdLister.ServiceProfileDescriptors(nn.Namespace).Get(nn.Name)
+				if err != nil {
+					klog.Errorf("[syncIndicatorSpec] failed to get spd [%v], err: %v", nn.String(), err)
+					return err
+				}
+
+				spdCopy := spd.DeepCopy()
+				sc.mergeIndicatorSpec(spdCopy, *spec)
+
+				if _, err := sc.spdControl.UpdateSPD(sc.ctx, spdCopy, metav1.UpdateOptions{}); err != nil {
+					klog.Errorf("[syncIndicatorSpec] failed to update spd for %s: %v", nn.String(), err)
+					return err
+				}
+
+				klog.V(4).Infof("[syncIndicatorSpec] successfully updated spd %s to %+v", nn.String(), spdCopy.Spec)
+				return nil
+			})
 			if err != nil {
 				// todo if failed to get spd, re-enqueue to update next time
-				klog.Errorf("[syncIndicatorSpec] failed to get spd [%v/%v], err: %v", namespace, name, err)
-				continue
+				klog.Errorf("[syncIndicatorSpec] failed to retry on conflict update spd for %s: %v", nn.String(), err)
+				_ = sc.metricsEmitter.StoreInt64(metricsNameSPDControllerSyncIndicatorSpec, 1, metrics.MetricTypeNameCount, metrics.MetricTag{
+					Key: "status", Val: "failed",
+				})
+			} else {
+				_ = sc.metricsEmitter.StoreInt64(metricsNameSPDControllerSyncIndicatorSpec, 1, metrics.MetricTypeNameCount, metrics.MetricTag{
+					Key: "status", Val: "success",
+				})
 			}
-
-			spdCopy := spd.DeepCopy()
-			sc.mergeIndicatorSpec(spdCopy, *spec)
-
-			if _, err := sc.spdControl.UpdateSPD(sc.ctx, spdCopy, metav1.UpdateOptions{}); err != nil {
-				klog.Errorf("failed to update spd for %s: %v", spd.Name, err)
-			}
-			klog.V(4).Infof("successfully updated spd %s to %+v", spd.Name, spdCopy.Spec)
 		case <-sc.ctx.Done():
-			klog.Infoln("stop spd vpa queue worker.")
+			klog.Infoln("[syncIndicatorSpec] stop spd vpa queue worker.")
 			return
 		}
 	}
@@ -80,21 +101,35 @@ func (sc *SPDController) syncIndicatorStatus() {
 				continue
 			}
 
-			namespace, name := nn.Namespace, nn.Name
-			spd, err := sc.spdLister.ServiceProfileDescriptors(namespace).Get(name)
+			err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
+				spd, err := sc.spdLister.ServiceProfileDescriptors(nn.Namespace).Get(nn.Name)
+				if err != nil {
+					klog.Errorf("[syncIndicatorStatus] failed to get spd [%v], err: %v", nn.String(), err)
+					return err
+				}
+
+				spdCopy := spd.DeepCopy()
+				sc.mergeIndicatorStatus(spdCopy, *status)
+
+				if _, err := sc.spdControl.UpdateSPDStatus(sc.ctx, spdCopy, metav1.UpdateOptions{}); err != nil {
+					klog.Errorf("[syncIndicatorStatus] failed to update spd status for %s: %v", nn.String(), err)
+					return err
+				}
+
+				klog.V(4).Infof("[syncIndicatorStatus] successfully updated spd status %s to %+v", nn.String(), spdCopy.Status)
+				return nil
+			})
 			if err != nil {
 				// todo if failed to get spd, re-enqueue to update next time
-				klog.Errorf("[syncIndicatorStatus] failed to get spd [%v/%v], err: %v", namespace, name, err)
-				continue
+				klog.Errorf("[syncIndicatorStatus] failed to retry on conflict update spd status for %s: %v", nn.String(), err)
+				_ = sc.metricsEmitter.StoreInt64(metricsNameSPDControllerSyncIndicatorStatus, 1, metrics.MetricTypeNameCount, metrics.MetricTag{
+					Key: "status", Val: "failed",
+				})
+			} else {
+				_ = sc.metricsEmitter.StoreInt64(metricsNameSPDControllerSyncIndicatorStatus, 1, metrics.MetricTypeNameCount, metrics.MetricTag{
+					Key: "status", Val: "success",
+				})
 			}
-
-			spdCopy := spd.DeepCopy()
-			sc.mergeIndicatorStatus(spdCopy, *status)
-
-			if _, err := sc.spdControl.UpdateSPDStatus(sc.ctx, spdCopy, metav1.UpdateOptions{}); err != nil {
-				klog.Errorf("[syncIndicatorStatus] failed to update spd status for %s: %v", spd.Name, err)
-			}
-			klog.V(4).Infof("[syncIndicatorStatus] successfully updated spd status %s to %+v", spd.Name, spdCopy.Status)
 		case <-sc.ctx.Done():
 			klog.Infoln("[syncIndicatorStatus] stop spd vpa status queue worker.")
 			return

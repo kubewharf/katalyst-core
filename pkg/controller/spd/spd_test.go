@@ -294,8 +294,9 @@ func TestIndicatorUpdater(t *testing.T) {
 
 	spd := &apiworkload.ServiceProfileDescriptor{
 		ObjectMeta: metav1.ObjectMeta{
-			Namespace: "default",
-			Name:      "spd1",
+			Namespace:       "default",
+			Name:            "spd1",
+			ResourceVersion: "0",
 		},
 		Spec: apiworkload.ServiceProfileDescriptorSpec{
 			TargetRef: apis.CrossVersionObjectReference{
@@ -560,13 +561,6 @@ func TestIndicatorUpdater(t *testing.T) {
 		},
 	})
 
-	time.Sleep(time.Second * 3)
-	newSPD, err := controlCtx.Client.InternalClient.WorkloadV1alpha1().
-		ServiceProfileDescriptors("default").Get(ctx, "spd1", metav1.GetOptions{})
-	assert.NoError(t, err)
-	assert.Equal(t, expectedSpd.Spec.BusinessIndicator, newSPD.Spec.BusinessIndicator)
-	assert.Equal(t, expectedSpd.Spec.SystemIndicator, newSPD.Spec.SystemIndicator)
-
 	sc.indicatorUpdater.AddBusinessIndicatorStatus(nn, []apiworkload.ServiceBusinessIndicatorStatus{
 		{
 			Name:    "system-1",
@@ -578,7 +572,7 @@ func TestIndicatorUpdater(t *testing.T) {
 		},
 	})
 	time.Sleep(time.Second * 3)
-	newSPD, err = controlCtx.Client.InternalClient.WorkloadV1alpha1().
+	newSPD, err := controlCtx.Client.InternalClient.WorkloadV1alpha1().
 		ServiceProfileDescriptors("default").Get(ctx, "spd1", metav1.GetOptions{})
 	assert.NoError(t, err)
 	assert.Equal(t, expectedSpd.Spec.BusinessIndicator, newSPD.Spec.BusinessIndicator)
