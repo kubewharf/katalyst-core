@@ -55,13 +55,12 @@ import (
 const vpaControllerName = "vpa"
 
 const (
-	metricNameVAPControlVPASync              = "vpa_vpa_sync"
-	metricNameVAPControlVPASyncCosts         = "vpa_vpa_sync_costs"
-	metricNameVAPControlGetWorkloadCosts     = "vpa_vpa_get_workload_costs"
-	metricNameVAPControlVPAPatchCosts        = "vpa_vpa_patch_costs"
-	metricNameVAPControlSyncPodCosts         = "vpa_vpa_sync_pod_costs"
-	metricNameVAPControlVPAUpdateCosts       = "vpa_vpa_update_costs"
-	metricNameVAPControlVPAUpdateStatusCosts = "vpa_vpa_update_resource_costs"
+	metricNameVAPControlVPASync          = "vpa_vpa_sync"
+	metricNameVAPControlVPASyncCosts     = "vpa_vpa_sync_costs"
+	metricNameVAPControlGetWorkloadCosts = "vpa_vpa_get_workload_costs"
+	metricNameVAPControlVPAPatchCosts    = "vpa_vpa_patch_costs"
+	metricNameVAPControlSyncPodCosts     = "vpa_vpa_sync_pod_costs"
+	metricNameVAPControlVPAUpdateCosts   = "vpa_vpa_update_costs"
 
 	metricNameVAPControlVPAPodCount = "vpa_pod_count"
 )
@@ -94,9 +93,9 @@ type VPAController struct {
 	syncedFunc []cache.InformerSynced
 
 	vpaSyncQueue   workqueue.RateLimitingInterface
-	VPASyncWorkers int
+	vpaSyncWorkers int
 
-	vpaStatusManager vpaStatusManager
+	vpaStatusController *vpaStatusController
 
 	metricsEmitter metrics.MetricEmitter
 }
@@ -122,7 +121,7 @@ func NewVPAController(ctx context.Context, controlCtx *katalyst_base.GenericCont
 		podUpdater:         &control.DummyPodUpdater{},
 		workloadControl:    &control.DummyUnstructuredControl{},
 		vpaSyncQueue:       workqueue.NewNamedRateLimitingQueue(workqueue.DefaultControllerRateLimiter(), "vpa"),
-		VPASyncWorkers:     vpaConf.VPASyncWorkers,
+		vpaSyncWorkers:     vpaConf.VPASyncWorkers,
 		syncedFunc: []cache.InformerSynced{
 			podInformer.Informer().HasSynced,
 			vpaInformer.Informer().HasSynced,
@@ -169,8 +168,8 @@ func NewVPAController(ctx context.Context, controlCtx *katalyst_base.GenericCont
 		UpdateFunc: vpaController.updateVPA,
 	})
 
-	// vpa controller need update current container resource to vpa status,
-	// so we need watch pod update event (if the inplace updating succeeded)
+	// vpa controller need update pod resource when pod was recreated
+	// because vpa pod webhook may not always work
 	podInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc:    vpaController.addPod,
 		UpdateFunc: vpaController.updatePod,
@@ -212,7 +211,13 @@ func NewVPAController(ctx context.Context, controlCtx *katalyst_base.GenericCont
 		vpaController.workloadControl = control.NewRealUnstructuredControl(genericClient.DynamicClient)
 	}
 
-	vpaController.vpaStatusManager = newVPAStatusManager(ctx, vpaController.vpaLister, vpaController.vpaUpdater)
+	vpaController.vpaStatusController = newVPAStatusController(
+		ctx,
+		controlCtx,
+		vpaConf,
+		vpaController.workloadLister,
+		vpaController.vpaUpdater,
+	)
 
 	return vpaController, nil
 }
@@ -229,15 +234,15 @@ func (vc *VPAController) Run() {
 	}
 
 	klog.Infof("[vpa] caches are synced for %s controller", vpaControllerName)
-	klog.Infof("[vpa] start %d workers for %s controller", vc.VPASyncWorkers, vpaControllerName)
+	klog.Infof("[vpa] start %d workers for %s controller", vc.vpaSyncWorkers, vpaControllerName)
 
-	for i := 0; i < vc.VPASyncWorkers; i++ {
+	for i := 0; i < vc.vpaSyncWorkers; i++ {
 		go wait.Until(vc.vpaWorker, time.Second, vc.ctx.Done())
 	}
 	go wait.Until(vc.maintainVPAName, time.Second*10, vc.ctx.Done())
 
 	// run update vpa status manager.
-	go vc.vpaStatusManager.run()
+	go vc.vpaStatusController.run()
 
 	<-vc.ctx.Done()
 }
@@ -423,7 +428,7 @@ func (vc *VPAController) syncVPA(key string) error {
 			return err
 		}
 	}
-	if err := vc.vpaUpdater.PatchVPA(context.TODO(), vpa, vpaNew); err != nil {
+	if _, err := vc.vpaUpdater.PatchVPA(context.TODO(), vpa, vpaNew); err != nil {
 		return err
 	}
 
@@ -431,7 +436,7 @@ func (vc *VPAController) syncVPA(key string) error {
 	pods, err := katalystutil.GetPodListForVPA(vpa, vc.podIndexer, vc.conf.VPAPodLabelIndexerKeys, workloadLister, vc.podLister)
 	if err != nil {
 		klog.Errorf("[vpa] failed to get pods by vpa %s, err %v", vpa.Name, err)
-		_ = util.PatchVPAConditions(vc.ctx, vc.vpaUpdater, vpa, apis.RecommendationUpdated, core.ConditionFalse, util.VPAConditionReasonCalculatedIllegal, "failed to find pods")
+		_ = util.UpdateVPAConditions(vc.ctx, vc.vpaUpdater, vpa, apis.RecommendationUpdated, core.ConditionFalse, util.VPAConditionReasonCalculatedIllegal, "failed to find pods")
 		return err
 	}
 	klog.V(4).Infof("[vpa] syncing vpa %s with %d pods", name, len(pods))
@@ -440,23 +445,17 @@ func (vc *VPAController) syncVPA(key string) error {
 	pods, err = vc.filterPodsByUpdatePolicy(vpa, pods)
 	if err != nil {
 		klog.Errorf("[vpa] failed to filter pods by vpa %s update policy", vpa.Name)
-		_ = util.PatchVPAConditions(vc.ctx, vc.vpaUpdater, vpa, apis.RecommendationUpdated, core.ConditionFalse, util.VPAConditionReasonCalculatedIllegal, "failed to filter pod")
+		_ = util.UpdateVPAConditions(vc.ctx, vc.vpaUpdater, vpa, apis.RecommendationUpdated, core.ConditionFalse, util.VPAConditionReasonCalculatedIllegal, "failed to filter pod")
 		return nil
 	}
 	klog.V(4).Infof("[vpa] syncing vpa %s with filtered %d pods", name, len(pods))
-
-	if !katalystutil.CheckWorkloadEnableVPA(workload) {
-		klog.Warningf("[vpa] vpa %s/%s workload %v disabled, only update current resources", namespace, name, vpa.Spec.TargetRef.Name)
-		return vc.updateVPAStatus(vpa, pods)
-	}
 
 	timeSets[metricNameVAPControlVPAUpdateCosts] = time.Now()
 	if err := vc.updatePodResources(vpa, pods); err != nil {
 		return err
 	}
 
-	timeSets[metricNameVAPControlVPAUpdateStatusCosts] = time.Now()
-	return vc.updateVPAStatus(vpa, pods)
+	return nil
 }
 
 func (vc *VPAController) syncPerformance(namespace, name string, times map[string]time.Time, tags []metrics.MetricTag) {
@@ -467,7 +466,6 @@ func (vc *VPAController) syncPerformance(namespace, name string, times map[strin
 		metricNameVAPControlVPAPatchCosts,
 		metricNameVAPControlSyncPodCosts,
 		metricNameVAPControlVPAUpdateCosts,
-		metricNameVAPControlVPAUpdateStatusCosts,
 	}
 	for _, timeSet := range timeSets {
 		if begin, ok := times[timeSet]; ok {
@@ -622,12 +620,12 @@ func (vc *VPAController) updatePodResources(vpa *apis.KatalystVerticalPodAutosca
 	}
 	workqueue.ParallelizeUntil(vc.ctx, 16, len(pods), updatePodAnnotations)
 	if len(errList) > 0 {
-		_ = util.PatchVPAConditions(vc.ctx, vc.vpaUpdater, vpa, apis.RecommendationUpdated, core.ConditionFalse,
+		_ = util.UpdateVPAConditions(vc.ctx, vc.vpaUpdater, vpa, apis.RecommendationUpdated, core.ConditionFalse,
 			util.VPAConditionReasonCalculatedIllegal, "failed to update pod annotations")
 		return utilerrors.NewAggregate(errList)
 	}
 
-	return util.PatchVPAConditions(vc.ctx, vc.vpaUpdater, vpa, apis.RecommendationUpdated, core.ConditionTrue, util.VPAConditionReasonUpdated, "")
+	return util.UpdateVPAConditions(vc.ctx, vc.vpaUpdater, vpa, apis.RecommendationUpdated, core.ConditionTrue, util.VPAConditionReasonUpdated, "")
 }
 
 // patchPodResources updates resource recommendation for each individual pod
@@ -682,23 +680,6 @@ func (vc *VPAController) patchPodResources(vpa *apis.KatalystVerticalPodAutoscal
 	} else {
 		klog.V(5).Infof("pod %s/%s has no need to update resources", pod.Namespace, pod.Name) //nolint:gomnd
 	}
-
-	return nil
-}
-
-// updateVPAStatus is used to update pod current resources in vpa status
-func (vc *VPAController) updateVPAStatus(vpa *apis.KatalystVerticalPodAutoscaler, pods []*core.Pod) error {
-	vpaPodResources, vpaContainerResources, err := util.GetVPAResourceStatusWithCurrent(vpa, pods)
-	if err != nil {
-		klog.Errorf("[vpa] get vpa status with current pods err: %v", err)
-		return err
-	}
-
-	vpaNew := vpa.DeepCopy()
-	vpaNew.Status.PodResources = vpaPodResources
-	vpaNew.Status.ContainerResources = vpaContainerResources
-
-	vc.vpaStatusManager.tryUpdateVPAStatus(vpaNew)
 
 	return nil
 }

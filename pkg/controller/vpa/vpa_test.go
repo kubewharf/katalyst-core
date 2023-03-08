@@ -344,8 +344,11 @@ func TestVPAControllerSyncVPA(t *testing.T) {
 			vpaConf := controller.NewVPAConfig()
 			vpaOptions.ApplyTo(vpaConf)
 
+			workloadGVResources := []string{"statefulsets.v1.apps"}
+			vpaConf.VPAWorkloadGVResources = workloadGVResources
+
 			generalConf := &controller.GenericControllerConfiguration{
-				DynamicGVResources: []string{"statefulsets.v1.apps"},
+				DynamicGVResources: workloadGVResources,
 			}
 
 			controlCtx, err := katalystbase.GenerateFakeGenericContext(nil, nil, []runtime.Object{tc.object})
@@ -354,17 +357,12 @@ func TestVPAControllerSyncVPA(t *testing.T) {
 			vpaController, err := NewVPAController(context.TODO(), controlCtx, vpaConf, generalConf)
 			assert.NoError(t, err)
 
-			vpaInformer := controlCtx.InternalInformerFactory.Autoscaling().V1alpha1().KatalystVerticalPodAutoscalers()
-			err = vpaInformer.Informer().GetStore().Add(tc.vpa)
-			assert.NoError(t, err)
 			_, err = controlCtx.Client.InternalClient.AutoscalingV1alpha1().
 				KatalystVerticalPodAutoscalers(tc.vpa.Namespace).
 				Create(context.TODO(), tc.vpa, metav1.CreateOptions{})
 			assert.NoError(t, err)
 
 			for _, pod := range tc.pods {
-				err = controlCtx.KubeInformerFactory.Core().V1().Pods().Informer().GetStore().Add(pod)
-				assert.NoError(t, err)
 				_, err = controlCtx.Client.KubeClient.CoreV1().Pods(pod.Namespace).Create(context.TODO(), pod, metav1.CreateOptions{})
 				assert.NoError(t, err)
 			}
@@ -502,8 +500,11 @@ func TestVPAControllerSyncPod(t *testing.T) {
 			vpaConf := controller.NewVPAConfig()
 			vpaOptions.ApplyTo(vpaConf)
 
+			workloadGVResources := []string{"statefulsets.v1.apps"}
+			vpaConf.VPAWorkloadGVResources = workloadGVResources
+
 			generalConf := &controller.GenericControllerConfiguration{
-				DynamicGVResources: []string{"statefulsets.v1.apps"},
+				DynamicGVResources: workloadGVResources,
 			}
 
 			controlCtx, err := katalystbase.GenerateFakeGenericContext(nil, nil, []runtime.Object{tc.object})
@@ -520,16 +521,11 @@ func TestVPAControllerSyncPod(t *testing.T) {
 			synced := cache.WaitForCacheSync(vpaController.ctx.Done(), vpaController.syncedFunc...)
 			assert.True(t, synced)
 
-			vpaInformer := controlCtx.InternalInformerFactory.Autoscaling().V1alpha1().KatalystVerticalPodAutoscalers()
-			err = vpaInformer.Informer().GetStore().Add(tc.vpa)
-			assert.NoError(t, err)
 			_, err = controlCtx.Client.InternalClient.AutoscalingV1alpha1().
 				KatalystVerticalPodAutoscalers(tc.vpa.Namespace).
 				Create(context.TODO(), tc.vpa, metav1.CreateOptions{})
 			assert.NoError(t, err)
 
-			err = controlCtx.KubeInformerFactory.Core().V1().Pods().Informer().GetStore().Add(tc.pod)
-			assert.NoError(t, err)
 			_, err = controlCtx.Client.KubeClient.CoreV1().Pods(tc.pod.Namespace).Create(context.TODO(), tc.pod, metav1.CreateOptions{})
 			assert.NoError(t, err)
 
@@ -549,7 +545,6 @@ func TestVPAControllerSyncPod(t *testing.T) {
 			p, err := controlCtx.Client.KubeClient.CoreV1().Pods(tc.newPod.Namespace).Get(context.TODO(), tc.newPod.Name, metav1.GetOptions{})
 			assert.NoError(t, err)
 			assert.Equal(t, tc.newPod, p)
-
 		})
 	}
 }
@@ -665,8 +660,11 @@ func TestVPAControllerSyncWorkload(t *testing.T) {
 			vpaConf := controller.NewVPAConfig()
 			vpaOptions.ApplyTo(vpaConf)
 
+			workloadGVResources := []string{"statefulsets.v1.apps"}
+			vpaConf.VPAWorkloadGVResources = workloadGVResources
+
 			generalConf := &controller.GenericControllerConfiguration{
-				DynamicGVResources: []string{"statefulsets.v1.apps"},
+				DynamicGVResources: workloadGVResources,
 			}
 
 			controlCtx, err := katalystbase.GenerateFakeGenericContext(nil, nil, []runtime.Object{tc.object})
@@ -683,20 +681,13 @@ func TestVPAControllerSyncWorkload(t *testing.T) {
 			synced := cache.WaitForCacheSync(vpaController.ctx.Done(), vpaController.syncedFunc...)
 			assert.True(t, synced)
 
-			vpaInformer := controlCtx.InternalInformerFactory.Autoscaling().V1alpha1().KatalystVerticalPodAutoscalers()
-			err = vpaInformer.Informer().GetStore().Add(tc.vpa)
-			assert.NoError(t, err)
 			_, err = controlCtx.Client.InternalClient.AutoscalingV1alpha1().
 				KatalystVerticalPodAutoscalers(tc.vpa.Namespace).
 				Create(context.TODO(), tc.vpa, metav1.CreateOptions{})
 			assert.NoError(t, err)
 
-			err = controlCtx.KubeInformerFactory.Core().V1().Pods().Informer().GetStore().Add(tc.pod)
-			assert.NoError(t, err)
 			_, err = controlCtx.Client.KubeClient.CoreV1().Pods(tc.pod.Namespace).Create(context.TODO(), tc.pod, metav1.CreateOptions{})
 			assert.NoError(t, err)
-
-			go vpaController.Run()
 
 			err = wait.PollImmediate(time.Second, time.Second*5, func() (bool, error) {
 				p, _ := controlCtx.Client.KubeClient.CoreV1().Pods(tc.newPod.Namespace).Get(context.TODO(), tc.newPod.Name, metav1.GetOptions{})
@@ -841,7 +832,13 @@ func TestSyncPerformance(t *testing.T) {
 	} {
 		t.Logf("test cases: %v", tc.name)
 
-		generalConf := &controller.GenericControllerConfiguration{DynamicGVResources: []string{"statefulsets.v1.apps"}}
+		workloadGVResources := []string{"statefulsets.v1.apps"}
+		tc.vpaConf.VPAWorkloadGVResources = workloadGVResources
+
+		generalConf := &controller.GenericControllerConfiguration{
+			DynamicGVResources: workloadGVResources,
+		}
+
 		controlCtx, err := katalystbase.GenerateFakeGenericContext(kubeObj, internalObj, dynamicObj)
 		assert.NoError(t, err)
 

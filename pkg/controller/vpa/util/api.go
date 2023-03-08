@@ -133,7 +133,36 @@ func PatchVPAConditions(
 		return nil
 	}
 
-	return vpaUpdater.PatchVPAStatus(ctx, vpa, vpaNew)
+	if _, err := vpaUpdater.PatchVPAStatus(ctx, vpa, vpaNew); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func UpdateVPAConditions(
+	ctx context.Context,
+	vpaUpdater control.VPAUpdater,
+	vpa *apis.KatalystVerticalPodAutoscaler,
+	conditionType apis.VerticalPodAutoscalerConditionType,
+	conditionStatus core.ConditionStatus,
+	reason,
+	message string,
+) error {
+	vpaNew := vpa.DeepCopy()
+	if err := SetVPAConditions(vpaNew, conditionType, conditionStatus, reason, message); err != nil {
+		return err
+	}
+
+	if apiequality.Semantic.DeepEqual(vpa.Status, vpaNew.Status) {
+		return nil
+	}
+
+	if _, err := vpaUpdater.UpdateVPAStatus(ctx, vpaNew, metav1.UpdateOptions{}); err != nil {
+		return err
+	}
+
+	return nil
 }
 
 // PatchVPARecConditions is used to update conditions for vpaRec to APIServer

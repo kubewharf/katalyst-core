@@ -176,7 +176,7 @@ func TestUpdateAPIVPAConditions(t *testing.T) {
 			_, err := InternalClient.AutoscalingV1alpha1().KatalystVerticalPodAutoscalers(tc.oldvpa.Namespace).Create(context.TODO(), tc.oldvpa, metav1.CreateOptions{})
 			assert.NoError(t, err)
 
-			err = vpaUpdater.PatchVPAStatus(context.TODO(), tc.oldvpa, tc.newvpa)
+			_, err = vpaUpdater.PatchVPAStatus(context.TODO(), tc.oldvpa, tc.newvpa)
 			assert.NoError(t, err)
 
 			vpa, err := InternalClient.AutoscalingV1alpha1().KatalystVerticalPodAutoscalers(tc.newvpa.Namespace).Get(context.TODO(), tc.newvpa.Name, metav1.GetOptions{})

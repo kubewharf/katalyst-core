@@ -196,7 +196,8 @@ func (rec *VerticalPodAutoScaleRecommendationController) updateVPA(old, cur inte
 	klog.V(4).Infof("[vpa-rec] notice update of KatalystVerticalPodAutoscaler %s", curVPA.Name)
 	rec.enqueueVPA(curVPA)
 
-	if !apiequality.Semantic.DeepEqual(oldVPA.Spec, curVPA.Spec) {
+	if !apiequality.Semantic.DeepEqual(oldVPA.Spec, curVPA.Spec) ||
+		!apiequality.Semantic.DeepEqual(oldVPA.Status, curVPA.Status) {
 		vpaRec, err := katalystutil.GetVPARecForVPA(curVPA, rec.vpaRecIndexer, rec.vpaRecLister)
 		if err != nil {
 			return
@@ -410,7 +411,13 @@ func (rec *VerticalPodAutoScaleRecommendationController) setVPAAnnotations(vpa *
 		vpaCopy.Annotations = make(map[string]string)
 	}
 	vpaCopy.Annotations[apiconsts.VPAAnnotationVPARecNameKey] = vpaRecName
-	return rec.vpaUpdater.PatchVPA(rec.ctx, vpa, vpaCopy)
+
+	_, err := rec.vpaUpdater.PatchVPA(rec.ctx, vpa, vpaCopy)
+	if err != nil {
+		return err
+	}
+
+	return err
 }
 
 // clearVPAAnnotations removes vpaRec name in pod annotations
@@ -421,7 +428,13 @@ func (rec *VerticalPodAutoScaleRecommendationController) clearVPAAnnotations(vpa
 
 	vpaCopy := vpa.DeepCopy()
 	delete(vpaCopy.Annotations, apiconsts.VPAAnnotationVPARecNameKey)
-	return rec.vpaUpdater.PatchVPA(rec.ctx, vpa, vpaCopy)
+
+	_, err := rec.vpaUpdater.PatchVPA(rec.ctx, vpa, vpaCopy)
+	if err != nil {
+		return err
+	}
+
+	return err
 }
 
 // updateVPAStatus is used to set status for vpa
@@ -440,7 +453,7 @@ func (rec *VerticalPodAutoScaleRecommendationController) updateVPAStatus(vpa *ap
 		return util.PatchVPAConditions(rec.ctx, rec.vpaUpdater, vpa, apis.RecommendationApplied, core.ConditionTrue, util.VPARecConditionReasonUpdated, "")
 	}
 
-	err := rec.vpaUpdater.PatchVPAStatus(rec.ctx, vpa, vpaNew)
+	updated, err := rec.vpaUpdater.PatchVPAStatus(rec.ctx, vpa, vpaNew)
 	if err != nil {
 		klog.Errorf("[vpa-rec] failed to set vpa %v status: %v", vpa.Name, err)
 		if err := util.PatchVPAConditions(rec.ctx, rec.vpaUpdater, vpa, apis.RecommendationApplied, core.ConditionFalse, util.VPAConditionReasonCalculatedIllegal, err.Error()); err != nil {
@@ -449,7 +462,7 @@ func (rec *VerticalPodAutoScaleRecommendationController) updateVPAStatus(vpa *ap
 
 		return err
 	}
-	return util.PatchVPAConditions(rec.ctx, rec.vpaUpdater, vpa, apis.RecommendationApplied, core.ConditionTrue, util.VPARecConditionReasonUpdated, "")
+	return util.PatchVPAConditions(rec.ctx, rec.vpaUpdater, updated, apis.RecommendationApplied, core.ConditionTrue, util.VPARecConditionReasonUpdated, "")
 }
 
 // updateVPAStatus is used to set status for vpaRec

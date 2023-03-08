@@ -63,7 +63,7 @@ func TestPatchVPA(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			internalClient := externalfake.NewSimpleClientset(tc.oldVPA)
 			updater := NewRealVPAUpdater(internalClient)
-			err := updater.PatchVPA(context.TODO(), tc.oldVPA, tc.newVPA)
+			_, err := updater.PatchVPA(context.TODO(), tc.oldVPA, tc.newVPA)
 			assert.NoError(t, err)
 			vpa, err := internalClient.AutoscalingV1alpha1().KatalystVerticalPodAutoscalers("default").
 				Get(context.TODO(), tc.oldVPA.Name, metav1.GetOptions{})
@@ -113,7 +113,7 @@ func TestPatchVPAStatus(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			internalClient := externalfake.NewSimpleClientset(tc.oldVPA)
 			updater := NewRealVPAUpdater(internalClient)
-			err := updater.PatchVPAStatus(context.TODO(), tc.oldVPA, tc.newVPA)
+			_, err := updater.PatchVPAStatus(context.TODO(), tc.oldVPA, tc.newVPA)
 			assert.NoError(t, err)
 			vpa, err := internalClient.AutoscalingV1alpha1().KatalystVerticalPodAutoscalers("default").
 				Get(context.TODO(), tc.oldVPA.Name, metav1.GetOptions{})

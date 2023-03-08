@@ -34,97 +34,110 @@ import (
 // VPAUpdater is used to update VPA CR
 // todo: use patch instead of update to avoid conflict
 type VPAUpdater interface {
-	UpdateVPA(ctx context.Context, verticalPodAutoscaler *apis.KatalystVerticalPodAutoscaler, opts metav1.UpdateOptions) (*apis.KatalystVerticalPodAutoscaler, error)
-	UpdateVPAStatus(ctx context.Context, verticalPodAutoscaler *apis.KatalystVerticalPodAutoscaler, opts metav1.UpdateOptions) (*apis.KatalystVerticalPodAutoscaler, error)
-	PatchVPA(ctx context.Context, oldVPA, newVPA *apis.KatalystVerticalPodAutoscaler) error
-	PatchVPAStatus(ctx context.Context, oldVPA, newVPA *apis.KatalystVerticalPodAutoscaler) error
+	UpdateVPA(ctx context.Context, vpa *apis.KatalystVerticalPodAutoscaler,
+		opts metav1.UpdateOptions) (*apis.KatalystVerticalPodAutoscaler, error)
+	UpdateVPAStatus(ctx context.Context, vpa *apis.KatalystVerticalPodAutoscaler,
+		opts metav1.UpdateOptions) (*apis.KatalystVerticalPodAutoscaler, error)
+	PatchVPA(ctx context.Context, oldVPA,
+		newVPA *apis.KatalystVerticalPodAutoscaler) (*apis.KatalystVerticalPodAutoscaler, error)
+	PatchVPAStatus(ctx context.Context, oldVPA,
+		newVPA *apis.KatalystVerticalPodAutoscaler) (*apis.KatalystVerticalPodAutoscaler, error)
 }
 
 type DummyVPAUpdater struct{}
 
-func (d *DummyVPAUpdater) UpdateVPA(_ context.Context, _ *apis.KatalystVerticalPodAutoscaler, _ metav1.UpdateOptions) (*apis.KatalystVerticalPodAutoscaler, error) {
+func (d *DummyVPAUpdater) UpdateVPA(_ context.Context,
+	_ *apis.KatalystVerticalPodAutoscaler, _ metav1.UpdateOptions) (*apis.KatalystVerticalPodAutoscaler, error) {
 	return nil, nil
 }
 
-func (d *DummyVPAUpdater) UpdateVPAStatus(_ context.Context, _ *apis.KatalystVerticalPodAutoscaler, _ metav1.UpdateOptions) (*apis.KatalystVerticalPodAutoscaler, error) {
+func (d *DummyVPAUpdater) UpdateVPAStatus(_ context.Context,
+	_ *apis.KatalystVerticalPodAutoscaler, _ metav1.UpdateOptions) (*apis.KatalystVerticalPodAutoscaler, error) {
 	return nil, nil
 }
 
-func (d *DummyVPAUpdater) PatchVPA(ctx context.Context, oldVPA, newVPA *apis.KatalystVerticalPodAutoscaler) error {
-	return nil
+func (d *DummyVPAUpdater) PatchVPA(_ context.Context, _,
+	newVPA *apis.KatalystVerticalPodAutoscaler) (*apis.KatalystVerticalPodAutoscaler, error) {
+	return newVPA, nil
 }
 
-func (d *DummyVPAUpdater) PatchVPAStatus(ctx context.Context, oldVPA, newVPA *apis.KatalystVerticalPodAutoscaler) error {
-	return nil
+func (d *DummyVPAUpdater) PatchVPAStatus(_ context.Context, _,
+	newVPA *apis.KatalystVerticalPodAutoscaler) (*apis.KatalystVerticalPodAutoscaler, error) {
+	return newVPA, nil
 }
 
 type RealVPAUpdater struct {
 	client clientset.Interface
 }
 
-func NewRealVPAUpdater(client clientset.Interface) *RealVPAUpdater {
+func NewRealVPAUpdater(client clientset.Interface) VPAUpdater {
 	return &RealVPAUpdater{
 		client: client,
 	}
 }
 
-func (r *RealVPAUpdater) UpdateVPA(ctx context.Context, verticalPodAutoscaler *apis.KatalystVerticalPodAutoscaler, opts metav1.UpdateOptions) (*apis.KatalystVerticalPodAutoscaler, error) {
-	if verticalPodAutoscaler == nil {
-		return nil, fmt.Errorf("can't update a nil verticalPodAutoscaler")
+func (r *RealVPAUpdater) UpdateVPA(ctx context.Context, vpa *apis.KatalystVerticalPodAutoscaler,
+	opts metav1.UpdateOptions) (*apis.KatalystVerticalPodAutoscaler, error) {
+	if vpa == nil {
+		return nil, fmt.Errorf("can't update a nil vpa")
 	}
 
-	return r.client.AutoscalingV1alpha1().KatalystVerticalPodAutoscalers(verticalPodAutoscaler.Namespace).Update(
-		ctx, verticalPodAutoscaler, opts)
+	return r.client.AutoscalingV1alpha1().KatalystVerticalPodAutoscalers(vpa.Namespace).Update(
+		ctx, vpa, opts)
 }
 
-func (r *RealVPAUpdater) UpdateVPAStatus(ctx context.Context, verticalPodAutoscaler *apis.KatalystVerticalPodAutoscaler, opts metav1.UpdateOptions) (*apis.KatalystVerticalPodAutoscaler, error) {
-	if verticalPodAutoscaler == nil {
-		return nil, fmt.Errorf("can't update a nil verticalPodAutoscaler's status")
+func (r *RealVPAUpdater) UpdateVPAStatus(ctx context.Context, vpa *apis.KatalystVerticalPodAutoscaler,
+	opts metav1.UpdateOptions) (*apis.KatalystVerticalPodAutoscaler, error) {
+	if vpa == nil {
+		return nil, fmt.Errorf("can't update a nil vpa's status")
 	}
 
-	return r.client.AutoscalingV1alpha1().KatalystVerticalPodAutoscalers(verticalPodAutoscaler.Namespace).UpdateStatus(
-		ctx, verticalPodAutoscaler, opts)
+	return r.client.AutoscalingV1alpha1().KatalystVerticalPodAutoscalers(vpa.Namespace).UpdateStatus(
+		ctx, vpa, opts)
 }
 
-func (r *RealVPAUpdater) PatchVPA(ctx context.Context, oldVPA, newVPA *apis.KatalystVerticalPodAutoscaler) error {
+func (r *RealVPAUpdater) PatchVPA(ctx context.Context, oldVPA,
+	newVPA *apis.KatalystVerticalPodAutoscaler) (*apis.KatalystVerticalPodAutoscaler, error) {
 	if oldVPA == nil || newVPA == nil {
-		return fmt.Errorf("can't patch a nil vpa")
+		return nil, fmt.Errorf("can't patch a nil vpa")
 	}
 
 	oldData, err := json.Marshal(oldVPA)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	newData, err := json.Marshal(newVPA)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	patchBytes, err := jsonmergepatch.CreateThreeWayJSONMergePatch(oldData, newData, oldData)
 	if err != nil {
-		return fmt.Errorf("failed to create merge patch for vpa %q/%q: %v", oldVPA.Namespace, oldVPA.Name, err)
+		return nil, fmt.Errorf("failed to create merge patch for vpa %q/%q: %v",
+			oldVPA.Namespace, oldVPA.Name, err)
 	} else if general.JsonPathEmpty(patchBytes) {
-		return nil
+		return newVPA, nil
 	}
 
-	_, err = r.client.AutoscalingV1alpha1().KatalystVerticalPodAutoscalers(oldVPA.Namespace).Patch(ctx, oldVPA.Name, types.MergePatchType, patchBytes, metav1.PatchOptions{})
-	return err
+	return r.client.AutoscalingV1alpha1().KatalystVerticalPodAutoscalers(oldVPA.Namespace).
+		Patch(ctx, oldVPA.Name, types.MergePatchType, patchBytes, metav1.PatchOptions{})
 }
 
-func (r *RealVPAUpdater) PatchVPAStatus(ctx context.Context, oldVPA, newVPA *apis.KatalystVerticalPodAutoscaler) error {
+func (r *RealVPAUpdater) PatchVPAStatus(ctx context.Context, oldVPA,
+	newVPA *apis.KatalystVerticalPodAutoscaler) (*apis.KatalystVerticalPodAutoscaler, error) {
 	if oldVPA == nil || newVPA == nil {
-		return fmt.Errorf("can't patch a nil vpa")
+		return nil, fmt.Errorf("can't patch a nil vpa")
 	}
 
 	oldData, err := json.Marshal(apis.KatalystVerticalPodAutoscaler{Status: oldVPA.Status})
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	newData, err := json.Marshal(apis.KatalystVerticalPodAutoscaler{Status: newVPA.Status})
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	if klog.V(5).Enabled() {
@@ -135,13 +148,14 @@ func (r *RealVPAUpdater) PatchVPAStatus(ctx context.Context, oldVPA, newVPA *api
 
 	patchBytes, err := jsonmergepatch.CreateThreeWayJSONMergePatch(oldData, newData, oldData)
 	if err != nil {
-		return fmt.Errorf("failed to create merge patch for vpa %q/%q: %v", oldVPA.Namespace, oldVPA.Name, err)
+		return nil, fmt.Errorf("failed to create merge patch for vpa %q/%q: %v",
+			oldVPA.Namespace, oldVPA.Name, err)
 	} else if general.JsonPathEmpty(patchBytes) {
-		return nil
+		return newVPA, nil
 	}
 
-	_, err = r.client.AutoscalingV1alpha1().KatalystVerticalPodAutoscalers(oldVPA.Namespace).Patch(ctx, oldVPA.Name, types.MergePatchType, patchBytes, metav1.PatchOptions{}, "status")
-	return err
+	return r.client.AutoscalingV1alpha1().KatalystVerticalPodAutoscalers(oldVPA.Namespace).
+		Patch(ctx, oldVPA.Name, types.MergePatchType, patchBytes, metav1.PatchOptions{}, "status")
 }
 
 // RealVPAUpdaterWithMetric todo: implement with emitting metrics on updating
