@@ -41,6 +41,11 @@ const (
 	metricsNamePodCacheNotFound   = "pod_cache_not_found"
 )
 
+const (
+	BypassCacheKey  = "bypass_cache"
+	BypassCacheTrue = "true"
+)
+
 type PodFetcher interface {
 	KubeletPodFetcher
 
@@ -191,9 +196,9 @@ func (w *podFetcherImpl) GetPodList(ctx context.Context, podFilter func(*v1.Pod)
 }
 
 func (w *podFetcherImpl) getKubeletPodsCache(ctx context.Context) (map[string]*v1.Pod, error) {
-	// if current kubelet pod cache is nil, we sync cache first
+	// if current kubelet pod cache is nil or enforce bypass, we sync cache first
 	w.kubeletPodsCacheLock.RLock()
-	if w.kubeletPodsCache == nil {
+	if w.kubeletPodsCache == nil || ctx.Value(BypassCacheKey) == BypassCacheTrue {
 		w.kubeletPodsCacheLock.RUnlock()
 		w.syncKubeletPod(ctx)
 	} else {

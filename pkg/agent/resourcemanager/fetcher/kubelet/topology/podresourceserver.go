@@ -34,6 +34,7 @@ import (
 	nodev1alpha1 "github.com/kubewharf/katalyst-api/pkg/apis/node/v1alpha1"
 	"github.com/kubewharf/katalyst-core/pkg/agent/resourcemanager/fetcher/util/kubelet/podresources"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
+	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/pod"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/native"
 	podresv1 "k8s.io/kubelet/pkg/apis/podresources/v1"
@@ -92,7 +93,10 @@ func NewPodResourcesServerTopologyAdapter(metaServer *metaserver.MetaServer, end
 	}, nil
 }
 
-func (p *podResourcesServerTopologyAdapterImpl) GetNumaTopologyStatus(ctx context.Context) (*nodev1alpha1.TopologyStatus, error) {
+func (p *podResourcesServerTopologyAdapterImpl) GetNumaTopologyStatus(parentCtx context.Context) (*nodev1alpha1.TopologyStatus, error) {
+	// always force getting pod list instead of cache
+	ctx := context.WithValue(parentCtx, pod.BypassCacheKey, pod.BypassCacheTrue)
+
 	podList, err := p.metaServer.GetPodList(ctx, nil)
 	if err != nil {
 		return nil, errors.Wrap(err, "get pod list from metaServer failed")
