@@ -39,7 +39,7 @@ import (
 */
 
 // GetVPARecForVPA is used to get vpaRec that should be managed the given vpa
-func getVPARecFroVPAWithIndex(vpa *apis.KatalystVerticalPodAutoscaler, vpaIndexer cache.Indexer) (*apis.VerticalPodAutoscalerRecommendation, error) {
+func getVPARecFroVPAWithIndex(vpa *apis.KatalystVerticalPodAutoscaler, vpaRecIndexer cache.Indexer) (*apis.VerticalPodAutoscalerRecommendation, error) {
 	gvk, err := apiutil.GVKForObject(vpa, scheme.Scheme)
 	if err != nil {
 		return nil, err
@@ -51,7 +51,7 @@ func getVPARecFroVPAWithIndex(vpa *apis.KatalystVerticalPodAutoscaler, vpaIndexe
 		UID:        vpa.GetUID(),
 	}
 
-	objs, err := vpaIndexer.ByIndex(consts.OwnerReferenceIndex, native.GenerateObjectOwnerReferenceKey(ownerRef))
+	objs, err := vpaRecIndexer.ByIndex(consts.OwnerReferenceIndex, native.GenerateObjectOwnerReferenceKey(ownerRef))
 	if err != nil {
 		return nil, errors.Wrapf(err, "vpaRec for vpa %s not exist", vpa.Name)
 	} else if len(objs) > 1 || len(objs) == 0 {

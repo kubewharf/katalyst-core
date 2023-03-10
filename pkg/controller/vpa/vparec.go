@@ -94,7 +94,7 @@ func NewVPARecommendationController(ctx context.Context,
 		vpaUpdater:    &control.DummyVPAUpdater{},
 		vpaRecUpdater: &control.DummyVPARecommendationUpdater{},
 
-		vpaRecIndexer: vpaInformer.Informer().GetIndexer(),
+		vpaRecIndexer: vpaRecInformer.Informer().GetIndexer(),
 
 		vpaLister:    vpaInformer.Lister(),
 		vpaRecLister: vpaRecInformer.Lister(),
@@ -121,8 +121,8 @@ func NewVPARecommendationController(ctx context.Context,
 	})
 
 	// build index: vpa ---> vpaRec
-	if _, ok := vpaRecInformer.Informer().GetIndexer().GetIndexers()[consts.OwnerReferenceIndex]; !ok {
-		err := vpaRecInformer.Informer().GetIndexer().AddIndexers(cache.Indexers{
+	if _, ok := vpaRecController.vpaRecIndexer.GetIndexers()[consts.OwnerReferenceIndex]; !ok {
+		err := vpaRecController.vpaRecIndexer.AddIndexers(cache.Indexers{
 			consts.OwnerReferenceIndex: native.ObjectOwnerReferenceIndex,
 		})
 		if err != nil {
