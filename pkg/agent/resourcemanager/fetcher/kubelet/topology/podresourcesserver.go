@@ -107,18 +107,24 @@ func (p *podResourcesServerTopologyAdapterImpl) GetNumaTopologyStatus(parentCtx 
 		return nil, errors.Wrap(err, "list pod from pod resource server failed")
 	}
 
-	podResourcesList := filterAllocatedPodResourcesList(listPodResourcesResponse.GetPodResources())
-
 	allocatableResourcesResponse, err := p.client.GetAllocatableResources(ctx, &podresv1.AllocatableResourcesRequest{})
 	if err != nil {
 		return nil, errors.Wrap(err, "get allocatable resources from pod resource server failed")
 	}
 
 	if klog.V(5).Enabled() {
-		podResourcesListStr, _ := json.Marshal(podResourcesList)
+		listPodResourcesResponseStr, _ := json.Marshal(listPodResourcesResponse)
 		allocatableResourcesResponseStr, _ := json.Marshal(allocatableResourcesResponse)
-		klog.Infof("pod Resource list: %s\n allocatable resources: %s", string(podResourcesListStr), string(allocatableResourcesResponseStr))
+		klog.Infof("list pod resources: %s\n allocatable resources: %s", string(listPodResourcesResponseStr),
+			string(allocatableResourcesResponseStr))
 	}
+
+	// validate pod resources server response to make sure report topology status is correct
+	if err = validatePodResourcesServerResponse(allocatableResourcesResponse, listPodResourcesResponse); err != nil {
+		return nil, errors.Wrap(err, "validate pod resources server response failed")
+	}
+
+	podResourcesList := filterAllocatedPodResourcesList(listPodResourcesResponse.GetPodResources())
 
 	// get numa allocations by pod resources
 	numaAllocationsMap, err := getNumaAllocationsByPodResources(podList, podResourcesList, p.podNumaBindFilter)
@@ -156,6 +162,23 @@ func (p *podResourcesServerTopologyAdapterImpl) Run(ctx context.Context, _ chan 
 
 		<-ctx.Done()
 	}()
+
+	return nil
+}
+
+func validatePodResourcesServerResponse(allocatableResourcesResponse *podresv1.AllocatableResourcesResponse,
+	listPodResourcesResponse *podresv1.ListPodResourcesResponse) error {
+	if allocatableResourcesResponse == nil {
+		return fmt.Errorf("allocatable resources response is nil")
+	}
+
+	if len(allocatableResourcesResponse.Resources) == 0 {
+		return fmt.Errorf("allocatable topology aware resources is empty")
+	}
+
+	if listPodResourcesResponse == nil {
+		return fmt.Errorf("list pod resources response is nil")
+	}
 
 	return nil
 }
