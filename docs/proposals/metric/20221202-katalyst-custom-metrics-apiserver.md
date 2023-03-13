@@ -1,13 +1,13 @@
 ---
-- title: Katalyst Custom Metrics APIServer
-- authors:
-    - "waynepeking348"
-- reviewers:
-    - "luomingmeng"
-    - "xuchen-xiaoying"
-- creation-date: 2022-12-02
-- last-updated: 2023-02-23
-- status: implemented
+title: Katalyst Custom Metrics APIServer
+authors:
+  - "waynepeking348"
+reviewers:
+  - "luomingmeng"
+  - "xuchen-xiaoying"
+creation-date: 2022-12-02
+last-updated: 2023-02-23
+status: implemented
 ---
 
 # Katalyst Custom Metrics APIServer
@@ -58,7 +58,7 @@ Rescheulder or Descheduler is a must-to-have ability in a large cluster, since t
 ### Design Overview
 <div align="center">
   <picture>
-    <img src="custom-metrics-overview.jpg" width=80% title="Katalyst Overview" loading="eager" />
+    <img src="/docs/imgs/custom-metrics-overview.jpg" width=80% title="Katalyst Overview" loading="eager" />
   </picture>
 </div>
 
@@ -114,7 +114,7 @@ In StandAlone mode, all centralized components (KCMS Collector, KCMS Store, and 
 
 <div align="center">
   <picture>
-    <img src="custom-metrics-monolith-mode.jpg" width=80% title="Katalyst Overview" loading="eager" />
+    <img src="/docs/imgs/custom-metrics-monolith-mode.jpg" width=80% title="Katalyst Overview" loading="eager" />
   </picture>
 </div>
 
@@ -127,7 +127,7 @@ Multi Store mode sacrifices some performance to win the most reliability, and is
 
 <div align="center">
   <picture>
-    <img src="custom-metrics-multi-store-mode.jpg" width=80% title="Katalyst Overview" loading="eager" />
+    <img src="/docs/imgs/custom-metrics-multi-store-mode.jpg" width=80% title="Katalyst Overview" loading="eager" />
   </picture>
 </div>
 
@@ -136,7 +136,7 @@ Sharing mode is the future work in case metric items are too large to be stored 
 
 <div align="center">
   <picture>
-    <img src="custom-metrics-sharding-mode.jpg" width=80% title="Katalyst Overview" loading="eager" />
+    <img src="/docs/imgs/custom-metrics-sharding-mode.jpg" width=80% title="Katalyst Overview" loading="eager" />
   </picture>
 </div>
 
