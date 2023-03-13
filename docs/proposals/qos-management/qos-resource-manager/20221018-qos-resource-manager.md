@@ -1,16 +1,15 @@
 ---
 title: QoS Resource Manager
-- authors:
+authors:
   - "csfldf"
-- reviewers:
+reviewers:
   - "waynepeking348"
   - "xuchen-xiaoying"
-- creation-date: 2022-10-18
-- last-updated:  2023-02-22
-- status: implemented
-- see-also:
-  - [qos-resource-manager-in-enhanced-kubernetes](https://github.com/kubewharf/enhanced-k8s/tree/70544afae9af1c7e1d129069e80f4eceb7d039f5/docs/design/qos-resource-manager)
-
+creation-date: 2022-10-18
+last-updated: 2023-02-22
+status: implemented
+see-also:
+  - "https://github.com/kubewharf/enhanced-k8s/tree/70544afae9af1c7e1d129069e80f4eceb7d039f5/docs/design/qos-resource-manager"
 ---
 
 # QoS Resource Manager
@@ -188,7 +187,7 @@ which is necessary to configure the QoS Resource Manger, is presented in this se
 
 ## Design Details
 
-![](./design-overview.png)
+![](/docs/imgs/qrm-design-overview.png)
 As shown in the figure above, QRM works as both a plugin handler added to kubelet plugin manager,
 and a hint provider for Topology Manager.
 
@@ -203,7 +202,7 @@ for a container.
 
 ### Detailed Working Flow
 
-![](./detailed-working-flow.png)
+![](/docs/imgs/qrm-detailed-working-flow.png)
 The figure below illustrates the workflow of QRM, including two major processes
 * the synchronous workflow of pod admission and resource allocation
 * and the asynchronous workflow of periodical resource adjustment

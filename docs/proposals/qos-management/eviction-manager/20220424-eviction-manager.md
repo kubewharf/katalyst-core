@@ -1,14 +1,14 @@
 ---
-- title: Katalyst Reporter Manager
-- authors:
-    - "csfldf"
-- reviewers:
-    - "waynepeking348"
-    - "luomingmeng"
-    - "caohe"
-- creation-date: 2022-04-24
-- last-updated: 2023-02-23
-- status: implemented
+title: Katalyst Reporter Manager
+authors:
+  - "csfldf"
+reviewers:
+  - "waynepeking348"
+  - "luomingmeng"
+  - "caohe"
+creation-date: 2022-04-24
+last-updated: 2023-02-23
+status: implemented
 ---
 
 <!-- toc -->
@@ -58,7 +58,7 @@ Compared with kubelet eviction manager static threshold strategy, katalyst evict
 ### Design Overview
 <div align="center">
   <picture>
-    <img src="eviction-manager-overview.png" width=80% title="Katalyst Overview" loading="eager" />
+    <img src="/docs/imgs/eviction-manager-overview.png" width=80% title="Katalyst Overview" loading="eager" />
   </picture>
 </div>
 
