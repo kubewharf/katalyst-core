@@ -578,7 +578,7 @@ func (p *DynamicPolicy) setMemoryMigrate() {
 				}
 
 				p.migratingMemory[podUID][containerName] = true
-				go func() {
+				go func(podUID, containerName string, cgData *common.CPUSetData) {
 					defer func() {
 						p.migrateMemoryLock.Lock()
 						delete(p.migratingMemory[podUID], containerName)
@@ -605,7 +605,7 @@ func (p *DynamicPolicy) setMemoryMigrate() {
 					}
 
 					klog.Infof("[MemoryDynamicPolicy.setMemoryMigrate] set cgroup memory migrate for pod: %s, container: %s(%s) successfully", podUID, containerName, containerId)
-				}()
+				}(podUID, containerName, cgData)
 			}
 		}
 	}
