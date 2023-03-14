@@ -85,6 +85,18 @@ clean-bin: ## Remove all generated binaries
 	rm -rf hack/tools/bin
 	rm -rf output
 
+.PHONY: fmt
+fmt: ## Run go fmt against code.
+	go fmt ./...
+
+.PHONY: vet
+vet: ## Run go vet against code.
+	go vet ./...
+
+.PHONY: test
+test: ## Run go vet against code.
+	go test -coverprofile coverage.out -covermode=atomic ./... -v
+
 
 ## --------------------------------------
 ## Build binaries and images
