@@ -17,6 +17,7 @@ limitations under the License.
 package canonical
 
 import (
+	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/klog/v2"
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
@@ -45,7 +46,7 @@ var (
 
 type CanonicalPolicy struct {
 	cpuRequirement float64
-	containerSet   map[string]map[string]struct{}
+	containerSet   map[string]sets.String
 	metaCache      *metacache.MetaCache
 }
 
@@ -56,12 +57,12 @@ func NewCanonicalPolicy(metaCache *metacache.MetaCache) *CanonicalPolicy {
 	return cp
 }
 
-func (p *CanonicalPolicy) SetContainerSet(containerSet map[string]map[string]struct{}) {
-	p.containerSet = make(map[string]map[string]struct{})
+func (p *CanonicalPolicy) SetContainerSet(containerSet map[string]sets.String) {
+	p.containerSet = make(map[string]sets.String)
 	for podUID, v := range containerSet {
-		p.containerSet[podUID] = make(map[string]struct{})
+		p.containerSet[podUID] = sets.NewString()
 		for containerName := range v {
-			p.containerSet[podUID][containerName] = struct{}{}
+			p.containerSet[podUID].Insert(containerName)
 		}
 	}
 }

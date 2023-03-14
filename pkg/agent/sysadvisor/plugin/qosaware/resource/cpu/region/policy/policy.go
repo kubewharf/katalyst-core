@@ -17,6 +17,8 @@ limitations under the License.
 package policy
 
 import (
+	"k8s.io/apimachinery/pkg/util/sets"
+
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource/cpu/region/policy/canonical"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource/cpu/region/policy/rama"
@@ -27,7 +29,7 @@ import (
 type Policy interface {
 	// SetContainerSet overwrites policy's container record, which is organized as
 	// map[podUID][containerName]
-	SetContainerSet(map[string]map[string]struct{})
+	SetContainerSet(map[string]sets.String)
 
 	// SetControlKnob updates current control knob for policy
 	SetControlKnob(types.ControlKnob)

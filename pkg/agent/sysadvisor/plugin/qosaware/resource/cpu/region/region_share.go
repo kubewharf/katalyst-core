@@ -45,42 +45,23 @@ var policyPriority = map[types.CPUAdvisorPolicyName]int{
 }
 
 type QoSRegionShare struct {
-	name          string
-	ownerPoolName string
-	regionType    QoSRegionType
-	regionPolicy  types.CPUAdvisorPolicyName
+	*QoSRegionBase
 
-	cpuLimit            int
-	reservePoolSize     int
-	reservedForAllocate int
-	containerSet        map[string]map[string]struct{} // map[podUID][containerName]
-	isInitialized       bool
+	isInitialized bool
 
 	// policy and calculator map for comparing and merging different policy results
 	policyMap     map[types.CPUAdvisorPolicyName]policy.Policy  // map[policyName]policy
 	calculatorMap map[types.CPUAdvisorPolicyName]*cpuCalculator // map[policyName]calculator
-
-	metaCache *metacache.MetaCache
-	emitter   metrics.MetricEmitter
 }
 
 // NewQoSRegionShare returns a share qos region instance
 func NewQoSRegionShare(name string, ownerPoolName string, regionType QoSRegionType, regionPolicy types.CPUAdvisorPolicyName,
 	conf *config.Configuration, metaCache *metacache.MetaCache, emitter metrics.MetricEmitter) QoSRegion {
 	r := &QoSRegionShare{
-		name:          name,
-		ownerPoolName: ownerPoolName,
-		regionType:    regionType,
-		regionPolicy:  regionPolicy,
-
-		containerSet:  make(map[string]map[string]struct{}),
+		QoSRegionBase: NewQoSRegionBase(name, ownerPoolName, regionType, regionPolicy, metaCache, emitter),
 		isInitialized: false,
-
 		policyMap:     make(map[types.CPUAdvisorPolicyName]policy.Policy),
 		calculatorMap: make(map[types.CPUAdvisorPolicyName]*cpuCalculator),
-
-		metaCache: metaCache,
-		emitter:   emitter,
 	}
 
 	// New canonical policy with calculator as default
@@ -104,47 +85,6 @@ func NewQoSRegionShare(name string, ownerPoolName string, regionType QoSRegionTy
 	}
 
 	return r
-}
-
-func (r *QoSRegionShare) Name() string {
-	return r.name
-}
-
-func (r *QoSRegionShare) OwnerPoolName() string {
-	return r.ownerPoolName
-}
-
-func (r *QoSRegionShare) Type() QoSRegionType {
-	return r.regionType
-}
-
-func (r *QoSRegionShare) IsEmpty() bool {
-	return len(r.containerSet) <= 0
-}
-
-func (r *QoSRegionShare) Clear() {
-	r.containerSet = make(map[string]map[string]struct{})
-}
-
-func (r *QoSRegionShare) AddContainer(podUID string, containerName string) {
-	v, ok := r.containerSet[podUID]
-	if !ok {
-		r.containerSet[podUID] = make(map[string]struct{})
-		v = r.containerSet[podUID]
-	}
-	v[containerName] = struct{}{}
-}
-
-func (r *QoSRegionShare) SetCPULimit(value int) {
-	r.cpuLimit = value
-}
-
-func (r *QoSRegionShare) SetReservePoolSize(value int) {
-	r.reservePoolSize = value
-}
-
-func (r *QoSRegionShare) SetReservedForAllocate(value int) {
-	r.reservedForAllocate = value
 }
 
 func (r *QoSRegionShare) TryUpdateControlKnob() {

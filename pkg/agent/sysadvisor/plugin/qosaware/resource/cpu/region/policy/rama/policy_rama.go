@@ -17,6 +17,8 @@ limitations under the License.
 package rama
 
 import (
+	"k8s.io/apimachinery/pkg/util/sets"
+
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
 )
@@ -32,7 +34,7 @@ func NewRamaPolicy(metaCache *metacache.MetaCache) *RamaPolicy {
 	return cp
 }
 
-func (p *RamaPolicy) SetContainerSet(containerSet map[string]map[string]struct{}) {
+func (p *RamaPolicy) SetContainerSet(containerSet map[string]sets.String) {
 }
 
 func (p *RamaPolicy) SetControlKnob(types.ControlKnob) {

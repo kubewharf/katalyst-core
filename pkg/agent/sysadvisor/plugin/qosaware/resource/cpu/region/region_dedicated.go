@@ -19,37 +19,7 @@ package region
 import "github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
 
 type QoSRegionDedicated struct {
-}
-
-func (r *QoSRegionDedicated) Name() string {
-	return ""
-}
-
-func (r *QoSRegionDedicated) OwnerPoolName() string {
-	return ""
-}
-
-func (r *QoSRegionDedicated) Type() QoSRegionType {
-	return QoSRegionTypeDedicated
-}
-
-func (r *QoSRegionDedicated) IsEmpty() bool {
-	return true
-}
-
-func (r *QoSRegionDedicated) Clear() {
-}
-
-func (r *QoSRegionDedicated) AddContainer(podUID string, containerName string) {
-}
-
-func (r *QoSRegionDedicated) SetCPULimit(value int) {
-}
-
-func (r *QoSRegionDedicated) SetReservePoolSize(value int) {
-}
-
-func (r *QoSRegionDedicated) SetReservedForAllocate(value int) {
+	*QoSRegionBase
 }
 
 func (r *QoSRegionDedicated) TryUpdateControlKnob() {
