@@ -1,0 +1,58 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+    types: [ opened, edited, reopened, synchronize ]
+
+jobs:
+  lint:
+    name: Lint
+    runs-on: ubuntu-20.04
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/setup-go@v3
+        with:
+          go-version-file: go.mod
+      - name: Check Go modules
+        run: |
+          go mod tidy && git add go.* &&
+          git diff --cached --exit-code || (echo 'Please run "go mod tidy" to sync Go modules' && exit 1);
+      - name: Verify gofmt
+        run: |
+          make fmt && git add pkg cmd &&
+          git diff --cached --exit-code || (echo 'Please run "make fmt" to verify gofmt' && exit 1);
+      # TODO: enable the vet check once the existing vet issues have been resolved.
+      #      - name: Verify govet
+      #        run: |
+      #          make vet && git add pkg cmd &&
+      #          git diff --cached --exit-code || (echo 'Please run "make vet" to verify govet' && exit 1);
+      # TODO: enable the lint check once the existing lint issues have been resolved.
+      #      - uses: golangci/golangci-lint-action@v3
+      #        with:
+      #          args: --verbose --timeout 5m
+      #          version: v1.47.3
+
+  build:
+    name: Build
+    runs-on: ubuntu-20.04
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/setup-go@v3
+        with:
+          go-version-file: go.mod
+      - name: Build
+        run: make all-binaries
+
+  unit-test:
+    name: Unit Test
+    runs-on: ubuntu-20.04
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/setup-go@v3
+        with:
+          go-version-file: go.mod
+      - name: Coverage
+        run: sudo make test

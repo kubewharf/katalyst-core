@@ -9,7 +9,6 @@ on:
   push:
     branches: [ 'master', 'main', 'release-*' ]
     # Publish semver tags as releases.
-  pull_request: {}
   release:
     types: [ 'published' ]
 
@@ -76,12 +75,6 @@ jobs:
         if: ${{ github.event_name == 'release' }}
         run: echo "IMAGE_TAG=${GITHUB_REF#refs/*/}" >> $GITHUB_ENV
 
-      # For pull requests use ${repo_sha} as image tag
-      - name: Set image tag for pr
-        id: image-tag-pr
-        if: ${{ github.event_name == 'pull_request' }}
-        run: echo "IMAGE_TAG=${GITHUB_SHA}" >> $GITHUB_ENV
-
       # Build and push Docker image with Buildx (don't push on PR)
       # https://github.com/docker/build-push-action
       - name: Build and push Docker image
@@ -91,7 +84,7 @@ jobs:
           context: .
           platforms: linux/amd64,linux/arm64
           file: build/dockerfiles/Dockerfile
-          push: ${{ github.event_name != 'pull_request' }}
+          push: true
           build-args: |
             BINARY=${{ matrix.target }}
           tags: |
