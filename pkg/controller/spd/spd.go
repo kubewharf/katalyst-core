@@ -120,17 +120,14 @@ func NewSPDController(ctx context.Context, controlCtx *katalystbase.GenericConte
 	spdController.spdLister = spdInformer.Lister()
 	spdController.syncedFunc = append(spdController.syncedFunc, spdInformer.Informer().HasSynced)
 
-	workloadInformerMap, err := native.MakeWorkloadInformers(generalConf.DynamicGVResources, controlCtx.Mapper, controlCtx.DynamicInformerFactory)
-	if err != nil {
-		return nil, err
-	}
-	for _, wf := range workloadInformerMap {
-		spdController.workloadLister[*wf.GVR] = wf.Informer.Lister()
+	workloadInformers := controlCtx.DynamicResourcesManager.GetDynamicInformers()
+	for _, wf := range workloadInformers {
+		spdController.workloadLister[wf.GVR] = wf.Informer.Lister()
 		spdController.syncedFunc = append(spdController.syncedFunc, wf.Informer.Informer().HasSynced)
 	}
 
 	for _, workload := range conf.SPDWorkloadGVResources {
-		wf, ok := workloadInformerMap[workload]
+		wf, ok := workloadInformers[workload]
 		if !ok {
 			return nil, fmt.Errorf("spd concerned workload %s not found in dynamic GVR resources", workload)
 		}

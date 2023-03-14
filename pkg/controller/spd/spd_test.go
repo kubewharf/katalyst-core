@@ -37,6 +37,8 @@ import (
 	katalystbase "github.com/kubewharf/katalyst-core/cmd/base"
 	"github.com/kubewharf/katalyst-core/pkg/config/controller"
 	indicator_plugin "github.com/kubewharf/katalyst-core/pkg/controller/spd/indicator-plugin"
+	"k8s.io/apimachinery/pkg/api/meta"
+	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 )
 
 var (
@@ -291,6 +293,18 @@ func TestIndicatorUpdater(t *testing.T) {
 			},
 		},
 	}
+	scheme := runtime.NewScheme()
+	utilruntime.Must(appsv1.AddToScheme(scheme))
+
+	knownTypes := scheme.AllKnownTypes()
+	kindtogrv := make(map[schema.GroupVersionKind]schema.GroupVersionResource)
+	for kind := range knownTypes {
+		plural, _ := meta.UnsafeGuessKindToResource(kind)
+		kindtogrv[kind] = plural
+	}
+
+	t.Logf("debug gvk: %v", workload.GroupVersionKind())
+	t.Logf("debug gvr: %v", kindtogrv[workload.GroupVersionKind()].Resource+"."+kindtogrv[workload.GroupVersionKind()].Group+"."+kindtogrv[workload.GroupVersionKind()].Version)
 
 	spd := &apiworkload.ServiceProfileDescriptor{
 		ObjectMeta: metav1.ObjectMeta{

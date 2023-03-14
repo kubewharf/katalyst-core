@@ -240,9 +240,6 @@ func TestMutatePod(t *testing.T) {
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			controlCtx, err := katalystbase.GenerateFakeGenericContext(nil, nil, nil)
-			assert.NoError(t, err)
-
 			genericConf := webhookconfig.NewGenericWebhookConfiguration()
 			genericConf.DynamicGVResources = []string{
 				"statefulsets.v1.apps",
@@ -250,8 +247,10 @@ func TestMutatePod(t *testing.T) {
 				"deployments.v1.apps",
 			}
 
-			workloadInformers, err := native.MakeWorkloadInformers(genericConf.DynamicGVResources, controlCtx.Mapper, controlCtx.DynamicInformerFactory)
+			controlCtx, err := katalystbase.GenerateFakeGenericContext(nil, nil, []runtime.Object{tc.object})
 			assert.NoError(t, err)
+
+			workloadInformers := controlCtx.DynamicResourcesManager.GetDynamicInformers()
 
 			u, err := native.ToUnstructured(tc.object)
 			assert.NoError(t, err)

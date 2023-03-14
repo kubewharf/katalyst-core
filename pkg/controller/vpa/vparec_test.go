@@ -27,7 +27,6 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/client-go/restmapper"
 	"k8s.io/client-go/tools/cache"
 	cliflag "k8s.io/component-base/cli/flag"
 	"k8s.io/utils/pointer"
@@ -160,6 +159,10 @@ func TestVPARecControllerSyncVPA(t *testing.T) {
 				},
 			},
 			object: &appsv1.StatefulSet{
+				TypeMeta: metav1.TypeMeta{
+					Kind:       "StatefulSet",
+					APIVersion: "apps/v1",
+				},
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "sts1",
 					Namespace: "default",
@@ -289,6 +292,10 @@ func TestVPARecControllerSyncVPA(t *testing.T) {
 				},
 			},
 			object: &appsv1.StatefulSet{
+				TypeMeta: metav1.TypeMeta{
+					Kind:       "StatefulSet",
+					APIVersion: "apps/v1",
+				},
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "sts1",
 					Namespace: "default",
@@ -315,18 +322,13 @@ func TestVPARecControllerSyncVPA(t *testing.T) {
 			vpaOptions.AddFlags(fss)
 			vpaConf := controller.NewVPAConfig()
 			vpaOptions.ApplyTo(vpaConf)
-			controlCtx, err := katalystbase.GenerateFakeGenericContext(nil, []runtime.Object{tc.vpaOld}, nil)
+			controlCtx, err := katalystbase.GenerateFakeGenericContext(nil, []runtime.Object{tc.vpaOld}, []runtime.Object{tc.object})
 			assert.NoError(t, err)
 
-			apiResources, err := restmapper.GetAPIGroupResources(controlCtx.Client.DiscoveryClient)
-			assert.NoError(t, err)
-			mapper := restmapper.NewDiscoveryRESTMapper(apiResources)
 			vparec, err := NewVPARecommendationController(context.TODO(), controlCtx, vpaConf, generalConf)
 			assert.NoError(t, err)
 
-			workloadInformers, err := native.MakeWorkloadInformers(
-				generalConf.DynamicGVResources, mapper, controlCtx.DynamicInformerFactory)
-			assert.NoError(t, err)
+			workloadInformers := controlCtx.DynamicResourcesManager.GetDynamicInformers()
 			u, err := native.ToUnstructured(tc.object)
 			assert.NoError(t, err)
 			err = workloadInformers["statefulsets.v1.apps"].Informer.Informer().GetStore().Add(u)

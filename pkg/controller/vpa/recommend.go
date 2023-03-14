@@ -129,12 +129,8 @@ func NewResourceRecommendController(ctx context.Context, controlCtx *katalystbas
 		vpaSyncWorkers: config.VPASyncWorkers,
 	}
 
-	workloadInformerMap, err := native.MakeWorkloadInformers(generalConf.DynamicGVResources, controlCtx.Mapper, controlCtx.DynamicInformerFactory)
-	if err != nil {
-		return nil, err
-	}
-	for _, wf := range workloadInformerMap {
-		recController.workloadLister[*wf.GVK] = wf.Informer.Lister()
+	for _, wf := range controlCtx.DynamicResourcesManager.GetDynamicInformers() {
+		recController.workloadLister[wf.GVK] = wf.Informer.Lister()
 		recController.syncedFunc = append(recController.syncedFunc, wf.Informer.Informer().HasSynced)
 	}
 

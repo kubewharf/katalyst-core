@@ -474,6 +474,10 @@ func TestVPAControllerSyncPod(t *testing.T) {
 				},
 			},
 			object: &appsv1.StatefulSet{
+				TypeMeta: metav1.TypeMeta{
+					Kind:       "StatefulSet",
+					APIVersion: "apps/v1",
+				},
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "sts1",
 					Namespace: "default",

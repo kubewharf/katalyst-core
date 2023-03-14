@@ -129,34 +129,20 @@ func NewVPAController(ctx context.Context, controlCtx *katalyst_base.GenericCont
 		},
 	}
 
-	workloadInformerMap, err := native.MakeWorkloadInformers(generalConf.DynamicGVResources, controlCtx.Mapper, controlCtx.DynamicInformerFactory)
-	if err != nil {
-		return nil, err
-	}
-	for _, wf := range workloadInformerMap {
-		vpaController.workloadLister[*wf.GVK] = wf.Informer.Lister()
+	workloadInformers := controlCtx.DynamicResourcesManager.GetDynamicInformers()
+	for _, wf := range workloadInformers {
+		vpaController.workloadLister[wf.GVK] = wf.Informer.Lister()
 		vpaController.syncedFunc = append(vpaController.syncedFunc, wf.Informer.Informer().HasSynced)
 	}
 
 	for _, workload := range vpaConf.VPAWorkloadGVResources {
-		gvr, _ := schema.ParseResourceArg(workload)
-		if gvr == nil {
-			return nil, fmt.Errorf("ParseResourceArg worload %v failed", workload)
-		}
-
-		gvk, err := controlCtx.Mapper.KindFor(*gvr)
-		if err != nil {
-			return nil, fmt.Errorf("find for %v failed, err %v", gvr.String(), err)
-		}
-
-		vpaController.vpaEnabledWorkload[gvk] = struct{}{}
-	}
-
-	for _, workload := range vpaConf.VPAWorkloadGVResources {
-		wf, ok := workloadInformerMap[workload]
+		wf, ok := workloadInformers[workload]
 		if !ok {
-			return nil, fmt.Errorf("vpa concerned workload %s not found in dynamic GVR resources", workload)
+			klog.Errorf("vpa concerned workload %s not found in dynamic GVR resources", workload)
+			continue
 		}
+
+		vpaController.vpaEnabledWorkload[wf.GVK] = struct{}{}
 		wf.Informer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
 			AddFunc:    vpaController.addWorkload,
 			UpdateFunc: vpaController.updateWorkload,

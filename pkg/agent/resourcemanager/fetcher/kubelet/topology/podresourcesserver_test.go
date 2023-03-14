@@ -594,13 +594,9 @@ func Test_podResourcesServerTopologyAdapterImpl_GetNumaTopologyStatus(t *testing
 		allocatableResources *podresv1.AllocatableResourcesResponse
 		numaToSocketMap      map[int]int
 	}
-	type args struct {
-		ctx context.Context
-	}
 	tests := []struct {
 		name    string
 		fields  fields
-		args    args
 		want    *nodev1alpha1.TopologyStatus
 		wantErr bool
 	}{
@@ -1173,7 +1169,7 @@ func Test_podResourcesServerTopologyAdapterImpl_GetNumaTopologyStatus(t *testing
 				},
 				numaToSocketMap: tt.fields.numaToSocketMap,
 			}
-			got, err := p.GetNumaTopologyStatus(tt.args.ctx)
+			got, err := p.GetNumaTopologyStatus(context.TODO())
 			if (err != nil) != tt.wantErr {
 				t.Errorf("GetNumaTopologyStatus() error = %v, wantErr %v", err, tt.wantErr)
 				return

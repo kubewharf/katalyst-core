@@ -37,7 +37,6 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util"
-	"github.com/kubewharf/katalyst-core/pkg/util/native"
 )
 
 const podWebhookName = "pod"
@@ -115,12 +114,9 @@ func NewWebhookPod(
 		mutators: []WebhookPodMutator{},
 	}
 
-	workloadInformerMap, err := native.MakeWorkloadInformers(generic.DynamicGVResources, webhookCtx.Mapper, webhookCtx.DynamicInformerFactory)
-	if err != nil {
-		return nil, nil, err
-	}
-	for _, wf := range workloadInformerMap {
-		wp.workloadLister[*wf.GVK] = wf.Informer.Lister()
+	workloadInformers := webhookCtx.DynamicResourcesManager.GetDynamicInformers()
+	for _, wf := range workloadInformers {
+		wp.workloadLister[wf.GVK] = wf.Informer.Lister()
 		wp.syncedFunc = append(wp.syncedFunc, wf.Informer.Informer().HasSynced)
 	}
 

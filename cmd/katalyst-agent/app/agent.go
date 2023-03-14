@@ -53,7 +53,7 @@ func Run(opt *options.Options, genericOptions ...katalystbase.GenericOptions) er
 	// Set up signals so that we handle the first shutdown signal gracefully.
 	ctx := process.SetupSignalHandler()
 
-	baseCtx, err := katalystbase.NewGenericContext(clientSet, "", AgentsDisabledByDefault,
+	baseCtx, err := katalystbase.NewGenericContext(clientSet, "", nil, AgentsDisabledByDefault,
 		conf.GenericConfiguration, consts.KatalystComponentAgent)
 	if err != nil {
 		return err

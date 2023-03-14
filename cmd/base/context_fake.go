@@ -18,6 +18,7 @@ package katalyst_base
 
 import (
 	"fmt"
+	"reflect"
 	"strconv"
 
 	"github.com/pkg/errors"
@@ -43,12 +44,13 @@ import (
 	externalfake "github.com/kubewharf/katalyst-api/pkg/client/clientset/versioned/fake"
 	"github.com/kubewharf/katalyst-core/pkg/client"
 	"github.com/kubewharf/katalyst-core/pkg/config/generic"
+	"github.com/kubewharf/katalyst-core/pkg/util/native"
 )
 
 func nilObjectFilter(object []runtime.Object) []runtime.Object {
 	objects := make([]runtime.Object, 0)
 	for _, o := range object {
-		if o.DeepCopyObject() == nil {
+		if reflect.ValueOf(o).IsNil() {
 			continue
 		}
 		objects = append(objects, o)
@@ -248,6 +250,13 @@ func GenerateFakeGenericContext(objects ...[]runtime.Object) (*GenericContext, e
 		DiscoveryClient: fakeDiscoveryClient,
 	}
 
-	controlCtx, err := NewGenericContext(&clientSet, "", sets.NewString(), &generic.GenericConfiguration{}, "")
+	var dynamicResources []string
+	for _, o := range nilObjectFilter(dynamicObjects) {
+		gvr, _ := meta.UnsafeGuessKindToResource(o.GetObjectKind().GroupVersionKind())
+		dynamicResources = append(dynamicResources, native.GenerateDynamicResourceByGVR(gvr))
+	}
+
+	controlCtx, err := NewGenericContext(&clientSet, "", dynamicResources,
+		sets.NewString(), &generic.GenericConfiguration{}, "")
 	return controlCtx, err
 }

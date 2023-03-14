@@ -38,6 +38,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	metricspool "github.com/kubewharf/katalyst-core/pkg/metrics/metrics-pool"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
+	"github.com/kubewharf/katalyst-core/pkg/util/native"
 	"github.com/kubewharf/katalyst-core/pkg/util/process"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
@@ -69,7 +70,7 @@ type GenericContext struct {
 	KubeInformerFactory     informers.SharedInformerFactory
 	InternalInformerFactory externalversions.SharedInformerFactory
 	DynamicInformerFactory  dynamicinformer.DynamicSharedInformerFactory
-	Mapper                  *dynamicmapper.RegeneratingDiscoveryRESTMapper
+	DynamicResourcesManager *native.DynamicResourcesManager
 
 	// DisabledByDefault is the set of components which is disabled by default
 	DisabledByDefault sets.String
@@ -78,6 +79,7 @@ type GenericContext struct {
 func NewGenericContext(
 	clientSet *client.GenericClientSet,
 	labelSelector string,
+	dynamicResources []string,
 	disabledByDefault sets.String,
 	genericConf *generic.GenericConfiguration,
 	component consts.KatalystComponent,
@@ -89,6 +91,7 @@ func NewGenericContext(
 		internalInformerFactory externalversions.SharedInformerFactory
 		dynamicInformerFactory  dynamicinformer.DynamicSharedInformerFactory
 		mapper                  *dynamicmapper.RegeneratingDiscoveryRESTMapper
+		dynamicResourceManager  *native.DynamicResourcesManager
 	)
 
 	// agent no need initialize informer
@@ -117,6 +120,12 @@ func NewGenericContext(
 		if err != nil {
 			return nil, err
 		}
+
+		dynamicResourceManager, err = native.NewDynamicResourcesManager(dynamicResources, mapper, dynamicInformerFactory)
+		if err != nil {
+			return nil, err
+		}
+
 		if component == consts.KatalystComponentMetric {
 			clientSet.BuildMetricClient(mapper)
 		}
@@ -151,7 +160,7 @@ func NewGenericContext(
 		BroadcastAdapter:        broadcastAdapter,
 		Client:                  clientSet,
 		EmitterPool:             metricspool.NewCustomMetricsEmitterPool(emitterPool),
-		Mapper:                  mapper,
+		DynamicResourcesManager: dynamicResourceManager,
 	}
 
 	// add profiling and health check http paths listening on generic endpoint
@@ -202,8 +211,8 @@ func (c *GenericContext) StartInformer(ctx context.Context) {
 		c.DynamicInformerFactory.Start(ctx.Done())
 	}
 
-	if c.Mapper != nil {
-		c.Mapper.RunUntil(ctx.Done())
+	if c.DynamicResourcesManager != nil {
+		c.DynamicResourcesManager.Run(ctx)
 	}
 }
 

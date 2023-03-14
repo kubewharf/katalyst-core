@@ -57,7 +57,7 @@ func GenerateUniqGVRNameKey(gvr string, workload metav1.Object) (string, error) 
 	return gvr + "/" + key, nil
 }
 
-// ParseUniqGVRNameKey parse the given key into GPR and namespace/name
+// ParseUniqGVRNameKey parse the given key into GVR and namespace/name
 func ParseUniqGVRNameKey(key string) (gvr string, namespace string, name string, err error) {
 	names := strings.Split(key, "/")
 	if len(names) != 3 {
@@ -65,6 +65,12 @@ func ParseUniqGVRNameKey(key string) (gvr string, namespace string, name string,
 	}
 
 	return names[0], names[1], names[2], nil
+}
+
+// GenerateDynamicResourceByGVR generates dynamic resource by given gvr, the format is such as `resource.version.group`,
+// which can be input of ParseResourceArg
+func GenerateDynamicResourceByGVR(gvr schema.GroupVersionResource) string {
+	return fmt.Sprintf("%s.%s.%s", gvr.Resource, gvr.Version, gvr.Group)
 }
 
 // ObjectOwnerReferenceIndex is used by informer to index a resource by owner
