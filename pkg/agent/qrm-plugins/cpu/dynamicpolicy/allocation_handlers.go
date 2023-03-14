@@ -26,10 +26,12 @@ import (
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 
 	apiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/calculator"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
+	qosutil "github.com/kubewharf/katalyst-core/pkg/util/qos"
 )
 
 func (p *DynamicPolicy) sharedCoresAllocationHandler(ctx context.Context,
@@ -273,7 +275,7 @@ func (p *DynamicPolicy) dedicatedCoresWithNUMABindingAllocationHandler(ctx conte
 		return nil, fmt.Errorf("getReqQuantityFromResourceReq failed with error: %v", err)
 	}
 
-	result, err := p.allocateCPUs(reqInt, req.Hint, machineState)
+	result, err := p.allocateCPUs(reqInt, req.Hint, machineState, req.Annotations)
 	if err != nil {
 		klog.ErrorS(err, "[CPUDynamicPolicy.dedicatedCoresWithNUMABindingAllocationHandler] Unable to allocate CPUs",
 			"podNamespace", req.PodNamespace, "podName", req.PodName, "containerName", req.ContainerName, "numCPUs", reqInt)
@@ -430,29 +432,54 @@ func (p *DynamicPolicy) dedicatedCoresWithNUMABindingAllocationSidecarHandler(ct
 }
 
 func (p *DynamicPolicy) allocateCPUs(numCPUs int, hint *pluginapi.TopologyHint,
-	machineState state.NUMANodeMap) (machine.CPUSet, error) {
+	machineState state.NUMANodeMap,
+	reqAnnotations map[string]string) (machine.CPUSet, error) {
 
 	if hint == nil {
 		return machine.NewCPUSet(), fmt.Errorf("hint is nil")
 	} else if len(hint.Nodes) == 0 {
 		return machine.NewCPUSet(), fmt.Errorf("hint is empty")
+	} else if qosutil.AnnotationsIndicateNUMABinding(reqAnnotations) &&
+		!qosutil.AnnotationsIndicateNUMAExclusive(reqAnnotations) &&
+		len(hint.Nodes) > 1 {
+		return machine.NewCPUSet(), fmt.Errorf("NUMA not exclusive binding container has request larger than 1 NUMA")
 	}
 
 	result := machine.NewCPUSet()
+
 	alignedAvailableCPUs := machine.CPUSet{}
 	for _, numaNode := range hint.Nodes {
 		alignedAvailableCPUs = alignedAvailableCPUs.Union(machineState[int(numaNode)].GetAvailableCPUSet(p.reservedCPUs))
 	}
 
-	// todo: currently we hack dedicated_cores with NUMA binding take up whole NUMA,
-	//  and we will modify strategy here if assumption above breaks.
-	alignedCPUs := alignedAvailableCPUs.Clone()
+	var alignedCPUs machine.CPUSet
+
+	if qosutil.AnnotationsIndicateNUMABinding(reqAnnotations) &&
+		qosutil.AnnotationsIndicateNUMAExclusive(reqAnnotations) {
+		// todo: currently we hack dedicated_cores with NUMA binding take up whole NUMA,
+		//  and we will modify strategy here if assumption above breaks.
+		alignedCPUs = alignedAvailableCPUs.Clone()
+	} else {
+		var err error
+		alignedCPUs, err = calculator.TakeByTopology(p.machineInfo, alignedAvailableCPUs, numCPUs)
+
+		klog.ErrorS(err, "[CPUDynamicPolicy.allocateCPUs] take cpu for NUMA not exclusive binding container failed",
+			"hints", hint.Nodes,
+			"alignedAvailableCPUs", alignedAvailableCPUs.String())
+
+		if err != nil {
+			return machine.NewCPUSet(),
+				fmt.Errorf("take cpu for NUMA not exclusive binding container failed with err: %v", err)
+		}
+	}
 
 	klog.InfoS("[CPUDynamicPolicy.allocateCPUs] allocate by hints",
 		"hints", hint.Nodes,
 		"alignedAvailableCPUs", alignedAvailableCPUs.String(),
 		"alignedAllocatedCPUs", alignedCPUs)
 
+	// currently result equals to alignedCPUs,
+	// maybe extend cpus not aligned to meet requirement later
 	result = result.Union(alignedCPUs)
 
 	leftNumCPUs := numCPUs - result.Size()

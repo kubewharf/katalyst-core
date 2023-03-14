@@ -31,10 +31,17 @@ func IsPodNumaBinding(qosConf *generic.QoSConfiguration, pod *v1.Pod) bool {
 	}
 
 	memoryEnhancement := ParseKatalystQOSEnhancement(qosConf.GetQoSEnhancementsForPod(pod), consts.PodAnnotationMemoryEnhancementKey)
-	numaBinding, ok := memoryEnhancement[consts.PodAnnotationMemoryEnhancementNumaBinding]
-	if ok && numaBinding == consts.PodAnnotationMemoryEnhancementNumaBindingEnable {
-		return true
-	}
 
-	return false
+	return AnnotationsIndicateNUMABinding(memoryEnhancement)
+}
+
+func AnnotationsIndicateNUMABinding(annotations map[string]string) bool {
+	return annotations[consts.PodAnnotationMemoryEnhancementNumaBinding] ==
+		consts.PodAnnotationMemoryEnhancementNumaBindingEnable
+}
+
+func AnnotationsIndicateNUMAExclusive(annotations map[string]string) bool {
+	return AnnotationsIndicateNUMABinding(annotations) &&
+		annotations[consts.PodAnnotationMemoryEnhancementNumaExclusive] ==
+			consts.PodAnnotationMemoryEnhancementNumaExclusiveEnable
 }

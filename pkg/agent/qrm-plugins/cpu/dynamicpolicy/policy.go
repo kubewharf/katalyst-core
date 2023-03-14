@@ -120,6 +120,10 @@ type DynamicPolicy struct {
 }
 
 func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration, _ interface{}, agentName string) (bool, agent.Component, error) {
+	if agentCtx.KatalystMachineInfo == nil {
+		return false, agent.ComponentStub{}, fmt.Errorf("new cpu plugin dynamic policy got nil agentCtx.KatalystMachineInfo")
+	}
+
 	allCPUs := agentCtx.CPUDetails.CPUs().Clone()
 	reservedCPUsNum := conf.ReservedCPUCores
 
