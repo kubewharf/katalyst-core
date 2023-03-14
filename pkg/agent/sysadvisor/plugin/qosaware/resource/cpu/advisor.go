@@ -20,76 +20,85 @@ import (
 	"fmt"
 	"time"
 
+	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
+	"k8s.io/apimachinery/pkg/util/errors"
+	"k8s.io/apimachinery/pkg/util/uuid"
 	"k8s.io/klog/v2"
 
+	"github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
-	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/util"
+	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource/cpu/region"
+	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
+	"github.com/kubewharf/katalyst-core/pkg/util/general"
 )
+
+// todo:
+// 1. assign non shared containers to their regions
+// 2. assign shared containers with different cpu enhancement to different share regions
+// 3. support isolating bursting containers to isolation regions
 
 const (
 	cpuResourceAdvisorName string = "cpu-resource-advisor"
 
-	minSharePoolCPURequirement   int           = 4
-	minReclaimPoolCPURequirement int           = 4
-	maxRampUpStep                float64       = 10
-	maxRampDownStep              float64       = 2
-	minRampDownPeriod            time.Duration = 30 * time.Second
-
 	startUpPeriod time.Duration = 30 * time.Second
 )
 
-// CPUProvision is the internal data structure for pushing minimal provision result to cpu server.
-// todo: update this when switching to multi qos region.
+// CPUProvision is the internal data structure for conveying minimal provision result
+// to cpu server
 type CPUProvision struct {
 	// [poolName][numaId]cores
 	PoolSizeMap map[string]map[int]resource.Quantity
 }
 
-// cpuResourceAdvisor is the entrance of updating cpu resource provision advice for all possible
-// regions(pools). For each region(pool) maintained, there will be corresponding cpu calculators
-// (if needed) with smart algorithm policy to give realtime resource provision advice. Temporary
-// only support updating for share pool resource, but it's easy to extend to multi regions(pools).
-// todo: support multi qos region.
+// cpuResourceAdvisor is the entrance of updating cpu resource provision advice for
+// all qos regions, and merging them into cpu provision result to notify cpu server.
+// Smart algorithms and calculators could be adopted to give accurate realtime resource
+// provision hint for each region.
 type cpuResourceAdvisor struct {
-	name           string
-	cpuLimitSystem int
-	startTime      time.Time
-	isReady        bool
-	isInitialized  bool
+	name                string
+	policy              types.CPUAdvisorPolicyName
+	startTime           time.Time
+	cpuLimitSystem      int
+	reservedForAllocate int
 
-	calculator *cpuCalculator
-	advisorCh  chan CPUProvision
+	regionMap          map[string]region.QoSRegion              // map[regionName]region
+	containerRegionMap map[string]map[string][]region.QoSRegion // map[podUID][containerName]regions
+	poolRegionMap      map[string][]region.QoSRegion            // map[poolName]regions
+	advisorCh          chan CPUProvision
 
+	conf      *config.Configuration
 	metaCache *metacache.MetaCache
 	emitter   metrics.MetricEmitter
 }
 
-// NewCPUResourceAdvisor returns a cpuResourceAdvisor instance with cpu calculator
+// NewCPUResourceAdvisor returns a cpuResourceAdvisor instance
 func NewCPUResourceAdvisor(conf *config.Configuration, metaCache *metacache.MetaCache,
 	metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter) (*cpuResourceAdvisor, error) {
 	cra := &cpuResourceAdvisor{
 		name:           cpuResourceAdvisorName,
-		cpuLimitSystem: metaServer.NumCPUs,
+		policy:         types.CPUAdvisorPolicyName(conf.CPUAdvisorConfiguration.CPUAdvisorPolicy),
 		startTime:      time.Now(),
-		isReady:        false,
-		isInitialized:  false,
-		advisorCh:      make(chan CPUProvision),
-		metaCache:      metaCache,
-		emitter:        emitter,
+		cpuLimitSystem: metaServer.NumCPUs,
+
+		regionMap:          make(map[string]region.QoSRegion),
+		containerRegionMap: make(map[string]map[string][]region.QoSRegion),
+		poolRegionMap:      make(map[string][]region.QoSRegion),
+		advisorCh:          make(chan CPUProvision),
+
+		conf:      conf,
+		metaCache: metaCache,
+		emitter:   emitter,
 	}
 
-	// New cpu calculator instance
-	calculator, err := newCPUCalculator(conf, metaCache, maxRampUpStep, maxRampDownStep, minRampDownPeriod)
-	if err != nil {
-		return nil, err
-	}
+	// todo: support dynamic reserved resource
+	reserved := conf.ReclaimedResourceConfiguration.ReservedResourceForAllocate[v1.ResourceCPU]
+	cra.reservedForAllocate = int(reserved.Value())
 
-	cra.calculator = calculator
 	return cra, nil
 }
 
@@ -98,58 +107,63 @@ func (cra *cpuResourceAdvisor) Name() string {
 }
 
 func (cra *cpuResourceAdvisor) Update() {
-	// Skip update during startup
-	if time.Now().Before(cra.startTime.Add(startUpPeriod)) {
-		klog.Infof("[qosaware-cpu] starting up")
-		return
-	}
-
 	// Check if essential pool info exists. Skip update if not in which case sysadvisor
 	// is ignorant of pools and containers
-	reservePoolSize, err := cra.getPoolSize(state.PoolNameReserve)
-	if err != nil {
-		klog.Warningf("[qosaware-cpu] skip update. %v", err)
+	reservePoolSize, ok := cra.metaCache.GetPoolSize(state.PoolNameReserve)
+	if !ok {
+		klog.Warningf("[qosaware-cpu] skip update: reserve pool not exist")
 		return
 	}
 
-	// Update min/max cpu requirement settings
-	cra.calculator.setMinCPURequirement(minSharePoolCPURequirement)
-	cra.calculator.setMaxCPURequirement(cra.cpuLimitSystem - reservePoolSize - minReclaimPoolCPURequirement)
-	cra.calculator.setTotalCPURequirement(cra.cpuLimitSystem - reservePoolSize)
+	// Assign containers to regions
+	if err := cra.assignContainersToRegions(); err != nil {
+		klog.Errorf("[qosaware-cpu] skip update: %v", err)
+		return
+	}
+	klog.Infof("[qosaware-cpu] region map: %v", general.ToString(cra.regionMap))
 
-	// Set initial cpu requirement
-	if !cra.isInitialized {
-		if sharePoolSize, err := cra.getPoolSize(state.PoolNameShare); err == nil {
-			cra.calculator.setLastestCPURequirement(sharePoolSize)
-			klog.Infof("[qosaware-cpu] set initial cpu requirement %v", sharePoolSize)
+	// Run an episode of policy update for each region
+	for _, r := range cra.regionMap {
+		// Set essentials for regions
+		if r.Type() == region.QoSRegionTypeShare {
+			r.SetCPULimit(cra.cpuLimitSystem)
+			r.SetReservedForAllocate(cra.reservedForAllocate)
+			r.SetReservePoolSize(reservePoolSize)
+		} else if r.Type() == region.QoSRegionTypeDedicatedNuma {
+			// todo
 		}
-		cra.isInitialized = true
+
+		r.TryUpdateControlKnob()
 	}
 
-	// Calculate
-	cra.calculator.update()
-	sharePoolCPURequirement := cra.calculator.getCPURequirement()
-	reclaimPoolCPURequirement := cra.calculator.getCPURequirementReclaimed()
+	// Skip notifying cpu server during startup
+	if time.Now().Before(cra.startTime.Add(startUpPeriod)) {
+		klog.Infof("[qosaware-cpu] skip notifying cpu server: starting up")
+		return
+	}
+
+	// Generate internal calculation result.
+	// Must make sure pool names from cpu provision following qrm definition;
+	// numa ID set as -1 means no numa-preference is needed.
+	provision := CPUProvision{
+		PoolSizeMap: map[string]map[int]resource.Quantity{},
+	}
+
+	for _, r := range cra.regionMap {
+		c := r.GetControlKnobUpdated()
+
+		if r.Type() == region.QoSRegionTypeShare {
+			sharePoolSize := c[types.ControlKnobCPUSetSize].Value
+			provision.PoolSizeMap[state.PoolNameShare] = make(map[int]resource.Quantity)
+			provision.PoolSizeMap[state.PoolNameShare][-1] = *resource.NewQuantity(int64(sharePoolSize), resource.DecimalSI)
+		} else if r.Type() == region.QoSRegionTypeDedicatedNuma {
+			// todo
+		}
+	}
 
 	// Notify cpu server
-	cpuProvision := CPUProvision{
-		// Must make sure pool names from cpu provision following qrm definition;
-		// numa ID set as -1 means no numa-preference is needed
-		PoolSizeMap: map[string]map[int]resource.Quantity{
-			state.PoolNameReserve: {
-				-1: *resource.NewQuantity(int64(reservePoolSize), resource.DecimalSI),
-			},
-			state.PoolNameShare: {
-				-1: *resource.NewQuantity(int64(sharePoolCPURequirement), resource.DecimalSI),
-			},
-			state.PoolNameReclaim: {
-				-1: *resource.NewQuantity(int64(reclaimPoolCPURequirement), resource.DecimalSI),
-			},
-		},
-	}
-	cra.advisorCh <- cpuProvision
-	cra.isReady = true
-	klog.Infof("[qosaware-cpu] update channel: %+v", cpuProvision)
+	cra.advisorCh <- provision
+	klog.Infof("[qosaware-cpu] notify cpu server: %+v", provision)
 }
 
 func (cra *cpuResourceAdvisor) GetChannel() interface{} {
@@ -157,22 +171,107 @@ func (cra *cpuResourceAdvisor) GetChannel() interface{} {
 }
 
 func (cra *cpuResourceAdvisor) GetHeadroom() (resource.Quantity, error) {
-	if !cra.isReady {
-		return resource.Quantity{}, fmt.Errorf("not ready")
-	}
-
-	reclaimPoolCPURequirement := cra.calculator.getCPURequirementReclaimed()
-	return resource.MustParse(fmt.Sprintf("%d", reclaimPoolCPURequirement)), nil
+	return resource.Quantity{}, fmt.Errorf("not supported")
 }
 
-func (cra *cpuResourceAdvisor) getPoolSize(poolName string) (int, error) {
-	pi, ok := cra.metaCache.GetPoolInfo(poolName)
-	if !ok {
-		return 0, fmt.Errorf("%v pool not exist", poolName)
+func (cra *cpuResourceAdvisor) assignContainersToRegions() error {
+	var errList []error
+
+	// Clear containers for all regions
+	for _, region := range cra.regionMap {
+		region.Clear()
 	}
 
-	poolSize := util.CountCPUAssignmentCPUs(pi.TopologyAwareAssignments)
-	klog.Infof("[qosaware-cpu] %v pool size %v", poolName, poolSize)
+	// Sync containers
+	f := func(podUID string, containerName string, ci *types.ContainerInfo) bool {
+		regions := cra.assignToRegions(ci)
+		if regions == nil {
+			klog.Warningf("[qosaware-cpu] assign %v/%v to nil region list", podUID, containerName)
+			return true
+		}
 
-	return poolSize, nil
+		for _, region := range regions {
+			region.AddContainer(ci.PodUID, ci.ContainerName)
+		}
+
+		cra.setContainerRegions(ci, regions)
+		cra.setPoolRegions(ci.OwnerPoolName, regions)
+
+		return true
+	}
+	cra.metaCache.RangeContainer(f)
+
+	cra.gc()
+
+	return errors.NewAggregate(errList)
+}
+
+func (cra *cpuResourceAdvisor) assignToRegions(ci *types.ContainerInfo) []region.QoSRegion {
+	if ci.QoSLevel == consts.PodAnnotationQoSLevelSharedCores {
+		// Shared
+		if regions, ok := cra.getPoolRegions(ci.OwnerPoolName); ok {
+			return regions
+		}
+		name := string(region.QoSRegionTypeShare) + string(uuid.NewUUID())
+		r := region.NewQoSRegionShare(name, ci.OwnerPoolName, region.QoSRegionTypeShare, cra.policy, cra.conf, cra.metaCache, cra.emitter)
+		return []region.QoSRegion{r}
+	} else if ci.QoSLevel == consts.PodAnnotationQoSLevelDedicatedCores {
+		// Dedicated
+		// todo
+	}
+
+	return nil
+}
+
+func (cra *cpuResourceAdvisor) gc() {
+	// Delete empty regions in region map
+	for regionName, r := range cra.regionMap {
+		if r.IsEmpty() {
+			delete(cra.regionMap, regionName)
+			klog.Infof("[qosaware-cpu] delete region %v", regionName)
+		}
+	}
+
+	// Delete non exist pods in container region map
+	for podUID := range cra.containerRegionMap {
+		if _, ok := cra.metaCache.GetContainerEntries(podUID); !ok {
+			delete(cra.containerRegionMap, podUID)
+		}
+	}
+
+	// Delete non exist pools in pool region map
+	for poolName := range cra.poolRegionMap {
+		if _, ok := cra.metaCache.GetPoolInfo(poolName); !ok {
+			delete(cra.poolRegionMap, poolName)
+		}
+	}
+}
+
+func (cra *cpuResourceAdvisor) getContainerRegions(ci *types.ContainerInfo) ([]region.QoSRegion, bool) {
+	if v, ok := cra.containerRegionMap[ci.PodUID]; ok {
+		if regions, ok := v[ci.ContainerName]; ok {
+			return regions, true
+		}
+	}
+	return nil, false
+}
+
+func (cra *cpuResourceAdvisor) setContainerRegions(ci *types.ContainerInfo, regions []region.QoSRegion) {
+	v, ok := cra.containerRegionMap[ci.PodUID]
+	if !ok {
+		cra.containerRegionMap[ci.PodUID] = make(map[string][]region.QoSRegion)
+		v = cra.containerRegionMap[ci.PodUID]
+	}
+	v[ci.ContainerName] = regions
+}
+
+func (cra *cpuResourceAdvisor) getPoolRegions(poolName string) ([]region.QoSRegion, bool) {
+	if regions, ok := cra.poolRegionMap[poolName]; ok {
+		return regions, true
+	}
+	return nil, false
+}
+
+func (cra *cpuResourceAdvisor) setPoolRegions(poolName string, regions []region.QoSRegion) {
+	cra.poolRegionMap[poolName] = regions
 }

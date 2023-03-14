@@ -18,14 +18,29 @@ package policy
 
 import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
-	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource/cpu/policy/canonical"
+	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource/cpu/region/policy/canonical"
+	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource/cpu/region/policy/rama"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
 )
 
-// Policy generates raw cpu resource provision result based on different algorithms
+// Policy generates raw cpu resource provision based on corresponding algorithm
 type Policy interface {
+	// SetContainerSet overwrites policy's container record, which is organized as
+	// map[podUID][containerName]
+	SetContainerSet(map[string]map[string]struct{})
+
+	// SetControlKnob updates current control knob for policy
+	SetControlKnob(types.ControlKnob)
+
+	// SetIndicator updates current indicator metric for policy
+	SetIndicator(types.Indicator)
+
+	// SetTarget updates indicator target for policy
+	SetTarget(types.Indicator)
+
 	// Update triggers an epoch of algorithm update
 	Update()
+
 	// GetProvisionResult returns the latest algorithm result
 	GetProvisionResult() interface{}
 }
@@ -35,6 +50,8 @@ func NewPolicy(policyName types.CPUAdvisorPolicyName, metaCache *metacache.MetaC
 	switch policyName {
 	case types.CPUAdvisorPolicyCanonical:
 		return canonical.NewCanonicalPolicy(metaCache), nil
+	case types.CPUAdvisorPolicyRama:
+		return rama.NewRamaPolicy(metaCache), nil
 	default:
 		// Use canonical policy as default
 		return canonical.NewCanonicalPolicy(metaCache), nil

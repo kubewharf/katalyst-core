@@ -25,6 +25,7 @@ import (
 	"k8s.io/kubernetes/pkg/kubelet/checkpointmanager/errors"
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
+	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/util"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric"
 )
@@ -77,6 +78,15 @@ func NewMetaCache(conf *config.Configuration, metricsFetcher metric.MetricsFetch
 	}
 
 	return mc, nil
+}
+
+// GetContainerEntries returns a ContainerEntry copy keyed by pod uid
+func (mc *MetaCache) GetContainerEntries(podUID string) (types.ContainerEntries, bool) {
+	mc.mutex.RLock()
+	defer mc.mutex.RUnlock()
+
+	v, ok := mc.podEntries[podUID]
+	return v.Clone(), ok
 }
 
 // GetContainerInfo returns a ContainerInfo copy keyed by pod uid and container name
@@ -204,6 +214,18 @@ func (mc *MetaCache) GetPoolInfo(poolName string) (*types.PoolInfo, bool) {
 
 	poolInfo, ok := mc.poolEntries[poolName]
 	return poolInfo.Clone(), ok
+}
+
+// GetPoolSize returns the size of pool as integer
+func (mc *MetaCache) GetPoolSize(poolName string) (int, bool) {
+	mc.mutex.RLock()
+	defer mc.mutex.RUnlock()
+
+	pi, ok := mc.poolEntries[poolName]
+	if !ok {
+		return 0, false
+	}
+	return util.CountCPUAssignmentCPUs(pi.TopologyAwareAssignments), true
 }
 
 // DeletePool deletes a PoolInfo keyed by pool name

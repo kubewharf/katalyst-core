@@ -16,7 +16,9 @@ limitations under the License.
 
 package util
 
-import "github.com/kubewharf/katalyst-core/pkg/util/machine"
+import (
+	"github.com/kubewharf/katalyst-core/pkg/util/machine"
+)
 
 // TransformCPUAssignmentFormat transforms cpu assignment string format to cpuset format
 func TransformCPUAssignmentFormat(assignment map[uint64]string) map[int]machine.CPUSet {

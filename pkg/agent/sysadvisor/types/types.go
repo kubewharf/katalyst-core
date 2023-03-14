@@ -34,7 +34,9 @@ const (
 type CPUAdvisorPolicyName string
 
 const (
+	CPUAdvisorPolicyNone      CPUAdvisorPolicyName = "none"
 	CPUAdvisorPolicyCanonical CPUAdvisorPolicyName = "canonical"
+	CPUAdvisorPolicyRama      CPUAdvisorPolicyName = "rama"
 )
 
 // MemoryAdvisorPolicyName describes qos aware policy names for memory resource
@@ -81,3 +83,37 @@ type PodEntries map[string]ContainerEntries
 
 // PoolEntries stores pool info keyed by pool name
 type PoolEntries map[string]*PoolInfo
+
+// ControlKnob holds tunable system entries affecting indicator metrics
+type ControlKnob map[ControlKnobName]ControlKnobValue
+
+// ControlKnobName defines available control knob key
+type ControlKnobName string
+
+const (
+	ControlKnobCPUSetSize ControlKnobName = "cpuset-size"
+)
+
+// ControlKnobValue holds control knob value or action
+type ControlKnobValue struct {
+	Value  float64
+	Action ControlKnobAction
+}
+
+// ControlKnobAction defines control knob adjustment actions
+type ControlKnobAction string
+
+const (
+	ControlKnobActionNone ControlKnobAction = "none"
+)
+
+// Indicator holds system metrics related to service stability keyed by metric name
+type Indicator map[string]IndicatorValue
+
+// IndicatorValue holds indicator values of different levels
+type IndicatorValue struct {
+	Current float64
+	Target  float64
+	High    float64
+	Low     float64
+}

@@ -36,8 +36,10 @@ import (
 type ResourceAdvisor interface {
 	// Update triggers update functions of all sub resource advisors
 	Update()
+
 	// GetSubAdvisor returns the corresponding sub advisor according to resource name
 	GetSubAdvisor(resourceName types.QoSResourceName) (SubResourceAdvisor, error)
+
 	// GetHeadroom returns the corresponding headroom quantity according to resource name
 	GetHeadroom(resourceName v1.ResourceName) (resource.Quantity, error)
 }
@@ -48,10 +50,13 @@ type ResourceAdvisor interface {
 type SubResourceAdvisor interface {
 	// Name returns advisor name
 	Name() string
+
 	// Update updates resource provision based on the latest system and workload snapshot(s)
 	Update()
+
 	// GetChannel returns a channel to which the updated provision result will be sent
 	GetChannel() interface{}
+
 	// GetHeadroom returns the latest resource headroom quantity for resource reporter
 	GetHeadroom() (resource.Quantity, error)
 }

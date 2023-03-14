@@ -17,11 +17,8 @@ limitations under the License.
 package canonical
 
 import (
-	"fmt"
-
 	"k8s.io/klog/v2"
 
-	apiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
 	"github.com/kubewharf/katalyst-core/pkg/consts"
@@ -48,6 +45,7 @@ var (
 
 type CanonicalPolicy struct {
 	cpuRequirement float64
+	containerSet   map[string]map[string]struct{}
 	metaCache      *metacache.MetaCache
 }
 
@@ -58,33 +56,56 @@ func NewCanonicalPolicy(metaCache *metacache.MetaCache) *CanonicalPolicy {
 	return cp
 }
 
-func (cp *CanonicalPolicy) Update() {
+func (p *CanonicalPolicy) SetContainerSet(containerSet map[string]map[string]struct{}) {
+	p.containerSet = make(map[string]map[string]struct{})
+	for podUID, v := range containerSet {
+		p.containerSet[podUID] = make(map[string]struct{})
+		for containerName := range v {
+			p.containerSet[podUID][containerName] = struct{}{}
+		}
+	}
+}
+
+func (p *CanonicalPolicy) SetControlKnob(types.ControlKnob) {
+}
+
+func (p *CanonicalPolicy) SetIndicator(types.Indicator) {
+}
+
+func (p *CanonicalPolicy) SetTarget(types.Indicator) {
+}
+
+func (p *CanonicalPolicy) Update() {
 	var (
 		cpuEstimation float64 = 0
 		containerCnt  float64 = 0
 	)
 
-	calculateContainerEstimationFunc := func(podUID string, containerName string, ci *types.ContainerInfo) bool {
-		containerEstimation, reference, err := cp.estimateContainer(ci)
-		if err != nil {
-			return true
+	for podUID, v := range p.containerSet {
+		for containerName := range v {
+			ci, ok := p.metaCache.GetContainerInfo(podUID, containerName)
+			if !ok || ci == nil {
+				klog.Errorf("[qosaware-cpu-canonical] illegal container info of %v/%v", podUID, containerName)
+				continue
+			}
+
+			containerEstimation, reference := p.estimateContainer(ci)
+			klog.Infof("[qosaware-cpu-canonical] pod %v container %v estimation %.2f reference %v", ci.PodName, containerName, containerEstimation, reference)
+
+			cpuEstimation += containerEstimation
+			containerCnt += 1
 		}
-		klog.Infof("[qosaware-cpu-canonical] pod %v container %v estimation %.2f reference %v", ci.PodName, containerName, containerEstimation, reference)
-		cpuEstimation += containerEstimation
-		containerCnt += 1
-		return true
 	}
-	cp.metaCache.RangeContainer(calculateContainerEstimationFunc)
 	klog.Infof("[qosaware-cpu-canonical] cpu requirement estimation: %.2f, #container %v", cpuEstimation, containerCnt)
 
-	cp.cpuRequirement = cpuEstimation
+	p.cpuRequirement = cpuEstimation
 }
 
-func (cp *CanonicalPolicy) GetProvisionResult() interface{} {
-	return cp.cpuRequirement
+func (p *CanonicalPolicy) GetProvisionResult() interface{} {
+	return p.cpuRequirement
 }
 
-func (cp *CanonicalPolicy) estimateContainer(ci *types.ContainerInfo) (float64, string, error) {
+func (p *CanonicalPolicy) estimateContainer(ci *types.ContainerInfo) (float64, string) {
 	var (
 		estimation   float64 = 0
 		reference    string
@@ -92,11 +113,7 @@ func (cp *CanonicalPolicy) estimateContainer(ci *types.ContainerInfo) (float64, 
 	)
 
 	for _, metricName := range metricsToGather {
-		if ci == nil || ci.QoSLevel != apiconsts.PodAnnotationQoSLevelSharedCores {
-			return 0, reference, fmt.Errorf("illegal container")
-		}
-
-		metricValue, err := cp.metaCache.GetContainerMetric(ci.PodUID, ci.ContainerName, metricName)
+		metricValue, err := p.metaCache.GetContainerMetric(ci.PodUID, ci.ContainerName, metricName)
 		klog.Infof("[qosaware-cpu-canonical] pod %v container %v metric %v value %v", ci.PodName, ci.ContainerName, metricName, metricValue)
 		if err != nil || metricValue <= 0 {
 			checkRequest = true
@@ -123,5 +140,5 @@ func (cp *CanonicalPolicy) estimateContainer(ci *types.ContainerInfo) (float64, 
 		klog.Infof("[qosaware-cpu-canonical] pod %v container %v metric %v value %v", ci.PodName, ci.ContainerName, metricFallback, containerEstimationFallback)
 	}
 
-	return estimation, reference, nil
+	return estimation, reference
 }
