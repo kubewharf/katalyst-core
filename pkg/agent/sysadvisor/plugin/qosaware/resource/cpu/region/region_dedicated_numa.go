@@ -16,10 +16,23 @@ limitations under the License.
 
 package region
 
-import "github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
+import (
+	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
+	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
+	"github.com/kubewharf/katalyst-core/pkg/metrics"
+)
 
 type QoSRegionDedicatedNuma struct {
 	*QoSRegionBase
+}
+
+// NewQoSRegionDedicatedNuma returns a share qos region instance
+func NewQoSRegionDedicatedNuma(name string, ownerPoolName string, regionType QoSRegionType,
+	regionPolicy types.CPUProvisionPolicyName, metaCache *metacache.MetaCache, emitter metrics.MetricEmitter) QoSRegion {
+	r := &QoSRegionDedicatedNuma{
+		QoSRegionBase: NewQoSRegionBase(name, ownerPoolName, regionType, regionPolicy, metaCache, emitter),
+	}
+	return r
 }
 
 func (r *QoSRegionDedicatedNuma) TryUpdateControlKnob() {

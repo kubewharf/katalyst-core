@@ -221,9 +221,21 @@ func (cra *cpuResourceAdvisor) assignToRegions(ci *types.ContainerInfo) []region
 		name := string(region.QoSRegionTypeShare) + string(uuid.NewUUID())
 		r := region.NewQoSRegionShare(name, ci.OwnerPoolName, region.QoSRegionTypeShare, cra.policy, cra.conf, cra.metaCache, cra.emitter)
 		return []region.QoSRegion{r}
-	} else if ci.QoSLevel == consts.PodAnnotationQoSLevelDedicatedCores {
-		// Dedicated
-		// todo
+	} else if ci.IsNumaBinding() {
+		// dedicated cores with numa binding
+		if regions, ok := cra.getContainerRegions(ci); ok {
+			return regions
+		}
+		regions := make([]region.QoSRegion, 0)
+		for numaID := range ci.TopologyAwareAssignments {
+			name := string(region.QoSRegionTypeDedicated) + fmt.Sprintf("%d", numaID)
+			r, ok := cra.regionMap[name]
+			if !ok {
+				r = region.NewQoSRegionDedicatedNuma(name, ci.OwnerPoolName, region.QoSRegionTypeDedicatedNuma, cra.policy, cra.metaCache, cra.emitter)
+			}
+			regions = append(regions, r)
+		}
+		return regions
 	}
 
 	return nil
