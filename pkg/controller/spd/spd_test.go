@@ -493,7 +493,7 @@ func TestIndicatorUpdater(t *testing.T) {
 	synced := cache.WaitForCacheSync(ctx.Done(), sc.syncedFunc...)
 	assert.True(t, synced)
 
-	sc.indicatorUpdater.AddBusinessIndicatorSpec(nn, []apiworkload.ServiceBusinessIndicatorSpec{
+	sc.indicatorManager.AddBusinessIndicatorSpec(nn, []apiworkload.ServiceBusinessIndicatorSpec{
 		{
 			Name: "business-1",
 			Indicators: []apiworkload.Indicator{
@@ -513,7 +513,7 @@ func TestIndicatorUpdater(t *testing.T) {
 			},
 		},
 	})
-	sc.indicatorUpdater.AddBusinessIndicatorSpec(nn, []apiworkload.ServiceBusinessIndicatorSpec{
+	sc.indicatorManager.AddBusinessIndicatorSpec(nn, []apiworkload.ServiceBusinessIndicatorSpec{
 		{
 			Name: "business-3",
 			Indicators: []apiworkload.Indicator{
@@ -534,7 +534,7 @@ func TestIndicatorUpdater(t *testing.T) {
 		},
 	})
 
-	sc.indicatorUpdater.AddSystemIndicatorSpec(nn, []apiworkload.ServiceSystemIndicatorSpec{
+	sc.indicatorManager.AddSystemIndicatorSpec(nn, []apiworkload.ServiceSystemIndicatorSpec{
 		{
 			Name: "system-1",
 			Indicators: []apiworkload.Indicator{
@@ -549,7 +549,7 @@ func TestIndicatorUpdater(t *testing.T) {
 			},
 		},
 	})
-	sc.indicatorUpdater.AddSystemIndicatorSpec(nn, []apiworkload.ServiceSystemIndicatorSpec{
+	sc.indicatorManager.AddSystemIndicatorSpec(nn, []apiworkload.ServiceSystemIndicatorSpec{
 		{
 			Name: "system-2",
 			Indicators: []apiworkload.Indicator{
@@ -561,7 +561,7 @@ func TestIndicatorUpdater(t *testing.T) {
 		},
 	})
 
-	sc.indicatorUpdater.AddBusinessIndicatorStatus(nn, []apiworkload.ServiceBusinessIndicatorStatus{
+	sc.indicatorManager.AddBusinessIndicatorStatus(nn, []apiworkload.ServiceBusinessIndicatorStatus{
 		{
 			Name:    "system-1",
 			Current: &value,

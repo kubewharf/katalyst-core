@@ -51,6 +51,18 @@ type ServiceDiscoveryManager interface {
 	Run() error
 }
 
+type DummyServiceDiscoveryManager struct{}
+
+var _ ServiceDiscoveryManager = DummyServiceDiscoveryManager{}
+
+func (d DummyServiceDiscoveryManager) GetEndpoints() ([]string, error) {
+	return []string{}, nil
+}
+
+func (d DummyServiceDiscoveryManager) Run() error {
+	return nil
+}
+
 type podInformerServiceDiscoveryManager struct {
 	sync.RWMutex
 	endpoints map[string]string

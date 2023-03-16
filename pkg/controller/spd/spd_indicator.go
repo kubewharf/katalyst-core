@@ -32,7 +32,7 @@ const (
 )
 
 func (sc *SPDController) syncIndicatorSpec() {
-	c := sc.indicatorUpdater.GetIndicatorSpecChan()
+	c := sc.indicatorManager.GetIndicatorSpecChan()
 	for {
 		select {
 		case nn, ok := <-c:
@@ -42,7 +42,7 @@ func (sc *SPDController) syncIndicatorSpec() {
 			}
 			klog.V(4).Infof("[syncIndicatorSpec] get %v", nn.String())
 
-			spec := sc.indicatorUpdater.GetIndicatorSpec(nn)
+			spec := sc.indicatorManager.GetIndicatorSpec(nn)
 			if spec == nil {
 				klog.Warningf("[syncIndicatorSpec] spd %v is nil", nn.String())
 				continue
@@ -85,7 +85,7 @@ func (sc *SPDController) syncIndicatorSpec() {
 }
 
 func (sc *SPDController) syncIndicatorStatus() {
-	c := sc.indicatorUpdater.GetIndicatorStatusChan()
+	c := sc.indicatorManager.GetIndicatorStatusChan()
 	for {
 		select {
 		case nn, ok := <-c:
@@ -95,7 +95,7 @@ func (sc *SPDController) syncIndicatorStatus() {
 			}
 			klog.V(4).Infof("[syncIndicatorStatus] get %v", nn.String())
 
-			status := sc.indicatorUpdater.GetIndicatorStatus(nn)
+			status := sc.indicatorManager.GetIndicatorStatus(nn)
 			if status == nil {
 				klog.Warningf("[syncIndicatorStatus] spd status %v is nil", nn.String())
 				continue

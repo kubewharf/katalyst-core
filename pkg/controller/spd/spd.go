@@ -87,7 +87,7 @@ type SPDController struct {
 
 	metricsEmitter metrics.MetricEmitter
 
-	indicatorUpdater         indicator_plugin.IndicatorUpdater
+	indicatorManager         *indicator_plugin.IndicatorManager
 	indicatorPlugins         map[string]indicator_plugin.IndicatorPlugin
 	indicatorsSpecBusiness   map[apiworkload.ServiceBusinessIndicatorName]interface{}
 	indicatorsSpecSystem     map[apiworkload.TargetIndicatorName]interface{}
@@ -228,14 +228,14 @@ func (sc *SPDController) GetIndicatorPlugins() (plugins []indicator_plugin.Indic
 }
 
 func (sc *SPDController) initializeIndicatorPlugins(controlCtx *katalystbase.GenericContext, extraConf interface{}) error {
-	sc.indicatorUpdater = indicator_plugin.NewIndicatorUpdaterImpl()
+	sc.indicatorManager = indicator_plugin.NewIndicatorManager()
 	sc.indicatorPlugins = make(map[string]indicator_plugin.IndicatorPlugin)
 	sc.indicatorsSpecBusiness = make(map[apiworkload.ServiceBusinessIndicatorName]interface{})
 	sc.indicatorsSpecSystem = make(map[apiworkload.TargetIndicatorName]interface{})
 	sc.indicatorsStatusBusiness = make(map[apiworkload.ServiceBusinessIndicatorName]interface{})
 
 	for pluginName, initFunc := range indicator_plugin.GetPluginInitializers() {
-		plugin, err := initFunc(sc.ctx, sc.conf, extraConf, sc.workloadLister, controlCtx, sc.indicatorUpdater)
+		plugin, err := initFunc(sc.ctx, sc.conf, extraConf, sc.workloadLister, controlCtx, sc.indicatorManager)
 		if err != nil {
 			return err
 		}

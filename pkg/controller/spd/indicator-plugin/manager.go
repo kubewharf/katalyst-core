@@ -32,14 +32,18 @@ const (
 )
 
 // IndicatorUpdater is used by IndicatorPlugin as a unified implementation
-// to trigger indicator updating logic. To
+// to trigger indicator updating logic.
 type IndicatorUpdater interface {
 	// AddBusinessIndicatorSpec + AddSystemIndicatorSpec + AddBusinessIndicatorStatus
 	// for indicator add functions, IndicatorUpdater will try to merge them in local stores.
 	AddBusinessIndicatorSpec(_ types.NamespacedName, _ []apiworkload.ServiceBusinessIndicatorSpec)
 	AddSystemIndicatorSpec(_ types.NamespacedName, _ []apiworkload.ServiceSystemIndicatorSpec)
 	AddBusinessIndicatorStatus(_ types.NamespacedName, _ []apiworkload.ServiceBusinessIndicatorStatus)
+}
 
+// IndicatorGetter is used by spd controller as indicator notifier to trigger
+// update real spd.
+type IndicatorGetter interface {
 	// GetIndicatorSpecChan + GetIndicatorStatusChan
 	// returns a channel to obtain the whether an update action has been triggered.
 	GetIndicatorSpecChan() chan types.NamespacedName
@@ -51,7 +55,7 @@ type IndicatorUpdater interface {
 	GetIndicatorStatus(_ types.NamespacedName) *apiworkload.ServiceProfileDescriptorStatus
 }
 
-type IndicatorUpdaterImpl struct {
+type IndicatorManager struct {
 	specMtx   sync.Mutex
 	specQueue chan types.NamespacedName
 	specMap   map[types.NamespacedName]*apiworkload.ServiceProfileDescriptorSpec
@@ -61,10 +65,11 @@ type IndicatorUpdaterImpl struct {
 	statusMap   map[types.NamespacedName]*apiworkload.ServiceProfileDescriptorStatus
 }
 
-var _ IndicatorUpdater = &IndicatorUpdaterImpl{}
+var _ IndicatorUpdater = &IndicatorManager{}
+var _ IndicatorGetter = &IndicatorManager{}
 
-func NewIndicatorUpdaterImpl() *IndicatorUpdaterImpl {
-	return &IndicatorUpdaterImpl{
+func NewIndicatorManager() *IndicatorManager {
+	return &IndicatorManager{
 		specQueue: make(chan types.NamespacedName, indicatorSpecQueueLen),
 		specMap:   make(map[types.NamespacedName]*apiworkload.ServiceProfileDescriptorSpec),
 
@@ -73,7 +78,7 @@ func NewIndicatorUpdaterImpl() *IndicatorUpdaterImpl {
 	}
 }
 
-func (u *IndicatorUpdaterImpl) AddBusinessIndicatorSpec(nn types.NamespacedName, indicators []apiworkload.ServiceBusinessIndicatorSpec) {
+func (u *IndicatorManager) AddBusinessIndicatorSpec(nn types.NamespacedName, indicators []apiworkload.ServiceBusinessIndicatorSpec) {
 	u.specMtx.Lock()
 	defer u.specMtx.Unlock()
 
@@ -91,7 +96,7 @@ func (u *IndicatorUpdaterImpl) AddBusinessIndicatorSpec(nn types.NamespacedName,
 	}
 }
 
-func (u *IndicatorUpdaterImpl) AddSystemIndicatorSpec(nn types.NamespacedName, indicators []apiworkload.ServiceSystemIndicatorSpec) {
+func (u *IndicatorManager) AddSystemIndicatorSpec(nn types.NamespacedName, indicators []apiworkload.ServiceSystemIndicatorSpec) {
 	u.specMtx.Lock()
 	defer u.specMtx.Unlock()
 
@@ -109,7 +114,7 @@ func (u *IndicatorUpdaterImpl) AddSystemIndicatorSpec(nn types.NamespacedName, i
 	}
 }
 
-func (u *IndicatorUpdaterImpl) AddBusinessIndicatorStatus(nn types.NamespacedName, indicators []apiworkload.ServiceBusinessIndicatorStatus) {
+func (u *IndicatorManager) AddBusinessIndicatorStatus(nn types.NamespacedName, indicators []apiworkload.ServiceBusinessIndicatorStatus) {
 	u.statusMtx.Lock()
 	defer u.statusMtx.Unlock()
 
@@ -127,15 +132,15 @@ func (u *IndicatorUpdaterImpl) AddBusinessIndicatorStatus(nn types.NamespacedNam
 	}
 }
 
-func (u *IndicatorUpdaterImpl) GetIndicatorSpecChan() chan types.NamespacedName {
+func (u *IndicatorManager) GetIndicatorSpecChan() chan types.NamespacedName {
 	return u.specQueue
 }
 
-func (u *IndicatorUpdaterImpl) GetIndicatorStatusChan() chan types.NamespacedName {
+func (u *IndicatorManager) GetIndicatorStatusChan() chan types.NamespacedName {
 	return u.statusQueue
 }
 
-func (u *IndicatorUpdaterImpl) GetIndicatorSpec(nn types.NamespacedName) *apiworkload.ServiceProfileDescriptorSpec {
+func (u *IndicatorManager) GetIndicatorSpec(nn types.NamespacedName) *apiworkload.ServiceProfileDescriptorSpec {
 	u.specMtx.Lock()
 	defer func() {
 		delete(u.specMap, nn)
@@ -150,7 +155,7 @@ func (u *IndicatorUpdaterImpl) GetIndicatorSpec(nn types.NamespacedName) *apiwor
 	return spec
 }
 
-func (u *IndicatorUpdaterImpl) GetIndicatorStatus(nn types.NamespacedName) *apiworkload.ServiceProfileDescriptorStatus {
+func (u *IndicatorManager) GetIndicatorStatus(nn types.NamespacedName) *apiworkload.ServiceProfileDescriptorStatus {
 	u.statusMtx.Lock()
 	defer func() {
 		delete(u.statusMap, nn)
