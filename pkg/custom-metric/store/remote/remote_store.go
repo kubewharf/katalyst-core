@@ -97,7 +97,11 @@ func (r *RemoteMemoryMetricStore) InsertMetric(seriesList []*data.MetricSeries) 
 		return err
 	}
 
-	requests := r.sharding.GetRequests(local.ServingSetPath)
+	requests, err := r.sharding.GetRequests(local.ServingSetPath)
+	if err != nil {
+		return err
+	}
+
 	_, wCnt := r.sharding.GetRWCount()
 	klog.V(4).Infof("insert need to write %v among %v", wCnt, len(requests))
 
@@ -129,7 +133,11 @@ func (r *RemoteMemoryMetricStore) GetMetric(ctx context.Context, namespace, metr
 	objSelector, metricSelector labels.Selector, limited int) ([]*data.InternalMetric, error) {
 	start := time.Now()
 
-	requests := r.sharding.GetRequests(local.ServingGetPath)
+	requests, err := r.sharding.GetRequests(local.ServingGetPath)
+	if err != nil {
+		return nil, err
+	}
+
 	rCnt, _ := r.sharding.GetRWCount()
 	klog.V(6).Infof("get need to read %v among %v", rCnt, len(requests))
 
@@ -194,7 +202,11 @@ func (r *RemoteMemoryMetricStore) GetMetric(ctx context.Context, namespace, metr
 func (r *RemoteMemoryMetricStore) ListMetricMeta(ctx context.Context, withObject bool) ([]data.MetricMeta, error) {
 	start := time.Now()
 
-	requests := r.sharding.GetRequests(local.ServingListPath)
+	requests, err := r.sharding.GetRequests(local.ServingListPath)
+	if err != nil {
+		return nil, err
+	}
+
 	rCnt, _ := r.sharding.GetRWCount()
 	klog.V(6).Infof("list with objects need to read %v among %v", rCnt, len(requests))
 
