@@ -38,9 +38,10 @@ import (
 )
 
 // todo:
-// 1. assign non shared containers to their regions
-// 2. assign shared containers with different cpu enhancement to different share regions
-// 3. support isolating bursting containers to isolation regions
+// 1. support getting checkpoint synchronously
+// 2. assign non shared containers to their regions
+// 3. assign shared containers with different cpu enhancement to different share regions
+// 4. support isolating bursting containers to isolation regions
 
 const (
 	cpuResourceAdvisorName string = "cpu-resource-advisor"
@@ -61,7 +62,7 @@ type CPUProvision struct {
 // provision hint for each region.
 type cpuResourceAdvisor struct {
 	name                string
-	policy              types.CPUAdvisorPolicyName
+	policy              types.CPUProvisionPolicyName
 	startTime           time.Time
 	cpuLimitSystem      int
 	reservedForAllocate int
@@ -81,7 +82,7 @@ func NewCPUResourceAdvisor(conf *config.Configuration, metaCache *metacache.Meta
 	metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter) (*cpuResourceAdvisor, error) {
 	cra := &cpuResourceAdvisor{
 		name:           cpuResourceAdvisorName,
-		policy:         types.CPUAdvisorPolicyName(conf.CPUAdvisorConfiguration.CPUAdvisorPolicy),
+		policy:         types.CPUProvisionPolicyName(conf.CPUAdvisorConfiguration.CPUProvisionPolicy),
 		startTime:      time.Now(),
 		cpuLimitSystem: metaServer.NumCPUs,
 
@@ -150,7 +151,11 @@ func (cra *cpuResourceAdvisor) Update() {
 	}
 
 	for _, r := range cra.regionMap {
-		c := r.GetControlKnobUpdated()
+		c, err := r.GetControlKnobUpdated()
+		if err != nil {
+			klog.Errorf("[qosaware-cpu] skip notifying cpu server: %v", err)
+			return
+		}
 
 		if r.Type() == region.QoSRegionTypeShare {
 			sharePoolSize := c[types.ControlKnobCPUSetSize].Value
@@ -190,8 +195,9 @@ func (cra *cpuResourceAdvisor) assignContainersToRegions() error {
 			return true
 		}
 
-		for _, region := range regions {
-			region.AddContainer(ci.PodUID, ci.ContainerName)
+		for _, r := range regions {
+			r.AddContainer(ci.PodUID, ci.ContainerName)
+			cra.regionMap[r.Name()] = r
 		}
 
 		cra.setContainerRegions(ci, regions)

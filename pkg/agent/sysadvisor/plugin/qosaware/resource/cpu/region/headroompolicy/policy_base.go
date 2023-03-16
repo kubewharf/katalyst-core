@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package rama
+package headroompolicy
 
 import (
 	"k8s.io/apimachinery/pkg/util/sets"
@@ -23,32 +23,28 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
 )
 
-type RamaPolicy struct {
+type PolicyBase struct {
+	name         types.CPUHeadroomPolicyName
+	containerSet map[string]sets.String
+
 	metaCache *metacache.MetaCache
 }
 
-func NewRamaPolicy(metaCache *metacache.MetaCache) *RamaPolicy {
-	cp := &RamaPolicy{
-		metaCache: metaCache,
+func NewPolicyBase(name types.CPUHeadroomPolicyName, metaCache *metacache.MetaCache) *PolicyBase {
+	cp := &PolicyBase{
+		name:         name,
+		containerSet: make(map[string]sets.String),
+		metaCache:    metaCache,
 	}
 	return cp
 }
 
-func (p *RamaPolicy) SetContainerSet(containerSet map[string]sets.String) {
-}
-
-func (p *RamaPolicy) SetControlKnob(types.ControlKnob) {
-}
-
-func (p *RamaPolicy) SetIndicator(types.Indicator) {
-}
-
-func (p *RamaPolicy) SetTarget(types.Indicator) {
-}
-
-func (p *RamaPolicy) Update() {
-}
-
-func (p *RamaPolicy) GetProvisionResult() interface{} {
-	return nil
+func (p *PolicyBase) SetContainerSet(containerSet map[string]sets.String) {
+	p.containerSet = make(map[string]sets.String)
+	for podUID, v := range containerSet {
+		p.containerSet[podUID] = sets.NewString()
+		for containerName := range v {
+			p.containerSet[podUID].Insert(containerName)
+		}
+	}
 }

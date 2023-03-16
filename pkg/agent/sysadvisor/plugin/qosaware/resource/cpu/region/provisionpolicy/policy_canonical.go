@@ -14,10 +14,9 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package canonical
+package provisionpolicy
 
 import (
-	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/klog/v2"
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
@@ -44,39 +43,19 @@ var (
 	}
 )
 
-type CanonicalPolicy struct {
+type PolicyCanonical struct {
+	*PolicyBase
 	cpuRequirement float64
-	containerSet   map[string]sets.String
-	metaCache      *metacache.MetaCache
 }
 
-func NewCanonicalPolicy(metaCache *metacache.MetaCache) *CanonicalPolicy {
-	cp := &CanonicalPolicy{
-		metaCache: metaCache,
+func NewPolicyCanonical(name types.CPUProvisionPolicyName, metaCache *metacache.MetaCache) ProvisionPolicy {
+	p := &PolicyCanonical{
+		PolicyBase: NewPolicyBase(name, metaCache),
 	}
-	return cp
+	return p
 }
 
-func (p *CanonicalPolicy) SetContainerSet(containerSet map[string]sets.String) {
-	p.containerSet = make(map[string]sets.String)
-	for podUID, v := range containerSet {
-		p.containerSet[podUID] = sets.NewString()
-		for containerName := range v {
-			p.containerSet[podUID].Insert(containerName)
-		}
-	}
-}
-
-func (p *CanonicalPolicy) SetControlKnob(types.ControlKnob) {
-}
-
-func (p *CanonicalPolicy) SetIndicator(types.Indicator) {
-}
-
-func (p *CanonicalPolicy) SetTarget(types.Indicator) {
-}
-
-func (p *CanonicalPolicy) Update() {
+func (p *PolicyCanonical) Update() error {
 	var (
 		cpuEstimation float64 = 0
 		containerCnt  float64 = 0
@@ -100,13 +79,20 @@ func (p *CanonicalPolicy) Update() {
 	klog.Infof("[qosaware-cpu-canonical] cpu requirement estimation: %.2f, #container %v", cpuEstimation, containerCnt)
 
 	p.cpuRequirement = cpuEstimation
+
+	return nil
 }
 
-func (p *CanonicalPolicy) GetProvisionResult() interface{} {
-	return p.cpuRequirement
+func (p *PolicyCanonical) GetControlKnobAdjusted() types.ControlKnob {
+	return types.ControlKnob{
+		types.ControlKnobCPUSetSize: {
+			Value:  p.cpuRequirement,
+			Action: types.ControlKnobActionNone,
+		},
+	}
 }
 
-func (p *CanonicalPolicy) estimateContainer(ci *types.ContainerInfo) (float64, string) {
+func (p *PolicyCanonical) estimateContainer(ci *types.ContainerInfo) (float64, string) {
 	var (
 		estimation   float64 = 0
 		reference    string

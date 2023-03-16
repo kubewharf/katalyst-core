@@ -20,7 +20,8 @@ import "github.com/kubewharf/katalyst-core/pkg/config/dynamic"
 
 // CPUAdvisorConfiguration stores configurations of cpu advisors in qos aware plugin
 type CPUAdvisorConfiguration struct {
-	CPUAdvisorPolicy string
+	CPUProvisionPolicy string
+	CPUHeadroomPolicy  string
 }
 
 // NewCPUAdvisorConfiguration creates new cpu advisor configurations

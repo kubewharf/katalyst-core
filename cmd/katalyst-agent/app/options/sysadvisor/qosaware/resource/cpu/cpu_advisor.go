@@ -25,23 +25,26 @@ import (
 
 // CPUAdvisorOptions holds the configurations for cpu advisor in qos aware plugin
 type CPUAdvisorOptions struct {
-	CPUAdvisorPolicy string
+	CPUProvisionPolicy string
+	CPUHeadroomPolicy  string
 }
 
 // NewCPUAdvisorOptions creates a new Options with a default config
 func NewCPUAdvisorOptions() *CPUAdvisorOptions {
 	return &CPUAdvisorOptions{
-		CPUAdvisorPolicy: string(types.CPUAdvisorPolicyCanonical),
+		CPUProvisionPolicy: string(types.CPUProvisionPolicyCanonical),
 	}
 }
 
 // AddFlags adds flags to the specified FlagSet.
 func (o *CPUAdvisorOptions) AddFlags(fs *pflag.FlagSet) {
-	fs.StringVar(&o.CPUAdvisorPolicy, "cpu-advisor-policy", o.CPUAdvisorPolicy, "policy for cpu advisor to use")
+	fs.StringVar(&o.CPUProvisionPolicy, "cpu-provision-policy", o.CPUProvisionPolicy, "policy for cpu advisor to update resource provision")
+	fs.StringVar(&o.CPUHeadroomPolicy, "cpu-headroom-policy", o.CPUHeadroomPolicy, "policy for cpu advisor to update resource headroom")
 }
 
 // ApplyTo fills up config with options
 func (o *CPUAdvisorOptions) ApplyTo(c *cpu.CPUAdvisorConfiguration) error {
-	c.CPUAdvisorPolicy = o.CPUAdvisorPolicy
+	c.CPUProvisionPolicy = o.CPUProvisionPolicy
+	c.CPUHeadroomPolicy = o.CPUHeadroomPolicy
 	return nil
 }

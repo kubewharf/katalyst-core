@@ -30,7 +30,7 @@ type QoSRegionBase struct {
 
 	ownerPoolName string
 	regionType    QoSRegionType
-	regionPolicy  types.CPUAdvisorPolicyName
+	regionPolicy  types.CPUProvisionPolicyName
 
 	cpuLimit            int
 	reservePoolSize     int
@@ -40,7 +40,7 @@ type QoSRegionBase struct {
 	emitter   metrics.MetricEmitter
 }
 
-func NewQoSRegionBase(name string, ownerPoolName string, regionType QoSRegionType, regionPolicy types.CPUAdvisorPolicyName, metaCache *metacache.MetaCache, emitter metrics.MetricEmitter) *QoSRegionBase {
+func NewQoSRegionBase(name string, ownerPoolName string, regionType QoSRegionType, regionPolicy types.CPUProvisionPolicyName, metaCache *metacache.MetaCache, emitter metrics.MetricEmitter) *QoSRegionBase {
 	r := &QoSRegionBase{
 		name:          name,
 		containerSet:  make(map[string]sets.String),
@@ -57,13 +57,12 @@ func (r *QoSRegionBase) Name() string {
 	return r.name
 }
 
-func (r *QoSRegionBase) AddContainer(podUID string, containerName string) {
-	containers, ok := r.containerSet[podUID]
-	if !ok {
-		r.containerSet[podUID] = sets.NewString()
-		containers = r.containerSet[podUID]
-	}
-	containers.Insert(containerName)
+func (r *QoSRegionBase) OwnerPoolName() string {
+	return r.ownerPoolName
+}
+
+func (r *QoSRegionBase) Type() QoSRegionType {
+	return r.regionType
 }
 
 func (r *QoSRegionBase) IsEmpty() bool {
@@ -74,12 +73,13 @@ func (r *QoSRegionBase) Clear() {
 	r.containerSet = make(map[string]sets.String)
 }
 
-func (r *QoSRegionBase) OwnerPoolName() string {
-	return r.ownerPoolName
-}
-
-func (r *QoSRegionBase) Type() QoSRegionType {
-	return r.regionType
+func (r *QoSRegionBase) AddContainer(podUID string, containerName string) {
+	containers, ok := r.containerSet[podUID]
+	if !ok {
+		r.containerSet[podUID] = sets.NewString()
+		containers = r.containerSet[podUID]
+	}
+	containers.Insert(containerName)
 }
 
 func (r *QoSRegionBase) SetCPULimit(value int) {

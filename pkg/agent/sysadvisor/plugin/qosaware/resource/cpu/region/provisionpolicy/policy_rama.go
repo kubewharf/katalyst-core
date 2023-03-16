@@ -14,21 +14,28 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package region
+package provisionpolicy
 
-import "github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
+import (
+	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
+	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
+)
 
-type QoSRegionIsolation struct {
-	*QoSRegionBase
+type PolicyRama struct {
+	*PolicyBase
 }
 
-func (r *QoSRegionIsolation) TryUpdateControlKnob() {
+func NewPolicyRama(name types.CPUProvisionPolicyName, metaCache *metacache.MetaCache) ProvisionPolicy {
+	p := &PolicyRama{
+		PolicyBase: NewPolicyBase(name, metaCache),
+	}
+	return p
 }
 
-func (r *QoSRegionIsolation) GetControlKnobUpdated() (types.ControlKnob, error) {
-	return nil, nil
+func (p *PolicyRama) Update() error {
+	return nil
 }
 
-func (r *QoSRegionIsolation) GetHeadroom() (int, error) {
-	return 0, nil
+func (p *PolicyRama) GetControlKnobAdjusted() types.ControlKnob {
+	return types.ControlKnob{}
 }

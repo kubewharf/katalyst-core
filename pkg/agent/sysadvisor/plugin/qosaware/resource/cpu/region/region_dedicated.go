@@ -25,10 +25,10 @@ type QoSRegionDedicated struct {
 func (r *QoSRegionDedicated) TryUpdateControlKnob() {
 }
 
-func (r *QoSRegionDedicated) GetControlKnobUpdated() types.ControlKnob {
-	return nil
+func (r *QoSRegionDedicated) GetControlKnobUpdated() (types.ControlKnob, error) {
+	return nil, nil
 }
 
-func (r *QoSRegionDedicated) GetHeadroom() int {
-	return 0
+func (r *QoSRegionDedicated) GetHeadroom() (int, error) {
+	return 0, nil
 }

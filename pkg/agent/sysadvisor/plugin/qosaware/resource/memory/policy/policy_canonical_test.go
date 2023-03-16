@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package canonical
+package policy
 
 import (
 	"io/ioutil"
@@ -46,12 +46,12 @@ func generateTestConfiguration(t *testing.T) *config.Configuration {
 	return conf
 }
 
-func TestNewCanonicalPolicy(t *testing.T) {
+func TestNewPolicyCanonical(t *testing.T) {
 	metaCache, err := metacache.NewMetaCache(generateTestConfiguration(t), metric.NewFakeMetricsFetcher(metrics.DummyMetrics{}))
 	require.NoError(t, err)
 	require.NotNil(t, metaCache)
 
-	policy := NewCanonicalPolicy(metaCache)
+	policy := NewPolicyCanonical(metaCache)
 	require.NotNil(t, policy)
 }
 
@@ -181,7 +181,7 @@ func TestGetProvisionResult(t *testing.T) {
 				}
 			}
 
-			policy := NewCanonicalPolicy(metaCache)
+			policy := NewPolicyCanonical(metaCache)
 			assert.NotNil(t, policy)
 
 			policy.Update()

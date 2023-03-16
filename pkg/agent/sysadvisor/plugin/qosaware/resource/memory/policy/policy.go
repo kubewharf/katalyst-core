@@ -18,7 +18,6 @@ package policy
 
 import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
-	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource/memory/policy/canonical"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
 )
 
@@ -34,9 +33,9 @@ type Policy interface {
 func NewPolicy(policyName types.MemoryAdvisorPolicyName, metaCache *metacache.MetaCache) (Policy, error) {
 	switch policyName {
 	case types.MemoryAdvisorPolicyCanonical:
-		return canonical.NewCanonicalPolicy(metaCache), nil
+		return NewPolicyCanonical(metaCache), nil
 	default:
 		// Use canonical policy as default
-		return canonical.NewCanonicalPolicy(metaCache), nil
+		return NewPolicyCanonical(metaCache), nil
 	}
 }

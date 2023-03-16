@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package canonical
+package policy
 
 import (
 	"fmt"
@@ -38,19 +38,19 @@ const (
 	metricFallback string = "fallback"
 )
 
-type CanonicalPolicy struct {
+type PolicyCanonical struct {
 	memoryRequirement float64
 	metaCache         *metacache.MetaCache
 }
 
-func NewCanonicalPolicy(metaCache *metacache.MetaCache) *CanonicalPolicy {
-	cp := &CanonicalPolicy{
+func NewPolicyCanonical(metaCache *metacache.MetaCache) *PolicyCanonical {
+	cp := &PolicyCanonical{
 		metaCache: metaCache,
 	}
 	return cp
 }
 
-func (cp *CanonicalPolicy) Update() {
+func (cp *PolicyCanonical) Update() {
 	var (
 		memoryEstimation float64 = 0
 		containerCnt     float64 = 0
@@ -72,11 +72,11 @@ func (cp *CanonicalPolicy) Update() {
 	cp.memoryRequirement = memoryEstimation
 }
 
-func (cp *CanonicalPolicy) GetProvisionResult() interface{} {
+func (cp *PolicyCanonical) GetProvisionResult() interface{} {
 	return cp.memoryRequirement
 }
 
-func (cp *CanonicalPolicy) estimateContainer(ci *types.ContainerInfo) (float64, string, error) {
+func (cp *PolicyCanonical) estimateContainer(ci *types.ContainerInfo) (float64, string, error) {
 	var (
 		metricName string = consts.MetricMemRssContainer
 		reference  string = metricName

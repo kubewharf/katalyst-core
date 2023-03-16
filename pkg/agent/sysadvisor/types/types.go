@@ -30,13 +30,20 @@ const (
 	QoSResourceMemory QoSResourceName = "memory"
 )
 
-// CPUAdvisorPolicyName describes qos aware policy names for cpu resource
-type CPUAdvisorPolicyName string
+// CPUProvisionPolicyName defines policy names for cpu advisor resource provision
+type CPUProvisionPolicyName string
 
 const (
-	CPUAdvisorPolicyNone      CPUAdvisorPolicyName = "none"
-	CPUAdvisorPolicyCanonical CPUAdvisorPolicyName = "canonical"
-	CPUAdvisorPolicyRama      CPUAdvisorPolicyName = "rama"
+	CPUProvisionPolicyNone      CPUProvisionPolicyName = "none"
+	CPUProvisionPolicyCanonical CPUProvisionPolicyName = "canonical"
+	CPUProvisionPolicyRama      CPUProvisionPolicyName = "rama"
+)
+
+// CPUHeadroomPolicyName defines policy names for cpu advisor headroom estimation
+type CPUHeadroomPolicyName string
+
+const (
+	CPUHeadroomPolicyNone CPUHeadroomPolicyName = "none"
 )
 
 // MemoryAdvisorPolicyName describes qos aware policy names for memory resource

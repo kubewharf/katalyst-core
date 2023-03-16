@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package canonical
+package provisionpolicy
 
 import (
 	"io/ioutil"
@@ -46,12 +46,12 @@ func generateTestConfiguration(t *testing.T) *config.Configuration {
 	return conf
 }
 
-func TestNewCanonicalPolicy(t *testing.T) {
+func TestNewPolicyCanonical(t *testing.T) {
 	metaCache, err := metacache.NewMetaCache(generateTestConfiguration(t), metric.NewFakeMetricsFetcher(metrics.DummyMetrics{}))
 	require.NoError(t, err)
 	require.NotNil(t, metaCache)
 
-	policy := NewCanonicalPolicy(metaCache)
+	policy := NewPolicyCanonical(types.CPUProvisionPolicyCanonical, metaCache)
 	require.NotNil(t, policy)
 }
 
@@ -187,19 +187,21 @@ func TestGetProvisionResult(t *testing.T) {
 					for _, metricName := range metricsToGather {
 						metricValue, ok := tt.metrics[podUID][containerName][metricName]
 						assert.True(t, ok)
-						metaCache.SetContainerInfo(podUID, containerName, containerInfo)
+						err := metaCache.SetContainerInfo(podUID, containerName, containerInfo)
+						assert.NoError(t, err)
 						fakeMetricsFetcher.SetContainerMetric(podUID, containerName, metricName, metricValue)
 					}
 				}
 			}
 
-			policy := NewCanonicalPolicy(metaCache)
+			policy := NewPolicyCanonical(types.CPUProvisionPolicyCanonical, metaCache)
 			assert.NotNil(t, policy)
 
-			policy.Update()
-			provision := policy.GetProvisionResult()
+			err = policy.Update()
+			assert.NoError(t, err)
+			cpuRequirement := policy.GetControlKnobAdjusted()[types.ControlKnobCPUSetSize].Value
 
-			assert.Equal(t, tt.want, provision.(float64))
+			assert.Equal(t, tt.want, cpuRequirement)
 		})
 	}
 }

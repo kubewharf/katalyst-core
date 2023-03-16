@@ -28,7 +28,8 @@ const (
 	QoSRegionTypeDedicatedNuma QoSRegionType = "dedicated-numa" // Dedicated with numa binding
 )
 
-// QoSRegion
+// QoSRegion is an internal concept, managing a group of containers with similar QoS
+// sensitivity and updating their resource provision and headroom by preset policies
 type QoSRegion interface {
 	// Name returns region's global unique identifier, combined with region type and uuid
 	Name() string
@@ -61,8 +62,8 @@ type QoSRegion interface {
 	TryUpdateControlKnob()
 
 	// GetControlKnobUpdated returns the latest updated control knob value
-	GetControlKnobUpdated() types.ControlKnob
+	GetControlKnobUpdated() (types.ControlKnob, error)
 
 	// GetHeadroom returns the latest updated cpu headroom
-	GetHeadroom() int
+	GetHeadroom() (int, error)
 }
