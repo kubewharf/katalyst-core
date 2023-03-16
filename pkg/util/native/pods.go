@@ -305,3 +305,13 @@ func CheckDaemonPod(pod *v1.Pod) bool {
 	}
 	return false
 }
+
+// GetPodCondition extracts the given condition for the given pod
+func GetPodCondition(pod *v1.Pod, conditionType v1.PodConditionType) (v1.PodCondition, bool) {
+	for _, condition := range pod.Status.Conditions {
+		if condition.Type == conditionType {
+			return condition, true
+		}
+	}
+	return v1.PodCondition{}, false
+}
