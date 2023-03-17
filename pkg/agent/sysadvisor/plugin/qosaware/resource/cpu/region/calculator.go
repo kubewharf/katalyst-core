@@ -21,14 +21,11 @@ import (
 	"time"
 
 	"k8s.io/klog/v2"
-
-	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
-	"github.com/kubewharf/katalyst-core/pkg/config"
 )
 
-// cpuCalculator gets raw cpu requirement data from policy and generates real cpu requirement
+// CPUCalculator gets raw cpu requirement data from policy and generates real cpu requirement
 // for a certain region with fine-grained strategies to be robust
-type cpuCalculator struct {
+type CPUCalculator struct {
 	// minCPURequirement is the min cpu requirement value
 	minCPURequirement int
 
@@ -57,10 +54,10 @@ type cpuCalculator struct {
 	latestRampDownTime time.Time
 }
 
-// newCPUCalculator returns a cpu calculator instance with parameters and the specific policy
-func newCPUCalculator(conf *config.Configuration, metaCache *metacache.MetaCache, maxRampUpStep float64,
-	maxRampDownStep float64, minRampDownPeriod time.Duration) *cpuCalculator {
-	c := &cpuCalculator{
+// NewCPUCalculator returns a cpu calculator instance with parameters and the specific policy
+func NewCPUCalculator(maxRampUpStep float64,
+	maxRampDownStep float64, minRampDownPeriod time.Duration) *CPUCalculator {
+	c := &CPUCalculator{
 		maxRampUpStep:      maxRampUpStep,
 		maxRampDownStep:    maxRampDownStep,
 		minRampDownPeriod:  minRampDownPeriod,
@@ -69,28 +66,19 @@ func newCPUCalculator(conf *config.Configuration, metaCache *metacache.MetaCache
 	return c
 }
 
-func (c *cpuCalculator) setMinCPURequirement(requirement int) {
-	c.minCPURequirement = requirement
+func (c *CPUCalculator) SetupCPURequirement(min, max, total, reserved int) {
+	c.minCPURequirement = min
+	c.maxCPURequirement = max
+	c.totalCPURequirement = total
+	c.reservedForAllocate = reserved
 }
 
-func (c *cpuCalculator) setMaxCPURequirement(requirement int) {
-	c.maxCPURequirement = requirement
-}
-
-func (c *cpuCalculator) setTotalCPURequirement(requirement int) {
-	c.totalCPURequirement = requirement
-}
-
-func (c *cpuCalculator) setLastestCPURequirement(requirement int) {
+func (c *CPUCalculator) SetLastestCPURequirement(requirement int) {
 	c.latestCPURequirement = requirement
 }
 
-func (c *cpuCalculator) setReservedForAllocate(value int) {
-	c.reservedForAllocate = value
-}
-
-// update runs a calculation episode
-func (c *cpuCalculator) update(cpuRequirementRaw float64) {
+// RegulateRequirement runs a calculation episode
+func (c *CPUCalculator) RegulateRequirement(cpuRequirementRaw float64) {
 	cpuRequirement := cpuRequirementRaw + float64(c.reservedForAllocate)
 	cpuRequirement = c.slowdown(cpuRequirement)
 	cpuRequirementInt := c.round(cpuRequirement)
@@ -104,17 +92,17 @@ func (c *cpuCalculator) update(cpuRequirementRaw float64) {
 	}
 }
 
-// getCPURequirement returns the latest cpu requirement value
-func (c *cpuCalculator) getCPURequirement() int {
+// GetCPURequirement returns the latest cpu requirement value
+func (c *CPUCalculator) GetCPURequirement() int {
 	return c.latestCPURequirement
 }
 
-// getCPURequirementReclaimed returns the latest cpu requirement value can be reclaimed
-func (c *cpuCalculator) getCPURequirementReclaimed() int {
+// GetCPURequirementReclaimed returns the latest cpu requirement value can be reclaimed
+func (c *CPUCalculator) GetCPURequirementReclaimed() int {
 	return c.totalCPURequirement - c.latestCPURequirement
 }
 
-func (c *cpuCalculator) slowdown(cpuRequirement float64) float64 {
+func (c *CPUCalculator) slowdown(cpuRequirement float64) float64 {
 	now := time.Now()
 	latestCPURequirement := float64(c.latestCPURequirement)
 
@@ -133,7 +121,7 @@ func (c *cpuCalculator) slowdown(cpuRequirement float64) float64 {
 	return cpuRequirement
 }
 
-func (c *cpuCalculator) round(cpuRequirement float64) int {
+func (c *CPUCalculator) round(cpuRequirement float64) int {
 	// Never share cores between latency-critical pods and best-effort pods
 	// so make latency-critical pods require at least a core's-worth of CPUs.
 	// This rule can be broken by clamp.
@@ -144,7 +132,7 @@ func (c *cpuCalculator) round(cpuRequirement float64) int {
 	return cpuRequirementRounded
 }
 
-func (c *cpuCalculator) clamp(cpuRequirement int) int {
+func (c *CPUCalculator) clamp(cpuRequirement int) int {
 	if cpuRequirement < c.minCPURequirement {
 		return c.minCPURequirement
 	} else if c.minCPURequirement < c.maxCPURequirement && cpuRequirement > c.maxCPURequirement {

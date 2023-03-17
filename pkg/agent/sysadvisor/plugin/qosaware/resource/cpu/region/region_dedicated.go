@@ -16,19 +16,29 @@ limitations under the License.
 
 package region
 
-import "github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
+import (
+	"k8s.io/apimachinery/pkg/api/resource"
+
+	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
+)
 
 type QoSRegionDedicated struct {
 	*QoSRegionBase
 }
 
-func (r *QoSRegionDedicated) TryUpdateControlKnob() {
+func (r *QoSRegionDedicated) TryUpdateControlKnob() error {
+	return nil
 }
 
 func (r *QoSRegionDedicated) GetControlKnobUpdated() (types.ControlKnob, error) {
 	return nil, nil
 }
 
-func (r *QoSRegionDedicated) GetHeadroom() (int, error) {
-	return 0, nil
+func (r *QoSRegionDedicated) GetHeadroom() (resource.Quantity, error) {
+	return *resource.NewQuantity(0, resource.DecimalSI), nil
+}
+
+func (r *QoSRegionDedicated) TryUpdateHeadroom() error {
+
+	return nil
 }

@@ -19,10 +19,12 @@ package headroompolicy
 import (
 	"sync"
 
+	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/util/sets"
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
+	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 )
 
 // HeadroomPolicy generates raw resource headroom value based on corresponding algorithm
@@ -32,13 +34,17 @@ type HeadroomPolicy interface {
 	SetContainerSet(map[string]sets.String)
 
 	// Update triggers an epoch of algorithm update
-	Update()
+	Update() error
 
 	// GetHeadroom returns the latest headroom result
-	GetHeadroom() float64
+	GetHeadroom() (resource.Quantity, error)
+
+	SetCPULimit(limit int64)
+
+	SetCPUReserved(reserved int64)
 }
 
-type InitFunc func(name types.CPUHeadroomPolicyName, metaCache *metacache.MetaCache) HeadroomPolicy
+type InitFunc func(metaCache *metacache.MetaCache, metaServer *metaserver.MetaServer) HeadroomPolicy
 
 var initializers sync.Map
 

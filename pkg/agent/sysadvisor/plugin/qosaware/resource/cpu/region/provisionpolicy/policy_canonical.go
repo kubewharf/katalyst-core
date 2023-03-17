@@ -17,30 +17,12 @@ limitations under the License.
 package provisionpolicy
 
 import (
+	v1 "k8s.io/api/core/v1"
 	"k8s.io/klog/v2"
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
+	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource/helper"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
-	"github.com/kubewharf/katalyst-core/pkg/consts"
-)
-
-const (
-	// containerEstimationFallbackValue is the estimation value if all methods fail
-	containerEstimationFallback float64 = 4.0
-
-	// metricRequest indicates using request as estimation
-	metricRequest string = "request"
-
-	// referenceFallback indicates using pod estimation fallback value
-	metricFallback string = "fallback"
-)
-
-var (
-	metricsToGather []string = []string{
-		consts.MetricCPUUsageContainer,
-		consts.MetricLoad1MinContainer,
-		consts.MetricLoad5MinContainer,
-	}
 )
 
 type PolicyCanonical struct {
@@ -69,8 +51,10 @@ func (p *PolicyCanonical) Update() error {
 				continue
 			}
 
-			containerEstimation, reference := p.estimateContainer(ci)
-			klog.Infof("[qosaware-cpu-canonical] pod %v container %v estimation %.2f reference %v", ci.PodName, containerName, containerEstimation, reference)
+			containerEstimation, err := p.estimateContainer(ci)
+			if err != nil {
+				return err
+			}
 
 			cpuEstimation += containerEstimation
 			containerCnt += 1
@@ -85,47 +69,13 @@ func (p *PolicyCanonical) Update() error {
 
 func (p *PolicyCanonical) GetControlKnobAdjusted() types.ControlKnob {
 	return types.ControlKnob{
-		types.ControlKnobCPUSetSize: {
+		types.ControlKnobGuranteedCPUSetSize: {
 			Value:  p.cpuRequirement,
 			Action: types.ControlKnobActionNone,
 		},
 	}
 }
 
-func (p *PolicyCanonical) estimateContainer(ci *types.ContainerInfo) (float64, string) {
-	var (
-		estimation   float64 = 0
-		reference    string
-		checkRequest bool = false
-	)
-
-	for _, metricName := range metricsToGather {
-		metricValue, err := p.metaCache.GetContainerMetric(ci.PodUID, ci.ContainerName, metricName)
-		klog.Infof("[qosaware-cpu-canonical] pod %v container %v metric %v value %v", ci.PodName, ci.ContainerName, metricName, metricValue)
-		if err != nil || metricValue <= 0 {
-			checkRequest = true
-			continue
-		}
-		if metricValue > estimation {
-			estimation = metricValue
-			reference = metricName
-		}
-	}
-
-	if checkRequest {
-		request := ci.CPURequest
-		klog.Infof("[qosaware-cpu-canonical] pod %v container %v metric %v value %v", ci.PodName, ci.ContainerName, metricRequest, request)
-		if request > estimation {
-			estimation = request
-			reference = metricRequest
-		}
-	}
-
-	if estimation <= 0 {
-		estimation = containerEstimationFallback
-		reference = metricFallback
-		klog.Infof("[qosaware-cpu-canonical] pod %v container %v metric %v value %v", ci.PodName, ci.ContainerName, metricFallback, containerEstimationFallback)
-	}
-
-	return estimation, reference
+func (p *PolicyCanonical) estimateContainer(ci *types.ContainerInfo) (float64, error) {
+	return helper.EstimateContainerResourceUsage(ci, v1.ResourceCPU, p.metaCache)
 }

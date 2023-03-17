@@ -16,12 +16,15 @@ limitations under the License.
 
 package cpu
 
-import "github.com/kubewharf/katalyst-core/pkg/config/dynamic"
+import (
+	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
+	"github.com/kubewharf/katalyst-core/pkg/config/dynamic"
+)
 
 // CPUAdvisorConfiguration stores configurations of cpu advisors in qos aware plugin
 type CPUAdvisorConfiguration struct {
-	CPUProvisionPolicy string
-	CPUHeadroomPolicy  string
+	CPUProvisionPolicy  string
+	CPUHeadroomPolicies map[types.QoSRegionType]types.CPUHeadroomPolicyName
 }
 
 // NewCPUAdvisorConfiguration creates new cpu advisor configurations

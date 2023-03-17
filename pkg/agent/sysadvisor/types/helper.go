@@ -17,6 +17,8 @@ limitations under the License.
 package types
 
 import (
+	"k8s.io/apimachinery/pkg/util/sets"
+
 	"github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
@@ -26,6 +28,16 @@ import (
 func (ci *ContainerInfo) IsNumaBinding() bool {
 	return ci.QoSLevel == consts.PodAnnotationQoSLevelDedicatedCores &&
 		ci.Annotations[consts.PodAnnotationMemoryEnhancementNumaBinding] == consts.PodAnnotationMemoryEnhancementNumaBindingEnable
+}
+
+func (ci *ContainerInfo) GetNumaIDs() sets.Int {
+	numas := sets.NewInt()
+	for numaID, cpus := range ci.TopologyAwareAssignments {
+		if cpus.Size() > 0 {
+			numas.Insert(numaID)
+		}
+	}
+	return numas
 }
 
 func (ci *ContainerInfo) Clone() *ContainerInfo {

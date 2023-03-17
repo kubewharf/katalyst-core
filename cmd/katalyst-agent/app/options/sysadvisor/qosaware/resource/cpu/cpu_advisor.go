@@ -17,6 +17,8 @@ limitations under the License.
 package cpu
 
 import (
+	"strings"
+
 	"github.com/spf13/pflag"
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
@@ -25,8 +27,8 @@ import (
 
 // CPUAdvisorOptions holds the configurations for cpu advisor in qos aware plugin
 type CPUAdvisorOptions struct {
-	CPUProvisionPolicy string
-	CPUHeadroomPolicy  string
+	CPUProvisionPolicy   string
+	CPUHeadroomPolicyMap string
 }
 
 // NewCPUAdvisorOptions creates a new Options with a default config
@@ -36,15 +38,26 @@ func NewCPUAdvisorOptions() *CPUAdvisorOptions {
 	}
 }
 
+const defaultCPUHeadroomPolicyMap = "share:canonical,dedicated-numa:canonical"
+
 // AddFlags adds flags to the specified FlagSet.
 func (o *CPUAdvisorOptions) AddFlags(fs *pflag.FlagSet) {
 	fs.StringVar(&o.CPUProvisionPolicy, "cpu-provision-policy", o.CPUProvisionPolicy, "policy for cpu advisor to update resource provision")
-	fs.StringVar(&o.CPUHeadroomPolicy, "cpu-headroom-policy", o.CPUHeadroomPolicy, "policy for cpu advisor to update resource headroom")
+	fs.StringVar(&o.CPUHeadroomPolicyMap, "cpu-headroom-policy-map", defaultCPUHeadroomPolicyMap, "policy map for cpu advisor to update resource headroom")
 }
 
 // ApplyTo fills up config with options
 func (o *CPUAdvisorOptions) ApplyTo(c *cpu.CPUAdvisorConfiguration) error {
 	c.CPUProvisionPolicy = o.CPUProvisionPolicy
-	c.CPUHeadroomPolicy = o.CPUHeadroomPolicy
+	c.CPUHeadroomPolicies = map[types.QoSRegionType]types.CPUHeadroomPolicyName{}
+	policies := strings.Split(o.CPUHeadroomPolicyMap, ",")
+	for _, policy := range policies {
+		kvs := strings.Split(policy, ":")
+		if len(kvs) != 2 {
+			continue
+		}
+		c.CPUHeadroomPolicies[types.QoSRegionType(kvs[0])] = types.CPUHeadroomPolicyName(kvs[1])
+	}
+
 	return nil
 }

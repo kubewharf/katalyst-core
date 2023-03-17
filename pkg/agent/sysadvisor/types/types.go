@@ -43,7 +43,29 @@ const (
 type CPUHeadroomPolicyName string
 
 const (
-	CPUHeadroomPolicyNone CPUHeadroomPolicyName = "none"
+	CPUHeadroomPolicyNone      CPUHeadroomPolicyName = "none"
+	CPUHeadroomPolicyCanonical CPUHeadroomPolicyName = "canonical"
+)
+
+// QoSRegionType declares pre-defined region types
+type QoSRegionType string
+
+const (
+	QoSRegionTypeShare         QoSRegionType = "share"
+	QoSRegionTypeIsolation     QoSRegionType = "isolation"
+	QoSRegionTypeDedicated     QoSRegionType = "dedicated"      // Dedicated without numa binding
+	QoSRegionTypeDedicatedNuma QoSRegionType = "dedicated-numa" // Dedicated with numa binding
+	QoSRegionTypeEmpty         QoSRegionType = "empty"          // Dedicated with numa binding
+)
+
+type QosRegionPriority int
+
+const (
+	QosRegionPriorityEmpty = iota
+	QosRegionPriorityShare
+	QosRegionPriorityIsolation
+	QosRegionPriorityDedicated
+	QosRegionPriorityDedicatedNuma
 )
 
 // MemoryAdvisorPolicyName describes qos aware policy names for memory resource
@@ -98,7 +120,8 @@ type ControlKnob map[ControlKnobName]ControlKnobValue
 type ControlKnobName string
 
 const (
-	ControlKnobCPUSetSize ControlKnobName = "cpuset-size"
+	ControlKnobGuranteedCPUSetSize ControlKnobName = "guaranteed-cpuset-size"
+	ControlKnobReclaimedCPUSetSize ControlKnobName = "reclaimed-cpuset-size"
 )
 
 // ControlKnobValue holds control knob value or action
@@ -124,3 +147,12 @@ type IndicatorValue struct {
 	High    float64
 	Low     float64
 }
+
+type UpdateStatus string
+
+const (
+	// UpdateSucceeded indicates that last updating returns no error
+	UpdateSucceeded UpdateStatus = "UpdateSucceeded"
+	// UpdateFailed indicates that last updating failed
+	UpdateFailed UpdateStatus = "UpdateFailed"
+)

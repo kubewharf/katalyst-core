@@ -83,22 +83,23 @@ func (mra *memoryResourceAdvisor) Name() string {
 	return mra.name
 }
 
-func (mra *memoryResourceAdvisor) Update() {
+func (mra *memoryResourceAdvisor) Update() error {
 	// Skip update during startup
 	if time.Now().Before(mra.startTime.Add(startUpPeriod)) {
 		klog.Infof("[qosaware-memory] starting up")
-		return
+		return fmt.Errorf("[qosaware-memory] starting up")
 	}
 
 	// Check if essential pool info exists. Skip update if not in which case sysadvisor
 	// is ignorant of pools and containers
 	if _, err := mra.getPoolSize(state.PoolNameReserve); err != nil {
 		klog.Warningf("[qosaware-memory] skip update. %v", err)
-		return
+		return fmt.Errorf("[qosaware-memory] skip update. %v", err)
 	}
 
 	mra.policy.Update()
 	mra.isReady = true
+	return nil
 }
 
 func (mra *memoryResourceAdvisor) GetChannel() interface{} {

@@ -22,6 +22,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"k8s.io/apimachinery/pkg/util/sets"
 
 	apiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/options"
@@ -164,7 +165,7 @@ func TestGetProvisionResult(t *testing.T) {
 					},
 				},
 			},
-			want: containerEstimationFallback,
+			want: 4,
 		},
 	}
 
@@ -182,6 +183,8 @@ func TestGetProvisionResult(t *testing.T) {
 			metaCache, err := metacache.NewMetaCache(generateTestConfiguration(t), metric.NewFakeMetricsFetcher(metrics.DummyMetrics{}))
 			assert.NoError(t, err)
 
+			containerSet := make(map[string]sets.String)
+
 			for podUID, podInfo := range tt.containers {
 				for containerName, containerInfo := range podInfo {
 					for _, metricName := range metricsToGather {
@@ -191,15 +194,23 @@ func TestGetProvisionResult(t *testing.T) {
 						assert.NoError(t, err)
 						fakeMetricsFetcher.SetContainerMetric(podUID, containerName, metricName, metricValue)
 					}
+					containers, ok := containerSet[podUID]
+					if !ok {
+						containers = sets.NewString()
+					}
+					containers.Insert(containerName)
+					containerSet[podUID] = containers
 				}
 			}
 
 			policy := NewPolicyCanonical(types.CPUProvisionPolicyCanonical, metaCache)
 			assert.NotNil(t, policy)
 
+			policy.SetContainerSet(containerSet)
+
 			err = policy.Update()
 			assert.NoError(t, err)
-			cpuRequirement := policy.GetControlKnobAdjusted()[types.ControlKnobCPUSetSize].Value
+			cpuRequirement := policy.GetControlKnobAdjusted()[types.ControlKnobGuranteedCPUSetSize].Value
 
 			assert.Equal(t, tt.want, cpuRequirement)
 		})

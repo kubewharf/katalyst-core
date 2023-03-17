@@ -17,34 +17,53 @@ limitations under the License.
 package headroompolicy
 
 import (
+	"sync"
+
 	"k8s.io/apimachinery/pkg/util/sets"
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
-	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
+	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 )
 
 type PolicyBase struct {
-	name         types.CPUHeadroomPolicyName
-	containerSet map[string]sets.String
+	ContainerSet map[string]sets.String
+	CPULimit     int64
+	CPUReserved  int64
 
-	metaCache *metacache.MetaCache
+	MetaCache  *metacache.MetaCache
+	MetaServer *metaserver.MetaServer
+	Mutex      sync.RWMutex
 }
 
-func NewPolicyBase(name types.CPUHeadroomPolicyName, metaCache *metacache.MetaCache) *PolicyBase {
+func NewPolicyBase(metaCache *metacache.MetaCache, metaServer *metaserver.MetaServer) *PolicyBase {
 	cp := &PolicyBase{
-		name:         name,
-		containerSet: make(map[string]sets.String),
-		metaCache:    metaCache,
+		ContainerSet: make(map[string]sets.String),
+		MetaCache:    metaCache,
+		MetaServer:   metaServer,
 	}
 	return cp
 }
 
 func (p *PolicyBase) SetContainerSet(containerSet map[string]sets.String) {
-	p.containerSet = make(map[string]sets.String)
+	p.Mutex.Lock()
+	defer p.Mutex.Unlock()
+	p.ContainerSet = make(map[string]sets.String)
 	for podUID, v := range containerSet {
-		p.containerSet[podUID] = sets.NewString()
+		p.ContainerSet[podUID] = sets.NewString()
 		for containerName := range v {
-			p.containerSet[podUID].Insert(containerName)
+			p.ContainerSet[podUID].Insert(containerName)
 		}
 	}
+}
+
+func (p *PolicyBase) SetCPULimit(limit int64) {
+	p.Mutex.Lock()
+	defer p.Mutex.Unlock()
+	p.CPULimit = limit
+}
+
+func (p *PolicyBase) SetCPUReserved(reserved int64) {
+	p.Mutex.Lock()
+	defer p.Mutex.Unlock()
+	p.CPUReserved = reserved
 }

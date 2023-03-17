@@ -16,17 +16,18 @@ limitations under the License.
 
 package region
 
-import "github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
+import (
+	"k8s.io/apimachinery/pkg/api/resource"
+	"k8s.io/apimachinery/pkg/util/sets"
 
-// QoSRegionType declares pre-defined region types
-type QoSRegionType string
-
-const (
-	QoSRegionTypeShare         QoSRegionType = "share"
-	QoSRegionTypeIsolation     QoSRegionType = "isolation"
-	QoSRegionTypeDedicated     QoSRegionType = "dedicated"      // Dedicated without numa binding
-	QoSRegionTypeDedicatedNuma QoSRegionType = "dedicated-numa" // Dedicated with numa binding
+	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
 )
+
+type QosRegions []QoSRegion
+
+func (rs QosRegions) Len() int           { return len(rs) }
+func (rs QosRegions) Less(i, j int) bool { return rs[i].Priority() < rs[j].Priority() }
+func (rs QosRegions) Swap(i, j int)      { rs[i], rs[j] = rs[j], rs[i] }
 
 // QoSRegion is an internal concept, managing a group of containers with similar QoS
 // sensitivity and updating their resource provision and headroom by preset policies
@@ -38,7 +39,9 @@ type QoSRegion interface {
 	OwnerPoolName() string
 
 	// Type returns region type
-	Type() QoSRegionType
+	Type() types.QoSRegionType
+
+	Priority() types.QosRegionPriority
 
 	// IsEmpty returns true if no container remains in region
 	IsEmpty() bool
@@ -47,7 +50,13 @@ type QoSRegion interface {
 	Clear()
 
 	// AddContainer stores a container keyed by pod uid and container name to region
-	AddContainer(podUID string, containerName string)
+	AddContainer(ci *types.ContainerInfo) error
+
+	// GetNumaIDs returns numa ids this region assigned
+	GetNumaIDs() sets.Int
+
+	// GetContainerSet return containers in this region
+	GetContainerSet() map[string]sets.String
 
 	// Update maximal available cpuset size for region
 	SetCPULimit(value int)
@@ -59,11 +68,14 @@ type QoSRegion interface {
 	SetReservedForAllocate(value int)
 
 	// TryUpdateControlKnob runs an episode of control knob adjustment
-	TryUpdateControlKnob()
+	TryUpdateControlKnob() error
+
+	// TryUpdateHeadroom runs an episode of update headroom
+	TryUpdateHeadroom() error
 
 	// GetControlKnobUpdated returns the latest updated control knob value
 	GetControlKnobUpdated() (types.ControlKnob, error)
 
 	// GetHeadroom returns the latest updated cpu headroom
-	GetHeadroom() (int, error)
+	GetHeadroom() (resource.Quantity, error)
 }

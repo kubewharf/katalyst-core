@@ -78,7 +78,7 @@ func (s *SubResourceAdvisorStub) Name() string {
 	return "stub-sub-resource-advisor"
 }
 
-func (s *SubResourceAdvisorStub) Update() {}
+func (s *SubResourceAdvisorStub) Update() error { return nil }
 
 func (s *SubResourceAdvisorStub) GetChannel() interface{} {
 	return nil
