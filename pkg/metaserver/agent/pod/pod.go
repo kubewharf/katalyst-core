@@ -198,7 +198,7 @@ func (w *podFetcherImpl) GetPodList(ctx context.Context, podFilter func(*v1.Pod)
 func (w *podFetcherImpl) getKubeletPodsCache(ctx context.Context) (map[string]*v1.Pod, error) {
 	// if current kubelet pod cache is nil or enforce bypass, we sync cache first
 	w.kubeletPodsCacheLock.RLock()
-	if w.kubeletPodsCache == nil || ctx.Value(BypassCacheKey) == BypassCacheTrue {
+	if w.kubeletPodsCache == nil || len(w.kubeletPodsCache) == 0 || ctx.Value(BypassCacheKey) == BypassCacheTrue {
 		w.kubeletPodsCacheLock.RUnlock()
 		w.syncKubeletPod(ctx)
 	} else {
@@ -208,13 +208,12 @@ func (w *podFetcherImpl) getKubeletPodsCache(ctx context.Context) (map[string]*v
 	// the second time checks if the kubelet pod cache is nil, if it is,
 	// it means the first sync of the kubelet pod failed and returns an error
 	w.kubeletPodsCacheLock.RLock()
-	kubeletPodsCache := w.kubeletPodsCache
-	w.kubeletPodsCacheLock.RUnlock()
-	if kubeletPodsCache == nil {
+	defer w.kubeletPodsCacheLock.RUnlock()
+	if w.kubeletPodsCache == nil || len(w.kubeletPodsCache) == 0 {
 		return nil, fmt.Errorf("first sync kubelet pod cache failed")
 	}
 
-	return kubeletPodsCache, nil
+	return w.kubeletPodsCache, nil
 }
 
 // syncRuntimePod sync local runtime pod cache from runtime pod fetcher.
@@ -257,11 +256,21 @@ func (w *podFetcherImpl) syncRuntimePod(_ context.Context) {
 func (w *podFetcherImpl) syncKubeletPod(ctx context.Context) {
 	kubeletPods, err := w.kubeletPodFetcher.GetPodList(ctx, nil)
 	if err != nil {
-		klog.Error("sync kubelet pod failed: %s", err)
+		klog.Errorf("sync kubelet pod failed: %s", err)
 		_ = w.emitter.StoreInt64(metricsNamePodCacheSync, 1, metrics.MetricTypeNameCount,
 			metrics.ConvertMapToTags(map[string]string{
 				"source":  "kubelet",
 				"success": "false",
+				"reason":  "error",
+			})...)
+		return
+	} else if len(kubeletPods) == 0 {
+		klog.Error("kubelet pod is empty")
+		_ = w.emitter.StoreInt64(metricsNamePodCacheSync, 1, metrics.MetricTypeNameCount,
+			metrics.ConvertMapToTags(map[string]string{
+				"source":  "kubelet",
+				"success": "false",
+				"reason":  "empty",
 			})...)
 		return
 	}
