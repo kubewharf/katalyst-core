@@ -194,7 +194,7 @@ func (r *RemoteMemoryMetricStore) GetMetric(ctx context.Context, namespace, metr
 		internalLists = append(internalLists, internalList)
 	}
 
-	res := data.MergeInternalMetricList(internalLists...)
+	res := data.PackInternalMetricList(internalLists...)
 	klog.V(4).Infof("successfully get with len %v", len(res))
 	return res, nil
 }
@@ -244,7 +244,7 @@ func (r *RemoteMemoryMetricStore) ListMetricMeta(ctx context.Context, withObject
 		metricMetaLists = append(metricMetaLists, metricMetaList)
 	}
 
-	res := data.MergeMetricMetaList(metricMetaLists...)
+	res := data.PackMetricMetaList(metricMetaLists...)
 	klog.V(4).Infof("successfully list with len %v", len(res))
 	return res, nil
 }

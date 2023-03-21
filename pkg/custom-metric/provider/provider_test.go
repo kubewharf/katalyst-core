@@ -139,7 +139,7 @@ func TestWithLocalStore(t *testing.T) {
 	err = s.Start()
 	assert.NoError(t, err)
 
-	p := NewMetricProviderImp(ctx, s)
+	p := NewMetricProviderImp(ctx, baseCtx, s)
 	testProvider(t, p, s, ctx, baseCtx, genericConf, storeConf)
 }
 
@@ -204,7 +204,7 @@ func testWithRemoteStoreWithIndex(t *testing.T, index []int) {
 	err = r.Start()
 	assert.NoError(t, err)
 
-	p := NewMetricProviderImp(ctx, r)
+	p := NewMetricProviderImp(ctx, baseCtx, r)
 	testProvider(t, p, r, ctx, baseCtx, genericConf, storeConf)
 }
 

@@ -20,8 +20,10 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"time"
 
 	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/klog/v2"
 
 	katalystbase "github.com/kubewharf/katalyst-core/cmd/base"
@@ -32,6 +34,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/custom-metric/store"
 	"github.com/kubewharf/katalyst-core/pkg/custom-metric/store/local"
 	"github.com/kubewharf/katalyst-core/pkg/custom-metric/store/remote"
+	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/process"
 )
 
@@ -94,6 +97,13 @@ func Run(opt *options.Options, genericOptions ...katalystbase.GenericOptions) er
 			continue
 		}
 
+		go wait.Until(func() {
+			_ = baseCtx.EmitterPool.GetDefaultMetricsEmitter().StoreInt64("heart_beating", 1, metrics.MetricTypeNameRaw,
+				metrics.MetricTag{Key: "component", Val: string(consts.KatalystComponentMetric)},
+				metrics.MetricTag{Key: "mode", Val: workingMode},
+			)
+		}, 30*time.Second, ctx.Done())
+
 		wg.Add(1)
 		m := workingMode
 		f := run
@@ -130,6 +140,12 @@ func Run(opt *options.Options, genericOptions ...katalystbase.GenericOptions) er
 }
 
 func initStore(ctx context.Context, baseCtx *katalystbase.GenericContext, conf *config.Configuration) (store.MetricStore, error) {
+	go wait.Until(func() {
+		_ = baseCtx.EmitterPool.GetDefaultMetricsEmitter().StoreInt64("kcmas_store", 1, metrics.MetricTypeNameRaw,
+			metrics.MetricTag{Key: "store_name", Val: conf.CustomMetricConfiguration.StoreConfiguration.StoreName},
+		)
+	}, 30*time.Second, ctx.Done())
+
 	switch conf.CustomMetricConfiguration.StoreConfiguration.StoreName {
 	case local.MetricStoreNameLocalMemory:
 		return local.NewLocalMemoryMetricStore(ctx, baseCtx, conf.GenericMetricConfiguration, conf.StoreConfiguration)

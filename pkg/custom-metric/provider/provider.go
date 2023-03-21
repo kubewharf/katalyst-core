@@ -19,6 +19,7 @@ package provider
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -28,7 +29,18 @@ import (
 	"k8s.io/metrics/pkg/apis/external_metrics"
 	"sigs.k8s.io/custom-metrics-apiserver/pkg/provider"
 
+	katalyst_base "github.com/kubewharf/katalyst-core/cmd/base"
 	"github.com/kubewharf/katalyst-core/pkg/custom-metric/store"
+	"github.com/kubewharf/katalyst-core/pkg/custom-metric/store/data"
+	"github.com/kubewharf/katalyst-core/pkg/metrics"
+)
+
+const (
+	metricsNameKCMASProviderReqCosts = "kcmas_provider_req_costs"
+	metricsNameKCMASProviderReqCount = "kcmas_provider_req_count"
+
+	metricsNameKCMASProviderDataCount = "kcmas_provider_data_count"
+	metricsNameKCMASProviderDataEmpty = "kcmas_provider_data_empty"
 )
 
 // MetricProvider is a standard interface to query metric data;
@@ -56,14 +68,21 @@ type MetricProvider interface {
 }
 
 type MetricProviderImp struct {
-	ctx      context.Context
-	storeImp store.MetricStore
+	ctx            context.Context
+	metricsEmitter metrics.MetricEmitter
+	storeImp       store.MetricStore
 }
 
-func NewMetricProviderImp(ctx context.Context, storeImp store.MetricStore) *MetricProviderImp {
+func NewMetricProviderImp(ctx context.Context, baseCtx *katalyst_base.GenericContext, storeImp store.MetricStore) *MetricProviderImp {
+	metricsEmitter := baseCtx.EmitterPool.GetDefaultMetricsEmitter()
+	if metricsEmitter == nil {
+		metricsEmitter = metrics.DummyMetrics{}
+	}
+
 	return &MetricProviderImp{
-		ctx:      ctx,
-		storeImp: storeImp,
+		ctx:            ctx,
+		metricsEmitter: metricsEmitter,
+		storeImp:       storeImp,
 	}
 }
 
@@ -71,7 +90,16 @@ func (m *MetricProviderImp) GetMetricByName(ctx context.Context, namespacedName 
 	info provider.CustomMetricInfo, metricSelector labels.Selector) (*custom_metrics.MetricValue, error) {
 	klog.Infof("GetMetricByName: metric name %v, object %v, namespace %v, object name %v, metricSelector %v",
 		info.Metric, info.GroupResource, namespacedName.Namespace, namespacedName.Name, metricSelector)
-	internalList, err := m.storeImp.GetMetric(ctx, namespacedName.Namespace, info.Metric, namespacedName.Name,
+	var (
+		internalList []*data.InternalMetric
+		err          error
+		start        = time.Now()
+	)
+	defer func() {
+		m.emitMetrics("GetMetricByName", info.Metric, namespacedName.Name, start, 1, err)
+	}()
+
+	internalList, err = m.storeImp.GetMetric(ctx, namespacedName.Namespace, info.Metric, namespacedName.Name,
 		&info.GroupResource, nil, metricSelector, 1)
 	if err != nil {
 		klog.Errorf("GetMetric err: %v", err)
@@ -87,9 +115,9 @@ func (m *MetricProviderImp) GetMetricByName(ctx context.Context, namespacedName 
 		}
 
 		if res == nil {
-			res = findMetricValueLatest(PackMetricValueList(internal))
+			res = findMetricValueLatest(internal.Name, PackMetricValueList(internal))
 		} else {
-			res = findMetricValueLatest(append(PackMetricValueList(internal), *res))
+			res = findMetricValueLatest(internal.Name, append(PackMetricValueList(internal), *res))
 		}
 	}
 
@@ -103,7 +131,17 @@ func (m *MetricProviderImp) GetMetricBySelector(ctx context.Context, namespace s
 	info provider.CustomMetricInfo, metricSelector labels.Selector) (*custom_metrics.MetricValueList, error) {
 	klog.Infof("GetMetricBySelector: metric name %v, object %v, namespace %v, objSelector %v, metricSelector %v",
 		info.Metric, info.GroupResource, namespace, objSelector, metricSelector)
-	internalList, err := m.storeImp.GetMetric(ctx, namespace, info.Metric, "",
+	var (
+		internalList []*data.InternalMetric
+		resultCount  int
+		err          error
+		start        = time.Now()
+	)
+	defer func() {
+		m.emitMetrics("GetMetricBySelector", info.Metric, "", start, resultCount, err)
+	}()
+
+	internalList, err = m.storeImp.GetMetric(ctx, namespace, info.Metric, "",
 		&info.GroupResource, objSelector, metricSelector, -1)
 	if err != nil {
 		klog.Errorf("GetMetric err: %v", err)
@@ -118,6 +156,7 @@ func (m *MetricProviderImp) GetMetricBySelector(ctx context.Context, namespace s
 			continue
 		}
 
+		resultCount += internal.Len()
 		items = append(items, PackMetricValueList(internal)...)
 	}
 	return &custom_metrics.MetricValueList{
@@ -127,7 +166,17 @@ func (m *MetricProviderImp) GetMetricBySelector(ctx context.Context, namespace s
 
 func (m *MetricProviderImp) ListAllMetrics() []provider.CustomMetricInfo {
 	klog.V(6).Info("ListAllMetrics")
-	metricTypeList, err := m.storeImp.ListMetricMeta(context.Background(), true)
+	var (
+		metricTypeList []data.MetricMeta
+		resultCount    int
+		err            error
+		start          = time.Now()
+	)
+	defer func() {
+		m.emitMetrics("ListAllMetrics", "", "", start, resultCount, err)
+	}()
+
+	metricTypeList, err = m.storeImp.ListMetricMeta(context.Background(), true)
 	if err != nil {
 		klog.Errorf("ListAllMetrics err: %v", err)
 		return []provider.CustomMetricInfo{}
@@ -149,6 +198,7 @@ func (m *MetricProviderImp) ListAllMetrics() []provider.CustomMetricInfo {
 
 	var res []provider.CustomMetricInfo
 	for info := range infoMap {
+		resultCount++
 		res = append(res, info)
 	}
 	return res
@@ -156,10 +206,18 @@ func (m *MetricProviderImp) ListAllMetrics() []provider.CustomMetricInfo {
 
 func (m *MetricProviderImp) GetExternalMetric(ctx context.Context, namespace string, metricSelector labels.Selector,
 	info provider.ExternalMetricInfo) (*external_metrics.ExternalMetricValueList, error) {
-	klog.Infof("GetExternalMetric: metric name %v, namespace %v, metricSelector %v",
-		info.Metric, namespace, metricSelector)
+	klog.Infof("GetExternalMetric: metric name %v, namespace %v, metricSelector %v", info.Metric, namespace, metricSelector)
+	var (
+		internalList []*data.InternalMetric
+		resultCount  int
+		err          error
+		start        = time.Now()
+	)
+	defer func() {
+		m.emitMetrics("GetExternalMetric", info.Metric, "", start, resultCount, err)
+	}()
 
-	internalList, err := m.storeImp.GetMetric(ctx, namespace, info.Metric, "", nil, nil, metricSelector, -1)
+	internalList, err = m.storeImp.GetMetric(ctx, namespace, info.Metric, "", nil, nil, metricSelector, -1)
 	if err != nil {
 		klog.Errorf("GetMetric err: %v", err)
 		return nil, err
@@ -173,6 +231,7 @@ func (m *MetricProviderImp) GetExternalMetric(ctx context.Context, namespace str
 			continue
 		}
 
+		resultCount += internal.Len()
 		items = append(items, PackExternalMetricValueList(internal)...)
 	}
 	return &external_metrics.ExternalMetricValueList{
@@ -182,7 +241,17 @@ func (m *MetricProviderImp) GetExternalMetric(ctx context.Context, namespace str
 
 func (m *MetricProviderImp) ListAllExternalMetrics() []provider.ExternalMetricInfo {
 	klog.V(6).Info("ListAllExternalMetrics")
-	internalList, err := m.storeImp.ListMetricMeta(context.Background(), false)
+	var (
+		internalList []data.MetricMeta
+		resultCount  int
+		err          error
+		start        = time.Now()
+	)
+	defer func() {
+		m.emitMetrics("ListAllExternalMetrics", "", "", start, resultCount, err)
+	}()
+
+	internalList, err = m.storeImp.ListMetricMeta(context.Background(), false)
 	if err != nil {
 		klog.Errorf("ListAllExternalMetrics err: %v", err)
 		return []provider.ExternalMetricInfo{}
@@ -201,7 +270,42 @@ func (m *MetricProviderImp) ListAllExternalMetrics() []provider.ExternalMetricIn
 
 	var res []provider.ExternalMetricInfo
 	for info := range infoMap {
+		resultCount++
 		res = append(res, info)
 	}
 	return res
+}
+
+// emitMetrics provides a unified way to emit metrics about the running states for each interface.
+func (m *MetricProviderImp) emitMetrics(function string, metricName, objName string, reqStart time.Time, resultCount int, err error) {
+	now := time.Now()
+	var (
+		reqCosts = now.Sub(reqStart).Microseconds()
+		success  = err == nil
+	)
+	klog.V(3).Infof("[provider] function [%v]: costs %v(ms), resultCount %v, success: %v", function, reqCosts, resultCount, success)
+
+	if metricName == "" {
+		metricName = "empty"
+	}
+	if objName == "" {
+		objName = "empty"
+	}
+	tags := []metrics.MetricTag{
+		{Key: "function", Val: fmt.Sprintf("%v", function)},
+		{Key: "metric_name", Val: metricName},
+		{Key: "object_name", Val: objName},
+	}
+
+	_ = m.metricsEmitter.StoreInt64(metricsNameKCMASProviderReqCosts, reqCosts, metrics.MetricTypeNameRaw, append(tags,
+		metrics.MetricTag{Key: "success", Val: fmt.Sprintf("%v", success)})...)
+	_ = m.metricsEmitter.StoreInt64(metricsNameKCMASProviderReqCount, 1, metrics.MetricTypeNameCount, append(tags,
+		metrics.MetricTag{Key: "success", Val: fmt.Sprintf("%v", success)})...)
+
+	if success {
+		_ = m.metricsEmitter.StoreInt64(metricsNameKCMASProviderDataCount, int64(resultCount), metrics.MetricTypeNameRaw, tags...)
+		if resultCount == 0 {
+			_ = m.metricsEmitter.StoreInt64(metricsNameKCMASProviderDataEmpty, 1, metrics.MetricTypeNameCount, tags...)
+		}
+	}
 }

@@ -25,7 +25,13 @@ import (
 
 	"k8s.io/apimachinery/pkg/runtime/schema"
 
+	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
+)
+
+const (
+	metricsNameKCMASStoreDataLatencySet = "kcmas_store_data_latency_set"
+	metricsNameKCMASStoreDataLatencyGet = "kcmas_store_data_latency_get"
 )
 
 type InternalValue struct {
@@ -115,8 +121,6 @@ func (a *InternalMetric) DeepCopyWithLimit(limit int) *InternalMetric {
 	b := a.DeepCopy()
 
 	total := len(b.InternalValue)
-	sort.Sort(b)
-
 	if limit > 0 && total > limit {
 		b.InternalValue = b.InternalValue[total-limit:]
 	}
@@ -143,6 +147,13 @@ func (a *InternalMetric) Swap(i, j int) {
 	a.InternalValue[i], a.InternalValue[j] = a.InternalValue[j], a.InternalValue[i]
 }
 
+func (a *InternalMetric) GenerateTags() []metrics.MetricTag {
+	return []metrics.MetricTag{
+		{Key: "metric_name", Val: a.Name},
+		{Key: "object_name", Val: a.ObjectName},
+	}
+}
+
 func Marshal(internalList []*InternalMetric) ([]byte, error) {
 	return json.Marshal(internalList)
 }
@@ -153,25 +164,25 @@ func Unmarshal(bytes []byte) ([]*InternalMetric, error) {
 	return res, err
 }
 
-// MergeInternalMetricList merges internal metric lists and sort them, if the same
+// PackInternalMetricList merges internal metric lists and sort them, if the same
 // timestamp appears in different list (which should happen actually), we will
 // randomly choose one item.
-func MergeInternalMetricList(internalLists ...[]*InternalMetric) []*InternalMetric {
+func PackInternalMetricList(internalLists ...[]*InternalMetric) []*InternalMetric {
 	if len(internalLists) == 0 {
 		return []*InternalMetric{}
 	} else if len(internalLists) == 1 {
 		return internalLists[0]
 	}
 
-	c := NewCachedMetric()
+	c := NewCachedMetric(metrics.DummyMetrics{})
 	for _, internalList := range internalLists {
 		c.Add(internalList...)
 	}
 	return c.ListAllMetric()
 }
 
-// MergeMetricMetaList merges MetricMeta lists and removes duplicates
-func MergeMetricMetaList(metricMetaLists ...[]MetricMeta) []MetricMeta {
+// PackMetricMetaList merges MetricMeta lists and removes duplicates
+func PackMetricMetaList(metricMetaLists ...[]MetricMeta) []MetricMeta {
 	metricTypeMap := make(map[MetricMeta]interface{})
 	for _, metricsTypeList := range metricMetaLists {
 		for _, metricsType := range metricsTypeList {
@@ -188,9 +199,18 @@ func MergeMetricMetaList(metricMetaLists ...[]MetricMeta) []MetricMeta {
 	return res
 }
 
+// GenerateMetaTags returns tag based on the given meta-info
+func GenerateMetaTags(m *MetricMeta, d *ObjectMeta) []metrics.MetricTag {
+	return []metrics.MetricTag{
+		{Key: "metric_name", Val: m.Name},
+		{Key: "object_name", Val: d.ObjectName},
+	}
+}
+
 // CachedMetric stores all metricItems in an organized way;
 type CachedMetric struct {
 	sync.RWMutex
+	metricsEmitter metrics.MetricEmitter
 
 	// namespaced is used as a normal storage format, while
 	// metricMap flatten the metrics as a reversed index to make refer faster
@@ -198,14 +218,17 @@ type CachedMetric struct {
 	metricMap  map[MetricMeta]map[ObjectMeta]*InternalMetric
 }
 
-func NewCachedMetric() *CachedMetric {
+func NewCachedMetric(metricsEmitter metrics.MetricEmitter) *CachedMetric {
 	return &CachedMetric{
-		namespaced: make(map[string]*namespacedMetric),
-		metricMap:  make(map[MetricMeta]map[ObjectMeta]*InternalMetric),
+		metricsEmitter: metricsEmitter,
+		namespaced:     make(map[string]*namespacedMetric),
+		metricMap:      make(map[MetricMeta]map[ObjectMeta]*InternalMetric),
 	}
 }
 
 func (c *CachedMetric) Add(dList ...*InternalMetric) {
+	now := time.Now()
+
 	c.Lock()
 	defer c.Unlock()
 
@@ -235,6 +258,16 @@ func (c *CachedMetric) Add(dList ...*InternalMetric) {
 
 		c.metricMap[d.MetricMeta][d.ObjectMeta].Labels = d.Labels
 		c.metricMap[d.MetricMeta][d.ObjectMeta].InternalValue = append(c.metricMap[d.MetricMeta][d.ObjectMeta].InternalValue, addedValues...)
+
+		if len(addedValues) > 0 {
+			sort.Sort(c.metricMap[d.MetricMeta][d.ObjectMeta])
+
+			// todo, support to emit metrics only when the functionality switched on
+			index := c.metricMap[d.MetricMeta][d.ObjectMeta].Len() - 1
+			costs := now.Sub(time.UnixMilli(c.metricMap[d.MetricMeta][d.ObjectMeta].InternalValue[index].Timestamp)).Microseconds()
+			_ = c.metricsEmitter.StoreInt64(metricsNameKCMASStoreDataLatencySet, costs, metrics.MetricTypeNameRaw,
+				GenerateMetaTags(&d.MetricMeta, &d.ObjectMeta)...)
+		}
 	}
 }
 
@@ -289,6 +322,8 @@ func (c *CachedMetric) GetMetric(namespace, metricName string, gr *schema.GroupR
 }
 
 func (c *CachedMetric) GetMetricWithLimit(namespace, metricName string, gr *schema.GroupResource, limit int) ([]*InternalMetric, bool) {
+	now := time.Now()
+
 	c.RLock()
 	defer c.RUnlock()
 
@@ -303,6 +338,11 @@ func (c *CachedMetric) GetMetricWithLimit(namespace, metricName string, gr *sche
 	if internalMap, ok := c.metricMap[metricMeta]; ok {
 		for _, internal := range internalMap {
 			res = append(res, internal.DeepCopyWithLimit(limit))
+
+			if internal.Len() > 0 {
+				costs := now.Sub(time.UnixMilli(internal.InternalValue[internal.Len()-1].Timestamp)).Microseconds()
+				_ = c.metricsEmitter.StoreInt64(metricsNameKCMASStoreDataLatencyGet, costs, metrics.MetricTypeNameRaw, internal.GenerateTags()...)
+			}
 		}
 		return res, true
 	}
@@ -316,6 +356,8 @@ func (c *CachedMetric) GetMetricInNamespace(namespace string) []*InternalMetric 
 }
 
 func (c *CachedMetric) GetMetricInNamespaceWithLimit(namespace string, limit int) []*InternalMetric {
+	now := time.Now()
+
 	c.RLock()
 	defer c.RUnlock()
 
@@ -327,6 +369,11 @@ func (c *CachedMetric) GetMetricInNamespaceWithLimit(namespace string, limit int
 	for _, internal := range c.namespaced[namespace].listAllMetric() {
 		internal.SetObjectNamespace(namespace)
 		res = append(res, internal.DeepCopyWithLimit(limit))
+
+		if internal.Len() > 0 {
+			costs := now.Sub(time.UnixMilli(internal.InternalValue[internal.Len()-1].Timestamp)).Microseconds()
+			_ = c.metricsEmitter.StoreInt64(metricsNameKCMASStoreDataLatencyGet, costs, metrics.MetricTypeNameRaw, internal.GenerateTags()...)
+		}
 	}
 	return res
 }
@@ -346,8 +393,8 @@ func (c *CachedMetric) gcWithTimestamp(expiredTimestamp int64) {
 		}
 	}
 
-	for name, internalMap := range c.metricMap {
-		for dStr, internal := range internalMap {
+	for metricMeta, internalMap := range c.metricMap {
+		for objectMeta, internal := range internalMap {
 			var valueList []*InternalValue
 			for _, value := range internal.InternalValue {
 				if value.Timestamp > expiredTimestamp {
@@ -357,12 +404,12 @@ func (c *CachedMetric) gcWithTimestamp(expiredTimestamp int64) {
 
 			internal.InternalValue = valueList
 			if len(internal.InternalValue) == 0 {
-				delete(internalMap, dStr)
+				delete(internalMap, objectMeta)
 			}
 		}
 
 		if len(internalMap) == 0 {
-			delete(c.metricMap, name)
+			delete(c.metricMap, metricMeta)
 		}
 	}
 }

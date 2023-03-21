@@ -21,6 +21,7 @@ import (
 
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/klog/v2"
 	"k8s.io/metrics/pkg/apis/custom_metrics"
 	"k8s.io/metrics/pkg/apis/external_metrics"
 
@@ -28,12 +29,16 @@ import (
 )
 
 // findMetricValueLatest returns metric with the latest timestamp.
-func findMetricValueLatest(metricValueList []custom_metrics.MetricValue) *custom_metrics.MetricValue {
+func findMetricValueLatest(metricName string, metricValueList []custom_metrics.MetricValue) *custom_metrics.MetricValue {
 	var res *custom_metrics.MetricValue
 
-	for _, metricValue := range metricValueList {
+	for i, metricValue := range metricValueList {
 		if res == nil || res.Timestamp.UnixMilli() < metricValue.Timestamp.UnixMilli() {
 			res = &metricValue
+
+			if i != 0 {
+				klog.Warningf("metric %v stores latest value with index %v instead of beginning", metricName, i)
+			}
 		}
 	}
 

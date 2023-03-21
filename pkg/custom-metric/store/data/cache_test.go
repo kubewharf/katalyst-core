@@ -21,10 +21,12 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+
+	"github.com/kubewharf/katalyst-core/pkg/metrics"
 )
 
 func Test_cache(t *testing.T) {
-	c := NewCachedMetric()
+	c := NewCachedMetric(metrics.DummyMetrics{})
 
 	var (
 		exist        bool
@@ -685,7 +687,7 @@ func Test_cache(t *testing.T) {
 }
 
 func Test_marshal(t *testing.T) {
-	c := NewCachedMetric()
+	c := NewCachedMetric(metrics.DummyMetrics{})
 
 	c.Add(&InternalMetric{
 		MetricMeta: MetricMeta{

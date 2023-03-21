@@ -63,9 +63,10 @@ type ScrapeManager struct {
 	node string
 	url  string
 
-	req     *http.Request
-	client  *http.Client
-	emitter metrics.MetricEmitter
+	req        *http.Request
+	client     *http.Client
+	emitter    metrics.MetricEmitter
+	metricTags []metrics.MetricTag
 }
 
 func NewScrapeManager(ctx context.Context, outOfDataPeriod time.Duration, client *http.Client, node, url string, emitter metrics.MetricEmitter) (*ScrapeManager, error) {
@@ -88,6 +89,9 @@ func NewScrapeManager(ctx context.Context, outOfDataPeriod time.Duration, client
 		node:    node,
 		url:     url,
 		emitter: emitter,
+		metricTags: []metrics.MetricTag{
+			{Key: "node", Val: node},
+		},
 
 		outOfDataPeriod: outOfDataPeriod,
 		storedSeriesMap: make(map[uint64]*data.MetricSeries),
@@ -107,7 +111,7 @@ func (s *ScrapeManager) Stop() {
 
 // HandleMetric handles the in-cached metric, clears those metric if handle successes
 // keep them in memory otherwise
-func (s *ScrapeManager) HandleMetric(f func(d []*data.MetricSeries) error) {
+func (s *ScrapeManager) HandleMetric(f func(d []*data.MetricSeries, tags ...metrics.MetricTag) error) {
 	s.Lock()
 	defer s.Unlock()
 
@@ -122,12 +126,13 @@ func (s *ScrapeManager) HandleMetric(f func(d []*data.MetricSeries) error) {
 		totalMetricDataCount += int64(len(series.Series))
 	}
 
-	if err := f(storedSeriesList); err != nil {
+	if err := f(storedSeriesList, s.metricTags...); err != nil {
 		klog.Errorf("failed to scrape [%v] total metric series: %v, total metric data count: %v, err: %v",
 			s.url, len(s.storedSeriesMap), totalMetricDataCount, err)
 		return
 	}
 
+	_ = s.emitter.StoreInt64(metricNamePromCollectorStoreItemCount, totalMetricDataCount, metrics.MetricTypeNameCount, s.metricTags...)
 	klog.V(6).Infof("success scrape [%v] total metric series: %v, total metric data count: %v",
 		s.url, len(s.storedSeriesMap), totalMetricDataCount)
 	s.storedSeriesMap = make(map[uint64]*data.MetricSeries)
@@ -157,15 +162,30 @@ func (s *ScrapeManager) gc() {
 
 // scrape periodically scrape metric info from prometheus service, and then puts in the given store.
 func (s *ScrapeManager) scrape() {
-	buf := bytes.NewBuffer([]byte{})
+	var (
+		start                = time.Now()
+		err                  error
+		mf                   map[string]*dto.MetricFamily
+		totalMetricDataCount int64
+	)
+	defer func() {
+		tags := append(s.metricTags,
+			metrics.MetricTag{Key: "success", Val: fmt.Sprintf("%v", err == nil)},
+		)
+		_ = s.emitter.StoreInt64(metricNamePromCollectorScrapeLatency, time.Since(start).Microseconds(), metrics.MetricTypeNameRaw, tags...)
+		_ = s.emitter.StoreInt64(metricNamePromCollectorScrapeReqCount, 1, metrics.MetricTypeNameRaw, tags...)
+		_ = s.emitter.StoreInt64(metricNamePromCollectorScrapeItemCount, totalMetricDataCount, metrics.MetricTypeNameCount, s.metricTags...)
+	}()
 
-	if err := s.fetch(s.ctx, s.url, buf); err != nil {
+	buf := bytes.NewBuffer([]byte{})
+	err = s.fetch(s.ctx, s.url, buf)
+	if err != nil {
 		klog.Errorf("fetch contents %v failed: %v", s.url, err)
 		return
 	}
 
 	klog.V(6).Infof("node %v parseContents size %v", s.node, len(buf.Bytes()))
-	mf, err := parseContents(buf)
+	mf, err = parseContents(buf)
 	if err != nil {
 		klog.Errorf("node %v parseContents contents failed: %v", s.node, err)
 		return
@@ -207,6 +227,7 @@ func (s *ScrapeManager) scrape() {
 				}
 			}
 
+			totalMetricDataCount++
 			s.storedSeriesMap[hash].Series = append(s.storedSeriesMap[hash].Series, &data.MetricData{
 				Data:      int64(*m.Gauge.Value),
 				Timestamp: timestamp,

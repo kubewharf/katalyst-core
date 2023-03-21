@@ -65,11 +65,16 @@ var _ store.MetricStore = &LocalMemoryMetricStore{}
 
 func NewLocalMemoryMetricStore(ctx context.Context, baseCtx *katalystbase.GenericContext,
 	genericConf *metricconf.GenericMetricConfiguration, storeConf *metricconf.StoreConfiguration) (store.MetricStore, error) {
+	metricsEmitter := baseCtx.EmitterPool.GetDefaultMetricsEmitter()
+	if metricsEmitter == nil {
+		metricsEmitter = metrics.DummyMetrics{}
+	}
+
 	l := &LocalMemoryMetricStore{
 		ctx:               ctx,
 		genericConf:       genericConf,
 		storeConf:         storeConf,
-		cache:             data.NewCachedMetric(),
+		cache:             data.NewCachedMetric(metricsEmitter),
 		validMetricObject: data.GetSupportedMetricObject(),
 		objectInformer:    make(map[string]cache.GenericLister),
 		emitter:           baseCtx.EmitterPool.GetDefaultMetricsEmitter().WithTags("local_store"),
@@ -95,7 +100,7 @@ func (l *LocalMemoryMetricStore) Start() error {
 	l.syncSuccess = true
 
 	go wait.Until(l.gc, 10*time.Second, l.ctx.Done())
-	go wait.Until(l.log, time.Minute*3, l.ctx.Done())
+	go wait.Until(l.monitor, time.Minute*3, l.ctx.Done())
 	return nil
 }
 
@@ -108,6 +113,7 @@ func (l *LocalMemoryMetricStore) InsertMetric(seriesList []*data.MetricSeries) e
 	defer func() {
 		klog.V(5).Infof("[LocalMemoryMetricStore] InsertMetric costs %s", time.Since(begin).String())
 	}()
+
 	// todo: handle aggregate functions in the future if needed
 	for _, series := range seriesList {
 		begin := time.Now()
@@ -121,6 +127,11 @@ func (l *LocalMemoryMetricStore) InsertMetric(seriesList []*data.MetricSeries) e
 
 func (l *LocalMemoryMetricStore) GetMetric(_ context.Context, namespace, metricName, objName string, gr *schema.GroupResource,
 	objSelector, metricSelector labels.Selector, limited int) ([]*data.InternalMetric, error) {
+	begin := time.Now()
+	defer func() {
+		klog.V(5).Infof("[LocalMemoryMetricStore] GetMetric costs %s", time.Since(begin).String())
+	}()
+
 	var res []*data.InternalMetric
 	var internalList []*data.InternalMetric
 
@@ -179,15 +190,17 @@ func (l *LocalMemoryMetricStore) gc() {
 	defer func() {
 		klog.Infof("[LocalMemoryMetricStore] gc costs %s", time.Since(begin).String())
 	}()
+
 	expiredTime := begin.Add(-1 * l.genericConf.OutOfDataPeriod)
 	l.cache.GC(expiredTime)
 }
 
-func (l *LocalMemoryMetricStore) log() {
+func (l *LocalMemoryMetricStore) monitor() {
 	begin := time.Now()
 	defer func() {
-		klog.Infof("[LocalMemoryMetricStore] log costs %s", time.Since(begin).String())
+		klog.Infof("[LocalMemoryMetricStore] monitor costs %s", time.Since(begin).String())
 	}()
+
 	names := l.cache.ListAllMetricNames()
 	klog.Infof("currently with %v metric: %v", len(names), names)
 }

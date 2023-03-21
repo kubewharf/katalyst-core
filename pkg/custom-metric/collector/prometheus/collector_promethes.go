@@ -23,6 +23,7 @@ import (
 	"sync"
 	"time"
 
+	"go.uber.org/atomic"
 	"k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -48,8 +49,15 @@ import (
 const MetricCollectorNamePrometheus = "prometheus-collector"
 
 const (
-	metricNamePromCollectorSyncCosts = "prom_collector_sync_costs"
-	metricNamePromCollectorSyncCount = "prom_collector_sync_count"
+	metricNamePromCollectorSyncCosts = "kcmas_collector_sync_costs"
+
+	metricNamePromCollectorScrapeReqCount  = "kcmas_collector_scrape_req_cnt"
+	metricNamePromCollectorScrapeItemCount = "kcmas_collector_scrape_item_cnt"
+	metricNamePromCollectorScrapeLatency   = "kcmas_collector_scrape_latency"
+
+	metricNamePromCollectorStoreReqCount  = "kcmas_collector_store_req_cnt"
+	metricNamePromCollectorStoreItemCount = "kcmas_collector_store_item_cnt"
+	metricNamePromCollectorStoreLatency   = "kcmas_collector_store_latency"
 )
 
 // prometheusCollector implements MetricCollector using self-defined parser functionality
@@ -354,6 +362,9 @@ func (p *prometheusCollector) clearRequests() {
 			}
 		}
 	}
+	_ = p.emitter.StoreInt64(metricNamePromCollectorScrapeReqCount, int64(len(p.scrapes)), metrics.MetricTypeNameRaw, []metrics.MetricTag{
+		{Key: "type", Val: "total"},
+	}...)
 }
 
 // sync syncs buffered data from each ScrapeManager, and put them into store
@@ -367,20 +378,41 @@ func (p *prometheusCollector) sync() {
 	}
 	p.Unlock()
 
-	begin := time.Now()
+	syncStart := time.Now()
 	defer func() {
-		costs := time.Since(begin)
+		costs := time.Since(syncStart)
 		klog.Infof("prom collector handled with total %v requests, cost %s", len(scrapeManagers), costs.String())
 		_ = p.emitter.StoreInt64(metricNamePromCollectorSyncCosts, costs.Microseconds(), metrics.MetricTypeNameRaw)
-		_ = p.emitter.StoreInt64(metricNamePromCollectorSyncCount, int64(len(scrapeManagers)), metrics.MetricTypeNameRaw)
 	}()
 
-	handler := func(d []*data.MetricSeries) error {
-		return p.metricStore.InsertMetric(d)
+	var (
+		successReqs = atomic.NewInt64(0)
+		failedReqs  = atomic.NewInt64(0)
+	)
+	handler := func(d []*data.MetricSeries, tags ...metrics.MetricTag) error {
+		storeStart := time.Now()
+		defer func() {
+			_ = p.emitter.StoreInt64(metricNamePromCollectorStoreLatency, time.Since(storeStart).Microseconds(), metrics.MetricTypeNameRaw, tags...)
+		}()
+
+		if err := p.metricStore.InsertMetric(d); err != nil {
+			failedReqs.Inc()
+			return err
+		}
+
+		successReqs.Inc()
+		return nil
 	}
 	scrape := func(i int) {
 		scrapeManagers[i].HandleMetric(handler)
 	}
-
 	workqueue.ParallelizeUntil(p.ctx, general.Max(32, len(scrapeManagers)/64), len(scrapeManagers), scrape)
+
+	klog.Infof("prom collector handle %v succeeded requests, %s failed requests", successReqs.Load(), failedReqs.Load())
+	_ = p.emitter.StoreInt64(metricNamePromCollectorStoreReqCount, successReqs.Load(), metrics.MetricTypeNameCount, []metrics.MetricTag{
+		{Key: "type", Val: "succeeded"},
+	}...)
+	_ = p.emitter.StoreInt64(metricNamePromCollectorStoreReqCount, failedReqs.Load(), metrics.MetricTypeNameCount, []metrics.MetricTag{
+		{Key: "type", Val: "failed"},
+	}...)
 }

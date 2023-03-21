@@ -59,14 +59,14 @@ without_timestamp{label_test="without_timestamp",namespace="n1",object="pod",obj
 	s.Start(time.Minute * 30)
 	time.Sleep(time.Second * 5)
 
-	handler := func(d []*data.MetricSeries) error {
+	handler := func(d []*data.MetricSeries, tags ...metrics.MetricTag) error {
 		assert.NotNil(t, d)
 		return fmt.Errorf("test error")
 	}
 	s.HandleMetric(handler)
 
 	var dataList []*data.MetricSeries
-	handler = func(d []*data.MetricSeries) error {
+	handler = func(d []*data.MetricSeries, tags ...metrics.MetricTag) error {
 		assert.NotNil(t, d)
 		dataList = append(dataList, d...)
 		return nil
