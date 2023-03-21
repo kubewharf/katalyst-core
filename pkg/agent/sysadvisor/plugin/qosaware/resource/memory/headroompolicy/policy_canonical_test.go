@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package policy
+package headroompolicy
 
 import (
 	"io/ioutil"
@@ -31,6 +31,10 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
+)
+
+const (
+	containerEstimationMemoryFallback int64 = 8 << 30
 )
 
 func generateTestConfiguration(t *testing.T) *config.Configuration {
@@ -51,16 +55,23 @@ func TestNewPolicyCanonical(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, metaCache)
 
-	policy := NewPolicyCanonical(metaCache)
+	policy := NewPolicyCanonical(metaCache, nil)
 	require.NotNil(t, policy)
 }
 
-func TestGetProvisionResult(t *testing.T) {
+const (
+	defaultMemoryTotal    = 512 << 30
+	defaultMemoryReserved = 2 << 30
+)
+
+func TestGetHeadroom(t *testing.T) {
 	tests := []struct {
-		name       string
-		containers map[string]map[string]*types.ContainerInfo
-		metrics    map[string]map[string]map[string]float64
-		want       float64
+		name           string
+		containers     map[string]map[string]*types.ContainerInfo
+		metrics        map[string]map[string]map[string]float64
+		totalMemory    int64
+		reservedMemory int64
+		want           int64
 	}{
 		{
 			name: "reference rss",
@@ -110,7 +121,9 @@ func TestGetProvisionResult(t *testing.T) {
 					},
 				},
 			},
-			want: 3 << 30,
+			totalMemory:    defaultMemoryTotal,
+			reservedMemory: defaultMemoryReserved,
+			want:           defaultMemoryTotal - defaultMemoryReserved - 3<<30,
 		},
 		{
 			name: "reference request",
@@ -132,7 +145,9 @@ func TestGetProvisionResult(t *testing.T) {
 					},
 				},
 			},
-			want: 1 << 30,
+			totalMemory:    defaultMemoryTotal,
+			reservedMemory: defaultMemoryReserved,
+			want:           defaultMemoryTotal - defaultMemoryReserved - 1<<30,
 		},
 		{
 			name: "reference fallback",
@@ -154,7 +169,9 @@ func TestGetProvisionResult(t *testing.T) {
 					},
 				},
 			},
-			want: containerEstimationFallback,
+			totalMemory:    defaultMemoryTotal,
+			reservedMemory: defaultMemoryReserved,
+			want:           defaultMemoryTotal - defaultMemoryReserved - containerEstimationMemoryFallback,
 		},
 	}
 
@@ -181,13 +198,15 @@ func TestGetProvisionResult(t *testing.T) {
 				}
 			}
 
-			policy := NewPolicyCanonical(metaCache)
+			policy := NewPolicyCanonical(metaCache, nil)
 			assert.NotNil(t, policy)
 
+			policy.SetMemory(tt.totalMemory, tt.reservedMemory)
 			policy.Update()
-			provision := policy.GetProvisionResult()
+			provision, err := policy.GetHeadroom()
+			assert.NoError(t, err)
 
-			assert.Equal(t, tt.want, provision.(float64))
+			assert.Equal(t, tt.want, provision.Value())
 		})
 	}
 }

@@ -31,7 +31,7 @@ import (
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/options"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
-	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource/memory/policy"
+	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource/memory/headroompolicy"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric"
@@ -72,7 +72,7 @@ func newTestMemoryAdvisor(t *testing.T) *memoryResourceAdvisor {
 	mra.reservedForAllocateDefault = reservedDefault.Value()
 
 	policyName := conf.MemoryAdvisorConfiguration.MemoryAdvisorPolicy
-	memPolicy, err := policy.NewPolicy(types.MemoryAdvisorPolicyName(policyName), metaCache)
+	memPolicy, err := headroompolicy.NewPolicy(types.MemoryAdvisorPolicyName(policyName), metaCache, nil)
 	require.NoError(t, err)
 	require.NotNil(t, memPolicy)
 
@@ -113,7 +113,7 @@ func TestUpdate(t *testing.T) {
 				},
 			},
 			wantGetHeadroomErr: false,
-			wantHeadroom:       resource.MustParse(fmt.Sprintf("%d", 998<<30)),
+			wantHeadroom:       resource.MustParse("998Gi"),
 		},
 	}
 
@@ -129,7 +129,7 @@ func TestUpdate(t *testing.T) {
 
 			headroom, err := advisor.GetHeadroom()
 			assert.Equal(t, tt.wantGetHeadroomErr, err != nil)
-			if !reflect.DeepEqual(tt.wantHeadroom, headroom) {
+			if !reflect.DeepEqual(tt.wantHeadroom.MilliValue(), headroom.MilliValue()) {
 				t.Errorf("headroom expected: %+v, actual: %+v", tt.wantHeadroom, headroom)
 			}
 		})

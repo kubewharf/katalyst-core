@@ -18,6 +18,7 @@ package memory
 
 import (
 	"fmt"
+	"sync"
 	"time"
 
 	v1 "k8s.io/api/core/v1"
@@ -26,7 +27,7 @@ import (
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
-	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource/memory/policy"
+	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource/memory/headroompolicy"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/util"
 	"github.com/kubewharf/katalyst-core/pkg/config"
@@ -48,10 +49,12 @@ type memoryResourceAdvisor struct {
 	startTime                  time.Time
 	isReady                    bool
 
-	policy policy.Policy
+	policy headroompolicy.Policy
 
 	metaCache *metacache.MetaCache
 	emitter   metrics.MetricEmitter
+
+	mutex sync.RWMutex
 }
 
 // NewMemoryResourceAdvisor returns a memoryResourceAdvisor instance
@@ -70,7 +73,7 @@ func NewMemoryResourceAdvisor(conf *config.Configuration, metaCache *metacache.M
 	mra.reservedForAllocateDefault = reservedDefault.Value()
 
 	policyName := conf.MemoryAdvisorConfiguration.MemoryAdvisorPolicy
-	memPolicy, err := policy.NewPolicy(types.MemoryAdvisorPolicyName(policyName), metaCache)
+	memPolicy, err := headroompolicy.NewPolicy(types.MemoryAdvisorPolicyName(policyName), metaCache, metaServer)
 	if err != nil {
 		return nil, fmt.Errorf("new policy %v for memory resource advisor failed: %v", policyName, err)
 	}
@@ -84,6 +87,8 @@ func (mra *memoryResourceAdvisor) Name() string {
 }
 
 func (mra *memoryResourceAdvisor) Update() error {
+	mra.mutex.Lock()
+	defer mra.mutex.Unlock()
 	// Skip update during startup
 	if time.Now().Before(mra.startTime.Add(startUpPeriod)) {
 		klog.Infof("[qosaware-memory] starting up")
@@ -97,7 +102,13 @@ func (mra *memoryResourceAdvisor) Update() error {
 		return fmt.Errorf("[qosaware-memory] skip update. %v", err)
 	}
 
-	mra.policy.Update()
+	mra.policy.SetMemory(int64(mra.memoryLimitSystem), mra.getReservedResource())
+
+	if err := mra.policy.Update(); err != nil {
+		klog.Errorf("[qosaware-memory] update policy error %v", err)
+		mra.isReady = false
+		return err
+	}
 	mra.isReady = true
 	return nil
 }
@@ -108,22 +119,13 @@ func (mra *memoryResourceAdvisor) GetChannel() interface{} {
 }
 
 func (mra *memoryResourceAdvisor) GetHeadroom() (resource.Quantity, error) {
+	mra.mutex.RLock()
+	defer mra.mutex.RUnlock()
 	if !mra.isReady {
 		return resource.Quantity{}, fmt.Errorf("not ready")
 	}
 
-	reserved := mra.getReservedResource()
-	nonReclaimMemoryRequirement := mra.policy.GetProvisionResult().(float64)
-	nonReclaimMemoryRequirement += float64(reserved)
-
-	klog.Infof("[qosaware-memory] memory requirement by policy: %.2e, added reserved: %v", nonReclaimMemoryRequirement, reserved)
-
-	reclaimMemoryRequirement := float64(mra.memoryLimitSystem) - nonReclaimMemoryRequirement
-	if reclaimMemoryRequirement < 0 {
-		reclaimMemoryRequirement = 0
-	}
-
-	return resource.MustParse(fmt.Sprintf("%d", uint64(reclaimMemoryRequirement))), nil
+	return mra.policy.GetHeadroom()
 }
 
 func (mra *memoryResourceAdvisor) getReservedResource() int64 {
@@ -131,8 +133,8 @@ func (mra *memoryResourceAdvisor) getReservedResource() int64 {
 	return mra.reservedForAllocateDefault
 }
 
-func (cra *memoryResourceAdvisor) getPoolSize(poolName string) (int, error) {
-	pi, ok := cra.metaCache.GetPoolInfo(poolName)
+func (mra *memoryResourceAdvisor) getPoolSize(poolName string) (int, error) {
+	pi, ok := mra.metaCache.GetPoolInfo(poolName)
 	if !ok {
 		return 0, fmt.Errorf("%v pool not exist", poolName)
 	}
