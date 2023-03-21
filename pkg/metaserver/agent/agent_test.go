@@ -106,6 +106,12 @@ func TestFetcher(t *testing.T) {
 	agent.SetPodFetcher(constructPodFetcher([]string{"test-pod-3", "test-pod-4", "test-pod-5"}))
 	agent.SetNodeFetcher(node.NewRemoteNodeFetcher("test-node-2", constructNodeInterface("test-node-2")))
 	agent.SetCNRFetcher(cnrmeta.NewCachedCNRFetcher("test-cnr-2", conf.CNRCacheTTL, constructCNRInterface("test-cnr-2")))
+	_ = agent.CNRFetcher.RegisterNotifier("test-cnr-2", cnrmeta.CNRNotifierStub{})
+	assert.NoError(t, err)
+	defer func() {
+		err := agent.CNRFetcher.UnregisterNotifier("test-cnr-2")
+		assert.NoError(t, err)
+	}()
 
 	podObjList, err = agent.GetPodList(ctx, func(*v1.Pod) bool { return true })
 	assert.NoError(t, err)

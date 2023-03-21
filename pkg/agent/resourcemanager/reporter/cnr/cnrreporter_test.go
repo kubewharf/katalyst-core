@@ -28,12 +28,10 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	dynamicfake "k8s.io/client-go/dynamic/fake"
-	"k8s.io/client-go/kubernetes/fake"
 
 	nodev1alpha1 "github.com/kubewharf/katalyst-api/pkg/apis/node/v1alpha1"
-	internalfake "github.com/kubewharf/katalyst-api/pkg/client/clientset/versioned/fake"
 	"github.com/kubewharf/katalyst-api/pkg/protocol/reporterplugin/v1alpha1"
+	katalyst_base "github.com/kubewharf/katalyst-core/cmd/base"
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/options"
 	"github.com/kubewharf/katalyst-core/pkg/agent/resourcemanager/reporter"
 	"github.com/kubewharf/katalyst-core/pkg/client"
@@ -47,13 +45,9 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/util/syntax"
 )
 
-func generateTestGenericClientSet(objects ...runtime.Object) *client.GenericClientSet {
-	return &client.GenericClientSet{
-		KubeClient:     fake.NewSimpleClientset(objects...),
-		InternalClient: internalfake.NewSimpleClientset(objects...),
-		DynamicClient:  dynamicfake.NewSimpleDynamicClient(runtime.NewScheme(), objects...),
-	}
-}
+const (
+	nodeName = "test-node"
+)
 
 func generateTestMetaServer(clientSet *client.GenericClientSet, conf *config.Configuration) *metaserver.MetaServer {
 	return &metaserver.MetaServer{
@@ -68,17 +62,20 @@ func generateTestConfiguration(t *testing.T) *config.Configuration {
 	testConfiguration, err := options.NewOptions().Config()
 	require.NoError(t, err)
 	require.NotNil(t, testConfiguration)
+	testConfiguration.NodeName = nodeName
 	return testConfiguration
 }
 
-func generateTestReporter(t *testing.T) reporter.Reporter {
-	testClientSet := generateTestGenericClientSet()
+func generateTestReporter(t *testing.T, defaultCNR *nodev1alpha1.CustomNodeResource) reporter.Reporter {
+	testClientSet, err := katalyst_base.GenerateFakeGenericContext(nil, []runtime.Object{defaultCNR})
+	require.NoError(t, err)
+
 	testConfiguration := generateTestConfiguration(t)
 
-	testMetaServer := generateTestMetaServer(testClientSet, testConfiguration)
+	testMetaServer := generateTestMetaServer(testClientSet.Client, testConfiguration)
 	require.NotNil(t, testMetaServer)
 
-	r, err := NewCNRReporter(generateTestGenericClientSet(), testMetaServer, metrics.DummyMetrics{}, generateTestConfiguration(t))
+	r, err := NewCNRReporter(testClientSet.Client, testMetaServer, metrics.DummyMetrics{}, generateTestConfiguration(t))
 	assert.NoError(t, err)
 
 	return r
@@ -385,7 +382,7 @@ func Test_initializeCNRFields(t *testing.T) {
 
 func Test_cnrReporterImpl_Update(t *testing.T) {
 	type fields struct {
-		r reporter.Reporter
+		defaultCNR *nodev1alpha1.CustomNodeResource
 	}
 	type args struct {
 		ctx    context.Context
@@ -398,9 +395,38 @@ func Test_cnrReporterImpl_Update(t *testing.T) {
 		wantErr bool
 	}{
 		{
-			name: "test for Labels and ResourceAllocatable",
+			name: "test for create with Labels and ResourceAllocatable",
 			fields: fields{
-				r: generateTestReporter(t),
+				defaultCNR: nil,
+			},
+			args: args{
+				ctx: context.Background(),
+				fields: []*v1alpha1.ReportField{
+					{
+						FieldType: v1alpha1.FieldType_Metadata,
+						FieldName: "Labels",
+						Value: testMarshal(t, map[string]string{
+							"aa": "bb",
+						}),
+					},
+					{
+						FieldType: v1alpha1.FieldType_Status,
+						FieldName: util.CNRFieldNameResourceAllocatable,
+						Value: testMarshal(t, v1.ResourceList{
+							v1.ResourceCPU: resource.MustParse("10"),
+						}),
+					},
+				},
+			},
+		},
+		{
+			name: "test for update Labels and ResourceAllocatable",
+			fields: fields{
+				defaultCNR: &nodev1alpha1.CustomNodeResource{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: nodeName,
+					},
+				},
 			},
 			args: args{
 				ctx: context.Background(),
@@ -425,8 +451,15 @@ func Test_cnrReporterImpl_Update(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			go tt.fields.r.Run(context.Background())
-			if err := tt.fields.r.Update(tt.args.ctx, tt.args.fields); (err != nil) != tt.wantErr {
+			r := generateTestReporter(t, tt.fields.defaultCNR)
+			err := r.(cnr.CNRFetcher).RegisterNotifier("test-notifier", cnr.CNRNotifierStub{})
+			require.NoError(t, err)
+			defer func() {
+				err := r.(cnr.CNRFetcher).UnregisterNotifier("test-notifier")
+				require.NoError(t, err)
+			}()
+			go r.Run(context.Background())
+			if err := r.Update(tt.args.ctx, tt.args.fields); (err != nil) != tt.wantErr {
 				t.Errorf("Update() error = %v, wantErr %v", err, tt.wantErr)
 			}
 		})

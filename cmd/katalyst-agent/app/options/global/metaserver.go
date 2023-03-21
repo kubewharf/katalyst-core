@@ -26,7 +26,7 @@ import (
 )
 
 const (
-	defaultCustomNodeResourceCacheTTL 	  = 15 * time.Second
+	defaultCustomNodeResourceCacheTTL     = 15 * time.Second
 	defaultCustomNodeConfigCacheTTL       = 15 * time.Second
 	defaultServiceProfileCacheTTL         = 15 * time.Second
 	defaultConfigCacheTTL                 = 15 * time.Second
@@ -48,7 +48,7 @@ const (
 )
 
 type MetaServerOptions struct {
-	CNRCacheTTL time.Duration
+	CNRCacheTTL                    time.Duration
 	CustomNodeConfigCacheTTL       time.Duration
 	ServiceProfileCacheTTL         time.Duration
 	ConfigCacheTTL                 time.Duration
@@ -68,7 +68,7 @@ type MetaServerOptions struct {
 
 func NewMetaServerOptions() *MetaServerOptions {
 	return &MetaServerOptions{
-		CNRCacheTTL:                   defaultCustomNodeResourceCacheTTL,
+		CNRCacheTTL:                    defaultCustomNodeResourceCacheTTL,
 		CustomNodeConfigCacheTTL:       defaultCustomNodeConfigCacheTTL,
 		ServiceProfileCacheTTL:         defaultServiceProfileCacheTTL,
 		ConfigCacheTTL:                 defaultConfigCacheTTL,

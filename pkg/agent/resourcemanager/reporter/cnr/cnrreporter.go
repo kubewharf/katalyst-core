@@ -39,6 +39,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/client/control"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
+	metaservercnr "github.com/kubewharf/katalyst-core/pkg/metaserver/agent/cnr"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/syntax"
 )
@@ -61,7 +62,9 @@ type cnrReporterImpl struct {
 	// latestUpdatedCNR is used as an in-memory cache for CNR;
 	// whenever CNR info is needed, get from this cache firstly
 	latestUpdatedCNR *nodev1alpha1.CustomNodeResource
-	updateCNRMux     sync.Mutex
+	mux              sync.Mutex
+
+	notifiers map[string]metaservercnr.CNRNotifier
 
 	client  clientset.Interface
 	updater control.CNRControl
@@ -78,6 +81,7 @@ func NewCNRReporter(genericClient *client.GenericClientSet, metaServer *metaserv
 	c := &cnrReporterImpl{
 		cnrName:                conf.NodeName,
 		refreshLatestCNRPeriod: conf.RefreshLatestCNRPeriod,
+		notifiers:              make(map[string]metaservercnr.CNRNotifier),
 		emitter:                emitter,
 		client:                 genericClient.InternalClient,
 		updater:                control.NewCNRControlImpl(genericClient.InternalClient),
@@ -108,8 +112,8 @@ func (c *cnrReporterImpl) GetCNR(ctx context.Context) (*nodev1alpha1.CustomNodeR
 
 // Update is to update remote cnr according to reported fields
 func (c *cnrReporterImpl) Update(ctx context.Context, fields []*v1alpha1.ReportField) error {
-	c.updateCNRMux.Lock()
-	defer c.updateCNRMux.Unlock()
+	c.mux.Lock()
+	defer c.mux.Unlock()
 
 	if klog.V(4).Enabled() {
 		for _, f := range fields {
@@ -128,10 +132,36 @@ func (c *cnrReporterImpl) Update(ctx context.Context, fields []*v1alpha1.ReportF
 	return fmt.Errorf("attempt to update cnr failed with total retries of %d", cnrUpdateMaxRetryTimes)
 }
 
+// RegisterNotifier register a notifier to cnr reporter
+func (c *cnrReporterImpl) RegisterNotifier(name string, notifier metaservercnr.CNRNotifier) error {
+	c.mux.Lock()
+	defer c.mux.Unlock()
+
+	if _, ok := c.notifiers[name]; ok {
+		return fmt.Errorf("notifier %s already exists", name)
+	}
+
+	c.notifiers[name] = notifier
+	return nil
+}
+
+// UnregisterNotifier unregister a notifier from cnr reporter
+func (c *cnrReporterImpl) UnregisterNotifier(name string) error {
+	c.mux.Lock()
+	defer c.mux.Unlock()
+
+	if _, ok := c.notifiers[name]; !ok {
+		return fmt.Errorf("notifier %s not exists", name)
+	}
+
+	delete(c.notifiers, name)
+	return nil
+}
+
 // refreshLatestCNR get latest cnr from remote, because cnr in cache may not have been updated.
 func (c *cnrReporterImpl) refreshLatestCNR(ctx context.Context) {
-	c.updateCNRMux.Lock()
-	defer c.updateCNRMux.Unlock()
+	c.mux.Lock()
+	defer c.mux.Unlock()
 
 	cnr, err := c.client.NodeV1alpha1().CustomNodeResources().Get(ctx, c.cnrName, metav1.GetOptions{ResourceVersion: "0"})
 	if err == nil {
@@ -184,7 +214,7 @@ func (c *cnrReporterImpl) tryUpdateCNR(ctx context.Context, fields []*v1alpha1.R
 	}
 
 	// todo: consider whether we need to handle update error automatically
-	//  ie. use queue to push and pop those failed items
+	//  i.e. use queue to push and pop those failed items
 
 	// try patch spec and metadata first, because the update of cnr will change the ResourceVersion in ObjectMeta
 	originCNR, err = c.tryUpdateCNRSpecAndMetadata(ctx, originCNR, cnr)
@@ -231,6 +261,11 @@ func (c *cnrReporterImpl) tryUpdateCNRSpecAndMetadata(ctx context.Context,
 			"new cnr spec: %#v, metadata: %#v",
 			originCNR.Spec, originCNR.ObjectMeta, cnr.Spec, cnr.ObjectMeta)
 		c.latestUpdatedCNR = cnr.DeepCopy()
+
+		// notify cnr spec and metadata update
+		for _, notifier := range c.notifiers {
+			notifier.OnCNRUpdate(cnr)
+		}
 	} else {
 		return originCNR, nil
 	}
@@ -267,6 +302,11 @@ func (c *cnrReporterImpl) tryUpdateCNRStatus(ctx context.Context,
 
 		klog.Infof("patch cnr status success old status: %#v,\n new status: %#v", originCNR.Status, cnr.Status)
 		c.latestUpdatedCNR = cnr.DeepCopy()
+
+		// notify cnr status update
+		for _, notifier := range c.notifiers {
+			notifier.OnCNRStatusUpdate(cnr)
+		}
 	} else {
 		return originCNR, nil
 	}

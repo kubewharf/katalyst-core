@@ -22,6 +22,7 @@ import (
 	"sync"
 	"time"
 
+	apiequality "k8s.io/apimachinery/pkg/api/equality"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/klog/v2"
 
@@ -33,6 +34,21 @@ import (
 type CNRFetcher interface {
 	// GetCNR returns those latest custom node resources metadata.
 	GetCNR(ctx context.Context) (*nodev1alpha1.CustomNodeResource, error)
+
+	// RegisterNotifier registers a notifier to be notified when CNR is updated.
+	RegisterNotifier(name string, notifier CNRNotifier) error
+
+	// UnregisterNotifier unregisters a notifier.
+	UnregisterNotifier(name string) error
+}
+
+// CNRNotifier is used to notify CNR update.
+type CNRNotifier interface {
+	// OnCNRUpdate is called when CNR is updated.
+	OnCNRUpdate(cnr *nodev1alpha1.CustomNodeResource)
+
+	// OnCNRStatusUpdate is called when CNR status is updated.
+	OnCNRStatusUpdate(cnr *nodev1alpha1.CustomNodeResource)
 }
 
 type cachedCNRFetcher struct {
@@ -44,16 +60,20 @@ type cachedCNRFetcher struct {
 	cnr          *nodev1alpha1.CustomNodeResource
 	lastSyncTime time.Time
 	ttl          time.Duration
+	notifiers    map[string]CNRNotifier
 }
 
 func NewCachedCNRFetcher(nodeName string, ttl time.Duration, client v1alpha1.CustomNodeResourceInterface) CNRFetcher {
 	return &cachedCNRFetcher{
-		nodeName: nodeName,
-		ttl:      ttl,
-		client:   client,
+		nodeName:  nodeName,
+		ttl:       ttl,
+		client:    client,
+		notifiers: make(map[string]CNRNotifier),
 	}
 }
 
+// GetCNR returns latest CNR from cache, if the cache is expired, it will sync CNR from remote,
+// and if the sync fails, it will not update the cache and return the last success cached CNR.
 func (c *cachedCNRFetcher) GetCNR(ctx context.Context) (*nodev1alpha1.CustomNodeResource, error) {
 	c.Lock()
 	defer c.Unlock()
@@ -80,4 +100,46 @@ func (c *cachedCNRFetcher) syncCNR(ctx context.Context) {
 	}
 
 	c.cnr = cnr
+
+	if apiequality.Semantic.DeepEqual(cnr.Spec, c.cnr.Spec) ||
+		apiequality.Semantic.DeepEqual(cnr.ObjectMeta, c.cnr.ObjectMeta) {
+		// notify all notifiers
+		for _, notifier := range c.notifiers {
+			notifier.OnCNRUpdate(cnr)
+		}
+	}
+
+	if apiequality.Semantic.DeepEqual(cnr.Status, c.cnr.Status) {
+		// notify all notifiers
+		for _, notifier := range c.notifiers {
+			notifier.OnCNRStatusUpdate(cnr)
+		}
+	}
+}
+
+// RegisterNotifier registers a notifier to the fetcher, it returns error if the notifier is already registered,
+// so that the notifier can be registered only once or unregistered it before registering again.
+func (c *cachedCNRFetcher) RegisterNotifier(name string, notifier CNRNotifier) error {
+	c.Lock()
+	defer c.Unlock()
+
+	if _, ok := c.notifiers[name]; ok {
+		return fmt.Errorf("notifier %s already registered", name)
+	}
+
+	c.notifiers[name] = notifier
+	return nil
+}
+
+// UnregisterNotifier unregisters a notifier from the fetcher.
+func (c *cachedCNRFetcher) UnregisterNotifier(name string) error {
+	c.Lock()
+	defer c.Unlock()
+
+	if _, ok := c.notifiers[name]; !ok {
+		return fmt.Errorf("notifier %s not found", name)
+	}
+
+	delete(c.notifiers, name)
+	return nil
 }
