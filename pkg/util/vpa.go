@@ -141,34 +141,6 @@ func GetVPAForPod(pod *core.Pod, vpaIndexer cache.Indexer, workloadListerMap map
 		}
 	}
 
-	vpaList, err := vpaLister.List(labels.Everything())
-	if err != nil {
-		return nil, err
-	}
-
-	for _, vpa := range vpaList {
-		gvk := schema.FromAPIVersionAndKind(vpa.Spec.TargetRef.APIVersion, vpa.Spec.TargetRef.Kind)
-		if _, ok := workloadListerMap[gvk]; !ok {
-			continue
-		}
-
-		workloadObj, err := GetWorkloadForVPA(vpa, workloadListerMap[gvk])
-		if err != nil {
-			klog.Errorf("failed to get workload for vpa %v: %v", vpa.Name, err)
-			continue
-		}
-
-		selector, err := native.GetUnstructuredSelector(workloadObj.(*unstructured.Unstructured))
-		if err != nil || selector == nil {
-			klog.Errorf("failed to get workload selector %v: %v", workloadObj, err)
-			continue
-		}
-
-		if selector.Matches(labels.Set(pod.Labels)) {
-			return vpa, nil
-		}
-	}
-
 	return nil, apierrors.NewNotFound(apis.Resource(apis.ResourceNameKatalystVPA), "vpa for pod")
 }
 
@@ -424,7 +396,8 @@ func CheckVPAStatusLegal(vpa *apis.KatalystVerticalPodAutoscaler, pods []*core.P
 			return false, "qos changed", nil
 		}
 
-		podCopy := pod.DeepCopy()
+		podCopy := &core.Pod{}
+		podCopy.Spec.Containers = native.DeepCopyPodContainers(pod)
 		native.ApplyPodResources(podResource, podCopy)
 		zeroQuantity := resource.MustParse("0")
 		for _, container := range podCopy.Spec.Containers {

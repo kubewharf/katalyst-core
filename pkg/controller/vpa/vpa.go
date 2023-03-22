@@ -157,8 +157,7 @@ func NewVPAController(ctx context.Context, controlCtx *katalyst_base.GenericCont
 	// vpa controller need update pod resource when pod was recreated
 	// because vpa pod webhook may not always work
 	podInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
-		AddFunc:    vpaController.addPod,
-		UpdateFunc: vpaController.updatePod,
+		AddFunc: vpaController.addPod,
 	})
 
 	// build indexer: workload --> vpa
@@ -292,23 +291,6 @@ func (vc *VPAController) addPod(obj interface{}) {
 	}
 
 	klog.V(6).Infof("notice addition of pod %s", pod.Name)
-	vc.enqueueVPA(vpa)
-}
-
-func (vc *VPAController) updatePod(_ interface{}, cur interface{}) {
-	pod, ok := cur.(*core.Pod)
-	if !ok {
-		klog.Errorf("cannot convert obj to *core.Pod: %v", cur)
-		return
-	}
-
-	vpa, err := katalystutil.GetVPAForPod(pod, vc.vpaIndexer, vc.workloadLister, vc.vpaLister)
-	if err != nil {
-		klog.V(6).Infof("didn't to find vpa of pod %v/%v, err: %v", pod.Namespace, pod.Name, err)
-		return
-	}
-
-	klog.V(6).Infof("notice update of pod %s", pod.Name)
 	vc.enqueueVPA(vpa)
 }
 

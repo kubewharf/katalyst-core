@@ -17,11 +17,8 @@ limitations under the License.
 package native
 
 import (
-	apps "k8s.io/api/apps/v1"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/klog/v2"
 
 	"github.com/kubewharf/katalyst-api/pkg/consts"
@@ -170,40 +167,6 @@ func PodResourceDiff(pod *v1.Pod, containerResourcesToUpdate map[string]v1.Resou
 		}
 	}
 	return false
-}
-
-// CalculateUnstructuredTotalResources returns the total resources of the unstructured object's pod template
-func CalculateUnstructuredTotalResources(object *unstructured.Unstructured) (v1.ResourceList, v1.ResourceList) {
-	requestsResource := make(v1.ResourceList)
-	limitsResource := make(v1.ResourceList)
-
-	switch object.GroupVersionKind().Kind {
-	case "Deployment":
-		d := &apps.Deployment{}
-		if err := runtime.DefaultUnstructuredConverter.FromUnstructured(object.UnstructuredContent(), d); err != nil {
-			klog.Errorf("[vpa] failed to convert to *app.deployment: %v", err)
-			return nil, nil
-		}
-
-		for _, container := range d.Spec.Template.Spec.Containers {
-			requestsResource = AddResources(requestsResource, container.Resources.Requests)
-			limitsResource = AddResources(limitsResource, container.Resources.Limits)
-		}
-
-	case "StatefulSet":
-		s := &apps.StatefulSet{}
-		if err := runtime.DefaultUnstructuredConverter.FromUnstructured(object.UnstructuredContent(), s); err != nil {
-			klog.Errorf("[vpa] failed to convert to *apps.StatefulSet: %v", err)
-			return nil, nil
-		}
-
-		for _, container := range s.Spec.Template.Spec.Containers {
-			requestsResource = AddResources(requestsResource, container.Resources.Requests)
-			limitsResource = AddResources(limitsResource, container.Resources.Limits)
-		}
-	}
-
-	return requestsResource, limitsResource
 }
 
 // ResourceQuantityToInt64Value returns the int64 value according to its resource name

@@ -224,7 +224,8 @@ func CheckQosClassChanged(resources map[string]v1.ResourceRequirements, pod *v1.
 		return false, fmt.Errorf("pod is nil")
 	}
 
-	podCopy := pod.DeepCopy()
+	podCopy := &v1.Pod{}
+	podCopy.Spec.Containers = DeepCopyPodContainers(pod)
 	ApplyPodResources(resources, podCopy)
 
 	return qos.GetPodQOS(podCopy) != qos.GetPodQOS(pod), nil
@@ -314,4 +315,14 @@ func GetPodCondition(pod *v1.Pod, conditionType v1.PodConditionType) (v1.PodCond
 		}
 	}
 	return v1.PodCondition{}, false
+}
+
+// DeepCopyPodContainers returns a deep-copied objects for v1.Container slice
+func DeepCopyPodContainers(pod *v1.Pod) (containers []v1.Container) {
+	in, out := &pod.Spec.Containers, &containers
+	*out = make([]v1.Container, len(*in))
+	for i := range *in {
+		(*in)[i].DeepCopyInto(&(*out)[i])
+	}
+	return
 }

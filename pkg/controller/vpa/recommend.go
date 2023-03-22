@@ -307,7 +307,7 @@ func (rrc *ResourceRecommendController) syncVPA(key string) error {
 	recommender := vpa.Spec.ResourcePolicy.AlgorithmPolicy.Recommender
 	r, ok := algorithm.GetRecommender()[recommender]
 	if !ok {
-		klog.V(5).ErrorS(nil, fmt.Sprintf("[resource-rec] recommender %v not supported", recommender))
+		klog.V(8).ErrorS(nil, fmt.Sprintf("[resource-rec] recommender %v not supported", recommender))
 		return nil
 	}
 

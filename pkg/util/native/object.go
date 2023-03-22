@@ -20,7 +20,6 @@ import (
 	"fmt"
 	"strings"
 
-	apps "k8s.io/api/apps/v1"
 	apiequality "k8s.io/apimachinery/pkg/api/equality"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -32,6 +31,8 @@ import (
 
 	"github.com/kubewharf/katalyst-api/pkg/consts"
 )
+
+var objectFieldsForLabelSelector = []string{"spec", "selector"}
 
 // GenerateUniqObjectUIDKey generate a uniq key (including UID) for the given object.
 func GenerateUniqObjectUIDKey(obj metav1.Object) string {
@@ -123,43 +124,26 @@ func CheckObjectEqual(obj1, obj2 metav1.Object) bool {
 
 // GetUnstructuredSelector parse a unstructured object and return its labelSelector (for pods)
 func GetUnstructuredSelector(object *unstructured.Unstructured) (labels.Selector, error) {
-	switch object.GroupVersionKind().Kind {
-	case "Deployment":
-		d := &apps.Deployment{}
-		if err := runtime.DefaultUnstructuredConverter.FromUnstructured(object.UnstructuredContent(), d); err != nil {
-			return nil, fmt.Errorf("failed to convert to *app.deployment: %v", err)
-		}
-
-		selector, err := metav1.LabelSelectorAsSelector(d.Spec.Selector)
+	anno := object.GetAnnotations()
+	if selectorStr, ok := anno[consts.WorkloadAnnotationVPASelectorKey]; ok {
+		selector, err := labels.Parse(selectorStr)
 		if err != nil {
 			return nil, err
 		}
-
 		return selector, nil
-	case "StatefulSet":
-		s := &apps.StatefulSet{}
-		if err := runtime.DefaultUnstructuredConverter.FromUnstructured(object.UnstructuredContent(), s); err != nil {
-			return nil, fmt.Errorf("failed to convert to *apps.StatefulSet: %v", err)
-		}
-
-		selector, err := metav1.LabelSelectorAsSelector(s.Spec.Selector)
-		if err != nil {
-			return nil, err
-		}
-
-		return selector, nil
-	default:
-		anno := object.GetAnnotations()
-		if selectorStr, ok := anno[consts.WorkloadAnnotationVPASelectorKey]; ok {
-			selector, err := labels.Parse(selectorStr)
-			if err != nil {
-				return nil, err
-			}
-			return selector, nil
-		}
 	}
 
-	return nil, fmt.Errorf("unsupported object type")
+	val, ok, err := unstructured.NestedFieldCopy(object.UnstructuredContent(), objectFieldsForLabelSelector...)
+	if err != nil {
+		return nil, err
+	} else if !ok || val == nil {
+		return nil, fmt.Errorf("%v doesn't exist", objectFieldsForLabelSelector)
+	}
+
+	selector := &metav1.LabelSelector{}
+	_ = runtime.DefaultUnstructuredConverter.FromUnstructured(val.(map[string]interface{}), selector)
+
+	return metav1.LabelSelectorAsSelector(selector)
 }
 
 // VisitUnstructuredAncestors is to walk through all the ancestors of the given object,
