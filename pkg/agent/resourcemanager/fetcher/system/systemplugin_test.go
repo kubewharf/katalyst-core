@@ -54,7 +54,7 @@ func Test_systemPlugin_GetReportContent(t *testing.T) {
 	meta, err := metaserver.NewMetaServer(genericClient, metrics.DummyMetrics{}, conf)
 	assert.NoError(t, err)
 
-	plugin, err := NewSystemPlugin(metrics.DummyMetrics{}, meta, conf, nil)
+	plugin, err := NewSystemReporterPlugin(metrics.DummyMetrics{}, meta, conf, nil)
 	assert.NoError(t, err)
 
 	content, err := plugin.GetReportContent(context.Background())

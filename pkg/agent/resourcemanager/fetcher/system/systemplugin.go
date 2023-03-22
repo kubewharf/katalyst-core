@@ -62,7 +62,8 @@ type systemPlugin struct {
 	metaServer *metaserver.MetaServer
 }
 
-func NewSystemPlugin(emitter metrics.MetricEmitter, metaServer *metaserver.MetaServer, conf *config.Configuration, _ plugin.ListAndWatchCallback) (plugin.ReporterPlugin, error) {
+func NewSystemReporterPlugin(emitter metrics.MetricEmitter, metaServer *metaserver.MetaServer,
+	conf *config.Configuration, _ plugin.ListAndWatchCallback) (plugin.ReporterPlugin, error) {
 	p := &systemPlugin{
 		conf:        conf,
 		emitter:     emitter,

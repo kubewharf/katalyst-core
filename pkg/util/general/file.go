@@ -61,6 +61,7 @@ func RegisterFileEventWatcher(stop <-chan struct{}, fileWatcherInfo FileWatcherI
 		}()
 
 		defer func() {
+			close(watcherCh)
 			err = watcher.Close()
 			if err != nil {
 				klog.Errorf("failed close watcher: %v", err)
@@ -89,7 +90,6 @@ func RegisterFileEventWatcher(stop <-chan struct{}, fileWatcherInfo FileWatcherI
 				klog.Warningf("%v watcher error: %v", fileWatcherInfo, err)
 			case <-stop:
 				klog.Infof("shutting down event watcher %v", fileWatcherInfo)
-
 				return
 			}
 		}

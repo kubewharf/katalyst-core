@@ -19,8 +19,15 @@ package topology
 import (
 	"context"
 	"encoding/json"
+	"io/ioutil"
+	"net"
+	"os"
+	"path"
 	"testing"
+	"time"
 
+	info "github.com/google/cadvisor/info/v1"
+	"github.com/stretchr/testify/assert"
 	"google.golang.org/grpc"
 	v1 "k8s.io/api/core/v1"
 	apiequality "k8s.io/apimachinery/pkg/api/equality"
@@ -28,17 +35,43 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/klog/v2"
+	podresv1 "k8s.io/kubelet/pkg/apis/podresources/v1"
+	"k8s.io/kubernetes/pkg/kubelet/checkpointmanager"
+	testutil "k8s.io/kubernetes/pkg/kubelet/cm/cpumanager/state/testing"
 
 	nodev1alpha1 "github.com/kubewharf/katalyst-api/pkg/apis/node/v1alpha1"
 	"github.com/kubewharf/katalyst-api/pkg/consts"
+	"github.com/kubewharf/katalyst-core/pkg/agent/resourcemanager/fetcher/util/kubelet/podresources"
 	"github.com/kubewharf/katalyst-core/pkg/config/generic"
+	pkgconsts "github.com/kubewharf/katalyst-core/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/pod"
 	"github.com/kubewharf/katalyst-core/pkg/util/qos"
-	"github.com/stretchr/testify/require"
-	podresv1 "k8s.io/kubelet/pkg/apis/podresources/v1"
 )
+
+type fakePodResourcesServer struct {
+	podResources         *podresv1.ListPodResourcesResponse
+	allocatableResources *podresv1.AllocatableResourcesResponse
+	podresv1.UnimplementedPodResourcesListerServer
+}
+
+func (m *fakePodResourcesServer) List(_ context.Context, _ *podresv1.ListPodResourcesRequest) (*podresv1.ListPodResourcesResponse, error) {
+	return m.podResources, nil
+}
+
+func (m *fakePodResourcesServer) GetAllocatableResources(_ context.Context, _ *podresv1.AllocatableResourcesRequest) (*podresv1.AllocatableResourcesResponse, error) {
+	return m.allocatableResources, nil
+}
+
+func newFakePodResourcesServer(podResources *podresv1.ListPodResourcesResponse, allocatableResources *podresv1.AllocatableResourcesResponse) *grpc.Server {
+	server := grpc.NewServer()
+	podresv1.RegisterPodResourcesListerServer(server, &fakePodResourcesServer{
+		podResources:         podResources,
+		allocatableResources: allocatableResources,
+	})
+	return server
+}
 
 type fakePodResourcesListerClient struct {
 	*podresv1.ListPodResourcesResponse
@@ -87,6 +120,26 @@ func testMarshal(i interface{}) string {
 func generateFloat64ResourceValue(value string) float64 {
 	resourceValue := resource.MustParse(value)
 	return float64(resourceValue.Value())
+}
+
+func tmpSocketDir() (socketDir string, err error) {
+	socketDir, err = ioutil.TempDir("", "pod_resources")
+	if err != nil {
+		return
+	}
+	err = os.MkdirAll(socketDir, 0755)
+	if err != nil {
+		return "", err
+	}
+	return
+}
+
+func generateTestMetaServer(podList ...*v1.Pod) *metaserver.MetaServer {
+	return &metaserver.MetaServer{
+		MetaAgent: &agent.MetaAgent{
+			PodFetcher: &pod.PodFetcherStub{PodList: podList},
+		},
+	}
 }
 
 func Test_getNumaAllocationsByPodResources(t *testing.T) {
@@ -1174,7 +1227,66 @@ func Test_podResourcesServerTopologyAdapterImpl_GetNumaTopologyStatus(t *testing
 				t.Errorf("GetNumaTopologyStatus() error = %v, wantErr %v", err, tt.wantErr)
 				return
 			}
-			require.Equal(t, true, apiequality.Semantic.DeepEqual(tt.want, got))
+			assert.Equal(t, true, apiequality.Semantic.DeepEqual(tt.want, got))
 		})
 	}
+}
+
+func Test_podResourcesServerTopologyAdapterImpl_Run(t *testing.T) {
+	dir, err := tmpSocketDir()
+	assert.NoError(t, err)
+	defer os.RemoveAll(dir)
+
+	endpoints := []string{
+		path.Join(dir, "podresources.sock"),
+	}
+
+	kubeletResourcePluginPath := []string{
+		path.Join(dir, "resource-plugins/"),
+	}
+
+	listener, err := net.Listen("unix", endpoints[0])
+	if err != nil {
+		t.Fatalf("failed to create listener: %v", err)
+	}
+
+	server := newFakePodResourcesServer(
+		&podresv1.ListPodResourcesResponse{},
+		&podresv1.AllocatableResourcesResponse{},
+	)
+
+	go func() {
+		err := server.Serve(listener)
+		assert.NoError(t, err)
+	}()
+
+	testMetaServer := generateTestMetaServer()
+
+	getNumaInfo := func() ([]info.Node, error) {
+		return []info.Node{}, nil
+	}
+
+	isPodNumaBinding := func(pod *v1.Pod) bool {
+		return true
+	}
+
+	ctx, cancel := context.WithCancel(context.TODO())
+	notifier := make(chan struct{}, 1)
+	p, _ := NewPodResourcesServerTopologyAdapter(testMetaServer,
+		endpoints, kubeletResourcePluginPath,
+		nil, getNumaInfo, isPodNumaBinding, podresources.GetV1Client)
+	err = p.Run(ctx, func() {})
+	assert.NoError(t, err)
+
+	checkpointManager, err := checkpointmanager.NewCheckpointManager(kubeletResourcePluginPath[0])
+	assert.NoError(t, err)
+
+	err = checkpointManager.CreateCheckpoint(pkgconsts.KubeletQoSResourceManagerCheckpoint, &testutil.MockCheckpoint{})
+	assert.NoError(t, err)
+
+	time.Sleep(1 * time.Second)
+
+	cancel()
+	close(notifier)
+	time.Sleep(1 * time.Second)
 }

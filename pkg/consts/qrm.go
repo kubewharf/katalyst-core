@@ -14,19 +14,9 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package reporter
+package consts
 
-import (
-	"github.com/kubewharf/katalyst-core/pkg/config/dynamic"
+const (
+	// KubeletQoSResourceManagerCheckpoint is the name of the checkpoint file for kubelet QoS resource manager
+	KubeletQoSResourceManagerCheckpoint = "kubelet_qrm_checkpoint"
 )
-
-type KubeletPluginConfiguration struct {
-	PodResourcesServerEndpoints []string
-	KubeletResourcePluginPaths  []string
-}
-
-func NewKubeletPluginConfiguration() *KubeletPluginConfiguration {
-	return &KubeletPluginConfiguration{}
-}
-
-func (c *KubeletPluginConfiguration) ApplyConfiguration(_ *dynamic.DynamicConfigCRD) {}

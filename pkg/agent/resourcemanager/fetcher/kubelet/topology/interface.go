@@ -28,21 +28,21 @@ type Adapter interface {
 	// GetNumaTopologyStatus return newest numa topology status
 	GetNumaTopologyStatus(ctx context.Context) (*nodev1alpha1.TopologyStatus, error)
 
-	// Run start Adapter with stop and notify channel
-	Run(ctx context.Context, notify chan struct{}) error
+	// Run is to start the topology adapter to watch the topology change
+	Run(ctx context.Context, handler func()) error
 }
 
 // DummyAdapter is a dummy topology adapter for test
 type DummyAdapter struct{}
 
-var _ Adapter = &DummyAdapter{}
+var _ Adapter = DummyAdapter{}
 
 // GetNumaTopologyStatus is to get dummy numa topology status
-func (d DummyAdapter) GetNumaTopologyStatus(ctx context.Context) (*nodev1alpha1.TopologyStatus, error) {
+func (d DummyAdapter) GetNumaTopologyStatus(_ context.Context) (*nodev1alpha1.TopologyStatus, error) {
 	return &nodev1alpha1.TopologyStatus{}, nil
 }
 
 // Run is to start the dummy topology adapter
-func (d DummyAdapter) Run(_ context.Context, _ chan struct{}) error {
+func (d DummyAdapter) Run(_ context.Context, _ func()) error {
 	return nil
 }

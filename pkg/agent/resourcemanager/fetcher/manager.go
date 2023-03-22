@@ -117,7 +117,7 @@ func NewReporterPluginManager(reporterMgr reporter.Manager, emitter metrics.Metr
 // newReporterPluginInitializers adds in-tree reporter plugins into init function list
 func newReporterPluginInitializers() map[string]plugin.InitFunc {
 	innerReporterPluginInitializers := make(map[string]plugin.InitFunc)
-	innerReporterPluginInitializers[system.PluginName] = system.NewSystemPlugin
+	innerReporterPluginInitializers[system.PluginName] = system.NewSystemReporterPlugin
 	innerReporterPluginInitializers[kubelet.PluginName] = kubelet.NewKubeletReporterPlugin
 	return innerReporterPluginInitializers
 }

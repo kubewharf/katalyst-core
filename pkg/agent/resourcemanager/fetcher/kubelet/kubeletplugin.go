@@ -24,6 +24,7 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
+	"go.uber.org/atomic"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/klog/v2"
 
@@ -47,6 +48,8 @@ const (
 
 // kubeletPlugin implements the endpoint interface, and it's an in-tree reporter plugin
 type kubeletPlugin struct {
+	mutex sync.RWMutex
+
 	ctx    context.Context
 	cancel context.CancelFunc
 
@@ -64,8 +67,7 @@ type kubeletPlugin struct {
 	// manager
 	notifierCh chan struct{}
 
-	mutex                       sync.Mutex
-	latestReportContentResponse *v1alpha1.GetReportContentResponse
+	latestReportContentResponse atomic.Value
 
 	*process.StopControl
 	emitter    metrics.MetricEmitter
@@ -80,7 +82,7 @@ func NewKubeletReporterPlugin(emitter metrics.MetricEmitter, metaServer *metaser
 		emitter:     emitter,
 		metaServer:  metaServer,
 		conf:        conf,
-		notifierCh:  make(chan struct{}),
+		notifierCh:  make(chan struct{}, 10),
 		ctx:         ctx,
 		cancel:      cancel,
 		cb:          callback,
@@ -88,7 +90,7 @@ func NewKubeletReporterPlugin(emitter metrics.MetricEmitter, metaServer *metaser
 	}
 
 	topologyStatusAdapter, err := topology.NewPodResourcesServerTopologyAdapter(metaServer,
-		conf.PodResourcesServerEndpoints, nil,
+		conf.PodResourcesServerEndpoints, conf.KubeletResourcePluginPaths, nil,
 		p.getNumaInfo, p.isPodNumaBinding, podresources.GetV1Client)
 	if err != nil {
 		return nil, err
@@ -104,7 +106,7 @@ func (p *kubeletPlugin) Name() string {
 }
 
 func (p *kubeletPlugin) Run(success chan<- bool) {
-	err := p.topologyStatusAdapter.Run(p.ctx, p.notifierCh)
+	err := p.topologyStatusAdapter.Run(p.ctx, p.topologyStatusChangeHandler)
 	if err != nil {
 		klog.Fatalf("run topology status adapter failed")
 		return
@@ -113,7 +115,12 @@ func (p *kubeletPlugin) Run(success chan<- bool) {
 
 	for {
 		select {
-		case <-p.notifierCh:
+		case _, ok := <-p.notifierCh:
+			if !ok {
+				klog.Infof("plugin %s has been stopped", PluginName)
+				return
+			}
+
 			resp, err := p.getReportContent(p.ctx)
 			if err != nil {
 				klog.Errorf("plugin %s failed to get report content with error %v", PluginName, err)
@@ -139,10 +146,12 @@ func (p *kubeletPlugin) ListAndWatchReportContentCallback(pluginName string, res
 }
 
 func (p *kubeletPlugin) GetCache() *v1alpha1.GetReportContentResponse {
-	p.mutex.Lock()
-	defer p.mutex.Unlock()
+	resp := p.latestReportContentResponse.Load()
+	if resp == nil {
+		return nil
+	}
 
-	return p.latestReportContentResponse
+	return resp.(*v1alpha1.GetReportContentResponse)
 }
 
 // Stop to cancel all context and close notifierCh
@@ -156,11 +165,21 @@ func (p *kubeletPlugin) Stop() {
 	p.StopControl.Stop()
 }
 
-func (p *kubeletPlugin) setCache(resp *v1alpha1.GetReportContentResponse) {
-	p.mutex.Lock()
-	defer p.mutex.Unlock()
+// topologyStatusChangeHandler is called by topology adapter when topology status changes
+func (p *kubeletPlugin) topologyStatusChangeHandler() {
+	p.mutex.RLock()
+	defer p.mutex.RUnlock()
 
-	p.latestReportContentResponse = resp
+	select {
+	case p.notifierCh <- struct{}{}:
+		klog.Infof("send topology change notification to plugin %s", PluginName)
+	default:
+		klog.Warningf("plugin %s is busy, skip topology change notification", PluginName)
+	}
+}
+
+func (p *kubeletPlugin) setCache(resp *v1alpha1.GetReportContentResponse) {
+	p.latestReportContentResponse.Store(resp)
 }
 
 // getReportContent get report content from all collectors

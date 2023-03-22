@@ -18,18 +18,23 @@ package reporter
 
 import (
 	cliflag "k8s.io/component-base/cli/flag"
+	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/reporter"
 )
 
 type KubeletPluginOptions struct {
 	PodResourcesServerEndpoints []string
+	KubeletResourcePluginPaths  []string
 }
 
 func NewKubeletPluginOptions() *KubeletPluginOptions {
 	return &KubeletPluginOptions{
 		PodResourcesServerEndpoints: []string{
-			"/var/lib/kubelet/pod-resources/kubelet.sock",
+			pluginapi.KubeletSocket,
+		},
+		KubeletResourcePluginPaths: []string{
+			pluginapi.ResourcePluginPath,
 		},
 	}
 }
@@ -39,9 +44,12 @@ func (o *KubeletPluginOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 
 	fs.StringSliceVar(&o.PodResourcesServerEndpoints, "pod-resources-server-endpoint", o.PodResourcesServerEndpoints,
 		"the endpoint of pod resource api server")
+	fs.StringSliceVar(&o.KubeletResourcePluginPaths, "kubelet-resource-plugin-path", o.KubeletResourcePluginPaths,
+		"the path of kubelet resource plugin")
 }
 
 func (o *KubeletPluginOptions) ApplyTo(c *reporter.KubeletPluginConfiguration) error {
 	c.PodResourcesServerEndpoints = o.PodResourcesServerEndpoints
+	c.KubeletResourcePluginPaths = o.KubeletResourcePluginPaths
 	return nil
 }

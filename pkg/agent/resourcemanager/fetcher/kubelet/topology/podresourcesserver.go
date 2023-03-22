@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/fsnotify/fsnotify"
 	info "github.com/google/cadvisor/info/v1"
 	"github.com/pkg/errors"
 	"google.golang.org/grpc"
@@ -33,8 +34,9 @@ import (
 
 	nodev1alpha1 "github.com/kubewharf/katalyst-api/pkg/apis/node/v1alpha1"
 	"github.com/kubewharf/katalyst-core/pkg/agent/resourcemanager/fetcher/util/kubelet/podresources"
+	"github.com/kubewharf/katalyst-core/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
-	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/pod"
+	metaserverpod "github.com/kubewharf/katalyst-core/pkg/metaserver/agent/pod"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/native"
 	podresv1 "k8s.io/kubelet/pkg/apis/podresources/v1"
@@ -71,20 +73,33 @@ type podResourcesServerTopologyAdapterImpl struct {
 
 	// podNumaBindFilter is to filter out pods which need numa binding
 	podNumaBindFilter func(*v1.Pod) bool
+
+	// kubeletResourcePluginPaths is the path of kubelet resource plugin
+	kubeletResourcePluginPaths []string
 }
 
 // NewPodResourcesServerTopologyAdapter creates a topology adapter which uses pod resources server
 func NewPodResourcesServerTopologyAdapter(metaServer *metaserver.MetaServer, endpoints []string,
-	skipNumaAllocatableDeviceNames sets.String, numaInfoGetter NumaInfoGetter,
+	kubeletResourcePluginPaths []string, skipNumaAllocatableDeviceNames sets.String, numaInfoGetter NumaInfoGetter,
 	podNumaBindingFilter func(*v1.Pod) bool, getClientFunc podresources.GetClientFunc) (Adapter, error) {
 	numaInfo, err := numaInfoGetter()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get numa info: %s", err)
 	}
 
+	// make sure all candidate kubelet resource plugin paths exist
+	for _, path := range kubeletResourcePluginPaths {
+		// ensure resource plugin path exists
+		err = general.EnsureDirectory(path)
+		if err != nil {
+			return nil, errors.Wrapf(err, "ensure resource plugin path %s exists failed", path)
+		}
+	}
+
 	numaToSocketMap := GetNumaToSocketMap(numaInfo)
 	return &podResourcesServerTopologyAdapterImpl{
 		endpoints:                      endpoints,
+		kubeletResourcePluginPaths:     kubeletResourcePluginPaths,
 		metaServer:                     metaServer,
 		numaToSocketMap:                numaToSocketMap,
 		skipNumaAllocatableDeviceNames: skipNumaAllocatableDeviceNames,
@@ -95,7 +110,7 @@ func NewPodResourcesServerTopologyAdapter(metaServer *metaserver.MetaServer, end
 
 func (p *podResourcesServerTopologyAdapterImpl) GetNumaTopologyStatus(parentCtx context.Context) (*nodev1alpha1.TopologyStatus, error) {
 	// always force getting pod list instead of cache
-	ctx := context.WithValue(parentCtx, pod.BypassCacheKey, pod.BypassCacheTrue)
+	ctx := context.WithValue(parentCtx, metaserverpod.BypassCacheKey, metaserverpod.BypassCacheTrue)
 
 	podList, err := p.metaServer.GetPodList(ctx, nil)
 	if err != nil {
@@ -143,7 +158,7 @@ func (p *podResourcesServerTopologyAdapterImpl) GetNumaTopologyStatus(parentCtx 
 	return GenerateNumaTopologyStatus(socketStatusMap, numaAllocationsMap), nil
 }
 
-func (p *podResourcesServerTopologyAdapterImpl) Run(ctx context.Context, _ chan struct{}) error {
+func (p *podResourcesServerTopologyAdapterImpl) Run(ctx context.Context, handler func()) error {
 	var err error
 	p.client, p.conn, err = p.getClientFunc(
 		general.GetOneExistPath(p.endpoints), podResourcesClientTimeout, podResourcesClientMaxMsgSize)
@@ -151,16 +166,41 @@ func (p *podResourcesServerTopologyAdapterImpl) Run(ctx context.Context, _ chan 
 		return fmt.Errorf("get podResources client failed, connect err: %s", err)
 	}
 
-	// because pod resource api is not support list/watch, so we only wait context done to close client connection here
-	go func() {
-		defer func(conn *grpc.ClientConn) {
-			err := conn.Close()
-			if err != nil {
-				klog.Errorf("pod resource connection close failed")
-			}
-		}(p.conn)
+	// register file watcher to watch qrm checkpoint file change
+	watcher, err := general.RegisterFileEventWatcher(
+		ctx.Done(),
+		general.FileWatcherInfo{
+			Path:     p.kubeletResourcePluginPaths,
+			Filename: consts.KubeletQoSResourceManagerCheckpoint,
+			Op:       fsnotify.Create,
+		},
+	)
+	if err != nil {
+		return fmt.Errorf("register file watcher failed, err: %s", err)
+	}
 
-		<-ctx.Done()
+	// start a goroutine to watch qrm checkpoint file change and notify to update topology status,
+	// and when qrm checkpoint file changed, it means that the topology status may be changed
+	go func() {
+		for {
+			select {
+			case <-ctx.Done():
+				err := p.conn.Close()
+				if err != nil {
+					klog.Errorf("pod resource connection close failed")
+				}
+				return
+			case _, ok := <-watcher:
+				if !ok {
+					klog.Warningf("watcher channel closed")
+					return
+				}
+				klog.Infof("qrm state file changed, notify to update topology status")
+				if handler != nil {
+					handler()
+				}
+			}
+		}
 	}()
 
 	return nil
