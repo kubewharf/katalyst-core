@@ -21,6 +21,7 @@ import (
 
 	katalyst "github.com/kubewharf/katalyst-core/cmd/base"
 	webhookconsts "github.com/kubewharf/katalyst-core/cmd/katalyst-webhook/app/webhook"
+	"github.com/kubewharf/katalyst-core/pkg/config/generic"
 	webhookconfig "github.com/kubewharf/katalyst-core/pkg/config/webhook"
 	"github.com/kubewharf/katalyst-core/pkg/webhook/validating/vpa"
 )
@@ -30,9 +31,9 @@ const (
 )
 
 func StartVPAWebhook(ctx context.Context, webhookCtx *katalyst.GenericContext,
-	generic *webhookconfig.GenericWebhookConfiguration,
+	genericConf *generic.GenericConfiguration, webhookGenericConf *webhookconfig.GenericWebhookConfiguration,
 	webhookConf *webhookconfig.WebhooksConfiguration, name string) (*webhookconsts.WebhookWrapper, error) {
-	v, run, err := vpa.NewWebhookVPA(ctx, webhookCtx, generic, webhookConf, webhookCtx.EmitterPool.GetDefaultMetricsEmitter())
+	v, run, err := vpa.NewWebhookVPA(ctx, webhookCtx, genericConf, webhookGenericConf, webhookConf, webhookCtx.EmitterPool.GetDefaultMetricsEmitter())
 	if err != nil {
 		return nil, err
 	}

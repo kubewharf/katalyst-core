@@ -36,6 +36,7 @@ import (
 	katalystbase "github.com/kubewharf/katalyst-core/cmd/base"
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-controller/app/options"
 	"github.com/kubewharf/katalyst-core/pkg/config/controller"
+	"github.com/kubewharf/katalyst-core/pkg/config/generic"
 	"github.com/kubewharf/katalyst-core/pkg/controller/vpa/util"
 	"github.com/kubewharf/katalyst-core/pkg/util/native"
 )
@@ -314,7 +315,8 @@ func TestVPARecControllerSyncVPA(t *testing.T) {
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			generalConf := &controller.GenericControllerConfiguration{
+			genericConfig := &generic.GenericConfiguration{}
+			controllerConf := &controller.GenericControllerConfiguration{
 				DynamicGVResources: []string{"statefulsets.v1.apps"},
 			}
 			fss := &cliflag.NamedFlagSets{}
@@ -325,7 +327,7 @@ func TestVPARecControllerSyncVPA(t *testing.T) {
 			controlCtx, err := katalystbase.GenerateFakeGenericContext(nil, []runtime.Object{tc.vpaOld}, []runtime.Object{tc.object})
 			assert.NoError(t, err)
 
-			vparec, err := NewVPARecommendationController(context.TODO(), controlCtx, vpaConf, generalConf)
+			vparec, err := NewVPARecommendationController(context.TODO(), controlCtx, genericConfig, controllerConf, vpaConf)
 			assert.NoError(t, err)
 
 			workloadInformers := controlCtx.DynamicResourcesManager.GetDynamicInformers()
@@ -501,7 +503,8 @@ func TestVPARecControllerSyncVPARec(t *testing.T) {
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			generalConf := &controller.GenericControllerConfiguration{
+			genericConfig := &generic.GenericConfiguration{}
+			controllerConf := &controller.GenericControllerConfiguration{
 				DynamicGVResources: []string{"statefulsets.v1.apps"},
 			}
 
@@ -514,7 +517,7 @@ func TestVPARecControllerSyncVPARec(t *testing.T) {
 			controlCtx, err := katalystbase.GenerateFakeGenericContext(nil, nil, nil)
 			assert.NoError(t, err)
 
-			vparecController, err := NewVPARecommendationController(context.TODO(), controlCtx, vpaConf, generalConf)
+			vparecController, err := NewVPARecommendationController(context.TODO(), controlCtx, genericConfig, controllerConf, vpaConf)
 			assert.NoError(t, err)
 
 			vpaInformer := controlCtx.InternalInformerFactory.Autoscaling().V1alpha1().KatalystVerticalPodAutoscalers()

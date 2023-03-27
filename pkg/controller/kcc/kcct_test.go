@@ -202,11 +202,12 @@ func TestKatalystCustomConfigTargetController_Run(t *testing.T) {
 
 			kcc, err := NewKatalystCustomConfigTargetController(
 				ctx,
+				conf.GenericConfiguration,
+				conf.GenericControllerConfiguration,
+				conf.KCCConfig,
 				genericContext.Client,
 				genericContext.InternalInformerFactory.Config().V1alpha1().KatalystCustomConfigs(),
-				conf.GenericControllerConfiguration,
 				metrics.DummyMetrics{},
-				conf.KCCConfig,
 				targetHandler,
 			)
 			assert.NoError(t, err)

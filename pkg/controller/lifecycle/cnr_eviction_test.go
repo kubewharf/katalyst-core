@@ -122,8 +122,8 @@ func NewFakeEvictionController(t *testing.T) (*EvictionController, error) {
 	cnrInformer := internalInformerFactory.Node().V1alpha1().CustomNodeResources()
 
 	conf := generateTestConfiguration(t)
-	ec, err := NewEvictionController(context.Background(), nodeInformer, podInformer, cnrInformer, clientSet,
-		conf.ControllersConfiguration.LifeCycleConfig, conf.GenericControllerConfiguration, nil)
+	ec, err := NewEvictionController(context.Background(), conf.GenericConfiguration, conf.GenericControllerConfiguration,
+		conf.ControllersConfiguration.LifeCycleConfig, clientSet, nodeInformer, podInformer, cnrInformer, nil)
 	if err != nil {
 		t.Errorf("new eviction controller error")
 	}

@@ -39,6 +39,7 @@ import (
 	katalystbase "github.com/kubewharf/katalyst-core/cmd/base"
 	"github.com/kubewharf/katalyst-core/pkg/client/control"
 	"github.com/kubewharf/katalyst-core/pkg/config/controller"
+	"github.com/kubewharf/katalyst-core/pkg/config/generic"
 	"github.com/kubewharf/katalyst-core/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/controller/vpa/algorithm"
 	"github.com/kubewharf/katalyst-core/pkg/controller/vpa/algorithm/recommenders"
@@ -95,7 +96,8 @@ type ResourceRecommendController struct {
 }
 
 func NewResourceRecommendController(ctx context.Context, controlCtx *katalystbase.GenericContext,
-	config *controller.VPAConfig, generalConf *controller.GenericControllerConfiguration) (*ResourceRecommendController, error) {
+	genericConf *generic.GenericConfiguration, _ *controller.GenericControllerConfiguration,
+	config *controller.VPAConfig) (*ResourceRecommendController, error) {
 	if controlCtx == nil {
 		return nil, fmt.Errorf("controlCtx is invalid")
 	}
@@ -182,7 +184,7 @@ func NewResourceRecommendController(ctx context.Context, controlCtx *katalystbas
 		recController.metricsEmitter = metrics.DummyMetrics{}
 	}
 
-	if !generalConf.DryRun {
+	if !genericConf.DryRun {
 		recController.vpaUpdater = control.NewRealVPAUpdater(genericClient.InternalClient)
 		recController.vpaRecUpdater = control.NewRealVPARecommendationUpdater(genericClient.InternalClient)
 	}

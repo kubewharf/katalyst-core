@@ -22,28 +22,23 @@ import (
 	"k8s.io/apimachinery/pkg/util/errors"
 	apiserveroptions "k8s.io/apiserver/pkg/server/options"
 	cliflag "k8s.io/component-base/cli/flag"
-	componentbaseconfig "k8s.io/component-base/config"
 
 	webhookconfig "github.com/kubewharf/katalyst-core/pkg/config/webhook"
 )
 
 // GenericWebhookOptions holds the configurations for webhook based configurations.
 type GenericWebhookOptions struct {
-	DryRun bool
-
 	Webhooks           []string
 	LabelSelector      string
 	ServerPort         string
 	DynamicGVResources []string
 
 	SecureServing *apiserveroptions.SecureServingOptions
-	componentbaseconfig.ClientConnectionConfiguration
 }
 
 // NewGenericWebhookOptions creates a new Options with a default config.
 func NewGenericWebhookOptions() *GenericWebhookOptions {
 	o := &GenericWebhookOptions{
-		DryRun:        true,
 		SecureServing: apiserveroptions.NewSecureServingOptions(),
 	}
 
@@ -64,11 +59,6 @@ func (o *GenericWebhookOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 	fs.StringVar(&o.LabelSelector, "label-selector", o.LabelSelector, fmt.Sprintf(""+
 		"A selector to restrict the list of returned objects by their labels. this selector is used in informer factory."))
 
-	fs.BoolVar(&o.DryRun, "dry-run", o.DryRun, "A bool to enable and disable dry-run.")
-
-	fs.Float32Var(&o.QPS, "kube-api-qps", o.QPS, "QPS to use while talking with kubernetes apiserver.")
-	fs.Int32Var(&o.Burst, "kube-api-burst", o.Burst, "Burst to use while talking with kubernetes apiserver.")
-
 	fs.StringSliceVar(&o.DynamicGVResources, "dynamic-resources", o.DynamicGVResources, fmt.Sprintf(""+
 		"A list of workloads to be list and watched. "+
 		"DynamicGVResources should be in the format of `resource.version.group.com` like 'deployments.v1.apps'."))
@@ -78,10 +68,6 @@ func (o *GenericWebhookOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 
 // ApplyTo fills up config with options
 func (o *GenericWebhookOptions) ApplyTo(c *webhookconfig.GenericWebhookConfiguration) error {
-	c.ClientConnection.QPS = o.QPS
-	c.ClientConnection.Burst = o.Burst
-
-	c.DryRun = o.DryRun
 	c.Webhooks = o.Webhooks
 	c.ServerPort = o.ServerPort
 	c.LabelSelector = o.LabelSelector

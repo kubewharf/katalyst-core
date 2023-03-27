@@ -40,6 +40,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/client"
 	"github.com/kubewharf/katalyst-core/pkg/client/control"
 	"github.com/kubewharf/katalyst-core/pkg/config/controller"
+	"github.com/kubewharf/katalyst-core/pkg/config/generic"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 )
@@ -72,10 +73,12 @@ type CNRLifecycle struct {
 }
 
 func NewCNRLifecycle(ctx context.Context,
+	genericConf *generic.GenericConfiguration,
+	_ *controller.GenericControllerConfiguration,
+	_ *controller.CNRLifecycleConfig,
+	client *client.GenericClientSet,
 	nodeInformer coreinformers.NodeInformer,
 	cnrInformer informers.CustomNodeResourceInformer,
-	client *client.GenericClientSet,
-	generalConf *controller.GenericControllerConfiguration,
 	metricsEmitter metrics.MetricEmitter) (*CNRLifecycle, error) {
 
 	cnrLifecycle := &CNRLifecycle{
@@ -105,7 +108,7 @@ func NewCNRLifecycle(ctx context.Context,
 	}
 
 	cnrLifecycle.cnrControl = control.DummyCNRControl{}
-	if !generalConf.DryRun {
+	if !genericConf.DryRun {
 		cnrLifecycle.cnrControl = control.NewCNRControlImpl(client.InternalClient)
 	}
 

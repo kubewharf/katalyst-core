@@ -40,6 +40,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/client"
 	"github.com/kubewharf/katalyst-core/pkg/client/control"
 	"github.com/kubewharf/katalyst-core/pkg/config/controller"
+	"github.com/kubewharf/katalyst-core/pkg/config/generic"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 )
@@ -72,11 +73,12 @@ type CNCLifecycle struct {
 }
 
 func NewCNCLifecycle(ctx context.Context,
+	genericConf *generic.GenericConfiguration,
+	_ *controller.GenericControllerConfiguration,
+	_ *controller.LifeCycleConfig,
+	client *client.GenericClientSet,
 	nodeInformer coreinformers.NodeInformer,
 	cncInformer configinformers.CustomNodeConfigInformer,
-	client *client.GenericClientSet,
-	_ *controller.LifeCycleConfig,
-	generalConf *controller.GenericControllerConfiguration,
 	metricsEmitter metrics.MetricEmitter) (*CNCLifecycle, error) {
 
 	cncLifecycle := &CNCLifecycle{
@@ -106,7 +108,7 @@ func NewCNCLifecycle(ctx context.Context,
 	}
 
 	cncLifecycle.cncControl = control.DummyCNCControl{}
-	if !generalConf.DryRun {
+	if !genericConf.DryRun {
 		cncLifecycle.cncControl = control.NewRealCNCControl(client.InternalClient)
 	}
 

@@ -44,6 +44,7 @@ import (
 	katalystbase "github.com/kubewharf/katalyst-core/cmd/base"
 	"github.com/kubewharf/katalyst-core/pkg/client/control"
 	"github.com/kubewharf/katalyst-core/pkg/config/controller"
+	"github.com/kubewharf/katalyst-core/pkg/config/generic"
 	"github.com/kubewharf/katalyst-core/pkg/consts"
 	indicator_plugin "github.com/kubewharf/katalyst-core/pkg/controller/spd/indicator-plugin"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
@@ -94,9 +95,10 @@ type SPDController struct {
 	indicatorsStatusBusiness map[apiworkload.ServiceBusinessIndicatorName]interface{}
 }
 
-func NewSPDController(ctx context.Context, controlCtx *katalystbase.GenericContext, conf *controller.SPDConfig,
-	generalConf *controller.GenericControllerConfiguration, extraConf interface{}) (*SPDController, error) {
-	if conf == nil || controlCtx.Client == nil || generalConf == nil {
+func NewSPDController(ctx context.Context, controlCtx *katalystbase.GenericContext,
+	genericConf *generic.GenericConfiguration, _ *controller.GenericControllerConfiguration,
+	conf *controller.SPDConfig, extraConf interface{}) (*SPDController, error) {
+	if conf == nil || controlCtx.Client == nil || genericConf == nil {
 		return nil, fmt.Errorf("client, conf and generalConf can't be nil")
 	}
 
@@ -169,7 +171,7 @@ func NewSPDController(ctx context.Context, controlCtx *katalystbase.GenericConte
 		}
 	}
 
-	if !generalConf.DryRun {
+	if !genericConf.DryRun {
 		spdController.podUpdater = control.NewRealPodUpdater(controlCtx.Client.KubeClient)
 		spdController.spdControl = control.NewSPDControlImp(controlCtx.Client.InternalClient)
 		spdController.workloadControl = control.NewRealUnstructuredControl(controlCtx.Client.DynamicClient)

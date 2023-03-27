@@ -21,18 +21,6 @@ import (
 	"fmt"
 	"time"
 
-	configapis "github.com/kubewharf/katalyst-api/pkg/apis/config/v1alpha1"
-	configinformers "github.com/kubewharf/katalyst-api/pkg/client/informers/externalversions/config/v1alpha1"
-	"github.com/kubewharf/katalyst-api/pkg/client/listers/config/v1alpha1"
-	kcclient "github.com/kubewharf/katalyst-core/pkg/client"
-	"github.com/kubewharf/katalyst-core/pkg/client/control"
-	"github.com/kubewharf/katalyst-core/pkg/config/controller"
-	"github.com/kubewharf/katalyst-core/pkg/consts"
-	kcctarget "github.com/kubewharf/katalyst-core/pkg/controller/kcc/target"
-	kccutil "github.com/kubewharf/katalyst-core/pkg/controller/kcc/util"
-	"github.com/kubewharf/katalyst-core/pkg/metrics"
-	"github.com/kubewharf/katalyst-core/pkg/util"
-	"github.com/kubewharf/katalyst-core/pkg/util/native"
 	v1 "k8s.io/api/core/v1"
 	apiequality "k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -47,6 +35,20 @@ import (
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog/v2"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+
+	configapis "github.com/kubewharf/katalyst-api/pkg/apis/config/v1alpha1"
+	configinformers "github.com/kubewharf/katalyst-api/pkg/client/informers/externalversions/config/v1alpha1"
+	"github.com/kubewharf/katalyst-api/pkg/client/listers/config/v1alpha1"
+	kcclient "github.com/kubewharf/katalyst-core/pkg/client"
+	"github.com/kubewharf/katalyst-core/pkg/client/control"
+	"github.com/kubewharf/katalyst-core/pkg/config/controller"
+	"github.com/kubewharf/katalyst-core/pkg/config/generic"
+	"github.com/kubewharf/katalyst-core/pkg/consts"
+	kcctarget "github.com/kubewharf/katalyst-core/pkg/controller/kcc/target"
+	kccutil "github.com/kubewharf/katalyst-core/pkg/controller/kcc/util"
+	"github.com/kubewharf/katalyst-core/pkg/metrics"
+	"github.com/kubewharf/katalyst-core/pkg/util"
+	"github.com/kubewharf/katalyst-core/pkg/util/native"
 )
 
 const (
@@ -85,17 +87,18 @@ type KatalystCustomConfigTargetController struct {
 
 func NewKatalystCustomConfigTargetController(
 	ctx context.Context,
+	genericConf *generic.GenericConfiguration,
+	_ *controller.GenericControllerConfiguration,
+	kccConfig *controller.KCCConfig,
 	client *kcclient.GenericClientSet,
 	katalystCustomConfigInformer configinformers.KatalystCustomConfigInformer,
-	generalConf *controller.GenericControllerConfiguration,
 	metricsEmitter metrics.MetricEmitter,
-	kccConfig *controller.KCCConfig,
 	targetHandler *kcctarget.KatalystCustomConfigTargetHandler,
 ) (*KatalystCustomConfigTargetController, error) {
 	k := &KatalystCustomConfigTargetController{
 		ctx:                           ctx,
 		client:                        client,
-		dryRun:                        generalConf.DryRun,
+		dryRun:                        genericConf.DryRun,
 		kccConfig:                     kccConfig,
 		katalystCustomConfigLister:    katalystCustomConfigInformer.Lister(),
 		targetHandler:                 targetHandler,

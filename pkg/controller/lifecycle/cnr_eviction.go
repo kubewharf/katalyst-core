@@ -202,12 +202,13 @@ type EvictionController struct {
 }
 
 func NewEvictionController(ctx context.Context,
+	genericConf *generic.GenericConfiguration,
+	_ *controller.GenericControllerConfiguration,
+	conf *controller.LifeCycleConfig,
+	client *client.GenericClientSet,
 	nodeInformer coreinformers.NodeInformer,
 	podInformer coreinformers.PodInformer,
 	cnrInformer informers.CustomNodeResourceInformer,
-	client *client.GenericClientSet,
-	conf *controller.LifeCycleConfig,
-	generalConf *controller.GenericControllerConfiguration,
 	metricsEmitter metrics.MetricEmitter) (*EvictionController, error) {
 	ec := &EvictionController{
 		ctx:                   ctx,
@@ -226,7 +227,7 @@ func NewEvictionController(ctx context.Context,
 		reclaimedPodFilter:    generic.NewQoSConfiguration().CheckReclaimedQoSForPod,
 	}
 
-	if !generalConf.DryRun && !conf.DryRun {
+	if !genericConf.DryRun && !conf.DryRun {
 		ec.cnrControl = control.NewCNRControlImpl(client.InternalClient)
 	}
 

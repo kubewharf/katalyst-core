@@ -22,7 +22,6 @@ import (
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	cliflag "k8s.io/component-base/cli/flag"
-	componentbaseconfig "k8s.io/component-base/config"
 	election "k8s.io/component-base/config"
 
 	controllerconfig "github.com/kubewharf/katalyst-core/pkg/config/controller"
@@ -32,17 +31,14 @@ import (
 type GenericControllerOptions struct {
 	Controllers        []string
 	LabelSelector      string
-	DryRun             bool
 	DynamicGVResources []string
 
 	election.LeaderElectionConfiguration
-	componentbaseconfig.ClientConnectionConfiguration
 }
 
 // NewGenericControllerOptions creates a new Options with a default config.
 func NewGenericControllerOptions() *GenericControllerOptions {
 	return &GenericControllerOptions{
-		DryRun: true,
 		LeaderElectionConfiguration: election.LeaderElectionConfiguration{
 			LeaderElect:       true,
 			LeaseDuration:     metav1.Duration{Duration: 15 * time.Second},
@@ -91,11 +87,6 @@ func (o *GenericControllerOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 	fs.StringVar(&o.LabelSelector, "label-selector", o.LabelSelector, fmt.Sprintf(""+
 		"A selector to restrict the list of returned objects by their labels. this selector is used in informer factory."))
 
-	fs.BoolVar(&o.DryRun, "dry-run", o.DryRun, "A bool to enable and disable dry-run.")
-
-	fs.Float32Var(&o.QPS, "kube-api-qps", o.QPS, "QPS to use while talking with kubernetes apiserver.")
-	fs.Int32Var(&o.Burst, "kube-api-burst", o.Burst, "Burst to use while talking with kubernetes apiserver.")
-
 	fs.StringSliceVar(&o.DynamicGVResources, "dynamic-resources", o.DynamicGVResources, fmt.Sprintf(""+
 		"A list of resources to be list and watched. "+
 		"DynamicGVResources should be in the format of `resource.version.group.com` like 'deployments.v1.apps'."))
@@ -111,10 +102,6 @@ func (o *GenericControllerOptions) ApplyTo(c *controllerconfig.GenericController
 	c.LeaderElection.ResourceName = o.ResourceName
 	c.LeaderElection.ResourceNamespace = o.ResourceNamespace
 
-	c.ClientConnection.QPS = o.QPS
-	c.ClientConnection.Burst = o.Burst
-
-	c.DryRun = o.DryRun
 	c.Controllers = o.Controllers
 	c.LabelSelector = o.LabelSelector
 	c.DynamicGVResources = o.DynamicGVResources

@@ -43,11 +43,12 @@ func StartKCCController(ctx context.Context, controlCtx *katalystbase.GenericCon
 
 	kccController, err := kcc.NewKatalystCustomConfigController(
 		ctx,
+		conf.GenericConfiguration,
+		conf.GenericControllerConfiguration,
+		conf.ControllersConfiguration.KCCConfig,
 		controlCtx.Client,
 		controlCtx.InternalInformerFactory.Config().V1alpha1().KatalystCustomConfigs(),
-		conf.GenericControllerConfiguration,
 		controlCtx.EmitterPool.GetDefaultMetricsEmitter(),
-		conf.ControllersConfiguration.KCCConfig,
 		targetHandler,
 	)
 	if err != nil {
@@ -57,11 +58,12 @@ func StartKCCController(ctx context.Context, controlCtx *katalystbase.GenericCon
 
 	kccTargetController, err := kcc.NewKatalystCustomConfigTargetController(
 		ctx,
+		conf.GenericConfiguration,
+		conf.GenericControllerConfiguration,
+		conf.ControllersConfiguration.KCCConfig,
 		controlCtx.Client,
 		controlCtx.InternalInformerFactory.Config().V1alpha1().KatalystCustomConfigs(),
-		conf.GenericControllerConfiguration,
 		controlCtx.EmitterPool.GetDefaultMetricsEmitter(),
-		conf.ControllersConfiguration.KCCConfig,
 		targetHandler,
 	)
 	if err != nil {
@@ -71,11 +73,12 @@ func StartKCCController(ctx context.Context, controlCtx *katalystbase.GenericCon
 
 	cncController, err := kcc.NewCustomNodeConfigController(
 		ctx,
+		conf.GenericConfiguration,
+		conf.GenericControllerConfiguration,
+		conf.ControllersConfiguration.KCCConfig,
 		controlCtx.Client,
 		controlCtx.InternalInformerFactory.Config().V1alpha1().CustomNodeConfigs(),
-		conf.GenericControllerConfiguration,
 		controlCtx.EmitterPool.GetDefaultMetricsEmitter(),
-		conf.ControllersConfiguration.KCCConfig,
 		targetHandler,
 	)
 	if err != nil {

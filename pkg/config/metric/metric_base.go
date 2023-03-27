@@ -23,10 +23,6 @@ import (
 )
 
 type GenericMetricConfiguration struct {
-	// ClientConnection specifies the kubeconfig file and client connection
-	// settings for the proxy server to use when communicating with the apiserver.
-	ClientConnection componentbaseconfig.ClientConnectionConfiguration
-
 	// leaderElection defines the configuration of leader election client.
 	LeaderElection componentbaseconfig.LeaderElectionConfiguration
 

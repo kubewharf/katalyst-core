@@ -16,9 +16,15 @@ limitations under the License.
 
 package generic
 
+import (
+	componentbaseconfig "k8s.io/component-base/config"
+)
+
 // GenericConfiguration stores all the generic configurations needed
 // by core katalyst components
 type GenericConfiguration struct {
+	DryRun bool
+
 	GenericEndpoint             string
 	GenericEndpointHandleChains []string
 	GenericAuthStaticUser       string
@@ -26,11 +32,16 @@ type GenericConfiguration struct {
 
 	*QoSConfiguration
 	*MetricsConfiguration
+
+	// ClientConnection specifies the kubeconfig file and client connection
+	// settings for the proxy server to use when communicating with the apiserver.
+	ClientConnection componentbaseconfig.ClientConnectionConfiguration
 }
 
 // NewGenericConfiguration creates a new generic configuration.
 func NewGenericConfiguration() *GenericConfiguration {
 	return &GenericConfiguration{
+		DryRun:               false,
 		QoSConfiguration:     NewQoSConfiguration(),
 		MetricsConfiguration: NewMetricsConfiguration(),
 	}

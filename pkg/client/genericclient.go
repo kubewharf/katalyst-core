@@ -29,6 +29,7 @@ import (
 	"k8s.io/client-go/metadata"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
+	componentbaseconfig "k8s.io/component-base/config"
 	"k8s.io/metrics/pkg/client/custom_metrics"
 	customclient "k8s.io/metrics/pkg/client/custom_metrics"
 	cmfake "k8s.io/metrics/pkg/client/custom_metrics/fake"
@@ -54,9 +55,11 @@ type GenericClientSet struct {
 	ExternalClient externalclient.ExternalMetricsClient
 }
 
+// BuildMetricClient builds kubernetes native metrics-clients; and metrics-clients
+// can't be build in init process, since discovery mapper will be initialized at the
+// same time, which is usually not needed for agents (to avoid too many connections).
 func (g *GenericClientSet) BuildMetricClient(mapper *dynamicmapper.RegeneratingDiscoveryRESTMapper) {
 	apiVersionsGetter := custom_metrics.NewAvailableAPIsGetter(g.KubeClient.Discovery())
-
 	g.CustomClient = custom_metrics.NewForConfig(g.cfg, mapper, apiVersionsGetter)
 	g.ExternalClient = external_metrics.NewForConfigOrDie(g.cfg)
 }
@@ -113,18 +116,8 @@ func newForConfigOrDie(cfg *rest.Config) *GenericClientSet {
 	return gc
 }
 
-// NewGenericClientWithName returns clientSet with given name as user-agent.
-func NewGenericClientWithName(name string, cfg *rest.Config) *GenericClientSet {
-	if cfg == nil {
-		return nil
-	}
-	newCfg := *cfg
-	newCfg.UserAgent = fmt.Sprintf("%s/%s", cfg.UserAgent, name)
-	return newForConfigOrDie(&newCfg)
-}
-
-// BuildKubeConfig returns KubeConfig for given master and KubeConfig raw string
-func BuildKubeConfig(masterURL, kubeConfig string) (*rest.Config, error) {
+// BuildGenericClient returns KubeConfig for given master and KubeConfig raw string
+func BuildGenericClient(config componentbaseconfig.ClientConnectionConfiguration, masterURL, kubeConfig, name string) (*GenericClientSet, error) {
 	inputMasterURL := masterURL
 
 	// if kube-config is empty, use in cluster configuration
@@ -140,5 +133,14 @@ func BuildKubeConfig(masterURL, kubeConfig string) (*rest.Config, error) {
 	if inputMasterURL != "" {
 		cfg.Host = inputMasterURL
 	}
-	return cfg, nil
+
+	// reset configurations according to client-connection configs
+	cfg.DisableCompression = true
+	cfg.AcceptContentTypes = config.AcceptContentTypes
+	cfg.ContentType = config.ContentType
+	cfg.QPS = config.QPS
+	cfg.Burst = int(config.Burst)
+	cfg.UserAgent = fmt.Sprintf("%s/%s", cfg.UserAgent, name)
+
+	return newForConfigOrDie(cfg), nil
 }

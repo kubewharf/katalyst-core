@@ -39,6 +39,7 @@ import (
 	kcclient "github.com/kubewharf/katalyst-core/pkg/client"
 	"github.com/kubewharf/katalyst-core/pkg/client/control"
 	"github.com/kubewharf/katalyst-core/pkg/config/controller"
+	"github.com/kubewharf/katalyst-core/pkg/config/generic"
 	"github.com/kubewharf/katalyst-core/pkg/consts"
 	kcctarget "github.com/kubewharf/katalyst-core/pkg/controller/kcc/target"
 	"github.com/kubewharf/katalyst-core/pkg/controller/kcc/util"
@@ -79,17 +80,18 @@ type CustomNodeConfigController struct {
 
 func NewCustomNodeConfigController(
 	ctx context.Context,
+	genericConf *generic.GenericConfiguration,
+	_ *controller.GenericControllerConfiguration,
+	kccConfig *controller.KCCConfig,
 	client *kcclient.GenericClientSet,
 	customNodeConfigInformer configinformers.CustomNodeConfigInformer,
-	generalConf *controller.GenericControllerConfiguration,
 	metricsEmitter metrics.MetricEmitter,
-	kccConfig *controller.KCCConfig,
 	targetHandler *kcctarget.KatalystCustomConfigTargetHandler,
 ) (*CustomNodeConfigController, error) {
 	c := &CustomNodeConfigController{
 		ctx:                       ctx,
 		client:                    client,
-		dryRun:                    generalConf.DryRun,
+		dryRun:                    genericConf.DryRun,
 		kccConfig:                 kccConfig,
 		customNodeConfigLister:    customNodeConfigInformer.Lister(),
 		targetHandler:             targetHandler,

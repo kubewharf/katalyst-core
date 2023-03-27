@@ -36,6 +36,7 @@ import (
 	workloadapis "github.com/kubewharf/katalyst-api/pkg/apis/workload/v1alpha1"
 	apiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
 	katalystbase "github.com/kubewharf/katalyst-core/cmd/base"
+	"github.com/kubewharf/katalyst-core/pkg/config/generic"
 	webhookconfig "github.com/kubewharf/katalyst-core/pkg/config/webhook"
 	"github.com/kubewharf/katalyst-core/pkg/util/native"
 )
@@ -240,8 +241,9 @@ func TestMutatePod(t *testing.T) {
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			genericConf := webhookconfig.NewGenericWebhookConfiguration()
-			genericConf.DynamicGVResources = []string{
+			genericConf := &generic.GenericConfiguration{}
+			webhookGenericConf := webhookconfig.NewGenericWebhookConfiguration()
+			webhookGenericConf.DynamicGVResources = []string{
 				"statefulsets.v1.apps",
 				"replicasets.v1.apps",
 				"deployments.v1.apps",
@@ -257,7 +259,7 @@ func TestMutatePod(t *testing.T) {
 			err = workloadInformers[tc.gvr].Informer.Informer().GetStore().Add(u)
 			assert.NoError(t, err)
 
-			wh, _, err := NewWebhookPod(context.TODO(), controlCtx, genericConf, nil)
+			wh, _, err := NewWebhookPod(context.TODO(), controlCtx, genericConf, webhookGenericConf, nil)
 			assert.NoError(t, err)
 
 			vpaInformer := controlCtx.InternalInformerFactory.Autoscaling().V1alpha1().KatalystVerticalPodAutoscalers()

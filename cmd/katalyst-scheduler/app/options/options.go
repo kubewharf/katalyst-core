@@ -17,16 +17,16 @@ limitations under the License.
 package options
 
 import (
-	"github.com/kubewharf/katalyst-core/pkg/config/generic"
-	restclient "k8s.io/client-go/rest"
-	"k8s.io/client-go/tools/clientcmd"
-	componentbaseconfig "k8s.io/component-base/config"
+	"fmt"
+
 	scheduleroptions "k8s.io/kubernetes/cmd/kube-scheduler/app/options"
 
 	"github.com/kubewharf/katalyst-api/pkg/client/informers/externalversions"
 	"github.com/kubewharf/katalyst-core/cmd/base/options"
 	schedulerappconfig "github.com/kubewharf/katalyst-core/cmd/katalyst-scheduler/app/config"
 	"github.com/kubewharf/katalyst-core/pkg/client"
+	"github.com/kubewharf/katalyst-core/pkg/config/generic"
+	"github.com/kubewharf/katalyst-core/pkg/consts"
 )
 
 // Options has all the params needed to run a Scheduler
@@ -55,33 +55,16 @@ func (o *Options) Config() (*schedulerappconfig.Config, *generic.QoSConfiguratio
 		return nil, nil, err
 	}
 
-	kubeConfig, err := createKubeConfig(config.ComponentConfig.ClientConnection, "")
+	clientSet, err := client.BuildGenericClient(config.ComponentConfig.ClientConnection, "",
+		"", fmt.Sprintf("%v", consts.KatalystComponentScheduler))
 	if err != nil {
 		return nil, nil, err
 	}
 
-	clientSet := client.NewGenericClientWithName("katalyst-scheduler", kubeConfig)
 	internalInformerFactory := externalversions.NewSharedInformerFactory(clientSet.InternalClient, 0)
-
 	return &schedulerappconfig.Config{
 		Config:                  config,
 		InternalClient:          clientSet.InternalClient,
 		InternalInformerFactory: internalInformerFactory,
 	}, qosConfig, nil
-}
-
-// createKubeConfig creates a kubeConfig from the given config and masterOverride.
-func createKubeConfig(config componentbaseconfig.ClientConnectionConfiguration, masterOverride string) (*restclient.Config, error) {
-	kubeConfig, err := clientcmd.BuildConfigFromFlags(masterOverride, config.Kubeconfig)
-	if err != nil {
-		return nil, err
-	}
-
-	kubeConfig.DisableCompression = true
-	kubeConfig.AcceptContentTypes = config.AcceptContentTypes
-	kubeConfig.ContentType = config.ContentType
-	kubeConfig.QPS = config.QPS
-	kubeConfig.Burst = int(config.Burst)
-
-	return kubeConfig, nil
 }

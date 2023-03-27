@@ -28,13 +28,6 @@ type GenericControllerConfiguration struct {
 	// first item for a particular name wins
 	Controllers []string
 
-	// DryRun controls if dry-run is enabled
-	DryRun bool
-
-	// ClientConnection specifies the kubeconfig file and client connection
-	// settings for the proxy server to use when communicating with the apiserver.
-	ClientConnection componentbaseconfig.ClientConnectionConfiguration
-
 	// leaderElection defines the configuration of leader election client.
 	LeaderElection componentbaseconfig.LeaderElectionConfiguration
 

@@ -18,7 +18,6 @@ package webhook
 
 import (
 	"k8s.io/apiserver/pkg/server"
-	componentbaseconfig "k8s.io/component-base/config"
 )
 
 type GenericWebhookConfiguration struct {
@@ -28,13 +27,6 @@ type GenericWebhookConfiguration struct {
 	// '-foo' means "disable 'foo'"
 	// first item for a particular name wins
 	Webhooks []string
-
-	// DryRun controls if dry-run is enabled
-	DryRun bool
-
-	// ClientConnection specifies the kubeConfig file and client connection
-	// settings for the proxy server to use when communicating with the APIServer.
-	ClientConnection componentbaseconfig.ClientConnectionConfiguration
 
 	// A selector to restrict the list of returned objects by their labels. this selector is
 	// used in informer factory.

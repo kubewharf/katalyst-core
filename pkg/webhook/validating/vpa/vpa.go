@@ -30,6 +30,7 @@ import (
 	apiListers "github.com/kubewharf/katalyst-api/pkg/client/listers/autoscaling/v1alpha1"
 	katalystbase "github.com/kubewharf/katalyst-core/cmd/base"
 	webhookconsts "github.com/kubewharf/katalyst-core/cmd/katalyst-webhook/app/webhook"
+	"github.com/kubewharf/katalyst-core/pkg/config/generic"
 	webhookconfig "github.com/kubewharf/katalyst-core/pkg/config/webhook"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 )
@@ -58,12 +59,11 @@ type WebhookVPAValidator interface {
 }
 
 func NewWebhookVPA(ctx context.Context, webhookCtx *katalystbase.GenericContext,
-	generic *webhookconfig.GenericWebhookConfiguration,
-	_ *webhookconfig.WebhooksConfiguration,
-	metricsEmitter metrics.MetricEmitter) (kubewebhook.Webhook, webhookconsts.GenericStartFunc, error) {
+	genericConf *generic.GenericConfiguration, _ *webhookconfig.GenericWebhookConfiguration,
+	_ *webhookconfig.WebhooksConfiguration, metricsEmitter metrics.MetricEmitter) (kubewebhook.Webhook, webhookconsts.GenericStartFunc, error) {
 	wa := &WebhookVPA{
 		ctx:    ctx,
-		dryRun: generic.DryRun,
+		dryRun: genericConf.DryRun,
 	}
 
 	wa.metricEmitter = metricsEmitter

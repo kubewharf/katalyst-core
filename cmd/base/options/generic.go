@@ -26,10 +26,13 @@ import (
 
 	"github.com/kubewharf/katalyst-core/pkg/config/generic"
 	"github.com/kubewharf/katalyst-core/pkg/util/process"
+	componentbaseconfig "k8s.io/component-base/config"
 )
 
 // GenericOptions holds the configurations for multi components.
 type GenericOptions struct {
+	DryRun bool
+
 	MasterURL  string
 	KubeConfig string
 
@@ -41,10 +44,13 @@ type GenericOptions struct {
 
 	qosOptions     *QoSOptions
 	metricsOptions *MetricsOptions
+
+	componentbaseconfig.ClientConnectionConfiguration
 }
 
 func NewGenericOptions() *GenericOptions {
 	return &GenericOptions{
+		DryRun:                      false,
 		GenericEndpoint:             ":9316",
 		qosOptions:                  NewQoSOptions(),
 		metricsOptions:              NewMetricsOptions(),
@@ -62,6 +68,8 @@ func (o *GenericOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 		fs.AddGoFlag(fl)
 	})
 
+	fs.BoolVar(&o.DryRun, "dry-run", o.DryRun, "A bool to enable and disable dry-run.")
+
 	fs.StringVar(&o.MasterURL, "master", o.MasterURL,
 		`The url of the Kubernetes API server, will overrides any value in kubeconfig, only required if out-of-cluster.`)
 	fs.StringVar(&o.KubeConfig, "kubeconfig", o.KubeConfig, "The path of kubeconfig file")
@@ -77,10 +85,15 @@ func (o *GenericOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 
 	o.qosOptions.AddFlags(fs)
 	o.metricsOptions.AddFlags(fs)
+
+	fs.Float32Var(&o.QPS, "kube-api-qps", o.QPS, "QPS to use while talking with kubernetes apiserver.")
+	fs.Int32Var(&o.Burst, "kube-api-burst", o.Burst, "Burst to use while talking with kubernetes apiserver.")
 }
 
 // ApplyTo fills up config with options
 func (o *GenericOptions) ApplyTo(c *generic.GenericConfiguration) error {
+	c.DryRun = o.DryRun
+
 	c.GenericEndpoint = o.GenericEndpoint
 	c.GenericEndpointHandleChains = o.GenericEndpointHandleChains
 	c.GenericAuthStaticUser = o.GenericAuthStaticUser
@@ -89,6 +102,9 @@ func (o *GenericOptions) ApplyTo(c *generic.GenericConfiguration) error {
 	errList := make([]error, 0, 1)
 	errList = append(errList, o.qosOptions.ApplyTo(c.QoSConfiguration))
 	errList = append(errList, o.metricsOptions.ApplyTo(c.MetricsConfiguration))
+
+	c.ClientConnection.QPS = o.QPS
+	c.ClientConnection.Burst = o.Burst
 
 	return errors.NewAggregate(errList)
 }

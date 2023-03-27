@@ -110,11 +110,12 @@ func TestCustomNodeConfigController_Run(t *testing.T) {
 
 			cnc, err := NewCustomNodeConfigController(
 				ctx,
+				conf.GenericConfiguration,
+				conf.GenericControllerConfiguration,
+				conf.KCCConfig,
 				genericContext.Client,
 				genericContext.InternalInformerFactory.Config().V1alpha1().CustomNodeConfigs(),
-				conf.GenericControllerConfiguration,
 				metrics.DummyMetrics{},
-				conf.KCCConfig,
 				targetHandler,
 			)
 			assert.NoError(t, err)

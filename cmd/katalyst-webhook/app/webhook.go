@@ -36,6 +36,7 @@ import (
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-webhook/app/webhook/validating"
 	"github.com/kubewharf/katalyst-core/pkg/client"
 	"github.com/kubewharf/katalyst-core/pkg/config"
+	"github.com/kubewharf/katalyst-core/pkg/config/generic"
 	webhookconfig "github.com/kubewharf/katalyst-core/pkg/config/webhook"
 	"github.com/kubewharf/katalyst-core/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/util/process"
@@ -49,11 +50,11 @@ func Run(opt *options.Options, genericOptions ...katalystbase.GenericOptions) er
 		return err
 	}
 
-	kubeConfig, err := client.BuildKubeConfig(opt.MasterURL, opt.KubeConfig)
+	clientSet, err := client.BuildGenericClient(conf.GenericConfiguration.ClientConnection, opt.MasterURL,
+		opt.KubeConfig, fmt.Sprintf("%v", consts.KatalystComponentMetric))
 	if err != nil {
 		return err
 	}
-	clientSet := client.NewGenericClientWithName("katalyst-webhook", kubeConfig)
 
 	// set up signals so that we handle the first shutdown signal gracefully.
 	ctx := process.SetupSignalHandler()
@@ -79,7 +80,8 @@ func Run(opt *options.Options, genericOptions ...katalystbase.GenericOptions) er
 	}()
 
 	klog.Infoln("ready to start webhooks")
-	if err := startWebhooks(ctx, webhookCtx, mux, conf.GenericWebhookConfiguration, conf.WebhooksConfiguration, NewWebhookInitializers()); err != nil {
+	if err := startWebhooks(ctx, webhookCtx, mux, conf.GenericConfiguration, conf.GenericWebhookConfiguration,
+		conf.WebhooksConfiguration, NewWebhookInitializers()); err != nil {
 		klog.Fatalf("error starting webhooks: %v", err)
 	}
 
@@ -101,7 +103,8 @@ func Run(opt *options.Options, genericOptions ...katalystbase.GenericOptions) er
 // Any error returned will cause the webhooks process to `Fatal`
 // The Webhook indicates the returned webhook implementation, while the bool indicates whether the webhook was enabled.
 type InitFunc func(ctx context.Context, webhookCtx *katalystbase.GenericContext,
-	generic *webhookconfig.GenericWebhookConfiguration,
+	genericConf *generic.GenericConfiguration,
+	webhookGenericConf *webhookconfig.GenericWebhookConfiguration,
 	webhookConf *webhookconfig.WebhooksConfiguration,
 	webhookName string) (*webhookconsts.WebhookWrapper, error)
 
@@ -116,17 +119,18 @@ func NewWebhookInitializers() map[string]InitFunc {
 }
 
 func startWebhooks(ctx context.Context, webhookCtx *katalystbase.GenericContext, mux *http.ServeMux,
-	generic *webhookconfig.GenericWebhookConfiguration,
+	genericConf *generic.GenericConfiguration,
+	webhookGenericConf *webhookconfig.GenericWebhookConfiguration,
 	webhookConf *webhookconfig.WebhooksConfiguration, webhooks map[string]InitFunc) error {
 	wrappers := make([]*webhookconsts.WebhookWrapper, 0)
 	for webhookName, initFn := range webhooks {
-		if !webhookCtx.IsEnabled(webhookName, generic.Webhooks) {
+		if !webhookCtx.IsEnabled(webhookName, webhookGenericConf.Webhooks) {
 			klog.Warningf("%q is disabled", webhookName)
 			continue
 		}
 
 		klog.Infof("Starting %q", webhookName)
-		webhookWrapper, err := initFn(ctx, webhookCtx, generic, webhookConf, webhookName)
+		webhookWrapper, err := initFn(ctx, webhookCtx, genericConf, webhookGenericConf, webhookConf, webhookName)
 		if err != nil {
 			klog.Errorf("Error to init %q", webhookName)
 			return err

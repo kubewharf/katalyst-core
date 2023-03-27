@@ -50,6 +50,7 @@ const (
 	KatalystComponentController KatalystComponent = "controller"
 	KatalystComponentWebhook    KatalystComponent = "webhook"
 	KatalystComponentMetric     KatalystComponent = "metric"
+	KatalystComponentScheduler  KatalystComponent = "scheduler"
 )
 
 // common fields for ordinary k8s objects.

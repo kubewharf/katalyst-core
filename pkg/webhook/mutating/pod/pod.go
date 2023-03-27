@@ -33,6 +33,7 @@ import (
 	workloadlister "github.com/kubewharf/katalyst-api/pkg/client/listers/workload/v1alpha1"
 	katalystbase "github.com/kubewharf/katalyst-core/cmd/base"
 	webhookconsts "github.com/kubewharf/katalyst-core/cmd/katalyst-webhook/app/webhook"
+	"github.com/kubewharf/katalyst-core/pkg/config/generic"
 	webhookconfig "github.com/kubewharf/katalyst-core/pkg/config/webhook"
 	"github.com/kubewharf/katalyst-core/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
@@ -67,7 +68,8 @@ type WebhookPod struct {
 func NewWebhookPod(
 	ctx context.Context,
 	webhookCtx *katalystbase.GenericContext,
-	generic *webhookconfig.GenericWebhookConfiguration,
+	_ *generic.GenericConfiguration,
+	_ *webhookconfig.GenericWebhookConfiguration,
 	_ *webhookconfig.WebhooksConfiguration,
 ) (kubewebhook.Webhook, webhookconsts.GenericStartFunc, error) {
 	metricEmitter := webhookCtx.EmitterPool.GetDefaultMetricsEmitter()

@@ -45,6 +45,7 @@ import (
 	katalyst_base "github.com/kubewharf/katalyst-core/cmd/base"
 	"github.com/kubewharf/katalyst-core/pkg/client/control"
 	"github.com/kubewharf/katalyst-core/pkg/config/controller"
+	"github.com/kubewharf/katalyst-core/pkg/config/generic"
 	"github.com/kubewharf/katalyst-core/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/controller/vpa/util"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
@@ -101,7 +102,8 @@ type VPAController struct {
 }
 
 func NewVPAController(ctx context.Context, controlCtx *katalyst_base.GenericContext,
-	vpaConf *controller.VPAConfig, generalConf *controller.GenericControllerConfiguration) (*VPAController, error) {
+	genericConf *generic.GenericConfiguration, _ *controller.GenericControllerConfiguration,
+	vpaConf *controller.VPAConfig) (*VPAController, error) {
 	podInformer := controlCtx.KubeInformerFactory.Core().V1().Pods()
 	vpaInformer := controlCtx.InternalInformerFactory.Autoscaling().V1alpha1().KatalystVerticalPodAutoscalers()
 	vpaRecInformer := controlCtx.InternalInformerFactory.Autoscaling().V1alpha1().VerticalPodAutoscalerRecommendations()
@@ -190,7 +192,7 @@ func NewVPAController(ctx context.Context, controlCtx *katalyst_base.GenericCont
 		vpaController.metricsEmitter = metrics.DummyMetrics{}
 	}
 
-	if !generalConf.DryRun {
+	if !genericConf.DryRun {
 		vpaController.vpaUpdater = control.NewRealVPAUpdater(genericClient.InternalClient)
 		vpaController.podUpdater = control.NewRealPodUpdater(genericClient.KubeClient)
 		vpaController.workloadControl = control.NewRealUnstructuredControl(genericClient.DynamicClient)

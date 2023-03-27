@@ -22,7 +22,6 @@ import (
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	cliflag "k8s.io/component-base/cli/flag"
-	componentbaseconfig "k8s.io/component-base/config"
 	election "k8s.io/component-base/config"
 
 	"github.com/kubewharf/katalyst-core/cmd/base/options"
@@ -40,7 +39,6 @@ type Options struct {
 	*options.GenericOptions
 
 	election.LeaderElectionConfiguration
-	componentbaseconfig.ClientConnectionConfiguration
 
 	WorkMode        []string
 	OutOfDataPeriod time.Duration
@@ -105,9 +103,6 @@ func (o *Options) AddFlags(fss *cliflag.NamedFlagSets) {
 	fs.StringVar(&o.ResourceNamespace, "leader-elect-resource-namespace", o.ResourceNamespace, ""+
 		"The namespace of resource object that is used for locking during leader election. ")
 
-	fs.Float32Var(&o.QPS, "kube-api-qps", o.QPS, "QPS to use while talking with kubernetes apiserver.")
-	fs.Int32Var(&o.Burst, "kube-api-burst", o.Burst, "Burst to use while talking with kubernetes apiserver.")
-
 	o.GenericOptions.AddFlags(fss)
 
 	o.StoreOptions.AddFlags(fss)
@@ -126,9 +121,6 @@ func (o *Options) ApplyTo(c *config.Configuration) error {
 	c.GenericMetricConfiguration.LeaderElection.ResourceLock = o.ResourceLock
 	c.GenericMetricConfiguration.LeaderElection.ResourceName = o.ResourceName
 	c.GenericMetricConfiguration.LeaderElection.ResourceNamespace = o.ResourceNamespace
-
-	c.GenericMetricConfiguration.ClientConnection.QPS = o.QPS
-	c.GenericMetricConfiguration.ClientConnection.Burst = o.Burst
 
 	errList := make([]error, 0, 1)
 	errList = append(errList, o.GenericOptions.ApplyTo(c.GenericConfiguration))

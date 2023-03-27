@@ -36,6 +36,7 @@ import (
 	katalystbase "github.com/kubewharf/katalyst-core/cmd/base"
 	"github.com/kubewharf/katalyst-core/pkg/client/control"
 	"github.com/kubewharf/katalyst-core/pkg/config/controller"
+	"github.com/kubewharf/katalyst-core/pkg/config/generic"
 	"github.com/kubewharf/katalyst-core/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/controller/vpa/util"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
@@ -77,8 +78,9 @@ type VerticalPodAutoScaleRecommendationController struct {
 
 func NewVPARecommendationController(ctx context.Context,
 	controlCtx *katalystbase.GenericContext,
+	genericConf *generic.GenericConfiguration,
+	_ *controller.GenericControllerConfiguration,
 	conf *controller.VPAConfig,
-	generalConf *controller.GenericControllerConfiguration,
 ) (*VerticalPodAutoScaleRecommendationController, error) {
 	if controlCtx == nil {
 		return nil, fmt.Errorf("controlCtx is invalid")
@@ -131,7 +133,7 @@ func NewVPARecommendationController(ctx context.Context,
 		}
 	}
 
-	if !generalConf.DryRun {
+	if !genericConf.DryRun {
 		vpaRecController.vpaUpdater = control.NewRealVPAUpdater(genericClient.InternalClient)
 		vpaRecController.vpaRecUpdater = control.NewRealVPARecommendationUpdater(genericClient.InternalClient)
 	}

@@ -33,24 +33,27 @@ const (
 func StartVPAController(ctx context.Context, controlCtx *katalyst.GenericContext,
 	conf *config.Configuration, _ interface{}, _ string) (bool, error) {
 	r, err := vpa.NewResourceRecommendController(ctx, controlCtx,
-		conf.ControllersConfiguration.VPAConfig,
-		conf.GenericControllerConfiguration)
+		conf.GenericConfiguration,
+		conf.GenericControllerConfiguration,
+		conf.ControllersConfiguration.VPAConfig)
 	if err != nil {
 		klog.Errorf("failed to new resource recommend controller")
 		return false, err
 	}
 
 	vr, err := vpa.NewVPARecommendationController(ctx, controlCtx,
-		conf.ControllersConfiguration.VPAConfig,
-		conf.GenericControllerConfiguration)
+		conf.GenericConfiguration,
+		conf.GenericControllerConfiguration,
+		conf.ControllersConfiguration.VPAConfig)
 	if err != nil {
 		klog.Errorf("failed to new vpa recommendatin controller")
 		return false, err
 	}
 
 	v, err := vpa.NewVPAController(ctx, controlCtx,
-		conf.ControllersConfiguration.VPAConfig,
-		conf.GenericControllerConfiguration)
+		conf.GenericConfiguration,
+		conf.GenericControllerConfiguration,
+		conf.ControllersConfiguration.VPAConfig)
 	if err != nil {
 		klog.Errorf("failed to new vpa controller")
 		return false, err

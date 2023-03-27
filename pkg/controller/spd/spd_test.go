@@ -36,6 +36,7 @@ import (
 	apiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
 	katalystbase "github.com/kubewharf/katalyst-core/cmd/base"
 	"github.com/kubewharf/katalyst-core/pkg/config/controller"
+	"github.com/kubewharf/katalyst-core/pkg/config/generic"
 	indicator_plugin "github.com/kubewharf/katalyst-core/pkg/controller/spd/indicator-plugin"
 )
 
@@ -209,7 +210,8 @@ func TestSPDController_Run(t *testing.T) {
 			spdConfig := &controller.SPDConfig{
 				SPDWorkloadGVResources: []string{"statefulsets.v1.apps"},
 			}
-			generalConf := &controller.GenericControllerConfiguration{
+			genericConfig := &generic.GenericConfiguration{}
+			controllerConf := &controller.GenericControllerConfiguration{
 				DynamicGVResources: []string{"statefulsets.v1.apps"},
 			}
 
@@ -218,7 +220,7 @@ func TestSPDController_Run(t *testing.T) {
 				[]runtime.Object{tt.fields.spd}, []runtime.Object{tt.fields.workload})
 			assert.NoError(t, err)
 
-			spdController, err := NewSPDController(ctx, controlCtx, spdConfig, generalConf, struct{}{})
+			spdController, err := NewSPDController(ctx, controlCtx, genericConfig, controllerConf, spdConfig, struct{}{})
 			assert.NoError(t, err)
 
 			controlCtx.StartInformer(ctx)
@@ -248,16 +250,17 @@ func TestSPDController_Run(t *testing.T) {
 
 func TestPodIndexerDuplicate(t *testing.T) {
 	spdConf := controller.NewSPDConfig()
-	generalConf := &controller.GenericControllerConfiguration{}
+	genericConfig := &generic.GenericConfiguration{}
+	controllerConf := &controller.GenericControllerConfiguration{}
 	controlCtx, err := katalystbase.GenerateFakeGenericContext(nil, nil, nil)
 	assert.NoError(t, err)
 
 	spdConf.SPDPodLabelIndexerKeys = []string{"test-1"}
 
-	_, err = NewSPDController(context.TODO(), controlCtx, spdConf, generalConf, struct{}{})
+	_, err = NewSPDController(context.TODO(), controlCtx, genericConfig, controllerConf, spdConf, struct{}{})
 	assert.NoError(t, err)
 
-	_, err = NewSPDController(context.TODO(), controlCtx, spdConf, generalConf, struct{}{})
+	_, err = NewSPDController(context.TODO(), controlCtx, genericConfig, controllerConf, spdConf, struct{}{})
 	assert.NoError(t, err)
 
 	indexers := controlCtx.KubeInformerFactory.Core().V1().Pods().Informer().GetIndexer().GetIndexers()
@@ -478,7 +481,8 @@ func TestIndicatorUpdater(t *testing.T) {
 	spdConfig := &controller.SPDConfig{
 		SPDWorkloadGVResources: []string{"statefulsets.v1.apps"},
 	}
-	generalConf := &controller.GenericControllerConfiguration{
+	genericConfig := &generic.GenericConfiguration{}
+	controllerConf := &controller.GenericControllerConfiguration{
 		DynamicGVResources: []string{"statefulsets.v1.apps"},
 	}
 
@@ -487,7 +491,7 @@ func TestIndicatorUpdater(t *testing.T) {
 		[]runtime.Object{spd}, []runtime.Object{workload})
 	assert.NoError(t, err)
 
-	sc, err := NewSPDController(ctx, controlCtx, spdConfig, generalConf, struct{}{})
+	sc, err := NewSPDController(ctx, controlCtx, genericConfig, controllerConf, spdConfig, struct{}{})
 	controlCtx.StartInformer(ctx)
 	go sc.Run()
 	synced := cache.WaitForCacheSync(ctx.Done(), sc.syncedFunc...)

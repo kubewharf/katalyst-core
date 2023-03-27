@@ -41,6 +41,7 @@ import (
 	katalystbase "github.com/kubewharf/katalyst-core/cmd/base"
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-controller/app/options"
 	"github.com/kubewharf/katalyst-core/pkg/config/controller"
+	"github.com/kubewharf/katalyst-core/pkg/config/generic"
 	"github.com/kubewharf/katalyst-core/pkg/controller/vpa/util"
 )
 
@@ -347,14 +348,15 @@ func TestVPAControllerSyncVPA(t *testing.T) {
 			workloadGVResources := []string{"statefulsets.v1.apps"}
 			vpaConf.VPAWorkloadGVResources = workloadGVResources
 
-			generalConf := &controller.GenericControllerConfiguration{
+			genericConf := &generic.GenericConfiguration{}
+			controllerConf := &controller.GenericControllerConfiguration{
 				DynamicGVResources: workloadGVResources,
 			}
 
 			controlCtx, err := katalystbase.GenerateFakeGenericContext(nil, nil, []runtime.Object{tc.object})
 			assert.NoError(t, err)
 
-			vpaController, err := NewVPAController(context.TODO(), controlCtx, vpaConf, generalConf)
+			vpaController, err := NewVPAController(context.TODO(), controlCtx, genericConf, controllerConf, vpaConf)
 			assert.NoError(t, err)
 
 			_, err = controlCtx.Client.InternalClient.AutoscalingV1alpha1().
@@ -507,6 +509,7 @@ func TestVPAControllerSyncPod(t *testing.T) {
 			workloadGVResources := []string{"statefulsets.v1.apps"}
 			vpaConf.VPAWorkloadGVResources = workloadGVResources
 
+			genericConf := &generic.GenericConfiguration{}
 			generalConf := &controller.GenericControllerConfiguration{
 				DynamicGVResources: workloadGVResources,
 			}
@@ -516,7 +519,7 @@ func TestVPAControllerSyncPod(t *testing.T) {
 
 			cxt, cancel := context.WithCancel(context.TODO())
 			defer cancel()
-			vpaController, err := NewVPAController(cxt, controlCtx, vpaConf, generalConf)
+			vpaController, err := NewVPAController(cxt, controlCtx, genericConf, generalConf, vpaConf)
 			assert.NoError(t, err)
 
 			controlCtx.StartInformer(cxt)
@@ -667,7 +670,8 @@ func TestVPAControllerSyncWorkload(t *testing.T) {
 			workloadGVResources := []string{"statefulsets.v1.apps"}
 			vpaConf.VPAWorkloadGVResources = workloadGVResources
 
-			generalConf := &controller.GenericControllerConfiguration{
+			genericConf := &generic.GenericConfiguration{}
+			controllerConf := &controller.GenericControllerConfiguration{
 				DynamicGVResources: workloadGVResources,
 			}
 
@@ -676,7 +680,7 @@ func TestVPAControllerSyncWorkload(t *testing.T) {
 
 			cxt, cancel := context.WithCancel(context.TODO())
 			defer cancel()
-			vpaController, err := NewVPAController(cxt, controlCtx, vpaConf, generalConf)
+			vpaController, err := NewVPAController(cxt, controlCtx, genericConf, controllerConf, vpaConf)
 			assert.NoError(t, err)
 
 			controlCtx.StartInformer(cxt)
@@ -709,19 +713,20 @@ func TestVPAControllerSyncWorkload(t *testing.T) {
 
 func TestPodIndexerDuplicate(t *testing.T) {
 	vpaConf := controller.NewVPAConfig()
-	generalConf := &controller.GenericControllerConfiguration{}
+	genericConf := &generic.GenericConfiguration{}
+	controllerConf := &controller.GenericControllerConfiguration{}
 	controlCtx, err := katalystbase.GenerateFakeGenericContext(nil, nil, nil)
 	assert.NoError(t, err)
 
 	vpaConf.VPAPodLabelIndexerKeys = []string{"test-1"}
 
-	_, err = NewVPAController(context.TODO(), controlCtx, vpaConf, generalConf)
+	_, err = NewVPAController(context.TODO(), controlCtx, genericConf, controllerConf, vpaConf)
 	assert.NoError(t, err)
 
-	_, err = NewVPAController(context.TODO(), controlCtx, vpaConf, generalConf)
+	_, err = NewVPAController(context.TODO(), controlCtx, genericConf, controllerConf, vpaConf)
 	assert.NoError(t, err)
 
-	_, err = NewResourceRecommendController(context.TODO(), controlCtx, vpaConf, generalConf)
+	_, err = NewResourceRecommendController(context.TODO(), controlCtx, genericConf, controllerConf, vpaConf)
 	assert.NoError(t, err)
 
 	indexers := controlCtx.KubeInformerFactory.Core().V1().Pods().Informer().GetIndexer().GetIndexers()
@@ -731,7 +736,7 @@ func TestPodIndexerDuplicate(t *testing.T) {
 
 	vpaConf.VPAPodLabelIndexerKeys = []string{"test-2"}
 
-	_, err = NewResourceRecommendController(context.TODO(), controlCtx, vpaConf, generalConf)
+	_, err = NewResourceRecommendController(context.TODO(), controlCtx, genericConf, controllerConf, vpaConf)
 	assert.NoError(t, err)
 
 	indexers = controlCtx.KubeInformerFactory.Core().V1().Pods().Informer().GetIndexer().GetIndexers()
@@ -839,14 +844,15 @@ func TestSyncPerformance(t *testing.T) {
 		workloadGVResources := []string{"statefulsets.v1.apps"}
 		tc.vpaConf.VPAWorkloadGVResources = workloadGVResources
 
-		generalConf := &controller.GenericControllerConfiguration{
+		genericConf := &generic.GenericConfiguration{}
+		controllerConf := &controller.GenericControllerConfiguration{
 			DynamicGVResources: workloadGVResources,
 		}
 
 		controlCtx, err := katalystbase.GenerateFakeGenericContext(kubeObj, internalObj, dynamicObj)
 		assert.NoError(t, err)
 
-		vc, err := NewVPAController(context.TODO(), controlCtx, tc.vpaConf, generalConf)
+		vc, err := NewVPAController(context.TODO(), controlCtx, genericConf, controllerConf, tc.vpaConf)
 		assert.NoError(t, err)
 
 		for _, obj := range kubeObj {

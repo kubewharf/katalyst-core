@@ -37,6 +37,7 @@ import (
 	katalystbase "github.com/kubewharf/katalyst-core/cmd/base"
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-controller/app/options"
 	"github.com/kubewharf/katalyst-core/pkg/config/controller"
+	"github.com/kubewharf/katalyst-core/pkg/config/generic"
 	"github.com/kubewharf/katalyst-core/pkg/controller/vpa/util"
 )
 
@@ -105,7 +106,8 @@ func TestResourceRecommendController_Run(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			ctx := context.TODO()
-			generalConf := &controller.GenericControllerConfiguration{
+			genericConf := &generic.GenericConfiguration{}
+			controllerConf := &controller.GenericControllerConfiguration{
 				DynamicGVResources: []string{"statefulsets.v1.apps"},
 			}
 
@@ -119,7 +121,7 @@ func TestResourceRecommendController_Run(t *testing.T) {
 				[]runtime.Object{tt.fields.spd, tt.fields.vpa, tt.fields.vparec}, []runtime.Object{tt.fields.workload})
 			assert.NoError(t, err)
 
-			rrc, err := NewResourceRecommendController(ctx, controlCtx, vpaConf, generalConf)
+			rrc, err := NewResourceRecommendController(ctx, controlCtx, genericConf, controllerConf, vpaConf)
 			assert.NoError(t, err)
 
 			controlCtx.StartInformer(ctx)

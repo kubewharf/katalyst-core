@@ -40,10 +40,12 @@ func StartLifeCycleController(ctx context.Context, controlCtx *katalystbase.Gene
 	)
 
 	cnrLifecycle, err = lifecycle.NewCNRLifecycle(ctx,
+		conf.GenericConfiguration,
+		conf.GenericControllerConfiguration,
+		conf.ControllersConfiguration.CNRLifecycleConfig,
+		controlCtx.Client,
 		controlCtx.KubeInformerFactory.Core().V1().Nodes(),
 		controlCtx.InternalInformerFactory.Node().V1alpha1().CustomNodeResources(),
-		controlCtx.Client,
-		conf.GenericControllerConfiguration,
 		controlCtx.EmitterPool.GetDefaultMetricsEmitter(),
 	)
 	if err != nil {
@@ -52,11 +54,12 @@ func StartLifeCycleController(ctx context.Context, controlCtx *katalystbase.Gene
 	}
 
 	cncLifecycle, err = lifecycle.NewCNCLifecycle(ctx,
+		conf.GenericConfiguration,
+		conf.GenericControllerConfiguration,
+		conf.ControllersConfiguration.LifeCycleConfig,
+		controlCtx.Client,
 		controlCtx.KubeInformerFactory.Core().V1().Nodes(),
 		controlCtx.InternalInformerFactory.Config().V1alpha1().CustomNodeConfigs(),
-		controlCtx.Client,
-		conf.ControllersConfiguration.LifeCycleConfig,
-		conf.GenericControllerConfiguration,
 		controlCtx.EmitterPool.GetDefaultMetricsEmitter(),
 	)
 	if err != nil {
@@ -66,12 +69,13 @@ func StartLifeCycleController(ctx context.Context, controlCtx *katalystbase.Gene
 
 	if conf.LifeCycleConfig.EnableEviction {
 		eviction, err = lifecycle.NewEvictionController(ctx,
+			conf.GenericConfiguration,
+			conf.GenericControllerConfiguration,
+			conf.ControllersConfiguration.LifeCycleConfig,
+			controlCtx.Client,
 			controlCtx.KubeInformerFactory.Core().V1().Nodes(),
 			controlCtx.KubeInformerFactory.Core().V1().Pods(),
 			controlCtx.InternalInformerFactory.Node().V1alpha1().CustomNodeResources(),
-			controlCtx.Client,
-			conf.ControllersConfiguration.LifeCycleConfig,
-			conf.GenericControllerConfiguration,
 			controlCtx.EmitterPool.GetDefaultMetricsEmitter(),
 		)
 		if err != nil {

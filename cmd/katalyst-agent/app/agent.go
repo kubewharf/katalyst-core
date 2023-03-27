@@ -44,11 +44,11 @@ func Run(opt *options.Options, genericOptions ...katalystbase.GenericOptions) er
 		return err
 	}
 
-	kubeConfig, err := client.BuildKubeConfig(opt.MasterURL, opt.KubeConfig)
+	clientSet, err := client.BuildGenericClient(conf.GenericConfiguration.ClientConnection, opt.MasterURL,
+		opt.KubeConfig, fmt.Sprintf("%v", consts.KatalystComponentAgent))
 	if err != nil {
 		return err
 	}
-	clientSet := client.NewGenericClientWithName("agent", kubeConfig)
 
 	// Set up signals so that we handle the first shutdown signal gracefully.
 	ctx := process.SetupSignalHandler()
