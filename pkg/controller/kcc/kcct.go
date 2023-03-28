@@ -27,12 +27,12 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/selection"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/tools/cache"
-	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog/v2"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
@@ -73,8 +73,6 @@ type KatalystCustomConfigTargetController struct {
 
 	// katalystCustomConfigLister can list/get KatalystCustomConfig from the shared informer's store
 	katalystCustomConfigLister v1alpha1.KatalystCustomConfigLister
-	// katalystCustomConfigSyncQueue queue for KatalystCustomConfig
-	katalystCustomConfigSyncQueue workqueue.RateLimitingInterface
 
 	syncedFunc []cache.InformerSynced
 
@@ -96,13 +94,12 @@ func NewKatalystCustomConfigTargetController(
 	targetHandler *kcctarget.KatalystCustomConfigTargetHandler,
 ) (*KatalystCustomConfigTargetController, error) {
 	k := &KatalystCustomConfigTargetController{
-		ctx:                           ctx,
-		client:                        client,
-		dryRun:                        genericConf.DryRun,
-		kccConfig:                     kccConfig,
-		katalystCustomConfigLister:    katalystCustomConfigInformer.Lister(),
-		targetHandler:                 targetHandler,
-		katalystCustomConfigSyncQueue: workqueue.NewNamedRateLimitingQueue(workqueue.DefaultControllerRateLimiter(), kccTargetControllerName),
+		ctx:                        ctx,
+		client:                     client,
+		dryRun:                     genericConf.DryRun,
+		kccConfig:                  kccConfig,
+		katalystCustomConfigLister: katalystCustomConfigInformer.Lister(),
+		targetHandler:              targetHandler,
 		syncedFunc: []cache.InformerSynced{
 			katalystCustomConfigInformer.Informer().HasSynced,
 		},
@@ -112,9 +109,10 @@ func NewKatalystCustomConfigTargetController(
 		UpdateFunc: k.updateKatalystCustomConfigEventHandle,
 	})
 
-	k.metricsEmitter = metricsEmitter
 	if metricsEmitter == nil {
 		k.metricsEmitter = metrics.DummyMetrics{}
+	} else {
+		k.metricsEmitter = metricsEmitter.WithTags(kccTargetControllerName)
 	}
 
 	k.kccControl = control.DummyKCCControl{}
@@ -125,16 +123,13 @@ func NewKatalystCustomConfigTargetController(
 	}
 
 	// register kcc-target informer handler
-	targetHandler.RegisterTargetHandler(k.katalystCustomConfigTargetHandler)
+	targetHandler.RegisterTargetHandler(kccTargetControllerName, k.katalystCustomConfigTargetHandler)
 	return k, nil
 }
 
 // Run don't need to trigger reconcile logic.
 func (k *KatalystCustomConfigTargetController) Run() {
 	defer utilruntime.HandleCrash()
-	defer func() {
-		k.katalystCustomConfigSyncQueue.ShutDown()
-	}()
 
 	defer klog.Infof("shutting down %s controller", kccTargetControllerName)
 
@@ -187,6 +182,17 @@ func (k *KatalystCustomConfigTargetController) katalystCustomConfigTargetHandler
 			return fmt.Errorf("[kcct] informer has not synced")
 		}
 	}
+
+	begin := time.Now()
+	defer func() {
+		costs := time.Since(begin)
+		klog.V(4).Infof("[kcct] finished syncing kcct %q %v (%v)", gvr, native.GenerateUniqObjectNameKey(target), costs)
+		_ = k.metricsEmitter.StoreInt64(metricsNameSyncKCCTargetCost, costs.Microseconds(), metrics.MetricTypeNameRaw,
+			[]metrics.MetricTag{
+				{Key: "gvr", Val: native.GenerateDynamicResourceByGVR(schema.GroupVersionResource(gvr))},
+				{Key: "target", Val: native.GenerateUniqObjectNameKey(target)},
+			}...)
+	}()
 
 	klog.V(4).Infof("gvr: %s, target: %s updated", gvr.String(), native.GenerateUniqObjectNameKey(target))
 
@@ -314,7 +320,7 @@ func (k *KatalystCustomConfigTargetController) clearExpiredKCCTarget() {
 		for _, target := range configTargets {
 			// expired target config will be re-enqueue periodically to make sure it is cleared
 			if util.ToKCCTargetResource(target).CheckExpired(time.Now()) {
-				accessor.Enqueue(target)
+				accessor.Enqueue(kccTargetControllerName, target)
 			}
 		}
 		return true
@@ -332,7 +338,7 @@ func (k *KatalystCustomConfigTargetController) enqueueTargets(gvr metav1.GroupVe
 			continue
 		}
 
-		accessor.Enqueue(t.Unstructured)
+		accessor.Enqueue(kccTargetControllerName, t.Unstructured)
 	}
 
 	return nil

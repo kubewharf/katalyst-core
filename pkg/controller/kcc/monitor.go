@@ -17,6 +17,7 @@ limitations under the License.
 package kcc
 
 import (
+	configapis "github.com/kubewharf/katalyst-api/pkg/apis/config/v1alpha1"
 	"strconv"
 	"time"
 
@@ -29,6 +30,19 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/util"
 )
 
+const (
+	metricsNameSyncCNCCost       = "sync_cnc_cost"
+	metricsNameSyncKCCCost       = "sync_kcc_cost"
+	metricsNameSyncKCCTargetCost = "sync_kcc_target_cost"
+
+	metricsNameKCCCount              = "kcc_count"
+	metricsNameKCCInvalid            = "kcc_invalid"
+	metricsNameKCCGeneration         = "kcc_generation"
+	metricsNameKCCObservedGeneration = "kcc_observed_generation"
+
+	metricsNameKCCTargetCount = "kcc_target_count"
+)
+
 func (k *KatalystCustomConfigController) monitor() {
 	kccList, err := k.katalystCustomConfigLister.List(labels.Everything())
 	if err != nil {
@@ -37,18 +51,30 @@ func (k *KatalystCustomConfigController) monitor() {
 	}
 
 	for _, kcc := range kccList {
+		var isValid, reason string
+		ok, valid := getKCCCondition(kcc, configapis.KatalystCustomConfigConditionTypeValid)
+		if !ok {
+			isValid = "unknown"
+			reason = "unknown"
+		} else {
+			isValid = string(valid.Status)
+			reason = valid.Reason
+		}
+
 		baseTag := metrics.ConvertMapToTags(map[string]string{
 			"name":      kcc.Name,
 			"namespace": kcc.Namespace,
 			"group":     kcc.Spec.TargetType.Group,
 			"version":   kcc.Spec.TargetType.Version,
 			"resource":  kcc.Spec.TargetType.Resource,
+			"isValid":   isValid,
+			"reason":    reason,
 		})
 
-		_ = k.metricsEmitter.StoreInt64("kcc_count", 1, metrics.MetricTypeNameRaw, baseTag...)
-		_ = k.metricsEmitter.StoreInt64("kcc_invalid", int64(len(kcc.Status.InvalidTargetConfigList)), metrics.MetricTypeNameRaw, baseTag...)
-		_ = k.metricsEmitter.StoreInt64("kcc_generation", kcc.Generation, metrics.MetricTypeNameRaw, baseTag...)
-		_ = k.metricsEmitter.StoreInt64("kcc_observed_generation", kcc.Status.ObservedGeneration, metrics.MetricTypeNameRaw, baseTag...)
+		_ = k.metricsEmitter.StoreInt64(metricsNameKCCCount, 1, metrics.MetricTypeNameRaw, baseTag...)
+		_ = k.metricsEmitter.StoreInt64(metricsNameKCCInvalid, int64(len(kcc.Status.InvalidTargetConfigList)), metrics.MetricTypeNameRaw, baseTag...)
+		_ = k.metricsEmitter.StoreInt64(metricsNameKCCGeneration, kcc.Generation, metrics.MetricTypeNameRaw, baseTag...)
+		_ = k.metricsEmitter.StoreInt64(metricsNameKCCObservedGeneration, kcc.Status.ObservedGeneration, metrics.MetricTypeNameRaw, baseTag...)
 	}
 }
 
@@ -73,7 +99,7 @@ func (k *KatalystCustomConfigTargetController) monitor() {
 				"level":     getKCCTargetLevel(kccTarget),
 			})
 
-			_ = k.metricsEmitter.StoreInt64("kcc_target_count", 1, metrics.MetricTypeNameRaw, baseTag...)
+			_ = k.metricsEmitter.StoreInt64(metricsNameKCCTargetCount, 1, metrics.MetricTypeNameRaw, baseTag...)
 		}
 
 		return true
@@ -88,4 +114,14 @@ func getKCCTargetLevel(target util.KCCTargetResource) string {
 	} else {
 		return "global"
 	}
+}
+
+func getKCCCondition(kcc *configapis.KatalystCustomConfig,
+	conditionType configapis.KatalystCustomConfigConditionType) (bool, *configapis.KatalystCustomConfigCondition) {
+	for _, condition := range kcc.Status.Conditions {
+		if condition.Type == conditionType {
+			return true, &condition
+		}
+	}
+	return false, nil
 }

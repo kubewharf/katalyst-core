@@ -49,8 +49,8 @@ type KatalystCustomConfigTargetAccessor interface {
 	// Stop reconcile obj of kcc target type
 	Stop()
 
-	// Enqueue an obj of kcc target type to trigger reconcile
-	Enqueue(obj *unstructured.Unstructured)
+	// Enqueue obj of kcc target type to the work queue
+	Enqueue(name string, obj *unstructured.Unstructured)
 
 	// List all obj (with DeepCopy) of kcc target type according selector
 	List(selector labels.Selector) ([]*unstructured.Unstructured, error)
@@ -91,15 +91,18 @@ type RealKatalystCustomConfigTargetAccessor struct {
 	targetLister   cache.GenericLister
 	targetInformer cache.SharedIndexInformer
 
-	// targetHandlerFuncWithSyncQueueList func and sync queue list to process target object event,
-	// which will be set in initialization
-	targetHandlerFuncWithSyncQueueList []targetHandlerFuncWithSyncQueue
+	// targetHandlerFuncWithSyncQueueMap is used to store the handler and syncing
+	// queue for each kcc-target
+	targetHandlerFuncWithSyncQueueMap map[string]targetHandlerFuncWithSyncQueue
 }
 
+// NewRealKatalystCustomConfigTargetAccessor returns a new KatalystCustomConfigTargetAccessor
+// which is used to handle creation/update/delete event of target unstructured obj, and it can
+// trigger obj re-sync by calling Enqueue function of the returned accessor.
 func NewRealKatalystCustomConfigTargetAccessor(
 	gvr metav1.GroupVersionResource,
 	client dynamic.Interface,
-	handlerInfos []KatalystCustomConfigTargetHandlerFunc,
+	handlerInfos map[string]KatalystCustomConfigTargetHandlerFunc,
 ) (*RealKatalystCustomConfigTargetAccessor, error) {
 	dynamicInformer := dynamicinformer.NewFilteredDynamicInformer(client,
 		native.ToSchemaGVR(gvr.Group, gvr.Version, gvr.Resource),
@@ -109,10 +112,11 @@ func NewRealKatalystCustomConfigTargetAccessor(
 		nil)
 
 	k := &RealKatalystCustomConfigTargetAccessor{
-		stopCh:         make(chan struct{}),
-		gvr:            gvr,
-		targetLister:   dynamicInformer.Lister(),
-		targetInformer: dynamicInformer.Informer(),
+		stopCh:                            make(chan struct{}),
+		gvr:                               gvr,
+		targetLister:                      dynamicInformer.Lister(),
+		targetInformer:                    dynamicInformer.Informer(),
+		targetHandlerFuncWithSyncQueueMap: make(map[string]targetHandlerFuncWithSyncQueue),
 	}
 
 	k.targetInformer.AddEventHandler(cache.ResourceEventHandlerFuncs{
@@ -121,11 +125,12 @@ func NewRealKatalystCustomConfigTargetAccessor(
 		DeleteFunc: k.deleteTargetEventHandle,
 	})
 
-	for _, info := range handlerInfos {
-		k.targetHandlerFuncWithSyncQueueList = append(k.targetHandlerFuncWithSyncQueueList, targetHandlerFuncWithSyncQueue{
+	for name, info := range handlerInfos {
+		k.targetHandlerFuncWithSyncQueueMap[name] = targetHandlerFuncWithSyncQueue{
 			targetHandlerFunc: info,
-			syncQueue:         workqueue.NewNamedRateLimitingQueue(workqueue.DefaultControllerRateLimiter(), gvr.String()),
-		})
+			syncQueue: workqueue.NewNamedRateLimitingQueue(workqueue.DefaultControllerRateLimiter(),
+				name+"-"+gvr.Resource),
+		}
 	}
 
 	return k, nil
@@ -135,7 +140,7 @@ func (k *RealKatalystCustomConfigTargetAccessor) Start() {
 	// run target informer
 	go k.targetInformer.Run(k.stopCh)
 
-	for _, info := range k.targetHandlerFuncWithSyncQueueList {
+	for _, info := range k.targetHandlerFuncWithSyncQueueMap {
 		for i := 0; i < targetWorkerCount; i++ {
 			go wait.Until(k.generateWorker(info), time.Second, k.stopCh)
 		}
@@ -147,15 +152,38 @@ func (k *RealKatalystCustomConfigTargetAccessor) Start() {
 func (k *RealKatalystCustomConfigTargetAccessor) Stop() {
 	klog.Infof("target accessor of %s is stopping", k.gvr.String())
 
-	for _, info := range k.targetHandlerFuncWithSyncQueueList {
+	for _, info := range k.targetHandlerFuncWithSyncQueueMap {
 		info.syncQueue.ShutDown()
 	}
 
 	close(k.stopCh)
 }
 
-func (k *RealKatalystCustomConfigTargetAccessor) Enqueue(obj *unstructured.Unstructured) {
-	k.enqueueTarget(obj)
+// Enqueue will add the obj to the work queue of the target handler, if name is empty,
+// it will add the obj to all the work queue of the target handler
+func (k *RealKatalystCustomConfigTargetAccessor) Enqueue(name string, obj *unstructured.Unstructured) {
+	if name == "" {
+		k.enqueueTarget(obj)
+		return
+	}
+
+	if obj == nil {
+		klog.Warning("trying to enqueue a nil kcc target")
+		return
+	}
+
+	key, err := cache.DeletionHandlingMetaNamespaceKeyFunc(obj)
+	if err != nil {
+		utilruntime.HandleError(fmt.Errorf("couldn't get key for object %#v: %v", obj, err))
+		return
+	}
+
+	info, ok := k.targetHandlerFuncWithSyncQueueMap[name]
+	if ok {
+		info.syncQueue.Add(key)
+	} else {
+		klog.Warningf("target handler %s not found", name)
+	}
 }
 
 func (k *RealKatalystCustomConfigTargetAccessor) Get(namespace, name string) (*unstructured.Unstructured, error) {
@@ -240,7 +268,7 @@ func (k *RealKatalystCustomConfigTargetAccessor) enqueueTarget(obj *unstructured
 		return
 	}
 
-	for _, info := range k.targetHandlerFuncWithSyncQueueList {
+	for _, info := range k.targetHandlerFuncWithSyncQueueMap {
 		info.syncQueue.Add(key)
 	}
 }
@@ -248,7 +276,6 @@ func (k *RealKatalystCustomConfigTargetAccessor) enqueueTarget(obj *unstructured
 func (k *RealKatalystCustomConfigTargetAccessor) generateWorker(queue targetHandlerFuncWithSyncQueue) func() {
 	return func() {
 		for k.processNextKatalystCustomConfigTargetItem(queue.syncQueue, queue.targetHandlerFunc) {
-
 		}
 	}
 }

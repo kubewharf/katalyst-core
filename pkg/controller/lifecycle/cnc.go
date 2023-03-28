@@ -48,6 +48,8 @@ import (
 const (
 	cncLifecycleControllerName = "cnc-lifecycle"
 	cncLifeCycleWorkerCount    = 1
+
+	metricsNameSyncCNCCost = "sync_cnc_cost"
 )
 
 const (
@@ -66,7 +68,7 @@ type CNCLifecycle struct {
 	cncLister        configlisters.CustomNodeConfigLister
 
 	//queue for node
-	nodeQueue workqueue.RateLimitingInterface
+	syncQueue workqueue.RateLimitingInterface
 
 	// metricsEmitter for emit metrics
 	metricsEmitter metrics.MetricEmitter
@@ -82,9 +84,10 @@ func NewCNCLifecycle(ctx context.Context,
 	metricsEmitter metrics.MetricEmitter) (*CNCLifecycle, error) {
 
 	cncLifecycle := &CNCLifecycle{
-		ctx:       ctx,
-		client:    client,
-		nodeQueue: workqueue.NewNamedRateLimitingQueue(workqueue.DefaultControllerRateLimiter(), "node"),
+		ctx:    ctx,
+		client: client,
+		syncQueue: workqueue.NewNamedRateLimitingQueue(workqueue.DefaultControllerRateLimiter(),
+			cncLifecycleControllerName),
 	}
 
 	nodeInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
@@ -102,9 +105,10 @@ func NewCNCLifecycle(ctx context.Context,
 	cncLifecycle.cncListerSynced = cncInformer.Informer().HasSynced
 	cncLifecycle.cncLister = cncInformer.Lister()
 
-	cncLifecycle.metricsEmitter = metricsEmitter
 	if metricsEmitter == nil {
 		cncLifecycle.metricsEmitter = metrics.DummyMetrics{}
+	} else {
+		cncLifecycle.metricsEmitter = metricsEmitter.WithTags(cncLifecycleControllerName)
 	}
 
 	cncLifecycle.cncControl = control.DummyCNCControl{}
@@ -117,7 +121,7 @@ func NewCNCLifecycle(ctx context.Context,
 
 func (cl *CNCLifecycle) Run() {
 	defer utilruntime.HandleCrash()
-	defer cl.nodeQueue.ShutDown()
+	defer cl.syncQueue.ShutDown()
 
 	defer klog.Infof("Shutting down %s controller", cncLifecycleControllerName)
 
@@ -129,6 +133,7 @@ func (cl *CNCLifecycle) Run() {
 	klog.Infof("start %d workers for %s controller", cncLifeCycleWorkerCount, cncLifecycleControllerName)
 
 	go wait.Until(cl.clearUnexpectedCNC, clearCNCPeriod, cl.ctx.Done())
+	go wait.Until(cl.monitor, 30*time.Second, cl.ctx.Done())
 	for i := 0; i < cncLifeCycleWorkerCount; i++ {
 		go wait.Until(cl.worker, time.Second, cl.ctx.Done())
 	}
@@ -209,20 +214,20 @@ func (cl *CNCLifecycle) worker() {
 // processNextWorkItem dequeues items, processes them, and marks them done.
 // It enforces that the sync is never invoked concurrently with the same key.
 func (cl *CNCLifecycle) processNextWorkItem() bool {
-	key, quit := cl.nodeQueue.Get()
+	key, quit := cl.syncQueue.Get()
 	if quit {
 		return false
 	}
-	defer cl.nodeQueue.Done(key)
+	defer cl.syncQueue.Done(key)
 
 	err := cl.sync(key.(string))
 	if err == nil {
-		cl.nodeQueue.Forget(key)
+		cl.syncQueue.Forget(key)
 		return true
 	}
 
 	utilruntime.HandleError(fmt.Errorf("sync %q failed with %v", key, err))
-	cl.nodeQueue.AddRateLimited(key)
+	cl.syncQueue.AddRateLimited(key)
 
 	return true
 }
@@ -234,14 +239,17 @@ func (cl *CNCLifecycle) enqueueWorkItem(obj interface{}) {
 		utilruntime.HandleError(fmt.Errorf("Cound't get key for object %+v: %v", obj, err))
 		return
 	}
-	cl.nodeQueue.Add(key)
+	cl.syncQueue.Add(key)
 }
 
 // sync syncs the given node.
 func (cl *CNCLifecycle) sync(key string) error {
-	startTime := time.Now()
+	begin := time.Now()
 	defer func() {
-		klog.Infof("Finished syncing node %q (%v)", key, time.Since(startTime))
+		costs := time.Since(begin)
+		klog.Infof("Finished syncing cnc %q (%v)", key, costs)
+		_ = cl.metricsEmitter.StoreInt64(metricsNameSyncCNCCost, costs.Microseconds(),
+			metrics.MetricTypeNameRaw, metrics.MetricTag{Key: "name", Val: key})
 	}()
 
 	_, name, err := cache.SplitMetaNamespaceKey(key)

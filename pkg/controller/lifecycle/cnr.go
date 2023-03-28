@@ -48,6 +48,8 @@ import (
 const (
 	cnrLifecycleControllerName = "cnr-lifecycle"
 	cnrLifeCycleWorkerCount    = 1
+
+	metricsNameSyncCNRCost = "sync_cnr_cost"
 )
 
 const (
@@ -66,7 +68,7 @@ type CNRLifecycle struct {
 	cnrLister        listers.CustomNodeResourceLister
 
 	//queue for node
-	nodeQueue workqueue.RateLimitingInterface
+	syncQueue workqueue.RateLimitingInterface
 
 	// metricsEmitter for emit metrics
 	metricsEmitter metrics.MetricEmitter
@@ -82,9 +84,10 @@ func NewCNRLifecycle(ctx context.Context,
 	metricsEmitter metrics.MetricEmitter) (*CNRLifecycle, error) {
 
 	cnrLifecycle := &CNRLifecycle{
-		ctx:       ctx,
-		client:    client,
-		nodeQueue: workqueue.NewNamedRateLimitingQueue(workqueue.DefaultControllerRateLimiter(), "node"),
+		ctx:    ctx,
+		client: client,
+		syncQueue: workqueue.NewNamedRateLimitingQueue(workqueue.DefaultControllerRateLimiter(),
+			cnrLifecycleControllerName),
 	}
 
 	nodeInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
@@ -102,9 +105,10 @@ func NewCNRLifecycle(ctx context.Context,
 	cnrLifecycle.cnrLister = cnrInformer.Lister()
 	cnrLifecycle.cnrListerSynced = cnrInformer.Informer().HasSynced
 
-	cnrLifecycle.metricsEmitter = metricsEmitter
 	if metricsEmitter == nil {
 		cnrLifecycle.metricsEmitter = metrics.DummyMetrics{}
+	} else {
+		cnrLifecycle.metricsEmitter = metricsEmitter.WithTags(cnrLifecycleControllerName)
 	}
 
 	cnrLifecycle.cnrControl = control.DummyCNRControl{}
@@ -117,7 +121,7 @@ func NewCNRLifecycle(ctx context.Context,
 
 func (cl *CNRLifecycle) Run() {
 	defer utilruntime.HandleCrash()
-	defer cl.nodeQueue.ShutDown()
+	defer cl.syncQueue.ShutDown()
 
 	defer klog.Infof("Shutting down %s controller", cnrLifecycleControllerName)
 
@@ -129,7 +133,7 @@ func (cl *CNRLifecycle) Run() {
 	klog.Infof("start %d workers for %s controller", cnrLifeCycleWorkerCount, cnrLifecycleControllerName)
 
 	go wait.Until(cl.clearUnexpectedCNR, clearCNRPeriod, cl.ctx.Done())
-
+	go wait.Until(cl.monitor, 30*time.Second, cl.ctx.Done())
 	for i := 0; i < cnrLifeCycleWorkerCount; i++ {
 		go wait.Until(cl.worker, time.Second, cl.ctx.Done())
 	}
@@ -211,20 +215,20 @@ func (cl *CNRLifecycle) worker() {
 // processNextWorkItem dequeues items, processes them, and marks them done.
 // It enforces that the sync is never invoked concurrently with the same key.
 func (cl *CNRLifecycle) processNextWorkItem() bool {
-	key, quit := cl.nodeQueue.Get()
+	key, quit := cl.syncQueue.Get()
 	if quit {
 		return false
 	}
-	defer cl.nodeQueue.Done(key)
+	defer cl.syncQueue.Done(key)
 
 	err := cl.sync(key.(string))
 	if err == nil {
-		cl.nodeQueue.Forget(key)
+		cl.syncQueue.Forget(key)
 		return true
 	}
 
 	utilruntime.HandleError(fmt.Errorf("sync %q failed with %v", key, err))
-	cl.nodeQueue.AddRateLimited(key)
+	cl.syncQueue.AddRateLimited(key)
 
 	return true
 }
@@ -236,14 +240,17 @@ func (cl *CNRLifecycle) enqueueWorkItem(obj interface{}) {
 		utilruntime.HandleError(fmt.Errorf("Cound't get key for object %+v: %v", obj, err))
 		return
 	}
-	cl.nodeQueue.Add(key)
+	cl.syncQueue.Add(key)
 }
 
 // sync syncs the given node.
 func (cl *CNRLifecycle) sync(key string) error {
-	startTime := time.Now()
+	begin := time.Now()
 	defer func() {
-		klog.Infof("Finished syncing node %q (%v)", key, time.Since(startTime))
+		costs := time.Since(begin)
+		klog.Infof("Finished syncing cnr %q (%v)", key, costs)
+		_ = cl.metricsEmitter.StoreInt64(metricsNameSyncCNRCost, costs.Microseconds(),
+			metrics.MetricTypeNameRaw, metrics.MetricTag{Key: "name", Val: key})
 	}()
 
 	_, name, err := cache.SplitMetaNamespaceKey(key)

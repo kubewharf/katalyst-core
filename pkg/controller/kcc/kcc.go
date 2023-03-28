@@ -27,6 +27,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/wait"
@@ -118,9 +119,10 @@ func NewKatalystCustomConfigController(
 		UpdateFunc: k.updateKatalystCustomConfigEventHandle,
 	})
 
-	k.metricsEmitter = metricsEmitter
 	if metricsEmitter == nil {
 		k.metricsEmitter = metrics.DummyMetrics{}
+	} else {
+		k.metricsEmitter = metricsEmitter.WithTags(kccControllerName)
 	}
 
 	k.kccControl = control.DummyKCCControl{}
@@ -131,7 +133,7 @@ func NewKatalystCustomConfigController(
 	}
 
 	// register kcc-target informer handler
-	targetHandler.RegisterTargetHandler(k.katalystCustomConfigTargetHandler)
+	targetHandler.RegisterTargetHandler(kccControllerName, k.katalystCustomConfigTargetHandler)
 	return k, nil
 }
 
@@ -159,28 +161,28 @@ func (k *KatalystCustomConfigController) Run() {
 func (k *KatalystCustomConfigController) addKatalystCustomConfigEventHandle(obj interface{}) {
 	t, ok := obj.(*configapis.KatalystCustomConfig)
 	if !ok {
-		klog.Errorf("cannot convert obj to *KatalystCustomConfig: %v", obj)
+		klog.Errorf("[kcc] cannot convert obj to *KatalystCustomConfig: %v", obj)
 		return
 	}
 
-	klog.V(4).Infof("notice addition of KatalystCustomConfig %s", native.GenerateUniqObjectNameKey(t))
+	klog.V(4).Infof("[kcc] notice addition of KatalystCustomConfig %s", native.GenerateUniqObjectNameKey(t))
 	k.enqueueKatalystCustomConfig(t)
 }
 
 func (k *KatalystCustomConfigController) updateKatalystCustomConfigEventHandle(_, new interface{}) {
 	t, ok := new.(*configapis.KatalystCustomConfig)
 	if !ok {
-		klog.Errorf("cannot convert obj to *KatalystCustomConfig: %v", new)
+		klog.Errorf("[kcc] cannot convert obj to *KatalystCustomConfig: %v", new)
 		return
 	}
 
-	klog.V(4).Infof("notice update of KatalystCustomConfig %s", native.GenerateUniqObjectNameKey(t))
+	klog.V(4).Infof("[kcc] notice update of KatalystCustomConfig %s", native.GenerateUniqObjectNameKey(t))
 	k.enqueueKatalystCustomConfig(t)
 }
 
 func (k *KatalystCustomConfigController) enqueueKatalystCustomConfig(kcc *configapis.KatalystCustomConfig) {
 	if kcc == nil {
-		klog.Warning("trying to enqueue a nil kcc")
+		klog.Warning("[kcc] trying to enqueue a nil kcc")
 		return
 	}
 
@@ -194,12 +196,12 @@ func (k *KatalystCustomConfigController) enqueueKatalystCustomConfig(kcc *config
 
 	// if this kcc has same gvr with others, we also enqueue them to reconcile
 	if kccKeys := k.targetHandler.GetKCCKeyListByGVR(kcc.Spec.TargetType); len(kccKeys) > 1 {
-		klog.Infof("kcc %s whose target type is overlap with keys: %s", native.GenerateUniqObjectNameKey(kcc), kccKeys)
+		klog.Infof("[kcc] kcc %s whose target type is overlap with keys: %s", native.GenerateUniqObjectNameKey(kcc), kccKeys)
 		for _, otherKey := range kccKeys {
 			if key == otherKey {
 				continue
 			}
-			k.katalystCustomConfigSyncQueue.AddRateLimited(otherKey)
+			k.katalystCustomConfigSyncQueue.Add(otherKey)
 		}
 	}
 }
@@ -229,14 +231,22 @@ func (k *KatalystCustomConfigController) processNextKatalystCustomConfigWorkItem
 }
 
 func (k *KatalystCustomConfigController) syncKatalystCustomConfig(key string) error {
-	klog.V(4).Infof("processing kcc %s", key)
+	begin := time.Now()
+	defer func() {
+		costs := time.Since(begin)
+		klog.V(4).Infof("[kcc] finished syncing kcc %q (%v)", key, costs)
+		_ = k.metricsEmitter.StoreInt64(metricsNameSyncKCCCost, costs.Microseconds(),
+			metrics.MetricTypeNameRaw, metrics.MetricTag{Key: "name", Val: key})
+	}()
+
+	klog.V(4).Infof("[kcc] processing kcc %s", key)
 
 	kcc, err := k.getKCCByKey(key)
 	if apierrors.IsNotFound(err) {
-		klog.Warningf("kcc %s is not found", key)
+		klog.Warningf("[kcc] kcc %s is not found", key)
 		return nil
 	} else if err != nil {
-		klog.Errorf("kcc %s get error: %v", key, err)
+		klog.Errorf("[kcc] kcc %s get error: %v", key, err)
 		return err
 	}
 
@@ -293,7 +303,7 @@ func (k *KatalystCustomConfigController) syncKatalystCustomConfig(key string) er
 		}
 
 		if len(aliveKeys) > 0 {
-			klog.Errorf("kcc %s is overlap with other key: %s", native.GenerateUniqObjectNameKey(kcc), aliveKeys)
+			klog.Errorf("[kcc] kcc %s is overlap with other key: %s", native.GenerateUniqObjectNameKey(kcc), aliveKeys)
 			return k.updateKCCStatusCondition(kcc, configapis.KatalystCustomConfigConditionTypeValid, v1.ConditionFalse,
 				kccConditionTypeValidTargetTypeOverlap, fmt.Sprintf("it is overlap with other kcc %v", aliveKeys))
 		}
@@ -337,7 +347,7 @@ func (k *KatalystCustomConfigController) syncKatalystCustomConfig(key string) er
 func (k *KatalystCustomConfigController) getKCCByKey(key string) (*configapis.KatalystCustomConfig, error) {
 	namespace, name, err := cache.SplitMetaNamespaceKey(key)
 	if err != nil {
-		klog.Errorf("failed to split namespace and name from key %s", key)
+		klog.Errorf("[kcc] failed to split namespace and name from key %s", key)
 		return nil, err
 	}
 
@@ -355,7 +365,18 @@ func (k *KatalystCustomConfigController) katalystCustomConfigTargetHandler(gvr m
 		}
 	}
 
-	klog.V(4).Infof("gvr: %s, target: %s updated", gvr.String(), native.GenerateUniqObjectNameKey(target))
+	begin := time.Now()
+	defer func() {
+		costs := time.Since(begin)
+		klog.V(4).Infof("[kcc] finished syncing kcct %q %v (%v)", gvr, native.GenerateUniqObjectNameKey(target), costs)
+		_ = k.metricsEmitter.StoreInt64(metricsNameSyncKCCTargetCost, costs.Microseconds(), metrics.MetricTypeNameRaw,
+			[]metrics.MetricTag{
+				{Key: "gvr", Val: native.GenerateDynamicResourceByGVR(schema.GroupVersionResource(gvr))},
+				{Key: "target", Val: native.GenerateUniqObjectNameKey(target)},
+			}...)
+	}()
+
+	klog.V(4).Infof("[kcc] gvr: %s, target: %s updated", gvr.String(), native.GenerateUniqObjectNameKey(target))
 	if target.GetDeletionTimestamp() != nil {
 		err := k.handleKCCTargetFinalizer(gvr, target)
 		if err != nil {
@@ -374,7 +395,7 @@ func (k *KatalystCustomConfigController) katalystCustomConfigTargetHandler(gvr m
 	if util.ToKCCTargetResource(target).IsUpdated() {
 		kccKeys := k.targetHandler.GetKCCKeyListByGVR(gvr)
 		for _, key := range kccKeys {
-			k.katalystCustomConfigSyncQueue.AddRateLimited(key)
+			k.katalystCustomConfigSyncQueue.Add(key)
 		}
 		return nil
 	}
@@ -388,10 +409,10 @@ func (k *KatalystCustomConfigController) handleKCCTargetFinalizer(gvr metav1.Gro
 		return nil
 	}
 
-	klog.Infof("handling gvr: %s kcc target %s finalizer", gvr.String(), native.GenerateUniqObjectNameKey(target))
+	klog.Infof("[kcc] handling gvr: %s kcc target %s finalizer", gvr.String(), native.GenerateUniqObjectNameKey(target))
 	kccKeys := k.targetHandler.GetKCCKeyListByGVR(gvr)
 	for _, key := range kccKeys {
-		k.katalystCustomConfigSyncQueue.AddRateLimited(key)
+		k.katalystCustomConfigSyncQueue.Add(key)
 	}
 
 	err := kccutil.RemoveKCCTargetFinalizer(k.ctx, k.unstructuredControl, consts.KatalystCustomConfigTargetFinalizerKCC, gvr, target)
@@ -399,7 +420,7 @@ func (k *KatalystCustomConfigController) handleKCCTargetFinalizer(gvr metav1.Gro
 		return err
 	}
 
-	klog.Infof("success remove gvr: %s kcc target %s finalizer", gvr.String(), native.GenerateUniqObjectNameKey(target))
+	klog.Infof("[kcc] success remove gvr: %s kcc target %s finalizer", gvr.String(), native.GenerateUniqObjectNameKey(target))
 	return nil
 }
 

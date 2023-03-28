@@ -177,7 +177,7 @@ func NewSPDController(ctx context.Context, controlCtx *katalystbase.GenericConte
 		spdController.workloadControl = control.NewRealUnstructuredControl(controlCtx.Client.DynamicClient)
 	}
 
-	spdController.metricsEmitter = controlCtx.EmitterPool.GetDefaultMetricsEmitter()
+	spdController.metricsEmitter = controlCtx.EmitterPool.GetDefaultMetricsEmitter().WithTags(spdControllerName)
 	if spdController.metricsEmitter == nil {
 		spdController.metricsEmitter = metrics.DummyMetrics{}
 	}
@@ -208,6 +208,7 @@ func (sc *SPDController) Run() {
 		go wait.Until(sc.spdWorker, time.Second, sc.ctx.Done())
 	}
 	go wait.Until(sc.cleanSPD, time.Minute*5, sc.ctx.Done())
+	go wait.Until(sc.monitor, time.Second*30, sc.ctx.Done())
 
 	for _, plugin := range sc.indicatorPlugins {
 		go plugin.Run()
@@ -321,6 +322,16 @@ func (sc *SPDController) processNextWorkload() bool {
 // syncWorkload is mainly responsible to maintain the lifecycle of spd for each
 // workload, without handling the service profile calculation logic.
 func (sc *SPDController) syncWorkload(key string) error {
+	begin := time.Now()
+	defer func() {
+		costs := time.Since(begin)
+		klog.V(5).Infof("[spd] finished syncing workload %q (%v)", key, costs)
+		_ = sc.metricsEmitter.StoreInt64(metricsNameSyncWorkloadCost, costs.Microseconds(),
+			metrics.MetricTypeNameRaw, metrics.MetricTag{Key: "name", Val: key})
+	}()
+
+	klog.V(5).Infof("[spd] syncing workload [%v]", key)
+
 	workloadGVR, namespace, name, err := native.ParseUniqGVRNameKey(key)
 	if err != nil {
 		klog.Errorf("[spd] failed to parse key %s to workload", key)
@@ -334,7 +345,6 @@ func (sc *SPDController) syncWorkload(key string) error {
 		return err
 	}
 
-	klog.Infof("[spd] syncing workload [%v/%v/%v]", workloadGVR, namespace, name)
 	workload, err := sc.getWorkload(*gvr, namespace, name)
 	if err != nil {
 		klog.Errorf("[spd] failed to get workload %s/%s", namespace, name)
@@ -431,6 +441,14 @@ func (sc *SPDController) processNextSPD() bool {
 // syncSPD is mainly responsible to handle the service profile calculation logic for each
 // spd existed, and it will always assume that all spd is valid.
 func (sc *SPDController) syncSPD(key string) error {
+	begin := time.Now()
+	defer func() {
+		costs := time.Since(begin)
+		klog.Infof("[spd] finished syncing spd %q (%v)", key, costs)
+		_ = sc.metricsEmitter.StoreInt64(metricsNameSyncSPDCost, costs.Microseconds(),
+			metrics.MetricTypeNameRaw, metrics.MetricTag{Key: "name", Val: key})
+	}()
+
 	namespace, name, err := cache.SplitMetaNamespaceKey(key)
 	if err != nil {
 		klog.Errorf("[spd] failed to split namespace and name from spd key %s", key)

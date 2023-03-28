@@ -26,6 +26,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/tools/cache"
@@ -106,9 +107,10 @@ func NewCustomNodeConfigController(
 		UpdateFunc: c.updateCustomNodeConfigEventHandle,
 	})
 
-	c.metricsEmitter = metricsEmitter
 	if metricsEmitter == nil {
 		c.metricsEmitter = metrics.DummyMetrics{}
+	} else {
+		c.metricsEmitter = metricsEmitter.WithTags(cncControllerName)
 	}
 
 	c.cncControl = control.DummyCNCControl{}
@@ -119,7 +121,7 @@ func NewCustomNodeConfigController(
 	}
 
 	// register kcc-target informer handler
-	targetHandler.RegisterTargetHandler(c.katalystCustomConfigTargetHandler)
+	targetHandler.RegisterTargetHandler(cncControllerName, c.katalystCustomConfigTargetHandler)
 	return c, nil
 }
 
@@ -151,16 +153,27 @@ func (c *CustomNodeConfigController) Run() {
 func (c *CustomNodeConfigController) katalystCustomConfigTargetHandler(gvr metav1.GroupVersionResource, target *unstructured.Unstructured) error {
 	for _, syncFunc := range c.syncedFunc {
 		if !syncFunc() {
-			return fmt.Errorf("[cnc] informer has not synced")
+			return fmt.Errorf("informer has not synced")
 		}
 	}
+
+	begin := time.Now()
+	defer func() {
+		costs := time.Since(begin)
+		klog.V(4).Infof("[cnc] finished syncing kcct %q %v (%v)", gvr, native.GenerateUniqObjectNameKey(target), costs)
+		_ = c.metricsEmitter.StoreInt64(metricsNameSyncKCCTargetCost, costs.Microseconds(), metrics.MetricTypeNameRaw,
+			[]metrics.MetricTag{
+				{Key: "gvr", Val: native.GenerateDynamicResourceByGVR(schema.GroupVersionResource(gvr))},
+				{Key: "target", Val: native.GenerateUniqObjectNameKey(target)},
+			}...)
+	}()
 
 	targetAccessor, ok := c.targetHandler.GetTargetAccessorByGVR(gvr)
 	if !ok || targetAccessor == nil {
 		return fmt.Errorf("%s cnc target accessor not found", gvr)
 	}
 
-	klog.V(4).Infof("gvr: %s, target: %s updated", gvr.String(), native.GenerateUniqObjectNameKey(target))
+	klog.V(4).Infof("[cnc] gvr: %s, target: %s updated", gvr.String(), native.GenerateUniqObjectNameKey(target))
 
 	if target.GetDeletionTimestamp() != nil {
 		err := c.handleKCCTargetFinalizer(gvr, target)
@@ -188,7 +201,7 @@ func (c *CustomNodeConfigController) handleKCCTargetFinalizer(gvr metav1.GroupVe
 		return nil
 	}
 
-	klog.Infof("handling gvr: %s kcc target %s finalizer", gvr.String(), native.GenerateUniqObjectNameKey(target))
+	klog.Infof("[cnc] handling gvr: %s kcc target %s finalizer", gvr.String(), native.GenerateUniqObjectNameKey(target))
 	err := c.enqueueAllRelatedCNCForTargetConfig(target)
 	if err != nil {
 		return err
@@ -199,17 +212,17 @@ func (c *CustomNodeConfigController) handleKCCTargetFinalizer(gvr metav1.GroupVe
 		return err
 	}
 
-	klog.Infof("success remove gvr: %s kcc target %s finalizer", gvr.String(), native.GenerateUniqObjectNameKey(target))
+	klog.Infof("[cnc] success remove gvr: %s kcc target %s finalizer", gvr.String(), native.GenerateUniqObjectNameKey(target))
 	return nil
 }
 
 func (c *CustomNodeConfigController) enqueueAllRelatedCNCForTargetConfig(target *unstructured.Unstructured) error {
-	targetConfigs, err := util.GetRelatedCNCForTargetConfig(c.customNodeConfigLister, target)
+	relatedCNCs, err := util.GetRelatedCNCForTargetConfig(c.customNodeConfigLister, target)
 	if err != nil {
 		return err
 	}
 
-	for _, cnc := range targetConfigs {
+	for _, cnc := range relatedCNCs {
 		c.enqueueCustomNodeConfig(cnc)
 	}
 
@@ -219,28 +232,28 @@ func (c *CustomNodeConfigController) enqueueAllRelatedCNCForTargetConfig(target 
 func (c *CustomNodeConfigController) addCustomNodeConfigEventHandle(obj interface{}) {
 	t, ok := obj.(*apisv1alpha1.CustomNodeConfig)
 	if !ok {
-		klog.Errorf("cannot convert obj to *CustomNodeConfig: %v", obj)
+		klog.Errorf("[cnc] cannot convert obj to *CustomNodeConfig: %v", obj)
 		return
 	}
 
-	klog.V(4).Infof("notice addition of CustomNodeConfig %s", native.GenerateUniqObjectNameKey(t))
+	klog.V(4).Infof("[cnc] notice addition of CustomNodeConfig %s", native.GenerateUniqObjectNameKey(t))
 	c.enqueueCustomNodeConfig(t)
 }
 
 func (c *CustomNodeConfigController) updateCustomNodeConfigEventHandle(old, new interface{}) {
 	oldCNC, ok := old.(*apisv1alpha1.CustomNodeConfig)
 	if !ok {
-		klog.Errorf("cannot convert obj to *CustomNodeConfig: %v", new)
+		klog.Errorf("[cnc] cannot convert obj to *CustomNodeConfig: %v", new)
 		return
 	}
 
 	newCNC, ok := new.(*apisv1alpha1.CustomNodeConfig)
 	if !ok {
-		klog.Errorf("cannot convert obj to *CustomNodeConfig: %v", new)
+		klog.Errorf("[cnc] cannot convert obj to *CustomNodeConfig: %v", new)
 		return
 	}
 
-	klog.V(4).Infof("notice update of CustomNodeConfig %s", native.GenerateUniqObjectNameKey(newCNC))
+	klog.V(4).Infof("[cnc] notice update of CustomNodeConfig %s", native.GenerateUniqObjectNameKey(newCNC))
 	if !apiequality.Semantic.DeepEqual(oldCNC.Status, newCNC.Status) {
 		c.enqueueCustomNodeConfig(newCNC)
 	}
@@ -248,7 +261,7 @@ func (c *CustomNodeConfigController) updateCustomNodeConfigEventHandle(old, new 
 
 func (c *CustomNodeConfigController) enqueueCustomNodeConfig(cnc *apisv1alpha1.CustomNodeConfig) {
 	if cnc == nil {
-		klog.Warning("trying to enqueue a nil cnc")
+		klog.Warning("[cnc] trying to enqueue a nil cnc")
 		return
 	}
 
@@ -258,7 +271,7 @@ func (c *CustomNodeConfigController) enqueueCustomNodeConfig(cnc *apisv1alpha1.C
 		return
 	}
 
-	c.customNodeConfigSyncQueue.AddRateLimited(key)
+	c.customNodeConfigSyncQueue.Add(key)
 }
 
 func (c *CustomNodeConfigController) worker() {
@@ -286,19 +299,27 @@ func (c *CustomNodeConfigController) processNextKatalystCustomConfigWorkItem() b
 }
 
 func (c *CustomNodeConfigController) syncCustomNodeConfig(key string) error {
-	klog.V(4).Infof("processing cnc key %s", key)
+	begin := time.Now()
+	defer func() {
+		costs := time.Since(begin)
+		klog.V(5).Infof("[cnc] finished syncing cnc %q (%v)", key, costs)
+		_ = c.metricsEmitter.StoreInt64(metricsNameSyncCNCCost, costs.Microseconds(),
+			metrics.MetricTypeNameRaw, metrics.MetricTag{Key: "name", Val: key})
+	}()
+
+	klog.V(5).Infof("[cnc] processing cnc key %s", key)
 	_, name, err := cache.SplitMetaNamespaceKey(key)
 	if err != nil {
-		klog.Errorf("failed to split namespace and name from key %s", key)
+		klog.Errorf("[cnc] failed to split namespace and name from key %s", key)
 		return err
 	}
 
 	cnc, err := c.customNodeConfigLister.Get(name)
 	if apierrors.IsNotFound(err) {
-		klog.Warningf("cnc %s is not found", key)
+		klog.Warningf("[cnc] cnc %s is not found", key)
 		return nil
 	} else if err != nil {
-		klog.Errorf("cnc %s get error: %v", key, err)
+		klog.Errorf("[cnc] cnc %s get error: %v", key, err)
 		return err
 	}
 
@@ -312,19 +333,19 @@ func (c *CustomNodeConfigController) syncCustomNodeConfig(key string) error {
 
 func (c *CustomNodeConfigController) patchCNC(cnc *apisv1alpha1.CustomNodeConfig, setFunc func(*apisv1alpha1.CustomNodeConfig)) (*apisv1alpha1.CustomNodeConfig, error) {
 	cncCopy := cnc.DeepCopy()
-	setFunc(cnc)
+	setFunc(cncCopy)
 	if apiequality.Semantic.DeepEqual(cnc, cncCopy) {
 		return cnc, nil
 	}
-	klog.Infof("cnc %s config changed need to patch", cnc.GetName())
-	return c.cncControl.PatchCNCStatus(c.ctx, cncCopy.Name, cncCopy, cnc)
+	klog.Infof("[cnc] cnc %s config changed need to patch", cnc.GetName())
+	return c.cncControl.PatchCNCStatus(c.ctx, cnc.Name, cnc, cncCopy)
 }
 
 func (c *CustomNodeConfigController) updateCustomNodeConfig(cnc *apisv1alpha1.CustomNodeConfig) {
 	c.targetHandler.RangeGVRTargetAccessor(func(gvr metav1.GroupVersionResource, targetAccessor kcctarget.KatalystCustomConfigTargetAccessor) bool {
 		matchedTarget, err := util.FindMatchedKCCTargetConfigForNode(cnc, targetAccessor)
 		if err != nil {
-			klog.Errorf("gvr %s find matched target failed: %s", gvr, err)
+			klog.Errorf("[cnc] gvr %s find matched target failed: %s", gvr, err)
 			return true
 		}
 
@@ -336,12 +357,8 @@ func (c *CustomNodeConfigController) updateCustomNodeConfig(cnc *apisv1alpha1.Cu
 func (c *CustomNodeConfigController) clearUnusedConfig() {
 	cncList, err := c.customNodeConfigLister.List(labels.Everything())
 	if err != nil {
-		klog.Errorf("clear unused config list all custom node config failed")
-	}
-
-	cncListCopy := make([]*apisv1alpha1.CustomNodeConfig, 0, len(cncList))
-	for _, cnc := range cncList {
-		cncListCopy = append(cncListCopy, cnc.DeepCopy())
+		klog.Errorf("[cnc] clear unused config list all custom node config failed")
+		return
 	}
 
 	// save all gvr to map
@@ -361,18 +378,17 @@ func (c *CustomNodeConfigController) clearUnusedConfig() {
 	// func for clear cnc config if gvr config not exists
 	setFunc := func(cnc *apisv1alpha1.CustomNodeConfig) {
 		util.ClearUnNeededConfigForNode(cnc, needToDeleteFunc)
-		// todo: add spd cnc applier ClearUnNeededConfigForNode to here in the future
 	}
 
 	clearCNCConfigs := func(i int) {
-		cnc := cncListCopy[i]
+		cnc := cncList[i]
 		_, err = c.patchCNC(cnc, setFunc)
 		if err != nil {
-			klog.Errorf("clearUnusedConfig patch cnc %s failed", cnc.GetName())
+			klog.Errorf("[cnc] clearUnusedConfig patch cnc %s failed", cnc.GetName())
 			return
 		}
 	}
 
 	// parallelize to clear cnc configs
-	workqueue.ParallelizeUntil(c.ctx, 16, len(cncListCopy), clearCNCConfigs)
+	workqueue.ParallelizeUntil(c.ctx, 16, len(cncList), clearCNCConfigs)
 }

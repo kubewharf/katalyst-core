@@ -150,7 +150,7 @@ func CNRTaintExists(taints []*apis.Taint, taintToFind *apis.Taint) bool {
 
 // DeleteCNRTaint removes all the taints that have the same key and effect to given taintToDelete.
 func DeleteCNRTaint(taints []*apis.Taint, taintToDelete *apis.Taint) ([]*apis.Taint, bool) {
-	newTaints := []*apis.Taint{}
+	var newTaints []*apis.Taint
 	deleted := false
 	for i := range taints {
 		if MatchCNRTaint(taints[i], taintToDelete) {

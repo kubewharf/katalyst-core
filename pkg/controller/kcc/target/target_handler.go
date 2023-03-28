@@ -51,9 +51,9 @@ type KatalystCustomConfigTargetHandler struct {
 	katalystCustomConfigGVRMap map[string]metav1.GroupVersionResource
 	// map gvr to kcc target accessor
 	targetAccessorMap map[metav1.GroupVersionResource]KatalystCustomConfigTargetAccessor
-	// targetHandlerFuncList stores those handler functions for all controllers
+	// targetHandlerFuncMap stores those handler functions for all controllers
 	// that are interested in kcc-target changes
-	targetHandlerFuncList []KatalystCustomConfigTargetHandlerFunc
+	targetHandlerFuncMap map[string]KatalystCustomConfigTargetHandlerFunc
 }
 
 func NewKatalystCustomConfigTargetHandler(ctx context.Context, client *kcclient.GenericClientSet, kccConfig *controller.KCCConfig,
@@ -64,6 +64,7 @@ func NewKatalystCustomConfigTargetHandler(ctx context.Context, client *kcclient.
 		kccConfig:                  kccConfig,
 		gvrKatalystCustomConfigMap: make(map[metav1.GroupVersionResource]sets.String),
 		katalystCustomConfigGVRMap: make(map[string]metav1.GroupVersionResource),
+		targetHandlerFuncMap:       make(map[string]KatalystCustomConfigTargetHandlerFunc),
 		targetAccessorMap:          make(map[metav1.GroupVersionResource]KatalystCustomConfigTargetAccessor),
 	}
 
@@ -81,16 +82,18 @@ func (k *KatalystCustomConfigTargetHandler) Run() {
 }
 
 // RegisterTargetHandler is used to register handler functions for the given gvr
-func (k *KatalystCustomConfigTargetHandler) RegisterTargetHandler(handlerFunc KatalystCustomConfigTargetHandlerFunc) {
+func (k *KatalystCustomConfigTargetHandler) RegisterTargetHandler(name string, handlerFunc KatalystCustomConfigTargetHandlerFunc) {
 	k.mu.Lock()
 	defer k.mu.Unlock()
-	k.targetHandlerFuncList = append(k.targetHandlerFuncList, handlerFunc)
+
+	k.targetHandlerFuncMap[name] = handlerFunc
 }
 
 // GetKCCKeyListByGVR get kcc keyList by gvr.
 func (k *KatalystCustomConfigTargetHandler) GetKCCKeyListByGVR(gvr metav1.GroupVersionResource) []string {
 	k.mu.RLock()
 	defer k.mu.RUnlock()
+
 	kccKeys, ok := k.gvrKatalystCustomConfigMap[gvr]
 	if ok {
 		return kccKeys.List()
@@ -101,6 +104,7 @@ func (k *KatalystCustomConfigTargetHandler) GetKCCKeyListByGVR(gvr metav1.GroupV
 func (k *KatalystCustomConfigTargetHandler) GetTargetAccessorByGVR(gvr metav1.GroupVersionResource) (KatalystCustomConfigTargetAccessor, bool) {
 	k.mu.RLock()
 	defer k.mu.RUnlock()
+
 	accessor, ok := k.targetAccessorMap[gvr]
 	if ok {
 		return accessor, true
@@ -112,6 +116,7 @@ func (k *KatalystCustomConfigTargetHandler) GetTargetAccessorByGVR(gvr metav1.Gr
 func (k *KatalystCustomConfigTargetHandler) RangeGVRTargetAccessor(f func(gvr metav1.GroupVersionResource, accessor KatalystCustomConfigTargetAccessor) bool) {
 	k.mu.RLock()
 	defer k.mu.RUnlock()
+
 	for gvr, a := range k.targetAccessorMap {
 		ret := f(gvr, a)
 		if !ret {
@@ -185,7 +190,7 @@ func (k *KatalystCustomConfigTargetHandler) deleteKatalystCustomConfigEventHandl
 		}
 
 		for _, target := range kccTargets {
-			accessor.Enqueue(target)
+			accessor.Enqueue("", target)
 		}
 	}
 }
@@ -234,7 +239,8 @@ func (k *KatalystCustomConfigTargetHandler) addGVRAndKCCKeyWithoutLock(gvr metav
 	if !ok {
 		_, ok := k.targetAccessorMap[gvr]
 		if !ok {
-			accessor, err := NewRealKatalystCustomConfigTargetAccessor(gvr, k.client.DynamicClient, k.targetHandlerFuncList)
+			accessor, err := NewRealKatalystCustomConfigTargetAccessor(gvr,
+				k.client.DynamicClient, k.targetHandlerFuncMap)
 			if err != nil {
 				return nil, err
 			}

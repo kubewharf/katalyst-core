@@ -17,6 +17,9 @@ limitations under the License.
 package spd
 
 import (
+	"time"
+
+	apiequality "k8s.io/apimachinery/pkg/api/equality"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/util/retry"
 	"k8s.io/klog/v2"
@@ -24,11 +27,6 @@ import (
 	apiworkload "github.com/kubewharf/katalyst-api/pkg/apis/workload/v1alpha1"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util"
-)
-
-const (
-	metricsNameSPDControllerSyncIndicatorSpec   = "spd_controller_sync_indicator_spec"
-	metricsNameSPDControllerSyncIndicatorStatus = "spd_controller_sync_indicator_status"
 )
 
 func (sc *SPDController) syncIndicatorSpec() {
@@ -40,43 +38,57 @@ func (sc *SPDController) syncIndicatorSpec() {
 				klog.Infof("[syncIndicatorSpec] indicator spec chan is closed")
 				return
 			}
-			klog.V(4).Infof("[syncIndicatorSpec] get %v", nn.String())
 
-			spec := sc.indicatorManager.GetIndicatorSpec(nn)
-			if spec == nil {
-				klog.Warningf("[syncIndicatorSpec] spd %v is nil", nn.String())
-				continue
-			}
+			func() {
+				begin := time.Now()
+				defer func() {
+					costs := time.Since(begin)
+					klog.V(5).Infof("[spd] finished syncing indicator spec %q (%v)", nn, costs)
+					_ = sc.metricsEmitter.StoreInt64(metricsNameSyncIndicatorSpecCost, costs.Microseconds(),
+						metrics.MetricTypeNameRaw, metrics.MetricTag{Key: "name", Val: nn.String()})
+				}()
 
-			err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
-				spd, err := sc.spdLister.ServiceProfileDescriptors(nn.Namespace).Get(nn.Name)
+				klog.V(5).Infof("[syncIndicatorSpec] get %v", nn.String())
+
+				spec := sc.indicatorManager.GetIndicatorSpec(nn)
+				if spec == nil {
+					klog.Warningf("[syncIndicatorSpec] spd %v is nil", nn.String())
+					return
+				}
+
+				err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
+					spd, err := sc.spdLister.ServiceProfileDescriptors(nn.Namespace).Get(nn.Name)
+					if err != nil {
+						klog.Errorf("[syncIndicatorSpec] failed to get spd [%v], err: %v", nn.String(), err)
+						return err
+					}
+
+					spdCopy := spd.DeepCopy()
+					sc.mergeIndicatorSpec(spdCopy, *spec)
+					if apiequality.Semantic.DeepEqual(spd.Spec, spdCopy.Spec) {
+						return nil
+					}
+
+					if _, err := sc.spdControl.UpdateSPD(sc.ctx, spdCopy, metav1.UpdateOptions{}); err != nil {
+						klog.Errorf("[syncIndicatorSpec] failed to update spd for %s: %v", nn.String(), err)
+						return err
+					}
+
+					_ = sc.metricsEmitter.StoreInt64(metricsNameSyncIndicatorSpec, 1, metrics.MetricTypeNameCount, metrics.MetricTag{
+						Key: "status", Val: "success",
+					})
+
+					klog.V(4).Infof("[syncIndicatorSpec] successfully updated spd %s to %+v", nn.String(), spdCopy.Spec)
+					return nil
+				})
 				if err != nil {
-					klog.Errorf("[syncIndicatorSpec] failed to get spd [%v], err: %v", nn.String(), err)
-					return err
+					// todo if failed to get spd, re-enqueue to update next time
+					klog.Errorf("[syncIndicatorSpec] failed to retry on conflict update spd for %s: %v", nn.String(), err)
+					_ = sc.metricsEmitter.StoreInt64(metricsNameSyncIndicatorSpec, 1, metrics.MetricTypeNameCount, metrics.MetricTag{
+						Key: "status", Val: "failed",
+					})
 				}
-
-				spdCopy := spd.DeepCopy()
-				sc.mergeIndicatorSpec(spdCopy, *spec)
-
-				if _, err := sc.spdControl.UpdateSPD(sc.ctx, spdCopy, metav1.UpdateOptions{}); err != nil {
-					klog.Errorf("[syncIndicatorSpec] failed to update spd for %s: %v", nn.String(), err)
-					return err
-				}
-
-				klog.V(4).Infof("[syncIndicatorSpec] successfully updated spd %s to %+v", nn.String(), spdCopy.Spec)
-				return nil
-			})
-			if err != nil {
-				// todo if failed to get spd, re-enqueue to update next time
-				klog.Errorf("[syncIndicatorSpec] failed to retry on conflict update spd for %s: %v", nn.String(), err)
-				_ = sc.metricsEmitter.StoreInt64(metricsNameSPDControllerSyncIndicatorSpec, 1, metrics.MetricTypeNameCount, metrics.MetricTag{
-					Key: "status", Val: "failed",
-				})
-			} else {
-				_ = sc.metricsEmitter.StoreInt64(metricsNameSPDControllerSyncIndicatorSpec, 1, metrics.MetricTypeNameCount, metrics.MetricTag{
-					Key: "status", Val: "success",
-				})
-			}
+			}()
 		case <-sc.ctx.Done():
 			klog.Infoln("[syncIndicatorSpec] stop spd vpa queue worker.")
 			return
@@ -93,43 +105,57 @@ func (sc *SPDController) syncIndicatorStatus() {
 				klog.Infof("[syncIndicatorStatus] indicator status chan is closed")
 				return
 			}
-			klog.V(4).Infof("[syncIndicatorStatus] get %v", nn.String())
 
-			status := sc.indicatorManager.GetIndicatorStatus(nn)
-			if status == nil {
-				klog.Warningf("[syncIndicatorStatus] spd status %v is nil", nn.String())
-				continue
-			}
+			func() {
+				begin := time.Now()
+				defer func() {
+					costs := time.Since(begin)
+					klog.V(5).Infof("[spd] finished syncing indicator status %q (%v)", nn, costs)
+					_ = sc.metricsEmitter.StoreInt64(metricsNameSyncIndicatorStatusCost, costs.Microseconds(),
+						metrics.MetricTypeNameRaw, metrics.MetricTag{Key: "name", Val: nn.String()})
+				}()
 
-			err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
-				spd, err := sc.spdLister.ServiceProfileDescriptors(nn.Namespace).Get(nn.Name)
+				klog.V(5).Infof("[syncIndicatorStatus] get %v", nn.String())
+
+				status := sc.indicatorManager.GetIndicatorStatus(nn)
+				if status == nil {
+					klog.Warningf("[syncIndicatorStatus] spd status %v is nil", nn.String())
+					return
+				}
+
+				err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
+					spd, err := sc.spdLister.ServiceProfileDescriptors(nn.Namespace).Get(nn.Name)
+					if err != nil {
+						klog.Errorf("[syncIndicatorStatus] failed to get spd [%v], err: %v", nn.String(), err)
+						return err
+					}
+
+					spdCopy := spd.DeepCopy()
+					sc.mergeIndicatorStatus(spdCopy, *status)
+					if apiequality.Semantic.DeepEqual(spd.Status, spdCopy.Status) {
+						return nil
+					}
+
+					if _, err := sc.spdControl.UpdateSPDStatus(sc.ctx, spdCopy, metav1.UpdateOptions{}); err != nil {
+						klog.Errorf("[syncIndicatorStatus] failed to update spd status for %s: %v", nn.String(), err)
+						return err
+					}
+
+					_ = sc.metricsEmitter.StoreInt64(metricsNameSyncIndicatorStatus, 1, metrics.MetricTypeNameCount, metrics.MetricTag{
+						Key: "status", Val: "success",
+					})
+
+					klog.V(4).Infof("[syncIndicatorStatus] successfully updated spd status %s to %+v", nn.String(), spdCopy.Status)
+					return nil
+				})
 				if err != nil {
-					klog.Errorf("[syncIndicatorStatus] failed to get spd [%v], err: %v", nn.String(), err)
-					return err
+					// todo if failed to get spd, re-enqueue to update next time
+					klog.Errorf("[syncIndicatorStatus] failed to retry on conflict update spd status for %s: %v", nn.String(), err)
+					_ = sc.metricsEmitter.StoreInt64(metricsNameSyncIndicatorStatus, 1, metrics.MetricTypeNameCount, metrics.MetricTag{
+						Key: "status", Val: "failed",
+					})
 				}
-
-				spdCopy := spd.DeepCopy()
-				sc.mergeIndicatorStatus(spdCopy, *status)
-
-				if _, err := sc.spdControl.UpdateSPDStatus(sc.ctx, spdCopy, metav1.UpdateOptions{}); err != nil {
-					klog.Errorf("[syncIndicatorStatus] failed to update spd status for %s: %v", nn.String(), err)
-					return err
-				}
-
-				klog.V(4).Infof("[syncIndicatorStatus] successfully updated spd status %s to %+v", nn.String(), spdCopy.Status)
-				return nil
-			})
-			if err != nil {
-				// todo if failed to get spd, re-enqueue to update next time
-				klog.Errorf("[syncIndicatorStatus] failed to retry on conflict update spd status for %s: %v", nn.String(), err)
-				_ = sc.metricsEmitter.StoreInt64(metricsNameSPDControllerSyncIndicatorStatus, 1, metrics.MetricTypeNameCount, metrics.MetricTag{
-					Key: "status", Val: "failed",
-				})
-			} else {
-				_ = sc.metricsEmitter.StoreInt64(metricsNameSPDControllerSyncIndicatorStatus, 1, metrics.MetricTypeNameCount, metrics.MetricTag{
-					Key: "status", Val: "success",
-				})
-			}
+			}()
 		case <-sc.ctx.Done():
 			klog.Infoln("[syncIndicatorStatus] stop spd vpa status queue worker.")
 			return

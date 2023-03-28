@@ -221,17 +221,17 @@ func TestComputeClusterState(t *testing.T) {
 	if err != nil {
 		klog.Errorf("get new fake cnr lifecycle err %v", err)
 	}
-	_, state := ec.computeClusterState(0, 2)
+	state := ec.computeClusterState(0, 2)
 	if state != stateFullDisruption {
 		t.Errorf("compute cluster state error")
 	}
 
-	_, state = ec.computeClusterState(3, 3)
+	state = ec.computeClusterState(3, 3)
 	if state != statePartialDisruption {
 		t.Errorf("compute cluster state error")
 	}
 
-	_, state = ec.computeClusterState(10, 1)
+	state = ec.computeClusterState(10, 1)
 	if state != stateNormal {
 		t.Errorf("compute cluster state error")
 	}
