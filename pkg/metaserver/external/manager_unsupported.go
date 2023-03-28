@@ -1,3 +1,6 @@
+//go:build !linux
+// +build !linux
+
 //Copyright 2022 The Katalyst Authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -14,8 +17,20 @@
 
 package external
 
-import "context"
+import (
+	"context"
 
-type ExternalManager interface {
-	Run(ctx context.Context)
+	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/pod"
+)
+
+// ExternalManagerImpl contains a set of managers that execute configurations beyond the OCI spec.
+type unsupportedExternalManager struct {
+}
+
+func (m *unsupportedExternalManager) Run(_ context.Context) {
+
+}
+
+func InitExternalManager(podFetcher pod.PodFetcher) ExternalManager {
+	return &unsupportedExternalManager{}
 }

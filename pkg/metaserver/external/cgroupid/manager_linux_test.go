@@ -1,3 +1,6 @@
+//go:build linux
+// +build linux
+
 // Copyright 2022 The Katalyst Authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -38,7 +41,7 @@ var (
 )
 
 func TestGetCgroupIDForContainer(t *testing.T) {
-	cgroupIDManager := NewCgroupIDManager(podFetcher)
+	cgroupIDManager := NewCgroupIDManager(podFetcher).(*DefaultCgroupIDManager)
 	assert.NotNil(t, cgroupIDManager)
 
 	cgroupIDManager.setCgroupID(podUIDList[0], containerIDList[0], cgIDList[0])
@@ -74,7 +77,7 @@ func TestGetCgroupIDForContainer(t *testing.T) {
 }
 
 func TestListCgroupIDsForPod(t *testing.T) {
-	cgroupIDManager := NewCgroupIDManager(podFetcher)
+	cgroupIDManager := NewCgroupIDManager(podFetcher).(*DefaultCgroupIDManager)
 	assert.NotNil(t, cgroupIDManager)
 
 	cgroupIDManager.setCgroupID(podUIDList[0], containerIDList[0], cgIDList[0])
@@ -110,7 +113,7 @@ func TestListCgroupIDsForPod(t *testing.T) {
 }
 
 func TestGetAbsentContainers(t *testing.T) {
-	cgroupIDManager := NewCgroupIDManager(podFetcher)
+	cgroupIDManager := NewCgroupIDManager(podFetcher).(*DefaultCgroupIDManager)
 	assert.NotNil(t, cgroupIDManager)
 
 	cgroupIDManager.setCgroupID(podUIDList[0], containerIDList[0], cgIDList[0])
@@ -146,7 +149,7 @@ func TestGetAbsentContainers(t *testing.T) {
 }
 
 func TestClearResidualPodsInCache(t *testing.T) {
-	cgroupIDManager := NewCgroupIDManager(podFetcher)
+	cgroupIDManager := NewCgroupIDManager(podFetcher).(*DefaultCgroupIDManager)
 	assert.NotNil(t, cgroupIDManager)
 
 	cgroupIDManager.setCgroupID(podUIDList[0], containerIDList[0], cgIDList[0])

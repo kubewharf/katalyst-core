@@ -1,4 +1,7 @@
-//Copyright 2022 The Katalyst Authors.
+//go:build !linux
+// +build !linux
+
+// Copyright 2022 The Katalyst Authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -12,10 +15,22 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package external
+package cgroupid
 
-import "context"
+import (
+	"context"
 
-type ExternalManager interface {
-	Run(ctx context.Context)
+	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/pod"
+)
+
+// DefaultCgroupIDManager maintains the mapping of pod to cgroup id.
+type unsupportedCgroupIDManager struct {
+}
+
+func NewCgroupIDManager(_ pod.PodFetcher) CgroupIDManager {
+	return &unsupportedCgroupIDManager{}
+}
+
+// Run starts a DefaultCgroupIDManager
+func (m *unsupportedCgroupIDManager) Run(_ context.Context) {
 }

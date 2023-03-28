@@ -39,7 +39,7 @@ type MetaServer struct {
 	*agent.MetaAgent
 	config.ConfigurationManager
 	spd.ServiceProfileManager
-	*external.ExternalManager
+	external.ExternalManager
 }
 
 // NewMetaServer returns the instance of MetaServer.
