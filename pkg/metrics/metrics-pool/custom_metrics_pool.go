@@ -19,6 +19,8 @@ package metrics_pool
 import (
 	"context"
 
+	"go.uber.org/atomic"
+
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 )
 
@@ -26,18 +28,18 @@ import (
 // metrics.MetricEmitter, so that whenever SetDefaultMetricsEmitter is called,
 // it will always work the newly set MetricEmitter as default implementation.
 type customMetricsEmitterPool struct {
-	started             bool
-	emitterPool         MetricsEmitterPool
-	customMetricEmitter metrics.MetricEmitter
+	started                    *atomic.Bool
+	emitterPool                MetricsEmitterPool
+	customDefaultMetricEmitter metrics.MetricEmitter
 }
 
 var _ MetricsEmitterPool = &customMetricsEmitterPool{}
 
 func NewCustomMetricsEmitterPool(emitterPool MetricsEmitterPool) MetricsEmitterPool {
 	return &customMetricsEmitterPool{
-		started:             false,
-		emitterPool:         emitterPool,
-		customMetricEmitter: emitterPool.GetDefaultMetricsEmitter(),
+		started:                    atomic.NewBool(false),
+		emitterPool:                emitterPool,
+		customDefaultMetricEmitter: emitterPool.GetDefaultMetricsEmitter(),
 	}
 }
 
@@ -47,10 +49,11 @@ func (p *customMetricsEmitterPool) GetDefaultMetricsEmitter() metrics.MetricEmit
 }
 
 func (p *customMetricsEmitterPool) SetDefaultMetricsEmitter(metricEmitter metrics.MetricEmitter) {
-	if p.started {
+	if p.started.Load() {
 		return
 	}
-	p.customMetricEmitter = metricEmitter
+
+	p.customDefaultMetricEmitter = metricEmitter
 }
 
 func (p *customMetricsEmitterPool) GetMetricsEmitter(parameters interface{}) (metrics.MetricEmitter, error) {
@@ -58,29 +61,28 @@ func (p *customMetricsEmitterPool) GetMetricsEmitter(parameters interface{}) (me
 }
 
 func (p *customMetricsEmitterPool) Run(ctx context.Context) {
-	if p.started {
+	if p.started.Swap(true) {
 		return
 	}
-	defer func() {
-		p.started = true
-	}()
+
+	p.customDefaultMetricEmitter.Run(ctx)
 	p.emitterPool.Run(ctx)
 }
 
 func (p *customMetricsEmitterPool) StoreInt64(key string, val int64,
 	emitType metrics.MetricTypeName, tags ...metrics.MetricTag) error {
-	return p.customMetricEmitter.StoreInt64(key, val,
+	return p.customDefaultMetricEmitter.StoreInt64(key, val,
 		emitType, tags...)
 }
 
 func (p *customMetricsEmitterPool) StoreFloat64(key string, val float64,
 	emitType metrics.MetricTypeName, tags ...metrics.MetricTag) error {
-	return p.customMetricEmitter.StoreFloat64(key, val,
+	return p.customDefaultMetricEmitter.StoreFloat64(key, val,
 		emitType, tags...)
 }
 
 func (p *customMetricsEmitterPool) WithTags(unit string,
 	commonTags ...metrics.MetricTag) metrics.MetricEmitter {
-	return p.customMetricEmitter.WithTags(unit,
+	return p.customDefaultMetricEmitter.WithTags(unit,
 		commonTags...)
 }

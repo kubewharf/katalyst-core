@@ -44,7 +44,9 @@ func (t *MetricTagWrapper) StoreFloat64(key string, val float64, emitType Metric
 	return t.MetricEmitter.StoreFloat64(key, val, emitType, tags...)
 }
 
-func (t *MetricTagWrapper) Run(_ context.Context) {}
+func (t *MetricTagWrapper) Run(ctx context.Context) {
+	t.MetricEmitter.Run(ctx)
+}
 
 func (t *MetricTagWrapper) WithTags(unit string, commonTags ...MetricTag) MetricEmitter {
 	return t.deepCopy().withTags(unit, commonTags...)
