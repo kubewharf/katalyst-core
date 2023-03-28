@@ -28,6 +28,7 @@ import (
 	pkgconfig "github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/config"
+	"github.com/kubewharf/katalyst-core/pkg/metaserver/external"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/spd"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 )
@@ -38,6 +39,7 @@ type MetaServer struct {
 	*agent.MetaAgent
 	config.ConfigurationManager
 	spd.ServiceProfileManager
+	*external.ExternalManager
 }
 
 // NewMetaServer returns the instance of MetaServer.
@@ -68,6 +70,7 @@ func NewMetaServer(clientSet *client.GenericClientSet, emitter metrics.MetricEmi
 		MetaAgent:             metaAgent,
 		ConfigurationManager:  configurationManager,
 		ServiceProfileManager: serviceProfileManager,
+		ExternalManager:       external.InitExternalManager(metaAgent.PodFetcher),
 	}, nil
 }
 
@@ -75,5 +78,7 @@ func (m *MetaServer) Run(ctx context.Context) {
 	go m.MetaAgent.Run(ctx)
 	go m.ConfigurationManager.Run(ctx)
 	go m.ServiceProfileManager.Run(ctx)
+	go m.ExternalManager.Run(ctx)
+
 	<-ctx.Done()
 }

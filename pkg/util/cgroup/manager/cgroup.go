@@ -84,6 +84,20 @@ func ApplyNetClsWithRelativePath(relCgroupPath string, data *common.NetClsData) 
 	return GetManager().ApplyNetCls(absCgroupPath, data)
 }
 
+// ApplyNetClsForContainer applies the net_cls config for a container.
+func ApplyNetClsForContainer(podUID, containerId string, data *common.NetClsData) error {
+	if data == nil {
+		return fmt.Errorf("ApplyNetClass with nil cgroup data")
+	}
+
+	netClsAbsCGPath, err := common.GetContainerAbsCgroupPath(common.CgroupSubsysNetCls, podUID, containerId)
+	if err != nil {
+		return fmt.Errorf("GetContainerAbsCgroupPath failed with error: %v", err)
+	}
+
+	return ApplyNetClsWithRelativePath(netClsAbsCGPath, data)
+}
+
 func GetMemoryWithRelativePath(relCgroupPath string) (*common.MemoryStats, error) {
 	absCgroupPath := common.GetAbsCgroupPath("memory", relCgroupPath)
 	return GetManager().GetMemory(absCgroupPath)
