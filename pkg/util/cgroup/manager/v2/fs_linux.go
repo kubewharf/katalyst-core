@@ -20,6 +20,7 @@ limitations under the License.
 package v2
 
 import (
+	"errors"
 	"fmt"
 	"io/ioutil"
 	"math"
@@ -154,9 +155,8 @@ func (m *manager) ApplyCPUSet(absCgroupPath string, data *common.CPUSetData) err
 	return nil
 }
 
-func (m *manager) ApplyNetCls(absCgroupPath string, data *common.NetClsData) error {
-	// todo: support to set net class for v2 with ebpf codes
-	return fmt.Errorf("this interface has not be implemeneted yet")
+func (m *manager) ApplyNetCls(_ string, _ *common.NetClsData) error {
+	return errors.New("cgroups v2 does not support net_cls cgroup, please use eBPF via external manager")
 }
 
 func (m *manager) GetMemory(absCgroupPath string) (*common.MemoryStats, error) {

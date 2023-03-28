@@ -29,6 +29,8 @@ const (
 	CgroupSubsysCPUSet = "cpuset"
 	CgroupSubsysMemory = "memory"
 	CgroupSubsysCPU    = "cpu"
+	// CgroupSubsysNetCls is the net_cls sub-system
+	CgroupSubsysNetCls = "net_cls"
 
 	PodCgroupPathPrefix        = "pod"
 	CgroupFsRootPath           = "/kubepods"
@@ -70,13 +72,14 @@ type CPUSetData struct {
 	Migrate string
 }
 
-// NetClsData set cgroup net data
+// NetClsData is the net class data.
 type NetClsData struct {
+	// ClassID is the class id of the container.
 	ClassID uint32
-
-	// for cgroupv2
-	CgroupID uint64 // cgroup path cid
-	SvcID    uint64
+	// CgroupID is used for cgroup v2.
+	CgroupID uint64
+	// Attributes are some optional attributes.
+	Attributes map[string]string
 }
 
 // MemoryStats get cgroup memory data

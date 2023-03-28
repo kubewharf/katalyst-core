@@ -37,6 +37,7 @@ func TestV1Manager(t *testing.T) {
 	manager = v1.NewManager()
 
 	testManager(t, "v1")
+	testNetCls(t, "v1")
 }
 
 func TestV2Manager(t *testing.T) {
@@ -60,7 +61,6 @@ func testManager(t *testing.T, version string) {
 	assert.NoError(t, err)
 	err = ApplyCPUSetForContainer("fake-pod", "fake-container", &common.CPUSetData{})
 	assert.NotNil(t, err)
-	err = ApplyNetClsWithRelativePath("/test", &common.NetClsData{})
 
 	_, err = GetMemoryWithRelativePath("/")
 	_, err = GetMemoryWithAbsolutePath("/")
@@ -73,4 +73,15 @@ func testManager(t *testing.T, version string) {
 
 	err = DropCacheWithTimeoutForContainer("fake-pod", "fake-container", 1)
 	err = DropCacheWithTimeoutWithRelativePath(1, "/test")
+}
+
+func testNetCls(t *testing.T, version string) {
+	t.Logf("test net_cls with version %v", version)
+	var err error
+
+	err = ApplyNetClsWithRelativePath("/test", &common.NetClsData{})
+	assert.NoError(t, err)
+
+	err = ApplyNetClsForContainer("fake-pod", "fake-container", &common.NetClsData{})
+	assert.Error(t, err)
 }

@@ -25,7 +25,7 @@ import (
 )
 
 type MetaServerConfiguration struct {
-	CNRCacheTTL time.Duration
+	CNRCacheTTL                    time.Duration
 	CustomNodeConfigCacheTTL       time.Duration
 	ServiceProfileCacheTTL         time.Duration
 	ConfigCacheTTL                 time.Duration
