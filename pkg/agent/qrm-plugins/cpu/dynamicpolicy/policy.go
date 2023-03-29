@@ -2137,6 +2137,11 @@ func (p *DynamicPolicy) checkCPUSet() {
 			if allocationInfo == nil ||
 				allocationInfo.ContainerType != pluginapi.ContainerType_MAIN.String() {
 				continue
+			} else if allocationInfo.QoSLevel == consts.PodAnnotationQoSLevelSharedCores &&
+				allocationInfo.RequestQuantity == 0 {
+				klog.Warningf("[CPUDynamicPolicy.checkCPUSet] skip cpuset checking for pod: %s/%s container: %s with zero cpu request",
+					allocationInfo.PodNamespace, allocationInfo.PodName, containerName)
+				continue
 			}
 
 			tags := metrics.ConvertMapToTags(map[string]string{

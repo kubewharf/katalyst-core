@@ -45,6 +45,7 @@ import (
 	cgroupcmutils "github.com/kubewharf/katalyst-core/pkg/util/cgroup/manager"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
+	"github.com/kubewharf/katalyst-core/pkg/util/native"
 )
 
 const (
@@ -792,6 +793,11 @@ func (p *DynamicPolicy) checkMemorySet() {
 
 			if allocationInfo == nil || allocationInfo.ContainerType != pluginapi.ContainerType_MAIN.String() {
 				continue
+			} else if allocationInfo.QoSLevel == consts.PodAnnotationQoSLevelSharedCores &&
+				p.getContainerRequestedMemoryBytes(allocationInfo) == 0 {
+				klog.Warningf("[MemoryDynamicPolicy.checkMemorySet] skip memset checking for pod: %s/%s container: %s with zero cpu request",
+					allocationInfo.PodNamespace, allocationInfo.PodName, containerName)
+				continue
 			} else if allocationInfo.QoSLevel == consts.PodAnnotationQoSLevelDedicatedCores &&
 				allocationInfo.Annotations[consts.PodAnnotationMemoryEnhancementNumaBinding] == consts.PodAnnotationMemoryEnhancementNumaBindingEnable {
 				unionNUMABindingStateMemorySet = unionNUMABindingStateMemorySet.Union(allocationInfo.NumaAllocationResult)
@@ -914,4 +920,31 @@ func (p *DynamicPolicy) checkMemorySet() {
 	}
 
 	klog.Infof("[MemoryDynamicPolicy.checkMemorySet] finish checkMemorySet")
+}
+
+// getContainerRequestedMemoryBytes parses and returns requested memory bytes for the given container
+func (p *DynamicPolicy) getContainerRequestedMemoryBytes(allocationInfo *state.AllocationInfo) int {
+	if allocationInfo == nil {
+		klog.Errorf("[getContainerRequestedMemoryBytes] got nil allocationInfo")
+		return 0
+	}
+
+	if p.metaServer == nil {
+		klog.Errorf("[getContainerRequestedMemoryBytes] nil metaServer")
+		return 0
+	}
+
+	container, err := p.metaServer.GetContainerSpec(allocationInfo.PodUid, allocationInfo.ContainerName)
+	if err != nil || container == nil {
+		klog.Errorf("[getContainerRequestedMemoryBytes] get container failed with error: %v", err)
+		return 0
+	}
+
+	memoryQuantity := native.GetMemoryQuantity(container.Resources.Requests)
+	requestBytes := general.Max(int(memoryQuantity.Value()), 0)
+
+	klog.Infof("[getContainerRequestedMemoryBytes] get memory request bytes: %d for pod: %s/%s container: %s from podWatcher",
+		requestBytes, allocationInfo.PodNamespace, allocationInfo.PodName, allocationInfo.ContainerName)
+
+	return requestBytes
 }
