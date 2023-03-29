@@ -29,7 +29,6 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource/memory/headroompolicy"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
-	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/util"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
@@ -43,104 +42,94 @@ const (
 
 // memoryResourceAdvisor updates memory headroom for reclaimed resource
 type memoryResourceAdvisor struct {
-	name                       string
-	memoryLimitSystem          uint64
-	reservedForAllocateDefault int64
-	startTime                  time.Time
-	isReady                    bool
+	name                string
+	startTime           time.Time
+	reservedForAllocate int64
 
-	policy headroompolicy.Policy
+	headroomPolicy headroompolicy.HeadroomPolicy
 
-	metaCache *metacache.MetaCache
-	emitter   metrics.MetricEmitter
+	lastUpdateStatus types.UpdateStatus
+	mutex            sync.RWMutex
 
-	mutex sync.RWMutex
+	conf       *config.Configuration
+	metaCache  *metacache.MetaCache
+	metaServer *metaserver.MetaServer
+	emitter    metrics.MetricEmitter
 }
 
 // NewMemoryResourceAdvisor returns a memoryResourceAdvisor instance
 func NewMemoryResourceAdvisor(conf *config.Configuration, metaCache *metacache.MetaCache,
-	metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter) (*memoryResourceAdvisor, error) {
-	mra := &memoryResourceAdvisor{
-		name:              memoryResourceAdvisorName,
-		memoryLimitSystem: metaServer.MemoryCapacity,
-		startTime:         time.Now(),
-		isReady:           false,
-		metaCache:         metaCache,
-		emitter:           emitter,
+	metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter) *memoryResourceAdvisor {
+	ra := &memoryResourceAdvisor{
+		name:      memoryResourceAdvisorName,
+		startTime: time.Now(),
+
+		conf:       conf,
+		metaCache:  metaCache,
+		metaServer: metaServer,
+		emitter:    emitter,
 	}
 
+	// todo: support dynamic reserved resource from kcc
 	reservedDefault := conf.ReclaimedResourceConfiguration.ReservedResourceForAllocate[v1.ResourceMemory]
-	mra.reservedForAllocateDefault = reservedDefault.Value()
+	ra.reservedForAllocate = reservedDefault.Value()
 
-	policyName := conf.MemoryAdvisorConfiguration.MemoryAdvisorPolicy
-	memPolicy, err := headroompolicy.NewPolicy(types.MemoryAdvisorPolicyName(policyName), metaCache, metaServer)
-	if err != nil {
-		return nil, fmt.Errorf("new policy %v for memory resource advisor failed: %v", policyName, err)
-	}
-	mra.policy = memPolicy
+	// Keep canonical policy by default as baseline
+	ra.headroomPolicy = headroompolicy.NewPolicyCanonical(metaCache, metaServer)
 
-	return mra, nil
+	return ra
 }
 
-func (mra *memoryResourceAdvisor) Name() string {
-	return mra.name
+func (ra *memoryResourceAdvisor) Name() string {
+	return ra.name
 }
 
-func (mra *memoryResourceAdvisor) Update() error {
-	mra.mutex.Lock()
-	defer mra.mutex.Unlock()
+func (ra *memoryResourceAdvisor) Update() (err error) {
+	ra.mutex.Lock()
+	defer func() {
+		if err != nil {
+			ra.lastUpdateStatus = types.UpdateFailed
+		} else {
+			ra.lastUpdateStatus = types.UpdateSucceeded
+		}
+		ra.mutex.Unlock()
+	}()
+
 	// Skip update during startup
-	if time.Now().Before(mra.startTime.Add(startUpPeriod)) {
-		klog.Infof("[qosaware-memory] starting up")
-		return fmt.Errorf("[qosaware-memory] starting up")
+	if time.Now().Before(ra.startTime.Add(startUpPeriod)) {
+		klog.Infof("[qosaware-memory] skip update: starting up")
+		return nil
 	}
 
 	// Check if essential pool info exists. Skip update if not in which case sysadvisor
 	// is ignorant of pools and containers
-	if _, err := mra.getPoolSize(state.PoolNameReserve); err != nil {
-		klog.Warningf("[qosaware-memory] skip update. %v", err)
-		return fmt.Errorf("[qosaware-memory] skip update. %v", err)
+	reservePoolInfo, ok := ra.metaCache.GetPoolInfo(state.PoolNameReserve)
+	if !ok || reservePoolInfo == nil {
+		klog.Warningf("[qosaware-memory] skip update: reserve pool not exist")
+		return nil
 	}
 
-	mra.policy.SetMemory(int64(mra.memoryLimitSystem), mra.getReservedResource())
+	memoryLimitSystem := ra.metaServer.MemoryCapacity
+	ra.headroomPolicy.SetEssentials(float64(memoryLimitSystem), float64(ra.reservedForAllocate))
 
-	if err := mra.policy.Update(); err != nil {
-		klog.Errorf("[qosaware-memory] update policy error %v", err)
-		mra.isReady = false
+	if err := ra.headroomPolicy.Update(); err != nil {
 		return err
 	}
-	mra.isReady = true
 	return nil
 }
 
-func (mra *memoryResourceAdvisor) GetChannel() interface{} {
+func (ra *memoryResourceAdvisor) GetChannel() interface{} {
 	klog.Warningf("[qosaware-memory] get channel is not supported")
 	return nil
 }
 
-func (mra *memoryResourceAdvisor) GetHeadroom() (resource.Quantity, error) {
-	mra.mutex.RLock()
-	defer mra.mutex.RUnlock()
-	if !mra.isReady {
-		return resource.Quantity{}, fmt.Errorf("not ready")
+func (ra *memoryResourceAdvisor) GetHeadroom() (resource.Quantity, error) {
+	ra.mutex.RLock()
+	defer ra.mutex.RUnlock()
+
+	if ra.lastUpdateStatus != types.UpdateSucceeded {
+		return resource.Quantity{}, fmt.Errorf("last update failed")
 	}
 
-	return mra.policy.GetHeadroom()
-}
-
-func (mra *memoryResourceAdvisor) getReservedResource() int64 {
-	// todo: get kcc config stored in metacache
-	return mra.reservedForAllocateDefault
-}
-
-func (mra *memoryResourceAdvisor) getPoolSize(poolName string) (int, error) {
-	pi, ok := mra.metaCache.GetPoolInfo(poolName)
-	if !ok {
-		return 0, fmt.Errorf("%v pool not exist", poolName)
-	}
-
-	poolSize := util.CountCPUAssignmentCPUs(pi.TopologyAwareAssignments)
-	klog.Infof("[qosaware-memory] %v pool size %v", poolName, poolSize)
-
-	return poolSize, nil
+	return ra.headroomPolicy.GetHeadroom()
 }

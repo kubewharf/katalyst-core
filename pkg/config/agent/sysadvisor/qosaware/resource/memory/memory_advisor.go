@@ -20,7 +20,7 @@ import "github.com/kubewharf/katalyst-core/pkg/config/dynamic"
 
 // MemoryAdvisorConfiguration stores configurations of memory advisors in qos aware plugin
 type MemoryAdvisorConfiguration struct {
-	MemoryAdvisorPolicy string
+	MemoryHeadroomPolicy string
 }
 
 // NewMemoryAdvisorConfiguration creates new memory advisor configurations

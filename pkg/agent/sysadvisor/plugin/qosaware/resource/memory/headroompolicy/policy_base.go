@@ -14,28 +14,38 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package provisionpolicy
+package headroompolicy
 
 import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
+	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 )
 
-type PolicyRama struct {
-	*PolicyBase
+type PolicyBase struct {
+	PodSet              types.PodSet
+	Total               float64
+	ReservedForAllocate float64
+
+	MetaCache  *metacache.MetaCache
+	MetaServer *metaserver.MetaServer
 }
 
-func NewPolicyRama(name types.CPUProvisionPolicyName, metaCache *metacache.MetaCache) ProvisionPolicy {
-	p := &PolicyRama{
-		PolicyBase: NewPolicyBase(name, metaCache),
+func NewPolicyBase(metaCache *metacache.MetaCache, metaServer *metaserver.MetaServer) *PolicyBase {
+	cp := &PolicyBase{
+		PodSet: make(types.PodSet),
+
+		MetaCache:  metaCache,
+		MetaServer: metaServer,
 	}
-	return p
+	return cp
 }
 
-func (p *PolicyRama) Update() error {
-	return nil
+func (p *PolicyBase) SetPodSet(podSet types.PodSet) {
+	p.PodSet = podSet
 }
 
-func (p *PolicyRama) GetControlKnobAdjusted() types.ControlKnob {
-	return types.ControlKnob{}
+func (p *PolicyBase) SetEssentials(total, reservedForAllocate float64) {
+	p.Total = total
+	p.ReservedForAllocate = reservedForAllocate
 }

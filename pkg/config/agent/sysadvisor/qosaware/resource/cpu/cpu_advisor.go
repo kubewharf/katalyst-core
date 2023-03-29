@@ -23,8 +23,8 @@ import (
 
 // CPUAdvisorConfiguration stores configurations of cpu advisors in qos aware plugin
 type CPUAdvisorConfiguration struct {
-	CPUProvisionPolicy  string
-	CPUHeadroomPolicies map[types.QoSRegionType]types.CPUHeadroomPolicyName
+	CPUProvisionPolicy map[types.QoSRegionType]types.CPUProvisionPolicyName
+	CPUHeadroomPolicy  map[types.QoSRegionType]types.CPUHeadroomPolicyName
 }
 
 // NewCPUAdvisorConfiguration creates new cpu advisor configurations

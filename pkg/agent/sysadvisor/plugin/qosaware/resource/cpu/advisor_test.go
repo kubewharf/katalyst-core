@@ -45,7 +45,6 @@ import (
 
 func init() {
 	provisionpolicy.RegisterInitializer(types.CPUProvisionPolicyCanonical, provisionpolicy.NewPolicyCanonical)
-	provisionpolicy.RegisterInitializer(types.CPUProvisionPolicyRama, provisionpolicy.NewPolicyRama)
 }
 
 func generateTestConfiguration(t *testing.T) *config.Configuration {
@@ -64,10 +63,6 @@ func generateTestConfiguration(t *testing.T) *config.Configuration {
 
 func newTestCPUResourceAdvisor(t *testing.T) *cpuResourceAdvisor {
 	conf := generateTestConfiguration(t)
-	conf.CPUHeadroomPolicies = map[types.QoSRegionType]types.CPUHeadroomPolicyName{
-		types.QoSRegionTypeShare:         types.CPUHeadroomPolicyCanonical,
-		types.QoSRegionTypeDedicatedNuma: types.CPUHeadroomPolicyCanonical,
-	}
 
 	metaCache, err := metacache.NewMetaCache(conf, metric.NewFakeMetricsFetcher(metrics.DummyMetrics{}))
 	require.NoError(t, err)
@@ -84,9 +79,7 @@ func newTestCPUResourceAdvisor(t *testing.T) *cpuResourceAdvisor {
 		},
 	}
 
-	cra, err := NewCPUResourceAdvisor(conf, metaCache, metaServer, nil)
-	require.NoError(t, err)
-
+	cra := NewCPUResourceAdvisor(conf, metaCache, metaServer, nil)
 	assert.Equal(t, cra.Name(), cpuResourceAdvisorName)
 
 	return cra
@@ -331,7 +324,8 @@ func TestUpdate(t *testing.T) {
 			finishCh := make(chan struct{})
 
 			for poolName, poolInfo := range tt.pools {
-				advisor.metaCache.SetPoolInfo(poolName, poolInfo)
+				err := advisor.metaCache.SetPoolInfo(poolName, poolInfo)
+				assert.NoError(t, err)
 			}
 			for _, c := range tt.containers {
 				err := advisor.metaCache.SetContainerInfo(c.PodUID, c.ContainerName, c)
@@ -348,7 +342,8 @@ func TestUpdate(t *testing.T) {
 				finishCh <- struct{}{}
 			}(advisorCh)
 
-			advisor.Update()
+			err := advisor.Update()
+			assert.NoError(t, err)
 
 			headroom, err := advisor.GetHeadroom()
 			if err != nil {

@@ -91,18 +91,18 @@ func NewSubResourceAdvisor(resourceName types.QoSResourceName, conf *config.Conf
 	metaCache *metacache.MetaCache, metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter) (SubResourceAdvisor, error) {
 	switch resourceName {
 	case types.QoSResourceCPU:
-		return cpu.NewCPUResourceAdvisor(conf, metaCache, metaServer, emitter)
+		return cpu.NewCPUResourceAdvisor(conf, metaCache, metaServer, emitter), nil
 	case types.QoSResourceMemory:
-		return memory.NewMemoryResourceAdvisor(conf, metaCache, metaServer, emitter)
+		return memory.NewMemoryResourceAdvisor(conf, metaCache, metaServer, emitter), nil
 	default:
-		return nil, fmt.Errorf("try to new unknown resource advisor: %v", resourceName)
+		return nil, fmt.Errorf("try to new sub resource advisor for unsupported resource %v", resourceName)
 	}
 }
 
 func (ra *resourceAdvisorWrapper) Update() {
 	for _, subAdvisor := range ra.subAdvisorsToRun {
 		if err := subAdvisor.Update(); err != nil {
-			klog.Errorf("update %v err %v", subAdvisor.Name(), err)
+			klog.Errorf("update %v failed: %v", subAdvisor.Name(), err)
 		}
 	}
 }

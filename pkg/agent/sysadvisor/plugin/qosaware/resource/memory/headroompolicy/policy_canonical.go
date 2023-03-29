@@ -17,8 +17,7 @@ limitations under the License.
 package headroompolicy
 
 import (
-	"fmt"
-	"sync"
+	"math"
 
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -29,74 +28,48 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource/helper"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
-	"github.com/kubewharf/katalyst-core/pkg/util/general"
 )
 
 type PolicyCanonical struct {
-	Mutex            sync.RWMutex
-	MemoryHeadroom   int64
-	MemoryReserved   int64
-	MemoryTotal      int64
-	MetaCache        *metacache.MetaCache
-	MetaServer       *metaserver.MetaServer
-	LastUpdateStatus types.UpdateStatus
+	*PolicyBase
+
+	memoryHeadroom float64
 }
 
-func NewPolicyCanonical(metaCache *metacache.MetaCache, metaServer *metaserver.MetaServer) *PolicyCanonical {
-	cp := &PolicyCanonical{
-		MetaCache:        metaCache,
-		MetaServer:       metaServer,
-		LastUpdateStatus: types.UpdateFailed,
+func NewPolicyCanonical(metaCache *metacache.MetaCache, metaServer *metaserver.MetaServer) HeadroomPolicy {
+	p := PolicyCanonical{
+		PolicyBase: NewPolicyBase(metaCache, metaServer),
 	}
-	return cp
+
+	return &p
 }
 
-func (cp *PolicyCanonical) Update() error {
-	var errList []error
-	cp.Mutex.Lock()
-	defer func() {
-		if len(errList) == 0 {
-			cp.LastUpdateStatus = types.UpdateSucceeded
-		} else {
-			cp.LastUpdateStatus = types.UpdateFailed
-		}
-		cp.Mutex.Unlock()
-	}()
+func (p *PolicyCanonical) Update() error {
 	var (
 		memoryEstimation float64 = 0
 		containerCnt     float64 = 0
+		errList          []error
 	)
 
-	calculateContainerEstimationFunc := func(podUID string, containerName string, ci *types.ContainerInfo) bool {
-		containerEstimation, err := helper.EstimateContainerResourceUsage(ci, v1.ResourceMemory, cp.MetaCache)
+	f := func(podUID string, containerName string, ci *types.ContainerInfo) bool {
+		containerEstimation, err := helper.EstimateContainerResourceUsage(ci, v1.ResourceMemory, p.MetaCache)
 		if err != nil {
-			errList = append(errList)
+			errList = append(errList, err)
 			return true
 		}
-		klog.Infof("[qosaware-memory-canonical] pod %v container %v estimation %.2e", ci.PodName, containerName, containerEstimation)
+		klog.Infof("[qosaware-memory-headroom] pod %v container %v estimation %.2e", ci.PodName, containerName, containerEstimation)
 		memoryEstimation += containerEstimation
 		containerCnt += 1
 		return true
 	}
-	cp.MetaCache.RangeContainer(calculateContainerEstimationFunc)
-	klog.Infof("[qosaware-memory-canonical] memory requirement estimation: %.2e, #container %v", memoryEstimation, containerCnt)
+	p.MetaCache.RangeContainer(f)
+	klog.Infof("[qosaware-memory-headroom] memory requirement estimation: %.2e, #container %v", memoryEstimation, containerCnt)
 
-	cp.MemoryHeadroom = general.MaxInt64(cp.MemoryTotal-cp.MemoryReserved-int64(memoryEstimation), 0)
+	p.memoryHeadroom = math.Max(p.Total-p.ReservedForAllocate-memoryEstimation, 0)
+
 	return errors.NewAggregate(errList)
 }
 
-func (cp *PolicyCanonical) SetMemory(limit, reserved int64) {
-	cp.Mutex.Lock()
-	defer cp.Mutex.Unlock()
-	cp.MemoryTotal = limit
-	cp.MemoryReserved = reserved
-}
-
-func (cp *PolicyCanonical) GetHeadroom() (resource.Quantity, error) {
-	cp.Mutex.RLock()
-	defer cp.Mutex.RUnlock()
-	if cp.LastUpdateStatus != types.UpdateSucceeded {
-		return resource.Quantity{}, fmt.Errorf("[qosaware-memory-canonical] last updated failed")
-	}
-	return *resource.NewQuantity(cp.MemoryHeadroom, resource.BinarySI), nil
+func (p *PolicyCanonical) GetHeadroom() (resource.Quantity, error) {
+	return *resource.NewQuantity(int64(p.memoryHeadroom), resource.BinarySI), nil
 }

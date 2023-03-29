@@ -29,12 +29,6 @@ import (
 )
 
 const (
-	// containerEstimationCPUFallback is the estimation cpu usage value if all methods fail
-	containerEstimationCPUFallback float64 = 4.0
-
-	// containerEstimationMemoryFallback is the estimation memory usage value if all methods fail
-	containerEstimationMemoryFallback float64 = 8 << 30
-
 	// metricRequest indicates using request as estimation
 	metricRequest string = "request"
 
@@ -42,7 +36,14 @@ const (
 	metricFallback string = "fallback"
 )
 
-var resourceNameToMetrics = map[v1.ResourceName][]string{
+// estimationFallbackValues is the resource estimation value when all methods fail
+var estimationFallbackValues = map[v1.ResourceName]float64{
+	v1.ResourceCPU:    4.0,
+	v1.ResourceMemory: 8 << 30,
+}
+
+// resourceMetricsToGather are the interested metrics for resource estimation
+var resourceMetricsToGather = map[v1.ResourceName][]string{
 	v1.ResourceCPU: {
 		consts.MetricCPUUsageContainer,
 		consts.MetricLoad1MinContainer,
@@ -53,21 +54,16 @@ var resourceNameToMetrics = map[v1.ResourceName][]string{
 	},
 }
 
-var resourceNameToFallbackValue = map[v1.ResourceName]float64{
-	v1.ResourceCPU:    containerEstimationCPUFallback,
-	v1.ResourceMemory: containerEstimationMemoryFallback,
-}
-
 func EstimateContainerResourceUsage(ci *types.ContainerInfo, resourceName v1.ResourceName, metaCache *metacache.MetaCache) (float64, error) {
 	if ci.QoSLevel != apiconsts.PodAnnotationQoSLevelSharedCores && ci.QoSLevel != apiconsts.PodAnnotationQoSLevelDedicatedCores {
 		return 0, nil
 	}
-	metricsToGather := resourceNameToMetrics[resourceName]
-	if metricsToGather == nil || len(metricsToGather) == 0 {
-		return 0, fmt.Errorf("[estimation] failed to find metricsToGather for %v", resourceName)
+	metricsToGather, ok := resourceMetricsToGather[resourceName]
+	if !ok || len(metricsToGather) == 0 {
+		return 0, fmt.Errorf("failed to find metrics to gather for %v", resourceName)
 	}
 	if metaCache == nil {
-		return 0, fmt.Errorf("[estimation] metaCache is nil")
+		return 0, fmt.Errorf("metaCache nil")
 	}
 
 	var (
@@ -78,7 +74,7 @@ func EstimateContainerResourceUsage(ci *types.ContainerInfo, resourceName v1.Res
 
 	for _, metricName := range metricsToGather {
 		metricValue, err := metaCache.GetContainerMetric(ci.PodUID, ci.ContainerName, metricName)
-		klog.Infof("[estimation] pod %v container %v metric %v value %v", ci.PodName, ci.ContainerName, metricName, metricValue)
+		klog.Infof("[qosaware-canonical] pod %v container %v metric %v value %v", ci.PodName, ci.ContainerName, metricName, metricValue)
 		if err != nil || metricValue <= 0 {
 			checkRequest = true
 			continue
@@ -99,7 +95,7 @@ func EstimateContainerResourceUsage(ci *types.ContainerInfo, resourceName v1.Res
 		default:
 			return 0, fmt.Errorf("invalid resourceName %v", resourceName)
 		}
-		klog.Infof("[estimation] pod %v container %v metric %v value %v", ci.PodName, ci.ContainerName, metricRequest, request)
+		klog.Infof("[qosaware-canonical] pod %v container %v metric %v value %v", ci.PodName, ci.ContainerName, metricRequest, request)
 		if request > estimation {
 			estimation = request
 			reference = metricRequest
@@ -107,16 +103,16 @@ func EstimateContainerResourceUsage(ci *types.ContainerInfo, resourceName v1.Res
 	}
 
 	if estimation <= 0 {
-		fallback, ok := resourceNameToFallbackValue[resourceName]
+		fallback, ok := estimationFallbackValues[resourceName]
 		if !ok {
-			return estimation, fmt.Errorf("failed to find resourceNameToMinGarenteen for %v", resourceName)
+			return estimation, fmt.Errorf("failed to find estimation fallback value for %v", resourceName)
 		}
 		estimation = fallback
 		reference = metricFallback
-		klog.Infof("[estimation] pod %v container %v metric %v value %v", ci.PodName, ci.ContainerName, metricFallback, fallback)
+		klog.Infof("[qosaware-canonical] pod %v container %v metric %v value %v", ci.PodName, ci.ContainerName, metricFallback, fallback)
 	}
 
-	klog.Infof("[estimation] pod %v container %v estimation %.2f reference %v", ci.PodName, ci.ContainerName, estimation, reference)
+	klog.Infof("[qosaware-canonical] pod %v container %v estimation %.2f reference %v", ci.PodName, ci.ContainerName, estimation, reference)
 
 	return estimation, nil
 }

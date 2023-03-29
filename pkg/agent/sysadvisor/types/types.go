@@ -17,6 +17,7 @@ limitations under the License.
 package types
 
 import (
+	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
@@ -43,37 +44,33 @@ const (
 type CPUHeadroomPolicyName string
 
 const (
-	CPUHeadroomPolicyNone      CPUHeadroomPolicyName = "none"
-	CPUHeadroomPolicyCanonical CPUHeadroomPolicyName = "canonical"
+	CPUHeadroomPolicyNone CPUHeadroomPolicyName = "none"
+)
+
+// MemoryHeadroomPolicyName defines policy names for memory advisor headroom estimation
+type MemoryHeadroomPolicyName string
+
+const (
+	MemoryHeadroomPolicyNone      MemoryHeadroomPolicyName = "none"
+	MemoryHeadroomPolicyCanonical MemoryHeadroomPolicyName = "canonical"
 )
 
 // QoSRegionType declares pre-defined region types
 type QoSRegionType string
 
 const (
-	QoSRegionTypeShare         QoSRegionType = "share"
-	QoSRegionTypeIsolation     QoSRegionType = "isolation"
-	QoSRegionTypeDedicated     QoSRegionType = "dedicated"      // Dedicated without numa binding
-	QoSRegionTypeDedicatedNuma QoSRegionType = "dedicated-numa" // Dedicated with numa binding
-	QoSRegionTypeEmpty         QoSRegionType = "empty"          // Dedicated with numa binding
+	// QoSRegionTypeShare for each share pool
+	QoSRegionTypeShare QoSRegionType = "share"
+
+	// QoSRegionTypeDedicatedNumaExclusive for each dedicated core with numa binding
+	// and numa exclusive container
+	QoSRegionTypeDedicatedNumaExclusive QoSRegionType = "dedicated-numa-exclusive"
+
+	// QoSRegionTypeEmpty works as a wrapper for empty numas
+	QoSRegionTypeEmpty QoSRegionType = "empty"
 )
 
-type QosRegionPriority int
-
-const (
-	QosRegionPriorityEmpty = iota
-	QosRegionPriorityShare
-	QosRegionPriorityIsolation
-	QosRegionPriorityDedicated
-	QosRegionPriorityDedicatedNuma
-)
-
-// MemoryAdvisorPolicyName describes qos aware policy names for memory resource
-type MemoryAdvisorPolicyName string
-
-const (
-	MemoryAdvisorPolicyCanonical MemoryAdvisorPolicyName = "canonical"
-)
+type TopologyAwareAssignment map[int]machine.CPUSet
 
 // ContainerInfo contains container infomation for sysadvisor plugins
 type ContainerInfo struct {
@@ -93,15 +90,15 @@ type ContainerInfo struct {
 	// Allocation infomation changing by list and watch
 	RampUp                           bool
 	OwnerPoolName                    string
-	TopologyAwareAssignments         map[int]machine.CPUSet
-	OriginalTopologyAwareAssignments map[int]machine.CPUSet
+	TopologyAwareAssignments         TopologyAwareAssignment
+	OriginalTopologyAwareAssignments TopologyAwareAssignment
 }
 
 // PoolInfo contains pool information for sysadvisor plugins
 type PoolInfo struct {
 	PoolName                         string
-	TopologyAwareAssignments         map[int]machine.CPUSet
-	OriginalTopologyAwareAssignments map[int]machine.CPUSet
+	TopologyAwareAssignments         TopologyAwareAssignment
+	OriginalTopologyAwareAssignments TopologyAwareAssignment
 }
 
 // ContainerEntries stores container info keyed by container name
@@ -113,18 +110,26 @@ type PodEntries map[string]ContainerEntries
 // PoolEntries stores pool info keyed by pool name
 type PoolEntries map[string]*PoolInfo
 
+// PodSet stores container names keyed by pod uid
+type PodSet map[string]sets.String
+
 // ControlKnob holds tunable system entries affecting indicator metrics
 type ControlKnob map[ControlKnobName]ControlKnobValue
 
-// ControlKnobName defines available control knob key
+// ControlKnobName defines available control knob key for provision policy
 type ControlKnobName string
 
 const (
-	ControlKnobGuranteedCPUSetSize ControlKnobName = "guaranteed-cpuset-size"
+	// ControlKnobSharedCPUSetSize refers to shared pool cpuset size
+	ControlKnobSharedCPUSetSize ControlKnobName = "shared-cpuset-size"
+
+	// ControlKnobReclaimedCPUSetSize refers to reclaimed cpuset size.
+	// For dedicated cores with numa binding and numa exclusive, it refers to the
+	// reclaimed cores overlapped with dedicated cores on a numa node.
 	ControlKnobReclaimedCPUSetSize ControlKnobName = "reclaimed-cpuset-size"
 )
 
-// ControlKnobValue holds control knob value or action
+// ControlKnobValue holds control knob value and action
 type ControlKnobValue struct {
 	Value  float64
 	Action ControlKnobAction
@@ -148,11 +153,10 @@ type IndicatorValue struct {
 	Low     float64
 }
 
+// UpdateStatus works as a flag indicating update result
 type UpdateStatus string
 
 const (
-	// UpdateSucceeded indicates that last updating returns no error
-	UpdateSucceeded UpdateStatus = "UpdateSucceeded"
-	// UpdateFailed indicates that last updating failed
-	UpdateFailed UpdateStatus = "UpdateFailed"
+	UpdateSucceeded UpdateStatus = "succeeded"
+	UpdateFailed    UpdateStatus = "failed"
 )

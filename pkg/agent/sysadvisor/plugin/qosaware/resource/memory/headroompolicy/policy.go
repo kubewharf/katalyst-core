@@ -17,6 +17,8 @@ limitations under the License.
 package headroompolicy
 
 import (
+	"sync"
+
 	"k8s.io/apimachinery/pkg/api/resource"
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
@@ -24,23 +26,36 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 )
 
-// Policy generates memory resource provision result based on different algorithms
-type Policy interface {
+// HeadroomPolicy generates resource headroom estimation based on configured algorithm
+type HeadroomPolicy interface {
+	// SetPodSet overwrites policy's pod/container record
+	SetPodSet(types.PodSet)
+
+	// Update necessary region settings for policy update
+	// Available resource value = total - reservedForAllocate
+	// todo: substract reserve pool size
+	SetEssentials(total, reservedForAllocate float64)
+
 	// Update triggers an epoch of algorithm update
 	Update() error
-	// GetHeadroom returns the latest algorithm result
+
+	// GetHeadroom returns the latest headroom estimation
 	GetHeadroom() (resource.Quantity, error)
-	// SetMemory setup the limit and reserved memory
-	SetMemory(limit, reserved int64)
 }
 
-// NewPolicy returns a policy based on policy name
-func NewPolicy(policyName types.MemoryAdvisorPolicyName, metaCache *metacache.MetaCache, metaServer *metaserver.MetaServer) (Policy, error) {
-	switch policyName {
-	case types.MemoryAdvisorPolicyCanonical:
-		return NewPolicyCanonical(metaCache, metaServer), nil
-	default:
-		// Use canonical policy as default
-		return NewPolicyCanonical(metaCache, metaServer), nil
-	}
+type InitFunc func(metaCache *metacache.MetaCache, metaServer *metaserver.MetaServer) HeadroomPolicy
+
+var initializers sync.Map
+
+func RegisterInitializer(name types.MemoryHeadroomPolicyName, initFunc InitFunc) {
+	initializers.Store(name, initFunc)
+}
+
+func GetRegisteredInitializers() map[types.MemoryHeadroomPolicyName]InitFunc {
+	res := make(map[types.MemoryHeadroomPolicyName]InitFunc)
+	initializers.Range(func(key, value interface{}) bool {
+		res[key.(types.MemoryHeadroomPolicyName)] = value.(InitFunc)
+		return true
+	})
+	return res
 }

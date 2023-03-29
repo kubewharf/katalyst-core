@@ -23,16 +23,18 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource/helper"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
+	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 )
 
 type PolicyCanonical struct {
 	*PolicyBase
+
 	cpuRequirement float64
 }
 
-func NewPolicyCanonical(name types.CPUProvisionPolicyName, metaCache *metacache.MetaCache) ProvisionPolicy {
+func NewPolicyCanonical(metaCache *metacache.MetaCache, metaServer *metaserver.MetaServer) ProvisionPolicy {
 	p := &PolicyCanonical{
-		PolicyBase: NewPolicyBase(name, metaCache),
+		PolicyBase: NewPolicyBase(metaCache, metaServer),
 	}
 	return p
 }
@@ -43,15 +45,15 @@ func (p *PolicyCanonical) Update() error {
 		containerCnt  float64 = 0
 	)
 
-	for podUID, v := range p.containerSet {
-		for containerName := range v {
-			ci, ok := p.metaCache.GetContainerInfo(podUID, containerName)
+	for podUID, containerSet := range p.PodSet {
+		for containerName := range containerSet {
+			ci, ok := p.MetaCache.GetContainerInfo(podUID, containerName)
 			if !ok || ci == nil {
-				klog.Errorf("[qosaware-cpu-canonical] illegal container info of %v/%v", podUID, containerName)
+				klog.Errorf("[qosaware-cpu-provision] illegal container info of %v/%v", podUID, containerName)
 				continue
 			}
 
-			containerEstimation, err := p.estimateContainer(ci)
+			containerEstimation, err := helper.EstimateContainerResourceUsage(ci, v1.ResourceCPU, p.MetaCache)
 			if err != nil {
 				return err
 			}
@@ -60,22 +62,18 @@ func (p *PolicyCanonical) Update() error {
 			containerCnt += 1
 		}
 	}
-	klog.Infof("[qosaware-cpu-canonical] cpu requirement estimation: %.2f, #container %v", cpuEstimation, containerCnt)
+	klog.Infof("[qosaware-cpu-provision] cpu requirement estimation: %.2f, #container %v", cpuEstimation, containerCnt)
 
 	p.cpuRequirement = cpuEstimation
 
 	return nil
 }
 
-func (p *PolicyCanonical) GetControlKnobAdjusted() types.ControlKnob {
+func (p *PolicyCanonical) GetProvision() (types.ControlKnob, error) {
 	return types.ControlKnob{
-		types.ControlKnobGuranteedCPUSetSize: {
+		types.ControlKnobSharedCPUSetSize: {
 			Value:  p.cpuRequirement,
 			Action: types.ControlKnobActionNone,
 		},
-	}
-}
-
-func (p *PolicyCanonical) estimateContainer(ci *types.ContainerInfo) (float64, error) {
-	return helper.EstimateContainerResourceUsage(ci, v1.ResourceCPU, p.metaCache)
+	}, nil
 }

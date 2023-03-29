@@ -19,53 +19,38 @@ package provisionpolicy
 import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
-	"k8s.io/apimachinery/pkg/util/sets"
+	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 )
 
 type PolicyBase struct {
-	name             types.CPUProvisionPolicyName
-	containerSet     map[string]sets.String
-	controlKnobValue types.ControlKnob
-	indicatorValue   types.Indicator
-	indicatorTarget  types.Indicator
+	PodSet           types.PodSet
+	Indicator        types.Indicator
+	ControlKnobValue types.ControlKnob
 
-	metaCache *metacache.MetaCache
+	MetaCache  *metacache.MetaCache
+	MetaServer *metaserver.MetaServer
 }
 
-func NewPolicyBase(name types.CPUProvisionPolicyName, metaCache *metacache.MetaCache) *PolicyBase {
+func NewPolicyBase(metaCache *metacache.MetaCache, metaServer *metaserver.MetaServer) *PolicyBase {
 	cp := &PolicyBase{
-		name:             name,
-		containerSet:     make(map[string]sets.String),
-		controlKnobValue: make(types.ControlKnob),
-		indicatorValue:   make(types.Indicator),
-		indicatorTarget:  make(types.Indicator),
-		metaCache:        metaCache,
+		PodSet:           make(types.PodSet),
+		Indicator:        make(types.Indicator),
+		ControlKnobValue: make(types.ControlKnob),
+
+		MetaCache:  metaCache,
+		MetaServer: metaServer,
 	}
 	return cp
 }
 
-func (p *PolicyBase) Name() types.CPUProvisionPolicyName {
-	return p.name
+func (p *PolicyBase) SetPodSet(PodSet types.PodSet) {
+	p.PodSet = PodSet
 }
 
-func (p *PolicyBase) SetContainerSet(containerSet map[string]sets.String) {
-	p.containerSet = make(map[string]sets.String)
-	for podUID, v := range containerSet {
-		p.containerSet[podUID] = sets.NewString()
-		for containerName := range v {
-			p.containerSet[podUID].Insert(containerName)
-		}
-	}
+func (p *PolicyBase) SetIndicator(v types.Indicator) {
+	p.Indicator = v
 }
 
 func (p *PolicyBase) SetControlKnobValue(v types.ControlKnob) {
-	p.controlKnobValue = v
-}
-
-func (p *PolicyBase) SetIndicatorValue(v types.Indicator) {
-	p.indicatorValue = v
-}
-
-func (p *PolicyBase) SetIndicatorTarget(v types.Indicator) {
-	p.indicatorTarget = v
+	p.ControlKnobValue = v
 }

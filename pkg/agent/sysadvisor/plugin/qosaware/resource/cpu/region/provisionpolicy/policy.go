@@ -19,38 +19,30 @@ package provisionpolicy
 import (
 	"sync"
 
-	"k8s.io/apimachinery/pkg/util/sets"
-
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
+	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 )
 
-// ProvisionPolicy generates raw cpu resource provision based on corresponding algorithm
+// HeadroomPolicy generates resource headroom estimation based on configured algorithm
 type ProvisionPolicy interface {
-	// Name returns policy name
-	Name() types.CPUProvisionPolicyName
+	// SetPodSet overwrites policy's pod/container record
+	SetPodSet(types.PodSet)
 
-	// SetContainerSet overwrites policy's container record, which is organized as
-	// map[podUID][containerName]
-	SetContainerSet(map[string]sets.String)
+	// SetIndicator updates indicator metric value of different levels
+	SetIndicator(types.Indicator)
 
 	// SetControlKnobValue updates current control knob value
 	SetControlKnobValue(types.ControlKnob)
 
-	// SetIndicatorValue updates current indicator metric value
-	SetIndicatorValue(types.Indicator)
-
-	// SetIndicatorTarget updates indicator target value
-	SetIndicatorTarget(types.Indicator)
-
 	// Update triggers an epoch of algorithm update
 	Update() error
 
-	// GetControlKnobAdjusted returns the latest adjusted control knob value
-	GetControlKnobAdjusted() types.ControlKnob
+	// GetProvision returns the latest adjusted control knob value
+	GetProvision() (types.ControlKnob, error)
 }
 
-type InitFunc func(name types.CPUProvisionPolicyName, metaCache *metacache.MetaCache) ProvisionPolicy
+type InitFunc func(metaCache *metacache.MetaCache, metaServer *metaserver.MetaServer) ProvisionPolicy
 
 var initializers sync.Map
 

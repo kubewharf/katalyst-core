@@ -17,27 +17,34 @@ limitations under the License.
 package types
 
 import (
-	"k8s.io/apimachinery/pkg/util/sets"
+	"reflect"
 
 	"github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
-	"github.com/kubewharf/katalyst-core/pkg/util/machine"
+	"k8s.io/apimachinery/pkg/util/sets"
 )
 
 // IsNumaBinding returns true iff current container is for dedicated_cores with numa binding
+// todo: support numa exclusive
 func (ci *ContainerInfo) IsNumaBinding() bool {
 	return ci.QoSLevel == consts.PodAnnotationQoSLevelDedicatedCores &&
 		ci.Annotations[consts.PodAnnotationMemoryEnhancementNumaBinding] == consts.PodAnnotationMemoryEnhancementNumaBindingEnable
 }
 
-func (ci *ContainerInfo) GetNumaIDs() sets.Int {
-	numas := sets.NewInt()
-	for numaID, cpus := range ci.TopologyAwareAssignments {
-		if cpus.Size() > 0 {
-			numas.Insert(numaID)
-		}
+func (ta TopologyAwareAssignment) Clone() TopologyAwareAssignment {
+	if ta == nil {
+		return nil
 	}
-	return numas
+
+	clone := make(TopologyAwareAssignment)
+	for numaID, cpuset := range ta {
+		clone[numaID] = cpuset.Clone()
+	}
+	return clone
+}
+
+func (ta TopologyAwareAssignment) Equals(t TopologyAwareAssignment) bool {
+	return reflect.DeepEqual(ta, t)
 }
 
 func (ci *ContainerInfo) Clone() *ContainerInfo {
@@ -46,35 +53,22 @@ func (ci *ContainerInfo) Clone() *ContainerInfo {
 	}
 
 	clone := &ContainerInfo{
-		PodUID:         ci.PodUID,
-		PodNamespace:   ci.PodNamespace,
-		PodName:        ci.PodName,
-		ContainerName:  ci.ContainerName,
-		ContainerType:  ci.ContainerType,
-		ContainerIndex: ci.ContainerIndex,
-		Labels:         general.DeepCopyMap(ci.Labels),
-		Annotations:    general.DeepCopyMap(ci.Annotations),
-		QoSLevel:       ci.QoSLevel,
-		CPURequest:     ci.CPURequest,
-		MemoryRequest:  ci.MemoryRequest,
-		RampUp:         ci.RampUp,
-		OwnerPoolName:  ci.OwnerPoolName,
+		PodUID:                           ci.PodUID,
+		PodNamespace:                     ci.PodNamespace,
+		PodName:                          ci.PodName,
+		ContainerName:                    ci.ContainerName,
+		ContainerType:                    ci.ContainerType,
+		ContainerIndex:                   ci.ContainerIndex,
+		Labels:                           general.DeepCopyMap(ci.Labels),
+		Annotations:                      general.DeepCopyMap(ci.Annotations),
+		QoSLevel:                         ci.QoSLevel,
+		CPURequest:                       ci.CPURequest,
+		MemoryRequest:                    ci.MemoryRequest,
+		RampUp:                           ci.RampUp,
+		OwnerPoolName:                    ci.OwnerPoolName,
+		TopologyAwareAssignments:         ci.TopologyAwareAssignments.Clone(),
+		OriginalTopologyAwareAssignments: ci.OriginalTopologyAwareAssignments.Clone(),
 	}
-
-	if ci.TopologyAwareAssignments != nil {
-		clone.TopologyAwareAssignments = make(map[int]machine.CPUSet)
-		for node, cpus := range ci.TopologyAwareAssignments {
-			clone.TopologyAwareAssignments[node] = cpus.Clone()
-		}
-	}
-
-	if ci.OriginalTopologyAwareAssignments != nil {
-		clone.OriginalTopologyAwareAssignments = make(map[int]machine.CPUSet)
-		for node, cpus := range ci.OriginalTopologyAwareAssignments {
-			clone.OriginalTopologyAwareAssignments[node] = cpus.Clone()
-		}
-	}
-
 	return clone
 }
 
@@ -84,27 +78,18 @@ func (pi *PoolInfo) Clone() *PoolInfo {
 	}
 
 	clone := &PoolInfo{
-		PoolName: pi.PoolName,
+		PoolName:                         pi.PoolName,
+		TopologyAwareAssignments:         pi.TopologyAwareAssignments.Clone(),
+		OriginalTopologyAwareAssignments: pi.OriginalTopologyAwareAssignments.Clone(),
 	}
-
-	if pi.TopologyAwareAssignments != nil {
-		clone.TopologyAwareAssignments = make(map[int]machine.CPUSet)
-		for node, cpus := range pi.TopologyAwareAssignments {
-			clone.TopologyAwareAssignments[node] = cpus.Clone()
-		}
-	}
-
-	if pi.OriginalTopologyAwareAssignments != nil {
-		clone.OriginalTopologyAwareAssignments = make(map[int]machine.CPUSet)
-		for node, cpus := range pi.OriginalTopologyAwareAssignments {
-			clone.OriginalTopologyAwareAssignments[node] = cpus.Clone()
-		}
-	}
-
 	return clone
 }
 
 func (ce ContainerEntries) Clone() ContainerEntries {
+	if ce == nil {
+		return nil
+	}
+
 	clone := make(ContainerEntries)
 	for containerName, containerInfo := range ce {
 		clone[containerName] = containerInfo.Clone()
@@ -113,6 +98,10 @@ func (ce ContainerEntries) Clone() ContainerEntries {
 }
 
 func (pe PodEntries) Clone() PodEntries {
+	if pe == nil {
+		return nil
+	}
+
 	clone := make(PodEntries)
 	for podUID, containerEntries := range pe {
 		clone[podUID] = containerEntries.Clone()
@@ -121,11 +110,39 @@ func (pe PodEntries) Clone() PodEntries {
 }
 
 func (pe PoolEntries) Clone() PoolEntries {
+	if pe == nil {
+		return nil
+	}
+
 	clone := make(PoolEntries)
 	for poolName, poolInfo := range pe {
 		clone[poolName] = poolInfo.Clone()
 	}
 	return clone
+}
+
+func (ps PodSet) Clone() PodSet {
+	if ps == nil {
+		return nil
+	}
+
+	clone := make(PodSet)
+	for podUID, containerSet := range ps {
+		clone[podUID] = sets.NewString()
+		for containerName := range containerSet {
+			clone[podUID].Insert(containerName)
+		}
+	}
+	return clone
+}
+
+func (ps PodSet) Insert(podUID string, containerName string) {
+	containerSet, ok := ps[podUID]
+	if !ok {
+		ps[podUID] = sets.NewString()
+		containerSet = ps[podUID]
+	}
+	containerSet.Insert(containerName)
 }
 
 // UpdateMeta updates mutable container meta from another container info

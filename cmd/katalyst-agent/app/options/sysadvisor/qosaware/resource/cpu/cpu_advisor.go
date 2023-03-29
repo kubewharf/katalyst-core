@@ -27,8 +27,8 @@ import (
 
 // CPUAdvisorOptions holds the configurations for cpu advisor in qos aware plugin
 type CPUAdvisorOptions struct {
-	CPUProvisionPolicy   string
-	CPUHeadroomPolicyMap string
+	CPUProvisionPolicy string
+	CPUHeadroomPolicy  string
 }
 
 // NewCPUAdvisorOptions creates a new Options with a default config
@@ -38,25 +38,34 @@ func NewCPUAdvisorOptions() *CPUAdvisorOptions {
 	}
 }
 
-const defaultCPUHeadroomPolicyMap = "share:canonical,dedicated-numa:canonical"
-
 // AddFlags adds flags to the specified FlagSet.
 func (o *CPUAdvisorOptions) AddFlags(fs *pflag.FlagSet) {
-	fs.StringVar(&o.CPUProvisionPolicy, "cpu-provision-policy", o.CPUProvisionPolicy, "policy for cpu advisor to update resource provision")
-	fs.StringVar(&o.CPUHeadroomPolicyMap, "cpu-headroom-policy-map", defaultCPUHeadroomPolicyMap, "policy map for cpu advisor to update resource headroom")
+	fs.StringVar(&o.CPUProvisionPolicy, "cpu-provision-policy", o.CPUProvisionPolicy,
+		"policy of each region type for cpu advisor to update resource provision")
+	fs.StringVar(&o.CPUHeadroomPolicy, "cpu-headroom-policy", o.CPUHeadroomPolicy,
+		"policy of each region type for cpu advisor to estimate resource headroom")
 }
 
 // ApplyTo fills up config with options
 func (o *CPUAdvisorOptions) ApplyTo(c *cpu.CPUAdvisorConfiguration) error {
-	c.CPUProvisionPolicy = o.CPUProvisionPolicy
-	c.CPUHeadroomPolicies = map[types.QoSRegionType]types.CPUHeadroomPolicyName{}
-	policies := strings.Split(o.CPUHeadroomPolicyMap, ",")
-	for _, policy := range policies {
-		kvs := strings.Split(policy, ":")
+	c.CPUProvisionPolicy = make(map[types.QoSRegionType]types.CPUProvisionPolicyName)
+	provisionPolicies := strings.Split(o.CPUProvisionPolicy, ",")
+	for _, policy := range provisionPolicies {
+		kvs := strings.Split(policy, "=")
 		if len(kvs) != 2 {
 			continue
 		}
-		c.CPUHeadroomPolicies[types.QoSRegionType(kvs[0])] = types.CPUHeadroomPolicyName(kvs[1])
+		c.CPUProvisionPolicy[types.QoSRegionType(kvs[0])] = types.CPUProvisionPolicyName(kvs[1])
+	}
+
+	c.CPUHeadroomPolicy = make(map[types.QoSRegionType]types.CPUHeadroomPolicyName)
+	headroomPolicies := strings.Split(o.CPUHeadroomPolicy, ",")
+	for _, policy := range headroomPolicies {
+		kvs := strings.Split(policy, "=")
+		if len(kvs) != 2 {
+			continue
+		}
+		c.CPUHeadroomPolicy[types.QoSRegionType(kvs[0])] = types.CPUHeadroomPolicyName(kvs[1])
 	}
 
 	return nil

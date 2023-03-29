@@ -39,6 +39,10 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
+var (
+	memoryLimitSystem uint64 = 1000 << 30
+)
+
 func generateTestConfiguration(t *testing.T) *config.Configuration {
 	conf, err := options.NewOptions().Config()
 	require.NoError(t, err)
@@ -61,22 +65,16 @@ func newTestMemoryAdvisor(t *testing.T) *memoryResourceAdvisor {
 	require.NotNil(t, metaCache)
 
 	mra := &memoryResourceAdvisor{
-		name:              memoryResourceAdvisorName,
-		memoryLimitSystem: 1000 << 30,
-		startTime:         time.Now().Add(-startUpPeriod),
-		isReady:           false,
-		metaCache:         metaCache,
-		emitter:           nil,
+		name:      memoryResourceAdvisorName,
+		startTime: time.Now().Add(-startUpPeriod),
+		metaCache: metaCache,
+		emitter:   nil,
 	}
+
 	reservedDefault := conf.ReclaimedResourceConfiguration.ReservedResourceForAllocate[v1.ResourceMemory]
-	mra.reservedForAllocateDefault = reservedDefault.Value()
+	mra.reservedForAllocate = reservedDefault.Value()
 
-	policyName := conf.MemoryAdvisorConfiguration.MemoryAdvisorPolicy
-	memPolicy, err := headroompolicy.NewPolicy(types.MemoryAdvisorPolicyName(policyName), metaCache, nil)
-	require.NoError(t, err)
-	require.NotNil(t, memPolicy)
-
-	mra.policy = memPolicy
+	mra.headroomPolicy = headroompolicy.NewPolicyCanonical(metaCache, nil)
 
 	assert.Equal(t, mra.Name(), memoryResourceAdvisorName)
 	assert.Nil(t, mra.GetChannel())
@@ -122,10 +120,13 @@ func TestUpdate(t *testing.T) {
 			advisor := newTestMemoryAdvisor(t)
 
 			for poolName, poolInfo := range tt.pools {
-				advisor.metaCache.SetPoolInfo(poolName, poolInfo)
+				err := advisor.metaCache.SetPoolInfo(poolName, poolInfo)
+				assert.NoError(t, err)
 			}
 
-			advisor.Update()
+			advisor.headroomPolicy.SetEssentials(float64(memoryLimitSystem), float64(advisor.reservedForAllocate))
+			err := advisor.Update()
+			assert.NoError(t, err)
 
 			headroom, err := advisor.GetHeadroom()
 			assert.Equal(t, tt.wantGetHeadroomErr, err != nil)
