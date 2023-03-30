@@ -14,6 +14,8 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
+// todo: implement provision and headroom policy for this region
+
 package region
 
 import (
@@ -27,7 +29,6 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
-	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
 type QoSRegionDedicatedNumaExclusive struct {
@@ -36,12 +37,11 @@ type QoSRegionDedicatedNumaExclusive struct {
 
 // NewQoSRegionDedicatedNumaExclusive returns a region instance for dedicated cores
 // with numa binding and numa exclusive container
-func NewQoSRegionDedicatedNumaExclusive(name string, ownerPoolName string, bindingNumas machine.CPUSet,
-	conf *config.Configuration, metaCache *metacache.MetaCache,
-	metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter) QoSRegion {
+func NewQoSRegionDedicatedNumaExclusive(name string, ownerPoolName string, conf *config.Configuration,
+	metaCache *metacache.MetaCache, metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter) QoSRegion {
 
 	r := &QoSRegionDedicatedNumaExclusive{
-		QoSRegionBase: NewQoSRegionBase(name, ownerPoolName, types.QoSRegionTypeDedicatedNumaExclusive, bindingNumas, metaCache, metaServer, emitter),
+		QoSRegionBase: NewQoSRegionBase(name, ownerPoolName, types.QoSRegionTypeDedicatedNumaExclusive, metaCache, metaServer, emitter),
 	}
 
 	return r
@@ -67,12 +67,10 @@ func (r *QoSRegionDedicatedNumaExclusive) AddContainer(ci *types.ContainerInfo) 
 	return nil
 }
 
-func (r *QoSRegionDedicatedNumaExclusive) TryUpdateProvision() error {
-	return nil
+func (r *QoSRegionDedicatedNumaExclusive) TryUpdateProvision() {
 }
 
-func (r *QoSRegionDedicatedNumaExclusive) TryUpdateHeadroom() error {
-	return nil
+func (r *QoSRegionDedicatedNumaExclusive) TryUpdateHeadroom() {
 }
 
 func (r *QoSRegionDedicatedNumaExclusive) GetProvision() (types.ControlKnob, error) {
@@ -80,5 +78,5 @@ func (r *QoSRegionDedicatedNumaExclusive) GetProvision() (types.ControlKnob, err
 }
 
 func (r *QoSRegionDedicatedNumaExclusive) GetHeadroom() (resource.Quantity, error) {
-	return resource.Quantity{}, fmt.Errorf("not supported")
+	return *resource.NewQuantity(int64(0), resource.DecimalSI), nil
 }

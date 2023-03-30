@@ -30,9 +30,6 @@ import (
 	metacacheplugin "github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/metacache"
 	metricemitter "github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/metric-emitter"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware"
-	cpuprovisionpolicy "github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource/cpu/region/provisionpolicy"
-	memoryheadroompolicy "github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource/memory/headroompolicy"
-	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	metricspool "github.com/kubewharf/katalyst-core/pkg/metrics/metrics-pool"
@@ -63,12 +60,6 @@ type SysAdvisorAgent struct {
 }
 
 var sysadvisorPluginsDisabledByDefault = sets.NewString()
-
-func init() {
-	// Register available policies
-	cpuprovisionpolicy.RegisterInitializer(types.CPUProvisionPolicyCanonical, cpuprovisionpolicy.NewPolicyCanonical)
-	memoryheadroompolicy.RegisterInitializer(types.MemoryHeadroomPolicyCanonical, memoryheadroompolicy.NewPolicyCanonical)
-}
 
 func newSysAdvisorPluginInitializers() map[string]AdvisorPluginInitFunc {
 	sysadvisorPluginInitializers := make(map[string]AdvisorPluginInitFunc)

@@ -43,8 +43,8 @@ func NewPolicyBase(metaCache *metacache.MetaCache, metaServer *metaserver.MetaSe
 	return cp
 }
 
-func (p *PolicyBase) SetPodSet(PodSet types.PodSet) {
-	p.PodSet = PodSet
+func (p *PolicyBase) SetPodSet(podSet types.PodSet) {
+	p.PodSet = podSet
 }
 
 func (p *PolicyBase) SetIndicator(v types.Indicator) {

@@ -21,7 +21,6 @@ import (
 
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
-	"k8s.io/klog/v2"
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource/cpu"
@@ -53,7 +52,7 @@ type SubResourceAdvisor interface {
 	Name() string
 
 	// Update updates resource provision based on the latest system and workload snapshot(s)
-	Update() error
+	Update()
 
 	// GetChannel returns a channel to which the updated provision result will be sent
 	GetChannel() interface{}
@@ -101,9 +100,7 @@ func NewSubResourceAdvisor(resourceName types.QoSResourceName, conf *config.Conf
 
 func (ra *resourceAdvisorWrapper) Update() {
 	for _, subAdvisor := range ra.subAdvisorsToRun {
-		if err := subAdvisor.Update(); err != nil {
-			klog.Errorf("update %v failed: %v", subAdvisor.Name(), err)
-		}
+		subAdvisor.Update()
 	}
 }
 

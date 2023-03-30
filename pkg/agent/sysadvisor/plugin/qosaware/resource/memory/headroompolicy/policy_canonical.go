@@ -17,6 +17,7 @@ limitations under the License.
 package headroompolicy
 
 import (
+	"fmt"
 	"math"
 
 	v1 "k8s.io/api/core/v1"
@@ -34,17 +35,28 @@ type PolicyCanonical struct {
 	*PolicyBase
 
 	memoryHeadroom float64
+	updateStatus   types.UpdateStatus
 }
 
 func NewPolicyCanonical(metaCache *metacache.MetaCache, metaServer *metaserver.MetaServer) HeadroomPolicy {
 	p := PolicyCanonical{
 		PolicyBase: NewPolicyBase(metaCache, metaServer),
+
+		updateStatus: types.UpdateFailed,
 	}
 
 	return &p
 }
 
-func (p *PolicyCanonical) Update() error {
+func (p *PolicyCanonical) Update() (err error) {
+	defer func() {
+		if err != nil {
+			p.updateStatus = types.UpdateFailed
+		} else {
+			p.updateStatus = types.UpdateSucceeded
+		}
+	}()
+
 	var (
 		memoryEstimation float64 = 0
 		containerCnt     float64 = 0
@@ -71,5 +83,9 @@ func (p *PolicyCanonical) Update() error {
 }
 
 func (p *PolicyCanonical) GetHeadroom() (resource.Quantity, error) {
-	return *resource.NewQuantity(int64(p.memoryHeadroom), resource.BinarySI), nil
+	if p.updateStatus != types.UpdateSucceeded {
+		return resource.Quantity{}, fmt.Errorf("last update failed")
+	}
+
+	return *resource.NewQuantity(int64(p.memoryHeadroom), resource.DecimalSI), nil
 }

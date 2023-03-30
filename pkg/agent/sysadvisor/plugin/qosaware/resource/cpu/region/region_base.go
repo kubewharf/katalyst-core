@@ -29,14 +29,14 @@ type QoSRegionBase struct {
 	ownerPoolName string
 	regionType    types.QoSRegionType
 
-	// bindingNumas records numas binding with region. Should not be changed after initialization
+	// bindingNumas records numas assigned to this region
 	bindingNumas machine.CPUSet
-
-	// containerTopologyAwareAssignment changes dynamically by adding container
-	containerTopologyAwareAssignment types.TopologyAwareAssignment
 
 	// podSet records current pod and containers in region keyed by pod uid and container name
 	podSet types.PodSet
+
+	// containerTopologyAwareAssignment changes dynamically by adding container
+	containerTopologyAwareAssignment types.TopologyAwareAssignment
 
 	total               int
 	reservePoolSize     int
@@ -48,16 +48,16 @@ type QoSRegionBase struct {
 }
 
 // NewQoSRegionShare returns a base qos region instance with common region methods
-func NewQoSRegionBase(name string, ownerPoolName string, regionType types.QoSRegionType, bindingNumas machine.CPUSet,
+func NewQoSRegionBase(name string, ownerPoolName string, regionType types.QoSRegionType,
 	metaCache *metacache.MetaCache, metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter) *QoSRegionBase {
 	r := &QoSRegionBase{
 		name:          name,
 		ownerPoolName: ownerPoolName,
 		regionType:    regionType,
 
-		bindingNumas:                     bindingNumas,
-		containerTopologyAwareAssignment: make(types.TopologyAwareAssignment),
+		bindingNumas:                     machine.NewCPUSet(),
 		podSet:                           make(types.PodSet),
+		containerTopologyAwareAssignment: make(types.TopologyAwareAssignment),
 
 		metaCache:  metaCache,
 		metaServer: metaServer,
@@ -79,16 +79,21 @@ func (r *QoSRegionBase) IsEmpty() bool {
 }
 
 func (r *QoSRegionBase) Clear() {
-	r.containerTopologyAwareAssignment = make(types.TopologyAwareAssignment)
+	r.bindingNumas = machine.NewCPUSet()
 	r.podSet = make(types.PodSet)
+	r.containerTopologyAwareAssignment = make(types.TopologyAwareAssignment)
 }
 
-func (r *QoSRegionBase) GetNumas() machine.CPUSet {
+func (r *QoSRegionBase) GetBindingNumas() machine.CPUSet {
 	return r.bindingNumas
 }
 
 func (r *QoSRegionBase) GetPods() types.PodSet {
 	return r.podSet
+}
+
+func (r *QoSRegionBase) SetBindingNumas(numas machine.CPUSet) {
+	r.bindingNumas = numas
 }
 
 func (r *QoSRegionBase) SetEssentials(total, reservePoolSize, reservedForAllocate int) {

@@ -46,7 +46,7 @@ type CPUTopology struct {
 }
 
 // CPUsPerCore returns the number of logical CPUs
-// are associated with each core.
+// associated with each core.
 func (topo *CPUTopology) CPUsPerCore() int {
 	if topo.NumCores == 0 {
 		return 0
@@ -55,12 +55,21 @@ func (topo *CPUTopology) CPUsPerCore() int {
 }
 
 // CPUsPerSocket returns the number of logical CPUs
-// are associated with each socket.
+// associated with each socket.
 func (topo *CPUTopology) CPUsPerSocket() int {
 	if topo.NumSockets == 0 {
 		return 0
 	}
 	return topo.NumCPUs / topo.NumSockets
+}
+
+// CPUsPerNuma returns the number of logical CPUs
+// associated with each numa node.
+func (topo *CPUTopology) CPUsPerNuma() int {
+	if topo.NumNUMANodes == 0 {
+		return 0
+	}
+	return topo.NumCPUs / topo.NumNUMANodes
 }
 
 // NUMAsPerSocket returns the the number of NUMA
@@ -130,6 +139,7 @@ func GenerateDummyCPUTopology(cpuNum, socketNum, numaNum int) (*CPUTopology, err
 	cpuTopology.NumCPUs = cpuNum
 	cpuTopology.NumCores = cpuNum / 2
 	cpuTopology.NumSockets = socketNum
+	cpuTopology.NumNUMANodes = numaNum
 
 	numaPerSocket := numaNum / socketNum
 	cpusPerNUMA := cpuNum / numaNum

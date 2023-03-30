@@ -30,7 +30,6 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
-	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
 const (
@@ -68,12 +67,11 @@ type QoSRegionShare struct {
 }
 
 // NewQoSRegionShare returns a region instance for shared pool
-func NewQoSRegionShare(name string, ownerPoolName string, bindingNumas machine.CPUSet,
-	conf *config.Configuration, metaCache *metacache.MetaCache,
-	metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter) QoSRegion {
+func NewQoSRegionShare(name string, ownerPoolName string, conf *config.Configuration,
+	metaCache *metacache.MetaCache, metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter) QoSRegion {
 
 	r := &QoSRegionShare{
-		QoSRegionBase: NewQoSRegionBase(name, ownerPoolName, types.QoSRegionTypeShare, bindingNumas, metaCache, metaServer, emitter),
+		QoSRegionBase: NewQoSRegionBase(name, ownerPoolName, types.QoSRegionTypeShare, metaCache, metaServer, emitter),
 		isInitialized: false,
 
 		provisionPolicyMap: make(map[types.CPUProvisionPolicyName]*provisionPolicyWrapper),
@@ -123,7 +121,7 @@ func (r *QoSRegionShare) AddContainer(ci *types.ContainerInfo) error {
 	return nil
 }
 
-func (r *QoSRegionShare) TryUpdateProvision() error {
+func (r *QoSRegionShare) TryUpdateProvision() {
 	for policyName, wrapper := range r.provisionPolicyMap {
 		wrapper.updateStatus = types.UpdateFailed
 		p := wrapper.policy
@@ -144,22 +142,20 @@ func (r *QoSRegionShare) TryUpdateProvision() error {
 
 		// Run an episode of policy and calculator update
 		if err := p.Update(); err != nil {
-			return fmt.Errorf("update policy %v failed: %v", policyName, err)
+			klog.Errorf("[qosaware-cpu] update policy %v failed: %v", policyName, err)
 		}
 		wrapper.updateStatus = types.UpdateSucceeded
 
 		controlKnob, err := p.GetProvision()
 		if err != nil {
-			return fmt.Errorf("get provision for policy %v failed: %v", policyName, err)
+			klog.Errorf("[qosaware-cpu] update policy %v failed: %v", policyName, err)
 		}
 		cpuRequirementRaw := controlKnob[types.ControlKnobSharedCPUSetSize].Value
 		regulator.regulate(cpuRequirementRaw)
 	}
-	return nil
 }
 
-func (r *QoSRegionShare) TryUpdateHeadroom() error {
-	return nil
+func (r *QoSRegionShare) TryUpdateHeadroom() {
 }
 
 func (r *QoSRegionShare) GetProvision() (types.ControlKnob, error) {

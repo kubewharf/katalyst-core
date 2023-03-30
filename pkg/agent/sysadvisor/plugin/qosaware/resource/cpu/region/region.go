@@ -35,14 +35,17 @@ type QoSRegion interface {
 	// IsEmpty returns true if no container remains in region
 	IsEmpty() bool
 
-	// Clear clears all containers in region
+	// Clear clears all topology and containers info in region
 	Clear()
 
-	// GetNumas returns numa ids assigned to this region
-	GetNumas() machine.CPUSet
+	// GetBindingNumas returns numa ids assigned to this region
+	GetBindingNumas() machine.CPUSet
 
 	// GetPods return the latest pod set of this region
 	GetPods() types.PodSet
+
+	// SetBindingNumas overwrites numa ids assigned to this region
+	SetBindingNumas(machine.CPUSet)
 
 	// Update essential region values for policy and headroom update
 	// region available resource value = total - reservePoolSize - reservedForAllocate
@@ -52,10 +55,10 @@ type QoSRegion interface {
 	AddContainer(ci *types.ContainerInfo) error
 
 	// TryUpdateProvision runs an episode of control knob adjustment
-	TryUpdateProvision() error
+	TryUpdateProvision()
 
 	// TryUpdateHeadroom runs an episode of headroom estimation
-	TryUpdateHeadroom() error
+	TryUpdateHeadroom()
 
 	// GetProvision returns the latest updated control knob value
 	GetProvision() (types.ControlKnob, error)

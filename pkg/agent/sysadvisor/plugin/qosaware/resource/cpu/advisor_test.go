@@ -33,7 +33,6 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
 	qrmstate "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
-	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource/cpu/region/provisionpolicy"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
@@ -42,10 +41,6 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
-
-func init() {
-	provisionpolicy.RegisterInitializer(types.CPUProvisionPolicyCanonical, provisionpolicy.NewPolicyCanonical)
-}
 
 func generateTestConfiguration(t *testing.T) *config.Configuration {
 	conf, err := options.NewOptions().Config()
@@ -56,7 +51,7 @@ func generateTestConfiguration(t *testing.T) *config.Configuration {
 	require.NoError(t, err)
 
 	conf.GenericSysAdvisorConfiguration.StateFileDirectory = tmpStateDir
-	conf.ReclaimedResourceConfiguration.ReservedResourceForAllocate[v1.ResourceCPU] = resource.MustParse("2")
+	conf.ReclaimedResourceConfiguration.ReservedResourceForAllocate[v1.ResourceCPU] = resource.MustParse("4")
 
 	return conf
 }
@@ -68,13 +63,15 @@ func newTestCPUResourceAdvisor(t *testing.T) *cpuResourceAdvisor {
 	require.NoError(t, err)
 	require.NotNil(t, metaCache)
 
+	// numa node0 cpu(s): 0-23,48-71
+	// numa node1 cpu(s): 24-47,72-95
+	cpuTopology, err := machine.GenerateDummyCPUTopology(96, 2, 2)
+	assert.NoError(t, err)
+
 	metaServer := &metaserver.MetaServer{
 		MetaAgent: &agent.MetaAgent{
 			KatalystMachineInfo: &machine.KatalystMachineInfo{
-				CPUTopology: &machine.CPUTopology{
-					NumCPUs:      96,
-					NumNUMANodes: 2,
-				},
+				CPUTopology: cpuTopology,
 			},
 		},
 	}
@@ -94,7 +91,7 @@ var (
 	}
 )
 
-func makeContainerInfo(podUID, namespace, podName, containerName, qoSLevel string, annotations map[string]string, topologyAwareAssignments map[int]machine.CPUSet) *types.ContainerInfo {
+func makeContainerInfo(podUID, namespace, podName, containerName, qoSLevel string, annotations map[string]string, topologyAwareAssignments types.TopologyAwareAssignment) *types.ContainerInfo {
 	return &types.ContainerInfo{
 		PodUID:                           podUID,
 		PodNamespace:                     namespace,
@@ -109,7 +106,7 @@ func makeContainerInfo(podUID, namespace, podName, containerName, qoSLevel strin
 		RampUp:                           false,
 		OwnerPoolName:                    qosLevel2PoolName[qoSLevel],
 		TopologyAwareAssignments:         topologyAwareAssignments,
-		OriginalTopologyAwareAssignments: nil,
+		OriginalTopologyAwareAssignments: topologyAwareAssignments,
 	}
 }
 
@@ -134,13 +131,13 @@ func TestUpdate(t *testing.T) {
 			pools: map[string]*types.PoolInfo{
 				state.PoolNameReserve: {
 					PoolName: state.PoolNameReserve,
-					TopologyAwareAssignments: map[int]machine.CPUSet{ // reserve 2 cpus
+					TopologyAwareAssignments: map[int]machine.CPUSet{
 						0: machine.MustParse("0"),
-						1: machine.MustParse("48"),
+						1: machine.MustParse("24"),
 					},
 					OriginalTopologyAwareAssignments: map[int]machine.CPUSet{
 						0: machine.MustParse("0"),
-						1: machine.MustParse("48"),
+						1: machine.MustParse("24"),
 					},
 				},
 			},
@@ -154,79 +151,79 @@ func TestUpdate(t *testing.T) {
 			wantHeadroom:       resource.MustParse(fmt.Sprintf("%d", 94)),
 		},
 		{
-			name: "want min share pool",
+			name: "small share pool",
 			pools: map[string]*types.PoolInfo{
 				state.PoolNameReserve: {
 					PoolName: state.PoolNameReserve,
 					TopologyAwareAssignments: map[int]machine.CPUSet{
 						0: machine.MustParse("0"),
-						1: machine.MustParse("48"),
+						1: machine.MustParse("24"),
 					},
 					OriginalTopologyAwareAssignments: map[int]machine.CPUSet{
 						0: machine.MustParse("0"),
-						1: machine.MustParse("48"),
+						1: machine.MustParse("24"),
 					},
 				},
 				state.PoolNameShare: {
 					PoolName: state.PoolNameShare,
 					TopologyAwareAssignments: map[int]machine.CPUSet{
 						0: machine.MustParse("1"),
-						1: machine.MustParse("49"),
+						1: machine.MustParse("25"),
 					},
 					OriginalTopologyAwareAssignments: map[int]machine.CPUSet{
 						0: machine.MustParse("1"),
-						1: machine.MustParse("49"),
+						1: machine.MustParse("25"),
 					},
 				},
 			},
 			containers: []*types.ContainerInfo{
 				makeContainerInfo("uid1", "default", "pod1", "c1", consts.PodAnnotationQoSLevelSharedCores, nil,
 					map[int]machine.CPUSet{
-						0: machine.NewCPUSet(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11),
-						1: machine.NewCPUSet(12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23),
+						0: machine.MustParse("1"),
+						1: machine.MustParse("25"),
 					}),
 			},
 			wantCPUProvision: CPUProvision{
 				map[string]map[int]resource.Quantity{
 					state.PoolNameReserve: {-1: *resource.NewQuantity(2, resource.DecimalSI)},
-					state.PoolNameShare:   {-1: *resource.NewQuantity(6, resource.DecimalSI)},
-					state.PoolNameReclaim: {-1: *resource.NewQuantity(88, resource.DecimalSI)},
+					state.PoolNameShare:   {-1: *resource.NewQuantity(8, resource.DecimalSI)},
+					state.PoolNameReclaim: {-1: *resource.NewQuantity(86, resource.DecimalSI)},
 				},
 			},
 			wantGetHeadroomErr: false,
-			wantHeadroom:       resource.MustParse(fmt.Sprintf("%d", 88)),
+			wantHeadroom:       resource.MustParse(fmt.Sprintf("%d", 86)),
 		},
 		{
-			name: "want max share pool",
+			name: "large share pool",
 			pools: map[string]*types.PoolInfo{
 				state.PoolNameReserve: {
 					PoolName: state.PoolNameReserve,
 					TopologyAwareAssignments: map[int]machine.CPUSet{
 						0: machine.MustParse("0"),
-						1: machine.MustParse("48"),
+						1: machine.MustParse("24"),
 					},
 					OriginalTopologyAwareAssignments: map[int]machine.CPUSet{
 						0: machine.MustParse("0"),
-						1: machine.MustParse("48"),
+						1: machine.MustParse("24"),
 					},
 				},
 				state.PoolNameShare: {
 					PoolName: state.PoolNameShare,
 					TopologyAwareAssignments: map[int]machine.CPUSet{
-						0: machine.MustParse("1-47"),
-						1: machine.MustParse("49-95"),
+						0: machine.MustParse("1-23,48-71"),
+						1: machine.MustParse("25-47,72-95"),
 					},
 					OriginalTopologyAwareAssignments: map[int]machine.CPUSet{
-						0: machine.MustParse("1-47"),
-						1: machine.MustParse("49-95"),
+						0: machine.MustParse("1-23,48-71"),
+						1: machine.MustParse("25-47,72-95"),
 					},
 				},
 			},
 			containers: []*types.ContainerInfo{
 				makeContainerInfo("uid1", "default", "pod1", "c1", consts.PodAnnotationQoSLevelSharedCores, nil,
 					map[int]machine.CPUSet{
-						0: machine.NewCPUSet(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11),
-						1: machine.NewCPUSet(12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23),
+						0: machine.MustParse("1-23,48-71"),
+						1: machine.MustParse("25-47,72-95"),
 					}),
 			},
 			wantCPUProvision: CPUProvision{
@@ -240,60 +237,26 @@ func TestUpdate(t *testing.T) {
 			wantHeadroom:       resource.MustParse(fmt.Sprintf("%d", 4)),
 		},
 		{
-			name: "normal case",
+			name: "dedicated numa exclusive and share",
 			pools: map[string]*types.PoolInfo{
 				state.PoolNameReserve: {
 					PoolName: state.PoolNameReserve,
 					TopologyAwareAssignments: map[int]machine.CPUSet{
 						0: machine.MustParse("0"),
-						1: machine.MustParse("48"),
+						1: machine.MustParse("24"),
 					},
 					OriginalTopologyAwareAssignments: map[int]machine.CPUSet{
 						0: machine.MustParse("0"),
-						1: machine.MustParse("48"),
+						1: machine.MustParse("24"),
 					},
 				},
 				state.PoolNameShare: {
 					PoolName: state.PoolNameShare,
 					TopologyAwareAssignments: map[int]machine.CPUSet{
-						0: machine.MustParse("1-10"),
-						1: machine.MustParse("49-57"),
+						1: machine.MustParse("25-26,72-73"),
 					},
 					OriginalTopologyAwareAssignments: map[int]machine.CPUSet{
-						0: machine.MustParse("1-10"),
-						1: machine.MustParse("49-57"),
-					},
-				},
-			},
-			containers: []*types.ContainerInfo{
-				makeContainerInfo("uid1", "default", "pod1", "c1", consts.PodAnnotationQoSLevelSharedCores, nil,
-					map[int]machine.CPUSet{
-						0: machine.NewCPUSet(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11),
-						1: machine.NewCPUSet(12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23),
-					}),
-			},
-			wantCPUProvision: CPUProvision{
-				map[string]map[int]resource.Quantity{
-					state.PoolNameReserve: {-1: *resource.NewQuantity(2, resource.DecimalSI)},
-					state.PoolNameShare:   {-1: *resource.NewQuantity(20, resource.DecimalSI)},
-					state.PoolNameReclaim: {-1: *resource.NewQuantity(74, resource.DecimalSI)},
-				},
-			},
-			wantGetHeadroomErr: false,
-			wantHeadroom:       resource.MustParse(fmt.Sprintf("%d", 74)),
-		},
-		{
-			name: "min dedicated cores with numa binding",
-			pools: map[string]*types.PoolInfo{
-				state.PoolNameReserve: {
-					PoolName: state.PoolNameReserve,
-					TopologyAwareAssignments: map[int]machine.CPUSet{
-						0: machine.MustParse("0"),
-						1: machine.MustParse("48"),
-					},
-					OriginalTopologyAwareAssignments: map[int]machine.CPUSet{
-						0: machine.MustParse("0"),
-						1: machine.MustParse("48"),
+						1: machine.MustParse("25-26,72-73"),
 					},
 				},
 			},
@@ -301,19 +264,16 @@ func TestUpdate(t *testing.T) {
 				makeContainerInfo("uid1", "default", "pod1", "c1", consts.PodAnnotationQoSLevelDedicatedCores,
 					map[string]string{consts.PodAnnotationMemoryEnhancementNumaBinding: consts.PodAnnotationMemoryEnhancementNumaBindingEnable},
 					map[int]machine.CPUSet{
-						0: machine.NewCPUSet(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11),
-						1: machine.NewCPUSet(12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23),
+						0: machine.MustParse("1-23,48-71"),
+					}),
+				makeContainerInfo("uid2", "default", "pod2", "c2", consts.PodAnnotationQoSLevelSharedCores, nil,
+					map[int]machine.CPUSet{
+						1: machine.MustParse("25-26,72-73"),
 					}),
 			},
-			wantCPUProvision: CPUProvision{
-				// FIXME: cpu provision for dedicated_cores has not realized
-				map[string]map[int]resource.Quantity{
-					state.PoolNameReserve: {-1: *resource.NewQuantity(2, resource.DecimalSI)},
-					state.PoolNameReclaim: {-1: *resource.NewQuantity(0, resource.DecimalSI)},
-				},
-			},
+			wantCPUProvision:   CPUProvision{},
 			wantGetHeadroomErr: false,
-			wantHeadroom:       resource.MustParse(fmt.Sprintf("%d", 84)),
+			wantHeadroom:       resource.MustParse(fmt.Sprintf("%d", 41)),
 		},
 	}
 
@@ -334,7 +294,12 @@ func TestUpdate(t *testing.T) {
 
 			advisorCh := advisor.GetChannel().(chan CPUProvision)
 
+			// Check internal calculation result by another go routine
 			go func(ch chan CPUProvision) {
+				if reflect.DeepEqual(tt.wantCPUProvision, CPUProvision{}) {
+					finishCh <- struct{}{}
+					return
+				}
 				cpuProvision := <-advisorCh
 				if !reflect.DeepEqual(tt.wantCPUProvision, cpuProvision) {
 					t.Errorf("cpu provision expected: %+v, actual: %+v", tt.wantCPUProvision, cpuProvision)
@@ -342,15 +307,12 @@ func TestUpdate(t *testing.T) {
 				finishCh <- struct{}{}
 			}(advisorCh)
 
-			err := advisor.Update()
-			assert.NoError(t, err)
+			advisor.Update()
 
+			// Check headroom
 			headroom, err := advisor.GetHeadroom()
-			if err != nil {
-				advisorCh <- CPUProvision{}
-			}
 			assert.Equal(t, tt.wantGetHeadroomErr, err != nil)
-			if !reflect.DeepEqual(tt.wantHeadroom.MilliValue(), headroom.MilliValue()) {
+			if err == nil && !reflect.DeepEqual(tt.wantHeadroom.MilliValue(), headroom.MilliValue()) {
 				t.Errorf("headroom expected: %+v, actual: %+v", tt.wantHeadroom, headroom)
 			}
 

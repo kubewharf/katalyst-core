@@ -23,25 +23,54 @@ import (
 	"testing"
 	"time"
 
+	info "github.com/google/cadvisor/info/v1"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 
+	"github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/options"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
+	qrmstate "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource/memory/headroompolicy"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
 	"github.com/kubewharf/katalyst-core/pkg/config"
+	"github.com/kubewharf/katalyst-core/pkg/metaserver"
+	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
 var (
-	memoryLimitSystem uint64 = 1000 << 30
+	qosLevel2PoolName = map[string]string{
+		consts.PodAnnotationQoSLevelSharedCores:    qrmstate.PoolNameShare,
+		consts.PodAnnotationQoSLevelReclaimedCores: qrmstate.PoolNameReclaim,
+		consts.PodAnnotationQoSLevelSystemCores:    qrmstate.PoolNameReserve,
+		consts.PodAnnotationQoSLevelDedicatedCores: qrmstate.PoolNameDedicated,
+	}
 )
+
+func makeContainerInfo(podUID, namespace, podName, containerName, qoSLevel string, annotations map[string]string, topologyAwareAssignments types.TopologyAwareAssignment) *types.ContainerInfo {
+	return &types.ContainerInfo{
+		PodUID:                           podUID,
+		PodNamespace:                     namespace,
+		PodName:                          podName,
+		ContainerName:                    containerName,
+		ContainerIndex:                   0,
+		Labels:                           nil,
+		Annotations:                      annotations,
+		QoSLevel:                         qoSLevel,
+		CPURequest:                       0,
+		MemoryRequest:                    0,
+		RampUp:                           false,
+		OwnerPoolName:                    qosLevel2PoolName[qoSLevel],
+		TopologyAwareAssignments:         topologyAwareAssignments,
+		OriginalTopologyAwareAssignments: topologyAwareAssignments,
+	}
+}
 
 func generateTestConfiguration(t *testing.T) *config.Configuration {
 	conf, err := options.NewOptions().Config()
@@ -52,7 +81,7 @@ func generateTestConfiguration(t *testing.T) *config.Configuration {
 	require.NoError(t, err)
 
 	conf.GenericSysAdvisorConfiguration.StateFileDirectory = tmpStateDir
-	conf.ReclaimedResourceConfiguration.ReservedResourceForAllocate[v1.ResourceMemory] = resource.MustParse(fmt.Sprintf("%d", 2<<30))
+	conf.ReclaimedResourceConfiguration.ReservedResourceForAllocate[v1.ResourceMemory] = resource.MustParse(fmt.Sprintf("%d", 4<<30))
 
 	return conf
 }
@@ -64,12 +93,17 @@ func newTestMemoryAdvisor(t *testing.T) *memoryResourceAdvisor {
 	require.NoError(t, err)
 	require.NotNil(t, metaCache)
 
-	mra := &memoryResourceAdvisor{
-		name:      memoryResourceAdvisorName,
-		startTime: time.Now().Add(-startUpPeriod),
-		metaCache: metaCache,
-		emitter:   nil,
+	metaServer := &metaserver.MetaServer{
+		MetaAgent: &agent.MetaAgent{
+			KatalystMachineInfo: &machine.KatalystMachineInfo{
+				MachineInfo: &info.MachineInfo{
+					MemoryCapacity: 1000 << 30,
+				},
+			},
+		},
 	}
+
+	mra := NewMemoryResourceAdvisor(conf, metaCache, metaServer, nil)
 
 	reservedDefault := conf.ReclaimedResourceConfiguration.ReservedResourceForAllocate[v1.ResourceMemory]
 	mra.reservedForAllocate = reservedDefault.Value()
@@ -86,6 +120,7 @@ func TestUpdate(t *testing.T) {
 	tests := []struct {
 		name               string
 		pools              map[string]*types.PoolInfo
+		containers         []*types.ContainerInfo
 		wantGetHeadroomErr bool
 		wantHeadroom       resource.Quantity
 	}{
@@ -96,37 +131,77 @@ func TestUpdate(t *testing.T) {
 			wantHeadroom:       resource.Quantity{},
 		},
 		{
+			name: "reserve pool only",
+			pools: map[string]*types.PoolInfo{
+				state.PoolNameReserve: {
+					PoolName: state.PoolNameReserve,
+					TopologyAwareAssignments: map[int]machine.CPUSet{
+						0: machine.MustParse("0"),
+						1: machine.MustParse("24"),
+					},
+					OriginalTopologyAwareAssignments: map[int]machine.CPUSet{
+						0: machine.MustParse("0"),
+						1: machine.MustParse("24"),
+					},
+				},
+			},
+			wantGetHeadroomErr: false,
+			wantHeadroom:       *resource.NewQuantity(996<<30, resource.DecimalSI),
+		},
+		{
 			name: "normal case",
 			pools: map[string]*types.PoolInfo{
 				state.PoolNameReserve: {
 					PoolName: state.PoolNameReserve,
 					TopologyAwareAssignments: map[int]machine.CPUSet{
 						0: machine.MustParse("0"),
-						1: machine.MustParse("48"),
+						1: machine.MustParse("24"),
 					},
 					OriginalTopologyAwareAssignments: map[int]machine.CPUSet{
 						0: machine.MustParse("0"),
-						1: machine.MustParse("48"),
+						1: machine.MustParse("24"),
+					},
+				},
+				state.PoolNameShare: {
+					PoolName: state.PoolNameShare,
+					TopologyAwareAssignments: map[int]machine.CPUSet{
+						0: machine.MustParse("1"),
+						1: machine.MustParse("25"),
+					},
+					OriginalTopologyAwareAssignments: map[int]machine.CPUSet{
+						0: machine.MustParse("1"),
+						1: machine.MustParse("25"),
 					},
 				},
 			},
+			containers: []*types.ContainerInfo{
+				makeContainerInfo("uid1", "default", "pod1", "c1", consts.PodAnnotationQoSLevelSharedCores, nil,
+					map[int]machine.CPUSet{
+						0: machine.MustParse("1"),
+						1: machine.MustParse("25"),
+					}),
+			},
 			wantGetHeadroomErr: false,
-			wantHeadroom:       resource.MustParse("998Gi"),
+			wantHeadroom:       *resource.NewQuantity(988<<30, resource.DecimalSI),
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			advisor := newTestMemoryAdvisor(t)
+			advisor.startTime = time.Now().Add(-startUpPeriod * 2)
 
 			for poolName, poolInfo := range tt.pools {
 				err := advisor.metaCache.SetPoolInfo(poolName, poolInfo)
 				assert.NoError(t, err)
 			}
+			for _, c := range tt.containers {
+				err := advisor.metaCache.SetContainerInfo(c.PodUID, c.ContainerName, c)
+				assert.NoError(t, err)
+			}
 
-			advisor.headroomPolicy.SetEssentials(float64(memoryLimitSystem), float64(advisor.reservedForAllocate))
-			err := advisor.Update()
-			assert.NoError(t, err)
+			advisor.headroomPolicy.SetEssentials(float64(advisor.metaServer.MemoryCapacity), float64(advisor.reservedForAllocate))
+			advisor.Update()
 
 			headroom, err := advisor.GetHeadroom()
 			assert.Equal(t, tt.wantGetHeadroomErr, err != nil)

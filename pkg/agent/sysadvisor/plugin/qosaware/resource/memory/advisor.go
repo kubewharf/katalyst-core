@@ -17,7 +17,6 @@ limitations under the License.
 package memory
 
 import (
-	"fmt"
 	"sync"
 	"time"
 
@@ -34,6 +33,10 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 )
 
+func init() {
+	headroompolicy.RegisterInitializer(types.MemoryHeadroomPolicyCanonical, headroompolicy.NewPolicyCanonical)
+}
+
 const (
 	memoryResourceAdvisorName string = "memory-resource-advisor"
 
@@ -47,9 +50,7 @@ type memoryResourceAdvisor struct {
 	reservedForAllocate int64
 
 	headroomPolicy headroompolicy.HeadroomPolicy
-
-	lastUpdateStatus types.UpdateStatus
-	mutex            sync.RWMutex
+	mutex          sync.RWMutex
 
 	conf       *config.Configuration
 	metaCache  *metacache.MetaCache
@@ -84,21 +85,14 @@ func (ra *memoryResourceAdvisor) Name() string {
 	return ra.name
 }
 
-func (ra *memoryResourceAdvisor) Update() (err error) {
+func (ra *memoryResourceAdvisor) Update() {
 	ra.mutex.Lock()
-	defer func() {
-		if err != nil {
-			ra.lastUpdateStatus = types.UpdateFailed
-		} else {
-			ra.lastUpdateStatus = types.UpdateSucceeded
-		}
-		ra.mutex.Unlock()
-	}()
+	defer ra.mutex.Unlock()
 
 	// Skip update during startup
 	if time.Now().Before(ra.startTime.Add(startUpPeriod)) {
 		klog.Infof("[qosaware-memory] skip update: starting up")
-		return nil
+		return
 	}
 
 	// Check if essential pool info exists. Skip update if not in which case sysadvisor
@@ -106,16 +100,15 @@ func (ra *memoryResourceAdvisor) Update() (err error) {
 	reservePoolInfo, ok := ra.metaCache.GetPoolInfo(state.PoolNameReserve)
 	if !ok || reservePoolInfo == nil {
 		klog.Warningf("[qosaware-memory] skip update: reserve pool not exist")
-		return nil
+		return
 	}
 
 	memoryLimitSystem := ra.metaServer.MemoryCapacity
 	ra.headroomPolicy.SetEssentials(float64(memoryLimitSystem), float64(ra.reservedForAllocate))
 
 	if err := ra.headroomPolicy.Update(); err != nil {
-		return err
+		klog.Errorf("[qosaware-memory] update headroom policy failed: %v", err)
 	}
-	return nil
 }
 
 func (ra *memoryResourceAdvisor) GetChannel() interface{} {
@@ -126,10 +119,6 @@ func (ra *memoryResourceAdvisor) GetChannel() interface{} {
 func (ra *memoryResourceAdvisor) GetHeadroom() (resource.Quantity, error) {
 	ra.mutex.RLock()
 	defer ra.mutex.RUnlock()
-
-	if ra.lastUpdateStatus != types.UpdateSucceeded {
-		return resource.Quantity{}, fmt.Errorf("last update failed")
-	}
 
 	return ra.headroomPolicy.GetHeadroom()
 }
