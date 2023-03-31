@@ -34,15 +34,16 @@ import (
 type PolicyCanonical struct {
 	*PolicyBase
 
+	// memoryHeadroom is valid to be used iff updateStatus successes
 	memoryHeadroom float64
-	updateStatus   types.UpdateStatus
+	updateStatus   types.PolicyUpdateStatus
 }
 
 func NewPolicyCanonical(metaCache *metacache.MetaCache, metaServer *metaserver.MetaServer) HeadroomPolicy {
 	p := PolicyCanonical{
 		PolicyBase: NewPolicyBase(metaCache, metaServer),
 
-		updateStatus: types.UpdateFailed,
+		updateStatus: types.PolicyUpdateFailed,
 	}
 
 	return &p
@@ -51,9 +52,9 @@ func NewPolicyCanonical(metaCache *metacache.MetaCache, metaServer *metaserver.M
 func (p *PolicyCanonical) Update() (err error) {
 	defer func() {
 		if err != nil {
-			p.updateStatus = types.UpdateFailed
+			p.updateStatus = types.PolicyUpdateFailed
 		} else {
-			p.updateStatus = types.UpdateSucceeded
+			p.updateStatus = types.PolicyUpdateSucceeded
 		}
 	}()
 
@@ -83,7 +84,7 @@ func (p *PolicyCanonical) Update() (err error) {
 }
 
 func (p *PolicyCanonical) GetHeadroom() (resource.Quantity, error) {
-	if p.updateStatus != types.UpdateSucceeded {
+	if p.updateStatus != types.PolicyUpdateSucceeded {
 		return resource.Quantity{}, fmt.Errorf("last update failed")
 	}
 

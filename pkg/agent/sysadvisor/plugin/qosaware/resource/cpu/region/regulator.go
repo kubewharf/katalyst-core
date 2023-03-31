@@ -50,7 +50,7 @@ type cpuRegulator struct {
 	// latestCPURequirement is the latest updated cpu requirement value
 	latestCPURequirement int
 
-	// latestRampDownTime is the lastest ramp down timestamp
+	// latestRampDownTime is the latest ramp down timestamp
 	latestRampDownTime time.Time
 }
 
@@ -73,8 +73,8 @@ func (c *cpuRegulator) setEssentials(minCPURequirement, maxCPURequirement, total
 	c.reservedForAllocate = reservedForAllocate
 }
 
-// setLastestCPURequirement overwrites the latest regulated cpu requirement
-func (c *cpuRegulator) setLastestCPURequirement(latestCPURequirement int) {
+// setLatestCPURequirement overwrites the latest regulated cpu requirement
+func (c *cpuRegulator) setLatestCPURequirement(latestCPURequirement int) {
 	c.latestCPURequirement = latestCPURequirement
 }
 

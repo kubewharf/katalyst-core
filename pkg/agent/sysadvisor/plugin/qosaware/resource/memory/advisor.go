@@ -103,6 +103,7 @@ func (ra *memoryResourceAdvisor) Update() {
 		return
 	}
 
+	// capacity and reserved can both be adjusted dynamically during running process
 	memoryLimitSystem := ra.metaServer.MemoryCapacity
 	ra.headroomPolicy.SetEssentials(float64(memoryLimitSystem), float64(ra.reservedForAllocate))
 

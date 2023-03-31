@@ -33,10 +33,10 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource/cpu"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
-	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/util"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
+	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
 const (
@@ -381,8 +381,8 @@ func (cs *cpuServer) updatePoolInfo(poolName string, info *cpuadvisor.Allocation
 	// pool such as fallback. GC is needed for pool maintenance.
 	pi := &types.PoolInfo{
 		PoolName:                         info.OwnerPoolName,
-		TopologyAwareAssignments:         util.TransformCPUAssignmentFormat(info.TopologyAwareAssignments),
-		OriginalTopologyAwareAssignments: util.TransformCPUAssignmentFormat(info.OriginalTopologyAwareAssignments),
+		TopologyAwareAssignments:         machine.TransformCPUAssignmentFormat(info.TopologyAwareAssignments),
+		OriginalTopologyAwareAssignments: machine.TransformCPUAssignmentFormat(info.OriginalTopologyAwareAssignments),
 	}
 
 	return cs.metaCache.SetPoolInfo(poolName, pi)
@@ -396,8 +396,8 @@ func (cs *cpuServer) updateContainerInfo(podUID string, containerName string, in
 
 	ci.RampUp = info.RampUp
 	ci.OwnerPoolName = info.OwnerPoolName
-	ci.TopologyAwareAssignments = util.TransformCPUAssignmentFormat(info.TopologyAwareAssignments)
-	ci.OriginalTopologyAwareAssignments = util.TransformCPUAssignmentFormat(info.OriginalTopologyAwareAssignments)
+	ci.TopologyAwareAssignments = machine.TransformCPUAssignmentFormat(info.TopologyAwareAssignments)
+	ci.OriginalTopologyAwareAssignments = machine.TransformCPUAssignmentFormat(info.OriginalTopologyAwareAssignments)
 
 	// Need to set back because of deep copy
 	return cs.metaCache.SetContainerInfo(podUID, containerName, ci)
@@ -421,6 +421,7 @@ func (cs *cpuServer) assemblePoolEntries(advisorResp *cpu.CPUProvision, calculat
 	}
 }
 
+// assemblePoolEntries fills up calculationEntriesMap and blockSet based on types.ContainerInfo
 func (cs *cpuServer) assemblePodEntries(calculationEntriesMap map[string]*cpuadvisor.CalculationEntries,
 	bs blockSet, podUID string, containerName string, ci *types.ContainerInfo) error {
 	poolName, ok := qosLevel2PoolName[ci.QoSLevel]

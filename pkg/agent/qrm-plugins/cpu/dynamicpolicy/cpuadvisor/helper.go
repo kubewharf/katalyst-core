@@ -25,7 +25,11 @@ import (
 )
 
 // FakedContainerID represents a placeholder since pool entry has no container-level
-const FakedContainerID = ""
+// FakedNumaID represents a placeholder since pools like shared/reclaimed will not contain a specific numa
+const (
+	FakedContainerID = ""
+	FakedNumaID      = -1
+)
 
 // GetNumaCalculationResult returns numa-level calculation results
 func (m *CalculationEntries) GetNumaCalculationResult(container string, numa int64) (*NumaCalculationResult, bool) {

@@ -52,7 +52,7 @@ var (
 
 type provisionPolicyWrapper struct {
 	policy       provisionpolicy.ProvisionPolicy
-	updateStatus types.UpdateStatus
+	updateStatus types.PolicyUpdateStatus
 }
 
 type QoSRegionShare struct {
@@ -92,7 +92,7 @@ func NewQoSRegionShare(name string, ownerPoolName string, conf *config.Configura
 		if initializer, ok := initializers[policyName]; ok {
 			r.provisionPolicyMap[policyName] = &provisionPolicyWrapper{
 				initializer(metaCache, metaServer),
-				types.UpdateFailed,
+				types.PolicyUpdateFailed,
 			}
 			r.regulatorMap[policyName] = newCPURegulator(maxRampUpStep, maxRampDownStep, minRampDownPeriod)
 		}
@@ -102,6 +102,9 @@ func NewQoSRegionShare(name string, ownerPoolName string, conf *config.Configura
 }
 
 func (r *QoSRegionShare) AddContainer(ci *types.ContainerInfo) error {
+	r.Lock()
+	defer r.Unlock()
+
 	if ci == nil {
 		return fmt.Errorf("container info nil")
 	}
@@ -122,8 +125,11 @@ func (r *QoSRegionShare) AddContainer(ci *types.ContainerInfo) error {
 }
 
 func (r *QoSRegionShare) TryUpdateProvision() {
+	r.Lock()
+	defer r.Unlock()
+
 	for policyName, wrapper := range r.provisionPolicyMap {
-		wrapper.updateStatus = types.UpdateFailed
+		wrapper.updateStatus = types.PolicyUpdateFailed
 		p := wrapper.policy
 		regulator := r.regulatorMap[policyName]
 
@@ -134,7 +140,7 @@ func (r *QoSRegionShare) TryUpdateProvision() {
 		// Try set initial cpu requirement to restore calculator after restart
 		if !r.isInitialized {
 			if poolSize, ok := r.metaCache.GetPoolSize(r.ownerPoolName); ok {
-				regulator.setLastestCPURequirement(poolSize)
+				regulator.setLatestCPURequirement(poolSize)
 				klog.Infof("[qosaware-cpu] set initial cpu requirement %v", poolSize)
 			}
 			r.isInitialized = true
@@ -144,7 +150,7 @@ func (r *QoSRegionShare) TryUpdateProvision() {
 		if err := p.Update(); err != nil {
 			klog.Errorf("[qosaware-cpu] update policy %v failed: %v", policyName, err)
 		}
-		wrapper.updateStatus = types.UpdateSucceeded
+		wrapper.updateStatus = types.PolicyUpdateSucceeded
 
 		controlKnob, err := p.GetProvision()
 		if err != nil {
@@ -156,9 +162,14 @@ func (r *QoSRegionShare) TryUpdateProvision() {
 }
 
 func (r *QoSRegionShare) TryUpdateHeadroom() {
+	r.Lock()
+	defer r.Unlock()
 }
 
 func (r *QoSRegionShare) GetProvision() (types.ControlKnob, error) {
+	r.Lock()
+	defer r.Unlock()
+
 	policyName := r.selectProvisionPolicy()
 	regulator, ok := r.regulatorMap[policyName]
 	if !ok {
@@ -174,6 +185,9 @@ func (r *QoSRegionShare) GetProvision() (types.ControlKnob, error) {
 }
 
 func (r *QoSRegionShare) GetHeadroom() (resource.Quantity, error) {
+	r.Lock()
+	defer r.Unlock()
+
 	policyName := r.selectProvisionPolicy()
 	regulator, ok := r.regulatorMap[policyName]
 	if !ok {
@@ -188,7 +202,7 @@ func (r *QoSRegionShare) selectProvisionPolicy() types.CPUProvisionPolicyName {
 	max := math.MinInt
 
 	for policyName, wrapper := range r.provisionPolicyMap {
-		if wrapper.updateStatus != types.UpdateSucceeded {
+		if wrapper.updateStatus != types.PolicyUpdateSucceeded {
 			continue
 		}
 		if priority, ok := provisionPolicyPriority[policyName]; ok && priority > max {

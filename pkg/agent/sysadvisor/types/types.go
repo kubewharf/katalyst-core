@@ -72,7 +72,7 @@ const (
 
 type TopologyAwareAssignment map[int]machine.CPUSet
 
-// ContainerInfo contains container infomation for sysadvisor plugins
+// ContainerInfo contains container information for sysadvisor plugins
 type ContainerInfo struct {
 	// Metadata unchanged during container's lifecycle
 	PodUID         string
@@ -87,7 +87,7 @@ type ContainerInfo struct {
 	CPURequest     float64
 	MemoryRequest  float64
 
-	// Allocation infomation changing by list and watch
+	// Allocation information changing by list and watch
 	RampUp                           bool
 	OwnerPoolName                    string
 	TopologyAwareAssignments         TopologyAwareAssignment
@@ -112,6 +112,14 @@ type PoolEntries map[string]*PoolInfo
 
 // PodSet stores container names keyed by pod uid
 type PodSet map[string]sets.String
+
+func (p PodSet) DeepCopy() PodSet {
+	res := make(PodSet)
+	for k, v := range p {
+		res[k] = sets.NewString(v.List()...)
+	}
+	return res
+}
 
 // ControlKnob holds tunable system entries affecting indicator metrics
 type ControlKnob map[ControlKnobName]ControlKnobValue
@@ -153,10 +161,10 @@ type IndicatorValue struct {
 	Low     float64
 }
 
-// UpdateStatus works as a flag indicating update result
-type UpdateStatus string
+// PolicyUpdateStatus works as a flag indicating update result
+type PolicyUpdateStatus string
 
 const (
-	UpdateSucceeded UpdateStatus = "succeeded"
-	UpdateFailed    UpdateStatus = "failed"
+	PolicyUpdateSucceeded PolicyUpdateStatus = "succeeded"
+	PolicyUpdateFailed    PolicyUpdateStatus = "failed"
 )

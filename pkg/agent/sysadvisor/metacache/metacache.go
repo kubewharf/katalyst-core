@@ -25,9 +25,9 @@ import (
 	"k8s.io/kubernetes/pkg/kubelet/checkpointmanager/errors"
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
-	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/util"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric"
+	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
 // [notice]
@@ -154,7 +154,7 @@ func (mc *MetaCache) GetContainerMetric(podUID string, containerName string, met
 }
 
 // AddContainer adds a container keyed by pod uid and container name. For repeatedly added
-// container, only mutable meta data will be updated, i.e. request quantity changed by vpa
+// container, only mutable metadata will be updated, i.e. request quantity changed by vpa
 func (mc *MetaCache) AddContainer(podUID string, containerName string, containerInfo *types.ContainerInfo) error {
 	if podInfo, ok := mc.podEntries[podUID]; ok {
 		if ci, ok := podInfo[containerName]; ok {
@@ -225,7 +225,7 @@ func (mc *MetaCache) GetPoolSize(poolName string) (int, bool) {
 	if !ok {
 		return 0, false
 	}
-	return util.CountCPUAssignmentCPUs(pi.TopologyAwareAssignments), true
+	return machine.CountCPUAssignmentCPUs(pi.TopologyAwareAssignments), true
 }
 
 // DeletePool deletes a PoolInfo keyed by pool name

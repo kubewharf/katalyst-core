@@ -17,6 +17,7 @@ limitations under the License.
 package cpu
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/spf13/pflag"
@@ -34,7 +35,10 @@ type CPUAdvisorOptions struct {
 // NewCPUAdvisorOptions creates a new Options with a default config
 func NewCPUAdvisorOptions() *CPUAdvisorOptions {
 	return &CPUAdvisorOptions{
-		CPUProvisionPolicy: string(types.CPUProvisionPolicyCanonical),
+		CPUProvisionPolicy: fmt.Sprintf("%v=%v,%v=%v",
+			types.QoSRegionTypeShare, types.CPUProvisionPolicyCanonical,
+			types.QoSRegionTypeDedicatedNumaExclusive, types.CPUProvisionPolicyCanonical,
+		),
 	}
 }
 
@@ -49,23 +53,28 @@ func (o *CPUAdvisorOptions) AddFlags(fs *pflag.FlagSet) {
 // ApplyTo fills up config with options
 func (o *CPUAdvisorOptions) ApplyTo(c *cpu.CPUAdvisorConfiguration) error {
 	c.CPUProvisionPolicy = make(map[types.QoSRegionType]types.CPUProvisionPolicyName)
-	provisionPolicies := strings.Split(o.CPUProvisionPolicy, ",")
-	for _, policy := range provisionPolicies {
-		kvs := strings.Split(policy, "=")
-		if len(kvs) != 2 {
-			continue
+
+	if len(o.CPUProvisionPolicy) > 0 {
+		provisionPolicies := strings.Split(o.CPUProvisionPolicy, ",")
+		for _, policy := range provisionPolicies {
+			kvs := strings.Split(policy, "=")
+			if len(kvs) != 2 {
+				return fmt.Errorf("invalid provision policies: %v", o.CPUProvisionPolicy)
+			}
+			c.CPUProvisionPolicy[types.QoSRegionType(kvs[0])] = types.CPUProvisionPolicyName(kvs[1])
 		}
-		c.CPUProvisionPolicy[types.QoSRegionType(kvs[0])] = types.CPUProvisionPolicyName(kvs[1])
 	}
 
-	c.CPUHeadroomPolicy = make(map[types.QoSRegionType]types.CPUHeadroomPolicyName)
-	headroomPolicies := strings.Split(o.CPUHeadroomPolicy, ",")
-	for _, policy := range headroomPolicies {
-		kvs := strings.Split(policy, "=")
-		if len(kvs) != 2 {
-			continue
+	if len(o.CPUHeadroomPolicy) > 0 {
+		c.CPUHeadroomPolicy = make(map[types.QoSRegionType]types.CPUHeadroomPolicyName)
+		headroomPolicies := strings.Split(o.CPUHeadroomPolicy, ",")
+		for _, policy := range headroomPolicies {
+			kvs := strings.Split(policy, "=")
+			if len(kvs) != 2 {
+				return fmt.Errorf("invalid headroom policies: %v", o.CPUHeadroomPolicy)
+			}
+			c.CPUHeadroomPolicy[types.QoSRegionType(kvs[0])] = types.CPUHeadroomPolicyName(kvs[1])
 		}
-		c.CPUHeadroomPolicy[types.QoSRegionType(kvs[0])] = types.CPUHeadroomPolicyName(kvs[1])
 	}
 
 	return nil

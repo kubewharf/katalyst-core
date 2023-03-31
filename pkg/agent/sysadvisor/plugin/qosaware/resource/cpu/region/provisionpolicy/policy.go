@@ -24,7 +24,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 )
 
-// HeadroomPolicy generates resource headroom estimation based on configured algorithm
+// ProvisionPolicy generates resource headroom estimation based on configured algorithm
 type ProvisionPolicy interface {
 	// SetPodSet overwrites policy's pod/container record
 	SetPodSet(types.PodSet)

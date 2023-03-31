@@ -31,9 +31,9 @@ type HeadroomPolicy interface {
 	// SetPodSet overwrites policy's pod/container record
 	SetPodSet(types.PodSet)
 
-	// Update necessary region settings for policy update
+	// SetEssentials updates necessary region settings for policy update
 	// Available resource value = total - reservedForAllocate
-	// todo: substract reserve pool size
+	// todo: subtract reserve pool size
 	SetEssentials(total, reservedForAllocate float64)
 
 	// Update triggers an epoch of algorithm update

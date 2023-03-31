@@ -17,6 +17,8 @@ limitations under the License.
 package region
 
 import (
+	"sync"
+
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
@@ -25,6 +27,8 @@ import (
 )
 
 type QoSRegionBase struct {
+	sync.Mutex
+
 	name          string
 	ownerPoolName string
 	regionType    types.QoSRegionType
@@ -47,7 +51,7 @@ type QoSRegionBase struct {
 	emitter    metrics.MetricEmitter
 }
 
-// NewQoSRegionShare returns a base qos region instance with common region methods
+// NewQoSRegionBase returns a base qos region instance with common region methods
 func NewQoSRegionBase(name string, ownerPoolName string, regionType types.QoSRegionType,
 	metaCache *metacache.MetaCache, metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter) *QoSRegionBase {
 	r := &QoSRegionBase{
@@ -75,24 +79,39 @@ func (r *QoSRegionBase) Type() types.QoSRegionType {
 }
 
 func (r *QoSRegionBase) IsEmpty() bool {
+	r.Lock()
+	defer r.Unlock()
+
 	return len(r.podSet) <= 0
 }
 
 func (r *QoSRegionBase) Clear() {
+	r.Lock()
+	defer r.Unlock()
+
 	r.bindingNumas = machine.NewCPUSet()
 	r.podSet = make(types.PodSet)
 	r.containerTopologyAwareAssignment = make(types.TopologyAwareAssignment)
 }
 
 func (r *QoSRegionBase) GetBindingNumas() machine.CPUSet {
-	return r.bindingNumas
+	r.Lock()
+	defer r.Unlock()
+
+	return r.bindingNumas.Clone()
 }
 
 func (r *QoSRegionBase) GetPods() types.PodSet {
-	return r.podSet
+	r.Lock()
+	defer r.Unlock()
+
+	return r.podSet.DeepCopy()
 }
 
 func (r *QoSRegionBase) SetBindingNumas(numas machine.CPUSet) {
+	r.Lock()
+	defer r.Unlock()
+
 	r.bindingNumas = numas
 }
 

@@ -48,6 +48,9 @@ func NewQoSRegionDedicatedNumaExclusive(name string, ownerPoolName string, conf 
 }
 
 func (r *QoSRegionDedicatedNumaExclusive) AddContainer(ci *types.ContainerInfo) error {
+	r.Lock()
+	defer r.Unlock()
+
 	if ci == nil {
 		return fmt.Errorf("container info nil")
 	}
@@ -68,9 +71,13 @@ func (r *QoSRegionDedicatedNumaExclusive) AddContainer(ci *types.ContainerInfo) 
 }
 
 func (r *QoSRegionDedicatedNumaExclusive) TryUpdateProvision() {
+	r.Lock()
+	defer r.Unlock()
 }
 
 func (r *QoSRegionDedicatedNumaExclusive) TryUpdateHeadroom() {
+	r.Lock()
+	defer r.Unlock()
 }
 
 func (r *QoSRegionDedicatedNumaExclusive) GetProvision() (types.ControlKnob, error) {

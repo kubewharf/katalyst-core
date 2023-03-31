@@ -29,7 +29,10 @@ type CPUAdvisorConfiguration struct {
 
 // NewCPUAdvisorConfiguration creates new cpu advisor configurations
 func NewCPUAdvisorConfiguration() *CPUAdvisorConfiguration {
-	return &CPUAdvisorConfiguration{}
+	return &CPUAdvisorConfiguration{
+		CPUProvisionPolicy: make(map[types.QoSRegionType]types.CPUProvisionPolicyName),
+		CPUHeadroomPolicy:  make(map[types.QoSRegionType]types.CPUHeadroomPolicyName),
+	}
 }
 
 // ApplyConfiguration is used to set configuration based on conf.

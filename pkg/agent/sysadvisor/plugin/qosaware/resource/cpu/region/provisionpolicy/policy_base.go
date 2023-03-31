@@ -44,7 +44,7 @@ func NewPolicyBase(metaCache *metacache.MetaCache, metaServer *metaserver.MetaSe
 }
 
 func (p *PolicyBase) SetPodSet(podSet types.PodSet) {
-	p.PodSet = podSet
+	p.PodSet = podSet.DeepCopy()
 }
 
 func (p *PolicyBase) SetIndicator(v types.Indicator) {

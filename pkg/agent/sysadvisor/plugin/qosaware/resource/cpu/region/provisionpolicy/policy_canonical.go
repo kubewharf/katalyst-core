@@ -62,10 +62,9 @@ func (p *PolicyCanonical) Update() error {
 			containerCnt += 1
 		}
 	}
+
 	klog.Infof("[qosaware-cpu-provision] cpu requirement estimation: %.2f, #container %v", cpuEstimation, containerCnt)
-
 	p.cpuRequirement = cpuEstimation
-
 	return nil
 }
 

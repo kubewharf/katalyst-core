@@ -19,9 +19,10 @@ package types
 import (
 	"reflect"
 
+	"k8s.io/apimachinery/pkg/util/sets"
+
 	"github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
-	"k8s.io/apimachinery/pkg/util/sets"
 )
 
 // IsNumaBinding returns true iff current container is for dedicated_cores with numa binding

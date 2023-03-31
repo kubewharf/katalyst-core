@@ -11,7 +11,7 @@ Unless required by applicable law or agreed to in writing, software
 distributed under the License is distributed on an "AS IS" BASIS,
 WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
-totalations under the License.
+limitations under the License.
 */
 
 package region
@@ -47,7 +47,7 @@ type QoSRegion interface {
 	// SetBindingNumas overwrites numa ids assigned to this region
 	SetBindingNumas(machine.CPUSet)
 
-	// Update essential region values for policy and headroom update
+	// SetEssentials updates essential region values for policy and headroom update
 	// region available resource value = total - reservePoolSize - reservedForAllocate
 	SetEssentials(total, reservePoolSize, reservedForAllocate int)
 

@@ -14,23 +14,19 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package util
-
-import (
-	"github.com/kubewharf/katalyst-core/pkg/util/machine"
-)
+package machine
 
 // TransformCPUAssignmentFormat transforms cpu assignment string format to cpuset format
-func TransformCPUAssignmentFormat(assignment map[uint64]string) map[int]machine.CPUSet {
-	res := make(map[int]machine.CPUSet)
+func TransformCPUAssignmentFormat(assignment map[uint64]string) map[int]CPUSet {
+	res := make(map[int]CPUSet)
 	for k, v := range assignment {
-		res[int(k)] = machine.MustParse(v)
+		res[int(k)] = MustParse(v)
 	}
 	return res
 }
 
 // CountCPUAssignmentCPUs returns sum of cpus among all numas in assignment
-func CountCPUAssignmentCPUs(assignment map[int]machine.CPUSet) int {
+func CountCPUAssignmentCPUs(assignment map[int]CPUSet) int {
 	res := 0
 	for _, v := range assignment {
 		res += v.Size()
