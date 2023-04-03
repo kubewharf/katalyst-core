@@ -76,7 +76,7 @@ func newTestCPUResourceAdvisor(t *testing.T) *cpuResourceAdvisor {
 		},
 	}
 
-	cra := NewCPUResourceAdvisor(conf, metaCache, metaServer, nil)
+	cra := NewCPUResourceAdvisor(conf, struct{}{}, metaCache, metaServer, nil)
 	assert.Equal(t, cra.Name(), cpuResourceAdvisorName)
 
 	return cra

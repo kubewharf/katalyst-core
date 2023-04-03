@@ -59,11 +59,11 @@ type QoSAwarePlugin struct {
 }
 
 // NewQoSAwarePlugin creates a qos aware plugin with the specified config
-func NewQoSAwarePlugin(conf *config.Configuration, _ interface{}, emitterPool metricspool.MetricsEmitterPool,
+func NewQoSAwarePlugin(conf *config.Configuration, extraConf interface{}, emitterPool metricspool.MetricsEmitterPool,
 	metaServer *metaserver.MetaServer, metaCache *metacache.MetaCache) (plugin.SysAdvisorPlugin, error) {
 	emitter := emitterPool.GetDefaultMetricsEmitter().WithTags("advisor-qosaware")
 
-	resourceAdvisor, err := resource.NewResourceAdvisor(conf, metaCache, metaServer, emitter)
+	resourceAdvisor, err := resource.NewResourceAdvisor(conf, extraConf, metaCache, metaServer, emitter)
 	if err != nil {
 		return nil, err
 	}

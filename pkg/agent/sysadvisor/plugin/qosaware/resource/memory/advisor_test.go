@@ -103,12 +103,12 @@ func newTestMemoryAdvisor(t *testing.T) *memoryResourceAdvisor {
 		},
 	}
 
-	mra := NewMemoryResourceAdvisor(conf, metaCache, metaServer, nil)
+	mra := NewMemoryResourceAdvisor(conf, struct{}{}, metaCache, metaServer, nil)
 
 	reservedDefault := conf.ReclaimedResourceConfiguration.ReservedResourceForAllocate[v1.ResourceMemory]
 	mra.reservedForAllocate = reservedDefault.Value()
 
-	mra.headroomPolicy = headroompolicy.NewPolicyCanonical(metaCache, nil)
+	mra.headroomPolicy = headroompolicy.NewPolicyCanonical(conf, struct{}{}, metaCache, nil, nil)
 
 	assert.Equal(t, mra.Name(), memoryResourceAdvisorName)
 	assert.Nil(t, mra.GetChannel())

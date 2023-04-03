@@ -72,6 +72,9 @@ type CPUProvision struct {
 // Smart algorithms and calculators could be adopted to give accurate realtime resource
 // provision hint for each region.
 type cpuResourceAdvisor struct {
+	conf      *config.Configuration
+	extraConf interface{}
+
 	name                string
 	advisorCh           chan CPUProvision
 	startTime           time.Time
@@ -85,14 +88,13 @@ type cpuResourceAdvisor struct {
 	sharedNumas machine.CPUSet // numas without numa binding workloads
 	mutex       sync.RWMutex
 
-	conf       *config.Configuration
 	metaCache  *metacache.MetaCache
 	metaServer *metaserver.MetaServer
 	emitter    metrics.MetricEmitter
 }
 
 // NewCPUResourceAdvisor returns a cpuResourceAdvisor instance
-func NewCPUResourceAdvisor(conf *config.Configuration, metaCache *metacache.MetaCache,
+func NewCPUResourceAdvisor(conf *config.Configuration, extraConf interface{}, metaCache *metacache.MetaCache,
 	metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter) *cpuResourceAdvisor {
 
 	cra := &cpuResourceAdvisor{
@@ -107,7 +109,9 @@ func NewCPUResourceAdvisor(conf *config.Configuration, metaCache *metacache.Meta
 
 		sharedNumas: machine.NewCPUSet(),
 
-		conf:       conf,
+		conf:      conf,
+		extraConf: extraConf,
+
 		metaCache:  metaCache,
 		metaServer: metaServer,
 		emitter:    emitter,
@@ -273,7 +277,7 @@ func (cra *cpuResourceAdvisor) assignToRegions(ci *types.ContainerInfo) ([]regio
 		}
 
 		name := string(types.QoSRegionTypeShare) + regionNameSeparator + string(uuid.NewUUID())
-		r := region.NewQoSRegionShare(name, ci.OwnerPoolName, cra.conf, cra.metaCache, cra.metaServer, cra.emitter)
+		r := region.NewQoSRegionShare(name, ci.OwnerPoolName, cra.conf, cra.extraConf, cra.metaCache, cra.metaServer, cra.emitter)
 
 		return []region.QoSRegion{r}, nil
 

@@ -67,7 +67,7 @@ type resourceAdvisorWrapper struct {
 
 // NewResourceAdvisor returns a resource advisor wrapper instance, initializing all required
 // sub resource advisor according to config
-func NewResourceAdvisor(conf *config.Configuration, metaCache *metacache.MetaCache,
+func NewResourceAdvisor(conf *config.Configuration, extraConf interface{}, metaCache *metacache.MetaCache,
 	metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter) (ResourceAdvisor, error) {
 	resourceAdvisor := resourceAdvisorWrapper{
 		subAdvisorsToRun: make(map[types.QoSResourceName]SubResourceAdvisor),
@@ -75,7 +75,7 @@ func NewResourceAdvisor(conf *config.Configuration, metaCache *metacache.MetaCac
 
 	for _, resourceNameStr := range conf.ResourceAdvisors {
 		resourceName := types.QoSResourceName(resourceNameStr)
-		subAdvisor, err := NewSubResourceAdvisor(resourceName, conf, metaCache, metaServer, emitter)
+		subAdvisor, err := NewSubResourceAdvisor(resourceName, conf, extraConf, metaCache, metaServer, emitter)
 		if err != nil {
 			return nil, fmt.Errorf("new sub resource advisor for %v failed: %v", resourceName, err)
 		}
@@ -86,13 +86,13 @@ func NewResourceAdvisor(conf *config.Configuration, metaCache *metacache.MetaCac
 }
 
 // NewSubResourceAdvisor returns a corresponding advisor according to resource name
-func NewSubResourceAdvisor(resourceName types.QoSResourceName, conf *config.Configuration,
+func NewSubResourceAdvisor(resourceName types.QoSResourceName, conf *config.Configuration, extraConf interface{},
 	metaCache *metacache.MetaCache, metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter) (SubResourceAdvisor, error) {
 	switch resourceName {
 	case types.QoSResourceCPU:
-		return cpu.NewCPUResourceAdvisor(conf, metaCache, metaServer, emitter), nil
+		return cpu.NewCPUResourceAdvisor(conf, extraConf, metaCache, metaServer, emitter), nil
 	case types.QoSResourceMemory:
-		return memory.NewMemoryResourceAdvisor(conf, metaCache, metaServer, emitter), nil
+		return memory.NewMemoryResourceAdvisor(conf, extraConf, metaCache, metaServer, emitter), nil
 	default:
 		return nil, fmt.Errorf("try to new sub resource advisor for unsupported resource %v", resourceName)
 	}

@@ -23,7 +23,9 @@ import (
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
+	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
+	"github.com/kubewharf/katalyst-core/pkg/metrics"
 )
 
 // HeadroomPolicy generates resource headroom estimation based on configured algorithm
@@ -38,7 +40,8 @@ type HeadroomPolicy interface {
 	GetHeadroom() (resource.Quantity, error)
 }
 
-type InitFunc func(metaCache *metacache.MetaCache, metaServer *metaserver.MetaServer) HeadroomPolicy
+type InitFunc func(conf *config.Configuration, extraConfig interface{}, metaCache *metacache.MetaCache,
+	metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter) HeadroomPolicy
 
 var initializers sync.Map
 

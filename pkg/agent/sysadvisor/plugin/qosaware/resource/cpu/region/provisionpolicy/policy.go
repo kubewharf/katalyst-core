@@ -21,7 +21,9 @@ import (
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
+	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
+	"github.com/kubewharf/katalyst-core/pkg/metrics"
 )
 
 // ProvisionPolicy generates resource headroom estimation based on configured algorithm
@@ -42,7 +44,8 @@ type ProvisionPolicy interface {
 	GetProvision() (types.ControlKnob, error)
 }
 
-type InitFunc func(metaCache *metacache.MetaCache, metaServer *metaserver.MetaServer) ProvisionPolicy
+type InitFunc func(conf *config.Configuration, extraConfig interface{}, metaCache *metacache.MetaCache,
+	metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter) ProvisionPolicy
 
 var initializers sync.Map
 

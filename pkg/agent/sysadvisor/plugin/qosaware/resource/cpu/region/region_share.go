@@ -67,7 +67,7 @@ type QoSRegionShare struct {
 }
 
 // NewQoSRegionShare returns a region instance for shared pool
-func NewQoSRegionShare(name string, ownerPoolName string, conf *config.Configuration,
+func NewQoSRegionShare(name string, ownerPoolName string, conf *config.Configuration, extraConf interface{},
 	metaCache *metacache.MetaCache, metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter) QoSRegion {
 
 	r := &QoSRegionShare{
@@ -91,7 +91,7 @@ func NewQoSRegionShare(name string, ownerPoolName string, conf *config.Configura
 	for _, policyName := range provisionPolicyList {
 		if initializer, ok := initializers[policyName]; ok {
 			r.provisionPolicyMap[policyName] = &provisionPolicyWrapper{
-				initializer(metaCache, metaServer),
+				initializer(conf, extraConf, metaCache, metaServer, emitter),
 				types.PolicyUpdateFailed,
 			}
 			r.regulatorMap[policyName] = newCPURegulator(maxRampUpStep, maxRampDownStep, minRampDownPeriod)

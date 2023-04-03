@@ -59,7 +59,7 @@ type memoryResourceAdvisor struct {
 }
 
 // NewMemoryResourceAdvisor returns a memoryResourceAdvisor instance
-func NewMemoryResourceAdvisor(conf *config.Configuration, metaCache *metacache.MetaCache,
+func NewMemoryResourceAdvisor(conf *config.Configuration, extraConf interface{}, metaCache *metacache.MetaCache,
 	metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter) *memoryResourceAdvisor {
 	ra := &memoryResourceAdvisor{
 		name:      memoryResourceAdvisorName,
@@ -76,7 +76,7 @@ func NewMemoryResourceAdvisor(conf *config.Configuration, metaCache *metacache.M
 	ra.reservedForAllocate = reservedDefault.Value()
 
 	// Keep canonical policy by default as baseline
-	ra.headroomPolicy = headroompolicy.NewPolicyCanonical(metaCache, metaServer)
+	ra.headroomPolicy = headroompolicy.NewPolicyCanonical(conf, extraConf, metaCache, metaServer, emitter)
 
 	return ra
 }
