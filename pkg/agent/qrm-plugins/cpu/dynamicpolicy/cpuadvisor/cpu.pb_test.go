@@ -26,11 +26,11 @@ import (
 
 func TestCPUPB(t *testing.T) {
 	OverlapType_OverlapWithPod.EnumDescriptor()
-	OverlapType_OverlapWithPod.String()
+	_ = OverlapType_OverlapWithPod.String()
 
 	req := &AddContainerRequest{}
 	req.Reset()
-	req.String()
+	_ = req.String()
 	req.ProtoMessage()
 	req.XXX_Size()
 	req.XXX_Merge(req)
@@ -51,7 +51,7 @@ func TestCPUPB(t *testing.T) {
 
 	resp := &AddContainerResponse{}
 	resp.Reset()
-	resp.String()
+	_ = resp.String()
 	resp.ProtoMessage()
 	resp.XXX_Size()
 	resp.XXX_Merge(resp)
@@ -62,7 +62,7 @@ func TestCPUPB(t *testing.T) {
 
 	empty := &Empty{}
 	empty.Reset()
-	empty.String()
+	_ = empty.String()
 	empty.ProtoMessage()
 	empty.XXX_Size()
 	empty.XXX_Merge(empty)
@@ -73,7 +73,7 @@ func TestCPUPB(t *testing.T) {
 
 	removeReq := &RemovePodRequest{}
 	removeReq.Reset()
-	removeReq.String()
+	_ = removeReq.String()
 	removeReq.ProtoMessage()
 	removeReq.XXX_Size()
 	removeReq.XXX_Merge(removeReq)
@@ -85,7 +85,7 @@ func TestCPUPB(t *testing.T) {
 
 	removeResp := &RemovePodResponse{}
 	removeResp.Reset()
-	removeResp.String()
+	_ = removeResp.String()
 	removeResp.ProtoMessage()
 	removeResp.XXX_Size()
 	removeResp.XXX_Merge(removeResp)
@@ -96,7 +96,7 @@ func TestCPUPB(t *testing.T) {
 
 	lwResp := &ListAndWatchResponse{}
 	lwResp.Reset()
-	lwResp.String()
+	_ = lwResp.String()
 	lwResp.ProtoMessage()
 	lwResp.XXX_Size()
 	lwResp.XXX_Merge(lwResp)
@@ -107,7 +107,7 @@ func TestCPUPB(t *testing.T) {
 
 	ce := &CalculationEntries{}
 	ce.Reset()
-	ce.String()
+	_ = ce.String()
 	ce.ProtoMessage()
 	ce.XXX_Size()
 	ce.XXX_Merge(ce)
@@ -119,7 +119,7 @@ func TestCPUPB(t *testing.T) {
 
 	ci := &CalculationInfo{}
 	ci.Reset()
-	ci.String()
+	_ = ci.String()
 	ci.ProtoMessage()
 	ci.XXX_Size()
 	ci.XXX_Merge(ci)
@@ -132,7 +132,7 @@ func TestCPUPB(t *testing.T) {
 
 	ncr := &NumaCalculationResult{}
 	ncr.Reset()
-	ncr.String()
+	_ = ncr.String()
 	ncr.ProtoMessage()
 	ncr.XXX_Size()
 	ncr.XXX_Merge(ncr)
@@ -144,7 +144,7 @@ func TestCPUPB(t *testing.T) {
 
 	block := &Block{}
 	block.Reset()
-	block.String()
+	_ = block.String()
 	block.ProtoMessage()
 	block.XXX_Size()
 	block.XXX_Merge(block)
@@ -157,7 +157,7 @@ func TestCPUPB(t *testing.T) {
 
 	ot := &OverlapTarget{}
 	ot.Reset()
-	ot.String()
+	_ = ot.String()
 	ot.ProtoMessage()
 	ot.XXX_Size()
 	ot.XXX_Merge(ot)
@@ -172,7 +172,7 @@ func TestCPUPB(t *testing.T) {
 
 	chkReq := &GetCheckpointRequest{}
 	chkReq.Reset()
-	chkReq.String()
+	_ = chkReq.String()
 	chkReq.ProtoMessage()
 	chkReq.XXX_Size()
 	chkReq.XXX_Merge(chkReq)
@@ -183,7 +183,7 @@ func TestCPUPB(t *testing.T) {
 
 	chkResp := &GetCheckpointResponse{}
 	chkResp.Reset()
-	chkResp.String()
+	_ = chkResp.String()
 	chkResp.ProtoMessage()
 	chkResp.XXX_Size()
 	chkResp.XXX_Merge(chkResp)
@@ -194,7 +194,7 @@ func TestCPUPB(t *testing.T) {
 
 	ae := &AllocationEntries{}
 	ae.Reset()
-	ae.String()
+	_ = ae.String()
 	ae.ProtoMessage()
 	ae.XXX_Size()
 	ae.XXX_Merge(ae)
@@ -205,7 +205,7 @@ func TestCPUPB(t *testing.T) {
 
 	ai := &AllocationInfo{}
 	ai.Reset()
-	ai.String()
+	_ = ai.String()
 	ai.ProtoMessage()
 	ai.XXX_Size()
 	ai.XXX_Merge(ai)

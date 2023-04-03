@@ -167,11 +167,9 @@ func Test_notifySystem(t *testing.T) {
 	m.metricStore.SetContainerNumaMetric("test-pod", "test-container", "3", "test-container-numa-metric", 75)
 
 	go func() {
-		cnt := 0
 		for {
 			select {
 			case response := <-rChan:
-				cnt++
 				switch response.Req.MetricName {
 				case "test-node-metric":
 					assert.Equal(t, response.Result, 34)
@@ -188,7 +186,6 @@ func Test_notifySystem(t *testing.T) {
 				}
 			}
 		}
-		assert.Equal(t, cnt, 6)
 	}()
 
 	time.Sleep(time.Second * 10)
