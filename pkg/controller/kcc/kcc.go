@@ -27,7 +27,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/labels"
-	"k8s.io/apimachinery/pkg/runtime/schema"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/wait"
@@ -153,7 +152,6 @@ func (k *KatalystCustomConfigController) Run() {
 	for i := 0; i < kccWorkerCount; i++ {
 		go wait.Until(k.worker, time.Second, k.ctx.Done())
 	}
-	go wait.Until(k.monitor, 30*time.Second, k.ctx.Done())
 
 	<-k.ctx.Done()
 }
@@ -231,16 +229,7 @@ func (k *KatalystCustomConfigController) processNextKatalystCustomConfigWorkItem
 }
 
 func (k *KatalystCustomConfigController) syncKatalystCustomConfig(key string) error {
-	begin := time.Now()
-	defer func() {
-		costs := time.Since(begin)
-		klog.V(4).Infof("[kcc] finished syncing kcc %q (%v)", key, costs)
-		_ = k.metricsEmitter.StoreInt64(metricsNameSyncKCCCost, costs.Microseconds(),
-			metrics.MetricTypeNameRaw, metrics.MetricTag{Key: "name", Val: key})
-	}()
-
 	klog.V(4).Infof("[kcc] processing kcc %s", key)
-
 	kcc, err := k.getKCCByKey(key)
 	if apierrors.IsNotFound(err) {
 		klog.Warningf("[kcc] kcc %s is not found", key)
@@ -364,17 +353,6 @@ func (k *KatalystCustomConfigController) katalystCustomConfigTargetHandler(gvr m
 			return fmt.Errorf("[kcc] informer has not synced")
 		}
 	}
-
-	begin := time.Now()
-	defer func() {
-		costs := time.Since(begin)
-		klog.V(4).Infof("[kcc] finished syncing kcct %q %v (%v)", gvr, native.GenerateUniqObjectNameKey(target), costs)
-		_ = k.metricsEmitter.StoreInt64(metricsNameSyncKCCTargetCost, costs.Microseconds(), metrics.MetricTypeNameRaw,
-			[]metrics.MetricTag{
-				{Key: "gvr", Val: native.GenerateDynamicResourceByGVR(schema.GroupVersionResource(gvr))},
-				{Key: "target", Val: native.GenerateUniqObjectNameKey(target)},
-			}...)
-	}()
 
 	klog.V(4).Infof("[kcc] gvr: %s, target: %s updated", gvr.String(), native.GenerateUniqObjectNameKey(target))
 	if target.GetDeletionTimestamp() != nil {

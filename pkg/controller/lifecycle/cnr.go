@@ -48,8 +48,6 @@ import (
 const (
 	cnrLifecycleControllerName = "cnr-lifecycle"
 	cnrLifeCycleWorkerCount    = 1
-
-	metricsNameSyncCNRCost = "sync_cnr_cost"
 )
 
 const (
@@ -133,7 +131,6 @@ func (cl *CNRLifecycle) Run() {
 	klog.Infof("start %d workers for %s controller", cnrLifeCycleWorkerCount, cnrLifecycleControllerName)
 
 	go wait.Until(cl.clearUnexpectedCNR, clearCNRPeriod, cl.ctx.Done())
-	go wait.Until(cl.monitor, 30*time.Second, cl.ctx.Done())
 	for i := 0; i < cnrLifeCycleWorkerCount; i++ {
 		go wait.Until(cl.worker, time.Second, cl.ctx.Done())
 	}
@@ -245,14 +242,6 @@ func (cl *CNRLifecycle) enqueueWorkItem(obj interface{}) {
 
 // sync syncs the given node.
 func (cl *CNRLifecycle) sync(key string) error {
-	begin := time.Now()
-	defer func() {
-		costs := time.Since(begin)
-		klog.Infof("Finished syncing cnr %q (%v)", key, costs)
-		_ = cl.metricsEmitter.StoreInt64(metricsNameSyncCNRCost, costs.Microseconds(),
-			metrics.MetricTypeNameRaw, metrics.MetricTag{Key: "name", Val: key})
-	}()
-
 	_, name, err := cache.SplitMetaNamespaceKey(key)
 	if err != nil {
 		return err

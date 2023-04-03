@@ -19,11 +19,11 @@ package target
 import (
 	"context"
 	"fmt"
-	"k8s.io/apimachinery/pkg/labels"
 	"sync"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/tools/cache"
@@ -145,23 +145,46 @@ func (k *KatalystCustomConfigTargetHandler) addKatalystCustomConfigEventHandle(o
 	}
 }
 
-func (k *KatalystCustomConfigTargetHandler) updateKatalystCustomConfigEventHandle(_ interface{}, obj interface{}) {
-	kcc, ok := obj.(*configapis.KatalystCustomConfig)
+func (k *KatalystCustomConfigTargetHandler) updateKatalystCustomConfigEventHandle(old interface{}, new interface{}) {
+	oldKCC, ok := old.(*configapis.KatalystCustomConfig)
 	if !ok {
-		klog.Errorf("cannot convert obj to *KatalystCustomConfig: %v", obj)
+		klog.Errorf("cannot convert obj to *KatalystCustomConfig: %v", new)
 		return
 	}
 
-	key, err := cache.DeletionHandlingMetaNamespaceKeyFunc(kcc)
-	if err != nil {
-		utilruntime.HandleError(fmt.Errorf("couldn't get key for object %#v: %v", kcc, err))
+	newKCC, ok := new.(*configapis.KatalystCustomConfig)
+	if !ok {
+		klog.Errorf("cannot convert obj to *KatalystCustomConfig: %v", new)
 		return
 	}
 
-	_, err = k.addOrUpdateGVRAndKCC(kcc.Spec.TargetType, key)
+	key, err := cache.DeletionHandlingMetaNamespaceKeyFunc(newKCC)
 	if err != nil {
-		klog.Errorf("cannot convert add or update gvr %s kcc %s: %v", kcc.Spec.TargetType, key, err)
+		utilruntime.HandleError(fmt.Errorf("couldn't get key for object %#v: %v", newKCC, err))
 		return
+	}
+
+	_, err = k.addOrUpdateGVRAndKCC(newKCC.Spec.TargetType, key)
+	if err != nil {
+		klog.Errorf("cannot convert add or update gvr %s kcc %s: %v", newKCC.Spec.TargetType, key, err)
+		return
+	}
+
+	// if kcc has updated, it needs trigger all related kcc target to reconcile
+	if newKCC.GetGeneration() == newKCC.Status.ObservedGeneration &&
+		oldKCC.Status.ObservedGeneration != newKCC.Status.ObservedGeneration {
+		accessor, ok := k.GetTargetAccessorByGVR(newKCC.Spec.TargetType)
+		if ok {
+			kccTargets, err := accessor.List(labels.Everything())
+			if err != nil {
+				klog.Errorf("list gvr %s kcc target failed: %v", newKCC.Spec.TargetType, err)
+				return
+			}
+
+			for _, target := range kccTargets {
+				accessor.Enqueue("", target)
+			}
+		}
 	}
 }
 

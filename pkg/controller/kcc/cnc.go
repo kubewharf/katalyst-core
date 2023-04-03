@@ -26,7 +26,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/labels"
-	"k8s.io/apimachinery/pkg/runtime/schema"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/tools/cache"
@@ -156,17 +155,6 @@ func (c *CustomNodeConfigController) katalystCustomConfigTargetHandler(gvr metav
 			return fmt.Errorf("informer has not synced")
 		}
 	}
-
-	begin := time.Now()
-	defer func() {
-		costs := time.Since(begin)
-		klog.V(4).Infof("[cnc] finished syncing kcct %q %v (%v)", gvr, native.GenerateUniqObjectNameKey(target), costs)
-		_ = c.metricsEmitter.StoreInt64(metricsNameSyncKCCTargetCost, costs.Microseconds(), metrics.MetricTypeNameRaw,
-			[]metrics.MetricTag{
-				{Key: "gvr", Val: native.GenerateDynamicResourceByGVR(schema.GroupVersionResource(gvr))},
-				{Key: "target", Val: native.GenerateUniqObjectNameKey(target)},
-			}...)
-	}()
 
 	targetAccessor, ok := c.targetHandler.GetTargetAccessorByGVR(gvr)
 	if !ok || targetAccessor == nil {
@@ -299,14 +287,6 @@ func (c *CustomNodeConfigController) processNextKatalystCustomConfigWorkItem() b
 }
 
 func (c *CustomNodeConfigController) syncCustomNodeConfig(key string) error {
-	begin := time.Now()
-	defer func() {
-		costs := time.Since(begin)
-		klog.V(5).Infof("[cnc] finished syncing cnc %q (%v)", key, costs)
-		_ = c.metricsEmitter.StoreInt64(metricsNameSyncCNCCost, costs.Microseconds(),
-			metrics.MetricTypeNameRaw, metrics.MetricTag{Key: "name", Val: key})
-	}()
-
 	klog.V(5).Infof("[cnc] processing cnc key %s", key)
 	_, name, err := cache.SplitMetaNamespaceKey(key)
 	if err != nil {

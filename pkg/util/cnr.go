@@ -50,6 +50,11 @@ var (
 		consts.ReclaimedResourceMilliCPU: corev1.ResourceCPU,
 		consts.ReclaimedResourceMemory:   corev1.ResourceMemory,
 	}
+
+	NoScheduleForReclaimedTasksTaint = apis.Taint{
+		Key:    corev1.TaintNodeUnschedulable,
+		Effect: apis.TaintEffectNoScheduleForReclaimedTasks,
+	}
 )
 
 // GetCNRCondition extracts the provided condition from the given status and returns that.

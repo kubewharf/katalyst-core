@@ -148,17 +148,13 @@ func TestTaintCNR(t *testing.T) {
 		klog.Errorf("Get cnr1 %v error:%v", cnr1.Name, err)
 	}
 
-	newTaint := &apis.Taint{
-		Key:    corev1.TaintNodeUnschedulable,
-		Effect: apis.TaintEffectNoScheduleForReclaimedTasks,
-	}
-	newCNR, _, _ := util.AddOrUpdateCNRTaint(cnr1, newTaint)
+	newCNR, _, _ := util.AddOrUpdateCNRTaint(cnr1, &util.NoScheduleForReclaimedTasksTaint)
 
 	if newCNR.Spec.Taints[0].Key != corev1.TaintNodeUnschedulable || newCNR.Spec.Taints[0].Effect != apis.TaintEffectNoScheduleForReclaimedTasks {
 		t.Errorf("tanit cnr error")
 	}
 
-	_, ok, _ := util.RemoveCNRTaint(newCNR, newTaint)
+	_, ok, _ := util.RemoveCNRTaint(newCNR, &util.NoScheduleForReclaimedTasksTaint)
 	if !ok {
 		t.Errorf("remove tanit cnr error")
 	}

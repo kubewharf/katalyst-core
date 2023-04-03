@@ -162,7 +162,7 @@ func (k *RealKatalystCustomConfigTargetAccessor) Stop() {
 // Enqueue will add the obj to the work queue of the target handler, if name is empty,
 // it will add the obj to all the work queue of the target handler
 func (k *RealKatalystCustomConfigTargetAccessor) Enqueue(name string, obj *unstructured.Unstructured) {
-	if name == "" {
+	if len(name) == 0 {
 		k.enqueueTarget(obj)
 		return
 	}

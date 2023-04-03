@@ -56,7 +56,7 @@ func StartLifeCycleController(ctx context.Context, controlCtx *katalystbase.Gene
 	cncLifecycle, err = lifecycle.NewCNCLifecycle(ctx,
 		conf.GenericConfiguration,
 		conf.GenericControllerConfiguration,
-		conf.ControllersConfiguration.LifeCycleConfig,
+		conf.ControllersConfiguration.CNCLifecycleConfig,
 		controlCtx.Client,
 		controlCtx.KubeInformerFactory.Core().V1().Nodes(),
 		controlCtx.InternalInformerFactory.Config().V1alpha1().CustomNodeConfigs(),

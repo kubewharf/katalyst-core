@@ -27,7 +27,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/labels"
-	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/selection"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/apimachinery/pkg/util/sets"
@@ -105,10 +104,6 @@ func NewKatalystCustomConfigTargetController(
 		},
 	}
 
-	katalystCustomConfigInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
-		UpdateFunc: k.updateKatalystCustomConfigEventHandle,
-	})
-
 	if metricsEmitter == nil {
 		k.metricsEmitter = metrics.DummyMetrics{}
 	} else {
@@ -140,38 +135,8 @@ func (k *KatalystCustomConfigTargetController) Run() {
 	klog.Infof("caches are synced for %s controller", kccTargetControllerName)
 
 	go wait.Until(k.clearExpiredKCCTarget, 30*time.Second, k.ctx.Done())
-	go wait.Until(k.monitor, 30*time.Second, k.ctx.Done())
 
 	<-k.ctx.Done()
-}
-
-func (k *KatalystCustomConfigTargetController) updateKatalystCustomConfigEventHandle(old, new interface{}) {
-	oldKCC, ok := old.(*configapis.KatalystCustomConfig)
-	if !ok {
-		klog.Errorf("cannot convert obj to *KatalystCustomConfig: %v", new)
-		return
-	}
-
-	newKCC, ok := new.(*configapis.KatalystCustomConfig)
-	if !ok {
-		klog.Errorf("cannot convert obj to *KatalystCustomConfig: %v", new)
-		return
-	}
-
-	klog.V(4).Infof("notice update of KatalystCustomConfig %s", native.GenerateUniqObjectNameKey(newKCC))
-	// if kcc has updated, it needs trigger all kcc target to reconcile
-	if newKCC.GetGeneration() == newKCC.Status.ObservedGeneration &&
-		oldKCC.Status.ObservedGeneration != newKCC.Status.ObservedGeneration {
-		targets, err := k.listAllKCCTargetResource(newKCC.Spec.TargetType)
-		if err != nil {
-			return
-		}
-
-		err = k.enqueueTargets(newKCC.Spec.TargetType, targets)
-		if err != nil {
-			return
-		}
-	}
 }
 
 // katalystCustomConfigTargetHandler process object of kcc target type from targetAccessor, and
@@ -182,17 +147,6 @@ func (k *KatalystCustomConfigTargetController) katalystCustomConfigTargetHandler
 			return fmt.Errorf("[kcct] informer has not synced")
 		}
 	}
-
-	begin := time.Now()
-	defer func() {
-		costs := time.Since(begin)
-		klog.V(4).Infof("[kcct] finished syncing kcct %q %v (%v)", gvr, native.GenerateUniqObjectNameKey(target), costs)
-		_ = k.metricsEmitter.StoreInt64(metricsNameSyncKCCTargetCost, costs.Microseconds(), metrics.MetricTypeNameRaw,
-			[]metrics.MetricTag{
-				{Key: "gvr", Val: native.GenerateDynamicResourceByGVR(schema.GroupVersionResource(gvr))},
-				{Key: "target", Val: native.GenerateUniqObjectNameKey(target)},
-			}...)
-	}()
 
 	klog.V(4).Infof("gvr: %s, target: %s updated", gvr.String(), native.GenerateUniqObjectNameKey(target))
 

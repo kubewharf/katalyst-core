@@ -22,7 +22,6 @@ import (
 	"sync"
 	"time"
 
-	"go.uber.org/atomic"
 	corev1 "k8s.io/api/core/v1"
 	apiequality "k8s.io/apimachinery/pkg/api/equality"
 	"k8s.io/apimachinery/pkg/api/errors"
@@ -95,19 +94,14 @@ const (
 	metricsNameAgentNotReadyTotal = "agent_not_ready_total"
 	metricsNameAgentNotFoundTotal = "agent_not_found_total"
 
+	metricsNameHealthState = "health_state"
+
 	metricsNameUntaintedCNRCount        = "untainted_cnr_count"
 	metricsNameTaintedCNRCount          = "tainted_cnr_count"
 	metricsNameEvictedReclaimedPodCount = "evicted_reclaimed_pod_count"
 
 	metricsTagKeyAgentName = "agentName"
 	metricsTagKeyNodeName  = "nodeName"
-)
-
-var (
-	noScheduleForReclaimedTasksTaint = apis.Taint{
-		Key:    corev1.TaintNodeUnschedulable,
-		Effect: apis.TaintEffectNoScheduleForReclaimedTasks,
-	}
 )
 
 type cnrHealthData struct {
@@ -192,9 +186,6 @@ type EvictionController struct {
 	// cnrHeartBeatMap is per CNR map storing last observed health together with a local time when it was observed.
 	cnrHeartBeatMap *cnrHeartBeatMap
 
-	// cnrHealthState is a global state of CNR health, it is updated by Controller
-	healthState *atomic.String
-
 	// cnrUpdateTimeWindow controlling Controller updating HeartBeatMap TimeWindow.
 	cnrUpdateTimeWindow time.Duration
 	// cnrMonitorPeriod controlling Controller monitoring period, i.e. how often does Controller
@@ -243,7 +234,6 @@ func NewEvictionController(ctx context.Context,
 		evictionLimiterQPS:    evictionLimiterQPS,
 		unhealthyThreshold:    unhealthyThreshold,
 		cnrHeartBeatMap:       newCNRHeartBeatMap(),
-		healthState:           atomic.NewString(""),
 		cnrTaintQueue:         scheduler.NewRateLimitedTimedQueue(flowcontrol.NewTokenBucketRateLimiter(evictionLimiterQPS, scheduler.EvictionRateLimiterBurst)),
 		cnrEvictQueue:         scheduler.NewRateLimitedTimedQueue(flowcontrol.NewTokenBucketRateLimiter(evictionLimiterQPS, scheduler.EvictionRateLimiterBurst)),
 		reclaimedPodFilter:    generic.NewQoSConfiguration().CheckReclaimedQoSForPod,
@@ -332,7 +322,6 @@ func (ec *EvictionController) Run() {
 	go wait.Until(ec.syncAgentHealth, ec.cnrMonitorPeriod, ec.ctx.Done())
 	go wait.Until(ec.doTaint, scheduler.NodeEvictionPeriod, ec.ctx.Done())
 	go wait.Until(ec.doEviction, scheduler.NodeEvictionPeriod, ec.ctx.Done())
-	go wait.Until(ec.monitor, 30*time.Second, ec.ctx.Done())
 	<-ec.ctx.Done()
 }
 
@@ -372,12 +361,7 @@ func (ec *EvictionController) doTaint() {
 }
 
 func (ec *EvictionController) taintCNR(cnr *apis.CustomNodeResource) error {
-	newTaint := &apis.Taint{
-		Key:    corev1.TaintNodeUnschedulable,
-		Effect: apis.TaintEffectNoScheduleForReclaimedTasks,
-	}
-
-	newCNR, ok, err := util.AddOrUpdateCNRTaint(cnr, newTaint)
+	newCNR, ok, err := util.AddOrUpdateCNRTaint(cnr, &util.NoScheduleForReclaimedTasksTaint)
 	if err != nil {
 		return err
 	}
@@ -403,12 +387,7 @@ func (ec *EvictionController) taintCNR(cnr *apis.CustomNodeResource) error {
 
 // unTaintCNR is used to delete taint info from CNR
 func (ec *EvictionController) unTaintCNR(cnr *apis.CustomNodeResource) error {
-	taint := &apis.Taint{
-		Key:    corev1.TaintNodeUnschedulable,
-		Effect: apis.TaintEffectNoScheduleForReclaimedTasks,
-	}
-
-	newCNR, ok, err := util.RemoveCNRTaint(cnr, taint)
+	newCNR, ok, err := util.RemoveCNRTaint(cnr, &util.NoScheduleForReclaimedTasksTaint)
 	if err != nil {
 		return err
 	}
@@ -619,7 +598,7 @@ func (ec *EvictionController) syncAgentHealth() {
 		withoutTaintCondition := ec.checkCNRAgentReady(cnr, ec.cnrMonitorTaintPeriod)
 		if !readyCondition && !withoutTaintCondition {
 			notReadyNodes++
-			if !util.CNRTaintExists(cnr.Spec.Taints, &noScheduleForReclaimedTasksTaint) {
+			if !util.CNRTaintExists(cnr.Spec.Taints, &util.NoScheduleForReclaimedTasksTaint) {
 				ec.cnrTaintQueue.Add(cnr.Name, string(cnr.UID))
 			} else {
 				if !ec.checkCNRAgentReady(cnr, ec.cnrMonitorGracePeriod) &&
@@ -630,7 +609,7 @@ func (ec *EvictionController) syncAgentHealth() {
 		} else if readyCondition && withoutTaintCondition {
 			readyNodes++
 			if err := ec.unTaintCNR(cnr); err != nil {
-				klog.Errorf("try de-noScheduleForReclaimedTasksTaint cnr %v error %v", cnr.Name, err)
+				klog.Errorf("try de-taint cnr %v error %v", cnr.Name, err)
 				continue
 			}
 		}
@@ -638,8 +617,6 @@ func (ec *EvictionController) syncAgentHealth() {
 
 	klog.Infof("There are %v ready nodes, %v not ready nodes.", readyNodes, notReadyNodes)
 	healthState := ec.computeClusterState(readyNodes, notReadyNodes)
-
-	ec.healthState.Store(healthState)
 	ec.handleDisruption(healthState)
 }
 
@@ -749,5 +726,11 @@ func (ec *EvictionController) handleDisruption(healthState string) {
 		ec.cnrTaintQueue.SwapLimiter(evictionLimiterQPS)
 		ec.cnrEvictQueue.SwapLimiter(evictionLimiterQPS)
 	}
+
+	_ = ec.metricsEmitter.StoreInt64(metricsNameHealthState, 1, metrics.MetricTypeNameRaw,
+		[]metrics.MetricTag{
+			{Key: "status", Val: healthState},
+			{Key: "threshold", Val: fmt.Sprintf("%v", ec.unhealthyThreshold)},
+		}...)
 	klog.Infof("eviction controller detect nodes are %v.", healthState)
 }

@@ -48,8 +48,6 @@ import (
 const (
 	cncLifecycleControllerName = "cnc-lifecycle"
 	cncLifeCycleWorkerCount    = 1
-
-	metricsNameSyncCNCCost = "sync_cnc_cost"
 )
 
 const (
@@ -77,7 +75,7 @@ type CNCLifecycle struct {
 func NewCNCLifecycle(ctx context.Context,
 	genericConf *generic.GenericConfiguration,
 	_ *controller.GenericControllerConfiguration,
-	_ *controller.LifeCycleConfig,
+	_ *controller.CNCLifecycleConfig,
 	client *client.GenericClientSet,
 	nodeInformer coreinformers.NodeInformer,
 	cncInformer configinformers.CustomNodeConfigInformer,
@@ -133,7 +131,6 @@ func (cl *CNCLifecycle) Run() {
 	klog.Infof("start %d workers for %s controller", cncLifeCycleWorkerCount, cncLifecycleControllerName)
 
 	go wait.Until(cl.clearUnexpectedCNC, clearCNCPeriod, cl.ctx.Done())
-	go wait.Until(cl.monitor, 30*time.Second, cl.ctx.Done())
 	for i := 0; i < cncLifeCycleWorkerCount; i++ {
 		go wait.Until(cl.worker, time.Second, cl.ctx.Done())
 	}
@@ -244,14 +241,6 @@ func (cl *CNCLifecycle) enqueueWorkItem(obj interface{}) {
 
 // sync syncs the given node.
 func (cl *CNCLifecycle) sync(key string) error {
-	begin := time.Now()
-	defer func() {
-		costs := time.Since(begin)
-		klog.Infof("Finished syncing cnc %q (%v)", key, costs)
-		_ = cl.metricsEmitter.StoreInt64(metricsNameSyncCNCCost, costs.Microseconds(),
-			metrics.MetricTypeNameRaw, metrics.MetricTag{Key: "name", Val: key})
-	}()
-
 	_, name, err := cache.SplitMetaNamespaceKey(key)
 	if err != nil {
 		return err
