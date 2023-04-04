@@ -19,8 +19,6 @@ package headroompolicy
 import (
 	"sync"
 
-	"k8s.io/apimachinery/pkg/api/resource"
-
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
 	"github.com/kubewharf/katalyst-core/pkg/config"
@@ -33,11 +31,18 @@ type HeadroomPolicy interface {
 	// SetPodSet overwrites policy's pod/container record
 	SetPodSet(types.PodSet)
 
+	// SetControlKnobValue delivers the lastest adjusted control konb value for
+	// generating headroom value
+	SetControlKnobValue(controlKnobValue types.ControlKnob)
+
+	// SetEssentials updates essential values for policy update
+	SetEssentials(total int)
+
 	// Update triggers an epoch of algorithm update
 	Update() error
 
 	// GetHeadroom returns the latest headroom estimation
-	GetHeadroom() (resource.Quantity, error)
+	GetHeadroom() (float64, error)
 }
 
 type InitFunc func(conf *config.Configuration, extraConfig interface{}, metaCache *metacache.MetaCache,

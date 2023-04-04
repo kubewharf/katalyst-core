@@ -152,7 +152,7 @@ func (r *QoSRegionShare) TryUpdateProvision() {
 		}
 		wrapper.updateStatus = types.PolicyUpdateSucceeded
 
-		controlKnob, err := p.GetProvision()
+		controlKnob, err := p.GetControlKnobAdjusted()
 		if err != nil {
 			klog.Errorf("[qosaware-cpu] update policy %v failed: %v", policyName, err)
 		}

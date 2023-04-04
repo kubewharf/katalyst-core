@@ -71,7 +71,7 @@ func (p *PolicyCanonical) Update() error {
 	return nil
 }
 
-func (p *PolicyCanonical) GetProvision() (types.ControlKnob, error) {
+func (p *PolicyCanonical) GetControlKnobAdjusted() (types.ControlKnob, error) {
 	return types.ControlKnob{
 		types.ControlKnobSharedCPUSetSize: {
 			Value:  p.cpuRequirement,

@@ -17,38 +17,41 @@ limitations under the License.
 package headroompolicy
 
 import (
+	"fmt"
+
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
+	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
+	"github.com/kubewharf/katalyst-core/pkg/metrics"
 )
 
-type PolicyBase struct {
-	PodSet           types.PodSet
-	ControlKnobValue types.ControlKnob
-	Total            int
+type PolicyCanonical struct {
+	*PolicyBase
 
-	MetaCache  *metacache.MetaCache
-	MetaServer *metaserver.MetaServer
+	headroomValue float64
 }
 
-func NewPolicyBase(metaCache *metacache.MetaCache, metaServer *metaserver.MetaServer) *PolicyBase {
-	cp := &PolicyBase{
-		PodSet: make(types.PodSet),
-
-		MetaCache:  metaCache,
-		MetaServer: metaServer,
+func NewPolicyCanonical(_ *config.Configuration, _ interface{}, metaCache *metacache.MetaCache,
+	metaServer *metaserver.MetaServer, _ metrics.MetricEmitter) HeadroomPolicy {
+	p := &PolicyCanonical{
+		PolicyBase: NewPolicyBase(metaCache, metaServer),
 	}
-	return cp
+
+	return p
 }
 
-func (p *PolicyBase) SetPodSet(podSet types.PodSet) {
-	p.PodSet = podSet.DeepCopy()
+func (p *PolicyCanonical) Update() error {
+	cpuRequirement, ok := p.ControlKnobValue[types.ControlKnobSharedCPUSetSize]
+	if !ok {
+		return fmt.Errorf("get cpu requirement control knob failed")
+	}
+
+	p.headroomValue = float64(p.Total) - cpuRequirement.Value
+
+	return nil
 }
 
-func (p *PolicyBase) SetControlKnobValue(v types.ControlKnob) {
-	p.ControlKnobValue = v
-}
-
-func (p *PolicyBase) SetEssentials(total int) {
-	p.Total = total
+func (p *PolicyCanonical) GetHeadroom() (float64, error) {
+	return p.headroomValue, nil
 }

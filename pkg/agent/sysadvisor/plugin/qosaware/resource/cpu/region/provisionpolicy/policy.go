@@ -26,7 +26,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 )
 
-// ProvisionPolicy generates resource headroom estimation based on configured algorithm
+// ProvisionPolicy generates resource provision result based on configured algorithm
 type ProvisionPolicy interface {
 	// SetPodSet overwrites policy's pod/container record
 	SetPodSet(types.PodSet)
@@ -40,8 +40,8 @@ type ProvisionPolicy interface {
 	// Update triggers an epoch of algorithm update
 	Update() error
 
-	// GetProvision returns the latest adjusted control knob value
-	GetProvision() (types.ControlKnob, error)
+	// GetControlKnobAdjusted returns the latest adjusted control knob value
+	GetControlKnobAdjusted() (types.ControlKnob, error)
 }
 
 type InitFunc func(conf *config.Configuration, extraConfig interface{}, metaCache *metacache.MetaCache,
