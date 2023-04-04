@@ -14,20 +14,10 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package emitter
-
-import (
-	"context"
-)
+package types
 
 const (
 	MetricSyncerNamePod      = "pod"
 	MetricSyncerNameNode     = "node"
 	MetricSyncerNameExternal = "external"
 )
-
-// CustomMetricSyncer is used as a common implementation for custom-metrics emitter
-type CustomMetricSyncer interface {
-	Name() string
-	Run(ctx context.Context)
-}

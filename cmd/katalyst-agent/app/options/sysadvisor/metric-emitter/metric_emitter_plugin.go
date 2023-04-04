@@ -22,7 +22,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 	cliflag "k8s.io/component-base/cli/flag"
 
-	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/metric-emitter/emitter"
+	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/metric-emitter/types"
 	metricemitter "github.com/kubewharf/katalyst-core/pkg/config/agent/sysadvisor/metric-emitter"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 )
@@ -49,7 +49,7 @@ func NewMetricEmitterPluginOptions() *MetricEmitterPluginOptions {
 
 		NodeMetricLabels: []string{},
 
-		MetricSyncers: []string{emitter.MetricSyncerNamePod, emitter.MetricSyncerNameNode},
+		MetricSyncers: []string{types.MetricSyncerNamePod, types.MetricSyncerNameNode},
 	}
 }
 

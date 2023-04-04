@@ -27,7 +27,8 @@ import (
 	"k8s.io/klog/v2"
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
-	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/metric-emitter/emitter"
+	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/metric-emitter/syncer"
+	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/metric-emitter/types"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	metricemitter "github.com/kubewharf/katalyst-core/pkg/config/agent/sysadvisor/metric-emitter"
 	"github.com/kubewharf/katalyst-core/pkg/custom-metric/store/data"
@@ -46,8 +47,8 @@ type MetricSyncerExternal struct {
 	metaReader metacache.MetaReader
 }
 
-func NewMetricSyncerExternal(conf *config.Configuration, metricEmitter, dataEmitter metrics.MetricEmitter,
-	metaServer *metaserver.MetaServer, metaReader metacache.MetaReader) emitter.CustomMetricSyncer {
+func NewMetricSyncerExternal(conf *config.Configuration, _ interface{}, metricEmitter, dataEmitter metrics.MetricEmitter,
+	metaServer *metaserver.MetaServer, metaReader metacache.MetaReader) (syncer.CustomMetricSyncer, error) {
 	return &MetricSyncerExternal{
 		conf: conf.AgentConfiguration.MetricEmitterPluginConfiguration,
 
@@ -55,11 +56,11 @@ func NewMetricSyncerExternal(conf *config.Configuration, metricEmitter, dataEmit
 		dataEmitter:   dataEmitter,
 		metaServer:    metaServer,
 		metaReader:    metaReader,
-	}
+	}, nil
 }
 
 func (e *MetricSyncerExternal) Name() string {
-	return emitter.MetricSyncerNameExternal
+	return types.MetricSyncerNameExternal
 }
 
 func (e *MetricSyncerExternal) Run(ctx context.Context) {

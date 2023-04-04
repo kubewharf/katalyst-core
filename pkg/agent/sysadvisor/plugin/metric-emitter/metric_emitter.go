@@ -23,32 +23,30 @@ import (
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin"
-	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/metric-emitter/emitter"
-	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/metric-emitter/external"
-	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/metric-emitter/node"
-	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/metric-emitter/pod"
+	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/metric-emitter/syncer"
+	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/metric-emitter/syncer/external"
+	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/metric-emitter/syncer/node"
+	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/metric-emitter/syncer/pod"
+	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/metric-emitter/types"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	metricspool "github.com/kubewharf/katalyst-core/pkg/metrics/metrics-pool"
 )
 
+func init() {
+	syncer.RegisterMetricSyncInitializers(types.MetricSyncerNamePod, pod.NewMetricSyncerPod)
+	syncer.RegisterMetricSyncInitializers(types.MetricSyncerNameNode, node.NewMetricSyncerNode)
+	syncer.RegisterMetricSyncInitializers(types.MetricSyncerNameExternal, external.NewMetricSyncerExternal)
+}
+
 const PluginNameCustomMetricEmitter = "metric-emitter-plugin"
 
-type SyncerInitFunc func(conf *config.Configuration, metricEmitter, dataEmitter metrics.MetricEmitter,
-	metaServer *metaserver.MetaServer, metaReader metacache.MetaReader) emitter.CustomMetricSyncer
-
 type CustomMetricEmitter struct {
-	syncers []emitter.CustomMetricSyncer
+	syncers []syncer.CustomMetricSyncer
 }
 
-var metricSyncFunc = map[string]SyncerInitFunc{
-	emitter.MetricSyncerNameExternal: external.NewMetricSyncerExternal,
-	emitter.MetricSyncerNameNode:     node.NewMetricSyncerNode,
-	emitter.MetricSyncerNamePod:      pod.NewMetricSyncerPod,
-}
-
-func NewCustomMetricEmitter(conf *config.Configuration, _ interface{}, emitterPool metricspool.MetricsEmitterPool,
+func NewCustomMetricEmitter(conf *config.Configuration, extraConf interface{}, emitterPool metricspool.MetricsEmitterPool,
 	metaServer *metaserver.MetaServer, metaCache metacache.MetaCache) (plugin.SysAdvisorPlugin, error) {
 	dataEmitter, err := emitterPool.GetMetricsEmitter(metricspool.PrometheusMetricOptions{
 		Path: metrics.PrometheusMetricPathNameCustomMetric,
@@ -59,10 +57,14 @@ func NewCustomMetricEmitter(conf *config.Configuration, _ interface{}, emitterPo
 	}
 	metricEmitter := emitterPool.GetDefaultMetricsEmitter().WithTags("custom-metric")
 
-	var syncers []emitter.CustomMetricSyncer
+	var syncers []syncer.CustomMetricSyncer
 	for _, name := range conf.AgentConfiguration.SysAdvisorPluginsConfiguration.MetricSyncers {
-		if f, ok := metricSyncFunc[name]; ok {
-			syncers = append(syncers, f(conf, metricEmitter, dataEmitter, metaServer, metaCache))
+		if f, ok := syncer.GetRegisteredMetricSyncers()[name]; ok {
+			if s, err := f(conf, extraConf, metricEmitter, dataEmitter, metaServer, metaCache); err != nil {
+				return plugin.DummySysAdvisorPlugin{}, err
+			} else {
+				syncers = append(syncers, s)
+			}
 		}
 	}
 
@@ -84,8 +86,8 @@ func (cme *CustomMetricEmitter) Init() error {
 func (cme *CustomMetricEmitter) Run(ctx context.Context) {
 	klog.Info("custom metrics emitter stated")
 
-	for _, syncer := range cme.syncers {
-		syncer.Run(ctx)
+	for _, s := range cme.syncers {
+		s.Run(ctx)
 	}
 	<-ctx.Done()
 }

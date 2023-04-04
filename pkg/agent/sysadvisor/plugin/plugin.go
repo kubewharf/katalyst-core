@@ -21,6 +21,12 @@ package plugin
 
 import (
 	"context"
+	"sync"
+
+	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
+	"github.com/kubewharf/katalyst-core/pkg/config"
+	"github.com/kubewharf/katalyst-core/pkg/metaserver"
+	metricspool "github.com/kubewharf/katalyst-core/pkg/metrics/metrics-pool"
 )
 
 // SysAdvisorPlugin performs resource control computation based on agent resources.
@@ -37,3 +43,23 @@ type DummySysAdvisorPlugin struct{}
 func (d DummySysAdvisorPlugin) Name() string          { return "dummy-sysadvisor-plugin" }
 func (d DummySysAdvisorPlugin) Init() error           { return nil }
 func (d DummySysAdvisorPlugin) Run(_ context.Context) {}
+
+// AdvisorPluginInitFunc is used to initialize a particular inter SysAdvisor plugin.
+type AdvisorPluginInitFunc func(conf *config.Configuration, extraConf interface{},
+	emitterPool metricspool.MetricsEmitterPool, metaServer *metaserver.MetaServer,
+	metaCache metacache.MetaCache) (SysAdvisorPlugin, error)
+
+var advisorPluginInitializers sync.Map
+
+func RegisterHealthzCheckRules(plugin string, f AdvisorPluginInitFunc) {
+	advisorPluginInitializers.Store(plugin, f)
+}
+
+func GetRegisteredAdvisorPlugins() map[string]AdvisorPluginInitFunc {
+	plugins := make(map[string]AdvisorPluginInitFunc)
+	advisorPluginInitializers.Range(func(key, value interface{}) bool {
+		plugins[key.(string)] = value.(AdvisorPluginInitFunc)
+		return true
+	})
+	return plugins
+}

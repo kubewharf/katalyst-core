@@ -90,7 +90,10 @@ func Test_podAddAndRemoved(t *testing.T) {
 			MetricsFetcher: metric.NewFakeMetricsFetcher(metrics.DummyMetrics{}),
 		},
 	}
-	s := NewMetricSyncerPod(conf, metrics.DummyMetrics{}, metrics.DummyMetrics{}, meta, &metacache.MetaCacheImp{}).(*MetricSyncerPod)
+	si, err := NewMetricSyncerPod(conf, struct{}{}, metrics.DummyMetrics{}, metrics.DummyMetrics{}, meta, &metacache.MetaCacheImp{})
+	assert.NoError(t, err)
+
+	s := si.(*MetricSyncerPod)
 	s.ctx = context.Background()
 
 	s.syncChanel()

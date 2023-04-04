@@ -32,9 +32,10 @@ import (
 	"k8s.io/client-go/kubernetes/fake"
 
 	internalfake "github.com/kubewharf/katalyst-api/pkg/client/clientset/versioned/fake"
-	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/agent"
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/options"
+	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
+	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin"
 	metacacheplugin "github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/metacache"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware"
 	"github.com/kubewharf/katalyst-core/pkg/client"
@@ -44,7 +45,7 @@ import (
 	metricspool "github.com/kubewharf/katalyst-core/pkg/metrics/metrics-pool"
 )
 
-func generateTestConfiguration(t *testing.T) *katalystconfig.Configuration {
+func generatePluginConfig(t *testing.T) *katalystconfig.Configuration {
 	testConfiguration, err := options.NewOptions().Config()
 	require.NoError(t, err)
 	require.NotNil(t, testConfiguration)
@@ -58,9 +59,30 @@ func generateTestConfiguration(t *testing.T) *katalystconfig.Configuration {
 	return testConfiguration
 }
 
+func TestAdvisor(t *testing.T) {
+	conf := generatePluginConfig(t)
+
+	genericClient := &client.GenericClientSet{
+		KubeClient:     fake.NewSimpleClientset(),
+		InternalClient: internalfake.NewSimpleClientset(),
+		DynamicClient:  dynamicfake.NewSimpleDynamicClient(runtime.NewScheme()),
+	}
+	meta, err := metaserver.NewMetaServer(genericClient, metrics.DummyMetrics{}, conf)
+	assert.NoError(t, err)
+
+	advisor, err := sysadvisor.NewAdvisorAgent(conf, struct{}{}, meta, metricspool.DummyMetricsEmitterPool{})
+	assert.NoError(t, err)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	go advisor.Run(ctx)
+
+	time.Sleep(time.Second * 3)
+	cancel()
+}
+
 func TestPlugins(t *testing.T) {
 	type args struct {
-		initFn agent.AdvisorPluginInitFunc
+		initFn plugin.AdvisorPluginInitFunc
 	}
 	tests := []struct {
 		name string
@@ -87,7 +109,7 @@ func TestPlugins(t *testing.T) {
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
-	conf := generateTestConfiguration(t)
+	conf := generatePluginConfig(t)
 	meta, err := metaserver.NewMetaServer(genericClient, metrics.DummyMetrics{}, conf)
 	assert.NoError(t, err)
 
@@ -116,7 +138,7 @@ func TestMetaServer(t *testing.T) {
 		DynamicClient:  dynamicfake.NewSimpleDynamicClient(runtime.NewScheme()),
 	}
 
-	conf := generateTestConfiguration(t)
+	conf := generatePluginConfig(t)
 	meta, err := metaserver.NewMetaServer(client, metrics.DummyMetrics{}, conf)
 	if err == nil {
 		ctx, cancel := context.WithCancel(context.Background())

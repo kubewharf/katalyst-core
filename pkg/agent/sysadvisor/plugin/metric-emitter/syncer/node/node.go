@@ -25,7 +25,8 @@ import (
 
 	apimetricnode "github.com/kubewharf/katalyst-api/pkg/metric/node"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
-	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/metric-emitter/emitter"
+	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/metric-emitter/syncer"
+	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/metric-emitter/types"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	metricemitter "github.com/kubewharf/katalyst-core/pkg/config/agent/sysadvisor/metric-emitter"
 	"github.com/kubewharf/katalyst-core/pkg/consts"
@@ -57,8 +58,8 @@ type MetricSyncerNode struct {
 	metaReader metacache.MetaReader
 }
 
-func NewMetricSyncerNode(conf *config.Configuration, metricEmitter, dataEmitter metrics.MetricEmitter,
-	metaServer *metaserver.MetaServer, metaReader metacache.MetaReader) emitter.CustomMetricSyncer {
+func NewMetricSyncerNode(conf *config.Configuration, _ interface{}, metricEmitter, dataEmitter metrics.MetricEmitter,
+	metaServer *metaserver.MetaServer, metaReader metacache.MetaReader) (syncer.CustomMetricSyncer, error) {
 	return &MetricSyncerNode{
 		conf: conf.AgentConfiguration.MetricEmitterPluginConfiguration,
 
@@ -66,11 +67,11 @@ func NewMetricSyncerNode(conf *config.Configuration, metricEmitter, dataEmitter 
 		dataEmitter:   dataEmitter,
 		metaServer:    metaServer,
 		metaReader:    metaReader,
-	}
+	}, nil
 }
 
 func (n *MetricSyncerNode) Name() string {
-	return emitter.MetricSyncerNameNode
+	return types.MetricSyncerNameNode
 }
 
 func (n *MetricSyncerNode) Run(ctx context.Context) {

@@ -27,7 +27,8 @@ import (
 
 	apimetricpod "github.com/kubewharf/katalyst-api/pkg/metric/pod"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
-	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/metric-emitter/emitter"
+	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/metric-emitter/syncer"
+	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/metric-emitter/types"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	metricemitter "github.com/kubewharf/katalyst-core/pkg/config/agent/sysadvisor/metric-emitter"
 	"github.com/kubewharf/katalyst-core/pkg/config/generic"
@@ -68,8 +69,8 @@ type MetricSyncerPod struct {
 	metaReader metacache.MetaReader
 }
 
-func NewMetricSyncerPod(conf *config.Configuration, metricEmitter, dataEmitter metrics.MetricEmitter,
-	metaServer *metaserver.MetaServer, metaReader metacache.MetaReader) emitter.CustomMetricSyncer {
+func NewMetricSyncerPod(conf *config.Configuration, _ interface{}, metricEmitter, dataEmitter metrics.MetricEmitter,
+	metaServer *metaserver.MetaServer, metaReader metacache.MetaReader) (syncer.CustomMetricSyncer, error) {
 	klog.Infof("skip anno: %v, skip label: %v", conf.AgentConfiguration.PodSkipAnnotations, conf.AgentConfiguration.PodSkipLabels)
 
 	return &MetricSyncerPod{
@@ -81,11 +82,11 @@ func NewMetricSyncerPod(conf *config.Configuration, metricEmitter, dataEmitter m
 		dataEmitter:   dataEmitter,
 		metaServer:    metaServer,
 		metaReader:    metaReader,
-	}
+	}, nil
 }
 
 func (p *MetricSyncerPod) Name() string {
-	return emitter.MetricSyncerNamePod
+	return types.MetricSyncerNamePod
 }
 
 func (p *MetricSyncerPod) Run(ctx context.Context) {

@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package metacache
+package util
 
 import (
 	"io/ioutil"
@@ -24,11 +24,12 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/options"
+	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 )
 
-func generateTestConfiguration(t *testing.T) *config.Configuration {
+func generateMachineConfig(t *testing.T) *config.Configuration {
 	testConfiguration, err := options.NewOptions().Config()
 	require.NoError(t, err)
 	require.NotNil(t, testConfiguration)
@@ -40,8 +41,8 @@ func generateTestConfiguration(t *testing.T) *config.Configuration {
 	return testConfiguration
 }
 
-func newTestMetaCache(t *testing.T) *MetaCacheImp {
-	metaCache, err := NewMetaCacheImp(generateTestConfiguration(t), nil)
+func newTestMetaCache(t *testing.T) *metacache.MetaCacheImp {
+	metaCache, err := metacache.NewMetaCacheImp(generateMachineConfig(t), nil)
 	require.NoError(t, err)
 	require.NotNil(t, metaCache)
 	return metaCache

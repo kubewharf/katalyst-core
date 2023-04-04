@@ -23,6 +23,12 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
+const (
+	AdvisorPluginNameQoSAware      = "qos_aware"
+	AdvisorPluginNameMetaCache     = "metacache"
+	AdvisorPluginNameMetricEmitter = "metric_emitter"
+)
+
 // QoSResourceName describes different resources under qos aware control
 type QoSResourceName string
 
