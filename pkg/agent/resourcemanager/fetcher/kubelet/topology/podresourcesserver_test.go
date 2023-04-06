@@ -394,7 +394,7 @@ func Test_getNumaAllocationsByPodResources(t *testing.T) {
 			isPodNumaBinding := func(pod *v1.Pod) bool {
 				return qos.IsPodNumaBinding(qosConf, pod)
 			}
-			got, err := getNumaAllocationsByPodResources(tt.args.podList, tt.args.podResourcesList, isPodNumaBinding)
+			got, err := getNumaAllocationsByPodResources(tt.args.podList, tt.args.podResourcesList, isPodNumaBinding, nil)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("getNumaAllocationsByPodResources() error = %v, wantErr %v", err, tt.wantErr)
 				return

@@ -65,8 +65,8 @@ type podResourcesServerTopologyAdapterImpl struct {
 	// numaToSocketMap map numa id => socket id
 	numaToSocketMap map[int]int
 
-	// skipNumaAllocatableDeviceNames name of devices which will be skipped in getting numa allocatable
-	skipNumaAllocatableDeviceNames sets.String
+	// skipDeviceNames name of devices which will be skipped in getting numa allocatable and allocation
+	skipDeviceNames sets.String
 
 	// getClientFunc is func to get pod resources lister client
 	getClientFunc podresources.GetClientFunc
@@ -80,7 +80,7 @@ type podResourcesServerTopologyAdapterImpl struct {
 
 // NewPodResourcesServerTopologyAdapter creates a topology adapter which uses pod resources server
 func NewPodResourcesServerTopologyAdapter(metaServer *metaserver.MetaServer, endpoints []string,
-	kubeletResourcePluginPaths []string, skipNumaAllocatableDeviceNames sets.String, numaInfoGetter NumaInfoGetter,
+	kubeletResourcePluginPaths []string, skipDeviceNames sets.String, numaInfoGetter NumaInfoGetter,
 	podNumaBindingFilter func(*v1.Pod) bool, getClientFunc podresources.GetClientFunc) (Adapter, error) {
 	numaInfo, err := numaInfoGetter()
 	if err != nil {
@@ -98,13 +98,13 @@ func NewPodResourcesServerTopologyAdapter(metaServer *metaserver.MetaServer, end
 
 	numaToSocketMap := GetNumaToSocketMap(numaInfo)
 	return &podResourcesServerTopologyAdapterImpl{
-		endpoints:                      endpoints,
-		kubeletResourcePluginPaths:     kubeletResourcePluginPaths,
-		metaServer:                     metaServer,
-		numaToSocketMap:                numaToSocketMap,
-		skipNumaAllocatableDeviceNames: skipNumaAllocatableDeviceNames,
-		getClientFunc:                  getClientFunc,
-		podNumaBindFilter:              podNumaBindingFilter,
+		endpoints:                  endpoints,
+		kubeletResourcePluginPaths: kubeletResourcePluginPaths,
+		metaServer:                 metaServer,
+		numaToSocketMap:            numaToSocketMap,
+		skipDeviceNames:            skipDeviceNames,
+		getClientFunc:              getClientFunc,
+		podNumaBindFilter:          podNumaBindingFilter,
 	}, nil
 }
 
@@ -142,13 +142,13 @@ func (p *podResourcesServerTopologyAdapterImpl) GetNumaTopologyStatus(parentCtx 
 	podResourcesList := filterAllocatedPodResourcesList(listPodResourcesResponse.GetPodResources())
 
 	// get numa allocations by pod resources
-	numaAllocationsMap, err := getNumaAllocationsByPodResources(podList, podResourcesList, p.podNumaBindFilter)
+	numaAllocationsMap, err := getNumaAllocationsByPodResources(podList, podResourcesList, p.podNumaBindFilter, p.skipDeviceNames)
 	if err != nil {
 		return nil, errors.Wrap(err, "get numa allocations failed")
 	}
 
 	// get numa allocatable by allocatable resources
-	numaCapacity, numaAllocatable, err := getNumaStatusByAllocatableResources(allocatableResourcesResponse, p.skipNumaAllocatableDeviceNames)
+	numaCapacity, numaAllocatable, err := getNumaStatusByAllocatableResources(allocatableResourcesResponse, p.skipDeviceNames)
 	if err != nil {
 		return nil, errors.Wrap(err, "get numa status failed")
 	}
@@ -273,7 +273,7 @@ func getNumaStatusByAllocatableResources(allocatableResources *podresv1.Allocata
 // getNumaAllocationsByPodResources get a map of numa id to numa allocations, which
 // includes pod allocations.
 func getNumaAllocationsByPodResources(podList []*v1.Pod, podResourcesList []*podresv1.PodResources,
-	podNumaBindingFilter func(*v1.Pod) bool) (map[int]*nodev1alpha1.NumaStatus, error) {
+	podNumaBindingFilter func(*v1.Pod) bool, skipDeviceNames sets.String) (map[int]*nodev1alpha1.NumaStatus, error) {
 	var errList []error
 
 	podMap := native.GetPodNamespaceNameKeyMap(podList)
@@ -296,7 +296,7 @@ func getNumaAllocationsByPodResources(podList []*v1.Pod, podResourcesList []*pod
 			podNeedNumaBinding = podNumaBindingFilter(pod)
 		}
 
-		podAllocated, err := aggregateContainerAllocated(podResources.Containers, podNeedNumaBinding)
+		podAllocated, err := aggregateContainerAllocated(podResources.Containers, podNeedNumaBinding, skipDeviceNames)
 		if err != nil {
 			errList = append(errList, fmt.Errorf("pod %s aggregate container allocated failed, %s", podKey, err))
 			continue
@@ -324,7 +324,8 @@ func getNumaAllocationsByPodResources(podList []*v1.Pod, podResourcesList []*pod
 	return numaStatusMap, nil
 }
 
-func aggregateContainerAllocated(containers []*podresv1.ContainerResources, podNeedNumaBinding bool) (map[int]*v1.ResourceList, error) {
+func aggregateContainerAllocated(containers []*podresv1.ContainerResources,
+	podNeedNumaBinding bool, skipDeviceNames sets.String) (map[int]*v1.ResourceList, error) {
 	var errList []error
 
 	podAllocated := make(map[int]*v1.ResourceList)
@@ -335,7 +336,7 @@ func aggregateContainerAllocated(containers []*podresv1.ContainerResources, podN
 
 		var err error
 		containerAllocated := make(map[int]*v1.ResourceList)
-		containerAllocated = addContainerTopoAwareDevices(containerAllocated, containerResources.Devices, nil)
+		containerAllocated = addContainerTopoAwareDevices(containerAllocated, containerResources.Devices, skipDeviceNames)
 
 		// if it doesn't need numa binding, we only report its numa binding device and don't report its resources
 		if podNeedNumaBinding {
