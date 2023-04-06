@@ -23,6 +23,7 @@ import (
 	"github.com/kubewharf/katalyst-core/cmd/base/options"
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/options/eviction"
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/options/global"
+	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/options/global/adminqos"
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/options/qrm"
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/options/reporter"
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/options/sysadvisor"
@@ -38,8 +39,8 @@ type Options struct {
 	*global.BaseOptions
 	*global.PluginManagerOptions
 	*global.MetaServerOptions
-	*global.ReclaimedResourceOptions
 	*global.QRMAdvisorOptions
+	*adminqos.ReclaimedResourceOptions
 
 	// the below are options used by all each individual katalyst module/plugin
 	genericEvictionOptions *eviction.GenericEvictionOptions
@@ -63,8 +64,8 @@ func NewOptions() *Options {
 		BaseOptions:              global.NewBaseOptions(),
 		MetaServerOptions:        global.NewMetaServerOptions(),
 		PluginManagerOptions:     global.NewPluginManagerOptions(),
-		ReclaimedResourceOptions: global.NewReclaimedResourceOptions(),
 		QRMAdvisorOptions:        global.NewQRMAdvisorOptions(),
+		ReclaimedResourceOptions: adminqos.NewReclaimedResourceOptions(),
 
 		genericEvictionOptions:   eviction.NewGenericEvictionOptions(),
 		evictionPluginsOptions:   eviction.NewEvictionPluginsOptions(),

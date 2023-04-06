@@ -14,14 +14,14 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package global
+package adminqos
 
 import (
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	cliflag "k8s.io/component-base/cli/flag"
 
-	"github.com/kubewharf/katalyst-core/pkg/config/agent/global"
+	"github.com/kubewharf/katalyst-core/pkg/config/agent/global/adminqos"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 )
 
@@ -72,11 +72,10 @@ func (o *ReclaimedResourceOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 }
 
 // ApplyTo fills up config with options
-func (o *ReclaimedResourceOptions) ApplyTo(c *global.ReclaimedResourceConfiguration) error {
+func (o *ReclaimedResourceOptions) ApplyTo(c *adminqos.ReclaimedResourceConfiguration) error {
 	c.EnableReclaim = o.EnableReclaim
 	c.ReservedResourceForReport = v1.ResourceList(o.ReservedResourceForReport)
 	c.ReservedResourceForAllocate = v1.ResourceList(o.ReservedResourceForAllocate)
 	c.MinReclaimedResourceForReport = v1.ResourceList(o.MinReclaimedResourceForReport)
-	c.MinReclaimedResourceForAllocate = v1.ResourceList(o.MinReclaimedResourceForAllocate)
 	return nil
 }

@@ -121,9 +121,9 @@ func NewCPUResourceAdvisor(conf *config.Configuration, extraConf interface{}, me
 		emitter:    emitter,
 	}
 
-	// todo: support dynamic reserved resource from kcc
-	reserved := conf.ReclaimedResourceConfiguration.ReservedResourceForAllocate[v1.ResourceCPU]
-	cra.reservedForAllocate = reserved.Value()
+	cra.ApplyConfig(conf.DynamicConfiguration)
+
+	metaServer.ConfigurationManager.Register(cra)
 
 	metaServer.Register(cra)
 
@@ -133,7 +133,12 @@ func NewCPUResourceAdvisor(conf *config.Configuration, extraConf interface{}, me
 func (cra *cpuResourceAdvisor) ApplyConfig(conf *pkgconfig.DynamicConfiguration) {
 	cra.mutex.Lock()
 	defer cra.mutex.Unlock()
+
 	cra.enableReclaim = conf.EnableReclaim
+	klog.Infof("[qosaware-cpu] ApplyConfig enableReclaim: %+v\n", cra.enableReclaim)
+	reserved := conf.ReclaimedResourceConfiguration.ReservedResourceForAllocate[v1.ResourceCPU]
+	cra.reservedForAllocate = reserved.Value()
+	klog.Infof("[qosaware-cpu] ApplyConfig reservedForAllocate: %+v\n", cra.reservedForAllocate)
 }
 
 func (cra *cpuResourceAdvisor) Name() string {

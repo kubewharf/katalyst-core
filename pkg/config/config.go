@@ -43,8 +43,8 @@ func NewDynamicConfiguration() *DynamicConfiguration {
 	}
 }
 
-// ApplyAgentConfiguration is used to set configuration contents by CR dynamically.
-func (d *DynamicConfiguration) ApplyAgentConfiguration(conf *dynamic.DynamicConfigCRD) {
+// ApplyDynamicConfiguration is used to set configuration contents by CR dynamically.
+func (d *DynamicConfiguration) ApplyDynamicConfiguration(conf *dynamic.DynamicConfigCRD) {
 	d.GenericAgentConfiguration.ApplyConfiguration(conf)
 	d.AgentConfiguration.ApplyConfiguration(conf)
 }

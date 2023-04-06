@@ -19,6 +19,7 @@ package agent
 import (
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/eviction"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/global"
+	"github.com/kubewharf/katalyst-core/pkg/config/agent/global/adminqos"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/qrm"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/reporter"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/sysadvisor"
@@ -31,8 +32,8 @@ type GenericAgentConfiguration struct {
 	*global.BaseConfiguration
 	*global.PluginManagerConfiguration
 	*global.MetaServerConfiguration
-	*global.ReclaimedResourceConfiguration
 	*global.QRMAdvisorConfiguration
+	*adminqos.ReclaimedResourceConfiguration
 
 	*eviction.GenericEvictionConfiguration
 	*reporter.GenericReporterConfiguration
@@ -52,8 +53,8 @@ func NewGenericAgentConfiguration() *GenericAgentConfiguration {
 		BaseConfiguration:              global.NewBaseConfiguration(),
 		PluginManagerConfiguration:     global.NewPluginManagerConfiguration(),
 		MetaServerConfiguration:        global.NewMetaServerConfiguration(),
-		ReclaimedResourceConfiguration: global.NewReclaimConfiguration(),
 		QRMAdvisorConfiguration:        global.NewQRMAdvisorConfiguration(),
+		ReclaimedResourceConfiguration: adminqos.NewReclaimedResourceConfiguration(),
 		GenericEvictionConfiguration:   eviction.NewGenericEvictionConfiguration(),
 		GenericReporterConfiguration:   reporter.NewGenericReporterConfiguration(),
 		GenericSysAdvisorConfiguration: sysadvisor.NewGenericSysAdvisorConfiguration(),

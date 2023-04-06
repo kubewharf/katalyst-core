@@ -43,6 +43,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util"
 	"github.com/kubewharf/katalyst-core/pkg/config"
+	"github.com/kubewharf/katalyst-core/pkg/config/dynamic"
 	"github.com/kubewharf/katalyst-core/pkg/config/generic"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
@@ -202,6 +203,11 @@ func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration
 		return false, agent.ComponentStub{}, fmt.Errorf("dynamic policy initReclaimPool failed with error: %v", err)
 	}
 
+	err = agentCtx.MetaServer.ConfigurationManager.AddConfigWatcher(dynamic.AdminQoSConfigurationGVR)
+	if err != nil {
+		return false, nil, err
+	}
+
 	// register policy as dynamic config handler
 	agentCtx.MetaServer.Register(policyImplement)
 
@@ -348,7 +354,7 @@ func (p *DynamicPolicy) Stop() error {
 }
 
 // GetResourcesAllocation returns allocation results of corresponding resources
-func (p *DynamicPolicy) GetResourcesAllocation(ctx context.Context,
+func (p *DynamicPolicy) GetResourcesAllocation(_ context.Context,
 	req *pluginapi.GetResourcesAllocationRequest) (*pluginapi.GetResourcesAllocationResponse, error) {
 	if req == nil {
 		return nil, fmt.Errorf("GetResourcesAllocation got nil req")
@@ -448,7 +454,7 @@ func (p *DynamicPolicy) GetResourcesAllocation(ctx context.Context,
 }
 
 // GetTopologyAwareResources returns allocation results of corresponding resources as machineInfo aware format
-func (p *DynamicPolicy) GetTopologyAwareResources(ctx context.Context,
+func (p *DynamicPolicy) GetTopologyAwareResources(_ context.Context,
 	req *pluginapi.GetTopologyAwareResourcesRequest) (*pluginapi.GetTopologyAwareResourcesResponse, error) {
 	if req == nil {
 		return nil, fmt.Errorf("GetTopologyAwareResources got nil req")
@@ -500,8 +506,8 @@ func (p *DynamicPolicy) GetTopologyAwareResources(ctx context.Context,
 }
 
 // GetTopologyAwareAllocatableResources returns corresponding allocatable resources as machineInfo aware format
-func (p *DynamicPolicy) GetTopologyAwareAllocatableResources(ctx context.Context,
-	req *pluginapi.GetTopologyAwareAllocatableResourcesRequest) (*pluginapi.GetTopologyAwareAllocatableResourcesResponse, error) {
+func (p *DynamicPolicy) GetTopologyAwareAllocatableResources(_ context.Context,
+	_ *pluginapi.GetTopologyAwareAllocatableResourcesRequest) (*pluginapi.GetTopologyAwareAllocatableResourcesResponse, error) {
 	klog.Infof("[CPUDynamicPolicy] GetTopologyAwareAllocatableResources is called")
 
 	numaNodes := p.machineInfo.CPUDetails.NUMANodes().ToSliceInt()
@@ -721,7 +727,7 @@ func (p *DynamicPolicy) PreStartContainer(context.Context, *pluginapi.PreStartCo
 	return nil, nil
 }
 
-func (p *DynamicPolicy) GetCheckpoint(ctx context.Context, req *advisorapi.GetCheckpointRequest) (*advisorapi.GetCheckpointResponse, error) {
+func (p *DynamicPolicy) GetCheckpoint(_ context.Context, req *advisorapi.GetCheckpointRequest) (*advisorapi.GetCheckpointResponse, error) {
 	if req == nil {
 		return nil, fmt.Errorf("GetCheckpoint got nil req")
 	}

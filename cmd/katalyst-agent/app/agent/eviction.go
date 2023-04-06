@@ -19,13 +19,12 @@ package agent
 import (
 	"fmt"
 
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/klog/v2"
 	plugincache "k8s.io/kubernetes/pkg/kubelet/pluginmanager/cache"
 
-	"github.com/kubewharf/katalyst-api/pkg/apis/config/v1alpha1"
 	evict "github.com/kubewharf/katalyst-core/pkg/agent/evictionmanager"
 	"github.com/kubewharf/katalyst-core/pkg/config"
+	"github.com/kubewharf/katalyst-core/pkg/config/dynamic"
 )
 
 const (
@@ -38,12 +37,7 @@ func InitEvictionManager(agentCtx *GenericContext, conf *config.Configuration, _
 		agentCtx.EmitterPool.GetDefaultMetricsEmitter(), conf)
 
 	// add eviction configuration to dynamic configuration watch list
-	err := agentCtx.MetaServer.AddConfigWatcher(
-		metav1.GroupVersionResource{
-			Group:    v1alpha1.SchemeGroupVersion.Group,
-			Version:  v1alpha1.SchemeGroupVersion.Version,
-			Resource: v1alpha1.ResourceNameEvictionConfigurations,
-		})
+	err := agentCtx.MetaServer.AddConfigWatcher(dynamic.EvictionConfigurationGVR)
 	if err != nil {
 		return false, ComponentStub{}, fmt.Errorf("failed register dynamic config: %s", err)
 	}

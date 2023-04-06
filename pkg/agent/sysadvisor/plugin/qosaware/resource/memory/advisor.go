@@ -17,7 +17,6 @@ limitations under the License.
 package memory
 
 import (
-	"fmt"
 	"sync"
 	"time"
 
@@ -71,15 +70,14 @@ func NewMemoryResourceAdvisor(conf *config.Configuration, extraConf interface{},
 
 		headroomPolices: make([]headroompolicy.HeadroomPolicy, 0),
 
-		conf:       conf,
 		metaReader: metaCache,
 		metaServer: metaServer,
 		emitter:    emitter,
 	}
 
-	// todo: support dynamic reserved resource from kcc
-	reservedDefault := conf.ReclaimedResourceConfiguration.ReservedResourceForAllocate[v1.ResourceMemory]
-	ra.reservedForAllocate = reservedDefault.Value()
+	ra.ApplyConfig(conf.DynamicConfiguration)
+
+	metaServer.ConfigurationManager.Register(ra)
 
 	initializers := headroompolicy.GetRegisteredInitializers()
 	for _, headroomPolicyName := range conf.MemoryHeadroomPolicies {
@@ -100,7 +98,12 @@ func NewMemoryResourceAdvisor(conf *config.Configuration, extraConf interface{},
 func (ra *memoryResourceAdvisor) ApplyConfig(conf *pkgconfig.DynamicConfiguration) {
 	ra.mutex.Lock()
 	defer ra.mutex.Unlock()
+
 	ra.enableReclaim = conf.EnableReclaim
+	klog.Infof("[qosaware-memory] ApplyConfig enableReclaim: %+v", ra.enableReclaim)
+	reservedDefault := conf.ReclaimedResourceConfiguration.ReservedResourceForAllocate[v1.ResourceMemory]
+	ra.reservedForAllocate = reservedDefault.Value()
+	klog.Infof("[qosaware-memory] ApplyConfig reservedForAllocate: %+v", ra.reservedForAllocate)
 }
 
 func (ra *memoryResourceAdvisor) Name() string {

@@ -441,6 +441,19 @@ func Test_getGVRToKindMap(t *testing.T) {
 				Kind:    "EvictionConfiguration",
 			},
 		},
+		{
+			name: "ac",
+			wantGVR: schema.GroupVersionResource{
+				Group:    v1alpha1.SchemeGroupVersion.Group,
+				Version:  v1alpha1.SchemeGroupVersion.Version,
+				Resource: v1alpha1.ResourceNameAdminQoSConfigurations,
+			},
+			wantGVK: schema.GroupVersionKind{
+				Group:   v1alpha1.SchemeGroupVersion.Group,
+				Version: v1alpha1.SchemeGroupVersion.Version,
+				Kind:    "AdminQoSConfiguration",
+			},
+		},
 	}
 
 	for _, tt := range tests {

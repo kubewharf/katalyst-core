@@ -47,6 +47,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/cnr"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/node"
+	dynamicconfig "github.com/kubewharf/katalyst-core/pkg/metaserver/config"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 )
 
@@ -88,6 +89,7 @@ func generateTestMetaServer(clientSet *client.GenericClientSet, conf *config.Con
 			NodeFetcher: node.NewRemoteNodeFetcher(conf.NodeName, clientSet.KubeClient.CoreV1().Nodes()),
 			CNRFetcher:  cnr.NewCachedCNRFetcher(conf.NodeName, conf.CNRCacheTTL, clientSet.InternalClient.NodeV1alpha1().CustomNodeResources()),
 		},
+		ConfigurationManager: &dynamicconfig.DummyConfigurationManager{},
 	}
 }
 

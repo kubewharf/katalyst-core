@@ -28,6 +28,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/server"
 	"github.com/kubewharf/katalyst-core/pkg/config"
+	"github.com/kubewharf/katalyst-core/pkg/config/dynamic"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	metricspool "github.com/kubewharf/katalyst-core/pkg/metrics/metrics-pool"
@@ -78,6 +79,12 @@ func NewQoSAwarePlugin(conf *config.Configuration, extraConf interface{}, emitte
 		return nil, err
 	}
 
+	// add dynamic config watcher
+	err = metaServer.ConfigurationManager.AddConfigWatcher(dynamic.AdminQoSConfigurationGVR)
+	if err != nil {
+		return nil, err
+	}
+
 	qap := &QoSAwarePlugin{
 		name:   PluginNameQosAware,
 		period: conf.SysAdvisorPluginsConfiguration.QoSAwarePluginConfiguration.SyncPeriod,
@@ -113,7 +120,7 @@ func (qap *QoSAwarePlugin) Init() error {
 	return nil
 }
 
-func (qap *QoSAwarePlugin) periodicWork(ctx context.Context) {
+func (qap *QoSAwarePlugin) periodicWork(_ context.Context) {
 	_ = qap.emitter.StoreInt64(MetricsNamePlugQoSAwareHearBeat, int64(qap.period.Seconds()), metrics.MetricTypeNameCount)
 
 	qap.resourceAdvisor.Update()

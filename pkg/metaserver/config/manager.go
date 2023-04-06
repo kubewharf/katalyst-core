@@ -97,6 +97,22 @@ type ConfigurationManager interface {
 	Run(ctx context.Context)
 }
 
+type DummyConfigurationManager struct{}
+
+func (d *DummyConfigurationManager) InitializeConfig(_ context.Context) error {
+	return nil
+}
+
+func (d *DummyConfigurationManager) AddConfigWatcher(_ ...metav1.GroupVersionResource) error {
+	return nil
+}
+
+func (d *DummyConfigurationManager) Register(_ ...ConfigurationRegister) {}
+
+func (d *DummyConfigurationManager) Run(_ context.Context) {}
+
+var _ ConfigurationManager = &DynamicConfigManager{}
+
 // DynamicConfigManager is to fetch dynamic config from remote
 type DynamicConfigManager struct {
 	// defaultConfig is used to store the static configuration parsed from flags
@@ -362,7 +378,7 @@ func applyDynamicConfig(defaultConfig, currentConfig *pkgconfig.DynamicConfigura
 	dynamicConf *dynamic.DynamicConfigCRD) (*pkgconfig.DynamicConfiguration, bool) {
 	// copy default config from env and apply remote dynamic config to it
 	newConfig := deepCopy(defaultConfig)
-	newConfig.ApplyAgentConfiguration(dynamicConf)
+	newConfig.ApplyDynamicConfiguration(dynamicConf)
 
 	if apiequality.Semantic.DeepEqual(newConfig, currentConfig) {
 		return currentConfig, false
