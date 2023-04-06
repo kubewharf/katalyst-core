@@ -64,7 +64,7 @@ func Test_noneExistMetricsFetcher(t *testing.T) {
 		cancel()
 	}
 
-	metaCache, err := metacache.NewMetaCache(conf, nil)
+	metaCache, err := metacache.NewMetaCacheImp(conf, nil)
 	assert.NoError(t, err, nil)
 
 	f, err := NewCustomMetricEmitter(conf, struct{}{}, metricspool.DummyMetricsEmitterPool{}, meta, metaCache)

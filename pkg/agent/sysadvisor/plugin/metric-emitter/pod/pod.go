@@ -65,11 +65,11 @@ type MetricSyncerPod struct {
 	dataEmitter   metrics.MetricEmitter
 
 	metaServer *metaserver.MetaServer
-	metaCache  *metacache.MetaCache
+	metaReader metacache.MetaReader
 }
 
 func NewMetricSyncerPod(conf *config.Configuration, metricEmitter, dataEmitter metrics.MetricEmitter,
-	metaServer *metaserver.MetaServer, metaCache *metacache.MetaCache) emitter.CustomMetricSyncer {
+	metaServer *metaserver.MetaServer, metaReader metacache.MetaReader) emitter.CustomMetricSyncer {
 	klog.Infof("skip anno: %v, skip label: %v", conf.AgentConfiguration.PodSkipAnnotations, conf.AgentConfiguration.PodSkipLabels)
 
 	return &MetricSyncerPod{
@@ -80,7 +80,7 @@ func NewMetricSyncerPod(conf *config.Configuration, metricEmitter, dataEmitter m
 		metricEmitter: metricEmitter,
 		dataEmitter:   dataEmitter,
 		metaServer:    metaServer,
-		metaCache:     metaCache,
+		metaReader:    metaReader,
 	}
 }
 

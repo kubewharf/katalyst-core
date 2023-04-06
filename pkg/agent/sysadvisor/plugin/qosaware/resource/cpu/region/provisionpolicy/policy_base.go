@@ -27,17 +27,17 @@ type PolicyBase struct {
 	Indicator        types.Indicator
 	ControlKnobValue types.ControlKnob
 
-	MetaCache  *metacache.MetaCache
+	metaReader metacache.MetaReader
 	MetaServer *metaserver.MetaServer
 }
 
-func NewPolicyBase(metaCache *metacache.MetaCache, metaServer *metaserver.MetaServer) *PolicyBase {
+func NewPolicyBase(metaReader metacache.MetaReader, metaServer *metaserver.MetaServer) *PolicyBase {
 	cp := &PolicyBase{
 		PodSet:           make(types.PodSet),
 		Indicator:        make(types.Indicator),
 		ControlKnobValue: make(types.ControlKnob),
 
-		MetaCache:  metaCache,
+		metaReader: metaReader,
 		MetaServer: metaServer,
 	}
 	return cp

@@ -86,10 +86,10 @@ func generateTestConfiguration(t *testing.T) *config.Configuration {
 	return conf
 }
 
-func newTestMemoryAdvisor(t *testing.T) *memoryResourceAdvisor {
+func newTestMemoryAdvisor(t *testing.T) (*memoryResourceAdvisor, metacache.MetaCache) {
 	conf := generateTestConfiguration(t)
 
-	metaCache, err := metacache.NewMetaCache(generateTestConfiguration(t), metric.NewFakeMetricsFetcher(metrics.DummyMetrics{}))
+	metaCache, err := metacache.NewMetaCacheImp(generateTestConfiguration(t), metric.NewFakeMetricsFetcher(metrics.DummyMetrics{}))
 	require.NoError(t, err)
 	require.NotNil(t, metaCache)
 
@@ -113,7 +113,7 @@ func newTestMemoryAdvisor(t *testing.T) *memoryResourceAdvisor {
 	assert.Equal(t, mra.Name(), memoryResourceAdvisorName)
 	assert.Nil(t, mra.GetChannel())
 
-	return mra
+	return mra, metaCache
 }
 
 func TestUpdate(t *testing.T) {
@@ -188,15 +188,15 @@ func TestUpdate(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			advisor := newTestMemoryAdvisor(t)
+			advisor, metaCache := newTestMemoryAdvisor(t)
 			advisor.startTime = time.Now().Add(-startUpPeriod * 2)
 
 			for poolName, poolInfo := range tt.pools {
-				err := advisor.metaCache.SetPoolInfo(poolName, poolInfo)
+				err := metaCache.SetPoolInfo(poolName, poolInfo)
 				assert.NoError(t, err)
 			}
 			for _, c := range tt.containers {
-				err := advisor.metaCache.SetContainerInfo(c.PodUID, c.ContainerName, c)
+				err := metaCache.SetContainerInfo(c.PodUID, c.ContainerName, c)
 				assert.NoError(t, err)
 			}
 

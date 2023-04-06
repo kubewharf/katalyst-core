@@ -27,15 +27,15 @@ type PolicyBase struct {
 	Total               float64
 	ReservedForAllocate float64
 
-	MetaCache  *metacache.MetaCache
+	metaReader metacache.MetaReader
 	MetaServer *metaserver.MetaServer
 }
 
-func NewPolicyBase(metaCache *metacache.MetaCache, metaServer *metaserver.MetaServer) *PolicyBase {
+func NewPolicyBase(metaReader metacache.MetaReader, metaServer *metaserver.MetaServer) *PolicyBase {
 	cp := &PolicyBase{
 		PodSet: make(types.PodSet),
 
-		MetaCache:  metaCache,
+		metaReader: metaReader,
 		MetaServer: metaServer,
 	}
 	return cp

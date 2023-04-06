@@ -45,7 +45,7 @@ type HeadroomPolicy interface {
 	GetHeadroom() (float64, error)
 }
 
-type InitFunc func(conf *config.Configuration, extraConfig interface{}, metaCache *metacache.MetaCache,
+type InitFunc func(conf *config.Configuration, extraConfig interface{}, metaReader metacache.MetaReader,
 	metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter) HeadroomPolicy
 
 var initializers sync.Map

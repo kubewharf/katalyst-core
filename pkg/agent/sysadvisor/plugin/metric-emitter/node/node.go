@@ -54,18 +54,18 @@ type MetricSyncerNode struct {
 	dataEmitter   metrics.MetricEmitter
 
 	metaServer *metaserver.MetaServer
-	metaCache  *metacache.MetaCache
+	metaReader metacache.MetaReader
 }
 
 func NewMetricSyncerNode(conf *config.Configuration, metricEmitter, dataEmitter metrics.MetricEmitter,
-	metaServer *metaserver.MetaServer, metaCache *metacache.MetaCache) emitter.CustomMetricSyncer {
+	metaServer *metaserver.MetaServer, metaReader metacache.MetaReader) emitter.CustomMetricSyncer {
 	return &MetricSyncerNode{
 		conf: conf.AgentConfiguration.MetricEmitterPluginConfiguration,
 
 		metricEmitter: metricEmitter,
 		dataEmitter:   dataEmitter,
 		metaServer:    metaServer,
-		metaCache:     metaCache,
+		metaReader:    metaReader,
 	}
 }
 

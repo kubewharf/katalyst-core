@@ -93,7 +93,7 @@ func TestPlugins(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			metaCache, err := metacache.NewMetaCache(conf, nil)
+			metaCache, err := metacache.NewMetaCacheImp(conf, nil)
 			assert.NoError(t, err)
 			assert.NotNil(t, metaCache)
 

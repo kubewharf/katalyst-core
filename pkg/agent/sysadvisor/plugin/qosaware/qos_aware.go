@@ -54,13 +54,13 @@ type QoSAwarePlugin struct {
 	qrmServer        server.QRMServer
 	headroomReporter reporter.HeadroomReporter
 
-	metaCache *metacache.MetaCache
+	metaCache metacache.MetaCache
 	emitter   metrics.MetricEmitter
 }
 
 // NewQoSAwarePlugin creates a qos aware plugin with the specified config
 func NewQoSAwarePlugin(conf *config.Configuration, extraConf interface{}, emitterPool metricspool.MetricsEmitterPool,
-	metaServer *metaserver.MetaServer, metaCache *metacache.MetaCache) (plugin.SysAdvisorPlugin, error) {
+	metaServer *metaserver.MetaServer, metaCache metacache.MetaCache) (plugin.SysAdvisorPlugin, error) {
 	emitter := emitterPool.GetDefaultMetricsEmitter().WithTags("advisor-qosaware")
 
 	resourceAdvisor, err := resource.NewResourceAdvisor(conf, extraConf, metaCache, metaServer, emitter)

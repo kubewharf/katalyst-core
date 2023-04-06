@@ -63,7 +63,7 @@ func newTestCPUServer(t *testing.T) *cpuServer {
 	advisorCh := make(chan cpu.CPUProvision)
 	conf := generateTestConfiguration(t)
 
-	metaCache, err := metacache.NewMetaCache(conf, nil)
+	metaCache, err := metacache.NewMetaCacheImp(conf, nil)
 	require.NoError(t, err)
 	require.NotNil(t, metaCache)
 

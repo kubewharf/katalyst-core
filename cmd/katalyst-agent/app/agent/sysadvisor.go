@@ -43,7 +43,7 @@ const (
 
 // AdvisorPluginInitFunc is used to initialize a particular inter SysAdvisor plugin.
 type AdvisorPluginInitFunc func(conf *config.Configuration, extraConf interface{}, emitterPool metricspool.MetricsEmitterPool,
-	metaServer *metaserver.MetaServer, metaCache *metacache.MetaCache) (pkgplugin.SysAdvisorPlugin, error)
+	metaServer *metaserver.MetaServer, metaCache metacache.MetaCache) (pkgplugin.SysAdvisorPlugin, error)
 
 // SysAdvisorAgent for sysadvisor
 type SysAdvisorAgent struct {
@@ -88,7 +88,7 @@ func NewSysAdvisorAgent(agentCtx *GenericContext, conf *config.Configuration, ex
 }
 
 func (m *SysAdvisorAgent) getSysAdvisorPlugins(SysAdvisorPluginInitializers map[string]AdvisorPluginInitFunc) error {
-	metaCache, err := metacache.NewMetaCache(m.config, m.agentCtx.MetaServer.MetricsFetcher)
+	metaCache, err := metacache.NewMetaCacheImp(m.config, m.agentCtx.MetaServer.MetricsFetcher)
 	if err != nil {
 		return fmt.Errorf("new metacache failed: %v", err)
 	}

@@ -56,10 +56,10 @@ func generateTestConfiguration(t *testing.T) *config.Configuration {
 	return conf
 }
 
-func newTestCPUResourceAdvisor(t *testing.T) *cpuResourceAdvisor {
+func newTestCPUResourceAdvisor(t *testing.T) (*cpuResourceAdvisor, metacache.MetaCache) {
 	conf := generateTestConfiguration(t)
 
-	metaCache, err := metacache.NewMetaCache(conf, metric.NewFakeMetricsFetcher(metrics.DummyMetrics{}))
+	metaCache, err := metacache.NewMetaCacheImp(conf, metric.NewFakeMetricsFetcher(metrics.DummyMetrics{}))
 	require.NoError(t, err)
 	require.NotNil(t, metaCache)
 
@@ -79,7 +79,7 @@ func newTestCPUResourceAdvisor(t *testing.T) *cpuResourceAdvisor {
 	cra := NewCPUResourceAdvisor(conf, struct{}{}, metaCache, metaServer, nil)
 	assert.Equal(t, cra.Name(), cpuResourceAdvisorName)
 
-	return cra
+	return cra, metaCache
 }
 
 var (
@@ -279,16 +279,16 @@ func TestUpdate(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			advisor := newTestCPUResourceAdvisor(t)
+			advisor, metaCache := newTestCPUResourceAdvisor(t)
 			advisor.startTime = time.Now().Add(-startUpPeriod * 2)
 			finishCh := make(chan struct{})
 
 			for poolName, poolInfo := range tt.pools {
-				err := advisor.metaCache.SetPoolInfo(poolName, poolInfo)
+				err := metaCache.SetPoolInfo(poolName, poolInfo)
 				assert.NoError(t, err)
 			}
 			for _, c := range tt.containers {
-				err := advisor.metaCache.SetContainerInfo(c.PodUID, c.ContainerName, c)
+				err := metaCache.SetContainerInfo(c.PodUID, c.ContainerName, c)
 				assert.NoError(t, err)
 			}
 

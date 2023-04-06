@@ -46,14 +46,14 @@ type QoSRegionBase struct {
 	reservePoolSize     int
 	reservedForAllocate int
 
-	metaCache  *metacache.MetaCache
+	metaReader metacache.MetaReader
 	metaServer *metaserver.MetaServer
 	emitter    metrics.MetricEmitter
 }
 
 // NewQoSRegionBase returns a base qos region instance with common region methods
 func NewQoSRegionBase(name string, ownerPoolName string, regionType types.QoSRegionType,
-	metaCache *metacache.MetaCache, metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter) *QoSRegionBase {
+	metaReader metacache.MetaReader, metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter) *QoSRegionBase {
 	r := &QoSRegionBase{
 		name:          name,
 		ownerPoolName: ownerPoolName,
@@ -63,7 +63,7 @@ func NewQoSRegionBase(name string, ownerPoolName string, regionType types.QoSReg
 		podSet:                           make(types.PodSet),
 		containerTopologyAwareAssignment: make(types.TopologyAwareAssignment),
 
-		metaCache:  metaCache,
+		metaReader: metaReader,
 		metaServer: metaServer,
 		emitter:    emitter,
 	}

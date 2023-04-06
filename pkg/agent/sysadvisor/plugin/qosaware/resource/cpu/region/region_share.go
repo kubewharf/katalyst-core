@@ -68,10 +68,10 @@ type QoSRegionShare struct {
 
 // NewQoSRegionShare returns a region instance for shared pool
 func NewQoSRegionShare(name string, ownerPoolName string, conf *config.Configuration, extraConf interface{},
-	metaCache *metacache.MetaCache, metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter) QoSRegion {
+	metaReader metacache.MetaReader, metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter) QoSRegion {
 
 	r := &QoSRegionShare{
-		QoSRegionBase: NewQoSRegionBase(name, ownerPoolName, types.QoSRegionTypeShare, metaCache, metaServer, emitter),
+		QoSRegionBase: NewQoSRegionBase(name, ownerPoolName, types.QoSRegionTypeShare, metaReader, metaServer, emitter),
 		isInitialized: false,
 
 		provisionPolicyMap: make(map[types.CPUProvisionPolicyName]*provisionPolicyWrapper),
@@ -91,7 +91,7 @@ func NewQoSRegionShare(name string, ownerPoolName string, conf *config.Configura
 	for _, policyName := range provisionPolicyList {
 		if initializer, ok := initializers[policyName]; ok {
 			r.provisionPolicyMap[policyName] = &provisionPolicyWrapper{
-				initializer(conf, extraConf, metaCache, metaServer, emitter),
+				initializer(conf, extraConf, metaReader, metaServer, emitter),
 				types.PolicyUpdateFailed,
 			}
 			r.regulatorMap[policyName] = newCPURegulator(maxRampUpStep, maxRampDownStep, minRampDownPeriod)
@@ -139,7 +139,7 @@ func (r *QoSRegionShare) TryUpdateProvision() {
 
 		// Try set initial cpu requirement to restore calculator after restart
 		if !r.isInitialized {
-			if poolSize, ok := r.metaCache.GetPoolSize(r.ownerPoolName); ok {
+			if poolSize, ok := r.metaReader.GetPoolSize(r.ownerPoolName); ok {
 				regulator.setLatestCPURequirement(poolSize)
 				klog.Infof("[qosaware-cpu] set initial cpu requirement %v", poolSize)
 			}

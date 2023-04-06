@@ -34,10 +34,10 @@ type PolicyCanonical struct {
 	cpuRequirement float64
 }
 
-func NewPolicyCanonical(_ *config.Configuration, _ interface{}, metaCache *metacache.MetaCache,
+func NewPolicyCanonical(_ *config.Configuration, _ interface{}, metaReader metacache.MetaReader,
 	metaServer *metaserver.MetaServer, _ metrics.MetricEmitter) ProvisionPolicy {
 	p := &PolicyCanonical{
-		PolicyBase: NewPolicyBase(metaCache, metaServer),
+		PolicyBase: NewPolicyBase(metaReader, metaServer),
 	}
 	return p
 }
@@ -50,13 +50,13 @@ func (p *PolicyCanonical) Update() error {
 
 	for podUID, containerSet := range p.PodSet {
 		for containerName := range containerSet {
-			ci, ok := p.MetaCache.GetContainerInfo(podUID, containerName)
+			ci, ok := p.metaReader.GetContainerInfo(podUID, containerName)
 			if !ok || ci == nil {
 				klog.Errorf("[qosaware-cpu-provision] illegal container info of %v/%v", podUID, containerName)
 				continue
 			}
 
-			containerEstimation, err := helper.EstimateContainerResourceUsage(ci, v1.ResourceCPU, p.MetaCache)
+			containerEstimation, err := helper.EstimateContainerResourceUsage(ci, v1.ResourceCPU, p.metaReader)
 			if err != nil {
 				return err
 			}

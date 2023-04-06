@@ -32,7 +32,7 @@ type PolicyCanonical struct {
 	headroomValue float64
 }
 
-func NewPolicyCanonical(_ *config.Configuration, _ interface{}, metaCache *metacache.MetaCache,
+func NewPolicyCanonical(_ *config.Configuration, _ interface{}, metaCache *metacache.MetaCacheImp,
 	metaServer *metaserver.MetaServer, _ metrics.MetricEmitter) HeadroomPolicy {
 	p := &PolicyCanonical{
 		PolicyBase: NewPolicyBase(metaCache, metaServer),

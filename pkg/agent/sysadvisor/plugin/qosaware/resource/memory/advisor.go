@@ -53,20 +53,20 @@ type memoryResourceAdvisor struct {
 	mutex          sync.RWMutex
 
 	conf       *config.Configuration
-	metaCache  *metacache.MetaCache
+	metaReader metacache.MetaReader
 	metaServer *metaserver.MetaServer
 	emitter    metrics.MetricEmitter
 }
 
 // NewMemoryResourceAdvisor returns a memoryResourceAdvisor instance
-func NewMemoryResourceAdvisor(conf *config.Configuration, extraConf interface{}, metaCache *metacache.MetaCache,
+func NewMemoryResourceAdvisor(conf *config.Configuration, extraConf interface{}, metaCache metacache.MetaCache,
 	metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter) *memoryResourceAdvisor {
 	ra := &memoryResourceAdvisor{
 		name:      memoryResourceAdvisorName,
 		startTime: time.Now(),
 
 		conf:       conf,
-		metaCache:  metaCache,
+		metaReader: metaCache,
 		metaServer: metaServer,
 		emitter:    emitter,
 	}
@@ -97,7 +97,7 @@ func (ra *memoryResourceAdvisor) Update() {
 
 	// Check if essential pool info exists. Skip update if not in which case sysadvisor
 	// is ignorant of pools and containers
-	reservePoolInfo, ok := ra.metaCache.GetPoolInfo(state.PoolNameReserve)
+	reservePoolInfo, ok := ra.metaReader.GetPoolInfo(state.PoolNameReserve)
 	if !ok || reservePoolInfo == nil {
 		klog.Warningf("[qosaware-memory] skip update: reserve pool not exist")
 		return

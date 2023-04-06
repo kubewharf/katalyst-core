@@ -36,7 +36,7 @@ import (
 const PluginNameCustomMetricEmitter = "metric-emitter-plugin"
 
 type SyncerInitFunc func(conf *config.Configuration, metricEmitter, dataEmitter metrics.MetricEmitter,
-	metaServer *metaserver.MetaServer, metaCache *metacache.MetaCache) emitter.CustomMetricSyncer
+	metaServer *metaserver.MetaServer, metaReader metacache.MetaReader) emitter.CustomMetricSyncer
 
 type CustomMetricEmitter struct {
 	syncers []emitter.CustomMetricSyncer
@@ -49,7 +49,7 @@ var metricSyncFunc = map[string]SyncerInitFunc{
 }
 
 func NewCustomMetricEmitter(conf *config.Configuration, _ interface{}, emitterPool metricspool.MetricsEmitterPool,
-	metaServer *metaserver.MetaServer, metaCache *metacache.MetaCache) (plugin.SysAdvisorPlugin, error) {
+	metaServer *metaserver.MetaServer, metaCache metacache.MetaCache) (plugin.SysAdvisorPlugin, error) {
 	dataEmitter, err := emitterPool.GetMetricsEmitter(metricspool.PrometheusMetricOptions{
 		Path: metrics.PrometheusMetricPathNameCustomMetric,
 	})

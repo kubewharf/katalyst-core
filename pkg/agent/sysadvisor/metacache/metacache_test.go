@@ -40,8 +40,8 @@ func generateTestConfiguration(t *testing.T) *config.Configuration {
 	return testConfiguration
 }
 
-func newTestMetaCache(t *testing.T) *MetaCache {
-	metaCache, err := NewMetaCache(generateTestConfiguration(t), nil)
+func newTestMetaCache(t *testing.T) *MetaCacheImp {
+	metaCache, err := NewMetaCacheImp(generateTestConfiguration(t), nil)
 	require.NoError(t, err)
 	require.NotNil(t, metaCache)
 	return metaCache

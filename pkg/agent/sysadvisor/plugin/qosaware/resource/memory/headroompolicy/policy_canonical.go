@@ -41,10 +41,10 @@ type PolicyCanonical struct {
 	updateStatus   types.PolicyUpdateStatus
 }
 
-func NewPolicyCanonical(_ *config.Configuration, _ interface{}, metaCache *metacache.MetaCache,
+func NewPolicyCanonical(_ *config.Configuration, _ interface{}, metaReader metacache.MetaReader,
 	metaServer *metaserver.MetaServer, _ metrics.MetricEmitter) HeadroomPolicy {
 	p := PolicyCanonical{
-		PolicyBase: NewPolicyBase(metaCache, metaServer),
+		PolicyBase: NewPolicyBase(metaReader, metaServer),
 
 		updateStatus: types.PolicyUpdateFailed,
 	}
@@ -68,7 +68,7 @@ func (p *PolicyCanonical) Update() (err error) {
 	)
 
 	f := func(podUID string, containerName string, ci *types.ContainerInfo) bool {
-		containerEstimation, err := helper.EstimateContainerResourceUsage(ci, v1.ResourceMemory, p.MetaCache)
+		containerEstimation, err := helper.EstimateContainerResourceUsage(ci, v1.ResourceMemory, p.metaReader)
 		if err != nil {
 			errList = append(errList, err)
 			return true
@@ -78,7 +78,7 @@ func (p *PolicyCanonical) Update() (err error) {
 		containerCnt += 1
 		return true
 	}
-	p.MetaCache.RangeContainer(f)
+	p.metaReader.RangeContainer(f)
 	klog.Infof("[qosaware-memory-headroom] memory requirement estimation: %.2e, #container %v", memoryEstimation, containerCnt)
 
 	p.memoryHeadroom = math.Max(p.Total-p.ReservedForAllocate-memoryEstimation, 0)

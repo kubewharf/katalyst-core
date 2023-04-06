@@ -75,7 +75,7 @@ type cpuServer struct {
 	stopCh               chan struct{}
 	getCheckpointCalled  bool
 
-	metaCache *metacache.MetaCache
+	metaCache metacache.MetaCache
 	emitter   metrics.MetricEmitter
 
 	server *grpc.Server
@@ -83,7 +83,7 @@ type cpuServer struct {
 }
 
 func NewCPUServer(advisorCh chan cpu.CPUProvision, conf *config.Configuration,
-	metaCache *metacache.MetaCache, emitter metrics.MetricEmitter) (*cpuServer, error) {
+	metaCache metacache.MetaCache, emitter metrics.MetricEmitter) (*cpuServer, error) {
 	return &cpuServer{
 		name:                 cpuServerName,
 		period:               conf.QoSAwarePluginConfiguration.SyncPeriod,

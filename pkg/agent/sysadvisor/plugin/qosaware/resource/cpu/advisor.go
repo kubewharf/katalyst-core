@@ -88,13 +88,13 @@ type cpuResourceAdvisor struct {
 	sharedNumas machine.CPUSet // numas without numa binding workloads
 	mutex       sync.RWMutex
 
-	metaCache  *metacache.MetaCache
+	metaCache  metacache.MetaCache
 	metaServer *metaserver.MetaServer
 	emitter    metrics.MetricEmitter
 }
 
 // NewCPUResourceAdvisor returns a cpuResourceAdvisor instance
-func NewCPUResourceAdvisor(conf *config.Configuration, extraConf interface{}, metaCache *metacache.MetaCache,
+func NewCPUResourceAdvisor(conf *config.Configuration, extraConf interface{}, metaCache metacache.MetaCache,
 	metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter) *cpuResourceAdvisor {
 
 	cra := &cpuResourceAdvisor{
@@ -287,7 +287,7 @@ func (cra *cpuResourceAdvisor) assignToRegions(ci *types.ContainerInfo) ([]regio
 			return regions, nil
 		}
 
-		regions := []region.QoSRegion{}
+		var regions []region.QoSRegion
 
 		// Create regions by numa node
 		for numaID := range ci.TopologyAwareAssignments {

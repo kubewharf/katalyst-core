@@ -54,7 +54,7 @@ var resourceMetricsToGather = map[v1.ResourceName][]string{
 	},
 }
 
-func EstimateContainerResourceUsage(ci *types.ContainerInfo, resourceName v1.ResourceName, metaCache *metacache.MetaCache) (float64, error) {
+func EstimateContainerResourceUsage(ci *types.ContainerInfo, resourceName v1.ResourceName, metaReader metacache.MetaReader) (float64, error) {
 	if ci.QoSLevel != apiconsts.PodAnnotationQoSLevelSharedCores && ci.QoSLevel != apiconsts.PodAnnotationQoSLevelDedicatedCores {
 		return 0, nil
 	}
@@ -62,7 +62,7 @@ func EstimateContainerResourceUsage(ci *types.ContainerInfo, resourceName v1.Res
 	if !ok || len(metricsToGather) == 0 {
 		return 0, fmt.Errorf("failed to find metrics to gather for %v", resourceName)
 	}
-	if metaCache == nil {
+	if metaReader == nil {
 		return 0, fmt.Errorf("metaCache nil")
 	}
 
@@ -73,7 +73,7 @@ func EstimateContainerResourceUsage(ci *types.ContainerInfo, resourceName v1.Res
 	)
 
 	for _, metricName := range metricsToGather {
-		metricValue, err := metaCache.GetContainerMetric(ci.PodUID, ci.ContainerName, metricName)
+		metricValue, err := metaReader.GetContainerMetric(ci.PodUID, ci.ContainerName, metricName)
 		klog.Infof("[qosaware-canonical] pod %v container %v metric %v value %v", ci.PodName, ci.ContainerName, metricName, metricValue)
 		if err != nil || metricValue <= 0 {
 			checkRequest = true

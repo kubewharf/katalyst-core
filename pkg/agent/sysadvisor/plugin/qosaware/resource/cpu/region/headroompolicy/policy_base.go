@@ -27,11 +27,11 @@ type PolicyBase struct {
 	ControlKnobValue types.ControlKnob
 	Total            int
 
-	MetaCache  *metacache.MetaCache
+	MetaCache  *metacache.MetaCacheImp
 	MetaServer *metaserver.MetaServer
 }
 
-func NewPolicyBase(metaCache *metacache.MetaCache, metaServer *metaserver.MetaServer) *PolicyBase {
+func NewPolicyBase(metaCache *metacache.MetaCacheImp, metaServer *metaserver.MetaServer) *PolicyBase {
 	cp := &PolicyBase{
 		PodSet: make(types.PodSet),
 
