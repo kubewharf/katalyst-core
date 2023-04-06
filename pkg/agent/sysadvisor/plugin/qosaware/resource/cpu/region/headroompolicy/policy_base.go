@@ -23,17 +23,18 @@ import (
 )
 
 type PolicyBase struct {
-	PodSet           types.PodSet
-	ControlKnobValue types.ControlKnob
-	Total            int
+	RegionName string
+	PodSet     types.PodSet
+	Total      int
 
 	MetaCache  *metacache.MetaCacheImp
 	MetaServer *metaserver.MetaServer
 }
 
-func NewPolicyBase(metaCache *metacache.MetaCacheImp, metaServer *metaserver.MetaServer) *PolicyBase {
+func NewPolicyBase(regionName string, metaCache *metacache.MetaCacheImp, metaServer *metaserver.MetaServer) *PolicyBase {
 	cp := &PolicyBase{
-		PodSet: make(types.PodSet),
+		RegionName: regionName,
+		PodSet:     make(types.PodSet),
 
 		MetaCache:  metaCache,
 		MetaServer: metaServer,
@@ -42,11 +43,7 @@ func NewPolicyBase(metaCache *metacache.MetaCacheImp, metaServer *metaserver.Met
 }
 
 func (p *PolicyBase) SetPodSet(podSet types.PodSet) {
-	p.PodSet = podSet.DeepCopy()
-}
-
-func (p *PolicyBase) SetControlKnobValue(v types.ControlKnob) {
-	p.ControlKnobValue = v
+	p.PodSet = podSet.Clone()
 }
 
 func (p *PolicyBase) SetEssentials(total int) {

@@ -42,7 +42,7 @@ func NewPolicyBase(metaReader metacache.MetaReader, metaServer *metaserver.MetaS
 }
 
 func (p *PolicyBase) SetPodSet(podSet types.PodSet) {
-	p.PodSet = podSet.DeepCopy()
+	p.PodSet = podSet.Clone()
 }
 
 func (p *PolicyBase) SetEssentials(total, reservedForAllocate float64) {

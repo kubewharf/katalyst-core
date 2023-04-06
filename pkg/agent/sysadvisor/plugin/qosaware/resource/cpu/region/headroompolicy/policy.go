@@ -31,10 +31,6 @@ type HeadroomPolicy interface {
 	// SetPodSet overwrites policy's pod/container record
 	SetPodSet(types.PodSet)
 
-	// SetControlKnobValue delivers the lastest adjusted control konb value for
-	// generating headroom value
-	SetControlKnobValue(controlKnobValue types.ControlKnob)
-
 	// SetEssentials updates essential values for policy update
 	SetEssentials(total int)
 
@@ -45,7 +41,7 @@ type HeadroomPolicy interface {
 	GetHeadroom() (float64, error)
 }
 
-type InitFunc func(conf *config.Configuration, extraConfig interface{}, metaReader metacache.MetaReader,
+type InitFunc func(regionName string, conf *config.Configuration, extraConfig interface{}, metaReader metacache.MetaReader,
 	metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter) HeadroomPolicy
 
 var initializers sync.Map

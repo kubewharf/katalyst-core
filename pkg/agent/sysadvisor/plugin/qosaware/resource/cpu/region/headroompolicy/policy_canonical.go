@@ -32,22 +32,28 @@ type PolicyCanonical struct {
 	headroomValue float64
 }
 
-func NewPolicyCanonical(_ *config.Configuration, _ interface{}, metaCache *metacache.MetaCacheImp,
+func NewPolicyCanonical(regionName string, _ *config.Configuration, _ interface{}, metaCache *metacache.MetaCacheImp,
 	metaServer *metaserver.MetaServer, _ metrics.MetricEmitter) HeadroomPolicy {
 	p := &PolicyCanonical{
-		PolicyBase: NewPolicyBase(metaCache, metaServer),
+		PolicyBase: NewPolicyBase(regionName, metaCache, metaServer),
 	}
 
 	return p
 }
 
 func (p *PolicyCanonical) Update() error {
-	cpuRequirement, ok := p.ControlKnobValue[types.ControlKnobSharedCPUSetSize]
+	regionInfo, ok := p.MetaCache.GetRegionInfo(p.RegionName)
 	if !ok {
-		return fmt.Errorf("get cpu requirement control knob failed")
+		return fmt.Errorf("get region info for %v failed", p.RegionName)
 	}
 
-	p.headroomValue = float64(p.Total) - cpuRequirement.Value
+	controlKnobValue, ok := regionInfo.ControlKnobMap[types.ControlKnobSharedCPUSetSize]
+	if !ok {
+		return fmt.Errorf("get control knob value failed")
+	}
+
+	cpuRequirement := controlKnobValue.Value
+	p.headroomValue = float64(p.Total) - cpuRequirement
 
 	return nil
 }

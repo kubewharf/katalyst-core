@@ -23,6 +23,7 @@ import (
 )
 
 type PolicyBase struct {
+	RegionName       string
 	PodSet           types.PodSet
 	Indicator        types.Indicator
 	ControlKnobValue types.ControlKnob
@@ -31,8 +32,9 @@ type PolicyBase struct {
 	MetaServer *metaserver.MetaServer
 }
 
-func NewPolicyBase(metaReader metacache.MetaReader, metaServer *metaserver.MetaServer) *PolicyBase {
+func NewPolicyBase(regionName string, metaReader metacache.MetaReader, metaServer *metaserver.MetaServer) *PolicyBase {
 	cp := &PolicyBase{
+		RegionName:       regionName,
 		PodSet:           make(types.PodSet),
 		Indicator:        make(types.Indicator),
 		ControlKnobValue: make(types.ControlKnob),
@@ -44,7 +46,7 @@ func NewPolicyBase(metaReader metacache.MetaReader, metaServer *metaserver.MetaS
 }
 
 func (p *PolicyBase) SetPodSet(podSet types.PodSet) {
-	p.PodSet = podSet.DeepCopy()
+	p.PodSet = podSet.Clone()
 }
 
 func (p *PolicyBase) SetIndicator(v types.Indicator) {

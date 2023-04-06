@@ -44,7 +44,7 @@ type ProvisionPolicy interface {
 	GetControlKnobAdjusted() (types.ControlKnob, error)
 }
 
-type InitFunc func(conf *config.Configuration, extraConfig interface{}, metaReader metacache.MetaReader,
+type InitFunc func(regionName string, conf *config.Configuration, extraConfig interface{}, metaReader metacache.MetaReader,
 	metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter) ProvisionPolicy
 
 var initializers sync.Map

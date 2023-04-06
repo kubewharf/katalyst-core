@@ -91,7 +91,7 @@ func NewQoSRegionShare(name string, ownerPoolName string, conf *config.Configura
 	for _, policyName := range provisionPolicyList {
 		if initializer, ok := initializers[policyName]; ok {
 			r.provisionPolicyMap[policyName] = &provisionPolicyWrapper{
-				initializer(conf, extraConf, metaReader, metaServer, emitter),
+				initializer(r.name, conf, extraConf, metaReader, metaServer, emitter),
 				types.PolicyUpdateFailed,
 			}
 			r.regulatorMap[policyName] = newCPURegulator(maxRampUpStep, maxRampDownStep, minRampDownPeriod)

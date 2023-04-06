@@ -34,10 +34,10 @@ type PolicyCanonical struct {
 	cpuRequirement float64
 }
 
-func NewPolicyCanonical(_ *config.Configuration, _ interface{}, metaReader metacache.MetaReader,
+func NewPolicyCanonical(regionName string, _ *config.Configuration, _ interface{}, metaReader metacache.MetaReader,
 	metaServer *metaserver.MetaServer, _ metrics.MetricEmitter) ProvisionPolicy {
 	p := &PolicyCanonical{
-		PolicyBase: NewPolicyBase(metaReader, metaServer),
+		PolicyBase: NewPolicyBase(regionName, metaReader, metaServer),
 	}
 	return p
 }

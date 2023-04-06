@@ -36,7 +36,6 @@ func (ta TopologyAwareAssignment) Clone() TopologyAwareAssignment {
 	if ta == nil {
 		return nil
 	}
-
 	clone := make(TopologyAwareAssignment)
 	for numaID, cpuset := range ta {
 		clone[numaID] = cpuset.Clone()
@@ -52,7 +51,6 @@ func (ci *ContainerInfo) Clone() *ContainerInfo {
 	if ci == nil {
 		return nil
 	}
-
 	clone := &ContainerInfo{
 		PodUID:                           ci.PodUID,
 		PodNamespace:                     ci.PodNamespace,
@@ -77,7 +75,6 @@ func (pi *PoolInfo) Clone() *PoolInfo {
 	if pi == nil {
 		return nil
 	}
-
 	clone := &PoolInfo{
 		PoolName:                         pi.PoolName,
 		TopologyAwareAssignments:         pi.TopologyAwareAssignments.Clone(),
@@ -86,11 +83,20 @@ func (pi *PoolInfo) Clone() *PoolInfo {
 	return clone
 }
 
+func (ri *RegionInfo) Clone() *RegionInfo {
+	if ri == nil {
+		return nil
+	}
+	clone := &RegionInfo{
+		ControlKnobMap: ri.ControlKnobMap.Clone(),
+	}
+	return clone
+}
+
 func (ce ContainerEntries) Clone() ContainerEntries {
 	if ce == nil {
 		return nil
 	}
-
 	clone := make(ContainerEntries)
 	for containerName, containerInfo := range ce {
 		clone[containerName] = containerInfo.Clone()
@@ -102,7 +108,6 @@ func (pe PodEntries) Clone() PodEntries {
 	if pe == nil {
 		return nil
 	}
-
 	clone := make(PodEntries)
 	for podUID, containerEntries := range pe {
 		clone[podUID] = containerEntries.Clone()
@@ -114,10 +119,20 @@ func (pe PoolEntries) Clone() PoolEntries {
 	if pe == nil {
 		return nil
 	}
-
 	clone := make(PoolEntries)
 	for poolName, poolInfo := range pe {
 		clone[poolName] = poolInfo.Clone()
+	}
+	return clone
+}
+
+func (re RegionEntries) Clone() RegionEntries {
+	if re == nil {
+		return nil
+	}
+	clone := make(RegionEntries)
+	for regionName, regionInfo := range re {
+		clone[regionName] = regionInfo.Clone()
 	}
 	return clone
 }
@@ -126,13 +141,9 @@ func (ps PodSet) Clone() PodSet {
 	if ps == nil {
 		return nil
 	}
-
 	clone := make(PodSet)
-	for podUID, containerSet := range ps {
-		clone[podUID] = sets.NewString()
-		for containerName := range containerSet {
-			clone[podUID].Insert(containerName)
-		}
+	for k, v := range ps {
+		clone[k] = sets.NewString(v.List()...)
 	}
 	return clone
 }
@@ -144,6 +155,17 @@ func (ps PodSet) Insert(podUID string, containerName string) {
 		containerSet = ps[podUID]
 	}
 	containerSet.Insert(containerName)
+}
+
+func (ck ControlKnob) Clone() ControlKnob {
+	if ck == nil {
+		return nil
+	}
+	clone := make(ControlKnob)
+	for k, v := range ck {
+		clone[k] = v
+	}
+	return clone
 }
 
 // UpdateMeta updates mutable container meta from another container info

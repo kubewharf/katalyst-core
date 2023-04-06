@@ -149,7 +149,7 @@ func (cra *cpuResourceAdvisor) Update() {
 	}
 	klog.Infof("[qosaware-cpu] region map: %v", general.ToString(cra.regionMap))
 
-	// Run an episode of policy update for each region
+	// Run an episode of provision policy update for each region
 	for _, r := range cra.regionMap {
 		regionNumas := r.GetBindingNumas()
 
@@ -173,8 +173,15 @@ func (cra *cpuResourceAdvisor) Update() {
 		r.SetEssentials(regionCPULimit, regionReservePoolSize, regionReservedForAllocate)
 
 		r.TryUpdateProvision()
-		r.TryUpdateHeadroom()
 	}
+
+	// Sync region information to metacache
+	regionEntries, err := cra.assembleRegionEntries()
+	if err != nil {
+		klog.Errorf("[qosaware-cpu] assemble region entries failed: %v", err)
+		return
+	}
+	_ = cra.metaCache.UpdateRegionEntries(regionEntries)
 
 	// Skip notifying cpu server during startup
 	if time.Now().Before(cra.startTime.Add(startUpPeriod)) {
@@ -189,9 +196,15 @@ func (cra *cpuResourceAdvisor) Update() {
 		return
 	}
 
-	// Notify cpu server
+	// Notify cpu server about provision result
 	cra.advisorCh <- provision
 	klog.Infof("[qosaware-cpu] notify cpu server: %+v", provision)
+
+	// Update headroom policy. Do this after updating provision because headroom policy
+	// may need the latest region provision result from metacache.
+	for _, r := range cra.regionMap {
+		r.TryUpdateHeadroom()
+	}
 }
 
 func (cra *cpuResourceAdvisor) GetChannel() interface{} {
@@ -320,6 +333,23 @@ func (cra *cpuResourceAdvisor) updateSharedNumas() {
 			r.SetBindingNumas(cra.sharedNumas)
 		}
 	}
+}
+
+func (cra *cpuResourceAdvisor) assembleRegionEntries() (types.RegionEntries, error) {
+	entries := make(types.RegionEntries)
+
+	for regionName, r := range cra.regionMap {
+		controlKnobMap, err := r.GetProvision()
+		if err != nil {
+			return nil, err
+		}
+
+		entries[regionName] = &types.RegionInfo{
+			ControlKnobMap: controlKnobMap,
+		}
+	}
+
+	return entries, nil
 }
 
 func (cra *cpuResourceAdvisor) assembleProvision() (CPUProvision, error) {

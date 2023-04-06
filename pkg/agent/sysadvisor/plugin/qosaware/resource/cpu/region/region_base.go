@@ -105,7 +105,7 @@ func (r *QoSRegionBase) GetPods() types.PodSet {
 	r.Lock()
 	defer r.Unlock()
 
-	return r.podSet.DeepCopy()
+	return r.podSet.Clone()
 }
 
 func (r *QoSRegionBase) SetBindingNumas(numas machine.CPUSet) {
