@@ -132,8 +132,10 @@ func NewSPDController(ctx context.Context, controlCtx *katalystbase.GenericConte
 	for _, workload := range conf.SPDWorkloadGVResources {
 		wf, ok := workloadInformers[workload]
 		if !ok {
-			return nil, fmt.Errorf("spd concerned workload %s not found in dynamic GVR resources", workload)
+			klog.Errorf("spd concerned workload %s not found in dynamic GVR resources", workload)
+			continue
 		}
+
 		wf.Informer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
 			AddFunc:    spdController.addWorkload(workload),
 			UpdateFunc: spdController.updateWorkload(workload),
