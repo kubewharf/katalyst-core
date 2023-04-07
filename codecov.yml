@@ -1,0 +1,35 @@
+codecov:
+  require_ci_to_pass: false
+  notify:
+    wait_for_ci: false
+
+coverage:
+  status:
+    project:
+      # global coverage
+      default:
+        target: auto
+        threshold: 0%
+        flags:
+          - unittest
+        if_ci_failed: error
+        if_no_uploads: error
+        if_not_found: success
+    patch:
+      # diff coverage
+      default:
+        target: 50%
+        flags:
+          - unittest
+        paths:
+          - "pkg"
+        if_ci_failed: error
+        if_no_uploads: error
+        if_not_found: success
+
+ignore:
+  - "pkg/client"
+  - "**/*_generated.*"
+
+github_checks:
+  annotations: true
