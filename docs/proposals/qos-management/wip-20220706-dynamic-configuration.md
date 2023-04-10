@@ -1,15 +1,15 @@
 ---
-- title: Katalyst Reporter Manager
-- authors:
-    - "luomingmeng"
-- reviewers:
-    - "waynepeking348"
-    - "csfldf"
-    - "Aiden-cn"
-    - "sun-yuliang"
-- creation-date: 2022-07-06
-- last-updated: 2023-02-23
-- status: provisional
+title: Katalyst Reporter Manager
+authors:
+  - "luomingmeng"
+reviewers:
+  - "waynepeking348"
+  - "csfldf"
+  - "Aiden-cn"
+  - "sun-yuliang"
+creation-date: 2022-07-06
+last-updated: 2023-02-23
+status: provisional
 ---
 
 # Katalyst Dynamic Configuration (TBD)

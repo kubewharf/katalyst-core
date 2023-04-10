@@ -50,13 +50,23 @@ jobs:
     name: Unit Test
     runs-on: ubuntu-20.04
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v1
       - uses: actions/setup-go@v3
         with:
           go-version-file: go.mod
       - name: Coverage
         run: sudo make test
+      - name: Check the number of changed lines
+        run: |
+          DIFF=$(git diff --numstat ${{ github.event.pull_request.base.sha }} ${{ github.event.pull_request.head.sha }} pkg/ | awk '{print $1}')
+          echo "lines changed: $DIFF"
+          if [[ $DIFF -gt 10 ]]; then
+            echo "NEED_TO_CHECK=true" >> $GITHUB_ENV
+          else
+            echo "NEED_TO_CHECK=false" >> $GITHUB_ENV
+          fi
       - name: Upload coverage to Codecov
+        if: env.NEED_TO_CHECK == 'true'
         uses: codecov/codecov-action@v3
         with:
           flags: unittest
