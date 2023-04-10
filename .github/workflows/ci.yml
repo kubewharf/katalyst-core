@@ -56,3 +56,10 @@ jobs:
           go-version-file: go.mod
       - name: Coverage
         run: sudo make test
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v3
+        with:
+          flags: unittest
+          file: coverage.txt
+          fail_ci_if_error: true
+          verbose: true
