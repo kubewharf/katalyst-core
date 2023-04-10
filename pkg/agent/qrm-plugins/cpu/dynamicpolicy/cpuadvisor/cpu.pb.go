@@ -2258,7 +2258,7 @@ func (this *AddContainerRequest) String() string {
 		return "nil"
 	}
 	keysForLabels := make([]string, 0, len(this.Labels))
-	for k, _ := range this.Labels {
+	for k := range this.Labels {
 		keysForLabels = append(keysForLabels, k)
 	}
 	github_com_gogo_protobuf_sortkeys.Strings(keysForLabels)
@@ -2268,7 +2268,7 @@ func (this *AddContainerRequest) String() string {
 	}
 	mapStringForLabels += "}"
 	keysForAnnotations := make([]string, 0, len(this.Annotations))
-	for k, _ := range this.Annotations {
+	for k := range this.Annotations {
 		keysForAnnotations = append(keysForAnnotations, k)
 	}
 	github_com_gogo_protobuf_sortkeys.Strings(keysForAnnotations)
@@ -2334,7 +2334,7 @@ func (this *ListAndWatchResponse) String() string {
 		return "nil"
 	}
 	keysForEntries := make([]string, 0, len(this.Entries))
-	for k, _ := range this.Entries {
+	for k := range this.Entries {
 		keysForEntries = append(keysForEntries, k)
 	}
 	github_com_gogo_protobuf_sortkeys.Strings(keysForEntries)
@@ -2354,7 +2354,7 @@ func (this *CalculationEntries) String() string {
 		return "nil"
 	}
 	keysForEntries := make([]string, 0, len(this.Entries))
-	for k, _ := range this.Entries {
+	for k := range this.Entries {
 		keysForEntries = append(keysForEntries, k)
 	}
 	github_com_gogo_protobuf_sortkeys.Strings(keysForEntries)
@@ -2374,7 +2374,7 @@ func (this *CalculationInfo) String() string {
 		return "nil"
 	}
 	keysForCalculationResultsByNumas := make([]int64, 0, len(this.CalculationResultsByNumas))
-	for k, _ := range this.CalculationResultsByNumas {
+	for k := range this.CalculationResultsByNumas {
 		keysForCalculationResultsByNumas = append(keysForCalculationResultsByNumas, k)
 	}
 	github_com_gogo_protobuf_sortkeys.Int64s(keysForCalculationResultsByNumas)
@@ -2449,7 +2449,7 @@ func (this *GetCheckpointResponse) String() string {
 		return "nil"
 	}
 	keysForEntries := make([]string, 0, len(this.Entries))
-	for k, _ := range this.Entries {
+	for k := range this.Entries {
 		keysForEntries = append(keysForEntries, k)
 	}
 	github_com_gogo_protobuf_sortkeys.Strings(keysForEntries)
@@ -2469,7 +2469,7 @@ func (this *AllocationEntries) String() string {
 		return "nil"
 	}
 	keysForEntries := make([]string, 0, len(this.Entries))
-	for k, _ := range this.Entries {
+	for k := range this.Entries {
 		keysForEntries = append(keysForEntries, k)
 	}
 	github_com_gogo_protobuf_sortkeys.Strings(keysForEntries)
@@ -2489,7 +2489,7 @@ func (this *AllocationInfo) String() string {
 		return "nil"
 	}
 	keysForTopologyAwareAssignments := make([]uint64, 0, len(this.TopologyAwareAssignments))
-	for k, _ := range this.TopologyAwareAssignments {
+	for k := range this.TopologyAwareAssignments {
 		keysForTopologyAwareAssignments = append(keysForTopologyAwareAssignments, k)
 	}
 	github_com_gogo_protobuf_sortkeys.Uint64s(keysForTopologyAwareAssignments)
@@ -2499,7 +2499,7 @@ func (this *AllocationInfo) String() string {
 	}
 	mapStringForTopologyAwareAssignments += "}"
 	keysForOriginalTopologyAwareAssignments := make([]uint64, 0, len(this.OriginalTopologyAwareAssignments))
-	for k, _ := range this.OriginalTopologyAwareAssignments {
+	for k := range this.OriginalTopologyAwareAssignments {
 		keysForOriginalTopologyAwareAssignments = append(keysForOriginalTopologyAwareAssignments, k)
 	}
 	github_com_gogo_protobuf_sortkeys.Uint64s(keysForOriginalTopologyAwareAssignments)

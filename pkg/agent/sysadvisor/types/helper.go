@@ -89,6 +89,7 @@ func (ri *RegionInfo) Clone() *RegionInfo {
 	}
 	clone := &RegionInfo{
 		ControlKnobMap: ri.ControlKnobMap.Clone(),
+		RegionType:     ri.RegionType,
 	}
 	return clone
 }

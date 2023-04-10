@@ -20,24 +20,28 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
+	"github.com/kubewharf/katalyst-core/pkg/metrics"
 )
 
 type PolicyBase struct {
-	RegionName string
-	PodSet     types.PodSet
-	Total      int
+	RegionName    string
+	PodSet        types.PodSet
+	HeadroomValue float64
+	types.ResourceEssentials
 
-	MetaCache  *metacache.MetaCacheImp
+	MetaReader metacache.MetaReader
 	MetaServer *metaserver.MetaServer
+	Emitter    metrics.MetricEmitter
 }
 
-func NewPolicyBase(regionName string, metaCache *metacache.MetaCacheImp, metaServer *metaserver.MetaServer) *PolicyBase {
+func NewPolicyBase(regionName string, metaReader metacache.MetaReader, metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter) *PolicyBase {
 	cp := &PolicyBase{
 		RegionName: regionName,
 		PodSet:     make(types.PodSet),
 
-		MetaCache:  metaCache,
+		MetaReader: metaReader,
 		MetaServer: metaServer,
+		Emitter:    emitter,
 	}
 	return cp
 }
@@ -46,6 +50,6 @@ func (p *PolicyBase) SetPodSet(podSet types.PodSet) {
 	p.PodSet = podSet.Clone()
 }
 
-func (p *PolicyBase) SetEssentials(total int) {
-	p.Total = total
+func (p *PolicyBase) SetEssentials(essentials types.ResourceEssentials) {
+	p.ResourceEssentials = essentials
 }

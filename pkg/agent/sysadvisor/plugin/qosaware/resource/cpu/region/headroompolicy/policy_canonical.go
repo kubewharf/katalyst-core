@@ -18,6 +18,7 @@ package headroompolicy
 
 import (
 	"fmt"
+	"math"
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
@@ -28,36 +29,45 @@ import (
 
 type PolicyCanonical struct {
 	*PolicyBase
-
-	headroomValue float64
 }
 
-func NewPolicyCanonical(regionName string, _ *config.Configuration, _ interface{}, metaCache *metacache.MetaCacheImp,
-	metaServer *metaserver.MetaServer, _ metrics.MetricEmitter) HeadroomPolicy {
+func NewPolicyCanonical(regionName string, _ *config.Configuration, _ interface{}, metaReader metacache.MetaReader,
+	metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter) HeadroomPolicy {
 	p := &PolicyCanonical{
-		PolicyBase: NewPolicyBase(regionName, metaCache, metaServer),
+		PolicyBase: NewPolicyBase(regionName, metaReader, metaServer, emitter),
 	}
 
 	return p
 }
 
 func (p *PolicyCanonical) Update() error {
-	regionInfo, ok := p.MetaCache.GetRegionInfo(p.RegionName)
+	regionInfo, ok := p.MetaReader.GetRegionInfo(p.RegionName)
 	if !ok {
 		return fmt.Errorf("get region info for %v failed", p.RegionName)
 	}
 
-	controlKnobValue, ok := regionInfo.ControlKnobMap[types.ControlKnobSharedCPUSetSize]
-	if !ok {
-		return fmt.Errorf("get control knob value failed")
+	controlKnobValue := types.ControlKnobValue{}
+	switch regionInfo.RegionType {
+	case types.QoSRegionTypeShare:
+		controlKnobValue, ok = regionInfo.ControlKnobMap[types.ControlKnobNonReclaimedCPUSetSize]
+		if !ok {
+			return fmt.Errorf("get control knob value failed")
+		}
+		cpuRequirement := controlKnobValue.Value
+		p.HeadroomValue = math.Max(float64(p.Total-p.ReservePoolSize)-cpuRequirement, 0)
+	case types.QoSRegionTypeDedicatedNumaExclusive:
+		controlKnobValue, ok = regionInfo.ControlKnobMap[types.ControlKnobReclaimedCPUSupplied]
+		if !ok {
+			return fmt.Errorf("get control knob value failed")
+		}
+		p.HeadroomValue = math.Max(controlKnobValue.Value, 0)
+	default:
+		return fmt.Errorf("region type %v is invalid", regionInfo.RegionType)
 	}
-
-	cpuRequirement := controlKnobValue.Value
-	p.headroomValue = float64(p.Total) - cpuRequirement
 
 	return nil
 }
 
 func (p *PolicyCanonical) GetHeadroom() (float64, error) {
-	return p.headroomValue, nil
+	return p.HeadroomValue, nil
 }

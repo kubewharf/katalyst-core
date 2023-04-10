@@ -18,52 +18,19 @@ package region
 
 import (
 	"fmt"
-	"math"
-	"time"
 
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/klog/v2"
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
-	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource/cpu/region/provisionpolicy"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 )
 
-const (
-	minShareCPURequirement   int           = 4
-	minReclaimCPURequirement int           = 4
-	maxRampUpStep            float64       = 10
-	maxRampDownStep          float64       = 2
-	minRampDownPeriod        time.Duration = 30 * time.Second
-)
-
-// Policy priority defines the priority of available provision or headroom policies.
-// Result of the policy with higher priority will be preferred when it is legal.
-// Larger value indicates higher priority.
-var (
-	provisionPolicyPriority = map[types.CPUProvisionPolicyName]int{
-		types.CPUProvisionPolicyCanonical: 0,
-		types.CPUProvisionPolicyRama:      1,
-	}
-)
-
-type provisionPolicyWrapper struct {
-	policy       provisionpolicy.ProvisionPolicy
-	updateStatus types.PolicyUpdateStatus
-}
-
 type QoSRegionShare struct {
 	*QoSRegionBase
-	isInitialized bool
-
-	// provisionPolicyMap for comparing and merging different policy results
-	provisionPolicyMap map[types.CPUProvisionPolicyName]*provisionPolicyWrapper
-
-	// regulatorMap for regulating cpu requirement from provision results
-	regulatorMap map[types.CPUProvisionPolicyName]*cpuRegulator
 }
 
 // NewQoSRegionShare returns a region instance for shared pool
@@ -71,144 +38,96 @@ func NewQoSRegionShare(name string, ownerPoolName string, conf *config.Configura
 	metaReader metacache.MetaReader, metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter) QoSRegion {
 
 	r := &QoSRegionShare{
-		QoSRegionBase: NewQoSRegionBase(name, ownerPoolName, types.QoSRegionTypeShare, metaReader, metaServer, emitter),
-		isInitialized: false,
-
-		provisionPolicyMap: make(map[types.CPUProvisionPolicyName]*provisionPolicyWrapper),
-		regulatorMap:       make(map[types.CPUProvisionPolicyName]*cpuRegulator),
+		QoSRegionBase: NewQoSRegionBase(name, ownerPoolName, types.QoSRegionTypeShare, conf, extraConf, metaReader, metaServer, emitter),
 	}
-
-	// Keep canonical policy by default as baseline
-	provisionPolicyList := []types.CPUProvisionPolicyName{types.CPUProvisionPolicyCanonical}
-
-	configuredProvisionPolicy, ok := conf.CPUAdvisorConfiguration.CPUProvisionPolicy[r.regionType]
-	if ok && configuredProvisionPolicy != types.CPUProvisionPolicyCanonical {
-		provisionPolicyList = append(provisionPolicyList, configuredProvisionPolicy)
-	}
-
-	// Try new policies
-	initializers := provisionpolicy.GetRegisteredInitializers()
-	for _, policyName := range provisionPolicyList {
-		if initializer, ok := initializers[policyName]; ok {
-			r.provisionPolicyMap[policyName] = &provisionPolicyWrapper{
-				initializer(r.name, conf, extraConf, metaReader, metaServer, emitter),
-				types.PolicyUpdateFailed,
-			}
-			r.regulatorMap[policyName] = newCPURegulator(maxRampUpStep, maxRampDownStep, minRampDownPeriod)
-		}
-	}
-
 	return r
-}
-
-func (r *QoSRegionShare) AddContainer(ci *types.ContainerInfo) error {
-	r.Lock()
-	defer r.Unlock()
-
-	if ci == nil {
-		return fmt.Errorf("container info nil")
-	}
-
-	r.podSet.Insert(ci.PodUID, ci.ContainerName)
-
-	if len(r.containerTopologyAwareAssignment) <= 0 {
-		r.containerTopologyAwareAssignment = ci.TopologyAwareAssignments.Clone()
-	} else {
-		// Sanity check: all containers in the region share the same cpuset
-		// Do not return error when sanity check fails to prevent unnecessary stall
-		if !r.containerTopologyAwareAssignment.Equals(ci.TopologyAwareAssignments) {
-			klog.Warningf("[qosaware-cpu] sanity check failed")
-		}
-	}
-
-	return nil
 }
 
 func (r *QoSRegionShare) TryUpdateProvision() {
 	r.Lock()
 	defer r.Unlock()
 
-	for policyName, wrapper := range r.provisionPolicyMap {
-		wrapper.updateStatus = types.PolicyUpdateFailed
-		p := wrapper.policy
-		regulator := r.regulatorMap[policyName]
+	for policyName, internal := range r.provisionPolicyMap {
+		internal.updateStatus = types.PolicyUpdateFailed
 
-		// Set essentials for policy and regulator
-		p.SetPodSet(r.podSet)
-		regulator.setEssentials(minShareCPURequirement, r.total-r.reservePoolSize-minReclaimCPURequirement, r.total-r.reservePoolSize, r.reservedForAllocate)
+		// set essentials for policy and regulator
+		internal.policy.SetPodSet(r.podSet)
+		internal.policy.SetEssentials(types.ResourceEssentials{
+			MinRequirement:      minShareCPURequirement,
+			MaxRequirement:      r.Total - r.ReservePoolSize - minReclaimCPURequirement,
+			ReservedForAllocate: r.ReservedForAllocate,
+			EnableReclaim:       r.EnableReclaim,
+		})
 
-		// Try set initial cpu requirement to restore calculator after restart
-		if !r.isInitialized {
+		// try set initial cpu requirement to restore calculator after metaCache has been initialized
+		internal.initDoOnce.Do(func() {
 			if poolSize, ok := r.metaReader.GetPoolSize(r.ownerPoolName); ok {
-				regulator.setLatestCPURequirement(poolSize)
+				internal.policy.SetRequirement(poolSize)
 				klog.Infof("[qosaware-cpu] set initial cpu requirement %v", poolSize)
 			}
-			r.isInitialized = true
-		}
+		})
 
-		// Run an episode of policy and calculator update
-		if err := p.Update(); err != nil {
+		// run an episode of policy and calculator update
+		if err := internal.policy.Update(); err != nil {
 			klog.Errorf("[qosaware-cpu] update policy %v failed: %v", policyName, err)
+			continue
 		}
-		wrapper.updateStatus = types.PolicyUpdateSucceeded
-
-		controlKnob, err := p.GetControlKnobAdjusted()
-		if err != nil {
-			klog.Errorf("[qosaware-cpu] update policy %v failed: %v", policyName, err)
-		}
-		cpuRequirementRaw := controlKnob[types.ControlKnobSharedCPUSetSize].Value
-		regulator.regulate(cpuRequirementRaw)
+		internal.updateStatus = types.PolicyUpdateSucceeded
 	}
 }
 
 func (r *QoSRegionShare) TryUpdateHeadroom() {
 	r.Lock()
 	defer r.Unlock()
+
+	for policyName, internal := range r.headroomPolicyMap {
+		internal.updateStatus = types.PolicyUpdateFailed
+
+		// set essentials for policy and regulator
+		internal.policy.SetPodSet(r.podSet)
+		internal.policy.SetEssentials(r.ResourceEssentials)
+
+		// run an episode of policy and calculator update
+		if err := internal.policy.Update(); err != nil {
+			klog.Errorf("[qosaware-cpu] update policy %v failed: %v", policyName, err)
+			continue
+		}
+		internal.updateStatus = types.PolicyUpdateSucceeded
+	}
 }
 
 func (r *QoSRegionShare) GetProvision() (types.ControlKnob, error) {
 	r.Lock()
 	defer r.Unlock()
 
-	policyName := r.selectProvisionPolicy()
-	regulator, ok := r.regulatorMap[policyName]
+	policyName := r.selectProvisionPolicy(provisionPolicyPriority)
+	internal, ok := r.provisionPolicyMap[policyName]
 	if !ok {
 		return nil, fmt.Errorf("no legal policy result")
 	}
 
-	return types.ControlKnob{
-		types.ControlKnobSharedCPUSetSize: types.ControlKnobValue{
-			Value:  float64(regulator.getCPURequirement()),
-			Action: types.ControlKnobActionNone,
-		},
-	}, nil
+	controlKnobValue, err := internal.policy.GetControlKnobAdjusted()
+	if err != nil {
+		return nil, err
+	}
+
+	return controlKnobValue, nil
 }
 
 func (r *QoSRegionShare) GetHeadroom() (resource.Quantity, error) {
 	r.Lock()
 	defer r.Unlock()
 
-	policyName := r.selectProvisionPolicy()
-	regulator, ok := r.regulatorMap[policyName]
+	policyName := r.selectHeadroomPolicy(headroomPolicyPriority)
+	internal, ok := r.headroomPolicyMap[policyName]
 	if !ok {
 		return *resource.NewQuantity(0, resource.DecimalSI), fmt.Errorf("no legal policy result")
 	}
 
-	return *resource.NewQuantity(int64(regulator.getCPURequirementReclaimed()), resource.DecimalSI), nil
-}
-
-func (r *QoSRegionShare) selectProvisionPolicy() types.CPUProvisionPolicyName {
-	selected := types.CPUProvisionPolicyNone
-	max := math.MinInt
-
-	for policyName, wrapper := range r.provisionPolicyMap {
-		if wrapper.updateStatus != types.PolicyUpdateSucceeded {
-			continue
-		}
-		if priority, ok := provisionPolicyPriority[policyName]; ok && priority > max {
-			selected = policyName
-			max = priority
-		}
+	headroom, err := internal.policy.GetHeadroom()
+	if err != nil {
+		return resource.Quantity{}, err
 	}
-	return selected
+
+	return *resource.NewQuantity(int64(headroom), resource.DecimalSI), nil
 }

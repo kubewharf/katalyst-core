@@ -33,9 +33,11 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource/cpu/region"
+	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource/cpu/region/headroompolicy"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource/cpu/region/provisionpolicy"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
 	"github.com/kubewharf/katalyst-core/pkg/config"
+	pkgconfig "github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
@@ -44,6 +46,7 @@ import (
 
 func init() {
 	provisionpolicy.RegisterInitializer(types.CPUProvisionPolicyCanonical, provisionpolicy.NewPolicyCanonical)
+	headroompolicy.RegisterInitializer(types.CPUHeadroomPolicyCanonical, headroompolicy.NewPolicyCanonical)
 }
 
 // todo:
@@ -80,6 +83,7 @@ type cpuResourceAdvisor struct {
 	startTime           time.Time
 	reservedForAllocate int64
 	systemNumas         machine.CPUSet
+	enableReclaim       bool
 
 	regionMap          map[string]region.QoSRegion              // map[regionName]region
 	containerRegionMap map[string]map[string][]region.QoSRegion // map[podUID][containerName]regions
@@ -121,7 +125,15 @@ func NewCPUResourceAdvisor(conf *config.Configuration, extraConf interface{}, me
 	reserved := conf.ReclaimedResourceConfiguration.ReservedResourceForAllocate[v1.ResourceCPU]
 	cra.reservedForAllocate = reserved.Value()
 
+	metaServer.Register(cra)
+
 	return cra
+}
+
+func (cra *cpuResourceAdvisor) ApplyConfig(conf *pkgconfig.DynamicConfiguration) {
+	cra.mutex.Lock()
+	defer cra.mutex.Unlock()
+	cra.enableReclaim = conf.EnableReclaim
 }
 
 func (cra *cpuResourceAdvisor) Name() string {
@@ -170,7 +182,12 @@ func (cra *cpuResourceAdvisor) Update() {
 		// value times the number of numa nodes
 		regionReservedForAllocate := int(math.Ceil(float64(int(cra.reservedForAllocate)*regionNumas.Size()) / float64(cra.metaServer.NumNUMANodes)))
 
-		r.SetEssentials(regionCPULimit, regionReservePoolSize, regionReservedForAllocate)
+		r.SetEssentials(types.ResourceEssentials{
+			Total:               regionCPULimit,
+			ReservePoolSize:     regionReservePoolSize,
+			ReservedForAllocate: regionReservedForAllocate,
+			EnableReclaim:       cra.enableReclaim,
+		})
 
 		r.TryUpdateProvision()
 	}
@@ -226,8 +243,8 @@ func (cra *cpuResourceAdvisor) GetHeadroom() (resource.Quantity, error) {
 	}
 
 	totalHeadroom := resource.NewQuantity(0, resource.DecimalSI)
-	for _, region := range cra.regionMap {
-		headroom, err := region.GetHeadroom()
+	for _, r := range cra.regionMap {
+		headroom, err := r.GetHeadroom()
 		if err != nil {
 			return headroom, err
 		}
@@ -244,8 +261,8 @@ func (cra *cpuResourceAdvisor) assignContainersToRegions() error {
 	var errList []error
 
 	// Clear containers for all regions
-	for _, region := range cra.regionMap {
-		region.Clear()
+	for _, r := range cra.regionMap {
+		r.Clear()
 	}
 
 	// Sync containers
@@ -305,8 +322,7 @@ func (cra *cpuResourceAdvisor) assignToRegions(ci *types.ContainerInfo) ([]regio
 		// Create regions by numa node
 		for numaID := range ci.TopologyAwareAssignments {
 			name := string(types.QoSRegionTypeDedicatedNumaExclusive) + regionNameSeparator + string(uuid.NewUUID())
-			r := region.NewQoSRegionDedicatedNumaExclusive(name, ci.OwnerPoolName, cra.conf, cra.metaCache, cra.metaServer, cra.emitter)
-			r.SetBindingNumas(machine.NewCPUSet(numaID))
+			r := region.NewQoSRegionDedicatedNumaExclusive(name, ci.OwnerPoolName, cra.conf, numaID, cra.extraConf, cra.metaCache, cra.metaServer, cra.emitter)
 			regions = append(regions, r)
 		}
 
@@ -346,6 +362,7 @@ func (cra *cpuResourceAdvisor) assembleRegionEntries() (types.RegionEntries, err
 
 		entries[regionName] = &types.RegionInfo{
 			ControlKnobMap: controlKnobMap,
+			RegionType:     r.Type(),
 		}
 	}
 
@@ -374,7 +391,7 @@ func (cra *cpuResourceAdvisor) assembleProvision() (CPUProvision, error) {
 
 		if r.Type() == types.QoSRegionTypeShare {
 			// Fill in share pool entry
-			sharePoolSize := int(controlKnob[types.ControlKnobSharedCPUSetSize].Value)
+			sharePoolSize := int(controlKnob[types.ControlKnobNonReclaimedCPUSetSize].Value)
 			provision.PoolSizeMap[state.PoolNameShare] = make(map[int]resource.Quantity)
 			provision.PoolSizeMap[state.PoolNameShare][cpuadvisor.FakedNumaID] = *resource.NewQuantity(int64(sharePoolSize), resource.DecimalSI)
 			nonNumaBindingRequirement += sharePoolSize
@@ -386,17 +403,22 @@ func (cra *cpuResourceAdvisor) assembleProvision() (CPUProvision, error) {
 			}
 
 			// Fill in reclaim pool entry for dedicated numa exclusive regions
-			reclaimPoolSize := controlKnob[types.ControlKnobReclaimedCPUSetSize].Value
+			reclaimPoolSize := controlKnob[types.ControlKnobReclaimedCPUSupplied].Value
 			regionNuma := regionNumas[0] // Always one binding numa for this type of region
-			provision.PoolSizeMap[state.PoolNameReclaim] = map[int]resource.Quantity{regionNuma: *resource.NewQuantity(int64(reclaimPoolSize), resource.DecimalSI)}
+			if provision.PoolSizeMap[state.PoolNameReclaim] == nil {
+				provision.PoolSizeMap[state.PoolNameReclaim] = make(map[int]resource.Quantity)
+			}
+			provision.PoolSizeMap[state.PoolNameReclaim][regionNuma] = *resource.NewQuantity(int64(reclaimPoolSize), resource.DecimalSI)
 		}
 	}
 
 	// Fill in shared reclaimed pool size
 	sharedReservePoolSize := int(math.Ceil(float64(reservePoolSize*cra.sharedNumas.Size()) / float64(cra.metaServer.NumNUMANodes)))
 	sharedReclaimPoolSize := cra.sharedNumas.Size()*cra.metaServer.CPUsPerNuma() - nonNumaBindingRequirement - sharedReservePoolSize
-	provision.PoolSizeMap[state.PoolNameReclaim] = map[int]resource.Quantity{cpuadvisor.FakedNumaID: *resource.NewQuantity(int64(sharedReclaimPoolSize), resource.DecimalSI)}
-
+	if provision.PoolSizeMap[state.PoolNameReclaim] == nil {
+		provision.PoolSizeMap[state.PoolNameReclaim] = make(map[int]resource.Quantity)
+	}
+	provision.PoolSizeMap[state.PoolNameReclaim][cpuadvisor.FakedNumaID] = *resource.NewQuantity(int64(sharedReclaimPoolSize), resource.DecimalSI)
 	return provision, nil
 }
 

@@ -36,7 +36,7 @@ type HeadroomPolicy interface {
 	// SetEssentials updates necessary region settings for policy update
 	// Available resource value = total - reservedForAllocate
 	// todo: subtract reserve pool size
-	SetEssentials(total, reservedForAllocate float64)
+	SetEssentials(essentials types.ResourceEssentials)
 
 	// Update triggers an epoch of algorithm update
 	Update() error

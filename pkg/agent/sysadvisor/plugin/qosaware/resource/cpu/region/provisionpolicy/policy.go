@@ -20,10 +20,12 @@ import (
 	"sync"
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
+	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource/cpu/region/regulator"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
+	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
 // ProvisionPolicy generates resource provision result based on configured algorithm
@@ -34,8 +36,14 @@ type ProvisionPolicy interface {
 	// SetIndicator updates indicator metric value of different levels
 	SetIndicator(types.Indicator)
 
-	// SetControlKnobValue updates current control knob value
-	SetControlKnobValue(types.ControlKnob)
+	// SetRequirement should be called before policy updated
+	SetRequirement(requirement int)
+
+	// SetEssentials set essentials for cpu regulator
+	SetEssentials(essentials types.ResourceEssentials)
+
+	// SetBindingNumas overwrites the numa ids this policy interested in
+	SetBindingNumas(machine.CPUSet)
 
 	// Update triggers an epoch of algorithm update
 	Update() error
@@ -44,8 +52,8 @@ type ProvisionPolicy interface {
 	GetControlKnobAdjusted() (types.ControlKnob, error)
 }
 
-type InitFunc func(regionName string, conf *config.Configuration, extraConfig interface{}, metaReader metacache.MetaReader,
-	metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter) ProvisionPolicy
+type InitFunc func(regionName string, conf *config.Configuration, extraConfig interface{}, regulator *regulator.CPURegulator,
+	metaReader metacache.MetaReader, metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter) ProvisionPolicy
 
 var initializers sync.Map
 

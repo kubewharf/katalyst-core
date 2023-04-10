@@ -29,6 +29,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource/memory/headroompolicy"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
 	"github.com/kubewharf/katalyst-core/pkg/config"
+	pkgconfig "github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 )
@@ -48,6 +49,7 @@ type memoryResourceAdvisor struct {
 	name                string
 	startTime           time.Time
 	reservedForAllocate int64
+	enableReclaim       bool
 
 	headroomPolicy headroompolicy.HeadroomPolicy
 	mutex          sync.RWMutex
@@ -78,7 +80,16 @@ func NewMemoryResourceAdvisor(conf *config.Configuration, extraConf interface{},
 	// Keep canonical policy by default as baseline
 	ra.headroomPolicy = headroompolicy.NewPolicyCanonical(conf, extraConf, metaCache, metaServer, emitter)
 
+	// register to obtain dynamic configurations from KCC
+	metaServer.Register(ra)
+
 	return ra
+}
+
+func (ra *memoryResourceAdvisor) ApplyConfig(conf *pkgconfig.DynamicConfiguration) {
+	ra.mutex.Lock()
+	defer ra.mutex.Unlock()
+	ra.enableReclaim = conf.EnableReclaim
 }
 
 func (ra *memoryResourceAdvisor) Name() string {
@@ -105,7 +116,11 @@ func (ra *memoryResourceAdvisor) Update() {
 
 	// capacity and reserved can both be adjusted dynamically during running process
 	memoryLimitSystem := ra.metaServer.MemoryCapacity
-	ra.headroomPolicy.SetEssentials(float64(memoryLimitSystem), float64(ra.reservedForAllocate))
+	ra.headroomPolicy.SetEssentials(types.ResourceEssentials{
+		Total:               int(memoryLimitSystem),
+		ReservedForAllocate: int(ra.reservedForAllocate),
+		EnableReclaim:       ra.enableReclaim,
+	})
 
 	if err := ra.headroomPolicy.Update(); err != nil {
 		klog.Errorf("[qosaware-memory] update headroom policy failed: %v", err)

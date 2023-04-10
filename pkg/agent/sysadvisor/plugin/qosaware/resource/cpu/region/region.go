@@ -49,7 +49,7 @@ type QoSRegion interface {
 
 	// SetEssentials updates essential region values for policy and headroom update
 	// region available resource value = total - reservePoolSize - reservedForAllocate
-	SetEssentials(total, reservePoolSize, reservedForAllocate int)
+	SetEssentials(essentials types.ResourceEssentials)
 
 	// AddContainer stores a container keyed by pod uid and container name to region
 	AddContainer(ci *types.ContainerInfo) error

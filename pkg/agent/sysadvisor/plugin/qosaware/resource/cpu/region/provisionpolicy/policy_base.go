@@ -18,29 +18,38 @@ package provisionpolicy
 
 import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
+	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource/cpu/region/regulator"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
+	"github.com/kubewharf/katalyst-core/pkg/metrics"
+	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
 type PolicyBase struct {
-	RegionName       string
-	PodSet           types.PodSet
-	Indicator        types.Indicator
-	ControlKnobValue types.ControlKnob
+	RegionName   string
+	PodSet       types.PodSet
+	Indicator    types.Indicator
+	BindingNumas machine.CPUSet
 
-	metaReader metacache.MetaReader
+	Requirement int
+	types.ResourceEssentials
+	*regulator.CPURegulator
+
+	MetaReader metacache.MetaReader
 	MetaServer *metaserver.MetaServer
+	Emitter    metrics.MetricEmitter
 }
 
-func NewPolicyBase(regionName string, metaReader metacache.MetaReader, metaServer *metaserver.MetaServer) *PolicyBase {
+func NewPolicyBase(regionName string, regulator *regulator.CPURegulator, metaReader metacache.MetaReader, metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter) *PolicyBase {
 	cp := &PolicyBase{
-		RegionName:       regionName,
-		PodSet:           make(types.PodSet),
-		Indicator:        make(types.Indicator),
-		ControlKnobValue: make(types.ControlKnob),
+		RegionName:   regionName,
+		PodSet:       make(types.PodSet),
+		Indicator:    make(types.Indicator),
+		CPURegulator: regulator,
 
-		metaReader: metaReader,
+		MetaReader: metaReader,
 		MetaServer: metaServer,
+		Emitter:    emitter,
 	}
 	return cp
 }
@@ -53,6 +62,15 @@ func (p *PolicyBase) SetIndicator(v types.Indicator) {
 	p.Indicator = v
 }
 
-func (p *PolicyBase) SetControlKnobValue(v types.ControlKnob) {
-	p.ControlKnobValue = v
+func (p *PolicyBase) SetRequirement(requirement int) {
+	p.Requirement = requirement
+}
+
+func (p *PolicyBase) SetEssentials(essentials types.ResourceEssentials) {
+	p.ResourceEssentials = essentials
+	p.CPURegulator.SetEssentials(essentials)
+}
+
+func (p *PolicyBase) SetBindingNumas(numas machine.CPUSet) {
+	p.BindingNumas = numas
 }

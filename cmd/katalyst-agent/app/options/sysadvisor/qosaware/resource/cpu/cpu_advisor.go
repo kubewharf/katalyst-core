@@ -28,52 +28,47 @@ import (
 
 // CPUAdvisorOptions holds the configurations for cpu advisor in qos aware plugin
 type CPUAdvisorOptions struct {
-	CPUProvisionPolicy string
-	CPUHeadroomPolicy  string
+	CPUProvisionAdditionalPolicy string
+	CPUHeadroomAdditionalPolicy  string
 }
 
 // NewCPUAdvisorOptions creates a new Options with a default config
 func NewCPUAdvisorOptions() *CPUAdvisorOptions {
-	return &CPUAdvisorOptions{
-		CPUProvisionPolicy: fmt.Sprintf("%v=%v,%v=%v",
-			types.QoSRegionTypeShare, types.CPUProvisionPolicyCanonical,
-			types.QoSRegionTypeDedicatedNumaExclusive, types.CPUProvisionPolicyCanonical,
-		),
-	}
+	return &CPUAdvisorOptions{}
 }
 
 // AddFlags adds flags to the specified FlagSet.
 func (o *CPUAdvisorOptions) AddFlags(fs *pflag.FlagSet) {
-	fs.StringVar(&o.CPUProvisionPolicy, "cpu-provision-policy", o.CPUProvisionPolicy,
-		"policy of each region type for cpu advisor to update resource provision")
-	fs.StringVar(&o.CPUHeadroomPolicy, "cpu-headroom-policy", o.CPUHeadroomPolicy,
-		"policy of each region type for cpu advisor to estimate resource headroom")
+	fs.StringVar(&o.CPUProvisionAdditionalPolicy, "cpu-provision-additional-policy", o.CPUProvisionAdditionalPolicy,
+		"additional policy of each region type for cpu advisor to update resource provision")
+	fs.StringVar(&o.CPUHeadroomAdditionalPolicy, "cpu-headroom-additional-policy", o.CPUHeadroomAdditionalPolicy,
+		"additional policy of each region type for cpu advisor to estimate resource headroom")
 }
 
 // ApplyTo fills up config with options
 func (o *CPUAdvisorOptions) ApplyTo(c *cpu.CPUAdvisorConfiguration) error {
-	c.CPUProvisionPolicy = make(map[types.QoSRegionType]types.CPUProvisionPolicyName)
+	c.ProvisionAdditionalPolicy = make(map[types.QoSRegionType]types.CPUProvisionPolicyName)
 
-	if len(o.CPUProvisionPolicy) > 0 {
-		provisionPolicies := strings.Split(o.CPUProvisionPolicy, ",")
+	if len(o.CPUProvisionAdditionalPolicy) > 0 {
+		provisionPolicies := strings.Split(o.CPUProvisionAdditionalPolicy, ",")
 		for _, policy := range provisionPolicies {
 			kvs := strings.Split(policy, "=")
 			if len(kvs) != 2 {
-				return fmt.Errorf("invalid provision policies: %v", o.CPUProvisionPolicy)
+				return fmt.Errorf("invalid provision policies: %v", o.CPUProvisionAdditionalPolicy)
 			}
-			c.CPUProvisionPolicy[types.QoSRegionType(kvs[0])] = types.CPUProvisionPolicyName(kvs[1])
+			c.ProvisionAdditionalPolicy[types.QoSRegionType(kvs[0])] = types.CPUProvisionPolicyName(kvs[1])
 		}
 	}
 
-	if len(o.CPUHeadroomPolicy) > 0 {
-		c.CPUHeadroomPolicy = make(map[types.QoSRegionType]types.CPUHeadroomPolicyName)
-		headroomPolicies := strings.Split(o.CPUHeadroomPolicy, ",")
+	if len(o.CPUHeadroomAdditionalPolicy) > 0 {
+		c.HeadroomAdditionalPolicy = make(map[types.QoSRegionType]types.CPUHeadroomPolicyName)
+		headroomPolicies := strings.Split(o.CPUHeadroomAdditionalPolicy, ",")
 		for _, policy := range headroomPolicies {
 			kvs := strings.Split(policy, "=")
 			if len(kvs) != 2 {
-				return fmt.Errorf("invalid headroom policies: %v", o.CPUHeadroomPolicy)
+				return fmt.Errorf("invalid headroom policies: %v", o.CPUHeadroomAdditionalPolicy)
 			}
-			c.CPUHeadroomPolicy[types.QoSRegionType(kvs[0])] = types.CPUHeadroomPolicyName(kvs[1])
+			c.HeadroomAdditionalPolicy[types.QoSRegionType(kvs[0])] = types.CPUHeadroomPolicyName(kvs[1])
 		}
 	}
 

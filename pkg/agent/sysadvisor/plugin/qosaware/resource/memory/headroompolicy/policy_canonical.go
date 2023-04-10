@@ -68,10 +68,15 @@ func (p *PolicyCanonical) Update() (err error) {
 	)
 
 	f := func(podUID string, containerName string, ci *types.ContainerInfo) bool {
-		containerEstimation, err := helper.EstimateContainerResourceUsage(ci, v1.ResourceMemory, p.metaReader)
-		if err != nil {
-			errList = append(errList, err)
-			return true
+		containerEstimation := 0.0
+		if !p.EnableReclaim {
+			containerEstimation = ci.MemoryRequest
+		} else {
+			containerEstimation, err = helper.EstimateContainerResourceUsage(ci, v1.ResourceMemory, p.metaReader)
+			if err != nil {
+				errList = append(errList, err)
+				return true
+			}
 		}
 		klog.Infof("[qosaware-memory-headroom] pod %v container %v estimation %.2e", ci.PodName, containerName, containerEstimation)
 		memoryEstimation += containerEstimation
@@ -81,7 +86,7 @@ func (p *PolicyCanonical) Update() (err error) {
 	p.metaReader.RangeContainer(f)
 	klog.Infof("[qosaware-memory-headroom] memory requirement estimation: %.2e, #container %v", memoryEstimation, containerCnt)
 
-	p.memoryHeadroom = math.Max(p.Total-p.ReservedForAllocate-memoryEstimation, 0)
+	p.memoryHeadroom = math.Max(float64(p.Total-p.ReservedForAllocate)-memoryEstimation, 0)
 
 	return errors.NewAggregate(errList)
 }

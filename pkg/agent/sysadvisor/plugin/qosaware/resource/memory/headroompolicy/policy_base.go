@@ -23,9 +23,8 @@ import (
 )
 
 type PolicyBase struct {
-	PodSet              types.PodSet
-	Total               float64
-	ReservedForAllocate float64
+	PodSet types.PodSet
+	types.ResourceEssentials
 
 	metaReader metacache.MetaReader
 	MetaServer *metaserver.MetaServer
@@ -45,7 +44,6 @@ func (p *PolicyBase) SetPodSet(podSet types.PodSet) {
 	p.PodSet = podSet.Clone()
 }
 
-func (p *PolicyBase) SetEssentials(total, reservedForAllocate float64) {
-	p.Total = total
-	p.ReservedForAllocate = reservedForAllocate
+func (p *PolicyBase) SetEssentials(essentials types.ResourceEssentials) {
+	p.ResourceEssentials = essentials
 }

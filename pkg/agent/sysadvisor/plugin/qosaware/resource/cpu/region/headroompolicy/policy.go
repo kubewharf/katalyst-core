@@ -32,7 +32,7 @@ type HeadroomPolicy interface {
 	SetPodSet(types.PodSet)
 
 	// SetEssentials updates essential values for policy update
-	SetEssentials(total int)
+	SetEssentials(essentials types.ResourceEssentials)
 
 	// Update triggers an epoch of algorithm update
 	Update() error
