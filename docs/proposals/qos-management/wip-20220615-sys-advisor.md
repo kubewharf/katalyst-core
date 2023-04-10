@@ -1,15 +1,15 @@
 ---
-- title: Katalyst Reporter Manager
-- authors:
-    - "sun-yuliang"
-- reviewers:
-    - "waynepeking348"
-    - "csfldf"
-    - "Aiden-cn"
-    - "pendoragon"
-- creation-date: 2022-06-15
-- last-updated: 2023-02-23
-- status: provisional
+title: Katalyst Reporter Manager
+authors:
+  - "sun-yuliang"
+reviewers:
+  - "waynepeking348"
+  - "csfldf"
+  - "Aiden-cn"
+  - "pendoragon"
+creation-date: 2022-06-15
+last-updated: 2023-02-23
+status: provisional
 ---
 
 # Katalyst SysAdvisor (TBD)

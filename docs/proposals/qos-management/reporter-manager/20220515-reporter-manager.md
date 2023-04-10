@@ -1,14 +1,14 @@
 ---
-- title: Katalyst Reporter Manager
-- authors:
+title: Katalyst Reporter Manager
+authors:
   - "luomingmeng"
-- reviewers:
+reviewers:
   - "waynepeking348"
   - "csfldf"
   - "NickrenREN"
-- creation-date: 2022-05-15 
-- last-updated: 2023-02-22
-- status: implemented
+creation-date: 2022-05-15 
+last-updated: 2023-02-22
+status: implemented
 ---
 
 # Katalyst Reporter Manager
@@ -66,7 +66,7 @@ In this case, Reporter Manager works as a coordinator. Each vendor can implement
 ### Design Overview
 <div align="center">
   <picture>
-    <img src="reporter-manager-overview.jpg" width=80% title="Katalyst Overview" loading="eager" />
+    <img src="/docs/imgs/reporter-manager-overview.jpg" width=80% title="Katalyst Overview" loading="eager" />
   </picture>
 </div>
 
