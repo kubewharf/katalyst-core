@@ -65,10 +65,11 @@ func generateTestConfiguration(t *testing.T, dir string) *config.Configuration {
 	require.NoError(t, err)
 	require.NotNil(t, testConfiguration)
 
+	testConfiguration.ReclaimedResourceConfiguration.SetEnableReclaim(true)
+
 	testConfiguration.PluginRegistrationDir = dir
 	testConfiguration.CheckpointManagerDir = dir
 	testConfiguration.GenericReporterConfiguration.InnerPlugins = nil
-	testConfiguration.EnableReclaim = true
 	testConfiguration.HeadroomReporterSyncPeriod = 30 * time.Millisecond
 	testConfiguration.HeadroomReporterSlidingWindowTime = 180 * time.Millisecond
 	testConfiguration.CollectInterval = 30 * time.Millisecond

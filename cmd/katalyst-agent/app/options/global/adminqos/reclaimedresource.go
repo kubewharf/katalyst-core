@@ -26,11 +26,10 @@ import (
 )
 
 type ReclaimedResourceOptions struct {
-	EnableReclaim                   bool
-	ReservedResourceForReport       general.ResourceList
-	MinReclaimedResourceForReport   general.ResourceList
-	ReservedResourceForAllocate     general.ResourceList
-	MinReclaimedResourceForAllocate general.ResourceList
+	EnableReclaim                 bool
+	ReservedResourceForReport     general.ResourceList
+	MinReclaimedResourceForReport general.ResourceList
+	ReservedResourceForAllocate   general.ResourceList
 }
 
 func NewReclaimedResourceOptions() *ReclaimedResourceOptions {
@@ -45,10 +44,6 @@ func NewReclaimedResourceOptions() *ReclaimedResourceOptions {
 			v1.ResourceMemory: resource.MustParse("5Gi"),
 		},
 		ReservedResourceForAllocate: map[v1.ResourceName]resource.Quantity{
-			v1.ResourceCPU:    resource.MustParse("4"),
-			v1.ResourceMemory: resource.MustParse("5Gi"),
-		},
-		MinReclaimedResourceForAllocate: map[v1.ResourceName]resource.Quantity{
 			v1.ResourceCPU:    resource.MustParse("4"),
 			v1.ResourceMemory: resource.MustParse("5Gi"),
 		},
@@ -67,15 +62,13 @@ func (o *ReclaimedResourceOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 		"min reclaimed resource report to cnr")
 	fs.Var(&o.ReservedResourceForAllocate, "reserved-resource-for-allocate",
 		"reserved reclaimed resource actually not allocate to reclaimed resource")
-	fs.Var(&o.MinReclaimedResourceForAllocate, "min-reclaimed-resource-for-allocate",
-		"min reclaimed resource actually allocate to reclaimed resource")
 }
 
 // ApplyTo fills up config with options
 func (o *ReclaimedResourceOptions) ApplyTo(c *adminqos.ReclaimedResourceConfiguration) error {
-	c.EnableReclaim = o.EnableReclaim
-	c.ReservedResourceForReport = v1.ResourceList(o.ReservedResourceForReport)
-	c.ReservedResourceForAllocate = v1.ResourceList(o.ReservedResourceForAllocate)
-	c.MinReclaimedResourceForReport = v1.ResourceList(o.MinReclaimedResourceForReport)
+	c.SetEnableReclaim(o.EnableReclaim)
+	c.SetReservedResourceForReport(v1.ResourceList(o.ReservedResourceForReport))
+	c.SetMinReclaimedResourceForReport(v1.ResourceList(o.MinReclaimedResourceForReport))
+	c.SetReservedResourceForAllocate(v1.ResourceList(o.ReservedResourceForAllocate))
 	return nil
 }

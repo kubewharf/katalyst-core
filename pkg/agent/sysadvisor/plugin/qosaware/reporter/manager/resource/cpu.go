@@ -29,7 +29,6 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/global/adminqos"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/sysadvisor/qosaware/reporter"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
-	dynamicconfig "github.com/kubewharf/katalyst-core/pkg/metaserver/config"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 )
 
@@ -55,7 +54,6 @@ func getCPUBrokerInitializer(name string) (broker.BrokerInitFunc, bool) {
 }
 
 type cpuHeadroomManagerImpl struct {
-	dynamicconfig.ConfigurationRegister
 	*GenericHeadroomManager
 }
 
@@ -76,22 +74,14 @@ func NewCPUHeadroomManager(emitter metrics.MetricEmitter, metaServer *metaserver
 		headroomAdvisor,
 		emitter,
 		generateCPUWindowOptions(conf.HeadroomReporterConfiguration),
-		generateReclaimCPUOptions(conf.ReclaimedResourceConfiguration),
+		generateReclaimCPUOptionsFunc(conf.ReclaimedResourceConfiguration),
 	)
 
 	cm := &cpuHeadroomManagerImpl{
 		GenericHeadroomManager: gm,
 	}
 
-	metaServer.ConfigurationManager.Register(cm)
-
 	return cm, nil
-}
-
-// ApplyConfig apply dynamic reclaimed cpu options
-func (m *cpuHeadroomManagerImpl) ApplyConfig(conf *config.DynamicConfiguration) {
-	options := generateReclaimCPUOptions(conf.ReclaimedResourceConfiguration)
-	m.UpdateReclaimOptions(options)
 }
 
 func generateCPUWindowOptions(conf *reporter.HeadroomReporterConfiguration) GenericSlidingWindowOptions {
@@ -102,10 +92,12 @@ func generateCPUWindowOptions(conf *reporter.HeadroomReporterConfiguration) Gene
 	}
 }
 
-func generateReclaimCPUOptions(conf *adminqos.ReclaimedResourceConfiguration) GenericReclaimOptions {
-	return GenericReclaimOptions{
-		EnableReclaim:                 conf.EnableReclaim,
-		ReservedResourceForReport:     conf.ReservedResourceForReport[v1.ResourceCPU],
-		MinReclaimedResourceForReport: conf.MinReclaimedResourceForReport[v1.ResourceCPU],
+func generateReclaimCPUOptionsFunc(conf *adminqos.ReclaimedResourceConfiguration) GetGenericReclaimOptionsFunc {
+	return func() GenericReclaimOptions {
+		return GenericReclaimOptions{
+			EnableReclaim:                 conf.EnableReclaim(),
+			ReservedResourceForReport:     conf.ReservedResourceForReport()[v1.ResourceCPU],
+			MinReclaimedResourceForReport: conf.MinReclaimedResourceForReport()[v1.ResourceCPU],
+		}
 	}
 }

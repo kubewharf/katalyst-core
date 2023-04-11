@@ -43,7 +43,8 @@ func NewGenericReporterConfiguration() *GenericReporterConfiguration {
 	return &GenericReporterConfiguration{}
 }
 
-func (c *GenericReporterConfiguration) ApplyConfiguration(_ *dynamic.DynamicConfigCRD) {}
+func (c *GenericReporterConfiguration) ApplyConfiguration(*GenericReporterConfiguration, *dynamic.DynamicConfigCRD) {
+}
 
 func NewReporterPluginsConfiguration() *ReporterPluginsConfiguration {
 	return &ReporterPluginsConfiguration{
@@ -51,6 +52,6 @@ func NewReporterPluginsConfiguration() *ReporterPluginsConfiguration {
 	}
 }
 
-func (c *ReporterPluginsConfiguration) ApplyConfiguration(conf *dynamic.DynamicConfigCRD) {
-	c.KubeletPluginConfiguration.ApplyConfiguration(conf)
+func (c *ReporterPluginsConfiguration) ApplyConfiguration(defaultConf *ReporterPluginsConfiguration, conf *dynamic.DynamicConfigCRD) {
+	c.KubeletPluginConfiguration.ApplyConfiguration(defaultConf.KubeletPluginConfiguration, conf)
 }

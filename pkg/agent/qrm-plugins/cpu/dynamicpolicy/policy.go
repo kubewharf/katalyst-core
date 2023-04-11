@@ -43,6 +43,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util"
 	"github.com/kubewharf/katalyst-core/pkg/config"
+	"github.com/kubewharf/katalyst-core/pkg/config/agent/global/adminqos"
 	"github.com/kubewharf/katalyst-core/pkg/config/dynamic"
 	"github.com/kubewharf/katalyst-core/pkg/config/generic"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
@@ -82,10 +83,11 @@ var (
 // it will consider the dynamic running information to calculate
 // and adjust resource requirements and configurations
 type DynamicPolicy struct {
-	name      string
-	stopCh    chan struct{}
-	started   bool
-	qosConfig *generic.QoSConfiguration
+	name                    string
+	stopCh                  chan struct{}
+	started                 bool
+	qosConfig               *generic.QoSConfiguration
+	reclaimedResourceConfig *adminqos.ReclaimedResourceConfiguration
 	// emitter is used to emit metrics.
 	emitter metrics.MetricEmitter
 	// metaGetter is used to collect metadata universal metaServer.
@@ -102,7 +104,6 @@ type DynamicPolicy struct {
 	cpuEvictionPlugin       *agent.PluginWrapper
 	cpuEvictionPluginCancel context.CancelFunc
 
-	configLock sync.RWMutex
 	sync.RWMutex
 
 	// those are parsed from configurations
@@ -110,7 +111,6 @@ type DynamicPolicy struct {
 	reservedCPUs                  machine.CPUSet
 	cpuAdvisorSocketAbsPath       string
 	cpuPluginSocketAbsPath        string
-	enableReclaim                 bool
 	extraStateFileAbsPath         string
 	enableCPUPressureEviction     bool
 	enableCPUIdle                 bool
@@ -129,7 +129,8 @@ func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration
 	}
 	klog.Infof("[CPUDynamicPolicy.NewDynamicPolicy] take reservedCPUs: %s by reservedCPUsNum: %d", reservedCPUs.String(), reservedCPUsNum)
 
-	stateImpl, stateErr := state.NewCheckpointState(conf.GenericQRMPluginConfiguration.StateFileDirectory, cpuPluginStateFileName, CPUResourcePluginPolicyNameDynamic, agentCtx.CPUTopology, conf.SkipCPUStateCorruption)
+	stateImpl, stateErr := state.NewCheckpointState(conf.GenericQRMPluginConfiguration.StateFileDirectory, cpuPluginStateFileName,
+		CPUResourcePluginPolicyNameDynamic, agentCtx.CPUTopology, conf.SkipCPUStateCorruption)
 	if stateErr != nil {
 		return false, agent.ComponentStub{}, fmt.Errorf("NewCheckpointState failed with error: %v", stateErr)
 	}
@@ -156,6 +157,7 @@ func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration
 	policyImplement := &DynamicPolicy{
 		machineInfo:                   agentCtx.KatalystMachineInfo,
 		qosConfig:                     conf.QoSConfiguration,
+		reclaimedResourceConfig:       conf.ReclaimedResourceConfiguration,
 		emitter:                       wrappedEmitter,
 		metaServer:                    agentCtx.MetaServer,
 		state:                         stateImpl,
@@ -167,7 +169,6 @@ func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration
 		residualHitMap:                make(map[string]int64),
 		extraStateFileAbsPath:         conf.ExtraStateFileAbsPath,
 		name:                          fmt.Sprintf("%s_%s", agentName, CPUResourcePluginPolicyNameDynamic),
-		enableReclaim:                 conf.EnableReclaim,
 		enableCPUPressureEviction:     conf.EnableCPUPressureEviction,
 		cpuEvictionPlugin:             cpuEvictionPlugin,
 		enableSyncingCPUIdle:          conf.CPUQRMPluginConfig.EnableSyncingCPUIdle,
@@ -208,9 +209,6 @@ func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration
 		return false, nil, err
 	}
 
-	// register policy as dynamic config handler
-	agentCtx.MetaServer.Register(policyImplement)
-
 	pluginWrapper, err := skeleton.NewRegistrationPluginWrapper(
 		policyImplement,
 		conf.QRMPluginSocketDirs, nil)
@@ -220,13 +218,6 @@ func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration
 	}
 
 	return true, &agent.PluginWrapper{GenericPlugin: pluginWrapper}, nil
-}
-
-func (p *DynamicPolicy) ApplyConfig(conf *config.DynamicConfiguration) {
-	p.configLock.Lock()
-	defer p.configLock.Unlock()
-	p.enableReclaim = conf.EnableReclaim
-	klog.Infof("[CPUDynamicPolicy.ApplyConfig] ApplyConfig enableReclaim: %+v", p.enableReclaim)
 }
 
 func (p *DynamicPolicy) Name() string {
@@ -375,7 +366,7 @@ func (p *DynamicPolicy) GetResourcesAllocation(_ context.Context,
 	}
 
 	podResources := make(map[string]*pluginapi.ContainerResources)
-	allocationInfosJustFinishRampUp := []*state.AllocationInfo{}
+	var allocationInfosJustFinishRampUp []*state.AllocationInfo
 	for podUID, containerEntries := range podEntries {
 		// if it's a pool, not returning to QRM
 		if containerEntries.IsPoolEntry() {
@@ -1248,10 +1239,7 @@ func (p *DynamicPolicy) generatePoolsAndIsolation(poolsQuantityMap map[string]in
 		poolsCPUSet[state.PoolNameReclaim] = reclaimedCPUSet
 	}
 
-	p.configLock.RLock()
-	enableReclaim := p.enableReclaim
-	p.configLock.RUnlock()
-
+	enableReclaim := p.reclaimedResourceConfig.EnableReclaim()
 	if !enableReclaim && poolsCPUSet[state.PoolNameReclaim].Size() > reservedReclaimedCPUsSize {
 		poolsCPUSet[state.PoolNameReclaim] = p.ReclaimDisabled(poolsCPUSet, poolsCPUSet[state.PoolNameReclaim].Clone())
 		klog.Infof("[CPUDynamicPolicy.generatePoolsAndIsolation] ReclaimDisabled finished, current %s pool: %s",
@@ -1381,12 +1369,8 @@ func (p *DynamicPolicy) adjustAllocationEntries() error {
 // reclaimOverlapNUMABinding uses reclaim pool cpuset result in empty NUMA
 // union intersection of current reclaim pool and non-ramp-up dedicated_cores numa_binding containers
 func (p *DynamicPolicy) reclaimOverlapNUMABinding(poolsCPUSet map[string]machine.CPUSet, entries state.PodEntries) error {
-	p.configLock.RLock()
-	enableReclaim := p.enableReclaim
-	p.configLock.RUnlock()
-
 	// reclaimOverlapNUMABinding only works with cpu advisor and reclaim enabled
-	if !(p.enableCPUSysAdvisor && enableReclaim) {
+	if !(p.enableCPUSysAdvisor && p.reclaimedResourceConfig.EnableReclaim()) {
 		return nil
 	}
 

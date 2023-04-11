@@ -74,14 +74,14 @@ func (o *MemoryPressureEvictionPluginOptions) AddFlags(fss *cliflag.NamedFlagSet
 
 // ApplyTo applies MemoryPressureEvictionPluginOptions to MemoryPressureEvictionPluginConfiguration
 func (o *MemoryPressureEvictionPluginOptions) ApplyTo(c *evictionconfig.MemoryPressureEvictionPluginConfiguration) error {
-	c.EnableNumaLevelDetection = o.EnableNumaLevelDetection
-	c.EnableSystemLevelDetection = o.EnableSystemLevelDetection
-	c.NumaFreeBelowWatermarkTimesThreshold = o.NumaFreeBelowWatermarkTimesThreshold
-	c.SystemKswapdRateThreshold = o.SystemKswapdRateThreshold
-	c.SystemKswapdRateExceedTimesThreshold = o.SystemKswapdRateExceedTimesThreshold
-	c.NumaEvictionRankingMetrics = o.NumaEvictionRankingMetrics
-	c.SystemEvictionRankingMetrics = o.SystemEvictionRankingMetrics
-	c.GracePeriod = o.GracePeriod
+	c.DynamicConf.SetEnableNumaLevelDetection(o.EnableNumaLevelDetection)
+	c.DynamicConf.SetEnableSystemLevelDetection(o.EnableSystemLevelDetection)
+	c.DynamicConf.SetNumaFreeBelowWatermarkTimesThreshold(o.NumaFreeBelowWatermarkTimesThreshold)
+	c.DynamicConf.SetSystemKswapdRateThreshold(o.SystemKswapdRateThreshold)
+	c.DynamicConf.SetSystemKswapdRateExceedTimesThreshold(o.SystemKswapdRateExceedTimesThreshold)
+	c.DynamicConf.SetNumaEvictionRankingMetrics(o.NumaEvictionRankingMetrics)
+	c.DynamicConf.SetSystemEvictionRankingMetrics(o.SystemEvictionRankingMetrics)
+	c.DynamicConf.SetGracePeriod(o.GracePeriod)
 
 	return nil
 }

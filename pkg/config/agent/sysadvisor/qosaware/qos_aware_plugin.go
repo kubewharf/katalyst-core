@@ -44,8 +44,8 @@ func NewQoSAwarePluginConfiguration() *QoSAwarePluginConfiguration {
 }
 
 // ApplyConfiguration is used to set configuration based on conf.
-func (c *QoSAwarePluginConfiguration) ApplyConfiguration(conf *dynamic.DynamicConfigCRD) {
-	c.ResourceAdvisorConfiguration.ApplyConfiguration(conf)
-	c.QRMServerConfiguration.ApplyConfiguration(conf)
-	c.HeadroomReporterConfiguration.ApplyConfiguration(conf)
+func (c *QoSAwarePluginConfiguration) ApplyConfiguration(defaultConf *QoSAwarePluginConfiguration, conf *dynamic.DynamicConfigCRD) {
+	c.ResourceAdvisorConfiguration.ApplyConfiguration(defaultConf.ResourceAdvisorConfiguration, conf)
+	c.QRMServerConfiguration.ApplyConfiguration(defaultConf.QRMServerConfiguration, conf)
+	c.HeadroomReporterConfiguration.ApplyConfiguration(defaultConf.HeadroomReporterConfiguration, conf)
 }

@@ -25,7 +25,6 @@ import (
 
 	"github.com/stretchr/testify/require"
 	v1 "k8s.io/api/core/v1"
-	apiequality "k8s.io/apimachinery/pkg/api/equality"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -35,7 +34,6 @@ import (
 	"github.com/kubewharf/katalyst-api/pkg/apis/config/v1alpha1"
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/options"
 	pkgconfig "github.com/kubewharf/katalyst-core/pkg/config"
-	"github.com/kubewharf/katalyst-core/pkg/config/agent/eviction"
 	evictionconfig "github.com/kubewharf/katalyst-core/pkg/config/agent/eviction"
 	"github.com/kubewharf/katalyst-core/pkg/config/dynamic"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/cnc"
@@ -141,8 +139,8 @@ func constructTestDynamicConfigManager(t *testing.T, nodeName string, evictionCo
 
 	configLoader := NewKatalystCustomConfigLoader(clientSet, 1*time.Second, cncFetcher)
 	manager := &DynamicConfigManager{
-		defaultConfig:       conf.DynamicConfiguration,
-		currentConfig:       deepCopy(conf.DynamicConfiguration),
+		defaultConfig:       deepCopy(conf.DynamicConfiguration),
+		currentConfig:       conf.DynamicConfiguration,
 		configLoader:        configLoader,
 		emitter:             &metrics.DummyMetrics{},
 		resourceGVRMap:      make(map[string]metav1.GroupVersionResource),
@@ -176,8 +174,8 @@ func TestNewDynamicConfigManager(t *testing.T) {
 	err = manager.AddConfigWatcher(testTargetGVR)
 	require.NoError(t, err)
 
-	manager.Register(&DummyConfigurationRegister{})
-	_ = manager.InitializeConfig(context.TODO())
+	err = manager.InitializeConfig(context.TODO())
+	require.NoError(t, err)
 	go manager.Run(context.TODO())
 }
 
@@ -192,8 +190,7 @@ func TestDynamicConfigManager_getConfig(t *testing.T) {
 		name   string
 		fields fields
 		args   args
-		want   *pkgconfig.DynamicConfiguration
-		want1  bool
+		want   func(got *pkgconfig.DynamicConfiguration) bool
 	}{
 		{
 			name: "test-1",
@@ -207,39 +204,37 @@ func TestDynamicConfigManager_getConfig(t *testing.T) {
 			args: args{
 				ctx: context.TODO(),
 			},
-			want: func() *pkgconfig.DynamicConfiguration {
-				conf := generateTestConfiguration(t, "test-node")
-				conf.EvictionThreshold[v1.ResourceCPU] = 1.2
-				conf.EvictionThreshold[v1.ResourceMemory] = 1.3
-				return conf.DynamicConfiguration
-			}(),
-			want1: true,
+			want: func(got *pkgconfig.DynamicConfiguration) bool {
+				return got.ReclaimedResourcesEvictionPluginConfiguration.DynamicConf.EvictionThreshold()[v1.ResourceCPU] == 1.2 &&
+					got.ReclaimedResourcesEvictionPluginConfiguration.DynamicConf.EvictionThreshold()[v1.ResourceMemory] == 1.3
+			},
 		},
 		{
 			name: "test-no-change",
 			fields: fields{
 				manager: constructTestDynamicConfigManager(t, "test-node",
-					generateTestEvictionConfiguration(generateTestConfiguration(t, "test-node").EvictionThreshold)),
+					generateTestEvictionConfiguration(generateTestConfiguration(t, "test-node").
+						ReclaimedResourcesEvictionPluginConfiguration.
+						DynamicConf.EvictionThreshold())),
 			},
 			args: args{
 				ctx: context.TODO(),
 			},
-			want: func() *pkgconfig.DynamicConfiguration {
-				return generateTestConfiguration(t, "test-node").DynamicConfiguration
-			}(),
-			want1: false,
+			want: func(got *pkgconfig.DynamicConfiguration) bool {
+				return reflect.DeepEqual(got.ReclaimedResourcesEvictionPluginConfiguration.DynamicConf.EvictionThreshold(),
+					generateTestConfiguration(t, "test-node").
+						ReclaimedResourcesEvictionPluginConfiguration.
+						DynamicConf.EvictionThreshold())
+			},
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			c := tt.fields.manager
-			got, got1, _ := c.getConfig(tt.args.ctx)
-			if !apiequality.Semantic.DeepEqual(got, tt.want) {
-				t.Errorf("getConfig() got = %+v, want %+v", got, tt.want)
-			}
-			if got1 != tt.want1 {
-				t.Errorf("getConfig() got1 = %+v, want %+v", got1, tt.want1)
-			}
+			err := c.updateConfig(tt.args.ctx)
+			require.NoError(t, err)
+			got := c.currentConfig
+			require.True(t, tt.want(got))
 		})
 	}
 }
@@ -251,10 +246,9 @@ func Test_applyDynamicConfig(t *testing.T) {
 		dynamicConf   *dynamic.DynamicConfigCRD
 	}
 	tests := []struct {
-		name  string
-		args  args
-		want  *pkgconfig.DynamicConfiguration
-		want1 bool
+		name string
+		args args
+		want func(got *pkgconfig.DynamicConfiguration) bool
 	}{
 		{
 			name: "test-1",
@@ -262,37 +256,35 @@ func Test_applyDynamicConfig(t *testing.T) {
 				defaultConfig: func() *pkgconfig.DynamicConfiguration {
 					d := pkgconfig.NewDynamicConfiguration()
 					d.KubeletReadOnlyPort = 10255
-					d.ReclaimedResourcesEvictionPluginConfiguration.EvictionThreshold = map[v1.ResourceName]float64{
+					d.ReclaimedResourcesEvictionPluginConfiguration.DynamicConf.SetEvictionThreshold(map[v1.ResourceName]float64{
 						"cpu": 1.5,
-					}
-					d.MemoryPressureEvictionPluginConfiguration = &eviction.MemoryPressureEvictionPluginConfiguration{
-						EnableNumaLevelDetection:             defaultEnableNumaLevelDetection,
-						EnableSystemLevelDetection:           defaultEnableSystemLevelDetection,
-						NumaFreeBelowWatermarkTimesThreshold: defaultNumaFreeBelowWatermarkTimesThreshold,
-						SystemKswapdRateThreshold:            defaultSystemKswapdRateThreshold,
-						SystemKswapdRateExceedTimesThreshold: defaultSystemKswapdRateExceedTimesThreshold,
-						NumaEvictionRankingMetrics:           evictionconfig.DefaultNumaEvictionRankingMetrics,
-						SystemEvictionRankingMetrics:         evictionconfig.DefaultSystemEvictionRankingMetrics,
-						GracePeriod:                          evictionconfig.DefaultGracePeriod,
-					}
+					})
+
+					d.MemoryPressureEvictionPluginConfiguration.DynamicConf.SetEnableNumaLevelDetection(defaultEnableNumaLevelDetection)
+					d.MemoryPressureEvictionPluginConfiguration.DynamicConf.SetEnableSystemLevelDetection(defaultEnableSystemLevelDetection)
+					d.MemoryPressureEvictionPluginConfiguration.DynamicConf.SetNumaFreeBelowWatermarkTimesThreshold(defaultNumaFreeBelowWatermarkTimesThreshold)
+					d.MemoryPressureEvictionPluginConfiguration.DynamicConf.SetSystemKswapdRateThreshold(defaultSystemKswapdRateThreshold)
+					d.MemoryPressureEvictionPluginConfiguration.DynamicConf.SetSystemKswapdRateExceedTimesThreshold(defaultSystemKswapdRateExceedTimesThreshold)
+					d.MemoryPressureEvictionPluginConfiguration.DynamicConf.SetNumaEvictionRankingMetrics(evictionconfig.DefaultNumaEvictionRankingMetrics)
+					d.MemoryPressureEvictionPluginConfiguration.DynamicConf.SetSystemEvictionRankingMetrics(evictionconfig.DefaultSystemEvictionRankingMetrics)
+					d.MemoryPressureEvictionPluginConfiguration.DynamicConf.SetGracePeriod(evictionconfig.DefaultGracePeriod)
 					return d
 				}(),
 				currentConfig: func() *pkgconfig.DynamicConfiguration {
 					d := pkgconfig.NewDynamicConfiguration()
 					d.KubeletReadOnlyPort = 10255
-					d.ReclaimedResourcesEvictionPluginConfiguration.EvictionThreshold = map[v1.ResourceName]float64{
+					d.ReclaimedResourcesEvictionPluginConfiguration.DynamicConf.SetEvictionThreshold(map[v1.ResourceName]float64{
 						"cpu": 1.5,
-					}
-					d.MemoryPressureEvictionPluginConfiguration = &eviction.MemoryPressureEvictionPluginConfiguration{
-						EnableNumaLevelDetection:             defaultEnableNumaLevelDetection,
-						EnableSystemLevelDetection:           defaultEnableSystemLevelDetection,
-						NumaFreeBelowWatermarkTimesThreshold: defaultNumaFreeBelowWatermarkTimesThreshold,
-						SystemKswapdRateThreshold:            defaultSystemKswapdRateThreshold,
-						SystemKswapdRateExceedTimesThreshold: defaultSystemKswapdRateExceedTimesThreshold,
-						NumaEvictionRankingMetrics:           evictionconfig.DefaultNumaEvictionRankingMetrics,
-						SystemEvictionRankingMetrics:         evictionconfig.DefaultSystemEvictionRankingMetrics,
-						GracePeriod:                          evictionconfig.DefaultGracePeriod,
-					}
+					})
+
+					d.MemoryPressureEvictionPluginConfiguration.DynamicConf.SetEnableNumaLevelDetection(defaultEnableNumaLevelDetection)
+					d.MemoryPressureEvictionPluginConfiguration.DynamicConf.SetEnableSystemLevelDetection(defaultEnableSystemLevelDetection)
+					d.MemoryPressureEvictionPluginConfiguration.DynamicConf.SetNumaFreeBelowWatermarkTimesThreshold(defaultNumaFreeBelowWatermarkTimesThreshold)
+					d.MemoryPressureEvictionPluginConfiguration.DynamicConf.SetSystemKswapdRateThreshold(defaultSystemKswapdRateThreshold)
+					d.MemoryPressureEvictionPluginConfiguration.DynamicConf.SetSystemKswapdRateExceedTimesThreshold(defaultSystemKswapdRateExceedTimesThreshold)
+					d.MemoryPressureEvictionPluginConfiguration.DynamicConf.SetNumaEvictionRankingMetrics(evictionconfig.DefaultNumaEvictionRankingMetrics)
+					d.MemoryPressureEvictionPluginConfiguration.DynamicConf.SetSystemEvictionRankingMetrics(evictionconfig.DefaultSystemEvictionRankingMetrics)
+					d.MemoryPressureEvictionPluginConfiguration.DynamicConf.SetGracePeriod(evictionconfig.DefaultGracePeriod)
 					return d
 				}(),
 				dynamicConf: &dynamic.DynamicConfigCRD{
@@ -312,25 +304,17 @@ func Test_applyDynamicConfig(t *testing.T) {
 					},
 				},
 			},
-			want: func() *pkgconfig.DynamicConfiguration {
-				d := pkgconfig.NewDynamicConfiguration()
-				d.KubeletReadOnlyPort = 10255
-				d.ReclaimedResourcesEvictionPluginConfiguration.EvictionThreshold = map[v1.ResourceName]float64{
-					"cpu": 1.3,
-				}
-				d.MemoryPressureEvictionPluginConfiguration = &eviction.MemoryPressureEvictionPluginConfiguration{
-					EnableNumaLevelDetection:             nonDefaultEnableNumaLevelDetection,
-					EnableSystemLevelDetection:           nonDefaultEnableSystemLevelDetection,
-					NumaFreeBelowWatermarkTimesThreshold: nonDefaultNumaFreeBelowWatermarkTimesThreshold,
-					SystemKswapdRateThreshold:            nonDefaultSystemKswapdRateThreshold,
-					SystemKswapdRateExceedTimesThreshold: nonDefaulSsystemKswapdRateExceedTimesThreshold,
-					NumaEvictionRankingMetrics:           nonDefaultNumaEvictionRankingMetrics,
-					SystemEvictionRankingMetrics:         nonDefaultSystemEvictionRankingMetrics,
-					GracePeriod:                          nonDefaultGracePeriod,
-				}
-				return d
-			}(),
-			want1: true,
+			want: func(got *pkgconfig.DynamicConfiguration) bool {
+				return got.ReclaimedResourcesEvictionPluginConfiguration.DynamicConf.EvictionThreshold()["cpu"] == 1.3 &&
+					got.MemoryPressureEvictionPluginConfiguration.DynamicConf.EnableNumaLevelDetection() == nonDefaultEnableNumaLevelDetection &&
+					got.MemoryPressureEvictionPluginConfiguration.DynamicConf.EnableSystemLevelDetection() == nonDefaultEnableSystemLevelDetection &&
+					got.MemoryPressureEvictionPluginConfiguration.DynamicConf.NumaFreeBelowWatermarkTimesThreshold() == nonDefaultNumaFreeBelowWatermarkTimesThreshold &&
+					got.MemoryPressureEvictionPluginConfiguration.DynamicConf.SystemKswapdRateThreshold() == nonDefaultSystemKswapdRateThreshold &&
+					got.MemoryPressureEvictionPluginConfiguration.DynamicConf.SystemKswapdRateExceedTimesThreshold() == nonDefaulSsystemKswapdRateExceedTimesThreshold &&
+					reflect.DeepEqual(got.MemoryPressureEvictionPluginConfiguration.DynamicConf.NumaEvictionRankingMetrics(), nonDefaultNumaEvictionRankingMetrics) &&
+					reflect.DeepEqual(got.MemoryPressureEvictionPluginConfiguration.DynamicConf.SystemEvictionRankingMetrics(), nonDefaultSystemEvictionRankingMetrics) &&
+					got.MemoryPressureEvictionPluginConfiguration.DynamicConf.GracePeriod() == nonDefaultGracePeriod
+			},
 		},
 		{
 			name: "test-2",
@@ -338,37 +322,35 @@ func Test_applyDynamicConfig(t *testing.T) {
 				defaultConfig: func() *pkgconfig.DynamicConfiguration {
 					d := pkgconfig.NewDynamicConfiguration()
 					d.KubeletReadOnlyPort = 10255
-					d.ReclaimedResourcesEvictionPluginConfiguration.EvictionThreshold = map[v1.ResourceName]float64{
+					d.ReclaimedResourcesEvictionPluginConfiguration.DynamicConf.SetEvictionThreshold(map[v1.ResourceName]float64{
 						"cpu": 1.5,
-					}
-					d.MemoryPressureEvictionPluginConfiguration = &eviction.MemoryPressureEvictionPluginConfiguration{
-						EnableNumaLevelDetection:             defaultEnableNumaLevelDetection,
-						EnableSystemLevelDetection:           defaultEnableSystemLevelDetection,
-						NumaFreeBelowWatermarkTimesThreshold: defaultNumaFreeBelowWatermarkTimesThreshold,
-						SystemKswapdRateThreshold:            defaultSystemKswapdRateThreshold,
-						SystemKswapdRateExceedTimesThreshold: defaultSystemKswapdRateExceedTimesThreshold,
-						NumaEvictionRankingMetrics:           evictionconfig.DefaultNumaEvictionRankingMetrics,
-						SystemEvictionRankingMetrics:         evictionconfig.DefaultSystemEvictionRankingMetrics,
-						GracePeriod:                          evictionconfig.DefaultGracePeriod,
-					}
+					})
+
+					d.MemoryPressureEvictionPluginConfiguration.DynamicConf.SetEnableNumaLevelDetection(defaultEnableNumaLevelDetection)
+					d.MemoryPressureEvictionPluginConfiguration.DynamicConf.SetEnableSystemLevelDetection(defaultEnableSystemLevelDetection)
+					d.MemoryPressureEvictionPluginConfiguration.DynamicConf.SetNumaFreeBelowWatermarkTimesThreshold(defaultNumaFreeBelowWatermarkTimesThreshold)
+					d.MemoryPressureEvictionPluginConfiguration.DynamicConf.SetSystemKswapdRateThreshold(defaultSystemKswapdRateThreshold)
+					d.MemoryPressureEvictionPluginConfiguration.DynamicConf.SetSystemKswapdRateExceedTimesThreshold(defaultSystemKswapdRateExceedTimesThreshold)
+					d.MemoryPressureEvictionPluginConfiguration.DynamicConf.SetNumaEvictionRankingMetrics(evictionconfig.DefaultNumaEvictionRankingMetrics)
+					d.MemoryPressureEvictionPluginConfiguration.DynamicConf.SetSystemEvictionRankingMetrics(evictionconfig.DefaultSystemEvictionRankingMetrics)
+					d.MemoryPressureEvictionPluginConfiguration.DynamicConf.SetGracePeriod(evictionconfig.DefaultGracePeriod)
 					return d
 				}(),
 				currentConfig: func() *pkgconfig.DynamicConfiguration {
 					d := pkgconfig.NewDynamicConfiguration()
 					d.KubeletReadOnlyPort = 10255
-					d.ReclaimedResourcesEvictionPluginConfiguration.EvictionThreshold = map[v1.ResourceName]float64{
+					d.ReclaimedResourcesEvictionPluginConfiguration.DynamicConf.SetEvictionThreshold(map[v1.ResourceName]float64{
 						"cpu": 1.3,
-					}
-					d.MemoryPressureEvictionPluginConfiguration = &eviction.MemoryPressureEvictionPluginConfiguration{
-						EnableNumaLevelDetection:             nonDefaultEnableNumaLevelDetection,
-						EnableSystemLevelDetection:           nonDefaultEnableSystemLevelDetection,
-						NumaFreeBelowWatermarkTimesThreshold: nonDefaultNumaFreeBelowWatermarkTimesThreshold,
-						SystemKswapdRateThreshold:            nonDefaultSystemKswapdRateThreshold,
-						SystemKswapdRateExceedTimesThreshold: nonDefaulSsystemKswapdRateExceedTimesThreshold,
-						NumaEvictionRankingMetrics:           nonDefaultNumaEvictionRankingMetrics,
-						SystemEvictionRankingMetrics:         nonDefaultSystemEvictionRankingMetrics,
-						GracePeriod:                          nonDefaultGracePeriod,
-					}
+					})
+
+					d.MemoryPressureEvictionPluginConfiguration.DynamicConf.SetEnableNumaLevelDetection(nonDefaultEnableNumaLevelDetection)
+					d.MemoryPressureEvictionPluginConfiguration.DynamicConf.SetEnableSystemLevelDetection(nonDefaultEnableSystemLevelDetection)
+					d.MemoryPressureEvictionPluginConfiguration.DynamicConf.SetNumaFreeBelowWatermarkTimesThreshold(nonDefaultNumaFreeBelowWatermarkTimesThreshold)
+					d.MemoryPressureEvictionPluginConfiguration.DynamicConf.SetSystemKswapdRateThreshold(nonDefaultSystemKswapdRateThreshold)
+					d.MemoryPressureEvictionPluginConfiguration.DynamicConf.SetSystemKswapdRateExceedTimesThreshold(nonDefaulSsystemKswapdRateExceedTimesThreshold)
+					d.MemoryPressureEvictionPluginConfiguration.DynamicConf.SetNumaEvictionRankingMetrics(nonDefaultNumaEvictionRankingMetrics)
+					d.MemoryPressureEvictionPluginConfiguration.DynamicConf.SetSystemEvictionRankingMetrics(nonDefaultSystemEvictionRankingMetrics)
+					d.MemoryPressureEvictionPluginConfiguration.DynamicConf.SetGracePeriod(nonDefaultGracePeriod)
 					return d
 				}(),
 				dynamicConf: &dynamic.DynamicConfigCRD{
@@ -388,36 +370,24 @@ func Test_applyDynamicConfig(t *testing.T) {
 					},
 				},
 			},
-			want: func() *pkgconfig.DynamicConfiguration {
-				d := pkgconfig.NewDynamicConfiguration()
-				d.KubeletReadOnlyPort = 10255
-				d.ReclaimedResourcesEvictionPluginConfiguration.EvictionThreshold = map[v1.ResourceName]float64{
-					"cpu": 1.3,
-				}
-				d.MemoryPressureEvictionPluginConfiguration = &eviction.MemoryPressureEvictionPluginConfiguration{
-					EnableNumaLevelDetection:             nonDefaultEnableNumaLevelDetection,
-					EnableSystemLevelDetection:           nonDefaultEnableSystemLevelDetection,
-					NumaFreeBelowWatermarkTimesThreshold: nonDefaultNumaFreeBelowWatermarkTimesThreshold,
-					SystemKswapdRateThreshold:            nonDefaultSystemKswapdRateThreshold,
-					SystemKswapdRateExceedTimesThreshold: nonDefaulSsystemKswapdRateExceedTimesThreshold,
-					NumaEvictionRankingMetrics:           nonDefaultNumaEvictionRankingMetrics,
-					SystemEvictionRankingMetrics:         nonDefaultSystemEvictionRankingMetrics,
-					GracePeriod:                          nonDefaultGracePeriod,
-				}
-				return d
-			}(),
-			want1: false,
+			want: func(got *pkgconfig.DynamicConfiguration) bool {
+				return got.ReclaimedResourcesEvictionPluginConfiguration.DynamicConf.EvictionThreshold()["cpu"] == 1.3 &&
+					got.MemoryPressureEvictionPluginConfiguration.DynamicConf.EnableNumaLevelDetection() == nonDefaultEnableNumaLevelDetection &&
+					got.MemoryPressureEvictionPluginConfiguration.DynamicConf.EnableSystemLevelDetection() == nonDefaultEnableSystemLevelDetection &&
+					got.MemoryPressureEvictionPluginConfiguration.DynamicConf.NumaFreeBelowWatermarkTimesThreshold() == nonDefaultNumaFreeBelowWatermarkTimesThreshold &&
+					got.MemoryPressureEvictionPluginConfiguration.DynamicConf.SystemKswapdRateThreshold() == nonDefaultSystemKswapdRateThreshold &&
+					got.MemoryPressureEvictionPluginConfiguration.DynamicConf.SystemKswapdRateExceedTimesThreshold() == nonDefaulSsystemKswapdRateExceedTimesThreshold &&
+					reflect.DeepEqual(got.MemoryPressureEvictionPluginConfiguration.DynamicConf.NumaEvictionRankingMetrics(), nonDefaultNumaEvictionRankingMetrics) &&
+					reflect.DeepEqual(got.MemoryPressureEvictionPluginConfiguration.DynamicConf.SystemEvictionRankingMetrics(), nonDefaultSystemEvictionRankingMetrics) &&
+					got.MemoryPressureEvictionPluginConfiguration.DynamicConf.GracePeriod() == nonDefaultGracePeriod
+			},
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, got1 := applyDynamicConfig(tt.args.defaultConfig, tt.args.currentConfig, tt.args.dynamicConf)
-			if !apiequality.Semantic.DeepEqual(got, tt.want) {
-				t.Errorf("applyDynamicConfig() got = %v, want %v", got, tt.want)
-			}
-			if got1 != tt.want1 {
-				t.Errorf("applyDynamicConfig() got1 = %v, want %v", got1, tt.want1)
-			}
+			applyDynamicConfig(tt.args.defaultConfig, tt.args.currentConfig, tt.args.dynamicConf)
+			got := tt.args.currentConfig
+			require.True(t, tt.want(got))
 		})
 	}
 }

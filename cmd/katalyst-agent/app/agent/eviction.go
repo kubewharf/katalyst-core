@@ -42,9 +42,6 @@ func InitEvictionManager(agentCtx *GenericContext, conf *config.Configuration, _
 		return false, ComponentStub{}, fmt.Errorf("failed register dynamic config: %s", err)
 	}
 
-	// register eviction manager as dynamic config handler
-	agentCtx.MetaServer.Register(evictionMgr)
-
 	klog.Infof("starting eviction manager")
 
 	agentCtx.PluginManager.AddHandler(evictionMgr.GetHandlerType(), plugincache.PluginHandler(evictionMgr))

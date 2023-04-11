@@ -40,7 +40,6 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/cnr"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/node"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/pod"
-	dynamicconfig "github.com/kubewharf/katalyst-core/pkg/metaserver/config"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 )
 
@@ -132,8 +131,6 @@ func TestNewReclaimedResourcesEvictionPlugin(t *testing.T) {
 	plugin := NewReclaimedResourcesEvictionPlugin(ctx.Client, &events.FakeRecorder{}, testMetaServer,
 		metrics.DummyMetrics{}, testConf)
 	assert.NoError(t, err)
-
-	plugin.(dynamicconfig.ConfigurationRegister).ApplyConfig(testConf.DynamicConfiguration)
 
 	met, err := plugin.ThresholdMet(context.TODO())
 	assert.NoError(t, err)

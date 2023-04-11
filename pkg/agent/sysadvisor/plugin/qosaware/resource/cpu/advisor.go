@@ -37,7 +37,6 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource/cpu/region/provisionpolicy"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
 	"github.com/kubewharf/katalyst-core/pkg/config"
-	pkgconfig "github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
@@ -78,12 +77,10 @@ type cpuResourceAdvisor struct {
 	conf      *config.Configuration
 	extraConf interface{}
 
-	name                string
-	advisorCh           chan CPUProvision
-	startTime           time.Time
-	reservedForAllocate int64
-	systemNumas         machine.CPUSet
-	enableReclaim       bool
+	name        string
+	advisorCh   chan CPUProvision
+	startTime   time.Time
+	systemNumas machine.CPUSet
 
 	regionMap          map[string]region.QoSRegion              // map[regionName]region
 	containerRegionMap map[string]map[string][]region.QoSRegion // map[podUID][containerName]regions
@@ -121,24 +118,7 @@ func NewCPUResourceAdvisor(conf *config.Configuration, extraConf interface{}, me
 		emitter:    emitter,
 	}
 
-	cra.ApplyConfig(conf.DynamicConfiguration)
-
-	metaServer.ConfigurationManager.Register(cra)
-
-	metaServer.Register(cra)
-
 	return cra
-}
-
-func (cra *cpuResourceAdvisor) ApplyConfig(conf *pkgconfig.DynamicConfiguration) {
-	cra.mutex.Lock()
-	defer cra.mutex.Unlock()
-
-	cra.enableReclaim = conf.EnableReclaim
-	klog.Infof("[qosaware-cpu] ApplyConfig enableReclaim: %+v\n", cra.enableReclaim)
-	reserved := conf.ReclaimedResourceConfiguration.ReservedResourceForAllocate[v1.ResourceCPU]
-	cra.reservedForAllocate = reserved.Value()
-	klog.Infof("[qosaware-cpu] ApplyConfig reservedForAllocate: %+v\n", cra.reservedForAllocate)
 }
 
 func (cra *cpuResourceAdvisor) Name() string {
@@ -183,15 +163,19 @@ func (cra *cpuResourceAdvisor) Update() {
 			}
 		}
 
+		reserved := cra.conf.ReclaimedResourceConfiguration.ReservedResourceForAllocate()[v1.ResourceCPU]
+		reservedForAllocate := reserved.Value()
+
 		// Calculate region reserved for allocate, which equals average per numa reserved
 		// value times the number of numa nodes
-		regionReservedForAllocate := int(math.Ceil(float64(int(cra.reservedForAllocate)*regionNumas.Size()) / float64(cra.metaServer.NumNUMANodes)))
+		regionReservedForAllocate := int(math.Ceil(float64(int(reservedForAllocate)*regionNumas.Size()) /
+			float64(cra.metaServer.NumNUMANodes)))
 
 		r.SetEssentials(types.ResourceEssentials{
 			Total:               regionCPULimit,
 			ReservePoolSize:     regionReservePoolSize,
 			ReservedForAllocate: regionReservedForAllocate,
-			EnableReclaim:       cra.enableReclaim,
+			EnableReclaim:       cra.conf.ReclaimedResourceConfiguration.EnableReclaim(),
 		})
 
 		r.TryUpdateProvision()

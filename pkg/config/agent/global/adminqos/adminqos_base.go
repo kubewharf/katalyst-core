@@ -14,20 +14,20 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package reporter
+package adminqos
 
-import (
-	"github.com/kubewharf/katalyst-core/pkg/config/dynamic"
-)
+import "github.com/kubewharf/katalyst-core/pkg/config/dynamic"
 
-type KubeletPluginConfiguration struct {
-	PodResourcesServerEndpoints []string
-	KubeletResourcePluginPaths  []string
+type AdminQoSConfiguration struct {
+	ReclaimedResourceConfiguration *ReclaimedResourceConfiguration
 }
 
-func NewKubeletPluginConfiguration() *KubeletPluginConfiguration {
-	return &KubeletPluginConfiguration{}
+func NewAdminQoSConfiguration() *AdminQoSConfiguration {
+	return &AdminQoSConfiguration{
+		ReclaimedResourceConfiguration: NewDynamicReclaimedResourceConfiguration(),
+	}
 }
 
-func (c *KubeletPluginConfiguration) ApplyConfiguration(*KubeletPluginConfiguration, *dynamic.DynamicConfigCRD) {
+func (c *AdminQoSConfiguration) ApplyConfiguration(defaultConf *ReclaimedResourceConfiguration, conf *dynamic.DynamicConfigCRD) {
+	c.ReclaimedResourceConfiguration.ApplyConfiguration(defaultConf, conf)
 }

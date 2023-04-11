@@ -74,25 +74,12 @@ var (
 	}
 )
 
-// ConfigurationRegister indicates that each user should pass an ConfigurationRegister function
-// to ConfigManager; every time when user-interested configuration changes, the ConfigManager
-// should call the ConfigurationRegister function to notify this change event.
-type ConfigurationRegister interface {
-	ApplyConfig(*pkgconfig.DynamicConfiguration)
-}
-
-type DummyConfigurationRegister struct{}
-
-func (d *DummyConfigurationRegister) ApplyConfig(*pkgconfig.DynamicConfiguration) {}
-
 // ConfigurationManager is a user for ConfigurationLoader working for dynamic configuration manager
 type ConfigurationManager interface {
 	// InitializeConfig trigger dynamic configuration initialize directly
 	InitializeConfig(ctx context.Context) error
 	// AddConfigWatcher add gvr to list which will be watched to get dynamic configuration
 	AddConfigWatcher(gvrs ...metav1.GroupVersionResource) error
-	// Register is used when a user wants to get dynamic configuration
-	Register(registers ...ConfigurationRegister)
 	// Run starts the main loop
 	Run(ctx context.Context)
 }
@@ -107,8 +94,6 @@ func (d *DummyConfigurationManager) AddConfigWatcher(_ ...metav1.GroupVersionRes
 	return nil
 }
 
-func (d *DummyConfigurationManager) Register(_ ...ConfigurationRegister) {}
-
 func (d *DummyConfigurationManager) Run(_ context.Context) {}
 
 var _ ConfigurationManager = &DynamicConfigManager{}
@@ -121,6 +106,10 @@ type DynamicConfigManager struct {
 	defaultConfig *pkgconfig.DynamicConfiguration
 	currentConfig *pkgconfig.DynamicConfiguration
 
+	// lastDynamicConfigCRD is used to record the last dynamic config CRD
+	// to avoid unnecessary update
+	lastDynamicConfigCRD *dynamic.DynamicConfigCRD
+
 	configLoader ConfigurationLoader
 	emitter      metrics.MetricEmitter
 
@@ -128,10 +117,6 @@ type DynamicConfigManager struct {
 	// gvrToKind maps from GVR to GVK (only kind can be used to reflect objects)
 	mux            sync.RWMutex
 	resourceGVRMap map[string]metav1.GroupVersionResource
-
-	// todo: it would better if each component will be triggered only if its
-	//  interested configurations are changed; and registerList should be changed to registerMap
-	registerList []ConfigurationRegister
 
 	// checkpoint stores recent dynamic config
 	checkpointManager   checkpointmanager.CheckpointManager
@@ -149,8 +134,8 @@ func NewDynamicConfigManager(clientSet *client.GenericClientSet, emitter metrics
 	}
 
 	return &DynamicConfigManager{
-		defaultConfig:       conf.DynamicConfiguration,
-		currentConfig:       deepCopy(conf.DynamicConfiguration),
+		defaultConfig:       deepCopy(conf.DynamicConfiguration),
+		currentConfig:       conf.DynamicConfiguration,
 		configLoader:        configLoader,
 		emitter:             emitter,
 		resourceGVRMap:      make(map[string]metav1.GroupVersionResource),
@@ -175,14 +160,6 @@ func (c *DynamicConfigManager) AddConfigWatcher(gvrs ...metav1.GroupVersionResou
 	}
 
 	return nil
-}
-
-// Register is to add configurationRegister to a list which will be applied
-func (c *DynamicConfigManager) Register(register ...ConfigurationRegister) {
-	c.mux.Lock()
-	defer c.mux.Unlock()
-
-	c.registerList = append(c.registerList, register...)
 }
 
 // Run is to start update config loops until the context is done
@@ -218,7 +195,7 @@ func (c *DynamicConfigManager) tryUpdateConfig(ctx context.Context, skipError bo
 	c.mux.RLock()
 	defer c.mux.RUnlock()
 
-	config, updated, err := c.getConfig(ctx)
+	err := c.updateConfig(ctx)
 	if err != nil {
 		_ = c.emitter.StoreInt64(metricsNameUpdateConfig, 1, metrics.MetricTypeNameCount, metrics.MetricTag{
 			Key: "status", Val: "failed",
@@ -234,33 +211,27 @@ func (c *DynamicConfigManager) tryUpdateConfig(ctx context.Context, skipError bo
 		})
 	}
 
-	if !updated {
-		return nil
-	}
-
-	for _, register := range c.registerList {
-		register.ApplyConfig(config)
-	}
 	return nil
 }
 
-// getConfig is used to get dynamic agent config from remote
-func (c *DynamicConfigManager) getConfig(ctx context.Context) (*pkgconfig.DynamicConfiguration, bool, error) {
-	dynamicConfiguration, success, err := c.updateDynamicConfig(c.resourceGVRMap, katalystConfigGVRToGVKMap,
+// updateConfig is used to get dynamic agent config from remote
+func (c *DynamicConfigManager) updateConfig(ctx context.Context) error {
+	dynamicConfigCRD, success, err := c.updateDynamicConfig(c.resourceGVRMap, katalystConfigGVRToGVKMap,
 		func(gvr metav1.GroupVersionResource, conf interface{}) error {
 			return c.configLoader.LoadConfig(ctx, gvr, conf)
 		},
 	)
 	if !success {
-		return c.currentConfig, false, err
+		return err
+	} else if apiequality.Semantic.DeepEqual(c.lastDynamicConfigCRD, dynamicConfigCRD) {
+		klog.V(4).Infof("dynamic config is not changed")
+		return nil
 	}
 
-	newConfig, updated := applyDynamicConfig(c.defaultConfig, c.currentConfig, dynamicConfiguration)
-	if updated {
-		c.currentConfig = newConfig
-	}
-
-	return newConfig, updated, err
+	klog.Infof("dynamic config crd is changed from %v to %v", c.lastDynamicConfigCRD, dynamicConfigCRD)
+	applyDynamicConfig(c.defaultConfig, c.currentConfig, dynamicConfigCRD)
+	c.lastDynamicConfigCRD = dynamicConfigCRD
+	return err
 }
 
 func (c *DynamicConfigManager) writeCheckpoint(kind string, configData reflect.Value) {
@@ -375,16 +346,8 @@ func getGVRToGVKMap() map[schema.GroupVersionResource]schema.GroupVersionKind {
 }
 
 func applyDynamicConfig(defaultConfig, currentConfig *pkgconfig.DynamicConfiguration,
-	dynamicConf *dynamic.DynamicConfigCRD) (*pkgconfig.DynamicConfiguration, bool) {
-	// copy default config from env and apply remote dynamic config to it
-	newConfig := deepCopy(defaultConfig)
-	newConfig.ApplyDynamicConfiguration(dynamicConf)
-
-	if apiequality.Semantic.DeepEqual(newConfig, currentConfig) {
-		return currentConfig, false
-	}
-
-	return newConfig, true
+	dynamicConfigCRD *dynamic.DynamicConfigCRD) {
+	currentConfig.ApplyConfiguration(defaultConfig, dynamicConfigCRD)
 }
 
 func deepCopy(src *pkgconfig.DynamicConfiguration) *pkgconfig.DynamicConfiguration {

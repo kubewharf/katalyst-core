@@ -59,7 +59,8 @@ func NewGenericEvictionConfiguration() *GenericEvictionConfiguration {
 	}
 }
 
-func (c *GenericEvictionConfiguration) ApplyConfiguration(conf *dynamic.DynamicConfigCRD) {}
+func (c *GenericEvictionConfiguration) ApplyConfiguration(*GenericEvictionConfiguration, *dynamic.DynamicConfigCRD) {
+}
 
 func NewEvictionPluginsConfiguration() *EvictionPluginsConfiguration {
 	return &EvictionPluginsConfiguration{
@@ -69,8 +70,8 @@ func NewEvictionPluginsConfiguration() *EvictionPluginsConfiguration {
 	}
 }
 
-func (c *EvictionPluginsConfiguration) ApplyConfiguration(conf *dynamic.DynamicConfigCRD) {
-	c.ReclaimedResourcesEvictionPluginConfiguration.ApplyConfiguration(conf)
-	c.MemoryPressureEvictionPluginConfiguration.ApplyConfiguration(conf)
-	c.CPUPressureEvictionPluginConfiguration.ApplyConfiguration(conf)
+func (c *EvictionPluginsConfiguration) ApplyConfiguration(defaultConf *EvictionPluginsConfiguration, conf *dynamic.DynamicConfigCRD) {
+	c.ReclaimedResourcesEvictionPluginConfiguration.ApplyConfiguration(defaultConf.ReclaimedResourcesEvictionPluginConfiguration, conf)
+	c.MemoryPressureEvictionPluginConfiguration.ApplyConfiguration(defaultConf.MemoryPressureEvictionPluginConfiguration, conf)
+	c.CPUPressureEvictionPluginConfiguration.ApplyConfiguration(defaultConf.CPUPressureEvictionPluginConfiguration, conf)
 }

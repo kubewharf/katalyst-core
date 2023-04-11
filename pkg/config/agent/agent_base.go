@@ -33,7 +33,7 @@ type GenericAgentConfiguration struct {
 	*global.PluginManagerConfiguration
 	*global.MetaServerConfiguration
 	*global.QRMAdvisorConfiguration
-	*adminqos.ReclaimedResourceConfiguration
+	*adminqos.AdminQoSConfiguration
 
 	*eviction.GenericEvictionConfiguration
 	*reporter.GenericReporterConfiguration
@@ -54,7 +54,7 @@ func NewGenericAgentConfiguration() *GenericAgentConfiguration {
 		PluginManagerConfiguration:     global.NewPluginManagerConfiguration(),
 		MetaServerConfiguration:        global.NewMetaServerConfiguration(),
 		QRMAdvisorConfiguration:        global.NewQRMAdvisorConfiguration(),
-		ReclaimedResourceConfiguration: adminqos.NewReclaimedResourceConfiguration(),
+		AdminQoSConfiguration:          adminqos.NewAdminQoSConfiguration(),
 		GenericEvictionConfiguration:   eviction.NewGenericEvictionConfiguration(),
 		GenericReporterConfiguration:   reporter.NewGenericReporterConfiguration(),
 		GenericSysAdvisorConfiguration: sysadvisor.NewGenericSysAdvisorConfiguration(),
@@ -62,16 +62,16 @@ func NewGenericAgentConfiguration() *GenericAgentConfiguration {
 	}
 }
 
-func (c *GenericAgentConfiguration) ApplyConfiguration(conf *dynamic.DynamicConfigCRD) {
-	c.BaseConfiguration.ApplyConfiguration(conf)
-	c.MetaServerConfiguration.ApplyConfiguration(conf)
-	c.PluginManagerConfiguration.ApplyConfiguration(conf)
-	c.ReclaimedResourceConfiguration.ApplyConfiguration(conf)
-	c.QRMAdvisorConfiguration.ApplyConfiguration(conf)
-	c.GenericEvictionConfiguration.ApplyConfiguration(conf)
-	c.GenericReporterConfiguration.ApplyConfiguration(conf)
-	c.GenericSysAdvisorConfiguration.ApplyConfiguration(conf)
-	c.GenericQRMPluginConfiguration.ApplyConfiguration(conf)
+func (c *GenericAgentConfiguration) ApplyConfiguration(defaultConf *GenericAgentConfiguration, conf *dynamic.DynamicConfigCRD) {
+	c.BaseConfiguration.ApplyConfiguration(defaultConf.BaseConfiguration, conf)
+	c.MetaServerConfiguration.ApplyConfiguration(defaultConf.MetaServerConfiguration, conf)
+	c.PluginManagerConfiguration.ApplyConfiguration(defaultConf.PluginManagerConfiguration, conf)
+	c.AdminQoSConfiguration.ApplyConfiguration(defaultConf.ReclaimedResourceConfiguration, conf)
+	c.QRMAdvisorConfiguration.ApplyConfiguration(defaultConf.QRMAdvisorConfiguration, conf)
+	c.GenericEvictionConfiguration.ApplyConfiguration(defaultConf.GenericEvictionConfiguration, conf)
+	c.GenericReporterConfiguration.ApplyConfiguration(defaultConf.GenericReporterConfiguration, conf)
+	c.GenericSysAdvisorConfiguration.ApplyConfiguration(defaultConf.GenericSysAdvisorConfiguration, conf)
+	c.GenericQRMPluginConfiguration.ApplyConfiguration(defaultConf.GenericQRMPluginConfiguration, conf)
 }
 
 func NewAgentConfiguration() *AgentConfiguration {
@@ -83,9 +83,9 @@ func NewAgentConfiguration() *AgentConfiguration {
 	}
 }
 
-func (c *AgentConfiguration) ApplyConfiguration(conf *dynamic.DynamicConfigCRD) {
-	c.EvictionPluginsConfiguration.ApplyConfiguration(conf)
-	c.ReporterPluginsConfiguration.ApplyConfiguration(conf)
-	c.SysAdvisorPluginsConfiguration.ApplyConfiguration(conf)
-	c.QRMPluginsConfiguration.ApplyConfiguration(conf)
+func (c *AgentConfiguration) ApplyConfiguration(defaultConf *AgentConfiguration, conf *dynamic.DynamicConfigCRD) {
+	c.EvictionPluginsConfiguration.ApplyConfiguration(defaultConf.EvictionPluginsConfiguration, conf)
+	c.ReporterPluginsConfiguration.ApplyConfiguration(defaultConf.ReporterPluginsConfiguration, conf)
+	c.SysAdvisorPluginsConfiguration.ApplyConfiguration(defaultConf.SysAdvisorPluginsConfiguration, conf)
+	c.QRMPluginsConfiguration.ApplyConfiguration(defaultConf.QRMPluginsConfiguration, conf)
 }

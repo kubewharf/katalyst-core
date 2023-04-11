@@ -43,10 +43,10 @@ func NewDynamicConfiguration() *DynamicConfiguration {
 	}
 }
 
-// ApplyDynamicConfiguration is used to set configuration contents by CR dynamically.
-func (d *DynamicConfiguration) ApplyDynamicConfiguration(conf *dynamic.DynamicConfigCRD) {
-	d.GenericAgentConfiguration.ApplyConfiguration(conf)
-	d.AgentConfiguration.ApplyConfiguration(conf)
+// ApplyConfiguration is used to set configuration contents by CR dynamically.
+func (d *DynamicConfiguration) ApplyConfiguration(defaultConf *DynamicConfiguration, conf *dynamic.DynamicConfigCRD) {
+	d.GenericAgentConfiguration.ApplyConfiguration(defaultConf.GenericAgentConfiguration, conf)
+	d.AgentConfiguration.ApplyConfiguration(defaultConf.AgentConfiguration, conf)
 }
 
 // Configuration stores all the configurations needed by core katalyst components,

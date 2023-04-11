@@ -47,4 +47,5 @@ func NewMetaServerConfiguration() *MetaServerConfiguration {
 	return &MetaServerConfiguration{}
 }
 
-func (c *MetaServerConfiguration) ApplyConfiguration(conf *dynamic.DynamicConfigCRD) {}
+func (c *MetaServerConfiguration) ApplyConfiguration(*MetaServerConfiguration, *dynamic.DynamicConfigCRD) {
+}

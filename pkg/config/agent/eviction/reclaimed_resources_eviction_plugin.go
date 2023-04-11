@@ -21,6 +21,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
@@ -61,23 +62,80 @@ func (t *ResourceEvictionThreshold) Set(value string) error {
 	return nil
 }
 
+func (t *ResourceEvictionThreshold) DeepCopy() ResourceEvictionThreshold {
+	nt := ResourceEvictionThreshold{}
+	for k, v := range *t {
+		nt[k] = v
+	}
+	return nt
+}
+
 type ReclaimedResourcesEvictionPluginConfiguration struct {
 	EvictionReclaimedPodGracefulPeriod int64
-	EvictionThreshold                  ResourceEvictionThreshold
 	SkipZeroQuantityResourceNames      sets.String
+
+	DynamicConf *ReclaimedResourcesEvictionPluginDynamicConfiguration
 }
 
 func NewReclaimedResourcesEvictionPluginConfiguration() *ReclaimedResourcesEvictionPluginConfiguration {
 	return &ReclaimedResourcesEvictionPluginConfiguration{
-		EvictionThreshold:             ResourceEvictionThreshold{},
 		SkipZeroQuantityResourceNames: sets.String{},
+		DynamicConf:                   NewReclaimedResourcesEvictionPluginDynamicConfiguration(),
 	}
 }
 
-func (c *ReclaimedResourcesEvictionPluginConfiguration) ApplyConfiguration(conf *dynamic.DynamicConfigCRD) {
+func (c *ReclaimedResourcesEvictionPluginConfiguration) ApplyConfiguration(defaultConf *ReclaimedResourcesEvictionPluginConfiguration,
+	conf *dynamic.DynamicConfigCRD) {
+	c.DynamicConf.ApplyConfiguration(defaultConf.DynamicConf, conf)
+}
+
+type ReclaimedResourcesEvictionPluginDynamicConfiguration struct {
+	mutex             sync.RWMutex
+	evictionThreshold ResourceEvictionThreshold
+}
+
+func NewReclaimedResourcesEvictionPluginDynamicConfiguration() *ReclaimedResourcesEvictionPluginDynamicConfiguration {
+	return &ReclaimedResourcesEvictionPluginDynamicConfiguration{
+		evictionThreshold: ResourceEvictionThreshold{},
+	}
+}
+
+func (c *ReclaimedResourcesEvictionPluginDynamicConfiguration) DeepCopy() interface{} {
+	c.mutex.RLock()
+	defer c.mutex.RUnlock()
+
+	nc := NewReclaimedResourcesEvictionPluginDynamicConfiguration()
+	nc.applyDefault(c)
+	return nc
+}
+
+func (c *ReclaimedResourcesEvictionPluginDynamicConfiguration) EvictionThreshold() ResourceEvictionThreshold {
+	c.mutex.RLock()
+	defer c.mutex.RUnlock()
+
+	return c.evictionThreshold
+}
+
+func (c *ReclaimedResourcesEvictionPluginDynamicConfiguration) SetEvictionThreshold(evictionThreshold ResourceEvictionThreshold) {
+	c.mutex.Lock()
+	defer c.mutex.Unlock()
+
+	c.evictionThreshold = evictionThreshold
+}
+
+func (c *ReclaimedResourcesEvictionPluginDynamicConfiguration) ApplyConfiguration(defaultConf *ReclaimedResourcesEvictionPluginDynamicConfiguration,
+	conf *dynamic.DynamicConfigCRD) {
+	c.mutex.Lock()
+	defer c.mutex.Unlock()
+
+	c.applyDefault(defaultConf)
 	if ec := conf.EvictionConfiguration; ec != nil {
 		for resourceName, value := range ec.Spec.Config.EvictionPluginsConfig.ReclaimedResourcesEvictionPluginConfig.EvictionThreshold {
-			c.EvictionThreshold[resourceName] = value
+			c.evictionThreshold[resourceName] = value
 		}
 	}
+}
+
+func (c *ReclaimedResourcesEvictionPluginDynamicConfiguration) applyDefault(defaultConf *ReclaimedResourcesEvictionPluginDynamicConfiguration) {
+	c.evictionThreshold = defaultConf.evictionThreshold.DeepCopy()
 }

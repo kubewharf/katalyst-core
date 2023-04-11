@@ -29,5 +29,5 @@ func NewQRMServerConfiguration() *QRMServerConfiguration {
 }
 
 // ApplyConfiguration is used to set configuration based on conf.
-func (c *QRMServerConfiguration) ApplyConfiguration(conf *dynamic.DynamicConfigCRD) {
+func (c *QRMServerConfiguration) ApplyConfiguration(*QRMServerConfiguration, *dynamic.DynamicConfigCRD) {
 }

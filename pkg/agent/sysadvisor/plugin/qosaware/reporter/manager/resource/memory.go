@@ -29,7 +29,6 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/global/adminqos"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/sysadvisor/qosaware/reporter"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
-	dynamicconfig "github.com/kubewharf/katalyst-core/pkg/metaserver/config"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 )
 
@@ -55,7 +54,6 @@ func getMemoryBrokerInitializer(name string) (broker.BrokerInitFunc, bool) {
 }
 
 type memoryManagerImpl struct {
-	dynamicconfig.ConfigurationRegister
 	*GenericHeadroomManager
 }
 
@@ -75,22 +73,14 @@ func NewMemoryHeadroomManager(emitter metrics.MetricEmitter, metaServer *metaser
 		headroomAdvisor,
 		emitter,
 		generateMemoryWindowOptions(conf.HeadroomReporterConfiguration),
-		generateReclaimedMemoryOptions(conf.ReclaimedResourceConfiguration),
+		generateReclaimedMemoryOptionsFunc(conf.ReclaimedResourceConfiguration),
 	)
 
 	cm := &memoryManagerImpl{
 		GenericHeadroomManager: gm,
 	}
 
-	metaServer.ConfigurationManager.Register(cm)
-
 	return cm, nil
-}
-
-// ApplyConfig apply dynamic reclaimed memory options
-func (m *memoryManagerImpl) ApplyConfig(conf *config.DynamicConfiguration) {
-	options := generateReclaimedMemoryOptions(conf.ReclaimedResourceConfiguration)
-	m.UpdateReclaimOptions(options)
 }
 
 func generateMemoryWindowOptions(conf *reporter.HeadroomReporterConfiguration) GenericSlidingWindowOptions {
@@ -101,10 +91,12 @@ func generateMemoryWindowOptions(conf *reporter.HeadroomReporterConfiguration) G
 	}
 }
 
-func generateReclaimedMemoryOptions(conf *adminqos.ReclaimedResourceConfiguration) GenericReclaimOptions {
-	return GenericReclaimOptions{
-		EnableReclaim:                 conf.EnableReclaim,
-		ReservedResourceForReport:     conf.ReservedResourceForReport[v1.ResourceMemory],
-		MinReclaimedResourceForReport: conf.MinReclaimedResourceForReport[v1.ResourceMemory],
+func generateReclaimedMemoryOptionsFunc(conf *adminqos.ReclaimedResourceConfiguration) GetGenericReclaimOptionsFunc {
+	return func() GenericReclaimOptions {
+		return GenericReclaimOptions{
+			EnableReclaim:                 conf.EnableReclaim(),
+			ReservedResourceForReport:     conf.ReservedResourceForReport()[v1.ResourceMemory],
+			MinReclaimedResourceForReport: conf.MinReclaimedResourceForReport()[v1.ResourceMemory],
+		}
 	}
 }

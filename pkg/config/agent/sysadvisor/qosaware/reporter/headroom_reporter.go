@@ -46,7 +46,7 @@ func NewHeadroomReporterConfiguration() *HeadroomReporterConfiguration {
 }
 
 // ApplyConfiguration is used to set configuration based on conf.
-func (c *HeadroomReporterConfiguration) ApplyConfiguration(conf *dynamic.DynamicConfigCRD) {
+func (c *HeadroomReporterConfiguration) ApplyConfiguration(*HeadroomReporterConfiguration, *dynamic.DynamicConfigCRD) {
 }
 
 type CPUHeadroomManagerConfiguration struct {

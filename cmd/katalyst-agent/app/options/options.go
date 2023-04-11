@@ -40,7 +40,7 @@ type Options struct {
 	*global.PluginManagerOptions
 	*global.MetaServerOptions
 	*global.QRMAdvisorOptions
-	*adminqos.ReclaimedResourceOptions
+	*adminqos.AdminQoSOptions
 
 	// the below are options used by all each individual katalyst module/plugin
 	genericEvictionOptions *eviction.GenericEvictionOptions
@@ -61,11 +61,11 @@ func NewOptions() *Options {
 	return &Options{
 		GenericOptions: options.NewGenericOptions(),
 
-		BaseOptions:              global.NewBaseOptions(),
-		MetaServerOptions:        global.NewMetaServerOptions(),
-		PluginManagerOptions:     global.NewPluginManagerOptions(),
-		QRMAdvisorOptions:        global.NewQRMAdvisorOptions(),
-		ReclaimedResourceOptions: adminqos.NewReclaimedResourceOptions(),
+		BaseOptions:          global.NewBaseOptions(),
+		MetaServerOptions:    global.NewMetaServerOptions(),
+		PluginManagerOptions: global.NewPluginManagerOptions(),
+		QRMAdvisorOptions:    global.NewQRMAdvisorOptions(),
+		AdminQoSOptions:      adminqos.NewAdminQoSOptions(),
 
 		genericEvictionOptions:   eviction.NewGenericEvictionOptions(),
 		evictionPluginsOptions:   eviction.NewEvictionPluginsOptions(),
@@ -104,7 +104,7 @@ func (o *Options) ApplyTo(c *config.Configuration) error {
 	errList = append(errList, o.BaseOptions.ApplyTo(c.BaseConfiguration))
 	errList = append(errList, o.PluginManagerOptions.ApplyTo(c.PluginManagerConfiguration))
 	errList = append(errList, o.MetaServerOptions.ApplyTo(c.MetaServerConfiguration))
-	errList = append(errList, o.ReclaimedResourceOptions.ApplyTo(c.ReclaimedResourceConfiguration))
+	errList = append(errList, o.AdminQoSOptions.ApplyTo(c.AdminQoSConfiguration))
 	errList = append(errList, o.QRMAdvisorOptions.ApplyTo(c.QRMAdvisorConfiguration))
 	errList = append(errList, o.genericEvictionOptions.ApplyTo(c.GenericEvictionConfiguration))
 	errList = append(errList, o.evictionPluginsOptions.ApplyTo(c.EvictionPluginsConfiguration))

@@ -25,6 +25,13 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 )
 
+// DeepCopiable is an interface that can be implemented by types that need to
+// customize their deep copy behavior.
+type DeepCopiable interface {
+	DeepCopy() interface{}
+}
+
+// DeepCopy returns a deep copy of the given object.
 func DeepCopy(src interface{}) interface{} {
 	if src == nil {
 		return nil
@@ -37,6 +44,13 @@ func DeepCopy(src interface{}) interface{} {
 }
 
 func copyRecursive(oldItem, newItem reflect.Value) {
+	if oldItem.CanInterface() {
+		if copyItem, ok := oldItem.Interface().(DeepCopiable); ok {
+			newItem.Set(reflect.ValueOf(copyItem.DeepCopy()))
+			return
+		}
+	}
+
 	switch oldItem.Kind() {
 	case reflect.Ptr:
 		oldValue := oldItem.Elem()

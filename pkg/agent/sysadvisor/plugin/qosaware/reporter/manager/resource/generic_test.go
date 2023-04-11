@@ -32,15 +32,15 @@ import (
 
 func TestNewGenericHeadroomManager(t *testing.T) {
 	type args struct {
-		name                 v1.ResourceName
-		useMilliValue        bool
-		reportMillValue      bool
-		syncPeriod           time.Duration
-		broker               broker.Broker
-		headroomAdvisor      hmadvisor.ResourceAdvisor
-		emitter              metrics.MetricEmitter
-		slidingWindowOptions GenericSlidingWindowOptions
-		reclaimOptions       GenericReclaimOptions
+		name                  v1.ResourceName
+		useMilliValue         bool
+		reportMillValue       bool
+		syncPeriod            time.Duration
+		broker                broker.Broker
+		headroomAdvisor       hmadvisor.ResourceAdvisor
+		emitter               metrics.MetricEmitter
+		slidingWindowOptions  GenericSlidingWindowOptions
+		getReclaimOptionsFunc GetGenericReclaimOptionsFunc
 	}
 	tests := []struct {
 		name string
@@ -60,10 +60,12 @@ func TestNewGenericHeadroomManager(t *testing.T) {
 					MinStep:           resource.MustParse("0.3"),
 					MaxStep:           resource.MustParse("4"),
 				},
-				reclaimOptions: GenericReclaimOptions{
-					EnableReclaim:                 true,
-					ReservedResourceForReport:     resource.MustParse("10"),
-					MinReclaimedResourceForReport: resource.MustParse("4"),
+				getReclaimOptionsFunc: func() GenericReclaimOptions {
+					return GenericReclaimOptions{
+						EnableReclaim:                 true,
+						ReservedResourceForReport:     resource.MustParse("10"),
+						MinReclaimedResourceForReport: resource.MustParse("4"),
+					}
 				},
 			},
 		},
@@ -72,7 +74,7 @@ func TestNewGenericHeadroomManager(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			NewGenericHeadroomManager(tt.args.name, tt.args.useMilliValue, tt.args.reportMillValue,
 				tt.args.syncPeriod, tt.args.broker, tt.args.headroomAdvisor, tt.args.emitter,
-				tt.args.slidingWindowOptions, tt.args.reclaimOptions)
+				tt.args.slidingWindowOptions, tt.args.getReclaimOptionsFunc)
 		})
 	}
 }
@@ -91,7 +93,9 @@ func TestGenericHeadroomManager_Allocatable(t *testing.T) {
 			MinStep:           resource.MustParse("0.3"),
 			MaxStep:           resource.MustParse("4"),
 		},
-		reclaimOptions,
+		func() GenericReclaimOptions {
+			return reclaimOptions
+		},
 	)
 	go m.Run(context.Background())
 
@@ -119,7 +123,7 @@ func TestGenericHeadroomManager_Allocatable(t *testing.T) {
 
 	// update reclaim options to disable reclaim, return zero next getting allocatable
 	reclaimOptions.EnableReclaim = false
-	m.UpdateReclaimOptions(reclaimOptions)
+	m.sync(context.Background())
 	allocatable, err = m.GetAllocatable()
 	require.NoError(t, err)
 	require.Equal(t, int64(0), allocatable.MilliValue())

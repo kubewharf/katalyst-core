@@ -29,5 +29,5 @@ func NewQRMAdvisorConfiguration() *QRMAdvisorConfiguration {
 	return &QRMAdvisorConfiguration{}
 }
 
-func (qa *QRMAdvisorConfiguration) ApplyConfiguration(conf *dynamic.DynamicConfigCRD) {
+func (qa *QRMAdvisorConfiguration) ApplyConfiguration(*QRMAdvisorConfiguration, *dynamic.DynamicConfigCRD) {
 }

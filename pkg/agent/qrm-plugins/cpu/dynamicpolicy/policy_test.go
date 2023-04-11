@@ -41,6 +41,7 @@ import (
 	advisorapi "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/cpuadvisor"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util"
+	"github.com/kubewharf/katalyst-core/pkg/config/agent/global/adminqos"
 	"github.com/kubewharf/katalyst-core/pkg/config/generic"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/cgroup/common"
@@ -80,13 +81,15 @@ func getTestDynamicPolicyWithoutInitialization(topology *machine.CPUTopology, st
 	}
 
 	qosConfig := generic.NewQoSConfiguration()
+	reclaimedResourceConfig := adminqos.NewDynamicReclaimedResourceConfiguration()
 
 	policyImplement := &DynamicPolicy{
-		machineInfo:  machineInfo,
-		qosConfig:    qosConfig,
-		state:        stateImpl,
-		reservedCPUs: reservedCPUs,
-		emitter:      metrics.DummyMetrics{},
+		machineInfo:             machineInfo,
+		qosConfig:               qosConfig,
+		reclaimedResourceConfig: reclaimedResourceConfig,
+		state:                   stateImpl,
+		reservedCPUs:            reservedCPUs,
+		emitter:                 metrics.DummyMetrics{},
 	}
 
 	state.GetContainerRequestedCores = policyImplement.getContainerRequestedCores
@@ -2326,7 +2329,7 @@ func TestAllocateByQoSAwareServerListAndWatchResp(t *testing.T) {
 		dynamicPolicy, err := getTestDynamicPolicyWithInitialization(tc.cpuTopology, tmpDir)
 		as.Nil(err)
 
-		dynamicPolicy.enableReclaim = true
+		dynamicPolicy.reclaimedResourceConfig.SetEnableReclaim(true)
 
 		machineState, err := state.GenerateCPUMachineStateByPodEntries(tc.cpuTopology, tc.podEntries)
 		as.Nil(err)

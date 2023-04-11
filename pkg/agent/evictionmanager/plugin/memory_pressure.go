@@ -100,14 +100,7 @@ type MemoryPressureEvictionPlugin struct {
 	*process.StopControl
 	metaServer *metaserver.MetaServer
 
-	enableNumaLevelDetection             bool
-	enableSystemLevelDetection           bool
-	numaFreeBelowWatermarkTimesThreshold int
-	systemKswapdRateThreshold            int
-	systemKswapdRateExceedTimesThreshold int
-	numaEvictionRankingMetrics           []string
-	systemEvictionRankingMetrics         []string
-	gracePeriod                          int64
+	memoryEvictionPluginConfig *evictionconfig.MemoryPressureEvictionPluginConfiguration
 
 	numaActionMap                  map[int]int
 	systemAction                   int
@@ -127,48 +120,14 @@ func NewMemoryPressureEvictionPlugin(_ *client.GenericClientSet, _ events.EventR
 		emitter:                        emitter,
 		StopControl:                    process.NewStopControl(time.Time{}),
 		metaServer:                     metaServer,
+		evictionManagerSyncPeriod:      conf.EvictionManagerSyncPeriod,
+		memoryEvictionPluginConfig:     conf.MemoryPressureEvictionPluginConfiguration,
 		reclaimedPodFilter:             conf.CheckReclaimedQoSForPod,
 		numaActionMap:                  make(map[int]int),
 		numaFreeBelowWatermarkTimesMap: make(map[int]int),
 	}
 
-	plugin.ApplyConfig(conf.DynamicConfiguration)
-
 	return plugin
-}
-
-// ApplyConfig applies config to MemoryPressureEvictionPlugin
-func (m *MemoryPressureEvictionPlugin) ApplyConfig(conf *config.DynamicConfiguration) {
-	m.evictionManagerSyncPeriod = conf.EvictionManagerSyncPeriod
-
-	m.enableNumaLevelDetection = conf.EnableNumaLevelDetection
-	m.enableSystemLevelDetection = conf.EnableSystemLevelDetection
-	m.numaFreeBelowWatermarkTimesThreshold = conf.NumaFreeBelowWatermarkTimesThreshold
-	m.systemKswapdRateThreshold = conf.SystemKswapdRateThreshold
-	m.systemKswapdRateExceedTimesThreshold = conf.SystemKswapdRateExceedTimesThreshold
-	m.numaEvictionRankingMetrics = conf.NumaEvictionRankingMetrics
-	m.systemEvictionRankingMetrics = conf.SystemEvictionRankingMetrics
-	m.gracePeriod = conf.GracePeriod
-
-	klog.Infof("[memory-pressure-eviction-plugin] apply configs, "+
-		"enableNumaLevelDetection: %+v, "+
-		"enableSystemLevelDetection: %+v, "+
-		"evictionManagerSyncPeriod: %+v, "+
-		"numaFreeBelowWatermarkTimesThreshold: %+v, "+
-		"systemKswapdRateThreshold: %+v, "+
-		"systemKswapdRateExceedTimesThreshold: %+v, "+
-		"numaEvictionRankingMetrics: %+v, "+
-		"systemEvictionRankingMetrics: %+v, "+
-		"gracePeriod: %+v",
-		m.enableNumaLevelDetection,
-		m.enableSystemLevelDetection,
-		m.evictionManagerSyncPeriod,
-		m.numaFreeBelowWatermarkTimesThreshold,
-		m.systemKswapdRateThreshold,
-		m.systemKswapdRateExceedTimesThreshold,
-		m.numaEvictionRankingMetrics,
-		m.systemEvictionRankingMetrics,
-		m.gracePeriod)
 }
 
 // Name returns the name of MemoryPressureEvictionPlugin
@@ -182,11 +141,11 @@ func (m *MemoryPressureEvictionPlugin) Name() string {
 
 // ThresholdMet determines whether to evict pods based on memory pressure
 func (m *MemoryPressureEvictionPlugin) ThresholdMet(_ context.Context) (*pluginapi.ThresholdMetResponse, error) {
-	if m.enableNumaLevelDetection {
+	if m.memoryEvictionPluginConfig.DynamicConf.EnableNumaLevelDetection() {
 		m.detectNumaPressures()
 	}
 
-	if m.enableSystemLevelDetection {
+	if m.memoryEvictionPluginConfig.DynamicConf.EnableSystemLevelDetection() {
 		m.detectSystemPressures()
 	}
 
@@ -194,14 +153,14 @@ func (m *MemoryPressureEvictionPlugin) ThresholdMet(_ context.Context) (*plugina
 		MetType: pluginapi.ThresholdMetType_NOT_MET,
 	}
 
-	if m.enableNumaLevelDetection && m.isUnderNumaPressure {
+	if m.memoryEvictionPluginConfig.DynamicConf.EnableNumaLevelDetection() && m.isUnderNumaPressure {
 		resp = &pluginapi.ThresholdMetResponse{
 			MetType:       pluginapi.ThresholdMetType_HARD_MET,
 			EvictionScope: evictionScopeMemory,
 		}
 	}
 
-	if m.enableSystemLevelDetection && m.isUnderSystemPressure {
+	if m.memoryEvictionPluginConfig.DynamicConf.EnableNumaLevelDetection() && m.isUnderSystemPressure {
 		resp = &pluginapi.ThresholdMetResponse{
 			MetType:       pluginapi.ThresholdMetType_HARD_MET,
 			EvictionScope: evictionScopeMemory,
@@ -239,14 +198,16 @@ func (m *MemoryPressureEvictionPlugin) GetTopEvictionPods(_ context.Context, req
 		"m.numaActionMap: %+v, m.systemAction: %+v", m.isUnderNumaPressure, m.isUnderSystemPressure,
 		m.numaActionMap, m.systemAction)
 
-	if m.enableNumaLevelDetection && m.isUnderNumaPressure {
+	if m.memoryEvictionPluginConfig.DynamicConf.EnableNumaLevelDetection() && m.isUnderNumaPressure {
 		for numaID, action := range m.numaActionMap {
-			m.selectPodsToEvict(request.ActivePods, request.TopN, numaID, action, m.numaEvictionRankingMetrics, podToEvictMap)
+			m.selectPodsToEvict(request.ActivePods, request.TopN, numaID, action,
+				m.memoryEvictionPluginConfig.DynamicConf.NumaEvictionRankingMetrics(), podToEvictMap)
 		}
 	}
 
-	if m.enableSystemLevelDetection && m.isUnderSystemPressure {
-		m.selectPodsToEvict(request.ActivePods, request.TopN, nonExistNumaID, m.systemAction, m.systemEvictionRankingMetrics, podToEvictMap)
+	if m.memoryEvictionPluginConfig.DynamicConf.EnableSystemLevelDetection() && m.isUnderSystemPressure {
+		m.selectPodsToEvict(request.ActivePods, request.TopN, nonExistNumaID, m.systemAction,
+			m.memoryEvictionPluginConfig.DynamicConf.SystemEvictionRankingMetrics(), podToEvictMap)
 	}
 
 	for uid := range podToEvictMap {
@@ -259,9 +220,9 @@ func (m *MemoryPressureEvictionPlugin) GetTopEvictionPods(_ context.Context, req
 	resp := &pluginapi.GetTopEvictionPodsResponse{
 		TargetPods: targetPods,
 	}
-	if m.gracePeriod > 0 {
+	if gracePeriod := m.memoryEvictionPluginConfig.DynamicConf.GracePeriod(); gracePeriod > 0 {
 		resp.DeletionOptions = &pluginapi.DeletionOptions{
-			GracePeriodSeconds: m.gracePeriod,
+			GracePeriodSeconds: gracePeriod,
 		}
 	}
 
@@ -328,7 +289,8 @@ func (m *MemoryPressureEvictionPlugin) detectNumaWatermarkPressure(numaID int) e
 
 	klog.Infof("[memory-pressure-eviction-plugin] numa watermark metrics of ID: %d, "+
 		"free: %+v, total: %+v, scaleFactor: %+v, numaFreeBelowWatermarkTimes: %+v, numaFreeBelowWatermarkTimesThreshold: %+v",
-		numaID, free, total, scaleFactor, m.numaFreeBelowWatermarkTimesMap[numaID], m.numaFreeBelowWatermarkTimesThreshold)
+		numaID, free, total, scaleFactor, m.numaFreeBelowWatermarkTimesMap[numaID],
+		m.memoryEvictionPluginConfig.DynamicConf.NumaFreeBelowWatermarkTimesThreshold())
 	_ = m.emitter.StoreFloat64(metricsNameNumaMetric, float64(m.numaFreeBelowWatermarkTimesMap[numaID]), metrics.MetricTypeNameRaw,
 		metrics.ConvertMapToTags(map[string]string{
 			metricsTagKeyNumaID:     strconv.Itoa(numaID),
@@ -343,7 +305,7 @@ func (m *MemoryPressureEvictionPlugin) detectNumaWatermarkPressure(numaID int) e
 		m.numaFreeBelowWatermarkTimesMap[numaID] = 0
 	}
 
-	if m.numaFreeBelowWatermarkTimesMap[numaID] >= m.numaFreeBelowWatermarkTimesThreshold {
+	if m.numaFreeBelowWatermarkTimesMap[numaID] >= m.memoryEvictionPluginConfig.DynamicConf.NumaFreeBelowWatermarkTimesThreshold() {
 		m.numaActionMap[numaID] = actionEviction
 	}
 
@@ -405,8 +367,9 @@ func (m *MemoryPressureEvictionPlugin) detectSystemKswapdStealPressure() {
 	klog.Infof("[memory-pressure-eviction-plugin] system kswapd metrics, "+
 		"kswapdSteal: %+v, kswapdStealPreviousCycle: %+v, systemKswapdRateThreshold: %+v, evictionManagerSyncPeriod: %+v, "+
 		"systemKswapdRateExceedTimes: %+v, systemKswapdRateExceedTimesThreshold: %+v",
-		kswapdSteal, m.kswapdStealPreviousCycle, m.systemKswapdRateThreshold, m.evictionManagerSyncPeriod.Seconds(),
-		m.systemKswapdRateExceedTimes, m.systemKswapdRateExceedTimesThreshold)
+		kswapdSteal, m.kswapdStealPreviousCycle, m.memoryEvictionPluginConfig.DynamicConf.SystemKswapdRateThreshold(),
+		m.evictionManagerSyncPeriod.Seconds(), m.systemKswapdRateExceedTimes,
+		m.memoryEvictionPluginConfig.DynamicConf.SystemKswapdRateExceedTimesThreshold())
 	_ = m.emitter.StoreFloat64(metricsNameSystemMetric, float64(m.systemKswapdRateExceedTimes), metrics.MetricTypeNameRaw,
 		metrics.ConvertMapToTags(map[string]string{
 			metricsTagKeyMetricName: metricsTagValueSystemKswapdRateExceedTimes,
@@ -423,13 +386,13 @@ func (m *MemoryPressureEvictionPlugin) detectSystemKswapdStealPressure() {
 		return
 	}
 
-	if kswapdSteal-kswapdStealPreviousCycle >= float64(m.systemKswapdRateThreshold)*m.evictionManagerSyncPeriod.Seconds() {
+	if kswapdSteal-kswapdStealPreviousCycle >= float64(m.memoryEvictionPluginConfig.DynamicConf.SystemKswapdRateThreshold())*m.evictionManagerSyncPeriod.Seconds() {
 		m.systemKswapdRateExceedTimes++
 	} else {
 		m.systemKswapdRateExceedTimes = 0
 	}
 
-	if m.systemKswapdRateExceedTimes >= m.systemKswapdRateExceedTimesThreshold {
+	if m.systemKswapdRateExceedTimes >= m.memoryEvictionPluginConfig.DynamicConf.SystemKswapdRateExceedTimesThreshold() {
 		m.isUnderSystemPressure = true
 		m.systemAction = actionEviction
 	}

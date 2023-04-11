@@ -33,4 +33,5 @@ func NewMemoryQRMPluginConfig() *MemoryQRMPluginConfig {
 	return &MemoryQRMPluginConfig{}
 }
 
-func (c *MemoryQRMPluginConfig) ApplyConfiguration(_ *dynamic.DynamicConfigCRD) {}
+func (c *MemoryQRMPluginConfig) ApplyConfiguration(*MemoryQRMPluginConfig, *dynamic.DynamicConfigCRD) {
+}

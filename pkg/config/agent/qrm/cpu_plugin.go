@@ -39,4 +39,4 @@ func NewCPUQRMPluginConfig() *CPUQRMPluginConfig {
 	return &CPUQRMPluginConfig{}
 }
 
-func (c *CPUQRMPluginConfig) ApplyConfiguration(_ *dynamic.DynamicConfigCRD) {}
+func (c *CPUQRMPluginConfig) ApplyConfiguration(*CPUQRMPluginConfig, *dynamic.DynamicConfigCRD) {}

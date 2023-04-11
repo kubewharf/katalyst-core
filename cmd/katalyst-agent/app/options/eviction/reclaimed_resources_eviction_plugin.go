@@ -51,9 +51,10 @@ func (o *ReclaimedResourcesEvictionPluginOptions) AddFlags(fss *cliflag.NamedFla
 
 func (o *ReclaimedResourcesEvictionPluginOptions) ApplyTo(c *evictionconfig.ReclaimedResourcesEvictionPluginConfiguration) error {
 	c.EvictionReclaimedPodGracefulPeriod = o.EvictionReclaimedResourcesPodGracePeriod
-	c.EvictionThreshold = o.EvictionThreshold
 	for _, name := range o.SkipZeroQuantityResourceNames {
 		c.SkipZeroQuantityResourceNames.Insert(name)
 	}
+
+	c.DynamicConf.SetEvictionThreshold(o.EvictionThreshold)
 	return nil
 }

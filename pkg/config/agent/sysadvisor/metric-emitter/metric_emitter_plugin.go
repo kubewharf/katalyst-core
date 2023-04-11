@@ -51,5 +51,5 @@ func NewMetricEmitterPluginConfiguration() *MetricEmitterPluginConfiguration {
 }
 
 // ApplyConfiguration is used to set configuration based on conf.
-func (c *MetricEmitterPluginConfiguration) ApplyConfiguration(conf *dynamic.DynamicConfigCRD) {
+func (c *MetricEmitterPluginConfiguration) ApplyConfiguration(*MetricEmitterPluginConfiguration, *dynamic.DynamicConfigCRD) {
 }

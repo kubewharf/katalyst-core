@@ -37,6 +37,8 @@ const (
 	metricsNameHeadroomReportResult = "headroom_report_result"
 )
 
+type GetGenericReclaimOptionsFunc func() GenericReclaimOptions
+
 type GenericReclaimOptions struct {
 	// EnableReclaim whether enable reclaim resource
 	EnableReclaim bool
@@ -68,13 +70,13 @@ type GenericHeadroomManager struct {
 	reportResultTransformer func(quantity resource.Quantity) resource.Quantity
 	resourceName            v1.ResourceName
 	syncPeriod              time.Duration
-	reclaimOptions          GenericReclaimOptions
+	getReclaimOptions       GetGenericReclaimOptionsFunc
 }
 
 func NewGenericHeadroomManager(name v1.ResourceName, useMilliValue, reportMilliValue bool,
 	syncPeriod time.Duration, broker broker.Broker, headroomAdvisor hmadvisor.ResourceAdvisor,
 	emitter metrics.MetricEmitter, slidingWindowOptions GenericSlidingWindowOptions,
-	reclaimOptions GenericReclaimOptions) *GenericHeadroomManager {
+	getReclaimOptions GetGenericReclaimOptionsFunc) *GenericHeadroomManager {
 
 	// Sliding window size and ttl are calculated by SlidingWindowTime and syncPeriod,
 	// the valid lifetime of all samples is twice the duration of the sliding window.
@@ -104,18 +106,8 @@ func NewGenericHeadroomManager(name v1.ResourceName, useMilliValue, reportMilliV
 			slidingWindowOptions.MaxStep,
 			general.NewAverageWithTTLSmoothWindow(slidingWindowSize, slidingWindowTTL, useMilliValue),
 		),
-		emitter:        emitter,
-		reclaimOptions: reclaimOptions,
-	}
-}
-
-func (m *GenericHeadroomManager) UpdateReclaimOptions(options GenericReclaimOptions) {
-	var oldReclaimOptions GenericReclaimOptions
-	m.Lock()
-	oldReclaimOptions, m.reclaimOptions = m.reclaimOptions, options
-	m.Unlock()
-	if oldReclaimOptions.EnableReclaim != options.EnableReclaim && !options.EnableReclaim {
-		m.sync(context.TODO())
+		emitter:           emitter,
+		getReclaimOptions: getReclaimOptions,
 	}
 }
 
@@ -150,7 +142,9 @@ func (m *GenericHeadroomManager) getLastReportResult() (resource.Quantity, error
 func (m *GenericHeadroomManager) sync(_ context.Context) {
 	m.Lock()
 	defer m.Unlock()
-	if !m.reclaimOptions.EnableReclaim {
+
+	reclaimOptions := m.getReclaimOptions()
+	if !reclaimOptions.EnableReclaim {
 		m.lastReportResult = &resource.Quantity{}
 		return
 	}
@@ -173,14 +167,14 @@ func (m *GenericHeadroomManager) sync(_ context.Context) {
 		return
 	}
 
-	reportResult.Sub(m.reclaimOptions.ReservedResourceForReport)
-	if reportResult.Cmp(m.reclaimOptions.MinReclaimedResourceForReport) < 0 {
-		reportResult = &m.reclaimOptions.MinReclaimedResourceForReport
+	reportResult.Sub(reclaimOptions.ReservedResourceForReport)
+	if reportResult.Cmp(reclaimOptions.MinReclaimedResourceForReport) < 0 {
+		reportResult = &reclaimOptions.MinReclaimedResourceForReport
 	}
 
 	klog.Infof("headroom manager for %s with originResultFromAdvisor: %s, reportResultFromBroker: %s, "+
 		"reportResult: %s, reservedResourceForReport: %s", m.resourceName, originResultFromAdvisor.String(),
-		reportResultFromBroker.String(), reportResult.String(), m.reclaimOptions.ReservedResourceForReport.String())
+		reportResultFromBroker.String(), reportResult.String(), reclaimOptions.ReservedResourceForReport.String())
 
 	m.emitResourceToMetric(metricsNameHeadroomReportResult, m.reportResultTransformer(*reportResult))
 

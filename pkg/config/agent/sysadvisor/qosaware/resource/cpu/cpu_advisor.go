@@ -36,5 +36,5 @@ func NewCPUAdvisorConfiguration() *CPUAdvisorConfiguration {
 }
 
 // ApplyConfiguration is used to set configuration based on conf.
-func (c *CPUAdvisorConfiguration) ApplyConfiguration(conf *dynamic.DynamicConfigCRD) {
+func (c *CPUAdvisorConfiguration) ApplyConfiguration(*CPUAdvisorConfiguration, *dynamic.DynamicConfigCRD) {
 }

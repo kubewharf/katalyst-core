@@ -82,8 +82,8 @@ func generateTestConfiguration(t *testing.T, checkpointDir, stateFileDir string)
 
 	conf.GenericSysAdvisorConfiguration.StateFileDirectory = stateFileDir
 	conf.MetaServerConfiguration.CheckpointManagerDir = checkpointDir
-	conf.ReclaimedResourceConfiguration.ReservedResourceForAllocate[v1.ResourceMemory] = resource.MustParse(fmt.Sprintf("%d", 4<<30))
-	conf.EnableReclaim = true
+	conf.ReclaimedResourceConfiguration.ReservedResourceForAllocate()[v1.ResourceMemory] = resource.MustParse(fmt.Sprintf("%d", 4<<30))
+	conf.ReclaimedResourceConfiguration.SetEnableReclaim(true)
 	conf.MemoryHeadroomPolicies = []types.MemoryHeadroomPolicyName{types.MemoryHeadroomPolicyCanonical}
 
 	return conf
@@ -110,9 +110,6 @@ func newTestMemoryAdvisor(t *testing.T, checkpointDir, stateFileDir string) (*me
 	}
 
 	mra := NewMemoryResourceAdvisor(conf, struct{}{}, metaCache, metaServer, nil)
-
-	reservedDefault := conf.ReclaimedResourceConfiguration.ReservedResourceForAllocate[v1.ResourceMemory]
-	mra.reservedForAllocate = reservedDefault.Value()
 
 	assert.Equal(t, mra.Name(), memoryResourceAdvisorName)
 	assert.Nil(t, mra.GetChannel())
@@ -251,11 +248,11 @@ func TestUpdate(t *testing.T) {
 				assert.NoError(t, err)
 			}
 
-			advisor.enableReclaim = tt.reclaimedEnable
+			reservedForAllocate := advisor.conf.ReclaimedResourceConfiguration.ReservedResourceForAllocate()[v1.ResourceMemory]
 			headroomPolicy := advisor.headroomPolices[0]
 			headroomPolicy.SetEssentials(types.ResourceEssentials{
 				Total:               int(advisor.metaServer.MemoryCapacity),
-				ReservedForAllocate: int(advisor.reservedForAllocate),
+				ReservedForAllocate: int(reservedForAllocate.Value()),
 				EnableReclaim:       tt.reclaimedEnable,
 			})
 

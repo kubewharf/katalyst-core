@@ -26,5 +26,5 @@ func NewPluginManagerConfiguration() *PluginManagerConfiguration {
 	return &PluginManagerConfiguration{}
 }
 
-func (c *PluginManagerConfiguration) ApplyConfiguration(conf *dynamic.DynamicConfigCRD) {
+func (c *PluginManagerConfiguration) ApplyConfiguration(*PluginManagerConfiguration, *dynamic.DynamicConfigCRD) {
 }
