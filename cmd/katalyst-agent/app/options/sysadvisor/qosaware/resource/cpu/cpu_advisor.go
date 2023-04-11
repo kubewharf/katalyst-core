@@ -17,7 +17,6 @@ limitations under the License.
 package cpu
 
 import (
-	"fmt"
 	"strings"
 
 	"github.com/spf13/pflag"
@@ -28,47 +27,49 @@ import (
 
 // CPUAdvisorOptions holds the configurations for cpu advisor in qos aware plugin
 type CPUAdvisorOptions struct {
-	CPUProvisionAdditionalPolicy string
-	CPUHeadroomAdditionalPolicy  string
+	CPUProvisionPolicyPriority map[string]string
+	CPUHeadroomPolicyPriority  map[string]string
 }
 
 // NewCPUAdvisorOptions creates a new Options with a default config
 func NewCPUAdvisorOptions() *CPUAdvisorOptions {
-	return &CPUAdvisorOptions{}
+	return &CPUAdvisorOptions{
+		CPUProvisionPolicyPriority: map[string]string{
+			string(types.QoSRegionTypeShare):                  string(types.CPUProvisionPolicyCanonical),
+			string(types.QoSRegionTypeDedicatedNumaExclusive): string(types.CPUProvisionPolicyCanonical),
+		},
+		CPUHeadroomPolicyPriority: map[string]string{
+			string(types.QoSRegionTypeShare):                  string(types.CPUHeadroomPolicyCanonical),
+			string(types.QoSRegionTypeDedicatedNumaExclusive): string(types.CPUHeadroomPolicyCanonical),
+		},
+	}
 }
 
 // AddFlags adds flags to the specified FlagSet.
 func (o *CPUAdvisorOptions) AddFlags(fs *pflag.FlagSet) {
-	fs.StringVar(&o.CPUProvisionAdditionalPolicy, "cpu-provision-additional-policy", o.CPUProvisionAdditionalPolicy,
-		"additional policy of each region type for cpu advisor to update resource provision")
-	fs.StringVar(&o.CPUHeadroomAdditionalPolicy, "cpu-headroom-additional-policy", o.CPUHeadroomAdditionalPolicy,
-		"additional policy of each region type for cpu advisor to estimate resource headroom")
+	fs.StringToStringVar(&o.CPUProvisionPolicyPriority, "cpu-provision-policy-priority", o.CPUProvisionPolicyPriority,
+		"policies of each region type for cpu advisor to update resource provision, sorted by priority descending order, "+
+			"should be formatted as 'share=rama/canonical,dedicated-numa-exclusive=rama/canonical'")
+	fs.StringToStringVar(&o.CPUHeadroomPolicyPriority, "cpu-provision-effective-policy", o.CPUHeadroomPolicyPriority,
+		"policies of each region type for cpu advisor to estimate resource headroom, sorted by priority descending order, "+
+			"should be formatted as 'share=rama/canonical,dedicated-numa-exclusive=rama/canonical'")
 }
 
 // ApplyTo fills up config with options
 func (o *CPUAdvisorOptions) ApplyTo(c *cpu.CPUAdvisorConfiguration) error {
-	c.ProvisionAdditionalPolicy = make(map[types.QoSRegionType]types.CPUProvisionPolicyName)
-
-	if len(o.CPUProvisionAdditionalPolicy) > 0 {
-		provisionPolicies := strings.Split(o.CPUProvisionAdditionalPolicy, ",")
-		for _, policy := range provisionPolicies {
-			kvs := strings.Split(policy, "=")
-			if len(kvs) != 2 {
-				return fmt.Errorf("invalid provision policies: %v", o.CPUProvisionAdditionalPolicy)
-			}
-			c.ProvisionAdditionalPolicy[types.QoSRegionType(kvs[0])] = types.CPUProvisionPolicyName(kvs[1])
+	for regionType, policies := range o.CPUProvisionPolicyPriority {
+		provisionPolicies := strings.Split(policies, "/")
+		for _, policyName := range provisionPolicies {
+			c.ProvisionPolicies[types.QoSRegionType(regionType)] =
+				append(c.ProvisionPolicies[types.QoSRegionType(regionType)], types.CPUProvisionPolicyName(policyName))
 		}
 	}
 
-	if len(o.CPUHeadroomAdditionalPolicy) > 0 {
-		c.HeadroomAdditionalPolicy = make(map[types.QoSRegionType]types.CPUHeadroomPolicyName)
-		headroomPolicies := strings.Split(o.CPUHeadroomAdditionalPolicy, ",")
-		for _, policy := range headroomPolicies {
-			kvs := strings.Split(policy, "=")
-			if len(kvs) != 2 {
-				return fmt.Errorf("invalid headroom policies: %v", o.CPUHeadroomAdditionalPolicy)
-			}
-			c.HeadroomAdditionalPolicy[types.QoSRegionType(kvs[0])] = types.CPUHeadroomPolicyName(kvs[1])
+	for regionType, policies := range o.CPUHeadroomPolicyPriority {
+		headroomPolicies := strings.Split(policies, "/")
+		for _, policyName := range headroomPolicies {
+			c.HeadroomPolicies[types.QoSRegionType(regionType)] =
+				append(c.HeadroomPolicies[types.QoSRegionType(regionType)], types.CPUHeadroomPolicyName(policyName))
 		}
 	}
 

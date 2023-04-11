@@ -23,15 +23,15 @@ import (
 
 // CPUAdvisorConfiguration stores configurations of cpu advisors in qos aware plugin
 type CPUAdvisorConfiguration struct {
-	ProvisionAdditionalPolicy map[types.QoSRegionType]types.CPUProvisionPolicyName
-	HeadroomAdditionalPolicy  map[types.QoSRegionType]types.CPUHeadroomPolicyName
+	ProvisionPolicies map[types.QoSRegionType][]types.CPUProvisionPolicyName
+	HeadroomPolicies  map[types.QoSRegionType][]types.CPUHeadroomPolicyName
 }
 
 // NewCPUAdvisorConfiguration creates new cpu advisor configurations
 func NewCPUAdvisorConfiguration() *CPUAdvisorConfiguration {
 	return &CPUAdvisorConfiguration{
-		ProvisionAdditionalPolicy: make(map[types.QoSRegionType]types.CPUProvisionPolicyName),
-		HeadroomAdditionalPolicy:  make(map[types.QoSRegionType]types.CPUHeadroomPolicyName),
+		ProvisionPolicies: map[types.QoSRegionType][]types.CPUProvisionPolicyName{},
+		HeadroomPolicies:  map[types.QoSRegionType][]types.CPUHeadroomPolicyName{},
 	}
 }
 

@@ -53,6 +53,14 @@ func generateTestConfiguration(t *testing.T, checkpointDir, stateFileDir string)
 	conf.GenericSysAdvisorConfiguration.StateFileDirectory = stateFileDir
 	conf.MetaServerConfiguration.CheckpointManagerDir = checkpointDir
 	conf.ReclaimedResourceConfiguration.ReservedResourceForAllocate[v1.ResourceCPU] = resource.MustParse("4")
+	conf.ProvisionPolicies = map[types.QoSRegionType][]types.CPUProvisionPolicyName{
+		types.QoSRegionTypeShare:                  {types.CPUProvisionPolicyCanonical},
+		types.QoSRegionTypeDedicatedNumaExclusive: {types.CPUProvisionPolicyCanonical},
+	}
+	conf.HeadroomPolicies = map[types.QoSRegionType][]types.CPUHeadroomPolicyName{
+		types.QoSRegionTypeShare:                  {types.CPUHeadroomPolicyCanonical},
+		types.QoSRegionTypeDedicatedNumaExclusive: {types.CPUHeadroomPolicyCanonical},
+	}
 
 	return conf
 }

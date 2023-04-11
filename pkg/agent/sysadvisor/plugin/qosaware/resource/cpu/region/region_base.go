@@ -18,7 +18,6 @@ package region
 
 import (
 	"fmt"
-	"math"
 	"sync"
 	"time"
 
@@ -43,30 +42,19 @@ const (
 	minRampDownPeriod                = 30 * time.Second
 )
 
-// Policy priority defines the priority of available provision or headroom policies.
-// Result of the policy with higher priority will be preferred when it is legal.
-// Larger value indicates higher priority.
-var (
-	provisionPolicyPriority = map[types.CPUProvisionPolicyName]int{
-		types.CPUProvisionPolicyCanonical: 0,
-		types.CPUProvisionPolicyRama:      1,
-	}
-	headroomPolicyPriority = map[types.CPUHeadroomPolicyName]int{
-		types.CPUHeadroomPolicyCanonical: 0,
-	}
-)
-
 type internalPolicyState struct {
 	updateStatus types.PolicyUpdateStatus
 	initDoOnce   sync.Once
 }
 
 type internalProvisionPolicy struct {
+	name   types.CPUProvisionPolicyName
 	policy provisionpolicy.ProvisionPolicy
 	internalPolicyState
 }
 
 type internalHeadroomPolicy struct {
+	name   types.CPUHeadroomPolicyName
 	policy headroompolicy.HeadroomPolicy
 	internalPolicyState
 }
@@ -89,10 +77,10 @@ type QoSRegionBase struct {
 
 	types.ResourceEssentials
 
-	// provisionPolicyMap for comparing and merging different provision policy results
-	provisionPolicyMap map[types.CPUProvisionPolicyName]*internalProvisionPolicy
-	// headroomPolicyMap for comparing and merging different headroom policy results
-	headroomPolicyMap map[types.CPUHeadroomPolicyName]*internalHeadroomPolicy
+	// provisionPolicies for comparing and merging different provision policy results, the former has higher priority
+	provisionPolicies []*internalProvisionPolicy
+	// headroomPolicies for comparing and merging different headroom policy results, the former has higher priority
+	headroomPolicies []*internalHeadroomPolicy
 
 	metaReader metacache.MetaReader
 	metaServer *metaserver.MetaServer
@@ -111,8 +99,8 @@ func NewQoSRegionBase(name string, ownerPoolName string, regionType types.QoSReg
 		podSet:                           make(types.PodSet),
 		containerTopologyAwareAssignment: make(types.TopologyAwareAssignment),
 
-		provisionPolicyMap: make(map[types.CPUProvisionPolicyName]*internalProvisionPolicy),
-		headroomPolicyMap:  make(map[types.CPUHeadroomPolicyName]*internalHeadroomPolicy),
+		provisionPolicies: make([]*internalProvisionPolicy, 0),
+		headroomPolicies:  make([]*internalHeadroomPolicy, 0),
 
 		metaReader: metaReader,
 		metaServer: metaServer,
@@ -203,88 +191,48 @@ func (r *QoSRegionBase) AddContainer(ci *types.ContainerInfo) error {
 // initProvisionPolicy initializes provision by adding additional policies into default ones
 func (r *QoSRegionBase) initProvisionPolicy(conf *config.Configuration, extraConf interface{},
 	metaReader metacache.MetaReader, metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter) {
-	// keep canonical policy by default as baseline
-	provisionPolicyList := []types.CPUProvisionPolicyName{types.CPUProvisionPolicyCanonical}
-	configuredProvisionPolicy, ok := conf.CPUAdvisorConfiguration.ProvisionAdditionalPolicy[r.regionType]
-	if ok && configuredProvisionPolicy != types.CPUProvisionPolicyCanonical {
-		provisionPolicyList = append(provisionPolicyList, configuredProvisionPolicy)
+	configuredProvisionPolicy, ok := conf.CPUAdvisorConfiguration.ProvisionPolicies[r.regionType]
+	if !ok {
+		klog.Warningf("failed to find provision policies for region %v", r.regionType)
+		return
 	}
 
 	// try new policies
 	// todo move to separate functions
 	initializers := provisionpolicy.GetRegisteredInitializers()
-	for _, policyName := range provisionPolicyList {
+	for _, policyName := range configuredProvisionPolicy {
 		if initializer, ok := initializers[policyName]; ok {
 			cpuRegulator := regulator.NewCPURegulator(maxRampUpStep, maxRampDownStep, minRampDownPeriod)
 			policy := initializer(r.name, conf, extraConf, cpuRegulator, metaReader, metaServer, emitter)
-
 			policy.SetBindingNumas(r.bindingNumas)
-			r.provisionPolicyMap[policyName] = &internalProvisionPolicy{
-				policy: policy,
-				internalPolicyState: internalPolicyState{
-					updateStatus: types.PolicyUpdateFailed,
-				},
-			}
+			r.provisionPolicies = append(r.provisionPolicies, &internalProvisionPolicy{
+				name:                policyName,
+				policy:              policy,
+				internalPolicyState: internalPolicyState{updateStatus: types.PolicyUpdateFailed},
+			})
 		}
 	}
-}
-
-// selectProvisionPolicy returns policy with the highest priority
-func (r *QoSRegionBase) selectProvisionPolicy(provisionPolicyPriority map[types.CPUProvisionPolicyName]int) types.CPUProvisionPolicyName {
-	selected := types.CPUProvisionPolicyNone
-	max := math.MinInt
-
-	for policyName, internal := range r.provisionPolicyMap {
-		if internal.updateStatus != types.PolicyUpdateSucceeded {
-			continue
-		}
-		if priority, ok := provisionPolicyPriority[policyName]; ok && priority > max {
-			selected = policyName
-			max = priority
-		}
-	}
-	return selected
 }
 
 // initHeadroomPolicy initializes headroom by adding additional policies into default ones
 func (r *QoSRegionBase) initHeadroomPolicy(conf *config.Configuration, extraConf interface{},
 	metaReader metacache.MetaReader, metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter) {
-	// keep canonical policy by default as baseline
-	headroomPolicyList := []types.CPUHeadroomPolicyName{types.CPUHeadroomPolicyCanonical}
-	configuredHeadroomPolicy, ok := conf.CPUAdvisorConfiguration.HeadroomAdditionalPolicy[r.regionType]
-	if ok && configuredHeadroomPolicy != types.CPUHeadroomPolicyCanonical {
-		headroomPolicyList = append(headroomPolicyList, configuredHeadroomPolicy)
+	configuredHeadroomPolicy, ok := conf.CPUAdvisorConfiguration.HeadroomPolicies[r.regionType]
+	if !ok {
+		klog.Warningf("failed to find provision policies for region %v", r.regionType)
+		return
 	}
 
 	// try new policies
 	headroomInitializers := headroompolicy.GetRegisteredInitializers()
-	for _, policyName := range headroomPolicyList {
+	for _, policyName := range configuredHeadroomPolicy {
 		if initializer, ok := headroomInitializers[policyName]; ok {
 			policy := initializer(r.name, conf, extraConf, metaReader, metaServer, emitter)
-
-			r.headroomPolicyMap[policyName] = &internalHeadroomPolicy{
-				policy: policy,
-				internalPolicyState: internalPolicyState{
-					updateStatus: types.PolicyUpdateFailed,
-				},
-			}
+			r.headroomPolicies = append(r.headroomPolicies, &internalHeadroomPolicy{
+				name:                policyName,
+				policy:              policy,
+				internalPolicyState: internalPolicyState{updateStatus: types.PolicyUpdateFailed},
+			})
 		}
 	}
-}
-
-// selectHeadroomPolicy returns policy with the highest priority
-func (r *QoSRegionBase) selectHeadroomPolicy(headroomPolicyPriority map[types.CPUHeadroomPolicyName]int) types.CPUHeadroomPolicyName {
-	selected := types.CPUHeadroomPolicyNone
-	max := math.MinInt
-
-	for policyName, internal := range r.headroomPolicyMap {
-		if internal.updateStatus != types.PolicyUpdateSucceeded {
-			continue
-		}
-		if priority, ok := headroomPolicyPriority[policyName]; ok && priority > max {
-			selected = policyName
-			max = priority
-		}
-	}
-	return selected
 }
