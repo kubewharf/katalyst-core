@@ -50,7 +50,7 @@ func (o *CPUAdvisorOptions) AddFlags(fs *pflag.FlagSet) {
 	fs.StringToStringVar(&o.CPUProvisionPolicyPriority, "cpu-provision-policy-priority", o.CPUProvisionPolicyPriority,
 		"policies of each region type for cpu advisor to update resource provision, sorted by priority descending order, "+
 			"should be formatted as 'share=rama/canonical,dedicated-numa-exclusive=rama/canonical'")
-	fs.StringToStringVar(&o.CPUHeadroomPolicyPriority, "cpu-provision-effective-policy", o.CPUHeadroomPolicyPriority,
+	fs.StringToStringVar(&o.CPUHeadroomPolicyPriority, "cpu-headroom-policy-priority", o.CPUHeadroomPolicyPriority,
 		"policies of each region type for cpu advisor to estimate resource headroom, sorted by priority descending order, "+
 			"should be formatted as 'share=rama/canonical,dedicated-numa-exclusive=rama/canonical'")
 }
