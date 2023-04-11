@@ -186,7 +186,6 @@ func (k *KatalystCustomConfigTargetController) katalystCustomConfigTargetHandler
 		overlapTargets        []util.KCCTargetResource
 	)
 
-	isValid = true
 	reason = kccTargetConditionReasonNormal
 	kccKeys := k.targetHandler.GetKCCKeyListByGVR(gvr)
 	if len(kccKeys) != 1 {
@@ -247,7 +246,7 @@ func (k *KatalystCustomConfigTargetController) katalystCustomConfigTargetHandler
 	updateTargetResourceStatus(targetResource, isValid, message, reason)
 	if !apiequality.Semantic.DeepEqual(oldKCCTargetResource, targetResource) {
 		klog.V(4).Infof("gvr: %s, target: %s need update status", gvr.String(), native.GenerateUniqObjectNameKey(target))
-		target, err = k.unstructuredControl.UpdateUnstructuredStatus(k.ctx, gvr, target, metav1.UpdateOptions{})
+		_, err = k.unstructuredControl.UpdateUnstructuredStatus(k.ctx, gvr, target, metav1.UpdateOptions{})
 		if err != nil {
 			return err
 		}

@@ -26,10 +26,11 @@ import (
 	"k8s.io/kubernetes/pkg/kubelet/checkpointmanager"
 	testutil "k8s.io/kubernetes/pkg/kubelet/cm/cpumanager/state/testing"
 
-	"github.com/kubewharf/katalyst-api/pkg/consts"
-	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/kubewharf/katalyst-api/pkg/consts"
+	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
 const (
@@ -1451,9 +1452,7 @@ func TestNewCheckpointState(t *testing.T) {
 
 				// test skip corruption
 				if strings.Contains(err.Error(), "checkpoint is corrupted") {
-					restoredState, err =
-						NewCheckpointState(testingDir, cpuPluginStateFileName, policyName, cpuTopology, true)
-
+					_, err = NewCheckpointState(testingDir, cpuPluginStateFileName, policyName, cpuTopology, true)
 					require.Nil(t, err)
 				}
 			} else {
@@ -1947,7 +1946,7 @@ func TestClearState(t *testing.T) {
 			state1.SetPodEntries(tc.podEntries)
 
 			state2, err := NewCheckpointState(testingDir, cpuPluginStateFileName, policyName, tc.cpuTopology, false)
-
+			as.Nil(err)
 			assertStateEqual(t, state2, state1)
 		})
 	}

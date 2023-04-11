@@ -334,6 +334,7 @@ func (cs *cpuServer) serve() error {
 	return nil
 }
 
+//nolint
 func (cs *cpuServer) dial(unixSocketPath string, timeout time.Duration) (*grpc.ClientConn, error) {
 	c, err := grpc.Dial(unixSocketPath, grpc.WithInsecure(), grpc.WithBlock(),
 		grpc.WithTimeout(timeout),

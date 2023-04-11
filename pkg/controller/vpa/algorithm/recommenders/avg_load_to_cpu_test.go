@@ -90,7 +90,7 @@ func TestGetRecommendedPodResources(t *testing.T) {
 			}{
 				recommendedResources: []apis.RecommendedContainerResources{
 					{
-						ContainerName: pointer.StringPtr("c1"),
+						ContainerName: pointer.String("c1"),
 						Requests: &apis.RecommendedRequestResources{
 							Resources: map[v1.ResourceName]resource.Quantity{
 								v1.ResourceCPU: *resource.NewMilliQuantity(20000, resource.DecimalSI)},

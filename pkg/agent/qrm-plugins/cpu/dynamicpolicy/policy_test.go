@@ -34,6 +34,8 @@ import (
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 	utilfs "k8s.io/kubernetes/pkg/util/filesystem"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/calculator"
 	advisorapi "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/cpuadvisor"
@@ -45,7 +47,6 @@ import (
 	cgroupcm "github.com/kubewharf/katalyst-core/pkg/util/cgroup/common"
 	cgroupcmutils "github.com/kubewharf/katalyst-core/pkg/util/cgroup/manager"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
-	"github.com/stretchr/testify/require"
 )
 
 func getTestDynamicPolicyWithInitialization(topology *machine.CPUTopology, stateFileDirectory string) (*DynamicPolicy, error) {
@@ -2379,7 +2380,7 @@ func machineStateMatch(state1, state2 state.NUMANodeMap) (bool, error) {
 }
 
 func entriesMatch(entries1, entries2 state.PodEntries) (bool, error) {
-	if len(entries1) != len(entries1) {
+	if len(entries1) != len(entries2) {
 		return false, nil
 	}
 

@@ -33,9 +33,10 @@ import (
 	"github.com/opencontainers/runc/libcontainer/cgroups/fscommon"
 	"k8s.io/klog/v2"
 
+	libcgroups "github.com/opencontainers/runc/libcontainer/cgroups"
+
 	"github.com/kubewharf/katalyst-core/pkg/util/cgroup/common"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
-	libcgroups "github.com/opencontainers/runc/libcontainer/cgroups"
 )
 
 type manager struct{}

@@ -64,7 +64,7 @@ func tmpSocketDir() (socketDir string, err error) {
 	if err != nil {
 		return
 	}
-	os.MkdirAll(socketDir, 0755)
+	_ = os.MkdirAll(socketDir, 0755)
 	return
 }
 
@@ -165,8 +165,8 @@ func TestReporterPluginReRegistration(t *testing.T) {
 	reporterContentsEqual(t, content2, p2GetReportContentResponse.Content)
 
 	// test the scenario that plugin de-register and graceful shut down
-	p1.Stop()
-	p2.Stop()
+	_ = p1.Stop()
+	_ = p2.Stop()
 }
 
 func TestHealthz(t *testing.T) {
@@ -213,7 +213,7 @@ func TestHealthz(t *testing.T) {
 		}
 	}
 
-	p.Stop()
+	_ = p.Stop()
 }
 
 func setup(t *testing.T, ctx context.Context, content []*v1alpha1.ReportContent, callback plugin.ListAndWatchCallback, socketDir string, pluginSocketName string, reporter reporter.Manager) (registration.AgentPluginHandler, <-chan interface{}, skeleton.GenericPlugin) {

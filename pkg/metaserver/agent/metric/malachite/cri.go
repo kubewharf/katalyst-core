@@ -37,6 +37,7 @@ type containerInfo struct {
 	name string
 }
 
+//nolint
 func getConnection(endPoint string) (*grpc.ClientConn, error) {
 	if endPoint == "" {
 		return nil, fmt.Errorf("endpoint is not set")
@@ -138,7 +139,7 @@ func getContainerCgroupsPath(client pb.RuntimeServiceClient, containerID string)
 		}
 
 		n := i + len("\"cgroupsPath\":")
-		str := string(v[n:])
+		str := v[n:]
 
 		start := strings.IndexByte(str, '"')
 		if start == -1 {
@@ -202,7 +203,7 @@ func GetAllPodsContainersCgroupsPath() (map[string]map[string]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer closeConnection(runtimeConn)
+	defer func() { _ = closeConnection(runtimeConn) }()
 
 	pods, err := listPodSandbox(runtimeClient)
 	if err != nil {

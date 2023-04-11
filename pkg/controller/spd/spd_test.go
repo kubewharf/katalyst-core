@@ -233,11 +233,11 @@ func TestSPDController_Run(t *testing.T) {
 			if targetSPD == nil {
 				targetSPD = tt.wantSPD
 			}
-			newSPD, err := controlCtx.Client.InternalClient.WorkloadV1alpha1().
+			newSPD, _ := controlCtx.Client.InternalClient.WorkloadV1alpha1().
 				ServiceProfileDescriptors(targetSPD.Namespace).Get(ctx, targetSPD.Name, metav1.GetOptions{})
 			assert.Equal(t, tt.wantSPD, newSPD)
 
-			newObject, err := controlCtx.Client.DynamicClient.Resource(stsGVR).
+			newObject, _ := controlCtx.Client.DynamicClient.Resource(stsGVR).
 				Namespace(tt.fields.workload.GetNamespace()).Get(ctx, tt.fields.workload.GetName(), metav1.GetOptions{})
 
 			newWorkload := &appsv1.StatefulSet{}
@@ -492,6 +492,8 @@ func TestIndicatorUpdater(t *testing.T) {
 	assert.NoError(t, err)
 
 	sc, err := NewSPDController(ctx, controlCtx, genericConfig, controllerConf, spdConfig, struct{}{})
+	assert.NoError(t, err)
+
 	controlCtx.StartInformer(ctx)
 	go sc.Run()
 	synced := cache.WaitForCacheSync(ctx.Done(), sc.syncedFunc...)

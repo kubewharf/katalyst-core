@@ -18,10 +18,11 @@ package config
 
 import (
 	"encoding/json"
+	"reflect"
+
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/kubernetes/pkg/kubelet/checkpointmanager"
 	"k8s.io/kubernetes/pkg/kubelet/checkpointmanager/checksum"
-	"reflect"
 
 	"github.com/kubewharf/katalyst-core/pkg/config/dynamic"
 )

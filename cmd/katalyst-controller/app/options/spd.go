@@ -20,8 +20,9 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/kubewharf/katalyst-core/pkg/config/controller"
 	cliflag "k8s.io/component-base/cli/flag"
+
+	"github.com/kubewharf/katalyst-core/pkg/config/controller"
 )
 
 // SPDOptions holds the configurations for service profile data.

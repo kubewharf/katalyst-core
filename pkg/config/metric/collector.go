@@ -17,8 +17,9 @@ limitations under the License.
 package metric
 
 import (
-	"k8s.io/apimachinery/pkg/labels"
 	"time"
+
+	"k8s.io/apimachinery/pkg/labels"
 )
 
 type CollectorConfiguration struct {

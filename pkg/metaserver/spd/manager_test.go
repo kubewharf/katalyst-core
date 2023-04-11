@@ -27,6 +27,8 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/kubewharf/katalyst-api/pkg/apis/config/v1alpha1"
 	workloadapis "github.com/kubewharf/katalyst-api/pkg/apis/workload/v1alpha1"
 	"github.com/kubewharf/katalyst-api/pkg/consts"
@@ -36,7 +38,6 @@ import (
 	pkgconsts "github.com/kubewharf/katalyst-core/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/cnc"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
-	"github.com/stretchr/testify/require"
 )
 
 func generateTestConfiguration(t *testing.T, nodeName string, checkpoint string) *pkgconfig.Configuration {

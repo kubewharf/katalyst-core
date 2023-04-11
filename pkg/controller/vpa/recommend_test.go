@@ -115,7 +115,7 @@ func TestResourceRecommendController_Run(t *testing.T) {
 			vpaOptions := options.NewVPAOptions()
 			vpaOptions.AddFlags(fss)
 			vpaConf := controller.NewVPAConfig()
-			vpaOptions.ApplyTo(vpaConf)
+			_ = vpaOptions.ApplyTo(vpaConf)
 
 			controlCtx, err := katalystbase.GenerateFakeGenericContext(nil,
 				[]runtime.Object{tt.fields.spd, tt.fields.vpa, tt.fields.vparec}, []runtime.Object{tt.fields.workload})

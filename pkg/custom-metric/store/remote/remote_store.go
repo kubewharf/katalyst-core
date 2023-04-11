@@ -23,10 +23,11 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
-	"k8s.io/klog/v2"
 	"net/http"
 	"sync"
 	"time"
+
+	"k8s.io/klog/v2"
 
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime/schema"

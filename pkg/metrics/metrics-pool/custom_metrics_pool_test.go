@@ -34,6 +34,7 @@ func TestNewCustomMetricsEmitterPool(t *testing.T) {
 	custom, err := m.GetMetricsEmitter(PrometheusMetricOptions{
 		Path: "/custom-metrics",
 	})
+	assert.NoError(t, err)
 
 	p.SetDefaultMetricsEmitter(custom)
 }

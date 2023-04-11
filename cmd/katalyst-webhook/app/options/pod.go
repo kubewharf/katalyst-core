@@ -19,8 +19,9 @@ package options
 import (
 	"fmt"
 
-	"github.com/kubewharf/katalyst-core/pkg/config/webhook"
 	cliflag "k8s.io/component-base/cli/flag"
+
+	"github.com/kubewharf/katalyst-core/pkg/config/webhook"
 )
 
 // PodOptions holds the configurations for Pod webhook.

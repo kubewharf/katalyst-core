@@ -226,14 +226,16 @@ func GetNUMANodesCountToFitMemoryReq(memoryReq, bytesPerNUMA uint64, numaCount i
 // GetHintsFromExtraStateFile
 // if you want to specify cpuset.mems for specific pods (eg. for existing pods) when switching
 // to katalyst the first time, you can provide an extra hints state file with content like below:
-// {
-//     "memoryEntries": {
-//         "dp-18a916b04c-bdc9d5fd9-8m7vr-0": "0-1",
-//         "dp-18a916b04c-bdc9d5fd9-h9tgp-0": "5,7",
-//         "dp-47320a8d77-f46d6cbc7-5r27s-0": "2-3",
-//         "dp-d7e988f508-5f66655c5-8n2tf-0": "4,6"
-//     },
-// }
+/*
+{
+	"memoryEntries": {
+		"dp-18a916b04c-bdc9d5fd9-8m7vr-0": "0-1",
+		"dp-18a916b04c-bdc9d5fd9-h9tgp-0": "5,7",
+		"dp-47320a8d77-f46d6cbc7-5r27s-0": "2-3",
+		"dp-d7e988f508-5f66655c5-8n2tf-0": "4,6"
+	},
+}
+*/
 func GetHintsFromExtraStateFile(podName, resourceName, extraHintsStateFileAbsPath string) (map[string]*pluginapi.ListOfTopologyHints, error) {
 	if extraHintsStateFileAbsPath == "" {
 		return nil, nil

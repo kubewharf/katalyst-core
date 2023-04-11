@@ -170,13 +170,14 @@ func TestNewDynamicConfigManager(t *testing.T) {
 	require.NoError(t, err)
 
 	manager, err := NewDynamicConfigManager(clientSet, &metrics.DummyMetrics{}, cncFetcher, conf)
+	require.NoError(t, err)
 	require.NotNil(t, manager)
 
 	err = manager.AddConfigWatcher(testTargetGVR)
 	require.NoError(t, err)
 
 	manager.Register(&DummyConfigurationRegister{})
-	manager.InitializeConfig(context.TODO())
+	_ = manager.InitializeConfig(context.TODO())
 	go manager.Run(context.TODO())
 }
 

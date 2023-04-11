@@ -39,7 +39,7 @@ func NewCPUPluginCheckpoint() *CPUPluginCheckpoint {
 	}
 }
 
-// MarshalCheckpoint returns marshalled checkpoint
+// MarshalCheckpoint returns marshaled checkpoint
 func (cp *CPUPluginCheckpoint) MarshalCheckpoint() ([]byte, error) {
 	// make sure checksum wasn't set before so it doesn't affect output checksum
 	cp.Checksum = 0

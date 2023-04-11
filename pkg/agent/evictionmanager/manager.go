@@ -24,13 +24,14 @@ import (
 	"sync"
 	"time"
 
+	//nolint
 	"github.com/golang/protobuf/proto"
 	v1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/util/clock"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/tools/events"
 	"k8s.io/klog/v2"
+	clocks "k8s.io/utils/clock"
 
 	"github.com/kubewharf/katalyst-api/pkg/apis/node/v1alpha1"
 	"github.com/kubewharf/katalyst-api/pkg/plugins/registration"
@@ -71,7 +72,7 @@ type EvictionManger struct {
 
 	// clock is an interface that provides time related functionality in a way that makes it
 	// easy to test the code.
-	clock clock.Clock
+	clock clocks.WithTickerAndDelayedExecution
 
 	podKiller podkiller.PodKiller
 
@@ -132,7 +133,7 @@ func NewEvictionManager(genericClient *client.GenericClientSet, recorder events.
 		conditions:                make(map[string]*pluginapi.Condition),
 		conditionsLastObservedAt:  make(map[string]conditionObservedAt),
 		thresholdsFirstObservedAt: make(map[string]thresholdObservedAt),
-		clock:                     clock.RealClock{},
+		clock:                     clocks.RealClock{},
 		genericClient:             genericClient,
 	}
 
