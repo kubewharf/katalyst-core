@@ -5,7 +5,7 @@ on:
     branches: [ main ]
   pull_request:
     branches: [ main ]
-    types: [ opened, edited, reopened, synchronize ]
+    types: [ opened, reopened, synchronize ]
 
 jobs:
   lint:
@@ -16,6 +16,7 @@ jobs:
       - uses: actions/setup-go@v3
         with:
           go-version-file: go.mod
+          cache: false
       - name: Check Go modules
         run: |
           go mod tidy && git add go.* &&
@@ -24,16 +25,15 @@ jobs:
         run: |
           make fmt && git add pkg cmd &&
           git diff --cached --exit-code || (echo 'Please run "make fmt" to verify gofmt' && exit 1);
-      # TODO: enable the vet check once the existing vet issues have been resolved.
-      #      - name: Verify govet
-      #        run: |
-      #          make vet && git add pkg cmd &&
-      #          git diff --cached --exit-code || (echo 'Please run "make vet" to verify govet' && exit 1);
-      # TODO: enable the lint check once the existing lint issues have been resolved.
-      #      - uses: golangci/golangci-lint-action@v3
-      #        with:
-      #          args: --verbose --timeout 5m
-      #          version: v1.47.3
+      - name: Verify govet
+        run: |
+          make vet && git add pkg cmd &&
+          git diff --cached --exit-code || (echo 'Please run "make vet" to verify govet' && exit 1);
+      - uses: golangci/golangci-lint-action@v3
+        with:
+          args: --verbose --out-${NO_FUTURE}format colored-line-number --config .golangci.yml
+          version: v1.52.2
+          skip-cache: true
 
   build:
     name: Build
