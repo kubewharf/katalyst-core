@@ -160,7 +160,7 @@ func TestUpdateAPIVPAConditions(t *testing.T) {
 		newvpa *apis.KatalystVerticalPodAutoscaler
 	}{
 		{
-			name:   "update diffrent type condition type",
+			name:   "update different type condition type",
 			oldvpa: oldvpa1,
 			newvpa: newvpa1,
 		},

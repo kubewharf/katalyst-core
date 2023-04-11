@@ -23,15 +23,15 @@ import (
 
 func TestClientAddContainer(t *testing.T) {
 	client := NewCPUAdvisorClientStub()
-	client.AddContainer(context.Background(), &AddContainerRequest{})
+	_, _ = client.AddContainer(context.Background(), &AddContainerRequest{})
 }
 
 func TestClientRemovePod(t *testing.T) {
 	client := NewCPUAdvisorClientStub()
-	client.RemovePod(context.Background(), &RemovePodRequest{})
+	_, _ = client.RemovePod(context.Background(), &RemovePodRequest{})
 }
 
 func TestClientListAndWatch(t *testing.T) {
 	client := NewCPUAdvisorClientStub()
-	client.ListAndWatch(context.Background(), &Empty{})
+	_, _ = client.ListAndWatch(context.Background(), &Empty{})
 }

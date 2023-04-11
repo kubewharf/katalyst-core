@@ -115,9 +115,11 @@ func ParseBytesByType(b []byte, t reflect.Type) (reflect.Value, error) {
 // SimpleMergeTwoValues won't support, and a possible one is a struct with a map
 // or slice member, we will not merge its member object.
 // for example, consider src and dst with the same type of
-// struct newType struct {
-//	a []string
-// },
+/*
+type newType struct {
+	a []string
+}
+*/
 // and src is newType{"a":["2"]}, dst is newType{"a":["1"]}, the simple merge result
 // is newType{"a":["2"]}, and not newType{"a":["1","2"]}
 func SimpleMergeTwoValues(src reflect.Value, dst reflect.Value) error {

@@ -17,8 +17,9 @@ limitations under the License.
 package algorithm
 
 import (
-	corev1 "k8s.io/api/core/v1"
 	"sync"
+
+	corev1 "k8s.io/api/core/v1"
 
 	apis "github.com/kubewharf/katalyst-api/pkg/apis/autoscaling/v1alpha1"
 	workload "github.com/kubewharf/katalyst-api/pkg/apis/workload/v1alpha1"

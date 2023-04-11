@@ -52,6 +52,8 @@ func TestRun(t *testing.T) {
 	externalManager := InitExternalManager(podFetcher)
 	assert.NotNil(t, externalManager)
 
-	ctx, _ := context.WithTimeout(context.TODO(), time.Second)
+	ctx, cancel := context.WithTimeout(context.TODO(), time.Second)
+	defer cancel()
+
 	externalManager.Run(ctx)
 }

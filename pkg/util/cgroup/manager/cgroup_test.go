@@ -25,8 +25,8 @@ import (
 	"github.com/stretchr/testify/assert"
 
 	"github.com/kubewharf/katalyst-core/pkg/util/cgroup/common"
-	"github.com/kubewharf/katalyst-core/pkg/util/cgroup/manager/v1"
-	"github.com/kubewharf/katalyst-core/pkg/util/cgroup/manager/v2"
+	v1 "github.com/kubewharf/katalyst-core/pkg/util/cgroup/manager/v1"
+	v2 "github.com/kubewharf/katalyst-core/pkg/util/cgroup/manager/v2"
 )
 
 func TestManager(t *testing.T) {
@@ -62,17 +62,17 @@ func testManager(t *testing.T, version string) {
 	err = ApplyCPUSetForContainer("fake-pod", "fake-container", &common.CPUSetData{})
 	assert.NotNil(t, err)
 
-	_, err = GetMemoryWithRelativePath("/")
-	_, err = GetMemoryWithAbsolutePath("/")
-	_, err = GetCPUWithRelativePath("/")
-	_, err = GetMetricsWithRelativePath("/", map[string]struct{}{"cpu": {}})
-	_, err = GetPidsWithRelativePath("/")
-	_, err = GetPidsWithAbsolutePath("/")
-	_, err = GetTasksWithRelativePath("/", "cpu")
-	_, err = GetTasksWithAbsolutePath("/")
+	_, _ = GetMemoryWithRelativePath("/")
+	_, _ = GetMemoryWithAbsolutePath("/")
+	_, _ = GetCPUWithRelativePath("/")
+	_, _ = GetMetricsWithRelativePath("/", map[string]struct{}{"cpu": {}})
+	_, _ = GetPidsWithRelativePath("/")
+	_, _ = GetPidsWithAbsolutePath("/")
+	_, _ = GetTasksWithRelativePath("/", "cpu")
+	_, _ = GetTasksWithAbsolutePath("/")
 
-	err = DropCacheWithTimeoutForContainer("fake-pod", "fake-container", 1)
-	err = DropCacheWithTimeoutWithRelativePath(1, "/test")
+	_ = DropCacheWithTimeoutForContainer("fake-pod", "fake-container", 1)
+	_ = DropCacheWithTimeoutWithRelativePath(1, "/test")
 }
 
 func testNetCls(t *testing.T, version string) {

@@ -282,7 +282,7 @@ func (s *ScrapeManager) fetch(ctx context.Context, url string, w io.Writer) erro
 	return nil
 }
 
-// parseContents analyses the contents scraped from prometheus http service.
+// parseContents analyzes the contents scraped from prometheus http service.
 func parseContents(r io.Reader) (map[string]*dto.MetricFamily, error) {
 	var parser expfmt.TextParser
 	mf, err := parser.TextToMetricFamilies(r)

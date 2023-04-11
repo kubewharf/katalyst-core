@@ -23,9 +23,10 @@ import (
 
 	"k8s.io/klog/v2"
 
-	"github.com/kubewharf/katalyst-api/pkg/apis/workload/v1alpha1"
 	"k8s.io/kubernetes/pkg/kubelet/checkpointmanager"
 	"k8s.io/kubernetes/pkg/kubelet/checkpointmanager/checksum"
+
+	"github.com/kubewharf/katalyst-api/pkg/apis/workload/v1alpha1"
 )
 
 const (
@@ -51,7 +52,7 @@ func NewServiceProfileCheckpoint(spd *v1alpha1.ServiceProfileDescriptor) Service
 	return &Data{SPD: spd}
 }
 
-// MarshalCheckpoint returns marshalled data
+// MarshalCheckpoint returns marshaled data
 func (cp *Data) MarshalCheckpoint() ([]byte, error) {
 	cp.Checksum = checksum.New(*cp.SPD)
 	return json.Marshal(*cp)
@@ -72,7 +73,7 @@ func (cp *Data) GetSPD() *v1alpha1.ServiceProfileDescriptor {
 	return cp.SPD
 }
 
-//getSPDKey returns the full qualified path for the spd checkpoint
+// getSPDKey returns the full qualified path for the spd checkpoint
 func getSPDKey(spd *v1alpha1.ServiceProfileDescriptor) string {
 	return fmt.Sprintf("%s%s%s%s%s.yaml", spdPrefix, delimiter, spd.Namespace, delimiter, spd.Name)
 }

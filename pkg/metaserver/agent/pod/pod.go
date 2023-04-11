@@ -41,9 +41,11 @@ const (
 	metricsNamePodCacheNotFound   = "pod_cache_not_found"
 )
 
+type ContextKey string
+
 const (
-	BypassCacheKey  = "bypass_cache"
-	BypassCacheTrue = "true"
+	BypassCacheKey  ContextKey = "bypass_cache"
+	BypassCacheTrue ContextKey = "true"
 )
 
 type PodFetcher interface {

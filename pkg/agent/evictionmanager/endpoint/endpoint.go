@@ -22,12 +22,12 @@ import (
 	"sync"
 	"time"
 
+	"google.golang.org/grpc"
 	"k8s.io/klog/v2"
 
 	pluginapi "github.com/kubewharf/katalyst-api/pkg/protocol/evictionplugin/v1alpha1"
 	"github.com/kubewharf/katalyst-core/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/util/process"
-	"google.golang.org/grpc"
 )
 
 const (

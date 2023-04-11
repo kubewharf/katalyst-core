@@ -32,13 +32,14 @@ import (
 	"k8s.io/apimachinery/pkg/util/uuid"
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/memory/dynamicpolicy/state"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util"
 	"github.com/kubewharf/katalyst-core/pkg/config/generic"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
-	"github.com/stretchr/testify/require"
 )
 
 func getTestDynamicPolicyWithInitialization(topology *machine.CPUTopology, machineInfo *info.MachineInfo, stateFileDirectory string) (*DynamicPolicy, error) {
@@ -974,6 +975,7 @@ func TestGenerateResourcesMachineStateFromPodEntries(t *testing.T) {
 	as.Nil(err)
 
 	reservedMemory, err := getReservedMemory(4, machineInfo)
+	as.Nil(err)
 
 	podUID := string(uuid.NewUUID())
 	testName := "test"

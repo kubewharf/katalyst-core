@@ -17,8 +17,9 @@ limitations under the License.
 package options
 
 import (
-	"github.com/kubewharf/katalyst-core/pkg/config/webhook"
 	cliflag "k8s.io/component-base/cli/flag"
+
+	"github.com/kubewharf/katalyst-core/pkg/config/webhook"
 )
 
 // VPAOptions holds the configurations for VPA webhook.

@@ -73,7 +73,7 @@ func Test_cache(t *testing.T) {
 		},
 	}, oneMetric[0])
 
-	oneMetric, exist = c.GetMetric("", "m-2", nil)
+	_, exist = c.GetMetric("", "m-2", nil)
 	assert.Equal(t, false, exist)
 
 	t.Log("#### 2: Add with namespaced metric")

@@ -38,7 +38,10 @@ func main() {
 	for _, f := range fss.FlagSets {
 		commandLine.AddFlagSet(f)
 	}
-	commandLine.Parse(os.Args[1:])
+	if err := commandLine.Parse(os.Args[1:]); err != nil {
+		fmt.Printf("parse command error: %v\n", err)
+		os.Exit(1)
+	}
 
 	rand.Seed(time.Now().UnixNano())
 	if err := app.Run(opt); err != nil {

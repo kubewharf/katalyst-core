@@ -55,7 +55,7 @@ func tmpSocketDir() (socketDir string, err error) {
 	if err != nil {
 		return
 	}
-	os.MkdirAll(socketDir, 0755)
+	_ = os.MkdirAll(socketDir, 0755)
 	return
 }
 
@@ -138,8 +138,8 @@ func TestReclaimedResourcedReporterWithManager(t *testing.T) {
 	genericPlugin, err := newHeadroomReporterPlugin(metrics.DummyMetrics{}, metaServer, conf, advisorStub)
 	require.NoError(t, err)
 	require.NotNil(t, genericPlugin)
-	genericPlugin.Start()
-	defer genericPlugin.Stop()
+	_ = genericPlugin.Start()
+	defer func() { _ = genericPlugin.Stop() }()
 
 	setupReporterManager(t, context.Background(), socketDir, conf)
 

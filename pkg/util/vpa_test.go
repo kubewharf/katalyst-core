@@ -233,7 +233,7 @@ func TestGetVPAForPod(t *testing.T) {
 
 	u, err := native.ToUnstructured(dp)
 	assert.NoError(t, err)
-	dpInformer.Informer().GetStore().Add(u)
+	_ = dpInformer.Informer().GetStore().Add(u)
 
 	rs := &appsv1.ReplicaSet{
 		ObjectMeta: metav1.ObjectMeta{
@@ -251,7 +251,7 @@ func TestGetVPAForPod(t *testing.T) {
 
 	u, err = native.ToUnstructured(rs)
 	assert.NoError(t, err)
-	rsInformer.Informer().GetStore().Add(u)
+	_ = rsInformer.Informer().GetStore().Add(u)
 
 	pod1 := &v1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
@@ -273,7 +273,7 @@ func TestGetVPAForPod(t *testing.T) {
 	internalClient := externalfake.NewSimpleClientset()
 	internalFactory := externalversions.NewSharedInformerFactory(internalClient, 0)
 	vpaInformer := internalFactory.Autoscaling().V1alpha1().KatalystVerticalPodAutoscalers()
-	vpaInformer.Informer().GetIndexer().AddIndexers(cache.Indexers{
+	_ = vpaInformer.Informer().GetIndexer().AddIndexers(cache.Indexers{
 		consts.TargetReferenceIndex: VPATargetReferenceIndex,
 	})
 	vpa := &apis.KatalystVerticalPodAutoscaler{
@@ -286,7 +286,7 @@ func TestGetVPAForPod(t *testing.T) {
 			},
 		},
 	}
-	vpaInformer.Informer().GetStore().Add(vpa)
+	_ = vpaInformer.Informer().GetStore().Add(vpa)
 
 	v, err := GetVPAForPod(pod1, vpaInformer.Informer().GetIndexer(), workloadInformers, vpaInformer.Lister())
 	assert.NoError(t, err)

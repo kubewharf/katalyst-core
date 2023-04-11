@@ -84,7 +84,7 @@ func TestGetSPDForPod(t *testing.T) {
 
 	u, err := native.ToUnstructured(dp)
 	assert.NoError(t, err)
-	dpInformer.Informer().GetStore().Add(u)
+	_ = dpInformer.Informer().GetStore().Add(u)
 
 	rs := &appsv1.ReplicaSet{
 		ObjectMeta: metav1.ObjectMeta{
@@ -102,7 +102,7 @@ func TestGetSPDForPod(t *testing.T) {
 
 	u, err = native.ToUnstructured(rs)
 	assert.NoError(t, err)
-	rsInformer.Informer().GetStore().Add(u)
+	_ = rsInformer.Informer().GetStore().Add(u)
 
 	pod1 := &v1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
@@ -124,7 +124,7 @@ func TestGetSPDForPod(t *testing.T) {
 	internalClient := externalfake.NewSimpleClientset()
 	internalFactory := externalversions.NewSharedInformerFactory(internalClient, 0)
 	spdInformer := internalFactory.Workload().V1alpha1().ServiceProfileDescriptors()
-	spdInformer.Informer().GetIndexer().AddIndexers(cache.Indexers{
+	_ = spdInformer.Informer().GetIndexer().AddIndexers(cache.Indexers{
 		consts.TargetReferenceIndex: SPDTargetReferenceIndex,
 	})
 	spd := &apiworkload.ServiceProfileDescriptor{
@@ -137,7 +137,7 @@ func TestGetSPDForPod(t *testing.T) {
 			},
 		},
 	}
-	spdInformer.Informer().GetStore().Add(spd)
+	_ = spdInformer.Informer().GetStore().Add(spd)
 
 	s, err := GetSPDForPod(pod1, spdInformer.Informer().GetIndexer(), workloadInformers, spdInformer.Lister())
 	assert.NoError(t, err)

@@ -62,7 +62,6 @@ const (
 // - GetExternalMetric
 // --- if metric name is nominated, ignore the metric selector;
 // --- otherwise, return all the metrics matched with the metric selector;
-//
 type MetricProvider interface {
 	provider.MetricsProvider
 }

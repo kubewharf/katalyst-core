@@ -17,11 +17,12 @@ limitations under the License.
 package qosawarenoderesources
 
 import (
-	"github.com/kubewharf/katalyst-core/pkg/util/native"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/klog/v2"
 	kubeschedulerconfig "k8s.io/kubernetes/pkg/scheduler/apis/config"
 	"k8s.io/kubernetes/pkg/scheduler/framework"
+
+	"github.com/kubewharf/katalyst-core/pkg/util/native"
 
 	"github.com/kubewharf/katalyst-api/pkg/apis/scheduling/config"
 	"github.com/kubewharf/katalyst-api/pkg/consts"

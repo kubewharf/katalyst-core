@@ -123,9 +123,7 @@ func IsResourceGreaterThan(a resource.Quantity, b resource.Quantity) bool {
 	return (&a).Cmp(b) > 0
 }
 
-// PodResourceDiff checks if pod resources (both for requests and limits)
-// are NOT the same as the given resource map,
-//nolint:gocognit
+// PodResourceDiff checks if pod resources are not the same as the given resource map, both for requests and limits.
 func PodResourceDiff(pod *v1.Pod, containerResourcesToUpdate map[string]v1.ResourceRequirements) bool {
 	for c, resources := range containerResourcesToUpdate {
 		findContainer := false

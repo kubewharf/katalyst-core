@@ -24,7 +24,7 @@ import (
 	"time"
 
 	"go.uber.org/atomic"
-	"k8s.io/api/core/v1"
+	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
@@ -62,8 +62,8 @@ const (
 
 // prometheusCollector implements MetricCollector using self-defined parser functionality
 // for prometheus formatted contents, and sends to store will standard formats.
-// todo: if we restarts, we may lose some metric since the collecting logic interrupts
-//  need to consider a more reliable way to handle this
+// todo: if we restarts, we may lose some metric since the collecting logic interrupts,
+// and we need to consider a more reliable way to handle this.
 type prometheusCollector struct {
 	ctx         context.Context
 	collectConf *metric.CollectorConfiguration
@@ -252,9 +252,6 @@ func (p *prometheusCollector) checkTargetPod(pod *v1.Pod) bool {
 // checkTargetNode checks whether the given node is targeted
 // for metric scrapping logic.
 func (p *prometheusCollector) checkTargetNode(node *v1.Node) bool {
-	klog.V(6).Infof("check for node %v: %v, %v, %v",
-		node.Name, native.NodeReady(node), p.collectConf.NodeSelector.Matches(labels.Set(node.Labels)))
-
 	return node != nil && native.NodeReady(node) && p.collectConf.NodeSelector.Matches(labels.Set(node.Labels))
 }
 

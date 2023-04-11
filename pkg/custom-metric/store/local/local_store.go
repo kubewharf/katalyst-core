@@ -42,9 +42,8 @@ const MetricStoreNameLocalMemory = "local-memory-store"
 // LocalMemoryMetricStore implements MetricStore with single-node versioned
 // in-memory storage, and it will be used as a default implementation, especially
 // when the amount of internalMetric or the size of cluster is small.
-//
 // todo: this implementation may be not efficient noe, so we may need to use more
-//  complicated structures in the future, such as indexer/aggregator/sort or so on.
+// complicated structures in the future, such as indexer/aggregator/sort or so on.
 type LocalMemoryMetricStore struct {
 	ctx         context.Context
 	storeConf   *metricconf.StoreConfiguration

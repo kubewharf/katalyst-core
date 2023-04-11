@@ -26,6 +26,7 @@ import (
 
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-scheduler/app"
 	"github.com/kubewharf/katalyst-core/pkg/scheduler/plugins/qosawarenoderesources"
+
 	// Ensure scheme package is initialized.
 	_ "github.com/kubewharf/katalyst-api/pkg/apis/scheduling/config/scheme"
 )

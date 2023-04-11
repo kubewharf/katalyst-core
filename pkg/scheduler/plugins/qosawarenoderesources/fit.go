@@ -181,10 +181,10 @@ func (f *Fit) PreFilterExtensions() framework.PreFilterExtensions {
 // the max in each dimension iteratively. In contrast, we sum the resource vectors for
 // regular containers since they run simultaneously.
 //
-// The resources defined for Overhead should be added to the calculated QoSResource request sum
+// the resources defined for Overhead should be added to the calculated QoSResource request sum
 //
-// Example:
-//
+// example:
+/*
 // Pod:
 //   InitContainers
 //     IC1:
@@ -202,6 +202,7 @@ func (f *Fit) PreFilterExtensions() framework.PreFilterExtensions {
 //       Memory: 1G
 //
 // Result: CPU: 3, Memory: 3G
+*/
 func computePodQoSResourceRequest(pod *v1.Pod) *preFilterState {
 	result := &preFilterState{}
 	for _, container := range pod.Spec.Containers {

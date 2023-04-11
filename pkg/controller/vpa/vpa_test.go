@@ -343,7 +343,7 @@ func TestVPAControllerSyncVPA(t *testing.T) {
 			vpaOptions := options.NewVPAOptions()
 			vpaOptions.AddFlags(fss)
 			vpaConf := controller.NewVPAConfig()
-			vpaOptions.ApplyTo(vpaConf)
+			_ = vpaOptions.ApplyTo(vpaConf)
 
 			workloadGVResources := []string{"statefulsets.v1.apps"}
 			vpaConf.VPAWorkloadGVResources = workloadGVResources
@@ -504,7 +504,7 @@ func TestVPAControllerSyncPod(t *testing.T) {
 			vpaOptions := options.NewVPAOptions()
 			vpaOptions.AddFlags(fss)
 			vpaConf := controller.NewVPAConfig()
-			vpaOptions.ApplyTo(vpaConf)
+			_ = vpaOptions.ApplyTo(vpaConf)
 
 			workloadGVResources := []string{"statefulsets.v1.apps"}
 			vpaConf.VPAWorkloadGVResources = workloadGVResources
@@ -665,7 +665,7 @@ func TestVPAControllerSyncWorkload(t *testing.T) {
 			vpaOptions := options.NewVPAOptions()
 			vpaOptions.AddFlags(fss)
 			vpaConf := controller.NewVPAConfig()
-			vpaOptions.ApplyTo(vpaConf)
+			_ = vpaOptions.ApplyTo(vpaConf)
 
 			workloadGVResources := []string{"statefulsets.v1.apps"}
 			vpaConf.VPAWorkloadGVResources = workloadGVResources

@@ -394,18 +394,18 @@ func (p *DynamicPolicy) adjustAllocationEntries() error {
 				containerId, err := p.metaServer.GetContainerID(curPodUID, curContainerName)
 				if err != nil {
 					klog.Errorf("[MemoryDynamicPolicy.adjustAllocationEntries] get container id of pod: %s container: %s failed with error: %v",
-						podUID, curContainerName, err)
+						curPodUID, curContainerName, err)
 					return
 				}
 
 				err = cgroupcmutils.DropCacheWithTimeoutForContainer(curPodUID, containerId, 30)
 				if err != nil {
 					klog.Errorf("[MemoryDynamicPolicy.adjustAllocationEntries] drop cache of pod: %s container: %s failed with error: %v",
-						podUID, curContainerName, err)
+						curPodUID, curContainerName, err)
 					return
 				}
 
-				klog.Infof("[MemoryDynamicPolicy.adjustAllocationEntries] drop cache of pod: %s container: %s successfully", podUID, curContainerName)
+				klog.Infof("[MemoryDynamicPolicy.adjustAllocationEntries] drop cache of pod: %s container: %s successfully", curPodUID, curContainerName)
 			}(podUID, containerName)
 		}
 	}

@@ -19,8 +19,9 @@ package options
 import (
 	"time"
 
-	"github.com/kubewharf/katalyst-core/pkg/config/controller"
 	cliflag "k8s.io/component-base/cli/flag"
+
+	"github.com/kubewharf/katalyst-core/pkg/config/controller"
 )
 
 // LifeCycleOptions holds the configurations for life cycle.

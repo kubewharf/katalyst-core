@@ -51,7 +51,7 @@ func (o *Options) Config() (*schedulerappconfig.Config, *generic.QoSConfiguratio
 	}
 
 	qosConfig := generic.NewQoSConfiguration()
-	if o.QoSOptions.ApplyTo(qosConfig); err != nil {
+	if err = o.QoSOptions.ApplyTo(qosConfig); err != nil {
 		return nil, nil, err
 	}
 

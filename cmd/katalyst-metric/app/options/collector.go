@@ -18,8 +18,9 @@ package options
 
 import (
 	"fmt"
-	"k8s.io/apimachinery/pkg/labels"
 	"time"
+
+	"k8s.io/apimachinery/pkg/labels"
 
 	cliflag "k8s.io/component-base/cli/flag"
 

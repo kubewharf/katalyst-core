@@ -22,11 +22,11 @@ import (
 
 	"k8s.io/apimachinery/pkg/util/errors"
 	cliflag "k8s.io/component-base/cli/flag"
+	componentbaseconfig "k8s.io/component-base/config"
 	"k8s.io/klog/v2"
 
 	"github.com/kubewharf/katalyst-core/pkg/config/generic"
 	"github.com/kubewharf/katalyst-core/pkg/util/process"
-	componentbaseconfig "k8s.io/component-base/config"
 )
 
 // GenericOptions holds the configurations for multi components.

@@ -101,7 +101,7 @@ func (a *cpuAccumulator) freeCores() []int {
 	return free
 }
 
-// freeCPUs eturns free CPU IDs as a slice sorted by sortAvailableCPUs().
+// freeCPUs returns free CPU IDs as a slice sorted by sortAvailableCPUs().
 func (a *cpuAccumulator) freeCPUs() []int {
 	return a.sortAvailableCPUs()
 }

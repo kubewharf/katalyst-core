@@ -26,11 +26,12 @@ import (
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	dynamicfake "k8s.io/client-go/dynamic/fake"
 
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
 	"github.com/kubewharf/katalyst-api/pkg/apis/config/v1alpha1"
 	internalfake "github.com/kubewharf/katalyst-api/pkg/client/clientset/versioned/fake"
 	"github.com/kubewharf/katalyst-core/pkg/client"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/cnc"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 var (

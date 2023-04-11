@@ -17,8 +17,9 @@ package native
 import (
 	v1 "k8s.io/api/core/v1"
 
-	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	corev1helpers "k8s.io/component-helpers/scheduling/corev1"
+
+	"github.com/kubewharf/katalyst-core/pkg/util/general"
 )
 
 type PodSourceList struct {

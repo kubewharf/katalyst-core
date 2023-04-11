@@ -364,6 +364,9 @@ func (p *DynamicPolicy) GetResourcesAllocation(ctx context.Context,
 	// pooledCPUs is the total available cpu cores minus those that are reserved
 	pooledCPUs := machineState.GetAvailableCPUSetExcludeDedicatedCoresPods(p.reservedCPUs)
 	pooledCPUsTopologyAwareAssignments, err := machine.GetNumaAwareAssignments(p.machineInfo.CPUTopology, pooledCPUs)
+	if err != nil {
+		return nil, fmt.Errorf("GetNumaAwareAssignments err: %v", err)
+	}
 
 	podResources := make(map[string]*pluginapi.ContainerResources)
 	allocationInfosJustFinishRampUp := []*state.AllocationInfo{}
@@ -1011,7 +1014,7 @@ func (p *DynamicPolicy) initReclaimPool() error {
 		// for residual pools, we must make them exist even if cause overlap
 		allAvailableCPUs := p.machineInfo.CPUDetails.CPUs().Difference(p.reservedCPUs)
 		if reclaimedCPUSet.IsEmpty() {
-			reclaimedCPUSet, allAvailableCPUs, err = calculator.TakeByNUMABalance(p.machineInfo, allAvailableCPUs, reservedReclaimedCPUsSize)
+			reclaimedCPUSet, _, err = calculator.TakeByNUMABalance(p.machineInfo, allAvailableCPUs, reservedReclaimedCPUsSize)
 			if err != nil {
 				return fmt.Errorf("fallback takeByNUMABalance faild in initReclaimPool for %s with error: %v",
 					state.PoolNameReclaim, err)

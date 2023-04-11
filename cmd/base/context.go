@@ -22,6 +22,7 @@ import (
 	"net/http/pprof"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/dynamic/dynamicinformer"
@@ -40,7 +41,6 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/native"
 	"github.com/kubewharf/katalyst-core/pkg/util/process"
-	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 const (
@@ -55,7 +55,8 @@ type GenericContext struct {
 	httpHandler   *process.HTTPHandler
 	healthChecker *HealthzChecker
 
-	// those following components are shared by all generic components
+	// those following components are shared by all generic components.
+	//nolint
 	BroadcastAdapter events.EventBroadcasterAdapter
 	Client           *client.GenericClientSet
 	EmitterPool      metricspool.MetricsEmitterPool

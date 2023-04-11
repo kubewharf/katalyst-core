@@ -26,9 +26,10 @@ import (
 
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
-	"github.com/stretchr/testify/require"
 )
 
 func TestGenerateCPUMachineStateByPodEntries(t *testing.T) {

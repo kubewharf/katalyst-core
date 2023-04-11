@@ -57,8 +57,6 @@ const (
 	memsetCheckPeriod = 10 * time.Second
 	stateCheckPeriod  = 30 * time.Second
 	maxResidualTime   = 5 * time.Minute
-
-	transitionPeriod = 30 * time.Second
 )
 
 var (

@@ -21,6 +21,7 @@ import (
 	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/errors"
 	cliflag "k8s.io/component-base/cli/flag"
 	election "k8s.io/component-base/config"
 
@@ -129,6 +130,10 @@ func (o *Options) ApplyTo(c *config.Configuration) error {
 	errList = append(errList, o.StoreOptions.ApplyTo(c.StoreConfiguration))
 	errList = append(errList, o.ProviderOptions.ApplyTo(c.ProviderConfiguration))
 	errList = append(errList, o.CollectorOptions.ApplyTo(c.CollectorConfiguration))
+
+	if len(errList) > 0 {
+		return errors.NewAggregate(errList)
+	}
 	return nil
 }
 

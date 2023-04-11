@@ -19,10 +19,11 @@ package util
 import (
 	"testing"
 
-	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 	"github.com/stretchr/testify/require"
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 	"k8s.io/kubernetes/pkg/kubelet/cm/topologymanager/bitmask"
+
+	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
 func TestDeepCopyTopologyAwareAssignments(t *testing.T) {

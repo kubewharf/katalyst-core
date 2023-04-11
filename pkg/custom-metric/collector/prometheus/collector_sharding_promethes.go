@@ -18,6 +18,7 @@ package prometheus
 
 import (
 	"context"
+
 	katalystbase "github.com/kubewharf/katalyst-core/cmd/base"
 	"github.com/kubewharf/katalyst-core/pkg/config/metric"
 	"github.com/kubewharf/katalyst-core/pkg/custom-metric/collector"

@@ -31,8 +31,6 @@ var (
 func TestNewDefaultManager(t *testing.T) {
 	defaultManager := NewDefaultManager()
 	assert.NotNil(t, defaultManager)
-
-	return
 }
 
 func TestCheckSupportRDT(t *testing.T) {
@@ -42,8 +40,6 @@ func TestCheckSupportRDT(t *testing.T) {
 	isSupport, err := defaultManager.CheckSupportRDT()
 	assert.Error(t, err)
 	assert.False(t, isSupport)
-
-	return
 }
 
 func TestInitRDT(t *testing.T) {
@@ -52,8 +48,6 @@ func TestInitRDT(t *testing.T) {
 
 	err := defaultManager.InitRDT()
 	assert.Error(t, err)
-
-	return
 }
 
 func TestApplyTasks(t *testing.T) {
@@ -62,8 +56,6 @@ func TestApplyTasks(t *testing.T) {
 
 	err := defaultManager.ApplyTasks(clos, tasks)
 	assert.Error(t, err)
-
-	return
 }
 
 func TestApplyCAT(t *testing.T) {

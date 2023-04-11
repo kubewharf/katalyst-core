@@ -18,6 +18,7 @@ package cpu
 
 import (
 	"fmt"
+
 	"k8s.io/apimachinery/pkg/util/uuid"
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/cpuadvisor"
@@ -160,7 +161,7 @@ func (ib *internalBlock) join(blockID string, set blockSet) {
 }
 
 // blockSet is a global variable to store, and the mapping relation
-//   block id -> the internalBlock that belongs to this block id
+// block id -> the internalBlock that belongs to this block id
 //
 // those internalBlock sharing with the same id should satisfy several constraints
 // - they belong to the same NUMA Node (though there exists no NUMA concepts here)

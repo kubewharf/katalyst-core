@@ -26,7 +26,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/kubewharf/katalyst-core/pkg/util/native"
 	"github.com/stretchr/testify/assert"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -38,6 +37,8 @@ import (
 	"k8s.io/metrics/pkg/apis/custom_metrics"
 	"k8s.io/metrics/pkg/apis/external_metrics"
 	"sigs.k8s.io/custom-metrics-apiserver/pkg/provider"
+
+	"github.com/kubewharf/katalyst-core/pkg/util/native"
 
 	katalystbase "github.com/kubewharf/katalyst-core/cmd/base"
 	metricconf "github.com/kubewharf/katalyst-core/pkg/config/metric"
@@ -230,7 +231,7 @@ func testProvider(t *testing.T, p MetricProvider, s store.MetricStore, ctx conte
 				},
 				{
 					Data:      2,
-					Timestamp: now.UnixMilli() - int64(genericConf.OutOfDataPeriod.Milliseconds()+time.Second.Milliseconds()*5),
+					Timestamp: now.UnixMilli() - genericConf.OutOfDataPeriod.Milliseconds() + time.Second.Milliseconds()*5,
 				},
 			},
 		},
@@ -243,7 +244,7 @@ func testProvider(t *testing.T, p MetricProvider, s store.MetricStore, ctx conte
 			Series: []*data.MetricData{
 				{
 					Data:      2,
-					Timestamp: now.UnixMilli() - int64(genericConf.OutOfDataPeriod.Milliseconds()+time.Second.Milliseconds()*5),
+					Timestamp: now.UnixMilli() - genericConf.OutOfDataPeriod.Milliseconds() + time.Second.Milliseconds()*5,
 				},
 			},
 		},
@@ -260,7 +261,7 @@ func testProvider(t *testing.T, p MetricProvider, s store.MetricStore, ctx conte
 				},
 				{
 					Data:      23,
-					Timestamp: now.UnixMilli() - int64(genericConf.OutOfDataPeriod.Milliseconds()),
+					Timestamp: now.UnixMilli() - genericConf.OutOfDataPeriod.Milliseconds(),
 				},
 			},
 		},
@@ -327,7 +328,7 @@ func testProvider(t *testing.T, p MetricProvider, s store.MetricStore, ctx conte
 				},
 				{
 					Data:      44,
-					Timestamp: now.UnixMilli() - int64(genericConf.OutOfDataPeriod.Milliseconds()-time.Second.Milliseconds()*3),
+					Timestamp: now.UnixMilli() - genericConf.OutOfDataPeriod.Milliseconds() - time.Second.Milliseconds()*3,
 				},
 			},
 		},
@@ -357,7 +358,7 @@ func testProvider(t *testing.T, p MetricProvider, s store.MetricStore, ctx conte
 			Series: []*data.MetricData{
 				{
 					Data:      86,
-					Timestamp: now.UnixMilli() - int64(genericConf.OutOfDataPeriod.Milliseconds()-time.Second.Milliseconds()*2),
+					Timestamp: now.UnixMilli() - genericConf.OutOfDataPeriod.Milliseconds() - time.Second.Milliseconds()*2,
 				},
 			},
 		},
@@ -371,7 +372,7 @@ func testProvider(t *testing.T, p MetricProvider, s store.MetricStore, ctx conte
 			Series: []*data.MetricData{
 				{
 					Data:      73,
-					Timestamp: now.UnixMilli() - int64(genericConf.OutOfDataPeriod.Milliseconds()-time.Second.Milliseconds()*2),
+					Timestamp: now.UnixMilli() - genericConf.OutOfDataPeriod.Milliseconds() - time.Second.Milliseconds()*2,
 				},
 			},
 		},
@@ -432,7 +433,7 @@ func testProvider(t *testing.T, p MetricProvider, s store.MetricStore, ctx conte
 				},
 			},
 		},
-		Timestamp: metav1.NewTime(time.UnixMilli(now.UnixMilli() - int64(genericConf.OutOfDataPeriod.Milliseconds()-time.Second.Milliseconds()*2))),
+		Timestamp: metav1.NewTime(time.UnixMilli(now.UnixMilli() - genericConf.OutOfDataPeriod.Milliseconds() - time.Second.Milliseconds()*2)),
 		Value:     *resource.NewQuantity(73, resource.DecimalSI),
 	}, oneMetric)
 
@@ -486,7 +487,7 @@ func testProvider(t *testing.T, p MetricProvider, s store.MetricStore, ctx conte
 					},
 				},
 			},
-			Timestamp: metav1.NewTime(time.UnixMilli(now.UnixMilli() - int64(genericConf.OutOfDataPeriod.Milliseconds()-time.Second.Milliseconds()*2))),
+			Timestamp: metav1.NewTime(time.UnixMilli(now.UnixMilli() - genericConf.OutOfDataPeriod.Milliseconds() - time.Second.Milliseconds()*2)),
 			Value:     *resource.NewQuantity(73, resource.DecimalSI),
 		},
 	}, batchMetric.Items)
@@ -553,7 +554,7 @@ func testProvider(t *testing.T, p MetricProvider, s store.MetricStore, ctx conte
 					},
 				},
 			},
-			Timestamp: metav1.NewTime(time.UnixMilli(now.UnixMilli() - int64(genericConf.OutOfDataPeriod.Milliseconds()-time.Second.Milliseconds()*3))),
+			Timestamp: metav1.NewTime(time.UnixMilli(now.UnixMilli() - genericConf.OutOfDataPeriod.Milliseconds() - time.Second.Milliseconds()*3)),
 			Value:     *resource.NewQuantity(44, resource.DecimalSI),
 		},
 		{
@@ -570,7 +571,7 @@ func testProvider(t *testing.T, p MetricProvider, s store.MetricStore, ctx conte
 					},
 				},
 			},
-			Timestamp: metav1.NewTime(time.UnixMilli(now.UnixMilli() - int64(genericConf.OutOfDataPeriod.Milliseconds()-time.Second.Milliseconds()*2))),
+			Timestamp: metav1.NewTime(time.UnixMilli(now.UnixMilli() - genericConf.OutOfDataPeriod.Milliseconds() - time.Second.Milliseconds()*2)),
 			Value:     *resource.NewQuantity(86, resource.DecimalSI),
 		},
 	}, batchMetric.Items)
@@ -610,7 +611,7 @@ func testProvider(t *testing.T, p MetricProvider, s store.MetricStore, ctx conte
 			MetricLabels: map[string]string{
 				"name": "none_namespace_metric",
 			},
-			Timestamp: metav1.NewTime(time.UnixMilli(now.UnixMilli() - int64(genericConf.OutOfDataPeriod.Milliseconds()+time.Second.Milliseconds()*5))),
+			Timestamp: metav1.NewTime(time.UnixMilli(now.UnixMilli() - genericConf.OutOfDataPeriod.Milliseconds() + time.Second.Milliseconds()*5)),
 			Value:     *resource.NewQuantity(2, resource.DecimalSI),
 		},
 		{
@@ -618,7 +619,7 @@ func testProvider(t *testing.T, p MetricProvider, s store.MetricStore, ctx conte
 			MetricLabels: map[string]string{
 				"name": "none_namespace_metric_all_timeout",
 			},
-			Timestamp: metav1.NewTime(time.UnixMilli(now.UnixMilli() - int64(genericConf.OutOfDataPeriod.Milliseconds()+time.Second.Milliseconds()*5))),
+			Timestamp: metav1.NewTime(time.UnixMilli(now.UnixMilli() - genericConf.OutOfDataPeriod.Milliseconds() + time.Second.Milliseconds()*5)),
 			Value:     *resource.NewQuantity(2, resource.DecimalSI),
 		},
 	}, batchExternal.Items)
@@ -642,7 +643,7 @@ func testProvider(t *testing.T, p MetricProvider, s store.MetricStore, ctx conte
 			MetricLabels: map[string]string{
 				"name": "none_object_metric",
 			},
-			Timestamp: metav1.NewTime(time.UnixMilli(now.UnixMilli() - int64(genericConf.OutOfDataPeriod.Milliseconds()))),
+			Timestamp: metav1.NewTime(time.UnixMilli(now.UnixMilli() - genericConf.OutOfDataPeriod.Milliseconds())),
 			Value:     *resource.NewQuantity(23, resource.DecimalSI),
 		},
 	}, batchExternal.Items)
