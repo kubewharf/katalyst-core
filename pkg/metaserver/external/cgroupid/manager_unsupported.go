@@ -23,14 +23,24 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/pod"
 )
 
-// DefaultCgroupIDManager maintains the mapping of pod to cgroup id.
 type unsupportedCgroupIDManager struct {
 }
 
+// NewCgroupIDManager returns a CgroupIDManager
 func NewCgroupIDManager(_ pod.PodFetcher) CgroupIDManager {
 	return &unsupportedCgroupIDManager{}
 }
 
-// Run starts a DefaultCgroupIDManager
+// Run starts a cgroupIDManagerImpl
 func (m *unsupportedCgroupIDManager) Run(_ context.Context) {
+}
+
+// GetCgroupIDForContainer returns the cgroup id of a given container.
+func (m *unsupportedCgroupIDManager) GetCgroupIDForContainer(podUID, containerID string) (uint64, error) {
+	return 0, nil
+}
+
+// ListCgroupIDsForPod returns the cgroup ids of a given pod.
+func (m *unsupportedCgroupIDManager) ListCgroupIDsForPod(podUID string) ([]uint64, error) {
+	return nil, nil
 }

@@ -21,16 +21,24 @@ import (
 	"context"
 
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/pod"
+	"github.com/kubewharf/katalyst-core/pkg/metaserver/external/cgroupid"
+	"github.com/kubewharf/katalyst-core/pkg/util/external/network"
+	"github.com/kubewharf/katalyst-core/pkg/util/external/rdt"
 )
 
-// ExternalManagerImpl contains a set of managers that execute configurations beyond the OCI spec.
 type unsupportedExternalManager struct {
+	cgroupid.CgroupIDManager
+
+	network.NetworkManager
+	rdt.RDTManager
 }
 
+// Run starts an unsupportedExternalManager
 func (m *unsupportedExternalManager) Run(_ context.Context) {
 
 }
 
+// InitExternalManager initializes an externalManagerImpl
 func InitExternalManager(podFetcher pod.PodFetcher) ExternalManager {
 	return &unsupportedExternalManager{}
 }

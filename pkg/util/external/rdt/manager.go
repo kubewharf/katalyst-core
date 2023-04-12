@@ -14,15 +14,6 @@
 
 package rdt
 
-import (
-	"errors"
-)
-
-const (
-	// SubManagerName is the name of NetworkManager.
-	SubManagerName = "rdt"
-)
-
 // RDTManager provides methods that control RDT related resources.
 type RDTManager interface {
 	CheckSupportRDT() (bool, error)
@@ -30,41 +21,4 @@ type RDTManager interface {
 	ApplyTasks(clos string, tasks []string) error
 	ApplyCAT(clos string, cat map[int]int) error
 	ApplyMBA(clos string, mba map[int]int) error
-}
-
-type defaultRDTManager struct{}
-
-// NewDefaultManager returns a defaultRDTManager.
-func NewDefaultManager() RDTManager {
-	return &defaultRDTManager{}
-}
-
-// CheckSupportRDT checks whether RDT is supported by the CPU and the kernel.
-func (*defaultRDTManager) CheckSupportRDT() (bool, error) {
-	// TODO: implement CheckSupportRDT
-	return false, errors.New("not implemented yet")
-}
-
-// InitRDT performs some RDT-related initializations.
-func (*defaultRDTManager) InitRDT() error {
-	// TODO: implement InitRDT
-	return errors.New("not implemented yet")
-}
-
-// ApplyTasks synchronizes the tasks of each CLOS.
-func (*defaultRDTManager) ApplyTasks(clos string, tasks []string) error {
-	// TODO: implement ApplyTasks
-	return errors.New("not implemented yet")
-}
-
-// ApplyCAT applies the CAT configurations for each CLOS.
-func (*defaultRDTManager) ApplyCAT(clos string, cat map[int]int) error {
-	// TODO: implement ApplyCAT
-	return errors.New("not implemented yet")
-}
-
-// ApplyMBA applies the MBA configurations for each CLOS.
-func (*defaultRDTManager) ApplyMBA(clos string, mba map[int]int) error {
-	// TODO: implement ApplyMBA
-	return errors.New("not implemented yet")
 }

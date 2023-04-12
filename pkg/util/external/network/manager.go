@@ -15,37 +15,11 @@
 package network
 
 import (
-	"errors"
-
 	"github.com/kubewharf/katalyst-core/pkg/util/cgroup/common"
-)
-
-const (
-	// SubManagerName is the name of NetworkManager.
-	SubManagerName = "network"
 )
 
 // NetworkManager provides methods that control network resources.
 type NetworkManager interface {
 	ApplyNetClass(podUID, containerId string, data *common.NetClsData) error
 	ClearNetClass(cgroupID uint64) error
-}
-
-type defaultNetworkManager struct{}
-
-// NewDefaultManager returns a defaultNetworkManager.
-func NewDefaultManager() NetworkManager {
-	return &defaultNetworkManager{}
-}
-
-// ApplyNetClass applies the net class config for a container.
-func (*defaultNetworkManager) ApplyNetClass(podUID, containerId string, data *common.NetClsData) error {
-	// TODO: implement traffic tagging by using eBPF
-	return errors.New("not implemented yet")
-}
-
-// ClearNetClass clears the net class config for a container.
-func (*defaultNetworkManager) ClearNetClass(cgroupID uint64) error {
-	// TODO: clear the eBPF map when a pod is removed
-	return errors.New("not implemented yet")
 }

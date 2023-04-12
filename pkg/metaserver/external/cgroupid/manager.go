@@ -14,8 +14,14 @@
 
 package cgroupid
 
-import "context"
+import (
+	"context"
+)
 
+// CgroupIDManager maintains the mapping of pod to cgroup id.
 type CgroupIDManager interface {
 	Run(ctx context.Context)
+
+	GetCgroupIDForContainer(podUID, containerID string) (uint64, error)
+	ListCgroupIDsForPod(podUID string) ([]uint64, error)
 }

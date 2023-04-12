@@ -41,14 +41,13 @@ const (
 
 var (
 	initManagerOnce sync.Once
-	cgIDManager     *DefaultCgroupIDManager
+	cgIDManager     *cgroupIDManagerImpl
 )
 
 type ContainerCache map[string]uint64   // Keyed by container id
 type PodCache map[string]ContainerCache // Keyed by pod UID
 
-// DefaultCgroupIDManager maintains the mapping of pod to cgroup id.
-type DefaultCgroupIDManager struct {
+type cgroupIDManagerImpl struct {
 	sync.RWMutex
 	pod.PodFetcher
 
@@ -57,9 +56,10 @@ type DefaultCgroupIDManager struct {
 	residualHitMap   map[string]int64
 }
 
+// NewCgroupIDManager returns a CgroupIDManager
 func NewCgroupIDManager(podFetcher pod.PodFetcher) CgroupIDManager {
 	initManagerOnce.Do(func() {
-		cgIDManager = &DefaultCgroupIDManager{
+		cgIDManager = &cgroupIDManagerImpl{
 			PodFetcher:       podFetcher,
 			podCgroupIDCache: make(PodCache),
 			reconcilePeriod:  5 * time.Second,
@@ -70,13 +70,13 @@ func NewCgroupIDManager(podFetcher pod.PodFetcher) CgroupIDManager {
 	return cgIDManager
 }
 
-// Run starts a DefaultCgroupIDManager
-func (m *DefaultCgroupIDManager) Run(ctx context.Context) {
+// Run starts a cgroupIDManagerImpl
+func (m *cgroupIDManagerImpl) Run(ctx context.Context) {
 	wait.UntilWithContext(ctx, m.reconcileCgroupIDMap, m.reconcilePeriod)
 }
 
 // GetCgroupIDForContainer returns the cgroup id of a given container.
-func (m *DefaultCgroupIDManager) GetCgroupIDForContainer(podUID, containerID string) (uint64, error) {
+func (m *cgroupIDManagerImpl) GetCgroupIDForContainer(podUID, containerID string) (uint64, error) {
 	if cgroupID, found := m.getCgroupIDFromCache(podUID, containerID); found {
 		return cgroupID, nil
 	}
@@ -92,7 +92,7 @@ func (m *DefaultCgroupIDManager) GetCgroupIDForContainer(podUID, containerID str
 }
 
 // ListCgroupIDsForPod returns the cgroup ids of a given pod.
-func (m *DefaultCgroupIDManager) ListCgroupIDsForPod(podUID string) ([]uint64, error) {
+func (m *cgroupIDManagerImpl) ListCgroupIDsForPod(podUID string) ([]uint64, error) {
 	m.RLock()
 	defer m.RUnlock()
 
@@ -109,10 +109,10 @@ func (m *DefaultCgroupIDManager) ListCgroupIDsForPod(podUID string) ([]uint64, e
 	return cgIDList, nil
 }
 
-func (m *DefaultCgroupIDManager) reconcileCgroupIDMap(ctx context.Context) {
+func (m *cgroupIDManagerImpl) reconcileCgroupIDMap(ctx context.Context) {
 	podList, err := m.GetPodList(ctx, nil)
 	if err != nil {
-		klog.Errorf("[DefaultCgroupIDManager.reconcileCgroupIDMap] get pod list failed, err: %v", err)
+		klog.Errorf("[cgroupIDManagerImpl.reconcileCgroupIDMap] get pod list failed, err: %v", err)
 		return
 	}
 
@@ -121,8 +121,8 @@ func (m *DefaultCgroupIDManager) reconcileCgroupIDMap(ctx context.Context) {
 }
 
 // addAbsentCgroupIDsToCache adds absent cgroup ids to cache.
-func (m *DefaultCgroupIDManager) addAbsentCgroupIDsToCache(absentContainers map[string]sets.String) {
-	klog.V(4).Infof("[DefaultCgroupIDManager] exec addAbsentCgroupIDsToCache")
+func (m *cgroupIDManagerImpl) addAbsentCgroupIDsToCache(absentContainers map[string]sets.String) {
+	klog.V(4).Infof("[cgroupIDManagerImpl] exec addAbsentCgroupIDsToCache")
 
 	for podUID, absentContainerSet := range absentContainers {
 		for {
@@ -133,19 +133,19 @@ func (m *DefaultCgroupIDManager) addAbsentCgroupIDsToCache(absentContainers map[
 
 			cgID, err := m.getCgroupIDFromSystem(podUID, containerID)
 			if err != nil {
-				klog.Errorf("[DefaultCgroupIDManager.addAbsentCgroupIDsToCache] get cgroup id failed, pod: %s, container: %s, err: %v",
+				klog.Errorf("[cgroupIDManagerImpl.addAbsentCgroupIDsToCache] get cgroup id failed, pod: %s, container: %s, err: %v",
 					podUID, containerID, err)
 				continue
 			}
 
-			klog.Infof("[DefaultCgroupIDManager.addAbsentCgroupIDsToCache] add absent cgroup id to cache, "+
+			klog.Infof("[cgroupIDManagerImpl.addAbsentCgroupIDsToCache] add absent cgroup id to cache, "+
 				"pod: %s, container: %s, cgroup id: %V", podUID, containerID, cgID)
 			m.setCgroupID(podUID, containerID, cgID)
 		}
 	}
 }
 
-func (m *DefaultCgroupIDManager) getAbsentContainers(podList []*v1.Pod) map[string]sets.String {
+func (m *cgroupIDManagerImpl) getAbsentContainers(podList []*v1.Pod) map[string]sets.String {
 	absentContainersMap := make(map[string]sets.String)
 
 	m.RLock()
@@ -160,7 +160,7 @@ func (m *DefaultCgroupIDManager) getAbsentContainers(podList []*v1.Pod) map[stri
 		for _, container := range pod.Spec.Containers {
 			containerId, err := m.GetContainerID(podUID, container.Name)
 			if err != nil {
-				klog.Errorf("[DefaultCgroupIDManager.addNewCgroupIDsToCache] get container id failed, pod: %s, container: %s, err: %v",
+				klog.Errorf("[cgroupIDManagerImpl.addNewCgroupIDsToCache] get container id failed, pod: %s, container: %s, err: %v",
 					podUID, container.Name, err)
 				continue
 			}
@@ -177,8 +177,8 @@ func (m *DefaultCgroupIDManager) getAbsentContainers(podList []*v1.Pod) map[stri
 }
 
 // clearResidualPodsInCache cleans residual pods in podCgroupIDCache.
-func (m *DefaultCgroupIDManager) clearResidualPodsInCache(podList []*v1.Pod) {
-	klog.V(4).Infof("[DefaultCgroupIDManager] exec clearResidualPodsInCache")
+func (m *cgroupIDManagerImpl) clearResidualPodsInCache(podList []*v1.Pod) {
+	klog.V(4).Infof("[cgroupIDManagerImpl] exec clearResidualPodsInCache")
 	residualSet := make(map[string]bool)
 
 	podSet := sets.NewString()
@@ -193,14 +193,14 @@ func (m *DefaultCgroupIDManager) clearResidualPodsInCache(podList []*v1.Pod) {
 		if !podSet.Has(podUID) && !residualSet[podUID] {
 			residualSet[podUID] = true
 			m.residualHitMap[podUID] += 1
-			klog.V(4).Infof("[DefaultCgroupIDManager.clearResidualPodsInCache] found pod: %s with cache but doesn't show up in pod watcher, hit count: %d", podUID, m.residualHitMap[podUID])
+			klog.V(4).Infof("[cgroupIDManagerImpl.clearResidualPodsInCache] found pod: %s with cache but doesn't show up in pod watcher, hit count: %d", podUID, m.residualHitMap[podUID])
 		}
 	}
 
 	podsToDelete := sets.NewString()
 	for podUID, hitCount := range m.residualHitMap {
 		if !residualSet[podUID] {
-			klog.V(4).Infof("[DefaultCgroupIDManager.clearResidualPodsInCache] already found pod: %s in pod watcher or its cache is cleared, delete it from residualHitMap", podUID)
+			klog.V(4).Infof("[cgroupIDManagerImpl.clearResidualPodsInCache] already found pod: %s in pod watcher or its cache is cleared, delete it from residualHitMap", podUID)
 			delete(m.residualHitMap, podUID)
 			continue
 		}
@@ -217,13 +217,13 @@ func (m *DefaultCgroupIDManager) clearResidualPodsInCache(podList []*v1.Pod) {
 				break
 			}
 
-			klog.Infof("[DefaultCgroupIDManager.clearResidualPodsInCache] clear residual pod: %s in cache", podUID)
+			klog.Infof("[cgroupIDManagerImpl.clearResidualPodsInCache] clear residual pod: %s in cache", podUID)
 			delete(m.podCgroupIDCache, podUID)
 		}
 	}
 }
 
-func (m *DefaultCgroupIDManager) getCgroupIDFromCache(podUID, containerID string) (uint64, bool) {
+func (m *cgroupIDManagerImpl) getCgroupIDFromCache(podUID, containerID string) (uint64, bool) {
 	m.RLock()
 	defer m.RUnlock()
 
@@ -239,7 +239,7 @@ func (m *DefaultCgroupIDManager) getCgroupIDFromCache(podUID, containerID string
 	return cgroupID, true
 }
 
-func (m *DefaultCgroupIDManager) getCgroupIDFromSystem(podUID, containerID string) (uint64, error) {
+func (m *cgroupIDManagerImpl) getCgroupIDFromSystem(podUID, containerID string) (uint64, error) {
 	containerAbsCGPath, err := common.GetContainerAbsCgroupPath("", podUID, containerID)
 	if err != nil {
 		return 0, fmt.Errorf("GetContainerAbsCgroupPath failed, err: %v", err)
@@ -253,7 +253,7 @@ func (m *DefaultCgroupIDManager) getCgroupIDFromSystem(podUID, containerID strin
 	return cgID, nil
 }
 
-func (m *DefaultCgroupIDManager) setCgroupID(podUID, containerID string, cgroupID uint64) {
+func (m *cgroupIDManagerImpl) setCgroupID(podUID, containerID string, cgroupID uint64) {
 	m.Lock()
 	defer m.Unlock()
 

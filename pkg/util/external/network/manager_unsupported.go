@@ -1,3 +1,6 @@
+//go:build !linux
+// +build !linux
+
 // Copyright 2022 The Katalyst Authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -12,27 +15,25 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package external
+package network
 
 import (
-	"context"
-
 	"github.com/kubewharf/katalyst-core/pkg/util/cgroup/common"
 )
 
-// ExternalManager contains a set of managers that execute configurations beyond the OCI spec.
-type ExternalManager interface {
-	Run(ctx context.Context)
+type unsupportedNetworkManager struct{}
 
-	GetCgroupIDForContainer(podUID, containerID string) (uint64, error)
-	ListCgroupIDsForPod(podUID string) ([]uint64, error)
+// NewNetworkManager returns a defaultNetworkManager.
+func NewNetworkManager() NetworkManager {
+	return &unsupportedNetworkManager{}
+}
 
-	ApplyNetClass(podUID, containerId string, data *common.NetClsData) error
-	ClearNetClass(cgroupID uint64) error
+// ApplyNetClass applies the net class config for a container.
+func (*unsupportedNetworkManager) ApplyNetClass(podUID, containerId string, data *common.NetClsData) error {
+	return nil
+}
 
-	CheckSupportRDT() (bool, error)
-	InitRDT() error
-	ApplyTasks(clos string, tasks []string) error
-	ApplyCAT(clos string, cat map[int]int) error
-	ApplyMBA(clos string, mba map[int]int) error
+// ClearNetClass clears the net class config for a container.
+func (*unsupportedNetworkManager) ClearNetClass(cgroupID uint64) error {
+	return nil
 }
