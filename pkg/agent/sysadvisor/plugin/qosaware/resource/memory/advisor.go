@@ -17,6 +17,7 @@ limitations under the License.
 package memory
 
 import (
+	"fmt"
 	"sync"
 	"time"
 
@@ -51,8 +52,9 @@ type memoryResourceAdvisor struct {
 	reservedForAllocate int64
 	enableReclaim       bool
 
-	headroomPolicy headroompolicy.HeadroomPolicy
-	mutex          sync.RWMutex
+	mutex sync.RWMutex
+
+	headroomPolices []headroompolicy.HeadroomPolicy
 
 	conf       *config.Configuration
 	metaReader metacache.MetaReader
@@ -67,6 +69,8 @@ func NewMemoryResourceAdvisor(conf *config.Configuration, extraConf interface{},
 		name:      memoryResourceAdvisorName,
 		startTime: time.Now(),
 
+		headroomPolices: make([]headroompolicy.HeadroomPolicy, 0),
+
 		conf:       conf,
 		metaReader: metaCache,
 		metaServer: metaServer,
@@ -77,8 +81,15 @@ func NewMemoryResourceAdvisor(conf *config.Configuration, extraConf interface{},
 	reservedDefault := conf.ReclaimedResourceConfiguration.ReservedResourceForAllocate[v1.ResourceMemory]
 	ra.reservedForAllocate = reservedDefault.Value()
 
-	// Keep canonical policy by default as baseline
-	ra.headroomPolicy = headroompolicy.NewPolicyCanonical(conf, extraConf, metaCache, metaServer, emitter)
+	initializers := headroompolicy.GetRegisteredInitializers()
+	for _, headroomPolicyName := range conf.MemoryHeadroomPolicies {
+		initFunc, ok := initializers[headroomPolicyName]
+		if !ok {
+			klog.Errorf("failed to find registered initializer %v", headroomPolicyName)
+			continue
+		}
+		ra.headroomPolices = append(ra.headroomPolices, initFunc(conf, extraConf, metaCache, metaServer, emitter))
+	}
 
 	// register to obtain dynamic configurations from KCC
 	metaServer.Register(ra)
@@ -114,16 +125,17 @@ func (ra *memoryResourceAdvisor) Update() {
 		return
 	}
 
-	// capacity and reserved can both be adjusted dynamically during running process
-	memoryLimitSystem := ra.metaServer.MemoryCapacity
-	ra.headroomPolicy.SetEssentials(types.ResourceEssentials{
-		Total:               int(memoryLimitSystem),
-		ReservedForAllocate: int(ra.reservedForAllocate),
-		EnableReclaim:       ra.enableReclaim,
-	})
+	for _, headroomPolicy := range ra.headroomPolices {
+		// capacity and reserved can both be adjusted dynamically during running process
+		headroomPolicy.SetEssentials(types.ResourceEssentials{
+			Total:               int(ra.metaServer.MemoryCapacity),
+			ReservedForAllocate: int(ra.reservedForAllocate),
+			EnableReclaim:       ra.enableReclaim,
+		})
 
-	if err := ra.headroomPolicy.Update(); err != nil {
-		klog.Errorf("[qosaware-memory] update headroom policy failed: %v", err)
+		if err := headroomPolicy.Update(); err != nil {
+			klog.Errorf("[qosaware-memory] update headroom policy failed: %v", err)
+		}
 	}
 }
 
@@ -136,5 +148,14 @@ func (ra *memoryResourceAdvisor) GetHeadroom() (resource.Quantity, error) {
 	ra.mutex.RLock()
 	defer ra.mutex.RUnlock()
 
-	return ra.headroomPolicy.GetHeadroom()
+	for _, headroomPolicy := range ra.headroomPolices {
+		headroom, err := headroomPolicy.GetHeadroom()
+		if err != nil {
+			klog.Warningf("GetHeadroom by err %v", err)
+			continue
+		}
+		return headroom, nil
+	}
+
+	return resource.Quantity{}, fmt.Errorf("failed to get valid headroom")
 }

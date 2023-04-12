@@ -72,7 +72,7 @@ func (p *PolicyCanonical) Update() (err error) {
 		if !p.EnableReclaim {
 			containerEstimation = ci.MemoryRequest
 		} else {
-			containerEstimation, err = helper.EstimateContainerResourceUsage(ci, v1.ResourceMemory, p.metaReader)
+			containerEstimation, err = helper.EstimateContainerResourceUsage(ci, v1.ResourceMemory, p.MetaReader)
 			if err != nil {
 				errList = append(errList, err)
 				return true
@@ -83,7 +83,7 @@ func (p *PolicyCanonical) Update() (err error) {
 		containerCnt += 1
 		return true
 	}
-	p.metaReader.RangeContainer(f)
+	p.MetaReader.RangeContainer(f)
 	klog.Infof("[qosaware-memory-headroom] memory requirement estimation: %.2e, #container %v", memoryEstimation, containerCnt)
 
 	p.memoryHeadroom = math.Max(float64(p.Total-p.ReservedForAllocate)-memoryEstimation, 0)

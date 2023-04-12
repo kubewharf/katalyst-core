@@ -26,7 +26,7 @@ type PolicyBase struct {
 	PodSet types.PodSet
 	types.ResourceEssentials
 
-	metaReader metacache.MetaReader
+	MetaReader metacache.MetaReader
 	MetaServer *metaserver.MetaServer
 }
 
@@ -34,7 +34,7 @@ func NewPolicyBase(metaReader metacache.MetaReader, metaServer *metaserver.MetaS
 	cp := &PolicyBase{
 		PodSet: make(types.PodSet),
 
-		metaReader: metaReader,
+		MetaReader: metaReader,
 		MetaServer: metaServer,
 	}
 	return cp

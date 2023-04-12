@@ -47,7 +47,7 @@ func (r *QoSRegionShare) TryUpdateProvision() {
 	r.Lock()
 	defer r.Unlock()
 
-	for policyName, internal := range r.provisionPolicyMap {
+	for _, internal := range r.provisionPolicies {
 		internal.updateStatus = types.PolicyUpdateFailed
 
 		// set essentials for policy and regulator
@@ -69,7 +69,7 @@ func (r *QoSRegionShare) TryUpdateProvision() {
 
 		// run an episode of policy and calculator update
 		if err := internal.policy.Update(); err != nil {
-			klog.Errorf("[qosaware-cpu] update policy %v failed: %v", policyName, err)
+			klog.Errorf("[qosaware-cpu] update policy %v failed: %v", internal.name, err)
 			continue
 		}
 		internal.updateStatus = types.PolicyUpdateSucceeded
@@ -80,7 +80,7 @@ func (r *QoSRegionShare) TryUpdateHeadroom() {
 	r.Lock()
 	defer r.Unlock()
 
-	for policyName, internal := range r.headroomPolicyMap {
+	for _, internal := range r.headroomPolicies {
 		internal.updateStatus = types.PolicyUpdateFailed
 
 		// set essentials for policy and regulator
@@ -89,7 +89,7 @@ func (r *QoSRegionShare) TryUpdateHeadroom() {
 
 		// run an episode of policy and calculator update
 		if err := internal.policy.Update(); err != nil {
-			klog.Errorf("[qosaware-cpu] update policy %v failed: %v", policyName, err)
+			klog.Errorf("[qosaware-cpu] update policy %v failed: %v", internal.name, err)
 			continue
 		}
 		internal.updateStatus = types.PolicyUpdateSucceeded
@@ -100,34 +100,35 @@ func (r *QoSRegionShare) GetProvision() (types.ControlKnob, error) {
 	r.Lock()
 	defer r.Unlock()
 
-	policyName := r.selectProvisionPolicy(provisionPolicyPriority)
-	internal, ok := r.provisionPolicyMap[policyName]
-	if !ok {
-		return nil, fmt.Errorf("no legal policy result")
+	for _, internal := range r.provisionPolicies {
+		if internal.updateStatus != types.PolicyUpdateSucceeded {
+			continue
+		}
+		controlKnobValue, err := internal.policy.GetControlKnobAdjusted()
+		if err != nil {
+			klog.Errorf("GetControlKnobAdjusted by policy %v err %v", internal.name, err)
+			continue
+		}
+		return controlKnobValue, nil
 	}
-
-	controlKnobValue, err := internal.policy.GetControlKnobAdjusted()
-	if err != nil {
-		return nil, err
-	}
-
-	return controlKnobValue, nil
+	return types.ControlKnob{}, fmt.Errorf("failed to get valid provison")
 }
 
 func (r *QoSRegionShare) GetHeadroom() (resource.Quantity, error) {
 	r.Lock()
 	defer r.Unlock()
 
-	policyName := r.selectHeadroomPolicy(headroomPolicyPriority)
-	internal, ok := r.headroomPolicyMap[policyName]
-	if !ok {
-		return *resource.NewQuantity(0, resource.DecimalSI), fmt.Errorf("no legal policy result")
+	for _, internal := range r.headroomPolicies {
+		if internal.updateStatus != types.PolicyUpdateSucceeded {
+			continue
+		}
+		headroom, err := internal.policy.GetHeadroom()
+		if err != nil {
+			klog.Errorf("GetHeadroom by policy %v err %v", internal.name, err)
+			continue
+		}
+		return *resource.NewQuantity(int64(headroom), resource.DecimalSI), nil
 	}
 
-	headroom, err := internal.policy.GetHeadroom()
-	if err != nil {
-		return resource.Quantity{}, err
-	}
-
-	return *resource.NewQuantity(int64(headroom), resource.DecimalSI), nil
+	return resource.Quantity{}, fmt.Errorf("failed to get valid headroom")
 }

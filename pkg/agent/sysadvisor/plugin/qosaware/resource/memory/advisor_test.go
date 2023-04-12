@@ -84,6 +84,7 @@ func generateTestConfiguration(t *testing.T, checkpointDir, stateFileDir string)
 	conf.MetaServerConfiguration.CheckpointManagerDir = checkpointDir
 	conf.ReclaimedResourceConfiguration.ReservedResourceForAllocate[v1.ResourceMemory] = resource.MustParse(fmt.Sprintf("%d", 4<<30))
 	conf.EnableReclaim = true
+	conf.MemoryHeadroomPolicies = []types.MemoryHeadroomPolicyName{types.MemoryHeadroomPolicyCanonical}
 
 	return conf
 }
@@ -251,7 +252,8 @@ func TestUpdate(t *testing.T) {
 			}
 
 			advisor.enableReclaim = tt.reclaimedEnable
-			advisor.headroomPolicy.SetEssentials(types.ResourceEssentials{
+			headroomPolicy := advisor.headroomPolices[0]
+			headroomPolicy.SetEssentials(types.ResourceEssentials{
 				Total:               int(advisor.metaServer.MemoryCapacity),
 				ReservedForAllocate: int(advisor.reservedForAllocate),
 				EnableReclaim:       tt.reclaimedEnable,

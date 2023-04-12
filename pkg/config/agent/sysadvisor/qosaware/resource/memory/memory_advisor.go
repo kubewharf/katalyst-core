@@ -16,16 +16,21 @@ limitations under the License.
 
 package memory
 
-import "github.com/kubewharf/katalyst-core/pkg/config/dynamic"
+import (
+	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
+	"github.com/kubewharf/katalyst-core/pkg/config/dynamic"
+)
 
 // MemoryAdvisorConfiguration stores configurations of memory advisors in qos aware plugin
 type MemoryAdvisorConfiguration struct {
-	MemoryHeadroomPolicy string
+	MemoryHeadroomPolicies []types.MemoryHeadroomPolicyName
 }
 
 // NewMemoryAdvisorConfiguration creates new memory advisor configurations
 func NewMemoryAdvisorConfiguration() *MemoryAdvisorConfiguration {
-	return &MemoryAdvisorConfiguration{}
+	return &MemoryAdvisorConfiguration{
+		MemoryHeadroomPolicies: make([]types.MemoryHeadroomPolicyName, 0),
+	}
 }
 
 // ApplyConfiguration is used to set configuration based on conf.
