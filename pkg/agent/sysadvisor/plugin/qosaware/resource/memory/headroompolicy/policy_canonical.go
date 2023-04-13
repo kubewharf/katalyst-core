@@ -36,20 +36,23 @@ import (
 type PolicyCanonical struct {
 	*PolicyBase
 
-	// memoryHeadroom is valid to be used iff updateStatus successes
-	memoryHeadroom float64
+	// MemoryHeadroom is valid to be used iff updateStatus successes
+	MemoryHeadroom float64
 	updateStatus   types.PolicyUpdateStatus
 }
 
 func NewPolicyCanonical(_ *config.Configuration, _ interface{}, metaReader metacache.MetaReader,
 	metaServer *metaserver.MetaServer, _ metrics.MetricEmitter) HeadroomPolicy {
 	p := PolicyCanonical{
-		PolicyBase: NewPolicyBase(metaReader, metaServer),
-
+		PolicyBase:   NewPolicyBase(metaReader, metaServer),
 		updateStatus: types.PolicyUpdateFailed,
 	}
 
 	return &p
+}
+
+func (p *PolicyCanonical) estimateContainerMemoryUsage(ci *types.ContainerInfo) (float64, error) {
+	return helper.EstimateContainerResourceUsage(ci, v1.ResourceMemory, p.metaReader, p.essentials.EnableReclaim)
 }
 
 func (p *PolicyCanonical) Update() (err error) {
@@ -68,16 +71,12 @@ func (p *PolicyCanonical) Update() (err error) {
 	)
 
 	f := func(podUID string, containerName string, ci *types.ContainerInfo) bool {
-		containerEstimation := 0.0
-		if !p.essentials.EnableReclaim {
-			containerEstimation = ci.MemoryRequest
-		} else {
-			containerEstimation, err = helper.EstimateContainerResourceUsage(ci, v1.ResourceMemory, p.metaReader)
-			if err != nil {
-				errList = append(errList, err)
-				return true
-			}
+		containerEstimation, err := p.estimateContainerMemoryUsage(ci)
+		if err != nil {
+			errList = append(errList, err)
+			return true
 		}
+
 		klog.Infof("[qosaware-memory-headroom] pod %v container %v estimation %.2e", ci.PodName, containerName, containerEstimation)
 		memoryEstimation += containerEstimation
 		containerCnt += 1
@@ -86,7 +85,7 @@ func (p *PolicyCanonical) Update() (err error) {
 	p.metaReader.RangeContainer(f)
 	klog.Infof("[qosaware-memory-headroom] memory requirement estimation: %.2e, #container %v", memoryEstimation, containerCnt)
 
-	p.memoryHeadroom = math.Max(float64(p.essentials.Total-p.essentials.ReservedForAllocate)-memoryEstimation, 0)
+	p.MemoryHeadroom = math.Max(float64(p.essentials.Total-p.essentials.ReservedForAllocate)-memoryEstimation, 0)
 
 	return errors.NewAggregate(errList)
 }
@@ -96,5 +95,5 @@ func (p *PolicyCanonical) GetHeadroom() (resource.Quantity, error) {
 		return resource.Quantity{}, fmt.Errorf("last update failed")
 	}
 
-	return *resource.NewQuantity(int64(p.memoryHeadroom), resource.DecimalSI), nil
+	return *resource.NewQuantity(int64(p.MemoryHeadroom), resource.DecimalSI), nil
 }
