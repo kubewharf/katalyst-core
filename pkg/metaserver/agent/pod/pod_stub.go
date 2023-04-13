@@ -46,6 +46,17 @@ func (p *PodFetcherStub) GetPodList(_ context.Context, podFilter func(*v1.Pod) b
 	return pods, nil
 }
 
+func (p *PodFetcherStub) GetPod(_ context.Context, podUID string) (*v1.Pod, error) {
+	p.mutex.Lock()
+	defer p.mutex.Unlock()
+	for _, pod := range p.PodList {
+		if string(pod.UID) == podUID {
+			return pod, nil
+		}
+	}
+	return nil, fmt.Errorf("failed to find pod by uid %v", podUID)
+}
+
 func (p *PodFetcherStub) Run(_ context.Context) {}
 
 func (p *PodFetcherStub) GetContainerID(podUID, containerName string) (string, error) {

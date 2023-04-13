@@ -57,11 +57,13 @@ type PodFetcher interface {
 	// GetContainerID & GetContainerSpec are used to parse running container info
 	GetContainerID(podUID, containerName string) (string, error)
 	GetContainerSpec(podUID, containerName string) (*v1.Container, error)
+	// GetPod returns Pod by UID
+	GetPod(ctx context.Context, podUID string) (*v1.Pod, error)
 }
 
 type podFetcherImpl struct {
 	kubeletPodFetcher KubeletPodFetcher
-	runtimePodFetcher *RuntimePodFetcher
+	runtimePodFetcher RuntimePodFetcher
 
 	kubeletPodsCache     map[string]*v1.Pod
 	kubeletPodsCacheLock sync.RWMutex
@@ -195,6 +197,17 @@ func (w *podFetcherImpl) GetPodList(ctx context.Context, podFilter func(*v1.Pod)
 	}
 
 	return res, nil
+}
+
+func (w *podFetcherImpl) GetPod(ctx context.Context, podUID string) (*v1.Pod, error) {
+	kubeletPodsCache, err := w.getKubeletPodsCache(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("getKubeletPodsCache failed with error: %v", err)
+	}
+	if pod, ok := kubeletPodsCache[podUID]; ok {
+		return pod, nil
+	}
+	return nil, fmt.Errorf("failed to find pod by uid %v", podUID)
 }
 
 func (w *podFetcherImpl) getKubeletPodsCache(ctx context.Context) (map[string]*v1.Pod, error) {
