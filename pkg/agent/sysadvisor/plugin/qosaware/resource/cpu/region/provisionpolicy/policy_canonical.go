@@ -42,12 +42,7 @@ func NewPolicyCanonical(regionName string, _ *config.Configuration, _ interface{
 	return p
 }
 
-func (p *PolicyCanonical) Update() error {
-	var (
-		cpuEstimation float64 = 0
-		containerCnt  float64 = 0
-	)
-
+func (p *PolicyCanonical) estimationCPUUsage() (cpuEstimation float64, containerCnt uint, err error) {
 	for podUID, containerSet := range p.podSet {
 		for containerName := range containerSet {
 			ci, ok := p.metaReader.GetContainerInfo(podUID, containerName)
@@ -56,37 +51,38 @@ func (p *PolicyCanonical) Update() error {
 				continue
 			}
 
-			var err error
-			containerEstimation := 0.0
-			if p.essentials.EnableReclaim {
-				containerEstimation, err = helper.EstimateContainerResourceUsage(ci, v1.ResourceCPU, p.metaReader)
-				if err != nil {
-					return err
+			containerEstimation, err := helper.EstimateContainerResourceUsage(ci, v1.ResourceCPU, p.metaReader, p.essentials.EnableReclaim)
+			if err != nil {
+				return 0, 0, err
+			}
+			// FIXME: metric server doesn't support to report cpu usage in numa granularity,
+			//  so we split cpu usage evenly across the binding numas of container.
+			if p.bindingNumas.Size() > 0 {
+				cpuSize := 0
+				for _, numaID := range p.bindingNumas.ToSliceInt() {
+					cpuSize += ci.TopologyAwareAssignments[numaID].Size()
 				}
-				// FIXME: metric server doesn't support to report cpu usage in numa granularity,
-				//  so we split cpu usage evenly across the binding numas of container.
-				if p.bindingNumas.Size() > 0 {
-					cpuSize := 0
-					for _, numaID := range p.bindingNumas.ToSliceInt() {
-						cpuSize += ci.TopologyAwareAssignments[numaID].Size()
-					}
-					containerEstimation = containerEstimation * float64(cpuSize) / float64(machine.CountCPUAssignmentCPUs(ci.TopologyAwareAssignments))
-				}
-			} else {
-				containerEstimation = ci.CPURequest
+				containerEstimation = containerEstimation * float64(cpuSize) / float64(machine.CountCPUAssignmentCPUs(ci.TopologyAwareAssignments))
 			}
 
 			cpuEstimation += containerEstimation
 			containerCnt += 1
 		}
 	}
+	return
+}
+
+func (p *PolicyCanonical) Update() error {
+	cpuEstimation, containerCnt, err := p.estimationCPUUsage()
+	if err != nil {
+		return err
+	}
+	klog.Infof("[qosaware-cpu-provision] cpu requirement estimation: %.2f, #container %v", cpuEstimation, containerCnt)
 
 	// we need to call SetLatestCPURequirement to ensure the previous requirements are passed to
 	// regulator in case that sysadvisor restarts, to avoid the slow-start always begin with zero.
 	p.regulator.SetLatestCPURequirement(p.requirement)
 	p.regulator.Regulate(cpuEstimation)
-
-	klog.Infof("[qosaware-cpu-provision] cpu requirement estimation: %.2f, #container %v", cpuEstimation, containerCnt)
 	p.requirement = p.regulator.GetCPURequirement()
 	return nil
 }
