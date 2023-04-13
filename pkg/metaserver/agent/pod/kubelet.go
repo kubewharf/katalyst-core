@@ -30,23 +30,34 @@ type KubeletPodFetcher interface {
 	// GetPodList returns those latest pods, and podFilter is a function to filter a pod,
 	// if pod passed return true else return false, if podFilter is nil return all pods
 	GetPodList(ctx context.Context, podFilter func(*v1.Pod) bool) ([]*v1.Pod, error)
+
+	// GetPod returns Pod by UID
+	GetPod(ctx context.Context, podUID string) (*v1.Pod, error)
 }
 
 // kubeletPodFetcherImpl use kubelet 10255 pods interface to get pod directly without cache.
 type kubeletPodFetcherImpl struct{}
 
-// GetPodList get pods from kubelet 10255/pods api, and the returned slice does not
-// contain pods that don't pass `podFilter`
-func (k *kubeletPodFetcherImpl) GetPodList(_ context.Context, podFilter func(*v1.Pod) bool) ([]*v1.Pod, error) {
+func getPodsByKubeletAPI() (v1.PodList, error) {
 	const podsApi = "http://localhost:10255/pods"
 
 	var podList v1.PodList
 	err := process.GetAndUnmarshal(podsApi, &podList)
 	if err != nil {
-		return []*v1.Pod{}, fmt.Errorf("failed to get pod list, error: %v", err)
+		return podList, fmt.Errorf("failed to get pod list, error: %v", err)
 	} else if len(podList.Items) == 0 {
 		// kubelet should at least contain current pod as an item
-		return []*v1.Pod{}, fmt.Errorf("kubelet returns empty pod list")
+		return podList, fmt.Errorf("kubelet returns empty pod list")
+	}
+	return podList, nil
+}
+
+// GetPodList get pods from kubelet 10255/pods api, and the returned slice does not
+// contain pods that don't pass `podFilter`
+func (k *kubeletPodFetcherImpl) GetPodList(_ context.Context, podFilter func(*v1.Pod) bool) ([]*v1.Pod, error) {
+	podList, err := getPodsByKubeletAPI()
+	if err != nil {
+		return nil, err
 	}
 
 	var pods []*v1.Pod
@@ -57,6 +68,19 @@ func (k *kubeletPodFetcherImpl) GetPodList(_ context.Context, podFilter func(*v1
 		pods = append(pods, &podList.Items[i])
 	}
 	return pods, nil
+}
+
+func (k *kubeletPodFetcherImpl) GetPod(_ context.Context, podUID string) (*v1.Pod, error) {
+	podList, err := getPodsByKubeletAPI()
+	if err != nil {
+		return nil, err
+	}
+	for _, pod := range podList.Items {
+		if string(pod.UID) == podUID {
+			return &pod, nil
+		}
+	}
+	return nil, fmt.Errorf("failed to find pod by uid %v", podUID)
 }
 
 func NewKubeletPodFetcher() KubeletPodFetcher {
