@@ -54,34 +54,38 @@ var resourceMetricsToGather = map[v1.ResourceName][]string{
 	},
 }
 
-func EstimateContainerResourceUsage(ci *types.ContainerInfo, resourceName v1.ResourceName, metaReader metacache.MetaReader) (float64, error) {
+// EstimateContainerResourceUsage used to estimate non-reclaimed pods resources usage.
+// If reclaim disabled or metrics missed, resource usage will be regarded as Pod resource requests.
+func EstimateContainerResourceUsage(ci *types.ContainerInfo, resourceName v1.ResourceName,
+	metaReader metacache.MetaReader, reclaimEnable bool) (float64, error) {
 	if ci.QoSLevel != apiconsts.PodAnnotationQoSLevelSharedCores && ci.QoSLevel != apiconsts.PodAnnotationQoSLevelDedicatedCores {
 		return 0, nil
 	}
-	metricsToGather, ok := resourceMetricsToGather[resourceName]
-	if !ok || len(metricsToGather) == 0 {
-		return 0, fmt.Errorf("failed to find metrics to gather for %v", resourceName)
-	}
-	if metaReader == nil {
-		return 0, fmt.Errorf("metaCache nil")
-	}
-
 	var (
-		estimation   float64 = 0
-		reference    string
-		checkRequest = false
+		estimation float64 = 0
+		reference  string
 	)
-
-	for _, metricName := range metricsToGather {
-		metricValue, err := metaReader.GetContainerMetric(ci.PodUID, ci.ContainerName, metricName)
-		klog.Infof("[qosaware-canonical] pod %v container %v metric %v value %v", ci.PodName, ci.ContainerName, metricName, metricValue)
-		if err != nil || metricValue <= 0 {
-			checkRequest = true
-			continue
+	checkRequest := !reclaimEnable
+	if !checkRequest {
+		metricsToGather, ok := resourceMetricsToGather[resourceName]
+		if !ok || len(metricsToGather) == 0 {
+			return 0, fmt.Errorf("failed to find metrics to gather for %v", resourceName)
 		}
-		if metricValue > estimation {
-			estimation = metricValue
-			reference = metricName
+		if metaReader == nil {
+			return 0, fmt.Errorf("metaCache nil")
+		}
+
+		for _, metricName := range metricsToGather {
+			metricValue, err := metaReader.GetContainerMetric(ci.PodUID, ci.ContainerName, metricName)
+			klog.Infof("[qosaware-canonical] pod %v container %v metric %v value %v", ci.PodName, ci.ContainerName, metricName, metricValue)
+			if err != nil || metricValue <= 0 {
+				checkRequest = true
+				continue
+			}
+			if metricValue > estimation {
+				estimation = metricValue
+				reference = metricName
+			}
 		}
 	}
 
