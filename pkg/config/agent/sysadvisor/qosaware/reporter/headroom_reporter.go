@@ -50,7 +50,6 @@ func (c *HeadroomReporterConfiguration) ApplyConfiguration(*HeadroomReporterConf
 }
 
 type CPUHeadroomManagerConfiguration struct {
-	CPUBroker string
 }
 
 func NewCPUHeadroomManagerConfiguration() *CPUHeadroomManagerConfiguration {
@@ -58,7 +57,6 @@ func NewCPUHeadroomManagerConfiguration() *CPUHeadroomManagerConfiguration {
 }
 
 type MemoryHeadroomManagerConfiguration struct {
-	MemoryBroker string
 }
 
 func NewMemoryHeadroomManagerConfiguration() *MemoryHeadroomManagerConfiguration {

@@ -86,46 +86,31 @@ func (o *HeadroomReporterOptions) ApplyTo(c *reporter.HeadroomReporterConfigurat
 	return errors.NewAggregate(errList)
 }
 
-type CPUHeadroomManagerOptions struct {
-	CPUBroker string
-}
+type CPUHeadroomManagerOptions struct{}
 
 func NewCPUHeadroomManagerOptions() *CPUHeadroomManagerOptions {
-	return &CPUHeadroomManagerOptions{
-		CPUBroker: "none",
-	}
+	return &CPUHeadroomManagerOptions{}
 }
 
 // AddFlags adds flags to the specified FlagSet.
-func (o *CPUHeadroomManagerOptions) AddFlags(fs *pflag.FlagSet) {
-	fs.StringVar(&o.CPUBroker, "headroom-reporter-cpu-broker", o.CPUBroker,
-		"name of broker to calculate report resource")
+func (o *CPUHeadroomManagerOptions) AddFlags(*pflag.FlagSet) {
 }
 
 // ApplyTo fills up config with options
-func (o *CPUHeadroomManagerOptions) ApplyTo(c *reporter.CPUHeadroomManagerConfiguration) error {
-	c.CPUBroker = o.CPUBroker
+func (o *CPUHeadroomManagerOptions) ApplyTo(*reporter.CPUHeadroomManagerConfiguration) error {
 	return nil
 }
 
-type MemoryHeadroomManagerOptions struct {
-	MemoryBroker string
-}
+type MemoryHeadroomManagerOptions struct{}
 
 func NewMemoryHeadroomManagerOptions() *MemoryHeadroomManagerOptions {
-	return &MemoryHeadroomManagerOptions{
-		MemoryBroker: "none",
-	}
+	return &MemoryHeadroomManagerOptions{}
 }
 
 // AddFlags adds flags to the specified FlagSet.
-func (o *MemoryHeadroomManagerOptions) AddFlags(fs *pflag.FlagSet) {
-	fs.StringVar(&o.MemoryBroker, "headroom-reporter-memory-broker", o.MemoryBroker,
-		"name of broker to calculate report resource")
-}
+func (o *MemoryHeadroomManagerOptions) AddFlags(*pflag.FlagSet) {}
 
 // ApplyTo fills up config with options
-func (o *MemoryHeadroomManagerOptions) ApplyTo(c *reporter.MemoryHeadroomManagerConfiguration) error {
-	c.MemoryBroker = o.MemoryBroker
+func (o *MemoryHeadroomManagerOptions) ApplyTo(*reporter.MemoryHeadroomManagerConfiguration) error {
 	return nil
 }

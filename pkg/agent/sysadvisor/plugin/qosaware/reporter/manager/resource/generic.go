@@ -27,7 +27,6 @@ import (
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/klog/v2"
 
-	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/reporter/manager/broker"
 	hmadvisor "github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
@@ -62,7 +61,6 @@ type GenericHeadroomManager struct {
 	lastReportResult *resource.Quantity
 
 	headroomAdvisor     hmadvisor.ResourceAdvisor
-	broker              broker.Broker
 	emitter             metrics.MetricEmitter
 	originSlidingWindow general.SmoothWindow
 	reportSlidingWindow general.SmoothWindow
@@ -74,7 +72,7 @@ type GenericHeadroomManager struct {
 }
 
 func NewGenericHeadroomManager(name v1.ResourceName, useMilliValue, reportMilliValue bool,
-	syncPeriod time.Duration, broker broker.Broker, headroomAdvisor hmadvisor.ResourceAdvisor,
+	syncPeriod time.Duration, headroomAdvisor hmadvisor.ResourceAdvisor,
 	emitter metrics.MetricEmitter, slidingWindowOptions GenericSlidingWindowOptions,
 	getReclaimOptions GetGenericReclaimOptionsFunc) *GenericHeadroomManager {
 
@@ -93,7 +91,6 @@ func NewGenericHeadroomManager(name v1.ResourceName, useMilliValue, reportMilliV
 	return &GenericHeadroomManager{
 		resourceName:            name,
 		reportResultTransformer: reportResultTransformer,
-		broker:                  broker,
 		syncPeriod:              syncPeriod,
 		headroomAdvisor:         headroomAdvisor,
 		originSlidingWindow: general.NewCappedSmoothWindow(
@@ -120,7 +117,6 @@ func (m *GenericHeadroomManager) GetCapacity() (resource.Quantity, error) {
 }
 
 func (m *GenericHeadroomManager) Run(ctx context.Context) {
-	go m.broker.Run(ctx)
 	go wait.UntilWithContext(ctx, m.sync, m.syncPeriod)
 	<-ctx.Done()
 }
@@ -151,13 +147,7 @@ func (m *GenericHeadroomManager) sync(_ context.Context) {
 		return
 	}
 
-	reportResultFromBroker, err := m.broker.Calculate(originResultFromAdvisor)
-	if err != nil {
-		klog.Errorf("calculate report result %s from broker failed: %v", m.resourceName, err)
-		return
-	}
-
-	reportResult := m.reportSlidingWindow.GetWindowedResources(reportResultFromBroker)
+	reportResult := m.reportSlidingWindow.GetWindowedResources(originResultFromAdvisor)
 	if reportResult == nil {
 		klog.Infof("skip update reclaimed resource %s without enough valid sample", m.resourceName)
 		return
@@ -168,9 +158,9 @@ func (m *GenericHeadroomManager) sync(_ context.Context) {
 		reportResult = &reclaimOptions.MinReclaimedResourceForReport
 	}
 
-	klog.Infof("headroom manager for %s with originResultFromAdvisor: %s, reportResultFromBroker: %s, "+
-		"reportResult: %s, reservedResourceForReport: %s", m.resourceName, originResultFromAdvisor.String(),
-		reportResultFromBroker.String(), reportResult.String(), reclaimOptions.ReservedResourceForReport.String())
+	klog.Infof("headroom manager for %s with originResultFromAdvisor: %s, reportResult: %s, "+
+		"reservedResourceForReport: %s", m.resourceName, originResultFromAdvisor.String(),
+		reportResult.String(), reclaimOptions.ReservedResourceForReport.String())
 
 	m.emitResourceToMetric(metricsNameHeadroomReportResult, m.reportResultTransformer(*reportResult))
 
