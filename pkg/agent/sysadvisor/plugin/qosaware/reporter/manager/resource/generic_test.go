@@ -127,4 +127,11 @@ func TestGenericHeadroomManager_Allocatable(t *testing.T) {
 	allocatable, err = m.GetAllocatable()
 	require.NoError(t, err)
 	require.Equal(t, int64(0), allocatable.MilliValue())
+
+	reclaimOptions.EnableReclaim = true
+	reclaimOptions.MinReclaimedResourceForReport = resource.MustParse("100")
+	m.sync(context.Background())
+	capacity, err := m.GetCapacity()
+	require.NoError(t, err)
+	require.Equal(t, int64(100000), capacity.MilliValue())
 }

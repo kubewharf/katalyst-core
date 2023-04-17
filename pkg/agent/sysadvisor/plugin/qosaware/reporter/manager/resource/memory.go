@@ -53,7 +53,7 @@ func getMemoryBrokerInitializer(name string) (broker.BrokerInitFunc, bool) {
 	return initFunc.(broker.BrokerInitFunc), true
 }
 
-type memoryManagerImpl struct {
+type memoryHeadroomManagerImpl struct {
 	*GenericHeadroomManager
 }
 
@@ -76,7 +76,7 @@ func NewMemoryHeadroomManager(emitter metrics.MetricEmitter, metaServer *metaser
 		generateReclaimedMemoryOptionsFunc(conf.ReclaimedResourceConfiguration),
 	)
 
-	cm := &memoryManagerImpl{
+	cm := &memoryHeadroomManagerImpl{
 		GenericHeadroomManager: gm,
 	}
 

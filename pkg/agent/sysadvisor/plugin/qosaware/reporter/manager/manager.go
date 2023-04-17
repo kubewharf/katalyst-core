@@ -33,8 +33,6 @@ var headroomManagerInitializers sync.Map
 
 // HeadroomManager is used to manage resource headroom reporting and overcommit.
 type HeadroomManager interface {
-	// ResourceName is resource name of this manager will manage
-	ResourceName() v1.ResourceName
 	// GetAllocatable return the allocatable resource of this resource
 	GetAllocatable() (resource.Quantity, error)
 	// GetCapacity return the capacity of this resource

@@ -111,10 +111,6 @@ func NewGenericHeadroomManager(name v1.ResourceName, useMilliValue, reportMilliV
 	}
 }
 
-func (m *GenericHeadroomManager) ResourceName() v1.ResourceName {
-	return m.resourceName
-}
-
 func (m *GenericHeadroomManager) GetAllocatable() (resource.Quantity, error) {
 	return m.getLastReportResult()
 }

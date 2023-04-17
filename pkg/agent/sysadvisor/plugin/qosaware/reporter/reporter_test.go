@@ -123,9 +123,14 @@ func TestNewReclaimedResourcedReporter(t *testing.T) {
 
 	advisorStub := hmadvisor.NewResourceAdvisorStub()
 
-	genericPlugin, err := newHeadroomReporterPlugin(metrics.DummyMetrics{}, metaServer, conf, advisorStub)
+	headroomReporter, err := NewHeadroomReporter(metrics.DummyMetrics{}, metaServer, conf, advisorStub)
 	require.NoError(t, err)
-	require.NotNil(t, genericPlugin)
+	require.NotNil(t, headroomReporter)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go headroomReporter.Run(ctx)
+	time.Sleep(1 * time.Second)
 }
 
 func TestReclaimedResourcedReporterWithManager(t *testing.T) {
