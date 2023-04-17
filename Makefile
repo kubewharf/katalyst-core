@@ -95,7 +95,7 @@ vet: ## Run go vet against code.
 
 .PHONY: test
 test: ## Run go test against code.
-	go test -v -coverprofile=coverage.txt -covermode=atomic ./...
+	go test -v -coverprofile=coverage.txt -covermode=atomic -coverpkg=./... ./...
 
 
 ## --------------------------------------
