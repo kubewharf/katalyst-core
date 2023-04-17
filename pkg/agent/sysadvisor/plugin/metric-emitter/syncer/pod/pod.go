@@ -40,6 +40,10 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/util/native"
 )
 
+const (
+	podMetricLabelSelectorNodeName = "node_name"
+)
+
 // podRawMetricNameMapping maps the raw metricName (collected from agent.MetricsFetcher)
 // to the standard metricName (used by custom-metric-api-server)
 var podRawMetricNameMapping = map[string]string{
@@ -206,6 +210,10 @@ func (p *MetricSyncerPod) generateMetricTag(pod *v1.Pod) (tags []metrics.MetricT
 		{
 			Key: fmt.Sprintf("%s", data.CustomMetricLabelKeyNamespace),
 			Val: pod.Namespace,
+		},
+		{
+			Key: fmt.Sprintf("%s%s", data.CustomMetricLabelSelectorPrefixKey, podMetricLabelSelectorNodeName),
+			Val: pod.Spec.NodeName,
 		},
 	}
 	for key, value := range pod.Labels {
