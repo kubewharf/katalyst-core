@@ -43,7 +43,6 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/client"
 	pkgconfig "github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
-	"github.com/kubewharf/katalyst-core/pkg/metaserver/config"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/native"
@@ -93,16 +92,6 @@ type EvictionManger struct {
 	conditionsLastObservedAt map[string]conditionObservedAt
 	// thresholdsFirstObservedAt map eviction plugin name to *pluginapi.Condition with firstly observed timestamp.
 	thresholdsFirstObservedAt map[string]thresholdObservedAt
-}
-
-func (m *EvictionManger) ApplyConfig(conf *pkgconfig.DynamicConfiguration) {
-	for name, ep := range m.endpoints {
-		innerPlugin, ok := ep.(config.ConfigurationRegister)
-		if ok {
-			klog.V(5).Infof("set inner plugin %s config", name)
-			innerPlugin.ApplyConfig(conf)
-		}
-	}
 }
 
 var InnerEvictionPluginsDisabledByDefault = sets.NewString()

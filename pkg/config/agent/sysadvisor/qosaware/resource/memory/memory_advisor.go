@@ -34,5 +34,5 @@ func NewMemoryAdvisorConfiguration() *MemoryAdvisorConfiguration {
 }
 
 // ApplyConfiguration is used to set configuration based on conf.
-func (c *MemoryAdvisorConfiguration) ApplyConfiguration(conf *dynamic.DynamicConfigCRD) {
+func (c *MemoryAdvisorConfiguration) ApplyConfiguration(*MemoryAdvisorConfiguration, *dynamic.DynamicConfigCRD) {
 }

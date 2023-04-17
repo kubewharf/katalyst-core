@@ -36,5 +36,5 @@ func NewBaseConfiguration() *BaseConfiguration {
 	return &BaseConfiguration{}
 }
 
-func (c *BaseConfiguration) ApplyConfiguration(conf *dynamic.DynamicConfigCRD) {
+func (c *BaseConfiguration) ApplyConfiguration(*BaseConfiguration, *dynamic.DynamicConfigCRD) {
 }

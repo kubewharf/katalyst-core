@@ -37,11 +37,7 @@ type reclaimedResourcesPlugin struct {
 	*ResourcesEvictionPlugin
 }
 
-func (p *reclaimedResourcesPlugin) ApplyConfig(configuration *config.DynamicConfiguration) {
-	p.UpdateEvictionThreshold(configuration.ReclaimedResourcesEvictionPluginConfiguration.EvictionThreshold)
-}
-
-func NewReclaimedResourcesEvictionPlugin(genericClient *client.GenericClientSet, recorder events.EventRecorder,
+func NewReclaimedResourcesEvictionPlugin(_ *client.GenericClientSet, _ events.EventRecorder,
 	metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter, conf *config.Configuration) EvictionPlugin {
 	reclaimedResourcesGetter := func(ctx context.Context) (v1.ResourceList, error) {
 		cnr, err := metaServer.GetCNR(ctx)
@@ -56,14 +52,23 @@ func NewReclaimedResourcesEvictionPlugin(genericClient *client.GenericClientSet,
 		return allocatable, nil
 	}
 
+	reclaimedThresholdGetter := func(resourceName v1.ResourceName) float64 {
+		if threshold, ok := conf.ReclaimedResourcesEvictionPluginConfiguration.DynamicConf.
+			EvictionThreshold()[resourceName]; !ok {
+			return 1.
+		} else {
+			return threshold
+		}
+	}
+
 	p := NewResourcesEvictionPlugin(
 		ReclaimedResourcesEvictionPluginName,
 		metaServer,
 		emitter,
 		reclaimedResourcesGetter,
+		reclaimedThresholdGetter,
 		conf.SkipZeroQuantityResourceNames,
 		conf.CheckReclaimedQoSForPod,
-		conf.EvictionThreshold,
 		conf.EvictionReclaimedPodGracefulPeriod,
 	)
 

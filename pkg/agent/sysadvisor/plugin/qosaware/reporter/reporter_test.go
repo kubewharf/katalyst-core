@@ -47,6 +47,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/cnr"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/node"
+	dynamicconfig "github.com/kubewharf/katalyst-core/pkg/metaserver/config"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 )
 
@@ -64,10 +65,11 @@ func generateTestConfiguration(t *testing.T, dir string) *config.Configuration {
 	require.NoError(t, err)
 	require.NotNil(t, testConfiguration)
 
+	testConfiguration.ReclaimedResourceConfiguration.SetEnableReclaim(true)
+
 	testConfiguration.PluginRegistrationDir = dir
 	testConfiguration.CheckpointManagerDir = dir
 	testConfiguration.GenericReporterConfiguration.InnerPlugins = nil
-	testConfiguration.EnableReclaim = true
 	testConfiguration.HeadroomReporterSyncPeriod = 30 * time.Millisecond
 	testConfiguration.HeadroomReporterSlidingWindowTime = 180 * time.Millisecond
 	testConfiguration.CollectInterval = 30 * time.Millisecond
@@ -88,6 +90,7 @@ func generateTestMetaServer(clientSet *client.GenericClientSet, conf *config.Con
 			NodeFetcher: node.NewRemoteNodeFetcher(conf.NodeName, clientSet.KubeClient.CoreV1().Nodes()),
 			CNRFetcher:  cnr.NewCachedCNRFetcher(conf.NodeName, conf.CNRCacheTTL, clientSet.InternalClient.NodeV1alpha1().CustomNodeResources()),
 		},
+		ConfigurationManager: &dynamicconfig.DummyConfigurationManager{},
 	}
 }
 
@@ -120,9 +123,14 @@ func TestNewReclaimedResourcedReporter(t *testing.T) {
 
 	advisorStub := hmadvisor.NewResourceAdvisorStub()
 
-	genericPlugin, err := newHeadroomReporterPlugin(metrics.DummyMetrics{}, metaServer, conf, advisorStub)
+	headroomReporter, err := NewHeadroomReporter(metrics.DummyMetrics{}, metaServer, conf, advisorStub)
 	require.NoError(t, err)
-	require.NotNil(t, genericPlugin)
+	require.NotNil(t, headroomReporter)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go headroomReporter.Run(ctx)
+	time.Sleep(1 * time.Second)
 }
 
 func TestReclaimedResourcedReporterWithManager(t *testing.T) {

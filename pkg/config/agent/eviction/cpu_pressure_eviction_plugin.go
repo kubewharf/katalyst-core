@@ -39,5 +39,6 @@ func NewCPUPressureEvictionPluginConfiguration() *CPUPressureEvictionPluginConfi
 }
 
 // ApplyConfiguration applies dynamic.DynamicConfigCRD to CPUPressureEvictionPluginConfiguration
-func (c *CPUPressureEvictionPluginConfiguration) ApplyConfiguration(conf *dynamic.DynamicConfigCRD) {
+func (c *CPUPressureEvictionPluginConfiguration) ApplyConfiguration(*CPUPressureEvictionPluginConfiguration,
+	*dynamic.DynamicConfigCRD) {
 }

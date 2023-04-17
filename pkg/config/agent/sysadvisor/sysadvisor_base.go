@@ -35,7 +35,7 @@ func NewGenericSysAdvisorConfiguration() *GenericSysAdvisorConfiguration {
 }
 
 // ApplyConfiguration is used to set configuration based on the parameter.
-func (c *GenericSysAdvisorConfiguration) ApplyConfiguration(conf *dynamic.DynamicConfigCRD) {
+func (c *GenericSysAdvisorConfiguration) ApplyConfiguration(*GenericSysAdvisorConfiguration, *dynamic.DynamicConfigCRD) {
 }
 
 // SysAdvisorPluginsConfiguration stores configurations of sysadvisor plugins
@@ -55,8 +55,8 @@ func NewSysAdvisorPluginsConfiguration() *SysAdvisorPluginsConfiguration {
 }
 
 // ApplyConfiguration is used to set configuration based on the conf.
-func (c *SysAdvisorPluginsConfiguration) ApplyConfiguration(conf *dynamic.DynamicConfigCRD) {
-	c.QoSAwarePluginConfiguration.ApplyConfiguration(conf)
-	c.MetaCachePluginConfiguration.ApplyConfiguration(conf)
-	c.MetricEmitterPluginConfiguration.ApplyConfiguration(conf)
+func (c *SysAdvisorPluginsConfiguration) ApplyConfiguration(defaultConf *SysAdvisorPluginsConfiguration, conf *dynamic.DynamicConfigCRD) {
+	c.QoSAwarePluginConfiguration.ApplyConfiguration(defaultConf.QoSAwarePluginConfiguration, conf)
+	c.MetaCachePluginConfiguration.ApplyConfiguration(defaultConf.MetaCachePluginConfiguration, conf)
+	c.MetricEmitterPluginConfiguration.ApplyConfiguration(defaultConf.MetricEmitterPluginConfiguration, conf)
 }

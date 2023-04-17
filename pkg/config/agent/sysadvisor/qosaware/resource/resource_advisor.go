@@ -40,7 +40,7 @@ func NewResourceAdvisorConfiguration() *ResourceAdvisorConfiguration {
 }
 
 // ApplyConfiguration is used to set configuration based on conf.
-func (c *ResourceAdvisorConfiguration) ApplyConfiguration(conf *dynamic.DynamicConfigCRD) {
-	c.CPUAdvisorConfiguration.ApplyConfiguration(conf)
-	c.MemoryAdvisorConfiguration.ApplyConfiguration(conf)
+func (c *ResourceAdvisorConfiguration) ApplyConfiguration(defaultConf *ResourceAdvisorConfiguration, conf *dynamic.DynamicConfigCRD) {
+	c.CPUAdvisorConfiguration.ApplyConfiguration(defaultConf.CPUAdvisorConfiguration, conf)
+	c.MemoryAdvisorConfiguration.ApplyConfiguration(defaultConf.MemoryAdvisorConfiguration, conf)
 }

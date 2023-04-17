@@ -20,7 +20,6 @@ import (
 	"context"
 	"fmt"
 	"sort"
-	"sync"
 
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
@@ -41,15 +40,16 @@ const (
 
 type ResourcesGetter func(ctx context.Context) (v1.ResourceList, error)
 
+type ThresholdGetter func(resourceName v1.ResourceName) float64
+
 // ResourcesEvictionPlugin implements EvictPlugin interface it trigger
 // pod eviction logic based on the tolerance of resources.
 type ResourcesEvictionPlugin struct {
 	// emitter is used to emit metrics.
 	emitter metrics.MetricEmitter
 
-	// threshold indicates those thresholds when evicting pods by resources.
-	mux       sync.RWMutex
-	threshold map[v1.ResourceName]float64
+	// thresholdGetter is used to get the threshold of resources.
+	thresholdGetter ThresholdGetter
 
 	evictionPodGracefulPeriod     int64
 	skipZeroQuantityResourceNames sets.String
@@ -62,18 +62,18 @@ type ResourcesEvictionPlugin struct {
 }
 
 func NewResourcesEvictionPlugin(pluginName string, metaServer *metaserver.MetaServer,
-	emitter metrics.MetricEmitter, resourcesGetter ResourcesGetter,
+	emitter metrics.MetricEmitter, resourcesGetter ResourcesGetter, thresholdGetter ThresholdGetter,
 	skipZeroQuantityResourceNames sets.String, podFilter func(pod *v1.Pod) (bool, error),
-	threshold map[v1.ResourceName]float64, evictionPodGracefulPeriod int64) *ResourcesEvictionPlugin {
+	evictionPodGracefulPeriod int64) *ResourcesEvictionPlugin {
 	// use the given threshold to override the default configurations
 	plugin := &ResourcesEvictionPlugin{
 		pluginName:                    pluginName,
 		emitter:                       emitter,
 		metaServer:                    metaServer,
 		resourcesGetter:               resourcesGetter,
+		thresholdGetter:               thresholdGetter,
 		skipZeroQuantityResourceNames: skipZeroQuantityResourceNames,
 		podFilter:                     podFilter,
-		threshold:                     threshold,
 		evictionPodGracefulPeriod:     evictionPodGracefulPeriod,
 	}
 	return plugin
@@ -85,26 +85,6 @@ func (b *ResourcesEvictionPlugin) Name() string {
 	}
 
 	return b.pluginName
-}
-
-func (b *ResourcesEvictionPlugin) UpdateEvictionThreshold(threshold map[v1.ResourceName]float64) {
-	b.mux.Lock()
-	defer b.mux.Unlock()
-
-	b.threshold = threshold
-}
-
-// get resource threshold (i.e. tolerance) for each resource
-// if no specified, use 1. (not allowed to be over-committed)
-func (b *ResourcesEvictionPlugin) getResourceThreshold(resourceName v1.ResourceName) float64 {
-	b.mux.RLock()
-	defer b.mux.RUnlock()
-
-	if _, ok := b.threshold[resourceName]; !ok {
-		return 1.
-	}
-
-	return b.threshold[resourceName]
 }
 
 // ThresholdMet evict pods when the beset effort resources usage is greater than
@@ -186,7 +166,7 @@ func (b *ResourcesEvictionPlugin) ThresholdMet(ctx context.Context) (*pluginapi.
 		}
 
 		used := float64((&usedQuantity).Value())
-		thresholdRate := b.getResourceThreshold(resourceName)
+		thresholdRate := b.thresholdGetter(resourceName)
 		thresholdValue := total * thresholdRate
 		klog.Infof("[%s] resources %v: total %v, used %v, thresholdRate %v, thresholdValue: %v", b.pluginName,
 			resourceName, total, used, thresholdRate, thresholdValue)

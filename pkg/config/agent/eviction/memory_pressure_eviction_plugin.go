@@ -15,6 +15,8 @@
 package eviction
 
 import (
+	"sync"
+
 	"github.com/kubewharf/katalyst-core/pkg/config/dynamic"
 	"github.com/kubewharf/katalyst-core/pkg/consts"
 )
@@ -53,54 +55,197 @@ var (
 
 // MemoryPressureEvictionPluginConfiguration is the config of MemoryPressureEvictionPlugin
 type MemoryPressureEvictionPluginConfiguration struct {
-	EnableNumaLevelDetection             bool
-	EnableSystemLevelDetection           bool
-	NumaFreeBelowWatermarkTimesThreshold int
-	SystemKswapdRateThreshold            int
-	SystemKswapdRateExceedTimesThreshold int
-	NumaEvictionRankingMetrics           []string
-	SystemEvictionRankingMetrics         []string
-	GracePeriod                          int64
+	DynamicConf *MemoryPressureEvictionPluginDynamicConfiguration
 }
 
 // NewMemoryPressureEvictionPluginConfiguration returns a new MemoryPressureEvictionPluginConfiguration
 func NewMemoryPressureEvictionPluginConfiguration() *MemoryPressureEvictionPluginConfiguration {
-	return &MemoryPressureEvictionPluginConfiguration{}
+	return &MemoryPressureEvictionPluginConfiguration{
+		DynamicConf: NewMemoryPressureEvictionPluginDynamicConfiguration(),
+	}
+}
+
+func (c *MemoryPressureEvictionPluginConfiguration) ApplyConfiguration(configuration *MemoryPressureEvictionPluginConfiguration,
+	conf *dynamic.DynamicConfigCRD) {
+	c.DynamicConf.ApplyConfiguration(configuration.DynamicConf, conf)
+}
+
+type MemoryPressureEvictionPluginDynamicConfiguration struct {
+	mutex                                sync.RWMutex
+	enableNumaLevelDetection             bool
+	enableSystemLevelDetection           bool
+	numaFreeBelowWatermarkTimesThreshold int
+	systemKswapdRateThreshold            int
+	systemKswapdRateExceedTimesThreshold int
+	numaEvictionRankingMetrics           []string
+	systemEvictionRankingMetrics         []string
+	gracePeriod                          int64
+}
+
+func NewMemoryPressureEvictionPluginDynamicConfiguration() *MemoryPressureEvictionPluginDynamicConfiguration {
+	return &MemoryPressureEvictionPluginDynamicConfiguration{}
+}
+
+func (c *MemoryPressureEvictionPluginDynamicConfiguration) EnableNumaLevelDetection() bool {
+	c.mutex.RLock()
+	defer c.mutex.RUnlock()
+
+	return c.enableNumaLevelDetection
+}
+
+func (c *MemoryPressureEvictionPluginDynamicConfiguration) SetEnableNumaLevelDetection(enableNumaLevelDetection bool) {
+	c.mutex.Lock()
+	defer c.mutex.Unlock()
+
+	c.enableNumaLevelDetection = enableNumaLevelDetection
+}
+
+func (c *MemoryPressureEvictionPluginDynamicConfiguration) EnableSystemLevelDetection() bool {
+	c.mutex.RLock()
+	defer c.mutex.RUnlock()
+
+	return c.enableSystemLevelDetection
+}
+
+func (c *MemoryPressureEvictionPluginDynamicConfiguration) SetEnableSystemLevelDetection(enableSystemLevelDetection bool) {
+	c.mutex.Lock()
+	defer c.mutex.Unlock()
+
+	c.enableSystemLevelDetection = enableSystemLevelDetection
+}
+
+func (c *MemoryPressureEvictionPluginDynamicConfiguration) NumaFreeBelowWatermarkTimesThreshold() int {
+	c.mutex.RLock()
+	defer c.mutex.RUnlock()
+
+	return c.numaFreeBelowWatermarkTimesThreshold
+}
+
+func (c *MemoryPressureEvictionPluginDynamicConfiguration) SetNumaFreeBelowWatermarkTimesThreshold(numaFreeBelowWatermarkTimesThreshold int) {
+	c.mutex.Lock()
+	defer c.mutex.Unlock()
+
+	c.numaFreeBelowWatermarkTimesThreshold = numaFreeBelowWatermarkTimesThreshold
+}
+
+func (c *MemoryPressureEvictionPluginDynamicConfiguration) SystemKswapdRateThreshold() int {
+	c.mutex.RLock()
+	defer c.mutex.RUnlock()
+
+	return c.systemKswapdRateThreshold
+}
+
+func (c *MemoryPressureEvictionPluginDynamicConfiguration) SetSystemKswapdRateThreshold(systemKswapdRateThreshold int) {
+	c.mutex.Lock()
+	defer c.mutex.Unlock()
+
+	c.systemKswapdRateThreshold = systemKswapdRateThreshold
+}
+
+func (c *MemoryPressureEvictionPluginDynamicConfiguration) SystemKswapdRateExceedTimesThreshold() int {
+	c.mutex.RLock()
+	defer c.mutex.RUnlock()
+
+	return c.systemKswapdRateExceedTimesThreshold
+}
+
+func (c *MemoryPressureEvictionPluginDynamicConfiguration) SetSystemKswapdRateExceedTimesThreshold(systemKswapdRateExceedTimesThreshold int) {
+	c.mutex.Lock()
+	defer c.mutex.Unlock()
+
+	c.systemKswapdRateExceedTimesThreshold = systemKswapdRateExceedTimesThreshold
+}
+
+func (c *MemoryPressureEvictionPluginDynamicConfiguration) NumaEvictionRankingMetrics() []string {
+	c.mutex.RLock()
+	defer c.mutex.RUnlock()
+
+	return c.numaEvictionRankingMetrics
+}
+
+func (c *MemoryPressureEvictionPluginDynamicConfiguration) SetNumaEvictionRankingMetrics(numaEvictionRankingMetrics []string) {
+	c.mutex.Lock()
+	defer c.mutex.Unlock()
+
+	c.numaEvictionRankingMetrics = numaEvictionRankingMetrics
+}
+
+func (c *MemoryPressureEvictionPluginDynamicConfiguration) SystemEvictionRankingMetrics() []string {
+	c.mutex.RLock()
+	defer c.mutex.RUnlock()
+
+	return c.systemEvictionRankingMetrics
+}
+
+func (c *MemoryPressureEvictionPluginDynamicConfiguration) SetSystemEvictionRankingMetrics(systemEvictionRankingMetrics []string) {
+	c.mutex.Lock()
+	defer c.mutex.Unlock()
+
+	c.systemEvictionRankingMetrics = systemEvictionRankingMetrics
+}
+
+func (c *MemoryPressureEvictionPluginDynamicConfiguration) GracePeriod() int64 {
+	c.mutex.RLock()
+	defer c.mutex.RUnlock()
+
+	return c.gracePeriod
+}
+
+func (c *MemoryPressureEvictionPluginDynamicConfiguration) SetGracePeriod(gracePeriod int64) {
+	c.mutex.Lock()
+	defer c.mutex.Unlock()
+
+	c.gracePeriod = gracePeriod
 }
 
 // ApplyConfiguration applies dynamic.DynamicConfigCRD to MemoryPressureEvictionPluginConfiguration
-func (c *MemoryPressureEvictionPluginConfiguration) ApplyConfiguration(conf *dynamic.DynamicConfigCRD) {
+func (c *MemoryPressureEvictionPluginDynamicConfiguration) ApplyConfiguration(defaultConf *MemoryPressureEvictionPluginDynamicConfiguration, conf *dynamic.DynamicConfigCRD) {
+	c.mutex.Lock()
+	defer c.mutex.Unlock()
+
+	c.applyDefault(defaultConf)
 	if ec := conf.EvictionConfiguration; ec != nil {
 		if ec.Spec.Config.EvictionPluginsConfig.MemoryEvictionPluginConfig.EnableNumaLevelDetection != nil {
-			c.EnableNumaLevelDetection = *(ec.Spec.Config.EvictionPluginsConfig.MemoryEvictionPluginConfig.EnableNumaLevelDetection)
+			c.enableNumaLevelDetection = *(ec.Spec.Config.EvictionPluginsConfig.MemoryEvictionPluginConfig.EnableNumaLevelDetection)
 		}
 
 		if ec.Spec.Config.EvictionPluginsConfig.MemoryEvictionPluginConfig.EnableSystemLevelDetection != nil {
-			c.EnableSystemLevelDetection = *(ec.Spec.Config.EvictionPluginsConfig.MemoryEvictionPluginConfig.EnableSystemLevelDetection)
+			c.enableSystemLevelDetection = *(ec.Spec.Config.EvictionPluginsConfig.MemoryEvictionPluginConfig.EnableSystemLevelDetection)
 		}
 
 		if ec.Spec.Config.EvictionPluginsConfig.MemoryEvictionPluginConfig.NumaFreeBelowWatermarkTimesThreshold != nil {
-			c.NumaFreeBelowWatermarkTimesThreshold = *(ec.Spec.Config.EvictionPluginsConfig.MemoryEvictionPluginConfig.NumaFreeBelowWatermarkTimesThreshold)
+			c.numaFreeBelowWatermarkTimesThreshold = *(ec.Spec.Config.EvictionPluginsConfig.MemoryEvictionPluginConfig.NumaFreeBelowWatermarkTimesThreshold)
 		}
 
 		if ec.Spec.Config.EvictionPluginsConfig.MemoryEvictionPluginConfig.SystemKswapdRateThreshold != nil {
-			c.SystemKswapdRateThreshold = *(ec.Spec.Config.EvictionPluginsConfig.MemoryEvictionPluginConfig.SystemKswapdRateThreshold)
+			c.systemKswapdRateThreshold = *(ec.Spec.Config.EvictionPluginsConfig.MemoryEvictionPluginConfig.SystemKswapdRateThreshold)
 		}
 
 		if ec.Spec.Config.EvictionPluginsConfig.MemoryEvictionPluginConfig.SystemKswapdRateExceedTimesThreshold != nil {
-			c.SystemKswapdRateExceedTimesThreshold = *(ec.Spec.Config.EvictionPluginsConfig.MemoryEvictionPluginConfig.SystemKswapdRateExceedTimesThreshold)
+			c.systemKswapdRateExceedTimesThreshold = *(ec.Spec.Config.EvictionPluginsConfig.MemoryEvictionPluginConfig.SystemKswapdRateExceedTimesThreshold)
 		}
 
 		if len(ec.Spec.Config.EvictionPluginsConfig.MemoryEvictionPluginConfig.NumaEvictionRankingMetrics) > 0 {
-			c.NumaEvictionRankingMetrics = ec.Spec.Config.EvictionPluginsConfig.MemoryEvictionPluginConfig.NumaEvictionRankingMetrics
+			c.numaEvictionRankingMetrics = ec.Spec.Config.EvictionPluginsConfig.MemoryEvictionPluginConfig.NumaEvictionRankingMetrics
 		}
 
 		if len(ec.Spec.Config.EvictionPluginsConfig.MemoryEvictionPluginConfig.SystemEvictionRankingMetrics) > 0 {
-			c.SystemEvictionRankingMetrics = ec.Spec.Config.EvictionPluginsConfig.MemoryEvictionPluginConfig.SystemEvictionRankingMetrics
+			c.systemEvictionRankingMetrics = ec.Spec.Config.EvictionPluginsConfig.MemoryEvictionPluginConfig.SystemEvictionRankingMetrics
 		}
 
 		if ec.Spec.Config.EvictionPluginsConfig.MemoryEvictionPluginConfig.GracePeriod != nil {
-			c.GracePeriod = *(ec.Spec.Config.EvictionPluginsConfig.MemoryEvictionPluginConfig.GracePeriod)
+			c.gracePeriod = *(ec.Spec.Config.EvictionPluginsConfig.MemoryEvictionPluginConfig.GracePeriod)
 		}
 	}
+}
+
+func (c *MemoryPressureEvictionPluginDynamicConfiguration) applyDefault(defaultConf *MemoryPressureEvictionPluginDynamicConfiguration) {
+	c.enableNumaLevelDetection = defaultConf.enableNumaLevelDetection
+	c.enableSystemLevelDetection = defaultConf.enableSystemLevelDetection
+	c.numaFreeBelowWatermarkTimesThreshold = defaultConf.numaFreeBelowWatermarkTimesThreshold
+	c.systemKswapdRateThreshold = defaultConf.systemKswapdRateThreshold
+	c.systemKswapdRateExceedTimesThreshold = defaultConf.systemKswapdRateExceedTimesThreshold
+	c.numaEvictionRankingMetrics = defaultConf.numaEvictionRankingMetrics
+	c.systemEvictionRankingMetrics = defaultConf.systemEvictionRankingMetrics
+	c.gracePeriod = defaultConf.gracePeriod
 }

@@ -36,7 +36,8 @@ func NewGenericQRMPluginConfiguration() *GenericQRMPluginConfiguration {
 	return &GenericQRMPluginConfiguration{}
 }
 
-func (c *GenericQRMPluginConfiguration) ApplyConfiguration(_ *dynamic.DynamicConfigCRD) {}
+func (c *GenericQRMPluginConfiguration) ApplyConfiguration(*GenericQRMPluginConfiguration, *dynamic.DynamicConfigCRD) {
+}
 
 func NewQRMPluginsConfiguration() *QRMPluginsConfiguration {
 	return &QRMPluginsConfiguration{
@@ -45,7 +46,7 @@ func NewQRMPluginsConfiguration() *QRMPluginsConfiguration {
 	}
 }
 
-func (c *QRMPluginsConfiguration) ApplyConfiguration(conf *dynamic.DynamicConfigCRD) {
-	c.CPUQRMPluginConfig.ApplyConfiguration(conf)
-	c.MemoryQRMPluginConfig.ApplyConfiguration(conf)
+func (c *QRMPluginsConfiguration) ApplyConfiguration(defaultConf *QRMPluginsConfiguration, conf *dynamic.DynamicConfigCRD) {
+	c.CPUQRMPluginConfig.ApplyConfiguration(defaultConf.CPUQRMPluginConfig, conf)
+	c.MemoryQRMPluginConfig.ApplyConfiguration(defaultConf.MemoryQRMPluginConfig, conf)
 }

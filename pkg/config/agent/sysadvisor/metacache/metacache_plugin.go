@@ -33,5 +33,5 @@ func NewMetaCachePluginConfiguration() *MetaCachePluginConfiguration {
 }
 
 // ApplyConfiguration is used to set configuration based on conf.
-func (c *MetaCachePluginConfiguration) ApplyConfiguration(conf *dynamic.DynamicConfigCRD) {
+func (c *MetaCachePluginConfiguration) ApplyConfiguration(*MetaCachePluginConfiguration, *dynamic.DynamicConfigCRD) {
 }

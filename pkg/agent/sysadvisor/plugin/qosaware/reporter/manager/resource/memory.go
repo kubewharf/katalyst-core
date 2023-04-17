@@ -26,8 +26,9 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/reporter/manager/broker"
 	hmadvisor "github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource"
 	"github.com/kubewharf/katalyst-core/pkg/config"
+	"github.com/kubewharf/katalyst-core/pkg/config/agent/global/adminqos"
+	"github.com/kubewharf/katalyst-core/pkg/config/agent/sysadvisor/qosaware/reporter"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
-	dynamicconfig "github.com/kubewharf/katalyst-core/pkg/metaserver/config"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 )
 
@@ -52,8 +53,7 @@ func getMemoryBrokerInitializer(name string) (broker.BrokerInitFunc, bool) {
 	return initFunc.(broker.BrokerInitFunc), true
 }
 
-type memoryManagerImpl struct {
-	dynamicconfig.ConfigurationRegister
+type memoryHeadroomManagerImpl struct {
 	*GenericHeadroomManager
 }
 
@@ -72,25 +72,18 @@ func NewMemoryHeadroomManager(emitter metrics.MetricEmitter, metaServer *metaser
 		memoryBroker(emitter, metaServer, conf),
 		headroomAdvisor,
 		emitter,
-		generateMemoryWindowOptions(conf),
-		generateReclaimedMemoryOptions(conf),
+		generateMemoryWindowOptions(conf.HeadroomReporterConfiguration),
+		generateReclaimedMemoryOptionsFunc(conf.ReclaimedResourceConfiguration),
 	)
 
-	cm := &memoryManagerImpl{
+	cm := &memoryHeadroomManagerImpl{
 		GenericHeadroomManager: gm,
 	}
 
 	return cm, nil
 }
 
-// ApplyConfig apply dynamic reclaimed memory options
-// todo: register it to dynamic configuration manager in metaServer after the kcc crd already defined
-func (m *memoryManagerImpl) ApplyConfig(conf *config.Configuration) {
-	options := generateReclaimedMemoryOptions(conf)
-	m.UpdateReclaimOptions(options)
-}
-
-func generateMemoryWindowOptions(conf *config.Configuration) GenericSlidingWindowOptions {
+func generateMemoryWindowOptions(conf *reporter.HeadroomReporterConfiguration) GenericSlidingWindowOptions {
 	return GenericSlidingWindowOptions{
 		SlidingWindowTime: conf.HeadroomReporterSlidingWindowTime,
 		MinStep:           conf.HeadroomReporterSlidingWindowMinStep[v1.ResourceMemory],
@@ -98,10 +91,12 @@ func generateMemoryWindowOptions(conf *config.Configuration) GenericSlidingWindo
 	}
 }
 
-func generateReclaimedMemoryOptions(conf *config.Configuration) GenericReclaimOptions {
-	return GenericReclaimOptions{
-		EnableReclaim:                 conf.EnableReclaim,
-		ReservedResourceForReport:     conf.ReservedResourceForReport[v1.ResourceMemory],
-		MinReclaimedResourceForReport: conf.MinReclaimedResourceForReport[v1.ResourceMemory],
+func generateReclaimedMemoryOptionsFunc(conf *adminqos.ReclaimedResourceConfiguration) GetGenericReclaimOptionsFunc {
+	return func() GenericReclaimOptions {
+		return GenericReclaimOptions{
+			EnableReclaim:                 conf.EnableReclaim(),
+			ReservedResourceForReport:     conf.ReservedResourceForReport()[v1.ResourceMemory],
+			MinReclaimedResourceForReport: conf.MinReclaimedResourceForReport()[v1.ResourceMemory],
+		}
 	}
 }

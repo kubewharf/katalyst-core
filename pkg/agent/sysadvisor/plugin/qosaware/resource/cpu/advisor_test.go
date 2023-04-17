@@ -52,7 +52,7 @@ func generateTestConfiguration(t *testing.T, checkpointDir, stateFileDir string)
 
 	conf.GenericSysAdvisorConfiguration.StateFileDirectory = stateFileDir
 	conf.MetaServerConfiguration.CheckpointManagerDir = checkpointDir
-	conf.ReclaimedResourceConfiguration.ReservedResourceForAllocate[v1.ResourceCPU] = resource.MustParse("4")
+	conf.ReclaimedResourceConfiguration.ReservedResourceForAllocate()[v1.ResourceCPU] = resource.MustParse("4")
 	conf.ProvisionPolicies = map[types.QoSRegionType][]types.CPUProvisionPolicyName{
 		types.QoSRegionTypeShare:                  {types.CPUProvisionPolicyCanonical},
 		types.QoSRegionTypeDedicatedNumaExclusive: {types.CPUProvisionPolicyCanonical},
@@ -391,7 +391,7 @@ func TestUpdate(t *testing.T) {
 				finishCh <- struct{}{}
 			}(advisorCh)
 
-			advisor.enableReclaim = tt.reclaimEnabled
+			advisor.conf.ReclaimedResourceConfiguration.SetEnableReclaim(tt.reclaimEnabled)
 			advisor.Update()
 
 			// Check headroom

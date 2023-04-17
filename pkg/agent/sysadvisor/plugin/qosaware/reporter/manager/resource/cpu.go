@@ -26,8 +26,9 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/reporter/manager/broker"
 	hmadvisor "github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource"
 	"github.com/kubewharf/katalyst-core/pkg/config"
+	"github.com/kubewharf/katalyst-core/pkg/config/agent/global/adminqos"
+	"github.com/kubewharf/katalyst-core/pkg/config/agent/sysadvisor/qosaware/reporter"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
-	dynamicconfig "github.com/kubewharf/katalyst-core/pkg/metaserver/config"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 )
 
@@ -53,7 +54,6 @@ func getCPUBrokerInitializer(name string) (broker.BrokerInitFunc, bool) {
 }
 
 type cpuHeadroomManagerImpl struct {
-	dynamicconfig.ConfigurationRegister
 	*GenericHeadroomManager
 }
 
@@ -73,8 +73,8 @@ func NewCPUHeadroomManager(emitter metrics.MetricEmitter, metaServer *metaserver
 		brokerInitializer(emitter, metaServer, conf),
 		headroomAdvisor,
 		emitter,
-		generateCPUWindowOptions(conf),
-		generateReclaimCPUOptions(conf),
+		generateCPUWindowOptions(conf.HeadroomReporterConfiguration),
+		generateReclaimCPUOptionsFunc(conf.ReclaimedResourceConfiguration),
 	)
 
 	cm := &cpuHeadroomManagerImpl{
@@ -84,14 +84,7 @@ func NewCPUHeadroomManager(emitter metrics.MetricEmitter, metaServer *metaserver
 	return cm, nil
 }
 
-// ApplyConfig apply dynamic reclaimed cpu options
-// todo: register it to dynamic configuration manager in metaServer after the kcc crd already defined
-func (m *cpuHeadroomManagerImpl) ApplyConfig(conf *config.Configuration) {
-	options := generateReclaimCPUOptions(conf)
-	m.UpdateReclaimOptions(options)
-}
-
-func generateCPUWindowOptions(conf *config.Configuration) GenericSlidingWindowOptions {
+func generateCPUWindowOptions(conf *reporter.HeadroomReporterConfiguration) GenericSlidingWindowOptions {
 	return GenericSlidingWindowOptions{
 		SlidingWindowTime: conf.HeadroomReporterSlidingWindowTime,
 		MinStep:           conf.HeadroomReporterSlidingWindowMinStep[v1.ResourceCPU],
@@ -99,10 +92,12 @@ func generateCPUWindowOptions(conf *config.Configuration) GenericSlidingWindowOp
 	}
 }
 
-func generateReclaimCPUOptions(conf *config.Configuration) GenericReclaimOptions {
-	return GenericReclaimOptions{
-		EnableReclaim:                 conf.EnableReclaim,
-		ReservedResourceForReport:     conf.ReservedResourceForReport[v1.ResourceCPU],
-		MinReclaimedResourceForReport: conf.MinReclaimedResourceForReport[v1.ResourceCPU],
+func generateReclaimCPUOptionsFunc(conf *adminqos.ReclaimedResourceConfiguration) GetGenericReclaimOptionsFunc {
+	return func() GenericReclaimOptions {
+		return GenericReclaimOptions{
+			EnableReclaim:                 conf.EnableReclaim(),
+			ReservedResourceForReport:     conf.ReservedResourceForReport()[v1.ResourceCPU],
+			MinReclaimedResourceForReport: conf.MinReclaimedResourceForReport()[v1.ResourceCPU],
+		}
 	}
 }

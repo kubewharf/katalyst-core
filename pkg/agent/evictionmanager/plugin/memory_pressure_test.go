@@ -81,14 +81,14 @@ func makeMetaServer() *metaserver.MetaServer {
 func makeConf() *config.Configuration {
 	conf := config.NewConfiguration()
 	conf.EvictionManagerSyncPeriod = evictionManagerSyncPeriod
-	conf.EnableNumaLevelDetection = evictionconfig.DefaultEnableNumaLevelDetection
-	conf.EnableSystemLevelDetection = evictionconfig.DefaultEnableSystemLevelDetection
-	conf.NumaFreeBelowWatermarkTimesThreshold = numaFreeBelowWatermarkTimesThreshold
-	conf.SystemKswapdRateThreshold = systemKswapdRateThreshold
-	conf.SystemKswapdRateExceedTimesThreshold = systemKswapdRateExceedTimesThreshold
-	conf.NumaEvictionRankingMetrics = evictionconfig.DefaultNumaEvictionRankingMetrics
-	conf.SystemEvictionRankingMetrics = evictionconfig.DefaultSystemEvictionRankingMetrics
-	conf.GracePeriod = evictionconfig.DefaultGracePeriod
+	conf.MemoryPressureEvictionPluginConfiguration.DynamicConf.SetEnableNumaLevelDetection(evictionconfig.DefaultEnableNumaLevelDetection)
+	conf.MemoryPressureEvictionPluginConfiguration.DynamicConf.SetEnableSystemLevelDetection(evictionconfig.DefaultEnableSystemLevelDetection)
+	conf.MemoryPressureEvictionPluginConfiguration.DynamicConf.SetNumaFreeBelowWatermarkTimesThreshold(numaFreeBelowWatermarkTimesThreshold)
+	conf.MemoryPressureEvictionPluginConfiguration.DynamicConf.SetSystemKswapdRateThreshold(systemKswapdRateThreshold)
+	conf.MemoryPressureEvictionPluginConfiguration.DynamicConf.SetSystemKswapdRateExceedTimesThreshold(systemKswapdRateExceedTimesThreshold)
+	conf.MemoryPressureEvictionPluginConfiguration.DynamicConf.SetNumaEvictionRankingMetrics(evictionconfig.DefaultNumaEvictionRankingMetrics)
+	conf.MemoryPressureEvictionPluginConfiguration.DynamicConf.SetSystemEvictionRankingMetrics(evictionconfig.DefaultSystemEvictionRankingMetrics)
+	conf.MemoryPressureEvictionPluginConfiguration.DynamicConf.SetGracePeriod(evictionconfig.DefaultGracePeriod)
 
 	return conf
 }
@@ -99,11 +99,11 @@ func TestNewMemoryPressureEvictionPlugin(t *testing.T) {
 	assert.NotNil(t, plugin)
 
 	assert.Equal(t, evictionManagerSyncPeriod, plugin.evictionManagerSyncPeriod)
-	assert.Equal(t, numaFreeBelowWatermarkTimesThreshold, plugin.numaFreeBelowWatermarkTimesThreshold)
-	assert.Equal(t, systemKswapdRateThreshold, plugin.systemKswapdRateThreshold)
-	assert.Equal(t, systemKswapdRateExceedTimesThreshold, plugin.systemKswapdRateExceedTimesThreshold)
-	assert.Equal(t, evictionconfig.DefaultNumaEvictionRankingMetrics, plugin.numaEvictionRankingMetrics)
-	assert.Equal(t, evictionconfig.DefaultSystemEvictionRankingMetrics, plugin.systemEvictionRankingMetrics)
+	assert.Equal(t, numaFreeBelowWatermarkTimesThreshold, plugin.memoryEvictionPluginConfig.DynamicConf.NumaFreeBelowWatermarkTimesThreshold())
+	assert.Equal(t, systemKswapdRateThreshold, plugin.memoryEvictionPluginConfig.DynamicConf.SystemKswapdRateThreshold())
+	assert.Equal(t, systemKswapdRateExceedTimesThreshold, plugin.memoryEvictionPluginConfig.DynamicConf.SystemKswapdRateExceedTimesThreshold())
+	assert.Equal(t, evictionconfig.DefaultNumaEvictionRankingMetrics, plugin.memoryEvictionPluginConfig.DynamicConf.NumaEvictionRankingMetrics())
+	assert.Equal(t, evictionconfig.DefaultSystemEvictionRankingMetrics, plugin.memoryEvictionPluginConfig.DynamicConf.SystemEvictionRankingMetrics())
 
 	return
 }
@@ -621,7 +621,8 @@ func TestMultiSorter(t *testing.T) {
 	for i, pod := range pods {
 		fakeMetricsFetcher.SetContainerMetric(string(pod.UID), pod.Spec.Containers[0].Name, consts.MetricMemUsageContainer, podUsageSystem[i])
 	}
-	general.NewMultiSorter(plugin.getEvictionCmpFuncs(plugin.systemEvictionRankingMetrics, nonExistNumaID)...).Sort(native.NewPodSourceImpList(pods))
+	general.NewMultiSorter(plugin.getEvictionCmpFuncs(plugin.memoryEvictionPluginConfig.DynamicConf.SystemEvictionRankingMetrics(),
+		nonExistNumaID)...).Sort(native.NewPodSourceImpList(pods))
 
 	wantPodNameList := []string{
 		"pod-2",

@@ -30,7 +30,6 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource/memory/headroompolicy"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
 	"github.com/kubewharf/katalyst-core/pkg/config"
-	pkgconfig "github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 )
@@ -47,10 +46,8 @@ const (
 
 // memoryResourceAdvisor updates memory headroom for reclaimed resource
 type memoryResourceAdvisor struct {
-	name                string
-	startTime           time.Time
-	reservedForAllocate int64
-	enableReclaim       bool
+	name      string
+	startTime time.Time
 
 	mutex sync.RWMutex
 
@@ -77,10 +74,6 @@ func NewMemoryResourceAdvisor(conf *config.Configuration, extraConf interface{},
 		emitter:    emitter,
 	}
 
-	// todo: support dynamic reserved resource from kcc
-	reservedDefault := conf.ReclaimedResourceConfiguration.ReservedResourceForAllocate[v1.ResourceMemory]
-	ra.reservedForAllocate = reservedDefault.Value()
-
 	initializers := headroompolicy.GetRegisteredInitializers()
 	for _, headroomPolicyName := range conf.MemoryHeadroomPolicies {
 		initFunc, ok := initializers[headroomPolicyName]
@@ -91,16 +84,7 @@ func NewMemoryResourceAdvisor(conf *config.Configuration, extraConf interface{},
 		ra.headroomPolices = append(ra.headroomPolices, initFunc(conf, extraConf, metaCache, metaServer, emitter))
 	}
 
-	// register to obtain dynamic configurations from KCC
-	metaServer.Register(ra)
-
 	return ra
-}
-
-func (ra *memoryResourceAdvisor) ApplyConfig(conf *pkgconfig.DynamicConfiguration) {
-	ra.mutex.Lock()
-	defer ra.mutex.Unlock()
-	ra.enableReclaim = conf.EnableReclaim
 }
 
 func (ra *memoryResourceAdvisor) Name() string {
@@ -125,12 +109,15 @@ func (ra *memoryResourceAdvisor) Update() {
 		return
 	}
 
+	reservedForAllocate := ra.conf.ReclaimedResourceConfiguration.
+		ReservedResourceForAllocate()[v1.ResourceMemory]
+
 	for _, headroomPolicy := range ra.headroomPolices {
 		// capacity and reserved can both be adjusted dynamically during running process
 		headroomPolicy.SetEssentials(types.ResourceEssentials{
 			Total:               int(ra.metaServer.MemoryCapacity),
-			ReservedForAllocate: int(ra.reservedForAllocate),
-			EnableReclaim:       ra.enableReclaim,
+			ReservedForAllocate: int(reservedForAllocate.Value()),
+			EnableReclaim:       ra.conf.ReclaimedResourceConfiguration.EnableReclaim(),
 		})
 
 		if err := headroomPolicy.Update(); err != nil {
