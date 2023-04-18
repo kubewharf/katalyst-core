@@ -23,27 +23,27 @@ import (
 )
 
 type PolicyBase struct {
-	PodSet types.PodSet
-	types.ResourceEssentials
+	podSet     types.PodSet
+	essentials types.ResourceEssentials
 
-	MetaReader metacache.MetaReader
-	MetaServer *metaserver.MetaServer
+	metaReader metacache.MetaReader
+	metaServer *metaserver.MetaServer
 }
 
 func NewPolicyBase(metaReader metacache.MetaReader, metaServer *metaserver.MetaServer) *PolicyBase {
 	cp := &PolicyBase{
-		PodSet: make(types.PodSet),
+		podSet: make(types.PodSet),
 
-		MetaReader: metaReader,
-		MetaServer: metaServer,
+		metaReader: metaReader,
+		metaServer: metaServer,
 	}
 	return cp
 }
 
 func (p *PolicyBase) SetPodSet(podSet types.PodSet) {
-	p.PodSet = podSet.Clone()
+	p.podSet = podSet.Clone()
 }
 
 func (p *PolicyBase) SetEssentials(essentials types.ResourceEssentials) {
-	p.ResourceEssentials = essentials
+	p.essentials = essentials
 }

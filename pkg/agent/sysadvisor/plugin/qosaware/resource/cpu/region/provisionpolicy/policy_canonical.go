@@ -48,9 +48,9 @@ func (p *PolicyCanonical) Update() error {
 		containerCnt  float64 = 0
 	)
 
-	for podUID, containerSet := range p.PodSet {
+	for podUID, containerSet := range p.podSet {
 		for containerName := range containerSet {
-			ci, ok := p.MetaReader.GetContainerInfo(podUID, containerName)
+			ci, ok := p.metaReader.GetContainerInfo(podUID, containerName)
 			if !ok || ci == nil {
 				klog.Errorf("[qosaware-cpu-provision] illegal container info of %v/%v", podUID, containerName)
 				continue
@@ -58,16 +58,16 @@ func (p *PolicyCanonical) Update() error {
 
 			var err error
 			containerEstimation := 0.0
-			if p.EnableReclaim {
-				containerEstimation, err = helper.EstimateContainerResourceUsage(ci, v1.ResourceCPU, p.MetaReader)
+			if p.essentials.EnableReclaim {
+				containerEstimation, err = helper.EstimateContainerResourceUsage(ci, v1.ResourceCPU, p.metaReader)
 				if err != nil {
 					return err
 				}
 				// FIXME: metric server doesn't support to report cpu usage in numa granularity,
 				//  so we split cpu usage evenly across the binding numas of container.
-				if p.BindingNumas.Size() > 0 {
+				if p.bindingNumas.Size() > 0 {
 					cpuSize := 0
-					for _, numaID := range p.BindingNumas.ToSliceInt() {
+					for _, numaID := range p.bindingNumas.ToSliceInt() {
 						cpuSize += ci.TopologyAwareAssignments[numaID].Size()
 					}
 					containerEstimation = containerEstimation * float64(cpuSize) / float64(machine.CountCPUAssignmentCPUs(ci.TopologyAwareAssignments))
@@ -83,18 +83,18 @@ func (p *PolicyCanonical) Update() error {
 
 	// we need to call SetLatestCPURequirement to ensure the previous requirements are passed to
 	// regulator in case that sysadvisor restarts, to avoid the slow-start always begin with zero.
-	p.CPURegulator.SetLatestCPURequirement(p.Requirement)
-	p.CPURegulator.Regulate(cpuEstimation)
+	p.regulator.SetLatestCPURequirement(p.requirement)
+	p.regulator.Regulate(cpuEstimation)
 
 	klog.Infof("[qosaware-cpu-provision] cpu requirement estimation: %.2f, #container %v", cpuEstimation, containerCnt)
-	p.Requirement = p.CPURegulator.GetCPURequirement()
+	p.requirement = p.regulator.GetCPURequirement()
 	return nil
 }
 
 func (p *PolicyCanonical) GetControlKnobAdjusted() (types.ControlKnob, error) {
 	return map[types.ControlKnobName]types.ControlKnobValue{
 		types.ControlKnobNonReclaimedCPUSetSize: {
-			Value:  float64(p.Requirement),
+			Value:  float64(p.requirement),
 			Action: types.ControlKnobActionNone,
 		},
 	}, nil

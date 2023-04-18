@@ -24,32 +24,34 @@ import (
 )
 
 type PolicyBase struct {
-	RegionName    string
-	PodSet        types.PodSet
-	HeadroomValue float64
-	types.ResourceEssentials
+	regionName string
 
-	MetaReader metacache.MetaReader
-	MetaServer *metaserver.MetaServer
-	Emitter    metrics.MetricEmitter
+	headroom   float64
+	podSet     types.PodSet
+	essentials types.ResourceEssentials
+
+	metaReader metacache.MetaReader
+	metaServer *metaserver.MetaServer
+	emitter    metrics.MetricEmitter
 }
 
-func NewPolicyBase(regionName string, metaReader metacache.MetaReader, metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter) *PolicyBase {
+func NewPolicyBase(regionName string, metaReader metacache.MetaReader, metaServer *metaserver.MetaServer,
+	emitter metrics.MetricEmitter) *PolicyBase {
 	cp := &PolicyBase{
-		RegionName: regionName,
-		PodSet:     make(types.PodSet),
+		regionName: regionName,
+		podSet:     make(types.PodSet),
 
-		MetaReader: metaReader,
-		MetaServer: metaServer,
-		Emitter:    emitter,
+		metaReader: metaReader,
+		metaServer: metaServer,
+		emitter:    emitter,
 	}
 	return cp
 }
 
 func (p *PolicyBase) SetPodSet(podSet types.PodSet) {
-	p.PodSet = podSet.Clone()
+	p.podSet = podSet.Clone()
 }
 
 func (p *PolicyBase) SetEssentials(essentials types.ResourceEssentials) {
-	p.ResourceEssentials = essentials
+	p.essentials = essentials
 }

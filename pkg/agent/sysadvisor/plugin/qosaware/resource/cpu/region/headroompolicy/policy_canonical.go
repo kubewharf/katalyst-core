@@ -41,9 +41,9 @@ func NewPolicyCanonical(regionName string, _ *config.Configuration, _ interface{
 }
 
 func (p *PolicyCanonical) Update() error {
-	regionInfo, ok := p.MetaReader.GetRegionInfo(p.RegionName)
+	regionInfo, ok := p.metaReader.GetRegionInfo(p.regionName)
 	if !ok {
-		return fmt.Errorf("get region info for %v failed", p.RegionName)
+		return fmt.Errorf("get region info for %v failed", p.regionName)
 	}
 
 	controlKnobValue := types.ControlKnobValue{}
@@ -54,13 +54,13 @@ func (p *PolicyCanonical) Update() error {
 			return fmt.Errorf("get control knob value failed")
 		}
 		cpuRequirement := controlKnobValue.Value
-		p.HeadroomValue = math.Max(float64(p.Total-p.ReservePoolSize)-cpuRequirement, 0)
+		p.headroom = math.Max(float64(p.essentials.Total-p.essentials.ReservePoolSize)-cpuRequirement, 0)
 	case types.QoSRegionTypeDedicatedNumaExclusive:
 		controlKnobValue, ok = regionInfo.ControlKnobMap[types.ControlKnobReclaimedCPUSupplied]
 		if !ok {
 			return fmt.Errorf("get control knob value failed")
 		}
-		p.HeadroomValue = math.Max(controlKnobValue.Value, 0)
+		p.headroom = math.Max(controlKnobValue.Value, 0)
 	default:
 		return fmt.Errorf("region type %v is invalid", regionInfo.RegionType)
 	}
@@ -69,5 +69,5 @@ func (p *PolicyCanonical) Update() error {
 }
 
 func (p *PolicyCanonical) GetHeadroom() (float64, error) {
-	return p.HeadroomValue, nil
+	return p.headroom, nil
 }
