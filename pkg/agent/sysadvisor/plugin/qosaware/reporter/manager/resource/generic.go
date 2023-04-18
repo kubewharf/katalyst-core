@@ -141,6 +141,7 @@ func (m *GenericHeadroomManager) sync(_ context.Context) {
 
 	reclaimOptions := m.getReclaimOptions()
 	if !reclaimOptions.EnableReclaim {
+		klog.Infof("reclaim disabled")
 		m.lastReportResult = &resource.Quantity{}
 		return
 	}

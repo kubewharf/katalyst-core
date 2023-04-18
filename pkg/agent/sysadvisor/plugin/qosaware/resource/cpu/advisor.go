@@ -82,11 +82,12 @@ type cpuResourceAdvisor struct {
 	startTime   time.Time
 	systemNumas machine.CPUSet
 
-	regionMap          map[string]region.QoSRegion              // map[regionName]region
-	containerRegionMap map[string]map[string][]region.QoSRegion // map[podUID][containerName]regions
-	poolRegionMap      map[string][]region.QoSRegion            // map[poolName]regions
+	regionMap     map[string]region.QoSRegion   // map[regionName]region
+	podRegionMap  map[string][]region.QoSRegion // map[podUID]regions
+	poolRegionMap map[string][]region.QoSRegion // map[poolName]regions
 
 	sharedNumas machine.CPUSet // numas without numa binding workloads
+	emptyNumas  machine.CPUSet // numas without non-reclaimed workloads, like dedicated_cores, share_cores
 	mutex       sync.RWMutex
 
 	metaCache  metacache.MetaCache
@@ -104,11 +105,12 @@ func NewCPUResourceAdvisor(conf *config.Configuration, extraConf interface{}, me
 		startTime:   time.Now(),
 		systemNumas: metaServer.CPUDetails.NUMANodes(),
 
-		regionMap:          make(map[string]region.QoSRegion),
-		containerRegionMap: make(map[string]map[string][]region.QoSRegion),
-		poolRegionMap:      make(map[string][]region.QoSRegion),
+		regionMap:     make(map[string]region.QoSRegion),
+		podRegionMap:  make(map[string][]region.QoSRegion),
+		poolRegionMap: make(map[string][]region.QoSRegion),
 
 		sharedNumas: machine.NewCPUSet(),
+		emptyNumas:  machine.NewCPUSet(),
 
 		conf:      conf,
 		extraConf: extraConf,
@@ -237,9 +239,18 @@ func (cra *cpuResourceAdvisor) GetHeadroom() (resource.Quantity, error) {
 		if err != nil {
 			return headroom, err
 		}
+		klog.Infof("region %v headroom %v, binding numas %v", r.Name(), headroom.String(), r.GetBindingNumas().ToSliceInt())
 		// FIXME: is it reasonable to simply add headroom together?
 		totalHeadroom.Add(headroom)
 	}
+
+	emptyReservePoolSize := int64(math.Ceil(float64(reservePoolSize*cra.emptyNumas.Size()) / float64(cra.metaServer.NumNUMANodes)))
+	emptyNumaHeadroom := resource.NewQuantity(int64(cra.emptyNumas.Size()*cra.metaServer.CPUsPerNuma()), resource.DecimalSI)
+	if emptyNumaHeadroom.Value() > emptyReservePoolSize {
+		emptyNumaHeadroom.Sub(*resource.NewQuantity(emptyReservePoolSize, resource.DecimalSI))
+	}
+	totalHeadroom.Add(*emptyNumaHeadroom)
+	klog.Infof("empty numa headroom %v", emptyNumaHeadroom.String())
 
 	return *totalHeadroom, nil
 }
@@ -273,7 +284,7 @@ func (cra *cpuResourceAdvisor) assignContainersToRegions() error {
 			cra.regionMap[r.Name()] = r
 		}
 
-		cra.setContainerRegions(ci, regions)
+		cra.setPodRegions(ci, regions)
 		cra.setPoolRegions(ci.OwnerPoolName, regions)
 
 		return true
@@ -302,7 +313,7 @@ func (cra *cpuResourceAdvisor) assignToRegions(ci *types.ContainerInfo) ([]regio
 
 	} else if ci.IsNumaBinding() {
 		// Assign dedicated cores numa exclusive containers. Focus on container.
-		if regions, ok := cra.getContainerRegions(ci); ok {
+		if regions, ok := cra.getPodRegions(ci); ok {
 			return regions, nil
 		}
 
@@ -313,6 +324,7 @@ func (cra *cpuResourceAdvisor) assignToRegions(ci *types.ContainerInfo) ([]regio
 			name := string(types.QoSRegionTypeDedicatedNumaExclusive) + regionNameSeparator + string(uuid.NewUUID())
 			r := region.NewQoSRegionDedicatedNumaExclusive(name, ci.OwnerPoolName, cra.conf, numaID, cra.extraConf, cra.metaCache, cra.metaServer, cra.emitter)
 			regions = append(regions, r)
+			klog.Infof("create region %v for pod %v/%v/%v container %v numaID %v poolName %v", r.Name(), ci.PodNamespace, ci.PodName, ci.PodUID, ci.ContainerName, numaID, ci.OwnerPoolName)
 		}
 
 		return regions, nil
@@ -322,19 +334,23 @@ func (cra *cpuResourceAdvisor) assignToRegions(ci *types.ContainerInfo) ([]regio
 }
 
 // updateSharedNumas updates shared numa info for shared-regions
-// - shared-numa = system-numa - dedicated numa
+// - shared-numa = system-numa - dedicated-numa
+// - empty-numa = system-numa - dedicated-numa - shared-numa
 func (cra *cpuResourceAdvisor) updateSharedNumas() {
-	cra.sharedNumas = cra.systemNumas
+	cra.sharedNumas = machine.NewCPUSet()
+	cra.emptyNumas = cra.systemNumas
 
 	for _, r := range cra.regionMap {
 		if r.Type() == types.QoSRegionTypeDedicatedNumaExclusive {
-			cra.sharedNumas = cra.sharedNumas.Difference(r.GetBindingNumas())
+			cra.emptyNumas = cra.emptyNumas.Difference(r.GetBindingNumas())
 		}
 	}
 
 	// Set binding numas for non numa binding regions
 	for _, r := range cra.regionMap {
 		if r.Type() == types.QoSRegionTypeShare {
+			cra.sharedNumas = cra.emptyNumas.Clone()
+			cra.emptyNumas = machine.NewCPUSet()
 			r.SetBindingNumas(cra.sharedNumas)
 		}
 	}
@@ -403,7 +419,8 @@ func (cra *cpuResourceAdvisor) assembleProvision() (CPUProvision, error) {
 
 	// Fill in shared reclaimed pool size
 	sharedReservePoolSize := int(math.Ceil(float64(reservePoolSize*cra.sharedNumas.Size()) / float64(cra.metaServer.NumNUMANodes)))
-	sharedReclaimPoolSize := cra.sharedNumas.Size()*cra.metaServer.CPUsPerNuma() - nonNumaBindingRequirement - sharedReservePoolSize
+	emptyReservePoolSize := int(math.Ceil(float64(reservePoolSize*cra.emptyNumas.Size()) / float64(cra.metaServer.NumNUMANodes)))
+	sharedReclaimPoolSize := (cra.sharedNumas.Size()+cra.emptyNumas.Size())*cra.metaServer.CPUsPerNuma() - nonNumaBindingRequirement - sharedReservePoolSize - emptyReservePoolSize
 	if provision.PoolSizeMap[state.PoolNameReclaim] == nil {
 		provision.PoolSizeMap[state.PoolNameReclaim] = make(map[int]resource.Quantity)
 	}
@@ -421,9 +438,9 @@ func (cra *cpuResourceAdvisor) gc() {
 	}
 
 	// Delete non exist pods in container region map
-	for podUID := range cra.containerRegionMap {
+	for podUID := range cra.podRegionMap {
 		if _, ok := cra.metaCache.GetContainerEntries(podUID); !ok {
-			delete(cra.containerRegionMap, podUID)
+			delete(cra.podRegionMap, podUID)
 		}
 	}
 
@@ -435,22 +452,13 @@ func (cra *cpuResourceAdvisor) gc() {
 	}
 }
 
-func (cra *cpuResourceAdvisor) getContainerRegions(ci *types.ContainerInfo) ([]region.QoSRegion, bool) {
-	if v, ok := cra.containerRegionMap[ci.PodUID]; ok {
-		if regions, exist := v[ci.ContainerName]; exist {
-			return regions, true
-		}
-	}
-	return nil, false
+func (cra *cpuResourceAdvisor) getPodRegions(ci *types.ContainerInfo) ([]region.QoSRegion, bool) {
+	regions, ok := cra.podRegionMap[ci.PodUID]
+	return regions, ok
 }
 
-func (cra *cpuResourceAdvisor) setContainerRegions(ci *types.ContainerInfo, regions []region.QoSRegion) {
-	v, ok := cra.containerRegionMap[ci.PodUID]
-	if !ok {
-		cra.containerRegionMap[ci.PodUID] = make(map[string][]region.QoSRegion)
-		v = cra.containerRegionMap[ci.PodUID]
-	}
-	v[ci.ContainerName] = regions
+func (cra *cpuResourceAdvisor) setPodRegions(ci *types.ContainerInfo, regions []region.QoSRegion) {
+	cra.podRegionMap[ci.PodUID] = regions
 }
 
 func (cra *cpuResourceAdvisor) getPoolRegions(poolName string) ([]region.QoSRegion, bool) {
