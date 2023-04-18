@@ -70,7 +70,7 @@ func (r *QoSRegionDedicatedNumaExclusive) TryUpdateProvision() {
 		internal.initDoOnce.Do(func() {
 			reclaimedCpuSize := 0
 			if reclaimedInfo, ok := r.metaReader.GetPoolInfo(state.PoolNameReclaim); ok {
-				for _, numaID := range r.GetBindingNumas().ToSliceInt() {
+				for _, numaID := range r.bindingNumas.ToSliceInt() {
 					reclaimedCpuSize += reclaimedInfo.TopologyAwareAssignments[numaID].Size()
 				}
 			}

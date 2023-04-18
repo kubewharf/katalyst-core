@@ -47,6 +47,7 @@ func (o *ResourceAdvisorOptions) AddFlags(fs *pflag.FlagSet) {
 	fs.StringSliceVar(&o.ResourceAdvisors, "resource-advisors", o.ResourceAdvisors, "active dimensions for resource advisors")
 
 	o.CPUAdvisorOptions.AddFlags(fs)
+	o.MemoryAdvisorOptions.AddFlags(fs)
 }
 
 // ApplyTo fills up config with options
@@ -55,6 +56,7 @@ func (o *ResourceAdvisorOptions) ApplyTo(c *resource.ResourceAdvisorConfiguratio
 
 	var errList []error
 	errList = append(errList, o.CPUAdvisorOptions.ApplyTo(c.CPUAdvisorConfiguration))
+	errList = append(errList, o.MemoryAdvisorOptions.ApplyTo(c.MemoryAdvisorConfiguration))
 
 	return errors.NewAggregate(errList)
 }
