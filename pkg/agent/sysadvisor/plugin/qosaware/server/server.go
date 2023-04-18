@@ -94,8 +94,10 @@ func newSubQRMServer(resourceName v1.ResourceName, advisorWrapper resource.Resou
 		if err != nil {
 			return nil, err
 		}
-		advisorInformer := subAdvisor.GetChannel().(chan resourcecpu.CPUProvision)
-		return cpu.NewCPUServer(advisorInformer, conf, metaCache, emitter)
+		advisorRecvChInterface, advisorSendChInterface := subAdvisor.GetChannels()
+		advisorRecvCh := advisorRecvChInterface.(chan struct{})
+		advisorSendCh := advisorSendChInterface.(chan resourcecpu.InternalCalculationResult)
+		return cpu.NewCPUServer(advisorSendCh, advisorRecvCh, conf, metaCache, emitter)
 	default:
 		return nil, fmt.Errorf("illegal resource %v", resourceName)
 	}

@@ -55,6 +55,7 @@ func (o *ResourceAdvisorOptions) ApplyTo(c *resource.ResourceAdvisorConfiguratio
 
 	var errList []error
 	errList = append(errList, o.CPUAdvisorOptions.ApplyTo(c.CPUAdvisorConfiguration))
+	errList = append(errList, o.MemoryAdvisorOptions.ApplyTo(c.MemoryAdvisorConfiguration))
 
 	return errors.NewAggregate(errList)
 }

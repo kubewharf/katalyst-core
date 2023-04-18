@@ -105,6 +105,7 @@ func (qap *QoSAwarePlugin) Run(ctx context.Context) {
 	go wait.UntilWithContext(ctx, qap.periodicWork, qap.period)
 
 	go qap.qrmServer.Run(ctx)
+	go qap.resourceAdvisor.Run(ctx)
 
 	// Headroom reporter must run synchronously to be stopped gracefully
 	qap.headroomReporter.Run(ctx)
@@ -122,6 +123,4 @@ func (qap *QoSAwarePlugin) Init() error {
 
 func (qap *QoSAwarePlugin) periodicWork(_ context.Context) {
 	_ = qap.emitter.StoreInt64(MetricsNamePlugQoSAwareHearBeat, int64(qap.period.Seconds()), metrics.MetricTypeNameCount)
-
-	qap.resourceAdvisor.Update()
 }

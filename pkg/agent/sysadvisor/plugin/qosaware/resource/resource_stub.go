@@ -17,6 +17,7 @@ limitations under the License.
 package resource
 
 import (
+	"context"
 	"fmt"
 	"sync"
 
@@ -39,7 +40,8 @@ func NewResourceAdvisorStub() *ResourceAdvisorStub {
 	}
 }
 
-func (r *ResourceAdvisorStub) Update() {}
+func (r *ResourceAdvisorStub) Run(ctx context.Context) {
+}
 
 func (r *ResourceAdvisorStub) GetSubAdvisor(resourceName types.QoSResourceName) (SubResourceAdvisor, error) {
 	return nil, nil
@@ -78,11 +80,11 @@ func (s *SubResourceAdvisorStub) Name() string {
 	return "stub-sub-resource-advisor"
 }
 
-func (s *SubResourceAdvisorStub) Update() {
+func (s *SubResourceAdvisorStub) Run(ctx context.Context) {
 }
 
-func (s *SubResourceAdvisorStub) GetChannel() interface{} {
-	return nil
+func (s *SubResourceAdvisorStub) GetChannels() (interface{}, interface{}) {
+	return nil, nil
 }
 
 func (s *SubResourceAdvisorStub) GetHeadroom() (resource.Quantity, error) {

@@ -17,6 +17,7 @@ limitations under the License.
 package resource
 
 import (
+	"context"
 	"fmt"
 
 	v1 "k8s.io/api/core/v1"
@@ -34,8 +35,8 @@ import (
 // ResourceAdvisor is a wrapper of different sub resource advisors. It can be registered to
 // headroom reporter to give designated resource headroom quantity based on provision result.
 type ResourceAdvisor interface {
-	// Update triggers update functions of all sub resource advisors
-	Update()
+	// Run starts all sub resource advisors
+	Run(ctx context.Context)
 
 	// GetSubAdvisor returns the corresponding sub advisor according to resource name
 	GetSubAdvisor(resourceName types.QoSResourceName) (SubResourceAdvisor, error)
@@ -48,14 +49,12 @@ type ResourceAdvisor interface {
 // system and workload snapshot(s), and returns provision advice or resource headroom quantity.
 // It should push updated results to the corresponding qrm server.
 type SubResourceAdvisor interface {
-	// Name returns advisor name
-	Name() string
+	// Run starts resource provision update based on the latest system and workload snapshot(s)
+	Run(ctx context.Context)
 
-	// Update updates resource provision based on the latest system and workload snapshot(s)
-	Update()
-
-	// GetChannel returns a channel to which the updated provision result will be sent
-	GetChannel() interface{}
+	// GetChannels returns two channels. The first one receives update trigger from cpu server.
+	// The other one sends the latest internal calculation result to cpu server.
+	GetChannels() (interface{}, interface{})
 
 	// GetHeadroom returns the latest resource headroom quantity for resource reporter
 	GetHeadroom() (resource.Quantity, error)
@@ -98,9 +97,9 @@ func NewSubResourceAdvisor(resourceName types.QoSResourceName, conf *config.Conf
 	}
 }
 
-func (ra *resourceAdvisorWrapper) Update() {
+func (ra *resourceAdvisorWrapper) Run(ctx context.Context) {
 	for _, subAdvisor := range ra.subAdvisorsToRun {
-		subAdvisor.Update()
+		go subAdvisor.Run(ctx)
 	}
 }
 
