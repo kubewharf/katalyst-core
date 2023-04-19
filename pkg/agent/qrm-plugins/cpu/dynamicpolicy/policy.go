@@ -22,6 +22,7 @@ import (
 	"math"
 	"net"
 	"os"
+	"path"
 	"sync"
 	"time"
 
@@ -270,7 +271,11 @@ func (p *DynamicPolicy) Start() (err error) {
 	if !p.enableCPUSysAdvisor {
 		klog.Infof("[CPUDynamicPolicy.Start] start dynamic policy cpu plugin without sys-advisor")
 		return nil
+	} else if p.cpuAdvisorSocketAbsPath == "" || p.cpuPluginSocketAbsPath == "" {
+		return fmt.Errorf("invalid cpuAdvisorSocketAbsPath: %s or cpuPluginSocketAbsPath: %s",
+			p.cpuAdvisorSocketAbsPath, p.cpuPluginSocketAbsPath)
 	}
+
 	klog.Infof("[CPUDynamicPolicy.Start] start dynamic policy cpu plugin with sys-advisor")
 
 	err = p.initialize()
@@ -1938,6 +1943,17 @@ func (p *DynamicPolicy) allocateByCPUAdvisorServerListAndWatchResp(resp *advisor
 }
 
 func (p *DynamicPolicy) serveCPUPluginCheckpoint(stopCh <-chan struct{}) {
+	cpuPluginSocketDir := path.Dir(p.cpuPluginSocketAbsPath)
+
+	err := general.EnsureDirectory(cpuPluginSocketDir)
+	if err != nil {
+		klog.Errorf("[CPUDynamicPolicy.ServeCPUPluginCheckpoint] ensure cpuPluginSocketDir: %s failed with error: %v",
+			cpuPluginSocketDir, err)
+		return
+	}
+
+	klog.Infof("[CPUDynamicPolicy.ServeCPUPluginCheckpoint] ensure cpuPluginSocketDir: %s successfully", cpuPluginSocketDir)
+
 	if err := os.Remove(p.cpuPluginSocketAbsPath); err != nil && !os.IsNotExist(err) {
 		klog.Errorf("[CPUDynamicPolicy.ServeCPUPluginCheckpoint] failed to remove %s: %v", p.cpuPluginSocketAbsPath, err)
 		return
@@ -1948,6 +1964,8 @@ func (p *DynamicPolicy) serveCPUPluginCheckpoint(stopCh <-chan struct{}) {
 		klog.Errorf("[CPUDynamicPolicy.ServeCPUPluginCheckpoint] listen at socket: %s faield with err: %v", p.cpuPluginSocketAbsPath, err)
 		return
 	}
+
+	klog.Infof("[CPUDynamicPolicy.ServeCPUPluginCheckpoint] listen at: %s successfully", p.cpuPluginSocketAbsPath)
 
 	grpcServer := grpc.NewServer()
 	advisorapi.RegisterCPUPluginServer(grpcServer, p)
