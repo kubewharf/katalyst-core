@@ -127,7 +127,7 @@ func NewMetaCacheImp(conf *config.Configuration, metricsFetcher metric.MetricsFe
 }
 
 /*
-	standard implementation for MetaReader
+	standard implementation for metaReader
 */
 
 // GetContainerEntries returns a ContainerEntry copy keyed by pod uid
