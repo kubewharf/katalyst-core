@@ -253,9 +253,7 @@ func (p *DynamicPolicy) Start() (err error) {
 	go wait.Until(p.checkCPUSet, cpusetCheckPeriod, p.stopCh)
 
 	if p.enableSyncingCPUIdle {
-		if !cgroupcm.IsCPUIdleSupported() {
-			return fmt.Errorf("enable cpu idle in unsupported environment")
-		} else if p.reclaimRelativeRootCgroupPath == "" {
+		if p.reclaimRelativeRootCgroupPath == "" {
 			return fmt.Errorf("enable syncing cpu idle but not set reclaiemd relative root cgroup path in configuration")
 		}
 
@@ -2124,6 +2122,11 @@ func GetReadonlyState() (state.ReadonlyState, error) {
 
 func (p *DynamicPolicy) syncCPUIdle() {
 	klog.Infof("[CPUDynamicPolicy] exec syncCPUIdle")
+
+	if !cgroupcm.IsCPUIdleSupported() {
+		klog.Warningf("[CPUDynamicPolicy.syncCPUIdle] cpu idle isn't unsupported, skip syncing")
+		return
+	}
 
 	err := cgroupcmutils.ApplyCPUWithRelativePath(p.reclaimRelativeRootCgroupPath, &cgroupcm.CPUData{CpuIdlePtr: &p.enableCPUIdle})
 
