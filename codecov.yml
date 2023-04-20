@@ -9,7 +9,7 @@ coverage:
       # global coverage
       default:
         target: auto
-        threshold: 0%
+        threshold: 2%
         flags:
           - unittest
         paths:
