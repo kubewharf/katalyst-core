@@ -338,6 +338,53 @@ func TestUpdate(t *testing.T) {
 			},
 			wantHeadroom: resource.MustParse(fmt.Sprintf("%d", 43)),
 		},
+		{
+			name: "dedicated numa exclusive only",
+			pools: map[string]*types.PoolInfo{
+				state.PoolNameReserve: {
+					PoolName: state.PoolNameReserve,
+					TopologyAwareAssignments: map[int]machine.CPUSet{
+						0: machine.MustParse("0"),
+						1: machine.MustParse("24"),
+					},
+					OriginalTopologyAwareAssignments: map[int]machine.CPUSet{
+						0: machine.MustParse("0"),
+						1: machine.MustParse("24"),
+					},
+				},
+				state.PoolNameReclaim: {
+					PoolName: state.PoolNameReclaim,
+					TopologyAwareAssignments: map[int]machine.CPUSet{
+						0: machine.MustParse("3-6"),
+						1: machine.MustParse("24-48"),
+					},
+					OriginalTopologyAwareAssignments: map[int]machine.CPUSet{
+						0: machine.MustParse("0"),
+						1: machine.MustParse("24"),
+					},
+				},
+			},
+			reclaimEnabled: true,
+			containers: []*types.ContainerInfo{
+				makeContainerInfo("uid1", "default", "pod1", "c1", consts.PodAnnotationQoSLevelDedicatedCores,
+					map[string]string{consts.PodAnnotationMemoryEnhancementNumaBinding: consts.PodAnnotationMemoryEnhancementNumaBindingEnable},
+					map[int]machine.CPUSet{
+						0: machine.MustParse("1-23,48-71"),
+					}, 48),
+			},
+			wantInternalCalculationResult: InternalCalculationResult{
+				map[string]map[int]resource.Quantity{
+					state.PoolNameReserve: {
+						-1: *resource.NewQuantity(2, resource.DecimalSI),
+					},
+					state.PoolNameReclaim: {
+						0:  *resource.NewQuantity(4, resource.DecimalSI),
+						-1: *resource.NewQuantity(47, resource.DecimalSI),
+					},
+				},
+			},
+			wantHeadroom: resource.MustParse(fmt.Sprintf("%d", 51)),
+		},
 	}
 
 	for _, tt := range tests {
