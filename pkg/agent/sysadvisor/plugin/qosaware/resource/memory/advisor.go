@@ -17,12 +17,14 @@ limitations under the License.
 package memory
 
 import (
+	"context"
 	"fmt"
 	"sync"
 	"time"
 
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
+	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/klog/v2"
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
@@ -39,21 +41,16 @@ func init() {
 }
 
 const (
-	memoryResourceAdvisorName string = "memory-resource-advisor"
-
 	startUpPeriod time.Duration = 30 * time.Second
 )
 
 // memoryResourceAdvisor updates memory headroom for reclaimed resource
 type memoryResourceAdvisor struct {
-	name      string
-	startTime time.Time
-
-	mutex sync.RWMutex
-
+	conf            *config.Configuration
+	startTime       time.Time
 	headroomPolices []headroompolicy.HeadroomPolicy
+	mutex           sync.RWMutex
 
-	conf       *config.Configuration
 	metaReader metacache.MetaReader
 	metaServer *metaserver.MetaServer
 	emitter    metrics.MetricEmitter
@@ -63,7 +60,6 @@ type memoryResourceAdvisor struct {
 func NewMemoryResourceAdvisor(conf *config.Configuration, extraConf interface{}, metaCache metacache.MetaCache,
 	metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter) *memoryResourceAdvisor {
 	ra := &memoryResourceAdvisor{
-		name:      memoryResourceAdvisorName,
 		startTime: time.Now(),
 
 		headroomPolices: make([]headroompolicy.HeadroomPolicy, 0),
@@ -87,11 +83,36 @@ func NewMemoryResourceAdvisor(conf *config.Configuration, extraConf interface{},
 	return ra
 }
 
-func (ra *memoryResourceAdvisor) Name() string {
-	return ra.name
+func (ra *memoryResourceAdvisor) Run(ctx context.Context) {
+	period := ra.conf.SysAdvisorPluginsConfiguration.QoSAwarePluginConfiguration.SyncPeriod
+
+	go wait.Until(func() {
+		ra.update()
+	}, period, ctx.Done())
 }
 
-func (ra *memoryResourceAdvisor) Update() {
+func (ra *memoryResourceAdvisor) GetChannels() (interface{}, interface{}) {
+	klog.Warningf("[qosaware-memory] get channel is not supported")
+	return nil, nil
+}
+
+func (ra *memoryResourceAdvisor) GetHeadroom() (resource.Quantity, error) {
+	ra.mutex.RLock()
+	defer ra.mutex.RUnlock()
+
+	for _, headroomPolicy := range ra.headroomPolices {
+		headroom, err := headroomPolicy.GetHeadroom()
+		if err != nil {
+			klog.Warningf("[qosaware-memory] get headroom with error: %v", err)
+			continue
+		}
+		return headroom, nil
+	}
+
+	return resource.Quantity{}, fmt.Errorf("failed to get valid headroom")
+}
+
+func (ra *memoryResourceAdvisor) update() {
 	ra.mutex.Lock()
 	defer ra.mutex.Unlock()
 
@@ -124,25 +145,4 @@ func (ra *memoryResourceAdvisor) Update() {
 			klog.Errorf("[qosaware-memory] update headroom policy failed: %v", err)
 		}
 	}
-}
-
-func (ra *memoryResourceAdvisor) GetChannel() interface{} {
-	klog.Warningf("[qosaware-memory] get channel is not supported")
-	return nil
-}
-
-func (ra *memoryResourceAdvisor) GetHeadroom() (resource.Quantity, error) {
-	ra.mutex.RLock()
-	defer ra.mutex.RUnlock()
-
-	for _, headroomPolicy := range ra.headroomPolices {
-		headroom, err := headroomPolicy.GetHeadroom()
-		if err != nil {
-			klog.Warningf("GetHeadroom by err %v", err)
-			continue
-		}
-		return headroom, nil
-	}
-
-	return resource.Quantity{}, fmt.Errorf("failed to get valid headroom")
 }

@@ -70,7 +70,8 @@ type cpuServer struct {
 	period               time.Duration
 	cpuAdvisorSocketPath string
 	cpuPluginSocketPath  string
-	advisorCh            chan cpu.CPUProvision
+	recvCh               chan cpu.InternalCalculationResult
+	sendCh               chan struct{}
 	lwCalledChan         chan struct{}
 	stopCh               chan struct{}
 	getCheckpointCalled  bool
@@ -82,14 +83,15 @@ type cpuServer struct {
 	cpuadvisor.UnimplementedCPUAdvisorServer
 }
 
-func NewCPUServer(advisorCh chan cpu.CPUProvision, conf *config.Configuration,
+func NewCPUServer(recvCh chan cpu.InternalCalculationResult, sendCh chan struct{}, conf *config.Configuration,
 	metaCache metacache.MetaCache, emitter metrics.MetricEmitter) (*cpuServer, error) {
 	return &cpuServer{
 		name:                 cpuServerName,
 		period:               conf.QoSAwarePluginConfiguration.SyncPeriod,
 		cpuAdvisorSocketPath: conf.CPUAdvisorSocketAbsPath,
 		cpuPluginSocketPath:  conf.CPUPluginSocketAbsPath,
-		advisorCh:            advisorCh,
+		recvCh:               recvCh,
+		sendCh:               sendCh,
 		lwCalledChan:         make(chan struct{}),
 		stopCh:               make(chan struct{}),
 		metaCache:            metaCache,
@@ -118,7 +120,6 @@ func (cs *cpuServer) Start() error {
 				return
 			case <-cs.stopCh:
 				return
-			case <-cs.advisorCh:
 			}
 		}
 	}()
@@ -192,9 +193,9 @@ func (cs *cpuServer) ListAndWatch(empty *cpuadvisor.Empty, server cpuadvisor.CPU
 		case <-cs.stopCh:
 			klog.Infof("[qosaware-server-cpu] lw stopped because cpu server stopped")
 			return nil
-		case advisorResp, more := <-cs.advisorCh:
+		case advisorResp, more := <-cs.recvCh:
 			if !more {
-				klog.Infof("[qosaware-server-cpu] advisor channel is closed")
+				klog.Infof("[qosaware-server-cpu] recv channel is closed")
 				return nil
 			}
 			klog.Infof("[qosaware-server-cpu] get advisor update: %+v", advisorResp)
@@ -281,6 +282,9 @@ func (cs *cpuServer) startToGetCheckpointFromCPUPlugin() error {
 		if err := cs.metaCache.GCPoolEntries(livingPoolNameSet); err != nil {
 			klog.Errorf("[qosaware-server-cpu] gc pool entries with error: %v", err)
 		}
+
+		// Trigger advisor update
+		cs.sendCh <- struct{}{}
 
 	}, cs.period, cs.stopCh)
 
@@ -404,12 +408,12 @@ func (cs *cpuServer) updateContainerInfo(podUID string, containerName string, in
 	return cs.metaCache.SetContainerInfo(podUID, containerName, ci)
 }
 
-// assemblePoolEntries fills up calculationEntriesMap and blockSet based on cpu.CPUProvision
+// assemblePoolEntries fills up calculationEntriesMap and blockSet based on cpu.InternalCalculationResult
 // - for each [pool, numa] set, there exists a new Block (and corresponding internalBlock)
-func (cs *cpuServer) assemblePoolEntries(advisorResp *cpu.CPUProvision, calculationEntriesMap map[string]*cpuadvisor.CalculationEntries, bs blockSet) {
-	for poolName, sizeMap := range advisorResp.PoolSizeMap {
+func (cs *cpuServer) assemblePoolEntries(advisorResp *cpu.InternalCalculationResult, calculationEntriesMap map[string]*cpuadvisor.CalculationEntries, bs blockSet) {
+	for poolName, entries := range advisorResp.PoolEntries {
 		poolEntry := NewPoolCalculationEntries(poolName)
-		for numaID, size := range sizeMap {
+		for numaID, size := range entries {
 			block := NewBlock(uint64(size.Value()), "")
 			numaCalculationResult := &cpuadvisor.NumaCalculationResult{Blocks: []*cpuadvisor.Block{block}}
 

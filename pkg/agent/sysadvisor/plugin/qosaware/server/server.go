@@ -74,14 +74,15 @@ func NewQRMServer(advisorWrapper resource.ResourceAdvisor, conf *config.Configur
 func (qs *qrmServerWrapper) Run(ctx context.Context) {
 	for _, server := range qs.serversToRun {
 		if err := server.Start(); err != nil {
-			klog.Fatalf("[qosaware-server] start %v failed: %v", server.Name(), err)
+			klog.Errorf("[qosaware-server] start %v failed: %v", server.Name(), err)
+			return
 		}
 	}
 	<-ctx.Done()
 
 	for _, server := range qs.serversToRun {
 		if err := server.Stop(); err != nil {
-			klog.Fatalf("[qosaware-server] stop %v failed: %v", server.Name(), err)
+			klog.Errorf("[qosaware-server] stop %v failed: %v", server.Name(), err)
 		}
 	}
 }
@@ -94,8 +95,10 @@ func newSubQRMServer(resourceName v1.ResourceName, advisorWrapper resource.Resou
 		if err != nil {
 			return nil, err
 		}
-		advisorInformer := subAdvisor.GetChannel().(chan resourcecpu.CPUProvision)
-		return cpu.NewCPUServer(advisorInformer, conf, metaCache, emitter)
+		advisorRecvChInterface, advisorSendChInterface := subAdvisor.GetChannels()
+		advisorRecvCh := advisorRecvChInterface.(chan struct{})
+		advisorSendCh := advisorSendChInterface.(chan resourcecpu.InternalCalculationResult)
+		return cpu.NewCPUServer(advisorSendCh, advisorRecvCh, conf, metaCache, emitter)
 	default:
 		return nil, fmt.Errorf("illegal resource %v", resourceName)
 	}

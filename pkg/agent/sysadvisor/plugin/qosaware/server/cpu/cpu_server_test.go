@@ -60,14 +60,15 @@ func generateTestConfiguration(t *testing.T) *config.Configuration {
 }
 
 func newTestCPUServer(t *testing.T) *cpuServer {
-	advisorCh := make(chan cpu.CPUProvision)
+	recvCh := make(chan cpu.InternalCalculationResult)
+	sendCh := make(chan struct{})
 	conf := generateTestConfiguration(t)
 
 	metaCache, err := metacache.NewMetaCacheImp(conf, nil)
 	require.NoError(t, err)
 	require.NotNil(t, metaCache)
 
-	cpuServer, err := NewCPUServer(advisorCh, conf, metaCache, metrics.DummyMetrics{})
+	cpuServer, err := NewCPUServer(recvCh, sendCh, conf, metaCache, metrics.DummyMetrics{})
 	require.NoError(t, err)
 	require.NotNil(t, cpuServer)
 
@@ -224,7 +225,7 @@ func TestCPUServerListAndWatch(t *testing.T) {
 	tests := []struct {
 		name      string
 		empty     *cpuadvisor.Empty
-		provision cpu.CPUProvision
+		provision cpu.InternalCalculationResult
 		infos     []*ContainerInfo
 		wantErr   bool
 		wantRes   *cpuadvisor.ListAndWatchResponse
@@ -232,7 +233,7 @@ func TestCPUServerListAndWatch(t *testing.T) {
 		{
 			name:  "reclaim pool with shared pool",
 			empty: &cpuadvisor.Empty{},
-			provision: cpu.CPUProvision{PoolSizeMap: map[string]map[int]resource.Quantity{
+			provision: cpu.InternalCalculationResult{PoolEntries: map[string]map[int]resource.Quantity{
 				qrmstate.PoolNameShare:   {-1: *resource.NewQuantity(2, resource.DecimalSI)},
 				qrmstate.PoolNameReclaim: {-1: *resource.NewQuantity(4, resource.DecimalSI)},
 			}},
@@ -277,7 +278,7 @@ func TestCPUServerListAndWatch(t *testing.T) {
 		{
 			name:  "reclaim pool with dedicated pod",
 			empty: &cpuadvisor.Empty{},
-			provision: cpu.CPUProvision{PoolSizeMap: map[string]map[int]resource.Quantity{
+			provision: cpu.InternalCalculationResult{PoolEntries: map[string]map[int]resource.Quantity{
 				qrmstate.PoolNameReclaim: {
 					0: *resource.NewQuantity(4, resource.DecimalSI),
 					1: *resource.NewQuantity(8, resource.DecimalSI),
@@ -387,7 +388,7 @@ func TestCPUServerListAndWatch(t *testing.T) {
 		{
 			name:  "reclaim pool colocated with dedicated pod(2 containers)",
 			empty: &cpuadvisor.Empty{},
-			provision: cpu.CPUProvision{PoolSizeMap: map[string]map[int]resource.Quantity{
+			provision: cpu.InternalCalculationResult{PoolEntries: map[string]map[int]resource.Quantity{
 				qrmstate.PoolNameReclaim: {
 					0: *resource.NewQuantity(4, resource.DecimalSI),
 					1: *resource.NewQuantity(8, resource.DecimalSI),
@@ -604,7 +605,7 @@ func TestCPUServerListAndWatch(t *testing.T) {
 				}
 				stop <- struct{}{}
 			}()
-			cs.advisorCh <- tt.provision
+			cs.recvCh <- tt.provision
 			res := <-s.ResultsChan
 			close(cs.stopCh)
 			<-stop

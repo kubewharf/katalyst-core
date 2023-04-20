@@ -17,6 +17,7 @@ limitations under the License.
 package memory
 
 import (
+	"context"
 	"fmt"
 	"io/ioutil"
 	"os"
@@ -83,8 +84,6 @@ func generateTestConfiguration(t *testing.T, checkpointDir, stateFileDir string)
 	conf.GenericSysAdvisorConfiguration.StateFileDirectory = stateFileDir
 	conf.MetaServerConfiguration.CheckpointManagerDir = checkpointDir
 	conf.ReclaimedResourceConfiguration.ReservedResourceForAllocate()[v1.ResourceMemory] = resource.MustParse(fmt.Sprintf("%d", 4<<30))
-	conf.ReclaimedResourceConfiguration.SetEnableReclaim(true)
-	conf.MemoryHeadroomPolicies = []types.MemoryHeadroomPolicyName{types.MemoryHeadroomPolicyCanonical}
 
 	return conf
 }
@@ -110,28 +109,24 @@ func newTestMemoryAdvisor(t *testing.T, checkpointDir, stateFileDir string) (*me
 	}
 
 	mra := NewMemoryResourceAdvisor(conf, struct{}{}, metaCache, metaServer, nil)
-
-	assert.Equal(t, mra.Name(), memoryResourceAdvisorName)
-	assert.Nil(t, mra.GetChannel())
+	assert.NotNil(t, mra)
 
 	return mra, metaCache
 }
 
 func TestUpdate(t *testing.T) {
 	tests := []struct {
-		name               string
-		pools              map[string]*types.PoolInfo
-		containers         []*types.ContainerInfo
-		wantGetHeadroomErr bool
-		wantHeadroom       resource.Quantity
-		reclaimedEnable    bool
+		name            string
+		pools           map[string]*types.PoolInfo
+		containers      []*types.ContainerInfo
+		wantHeadroom    resource.Quantity
+		reclaimedEnable bool
 	}{
 		{
-			name:               "missing reserve pool",
-			pools:              map[string]*types.PoolInfo{},
-			reclaimedEnable:    true,
-			wantGetHeadroomErr: true,
-			wantHeadroom:       resource.Quantity{},
+			name:            "missing reserve pool",
+			pools:           map[string]*types.PoolInfo{},
+			reclaimedEnable: true,
+			wantHeadroom:    resource.Quantity{},
 		},
 		{
 			name: "reserve pool only",
@@ -148,9 +143,8 @@ func TestUpdate(t *testing.T) {
 					},
 				},
 			},
-			reclaimedEnable:    true,
-			wantGetHeadroomErr: false,
-			wantHeadroom:       *resource.NewQuantity(996<<30, resource.DecimalSI),
+			reclaimedEnable: true,
+			wantHeadroom:    *resource.NewQuantity(996<<30, resource.DecimalSI),
 		},
 		{
 			name: "normal case",
@@ -186,8 +180,7 @@ func TestUpdate(t *testing.T) {
 						1: machine.MustParse("25"),
 					}, 0),
 			},
-			wantGetHeadroomErr: false,
-			wantHeadroom:       *resource.NewQuantity(988<<30, resource.DecimalSI),
+			wantHeadroom: *resource.NewQuantity(988<<30, resource.DecimalSI),
 		},
 		{
 			name: "reclaimed disable case",
@@ -223,8 +216,7 @@ func TestUpdate(t *testing.T) {
 						1: machine.MustParse("25"),
 					}, 200<<30),
 			},
-			wantGetHeadroomErr: false,
-			wantHeadroom:       *resource.NewQuantity(796<<30, resource.DecimalSI),
+			wantHeadroom: *resource.NewQuantity(796<<30, resource.DecimalSI),
 		},
 	}
 
@@ -233,11 +225,15 @@ func TestUpdate(t *testing.T) {
 			ckDir, err := ioutil.TempDir("", "checkpoint")
 			require.NoError(t, err)
 			defer os.RemoveAll(ckDir)
+
 			sfDir, err := ioutil.TempDir("", "statefile")
 			require.NoError(t, err)
 			defer os.RemoveAll(sfDir)
+
 			advisor, metaCache := newTestMemoryAdvisor(t, ckDir, sfDir)
 			advisor.startTime = time.Now().Add(-startUpPeriod * 2)
+			advisor.conf.ReclaimedResourceConfiguration.SetEnableReclaim(tt.reclaimedEnable)
+			_, _ = advisor.GetChannels()
 
 			for poolName, poolInfo := range tt.pools {
 				err := metaCache.SetPoolInfo(poolName, poolInfo)
@@ -248,21 +244,22 @@ func TestUpdate(t *testing.T) {
 				assert.NoError(t, err)
 			}
 
-			reservedForAllocate := advisor.conf.ReclaimedResourceConfiguration.ReservedResourceForAllocate()[v1.ResourceMemory]
-			headroomPolicy := advisor.headroomPolices[0]
-			headroomPolicy.SetEssentials(types.ResourceEssentials{
-				Total:               int(advisor.metaServer.MemoryCapacity),
-				ReservedForAllocate: int(reservedForAllocate.Value()),
-				EnableReclaim:       tt.reclaimedEnable,
-			})
+			ctx, cancel := context.WithCancel(context.Background())
+			advisor.Run(ctx)
 
-			advisor.Update()
-
+			time.Sleep(10 * time.Millisecond) // Wait some time because no signal will be sent to channel
 			headroom, err := advisor.GetHeadroom()
-			assert.Equal(t, tt.wantGetHeadroomErr, err != nil)
-			if !reflect.DeepEqual(tt.wantHeadroom.MilliValue(), headroom.MilliValue()) {
-				t.Errorf("headroom expected: %+v, actual: %+v", tt.wantHeadroom, headroom)
+
+			if reflect.DeepEqual(tt.wantHeadroom, resource.Quantity{}) {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+				if !reflect.DeepEqual(tt.wantHeadroom.MilliValue(), headroom.MilliValue()) {
+					t.Errorf("headroom\nexpected: %+v\nactual: %+v", tt.wantHeadroom, headroom)
+				}
 			}
+
+			cancel()
 		})
 	}
 }
