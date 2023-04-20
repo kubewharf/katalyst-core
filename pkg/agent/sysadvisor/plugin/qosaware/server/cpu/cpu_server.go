@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"path"
 	"time"
 
 	"google.golang.org/grpc"
@@ -292,6 +293,16 @@ func (cs *cpuServer) startToGetCheckpointFromCPUPlugin() error {
 }
 
 func (cs *cpuServer) serve() error {
+	cpuAdvisorSocketDir := path.Dir(cs.cpuAdvisorSocketPath)
+
+	err := general.EnsureDirectory(cpuAdvisorSocketDir)
+	if err != nil {
+		return fmt.Errorf("ensure cpuAdvisorSocketDir: %s failed with error: %v",
+			cpuAdvisorSocketDir, err)
+	}
+
+	klog.Infof("[qosaware-server-cpu] ensure cpuAdvisorSocketDir: %s successfully", cpuAdvisorSocketDir)
+
 	if err := os.Remove(cs.cpuAdvisorSocketPath); err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("remove %v failed: %v", cs.cpuAdvisorSocketPath, err)
 	}
@@ -300,6 +311,8 @@ func (cs *cpuServer) serve() error {
 	if err != nil {
 		return fmt.Errorf("listen %s failed: %v", cs.cpuAdvisorSocketPath, err)
 	}
+
+	klog.Infof("[qosaware-server-cpu] listen at: %s successfully", cs.cpuAdvisorSocketPath)
 
 	grpcServer := grpc.NewServer()
 	cpuadvisor.RegisterCPUAdvisorServer(grpcServer, cs)
