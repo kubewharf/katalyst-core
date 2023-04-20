@@ -60,7 +60,7 @@ func (m *manager) ApplyMemory(absCgroupPath string, data *common.MemoryData) err
 		if err, applied, oldData := common.WriteFileIfChange(absCgroupPath, "memory.wmark_ratio", newRatio); err != nil {
 			return err
 		} else if applied {
-			klog.Infof("[CgroupV1] apply memory wmark successfully, cgroupPath: %s, data: %v, old data: %v\n", absCgroupPath, data.WmarkRatio, oldData)
+			klog.Infof("[CgroupV2] apply memory wmark successfully, cgroupPath: %s, data: %v, old data: %v\n", absCgroupPath, data.WmarkRatio, oldData)
 		}
 	}
 
@@ -109,7 +109,7 @@ func (m *manager) ApplyCPU(absCgroupPath string, data *common.CPUData) error {
 		if err, applied, oldData := common.WriteFileIfChange(absCgroupPath, "cpu.idle", strconv.FormatInt(cpuIdleValue, 10)); err != nil {
 			lastErrors = append(lastErrors, err)
 		} else if applied {
-			klog.Infof("[CgroupV1] apply cpu.idle successfully, cgroupPath: %s, data: %d, old data: %s\n", absCgroupPath, cpuIdleValue, oldData)
+			klog.Infof("[CgroupV2] apply cpu.idle successfully, cgroupPath: %s, data: %d, old data: %s\n", absCgroupPath, cpuIdleValue, oldData)
 		}
 	}
 
