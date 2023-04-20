@@ -132,7 +132,6 @@ func (r *QoSRegionBase) Clear() {
 	r.Lock()
 	defer r.Unlock()
 
-	r.bindingNumas = machine.NewCPUSet()
 	r.podSet = make(types.PodSet)
 	r.containerTopologyAwareAssignment = make(types.TopologyAwareAssignment)
 }
