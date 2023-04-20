@@ -78,9 +78,8 @@ type cpuResourceAdvisor struct {
 	startTime   time.Time
 	systemNumas machine.CPUSet
 
-	regionMap          map[string]region.QoSRegion              // map[regionName]region
-	containerRegionMap map[string]map[string][]region.QoSRegion // map[podUID][containerName]regions
-	poolRegionMap      map[string][]region.QoSRegion            // map[poolName]regions
+	regionMap    map[string]region.QoSRegion   // map[regionName]region
+	podRegionMap map[string][]region.QoSRegion // map[podUID]regions
 
 	nonExclusiveNumas machine.CPUSet // numas without numa binding workloads
 	mutex             sync.RWMutex
@@ -100,9 +99,8 @@ func NewCPUResourceAdvisor(conf *config.Configuration, extraConf interface{}, me
 		startTime:   time.Now(),
 		systemNumas: metaServer.CPUDetails.NUMANodes(),
 
-		regionMap:          make(map[string]region.QoSRegion),
-		containerRegionMap: make(map[string]map[string][]region.QoSRegion),
-		poolRegionMap:      make(map[string][]region.QoSRegion),
+		regionMap:    make(map[string]region.QoSRegion),
+		podRegionMap: make(map[string][]region.QoSRegion),
 
 		nonExclusiveNumas: machine.NewCPUSet(),
 
@@ -287,7 +285,6 @@ func (cra *cpuResourceAdvisor) assignContainersToRegions() error {
 		}
 
 		cra.setContainerRegions(ci, regions)
-		cra.setPoolRegions(ci.OwnerPoolName, regions)
 
 		return true
 	}
@@ -304,7 +301,7 @@ func (cra *cpuResourceAdvisor) assignContainersToRegions() error {
 func (cra *cpuResourceAdvisor) assignToRegions(ci *types.ContainerInfo) ([]region.QoSRegion, error) {
 	if ci.QoSLevel == consts.PodAnnotationQoSLevelSharedCores {
 		// Assign shared cores container. Focus on pool.
-		if regions, ok := cra.getPoolRegions(ci.OwnerPoolName); ok {
+		if regions, ok := cra.getContainerRegions(ci); ok {
 			return regions, nil
 		}
 
@@ -433,46 +430,19 @@ func (cra *cpuResourceAdvisor) gc() {
 		}
 	}
 
-	// Delete non exist pods in container region map
-	for podUID := range cra.containerRegionMap {
+	// Delete non exist pods in pod region map
+	for podUID := range cra.podRegionMap {
 		if _, ok := cra.metaCache.GetContainerEntries(podUID); !ok {
-			delete(cra.containerRegionMap, podUID)
-		}
-	}
-
-	// Delete non exist pools in pool region map
-	for poolName := range cra.poolRegionMap {
-		if _, ok := cra.metaCache.GetPoolInfo(poolName); !ok {
-			delete(cra.poolRegionMap, poolName)
+			delete(cra.podRegionMap, podUID)
 		}
 	}
 }
 
 func (cra *cpuResourceAdvisor) getContainerRegions(ci *types.ContainerInfo) ([]region.QoSRegion, bool) {
-	if v, ok := cra.containerRegionMap[ci.PodUID]; ok {
-		if regions, exist := v[ci.ContainerName]; exist {
-			return regions, true
-		}
-	}
-	return nil, false
+	regions, ok := cra.podRegionMap[ci.PodUID]
+	return regions, ok
 }
 
 func (cra *cpuResourceAdvisor) setContainerRegions(ci *types.ContainerInfo, regions []region.QoSRegion) {
-	v, ok := cra.containerRegionMap[ci.PodUID]
-	if !ok {
-		cra.containerRegionMap[ci.PodUID] = make(map[string][]region.QoSRegion)
-		v = cra.containerRegionMap[ci.PodUID]
-	}
-	v[ci.ContainerName] = regions
-}
-
-func (cra *cpuResourceAdvisor) getPoolRegions(poolName string) ([]region.QoSRegion, bool) {
-	if regions, ok := cra.poolRegionMap[poolName]; ok {
-		return regions, true
-	}
-	return nil, false
-}
-
-func (cra *cpuResourceAdvisor) setPoolRegions(poolName string, regions []region.QoSRegion) {
-	cra.poolRegionMap[poolName] = regions
+	cra.podRegionMap[ci.PodUID] = regions
 }
