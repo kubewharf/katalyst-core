@@ -17,6 +17,7 @@ limitations under the License.
 package cpu
 
 import (
+	"context"
 	"fmt"
 	"io/ioutil"
 	"os"
@@ -26,7 +27,6 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/runtime"
 
@@ -52,15 +52,6 @@ func generateTestConfiguration(t *testing.T, checkpointDir, stateFileDir string)
 
 	conf.GenericSysAdvisorConfiguration.StateFileDirectory = stateFileDir
 	conf.MetaServerConfiguration.CheckpointManagerDir = checkpointDir
-	conf.ReclaimedResourceConfiguration.ReservedResourceForAllocate()[v1.ResourceCPU] = resource.MustParse("4")
-	conf.ProvisionPolicies = map[types.QoSRegionType][]types.CPUProvisionPolicyName{
-		types.QoSRegionTypeShare:                  {types.CPUProvisionPolicyCanonical},
-		types.QoSRegionTypeDedicatedNumaExclusive: {types.CPUProvisionPolicyCanonical},
-	}
-	conf.HeadroomPolicies = map[types.QoSRegionType][]types.CPUHeadroomPolicyName{
-		types.QoSRegionTypeShare:                  {types.CPUHeadroomPolicyCanonical},
-		types.QoSRegionTypeDedicatedNumaExclusive: {types.CPUHeadroomPolicyCanonical},
-	}
 
 	return conf
 }
@@ -86,8 +77,9 @@ func newTestCPUResourceAdvisor(t *testing.T, checkpointDir, stateFileDir string)
 			CPUTopology: cpuTopology,
 		},
 	}
+
 	cra := NewCPUResourceAdvisor(conf, struct{}{}, metaCache, metaServer, nil)
-	assert.Equal(t, cra.Name(), cpuResourceAdvisorName)
+	assert.NotNil(t, cra)
 
 	return cra, metaCache
 }
@@ -123,20 +115,18 @@ func makeContainerInfo(podUID, namespace, podName, containerName, qoSLevel strin
 
 func TestUpdate(t *testing.T) {
 	tests := []struct {
-		name               string
-		pools              map[string]*types.PoolInfo
-		containers         []*types.ContainerInfo
-		reclaimEnabled     bool
-		wantCPUProvision   CPUProvision
-		wantGetHeadroomErr bool
-		wantHeadroom       resource.Quantity
+		name                          string
+		pools                         map[string]*types.PoolInfo
+		containers                    []*types.ContainerInfo
+		reclaimEnabled                bool
+		wantInternalCalculationResult InternalCalculationResult
+		wantHeadroom                  resource.Quantity
 	}{
 		{
-			name:               "missing reserve pool",
-			pools:              map[string]*types.PoolInfo{},
-			wantCPUProvision:   CPUProvision{},
-			wantGetHeadroomErr: true,
-			wantHeadroom:       resource.Quantity{},
+			name:                          "missing reserve pool",
+			pools:                         map[string]*types.PoolInfo{},
+			wantInternalCalculationResult: InternalCalculationResult{},
+			wantHeadroom:                  resource.Quantity{},
 		},
 		{
 			name: "reserve pool only",
@@ -154,14 +144,13 @@ func TestUpdate(t *testing.T) {
 				},
 			},
 			reclaimEnabled: true,
-			wantCPUProvision: CPUProvision{
+			wantInternalCalculationResult: InternalCalculationResult{
 				map[string]map[int]resource.Quantity{
 					state.PoolNameReserve: {-1: *resource.NewQuantity(2, resource.DecimalSI)},
 					state.PoolNameReclaim: {-1: *resource.NewQuantity(94, resource.DecimalSI)},
 				},
 			},
-			wantGetHeadroomErr: false,
-			wantHeadroom:       resource.MustParse(fmt.Sprintf("%d", 94)),
+			wantHeadroom: resource.MustParse(fmt.Sprintf("%d", 94)),
 		},
 		{
 			name: "small share pool",
@@ -197,15 +186,14 @@ func TestUpdate(t *testing.T) {
 						1: machine.MustParse("25"),
 					}, 4),
 			},
-			wantCPUProvision: CPUProvision{
+			wantInternalCalculationResult: InternalCalculationResult{
 				map[string]map[int]resource.Quantity{
 					state.PoolNameReserve: {-1: *resource.NewQuantity(2, resource.DecimalSI)},
 					state.PoolNameShare:   {-1: *resource.NewQuantity(8, resource.DecimalSI)},
 					state.PoolNameReclaim: {-1: *resource.NewQuantity(86, resource.DecimalSI)},
 				},
 			},
-			wantGetHeadroomErr: false,
-			wantHeadroom:       resource.MustParse(fmt.Sprintf("%d", 86)),
+			wantHeadroom: resource.MustParse(fmt.Sprintf("%d", 86)),
 		},
 		{
 			name: "large share pool",
@@ -241,15 +229,14 @@ func TestUpdate(t *testing.T) {
 						1: machine.MustParse("25-47,72-95"),
 					}, 96),
 			},
-			wantCPUProvision: CPUProvision{
+			wantInternalCalculationResult: InternalCalculationResult{
 				map[string]map[int]resource.Quantity{
 					state.PoolNameReserve: {-1: *resource.NewQuantity(2, resource.DecimalSI)},
 					state.PoolNameShare:   {-1: *resource.NewQuantity(90, resource.DecimalSI)},
 					state.PoolNameReclaim: {-1: *resource.NewQuantity(4, resource.DecimalSI)},
 				},
 			},
-			wantGetHeadroomErr: false,
-			wantHeadroom:       resource.MustParse(fmt.Sprintf("%d", 4)),
+			wantHeadroom: resource.MustParse(fmt.Sprintf("%d", 4)),
 		},
 		{
 			name: "dedicated numa exclusive and share",
@@ -287,7 +274,7 @@ func TestUpdate(t *testing.T) {
 						1: machine.MustParse("25-26,72-73"),
 					}, 4),
 			},
-			wantCPUProvision: CPUProvision{
+			wantInternalCalculationResult: InternalCalculationResult{
 				map[string]map[int]resource.Quantity{
 					state.PoolNameReserve: {
 						-1: *resource.NewQuantity(2, resource.DecimalSI),
@@ -299,8 +286,7 @@ func TestUpdate(t *testing.T) {
 					},
 				},
 			},
-			wantGetHeadroomErr: false,
-			wantHeadroom:       resource.MustParse(fmt.Sprintf("%d", 45)),
+			wantHeadroom: resource.MustParse(fmt.Sprintf("%d", 45)),
 		},
 		{
 			name: "dedicated numa exclusive and share, reclaim disabled",
@@ -338,7 +324,7 @@ func TestUpdate(t *testing.T) {
 						1: machine.MustParse("25-26,72-73"),
 					}, 6),
 			},
-			wantCPUProvision: CPUProvision{
+			wantInternalCalculationResult: InternalCalculationResult{
 				map[string]map[int]resource.Quantity{
 					state.PoolNameReserve: {
 						-1: *resource.NewQuantity(2, resource.DecimalSI),
@@ -350,8 +336,7 @@ func TestUpdate(t *testing.T) {
 					},
 				},
 			},
-			wantGetHeadroomErr: false,
-			wantHeadroom:       resource.MustParse(fmt.Sprintf("%d", 43)),
+			wantHeadroom: resource.MustParse(fmt.Sprintf("%d", 43)),
 		},
 	}
 
@@ -360,12 +345,18 @@ func TestUpdate(t *testing.T) {
 			ckDir, err := ioutil.TempDir("", "checkpoint")
 			require.NoError(t, err)
 			defer os.RemoveAll(ckDir)
+
 			sfDir, err := ioutil.TempDir("", "statefile")
 			require.NoError(t, err)
 			defer os.RemoveAll(sfDir)
+
 			advisor, metaCache := newTestCPUResourceAdvisor(t, ckDir, sfDir)
 			advisor.startTime = time.Now().Add(-startUpPeriod * 2)
-			finishCh := make(chan struct{})
+			advisor.conf.ReclaimedResourceConfiguration.SetEnableReclaim(tt.reclaimEnabled)
+
+			recvChInterface, sendChInterface := advisor.GetChannels()
+			recvCh := recvChInterface.(chan struct{})
+			sendCh := sendChInterface.(chan InternalCalculationResult)
 
 			for poolName, poolInfo := range tt.pools {
 				err := metaCache.SetPoolInfo(poolName, poolInfo)
@@ -376,32 +367,32 @@ func TestUpdate(t *testing.T) {
 				assert.NoError(t, err)
 			}
 
-			advisorCh := advisor.GetChannel().(chan CPUProvision)
+			ctx, cancel := context.WithCancel(context.Background())
+			go advisor.Run(ctx)
 
-			// Check internal calculation result by another go routine
-			go func(ch chan CPUProvision) {
-				if reflect.DeepEqual(tt.wantCPUProvision, CPUProvision{}) {
-					finishCh <- struct{}{}
-					return
+			// Trigger advisor update
+			recvCh <- struct{}{}
+
+			if reflect.DeepEqual(tt.wantInternalCalculationResult, InternalCalculationResult{}) {
+				time.Sleep(10 * time.Millisecond) // Wait some time because no signal will be sent to channel
+				_, err := advisor.GetHeadroom()
+				assert.Error(t, err)
+			} else {
+				// Check provision
+				advisorResp := <-sendCh
+				if !reflect.DeepEqual(tt.wantInternalCalculationResult, advisorResp) {
+					t.Errorf("cpu provision\nexpected: %+v,\nactual: %+v", tt.wantInternalCalculationResult, advisorResp)
 				}
-				cpuProvision := <-advisorCh
-				if !reflect.DeepEqual(tt.wantCPUProvision, cpuProvision) {
-					t.Errorf("cpu provision\nexpected: %+v,\nactual: %+v", tt.wantCPUProvision, cpuProvision)
+
+				// Check headroom
+				headroom, err := advisor.GetHeadroom()
+				assert.NoError(t, err)
+				if !reflect.DeepEqual(tt.wantHeadroom.MilliValue(), headroom.MilliValue()) {
+					t.Errorf("headroom\nexpected: %+v\nactual: %+v", tt.wantHeadroom, headroom)
 				}
-				finishCh <- struct{}{}
-			}(advisorCh)
-
-			advisor.conf.ReclaimedResourceConfiguration.SetEnableReclaim(tt.reclaimEnabled)
-			advisor.Update()
-
-			// Check headroom
-			headroom, err := advisor.GetHeadroom()
-			assert.Equal(t, tt.wantGetHeadroomErr, err != nil)
-			if err == nil && !reflect.DeepEqual(tt.wantHeadroom.MilliValue(), headroom.MilliValue()) {
-				t.Errorf("headroom expected: %+v, actual: %+v", tt.wantHeadroom, headroom)
 			}
 
-			<-finishCh
+			cancel()
 		})
 	}
 }

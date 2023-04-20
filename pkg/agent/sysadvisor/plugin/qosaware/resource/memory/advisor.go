@@ -46,14 +46,10 @@ const (
 
 // memoryResourceAdvisor updates memory headroom for reclaimed resource
 type memoryResourceAdvisor struct {
-	conf *config.Configuration
-
-	startTime time.Time
-	period    time.Duration
-
-	mutex sync.RWMutex
-
+	conf            *config.Configuration
+	startTime       time.Time
 	headroomPolices []headroompolicy.HeadroomPolicy
+	mutex           sync.RWMutex
 
 	metaReader metacache.MetaReader
 	metaServer *metaserver.MetaServer
@@ -64,7 +60,6 @@ type memoryResourceAdvisor struct {
 func NewMemoryResourceAdvisor(conf *config.Configuration, extraConf interface{}, metaCache metacache.MetaCache,
 	metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter) *memoryResourceAdvisor {
 	ra := &memoryResourceAdvisor{
-		period:    conf.SysAdvisorPluginsConfiguration.QoSAwarePluginConfiguration.SyncPeriod,
 		startTime: time.Now(),
 
 		headroomPolices: make([]headroompolicy.HeadroomPolicy, 0),
@@ -89,9 +84,11 @@ func NewMemoryResourceAdvisor(conf *config.Configuration, extraConf interface{},
 }
 
 func (ra *memoryResourceAdvisor) Run(ctx context.Context) {
+	period := ra.conf.SysAdvisorPluginsConfiguration.QoSAwarePluginConfiguration.SyncPeriod
+
 	go wait.Until(func() {
 		ra.update()
-	}, ra.period, ctx.Done())
+	}, period, ctx.Done())
 }
 
 func (ra *memoryResourceAdvisor) GetChannels() (interface{}, interface{}) {

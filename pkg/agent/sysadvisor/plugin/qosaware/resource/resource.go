@@ -52,8 +52,8 @@ type SubResourceAdvisor interface {
 	// Run starts resource provision update based on the latest system and workload snapshot(s)
 	Run(ctx context.Context)
 
-	// GetChannels returns two channels. The first one receives update trigger from cpu server.
-	// The other one sends the latest internal calculation result to cpu server.
+	// GetChannels returns two channels. The first one receives update trigger from qrm server.
+	// The other one sends the latest internal calculation result to qrm server.
 	GetChannels() (interface{}, interface{})
 
 	// GetHeadroom returns the latest resource headroom quantity for resource reporter

@@ -47,6 +47,7 @@ func (o *ResourceAdvisorOptions) AddFlags(fs *pflag.FlagSet) {
 	fs.StringSliceVar(&o.ResourceAdvisors, "resource-advisors", o.ResourceAdvisors, "active dimensions for resource advisors")
 
 	o.CPUAdvisorOptions.AddFlags(fs)
+	o.MemoryAdvisorOptions.AddFlags(fs)
 }
 
 // ApplyTo fills up config with options
