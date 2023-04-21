@@ -17,13 +17,9 @@ limitations under the License.
 package resource
 
 import (
-	"fmt"
-	"sync"
-
 	v1 "k8s.io/api/core/v1"
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/reporter/manager"
-	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/reporter/manager/broker"
 	hmadvisor "github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/global/adminqos"
@@ -32,45 +28,17 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 )
 
-var (
-	cpuBrokerInitializers sync.Map
-)
-
-func init() {
-	RegisterCPUBrokerInitializer("none", broker.NewNoneBroker)
-}
-
-// RegisterCPUBrokerInitializer is used to register user-defined cpu resource plugin init functions
-func RegisterCPUBrokerInitializer(name string, initFunc broker.BrokerInitFunc) {
-	cpuBrokerInitializers.Store(name, initFunc)
-}
-
-func getCPUBrokerInitializer(name string) (broker.BrokerInitFunc, bool) {
-	initFunc, ok := cpuBrokerInitializers.Load(name)
-	if !ok {
-		return nil, false
-	}
-	return initFunc.(broker.BrokerInitFunc), true
-}
-
 type cpuHeadroomManagerImpl struct {
 	*GenericHeadroomManager
 }
 
-func NewCPUHeadroomManager(emitter metrics.MetricEmitter, metaServer *metaserver.MetaServer,
+func NewCPUHeadroomManager(emitter metrics.MetricEmitter, _ *metaserver.MetaServer,
 	conf *config.Configuration, headroomAdvisor hmadvisor.ResourceAdvisor) (manager.HeadroomManager, error) {
-	cpuBroker := conf.CPUBroker
-	brokerInitializer, ok := getCPUBrokerInitializer(cpuBroker)
-	if !ok {
-		return nil, fmt.Errorf("invalid broker name %v for cpu headroom manager", cpuBroker)
-	}
-
 	gm := NewGenericHeadroomManager(
 		v1.ResourceCPU,
 		true,
 		true,
 		conf.HeadroomReporterSyncPeriod,
-		brokerInitializer(emitter, metaServer, conf),
 		headroomAdvisor,
 		emitter,
 		generateCPUWindowOptions(conf.HeadroomReporterConfiguration),

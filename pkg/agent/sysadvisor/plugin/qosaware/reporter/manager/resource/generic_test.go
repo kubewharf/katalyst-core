@@ -25,7 +25,6 @@ import (
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 
-	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/reporter/manager/broker"
 	hmadvisor "github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 )
@@ -36,7 +35,6 @@ func TestNewGenericHeadroomManager(t *testing.T) {
 		useMilliValue         bool
 		reportMillValue       bool
 		syncPeriod            time.Duration
-		broker                broker.Broker
 		headroomAdvisor       hmadvisor.ResourceAdvisor
 		emitter               metrics.MetricEmitter
 		slidingWindowOptions  GenericSlidingWindowOptions
@@ -52,7 +50,6 @@ func TestNewGenericHeadroomManager(t *testing.T) {
 				name:            v1.ResourceCPU,
 				useMilliValue:   true,
 				syncPeriod:      30 * time.Second,
-				broker:          broker.NewNoneBroker(nil, nil, nil),
 				headroomAdvisor: hmadvisor.NewResourceAdvisorStub(),
 				emitter:         metrics.DummyMetrics{},
 				slidingWindowOptions: GenericSlidingWindowOptions{
@@ -73,7 +70,7 @@ func TestNewGenericHeadroomManager(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			NewGenericHeadroomManager(tt.args.name, tt.args.useMilliValue, tt.args.reportMillValue,
-				tt.args.syncPeriod, tt.args.broker, tt.args.headroomAdvisor, tt.args.emitter,
+				tt.args.syncPeriod, tt.args.headroomAdvisor, tt.args.emitter,
 				tt.args.slidingWindowOptions, tt.args.getReclaimOptionsFunc)
 		})
 	}
@@ -86,8 +83,8 @@ func TestGenericHeadroomManager_Allocatable(t *testing.T) {
 		ReservedResourceForReport:     resource.MustParse("10"),
 		MinReclaimedResourceForReport: resource.MustParse("4"),
 	}
-	m := NewGenericHeadroomManager(v1.ResourceCPU, true, false, 30*time.Millisecond,
-		broker.NewNoneBroker(nil, nil, nil), r, metrics.DummyMetrics{},
+	m := NewGenericHeadroomManager(v1.ResourceCPU, true, false,
+		30*time.Millisecond, r, metrics.DummyMetrics{},
 		GenericSlidingWindowOptions{
 			SlidingWindowTime: 180 * time.Millisecond,
 			MinStep:           resource.MustParse("0.3"),
