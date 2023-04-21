@@ -82,8 +82,8 @@ type cpuResourceAdvisor struct {
 	containerRegionMap map[string]map[string][]region.QoSRegion // map[podUID][containerName]regions
 	poolRegionMap      map[string][]region.QoSRegion            // map[poolName]regions
 
-	nonExclusiveNumas machine.CPUSet // numas without numa binding workloads
-	mutex             sync.RWMutex
+	nonBindingNumas machine.CPUSet // numas without numa binding pods
+	mutex           sync.RWMutex
 
 	metaCache  metacache.MetaCache
 	metaServer *metaserver.MetaServer
@@ -104,7 +104,7 @@ func NewCPUResourceAdvisor(conf *config.Configuration, extraConf interface{}, me
 		containerRegionMap: make(map[string]map[string][]region.QoSRegion),
 		poolRegionMap:      make(map[string][]region.QoSRegion),
 
-		nonExclusiveNumas: machine.NewCPUSet(),
+		nonBindingNumas: machine.NewCPUSet(),
 
 		conf:      conf,
 		extraConf: extraConf,
@@ -160,10 +160,12 @@ func (cra *cpuResourceAdvisor) GetHeadroom() (resource.Quantity, error) {
 		// FIXME: is it reasonable to simply add headroom together?
 		totalHeadroom.Add(headroom)
 	}
+
+	// Add headroom of numas without numa binding pods if there is no share region
 	if !hasShareRegion {
-		reservePoolSizeOfNonExclusiveNumas := int64(math.Ceil(float64(reservePoolSize*cra.nonExclusiveNumas.Size()) / float64(cra.metaServer.NumNUMANodes)))
-		headroomOfNonExclusiveNumas := resource.NewQuantity(int64(cra.nonExclusiveNumas.Size()*cra.metaServer.CPUsPerNuma())-reservePoolSizeOfNonExclusiveNumas, resource.DecimalSI)
-		totalHeadroom.Add(*headroomOfNonExclusiveNumas)
+		reservePoolSizeOfNonBindingNumas := int64(math.Ceil(float64(reservePoolSize*cra.nonBindingNumas.Size()) / float64(cra.metaServer.NumNUMANodes)))
+		headroomOfNonBindingNumas := resource.NewQuantity(int64(cra.nonBindingNumas.Size()*cra.metaServer.CPUsPerNuma())-reservePoolSizeOfNonBindingNumas, resource.DecimalSI)
+		totalHeadroom.Add(*headroomOfNonBindingNumas)
 	}
 
 	return *totalHeadroom, nil
@@ -294,7 +296,7 @@ func (cra *cpuResourceAdvisor) assignContainersToRegions() error {
 	cra.metaCache.RangeContainer(f)
 
 	cra.gc()
-	cra.updateNonExclusiveNumas()
+	cra.updateNonBindingNumas()
 
 	return errors.NewAggregate(errList)
 }
@@ -334,21 +336,21 @@ func (cra *cpuResourceAdvisor) assignToRegions(ci *types.ContainerInfo) ([]regio
 	return nil, nil
 }
 
-// updateNonExclusiveNumas updates shared numa info for shared-regions
-// - non-exclusive-numa = system-numa - dedicated exclusive numa
-func (cra *cpuResourceAdvisor) updateNonExclusiveNumas() {
-	cra.nonExclusiveNumas = cra.systemNumas
+// updateNonBindingNumas updates numas without numa binding pods
+// non-binding-numa = system-numa - dedicated-exclusive-numa
+func (cra *cpuResourceAdvisor) updateNonBindingNumas() {
+	cra.nonBindingNumas = cra.systemNumas
 
 	for _, r := range cra.regionMap {
 		if r.Type() == types.QoSRegionTypeDedicatedNumaExclusive {
-			cra.nonExclusiveNumas = cra.nonExclusiveNumas.Difference(r.GetBindingNumas())
+			cra.nonBindingNumas = cra.nonBindingNumas.Difference(r.GetBindingNumas())
 		}
 	}
 
 	// Set binding numas for non numa binding regions
 	for _, r := range cra.regionMap {
 		if r.Type() == types.QoSRegionTypeShare {
-			r.SetBindingNumas(cra.nonExclusiveNumas)
+			r.SetBindingNumas(cra.nonBindingNumas)
 		}
 	}
 }
@@ -414,13 +416,13 @@ func (cra *cpuResourceAdvisor) assembleProvision() (InternalCalculationResult, e
 		}
 	}
 
-	// Fill in shared reclaimed pool size
-	reservePoolSizeOfNonExclusiveNumas := int(math.Ceil(float64(reservePoolSize*cra.nonExclusiveNumas.Size()) / float64(cra.metaServer.NumNUMANodes)))
-	reclaimPoolSizeOfNonExclusiveNumas := cra.nonExclusiveNumas.Size()*cra.metaServer.CPUsPerNuma() - nonNumaBindingRequirement - reservePoolSizeOfNonExclusiveNumas
+	// Fill in reclaimed pool size of non binding numas
+	reservePoolSizeOfNonBindingNumas := int(math.Ceil(float64(reservePoolSize*cra.nonBindingNumas.Size()) / float64(cra.metaServer.NumNUMANodes)))
+	reclaimPoolSizeOfNonBindingNumas := cra.nonBindingNumas.Size()*cra.metaServer.CPUsPerNuma() - nonNumaBindingRequirement - reservePoolSizeOfNonBindingNumas
 	if provision.PoolEntries[state.PoolNameReclaim] == nil {
 		provision.PoolEntries[state.PoolNameReclaim] = make(map[int]resource.Quantity)
 	}
-	provision.PoolEntries[state.PoolNameReclaim][cpuadvisor.FakedNumaID] = *resource.NewQuantity(int64(reclaimPoolSizeOfNonExclusiveNumas), resource.DecimalSI)
+	provision.PoolEntries[state.PoolNameReclaim][cpuadvisor.FakedNumaID] = *resource.NewQuantity(int64(reclaimPoolSizeOfNonBindingNumas), resource.DecimalSI)
 	return provision, nil
 }
 
