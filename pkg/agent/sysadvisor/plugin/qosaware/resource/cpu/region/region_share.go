@@ -109,6 +109,12 @@ func (r *QoSRegionShare) GetProvision() (types.ControlKnob, error) {
 			klog.Errorf("GetControlKnobAdjusted by policy %v err %v", internal.name, err)
 			continue
 		}
+		if !r.EnableReclaim {
+			controlKnobValue[types.ControlKnobNonReclaimedCPUSetSize] = types.ControlKnobValue{
+				Value:  float64(r.Total - r.ReservePoolSize - minReclaimCPURequirement),
+				Action: types.ControlKnobActionNone,
+			}
+		}
 		return controlKnobValue, nil
 	}
 	return types.ControlKnob{}, fmt.Errorf("failed to get valid provison")
