@@ -17,22 +17,16 @@ package external
 import (
 	"context"
 
-	"github.com/kubewharf/katalyst-core/pkg/util/cgroup/common"
+	"github.com/kubewharf/katalyst-core/pkg/metaserver/external/cgroupid"
+	"github.com/kubewharf/katalyst-core/pkg/util/external/network"
+	"github.com/kubewharf/katalyst-core/pkg/util/external/rdt"
 )
 
 // ExternalManager contains a set of managers that execute configurations beyond the OCI spec.
 type ExternalManager interface {
+	cgroupid.CgroupIDManager
+	network.NetworkManager
+	rdt.RDTManager
+
 	Run(ctx context.Context)
-
-	GetCgroupIDForContainer(podUID, containerID string) (uint64, error)
-	ListCgroupIDsForPod(podUID string) ([]uint64, error)
-
-	ApplyNetClass(podUID, containerId string, data *common.NetClsData) error
-	ClearNetClass(cgroupID uint64) error
-
-	CheckSupportRDT() (bool, error)
-	InitRDT() error
-	ApplyTasks(clos string, tasks []string) error
-	ApplyCAT(clos string, cat map[int]int) error
-	ApplyMBA(clos string, mba map[int]int) error
 }

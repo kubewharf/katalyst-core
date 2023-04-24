@@ -126,6 +126,8 @@ github.com/blang/semver/v4 v4.0.0/go.mod h1:IbckMUScFkM3pff0VJDNKRiT6TG/YpiHIM2y
 github.com/boltdb/bolt v1.3.1/go.mod h1:clJnj/oiGkjum5o1McbSZDSLxVThjynRyGBgiAx27Ps=
 github.com/bombsimon/wsl/v3 v3.1.0/go.mod h1:st10JtZYLE4D5sC7b8xV4zTKZwAQjCH/Hy2Pm1FNZIc=
 github.com/buger/jsonparser v1.1.1/go.mod h1:6RYKKt7H4d4+iWqouImQ9R2FZql3VbhNgx27UK13J/0=
+github.com/caohe/katalyst-api v0.0.0-20230423073908-4e492bfdaf40 h1:85nIuJ3Xa88SW1ufcITUMcwEj4WapTSc5YfYo0CbC2g=
+github.com/caohe/katalyst-api v0.0.0-20230423073908-4e492bfdaf40/go.mod h1:N477ZHDwzROGwkee/sPGs2mo5lWqtS10hZxYfTcxB88=
 github.com/casbin/casbin/v2 v2.1.2/go.mod h1:YcPU1XXisHhLzuxH9coDNf2FbKpjGlbCg3n9yuLkIJQ=
 github.com/cenkalti/backoff v2.2.1+incompatible/go.mod h1:90ReRw6GdpyfrHakVjL/QHaoyV4aDUVVkXQJJJ3NXXM=
 github.com/census-instrumentation/opencensus-proto v0.2.1/go.mod h1:f6KPmirojxKA12rnyqOA5BBL4O983OfeGPqjHWSTneU=
@@ -550,8 +552,6 @@ github.com/kr/pty v1.1.1/go.mod h1:pFQYn66WHrOpPYNljwOMqo10TkYh1fy3cYio2l3bCsQ=
 github.com/kr/text v0.1.0/go.mod h1:4Jbv+DJW3UT/LiOwJeYQe1efqtUx/iVham/4vfdArNI=
 github.com/kr/text v0.2.0 h1:5Nx0Ya0ZqY2ygV366QzturHI13Jq95ApcVaJBhpS+AY=
 github.com/kr/text v0.2.0/go.mod h1:eLer722TekiGuMkidMxC/pM04lWEeraHUUmBw8l2grE=
-github.com/kubewharf/katalyst-api v0.0.4 h1:P4ezSfAN65+fPIpoQiAcGy03EQ2gbL/R+WRZRwG7QeM=
-github.com/kubewharf/katalyst-api v0.0.4/go.mod h1:N477ZHDwzROGwkee/sPGs2mo5lWqtS10hZxYfTcxB88=
 github.com/kubewharf/kubelet v1.24.6-kubewharf.4 h1:3lg/wqi0jqZZr60JcjDHeOpLcXMKsq3MrEq/4bmfzR8=
 github.com/kubewharf/kubelet v1.24.6-kubewharf.4/go.mod h1:MxbSZUx3wXztFneeelwWWlX7NAAStJ6expqq7gY2J3c=
 github.com/kyoh86/exportloopref v0.1.7/go.mod h1:h1rDl2Kdj97+Kwh4gdz3ujE7XHmH51Q0lUiZ1z4NLj8=

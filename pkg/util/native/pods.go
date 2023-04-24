@@ -326,3 +326,16 @@ func DeepCopyPodContainers(pod *v1.Pod) (containers []v1.Container) {
 	}
 	return
 }
+
+// FilterPodAnnotations returns the needed annotations for the given pod.
+func FilterPodAnnotations(filterKeys []string, pod *v1.Pod) map[string]string {
+	netAttrMap := make(map[string]string)
+
+	for _, attrKey := range filterKeys {
+		if attrVal, ok := pod.GetAnnotations()[attrKey]; ok {
+			netAttrMap[attrKey] = attrVal
+		}
+	}
+
+	return netAttrMap
+}

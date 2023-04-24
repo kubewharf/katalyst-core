@@ -19,6 +19,7 @@ package external
 
 import (
 	"context"
+	"sync"
 
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/pod"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/external/cgroupid"
@@ -26,19 +27,34 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/util/external/rdt"
 )
 
-type unsupportedExternalManager struct {
+var (
+	initUnsupportedManagerOnce sync.Once
+	unsupportedManager         *unsupportedExternalManagerImpl
+)
+
+type unsupportedExternalManagerImpl struct {
+	start bool
 	cgroupid.CgroupIDManager
 
 	network.NetworkManager
 	rdt.RDTManager
 }
 
-// Run starts an unsupportedExternalManager
-func (m *unsupportedExternalManager) Run(_ context.Context) {
+// Run starts an unsupportedExternalManagerImpl
+func (m *unsupportedExternalManagerImpl) Run(_ context.Context) {
 
 }
 
 // InitExternalManager initializes an externalManagerImpl
 func InitExternalManager(podFetcher pod.PodFetcher) ExternalManager {
-	return &unsupportedExternalManager{}
+	initUnsupportedManagerOnce.Do(func() {
+		unsupportedManager = &unsupportedExternalManagerImpl{
+			start:           false,
+			CgroupIDManager: cgroupid.NewCgroupIDManager(podFetcher),
+			NetworkManager:  network.NewNetworkManager(),
+			RDTManager:      rdt.NewDefaultManager(),
+		}
+	})
+
+	return unsupportedManager
 }
