@@ -19,9 +19,11 @@ package general
 import (
 	"errors"
 	"fmt"
+	"io/ioutil"
 	"os"
 	"path"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
@@ -118,6 +120,24 @@ func IsPathExists(path string) bool {
 		return false
 	}
 	return true
+}
+
+// ReadFileIntoLines read contents from the given file, and parse them into string slice;
+// each string indicates a line in the file
+func ReadFileIntoLines(filepath string) ([]string, error) {
+	lines, err := ioutil.ReadFile(filepath)
+	if err != nil {
+		return nil, fmt.Errorf("could not read file %s", filepath)
+	}
+
+	var contents []string
+	for _, line := range strings.Split(string(lines), "\n") {
+		if line == "" {
+			continue
+		}
+		contents = append(contents, line)
+	}
+	return contents, nil
 }
 
 type Flock struct {

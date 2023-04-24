@@ -17,9 +17,31 @@ limitations under the License.
 package general
 
 import (
+	"io/ioutil"
+	"os"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/assert"
 )
+
+func TestFileUtils(t *testing.T) {
+	// test to read from none-existed and existed files
+	filename := "/tmp/katalyst_test"
+	_, err := ReadFileIntoLines(filename)
+	assert.NotNil(t, err)
+
+	data := []byte("test-1\ntest-2")
+	err = ioutil.WriteFile(filename, data, 0777)
+	assert.NoError(t, err)
+	defer func() {
+		_ = os.Remove(filename)
+	}()
+
+	contents, err := ReadFileIntoLines(filename)
+	assert.NoError(t, err)
+	assert.Equal(t, 2, len(contents))
+}
 
 func Test_fileUniqueLock(t *testing.T) {
 	lockPath := "/tmp/test_lock"
