@@ -46,8 +46,8 @@ func NewReclaimedResourcesEvictionPlugin(_ *client.GenericClientSet, _ events.Ev
 		}
 
 		allocatable := make(v1.ResourceList)
-		if cnr != nil && cnr.Status.ResourceAllocatable != nil {
-			allocatable = *cnr.Status.ResourceAllocatable
+		if cnr != nil && cnr.Status.Resources.Allocatable != nil {
+			allocatable = *cnr.Status.Resources.Allocatable
 		}
 		return allocatable, nil
 	}

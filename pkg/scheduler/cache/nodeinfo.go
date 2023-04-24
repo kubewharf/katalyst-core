@@ -72,8 +72,8 @@ func (n *NodeInfo) UpdateNodeInfo(cnr *apis.CustomNodeResource) {
 	n.Mutex.Lock()
 	defer n.Mutex.Unlock()
 
-	if cnr.Status.ResourceAllocatable != nil {
-		beResourceList := *cnr.Status.ResourceAllocatable
+	if cnr.Status.Resources.Allocatable != nil {
+		beResourceList := *cnr.Status.Resources.Allocatable
 		if reclaimedMilliCPU, ok := beResourceList[consts.ReclaimedResourceMilliCPU]; ok {
 			n.QoSResourcesAllocatable.ReclaimedMilliCPU = reclaimedMilliCPU.Value()
 		} else {

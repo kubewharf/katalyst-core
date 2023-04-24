@@ -89,13 +89,21 @@ func GetMemoryQuantity(resourceList v1.ResourceList) resource.Quantity {
 
 // MergeResources merge multi ResourceList into one ResourceList, the resource of
 // same resource name in all ResourceList we only use the first merged one.
-func MergeResources(updateList ...v1.ResourceList) v1.ResourceList {
-	result := v1.ResourceList{}
+func MergeResources(updateList ...*v1.ResourceList) *v1.ResourceList {
+	var result *v1.ResourceList
 
 	for _, update := range updateList {
-		for name, res := range update {
-			if _, ok := result[name]; !ok {
-				result[name] = res.DeepCopy()
+		if update == nil {
+			continue
+		}
+
+		if result == nil {
+			result = &v1.ResourceList{}
+		}
+
+		for name, res := range *update {
+			if _, ok := (*result)[name]; !ok {
+				(*result)[name] = res.DeepCopy()
 			}
 		}
 	}

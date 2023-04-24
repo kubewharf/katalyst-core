@@ -26,6 +26,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/errors"
 	"k8s.io/klog/v2"
 
+	nodeapis "github.com/kubewharf/katalyst-api/pkg/apis/node/v1alpha1"
 	apiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-api/pkg/plugins/registration"
 	"github.com/kubewharf/katalyst-api/pkg/plugins/skeleton"
@@ -230,12 +231,12 @@ func getReportReclaimedResourceForCNR(reclaimedResource *reclaimedResource) (*v1
 		return nil, nil
 	}
 
-	allocatable, err := json.Marshal(&reclaimedResource.allocatable)
-	if err != nil {
-		return nil, err
+	resources := nodeapis.Resources{
+		Allocatable: &reclaimedResource.allocatable,
+		Capacity:    &reclaimedResource.capacity,
 	}
 
-	capacity, err := json.Marshal(&reclaimedResource.capacity)
+	resourcesValue, err := json.Marshal(&resources)
 	if err != nil {
 		return nil, err
 	}
@@ -245,13 +246,8 @@ func getReportReclaimedResourceForCNR(reclaimedResource *reclaimedResource) (*v1
 		Field: []*v1alpha1.ReportField{
 			{
 				FieldType: v1alpha1.FieldType_Status,
-				FieldName: util.CNRFieldNameResourceAllocatable,
-				Value:     allocatable,
-			},
-			{
-				FieldType: v1alpha1.FieldType_Status,
-				FieldName: util.CNRFieldNameResourceCapacity,
-				Value:     capacity,
+				FieldName: util.CNRFieldNameResources,
+				Value:     resourcesValue,
 			},
 		},
 	}, nil

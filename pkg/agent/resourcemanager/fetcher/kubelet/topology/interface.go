@@ -22,11 +22,11 @@ import (
 	nodev1alpha1 "github.com/kubewharf/katalyst-api/pkg/apis/node/v1alpha1"
 )
 
-// Adapter is to get numa topology status, the src of that can be kubelet checkpoint file
-// or pod resource api in the future.
+// Adapter is to get topology zone status, the src of that can be pod resource api
+// or kubelet checkpoint.
 type Adapter interface {
-	// GetNumaTopologyStatus return newest numa topology status
-	GetNumaTopologyStatus(ctx context.Context) (*nodev1alpha1.TopologyStatus, error)
+	// GetTopologyZones return newest topology zone status
+	GetTopologyZones(ctx context.Context) ([]*nodev1alpha1.TopologyZone, error)
 
 	// Run is to start the topology adapter to watch the topology change
 	Run(ctx context.Context, handler func()) error
@@ -37,9 +37,9 @@ type DummyAdapter struct{}
 
 var _ Adapter = DummyAdapter{}
 
-// GetNumaTopologyStatus is to get dummy numa topology status
-func (d DummyAdapter) GetNumaTopologyStatus(_ context.Context) (*nodev1alpha1.TopologyStatus, error) {
-	return &nodev1alpha1.TopologyStatus{}, nil
+// GetTopologyZones is to get dummy topology zone status
+func (d DummyAdapter) GetTopologyZones(_ context.Context) ([]*nodev1alpha1.TopologyZone, error) {
+	return []*nodev1alpha1.TopologyZone{}, nil
 }
 
 // Run is to start the dummy topology adapter

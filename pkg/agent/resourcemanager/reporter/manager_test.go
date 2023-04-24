@@ -45,7 +45,21 @@ var (
 		Kind:    "test-kind",
 		Version: "test-version",
 	}
+
+	testGroupVersionKindSecond = v1.GroupVersionKind{
+		Group:   "test-group-2",
+		Kind:    "test-kind-2",
+		Version: "test-version-2",
+	}
 )
+
+type testConverter struct {
+	ConvertFunc func(ctx context.Context, reportFields []*v1alpha1.ReportField) (*v1alpha1.ReportContent, error)
+}
+
+func (c *testConverter) Convert(ctx context.Context, reportFields []*v1alpha1.ReportField) (*v1alpha1.ReportContent, error) {
+	return c.ConvertFunc(ctx, reportFields)
+}
 
 func generateTestGenericClientSet(objects ...runtime.Object) *client.GenericClientSet {
 	return &client.GenericClientSet{
@@ -219,6 +233,85 @@ func Test_managerImpl_Run(t *testing.T) {
 				reporters: tt.fields.reporters,
 			}
 			go r.Run(tt.args.ctx)
+		})
+	}
+}
+
+func Test_managerImpl_convertReportFieldsIfNeeded(t *testing.T) {
+	type fields struct {
+		converters map[v1.GroupVersionKind]Converter
+	}
+	type args struct {
+		reportFieldsByGVK map[v1.GroupVersionKind][]*v1alpha1.ReportField
+	}
+	tests := []struct {
+		name    string
+		fields  fields
+		args    args
+		want    map[v1.GroupVersionKind][]*v1alpha1.ReportField
+		wantErr bool
+	}{
+		{
+			name: "test-1",
+			fields: fields{
+				converters: map[v1.GroupVersionKind]Converter{
+					testGroupVersionKindFirst: &testConverter{
+						func(ctx context.Context, reportFields []*v1alpha1.ReportField) (*v1alpha1.ReportContent, error) {
+							return &v1alpha1.ReportContent{
+								GroupVersionKind: &testGroupVersionKindSecond,
+								Field:            reportFields,
+							}, nil
+						},
+					},
+				},
+			},
+			args: args{
+				reportFieldsByGVK: map[v1.GroupVersionKind][]*v1alpha1.ReportField{
+					testGroupVersionKindFirst: {
+						{
+							FieldType: v1alpha1.FieldType_Spec,
+							FieldName: "fieldName_a",
+							Value:     []byte("Value_a"),
+						},
+					},
+					testGroupVersionKindSecond: {
+						{
+							FieldType: v1alpha1.FieldType_Spec,
+							FieldName: "fieldName_b",
+							Value:     []byte("Value_b"),
+						},
+					},
+				},
+			},
+			want: map[v1.GroupVersionKind][]*v1alpha1.ReportField{
+				testGroupVersionKindSecond: {
+					{
+						FieldType: v1alpha1.FieldType_Spec,
+						FieldName: "fieldName_a",
+						Value:     []byte("Value_a"),
+					},
+					{
+						FieldType: v1alpha1.FieldType_Spec,
+						FieldName: "fieldName_b",
+						Value:     []byte("Value_b"),
+					},
+				},
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			r := &managerImpl{
+				converters: tt.fields.converters,
+			}
+			got, err := r.convertReportFieldsIfNeeded(context.Background(), tt.args.reportFieldsByGVK)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("convertReportFieldsIfNeeded() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("convertReportFieldsIfNeeded() got = %v, want %v", got, tt.want)
+			}
 		})
 	}
 }

@@ -18,8 +18,6 @@ package topology
 
 import (
 	"context"
-	"encoding/json"
-	"io/ioutil"
 	"net"
 	"os"
 	"path"
@@ -34,7 +32,6 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/klog/v2"
 	podresv1 "k8s.io/kubelet/pkg/apis/podresources/v1"
 	"k8s.io/kubernetes/pkg/kubelet/checkpointmanager"
 	testutil "k8s.io/kubernetes/pkg/kubelet/cm/cpumanager/state/testing"
@@ -47,6 +44,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/pod"
+	"github.com/kubewharf/katalyst-core/pkg/util"
 	"github.com/kubewharf/katalyst-core/pkg/util/qos"
 )
 
@@ -78,11 +76,11 @@ type fakePodResourcesListerClient struct {
 	*podresv1.AllocatableResourcesResponse
 }
 
-func (f *fakePodResourcesListerClient) List(ctx context.Context, in *podresv1.ListPodResourcesRequest, opts ...grpc.CallOption) (*podresv1.ListPodResourcesResponse, error) {
+func (f *fakePodResourcesListerClient) List(_ context.Context, _ *podresv1.ListPodResourcesRequest, _ ...grpc.CallOption) (*podresv1.ListPodResourcesResponse, error) {
 	return f.ListPodResourcesResponse, nil
 }
 
-func (f *fakePodResourcesListerClient) GetAllocatableResources(ctx context.Context, in *podresv1.AllocatableResourcesRequest, opts ...grpc.CallOption) (*podresv1.AllocatableResourcesResponse, error) {
+func (f *fakePodResourcesListerClient) GetAllocatableResources(_ context.Context, _ *podresv1.AllocatableResourcesRequest, _ ...grpc.CallOption) (*podresv1.AllocatableResourcesResponse, error) {
 	return f.AllocatableResourcesResponse, nil
 }
 
@@ -108,22 +106,13 @@ func generateTestPod(namespace, name, uid string, isBindNumaQoS bool) *v1.Pod {
 	return p
 }
 
-func testMarshal(i interface{}) string {
-	marshal, err := json.Marshal(i)
-	if err != nil {
-		klog.Errorf("%s", err)
-		return ""
-	}
-	return string(marshal)
-}
-
 func generateFloat64ResourceValue(value string) float64 {
 	resourceValue := resource.MustParse(value)
 	return float64(resourceValue.Value())
 }
 
 func tmpSocketDir() (socketDir string, err error) {
-	socketDir, err = ioutil.TempDir("", "pod_resources")
+	socketDir, err = os.MkdirTemp("", "pod_resources")
 	if err != nil {
 		return
 	}
@@ -142,15 +131,16 @@ func generateTestMetaServer(podList ...*v1.Pod) *metaserver.MetaServer {
 	}
 }
 
-func Test_getNumaAllocationsByPodResources(t *testing.T) {
+func Test_getZoneAllocationsByPodResources(t *testing.T) {
 	type args struct {
-		podList          []*v1.Pod
-		podResourcesList []*podresv1.PodResources
+		podList               []*v1.Pod
+		numaSocketZoneNodeMap map[util.ZoneNode]util.ZoneNode
+		podResourcesList      []*podresv1.PodResources
 	}
 	tests := []struct {
 		name    string
 		args    args
-		want    map[int]*nodev1alpha1.NumaStatus
+		want    map[util.ZoneNode]util.ZoneAllocations
 		wantErr bool
 	}{
 		{
@@ -160,6 +150,10 @@ func Test_getNumaAllocationsByPodResources(t *testing.T) {
 					generateTestPod("default", "pod-1", "pod-1-uid", true),
 					generateTestPod("default", "pod-2", "pod-2-uid", true),
 					generateTestPod("default", "pod-3", "pod-3-uid", false),
+				},
+				numaSocketZoneNodeMap: map[util.ZoneNode]util.ZoneNode{
+					util.GenerateNumaZoneNode(0): util.GenerateSocketZoneNode(0),
+					util.GenerateNumaZoneNode(1): util.GenerateSocketZoneNode(1),
 				},
 				podResourcesList: []*podresv1.PodResources{
 					{
@@ -327,61 +321,65 @@ func Test_getNumaAllocationsByPodResources(t *testing.T) {
 					},
 				},
 			},
-			want: map[int]*nodev1alpha1.NumaStatus{
-				0: {
-					NumaID: 0,
-					Allocations: []*nodev1alpha1.Allocation{
-						{
-							Consumer: "default/pod-1/pod-1-uid",
-							Requests: &v1.ResourceList{
-								"gpu":    resource.MustParse("1"),
-								"cpu":    resource.MustParse("12"),
-								"memory": resource.MustParse("12G"),
-							},
+			want: map[util.ZoneNode]util.ZoneAllocations{
+				{
+					Meta: util.ZoneMeta{
+						Type: nodev1alpha1.TopologyTypeNuma,
+						Name: "0",
+					},
+				}: {
+					{
+						Consumer: "default/pod-1/pod-1-uid",
+						Requests: &v1.ResourceList{
+							"gpu":    resource.MustParse("1"),
+							"cpu":    resource.MustParse("12"),
+							"memory": resource.MustParse("12G"),
 						},
-						{
-							Consumer: "default/pod-2/pod-2-uid",
-							Requests: &v1.ResourceList{
-								"gpu":    resource.MustParse("1"),
-								"cpu":    resource.MustParse("24"),
-								"memory": resource.MustParse("32G"),
-							},
+					},
+					{
+						Consumer: "default/pod-2/pod-2-uid",
+						Requests: &v1.ResourceList{
+							"gpu":    resource.MustParse("1"),
+							"cpu":    resource.MustParse("24"),
+							"memory": resource.MustParse("32G"),
 						},
-						{
-							Consumer: "default/pod-3/pod-3-uid",
-							Requests: &v1.ResourceList{
-								"gpu":    resource.MustParse("1"),
-								"cpu":    resource.MustParse("24"),
-								"memory": resource.MustParse("32G"),
-							},
+					},
+					{
+						Consumer: "default/pod-3/pod-3-uid",
+						Requests: &v1.ResourceList{
+							"gpu":    resource.MustParse("1"),
+							"cpu":    resource.MustParse("24"),
+							"memory": resource.MustParse("32G"),
 						},
 					},
 				},
-				1: {
-					NumaID: 1,
-					Allocations: []*nodev1alpha1.Allocation{
-						{
-							Consumer: "default/pod-1/pod-1-uid",
-							Requests: &v1.ResourceList{
-								"cpu":    resource.MustParse("15"),
-								"memory": resource.MustParse("15G"),
-							},
+				{
+					Meta: util.ZoneMeta{
+						Type: nodev1alpha1.TopologyTypeNuma,
+						Name: "1",
+					},
+				}: {
+					{
+						Consumer: "default/pod-1/pod-1-uid",
+						Requests: &v1.ResourceList{
+							"cpu":    resource.MustParse("15"),
+							"memory": resource.MustParse("15G"),
 						},
-						{
-							Consumer: "default/pod-2/pod-2-uid",
-							Requests: &v1.ResourceList{
-								"gpu":    resource.MustParse("1"),
-								"cpu":    resource.MustParse("24"),
-								"memory": resource.MustParse("32G"),
-							},
+					},
+					{
+						Consumer: "default/pod-2/pod-2-uid",
+						Requests: &v1.ResourceList{
+							"gpu":    resource.MustParse("1"),
+							"cpu":    resource.MustParse("24"),
+							"memory": resource.MustParse("32G"),
 						},
-						{
-							Consumer: "default/pod-3/pod-3-uid",
-							Requests: &v1.ResourceList{
-								"gpu":    resource.MustParse("1"),
-								"cpu":    resource.MustParse("24"),
-								"memory": resource.MustParse("32G"),
-							},
+					},
+					{
+						Consumer: "default/pod-3/pod-3-uid",
+						Requests: &v1.ResourceList{
+							"gpu":    resource.MustParse("1"),
+							"cpu":    resource.MustParse("24"),
+							"memory": resource.MustParse("32G"),
 						},
 					},
 				},
@@ -394,28 +392,41 @@ func Test_getNumaAllocationsByPodResources(t *testing.T) {
 			isPodNumaBinding := func(pod *v1.Pod) bool {
 				return qos.IsPodNumaBinding(qosConf, pod)
 			}
-			got, err := getNumaAllocationsByPodResources(tt.args.podList, tt.args.podResourcesList, isPodNumaBinding, nil)
+			podResourcesFilter := func(podResources *podresv1.PodResources) (*podresv1.PodResources, error) {
+				for _, p := range tt.args.podList {
+					if p.Namespace == podResources.Namespace &&
+						p.Name == podResources.Name && !isPodNumaBinding(p) {
+						return nil, nil
+					}
+				}
+				return podResources, nil
+			}
+			p := &podResourcesServerTopologyAdapterImpl{
+				numaSocketZoneNodeMap: tt.args.numaSocketZoneNodeMap,
+				podResourcesFilter:    podResourcesFilter,
+			}
+			got, err := p.getZoneAllocations(tt.args.podList, tt.args.podResourcesList)
 			if (err != nil) != tt.wantErr {
-				t.Errorf("getNumaAllocationsByPodResources() error = %v, wantErr %v", err, tt.wantErr)
+				t.Errorf("getZoneAllocations() error = %v, wantErr %v", err, tt.wantErr)
 				return
 			}
 			if !apiequality.Semantic.DeepEqual(got, tt.want) {
-				t.Errorf("getNumaAllocationsByPodResources() got = %v, want %v", testMarshal(got), testMarshal(tt.want))
+				t.Errorf("getZoneAllocations() got = %v, want %v", got, tt.want)
 			}
 		})
 	}
 }
 
-func Test_getNumaAllocatableByAllocatableResources(t *testing.T) {
+func Test_getZoneResourcesByAllocatableResources(t *testing.T) {
 	type args struct {
-		allocatableResources *podresv1.AllocatableResourcesResponse
+		allocatableResources  *podresv1.AllocatableResourcesResponse
+		numaSocketZoneNodeMap map[util.ZoneNode]util.ZoneNode
 	}
 	tests := []struct {
-		name                string
-		args                args
-		wantNumaCapacity    map[int]*v1.ResourceList
-		wantNumaAllocatable map[int]*v1.ResourceList
-		wantErr             bool
+		name              string
+		args              args
+		wantZoneResources map[util.ZoneNode]nodev1alpha1.Resources
+		wantErr           bool
 	}{
 		{
 			name: "test-1",
@@ -492,29 +503,108 @@ func Test_getNumaAllocatableByAllocatableResources(t *testing.T) {
 								},
 							},
 						},
+						{
+							ResourceName: "nic",
+							TopologyAwareAllocatableQuantityList: []*podresv1.TopologyAwareQuantity{
+								{
+									ResourceValue: generateFloat64ResourceValue("10G"),
+									Node:          0,
+									Type:          "NIC",
+									Name:          "eth0",
+									TopologyLevel: podresv1.TopologyLevel_NUMA,
+								},
+								{
+									ResourceValue: generateFloat64ResourceValue("10G"),
+									Node:          1,
+									Type:          "NIC",
+									Name:          "eth1",
+									TopologyLevel: podresv1.TopologyLevel_NUMA,
+								},
+							},
+							TopologyAwareCapacityQuantityList: []*podresv1.TopologyAwareQuantity{
+								{
+									ResourceValue: generateFloat64ResourceValue("10G"),
+									Node:          0,
+									Type:          "NIC",
+									Name:          "eth0",
+									TopologyLevel: podresv1.TopologyLevel_NUMA,
+								},
+								{
+									ResourceValue: generateFloat64ResourceValue("10G"),
+									Node:          1,
+									Type:          "NIC",
+									Name:          "eth1",
+									TopologyLevel: podresv1.TopologyLevel_NUMA,
+								},
+							},
+						},
 					},
 				},
-			},
-			wantNumaCapacity: map[int]*v1.ResourceList{
-				0: {
-					"gpu":    resource.MustParse("2"),
-					"cpu":    resource.MustParse("24"),
-					"memory": resource.MustParse("32G"),
-				},
-				1: {
-					"cpu":    resource.MustParse("24"),
-					"memory": resource.MustParse("32G"),
+				numaSocketZoneNodeMap: map[util.ZoneNode]util.ZoneNode{
+					util.GenerateNumaZoneNode(0): util.GenerateSocketZoneNode(0),
+					util.GenerateNumaZoneNode(1): util.GenerateSocketZoneNode(1),
 				},
 			},
-			wantNumaAllocatable: map[int]*v1.ResourceList{
-				0: {
-					"gpu":    resource.MustParse("2"),
-					"cpu":    resource.MustParse("24"),
-					"memory": resource.MustParse("32G"),
+			wantZoneResources: map[util.ZoneNode]nodev1alpha1.Resources{
+				{
+					Meta: util.ZoneMeta{
+						Type: nodev1alpha1.TopologyTypeNuma,
+						Name: "0",
+					},
+				}: {
+					Capacity: &v1.ResourceList{
+						"gpu":    resource.MustParse("2"),
+						"cpu":    resource.MustParse("24"),
+						"memory": resource.MustParse("32G"),
+					},
+					Allocatable: &v1.ResourceList{
+						"gpu":    resource.MustParse("2"),
+						"cpu":    resource.MustParse("24"),
+						"memory": resource.MustParse("32G"),
+					},
 				},
-				1: {
-					"cpu":    resource.MustParse("24"),
-					"memory": resource.MustParse("32G"),
+				{
+					Meta: util.ZoneMeta{
+						Type: nodev1alpha1.TopologyTypeNuma,
+						Name: "1",
+					},
+				}: {
+					Capacity: &v1.ResourceList{
+						"cpu":    resource.MustParse("24"),
+						"memory": resource.MustParse("32G"),
+					},
+					Allocatable: &v1.ResourceList{
+						"cpu":    resource.MustParse("24"),
+						"memory": resource.MustParse("32G"),
+					},
+				},
+				{
+					Meta: util.ZoneMeta{
+						Type: nodev1alpha1.TopologyTypeNIC,
+						Name: "eth0",
+					},
+					ID: "TopologyLevel-NUMA,Node-0",
+				}: {
+					Capacity: &v1.ResourceList{
+						"nic": resource.MustParse("10G"),
+					},
+					Allocatable: &v1.ResourceList{
+						"nic": resource.MustParse("10G"),
+					},
+				},
+				{
+					Meta: util.ZoneMeta{
+						Type: nodev1alpha1.TopologyTypeNIC,
+						Name: "eth1",
+					},
+					ID: "TopologyLevel-NUMA,Node-1",
+				}: {
+					Capacity: &v1.ResourceList{
+						"nic": resource.MustParse("10G"),
+					},
+					Allocatable: &v1.ResourceList{
+						"nic": resource.MustParse("10G"),
+					},
 				},
 			},
 		},
@@ -595,62 +685,76 @@ func Test_getNumaAllocatableByAllocatableResources(t *testing.T) {
 						},
 					},
 				},
-			},
-			wantNumaCapacity: map[int]*v1.ResourceList{
-				0: {
-					"gpu":    resource.MustParse("2"),
-					"cpu":    resource.MustParse("24"),
-					"memory": resource.MustParse("32G"),
-				},
-				1: {
-					"cpu":    resource.MustParse("24"),
-					"memory": resource.MustParse("32G"),
+				numaSocketZoneNodeMap: map[util.ZoneNode]util.ZoneNode{
+					util.GenerateNumaZoneNode(0): util.GenerateSocketZoneNode(0),
+					util.GenerateNumaZoneNode(1): util.GenerateSocketZoneNode(1),
 				},
 			},
-			wantNumaAllocatable: map[int]*v1.ResourceList{
-				0: {
-					"gpu":    resource.MustParse("2"),
-					"cpu":    resource.MustParse("22"),
-					"memory": resource.MustParse("30G"),
+			wantZoneResources: map[util.ZoneNode]nodev1alpha1.Resources{
+				{
+					Meta: util.ZoneMeta{
+						Type: nodev1alpha1.TopologyTypeNuma,
+						Name: "0",
+					},
+				}: {
+					Capacity: &v1.ResourceList{
+						"gpu":    resource.MustParse("2"),
+						"cpu":    resource.MustParse("24"),
+						"memory": resource.MustParse("32G"),
+					},
+					Allocatable: &v1.ResourceList{
+						"gpu":    resource.MustParse("2"),
+						"cpu":    resource.MustParse("22"),
+						"memory": resource.MustParse("30G"),
+					},
 				},
-				1: {
-					"cpu":    resource.MustParse("22"),
-					"memory": resource.MustParse("30G"),
+				{
+					Meta: util.ZoneMeta{
+						Type: nodev1alpha1.TopologyTypeNuma,
+						Name: "1",
+					},
+				}: {
+					Capacity: &v1.ResourceList{
+						"cpu":    resource.MustParse("24"),
+						"memory": resource.MustParse("32G"),
+					},
+					Allocatable: &v1.ResourceList{
+						"cpu":    resource.MustParse("22"),
+						"memory": resource.MustParse("30G"),
+					},
 				},
 			},
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			numaCapacity, numaAllocatable, err := getNumaStatusByAllocatableResources(tt.args.allocatableResources, nil)
+			p := &podResourcesServerTopologyAdapterImpl{
+				numaSocketZoneNodeMap: tt.args.numaSocketZoneNodeMap,
+			}
+			zoneResourcesMap, err := p.getZoneResources(tt.args.allocatableResources)
 			if (err != nil) != tt.wantErr {
-				t.Errorf("getNumaStatusByAllocatableResources() error = %v, wantErr %v", err, tt.wantErr)
+				t.Errorf("getZoneResources() error = %v, wantErr %v", err, tt.wantErr)
 				return
 			}
-			if !apiequality.Semantic.DeepEqual(numaCapacity, tt.wantNumaCapacity) {
-				t.Errorf("getNumaStatusByAllocatableResources() get numaCapacity = %v, wantNumaCapacity = %v",
-					testMarshal(numaCapacity), testMarshal(tt.wantNumaCapacity))
-			}
-
-			if !apiequality.Semantic.DeepEqual(numaAllocatable, tt.wantNumaAllocatable) {
-				t.Errorf("getNumaStatusByAllocatableResources() numaAllocatable = %v, numaAllocatable = %v",
-					testMarshal(numaAllocatable), testMarshal(tt.wantNumaAllocatable))
+			if !apiequality.Semantic.DeepEqual(zoneResourcesMap, tt.wantZoneResources) {
+				t.Errorf("getZoneResources() got zoneResources = %v, wantZoneResources = %v",
+					zoneResourcesMap, tt.wantZoneResources)
 			}
 		})
 	}
 }
 
-func Test_podResourcesServerTopologyAdapterImpl_GetNumaTopologyStatus(t *testing.T) {
+func Test_podResourcesServerTopologyAdapterImpl_GetTopologyZones(t *testing.T) {
 	type fields struct {
-		podList              []*v1.Pod
-		listPodResources     *podresv1.ListPodResourcesResponse
-		allocatableResources *podresv1.AllocatableResourcesResponse
-		numaToSocketMap      map[int]int
+		podList               []*v1.Pod
+		listPodResources      *podresv1.ListPodResourcesResponse
+		allocatableResources  *podresv1.AllocatableResourcesResponse
+		numaSocketZoneNodeMap map[util.ZoneNode]util.ZoneNode
 	}
 	tests := []struct {
 		name    string
 		fields  fields
-		want    *nodev1alpha1.TopologyStatus
+		want    []*nodev1alpha1.TopologyZone
 		wantErr bool
 	}{
 		{
@@ -761,6 +865,18 @@ func Test_podResourcesServerTopologyAdapterImpl_GetNumaTopologyStatus(t *testing
 												{
 													ResourceValue: generateFloat64ResourceValue("32G"),
 													Node:          1,
+												},
+											},
+										},
+										{
+											ResourceName: "nic",
+											OriginalTopologyAwareQuantityList: []*podresv1.TopologyAwareQuantity{
+												{
+													ResourceValue: generateFloat64ResourceValue("10G"),
+													Node:          0,
+													Type:          "NIC",
+													Name:          "eth0",
+													TopologyLevel: podresv1.TopologyLevel_NUMA,
 												},
 											},
 										},
@@ -900,20 +1016,57 @@ func Test_podResourcesServerTopologyAdapterImpl_GetNumaTopologyStatus(t *testing
 								},
 							},
 						},
+						{
+							ResourceName: "nic",
+							TopologyAwareAllocatableQuantityList: []*podresv1.TopologyAwareQuantity{
+								{
+									ResourceValue: generateFloat64ResourceValue("10G"),
+									Node:          0,
+									Type:          "NIC",
+									Name:          "eth0",
+									TopologyLevel: podresv1.TopologyLevel_NUMA,
+								},
+								{
+									ResourceValue: generateFloat64ResourceValue("10G"),
+									Node:          1,
+									Type:          "NIC",
+									Name:          "eth1",
+									TopologyLevel: podresv1.TopologyLevel_NUMA,
+								},
+							},
+							TopologyAwareCapacityQuantityList: []*podresv1.TopologyAwareQuantity{
+								{
+									ResourceValue: generateFloat64ResourceValue("10G"),
+									Node:          0,
+									Type:          "NIC",
+									Name:          "eth0",
+									TopologyLevel: podresv1.TopologyLevel_NUMA,
+								},
+								{
+									ResourceValue: generateFloat64ResourceValue("10G"),
+									Node:          1,
+									Type:          "NIC",
+									Name:          "eth1",
+									TopologyLevel: podresv1.TopologyLevel_NUMA,
+								},
+							},
+						},
 					},
 				},
-				numaToSocketMap: map[int]int{
-					0: 0,
-					1: 1,
+				numaSocketZoneNodeMap: map[util.ZoneNode]util.ZoneNode{
+					util.GenerateNumaZoneNode(0): util.GenerateSocketZoneNode(0),
+					util.GenerateNumaZoneNode(1): util.GenerateSocketZoneNode(1),
 				},
 			},
-			want: &nodev1alpha1.TopologyStatus{
-				Sockets: []*nodev1alpha1.SocketStatus{
-					{
-						SocketID: 0,
-						Numas: []*nodev1alpha1.NumaStatus{
-							{
-								NumaID: 0,
+			want: []*nodev1alpha1.TopologyZone{
+				{
+					Type: nodev1alpha1.TopologyTypeSocket,
+					Name: "0",
+					Children: []*nodev1alpha1.TopologyZone{
+						{
+							Type: nodev1alpha1.TopologyTypeNuma,
+							Name: "0",
+							Resources: nodev1alpha1.Resources{
 								Capacity: &v1.ResourceList{
 									"gpu":    resource.MustParse("2"),
 									"cpu":    resource.MustParse("24"),
@@ -924,40 +1077,66 @@ func Test_podResourcesServerTopologyAdapterImpl_GetNumaTopologyStatus(t *testing
 									"cpu":    resource.MustParse("24"),
 									"memory": resource.MustParse("32G"),
 								},
-								Allocations: []*nodev1alpha1.Allocation{
-									{
-										Consumer: "default/pod-1/pod-1-uid",
-										Requests: &v1.ResourceList{
-											"gpu":    resource.MustParse("1"),
-											"cpu":    resource.MustParse("12"),
-											"memory": resource.MustParse("12G"),
+							},
+							Allocations: []*nodev1alpha1.Allocation{
+								{
+									Consumer: "default/pod-1/pod-1-uid",
+									Requests: &v1.ResourceList{
+										"gpu":    resource.MustParse("1"),
+										"cpu":    resource.MustParse("12"),
+										"memory": resource.MustParse("12G"),
+									},
+								},
+								{
+									Consumer: "default/pod-2/pod-2-uid",
+									Requests: &v1.ResourceList{
+										"gpu":    resource.MustParse("1"),
+										"cpu":    resource.MustParse("24"),
+										"memory": resource.MustParse("32G"),
+									},
+								},
+								{
+									Consumer: "default/pod-3/pod-3-uid",
+									Requests: &v1.ResourceList{
+										"gpu":    resource.MustParse("1"),
+										"cpu":    resource.MustParse("24"),
+										"memory": resource.MustParse("32G"),
+									},
+								},
+							},
+							Children: []*nodev1alpha1.TopologyZone{
+								{
+									Type: nodev1alpha1.TopologyTypeNIC,
+									Name: "eth0",
+									Resources: nodev1alpha1.Resources{
+										Capacity: &v1.ResourceList{
+											"nic": resource.MustParse("10G"),
+										},
+										Allocatable: &v1.ResourceList{
+											"nic": resource.MustParse("10G"),
 										},
 									},
-									{
-										Consumer: "default/pod-2/pod-2-uid",
-										Requests: &v1.ResourceList{
-											"gpu":    resource.MustParse("1"),
-											"cpu":    resource.MustParse("24"),
-											"memory": resource.MustParse("32G"),
-										},
-									},
-									{
-										Consumer: "default/pod-3/pod-3-uid",
-										Requests: &v1.ResourceList{
-											"gpu":    resource.MustParse("1"),
-											"cpu":    resource.MustParse("24"),
-											"memory": resource.MustParse("32G"),
+									Allocations: []*nodev1alpha1.Allocation{
+										{
+											Consumer: "default/pod-2/pod-2-uid",
+											Requests: &v1.ResourceList{
+												"nic": resource.MustParse("10G"),
+											},
 										},
 									},
 								},
 							},
 						},
 					},
-					{
-						SocketID: 1,
-						Numas: []*nodev1alpha1.NumaStatus{
-							{
-								NumaID: 1,
+				},
+				{
+					Type: nodev1alpha1.TopologyTypeSocket,
+					Name: "1",
+					Children: []*nodev1alpha1.TopologyZone{
+						{
+							Type: nodev1alpha1.TopologyTypeNuma,
+							Name: "1",
+							Resources: nodev1alpha1.Resources{
 								Capacity: &v1.ResourceList{
 									"cpu":    resource.MustParse("24"),
 									"memory": resource.MustParse("32G"),
@@ -966,28 +1145,42 @@ func Test_podResourcesServerTopologyAdapterImpl_GetNumaTopologyStatus(t *testing
 									"cpu":    resource.MustParse("24"),
 									"memory": resource.MustParse("32G"),
 								},
-								Allocations: []*nodev1alpha1.Allocation{
-									{
-										Consumer: "default/pod-1/pod-1-uid",
-										Requests: &v1.ResourceList{
-											"cpu":    resource.MustParse("15"),
-											"memory": resource.MustParse("15G"),
-										},
+							},
+							Allocations: []*nodev1alpha1.Allocation{
+								{
+									Consumer: "default/pod-1/pod-1-uid",
+									Requests: &v1.ResourceList{
+										"cpu":    resource.MustParse("15"),
+										"memory": resource.MustParse("15G"),
 									},
-									{
-										Consumer: "default/pod-2/pod-2-uid",
-										Requests: &v1.ResourceList{
-											"gpu":    resource.MustParse("1"),
-											"cpu":    resource.MustParse("24"),
-											"memory": resource.MustParse("32G"),
-										},
+								},
+								{
+									Consumer: "default/pod-2/pod-2-uid",
+									Requests: &v1.ResourceList{
+										"gpu":    resource.MustParse("1"),
+										"cpu":    resource.MustParse("24"),
+										"memory": resource.MustParse("32G"),
 									},
-									{
-										Consumer: "default/pod-3/pod-3-uid",
-										Requests: &v1.ResourceList{
-											"gpu":    resource.MustParse("1"),
-											"cpu":    resource.MustParse("24"),
-											"memory": resource.MustParse("32G"),
+								},
+								{
+									Consumer: "default/pod-3/pod-3-uid",
+									Requests: &v1.ResourceList{
+										"gpu":    resource.MustParse("1"),
+										"cpu":    resource.MustParse("24"),
+										"memory": resource.MustParse("32G"),
+									},
+								},
+							},
+							Children: []*nodev1alpha1.TopologyZone{
+								{
+									Type: nodev1alpha1.TopologyTypeNIC,
+									Name: "eth1",
+									Resources: nodev1alpha1.Resources{
+										Capacity: &v1.ResourceList{
+											"nic": resource.MustParse("10G"),
+										},
+										Allocatable: &v1.ResourceList{
+											"nic": resource.MustParse("10G"),
 										},
 									},
 								},
@@ -1199,9 +1392,9 @@ func Test_podResourcesServerTopologyAdapterImpl_GetNumaTopologyStatus(t *testing
 					},
 					Resources: []*podresv1.AllocatableTopologyAwareResource{},
 				},
-				numaToSocketMap: map[int]int{
-					0: 0,
-					1: 1,
+				numaSocketZoneNodeMap: map[util.ZoneNode]util.ZoneNode{
+					util.GenerateNumaZoneNode(0): util.GenerateSocketZoneNode(0),
+					util.GenerateNumaZoneNode(1): util.GenerateSocketZoneNode(1),
 				},
 			},
 			wantErr: true,
@@ -1220,11 +1413,11 @@ func Test_podResourcesServerTopologyAdapterImpl_GetNumaTopologyStatus(t *testing
 						PodFetcher: &pod.PodFetcherStub{PodList: tt.fields.podList},
 					},
 				},
-				numaToSocketMap: tt.fields.numaToSocketMap,
+				numaSocketZoneNodeMap: tt.fields.numaSocketZoneNodeMap,
 			}
-			got, err := p.GetNumaTopologyStatus(context.TODO())
+			got, err := p.GetTopologyZones(context.TODO())
 			if (err != nil) != tt.wantErr {
-				t.Errorf("GetNumaTopologyStatus() error = %v, wantErr %v", err, tt.wantErr)
+				t.Errorf("GetTopologyZones() error = %v, wantErr %v", err, tt.wantErr)
 				return
 			}
 			assert.Equal(t, true, apiequality.Semantic.DeepEqual(tt.want, got))
@@ -1266,15 +1459,11 @@ func Test_podResourcesServerTopologyAdapterImpl_Run(t *testing.T) {
 		return []info.Node{}, nil
 	}
 
-	isPodNumaBinding := func(pod *v1.Pod) bool {
-		return true
-	}
-
 	ctx, cancel := context.WithCancel(context.TODO())
 	notifier := make(chan struct{}, 1)
 	p, _ := NewPodResourcesServerTopologyAdapter(testMetaServer,
 		endpoints, kubeletResourcePluginPath,
-		nil, getNumaInfo, isPodNumaBinding, podresources.GetV1Client)
+		nil, getNumaInfo, nil, podresources.GetV1Client)
 	err = p.Run(ctx, func() {})
 	assert.NoError(t, err)
 

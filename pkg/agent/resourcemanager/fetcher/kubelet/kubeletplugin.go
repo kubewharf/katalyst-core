@@ -25,7 +25,6 @@ import (
 
 	"github.com/pkg/errors"
 	"go.uber.org/atomic"
-	v1 "k8s.io/api/core/v1"
 	"k8s.io/klog/v2"
 
 	info "github.com/google/cadvisor/info/v1"
@@ -39,7 +38,6 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util"
 	"github.com/kubewharf/katalyst-core/pkg/util/process"
-	"github.com/kubewharf/katalyst-core/pkg/util/qos"
 )
 
 const (
@@ -92,7 +90,7 @@ func NewKubeletReporterPlugin(emitter metrics.MetricEmitter, metaServer *metaser
 
 	topologyStatusAdapter, err := topology.NewPodResourcesServerTopologyAdapter(metaServer,
 		conf.PodResourcesServerEndpoints, conf.KubeletResourcePluginPaths, nil,
-		p.getNumaInfo, p.isPodNumaBinding, podresources.GetV1Client)
+		p.getNumaInfo, nil, podresources.GetV1Client)
 	if err != nil {
 		return nil, err
 	}
@@ -197,7 +195,7 @@ func (p *kubeletPlugin) getReportContent(ctx context.Context) (*v1alpha1.GetRepo
 
 // getTopologyStatusContent get topology status content from topologyStatusAdapter
 func (p *kubeletPlugin) getTopologyStatusContent(ctx context.Context) ([]*v1alpha1.ReportContent, error) {
-	topologyStatus, err := p.topologyStatusAdapter.GetNumaTopologyStatus(ctx)
+	topologyStatus, err := p.topologyStatusAdapter.GetTopologyZones(ctx)
 	if err != nil {
 		return nil, errors.Wrap(err, "get numa topology status from adapter failed")
 	}
@@ -213,7 +211,7 @@ func (p *kubeletPlugin) getTopologyStatusContent(ctx context.Context) ([]*v1alph
 			Field: []*v1alpha1.ReportField{
 				{
 					FieldType: v1alpha1.FieldType_Status,
-					FieldName: util.CNRFieldNameTopologyStatus,
+					FieldName: util.CNRFieldNameTopologyZone,
 					Value:     value,
 				},
 			},
@@ -226,8 +224,4 @@ func (p *kubeletPlugin) getNumaInfo() ([]info.Node, error) {
 		return nil, fmt.Errorf("get metaserver machine info is nil")
 	}
 	return p.metaServer.MachineInfo.Topology, nil
-}
-
-func (p *kubeletPlugin) isPodNumaBinding(pod *v1.Pod) bool {
-	return qos.IsPodNumaBinding(p.conf.QoSConfiguration, pod)
 }

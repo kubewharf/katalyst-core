@@ -118,8 +118,10 @@ func TestNewReclaimedResourcesEvictionPlugin(t *testing.T) {
 				Name: testNodeName,
 			},
 			Status: v1alpha1.CustomNodeResourceStatus{
-				ResourceAllocatable: &corev1.ResourceList{
-					consts.ReclaimedResourceMilliCPU: resource.MustParse("1000"),
+				Resources: v1alpha1.Resources{
+					Allocatable: &corev1.ResourceList{
+						consts.ReclaimedResourceMilliCPU: resource.MustParse("1000"),
+					},
 				},
 			},
 		},

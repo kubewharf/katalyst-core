@@ -141,7 +141,9 @@ var makeFitCNR = func(name string, res v1.ResourceList) *apis.CustomNodeResource
 	cnr := &apis.CustomNodeResource{
 		ObjectMeta: metav1.ObjectMeta{Name: name},
 		Status: apis.CustomNodeResourceStatus{
-			ResourceAllocatable: &res,
+			Resources: apis.Resources{
+				Allocatable: &res,
+			},
 		},
 	}
 	return cnr
