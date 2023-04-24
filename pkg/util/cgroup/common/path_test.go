@@ -53,3 +53,9 @@ func TestGetContainerAbsCgroupPath(t *testing.T) {
 	_, err := GetContainerAbsCgroupPath("cpuset", "", "")
 	as.NotNil(err)
 }
+
+func TestIsContainerCgroupExist(t *testing.T) {
+	as := require.New(t)
+	_, err := IsContainerCgroupExist("fake-pod-uid", "fake-container-id")
+	as.NotNil(err)
+}
