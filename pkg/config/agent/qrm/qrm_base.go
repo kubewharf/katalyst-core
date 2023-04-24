@@ -30,6 +30,7 @@ type GenericQRMPluginConfiguration struct {
 type QRMPluginsConfiguration struct {
 	*CPUQRMPluginConfig
 	*MemoryQRMPluginConfig
+	*NetworkQRMPluginConfig
 }
 
 func NewGenericQRMPluginConfiguration() *GenericQRMPluginConfiguration {
@@ -41,12 +42,14 @@ func (c *GenericQRMPluginConfiguration) ApplyConfiguration(*GenericQRMPluginConf
 
 func NewQRMPluginsConfiguration() *QRMPluginsConfiguration {
 	return &QRMPluginsConfiguration{
-		CPUQRMPluginConfig:    NewCPUQRMPluginConfig(),
-		MemoryQRMPluginConfig: NewMemoryQRMPluginConfig(),
+		CPUQRMPluginConfig:     NewCPUQRMPluginConfig(),
+		MemoryQRMPluginConfig:  NewMemoryQRMPluginConfig(),
+		NetworkQRMPluginConfig: NewNetworkQRMPluginConfig(),
 	}
 }
 
 func (c *QRMPluginsConfiguration) ApplyConfiguration(defaultConf *QRMPluginsConfiguration, conf *dynamic.DynamicConfigCRD) {
 	c.CPUQRMPluginConfig.ApplyConfiguration(defaultConf.CPUQRMPluginConfig, conf)
 	c.MemoryQRMPluginConfig.ApplyConfiguration(defaultConf.MemoryQRMPluginConfig, conf)
+	c.NetworkQRMPluginConfig.ApplyConfiguration(defaultConf.NetworkQRMPluginConfig, conf)
 }
