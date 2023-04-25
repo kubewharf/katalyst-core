@@ -77,6 +77,14 @@ func (f *FakeMetricsFetcher) SetNumaMetric(numaID int, metricName string, value 
 	f.metricStore.SetNumaMetric(numaID, metricName, value)
 }
 
+func (f *FakeMetricsFetcher) SetCPUMetric(cpu int, metricName string, value float64) {
+	f.metricStore.SetCPUMetric(cpu, metricName, value)
+}
+
+func (f *FakeMetricsFetcher) SetDeviceMetric(deviceName string, metricName string, value float64) {
+	f.metricStore.SetDeviceMetric(deviceName, metricName, value)
+}
+
 func (f *FakeMetricsFetcher) SetContainerMetric(podUID, containerName, metricName string, value float64) {
 	f.metricStore.SetContainerMetric(podUID, containerName, metricName, value)
 }

@@ -127,6 +127,7 @@ func (r *QoSRegionShare) GetHeadroom() (resource.Quantity, error) {
 			klog.Errorf("GetHeadroom by policy %v err %v", internal.name, err)
 			continue
 		}
+		r.headroomPolicyInUse = internal
 		return *resource.NewQuantity(int64(headroom), resource.DecimalSI), nil
 	}
 

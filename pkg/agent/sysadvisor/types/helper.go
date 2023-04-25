@@ -23,6 +23,7 @@ import (
 
 	"github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
+	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
 // IsNumaBinding returns true iff current container is for dedicated_cores with numa binding
@@ -30,21 +31,6 @@ import (
 func (ci *ContainerInfo) IsNumaBinding() bool {
 	return ci.QoSLevel == consts.PodAnnotationQoSLevelDedicatedCores &&
 		ci.Annotations[consts.PodAnnotationMemoryEnhancementNumaBinding] == consts.PodAnnotationMemoryEnhancementNumaBindingEnable
-}
-
-func (ta TopologyAwareAssignment) Clone() TopologyAwareAssignment {
-	if ta == nil {
-		return nil
-	}
-	clone := make(TopologyAwareAssignment)
-	for numaID, cpuset := range ta {
-		clone[numaID] = cpuset.Clone()
-	}
-	return clone
-}
-
-func (ta TopologyAwareAssignment) Equals(t TopologyAwareAssignment) bool {
-	return reflect.DeepEqual(ta, t)
 }
 
 func (ci *ContainerInfo) Clone() *ContainerInfo {
@@ -72,6 +58,40 @@ func (ci *ContainerInfo) Clone() *ContainerInfo {
 	return clone
 }
 
+// UpdateMeta updates mutable container meta from another container info
+func (ci *ContainerInfo) UpdateMeta(c *ContainerInfo) {
+	if c.CPURequest > 0 {
+		ci.CPURequest = c.CPURequest
+	}
+	if c.MemoryRequest > 0 {
+		ci.MemoryRequest = c.MemoryRequest
+	}
+}
+
+func (ta TopologyAwareAssignment) Clone() TopologyAwareAssignment {
+	if ta == nil {
+		return nil
+	}
+	clone := make(TopologyAwareAssignment)
+	for numaID, cpuset := range ta {
+		clone[numaID] = cpuset.Clone()
+	}
+	return clone
+}
+
+// MergeCPUSet returns a merged machine.CPUSet belonging to this TopologyAwareAssignment
+func (ta TopologyAwareAssignment) MergeCPUSet() machine.CPUSet {
+	cpusets := machine.NewCPUSet()
+	for _, cpuset := range ta {
+		cpusets = cpusets.Union(cpuset)
+	}
+	return cpusets
+}
+
+func (ta TopologyAwareAssignment) Equals(t TopologyAwareAssignment) bool {
+	return reflect.DeepEqual(ta, t)
+}
+
 func (pi *PoolInfo) Clone() *PoolInfo {
 	if pi == nil {
 		return nil
@@ -90,8 +110,16 @@ func (ri *RegionInfo) Clone() *RegionInfo {
 		return nil
 	}
 	clone := &RegionInfo{
-		ControlKnobMap: ri.ControlKnobMap.Clone(),
-		RegionType:     ri.RegionType,
+		RegionType:   ri.RegionType,
+		BindingNumas: ri.BindingNumas.Clone(),
+
+		HeadroomPolicyTopPriority: ri.HeadroomPolicyTopPriority,
+		HeadroomPolicyInUse:       ri.HeadroomPolicyInUse,
+		Headroom:                  ri.Headroom,
+
+		ProvisionPolicyTopPriority: ri.ProvisionPolicyTopPriority,
+		ProvisionPolicyInUse:       ri.ProvisionPolicyInUse,
+		ControlKnobMap:             ri.ControlKnobMap.Clone(),
 	}
 	return clone
 }
@@ -169,14 +197,4 @@ func (ck ControlKnob) Clone() ControlKnob {
 		clone[k] = v
 	}
 	return clone
-}
-
-// UpdateMeta updates mutable container meta from another container info
-func (ci *ContainerInfo) UpdateMeta(c *ContainerInfo) {
-	if c.CPURequest > 0 {
-		ci.CPURequest = c.CPURequest
-	}
-	if c.MemoryRequest > 0 {
-		ci.MemoryRequest = c.MemoryRequest
-	}
 }
