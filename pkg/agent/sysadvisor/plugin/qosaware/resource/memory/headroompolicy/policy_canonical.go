@@ -44,12 +44,15 @@ type PolicyCanonical struct {
 func NewPolicyCanonical(_ *config.Configuration, _ interface{}, metaReader metacache.MetaReader,
 	metaServer *metaserver.MetaServer, _ metrics.MetricEmitter) HeadroomPolicy {
 	p := PolicyCanonical{
-		PolicyBase: NewPolicyBase(metaReader, metaServer),
-
+		PolicyBase:   NewPolicyBase(metaReader, metaServer),
 		updateStatus: types.PolicyUpdateFailed,
 	}
 
 	return &p
+}
+
+func (p *PolicyCanonical) estimateContainerMemoryUsage(ci *types.ContainerInfo) (float64, error) {
+	return helper.EstimateContainerResourceUsage(ci, v1.ResourceMemory, p.metaReader, p.essentials.EnableReclaim)
 }
 
 func (p *PolicyCanonical) Update() (err error) {
@@ -68,16 +71,12 @@ func (p *PolicyCanonical) Update() (err error) {
 	)
 
 	f := func(podUID string, containerName string, ci *types.ContainerInfo) bool {
-		containerEstimation := 0.0
-		if !p.essentials.EnableReclaim {
-			containerEstimation = ci.MemoryRequest
-		} else {
-			containerEstimation, err = helper.EstimateContainerResourceUsage(ci, v1.ResourceMemory, p.metaReader)
-			if err != nil {
-				errList = append(errList, err)
-				return true
-			}
+		containerEstimation, err := p.estimateContainerMemoryUsage(ci)
+		if err != nil {
+			errList = append(errList, err)
+			return true
 		}
+
 		klog.Infof("[qosaware-memory-headroom] pod %v container %v estimation %.2e", ci.PodName, containerName, containerEstimation)
 		memoryEstimation += containerEstimation
 		containerCnt += 1
