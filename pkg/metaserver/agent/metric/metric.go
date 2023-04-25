@@ -25,6 +25,7 @@ import (
 	"sync"
 	"time"
 
+	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/klog/v2"
 
@@ -34,6 +35,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric/malachite/system"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
+	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 	"github.com/kubewharf/katalyst-core/pkg/util/metric"
 )
 
@@ -93,21 +95,23 @@ type MetricsFetcher interface {
 
 	// GetNodeMetric get metric of node.
 	GetNodeMetric(metricName string) (float64, error)
-
 	// GetNumaMetric get metric of numa.
 	GetNumaMetric(numaID int, metricName string) (float64, error)
-
 	// GetDeviceMetric get metric of device.
 	GetDeviceMetric(deviceName string, metricName string) (float64, error)
-
 	// GetCPUMetric get metric of cpu.
 	GetCPUMetric(coreID int, metricName string) (float64, error)
-
 	// GetContainerMetric get metric of container.
 	GetContainerMetric(podUID, containerName, metricName string) (float64, error)
-
 	// GetContainerNumaMetric get metric of container per numa.
 	GetContainerNumaMetric(podUID, containerName, numaNode, metricName string) (float64, error)
+
+	// AggregatePodNumaMetric handles numa-level metric for all pods
+	AggregatePodNumaMetric(podList []*v1.Pod, numaNode, metricName string, agg metric.Aggregator) float64
+	// AggregatePodMetric handles metric for all pods
+	AggregatePodMetric(podList []*v1.Pod, metricName string, agg metric.Aggregator) float64
+	// AggregateCoreMetric handles metric for all cores
+	AggregateCoreMetric(cpuset machine.CPUSet, metricName string, agg metric.Aggregator) float64
 }
 
 var (
@@ -192,6 +196,18 @@ func (m *MalachiteMetricsFetcher) GetContainerMetric(podUID, containerName, metr
 
 func (m *MalachiteMetricsFetcher) GetContainerNumaMetric(podUID, containerName, numaNode, metricName string) (float64, error) {
 	return m.metricStore.GetContainerNumaMetric(podUID, containerName, numaNode, metricName)
+}
+
+func (m *MalachiteMetricsFetcher) AggregatePodNumaMetric(podList []*v1.Pod, numaNode, metricName string, agg metric.Aggregator) float64 {
+	return m.metricStore.AggregatePodNumaMetric(podList, numaNode, metricName, agg)
+}
+
+func (m *MalachiteMetricsFetcher) AggregatePodMetric(podList []*v1.Pod, metricName string, agg metric.Aggregator) float64 {
+	return m.metricStore.AggregatePodMetric(podList, metricName, agg)
+}
+
+func (m *MalachiteMetricsFetcher) AggregateCoreMetric(cpuset machine.CPUSet, metricName string, agg metric.Aggregator) float64 {
+	return m.metricStore.AggregateCoreMetric(cpuset, metricName, agg)
 }
 
 func (m *MalachiteMetricsFetcher) sample() {
