@@ -67,6 +67,7 @@ func (ci *ContainerInfo) Clone() *ContainerInfo {
 		OwnerPoolName:                    ci.OwnerPoolName,
 		TopologyAwareAssignments:         ci.TopologyAwareAssignments.Clone(),
 		OriginalTopologyAwareAssignments: ci.OriginalTopologyAwareAssignments.Clone(),
+		RegionNames:                      sets.NewString(ci.RegionNames.List()...),
 	}
 	return clone
 }
@@ -79,6 +80,7 @@ func (pi *PoolInfo) Clone() *PoolInfo {
 		PoolName:                         pi.PoolName,
 		TopologyAwareAssignments:         pi.TopologyAwareAssignments.Clone(),
 		OriginalTopologyAwareAssignments: pi.OriginalTopologyAwareAssignments.Clone(),
+		RegionNames:                      sets.NewString(pi.RegionNames.List()...),
 	}
 	return clone
 }

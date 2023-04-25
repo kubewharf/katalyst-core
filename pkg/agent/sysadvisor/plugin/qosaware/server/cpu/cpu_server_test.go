@@ -28,6 +28,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
 	"k8s.io/apimachinery/pkg/api/resource"
+	"k8s.io/apimachinery/pkg/util/sets"
 
 	"github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/options"
@@ -122,6 +123,7 @@ func TestCPUServerAddContainer(t *testing.T) {
 				Annotations:    map[string]string{"key": "label"},
 				QoSLevel:       consts.PodAnnotationQoSLevelSharedCores,
 				CPURequest:     1,
+				RegionNames:    sets.NewString(),
 			},
 		},
 	}

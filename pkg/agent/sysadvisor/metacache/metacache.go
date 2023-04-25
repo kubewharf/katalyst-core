@@ -254,16 +254,22 @@ func (mc *MetaCacheImp) DeleteContainer(podUID string, containerName string) err
 // RangeAndUpdateContainer applies a function to every podUID, containerName, containerInfo set.
 // Not recommended to use if RangeContainer satisfies the requirement.
 func (mc *MetaCacheImp) RangeAndUpdateContainer(f func(podUID string, containerName string, containerInfo *types.ContainerInfo) bool) {
-	mc.mutex.Lock()
-	defer mc.mutex.Unlock()
+	mc.mutex.RLock()
+	podEntries := mc.podEntries.Clone()
+	mc.mutex.RUnlock()
 
-	for podUID, podInfo := range mc.podEntries {
+	// func f may need to hold metaCache.mutex, so make this for-loop section lock-free
+	for podUID, podInfo := range podEntries {
 		for containerName, containerInfo := range podInfo {
 			if !f(podUID, containerName, containerInfo) {
 				break
 			}
 		}
 	}
+
+	mc.mutex.Lock()
+	mc.podEntries = podEntries
+	mc.mutex.Unlock()
 }
 
 // RemovePod deletes a PodInfo keyed by pod uid. Repeatedly remove will be ignored.
