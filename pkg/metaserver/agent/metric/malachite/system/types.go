@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package malachite
+package system
 
 type MalachiteSystemDiskIoResponse struct {
 	Status int              `json:"status"`
@@ -43,6 +43,7 @@ type SystemNetworkData struct {
 	NetworkCard []NetworkCard `json:"networkcard"`
 	TCP         TCP           `json:"tcp"`
 }
+
 type NetworkCard struct {
 	Name               string `json:"name"`
 	ReceiveBytes       uint64 `json:"receive_bytes"`
@@ -86,6 +87,7 @@ type SystemComputeData struct {
 	Load Load  `json:"load"`
 	CPU  []CPU `json:"cpu"`
 }
+
 type Load struct {
 	One     float64 `json:"one"`
 	Five    float64 `json:"five"`

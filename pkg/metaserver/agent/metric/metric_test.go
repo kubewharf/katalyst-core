@@ -22,7 +22,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
-	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric/malachite"
+	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric/malachite/cgroup"
+	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric/malachite/system"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 )
 
@@ -30,43 +31,43 @@ func Test_noneExistMetricsFetcher(t *testing.T) {
 	var err error
 	implement := NewMalachiteMetricsFetcher(metrics.DummyMetrics{})
 
-	fakeSystemCompute := &malachite.SystemComputeData{
-		CPU: []malachite.CPU{
+	fakeSystemCompute := &system.SystemComputeData{
+		CPU: []system.CPU{
 			{
 				Name: "CPU1111",
 			},
 		},
 	}
-	fakeSystemMemory := &malachite.SystemMemoryData{
-		Numa: []malachite.Numa{
+	fakeSystemMemory := &system.SystemMemoryData{
+		Numa: []system.Numa{
 			{},
 		},
 	}
-	fakeSystemIO := &malachite.SystemDiskIoData{
-		DiskIo: []malachite.DiskIo{
+	fakeSystemIO := &system.SystemDiskIoData{
+		DiskIo: []system.DiskIo{
 			{},
 		},
 	}
-	fakeCgroupInfoV1 := &malachite.MalachiteCgroupInfo{
+	fakeCgroupInfoV1 := &cgroup.MalachiteCgroupInfo{
 		CgroupType: "V1",
-		V1: &malachite.MalachiteCgroupV1Info{
-			Memory:    &malachite.MemoryCgDataV1{},
-			Blkio:     &malachite.BlkIOCgDataV1{},
-			NetCls:    &malachite.NetClsCgData{},
-			PerfEvent: &malachite.PerfEventData{},
-			CpuSet:    &malachite.CPUSetCgDataV1{},
-			Cpu:       &malachite.CPUCgDataV1{},
+		V1: &cgroup.MalachiteCgroupV1Info{
+			Memory:    &cgroup.MemoryCgDataV1{},
+			Blkio:     &cgroup.BlkIOCgDataV1{},
+			NetCls:    &cgroup.NetClsCgData{},
+			PerfEvent: &cgroup.PerfEventData{},
+			CpuSet:    &cgroup.CPUSetCgDataV1{},
+			Cpu:       &cgroup.CPUCgDataV1{},
 		},
 	}
-	fakeCgroupInfoV2 := &malachite.MalachiteCgroupInfo{
+	fakeCgroupInfoV2 := &cgroup.MalachiteCgroupInfo{
 		CgroupType: "V2",
-		V2: &malachite.MalachiteCgroupV2Info{
-			Memory:    &malachite.MemoryCgDataV2{},
-			Blkio:     &malachite.BlkIOCgDataV2{},
-			NetCls:    &malachite.NetClsCgData{},
-			PerfEvent: &malachite.PerfEventData{},
-			CpuSet:    &malachite.CPUSetCgDataV2{},
-			Cpu:       &malachite.CPUCgDataV2{},
+		V2: &cgroup.MalachiteCgroupV2Info{
+			Memory:    &cgroup.MemoryCgDataV2{},
+			Blkio:     &cgroup.BlkIOCgDataV2{},
+			NetCls:    &cgroup.NetClsCgData{},
+			PerfEvent: &cgroup.PerfEventData{},
+			CpuSet:    &cgroup.CPUSetCgDataV2{},
+			Cpu:       &cgroup.CPUCgDataV2{},
 		},
 	}
 

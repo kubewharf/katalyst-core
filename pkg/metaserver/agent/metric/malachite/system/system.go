@@ -14,15 +14,17 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package malachite
+package system
 
 import (
 	"encoding/json"
 	"fmt"
+
+	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric/malachite/client"
 )
 
 func GetSystemComputeStats() (*SystemComputeData, error) {
-	statsData, err := DefaultClient.GetSystemStats(Compute)
+	statsData, err := client.DefaultClient.GetSystemStats(client.Compute)
 	if err != nil {
 		return nil, err
 	}
@@ -40,7 +42,7 @@ func GetSystemComputeStats() (*SystemComputeData, error) {
 }
 
 func GetSystemMemoryStats() (*SystemMemoryData, error) {
-	statsData, err := DefaultClient.GetSystemStats(Memory)
+	statsData, err := client.DefaultClient.GetSystemStats(client.Memory)
 	if err != nil {
 		return nil, err
 	}
@@ -58,7 +60,7 @@ func GetSystemMemoryStats() (*SystemMemoryData, error) {
 }
 
 func GetSystemIOStats() (*SystemDiskIoData, error) {
-	statsData, err := DefaultClient.GetSystemStats(IO)
+	statsData, err := client.DefaultClient.GetSystemStats(client.IO)
 	if err != nil {
 		return nil, err
 	}
@@ -76,7 +78,7 @@ func GetSystemIOStats() (*SystemDiskIoData, error) {
 }
 
 func GetSystemNetStats() (*SystemNetworkData, error) {
-	statsData, err := DefaultClient.GetSystemStats(Net)
+	statsData, err := client.DefaultClient.GetSystemStats(client.Net)
 	if err != nil {
 		return nil, err
 	}

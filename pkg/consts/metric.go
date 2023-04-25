@@ -94,6 +94,13 @@ const (
 	MetricLoad1MinContainer  = "cpu.load.1min.container"
 	MetricLoad5MinContainer  = "cpu.load.5min.container"
 	MetricLoad15MinContainer = "cpu.load.15min.container"
+
+	MetricOCRReadDRAMsContainer = "cpu.read.drams.container"
+	MetricIMCWriteContainer     = "cpu.imc.write.container"
+	MetricStoreAllInsContainer  = "cpu.store.allins.container"
+	MetricStoreInsContainer     = "cpu.store.ins.container"
+
+	MetricUpdateTimeContainer = "cpu.updatetime.container"
 )
 
 // Cgroup memory metrics
@@ -115,6 +122,9 @@ const (
 
 	MetricMemOomContainer         = "mem.oom.container"
 	MetricMemScaleFactorContainer = "mem.scalefactor.container"
+
+	MetricMemBandwidthReadContainer  = "mem.bandwidth.read.container"
+	MetricMemBandwidthWriteContainer = "mem.bandwidth.write.container"
 )
 
 // Cgroup blkio metrics
