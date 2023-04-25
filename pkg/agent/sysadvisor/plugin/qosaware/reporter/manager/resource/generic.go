@@ -109,10 +109,14 @@ func NewGenericHeadroomManager(name v1.ResourceName, useMilliValue, reportMilliV
 }
 
 func (m *GenericHeadroomManager) GetAllocatable() (resource.Quantity, error) {
+	m.RLock()
+	defer m.RUnlock()
 	return m.getLastReportResult()
 }
 
 func (m *GenericHeadroomManager) GetCapacity() (resource.Quantity, error) {
+	m.RLock()
+	defer m.RUnlock()
 	return m.getLastReportResult()
 }
 
@@ -122,13 +126,18 @@ func (m *GenericHeadroomManager) Run(ctx context.Context) {
 }
 
 func (m *GenericHeadroomManager) getLastReportResult() (resource.Quantity, error) {
-	m.RLock()
-	lastReportResult := m.lastReportResult
-	m.RUnlock()
-	if lastReportResult == nil {
+	if m.lastReportResult == nil {
 		return resource.Quantity{}, fmt.Errorf("resource %s last report value not found", m.resourceName)
 	}
-	return m.reportResultTransformer(lastReportResult.DeepCopy()), nil
+	return m.reportResultTransformer(*m.lastReportResult), nil
+}
+
+func (m *GenericHeadroomManager) setLastReportResult(q resource.Quantity) {
+	if m.lastReportResult == nil {
+		m.lastReportResult = &resource.Quantity{}
+	}
+	q.DeepCopyInto(m.lastReportResult)
+	m.emitResourceToMetric(metricsNameHeadroomReportResult, m.reportResultTransformer(*m.lastReportResult))
 }
 
 func (m *GenericHeadroomManager) sync(_ context.Context) {
@@ -137,7 +146,7 @@ func (m *GenericHeadroomManager) sync(_ context.Context) {
 
 	reclaimOptions := m.getReclaimOptions()
 	if !reclaimOptions.EnableReclaim {
-		m.lastReportResult = &resource.Quantity{}
+		m.setLastReportResult(resource.Quantity{})
 		return
 	}
 
@@ -162,9 +171,7 @@ func (m *GenericHeadroomManager) sync(_ context.Context) {
 		"reservedResourceForReport: %s", m.resourceName, originResultFromAdvisor.String(),
 		reportResult.String(), reclaimOptions.ReservedResourceForReport.String())
 
-	m.emitResourceToMetric(metricsNameHeadroomReportResult, m.reportResultTransformer(*reportResult))
-
-	m.lastReportResult = reportResult
+	m.setLastReportResult(*reportResult)
 }
 
 func (m *GenericHeadroomManager) emitResourceToMetric(metricsName string, value resource.Quantity) {
