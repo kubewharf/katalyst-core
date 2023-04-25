@@ -41,7 +41,7 @@ var (
 )
 
 func TestGetCgroupIDForContainer(t *testing.T) {
-	cgroupIDManager := NewCgroupIDManager(podFetcher).(*DefaultCgroupIDManager)
+	cgroupIDManager := NewCgroupIDManager(podFetcher).(*cgroupIDManagerImpl)
 	assert.NotNil(t, cgroupIDManager)
 
 	cgroupIDManager.setCgroupID(podUIDList[0], containerIDList[0], cgIDList[0])
@@ -77,7 +77,7 @@ func TestGetCgroupIDForContainer(t *testing.T) {
 }
 
 func TestListCgroupIDsForPod(t *testing.T) {
-	cgroupIDManager := NewCgroupIDManager(podFetcher).(*DefaultCgroupIDManager)
+	cgroupIDManager := NewCgroupIDManager(podFetcher).(*cgroupIDManagerImpl)
 	assert.NotNil(t, cgroupIDManager)
 
 	cgroupIDManager.setCgroupID(podUIDList[0], containerIDList[0], cgIDList[0])
@@ -113,7 +113,7 @@ func TestListCgroupIDsForPod(t *testing.T) {
 }
 
 func TestGetAbsentContainers(t *testing.T) {
-	cgroupIDManager := NewCgroupIDManager(podFetcher).(*DefaultCgroupIDManager)
+	cgroupIDManager := NewCgroupIDManager(podFetcher).(*cgroupIDManagerImpl)
 	assert.NotNil(t, cgroupIDManager)
 
 	cgroupIDManager.setCgroupID(podUIDList[0], containerIDList[0], cgIDList[0])
@@ -149,7 +149,7 @@ func TestGetAbsentContainers(t *testing.T) {
 }
 
 func TestClearResidualPodsInCache(t *testing.T) {
-	cgroupIDManager := NewCgroupIDManager(podFetcher).(*DefaultCgroupIDManager)
+	cgroupIDManager := NewCgroupIDManager(podFetcher).(*cgroupIDManagerImpl)
 	assert.NotNil(t, cgroupIDManager)
 
 	cgroupIDManager.setCgroupID(podUIDList[0], containerIDList[0], cgIDList[0])

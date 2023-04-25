@@ -39,7 +39,7 @@ func TestInitExternalManager(t *testing.T) {
 }
 
 func TestSetNetworkManager(t *testing.T) {
-	externalManager := InitExternalManager(podFetcher).(*ExternalManagerImpl)
+	externalManager := InitExternalManager(podFetcher).(*externalManagerImpl)
 	assert.NotNil(t, externalManager)
 
 	externalManager.start = false

@@ -113,3 +113,12 @@ func GetPodAbsCgroupPath(subsys, podUID string) (string, error) {
 func GetContainerAbsCgroupPath(subsys, podUID, containerId string) (string, error) {
 	return GetKubernetesAnyExistAbsCgroupPath(subsys, path.Join(fmt.Sprintf("%s%s", PodCgroupPathPrefix, podUID), containerId))
 }
+
+func IsContainerCgroupExist(podUID, containerID string) (bool, error) {
+	containerAbsCGPath, err := GetContainerAbsCgroupPath("", podUID, containerID)
+	if err != nil {
+		return false, fmt.Errorf("GetContainerAbsCgroupPath failed, err: %v", err)
+	}
+
+	return general.IsPathExists(containerAbsCGPath), nil
+}

@@ -12,15 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package rdt
+package network
 
-// RDTManager provides methods that control RDT related resources.
-// Note: OCI Spec and runC already support the configuration of RDT-related parameters, but CRI and containerd do not yet support it.
-// Therefore, we plan to support the configuration of RDT-related parameters through NRI or CRI in the future.
-type RDTManager interface {
-	CheckSupportRDT() (bool, error)
-	InitRDT() error
-	ApplyTasks(clos string, tasks []string) error
-	ApplyCAT(clos string, cat map[int]int) error
-	ApplyMBA(clos string, mba map[int]int) error
+import (
+	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/agent/qrm"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/network/dynamicpolicy"
+)
+
+func init() {
+	qrm.RegisterNetworkPolicyInitializer(dynamicpolicy.NetworkResourcePluginPolicyNameDynamic, dynamicpolicy.NewDynamicPolicy)
 }

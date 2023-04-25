@@ -12,15 +12,26 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package rdt
+package qos
 
-// RDTManager provides methods that control RDT related resources.
-// Note: OCI Spec and runC already support the configuration of RDT-related parameters, but CRI and containerd do not yet support it.
-// Therefore, we plan to support the configuration of RDT-related parameters through NRI or CRI in the future.
-type RDTManager interface {
-	CheckSupportRDT() (bool, error)
-	InitRDT() error
-	ApplyTasks(clos string, tasks []string) error
-	ApplyCAT(clos string, cat map[int]int) error
-	ApplyMBA(clos string, mba map[int]int) error
+import (
+	"strconv"
+
+	v1 "k8s.io/api/core/v1"
+)
+
+// GetPodNetClassID parses net class id for the given pod.
+// if the given pod doesn't specify a class id, the first value returned will be false
+func GetPodNetClassID(pod *v1.Pod, podLevelNetClassAnnoKey string) (bool, uint32, error) {
+	classIDStr, ok := pod.GetAnnotations()[podLevelNetClassAnnoKey]
+
+	if !ok {
+		return false, 0, nil
+	}
+
+	classID, err := strconv.ParseUint(classIDStr, 10, 64)
+	if err != nil {
+		return true, 0, err
+	}
+	return true, uint32(classID), nil
 }

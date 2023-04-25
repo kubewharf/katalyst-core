@@ -1,3 +1,6 @@
+//go:build !linux
+// +build !linux
+
 // Copyright 2022 The Katalyst Authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -18,8 +21,19 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/util/cgroup/common"
 )
 
-// NetworkManager provides methods that control network resources.
-type NetworkManager interface {
-	ApplyNetClass(podUID, containerId string, data *common.NetClsData) error
-	ClearNetClass(cgroupID uint64) error
+type unsupportedNetworkManager struct{}
+
+// NewNetworkManager returns a defaultNetworkManager.
+func NewNetworkManager() NetworkManager {
+	return &unsupportedNetworkManager{}
+}
+
+// ApplyNetClass applies the net class config for a container.
+func (*unsupportedNetworkManager) ApplyNetClass(podUID, containerId string, data *common.NetClsData) error {
+	return nil
+}
+
+// ClearNetClass clears the net class config for a container.
+func (*unsupportedNetworkManager) ClearNetClass(cgroupID uint64) error {
+	return nil
 }
