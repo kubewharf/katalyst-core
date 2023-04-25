@@ -284,3 +284,23 @@ func CovertUInt64ToInt(numUInt64 uint64) (int, error) {
 	}
 	return numInt, nil
 }
+
+type Pair struct {
+	Key   string
+	Value int
+}
+
+func TraverseMapByValueDescending(m map[string]int) []Pair {
+	// Extract all key-value pairs from the map and store them in a slice.
+	pairs := make([]Pair, 0, len(m))
+	for k, v := range m {
+		pairs = append(pairs, Pair{k, v})
+	}
+
+	// Sort the slice using a custom comparison function that sorts the pairs by their value in descending order.
+	sort.SliceStable(pairs, func(i, j int) bool {
+		return pairs[i].Value > pairs[j].Value
+	})
+
+	return pairs
+}

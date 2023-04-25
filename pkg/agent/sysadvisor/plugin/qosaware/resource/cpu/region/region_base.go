@@ -18,8 +18,8 @@ package region
 
 import (
 	"fmt"
+	"math"
 	"sync"
-	"time"
 
 	"k8s.io/klog/v2"
 
@@ -32,14 +32,6 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
-)
-
-const (
-	minShareCPURequirement   int     = 4
-	minReclaimCPURequirement int     = 4
-	maxRampUpStep            float64 = 10
-	maxRampDownStep          float64 = 2
-	minRampDownPeriod                = 30 * time.Second
 )
 
 type internalPolicyState struct {
@@ -122,6 +114,10 @@ func (r *QoSRegionBase) Name() string {
 
 func (r *QoSRegionBase) Type() types.QoSRegionType {
 	return r.regionType
+}
+
+func (r *QoSRegionBase) OwnerPoolName() string {
+	return r.ownerPoolName
 }
 
 func (r *QoSRegionBase) IsEmpty() bool {
@@ -238,7 +234,7 @@ func (r *QoSRegionBase) initProvisionPolicy(conf *config.Configuration, extraCon
 	initializers := provisionpolicy.GetRegisteredInitializers()
 	for _, policyName := range configuredProvisionPolicy {
 		if initializer, ok := initializers[policyName]; ok {
-			cpuRegulator := regulator.NewCPURegulator(maxRampUpStep, maxRampDownStep, minRampDownPeriod)
+			cpuRegulator := regulator.NewCPURegulator()
 			policy := initializer(r.name, conf, extraConf, cpuRegulator, metaReader, metaServer, emitter)
 			policy.SetBindingNumas(r.bindingNumas)
 			r.provisionPolicies = append(r.provisionPolicies, &internalProvisionPolicy{
@@ -270,5 +266,14 @@ func (r *QoSRegionBase) initHeadroomPolicy(conf *config.Configuration, extraConf
 				internalPolicyState: internalPolicyState{updateStatus: types.PolicyUpdateFailed},
 			})
 		}
+	}
+}
+
+func (r *QoSRegionBase) buildProvisionEssentials(minRequirement int) types.ResourceEssentials {
+	return types.ResourceEssentials{
+		EnableReclaim:       r.EnableReclaim,
+		ReservedForAllocate: r.ReservedForAllocate,
+		MinRequirement:      minRequirement,
+		MaxRequirement:      r.Total - r.ReservePoolSize - int(math.Ceil(float64(types.MinDedicatedCPURequirement)/float64(r.metaServer.NumNUMANodes)))*r.bindingNumas.Size(),
 	}
 }

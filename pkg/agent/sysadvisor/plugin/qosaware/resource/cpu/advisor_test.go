@@ -84,16 +84,7 @@ func newTestCPUResourceAdvisor(t *testing.T, checkpointDir, stateFileDir string)
 	return cra, metaCache
 }
 
-var (
-	qosLevel2PoolName = map[string]string{
-		consts.PodAnnotationQoSLevelSharedCores:    qrmstate.PoolNameShare,
-		consts.PodAnnotationQoSLevelReclaimedCores: qrmstate.PoolNameReclaim,
-		consts.PodAnnotationQoSLevelSystemCores:    qrmstate.PoolNameReserve,
-		consts.PodAnnotationQoSLevelDedicatedCores: qrmstate.PoolNameDedicated,
-	}
-)
-
-func makeContainerInfo(podUID, namespace, podName, containerName, qoSLevel string, annotations map[string]string,
+func makeContainerInfo(podUID, namespace, podName, containerName, qoSLevel, ownerPoolName string, annotations map[string]string,
 	topologyAwareAssignments types.TopologyAwareAssignment, cpuRequest float64) *types.ContainerInfo {
 	return &types.ContainerInfo{
 		PodUID:                           podUID,
@@ -107,7 +98,7 @@ func makeContainerInfo(podUID, namespace, podName, containerName, qoSLevel strin
 		CPURequest:                       cpuRequest,
 		MemoryRequest:                    0,
 		RampUp:                           false,
-		OwnerPoolName:                    qosLevel2PoolName[qoSLevel],
+		OwnerPoolName:                    ownerPoolName,
 		TopologyAwareAssignments:         topologyAwareAssignments,
 		OriginalTopologyAwareAssignments: topologyAwareAssignments,
 	}
@@ -180,7 +171,7 @@ func TestUpdate(t *testing.T) {
 			},
 			reclaimEnabled: true,
 			containers: []*types.ContainerInfo{
-				makeContainerInfo("uid1", "default", "pod1", "c1", consts.PodAnnotationQoSLevelSharedCores, nil,
+				makeContainerInfo("uid1", "default", "pod1", "c1", consts.PodAnnotationQoSLevelSharedCores, qrmstate.PoolNameShare, nil,
 					map[int]machine.CPUSet{
 						0: machine.MustParse("1"),
 						1: machine.MustParse("25"),
@@ -223,7 +214,7 @@ func TestUpdate(t *testing.T) {
 			},
 			reclaimEnabled: true,
 			containers: []*types.ContainerInfo{
-				makeContainerInfo("uid1", "default", "pod1", "c1", consts.PodAnnotationQoSLevelSharedCores, nil,
+				makeContainerInfo("uid1", "default", "pod1", "c1", consts.PodAnnotationQoSLevelSharedCores, qrmstate.PoolNameShare, nil,
 					map[int]machine.CPUSet{
 						0: machine.MustParse("1-23,48-71"),
 						1: machine.MustParse("25-47,72-95"),
@@ -264,12 +255,12 @@ func TestUpdate(t *testing.T) {
 			},
 			reclaimEnabled: true,
 			containers: []*types.ContainerInfo{
-				makeContainerInfo("uid1", "default", "pod1", "c1", consts.PodAnnotationQoSLevelDedicatedCores,
+				makeContainerInfo("uid1", "default", "pod1", "c1", consts.PodAnnotationQoSLevelDedicatedCores, qrmstate.PoolNameDedicated,
 					map[string]string{consts.PodAnnotationMemoryEnhancementNumaBinding: consts.PodAnnotationMemoryEnhancementNumaBindingEnable},
 					map[int]machine.CPUSet{
 						0: machine.MustParse("1-23,48-71"),
 					}, 48),
-				makeContainerInfo("uid2", "default", "pod2", "c2", consts.PodAnnotationQoSLevelSharedCores, nil,
+				makeContainerInfo("uid2", "default", "pod2", "c2", consts.PodAnnotationQoSLevelSharedCores, qrmstate.PoolNameShare, nil,
 					map[int]machine.CPUSet{
 						1: machine.MustParse("25-26,72-73"),
 					}, 4),
@@ -281,12 +272,12 @@ func TestUpdate(t *testing.T) {
 					},
 					state.PoolNameShare: {-1: *resource.NewQuantity(6, resource.DecimalSI)},
 					state.PoolNameReclaim: {
-						0:  *resource.NewQuantity(4, resource.DecimalSI),
+						0:  *resource.NewQuantity(2, resource.DecimalSI),
 						-1: *resource.NewQuantity(41, resource.DecimalSI),
 					},
 				},
 			},
-			wantHeadroom: resource.MustParse(fmt.Sprintf("%d", 45)),
+			wantHeadroom: resource.MustParse(fmt.Sprintf("%d", 43)),
 		},
 		{
 			name: "dedicated numa exclusive and share, reclaim disabled",
@@ -314,12 +305,12 @@ func TestUpdate(t *testing.T) {
 			},
 			reclaimEnabled: false,
 			containers: []*types.ContainerInfo{
-				makeContainerInfo("uid1", "default", "pod1", "c1", consts.PodAnnotationQoSLevelDedicatedCores,
+				makeContainerInfo("uid1", "default", "pod1", "c1", consts.PodAnnotationQoSLevelDedicatedCores, qrmstate.PoolNameDedicated,
 					map[string]string{consts.PodAnnotationMemoryEnhancementNumaBinding: consts.PodAnnotationMemoryEnhancementNumaBindingEnable},
 					map[int]machine.CPUSet{
 						0: machine.MustParse("1-23,48-71"),
 					}, 48),
-				makeContainerInfo("uid2", "default", "pod2", "c2", consts.PodAnnotationQoSLevelSharedCores, nil,
+				makeContainerInfo("uid2", "default", "pod2", "c2", consts.PodAnnotationQoSLevelSharedCores, qrmstate.PoolNameShare, nil,
 					map[int]machine.CPUSet{
 						1: machine.MustParse("25-26,72-73"),
 					}, 6),
@@ -331,12 +322,12 @@ func TestUpdate(t *testing.T) {
 					},
 					state.PoolNameShare: {-1: *resource.NewQuantity(8, resource.DecimalSI)},
 					state.PoolNameReclaim: {
-						0:  *resource.NewQuantity(4, resource.DecimalSI),
+						0:  *resource.NewQuantity(2, resource.DecimalSI),
 						-1: *resource.NewQuantity(39, resource.DecimalSI),
 					},
 				},
 			},
-			wantHeadroom: resource.MustParse(fmt.Sprintf("%d", 43)),
+			wantHeadroom: resource.MustParse(fmt.Sprintf("%d", 41)),
 		},
 		{
 			name: "dedicated numa exclusive only",
@@ -366,7 +357,7 @@ func TestUpdate(t *testing.T) {
 			},
 			reclaimEnabled: true,
 			containers: []*types.ContainerInfo{
-				makeContainerInfo("uid1", "default", "pod1", "c1", consts.PodAnnotationQoSLevelDedicatedCores,
+				makeContainerInfo("uid1", "default", "pod1", "c1", consts.PodAnnotationQoSLevelDedicatedCores, qrmstate.PoolNameDedicated,
 					map[string]string{consts.PodAnnotationMemoryEnhancementNumaBinding: consts.PodAnnotationMemoryEnhancementNumaBindingEnable},
 					map[int]machine.CPUSet{
 						0: machine.MustParse("1-23,48-71"),
@@ -378,12 +369,132 @@ func TestUpdate(t *testing.T) {
 						-1: *resource.NewQuantity(2, resource.DecimalSI),
 					},
 					state.PoolNameReclaim: {
-						0:  *resource.NewQuantity(4, resource.DecimalSI),
+						0:  *resource.NewQuantity(2, resource.DecimalSI),
 						-1: *resource.NewQuantity(47, resource.DecimalSI),
 					},
 				},
 			},
-			wantHeadroom: resource.MustParse(fmt.Sprintf("%d", 51)),
+			wantHeadroom: resource.MustParse(fmt.Sprintf("%d", 49)),
+		},
+		{
+			name: "multi large share pool",
+			pools: map[string]*types.PoolInfo{
+				state.PoolNameReserve: {
+					PoolName: state.PoolNameReserve,
+					TopologyAwareAssignments: map[int]machine.CPUSet{
+						0: machine.MustParse("0"),
+						1: machine.MustParse("24"),
+					},
+					OriginalTopologyAwareAssignments: map[int]machine.CPUSet{
+						0: machine.MustParse("0"),
+						1: machine.MustParse("24"),
+					},
+				},
+				state.PoolNameShare: {
+					PoolName: state.PoolNameShare,
+					TopologyAwareAssignments: map[int]machine.CPUSet{
+						0: machine.MustParse("1-23,48-71"),
+						1: machine.MustParse("25-47,72-95"),
+					},
+					OriginalTopologyAwareAssignments: map[int]machine.CPUSet{
+						0: machine.MustParse("1-23,48-71"),
+						1: machine.MustParse("25-47,72-95"),
+					},
+				},
+				"batch": {
+					PoolName: "batch",
+					TopologyAwareAssignments: map[int]machine.CPUSet{
+						0: machine.MustParse("1-23,48-71"),
+						1: machine.MustParse("25-47,72-95"),
+					},
+					OriginalTopologyAwareAssignments: map[int]machine.CPUSet{
+						0: machine.MustParse("1-23,48-71"),
+						1: machine.MustParse("25-47,72-95"),
+					},
+				},
+			},
+			reclaimEnabled: true,
+			containers: []*types.ContainerInfo{
+				makeContainerInfo("uid1", "default", "pod1", "c1", consts.PodAnnotationQoSLevelSharedCores, qrmstate.PoolNameShare, nil,
+					map[int]machine.CPUSet{
+						0: machine.MustParse("1-23,48-71"),
+						1: machine.MustParse("25-47,72-95"),
+					}, 96),
+				makeContainerInfo("uid2", "default", "pod2", "c2", consts.PodAnnotationQoSLevelSharedCores, "batch", nil,
+					map[int]machine.CPUSet{
+						0: machine.MustParse("1-23,48-71"),
+						1: machine.MustParse("25-47,72-95"),
+					}, 96),
+			},
+			wantInternalCalculationResult: InternalCalculationResult{
+				map[string]map[int]resource.Quantity{
+					state.PoolNameReserve: {-1: *resource.NewQuantity(2, resource.DecimalSI)},
+					state.PoolNameShare:   {-1: *resource.NewQuantity(45, resource.DecimalSI)},
+					"batch":               {-1: *resource.NewQuantity(45, resource.DecimalSI)},
+					state.PoolNameReclaim: {-1: *resource.NewQuantity(4, resource.DecimalSI)},
+				},
+			},
+			wantHeadroom: resource.MustParse(fmt.Sprintf("%d", 4)),
+		},
+		{
+			name: "multi small share pool",
+			pools: map[string]*types.PoolInfo{
+				state.PoolNameReserve: {
+					PoolName: state.PoolNameReserve,
+					TopologyAwareAssignments: map[int]machine.CPUSet{
+						0: machine.MustParse("0"),
+						1: machine.MustParse("24"),
+					},
+					OriginalTopologyAwareAssignments: map[int]machine.CPUSet{
+						0: machine.MustParse("0"),
+						1: machine.MustParse("24"),
+					},
+				},
+				state.PoolNameShare: {
+					PoolName: state.PoolNameShare,
+					TopologyAwareAssignments: map[int]machine.CPUSet{
+						0: machine.MustParse("1"),
+						1: machine.MustParse("25"),
+					},
+					OriginalTopologyAwareAssignments: map[int]machine.CPUSet{
+						0: machine.MustParse("1"),
+						1: machine.MustParse("25"),
+					},
+				},
+				"batch": {
+					PoolName: "batch",
+					TopologyAwareAssignments: map[int]machine.CPUSet{
+						0: machine.MustParse("2"),
+						1: machine.MustParse("26"),
+					},
+					OriginalTopologyAwareAssignments: map[int]machine.CPUSet{
+						0: machine.MustParse("2"),
+						1: machine.MustParse("26"),
+					},
+				},
+			},
+			reclaimEnabled: true,
+			containers: []*types.ContainerInfo{
+				makeContainerInfo("uid1", "default", "pod1", "c1", consts.PodAnnotationQoSLevelSharedCores, qrmstate.PoolNameShare, nil,
+					map[int]machine.CPUSet{
+						0: machine.MustParse("1"),
+						1: machine.MustParse("25"),
+					}, 4),
+				makeContainerInfo("uid2", "default", "pod2", "c2", consts.PodAnnotationQoSLevelSharedCores, "batch", nil,
+					map[int]machine.CPUSet{
+						0: machine.MustParse("2"),
+						1: machine.MustParse("26"),
+					}, 4),
+			},
+			wantInternalCalculationResult: InternalCalculationResult{
+				map[string]map[int]resource.Quantity{
+					state.PoolNameReserve: {-1: *resource.NewQuantity(2, resource.DecimalSI)},
+					state.PoolNameShare:   {-1: *resource.NewQuantity(8, resource.DecimalSI)},
+					"batch":               {-1: *resource.NewQuantity(8, resource.DecimalSI)},
+					state.PoolNameReclaim: {-1: *resource.NewQuantity(78, resource.DecimalSI)},
+				},
+			},
+			wantHeadroom: resource.MustParse(fmt.Sprintf("%d", 78)),
 		},
 	}
 
@@ -398,7 +509,7 @@ func TestUpdate(t *testing.T) {
 			defer os.RemoveAll(sfDir)
 
 			advisor, metaCache := newTestCPUResourceAdvisor(t, ckDir, sfDir)
-			advisor.startTime = time.Now().Add(-startUpPeriod * 2)
+			advisor.startTime = time.Now().Add(-types.StartUpPeriod * 2)
 			advisor.conf.ReclaimedResourceConfiguration.SetEnableReclaim(tt.reclaimEnabled)
 
 			recvChInterface, sendChInterface := advisor.GetChannels()
@@ -440,6 +551,53 @@ func TestUpdate(t *testing.T) {
 			}
 
 			cancel()
+		})
+	}
+}
+
+func TestGenShareRegionPools(t *testing.T) {
+	tests := []struct {
+		name                         string
+		originShareRegionRequirement map[string]int
+		sharePoolSize                int
+		wantShareRegionRequirement   map[string]int
+	}{
+		{
+			name:                         "sharePoolSize < total requirement",
+			originShareRegionRequirement: map[string]int{"r1": 2, "r2": 3},
+			sharePoolSize:                4,
+			wantShareRegionRequirement:   map[string]int{"r1": 2, "r2": 2},
+		},
+		{
+			name:                         "sharePoolSize < total requirement",
+			originShareRegionRequirement: map[string]int{"r1": 1, "r2": 5},
+			sharePoolSize:                4,
+			wantShareRegionRequirement:   map[string]int{"r1": 1, "r2": 3},
+		},
+		{
+			name:                         "sharePoolSize < total requirement",
+			originShareRegionRequirement: map[string]int{"r1": 20, "r2": 30},
+			sharePoolSize:                10,
+			wantShareRegionRequirement:   map[string]int{"r1": 4, "r2": 6},
+		},
+		{
+			name:                         "sharePoolSize == total requirement",
+			originShareRegionRequirement: map[string]int{"r1": 2, "r2": 3},
+			sharePoolSize:                5,
+			wantShareRegionRequirement:   map[string]int{"r1": 2, "r2": 3},
+		},
+		{
+			name:                         "sharePoolSize > total requirement",
+			originShareRegionRequirement: map[string]int{"r1": 2, "r2": 3},
+			sharePoolSize:                10,
+			wantShareRegionRequirement:   map[string]int{"r1": 2, "r2": 3},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			pools := genShareRegionPools(tt.originShareRegionRequirement, tt.sharePoolSize)
+			assert.Equal(t, tt.wantShareRegionRequirement, pools)
 		})
 	}
 }

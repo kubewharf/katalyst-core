@@ -52,12 +52,7 @@ func (r *QoSRegionShare) TryUpdateProvision() {
 
 		// set essentials for policy and regulator
 		internal.policy.SetPodSet(r.podSet)
-		internal.policy.SetEssentials(types.ResourceEssentials{
-			MinRequirement:      minShareCPURequirement,
-			MaxRequirement:      r.Total - r.ReservePoolSize - minReclaimCPURequirement,
-			ReservedForAllocate: r.ReservedForAllocate,
-			EnableReclaim:       r.EnableReclaim,
-		})
+		internal.policy.SetEssentials(r.buildProvisionEssentials(types.MinShareCPURequirement))
 
 		// try set initial cpu requirement to restore calculator after metaCache has been initialized
 		internal.initDoOnce.Do(func() {
