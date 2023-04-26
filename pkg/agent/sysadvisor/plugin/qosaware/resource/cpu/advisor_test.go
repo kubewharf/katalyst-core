@@ -309,7 +309,7 @@ func TestUpdate(t *testing.T) {
 					map[string]string{consts.PodAnnotationMemoryEnhancementNumaBinding: consts.PodAnnotationMemoryEnhancementNumaBindingEnable},
 					map[int]machine.CPUSet{
 						0: machine.MustParse("1-23,48-71"),
-					}, 48),
+					}, 47),
 				makeContainerInfo("uid2", "default", "pod2", "c2", consts.PodAnnotationQoSLevelSharedCores, qrmstate.PoolNameShare, nil,
 					map[int]machine.CPUSet{
 						1: machine.MustParse("25-26,72-73"),
@@ -320,14 +320,14 @@ func TestUpdate(t *testing.T) {
 					state.PoolNameReserve: {
 						-1: *resource.NewQuantity(2, resource.DecimalSI),
 					},
-					state.PoolNameShare: {-1: *resource.NewQuantity(8, resource.DecimalSI)},
+					state.PoolNameShare: {-1: *resource.NewQuantity(45, resource.DecimalSI)},
 					state.PoolNameReclaim: {
 						0:  *resource.NewQuantity(2, resource.DecimalSI),
-						-1: *resource.NewQuantity(39, resource.DecimalSI),
+						-1: *resource.NewQuantity(2, resource.DecimalSI),
 					},
 				},
 			},
-			wantHeadroom: resource.MustParse(fmt.Sprintf("%d", 41)),
+			wantHeadroom: resource.MustParse(fmt.Sprintf("%d", 4)),
 		},
 		{
 			name: "dedicated numa exclusive only",

@@ -18,6 +18,7 @@ package region
 
 import (
 	"fmt"
+	"math"
 
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/util/uuid"
@@ -101,6 +102,15 @@ func (r *QoSRegionShare) TryUpdateHeadroom() {
 func (r *QoSRegionShare) GetProvision() (types.ControlKnob, error) {
 	r.Lock()
 	defer r.Unlock()
+
+	if !r.EnableReclaim {
+		return types.ControlKnob{
+			types.ControlKnobNonReclaimedCPUSetSize: types.ControlKnobValue{
+				Value:  float64(r.Total-r.ReservePoolSize) - math.Ceil(float64(types.MinReclaimCPURequirement)/float64(r.metaServer.NumNUMANodes))*float64(r.bindingNumas.Size()),
+				Action: types.ControlKnobActionNone,
+			},
+		}, nil
+	}
 
 	for _, internal := range r.provisionPolicies {
 		if internal.updateStatus != types.PolicyUpdateSucceeded {
