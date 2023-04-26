@@ -491,15 +491,39 @@ func (cra *cpuResourceAdvisor) gc() {
 	}
 }
 
-func (cra *cpuResourceAdvisor) getContainerRegions(ci *types.ContainerInfo) ([]region.QoSRegion, error) {
+func (cra *cpuResourceAdvisor) getRegionsByRegionNames(names sets.String) []region.QoSRegion {
 	var regions []region.QoSRegion = nil
-	for regionName := range ci.RegionNames {
-		r, ok := cra.regionMap[regionName]
+	for regionName := range names {
+		region, ok := cra.regionMap[regionName]
 		if !ok {
-			return nil, fmt.Errorf("failed to find region %v", regionName)
+			return nil
 		}
-		regions = append(regions, r)
+		regions = append(regions, region)
 	}
+	return regions
+}
+
+func (cra *cpuResourceAdvisor) getRegionsByPodUID(podUID string) []region.QoSRegion {
+	var regions []region.QoSRegion = nil
+	for _, r := range cra.regionMap {
+		podSet := r.GetPods()
+		for uid := range podSet {
+			if uid == podUID {
+				regions = append(regions, r)
+			}
+		}
+	}
+	return regions
+}
+
+func (cra *cpuResourceAdvisor) getContainerRegions(ci *types.ContainerInfo) ([]region.QoSRegion, error) {
+	regions := cra.getRegionsByRegionNames(ci.RegionNames)
+	if len(regions) > 0 {
+		return regions, nil
+	}
+
+	// The containers of the same pod belong to the same region
+	regions = cra.getRegionsByPodUID(ci.PodUID)
 	return regions, nil
 }
 

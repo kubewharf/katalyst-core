@@ -77,13 +77,14 @@ func (p *PolicyCanonical) Update() error {
 	if err != nil {
 		return err
 	}
-	klog.Infof("[qosaware-cpu-provision] cpu requirement estimation: %.2f, #container %v", cpuEstimation, containerCnt)
 
 	// we need to call SetLatestCPURequirement to ensure the previous requirements are passed to
 	// regulator in case that sysadvisor restarts, to avoid the slow-start always begin with zero.
 	p.regulator.SetLatestCPURequirement(p.requirement)
 	p.regulator.Regulate(cpuEstimation)
 	p.requirement = p.regulator.GetCPURequirement()
+
+	klog.Infof("[qosaware-cpu-provision] cpu requirement estimation: %.2f, requirement: %v #container %v", cpuEstimation, p.requirement, containerCnt)
 	return nil
 }
 

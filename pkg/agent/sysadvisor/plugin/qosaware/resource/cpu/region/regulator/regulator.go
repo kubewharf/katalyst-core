@@ -72,11 +72,11 @@ func (c *CPURegulator) SetLatestCPURequirement(latestCPURequirement int) {
 func (c *CPURegulator) Regulate(cpuRequirementRaw float64) {
 	cpuRequirement := cpuRequirementRaw + float64(c.ReservedForAllocate)
 	cpuRequirement = c.slowdown(cpuRequirement)
-	cpuRequirementInt := c.round(cpuRequirement)
-	cpuRequirementInt = c.clamp(cpuRequirementInt)
+	cpuRequirementRound := c.round(cpuRequirement)
+	cpuRequirementInt := c.clamp(cpuRequirementRound)
 
-	klog.Infof("[qosaware-cpu] cpu requirement by policy: %.2f, after post process: %v, added reserved: %v",
-		cpuRequirementRaw, cpuRequirementInt, c.ReservedForAllocate)
+	klog.Infof("[qosaware-cpu] cpu requirement by policy: %.2f, after slowdown %.2f, after round %v, after post process: %v, added reserved: %v",
+		cpuRequirementRaw, cpuRequirement, cpuRequirementRound, cpuRequirementInt, c.ReservedForAllocate)
 
 	if cpuRequirementInt != c.latestCPURequirement {
 		c.latestCPURequirement = cpuRequirementInt
@@ -96,6 +96,7 @@ func (c *CPURegulator) slowdown(cpuRequirement float64) float64 {
 	// Restrict ramp down period
 	if cpuRequirement < latestCPURequirement && now.Before(c.latestRampDownTime.Add(c.minRampDownPeriod)) {
 		cpuRequirement = latestCPURequirement
+		return cpuRequirement
 	}
 
 	// Restrict ramp up and down step
