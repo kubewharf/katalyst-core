@@ -491,15 +491,42 @@ func (cra *cpuResourceAdvisor) gc() {
 	}
 }
 
-func (cra *cpuResourceAdvisor) getContainerRegions(ci *types.ContainerInfo) ([]region.QoSRegion, error) {
+func (cra *cpuResourceAdvisor) getRegionsByRegionNames(names sets.String) []region.QoSRegion {
 	var regions []region.QoSRegion = nil
-	for regionName := range ci.RegionNames {
+	for regionName := range names {
 		r, ok := cra.regionMap[regionName]
 		if !ok {
-			return nil, fmt.Errorf("failed to find region %v", regionName)
+			return nil
 		}
 		regions = append(regions, r)
 	}
+	return regions
+}
+
+func (cra *cpuResourceAdvisor) getRegionsByPodUID(podUID string) []region.QoSRegion {
+	var regions []region.QoSRegion = nil
+	for _, r := range cra.regionMap {
+		podSet := r.GetPods()
+		for uid := range podSet {
+			if uid == podUID {
+				regions = append(regions, r)
+			}
+		}
+	}
+	return regions
+}
+
+func (cra *cpuResourceAdvisor) getContainerRegions(ci *types.ContainerInfo) ([]region.QoSRegion, error) {
+	// For non-newly allocated containers, they already had regionNames,
+	// we can directly get the regions by regionMap.
+	regions := cra.getRegionsByRegionNames(ci.RegionNames)
+	if len(regions) > 0 {
+		return regions, nil
+	}
+
+	// The regionNames of newly allocated containers are empty, if other containers of the same pod have been assigned regions,
+	// we can get regions by pod UID, otherwise create new region.
+	regions = cra.getRegionsByPodUID(ci.PodUID)
 	return regions, nil
 }
 

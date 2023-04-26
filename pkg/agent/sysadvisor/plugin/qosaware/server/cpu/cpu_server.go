@@ -399,13 +399,14 @@ func (cs *cpuServer) removePod(podUID string) error {
 }
 
 func (cs *cpuServer) updatePoolInfo(poolName string, info *cpuadvisor.AllocationInfo) error {
-	// No need to check existence of pool because cpu plugin may return non-exist
-	// pool such as fallback. GC is needed for pool maintenance.
-	pi := &types.PoolInfo{
-		PoolName:                         info.OwnerPoolName,
-		TopologyAwareAssignments:         machine.TransformCPUAssignmentFormat(info.TopologyAwareAssignments),
-		OriginalTopologyAwareAssignments: machine.TransformCPUAssignmentFormat(info.OriginalTopologyAwareAssignments),
+	pi, ok := cs.metaCache.GetPoolInfo(poolName)
+	if !ok {
+		pi = &types.PoolInfo{
+			PoolName: info.OwnerPoolName,
+		}
 	}
+	pi.TopologyAwareAssignments = machine.TransformCPUAssignmentFormat(info.TopologyAwareAssignments)
+	pi.OriginalTopologyAwareAssignments = machine.TransformCPUAssignmentFormat(info.OriginalTopologyAwareAssignments)
 
 	return cs.metaCache.SetPoolInfo(poolName, pi)
 }
