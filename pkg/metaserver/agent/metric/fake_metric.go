@@ -93,12 +93,12 @@ func (f *FakeMetricsFetcher) SetContainerNumaMetric(podUID, containerName, numaN
 	f.metricStore.SetContainerNumaMetric(podUID, containerName, numaNode, metricName, value)
 }
 
-func (f *FakeMetricsFetcher) AggregatePodNumaMetric(podList []*v1.Pod, numaNode, metricName string, agg metric.Aggregator) float64 {
-	return f.metricStore.AggregatePodNumaMetric(podList, numaNode, metricName, agg)
+func (f *FakeMetricsFetcher) AggregatePodNumaMetric(podList []*v1.Pod, numaNode, metricName string, agg metric.Aggregator, filter metric.ContainerMetricFilter) float64 {
+	return f.metricStore.AggregatePodNumaMetric(podList, numaNode, metricName, agg, filter)
 }
 
-func (f *FakeMetricsFetcher) AggregatePodMetric(podList []*v1.Pod, metricName string, agg metric.Aggregator) float64 {
-	return f.metricStore.AggregatePodMetric(podList, metricName, agg)
+func (f *FakeMetricsFetcher) AggregatePodMetric(podList []*v1.Pod, metricName string, agg metric.Aggregator, filter metric.ContainerMetricFilter) float64 {
+	return f.metricStore.AggregatePodMetric(podList, metricName, agg, filter)
 }
 
 func (f *FakeMetricsFetcher) AggregateCoreMetric(cpuset machine.CPUSet, metricName string, agg metric.Aggregator) float64 {

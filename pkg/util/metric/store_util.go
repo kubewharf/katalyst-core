@@ -31,8 +31,13 @@ const (
 	AggregatorAvg Aggregator = "avg"
 )
 
+// ContainerMetricFilter is used to filter out unnecessary metrics if this function returns false
+type ContainerMetricFilter func(pod *v1.Pod, container *v1.Container) bool
+
+var DefaultContainerMetricFilter = func(_ *v1.Pod, _ *v1.Container) bool { return true }
+
 // AggregatePodNumaMetric handles numa-level metric for all pods
-func (c *MetricStore) AggregatePodNumaMetric(podList []*v1.Pod, numa, metricName string, agg Aggregator) float64 {
+func (c *MetricStore) AggregatePodNumaMetric(podList []*v1.Pod, numa, metricName string, agg Aggregator, filter ContainerMetricFilter) float64 {
 	sumMetric := 0.
 	validPods := sets.NewString()
 	for _, pod := range podList {
@@ -41,6 +46,10 @@ func (c *MetricStore) AggregatePodNumaMetric(podList []*v1.Pod, numa, metricName
 		}
 
 		for _, container := range pod.Spec.Containers {
+			if !filter(pod, &container) {
+				continue
+			}
+
 			metric, err := c.GetContainerNumaMetric(string(pod.UID), container.Name, numa, metricName)
 			if err != nil {
 				klog.Errorf("failed to get numa-metric pod %v, container %v, numa %v, metric %v, err: %v",
@@ -64,7 +73,7 @@ func (c *MetricStore) AggregatePodNumaMetric(podList []*v1.Pod, numa, metricName
 }
 
 // AggregatePodMetric handles metric for all pods
-func (c *MetricStore) AggregatePodMetric(podList []*v1.Pod, metricName string, agg Aggregator) float64 {
+func (c *MetricStore) AggregatePodMetric(podList []*v1.Pod, metricName string, agg Aggregator, filter ContainerMetricFilter) float64 {
 	sumMetric := 0.
 	validPods := sets.NewString()
 	for _, pod := range podList {
@@ -73,6 +82,10 @@ func (c *MetricStore) AggregatePodMetric(podList []*v1.Pod, metricName string, a
 		}
 
 		for _, container := range pod.Spec.Containers {
+			if !filter(pod, &container) {
+				continue
+			}
+
 			metric, err := c.GetContainerMetric(string(pod.UID), container.Name, metricName)
 			if err != nil {
 				klog.Errorf("failed to get metric pod %v, container %v, metric %v, err: %v",

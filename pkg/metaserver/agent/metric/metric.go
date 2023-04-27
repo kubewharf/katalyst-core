@@ -107,9 +107,9 @@ type MetricsFetcher interface {
 	GetContainerNumaMetric(podUID, containerName, numaNode, metricName string) (float64, error)
 
 	// AggregatePodNumaMetric handles numa-level metric for all pods
-	AggregatePodNumaMetric(podList []*v1.Pod, numaNode, metricName string, agg metric.Aggregator) float64
+	AggregatePodNumaMetric(podList []*v1.Pod, numaNode, metricName string, agg metric.Aggregator, filter metric.ContainerMetricFilter) float64
 	// AggregatePodMetric handles metric for all pods
-	AggregatePodMetric(podList []*v1.Pod, metricName string, agg metric.Aggregator) float64
+	AggregatePodMetric(podList []*v1.Pod, metricName string, agg metric.Aggregator, filter metric.ContainerMetricFilter) float64
 	// AggregateCoreMetric handles metric for all cores
 	AggregateCoreMetric(cpuset machine.CPUSet, metricName string, agg metric.Aggregator) float64
 }
@@ -198,12 +198,14 @@ func (m *MalachiteMetricsFetcher) GetContainerNumaMetric(podUID, containerName, 
 	return m.metricStore.GetContainerNumaMetric(podUID, containerName, numaNode, metricName)
 }
 
-func (m *MalachiteMetricsFetcher) AggregatePodNumaMetric(podList []*v1.Pod, numaNode, metricName string, agg metric.Aggregator) float64 {
-	return m.metricStore.AggregatePodNumaMetric(podList, numaNode, metricName, agg)
+func (m *MalachiteMetricsFetcher) AggregatePodNumaMetric(podList []*v1.Pod, numaNode, metricName string,
+	agg metric.Aggregator, filter metric.ContainerMetricFilter) float64 {
+	return m.metricStore.AggregatePodNumaMetric(podList, numaNode, metricName, agg, filter)
 }
 
-func (m *MalachiteMetricsFetcher) AggregatePodMetric(podList []*v1.Pod, metricName string, agg metric.Aggregator) float64 {
-	return m.metricStore.AggregatePodMetric(podList, metricName, agg)
+func (m *MalachiteMetricsFetcher) AggregatePodMetric(podList []*v1.Pod, metricName string,
+	agg metric.Aggregator, filter metric.ContainerMetricFilter) float64 {
+	return m.metricStore.AggregatePodMetric(podList, metricName, agg, filter)
 }
 
 func (m *MalachiteMetricsFetcher) AggregateCoreMetric(cpuset machine.CPUSet, metricName string, agg metric.Aggregator) float64 {
