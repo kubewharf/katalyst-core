@@ -55,23 +55,27 @@ type labeledContainerInfo struct {
 	PodUID        kubetypes.UID
 }
 
-type RuntimePodFetcher struct {
+type RuntimePodFetcher interface {
+	GetPods(all bool) ([]*RuntimePod, error)
+}
+
+type runtimePodFetcherImpl struct {
 	runtimeService cri.RuntimeService
 }
 
-func NewRuntimePodFetcher(conf *config.Configuration) (*RuntimePodFetcher, error) {
+func NewRuntimePodFetcher(conf *config.Configuration) (RuntimePodFetcher, error) {
 	runtimeService, err := remote.NewRemoteRuntimeService(conf.RemoteRuntimeEndpoint, 2*time.Minute)
 	if err != nil {
 		return nil, fmt.Errorf("create remote runtime service failed %s", err)
 	}
 
-	return &RuntimePodFetcher{runtimeService: runtimeService}, nil
+	return &runtimePodFetcherImpl{runtimeService: runtimeService}, nil
 }
 
 // GetPods returns a list of containers grouped by pods. The boolean parameter
 // specifies whether the runtime returns all containers including those already
 // exited and dead containers (used for garbage collection).
-func (r *RuntimePodFetcher) GetPods(all bool) ([]*RuntimePod, error) {
+func (r *runtimePodFetcherImpl) GetPods(all bool) ([]*RuntimePod, error) {
 	pods := make(map[kubetypes.UID]*RuntimePod)
 	sandboxes, err := r.getKubeletSandboxes(all)
 	if err != nil {
@@ -129,7 +133,7 @@ func (r *RuntimePodFetcher) GetPods(all bool) ([]*RuntimePod, error) {
 }
 
 // getKubeletSandboxes lists all (or just the running) sandboxes managed by kubelet.
-func (r *RuntimePodFetcher) getKubeletSandboxes(all bool) ([]*runtimeapi.PodSandbox, error) {
+func (r *runtimePodFetcherImpl) getKubeletSandboxes(all bool) ([]*runtimeapi.PodSandbox, error) {
 	var filter *runtimeapi.PodSandboxFilter
 	if !all {
 		readyState := runtimeapi.PodSandboxState_SANDBOX_READY
@@ -152,7 +156,7 @@ func (r *RuntimePodFetcher) getKubeletSandboxes(all bool) ([]*runtimeapi.PodSand
 // getKubeletContainers lists containers managed by kubelet.
 // The boolean parameter specifies whether returns all containers including
 // those already exited and dead containers (used for garbage collection).
-func (r *RuntimePodFetcher) getKubeletContainers(allContainers bool) ([]*runtimeapi.Container, error) {
+func (r *runtimePodFetcherImpl) getKubeletContainers(allContainers bool) ([]*runtimeapi.Container, error) {
 	filter := &runtimeapi.ContainerFilter{}
 	if !allContainers {
 		filter.State = &runtimeapi.ContainerStateValue{

@@ -25,6 +25,7 @@ import (
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes/fake"
 	corev1 "k8s.io/client-go/kubernetes/typed/core/v1"
 
@@ -68,6 +69,7 @@ func constructPodFetcher(names []string) pod.PodFetcher {
 		pods = append(pods, &v1.Pod{
 			ObjectMeta: metav1.ObjectMeta{
 				Name: name,
+				UID:  types.UID(name + "-uid"),
 			},
 		})
 	}
@@ -93,6 +95,10 @@ func TestFetcher(t *testing.T) {
 	podObjList, err := agent.GetPodList(ctx, func(*v1.Pod) bool { return true })
 	assert.NoError(t, err)
 	assert.Equal(t, 2, len(podObjList))
+
+	pod1, err := agent.GetPod(ctx, "test-pod-1-uid")
+	assert.NoError(t, err)
+	assert.Equal(t, "test-pod-1", pod1.Name)
 
 	nodeObj, err := agent.GetNode(ctx)
 	assert.NoError(t, err)
