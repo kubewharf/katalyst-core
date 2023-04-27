@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package malachite
+package system
 
 import (
 	"encoding/json"
@@ -23,6 +23,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+
+	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric/malachite/client"
 )
 
 var (
@@ -85,14 +87,14 @@ func TestGetSystemComputeStats(t *testing.T) {
 	server := getSystemTestServer(data)
 	defer server.Close()
 
-	DefaultClient.(*client).SetURL(map[string]string{
-		computeResource: server.URL,
+	client.DefaultClient.(*client.Client).SetURL(map[string]string{
+		client.SystemComputeResource: server.URL,
 	})
 	_, err := GetSystemComputeStats()
 	assert.NoError(t, err)
 
-	DefaultClient.(*client).SetURL(map[string]string{
-		computeResource: "none",
+	client.DefaultClient.(*client.Client).SetURL(map[string]string{
+		client.SystemComputeResource: "none",
 	})
 	_, err = GetSystemComputeStats()
 	assert.NotNil(t, err)
@@ -103,14 +105,14 @@ func TestGetSystemMemoryStats(t *testing.T) {
 	server := getSystemTestServer(data)
 	defer server.Close()
 
-	DefaultClient.(*client).SetURL(map[string]string{
-		memoryResource: server.URL,
+	client.DefaultClient.(*client.Client).SetURL(map[string]string{
+		client.SystemMemoryResource: server.URL,
 	})
 	_, err := GetSystemMemoryStats()
 	assert.NoError(t, err)
 
-	DefaultClient.(*client).SetURL(map[string]string{
-		memoryResource: "none",
+	client.DefaultClient.(*client.Client).SetURL(map[string]string{
+		client.SystemMemoryResource: "none",
 	})
 	_, err = GetSystemComputeStats()
 	assert.NotNil(t, err)
@@ -121,14 +123,14 @@ func TestGetSystemIOStats(t *testing.T) {
 	server := getSystemTestServer(data)
 	defer server.Close()
 
-	DefaultClient.(*client).SetURL(map[string]string{
-		ioResource: server.URL,
+	client.DefaultClient.(*client.Client).SetURL(map[string]string{
+		client.SystemIOResource: server.URL,
 	})
 	_, err := GetSystemIOStats()
 	assert.NoError(t, err)
 
-	DefaultClient.(*client).SetURL(map[string]string{
-		ioResource: "none",
+	client.DefaultClient.(*client.Client).SetURL(map[string]string{
+		client.SystemIOResource: "none",
 	})
 	_, err = GetSystemComputeStats()
 	assert.NotNil(t, err)
@@ -139,14 +141,14 @@ func TestGetSystemNetStats(t *testing.T) {
 	server := getSystemTestServer(data)
 	defer server.Close()
 
-	DefaultClient.(*client).SetURL(map[string]string{
-		netResource: server.URL,
+	client.DefaultClient.(*client.Client).SetURL(map[string]string{
+		client.SystemNetResource: server.URL,
 	})
 	_, err := GetSystemNetStats()
 	assert.NoError(t, err)
 
-	DefaultClient.(*client).SetURL(map[string]string{
-		netResource: "none",
+	client.DefaultClient.(*client.Client).SetURL(map[string]string{
+		client.SystemNetResource: "none",
 	})
 	_, err = GetSystemComputeStats()
 	assert.NotNil(t, err)
@@ -156,6 +158,6 @@ func TestGetSystemNonExistStats(t *testing.T) {
 	server := getSystemTestServer([]byte{})
 	defer server.Close()
 
-	_, err := DefaultClient.GetSystemStats(100)
+	_, err := client.DefaultClient.GetSystemStats(100)
 	assert.ErrorContains(t, err, "unknown")
 }

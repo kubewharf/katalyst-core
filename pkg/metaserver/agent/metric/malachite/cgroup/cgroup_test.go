@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package malachite
+package cgroup
 
 import (
 	"encoding/json"
@@ -23,6 +23,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+
+	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric/malachite/client"
 )
 
 var subSystemGroupsV1Data []byte
@@ -118,7 +120,7 @@ func TestGetCgroupStats(t *testing.T) {
 		r.Response.StatusCode = http.StatusOK
 
 		q := r.URL.Query()
-		rPath := q.Get(cgroupPathParamKey)
+		rPath := q.Get(client.CgroupPathParamKey)
 		for path, info := range cgroupData {
 			if path == rPath {
 				data, _ := json.Marshal(info)
@@ -131,8 +133,8 @@ func TestGetCgroupStats(t *testing.T) {
 	}))
 	defer server.Close()
 
-	DefaultClient.(*client).SetURL(map[string]string{
-		cgroupResource: server.URL,
+	client.DefaultClient.(*client.Client).SetURL(map[string]string{
+		client.CgroupResource: server.URL,
 	})
 
 	info, err := GetCgroupStats("v1-path")

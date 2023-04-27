@@ -32,22 +32,17 @@ import (
 type ProvisionPolicy interface {
 	// SetPodSet overwrites policy's pod/container record
 	SetPodSet(types.PodSet)
-
 	// SetIndicator updates indicator metric value of different levels
 	SetIndicator(types.Indicator)
-
 	// SetRequirement should be called before policy updated
 	SetRequirement(requirement int)
-
 	// SetEssentials set essentials for cpu regulator
 	SetEssentials(essentials types.ResourceEssentials)
-
 	// SetBindingNumas overwrites the numa ids this policy interested in
 	SetBindingNumas(machine.CPUSet)
 
 	// Update triggers an epoch of algorithm update
 	Update() error
-
 	// GetControlKnobAdjusted returns the latest adjusted control knob value
 	GetControlKnobAdjusted() (types.ControlKnob, error)
 }

@@ -66,21 +66,24 @@ type QoSRegionBase struct {
 	ownerPoolName string
 	regionType    types.QoSRegionType
 
+	types.ResourceEssentials
 	// bindingNumas records numas assigned to this region
 	bindingNumas machine.CPUSet
-
 	// podSet records current pod and containers in region keyed by pod uid and container name
 	podSet types.PodSet
-
 	// containerTopologyAwareAssignment changes dynamically by adding container
 	containerTopologyAwareAssignment types.TopologyAwareAssignment
 
-	types.ResourceEssentials
-
-	// provisionPolicies for comparing and merging different provision policy results, the former has higher priority
-	provisionPolicies []*internalProvisionPolicy
-	// headroomPolicies for comparing and merging different headroom policy results, the former has higher priority
-	headroomPolicies []*internalHeadroomPolicy
+	// provisionPolicies for comparing and merging different provision policy results,
+	// the former has higher priority; provisionPolicyInUse indicates the provision policy
+	// that is in-use currently
+	provisionPolicies    []*internalProvisionPolicy
+	provisionPolicyInUse *internalProvisionPolicy
+	// headroomPolicies for comparing and merging different headroom policy results,
+	// the former has higher priority; headroomPolicyInUse indicates the provision policy
+	// that is in-use currently
+	headroomPolicies    []*internalHeadroomPolicy
+	headroomPolicyInUse *internalHeadroomPolicy
 
 	metaReader metacache.MetaReader
 	metaServer *metaserver.MetaServer
@@ -185,6 +188,40 @@ func (r *QoSRegionBase) AddContainer(ci *types.ContainerInfo) error {
 	}
 
 	return nil
+}
+
+func (r *QoSRegionBase) GetProvisionPolicy() (policyTopPriority types.CPUProvisionPolicyName, policyInUse types.CPUProvisionPolicyName) {
+	r.Lock()
+	defer r.Unlock()
+
+	policyTopPriority = types.CPUProvisionPolicyNone
+	if len(r.provisionPolicies) > 0 {
+		policyTopPriority = r.provisionPolicies[0].name
+	}
+
+	policyInUse = types.CPUProvisionPolicyNone
+	if r.provisionPolicyInUse != nil {
+		policyInUse = r.provisionPolicyInUse.name
+	}
+
+	return
+}
+
+func (r *QoSRegionBase) GetHeadRoomPolicy() (policyTopPriority types.CPUHeadroomPolicyName, policyInUse types.CPUHeadroomPolicyName) {
+	r.Lock()
+	defer r.Unlock()
+
+	policyTopPriority = types.CPUHeadroomPolicyNone
+	if len(r.headroomPolicies) > 0 {
+		policyTopPriority = r.headroomPolicies[0].name
+	}
+
+	policyInUse = types.CPUHeadroomPolicyNone
+	if r.headroomPolicyInUse != nil {
+		policyInUse = r.headroomPolicyInUse.name
+	}
+
+	return
 }
 
 // initProvisionPolicy initializes provision by adding additional policies into default ones

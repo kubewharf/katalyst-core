@@ -14,17 +14,19 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package malachite
+package cgroup
 
 import (
 	"encoding/json"
 	"fmt"
 
 	"k8s.io/klog/v2"
+
+	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric/malachite/client"
 )
 
 func GetCgroupStats(cgroupPath string) (*MalachiteCgroupInfo, error) {
-	cgroupStatsRaw, err := DefaultClient.GetCgroupStats(cgroupPath)
+	cgroupStatsRaw, err := client.DefaultClient.GetCgroupStats(cgroupPath)
 	if err != nil {
 		return nil, err
 	}

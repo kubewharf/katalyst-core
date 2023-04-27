@@ -17,7 +17,10 @@ package metric
 import (
 	"context"
 
+	v1 "k8s.io/api/core/v1"
+
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
+	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 	"github.com/kubewharf/katalyst-core/pkg/util/metric"
 )
 
@@ -74,10 +77,30 @@ func (f *FakeMetricsFetcher) SetNumaMetric(numaID int, metricName string, value 
 	f.metricStore.SetNumaMetric(numaID, metricName, value)
 }
 
+func (f *FakeMetricsFetcher) SetCPUMetric(cpu int, metricName string, value float64) {
+	f.metricStore.SetCPUMetric(cpu, metricName, value)
+}
+
+func (f *FakeMetricsFetcher) SetDeviceMetric(deviceName string, metricName string, value float64) {
+	f.metricStore.SetDeviceMetric(deviceName, metricName, value)
+}
+
 func (f *FakeMetricsFetcher) SetContainerMetric(podUID, containerName, metricName string, value float64) {
 	f.metricStore.SetContainerMetric(podUID, containerName, metricName, value)
 }
 
 func (f *FakeMetricsFetcher) SetContainerNumaMetric(podUID, containerName, numaNode, metricName string, value float64) {
 	f.metricStore.SetContainerNumaMetric(podUID, containerName, numaNode, metricName, value)
+}
+
+func (f *FakeMetricsFetcher) AggregatePodNumaMetric(podList []*v1.Pod, numaNode, metricName string, agg metric.Aggregator, filter metric.ContainerMetricFilter) float64 {
+	return f.metricStore.AggregatePodNumaMetric(podList, numaNode, metricName, agg, filter)
+}
+
+func (f *FakeMetricsFetcher) AggregatePodMetric(podList []*v1.Pod, metricName string, agg metric.Aggregator, filter metric.ContainerMetricFilter) float64 {
+	return f.metricStore.AggregatePodMetric(podList, metricName, agg, filter)
+}
+
+func (f *FakeMetricsFetcher) AggregateCoreMetric(cpuset machine.CPUSet, metricName string, agg metric.Aggregator) float64 {
+	return f.metricStore.AggregateCoreMetric(cpuset, metricName, agg)
 }

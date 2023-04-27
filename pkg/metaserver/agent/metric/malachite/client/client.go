@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package malachite
+package client
 
 import (
 	"fmt"
@@ -24,12 +24,14 @@ import (
 
 const (
 	malachiteServicePort = 9002
-	cgroupResource       = "cgroup/groups"
-	cgroupPathParamKey   = "cgroup_user_path"
-	computeResource      = "system/compute"
-	memoryResource       = "system/memory"
-	ioResource           = "system/io"
-	netResource          = "system/network"
+
+	CgroupResource     = "cgroup/groups"
+	CgroupPathParamKey = "cgroup_user_path"
+
+	SystemComputeResource = "system/compute"
+	SystemMemoryResource  = "system/memory"
+	SystemIOResource      = "system/io"
+	SystemNetResource     = "system/network"
 )
 
 type SystemResourceKind int
@@ -43,7 +45,7 @@ const (
 
 var DefaultClient = New()
 
-type client struct {
+type Client struct {
 	urls map[string]string
 }
 
@@ -54,23 +56,23 @@ type MalachiteClient interface {
 
 func New() MalachiteClient {
 	urls := make(map[string]string)
-	for _, path := range []string{cgroupResource, computeResource, memoryResource, ioResource, netResource} {
+	for _, path := range []string{CgroupResource, SystemComputeResource, SystemMemoryResource, SystemIOResource, SystemNetResource} {
 		urls[path] = fmt.Sprintf("http://localhost:%d/api/v1/%s", malachiteServicePort, path)
 	}
-	return &client{
+	return &Client{
 		urls: urls,
 	}
 }
 
 // SetURL is used to implement UT for
-func (c *client) SetURL(urls map[string]string) {
+func (c *Client) SetURL(urls map[string]string) {
 	c.urls = urls
 }
 
-func (c *client) GetCgroupStats(cgroupPath string) ([]byte, error) {
-	url, ok := c.urls[cgroupResource]
+func (c *Client) GetCgroupStats(cgroupPath string) ([]byte, error) {
+	url, ok := c.urls[CgroupResource]
 	if !ok {
-		return nil, fmt.Errorf("no url for %v", cgroupResource)
+		return nil, fmt.Errorf("no url for %v", CgroupResource)
 	}
 
 	req, err := http.NewRequest("GET", url, nil)
@@ -79,7 +81,7 @@ func (c *client) GetCgroupStats(cgroupPath string) ([]byte, error) {
 	}
 
 	q := req.URL.Query()
-	q.Add(cgroupPathParamKey, cgroupPath)
+	q.Add(CgroupPathParamKey, cgroupPath)
 	req.URL.RawQuery = q.Encode()
 
 	rsp, err := http.DefaultClient.Do(req)
@@ -87,7 +89,7 @@ func (c *client) GetCgroupStats(cgroupPath string) ([]byte, error) {
 		return nil, fmt.Errorf("failed to http.DefaultClient.Do, url: %s, err %s", req.URL, err)
 	}
 
-	defer rsp.Body.Close()
+	defer func() { _ = rsp.Body.Close() }()
 
 	if rsp.StatusCode != 200 {
 		return nil, fmt.Errorf("invalid http response status code %d, url: %s", rsp.StatusCode, req.URL)
@@ -96,17 +98,17 @@ func (c *client) GetCgroupStats(cgroupPath string) ([]byte, error) {
 	return ioutil.ReadAll(rsp.Body)
 }
 
-func (c *client) GetSystemStats(kind SystemResourceKind) ([]byte, error) {
+func (c *Client) GetSystemStats(kind SystemResourceKind) ([]byte, error) {
 	resource := ""
 	switch kind {
 	case Compute:
-		resource = computeResource
+		resource = SystemComputeResource
 	case Memory:
-		resource = memoryResource
+		resource = SystemMemoryResource
 	case IO:
-		resource = ioResource
+		resource = SystemIOResource
 	case Net:
-		resource = netResource
+		resource = SystemNetResource
 	default:
 		return nil, fmt.Errorf("unknown system resource kind, %v", kind)
 	}
@@ -126,7 +128,7 @@ func (c *client) GetSystemStats(kind SystemResourceKind) ([]byte, error) {
 		return nil, fmt.Errorf("failed to http.DefaultClient.Do, url: %s, err %s", req.URL, err)
 	}
 
-	defer rsp.Body.Close()
+	defer func() { _ = rsp.Body.Close() }()
 
 	if rsp.StatusCode != 200 {
 		return nil, fmt.Errorf("invalid http response status code %d, url: %s", rsp.StatusCode, req.URL)

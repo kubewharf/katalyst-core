@@ -30,13 +30,11 @@ import (
 type HeadroomPolicy interface {
 	// SetPodSet overwrites policy's pod/container record
 	SetPodSet(types.PodSet)
-
 	// SetEssentials updates essential values for policy update
 	SetEssentials(essentials types.ResourceEssentials)
 
 	// Update triggers an epoch of algorithm update
 	Update() error
-
 	// GetHeadroom returns the latest headroom estimation
 	GetHeadroom() (float64, error)
 }

@@ -28,41 +28,41 @@ import (
 type QoSRegion interface {
 	// Name returns region's global unique identifier, combined with region type and uuid
 	Name() string
-
 	// Type returns region type
 	Type() types.QoSRegionType
 
 	// IsEmpty returns true if no container remains in region
 	IsEmpty() bool
-
 	// Clear clears all topology and containers info in region
 	Clear()
 
 	// GetBindingNumas returns numa ids assigned to this region
 	GetBindingNumas() machine.CPUSet
-
 	// GetPods return the latest pod set of this region
 	GetPods() types.PodSet
 
 	// SetBindingNumas overwrites numa ids assigned to this region
 	SetBindingNumas(machine.CPUSet)
-
 	// SetEssentials updates essential region values for policy and headroom update
 	// region available resource value = total - reservePoolSize - reservedForAllocate
 	SetEssentials(essentials types.ResourceEssentials)
-
 	// AddContainer stores a container keyed by pod uid and container name to region
 	AddContainer(ci *types.ContainerInfo) error
 
 	// TryUpdateProvision runs an episode of control knob adjustment
 	TryUpdateProvision()
-
 	// TryUpdateHeadroom runs an episode of headroom estimation
 	TryUpdateHeadroom()
 
 	// GetProvision returns the latest updated control knob value
 	GetProvision() (types.ControlKnob, error)
-
 	// GetHeadroom returns the latest updated cpu headroom estimation
 	GetHeadroom() (resource.Quantity, error)
+
+	// GetProvisionPolicy returns provision policy for this region,
+	// the first is policy with top priority, while the second is the policy that is in-use currently
+	GetProvisionPolicy() (types.CPUProvisionPolicyName, types.CPUProvisionPolicyName)
+	// GetHeadRoomPolicy returns headroom policy for this region,
+	// the first is policy with top priority, while the second is the policy that is in-use currently
+	GetHeadRoomPolicy() (types.CPUHeadroomPolicyName, types.CPUHeadroomPolicyName)
 }

@@ -21,52 +21,57 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	v1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric/malachite"
+	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric/malachite/cgroup"
+	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric/malachite/system"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
+	"github.com/kubewharf/katalyst-core/pkg/util/machine"
+	"github.com/kubewharf/katalyst-core/pkg/util/metric"
 )
 
 func Test_noneExistMetricsFetcher(t *testing.T) {
 	var err error
 	implement := NewMalachiteMetricsFetcher(metrics.DummyMetrics{})
 
-	fakeSystemCompute := &malachite.SystemComputeData{
-		CPU: []malachite.CPU{
+	fakeSystemCompute := &system.SystemComputeData{
+		CPU: []system.CPU{
 			{
 				Name: "CPU1111",
 			},
 		},
 	}
-	fakeSystemMemory := &malachite.SystemMemoryData{
-		Numa: []malachite.Numa{
+	fakeSystemMemory := &system.SystemMemoryData{
+		Numa: []system.Numa{
 			{},
 		},
 	}
-	fakeSystemIO := &malachite.SystemDiskIoData{
-		DiskIo: []malachite.DiskIo{
+	fakeSystemIO := &system.SystemDiskIoData{
+		DiskIo: []system.DiskIo{
 			{},
 		},
 	}
-	fakeCgroupInfoV1 := &malachite.MalachiteCgroupInfo{
+	fakeCgroupInfoV1 := &cgroup.MalachiteCgroupInfo{
 		CgroupType: "V1",
-		V1: &malachite.MalachiteCgroupV1Info{
-			Memory:    &malachite.MemoryCgDataV1{},
-			Blkio:     &malachite.BlkIOCgDataV1{},
-			NetCls:    &malachite.NetClsCgData{},
-			PerfEvent: &malachite.PerfEventData{},
-			CpuSet:    &malachite.CPUSetCgDataV1{},
-			Cpu:       &malachite.CPUCgDataV1{},
+		V1: &cgroup.MalachiteCgroupV1Info{
+			Memory:    &cgroup.MemoryCgDataV1{},
+			Blkio:     &cgroup.BlkIOCgDataV1{},
+			NetCls:    &cgroup.NetClsCgData{},
+			PerfEvent: &cgroup.PerfEventData{},
+			CpuSet:    &cgroup.CPUSetCgDataV1{},
+			Cpu:       &cgroup.CPUCgDataV1{},
 		},
 	}
-	fakeCgroupInfoV2 := &malachite.MalachiteCgroupInfo{
+	fakeCgroupInfoV2 := &cgroup.MalachiteCgroupInfo{
 		CgroupType: "V2",
-		V2: &malachite.MalachiteCgroupV2Info{
-			Memory:    &malachite.MemoryCgDataV2{},
-			Blkio:     &malachite.BlkIOCgDataV2{},
-			NetCls:    &malachite.NetClsCgData{},
-			PerfEvent: &malachite.PerfEventData{},
-			CpuSet:    &malachite.CPUSetCgDataV2{},
-			Cpu:       &malachite.CPUCgDataV2{},
+		V2: &cgroup.MalachiteCgroupV2Info{
+			Memory:    &cgroup.MemoryCgDataV2{},
+			Blkio:     &cgroup.BlkIOCgDataV2{},
+			NetCls:    &cgroup.NetClsCgData{},
+			PerfEvent: &cgroup.PerfEventData{},
+			CpuSet:    &cgroup.CPUSetCgDataV2{},
+			Cpu:       &cgroup.CPUCgDataV2{},
 		},
 	}
 
@@ -189,4 +194,69 @@ func Test_notifySystem(t *testing.T) {
 	}()
 
 	time.Sleep(time.Second * 10)
+}
+
+func TestStore_Aggregate(t *testing.T) {
+	f := NewMalachiteMetricsFetcher(metrics.DummyMetrics{}).(*MalachiteMetricsFetcher)
+
+	pod1 := &v1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			UID: "pod1",
+		},
+		Spec: v1.PodSpec{
+			Containers: []v1.Container{
+				{
+					Name: "container1",
+				},
+				{
+					Name: "container2",
+				},
+			},
+		},
+	}
+	pod2 := &v1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			UID: "pod2",
+		},
+		Spec: v1.PodSpec{
+			Containers: []v1.Container{
+				{
+					Name: "container3",
+				},
+			},
+		},
+	}
+	pod3 := &v1.Pod{}
+
+	f.metricStore.SetContainerMetric("pod1", "container1", "test-pod-metric", 1.0)
+	f.metricStore.SetContainerMetric("pod1", "container2", "test-pod-metric", 1.0)
+	f.metricStore.SetContainerMetric("pod2", "container3", "test-pod-metric", 1.0)
+	sum := f.AggregatePodMetric([]*v1.Pod{pod1, pod2, pod3}, "test-pod-metric", metric.AggregatorSum, metric.DefaultContainerMetricFilter)
+	assert.Equal(t, float64(3), sum)
+	avg := f.AggregatePodMetric([]*v1.Pod{pod1, pod2, pod3}, "test-pod-metric", metric.AggregatorAvg, metric.DefaultContainerMetricFilter)
+	assert.Equal(t, float64(1.5), avg)
+
+	f.metricStore.SetContainerNumaMetric("pod1", "container1", "0", "test-pod-numa-metric", 1.0)
+	f.metricStore.SetContainerNumaMetric("pod1", "container2", "0", "test-pod-numa-metric", 1.0)
+	f.metricStore.SetContainerNumaMetric("pod1", "container2", "1", "test-pod-numa-metric", 1.0)
+	f.metricStore.SetContainerNumaMetric("pod2", "container3", "0", "test-pod-numa-metric", 1.0)
+	f.metricStore.SetContainerNumaMetric("pod2", "container3", "1", "test-pod-numa-metric", 1.0)
+	f.metricStore.SetContainerNumaMetric("pod2", "container3", "1", "test-pod-numa-metric", 1.0)
+	sum = f.AggregatePodNumaMetric([]*v1.Pod{pod1, pod2, pod3}, "0", "test-pod-numa-metric", metric.AggregatorSum, metric.DefaultContainerMetricFilter)
+	assert.Equal(t, float64(3), sum)
+	avg = f.AggregatePodNumaMetric([]*v1.Pod{pod1, pod2, pod3}, "0", "test-pod-numa-metric", metric.AggregatorAvg, metric.DefaultContainerMetricFilter)
+	assert.Equal(t, float64(1.5), avg)
+	sum = f.AggregatePodNumaMetric([]*v1.Pod{pod1, pod2, pod3}, "1", "test-pod-numa-metric", metric.AggregatorSum, metric.DefaultContainerMetricFilter)
+	assert.Equal(t, float64(2), sum)
+	avg = f.AggregatePodNumaMetric([]*v1.Pod{pod1, pod2, pod3}, "1", "test-pod-numa-metric", metric.AggregatorAvg, metric.DefaultContainerMetricFilter)
+	assert.Equal(t, float64(1), avg)
+
+	f.metricStore.SetCPUMetric(1, "test-cpu-metric", 1.0)
+	f.metricStore.SetCPUMetric(1, "test-cpu-metric", 2.0)
+	f.metricStore.SetCPUMetric(2, "test-cpu-metric", 1.0)
+	f.metricStore.SetCPUMetric(0, "test-cpu-metric", 1.0)
+	sum = f.AggregateCoreMetric(machine.NewCPUSet(0, 1, 2, 3), "test-cpu-metric", metric.AggregatorSum)
+	assert.Equal(t, float64(4), sum)
+	avg = f.AggregateCoreMetric(machine.NewCPUSet(0, 1, 2, 3), "test-cpu-metric", metric.AggregatorAvg)
+	assert.Equal(t, float64(4/3.), avg)
 }
