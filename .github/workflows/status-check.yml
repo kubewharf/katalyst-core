@@ -1,0 +1,15 @@
+name: Status Check
+
+on:
+  pull_request:
+    branches: [ main ]
+    types: [ opened, reopened, synchronize, labeled, unlabeled]
+
+jobs:
+  status-check:
+    name: Status Check
+    runs-on: ubuntu-20.04
+    steps:
+      - name: Check if the PR is hold
+        if: contains(github.event.pull_request.labels.*.name, 'workflow/merge-hold')
+        run: echo 'This pull request is hold' && exit 1
