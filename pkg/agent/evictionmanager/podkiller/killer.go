@@ -34,7 +34,10 @@ import (
 	"k8s.io/klog/v2"
 
 	"github.com/kubewharf/katalyst-core/pkg/consts"
+	"github.com/kubewharf/katalyst-core/pkg/metrics"
 )
+
+const MetricsNameKillPod = "kill_pod"
 
 // Killer implements pod eviction logic.
 type Killer interface {
@@ -56,13 +59,15 @@ var _ Killer = DummyKiller{}
 // EvictionAPIKiller implements Killer interface it evict those given pods by
 // eviction API, and wait until pods have actually been deleted.
 type EvictionAPIKiller struct {
+	emitter  metrics.MetricEmitter
 	client   kubernetes.Interface
 	recorder events.EventRecorder
 }
 
 // NewEvictionAPIKiller returns a new updater Object.
-func NewEvictionAPIKiller(client kubernetes.Interface, recorder events.EventRecorder) *EvictionAPIKiller {
+func NewEvictionAPIKiller(client kubernetes.Interface, recorder events.EventRecorder, emitter metrics.MetricEmitter) *EvictionAPIKiller {
 	return &EvictionAPIKiller{
+		emitter:  emitter,
 		client:   client,
 		recorder: recorder,
 	}
@@ -70,7 +75,7 @@ func NewEvictionAPIKiller(client kubernetes.Interface, recorder events.EventReco
 
 func (e *EvictionAPIKiller) Name() string { return "eviction-api-killer" }
 
-func (e *EvictionAPIKiller) Evict(ctx context.Context, pod *v1.Pod, gracePeriodSeconds int64, reason string) error {
+func (e *EvictionAPIKiller) Evict(_ context.Context, pod *v1.Pod, gracePeriodSeconds int64, reason string) error {
 	const (
 		policyGroupVersion = "policy/v1beta1"
 		evictionKind       = "Eviction"
@@ -94,18 +99,20 @@ func (e *EvictionAPIKiller) Evict(ctx context.Context, pod *v1.Pod, gracePeriodS
 		return e.client.PolicyV1beta1().Evictions(eviction.Namespace).Evict(context.Background(), eviction)
 	}
 
-	return evict(e.client, e.recorder, pod, gracePeriodSeconds, reason, evictPod)
+	return evict(e.client, e.recorder, e.emitter, pod, gracePeriodSeconds, reason, evictPod)
 }
 
 // DeletionAPIKiller implements Killer interface it evict those
 // given pods by calling pod deletion API.
 type DeletionAPIKiller struct {
-	client   *kubernetes.Clientset
+	emitter  metrics.MetricEmitter
+	client   kubernetes.Interface
 	recorder events.EventRecorder
 }
 
-func NewDeletionAPIKiller(client *kubernetes.Clientset, recorder events.EventRecorder) *DeletionAPIKiller {
+func NewDeletionAPIKiller(client kubernetes.Interface, recorder events.EventRecorder, emitter metrics.MetricEmitter) *DeletionAPIKiller {
 	return &DeletionAPIKiller{
+		emitter:  emitter,
 		client:   client,
 		recorder: recorder,
 	}
@@ -121,7 +128,7 @@ func (d *DeletionAPIKiller) Evict(ctx context.Context, pod *v1.Pod, gracePeriodS
 		return d.client.CoreV1().Pods(pod.Namespace).Delete(ctx, pod.Name, deleteOptions)
 	}
 
-	return evict(d.client, d.recorder, pod, gracePeriodSeconds, reason, evictPod)
+	return evict(d.client, d.recorder, d.emitter, pod, gracePeriodSeconds, reason, evictPod)
 }
 
 // getWaitingPeriod get waiting period from graceful period.
@@ -201,21 +208,28 @@ func deleteWithRetry(pod *v1.Pod, gracePeriod int64, timeoutDuration time.Durati
 }
 
 // evict all killer implementations will perform evict actions.
-func evict(client kubernetes.Interface, recorder events.EventRecorder, pod *v1.Pod,
-	gracePeriodSeconds int64, reason string, evictPod func(_ *v1.Pod, gracePeriod int64) error,
-) error {
+func evict(client kubernetes.Interface, recorder events.EventRecorder, emitter metrics.MetricEmitter, pod *v1.Pod,
+	gracePeriodSeconds int64, reason string, evictPod func(_ *v1.Pod, gracePeriod int64) error) error {
 	timeoutDuration := getWaitingPeriod(gracePeriodSeconds)
 	klog.Infof("[killer] evict pod %v/%v with graceful seconds %v", pod.Namespace, pod.Name, gracePeriodSeconds)
 
 	if err := deleteWithRetry(pod, gracePeriodSeconds, timeoutDuration, evictPod); err != nil {
 		recorder.Eventf(pod, nil, v1.EventTypeWarning, consts.EventReasonEvictFailed, consts.EventActionEvicting,
 			fmt.Sprintf("Evict failed: %s", err))
+		_ = emitter.StoreInt64(MetricsNameKillPod, 1, metrics.MetricTypeNameRaw,
+			metrics.MetricTag{Key: "state", Val: "failed"},
+			metrics.MetricTag{Key: "pod_ns", Val: pod.Namespace},
+			metrics.MetricTag{Key: "pod_name", Val: pod.Name})
 
 		return fmt.Errorf("evict failed %v", err)
 	}
 
 	recorder.Eventf(pod, nil, v1.EventTypeNormal, consts.EventReasonEvictCreated, consts.EventActionEvicting,
 		"Successfully create eviction; reason: %s", reason)
+	_ = emitter.StoreInt64(MetricsNameKillPod, 1, metrics.MetricTypeNameRaw,
+		metrics.MetricTag{Key: "state", Val: "succeeded"},
+		metrics.MetricTag{Key: "pod_ns", Val: pod.Namespace},
+		metrics.MetricTag{Key: "pod_name", Val: pod.Name})
 	klog.Infof("[killer] successfully create eviction for pod %v/%v", pod.Namespace, pod.Name)
 
 	podArray := []*v1.Pod{pod}

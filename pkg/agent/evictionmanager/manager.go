@@ -107,7 +107,7 @@ func NewEvictionManager(genericClient *client.GenericClientSet, recorder events.
 	metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter, conf *pkgconfig.Configuration) *EvictionManger {
 	queue := rule.NewFIFOEvictionQueue(conf.EvictionBurst)
 
-	killer := podkiller.NewEvictionAPIKiller(genericClient.KubeClient, recorder)
+	killer := podkiller.NewEvictionAPIKiller(genericClient.KubeClient, recorder, emitter)
 	podKiller := podkiller.NewAsynchronizedPodKiller(killer, genericClient.KubeClient)
 
 	e := &EvictionManger{
@@ -571,7 +571,9 @@ func metricPodsToEvict(emitter metrics.MetricEmitter, rpList rule.RuledEvictPodL
 		if rp != nil && rp.EvictionPluginName != "" {
 			_ = emitter.StoreInt64(MetricsNameVictimPodCNT, 1, metrics.MetricTypeNameRaw,
 				metrics.MetricTag{Key: "name", Val: rp.EvictionPluginName},
-				metrics.MetricTag{Key: "type", Val: "plugin"})
+				metrics.MetricTag{Key: "type", Val: "plugin"},
+				metrics.MetricTag{Key: "victim_ns", Val: rp.Pod.Namespace},
+				metrics.MetricTag{Key: "victim_name", Val: rp.Pod.Name})
 		}
 	}
 }
