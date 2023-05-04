@@ -88,6 +88,8 @@ func (cme *CustomMetricEmitter) Run(ctx context.Context) {
 
 	for _, s := range cme.syncers {
 		s.Run(ctx)
+		klog.Infof("run metric emitter %v successfully", s.Name())
 	}
+	klog.Infof("run all metric emitters successfully")
 	<-ctx.Done()
 }
