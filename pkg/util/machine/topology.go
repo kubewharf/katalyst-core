@@ -18,7 +18,6 @@ package machine
 
 import (
 	"fmt"
-	"sort"
 
 	info "github.com/google/cadvisor/info/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -392,32 +391,6 @@ func GetNumaAwareAssignments(topology *CPUTopology, cset CPUSet) (map[int]CPUSet
 	}
 
 	return topologyAwareAssignments, nil
-}
-
-// GetQuantityMap is used to generate cpu resource counting map
-// based on the given CPUSet map
-func GetQuantityMap(csetMap map[string]CPUSet) map[string]int {
-	ret := make(map[string]int)
-
-	for name, cset := range csetMap {
-		ret[name] = cset.Size()
-	}
-
-	return ret
-}
-
-// GetSortedQuantityMapKeys is used to generate cpu resource counting map
-// based on the given CPUSet map with sorting logic
-func GetSortedQuantityMapKeys(quantityMap map[string]int) []string {
-	ret := make([]string, 0, len(quantityMap))
-
-	for key := range quantityMap {
-		ret = append(ret, key)
-	}
-
-	sort.Strings(ret)
-
-	return ret
 }
 
 // CheckNUMACrossSockets judges whether the given NUMA nodes are located

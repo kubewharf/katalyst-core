@@ -81,7 +81,7 @@ func (p *DynamicPolicy) sharedCoresAllocationHandler(ctx context.Context,
 			AllocationResult:                 pooledCPUs,
 			OriginalAllocationResult:         pooledCPUs.Clone(),
 			TopologyAwareAssignments:         pooledCPUsTopologyAwareAssignments,
-			OriginalTopologyAwareAssignments: util.DeepCopyTopologyAwareAssignments(pooledCPUsTopologyAwareAssignments),
+			OriginalTopologyAwareAssignments: machine.DeepcopyCPUAssignment(pooledCPUsTopologyAwareAssignments),
 			InitTimestamp:                    time.Now().Format(util.QRMTimeFormat),
 			Labels:                           general.DeepCopyMap(req.Labels),
 			Annotations:                      general.DeepCopyMap(req.Annotations),
@@ -95,7 +95,7 @@ func (p *DynamicPolicy) sharedCoresAllocationHandler(ctx context.Context,
 		allocationInfo.AllocationResult = pooledCPUs
 		allocationInfo.OriginalAllocationResult = pooledCPUs.Clone()
 		allocationInfo.TopologyAwareAssignments = pooledCPUsTopologyAwareAssignments
-		allocationInfo.OriginalTopologyAwareAssignments = util.DeepCopyTopologyAwareAssignments(pooledCPUsTopologyAwareAssignments)
+		allocationInfo.OriginalTopologyAwareAssignments = machine.DeepcopyCPUAssignment(pooledCPUsTopologyAwareAssignments)
 	} else {
 		// need to adjust pools and putContainersAndAdjustAllocationEntries will set the allocationInfo after adjusted
 		err = p.putContainersAndAdjustAllocationEntries([]*state.AllocationInfo{allocationInfo})
@@ -195,8 +195,8 @@ func (p *DynamicPolicy) reclaimedCoresAllocationHandler(ctx context.Context,
 
 	allocationInfo.AllocationResult = reclaimedAllocationInfo.AllocationResult.Clone()
 	allocationInfo.OriginalAllocationResult = reclaimedAllocationInfo.OriginalAllocationResult.Clone()
-	allocationInfo.TopologyAwareAssignments = util.DeepCopyTopologyAwareAssignments(reclaimedAllocationInfo.TopologyAwareAssignments)
-	allocationInfo.OriginalTopologyAwareAssignments = util.DeepCopyTopologyAwareAssignments(reclaimedAllocationInfo.OriginalTopologyAwareAssignments)
+	allocationInfo.TopologyAwareAssignments = machine.DeepcopyCPUAssignment(reclaimedAllocationInfo.TopologyAwareAssignments)
+	allocationInfo.OriginalTopologyAwareAssignments = machine.DeepcopyCPUAssignment(reclaimedAllocationInfo.OriginalTopologyAwareAssignments)
 
 	// update pod entries directly.
 	// if one of subsequent steps is failed, we will delete current allocationInfo from podEntries in defer function of allocation function.
@@ -312,7 +312,7 @@ func (p *DynamicPolicy) dedicatedCoresWithNUMABindingAllocationHandler(ctx conte
 		AllocationResult:                 result.Clone(),
 		OriginalAllocationResult:         result.Clone(),
 		TopologyAwareAssignments:         topologyAwareAssignments,
-		OriginalTopologyAwareAssignments: util.DeepCopyTopologyAwareAssignments(topologyAwareAssignments),
+		OriginalTopologyAwareAssignments: machine.DeepcopyCPUAssignment(topologyAwareAssignments),
 		InitTimestamp:                    time.Now().Format(util.QRMTimeFormat),
 		QoSLevel:                         apiconsts.PodAnnotationQoSLevelDedicatedCores,
 		Labels:                           general.DeepCopyMap(req.Labels),
@@ -394,8 +394,8 @@ func (p *DynamicPolicy) dedicatedCoresWithNUMABindingAllocationSidecarHandler(ct
 		PodType:                          req.PodType,
 		AllocationResult:                 mainContainerAllocationInfo.AllocationResult.Clone(),
 		OriginalAllocationResult:         mainContainerAllocationInfo.OriginalAllocationResult.Clone(),
-		TopologyAwareAssignments:         util.DeepCopyTopologyAwareAssignments(mainContainerAllocationInfo.TopologyAwareAssignments),
-		OriginalTopologyAwareAssignments: util.DeepCopyTopologyAwareAssignments(mainContainerAllocationInfo.OriginalTopologyAwareAssignments),
+		TopologyAwareAssignments:         machine.DeepcopyCPUAssignment(mainContainerAllocationInfo.TopologyAwareAssignments),
+		OriginalTopologyAwareAssignments: machine.DeepcopyCPUAssignment(mainContainerAllocationInfo.OriginalTopologyAwareAssignments),
 		InitTimestamp:                    time.Now().Format(util.QRMTimeFormat),
 		QoSLevel:                         apiconsts.PodAnnotationQoSLevelDedicatedCores,
 		Labels:                           general.DeepCopyMap(req.Labels),

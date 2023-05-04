@@ -21,6 +21,8 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
+	"runtime"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -210,6 +212,16 @@ func ExtractMapValued(m map[string]string) []string {
 	return res.List()
 }
 
+// GetSortedMapKeys returns a slice containing sorted keys for the given map
+func GetSortedMapKeys(m map[string]int) []string {
+	ret := make([]string, 0, len(m))
+	for key := range m {
+		ret = append(ret, key)
+	}
+	sort.Strings(ret)
+	return ret
+}
+
 // ToString transform to string for better display etc. in log
 func ToString(in interface{}) string {
 	var out bytes.Buffer
@@ -250,20 +262,27 @@ func ParseMapWithPrefix(prefix, selector string) (map[string]string, error) {
 
 func CovertInt64ToInt(numInt64 int64) (int, error) {
 	numInt := int(numInt64)
-
 	if int64(numInt) != numInt64 {
 		return 0, fmt.Errorf("convert numInt64: %d to numInt: %d failed", numInt64, numInt)
 	}
-
 	return numInt, nil
 }
 
 func CovertUInt64ToInt(numUInt64 uint64) (int, error) {
 	numInt := int(numUInt64)
-
 	if numInt < 0 || uint64(numInt) != numUInt64 {
 		return 0, fmt.Errorf("convert numUInt64: %d to numInt: %d failed", numUInt64, numInt)
 	}
-
 	return numInt, nil
+}
+
+// GetCallerName returns the function name of caller to avoid
+// hardcode function names in logging message (especially for cases
+// that function names are changed)
+func GetCallerName() string {
+	pc, _, _, ok := runtime.Caller(1)
+	if !ok {
+		return ""
+	}
+	return runtime.FuncForPC(pc).Name()
 }

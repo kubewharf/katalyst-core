@@ -393,7 +393,7 @@ func (p *DynamicPolicy) GetResourcesAllocation(_ context.Context,
 						allocationInfo.PodNamespace, allocationInfo.PodName, allocationInfo.ContainerName, tsErr)
 
 					clonedPooledCPUs := pooledCPUs.Clone()
-					clonedPooledCPUsTopologyAwareAssignments := util.DeepCopyTopologyAwareAssignments(pooledCPUsTopologyAwareAssignments)
+					clonedPooledCPUsTopologyAwareAssignments := machine.DeepcopyCPUAssignment(pooledCPUsTopologyAwareAssignments)
 
 					allocationInfo.AllocationResult = clonedPooledCPUs
 					allocationInfo.OriginalAllocationResult = clonedPooledCPUs
@@ -752,8 +752,8 @@ func (p *DynamicPolicy) GetCheckpoint(_ context.Context, req *advisorapi.GetChec
 			}
 
 			if allocationInfo.QoSLevel != consts.PodAnnotationQoSLevelSharedCores && allocationInfo.QoSLevel != consts.PodAnnotationQoSLevelReclaimedCores {
-				chkEntries[uid].Entries[entryName].TopologyAwareAssignments = util.ParseTopologyAwareAssignments(allocationInfo.TopologyAwareAssignments)
-				chkEntries[uid].Entries[entryName].OriginalTopologyAwareAssignments = util.ParseTopologyAwareAssignments(allocationInfo.OriginalTopologyAwareAssignments)
+				chkEntries[uid].Entries[entryName].TopologyAwareAssignments = machine.ParseCPUAssignmentFormat(allocationInfo.TopologyAwareAssignments)
+				chkEntries[uid].Entries[entryName].OriginalTopologyAwareAssignments = machine.ParseCPUAssignmentFormat(allocationInfo.OriginalTopologyAwareAssignments)
 			}
 		}
 	}
@@ -1037,7 +1037,7 @@ func (p *DynamicPolicy) initReclaimPool() error {
 				AllocationResult:                 cset.Clone(),
 				OriginalAllocationResult:         cset.Clone(),
 				TopologyAwareAssignments:         topologyAwareAssignments,
-				OriginalTopologyAwareAssignments: util.DeepCopyTopologyAwareAssignments(topologyAwareAssignments),
+				OriginalTopologyAwareAssignments: machine.DeepcopyCPUAssignment(topologyAwareAssignments),
 			}
 
 			p.state.SetAllocationInfo(poolName, "", curPoolAllocationInfo)
@@ -1059,7 +1059,7 @@ func (p *DynamicPolicy) takeCPUsForPools(poolsQuantityMap map[string]int,
 	clonedAvailableCPUs := availableCPUs.Clone()
 
 	// to avoid random map iteration sequence to generate pools randomly
-	sortedPoolNames := machine.GetSortedQuantityMapKeys(poolsQuantityMap)
+	sortedPoolNames := general.GetSortedMapKeys(poolsQuantityMap)
 	for _, poolName := range sortedPoolNames {
 		req := poolsQuantityMap[poolName]
 		klog.Infof("[CPUDynamicPolicy.takeCPUsForPools] allocated for pool: %s with req: %d", poolName, req)
@@ -1499,7 +1499,7 @@ func (p *DynamicPolicy) applyPoolsAndIsolatedInfo(poolsCPUSet map[string]machine
 			newPodEntries[podUID][containerName].AllocationResult = isolatedCPUs.Clone()
 			newPodEntries[podUID][containerName].OriginalAllocationResult = isolatedCPUs.Clone()
 			newPodEntries[podUID][containerName].TopologyAwareAssignments = topologyAwareAssignments
-			newPodEntries[podUID][containerName].OriginalTopologyAwareAssignments = util.DeepCopyTopologyAwareAssignments(topologyAwareAssignments)
+			newPodEntries[podUID][containerName].OriginalTopologyAwareAssignments = machine.DeepcopyCPUAssignment(topologyAwareAssignments)
 
 			unionDedicatedIsolatedCPUSet = unionDedicatedIsolatedCPUSet.Union(isolatedCPUs)
 		}
@@ -1536,7 +1536,7 @@ func (p *DynamicPolicy) applyPoolsAndIsolatedInfo(poolsCPUSet map[string]machine
 			AllocationResult:                 cset.Clone(),
 			OriginalAllocationResult:         cset.Clone(),
 			TopologyAwareAssignments:         topologyAwareAssignments,
-			OriginalTopologyAwareAssignments: util.DeepCopyTopologyAwareAssignments(topologyAwareAssignments),
+			OriginalTopologyAwareAssignments: machine.DeepcopyCPUAssignment(topologyAwareAssignments),
 		}
 
 		_ = p.emitter.StoreInt64(util.MetricNamePoolSize, int64(cset.Size()), metrics.MetricTypeNameRaw,
@@ -1594,8 +1594,8 @@ func (p *DynamicPolicy) applyPoolsAndIsolatedInfo(poolsCPUSet map[string]machine
 				newPodEntries[podUID][containerName].OwnerPoolName = state.PoolNameFallback
 				newPodEntries[podUID][containerName].AllocationResult = rampUpCPUs.Clone()
 				newPodEntries[podUID][containerName].OriginalAllocationResult = rampUpCPUs.Clone()
-				newPodEntries[podUID][containerName].TopologyAwareAssignments = util.DeepCopyTopologyAwareAssignments(rampUpCPUsTopologyAwareAssignments)
-				newPodEntries[podUID][containerName].OriginalTopologyAwareAssignments = util.DeepCopyTopologyAwareAssignments(rampUpCPUsTopologyAwareAssignments)
+				newPodEntries[podUID][containerName].TopologyAwareAssignments = machine.DeepcopyCPUAssignment(rampUpCPUsTopologyAwareAssignments)
+				newPodEntries[podUID][containerName].OriginalTopologyAwareAssignments = machine.DeepcopyCPUAssignment(rampUpCPUsTopologyAwareAssignments)
 
 			case consts.PodAnnotationQoSLevelSharedCores, consts.PodAnnotationQoSLevelReclaimedCores:
 				// may be indicated by qos aware server
@@ -1612,8 +1612,8 @@ func (p *DynamicPolicy) applyPoolsAndIsolatedInfo(poolsCPUSet map[string]machine
 					newPodEntries[podUID][containerName].OwnerPoolName = ""
 					newPodEntries[podUID][containerName].AllocationResult = rampUpCPUs.Clone()
 					newPodEntries[podUID][containerName].OriginalAllocationResult = rampUpCPUs.Clone()
-					newPodEntries[podUID][containerName].TopologyAwareAssignments = util.DeepCopyTopologyAwareAssignments(rampUpCPUsTopologyAwareAssignments)
-					newPodEntries[podUID][containerName].OriginalTopologyAwareAssignments = util.DeepCopyTopologyAwareAssignments(rampUpCPUsTopologyAwareAssignments)
+					newPodEntries[podUID][containerName].TopologyAwareAssignments = machine.DeepcopyCPUAssignment(rampUpCPUsTopologyAwareAssignments)
+					newPodEntries[podUID][containerName].OriginalTopologyAwareAssignments = machine.DeepcopyCPUAssignment(rampUpCPUsTopologyAwareAssignments)
 				} else if newPodEntries[ownerPoolName][""] == nil {
 					klog.Warningf("[CPUDynamicPolicy.applyPoolsAndIsolatedInfo] pod: %s/%s container: %s get owner pool: %s allocationInfo failed. reuse its allocation result: %s",
 						allocationInfo.PodNamespace, allocationInfo.PodName, allocationInfo.ContainerName, ownerPoolName, allocationInfo.AllocationResult.String())
@@ -1627,8 +1627,8 @@ func (p *DynamicPolicy) applyPoolsAndIsolatedInfo(poolsCPUSet map[string]machine
 					newPodEntries[podUID][containerName].OwnerPoolName = ownerPoolName
 					newPodEntries[podUID][containerName].AllocationResult = poolEntry.AllocationResult.Clone()
 					newPodEntries[podUID][containerName].OriginalAllocationResult = poolEntry.OriginalAllocationResult.Clone()
-					newPodEntries[podUID][containerName].TopologyAwareAssignments = util.DeepCopyTopologyAwareAssignments(poolEntry.TopologyAwareAssignments)
-					newPodEntries[podUID][containerName].OriginalTopologyAwareAssignments = util.DeepCopyTopologyAwareAssignments(poolEntry.TopologyAwareAssignments)
+					newPodEntries[podUID][containerName].TopologyAwareAssignments = machine.DeepcopyCPUAssignment(poolEntry.TopologyAwareAssignments)
+					newPodEntries[podUID][containerName].OriginalTopologyAwareAssignments = machine.DeepcopyCPUAssignment(poolEntry.TopologyAwareAssignments)
 				}
 			default:
 				return fmt.Errorf("invalid qosLevel: %s for pod: %s/%s container: %s",
@@ -2102,7 +2102,7 @@ func (p *DynamicPolicy) initReservePool() error {
 		AllocationResult:                 p.reservedCPUs.Clone(),
 		OriginalAllocationResult:         p.reservedCPUs.Clone(),
 		TopologyAwareAssignments:         topologyAwareAssignments,
-		OriginalTopologyAwareAssignments: util.DeepCopyTopologyAwareAssignments(topologyAwareAssignments),
+		OriginalTopologyAwareAssignments: machine.DeepcopyCPUAssignment(topologyAwareAssignments),
 	}
 
 	p.state.SetAllocationInfo(state.PoolNameReserve, "", curReserveAllocationInfo)
@@ -2342,7 +2342,7 @@ func (p *DynamicPolicy) applyBlocks(blockToCPUSet map[string]machine.CPUSet,
 					AllocationResult:                 entryCPUSet.Clone(),
 					OriginalAllocationResult:         entryCPUSet.Clone(),
 					TopologyAwareAssignments:         topologyAwareAssignments,
-					OriginalTopologyAwareAssignments: util.DeepCopyTopologyAwareAssignments(topologyAwareAssignments),
+					OriginalTopologyAwareAssignments: machine.DeepcopyCPUAssignment(topologyAwareAssignments),
 				}
 			} else {
 				klog.Infof("[CPUDynamicPolicy.applyBlocks] entry: %s, subEntryName: %s cpuset allocation result transform from %s to %s",
@@ -2352,7 +2352,7 @@ func (p *DynamicPolicy) applyBlocks(blockToCPUSet map[string]machine.CPUSet,
 				allocationInfo.AllocationResult = entryCPUSet.Clone()
 				allocationInfo.OriginalAllocationResult = entryCPUSet.Clone()
 				allocationInfo.TopologyAwareAssignments = topologyAwareAssignments
-				allocationInfo.OriginalTopologyAwareAssignments = util.DeepCopyTopologyAwareAssignments(topologyAwareAssignments)
+				allocationInfo.OriginalTopologyAwareAssignments = machine.DeepcopyCPUAssignment(topologyAwareAssignments)
 			}
 
 			if newEntries[entryName] == nil {
@@ -2424,7 +2424,7 @@ func (p *DynamicPolicy) applyBlocks(blockToCPUSet map[string]machine.CPUSet,
 			AllocationResult:                 reclaimPoolCPUSet.Clone(),
 			OriginalAllocationResult:         reclaimPoolCPUSet.Clone(),
 			TopologyAwareAssignments:         topologyAwareAssignments,
-			OriginalTopologyAwareAssignments: util.DeepCopyTopologyAwareAssignments(topologyAwareAssignments),
+			OriginalTopologyAwareAssignments: machine.DeepcopyCPUAssignment(topologyAwareAssignments),
 		}
 	} else {
 		klog.Infof("[CPUDynamicPolicy.applyBlocks] detected reclaimPoolCPUSet: %s", newEntries[state.PoolNameReclaim][""].AllocationResult.String())
@@ -2497,8 +2497,8 @@ func (p *DynamicPolicy) applyBlocks(blockToCPUSet map[string]machine.CPUSet,
 					newEntries[podUID][containerName].OwnerPoolName = ""
 					newEntries[podUID][containerName].AllocationResult = rampUpCPUs.Clone()
 					newEntries[podUID][containerName].OriginalAllocationResult = rampUpCPUs.Clone()
-					newEntries[podUID][containerName].TopologyAwareAssignments = util.DeepCopyTopologyAwareAssignments(rampUpCPUsTopologyAwareAssignments)
-					newEntries[podUID][containerName].OriginalTopologyAwareAssignments = util.DeepCopyTopologyAwareAssignments(rampUpCPUsTopologyAwareAssignments)
+					newEntries[podUID][containerName].TopologyAwareAssignments = machine.DeepcopyCPUAssignment(rampUpCPUsTopologyAwareAssignments)
+					newEntries[podUID][containerName].OriginalTopologyAwareAssignments = machine.DeepcopyCPUAssignment(rampUpCPUsTopologyAwareAssignments)
 				} else if newEntries[ownerPoolName][""] == nil {
 					errMsg := fmt.Sprintf("[CPUDynamicPolicy.applyBlocks] cpu advisor doesn't return entry for pool: %s and it's referred by"+
 						" pod: %s/%s, container: %s, qosLevel: %s",
@@ -2518,8 +2518,8 @@ func (p *DynamicPolicy) applyBlocks(blockToCPUSet map[string]machine.CPUSet,
 					newEntries[podUID][containerName].OwnerPoolName = ownerPoolName
 					newEntries[podUID][containerName].AllocationResult = poolEntry.AllocationResult.Clone()
 					newEntries[podUID][containerName].OriginalAllocationResult = poolEntry.OriginalAllocationResult.Clone()
-					newEntries[podUID][containerName].TopologyAwareAssignments = util.DeepCopyTopologyAwareAssignments(poolEntry.TopologyAwareAssignments)
-					newEntries[podUID][containerName].OriginalTopologyAwareAssignments = util.DeepCopyTopologyAwareAssignments(poolEntry.TopologyAwareAssignments)
+					newEntries[podUID][containerName].TopologyAwareAssignments = machine.DeepcopyCPUAssignment(poolEntry.TopologyAwareAssignments)
+					newEntries[podUID][containerName].OriginalTopologyAwareAssignments = machine.DeepcopyCPUAssignment(poolEntry.TopologyAwareAssignments)
 				}
 			default:
 				return fmt.Errorf("invalid qosLevel: %s for pod: %s/%s container: %s",

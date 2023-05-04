@@ -103,10 +103,10 @@ func (sc *stateCheckpoint) restoreState(machineInfo *info.MachineInfo, reservedM
 		return fmt.Errorf("[memory_plugin] configured policy %q differs from state checkpoint policy %q", sc.policyName, checkpoint.PolicyName)
 	}
 
-	generatedResourcesMachineState, err := GenerateResourcesMachineStateFromPodEntries(machineInfo, checkpoint.PodResourceEntries, reservedMemory)
+	generatedResourcesMachineState, err := GenerateMachineStateFromPodEntries(machineInfo, checkpoint.PodResourceEntries, reservedMemory)
 
 	if err != nil {
-		return fmt.Errorf("GenerateResourcesMachineStateFromPodEntries failed with error: %v", err)
+		return fmt.Errorf("GenerateMachineStateFromPodEntries failed with error: %v", err)
 	}
 
 	sc.cache.SetMachineState(generatedResourcesMachineState)

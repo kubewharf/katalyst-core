@@ -48,7 +48,7 @@ func TestDeepCopyTopologyAwareAssignments(t *testing.T) {
 	}
 
 	for _, tc := range testCases {
-		copiedAssignments := DeepCopyTopologyAwareAssignments(tc.topologyAwareAssignments)
+		copiedAssignments := machine.DeepcopyCPUAssignment(tc.topologyAwareAssignments)
 		as.Equalf(tc.topologyAwareAssignments, copiedAssignments, "failed in test case: %s", tc.description)
 	}
 }
@@ -121,7 +121,7 @@ func TestMaskToUInt64Array(t *testing.T) {
 	}
 
 	for _, tc := range testCases {
-		actualArray := MaskToUInt64Array(tc.mask)
+		actualArray := machine.MaskToUInt64Array(tc.mask)
 		as.Equalf(tc.expectedArray, actualArray, "failed in test case: %s", tc.description)
 	}
 }

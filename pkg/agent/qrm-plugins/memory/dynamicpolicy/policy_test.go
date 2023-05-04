@@ -43,8 +43,7 @@ import (
 )
 
 func getTestDynamicPolicyWithInitialization(topology *machine.CPUTopology, machineInfo *info.MachineInfo, stateFileDirectory string) (*DynamicPolicy, error) {
-	reservedMemory, err := getReservedMemory(4, machineInfo)
-
+	reservedMemory, err := util.GetReservedMemory(machineInfo, 4)
 	if err != nil {
 		return nil, err
 	}
@@ -974,7 +973,7 @@ func TestGenerateResourcesMachineStateFromPodEntries(t *testing.T) {
 	machineInfo, err := machine.GenerateDummyMachineInfo(4, 32)
 	as.Nil(err)
 
-	reservedMemory, err := getReservedMemory(4, machineInfo)
+	reservedMemory, err := util.GetReservedMemory(machineInfo, 4)
 	as.Nil(err)
 
 	podUID := string(uuid.NewUUID())
@@ -1007,7 +1006,7 @@ func TestGenerateResourcesMachineStateFromPodEntries(t *testing.T) {
 		v1.ResourceMemory: reservedMemory,
 	}
 
-	resourcesMachineState, err := state.GenerateResourcesMachineStateFromPodEntries(machineInfo, podResourceEntries, reserved)
+	resourcesMachineState, err := state.GenerateMachineStateFromPodEntries(machineInfo, podResourceEntries, reserved)
 	as.Nil(err)
 
 	as.NotNil(resourcesMachineState[v1.ResourceMemory][0])

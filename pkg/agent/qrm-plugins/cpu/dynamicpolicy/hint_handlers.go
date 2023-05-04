@@ -191,7 +191,7 @@ func (p *DynamicPolicy) calculateHints(reqInt int, machineState state.NUMANodeMa
 		}
 
 		hints[string(v1.ResourceCPU)].Hints = append(hints[string(v1.ResourceCPU)].Hints, &pluginapi.TopologyHint{
-			Nodes:     util.MaskToUInt64Array(mask),
+			Nodes:     machine.MaskToUInt64Array(mask),
 			Preferred: len(maskBits) == minNUMAsCountNeeded,
 		})
 	})
