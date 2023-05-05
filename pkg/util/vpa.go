@@ -21,6 +21,7 @@ import (
 
 	"github.com/pkg/errors"
 	core "k8s.io/api/core/v1"
+	apiequality "k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -417,4 +418,18 @@ func CheckVPAStatusLegal(vpa *apis.KatalystVerticalPodAutoscaler, pods []*core.P
 		}
 	}
 	return true, "", nil
+}
+
+// CheckPodSpecUpdated checks pod spec whether is updated to expected resize resource in annotation
+func CheckPodSpecUpdated(pod *core.Pod) bool {
+	podCopy := &core.Pod{}
+	podCopy.Spec.Containers = native.DeepCopyPodContainers(pod)
+	annotationResource, err := GenerateVPAPodResizeResourceAnnotations(pod, nil, nil)
+	if err != nil {
+		klog.Errorf("failed to exact pod %v resize resource annotation from container resource: %v", pod.Name, err)
+		return false
+	}
+
+	native.ApplyPodResources(annotationResource, podCopy)
+	return apiequality.Semantic.DeepEqual(pod.Spec.Containers, podCopy.Spec.Containers)
 }
