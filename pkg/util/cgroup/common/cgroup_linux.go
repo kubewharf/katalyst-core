@@ -32,8 +32,8 @@ import (
 	"github.com/opencontainers/runc/libcontainer/cgroups"
 )
 
-// IsCgroup2UnifiedMode return whether it is in cgroupv2 env
-func IsCgroup2UnifiedMode() bool {
+// CheckCgroup2UnifiedMode return whether it is in cgroupv2 env
+func CheckCgroup2UnifiedMode() bool {
 	return cgroups.IsCgroup2UnifiedMode()
 }
 

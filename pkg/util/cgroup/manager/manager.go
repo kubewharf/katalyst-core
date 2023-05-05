@@ -51,7 +51,7 @@ type Manager interface {
 // GetManager returns a cgroup instance for both v1/v2 version
 func GetManager() Manager {
 	initManagerOnce.Do(func() {
-		if common.IsCgroup2UnifiedMode() {
+		if common.CheckCgroup2UnifiedMode() {
 			manager = v2.NewManager()
 		} else {
 			manager = v1.NewManager()

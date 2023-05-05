@@ -149,7 +149,7 @@ func GenerateMachineStateFromPodEntries(topology *machine.CPUTopology, podEntrie
 
 		for podUID, containerEntries := range podEntries {
 			for containerName, allocationInfo := range containerEntries {
-				if containerName != "" && allocationInfo != nil {
+				if containerName != advisorapi.FakedContainerID && allocationInfo != nil {
 
 					// the container hasn't cpuset assignment in the current NUMA node
 					if allocationInfo.OriginalTopologyAwareAssignments[int(numaNode)].Size() == 0 &&

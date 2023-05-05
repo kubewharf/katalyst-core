@@ -29,17 +29,17 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/require"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/uuid"
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 	utilfs "k8s.io/kubernetes/pkg/util/filesystem"
 
-	"github.com/stretchr/testify/require"
-
 	"github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/calculator"
 	advisorapi "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/cpuadvisor"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/validator"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/global/adminqos"
 	"github.com/kubewharf/katalyst-core/pkg/config/generic"
@@ -88,6 +88,7 @@ func getTestDynamicPolicyWithoutInitialization(topology *machine.CPUTopology, st
 		qosConfig:               qosConfig,
 		reclaimedResourceConfig: reclaimedResourceConfig,
 		state:                   stateImpl,
+		advisorValidator:        validator.NewCPUAdvisorValidator(stateImpl, machineInfo),
 		reservedCPUs:            reservedCPUs,
 		emitter:                 metrics.DummyMetrics{},
 	}

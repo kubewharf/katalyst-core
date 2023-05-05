@@ -23,7 +23,6 @@ import (
 
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/wait"
-	"k8s.io/klog/v2"
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 
 	apiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
@@ -59,15 +58,16 @@ type DynamicPolicy struct {
 	emitter    metrics.MetricEmitter
 	metaServer *metaserver.MetaServer
 
+	CgroupV2Env                   bool
 	netClassMap                   map[string]uint32
-	isCgV2Env                     bool
-	applyNetClassFunc             func(podUID, containerId string, data *common.NetClsData) error
+	applyNetClassFunc             func(podUID, containerID string, data *common.NetClsData) error
 	podLevelNetClassAnnoKey       string
 	podLevelNetAttributesAnnoKeys []string
 }
 
 // NewDynamicPolicy returns a dynamic network policy
-func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration, _ interface{}, agentName string) (bool, agent.Component, error) {
+func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration,
+	_ interface{}, agentName string) (bool, agent.Component, error) {
 	wrappedEmitter := agentCtx.EmitterPool.GetDefaultMetricsEmitter().WithTags(agentName, metrics.MetricTag{
 		Key: util.QRMPluginPolicyTagName,
 		Val: NetworkResourcePluginPolicyNameDynamic,
@@ -82,11 +82,11 @@ func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration
 		netClassMap: make(map[string]uint32),
 	}
 
-	if common.IsCgroup2UnifiedMode() {
-		policyImplement.isCgV2Env = true
+	if common.CheckCgroup2UnifiedMode() {
+		policyImplement.CgroupV2Env = true
 		policyImplement.applyNetClassFunc = agentCtx.MetaServer.ExternalManager.ApplyNetClass
 	} else {
-		policyImplement.isCgV2Env = false
+		policyImplement.CgroupV2Env = false
 		policyImplement.applyNetClassFunc = cgroupcmutils.ApplyNetClsForContainer
 	}
 
@@ -115,7 +115,7 @@ func (p *DynamicPolicy) ApplyConfig(conf *config.DynamicConfiguration) {
 	p.podLevelNetClassAnnoKey = conf.PodLevelNetClassAnnoKey
 	p.podLevelNetAttributesAnnoKeys = strings.Split(conf.PodLevelNetAttributesAnnoKeys, ",")
 
-	klog.Infof("[network-resource-plugin] apply configs, "+
+	general.Infof("apply configs, "+
 		"netClassMap: %+v, "+
 		"podLevelNetClassAnnoKey: %s, "+
 		"podLevelNetAttributesAnnoKeys: %+v",
@@ -126,29 +126,25 @@ func (p *DynamicPolicy) ApplyConfig(conf *config.DynamicConfiguration) {
 
 // Start starts this plugin
 func (p *DynamicPolicy) Start() (err error) {
-	klog.Infof("MemoryDynamicPolicy start called")
+	general.Infof("called")
 
 	p.Lock()
-
 	defer func() {
 		if err == nil {
 			p.started = true
 		}
-
 		p.Unlock()
 	}()
 
 	if p.started {
-		klog.Infof("[NetworkDynamicPolicy.Start] DynamicPolicy is already started")
+		general.Infof("already started")
 		return nil
 	}
-
 	p.stopCh = make(chan struct{})
 
 	go wait.Until(func() {
 		_ = p.emitter.StoreInt64(util.MetricNameHeartBeat, 1, metrics.MetricTypeNameRaw)
 	}, time.Second*30, p.stopCh)
-
 	go wait.Until(p.applyNetClass, 5*time.Second, p.stopCh)
 
 	return nil
@@ -160,12 +156,11 @@ func (p *DynamicPolicy) Stop() error {
 	defer func() {
 		p.started = false
 		p.Unlock()
-
-		klog.Infof("[NetworkDynamicPolicy.Stop] DynamicPolicy stopped")
+		general.Infof("stopped")
 	}()
 
 	if !p.started {
-		klog.Warningf("[NetworkDynamicPolicy.Stop] DynamicPolicy already stopped")
+		general.Warningf("already stopped")
 		return nil
 	}
 	close(p.stopCh)
@@ -183,19 +178,20 @@ func (p *DynamicPolicy) ResourceName() string {
 }
 
 // GetTopologyHints returns hints of corresponding resources
-func (p *DynamicPolicy) GetTopologyHints(ctx context.Context, req *pluginapi.ResourceRequest) (*pluginapi.ResourceHintsResponse, error) {
+func (p *DynamicPolicy) GetTopologyHints(_ context.Context,
+	_ *pluginapi.ResourceRequest) (*pluginapi.ResourceHintsResponse, error) {
 	return &pluginapi.ResourceHintsResponse{}, nil
 }
 
-func (p *DynamicPolicy) RemovePod(ctx context.Context, req *pluginapi.RemovePodRequest) (*pluginapi.RemovePodResponse, error) {
+func (p *DynamicPolicy) RemovePod(_ context.Context,
+	req *pluginapi.RemovePodRequest) (*pluginapi.RemovePodResponse, error) {
 	if req == nil {
 		return nil, fmt.Errorf("RemovePod got nil req")
 	}
 
-	if p.isCgV2Env {
-		err := p.removePod(req.PodUid)
-		if err != nil {
-			klog.ErrorS(err, "[NetworkDynamicPolicy.RemovePod] remove pod failed with error", "podUID", req.PodUid)
+	if p.CgroupV2Env {
+		if err := p.removePod(req.PodUid); err != nil {
+			general.ErrorS(err, "remove pod failed with error", "podUID", req.PodUid)
 			return nil, err
 		}
 	}
@@ -204,22 +200,26 @@ func (p *DynamicPolicy) RemovePod(ctx context.Context, req *pluginapi.RemovePodR
 }
 
 // GetResourcesAllocation returns allocation results of corresponding resources
-func (p *DynamicPolicy) GetResourcesAllocation(ctx context.Context, req *pluginapi.GetResourcesAllocationRequest) (*pluginapi.GetResourcesAllocationResponse, error) {
+func (p *DynamicPolicy) GetResourcesAllocation(_ context.Context,
+	_ *pluginapi.GetResourcesAllocationRequest) (*pluginapi.GetResourcesAllocationResponse, error) {
 	return &pluginapi.GetResourcesAllocationResponse{}, nil
 }
 
 // GetTopologyAwareResources returns allocation results of corresponding resources as topology aware format
-func (p *DynamicPolicy) GetTopologyAwareResources(ctx context.Context, req *pluginapi.GetTopologyAwareResourcesRequest) (*pluginapi.GetTopologyAwareResourcesResponse, error) {
+func (p *DynamicPolicy) GetTopologyAwareResources(_ context.Context,
+	_ *pluginapi.GetTopologyAwareResourcesRequest) (*pluginapi.GetTopologyAwareResourcesResponse, error) {
 	return &pluginapi.GetTopologyAwareResourcesResponse{}, nil
 }
 
 // GetTopologyAwareAllocatableResources returns corresponding allocatable resources as topology aware format
-func (p *DynamicPolicy) GetTopologyAwareAllocatableResources(ctx context.Context, req *pluginapi.GetTopologyAwareAllocatableResourcesRequest) (*pluginapi.GetTopologyAwareAllocatableResourcesResponse, error) {
+func (p *DynamicPolicy) GetTopologyAwareAllocatableResources(_ context.Context,
+	_ *pluginapi.GetTopologyAwareAllocatableResourcesRequest) (*pluginapi.GetTopologyAwareAllocatableResourcesResponse, error) {
 	return &pluginapi.GetTopologyAwareAllocatableResourcesResponse{}, nil
 }
 
 // GetResourcePluginOptions returns options to be communicated with Resource Manager
-func (p *DynamicPolicy) GetResourcePluginOptions(context.Context, *pluginapi.Empty) (*pluginapi.ResourcePluginOptions, error) {
+func (p *DynamicPolicy) GetResourcePluginOptions(context.Context,
+	*pluginapi.Empty) (*pluginapi.ResourcePluginOptions, error) {
 	return &pluginapi.ResourcePluginOptions{
 		PreStartRequired:      false,
 		WithTopologyAlignment: false,
@@ -230,7 +230,8 @@ func (p *DynamicPolicy) GetResourcePluginOptions(context.Context, *pluginapi.Emp
 // Allocate is called during pod admit so that the resource
 // plugin can allocate corresponding resource for the container
 // according to resource request
-func (p *DynamicPolicy) Allocate(ctx context.Context, req *pluginapi.ResourceRequest) (resp *pluginapi.ResourceAllocationResponse, respErr error) {
+func (p *DynamicPolicy) Allocate(_ context.Context,
+	req *pluginapi.ResourceRequest) (resp *pluginapi.ResourceAllocationResponse, respErr error) {
 	return &pluginapi.ResourceAllocationResponse{
 		PodUid:         req.PodUid,
 		PodNamespace:   req.PodNamespace,
@@ -251,29 +252,30 @@ func (p *DynamicPolicy) Allocate(ctx context.Context, req *pluginapi.ResourceReq
 	}, nil
 }
 
-// PreStartContainer is called, if indicated by resource plugin during registeration phase,
+// PreStartContainer is called, if indicated by resource plugin during registration phase,
 // before each container start. Resource plugin can run resource specific operations
 // such as resetting the resource before making resources available to the container
-func (p *DynamicPolicy) PreStartContainer(context.Context, *pluginapi.PreStartContainerRequest) (*pluginapi.PreStartContainerResponse, error) {
+func (p *DynamicPolicy) PreStartContainer(context.Context,
+	*pluginapi.PreStartContainerRequest) (*pluginapi.PreStartContainerResponse, error) {
 	return &pluginapi.PreStartContainerResponse{}, nil
 }
 
 func (p *DynamicPolicy) applyNetClass() {
 	if p.metaServer == nil {
-		klog.Errorf("[NetworkDynamicPolicy.applyNetClass] nil metaServer")
+		general.Errorf("nil metaServer")
 		return
 	}
-	ctx := context.Background()
-	podList, err := p.metaServer.GetPodList(ctx, nil)
+
+	podList, err := p.metaServer.GetPodList(context.Background(), nil)
 	if err != nil {
-		klog.Errorf("[NetworkDynamicPolicy.applyNetClass] get pod list failed, err: %v", err)
+		general.Errorf("get pod list failed, err: %v", err)
 		return
 	}
 
 	for _, pod := range podList {
 		classID, err := p.getNetClassID(pod, p.podLevelNetClassAnnoKey)
 		if err != nil {
-			klog.Errorf("[NetworkDynamicPolicy.applyNetClass] get net class id failed, pod: %s, err: %s", native.GenerateUniqObjectNameKey(pod), err)
+			general.Errorf("get net class id failed, pod: %s, err: %s", native.GenerateUniqObjectNameKey(pod), err)
 			continue
 		}
 		netClsData := &common.NetClsData{
@@ -285,40 +287,38 @@ func (p *DynamicPolicy) applyNetClass() {
 			go func(podUID, containerName string, netClsData *common.NetClsData) {
 				containerID, err := p.metaServer.GetContainerID(podUID, containerName)
 				if err != nil {
-					klog.Errorf("[NetworkDynamicPolicy.applyNetClass] get container id failed, pod: %s, container: %s(%s), err: %v",
+					general.Errorf("get container id failed, pod: %s, container: %s(%s), err: %v",
 						podUID, containerName, containerID, err)
 					return
 				}
 
-				exist, err := common.IsContainerCgroupExist(podUID, containerID)
-				if err != nil {
-					klog.Errorf("[NetworkDynamicPolicy.applyNetClass] check if container cgroup exists failed, pod: %s, container: %s(%s), err: %v",
+				if exist, err := common.IsContainerCgroupExist(podUID, containerID); err != nil {
+					general.Errorf("check if container cgroup exists failed, pod: %s, container: %s(%s), err: %v",
 						podUID, containerName, containerID, err)
 					return
-				}
-				if !exist {
-					klog.Infof("[NetworkDynamicPolicy.applyNetClass] container cgroup does not exist, pod: %s, container: %s(%s)", podUID, containerName, containerID)
+				} else if !exist {
+					general.Infof("container cgroup does not exist, pod: %s, container: %s(%s)", podUID, containerName, containerID)
 					return
 				}
 
-				if p.isCgV2Env {
+				if p.CgroupV2Env {
 					cgID, err := p.metaServer.ExternalManager.GetCgroupIDForContainer(podUID, containerID)
 					if err != nil {
-						klog.Errorf("[NetworkDynamicPolicy.applyNetClass] get cgroup id failed, pod: %s, container: %s(%s), err: %v",
+						general.Errorf("get cgroup id failed, pod: %s, container: %s(%s), err: %v",
 							podUID, containerName, containerID, err)
 						return
 					}
 					netClsData.CgroupID = cgID
 				}
 
-				err = p.applyNetClassFunc(podUID, containerID, netClsData)
-				if err != nil {
-					klog.Errorf("[NetworkDynamicPolicy.applyNetClass] apply net class failed, pod: %s, container: %s(%s), netClsData: %+v, err: %v",
+				if err = p.applyNetClassFunc(podUID, containerID, netClsData); err != nil {
+					general.Errorf("apply net class failed, pod: %s, container: %s(%s), netClsData: %+v, err: %v",
 						podUID, containerName, containerID, *netClsData, err)
 					return
 				}
 
-				klog.Infof("[NetworkDynamicPolicy.applyNetClass] apply net class successfully, pod: %s, container: %s(%s), netClsData: %+v", podUID, containerName, containerID, *netClsData)
+				general.Infof("apply net class successfully, pod: %s, container: %s(%s), netClsData: %+v",
+					podUID, containerName, containerID, *netClsData)
 			}(string(pod.UID), container.Name, netClsData)
 		}
 	}
@@ -333,7 +333,7 @@ func (p *DynamicPolicy) removePod(podUID string) error {
 	for _, cgID := range cgIDList {
 		go func(cgID uint64) {
 			if err := p.metaServer.ExternalManager.ClearNetClass(cgID); err != nil {
-				klog.Errorf("[NetworkDynamicPolicy.removePod] delete net class failed, cgID: %v, err: %v", cgID, err)
+				general.Errorf("delete net class failed, cgID: %v, err: %v", cgID, err)
 				return
 			}
 		}(cgID)

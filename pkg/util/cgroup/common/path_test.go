@@ -29,7 +29,7 @@ func TestAbsCgroupPathWithSuffix(t *testing.T) {
 	as := require.New(t)
 	path := GetAbsCgroupPath("cpuset", "abc")
 
-	if IsCgroup2UnifiedMode() {
+	if CheckCgroup2UnifiedMode() {
 		as.Equal("/sys/fs/cgroup/abc", path)
 	} else {
 		as.Equal("/sys/fs/cgroup/cpuset/abc", path)

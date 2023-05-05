@@ -43,9 +43,9 @@ func loggingWithDepth() string {
 	funcNames := strings.Split(funcPaths[len(funcPaths)-1], ".")
 	switch len(funcNames) {
 	case 2:
-		return fmt.Sprintf("[pkg: %v, func: %v]", funcNames[0], funcNames[1])
+		return fmt.Sprintf("pkg: %v, func: %v", funcNames[0], funcNames[1])
 	case 3:
-		return fmt.Sprintf("[pkg: %v, obj: %v, func: %v]", funcNames[0], funcNames[1], funcNames[2])
+		return fmt.Sprintf("pkg: %v, func: %v.%v", funcNames[0], funcNames[1], funcNames[2])
 	}
 
 	return ""

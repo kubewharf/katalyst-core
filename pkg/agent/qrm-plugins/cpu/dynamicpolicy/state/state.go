@@ -131,10 +131,10 @@ func (ai *AllocationInfo) String() string {
 // if owner exists, just return; otherwise, parse from qos-level
 func (ai *AllocationInfo) GetPoolName() string {
 	if ai == nil {
-		return ""
+		return cpuadvisor.EmptyOwnerPoolName
 	}
 
-	if ownerPoolName := ai.GetOwnerPoolName(); ownerPoolName != "" {
+	if ownerPoolName := ai.GetOwnerPoolName(); ownerPoolName != cpuadvisor.EmptyOwnerPoolName {
 		return ownerPoolName
 	}
 	return ai.GetSpecifiedPoolName()
@@ -143,27 +143,28 @@ func (ai *AllocationInfo) GetPoolName() string {
 // GetOwnerPoolName parses the owner pool name for AllocationInfo
 func (ai *AllocationInfo) GetOwnerPoolName() string {
 	if ai == nil {
-		return ""
+		return cpuadvisor.EmptyOwnerPoolName
 	}
-	return ai.GetOwnerPoolName()
+	return ai.OwnerPoolName
 }
 
 // GetSpecifiedPoolName parses the owner pool name for AllocationInfo from qos-level
 func (ai *AllocationInfo) GetSpecifiedPoolName() string {
 	if ai == nil {
-		return ""
+		return cpuadvisor.EmptyOwnerPoolName
 	}
 
 	switch ai.QoSLevel {
 	case consts.PodAnnotationQoSLevelSharedCores:
-		if specifiedPoolName := ai.Annotations[consts.PodAnnotationCPUEnhancementCPUSet]; specifiedPoolName != "" {
+		specifiedPoolName := ai.Annotations[consts.PodAnnotationCPUEnhancementCPUSet]
+		if specifiedPoolName != cpuadvisor.EmptyOwnerPoolName {
 			return specifiedPoolName
 		}
 		return PoolNameShare
 	case consts.PodAnnotationQoSLevelReclaimedCores:
 		return PoolNameReclaim
 	default:
-		return ""
+		return cpuadvisor.EmptyOwnerPoolName
 	}
 }
 

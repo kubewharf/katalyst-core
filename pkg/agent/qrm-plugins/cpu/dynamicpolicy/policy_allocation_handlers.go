@@ -670,7 +670,7 @@ func (p *DynamicPolicy) applyPoolsAndIsolatedInfo(poolsCPUSet map[string]machine
 		if newPodEntries[poolName] == nil {
 			newPodEntries[poolName] = make(state.ContainerEntries)
 		}
-		newPodEntries[poolName][""] = &state.AllocationInfo{
+		newPodEntries[poolName][advisorapi.FakedContainerID] = &state.AllocationInfo{
 			PodUid:                           poolName,
 			OwnerPoolName:                    poolName,
 			AllocationResult:                 cset.Clone(),
@@ -745,17 +745,17 @@ func (p *DynamicPolicy) applyPoolsAndIsolatedInfo(poolsCPUSet map[string]machine
 						allocationInfo.PodNamespace, allocationInfo.PodName, allocationInfo.ContainerName,
 						allocationInfo.AllocationResult.String(), rampUpCPUs.String())
 
-					newPodEntries[podUID][containerName].OwnerPoolName = ""
+					newPodEntries[podUID][containerName].OwnerPoolName = advisorapi.EmptyOwnerPoolName
 					newPodEntries[podUID][containerName].AllocationResult = rampUpCPUs.Clone()
 					newPodEntries[podUID][containerName].OriginalAllocationResult = rampUpCPUs.Clone()
 					newPodEntries[podUID][containerName].TopologyAwareAssignments = machine.DeepcopyCPUAssignment(rampUpCPUsTopologyAwareAssignments)
 					newPodEntries[podUID][containerName].OriginalTopologyAwareAssignments = machine.DeepcopyCPUAssignment(rampUpCPUsTopologyAwareAssignments)
-				} else if newPodEntries[ownerPoolName][""] == nil {
+				} else if newPodEntries[ownerPoolName][advisorapi.FakedContainerID] == nil {
 					general.Warningf("pod: %s/%s container: %s get owner pool: %s allocationInfo failed. reuse its allocation result: %s",
 						allocationInfo.PodNamespace, allocationInfo.PodName, allocationInfo.ContainerName,
 						ownerPoolName, allocationInfo.AllocationResult.String())
 				} else {
-					poolEntry := newPodEntries[ownerPoolName][""]
+					poolEntry := newPodEntries[ownerPoolName][advisorapi.FakedContainerID]
 					general.Infof("put pod: %s/%s container: %s to pool: %s, set its allocation result from %s to %s",
 						allocationInfo.PodNamespace, allocationInfo.PodName, allocationInfo.ContainerName,
 						ownerPoolName, allocationInfo.AllocationResult.String(), poolEntry.AllocationResult.String())

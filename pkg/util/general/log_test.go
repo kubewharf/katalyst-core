@@ -17,7 +17,9 @@ limitations under the License.
 package general
 
 import (
+	"fmt"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 )
@@ -30,8 +32,28 @@ func (_ test) log(message string, params ...interface{}) string {
 
 func TestLoggingPrefix(t *testing.T) {
 	withoutStruct := logging("extra %v %v", 1, "test")
-	require.Equal(t, "[pkg: general, func: TestLoggingPrefix] extra 1 test", withoutStruct)
+	require.Equal(t, "pkg: general, func: TestLoggingPrefix extra 1 test", withoutStruct)
 
 	withStruct := test{}.log("extra %v %v", 1, "test")
-	require.Equal(t, "[pkg: general, obj: test, func: log] extra 1 test", withStruct)
+	require.Equal(t, "pkg: general, func: test.log extra 1 test", withStruct)
+
+	InfoS("test-InfoS", "param-key", "param-InfoS")
+	Infof("test-Infof %v", "extra-Infof")
+	InfofV(1, "test-InfofV %v", "extra-InfofV")
+	Warningf("test-Warningf %v", "extra-Warningf")
+	Errorf("test-Errorf %v", "extra-Errorf")
+	ErrorS(fmt.Errorf("err"), "test-ErrorS", "param-key", "param-ErrorS")
+
+	go func() {
+		goStr := logging("extra %v %v", 1, "test")
+		require.Equal(t, "pkg: general, func: TestLoggingPrefix.func1 extra 1 test", goStr)
+	}()
+
+	f := func() {
+		funcStr := logging("extra %v %v", 1, "test")
+		require.Equal(t, "pkg: general, func: TestLoggingPrefix.func2 extra 1 test", funcStr)
+	}
+	go f()
+
+	time.Sleep(time.Second)
 }

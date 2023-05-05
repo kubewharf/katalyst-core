@@ -67,7 +67,8 @@ func (p *DynamicPolicy) checkMemorySet() {
 
 			cpusetStats, err := cgroupcmutils.GetCPUSetForContainer(podUID, containerId)
 			if err != nil {
-				general.Errorf("GetMemorySet of pod: %s container: name(%s), id(%s) failed with error: %v", podUID, containerName, containerId, err)
+				general.Errorf("GetMemorySet of pod: %s container: name(%s), id(%s) failed with error: %v",
+					podUID, containerName, containerId, err)
 				_ = p.emitter.StoreInt64(util.MetricNameRealStateInvalid, 1, metrics.MetricTypeNameRaw, tags...)
 				continue
 			}
@@ -280,26 +281,26 @@ func (p *DynamicPolicy) setMemoryMigrate() {
 						p.migrateMemoryLock.Unlock()
 					}()
 
-					containerId, err := p.metaServer.GetContainerID(podUID, containerName)
+					containerID, err := p.metaServer.GetContainerID(podUID, containerName)
 					if err != nil {
 						general.Errorf("get container id of pod: %s container: %s failed with error: %v",
 							podUID, containerName, err)
 						return
 					}
 					general.Infof("start to set cgroup memory migrate for pod: %s, container: %s(%s) and pin memory",
-						podUID, containerName, containerId)
+						podUID, containerName, containerID)
 
-					err = cgroupcmutils.ApplyCPUSetForContainer(podUID, containerId, cgData)
+					err = cgroupcmutils.ApplyCPUSetForContainer(podUID, containerID, cgData)
 					general.Infof("end to set cgroup memory migrate for pod: %s, container: %s(%s) and pin memory",
-						podUID, containerName, containerId)
+						podUID, containerName, containerID)
 					if err != nil {
 						general.Errorf("set cgroup memory migrate for pod: %s, container: %s(%s) failed with error: %v",
-							podUID, containerName, containerId, err)
+							podUID, containerName, containerID, err)
 						return
 					}
 
 					general.Infof("set cgroup memory migrate for pod: %s, container: %s(%s) successfully",
-						podUID, containerName, containerId)
+						podUID, containerName, containerID)
 				}(podUID, containerName, cgData)
 			}
 		}

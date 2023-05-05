@@ -137,7 +137,7 @@ func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration
 		return false, agent.ComponentStub{}, fmt.Errorf("takeByNUMABalance for reservedCPUsNum: %d failed with error: %v",
 			conf.ReservedCPUCores, reserveErr)
 	}
-	klog.Infof("[CPUDynamicPolicy.NewDynamicPolicy] take reservedCPUs: %s by reservedCPUsNum: %d", reservedCPUs.String(), reservedCPUsNum)
+	general.Infof("take reservedCPUs: %s by reservedCPUsNum: %d", reservedCPUs.String(), reservedCPUsNum)
 
 	stateImpl, stateErr := state.NewCheckpointState(conf.GenericQRMPluginConfiguration.StateFileDirectory, cpuPluginStateFileName,
 		CPUResourcePluginPolicyNameDynamic, agentCtx.CPUTopology, conf.SkipCPUStateCorruption)
@@ -281,7 +281,7 @@ func (p *DynamicPolicy) Start() (err error) {
 
 	// pre-check necessary dirs if sys-advisor is enabled
 	if !p.enableCPUSysAdvisor {
-		klog.Infof("[CPUDynamicPolicy.Start] start dynamic policy cpu plugin without sys-advisor")
+		general.Infof("start dynamic policy cpu plugin without sys-advisor")
 		return nil
 	} else if p.cpuAdvisorSocketAbsPath == "" || p.cpuPluginSocketAbsPath == "" {
 		return fmt.Errorf("invalid cpuAdvisorSocketAbsPath: %s or cpuPluginSocketAbsPath: %s",
@@ -404,7 +404,8 @@ func (p *DynamicPolicy) GetResourcesAllocation(_ context.Context,
 					allocationInfo.OriginalAllocationResult = clonedPooledCPUs
 					allocationInfo.TopologyAwareAssignments = clonedPooledCPUsTopologyAwareAssignments
 					allocationInfo.OriginalTopologyAwareAssignments = clonedPooledCPUsTopologyAwareAssignments
-					allocationInfo.OwnerPoolName = "" // fill OwnerPoolName with empty string when ramping up
+					// fill OwnerPoolName with empty string when ramping up
+					allocationInfo.OwnerPoolName = advisorapi.EmptyOwnerPoolName
 					allocationInfo.RampUp = true
 				}
 
@@ -821,9 +822,9 @@ func (p *DynamicPolicy) cleanPools() error {
 		for _, allocationInfo := range entries {
 			ownerPool := allocationInfo.GetOwnerPoolName()
 			specifiedPool := allocationInfo.GetSpecifiedPoolName()
-			if specifiedPool != "" {
+			if specifiedPool != advisorapi.EmptyOwnerPoolName {
 				specifiedPools[specifiedPool] = true
-			} else if ownerPool != "" {
+			} else if ownerPool != advisorapi.EmptyOwnerPoolName {
 				specifiedPools[ownerPool] = true
 			} else if state.CheckReclaimed(allocationInfo) {
 				specifiedPools[state.PoolNameReclaim] = true
@@ -886,7 +887,7 @@ func (p *DynamicPolicy) initReservePool() error {
 		TopologyAwareAssignments:         topologyAwareAssignments,
 		OriginalTopologyAwareAssignments: machine.DeepcopyCPUAssignment(topologyAwareAssignments),
 	}
-	p.state.SetAllocationInfo(state.PoolNameReserve, "", curReserveAllocationInfo)
+	p.state.SetAllocationInfo(state.PoolNameReserve, advisorapi.FakedContainerID, curReserveAllocationInfo)
 
 	return nil
 }

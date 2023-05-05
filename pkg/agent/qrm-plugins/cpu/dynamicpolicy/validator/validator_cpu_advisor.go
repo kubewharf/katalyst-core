@@ -124,7 +124,7 @@ func (c *CPUAdvisorValidator) validateStaticPools(resp *advisorapi.ListAndWatchR
 		if entries[poolName] == nil || entries[poolName][advisorapi.FakedContainerID] == nil {
 			nilStateEntry = true
 		}
-		if resp.Entries[poolName] == nil || resp.Entries[poolName].Entries[""] == nil {
+		if resp.Entries[poolName] == nil || resp.Entries[poolName].Entries[advisorapi.FakedContainerID] == nil {
 			nilRespEntry = true
 		}
 

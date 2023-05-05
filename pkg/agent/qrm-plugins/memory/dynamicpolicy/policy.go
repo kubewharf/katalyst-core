@@ -544,7 +544,6 @@ func (p *DynamicPolicy) removePod(podUID string) error {
 
 	p.state.SetPodResourceEntries(podResourceEntries)
 	p.state.SetMachineState(resourcesMachineState)
-
 	return nil
 }
 
@@ -562,7 +561,6 @@ func (p *DynamicPolicy) removeContainer(podUID, containerName string) error {
 
 	p.state.SetPodResourceEntries(podResourceEntries)
 	p.state.SetMachineState(resourcesMachineState)
-
 	return nil
 }
 

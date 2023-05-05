@@ -461,13 +461,13 @@ func (p *DynamicPolicy) adjustAllocationEntries() error {
 	for podUID, containers := range numaSetChangedContainers {
 		for containerName := range containers {
 			go func(curPodUID, curContainerName string) {
-				containerId, err := p.metaServer.GetContainerID(curPodUID, curContainerName)
+				containerID, err := p.metaServer.GetContainerID(curPodUID, curContainerName)
 				if err != nil {
 					general.Errorf("get container id of pod: %s container: %s failed with error: %v", curPodUID, curContainerName, err)
 					return
 				}
 
-				err = cgroupcmutils.DropCacheWithTimeoutForContainer(curPodUID, containerId, 30)
+				err = cgroupcmutils.DropCacheWithTimeoutForContainer(curPodUID, containerID, 30)
 				if err != nil {
 					general.Errorf("drop cache of pod: %s container: %s failed with error: %v", curPodUID, curContainerName, err)
 					return
