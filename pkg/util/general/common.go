@@ -21,7 +21,6 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
-	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -67,14 +66,6 @@ func MaxInt64(a, b int64) int64 {
 	} else {
 		return b
 	}
-}
-
-// GetValueWithDefault gets value from the given map, and returns default if key not exist
-func GetValueWithDefault(m map[string]string, key, defaultV string) string {
-	if _, ok := m[key]; !ok {
-		return defaultV
-	}
-	return m[key]
 }
 
 // IsNameEnabled check if a specified name enabled or not.
@@ -139,13 +130,6 @@ func GetInt64PointerFromUint64Pointer(v *uint64) (*int64, error) {
 	}
 }
 
-func GetStringValueFromMap(labels map[string]string, label string) string {
-	if value, found := labels[label]; found {
-		return value
-	}
-	return ""
-}
-
 func GenerateHash(data []byte, length int) string {
 	h := sha256.New()
 	h.Write(data)
@@ -154,19 +138,6 @@ func GenerateHash(data []byte, length int) string {
 		return result[:length]
 	}
 	return result
-}
-
-func CheckMapEqual(pre, cur map[string]string) bool {
-	if len(pre) != len(cur) {
-		return false
-	}
-
-	for key, value := range pre {
-		if value != cur[key] {
-			return false
-		}
-	}
-	return true
 }
 
 func UIntPointerToFloat64(p *uint) float64 {
@@ -191,6 +162,52 @@ func JsonPathEmpty(str []byte) bool {
 	return false
 }
 
+// GetValueWithDefault gets value from the given map, and returns default if key not exist
+func GetValueWithDefault(m map[string]string, key, defaultV string) string {
+	if _, ok := m[key]; !ok {
+		return defaultV
+	}
+	return m[key]
+}
+
+func GetStringValueFromMap(m map[string]string, key string) string {
+	if value, found := m[key]; found {
+		return value
+	}
+	return ""
+}
+
+// SumUpMultipleMapValues accumulates total values for the given multi-level map
+func SumUpMultipleMapValues(m map[string]map[string]int) int {
+	total := 0
+	for _, v := range m {
+		total += SumUpMapValues(v)
+	}
+	return total
+}
+
+// SumUpMapValues accumulates total values for the given map
+func SumUpMapValues(m map[string]int) int {
+	total := 0
+	for _, quantity := range m {
+		total += quantity
+	}
+	return total
+}
+
+func CheckMapEqual(pre, cur map[string]string) bool {
+	if len(pre) != len(cur) {
+		return false
+	}
+
+	for key, value := range pre {
+		if value != cur[key] {
+			return false
+		}
+	}
+	return true
+}
+
 // MergeMap merges the contents from override into the src
 func MergeMap(src, override map[string]string) map[string]string {
 	res := map[string]string{}
@@ -203,15 +220,6 @@ func MergeMap(src, override map[string]string) map[string]string {
 	return res
 }
 
-// ExtractMapValued is used to extract value slice from the given map
-func ExtractMapValued(m map[string]string) []string {
-	res := sets.NewString()
-	for _, v := range m {
-		res.Insert(v)
-	}
-	return res.List()
-}
-
 // GetSortedMapKeys returns a slice containing sorted keys for the given map
 func GetSortedMapKeys(m map[string]int) []string {
 	ret := make([]string, 0, len(m))
@@ -220,6 +228,29 @@ func GetSortedMapKeys(m map[string]int) []string {
 	}
 	sort.Strings(ret)
 	return ret
+}
+
+// ParseMapWithPrefix converts selector string to label map
+// and validates keys and values
+func ParseMapWithPrefix(prefix, selector string) (map[string]string, error) {
+	labelsMap := make(map[string]string)
+
+	if len(selector) == 0 {
+		return labelsMap, nil
+	}
+
+	labels := strings.Split(selector, ",")
+	for _, label := range labels {
+		l := strings.Split(label, "=")
+		if len(l) != 2 {
+			return labelsMap, fmt.Errorf("invalid selector: %s", l)
+		}
+
+		key := strings.TrimSpace(l[0])
+		value := strings.TrimSpace(l[1])
+		labelsMap[prefix+key] = value
+	}
+	return labelsMap, nil
 }
 
 // ToString transform to string for better display etc. in log
@@ -238,28 +269,6 @@ func IntSliceToStringSlice(a []int) []string {
 	return ss
 }
 
-// ParseMapWithPrefix converts selector string to label map
-// and validates keys and values
-func ParseMapWithPrefix(prefix, selector string) (map[string]string, error) {
-	labelsMap := make(map[string]string)
-
-	if len(selector) == 0 {
-		return labelsMap, nil
-	}
-
-	labels := strings.Split(selector, ",")
-	for _, label := range labels {
-		l := strings.Split(label, "=")
-		if len(l) != 2 {
-			return labelsMap, fmt.Errorf("invalid selector: %s", l)
-		}
-		key := strings.TrimSpace(l[0])
-		value := strings.TrimSpace(l[1])
-		labelsMap[prefix+key] = value
-	}
-	return labelsMap, nil
-}
-
 func CovertInt64ToInt(numInt64 int64) (int, error) {
 	numInt := int(numInt64)
 	if int64(numInt) != numInt64 {
@@ -274,15 +283,4 @@ func CovertUInt64ToInt(numUInt64 uint64) (int, error) {
 		return 0, fmt.Errorf("convert numUInt64: %d to numInt: %d failed", numUInt64, numInt)
 	}
 	return numInt, nil
-}
-
-// GetCallerName returns the function name of caller to avoid
-// hardcode function names in logging message (especially for cases
-// that function names are changed)
-func GetCallerName() string {
-	pc, _, _, ok := runtime.Caller(1)
-	if !ok {
-		return ""
-	}
-	return runtime.FuncForPC(pc).Name()
 }

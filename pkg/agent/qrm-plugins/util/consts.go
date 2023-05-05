@@ -33,7 +33,6 @@ const (
 	MetricNamePoolSize                         = "pool_size"
 	MetricNameAllocateByCPUAdvisorServerFailed = "alloc_by_cpu_advisor_server_failed"
 	MetricNameAllocateFailed                   = "alloc_failed"
-	MetricNameGetTopologyAwareResourcesFailed  = "get_topology_aware_resources_failed"
 	MetricNameGetTopologyHintsFailed           = "get_topology_hints_failed"
 	MetricNameRemovePodFailed                  = "remove_pod_failed"
 	MetricNameLWCPUAdvisorServerFailed         = "lw_cpu_advisor_server_failed"

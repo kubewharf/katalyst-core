@@ -14,11 +14,12 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package cpueviction
+package strategy
 
 import (
 	"sync"
 
+	advisorapi "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/cpuadvisor"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
 )
 
@@ -43,19 +44,21 @@ type MetricRing struct {
 }
 
 // SubEntries is keyed by container name or empty string (for pool)
-// Entries is keyed by pod UID or pool name
 type SubEntries map[string]*MetricRing
-type Entries map[string]SubEntries
-
-type PoolMetricCollectHandler func(metricName string, metricValue float64, poolEntry *state.AllocationInfo, collectTime int64)
 
 func (se SubEntries) IsPoolEntry() bool {
-	return len(se) == 1 && se[""] != nil
+	return len(se) == 1 && se[advisorapi.FakedContainerID] != nil
 }
+
+// Entries are keyed by pod UID or pool name
+type Entries map[string]SubEntries
+
+type PoolMetricCollectHandler func(metricName string, metricValue float64, _ *state.AllocationInfo, collectTime int64)
 
 func (ring *MetricRing) Sum() float64 {
 	ring.RLock()
 	defer ring.RUnlock()
+
 	sum := 0.0
 	for _, snapshot := range ring.Queue {
 		if snapshot != nil {
@@ -68,6 +71,7 @@ func (ring *MetricRing) Sum() float64 {
 func (ring *MetricRing) Push(snapShot *MetricSnapshot) {
 	ring.Lock()
 	defer ring.Unlock()
+
 	if ring.CurrentIndex != -1 && snapShot != nil {
 		latestSnapShot := ring.Queue[ring.CurrentIndex]
 		if latestSnapShot != nil && latestSnapShot.Time == snapShot.Time {

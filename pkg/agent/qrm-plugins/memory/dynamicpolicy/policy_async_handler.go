@@ -23,7 +23,6 @@ import (
 
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
-	"k8s.io/klog/v2"
 
 	"github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/memory/dynamicpolicy/state"
@@ -31,6 +30,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/cgroup/common"
 	cgroupcmutils "github.com/kubewharf/katalyst-core/pkg/util/cgroup/manager"
+	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
@@ -46,8 +46,8 @@ func (p *DynamicPolicy) checkMemorySet() {
 				continue
 			} else if allocationInfo.QoSLevel == consts.PodAnnotationQoSLevelSharedCores &&
 				p.getContainerRequestedMemoryBytes(allocationInfo) == 0 {
-				klog.Warningf("[MemoryDynamicPolicy.checkMemorySet] skip memset checking for pod: %s/%s "+
-					"container: %s with zero cpu request", allocationInfo.PodNamespace, allocationInfo.PodName, containerName)
+				general.Warningf("skip memset checking for pod: %s/%s container: %s with zero cpu request",
+					allocationInfo.PodNamespace, allocationInfo.PodName, containerName)
 				continue
 			} else if allocationInfo.CheckNumaBinding() {
 				unionNUMABindingStateMemorySet = unionNUMABindingStateMemorySet.Union(allocationInfo.NumaAllocationResult)
@@ -61,15 +61,13 @@ func (p *DynamicPolicy) checkMemorySet() {
 
 			containerId, err := p.metaServer.GetContainerID(podUID, containerName)
 			if err != nil {
-				klog.Errorf("[MemoryDynamicPolicy.checkMemorySet] get container id of pod: %s "+
-					"container: %s failed with error: %v", podUID, containerName, err)
+				general.Errorf("get container id of pod: %s container: %s failed with error: %v", podUID, containerName, err)
 				continue
 			}
 
 			cpusetStats, err := cgroupcmutils.GetCPUSetForContainer(podUID, containerId)
 			if err != nil {
-				klog.Errorf("[MemoryDynamicPolicy.checkMemorySet] GetMemorySet of pod: %s container: name(%s), "+
-					"id(%s) failed with error: %v", podUID, containerName, containerId, err)
+				general.Errorf("GetMemorySet of pod: %s container: name(%s), id(%s) failed with error: %v", podUID, containerName, containerId, err)
 				_ = p.emitter.StoreInt64(util.MetricNameRealStateInvalid, 1, metrics.MetricTypeNameRaw, tags...)
 				continue
 			}
@@ -79,9 +77,9 @@ func (p *DynamicPolicy) checkMemorySet() {
 			}
 			actualMemorySets[podUID][containerName] = machine.MustParse(cpusetStats.Mems)
 
-			klog.Infof("[MemoryDynamicPolicy.checkMemorySet] pod: %s/%s, container: %s, state MemorySet: %s, actual MemorySet: %s",
-				allocationInfo.PodNamespace, allocationInfo.PodName, allocationInfo.ContainerName, allocationInfo.NumaAllocationResult.String(),
-				actualMemorySets[podUID][containerName].String())
+			general.Infof("pod: %s/%s, container: %s, state MemorySet: %s, actual MemorySet: %s",
+				allocationInfo.PodNamespace, allocationInfo.PodName, allocationInfo.ContainerName,
+				allocationInfo.NumaAllocationResult.String(), actualMemorySets[podUID][containerName].String())
 
 			// only do comparison for dedicated_cores with numa_biding to avoid effect of adjustment for shared_cores
 			if !allocationInfo.CheckNumaBinding() {
@@ -89,7 +87,7 @@ func (p *DynamicPolicy) checkMemorySet() {
 			}
 
 			if !actualMemorySets[podUID][containerName].Equals(allocationInfo.NumaAllocationResult) {
-				klog.Errorf("[MemoryDynamicPolicy.checkMemorySet] pod: %s/%s, container: %s, memset invalid",
+				general.Errorf("pod: %s/%s, container: %s, memset invalid",
 					allocationInfo.PodNamespace, allocationInfo.PodName, allocationInfo.ContainerName)
 				_ = p.emitter.StoreInt64(util.MetricNameMemSetInvalid, 1, metrics.MetricTypeNameRaw, tags...)
 			}
@@ -113,7 +111,7 @@ func (p *DynamicPolicy) checkMemorySet() {
 				if allocationInfo.CheckNumaBinding() {
 					if !memorySetOverlap && cset.Intersection(unionNUMABindingActualMemorySet).Size() != 0 {
 						memorySetOverlap = true
-						klog.Errorf("[MemoryDynamicPolicy.checkMemorySet] pod: %s/%s, container: %s memset: %s overlaps with others",
+						general.Errorf("pod: %s/%s, container: %s memset: %s overlaps with others",
 							allocationInfo.PodNamespace, allocationInfo.PodName, allocationInfo.ContainerName, cset.String())
 					}
 					unionNUMABindingActualMemorySet = unionNUMABindingActualMemorySet.Union(cset)
@@ -129,41 +127,38 @@ func (p *DynamicPolicy) checkMemorySet() {
 	regionOverlap := unionNUMABindingActualMemorySet.Intersection(unionSharedActualMemorySet).Size() != 0 ||
 		unionNUMABindingActualMemorySet.Intersection(unionDedicatedActualMemorySet).Size() != 0
 	if regionOverlap {
-		klog.Errorf("[MemoryDynamicPolicy.checkMemorySet] shared_cores union memset: %s,"+
-			" dedicated_cores union memset: %s overlap with numa_binding union memset: %s",
-			unionSharedActualMemorySet.String(), unionDedicatedActualMemorySet.String(),
-			unionNUMABindingActualMemorySet.String())
+		general.Errorf("shared_cores union memset: %s, dedicated_cores union memset: %s overlap with numa_binding union memset: %s",
+			unionSharedActualMemorySet.String(), unionDedicatedActualMemorySet.String(), unionNUMABindingActualMemorySet.String())
 	}
 
 	if !memorySetOverlap {
 		memorySetOverlap = regionOverlap
 	}
 	if memorySetOverlap {
-		klog.Errorf("[MemoryDynamicPolicy.checkMemorySet] found memset overlap. actualMemorySets: %+v", actualMemorySets)
+		general.Errorf("found memset overlap. actualMemorySets: %+v", actualMemorySets)
 		_ = p.emitter.StoreInt64(util.MetricNameMemSetOverlap, 1, metrics.MetricTypeNameRaw)
 	}
 
 	machineState := p.state.GetMachineState()[v1.ResourceMemory]
 	notAssignedMemSet := machineState.GetNUMANodesWithoutNUMABindingPods()
 	if !unionNUMABindingStateMemorySet.Union(notAssignedMemSet).Equals(p.topology.CPUDetails.NUMANodes()) {
-		klog.Infof("[MemoryDynamicPolicy.checkMemorySet] found node memset invalid. "+
-			"unionNUMABindingStateMemorySet: %s, notAssignedMemSet: %s, topology: %s",
+		general.Infof("found node memset invalid. unionNUMABindingStateMemorySet: %s, notAssignedMemSet: %s, topology: %s",
 			unionNUMABindingStateMemorySet.String(), notAssignedMemSet.String(), p.topology.CPUDetails.NUMANodes().String())
 		_ = p.emitter.StoreInt64(util.MetricNameNodeMemsetInvalid, 1, metrics.MetricTypeNameRaw)
 	}
 
-	klog.Infof("[MemoryDynamicPolicy.checkMemorySet] finish checkMemorySet")
+	general.Infof("finish checkMemorySet")
 }
 
 // clearResidualState is used to clean residual pods in local state
 func (p *DynamicPolicy) clearResidualState() {
-	klog.Infof("[MemoryDynamicPolicy] exec clearResidualState")
+	general.Infof("exec clearResidualState")
 	residualSet := make(map[string]bool)
 
 	ctx := context.Background()
 	podList, err := p.metaServer.GetPodList(ctx, nil)
 	if err != nil {
-		klog.Errorf("[MemoryDynamicPolicy.clearResidualState] get pod list failed: %v", err)
+		general.Infof("get pod list failed: %v", err)
 		return
 	}
 
@@ -185,8 +180,7 @@ func (p *DynamicPolicy) clearResidualState() {
 			if !podSet.Has(podUID) && !residualSet[podUID] {
 				residualSet[podUID] = true
 				p.residualHitMap[podUID] += 1
-				klog.Infof("[MemoryDynamicPolicy.clearResidualState] found pod: %s with state but doesn't "+
-					"show up in pod watcher, hit count: %d", podUID, p.residualHitMap[podUID])
+				general.Infof("found pod: %s with state but doesn't show up in pod watcher, hit count: %d", podUID, p.residualHitMap[podUID])
 			}
 		}
 	}
@@ -194,8 +188,7 @@ func (p *DynamicPolicy) clearResidualState() {
 	podsToDelete := sets.NewString()
 	for podUID, hitCount := range p.residualHitMap {
 		if !residualSet[podUID] {
-			klog.Infof("[MemoryDynamicPolicy.clearResidualState] already found pod: %s in pod watcher "+
-				"or its state is cleared, delete it from residualHitMap", podUID)
+			general.Infof("already found pod: %s in pod watcher or its state is cleared, delete it from residualHitMap", podUID)
 			delete(p.residualHitMap, podUID)
 			continue
 		}
@@ -214,7 +207,7 @@ func (p *DynamicPolicy) clearResidualState() {
 
 			// todo: if the sysadvisor memory plugin is supported in the future, we need to call
 			//  the memory plugin to remove the pod before deleting the pod entry
-			klog.Infof("[MemoryDynamicPolicy.clearResidualState] clear residual pod: %s in state", podUID)
+			general.Infof("clear residual pod: %s in state", podUID)
 			for _, podEntries := range podResourceEntries {
 				delete(podEntries, podUID)
 			}
@@ -222,7 +215,7 @@ func (p *DynamicPolicy) clearResidualState() {
 
 		resourcesMachineState, err := state.GenerateMachineStateFromPodEntries(p.state.GetMachineInfo(), podResourceEntries, p.state.GetReservedMemory())
 		if err != nil {
-			klog.Errorf("[MemoryDynamicPolicy.clearResidualState] GenerateMachineStateFromPodEntries failed with error: %v", err)
+			general.Errorf("GenerateMachineStateFromPodEntries failed with error: %v", err)
 			return
 		}
 
@@ -231,7 +224,7 @@ func (p *DynamicPolicy) clearResidualState() {
 
 		err = p.adjustAllocationEntries()
 		if err != nil {
-			klog.ErrorS(err, "[MemoryDynamicPolicy.clearResidualState] adjustAllocationEntries failed")
+			general.ErrorS(err, "adjustAllocationEntries failed")
 		}
 	}
 }
@@ -250,11 +243,10 @@ func (p *DynamicPolicy) setMemoryMigrate() {
 	for podUID, containerEntries := range podEntries {
 		for containerName, allocationInfo := range containerEntries {
 			if allocationInfo == nil {
-				klog.Errorf("[MemoryDynamicPolicy.setMemoryMigrate] pod: %s, container: %s has nil allocationInfo",
-					podUID, containerName)
+				general.Errorf("pod: %s, container: %s has nil allocationInfo", podUID, containerName)
 				continue
 			} else if containerName == "" {
-				klog.Errorf("[MemoryDynamicPolicy.setMemoryMigrate] pod: %s has empty containerName entry", podUID)
+				general.Errorf("pod: %s has empty containerName entry", podUID)
 				continue
 			} else if allocationInfo.CheckNumaBinding() {
 				continue
@@ -290,25 +282,24 @@ func (p *DynamicPolicy) setMemoryMigrate() {
 
 					containerId, err := p.metaServer.GetContainerID(podUID, containerName)
 					if err != nil {
-						klog.Errorf("[MemoryDynamicPolicy.setMemoryMigrate] get container id "+
-							"of pod: %s container: %s failed with error: %v", podUID, containerName, err)
+						general.Errorf("get container id of pod: %s container: %s failed with error: %v",
+							podUID, containerName, err)
 						return
 					}
-
-					klog.Infof("[MemoryDynamicPolicy.setMemoryMigrate] start to set cgroup memory migrate "+
-						"for pod: %s, container: %s(%s) and pin memory", podUID, containerName, containerId)
+					general.Infof("start to set cgroup memory migrate for pod: %s, container: %s(%s) and pin memory",
+						podUID, containerName, containerId)
 
 					err = cgroupcmutils.ApplyCPUSetForContainer(podUID, containerId, cgData)
-					klog.Infof("[MemoryDynamicPolicy.setMemoryMigrate] end to set cgroup memory migrate "+
-						"for pod: %s, container: %s(%s) and pin memory", podUID, containerName, containerId)
+					general.Infof("end to set cgroup memory migrate for pod: %s, container: %s(%s) and pin memory",
+						podUID, containerName, containerId)
 					if err != nil {
-						klog.Errorf("[MemoryDynamicPolicy.setMemoryMigrate] set cgroup memory migrate "+
-							"for pod: %s, container: %s(%s) failed with error: %v", podUID, containerName, containerId, err)
+						general.Errorf("set cgroup memory migrate for pod: %s, container: %s(%s) failed with error: %v",
+							podUID, containerName, containerId, err)
 						return
 					}
 
-					klog.Infof("[MemoryDynamicPolicy.setMemoryMigrate] set cgroup memory migrate for pod: %s, "+
-						"container: %s(%s) successfully", podUID, containerName, containerId)
+					general.Infof("set cgroup memory migrate for pod: %s, container: %s(%s) successfully",
+						podUID, containerName, containerId)
 				}(podUID, containerName, cgData)
 			}
 		}

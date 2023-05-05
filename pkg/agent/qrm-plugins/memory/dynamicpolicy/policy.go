@@ -165,7 +165,7 @@ func (p *DynamicPolicy) Start() (err error) {
 	}()
 
 	if p.started {
-		klog.Infof("[MemoryDynamicPolicy.Start] DynamicPolicy is already started")
+		general.Infof("already started")
 		return nil
 	}
 	p.stopCh = make(chan struct{})
@@ -185,12 +185,11 @@ func (p *DynamicPolicy) Stop() error {
 	defer func() {
 		p.started = false
 		p.Unlock()
-
-		klog.Infof("[MemoryDynamicPolicy.Stop] DynamicPolicy stopped")
+		general.Warningf("stopped")
 	}()
 
 	if !p.started {
-		klog.Warningf("[MemoryDynamicPolicy.Stop] DynamicPolicy already stopped")
+		general.Warningf("already stopped")
 		return nil
 	}
 	close(p.stopCh)
@@ -216,7 +215,7 @@ func (p *DynamicPolicy) GetTopologyHints(ctx context.Context,
 	if err != nil {
 		err = fmt.Errorf("GetKatalystQoSLevelFromResourceReq for pod: %s/%s, container: %s failed with error: %v",
 			req.PodNamespace, req.PodName, req.ContainerName, err)
-		klog.Errorf("[MemoryDynamicPolicy.GetTopologyHints] %s", err.Error())
+		general.Errorf("%s", err.Error())
 		return nil, err
 	}
 
@@ -225,7 +224,7 @@ func (p *DynamicPolicy) GetTopologyHints(ctx context.Context,
 		return nil, fmt.Errorf("getReqQuantityFromResourceReq failed with error: %v", err)
 	}
 
-	klog.InfoS("[MemoryDynamicPolicy] GetTopologyHints is called",
+	general.InfoS("GetTopologyHints is called",
 		"podNamespace", req.PodNamespace,
 		"podName", req.PodName,
 		"containerName", req.ContainerName,
@@ -266,13 +265,13 @@ func (p *DynamicPolicy) RemovePod(_ context.Context,
 
 	err := p.removePod(req.PodUid)
 	if err != nil {
-		klog.ErrorS(err, "[MemoryDynamicPolicy.RemovePod] remove pod failed with error", "podUID", req.PodUid)
+		general.ErrorS(err, "remove pod failed with error", "podUID", req.PodUid)
 		return nil, err
 	}
 
 	err = p.adjustAllocationEntries()
 	if err != nil {
-		klog.ErrorS(err, "[MemoryDynamicPolicy.RemovePod] adjustAllocationEntries failed", "podUID", req.PodUid)
+		general.ErrorS(err, "adjustAllocationEntries failed", "podUID", req.PodUid)
 	}
 
 	return &pluginapi.RemovePodResponse{}, nil
@@ -441,7 +440,7 @@ func (p *DynamicPolicy) Allocate(ctx context.Context,
 	if err != nil {
 		err = fmt.Errorf("GetKatalystQoSLevelFromResourceReq for pod: %s/%s, container: %s failed with error: %v",
 			req.PodNamespace, req.PodName, req.ContainerName, err)
-		klog.Errorf("[MemoryDynamicPolicy.Allocate] %s", err.Error())
+		general.Errorf("%s", err.Error())
 		return nil, err
 	}
 
@@ -450,7 +449,7 @@ func (p *DynamicPolicy) Allocate(ctx context.Context,
 		return nil, fmt.Errorf("getReqQuantityFromResourceReq failed with error: %v", err)
 	}
 
-	klog.InfoS("[MemoryDynamicPolicy.Allocate] Allocate called",
+	general.InfoS("called",
 		"podNamespace", req.PodNamespace,
 		"podName", req.PodName,
 		"containerName", req.ContainerName,
@@ -470,7 +469,7 @@ func (p *DynamicPolicy) Allocate(ctx context.Context,
 
 	allocationInfo := p.state.GetAllocationInfo(v1.ResourceMemory, req.PodUid, req.ContainerName)
 	if allocationInfo != nil && allocationInfo.AggregatedQuantity >= uint64(reqInt) {
-		klog.InfoS("[MemoryDynamicPolicy] already allocated and meet requirement",
+		general.InfoS("already allocated and meet requirement",
 			"podNamespace", req.PodNamespace,
 			"podName", req.PodName,
 			"containerName", req.ContainerName,
@@ -539,8 +538,7 @@ func (p *DynamicPolicy) removePod(podUID string) error {
 
 	resourcesMachineState, err := state.GenerateMachineStateFromPodEntries(p.state.GetMachineInfo(), podResourceEntries, p.state.GetReservedMemory())
 	if err != nil {
-		klog.Errorf("[MemoryDynamicPolicy.%v] pod: %s, GenerateMachineStateFromPodEntries failed with error: %v",
-			general.GetCallerName(), podUID, err)
+		general.Errorf("pod: %s, GenerateMachineStateFromPodEntries failed with error: %v", podUID, err)
 		return fmt.Errorf("calculate machineState by updated pod entries failed with error: %v", err)
 	}
 
@@ -558,8 +556,7 @@ func (p *DynamicPolicy) removeContainer(podUID, containerName string) error {
 
 	resourcesMachineState, err := state.GenerateMachineStateFromPodEntries(p.state.GetMachineInfo(), podResourceEntries, p.state.GetReservedMemory())
 	if err != nil {
-		klog.Errorf("[MemoryDynamicPolicy.%v] pod: %s, container: %s GenerateMachineStateFromPodEntries failed with error: %v",
-			general.GetCallerName(), podUID, containerName, err)
+		general.Errorf("pod: %s, container: %s GenerateMachineStateFromPodEntries failed with error: %v", podUID, containerName, err)
 		return fmt.Errorf("calculate machineState by updated pod entries failed with error: %v", err)
 	}
 
@@ -572,25 +569,25 @@ func (p *DynamicPolicy) removeContainer(podUID, containerName string) error {
 // getContainerRequestedMemoryBytes parses and returns requested memory bytes for the given container
 func (p *DynamicPolicy) getContainerRequestedMemoryBytes(allocationInfo *state.AllocationInfo) int {
 	if allocationInfo == nil {
-		klog.Errorf("[%v] got nil allocationInfo", general.GetCallerName())
+		general.Errorf("got nil allocationInfo")
 		return 0
 	}
 
 	if p.metaServer == nil {
-		klog.Errorf("[%v] nil metaServer")
+		klog.Errorf("%v nil metaServer")
 		return 0
 	}
 
 	container, err := p.metaServer.GetContainerSpec(allocationInfo.PodUid, allocationInfo.ContainerName)
 	if err != nil || container == nil {
-		klog.Errorf("[%v] get container failed with error: %v", general.GetCallerName(), err)
+		general.Errorf("get container failed with error: %v", err)
 		return 0
 	}
 
 	memoryQuantity := native.GetMemoryQuantity(container.Resources.Requests)
 	requestBytes := general.Max(int(memoryQuantity.Value()), 0)
 
-	klog.Infof("[%v] get memory request bytes: %d for pod: %s/%s container: %s from podWatcher",
-		general.GetCallerName(), requestBytes, allocationInfo.PodNamespace, allocationInfo.PodName, allocationInfo.ContainerName)
+	general.Infof("get memory request bytes: %d for pod: %s/%s container: %s from podWatcher",
+		requestBytes, allocationInfo.PodNamespace, allocationInfo.PodName, allocationInfo.ContainerName)
 	return requestBytes
 }

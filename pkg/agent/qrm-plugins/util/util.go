@@ -45,6 +45,10 @@ func GetQuantityFromResourceReq(req *pluginapi.ResourceRequest) (int, error) {
 
 	for key := range req.ResourceRequests {
 		switch key {
+		case string(v1.ResourceCPU):
+			return general.Max(int(math.Ceil(req.ResourceRequests[key])), 0), nil
+		case string(consts.ReclaimedResourceMilliCPU):
+			return general.Max(int(math.Ceil(req.ResourceRequests[key]/1000.0)), 0), nil
 		case string(v1.ResourceMemory), string(consts.ReclaimedResourceMemory):
 			return general.Max(int(math.Ceil(req.ResourceRequests[key])), 0), nil
 		default:

@@ -29,6 +29,7 @@ import (
 	apiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/memory/dynamicpolicy/state"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util"
+	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
@@ -99,8 +100,8 @@ func (p *DynamicPolicy) dedicatedCoresWithNUMABindingHintHandler(_ context.Conte
 			var err error
 			resourcesMachineState, err = state.GenerateMachineStateFromPodEntries(p.state.GetMachineInfo(), podResourceEntries, p.state.GetReservedMemory())
 			if err != nil {
-				klog.Errorf("[MemoryDynamicPolicy.dedicatedCoresWithNUMABindingHintHandler] pod: %s/%s, container: %s "+
-					"GenerateMachineStateFromPodEntries failed with error: %v", req.PodNamespace, req.PodName, req.ContainerName, err)
+				general.Errorf("pod: %s/%s, container: %s GenerateMachineStateFromPodEntries failed with error: %v",
+					req.PodNamespace, req.PodName, req.ContainerName, err)
 				return nil, fmt.Errorf("GenerateMachineStateFromPodEntries failed with error: %v", err)
 			}
 		}
@@ -111,8 +112,8 @@ func (p *DynamicPolicy) dedicatedCoresWithNUMABindingHintHandler(_ context.Conte
 		var extraErr error
 		hints, extraErr = util.GetHintsFromExtraStateFile(req.PodName, string(v1.ResourceMemory), p.extraStateFileAbsPath)
 		if extraErr != nil {
-			klog.Infof("[MemoryDynamicPolicy.dedicatedCoresWithNUMABindingHintHandler] pod: %s/%s, container: %s "+
-				"GetHintsFromExtraStateFile failed with error: %v", req.PodNamespace, req.PodName, req.ContainerName, extraErr)
+			general.Infof("pod: %s/%s, container: %s GetHintsFromExtraStateFile failed with error: %v",
+				req.PodNamespace, req.PodName, req.ContainerName, extraErr)
 		}
 	}
 
@@ -183,25 +184,24 @@ func (p *DynamicPolicy) calculateHints(reqInt uint64,
 		var freeBytesInMask uint64 = 0
 		for _, nodeID := range maskBits {
 			if machineState[nodeID] == nil {
-				klog.Warningf("[MemoryDynamicPolicy.calculateHints] NUMA: %d has nil state", nodeID)
+				general.Warningf("NUMA: %d has nil state", nodeID)
 				return
 			}
 			freeBytesInMask += machineState[nodeID].Free
 		}
 
 		if freeBytesInMask < reqInt {
-			klog.V(4).Infof("[MemoryDynamicPolicy.calculateHints] free bytes: %d in mask are smaller than request bytes: %d",
-				freeBytesInMask, reqInt)
+			general.InfofV(4, "free bytes: %d in mask are smaller than request bytes: %d", freeBytesInMask, reqInt)
 			return
 		}
 
 		crossSockets, err := machine.CheckNUMACrossSockets(maskBits, p.topology)
 		if err != nil {
-			klog.Errorf("[MemoryDynamicPolicy.calculateHints] CheckNUMACrossSockets failed with error: %v", err)
+			general.Errorf("CheckNUMACrossSockets failed with error: %v", err)
 			return
 		} else if numaCountNeeded <= numaPerSocket && crossSockets {
-			klog.V(4).Infof("[MemoryDynamicPolicy.calculateHints] needed: %d; min-needed: %d; NUMAs: %v "+
-				"cross sockets with numaPerSocket: %d", numaCountNeeded, minNUMAsCountNeeded, maskBits, numaPerSocket)
+			general.InfofV(4, "needed: %d; min-needed: %d; NUMAs: %v cross sockets with numaPerSocket: %d",
+				numaCountNeeded, minNUMAsCountNeeded, maskBits, numaPerSocket)
 			return
 		}
 

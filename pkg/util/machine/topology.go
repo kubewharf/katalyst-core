@@ -403,6 +403,5 @@ func CheckNUMACrossSockets(numaNodes []int, cpuTopology *CPUTopology) (bool, err
 	if len(numaNodes) <= 1 {
 		return false, nil
 	}
-
 	return cpuTopology.CPUDetails.SocketsInNUMANodes(numaNodes...).Size() > 1, nil
 }

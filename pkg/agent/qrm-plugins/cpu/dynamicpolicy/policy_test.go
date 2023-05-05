@@ -2331,15 +2331,15 @@ func TestAllocateByQoSAwareServerListAndWatchResp(t *testing.T) {
 
 		dynamicPolicy.reclaimedResourceConfig.SetEnableReclaim(true)
 
-		machineState, err := state.GenerateCPUMachineStateByPodEntries(tc.cpuTopology, tc.podEntries)
+		machineState, err := state.GenerateMachineStateFromPodEntries(tc.cpuTopology, tc.podEntries)
 		as.Nil(err)
 
 		dynamicPolicy.state.SetPodEntries(tc.podEntries)
 		dynamicPolicy.state.SetMachineState(machineState)
 		dynamicPolicy.initReservePool()
 
-		err = dynamicPolicy.allocateByCPUAdvisorServerListAndWatchResp(tc.lwResp)
-		as.Nilf(err, "dynamicPolicy.allocateByCPUAdvisorServerListAndWatchResp got err: %v, case: %s", err, tc.description)
+		err = dynamicPolicy.allocateByCPUAdvisor(tc.lwResp)
+		as.Nilf(err, "dynamicPolicy.allocateByCPUAdvisor got err: %v, case: %s", err, tc.description)
 
 		match, err := entriesMatch(tc.expectedPodEntries, dynamicPolicy.state.GetPodEntries())
 		as.Nilf(err, "failed in test case: %s", tc.description)

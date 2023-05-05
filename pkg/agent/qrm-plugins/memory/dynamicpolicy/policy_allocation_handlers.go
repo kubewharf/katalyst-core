@@ -87,7 +87,7 @@ func (p *DynamicPolicy) dedicatedCoresWithNUMABindingAllocationHandler(ctx conte
 
 	allocationInfo := p.state.GetAllocationInfo(v1.ResourceMemory, req.PodUid, req.ContainerName)
 	if allocationInfo != nil && allocationInfo.AggregatedQuantity >= uint64(reqInt) {
-		klog.InfoS(fmt.Sprintf("[MemoryDynamicPolicy.%v] already allocated and meet requirement", general.GetCallerName()),
+		general.InfoS("already allocated and meet requirement",
 			"podNamespace", req.PodNamespace,
 			"podName", req.PodName,
 			"containerName", req.ContainerName,
@@ -96,13 +96,13 @@ func (p *DynamicPolicy) dedicatedCoresWithNUMABindingAllocationHandler(ctx conte
 
 		resp, packErr := rePackAllocations(allocationInfo, req)
 		if packErr != nil {
-			klog.Errorf("[MemoryDynamicPolicy.%v] pod: %s/%s, container: %s rePackAllocations failed with error: %v",
-				general.GetCallerName(), req.PodNamespace, req.PodName, req.ContainerName, packErr)
+			general.Errorf("pod: %s/%s, container: %s rePackAllocations failed with error: %v",
+				req.PodNamespace, req.PodName, req.ContainerName, packErr)
 			return nil, fmt.Errorf("rePackAllocations failed with error: %v", packErr)
 		}
 		return resp, nil
 	} else if allocationInfo != nil {
-		klog.InfoS(fmt.Sprintf("[MemoryDynamicPolicy.%v] not meet requirement, clear record and re-allocate", general.GetCallerName()),
+		general.InfoS("not meet requirement, clear record and re-allocate",
 			"podNamespace", req.PodNamespace,
 			"podName", req.PodName,
 			"containerName", req.ContainerName,
@@ -113,8 +113,7 @@ func (p *DynamicPolicy) dedicatedCoresWithNUMABindingAllocationHandler(ctx conte
 		var stateErr error
 		memoryState, stateErr = state.GenerateMemoryStateFromPodEntries(p.state.GetMachineInfo(), podEntries, p.state.GetReservedMemory())
 		if stateErr != nil {
-			klog.ErrorS(stateErr,
-				fmt.Sprintf("[MemoryDynamicPolicy.%v] generateMemoryMachineStateByPodEntries failed", general.GetCallerName()),
+			general.ErrorS(stateErr, "generateMemoryMachineStateByPodEntries failed",
 				"podNamespace", req.PodNamespace,
 				"podName", req.PodName,
 				"containerName", req.ContainerName,
@@ -128,7 +127,7 @@ func (p *DynamicPolicy) dedicatedCoresWithNUMABindingAllocationHandler(ctx conte
 	// and we can use this adjusted state to pack allocation results
 	err = p.calculateMemoryAllocation(req, memoryState, apiconsts.PodAnnotationQoSLevelDedicatedCores)
 	if err != nil {
-		klog.ErrorS(err, "Unable to allocate Memorys",
+		klog.ErrorS(err, "Unable to allocate Memory",
 			"podNamespace", req.PodNamespace,
 			"podName", req.PodName,
 			"containerName", req.ContainerName,
@@ -148,7 +147,7 @@ func (p *DynamicPolicy) dedicatedCoresWithNUMABindingAllocationHandler(ctx conte
 		}
 	}
 
-	klog.InfoS(fmt.Sprintf("[MemoryDynamicPolicy.%v] allocate memory successfully", general.GetCallerName()),
+	general.InfoS("allocate memory successfully",
 		"podNamespace", req.PodNamespace,
 		"podName", req.PodName,
 		"containerName", req.ContainerName,
@@ -176,8 +175,8 @@ func (p *DynamicPolicy) dedicatedCoresWithNUMABindingAllocationHandler(ctx conte
 	podResourceEntries = p.state.GetPodResourceEntries()
 	machineState, err = state.GenerateMachineStateFromPodEntries(p.state.GetMachineInfo(), podResourceEntries, p.state.GetReservedMemory())
 	if err != nil {
-		klog.Errorf("[MemoryDynamicPolicy.%v] pod: %s/%s, container: %s GenerateMachineStateFromPodEntries failed with error: %v",
-			general.GetCallerName(), req.PodNamespace, req.PodName, req.ContainerName, err)
+		general.Errorf("pod: %s/%s, container: %s GenerateMachineStateFromPodEntries failed with error: %v",
+			req.PodNamespace, req.PodName, req.ContainerName, err)
 		return nil, fmt.Errorf("calculate memoryState by updated pod entries failed with error: %v", err)
 	}
 	p.state.SetMachineState(machineState)
@@ -189,8 +188,8 @@ func (p *DynamicPolicy) dedicatedCoresWithNUMABindingAllocationHandler(ctx conte
 
 	resp, err := rePackAllocations(allocationInfo, req)
 	if err != nil {
-		klog.Errorf("[MemoryDynamicPolicy.%v] pod: %s/%s, container: %s rePackAllocations failed with error: %v",
-			general.GetCallerName(), req.PodNamespace, req.PodName, req.ContainerName, err)
+		general.Errorf("pod: %s/%s, container: %s rePackAllocations failed with error: %v",
+			req.PodNamespace, req.PodName, req.ContainerName, err)
 		return nil, fmt.Errorf("rePackAllocations failed with error: %v", err)
 	}
 	return resp, nil
@@ -210,16 +209,16 @@ func (p *DynamicPolicy) dedicatedCoresWithNUMABindingAllocationSidecarHandler(_ 
 
 	podEntries := podResourceEntries[v1.ResourceMemory]
 	if podEntries[req.PodUid] == nil {
-		klog.Infof("[MemoryDynamicPolicy.%v] there is no pod entry, pod: %s/%s, sidecar: %s, waiting next reconcile",
-			general.GetCallerName(), req.PodNamespace, req.PodName, req.ContainerName)
+		general.Infof("there is no pod entry, pod: %s/%s, sidecar: %s, waiting next reconcile",
+			req.PodNamespace, req.PodName, req.ContainerName)
 		return &pluginapi.ResourceAllocationResponse{}, nil
 	}
 
 	// todo: consider sidecar without reconcile in vpa
 	mainContainerAllocationInfo, ok := podEntries.GetMainContainerAllocation(req.PodUid)
 	if !ok {
-		klog.Infof("[MemoryDynamicPolicy.%v] main container is not found for pod: %s/%s, sidecar: %s, waiting next reconcile",
-			general.GetCallerName(), req.PodNamespace, req.PodName, req.ContainerName)
+		general.Infof("main container is not found for pod: %s/%s, sidecar: %s, waiting next reconcile",
+			req.PodNamespace, req.PodName, req.ContainerName)
 		return &pluginapi.ResourceAllocationResponse{}, nil
 	}
 
@@ -247,16 +246,16 @@ func (p *DynamicPolicy) dedicatedCoresWithNUMABindingAllocationSidecarHandler(_ 
 	resourcesState, err := state.GenerateMachineStateFromPodEntries(p.state.GetMachineInfo(), podResourceEntries, p.state.GetReservedMemory())
 
 	if err != nil {
-		klog.Errorf("[MemoryDynamicPolicy.dedicatedCoresWithNUMABindingAllocationSidecarHandler] pod: %s/%s, container: %s "+
-			"GenerateMachineStateFromPodEntries failed with error: %v", req.PodNamespace, req.PodName, req.ContainerName, err)
+		general.Infof("pod: %s/%s, container: %s GenerateMachineStateFromPodEntries failed with error: %v",
+			req.PodNamespace, req.PodName, req.ContainerName, err)
 		return nil, fmt.Errorf("calculate machineState by updated pod entries failed with error: %v", err)
 	}
 	p.state.SetMachineState(resourcesState)
 
 	resp, err := rePackAllocations(allocationInfo, req)
 	if err != nil {
-		klog.Errorf("[MemoryDynamicPolicy.dedicatedCoresWithNUMABindingAllocationHandler] pod: %s/%s, container: %s "+
-			"rePackAllocations failed with error: %v", req.PodNamespace, req.PodName, req.ContainerName, err)
+		general.Errorf("pod: %s/%s, container: %s rePackAllocations failed with error: %v",
+			req.PodNamespace, req.PodName, req.ContainerName, err)
 		return nil, fmt.Errorf("rePackAllocations failed with error: %v", err)
 	}
 	return resp, nil
@@ -276,9 +275,8 @@ func (p *DynamicPolicy) allocateNUMAsWithoutNUMABindingPods(_ context.Context,
 
 	allocationInfo := p.state.GetAllocationInfo(v1.ResourceMemory, req.PodUid, req.ContainerName)
 	if allocationInfo != nil {
-		klog.Infof("[MemoryDynamicPolicy.%v] pod: %s/%s, container: %s change cpuset.mems from: %s to %s",
-			general.GetCallerName(), req.PodNamespace, req.PodName, req.ContainerName,
-			allocationInfo.NumaAllocationResult.String(), numaWithoutNUMABindingPods.String())
+		general.Infof("pod: %s/%s, container: %s change cpuset.mems from: %s to %s",
+			req.PodNamespace, req.PodName, req.ContainerName, allocationInfo.NumaAllocationResult.String(), numaWithoutNUMABindingPods.String())
 	}
 
 	allocationInfo = &state.AllocationInfo{
@@ -301,15 +299,15 @@ func (p *DynamicPolicy) allocateNUMAsWithoutNUMABindingPods(_ context.Context,
 
 	machineState, err := state.GenerateMachineStateFromPodEntries(p.state.GetMachineInfo(), podResourceEntries, p.state.GetReservedMemory())
 	if err != nil {
-		klog.Errorf("[MemoryDynamicPolicy.%v] pod: %s/%s, container: %s GenerateMachineStateFromPodEntries failed with error: %v",
-			general.GetCallerName(), req.PodNamespace, req.PodName, req.ContainerName, err)
+		general.Errorf("pod: %s/%s, container: %s GenerateMachineStateFromPodEntries failed with error: %v",
+			req.PodNamespace, req.PodName, req.ContainerName, err)
 		return nil, fmt.Errorf("calculate resourceState by updated pod entries failed with error: %v", err)
 	}
 
 	resp, err := rePackAllocations(allocationInfo, req)
 	if err != nil {
-		klog.Errorf("[MemoryDynamicPolicy.%v] pod: %s/%s, container: %s rePackAllocations failed with error: %v",
-			general.GetCallerName(), req.PodNamespace, req.PodName, req.ContainerName, err)
+		general.Errorf("pod: %s/%s, container: %s rePackAllocations failed with error: %v",
+			req.PodNamespace, req.PodName, req.ContainerName, err)
 		return nil, fmt.Errorf("rePackAllocations failed with error: %v", err)
 	}
 
@@ -328,7 +326,7 @@ func (p *DynamicPolicy) allocateAllNUMAs(req *pluginapi.ResourceRequest,
 	allNUMAs := p.topology.CPUDetails.NUMANodes()
 	allocationInfo := p.state.GetAllocationInfo(v1.ResourceMemory, req.PodUid, req.ContainerName)
 	if allocationInfo != nil && !allocationInfo.NumaAllocationResult.Equals(allNUMAs) {
-		klog.Infof("[MemoryDynamicPolicy.%v] pod: %s/%s, container: %s change cpuset.mems from: %s to %s", general.GetCallerName(),
+		general.Infof("pod: %s/%s, container: %s change cpuset.mems from: %s to %s",
 			req.PodNamespace, req.PodName, req.ContainerName, allocationInfo.NumaAllocationResult.String(), allNUMAs.String())
 	}
 
@@ -352,15 +350,15 @@ func (p *DynamicPolicy) allocateAllNUMAs(req *pluginapi.ResourceRequest,
 
 	machineState, err := state.GenerateMachineStateFromPodEntries(p.state.GetMachineInfo(), podResourceEntries, p.state.GetReservedMemory())
 	if err != nil {
-		klog.Errorf("[MemoryDynamicPolicy.%v] pod: %s/%s, container: %s GenerateMachineStateFromPodEntries failed with error: %v",
-			general.GetCallerName(), req.PodNamespace, req.PodName, req.ContainerName, err)
+		general.Errorf("pod: %s/%s, container: %s GenerateMachineStateFromPodEntries failed with error: %v",
+			req.PodNamespace, req.PodName, req.ContainerName, err)
 		return nil, fmt.Errorf("calculate machineState by updated pod entries failed with error: %v", err)
 	}
 
 	resp, err := rePackAllocations(allocationInfo, req)
 	if err != nil {
-		klog.Errorf("[MemoryDynamicPolicy.%v] pod: %s/%s, container: %s rePackAllocations failed with error: %v",
-			general.GetCallerName(), req.PodNamespace, req.PodName, req.ContainerName, err)
+		general.Errorf("pod: %s/%s, container: %s rePackAllocations failed with error: %v",
+			req.PodNamespace, req.PodName, req.ContainerName, err)
 		return nil, fmt.Errorf("rePackAllocations failed with error: %v", err)
 	}
 
@@ -383,7 +381,7 @@ func (p *DynamicPolicy) calculateMemoryAllocation(req *pluginapi.ResourceRequest
 	}
 
 	hintNumaNodes := machine.NewCPUSet(util.HintToIntArray(req.Hint)...)
-	klog.InfoS(fmt.Sprintf("[MemoryDynamicPolicy.%v] to allocate by hints", general.GetCallerName()),
+	general.InfoS("allocate by hints",
 		"podNamespace", req.PodNamespace,
 		"podName", req.PodName,
 		"containerName", req.ContainerName,
@@ -394,8 +392,8 @@ func (p *DynamicPolicy) calculateMemoryAllocation(req *pluginapi.ResourceRequest
 	//  and we will modify strategy here if assumption above breaks.
 	leftQuantity := calculateExclusiveMemory(req, machineState, hintNumaNodes.ToSliceInt(), uint64(memoryReq), qosLevel)
 	if leftQuantity > 0 {
-		klog.Errorf("[MemoryDynamicPolicy.%v] hint NUMA nodes: %s can't meet memory "+
-			"request: %d bytes, leftQuantity: %s", general.GetCallerName(), hintNumaNodes.String(), memoryReq, leftQuantity)
+		general.Errorf("hint NUMA nodes: %s can't meet memory request: %d bytes, leftQuantity: %d",
+			hintNumaNodes.String(), memoryReq, leftQuantity)
 		return fmt.Errorf("results can't meet memory request")
 	}
 	return nil
@@ -411,7 +409,7 @@ func (p *DynamicPolicy) adjustAllocationEntries() error {
 	podEntries := podResourceEntries[v1.ResourceMemory]
 
 	numaWithoutNUMABindingPods := machineState.GetNUMANodesWithoutNUMABindingPods()
-	klog.Infof("[MemoryDynamicPolicy.%v] numaWithoutNUMABindingPods: %s", general.GetCallerName(), numaWithoutNUMABindingPods.String())
+	general.Infof("numaWithoutNUMABindingPods: %s", numaWithoutNUMABindingPods.String())
 
 	// for numaSetChangedContainers, we should reset their allocation info and
 	// trigger necessary Knob actions (like dropping caches or migrate memory
@@ -420,12 +418,10 @@ func (p *DynamicPolicy) adjustAllocationEntries() error {
 	for podUID, containerEntries := range podEntries {
 		for containerName, allocationInfo := range containerEntries {
 			if allocationInfo == nil {
-				klog.Errorf("[MemoryDynamicPolicy.%v] pod: %s, container: %s has nil allocationInfo",
-					general.GetCallerName(), podUID, containerName)
+				general.Errorf("pod: %s, container: %s has nil allocationInfo", podUID, containerName)
 				continue
 			} else if containerName == "" {
-				klog.Errorf("[MemoryDynamicPolicy.%v] pod: %s has empty containerName entry",
-					general.GetCallerName(), podUID)
+				general.Errorf("pod: %s has empty containerName entry", podUID)
 				continue
 			} else if allocationInfo.CheckNumaBinding() {
 				// not to adjust NUMA binding containers
@@ -442,8 +438,8 @@ func (p *DynamicPolicy) adjustAllocationEntries() error {
 					numaSetChangedContainers[podUID] = make(map[string]bool)
 				}
 				numaSetChangedContainers[podUID][containerName] = true
-				klog.Infof("[MemoryDynamicPolicy.%v] pod: %s/%s, container: %s change cpuset.mems from: %s to %s",
-					general.GetCallerName(), allocationInfo.PodNamespace, allocationInfo.PodName, allocationInfo.ContainerName,
+				general.Infof("pod: %s/%s, container: %s change cpuset.mems from: %s to %s",
+					allocationInfo.PodNamespace, allocationInfo.PodName, allocationInfo.ContainerName,
 					allocationInfo.NumaAllocationResult.String(), numaWithoutNUMABindingPods.String())
 			}
 
@@ -467,20 +463,17 @@ func (p *DynamicPolicy) adjustAllocationEntries() error {
 			go func(curPodUID, curContainerName string) {
 				containerId, err := p.metaServer.GetContainerID(curPodUID, curContainerName)
 				if err != nil {
-					klog.Errorf("[MemoryDynamicPolicy.%v] get container id of pod: %s container: %s "+
-						"failed with error: %v", general.GetCallerName(), curPodUID, curContainerName, err)
+					general.Errorf("get container id of pod: %s container: %s failed with error: %v", curPodUID, curContainerName, err)
 					return
 				}
 
 				err = cgroupcmutils.DropCacheWithTimeoutForContainer(curPodUID, containerId, 30)
 				if err != nil {
-					klog.Errorf("[MemoryDynamicPolicy.%v] drop cache of pod: %s container: %s failed "+
-						"with error: %v", general.GetCallerName(), curPodUID, curContainerName, err)
+					general.Errorf("drop cache of pod: %s container: %s failed with error: %v", curPodUID, curContainerName, err)
 					return
 				}
 
-				klog.Infof("[MemoryDynamicPolicy.%v] drop cache of pod: %s container: %s successfully",
-					general.GetCallerName(), curPodUID, curContainerName)
+				general.Infof("drop cache of pod: %s container: %s successfully", curPodUID, curContainerName)
 			}(podUID, containerName)
 		}
 	}
@@ -546,14 +539,14 @@ func calculateExclusiveMemory(req *pluginapi.ResourceRequest,
 }
 
 // rePackAllocations regenerates allocations for container that'd already been allocated memory,
-// and rePackHints will assemble allocations based on already-existed AllocationInfo,
+// and rePackAllocations will assemble allocations based on already-existed AllocationInfo,
 // without any calculation logics at all
 func rePackAllocations(allocationInfo *state.AllocationInfo,
 	req *pluginapi.ResourceRequest) (*pluginapi.ResourceAllocationResponse, error) {
 	if allocationInfo == nil {
-		return nil, fmt.Errorf("PackResourceAllocationResponseByAllocationInfo got nil allocationInfo")
+		return nil, fmt.Errorf("rePackAllocations got nil allocationInfo")
 	} else if req == nil {
-		return nil, fmt.Errorf("PackResourceAllocationResponseByAllocationInfo got nil request")
+		return nil, fmt.Errorf("rePackAllocations got nil request")
 	}
 
 	return &pluginapi.ResourceAllocationResponse{

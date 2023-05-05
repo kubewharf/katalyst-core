@@ -26,7 +26,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
-// cpuAccumulator is used as a helper function calculate cpu detailed
+// cpuAccumulator is used as a helper function to calculate cpu detailed
 // allocation results according to machine topology and cpu requirements;
 // it uses a stable allocation strategy, meaning that every time we need
 // a fixed number of cpu cores based a fixed cpu topology, we will always
