@@ -16,11 +16,28 @@ limitations under the License.
 
 package machine
 
+import (
+	"k8s.io/kubernetes/pkg/kubelet/cm/topologymanager/bitmask"
+)
+
 // TransformCPUAssignmentFormat transforms cpu assignment string format to cpuset format
 func TransformCPUAssignmentFormat(assignment map[uint64]string) map[int]CPUSet {
 	res := make(map[int]CPUSet)
 	for k, v := range assignment {
 		res[int(k)] = MustParse(v)
+	}
+	return res
+}
+
+// ParseCPUAssignmentFormat parses the given assignments into string format
+func ParseCPUAssignmentFormat(assignments map[int]CPUSet) map[uint64]string {
+	if assignments == nil {
+		return nil
+	}
+
+	res := make(map[uint64]string)
+	for id, cset := range assignments {
+		res[uint64(id)] = cset.String()
 	}
 	return res
 }
@@ -32,4 +49,41 @@ func CountCPUAssignmentCPUs(assignment map[int]CPUSet) int {
 		res += v.Size()
 	}
 	return res
+}
+
+// GetQuantityMap is used to generate cpu resource counting map
+// based on the given CPUSet map
+func GetQuantityMap(csetMap map[string]CPUSet) map[string]int {
+	ret := make(map[string]int)
+
+	for name, cset := range csetMap {
+		ret[name] = cset.Size()
+	}
+
+	return ret
+}
+
+// DeepcopyCPUAssignment returns a deep-copied assignments for the given one
+func DeepcopyCPUAssignment(assignment map[int]CPUSet) map[int]CPUSet {
+	if assignment == nil {
+		return nil
+	}
+
+	copied := make(map[int]CPUSet)
+	for numaNode, cset := range assignment {
+		copied[numaNode] = cset.Clone()
+	}
+	return copied
+}
+
+// MaskToUInt64Array transforms bit mask to uint slices
+func MaskToUInt64Array(mask bitmask.BitMask) []uint64 {
+	maskBits := mask.GetBits()
+
+	maskBitsUint64 := make([]uint64, 0, len(maskBits))
+	for _, numaNode := range maskBits {
+		maskBitsUint64 = append(maskBitsUint64, uint64(numaNode))
+	}
+
+	return maskBitsUint64
 }

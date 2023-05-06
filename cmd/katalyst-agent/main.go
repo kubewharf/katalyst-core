@@ -38,7 +38,7 @@ func main() {
 	for _, f := range fss.FlagSets {
 		commandLine.AddFlagSet(f)
 	}
-	commandLine.Parse(os.Args[1:])
+	_ = commandLine.Parse(os.Args[1:])
 
 	rand.Seed(time.Now().UnixNano())
 	if err := app.Run(opt); err != nil {

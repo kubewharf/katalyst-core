@@ -57,7 +57,7 @@ func InitKubernetesCGroupPath(cgroupType CgroupType, additionalK8SCGroupPath []s
 
 // GetCgroupRootPath get cgroupfs root path compatible with v1 and v2
 func GetCgroupRootPath(subsys string) string {
-	if IsCgroup2UnifiedMode() {
+	if CheckCgroup2UnifiedMode() {
 		return CgroupFSMountPoint
 	}
 
