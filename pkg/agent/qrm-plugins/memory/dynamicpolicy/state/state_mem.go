@@ -27,71 +27,21 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
-// cpuPluginState is an in-memory implementation of State;
+// memoryPluginState is an in-memory implementation of State;
 // everytime we want to read or write states, those requests will always
 // go to in-memory State, and then go to disk State, i.e. in write-back mode
 type memoryPluginState struct {
 	sync.RWMutex
-	podResourceEntries PodResourceEntries
+
+	socketTopology map[int]string
+	machineInfo    *info.MachineInfo
+	reservedMemory map[v1.ResourceName]map[int]uint64
+
 	machineState       NUMANodeResourcesMap
-	socketTopology     map[int]string
-	machineInfo        *info.MachineInfo
-	reservedMemory     map[v1.ResourceName]map[int]uint64
+	podResourceEntries PodResourceEntries
 }
 
 var _ State = &memoryPluginState{}
-
-func GetDefaultResourcesMachineState(machineInfo *info.MachineInfo,
-	reservedMemory map[v1.ResourceName]map[int]uint64) (NUMANodeResourcesMap, error) {
-
-	if machineInfo == nil {
-		return nil, fmt.Errorf("GetDefaultResourcesMachineState got nil machineInfo")
-	}
-
-	// todo: currently only support memory, we will support huge page later.
-	defaultResourcesMachineState := make(NUMANodeResourcesMap)
-	for _, resourceName := range []v1.ResourceName{v1.ResourceMemory} {
-		machineState, err := GetDefaultMachineState(machineInfo, reservedMemory, resourceName)
-		if err != nil {
-			return nil, fmt.Errorf("GetDefaultMachineState for resource: %s failed with error: %v", resourceName, err)
-		}
-
-		defaultResourcesMachineState[resourceName] = machineState
-	}
-	return defaultResourcesMachineState, nil
-}
-
-func GetDefaultMachineState(machineInfo *info.MachineInfo, reservedMemory map[v1.ResourceName]map[int]uint64, resourceName v1.ResourceName) (NUMANodeMap, error) {
-	defaultMachineState := make(NUMANodeMap)
-
-	switch resourceName {
-	case v1.ResourceMemory:
-		for _, node := range machineInfo.Topology {
-			totalMemSizeQuantity := node.Memory
-			numaReservedMemQuantity := reservedMemory[resourceName][node.Id]
-
-			if totalMemSizeQuantity < numaReservedMemQuantity {
-				return nil, fmt.Errorf("invalid reserved memory: %d in NUMA: %d with total memory size: %d", numaReservedMemQuantity, node.Id, totalMemSizeQuantity)
-			}
-
-			allocatableQuantity := totalMemSizeQuantity - numaReservedMemQuantity
-			freeQuantity := allocatableQuantity
-
-			defaultMachineState[node.Id] = &NUMANodeState{
-				TotalMemSize:   totalMemSizeQuantity,
-				SystemReserved: numaReservedMemQuantity,
-				Allocatable:    allocatableQuantity,
-				Allocated:      0,
-				Free:           freeQuantity,
-				PodEntries:     make(PodEntries),
-			}
-		}
-	default:
-		return nil, fmt.Errorf("unsupported resource name: %s", resourceName)
-	}
-
-	return defaultMachineState, nil
-}
 
 func NewMemoryPluginState(topology *machine.CPUTopology, machineInfo *info.MachineInfo, reservedMemory map[v1.ResourceName]map[int]uint64) (State, error) {
 	klog.InfoS("[memory_plugin] initializing new memory plugin in-memory state store")
@@ -101,9 +51,9 @@ func NewMemoryPluginState(topology *machine.CPUTopology, machineInfo *info.Machi
 		socketTopology[socketID] = topology.CPUDetails.NUMANodesInSockets(socketID).String()
 	}
 
-	defaultMachineState, err := GetDefaultResourcesMachineState(machineInfo, reservedMemory)
+	defaultMachineState, err := GenerateMachineState(machineInfo, reservedMemory)
 	if err != nil {
-		return nil, fmt.Errorf("GetDefaultResourcesMachineState failed with error: %v", err)
+		return nil, fmt.Errorf("GenerateMachineState failed with error: %v", err)
 	}
 
 	return &memoryPluginState{
@@ -200,7 +150,6 @@ func (s *memoryPluginState) SetPodResourceEntries(podResourceEntries PodResource
 		"podResourceEntries", podResourceEntries.String())
 }
 
-// Delete deletes corresponding Blocks from ContainerMemoryAssignments
 func (s *memoryPluginState) Delete(resourceName v1.ResourceName, podUID, containerName string) {
 	s.Lock()
 	defer s.Unlock()
@@ -220,12 +169,11 @@ func (s *memoryPluginState) Delete(resourceName v1.ResourceName, podUID, contain
 	klog.V(2).InfoS("[memory_plugin] deleted container entry", "resourceName", resourceName, "podUID", podUID, "containerName", containerName)
 }
 
-// ClearState clears machineState and ContainerMemoryAssignments
 func (s *memoryPluginState) ClearState() {
 	s.Lock()
 	defer s.Unlock()
 
-	s.machineState, _ = GetDefaultResourcesMachineState(s.machineInfo, s.reservedMemory)
+	s.machineState, _ = GenerateMachineState(s.machineInfo, s.reservedMemory)
 	s.podResourceEntries = make(PodResourceEntries)
 	s.socketTopology = make(map[int]string)
 

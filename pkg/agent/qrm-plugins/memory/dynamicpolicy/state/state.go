@@ -18,10 +18,12 @@ package state
 
 import (
 	"encoding/json"
+	"fmt"
 
 	info "github.com/google/cadvisor/info/v1"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/klog/v2"
+	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 
 	"github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
@@ -40,6 +42,7 @@ type AllocationInfo struct {
 	PodType              string         `json:"pod_type,omitempty"`
 	AggregatedQuantity   uint64         `json:"aggregated_quantity"`
 	NumaAllocationResult machine.CPUSet `json:"numa_allocation_result,omitempty"`
+
 	// key by numa node id, value is assignment for the pod in corresponding NUMA node
 	TopologyAwareAllocations map[int]uint64    `json:"topology_aware_allocations"`
 	Labels                   map[string]string `json:"labels"`
@@ -70,12 +73,10 @@ func (ai *AllocationInfo) String() string {
 	}
 
 	contentBytes, err := json.Marshal(ai)
-
 	if err != nil {
 		klog.Errorf("[AllocationInfo.String] marshal AllocationInfo failed with error: %v", err)
 		return ""
 	}
-
 	return string(contentBytes)
 }
 
@@ -105,8 +106,24 @@ func (ai *AllocationInfo) Clone() *AllocationInfo {
 	for node, quantity := range ai.TopologyAwareAllocations {
 		clone.TopologyAwareAllocations[node] = quantity
 	}
-
 	return clone
+}
+
+// CheckNumaBinding returns true if the AllocationInfo is for pod with
+// dedicated-qos and numa-binding enhancement
+func (ai *AllocationInfo) CheckNumaBinding() bool {
+	return ai.QoSLevel == consts.PodAnnotationQoSLevelDedicatedCores &&
+		ai.Annotations[consts.PodAnnotationMemoryEnhancementNumaBinding] == consts.PodAnnotationMemoryEnhancementNumaBindingEnable
+}
+
+// CheckMainContainer returns true if the AllocationInfo is for main container
+func (ai *AllocationInfo) CheckMainContainer() bool {
+	return ai.ContainerType == pluginapi.ContainerType_MAIN.String()
+}
+
+// CheckSideCar returns true if the AllocationInfo is for side-car container
+func (ai *AllocationInfo) CheckSideCar() bool {
+	return ai.ContainerType == pluginapi.ContainerType_SIDECAR.String()
 }
 
 func (pe PodEntries) Clone() PodEntries {
@@ -117,8 +134,18 @@ func (pe PodEntries) Clone() PodEntries {
 			clone[podUID][containerName] = allocationInfo.Clone()
 		}
 	}
-
 	return clone
+}
+
+// GetMainContainerAllocation returns AllocationInfo that belongs
+// the main container for this pod
+func (pe PodEntries) GetMainContainerAllocation(podUID string) (*AllocationInfo, bool) {
+	for _, allocationInfo := range pe[podUID] {
+		if allocationInfo.CheckMainContainer() {
+			return allocationInfo, true
+		}
+	}
+	return nil, false
 }
 
 func (pre PodResourceEntries) String() string {
@@ -127,12 +154,10 @@ func (pre PodResourceEntries) String() string {
 	}
 
 	contentBytes, err := json.Marshal(pre)
-
 	if err != nil {
 		klog.Errorf("[PodResourceEntries.String] marshal PodResourceEntries failed with error: %v", err)
 		return ""
 	}
-
 	return string(contentBytes)
 }
 
@@ -141,7 +166,6 @@ func (pre PodResourceEntries) Clone() PodResourceEntries {
 	for resourceName, podEntries := range pre {
 		clone[resourceName] = podEntries.Clone()
 	}
-
 	return clone
 }
 
@@ -151,12 +175,10 @@ func (ns *NUMANodeState) String() string {
 	}
 
 	contentBytes, err := json.Marshal(ns)
-
 	if err != nil {
 		klog.Errorf("[NUMANodeState.String] marshal NUMANodeState failed with error: %v", err)
 		return ""
 	}
-
 	return string(contentBytes)
 }
 
@@ -175,6 +197,7 @@ func (ns *NUMANodeState) Clone() *NUMANodeState {
 	}
 }
 
+// HasNUMABindingPods returns true if any AllocationInfo in this NUMANodeState is for numa-binding
 func (ns *NUMANodeState) HasNUMABindingPods() bool {
 	if ns == nil {
 		return false
@@ -182,17 +205,15 @@ func (ns *NUMANodeState) HasNUMABindingPods() bool {
 
 	for _, containerEntries := range ns.PodEntries {
 		for _, allocationInfo := range containerEntries {
-			if allocationInfo != nil &&
-				allocationInfo.QoSLevel == consts.PodAnnotationQoSLevelDedicatedCores &&
-				allocationInfo.Annotations[consts.PodAnnotationMemoryEnhancementNumaBinding] == consts.PodAnnotationMemoryEnhancementNumaBindingEnable {
+			if allocationInfo != nil && allocationInfo.CheckNumaBinding() {
 				return true
 			}
 		}
 	}
-
 	return false
 }
 
+// SetAllocationInfo adds a new AllocationInfo (for pod/container pairs) into the given NUMANodeState
 func (ns *NUMANodeState) SetAllocationInfo(podUID string, containerName string, allocationInfo *AllocationInfo) {
 	if ns == nil {
 		return
@@ -217,6 +238,23 @@ func (nm NUMANodeMap) Clone() NUMANodeMap {
 	return clone
 }
 
+// BytesPerNUMA is a helper function to parse memory capacity at per numa level
+func (nm NUMANodeMap) BytesPerNUMA() (uint64, error) {
+	if len(nm) == 0 {
+		return 0, fmt.Errorf("getBytesPerNUMAFromMachineState got nil numaMap")
+	}
+
+	for _, numaState := range nm {
+		if numaState != nil {
+			return numaState.Allocatable, nil
+		}
+	}
+
+	return 0, fmt.Errorf("getBytesPerNUMAFromMachineState doesn't get valid numaState")
+}
+
+// GetNUMANodesWithoutNUMABindingPods returns a set of numa nodes; for
+// those numa nodes, they all don't contain numa-binding pods
 func (nm NUMANodeMap) GetNUMANodesWithoutNUMABindingPods() machine.CPUSet {
 	res := machine.NewCPUSet()
 	for numaId, numaNodeState := range nm {
@@ -224,7 +262,6 @@ func (nm NUMANodeMap) GetNUMANodesWithoutNUMABindingPods() machine.CPUSet {
 			res = res.Union(machine.NewCPUSet(numaId))
 		}
 	}
-
 	return res
 }
 
@@ -234,12 +271,10 @@ func (nrm NUMANodeResourcesMap) String() string {
 	}
 
 	contentBytes, err := json.Marshal(nrm)
-
 	if err != nil {
 		klog.Errorf("[NUMANodeResourcesMap.String] marshal NUMANodeResourcesMap failed with error: %v", err)
 		return ""
 	}
-
 	return string(contentBytes)
 }
 
@@ -254,25 +289,19 @@ func (nrm NUMANodeResourcesMap) Clone() NUMANodeResourcesMap {
 // reader is used to get information from local states
 type reader interface {
 	GetMachineState() NUMANodeResourcesMap
-	GetAllocationInfo(resourceName v1.ResourceName, podUID, containerName string) *AllocationInfo
 	GetPodResourceEntries() PodResourceEntries
+	GetAllocationInfo(resourceName v1.ResourceName, podUID, containerName string) *AllocationInfo
 }
 
 // writer is used to store information into local states,
 // and it also provides functionality to maintain the local files
 type writer interface {
 	SetMachineState(numaNodeResourcesMap NUMANodeResourcesMap)
-	SetAllocationInfo(resourceName v1.ResourceName, podUID, containerName string, allocationInfo *AllocationInfo)
 	SetPodResourceEntries(podResourceEntries PodResourceEntries)
+	SetAllocationInfo(resourceName v1.ResourceName, podUID, containerName string, allocationInfo *AllocationInfo)
 
 	Delete(resourceName v1.ResourceName, podUID, containerName string)
 	ClearState()
-}
-
-// State interface provides methods for tracking and setting pod assignments
-type State interface {
-	writer
-	ReadonlyState
 }
 
 // ReadonlyState interface only provides methods for tracking pod assignments
@@ -281,4 +310,10 @@ type ReadonlyState interface {
 
 	GetMachineInfo() *info.MachineInfo
 	GetReservedMemory() map[v1.ResourceName]map[int]uint64
+}
+
+// State interface provides methods for tracking and setting pod assignments
+type State interface {
+	writer
+	ReadonlyState
 }

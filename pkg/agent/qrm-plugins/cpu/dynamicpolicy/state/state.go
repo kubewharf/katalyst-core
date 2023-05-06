@@ -25,15 +25,15 @@ import (
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 
 	"github.com/kubewharf/katalyst-api/pkg/consts"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/cpuadvisor"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
-// [notice]
 // to compatible with checkpoint checksum calculation,
 // we should make guarantees below in checkpoint properties assignment
 // 1. resource.Quantity use resource.MustParse("0") to initialize, not to use resource.Quantity{}
-// 2. CPUSet use NewCPUset(...) to initialize, not to use CPUSet{}
+// 2. CPUSet use NewCPUSet(...) to initialize, not to use CPUSet{}
 // 3. not use omitempty in map property and must make new map to do initialization
 
 type AllocationInfo struct {
@@ -49,12 +49,14 @@ type AllocationInfo struct {
 	PodType                  string         `json:"pod_type,omitempty"`
 	AllocationResult         machine.CPUSet `json:"allocation_result,omitempty"`
 	OriginalAllocationResult machine.CPUSet `json:"original_allocation_result,omitempty"`
-	//key by numa node id, value is assignment for the pod in corresponding NUMA node
+
+	// key by numa node id, value is assignment for the pod in corresponding NUMA node
 	TopologyAwareAssignments map[int]machine.CPUSet `json:"topology_aware_assignments"`
-	//key by numa node id, value is assignment for the pod in corresponding NUMA node
+	// key by numa node id, value is assignment for the pod in corresponding NUMA node
 	OriginalTopologyAwareAssignments map[int]machine.CPUSet `json:"original_topology_aware_assignments"`
-	//for ramp up calculation. notice we don't use time.Time type here to avid checksum corruption.
-	InitTimestamp   string            `json:"init_timestamp"`
+	// for ramp up calculation. notice we don't use time.Time type here to avid checksum corruption.
+	InitTimestamp string `json:"init_timestamp"`
+
 	Labels          map[string]string `json:"labels"`
 	Annotations     map[string]string `json:"annotations"`
 	QoSLevel        string            `json:"qosLevel"`
@@ -69,24 +71,11 @@ type NUMANodeState struct {
 	DefaultCPUSet machine.CPUSet `json:"default_cpuset,omitempty"`
 	// equals to original allocation result of dedicated_cores with NUMA binding
 	AllocatedCPUSet machine.CPUSet `json:"allocated_cpuset,omitempty"`
-	PodEntries      PodEntries     `json:"pod_entries"`
+
+	PodEntries PodEntries `json:"pod_entries"`
 }
 
 type NUMANodeMap map[int]*NUMANodeState
-
-func (ai *AllocationInfo) String() string {
-	if ai == nil {
-		return ""
-	}
-
-	contentBytes, err := json.Marshal(ai)
-	if err != nil {
-		klog.Errorf("[AllocationInfo.String] marshal AllocationInfo failed with error: %v", err)
-		return ""
-	}
-
-	return string(contentBytes)
-}
 
 func (ai *AllocationInfo) Clone() *AllocationInfo {
 	if ai == nil {
@@ -118,7 +107,6 @@ func (ai *AllocationInfo) Clone() *AllocationInfo {
 	for node, cpus := range ai.TopologyAwareAssignments {
 		clone.TopologyAwareAssignments[node] = cpus.Clone()
 	}
-
 	for node, cpus := range ai.OriginalTopologyAwareAssignments {
 		clone.OriginalTopologyAwareAssignments[node] = cpus.Clone()
 	}
@@ -126,15 +114,114 @@ func (ai *AllocationInfo) Clone() *AllocationInfo {
 	return clone
 }
 
+func (ai *AllocationInfo) String() string {
+	if ai == nil {
+		return ""
+	}
+
+	contentBytes, err := json.Marshal(ai)
+	if err != nil {
+		klog.Errorf("[AllocationInfo.String] marshal AllocationInfo failed with error: %v", err)
+		return ""
+	}
+	return string(contentBytes)
+}
+
+// GetPoolName parses the owner pool name for AllocationInfo
+// if owner exists, just return; otherwise, parse from qos-level
+func (ai *AllocationInfo) GetPoolName() string {
+	if ai == nil {
+		return cpuadvisor.EmptyOwnerPoolName
+	}
+
+	if ownerPoolName := ai.GetOwnerPoolName(); ownerPoolName != cpuadvisor.EmptyOwnerPoolName {
+		return ownerPoolName
+	}
+	return ai.GetSpecifiedPoolName()
+}
+
+// GetOwnerPoolName parses the owner pool name for AllocationInfo
+func (ai *AllocationInfo) GetOwnerPoolName() string {
+	if ai == nil {
+		return cpuadvisor.EmptyOwnerPoolName
+	}
+	return ai.OwnerPoolName
+}
+
+// GetSpecifiedPoolName parses the owner pool name for AllocationInfo from qos-level
+func (ai *AllocationInfo) GetSpecifiedPoolName() string {
+	if ai == nil {
+		return cpuadvisor.EmptyOwnerPoolName
+	}
+
+	switch ai.QoSLevel {
+	case consts.PodAnnotationQoSLevelSharedCores:
+		specifiedPoolName := ai.Annotations[consts.PodAnnotationCPUEnhancementCPUSet]
+		if specifiedPoolName != cpuadvisor.EmptyOwnerPoolName {
+			return specifiedPoolName
+		}
+		return PoolNameShare
+	case consts.PodAnnotationQoSLevelReclaimedCores:
+		return PoolNameReclaim
+	default:
+		return cpuadvisor.EmptyOwnerPoolName
+	}
+}
+
+// CheckMainContainer returns true if the AllocationInfo is for main container
+func (ai *AllocationInfo) CheckMainContainer() bool {
+	return ai.ContainerType == pluginapi.ContainerType_MAIN.String()
+}
+
+// CheckSideCar returns true if the AllocationInfo is for side-car container
+func (ai *AllocationInfo) CheckSideCar() bool {
+	return ai.ContainerType == pluginapi.ContainerType_SIDECAR.String()
+}
+
+// CheckDedicated returns true if the AllocationInfo is for pod with dedicated-qos
+func CheckDedicated(ai *AllocationInfo) bool {
+	return ai.QoSLevel == consts.PodAnnotationQoSLevelDedicatedCores
+}
+
+// CheckShared returns true if the AllocationInfo is for pod with shared-qos
+func CheckShared(ai *AllocationInfo) bool {
+	return ai.QoSLevel == consts.PodAnnotationQoSLevelSharedCores
+}
+
+// CheckReclaimed returns true if the AllocationInfo is for pod with reclaimed-qos
+func CheckReclaimed(ai *AllocationInfo) bool {
+	return ai.QoSLevel == consts.PodAnnotationQoSLevelReclaimedCores
+}
+
+// CheckNumaBinding returns true if the AllocationInfo is for pod with
+// dedicated-qos and numa-binding enhancement
+func CheckNumaBinding(ai *AllocationInfo) bool {
+	return ai.QoSLevel == consts.PodAnnotationQoSLevelDedicatedCores &&
+		ai.Annotations[consts.PodAnnotationMemoryEnhancementNumaBinding] == consts.PodAnnotationMemoryEnhancementNumaBindingEnable
+}
+
+// IsPoolEntry returns true if this entry is for a pool;
+// otherwise, this entry is for a container entity.
 func (ce ContainerEntries) IsPoolEntry() bool {
-	return len(ce) == 1 && ce[""] != nil
+	return len(ce) == 1 && ce[cpuadvisor.FakedContainerID] != nil
 }
 
 func (ce ContainerEntries) GetPoolEntry() *AllocationInfo {
 	if !ce.IsPoolEntry() {
 		return nil
 	}
-	return ce[""]
+	return ce[cpuadvisor.FakedContainerID]
+}
+
+func (pe PodEntries) Clone() PodEntries {
+	clone := make(PodEntries)
+	for podUID, containerEntries := range pe {
+		clone[podUID] = make(ContainerEntries)
+		for containerName, allocationInfo := range containerEntries {
+			clone[podUID][containerName] = allocationInfo.Clone()
+		}
+	}
+	return clone
 }
 
 func (ce ContainerEntries) GetMainContainerEntry() *AllocationInfo {
@@ -156,63 +243,81 @@ func (pe PodEntries) String() string {
 	}
 
 	contentBytes, err := json.Marshal(pe)
-
 	if err != nil {
 		klog.Errorf("[PodEntries.String] marshal PodEntries failed with error: %v", err)
 		return ""
 	}
-
 	return string(contentBytes)
 }
 
-func (pe PodEntries) GetPoolCPUset(poolName string) (machine.CPUSet, error) {
+// CheckPoolEmpty returns true if the given pool doesn't exit
+func (pe PodEntries) CheckPoolEmpty(poolName string) bool {
+	return pe[poolName][cpuadvisor.FakedContainerID] == nil ||
+		pe[poolName][cpuadvisor.FakedContainerID].AllocationResult.IsEmpty()
+}
+
+// GetCPUSetForPool returns cpuset that belongs to the given pool
+func (pe PodEntries) GetCPUSetForPool(poolName string) (machine.CPUSet, error) {
 	if pe == nil {
-		return machine.NewCPUSet(), fmt.Errorf("GetPoolCPUset from nil podEntries")
+		return machine.NewCPUSet(), fmt.Errorf("GetCPUSetForPool from nil podEntries")
 	}
 
 	if !pe[poolName].IsPoolEntry() {
 		return machine.NewCPUSet(), fmt.Errorf("pool not found")
 	}
-
-	return pe[poolName][""].AllocationResult.Clone(), nil
+	return pe[poolName][cpuadvisor.FakedContainerID].AllocationResult.Clone(), nil
 }
 
-func (pe PodEntries) GetPoolsCPUset(ignorePools sets.String) map[string]machine.CPUSet {
-	ret := make(map[string]machine.CPUSet)
-
+// GetCPUSetForPools returns a mapping of pools for all of them (except for those skipped ones)
+func (pe PodEntries) GetCPUSetForPools(ignorePools sets.String) machine.CPUSet {
+	ret := machine.NewCPUSet()
 	if pe == nil {
 		return ret
 	}
 
 	for poolName, entries := range pe {
 		allocationInfo := entries.GetPoolEntry()
+		if allocationInfo != nil && !ignorePools.Has(poolName) {
+			ret = ret.Union(allocationInfo.AllocationResult.Clone())
+		}
+	}
+	return ret
+}
 
+// GetCPUSetMapForPools returns a mapping of pools for all of them (except for those skipped ones)
+func (pe PodEntries) GetCPUSetMapForPools(ignorePools sets.String) map[string]machine.CPUSet {
+	ret := make(map[string]machine.CPUSet)
+	if pe == nil {
+		return ret
+	}
+
+	for poolName, entries := range pe {
+		allocationInfo := entries.GetPoolEntry()
 		if allocationInfo != nil && !ignorePools.Has(poolName) {
 			ret[poolName] = allocationInfo.AllocationResult.Clone()
 		}
 	}
-
 	return ret
 }
 
-func (pe PodEntries) Clone() PodEntries {
-	clone := make(PodEntries)
+// GetFilteredPodEntries filter out PodEntries according to the given filter logic
+func (pe PodEntries) GetFilteredPodEntries(filter func(ai *AllocationInfo) bool) PodEntries {
+	numaBindingEntries := make(PodEntries)
 	for podUID, containerEntries := range pe {
-		clone[podUID] = make(ContainerEntries)
+		if containerEntries.IsPoolEntry() {
+			continue
+		}
+
 		for containerName, allocationInfo := range containerEntries {
-			clone[podUID][containerName] = allocationInfo.Clone()
+			if allocationInfo != nil && filter(allocationInfo) {
+				if numaBindingEntries[podUID] == nil {
+					numaBindingEntries[podUID] = make(ContainerEntries)
+				}
+				numaBindingEntries[podUID][containerName] = allocationInfo.Clone()
+			}
 		}
 	}
-
-	return clone
-}
-
-func (ns *NUMANodeState) GetAvailableCPUSet(reservedCPUs machine.CPUSet) machine.CPUSet {
-	if ns == nil {
-		return machine.NewCPUSet()
-	}
-
-	return ns.DefaultCPUSet.Difference(reservedCPUs)
+	return numaBindingEntries
 }
 
 func (ns *NUMANodeState) Clone() *NUMANodeState {
@@ -226,46 +331,29 @@ func (ns *NUMANodeState) Clone() *NUMANodeState {
 	}
 }
 
-func (ns *NUMANodeState) GetDefaultCPUSetExcludeDedicatedCoresPods() machine.CPUSet {
+// GetAvailableCPUSet returns available cpuset in this numa
+func (ns *NUMANodeState) GetAvailableCPUSet(reservedCPUs machine.CPUSet) machine.CPUSet {
+	if ns == nil {
+		return machine.NewCPUSet()
+	}
+	return ns.DefaultCPUSet.Difference(reservedCPUs)
+}
+
+// GetFilteredDefaultCPUSet returns default cpuset in this numa, along with the skip/filter functions
+func (ns *NUMANodeState) GetFilteredDefaultCPUSet(skip func(ai *AllocationInfo) bool) machine.CPUSet {
 	if ns == nil {
 		return machine.NewCPUSet()
 	}
 
 	res := ns.DefaultCPUSet.Clone()
 	res = res.Union(ns.AllocatedCPUSet)
-
 	for _, containerEntries := range ns.PodEntries {
 		for _, allocationInfo := range containerEntries {
-			if allocationInfo != nil && allocationInfo.QoSLevel == consts.PodAnnotationQoSLevelDedicatedCores {
+			if skip(allocationInfo) {
 				res = res.Difference(allocationInfo.AllocationResult)
 			}
 		}
 	}
-
-	return res
-}
-
-func (ns *NUMANodeState) GetDefaultCPUSetExcludeNUMABindingPods() machine.CPUSet {
-	if ns == nil {
-		return machine.NewCPUSet()
-	}
-
-	res := ns.DefaultCPUSet.Clone()
-	res = res.Union(ns.AllocatedCPUSet)
-
-	for _, containerEntries := range ns.PodEntries {
-		for _, allocationInfo := range containerEntries {
-			if allocationInfo != nil &&
-				allocationInfo.QoSLevel == consts.PodAnnotationQoSLevelDedicatedCores &&
-				allocationInfo.Annotations[consts.PodAnnotationMemoryEnhancementNumaBinding] == consts.PodAnnotationMemoryEnhancementNumaBindingEnable {
-				// currently if there is a numa_binding pod in the NUMA node,
-				// we don't allocate cpus in this NUMA node to pools, since the memory allocation can't be controlled now.
-				// maybe we will use res = res.Difference(allocationInfo.AllocationResult) here later.
-				return machine.NewCPUSet()
-			}
-		}
-	}
-
 	return res
 }
 
@@ -277,7 +365,6 @@ func (ns *NUMANodeState) SetAllocationInfo(podUID string, containerName string, 
 	if ns.PodEntries == nil {
 		ns.PodEntries = make(PodEntries)
 	}
-
 	if _, ok := ns.PodEntries[podUID]; !ok {
 		ns.PodEntries[podUID] = make(ContainerEntries)
 	}
@@ -285,70 +372,27 @@ func (ns *NUMANodeState) SetAllocationInfo(podUID string, containerName string, 
 	ns.PodEntries[podUID][containerName] = allocationInfo.Clone()
 }
 
+// GetDefaultCPUSet returns default cpuset in this node
 func (nm NUMANodeMap) GetDefaultCPUSet() machine.CPUSet {
 	res := machine.NewCPUSet()
 	for _, numaNodeState := range nm {
 		res = res.Union(numaNodeState.DefaultCPUSet)
 	}
-
 	return res
 }
 
-func (nm NUMANodeMap) GetDefaultCPUSetExcludeNUMABindingPods() machine.CPUSet {
+// GetFilteredDefaultCPUSet returns default cpuset in this node, along with the skip/filter functions
+func (nm NUMANodeMap) GetFilteredDefaultCPUSet(skip func(ai *AllocationInfo) bool) machine.CPUSet {
 	res := machine.NewCPUSet()
 	for _, numaNodeState := range nm {
-		res = res.Union(numaNodeState.GetDefaultCPUSetExcludeNUMABindingPods())
+		res = res.Union(numaNodeState.GetFilteredDefaultCPUSet(skip))
 	}
-
 	return res
 }
 
-func (nm NUMANodeMap) GetAvailableCPUSetExcludeNUMABindingPods(reservedCPUs machine.CPUSet) machine.CPUSet {
-	return nm.GetDefaultCPUSetExcludeNUMABindingPods().Difference(reservedCPUs)
-}
-
-func (nm NUMANodeMap) GetDefaultCPUSetExcludeDedicatedCoresPods() machine.CPUSet {
-	res := machine.NewCPUSet()
-	for _, numaNodeState := range nm {
-		res = res.Union(numaNodeState.GetDefaultCPUSetExcludeDedicatedCoresPods())
-	}
-
-	return res
-}
-
-func (nm NUMANodeMap) GetDefaultCPUSetExcludeDedicatedCoresPodsAndPools(podEntries PodEntries, ignorePools sets.String) machine.CPUSet {
-	res := nm.GetDefaultCPUSetExcludeDedicatedCoresPods()
-
-	poolsCPUSet := podEntries.GetPoolsCPUset(ignorePools)
-	for _, poolCPUSet := range poolsCPUSet {
-		res = res.Difference(poolCPUSet)
-	}
-
-	return res
-}
-
-func (nm NUMANodeMap) GetAvailableCPUSetExcludeDedicatedCoresPods(reservedCPUs machine.CPUSet) machine.CPUSet {
-	return nm.GetDefaultCPUSetExcludeDedicatedCoresPods().Difference(reservedCPUs)
-}
-
-func (nm NUMANodeMap) GetAvailableCPUSetExcludeDedicatedCoresPodsAndPools(reservedCPUs machine.CPUSet,
-	podEntries PodEntries, ignorePools sets.String) machine.CPUSet {
-	return nm.GetDefaultCPUSetExcludeDedicatedCoresPodsAndPools(podEntries, ignorePools).Difference(reservedCPUs)
-}
-
-func (nm NUMANodeMap) String() string {
-	if nm == nil {
-		return ""
-	}
-
-	contentBytes, err := json.Marshal(nm)
-
-	if err != nil {
-		klog.Errorf("[NUMANodeMap.String] marshal NUMANodeMap failed with error: %v", err)
-		return ""
-	}
-
-	return string(contentBytes)
+// GetFilteredAvailableCPUSet returns available cpuset in this node, along with the skip/filter functions
+func (nm NUMANodeMap) GetFilteredAvailableCPUSet(reservedCPUs machine.CPUSet, skip func(ai *AllocationInfo) bool) machine.CPUSet {
+	return nm.GetFilteredDefaultCPUSet(skip).Difference(reservedCPUs)
 }
 
 func (nm NUMANodeMap) Clone() NUMANodeMap {
@@ -359,19 +403,32 @@ func (nm NUMANodeMap) Clone() NUMANodeMap {
 	return clone
 }
 
+func (nm NUMANodeMap) String() string {
+	if nm == nil {
+		return ""
+	}
+
+	contentBytes, err := json.Marshal(nm)
+	if err != nil {
+		klog.Errorf("[NUMANodeMap.String] marshal NUMANodeMap failed with error: %v", err)
+		return ""
+	}
+	return string(contentBytes)
+}
+
 // reader is used to get information from local states
 type reader interface {
 	GetMachineState() NUMANodeMap
-	GetAllocationInfo(podUID string, containerName string) *AllocationInfo
 	GetPodEntries() PodEntries
+	GetAllocationInfo(podUID string, containerName string) *AllocationInfo
 }
 
 // writer is used to store information into local states,
 // and it also provides functionality to maintain the local files
 type writer interface {
 	SetMachineState(numaNodeMap NUMANodeMap)
-	SetAllocationInfo(podUID string, containerName string, allocationInfo *AllocationInfo)
 	SetPodEntries(podEntries PodEntries)
+	SetAllocationInfo(podUID string, containerName string, allocationInfo *AllocationInfo)
 
 	Delete(podUID string, containerName string)
 	ClearState()

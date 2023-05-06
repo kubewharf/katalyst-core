@@ -22,26 +22,26 @@ import (
 	"sort"
 
 	v1 "k8s.io/api/core/v1"
-	"k8s.io/klog/v2"
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 	"k8s.io/kubernetes/pkg/kubelet/cm/topologymanager/bitmask"
 
 	apiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util"
+	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
-	qosutil "github.com/kubewharf/katalyst-core/pkg/util/qos"
 )
 
-func (p *DynamicPolicy) sharedCoresHintHandler(ctx context.Context,
+func (p *DynamicPolicy) sharedCoresHintHandler(_ context.Context,
 	req *pluginapi.ResourceRequest) (*pluginapi.ResourceHintsResponse, error) {
 	if req == nil {
 		return nil, fmt.Errorf("got nil request")
 	}
 
-	return util.PackResourceHintsResponse(req, string(v1.ResourceCPU), map[string]*pluginapi.ListOfTopologyHints{
-		string(v1.ResourceCPU): nil, // indicates that there is no numa preference
-	})
+	return util.PackResourceHintsResponse(req, string(v1.ResourceCPU),
+		map[string]*pluginapi.ListOfTopologyHints{
+			string(v1.ResourceCPU): nil, // indicates that there is no numa preference
+		})
 }
 
 func (p *DynamicPolicy) reclaimedCoresHintHandler(ctx context.Context,
@@ -63,29 +63,30 @@ func (p *DynamicPolicy) dedicatedCoresHintHandler(ctx context.Context,
 	}
 }
 
-func (p *DynamicPolicy) dedicatedCoresWithNUMABindingHintHandler(ctx context.Context,
+func (p *DynamicPolicy) dedicatedCoresWithNUMABindingHintHandler(_ context.Context,
 	req *pluginapi.ResourceRequest) (*pluginapi.ResourceHintsResponse, error) {
 	// currently, we set cpuset of sidecar to the cpuset of its main container,
 	// so there is no numa preference here.
 	if req.ContainerType == pluginapi.ContainerType_SIDECAR {
-		return util.PackResourceHintsResponse(req, string(v1.ResourceCPU), map[string]*pluginapi.ListOfTopologyHints{
-			string(v1.ResourceCPU): nil, // indicates that there is no numa preference
-		})
+		return util.PackResourceHintsResponse(req, string(v1.ResourceCPU),
+			map[string]*pluginapi.ListOfTopologyHints{
+				string(v1.ResourceCPU): nil, // indicates that there is no numa preference
+			})
 	}
 
-	reqInt, err := getReqQuantityFromResourceReq(req)
+	reqInt, err := util.GetQuantityFromResourceReq(req)
 	if err != nil {
 		return nil, fmt.Errorf("getReqQuantityFromResourceReq failed with error: %v", err)
 	}
 
-	var hints map[string]*pluginapi.ListOfTopologyHints
-	allocationInfo := p.state.GetAllocationInfo(req.PodUid, req.ContainerName)
 	machineState := p.state.GetMachineState()
+	var hints map[string]*pluginapi.ListOfTopologyHints
 
+	allocationInfo := p.state.GetAllocationInfo(req.PodUid, req.ContainerName)
 	if allocationInfo != nil {
-		hints = regenerateHints(allocationInfo, reqInt)
+		hints = rePackHints(allocationInfo, reqInt)
 
-		// regenerateHints failed. need to clear container record and re-calculate.
+		// rePackHints failed. need to clear container record and re-calculate.
 		if hints == nil {
 			podEntries := p.state.GetPodEntries()
 			delete(podEntries[req.PodUid], req.ContainerName)
@@ -94,29 +95,30 @@ func (p *DynamicPolicy) dedicatedCoresWithNUMABindingHintHandler(ctx context.Con
 			}
 
 			var err error
-			machineState, err = state.GenerateCPUMachineStateByPodEntries(p.machineInfo.CPUTopology, podEntries)
+			machineState, err = state.GenerateMachineStateFromPodEntries(p.machineInfo.CPUTopology, podEntries)
 			if err != nil {
-				klog.Errorf("[CPUDynamicPolicy.dedicatedCoresWithNUMABindingHintHandler] pod: %s/%s, container: %s GenerateCPUMachineStateByPodEntries failed with error: %v",
+				general.Errorf("pod: %s/%s, container: %s GenerateMachineStateFromPodEntries failed with error: %v",
 					req.PodNamespace, req.PodName, req.ContainerName, err)
-				return nil, fmt.Errorf("GenerateCPUMachineStateByPodEntries failed with error: %v", err)
+				return nil, fmt.Errorf("GenerateMachineStateFromPodEntries failed with error: %v", err)
 			}
 		}
 	}
 
+	// if hints exit in extra state-file, prefer to use them
 	if hints == nil {
 		var extraErr error
 		hints, extraErr = util.GetHintsFromExtraStateFile(req.PodName, string(v1.ResourceCPU), p.extraStateFileAbsPath)
 		if extraErr != nil {
-			klog.Infof("[CPUDynamicPolicy.dedicatedCoresWithNUMABindingHintHandler] pod: %s/%s, container: %s GetHintsFromExtraStateFile failed with error: %v",
+			general.Infof("pod: %s/%s, container: %s GetHintsFromExtraStateFile failed with error: %v",
 				req.PodNamespace, req.PodName, req.ContainerName, extraErr)
 		}
 	}
 
+	// otherwise, calculate hint for container without allocated memory
 	if hints == nil {
 		var calculateErr error
 		// calculate hint for container without allocated cpus
-		hints, calculateErr = p.calculateHints(reqInt, machineState, req.Annotations)
-
+		hints, calculateErr = p.calculateHints(reqInt, machineState)
 		if calculateErr != nil {
 			return nil, fmt.Errorf("calculateHints failed with error: %v", calculateErr)
 		}
@@ -125,16 +127,16 @@ func (p *DynamicPolicy) dedicatedCoresWithNUMABindingHintHandler(ctx context.Con
 	return util.PackResourceHintsResponse(req, string(v1.ResourceCPU), hints)
 }
 
-func (p *DynamicPolicy) dedicatedCoresWithoutNUMABindingHintHandler(ctx context.Context,
-	req *pluginapi.ResourceRequest) (*pluginapi.ResourceHintsResponse, error) {
+func (p *DynamicPolicy) dedicatedCoresWithoutNUMABindingHintHandler(_ context.Context,
+	_ *pluginapi.ResourceRequest) (*pluginapi.ResourceHintsResponse, error) {
 	// todo: support dedicated_cores without NUMA binding
 	return nil, fmt.Errorf("not support dedicated_cores without NUMA binding")
 }
 
 // calculateHints is a helper function to calculate the topology hints
 // with the given container requests.
-func (p *DynamicPolicy) calculateHints(reqInt int, machineState state.NUMANodeMap,
-	reqAnnotations map[string]string) (map[string]*pluginapi.ListOfTopologyHints, error) {
+func (p *DynamicPolicy) calculateHints(reqInt int,
+	machineState state.NUMANodeMap) (map[string]*pluginapi.ListOfTopologyHints, error) {
 	numaNodes := make([]int, 0, len(machineState))
 	for numaNode := range machineState {
 		numaNodes = append(numaNodes, numaNode)
@@ -152,28 +154,13 @@ func (p *DynamicPolicy) calculateHints(reqInt int, machineState state.NUMANodeMa
 		return nil, fmt.Errorf("GetNUMANodesCountToFitCPUReq failed with error: %v", err)
 	}
 
-	// because it's hard to control memory allocation accurately,
-	// we only support numa_binding but not exclusive container with request smaller than 1 NUMA
-	if qosutil.AnnotationsIndicateNUMABinding(reqAnnotations) &&
-		!qosutil.AnnotationsIndicateNUMAExclusive(reqAnnotations) &&
-		minNUMAsCountNeeded > 1 {
-		return nil, fmt.Errorf("NUMA not exclusive binding container has request larger than 1 NUMA")
-	}
-
 	numaPerSocket, err := p.machineInfo.NUMAsPerSocket()
 	if err != nil {
 		return nil, fmt.Errorf("NUMAsPerSocket failed with error: %v", err)
 	}
 
 	bitmask.IterateBitMasks(numaNodes, func(mask bitmask.BitMask) {
-		maskCount := mask.Count()
-		if maskCount < minNUMAsCountNeeded {
-			return
-		} else if qosutil.AnnotationsIndicateNUMABinding(reqAnnotations) &&
-			!qosutil.AnnotationsIndicateNUMAExclusive(reqAnnotations) &&
-			maskCount > 1 {
-			// because it's hard to control memory allocation accurately,
-			// we only support numa_binding but not exclusive container with request smaller than 1 NUMA
+		if mask.Count() < minNUMAsCountNeeded {
 			return
 		}
 
@@ -183,32 +170,30 @@ func (p *DynamicPolicy) calculateHints(reqInt int, machineState state.NUMANodeMa
 		allAvailableCPUsInMask := machine.NewCPUSet()
 		for _, nodeID := range maskBits {
 			if machineState[nodeID] == nil {
-				klog.Warningf("[CPUDynamicPolicy.calculateHints] NUMA: %d has nil state", nodeID)
+				general.Warningf("NUMA: %d has nil state", nodeID)
 				return
 			}
-
 			allAvailableCPUsInMask = allAvailableCPUsInMask.Union(machineState[nodeID].GetAvailableCPUSet(p.reservedCPUs))
 		}
 
 		if allAvailableCPUsInMask.Size() < reqInt {
-			klog.V(4).Infof("[CPUDynamicPolicy.calculateHints] available cpuset: %s of size: %d "+
-				"excluding NUMA binding pods which is smaller than request: %d",
+			general.InfofV(4, "available cpuset: %s of size: %d excluding NUMA binding pods which is smaller than request: %d",
 				allAvailableCPUsInMask.String(), allAvailableCPUsInMask.Size(), reqInt)
 			return
 		}
 
 		crossSockets, err := machine.CheckNUMACrossSockets(maskBits, p.machineInfo.CPUTopology)
 		if err != nil {
-			klog.Errorf("[CPUDynamicPolicy.calculateHints] CheckNUMACrossSockets failed with error: %v", err)
+			general.Errorf("CheckNUMACrossSockets failed with error: %v", err)
 			return
 		} else if numaCountNeeded <= numaPerSocket && crossSockets {
-			klog.V(4).Infof("[CPUDynamicPolicy.calculateHints] needed: %d; min-needed: %d; NUMAs: %v cross sockets with numaPerSocket: %d",
+			general.InfofV(4, "needed: %d; min-needed: %d; NUMAs: %v cross sockets with numaPerSocket: %d",
 				numaCountNeeded, minNUMAsCountNeeded, maskBits, numaPerSocket)
 			return
 		}
 
 		hints[string(v1.ResourceCPU)].Hints = append(hints[string(v1.ResourceCPU)].Hints, &pluginapi.TopologyHint{
-			Nodes:     util.MaskToUInt64Array(mask),
+			Nodes:     machine.MaskToUInt64Array(mask),
 			Preferred: len(maskBits) == minNUMAsCountNeeded,
 		})
 	})
@@ -216,11 +201,14 @@ func (p *DynamicPolicy) calculateHints(reqInt int, machineState state.NUMANodeMa
 	return hints, nil
 }
 
-// regenerateHints re-generates for container already allocated cpus
-func regenerateHints(allocationInfo *state.AllocationInfo, reqInt int) map[string]*pluginapi.ListOfTopologyHints {
+// rePackHints regenerates hints for container that'd already been allocated cpu,
+// and rePackHints will assemble hints based on already-existed AllocationInfo,
+// without any calculation logics at all
+func rePackHints(allocationInfo *state.AllocationInfo, reqInt int) map[string]*pluginapi.ListOfTopologyHints {
 	hints := map[string]*pluginapi.ListOfTopologyHints{}
+
 	if allocationInfo.OriginalAllocationResult.Size() < reqInt {
-		klog.ErrorS(nil, "[CPUDynamicPolicy.regenerateHints] cpus already allocated with smaller quantity than requested",
+		general.ErrorS(nil, "cpus already allocated with smaller quantity than requested",
 			"podUID", allocationInfo.PodUid,
 			"containerName", allocationInfo.ContainerName,
 			"requestedResource", reqInt,
@@ -236,12 +224,11 @@ func regenerateHints(allocationInfo *state.AllocationInfo, reqInt int) map[strin
 		}
 	}
 
-	klog.InfoS("[CPUDynamicPolicy.regenerateHints] regenerating machineInfo hints, cpus was already allocated to pod",
+	general.InfoS("regenerating machineInfo hints, cpus was already allocated to pod",
 		"podNamespace", allocationInfo.PodNamespace,
 		"podName", allocationInfo.PodName,
 		"containerName", allocationInfo.ContainerName,
 		"hint", allocatedNumaNodes)
-
 	hints[string(v1.ResourceCPU)] = &pluginapi.ListOfTopologyHints{
 		Hints: []*pluginapi.TopologyHint{
 			{

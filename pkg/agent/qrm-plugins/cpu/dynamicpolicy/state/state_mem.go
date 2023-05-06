@@ -45,7 +45,6 @@ func GetDefaultMachineState(topology *machine.CPUTopology) NUMANodeMap {
 	}
 
 	defaultMachineState := make(NUMANodeMap)
-
 	for _, numaNode := range topology.CPUDetails.NUMANodes().ToSliceInt() {
 		defaultMachineState[numaNode] = &NUMANodeState{
 			DefaultCPUSet:   topology.CPUDetails.CPUsInNUMANodes(numaNode).Clone(),
@@ -53,13 +52,11 @@ func GetDefaultMachineState(topology *machine.CPUTopology) NUMANodeMap {
 			PodEntries:      make(PodEntries),
 		}
 	}
-
 	return defaultMachineState
 }
 
 func NewCPUPluginState(topology *machine.CPUTopology) State {
 	klog.InfoS("[cpu_plugin] initializing new cpu plugin in-memory state store")
-
 	return &cpuPluginState{
 		podEntries:     make(PodEntries),
 		machineState:   GetDefaultMachineState(topology),
@@ -109,7 +106,10 @@ func (s *cpuPluginState) SetAllocationInfo(podUID string, containerName string, 
 	}
 
 	s.podEntries[podUID][containerName] = allocationInfo.Clone()
-	klog.InfoS("[cpu_plugin] updated cpu plugin pod entries", "podUID", podUID, "containerName", containerName, "allocationInfo", allocationInfo.String())
+	klog.InfoS("[cpu_plugin] updated cpu plugin pod entries",
+		"podUID", podUID,
+		"containerName", containerName,
+		"allocationInfo", allocationInfo.String())
 }
 
 func (s *cpuPluginState) SetPodEntries(podEntries PodEntries) {
@@ -117,8 +117,8 @@ func (s *cpuPluginState) SetPodEntries(podEntries PodEntries) {
 	defer s.Unlock()
 
 	s.podEntries = podEntries.Clone()
-
-	klog.InfoS("[cpu_plugin] Updated cpu plugin pod entries", "podEntries", podEntries.String())
+	klog.InfoS("[cpu_plugin] Updated cpu plugin pod entries",
+		"podEntries", podEntries.String())
 }
 
 func (s *cpuPluginState) Delete(podUID string, containerName string) {
@@ -133,7 +133,9 @@ func (s *cpuPluginState) Delete(podUID string, containerName string) {
 	if len(s.podEntries[podUID]) == 0 {
 		delete(s.podEntries, podUID)
 	}
-	klog.V(2).InfoS("[cpu_plugin] deleted container entry", "podUID", podUID, "containerName", containerName)
+	klog.V(2).InfoS("[cpu_plugin] deleted container entry",
+		"podUID", podUID,
+		"containerName", containerName)
 }
 
 func (s *cpuPluginState) ClearState() {
@@ -143,6 +145,5 @@ func (s *cpuPluginState) ClearState() {
 	s.machineState = GetDefaultMachineState(s.cpuTopology)
 	s.socketTopology = s.cpuTopology.GetSocketTopology()
 	s.podEntries = make(PodEntries)
-
 	klog.V(2).InfoS("[cpu_plugin] cleared state")
 }

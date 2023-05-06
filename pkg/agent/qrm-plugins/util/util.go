@@ -23,9 +23,11 @@ import (
 	"math"
 	"sort"
 
+	info "github.com/google/cadvisor/info/v1"
+	v1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/klog/v2"
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
-	"k8s.io/kubernetes/pkg/kubelet/cm/topologymanager/bitmask"
 
 	"github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/config/generic"
@@ -33,16 +35,83 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
-// MaskToUInt64Array transforms bit mask to uint slices
-func MaskToUInt64Array(mask bitmask.BitMask) []uint64 {
-	maskBits := mask.GetBits()
-
-	maskBitsUint64 := make([]uint64, 0, len(maskBits))
-	for _, numaNode := range maskBits {
-		maskBitsUint64 = append(maskBitsUint64, uint64(numaNode))
+// GetQuantityFromResourceReq parses resources quantity into value,
+// since pods with reclaimed_cores and un-reclaimed_cores have different
+// representations, we may to adapt to both cases.
+func GetQuantityFromResourceReq(req *pluginapi.ResourceRequest) (int, error) {
+	if len(req.ResourceRequests) != 1 {
+		return 0, fmt.Errorf("invalid req.ResourceRequests length: %d", len(req.ResourceRequests))
 	}
 
-	return maskBitsUint64
+	for key := range req.ResourceRequests {
+		switch key {
+		case string(v1.ResourceCPU):
+			return general.Max(int(math.Ceil(req.ResourceRequests[key])), 0), nil
+		case string(consts.ReclaimedResourceMilliCPU):
+			return general.Max(int(math.Ceil(req.ResourceRequests[key]/1000.0)), 0), nil
+		case string(v1.ResourceMemory), string(consts.ReclaimedResourceMemory):
+			return general.Max(int(math.Ceil(req.ResourceRequests[key])), 0), nil
+		default:
+			return 0, fmt.Errorf("invalid request resource name: %s", key)
+		}
+	}
+
+	return 0, fmt.Errorf("unexpected end")
+}
+
+// GetKatalystQoSLevelFromResourceReq retrieves QoS Level for a given request
+func GetKatalystQoSLevelFromResourceReq(qosConf *generic.QoSConfiguration, req *pluginapi.ResourceRequest) (qosLevel string, err error) {
+	if req == nil {
+		err = fmt.Errorf("GetKatalystQoSLevelFromResourceReq got nil resource request")
+		return
+	}
+
+	var getErr error
+	qosLevel, getErr = qosConf.GetQoSLevel(req.Annotations)
+	if getErr != nil {
+		err = fmt.Errorf("resource type mismatches: %v", getErr)
+		return
+	}
+
+	// setting annotations and labels to only keep katalyst QoS related values
+	if req.Annotations == nil {
+		req.Annotations = make(map[string]string)
+	}
+	req.Annotations[consts.PodAnnotationQoSLevelKey] = qosLevel
+	parsedAnnotations, err := qosConf.FilterQoSAndEnhancement(req.Annotations)
+	if err != nil {
+		err = fmt.Errorf("ParseKatalystAnnotations failed with error: %v", err)
+		return
+	}
+	req.Annotations = parsedAnnotations
+
+	if req.Labels == nil {
+		req.Labels = make(map[string]string)
+	}
+	req.Labels[consts.PodAnnotationQoSLevelKey] = qosLevel
+	req.Labels = qosConf.FilterQoSMap(req.Labels)
+	return
+}
+
+// GetReservedMemory is used to spread total reserved memories into per-numa level
+func GetReservedMemory(machineInfo *info.MachineInfo, reservedMemoryGB uint64) (map[int]uint64, error) {
+	if machineInfo == nil {
+		return nil, fmt.Errorf("getReservedMemory got nil machineInfo")
+	}
+
+	numasCount := len(machineInfo.Topology)
+	perNumaReservedGB := uint64(math.Ceil(float64(reservedMemoryGB) / float64(numasCount)))
+	perNumaReservedQuantity := resource.MustParse(fmt.Sprintf("%dGi", perNumaReservedGB))
+	ceilReservedMemoryGB := perNumaReservedGB * uint64(numasCount)
+
+	klog.Infof("[getReservedMemory] reservedMemoryGB: %d, ceilReservedMemoryGB: %d, perNumaReservedGB: %d, "+
+		"numasCount: %d", reservedMemoryGB, ceilReservedMemoryGB, perNumaReservedGB, numasCount)
+
+	reservedMemory := make(map[int]uint64)
+	for _, node := range machineInfo.Topology {
+		reservedMemory[node.Id] = uint64(perNumaReservedQuantity.Value())
+	}
+	return reservedMemory, nil
 }
 
 // HintToIntArray transforms TopologyHint to int slices
@@ -57,21 +126,6 @@ func HintToIntArray(hint *pluginapi.TopologyHint) []int {
 	}
 
 	return result
-}
-
-// ParseTopologyAwareAssignments parses the given assignments into string format
-func ParseTopologyAwareAssignments(assignments map[int]machine.CPUSet) map[uint64]string {
-	if assignments == nil {
-		return nil
-	}
-
-	res := make(map[uint64]string)
-
-	for id, cset := range assignments {
-		res[uint64(id)] = cset.String()
-	}
-
-	return res
 }
 
 // GetTopologyAwareQuantityFromAssignments returns TopologyAwareQuantity based on assignments
@@ -147,41 +201,6 @@ func PackResourceHintsResponse(req *pluginapi.ResourceRequest, resourceName stri
 	}, nil
 }
 
-// GetKatalystQoSLevelFromResourceReq retrieves QoS Level for a given request
-func GetKatalystQoSLevelFromResourceReq(qosConf *generic.QoSConfiguration, req *pluginapi.ResourceRequest) (qosLevel string, err error) {
-	if req == nil {
-		err = fmt.Errorf("GetKatalystQoSLevelFromResourceReq got nil resource request")
-		return
-	}
-
-	var getErr error
-	qosLevel, getErr = qosConf.GetQoSLevel(req.Annotations)
-	if getErr != nil {
-		err = fmt.Errorf("resource type mismatches: %v", getErr)
-		return
-	}
-
-	// setting annotations and labels to only keep katalyst QoS related values
-	if req.Annotations == nil {
-		req.Annotations = make(map[string]string)
-	}
-
-	req.Annotations[consts.PodAnnotationQoSLevelKey] = qosLevel
-	parsedAnnotations, err := qosConf.FilterQoSAndEnhancement(req.Annotations)
-	if err != nil {
-		err = fmt.Errorf("ParseKatalystAnnotations failed with error: %v", err)
-		return
-	}
-	req.Annotations = parsedAnnotations
-
-	if req.Labels == nil {
-		req.Labels = make(map[string]string)
-	}
-	req.Labels[consts.PodAnnotationQoSLevelKey] = qosLevel
-	req.Labels = qosConf.FilterQoSMap(req.Labels)
-	return
-}
-
 // GetNUMANodesCountToFitCPUReq is used to calculate the amount of numa nodes
 // we need if we try to allocate cpu cores among them, assuming that all numa nodes
 // contain the same cpu capacity
@@ -200,7 +219,6 @@ func GetNUMANodesCountToFitCPUReq(cpuReq int, cpuTopology *machine.CPUTopology) 
 	}
 
 	cpusPerNUMA := cpuTopology.NumCPUs / numaCount
-
 	numaCountNeeded := int(math.Ceil(float64(cpuReq) / float64(cpusPerNUMA)))
 	if numaCountNeeded > numaCount {
 		return 0, 0, fmt.Errorf("invalid cpu req: %d in topology with NUMAs count: %d and CPUs count: %d", cpuReq, numaCount, cpuTopology.NumCPUs)
@@ -247,7 +265,6 @@ func GetHintsFromExtraStateFile(podName, resourceName, extraHintsStateFileAbsPat
 	}
 
 	extraState := make(map[string]interface{})
-
 	err = json.Unmarshal(fileBytes, &extraState)
 	if err != nil {
 		return nil, fmt.Errorf("unmarshal extra state file content failed with error: %v", err)
@@ -290,16 +307,4 @@ func GetHintsFromExtraStateFile(podName, resourceName, extraHintsStateFileAbsPat
 		},
 	}
 	return hints, nil
-}
-
-func DeepCopyTopologyAwareAssignments(topologyAwareAssignments map[int]machine.CPUSet) map[int]machine.CPUSet {
-	if topologyAwareAssignments == nil {
-		return nil
-	}
-
-	copied := make(map[int]machine.CPUSet)
-	for numaNode, cset := range topologyAwareAssignments {
-		copied[numaNode] = cset.Clone()
-	}
-	return copied
 }
