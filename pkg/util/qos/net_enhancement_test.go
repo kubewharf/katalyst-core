@@ -59,7 +59,7 @@ func TestGetPodNetClassID(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Logf("case: %v", tc.name)
-			gotExist, gotClassID, err := GetPodNetClassID(tc.pod, consts.PodAnnotationNetClassKey)
+			gotExist, gotClassID, err := GetPodNetClassID(tc.pod.Annotations, consts.PodAnnotationNetClassKey)
 			assert.NoError(t, err)
 			assert.Equal(t, tc.expectExist, gotExist)
 			assert.Equal(t, tc.expectClassID, gotClassID)

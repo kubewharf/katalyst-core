@@ -38,6 +38,7 @@ type qosValidationFunc func(map[string]string) (bool, error)
 var validQosEnhancementKey = sets.NewString(
 	apiconsts.PodAnnotationCPUEnhancementKey,
 	apiconsts.PodAnnotationMemoryEnhancementKey,
+	apiconsts.PodAnnotationNetworkEnhancementKey,
 )
 
 // QoSConfiguration stores the qos configurations needed by core katalyst components.

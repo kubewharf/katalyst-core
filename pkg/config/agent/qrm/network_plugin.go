@@ -23,10 +23,17 @@ import (
 // NetworkQRMPluginConfig is the config of network QRM plugin
 type NetworkQRMPluginConfig struct {
 	// PolicyName is used to switch between several strategies
-	PolicyName                    string
-	NetClass                      NetClassConfig
-	PodLevelNetClassAnnoKey       string
-	PodLevelNetAttributesAnnoKeys string
+	PolicyName                                      string
+	NetClass                                        NetClassConfig
+	PodLevelNetClassAnnoKey                         string
+	PodLevelNetAttributesAnnoKeys                   string
+	IPv4ResourceAllocationAnnotationKey             string
+	IPv6ResourceAllocationAnnotationKey             string
+	NetNSPathResourceAllocationAnnotationKey        string
+	NetInterfaceNameResourceAllocationAnnotationKey string
+	NetClassIDResourceAllocationAnnotationKey       string
+	NetBandwidthResourceAllocationAnnotationKey     string
+	NetNSDirAbsPath                                 string
 }
 
 type NetClassConfig struct {

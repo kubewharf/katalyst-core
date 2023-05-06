@@ -24,10 +24,17 @@ import (
 )
 
 type NetworkOptions struct {
-	PolicyName                    string
-	NetClass                      NetClassOptions
-	PodLevelNetClassAnnoKey       string
-	PodLevelNetAttributesAnnoKeys string
+	PolicyName                                      string
+	NetClass                                        NetClassOptions
+	PodLevelNetClassAnnoKey                         string
+	PodLevelNetAttributesAnnoKeys                   string
+	IPv4ResourceAllocationAnnotationKey             string
+	IPv6ResourceAllocationAnnotationKey             string
+	NetNSPathResourceAllocationAnnotationKey        string
+	NetInterfaceNameResourceAllocationAnnotationKey string
+	NetClassIDResourceAllocationAnnotationKey       string
+	NetBandwidthResourceAllocationAnnotationKey     string
+	NetNSDirAbsPath                                 string
 }
 
 type NetClassOptions struct {
@@ -43,9 +50,16 @@ type NetClassOptions struct {
 
 func NewNetworkOptions() *NetworkOptions {
 	return &NetworkOptions{
-		PolicyName:                    "dynamic",
-		PodLevelNetClassAnnoKey:       consts.PodAnnotationNetClassKey,
-		PodLevelNetAttributesAnnoKeys: "",
+		PolicyName:                                      "static",
+		PodLevelNetClassAnnoKey:                         consts.PodAnnotationNetClassKey,
+		PodLevelNetAttributesAnnoKeys:                   "",
+		IPv4ResourceAllocationAnnotationKey:             "qrm.katalyst.kubewharf.io/inet_addr",
+		IPv6ResourceAllocationAnnotationKey:             "qrm.katalyst.kubewharf.io/inet_addr_ipv6",
+		NetNSPathResourceAllocationAnnotationKey:        "qrm.katalyst.kubewharf.io/netns_path",
+		NetInterfaceNameResourceAllocationAnnotationKey: "qrm.katalyst.kubewharf.io/nic_name",
+		NetClassIDResourceAllocationAnnotationKey:       "qrm.katalyst.kubewharf.io/netcls_id",
+		NetBandwidthResourceAllocationAnnotationKey:     "qrm.katalyst.kubewharf.io/net_bandwidth",
+		NetNSDirAbsPath:                                 "/var/run/netns",
 	}
 }
 
@@ -66,6 +80,20 @@ func (o *NetworkOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 		o.PodLevelNetClassAnnoKey, "The annotation key of pod-level net class")
 	fs.StringVar(&o.PodLevelNetAttributesAnnoKeys, "network-resource-plugin-net-attributes-keys",
 		o.PodLevelNetAttributesAnnoKeys, "The annotation keys of pod-level network attributes, separated by commas")
+	fs.StringVar(&o.IPv4ResourceAllocationAnnotationKey, "network-resource-plugin-ipv4-allocation-anno-key",
+		o.IPv4ResourceAllocationAnnotationKey, "The annotation key of allocated ipv4 address for the container, which is ready by runtime")
+	fs.StringVar(&o.IPv6ResourceAllocationAnnotationKey, "network-resource-plugin-ipv6-allocation-anno-key",
+		o.IPv6ResourceAllocationAnnotationKey, "The annotation key of allocated ipv6 address for the container, which is ready by runtime")
+	fs.StringVar(&o.NetNSPathResourceAllocationAnnotationKey, "network-resource-plugin-ns-path-allocation-anno-key",
+		o.NetNSPathResourceAllocationAnnotationKey, "The annotation key of allocated ns path for the container, which is ready by runtime")
+	fs.StringVar(&o.NetInterfaceNameResourceAllocationAnnotationKey, "network-resource-plugin-nic-name-allocation-anno-key",
+		o.NetInterfaceNameResourceAllocationAnnotationKey, "The annotation key of allocated nic name the container, which is ready by runtime")
+	fs.StringVar(&o.NetClassIDResourceAllocationAnnotationKey, "network-resource-plugin-class-id-allocation-anno-key",
+		o.NetClassIDResourceAllocationAnnotationKey, "The annotation key of allocated netcls id for the container, which is ready by runtime")
+	fs.StringVar(&o.NetBandwidthResourceAllocationAnnotationKey, "network-resource-plugin-bandwidth-allocation-anno-key",
+		o.NetBandwidthResourceAllocationAnnotationKey, "The annotation key of allocated bandwidth for the container, which is ready by runtime")
+	fs.StringVar(&o.NetNSDirAbsPath, "network-resource-plugin-ns-dir-path",
+		o.NetNSDirAbsPath, "The absolute directory to search for net namespaces")
 }
 
 func (o *NetworkOptions) ApplyTo(conf *qrmconfig.NetworkQRMPluginConfig) error {
@@ -76,6 +104,13 @@ func (o *NetworkOptions) ApplyTo(conf *qrmconfig.NetworkQRMPluginConfig) error {
 	conf.NetClass.SystemCores = o.NetClass.SystemCores
 	conf.PodLevelNetClassAnnoKey = o.PodLevelNetClassAnnoKey
 	conf.PodLevelNetAttributesAnnoKeys = o.PodLevelNetAttributesAnnoKeys
+	conf.IPv4ResourceAllocationAnnotationKey = o.IPv4ResourceAllocationAnnotationKey
+	conf.IPv6ResourceAllocationAnnotationKey = o.IPv6ResourceAllocationAnnotationKey
+	conf.NetNSPathResourceAllocationAnnotationKey = o.NetNSPathResourceAllocationAnnotationKey
+	conf.NetInterfaceNameResourceAllocationAnnotationKey = o.NetInterfaceNameResourceAllocationAnnotationKey
+	conf.NetClassIDResourceAllocationAnnotationKey = o.NetClassIDResourceAllocationAnnotationKey
+	conf.NetBandwidthResourceAllocationAnnotationKey = o.NetBandwidthResourceAllocationAnnotationKey
+	conf.NetNSDirAbsPath = o.NetNSDirAbsPath
 
 	return nil
 }

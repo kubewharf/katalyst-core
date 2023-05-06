@@ -14,24 +14,20 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package qos
+package staticpolicy
 
-import (
-	"strconv"
-)
+import "net"
 
-// GetPodNetClassID parses net class id for the given pod.
-// if the given pod doesn't specify a class id, the first value returned will be false
-func GetPodNetClassID(podAnnotations map[string]string, podLevelNetClassAnnoKey string) (bool, uint32, error) {
-	classIDStr, ok := podAnnotations[podLevelNetClassAnnoKey]
+type NetworkInterfaceAddr struct {
+	IPv4 []net.IP
+	IPv6 []net.IP
+}
 
-	if !ok {
-		return false, 0, nil
-	}
-
-	classID, err := strconv.ParseUint(classIDStr, 10, 64)
-	if err != nil {
-		return true, 0, err
-	}
-	return true, uint32(classID), nil
+type NetworkInterface struct {
+	Name               string
+	AffinitiveNUMANode int
+	Enabled            bool
+	Addr               NetworkInterfaceAddr
+	NSAbsolutePath     string
+	NSName             string
 }
