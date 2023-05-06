@@ -79,3 +79,7 @@ func Errorf(message string, params ...interface{}) {
 func ErrorS(err error, message string, params ...interface{}) {
 	klog.ErrorSDepth(1, err, logging(message), params...)
 }
+
+func Fatalf(message string, params ...interface{}) {
+	klog.FatalfDepth(1, logging(message, params...))
+}

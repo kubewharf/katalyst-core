@@ -59,6 +59,7 @@ type DynamicPolicy struct {
 	qosConfig  *generic.QoSConfiguration
 	emitter    metrics.MetricEmitter
 	metaServer *metaserver.MetaServer
+	nics       []*NetworkInterface
 
 	CgroupV2Env                   bool
 	netClassMap                   map[string]uint32
