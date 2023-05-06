@@ -1,5 +1,5 @@
-//go:build linux
-// +build linux
+//go:build !linux
+// +build !linux
 
 /*
 Copyright 2022 The Katalyst Authors.
@@ -224,193 +224,355 @@ func TestAllocate(t *testing.T) {
 	testName := "test"
 
 	testCases := []struct {
-		description  string
-		req          *pluginapi.ResourceRequest
-		expectedResp *pluginapi.ResourceAllocationResponse
-		cpuTopology  *machine.CPUTopology
+		description   string
+		reqs          []*pluginapi.ResourceRequest
+		expectedResps []*pluginapi.ResourceAllocationResponse
+		cpuTopology   *machine.CPUTopology
 	}{
 		{
-			description: "req for init container",
-			req: &pluginapi.ResourceRequest{
-				PodUid:         string(uuid.NewUUID()),
-				PodNamespace:   testName,
-				PodName:        testName,
-				ContainerName:  testName,
-				ContainerType:  pluginapi.ContainerType_INIT,
-				ContainerIndex: 0,
-				ResourceName:   string(v1.ResourceCPU),
-				ResourceRequests: map[string]float64{
-					string(v1.ResourceCPU): 1,
+			description: "reqs for init container",
+			reqs: []*pluginapi.ResourceRequest{
+				{
+					PodUid:         string(uuid.NewUUID()),
+					PodNamespace:   testName,
+					PodName:        testName,
+					ContainerName:  testName,
+					ContainerType:  pluginapi.ContainerType_INIT,
+					ContainerIndex: 0,
+					ResourceName:   string(v1.ResourceCPU),
+					ResourceRequests: map[string]float64{
+						string(v1.ResourceCPU): 1,
+					},
 				},
 			},
-			expectedResp: &pluginapi.ResourceAllocationResponse{
-				PodNamespace:     testName,
-				PodName:          testName,
-				ContainerName:    testName,
-				ContainerType:    pluginapi.ContainerType_INIT,
-				ContainerIndex:   0,
-				ResourceName:     string(v1.ResourceCPU),
-				AllocationResult: nil,
-				Labels: map[string]string{
-					consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
-				},
-				Annotations: map[string]string{
-					consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
+			expectedResps: []*pluginapi.ResourceAllocationResponse{
+				{
+					PodNamespace:     testName,
+					PodName:          testName,
+					ContainerName:    testName,
+					ContainerType:    pluginapi.ContainerType_INIT,
+					ContainerIndex:   0,
+					ResourceName:     string(v1.ResourceCPU),
+					AllocationResult: nil,
+					Labels: map[string]string{
+						consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
+					},
+					Annotations: map[string]string{
+						consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
+					},
 				},
 			},
 			cpuTopology: cpuTopology,
 		},
 		{
-			description: "req for shared_cores main container",
-			req: &pluginapi.ResourceRequest{
-				PodUid:         string(uuid.NewUUID()),
-				PodNamespace:   testName,
-				PodName:        testName,
-				ContainerName:  testName,
-				ContainerType:  pluginapi.ContainerType_MAIN,
-				ContainerIndex: 0,
-				ResourceName:   string(v1.ResourceCPU),
-				ResourceRequests: map[string]float64{
-					string(v1.ResourceCPU): 2,
+			description: "reqs for shared_cores main container",
+			reqs: []*pluginapi.ResourceRequest{
+				{
+					PodUid:         string(uuid.NewUUID()),
+					PodNamespace:   testName,
+					PodName:        testName,
+					ContainerName:  testName,
+					ContainerType:  pluginapi.ContainerType_MAIN,
+					ContainerIndex: 0,
+					ResourceName:   string(v1.ResourceCPU),
+					ResourceRequests: map[string]float64{
+						string(v1.ResourceCPU): 2,
+					},
 				},
 			},
-			expectedResp: &pluginapi.ResourceAllocationResponse{
-				PodNamespace:   testName,
-				PodName:        testName,
-				ContainerName:  testName,
-				ContainerType:  pluginapi.ContainerType_MAIN,
-				ContainerIndex: 0,
-				ResourceName:   string(v1.ResourceCPU),
-				AllocationResult: &pluginapi.ResourceAllocation{
-					ResourceAllocation: map[string]*pluginapi.ResourceAllocationInfo{
-						string(v1.ResourceCPU): {
-							OciPropertyName:   util.OCIPropertyNameCPUSetCPUs,
-							IsNodeResource:    false,
-							IsScalarResource:  true,
-							AllocatedQuantity: 14, //ramp up
-							AllocationResult:  machine.NewCPUSet(1, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15).String(),
-							ResourceHints: &pluginapi.ListOfTopologyHints{
-								Hints: []*pluginapi.TopologyHint{nil},
+			expectedResps: []*pluginapi.ResourceAllocationResponse{
+				{
+					PodNamespace:   testName,
+					PodName:        testName,
+					ContainerName:  testName,
+					ContainerType:  pluginapi.ContainerType_MAIN,
+					ContainerIndex: 0,
+					ResourceName:   string(v1.ResourceCPU),
+					AllocationResult: &pluginapi.ResourceAllocation{
+						ResourceAllocation: map[string]*pluginapi.ResourceAllocationInfo{
+							string(v1.ResourceCPU): {
+								OciPropertyName:   util.OCIPropertyNameCPUSetCPUs,
+								IsNodeResource:    false,
+								IsScalarResource:  true,
+								AllocatedQuantity: 14, //ramp up
+								AllocationResult:  machine.NewCPUSet(1, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15).String(),
+								ResourceHints: &pluginapi.ListOfTopologyHints{
+									Hints: []*pluginapi.TopologyHint{nil},
+								},
 							},
 						},
 					},
-				},
-				Labels: map[string]string{
-					consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
-				},
-				Annotations: map[string]string{
-					consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
+					Labels: map[string]string{
+						consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
+					},
+					Annotations: map[string]string{
+						consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
+					},
 				},
 			},
 			cpuTopology: cpuTopology,
 		},
 		{
-			description: "req for reclaimed_cores main container",
-			req: &pluginapi.ResourceRequest{
-				PodUid:         string(uuid.NewUUID()),
-				PodNamespace:   testName,
-				PodName:        testName,
-				ContainerName:  testName,
-				ContainerType:  pluginapi.ContainerType_MAIN,
-				ContainerIndex: 0,
-				ResourceName:   string(v1.ResourceCPU),
-				ResourceRequests: map[string]float64{
-					string(v1.ResourceCPU): 2,
-				},
-				Annotations: map[string]string{
-					consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelReclaimedCores,
-				},
-				Labels: map[string]string{
-					consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelReclaimedCores,
+			description: "reqs for reclaimed_cores main container",
+			reqs: []*pluginapi.ResourceRequest{
+				{
+					PodUid:         string(uuid.NewUUID()),
+					PodNamespace:   testName,
+					PodName:        testName,
+					ContainerName:  testName,
+					ContainerType:  pluginapi.ContainerType_MAIN,
+					ContainerIndex: 0,
+					ResourceName:   string(v1.ResourceCPU),
+					ResourceRequests: map[string]float64{
+						string(v1.ResourceCPU): 2,
+					},
+					Annotations: map[string]string{
+						consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelReclaimedCores,
+					},
+					Labels: map[string]string{
+						consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelReclaimedCores,
+					},
 				},
 			},
-			expectedResp: &pluginapi.ResourceAllocationResponse{
-				PodNamespace:   testName,
-				PodName:        testName,
-				ContainerName:  testName,
-				ContainerType:  pluginapi.ContainerType_MAIN,
-				ContainerIndex: 0,
-				ResourceName:   string(v1.ResourceCPU),
-				AllocationResult: &pluginapi.ResourceAllocation{
-					ResourceAllocation: map[string]*pluginapi.ResourceAllocationInfo{
-						string(v1.ResourceCPU): {
-							OciPropertyName:   util.OCIPropertyNameCPUSetCPUs,
-							IsNodeResource:    false,
-							IsScalarResource:  true,
-							AllocatedQuantity: 4,
-							AllocationResult:  machine.NewCPUSet(1, 3, 9, 11).String(),
-							ResourceHints: &pluginapi.ListOfTopologyHints{
-								Hints: []*pluginapi.TopologyHint{nil},
+			expectedResps: []*pluginapi.ResourceAllocationResponse{
+				{
+					PodNamespace:   testName,
+					PodName:        testName,
+					ContainerName:  testName,
+					ContainerType:  pluginapi.ContainerType_MAIN,
+					ContainerIndex: 0,
+					ResourceName:   string(v1.ResourceCPU),
+					AllocationResult: &pluginapi.ResourceAllocation{
+						ResourceAllocation: map[string]*pluginapi.ResourceAllocationInfo{
+							string(v1.ResourceCPU): {
+								OciPropertyName:   util.OCIPropertyNameCPUSetCPUs,
+								IsNodeResource:    false,
+								IsScalarResource:  true,
+								AllocatedQuantity: 4,
+								AllocationResult:  machine.NewCPUSet(1, 3, 9, 11).String(),
+								ResourceHints: &pluginapi.ListOfTopologyHints{
+									Hints: []*pluginapi.TopologyHint{nil},
+								},
 							},
 						},
 					},
-				},
-				Labels: map[string]string{
-					consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelReclaimedCores,
-				},
-				Annotations: map[string]string{
-					consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelReclaimedCores,
+					Labels: map[string]string{
+						consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelReclaimedCores,
+					},
+					Annotations: map[string]string{
+						consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelReclaimedCores,
+					},
 				},
 			},
 			cpuTopology: cpuTopology,
 		},
 		{
-			description: "req for dedicated_cores with numa_binding main container",
-			req: &pluginapi.ResourceRequest{
-				PodUid:         string(uuid.NewUUID()),
-				PodNamespace:   testName,
-				PodName:        testName,
-				ContainerName:  testName,
-				ContainerType:  pluginapi.ContainerType_MAIN,
-				ContainerIndex: 0,
-				ResourceName:   string(v1.ResourceCPU),
-				Hint: &pluginapi.TopologyHint{
-					Nodes:     []uint64{0},
-					Preferred: true,
-				},
-				ResourceRequests: map[string]float64{
-					string(v1.ResourceCPU): 2,
-				},
-				Annotations: map[string]string{
-					consts.PodAnnotationQoSLevelKey:          consts.PodAnnotationQoSLevelDedicatedCores,
-					consts.PodAnnotationMemoryEnhancementKey: `{"numa_binding": "true"}`,
-				},
-				Labels: map[string]string{
-					consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelDedicatedCores,
+			description: "reqs for dedicated_cores with numa_binding main container",
+			reqs: []*pluginapi.ResourceRequest{
+				{
+					PodUid:         string(uuid.NewUUID()),
+					PodNamespace:   testName,
+					PodName:        testName,
+					ContainerName:  testName,
+					ContainerType:  pluginapi.ContainerType_MAIN,
+					ContainerIndex: 0,
+					ResourceName:   string(v1.ResourceCPU),
+					Hint: &pluginapi.TopologyHint{
+						Nodes:     []uint64{0},
+						Preferred: true,
+					},
+					ResourceRequests: map[string]float64{
+						string(v1.ResourceCPU): 2,
+					},
+					Annotations: map[string]string{
+						consts.PodAnnotationQoSLevelKey:          consts.PodAnnotationQoSLevelDedicatedCores,
+						consts.PodAnnotationMemoryEnhancementKey: `{"numa_binding": "true"}`,
+					},
+					Labels: map[string]string{
+						consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelDedicatedCores,
+					},
 				},
 			},
-			expectedResp: &pluginapi.ResourceAllocationResponse{
-				PodNamespace:   testName,
-				PodName:        testName,
-				ContainerName:  testName,
-				ContainerType:  pluginapi.ContainerType_MAIN,
-				ContainerIndex: 0,
-				ResourceName:   string(v1.ResourceCPU),
-				AllocationResult: &pluginapi.ResourceAllocation{
-					ResourceAllocation: map[string]*pluginapi.ResourceAllocationInfo{
-						string(v1.ResourceCPU): {
-							OciPropertyName:   util.OCIPropertyNameCPUSetCPUs,
-							IsNodeResource:    false,
-							IsScalarResource:  true,
-							AllocatedQuantity: 3,
-							AllocationResult:  machine.NewCPUSet(1, 8, 9).String(),
-							ResourceHints: &pluginapi.ListOfTopologyHints{
-								Hints: []*pluginapi.TopologyHint{
-									{
-										Nodes:     []uint64{0},
-										Preferred: true,
+			expectedResps: []*pluginapi.ResourceAllocationResponse{
+				{
+					PodNamespace:   testName,
+					PodName:        testName,
+					ContainerName:  testName,
+					ContainerType:  pluginapi.ContainerType_MAIN,
+					ContainerIndex: 0,
+					ResourceName:   string(v1.ResourceCPU),
+					AllocationResult: &pluginapi.ResourceAllocation{
+						ResourceAllocation: map[string]*pluginapi.ResourceAllocationInfo{
+							string(v1.ResourceCPU): {
+								OciPropertyName:   util.OCIPropertyNameCPUSetCPUs,
+								IsNodeResource:    false,
+								IsScalarResource:  true,
+								AllocatedQuantity: 3,
+								AllocationResult:  machine.NewCPUSet(1, 8, 9).String(),
+								ResourceHints: &pluginapi.ListOfTopologyHints{
+									Hints: []*pluginapi.TopologyHint{
+										{
+											Nodes:     []uint64{0},
+											Preferred: true,
+										},
 									},
 								},
 							},
 						},
 					},
+					Labels: map[string]string{
+						consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelDedicatedCores,
+					},
+					Annotations: map[string]string{
+						consts.PodAnnotationQoSLevelKey:                  consts.PodAnnotationQoSLevelDedicatedCores,
+						consts.PodAnnotationMemoryEnhancementNumaBinding: consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
+					},
 				},
-				Labels: map[string]string{
-					consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelDedicatedCores,
+			},
+			cpuTopology: cpuTopology,
+		},
+		{
+			description: "reqs for dedicated_cores with numa_binding sidecar container",
+			reqs: []*pluginapi.ResourceRequest{
+				{
+					PodUid:         "111",
+					PodNamespace:   testName,
+					PodName:        testName,
+					ContainerName:  testName,
+					ContainerType:  pluginapi.ContainerType_SIDECAR,
+					ContainerIndex: 0,
+					ResourceName:   string(v1.ResourceCPU),
+					Hint: &pluginapi.TopologyHint{
+						Nodes:     []uint64{0},
+						Preferred: true,
+					},
+					ResourceRequests: map[string]float64{
+						string(v1.ResourceCPU): 2,
+					},
+					Annotations: map[string]string{
+						consts.PodAnnotationQoSLevelKey:          consts.PodAnnotationQoSLevelDedicatedCores,
+						consts.PodAnnotationMemoryEnhancementKey: `{"numa_binding": "true"}`,
+					},
+					Labels: map[string]string{
+						consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelDedicatedCores,
+					},
 				},
-				Annotations: map[string]string{
-					consts.PodAnnotationQoSLevelKey:                  consts.PodAnnotationQoSLevelDedicatedCores,
-					consts.PodAnnotationMemoryEnhancementNumaBinding: consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
+				{
+					PodUid:         "111",
+					PodNamespace:   testName,
+					PodName:        testName,
+					ContainerName:  testName,
+					ContainerType:  pluginapi.ContainerType_MAIN,
+					ContainerIndex: 0,
+					ResourceName:   string(v1.ResourceCPU),
+					Hint: &pluginapi.TopologyHint{
+						Nodes:     []uint64{0},
+						Preferred: true,
+					},
+					ResourceRequests: map[string]float64{
+						string(v1.ResourceCPU): 2,
+					},
+					Annotations: map[string]string{
+						consts.PodAnnotationQoSLevelKey:          consts.PodAnnotationQoSLevelDedicatedCores,
+						consts.PodAnnotationMemoryEnhancementKey: `{"numa_binding": "true"}`,
+					},
+					Labels: map[string]string{
+						consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelDedicatedCores,
+					},
+				},
+				{
+					PodUid:         "111",
+					PodNamespace:   testName,
+					PodName:        testName,
+					ContainerName:  testName,
+					ContainerType:  pluginapi.ContainerType_SIDECAR,
+					ContainerIndex: 0,
+					ResourceName:   string(v1.ResourceCPU),
+					Hint: &pluginapi.TopologyHint{
+						Nodes:     []uint64{0},
+						Preferred: true,
+					},
+					ResourceRequests: map[string]float64{
+						string(v1.ResourceCPU): 2,
+					},
+					Annotations: map[string]string{
+						consts.PodAnnotationQoSLevelKey:          consts.PodAnnotationQoSLevelDedicatedCores,
+						consts.PodAnnotationMemoryEnhancementKey: `{"numa_binding": "true"}`,
+					},
+					Labels: map[string]string{
+						consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelDedicatedCores,
+					},
+				},
+			},
+			expectedResps: []*pluginapi.ResourceAllocationResponse{
+				{
+					PodUid:         "",
+					PodNamespace:   "",
+					PodName:        "",
+					ContainerName:  "",
+					ContainerType:  pluginapi.ContainerType_INIT,
+					ContainerIndex: 0,
+					ResourceName:   "",
+				},
+				{
+					PodNamespace:   testName,
+					PodName:        testName,
+					ContainerName:  testName,
+					ContainerType:  pluginapi.ContainerType_MAIN,
+					ContainerIndex: 0,
+					ResourceName:   string(v1.ResourceCPU),
+					AllocationResult: &pluginapi.ResourceAllocation{
+						ResourceAllocation: map[string]*pluginapi.ResourceAllocationInfo{
+							string(v1.ResourceCPU): {
+								OciPropertyName:   util.OCIPropertyNameCPUSetCPUs,
+								IsNodeResource:    false,
+								IsScalarResource:  true,
+								AllocatedQuantity: 3,
+								AllocationResult:  machine.NewCPUSet(1, 8, 9).String(),
+								ResourceHints: &pluginapi.ListOfTopologyHints{
+									Hints: []*pluginapi.TopologyHint{
+										{
+											Nodes:     []uint64{0},
+											Preferred: true,
+										},
+									},
+								},
+							},
+						},
+					},
+					Labels: map[string]string{
+						consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelDedicatedCores,
+					},
+					Annotations: map[string]string{
+						consts.PodAnnotationQoSLevelKey:                  consts.PodAnnotationQoSLevelDedicatedCores,
+						consts.PodAnnotationMemoryEnhancementNumaBinding: consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
+					},
+				},
+				{
+					PodNamespace:   testName,
+					PodName:        testName,
+					ContainerName:  testName,
+					ContainerType:  pluginapi.ContainerType_SIDECAR,
+					ContainerIndex: 0,
+					ResourceName:   string(v1.ResourceCPU),
+					AllocationResult: &pluginapi.ResourceAllocation{
+						ResourceAllocation: map[string]*pluginapi.ResourceAllocationInfo{
+							string(v1.ResourceCPU): {
+								OciPropertyName:   util.OCIPropertyNameCPUSetCPUs,
+								IsNodeResource:    false,
+								IsScalarResource:  true,
+								AllocatedQuantity: 3,
+								AllocationResult:  machine.NewCPUSet(1, 8, 9).String(),
+							},
+						},
+					},
+					Labels: map[string]string{
+						consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelDedicatedCores,
+					},
+					Annotations: map[string]string{
+						consts.PodAnnotationQoSLevelKey:                  consts.PodAnnotationQoSLevelDedicatedCores,
+						consts.PodAnnotationMemoryEnhancementNumaBinding: consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
+					},
 				},
 			},
 			cpuTopology: cpuTopology,
@@ -424,13 +586,17 @@ func TestAllocate(t *testing.T) {
 		dynamicPolicy, err := getTestDynamicPolicyWithInitialization(tc.cpuTopology, tmpDir)
 		as.Nil(err)
 
-		resp, err := dynamicPolicy.Allocate(context.Background(), tc.req)
-		as.Nil(err)
+		for i := range tc.reqs {
+			resp, err := dynamicPolicy.Allocate(context.Background(), tc.reqs[i])
+			as.Nil(err)
 
-		tc.expectedResp.PodUid = tc.req.PodUid
-		as.Equalf(tc.expectedResp, resp, "failed in test case: %s", tc.description)
+			if tc.expectedResps[i].PodName != "" {
+				tc.expectedResps[i].PodUid = tc.reqs[i].PodUid
+			}
+			as.Equalf(tc.expectedResps[i], resp, "failed in test case: %s", tc.description)
+		}
 
-		os.RemoveAll(tmpDir)
+		_ = os.RemoveAll(tmpDir)
 	}
 }
 
@@ -448,7 +614,7 @@ func TestGetTopologyHints(t *testing.T) {
 		cpuTopology  *machine.CPUTopology
 	}{
 		{
-			description: "req for shared_cores main container",
+			description: "reqs for shared_cores main container",
 			req: &pluginapi.ResourceRequest{
 				PodUid:         string(uuid.NewUUID()),
 				PodNamespace:   testName,
@@ -481,7 +647,7 @@ func TestGetTopologyHints(t *testing.T) {
 			cpuTopology: cpuTopology,
 		},
 		{
-			description: "req for reclaimed_cores main container",
+			description: "reqs for reclaimed_cores main container",
 			req: &pluginapi.ResourceRequest{
 				PodUid:         string(uuid.NewUUID()),
 				PodNamespace:   testName,
@@ -520,7 +686,7 @@ func TestGetTopologyHints(t *testing.T) {
 			cpuTopology: cpuTopology,
 		},
 		{
-			description: "req for dedicated_cores with numa_binding main container",
+			description: "reqs for dedicated_cores with numa_binding main container",
 			req: &pluginapi.ResourceRequest{
 				PodUid:         string(uuid.NewUUID()),
 				PodNamespace:   testName,
@@ -681,7 +847,7 @@ func TestGetTopologyAwareResources(t *testing.T) {
 		err          error
 	}{
 		{
-			description: "req for init container",
+			description: "reqs for init container",
 			req: &pluginapi.ResourceRequest{
 				PodUid:         string(uuid.NewUUID()),
 				PodNamespace:   testName,
@@ -698,7 +864,7 @@ func TestGetTopologyAwareResources(t *testing.T) {
 			cpuTopology: cpuTopology,
 		},
 		{
-			description: "req for shared_cores main container",
+			description: "reqs for shared_cores main container",
 			req: &pluginapi.ResourceRequest{
 				PodUid:         string(uuid.NewUUID()),
 				PodNamespace:   testName,
@@ -747,7 +913,7 @@ func TestGetTopologyAwareResources(t *testing.T) {
 			cpuTopology: cpuTopology,
 		},
 		{
-			description: "req for reclaimed_cores main container",
+			description: "reqs for reclaimed_cores main container",
 			req: &pluginapi.ResourceRequest{
 				PodUid:         string(uuid.NewUUID()),
 				PodNamespace:   testName,

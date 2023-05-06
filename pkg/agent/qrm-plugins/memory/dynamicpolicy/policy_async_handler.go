@@ -59,16 +59,16 @@ func (p *DynamicPolicy) checkMemorySet() {
 				"containerName": allocationInfo.ContainerName,
 			})
 
-			containerId, err := p.metaServer.GetContainerID(podUID, containerName)
+			containerID, err := p.metaServer.GetContainerID(podUID, containerName)
 			if err != nil {
 				general.Errorf("get container id of pod: %s container: %s failed with error: %v", podUID, containerName, err)
 				continue
 			}
 
-			cpusetStats, err := cgroupcmutils.GetCPUSetForContainer(podUID, containerId)
+			cpusetStats, err := cgroupcmutils.GetCPUSetForContainer(podUID, containerID)
 			if err != nil {
 				general.Errorf("GetMemorySet of pod: %s container: name(%s), id(%s) failed with error: %v",
-					podUID, containerName, containerId, err)
+					podUID, containerName, containerID, err)
 				_ = p.emitter.StoreInt64(util.MetricNameRealStateInvalid, 1, metrics.MetricTypeNameRaw, tags...)
 				continue
 			}

@@ -24,7 +24,7 @@ import (
 	"k8s.io/klog/v2"
 )
 
-const callDepth = 2
+const callDepth = 3
 
 // loggingWithDepth returns the logging-prefix for caller.
 // it will help to avoid hardcode function names in logging
@@ -52,7 +52,7 @@ func loggingWithDepth() string {
 }
 
 func logging(message string, params ...interface{}) string {
-	return loggingWithDepth() + " " + fmt.Sprintf(message, params...)
+	return loggingWithDepth() + ", " + fmt.Sprintf(message, params...)
 }
 
 func InfoS(message string, params ...interface{}) {

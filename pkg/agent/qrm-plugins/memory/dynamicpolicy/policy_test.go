@@ -1,5 +1,5 @@
-//go:build linux
-// +build linux
+//go:build !linux
+// +build !linux
 
 /*
 Copyright 2022 The Katalyst Authors.
@@ -28,16 +28,18 @@ import (
 	"testing"
 
 	info "github.com/google/cadvisor/info/v1"
+	"github.com/stretchr/testify/require"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/uuid"
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
-
-	"github.com/stretchr/testify/require"
 
 	"github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/memory/dynamicpolicy/state"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util"
 	"github.com/kubewharf/katalyst-core/pkg/config/generic"
+	"github.com/kubewharf/katalyst-core/pkg/metaserver"
+	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent"
+	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/pod"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
@@ -103,13 +105,138 @@ func TestCheckMemorySet(t *testing.T) {
 	cpuTopology, err := machine.GenerateDummyCPUTopology(16, 2, 4)
 	as.Nil(err)
 
-	machineInfo, err := machine.GenerateDummyMachineInfo(4, 32)
-	as.Nil(err)
+	machineInfo := &info.MachineInfo{}
 
 	dynamicPolicy, err := getTestDynamicPolicyWithInitialization(cpuTopology, machineInfo, tmpDir)
 	as.Nil(err)
 
+	dynamicPolicy.state.SetPodResourceEntries(state.PodResourceEntries{
+		v1.ResourceMemory: state.PodEntries{
+			"podUID": state.ContainerEntries{
+				"testName": &state.AllocationInfo{
+					PodUid:               "podUID",
+					PodNamespace:         "testName",
+					PodName:              "testName",
+					ContainerName:        "testName",
+					ContainerType:        pluginapi.ContainerType_MAIN.String(),
+					ContainerIndex:       0,
+					QoSLevel:             consts.PodAnnotationQoSLevelDedicatedCores,
+					RampUp:               false,
+					AggregatedQuantity:   9663676416,
+					NumaAllocationResult: machine.NewCPUSet(0),
+					TopologyAwareAllocations: map[int]uint64{
+						0: 9663676416,
+					},
+					Annotations: map[string]string{
+						consts.PodAnnotationQoSLevelKey:                  consts.PodAnnotationQoSLevelDedicatedCores,
+						consts.PodAnnotationMemoryEnhancementNumaBinding: consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
+					},
+					Labels: map[string]string{
+						consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelDedicatedCores,
+					},
+				},
+			},
+		},
+	})
+
+	dynamicPolicy.metaServer = &metaserver.MetaServer{
+		MetaAgent: &agent.MetaAgent{
+			PodFetcher: &pod.PodFetcherStub{},
+		},
+	}
 	dynamicPolicy.checkMemorySet()
+}
+
+func TestClearResidualState(t *testing.T) {
+	as := require.New(t)
+
+	tmpDir, err := ioutil.TempDir("", "checkpoint")
+	as.Nil(err)
+	defer os.RemoveAll(tmpDir)
+
+	cpuTopology, err := machine.GenerateDummyCPUTopology(16, 2, 4)
+	as.Nil(err)
+
+	machineInfo := &info.MachineInfo{}
+
+	dynamicPolicy, err := getTestDynamicPolicyWithInitialization(cpuTopology, machineInfo, tmpDir)
+	as.Nil(err)
+
+	dynamicPolicy.metaServer = &metaserver.MetaServer{
+		MetaAgent: &agent.MetaAgent{
+			PodFetcher: &pod.PodFetcherStub{},
+		},
+	}
+	dynamicPolicy.clearResidualState()
+}
+
+func TestSetMemoryMigrate(t *testing.T) {
+	as := require.New(t)
+
+	tmpDir, err := ioutil.TempDir("", "checkpoint")
+	as.Nil(err)
+	defer os.RemoveAll(tmpDir)
+
+	cpuTopology, err := machine.GenerateDummyCPUTopology(16, 2, 4)
+	as.Nil(err)
+
+	machineInfo := &info.MachineInfo{}
+
+	dynamicPolicy, err := getTestDynamicPolicyWithInitialization(cpuTopology, machineInfo, tmpDir)
+	as.Nil(err)
+
+	dynamicPolicy.state.SetPodResourceEntries(state.PodResourceEntries{
+		v1.ResourceMemory: state.PodEntries{
+			"podUID": state.ContainerEntries{
+				"testName": &state.AllocationInfo{
+					PodUid:               "podUID",
+					PodNamespace:         "testName",
+					PodName:              "testName",
+					ContainerName:        "testName",
+					ContainerType:        pluginapi.ContainerType_MAIN.String(),
+					ContainerIndex:       0,
+					QoSLevel:             consts.PodAnnotationQoSLevelDedicatedCores,
+					RampUp:               false,
+					AggregatedQuantity:   9663676416,
+					NumaAllocationResult: machine.NewCPUSet(0),
+					TopologyAwareAllocations: map[int]uint64{
+						0: 9663676416,
+					},
+					Annotations: map[string]string{
+						consts.PodAnnotationQoSLevelKey:                  consts.PodAnnotationQoSLevelDedicatedCores,
+						consts.PodAnnotationMemoryEnhancementNumaBinding: consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
+					},
+					Labels: map[string]string{
+						consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelDedicatedCores,
+					},
+				},
+			},
+			"podUID-1": state.ContainerEntries{
+				"testName-1": &state.AllocationInfo{
+					PodUid:               "podUID-1",
+					PodNamespace:         "testName-1",
+					PodName:              "testName-1",
+					ContainerName:        "testName-1",
+					ContainerType:        pluginapi.ContainerType_MAIN.String(),
+					ContainerIndex:       0,
+					QoSLevel:             consts.PodAnnotationQoSLevelDedicatedCores,
+					RampUp:               false,
+					AggregatedQuantity:   9663676416,
+					NumaAllocationResult: machine.NewCPUSet(0),
+					TopologyAwareAllocations: map[int]uint64{
+						0: 9663676416,
+					},
+				},
+			},
+		},
+	})
+
+	dynamicPolicy.metaServer = &metaserver.MetaServer{
+		MetaAgent: &agent.MetaAgent{
+			PodFetcher: &pod.PodFetcherStub{},
+		},
+	}
+	dynamicPolicy.setMemoryMigrate()
 }
 
 func TestRemovePod(t *testing.T) {
