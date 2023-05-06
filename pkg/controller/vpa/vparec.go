@@ -446,25 +446,15 @@ func (rec *VerticalPodAutoScaleRecommendationController) updateVPAStatus(vpa *ap
 	vpaNew.Status.PodResources = vpaPodResources
 	vpaNew.Status.ContainerResources = vpaContainerResources
 	if apiequality.Semantic.DeepEqual(vpaNew.Status, vpa.Status) {
-		for _, condition := range vpaNew.Status.Conditions {
-			if condition.Type == apis.RecommendationUpdated && condition.Status == core.ConditionTrue {
-				return nil
-			}
-		}
-
-		return util.PatchVPAConditions(rec.ctx, rec.vpaUpdater, vpa, apis.RecommendationApplied, core.ConditionTrue, util.VPARecConditionReasonUpdated, "")
+		return nil
 	}
 
-	updated, err := rec.vpaUpdater.PatchVPAStatus(rec.ctx, vpa, vpaNew)
+	_, err := rec.vpaUpdater.PatchVPAStatus(rec.ctx, vpa, vpaNew)
 	if err != nil {
 		klog.Errorf("[vpa-rec] failed to set vpa %v status: %v", vpa.Name, err)
-		if err := util.PatchVPAConditions(rec.ctx, rec.vpaUpdater, vpa, apis.RecommendationApplied, core.ConditionFalse, util.VPAConditionReasonCalculatedIllegal, err.Error()); err != nil {
-			return err
-		}
-
 		return err
 	}
-	return util.PatchVPAConditions(rec.ctx, rec.vpaUpdater, updated, apis.RecommendationApplied, core.ConditionTrue, util.VPARecConditionReasonUpdated, "")
+	return nil
 }
 
 // updateVPAStatus is used to set status for vpaRec

@@ -122,13 +122,6 @@ func TestVPARecControllerSyncVPA(t *testing.T) {
 							},
 						},
 					},
-					Conditions: []apis.VerticalPodAutoscalerCondition{
-						{
-							Type:   apis.RecommendationApplied,
-							Status: v1.ConditionTrue,
-							Reason: util.VPAConditionReasonUpdated,
-						},
-					},
 				},
 			},
 			vparecs: []*apis.VerticalPodAutoscalerRecommendation{
@@ -255,13 +248,6 @@ func TestVPARecControllerSyncVPA(t *testing.T) {
 							},
 						},
 					},
-					Conditions: []apis.VerticalPodAutoscalerCondition{
-						{
-							Type:   apis.RecommendationApplied,
-							Status: v1.ConditionTrue,
-							Reason: util.VPAConditionReasonUpdated,
-						},
-					},
 				},
 			},
 			vparecs: []*apis.VerticalPodAutoscalerRecommendation{
@@ -361,7 +347,6 @@ func TestVPARecControllerSyncVPA(t *testing.T) {
 			vpa, err := controlCtx.Client.InternalClient.AutoscalingV1alpha1().
 				KatalystVerticalPodAutoscalers(tc.vpaNew.Namespace).Get(context.TODO(), tc.vpaNew.Name, metav1.GetOptions{})
 			assert.NoError(t, err)
-			vpa.Status.Conditions[0].LastTransitionTime = metav1.Time{}
 			assert.Equal(t, tc.vpaNew, vpa)
 		})
 	}

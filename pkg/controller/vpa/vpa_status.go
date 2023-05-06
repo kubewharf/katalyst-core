@@ -298,6 +298,14 @@ func (vs *vpaStatusController) syncVPA(key string) error {
 	vpaNew.Status.PodResources = vpaPodResources
 	vpaNew.Status.ContainerResources = vpaContainerResources
 
+	// set RecommendationApplied condition, based on whether all pods for this vpa
+	// are updated to the expected resources in their annotations
+	err = vs.setRecommendationAppliedCondition(vpaNew, pods)
+	if err != nil {
+		klog.Errorf("[vpa-status] set recommendation applied condition failed: %v", err)
+		return err
+	}
+
 	// skip to update status if no change happened
 	if apiequality.Semantic.DeepEqual(vpa.Status, vpaNew.Status) {
 		return nil
@@ -309,5 +317,31 @@ func (vs *vpaStatusController) syncVPA(key string) error {
 		return err
 	}
 
+	return nil
+}
+
+// setRecommendationAppliedCondition set vpa recommendation applied condition by checking all pods whether
+// are updated to the expected resources in their annotations
+func (vs *vpaStatusController) setRecommendationAppliedCondition(vpa *apis.KatalystVerticalPodAutoscaler, pods []*v1.Pod) error {
+	allPodSpecUpdated := func() bool {
+		for _, pod := range pods {
+			if !katalystutil.CheckPodSpecUpdated(pod) {
+				return false
+			}
+		}
+		return true
+	}()
+
+	if allPodSpecUpdated {
+		err := util.SetVPAConditions(vpa, apis.RecommendationApplied, v1.ConditionTrue, util.VPAConditionReasonPodSpecUpdated, "")
+		if err != nil {
+			return err
+		}
+	} else {
+		err := util.SetVPAConditions(vpa, apis.RecommendationApplied, v1.ConditionFalse, util.VPAConditionReasonPodSpecNoUpdate, "")
+		if err != nil {
+			return err
+		}
+	}
 	return nil
 }
