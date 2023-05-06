@@ -1059,7 +1059,7 @@ func (p *DynamicPolicy) takeCPUsForPools(poolsQuantityMap map[string]int,
 	clonedAvailableCPUs := availableCPUs.Clone()
 
 	// to avoid random map iteration sequence to generate pools randomly
-	sortedPoolNames := machine.GetSortedQuantityMapKeys(poolsQuantityMap)
+	sortedPoolNames := general.GetSortedMapKeys(poolsQuantityMap)
 	for _, poolName := range sortedPoolNames {
 		req := poolsQuantityMap[poolName]
 		klog.Infof("[CPUDynamicPolicy.takeCPUsForPools] allocated for pool: %s with req: %d", poolName, req)
