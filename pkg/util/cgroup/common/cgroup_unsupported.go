@@ -23,10 +23,6 @@ import (
 	"fmt"
 )
 
-func IsCgroup2UnifiedMode() bool {
-	return false
-}
-
 func ReadTasksFile(file string) ([]string, error) {
 	return []string{}, fmt.Errorf("unsupported write file")
 }
@@ -40,5 +36,9 @@ func WriteFileIfChange(dir, file, data string) (error, bool, string) {
 }
 
 func IsCPUIdleSupported() bool {
+	return false
+}
+
+func CheckCgroup2UnifiedMode() bool {
 	return false
 }
