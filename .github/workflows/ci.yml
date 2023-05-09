@@ -73,3 +73,13 @@ jobs:
           file: coverage.txt
           fail_ci_if_error: true
           verbose: true
+
+  license:
+    name: License
+    runs-on: ubuntu-20.04
+    steps:
+      - uses: actions/checkout@v3
+      - name: Check license header
+        run: |
+          make license && git add pkg cmd &&
+          git diff --cached --exit-code || (echo 'Please run "make license" to add license headers' && exit 1);
