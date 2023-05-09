@@ -97,6 +97,10 @@ vet: ## Run go vet against code.
 test: ## Run go test against code.
 	go test -v -coverprofile=coverage.txt -covermode=atomic -coverpkg=./... ./...
 
+.PHONY: license
+license:
+	./hack/add-license.sh
+
 
 ## --------------------------------------
 ## Build binaries and images
