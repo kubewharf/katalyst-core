@@ -748,6 +748,7 @@ func (p *DynamicPolicy) GetCheckpoint(_ context.Context, req *advisorapi.GetChec
 			}
 
 			chkEntries[uid].Entries[entryName] = &advisorapi.AllocationInfo{
+				RampUp:        allocationInfo.RampUp,
 				OwnerPoolName: allocationInfo.OwnerPoolName,
 			}
 
