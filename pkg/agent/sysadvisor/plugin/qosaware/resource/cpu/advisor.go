@@ -48,6 +48,7 @@ import (
 func init() {
 	provisionpolicy.RegisterInitializer(types.CPUProvisionPolicyCanonical, provisionpolicy.NewPolicyCanonical)
 	headroompolicy.RegisterInitializer(types.CPUHeadroomPolicyCanonical, headroompolicy.NewPolicyCanonical)
+	headroompolicy.RegisterInitializer(types.CPUHeadroomPolicyAdaptive, headroompolicy.NewPolicyAdaptive)
 }
 
 // todo:

@@ -114,7 +114,7 @@ func (c *MetricStore) AggregateCoreMetric(cpuset machine.CPUSet, metricName stri
 	for _, cpu := range cpuset.ToSliceInt() {
 		metric, err := c.GetCPUMetric(cpu, metricName)
 		if err != nil {
-			klog.Errorf("failed to get metric cpu %v, metric %v, err: %", cpu, metricName, err)
+			klog.Errorf("failed to get metric cpu %v, metric %v, err: %v", cpu, metricName, err)
 			continue
 		}
 

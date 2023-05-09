@@ -20,7 +20,9 @@ import (
 	"strings"
 
 	"github.com/spf13/pflag"
+	"k8s.io/apimachinery/pkg/util/errors"
 
+	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/options/sysadvisor/qosaware/resource/cpu/headroom"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/sysadvisor/qosaware/resource/cpu"
 )
@@ -29,6 +31,8 @@ import (
 type CPUAdvisorOptions struct {
 	CPUProvisionPolicyPriority map[string]string
 	CPUHeadroomPolicyPriority  map[string]string
+
+	*headroom.CPUHeadroomPolicyOptions
 }
 
 // NewCPUAdvisorOptions creates a new Options with a default config
@@ -42,6 +46,7 @@ func NewCPUAdvisorOptions() *CPUAdvisorOptions {
 			string(types.QoSRegionTypeShare):                  string(types.CPUHeadroomPolicyCanonical),
 			string(types.QoSRegionTypeDedicatedNumaExclusive): string(types.CPUHeadroomPolicyCanonical),
 		},
+		CPUHeadroomPolicyOptions: headroom.NewCPUHeadroomPolicyOptions(),
 	}
 }
 
@@ -53,6 +58,7 @@ func (o *CPUAdvisorOptions) AddFlags(fs *pflag.FlagSet) {
 	fs.StringToStringVar(&o.CPUHeadroomPolicyPriority, "cpu-headroom-policy-priority", o.CPUHeadroomPolicyPriority,
 		"policies of each region type for cpu advisor to estimate resource headroom, sorted by priority descending order, "+
 			"should be formatted as 'share=rama/canonical,dedicated-numa-exclusive=rama/canonical'")
+	o.CPUHeadroomPolicyOptions.AddFlags(fs)
 }
 
 // ApplyTo fills up config with options
@@ -73,5 +79,8 @@ func (o *CPUAdvisorOptions) ApplyTo(c *cpu.CPUAdvisorConfiguration) error {
 		}
 	}
 
-	return nil
+	var errList []error
+	errList = append(errList, o.CPUHeadroomPolicyOptions.ApplyTo(c.CPUHeadroomPolicyConfiguration))
+
+	return errors.NewAggregate(errList)
 }

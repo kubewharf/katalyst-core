@@ -17,10 +17,28 @@ limitations under the License.
 package cnr
 
 import (
+	"context"
+
 	"k8s.io/klog/v2"
 
 	"github.com/kubewharf/katalyst-api/pkg/apis/node/v1alpha1"
 )
+
+type CNRFetcherStub struct {
+	CNR *v1alpha1.CustomNodeResource
+}
+
+func (c *CNRFetcherStub) GetCNR(context.Context) (*v1alpha1.CustomNodeResource, error) {
+	return c.CNR, nil
+}
+
+func (c *CNRFetcherStub) RegisterNotifier(_ string, _ CNRNotifier) error {
+	return nil
+}
+
+func (c *CNRFetcherStub) UnregisterNotifier(_ string) error {
+	return nil
+}
 
 // CNRNotifierStub is a stub implementation of CNRNotifier.
 type CNRNotifierStub struct{}
