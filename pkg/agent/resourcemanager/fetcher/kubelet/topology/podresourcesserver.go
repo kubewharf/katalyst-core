@@ -20,6 +20,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/fsnotify/fsnotify"
@@ -59,8 +60,8 @@ var (
 )
 
 type podResourcesServerTopologyAdapterImpl struct {
+	mutex     sync.Mutex
 	client    podresv1.PodResourcesListerClient
-	conn      *grpc.ClientConn
 	endpoints []string
 
 	// metaServer is used to fetch pod list to calculate numa allocation
@@ -113,6 +114,9 @@ func NewPodResourcesServerTopologyAdapter(metaServer *metaserver.MetaServer, end
 }
 
 func (p *podResourcesServerTopologyAdapterImpl) GetTopologyZones(parentCtx context.Context) ([]*nodev1alpha1.TopologyZone, error) {
+	p.mutex.Lock()
+	defer p.mutex.Unlock()
+
 	// always force getting pod list instead of cache
 	ctx := context.WithValue(parentCtx, metaserverpod.BypassCacheKey, metaserverpod.BypassCacheTrue)
 
@@ -180,8 +184,14 @@ func (p *podResourcesServerTopologyAdapterImpl) GetTopologyZones(parentCtx conte
 }
 
 func (p *podResourcesServerTopologyAdapterImpl) Run(ctx context.Context, handler func()) error {
-	var err error
-	p.client, p.conn, err = p.getClientFunc(
+	var (
+		err  error
+		conn *grpc.ClientConn
+	)
+	p.mutex.Lock()
+	defer p.mutex.Unlock()
+
+	p.client, conn, err = p.getClientFunc(
 		general.GetOneExistPath(p.endpoints), podResourcesClientTimeout, podResourcesClientMaxMsgSize)
 	if err != nil {
 		return fmt.Errorf("get podResources client failed, connect err: %s", err)
@@ -203,13 +213,16 @@ func (p *podResourcesServerTopologyAdapterImpl) Run(ctx context.Context, handler
 	// start a goroutine to watch qrm checkpoint file change and notify to update topology status,
 	// and when qrm checkpoint file changed, it means that the topology status may be changed
 	go func() {
+		defer func() {
+			err = conn.Close()
+			if err != nil {
+				klog.Errorf("pod resource connection close failed: %v", err)
+			}
+		}()
 		for {
 			select {
 			case <-ctx.Done():
-				err := p.conn.Close()
-				if err != nil {
-					klog.Errorf("pod resource connection close failed")
-				}
+				klog.Infof("stopping pod resources server topology adapter")
 				return
 			case _, ok := <-watcher:
 				if !ok {
