@@ -45,6 +45,7 @@ const (
 // for managing gRPC communications with the eviction plugin and caching eviction states.
 type Endpoint interface {
 	ThresholdMet(c context.Context) (*pluginapi.ThresholdMetResponse, error)
+	// GetTopEvictionPods notice: this function only be called when plugin's threshold is met
 	GetTopEvictionPods(c context.Context, request *pluginapi.GetTopEvictionPodsRequest) (*pluginapi.GetTopEvictionPodsResponse, error)
 	GetEvictPods(c context.Context, request *pluginapi.GetEvictPodsRequest) (*pluginapi.GetEvictPodsResponse, error)
 	Stop()

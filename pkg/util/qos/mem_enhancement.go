@@ -17,6 +17,8 @@ limitations under the License.
 package qos
 
 import (
+	"strconv"
+
 	v1 "k8s.io/api/core/v1"
 
 	"github.com/kubewharf/katalyst-api/pkg/consts"
@@ -37,4 +39,29 @@ func IsPodNumaBinding(qosConf *generic.QoSConfiguration, pod *v1.Pod) bool {
 	}
 
 	return false
+}
+
+// GetRSSOverUseEvictEnabledAndThreshold checks whether the pod enable RSS overuse eviction and parse the user specified threshold
+func GetRSSOverUseEvictEnabledAndThreshold(qosConf *generic.QoSConfiguration, pod *v1.Pod) (bool, float64) {
+	memoryEnhancement := ParseKatalystQOSEnhancement(qosConf.GetQoSEnhancementsForPod(pod), consts.PodAnnotationMemoryEnhancementKey)
+	thresholdStr, ok := memoryEnhancement[consts.PodAnnotationMemoryEnhancementRssOverUseThreshold]
+	if !ok {
+		return true, consts.PodAnnotationMemoryEnhancementRssOverUseThresholdNotSet
+	}
+
+	threshold, parseErr := strconv.ParseFloat(thresholdStr, 64)
+	// don't perform evict for safety if user set an unresolvable threshold
+	if parseErr != nil {
+		return false, consts.PodAnnotationMemoryEnhancementRssOverUseThresholdNotSet
+	}
+	// don't perform evict for safety if user set an invalid threshold
+	if !isValidRatioThreshold(threshold) {
+		return false, consts.PodAnnotationMemoryEnhancementRssOverUseThresholdNotSet
+	}
+
+	return true, threshold
+}
+
+func isValidRatioThreshold(threshold float64) bool {
+	return threshold > 0 && threshold <= 1
 }

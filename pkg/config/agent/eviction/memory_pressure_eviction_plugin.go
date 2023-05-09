@@ -44,6 +44,10 @@ const (
 	DefaultSystemKswapdRateExceedTimesThreshold = 4
 	// DefaultGracePeriod is the default value of grace period
 	DefaultGracePeriod int64 = -1
+	// DefaultEnableRssOveruseDetection is the default value of whether enable pod-level rss overuse detection
+	DefaultEnableRssOveruseDetection = false
+	// DefaultRssOveruseRateThreshold is the default threshold for the rate of rss
+	DefaultRssOveruseRateThreshold = 0.8
 )
 
 var (
@@ -82,6 +86,9 @@ type MemoryPressureEvictionPluginDynamicConfiguration struct {
 	numaEvictionRankingMetrics           []string
 	systemEvictionRankingMetrics         []string
 	gracePeriod                          int64
+
+	enableRssOveruseDetection bool
+	rssOveruseRateThreshold   float64
 }
 
 func NewMemoryPressureEvictionPluginDynamicConfiguration() *MemoryPressureEvictionPluginDynamicConfiguration {
@@ -200,6 +207,34 @@ func (c *MemoryPressureEvictionPluginDynamicConfiguration) SetGracePeriod(graceP
 	c.gracePeriod = gracePeriod
 }
 
+func (c *MemoryPressureEvictionPluginDynamicConfiguration) EnableRssOveruseDetection() bool {
+	c.mutex.Lock()
+	defer c.mutex.Unlock()
+
+	return c.enableRssOveruseDetection
+}
+
+func (c *MemoryPressureEvictionPluginDynamicConfiguration) SetEnableRssOveruseDetection(enableRSSOveruseDetection bool) {
+	c.mutex.Lock()
+	defer c.mutex.Unlock()
+
+	c.enableRssOveruseDetection = enableRSSOveruseDetection
+}
+
+func (c *MemoryPressureEvictionPluginDynamicConfiguration) RssOveruseRateThreshold() float64 {
+	c.mutex.Lock()
+	defer c.mutex.Unlock()
+
+	return c.rssOveruseRateThreshold
+}
+
+func (c *MemoryPressureEvictionPluginDynamicConfiguration) SetRssOveruseRateThreshold(rssOveruseRateThreshold float64) {
+	c.mutex.Lock()
+	defer c.mutex.Unlock()
+
+	c.rssOveruseRateThreshold = rssOveruseRateThreshold
+}
+
 // ApplyConfiguration applies dynamic.DynamicConfigCRD to MemoryPressureEvictionPluginConfiguration
 func (c *MemoryPressureEvictionPluginDynamicConfiguration) ApplyConfiguration(defaultConf *MemoryPressureEvictionPluginDynamicConfiguration, conf *dynamic.DynamicConfigCRD) {
 	c.mutex.Lock()
@@ -238,6 +273,14 @@ func (c *MemoryPressureEvictionPluginDynamicConfiguration) ApplyConfiguration(de
 		if ec.Spec.Config.EvictionPluginsConfig.MemoryEvictionPluginConfig.GracePeriod != nil {
 			c.gracePeriod = *(ec.Spec.Config.EvictionPluginsConfig.MemoryEvictionPluginConfig.GracePeriod)
 		}
+
+		if ec.Spec.Config.EvictionPluginsConfig.MemoryEvictionPluginConfig.EnableRssOveruseDetection != nil {
+			c.enableRssOveruseDetection = *(ec.Spec.Config.EvictionPluginsConfig.MemoryEvictionPluginConfig.EnableRssOveruseDetection)
+		}
+
+		if ec.Spec.Config.EvictionPluginsConfig.MemoryEvictionPluginConfig.RssOveruseRateThreshold != nil {
+			c.rssOveruseRateThreshold = *(ec.Spec.Config.EvictionPluginsConfig.MemoryEvictionPluginConfig.RssOveruseRateThreshold)
+		}
 	}
 }
 
@@ -250,4 +293,6 @@ func (c *MemoryPressureEvictionPluginDynamicConfiguration) applyDefault(defaultC
 	c.numaEvictionRankingMetrics = defaultConf.numaEvictionRankingMetrics
 	c.systemEvictionRankingMetrics = defaultConf.systemEvictionRankingMetrics
 	c.gracePeriod = defaultConf.gracePeriod
+	c.enableRssOveruseDetection = defaultConf.enableRssOveruseDetection
+	c.rssOveruseRateThreshold = defaultConf.rssOveruseRateThreshold
 }

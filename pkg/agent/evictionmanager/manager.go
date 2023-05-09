@@ -38,6 +38,7 @@ import (
 	pluginapi "github.com/kubewharf/katalyst-api/pkg/protocol/evictionplugin/v1alpha1"
 	endpointpkg "github.com/kubewharf/katalyst-core/pkg/agent/evictionmanager/endpoint"
 	"github.com/kubewharf/katalyst-core/pkg/agent/evictionmanager/plugin"
+	"github.com/kubewharf/katalyst-core/pkg/agent/evictionmanager/plugin/memory"
 	"github.com/kubewharf/katalyst-core/pkg/agent/evictionmanager/podkiller"
 	"github.com/kubewharf/katalyst-core/pkg/agent/evictionmanager/rule"
 	"github.com/kubewharf/katalyst-core/pkg/client"
@@ -99,7 +100,9 @@ var InnerEvictionPluginsDisabledByDefault = sets.NewString()
 func NewInnerEvictionPluginInitializers() map[string]plugin.InitFunc {
 	innerEvictionPluginInitializers := make(map[string]plugin.InitFunc)
 	innerEvictionPluginInitializers["reclaimed-resources"] = plugin.NewReclaimedResourcesEvictionPlugin
-	innerEvictionPluginInitializers["memory-pressure"] = plugin.NewMemoryPressureEvictionPlugin
+	innerEvictionPluginInitializers["numa-memory-pressure"] = memory.NewNumaMemoryPressureEvictionPlugin
+	innerEvictionPluginInitializers["system-memory-pressure"] = memory.NewSystemPressureEvictionPlugin
+	innerEvictionPluginInitializers["rss-overuse"] = memory.NewRssOveruseEvictionPlugin
 	return innerEvictionPluginInitializers
 }
 
