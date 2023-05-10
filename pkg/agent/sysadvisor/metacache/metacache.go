@@ -18,6 +18,7 @@ package metacache
 
 import (
 	"fmt"
+	"reflect"
 	"sync"
 
 	"k8s.io/klog/v2"
@@ -72,7 +73,11 @@ type RawMetaWriter interface {
 	SetContainerInfo(podUID string, containerName string, containerInfo *types.ContainerInfo) error
 	// RangeAndUpdateContainer applies a function to every podUID, containerName, containerInfo set.
 	// Not recommended to use if RangeContainer satisfies the requirement.
+	// If f returns false, range stops the iteration.
 	RangeAndUpdateContainer(f func(podUID string, containerName string, containerInfo *types.ContainerInfo) bool)
+	// RangeAndDeleteContainer applies a function to every podUID, containerName, containerInfo set.
+	// If f returns true, the containerInfo will be deleted.
+	RangeAndDeleteContainer(f func(containerInfo *types.ContainerInfo) bool)
 
 	// DeleteContainer deletes a ContainerInfo keyed by pod uid and container name
 	DeleteContainer(podUID string, containerName string) error
@@ -103,10 +108,14 @@ type MetaCache interface {
 // Deep copy logic is performed during accessing metacache entries instead of directly
 // return pointer of each struct to avoid mis-overwrite.
 type MetaCacheImp struct {
-	podEntries    types.PodEntries
-	poolEntries   types.PoolEntries
+	podEntries types.PodEntries
+	podMutex   sync.RWMutex
+
+	poolEntries types.PoolEntries
+	poolMutex   sync.RWMutex
+
 	regionEntries types.RegionEntries
-	mutex         sync.RWMutex
+	regionMutex   sync.RWMutex
 
 	checkpointManager checkpointmanager.CheckpointManager
 	checkpointName    string
@@ -146,16 +155,16 @@ func NewMetaCacheImp(conf *config.Configuration, metricsFetcher metric.MetricsFe
 */
 
 func (mc *MetaCacheImp) GetContainerEntries(podUID string) (types.ContainerEntries, bool) {
-	mc.mutex.RLock()
-	defer mc.mutex.RUnlock()
+	mc.podMutex.RLock()
+	defer mc.podMutex.RUnlock()
 
 	v, ok := mc.podEntries[podUID]
 	return v.Clone(), ok
 }
 
 func (mc *MetaCacheImp) GetContainerInfo(podUID string, containerName string) (*types.ContainerInfo, bool) {
-	mc.mutex.RLock()
-	defer mc.mutex.RUnlock()
+	mc.podMutex.RLock()
+	defer mc.podMutex.RUnlock()
 
 	podInfo, ok := mc.podEntries[podUID]
 	if !ok {
@@ -168,8 +177,8 @@ func (mc *MetaCacheImp) GetContainerInfo(podUID string, containerName string) (*
 
 // RangeContainer should deepcopy so that pod and container entries will not be overwritten.
 func (mc *MetaCacheImp) RangeContainer(f func(podUID string, containerName string, containerInfo *types.ContainerInfo) bool) {
-	mc.mutex.RLock()
-	defer mc.mutex.RUnlock()
+	mc.podMutex.RLock()
+	defer mc.podMutex.RUnlock()
 
 	for podUID, podInfo := range mc.podEntries.Clone() {
 		for containerName, containerInfo := range podInfo {
@@ -185,16 +194,16 @@ func (mc *MetaCacheImp) GetContainerMetric(podUID string, containerName string, 
 }
 
 func (mc *MetaCacheImp) GetPoolInfo(poolName string) (*types.PoolInfo, bool) {
-	mc.mutex.RLock()
-	defer mc.mutex.RUnlock()
+	mc.poolMutex.RLock()
+	defer mc.poolMutex.RUnlock()
 
 	poolInfo, ok := mc.poolEntries[poolName]
 	return poolInfo.Clone(), ok
 }
 
 func (mc *MetaCacheImp) GetPoolSize(poolName string) (int, bool) {
-	mc.mutex.RLock()
-	defer mc.mutex.RUnlock()
+	mc.poolMutex.RLock()
+	defer mc.poolMutex.RUnlock()
 
 	pi, ok := mc.poolEntries[poolName]
 	if !ok {
@@ -204,16 +213,16 @@ func (mc *MetaCacheImp) GetPoolSize(poolName string) (int, bool) {
 }
 
 func (mc *MetaCacheImp) GetRegionInfo(regionName string) (*types.RegionInfo, bool) {
-	mc.mutex.RLock()
-	defer mc.mutex.RUnlock()
+	mc.regionMutex.RLock()
+	defer mc.regionMutex.RUnlock()
 
 	regionInfo, ok := mc.regionEntries[regionName]
 	return regionInfo.Clone(), ok
 }
 
 func (mc *MetaCacheImp) RangeRegionInfo(f func(regionName string, regionInfo *types.RegionInfo) bool) {
-	mc.mutex.RLock()
-	defer mc.mutex.RUnlock()
+	mc.regionMutex.RLock()
+	defer mc.regionMutex.RUnlock()
 
 	for regionName, regionInfo := range mc.regionEntries.Clone() {
 		if !f(regionName, regionInfo) {
@@ -228,37 +237,39 @@ func (mc *MetaCacheImp) RangeRegionInfo(f func(regionName string, regionInfo *ty
 */
 
 func (mc *MetaCacheImp) AddContainer(podUID string, containerName string, containerInfo *types.ContainerInfo) error {
-	mc.mutex.Lock()
+	mc.podMutex.Lock()
+	defer mc.podMutex.Unlock()
 	if podInfo, ok := mc.podEntries[podUID]; ok {
 		if ci, ok := podInfo[containerName]; ok {
 			ci.UpdateMeta(containerInfo)
-			mc.mutex.Unlock()
 			return nil
 		}
 	}
-	mc.mutex.Unlock()
 
-	return mc.SetContainerInfo(podUID, containerName, containerInfo)
+	return mc.setContainerInfo(podUID, containerName, containerInfo)
 }
 
 func (mc *MetaCacheImp) SetContainerInfo(podUID string, containerName string, containerInfo *types.ContainerInfo) error {
-	mc.mutex.Lock()
-	defer mc.mutex.Unlock()
+	mc.podMutex.Lock()
+	defer mc.podMutex.Unlock()
 
+	return mc.setContainerInfo(podUID, containerName, containerInfo)
+}
+
+func (mc *MetaCacheImp) setContainerInfo(podUID string, containerName string, containerInfo *types.ContainerInfo) error {
 	podInfo, ok := mc.podEntries[podUID]
 	if !ok {
 		mc.podEntries[podUID] = make(types.ContainerEntries)
 		podInfo = mc.podEntries[podUID]
 	}
+	if reflect.DeepEqual(podInfo[containerName], containerInfo) {
+		return nil
+	}
 	podInfo[containerName] = containerInfo
-
 	return mc.storeState()
 }
 
-func (mc *MetaCacheImp) DeleteContainer(podUID string, containerName string) error {
-	mc.mutex.Lock()
-	defer mc.mutex.Unlock()
-
+func (mc *MetaCacheImp) deleteContainer(podUID string, containerName string) error {
 	podInfo, ok := mc.podEntries[podUID]
 	if !ok {
 		return nil
@@ -268,17 +279,42 @@ func (mc *MetaCacheImp) DeleteContainer(podUID string, containerName string) err
 		return nil
 	}
 	delete(podInfo, containerName)
+	if len(podInfo) == 0 {
+		delete(mc.podEntries, podUID)
+	}
 
 	return mc.storeState()
 }
 
-func (mc *MetaCacheImp) RangeAndUpdateContainer(f func(podUID string, containerName string, containerInfo *types.ContainerInfo) bool) {
-	mc.mutex.RLock()
-	podEntries := mc.podEntries.Clone()
-	mc.mutex.RUnlock()
+func (mc *MetaCacheImp) DeleteContainer(podUID string, containerName string) error {
+	mc.podMutex.Lock()
+	defer mc.podMutex.Unlock()
 
-	// func f may need to hold metaCache.mutex, so make this for-loop section lock-free
-	for podUID, podInfo := range podEntries {
+	return mc.deleteContainer(podUID, containerName)
+}
+
+func (mc *MetaCacheImp) RangeAndDeleteContainer(f func(containerInfo *types.ContainerInfo) bool) {
+	mc.podMutex.Lock()
+	defer mc.podMutex.Unlock()
+
+	for _, podInfo := range mc.podEntries {
+		for _, containerInfo := range podInfo {
+			if f(containerInfo) {
+				if err := mc.deleteContainer(containerInfo.PodUID, containerInfo.ContainerName); err != nil {
+					klog.Errorf("deleteContainer [%v/%v] err %v", containerInfo.PodUID, containerInfo.ContainerName, err)
+				}
+			}
+		}
+	}
+}
+
+func (mc *MetaCacheImp) RangeAndUpdateContainer(f func(podUID string, containerName string, containerInfo *types.ContainerInfo) bool) {
+	mc.podMutex.Lock()
+	defer mc.podMutex.Unlock()
+
+	oldPodEntries := mc.podEntries.Clone()
+
+	for podUID, podInfo := range mc.podEntries {
 		for containerName, containerInfo := range podInfo {
 			if !f(podUID, containerName, containerInfo) {
 				break
@@ -286,14 +322,14 @@ func (mc *MetaCacheImp) RangeAndUpdateContainer(f func(podUID string, containerN
 		}
 	}
 
-	mc.mutex.Lock()
-	mc.podEntries = podEntries
-	mc.mutex.Unlock()
+	if !reflect.DeepEqual(oldPodEntries, mc.podEntries) {
+		mc.storeState()
+	}
 }
 
 func (mc *MetaCacheImp) RemovePod(podUID string) error {
-	mc.mutex.Lock()
-	defer mc.mutex.Unlock()
+	mc.podMutex.Lock()
+	defer mc.podMutex.Unlock()
 
 	_, ok := mc.podEntries[podUID]
 	if !ok {
@@ -309,8 +345,12 @@ func (mc *MetaCacheImp) RemovePod(podUID string) error {
 */
 
 func (mc *MetaCacheImp) SetPoolInfo(poolName string, poolInfo *types.PoolInfo) error {
-	mc.mutex.Lock()
-	defer mc.mutex.Unlock()
+	mc.poolMutex.Lock()
+	defer mc.poolMutex.Unlock()
+
+	if reflect.DeepEqual(mc.poolEntries[poolName], poolInfo) {
+		return nil
+	}
 
 	mc.poolEntries[poolName] = poolInfo
 
@@ -318,8 +358,12 @@ func (mc *MetaCacheImp) SetPoolInfo(poolName string, poolInfo *types.PoolInfo) e
 }
 
 func (mc *MetaCacheImp) DeletePool(poolName string) error {
-	mc.mutex.Lock()
-	defer mc.mutex.Unlock()
+	mc.poolMutex.Lock()
+	defer mc.poolMutex.Unlock()
+
+	if _, ok := mc.poolEntries[poolName]; !ok {
+		return nil
+	}
 
 	delete(mc.poolEntries, poolName)
 
@@ -327,16 +371,22 @@ func (mc *MetaCacheImp) DeletePool(poolName string) error {
 }
 
 func (mc *MetaCacheImp) GCPoolEntries(livingPoolNameSet map[string]struct{}) error {
-	mc.mutex.Lock()
-	defer mc.mutex.Unlock()
+	mc.poolMutex.Lock()
+	defer mc.poolMutex.Unlock()
 
+	needStoreState := false
 	for poolName := range mc.poolEntries {
 		if _, ok := livingPoolNameSet[poolName]; !ok {
 			delete(mc.poolEntries, poolName)
+			needStoreState = true
 		}
 	}
 
-	return mc.storeState()
+	if needStoreState {
+		return mc.storeState()
+	}
+
+	return nil
 }
 
 func (mc *MetaCacheImp) UpdateRegionEntries(entries types.RegionEntries) error {
