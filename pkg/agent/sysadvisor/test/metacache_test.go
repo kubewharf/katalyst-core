@@ -22,6 +22,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"k8s.io/apimachinery/pkg/util/sets"
 
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/options"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
@@ -91,7 +92,7 @@ func TestPool(t *testing.T) {
 
 	err = metaCache.DeletePool("pool-0")
 	assert.Nil(t, err)
-	err = metaCache.GCPoolEntries(map[string]struct{}{"pool-2": {}})
+	err = metaCache.GCPoolEntries(sets.NewString("pool-2"))
 	assert.Nil(t, err)
 
 	_, ok = metaCache.GetPoolInfo("pool-0")
