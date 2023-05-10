@@ -28,15 +28,17 @@ import (
 var _ checkpointmanager.Checkpoint = &MetaCacheCheckpoint{}
 
 type MetaCacheCheckpoint struct {
-	PodEntries  types.PodEntries  `json:"pod_entries"`
-	PoolEntries types.PoolEntries `json:"pool_entries"`
-	Checksum    checksum.Checksum `json:"checksum"`
+	PodEntries    types.PodEntries    `json:"pod_entries"`
+	PoolEntries   types.PoolEntries   `json:"pool_entries"`
+	RegionEntries types.RegionEntries `json:"region_entries"`
+	Checksum      checksum.Checksum   `json:"checksum"`
 }
 
 func NewMetaCacheCheckpoint() *MetaCacheCheckpoint {
 	return &MetaCacheCheckpoint{
-		PodEntries:  make(types.PodEntries),
-		PoolEntries: make(types.PoolEntries),
+		PodEntries:    make(types.PodEntries),
+		PoolEntries:   make(types.PoolEntries),
+		RegionEntries: make(types.RegionEntries),
 	}
 }
 
