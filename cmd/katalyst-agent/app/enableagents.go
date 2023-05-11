@@ -25,6 +25,7 @@ import (
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/agent/qrm"
 	_ "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu"
 	_ "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/memory"
+	_ "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/network"
 )
 
 // AgentStarter is used to start katalyst agents
