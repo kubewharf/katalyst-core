@@ -31,6 +31,8 @@ type QoSRegion interface {
 	// Type returns region type
 	Type() types.QoSRegionType
 
+	OwnerPoolName() string
+
 	// IsEmpty returns true if no container remains in region
 	IsEmpty() bool
 	// Clear clears all topology and containers info in region

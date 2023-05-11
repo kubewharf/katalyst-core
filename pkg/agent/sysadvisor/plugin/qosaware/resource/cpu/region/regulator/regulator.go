@@ -47,11 +47,11 @@ type CPURegulator struct {
 }
 
 // NewCPURegulator returns a cpu regulator instance with immutable parameters
-func NewCPURegulator(maxRampUpStep float64, maxRampDownStep float64, minRampDownPeriod time.Duration) *CPURegulator {
+func NewCPURegulator() *CPURegulator {
 	c := &CPURegulator{
-		maxRampUpStep:      maxRampUpStep,
-		maxRampDownStep:    maxRampDownStep,
-		minRampDownPeriod:  minRampDownPeriod,
+		maxRampUpStep:      types.MaxRampUpStep,
+		maxRampDownStep:    types.MaxRampDownStep,
+		minRampDownPeriod:  types.MinRampDownPeriod,
 		latestRampDownTime: time.Now(),
 	}
 	return c

@@ -28,7 +28,6 @@ import (
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/klog/v2"
 
-	"github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/cpuadvisor"
 	qrmstate "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
@@ -55,15 +54,6 @@ const (
 	metricCPUServerLWGetCheckpointSucceeded = "cpuserver_lw_get_checkpoint_succeeded"
 	metricCPUServerLWSendResponseFailed     = "cpuserver_lw_send_response_failed"
 	metricCPUServerLWSendResponseSucceeded  = "cpuserver_lw_send_response_succeeded"
-)
-
-var (
-	qosLevel2PoolName = map[string]string{
-		consts.PodAnnotationQoSLevelSharedCores:    qrmstate.PoolNameShare,
-		consts.PodAnnotationQoSLevelReclaimedCores: qrmstate.PoolNameReclaim,
-		consts.PodAnnotationQoSLevelSystemCores:    qrmstate.PoolNameReserve,
-		consts.PodAnnotationQoSLevelDedicatedCores: qrmstate.PoolNameDedicated,
-	}
 )
 
 type cpuServer struct {
@@ -208,7 +198,7 @@ func (cs *cpuServer) ListAndWatch(empty *cpuadvisor.Empty, server cpuadvisor.CPU
 
 			// Assemble pod entries
 			f := func(podUID string, containerName string, ci *types.ContainerInfo) bool {
-				if err := cs.assemblePodEntries(calculationEntriesMap, blockID2Blocks, podUID, containerName, ci); err != nil {
+				if err := cs.assemblePodEntries(calculationEntriesMap, blockID2Blocks, podUID, ci); err != nil {
 					klog.Errorf("[qosaware-server-cpu] assemblePodEntries err: %v", err)
 				}
 				return true
@@ -441,14 +431,9 @@ func (cs *cpuServer) assemblePoolEntries(advisorResp *cpu.InternalCalculationRes
 
 // assemblePoolEntries fills up calculationEntriesMap and blockSet based on types.ContainerInfo
 func (cs *cpuServer) assemblePodEntries(calculationEntriesMap map[string]*cpuadvisor.CalculationEntries,
-	bs blockSet, podUID string, containerName string, ci *types.ContainerInfo) error {
-	poolName, ok := qosLevel2PoolName[ci.QoSLevel]
-	if !ok {
-		return fmt.Errorf("not supported qos level %v of %v/%v", ci.QoSLevel, podUID, containerName)
-	}
-
+	bs blockSet, podUID string, ci *types.ContainerInfo) error {
 	calculationInfo := &cpuadvisor.CalculationInfo{
-		OwnerPoolName:             poolName,
+		OwnerPoolName:             ci.OwnerPoolName,
 		CalculationResultsByNumas: nil,
 	}
 

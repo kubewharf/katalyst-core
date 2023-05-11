@@ -55,15 +55,19 @@ func init() {
 // 2. Support shared cores containers with different cpu enhancement
 // 3. Isolate bursting containers to isolation regions
 
-const (
-	startUpPeriod time.Duration = 30 * time.Second
-
-	regionNameSeparator = "-"
-)
-
 // InternalCalculationResult conveys minimal calculation result to cpu server
 type InternalCalculationResult struct {
 	PoolEntries map[string]map[int]resource.Quantity // map[poolName][numaId]cores
+}
+
+func (r *InternalCalculationResult) SetPoolEntry(poolName string, numaID int, poolSize int64) {
+	if poolSize <= 0 {
+		return
+	}
+	if r.PoolEntries[poolName] == nil {
+		r.PoolEntries[poolName] = make(map[int]resource.Quantity)
+	}
+	r.PoolEntries[poolName][numaID] = *resource.NewQuantity(poolSize, resource.DecimalSI)
 }
 
 // cpuResourceAdvisor is the entrance of updating cpu resource provision advice for
@@ -144,26 +148,34 @@ func (cra *cpuResourceAdvisor) GetHeadroom() (resource.Quantity, error) {
 		return *resource.NewQuantity(int64(cra.metaServer.NumCPUs-reservePoolSize), resource.DecimalSI), nil
 	}
 
-	hasShareRegion := false
+	shareRegionRequirement := 0
+
 	totalHeadroom := resource.NewQuantity(0, resource.DecimalSI)
 	for _, r := range cra.regionMap {
+		// For regions other than the share region, their cpuset adjustment ranges are mutually exclusive, so it makes sense to sum their headroom.
+		// However, regions in the share pool share the same cpuset adjustment range.
+		// In this case, headroom should be obtained by subtracting the sum of provision from the maximum value.
+		if r.Type() == types.QoSRegionTypeShare {
+			controlKnob, err := r.GetProvision()
+			if err != nil {
+				return resource.Quantity{}, fmt.Errorf("get provision with error: %v", err)
+			}
+			shareRegionRequirement += int(controlKnob[types.ControlKnobNonReclaimedCPUSetSize].Value)
+			continue
+		}
 		headroom, err := r.GetHeadroom()
 		if err != nil {
 			return headroom, err
 		}
-		if r.Type() == types.QoSRegionTypeShare {
-			hasShareRegion = true
-		}
-		// FIXME: is it reasonable to simply add headroom together?
 		totalHeadroom.Add(headroom)
 	}
 
 	// Add headroom of numas without numa binding pods if there is no share region
-	if !hasShareRegion {
-		reservePoolSizeOfNonBindingNumas := int64(math.Ceil(float64(reservePoolSize*cra.nonBindingNumas.Size()) / float64(cra.metaServer.NumNUMANodes)))
-		headroomOfNonBindingNumas := resource.NewQuantity(int64(cra.nonBindingNumas.Size()*cra.metaServer.CPUsPerNuma())-reservePoolSizeOfNonBindingNumas, resource.DecimalSI)
-		totalHeadroom.Add(*headroomOfNonBindingNumas)
-	}
+	reservePoolSizeOfNonBindingNumas := int(math.Ceil(float64(reservePoolSize*cra.nonBindingNumas.Size()) / float64(cra.metaServer.NumNUMANodes)))
+
+	headroomOfNonBindingNumas := resource.NewQuantity(int64(general.Max(cra.nonBindingNumas.Size()*cra.metaServer.CPUsPerNuma()-reservePoolSizeOfNonBindingNumas-shareRegionRequirement,
+		int(math.Ceil(float64(types.MinReclaimCPURequirement)/float64(cra.metaServer.NumNUMANodes)))*cra.nonBindingNumas.Size())), resource.DecimalSI)
+	totalHeadroom.Add(*headroomOfNonBindingNumas)
 
 	return *totalHeadroom, nil
 }
@@ -206,6 +218,7 @@ func (cra *cpuResourceAdvisor) update() {
 			}
 		}
 
+		// The reserved pool should be evenly distributed between the shared regions.
 		reserved := cra.conf.ReclaimedResourceConfiguration.ReservedResourceForAllocate()[v1.ResourceCPU]
 		reservedForAllocate := reserved.Value()
 
@@ -233,7 +246,7 @@ func (cra *cpuResourceAdvisor) update() {
 	_ = cra.metaCache.UpdateRegionEntries(regionEntries)
 
 	// skip notifying cpu server during startup
-	if time.Now().Before(cra.startTime.Add(startUpPeriod)) {
+	if time.Now().Before(cra.startTime.Add(types.StartUpPeriod)) {
 		klog.Infof("[qosaware-cpu] skip notifying cpu server: starting up")
 		return
 	}
@@ -308,6 +321,13 @@ func (cra *cpuResourceAdvisor) assignContainersToRegions() error {
 // assignToRegions returns the region list for the given container;
 // may need to construct region structures if they don't exist.
 func (cra *cpuResourceAdvisor) assignToRegions(ci *types.ContainerInfo) ([]region.QoSRegion, error) {
+	if ci == nil {
+		return nil, fmt.Errorf("ci is nil")
+	}
+	// not assign container to any region when ramping up
+	if ci.RampUp {
+		return nil, nil
+	}
 	if ci.QoSLevel == consts.PodAnnotationQoSLevelSharedCores {
 		// Assign shared cores container. Focus on pool.
 		regions, err := cra.getPoolRegions(ci.OwnerPoolName)
@@ -318,7 +338,7 @@ func (cra *cpuResourceAdvisor) assignToRegions(ci *types.ContainerInfo) ([]regio
 			return regions, nil
 		}
 
-		name := string(types.QoSRegionTypeShare) + regionNameSeparator + string(uuid.NewUUID())
+		name := string(types.QoSRegionTypeShare) + types.RegionNameSeparator + string(uuid.NewUUID())
 		r := region.NewQoSRegionShare(name, ci.OwnerPoolName, cra.conf, cra.extraConf, cra.metaCache, cra.metaServer, cra.emitter)
 
 		return []region.QoSRegion{r}, nil
@@ -335,7 +355,7 @@ func (cra *cpuResourceAdvisor) assignToRegions(ci *types.ContainerInfo) ([]regio
 
 		// Create regions by numa node
 		for numaID := range ci.TopologyAwareAssignments {
-			name := string(types.QoSRegionTypeDedicatedNumaExclusive) + regionNameSeparator + string(uuid.NewUUID())
+			name := string(types.QoSRegionTypeDedicatedNumaExclusive) + types.RegionNameSeparator + string(uuid.NewUUID())
 			r := region.NewQoSRegionDedicatedNumaExclusive(name, ci.OwnerPoolName, cra.conf, numaID, cra.extraConf, cra.metaCache, cra.metaServer, cra.emitter)
 			regions = append(regions, r)
 		}
@@ -417,11 +437,10 @@ func (cra *cpuResourceAdvisor) assembleProvision() (InternalCalculationResult, e
 
 	// fill in reserve pool entry
 	reservePoolSize, _ := cra.metaCache.GetPoolSize(state.PoolNameReserve)
-	provision.PoolEntries[state.PoolNameReserve] = map[int]resource.Quantity{
-		-1: *resource.NewQuantity(int64(reservePoolSize), resource.DecimalSI),
-	}
+	provision.SetPoolEntry(state.PoolNameReserve, cpuadvisor.FakedNumaID, int64(reservePoolSize))
 
 	nonNumaBindingRequirement := 0
+	shareRegionRequirement := make(map[string]int)
 
 	for _, r := range cra.regionMap {
 		controlKnob, err := r.GetProvision()
@@ -432,9 +451,9 @@ func (cra *cpuResourceAdvisor) assembleProvision() (InternalCalculationResult, e
 		if r.Type() == types.QoSRegionTypeShare {
 			// fill in share pool entry
 			sharePoolSize := int(controlKnob[types.ControlKnobNonReclaimedCPUSetSize].Value)
-			provision.PoolEntries[state.PoolNameShare] = make(map[int]resource.Quantity)
-			provision.PoolEntries[state.PoolNameShare][cpuadvisor.FakedNumaID] = *resource.NewQuantity(int64(sharePoolSize), resource.DecimalSI)
 			nonNumaBindingRequirement += sharePoolSize
+
+			shareRegionRequirement[r.OwnerPoolName()] = sharePoolSize
 
 		} else if r.Type() == types.QoSRegionTypeDedicatedNumaExclusive {
 			regionNumas := r.GetBindingNumas().ToSliceInt()
@@ -445,20 +464,23 @@ func (cra *cpuResourceAdvisor) assembleProvision() (InternalCalculationResult, e
 			// fill in reclaim pool entry for dedicated numa exclusive regions
 			reclaimPoolSize := controlKnob[types.ControlKnobReclaimedCPUSupplied].Value
 			regionNuma := regionNumas[0] // Always one binding numa for this type of region
-			if provision.PoolEntries[state.PoolNameReclaim] == nil {
-				provision.PoolEntries[state.PoolNameReclaim] = make(map[int]resource.Quantity)
-			}
-			provision.PoolEntries[state.PoolNameReclaim][regionNuma] = *resource.NewQuantity(int64(reclaimPoolSize), resource.DecimalSI)
+			provision.SetPoolEntry(state.PoolNameReclaim, regionNuma, int64(reclaimPoolSize))
 		}
 	}
 
 	// fill in reclaimed pool size of non-binding numas
 	reservePoolSizeOfNonBindingNumas := int(math.Ceil(float64(reservePoolSize*cra.nonBindingNumas.Size()) / float64(cra.metaServer.NumNUMANodes)))
-	reclaimPoolSizeOfNonBindingNumas := cra.nonBindingNumas.Size()*cra.metaServer.CPUsPerNuma() - nonNumaBindingRequirement - reservePoolSizeOfNonBindingNumas
-	if provision.PoolEntries[state.PoolNameReclaim] == nil {
-		provision.PoolEntries[state.PoolNameReclaim] = make(map[int]resource.Quantity)
+
+	reclaimPoolSizeOfNonBindingNumas := general.Max(cra.nonBindingNumas.Size()*cra.metaServer.CPUsPerNuma()-nonNumaBindingRequirement-reservePoolSizeOfNonBindingNumas,
+		int(math.Ceil(float64(types.MinReclaimCPURequirement)/float64(cra.metaServer.NumNUMANodes)))*cra.nonBindingNumas.Size())
+	sharePoolSize := cra.nonBindingNumas.Size()*cra.metaServer.CPUsPerNuma() - reclaimPoolSizeOfNonBindingNumas - reservePoolSizeOfNonBindingNumas
+
+	sharePools := genShareRegionPools(shareRegionRequirement, sharePoolSize)
+	for poolName, size := range sharePools {
+		provision.SetPoolEntry(poolName, cpuadvisor.FakedNumaID, int64(size))
 	}
-	provision.PoolEntries[state.PoolNameReclaim][cpuadvisor.FakedNumaID] = *resource.NewQuantity(int64(reclaimPoolSizeOfNonBindingNumas), resource.DecimalSI)
+
+	provision.SetPoolEntry(state.PoolNameReclaim, cpuadvisor.FakedNumaID, int64(reclaimPoolSizeOfNonBindingNumas))
 	return provision, nil
 }
 
@@ -519,4 +541,38 @@ func (cra *cpuResourceAdvisor) setPoolRegions(poolName string, regions []region.
 		pool.RegionNames.Insert(r.Name())
 	}
 	return cra.metaCache.SetPoolInfo(poolName, pool)
+}
+
+// shareRegionRequirement refers to the resource demand of each share region,
+// sharePoolSize represents the total capacity of the share pool.
+// If the total resource requirement of all share regions exceeds the total capacity of the pool,
+// we need to distribute the total capacity proportionally according to the resource requirement.
+func genShareRegionPools(shareRegionRequirement map[string]int, sharePoolSize int) map[string]int {
+	sharePools := make(map[string]int)
+
+	requirementSum := 0
+	for _, requirement := range shareRegionRequirement {
+		requirementSum += requirement
+	}
+	if requirementSum <= sharePoolSize {
+		return shareRegionRequirement
+	}
+
+	for poolName, requirement := range shareRegionRequirement {
+		sharePools[poolName] = sharePoolSize * requirement / requirementSum
+	}
+
+	pools := general.TraverseMapByValueDescending(sharePools)
+
+	sharePools = make(map[string]int)
+	poolSizeSum := 0
+	for i, pool := range pools {
+		size := pool.Value
+		if i == len(pools)-1 {
+			size = sharePoolSize - poolSizeSum
+		}
+		sharePools[pool.Key] = size
+		poolSizeSum += size
+	}
+	return sharePools
 }
