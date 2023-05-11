@@ -51,7 +51,7 @@ type AdvisorPluginInitFunc func(conf *config.Configuration, extraConf interface{
 
 var advisorPluginInitializers sync.Map
 
-func RegisterHealthzCheckRules(plugin string, f AdvisorPluginInitFunc) {
+func RegisterAdvisorPlugin(plugin string, f AdvisorPluginInitFunc) {
 	advisorPluginInitializers.Store(plugin, f)
 }
 

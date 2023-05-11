@@ -40,9 +40,9 @@ import (
 const initTimeout = 10 * time.Second
 
 func init() {
-	pkgplugin.RegisterHealthzCheckRules(types.AdvisorPluginNameQoSAware, qosaware.NewQoSAwarePlugin)
-	pkgplugin.RegisterHealthzCheckRules(types.AdvisorPluginNameMetaCache, metacacheplugin.NewMetaCachePlugin)
-	pkgplugin.RegisterHealthzCheckRules(types.AdvisorPluginNameMetricEmitter, metricemitter.NewCustomMetricEmitter)
+	pkgplugin.RegisterAdvisorPlugin(types.AdvisorPluginNameQoSAware, qosaware.NewQoSAwarePlugin)
+	pkgplugin.RegisterAdvisorPlugin(types.AdvisorPluginNameMetaCache, metacacheplugin.NewMetaCachePlugin)
+	pkgplugin.RegisterAdvisorPlugin(types.AdvisorPluginNameMetricEmitter, metricemitter.NewCustomMetricEmitter)
 }
 
 // AdvisorAgent for sysadvisor
