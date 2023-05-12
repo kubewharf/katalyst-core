@@ -47,28 +47,48 @@ type managerImpl struct {
 
 	// reporters are the map of gvk to reporter
 	reporters map[v1.GroupVersionKind]Reporter
+
+	// converters are the map of gvk to converter
+	// which is registered by RegisterConverterInitializer
+	converters map[v1.GroupVersionKind]Converter
 }
 
 // NewReporterManager is to create a reporter manager
 func NewReporterManager(genericClient *client.GenericClientSet, metaServer *metaserver.MetaServer,
 	emitter metrics.MetricEmitter, conf *config.Configuration) (Manager, error) {
 	r := &managerImpl{
-		reporters: make(map[v1.GroupVersionKind]Reporter),
-		conf:      conf,
+		reporters:  make(map[v1.GroupVersionKind]Reporter),
+		converters: make(map[v1.GroupVersionKind]Converter),
+		conf:       conf,
 	}
 
-	err := r.getReporter(genericClient, metaServer, emitter, conf, GetRegisteredInitializers())
+	err := r.getReporter(genericClient, metaServer, emitter, conf, getRegisteredInitializers())
 	if err != nil {
 		return nil, err
 	}
+
+	err = r.getConverter(genericClient, metaServer, emitter, conf, getRegisteredConverterInitializers())
+	if err != nil {
+		return nil, err
+	}
+
 	return r, nil
 }
 
 func (r *managerImpl) PushContents(ctx context.Context, responses map[string]*v1alpha1.GetReportContentResponse) error {
-	var errList []error
+	var (
+		err     error
+		errList []error
+	)
 
 	// aggregate all plugin response by gvk
 	reportFieldsByGVK := aggregateReportFieldsByGVK(responses)
+
+	// convert report fields to expected version and kind if needed
+	reportFieldsByGVK, err = r.convertReportFieldsIfNeeded(ctx, reportFieldsByGVK)
+	if err != nil {
+		return fmt.Errorf("convert report fields failed: %v", err)
+	}
 
 	// it will update all fields by updater with same gvk
 	for gvk, fields := range reportFieldsByGVK {
@@ -77,7 +97,11 @@ func (r *managerImpl) PushContents(ctx context.Context, responses map[string]*v1
 			return fmt.Errorf("reporter of gvk %s not found", gvk)
 		}
 
-		err := u.Update(ctx, fields)
+		sort.SliceStable(fields, func(i, j int) bool {
+			return fields[i].String() < fields[j].String()
+		})
+
+		err = u.Update(ctx, fields)
 		if err != nil {
 			errList = append(errList, fmt.Errorf("reporter %s report failed with error: %s", gvk, err))
 		}
@@ -94,9 +118,9 @@ func (r *managerImpl) Run(ctx context.Context) {
 }
 
 func (r *managerImpl) getReporter(genericClient *client.GenericClientSet, metaServer *metaserver.MetaServer,
-	emitter metrics.MetricEmitter, conf *config.Configuration, initFunc map[v1.GroupVersionKind]InitFunc) error {
+	emitter metrics.MetricEmitter, conf *config.Configuration, initializers map[v1.GroupVersionKind]InitFunc) error {
 	var errList []error
-	for gvk, f := range initFunc {
+	for gvk, f := range initializers {
 		reporter, err := f(genericClient, metaServer, emitter, conf)
 		if err != nil {
 			errList = append(errList, err)
@@ -112,21 +136,62 @@ func (r *managerImpl) getReporter(genericClient *client.GenericClientSet, metaSe
 	return nil
 }
 
+func (r *managerImpl) getConverter(genericClient *client.GenericClientSet, server *metaserver.MetaServer,
+	emitter metrics.MetricEmitter, conf *config.Configuration, initializers map[v1.GroupVersionKind]ConverterInitFunc) error {
+	var errList []error
+	for gvk, f := range initializers {
+		converter, err := f(genericClient, server, emitter, conf)
+		if err != nil {
+			errList = append(errList, err)
+			continue
+		}
+		r.converters[gvk] = converter
+	}
+
+	if len(errList) > 0 {
+		return errors.NewAggregate(errList)
+	}
+
+	return nil
+}
+
+// convertReportFieldsIfNeeded converts all plugin's report fields to other gvk or other fields through
+// converter registered by RegisterConverterInitializer
+func (r *managerImpl) convertReportFieldsIfNeeded(ctx context.Context,
+	reportFieldsByGVK map[v1.GroupVersionKind][]*v1alpha1.ReportField) (map[v1.GroupVersionKind][]*v1alpha1.ReportField, error) {
+	var errList []error
+	convertedFieldsByGVK := make(map[v1.GroupVersionKind][]*v1alpha1.ReportField)
+	for gvk, fields := range reportFieldsByGVK {
+		c, ok := r.converters[gvk]
+		if ok && c != nil {
+			convertedContent, err := c.Convert(ctx, fields)
+			if err != nil {
+				errList = append(errList, err)
+				continue
+			}
+
+			if convertedContent.GroupVersionKind == nil {
+				continue
+			}
+
+			convertedFieldsByGVK[*convertedContent.GroupVersionKind] = append(convertedFieldsByGVK[*convertedContent.GroupVersionKind], convertedContent.Field...)
+		} else {
+			convertedFieldsByGVK[gvk] = append(convertedFieldsByGVK[gvk], fields...)
+		}
+	}
+
+	if len(errList) > 0 {
+		return nil, errors.NewAggregate(errList)
+	}
+
+	return convertedFieldsByGVK, nil
+}
+
 // aggregateReportFieldsByGVK aggregate all report field of plugins' response by its groupVersionKind
 // because different plugins may be responsible for one groupVersionKind.
 func aggregateReportFieldsByGVK(reportResponses map[string]*v1alpha1.GetReportContentResponse) map[v1.GroupVersionKind][]*v1alpha1.ReportField {
 	reportFields := make(map[v1.GroupVersionKind][]*v1alpha1.ReportField)
-
-	// sort reportResponses by name to make sure aggregated result is in order
-	reporterNameList := make([]string, 0, len(reportResponses))
 	for name := range reportResponses {
-		reporterNameList = append(reporterNameList, name)
-	}
-	sort.SliceStable(reporterNameList, func(i, j int) bool {
-		return reporterNameList[i] > reporterNameList[j]
-	})
-
-	for _, name := range reporterNameList {
 		response := reportResponses[name]
 		if response == nil {
 			continue

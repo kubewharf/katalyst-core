@@ -20,6 +20,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/fsnotify/fsnotify"
@@ -31,7 +32,6 @@ import (
 	utilerrors "k8s.io/apimachinery/pkg/util/errors"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/klog/v2"
-
 	podresv1 "k8s.io/kubelet/pkg/apis/podresources/v1"
 
 	nodev1alpha1 "github.com/kubewharf/katalyst-api/pkg/apis/node/v1alpha1"
@@ -39,6 +39,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	metaserverpod "github.com/kubewharf/katalyst-core/pkg/metaserver/agent/pod"
+	"github.com/kubewharf/katalyst-core/pkg/util"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/native"
 )
@@ -51,20 +52,23 @@ const (
 // NumaInfoGetter is to get numa info
 type NumaInfoGetter func() ([]info.Node, error)
 
+// PodResourcesFilter is to filter pod resources which does need to be reported
+type PodResourcesFilter func(*podresv1.PodResources) (*podresv1.PodResources, error)
+
 var (
 	oneQuantity = *resource.NewQuantity(1, resource.DecimalSI)
 )
 
 type podResourcesServerTopologyAdapterImpl struct {
+	mutex     sync.Mutex
 	client    podresv1.PodResourcesListerClient
-	conn      *grpc.ClientConn
 	endpoints []string
 
 	// metaServer is used to fetch pod list to calculate numa allocation
 	metaServer *metaserver.MetaServer
 
-	// numaToSocketMap map numa id => socket id
-	numaToSocketMap map[int]int
+	// numaZoneNodeMap map numa zone node => socket zone node
+	numaSocketZoneNodeMap map[util.ZoneNode]util.ZoneNode
 
 	// skipDeviceNames name of devices which will be skipped in getting numa allocatable and allocation
 	skipDeviceNames sets.String
@@ -72,8 +76,8 @@ type podResourcesServerTopologyAdapterImpl struct {
 	// getClientFunc is func to get pod resources lister client
 	getClientFunc podresources.GetClientFunc
 
-	// podNumaBindFilter is to filter out pods which need numa binding
-	podNumaBindFilter func(*v1.Pod) bool
+	// podResourcesFilter is support to filter out pods or resources which no need report to cnr
+	podResourcesFilter PodResourcesFilter
 
 	// kubeletResourcePluginPaths is the path of kubelet resource plugin
 	kubeletResourcePluginPaths []string
@@ -82,7 +86,7 @@ type podResourcesServerTopologyAdapterImpl struct {
 // NewPodResourcesServerTopologyAdapter creates a topology adapter which uses pod resources server
 func NewPodResourcesServerTopologyAdapter(metaServer *metaserver.MetaServer, endpoints []string,
 	kubeletResourcePluginPaths []string, skipDeviceNames sets.String, numaInfoGetter NumaInfoGetter,
-	podNumaBindingFilter func(*v1.Pod) bool, getClientFunc podresources.GetClientFunc) (Adapter, error) {
+	podResourcesFilter PodResourcesFilter, getClientFunc podresources.GetClientFunc) (Adapter, error) {
 	numaInfo, err := numaInfoGetter()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get numa info: %s", err)
@@ -97,19 +101,22 @@ func NewPodResourcesServerTopologyAdapter(metaServer *metaserver.MetaServer, end
 		}
 	}
 
-	numaToSocketMap := GetNumaToSocketMap(numaInfo)
+	numaSocketZoneNodeMap := util.GenerateNumaSocketZone(numaInfo)
 	return &podResourcesServerTopologyAdapterImpl{
 		endpoints:                  endpoints,
 		kubeletResourcePluginPaths: kubeletResourcePluginPaths,
 		metaServer:                 metaServer,
-		numaToSocketMap:            numaToSocketMap,
+		numaSocketZoneNodeMap:      numaSocketZoneNodeMap,
 		skipDeviceNames:            skipDeviceNames,
 		getClientFunc:              getClientFunc,
-		podNumaBindFilter:          podNumaBindingFilter,
+		podResourcesFilter:         podResourcesFilter,
 	}, nil
 }
 
-func (p *podResourcesServerTopologyAdapterImpl) GetNumaTopologyStatus(parentCtx context.Context) (*nodev1alpha1.TopologyStatus, error) {
+func (p *podResourcesServerTopologyAdapterImpl) GetTopologyZones(parentCtx context.Context) ([]*nodev1alpha1.TopologyZone, error) {
+	p.mutex.Lock()
+	defer p.mutex.Unlock()
+
 	// always force getting pod list instead of cache
 	ctx := context.WithValue(parentCtx, metaserverpod.BypassCacheKey, metaserverpod.BypassCacheTrue)
 
@@ -123,45 +130,68 @@ func (p *podResourcesServerTopologyAdapterImpl) GetNumaTopologyStatus(parentCtx 
 		return nil, errors.Wrap(err, "list pod from pod resource server failed")
 	}
 
-	allocatableResourcesResponse, err := p.client.GetAllocatableResources(ctx, &podresv1.AllocatableResourcesRequest{})
+	allocatableResources, err := p.client.GetAllocatableResources(ctx, &podresv1.AllocatableResourcesRequest{})
 	if err != nil {
-		return nil, errors.Wrap(err, "get allocatable resources from pod resource server failed")
+		return nil, errors.Wrap(err, "get allocatable Resources from pod resource server failed")
 	}
 
 	if klog.V(5).Enabled() {
 		listPodResourcesResponseStr, _ := json.Marshal(listPodResourcesResponse)
-		allocatableResourcesResponseStr, _ := json.Marshal(allocatableResourcesResponse)
-		klog.Infof("list pod resources: %s\n allocatable resources: %s", string(listPodResourcesResponseStr),
+		allocatableResourcesResponseStr, _ := json.Marshal(allocatableResources)
+		klog.Infof("list pod Resources: %s\n allocatable Resources: %s", string(listPodResourcesResponseStr),
 			string(allocatableResourcesResponseStr))
 	}
 
-	// validate pod resources server response to make sure report topology status is correct
-	if err = validatePodResourcesServerResponse(allocatableResourcesResponse, listPodResourcesResponse); err != nil {
-		return nil, errors.Wrap(err, "validate pod resources server response failed")
+	// validate pod Resources server response to make sure report topology status is correct
+	if err = validatePodResourcesServerResponse(allocatableResources, listPodResourcesResponse); err != nil {
+		return nil, errors.Wrap(err, "validate pod Resources server response failed")
 	}
 
+	// filter already allocated pods
 	podResourcesList := filterAllocatedPodResourcesList(listPodResourcesResponse.GetPodResources())
 
-	// get numa allocations by pod resources
-	numaAllocationsMap, err := getNumaAllocationsByPodResources(podList, podResourcesList, p.podNumaBindFilter, p.skipDeviceNames)
+	// get numa Allocations by pod Resources
+	zoneAllocations, err := p.getZoneAllocations(podList, podResourcesList)
 	if err != nil {
-		return nil, errors.Wrap(err, "get numa allocations failed")
+		return nil, errors.Wrap(err, "get zone allocations failed")
 	}
 
-	// get numa allocatable by allocatable resources
-	numaCapacity, numaAllocatable, err := getNumaStatusByAllocatableResources(allocatableResourcesResponse, p.skipDeviceNames)
+	// get zone resources by allocatable resources
+	zoneResources, err := p.getZoneResources(allocatableResources)
 	if err != nil {
-		return nil, errors.Wrap(err, "get numa status failed")
+		return nil, errors.Wrap(err, "get zone resources failed")
 	}
 
-	socketStatusMap := GenerateSocketStatus(numaCapacity, numaAllocatable, p.numaToSocketMap)
+	// get zone attributes by allocatable resources
+	zoneAttributes, err := p.getZoneAttributes(allocatableResources)
+	if err != nil {
+		return nil, errors.Wrap(err, "get zone Attributes failed")
+	}
 
-	return GenerateNumaTopologyStatus(socketStatusMap, numaAllocationsMap), nil
+	// initialize a topology zone generator by numa socket zone node map
+	topologyZoneGenerator, err := util.NewNumaSocketTopologyZoneGenerator(p.numaSocketZoneNodeMap)
+	if err != nil {
+		return nil, err
+	}
+
+	// add other children zone node of numa or socket into topology zone generator by allocatable resources
+	err = p.addNumaSocketChildrenZoneNodes(topologyZoneGenerator, allocatableResources)
+	if err != nil {
+		return nil, errors.Wrap(err, "get zone topology failed")
+	}
+
+	return topologyZoneGenerator.GenerateTopologyZoneStatus(zoneAllocations, zoneResources, zoneAttributes), nil
 }
 
 func (p *podResourcesServerTopologyAdapterImpl) Run(ctx context.Context, handler func()) error {
-	var err error
-	p.client, p.conn, err = p.getClientFunc(
+	var (
+		err  error
+		conn *grpc.ClientConn
+	)
+	p.mutex.Lock()
+	defer p.mutex.Unlock()
+
+	p.client, conn, err = p.getClientFunc(
 		general.GetOneExistPath(p.endpoints), podResourcesClientTimeout, podResourcesClientMaxMsgSize)
 	if err != nil {
 		return fmt.Errorf("get podResources client failed, connect err: %s", err)
@@ -183,13 +213,16 @@ func (p *podResourcesServerTopologyAdapterImpl) Run(ctx context.Context, handler
 	// start a goroutine to watch qrm checkpoint file change and notify to update topology status,
 	// and when qrm checkpoint file changed, it means that the topology status may be changed
 	go func() {
+		defer func() {
+			err = conn.Close()
+			if err != nil {
+				klog.Errorf("pod resource connection close failed: %v", err)
+			}
+		}()
 		for {
 			select {
 			case <-ctx.Done():
-				err := p.conn.Close()
-				if err != nil {
-					klog.Errorf("pod resource connection close failed")
-				}
+				klog.Infof("stopping pod resources server topology adapter")
 				return
 			case _, ok := <-watcher:
 				if !ok {
@@ -207,57 +240,102 @@ func (p *podResourcesServerTopologyAdapterImpl) Run(ctx context.Context, handler
 	return nil
 }
 
+// validatePodResourcesServerResponse validate pod resources server response, if the resource is empty,
+// maybe the kubelet or qrm plugin is restarting
 func validatePodResourcesServerResponse(allocatableResourcesResponse *podresv1.AllocatableResourcesResponse,
 	listPodResourcesResponse *podresv1.ListPodResourcesResponse) error {
 	if allocatableResourcesResponse == nil {
-		return fmt.Errorf("allocatable resources response is nil")
+		return fmt.Errorf("allocatable Resources response is nil")
 	}
 
 	if len(allocatableResourcesResponse.Resources) == 0 {
-		return fmt.Errorf("allocatable topology aware resources is empty")
+		return fmt.Errorf("allocatable topology aware Resources is empty")
 	}
 
 	if listPodResourcesResponse == nil {
-		return fmt.Errorf("list pod resources response is nil")
+		return fmt.Errorf("list pod Resources response is nil")
 	}
 
 	return nil
 }
 
-func getNumaStatusByAllocatableResources(allocatableResources *podresv1.AllocatableResourcesResponse,
-	skipDeviceNames sets.String) (map[int]*v1.ResourceList, map[int]*v1.ResourceList, error) {
+// addNumaSocketChildrenZoneNodes add the child nodes of socket or numa zone nodes to the generator, the child nodes are
+// generated by generateZoneNode according to TopologyLevel, Type and Name in TopologyAwareAllocatableQuantityList
+func (p *podResourcesServerTopologyAdapterImpl) addNumaSocketChildrenZoneNodes(generator *util.TopologyZoneGenerator,
+	allocatableResources *podresv1.AllocatableResourcesResponse) error {
+	if allocatableResources == nil {
+		return fmt.Errorf("allocatable Resources is nil")
+	}
+
+	var errList []error
+	for _, resources := range allocatableResources.Resources {
+		for _, quantity := range resources.TopologyAwareAllocatableQuantityList {
+			if quantity == nil || len(quantity.Type) == 0 {
+				continue
+			}
+
+			zoneNode, parentZoneNode, err := p.generateZoneNode(*quantity)
+			if err != nil {
+				errList = append(errList, fmt.Errorf("get zone key from quantity %v failed: %v", quantity, err))
+				continue
+			}
+
+			err = generator.AddNode(parentZoneNode, zoneNode)
+			if err != nil {
+				errList = append(errList, err)
+				continue
+			}
+		}
+	}
+
+	if len(errList) > 0 {
+		return utilerrors.NewAggregate(errList)
+	}
+
+	return nil
+}
+
+// getZoneResources gets a map of zone node to zone Resources. The zone node Resources is combined by allocatable
+// device and allocatable resources from pod resources server
+func (p *podResourcesServerTopologyAdapterImpl) getZoneResources(allocatableResources *podresv1.AllocatableResourcesResponse) (map[util.ZoneNode]nodev1alpha1.Resources, error) {
 	var (
 		errList []error
 		err     error
 	)
 
 	if allocatableResources == nil {
-		return nil, nil, fmt.Errorf("allocatable resources is nil")
+		return nil, fmt.Errorf("allocatable Resources is nil")
 	}
 
-	numaCapacity := make(map[int]*v1.ResourceList)
-	numaAllocatable := make(map[int]*v1.ResourceList)
+	zoneAllocatable := make(map[util.ZoneNode]*v1.ResourceList)
+	zoneCapacity := make(map[util.ZoneNode]*v1.ResourceList)
 
-	numaAllocatable = addContainerTopoAwareDevices(numaAllocatable, allocatableResources.Devices, skipDeviceNames)
+	zoneAllocatable, err = p.addContainerDevices(zoneAllocatable, allocatableResources.Devices)
+	if err != nil {
+		return nil, err
+	}
 
 	// todo: the capacity and allocatable are equally now because the response includes all
 	// 		devices which don't consider them whether is healthy
-	numaCapacity = addContainerTopoAwareDevices(numaCapacity, allocatableResources.Devices, skipDeviceNames)
+	zoneCapacity, err = p.addContainerDevices(zoneCapacity, allocatableResources.Devices)
+	if err != nil {
+		return nil, err
+	}
 
-	// calculate resources capacity and allocatable
+	// calculate Resources capacity and allocatable
 	for _, resources := range allocatableResources.Resources {
 		if resources == nil {
 			continue
 		}
 
 		resourceName := v1.ResourceName(resources.ResourceName)
-		numaCapacity, err = addTopoAwareQuantity(numaCapacity, resourceName, resources.TopologyAwareCapacityQuantityList)
+		zoneCapacity, err = p.addTopologyAwareQuantity(zoneCapacity, resourceName, resources.TopologyAwareCapacityQuantityList)
 		if err != nil {
 			errList = append(errList, err)
 			continue
 		}
 
-		numaAllocatable, err = addTopoAwareQuantity(numaAllocatable, resourceName, resources.TopologyAwareAllocatableQuantityList)
+		zoneAllocatable, err = p.addTopologyAwareQuantity(zoneAllocatable, resourceName, resources.TopologyAwareAllocatableQuantityList)
 		if err != nil {
 			errList = append(errList, err)
 			continue
@@ -265,23 +343,52 @@ func getNumaStatusByAllocatableResources(allocatableResources *podresv1.Allocata
 	}
 
 	if len(errList) > 0 {
-		return nil, nil, utilerrors.NewAggregate(errList)
+		return nil, utilerrors.NewAggregate(errList)
 	}
 
-	return numaCapacity, numaAllocatable, nil
+	resources := make(map[util.ZoneNode]nodev1alpha1.Resources)
+	for zone, capacity := range zoneCapacity {
+		allocatable, ok := zoneAllocatable[zone]
+		if !ok {
+			return nil, fmt.Errorf("zone %v capacity found but allocatable is not found", zone)
+		}
+
+		resources[zone] = nodev1alpha1.Resources{
+			Capacity:    capacity,
+			Allocatable: allocatable,
+		}
+	}
+
+	return resources, nil
 }
 
-// getNumaAllocationsByPodResources get a map of numa id to numa allocations, which
-// includes pod allocations.
-func getNumaAllocationsByPodResources(podList []*v1.Pod, podResourcesList []*podresv1.PodResources,
-	podNumaBindingFilter func(*v1.Pod) bool, skipDeviceNames sets.String) (map[int]*nodev1alpha1.NumaStatus, error) {
-	var errList []error
+// getZoneAllocations gets a map of zone nodes to zone allocations computed from a list of pod resources that aggregates per-container allocations using
+// aggregateContainerAllocated. The podResourcesFilter is used to filter out some pods that do not need to be reported to cnr
+func (p *podResourcesServerTopologyAdapterImpl) getZoneAllocations(podList []*v1.Pod, podResourcesList []*podresv1.PodResources) (map[util.ZoneNode]util.ZoneAllocations, error) {
+	var (
+		err     error
+		errList []error
+	)
 
 	podMap := native.GetPodNamespaceNameKeyMap(podList)
-	numaStatusMap := make(map[int]*nodev1alpha1.NumaStatus)
+	zoneAllocationsMap := make(map[util.ZoneNode]util.ZoneAllocations)
 	for _, podResources := range podResourcesList {
 		if podResources == nil {
 			continue
+		}
+
+		// the pod resource filter will filter out unwanted pods
+		if p.podResourcesFilter != nil {
+			podResources, err = p.podResourcesFilter(podResources)
+			if err != nil {
+				errList = append(errList, err)
+				continue
+			}
+
+			// if podResources is nil, it means that the pod is filtered out
+			if podResources == nil {
+				continue
+			}
 		}
 
 		podKey := native.GenerateNamespaceNameKey(podResources.Namespace, podResources.Name)
@@ -291,27 +398,20 @@ func getNumaAllocationsByPodResources(podList []*v1.Pod, podResourcesList []*pod
 			continue
 		}
 
-		var podNeedNumaBinding = true
-		// if the pod does not need to bind numa and has no numa device bound, we do not need to report to cnr
-		if podNumaBindingFilter != nil {
-			podNeedNumaBinding = podNumaBindingFilter(pod)
-		}
-
-		podAllocated, err := aggregateContainerAllocated(podResources.Containers, podNeedNumaBinding, skipDeviceNames)
+		// aggregates resources in each zone used by all containers of the pod
+		podAllocated, err := p.aggregateContainerAllocated(podResources.Containers)
 		if err != nil {
 			errList = append(errList, fmt.Errorf("pod %s aggregate container allocated failed, %s", podKey, err))
 			continue
 		}
 
-		for numaID, resourceList := range podAllocated {
-			_, ok := numaStatusMap[numaID]
+		for zoneNode, resourceList := range podAllocated {
+			_, ok := zoneAllocationsMap[zoneNode]
 			if !ok {
-				numaStatusMap[numaID] = &nodev1alpha1.NumaStatus{
-					NumaID: numaID,
-				}
+				zoneAllocationsMap[zoneNode] = util.ZoneAllocations{}
 			}
 
-			numaStatusMap[numaID].Allocations = append(numaStatusMap[numaID].Allocations, &nodev1alpha1.Allocation{
+			zoneAllocationsMap[zoneNode] = append(zoneAllocationsMap[zoneNode], &nodev1alpha1.Allocation{
 				Consumer: native.GenerateUniqObjectUIDKey(pod),
 				Requests: resourceList,
 			})
@@ -322,40 +422,93 @@ func getNumaAllocationsByPodResources(podList []*v1.Pod, podResourcesList []*pod
 		return nil, utilerrors.NewAggregate(errList)
 	}
 
-	return numaStatusMap, nil
+	return zoneAllocationsMap, nil
 }
 
-func aggregateContainerAllocated(containers []*podresv1.ContainerResources,
-	podNeedNumaBinding bool, skipDeviceNames sets.String) (map[int]*v1.ResourceList, error) {
+// getZoneAttributes gets a map of zone node to zone attributes, which is generated from the annotation of
+// topology aware quantity and socket and numa zone are not support attribute here
+func (p *podResourcesServerTopologyAdapterImpl) getZoneAttributes(allocatableResources *podresv1.AllocatableResourcesResponse) (map[util.ZoneNode]util.ZoneAttributes, error) {
+	if allocatableResources == nil {
+		return nil, fmt.Errorf("allocatable Resources is nil")
+	}
+
+	var errList []error
+	zoneAttributes := make(map[util.ZoneNode]util.ZoneAttributes)
+	for _, resources := range allocatableResources.Resources {
+		if resources == nil {
+			continue
+		}
+
+		for _, quantity := range resources.TopologyAwareAllocatableQuantityList {
+			// only quantity with type need report attributes, and others such as Socket and Numa
+			// no need report that
+			if quantity == nil || len(quantity.Type) == 0 {
+				continue
+			}
+
+			zoneNode, _, err := p.generateZoneNode(*quantity)
+			if err != nil {
+				errList = append(errList, fmt.Errorf("get zone node from quantity %v failed: %v", quantity, err))
+				continue
+			}
+
+			if _, ok := zoneAttributes[zoneNode]; !ok {
+				zoneAttributes[zoneNode] = util.ZoneAttributes{}
+			}
+
+			var attrs []nodev1alpha1.Attribute
+			for annoKey, value := range quantity.Annotations {
+				attrs = append(attrs, nodev1alpha1.Attribute{
+					Name:  annoKey,
+					Value: value,
+				})
+			}
+
+			zoneAttributes[zoneNode] = util.MergeAttributes(zoneAttributes[zoneNode], attrs)
+		}
+	}
+
+	if len(errList) > 0 {
+		return nil, utilerrors.NewAggregate(errList)
+	}
+
+	return zoneAttributes, nil
+}
+
+// aggregateContainerAllocated aggregates resources in each zone used by all containers of a pod and returns a map of zone node to
+// container allocated resources.
+func (p *podResourcesServerTopologyAdapterImpl) aggregateContainerAllocated(containers []*podresv1.ContainerResources) (map[util.ZoneNode]*v1.ResourceList, error) {
 	var errList []error
 
-	podAllocated := make(map[int]*v1.ResourceList)
+	podAllocated := make(map[util.ZoneNode]*v1.ResourceList)
 	for _, containerResources := range containers {
 		if containerResources == nil {
 			continue
 		}
 
 		var err error
-		containerAllocated := make(map[int]*v1.ResourceList)
-		containerAllocated = addContainerTopoAwareDevices(containerAllocated, containerResources.Devices, skipDeviceNames)
-
-		// if it doesn't need numa binding, we only report its numa binding device and don't report its resources
-		if podNeedNumaBinding {
-			containerAllocated, err = addContainerTopoAwareResources(containerAllocated, containerResources.Resources)
-			if err != nil {
-				errList = append(errList, fmt.Errorf("get container %s resources allocated failed: %s",
-					containerResources.Name, err))
-				continue
-			}
+		containerAllocated := make(map[util.ZoneNode]*v1.ResourceList)
+		containerAllocated, err = p.addContainerDevices(containerAllocated, containerResources.Devices)
+		if err != nil {
+			errList = append(errList, fmt.Errorf("get container %s devices allocated failed: %s",
+				containerResources.Name, err))
+			continue
 		}
 
-		for numaID, resourceList := range containerAllocated {
+		containerAllocated, err = p.addContainerResources(containerAllocated, containerResources.Resources)
+		if err != nil {
+			errList = append(errList, fmt.Errorf("get container %s resources allocated failed: %s",
+				containerResources.Name, err))
+			continue
+		}
+
+		for zoneNode, resourceList := range containerAllocated {
 			if resourceList == nil {
 				continue
 			}
 
 			for resourceName, quantity := range *resourceList {
-				podAllocated = addNumaResourceList(podAllocated, numaID, resourceName, quantity)
+				podAllocated = addZoneQuantity(podAllocated, zoneNode, resourceName, quantity)
 			}
 		}
 	}
@@ -363,13 +516,19 @@ func aggregateContainerAllocated(containers []*podresv1.ContainerResources,
 	if len(errList) > 0 {
 		return nil, utilerrors.NewAggregate(errList)
 	}
+
 	return podAllocated, nil
 }
 
-func addContainerTopoAwareDevices(numaResources map[int]*v1.ResourceList,
-	containerDevices []*podresv1.ContainerDevices, skipDeviceNames sets.String) map[int]*v1.ResourceList {
-	if numaResources == nil {
-		numaResources = make(map[int]*v1.ResourceList)
+// addContainerDevices add all numa zone device into the zone resources map, and the skipDeviceNames is used
+// to filter out some devices that do not need to be reported to cnr. The device name is the resource name and
+// the quantity is the number of devices.
+func (p *podResourcesServerTopologyAdapterImpl) addContainerDevices(zoneResources map[util.ZoneNode]*v1.ResourceList,
+	containerDevices []*podresv1.ContainerDevices) (map[util.ZoneNode]*v1.ResourceList, error) {
+	var errList []error
+
+	if zoneResources == nil {
+		zoneResources = make(map[util.ZoneNode]*v1.ResourceList)
 	}
 
 	for _, device := range containerDevices {
@@ -377,7 +536,7 @@ func addContainerTopoAwareDevices(numaResources map[int]*v1.ResourceList,
 			continue
 		}
 
-		if skipDeviceNames != nil && skipDeviceNames.Has(device.ResourceName) {
+		if p.skipDeviceNames != nil && p.skipDeviceNames.Has(device.ResourceName) {
 			continue
 		}
 
@@ -387,23 +546,29 @@ func addContainerTopoAwareDevices(numaResources map[int]*v1.ResourceList,
 				continue
 			}
 
-			numaID := int(node.ID)
-			numaResources = addNumaResourceList(numaResources, numaID, resourceName, oneQuantity)
+			zoneNode := util.GenerateNumaZoneNode(int(node.ID))
+			zoneResources = addZoneQuantity(zoneResources, zoneNode, resourceName, oneQuantity)
 		}
 	}
 
-	return numaResources
+	if len(errList) > 0 {
+		return nil, utilerrors.NewAggregate(errList)
+	}
+
+	return zoneResources, nil
 }
 
-func addContainerTopoAwareResources(numaResourcesList map[int]*v1.ResourceList,
-	topoAwareResources []*podresv1.TopologyAwareResource) (map[int]*v1.ResourceList, error) {
+// addContainerResources add all container resources into the zone resources map, get each resource of each zone node
+// and add them together to get the total resource of each zone node.
+func (p *podResourcesServerTopologyAdapterImpl) addContainerResources(zoneResources map[util.ZoneNode]*v1.ResourceList,
+	topoAwareResources []*podresv1.TopologyAwareResource) (map[util.ZoneNode]*v1.ResourceList, error) {
 	var (
 		errList []error
 		err     error
 	)
 
-	if numaResourcesList == nil {
-		numaResourcesList = make(map[int]*v1.ResourceList)
+	if zoneResources == nil {
+		zoneResources = make(map[util.ZoneNode]*v1.ResourceList)
 	}
 
 	for _, resources := range topoAwareResources {
@@ -412,7 +577,7 @@ func addContainerTopoAwareResources(numaResourcesList map[int]*v1.ResourceList,
 		}
 
 		resourceName := v1.ResourceName(resources.ResourceName)
-		numaResourcesList, err = addTopoAwareQuantity(numaResourcesList, resourceName, resources.OriginalTopologyAwareQuantityList)
+		zoneResources, err = p.addTopologyAwareQuantity(zoneResources, resourceName, resources.OriginalTopologyAwareQuantityList)
 		if err != nil {
 			errList = append(errList, err)
 			continue
@@ -423,52 +588,61 @@ func addContainerTopoAwareResources(numaResourcesList map[int]*v1.ResourceList,
 		return nil, utilerrors.NewAggregate(errList)
 	}
 
-	return numaResourcesList, nil
+	return zoneResources, nil
 }
 
-func addTopoAwareQuantity(numaResourcesList map[int]*v1.ResourceList, resourceName v1.ResourceName,
-	topoAwareQuantity []*podresv1.TopologyAwareQuantity) (map[int]*v1.ResourceList, error) {
-	var (
-		errList []error
-	)
+// addTopologyAwareQuantity add zone node resource into the map according to TopologyAwareQuantity list. Each TopologyAwareQuantity has a
+// list of topology nodes, and each topology node has name, type, topology level, and annotations, and the resource value. The zone node
+// is determined by the topology node name, type, topology level,
+func (p *podResourcesServerTopologyAdapterImpl) addTopologyAwareQuantity(zoneResourceList map[util.ZoneNode]*v1.ResourceList, resourceName v1.ResourceName,
+	topoAwareQuantityList []*podresv1.TopologyAwareQuantity) (map[util.ZoneNode]*v1.ResourceList, error) {
+	var errList []error
 
-	if numaResourcesList == nil {
-		numaResourcesList = make(map[int]*v1.ResourceList)
+	if zoneResourceList == nil {
+		zoneResourceList = make(map[util.ZoneNode]*v1.ResourceList)
 	}
 
-	for _, quantityList := range topoAwareQuantity {
-		if quantityList == nil {
+	for _, quantity := range topoAwareQuantityList {
+		if quantity == nil {
 			continue
 		}
 
-		numaID := int(quantityList.Node)
-		resourceValue, err := resource.ParseQuantity(fmt.Sprintf("%.2f", quantityList.ResourceValue))
+		zoneNode, _, err := p.generateZoneNode(*quantity)
 		if err != nil {
-			errList = append(errList, fmt.Errorf("parse resource: %s for numaID %d failed: %s", resourceName, numaID, err))
+			errList = append(errList, fmt.Errorf("get zone node from quantity %v failed: %v", quantity, err))
 			continue
 		}
 
-		numaResourcesList = addNumaResourceList(numaResourcesList, numaID, resourceName, resourceValue)
+		resourceValue, err := resource.ParseQuantity(fmt.Sprintf("%.2f", quantity.ResourceValue))
+		if err != nil {
+			errList = append(errList, fmt.Errorf("parse resource: %s for zone %s failed: %s", resourceName, zoneNode, err))
+			continue
+		}
+
+		zoneResourceList = addZoneQuantity(zoneResourceList, zoneNode, resourceName, resourceValue)
 	}
 
 	if len(errList) > 0 {
 		return nil, utilerrors.NewAggregate(errList)
 	}
 
-	return numaResourcesList, nil
+	return zoneResourceList, nil
 }
 
-// addNumaResourceList add numa resource to numaResourceList
-func addNumaResourceList(numaResourceList map[int]*v1.ResourceList, numaID int,
-	resourceName v1.ResourceName, value resource.Quantity) map[int]*v1.ResourceList {
-	if numaResourceList == nil {
-		numaResourceList = make(map[int]*v1.ResourceList)
+// addZoneQuantity add a zone and resource quantity into the zone resource map, if the zone node is not in the map,
+// then create a new resource list for the zone node, and add the resource quantity into the resource list. If the
+// zone node is in the map, then get the resource list from the map, and add the resource quantity into the resource
+// list.
+func addZoneQuantity(zoneResourceList map[util.ZoneNode]*v1.ResourceList, zoneNode util.ZoneNode,
+	resourceName v1.ResourceName, value resource.Quantity) map[util.ZoneNode]*v1.ResourceList {
+	if zoneResourceList == nil {
+		zoneResourceList = make(map[util.ZoneNode]*v1.ResourceList)
 	}
 
-	resourceListPtr, ok := numaResourceList[numaID]
+	resourceListPtr, ok := zoneResourceList[zoneNode]
 	if !ok || resourceListPtr == nil {
 		resourceListPtr = &v1.ResourceList{}
-		numaResourceList[numaID] = resourceListPtr
+		zoneResourceList[zoneNode] = resourceListPtr
 	}
 	resourceList := *resourceListPtr
 
@@ -481,10 +655,66 @@ func addNumaResourceList(numaResourceList map[int]*v1.ResourceList, numaID int,
 	quantity.Add(value)
 	resourceList[resourceName] = quantity
 
-	return numaResourceList
+	return zoneResourceList
 }
 
-// filterAllocatedPodResourcesList is to filter pods that have allocated devices or resources
+// generateZoneNode get zone node and its parent zone node from quantity according to quantity type and topology level
+//   - if Type is empty, it means that the zone is socket or numa according to TopologyLevel
+//   - if Type is not empty, it means that the zone is a child of socket or a child of numa determined by TopologyLevel,
+//     and the zone name is determined by the quantity name. These zones may have the same name and type, so they should
+//     have an extra ID added to make them unique
+func (p *podResourcesServerTopologyAdapterImpl) generateZoneNode(quantity podresv1.TopologyAwareQuantity) (util.ZoneNode, *util.ZoneNode, error) {
+	nodeID := int(quantity.Node)
+	if len(quantity.Type) == 0 {
+		switch quantity.TopologyLevel {
+		case podresv1.TopologyLevel_NUMA:
+			zoneNode := util.GenerateNumaZoneNode(nodeID)
+			parentZoneNode, ok := p.numaSocketZoneNodeMap[zoneNode]
+			if !ok {
+				return util.ZoneNode{}, nil, fmt.Errorf("numa zone node %v parent not found", zoneNode)
+			}
+			return zoneNode, &parentZoneNode, nil
+		case podresv1.TopologyLevel_SOCKET:
+			zoneNode := util.GenerateSocketZoneNode(nodeID)
+			return zoneNode, nil, nil
+		default:
+			return util.ZoneNode{}, nil, fmt.Errorf("quantity %v unsupport topology level: %s", quantity, quantity.TopologyLevel)
+		}
+	} else {
+		// if quantity has type, the zone's type is quantity type and name is quantity name
+		zoneNode := util.ZoneNode{
+			Meta: util.ZoneMeta{
+				Type: nodev1alpha1.TopologyType(quantity.Type),
+				Name: quantity.Name,
+			},
+			ID: generateZoneID(quantity),
+		}
+
+		switch quantity.TopologyLevel {
+		case podresv1.TopologyLevel_NUMA:
+			parentZoneNode := util.GenerateNumaZoneNode(nodeID)
+			return zoneNode, &parentZoneNode, nil
+		case podresv1.TopologyLevel_SOCKET:
+			parentZoneNode := util.GenerateSocketZoneNode(nodeID)
+			return zoneNode, &parentZoneNode, nil
+		default:
+			return zoneNode, nil, fmt.Errorf("quantity %v unsupport topology level: %s", quantity, quantity.TopologyLevel)
+		}
+	}
+}
+
+// generateZoneID is to generate zone id for no socket and numa zone node to make it unique
+func generateZoneID(quantity podresv1.TopologyAwareQuantity) string {
+	if len(quantity.Type) == 0 {
+		return ""
+	}
+
+	// todo: It now only needs the parent topology level, and it's node ID to generate a unique zone ID,
+	// 	it may involve more fields such as annotations to generate it in the future more generally
+	return fmt.Sprintf("TopologyLevel-%v,Node-%v", quantity.TopologyLevel, quantity.Node)
+}
+
+// filterAllocatedPodResourcesList is to filter pods that have allocated devices or Resources
 func filterAllocatedPodResourcesList(podResourcesList []*podresv1.PodResources) []*podresv1.PodResources {
 	allocatedPodResourcesList := make([]*podresv1.PodResources, 0, len(podResourcesList))
 	isAllocatedPod := func(pod *podresv1.PodResources) bool {
@@ -493,7 +723,7 @@ func filterAllocatedPodResourcesList(podResourcesList []*podresv1.PodResources) 
 		}
 
 		// filter allocated pod by whether it has at least one container with
-		// devices or resources
+		// devices or Resources
 		for _, container := range pod.Containers {
 			if container != nil && (len(container.Devices) != 0 ||
 				len(container.Resources) != 0) {

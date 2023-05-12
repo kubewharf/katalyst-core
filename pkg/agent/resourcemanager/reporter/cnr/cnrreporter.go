@@ -41,6 +41,8 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	metaservercnr "github.com/kubewharf/katalyst-core/pkg/metaserver/agent/cnr"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
+	"github.com/kubewharf/katalyst-core/pkg/util"
+	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/syntax"
 )
 
@@ -166,8 +168,8 @@ func (c *cnrReporterImpl) refreshLatestCNR(ctx context.Context) {
 	cnr, err := c.client.NodeV1alpha1().CustomNodeResources().Get(ctx, c.cnrName, metav1.GetOptions{ResourceVersion: "0"})
 	if err == nil {
 		c.latestUpdatedCNR = cnr.DeepCopy()
-	} else {
-		klog.Errorf("Get cnr failed with error:%v", err)
+	} else if !c.resetCNRIfNeeded(err) {
+		klog.Errorf("refresh local cnr cache failed with error: %v", err)
 	}
 }
 
@@ -186,6 +188,9 @@ func (c *cnrReporterImpl) tryUpdateCNR(ctx context.Context, fields []*v1alpha1.R
 		cnr, err = c.client.NodeV1alpha1().CustomNodeResources().Get(ctx, c.cnrName, metav1.GetOptions{ResourceVersion: "0"})
 		if err != nil && !apierrors.IsNotFound(err) {
 			c.countMetricsWithBaseTags("reporter_update_get_failed")
+			if c.resetCNRIfNeeded(err) {
+				return nil
+			}
 			return err
 		}
 
@@ -218,8 +223,10 @@ func (c *cnrReporterImpl) tryUpdateCNR(ctx context.Context, fields []*v1alpha1.R
 
 	// try patch spec and metadata first, because the update of cnr will change the ResourceVersion in ObjectMeta
 	originCNR, err = c.tryUpdateCNRSpecAndMetadata(ctx, originCNR, cnr)
-	if err != nil {
+	if err != nil && !c.resetCNRIfNeeded(err) {
 		return err
+	} else if err != nil {
+		originCNR = c.latestUpdatedCNR.DeepCopy()
 	}
 
 	_, err = c.tryUpdateCNRStatus(ctx, originCNR, cnr)
@@ -314,12 +321,29 @@ func (c *cnrReporterImpl) tryUpdateCNRStatus(ctx context.Context,
 	return cnr, nil
 }
 
-func (c *cnrReporterImpl) createCNR(ctx context.Context, fields []*v1alpha1.ReportField) (*nodev1alpha1.CustomNodeResource, error) {
-	cnr := &nodev1alpha1.CustomNodeResource{
+// resetCNRIfNeeded reset cnr if unmarshal type error, it will initialize
+// local cnr cache to make sure the content of cnr always is true
+// todo if $ref is supported in CRD, we can skip this since api-server will help with validations
+func (c *cnrReporterImpl) resetCNRIfNeeded(err error) bool {
+	if general.IsUnmarshalTypeError(err) {
+		c.latestUpdatedCNR = c.defaultCNR()
+		klog.Infof("success re-initialize local cnr cache")
+		return true
+	}
+
+	return false
+}
+
+func (c *cnrReporterImpl) defaultCNR() *nodev1alpha1.CustomNodeResource {
+	return &nodev1alpha1.CustomNodeResource{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: c.cnrName,
 		},
 	}
+}
+
+func (c *cnrReporterImpl) createCNR(ctx context.Context, fields []*v1alpha1.ReportField) (*nodev1alpha1.CustomNodeResource, error) {
+	cnr := c.defaultCNR()
 
 	err := setCNR(cnr, fields, c.mergeValueFunc)
 	if err != nil {
@@ -336,7 +360,8 @@ func (c *cnrReporterImpl) createCNR(ctx context.Context, fields []*v1alpha1.Repo
 	return cnr, nil
 }
 
-func setCNR(cnr *nodev1alpha1.CustomNodeResource, fields []*v1alpha1.ReportField, mergeFunc func(src reflect.Value, dst reflect.Value) error) error {
+func setCNR(cnr *nodev1alpha1.CustomNodeResource, fields []*v1alpha1.ReportField,
+	mergeFunc func(src reflect.Value, dst reflect.Value) error) error {
 	var errList []error
 	initializedFields := sets.String{}
 	for _, f := range fields {
@@ -367,6 +392,21 @@ func setCNR(cnr *nodev1alpha1.CustomNodeResource, fields []*v1alpha1.ReportField
 		return errors.NewAggregate(errList)
 	}
 
+	if err := reviseCNR(cnr); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// reviseCNR revises the field of cnr to make sure it is not redundant
+func reviseCNR(cnr *nodev1alpha1.CustomNodeResource) error {
+	if cnr == nil {
+		return nil
+	}
+
+	// merge all topology zones
+	cnr.Status.TopologyZone = util.MergeTopologyZone(nil, cnr.Status.TopologyZone)
 	return nil
 }
 

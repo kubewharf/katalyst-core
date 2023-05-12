@@ -132,6 +132,17 @@ func SimpleMergeTwoValues(src reflect.Value, dst reflect.Value) error {
 		SetSliceOrArrayValue(src, dst)
 	case reflect.Map:
 		SetMapValue(src, dst)
+	case reflect.Struct:
+		var errList []error
+		for i := 0; i < src.NumField(); i++ {
+			if err := SimpleMergeTwoValues(src.Field(i), dst.Field(i)); err != nil {
+				errList = append(errList, err)
+			}
+		}
+
+		if len(errList) > 0 {
+			return fmt.Errorf("failed to merge struct: %v", errList)
+		}
 	case reflect.Ptr:
 		// if report value is nil, we no need to update origin value
 		if src.IsNil() {
@@ -147,7 +158,7 @@ func SimpleMergeTwoValues(src reflect.Value, dst reflect.Value) error {
 		dst = dst.Elem()
 
 		// merge their ptr value recursively
-		_ = SimpleMergeTwoValues(src, dst)
+		return SimpleMergeTwoValues(src, dst)
 	default:
 		dst.Set(src)
 	}

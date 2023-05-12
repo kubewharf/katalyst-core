@@ -43,18 +43,18 @@ type Reporter interface {
 	Run(ctx context.Context)
 }
 
-var updaterInitializers sync.Map
+var reporterInitializers sync.Map
 
 // InitFunc is used to initialize a particular reporter.
 type InitFunc func(*client.GenericClientSet, *metaserver.MetaServer, metrics.MetricEmitter, *config.Configuration) (Reporter, error)
 
 func RegisterReporterInitializer(gvk metav1.GroupVersionKind, initFunc InitFunc) {
-	updaterInitializers.Store(gvk, initFunc)
+	reporterInitializers.Store(gvk, initFunc)
 }
 
-func GetRegisteredInitializers() map[metav1.GroupVersionKind]InitFunc {
+func getRegisteredInitializers() map[metav1.GroupVersionKind]InitFunc {
 	updaters := make(map[metav1.GroupVersionKind]InitFunc)
-	updaterInitializers.Range(func(key, value interface{}) bool {
+	reporterInitializers.Range(func(key, value interface{}) bool {
 		updaters[key.(metav1.GroupVersionKind)] = value.(InitFunc)
 		return true
 	})

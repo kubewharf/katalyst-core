@@ -24,6 +24,7 @@ import (
 	jsonpatch "github.com/evanphx/json-patch"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/klog/v2"
 
 	"github.com/kubewharf/katalyst-api/pkg/apis/node/v1alpha1"
 	clientset "github.com/kubewharf/katalyst-api/pkg/client/clientset/versioned"
@@ -46,10 +47,10 @@ type CNRControl interface {
 
 type DummyCNRControl struct{}
 
-func (d DummyCNRControl) CreateCNR(ctx context.Context, cnr *v1alpha1.CustomNodeResource) (*v1alpha1.CustomNodeResource, error) {
+func (d DummyCNRControl) CreateCNR(_ context.Context, _ *v1alpha1.CustomNodeResource) (*v1alpha1.CustomNodeResource, error) {
 	return nil, nil
 }
-func (d DummyCNRControl) DeleteCNR(ctx context.Context, cnrName string) error {
+func (d DummyCNRControl) DeleteCNR(_ context.Context, _ string) error {
 	return nil
 }
 
@@ -87,12 +88,14 @@ func (c *CNRControlImpl) DeleteCNR(ctx context.Context, cnrName string) error {
 func (c *CNRControlImpl) PatchCNRSpecAndMetadata(ctx context.Context, cnrName string, oldCNR, newCNR *v1alpha1.CustomNodeResource) (*v1alpha1.CustomNodeResource, error) {
 	patchBytes, err := preparePatchBytesForCNRSpecAndMetadata(cnrName, oldCNR, newCNR)
 	if err != nil {
+		klog.Errorf("prepare patch bytes for spec and metadata for cnr %q: %v", cnrName, err)
 		return nil, err
 	}
 
 	updatedCNR, err := c.client.NodeV1alpha1().CustomNodeResources().Patch(ctx, cnrName, types.MergePatchType, patchBytes, metav1.PatchOptions{})
 	if err != nil {
-		return nil, fmt.Errorf("failed to patch spec and metadata %q for cnr %q: %v", patchBytes, cnrName, err)
+		klog.Errorf("failed to patch spec and metadata %q for cnr %q: %v", patchBytes, cnrName, err)
+		return nil, err
 	}
 
 	return updatedCNR, nil
@@ -101,12 +104,14 @@ func (c *CNRControlImpl) PatchCNRSpecAndMetadata(ctx context.Context, cnrName st
 func (c *CNRControlImpl) PatchCNRStatus(ctx context.Context, cnrName string, oldCNR, newCNR *v1alpha1.CustomNodeResource) (*v1alpha1.CustomNodeResource, error) {
 	patchBytes, err := preparePatchBytesForCNRStatus(cnrName, oldCNR, newCNR)
 	if err != nil {
+		klog.Errorf("prepare patch bytes for status for cnr %q: %v", cnrName, err)
 		return nil, err
 	}
 
 	updatedCNR, err := c.client.NodeV1alpha1().CustomNodeResources().Patch(ctx, cnrName, types.MergePatchType, patchBytes, metav1.PatchOptions{}, "status")
 	if err != nil {
-		return nil, fmt.Errorf("failed to patch status %q for cnr %q: %v", patchBytes, cnrName, err)
+		klog.Errorf("failed to patch status %q for cnr %q: %v", patchBytes, cnrName, err)
+		return nil, err
 	}
 
 	return updatedCNR, nil

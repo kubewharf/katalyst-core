@@ -173,57 +173,33 @@ func Test_parseReportFieldToCNR(t *testing.T) {
 				cnr: &nodev1alpha1.CustomNodeResource{},
 				reportField: v1alpha1.ReportField{
 					FieldType: v1alpha1.FieldType_Status,
-					FieldName: util.CNRFieldNameTopologyStatus,
-					Value: []byte(`{
-						  "sockets": [
-							{
-							  "socketID": 0,
-							  "numas": [
-								{
-								  "numaID": 0,
-								  "allocatable": {
-									"cpu": "10"
-								  },
-								  "capacity": {
-									"cpu": "10"
-								  },
-								  "allocations": [
-									{
-									  "consumer": "pod0",
-									  "requests": {
-										"cpu": "10"
-									  } 
-									}
-								  ]
-								}
-							  ]
-							}
-						  ]
-						}
-					`),
+					FieldName: util.CNRFieldNameTopologyZone,
+					Value:     []byte(`[{"type": "Socket", "name": "0", "children": [{"type": "Numa", "name": "0", "resources": {"allocatable": {"cpu": "10"}, "capacity": {"cpu": "10"}},"allocations": [{"consumer": "pod0", "requests": {"cpu": "10"}}]}]}]`),
 				},
 			},
 			want: &nodev1alpha1.CustomNodeResource{
 				Status: nodev1alpha1.CustomNodeResourceStatus{
-					TopologyStatus: &nodev1alpha1.TopologyStatus{
-						Sockets: []*nodev1alpha1.SocketStatus{
-							{
-								SocketID: 0,
-								Numas: []*nodev1alpha1.NumaStatus{
-									{
-										NumaID: 0,
+					TopologyZone: []*nodev1alpha1.TopologyZone{
+						{
+							Type: nodev1alpha1.TopologyTypeSocket,
+							Name: "0",
+							Children: []*nodev1alpha1.TopologyZone{
+								{
+									Type: nodev1alpha1.TopologyTypeNuma,
+									Name: "0",
+									Resources: nodev1alpha1.Resources{
 										Allocatable: &v1.ResourceList{
 											v1.ResourceCPU: resource.MustParse("10"),
 										},
 										Capacity: &v1.ResourceList{
 											v1.ResourceCPU: resource.MustParse("10"),
 										},
-										Allocations: []*nodev1alpha1.Allocation{
-											{
-												Consumer: "pod0",
-												Requests: &v1.ResourceList{
-													v1.ResourceCPU: resource.MustParse("10"),
-												},
+									},
+									Allocations: []*nodev1alpha1.Allocation{
+										{
+											Consumer: "pod0",
+											Requests: &v1.ResourceList{
+												v1.ResourceCPU: resource.MustParse("10"),
 											},
 										},
 									},
@@ -304,7 +280,7 @@ func Test_initializeCNRFields(t *testing.T) {
 				},
 				field: v1alpha1.ReportField{
 					FieldType: v1alpha1.FieldType_Status,
-					FieldName: util.CNRFieldNameTopologyStatus,
+					FieldName: util.CNRFieldNameTopologyZone,
 				},
 			},
 			wantCNR: &nodev1alpha1.CustomNodeResource{
@@ -411,9 +387,11 @@ func Test_cnrReporterImpl_Update(t *testing.T) {
 					},
 					{
 						FieldType: v1alpha1.FieldType_Status,
-						FieldName: util.CNRFieldNameResourceAllocatable,
-						Value: testMarshal(t, v1.ResourceList{
-							v1.ResourceCPU: resource.MustParse("10"),
+						FieldName: util.CNRFieldNameResources,
+						Value: testMarshal(t, nodev1alpha1.Resources{
+							Allocatable: &v1.ResourceList{
+								v1.ResourceCPU: resource.MustParse("10"),
+							},
 						}),
 					},
 				},
@@ -440,9 +418,11 @@ func Test_cnrReporterImpl_Update(t *testing.T) {
 					},
 					{
 						FieldType: v1alpha1.FieldType_Status,
-						FieldName: util.CNRFieldNameResourceAllocatable,
-						Value: testMarshal(t, v1.ResourceList{
-							v1.ResourceCPU: resource.MustParse("10"),
+						FieldName: util.CNRFieldNameResources,
+						Value: testMarshal(t, nodev1alpha1.Resources{
+							Allocatable: &v1.ResourceList{
+								v1.ResourceCPU: resource.MustParse("10"),
+							},
 						}),
 					},
 				},
