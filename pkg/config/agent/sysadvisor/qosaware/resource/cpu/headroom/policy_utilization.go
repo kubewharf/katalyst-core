@@ -18,16 +18,16 @@ package headroom
 
 import "github.com/kubewharf/katalyst-core/pkg/config/dynamic"
 
-type PolicyAdaptiveConfiguration struct {
+type PolicyUtilizationConfiguration struct {
 	ReclaimedCPUTargetCoreUtilization   float64
 	ReclaimedCPUMaxCoreUtilization      float64
 	ReclaimedCPUMaxOversoldRate         float64
 	ReclaimedCPUMaxHeadroomCapacityRate float64
 }
 
-func NewPolicyAdaptiveConfiguration() *PolicyAdaptiveConfiguration {
-	return &PolicyAdaptiveConfiguration{}
+func NewPolicyUtilizationConfiguration() *PolicyUtilizationConfiguration {
+	return &PolicyUtilizationConfiguration{}
 }
 
-func (c *PolicyAdaptiveConfiguration) ApplyConfiguration(*PolicyAdaptiveConfiguration, *dynamic.DynamicConfigCRD) {
+func (c *PolicyUtilizationConfiguration) ApplyConfiguration(*PolicyUtilizationConfiguration, *dynamic.DynamicConfigCRD) {
 }

@@ -29,15 +29,15 @@ const (
 	defaultReclaimedCPUMaxHeadroomCapacityRate = 1.
 )
 
-type PolicyAdaptiveOptions struct {
+type PolicyUtilizationOptions struct {
 	ReclaimedCPUTargetCoreUtilization   float64
 	ReclaimedCPUMaxCoreUtilization      float64
 	ReclaimedCPUMaxOversoldRate         float64
 	ReclaimedCPUMaxHeadroomCapacityRate float64
 }
 
-func NewPolicyAdaptiveOptions() *PolicyAdaptiveOptions {
-	return &PolicyAdaptiveOptions{
+func NewPolicyUtilizationOptions() *PolicyUtilizationOptions {
+	return &PolicyUtilizationOptions{
 		ReclaimedCPUTargetCoreUtilization:   defaultReclaimedCPUTargetCoreUtilization,
 		ReclaimedCPUMaxCoreUtilization:      defaultReclaimedCPUMaxCoreUtilization,
 		ReclaimedCPUMaxOversoldRate:         defaultReclaimedCPUMaxOversoldRate,
@@ -46,18 +46,18 @@ func NewPolicyAdaptiveOptions() *PolicyAdaptiveOptions {
 }
 
 // AddFlags adds flags to the specified FlagSet.
-func (o *PolicyAdaptiveOptions) AddFlags(fs *pflag.FlagSet) {
-	fs.Float64Var(&o.ReclaimedCPUTargetCoreUtilization, "cpu-headroom-policy-adaptive-target-core-utilization", o.ReclaimedCPUTargetCoreUtilization,
+func (o *PolicyUtilizationOptions) AddFlags(fs *pflag.FlagSet) {
+	fs.Float64Var(&o.ReclaimedCPUTargetCoreUtilization, "cpu-headroom-policy-utilization-target-core-utilization", o.ReclaimedCPUTargetCoreUtilization,
 		"the target core utilization of reclaimed_cpu pool")
-	fs.Float64Var(&o.ReclaimedCPUMaxCoreUtilization, "cpu-headroom-policy-adaptive-max-core-utilization", o.ReclaimedCPUMaxCoreUtilization,
+	fs.Float64Var(&o.ReclaimedCPUMaxCoreUtilization, "cpu-headroom-policy-utilization-max-core-utilization", o.ReclaimedCPUMaxCoreUtilization,
 		"the maximum core utilization of reclaimed_cores pool, if zero means no upper limit")
-	fs.Float64Var(&o.ReclaimedCPUMaxOversoldRate, "cpu-headroom-policy-adaptive-max-oversold-ratio", o.ReclaimedCPUMaxOversoldRate,
+	fs.Float64Var(&o.ReclaimedCPUMaxOversoldRate, "cpu-headroom-policy-utilization-max-oversold-ratio", o.ReclaimedCPUMaxOversoldRate,
 		"the maximum oversold ratio of reclaimed_cores cpu reported to actual supply")
-	fs.Float64Var(&o.ReclaimedCPUMaxHeadroomCapacityRate, "cpu-headroom-policy-adaptive-max-headroom-capacity-rate", o.ReclaimedCPUMaxHeadroomCapacityRate,
+	fs.Float64Var(&o.ReclaimedCPUMaxHeadroomCapacityRate, "cpu-headroom-policy-utilization-max-headroom-capacity-rate", o.ReclaimedCPUMaxHeadroomCapacityRate,
 		"the maximum rate of cpu headroom to node cpu capacity, if zero means no upper limit")
 }
 
-func (o *PolicyAdaptiveOptions) ApplyTo(c *headroom.PolicyAdaptiveConfiguration) error {
+func (o *PolicyUtilizationOptions) ApplyTo(c *headroom.PolicyUtilizationConfiguration) error {
 	c.ReclaimedCPUTargetCoreUtilization = o.ReclaimedCPUTargetCoreUtilization
 	c.ReclaimedCPUMaxCoreUtilization = o.ReclaimedCPUMaxCoreUtilization
 	c.ReclaimedCPUMaxOversoldRate = o.ReclaimedCPUMaxOversoldRate

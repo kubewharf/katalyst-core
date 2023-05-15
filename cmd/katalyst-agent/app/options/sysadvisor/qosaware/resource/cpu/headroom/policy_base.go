@@ -23,19 +23,19 @@ import (
 )
 
 type CPUHeadroomPolicyOptions struct {
-	PolicyAdaptive *PolicyAdaptiveOptions
+	PolicyUtilization *PolicyUtilizationOptions
 }
 
 func NewCPUHeadroomPolicyOptions() *CPUHeadroomPolicyOptions {
 	return &CPUHeadroomPolicyOptions{
-		PolicyAdaptive: NewPolicyAdaptiveOptions(),
+		PolicyUtilization: NewPolicyUtilizationOptions(),
 	}
 }
 
 func (o *CPUHeadroomPolicyOptions) AddFlags(fs *pflag.FlagSet) {
-	o.PolicyAdaptive.AddFlags(fs)
+	o.PolicyUtilization.AddFlags(fs)
 }
 
 func (o *CPUHeadroomPolicyOptions) ApplyTo(c *headroom.CPUHeadroomPolicyConfiguration) error {
-	return o.PolicyAdaptive.ApplyTo(c.PolicyAdaptive)
+	return o.PolicyUtilization.ApplyTo(c.PolicyUtilization)
 }

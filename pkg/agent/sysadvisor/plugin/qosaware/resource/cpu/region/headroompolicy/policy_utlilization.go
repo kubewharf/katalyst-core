@@ -33,23 +33,23 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/util/metric"
 )
 
-type PolicyAdaptive struct {
+type PolicyUtilization struct {
 	*PolicyBase
 
-	policyAdaptiveConfig *headroom.PolicyAdaptiveConfiguration
+	policyUtilizationConfiguration *headroom.PolicyUtilizationConfiguration
 }
 
-func NewPolicyAdaptive(regionName string, conf *config.Configuration, _ interface{}, metaReader metacache.MetaReader,
+func NewPolicyUtilization(regionName string, conf *config.Configuration, _ interface{}, metaReader metacache.MetaReader,
 	metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter) HeadroomPolicy {
-	p := &PolicyAdaptive{
-		PolicyBase:           NewPolicyBase(regionName, metaReader, metaServer, emitter),
-		policyAdaptiveConfig: conf.CPUHeadroomPolicyConfiguration.PolicyAdaptive,
+	p := &PolicyUtilization{
+		PolicyBase:                     NewPolicyBase(regionName, metaReader, metaServer, emitter),
+		policyUtilizationConfiguration: conf.CPUHeadroomPolicyConfiguration.PolicyUtilization,
 	}
 
 	return p
 }
 
-func (p *PolicyAdaptive) Update() error {
+func (p *PolicyUtilization) Update() error {
 	lastReclaimedCPU, err := p.getLastReclaimedCPU()
 	if err != nil {
 		return fmt.Errorf("get last reclaimed milli cpu failed: %v", err)
@@ -65,11 +65,11 @@ func (p *PolicyAdaptive) Update() error {
 	return nil
 }
 
-func (p *PolicyAdaptive) GetHeadroom() (float64, error) {
+func (p *PolicyUtilization) GetHeadroom() (float64, error) {
 	return p.headroom, nil
 }
 
-func (p *PolicyAdaptive) getLastReclaimedCPU() (float64, error) {
+func (p *PolicyUtilization) getLastReclaimedCPU() (float64, error) {
 	cnr, err := p.metaServer.CNRFetcher.GetCNR(context.Background())
 	if err != nil {
 		return 0, err
@@ -91,7 +91,7 @@ type poolMetrics struct {
 
 // getReclaimedPoolMetrics get reclaimed pool metrics, including the average utilization of each core in
 // the reclaimed pool and the size of the pool
-func (p *PolicyAdaptive) getReclaimedPoolMetrics() (*poolMetrics, error) {
+func (p *PolicyUtilization) getReclaimedPoolMetrics() (*poolMetrics, error) {
 	reclaimedInfo, ok := p.metaReader.GetPoolInfo(state.PoolNameReclaim)
 	if !ok {
 		return nil, fmt.Errorf("failed get reclaim pool info")
@@ -107,16 +107,16 @@ func (p *PolicyAdaptive) getReclaimedPoolMetrics() (*poolMetrics, error) {
 
 // calculateHeadroom calculates headroom by taking into account the difference between the current
 // and target core utilization of the reclaim pool
-func (p *PolicyAdaptive) calculateHeadroom(reclaimedSupplyCPU, reclaimedCPUCoreUtilization,
+func (p *PolicyUtilization) calculateHeadroom(reclaimedSupplyCPU, reclaimedCPUCoreUtilization,
 	lastReclaimedCPU, nodeCPUCapacity float64) float64 {
 	var (
 		oversold, result float64
 	)
 
-	targetCoreUtilization := p.policyAdaptiveConfig.ReclaimedCPUTargetCoreUtilization
-	maxCoreUtilization := p.policyAdaptiveConfig.ReclaimedCPUMaxCoreUtilization
-	maxOversoldRatio := p.policyAdaptiveConfig.ReclaimedCPUMaxOversoldRate
-	maxHeadroomCapacityRate := p.policyAdaptiveConfig.ReclaimedCPUMaxHeadroomCapacityRate
+	targetCoreUtilization := p.policyUtilizationConfiguration.ReclaimedCPUTargetCoreUtilization
+	maxCoreUtilization := p.policyUtilizationConfiguration.ReclaimedCPUMaxCoreUtilization
+	maxOversoldRatio := p.policyUtilizationConfiguration.ReclaimedCPUMaxOversoldRate
+	maxHeadroomCapacityRate := p.policyUtilizationConfiguration.ReclaimedCPUMaxHeadroomCapacityRate
 
 	defer func() {
 		general.Infof("reclaimed supply %.2f, reclaimed core utilization: %.2f (target: %.2f, max: %.2f), "+

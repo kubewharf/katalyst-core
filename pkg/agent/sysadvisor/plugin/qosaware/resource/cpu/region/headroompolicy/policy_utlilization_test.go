@@ -79,15 +79,15 @@ func generateTestMetaServer(t *testing.T, cnr *v1alpha1.CustomNodeResource, podL
 	return metaServer
 }
 
-func TestPolicyAdaptive_GetHeadroom(t *testing.T) {
+func TestPolicyUtilization_GetHeadroom(t *testing.T) {
 	type fields struct {
-		entries              types.RegionEntries
-		cnr                  *v1alpha1.CustomNodeResource
-		podList              []*v1.Pod
-		policyAdaptiveConfig *headroom.PolicyAdaptiveConfiguration
-		essentials           types.ResourceEssentials
-		setFakeMetric        func(store *utilmetric.MetricStore)
-		setMetaCache         func(cache *metacache.MetaCacheImp)
+		entries                 types.RegionEntries
+		cnr                     *v1alpha1.CustomNodeResource
+		podList                 []*v1.Pod
+		policyUtilizationConfig *headroom.PolicyUtilizationConfiguration
+		essentials              types.ResourceEssentials
+		setFakeMetric           func(store *utilmetric.MetricStore)
+		setMetaCache            func(cache *metacache.MetaCacheImp)
 	}
 	tests := []struct {
 		name    string
@@ -112,7 +112,7 @@ func TestPolicyAdaptive_GetHeadroom(t *testing.T) {
 						},
 					},
 				},
-				policyAdaptiveConfig: &headroom.PolicyAdaptiveConfiguration{
+				policyUtilizationConfig: &headroom.PolicyUtilizationConfiguration{
 					ReclaimedCPUTargetCoreUtilization: 0.6,
 					ReclaimedCPUMaxCoreUtilization:    0,
 					ReclaimedCPUMaxOversoldRate:       1.5,
@@ -155,7 +155,7 @@ func TestPolicyAdaptive_GetHeadroom(t *testing.T) {
 						},
 					},
 				},
-				policyAdaptiveConfig: &headroom.PolicyAdaptiveConfiguration{
+				policyUtilizationConfig: &headroom.PolicyUtilizationConfiguration{
 					ReclaimedCPUTargetCoreUtilization: 0.6,
 					ReclaimedCPUMaxCoreUtilization:    0,
 					ReclaimedCPUMaxOversoldRate:       1.2,
@@ -198,7 +198,7 @@ func TestPolicyAdaptive_GetHeadroom(t *testing.T) {
 						},
 					},
 				},
-				policyAdaptiveConfig: &headroom.PolicyAdaptiveConfiguration{
+				policyUtilizationConfig: &headroom.PolicyUtilizationConfiguration{
 					ReclaimedCPUTargetCoreUtilization: 0.6,
 					ReclaimedCPUMaxCoreUtilization:    0.8,
 					ReclaimedCPUMaxOversoldRate:       1.5,
@@ -241,7 +241,7 @@ func TestPolicyAdaptive_GetHeadroom(t *testing.T) {
 						},
 					},
 				},
-				policyAdaptiveConfig: &headroom.PolicyAdaptiveConfiguration{
+				policyUtilizationConfig: &headroom.PolicyUtilizationConfiguration{
 					ReclaimedCPUTargetCoreUtilization:   0.6,
 					ReclaimedCPUMaxCoreUtilization:      0.8,
 					ReclaimedCPUMaxOversoldRate:         1.5,
@@ -280,7 +280,7 @@ func TestPolicyAdaptive_GetHeadroom(t *testing.T) {
 			defer os.RemoveAll(sfDir)
 
 			conf := generateTestConfiguration(t, ckDir, sfDir)
-			conf.CPUHeadroomPolicyConfiguration.PolicyAdaptive = tt.fields.policyAdaptiveConfig
+			conf.CPUHeadroomPolicyConfiguration.PolicyUtilization = tt.fields.policyUtilizationConfig
 			metricsFetcher := metric.NewFakeMetricsFetcher(metrics.DummyMetrics{})
 			metaCache, err := metacache.NewMetaCacheImp(conf, metricsFetcher)
 			require.NoError(t, err)
@@ -290,7 +290,7 @@ func TestPolicyAdaptive_GetHeadroom(t *testing.T) {
 			tt.fields.setMetaCache(metaCache)
 
 			metaServer := generateTestMetaServer(t, tt.fields.cnr, tt.fields.podList, metricsFetcher)
-			p := NewPolicyAdaptive("share-0", conf, nil, metaCache, metaServer, metrics.DummyMetrics{})
+			p := NewPolicyUtilization("share-0", conf, nil, metaCache, metaServer, metrics.DummyMetrics{})
 
 			store := utilmetric.GetMetricStoreInstance()
 			tt.fields.setFakeMetric(store)

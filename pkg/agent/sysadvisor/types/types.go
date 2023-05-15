@@ -51,9 +51,9 @@ const (
 type CPUHeadroomPolicyName string
 
 const (
-	CPUHeadroomPolicyNone      CPUHeadroomPolicyName = "none"
-	CPUHeadroomPolicyCanonical CPUHeadroomPolicyName = "canonical"
-	CPUHeadroomPolicyAdaptive  CPUHeadroomPolicyName = "adaptive"
+	CPUHeadroomPolicyNone        CPUHeadroomPolicyName = "none"
+	CPUHeadroomPolicyCanonical   CPUHeadroomPolicyName = "canonical"
+	CPUHeadroomPolicyUtilization CPUHeadroomPolicyName = "utilization"
 )
 
 // MemoryHeadroomPolicyName defines policy names for memory advisor headroom estimation

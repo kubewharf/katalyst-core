@@ -19,16 +19,16 @@ package headroom
 import "github.com/kubewharf/katalyst-core/pkg/config/dynamic"
 
 type CPUHeadroomPolicyConfiguration struct {
-	PolicyAdaptive *PolicyAdaptiveConfiguration
+	PolicyUtilization *PolicyUtilizationConfiguration
 }
 
 func NewCPUHeadroomPolicyConfiguration() *CPUHeadroomPolicyConfiguration {
 	return &CPUHeadroomPolicyConfiguration{
-		PolicyAdaptive: NewPolicyAdaptiveConfiguration(),
+		PolicyUtilization: NewPolicyUtilizationConfiguration(),
 	}
 }
 
 // ApplyConfiguration is used to set configuration based on conf.
 func (c *CPUHeadroomPolicyConfiguration) ApplyConfiguration(defaultConf *CPUHeadroomPolicyConfiguration, conf *dynamic.DynamicConfigCRD) {
-	c.PolicyAdaptive.ApplyConfiguration(defaultConf.PolicyAdaptive, conf)
+	c.PolicyUtilization.ApplyConfiguration(defaultConf.PolicyUtilization, conf)
 }
