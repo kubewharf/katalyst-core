@@ -52,7 +52,7 @@ func Test_fileUniqueLock(t *testing.T) {
 		return
 	}
 
-	_, err = GetUniqueLockWithTimeout(lockPath, time.Second, 3)
+	_, err = getUniqueLockWithTimeout(lockPath, time.Second, 3)
 	if err == nil {
 		t.Errorf("GetNode() error = %v, wantErr not nil", err)
 		return

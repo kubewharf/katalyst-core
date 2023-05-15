@@ -22,6 +22,7 @@ import (
 	"sync"
 	"time"
 
+	"go.uber.org/atomic"
 	"k8s.io/klog/v2"
 
 	katalystbase "github.com/kubewharf/katalyst-core/cmd/base"
@@ -34,6 +35,8 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/process"
 )
+
+const healthzNameLockingFileAcquired = "LockingFileReady"
 
 // Run starts common and uniformed agent components here, and starts other
 // specific components in other separate repos (with common components as
@@ -68,18 +71,10 @@ func Run(opt *options.Options, genericOptions ...katalystbase.GenericOptions) er
 		genericOption(genericCtx)
 	}
 
-	// GetUniqueLock is used to make sure only one process can handle
-	// socket files (by locking the same lock file); any process that wants
-	// to enter main loop, should acquire file lock firstly
-	lock, err := general.GetUniqueLock(conf.LockFileName)
-	if err != nil {
-		_ = genericCtx.EmitterPool.GetDefaultMetricsEmitter().StoreInt64("get_lock.failed", 1, metrics.MetricTypeNameRaw)
-		panic(err)
-	}
-
-	// if the process panic in other place and the defer function isn't executed,
-	// OS will help to unlock. So the next process till get the lock successfully.
+	lock := acquireLock(genericCtx, conf)
 	defer func() {
+		// if the process panic in other place and the defer function isn't executed,
+		// OS will help to unlock. So the next process till get the lock successfully.
 		general.ReleaseUniqueLock(lock)
 
 		// wait async log sync to disk
@@ -143,4 +138,38 @@ func startAgent(ctx context.Context, genericCtx *agent.GenericContext,
 
 	wg.Wait()
 	return nil
+}
+
+// acquireLock makes sure only one process can handle socket files;
+// any process that wants to enter main loop, should acquire file lock firstly.
+func acquireLock(genericCtx *agent.GenericContext, conf *config.Configuration) *general.Flock {
+	// register a not-ready state for lock-acquiring when we starts
+	state := atomic.NewString(string(general.HealthzCheckStateNotReady))
+	message := atomic.NewString("locking-file is failed to acquire")
+	general.RegisterHealthzCheckRules(healthzNameLockingFileAcquired, func() (general.HealthzCheckResponse, error) {
+		return general.HealthzCheckResponse{
+			State:   general.HealthzCheckState(state.Load()),
+			Message: message.Load(),
+		}, nil
+	})
+
+	// set a ready state for lock-acquiring when we acquire locking successfully
+	defer func() {
+		state.Store(string(general.HealthzCheckStateReady))
+		message.Store("")
+	}()
+
+	for {
+		lock, err := general.GetUniqueLock(conf.LockFileName)
+		if err != nil {
+			_ = genericCtx.EmitterPool.GetDefaultMetricsEmitter().StoreInt64("get_lock.failed", 1, metrics.MetricTypeNameRaw)
+			// if waiting is enabled, we will always wait until lock has been obtained successfully;
+			if conf.LockWaitingEnabled {
+				continue
+			}
+			panic(err)
+		} else {
+			return lock
+		}
+	}
 }
