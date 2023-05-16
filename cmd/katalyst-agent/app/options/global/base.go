@@ -24,9 +24,10 @@ import (
 )
 
 type BaseOptions struct {
-	Agents       []string
-	NodeName     string
-	LockFileName string
+	Agents             []string
+	NodeName           string
+	LockFileName       string
+	LockWaitingEnabled bool
 
 	CgroupType            string
 	AdditionalCgroupPaths []string
@@ -34,7 +35,8 @@ type BaseOptions struct {
 
 func NewBaseOptions() *BaseOptions {
 	return &BaseOptions{
-		LockFileName: "/tmp/katalyst_agent_lock",
+		LockFileName:       "/tmp/katalyst_agent_lock",
+		LockWaitingEnabled: false,
 
 		CgroupType: "cgroupfs",
 	}
@@ -47,6 +49,8 @@ func (o *BaseOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 	fs.StringSliceVar(&o.Agents, "agents", o.Agents, "The agents need to be started")
 	fs.StringVar(&o.NodeName, "node-name", o.NodeName, "the name of this node")
 	fs.StringVar(&o.LockFileName, "locking-file", o.LockFileName, "The filename used as unique lock")
+	fs.BoolVar(&o.LockWaitingEnabled, "locking-waiting", o.LockWaitingEnabled,
+		"If failed to acquire locking files, still mark agent as healthy")
 
 	fs.StringVar(&o.CgroupType, "cgroup-type", o.CgroupType, "The cgroup type")
 	fs.StringSliceVar(&o.AdditionalCgroupPaths, "addition-cgroup-paths", o.AdditionalCgroupPaths,
@@ -58,6 +62,7 @@ func (o *BaseOptions) ApplyTo(c *global.BaseConfiguration) error {
 	c.Agents = o.Agents
 	c.NodeName = o.NodeName
 	c.LockFileName = o.LockFileName
+	c.LockWaitingEnabled = o.LockWaitingEnabled
 
 	common.InitKubernetesCGroupPath(common.CgroupType(o.CgroupType), o.AdditionalCgroupPaths)
 	return nil

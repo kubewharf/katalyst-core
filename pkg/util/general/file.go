@@ -140,12 +140,21 @@ func ReadFileIntoLines(filepath string) ([]string, error) {
 	return contents, nil
 }
 
+func EnsureDirectory(dir string) error {
+	fs := utilfs.DefaultFs{}
+	if _, err := fs.Stat(dir); err != nil {
+		// MkdirAll returns nil if directory already exists.
+		return fs.MkdirAll(dir, 0755)
+	}
+	return nil
+}
+
 type Flock struct {
 	LockFile string
 	lock     *os.File
 }
 
-func Create(file string) (f *Flock, e error) {
+func createFlock(file string) (f *Flock, e error) {
 	if file == "" {
 		e = errors.New("cannot create flock on empty path")
 		return
@@ -180,18 +189,9 @@ func (f *Flock) Unlock() {
 	}
 }
 
-func EnsureDirectory(dir string) error {
-	fs := utilfs.DefaultFs{}
-	if _, err := fs.Stat(dir); err != nil {
-		// MkdirAll returns nil if directory already exists.
-		return fs.MkdirAll(dir, 0755)
-	}
-	return nil
-}
-
-// GetUniqueLockWithTimeout try to acquire file lock
+// getUniqueLockWithTimeout try to acquire file lock
 // returns the lock struct uf success; otherwise returns error
-func GetUniqueLockWithTimeout(filename string, duration time.Duration, tries int) (*Flock, error) {
+func getUniqueLockWithTimeout(filename string, duration time.Duration, tries int) (*Flock, error) {
 	lockDirPath := path.Dir(filename)
 	err := EnsureDirectory(lockDirPath)
 	if err != nil {
@@ -199,7 +199,7 @@ func GetUniqueLockWithTimeout(filename string, duration time.Duration, tries int
 		return nil, err
 	}
 
-	lock, err := Create(filename)
+	lock, err := createFlock(filename)
 	if err != nil {
 		klog.Errorf("[GetUniqueLock] create lock failed with error: %v", err)
 		return nil, err
@@ -224,9 +224,9 @@ func GetUniqueLockWithTimeout(filename string, duration time.Duration, tries int
 	return lock, nil
 }
 
-// GetUniqueLock is a wrapper function for GetUniqueLockWithTimeout with default configurations
+// GetUniqueLock is a wrapper function for getUniqueLockWithTimeout with default configurations
 func GetUniqueLock(filename string) (*Flock, error) {
-	return GetUniqueLockWithTimeout(filename, FlockCoolingInterval, FlockTryLockMaxTimes)
+	return getUniqueLockWithTimeout(filename, FlockCoolingInterval, FlockTryLockMaxTimes)
 }
 
 // ReleaseUniqueLock release the given file lock

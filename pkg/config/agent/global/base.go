@@ -30,6 +30,8 @@ type BaseConfiguration struct {
 
 	// LockFileName indicates the file used as unique lock
 	LockFileName string
+	// if LockWaitingEnabled set as true, will not panic and report agent as healthy instead
+	LockWaitingEnabled bool
 }
 
 func NewBaseConfiguration() *BaseConfiguration {
