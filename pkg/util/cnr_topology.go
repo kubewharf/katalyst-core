@@ -139,11 +139,13 @@ func generateTopologyZoneStatus(
 		}
 
 		if attributes, ok := attributesMap[zone]; ok {
-			topologyZone.Attributes = attributes
+			// merge attributes to make sure that the attributes are unique and sorted
+			topologyZone.Attributes = MergeAttributes(topologyZone.Attributes, attributes)
 		}
 
 		if allocations, ok := allocationsMap[zone]; ok {
-			topologyZone.Allocations = allocations
+			// merge allocations to make sure that the allocations are unique and sorted
+			topologyZone.Allocations = MergeAllocations(topologyZone.Allocations, allocations)
 		}
 
 		if topology != nil {
