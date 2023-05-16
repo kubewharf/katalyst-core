@@ -52,6 +52,7 @@ type MetaServerOptions struct {
 	CustomNodeConfigCacheTTL       time.Duration
 	ServiceProfileCacheTTL         time.Duration
 	ConfigCacheTTL                 time.Duration
+	ConfigDisableDynamic           bool
 	ConfigSkipFailedInitialization bool
 	ConfigCheckpointGraceTime      time.Duration
 
@@ -96,6 +97,8 @@ func (o *MetaServerOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 		"The ttl of service profile manager cache remote spd")
 	fs.DurationVar(&o.ConfigCacheTTL, "config-cache-ttl", o.ConfigCacheTTL,
 		"The ttl of katalyst custom config loader cache remote config")
+	fs.BoolVar(&o.ConfigDisableDynamic, "config-disable-dynamic", o.ConfigDisableDynamic,
+		"Whether disable dynamic configuration")
 	fs.BoolVar(&o.ConfigSkipFailedInitialization, "config-skip-failed-initialization", o.ConfigSkipFailedInitialization,
 		"Whether skip if updating dynamic configuration fails")
 	fs.DurationVar(&o.ConfigCheckpointGraceTime, "config-checkpoint-grace-time", o.ConfigCheckpointGraceTime,
@@ -122,6 +125,7 @@ func (o *MetaServerOptions) ApplyTo(c *global.MetaServerConfiguration) error {
 	c.CustomNodeConfigCacheTTL = o.CustomNodeConfigCacheTTL
 	c.ServiceProfileCacheTTL = o.ServiceProfileCacheTTL
 	c.ConfigCacheTTL = o.ConfigCacheTTL
+	c.ConfigDisableDynamic = o.ConfigDisableDynamic
 	c.ConfigSkipFailedInitialization = o.ConfigSkipFailedInitialization
 	c.ConfigCheckpointGraceTime = o.ConfigCheckpointGraceTime
 	c.KubeletReadOnlyPort = o.KubeletReadOnlyPort

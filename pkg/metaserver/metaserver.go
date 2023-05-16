@@ -55,10 +55,15 @@ func NewMetaServer(clientSet *client.GenericClientSet, emitter metrics.MetricEmi
 		return nil, fmt.Errorf("initializes meta server checkpoint dir failed: %s", err)
 	}
 
-	configurationManager, err := config.NewDynamicConfigManager(clientSet, emitter,
-		metaAgent.CNCFetcher, conf)
-	if err != nil {
-		return nil, err
+	var configurationManager config.ConfigurationManager
+	if !conf.ConfigDisableDynamic {
+		configurationManager, err = config.NewDynamicConfigManager(clientSet, emitter,
+			metaAgent.CNCFetcher, conf)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		configurationManager = &config.DummyConfigurationManager{}
 	}
 
 	serviceProfileManager, err := spd.NewSPDManager(clientSet, emitter, metaAgent.CNCFetcher, conf)
