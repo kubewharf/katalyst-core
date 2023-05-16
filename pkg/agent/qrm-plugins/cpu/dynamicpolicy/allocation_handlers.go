@@ -392,6 +392,8 @@ func (p *DynamicPolicy) dedicatedCoresWithNUMABindingAllocationSidecarHandler(ct
 		ContainerIndex:                   req.ContainerIndex,
 		PodRole:                          req.PodRole,
 		PodType:                          req.PodType,
+		RampUp:                           mainContainerAllocationInfo.RampUp,
+		OwnerPoolName:                    mainContainerAllocationInfo.OwnerPoolName,
 		AllocationResult:                 mainContainerAllocationInfo.AllocationResult.Clone(),
 		OriginalAllocationResult:         mainContainerAllocationInfo.OriginalAllocationResult.Clone(),
 		TopologyAwareAssignments:         util.DeepCopyTopologyAwareAssignments(mainContainerAllocationInfo.TopologyAwareAssignments),
