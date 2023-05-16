@@ -27,7 +27,6 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/util/errors"
 	"k8s.io/apimachinery/pkg/util/sets"
-	"k8s.io/apimachinery/pkg/util/uuid"
 	"k8s.io/klog/v2"
 
 	"github.com/kubewharf/katalyst-api/pkg/consts"
@@ -268,6 +267,8 @@ func (cra *cpuResourceAdvisor) update() {
 	for _, r := range cra.regionMap {
 		r.TryUpdateHeadroom()
 	}
+	cra.updateHeadroomForRegionEntries(regionEntries)
+	_ = cra.metaCache.UpdateRegionEntries(regionEntries)
 }
 
 // assignContainersToRegions re-construct regions every time (instead of an incremental way),
@@ -331,16 +332,12 @@ func (cra *cpuResourceAdvisor) assignToRegions(ci *types.ContainerInfo) ([]regio
 	}
 	if ci.QoSLevel == consts.PodAnnotationQoSLevelSharedCores {
 		// Assign shared cores container. Focus on pool.
-		regions, err := cra.getPoolRegions(ci.OwnerPoolName)
-		if err != nil {
-			return nil, err
-		}
+		regions := cra.getPoolRegions(ci.OwnerPoolName)
 		if len(regions) > 0 {
 			return regions, nil
 		}
 
-		name := string(types.QoSRegionTypeShare) + types.RegionNameSeparator + string(uuid.NewUUID())
-		r := region.NewQoSRegionShare(name, ci.OwnerPoolName, cra.conf, cra.extraConf, cra.metaCache, cra.metaServer, cra.emitter)
+		r := region.NewQoSRegionShare(ci, cra.conf, cra.extraConf, cra.metaCache, cra.metaServer, cra.emitter)
 
 		return []region.QoSRegion{r}, nil
 
@@ -356,8 +353,7 @@ func (cra *cpuResourceAdvisor) assignToRegions(ci *types.ContainerInfo) ([]regio
 
 		// Create regions by numa node
 		for numaID := range ci.TopologyAwareAssignments {
-			name := string(types.QoSRegionTypeDedicatedNumaExclusive) + types.RegionNameSeparator + string(uuid.NewUUID())
-			r := region.NewQoSRegionDedicatedNumaExclusive(name, ci.OwnerPoolName, cra.conf, numaID, cra.extraConf, cra.metaCache, cra.metaServer, cra.emitter)
+			r := region.NewQoSRegionDedicatedNumaExclusive(ci, cra.conf, numaID, cra.extraConf, cra.metaCache, cra.metaServer, cra.emitter)
 			regions = append(regions, r)
 		}
 
@@ -415,7 +411,7 @@ func (cra *cpuResourceAdvisor) assembleRegionEntries() (types.RegionEntries, err
 func (cra *cpuResourceAdvisor) updateHeadroomForRegionEntries(regionEntries types.RegionEntries) {
 	for regionName := range regionEntries {
 		r, ok := cra.regionMap[regionName]
-		if ok {
+		if !ok {
 			klog.Errorf("region %v in region entries but not in region map", regionName)
 			continue
 		}
@@ -426,7 +422,7 @@ func (cra *cpuResourceAdvisor) updateHeadroomForRegionEntries(regionEntries type
 			continue
 		}
 
-		regionEntries[regionName].Headroom = headroom
+		regionEntries[regionName].Headroom = float64(headroom.MilliValue()) / 1000
 	}
 }
 
@@ -514,21 +510,21 @@ func (cra *cpuResourceAdvisor) setContainerRegions(ci *types.ContainerInfo, regi
 	}
 }
 
-func (cra *cpuResourceAdvisor) getPoolRegions(poolName string) ([]region.QoSRegion, error) {
+func (cra *cpuResourceAdvisor) getPoolRegions(poolName string) []region.QoSRegion {
 	pool, ok := cra.metaCache.GetPoolInfo(poolName)
 	if !ok || pool == nil {
-		return nil, nil
+		return nil
 	}
 
 	var regions []region.QoSRegion = nil
 	for regionName := range pool.RegionNames {
 		r, ok := cra.regionMap[regionName]
 		if !ok {
-			return nil, fmt.Errorf("failed to find region %v", regionName)
+			return nil
 		}
 		regions = append(regions, r)
 	}
-	return regions, nil
+	return regions
 }
 
 func (cra *cpuResourceAdvisor) setPoolRegions(poolName string, regions []region.QoSRegion) error {

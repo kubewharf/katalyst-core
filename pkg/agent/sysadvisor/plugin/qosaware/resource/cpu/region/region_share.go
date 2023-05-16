@@ -20,8 +20,10 @@ import (
 	"fmt"
 
 	"k8s.io/apimachinery/pkg/api/resource"
+	"k8s.io/apimachinery/pkg/util/uuid"
 	"k8s.io/klog/v2"
 
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/cpuadvisor"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
 	"github.com/kubewharf/katalyst-core/pkg/config"
@@ -34,11 +36,16 @@ type QoSRegionShare struct {
 }
 
 // NewQoSRegionShare returns a region instance for shared pool
-func NewQoSRegionShare(name string, ownerPoolName string, conf *config.Configuration, extraConf interface{},
+func NewQoSRegionShare(ci *types.ContainerInfo, conf *config.Configuration, extraConf interface{},
 	metaReader metacache.MetaReader, metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter) QoSRegion {
 
+	regionName := getRegionName(ci, cpuadvisor.FakedNumaID, metaReader)
+	if regionName == "" {
+		regionName = string(types.QoSRegionTypeShare) + types.RegionNameSeparator + string(uuid.NewUUID())
+	}
+
 	r := &QoSRegionShare{
-		QoSRegionBase: NewQoSRegionBase(name, ownerPoolName, types.QoSRegionTypeShare, conf, extraConf, metaReader, metaServer, emitter),
+		QoSRegionBase: NewQoSRegionBase(regionName, ci.OwnerPoolName, types.QoSRegionTypeShare, conf, extraConf, metaReader, metaServer, emitter),
 	}
 	return r
 }

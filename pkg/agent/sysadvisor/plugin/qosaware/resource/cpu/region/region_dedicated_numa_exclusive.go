@@ -22,6 +22,7 @@ import (
 	"fmt"
 
 	"k8s.io/apimachinery/pkg/api/resource"
+	"k8s.io/apimachinery/pkg/util/uuid"
 	"k8s.io/klog/v2"
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
@@ -39,11 +40,16 @@ type QoSRegionDedicatedNumaExclusive struct {
 
 // NewQoSRegionDedicatedNumaExclusive returns a region instance for dedicated cores
 // with numa binding and numa exclusive container
-func NewQoSRegionDedicatedNumaExclusive(name string, ownerPoolName string, conf *config.Configuration, numaID int,
+func NewQoSRegionDedicatedNumaExclusive(ci *types.ContainerInfo, conf *config.Configuration, numaID int,
 	extraConf interface{}, metaReader metacache.MetaReader, metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter) QoSRegion {
 
+	regionName := getRegionName(ci, numaID, metaReader)
+	if regionName == "" {
+		regionName = string(types.QoSRegionTypeDedicatedNumaExclusive) + types.RegionNameSeparator + string(uuid.NewUUID())
+	}
+
 	r := &QoSRegionDedicatedNumaExclusive{
-		QoSRegionBase: NewQoSRegionBase(name, ownerPoolName, types.QoSRegionTypeDedicatedNumaExclusive, conf, extraConf, metaReader, metaServer, emitter),
+		QoSRegionBase: NewQoSRegionBase(regionName, ci.OwnerPoolName, types.QoSRegionTypeDedicatedNumaExclusive, conf, extraConf, metaReader, metaServer, emitter),
 	}
 	r.bindingNumas = machine.NewCPUSet(numaID)
 

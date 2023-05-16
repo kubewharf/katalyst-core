@@ -393,6 +393,8 @@ func (mc *MetaCacheImp) GCPoolEntries(livingPoolNameSet sets.String) error {
 }
 
 func (mc *MetaCacheImp) UpdateRegionEntries(entries types.RegionEntries) error {
+	mc.regionMutex.Lock()
+	defer mc.regionMutex.Unlock()
 	mc.regionEntries = entries.Clone()
 	return nil
 }
@@ -405,6 +407,7 @@ func (mc *MetaCacheImp) storeState() error {
 	checkpoint := NewMetaCacheCheckpoint()
 	checkpoint.PodEntries = mc.podEntries
 	checkpoint.PoolEntries = mc.poolEntries
+	checkpoint.RegionEntries = mc.regionEntries
 
 	begin := time.Now()
 	defer func() {
@@ -430,6 +433,9 @@ func (mc *MetaCacheImp) restoreState() error {
 		if err == errors.ErrCheckpointNotFound {
 			klog.Infof("[metacache] checkpoint %v not found, create", mc.checkpointName)
 			return mc.storeState()
+		} else if err == errors.ErrCorruptCheckpoint {
+			klog.Infof("[metacache] checkpoint %v corrupted, create", mc.checkpointName)
+			return mc.storeState()
 		}
 		klog.Errorf("[metacache] restore state failed: %v", err)
 		return err
@@ -437,6 +443,7 @@ func (mc *MetaCacheImp) restoreState() error {
 
 	mc.podEntries = checkpoint.PodEntries
 	mc.poolEntries = checkpoint.PoolEntries
+	mc.regionEntries = checkpoint.RegionEntries
 
 	klog.Infof("[metacache] restore state succeeded")
 

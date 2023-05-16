@@ -23,6 +23,7 @@ import (
 
 	"k8s.io/klog/v2"
 
+	"github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource/cpu/region/headroompolicy"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource/cpu/region/provisionpolicy"
@@ -82,6 +83,32 @@ type QoSRegionBase struct {
 	emitter    metrics.MetricEmitter
 }
 
+// getRegionName returns the name of region owned by container. If numaID specified, the BindingNumas of the region
+// will be checked, otherwise only one region should be owned by container.
+func getRegionName(ci *types.ContainerInfo, numaID int, metaReader metacache.MetaReader) string {
+	if ci.QoSLevel == consts.PodAnnotationQoSLevelSharedCores {
+		if len(ci.RegionNames) == 1 {
+			// get region name from metaCache
+			regionName := ci.RegionNames.List()[0]
+			regionInfo, ok := metaReader.GetRegionInfo(regionName)
+			if ok && regionInfo.RegionType == types.QoSRegionTypeShare {
+				return regionName
+			}
+		}
+	} else if ci.IsNumaBinding() {
+		for regionName := range ci.RegionNames {
+			regionInfo, ok := metaReader.GetRegionInfo(regionName)
+			if ok && regionInfo.RegionType == types.QoSRegionTypeDedicatedNumaExclusive {
+				regionNUMAs := regionInfo.BindingNumas.ToSliceInt()
+				if len(regionNUMAs) == 1 && regionNUMAs[0] == numaID {
+					return regionName
+				}
+			}
+		}
+	}
+	return ""
+}
+
 // NewQoSRegionBase returns a base qos region instance with common region methods
 func NewQoSRegionBase(name string, ownerPoolName string, regionType types.QoSRegionType, conf *config.Configuration, extraConf interface{},
 	metaReader metacache.MetaReader, metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter) *QoSRegionBase {
@@ -105,6 +132,7 @@ func NewQoSRegionBase(name string, ownerPoolName string, regionType types.QoSReg
 	r.initHeadroomPolicy(conf, extraConf, metaReader, metaServer, emitter)
 	r.initProvisionPolicy(conf, extraConf, metaReader, metaServer, emitter)
 
+	klog.Infof("region [%v/%v/%v] created", r.Name(), r.Type(), r.OwnerPoolName())
 	return r
 }
 
