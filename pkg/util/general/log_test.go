@@ -32,10 +32,10 @@ func (_ test) log(message string, params ...interface{}) string {
 
 func TestLoggingPrefix(t *testing.T) {
 	withoutStruct := logging("extra %v %v", 1, "test")
-	require.Equal(t, "pkg: testing, func: tRunner, extra 1 test", withoutStruct)
+	require.Equal(t, "[testing/tRunner] extra 1 test", withoutStruct)
 
 	withStruct := test{}.log("extra %v %v", 1, "test")
-	require.Equal(t, "pkg: general, func: TestLoggingPrefix, extra 1 test", withStruct)
+	require.Equal(t, "[general/TestLoggingPrefix] extra 1 test", withStruct)
 
 	InfoS("test-InfoS", "param-key", "param-InfoS")
 	Infof("test-Infof %v", "extra-Infof")
@@ -46,12 +46,12 @@ func TestLoggingPrefix(t *testing.T) {
 
 	go func() {
 		goStr := logging("extra %v %v", 1, "test")
-		require.Equal(t, "pkg: runtime, func: goexit, extra 1 test", goStr)
+		require.Equal(t, "[runtime/goexit] extra 1 test", goStr)
 	}()
 
 	f := func() {
 		funcStr := logging("extra %v %v", 1, "test")
-		require.Equal(t, "pkg: runtime, func: goexit, extra 1 test", funcStr)
+		require.Equal(t, "[runtime/goexit] extra 1 test", funcStr)
 	}
 	go f()
 

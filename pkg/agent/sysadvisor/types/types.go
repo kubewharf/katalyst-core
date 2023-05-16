@@ -51,8 +51,9 @@ const (
 type CPUHeadroomPolicyName string
 
 const (
-	CPUHeadroomPolicyNone      CPUHeadroomPolicyName = "none"
-	CPUHeadroomPolicyCanonical CPUHeadroomPolicyName = "canonical"
+	CPUHeadroomPolicyNone        CPUHeadroomPolicyName = "none"
+	CPUHeadroomPolicyCanonical   CPUHeadroomPolicyName = "canonical"
+	CPUHeadroomPolicyUtilization CPUHeadroomPolicyName = "utilization"
 )
 
 // MemoryHeadroomPolicyName defines policy names for memory advisor headroom estimation
@@ -148,7 +149,7 @@ type ControlKnobName string
 
 const (
 	// ControlKnobNonReclaimedCPUSetSize refers to the cpuset size of the pods with high Qos level including dedicated_cores and shared_cores
-	ControlKnobNonReclaimedCPUSetSize ControlKnobName = "none-reclaimed-cpuset-size"
+	ControlKnobNonReclaimedCPUSetSize ControlKnobName = "non-reclaimed-cpuset-size"
 
 	// ControlKnobReclaimedCPUSupplied refers to the cpu resource could be supplied to the pods with reclaimed_cores QoS level
 	ControlKnobReclaimedCPUSupplied ControlKnobName = "reclaimed-cpu-supplied"

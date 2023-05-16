@@ -42,17 +42,18 @@ func loggingWithDepth() string {
 
 	funcNames := strings.Split(funcPaths[len(funcPaths)-1], ".")
 	switch len(funcNames) {
+	case 0, 1:
 	case 2:
-		return fmt.Sprintf("pkg: %v, func: %v", funcNames[0], funcNames[1])
-	case 3:
-		return fmt.Sprintf("pkg: %v, func: %v.%v", funcNames[0], funcNames[1], funcNames[2])
+		return fmt.Sprintf("[%v/%v]", funcNames[0], funcNames[1])
+	default:
+		return fmt.Sprintf("[%v/%v.%v]", funcNames[0], funcNames[1], funcNames[2])
 	}
 
 	return ""
 }
 
 func logging(message string, params ...interface{}) string {
-	return loggingWithDepth() + ", " + fmt.Sprintf(message, params...)
+	return loggingWithDepth() + " " + fmt.Sprintf(message, params...)
 }
 
 func InfoS(message string, params ...interface{}) {

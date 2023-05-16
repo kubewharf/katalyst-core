@@ -18,6 +18,7 @@ package cpu
 
 import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
+	"github.com/kubewharf/katalyst-core/pkg/config/agent/sysadvisor/qosaware/resource/cpu/headroom"
 	"github.com/kubewharf/katalyst-core/pkg/config/dynamic"
 )
 
@@ -25,16 +26,20 @@ import (
 type CPUAdvisorConfiguration struct {
 	ProvisionPolicies map[types.QoSRegionType][]types.CPUProvisionPolicyName
 	HeadroomPolicies  map[types.QoSRegionType][]types.CPUHeadroomPolicyName
+
+	*headroom.CPUHeadroomPolicyConfiguration
 }
 
 // NewCPUAdvisorConfiguration creates new cpu advisor configurations
 func NewCPUAdvisorConfiguration() *CPUAdvisorConfiguration {
 	return &CPUAdvisorConfiguration{
-		ProvisionPolicies: map[types.QoSRegionType][]types.CPUProvisionPolicyName{},
-		HeadroomPolicies:  map[types.QoSRegionType][]types.CPUHeadroomPolicyName{},
+		ProvisionPolicies:              map[types.QoSRegionType][]types.CPUProvisionPolicyName{},
+		HeadroomPolicies:               map[types.QoSRegionType][]types.CPUHeadroomPolicyName{},
+		CPUHeadroomPolicyConfiguration: headroom.NewCPUHeadroomPolicyConfiguration(),
 	}
 }
 
 // ApplyConfiguration is used to set configuration based on conf.
-func (c *CPUAdvisorConfiguration) ApplyConfiguration(*CPUAdvisorConfiguration, *dynamic.DynamicConfigCRD) {
+func (c *CPUAdvisorConfiguration) ApplyConfiguration(defaultConf *CPUAdvisorConfiguration, conf *dynamic.DynamicConfigCRD) {
+	c.CPUHeadroomPolicyConfiguration.ApplyConfiguration(defaultConf.CPUHeadroomPolicyConfiguration, conf)
 }
