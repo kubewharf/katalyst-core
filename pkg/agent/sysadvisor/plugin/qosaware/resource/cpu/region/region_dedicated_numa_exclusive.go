@@ -20,6 +20,7 @@ package region
 
 import (
 	"fmt"
+	"math"
 
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/util/uuid"
@@ -112,6 +113,15 @@ func (r *QoSRegionDedicatedNumaExclusive) TryUpdateHeadroom() {
 func (r *QoSRegionDedicatedNumaExclusive) GetProvision() (types.ControlKnob, error) {
 	r.Lock()
 	defer r.Unlock()
+
+	if !r.EnableReclaim {
+		return types.ControlKnob{
+			types.ControlKnobReclaimedCPUSupplied: types.ControlKnobValue{
+				Value:  math.Ceil(float64(types.MinReclaimCPURequirement)/float64(r.metaServer.NumNUMANodes)) * float64(r.bindingNumas.Size()),
+				Action: types.ControlKnobActionNone,
+			},
+		}, nil
+	}
 
 	for _, internal := range r.provisionPolicies {
 		if internal.updateStatus != types.PolicyUpdateSucceeded {
