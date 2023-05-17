@@ -17,7 +17,6 @@ limitations under the License.
 package provisionpolicy
 
 import (
-	v1 "k8s.io/api/core/v1"
 	"k8s.io/klog/v2"
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
@@ -51,7 +50,7 @@ func (p *PolicyCanonical) estimationCPUUsage() (cpuEstimation float64, container
 				continue
 			}
 
-			containerEstimation, err := helper.EstimateContainerResourceUsage(ci, v1.ResourceCPU, p.metaReader, p.essentials.EnableReclaim)
+			containerEstimation, err := helper.EstimateContainerCPUUsage(ci, p.metaReader, p.essentials.EnableReclaim)
 			if err != nil {
 				return 0, 0, err
 			}

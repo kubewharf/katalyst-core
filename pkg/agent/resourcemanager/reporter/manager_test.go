@@ -274,13 +274,6 @@ func Test_managerImpl_convertReportFieldsIfNeeded(t *testing.T) {
 							Value:     []byte("Value_a"),
 						},
 					},
-					testGroupVersionKindSecond: {
-						{
-							FieldType: v1alpha1.FieldType_Spec,
-							FieldName: "fieldName_b",
-							Value:     []byte("Value_b"),
-						},
-					},
 				},
 			},
 			want: map[v1.GroupVersionKind][]*v1alpha1.ReportField{
@@ -289,11 +282,6 @@ func Test_managerImpl_convertReportFieldsIfNeeded(t *testing.T) {
 						FieldType: v1alpha1.FieldType_Spec,
 						FieldName: "fieldName_a",
 						Value:     []byte("Value_a"),
-					},
-					{
-						FieldType: v1alpha1.FieldType_Spec,
-						FieldName: "fieldName_b",
-						Value:     []byte("Value_b"),
 					},
 				},
 			},
