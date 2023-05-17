@@ -30,6 +30,7 @@ type MetaServerConfiguration struct {
 	ServiceProfileCacheTTL         time.Duration
 	ConfigCacheTTL                 time.Duration
 	ConfigSkipFailedInitialization bool
+	ConfigDisableDynamic           bool
 	ConfigCheckpointGraceTime      time.Duration
 
 	KubeletReadOnlyPort          int
