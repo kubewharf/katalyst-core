@@ -19,214 +19,125 @@ package spd
 import (
 	"context"
 	"fmt"
-	"sync"
-	"time"
 
-	"go.uber.org/atomic"
 	v1 "k8s.io/api/core/v1"
-	"k8s.io/klog/v2"
 
-	"k8s.io/apimachinery/pkg/api/errors"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/kubernetes/pkg/kubelet/checkpointmanager"
-
-	configapis "github.com/kubewharf/katalyst-api/pkg/apis/config/v1alpha1"
-	workloadapis "github.com/kubewharf/katalyst-api/pkg/apis/workload/v1alpha1"
 	"github.com/kubewharf/katalyst-core/pkg/client"
 	pkgconfig "github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/cnc"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util"
-	"github.com/kubewharf/katalyst-core/pkg/util/native"
 )
+
+// PerformanceLevel is an enumeration type, the smaller the
+// positive value, the better the performance
+type PerformanceLevel int
 
 const (
-	defaultClearUnusedSPDPeriod = 10 * time.Minute
+	PerformanceLevelUnknown PerformanceLevel = -1
+	PerformanceLevelPerfect PerformanceLevel = 0
+	PerformanceLevelGood    PerformanceLevel = 1
+	PerformanceLevelPoor    PerformanceLevel = 2
 )
 
-const (
-	metricsNameGetCNCTargetConfigFailed = "spd_manager_get_cnc_target_failed"
-	metricsNameUpdateCacheFailed        = "spd_manager_update_cache_failed"
-	metricsNameCacheNotFound            = "spd_manager_cache_not_found"
-)
+type ServiceProfilingManager interface {
+	// ServiceBusinessPerformanceLevel returns the service business performance level for the given pod
+	ServiceBusinessPerformanceLevel(ctx context.Context, pod *v1.Pod) (PerformanceLevel, error)
 
-type GetPodSPDNameFunc func(pod *v1.Pod) (string, error)
+	// ServiceBusinessPerformanceScore returns the service business performance score for the given pod
+	// The score is in range [0, 100]
+	ServiceBusinessPerformanceScore(ctx context.Context, pod *v1.Pod) (float64, error)
 
-type ServiceProfileManager interface {
-	// GetSPD get spd for given pod
-	GetSPD(ctx context.Context, pod *v1.Pod) (*workloadapis.ServiceProfileDescriptor, error)
-
-	// Run async loop to clear unused spd
+	// Run starts the service profiling manager
 	Run(ctx context.Context)
 }
 
-type spdManager struct {
-	started *atomic.Bool
-	mux     sync.Mutex
+type DummyServiceProfilingManager struct{}
 
-	client            *client.GenericClientSet
-	emitter           metrics.MetricEmitter
-	cncFetcher        cnc.CNCFetcher
-	checkpointManager checkpointmanager.CheckpointManager
-	getPodSPDNameFunc GetPodSPDNameFunc
-
-	ServiceProfileCacheTTL time.Duration
-
-	// spdCache is a cache of namespace/name to current target spd
-	spdCache *Cache
+func (d *DummyServiceProfilingManager) ServiceBusinessPerformanceLevel(_ context.Context, _ *v1.Pod) (PerformanceLevel, error) {
+	return PerformanceLevelPerfect, nil
 }
 
-// NewSPDManager creates a spd manager to implement ServiceProfileManager
-func NewSPDManager(clientSet *client.GenericClientSet, emitter metrics.MetricEmitter,
-	cncFetcher cnc.CNCFetcher, conf *pkgconfig.Configuration) (ServiceProfileManager, error) {
-	checkpointManager, err := checkpointmanager.NewCheckpointManager(conf.CheckpointManagerDir)
+func (d *DummyServiceProfilingManager) ServiceBusinessPerformanceScore(_ context.Context, _ *v1.Pod) (float64, error) {
+	return 100, nil
+}
+
+func (d *DummyServiceProfilingManager) Run(_ context.Context) {}
+
+var _ ServiceProfilingManager = &DummyServiceProfilingManager{}
+
+type serviceProfilingManager struct {
+	fetcher SPDFetcher
+}
+
+func NewServiceProfilingManager(clientSet *client.GenericClientSet, emitter metrics.MetricEmitter,
+	cncFetcher cnc.CNCFetcher, conf *pkgconfig.Configuration) (ServiceProfilingManager, error) {
+	fetcher, err := NewSPDFetcher(clientSet, emitter, cncFetcher, conf)
 	if err != nil {
-		return nil, fmt.Errorf("failed to initialize checkpoint manager: %v", err)
+		return nil, fmt.Errorf("initializes service profiling manager failed: %s", err)
 	}
 
-	m := &spdManager{
-		started:                atomic.NewBool(false),
-		client:                 clientSet,
-		emitter:                emitter,
-		checkpointManager:      checkpointManager,
-		cncFetcher:             cncFetcher,
-		ServiceProfileCacheTTL: conf.ServiceProfileCacheTTL,
-	}
-
-	m.getPodSPDNameFunc = util.GetPodSPDName
-	m.spdCache = NewSPDCache(checkpointManager, defaultClearUnusedSPDPeriod)
-
-	return m, nil
+	return &serviceProfilingManager{
+		fetcher: fetcher,
+	}, nil
 }
 
-func (s *spdManager) GetSPD(ctx context.Context, pod *v1.Pod) (*workloadapis.ServiceProfileDescriptor, error) {
-	spdName, err := s.getPodSPDNameFunc(pod)
+func (m *serviceProfilingManager) ServiceBusinessPerformanceScore(_ context.Context, _ *v1.Pod) (float64, error) {
+	// todo: implement service business performance score using spd to calculate
+	return 1., nil
+}
+
+// ServiceBusinessPerformanceLevel gets the service business performance level by spd, and use the poorest business indicator
+// performance level as the service business performance level.
+func (m *serviceProfilingManager) ServiceBusinessPerformanceLevel(ctx context.Context, pod *v1.Pod) (PerformanceLevel, error) {
+	spd, err := m.fetcher.GetSPD(ctx, pod)
 	if err != nil {
-		return nil, fmt.Errorf("get pod spd name failed: %v", err)
+		return PerformanceLevelUnknown, err
 	}
 
-	return s.getSPDByNamespaceName(ctx, pod.GetNamespace(), spdName)
-}
-
-// SetGetPodSPDNameFunc set get spd name function to override default getPodSPDNameFunc before started
-func (s *spdManager) SetGetPodSPDNameFunc(f GetPodSPDNameFunc) {
-	if s.started.Load() {
-		klog.Warningf("spd manager has already started, not allowed to set implementations")
-		return
-	}
-
-	s.getPodSPDNameFunc = f
-}
-
-func (s *spdManager) Run(ctx context.Context) {
-	if s.started.Swap(true) {
-		return
-	}
-
-	s.spdCache.Run(ctx)
-	<-ctx.Done()
-}
-
-func (s *spdManager) getSPDByNamespaceName(ctx context.Context, namespace, name string) (*workloadapis.ServiceProfileDescriptor, error) {
-	key := native.GenerateNamespaceNameKey(namespace, name)
-	baseTag := []metrics.MetricTag{
-		{Key: "spdNamespace", Val: namespace},
-		{Key: "spdName", Val: name},
-	}
-
-	// first get spd origin spd from local cache
-	originSPD := s.spdCache.GetSPD(key)
-
-	// get spd current target config from cnc to limit rate of get remote spd by comparing local spd
-	// hash with cnc target config hash, if cnc target config not found it will get remote spd directly
-	targetConfig, err := s.getSPDTargetConfig(ctx, namespace, name)
+	indicatorTarget, err := util.GetServiceBusinessIndicatorTarget(spd)
 	if err != nil {
-		klog.Errorf("[spd-manager] get spd targetConfig config failed: %v, use local cache instead", err)
-		targetConfig = &configapis.TargetConfig{
-			ConfigNamespace: namespace,
-			ConfigName:      name,
+		return PerformanceLevelUnknown, err
+	}
+
+	indicatorValue, err := util.GetServiceBusinessIndicatorValue(spd)
+	if err != nil {
+		return PerformanceLevelUnknown, err
+	}
+
+	indicatorLevelMap := make(map[string]PerformanceLevel)
+	for indicatorName, target := range indicatorTarget {
+		if _, ok := indicatorValue[indicatorName]; !ok {
+			indicatorLevelMap[indicatorName] = PerformanceLevelUnknown
+			continue
 		}
-		_ = s.emitter.StoreInt64(metricsNameGetCNCTargetConfigFailed, 1, metrics.MetricTypeNameCount, baseTag...)
-	}
 
-	// try to update spd cache from remote if cache spd hash is not equal to target config hash,
-	// the rate of getting remote spd will be limited by spd ServiceProfileCacheTTL
-	err = s.updateSPDCacheIfNeed(ctx, originSPD, targetConfig)
-	if err != nil {
-		klog.Errorf("[spd-manager] failed update spd cache from remote: %v, use local cache instead", err)
-		_ = s.emitter.StoreInt64(metricsNameUpdateCacheFailed, 1, metrics.MetricTypeNameCount, baseTag...)
-	}
-
-	// get current spd after cache updated
-	currentSPD := s.spdCache.GetSPD(key)
-	if currentSPD != nil {
-		return currentSPD, nil
-	}
-
-	_ = s.emitter.StoreInt64(metricsNameCacheNotFound, 1, metrics.MetricTypeNameCount, baseTag...)
-
-	return nil, fmt.Errorf("get spd cache for %s not found", key)
-}
-
-// getSPDTargetConfig get spd target config from cnc
-func (s *spdManager) getSPDTargetConfig(ctx context.Context, namespace, name string) (*configapis.TargetConfig, error) {
-	currentCNC, err := s.cncFetcher.GetCNC(ctx)
-	if err != nil {
-		return &configapis.TargetConfig{}, err
-	}
-
-	for _, target := range currentCNC.Status.ServiceProfileConfigList {
-		if target.ConfigNamespace == namespace && target.ConfigName == name {
-			return &target, nil
-		}
-	}
-
-	return nil, fmt.Errorf("get target spd %s/%s not found", namespace, name)
-}
-
-// updateSPDCacheIfNeed checks if the previous spd has changed, and
-// re-get from APIServer if the previous is out-of date.
-func (s *spdManager) updateSPDCacheIfNeed(ctx context.Context, originSPD *workloadapis.ServiceProfileDescriptor,
-	targetConfig *configapis.TargetConfig) error {
-	s.mux.Lock()
-	defer s.mux.Unlock()
-
-	if originSPD == nil && targetConfig == nil {
-		return nil
-	}
-
-	now := time.Now()
-	if originSPD == nil || util.GetSPDHash(originSPD) != targetConfig.Hash {
-		key := native.GenerateNamespaceNameKey(targetConfig.ConfigNamespace, targetConfig.ConfigName)
-		if lastFetchRemoteTime := s.spdCache.GetLastFetchRemoteTime(key); lastFetchRemoteTime.Add(s.ServiceProfileCacheTTL).After(time.Now()) {
-			return nil
+		if target.UpperBound != nil && indicatorValue[indicatorName] > *target.UpperBound {
+			indicatorLevelMap[indicatorName] = PerformanceLevelPoor
+		} else if target.LowerBound != nil && indicatorValue[indicatorName] < *target.LowerBound {
+			indicatorLevelMap[indicatorName] = PerformanceLevelPerfect
 		} else {
-			// first update the timestamp of the last attempt to fetch the remote spd to
-			// avoid frequent requests to the api-server in some bad situations
-			s.spdCache.SetLastFetchRemoteTime(key, now)
+			indicatorLevelMap[indicatorName] = PerformanceLevelGood
 		}
-
-		klog.Infof("[spd-manager] spd %s targetConfig hash is changed from %s to %s", key, util.GetSPDHash(originSPD), targetConfig.Hash)
-		spd, err := s.client.InternalClient.WorkloadV1alpha1().ServiceProfileDescriptors(targetConfig.ConfigNamespace).
-			Get(ctx, targetConfig.ConfigName, metav1.GetOptions{ResourceVersion: "0"})
-		if err != nil && !errors.IsNotFound(err) {
-			return fmt.Errorf("get spd %s from remote failed: %v", key, err)
-		} else if err != nil {
-			err = s.spdCache.DeleteSPD(key)
-			if err != nil {
-				return fmt.Errorf("delete spd %s from cache failed: %v", key, err)
-			}
-
-			klog.Infof("[spd-manager] spd %s cache has been deleted", key)
-			return nil
-		}
-
-		err = s.spdCache.SetSPD(key, spd)
-		if err != nil {
-			return err
-		}
-		klog.Infof("[spd-manager] spd %s cache has been updated to %v", key, spd)
 	}
 
-	return nil
+	// calculate the poorest performance level of indicator as the final performance level
+	result := PerformanceLevelUnknown
+	for indicator, level := range indicatorLevelMap {
+		// if indicator level unknown just return error because indicator current value not found
+		if level == PerformanceLevelUnknown {
+			return PerformanceLevelUnknown, fmt.Errorf("indicator %s current value not found", indicator)
+		}
+
+		// choose the higher value of performance level, which is has poorer performance
+		if result < level {
+			result = level
+		}
+	}
+
+	return result, nil
+}
+
+func (m *serviceProfilingManager) Run(ctx context.Context) {
+	m.fetcher.Run(ctx)
 }

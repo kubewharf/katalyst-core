@@ -40,6 +40,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/pod"
+	"github.com/kubewharf/katalyst-core/pkg/metaserver/spd"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 	utilmetric "github.com/kubewharf/katalyst-core/pkg/util/metric"
@@ -84,6 +85,7 @@ func generateTestMetaServer(t *testing.T, podList []*v1.Pod,
 			PodFetcher:     &pod.PodFetcherStub{PodList: podList},
 			MetricsFetcher: metricsFetcher,
 		},
+		ServiceProfilingManager: &spd.DummyServiceProfilingManager{},
 	}
 	return metaServer
 }
