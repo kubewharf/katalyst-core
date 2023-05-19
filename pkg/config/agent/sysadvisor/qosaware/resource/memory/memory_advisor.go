@@ -18,21 +18,26 @@ package memory
 
 import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
+	"github.com/kubewharf/katalyst-core/pkg/config/agent/sysadvisor/qosaware/resource/memory/headroom"
 	"github.com/kubewharf/katalyst-core/pkg/config/dynamic"
 )
 
 // MemoryAdvisorConfiguration stores configurations of memory advisors in qos aware plugin
 type MemoryAdvisorConfiguration struct {
 	MemoryHeadroomPolicies []types.MemoryHeadroomPolicyName
+
+	*headroom.MemoryHeadroomPolicyConfiguration
 }
 
 // NewMemoryAdvisorConfiguration creates new memory advisor configurations
 func NewMemoryAdvisorConfiguration() *MemoryAdvisorConfiguration {
 	return &MemoryAdvisorConfiguration{
-		MemoryHeadroomPolicies: make([]types.MemoryHeadroomPolicyName, 0),
+		MemoryHeadroomPolicies:            make([]types.MemoryHeadroomPolicyName, 0),
+		MemoryHeadroomPolicyConfiguration: headroom.NewMemoryHeadroomPolicyConfiguration(),
 	}
 }
 
 // ApplyConfiguration is used to set configuration based on conf.
-func (c *MemoryAdvisorConfiguration) ApplyConfiguration(*MemoryAdvisorConfiguration, *dynamic.DynamicConfigCRD) {
+func (c *MemoryAdvisorConfiguration) ApplyConfiguration(defaultConf *MemoryAdvisorConfiguration, conf *dynamic.DynamicConfigCRD) {
+	c.MemoryHeadroomPolicyConfiguration.ApplyConfiguration(defaultConf.MemoryHeadroomPolicyConfiguration, conf)
 }

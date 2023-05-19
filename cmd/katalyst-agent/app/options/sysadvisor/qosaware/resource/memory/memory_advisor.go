@@ -18,7 +18,9 @@ package memory
 
 import (
 	"github.com/spf13/pflag"
+	"k8s.io/apimachinery/pkg/util/errors"
 
+	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/options/sysadvisor/qosaware/resource/memory/headroom"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/sysadvisor/qosaware/resource/memory"
 )
@@ -26,12 +28,15 @@ import (
 // MemoryAdvisorOptions holds the configurations for memory advisor in qos aware plugin
 type MemoryAdvisorOptions struct {
 	MemoryHeadroomPolicyPriority []string
+
+	*headroom.MemoryHeadroomPolicyOptions
 }
 
 // NewMemoryAdvisorOptions creates a new Options with a default config
 func NewMemoryAdvisorOptions() *MemoryAdvisorOptions {
 	return &MemoryAdvisorOptions{
 		MemoryHeadroomPolicyPriority: []string{string(types.MemoryHeadroomPolicyCanonical)},
+		MemoryHeadroomPolicyOptions:  headroom.NewMemoryHeadroomPolicyOptions(),
 	}
 }
 
@@ -39,6 +44,7 @@ func NewMemoryAdvisorOptions() *MemoryAdvisorOptions {
 func (o *MemoryAdvisorOptions) AddFlags(fs *pflag.FlagSet) {
 	fs.StringSliceVar(&o.MemoryHeadroomPolicyPriority, "memory-headroom-policy-priority", o.MemoryHeadroomPolicyPriority,
 		"policy memory advisor to estimate resource headroom, sorted by priority descending order, should be formatted as 'policy1,policy2'")
+	o.MemoryHeadroomPolicyOptions.AddFlags(fs)
 }
 
 // ApplyTo fills up config with options
@@ -46,5 +52,8 @@ func (o *MemoryAdvisorOptions) ApplyTo(c *memory.MemoryAdvisorConfiguration) err
 	for _, policy := range o.MemoryHeadroomPolicyPriority {
 		c.MemoryHeadroomPolicies = append(c.MemoryHeadroomPolicies, types.MemoryHeadroomPolicyName(policy))
 	}
-	return nil
+
+	var errList []error
+	errList = append(errList, o.MemoryHeadroomPolicyOptions.ApplyTo(c.MemoryHeadroomPolicyConfiguration))
+	return errors.NewAggregate(errList)
 }
