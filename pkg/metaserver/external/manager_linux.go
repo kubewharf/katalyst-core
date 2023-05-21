@@ -33,10 +33,10 @@ import (
 
 var (
 	initManagerOnce sync.Once
-	manager         *externalManagerImpl
+	manager         *ExternalManagerImpl
 )
 
-type externalManagerImpl struct {
+type ExternalManagerImpl struct {
 	mutex sync.Mutex
 	start bool
 	cgroupid.CgroupIDManager
@@ -45,10 +45,10 @@ type externalManagerImpl struct {
 	rdt.RDTManager
 }
 
-// InitExternalManager initializes an externalManagerImpl
+// InitExternalManager initializes an ExternalManagerImpl
 func InitExternalManager(podFetcher pod.PodFetcher) ExternalManager {
 	initManagerOnce.Do(func() {
-		manager = &externalManagerImpl{
+		manager = &ExternalManagerImpl{
 			start:           false,
 			CgroupIDManager: cgroupid.NewCgroupIDManager(podFetcher),
 			NetworkManager:  network.NewNetworkManager(),
@@ -59,8 +59,8 @@ func InitExternalManager(podFetcher pod.PodFetcher) ExternalManager {
 	return manager
 }
 
-// Run starts an externalManagerImpl
-func (m *externalManagerImpl) Run(ctx context.Context) {
+// Run starts an ExternalManagerImpl
+func (m *ExternalManagerImpl) Run(ctx context.Context) {
 	m.mutex.Lock()
 	if m.start {
 		m.mutex.Unlock()
@@ -75,13 +75,13 @@ func (m *externalManagerImpl) Run(ctx context.Context) {
 }
 
 // SetNetworkManager replaces defaultNetworkManager with a custom implementation
-func (m *externalManagerImpl) SetNetworkManager(n network.NetworkManager) {
+func (m *ExternalManagerImpl) SetNetworkManager(n network.NetworkManager) {
 	m.setComponentImplementation(func() {
 		m.NetworkManager = n
 	})
 }
 
-func (m *externalManagerImpl) setComponentImplementation(setter func()) {
+func (m *ExternalManagerImpl) setComponentImplementation(setter func()) {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 

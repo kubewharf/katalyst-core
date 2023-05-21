@@ -47,7 +47,7 @@ func (m *unsupportedExternalManagerImpl) Run(_ context.Context) {
 
 }
 
-// InitExternalManager initializes an externalManagerImpl
+// InitExternalManager initializes an ExternalManagerImpl
 func InitExternalManager(podFetcher pod.PodFetcher) ExternalManager {
 	initUnsupportedManagerOnce.Do(func() {
 		unsupportedManager = &unsupportedExternalManagerImpl{
