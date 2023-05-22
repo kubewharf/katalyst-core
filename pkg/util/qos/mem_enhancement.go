@@ -41,25 +41,28 @@ func IsPodNumaBinding(qosConf *generic.QoSConfiguration, pod *v1.Pod) bool {
 	return false
 }
 
-// GetRSSOverUseEvictEnabledAndThreshold checks whether the pod enable RSS overuse eviction and parse the user specified threshold
-func GetRSSOverUseEvictEnabledAndThreshold(qosConf *generic.QoSConfiguration, pod *v1.Pod) (bool, float64) {
+// GetRSSOverUseEvictThreshold parse the user specified threshold and checks if it's valid
+func GetRSSOverUseEvictThreshold(qosConf *generic.QoSConfiguration, pod *v1.Pod) (threshold *float64, invalid bool) {
 	memoryEnhancement := ParseKatalystQOSEnhancement(qosConf.GetQoSEnhancementsForPod(pod), consts.PodAnnotationMemoryEnhancementKey)
 	thresholdStr, ok := memoryEnhancement[consts.PodAnnotationMemoryEnhancementRssOverUseThreshold]
 	if !ok {
-		return true, consts.PodAnnotationMemoryEnhancementRssOverUseThresholdNotSet
+		return
 	}
 
-	threshold, parseErr := strconv.ParseFloat(thresholdStr, 64)
-	// don't perform evict for safety if user set an unresolvable threshold
+	parsedThreshold, parseErr := strconv.ParseFloat(thresholdStr, 64)
+
 	if parseErr != nil {
-		return false, consts.PodAnnotationMemoryEnhancementRssOverUseThresholdNotSet
-	}
-	// don't perform evict for safety if user set an invalid threshold
-	if !isValidRatioThreshold(threshold) {
-		return false, consts.PodAnnotationMemoryEnhancementRssOverUseThresholdNotSet
+		invalid = true
+		return
 	}
 
-	return true, threshold
+	if !isValidRatioThreshold(parsedThreshold) {
+		invalid = true
+		return
+	}
+
+	threshold = &parsedThreshold
+	return
 }
 
 func isValidRatioThreshold(threshold float64) bool {

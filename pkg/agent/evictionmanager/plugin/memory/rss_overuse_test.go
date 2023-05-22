@@ -237,6 +237,29 @@ func TestRssOveruseEvictionPlugin_GetEvictPods(t *testing.T) {
 				},
 			},
 		},
+		// single container, has memory limit, has specified threshold, but is dedicated_cores pod
+		{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: "pod-9",
+				UID:  "009",
+				Annotations: map[string]string{
+					apiconsts.PodAnnotationMemoryEnhancementKey: "{\"rss_overuse_threshold\":\"0.8\"}",
+					apiconsts.PodAnnotationQoSLevelKey:          apiconsts.PodAnnotationQoSLevelDedicatedCores,
+				},
+			},
+			Spec: v1.PodSpec{
+				Containers: []v1.Container{
+					{
+						Name: "container-1",
+						Resources: v1.ResourceRequirements{
+							Limits: v1.ResourceList{
+								"memory": resource.MustParse("10Gi"),
+							},
+						},
+					},
+				},
+			},
+		},
 	}
 
 	fakeMetricsFetcher := plugin.metaServer.MetricsFetcher.(*metric.FakeMetricsFetcher)
@@ -263,6 +286,7 @@ func TestRssOveruseEvictionPlugin_GetEvictPods(t *testing.T) {
 			9 * 1024 * 1024 * 1024,
 			3 * 1024 * 1024 * 1024,
 		},
+		{9 * 1024 * 1024 * 1024},
 	}
 
 	for i := range pods {

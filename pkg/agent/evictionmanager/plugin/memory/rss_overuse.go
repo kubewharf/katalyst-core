@@ -23,6 +23,7 @@ import (
 	"time"
 
 	v1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/tools/events"
 
 	apiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
@@ -35,6 +36,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
+	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/process"
 	"github.com/kubewharf/katalyst-core/pkg/util/qos"
 )
@@ -54,6 +56,7 @@ func NewRssOveruseEvictionPlugin(_ *client.GenericClientSet, _ events.EventRecor
 		pluginName:         EvictionPluginNameRssOveruse,
 		metaServer:         metaServer,
 		evictionHelper:     NewEvictionHelper(emitter, metaServer, conf),
+		supportedQosLevels: sets.NewString(apiconsts.PodAnnotationQoSLevelReclaimedCores, apiconsts.PodAnnotationQoSLevelSharedCores),
 
 		memoryEvictionPluginConfig: conf.MemoryPressureEvictionPluginConfiguration,
 		qosConf:                    conf.QoSConfiguration,
@@ -71,6 +74,7 @@ type RssOveruseEvictionPlugin struct {
 	pluginName         string
 	metaServer         *metaserver.MetaServer
 	evictionHelper     *EvictionHelper
+	supportedQosLevels sets.String
 
 	memoryEvictionPluginConfig *evictionconfig.MemoryPressureEvictionPluginConfiguration
 	qosConf                    *generic.QoSConfiguration
@@ -84,17 +88,17 @@ func (r *RssOveruseEvictionPlugin) Name() string {
 	return r.pluginName
 }
 
-func (r *RssOveruseEvictionPlugin) ThresholdMet(c context.Context) (*pluginapi.ThresholdMetResponse, error) {
+func (r *RssOveruseEvictionPlugin) ThresholdMet(_ context.Context) (*pluginapi.ThresholdMetResponse, error) {
 	return &pluginapi.ThresholdMetResponse{
 		MetType: pluginapi.ThresholdMetType_NOT_MET,
 	}, nil
 }
 
-func (r *RssOveruseEvictionPlugin) GetTopEvictionPods(c context.Context, request *pluginapi.GetTopEvictionPodsRequest) (*pluginapi.GetTopEvictionPodsResponse, error) {
+func (r *RssOveruseEvictionPlugin) GetTopEvictionPods(_ context.Context, _ *pluginapi.GetTopEvictionPodsRequest) (*pluginapi.GetTopEvictionPodsResponse, error) {
 	return &pluginapi.GetTopEvictionPodsResponse{}, nil
 }
 
-func (r *RssOveruseEvictionPlugin) GetEvictPods(c context.Context, request *pluginapi.GetEvictPodsRequest) (*pluginapi.GetEvictPodsResponse, error) {
+func (r *RssOveruseEvictionPlugin) GetEvictPods(_ context.Context, request *pluginapi.GetEvictPodsRequest) (*pluginapi.GetEvictPodsResponse, error) {
 	result := make([]*pluginapi.EvictPod, 0)
 
 	if !r.memoryEvictionPluginConfig.DynamicConf.EnableRssOveruseDetection() {
@@ -103,13 +107,28 @@ func (r *RssOveruseEvictionPlugin) GetEvictPods(c context.Context, request *plug
 
 	for i := range request.ActivePods {
 		pod := request.ActivePods[i]
-		enabled, threshold := qos.GetRSSOverUseEvictEnabledAndThreshold(r.qosConf, pod)
-		if !enabled {
+
+		qosLevel, err := r.qosConf.GetQoSLevelForPod(pod)
+		if err != nil {
+			general.Errorf("get qos level failed for pod %+v/%+v, skip check rss overuse, err: %v", pod.Namespace, pod.Name, err)
 			continue
 		}
 
-		if threshold == apiconsts.PodAnnotationMemoryEnhancementRssOverUseThresholdNotSet {
-			threshold = r.memoryEvictionPluginConfig.DynamicConf.RssOveruseRateThreshold()
+		if !r.supportedQosLevels.Has(qosLevel) {
+			continue
+		}
+
+		userSpecifiedThreshold, invalid := qos.GetRSSOverUseEvictThreshold(r.qosConf, pod)
+		// don't perform eviction for safety if user set an invalid threshold
+		if invalid {
+			general.Warningf("pod %+v/%+v set invalid overuse eviction threshold, skip check rss overuse", pod.Namespace, pod.Name)
+			continue
+		}
+
+		threshold := r.memoryEvictionPluginConfig.DynamicConf.RssOveruseRateThreshold()
+		// user set threshold explicitly,use default value
+		if userSpecifiedThreshold != nil {
+			threshold = *userSpecifiedThreshold
 		}
 
 		var limit int64 = 0
@@ -123,6 +142,7 @@ func (r *RssOveruseEvictionPlugin) GetEvictPods(c context.Context, request *plug
 			limit += containerMemLimit.Value()
 		}
 
+		// if there is at least one container without memory limit, skip it
 		if limitNotSet {
 			continue
 		}

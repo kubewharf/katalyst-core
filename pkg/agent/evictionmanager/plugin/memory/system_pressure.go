@@ -24,7 +24,6 @@ import (
 
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/tools/events"
-	"k8s.io/klog/v2"
 
 	pluginapi "github.com/kubewharf/katalyst-api/pkg/protocol/evictionplugin/v1alpha1"
 	"github.com/kubewharf/katalyst-core/pkg/agent/evictionmanager/plugin"
@@ -33,6 +32,7 @@ import (
 	evictionconfig "github.com/kubewharf/katalyst-core/pkg/config/agent/eviction"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
+	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/native"
 	"github.com/kubewharf/katalyst-core/pkg/util/process"
 )
@@ -85,7 +85,7 @@ func (s *SystemPressureEvictionPlugin) Name() string {
 	return s.pluginName
 }
 
-func (s *SystemPressureEvictionPlugin) ThresholdMet(c context.Context) (*pluginapi.ThresholdMetResponse, error) {
+func (s *SystemPressureEvictionPlugin) ThresholdMet(_ context.Context) (*pluginapi.ThresholdMetResponse, error) {
 	resp := &pluginapi.ThresholdMetResponse{
 		MetType: pluginapi.ThresholdMetType_NOT_MET,
 	}
@@ -108,7 +108,7 @@ func (s *SystemPressureEvictionPlugin) ThresholdMet(c context.Context) (*plugina
 		}
 	}
 
-	klog.Infof("[system-memory-pressure-eviction-plugin] ThresholdMet result, m.isUnderSystemPressure: %+v, m.systemAction: %+v", s.isUnderSystemPressure, s.systemAction)
+	general.Infof("ThresholdMet result, m.isUnderSystemPressure: %+v, m.systemAction: %+v", s.isUnderSystemPressure, s.systemAction)
 
 	return resp, nil
 }
@@ -145,11 +145,11 @@ func (s *SystemPressureEvictionPlugin) detectSystemWatermarkPressure() {
 			metrics.ConvertMapToTags(map[string]string{
 				metricsTagKeyNumaID: strconv.Itoa(nonExistNumaID),
 			})...)
-		klog.Errorf("[system-memory-pressure-eviction-plugin] failed to getWatermarkMetrics for system, err: %v", err)
+		general.Errorf("failed to getWatermarkMetrics for system, err: %v", err)
 		return
 	}
 
-	klog.Infof("[system-memory-pressure-eviction-plugin] system watermark metrics, "+
+	general.Infof("system watermark metrics, "+
 		"free: %+v, total: %+v, scaleFactor: %+v",
 		free, total, scaleFactor)
 
@@ -167,11 +167,11 @@ func (s *SystemPressureEvictionPlugin) detectSystemKswapdStealPressure() {
 			metrics.ConvertMapToTags(map[string]string{
 				metricsTagKeyNumaID: strconv.Itoa(nonExistNumaID),
 			})...)
-		klog.Errorf("[system-memory-pressure-eviction-plugin] failed to getSystemKswapdStealMetrics, err: %v", err)
+		general.Errorf("failed to getSystemKswapdStealMetrics, err: %v", err)
 		return
 	}
 
-	klog.Infof("[system-memory-pressure-eviction-plugin] system kswapd metrics, "+
+	general.Infof("system kswapd metrics, "+
 		"kswapdSteal: %+v, kswapdStealPreviousCycle: %+v, systemKswapdRateThreshold: %+v, evictionManagerSyncPeriod: %+v, "+
 		"systemKswapdRateExceedTimes: %+v, systemKswapdRateExceedTimesThreshold: %+v",
 		kswapdSteal, s.kswapdStealPreviousCycle, s.memoryEvictionPluginConfig.DynamicConf.SystemKswapdRateThreshold(),
@@ -189,7 +189,7 @@ func (s *SystemPressureEvictionPlugin) detectSystemKswapdStealPressure() {
 	kswapdStealPreviousCycle := s.kswapdStealPreviousCycle
 	s.kswapdStealPreviousCycle = kswapdSteal
 	if kswapdStealPreviousCycle == kswapdStealPreviousCycleMissing {
-		klog.Warning("[system-memory-pressure-eviction-plugin] kswapd steal of the previous cycle is missing")
+		general.Warningf("kswapd steal of the previous cycle is missing")
 		return
 	}
 
@@ -205,24 +205,24 @@ func (s *SystemPressureEvictionPlugin) detectSystemKswapdStealPressure() {
 	}
 }
 
-func (s *SystemPressureEvictionPlugin) GetTopEvictionPods(c context.Context, request *pluginapi.GetTopEvictionPodsRequest) (*pluginapi.GetTopEvictionPodsResponse, error) {
+func (s *SystemPressureEvictionPlugin) GetTopEvictionPods(_ context.Context, request *pluginapi.GetTopEvictionPodsRequest) (*pluginapi.GetTopEvictionPodsResponse, error) {
 	if request == nil {
 		return nil, fmt.Errorf("GetTopEvictionPods got nil request")
 	}
 
 	if len(request.ActivePods) == 0 {
-		klog.Warningf("[system-memory-pressure-eviction-plugin] GetTopEvictionPods got empty active pods list")
+		general.Warningf("GetTopEvictionPods got empty active pods list")
 		return &pluginapi.GetTopEvictionPodsResponse{}, nil
 	}
 
 	targetPods := make([]*v1.Pod, 0, len(request.ActivePods))
 	podToEvictMap := make(map[string]*v1.Pod)
 
-	klog.Infof("[system-memory-pressure-eviction-plugin] GetTopEvictionPods condition, m.isUnderSystemPressure: %+v, "+
+	general.Infof("GetTopEvictionPods condition, m.isUnderSystemPressure: %+v, "+
 		"m.systemAction: %+v", s.isUnderSystemPressure, s.systemAction)
 
 	if s.memoryEvictionPluginConfig.DynamicConf.EnableSystemLevelDetection() && s.isUnderSystemPressure {
-		s.evictionHelper.selectPodsToEvict(request.ActivePods, request.TopN, nonExistNumaID, s.systemAction,
+		s.evictionHelper.selectTopNPodsToEvictByMetrics(request.ActivePods, request.TopN, nonExistNumaID, s.systemAction,
 			s.memoryEvictionPluginConfig.DynamicConf.SystemEvictionRankingMetrics(), podToEvictMap)
 	}
 
@@ -231,7 +231,7 @@ func (s *SystemPressureEvictionPlugin) GetTopEvictionPods(c context.Context, req
 	}
 
 	_ = s.emitter.StoreInt64(metricsNameNumberOfTargetPods, int64(len(targetPods)), metrics.MetricTypeNameRaw)
-	klog.Infof("[system-memory-pressure-eviction-plugin] GetTopEvictionPods result, targetPods: %+v", native.GetNamespacedNameListFromSlice(targetPods))
+	general.Infof("GetTopEvictionPods result, targetPods: %+v", native.GetNamespacedNameListFromSlice(targetPods))
 
 	resp := &pluginapi.GetTopEvictionPodsResponse{
 		TargetPods: targetPods,
@@ -245,7 +245,7 @@ func (s *SystemPressureEvictionPlugin) GetTopEvictionPods(c context.Context, req
 	return resp, nil
 }
 
-func (s *SystemPressureEvictionPlugin) GetEvictPods(c context.Context, request *pluginapi.GetEvictPodsRequest) (*pluginapi.GetEvictPodsResponse, error) {
+func (s *SystemPressureEvictionPlugin) GetEvictPods(_ context.Context, request *pluginapi.GetEvictPodsRequest) (*pluginapi.GetEvictPodsResponse, error) {
 	if request == nil {
 		return nil, fmt.Errorf("GetEvictPods got nil request")
 	}

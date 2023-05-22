@@ -24,7 +24,6 @@ import (
 
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/tools/events"
-	"k8s.io/klog/v2"
 
 	pluginapi "github.com/kubewharf/katalyst-api/pkg/protocol/evictionplugin/v1alpha1"
 	"github.com/kubewharf/katalyst-core/pkg/agent/evictionmanager/plugin"
@@ -33,6 +32,7 @@ import (
 	evictionconfig "github.com/kubewharf/katalyst-core/pkg/config/agent/eviction"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
+	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/native"
 	"github.com/kubewharf/katalyst-core/pkg/util/process"
 )
@@ -84,7 +84,7 @@ func (n *NumaMemoryPressurePlugin) Name() string {
 	return n.pluginName
 }
 
-func (n *NumaMemoryPressurePlugin) ThresholdMet(c context.Context) (*pluginapi.ThresholdMetResponse, error) {
+func (n *NumaMemoryPressurePlugin) ThresholdMet(_ context.Context) (*pluginapi.ThresholdMetResponse, error) {
 	resp := &pluginapi.ThresholdMetResponse{
 		MetType: pluginapi.ThresholdMetType_NOT_MET,
 	}
@@ -121,7 +121,7 @@ func (n *NumaMemoryPressurePlugin) detectNumaPressures() {
 func (n *NumaMemoryPressurePlugin) detectNumaWatermarkPressure(numaID int) error {
 	free, total, scaleFactor, err := n.evictionHelper.getWatermarkMetrics(numaID)
 	if err != nil {
-		klog.Errorf("[numa-memory-pressure-eviction-plugin] failed to getWatermarkMetrics for numa %d, err: %v", numaID, err)
+		general.Errorf("failed to getWatermarkMetrics for numa %d, err: %v", numaID, err)
 		_ = n.emitter.StoreInt64(metricsNameFetchMetricError, 1, metrics.MetricTypeNameCount,
 			metrics.ConvertMapToTags(map[string]string{
 				metricsTagKeyNumaID: strconv.Itoa(numaID),
@@ -129,7 +129,7 @@ func (n *NumaMemoryPressurePlugin) detectNumaWatermarkPressure(numaID int) error
 		return err
 	}
 
-	klog.Infof("[numa-memory-pressure-eviction-plugin] numa watermark metrics of ID: %d, "+
+	general.Infof("numa watermark metrics of ID: %d, "+
 		"free: %+v, total: %+v, scaleFactor: %+v, numaFreeBelowWatermarkTimes: %+v, numaFreeBelowWatermarkTimesThreshold: %+v",
 		numaID, free, total, scaleFactor, n.numaFreeBelowWatermarkTimesMap[numaID],
 		n.memoryEvictionPluginConfig.DynamicConf.NumaFreeBelowWatermarkTimesThreshold())
@@ -173,26 +173,26 @@ func (n *NumaMemoryPressurePlugin) detectNumaWatermarkPressure(numaID int) error
 	return nil
 }
 
-func (n *NumaMemoryPressurePlugin) GetTopEvictionPods(c context.Context, request *pluginapi.GetTopEvictionPodsRequest) (*pluginapi.GetTopEvictionPodsResponse, error) {
+func (n *NumaMemoryPressurePlugin) GetTopEvictionPods(_ context.Context, request *pluginapi.GetTopEvictionPodsRequest) (*pluginapi.GetTopEvictionPodsResponse, error) {
 	if request == nil {
 		return nil, fmt.Errorf("GetTopEvictionPods got nil request")
 	}
 
 	if len(request.ActivePods) == 0 {
-		klog.Warningf("[numa-memory-pressure-eviction-plugin] GetTopEvictionPods got empty active pods list")
+		general.Warningf("GetTopEvictionPods got empty active pods list")
 		return &pluginapi.GetTopEvictionPodsResponse{}, nil
 	}
 
 	targetPods := make([]*v1.Pod, 0, len(request.ActivePods))
 	podToEvictMap := make(map[string]*v1.Pod)
 
-	klog.Infof("[numa-memory-pressure-eviction-plugin] GetTopEvictionPods condition, isUnderNumaPressure: %+v, n.numaActionMap: %+v",
+	general.Infof("GetTopEvictionPods condition, isUnderNumaPressure: %+v, n.numaActionMap: %+v",
 		n.isUnderNumaPressure,
 		n.numaActionMap)
 
 	if n.memoryEvictionPluginConfig.DynamicConf.EnableNumaLevelDetection() && n.isUnderNumaPressure {
 		for numaID, action := range n.numaActionMap {
-			n.evictionHelper.selectPodsToEvict(request.ActivePods, request.TopN, numaID, action,
+			n.evictionHelper.selectTopNPodsToEvictByMetrics(request.ActivePods, request.TopN, numaID, action,
 				n.memoryEvictionPluginConfig.DynamicConf.NumaEvictionRankingMetrics(), podToEvictMap)
 		}
 	}
@@ -202,7 +202,7 @@ func (n *NumaMemoryPressurePlugin) GetTopEvictionPods(c context.Context, request
 	}
 
 	_ = n.emitter.StoreInt64(metricsNameNumberOfTargetPods, int64(len(targetPods)), metrics.MetricTypeNameRaw)
-	klog.Infof("[numa-memory-pressure-eviction-plugin] GetTopEvictionPods result, targetPods: %+v", native.GetNamespacedNameListFromSlice(targetPods))
+	general.Infof("[numa-memory-pressure-eviction-plugin] GetTopEvictionPods result, targetPods: %+v", native.GetNamespacedNameListFromSlice(targetPods))
 
 	resp := &pluginapi.GetTopEvictionPodsResponse{
 		TargetPods: targetPods,
@@ -216,7 +216,7 @@ func (n *NumaMemoryPressurePlugin) GetTopEvictionPods(c context.Context, request
 	return resp, nil
 }
 
-func (n *NumaMemoryPressurePlugin) GetEvictPods(c context.Context, request *pluginapi.GetEvictPodsRequest) (*pluginapi.GetEvictPodsResponse, error) {
+func (n *NumaMemoryPressurePlugin) GetEvictPods(_ context.Context, request *pluginapi.GetEvictPodsRequest) (*pluginapi.GetEvictPodsResponse, error) {
 	if request == nil {
 		return nil, fmt.Errorf("GetEvictPods got nil request")
 	}

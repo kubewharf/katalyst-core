@@ -21,7 +21,6 @@ import (
 	"strconv"
 
 	v1 "k8s.io/api/core/v1"
-	"k8s.io/klog/v2"
 
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	evictionconfig "github.com/kubewharf/katalyst-core/pkg/config/agent/eviction"
@@ -73,11 +72,11 @@ const (
 )
 
 const (
-	errMsgGetSystemMetrics          = "[memory-eviction-helper] failed to get system metric, metric name: %s, err: %v"
-	errMsgGetNumaMetrics            = "[memory-eviction-helper] failed to get numa metric, metric name: %s, numa id: %d, err: %v"
-	errMsgGetContainerNumaMetrics   = "[memory-eviction-helper] failed to get container numa metric, metric name: %s, pod uid: %s, container name: %s, numa id: %d, err: %v"
-	errMsgGetContainerSystemMetrics = "[memory-eviction-helper] failed to get container system metric, metric name: %s, pod uid: %s, container name: %s, err: %v"
-	errMsgCheckReclaimedPodFailed   = "[memory-eviction-helper] failed to check reclaimed pod, pod: %s/%s, err: %v"
+	errMsgGetSystemMetrics          = "failed to get system metric, metric name: %s, err: %v"
+	errMsgGetNumaMetrics            = "failed to get numa metric, metric name: %s, numa id: %d, err: %v"
+	errMsgGetContainerNumaMetrics   = "failed to get container numa metric, metric name: %s, pod uid: %s, container name: %s, numa id: %d, err: %v"
+	errMsgGetContainerSystemMetrics = "failed to get container system metric, metric name: %s, pod uid: %s, container name: %s, err: %v"
+	errMsgCheckReclaimedPodFailed   = "failed to check reclaimed pod, pod: %s/%s, err: %v"
 )
 
 // EvictionHelper is a general tool collection for all memory eviction plugin
@@ -163,7 +162,7 @@ func (e *EvictionHelper) getSystemKswapdStealMetrics() (float64, error) {
 	return kswapdSteal, nil
 }
 
-func (e *EvictionHelper) selectPodsToEvict(activePods []*v1.Pod, topN uint64, numaID,
+func (e *EvictionHelper) selectTopNPodsToEvictByMetrics(activePods []*v1.Pod, topN uint64, numaID,
 	action int, rankingMetrics []string, podToEvictMap map[string]*v1.Pod) {
 	filteredPods := e.filterPods(activePods, action)
 	if filteredPods != nil {
@@ -197,12 +196,12 @@ func (e *EvictionHelper) getEvictionCmpFuncs(rankingMetrics []string, numaID int
 			case evictionconfig.FakeMetricQoSLevel:
 				isReclaimedPod1, err1 := e.reclaimedPodFilter(p1)
 				if err1 != nil {
-					klog.Errorf(errMsgCheckReclaimedPodFailed, p1.Namespace, p1.Name, err1)
+					general.Errorf(errMsgCheckReclaimedPodFailed, p1.Namespace, p1.Name, err1)
 				}
 
 				isReclaimedPod2, err2 := e.reclaimedPodFilter(p2)
 				if err2 != nil {
-					klog.Errorf(errMsgCheckReclaimedPodFailed, p2.Namespace, p2.Name, err2)
+					general.Errorf(errMsgCheckReclaimedPodFailed, p2.Namespace, p2.Name, err2)
 				}
 
 				if err1 != nil || err2 != nil {
@@ -251,7 +250,7 @@ func (e *EvictionHelper) getPodMetric(pod *v1.Pod, metricName string, numaID int
 		if numaID >= 0 {
 			containerMetricValue, err = e.metaServer.GetContainerNumaMetric(string(pod.UID), container.Name, strconv.Itoa(numaID), metricName)
 			if err != nil {
-				klog.Errorf(errMsgGetContainerNumaMetrics, metricName, pod.UID, container.Name, numaID, err)
+				general.Errorf(errMsgGetContainerNumaMetrics, metricName, pod.UID, container.Name, numaID, err)
 				return 0, false
 			}
 			_ = e.emitter.StoreFloat64(metricsNameContainerMetric, containerMetricValue, metrics.MetricTypeNameRaw,
@@ -264,7 +263,7 @@ func (e *EvictionHelper) getPodMetric(pod *v1.Pod, metricName string, numaID int
 		} else {
 			containerMetricValue, err = e.metaServer.GetContainerMetric(string(pod.UID), container.Name, metricName)
 			if err != nil {
-				klog.Errorf(errMsgGetContainerSystemMetrics, metricName, pod.UID, container.Name, err)
+				general.Errorf(errMsgGetContainerSystemMetrics, metricName, pod.UID, container.Name, err)
 				return 0, false
 			}
 			_ = e.emitter.StoreFloat64(metricsNameContainerMetric, containerMetricValue, metrics.MetricTypeNameRaw,
