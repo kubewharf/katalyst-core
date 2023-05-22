@@ -36,11 +36,13 @@ type GenericOptions struct {
 	MasterURL  string
 	KubeConfig string
 
+	TransformedInformerForPod bool
+
+	// todo actually those auth info should be stored in secrets or somewhere like that
 	GenericEndpoint             string
 	GenericEndpointHandleChains []string
-	// todo actually those auth info should be stored in secrets or somewhere like that
-	GenericAuthStaticUser   string
-	GenericAuthStaticPasswd string
+	GenericAuthStaticUser       string
+	GenericAuthStaticPasswd     string
 
 	qosOptions     *QoSOptions
 	metricsOptions *MetricsOptions
@@ -51,6 +53,7 @@ type GenericOptions struct {
 func NewGenericOptions() *GenericOptions {
 	return &GenericOptions{
 		DryRun:                      false,
+		TransformedInformerForPod:   false,
 		GenericEndpoint:             ":9316",
 		qosOptions:                  NewQoSOptions(),
 		metricsOptions:              NewMetricsOptions(),
@@ -69,6 +72,9 @@ func (o *GenericOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 	})
 
 	fs.BoolVar(&o.DryRun, "dry-run", o.DryRun, "A bool to enable and disable dry-run.")
+
+	fs.BoolVar(&o.TransformedInformerForPod, "transformed-informer-pod", o.TransformedInformerForPod,
+		"whether we should enable the ability of transformed informer for pods")
 
 	fs.StringVar(&o.MasterURL, "master", o.MasterURL,
 		`The url of the Kubernetes API server, will overrides any value in kubeconfig, only required if out-of-cluster.`)
@@ -93,6 +99,8 @@ func (o *GenericOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 // ApplyTo fills up config with options
 func (o *GenericOptions) ApplyTo(c *generic.GenericConfiguration) error {
 	c.DryRun = o.DryRun
+
+	c.TransformedInformerForPod = o.TransformedInformerForPod
 
 	c.GenericEndpoint = o.GenericEndpoint
 	c.GenericEndpointHandleChains = o.GenericEndpointHandleChains

@@ -184,6 +184,7 @@ func NewSPDController(ctx context.Context, controlCtx *katalystbase.GenericConte
 		return nil, err
 	}
 
+	native.WithPodTransformer(podTransformerFunc)
 	return spdController, nil
 }
 
@@ -678,3 +679,5 @@ func (sc *SPDController) cleanPodSPDAnnotation(pod *core.Pod) error {
 	klog.Infof("[spd] successfully clear annotations for pod %v", pod.GetName())
 	return nil
 }
+
+func podTransformerFunc(_, _ *core.Pod) {}

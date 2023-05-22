@@ -305,6 +305,7 @@ func NewEvictionController(ctx context.Context,
 		ec.metricsEmitter = metricsEmitter.WithTags("agent-monitor")
 	}
 
+	native.WithPodTransformer(podTransformerFunc)
 	return ec, nil
 }
 
@@ -733,4 +734,8 @@ func (ec *EvictionController) handleDisruption(healthState string) {
 			{Key: "threshold", Val: fmt.Sprintf("%v", ec.unhealthyThreshold)},
 		}...)
 	klog.Infof("eviction controller detect nodes are %v.", healthState)
+}
+
+func podTransformerFunc(src, dest *corev1.Pod) {
+	dest.Spec.NodeName = src.Spec.NodeName
 }
