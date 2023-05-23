@@ -42,8 +42,8 @@ import (
 
 /* in the below, cpu-plugin works in server-mode, while cpu-advisor works in client-mode */
 
-// serveCPUAdvisor starts a server for cpu-advisor (as a client) to connect with
-func (p *DynamicPolicy) serveCPUAdvisor(stopCh <-chan struct{}) {
+// serveForAdvisor starts a server for cpu-advisor (as a client) to connect with
+func (p *DynamicPolicy) serveForAdvisor(stopCh <-chan struct{}) {
 	cpuPluginSocketDir := path.Dir(p.cpuPluginSocketAbsPath)
 
 	err := general.EnsureDirectory(cpuPluginSocketDir)
@@ -74,7 +74,7 @@ func (p *DynamicPolicy) serveCPUAdvisor(stopCh <-chan struct{}) {
 		if err := grpcServer.Serve(sock); err != nil {
 			general.Errorf("cpu plugin checkpoint grpc server crashed with error: %v at socket: %s", err, p.cpuPluginSocketAbsPath)
 		} else {
-			general.Infof("cpu plugin checkpoint grpc server at socket: %s exits normally", p.cpuPluginSocketAbsPath)
+			general.Infof("cpu plugin checkpoint grpc server at socket: %s exists normally", p.cpuPluginSocketAbsPath)
 		}
 
 		exitCh <- struct{}{}
@@ -96,7 +96,7 @@ func (p *DynamicPolicy) serveCPUAdvisor(stopCh <-chan struct{}) {
 	}
 }
 
-// GetCheckpoint works with serveCPUAdvisor to provide ckp for cpu-advisor
+// GetCheckpoint works with serveForAdvisor to provide ckp for cpu-advisor
 func (p *DynamicPolicy) GetCheckpoint(_ context.Context,
 	req *advisorapi.GetCheckpointRequest) (*advisorapi.GetCheckpointResponse, error) {
 	if req == nil {
@@ -124,6 +124,7 @@ func (p *DynamicPolicy) GetCheckpoint(_ context.Context,
 			}
 
 			chkEntries[uid].Entries[entryName] = &advisorapi.AllocationInfo{
+				RampUp:        allocationInfo.RampUp,
 				OwnerPoolName: allocationInfo.OwnerPoolName,
 			}
 
@@ -269,14 +270,14 @@ func (p *DynamicPolicy) generateBlockCPUSet(resp *advisorapi.ListAndWatchRespons
 	// and calculate availableCPUs after deducting static pools
 	blockCPUSet := advisorapi.NewBlockCPUSet()
 	for _, poolName := range state.StaticPools.List() {
-		allocationInfo := p.state.GetAllocationInfo(poolName, advisorapi.FakedContainerID)
+		allocationInfo := p.state.GetAllocationInfo(poolName, advisorapi.FakedContainerName)
 		if allocationInfo == nil {
 			continue
 		}
 
 		// todo, even validation already guarantees that calculationInfo of static pool
 		//  only has one block isn't topology aware, we should not hardcode like this
-		blocks, _ := resp.GetBlock(poolName, advisorapi.FakedContainerID, advisorapi.FakedNumaID)
+		blocks, _ := resp.GeEntryNUMABlocks(poolName, advisorapi.FakedContainerName, advisorapi.FakedNUMAID)
 		blockID := blocks[0].BlockId
 
 		blockCPUSet[blockID] = allocationInfo.AllocationResult.Clone()
@@ -286,7 +287,7 @@ func (p *DynamicPolicy) generateBlockCPUSet(resp *advisorapi.ListAndWatchRespons
 	// walk through all blocks (that belongs to container)
 	// for each block, add them into numaBlocks (if not exist) and renew availableCPUs
 	for numaID, blocksMap := range numaBlocks {
-		if numaID == advisorapi.FakedNumaID {
+		if numaID == advisorapi.FakedNUMAID {
 			continue
 		}
 
@@ -320,7 +321,7 @@ func (p *DynamicPolicy) generateBlockCPUSet(resp *advisorapi.ListAndWatchRespons
 
 	// walk through all blocks (that belongs to pool)
 	// for each block, add them into numaBlocks (if not exist) and renew availableCPUs
-	for blockID, block := range numaBlocks[advisorapi.FakedNumaID] {
+	for blockID, block := range numaBlocks[advisorapi.FakedNUMAID] {
 		if block == nil {
 			general.Warningf("got nil block")
 			continue
@@ -370,7 +371,7 @@ func (p *DynamicPolicy) applyBlocks(blockCPUSet advisorapi.BlockCPUSet, resp *ad
 			if calculationInfo == nil {
 				general.Warningf("got nil calculationInfo entry: %s, subEntry: %s", entryName, subEntryName)
 				continue
-			} else if !(subEntryName == advisorapi.FakedContainerID || calculationInfo.OwnerPoolName == state.PoolNameDedicated) {
+			} else if !(subEntryName == advisorapi.FakedContainerName || calculationInfo.OwnerPoolName == state.PoolNameDedicated) {
 				continue
 			}
 
@@ -387,7 +388,7 @@ func (p *DynamicPolicy) applyBlocks(blockCPUSet advisorapi.BlockCPUSet, resp *ad
 					entryName, subEntryName, entryCPUSet.String(), err)
 			}
 
-			// if allocation already exits, update them; otherwise, construct new a new one
+			// if allocation already exists, update them; otherwise, construct new a new one
 			allocationInfo := curEntries[entryName][subEntryName].Clone()
 			if allocationInfo == nil {
 				if qrmGeneratedInfo(subEntryName, calculationInfo) {
@@ -422,7 +423,7 @@ func (p *DynamicPolicy) applyBlocks(blockCPUSet advisorapi.BlockCPUSet, resp *ad
 			newEntries[entryName][subEntryName] = allocationInfo
 			pooledUnionDedicatedCPUSet = pooledUnionDedicatedCPUSet.Union(allocationInfo.AllocationResult)
 
-			// ramp-up finishes immediate for dedicated
+			// ramp-up finishes immediately for dedicated
 			if allocationInfo.OwnerPoolName == state.PoolNameDedicated {
 				dedicatedCPUSet = dedicatedCPUSet.Union(allocationInfo.AllocationResult)
 				general.Infof("try to apply dedicated_cores: %s/%s %s: %s",
@@ -472,7 +473,7 @@ func (p *DynamicPolicy) applyBlocks(blockCPUSet advisorapi.BlockCPUSet, resp *ad
 		if newEntries[state.PoolNameReclaim] == nil {
 			newEntries[state.PoolNameReclaim] = make(state.ContainerEntries)
 		}
-		newEntries[state.PoolNameReclaim][advisorapi.FakedContainerID] = &state.AllocationInfo{
+		newEntries[state.PoolNameReclaim][advisorapi.FakedContainerName] = &state.AllocationInfo{
 			PodUid:                           state.PoolNameReclaim,
 			OwnerPoolName:                    state.PoolNameReclaim,
 			AllocationResult:                 reclaimPoolCPUSet.Clone(),
@@ -481,7 +482,7 @@ func (p *DynamicPolicy) applyBlocks(blockCPUSet advisorapi.BlockCPUSet, resp *ad
 			OriginalTopologyAwareAssignments: machine.DeepcopyCPUAssignment(topologyAwareAssignments),
 		}
 	} else {
-		general.Infof("detected reclaimPoolCPUSet: %s", newEntries[state.PoolNameReclaim][advisorapi.FakedContainerID].AllocationResult.String())
+		general.Infof("detected reclaimPoolCPUSet: %s", newEntries[state.PoolNameReclaim][advisorapi.FakedContainerName].AllocationResult.String())
 	}
 
 	// deal with blocks of reclaimed_cores and share_cores
@@ -541,14 +542,14 @@ func (p *DynamicPolicy) applyBlocks(blockCPUSet advisorapi.BlockCPUSet, resp *ad
 					newEntries[podUID][containerName].OriginalAllocationResult = rampUpCPUs.Clone()
 					newEntries[podUID][containerName].TopologyAwareAssignments = machine.DeepcopyCPUAssignment(rampUpCPUsTopologyAwareAssignments)
 					newEntries[podUID][containerName].OriginalTopologyAwareAssignments = machine.DeepcopyCPUAssignment(rampUpCPUsTopologyAwareAssignments)
-				} else if newEntries[ownerPoolName][advisorapi.FakedContainerID] == nil {
+				} else if newEntries[ownerPoolName][advisorapi.FakedContainerName] == nil {
 					errMsg := fmt.Sprintf("cpu advisor doesn't return entry for pool: %s and it's referred by pod: %s/%s, container: %s, qosLevel: %s",
 						ownerPoolName, allocationInfo.PodNamespace, allocationInfo.PodName, allocationInfo.ContainerName, allocationInfo.QoSLevel)
 
 					general.Errorf(errMsg)
 					return fmt.Errorf(errMsg)
 				} else {
-					poolEntry := newEntries[ownerPoolName][advisorapi.FakedContainerID]
+					poolEntry := newEntries[ownerPoolName][advisorapi.FakedContainerName]
 
 					general.Infof("put pod: %s/%s container: %s to pool: %s, set its allocation result from %s to %s",
 						allocationInfo.PodNamespace, allocationInfo.PodName, allocationInfo.ContainerName, ownerPoolName, allocationInfo.AllocationResult.String(), poolEntry.AllocationResult.String())
@@ -581,5 +582,5 @@ func (p *DynamicPolicy) applyBlocks(blockCPUSet advisorapi.BlockCPUSet, resp *ad
 // qrmGeneratedInfo returns true if the allocation info in state should be
 // initialized by qrm rather than advisor
 func qrmGeneratedInfo(subEntry string, info *advisorapi.CalculationInfo) bool {
-	return info.OwnerPoolName == state.PoolNameDedicated || subEntry != advisorapi.FakedContainerID
+	return info.OwnerPoolName == state.PoolNameDedicated || subEntry != advisorapi.FakedContainerName
 }

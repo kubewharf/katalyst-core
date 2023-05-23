@@ -84,9 +84,9 @@ func (p *DynamicPolicy) dedicatedCoresWithNUMABindingHintHandler(_ context.Conte
 
 	allocationInfo := p.state.GetAllocationInfo(req.PodUid, req.ContainerName)
 	if allocationInfo != nil {
-		hints = rePackHints(allocationInfo, reqInt)
+		hints = regenerateHints(allocationInfo, reqInt)
 
-		// rePackHints failed. need to clear container record and re-calculate.
+		// regenerateHints failed. need to clear container record and re-calculate.
 		if hints == nil {
 			podEntries := p.state.GetPodEntries()
 			delete(podEntries[req.PodUid], req.ContainerName)
@@ -104,7 +104,7 @@ func (p *DynamicPolicy) dedicatedCoresWithNUMABindingHintHandler(_ context.Conte
 		}
 	}
 
-	// if hints exit in extra state-file, prefer to use them
+	// if hints exists in extra state-file, prefer to use them
 	if hints == nil {
 		var extraErr error
 		hints, extraErr = util.GetHintsFromExtraStateFile(req.PodName, string(v1.ResourceCPU), p.extraStateFileAbsPath)
@@ -201,10 +201,10 @@ func (p *DynamicPolicy) calculateHints(reqInt int,
 	return hints, nil
 }
 
-// rePackHints regenerates hints for container that'd already been allocated cpu,
-// and rePackHints will assemble hints based on already-existed AllocationInfo,
+// regenerateHints regenerates hints for container that'd already been allocated cpu,
+// and regenerateHints will assemble hints based on already-existed AllocationInfo,
 // without any calculation logics at all
-func rePackHints(allocationInfo *state.AllocationInfo, reqInt int) map[string]*pluginapi.ListOfTopologyHints {
+func regenerateHints(allocationInfo *state.AllocationInfo, reqInt int) map[string]*pluginapi.ListOfTopologyHints {
 	hints := map[string]*pluginapi.ListOfTopologyHints{}
 
 	if allocationInfo.OriginalAllocationResult.Size() < reqInt {

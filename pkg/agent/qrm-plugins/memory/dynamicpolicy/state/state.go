@@ -64,8 +64,8 @@ type NUMANodeState struct {
 	PodEntries     PodEntries `json:"pod_entries"`
 }
 
-type NUMANodeMap map[int]*NUMANodeState                   // Keyed by numa node id
-type NUMANodeResourcesMap map[v1.ResourceName]NUMANodeMap // Keyed by resource name
+type NUMANodeMap map[int]*NUMANodeState                   // keyed by numa node id
+type NUMANodeResourcesMap map[v1.ResourceName]NUMANodeMap // keyed by resource name
 
 func (ai *AllocationInfo) String() string {
 	if ai == nil {

@@ -67,7 +67,7 @@ func GetIsolatedQuantityMapFromPodEntries(podEntries PodEntries, ignoreAllocatio
 	containerLoop:
 		for containerName, allocationInfo := range entries {
 			// only filter dedicated_cores without numa_binding
-			if allocationInfo == nil || CheckNumaBinding(allocationInfo) || !CheckDedicated(allocationInfo) {
+			if allocationInfo == nil || CheckDedicatedNUMABinding(allocationInfo) || !CheckDedicated(allocationInfo) {
 				continue
 			}
 
@@ -149,7 +149,7 @@ func GenerateMachineStateFromPodEntries(topology *machine.CPUTopology, podEntrie
 
 		for podUID, containerEntries := range podEntries {
 			for containerName, allocationInfo := range containerEntries {
-				if containerName != advisorapi.FakedContainerID && allocationInfo != nil {
+				if containerName != advisorapi.FakedContainerName && allocationInfo != nil {
 
 					// the container hasn't cpuset assignment in the current NUMA node
 					if allocationInfo.OriginalTopologyAwareAssignments[int(numaNode)].Size() == 0 &&
@@ -158,7 +158,7 @@ func GenerateMachineStateFromPodEntries(topology *machine.CPUTopology, podEntrie
 					}
 
 					// only modify allocated and default properties in NUMA node state for dedicated_cores with NUMA binding
-					if CheckNumaBinding(allocationInfo) {
+					if CheckDedicatedNUMABinding(allocationInfo) {
 						allocatedCPUsInNumaNode = allocatedCPUsInNumaNode.Union(allocationInfo.OriginalTopologyAwareAssignments[int(numaNode)])
 					}
 

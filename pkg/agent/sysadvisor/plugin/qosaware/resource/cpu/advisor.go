@@ -448,6 +448,11 @@ func (cra *cpuResourceAdvisor) assembleProvision() (InternalCalculationResult, e
 		if r.Type() == types.QoSRegionTypeShare {
 			// fill in share pool entry
 			sharePoolSize := int(controlKnob[types.ControlKnobNonReclaimedCPUSetSize].Value)
+<<<<<<< HEAD
+=======
+			provision.PoolEntries[state.PoolNameShare] = make(map[int]resource.Quantity)
+			provision.PoolEntries[state.PoolNameShare][cpuadvisor.FakedNUMAID] = *resource.NewQuantity(int64(sharePoolSize), resource.DecimalSI)
+>>>>>>> fix styles and fix bugs for cpu/memory plugin according to comments
 			nonNumaBindingRequirement += sharePoolSize
 
 			shareRegionRequirement[r.OwnerPoolName()] = sharePoolSize
@@ -476,8 +481,12 @@ func (cra *cpuResourceAdvisor) assembleProvision() (InternalCalculationResult, e
 	for poolName, size := range sharePools {
 		provision.SetPoolEntry(poolName, cpuadvisor.FakedNumaID, int64(size))
 	}
+<<<<<<< HEAD
 
 	provision.SetPoolEntry(state.PoolNameReclaim, cpuadvisor.FakedNumaID, int64(reclaimPoolSizeOfNonBindingNumas))
+=======
+	provision.PoolEntries[state.PoolNameReclaim][cpuadvisor.FakedNUMAID] = *resource.NewQuantity(int64(reclaimPoolSizeOfNonBindingNumas), resource.DecimalSI)
+>>>>>>> fix styles and fix bugs for cpu/memory plugin according to comments
 	return provision, nil
 }
 

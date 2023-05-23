@@ -96,8 +96,8 @@ func (p *DynamicPolicy) sharedCoresAllocationHandler(_ context.Context,
 		allocationInfo.TopologyAwareAssignments = pooledCPUsTopologyAwareAssignments
 		allocationInfo.OriginalTopologyAwareAssignments = machine.DeepcopyCPUAssignment(pooledCPUsTopologyAwareAssignments)
 	} else {
-		// need to adjust pools and setAllocationsAndAdjustAllocationEntries will set the allocationInfo after adjusted
-		err = p.setAllocationsAndAdjustAllocationEntries([]*state.AllocationInfo{allocationInfo})
+		// need to adjust pools and putAllocationsAndAdjustAllocationEntries will set the allocationInfo after adjusted
+		err = p.putAllocationsAndAdjustAllocationEntries([]*state.AllocationInfo{allocationInfo})
 		if err != nil {
 			general.Errorf("pod: %s/%s, container: %s putContainerAndReGeneratePool failed with error: %v",
 				req.PodNamespace, req.PodName, req.ContainerName, err)
@@ -129,9 +129,9 @@ func (p *DynamicPolicy) sharedCoresAllocationHandler(_ context.Context,
 		p.state.SetMachineState(updatedMachineState)
 	}
 
-	resp, err := rePackAllocations(allocationInfo, string(v1.ResourceCPU), util.OCIPropertyNameCPUSetCPUs, false, true, req)
+	resp, err := packAllocationResponse(allocationInfo, string(v1.ResourceCPU), util.OCIPropertyNameCPUSetCPUs, false, true, req)
 	if err != nil {
-		general.Errorf("pod: %s/%s, container: %s rePackAllocations failed with error: %v",
+		general.Errorf("pod: %s/%s, container: %s packAllocationResponse failed with error: %v",
 			req.PodNamespace, req.PodName, req.ContainerName, err)
 		return nil, fmt.Errorf("PackResourceAllocationResponseByAllocationInfo failed with error: %v", err)
 	}
@@ -150,7 +150,7 @@ func (p *DynamicPolicy) reclaimedCoresAllocationHandler(_ context.Context,
 	}
 
 	allocationInfo := p.state.GetAllocationInfo(req.PodUid, req.ContainerName)
-	reclaimedAllocationInfo := p.state.GetAllocationInfo(state.PoolNameReclaim, advisorapi.FakedContainerID)
+	reclaimedAllocationInfo := p.state.GetAllocationInfo(state.PoolNameReclaim, advisorapi.FakedContainerName)
 	if reclaimedAllocationInfo == nil {
 		general.Errorf("allocation for pod: %s/%s, container: %s is failed, because pool: %s is not ready",
 			req.PodNamespace, req.PodName, req.ContainerName, state.PoolNameReclaim)
@@ -205,9 +205,9 @@ func (p *DynamicPolicy) reclaimedCoresAllocationHandler(_ context.Context,
 		return nil, fmt.Errorf("GenerateMachineStateFromPodEntries failed with error: %v", err)
 	}
 
-	resp, err := rePackAllocations(allocationInfo, string(v1.ResourceCPU), util.OCIPropertyNameCPUSetCPUs, false, true, req)
+	resp, err := packAllocationResponse(allocationInfo, string(v1.ResourceCPU), util.OCIPropertyNameCPUSetCPUs, false, true, req)
 	if err != nil {
-		general.Errorf("pod: %s/%s, container: %s rePackAllocations failed with error: %v",
+		general.Errorf("pod: %s/%s, container: %s packAllocationResponse failed with error: %v",
 			req.PodNamespace, req.PodName, req.ContainerName, err)
 		return nil, fmt.Errorf("PackResourceAllocationResponseByAllocationInfo failed with error: %v", err)
 	}
@@ -335,7 +335,7 @@ func (p *DynamicPolicy) dedicatedCoresWithNUMABindingAllocationHandler(ctx conte
 		return nil, fmt.Errorf("adjustAllocationEntries failed with error: %v", err)
 	}
 
-	resp, err := rePackAllocations(allocationInfo, string(v1.ResourceCPU), util.OCIPropertyNameCPUSetCPUs, false, true, req)
+	resp, err := packAllocationResponse(allocationInfo, string(v1.ResourceCPU), util.OCIPropertyNameCPUSetCPUs, false, true, req)
 	if err != nil {
 		general.Errorf("pod: %s/%s, container: %s PackResourceAllocationResponseByAllocationInfo failed with error: %v",
 			req.PodNamespace, req.PodName, req.ContainerName, err)
@@ -407,9 +407,9 @@ func (p *DynamicPolicy) dedicatedCoresWithNUMABindingAllocationSidecarHandler(_ 
 	}
 	p.state.SetMachineState(updatedMachineState)
 
-	resp, err := rePackAllocations(allocationInfo, string(v1.ResourceCPU), util.OCIPropertyNameCPUSetCPUs, false, true, req)
+	resp, err := packAllocationResponse(allocationInfo, string(v1.ResourceCPU), util.OCIPropertyNameCPUSetCPUs, false, true, req)
 	if err != nil {
-		general.Errorf("pod: %s/%s, container: %s rePackAllocations failed with error: %v",
+		general.Errorf("pod: %s/%s, container: %s packAllocationResponse failed with error: %v",
 			req.PodNamespace, req.PodName, req.ContainerName, err)
 		return nil, fmt.Errorf("PackResourceAllocationResponseByAllocationInfo failed with error: %v", err)
 	}
@@ -450,9 +450,9 @@ func (p *DynamicPolicy) allocateNumaBindingCPUs(numCPUs int, hint *pluginapi.Top
 	return result, nil
 }
 
-// setAllocationsAndAdjustAllocationEntries calculates and generates the latest checkpoint
+// putAllocationsAndAdjustAllocationEntries calculates and generates the latest checkpoint
 // - unlike adjustAllocationEntries, it will also consider AllocationInfo
-func (p *DynamicPolicy) setAllocationsAndAdjustAllocationEntries(allocationInfos []*state.AllocationInfo) error {
+func (p *DynamicPolicy) putAllocationsAndAdjustAllocationEntries(allocationInfos []*state.AllocationInfo) error {
 	if len(allocationInfos) == 0 {
 		return nil
 	}
@@ -463,7 +463,7 @@ func (p *DynamicPolicy) setAllocationsAndAdjustAllocationEntries(allocationInfos
 	var poolsQuantityMap map[string]int
 	if p.enableCPUSysAdvisor {
 		// if sys advisor is enabled, we believe the pools' ratio that sys advisor indicates
-		poolsQuantityMap = machine.GetQuantityMap(entries.GetCPUSetMapForPools(state.ResidentPools))
+		poolsQuantityMap = machine.GetQuantityMap(entries.GetFilteredPoolsCPUSetMap(state.ResidentPools))
 	} else {
 		// else we do sum(containers req) for each pool to get pools ratio
 		poolsQuantityMap = state.GetSharedQuantityMapFromPodEntries(entries, allocationInfos)
@@ -504,7 +504,7 @@ func (p *DynamicPolicy) adjustAllocationEntries() error {
 	// else we do sum(containers req) for each pool to get pools ratio
 	var poolsQuantityMap map[string]int
 	if p.enableCPUSysAdvisor {
-		poolsQuantityMap = machine.GetQuantityMap(entries.GetCPUSetMapForPools(state.ResidentPools))
+		poolsQuantityMap = machine.GetQuantityMap(entries.GetFilteredPoolsCPUSetMap(state.ResidentPools))
 	} else {
 		poolsQuantityMap = state.GetSharedQuantityMapFromPodEntries(entries, nil)
 	}
@@ -525,7 +525,7 @@ func (p *DynamicPolicy) adjustAllocationEntries() error {
 // 4. clean pools
 func (p *DynamicPolicy) adjustPoolsAndIsolatedEntries(poolsQuantityMap map[string]int,
 	isolatedQuantityMap map[string]map[string]int, entries state.PodEntries, machineState state.NUMANodeMap) error {
-	availableCPUs := machineState.GetFilteredAvailableCPUSet(p.reservedCPUs, state.CheckNumaBinding)
+	availableCPUs := machineState.GetFilteredAvailableCPUSet(p.reservedCPUs, state.CheckDedicatedNUMABinding)
 
 	poolsCPUSet, isolatedCPUSet, err := p.generatePoolsAndIsolation(poolsQuantityMap, isolatedQuantityMap, availableCPUs)
 	if err != nil {
@@ -561,7 +561,7 @@ func (p *DynamicPolicy) reclaimOverlapNUMABinding(poolsCPUSet map[string]machine
 		return fmt.Errorf("reclaim pool misses in current entries")
 	}
 
-	curReclaimCPUSet := entries[state.PoolNameReclaim][advisorapi.FakedContainerID].AllocationResult.Clone()
+	curReclaimCPUSet := entries[state.PoolNameReclaim][advisorapi.FakedContainerName].AllocationResult.Clone()
 	nonOverlapReclaimCPUSet := poolsCPUSet[state.PoolNameReclaim].Clone()
 	general.Infof("curReclaimCPUSet: %s", curReclaimCPUSet.String())
 
@@ -571,7 +571,7 @@ func (p *DynamicPolicy) reclaimOverlapNUMABinding(poolsCPUSet map[string]machine
 		}
 
 		for _, allocationInfo := range containerEntries {
-			if !(allocationInfo != nil && state.CheckNumaBinding(allocationInfo) && allocationInfo.CheckMainContainer()) {
+			if !(allocationInfo != nil && state.CheckDedicatedNUMABinding(allocationInfo) && allocationInfo.CheckMainContainer()) {
 				continue
 			} else if allocationInfo.RampUp {
 				general.Infof("dedicated numa_binding pod: %s/%s container: %s is in ramp up, not to overlap reclaim pool with it",
@@ -608,7 +608,7 @@ func (p *DynamicPolicy) applyPoolsAndIsolatedInfo(poolsCPUSet map[string]machine
 			if allocationInfo == nil {
 				general.Errorf("isolated pod: %s, container: %s without entry in current checkpoint", podUID, containerName)
 				continue
-			} else if !state.CheckNumaBinding(allocationInfo) {
+			} else if !state.CheckDedicated(allocationInfo) || state.CheckNUMABinding(allocationInfo) {
 				general.Errorf("isolated pod: %s, container: %s isn't dedicated_cores without NUMA binding", podUID, containerName)
 				continue
 			}
@@ -661,7 +661,7 @@ func (p *DynamicPolicy) applyPoolsAndIsolatedInfo(poolsCPUSet map[string]machine
 				poolName, cset.String(), err)
 		}
 
-		allocationInfo := curEntries[poolName][advisorapi.FakedContainerID]
+		allocationInfo := curEntries[poolName][advisorapi.FakedContainerName]
 		if allocationInfo != nil {
 			general.Infof("pool: %s allocation result transform from %s to %s",
 				poolName, allocationInfo.AllocationResult.String(), cset.String())
@@ -670,7 +670,7 @@ func (p *DynamicPolicy) applyPoolsAndIsolatedInfo(poolsCPUSet map[string]machine
 		if newPodEntries[poolName] == nil {
 			newPodEntries[poolName] = make(state.ContainerEntries)
 		}
-		newPodEntries[poolName][advisorapi.FakedContainerID] = &state.AllocationInfo{
+		newPodEntries[poolName][advisorapi.FakedContainerName] = &state.AllocationInfo{
 			PodUid:                           poolName,
 			OwnerPoolName:                    poolName,
 			AllocationResult:                 cset.Clone(),
@@ -684,7 +684,7 @@ func (p *DynamicPolicy) applyPoolsAndIsolatedInfo(poolsCPUSet map[string]machine
 	}
 
 	// rampUpCPUs includes common reclaimed pool
-	rampUpCPUs := machineState.GetFilteredAvailableCPUSet(p.reservedCPUs, state.CheckNumaBinding).Difference(unionDedicatedIsolatedCPUSet)
+	rampUpCPUs := machineState.GetFilteredAvailableCPUSet(p.reservedCPUs, state.CheckDedicatedNUMABinding).Difference(unionDedicatedIsolatedCPUSet)
 	rampUpCPUsTopologyAwareAssignments, err := machine.GetNumaAwareAssignments(p.machineInfo.CPUTopology, rampUpCPUs)
 	if err != nil {
 		return fmt.Errorf("unable to calculate topologyAwareAssignments for rampUpCPUs, result cpuset: %s, error: %v",
@@ -722,7 +722,7 @@ func (p *DynamicPolicy) applyPoolsAndIsolatedInfo(poolsCPUSet map[string]machine
 			case apiconsts.PodAnnotationQoSLevelDedicatedCores:
 				// todo: currently for numa_binding containers, we just clone checkpoint already exist
 				//  if qos aware will adjust cpuset for them, we will make adaption here
-				if state.CheckNumaBinding(allocationInfo) {
+				if state.CheckDedicatedNUMABinding(allocationInfo) {
 					continue containerLoop
 				}
 
@@ -750,12 +750,12 @@ func (p *DynamicPolicy) applyPoolsAndIsolatedInfo(poolsCPUSet map[string]machine
 					newPodEntries[podUID][containerName].OriginalAllocationResult = rampUpCPUs.Clone()
 					newPodEntries[podUID][containerName].TopologyAwareAssignments = machine.DeepcopyCPUAssignment(rampUpCPUsTopologyAwareAssignments)
 					newPodEntries[podUID][containerName].OriginalTopologyAwareAssignments = machine.DeepcopyCPUAssignment(rampUpCPUsTopologyAwareAssignments)
-				} else if newPodEntries[ownerPoolName][advisorapi.FakedContainerID] == nil {
+				} else if newPodEntries[ownerPoolName][advisorapi.FakedContainerName] == nil {
 					general.Warningf("pod: %s/%s container: %s get owner pool: %s allocationInfo failed. reuse its allocation result: %s",
 						allocationInfo.PodNamespace, allocationInfo.PodName, allocationInfo.ContainerName,
 						ownerPoolName, allocationInfo.AllocationResult.String())
 				} else {
-					poolEntry := newPodEntries[ownerPoolName][advisorapi.FakedContainerID]
+					poolEntry := newPodEntries[ownerPoolName][advisorapi.FakedContainerName]
 					general.Infof("put pod: %s/%s container: %s to pool: %s, set its allocation result from %s to %s",
 						allocationInfo.PodNamespace, allocationInfo.PodName, allocationInfo.ContainerName,
 						ownerPoolName, allocationInfo.AllocationResult.String(), poolEntry.AllocationResult.String())
@@ -1025,15 +1025,15 @@ func (p *DynamicPolicy) takeCPUsForContainers(containersQuantityMap map[string]m
 	return containersCPUSet, availableCPUs, nil
 }
 
-// rePackAllocations regenerates allocations for container that'd already been allocated cpu,
-// and rePackAllocations will assemble allocations based on already-existed AllocationInfo,
+// packAllocationResponse regenerates allocations for container that'd already been allocated cpu,
+// and packAllocationResponse will assemble allocations based on already-existed AllocationInfo,
 // without any calculation logics at all
-func rePackAllocations(allocationInfo *state.AllocationInfo, resourceName, ociPropertyName string,
+func packAllocationResponse(allocationInfo *state.AllocationInfo, resourceName, ociPropertyName string,
 	isNodeResource, isScalarResource bool, req *pluginapi.ResourceRequest) (*pluginapi.ResourceAllocationResponse, error) {
 	if allocationInfo == nil {
-		return nil, fmt.Errorf("rePackAllocations got nil allocationInfo")
+		return nil, fmt.Errorf("packAllocationResponse got nil allocationInfo")
 	} else if req == nil {
-		return nil, fmt.Errorf("rePackAllocations got nil request")
+		return nil, fmt.Errorf("packAllocationResponse got nil request")
 	}
 
 	return &pluginapi.ResourceAllocationResponse{
@@ -1065,8 +1065,4 @@ func rePackAllocations(allocationInfo *state.AllocationInfo, resourceName, ociPr
 		Labels:      general.DeepCopyMap(req.Labels),
 		Annotations: general.DeepCopyMap(req.Annotations),
 	}, nil
-}
-
-func getProportionalSize(oldPoolSize, oldTotalSize, newTotalSize int) int {
-	return int(float64(newTotalSize) * (float64(oldPoolSize) / float64(oldTotalSize)))
 }

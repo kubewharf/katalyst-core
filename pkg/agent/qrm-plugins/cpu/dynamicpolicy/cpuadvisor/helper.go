@@ -25,12 +25,12 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
-// FakedContainerID represents a placeholder since pool entry has no container-level
-// FakedNumaID represents a placeholder since pools like shared/reclaimed will not contain a specific numa
+// FakedContainerName represents a placeholder since pool entry has no container-level
+// FakedNUMAID represents a placeholder since pools like shared/reclaimed will not contain a specific numa
 const (
 	EmptyOwnerPoolName = ""
-	FakedContainerID   = ""
-	FakedNumaID        = -1
+	FakedContainerName = ""
+	FakedNUMAID        = -1
 )
 
 type BlockCPUSet map[string]machine.CPUSet
@@ -108,8 +108,8 @@ func (lwr *ListAndWatchResponse) GetBlocks() (map[int]map[string]*Block, error) 
 	return blocks, nil
 }
 
-// GetBlock returns Block lists according to the given [entry, subEntry] pair
-func (lwr *ListAndWatchResponse) GetBlock(entry, subEntry string, numa int64) ([]*Block, bool) {
+// GeEntryNUMABlocks returns Block lists according to the given [entry, subEntry] pair
+func (lwr *ListAndWatchResponse) GeEntryNUMABlocks(entry, subEntry string, numa int64) ([]*Block, bool) {
 	if entry, ok := lwr.Entries[entry]; !ok {
 		return []*Block{}, false
 	} else if info, ok := entry.Entries[subEntry]; !ok {
@@ -151,8 +151,8 @@ func (lwr *ListAndWatchResponse) FilterCalculationInfo(pool string) map[string]m
 	return dedicatedCalculationInfos
 }
 
-// GetNumaCalculationResult returns numa-level calculation results
-func (ce *CalculationEntries) GetNumaCalculationResult(container string, numa int64) (*NumaCalculationResult, bool) {
+// GetNUMACalculationResult returns numa-level calculation results
+func (ce *CalculationEntries) GetNUMACalculationResult(container string, numa int64) (*NumaCalculationResult, bool) {
 	info, ok := ce.Entries[container]
 	if !ok || info == nil {
 		return nil, false
@@ -204,32 +204,16 @@ func (ci *CalculationInfo) GetNUMAQuantities() (map[int]int, error) {
 
 // GetTotalQuantity returns total quantity for in this CalculationInfo
 func (ci *CalculationInfo) GetTotalQuantity() (int, error) {
-	if ci == nil {
-		return 0, fmt.Errorf("got nil ci")
-	}
-
-	var quantityUInt64 uint64 = 0
-	for _, numaResult := range ci.CalculationResultsByNumas {
-		if numaResult == nil {
-			klog.Warningf("[GetTotalQuantity] got nil NUMA result")
-			continue
-		}
-
-		for _, block := range numaResult.Blocks {
-			if block == nil {
-				klog.Warningf("[GetTotalQuantity] got nil block")
-				continue
-			}
-			quantityUInt64 += block.Result
-		}
-	}
-
-	quantityInt, err := general.CovertUInt64ToInt(quantityUInt64)
+	numaQuantities, err := ci.GetNUMAQuantities()
 	if err != nil {
-		return 0, fmt.Errorf("converting quantity: %d to int failed with error: %v",
-			quantityUInt64, err)
+		return 0, err
 	}
-	return quantityInt, nil
+
+	var totalQuantity = 0
+	for _, quantity := range numaQuantities {
+		totalQuantity += quantity
+	}
+	return totalQuantity, nil
 }
 
 // GetCPUSet returns cpuset for this container by union all blocks for it

@@ -75,7 +75,7 @@ type NUMANodeState struct {
 	PodEntries PodEntries `json:"pod_entries"`
 }
 
-type NUMANodeMap map[int]*NUMANodeState
+type NUMANodeMap map[int]*NUMANodeState // keyed by numa node id
 
 func (ai *AllocationInfo) Clone() *AllocationInfo {
 	if ai == nil {
@@ -193,24 +193,28 @@ func CheckReclaimed(ai *AllocationInfo) bool {
 	return ai.QoSLevel == consts.PodAnnotationQoSLevelReclaimedCores
 }
 
-// CheckNumaBinding returns true if the AllocationInfo is for pod with
+// CheckNUMABinding returns true if the AllocationInfo is for pod with numa-binding enhancement
+func CheckNUMABinding(ai *AllocationInfo) bool {
+	return ai.Annotations[consts.PodAnnotationMemoryEnhancementNumaBinding] == consts.PodAnnotationMemoryEnhancementNumaBindingEnable
+}
+
+// CheckDedicatedNUMABinding returns true if the AllocationInfo is for pod with
 // dedicated-qos and numa-binding enhancement
-func CheckNumaBinding(ai *AllocationInfo) bool {
-	return ai.QoSLevel == consts.PodAnnotationQoSLevelDedicatedCores &&
-		ai.Annotations[consts.PodAnnotationMemoryEnhancementNumaBinding] == consts.PodAnnotationMemoryEnhancementNumaBindingEnable
+func CheckDedicatedNUMABinding(ai *AllocationInfo) bool {
+	return CheckDedicated(ai) && CheckNUMABinding(ai)
 }
 
 // IsPoolEntry returns true if this entry is for a pool;
 // otherwise, this entry is for a container entity.
 func (ce ContainerEntries) IsPoolEntry() bool {
-	return len(ce) == 1 && ce[cpuadvisor.FakedContainerID] != nil
+	return len(ce) == 1 && ce[cpuadvisor.FakedContainerName] != nil
 }
 
 func (ce ContainerEntries) GetPoolEntry() *AllocationInfo {
 	if !ce.IsPoolEntry() {
 		return nil
 	}
-	return ce[cpuadvisor.FakedContainerID]
+	return ce[cpuadvisor.FakedContainerName]
 }
 
 func (pe PodEntries) Clone() PodEntries {
@@ -250,10 +254,10 @@ func (pe PodEntries) String() string {
 	return string(contentBytes)
 }
 
-// CheckPoolEmpty returns true if the given pool doesn't exit
+// CheckPoolEmpty returns true if the given pool doesn't exist
 func (pe PodEntries) CheckPoolEmpty(poolName string) bool {
-	return pe[poolName][cpuadvisor.FakedContainerID] == nil ||
-		pe[poolName][cpuadvisor.FakedContainerID].AllocationResult.IsEmpty()
+	return pe[poolName][cpuadvisor.FakedContainerName] == nil ||
+		pe[poolName][cpuadvisor.FakedContainerName].AllocationResult.IsEmpty()
 }
 
 // GetCPUSetForPool returns cpuset that belongs to the given pool
@@ -265,11 +269,11 @@ func (pe PodEntries) GetCPUSetForPool(poolName string) (machine.CPUSet, error) {
 	if !pe[poolName].IsPoolEntry() {
 		return machine.NewCPUSet(), fmt.Errorf("pool not found")
 	}
-	return pe[poolName][cpuadvisor.FakedContainerID].AllocationResult.Clone(), nil
+	return pe[poolName][cpuadvisor.FakedContainerName].AllocationResult.Clone(), nil
 }
 
-// GetCPUSetForPools returns a mapping of pools for all of them (except for those skipped ones)
-func (pe PodEntries) GetCPUSetForPools(ignorePools sets.String) machine.CPUSet {
+// GetFilteredPoolsCPUSet returns a mapping of pools for all of them (except for those skipped ones)
+func (pe PodEntries) GetFilteredPoolsCPUSet(ignorePools sets.String) machine.CPUSet {
 	ret := machine.NewCPUSet()
 	if pe == nil {
 		return ret
@@ -284,8 +288,8 @@ func (pe PodEntries) GetCPUSetForPools(ignorePools sets.String) machine.CPUSet {
 	return ret
 }
 
-// GetCPUSetMapForPools returns a mapping of pools for all of them (except for those skipped ones)
-func (pe PodEntries) GetCPUSetMapForPools(ignorePools sets.String) map[string]machine.CPUSet {
+// GetFilteredPoolsCPUSetMap returns a mapping of pools for all of them (except for those skipped ones)
+func (pe PodEntries) GetFilteredPoolsCPUSetMap(ignorePools sets.String) map[string]machine.CPUSet {
 	ret := make(map[string]machine.CPUSet)
 	if pe == nil {
 		return ret

@@ -47,7 +47,7 @@ type MetricRing struct {
 type SubEntries map[string]*MetricRing
 
 func (se SubEntries) IsPoolEntry() bool {
-	return len(se) == 1 && se[advisorapi.FakedContainerID] != nil
+	return len(se) == 1 && se[advisorapi.FakedContainerName] != nil
 }
 
 // Entries are keyed by pod UID or pool name

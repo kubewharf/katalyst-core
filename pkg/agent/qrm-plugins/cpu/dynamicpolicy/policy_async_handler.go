@@ -21,9 +21,6 @@ import (
 	"fmt"
 	"time"
 
-	"k8s.io/apimachinery/pkg/util/sets"
-	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
-
 	"github.com/kubewharf/katalyst-api/pkg/consts"
 	advisorapi "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/cpuadvisor"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
@@ -33,6 +30,7 @@ import (
 	cgroupcmutils "github.com/kubewharf/katalyst-core/pkg/util/cgroup/manager"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
+	"k8s.io/apimachinery/pkg/util/sets"
 )
 
 // checkCPUSet emit errors if the memory allocation falls into unexpected results
@@ -47,8 +45,7 @@ func (p *DynamicPolicy) checkCPUSet() {
 		}
 
 		for containerName, allocationInfo := range containerEntries {
-			if allocationInfo == nil ||
-				allocationInfo.ContainerType != pluginapi.ContainerType_MAIN.String() {
+			if allocationInfo == nil || !allocationInfo.CheckMainContainer() {
 				continue
 			} else if state.CheckShared(allocationInfo) && allocationInfo.RequestQuantity == 0 {
 				general.Warningf("skip cpuset checking for pod: %s/%s container: %s with zero cpu request",

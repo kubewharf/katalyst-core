@@ -108,7 +108,7 @@ func (p *DynamicPolicy) dedicatedCoresWithNUMABindingHintHandler(_ context.Conte
 		}
 	}
 
-	// if hints exit in extra state-file, prefer to use them
+	// if hints exists in extra state-file, prefer to use them
 	if hints == nil {
 		var extraErr error
 		hints, extraErr = util.GetHintsFromExtraStateFile(req.PodName, string(v1.ResourceMemory), p.extraStateFileAbsPath)

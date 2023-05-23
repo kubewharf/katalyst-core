@@ -75,7 +75,7 @@ func (c *CPUAdvisorValidator) validateDedicatedEntries(resp *advisorapi.ListAndW
 				return fmt.Errorf("missing CalculationInfo for pod: %s container: %s", podUID, containerName)
 			}
 
-			if !state.CheckNumaBinding(allocationInfo) {
+			if !state.CheckDedicatedNUMABinding(allocationInfo) {
 				numaCalculationQuantities, err := calculationInfo.GetNUMAQuantities()
 				if err != nil {
 					return fmt.Errorf("GetNUMAQuantities failed with error: %v, pod: %s container: %s",
@@ -121,10 +121,10 @@ func (c *CPUAdvisorValidator) validateStaticPools(resp *advisorapi.ListAndWatchR
 
 	for _, poolName := range state.StaticPools.List() {
 		var nilStateEntry, nilRespEntry bool
-		if entries[poolName] == nil || entries[poolName][advisorapi.FakedContainerID] == nil {
+		if entries[poolName] == nil || entries[poolName][advisorapi.FakedContainerName] == nil {
 			nilStateEntry = true
 		}
-		if resp.Entries[poolName] == nil || resp.Entries[poolName].Entries[advisorapi.FakedContainerID] == nil {
+		if resp.Entries[poolName] == nil || resp.Entries[poolName].Entries[advisorapi.FakedContainerName] == nil {
 			nilRespEntry = true
 		}
 
@@ -137,16 +137,16 @@ func (c *CPUAdvisorValidator) validateStaticPools(resp *advisorapi.ListAndWatchR
 			continue
 		}
 
-		allocationInfo := entries[poolName][advisorapi.FakedContainerID]
-		calculationInfo := resp.Entries[poolName].Entries[advisorapi.FakedContainerID]
+		allocationInfo := entries[poolName][advisorapi.FakedContainerName]
+		calculationInfo := resp.Entries[poolName].Entries[advisorapi.FakedContainerName]
 		if calculationInfo.OwnerPoolName != poolName {
 			return fmt.Errorf("pool: %s has invalid owner pool name: %s in cpu advisor resp",
 				poolName, calculationInfo.OwnerPoolName)
 		}
 
 		if len(calculationInfo.CalculationResultsByNumas) != 1 ||
-			calculationInfo.CalculationResultsByNumas[advisorapi.FakedNumaID] == nil ||
-			len(calculationInfo.CalculationResultsByNumas[advisorapi.FakedNumaID].Blocks) != 1 {
+			calculationInfo.CalculationResultsByNumas[advisorapi.FakedNUMAID] == nil ||
+			len(calculationInfo.CalculationResultsByNumas[advisorapi.FakedNUMAID].Blocks) != 1 {
 			return fmt.Errorf("static pool: %s has invalid calculationInfo", poolName)
 		}
 
@@ -197,7 +197,7 @@ func (c *CPUAdvisorValidator) validateBlocks(resp *advisorapi.ListAndWatchRespon
 			numaQuantity += quantityInt
 		}
 
-		if numaId != advisorapi.FakedNumaID {
+		if numaId != advisorapi.FakedNUMAID {
 			numaCapacity := c.machineInfo.CPUTopology.CPUDetails.CPUsInNUMANodes(numaId).Size()
 			if numaQuantity > numaCapacity {
 				return fmt.Errorf("numaQuantity: %d exceeds NUMA capacity: %d in NUMA: %d", numaQuantity, numaCapacity, numaId)

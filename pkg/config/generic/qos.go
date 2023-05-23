@@ -353,9 +353,9 @@ func (c *QoSConfiguration) checkQosMatched(annotations map[string]string, qosVal
 	return true, false, nil
 }
 
-// checkKeyValueMatched checks whether the given key-value pair exits in the map
+// checkKeyValueMatched checks whether the given key-value pair exists in the map
 // if the returns value equals 1, it represents
-// - key not exits
+// - key not exists
 // - key exists, but value not equals
 // - key exists, and value not equal
 // returns 0 otherwise

@@ -23,9 +23,7 @@ import (
 	"math"
 	"sort"
 
-	info "github.com/google/cadvisor/info/v1"
 	v1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/klog/v2"
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 
@@ -91,27 +89,6 @@ func GetKatalystQoSLevelFromResourceReq(qosConf *generic.QoSConfiguration, req *
 	req.Labels[consts.PodAnnotationQoSLevelKey] = qosLevel
 	req.Labels = qosConf.FilterQoSMap(req.Labels)
 	return
-}
-
-// GetReservedMemory is used to spread total reserved memories into per-numa level
-func GetReservedMemory(machineInfo *info.MachineInfo, reservedMemoryGB uint64) (map[int]uint64, error) {
-	if machineInfo == nil {
-		return nil, fmt.Errorf("getReservedMemory got nil machineInfo")
-	}
-
-	numasCount := len(machineInfo.Topology)
-	perNumaReservedGB := uint64(math.Ceil(float64(reservedMemoryGB) / float64(numasCount)))
-	perNumaReservedQuantity := resource.MustParse(fmt.Sprintf("%dGi", perNumaReservedGB))
-	ceilReservedMemoryGB := perNumaReservedGB * uint64(numasCount)
-
-	klog.Infof("[getReservedMemory] reservedMemoryGB: %d, ceilReservedMemoryGB: %d, perNumaReservedGB: %d, "+
-		"numasCount: %d", reservedMemoryGB, ceilReservedMemoryGB, perNumaReservedGB, numasCount)
-
-	reservedMemory := make(map[int]uint64)
-	for _, node := range machineInfo.Topology {
-		reservedMemory[node.Id] = uint64(perNumaReservedQuantity.Value())
-	}
-	return reservedMemory, nil
 }
 
 // HintToIntArray transforms TopologyHint to int slices

@@ -290,8 +290,59 @@ func (cs *cpuServer) startToGetCheckpointFromCPUPlugin() error {
 		return err
 	}
 
+<<<<<<< HEAD
 	cs.cpuPluginClient = cpuadvisor.NewCPUPluginClient(conn)
 	go wait.Until(cs.getCheckpoint, cs.period, cs.stopCh)
+=======
+	cpuPluginClient := cpuadvisor.NewCPUPluginClient(conn)
+
+	go wait.Until(func() {
+		// Get checkpoint
+		resp, err := cpuPluginClient.GetCheckpoint(context.Background(), &cpuadvisor.GetCheckpointRequest{})
+		if err != nil {
+			klog.Errorf("[qosaware-server-cpu] get checkpoint failed: %v", err)
+			_ = cs.emitter.StoreInt64(metricCPUServerLWGetCheckpointFailed, int64(cs.period.Seconds()), metrics.MetricTypeNameCount)
+			return
+		} else if resp == nil {
+			klog.Errorf("[qosaware-server-cpu] get nil checkpoint")
+			_ = cs.emitter.StoreInt64(metricCPUServerLWGetCheckpointFailed, int64(cs.period.Seconds()), metrics.MetricTypeNameCount)
+			return
+		}
+		klog.Infof("[qosaware-server-cpu] get checkpoint: %v", general.ToString(resp.Entries))
+		_ = cs.emitter.StoreInt64(metricCPUServerLWGetCheckpointSucceeded, int64(cs.period.Seconds()), metrics.MetricTypeNameCount)
+
+		livingPoolNameSet := make(map[string]struct{})
+
+		// Parse checkpoint
+		for entryName, entry := range resp.Entries {
+			if poolInfo, ok := entry.Entries[cpuadvisor.FakedContainerName]; ok {
+				// Update pool info
+				poolName := entryName
+				livingPoolNameSet[poolName] = struct{}{}
+				if err := cs.updatePoolInfo(poolName, poolInfo); err != nil {
+					klog.Errorf("[qosaware-server-cpu] update pool info with error: %v", err)
+				}
+			} else {
+				// Update container info
+				podUID := entryName
+				for containerName, info := range entry.Entries {
+					if err := cs.updateContainerInfo(podUID, containerName, info); err != nil {
+						klog.Errorf("[qosaware-server-cpu] update container info with error: %v", err)
+					}
+				}
+			}
+		}
+
+		// GC pool entries
+		if err := cs.metaCache.GCPoolEntries(livingPoolNameSet); err != nil {
+			klog.Errorf("[qosaware-server-cpu] gc pool entries with error: %v", err)
+		}
+
+		// Trigger advisor update
+		cs.sendCh <- struct{}{}
+
+	}, cs.period, cs.stopCh)
+>>>>>>> fix styles and fix bugs for cpu/memory plugin according to comments
 
 	return nil
 }
@@ -438,7 +489,7 @@ func (cs *cpuServer) assemblePoolEntries(advisorResp *cpu.InternalCalculationRes
 			innerBlock := NewInnerBlock(block, int64(numaID), poolName, nil, numaCalculationResult)
 			innerBlock.join(block.BlockId, bs)
 
-			poolEntry.Entries[cpuadvisor.FakedContainerID].CalculationResultsByNumas[int64(numaID)] = numaCalculationResult
+			poolEntry.Entries[cpuadvisor.FakedContainerName].CalculationResultsByNumas[int64(numaID)] = numaCalculationResult
 		}
 		calculationEntriesMap[poolName] = poolEntry
 	}
@@ -477,7 +528,7 @@ func (cs *cpuServer) assemblePodEntries(calculationEntriesMap map[string]*cpuadv
 				// if this podUID appears firstly, we should generate a new Block
 
 				reclaimPoolCalculationResults, ok := GetNumaCalculationResult(calculationEntriesMap, qrmstate.PoolNameReclaim,
-					cpuadvisor.FakedContainerID, int64(numaID))
+					cpuadvisor.FakedContainerName, int64(numaID))
 				if !ok {
 					// if no reclaimed pool exists, return the generated Block
 

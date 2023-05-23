@@ -96,7 +96,7 @@ type DynamicPolicy struct {
 
 func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration,
 	_ interface{}, agentName string) (bool, agent.Component, error) {
-	reservedMemory, err := util.GetReservedMemory(agentCtx.MachineInfo, conf.ReservedMemoryGB)
+	reservedMemory, err := getReservedMemory(agentCtx.MachineInfo, conf.ReservedMemoryGB)
 	if err != nil {
 		return false, agent.ComponentStub{}, fmt.Errorf("getReservedMemoryFromOptions failed with error: %v", err)
 	}
@@ -235,10 +235,10 @@ func (p *DynamicPolicy) GetTopologyHints(ctx context.Context,
 
 	p.RLock()
 	defer func() {
+		p.RUnlock()
 		if err != nil {
 			_ = p.emitter.StoreInt64(util.MetricNameGetTopologyHintsFailed, 1, metrics.MetricTypeNameRaw)
 		}
-		p.RUnlock()
 	}()
 
 	if req.ContainerType == pluginapi.ContainerType_INIT {
@@ -572,7 +572,7 @@ func (p *DynamicPolicy) getContainerRequestedMemoryBytes(allocationInfo *state.A
 	}
 
 	if p.metaServer == nil {
-		klog.Errorf("%v nil metaServer")
+		general.Errorf("%v nil metaServer")
 		return 0
 	}
 

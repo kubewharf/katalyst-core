@@ -95,11 +95,19 @@ func (p *DynamicPolicy) dedicatedCoresWithNUMABindingAllocationHandler(ctx conte
 			"memoryReq(bytes)", reqInt,
 			"currentResult(bytes)", allocationInfo.AggregatedQuantity)
 
+<<<<<<< HEAD
 		resp, packErr := packMemoryResourceAllocationResponseByAllocationInfo(allocationInfo, req)
 		if packErr != nil {
 			general.Errorf("pod: %s/%s, container: %s packMemoryResourceAllocationResponseByAllocationInfo failed with error: %v",
 				req.PodNamespace, req.PodName, req.ContainerName, packErr)
 			return nil, fmt.Errorf("packMemoryResourceAllocationResponseByAllocationInfo failed with error: %v", packErr)
+=======
+		resp, packErr := packAllocationResponse(allocationInfo, req)
+		if packErr != nil {
+			general.Errorf("pod: %s/%s, container: %s packAllocationResponse failed with error: %v",
+				req.PodNamespace, req.PodName, req.ContainerName, packErr)
+			return nil, fmt.Errorf("packAllocationResponse failed with error: %v", packErr)
+>>>>>>> fix styles and fix bugs for cpu/memory plugin according to comments
 		}
 		return resp, nil
 	} else if allocationInfo != nil {
@@ -187,11 +195,19 @@ func (p *DynamicPolicy) dedicatedCoresWithNUMABindingAllocationHandler(ctx conte
 		return nil, fmt.Errorf("adjustAllocationEntries failed with error: %v", err)
 	}
 
+<<<<<<< HEAD
 	resp, err := packMemoryResourceAllocationResponseByAllocationInfo(allocationInfo, req)
 	if err != nil {
 		general.Errorf("pod: %s/%s, container: %s packMemoryResourceAllocationResponseByAllocationInfo failed with error: %v",
 			req.PodNamespace, req.PodName, req.ContainerName, err)
 		return nil, fmt.Errorf("packMemoryResourceAllocationResponseByAllocationInfo failed with error: %v", err)
+=======
+	resp, err := packAllocationResponse(allocationInfo, req)
+	if err != nil {
+		general.Errorf("pod: %s/%s, container: %s packAllocationResponse failed with error: %v",
+			req.PodNamespace, req.PodName, req.ContainerName, err)
+		return nil, fmt.Errorf("packAllocationResponse failed with error: %v", err)
+>>>>>>> fix styles and fix bugs for cpu/memory plugin according to comments
 	}
 	return resp, nil
 }
@@ -253,11 +269,19 @@ func (p *DynamicPolicy) dedicatedCoresWithNUMABindingAllocationSidecarHandler(_ 
 	}
 	p.state.SetMachineState(resourcesState)
 
+<<<<<<< HEAD
 	resp, err := packMemoryResourceAllocationResponseByAllocationInfo(allocationInfo, req)
 	if err != nil {
 		general.Errorf("pod: %s/%s, container: %s packMemoryResourceAllocationResponseByAllocationInfo failed with error: %v",
 			req.PodNamespace, req.PodName, req.ContainerName, err)
 		return nil, fmt.Errorf("packMemoryResourceAllocationResponseByAllocationInfo failed with error: %v", err)
+=======
+	resp, err := packAllocationResponse(allocationInfo, req)
+	if err != nil {
+		general.Errorf("pod: %s/%s, container: %s packAllocationResponse failed with error: %v",
+			req.PodNamespace, req.PodName, req.ContainerName, err)
+		return nil, fmt.Errorf("packAllocationResponse failed with error: %v", err)
+>>>>>>> fix styles and fix bugs for cpu/memory plugin according to comments
 	}
 	return resp, nil
 }
@@ -305,11 +329,19 @@ func (p *DynamicPolicy) allocateNUMAsWithoutNUMABindingPods(_ context.Context,
 		return nil, fmt.Errorf("calculate resourceState by updated pod entries failed with error: %v", err)
 	}
 
+<<<<<<< HEAD
 	resp, err := packMemoryResourceAllocationResponseByAllocationInfo(allocationInfo, req)
 	if err != nil {
 		general.Errorf("pod: %s/%s, container: %s packMemoryResourceAllocationResponseByAllocationInfo failed with error: %v",
 			req.PodNamespace, req.PodName, req.ContainerName, err)
 		return nil, fmt.Errorf("packMemoryResourceAllocationResponseByAllocationInfo failed with error: %v", err)
+=======
+	resp, err := packAllocationResponse(allocationInfo, req)
+	if err != nil {
+		general.Errorf("pod: %s/%s, container: %s packAllocationResponse failed with error: %v",
+			req.PodNamespace, req.PodName, req.ContainerName, err)
+		return nil, fmt.Errorf("packAllocationResponse failed with error: %v", err)
+>>>>>>> fix styles and fix bugs for cpu/memory plugin according to comments
 	}
 
 	p.state.SetMachineState(machineState)
@@ -356,11 +388,19 @@ func (p *DynamicPolicy) allocateAllNUMAs(req *pluginapi.ResourceRequest,
 		return nil, fmt.Errorf("calculate machineState by updated pod entries failed with error: %v", err)
 	}
 
+<<<<<<< HEAD
 	resp, err := packMemoryResourceAllocationResponseByAllocationInfo(allocationInfo, req)
 	if err != nil {
 		general.Errorf("pod: %s/%s, container: %s packMemoryResourceAllocationResponseByAllocationInfo failed with error: %v",
 			req.PodNamespace, req.PodName, req.ContainerName, err)
 		return nil, fmt.Errorf("packMemoryResourceAllocationResponseByAllocationInfo failed with error: %v", err)
+=======
+	resp, err := packAllocationResponse(allocationInfo, req)
+	if err != nil {
+		general.Errorf("pod: %s/%s, container: %s packAllocationResponse failed with error: %v",
+			req.PodNamespace, req.PodName, req.ContainerName, err)
+		return nil, fmt.Errorf("packAllocationResponse failed with error: %v", err)
+>>>>>>> fix styles and fix bugs for cpu/memory plugin according to comments
 	}
 
 	p.state.SetMachineState(machineState)
@@ -586,6 +626,7 @@ func calculateExclusiveMemory(req *pluginapi.ResourceRequest,
 	return reqQuantity
 }
 
+<<<<<<< HEAD
 // packMemoryResourceAllocationResponseByAllocationInfo regenerates allocations for container that'd already been allocated memory,
 // and packMemoryResourceAllocationResponseByAllocationInfo will assemble allocations based on already-existed AllocationInfo,
 // without any calculation logics at all
@@ -595,6 +636,16 @@ func packMemoryResourceAllocationResponseByAllocationInfo(allocationInfo *state.
 		return nil, fmt.Errorf("packMemoryResourceAllocationResponseByAllocationInfo got nil allocationInfo")
 	} else if req == nil {
 		return nil, fmt.Errorf("packMemoryResourceAllocationResponseByAllocationInfo got nil request")
+=======
+// packAllocationResponse regenerates allocations for container that'd already been allocated memory,
+// and packAllocationResponse will assemble allocations based on already-existed AllocationInfo,
+// without any calculation logics at all
+func packAllocationResponse(allocationInfo *state.AllocationInfo, req *pluginapi.ResourceRequest) (*pluginapi.ResourceAllocationResponse, error) {
+	if allocationInfo == nil {
+		return nil, fmt.Errorf("packAllocationResponse got nil allocationInfo")
+	} else if req == nil {
+		return nil, fmt.Errorf("packAllocationResponse got nil request")
+>>>>>>> fix styles and fix bugs for cpu/memory plugin according to comments
 	}
 
 	return &pluginapi.ResourceAllocationResponse{

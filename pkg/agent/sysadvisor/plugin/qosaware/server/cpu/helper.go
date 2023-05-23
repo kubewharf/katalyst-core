@@ -203,5 +203,5 @@ func GetNumaCalculationResult(calculationEntriesMap map[string]*cpuadvisor.Calcu
 		return nil, false
 	}
 
-	return entries.GetNumaCalculationResult(containerName, numa)
+	return entries.GetNUMACalculationResult(containerName, numa)
 }

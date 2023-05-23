@@ -26,7 +26,6 @@ import (
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/wait"
-	"k8s.io/klog/v2"
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 	maputil "k8s.io/kubernetes/pkg/util/maps"
 	"k8s.io/utils/clock"
@@ -289,13 +288,13 @@ func (p *DynamicPolicy) Start() (err error) {
 	}
 
 	general.Infof("start dynamic policy cpu plugin with sys-advisor")
-	err = p.initAdvisor()
+	err = p.initAdvisorClientConn()
 	if err != nil {
-		general.Errorf("initAdvisor failed with error: %v", err)
+		general.Errorf("initAdvisorClientConn failed with error: %v", err)
 		return
 	}
 
-	go wait.BackoffUntil(func() { p.serveCPUAdvisor(p.stopCh) }, wait.NewExponentialBackoffManager(
+	go wait.BackoffUntil(func() { p.serveForAdvisor(p.stopCh) }, wait.NewExponentialBackoffManager(
 		800*time.Millisecond, 30*time.Second, 2*time.Minute, 2.0, 0, &clock.RealClock{}), true, p.stopCh)
 
 	communicateWithCPUAdvisorServer := func() {
@@ -439,9 +438,9 @@ func (p *DynamicPolicy) GetResourcesAllocation(_ context.Context,
 	}
 
 	if len(allocationInfosJustFinishRampUp) > 0 {
-		if err = p.setAllocationsAndAdjustAllocationEntries(allocationInfosJustFinishRampUp); err != nil {
-			// not influencing return response to kubelet when setAllocationsAndAdjustAllocationEntries failed
-			general.Errorf("setAllocationsAndAdjustAllocationEntries failed with error: %v", err)
+		if err = p.putAllocationsAndAdjustAllocationEntries(allocationInfosJustFinishRampUp); err != nil {
+			// not influencing return response to kubelet when putAllocationsAndAdjustAllocationEntries failed
+			general.Errorf("putAllocationsAndAdjustAllocationEntries failed with error: %v", err)
 		}
 	}
 
@@ -795,8 +794,8 @@ func (p *DynamicPolicy) removeContainer(podUID, containerName string) error {
 	return nil
 }
 
-// initAdvisor initializes cpu-advisor related connections
-func (p *DynamicPolicy) initAdvisor() (err error) {
+// initAdvisorClientConn initializes cpu-advisor related connections
+func (p *DynamicPolicy) initAdvisorClientConn() (err error) {
 	cpuAdvisorConn, err := process.Dial(p.cpuAdvisorSocketAbsPath, 5*time.Second)
 	if err != nil {
 		err = fmt.Errorf("get cpu advisor connection with socket: %s failed with error: %v", p.cpuAdvisorSocketAbsPath, err)
@@ -810,7 +809,7 @@ func (p *DynamicPolicy) initAdvisor() (err error) {
 
 // cleanPools is used to clean pools-related data in local state
 func (p *DynamicPolicy) cleanPools() error {
-	specifiedPools := make(map[string]bool)
+	remainPools := make(map[string]bool)
 
 	// walk through pod entries to put them into specified pool maps
 	podEntries := p.state.GetPodEntries()
@@ -822,14 +821,12 @@ func (p *DynamicPolicy) cleanPools() error {
 		for _, allocationInfo := range entries {
 			ownerPool := allocationInfo.GetOwnerPoolName()
 			specifiedPool := allocationInfo.GetSpecifiedPoolName()
-			if specifiedPool != advisorapi.EmptyOwnerPoolName {
-				specifiedPools[specifiedPool] = true
-			} else if ownerPool != advisorapi.EmptyOwnerPoolName {
-				specifiedPools[ownerPool] = true
+			if specifiedPool != advisorapi.EmptyOwnerPoolName || ownerPool != advisorapi.EmptyOwnerPoolName {
+				remainPools[specifiedPool] = true
 			} else if state.CheckReclaimed(allocationInfo) {
-				specifiedPools[state.PoolNameReclaim] = true
+				remainPools[state.PoolNameReclaim] = true
 			} else if state.CheckShared(allocationInfo) {
-				specifiedPools[state.PoolNameShare] = true
+				remainPools[state.PoolNameShare] = true
 			}
 		}
 	}
@@ -838,7 +835,7 @@ func (p *DynamicPolicy) cleanPools() error {
 	poolsToDelete := sets.NewString()
 	for poolName, entries := range podEntries {
 		if entries.IsPoolEntry() {
-			if !specifiedPools[poolName] && !state.ResidentPools.Has(poolName) {
+			if !remainPools[poolName] && !state.ResidentPools.Has(poolName) {
 				poolsToDelete.Insert(poolName)
 			}
 		}
@@ -866,7 +863,7 @@ func (p *DynamicPolicy) cleanPools() error {
 
 // initReservePool initializes reserve pool for system cores workload
 func (p *DynamicPolicy) initReservePool() error {
-	reserveAllocationInfo := p.state.GetAllocationInfo(state.PoolNameReserve, advisorapi.FakedContainerID)
+	reserveAllocationInfo := p.state.GetAllocationInfo(state.PoolNameReserve, advisorapi.FakedContainerName)
 	if reserveAllocationInfo != nil && !reserveAllocationInfo.AllocationResult.IsEmpty() {
 		general.Infof("pool: %s allocation result transform from %s to %s",
 			state.PoolNameReserve, reserveAllocationInfo.AllocationResult.String(), p.reservedCPUs)
@@ -887,7 +884,7 @@ func (p *DynamicPolicy) initReservePool() error {
 		TopologyAwareAssignments:         topologyAwareAssignments,
 		OriginalTopologyAwareAssignments: machine.DeepcopyCPUAssignment(topologyAwareAssignments),
 	}
-	p.state.SetAllocationInfo(state.PoolNameReserve, advisorapi.FakedContainerID, curReserveAllocationInfo)
+	p.state.SetAllocationInfo(state.PoolNameReserve, advisorapi.FakedContainerName, curReserveAllocationInfo)
 
 	return nil
 }
@@ -895,13 +892,13 @@ func (p *DynamicPolicy) initReservePool() error {
 // initReclaimPool initializes pools for reclaimed-cores.
 // if this info already exists in state-file, just use it, otherwise calculate right away
 func (p *DynamicPolicy) initReclaimPool() error {
-	reclaimedAllocationInfo := p.state.GetAllocationInfo(state.PoolNameReclaim, advisorapi.FakedContainerID)
+	reclaimedAllocationInfo := p.state.GetAllocationInfo(state.PoolNameReclaim, advisorapi.FakedContainerName)
 	if reclaimedAllocationInfo == nil {
 		podEntries := p.state.GetPodEntries()
-		residentCPUs := podEntries.GetCPUSetForPools(state.ResidentPools)
+		noneResidentCPUs := podEntries.GetFilteredPoolsCPUSet(state.ResidentPools)
 
 		machineState := p.state.GetMachineState()
-		availableCPUs := machineState.GetFilteredAvailableCPUSet(p.reservedCPUs, state.CheckDedicated).Difference(residentCPUs)
+		availableCPUs := machineState.GetFilteredAvailableCPUSet(p.reservedCPUs, state.CheckDedicated).Difference(noneResidentCPUs)
 
 		var initReclaimedCPUSetSize int
 		if availableCPUs.Size() >= reservedReclaimedCPUsSize {
@@ -917,7 +914,7 @@ func (p *DynamicPolicy) initReclaimPool() error {
 		}
 
 		// for residual pools, we must make them exist even if cause overlap
-		// todo: residentCPUs is the same as reservedCPUs, why should we do this?
+		// todo: noneResidentCPUs is the same as reservedCPUs, why should we do this?
 		allAvailableCPUs := p.machineInfo.CPUDetails.CPUs().Difference(p.reservedCPUs)
 		if reclaimedCPUSet.IsEmpty() {
 			reclaimedCPUSet, _, err = calculator.TakeByNUMABalance(p.machineInfo, allAvailableCPUs, reservedReclaimedCPUsSize)
@@ -943,7 +940,7 @@ func (p *DynamicPolicy) initReclaimPool() error {
 				TopologyAwareAssignments:         topologyAwareAssignments,
 				OriginalTopologyAwareAssignments: machine.DeepcopyCPUAssignment(topologyAwareAssignments),
 			}
-			p.state.SetAllocationInfo(poolName, advisorapi.FakedContainerID, curPoolAllocationInfo)
+			p.state.SetAllocationInfo(poolName, advisorapi.FakedContainerName, curPoolAllocationInfo)
 		}
 	} else {
 		general.Infof("exist initial %s: %s", state.PoolNameReclaim, reclaimedAllocationInfo.AllocationResult.String())
@@ -955,13 +952,13 @@ func (p *DynamicPolicy) initReclaimPool() error {
 // getContainerRequestedCores parses and returns request cores for the given container
 func (p *DynamicPolicy) getContainerRequestedCores(allocationInfo *state.AllocationInfo) int {
 	if allocationInfo == nil {
-		klog.Errorf("%v got nil allocationInfo")
+		general.Errorf("%v got nil allocationInfo")
 		return 0
 	}
 
 	if allocationInfo.RequestQuantity == 0 {
 		if p.metaServer == nil {
-			klog.Errorf("%v nil metaServer")
+			general.Errorf("%v nil metaServer")
 			return 0
 		}
 

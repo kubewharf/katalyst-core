@@ -351,7 +351,7 @@ func (p *CPUPressureLoadEviction) collectMetrics(_ context.Context) {
 			continue
 		}
 
-		poolEntry := entry[advisorapi.FakedContainerID]
+		poolEntry := entry[advisorapi.FakedContainerName]
 		if poolEntry == nil {
 			continue
 		}
@@ -457,10 +457,10 @@ func (p *CPUPressureLoadEviction) logPoolSnapShot(snapshot *MetricSnapshot, pool
 }
 
 func (p *CPUPressureLoadEviction) clearEvictionPoolName() {
-	if p.evictionPoolName != advisorapi.FakedContainerID {
+	if p.evictionPoolName != advisorapi.FakedContainerName {
 		klog.Infof("[cpu-pressure-load] clear eviction pool name: %s", p.evictionPoolName)
 	}
-	p.evictionPoolName = advisorapi.FakedContainerID
+	p.evictionPoolName = advisorapi.FakedContainerName
 }
 
 func (p *CPUPressureLoadEviction) setEvictionPoolName(evictionPoolName string) {
