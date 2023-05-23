@@ -73,6 +73,10 @@ type GenericContext struct {
 	DynamicInformerFactory  dynamicinformer.DynamicSharedInformerFactory
 	DynamicResourcesManager *native.DynamicResourcesManager
 
+	// if we want to support for transformed informer for a certain object,
+	// it must be enabled transparently
+	transformedInformerForPod bool
+
 	// DisabledByDefault is the set of components which is disabled by default
 	DisabledByDefault sets.String
 }
@@ -152,16 +156,17 @@ func NewGenericContext(
 			Handler: httpHandler.WithHandleChain(mux),
 			Addr:    genericConf.GenericEndpoint,
 		},
-		healthChecker:           NewHealthzChecker(),
-		DisabledByDefault:       disabledByDefault,
-		MetaInformerFactory:     metaInformerFactory,
-		KubeInformerFactory:     kubeInformerFactory,
-		InternalInformerFactory: internalInformerFactory,
-		DynamicInformerFactory:  dynamicInformerFactory,
-		BroadcastAdapter:        broadcastAdapter,
-		Client:                  clientSet,
-		EmitterPool:             metricspool.NewCustomMetricsEmitterPool(emitterPool),
-		DynamicResourcesManager: dynamicResourceManager,
+		healthChecker:             NewHealthzChecker(),
+		DisabledByDefault:         disabledByDefault,
+		MetaInformerFactory:       metaInformerFactory,
+		KubeInformerFactory:       kubeInformerFactory,
+		InternalInformerFactory:   internalInformerFactory,
+		DynamicInformerFactory:    dynamicInformerFactory,
+		BroadcastAdapter:          broadcastAdapter,
+		Client:                    clientSet,
+		EmitterPool:               metricspool.NewCustomMetricsEmitterPool(emitterPool),
+		DynamicResourcesManager:   dynamicResourceManager,
+		transformedInformerForPod: genericConf.TransformedInformerForPod,
 	}
 
 	// add profiling and health check http paths listening on generic endpoint
@@ -201,6 +206,9 @@ func (c *GenericContext) StartInformer(ctx context.Context) {
 	}
 
 	if c.KubeInformerFactory != nil {
+		if transformers, ok := native.GetPodTransformer(); ok && c.transformedInformerForPod {
+			_ = c.KubeInformerFactory.Core().V1().Pods().Informer().SetTransform(transformers)
+		}
 		c.KubeInformerFactory.Start(ctx.Done())
 	}
 
