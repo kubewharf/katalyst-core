@@ -53,7 +53,7 @@ const (
 type NumaInfoGetter func() ([]info.Node, error)
 
 // PodResourcesFilter is to filter pod resources which does need to be reported
-type PodResourcesFilter func(*podresv1.PodResources) (*podresv1.PodResources, error)
+type PodResourcesFilter func(*v1.Pod, *podresv1.PodResources) (*podresv1.PodResources, error)
 
 var (
 	oneQuantity = *resource.NewQuantity(1, resource.DecimalSI)
@@ -377,9 +377,16 @@ func (p *podResourcesServerTopologyAdapterImpl) getZoneAllocations(podList []*v1
 			continue
 		}
 
+		podKey := native.GenerateNamespaceNameKey(podResources.Namespace, podResources.Name)
+		pod, ok := podMap[podKey]
+		if !ok {
+			errList = append(errList, fmt.Errorf("pod %s not found in metaserver", podKey))
+			continue
+		}
+
 		// the pod resource filter will filter out unwanted pods
 		if p.podResourcesFilter != nil {
-			podResources, err = p.podResourcesFilter(podResources)
+			podResources, err = p.podResourcesFilter(pod, podResources)
 			if err != nil {
 				errList = append(errList, err)
 				continue
@@ -389,13 +396,6 @@ func (p *podResourcesServerTopologyAdapterImpl) getZoneAllocations(podList []*v1
 			if podResources == nil {
 				continue
 			}
-		}
-
-		podKey := native.GenerateNamespaceNameKey(podResources.Namespace, podResources.Name)
-		pod, ok := podMap[podKey]
-		if !ok {
-			errList = append(errList, fmt.Errorf("pod %s not found in metaserver", podKey))
-			continue
 		}
 
 		// aggregates resources in each zone used by all containers of the pod

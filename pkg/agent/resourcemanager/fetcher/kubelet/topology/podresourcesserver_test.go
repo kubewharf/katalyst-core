@@ -389,15 +389,9 @@ func Test_getZoneAllocationsByPodResources(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			qosConf := generic.NewQoSConfiguration()
-			isPodNumaBinding := func(pod *v1.Pod) bool {
-				return qos.IsPodNumaBinding(qosConf, pod)
-			}
-			podResourcesFilter := func(podResources *podresv1.PodResources) (*podresv1.PodResources, error) {
-				for _, p := range tt.args.podList {
-					if p.Namespace == podResources.Namespace &&
-						p.Name == podResources.Name && !isPodNumaBinding(p) {
-						return nil, nil
-					}
+			podResourcesFilter := func(pod *v1.Pod, podResources *podresv1.PodResources) (*podresv1.PodResources, error) {
+				if !qos.IsPodNumaBinding(qosConf, pod) {
+					return nil, nil
 				}
 				return podResources, nil
 			}
