@@ -17,6 +17,8 @@ limitations under the License.
 package qos
 
 import (
+	"strconv"
+
 	v1 "k8s.io/api/core/v1"
 
 	"github.com/kubewharf/katalyst-api/pkg/consts"
@@ -37,4 +39,32 @@ func IsPodNumaBinding(qosConf *generic.QoSConfiguration, pod *v1.Pod) bool {
 	}
 
 	return false
+}
+
+// GetRSSOverUseEvictThreshold parse the user specified threshold and checks if it's valid
+func GetRSSOverUseEvictThreshold(qosConf *generic.QoSConfiguration, pod *v1.Pod) (threshold *float64, invalid bool) {
+	memoryEnhancement := ParseKatalystQOSEnhancement(qosConf.GetQoSEnhancementsForPod(pod), consts.PodAnnotationMemoryEnhancementKey)
+	thresholdStr, ok := memoryEnhancement[consts.PodAnnotationMemoryEnhancementRssOverUseThreshold]
+	if !ok {
+		return
+	}
+
+	parsedThreshold, parseErr := strconv.ParseFloat(thresholdStr, 64)
+
+	if parseErr != nil {
+		invalid = true
+		return
+	}
+
+	if !isValidRatioThreshold(parsedThreshold) {
+		invalid = true
+		return
+	}
+
+	threshold = &parsedThreshold
+	return
+}
+
+func isValidRatioThreshold(threshold float64) bool {
+	return threshold > 0 && threshold <= 1
 }

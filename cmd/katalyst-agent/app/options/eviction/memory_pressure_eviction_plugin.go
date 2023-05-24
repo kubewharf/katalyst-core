@@ -32,6 +32,8 @@ type MemoryPressureEvictionPluginOptions struct {
 	NumaEvictionRankingMetrics           []string
 	SystemEvictionRankingMetrics         []string
 	GracePeriod                          int64
+	EnableRSSOveruseDetection            bool
+	RssOveruseRateThreshold              float64
 }
 
 // NewMemoryPressureEvictionPluginOptions returns a new MemoryPressureEvictionPluginOptions
@@ -45,6 +47,8 @@ func NewMemoryPressureEvictionPluginOptions() *MemoryPressureEvictionPluginOptio
 		NumaEvictionRankingMetrics:           evictionconfig.DefaultNumaEvictionRankingMetrics,
 		SystemEvictionRankingMetrics:         evictionconfig.DefaultSystemEvictionRankingMetrics,
 		GracePeriod:                          evictionconfig.DefaultGracePeriod,
+		EnableRSSOveruseDetection:            evictionconfig.DefaultEnableRssOveruseDetection,
+		RssOveruseRateThreshold:              evictionconfig.DefaultRssOveruseRateThreshold,
 	}
 }
 
@@ -72,6 +76,10 @@ func (o *MemoryPressureEvictionPluginOptions) AddFlags(fss *cliflag.NamedFlagSet
 		"the metrics used to rank pods for eviction at the system level")
 	fs.Int64Var(&o.GracePeriod, "eviction-grace-period", o.GracePeriod,
 		"the grace period of memory pressure eviction")
+	fs.BoolVar(&o.EnableRSSOveruseDetection, "eviction-enable-rss-overuse-detection", o.EnableRSSOveruseDetection,
+		"whether to enable pod-level rss overuse detection")
+	fs.Float64Var(&o.RssOveruseRateThreshold, "eviction-rss-overuse-rate-threshold", o.RssOveruseRateThreshold,
+		"the threshold for the rate of rss overuse threshold")
 }
 
 // ApplyTo applies MemoryPressureEvictionPluginOptions to MemoryPressureEvictionPluginConfiguration
@@ -84,6 +92,8 @@ func (o *MemoryPressureEvictionPluginOptions) ApplyTo(c *evictionconfig.MemoryPr
 	c.DynamicConf.SetNumaEvictionRankingMetrics(o.NumaEvictionRankingMetrics)
 	c.DynamicConf.SetSystemEvictionRankingMetrics(o.SystemEvictionRankingMetrics)
 	c.DynamicConf.SetGracePeriod(o.GracePeriod)
+	c.DynamicConf.SetEnableRssOveruseDetection(o.EnableRSSOveruseDetection)
+	c.DynamicConf.SetRssOveruseRateThreshold(o.RssOveruseRateThreshold)
 
 	return nil
 }
