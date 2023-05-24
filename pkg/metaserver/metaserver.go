@@ -24,6 +24,8 @@ import (
 	"fmt"
 	"os"
 
+	"go.uber.org/atomic"
+
 	"github.com/kubewharf/katalyst-core/pkg/client"
 	pkgconfig "github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent"
@@ -36,9 +38,11 @@ import (
 // MetaServer is used to fetch metadata that other components may need to obtain,
 // such as. dynamic configurations, pods or nodes running in agent, metrics info and so on.
 type MetaServer struct {
+	started atomic.Bool
+
 	*agent.MetaAgent
 	config.ConfigurationManager
-	spd.ServiceProfileManager
+	spd.ServiceProfilingManager
 	external.ExternalManager
 }
 
@@ -66,24 +70,37 @@ func NewMetaServer(clientSet *client.GenericClientSet, emitter metrics.MetricEmi
 		configurationManager = &config.DummyConfigurationManager{}
 	}
 
-	serviceProfileManager, err := spd.NewSPDManager(clientSet, emitter, metaAgent.CNCFetcher, conf)
+	serviceProfilingManager, err := spd.NewServiceProfilingManager(clientSet, emitter, metaAgent.CNCFetcher, conf)
 	if err != nil {
 		return nil, err
 	}
 
 	return &MetaServer{
-		MetaAgent:             metaAgent,
-		ConfigurationManager:  configurationManager,
-		ServiceProfileManager: serviceProfileManager,
-		ExternalManager:       external.InitExternalManager(metaAgent.PodFetcher),
+		MetaAgent:               metaAgent,
+		ConfigurationManager:    configurationManager,
+		ServiceProfilingManager: serviceProfilingManager,
+		ExternalManager:         external.InitExternalManager(metaAgent.PodFetcher),
 	}, nil
 }
 
 func (m *MetaServer) Run(ctx context.Context) {
+	if !m.started.Swap(true) {
+		return
+	}
+
 	go m.MetaAgent.Run(ctx)
 	go m.ConfigurationManager.Run(ctx)
-	go m.ServiceProfileManager.Run(ctx)
+	go m.ServiceProfilingManager.Run(ctx)
 	go m.ExternalManager.Run(ctx)
 
 	<-ctx.Done()
+}
+
+func (m *MetaServer) SetServiceProfilingManager(manager spd.ServiceProfilingManager) error {
+	if m.started.Load() {
+		return fmt.Errorf("meta server already started")
+	}
+
+	m.ServiceProfilingManager = manager
+	return nil
 }

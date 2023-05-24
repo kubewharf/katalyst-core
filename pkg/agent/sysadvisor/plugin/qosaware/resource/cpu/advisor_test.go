@@ -27,7 +27,9 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 
 	"github.com/kubewharf/katalyst-api/pkg/consts"
@@ -41,6 +43,8 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric"
+	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/pod"
+	"github.com/kubewharf/katalyst-core/pkg/metaserver/spd"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
@@ -56,7 +60,7 @@ func generateTestConfiguration(t *testing.T, checkpointDir, stateFileDir string)
 	return conf
 }
 
-func newTestCPUResourceAdvisor(t *testing.T, checkpointDir, stateFileDir string) (*cpuResourceAdvisor, metacache.MetaCache) {
+func newTestCPUResourceAdvisor(t *testing.T, pods []*v1.Pod, checkpointDir, stateFileDir string) (*cpuResourceAdvisor, metacache.MetaCache) {
 	conf := generateTestConfiguration(t, checkpointDir, stateFileDir)
 
 	metaCache, err := metacache.NewMetaCacheImp(conf, metric.NewFakeMetricsFetcher(metrics.DummyMetrics{}))
@@ -76,7 +80,13 @@ func newTestCPUResourceAdvisor(t *testing.T, checkpointDir, stateFileDir string)
 		KatalystMachineInfo: &machine.KatalystMachineInfo{
 			CPUTopology: cpuTopology,
 		},
+		PodFetcher: &pod.PodFetcherStub{
+			PodList: pods,
+		},
 	}
+
+	err = metaServer.SetServiceProfilingManager(&spd.DummyServiceProfilingManager{})
+	assert.NoError(t, err)
 
 	cra := NewCPUResourceAdvisor(conf, struct{}{}, metaCache, metaServer, nil)
 	assert.NotNil(t, cra)
@@ -109,6 +119,7 @@ func TestUpdate(t *testing.T) {
 		name                          string
 		pools                         map[string]*types.PoolInfo
 		containers                    []*types.ContainerInfo
+		pods                          []*v1.Pod
 		reclaimEnabled                bool
 		wantInternalCalculationResult InternalCalculationResult
 		wantHeadroom                  resource.Quantity
@@ -177,6 +188,15 @@ func TestUpdate(t *testing.T) {
 						1: machine.MustParse("25"),
 					}, 4),
 			},
+			pods: []*v1.Pod{
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "pod1",
+						Namespace: "default",
+						UID:       "uid1",
+					},
+				},
+			},
 			wantInternalCalculationResult: InternalCalculationResult{
 				map[string]map[int]resource.Quantity{
 					state.PoolNameReserve: {-1: *resource.NewQuantity(2, resource.DecimalSI)},
@@ -219,6 +239,15 @@ func TestUpdate(t *testing.T) {
 						0: machine.MustParse("1-23,48-71"),
 						1: machine.MustParse("25-47,72-95"),
 					}, 96),
+			},
+			pods: []*v1.Pod{
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "pod1",
+						Namespace: "default",
+						UID:       "uid1",
+					},
+				},
 			},
 			wantInternalCalculationResult: InternalCalculationResult{
 				map[string]map[int]resource.Quantity{
@@ -264,6 +293,22 @@ func TestUpdate(t *testing.T) {
 					map[int]machine.CPUSet{
 						1: machine.MustParse("25-26,72-73"),
 					}, 4),
+			},
+			pods: []*v1.Pod{
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "pod1",
+						Namespace: "default",
+						UID:       "uid1",
+					},
+				},
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "pod2",
+						Namespace: "default",
+						UID:       "uid2",
+					},
+				},
 			},
 			wantInternalCalculationResult: InternalCalculationResult{
 				map[string]map[int]resource.Quantity{
@@ -315,6 +360,22 @@ func TestUpdate(t *testing.T) {
 						1: machine.MustParse("25-26,72-73"),
 					}, 6),
 			},
+			pods: []*v1.Pod{
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "pod1",
+						Namespace: "default",
+						UID:       "uid1",
+					},
+				},
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "pod2",
+						Namespace: "default",
+						UID:       "uid2",
+					},
+				},
+			},
 			wantInternalCalculationResult: InternalCalculationResult{
 				map[string]map[int]resource.Quantity{
 					state.PoolNameReserve: {
@@ -362,6 +423,15 @@ func TestUpdate(t *testing.T) {
 					map[int]machine.CPUSet{
 						0: machine.MustParse("1-23,48-71"),
 					}, 48),
+			},
+			pods: []*v1.Pod{
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "pod1",
+						Namespace: "default",
+						UID:       "uid1",
+					},
+				},
 			},
 			wantInternalCalculationResult: InternalCalculationResult{
 				map[string]map[int]resource.Quantity{
@@ -426,6 +496,22 @@ func TestUpdate(t *testing.T) {
 						1: machine.MustParse("25-47,72-95"),
 					}, 96),
 			},
+			pods: []*v1.Pod{
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "pod1",
+						Namespace: "default",
+						UID:       "uid1",
+					},
+				},
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "pod2",
+						Namespace: "default",
+						UID:       "uid2",
+					},
+				},
+			},
 			wantInternalCalculationResult: InternalCalculationResult{
 				map[string]map[int]resource.Quantity{
 					state.PoolNameReserve: {-1: *resource.NewQuantity(2, resource.DecimalSI)},
@@ -486,6 +572,22 @@ func TestUpdate(t *testing.T) {
 						1: machine.MustParse("26"),
 					}, 4),
 			},
+			pods: []*v1.Pod{
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "pod1",
+						Namespace: "default",
+						UID:       "uid1",
+					},
+				},
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "pod2",
+						Namespace: "default",
+						UID:       "uid2",
+					},
+				},
+			},
 			wantInternalCalculationResult: InternalCalculationResult{
 				map[string]map[int]resource.Quantity{
 					state.PoolNameReserve: {-1: *resource.NewQuantity(2, resource.DecimalSI)},
@@ -508,7 +610,7 @@ func TestUpdate(t *testing.T) {
 			require.NoError(t, err)
 			defer os.RemoveAll(sfDir)
 
-			advisor, metaCache := newTestCPUResourceAdvisor(t, ckDir, sfDir)
+			advisor, metaCache := newTestCPUResourceAdvisor(t, tt.pods, ckDir, sfDir)
 			advisor.startTime = time.Now().Add(-types.StartUpPeriod * 2)
 			advisor.conf.ReclaimedResourceConfiguration.SetEnableReclaim(tt.reclaimEnabled)
 

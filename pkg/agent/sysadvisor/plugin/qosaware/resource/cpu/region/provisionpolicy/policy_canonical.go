@@ -17,6 +17,8 @@ limitations under the License.
 package provisionpolicy
 
 import (
+	"context"
+
 	"k8s.io/klog/v2"
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
@@ -43,6 +45,11 @@ func NewPolicyCanonical(regionName string, _ *config.Configuration, _ interface{
 
 func (p *PolicyCanonical) estimationCPUUsage() (cpuEstimation float64, containerCnt uint, err error) {
 	for podUID, containerSet := range p.podSet {
+		enableReclaim, err := helper.PodEnableReclaim(context.Background(), p.metaServer, podUID, p.essentials.EnableReclaim)
+		if err != nil {
+			return 0, 0, err
+		}
+
 		for containerName := range containerSet {
 			ci, ok := p.metaReader.GetContainerInfo(podUID, containerName)
 			if !ok || ci == nil {
@@ -50,10 +57,11 @@ func (p *PolicyCanonical) estimationCPUUsage() (cpuEstimation float64, container
 				continue
 			}
 
-			containerEstimation, err := helper.EstimateContainerCPUUsage(ci, p.metaReader, p.essentials.EnableReclaim)
+			containerEstimation, err := helper.EstimateContainerCPUUsage(ci, p.metaReader, enableReclaim)
 			if err != nil {
 				return 0, 0, err
 			}
+
 			// FIXME: metric server doesn't support to report cpu usage in numa granularity,
 			//  so we split cpu usage evenly across the binding numas of container.
 			if p.bindingNumas.Size() > 0 {

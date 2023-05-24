@@ -30,6 +30,7 @@ const (
 	defaultCustomNodeConfigCacheTTL       = 15 * time.Second
 	defaultServiceProfileCacheTTL         = 15 * time.Second
 	defaultConfigCacheTTL                 = 15 * time.Second
+	defaultConfigDisableDynamic           = false
 	defaultConfigSkipFailedInitialization = true
 	defaultConfigCheckpointGraceTime      = 2 * time.Hour
 )
@@ -73,6 +74,7 @@ func NewMetaServerOptions() *MetaServerOptions {
 		CustomNodeConfigCacheTTL:       defaultCustomNodeConfigCacheTTL,
 		ServiceProfileCacheTTL:         defaultServiceProfileCacheTTL,
 		ConfigCacheTTL:                 defaultConfigCacheTTL,
+		ConfigDisableDynamic:           defaultConfigDisableDynamic,
 		ConfigSkipFailedInitialization: defaultConfigSkipFailedInitialization,
 		ConfigCheckpointGraceTime:      defaultConfigCheckpointGraceTime,
 		KubeletReadOnlyPort:            defaultKubeletReadOnlyPort,

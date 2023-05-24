@@ -17,6 +17,7 @@ limitations under the License.
 package headroompolicy
 
 import (
+	"context"
 	"fmt"
 	"math"
 
@@ -66,7 +67,13 @@ func (p *PolicyCanonical) estimateNonReclaimedQoSMemoryRequirement() (float64, e
 	)
 
 	f := func(podUID string, containerName string, ci *types.ContainerInfo) bool {
-		containerEstimation, err := helper.EstimateContainerMemoryUsage(ci, p.metaReader, p.essentials.EnableReclaim)
+		enableReclaim, err := helper.PodEnableReclaim(context.Background(), p.metaServer, podUID, p.essentials.EnableReclaim)
+		if err != nil {
+			errList = append(errList, err)
+			return true
+		}
+
+		containerEstimation, err := helper.EstimateContainerMemoryUsage(ci, p.metaReader, enableReclaim)
 		if err != nil {
 			errList = append(errList, err)
 			return true
