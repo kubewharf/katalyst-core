@@ -550,7 +550,8 @@ func (p *DynamicPolicy) adjustPoolsAndIsolatedEntries(poolsQuantityMap map[strin
 	return nil
 }
 
-// reclaimOverlapNUMABinding unions intersection of current reclaim pool and non-ramp-up dedicated_cores numa_binding containers
+// reclaimOverlapNUMABinding unions calculated reclaim pool in empty NUMAs
+// with the intersection of previous reclaim pool and non-ramp-up dedicated_cores numa_binding containers
 func (p *DynamicPolicy) reclaimOverlapNUMABinding(poolsCPUSet map[string]machine.CPUSet, entries state.PodEntries) error {
 	// reclaimOverlapNUMABinding only works with cpu advisor and reclaim enabled
 	if !(p.enableCPUSysAdvisor && p.reclaimedResourceConfig.EnableReclaim()) {
@@ -592,10 +593,9 @@ func (p *DynamicPolicy) reclaimOverlapNUMABinding(poolsCPUSet map[string]machine
 }
 
 // applyPoolsAndIsolatedInfo generates the latest checkpoint by pools and isolated cpusets calculation results.
-// 1. construct entries for dedicated containers
+// 1. construct entries for isolated containers (probably be dedicated_cores not numa_binding )
 // 2. construct entries for all pools
 // 3. construct entries for shared and reclaimed containers
-// todo this function is almost the same as applyBlocks, can they merge together?
 func (p *DynamicPolicy) applyPoolsAndIsolatedInfo(poolsCPUSet map[string]machine.CPUSet,
 	isolatedCPUSet map[string]map[string]machine.CPUSet, curEntries state.PodEntries, machineState state.NUMANodeMap) error {
 	newPodEntries := make(state.PodEntries)

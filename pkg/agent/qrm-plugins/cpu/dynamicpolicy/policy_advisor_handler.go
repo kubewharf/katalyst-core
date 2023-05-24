@@ -249,9 +249,11 @@ func (p *DynamicPolicy) allocateByCPUAdvisor(resp *advisorapi.ListAndWatchRespon
 
 // generateBlockCPUSet generates BlockCPUSet from cpu-advisor response
 // and the logic contains three main steps
-// 1. handle blocks for static pools
-// 2. handle blocks for container
-// 3. handle blocks for other pools
+//  1. handle blocks for static pools
+//  2. handle blocks with spcified NUMA ids (probably be blocks for
+//     numa_binding dedicated_cores containers and reclaimed_cores containers colocated with them)
+//  3. handle blocks without spcified NUMA id (probably be blocks for
+//     not numa_binding dedicated_cores containers and pools of shared_cores and reclaimed_cores containers)
 func (p *DynamicPolicy) generateBlockCPUSet(resp *advisorapi.ListAndWatchResponse) (advisorapi.BlockCPUSet, error) {
 	if resp == nil {
 		return nil, fmt.Errorf("got nil resp")
@@ -275,16 +277,19 @@ func (p *DynamicPolicy) generateBlockCPUSet(resp *advisorapi.ListAndWatchRespons
 			continue
 		}
 
-		// todo, even validation already guarantees that calculationInfo of static pool
-		//  only has one block isn't topology aware, we should not hardcode like this
-		blocks, _ := resp.GeEntryNUMABlocks(poolName, advisorapi.FakedContainerName, advisorapi.FakedNUMAID)
+		blocks, ok := resp.GeEntryNUMABlocks(poolName, advisorapi.FakedContainerName, advisorapi.FakedNUMAID)
+
+		if !ok || len(blocks) != 1 {
+			return nil, fmt.Errorf("blocks of pool: %s is invalid", poolName)
+		}
+
 		blockID := blocks[0].BlockId
 
 		blockCPUSet[blockID] = allocationInfo.AllocationResult.Clone()
 		availableCPUs = availableCPUs.Difference(blockCPUSet[blockID])
 	}
 
-	// walk through all blocks (that belongs to container)
+	// walk through all blocks with spcified NUMA ids
 	// for each block, add them into numaBlocks (if not exist) and renew availableCPUs
 	for numaID, blocksMap := range numaBlocks {
 		if numaID == advisorapi.FakedNUMAID {
@@ -319,7 +324,7 @@ func (p *DynamicPolicy) generateBlockCPUSet(resp *advisorapi.ListAndWatchRespons
 		}
 	}
 
-	// walk through all blocks (that belongs to pool)
+	// walk through all blocks without spcified NUMA id
 	// for each block, add them into numaBlocks (if not exist) and renew availableCPUs
 	for blockID, block := range numaBlocks[advisorapi.FakedNUMAID] {
 		if block == nil {
@@ -351,10 +356,9 @@ func (p *DynamicPolicy) generateBlockCPUSet(resp *advisorapi.ListAndWatchRespons
 
 // applyBlocks allocate based on BlockCPUSet
 // and the logic contains three main steps
-// 1. construct entries for dedicated containers and none shared and reclaimed pools
-// 2. construct entries for reclaimed pools
+// 1. construct entries for dedicated containers and pools
+// 2. ensure reclaimed pool exists
 // 3. construct entries for shared and reclaimed containers
-// todo but why we don't need to handle shared pools here
 func (p *DynamicPolicy) applyBlocks(blockCPUSet advisorapi.BlockCPUSet, resp *advisorapi.ListAndWatchResponse) error {
 	if resp == nil {
 		return fmt.Errorf("applyBlocks got nil resp")
@@ -365,7 +369,7 @@ func (p *DynamicPolicy) applyBlocks(blockCPUSet advisorapi.BlockCPUSet, resp *ad
 	dedicatedCPUSet := machine.NewCPUSet()
 	pooledUnionDedicatedCPUSet := machine.NewCPUSet()
 
-	// deal with blocks of dedicated_cores and (none shared and reclaimed) pools
+	// deal with blocks of dedicated_cores and pools
 	for entryName, entry := range resp.Entries {
 		for subEntryName, calculationInfo := range entry.Entries {
 			if calculationInfo == nil {
@@ -375,7 +379,7 @@ func (p *DynamicPolicy) applyBlocks(blockCPUSet advisorapi.BlockCPUSet, resp *ad
 				continue
 			}
 
-			// construct cpuset for this container by union all blocks for it
+			// construct cpuset for this entry by union all blocks for it
 			entryCPUSet, err := calculationInfo.GetCPUSet(entryName, subEntryName, blockCPUSet)
 			if err != nil {
 				return err
@@ -391,7 +395,9 @@ func (p *DynamicPolicy) applyBlocks(blockCPUSet advisorapi.BlockCPUSet, resp *ad
 			// if allocation already exists, update them; otherwise, construct new a new one
 			allocationInfo := curEntries[entryName][subEntryName].Clone()
 			if allocationInfo == nil {
-				if qrmGeneratedInfo(subEntryName, calculationInfo) {
+				// currently cpu advisor can only create new pools,
+				// all container entries or entries with owner pool name dedicated can't be created by cpu advisor
+				if calculationInfo.OwnerPoolName == state.PoolNameDedicated || subEntryName != advisorapi.FakedContainerName {
 					return fmt.Errorf("no-pool entry isn't found in plugin cache, entry: %s, subEntry: %s", entryName, subEntryName)
 				} else if entryName != calculationInfo.OwnerPoolName {
 					return fmt.Errorf("pool entryName: %s and OwnerPoolName: %s mismatch", entryName, calculationInfo.OwnerPoolName)
@@ -448,11 +454,11 @@ func (p *DynamicPolicy) applyBlocks(blockCPUSet advisorapi.BlockCPUSet, resp *ad
 			rampUpCPUs.String(), err)
 	}
 
-	// construct entries for reclaimed
+	// if there is no block for state.PoolNameReclaim pool,
+	// we must make it existing here even if cause overlap
 	if newEntries.CheckPoolEmpty(state.PoolNameReclaim) {
 		reclaimPoolCPUSet := p.machineInfo.CPUDetails.CPUs().Difference(p.reservedCPUs).Difference(pooledUnionDedicatedCPUSet)
 		if reclaimPoolCPUSet.IsEmpty() {
-			// for state.PoolNameReclaim, we must make them exist when the node isn't in hybrid mode even if cause overlap
 			allAvailableCPUs := p.machineInfo.CPUDetails.CPUs().Difference(p.reservedCPUs)
 
 			var tErr error
