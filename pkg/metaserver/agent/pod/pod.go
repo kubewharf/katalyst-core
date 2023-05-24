@@ -150,8 +150,7 @@ func (w *podFetcherImpl) Run(ctx context.Context) {
 
 	watcherCh, err := general.RegisterFileEventWatcher(ctx.Done(), watcherInfo)
 	if err != nil {
-		klog.Errorf("register file event watcher failed: %s", err)
-		return
+		klog.Fatalf("register file event watcher failed: %s", err)
 	}
 
 	timer := time.NewTimer(w.conf.KubeletPodCacheSyncPeriod)
