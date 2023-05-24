@@ -105,13 +105,18 @@ func LoadSPDs(cpm checkpointmanager.CheckpointManager) ([]*v1alpha1.ServiceProfi
 
 // WriteSPD a checkpoint to a file on disk if annotation is present
 func WriteSPD(cpm checkpointmanager.CheckpointManager, spd *v1alpha1.ServiceProfileDescriptor) error {
-	var err error
+	if spd == nil {
+		return fmt.Errorf("spd is nil")
+	}
+
 	data := NewServiceProfileCheckpoint(spd)
-	err = cpm.CreateCheckpoint(getSPDKey(spd), data)
-	return err
+	return cpm.CreateCheckpoint(getSPDKey(spd), data)
 }
 
 // DeleteSPD deletes a checkpoint from disk if present
 func DeleteSPD(cpm checkpointmanager.CheckpointManager, spd *v1alpha1.ServiceProfileDescriptor) error {
+	if spd == nil {
+		return nil
+	}
 	return cpm.RemoveCheckpoint(getSPDKey(spd))
 }
