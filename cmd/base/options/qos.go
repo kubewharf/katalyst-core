@@ -33,10 +33,13 @@ type QoSOptions struct {
 	PodAnnotationQoSLevelSystemSelector    []string
 
 	PodAnnotationQoSEnhancements []string
+	EnhancementDefaultValues     map[string]string
 }
 
 func NewQoSOptions() *QoSOptions {
-	return &QoSOptions{}
+	return &QoSOptions{
+		EnhancementDefaultValues: make(map[string]string),
+	}
 }
 
 // AddFlags adds flags  to the specified FlagSet.
@@ -52,6 +55,8 @@ func (o *QoSOptions) AddFlags(fs *pflag.FlagSet) {
 
 	fs.StringSliceVar(&o.PodAnnotationQoSEnhancements, "pod-annotation-qos-enhancements",
 		o.PodAnnotationQoSEnhancements, "qos enhancement mappers for katalyst")
+	fs.StringToStringVar(&o.EnhancementDefaultValues, "qos-enhancement-default-values",
+		o.EnhancementDefaultValues, "qos enhancement default values for corresponding keys")
 }
 
 func (o *QoSOptions) ApplyTo(c *generic.QoSConfiguration) error {
@@ -70,6 +75,8 @@ func (o *QoSOptions) ApplyTo(c *generic.QoSConfiguration) error {
 	if err := o.applyToExpandQoSEnhancement(c, o.PodAnnotationQoSEnhancements); err != nil {
 		return err
 	}
+
+	o.applyToEnhancementDefaultValues(c, o.EnhancementDefaultValues)
 	return nil
 }
 
@@ -101,4 +108,8 @@ func (o *QoSOptions) applyToExpandQoSEnhancement(c *generic.QoSConfiguration, po
 
 	c.SetExpandQoSEnhancementSelector(enhancementMap)
 	return nil
+}
+
+func (o *QoSOptions) applyToEnhancementDefaultValues(c *generic.QoSConfiguration, enhancementDefaultValues map[string]string) {
+	c.SetEnhancementDefaultValues(enhancementDefaultValues)
 }

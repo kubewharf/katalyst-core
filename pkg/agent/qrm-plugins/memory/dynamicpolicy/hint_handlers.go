@@ -30,6 +30,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/memory/dynamicpolicy/state"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
+	qosutil "github.com/kubewharf/katalyst-core/pkg/util/qos"
 )
 
 func (p *DynamicPolicy) sharedCoresHintHandler(ctx context.Context,
@@ -118,7 +119,7 @@ func (p *DynamicPolicy) dedicatedCoresWithNUMABindingHintHandler(ctx context.Con
 	if hints == nil {
 		var calculateErr error
 		// calculate hint for container without allocated memory
-		hints, calculateErr = p.calculateHints(uint64(reqInt), resourcesMachineState)
+		hints, calculateErr = p.calculateHints(uint64(reqInt), resourcesMachineState, req.Annotations)
 		if calculateErr != nil {
 			return nil, fmt.Errorf("calculateHints failed with error: %v", calculateErr)
 		}
@@ -135,7 +136,9 @@ func (p *DynamicPolicy) dedicatedCoresWithoutNUMABindingHintHandler(ctx context.
 
 // calculateHints is a helper function to calculate the topology hints
 // with the given container requests.
-func (p *DynamicPolicy) calculateHints(reqInt uint64, resourcesMachineState state.NUMANodeResourcesMap) (map[string]*pluginapi.ListOfTopologyHints, error) {
+func (p *DynamicPolicy) calculateHints(reqInt uint64, resourcesMachineState state.NUMANodeResourcesMap,
+	reqAnnotations map[string]string) (map[string]*pluginapi.ListOfTopologyHints, error) {
+
 	machineState := resourcesMachineState[v1.ResourceMemory]
 
 	if len(machineState) == 0 {
@@ -164,6 +167,14 @@ func (p *DynamicPolicy) calculateHints(reqInt uint64, resourcesMachineState stat
 		return nil, fmt.Errorf("GetNUMANodesCountToFitMemoryReq failed with error: %v", err)
 	}
 
+	// because it's hard to control memory allocation accurately,
+	// we only support numa_binding but not exclusive container with request smaller than 1 NUMA
+	if qosutil.AnnotationsIndicateNUMABinding(reqAnnotations) &&
+		!qosutil.AnnotationsIndicateNUMAExclusive(reqAnnotations) &&
+		minNUMAsCountNeeded > 1 {
+		return nil, fmt.Errorf("NUMA not exclusive binding container has request larger than 1 NUMA")
+	}
+
 	numaPerSocket, err := p.topology.NUMAsPerSocket()
 	if err != nil {
 		return nil, fmt.Errorf("NUMAsPerSocket failed with error: %v", err)
@@ -172,6 +183,12 @@ func (p *DynamicPolicy) calculateHints(reqInt uint64, resourcesMachineState stat
 	bitmask.IterateBitMasks(numaNodes, func(mask bitmask.BitMask) {
 		maskCount := mask.Count()
 		if maskCount < minNUMAsCountNeeded {
+			return
+		} else if qosutil.AnnotationsIndicateNUMABinding(reqAnnotations) &&
+			!qosutil.AnnotationsIndicateNUMAExclusive(reqAnnotations) &&
+			maskCount > 1 {
+			// because it's hard to control memory allocation accurately,
+			// we only support numa_binding but not exclusive container with request smaller than 1 NUMA
 			return
 		}
 
@@ -182,6 +199,10 @@ func (p *DynamicPolicy) calculateHints(reqInt uint64, resourcesMachineState stat
 		for _, nodeID := range maskBits {
 			if machineState[nodeID] == nil {
 				klog.Warningf("[MemoryDynamicPolicy.calculateHints] NUMA: %d has nil state", nodeID)
+				return
+			} else if machineState[nodeID].Free == 0 {
+				klog.Warningf("[MemoryDynamicPolicy.calculateHints] NUMA: %d free quantity is zero, skip mask: %s",
+					nodeID, mask.String())
 				return
 			}
 

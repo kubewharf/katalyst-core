@@ -30,6 +30,7 @@ import (
 	cgroupcmutils "github.com/kubewharf/katalyst-core/pkg/util/cgroup/manager"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
+	qosutil "github.com/kubewharf/katalyst-core/pkg/util/qos"
 )
 
 func (p *DynamicPolicy) sharedCoresAllocationHandler(ctx context.Context,
@@ -416,6 +417,12 @@ func (p *DynamicPolicy) adjustAllocationEntries() error {
 func (p *DynamicPolicy) allocateMemory(req *pluginapi.ResourceRequest, machineState state.NUMANodeMap, qosLevel string) error {
 	if req.Hint == nil {
 		return fmt.Errorf("hint is nil")
+	} else if len(req.Hint.Nodes) == 0 {
+		return fmt.Errorf("hint is empty")
+	} else if qosutil.AnnotationsIndicateNUMABinding(req.Annotations) &&
+		!qosutil.AnnotationsIndicateNUMAExclusive(req.Annotations) &&
+		len(req.Hint.Nodes) > 1 {
+		return fmt.Errorf("NUMA not exclusive binding container has request larger than 1 NUMA")
 	}
 
 	memoryReq, err := getReqQuantityFromResourceReq(req)
@@ -432,9 +439,25 @@ func (p *DynamicPolicy) allocateMemory(req *pluginapi.ResourceRequest, machineSt
 		"hints", hintNumaNodes.String(),
 		"reqMemoryQuantity", memoryReq)
 
-	// todo: currently we hack dedicated_cores with NUMA binding take up whole NUMA,
-	//  and we will modify strategy here if assumption above breaks.
-	leftQuantity := allocateAllFreeMemoryInNumaNodes(req, machineState, hintNumaNodes.ToSliceInt(), uint64(memoryReq), qosLevel)
+	var leftQuantity uint64
+
+	if qosutil.AnnotationsIndicateNUMABinding(req.Annotations) &&
+		qosutil.AnnotationsIndicateNUMAExclusive(req.Annotations) {
+
+		var err error
+		leftQuantity, err = allocateAllFreeMemoryInNumaNodes(req, machineState, hintNumaNodes.ToSliceInt(), uint64(memoryReq), qosLevel)
+
+		if err != nil {
+			return fmt.Errorf("allocateAllFreeMemoryInNumaNodes failed with error: %v", err)
+		}
+	} else {
+		var err error
+		leftQuantity, err = allocateMemoryInNumaNodes(req, machineState, hintNumaNodes.ToSliceInt(), uint64(memoryReq), qosLevel)
+
+		if err != nil {
+			return fmt.Errorf("allocateAllFreeMemoryInNumaNodes failed with error: %v", err)
+		}
+	}
 
 	if leftQuantity > 0 {
 		klog.Errorf("[MemoryDynamicPolicy.allocateMemory] hint NUMA nodes: %s can't meet memory request: %d bytes, leftQuantity: %s",
@@ -449,11 +472,16 @@ func (p *DynamicPolicy) allocateMemory(req *pluginapi.ResourceRequest, machineSt
 // allocateAllFreeMemoryInNumaNodes tries to allocate all memories in the numa list to
 // the given container, and returns the remaining un-satisfied quantity.
 func allocateAllFreeMemoryInNumaNodes(req *pluginapi.ResourceRequest,
-	machineState state.NUMANodeMap, numaNodes []int, reqQuantity uint64, qosLevel string) (leftQuantity uint64) {
+	machineState state.NUMANodeMap, numaNodes []int, reqQuantity uint64, qosLevel string) (leftQuantity uint64, err error) {
 	for _, numaNode := range numaNodes {
 		var curNumaNodeAllocated uint64 = 0
 
 		numaNodeState := machineState[numaNode]
+
+		if numaNodeState == nil {
+			return reqQuantity, fmt.Errorf("NUMA: %d has nil state", numaNode)
+		}
+
 		if numaNodeState.Free > 0 {
 			curNumaNodeAllocated = numaNodeState.Free
 			if reqQuantity < numaNodeState.Free {
@@ -497,7 +525,7 @@ func allocateAllFreeMemoryInNumaNodes(req *pluginapi.ResourceRequest,
 		}
 	}
 
-	return reqQuantity
+	return reqQuantity, nil
 }
 
 func packMemoryResourceAllocationResponseByAllocationInfo(allocationInfo *state.AllocationInfo, req *pluginapi.ResourceRequest) (*pluginapi.ResourceAllocationResponse, error) {
@@ -586,4 +614,66 @@ func (p *DynamicPolicy) allocateAllNUMAs(ctx context.Context, req *pluginapi.Res
 	p.state.SetMachineState(resourcesMachineState)
 
 	return resp, nil
+}
+
+// allocateMemoryInNumaNodes tries to allocate memories in the numa list to
+// the given container, and returns the remaining un-satisfied quantity.
+func allocateMemoryInNumaNodes(req *pluginapi.ResourceRequest,
+	machineState state.NUMANodeMap, numaNodes []int,
+	reqQuantity uint64, qosLevel string) (leftQuantity uint64, err error) {
+
+	for _, numaNode := range numaNodes {
+		var curNumaNodeAllocated uint64 = 0
+
+		numaNodeState := machineState[numaNode]
+
+		if numaNodeState == nil {
+			return reqQuantity, fmt.Errorf("NUMA: %d has nil state", numaNode)
+		}
+
+		if numaNodeState.Free > 0 {
+			if reqQuantity < numaNodeState.Free {
+				curNumaNodeAllocated = reqQuantity
+				reqQuantity = 0
+			} else {
+				curNumaNodeAllocated = numaNodeState.Free
+				reqQuantity -= numaNodeState.Free
+			}
+			numaNodeState.Free -= curNumaNodeAllocated
+			numaNodeState.Allocated += curNumaNodeAllocated
+		}
+
+		if curNumaNodeAllocated == 0 {
+			continue
+		}
+
+		if numaNodeState.PodEntries == nil {
+			numaNodeState.PodEntries = make(state.PodEntries)
+		}
+
+		if numaNodeState.PodEntries[req.PodUid] == nil {
+			numaNodeState.PodEntries[req.PodUid] = make(state.ContainerEntries)
+		}
+
+		numaNodeState.PodEntries[req.PodUid][req.ContainerName] = &state.AllocationInfo{
+			PodUid:               req.PodUid,
+			PodNamespace:         req.PodNamespace,
+			PodName:              req.PodName,
+			ContainerName:        req.ContainerName,
+			ContainerType:        req.ContainerType.String(),
+			ContainerIndex:       req.ContainerIndex,
+			PodRole:              req.PodRole,
+			PodType:              req.PodType,
+			AggregatedQuantity:   curNumaNodeAllocated,
+			NumaAllocationResult: machine.NewCPUSet(numaNode),
+			TopologyAwareAllocations: map[int]uint64{
+				numaNode: curNumaNodeAllocated,
+			},
+			Labels:      general.DeepCopyMap(req.Labels),
+			Annotations: general.DeepCopyMap(req.Annotations),
+			QoSLevel:    qosLevel,
+		}
+	}
+
+	return reqQuantity, nil
 }

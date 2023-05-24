@@ -244,7 +244,10 @@ func (ns *NUMANodeState) GetDefaultCPUSetExcludeNUMABindingPods() machine.CPUSet
 			if allocationInfo != nil &&
 				allocationInfo.QoSLevel == consts.PodAnnotationQoSLevelDedicatedCores &&
 				allocationInfo.Annotations[consts.PodAnnotationMemoryEnhancementNumaBinding] == consts.PodAnnotationMemoryEnhancementNumaBindingEnable {
-				res = res.Difference(allocationInfo.AllocationResult)
+				// currently if there is a numa_binding pod in the NUMA node,
+				// we don't allocate cpus in this NUMA node to pools, since the memory allocation can't be controlled now.
+				// maybe we will use res = res.Difference(allocationInfo.AllocationResult) here later.
+				return machine.NewCPUSet()
 			}
 		}
 	}

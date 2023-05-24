@@ -62,6 +62,12 @@ type QoSConfiguration struct {
 	// qosCheckFunc is used as a syntactic sugar to easily walk through
 	// all QoS Level validation functions
 	qosCheckFuncMap map[string]qosValidationFunc
+
+	// for different situation, there may be different default values for enhancement keys
+	// we use options to control those different values
+	// the key here is specific enhancement key such as "numa_binding", "numa_exclusive"
+	// the value is the default value of the key
+	EnhancementDefaultValues map[string]string
 }
 
 // NewQoSConfiguration creates a new qos configuration.
@@ -82,6 +88,7 @@ func NewQoSConfiguration() *QoSConfiguration {
 			},
 		},
 		QoSEnhancementAnnotationSelector: make(map[string]string),
+		EnhancementDefaultValues:         make(map[string]string),
 	}
 
 	c.qosCheckFuncMap = map[string]qosValidationFunc{
@@ -124,6 +131,14 @@ func (c *QoSConfiguration) FilterQoSAndEnhancement(annotations map[string]string
 				}
 				filteredAnnotations[key] = val
 			}
+		}
+	}
+
+	for enhancementKey, defaultValue := range c.EnhancementDefaultValues {
+		if _, found := filteredAnnotations[enhancementKey]; !found {
+			klog.Infof("[FilterQoSAndEnhancement] enhancementKey: %s isn't declared, "+
+				"set its value to defaultValue: %s", enhancementKey, defaultValue)
+			filteredAnnotations[enhancementKey] = defaultValue
 		}
 	}
 
@@ -297,6 +312,14 @@ func (c *QoSConfiguration) CheckSystemQoS(annotations map[string]string) (bool, 
 	} else {
 		return qosLevel == apiconsts.PodAnnotationQoSLevelSystemCores, nil
 	}
+}
+
+// SetEnhancementDefaultValues set default values for enhancement keys
+// because sometimes we need different default values for enhancement keys in different types of clusters
+func (c *QoSConfiguration) SetEnhancementDefaultValues(enhancementDefaultValues map[string]string) {
+	c.Lock()
+	defer c.Unlock()
+	c.EnhancementDefaultValues = general.MergeMap(c.EnhancementDefaultValues, enhancementDefaultValues)
 }
 
 // checkQosMatched is a unified helper function to judge whether annotation
