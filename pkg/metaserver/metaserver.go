@@ -25,6 +25,7 @@ import (
 	"os"
 
 	"go.uber.org/atomic"
+	"k8s.io/klog/v2"
 
 	"github.com/kubewharf/katalyst-core/pkg/client"
 	pkgconfig "github.com/kubewharf/katalyst-core/pkg/config"
@@ -84,7 +85,8 @@ func NewMetaServer(clientSet *client.GenericClientSet, emitter metrics.MetricEmi
 }
 
 func (m *MetaServer) Run(ctx context.Context) {
-	if !m.started.Swap(true) {
+	if m.started.Swap(true) {
+		klog.Errorf("meta server run twice")
 		return
 	}
 
