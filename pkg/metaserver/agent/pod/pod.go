@@ -39,6 +39,7 @@ const (
 	metricsNamePodCacheSync       = "pod_cache_sync"
 	metricsNamePodCacheTotalCount = "pod_cache_total_count"
 	metricsNamePodCacheNotFound   = "pod_cache_not_found"
+	metricsNamePodFetcherHealth   = "pod_fetcher_health"
 )
 
 type ContextKey string
@@ -315,6 +316,8 @@ func (w *podFetcherImpl) checkPodCache() {
 	w.runtimePodsCacheLock.RLock()
 	runtimePodsCache := w.runtimePodsCache
 	w.runtimePodsCacheLock.RUnlock()
+
+	_ = w.emitter.StoreInt64(metricsNamePodFetcherHealth, 1, metrics.MetricTypeNameRaw)
 
 	klog.Infof("total kubelet pod count is %d", len(kubeletPodsCache))
 	_ = w.emitter.StoreInt64(metricsNamePodCacheTotalCount, int64(len(kubeletPodsCache)), metrics.MetricTypeNameRaw,

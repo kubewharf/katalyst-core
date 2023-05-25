@@ -32,3 +32,11 @@ type ExternalManager interface {
 
 	Run(ctx context.Context)
 }
+
+type DummyExternalManager struct {
+	cgroupid.CgroupIDManager
+	network.NetworkManager
+	rdt.RDTManager
+}
+
+func (d *DummyExternalManager) Run(_ context.Context) {}
