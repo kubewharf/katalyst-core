@@ -17,6 +17,8 @@ limitations under the License.
 package machine
 
 import (
+	"fmt"
+
 	"k8s.io/kubernetes/pkg/kubelet/cm/topologymanager/bitmask"
 )
 
@@ -86,4 +88,25 @@ func MaskToUInt64Array(mask bitmask.BitMask) []uint64 {
 	}
 
 	return maskBitsUint64
+}
+
+// GetSiblingNUMAs returns numa IDs that lays in the socket with the given numa
+func GetSiblingNUMAs(numaID int, topology *CPUTopology) (CPUSet, error) {
+	if topology == nil {
+		return NewCPUSet(), fmt.Errorf("getSiblingNUMAs got nil topology")
+	}
+
+	socketSet := topology.CPUDetails.SocketsInNUMANodes(numaID)
+	if socketSet.Size() != 1 {
+		return NewCPUSet(), fmt.Errorf("get invalid socketSet: %s from NUMA: %d",
+			socketSet.String(), numaID)
+	}
+
+	numaSet := topology.CPUDetails.NUMANodesInSockets(socketSet.ToSliceNoSortInt()...)
+	if numaSet.IsEmpty() {
+		return NewCPUSet(), fmt.Errorf("get empty numaSet from socketSet: %s",
+			socketSet.String())
+	}
+
+	return numaSet, nil
 }

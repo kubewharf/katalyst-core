@@ -59,7 +59,6 @@ const (
 	testNetInterfaceNameResourceAllocationAnnotationKey = "qrm.katalyst.kubewharf.io/nic_name"
 	testNetClassIDResourceAllocationAnnotationKey       = "qrm.katalyst.kubewharf.io/netcls_id"
 	testNetBandwidthResourceAllocationAnnotationKey     = "qrm.katalyst.kubewharf.io/net_bandwidth"
-	testNetNSDirAbsPath                                 = "/var/run/netns"
 
 	testHostPreferEnhancementValue    = "{\"namespace_type\": \"host-prefer\"}"
 	testNotHostPreferEnhancementValue = "{\"namespace_type\": \"not-host-prefer\"}"
@@ -67,13 +66,13 @@ const (
 
 	testEth0Name               = "eth0"
 	testEth0AffinitiveNUMANode = 0
-	testEth0IPv4               = "10.21.181.215"
+	testEth0IPv4               = "1.1.1.1"
 	testEth0NSAbsolutePath     = ""
 	testEth0NSName             = ""
 
 	testEth2Name               = "eth2"
 	testEth2AffinitiveNUMANode = 2
-	testEth2IPv6               = "fdbd:dc05:1:89::43"
+	testEth2IPv6               = "::ffff:192.0.2.1"
 	testEth2NSAbsolutePath     = "/var/run/ns2"
 	testEth2NSName             = "ns2"
 )
@@ -91,7 +90,8 @@ func makeMetaServer() *metaserver.MetaServer {
 	return &metaserver.MetaServer{
 		MetaAgent: &metaserveragent.MetaAgent{
 			KatalystMachineInfo: &machine.KatalystMachineInfo{
-				CPUTopology: cpuTopology,
+				CPUTopology:      cpuTopology,
+				ExtraNetworkInfo: &machine.ExtraNetworkInfo{},
 			},
 		},
 		ExternalManager: external.InitExternalManager(&pod.PodFetcherStub{}),
@@ -137,28 +137,30 @@ func makeStaticPolicy(t *testing.T) *StaticPolicy {
 		netInterfaceNameResourceAllocationAnnotationKey: testNetInterfaceNameResourceAllocationAnnotationKey,
 		netClassIDResourceAllocationAnnotationKey:       testNetClassIDResourceAllocationAnnotationKey,
 		netBandwidthResourceAllocationAnnotationKey:     testNetBandwidthResourceAllocationAnnotationKey,
-		netNSDirAbsPath:                                 testNetNSDirAbsPath,
 	}
 }
 
-func makeNICs() []*NetworkInterface {
-	return []*NetworkInterface{
+func makeNICs() []machine.InterfaceInfo {
+	v4 := net.ParseIP(testEth0IPv4)
+	v6 := net.ParseIP(testEth2IPv6)
+
+	return []machine.InterfaceInfo{
 		{
-			Name:               testEth0Name,
-			AffinitiveNUMANode: testEth0AffinitiveNUMANode,
-			Enabled:            true,
-			Addr: NetworkInterfaceAddr{
-				IPv4: []net.IP{net.ParseIP(testEth0IPv4)},
+			Iface:    testEth0Name,
+			NumaNode: testEth0AffinitiveNUMANode,
+			Enable:   true,
+			Addr: &machine.IfaceAddr{
+				IPV4: []*net.IP{&v4},
 			},
 			NSAbsolutePath: testEth0NSAbsolutePath,
 			NSName:         testEth0NSName,
 		},
 		{
-			Name:               testEth2Name,
-			AffinitiveNUMANode: testEth2AffinitiveNUMANode,
-			Enabled:            true,
-			Addr: NetworkInterfaceAddr{
-				IPv6: []net.IP{net.ParseIP(testEth2IPv6)},
+			Iface:    testEth2Name,
+			NumaNode: testEth2AffinitiveNUMANode,
+			Enable:   true,
+			Addr: &machine.IfaceAddr{
+				IPV6: []*net.IP{&v6},
 			},
 			NSAbsolutePath: testEth2NSAbsolutePath,
 			NSName:         testEth2NSName,
@@ -432,6 +434,8 @@ func TestAllocate(t *testing.T) {
 		assert.NotNil(t, resp)
 
 		tc.expectedResp.PodUid = tc.req.PodUid
+		t.Logf("expect: %v", tc.expectedResp.AllocationResult)
+		t.Logf("actucal: %v", resp.AllocationResult)
 		assert.Equalf(t, tc.expectedResp, resp, "failed in test case: %s", tc.description)
 	}
 }

@@ -96,7 +96,7 @@ func (s CPUSet) Add(elems ...int) {
 	}
 }
 
-// Add adds the supplied uint64 elements to the result.
+// AddUint64 adds the supplied uint64 elements to the result.
 func (s CPUSet) AddUint64(elems ...uint64) error {
 	for _, elem := range elems {
 		elemInt := int(elem)

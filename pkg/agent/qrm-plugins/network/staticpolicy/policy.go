@@ -39,6 +39,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/util/cgroup/common"
 	cgroupcmutils "github.com/kubewharf/katalyst-core/pkg/util/cgroup/manager"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
+	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 	"github.com/kubewharf/katalyst-core/pkg/util/native"
 	"github.com/kubewharf/katalyst-core/pkg/util/qos"
 )
@@ -65,7 +66,7 @@ type StaticPolicy struct {
 	emitter    metrics.MetricEmitter
 	metaServer *metaserver.MetaServer
 	agentCtx   *agent.GenericContext
-	nics       []*NetworkInterface
+	nics       []machine.InterfaceInfo
 
 	CgroupV2Env                                     bool
 	qosLevelToNetClassMap                           map[string]uint32
@@ -78,7 +79,6 @@ type StaticPolicy struct {
 	netInterfaceNameResourceAllocationAnnotationKey string
 	netClassIDResourceAllocationAnnotationKey       string
 	netBandwidthResourceAllocationAnnotationKey     string
-	netNSDirAbsPath                                 string
 }
 
 // NewStaticPolicy returns a static network policy
@@ -90,6 +90,7 @@ func NewStaticPolicy(agentCtx *agent.GenericContext, conf *config.Configuration,
 	})
 
 	policyImplement := &StaticPolicy{
+		nics:                  agentCtx.KatalystMachineInfo.ExtraNetworkInfo.Interface,
 		qosConfig:             conf.QoSConfiguration,
 		emitter:               wrappedEmitter,
 		metaServer:            agentCtx.MetaServer,
@@ -110,8 +111,7 @@ func NewStaticPolicy(agentCtx *agent.GenericContext, conf *config.Configuration,
 	policyImplement.ApplyConfig(conf.DynamicConfiguration)
 
 	pluginWrapper, err := skeleton.NewRegistrationPluginWrapper(
-		policyImplement,
-		conf.QRMPluginSocketDirs, nil)
+		policyImplement, conf.QRMPluginSocketDirs, nil)
 	if err != nil {
 		return false, agent.ComponentStub{}, fmt.Errorf("static policy new plugin wrapper failed with error: %v", err)
 	}
@@ -137,7 +137,6 @@ func (p *StaticPolicy) ApplyConfig(conf *config.DynamicConfiguration) {
 	p.netInterfaceNameResourceAllocationAnnotationKey = conf.NetInterfaceNameResourceAllocationAnnotationKey
 	p.netClassIDResourceAllocationAnnotationKey = conf.NetClassIDResourceAllocationAnnotationKey
 	p.netBandwidthResourceAllocationAnnotationKey = conf.NetBandwidthResourceAllocationAnnotationKey
-	p.netNSDirAbsPath = conf.NetNSDirAbsPath
 
 	general.Infof("apply configs, "+
 		"qosLevelToNetClassMap: %+v, "+
@@ -165,14 +164,7 @@ func (p *StaticPolicy) Start() (err error) {
 		return nil
 	}
 
-	p.nics, err = GetNetworkInterfaces(p.netNSDirAbsPath)
-
-	if err != nil {
-		return fmt.Errorf("GetNetworkInterfaces failed with error: %v", err)
-	}
-
 	p.stopCh = make(chan struct{})
-	// do nics initialization here to avoid blocking all plungins start
 
 	go wait.Until(func() {
 		_ = p.emitter.StoreInt64(util.MetricNameHeartBeat, 1, metrics.MetricTypeNameRaw)
@@ -210,7 +202,6 @@ func (p *StaticPolicy) ResourceName() string {
 }
 
 func (p *StaticPolicy) calculateHints(req *pluginapi.ResourceRequest) (map[string]*pluginapi.ListOfTopologyHints, error) {
-
 	hints := map[string]*pluginapi.ListOfTopologyHints{
 		ResourceNameNetBandwidth: {
 			Hints: []*pluginapi.TopologyHint{},
@@ -218,13 +209,12 @@ func (p *StaticPolicy) calculateHints(req *pluginapi.ResourceRequest) (map[strin
 	}
 
 	filteredNICs, err := filterAvailableNICsByReq(p.nics, req, p.agentCtx)
-
 	if err != nil {
 		return nil, fmt.Errorf("filterAvailableNICsByReq failed with error: %v", err)
 	}
 
 	if len(filteredNICs) == 0 {
-		general.InfoS("filteredNICs is emptry",
+		general.InfoS("filteredNICs is empty",
 			"podNamespace", req.PodNamespace,
 			"podName", req.PodName,
 			"containerName", req.ContainerName)
@@ -232,25 +222,19 @@ func (p *StaticPolicy) calculateHints(req *pluginapi.ResourceRequest) (map[strin
 	}
 
 	numasToHintMap := make(map[string]*pluginapi.TopologyHint)
-
 	for _, nic := range filteredNICs {
-		siblingNUMAs, err := getSiblingNUMAs(nic.AffinitiveNUMANode, p.agentCtx.CPUTopology)
-
+		siblingNUMAs, err := machine.GetSiblingNUMAs(nic.NumaNode, p.agentCtx.CPUTopology)
 		if err != nil {
-			return nil, fmt.Errorf("get siblingNUMAs for nic: %s failed with error: %v",
-				nic.Name, err)
+			return nil, fmt.Errorf("get siblingNUMAs for nic: %s failed with error: %v", nic.Iface, err)
 		}
 
-		// [TODO]: shoud be refined when involving bandwidth calculation
-		nicPreference, err := getNICPreferenceOfReq(nic, req.Annotations)
-
+		// TODO: should be refined when involving bandwidth calculation
+		nicPreference, err := checkNICPreferenceOfReq(nic, req.Annotations)
 		if err != nil {
-			return nil, fmt.Errorf("getNICPreferenceOfReq for nic: %s failed with error: %v",
-				nic.Name, err)
+			return nil, fmt.Errorf("checkNICPreferenceOfReq for nic: %s failed with error: %v", nic.Iface, err)
 		}
 
 		siblingNUMAsStr := siblingNUMAs.String()
-
 		if numasToHintMap[siblingNUMAsStr] == nil {
 			numasToHintMap[siblingNUMAsStr] = &pluginapi.TopologyHint{
 				Nodes: siblingNUMAs.ToSliceUInt64(),
@@ -262,7 +246,7 @@ func (p *StaticPolicy) calculateHints(req *pluginapi.ResourceRequest) (map[strin
 				"podNamespace", req.PodNamespace,
 				"podName", req.PodName,
 				"containerName", req.ContainerName,
-				"nic", nic.Name)
+				"nic", nic.Iface)
 			numasToHintMap[siblingNUMAsStr].Preferred = nicPreference
 		}
 	}
@@ -313,7 +297,6 @@ func (p *StaticPolicy) GetTopologyHints(_ context.Context,
 	p.Lock()
 	defer func() {
 		p.Unlock()
-
 		if err != nil {
 			_ = p.emitter.StoreInt64(util.MetricNameGetTopologyHintsFailed, 1, metrics.MetricTypeNameRaw)
 		}
@@ -326,7 +309,6 @@ func (p *StaticPolicy) GetTopologyHints(_ context.Context,
 	}
 
 	hints, err := p.calculateHints(req)
-
 	if err != nil {
 		err = fmt.Errorf("calculateHints for pod: %s/%s, container: %s failed with error: %v",
 			req.PodNamespace, req.PodName, req.ContainerName, err)
@@ -349,7 +331,6 @@ func (p *StaticPolicy) RemovePod(_ context.Context,
 			return nil, err
 		}
 	}
-
 	return &pluginapi.RemovePodResponse{}, nil
 }
 
@@ -381,31 +362,29 @@ func (p *StaticPolicy) GetResourcePluginOptions(context.Context,
 	}, nil
 }
 
-func (p *StaticPolicy) selectNICByReq(req *pluginapi.ResourceRequest) (*NetworkInterface, error) {
+func (p *StaticPolicy) selectNICByReq(req *pluginapi.ResourceRequest) (machine.InterfaceInfo, error) {
 	filteredNICs, err := filterAvailableNICsByReq(p.nics, req, p.agentCtx)
-
 	if err != nil {
-		return nil, fmt.Errorf("filterAvailableNICsByReq failed with error: %v", err)
+		return machine.InterfaceInfo{}, fmt.Errorf("filterAvailableNICsByReq failed with error: %v", err)
 	} else if len(filteredNICs) == 0 {
-		return nil, fmt.Errorf("filteredNICs is emptry")
+		return machine.InterfaceInfo{}, fmt.Errorf("filteredNICs is emptry")
 	}
 
 	return getRandomNICs(filteredNICs), nil
 }
 
-// [TODO]: fill resource allocation annotations with allocated bandwidth quantity
-func (p *StaticPolicy) getResourceAllocationAnnotations(podAnnotations map[string]string, selectedNIC *NetworkInterface) (map[string]string, error) {
+// TODO: fill resource allocation annotations with allocated bandwidth quantity
+func (p *StaticPolicy) getResourceAllocationAnnotations(podAnnotations map[string]string, selectedNIC machine.InterfaceInfo) (map[string]string, error) {
 	netClsID, err := p.getNetClassID(podAnnotations, p.podLevelNetClassAnnoKey)
-
 	if err != nil {
 		return nil, fmt.Errorf("getNetClassID failed with error: %v", err)
 	}
 
 	return map[string]string{
-		p.ipv4ResourceAllocationAnnotationKey:             strings.Join(getNICIPs(selectedNIC, 4), IPsSeparator),
-		p.ipv6ResourceAllocationAnnotationKey:             strings.Join(getNICIPs(selectedNIC, 6), IPsSeparator),
+		p.ipv4ResourceAllocationAnnotationKey:             strings.Join(selectedNIC.GetNICIPs(machine.IPVersionV4), IPsSeparator),
+		p.ipv6ResourceAllocationAnnotationKey:             strings.Join(selectedNIC.GetNICIPs(machine.IPVersionV6), IPsSeparator),
 		p.netNSPathResourceAllocationAnnotationKey:        selectedNIC.NSAbsolutePath,
-		p.netInterfaceNameResourceAllocationAnnotationKey: selectedNIC.Name,
+		p.netInterfaceNameResourceAllocationAnnotationKey: selectedNIC.Iface,
 		p.netClassIDResourceAllocationAnnotationKey:       fmt.Sprintf("%d", netClsID),
 	}, nil
 }
@@ -442,13 +421,12 @@ func (p *StaticPolicy) Allocate(_ context.Context,
 	p.Lock()
 	defer func() {
 		p.Unlock()
-
 		if err != nil {
 			_ = p.emitter.StoreInt64(util.MetricNameAllocateFailed, 1, metrics.MetricTypeNameRaw)
 		}
 	}()
 
-	// currently not to deal with init containers
+	// currently, not to deal with init containers
 	if req.ContainerType == pluginapi.ContainerType_INIT {
 		return &pluginapi.ResourceAllocationResponse{
 			PodUid:         req.PodUid,
@@ -466,7 +444,6 @@ func (p *StaticPolicy) Allocate(_ context.Context,
 	}
 
 	selectedNIC, err := p.selectNICByReq(req)
-
 	if err != nil {
 		err = fmt.Errorf("selectNICByReq for pod: %s/%s, container: %s failed with error: %v",
 			req.PodNamespace, req.PodName, req.ContainerName, err)
@@ -475,7 +452,6 @@ func (p *StaticPolicy) Allocate(_ context.Context,
 	}
 
 	resourceAllocationAnnotations, err := p.getResourceAllocationAnnotations(podAnnotations, selectedNIC)
-
 	if err != nil {
 		err = fmt.Errorf("getResourceAllocationAnnotations for pod: %s/%s, container: %s failed with error: %v",
 			req.PodNamespace, req.PodName, req.ContainerName, err)
@@ -498,7 +474,7 @@ func (p *StaticPolicy) Allocate(_ context.Context,
 				ResourceNameNetBandwidth: {
 					IsNodeResource:    false,
 					IsScalarResource:  true, // to avoid re-allocating
-					AllocatedQuantity: 0,    // [TODO] fill it with allocated bandwidth quantity
+					AllocatedQuantity: 0,    // TODO fill it with allocated bandwidth quantity
 					Annotations:       resourceAllocationAnnotations,
 					ResourceHints: &pluginapi.ListOfTopologyHints{
 						Hints: []*pluginapi.TopologyHint{
@@ -534,7 +510,6 @@ func (p *StaticPolicy) applyNetClass() {
 	}
 
 	for _, pod := range podList {
-
 		if pod == nil {
 			general.Errorf("get nil pod from metaServer")
 			continue

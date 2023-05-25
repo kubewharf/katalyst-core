@@ -26,11 +26,13 @@ import (
 	info "github.com/google/cadvisor/info/v1"
 	"github.com/google/cadvisor/machine"
 	"github.com/google/cadvisor/utils/sysfs"
+
+	"github.com/kubewharf/katalyst-core/pkg/config/agent/global"
 )
 
 // GetKatalystMachineInfo returns KatalystMachineInfo by collecting machine info
 // actually, this function should be only called in initial processes
-func GetKatalystMachineInfo() (*KatalystMachineInfo, error) {
+func GetKatalystMachineInfo(conf *global.MachineInfoConfiguration) (*KatalystMachineInfo, error) {
 	machineInfo, err := getMachineInfo()
 	if err != nil {
 		return nil, err
@@ -46,7 +48,7 @@ func GetKatalystMachineInfo() (*KatalystMachineInfo, error) {
 		return nil, err
 	}
 
-	extraNetworkInfo, err := GetExtraNetworkInfo()
+	extraNetworkInfo, err := GetExtraNetworkInfo(conf)
 	if err != nil {
 		return nil, err
 	}

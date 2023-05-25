@@ -1,3 +1,6 @@
+//go:build !linux && !windows
+// +build !linux,!windows
+
 /*
 Copyright 2022 The Katalyst Authors.
 
@@ -14,20 +17,14 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package staticpolicy
+package machine
 
-import "net"
+import (
+	"github.com/kubewharf/katalyst-core/pkg/config/agent/global"
+)
 
-type NetworkInterfaceAddr struct {
-	IPv4 []net.IP
-	IPv6 []net.IP
-}
-
-type NetworkInterface struct {
-	Name               string
-	AffinitiveNUMANode int
-	Enabled            bool
-	Addr               NetworkInterfaceAddr
-	NSAbsolutePath     string
-	NSName             string
+// GetExtraNetworkInfo get network info from /sys/class/net and system function net.Interfaces.
+// if multiple network namespace is enabled, we should exec into all namespaces and parse nics for them.
+func GetExtraNetworkInfo(_ *global.MachineInfoConfiguration) (*ExtraNetworkInfo, error) {
+	return &ExtraNetworkInfo{}, nil
 }

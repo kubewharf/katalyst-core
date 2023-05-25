@@ -33,7 +33,6 @@ type NetworkQRMPluginConfig struct {
 	NetInterfaceNameResourceAllocationAnnotationKey string
 	NetClassIDResourceAllocationAnnotationKey       string
 	NetBandwidthResourceAllocationAnnotationKey     string
-	NetNSDirAbsPath                                 string
 }
 
 type NetClassConfig struct {
@@ -53,5 +52,5 @@ func NewNetworkQRMPluginConfig() *NetworkQRMPluginConfig {
 }
 
 // ApplyConfiguration applies the DynamicConfigCRD to NetworkQRMPluginConfig
-func (c *NetworkQRMPluginConfig) ApplyConfiguration(defaultConf *NetworkQRMPluginConfig, conf *dynamic.DynamicConfigCRD) {
+func (c *NetworkQRMPluginConfig) ApplyConfiguration(_ *NetworkQRMPluginConfig, _ *dynamic.DynamicConfigCRD) {
 }

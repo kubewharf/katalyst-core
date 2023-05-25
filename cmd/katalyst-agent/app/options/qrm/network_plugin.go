@@ -34,7 +34,6 @@ type NetworkOptions struct {
 	NetInterfaceNameResourceAllocationAnnotationKey string
 	NetClassIDResourceAllocationAnnotationKey       string
 	NetBandwidthResourceAllocationAnnotationKey     string
-	NetNSDirAbsPath                                 string
 }
 
 type NetClassOptions struct {
@@ -59,7 +58,6 @@ func NewNetworkOptions() *NetworkOptions {
 		NetInterfaceNameResourceAllocationAnnotationKey: "qrm.katalyst.kubewharf.io/nic_name",
 		NetClassIDResourceAllocationAnnotationKey:       "qrm.katalyst.kubewharf.io/netcls_id",
 		NetBandwidthResourceAllocationAnnotationKey:     "qrm.katalyst.kubewharf.io/net_bandwidth",
-		NetNSDirAbsPath:                                 "/var/run/netns",
 	}
 }
 
@@ -92,8 +90,6 @@ func (o *NetworkOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 		o.NetClassIDResourceAllocationAnnotationKey, "The annotation key of allocated netcls id for the container, which is ready by runtime")
 	fs.StringVar(&o.NetBandwidthResourceAllocationAnnotationKey, "network-resource-plugin-bandwidth-allocation-anno-key",
 		o.NetBandwidthResourceAllocationAnnotationKey, "The annotation key of allocated bandwidth for the container, which is ready by runtime")
-	fs.StringVar(&o.NetNSDirAbsPath, "network-resource-plugin-ns-dir-path",
-		o.NetNSDirAbsPath, "The absolute directory to search for net namespaces")
 }
 
 func (o *NetworkOptions) ApplyTo(conf *qrmconfig.NetworkQRMPluginConfig) error {
@@ -110,7 +106,6 @@ func (o *NetworkOptions) ApplyTo(conf *qrmconfig.NetworkQRMPluginConfig) error {
 	conf.NetInterfaceNameResourceAllocationAnnotationKey = o.NetInterfaceNameResourceAllocationAnnotationKey
 	conf.NetClassIDResourceAllocationAnnotationKey = o.NetClassIDResourceAllocationAnnotationKey
 	conf.NetBandwidthResourceAllocationAnnotationKey = o.NetBandwidthResourceAllocationAnnotationKey
-	conf.NetNSDirAbsPath = o.NetNSDirAbsPath
 
 	return nil
 }

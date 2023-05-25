@@ -141,16 +141,7 @@ func ReadFileIntoLines(filepath string) ([]string, error) {
 	return contents, nil
 }
 
-func EnsureDirectory(dir string) error {
-	fs := utilfs.DefaultFs{}
-	if _, err := fs.Stat(dir); err != nil {
-		// MkdirAll returns nil if directory already exists.
-		return fs.MkdirAll(dir, 0755)
-	}
-	return nil
-}
-
-// ReadFileIntoLines read contents from the given file, and parse them into integer
+// ReadFileIntoInt read contents from the given file, and parse them into integer
 func ReadFileIntoInt(filepath string) (int, error) {
 	body, err := ioutil.ReadFile(filepath)
 	if err != nil {
@@ -163,6 +154,15 @@ func ReadFileIntoInt(filepath string) (int, error) {
 	}
 
 	return i, nil
+}
+
+func EnsureDirectory(dir string) error {
+	fs := utilfs.DefaultFs{}
+	if _, err := fs.Stat(dir); err != nil {
+		// MkdirAll returns nil if directory already exists.
+		return fs.MkdirAll(dir, 0755)
+	}
+	return nil
 }
 
 type Flock struct {
