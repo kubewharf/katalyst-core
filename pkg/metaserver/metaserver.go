@@ -23,9 +23,7 @@ import (
 	"context"
 	"fmt"
 	"os"
-
-	"go.uber.org/atomic"
-	"k8s.io/klog/v2"
+	"sync"
 
 	"github.com/kubewharf/katalyst-core/pkg/client"
 	pkgconfig "github.com/kubewharf/katalyst-core/pkg/config"
@@ -39,7 +37,8 @@ import (
 // MetaServer is used to fetch metadata that other components may need to obtain,
 // such as. dynamic configurations, pods or nodes running in agent, metrics info and so on.
 type MetaServer struct {
-	started atomic.Bool
+	start bool
+	sync.Mutex
 
 	*agent.MetaAgent
 	config.ConfigurationManager
@@ -85,22 +84,27 @@ func NewMetaServer(clientSet *client.GenericClientSet, emitter metrics.MetricEmi
 }
 
 func (m *MetaServer) Run(ctx context.Context) {
-	if m.started.Swap(true) {
-		klog.Errorf("meta server run twice")
+	m.Lock()
+	if m.start {
+		m.Unlock()
 		return
 	}
+	m.start = true
 
 	go m.MetaAgent.Run(ctx)
 	go m.ConfigurationManager.Run(ctx)
 	go m.ServiceProfilingManager.Run(ctx)
 	go m.ExternalManager.Run(ctx)
 
+	m.Unlock()
 	<-ctx.Done()
 }
 
 func (m *MetaServer) SetServiceProfilingManager(manager spd.ServiceProfilingManager) error {
-	if m.started.Load() {
-		return fmt.Errorf("meta server already started")
+	m.Lock()
+	defer m.Unlock()
+	if m.start {
+		return fmt.Errorf("meta agent has already started, not allowed to set implementations")
 	}
 
 	m.ServiceProfilingManager = manager
