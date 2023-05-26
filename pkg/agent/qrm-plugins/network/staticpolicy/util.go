@@ -187,7 +187,8 @@ func filterNICsByHint(nics []machine.InterfaceInfo, req *pluginapi.ResourceReque
 					"nic", nic.Iface,
 					"siblingNUMAs", siblingNUMAs.String(),
 					"hintNUMASet", hintNUMASet.String())
-				exactlyMatchNIC = &nic
+				dupNIC := nic
+				exactlyMatchNIC = &dupNIC
 			}
 		} else if siblingNUMAs.IsSubsetOf(hintNUMASet) { // for pod affinity_restricted != true
 			general.InfoS("add hint matched nic",

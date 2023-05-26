@@ -66,15 +66,18 @@ const (
 
 	testEth0Name               = "eth0"
 	testEth0AffinitiveNUMANode = 0
-	testEth0IPv4               = "1.1.1.1"
 	testEth0NSAbsolutePath     = ""
 	testEth0NSName             = ""
 
 	testEth2Name               = "eth2"
 	testEth2AffinitiveNUMANode = 2
-	testEth2IPv6               = "::ffff:192.0.2.1"
 	testEth2NSAbsolutePath     = "/var/run/ns2"
 	testEth2NSName             = "ns2"
+)
+
+var (
+	testEth0IPv4 = net.ParseIP("1.1.1.1").String()
+	testEth2IPv6 = net.ParseIP("::ffff:192.0.2.1").String()
 )
 
 func generateTestConfiguration(t *testing.T) *config.Configuration {
