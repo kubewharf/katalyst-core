@@ -366,7 +366,8 @@ func (p *DynamicPolicy) GetResourcesAllocation(_ context.Context,
 	machineState := p.state.GetMachineState()
 
 	// pooledCPUs is the total available cpu cores minus those that are reserved
-	pooledCPUs := machineState.GetFilteredAvailableCPUSet(p.reservedCPUs, state.CheckDedicated)
+	pooledCPUs := machineState.GetFilteredAvailableCPUSet(p.reservedCPUs,
+		state.CheckDedicated, state.CheckDedicatedNUMABinding)
 	pooledCPUsTopologyAwareAssignments, err := machine.GetNumaAwareAssignments(p.machineInfo.CPUTopology, pooledCPUs)
 	if err != nil {
 		return nil, fmt.Errorf("GetNumaAwareAssignments err: %v", err)
@@ -898,7 +899,8 @@ func (p *DynamicPolicy) initReclaimPool() error {
 		noneResidentCPUs := podEntries.GetFilteredPoolsCPUSet(state.ResidentPools)
 
 		machineState := p.state.GetMachineState()
-		availableCPUs := machineState.GetFilteredAvailableCPUSet(p.reservedCPUs, state.CheckDedicated).Difference(noneResidentCPUs)
+		availableCPUs := machineState.GetFilteredAvailableCPUSet(p.reservedCPUs,
+			state.CheckDedicated, state.CheckDedicatedNUMABinding).Difference(noneResidentCPUs)
 
 		var initReclaimedCPUSetSize int
 		if availableCPUs.Size() >= reservedReclaimedCPUsSize {
@@ -952,13 +954,13 @@ func (p *DynamicPolicy) initReclaimPool() error {
 // getContainerRequestedCores parses and returns request cores for the given container
 func (p *DynamicPolicy) getContainerRequestedCores(allocationInfo *state.AllocationInfo) int {
 	if allocationInfo == nil {
-		general.Errorf("%v got nil allocationInfo")
+		general.Errorf("got nil allocationInfo")
 		return 0
 	}
 
 	if allocationInfo.RequestQuantity == 0 {
 		if p.metaServer == nil {
-			general.Errorf("%v nil metaServer")
+			general.Errorf("got nil metaServer")
 			return 0
 		}
 

@@ -21,7 +21,6 @@ import (
 	"fmt"
 
 	v1 "k8s.io/api/core/v1"
-	"k8s.io/klog/v2"
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 
 	apiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
@@ -95,19 +94,11 @@ func (p *DynamicPolicy) dedicatedCoresWithNUMABindingAllocationHandler(ctx conte
 			"memoryReq(bytes)", reqInt,
 			"currentResult(bytes)", allocationInfo.AggregatedQuantity)
 
-<<<<<<< HEAD
-		resp, packErr := packMemoryResourceAllocationResponseByAllocationInfo(allocationInfo, req)
-		if packErr != nil {
-			general.Errorf("pod: %s/%s, container: %s packMemoryResourceAllocationResponseByAllocationInfo failed with error: %v",
-				req.PodNamespace, req.PodName, req.ContainerName, packErr)
-			return nil, fmt.Errorf("packMemoryResourceAllocationResponseByAllocationInfo failed with error: %v", packErr)
-=======
 		resp, packErr := packAllocationResponse(allocationInfo, req)
 		if packErr != nil {
 			general.Errorf("pod: %s/%s, container: %s packAllocationResponse failed with error: %v",
 				req.PodNamespace, req.PodName, req.ContainerName, packErr)
 			return nil, fmt.Errorf("packAllocationResponse failed with error: %v", packErr)
->>>>>>> fix styles and fix bugs for cpu/memory plugin according to comments
 		}
 		return resp, nil
 	} else if allocationInfo != nil {
@@ -136,7 +127,7 @@ func (p *DynamicPolicy) dedicatedCoresWithNUMABindingAllocationHandler(ctx conte
 	// and we can use this adjusted state to pack allocation results
 	err = p.calculateMemoryAllocation(req, memoryState, apiconsts.PodAnnotationQoSLevelDedicatedCores)
 	if err != nil {
-		klog.ErrorS(err, "Unable to allocate Memory",
+		general.ErrorS(err, "unable to allocate Memory",
 			"podNamespace", req.PodNamespace,
 			"podName", req.PodName,
 			"containerName", req.ContainerName,
@@ -195,19 +186,11 @@ func (p *DynamicPolicy) dedicatedCoresWithNUMABindingAllocationHandler(ctx conte
 		return nil, fmt.Errorf("adjustAllocationEntries failed with error: %v", err)
 	}
 
-<<<<<<< HEAD
-	resp, err := packMemoryResourceAllocationResponseByAllocationInfo(allocationInfo, req)
-	if err != nil {
-		general.Errorf("pod: %s/%s, container: %s packMemoryResourceAllocationResponseByAllocationInfo failed with error: %v",
-			req.PodNamespace, req.PodName, req.ContainerName, err)
-		return nil, fmt.Errorf("packMemoryResourceAllocationResponseByAllocationInfo failed with error: %v", err)
-=======
 	resp, err := packAllocationResponse(allocationInfo, req)
 	if err != nil {
 		general.Errorf("pod: %s/%s, container: %s packAllocationResponse failed with error: %v",
 			req.PodNamespace, req.PodName, req.ContainerName, err)
 		return nil, fmt.Errorf("packAllocationResponse failed with error: %v", err)
->>>>>>> fix styles and fix bugs for cpu/memory plugin according to comments
 	}
 	return resp, nil
 }
@@ -269,19 +252,11 @@ func (p *DynamicPolicy) dedicatedCoresWithNUMABindingAllocationSidecarHandler(_ 
 	}
 	p.state.SetMachineState(resourcesState)
 
-<<<<<<< HEAD
-	resp, err := packMemoryResourceAllocationResponseByAllocationInfo(allocationInfo, req)
-	if err != nil {
-		general.Errorf("pod: %s/%s, container: %s packMemoryResourceAllocationResponseByAllocationInfo failed with error: %v",
-			req.PodNamespace, req.PodName, req.ContainerName, err)
-		return nil, fmt.Errorf("packMemoryResourceAllocationResponseByAllocationInfo failed with error: %v", err)
-=======
 	resp, err := packAllocationResponse(allocationInfo, req)
 	if err != nil {
 		general.Errorf("pod: %s/%s, container: %s packAllocationResponse failed with error: %v",
 			req.PodNamespace, req.PodName, req.ContainerName, err)
 		return nil, fmt.Errorf("packAllocationResponse failed with error: %v", err)
->>>>>>> fix styles and fix bugs for cpu/memory plugin according to comments
 	}
 	return resp, nil
 }
@@ -329,19 +304,11 @@ func (p *DynamicPolicy) allocateNUMAsWithoutNUMABindingPods(_ context.Context,
 		return nil, fmt.Errorf("calculate resourceState by updated pod entries failed with error: %v", err)
 	}
 
-<<<<<<< HEAD
-	resp, err := packMemoryResourceAllocationResponseByAllocationInfo(allocationInfo, req)
-	if err != nil {
-		general.Errorf("pod: %s/%s, container: %s packMemoryResourceAllocationResponseByAllocationInfo failed with error: %v",
-			req.PodNamespace, req.PodName, req.ContainerName, err)
-		return nil, fmt.Errorf("packMemoryResourceAllocationResponseByAllocationInfo failed with error: %v", err)
-=======
 	resp, err := packAllocationResponse(allocationInfo, req)
 	if err != nil {
 		general.Errorf("pod: %s/%s, container: %s packAllocationResponse failed with error: %v",
 			req.PodNamespace, req.PodName, req.ContainerName, err)
 		return nil, fmt.Errorf("packAllocationResponse failed with error: %v", err)
->>>>>>> fix styles and fix bugs for cpu/memory plugin according to comments
 	}
 
 	p.state.SetMachineState(machineState)
@@ -388,56 +355,15 @@ func (p *DynamicPolicy) allocateAllNUMAs(req *pluginapi.ResourceRequest,
 		return nil, fmt.Errorf("calculate machineState by updated pod entries failed with error: %v", err)
 	}
 
-<<<<<<< HEAD
-	resp, err := packMemoryResourceAllocationResponseByAllocationInfo(allocationInfo, req)
-	if err != nil {
-		general.Errorf("pod: %s/%s, container: %s packMemoryResourceAllocationResponseByAllocationInfo failed with error: %v",
-			req.PodNamespace, req.PodName, req.ContainerName, err)
-		return nil, fmt.Errorf("packMemoryResourceAllocationResponseByAllocationInfo failed with error: %v", err)
-=======
 	resp, err := packAllocationResponse(allocationInfo, req)
 	if err != nil {
 		general.Errorf("pod: %s/%s, container: %s packAllocationResponse failed with error: %v",
 			req.PodNamespace, req.PodName, req.ContainerName, err)
 		return nil, fmt.Errorf("packAllocationResponse failed with error: %v", err)
->>>>>>> fix styles and fix bugs for cpu/memory plugin according to comments
 	}
 
 	p.state.SetMachineState(machineState)
 	return resp, nil
-}
-
-// calculateMemoryAllocation will not store the allocation in states, instead,
-// it will update the passed by machineState in-place; so the function will be
-// called `calculateXXX` rather than `allocateXXX`
-func (p *DynamicPolicy) calculateMemoryAllocation(req *pluginapi.ResourceRequest,
-	machineState state.NUMANodeMap, qosLevel string) error {
-	if req.Hint == nil {
-		return fmt.Errorf("hint is nil")
-	}
-
-	memoryReq, err := util.GetQuantityFromResourceReq(req)
-	if err != nil {
-		return fmt.Errorf("GetQuantityFromResourceReq failed with error: %v", err)
-	}
-
-	hintNumaNodes := machine.NewCPUSet(util.HintToIntArray(req.Hint)...)
-	general.InfoS("allocate by hints",
-		"podNamespace", req.PodNamespace,
-		"podName", req.PodName,
-		"containerName", req.ContainerName,
-		"hints", hintNumaNodes.String(),
-		"reqMemoryQuantity", memoryReq)
-
-	// todo: currently we hack dedicated_cores with NUMA binding take up whole NUMA,
-	//  and we will modify strategy here if assumption above breaks.
-	leftQuantity := calculateExclusiveMemory(req, machineState, hintNumaNodes.ToSliceInt(), uint64(memoryReq), qosLevel)
-	if leftQuantity > 0 {
-		general.Errorf("hint NUMA nodes: %s can't meet memory request: %d bytes, leftQuantity: %d",
-			hintNumaNodes.String(), memoryReq, leftQuantity)
-		return fmt.Errorf("results can't meet memory request")
-	}
-	return nil
 }
 
 // adjustAllocationEntries calculates and generates the latest checkpoint,
@@ -522,7 +448,10 @@ func (p *DynamicPolicy) adjustAllocationEntries() error {
 	return nil
 }
 
-func (p *DynamicPolicy) allocateMemory(req *pluginapi.ResourceRequest, machineState state.NUMANodeMap, qosLevel string) error {
+// calculateMemoryAllocation will not store the allocation in states, instead,
+// it will update the passed by machineState in-place; so the function will be
+// called `calculateXXX` rather than `allocateXXX`
+func (p *DynamicPolicy) calculateMemoryAllocation(req *pluginapi.ResourceRequest, machineState state.NUMANodeMap, qosLevel string) error {
 	if req.Hint == nil {
 		return fmt.Errorf("hint is nil")
 	} else if len(req.Hint.Nodes) == 0 {
@@ -540,7 +469,7 @@ func (p *DynamicPolicy) allocateMemory(req *pluginapi.ResourceRequest, machineSt
 	}
 
 	hintNumaNodes := machine.NewCPUSet(util.HintToIntArray(req.Hint)...)
-	klog.InfoS("[MemoryDynamicPolicy.allocateMemory] to allocate by hints",
+	general.InfoS("allocate by hints",
 		"podNamespace", req.PodNamespace,
 		"podName", req.PodName,
 		"containerName", req.ContainerName,
@@ -552,14 +481,21 @@ func (p *DynamicPolicy) allocateMemory(req *pluginapi.ResourceRequest, machineSt
 	if qosutil.AnnotationsIndicateNUMABinding(req.Annotations) &&
 		qosutil.AnnotationsIndicateNUMAExclusive(req.Annotations) {
 
-		leftQuantity = calculateExclusiveMemory(req, machineState, hintNumaNodes.ToSliceInt(), uint64(memoryReq), qosLevel)
+		leftQuantity, err = calculateExclusiveMemory(req, machineState, hintNumaNodes.ToSliceInt(), uint64(memoryReq), qosLevel)
 
+		if err != nil {
+			return fmt.Errorf("calculateExclusiveMemory failed with error: %v", err)
+		}
 	} else {
-		leftQuantity = allocateMemoryInNumaNodes(req, machineState, hintNumaNodes.ToSliceInt(), uint64(memoryReq), qosLevel)
+		leftQuantity, err = calculateMemoryInNumaNodes(req, machineState, hintNumaNodes.ToSliceInt(), uint64(memoryReq), qosLevel)
+
+		if err != nil {
+			return fmt.Errorf("calculateMemoryInNumaNodes failed with error: %v", err)
+		}
 	}
 
 	if leftQuantity > 0 {
-		klog.Errorf("[MemoryDynamicPolicy.allocateMemory] hint NUMA nodes: %s can't meet memory request: %d bytes, leftQuantity: %s",
+		general.Errorf("hint NUMA nodes: %s can't meet memory request: %d bytes, leftQuantity: %d bytes",
 			hintNumaNodes.String(), memoryReq, leftQuantity)
 
 		return fmt.Errorf("results can't meet memory request")
@@ -574,11 +510,15 @@ func (p *DynamicPolicy) allocateMemory(req *pluginapi.ResourceRequest, machineSt
 // it will update the passed by machineState in-place; so the function will be
 // called `calculateXXX` rather than `allocateXXX`
 func calculateExclusiveMemory(req *pluginapi.ResourceRequest,
-	machineState state.NUMANodeMap, numaNodes []int, reqQuantity uint64, qosLevel string) (leftQuantity uint64) {
+	machineState state.NUMANodeMap, numaNodes []int, reqQuantity uint64, qosLevel string) (leftQuantity uint64, err error) {
 	for _, numaNode := range numaNodes {
 		var curNumaNodeAllocated uint64 = 0
 
 		numaNodeState := machineState[numaNode]
+
+		if numaNodeState == nil {
+			return reqQuantity, fmt.Errorf("NUMA: %d has nil state", numaNode)
+		}
 
 		if numaNodeState.Free > 0 {
 			curNumaNodeAllocated = numaNodeState.Free
@@ -623,72 +563,23 @@ func calculateExclusiveMemory(req *pluginapi.ResourceRequest,
 		}
 	}
 
-	return reqQuantity
+	return reqQuantity, nil
 }
 
-<<<<<<< HEAD
-// packMemoryResourceAllocationResponseByAllocationInfo regenerates allocations for container that'd already been allocated memory,
-// and packMemoryResourceAllocationResponseByAllocationInfo will assemble allocations based on already-existed AllocationInfo,
-// without any calculation logics at all
-func packMemoryResourceAllocationResponseByAllocationInfo(allocationInfo *state.AllocationInfo,
-	req *pluginapi.ResourceRequest) (*pluginapi.ResourceAllocationResponse, error) {
-	if allocationInfo == nil {
-		return nil, fmt.Errorf("packMemoryResourceAllocationResponseByAllocationInfo got nil allocationInfo")
-	} else if req == nil {
-		return nil, fmt.Errorf("packMemoryResourceAllocationResponseByAllocationInfo got nil request")
-=======
-// packAllocationResponse regenerates allocations for container that'd already been allocated memory,
-// and packAllocationResponse will assemble allocations based on already-existed AllocationInfo,
-// without any calculation logics at all
-func packAllocationResponse(allocationInfo *state.AllocationInfo, req *pluginapi.ResourceRequest) (*pluginapi.ResourceAllocationResponse, error) {
-	if allocationInfo == nil {
-		return nil, fmt.Errorf("packAllocationResponse got nil allocationInfo")
-	} else if req == nil {
-		return nil, fmt.Errorf("packAllocationResponse got nil request")
->>>>>>> fix styles and fix bugs for cpu/memory plugin according to comments
-	}
-
-	return &pluginapi.ResourceAllocationResponse{
-		PodUid:         req.PodUid,
-		PodNamespace:   req.PodNamespace,
-		PodName:        req.PodName,
-		ContainerName:  req.ContainerName,
-		ContainerType:  req.ContainerType,
-		ContainerIndex: req.ContainerIndex,
-		PodRole:        req.PodRole,
-		PodType:        req.PodType,
-		ResourceName:   string(v1.ResourceMemory),
-		AllocationResult: &pluginapi.ResourceAllocation{
-			ResourceAllocation: map[string]*pluginapi.ResourceAllocationInfo{
-				string(v1.ResourceMemory): {
-					OciPropertyName:   util.OCIPropertyNameCPUSetMems,
-					IsNodeResource:    false,
-					IsScalarResource:  true,
-					AllocatedQuantity: float64(allocationInfo.AggregatedQuantity),
-					AllocationResult:  allocationInfo.NumaAllocationResult.String(),
-					ResourceHints: &pluginapi.ListOfTopologyHints{
-						Hints: []*pluginapi.TopologyHint{
-							req.Hint,
-						},
-					},
-				},
-			},
-		},
-		Labels:      general.DeepCopyMap(req.Labels),
-		Annotations: general.DeepCopyMap(req.Annotations),
-	}, nil
-}
-
-// allocateMemoryInNumaNodes tries to allocate memories in the numa list to
+// calculateMemoryInNumaNodes tries to allocate memories in the numa list to
 // the given container, and returns the remaining un-satisfied quantity.
-func allocateMemoryInNumaNodes(req *pluginapi.ResourceRequest,
+func calculateMemoryInNumaNodes(req *pluginapi.ResourceRequest,
 	machineState state.NUMANodeMap, numaNodes []int,
-	reqQuantity uint64, qosLevel string) (leftQuantity uint64) {
+	reqQuantity uint64, qosLevel string) (leftQuantity uint64, err error) {
 
 	for _, numaNode := range numaNodes {
 		var curNumaNodeAllocated uint64 = 0
 
 		numaNodeState := machineState[numaNode]
+
+		if numaNodeState == nil {
+			return reqQuantity, fmt.Errorf("NUMA: %d has nil state", numaNode)
+		}
 
 		if numaNodeState.Free > 0 {
 			if reqQuantity < numaNodeState.Free {
@@ -734,5 +625,46 @@ func allocateMemoryInNumaNodes(req *pluginapi.ResourceRequest,
 		}
 	}
 
-	return reqQuantity
+	return reqQuantity, nil
+}
+
+// packAllocationResponse regenerates allocations for container that'd already been allocated memory,
+// and packAllocationResponse will assemble allocations based on already-existed AllocationInfo,
+// without any calculation logics at all
+func packAllocationResponse(allocationInfo *state.AllocationInfo, req *pluginapi.ResourceRequest) (*pluginapi.ResourceAllocationResponse, error) {
+	if allocationInfo == nil {
+		return nil, fmt.Errorf("packAllocationResponse got nil allocationInfo")
+	} else if req == nil {
+		return nil, fmt.Errorf("packAllocationResponse got nil request")
+	}
+
+	return &pluginapi.ResourceAllocationResponse{
+		PodUid:         req.PodUid,
+		PodNamespace:   req.PodNamespace,
+		PodName:        req.PodName,
+		ContainerName:  req.ContainerName,
+		ContainerType:  req.ContainerType,
+		ContainerIndex: req.ContainerIndex,
+		PodRole:        req.PodRole,
+		PodType:        req.PodType,
+		ResourceName:   string(v1.ResourceMemory),
+		AllocationResult: &pluginapi.ResourceAllocation{
+			ResourceAllocation: map[string]*pluginapi.ResourceAllocationInfo{
+				string(v1.ResourceMemory): {
+					OciPropertyName:   util.OCIPropertyNameCPUSetMems,
+					IsNodeResource:    false,
+					IsScalarResource:  true,
+					AllocatedQuantity: float64(allocationInfo.AggregatedQuantity),
+					AllocationResult:  allocationInfo.NumaAllocationResult.String(),
+					ResourceHints: &pluginapi.ListOfTopologyHints{
+						Hints: []*pluginapi.TopologyHint{
+							req.Hint,
+						},
+					},
+				},
+			},
+		},
+		Labels:      general.DeepCopyMap(req.Labels),
+		Annotations: general.DeepCopyMap(req.Annotations),
+	}, nil
 }

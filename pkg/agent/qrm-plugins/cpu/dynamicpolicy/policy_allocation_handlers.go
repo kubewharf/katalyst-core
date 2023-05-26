@@ -32,6 +32,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
+	qosutil "github.com/kubewharf/katalyst-core/pkg/util/qos"
 )
 
 func (p *DynamicPolicy) sharedCoresAllocationHandler(_ context.Context,
@@ -46,7 +47,8 @@ func (p *DynamicPolicy) sharedCoresAllocationHandler(_ context.Context,
 	}
 
 	machineState := p.state.GetMachineState()
-	pooledCPUs := machineState.GetFilteredAvailableCPUSet(p.reservedCPUs, state.CheckDedicated)
+	pooledCPUs := machineState.GetFilteredAvailableCPUSet(p.reservedCPUs,
+		state.CheckDedicated, state.CheckDedicatedNUMABinding)
 	if pooledCPUs.IsEmpty() {
 		general.Errorf("pod: %s/%s, container: %s get empty pooledCPUs", req.PodNamespace, req.PodName, req.ContainerName)
 		return nil, fmt.Errorf("get empty pooledCPUs")
@@ -265,7 +267,7 @@ func (p *DynamicPolicy) dedicatedCoresWithNUMABindingAllocationHandler(ctx conte
 		return nil, fmt.Errorf("getReqQuantityFromResourceReq failed with error: %v", err)
 	}
 
-	result, err := p.allocateNumaBindingCPUs(reqInt, req.Hint, machineState)
+	result, err := p.allocateNumaBindingCPUs(reqInt, req.Hint, machineState, req.Annotations)
 	if err != nil {
 		general.ErrorS(err, "unable to allocate CPUs",
 			"podNamespace", req.PodNamespace,
@@ -417,11 +419,15 @@ func (p *DynamicPolicy) dedicatedCoresWithNUMABindingAllocationSidecarHandler(_ 
 }
 
 func (p *DynamicPolicy) allocateNumaBindingCPUs(numCPUs int, hint *pluginapi.TopologyHint,
-	machineState state.NUMANodeMap) (machine.CPUSet, error) {
+	machineState state.NUMANodeMap, reqAnnotations map[string]string) (machine.CPUSet, error) {
 	if hint == nil {
 		return machine.NewCPUSet(), fmt.Errorf("hint is nil")
 	} else if len(hint.Nodes) == 0 {
 		return machine.NewCPUSet(), fmt.Errorf("hint is empty")
+	} else if qosutil.AnnotationsIndicateNUMABinding(reqAnnotations) &&
+		!qosutil.AnnotationsIndicateNUMAExclusive(reqAnnotations) &&
+		len(hint.Nodes) > 1 {
+		return machine.NewCPUSet(), fmt.Errorf("NUMA not exclusive binding container has request larger than 1 NUMA")
 	}
 
 	result := machine.NewCPUSet()
@@ -430,15 +436,34 @@ func (p *DynamicPolicy) allocateNumaBindingCPUs(numCPUs int, hint *pluginapi.Top
 		alignedAvailableCPUs = alignedAvailableCPUs.Union(machineState[int(numaNode)].GetAvailableCPUSet(p.reservedCPUs))
 	}
 
-	// todo: currently we hack dedicated_cores with NUMA binding take up whole NUMA,
-	//  and we will modify strategy here if assumption above breaks.
-	alignedCPUs := alignedAvailableCPUs.Clone()
+	var alignedCPUs machine.CPUSet
+
+	if qosutil.AnnotationsIndicateNUMABinding(reqAnnotations) &&
+		qosutil.AnnotationsIndicateNUMAExclusive(reqAnnotations) {
+		// todo: currently we hack dedicated_cores with NUMA binding take up whole NUMA,
+		//  and we will modify strategy here if assumption above breaks.
+		alignedCPUs = alignedAvailableCPUs.Clone()
+	} else {
+		var err error
+		alignedCPUs, err = calculator.TakeByTopology(p.machineInfo, alignedAvailableCPUs, numCPUs)
+
+		general.ErrorS(err, "take cpu for NUMA not exclusive binding container failed",
+			"hints", hint.Nodes,
+			"alignedAvailableCPUs", alignedAvailableCPUs.String())
+
+		if err != nil {
+			return machine.NewCPUSet(),
+				fmt.Errorf("take cpu for NUMA not exclusive binding container failed with err: %v", err)
+		}
+	}
 
 	general.InfoS("allocate by hints",
 		"hints", hint.Nodes,
 		"alignedAvailableCPUs", alignedAvailableCPUs.String(),
 		"alignedAllocatedCPUs", alignedCPUs)
 
+	// currently result equals to alignedCPUs,
+	// maybe extend cpus not aligned to meet requirement later
 	result = result.Union(alignedCPUs)
 	leftNumCPUs := numCPUs - result.Size()
 	if leftNumCPUs > 0 {
@@ -525,7 +550,7 @@ func (p *DynamicPolicy) adjustAllocationEntries() error {
 // 4. clean pools
 func (p *DynamicPolicy) adjustPoolsAndIsolatedEntries(poolsQuantityMap map[string]int,
 	isolatedQuantityMap map[string]map[string]int, entries state.PodEntries, machineState state.NUMANodeMap) error {
-	availableCPUs := machineState.GetFilteredAvailableCPUSet(p.reservedCPUs, state.CheckDedicatedNUMABinding)
+	availableCPUs := machineState.GetFilteredAvailableCPUSet(p.reservedCPUs, nil, state.CheckDedicatedNUMABinding)
 
 	poolsCPUSet, isolatedCPUSet, err := p.generatePoolsAndIsolation(poolsQuantityMap, isolatedQuantityMap, availableCPUs)
 	if err != nil {
@@ -684,7 +709,8 @@ func (p *DynamicPolicy) applyPoolsAndIsolatedInfo(poolsCPUSet map[string]machine
 	}
 
 	// rampUpCPUs includes common reclaimed pool
-	rampUpCPUs := machineState.GetFilteredAvailableCPUSet(p.reservedCPUs, state.CheckDedicatedNUMABinding).Difference(unionDedicatedIsolatedCPUSet)
+	rampUpCPUs := machineState.GetFilteredAvailableCPUSet(p.reservedCPUs,
+		nil, state.CheckDedicatedNUMABinding).Difference(unionDedicatedIsolatedCPUSet)
 	rampUpCPUsTopologyAwareAssignments, err := machine.GetNumaAwareAssignments(p.machineInfo.CPUTopology, rampUpCPUs)
 	if err != nil {
 		return fmt.Errorf("unable to calculate topologyAwareAssignments for rampUpCPUs, result cpuset: %s, error: %v",

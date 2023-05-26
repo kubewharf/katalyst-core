@@ -24,7 +24,6 @@ import (
 
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/wait"
-	"k8s.io/klog/v2"
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 
 	apiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
@@ -154,7 +153,7 @@ func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration
 }
 
 func (p *DynamicPolicy) Start() (err error) {
-	klog.Infof("MemoryDynamicPolicy start called")
+	general.Infof("called")
 
 	p.Lock()
 	defer func() {
@@ -572,7 +571,7 @@ func (p *DynamicPolicy) getContainerRequestedMemoryBytes(allocationInfo *state.A
 	}
 
 	if p.metaServer == nil {
-		general.Errorf("%v nil metaServer")
+		general.Errorf("got nil metaServer")
 		return 0
 	}
 

@@ -238,7 +238,7 @@ func (cs *cpuServer) getCheckpoint() {
 
 	// Parse checkpoint
 	for entryName, entry := range resp.Entries {
-		if poolInfo, ok := entry.Entries[cpuadvisor.FakedContainerID]; ok {
+		if poolInfo, ok := entry.Entries[cpuadvisor.FakedContainerName]; ok {
 			// Update pool info
 			poolName := entryName
 			livingPoolNameSet.Insert(poolName)
@@ -290,59 +290,8 @@ func (cs *cpuServer) startToGetCheckpointFromCPUPlugin() error {
 		return err
 	}
 
-<<<<<<< HEAD
 	cs.cpuPluginClient = cpuadvisor.NewCPUPluginClient(conn)
 	go wait.Until(cs.getCheckpoint, cs.period, cs.stopCh)
-=======
-	cpuPluginClient := cpuadvisor.NewCPUPluginClient(conn)
-
-	go wait.Until(func() {
-		// Get checkpoint
-		resp, err := cpuPluginClient.GetCheckpoint(context.Background(), &cpuadvisor.GetCheckpointRequest{})
-		if err != nil {
-			klog.Errorf("[qosaware-server-cpu] get checkpoint failed: %v", err)
-			_ = cs.emitter.StoreInt64(metricCPUServerLWGetCheckpointFailed, int64(cs.period.Seconds()), metrics.MetricTypeNameCount)
-			return
-		} else if resp == nil {
-			klog.Errorf("[qosaware-server-cpu] get nil checkpoint")
-			_ = cs.emitter.StoreInt64(metricCPUServerLWGetCheckpointFailed, int64(cs.period.Seconds()), metrics.MetricTypeNameCount)
-			return
-		}
-		klog.Infof("[qosaware-server-cpu] get checkpoint: %v", general.ToString(resp.Entries))
-		_ = cs.emitter.StoreInt64(metricCPUServerLWGetCheckpointSucceeded, int64(cs.period.Seconds()), metrics.MetricTypeNameCount)
-
-		livingPoolNameSet := make(map[string]struct{})
-
-		// Parse checkpoint
-		for entryName, entry := range resp.Entries {
-			if poolInfo, ok := entry.Entries[cpuadvisor.FakedContainerName]; ok {
-				// Update pool info
-				poolName := entryName
-				livingPoolNameSet[poolName] = struct{}{}
-				if err := cs.updatePoolInfo(poolName, poolInfo); err != nil {
-					klog.Errorf("[qosaware-server-cpu] update pool info with error: %v", err)
-				}
-			} else {
-				// Update container info
-				podUID := entryName
-				for containerName, info := range entry.Entries {
-					if err := cs.updateContainerInfo(podUID, containerName, info); err != nil {
-						klog.Errorf("[qosaware-server-cpu] update container info with error: %v", err)
-					}
-				}
-			}
-		}
-
-		// GC pool entries
-		if err := cs.metaCache.GCPoolEntries(livingPoolNameSet); err != nil {
-			klog.Errorf("[qosaware-server-cpu] gc pool entries with error: %v", err)
-		}
-
-		// Trigger advisor update
-		cs.sendCh <- struct{}{}
-
-	}, cs.period, cs.stopCh)
->>>>>>> fix styles and fix bugs for cpu/memory plugin according to comments
 
 	return nil
 }
@@ -406,7 +355,7 @@ func (cs *cpuServer) serve() error {
 	return nil
 }
 
-//nolint
+// nolint
 func (cs *cpuServer) dial(unixSocketPath string, timeout time.Duration) (*grpc.ClientConn, error) {
 	c, err := grpc.Dial(unixSocketPath, grpc.WithInsecure(), grpc.WithBlock(),
 		grpc.WithTimeout(timeout),

@@ -20,7 +20,6 @@ import (
 	"fmt"
 
 	"k8s.io/apimachinery/pkg/util/errors"
-	"k8s.io/klog/v2"
 
 	advisorapi "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/cpuadvisor"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
@@ -133,7 +132,7 @@ func (c *CPUAdvisorValidator) validateStaticPools(resp *advisorapi.ListAndWatchR
 				poolName, nilStateEntry, nilStateEntry)
 		}
 		if nilStateEntry {
-			klog.Warningf("got nil state entry for static pool: %s", poolName)
+			general.Warningf("got nil state entry for static pool: %s", poolName)
 			continue
 		}
 

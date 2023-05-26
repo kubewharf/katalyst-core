@@ -22,7 +22,6 @@ import (
 	"sort"
 
 	v1 "k8s.io/api/core/v1"
-	"k8s.io/klog/v2"
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 	"k8s.io/kubernetes/pkg/kubelet/cm/topologymanager/bitmask"
 
@@ -204,7 +203,7 @@ func (p *DynamicPolicy) calculateHints(reqInt uint64, resourcesMachineState stat
 				general.Warningf("NUMA: %d has nil state", nodeID)
 				return
 			} else if machineState[nodeID].Free == 0 {
-				klog.Warningf("[MemoryDynamicPolicy.calculateHints] NUMA: %d free quantity is zero, skip mask: %s",
+				general.Warningf("NUMA: %d free quantity is zero, skip mask: %s",
 					nodeID, mask.String())
 				return
 			}
@@ -243,7 +242,7 @@ func regenerateHints(reqInt uint64, allocationInfo *state.AllocationInfo) map[st
 
 	allocatedInt := allocationInfo.AggregatedQuantity
 	if allocatedInt < reqInt {
-		klog.ErrorS(nil, "memory's already allocated with smaller quantity than requested",
+		general.ErrorS(nil, "memory's already allocated with smaller quantity than requested",
 			"podUID", allocationInfo.PodUid, "containerName", allocationInfo.ContainerName,
 			"requestedResource", reqInt, "allocatedSize", allocatedInt)
 		return nil
@@ -256,7 +255,7 @@ func regenerateHints(reqInt uint64, allocationInfo *state.AllocationInfo) map[st
 		}
 	}
 
-	klog.InfoS("regenerating topology hints, memory was already allocated to pod",
+	general.InfoS("regenerating topology hints, memory was already allocated to pod",
 		"podNamespace", allocationInfo.PodNamespace,
 		"podName", allocationInfo.PodName,
 		"containerName", allocationInfo.ContainerName,

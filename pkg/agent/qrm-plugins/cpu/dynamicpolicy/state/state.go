@@ -343,8 +343,8 @@ func (ns *NUMANodeState) GetAvailableCPUSet(reservedCPUs machine.CPUSet) machine
 	return ns.DefaultCPUSet.Difference(reservedCPUs)
 }
 
-// GetFilteredDefaultCPUSet returns default cpuset in this numa, along with the skip/filter functions
-func (ns *NUMANodeState) GetFilteredDefaultCPUSet(skip func(ai *AllocationInfo) bool) machine.CPUSet {
+// GetFilteredDefaultCPUSet returns default cpuset in this numa, along with the filter functions
+func (ns *NUMANodeState) GetFilteredDefaultCPUSet(excludeEntry, excludeWholeNUMA func(ai *AllocationInfo) bool) machine.CPUSet {
 	if ns == nil {
 		return machine.NewCPUSet()
 	}
@@ -353,7 +353,9 @@ func (ns *NUMANodeState) GetFilteredDefaultCPUSet(skip func(ai *AllocationInfo) 
 	res = res.Union(ns.AllocatedCPUSet)
 	for _, containerEntries := range ns.PodEntries {
 		for _, allocationInfo := range containerEntries {
-			if skip(allocationInfo) {
+			if excludeWholeNUMA != nil && excludeWholeNUMA(allocationInfo) {
+				return machine.NewCPUSet()
+			} else if excludeEntry != nil && excludeEntry(allocationInfo) {
 				res = res.Difference(allocationInfo.AllocationResult)
 			}
 		}
@@ -385,18 +387,19 @@ func (nm NUMANodeMap) GetDefaultCPUSet() machine.CPUSet {
 	return res
 }
 
-// GetFilteredDefaultCPUSet returns default cpuset in this node, along with the skip/filter functions
-func (nm NUMANodeMap) GetFilteredDefaultCPUSet(skip func(ai *AllocationInfo) bool) machine.CPUSet {
+// GetFilteredDefaultCPUSet returns default cpuset in this node, along with the filter functions
+func (nm NUMANodeMap) GetFilteredDefaultCPUSet(excludeEntry, excludeWholeNUMA func(ai *AllocationInfo) bool) machine.CPUSet {
 	res := machine.NewCPUSet()
 	for _, numaNodeState := range nm {
-		res = res.Union(numaNodeState.GetFilteredDefaultCPUSet(skip))
+		res = res.Union(numaNodeState.GetFilteredDefaultCPUSet(excludeEntry, excludeWholeNUMA))
 	}
 	return res
 }
 
-// GetFilteredAvailableCPUSet returns available cpuset in this node, along with the skip/filter functions
-func (nm NUMANodeMap) GetFilteredAvailableCPUSet(reservedCPUs machine.CPUSet, skip func(ai *AllocationInfo) bool) machine.CPUSet {
-	return nm.GetFilteredDefaultCPUSet(skip).Difference(reservedCPUs)
+// GetFilteredAvailableCPUSet returns available cpuset in this node, along with the filter functions
+func (nm NUMANodeMap) GetFilteredAvailableCPUSet(reservedCPUs machine.CPUSet,
+	excludeEntry, excludeWholeNUMA func(ai *AllocationInfo) bool) machine.CPUSet {
+	return nm.GetFilteredDefaultCPUSet(excludeEntry, excludeWholeNUMA).Difference(reservedCPUs)
 }
 
 func (nm NUMANodeMap) Clone() NUMANodeMap {

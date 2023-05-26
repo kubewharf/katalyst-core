@@ -1,6 +1,3 @@
-//go:build !linux
-// +build !linux
-
 /*
 Copyright 2022 The Katalyst Authors.
 

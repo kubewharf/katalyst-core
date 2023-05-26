@@ -25,7 +25,6 @@ import (
 	"time"
 
 	"google.golang.org/grpc"
-	"k8s.io/klog/v2"
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 	maputil "k8s.io/kubernetes/pkg/util/maps"
 
@@ -208,7 +207,7 @@ func (p *DynamicPolicy) lwCPUAdvisorServer(stopCh <-chan struct{}) error {
 
 		err = p.allocateByCPUAdvisor(resp)
 		if err != nil {
-			klog.Errorf("allocate by ListAndWatch response of CPUAdvisorServer failed with error: %v", err)
+			general.Errorf("allocate by ListAndWatch response of CPUAdvisorServer failed with error: %v", err)
 		}
 	}
 }
@@ -519,7 +518,7 @@ func (p *DynamicPolicy) applyBlocks(blockCPUSet advisorapi.BlockCPUSet, resp *ad
 			case consts.PodAnnotationQoSLevelDedicatedCores:
 				errMsg := fmt.Sprintf("dedicated_cores blocks aren't applied, pod: %s/%s, container: %s",
 					allocationInfo.PodNamespace, allocationInfo.PodName, allocationInfo.ContainerName)
-				klog.Errorf(errMsg)
+				general.Errorf(errMsg)
 				return fmt.Errorf(errMsg)
 			case consts.PodAnnotationQoSLevelSharedCores, consts.PodAnnotationQoSLevelReclaimedCores:
 				ownerPoolName := allocationInfo.GetPoolName()
