@@ -77,6 +77,7 @@ func GetExtraNetworkInfo(conf *global.MachineInfoConfiguration) (*ExtraNetworkIn
 		runtime.LockOSThread()
 		defer runtime.UnlockOSThread()
 	}
+	general.Infof("namespace list: %v", nsList)
 
 	for _, ns := range nsList {
 		nicsInNs, err := getNSNetworkHardwareTopology(ns, conf.NetNSDirAbsPath)
@@ -178,41 +179,45 @@ func getNSNetworkHardwareTopology(nsName, netNSDirAbsPath string) ([]InterfaceIn
 			continue
 		}
 
-		nicNUMANodeFilePath := path.Join(nicPath, netFileNameNUMANode)
-		nicNUMANode, err := general.ReadFileIntoInt(nicNUMANodeFilePath)
-		if err != nil {
-			return nil, fmt.Errorf("read NUMA node for nic: %s failed with error: %v", nicName, err)
-		}
-
-		nicEnableFilePath := path.Join(nicPath, netFileNameEnable)
-		nicEnabledStatus, err := general.ReadFileIntoInt(nicEnableFilePath)
-		if err != nil {
-			return nil, fmt.Errorf("read enable status for nic: %s failed with error: %v", nicName, err)
-		}
-
-		nicSpeedFilePath := path.Join(nicPath, netFileNameSpeed)
-		nicSpeed, err := general.ReadFileIntoInt(nicSpeedFilePath)
-		if err != nil {
-			return nil, fmt.Errorf("read speed for nic: %s failed with error: %v", nicName, err)
-		}
-
 		nic := InterfaceInfo{
 			Iface:          nicName,
-			Speed:          nicSpeed,
-			NumaNode:       nicNUMANode,
-			Enable:         nicEnabledStatus == netEnable,
 			NSName:         nsName,
 			NSAbsolutePath: nsAbsPath,
 		}
 		if nicAddr, exist := nicsAddrMap[nicName]; exist {
 			nic.Addr = nicAddr
 		}
+		getInterfaceAttr(&nic, nicPath)
 
 		general.Infof("discover nic: %#v", nic)
 		nics = append(nics, nic)
 	}
 
 	return nics, nil
+}
+
+// getInterfaceAttr parses key information from system files
+func getInterfaceAttr(info *InterfaceInfo, nicPath string) {
+	if nicNUMANode, err := general.ReadFileIntoInt(path.Join(nicPath, netFileNameNUMANode)); err != nil {
+		general.Errorf("ns %v name %v, read NUMA node failed with error: %v", info.NSName, info.Iface, err)
+		info.NumaNode = -1
+	} else {
+		info.NumaNode = nicNUMANode
+	}
+
+	if nicEnabledStatus, err := general.ReadFileIntoInt(path.Join(nicPath, netFileNameEnable)); err != nil {
+		general.Errorf("ns %v name %v, read enable status failed with error: %v", info.NSName, info.Iface, err)
+		info.Enable = false
+	} else {
+		info.Enable = nicEnabledStatus == netEnable
+	}
+
+	if nicSpeed, err := general.ReadFileIntoInt(path.Join(nicPath, netFileNameSpeed)); err != nil {
+		general.Errorf("ns %v name %v, read speed failed with error: %v", info.NSName, info.Iface, err)
+		info.Speed = -1
+	} else {
+		info.Speed = nicSpeed
+	}
 }
 
 // getInterfaceAddr get interface address which is map of interface name to

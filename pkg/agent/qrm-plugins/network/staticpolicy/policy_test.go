@@ -60,9 +60,9 @@ const (
 	testNetClassIDResourceAllocationAnnotationKey       = "qrm.katalyst.kubewharf.io/netcls_id"
 	testNetBandwidthResourceAllocationAnnotationKey     = "qrm.katalyst.kubewharf.io/net_bandwidth"
 
-	testHostPreferEnhancementValue    = "{\"namespace_type\": \"host-prefer\"}"
-	testNotHostPreferEnhancementValue = "{\"namespace_type\": \"not-host-prefer\"}"
-	testHostEnhancementValue          = "{\"namespace_type\": \"host\"}"
+	testHostPreferEnhancementValue    = "{\"namespace_type\": \"host_ns_preferred\"}"
+	testNotHostPreferEnhancementValue = "{\"namespace_type\": \"anti_host_ns_preferred\"}"
+	testHostEnhancementValue          = "{\"namespace_type\": \"host_ns\"}"
 
 	testEth0Name               = "eth0"
 	testEth0AffinitiveNUMANode = 0

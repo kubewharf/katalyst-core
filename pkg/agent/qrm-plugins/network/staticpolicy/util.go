@@ -110,7 +110,7 @@ func filterNICsByAvailability(nics []machine.InterfaceInfo, _ *pluginapi.Resourc
 		if !nic.Enable {
 			general.Warningf("nic: %s isn't enabled", nic.Iface)
 			continue
-		} else if len(nic.Addr.IPV4) == 0 && len(nic.Addr.IPV6) == 0 {
+		} else if nic.Addr == nil || (len(nic.Addr.IPV4) == 0 && len(nic.Addr.IPV6) == 0) {
 			general.Warningf("nic: %s doesn't have IP address", nic.Iface)
 			continue
 		}
@@ -170,7 +170,7 @@ func filterNICsByHint(nics []machine.InterfaceInfo, req *pluginapi.ResourceReque
 		return nil
 	}
 
-	for _, nic := range nics {
+	for i, nic := range nics {
 		siblingNUMAs, err := machine.GetSiblingNUMAs(nic.NumaNode, agentCtx.CPUTopology)
 		if err != nil {
 			general.Errorf("get siblingNUMAs for nic: %s failed with error: %v, filter out it", nic.Iface, err)
@@ -187,8 +187,7 @@ func filterNICsByHint(nics []machine.InterfaceInfo, req *pluginapi.ResourceReque
 					"nic", nic.Iface,
 					"siblingNUMAs", siblingNUMAs.String(),
 					"hintNUMASet", hintNUMASet.String())
-				dupNIC := nic
-				exactlyMatchNIC = &dupNIC
+				exactlyMatchNIC = &nics[i]
 			}
 		} else if siblingNUMAs.IsSubsetOf(hintNUMASet) { // for pod affinity_restricted != true
 			general.InfoS("add hint matched nic",

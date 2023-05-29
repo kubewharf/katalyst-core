@@ -76,6 +76,7 @@ func (o *BaseOptions) ApplyTo(c *global.BaseConfiguration) error {
 	c.LockWaitingEnabled = o.LockWaitingEnabled
 
 	c.NetMultipleNS = o.MachineNetMultipleNS
+	c.NetNSDirAbsPath = o.MachineNetNSDirAbsPath
 
 	common.InitKubernetesCGroupPath(common.CgroupType(o.CgroupType), o.AdditionalCgroupPaths)
 	return nil
