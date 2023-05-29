@@ -22,6 +22,7 @@ import (
 
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/klog/v2"
+	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 
 	"github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
@@ -134,6 +135,19 @@ func (ce ContainerEntries) GetPoolEntry() *AllocationInfo {
 		return nil
 	}
 	return ce[""]
+}
+
+func (ce ContainerEntries) GetMainContainerEntry() *AllocationInfo {
+	var mainContainerEntry *AllocationInfo
+
+	for _, siblingEntry := range ce {
+		if siblingEntry != nil && siblingEntry.ContainerType == pluginapi.ContainerType_MAIN.String() {
+			mainContainerEntry = siblingEntry
+			break
+		}
+	}
+
+	return mainContainerEntry
 }
 
 func (pe PodEntries) String() string {
