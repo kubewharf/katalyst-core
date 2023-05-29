@@ -32,6 +32,12 @@ type GenericEvictionConfiguration struct {
 	// first item for a particular name wins
 	InnerPlugins []string
 
+	// Dryrun plugins is the list of plugins to dryrun
+	// '*' means "all dryrun by default"
+	// 'foo' means "dryrun 'foo'"
+	// first item for a particular name wins
+	DryrunPlugins []string
+
 	// ConditionTransitionPeriod is duration the eviction manager has to wait before transitioning out of a condition.
 	ConditionTransitionPeriod time.Duration
 
