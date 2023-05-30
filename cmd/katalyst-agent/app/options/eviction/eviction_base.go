@@ -67,7 +67,7 @@ func (o *GenericEvictionOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 		"A list of eviction plugins to enable. '*' enables all on-by-default eviction plugins, 'foo' enables the eviction plugin "+
 		"named 'foo', '-foo' disables the eviction plugin named 'foo'"))
 
-	fs.StringSliceVar(&o.DryRunPlugins, "dry-run-plugins", o.DryRunPlugins, fmt.Sprintf(" A list of "+
+	fs.StringSliceVar(&o.DryRunPlugins, "eviction-dry-run-plugins", o.DryRunPlugins, fmt.Sprintf(" A list of "+
 		"eviction plugins to dry run. If a plugin in this list, it will enter dry run mode"))
 
 	fs.DurationVar(&o.ConditionTransitionPeriod, "eviction-condition-transition-period", o.ConditionTransitionPeriod,
