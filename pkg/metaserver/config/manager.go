@@ -179,16 +179,17 @@ func (c *DynamicConfigManager) InitializeConfig(ctx context.Context) error {
 		if err == nil {
 			return true, nil
 		}
+
+		if c.defaultConfig.ConfigSkipFailedInitialization {
+			klog.Warningf("unable to update dynamic config: %v, fallback to default config", err)
+			return true, nil
+		}
+
+		klog.Errorf("unable to update dynamic config: %v, back off to retry", err)
 		return false, nil
 	})
 
-	if err != nil {
-		if !c.defaultConfig.ConfigSkipFailedInitialization {
-			return err
-		}
-		klog.Errorf("unable to update dynamic config: %v, fallback to default config", err)
-	}
-	return nil
+	return err
 }
 
 func (c *DynamicConfigManager) tryUpdateConfig(ctx context.Context, skipError bool) error {
