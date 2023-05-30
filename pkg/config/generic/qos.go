@@ -38,6 +38,7 @@ type qosValidationFunc func(map[string]string) (bool, error)
 var validQosEnhancementKey = sets.NewString(
 	apiconsts.PodAnnotationCPUEnhancementKey,
 	apiconsts.PodAnnotationMemoryEnhancementKey,
+	apiconsts.PodAnnotationNetworkEnhancementKey,
 )
 
 // QoSConfiguration stores the qos configurations needed by core katalyst components.
@@ -110,8 +111,8 @@ func (c *QoSConfiguration) FilterQoSAndEnhancement(annotations map[string]string
 	defer c.RUnlock()
 
 	validEnhancementKeyList := validQosEnhancementKey.List()
-	for enhancementKey, enhancementExpandKey := range c.QoSEnhancementAnnotationSelector {
-		validEnhancementKeyList = append(validEnhancementKeyList, enhancementKey, enhancementExpandKey)
+	for enhancementExpandKey := range c.QoSEnhancementAnnotationSelector {
+		validEnhancementKeyList = append(validEnhancementKeyList, enhancementExpandKey)
 	}
 
 	for _, enhancementKey := range validEnhancementKeyList {

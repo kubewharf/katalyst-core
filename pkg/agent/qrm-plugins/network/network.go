@@ -18,9 +18,9 @@ package network
 
 import (
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/agent/qrm"
-	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/network/dynamicpolicy"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/network/staticpolicy"
 )
 
 func init() {
-	qrm.RegisterNetworkPolicyInitializer(dynamicpolicy.NetworkResourcePluginPolicyNameDynamic, dynamicpolicy.NewDynamicPolicy)
+	qrm.RegisterNetworkPolicyInitializer(staticpolicy.NetworkResourcePluginPolicyNameStatic, staticpolicy.NewStaticPolicy)
 }

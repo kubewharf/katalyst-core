@@ -23,6 +23,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -138,6 +139,21 @@ func ReadFileIntoLines(filepath string) ([]string, error) {
 		contents = append(contents, line)
 	}
 	return contents, nil
+}
+
+// ReadFileIntoInt read contents from the given file, and parse them into integer
+func ReadFileIntoInt(filepath string) (int, error) {
+	body, err := ioutil.ReadFile(filepath)
+	if err != nil {
+		return 0, fmt.Errorf("read file failed with error: %v", err)
+	}
+
+	i, err := strconv.Atoi(strings.TrimSpace(string(body)))
+	if err != nil {
+		return 0, fmt.Errorf("convert file content to int failed with error: %v", err)
+	}
+
+	return i, nil
 }
 
 func EnsureDirectory(dir string) error {

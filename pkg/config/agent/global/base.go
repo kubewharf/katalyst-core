@@ -32,10 +32,20 @@ type BaseConfiguration struct {
 	LockFileName string
 	// if LockWaitingEnabled set as true, will not panic and report agent as healthy instead
 	LockWaitingEnabled bool
+
+	*MachineInfoConfiguration
+}
+
+type MachineInfoConfiguration struct {
+	// if NetMultipleNS set as true, we should collect network interfaces from multiple ns
+	NetMultipleNS   bool
+	NetNSDirAbsPath string
 }
 
 func NewBaseConfiguration() *BaseConfiguration {
-	return &BaseConfiguration{}
+	return &BaseConfiguration{
+		MachineInfoConfiguration: &MachineInfoConfiguration{},
+	}
 }
 
 func (c *BaseConfiguration) ApplyConfiguration(*BaseConfiguration, *dynamic.DynamicConfigCRD) {

@@ -31,10 +31,15 @@ type BaseOptions struct {
 
 	CgroupType            string
 	AdditionalCgroupPaths []string
+
+	MachineNetMultipleNS   bool
+	MachineNetNSDirAbsPath string
 }
 
 func NewBaseOptions() *BaseOptions {
 	return &BaseOptions{
+		MachineNetMultipleNS: false,
+
 		LockFileName:       "/tmp/katalyst_agent_lock",
 		LockWaitingEnabled: false,
 
@@ -48,6 +53,12 @@ func (o *BaseOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 
 	fs.StringSliceVar(&o.Agents, "agents", o.Agents, "The agents need to be started")
 	fs.StringVar(&o.NodeName, "node-name", o.NodeName, "the name of this node")
+
+	fs.BoolVar(&o.MachineNetMultipleNS, "machine-net-multi-ns", o.MachineNetMultipleNS,
+		"if set as true, we should collect network interfaces from multiple ns")
+	fs.StringVar(&o.MachineNetNSDirAbsPath, "machine-net-ns-dir", o.MachineNetNSDirAbsPath,
+		"if set as true, we should collect network interfaces from multiple ns")
+
 	fs.StringVar(&o.LockFileName, "locking-file", o.LockFileName, "The filename used as unique lock")
 	fs.BoolVar(&o.LockWaitingEnabled, "locking-waiting", o.LockWaitingEnabled,
 		"If failed to acquire locking files, still mark agent as healthy")
@@ -63,6 +74,9 @@ func (o *BaseOptions) ApplyTo(c *global.BaseConfiguration) error {
 	c.NodeName = o.NodeName
 	c.LockFileName = o.LockFileName
 	c.LockWaitingEnabled = o.LockWaitingEnabled
+
+	c.NetMultipleNS = o.MachineNetMultipleNS
+	c.NetNSDirAbsPath = o.MachineNetNSDirAbsPath
 
 	common.InitKubernetesCGroupPath(common.CgroupType(o.CgroupType), o.AdditionalCgroupPaths)
 	return nil

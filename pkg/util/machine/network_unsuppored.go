@@ -1,3 +1,6 @@
+//go:build !linux && !windows
+// +build !linux,!windows
+
 /*
 Copyright 2022 The Katalyst Authors.
 
@@ -14,24 +17,14 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package qos
+package machine
 
 import (
-	"strconv"
+	"github.com/kubewharf/katalyst-core/pkg/config/agent/global"
 )
 
-// GetPodNetClassID parses net class id for the given pod.
-// if the given pod doesn't specify a class id, the first value returned will be false
-func GetPodNetClassID(podAnnotations map[string]string, podLevelNetClassAnnoKey string) (bool, uint32, error) {
-	classIDStr, ok := podAnnotations[podLevelNetClassAnnoKey]
-
-	if !ok {
-		return false, 0, nil
-	}
-
-	classID, err := strconv.ParseUint(classIDStr, 10, 64)
-	if err != nil {
-		return true, 0, err
-	}
-	return true, uint32(classID), nil
+// GetExtraNetworkInfo get network info from /sys/class/net and system function net.Interfaces.
+// if multiple network namespace is enabled, we should exec into all namespaces and parse nics for them.
+func GetExtraNetworkInfo(_ *global.MachineInfoConfiguration) (*ExtraNetworkInfo, error) {
+	return &ExtraNetworkInfo{}, nil
 }

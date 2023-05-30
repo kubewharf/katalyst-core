@@ -60,7 +60,7 @@ func NewMetaAgent(conf *config.Configuration, clientSet *client.GenericClientSet
 		return nil, err
 	}
 
-	machineInfo, err := machine.GetKatalystMachineInfo()
+	machineInfo, err := machine.GetKatalystMachineInfo(conf.BaseConfiguration.MachineInfoConfiguration)
 	if err != nil {
 		return nil, err
 	}
