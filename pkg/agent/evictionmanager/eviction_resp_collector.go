@@ -47,7 +47,7 @@ type evictionRespCollector struct {
 }
 
 func newEvictionRespCollector(conf *pkgconfig.Configuration, emitter metrics.MetricEmitter) *evictionRespCollector {
-	return &evictionRespCollector{
+	collector := &evictionRespCollector{
 		conf:                 conf,
 		currentMetThresholds: make(map[string]*pluginapi.ThresholdMetResponse),
 		currentConditions:    make(map[string]*pluginapi.Condition),
@@ -57,14 +57,16 @@ func newEvictionRespCollector(conf *pkgconfig.Configuration, emitter metrics.Met
 
 		emitter: emitter,
 	}
+	general.Infof("dry run plugins is %v", conf.GenericEvictionConfiguration.DryRunPlugins)
+	return collector
 }
 
 func (e *evictionRespCollector) isDryRun(pluginName string) bool {
-	if e.conf.DryRunPlugins == nil {
+	if e.conf.GenericEvictionConfiguration.DryRunPlugins == nil {
 		return false
 	}
 
-	return general.IsNameEnabled(pluginName, nil, e.conf.DryRunPlugins)
+	return general.IsNameEnabled(pluginName, nil, e.conf.GenericEvictionConfiguration.DryRunPlugins)
 }
 
 func (e *evictionRespCollector) getLogPrefix(dryRun bool) string {
