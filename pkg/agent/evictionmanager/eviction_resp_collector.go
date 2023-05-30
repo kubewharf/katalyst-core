@@ -60,17 +60,11 @@ func newEvictionRespCollector(conf *pkgconfig.Configuration, emitter metrics.Met
 }
 
 func (e *evictionRespCollector) isDryRun(pluginName string) bool {
-	if e.conf.DryrunPlugins == nil {
+	if e.conf.DryRunPlugins == nil {
 		return false
 	}
 
-	for _, dryRunPlugin := range e.conf.DryrunPlugins {
-		if dryRunPlugin == pluginName {
-			return true
-		}
-	}
-
-	return false
+	return general.IsNameEnabled(pluginName, nil, e.conf.DryRunPlugins)
 }
 
 func (e *evictionRespCollector) getLogPrefix(dryRun bool) string {

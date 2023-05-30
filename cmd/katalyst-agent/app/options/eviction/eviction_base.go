@@ -88,7 +88,7 @@ func (o *GenericEvictionOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 // ApplyTo fills up config with options
 func (o *GenericEvictionOptions) ApplyTo(c *evictionconfig.GenericEvictionConfiguration) error {
 	c.InnerPlugins = o.InnerPlugins
-	c.DryrunPlugins = o.DryRunPlugins
+	c.DryRunPlugins = o.DryRunPlugins
 	c.ConditionTransitionPeriod = o.ConditionTransitionPeriod
 	c.EvictionManagerSyncPeriod = o.EvictionManagerSyncPeriod
 	c.EvictionSkippedAnnotationKeys.Insert(o.EvictionSkippedAnnotationKeys...)

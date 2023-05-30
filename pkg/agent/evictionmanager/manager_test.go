@@ -278,10 +278,17 @@ func TestEvictionManger_collectEvictionResult(t *testing.T) {
 			wantForceEvictPods: sets.String{},
 			wantConditions:     sets.String{},
 		},
+		{
+			name:               "dryrun *",
+			dryrunPlugins:      []string{"*"},
+			wantSoftEvictPods:  sets.String{},
+			wantForceEvictPods: sets.String{},
+			wantConditions:     sets.String{},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			mgr.conf.DryrunPlugins = tt.dryrunPlugins
+			mgr.conf.DryRunPlugins = tt.dryrunPlugins
 
 			collector := mgr.collectEvictionResult(pods)
 			gotForceEvictPods := sets.String{}
