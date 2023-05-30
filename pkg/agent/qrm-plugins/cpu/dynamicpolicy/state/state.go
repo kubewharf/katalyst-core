@@ -163,6 +163,8 @@ func (ai *AllocationInfo) GetSpecifiedPoolName() string {
 		return PoolNameShare
 	case consts.PodAnnotationQoSLevelReclaimedCores:
 		return PoolNameReclaim
+	case consts.PodAnnotationQoSLevelDedicatedCores:
+		return PoolNameDedicated
 	default:
 		return cpuadvisor.EmptyOwnerPoolName
 	}
@@ -217,6 +219,25 @@ func (ce ContainerEntries) GetPoolEntry() *AllocationInfo {
 	return ce[cpuadvisor.FakedContainerName]
 }
 
+// GetMainContainerEntry return the main container entry in pod container entries
+func (ce ContainerEntries) GetMainContainerEntry() *AllocationInfo {
+	var mainContainerEntry *AllocationInfo
+
+	for _, siblingEntry := range ce {
+		if siblingEntry != nil && siblingEntry.CheckMainContainer() {
+			mainContainerEntry = siblingEntry
+			break
+		}
+	}
+
+	return mainContainerEntry
+}
+
+// GetMainContainerEntry return the main container owner pool name in pod container entries
+func (ce ContainerEntries) GetMainContainerPoolName() string {
+	return ce.GetMainContainerEntry().GetOwnerPoolName()
+}
+
 func (pe PodEntries) Clone() PodEntries {
 	clone := make(PodEntries)
 	for podUID, containerEntries := range pe {
@@ -226,19 +247,6 @@ func (pe PodEntries) Clone() PodEntries {
 		}
 	}
 	return clone
-}
-
-func (ce ContainerEntries) GetMainContainerEntry() *AllocationInfo {
-	var mainContainerEntry *AllocationInfo
-
-	for _, siblingEntry := range ce {
-		if siblingEntry != nil && siblingEntry.ContainerType == pluginapi.ContainerType_MAIN.String() {
-			mainContainerEntry = siblingEntry
-			break
-		}
-	}
-
-	return mainContainerEntry
 }
 
 func (pe PodEntries) String() string {

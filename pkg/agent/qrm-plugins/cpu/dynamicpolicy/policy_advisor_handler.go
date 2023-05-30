@@ -127,6 +127,24 @@ func (p *DynamicPolicy) GetCheckpoint(_ context.Context,
 				OwnerPoolName: allocationInfo.OwnerPoolName,
 			}
 
+			ownerPoolName := allocationInfo.GetOwnerPoolName()
+
+			if ownerPoolName == "" {
+				general.Warningf("pod: %s/%s container: %s get empty owner pool name",
+					allocationInfo.PodNamespace, allocationInfo.PodName, allocationInfo.ContainerName)
+				if allocationInfo.CheckSideCar() {
+					ownerPoolName = containerEntries.GetMainContainerPoolName()
+
+					general.Warningf("set pod: %s/%s sidecar container: %s owner pool name: %s same to its main container",
+						allocationInfo.PodNamespace, allocationInfo.PodName, allocationInfo.ContainerName,
+						ownerPoolName)
+				}
+			}
+
+			chkEntries[uid].Entries[entryName].OwnerPoolName = ownerPoolName
+
+			// not set topology-aware assignments for shared_cores and reclaimed_cores,
+			// since their topology-aware assignments are same to the pools they are in.
 			if !state.CheckShared(allocationInfo) && !state.CheckReclaimed(allocationInfo) {
 				chkEntries[uid].Entries[entryName].TopologyAwareAssignments = machine.ParseCPUAssignmentFormat(allocationInfo.TopologyAwareAssignments)
 				chkEntries[uid].Entries[entryName].OriginalTopologyAwareAssignments = machine.ParseCPUAssignmentFormat(allocationInfo.OriginalTopologyAwareAssignments)

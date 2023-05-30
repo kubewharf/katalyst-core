@@ -361,13 +361,7 @@ func (p *DynamicPolicy) dedicatedCoresWithNUMABindingAllocationSidecarHandler(_ 
 		return &pluginapi.ResourceAllocationResponse{}, nil
 	}
 
-	var mainContainerAllocationInfo *state.AllocationInfo
-	for _, siblingAllocationInfo := range podEntries[req.PodUid] {
-		if siblingAllocationInfo.ContainerType == pluginapi.ContainerType_MAIN.String() {
-			mainContainerAllocationInfo = siblingAllocationInfo
-			break
-		}
-	}
+	mainContainerAllocationInfo := podEntries[req.PodUid].GetMainContainerEntry()
 
 	// todo: consider sidecar without reconcile in vpa
 	if mainContainerAllocationInfo == nil {
@@ -746,8 +740,15 @@ func (p *DynamicPolicy) applyPoolsAndIsolatedInfo(poolsCPUSet map[string]machine
 			newPodEntries[podUID][containerName] = allocationInfo.Clone()
 			switch allocationInfo.QoSLevel {
 			case apiconsts.PodAnnotationQoSLevelDedicatedCores:
-				// todo: currently for numa_binding containers, we just clone checkpoint already exist
-				//  if qos aware will adjust cpuset for them, we will make adaption here
+				ownerPoolName := allocationInfo.GetOwnerPoolName()
+
+				if ownerPoolName == "" {
+					ownerPoolName = allocationInfo.GetSpecifiedPoolName()
+				}
+
+				newPodEntries[podUID][containerName].OwnerPoolName = ownerPoolName
+
+				// for numa_binding containers, we just clone checkpoint already exist
 				if state.CheckDedicatedNUMABinding(allocationInfo) {
 					continue containerLoop
 				}
