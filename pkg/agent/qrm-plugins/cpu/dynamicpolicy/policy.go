@@ -752,9 +752,24 @@ func (p *DynamicPolicy) GetCheckpoint(_ context.Context, req *advisorapi.GetChec
 			}
 
 			chkEntries[uid].Entries[entryName] = &advisorapi.AllocationInfo{
-				RampUp:        allocationInfo.RampUp,
-				OwnerPoolName: allocationInfo.OwnerPoolName,
+				RampUp: allocationInfo.RampUp,
 			}
+
+			ownerPoolName := state.GetRealOwnerPoolName(allocationInfo)
+
+			if ownerPoolName == "" {
+				klog.Warningf("[CPUDynamicPolicy.GetCheckpoint] pod: %s/%s container: %s get empty owner pool name",
+					allocationInfo.PodNamespace, allocationInfo.PodName, allocationInfo.ContainerName)
+				if allocationInfo.ContainerType == pluginapi.ContainerType_SIDECAR.String() {
+					ownerPoolName = state.GetMainContainerPoolName(containerEntries)
+
+					klog.Warningf("[CPUDynamicPolicy.GetCheckpoint] set pod: %s/%s sidecar container: %s owner pool name: %s same to its main container",
+						allocationInfo.PodNamespace, allocationInfo.PodName, allocationInfo.ContainerName,
+						ownerPoolName)
+				}
+			}
+
+			chkEntries[uid].Entries[entryName].OwnerPoolName = ownerPoolName
 
 			if allocationInfo.QoSLevel != consts.PodAnnotationQoSLevelSharedCores && allocationInfo.QoSLevel != consts.PodAnnotationQoSLevelReclaimedCores {
 				chkEntries[uid].Entries[entryName].TopologyAwareAssignments = util.ParseTopologyAwareAssignments(allocationInfo.TopologyAwareAssignments)
@@ -1586,6 +1601,15 @@ func (p *DynamicPolicy) applyPoolsAndIsolatedInfo(poolsCPUSet map[string]machine
 			newPodEntries[podUID][containerName] = allocationInfo.Clone()
 			switch allocationInfo.QoSLevel {
 			case consts.PodAnnotationQoSLevelDedicatedCores:
+				// may be indicated by qos aware server
+				ownerPoolName := state.GetRealOwnerPoolName(allocationInfo)
+
+				if ownerPoolName == "" {
+					ownerPoolName = state.GetSpecifiedPoolName(allocationInfo)
+				}
+
+				newPodEntries[podUID][containerName].OwnerPoolName = ownerPoolName
+
 				// todo: currently for numa_binding containers, we just clone checkpoint already exist
 				//  if qos aware will adjust cpuset for them, we will make adaption here
 				if allocationInfo.Annotations[consts.PodAnnotationMemoryEnhancementNumaBinding] == consts.PodAnnotationMemoryEnhancementNumaBindingEnable {

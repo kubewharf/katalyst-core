@@ -370,13 +370,7 @@ func (p *DynamicPolicy) dedicatedCoresWithNUMABindingAllocationSidecarHandler(ct
 		return &pluginapi.ResourceAllocationResponse{}, nil
 	}
 
-	var mainContainerAllocationInfo *state.AllocationInfo
-	for _, siblingAllocationInfo := range podEntries[req.PodUid] {
-		if siblingAllocationInfo.ContainerType == pluginapi.ContainerType_MAIN.String() {
-			mainContainerAllocationInfo = siblingAllocationInfo
-			break
-		}
-	}
+	mainContainerAllocationInfo := podEntries[req.PodUid].GetMainContainerEntry()
 
 	// todo: consider sidecar without reconcile in vpa
 	if mainContainerAllocationInfo == nil {

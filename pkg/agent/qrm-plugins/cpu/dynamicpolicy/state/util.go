@@ -147,6 +147,10 @@ func GetPoolsQuantityMapFromPodEntries(podEntries PodEntries, ignoreAllocationIn
 	return ret
 }
 
+func GetMainContainerPoolName(containerEntries ContainerEntries) string {
+	return GetRealOwnerPoolName(containerEntries.GetMainContainerEntry())
+}
+
 // GetSpecifiedPoolName parses the belonging pool name for a given allocation according to QoS level
 func GetSpecifiedPoolName(allocationInfo *AllocationInfo) string {
 	if allocationInfo == nil {
@@ -162,6 +166,8 @@ func GetSpecifiedPoolName(allocationInfo *AllocationInfo) string {
 		return PoolNameShare
 	case consts.PodAnnotationQoSLevelReclaimedCores:
 		return PoolNameReclaim
+	case consts.PodAnnotationQoSLevelDedicatedCores:
+		return PoolNameDedicated
 	default:
 		return ""
 	}
