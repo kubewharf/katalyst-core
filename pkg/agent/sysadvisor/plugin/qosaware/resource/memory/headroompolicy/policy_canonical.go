@@ -24,6 +24,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/util/errors"
 
+	"github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource/helper"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
@@ -67,6 +68,9 @@ func (p *PolicyCanonical) estimateNonReclaimedQoSMemoryRequirement() (float64, e
 	)
 
 	f := func(podUID string, containerName string, ci *types.ContainerInfo) bool {
+		if ci.QoSLevel == consts.PodAnnotationQoSLevelReclaimedCores {
+			return true
+		}
 		enableReclaim, err := helper.PodEnableReclaim(context.Background(), p.metaServer, podUID, p.essentials.EnableReclaim)
 		if err != nil {
 			errList = append(errList, err)

@@ -36,6 +36,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/cnc"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util"
+	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/native"
 )
 
@@ -101,7 +102,8 @@ func NewSPDFetcher(clientSet *client.GenericClientSet, emitter metrics.MetricEmi
 func (s *spdFetcher) GetSPD(ctx context.Context, pod *v1.Pod) (*workloadapis.ServiceProfileDescriptor, error) {
 	spdName, err := s.getPodSPDNameFunc(pod)
 	if err != nil {
-		return nil, fmt.Errorf("get pod spd name failed: %v", err)
+		general.Warningf("get spd for pod (%v/%v) err %v", pod.Namespace, pod.Name, err)
+		return nil, errors.NewNotFound(workloadapis.Resource(workloadapis.ResourceNameServiceProfileDescriptors), fmt.Sprintf("for pod(%v/%v)", pod.Namespace, pod.Name))
 	}
 
 	return s.getSPDByNamespaceName(ctx, pod.GetNamespace(), spdName)
