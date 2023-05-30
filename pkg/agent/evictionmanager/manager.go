@@ -95,194 +95,6 @@ type EvictionManger struct {
 	thresholdsFirstObservedAt map[string]thresholdObservedAt
 }
 
-// evictionRespCollector is used to collect eviction result from plugins, it also handles some logic such as dryrun.
-type evictionRespCollector struct {
-	conf *pkgconfig.Configuration
-
-	currentMetThresholds map[string]*pluginapi.ThresholdMetResponse
-	currentConditions    map[string]*pluginapi.Condition
-
-	// softEvictPods are candidates (among which only one will be chosen);
-	// forceEvictPods are pods that should be killed immediately (but can be withdrawn)
-	softEvictPods  map[string]*rule.RuledEvictPod
-	forceEvictPods map[string]*rule.RuledEvictPod
-
-	// emitter is used to emit metrics.
-	emitter metrics.MetricEmitter
-}
-
-func newEvictionRespCollector(conf *pkgconfig.Configuration, emitter metrics.MetricEmitter) *evictionRespCollector {
-	return &evictionRespCollector{
-		conf:                 conf,
-		currentMetThresholds: make(map[string]*pluginapi.ThresholdMetResponse),
-		currentConditions:    make(map[string]*pluginapi.Condition),
-
-		softEvictPods:  make(map[string]*rule.RuledEvictPod),
-		forceEvictPods: make(map[string]*rule.RuledEvictPod),
-
-		emitter: emitter,
-	}
-}
-
-func (e *evictionRespCollector) dryrun(pluginName string) bool {
-	if e.conf.DryrunPlugins == nil {
-		return false
-	}
-
-	for _, dryrunPlugin := range e.conf.DryrunPlugins {
-		if dryrunPlugin == pluginName {
-			return true
-		}
-	}
-
-	return false
-}
-
-func (e *evictionRespCollector) collectEvictPods(pluginName string, resp *pluginapi.GetEvictPodsResponse) {
-	dryrun := e.dryrun(pluginName)
-	if dryrun {
-		for _, evictPod := range resp.EvictPods {
-			if evictPod == nil || evictPod.Pod == nil {
-				general.Errorf("[dryrun] skip nil evict pod of plugin: %s", pluginName)
-				continue
-			}
-
-			general.Infof("[dryrun]plugin: %s requests to evict pod: %s/%s with reason: %s, forceEvict: %v",
-				pluginName, evictPod.Pod.Namespace, evictPod.Pod.Name, evictPod.Reason, evictPod.ForceEvict)
-		}
-
-		if resp.Condition != nil && resp.Condition.MetCondition {
-			general.Infof("[dryrun]plugin: %s requests set condition: %s of type: %s",
-				pluginName, resp.Condition.ConditionName, resp.Condition.ConditionType.String())
-		}
-
-		_ = e.emitter.StoreInt64(MetricsNameDryrunVictimPodCNT, int64(len(resp.EvictPods)), metrics.MetricTypeNameRaw,
-			metrics.MetricTag{Key: "name", Val: pluginName})
-		return
-	}
-
-	for _, evictPod := range resp.EvictPods {
-		if evictPod == nil || evictPod.Pod == nil {
-			general.Errorf(" skip nil evict pod of plugin: %s", pluginName)
-			continue
-		}
-
-		// to avoid plugins forget to set EvictionPluginName property
-		evictPod.EvictionPluginName = pluginName
-		general.Infof("plugin: %s requests to evict pod: %s/%s with reason: %s, forceEvict: %v",
-			pluginName, evictPod.Pod.Namespace, evictPod.Pod.Name, evictPod.Reason, evictPod.ForceEvict)
-
-		if evictPod.ForceEvict {
-			e.forceEvictPods[string(evictPod.Pod.UID)] = &rule.RuledEvictPod{
-				EvictPod: proto.Clone(evictPod).(*pluginapi.EvictPod),
-				Scope:    rule.EvictionScopeForce,
-			}
-		} else {
-			e.softEvictPods[string(evictPod.Pod.UID)] = &rule.RuledEvictPod{
-				EvictPod: proto.Clone(evictPod).(*pluginapi.EvictPod),
-				Scope:    rule.EvictionScopeSoft,
-			}
-		}
-	}
-
-	if resp.Condition != nil && resp.Condition.MetCondition {
-		general.Infof(" plugin: %s requests set condition: %s of type: %s",
-			pluginName, resp.Condition.ConditionName, resp.Condition.ConditionType.String())
-
-		e.currentConditions[resp.Condition.ConditionName] = proto.Clone(resp.Condition).(*pluginapi.Condition)
-	}
-}
-
-func (e *evictionRespCollector) collectMetThreshold(pluginName string, resp *pluginapi.ThresholdMetResponse) {
-	if resp.MetType == pluginapi.ThresholdMetType_NOT_MET {
-		general.InfofV(6, " plugin: %s threshold isn't met", pluginName)
-		return
-	}
-
-	dryrun := e.dryrun(pluginName)
-	if dryrun {
-		// save thresholds to currentMetThreshold so that GetTopEvictionPods function will be called
-		e.currentMetThresholds[pluginName] = proto.Clone(resp).(*pluginapi.ThresholdMetResponse)
-		general.Infof("[dryrun]plugin %v met threshold, threshold value: %v, ObservedValue value: %v, "+
-			"ThresholdOperator: %v, metType: %v, Condition: %v",
-			pluginName, resp.ThresholdValue, resp.ObservedValue, resp.ThresholdOperator, resp.MetType, resp.Condition)
-		return
-	}
-
-	general.Infof(" plugin: %s met threshold: %s", pluginName, resp.String())
-	if resp.Condition != nil && resp.Condition.MetCondition {
-		general.Infof(" plugin: %s requests to set condition: %s of type: %s",
-			pluginName, resp.Condition.ConditionName, resp.Condition.ConditionType.String())
-
-		e.currentConditions[resp.Condition.ConditionName] = proto.Clone(resp.Condition).(*pluginapi.Condition)
-	}
-
-	e.currentMetThresholds[pluginName] = proto.Clone(resp).(*pluginapi.ThresholdMetResponse)
-}
-
-func (e *evictionRespCollector) collectTopEvictionPods(pluginName string, threshold *pluginapi.ThresholdMetResponse, resp *pluginapi.GetTopEvictionPodsResponse) {
-	dryrun := e.dryrun(pluginName)
-	if dryrun {
-		for _, evictPod := range resp.TargetPods {
-			if evictPod == nil {
-				general.Errorf("[dryrun] skip nil evict pod of plugin: %s", pluginName)
-				continue
-			}
-
-			general.Infof("[dryrun]plugin: %s requests to evict TopN pod: %s/%s",
-				pluginName, evictPod.Namespace, evictPod.Name)
-		}
-		return
-	}
-
-	for _, pod := range resp.TargetPods {
-		if pod == nil {
-			continue
-		}
-
-		deletionOptions := resp.DeletionOptions
-		reason := fmt.Sprintf("met threshold in scope: %s from plugin: %s", threshold.EvictionScope, pluginName)
-
-		forceEvictPod := e.forceEvictPods[string(pod.UID)]
-		if forceEvictPod != nil {
-			if deletionOptions != nil && forceEvictPod.EvictPod.DeletionOptions != nil {
-				deletionOptions.GracePeriodSeconds = general.MaxInt64(deletionOptions.GracePeriodSeconds,
-					forceEvictPod.EvictPod.DeletionOptions.GracePeriodSeconds)
-			} else if forceEvictPod.EvictPod.DeletionOptions != nil {
-				deletionOptions.GracePeriodSeconds = forceEvictPod.EvictPod.DeletionOptions.GracePeriodSeconds
-			}
-			reason = fmt.Sprintf("%s; %s", reason, forceEvictPod.EvictPod.Reason)
-		}
-
-		e.forceEvictPods[string(pod.UID)] = &rule.RuledEvictPod{
-			EvictPod: &pluginapi.EvictPod{
-				Pod:                pod.DeepCopy(),
-				Reason:             reason,
-				DeletionOptions:    deletionOptions,
-				ForceEvict:         true,
-				EvictionPluginName: pluginName, // only count this pod to one plugin
-			},
-			Scope: threshold.EvictionScope,
-		}
-	}
-}
-
-func (e *evictionRespCollector) getCurrentConditions() map[string]*pluginapi.Condition {
-	return e.currentConditions
-}
-
-func (e *evictionRespCollector) getCurrentMetThresholds() map[string]*pluginapi.ThresholdMetResponse {
-	return e.currentMetThresholds
-}
-
-func (e *evictionRespCollector) getSoftEvictPods() map[string]*rule.RuledEvictPod {
-	return e.softEvictPods
-}
-
-func (e *evictionRespCollector) getForceEvictPods() map[string]*rule.RuledEvictPod {
-	return e.forceEvictPods
-}
-
 var InnerEvictionPluginsDisabledByDefault = sets.NewString()
 
 func NewInnerEvictionPluginInitializers() map[string]plugin.InitFunc {
@@ -360,6 +172,12 @@ func (m *EvictionManger) sync(ctx context.Context) {
 	general.Infof(" currently, there are %v candidate pods", len(pods))
 	_ = m.emitter.StoreInt64(MetricsNameCandidatePodCNT, int64(len(pods)), metrics.MetricTypeNameRaw)
 
+	collector := m.collectEvictionResult(pods)
+
+	m.doEvict(collector.getSoftEvictPods(), collector.getForceEvictPods())
+}
+
+func (m *EvictionManger) collectEvictionResult(pods []*v1.Pod) *evictionRespCollector {
 	collector := newEvictionRespCollector(m.conf, m.emitter)
 
 	m.endpointLock.RLock()
@@ -439,7 +257,7 @@ func (m *EvictionManger) sync(ctx context.Context) {
 		collector.collectTopEvictionPods(pluginName, threshold, resp)
 	}
 
-	m.doEvict(collector.getSoftEvictPods(), collector.getForceEvictPods())
+	return collector
 }
 
 func (m *EvictionManger) doEvict(softEvictPods, forceEvictPods map[string]*rule.RuledEvictPod) {
