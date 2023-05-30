@@ -99,10 +99,10 @@ var InnerEvictionPluginsDisabledByDefault = sets.NewString()
 
 func NewInnerEvictionPluginInitializers() map[string]plugin.InitFunc {
 	innerEvictionPluginInitializers := make(map[string]plugin.InitFunc)
-	innerEvictionPluginInitializers["reclaimed-resources"] = plugin.NewReclaimedResourcesEvictionPlugin
-	innerEvictionPluginInitializers["numa-memory-pressure"] = memory.NewNumaMemoryPressureEvictionPlugin
-	innerEvictionPluginInitializers["system-memory-pressure"] = memory.NewSystemPressureEvictionPlugin
-	innerEvictionPluginInitializers["rss-overuse"] = memory.NewRssOveruseEvictionPlugin
+	innerEvictionPluginInitializers[plugin.ReclaimedResourcesEvictionPluginName] = plugin.NewReclaimedResourcesEvictionPlugin
+	innerEvictionPluginInitializers[memory.EvictionPluginNameNumaMemoryPressure] = memory.NewNumaMemoryPressureEvictionPlugin
+	innerEvictionPluginInitializers[memory.EvictionPluginNameSystemMemoryPressure] = memory.NewSystemPressureEvictionPlugin
+	innerEvictionPluginInitializers[memory.EvictionPluginNameRssOveruse] = memory.NewRssOveruseEvictionPlugin
 	return innerEvictionPluginInitializers
 }
 
