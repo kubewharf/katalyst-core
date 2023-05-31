@@ -26,15 +26,14 @@ import (
 )
 
 type PolicyBase struct {
-	regionName string
+	types.ResourceEssentials
+	regulator *regulator.CPURegulator
 
-	requirement int
-	regulator   *regulator.CPURegulator
-
-	podSet       types.PodSet
-	indicator    types.Indicator
-	bindingNumas machine.CPUSet
-	essentials   types.ResourceEssentials
+	regionName     string
+	cpuRequirement int
+	podSet         types.PodSet
+	indicator      types.Indicator
+	bindingNumas   machine.CPUSet
 
 	metaReader metacache.MetaReader
 	metaServer *metaserver.MetaServer
@@ -44,10 +43,11 @@ type PolicyBase struct {
 func NewPolicyBase(regionName string, regulator *regulator.CPURegulator, metaReader metacache.MetaReader,
 	metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter) *PolicyBase {
 	cp := &PolicyBase{
+		regulator: regulator,
+
 		regionName: regionName,
 		podSet:     make(types.PodSet),
 		indicator:  make(types.Indicator),
-		regulator:  regulator,
 
 		metaReader: metaReader,
 		metaServer: metaServer,
@@ -60,16 +60,16 @@ func (p *PolicyBase) SetPodSet(podSet types.PodSet) {
 	p.podSet = podSet.Clone()
 }
 
-func (p *PolicyBase) SetIndicator(v types.Indicator) {
-	p.indicator = v
+func (p *PolicyBase) SetIndicator(indicator types.Indicator) {
+	p.indicator = indicator.Clone()
 }
 
-func (p *PolicyBase) SetRequirement(requirement int) {
-	p.requirement = requirement
+func (p *PolicyBase) SetCPURequirement(cpuRequirement int) {
+	p.cpuRequirement = cpuRequirement
 }
 
 func (p *PolicyBase) SetEssentials(essentials types.ResourceEssentials) {
-	p.essentials = essentials
+	p.ResourceEssentials = essentials
 	p.regulator.SetEssentials(essentials)
 }
 

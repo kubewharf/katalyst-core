@@ -394,6 +394,7 @@ func (mc *MetaCacheImp) GCPoolEntries(livingPoolNameSet sets.String) error {
 func (mc *MetaCacheImp) UpdateRegionEntries(entries types.RegionEntries) error {
 	mc.regionMutex.Lock()
 	defer mc.regionMutex.Unlock()
+
 	mc.regionEntries = entries.Clone()
 	return nil
 }

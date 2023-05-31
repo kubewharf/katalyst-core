@@ -170,7 +170,7 @@ func TestPolicyCanonical_calculateMemoryBuffer(t *testing.T) {
 				},
 				essentials: types.ResourceEssentials{
 					EnableReclaim:       true,
-					Total:               100 << 30,
+					ResourceUpperBound:  100 << 30,
 					ReservedForAllocate: 4 << 30,
 				},
 				setFakeMetric: func(store *utilmetric.MetricStore) {
@@ -241,7 +241,7 @@ func TestPolicyCanonical_calculateMemoryBuffer(t *testing.T) {
 				},
 				essentials: types.ResourceEssentials{
 					EnableReclaim:       true,
-					Total:               100 << 30,
+					ResourceUpperBound:  100 << 30,
 					ReservedForAllocate: 4 << 30,
 				},
 				setFakeMetric: func(store *utilmetric.MetricStore) {
@@ -317,7 +317,7 @@ func TestPolicyCanonical_calculateMemoryBuffer(t *testing.T) {
 				},
 				essentials: types.ResourceEssentials{
 					EnableReclaim:       true,
-					Total:               100 << 30,
+					ResourceUpperBound:  100 << 30,
 					ReservedForAllocate: 4 << 30,
 				},
 				setFakeMetric: func(store *utilmetric.MetricStore) {
@@ -396,7 +396,7 @@ func TestPolicyCanonical_calculateMemoryBuffer(t *testing.T) {
 				},
 				essentials: types.ResourceEssentials{
 					EnableReclaim:       true,
-					Total:               100 << 30,
+					ResourceUpperBound:  100 << 30,
 					ReservedForAllocate: 4 << 30,
 				},
 				setFakeMetric: func(store *utilmetric.MetricStore) {

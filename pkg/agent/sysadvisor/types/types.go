@@ -140,6 +140,20 @@ type RegionEntries map[string]*RegionInfo
 // PodSet stores container names keyed by pod uid
 type PodSet map[string]sets.String
 
+// InternalCalculationResult conveys minimal information to cpu server for composing
+// calculation result
+type InternalCalculationResult struct {
+	PoolEntries map[string]map[int]int // map[poolName][numaId]cpuSize
+}
+
+// ResourceEssentials defines essential (const) variables, and those variables may be adjusted by KCC
+type ResourceEssentials struct {
+	EnableReclaim       bool
+	ResourceUpperBound  float64
+	ResourceLowerBound  float64
+	ReservedForAllocate float64
+}
+
 // ControlKnob holds tunable system entries affecting indicator metrics
 type ControlKnob map[ControlKnobName]ControlKnobValue
 
@@ -153,18 +167,6 @@ const (
 	// ControlKnobReclaimedCPUSupplied refers to the cpu resource could be supplied to the pods with reclaimed_cores QoS level
 	ControlKnobReclaimedCPUSupplied ControlKnobName = "reclaimed-cpu-supplied"
 )
-
-// ResourceEssentials defines essential (const) variables, and those variables may be adjusted by KCC
-type ResourceEssentials struct {
-	EnableReclaim bool
-
-	Total               int
-	ReservePoolSize     int
-	ReservedForAllocate int
-
-	MinRequirement int
-	MaxRequirement int
-}
 
 // ControlKnobValue holds control knob value and action
 type ControlKnobValue struct {

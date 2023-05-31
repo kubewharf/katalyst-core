@@ -17,8 +17,6 @@ limitations under the License.
 package region
 
 import (
-	"k8s.io/apimachinery/pkg/api/resource"
-
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
@@ -28,14 +26,14 @@ import (
 type QoSRegion interface {
 	// Name returns region's global unique identifier, combined with region type and uuid
 	Name() string
-	// Type returns region type
+	// Type returns region's type
 	Type() types.QoSRegionType
-
+	// OwnerPoolName returns region's owner pool name
 	OwnerPoolName() string
 
 	// IsEmpty returns true if no container remains in region
 	IsEmpty() bool
-	// Clear clears all topology and containers info in region
+	// Clear clears all topology and container info in region
 	Clear()
 
 	// GetBindingNumas returns numa ids assigned to this region
@@ -45,8 +43,7 @@ type QoSRegion interface {
 
 	// SetBindingNumas overwrites numa ids assigned to this region
 	SetBindingNumas(machine.CPUSet)
-	// SetEssentials updates essential region values for policy and headroom update
-	// region available resource value = total - reservePoolSize - reservedForAllocate
+	// SetEssentials updates essential region values for policy update
 	SetEssentials(essentials types.ResourceEssentials)
 	// AddContainer stores a container keyed by pod uid and container name to region
 	AddContainer(ci *types.ContainerInfo) error
@@ -59,7 +56,7 @@ type QoSRegion interface {
 	// GetProvision returns the latest updated control knob value
 	GetProvision() (types.ControlKnob, error)
 	// GetHeadroom returns the latest updated cpu headroom estimation
-	GetHeadroom() (resource.Quantity, error)
+	GetHeadroom() (float64, error)
 
 	// GetProvisionPolicy returns provision policy for this region,
 	// the first is policy with top priority, while the second is the policy that is in-use currently

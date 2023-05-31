@@ -18,7 +18,6 @@ package region
 
 import (
 	"fmt"
-	"math"
 	"sync"
 
 	"k8s.io/klog/v2"
@@ -72,6 +71,7 @@ type QoSRegionBase struct {
 	// that is in-use currently
 	provisionPolicies    []*internalProvisionPolicy
 	provisionPolicyInUse *internalProvisionPolicy
+
 	// headroomPolicies for comparing and merging different headroom policy results,
 	// the former has higher priority; headroomPolicyInUse indicates the provision policy
 	// that is in-use currently
@@ -81,32 +81,6 @@ type QoSRegionBase struct {
 	metaReader metacache.MetaReader
 	metaServer *metaserver.MetaServer
 	emitter    metrics.MetricEmitter
-}
-
-// getRegionName returns the name of region owned by container. If numaID specified, the BindingNumas of the region
-// will be checked, otherwise only one region should be owned by container.
-func getRegionName(ci *types.ContainerInfo, numaID int, metaReader metacache.MetaReader) string {
-	if ci.QoSLevel == consts.PodAnnotationQoSLevelSharedCores {
-		if len(ci.RegionNames) == 1 {
-			// get region name from metaCache
-			regionName := ci.RegionNames.List()[0]
-			regionInfo, ok := metaReader.GetRegionInfo(regionName)
-			if ok && regionInfo.RegionType == types.QoSRegionTypeShare {
-				return regionName
-			}
-		}
-	} else if ci.IsNumaBinding() {
-		for regionName := range ci.RegionNames {
-			regionInfo, ok := metaReader.GetRegionInfo(regionName)
-			if ok && regionInfo.RegionType == types.QoSRegionTypeDedicatedNumaExclusive {
-				regionNUMAs := regionInfo.BindingNumas.ToSliceInt()
-				if len(regionNUMAs) == 1 && regionNUMAs[0] == numaID {
-					return regionName
-				}
-			}
-		}
-	}
-	return ""
 }
 
 // NewQoSRegionBase returns a base qos region instance with common region methods
@@ -214,6 +188,66 @@ func (r *QoSRegionBase) AddContainer(ci *types.ContainerInfo) error {
 	return nil
 }
 
+func (r *QoSRegionBase) TryUpdateHeadroom() {
+	r.Lock()
+	defer r.Unlock()
+
+	for _, internal := range r.headroomPolicies {
+		internal.updateStatus = types.PolicyUpdateFailed
+
+		// set essentials for policy and regulator
+		internal.policy.SetPodSet(r.podSet)
+		internal.policy.SetEssentials(r.ResourceEssentials)
+
+		// run an episode of policy and calculator update
+		if err := internal.policy.Update(); err != nil {
+			klog.Errorf("[qosaware-cpu] update policy %v failed: %v", internal.name, err)
+			continue
+		}
+		internal.updateStatus = types.PolicyUpdateSucceeded
+	}
+}
+
+func (r *QoSRegionBase) GetProvision() (types.ControlKnob, error) {
+	r.Lock()
+	defer r.Unlock()
+
+	for _, internal := range r.provisionPolicies {
+		if internal.updateStatus != types.PolicyUpdateSucceeded {
+			continue
+		}
+		controlKnobAdjusted, err := internal.policy.GetControlKnobAdjusted()
+		if err != nil {
+			klog.Errorf("[qosaware-cpu] get control knob adjusted by policy %v failed: %v", internal.name, err)
+			continue
+		}
+		r.provisionPolicyInUse = internal
+		return controlKnobAdjusted, nil
+	}
+
+	return types.ControlKnob{}, fmt.Errorf("failed to get legal provison")
+}
+
+func (r *QoSRegionBase) GetHeadroom() (float64, error) {
+	r.Lock()
+	defer r.Unlock()
+
+	for _, internal := range r.headroomPolicies {
+		if internal.updateStatus != types.PolicyUpdateSucceeded {
+			continue
+		}
+		headroom, err := internal.policy.GetHeadroom()
+		if err != nil {
+			klog.Errorf("[qosaware-cpu] get headroom updated by policy %v failed: %v", internal.name, err)
+			continue
+		}
+		r.headroomPolicyInUse = internal
+		return headroom, nil
+	}
+
+	return 0, fmt.Errorf("failed to get valid headroom")
+}
+
 func (r *QoSRegionBase) GetProvisionPolicy() (policyTopPriority types.CPUProvisionPolicyName, policyInUse types.CPUProvisionPolicyName) {
 	r.Lock()
 	defer r.Unlock()
@@ -246,6 +280,33 @@ func (r *QoSRegionBase) GetHeadRoomPolicy() (policyTopPriority types.CPUHeadroom
 	}
 
 	return
+}
+
+// getRegionNameFromMetaCache returns region name owned by container from metacache,
+// to restore region info after restart. If numaID is specified, binding numas of the
+// region will be checked, otherwise only one region should be owned by container.
+func getRegionNameFromMetaCache(ci *types.ContainerInfo, numaID int, metaReader metacache.MetaReader) string {
+	if ci.QoSLevel == consts.PodAnnotationQoSLevelSharedCores {
+		if len(ci.RegionNames) == 1 {
+			// get region name from metaCache
+			regionName := ci.RegionNames.List()[0]
+			regionInfo, ok := metaReader.GetRegionInfo(regionName)
+			if ok && regionInfo.RegionType == types.QoSRegionTypeShare {
+				return regionName
+			}
+		}
+	} else if ci.IsNumaBinding() {
+		for regionName := range ci.RegionNames {
+			regionInfo, ok := metaReader.GetRegionInfo(regionName)
+			if ok && regionInfo.RegionType == types.QoSRegionTypeDedicatedNumaExclusive {
+				regionNUMAs := regionInfo.BindingNumas.ToSliceInt()
+				if len(regionNUMAs) == 1 && regionNUMAs[0] == numaID {
+					return regionName
+				}
+			}
+		}
+	}
+	return ""
 }
 
 // initProvisionPolicy initializes provision by adding additional policies into default ones
@@ -294,14 +355,5 @@ func (r *QoSRegionBase) initHeadroomPolicy(conf *config.Configuration, extraConf
 				internalPolicyState: internalPolicyState{updateStatus: types.PolicyUpdateFailed},
 			})
 		}
-	}
-}
-
-func (r *QoSRegionBase) buildProvisionEssentials(minRequirement int) types.ResourceEssentials {
-	return types.ResourceEssentials{
-		EnableReclaim:       r.EnableReclaim,
-		ReservedForAllocate: r.ReservedForAllocate,
-		MinRequirement:      minRequirement,
-		MaxRequirement:      r.Total - r.ReservePoolSize - int(math.Ceil(float64(types.MinDedicatedCPURequirement)/float64(r.metaServer.NumNUMANodes)))*r.bindingNumas.Size(),
 	}
 }

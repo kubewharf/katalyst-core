@@ -33,9 +33,9 @@ type HeadroomPolicy interface {
 	// SetEssentials updates essential values for policy update
 	SetEssentials(essentials types.ResourceEssentials)
 
-	// Update triggers an epoch of algorithm update
+	// Update triggers an episode of headroom update
 	Update() error
-	// GetHeadroom returns the latest headroom estimation
+	// GetHeadroom returns the latest legal headroom estimation
 	GetHeadroom() (float64, error)
 }
 

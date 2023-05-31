@@ -27,15 +27,13 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
-	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/util/sets"
 
 	"github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/options"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/cpuadvisor"
-	qrmstate "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
-	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource/cpu"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
@@ -61,7 +59,7 @@ func generateTestConfiguration(t *testing.T) *config.Configuration {
 }
 
 func newTestCPUServer(t *testing.T) *cpuServer {
-	recvCh := make(chan cpu.InternalCalculationResult)
+	recvCh := make(chan types.InternalCalculationResult)
 	sendCh := make(chan struct{})
 	conf := generateTestConfiguration(t)
 
@@ -227,7 +225,7 @@ func TestCPUServerListAndWatch(t *testing.T) {
 	tests := []struct {
 		name      string
 		empty     *cpuadvisor.Empty
-		provision cpu.InternalCalculationResult
+		provision types.InternalCalculationResult
 		infos     []*ContainerInfo
 		wantErr   bool
 		wantRes   *cpuadvisor.ListAndWatchResponse
@@ -235,17 +233,17 @@ func TestCPUServerListAndWatch(t *testing.T) {
 		{
 			name:  "reclaim pool with shared pool",
 			empty: &cpuadvisor.Empty{},
-			provision: cpu.InternalCalculationResult{PoolEntries: map[string]map[int]resource.Quantity{
-				qrmstate.PoolNameShare:   {-1: *resource.NewQuantity(2, resource.DecimalSI)},
-				qrmstate.PoolNameReclaim: {-1: *resource.NewQuantity(4, resource.DecimalSI)},
+			provision: types.InternalCalculationResult{PoolEntries: map[string]map[int]int{
+				state.PoolNameShare:   {-1: 2},
+				state.PoolNameReclaim: {-1: 4},
 			}},
 			wantErr: false,
 			wantRes: &cpuadvisor.ListAndWatchResponse{
 				Entries: map[string]*cpuadvisor.CalculationEntries{
-					qrmstate.PoolNameShare: {
+					state.PoolNameShare: {
 						Entries: map[string]*cpuadvisor.CalculationInfo{
 							"": {
-								OwnerPoolName: qrmstate.PoolNameShare,
+								OwnerPoolName: state.PoolNameShare,
 								CalculationResultsByNumas: map[int64]*cpuadvisor.NumaCalculationResult{
 									-1: {
 										Blocks: []*cpuadvisor.Block{
@@ -258,10 +256,10 @@ func TestCPUServerListAndWatch(t *testing.T) {
 							},
 						},
 					},
-					qrmstate.PoolNameReclaim: {
+					state.PoolNameReclaim: {
 						Entries: map[string]*cpuadvisor.CalculationInfo{
 							"": {
-								OwnerPoolName: qrmstate.PoolNameReclaim,
+								OwnerPoolName: state.PoolNameReclaim,
 								CalculationResultsByNumas: map[int64]*cpuadvisor.NumaCalculationResult{
 									-1: {
 										Blocks: []*cpuadvisor.Block{
@@ -280,10 +278,10 @@ func TestCPUServerListAndWatch(t *testing.T) {
 		{
 			name:  "reclaim pool with dedicated pod",
 			empty: &cpuadvisor.Empty{},
-			provision: cpu.InternalCalculationResult{PoolEntries: map[string]map[int]resource.Quantity{
-				qrmstate.PoolNameReclaim: {
-					0: *resource.NewQuantity(4, resource.DecimalSI),
-					1: *resource.NewQuantity(8, resource.DecimalSI),
+			provision: types.InternalCalculationResult{PoolEntries: map[string]map[int]int{
+				state.PoolNameReclaim: {
+					0: 4,
+					1: 8,
 				},
 			}},
 			infos: []*ContainerInfo{
@@ -297,7 +295,7 @@ func TestCPUServerListAndWatch(t *testing.T) {
 						QosLevel: consts.PodAnnotationQoSLevelDedicatedCores,
 					},
 					allocationInfo: &cpuadvisor.AllocationInfo{
-						OwnerPoolName: qrmstate.PoolNameDedicated,
+						OwnerPoolName: state.PoolNameDedicated,
 						TopologyAwareAssignments: map[uint64]string{
 							0: "0-3",
 							1: "24-47",
@@ -308,10 +306,10 @@ func TestCPUServerListAndWatch(t *testing.T) {
 			wantErr: false,
 			wantRes: &cpuadvisor.ListAndWatchResponse{
 				Entries: map[string]*cpuadvisor.CalculationEntries{
-					qrmstate.PoolNameReclaim: {
+					state.PoolNameReclaim: {
 						Entries: map[string]*cpuadvisor.CalculationInfo{
 							"": {
-								OwnerPoolName: qrmstate.PoolNameReclaim,
+								OwnerPoolName: state.PoolNameReclaim,
 								CalculationResultsByNumas: map[int64]*cpuadvisor.NumaCalculationResult{
 									0: {
 										Blocks: []*cpuadvisor.Block{
@@ -348,7 +346,7 @@ func TestCPUServerListAndWatch(t *testing.T) {
 					"pod1": {
 						Entries: map[string]*cpuadvisor.CalculationInfo{
 							"c1": {
-								OwnerPoolName: qrmstate.PoolNameDedicated,
+								OwnerPoolName: state.PoolNameDedicated,
 								CalculationResultsByNumas: map[int64]*cpuadvisor.NumaCalculationResult{
 									0: {
 										Blocks: []*cpuadvisor.Block{
@@ -356,7 +354,7 @@ func TestCPUServerListAndWatch(t *testing.T) {
 												Result: 4,
 												OverlapTargets: []*cpuadvisor.OverlapTarget{
 													{
-														OverlapTargetPoolName: qrmstate.PoolNameReclaim,
+														OverlapTargetPoolName: state.PoolNameReclaim,
 														OverlapType:           cpuadvisor.OverlapType_OverlapWithPool,
 													},
 												},
@@ -373,7 +371,7 @@ func TestCPUServerListAndWatch(t *testing.T) {
 												Result: 8,
 												OverlapTargets: []*cpuadvisor.OverlapTarget{
 													{
-														OverlapTargetPoolName: qrmstate.PoolNameReclaim,
+														OverlapTargetPoolName: state.PoolNameReclaim,
 														OverlapType:           cpuadvisor.OverlapType_OverlapWithPool,
 													},
 												},
@@ -390,10 +388,10 @@ func TestCPUServerListAndWatch(t *testing.T) {
 		{
 			name:  "reclaim pool colocated with dedicated pod(2 containers)",
 			empty: &cpuadvisor.Empty{},
-			provision: cpu.InternalCalculationResult{PoolEntries: map[string]map[int]resource.Quantity{
-				qrmstate.PoolNameReclaim: {
-					0: *resource.NewQuantity(4, resource.DecimalSI),
-					1: *resource.NewQuantity(8, resource.DecimalSI),
+			provision: types.InternalCalculationResult{PoolEntries: map[string]map[int]int{
+				state.PoolNameReclaim: {
+					0: 4,
+					1: 8,
 				},
 			}},
 			infos: []*ContainerInfo{
@@ -407,7 +405,7 @@ func TestCPUServerListAndWatch(t *testing.T) {
 						QosLevel: consts.PodAnnotationQoSLevelDedicatedCores,
 					},
 					allocationInfo: &cpuadvisor.AllocationInfo{
-						OwnerPoolName: qrmstate.PoolNameDedicated,
+						OwnerPoolName: state.PoolNameDedicated,
 						TopologyAwareAssignments: map[uint64]string{
 							0: "0-3",
 							1: "24-47",
@@ -424,7 +422,7 @@ func TestCPUServerListAndWatch(t *testing.T) {
 						QosLevel: consts.PodAnnotationQoSLevelDedicatedCores,
 					},
 					allocationInfo: &cpuadvisor.AllocationInfo{
-						OwnerPoolName: qrmstate.PoolNameDedicated,
+						OwnerPoolName: state.PoolNameDedicated,
 						TopologyAwareAssignments: map[uint64]string{
 							0: "0-3",
 							1: "24-47",
@@ -435,10 +433,10 @@ func TestCPUServerListAndWatch(t *testing.T) {
 			wantErr: false,
 			wantRes: &cpuadvisor.ListAndWatchResponse{
 				Entries: map[string]*cpuadvisor.CalculationEntries{
-					qrmstate.PoolNameReclaim: {
+					state.PoolNameReclaim: {
 						Entries: map[string]*cpuadvisor.CalculationInfo{
 							"": {
-								OwnerPoolName: qrmstate.PoolNameReclaim,
+								OwnerPoolName: state.PoolNameReclaim,
 								CalculationResultsByNumas: map[int64]*cpuadvisor.NumaCalculationResult{
 									0: {
 										Blocks: []*cpuadvisor.Block{
@@ -485,7 +483,7 @@ func TestCPUServerListAndWatch(t *testing.T) {
 					"pod1": {
 						Entries: map[string]*cpuadvisor.CalculationInfo{
 							"c1": {
-								OwnerPoolName: qrmstate.PoolNameDedicated,
+								OwnerPoolName: state.PoolNameDedicated,
 								CalculationResultsByNumas: map[int64]*cpuadvisor.NumaCalculationResult{
 									0: {
 										Blocks: []*cpuadvisor.Block{
@@ -498,7 +496,7 @@ func TestCPUServerListAndWatch(t *testing.T) {
 														OverlapType:                cpuadvisor.OverlapType_OverlapWithPod,
 													},
 													{
-														OverlapTargetPoolName: qrmstate.PoolNameReclaim,
+														OverlapTargetPoolName: state.PoolNameReclaim,
 														OverlapType:           cpuadvisor.OverlapType_OverlapWithPool,
 													},
 												},
@@ -526,7 +524,7 @@ func TestCPUServerListAndWatch(t *testing.T) {
 														OverlapType:                cpuadvisor.OverlapType_OverlapWithPod,
 													},
 													{
-														OverlapTargetPoolName: qrmstate.PoolNameReclaim,
+														OverlapTargetPoolName: state.PoolNameReclaim,
 														OverlapType:           cpuadvisor.OverlapType_OverlapWithPool,
 													},
 												},
@@ -536,7 +534,7 @@ func TestCPUServerListAndWatch(t *testing.T) {
 								},
 							},
 							"c2": {
-								OwnerPoolName: qrmstate.PoolNameDedicated,
+								OwnerPoolName: state.PoolNameDedicated,
 								CalculationResultsByNumas: map[int64]*cpuadvisor.NumaCalculationResult{
 									0: {
 										Blocks: []*cpuadvisor.Block{
@@ -549,7 +547,7 @@ func TestCPUServerListAndWatch(t *testing.T) {
 														OverlapType:                cpuadvisor.OverlapType_OverlapWithPod,
 													},
 													{
-														OverlapTargetPoolName: qrmstate.PoolNameReclaim,
+														OverlapTargetPoolName: state.PoolNameReclaim,
 														OverlapType:           cpuadvisor.OverlapType_OverlapWithPool,
 													},
 												},
@@ -577,7 +575,7 @@ func TestCPUServerListAndWatch(t *testing.T) {
 														OverlapType:                cpuadvisor.OverlapType_OverlapWithPod,
 													},
 													{
-														OverlapTargetPoolName: qrmstate.PoolNameReclaim,
+														OverlapTargetPoolName: state.PoolNameReclaim,
 														OverlapType:           cpuadvisor.OverlapType_OverlapWithPool,
 													},
 												},

@@ -69,17 +69,17 @@ func (c *CPURegulator) SetLatestCPURequirement(latestCPURequirement int) {
 
 // Regulate runs an episode of cpu regulation to restrict raw cpu requirement and store the result
 // as the latest cpu requirement value
-func (c *CPURegulator) Regulate(cpuRequirementRaw float64) {
-	cpuRequirement := cpuRequirementRaw + float64(c.ReservedForAllocate)
-	cpuRequirement = c.slowdown(cpuRequirement)
-	cpuRequirementRound := c.round(cpuRequirement)
-	cpuRequirementInt := c.clamp(cpuRequirementRound)
+func (c *CPURegulator) Regulate(cpuRequirement float64) {
+	cpuRequirementReserved := cpuRequirement + c.ReservedForAllocate
+	cpuRequirementSlowdown := c.slowdown(cpuRequirementReserved)
+	cpuRequirementRound := c.round(cpuRequirementSlowdown)
+	cpuRequirementClamp := c.clamp(cpuRequirementRound)
 
-	klog.Infof("[qosaware-cpu] cpu requirement by policy: %.2f, after slowdown %.2f, after round %v, after post process: %v, added reserved: %v",
-		cpuRequirementRaw, cpuRequirement, cpuRequirementRound, cpuRequirementInt, c.ReservedForAllocate)
+	klog.Infof("[qosaware-cpu] cpu requirement by policy: %.2f, added reserve: %.2f, after slowdown: %.2f, after round: %d, after clamp: %d",
+		cpuRequirement, cpuRequirementReserved, cpuRequirementSlowdown, cpuRequirementRound, cpuRequirementClamp)
 
-	if cpuRequirementInt != c.latestCPURequirement {
-		c.latestCPURequirement = cpuRequirementInt
+	if cpuRequirementClamp != c.latestCPURequirement {
+		c.latestCPURequirement = cpuRequirementClamp
 		c.latestRampDownTime = time.Now()
 	}
 }
@@ -120,10 +120,10 @@ func (c *CPURegulator) round(cpuRequirement float64) int {
 }
 
 func (c *CPURegulator) clamp(cpuRequirement int) int {
-	if cpuRequirement < c.MinRequirement {
-		return c.MinRequirement
-	} else if c.MinRequirement < c.MaxRequirement && cpuRequirement > c.MaxRequirement {
-		return c.MaxRequirement
+	if cpuRequirement < int(c.ResourceLowerBound) {
+		return int(c.ResourceLowerBound)
+	} else if cpuRequirement > int(c.ResourceUpperBound) {
+		return int(c.ResourceUpperBound)
 	} else {
 		return cpuRequirement
 	}

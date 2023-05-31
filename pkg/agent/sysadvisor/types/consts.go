@@ -19,12 +19,15 @@ package types
 import "time"
 
 const (
-	MinShareCPURequirement     int     = 4
-	MinDedicatedCPURequirement int     = 4
-	MinReclaimCPURequirement   int     = 4
-	MaxRampUpStep              float64 = 10
-	MaxRampDownStep            float64 = 2
-	MinRampDownPeriod                  = 30 * time.Second
-	StartUpPeriod                      = 30 * time.Second
-	RegionNameSeparator                = "-"
+	ReservedForReclaim = 4
+
+	MinShareCPURequirement     = 4
+	MinDedicatedCPURequirement = 4
+
+	MaxRampUpStep     = 10
+	MaxRampDownStep   = 2
+	MinRampDownPeriod = 30 * time.Second
+	StartUpPeriod     = 30 * time.Second
+
+	RegionNameSeparator = "-"
 )

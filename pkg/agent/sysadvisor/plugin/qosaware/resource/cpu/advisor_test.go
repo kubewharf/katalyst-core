@@ -121,13 +121,13 @@ func TestUpdate(t *testing.T) {
 		containers                    []*types.ContainerInfo
 		pods                          []*v1.Pod
 		reclaimEnabled                bool
-		wantInternalCalculationResult InternalCalculationResult
+		wantInternalCalculationResult types.InternalCalculationResult
 		wantHeadroom                  resource.Quantity
 	}{
 		{
 			name:                          "missing reserve pool",
 			pools:                         map[string]*types.PoolInfo{},
-			wantInternalCalculationResult: InternalCalculationResult{},
+			wantInternalCalculationResult: types.InternalCalculationResult{},
 			wantHeadroom:                  resource.Quantity{},
 		},
 		{
@@ -146,10 +146,10 @@ func TestUpdate(t *testing.T) {
 				},
 			},
 			reclaimEnabled: true,
-			wantInternalCalculationResult: InternalCalculationResult{
-				map[string]map[int]resource.Quantity{
-					state.PoolNameReserve: {-1: *resource.NewQuantity(2, resource.DecimalSI)},
-					state.PoolNameReclaim: {-1: *resource.NewQuantity(94, resource.DecimalSI)},
+			wantInternalCalculationResult: types.InternalCalculationResult{
+				PoolEntries: map[string]map[int]int{
+					state.PoolNameReserve: {-1: 2},
+					state.PoolNameReclaim: {-1: 94},
 				},
 			},
 			wantHeadroom: resource.MustParse(fmt.Sprintf("%d", 94)),
@@ -197,11 +197,11 @@ func TestUpdate(t *testing.T) {
 					},
 				},
 			},
-			wantInternalCalculationResult: InternalCalculationResult{
-				map[string]map[int]resource.Quantity{
-					state.PoolNameReserve: {-1: *resource.NewQuantity(2, resource.DecimalSI)},
-					state.PoolNameShare:   {-1: *resource.NewQuantity(8, resource.DecimalSI)},
-					state.PoolNameReclaim: {-1: *resource.NewQuantity(86, resource.DecimalSI)},
+			wantInternalCalculationResult: types.InternalCalculationResult{
+				PoolEntries: map[string]map[int]int{
+					state.PoolNameReserve: {-1: 2},
+					state.PoolNameShare:   {-1: 8},
+					state.PoolNameReclaim: {-1: 86},
 				},
 			},
 			wantHeadroom: resource.MustParse(fmt.Sprintf("%d", 86)),
@@ -249,11 +249,11 @@ func TestUpdate(t *testing.T) {
 					},
 				},
 			},
-			wantInternalCalculationResult: InternalCalculationResult{
-				map[string]map[int]resource.Quantity{
-					state.PoolNameReserve: {-1: *resource.NewQuantity(2, resource.DecimalSI)},
-					state.PoolNameShare:   {-1: *resource.NewQuantity(90, resource.DecimalSI)},
-					state.PoolNameReclaim: {-1: *resource.NewQuantity(4, resource.DecimalSI)},
+			wantInternalCalculationResult: types.InternalCalculationResult{
+				PoolEntries: map[string]map[int]int{
+					state.PoolNameReserve: {-1: 2},
+					state.PoolNameShare:   {-1: 90},
+					state.PoolNameReclaim: {-1: 4},
 				},
 			},
 			wantHeadroom: resource.MustParse(fmt.Sprintf("%d", 4)),
@@ -310,15 +310,15 @@ func TestUpdate(t *testing.T) {
 					},
 				},
 			},
-			wantInternalCalculationResult: InternalCalculationResult{
-				map[string]map[int]resource.Quantity{
+			wantInternalCalculationResult: types.InternalCalculationResult{
+				PoolEntries: map[string]map[int]int{
 					state.PoolNameReserve: {
-						-1: *resource.NewQuantity(2, resource.DecimalSI),
+						-1: 2,
 					},
-					state.PoolNameShare: {-1: *resource.NewQuantity(6, resource.DecimalSI)},
+					state.PoolNameShare: {-1: 6},
 					state.PoolNameReclaim: {
-						0:  *resource.NewQuantity(2, resource.DecimalSI),
-						-1: *resource.NewQuantity(41, resource.DecimalSI),
+						0:  2,
+						-1: 41,
 					},
 				},
 			},
@@ -376,15 +376,15 @@ func TestUpdate(t *testing.T) {
 					},
 				},
 			},
-			wantInternalCalculationResult: InternalCalculationResult{
-				map[string]map[int]resource.Quantity{
+			wantInternalCalculationResult: types.InternalCalculationResult{
+				PoolEntries: map[string]map[int]int{
 					state.PoolNameReserve: {
-						-1: *resource.NewQuantity(2, resource.DecimalSI),
+						-1: 2,
 					},
-					state.PoolNameShare: {-1: *resource.NewQuantity(45, resource.DecimalSI)},
+					state.PoolNameShare: {-1: 45},
 					state.PoolNameReclaim: {
-						0:  *resource.NewQuantity(2, resource.DecimalSI),
-						-1: *resource.NewQuantity(2, resource.DecimalSI),
+						0:  2,
+						-1: 2,
 					},
 				},
 			},
@@ -433,14 +433,14 @@ func TestUpdate(t *testing.T) {
 					},
 				},
 			},
-			wantInternalCalculationResult: InternalCalculationResult{
-				map[string]map[int]resource.Quantity{
+			wantInternalCalculationResult: types.InternalCalculationResult{
+				PoolEntries: map[string]map[int]int{
 					state.PoolNameReserve: {
-						-1: *resource.NewQuantity(2, resource.DecimalSI),
+						-1: 2,
 					},
 					state.PoolNameReclaim: {
-						0:  *resource.NewQuantity(2, resource.DecimalSI),
-						-1: *resource.NewQuantity(47, resource.DecimalSI),
+						0:  2,
+						-1: 47,
 					},
 				},
 			},
@@ -512,12 +512,12 @@ func TestUpdate(t *testing.T) {
 					},
 				},
 			},
-			wantInternalCalculationResult: InternalCalculationResult{
-				map[string]map[int]resource.Quantity{
-					state.PoolNameReserve: {-1: *resource.NewQuantity(2, resource.DecimalSI)},
-					state.PoolNameShare:   {-1: *resource.NewQuantity(45, resource.DecimalSI)},
-					"batch":               {-1: *resource.NewQuantity(45, resource.DecimalSI)},
-					state.PoolNameReclaim: {-1: *resource.NewQuantity(4, resource.DecimalSI)},
+			wantInternalCalculationResult: types.InternalCalculationResult{
+				PoolEntries: map[string]map[int]int{
+					state.PoolNameReserve: {-1: 2},
+					state.PoolNameShare:   {-1: 45},
+					"batch":               {-1: 45},
+					state.PoolNameReclaim: {-1: 4},
 				},
 			},
 			wantHeadroom: resource.MustParse(fmt.Sprintf("%d", 4)),
@@ -588,12 +588,12 @@ func TestUpdate(t *testing.T) {
 					},
 				},
 			},
-			wantInternalCalculationResult: InternalCalculationResult{
-				map[string]map[int]resource.Quantity{
-					state.PoolNameReserve: {-1: *resource.NewQuantity(2, resource.DecimalSI)},
-					state.PoolNameShare:   {-1: *resource.NewQuantity(8, resource.DecimalSI)},
-					"batch":               {-1: *resource.NewQuantity(8, resource.DecimalSI)},
-					state.PoolNameReclaim: {-1: *resource.NewQuantity(78, resource.DecimalSI)},
+			wantInternalCalculationResult: types.InternalCalculationResult{
+				PoolEntries: map[string]map[int]int{
+					state.PoolNameReserve: {-1: 2},
+					state.PoolNameShare:   {-1: 8},
+					"batch":               {-1: 8},
+					state.PoolNameReclaim: {-1: 78},
 				},
 			},
 			wantHeadroom: resource.MustParse(fmt.Sprintf("%d", 78)),
@@ -616,7 +616,7 @@ func TestUpdate(t *testing.T) {
 
 			recvChInterface, sendChInterface := advisor.GetChannels()
 			recvCh := recvChInterface.(chan struct{})
-			sendCh := sendChInterface.(chan InternalCalculationResult)
+			sendCh := sendChInterface.(chan types.InternalCalculationResult)
 
 			for poolName, poolInfo := range tt.pools {
 				err := metaCache.SetPoolInfo(poolName, poolInfo)
@@ -633,7 +633,7 @@ func TestUpdate(t *testing.T) {
 			// Trigger advisor update
 			recvCh <- struct{}{}
 
-			if reflect.DeepEqual(tt.wantInternalCalculationResult, InternalCalculationResult{}) {
+			if reflect.DeepEqual(tt.wantInternalCalculationResult, types.InternalCalculationResult{}) {
 				time.Sleep(10 * time.Millisecond) // Wait some time because no signal will be sent to channel
 				_, err := advisor.GetHeadroom()
 				assert.Error(t, err)
@@ -653,53 +653,6 @@ func TestUpdate(t *testing.T) {
 			}
 
 			cancel()
-		})
-	}
-}
-
-func TestGenShareRegionPools(t *testing.T) {
-	tests := []struct {
-		name                         string
-		originShareRegionRequirement map[string]int
-		sharePoolSize                int
-		wantShareRegionRequirement   map[string]int
-	}{
-		{
-			name:                         "sharePoolSize < total requirement",
-			originShareRegionRequirement: map[string]int{"r1": 2, "r2": 3},
-			sharePoolSize:                4,
-			wantShareRegionRequirement:   map[string]int{"r1": 2, "r2": 2},
-		},
-		{
-			name:                         "sharePoolSize < total requirement",
-			originShareRegionRequirement: map[string]int{"r1": 1, "r2": 5},
-			sharePoolSize:                4,
-			wantShareRegionRequirement:   map[string]int{"r1": 1, "r2": 3},
-		},
-		{
-			name:                         "sharePoolSize < total requirement",
-			originShareRegionRequirement: map[string]int{"r1": 20, "r2": 30},
-			sharePoolSize:                10,
-			wantShareRegionRequirement:   map[string]int{"r1": 4, "r2": 6},
-		},
-		{
-			name:                         "sharePoolSize == total requirement",
-			originShareRegionRequirement: map[string]int{"r1": 2, "r2": 3},
-			sharePoolSize:                5,
-			wantShareRegionRequirement:   map[string]int{"r1": 2, "r2": 3},
-		},
-		{
-			name:                         "sharePoolSize > total requirement",
-			originShareRegionRequirement: map[string]int{"r1": 2, "r2": 3},
-			sharePoolSize:                10,
-			wantShareRegionRequirement:   map[string]int{"r1": 2, "r2": 3},
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			pools := genShareRegionPools(tt.originShareRegionRequirement, tt.sharePoolSize)
-			assert.Equal(t, tt.wantShareRegionRequirement, pools)
 		})
 	}
 }

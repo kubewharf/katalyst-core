@@ -19,10 +19,6 @@ limitations under the License.
 package region
 
 import (
-	"fmt"
-	"math"
-
-	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/util/uuid"
 	"k8s.io/klog/v2"
 
@@ -44,7 +40,7 @@ type QoSRegionDedicatedNumaExclusive struct {
 func NewQoSRegionDedicatedNumaExclusive(ci *types.ContainerInfo, conf *config.Configuration, numaID int,
 	extraConf interface{}, metaReader metacache.MetaReader, metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter) QoSRegion {
 
-	regionName := getRegionName(ci, numaID, metaReader)
+	regionName := getRegionNameFromMetaCache(ci, numaID, metaReader)
 	if regionName == "" {
 		regionName = string(types.QoSRegionTypeDedicatedNumaExclusive) + types.RegionNameSeparator + string(uuid.NewUUID())
 	}
@@ -66,99 +62,27 @@ func (r *QoSRegionDedicatedNumaExclusive) TryUpdateProvision() {
 
 		// set essentials for policy and regulator
 		internal.policy.SetPodSet(r.podSet)
-		internal.policy.SetEssentials(r.buildProvisionEssentials(types.MinDedicatedCPURequirement))
 		internal.policy.SetBindingNumas(r.bindingNumas)
+		internal.policy.SetEssentials(r.ResourceEssentials)
 
 		// try set initial cpu requirement to restore calculator after metaCache has been initialized
 		internal.initDoOnce.Do(func() {
-			reclaimedCpuSize := 0
+			reclaimedCPUSize := 0
 			if reclaimedInfo, ok := r.metaReader.GetPoolInfo(state.PoolNameReclaim); ok {
 				for _, numaID := range r.bindingNumas.ToSliceInt() {
-					reclaimedCpuSize += reclaimedInfo.TopologyAwareAssignments[numaID].Size()
+					reclaimedCPUSize += reclaimedInfo.TopologyAwareAssignments[numaID].Size()
 				}
 			}
-			cpuRequirement := r.Total - r.ReservePoolSize - reclaimedCpuSize
-			internal.policy.SetRequirement(cpuRequirement)
+			cpuRequirement := int(r.ResourceUpperBound) - reclaimedCPUSize
+			internal.policy.SetCPURequirement(cpuRequirement)
 			klog.Infof("[qosaware-cpu] set initial cpu requirement %v", cpuRequirement)
 		})
 
-		// run an episode of policy and calculator update
+		// run an episode of policy update
 		if err := internal.policy.Update(); err != nil {
 			klog.Errorf("[qosaware-cpu] update policy %v failed: %v", internal.name, err)
 			continue
 		}
 		internal.updateStatus = types.PolicyUpdateSucceeded
 	}
-}
-
-func (r *QoSRegionDedicatedNumaExclusive) TryUpdateHeadroom() {
-	r.Lock()
-	defer r.Unlock()
-
-	for _, internal := range r.headroomPolicies {
-		internal.updateStatus = types.PolicyUpdateFailed
-
-		// set essentials for policy and regulator
-		internal.policy.SetPodSet(r.podSet)
-		internal.policy.SetEssentials(r.ResourceEssentials)
-
-		// run an episode of policy and calculator update
-		if err := internal.policy.Update(); err != nil {
-			klog.Errorf("[qosaware-cpu] update policy %v failed: %v", internal.name, err)
-			continue
-		}
-		internal.updateStatus = types.PolicyUpdateSucceeded
-	}
-}
-
-func (r *QoSRegionDedicatedNumaExclusive) GetProvision() (types.ControlKnob, error) {
-	r.Lock()
-	defer r.Unlock()
-
-	if !r.EnableReclaim {
-		return types.ControlKnob{
-			types.ControlKnobReclaimedCPUSupplied: types.ControlKnobValue{
-				Value:  math.Ceil(float64(types.MinReclaimCPURequirement)/float64(r.metaServer.NumNUMANodes)) * float64(r.bindingNumas.Size()),
-				Action: types.ControlKnobActionNone,
-			},
-		}, nil
-	}
-
-	for _, internal := range r.provisionPolicies {
-		if internal.updateStatus != types.PolicyUpdateSucceeded {
-			continue
-		}
-		controlKnobValue, err := internal.policy.GetControlKnobAdjusted()
-		if err != nil {
-			klog.Errorf("GetControlKnobAdjusted by policy %v err %v", internal.name, err)
-			continue
-		}
-		return types.ControlKnob{
-			types.ControlKnobReclaimedCPUSupplied: types.ControlKnobValue{
-				Value:  float64(r.Total-r.ReservePoolSize) - controlKnobValue[types.ControlKnobNonReclaimedCPUSetSize].Value,
-				Action: types.ControlKnobActionNone,
-			},
-		}, nil
-	}
-	return types.ControlKnob{}, fmt.Errorf("failed to get valid provison")
-}
-
-func (r *QoSRegionDedicatedNumaExclusive) GetHeadroom() (resource.Quantity, error) {
-	r.Lock()
-	defer r.Unlock()
-
-	for _, internal := range r.headroomPolicies {
-		if internal.updateStatus != types.PolicyUpdateSucceeded {
-			continue
-		}
-		headroom, err := internal.policy.GetHeadroom()
-		if err != nil {
-			klog.Errorf("GetHeadroom by policy %v err %v", internal.name, err)
-			continue
-		}
-		r.headroomPolicyInUse = internal
-		return *resource.NewQuantity(int64(headroom), resource.DecimalSI), nil
-	}
-
-	return resource.Quantity{}, fmt.Errorf("failed to get valid headroom")
 }
