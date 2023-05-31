@@ -99,11 +99,7 @@ func (topo *CPUTopology) GetSocketTopology() map[int]string {
 }
 
 func GenerateDummyMachineInfo(numaNum int, memoryCapacityGB int) (*info.MachineInfo, error) {
-	machineInfo, err := getMachineInfo()
-
-	if err != nil {
-		return nil, err
-	}
+	machineInfo := &info.MachineInfo{}
 
 	if memoryCapacityGB%numaNum != 0 {
 		return nil, fmt.Errorf("invalid memoryCapacityGB: %d and NUMA number: %d", memoryCapacityGB, numaNum)
