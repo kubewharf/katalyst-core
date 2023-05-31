@@ -598,9 +598,3 @@ func (p *DynamicPolicy) applyBlocks(blockCPUSet advisorapi.BlockCPUSet, resp *ad
 
 	return nil
 }
-
-// qrmGeneratedInfo returns true if the allocation info in state should be
-// initialized by qrm rather than advisor
-func qrmGeneratedInfo(subEntry string, info *advisorapi.CalculationInfo) bool {
-	return info.OwnerPoolName == state.PoolNameDedicated || subEntry != advisorapi.FakedContainerName
-}

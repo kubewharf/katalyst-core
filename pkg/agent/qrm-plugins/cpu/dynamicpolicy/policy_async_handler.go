@@ -21,6 +21,8 @@ import (
 	"fmt"
 	"time"
 
+	"k8s.io/apimachinery/pkg/util/sets"
+
 	"github.com/kubewharf/katalyst-api/pkg/consts"
 	advisorapi "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/cpuadvisor"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
@@ -30,7 +32,6 @@ import (
 	cgroupcmutils "github.com/kubewharf/katalyst-core/pkg/util/cgroup/manager"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
-	"k8s.io/apimachinery/pkg/util/sets"
 )
 
 // checkCPUSet emit errors if the memory allocation falls into unexpected results

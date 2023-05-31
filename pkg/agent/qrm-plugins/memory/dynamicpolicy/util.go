@@ -21,8 +21,9 @@ import (
 	"math"
 
 	info "github.com/google/cadvisor/info/v1"
-	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"k8s.io/apimachinery/pkg/api/resource"
+
+	"github.com/kubewharf/katalyst-core/pkg/util/general"
 )
 
 // GetReservedMemory is used to spread total reserved memories into per-numa level.
