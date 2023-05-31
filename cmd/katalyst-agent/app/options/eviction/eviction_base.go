@@ -30,6 +30,8 @@ import (
 type GenericEvictionOptions struct {
 	InnerPlugins []string
 
+	DryRunPlugins []string
+
 	// ConditionTransitionPeriod is duration the eviction manager has to wait before transitioning out of a condition.
 	ConditionTransitionPeriod time.Duration
 
@@ -48,6 +50,7 @@ type GenericEvictionOptions struct {
 func NewGenericEvictionOptions() *GenericEvictionOptions {
 	return &GenericEvictionOptions{
 		InnerPlugins:                  []string{},
+		DryRunPlugins:                 []string{},
 		ConditionTransitionPeriod:     5 * time.Minute,
 		EvictionManagerSyncPeriod:     5 * time.Second,
 		EvictionSkippedAnnotationKeys: []string{},
@@ -63,6 +66,9 @@ func (o *GenericEvictionOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 	fs.StringSliceVar(&o.InnerPlugins, "eviction-plugins", o.InnerPlugins, fmt.Sprintf(""+
 		"A list of eviction plugins to enable. '*' enables all on-by-default eviction plugins, 'foo' enables the eviction plugin "+
 		"named 'foo', '-foo' disables the eviction plugin named 'foo'"))
+
+	fs.StringSliceVar(&o.DryRunPlugins, "eviction-dry-run-plugins", o.DryRunPlugins, fmt.Sprintf(" A list of "+
+		"eviction plugins to dry run. If a plugin in this list, it will enter dry run mode"))
 
 	fs.DurationVar(&o.ConditionTransitionPeriod, "eviction-condition-transition-period", o.ConditionTransitionPeriod,
 		"duration the eviction manager has to wait before transitioning out of a condition")
@@ -82,6 +88,7 @@ func (o *GenericEvictionOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 // ApplyTo fills up config with options
 func (o *GenericEvictionOptions) ApplyTo(c *evictionconfig.GenericEvictionConfiguration) error {
 	c.InnerPlugins = o.InnerPlugins
+	c.DryRunPlugins = o.DryRunPlugins
 	c.ConditionTransitionPeriod = o.ConditionTransitionPeriod
 	c.EvictionManagerSyncPeriod = o.EvictionManagerSyncPeriod
 	c.EvictionSkippedAnnotationKeys.Insert(o.EvictionSkippedAnnotationKeys...)
