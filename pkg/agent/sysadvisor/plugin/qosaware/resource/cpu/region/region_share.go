@@ -40,7 +40,7 @@ type QoSRegionShare struct {
 func NewQoSRegionShare(ci *types.ContainerInfo, conf *config.Configuration, extraConf interface{},
 	metaReader metacache.MetaReader, metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter) QoSRegion {
 
-	regionName := getRegionName(ci, cpuadvisor.FakedNumaID, metaReader)
+	regionName := getRegionName(ci, cpuadvisor.FakedNUMAID, metaReader)
 	if regionName == "" {
 		regionName = string(types.QoSRegionTypeShare) + types.RegionNameSeparator + string(uuid.NewUUID())
 	}

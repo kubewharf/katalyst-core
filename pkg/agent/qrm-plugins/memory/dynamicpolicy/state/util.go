@@ -26,35 +26,100 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
-// GenerateResourcesMachineStateFromPodEntries is used to generate NUMANodeResourcesMap
-// for all memory-related resources based on given pod entries
-func GenerateResourcesMachineStateFromPodEntries(machineInfo *info.MachineInfo,
-	podResourceEntries PodResourceEntries, reservedMemory map[v1.ResourceName]map[int]uint64) (NUMANodeResourcesMap, error) {
+// GenerateMachineState returns NUMANodeResourcesMap based on
+// machine info and reserved resources
+func GenerateMachineState(machineInfo *info.MachineInfo, reserved map[v1.ResourceName]map[int]uint64) (NUMANodeResourcesMap, error) {
 	if machineInfo == nil {
-		return nil, fmt.Errorf("GenerateResourcesMachineStateFromPodEntries got nil machineInfo")
+		return nil, fmt.Errorf("GenerateMachineState got nil machineInfo")
 	}
 
 	// todo: currently only support memory, we will support huge page later.
 	defaultResourcesMachineState := make(NUMANodeResourcesMap)
 	for _, resourceName := range []v1.ResourceName{v1.ResourceMemory} {
-		machineState, err := generateMachineStateByPodEntries(machineInfo, podResourceEntries[resourceName], reservedMemory, resourceName)
+		machineState, err := GenerateResourceState(machineInfo, reserved, resourceName)
 		if err != nil {
-			return nil, fmt.Errorf("GetDefaultMachineState for resource: %s failed with error: %v", resourceName, err)
+			return nil, fmt.Errorf("GenerateResourceState for resource: %s failed with error: %v", resourceName, err)
 		}
 
 		defaultResourcesMachineState[resourceName] = machineState
 	}
-
 	return defaultResourcesMachineState, nil
 }
 
-// GenerateMemoryMachineStateFromPodEntries is used to generate NUMANodeMap struct
-// based on pod entries only for v1.ResourceMemory
-func GenerateMemoryMachineStateFromPodEntries(machineInfo *info.MachineInfo, podEntries PodEntries,
-	reservedMemory map[v1.ResourceName]map[int]uint64) (NUMANodeMap, error) {
-	machineState, err := GetDefaultMachineState(machineInfo, reservedMemory, v1.ResourceMemory)
+// GenerateResourceState returns NUMANodeMap for given resource based on
+// machine info and reserved resources
+func GenerateResourceState(machineInfo *info.MachineInfo, reserved map[v1.ResourceName]map[int]uint64, resourceName v1.ResourceName) (NUMANodeMap, error) {
+	defaultMachineState := make(NUMANodeMap)
+
+	switch resourceName {
+	case v1.ResourceMemory:
+		for _, node := range machineInfo.Topology {
+			totalMemSizeQuantity := node.Memory
+			numaReservedMemQuantity := reserved[resourceName][node.Id]
+
+			if totalMemSizeQuantity < numaReservedMemQuantity {
+				return nil, fmt.Errorf("invalid reserved memory: %d in NUMA: %d with total memory size: %d", numaReservedMemQuantity, node.Id, totalMemSizeQuantity)
+			}
+
+			allocatableQuantity := totalMemSizeQuantity - numaReservedMemQuantity
+			freeQuantity := allocatableQuantity
+
+			defaultMachineState[node.Id] = &NUMANodeState{
+				TotalMemSize:   totalMemSizeQuantity,
+				SystemReserved: numaReservedMemQuantity,
+				Allocatable:    allocatableQuantity,
+				Allocated:      0,
+				Free:           freeQuantity,
+				PodEntries:     make(PodEntries),
+			}
+		}
+	default:
+		return nil, fmt.Errorf("unsupported resource name: %s", resourceName)
+	}
+
+	return defaultMachineState, nil
+}
+
+// GenerateMachineStateFromPodEntries returns NUMANodeResourcesMap based on
+// machine info and reserved resources (along with existed pod entries)
+func GenerateMachineStateFromPodEntries(machineInfo *info.MachineInfo,
+	podResourceEntries PodResourceEntries, reserved map[v1.ResourceName]map[int]uint64) (NUMANodeResourcesMap, error) {
+	if machineInfo == nil {
+		return nil, fmt.Errorf("GenerateMachineStateFromPodEntries got nil machineInfo")
+	}
+
+	// todo: currently only support memory, we will support huge page later.
+	defaultResourcesMachineState := make(NUMANodeResourcesMap)
+	for _, resourceName := range []v1.ResourceName{v1.ResourceMemory} {
+		machineState, err := GenerateResourceStateFromPodEntries(machineInfo, podResourceEntries[resourceName], reserved, resourceName)
+		if err != nil {
+			return nil, fmt.Errorf("GenerateResourceState for resource: %s failed with error: %v", resourceName, err)
+		}
+
+		defaultResourcesMachineState[resourceName] = machineState
+	}
+	return defaultResourcesMachineState, nil
+}
+
+// GenerateResourceStateFromPodEntries returns NUMANodeMap for given resource based on
+// machine info and reserved resources along with existed pod entries
+func GenerateResourceStateFromPodEntries(machineInfo *info.MachineInfo,
+	podEntries PodEntries, reserved map[v1.ResourceName]map[int]uint64, resourceName v1.ResourceName) (NUMANodeMap, error) {
+	switch resourceName {
+	case v1.ResourceMemory:
+		return GenerateMemoryStateFromPodEntries(machineInfo, podEntries, reserved)
+	default:
+		return nil, fmt.Errorf("unsupported resource name: %s", resourceName)
+	}
+}
+
+// GenerateMemoryStateFromPodEntries returns NUMANodeMap for memory based on
+// machine info and reserved resources along with existed pod entries
+func GenerateMemoryStateFromPodEntries(machineInfo *info.MachineInfo,
+	podEntries PodEntries, reserved map[v1.ResourceName]map[int]uint64) (NUMANodeMap, error) {
+	machineState, err := GenerateResourceState(machineInfo, reserved, v1.ResourceMemory)
 	if err != nil {
-		return nil, fmt.Errorf("GetDefaultMachineState failed with error: %v", err)
+		return nil, fmt.Errorf("GenerateResourceState failed with error: %v", err)
 	}
 
 	for numaId, numaNodeState := range machineState {
@@ -78,7 +143,6 @@ func GenerateMemoryMachineStateFromPodEntries(machineInfo *info.MachineInfo, pod
 							numaId: curContainerAllocatedQuantityInNumaNode,
 						}
 					}
-
 					numaNodeState.SetAllocationInfo(podUID, containerName, numaNodeAllocationInfo)
 				}
 			}
@@ -86,10 +150,9 @@ func GenerateMemoryMachineStateFromPodEntries(machineInfo *info.MachineInfo, pod
 
 		numaNodeState.Allocated = allocatedMemQuantityInNumaNode
 		if numaNodeState.Allocatable < numaNodeState.Allocated {
-			klog.Warningf("[GenerateMemoryMachineStateFromPodEntries] invalid allocated memory: %d in NUMA: %d"+
+			klog.Warningf("[GenerateMemoryStateFromPodEntries] invalid allocated memory: %d in NUMA: %d"+
 				" with allocatable memory size: %d, total memory size: %d, reserved memory size: %d",
 				numaNodeState.Allocated, numaId, numaNodeState.Allocatable, numaNodeState.TotalMemSize, numaNodeState.SystemReserved)
-
 			numaNodeState.Allocatable = numaNodeState.Allocated
 		}
 		numaNodeState.Free = numaNodeState.Allocatable - numaNodeState.Allocated
@@ -98,16 +161,4 @@ func GenerateMemoryMachineStateFromPodEntries(machineInfo *info.MachineInfo, pod
 	}
 
 	return machineState, nil
-}
-
-// generateMachineStateByPodEntries is used to generate NUMANodeMap struct
-// based on pod entries only for all memory-related resources
-func generateMachineStateByPodEntries(machineInfo *info.MachineInfo,
-	podEntries PodEntries, reservedMemory map[v1.ResourceName]map[int]uint64, resourceName v1.ResourceName) (NUMANodeMap, error) {
-	switch resourceName {
-	case v1.ResourceMemory:
-		return GenerateMemoryMachineStateFromPodEntries(machineInfo, podEntries, reservedMemory)
-	default:
-		return nil, fmt.Errorf("unsupported resource name: %s", resourceName)
-	}
 }

@@ -39,7 +39,7 @@ type stateCheckpoint struct {
 	checkpointManager checkpointmanager.CheckpointManager
 	checkpointName    string
 	// when we add new properties to checkpoint,
-	// it will cause checkpoint corruption and we should skip it
+	// it will cause checkpoint corruption, and we should skip it
 	skipStateCorruption bool
 }
 
@@ -52,7 +52,7 @@ func NewCheckpointState(stateDir, checkpointName, policyName string,
 		return nil, fmt.Errorf("failed to initialize checkpoint manager: %v", err)
 	}
 
-	stateCheckpoint := &stateCheckpoint{
+	sc := &stateCheckpoint{
 		cache:               NewCPUPluginState(topology),
 		policyName:          policyName,
 		checkpointManager:   checkpointManager,
@@ -60,12 +60,11 @@ func NewCheckpointState(stateDir, checkpointName, policyName string,
 		skipStateCorruption: skipStateCorruption,
 	}
 
-	if err := stateCheckpoint.restoreState(topology); err != nil {
-		return nil, fmt.Errorf("could not restore state from checkpoint: %v, please drain this node and delete the cpu plugin checkpoint file %q before restarting Kubelet",
-			err, path.Join(stateDir, checkpointName))
+	if err := sc.restoreState(topology); err != nil {
+		return nil, fmt.Errorf("could not restore state from checkpoint: %v, please drain this node and delete "+
+			"the cpu plugin checkpoint file %q before restarting Kubelet", err, path.Join(stateDir, checkpointName))
 	}
-
-	return stateCheckpoint, nil
+	return sc, nil
 }
 
 func (sc *stateCheckpoint) restoreState(topology *machine.CPUTopology) error {
@@ -94,10 +93,9 @@ func (sc *stateCheckpoint) restoreState(topology *machine.CPUTopology) error {
 		return fmt.Errorf("[cpu_plugin] configured policy %q differs from state checkpoint policy %q", sc.policyName, checkpoint.PolicyName)
 	}
 
-	generatedMachineState, err := GenerateCPUMachineStateByPodEntries(topology, checkpoint.PodEntries)
-
+	generatedMachineState, err := GenerateMachineStateFromPodEntries(topology, checkpoint.PodEntries)
 	if err != nil {
-		return fmt.Errorf("GenerateCPUMachineStateByPodEntries failed with error: %v", err)
+		return fmt.Errorf("GenerateMachineStateFromPodEntries failed with error: %v", err)
 	}
 
 	sc.cache.SetMachineState(generatedMachineState)
@@ -107,23 +105,20 @@ func (sc *stateCheckpoint) restoreState(topology *machine.CPUTopology) error {
 		klog.Warningf("[cpu_plugin] machine state changed: generatedMachineState: %s; checkpointMachineState: %s",
 			generatedMachineState.String(), checkpoint.MachineState.String())
 		err = sc.storeState()
-
 		if err != nil {
 			return fmt.Errorf("storeState when machine state changed failed with error: %v", err)
 		}
 	}
 
 	if foundAndSkippedStateCorruption {
-		klog.Infof("[cpu_plugin] found and skipped state corruption, we shoud store to rectify the checksum")
+		klog.Infof("[cpu_plugin] found and skipped state corruption, we should store to rectify the checksum")
 		err = sc.storeState()
-
 		if err != nil {
 			return fmt.Errorf("storeState failed with error: %v", err)
 		}
 	}
 
 	klog.InfoS("[cpu_plugin] State checkpoint: restored state from checkpoint")
-
 	return nil
 }
 

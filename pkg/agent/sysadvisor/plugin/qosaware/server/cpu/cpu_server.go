@@ -238,7 +238,7 @@ func (cs *cpuServer) getCheckpoint() {
 
 	// Parse checkpoint
 	for entryName, entry := range resp.Entries {
-		if poolInfo, ok := entry.Entries[cpuadvisor.FakedContainerID]; ok {
+		if poolInfo, ok := entry.Entries[cpuadvisor.FakedContainerName]; ok {
 			// Update pool info
 			poolName := entryName
 			livingPoolNameSet.Insert(poolName)
@@ -355,7 +355,7 @@ func (cs *cpuServer) serve() error {
 	return nil
 }
 
-//nolint
+// nolint
 func (cs *cpuServer) dial(unixSocketPath string, timeout time.Duration) (*grpc.ClientConn, error) {
 	c, err := grpc.Dial(unixSocketPath, grpc.WithInsecure(), grpc.WithBlock(),
 		grpc.WithTimeout(timeout),
@@ -438,7 +438,7 @@ func (cs *cpuServer) assemblePoolEntries(advisorResp *cpu.InternalCalculationRes
 			innerBlock := NewInnerBlock(block, int64(numaID), poolName, nil, numaCalculationResult)
 			innerBlock.join(block.BlockId, bs)
 
-			poolEntry.Entries[cpuadvisor.FakedContainerID].CalculationResultsByNumas[int64(numaID)] = numaCalculationResult
+			poolEntry.Entries[cpuadvisor.FakedContainerName].CalculationResultsByNumas[int64(numaID)] = numaCalculationResult
 		}
 		calculationEntriesMap[poolName] = poolEntry
 	}
@@ -477,7 +477,7 @@ func (cs *cpuServer) assemblePodEntries(calculationEntriesMap map[string]*cpuadv
 				// if this podUID appears firstly, we should generate a new Block
 
 				reclaimPoolCalculationResults, ok := GetNumaCalculationResult(calculationEntriesMap, qrmstate.PoolNameReclaim,
-					cpuadvisor.FakedContainerID, int64(numaID))
+					cpuadvisor.FakedContainerName, int64(numaID))
 				if !ok {
 					// if no reclaimed pool exists, return the generated Block
 

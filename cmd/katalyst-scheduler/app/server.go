@@ -205,7 +205,7 @@ func Run(ctx context.Context, cc *schedulerserverconfig.CompletedConfig, sched *
 		cc.DynInformerFactory.WaitForCacheSync(ctx.Done())
 	}
 
-	// If leader election is enabled, runCommand via LeaderElector until done and exit.
+	// If leader election is enabled, runCommand via LeaderElector until done and exists.
 	if cc.LeaderElection != nil {
 		cc.LeaderElection.Callbacks = leaderelection.LeaderCallbacks{
 			OnStartedLeading: func(ctx context.Context) {

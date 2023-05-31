@@ -17,14 +17,77 @@ limitations under the License.
 package util
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	v1 "k8s.io/api/core/v1"
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 	"k8s.io/kubernetes/pkg/kubelet/cm/topologymanager/bitmask"
 
+	"github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
+
+func TestGetQuantityFromResourceReq(t *testing.T) {
+	as := require.New(t)
+
+	testCases := []struct {
+		req    *pluginapi.ResourceRequest
+		result int
+		err    error
+	}{
+		{
+			req: &pluginapi.ResourceRequest{
+				ResourceRequests: map[string]float64{
+					string(v1.ResourceCPU): 123,
+				},
+			},
+			result: 123,
+		},
+		{
+			req: &pluginapi.ResourceRequest{
+				ResourceRequests: map[string]float64{
+					string(consts.ReclaimedResourceMilliCPU): 234001,
+				},
+			},
+			result: 235,
+		},
+		{
+			req: &pluginapi.ResourceRequest{
+				ResourceRequests: map[string]float64{
+					string(v1.ResourceMemory): 256,
+				},
+			},
+			result: 256,
+		},
+		{
+			req: &pluginapi.ResourceRequest{
+				ResourceRequests: map[string]float64{
+					string(consts.ReclaimedResourceMemory): 1345,
+				},
+			},
+			result: 1345,
+		},
+		{
+			req: &pluginapi.ResourceRequest{
+				ResourceRequests: map[string]float64{
+					"test": 1345,
+				},
+			},
+			err: fmt.Errorf("invalid request resource name: %s", "test"),
+		},
+	}
+
+	for _, tc := range testCases {
+		res, err := GetQuantityFromResourceReq(tc.req)
+		if tc.err != nil {
+			as.NotNil(err)
+		} else {
+			as.EqualValues(tc.result, res)
+		}
+	}
+}
 
 func TestDeepCopyTopologyAwareAssignments(t *testing.T) {
 	as := require.New(t)
@@ -48,7 +111,7 @@ func TestDeepCopyTopologyAwareAssignments(t *testing.T) {
 	}
 
 	for _, tc := range testCases {
-		copiedAssignments := DeepCopyTopologyAwareAssignments(tc.topologyAwareAssignments)
+		copiedAssignments := machine.DeepcopyCPUAssignment(tc.topologyAwareAssignments)
 		as.Equalf(tc.topologyAwareAssignments, copiedAssignments, "failed in test case: %s", tc.description)
 	}
 }
@@ -121,7 +184,7 @@ func TestMaskToUInt64Array(t *testing.T) {
 	}
 
 	for _, tc := range testCases {
-		actualArray := MaskToUInt64Array(tc.mask)
+		actualArray := machine.MaskToUInt64Array(tc.mask)
 		as.Equalf(tc.expectedArray, actualArray, "failed in test case: %s", tc.description)
 	}
 }
