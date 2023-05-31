@@ -128,8 +128,7 @@ func (p *DynamicPolicy) GetCheckpoint(_ context.Context,
 			}
 
 			ownerPoolName := allocationInfo.GetOwnerPoolName()
-
-			if ownerPoolName == "" {
+			if ownerPoolName == advisorapi.EmptyOwnerPoolName {
 				general.Warningf("pod: %s/%s container: %s get empty owner pool name",
 					allocationInfo.PodNamespace, allocationInfo.PodName, allocationInfo.ContainerName)
 				if allocationInfo.CheckSideCar() {
@@ -267,9 +266,9 @@ func (p *DynamicPolicy) allocateByCPUAdvisor(resp *advisorapi.ListAndWatchRespon
 // generateBlockCPUSet generates BlockCPUSet from cpu-advisor response
 // and the logic contains three main steps
 //  1. handle blocks for static pools
-//  2. handle blocks with spcified NUMA ids (probably be blocks for
+//  2. handle blocks with specified NUMA ids (probably be blocks for
 //     numa_binding dedicated_cores containers and reclaimed_cores containers colocated with them)
-//  3. handle blocks without spcified NUMA id (probably be blocks for
+//  3. handle blocks without specified NUMA id (probably be blocks for
 //     not numa_binding dedicated_cores containers and pools of shared_cores and reclaimed_cores containers)
 func (p *DynamicPolicy) generateBlockCPUSet(resp *advisorapi.ListAndWatchResponse) (advisorapi.BlockCPUSet, error) {
 	if resp == nil {
@@ -295,18 +294,16 @@ func (p *DynamicPolicy) generateBlockCPUSet(resp *advisorapi.ListAndWatchRespons
 		}
 
 		blocks, ok := resp.GeEntryNUMABlocks(poolName, advisorapi.FakedContainerName, advisorapi.FakedNUMAID)
-
 		if !ok || len(blocks) != 1 {
 			return nil, fmt.Errorf("blocks of pool: %s is invalid", poolName)
 		}
 
 		blockID := blocks[0].BlockId
-
 		blockCPUSet[blockID] = allocationInfo.AllocationResult.Clone()
 		availableCPUs = availableCPUs.Difference(blockCPUSet[blockID])
 	}
 
-	// walk through all blocks with spcified NUMA ids
+	// walk through all blocks with specified NUMA ids
 	// for each block, add them into numaBlocks (if not exist) and renew availableCPUs
 	for numaID, blocksMap := range numaBlocks {
 		if numaID == advisorapi.FakedNUMAID {
@@ -341,7 +338,7 @@ func (p *DynamicPolicy) generateBlockCPUSet(resp *advisorapi.ListAndWatchRespons
 		}
 	}
 
-	// walk through all blocks without spcified NUMA id
+	// walk through all blocks without specified NUMA id
 	// for each block, add them into numaBlocks (if not exist) and renew availableCPUs
 	for blockID, block := range numaBlocks[advisorapi.FakedNUMAID] {
 		if block == nil {
@@ -412,7 +409,7 @@ func (p *DynamicPolicy) applyBlocks(blockCPUSet advisorapi.BlockCPUSet, resp *ad
 			// if allocation already exists, update them; otherwise, construct new a new one
 			allocationInfo := curEntries[entryName][subEntryName].Clone()
 			if allocationInfo == nil {
-				// currently cpu advisor can only create new pools,
+				// currently, cpu advisor can only create new pools,
 				// all container entries or entries with owner pool name dedicated can't be created by cpu advisor
 				if calculationInfo.OwnerPoolName == state.PoolNameDedicated || subEntryName != advisorapi.FakedContainerName {
 					return fmt.Errorf("no-pool entry isn't found in plugin cache, entry: %s, subEntry: %s", entryName, subEntryName)

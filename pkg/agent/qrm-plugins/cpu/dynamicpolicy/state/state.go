@@ -219,7 +219,7 @@ func (ce ContainerEntries) GetPoolEntry() *AllocationInfo {
 	return ce[cpuadvisor.FakedContainerName]
 }
 
-// GetMainContainerEntry return the main container entry in pod container entries
+// GetMainContainerEntry returns the main container entry in pod container entries
 func (ce ContainerEntries) GetMainContainerEntry() *AllocationInfo {
 	var mainContainerEntry *AllocationInfo
 
@@ -233,7 +233,7 @@ func (ce ContainerEntries) GetMainContainerEntry() *AllocationInfo {
 	return mainContainerEntry
 }
 
-// GetMainContainerEntry return the main container owner pool name in pod container entries
+// GetMainContainerPoolName returns the main container owner pool name in pod container entries
 func (ce ContainerEntries) GetMainContainerPoolName() string {
 	return ce.GetMainContainerEntry().GetOwnerPoolName()
 }

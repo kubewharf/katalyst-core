@@ -432,8 +432,7 @@ func (p *DynamicPolicy) allocateNumaBindingCPUs(numCPUs int, hint *pluginapi.Top
 
 	var alignedCPUs machine.CPUSet
 
-	if qosutil.AnnotationsIndicateNUMABinding(reqAnnotations) &&
-		qosutil.AnnotationsIndicateNUMAExclusive(reqAnnotations) {
+	if qosutil.AnnotationsIndicateNUMAExclusive(reqAnnotations) {
 		// todo: currently we hack dedicated_cores with NUMA binding take up whole NUMA,
 		//  and we will modify strategy here if assumption above breaks.
 		alignedCPUs = alignedAvailableCPUs.Clone()
@@ -456,7 +455,7 @@ func (p *DynamicPolicy) allocateNumaBindingCPUs(numCPUs int, hint *pluginapi.Top
 		"alignedAvailableCPUs", alignedAvailableCPUs.String(),
 		"alignedAllocatedCPUs", alignedCPUs)
 
-	// currently result equals to alignedCPUs,
+	// currently, result equals to alignedCPUs,
 	// maybe extend cpus not aligned to meet requirement later
 	result = result.Union(alignedCPUs)
 	leftNumCPUs := numCPUs - result.Size()
@@ -741,11 +740,9 @@ func (p *DynamicPolicy) applyPoolsAndIsolatedInfo(poolsCPUSet map[string]machine
 			switch allocationInfo.QoSLevel {
 			case apiconsts.PodAnnotationQoSLevelDedicatedCores:
 				ownerPoolName := allocationInfo.GetOwnerPoolName()
-
-				if ownerPoolName == "" {
+				if ownerPoolName == advisorapi.EmptyOwnerPoolName {
 					ownerPoolName = allocationInfo.GetSpecifiedPoolName()
 				}
-
 				newPodEntries[podUID][containerName].OwnerPoolName = ownerPoolName
 
 				// for numa_binding containers, we just clone checkpoint already exist

@@ -478,17 +478,13 @@ func (p *DynamicPolicy) calculateMemoryAllocation(req *pluginapi.ResourceRequest
 
 	var leftQuantity uint64
 
-	if qosutil.AnnotationsIndicateNUMABinding(req.Annotations) &&
-		qosutil.AnnotationsIndicateNUMAExclusive(req.Annotations) {
-
+	if qosutil.AnnotationsIndicateNUMAExclusive(req.Annotations) {
 		leftQuantity, err = calculateExclusiveMemory(req, machineState, hintNumaNodes.ToSliceInt(), uint64(memoryReq), qosLevel)
-
 		if err != nil {
 			return fmt.Errorf("calculateExclusiveMemory failed with error: %v", err)
 		}
 	} else {
 		leftQuantity, err = calculateMemoryInNumaNodes(req, machineState, hintNumaNodes.ToSliceInt(), uint64(memoryReq), qosLevel)
-
 		if err != nil {
 			return fmt.Errorf("calculateMemoryInNumaNodes failed with error: %v", err)
 		}
