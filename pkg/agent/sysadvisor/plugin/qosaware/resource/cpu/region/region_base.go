@@ -225,7 +225,7 @@ func (r *QoSRegionBase) GetProvision() (types.ControlKnob, error) {
 		return controlKnobAdjusted, nil
 	}
 
-	return types.ControlKnob{}, fmt.Errorf("failed to get legal provison")
+	return types.ControlKnob{}, fmt.Errorf("failed to get legal provision")
 }
 
 func (r *QoSRegionBase) GetHeadroom() (float64, error) {

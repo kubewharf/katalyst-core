@@ -27,9 +27,10 @@ import (
 	"k8s.io/klog/v2"
 
 	"github.com/kubewharf/katalyst-api/pkg/consts"
-	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/cpuadvisor"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
+	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource/cpu/assembler/headroomassembler"
+	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource/cpu/assembler/provisionassembler"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource/cpu/region"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource/cpu/region/headroompolicy"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource/cpu/region/provisionpolicy"
@@ -49,6 +50,9 @@ func init() {
 	provisionpolicy.RegisterInitializer(types.CPUProvisionPolicyCanonical, provisionpolicy.NewPolicyCanonical)
 	headroompolicy.RegisterInitializer(types.CPUHeadroomPolicyCanonical, headroompolicy.NewPolicyCanonical)
 	headroompolicy.RegisterInitializer(types.CPUHeadroomPolicyUtilization, headroompolicy.NewPolicyUtilization)
+
+	provisionassembler.RegisterInitializer(types.CPUProvisionAssemblerCommon, provisionassembler.NewProvisionAssemblerCommon)
+	headroomassembler.RegisterInitializer(types.CPUHeadroomAssemblerCommon, headroomassembler.NewHeadroomAssemblerCommon)
 }
 
 // cpuResourceAdvisor is the entrance of updating cpu resource provision advice for
@@ -65,11 +69,14 @@ type cpuResourceAdvisor struct {
 
 	regionMap          map[string]region.QoSRegion // map[regionName]region
 	reservedForReclaim map[int]int                 // map[numaID]reservedForReclaim
+	numaAvailable      map[int]int                 // map[numaID]availableResource
 	numRegionsPerNuma  map[int]int                 // map[numaID]regionQuantity
 	nonBindingNumas    machine.CPUSet              // numas without numa binding pods
-	calculationResult  types.InternalCalculationResult
-	mutex              sync.RWMutex
 
+	provisionAssembler provisionassembler.ProvisionAssembler
+	headroomAssembler  headroomassembler.HeadroomAssembler
+
+	mutex      sync.RWMutex
 	metaCache  metacache.MetaCache
 	metaServer *metaserver.MetaServer
 	emitter    metrics.MetricEmitter
@@ -87,15 +94,24 @@ func NewCPUResourceAdvisor(conf *config.Configuration, extraConf interface{}, me
 		sendCh:    make(chan types.InternalCalculationResult),
 		startTime: time.Now(),
 
-		regionMap:         make(map[string]region.QoSRegion),
-		numRegionsPerNuma: make(map[int]int),
-		nonBindingNumas:   machine.NewCPUSet(),
-		calculationResult: types.InternalCalculationResult{PoolEntries: make(map[string]map[int]int)},
+		regionMap:          make(map[string]region.QoSRegion),
+		reservedForReclaim: make(map[int]int),
+		numaAvailable:      make(map[int]int),
+		numRegionsPerNuma:  make(map[int]int),
+		nonBindingNumas:    machine.NewCPUSet(),
 
 		metaCache:  metaCache,
 		metaServer: metaServer,
 		emitter:    emitter,
 	}
+
+	if err := cra.initializeProvisionAssembler(); err != nil {
+		klog.Errorf("[qosaware-cpu] initialize provision assembler failed: %v", err)
+	}
+	if err := cra.initializeHeadroomAssembler(); err != nil {
+		klog.Errorf("[qosaware-cpu] initialize headroom assembler failed: %v", err)
+	}
+
 	cra.initializeReservedForReclaim()
 
 	return cra
@@ -121,32 +137,16 @@ func (cra *cpuResourceAdvisor) GetHeadroom() (resource.Quantity, error) {
 	cra.mutex.RLock()
 	defer cra.mutex.RUnlock()
 
-	// return zero when reclaim is disabled
-	if !cra.conf.ReclaimedResourceConfiguration.EnableReclaim() {
-		return *resource.NewQuantity(0, resource.DecimalSI), nil
+	if cra.headroomAssembler == nil {
+		klog.Errorf("[qosaware-cpu] get headroom failed: no legal assembler")
+		return resource.Quantity{}, fmt.Errorf("no legal assembler")
 	}
 
-	totalHeadroom := 0.0
-
-	// calculate headroom of binding numas by adding region headroom together
-	for _, r := range cra.regionMap {
-		if r.Type() == types.QoSRegionTypeDedicatedNumaExclusive {
-			headroom, err := r.GetHeadroom()
-			if err != nil {
-				return resource.Quantity{}, fmt.Errorf("get headroom of region %v failed: %v", r.Name(), err)
-			}
-			totalHeadroom += headroom
-		}
+	headroom, err := cra.headroomAssembler.GetHeadroom()
+	if err != nil {
+		klog.Errorf("[qosaware-cpu] get headroom failed: %v", err)
 	}
-
-	// calculate headroom of non binding numas according to the corresponding reclaim pool entry
-	nonBindingNumasHeadroom, ok := cra.calculationResult.GetPoolEntry(state.PoolNameReclaim, cpuadvisor.FakedNUMAID)
-	if !ok {
-		return resource.Quantity{}, fmt.Errorf("get headroom of non binding numas failed")
-	}
-	totalHeadroom += float64(nonBindingNumasHeadroom)
-
-	return *resource.NewQuantity(int64(totalHeadroom), resource.DecimalSI), nil
+	return headroom, err
 }
 
 // update works in a monolithic way to maintain lifecycle and triggers update actions for all regions;
@@ -191,12 +191,13 @@ func (cra *cpuResourceAdvisor) update() {
 	}
 
 	// assemble provision result from each region and notify cpu server
-	if err := cra.assembleProvision(); err != nil {
+	calculationResult, err := cra.assembleProvision()
+	if err != nil {
 		klog.Errorf("[qosaware-cpu] assemble provision failed: %v", err)
 		return
 	}
-	cra.sendCh <- cra.calculationResult
-	klog.Infof("[qosaware-cpu] notify cpu server: %+v", cra.calculationResult)
+	cra.sendCh <- calculationResult
+	klog.Infof("[qosaware-cpu] notify cpu server: %+v", calculationResult)
 
 	// sync region information to metacache
 	regionEntries, err := cra.assembleRegionEntries()
@@ -346,46 +347,41 @@ func (cra *cpuResourceAdvisor) updateAdvisorEssentials() {
 // assembleProvision generates internal calculation result.
 // must make sure pool names from cpu provision following qrm definition;
 // numa ID set as -1 means no numa-preference is needed.
-func (cra *cpuResourceAdvisor) assembleProvision() error {
-	cra.calculationResult.PoolEntries = make(map[string]map[int]int)
+func (cra *cpuResourceAdvisor) assembleProvision() (types.InternalCalculationResult, error) {
+	if cra.provisionAssembler == nil {
+		return types.InternalCalculationResult{}, fmt.Errorf("no legal provision assembler")
+	}
 
-	// fill in reserve pool entry
-	reservePoolSize, _ := cra.metaCache.GetPoolSize(state.PoolNameReserve)
-	cra.calculationResult.SetPoolEntry(state.PoolNameReserve, cpuadvisor.FakedNUMAID, reservePoolSize)
+	return cra.provisionAssembler.AssembleProvision()
+}
 
-	sharePoolSizes := make(map[string]int)
+// assembleRegionEntries generates region entries based on region map
+func (cra *cpuResourceAdvisor) assembleRegionEntries() (types.RegionEntries, error) {
+	entries := make(types.RegionEntries)
 
-	for _, r := range cra.regionMap {
-		controlKnob, err := r.GetProvision()
+	for regionName, r := range cra.regionMap {
+		controlKnobMap, err := r.GetProvision()
 		if err != nil {
-			return fmt.Errorf("get provision with error: %v", err)
+			return nil, err
 		}
 
-		if r.Type() == types.QoSRegionTypeShare {
-			// save raw share pool sizes
-			sharePoolSizes[r.OwnerPoolName()] = int(controlKnob[types.ControlKnobNonReclaimedCPUSetSize].Value)
-
-		} else if r.Type() == types.QoSRegionTypeDedicatedNumaExclusive {
-			// fill in reclaim pool entry for dedicated numa exclusive regions
-			reclaimPoolSize := controlKnob[types.ControlKnobReclaimedCPUSupplied].Value
-			regionNuma := r.GetBindingNumas().ToSliceInt()[0] // always one binding numa for this type of region
-			cra.calculationResult.SetPoolEntry(state.PoolNameReclaim, regionNuma, int(reclaimPoolSize))
+		regionInfo := &types.RegionInfo{
+			RegionType:     r.Type(),
+			BindingNumas:   r.GetBindingNumas(),
+			ControlKnobMap: controlKnobMap,
 		}
+		regionInfo.HeadroomPolicyTopPriority, regionInfo.HeadroomPolicyInUse = r.GetHeadRoomPolicy()
+		regionInfo.ProvisionPolicyTopPriority, regionInfo.ProvisionPolicyInUse = r.GetProvisionPolicy()
+
+		headroom, err := r.GetHeadroom()
+		if err != nil {
+			klog.Warningf("[qosaware-cpu] get headroom for region %v failed: %v", regionName, err)
+		} else {
+			regionInfo.Headroom = headroom
+		}
+
+		entries[regionName] = regionInfo
 	}
 
-	// regulate share pool sizes
-	sharePoolAvailable := int(cra.getNumasAvailableResource(cra.nonBindingNumas))
-	enableReclaim := cra.conf.ReclaimedResourceConfiguration.EnableReclaim()
-	regulatePoolSizes(sharePoolSizes, sharePoolAvailable, enableReclaim)
-
-	// fill in regulated share pool entries
-	for poolName, poolSize := range sharePoolSizes {
-		cra.calculationResult.SetPoolEntry(poolName, cpuadvisor.FakedNUMAID, poolSize)
-	}
-
-	// fill in reclaim pool entry for non binding numas
-	reclaimPoolSizeOfNonBindingNumas := sharePoolAvailable - general.SumUpMapValues(sharePoolSizes) + types.ReservedForReclaim
-	cra.calculationResult.SetPoolEntry(state.PoolNameReclaim, cpuadvisor.FakedNUMAID, reclaimPoolSizeOfNonBindingNumas)
-
-	return nil
+	return entries, nil
 }

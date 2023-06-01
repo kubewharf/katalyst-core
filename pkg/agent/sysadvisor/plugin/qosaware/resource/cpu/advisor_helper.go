@@ -18,17 +18,17 @@ package cpu
 
 import (
 	"fmt"
-	"math"
-
-	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
-	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource/cpu/region"
-	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
-	"github.com/kubewharf/katalyst-core/pkg/util/general"
-	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/klog/v2"
+
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
+	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource/cpu/assembler/headroomassembler"
+	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource/cpu/assembler/provisionassembler"
+	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource/cpu/region"
+	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
+	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
 func (cra *cpuResourceAdvisor) getRegionsByRegionNames(names sets.String) []region.QoSRegion {
@@ -107,7 +107,33 @@ func (cra *cpuResourceAdvisor) setPoolRegions(poolName string, regions []region.
 	return cra.metaCache.SetPoolInfo(poolName, pool)
 }
 
-// initializeReservedForReclaim generates per numa reserved for reclaim resource map.
+func (cra *cpuResourceAdvisor) initializeProvisionAssembler() error {
+	assemblerName := cra.conf.CPUAdvisorConfiguration.ProvisionAssembler
+	initializers := provisionassembler.GetRegisteredInitializers()
+
+	initializer, ok := initializers[assemblerName]
+	if !ok {
+		return fmt.Errorf("unsupported provision assembler %v", assemblerName)
+	}
+	cra.provisionAssembler = initializer(cra.conf, &cra.regionMap, &cra.numaAvailable, &cra.nonBindingNumas, cra.metaCache, cra.metaServer, cra.emitter)
+
+	return nil
+}
+
+func (cra *cpuResourceAdvisor) initializeHeadroomAssembler() error {
+	assemblerName := cra.conf.CPUAdvisorConfiguration.HeadroomAssembler
+	initializers := headroomassembler.GetRegisteredInitializers()
+
+	initializer, ok := initializers[assemblerName]
+	if !ok {
+		return fmt.Errorf("unsupported headroom assembler %v", assemblerName)
+	}
+	cra.headroomAssembler = initializer(cra.conf, &cra.regionMap, cra.metaCache, cra.metaServer, cra.emitter)
+
+	return nil
+}
+
+// initializeReservedForReclaim generates per numa reserved for reclaim resource value map.
 // per numa reserved resource is taken in a fair way with even step, e.g.
 // 4 -> 1 1 1 1; 2 -> 1 0 1 0
 func (cra *cpuResourceAdvisor) initializeReservedForReclaim() {
@@ -133,20 +159,14 @@ func (cra *cpuResourceAdvisor) initializeReservedForReclaim() {
 	}
 }
 
-// getNumasReservedForAllocate returns reserved resource for allocate of corresponding numas
-func (cra *cpuResourceAdvisor) getNumasReservedForAllocate(numas machine.CPUSet) float64 {
-	reserved := cra.conf.ReclaimedResourceConfiguration.ReservedResourceForAllocate()[v1.ResourceCPU]
-	return float64(reserved.Value()*int64(numas.Size())) / float64(cra.metaServer.NumNUMANodes)
-}
-
-// getNumasAvailableResource returns available resource of corresponding numas.
+// updateNumasAvailableResource updates available resource of all numa nodes.
 // available = total - reserved pool - reserved for reclaim
-func (cra *cpuResourceAdvisor) getNumasAvailableResource(numas machine.CPUSet) float64 {
+func (cra *cpuResourceAdvisor) updateNumasAvailableResource() {
+	cra.numaAvailable = make(map[int]int)
 	reservePoolInfo, _ := cra.metaCache.GetPoolInfo(state.PoolNameReserve)
 	cpusPerNuma := cra.metaServer.CPUsPerNuma()
-	res := 0.0
 
-	for _, numaID := range numas.ToSliceInt() {
+	for numaID := range cra.metaServer.CPUDetails {
 		reservePoolNuma := 0
 		if cpuset, ok := reservePoolInfo.TopologyAwareAssignments[numaID]; ok {
 			reservePoolNuma = cpuset.Size()
@@ -155,9 +175,14 @@ func (cra *cpuResourceAdvisor) getNumasAvailableResource(numas machine.CPUSet) f
 		if v, ok := cra.reservedForReclaim[numaID]; ok {
 			reservedForReclaimNuma = v
 		}
-		res += float64(cpusPerNuma - reservePoolNuma - reservedForReclaimNuma)
+		cra.numaAvailable[numaID] = cpusPerNuma - reservePoolNuma - reservedForReclaimNuma
 	}
-	return res
+}
+
+// getNumasReservedForAllocate returns sum of reserved resource for allocate of numas
+func (cra *cpuResourceAdvisor) getNumasReservedForAllocate(numas machine.CPUSet) float64 {
+	reserved := cra.conf.ReclaimedResourceConfiguration.ReservedResourceForAllocate()[v1.ResourceCPU]
+	return float64(reserved.Value()*int64(numas.Size())) / float64(cra.metaServer.NumNUMANodes)
 }
 
 func (cra *cpuResourceAdvisor) getRegionMaxRequirement(regionName string) float64 {
@@ -166,7 +191,11 @@ func (cra *cpuResourceAdvisor) getRegionMaxRequirement(regionName string) float6
 		return 0
 	}
 
-	return cra.getNumasAvailableResource(r.GetBindingNumas())
+	res := 0.0
+	for _, numaID := range r.GetBindingNumas().ToSliceInt() {
+		res += float64(cra.numaAvailable[numaID])
+	}
+	return res
 }
 
 func (cra *cpuResourceAdvisor) getRegionMinRequirement(regionName string) float64 {
@@ -201,81 +230,4 @@ func (cra *cpuResourceAdvisor) getRegionReservedForAllocate(regionName string) f
 		res += cra.getNumasReservedForAllocate(machine.NewCPUSet(numaID)) / float64(divider)
 	}
 	return res
-}
-
-// regulate pool sizes modifies pool size map to legal values, taking total available resource
-// and enable reclaim config into account. should hold any cases and not return error.
-func regulatePoolSizes(poolSizes map[string]int, available int, enableReclaim bool) {
-	sum := general.SumUpMapValues(poolSizes)
-	targetSum := sum
-
-	if !enableReclaim || sum > available {
-		// use up all available resource for pools in this case
-		targetSum = available
-	}
-
-	if err := normalizePoolSizes(poolSizes, targetSum); err != nil {
-		// all pools share available resource as fallback if normalization failed
-		for k := range poolSizes {
-			poolSizes[k] = available
-		}
-	}
-}
-
-func normalizePoolSizes(poolSizes map[string]int, targetSum int) error {
-	sum := general.SumUpMapValues(poolSizes)
-	if sum == targetSum {
-		return nil
-	}
-
-	sorted := general.TraverseMapByValueDescending(poolSizes)
-	normalizedSum := 0
-
-	for _, v := range sorted {
-		v.Value = int(math.Ceil(float64(v.Value*targetSum) / float64(sum)))
-		normalizedSum += v.Value
-	}
-
-	for i := 0; i < normalizedSum-targetSum; i++ {
-		if sorted[i].Value <= 1 {
-			return fmt.Errorf("no enough resource")
-		}
-		sorted[i].Value -= 1
-	}
-
-	for _, v := range sorted {
-		poolSizes[v.Key] = v.Value
-	}
-	return nil
-}
-
-// assembleRegionEntries generates region entries based on region map
-func (cra *cpuResourceAdvisor) assembleRegionEntries() (types.RegionEntries, error) {
-	entries := make(types.RegionEntries)
-
-	for regionName, r := range cra.regionMap {
-		controlKnobMap, err := r.GetProvision()
-		if err != nil {
-			return nil, err
-		}
-
-		regionInfo := &types.RegionInfo{
-			RegionType:     r.Type(),
-			BindingNumas:   r.GetBindingNumas(),
-			ControlKnobMap: controlKnobMap,
-		}
-		regionInfo.HeadroomPolicyTopPriority, regionInfo.HeadroomPolicyInUse = r.GetHeadRoomPolicy()
-		regionInfo.ProvisionPolicyTopPriority, regionInfo.ProvisionPolicyInUse = r.GetProvisionPolicy()
-
-		headroom, err := r.GetHeadroom()
-		if err != nil {
-			klog.Warningf("[qosaware-cpu] get headroom for region %v failed: %v", regionName, err)
-		} else {
-			regionInfo.Headroom = headroom
-		}
-
-		entries[regionName] = regionInfo
-	}
-
-	return entries, nil
 }

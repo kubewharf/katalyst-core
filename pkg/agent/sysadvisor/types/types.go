@@ -55,6 +55,24 @@ const (
 	CPUHeadroomPolicyUtilization CPUHeadroomPolicyName = "utilization"
 )
 
+// CPUProvisionAssemblerName defines assemblers for cpu advisor to generate node
+// provision result from region control knobs
+type CPUProvisionAssemblerName string
+
+const (
+	CPUProvisionAssemblerNone   CPUProvisionAssemblerName = "none"
+	CPUProvisionAssemblerCommon CPUProvisionAssemblerName = "common"
+)
+
+// CPUHeadroomAssemblerName defines assemblers for cpu advisor to generate node
+// headroom from region headroom or node level policy
+type CPUHeadroomAssemblerName string
+
+const (
+	CPUHeadroomAssemblerNone   CPUHeadroomAssemblerName = "none"
+	CPUHeadroomAssemblerCommon CPUHeadroomAssemblerName = "common"
+)
+
 // MemoryHeadroomPolicyName defines policy names for memory advisor headroom estimation
 type MemoryHeadroomPolicyName string
 

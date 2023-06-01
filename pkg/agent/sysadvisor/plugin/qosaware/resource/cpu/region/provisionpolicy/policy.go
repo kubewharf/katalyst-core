@@ -34,7 +34,7 @@ type ProvisionPolicy interface {
 	SetPodSet(types.PodSet)
 	// SetIndicator updates indicator metric value of different levels
 	SetIndicator(types.Indicator)
-	// SetRequirement should be called before policy updated
+	// SetCPURequirement should be called before policy updated
 	SetCPURequirement(requirement int)
 	// SetEssentials set essentials for cpu regulator
 	SetEssentials(essentials types.ResourceEssentials)
