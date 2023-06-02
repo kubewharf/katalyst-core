@@ -1049,9 +1049,7 @@ func (p *DynamicPolicy) takeCPUsForContainers(containersQuantityMap map[string]m
 	return containersCPUSet, availableCPUs, nil
 }
 
-// packAllocationResponse regenerates allocations for container that'd already been allocated cpu,
-// and packAllocationResponse will assemble allocations based on already-existed AllocationInfo,
-// without any calculation logics at all
+// packAllocationResponse fills pluginapi.ResourceAllocationResponse with information from AllocationInfo and pluginapi.ResourceRequest
 func packAllocationResponse(allocationInfo *state.AllocationInfo, resourceName, ociPropertyName string,
 	isNodeResource, isScalarResource bool, req *pluginapi.ResourceRequest) (*pluginapi.ResourceAllocationResponse, error) {
 	if allocationInfo == nil {

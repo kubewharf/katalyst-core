@@ -57,6 +57,17 @@ func GetQuantityFromResourceReq(req *pluginapi.ResourceRequest) (int, error) {
 	return 0, fmt.Errorf("unexpected end")
 }
 
+// IsDebugPod returns true if the pod annotations show up any configurable debug key
+func IsDebugPod(podAnnotations map[string]string, podDebugAnnoKeys []string) bool {
+	for _, debugKey := range podDebugAnnoKeys {
+		if _, exists := podAnnotations[debugKey]; exists {
+			return true
+		}
+	}
+
+	return false
+}
+
 // GetKatalystQoSLevelFromResourceReq retrieves QoS Level for a given request
 func GetKatalystQoSLevelFromResourceReq(qosConf *generic.QoSConfiguration, req *pluginapi.ResourceRequest) (qosLevel string, err error) {
 	if req == nil {

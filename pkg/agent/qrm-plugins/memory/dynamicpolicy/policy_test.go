@@ -41,6 +41,10 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
+const (
+	podDebugAnnoKey = "qrm.katalyst.kubewharf.io/debug_pod"
+)
+
 func getTestDynamicPolicyWithInitialization(topology *machine.CPUTopology, machineInfo *info.MachineInfo, stateFileDirectory string) (*DynamicPolicy, error) {
 	reservedMemory, err := getReservedMemory(machineInfo, 4)
 	if err != nil {
@@ -69,12 +73,13 @@ func getTestDynamicPolicyWithInitialization(topology *machine.CPUTopology, machi
 	}
 
 	policyImplement := &DynamicPolicy{
-		topology:        topology,
-		qosConfig:       qosConfig,
-		state:           stateImpl,
-		emitter:         metrics.DummyMetrics{},
-		migratingMemory: make(map[string]map[string]bool),
-		stopCh:          make(chan struct{}),
+		topology:         topology,
+		qosConfig:        qosConfig,
+		state:            stateImpl,
+		emitter:          metrics.DummyMetrics{},
+		migratingMemory:  make(map[string]map[string]bool),
+		stopCh:           make(chan struct{}),
+		podDebugAnnoKeys: []string{podDebugAnnoKey},
 	}
 
 	policyImplement.allocationHandlers = map[string]util.AllocationHandler{
@@ -361,6 +366,46 @@ func TestAllocate(t *testing.T) {
 				ContainerIndex:   0,
 				ResourceName:     string(v1.ResourceMemory),
 				AllocationResult: nil,
+				Labels: map[string]string{
+					consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
+				},
+				Annotations: map[string]string{
+					consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
+				},
+			},
+		},
+		{
+			description: "req for container of debug pod",
+			req: &pluginapi.ResourceRequest{
+				PodUid:         string(uuid.NewUUID()),
+				PodNamespace:   testName,
+				PodName:        testName,
+				ContainerName:  testName,
+				ContainerType:  pluginapi.ContainerType_MAIN,
+				ContainerIndex: 0,
+				ResourceName:   string(v1.ResourceMemory),
+				ResourceRequests: map[string]float64{
+					string(v1.ResourceMemory): 1073741824,
+				},
+				Annotations: map[string]string{
+					podDebugAnnoKey: "",
+				},
+			},
+			expectedResp: &pluginapi.ResourceAllocationResponse{
+				PodNamespace:   testName,
+				PodName:        testName,
+				ContainerName:  testName,
+				ContainerType:  pluginapi.ContainerType_MAIN,
+				ContainerIndex: 0,
+				ResourceName:   string(v1.ResourceMemory),
+				AllocationResult: &pluginapi.ResourceAllocation{
+					ResourceAllocation: map[string]*pluginapi.ResourceAllocationInfo{
+						string(v1.ResourceMemory): {
+							IsNodeResource:   false,
+							IsScalarResource: true,
+						},
+					},
+				},
 				Labels: map[string]string{
 					consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
 				},
@@ -746,6 +791,41 @@ func TestGetTopologyHints(t *testing.T) {
 		expectedResp             *pluginapi.ResourceHintsResponse
 		enhancementDefaultValues map[string]string
 	}{
+		{
+			description: "req for container of debug pod",
+			req: &pluginapi.ResourceRequest{
+				PodUid:         string(uuid.NewUUID()),
+				PodNamespace:   testName,
+				PodName:        testName,
+				ContainerName:  testName,
+				ContainerType:  pluginapi.ContainerType_MAIN,
+				ContainerIndex: 0,
+				ResourceName:   string(v1.ResourceMemory),
+				ResourceRequests: map[string]float64{
+					string(v1.ResourceMemory): 1073741824,
+				},
+				Annotations: map[string]string{
+					podDebugAnnoKey: "",
+				},
+			},
+			expectedResp: &pluginapi.ResourceHintsResponse{
+				PodNamespace:   testName,
+				PodName:        testName,
+				ContainerName:  testName,
+				ContainerType:  pluginapi.ContainerType_MAIN,
+				ContainerIndex: 0,
+				ResourceName:   string(v1.ResourceMemory),
+				ResourceHints: map[string]*pluginapi.ListOfTopologyHints{
+					string(v1.ResourceMemory): nil,
+				},
+				Labels: map[string]string{
+					consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
+				},
+				Annotations: map[string]string{
+					consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
+				},
+			},
+		},
 		{
 			description: "req for shared_cores main container",
 			req: &pluginapi.ResourceRequest{
