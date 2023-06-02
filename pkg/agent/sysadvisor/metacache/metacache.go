@@ -25,7 +25,6 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/klog/v2"
 	"k8s.io/kubernetes/pkg/kubelet/checkpointmanager"
-	"k8s.io/kubernetes/pkg/kubelet/checkpointmanager/errors"
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
 	"github.com/kubewharf/katalyst-core/pkg/config"
@@ -430,15 +429,8 @@ func (mc *MetaCacheImp) restoreState() error {
 	checkpoint := NewMetaCacheCheckpoint()
 
 	if err := mc.checkpointManager.GetCheckpoint(mc.checkpointName, checkpoint); err != nil {
-		if err == errors.ErrCheckpointNotFound {
-			klog.Infof("[metacache] checkpoint %v not found, create", mc.checkpointName)
-			return mc.storeState()
-		} else if err == errors.ErrCorruptCheckpoint {
-			klog.Infof("[metacache] checkpoint %v corrupted, create", mc.checkpointName)
-			return mc.storeState()
-		}
-		klog.Errorf("[metacache] restore state failed: %v", err)
-		return err
+		klog.Infof("[metacache] checkpoint %v err %v, create it", mc.checkpointName, err)
+		return mc.storeState()
 	}
 
 	mc.podEntries = checkpoint.PodEntries
