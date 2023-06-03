@@ -28,6 +28,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
+	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
@@ -69,6 +70,7 @@ func (p *PolicyCanonical) estimationCPUUsage() (cpuEstimation float64, container
 				for _, numaID := range p.bindingNumas.ToSliceInt() {
 					cpuSize += ci.TopologyAwareAssignments[numaID].Size()
 				}
+				general.Infof("[qosaware-cpu-provision] container %v cpuSize %v CountCPUAssignmentCPUs %v containerEstimation %v", ci.ContainerName, cpuSize, machine.CountCPUAssignmentCPUs(ci.TopologyAwareAssignments), containerEstimation)
 				containerEstimation = containerEstimation * float64(cpuSize) / float64(machine.CountCPUAssignmentCPUs(ci.TopologyAwareAssignments))
 			}
 
