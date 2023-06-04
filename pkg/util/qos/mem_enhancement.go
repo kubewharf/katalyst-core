@@ -73,5 +73,5 @@ func GetRSSOverUseEvictThreshold(qosConf *generic.QoSConfiguration, pod *v1.Pod)
 }
 
 func isValidRatioThreshold(threshold float64) bool {
-	return threshold > 0 && threshold <= 1
+	return threshold > 0
 }

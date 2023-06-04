@@ -47,7 +47,7 @@ const (
 	// DefaultEnableRssOveruseDetection is the default value of whether enable pod-level rss overuse detection
 	DefaultEnableRssOveruseDetection = false
 	// DefaultRssOveruseRateThreshold is the default threshold for the rate of rss
-	DefaultRssOveruseRateThreshold = 0.8
+	DefaultRssOveruseRateThreshold = 1.05
 )
 
 var (

@@ -67,7 +67,7 @@ func TestRssOveruseEvictionPlugin_GetEvictPods(t *testing.T) {
 					{
 						Name: "container-1",
 						Resources: v1.ResourceRequirements{
-							Limits: v1.ResourceList{
+							Requests: v1.ResourceList{
 								"memory": resource.MustParse("10Gi"),
 							},
 						},
@@ -103,7 +103,7 @@ func TestRssOveruseEvictionPlugin_GetEvictPods(t *testing.T) {
 					{
 						Name: "container-1",
 						Resources: v1.ResourceRequirements{
-							Limits: v1.ResourceList{
+							Requests: v1.ResourceList{
 								"memory": resource.MustParse("10Gi"),
 							},
 						},
@@ -139,7 +139,7 @@ func TestRssOveruseEvictionPlugin_GetEvictPods(t *testing.T) {
 					{
 						Name: "container-1",
 						Resources: v1.ResourceRequirements{
-							Limits: v1.ResourceList{
+							Requests: v1.ResourceList{
 								"memory": resource.MustParse("10Gi"),
 							},
 						},
@@ -147,7 +147,7 @@ func TestRssOveruseEvictionPlugin_GetEvictPods(t *testing.T) {
 					{
 						Name: "container-2",
 						Resources: v1.ResourceRequirements{
-							Limits: v1.ResourceList{
+							Requests: v1.ResourceList{
 								"memory": resource.MustParse("10Gi"),
 							},
 						},
@@ -166,7 +166,7 @@ func TestRssOveruseEvictionPlugin_GetEvictPods(t *testing.T) {
 					{
 						Name: "container-1",
 						Resources: v1.ResourceRequirements{
-							Limits: v1.ResourceList{
+							Requests: v1.ResourceList{
 								"memory": resource.MustParse("10Gi"),
 							},
 						},
@@ -191,7 +191,7 @@ func TestRssOveruseEvictionPlugin_GetEvictPods(t *testing.T) {
 					{
 						Name: "container-1",
 						Resources: v1.ResourceRequirements{
-							Limits: v1.ResourceList{
+							Requests: v1.ResourceList{
 								"memory": resource.MustParse("10Gi"),
 							},
 						},
@@ -199,7 +199,7 @@ func TestRssOveruseEvictionPlugin_GetEvictPods(t *testing.T) {
 					{
 						Name: "container-2",
 						Resources: v1.ResourceRequirements{
-							Limits: v1.ResourceList{
+							Requests: v1.ResourceList{
 								"memory": resource.MustParse("4Gi"),
 							},
 						},
@@ -221,7 +221,7 @@ func TestRssOveruseEvictionPlugin_GetEvictPods(t *testing.T) {
 					{
 						Name: "container-1",
 						Resources: v1.ResourceRequirements{
-							Limits: v1.ResourceList{
+							Requests: v1.ResourceList{
 								"memory": resource.MustParse("10Gi"),
 							},
 						},
@@ -229,7 +229,7 @@ func TestRssOveruseEvictionPlugin_GetEvictPods(t *testing.T) {
 					{
 						Name: "container-2",
 						Resources: v1.ResourceRequirements{
-							Limits: v1.ResourceList{
+							Requests: v1.ResourceList{
 								"memory": resource.MustParse("4Gi"),
 							},
 						},
@@ -252,7 +252,7 @@ func TestRssOveruseEvictionPlugin_GetEvictPods(t *testing.T) {
 					{
 						Name: "container-1",
 						Resources: v1.ResourceRequirements{
-							Limits: v1.ResourceList{
+							Requests: v1.ResourceList{
 								"memory": resource.MustParse("10Gi"),
 							},
 						},
@@ -310,7 +310,7 @@ func TestRssOveruseEvictionPlugin_GetEvictPods(t *testing.T) {
 		{
 			name:                       "enable rss overuse eviction, threshold is 1",
 			enableRssOveruse:           true,
-			defaultRssOveruseThreshold: 1,
+			defaultRssOveruseThreshold: 1.05,
 			wantedResult: map[string]sets.Empty{
 				"pod-3": {},
 				"pod-8": {},

@@ -44,7 +44,7 @@ import (
 const (
 	EvictionPluginNameRssOveruse = "rss-overuse-eviction-plugin"
 
-	RssOveruseEvictionReason = "hit rss overuse policy, threshold is %.2f, current pod rss is %.2f, pod memory limit is %d"
+	RssOveruseEvictionReason = "hit rss overuse policy, threshold is %.2f, current pod rss is %.2f, pod memory request is %d"
 )
 
 func NewRssOveruseEvictionPlugin(_ *client.GenericClientSet, _ events.EventRecorder,
@@ -64,8 +64,9 @@ func NewRssOveruseEvictionPlugin(_ *client.GenericClientSet, _ events.EventRecor
 }
 
 // RssOveruseEvictionPlugin implements the EvictPlugin interface. It triggers pod eviction based on the rss usage ratio.
-// Once a pod use more rss than the specified threshold, this plugin will evict the pod. Its main goal is to
-// make sure sufficient memory for page cache in some scenarios in which service use page cache to improve performance.
+// Once a pod use more rss than the specified threshold, this plugin will evict the pod.The threshold is calculated based
+// on pod's memory request. Its main goal is to make sure sufficient memory for page cache in some scenarios in which
+// service use page cache to improve performance.
 type RssOveruseEvictionPlugin struct {
 	*process.StopControl
 
@@ -131,19 +132,19 @@ func (r *RssOveruseEvictionPlugin) GetEvictPods(_ context.Context, request *plug
 			threshold = *userSpecifiedThreshold
 		}
 
-		var limit int64 = 0
-		var limitNotSet = false
+		var memRequest int64 = 0
+		var requestNotSet = false
 		for _, container := range pod.Spec.Containers {
-			containerMemLimit := container.Resources.Limits.Memory()
-			if containerMemLimit.IsZero() {
-				limitNotSet = true
+			containerMemRequest := container.Resources.Requests.Memory()
+			if containerMemRequest.IsZero() {
+				requestNotSet = true
 				continue
 			}
-			limit += containerMemLimit.Value()
+			memRequest += containerMemRequest.Value()
 		}
 
 		// if there is at least one container without memory limit, skip it
-		if limitNotSet {
+		if requestNotSet {
 			continue
 		}
 
@@ -156,10 +157,10 @@ func (r *RssOveruseEvictionPlugin) GetEvictPods(_ context.Context, request *plug
 			continue
 		}
 
-		if podRss > threshold*float64(limit) {
+		if podRss > threshold*float64(memRequest) {
 			result = append(result, &pluginapi.EvictPod{
 				Pod:        pod,
-				Reason:     fmt.Sprintf(RssOveruseEvictionReason, threshold, podRss, limit),
+				Reason:     fmt.Sprintf(RssOveruseEvictionReason, threshold, podRss, memRequest),
 				ForceEvict: false,
 			})
 		}
