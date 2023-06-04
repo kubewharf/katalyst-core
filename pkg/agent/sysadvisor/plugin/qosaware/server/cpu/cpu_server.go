@@ -473,7 +473,7 @@ func (cs *cpuServer) assemblePodEntries(calculationEntriesMap map[string]*cpuadv
 			} else {
 				// if this podUID appears firstly, we should generate a new Block
 
-				reclaimPoolCalculationResults, ok := GetNumaCalculationResult(calculationEntriesMap, qrmstate.PoolNameReclaim,
+				reclaimPoolCalculationResults, ok := getNumaCalculationResult(calculationEntriesMap, qrmstate.PoolNameReclaim,
 					cpuadvisor.FakedContainerName, int64(numaID))
 				if !ok {
 					// if no reclaimed pool exists, return the generated Block
@@ -486,6 +486,7 @@ func (cs *cpuServer) assemblePodEntries(calculationEntriesMap map[string]*cpuadv
 					// if reclaimed pool exists, join the generated Block with Block in reclaimed pool
 
 					for _, block := range reclaimPoolCalculationResults.Blocks {
+						// todo assume only one reclaimed block exists in a certain numa
 						if block.OverlapTargets == nil || len(block.OverlapTargets) == 0 {
 							newBlock := NewBlock(uint64(cpuset.Size()), "")
 							innerBlock := NewInnerBlock(newBlock, int64(numaID), "", ci, numaCalculationResult)

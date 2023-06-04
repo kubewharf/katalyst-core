@@ -48,12 +48,15 @@ func (ci *ContainerInfo) Clone() *ContainerInfo {
 		Annotations:                      general.DeepCopyMap(ci.Annotations),
 		QoSLevel:                         ci.QoSLevel,
 		CPURequest:                       ci.CPURequest,
+		CPULimit:                         ci.CPULimit,
 		MemoryRequest:                    ci.MemoryRequest,
+		MemoryLimit:                      ci.MemoryLimit,
 		RampUp:                           ci.RampUp,
 		OwnerPoolName:                    ci.OwnerPoolName,
 		TopologyAwareAssignments:         ci.TopologyAwareAssignments.Clone(),
 		OriginalTopologyAwareAssignments: ci.OriginalTopologyAwareAssignments.Clone(),
 		RegionNames:                      sets.NewString(ci.RegionNames.List()...),
+		Isolated:                         ci.Isolated,
 	}
 	return clone
 }
@@ -63,8 +66,14 @@ func (ci *ContainerInfo) UpdateMeta(c *ContainerInfo) {
 	if c.CPURequest > 0 {
 		ci.CPURequest = c.CPURequest
 	}
+	if c.CPULimit > 0 {
+		ci.CPULimit = c.CPULimit
+	}
 	if c.MemoryRequest > 0 {
 		ci.MemoryRequest = c.MemoryRequest
+	}
+	if c.MemoryLimit > 0 {
+		ci.MemoryLimit = c.MemoryLimit
 	}
 }
 

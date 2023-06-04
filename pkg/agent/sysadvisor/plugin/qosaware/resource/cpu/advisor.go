@@ -48,10 +48,12 @@ import (
 
 func init() {
 	provisionpolicy.RegisterInitializer(types.CPUProvisionPolicyCanonical, provisionpolicy.NewPolicyCanonical)
+
 	headroompolicy.RegisterInitializer(types.CPUHeadroomPolicyCanonical, headroompolicy.NewPolicyCanonical)
 	headroompolicy.RegisterInitializer(types.CPUHeadroomPolicyUtilization, headroompolicy.NewPolicyUtilization)
 
 	provisionassembler.RegisterInitializer(types.CPUProvisionAssemblerCommon, provisionassembler.NewProvisionAssemblerCommon)
+
 	headroomassembler.RegisterInitializer(types.CPUHeadroomAssemblerCommon, headroomassembler.NewHeadroomAssemblerCommon)
 }
 
@@ -280,7 +282,6 @@ func (cra *cpuResourceAdvisor) assignToRegions(ci *types.ContainerInfo) ([]regio
 		// create one region by owner pool name
 		r := region.NewQoSRegionShare(ci, cra.conf, cra.extraConf, cra.metaCache, cra.metaServer, cra.emitter)
 		return []region.QoSRegion{r}, nil
-
 	} else if ci.IsNumaBinding() {
 		// assign dedicated cores numa exclusive containers. focus on container.
 		regions, err := cra.getContainerRegions(ci)
@@ -313,13 +314,13 @@ func (cra *cpuResourceAdvisor) gcRegionMap() {
 }
 
 // updateAdvisorEssentials updates following essentials after assigning containers to regions:
-// 1. non binding numas, i.e. numas without numa binding containers
+// 1. non-binding numas, i.e. numas without numa binding containers
 // 2. binding numas of non numa binding regions
 // 3. region quantity of each numa
 func (cra *cpuResourceAdvisor) updateAdvisorEssentials() {
 	cra.nonBindingNumas = cra.metaServer.CPUDetails.NUMANodes()
 
-	// update non binding numas
+	// update non-binding numas
 	for _, r := range cra.regionMap {
 		if r.Type() == types.QoSRegionTypeDedicatedNumaExclusive {
 			cra.nonBindingNumas = cra.nonBindingNumas.Difference(r.GetBindingNumas())

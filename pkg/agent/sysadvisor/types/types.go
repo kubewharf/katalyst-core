@@ -17,10 +17,9 @@ limitations under the License.
 package types
 
 import (
+	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
-
-	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
 const (
@@ -111,7 +110,9 @@ type ContainerInfo struct {
 	Annotations    map[string]string
 	QoSLevel       string
 	CPURequest     float64
+	CPULimit       float64
 	MemoryRequest  float64
+	MemoryLimit    float64
 
 	// Allocation information changing by list and watch
 	RampUp                           bool
@@ -121,6 +122,7 @@ type ContainerInfo struct {
 
 	// QoS information updated by advisor
 	RegionNames sets.String
+	Isolated    bool
 }
 
 // PoolInfo contains pool information for sysadvisor plugins

@@ -34,7 +34,7 @@ type HeadroomAssembler interface {
 }
 
 type InitFunc func(conf *config.Configuration, regionMap *map[string]region.QoSRegion,
-	metaCache metacache.MetaCache, metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter) HeadroomAssembler
+	metaCache metacache.MetaReader, metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter) HeadroomAssembler
 
 var initializers sync.Map
 

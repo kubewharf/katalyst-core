@@ -29,6 +29,7 @@ type CPUAdvisorConfiguration struct {
 	HeadroomAssembler  types.CPUHeadroomAssemblerName
 
 	*headroom.CPUHeadroomPolicyConfiguration
+	*CPUIsolationConfiguration
 }
 
 // NewCPUAdvisorConfiguration creates new cpu advisor configurations
@@ -39,5 +40,6 @@ func NewCPUAdvisorConfiguration() *CPUAdvisorConfiguration {
 		ProvisionAssembler:             types.CPUProvisionAssemblerCommon,
 		HeadroomAssembler:              types.CPUHeadroomAssemblerCommon,
 		CPUHeadroomPolicyConfiguration: headroom.NewCPUHeadroomPolicyConfiguration(),
+		CPUIsolationConfiguration:      NewCPUIsolationConfiguration(),
 	}
 }

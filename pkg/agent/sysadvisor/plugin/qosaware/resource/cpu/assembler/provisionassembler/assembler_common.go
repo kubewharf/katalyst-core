@@ -36,14 +36,14 @@ type ProvisionAssemblerCommon struct {
 	numaAvailable      *map[int]int
 	nonBindingNumas    *machine.CPUSet
 
-	metaCache  metacache.MetaCache
+	metaCache  metacache.MetaReader
 	metaServer *metaserver.MetaServer
 	emitter    metrics.MetricEmitter
 }
 
 func NewProvisionAssemblerCommon(conf *config.Configuration, regionMap *map[string]region.QoSRegion,
 	reservedForReclaim *map[int]int, numaAvailable *map[int]int, nonBindingNumas *machine.CPUSet,
-	metaCache metacache.MetaCache, metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter) ProvisionAssembler {
+	metaCache metacache.MetaReader, metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter) ProvisionAssembler {
 	return &ProvisionAssemblerCommon{
 		conf:               conf,
 		regionMap:          regionMap,
@@ -97,7 +97,6 @@ func (pa *ProvisionAssemblerCommon) AssembleProvision() (types.InternalCalculati
 		calculationResult.SetPoolEntry(poolName, cpuadvisor.FakedNUMAID, poolSize)
 	}
 
-	// fill in reclaim pool entry for non binding numas
 	reclaimPoolSizeOfNonBindingNumas := sharePoolAvailable - general.SumUpMapValues(sharePoolSizes) + pa.getNumasReservedForReclaim(*pa.nonBindingNumas)
 	calculationResult.SetPoolEntry(state.PoolNameReclaim, cpuadvisor.FakedNUMAID, reclaimPoolSizeOfNonBindingNumas)
 
