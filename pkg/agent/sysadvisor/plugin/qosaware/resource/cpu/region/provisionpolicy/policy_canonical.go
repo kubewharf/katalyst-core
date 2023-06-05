@@ -56,8 +56,8 @@ func (p *PolicyCanonical) estimationCPUUsage() (cpuEstimation float64, container
 				klog.Errorf("[qosaware-cpu-provision] illegal container info of %v/%v", podUID, containerName)
 				continue
 			}
-
-			containerEstimation, err := helper.EstimateContainerCPUUsage(ci, p.metaReader, enableReclaim)
+			// when ramping up, estimation of cpu should be set as cpu request
+			containerEstimation, err := helper.EstimateContainerCPUUsage(ci, p.metaReader, enableReclaim && !ci.RampUp)
 			if err != nil {
 				return 0, 0, err
 			}

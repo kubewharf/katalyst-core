@@ -326,11 +326,11 @@ func (cra *cpuResourceAdvisor) assignToRegions(ci *types.ContainerInfo) ([]regio
 	if ci == nil {
 		return nil, fmt.Errorf("ci is nil")
 	}
-	// not assign container to any region when ramping up
-	if ci.RampUp {
-		return nil, nil
-	}
 	if ci.QoSLevel == consts.PodAnnotationQoSLevelSharedCores {
+		// not assign container to any region when ramping up because OwnerPoolName is still empty
+		if ci.RampUp {
+			return nil, nil
+		}
 		// Assign shared cores container. Focus on pool.
 		regions := cra.getPoolRegions(ci.OwnerPoolName)
 		if len(regions) > 0 {

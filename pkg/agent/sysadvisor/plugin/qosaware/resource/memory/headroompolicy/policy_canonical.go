@@ -67,7 +67,8 @@ func (p *PolicyCanonical) estimateNonReclaimedQoSMemoryRequirement() (float64, e
 	)
 
 	f := func(podUID string, containerName string, ci *types.ContainerInfo) bool {
-		enableReclaim, err := helper.PodEnableReclaim(context.Background(), p.metaServer, podUID, p.essentials.EnableReclaim)
+		// when ramping up, estimation of cpu should be set as cpu request
+		enableReclaim, err := helper.PodEnableReclaim(context.Background(), p.metaServer, podUID, p.essentials.EnableReclaim && !ci.RampUp)
 		if err != nil {
 			errList = append(errList, err)
 			return true
