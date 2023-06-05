@@ -141,7 +141,7 @@ func (m *cgroupIDManagerImpl) addAbsentCgroupIDsToCache(absentContainers map[str
 			}
 
 			klog.Infof("[cgroupIDManagerImpl.addAbsentCgroupIDsToCache] add absent cgroup id to cache, "+
-				"pod: %s, container: %s, cgroup id: %V", podUID, containerID, cgID)
+				"pod: %s, container: %s, cgroup id: %d", podUID, containerID, cgID)
 			m.setCgroupID(podUID, containerID, cgID)
 		}
 	}
