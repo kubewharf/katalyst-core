@@ -65,14 +65,7 @@ func (p *PodFetcherStub) GetContainerID(podUID, containerName string) (string, e
 
 	for _, pod := range p.PodList {
 		if string(pod.UID) == podUID {
-			for _, cs := range pod.Status.ContainerStatuses {
-				if cs.Name == containerName {
-					if cs.ContainerID == "" {
-						return "", fmt.Errorf("empty container id in container statues of pod")
-					}
-					return native.TrimContainerIDPrefix(cs.ContainerID), nil
-				}
-			}
+			return native.GetContainerID(pod, containerName)
 		}
 	}
 

@@ -126,20 +126,12 @@ func (w *podFetcherImpl) GetContainerID(podUID, containerName string) (string, e
 		return "", fmt.Errorf("getKubeletPodsCache failed with error: %v", err)
 	}
 
-	if kubeletPodsCache[podUID] == nil {
+	pod := kubeletPodsCache[podUID]
+	if pod == nil {
 		return "", fmt.Errorf("pod of uid: %s isn't found", podUID)
 	}
 
-	for _, containerStatus := range kubeletPodsCache[podUID].Status.ContainerStatuses {
-		if containerStatus.Name == containerName {
-			if containerStatus.ContainerID == "" {
-				return "", fmt.Errorf("empty container id in container statues of pod")
-			}
-			return native.TrimContainerIDPrefix(containerStatus.ContainerID), nil
-		}
-	}
-
-	return "", fmt.Errorf("container: %s isn't found in pod: %s statues", containerName, podUID)
+	return native.GetContainerID(pod, containerName)
 }
 
 func (w *podFetcherImpl) Run(ctx context.Context) {
