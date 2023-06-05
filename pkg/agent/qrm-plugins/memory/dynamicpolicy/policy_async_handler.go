@@ -42,7 +42,7 @@ func (p *DynamicPolicy) checkMemorySet() {
 	unionNUMABindingStateMemorySet := machine.NewCPUSet()
 	for podUID, containerEntries := range podEntries {
 		for containerName, allocationInfo := range containerEntries {
-			if allocationInfo == nil || !allocationInfo.CheckNumaBinding() {
+			if allocationInfo == nil || !allocationInfo.CheckMainContainer() {
 				continue
 			} else if allocationInfo.QoSLevel == consts.PodAnnotationQoSLevelSharedCores &&
 				p.getContainerRequestedMemoryBytes(allocationInfo) == 0 {

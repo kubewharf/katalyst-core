@@ -48,7 +48,7 @@ func (p *DynamicPolicy) checkCPUSet() {
 		for containerName, allocationInfo := range containerEntries {
 			if allocationInfo == nil || !allocationInfo.CheckMainContainer() {
 				continue
-			} else if state.CheckShared(allocationInfo) && allocationInfo.RequestQuantity == 0 {
+			} else if state.CheckShared(allocationInfo) && p.getContainerRequestedCores(allocationInfo) == 0 {
 				general.Warningf("skip cpuset checking for pod: %s/%s container: %s with zero cpu request",
 					allocationInfo.PodNamespace, allocationInfo.PodName, containerName)
 				continue
