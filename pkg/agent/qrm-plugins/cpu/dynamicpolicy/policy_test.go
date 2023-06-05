@@ -51,6 +51,10 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
+const (
+	podDebugAnnoKey = "qrm.katalyst.kubewharf.io/debug_pod"
+)
+
 func getTestDynamicPolicyWithInitialization(topology *machine.CPUTopology, stateFileDirectory string) (*DynamicPolicy, error) {
 	dynamicPolicy, err := getTestDynamicPolicyWithoutInitialization(topology, stateFileDirectory)
 	if err != nil {
@@ -92,6 +96,7 @@ func getTestDynamicPolicyWithoutInitialization(topology *machine.CPUTopology, st
 		advisorValidator:        validator.NewCPUAdvisorValidator(stateImpl, machineInfo),
 		reservedCPUs:            reservedCPUs,
 		emitter:                 metrics.DummyMetrics{},
+		podDebugAnnoKeys:        []string{podDebugAnnoKey},
 	}
 
 	state.GetContainerRequestedCores = policyImplement.getContainerRequestedCores
@@ -253,6 +258,47 @@ func TestAllocate(t *testing.T) {
 				ContainerIndex:   0,
 				ResourceName:     string(v1.ResourceCPU),
 				AllocationResult: nil,
+				Labels: map[string]string{
+					consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
+				},
+				Annotations: map[string]string{
+					consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
+				},
+			},
+			cpuTopology: cpuTopology,
+		},
+		{
+			description: "req for container of debug pod",
+			req: &pluginapi.ResourceRequest{
+				PodUid:         string(uuid.NewUUID()),
+				PodNamespace:   testName,
+				PodName:        testName,
+				ContainerName:  testName,
+				ContainerType:  pluginapi.ContainerType_MAIN,
+				ContainerIndex: 0,
+				ResourceName:   string(v1.ResourceCPU),
+				ResourceRequests: map[string]float64{
+					string(v1.ResourceCPU): 1,
+				},
+				Annotations: map[string]string{
+					podDebugAnnoKey: "",
+				},
+			},
+			expectedResp: &pluginapi.ResourceAllocationResponse{
+				PodNamespace:   testName,
+				PodName:        testName,
+				ContainerName:  testName,
+				ContainerType:  pluginapi.ContainerType_MAIN,
+				ContainerIndex: 0,
+				ResourceName:   string(v1.ResourceCPU),
+				AllocationResult: &pluginapi.ResourceAllocation{
+					ResourceAllocation: map[string]*pluginapi.ResourceAllocationInfo{
+						string(v1.ResourceCPU): {
+							IsNodeResource:   false,
+							IsScalarResource: true,
+						},
+					},
+				},
 				Labels: map[string]string{
 					consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
 				},
@@ -644,7 +690,7 @@ func TestGetTopologyHints(t *testing.T) {
 		enhancementDefaultValues map[string]string
 	}{
 		{
-			description: "req for shared_cores main container",
+			description: "req for container of debug pod",
 			req: &pluginapi.ResourceRequest{
 				PodUid:         string(uuid.NewUUID()),
 				PodNamespace:   testName,
@@ -655,6 +701,9 @@ func TestGetTopologyHints(t *testing.T) {
 				ResourceName:   string(v1.ResourceCPU),
 				ResourceRequests: map[string]float64{
 					string(v1.ResourceCPU): 2,
+				},
+				Annotations: map[string]string{
+					podDebugAnnoKey: "",
 				},
 			},
 			expectedResp: &pluginapi.ResourceHintsResponse{

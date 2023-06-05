@@ -27,6 +27,7 @@ type GenericQRMPluginOptions struct {
 	StateFileDirectory            string
 	ExtraStateFileAbsPath         string
 	ReclaimRelativeRootCgroupPath string
+	PodDebugAnnoKeys              []string
 }
 
 func NewGenericQRMPluginOptions() *GenericQRMPluginOptions {
@@ -34,6 +35,7 @@ func NewGenericQRMPluginOptions() *GenericQRMPluginOptions {
 		QRMPluginSocketDirs:           []string{"/var/lib/kubelet/plugins_registry"},
 		StateFileDirectory:            "/var/lib/katalyst/qrm_advisor",
 		ReclaimRelativeRootCgroupPath: "/kubepods/besteffort",
+		PodDebugAnnoKeys:              []string{},
 	}
 }
 
@@ -47,6 +49,8 @@ func (o *GenericQRMPluginOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 	fs.StringVar(&o.ReclaimRelativeRootCgroupPath,
 		"reclaim-relative-root-cgroup-path", o.ReclaimRelativeRootCgroupPath,
 		"top level cgroup path for reclaimed_cores qos level")
+	fs.StringSliceVar(&o.PodDebugAnnoKeys, "qrm-pod-debug-anno-keys",
+		o.PodDebugAnnoKeys, "pod annotations keys to identify the pod is a debug pod, and qrm plugins will apply specific strategy to it")
 }
 
 func (o *GenericQRMPluginOptions) ApplyTo(conf *qrmconfig.GenericQRMPluginConfiguration) error {
@@ -54,6 +58,7 @@ func (o *GenericQRMPluginOptions) ApplyTo(conf *qrmconfig.GenericQRMPluginConfig
 	conf.StateFileDirectory = o.StateFileDirectory
 	conf.ExtraStateFileAbsPath = o.ExtraStateFileAbsPath
 	conf.ReclaimRelativeRootCgroupPath = o.ReclaimRelativeRootCgroupPath
+	conf.PodDebugAnnoKeys = o.PodDebugAnnoKeys
 	return nil
 }
 

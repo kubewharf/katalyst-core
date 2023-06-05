@@ -124,6 +124,7 @@ type DynamicPolicy struct {
 	reclaimRelativeRootCgroupPath string
 	qosConfig                     *generic.QoSConfiguration
 	reclaimedResourceConfig       *adminqos.ReclaimedResourceConfiguration
+	podDebugAnnoKeys              []string
 }
 
 func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration,
@@ -189,6 +190,7 @@ func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration
 		enableSyncingCPUIdle:          conf.CPUQRMPluginConfig.EnableSyncingCPUIdle,
 		enableCPUIdle:                 conf.CPUQRMPluginConfig.EnableCPUIdle,
 		reclaimRelativeRootCgroupPath: conf.ReclaimRelativeRootCgroupPath,
+		podDebugAnnoKeys:              conf.PodDebugAnnoKeys,
 	}
 
 	// register allocation behaviors for pods with different QoS level
@@ -544,6 +546,12 @@ func (p *DynamicPolicy) GetTopologyHints(ctx context.Context,
 		return nil, fmt.Errorf("GetTopologyHints got nil req")
 	}
 
+	// identify if the pod is a debug pod,
+	// if so, apply specific strategy to it.
+	// since GetKatalystQoSLevelFromResourceReq function will filter annotations,
+	// we should do it before GetKatalystQoSLevelFromResourceReq.
+	isDebugPod := util.IsDebugPod(req.Annotations, p.podDebugAnnoKeys)
+
 	qosLevel, err := util.GetKatalystQoSLevelFromResourceReq(p.qosConfig, req)
 	if err != nil {
 		err = fmt.Errorf("GetKatalystQoSLevelFromResourceReq for pod: %s/%s, container: %s failed with error: %v",
@@ -563,8 +571,18 @@ func (p *DynamicPolicy) GetTopologyHints(ctx context.Context,
 		"containerName", req.ContainerName,
 		"podType", req.PodType,
 		"podRole", req.PodRole,
+		"containerType", req.ContainerType,
 		"qosLevel", qosLevel,
-		"numCPUs", reqInt)
+		"numCPUs", reqInt,
+		"isDebugPod", isDebugPod)
+
+	if req.ContainerType == pluginapi.ContainerType_INIT || isDebugPod {
+		general.Infof("there is no NUMA preference, return nil hint")
+		return util.PackResourceHintsResponse(req, string(v1.ResourceCPU),
+			map[string]*pluginapi.ListOfTopologyHints{
+				string(v1.ResourceCPU): nil, // indicates that there is no numa preference
+			})
+	}
 
 	p.RLock()
 	defer func() {
@@ -573,13 +591,6 @@ func (p *DynamicPolicy) GetTopologyHints(ctx context.Context,
 			_ = p.emitter.StoreInt64(util.MetricNameGetTopologyHintsFailed, 1, metrics.MetricTypeNameRaw)
 		}
 	}()
-
-	if req.ContainerType == pluginapi.ContainerType_INIT {
-		return util.PackResourceHintsResponse(req, string(v1.ResourceCPU),
-			map[string]*pluginapi.ListOfTopologyHints{
-				string(v1.ResourceCPU): nil, // indicates that there is no numa preference
-			})
-	}
 
 	if p.hintHandlers[qosLevel] == nil {
 		return nil, fmt.Errorf("katalyst QoS level: %s is not supported yet", qosLevel)
@@ -606,6 +617,12 @@ func (p *DynamicPolicy) Allocate(ctx context.Context,
 		return nil, fmt.Errorf("allocate got nil req")
 	}
 
+	// identify if the pod is a debug pod,
+	// if so, apply specific strategy to it.
+	// since GetKatalystQoSLevelFromResourceReq function will filter annotations,
+	// we should do it before GetKatalystQoSLevelFromResourceReq.
+	isDebugPod := util.IsDebugPod(req.Annotations, p.podDebugAnnoKeys)
+
 	qosLevel, err := util.GetKatalystQoSLevelFromResourceReq(p.qosConfig, req)
 	if err != nil {
 		err = fmt.Errorf("GetKatalystQoSLevelFromResourceReq for pod: %s/%s, container: %s failed with error: %v",
@@ -625,8 +642,50 @@ func (p *DynamicPolicy) Allocate(ctx context.Context,
 		"containerName", req.ContainerName,
 		"podType", req.PodType,
 		"podRole", req.PodRole,
+		"containerType", req.ContainerType,
 		"qosLevel", qosLevel,
-		"numCPUs", reqInt)
+		"numCPUs", reqInt,
+		"isDebugPod", isDebugPod)
+
+	if req.ContainerType == pluginapi.ContainerType_INIT {
+		return &pluginapi.ResourceAllocationResponse{
+			PodUid:         req.PodUid,
+			PodNamespace:   req.PodNamespace,
+			PodName:        req.PodName,
+			ContainerName:  req.ContainerName,
+			ContainerType:  req.ContainerType,
+			ContainerIndex: req.ContainerIndex,
+			PodRole:        req.PodRole,
+			PodType:        req.PodType,
+			ResourceName:   string(v1.ResourceCPU),
+			Labels:         general.DeepCopyMap(req.Labels),
+			Annotations:    general.DeepCopyMap(req.Annotations),
+		}, nil
+	} else if isDebugPod {
+		return &pluginapi.ResourceAllocationResponse{
+			PodUid:         req.PodUid,
+			PodNamespace:   req.PodNamespace,
+			PodName:        req.PodName,
+			ContainerName:  req.ContainerName,
+			ContainerType:  req.ContainerType,
+			ContainerIndex: req.ContainerIndex,
+			PodRole:        req.PodRole,
+			PodType:        req.PodType,
+			ResourceName:   string(v1.ResourceCPU),
+			AllocationResult: &pluginapi.ResourceAllocation{
+				ResourceAllocation: map[string]*pluginapi.ResourceAllocationInfo{
+					string(v1.ResourceCPU): {
+						// return ResourceAllocation with empty OciPropertyName, AllocatedQuantity, AllocationResult for containers in debug pod,
+						// it won't influence oci spec properties of the container
+						IsNodeResource:   false,
+						IsScalarResource: true,
+					},
+				},
+			},
+			Labels:      general.DeepCopyMap(req.Labels),
+			Annotations: general.DeepCopyMap(req.Annotations),
+		}, nil
+	}
 
 	p.Lock()
 	defer func() {
@@ -692,22 +751,6 @@ func (p *DynamicPolicy) Allocate(ctx context.Context,
 			},
 			Labels:      general.DeepCopyMap(req.Labels),
 			Annotations: general.DeepCopyMap(req.Annotations),
-		}, nil
-	}
-
-	if req.ContainerType == pluginapi.ContainerType_INIT {
-		return &pluginapi.ResourceAllocationResponse{
-			PodUid:         req.PodUid,
-			PodNamespace:   req.PodNamespace,
-			PodName:        req.PodName,
-			ContainerName:  req.ContainerName,
-			ContainerType:  req.ContainerType,
-			ContainerIndex: req.ContainerIndex,
-			PodRole:        req.PodRole,
-			PodType:        req.PodType,
-			ResourceName:   string(v1.ResourceCPU),
-			Labels:         general.DeepCopyMap(req.Labels),
-			Annotations:    general.DeepCopyMap(req.Annotations),
 		}, nil
 	}
 

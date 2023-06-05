@@ -624,9 +624,7 @@ func calculateMemoryInNumaNodes(req *pluginapi.ResourceRequest,
 	return reqQuantity, nil
 }
 
-// packAllocationResponse regenerates allocations for container that'd already been allocated memory,
-// and packAllocationResponse will assemble allocations based on already-existed AllocationInfo,
-// without any calculation logics at all
+// packAllocationResponse fills pluginapi.ResourceAllocationResponse with information from AllocationInfo and pluginapi.ResourceRequest
 func packAllocationResponse(allocationInfo *state.AllocationInfo, req *pluginapi.ResourceRequest) (*pluginapi.ResourceAllocationResponse, error) {
 	if allocationInfo == nil {
 		return nil, fmt.Errorf("packAllocationResponse got nil allocationInfo")

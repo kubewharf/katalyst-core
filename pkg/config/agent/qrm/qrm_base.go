@@ -25,6 +25,7 @@ type GenericQRMPluginConfiguration struct {
 	QRMPluginSocketDirs           []string
 	ExtraStateFileAbsPath         string
 	ReclaimRelativeRootCgroupPath string
+	PodDebugAnnoKeys              []string
 }
 
 type QRMPluginsConfiguration struct {
