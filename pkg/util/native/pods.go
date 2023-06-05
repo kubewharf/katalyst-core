@@ -307,6 +307,47 @@ func CheckDaemonPod(pod *v1.Pod) bool {
 	return false
 }
 
+// GetContainerID gets container id from pod status by container name
+func GetContainerID(pod *v1.Pod, containerName string) (string, error) {
+	if pod == nil {
+		return "", fmt.Errorf("empty pod")
+	}
+
+	for _, containerStatus := range pod.Status.ContainerStatuses {
+		if containerStatus.Name == containerName {
+			if containerStatus.ContainerID == "" {
+				return "", fmt.Errorf("empty container id in container statues of pod")
+			}
+			return TrimContainerIDPrefix(containerStatus.ContainerID), nil
+		}
+	}
+
+	return "", fmt.Errorf("container %s container id not found", containerName)
+}
+
+// GetContainerEnvs gets container envs from pod spec by container name and envs name
+func GetContainerEnvs(pod *v1.Pod, containerName string, envs ...string) map[string]string {
+	if pod == nil {
+		return nil
+	}
+
+	envSet := sets.NewString(envs...)
+	envMap := make(map[string]string)
+	for _, container := range pod.Spec.Containers {
+		if container.Name != containerName {
+			continue
+		}
+
+		for _, env := range container.Env {
+			if envSet.Has(env.Name) {
+				envMap[env.Name] = env.Value
+			}
+		}
+	}
+
+	return envMap
+}
+
 // GetPodCondition extracts the given condition for the given pod
 func GetPodCondition(pod *v1.Pod, conditionType v1.PodConditionType) (v1.PodCondition, bool) {
 	for _, condition := range pod.Status.Conditions {

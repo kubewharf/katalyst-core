@@ -17,6 +17,7 @@ limitations under the License.
 package native
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -58,6 +59,102 @@ func TestFilterPodAnnotations(t *testing.T) {
 			t.Logf("case: %v", tc.name)
 			got := FilterPodAnnotations(tc.filterKeys, tc.pod)
 			assert.Equal(t, tc.expected, got)
+		})
+	}
+}
+
+func TestGetContainerID(t *testing.T) {
+	type args struct {
+		pod  *v1.Pod
+		name string
+	}
+	tests := []struct {
+		name    string
+		args    args
+		want    string
+		wantErr assert.ErrorAssertionFunc
+	}{
+		{
+			name: "test-1",
+			args: args{
+				pod: &v1.Pod{
+					Status: v1.PodStatus{
+						ContainerStatuses: []v1.ContainerStatus{
+							{
+								Name:        "test-container-1",
+								State:       v1.ContainerState{},
+								ContainerID: "docker://test-container-id-1",
+							},
+						},
+					},
+				},
+			},
+			want: "test-container-id-1",
+			wantErr: func(t assert.TestingT, err error, i ...interface{}) bool {
+				return false
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := GetContainerID(tt.args.pod, tt.args.name)
+			if !tt.wantErr(t, err, fmt.Sprintf("GetContainerID(%v, %v)", tt.args.pod, tt.args.name)) {
+				return
+			}
+			assert.Equalf(t, tt.want, got, "GetContainerID(%v, %v)", tt.args.pod, tt.args.name)
+		})
+	}
+}
+
+func TestGetContainerEnvs(t *testing.T) {
+	type args struct {
+		pod           *v1.Pod
+		containerName string
+		envs          []string
+	}
+	tests := []struct {
+		name string
+		args args
+		want map[string]string
+	}{
+		{
+			name: "test-1",
+			args: args{
+				pod: &v1.Pod{
+					Spec: v1.PodSpec{
+						Containers: []v1.Container{
+							{
+								Name: "test-container-1",
+								Env: []v1.EnvVar{
+									{
+										Name:  "test-env-1",
+										Value: "test-value-1",
+									},
+									{
+										Name:  "test-env-2",
+										Value: "test-value-2",
+									},
+									{
+										Name:  "test-env-3",
+										Value: "test-value-3",
+									},
+								},
+							},
+						},
+					},
+				},
+				containerName: "test-container-1",
+				envs:          []string{"test-env-1", "test-env-2"},
+			},
+			want: map[string]string{
+				"test-env-1": "test-value-1",
+				"test-env-2": "test-value-2",
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equalf(t, tt.want, GetContainerEnvs(tt.args.pod, tt.args.containerName, tt.args.envs...), "GetContainerEnvs(%v, %v, %v)", tt.args.pod, tt.args.containerName, tt.args.envs)
 		})
 	}
 }
