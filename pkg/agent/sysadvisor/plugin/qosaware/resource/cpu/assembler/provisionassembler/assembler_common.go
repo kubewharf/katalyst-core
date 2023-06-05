@@ -30,10 +30,11 @@ import (
 )
 
 type ProvisionAssemblerCommon struct {
-	enableReclaim   bool
-	regionMap       *map[string]region.QoSRegion
-	numaAvailable   *map[int]int
-	nonBindingNumas *machine.CPUSet
+	conf               *config.Configuration
+	regionMap          *map[string]region.QoSRegion
+	reservedForReclaim *map[int]int
+	numaAvailable      *map[int]int
+	nonBindingNumas    *machine.CPUSet
 
 	metaCache  metacache.MetaCache
 	metaServer *metaserver.MetaServer
@@ -41,13 +42,14 @@ type ProvisionAssemblerCommon struct {
 }
 
 func NewProvisionAssemblerCommon(conf *config.Configuration, regionMap *map[string]region.QoSRegion,
-	numaAvailable *map[int]int, nonBindingNumas *machine.CPUSet, metaCache metacache.MetaCache,
-	metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter) ProvisionAssembler {
+	reservedForReclaim *map[int]int, numaAvailable *map[int]int, nonBindingNumas *machine.CPUSet,
+	metaCache metacache.MetaCache, metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter) ProvisionAssembler {
 	return &ProvisionAssemblerCommon{
-		enableReclaim:   conf.ReclaimedResourceConfiguration.EnableReclaim(),
-		regionMap:       regionMap,
-		numaAvailable:   numaAvailable,
-		nonBindingNumas: nonBindingNumas,
+		conf:               conf,
+		regionMap:          regionMap,
+		reservedForReclaim: reservedForReclaim,
+		numaAvailable:      numaAvailable,
+		nonBindingNumas:    nonBindingNumas,
 
 		metaCache:  metaCache,
 		metaServer: metaServer,
@@ -78,15 +80,17 @@ func (pa *ProvisionAssemblerCommon) AssembleProvision() (types.InternalCalculati
 
 		} else if r.Type() == types.QoSRegionTypeDedicatedNumaExclusive {
 			// fill in reclaim pool entry for dedicated numa exclusive regions
-			reclaimPoolSize := controlKnob[types.ControlKnobReclaimedCPUSupplied].Value
 			regionNuma := r.GetBindingNumas().ToSliceInt()[0] // always one binding numa for this type of region
-			calculationResult.SetPoolEntry(state.PoolNameReclaim, regionNuma, int(reclaimPoolSize))
+			reclaimPoolSize := int(controlKnob[types.ControlKnobReclaimedCPUSupplied].Value)
+			reclaimPoolSize += pa.getNumasReservedForReclaim(machine.NewCPUSet(regionNuma))
+			calculationResult.SetPoolEntry(state.PoolNameReclaim, regionNuma, reclaimPoolSize)
 		}
 	}
 
 	// regulate share pool sizes
+	enableReclaim := pa.conf.ReclaimedResourceConfiguration.EnableReclaim()
 	sharePoolAvailable := getNumasAvailableResource(*pa.numaAvailable, *pa.nonBindingNumas)
-	regulatePoolSizes(sharePoolSizes, sharePoolAvailable, pa.enableReclaim)
+	regulatePoolSizes(sharePoolSizes, sharePoolAvailable, enableReclaim)
 
 	// fill in regulated share pool entries
 	for poolName, poolSize := range sharePoolSizes {
@@ -94,8 +98,18 @@ func (pa *ProvisionAssemblerCommon) AssembleProvision() (types.InternalCalculati
 	}
 
 	// fill in reclaim pool entry for non binding numas
-	reclaimPoolSizeOfNonBindingNumas := sharePoolAvailable - general.SumUpMapValues(sharePoolSizes) + types.ReservedForReclaim
+	reclaimPoolSizeOfNonBindingNumas := sharePoolAvailable - general.SumUpMapValues(sharePoolSizes) + pa.getNumasReservedForReclaim(*pa.nonBindingNumas)
 	calculationResult.SetPoolEntry(state.PoolNameReclaim, cpuadvisor.FakedNUMAID, reclaimPoolSizeOfNonBindingNumas)
 
 	return calculationResult, nil
+}
+
+func (pa *ProvisionAssemblerCommon) getNumasReservedForReclaim(numas machine.CPUSet) int {
+	res := 0
+	for _, id := range numas.ToSliceInt() {
+		if v, ok := (*pa.reservedForReclaim)[id]; ok {
+			res += v
+		}
+	}
+	return res
 }

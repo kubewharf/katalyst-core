@@ -28,7 +28,7 @@ import (
 )
 
 type HeadroomAssemblerCommon struct {
-	enableReclaim bool
+	conf *config.Configuration
 
 	metaCache  metacache.MetaCache
 	metaServer *metaserver.MetaServer
@@ -38,8 +38,7 @@ type HeadroomAssemblerCommon struct {
 func NewHeadroomAssemblerCommon(conf *config.Configuration, _ *map[string]region.QoSRegion,
 	metaCache metacache.MetaCache, metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter) HeadroomAssembler {
 	return &HeadroomAssemblerCommon{
-		enableReclaim: conf.ReclaimedResourceConfiguration.EnableReclaim(),
-
+		conf:       conf,
 		metaCache:  metaCache,
 		metaServer: metaServer,
 		emitter:    emitter,
@@ -47,8 +46,10 @@ func NewHeadroomAssemblerCommon(conf *config.Configuration, _ *map[string]region
 }
 
 func (ha *HeadroomAssemblerCommon) GetHeadroom() (resource.Quantity, error) {
+	enableReclaim := ha.conf.ReclaimedResourceConfiguration.EnableReclaim()
+
 	// return zero when reclaim is disabled
-	if !ha.enableReclaim {
+	if !enableReclaim {
 		return *resource.NewQuantity(0, resource.DecimalSI), nil
 	}
 

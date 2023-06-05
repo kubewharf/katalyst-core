@@ -115,7 +115,7 @@ func (cra *cpuResourceAdvisor) initializeProvisionAssembler() error {
 	if !ok {
 		return fmt.Errorf("unsupported provision assembler %v", assemblerName)
 	}
-	cra.provisionAssembler = initializer(cra.conf, &cra.regionMap, &cra.numaAvailable, &cra.nonBindingNumas, cra.metaCache, cra.metaServer, cra.emitter)
+	cra.provisionAssembler = initializer(cra.conf, &cra.regionMap, &cra.reservedForReclaim, &cra.numaAvailable, &cra.nonBindingNumas, cra.metaCache, cra.metaServer, cra.emitter)
 
 	return nil
 }
@@ -166,20 +166,19 @@ func (cra *cpuResourceAdvisor) updateNumasAvailableResource() {
 	reservePoolInfo, _ := cra.metaCache.GetPoolInfo(state.PoolNameReserve)
 	cpusPerNuma := cra.metaServer.CPUsPerNuma()
 
-	for numaID := range cra.metaServer.CPUDetails {
+	for id := 0; id < cra.metaServer.NumNUMANodes; id++ {
 		reservePoolNuma := 0
-		if cpuset, ok := reservePoolInfo.TopologyAwareAssignments[numaID]; ok {
+		if cpuset, ok := reservePoolInfo.TopologyAwareAssignments[id]; ok {
 			reservePoolNuma = cpuset.Size()
 		}
 		reservedForReclaimNuma := 0
-		if v, ok := cra.reservedForReclaim[numaID]; ok {
+		if v, ok := cra.reservedForReclaim[id]; ok {
 			reservedForReclaimNuma = v
 		}
-		cra.numaAvailable[numaID] = cpusPerNuma - reservePoolNuma - reservedForReclaimNuma
+		cra.numaAvailable[id] = cpusPerNuma - reservePoolNuma - reservedForReclaimNuma
 	}
 }
 
-// getNumasReservedForAllocate returns sum of reserved resource for allocate of numas
 func (cra *cpuResourceAdvisor) getNumasReservedForAllocate(numas machine.CPUSet) float64 {
 	reserved := cra.conf.ReclaimedResourceConfiguration.ReservedResourceForAllocate()[v1.ResourceCPU]
 	return float64(reserved.Value()*int64(numas.Size())) / float64(cra.metaServer.NumNUMANodes)
@@ -230,4 +229,54 @@ func (cra *cpuResourceAdvisor) getRegionReservedForAllocate(regionName string) f
 		res += cra.getNumasReservedForAllocate(machine.NewCPUSet(numaID)) / float64(divider)
 	}
 	return res
+}
+
+func (cra *cpuResourceAdvisor) setRegionEntries() {
+	entries := make(types.RegionEntries)
+
+	for regionName, r := range cra.regionMap {
+		regionInfo := &types.RegionInfo{
+			RegionType:   r.Type(),
+			BindingNumas: r.GetBindingNumas(),
+		}
+		entries[regionName] = regionInfo
+	}
+
+	_ = cra.metaCache.SetRegionEntries(entries)
+}
+
+func (cra *cpuResourceAdvisor) updateRegionProvision() {
+	for regionName, r := range cra.regionMap {
+		regionInfo, ok := cra.metaCache.GetRegionInfo(regionName)
+		if !ok {
+			continue
+		}
+
+		controlKnobMap, err := r.GetProvision()
+		if err != nil {
+			continue
+		}
+		regionInfo.ControlKnobMap = controlKnobMap
+		regionInfo.ProvisionPolicyTopPriority, regionInfo.ProvisionPolicyInUse = r.GetProvisionPolicy()
+
+		_ = cra.metaCache.SetRegionInfo(regionName, regionInfo)
+	}
+}
+
+func (cra *cpuResourceAdvisor) updateRegionHeadroom() {
+	for regionName, r := range cra.regionMap {
+		regionInfo, ok := cra.metaCache.GetRegionInfo(regionName)
+		if !ok {
+			continue
+		}
+
+		headroom, err := r.GetHeadroom()
+		if err != nil {
+			continue
+		}
+		regionInfo.Headroom = headroom
+		regionInfo.HeadroomPolicyTopPriority, regionInfo.HeadroomPolicyInUse = r.GetHeadRoomPolicy()
+
+		_ = cra.metaCache.SetRegionInfo(regionName, regionInfo)
+	}
 }

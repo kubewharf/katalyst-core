@@ -281,7 +281,7 @@ func TestPolicyUtilization_GetHeadroom(t *testing.T) {
 			metaCache, err := metacache.NewMetaCacheImp(conf, metricsFetcher)
 			require.NoError(t, err)
 
-			err = metaCache.UpdateRegionEntries(tt.fields.entries)
+			err = metaCache.SetRegionEntries(tt.fields.entries)
 			require.NoError(t, err)
 			tt.fields.setMetaCache(metaCache)
 

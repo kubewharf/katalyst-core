@@ -256,7 +256,7 @@ func (cs *cpuServer) getCheckpoint() {
 	}
 
 	// clean up the containers not existed in resp.Entries
-	cs.metaCache.RangeAndDeleteContainer(func(containerInfo *types.ContainerInfo) bool {
+	_ = cs.metaCache.RangeAndDeleteContainer(func(containerInfo *types.ContainerInfo) bool {
 		info, ok := resp.Entries[containerInfo.PodUID]
 		if !ok {
 			return true
@@ -268,9 +268,7 @@ func (cs *cpuServer) getCheckpoint() {
 	})
 
 	// GC pool entries
-	if err := cs.metaCache.GCPoolEntries(livingPoolNameSet); err != nil {
-		klog.Errorf("[qosaware-server-cpu] gc pool entries with error: %v", err)
-	}
+	_ = cs.metaCache.GCPoolEntries(livingPoolNameSet)
 
 	// Trigger advisor update
 	cs.sendCh <- struct{}{}

@@ -105,14 +105,14 @@ func NewCPUResourceAdvisor(conf *config.Configuration, extraConf interface{}, me
 		emitter:    emitter,
 	}
 
+	cra.initializeReservedForReclaim()
+
 	if err := cra.initializeProvisionAssembler(); err != nil {
 		klog.Errorf("[qosaware-cpu] initialize provision assembler failed: %v", err)
 	}
 	if err := cra.initializeHeadroomAssembler(); err != nil {
 		klog.Errorf("[qosaware-cpu] initialize headroom assembler failed: %v", err)
 	}
-
-	cra.initializeReservedForReclaim()
 
 	return cra
 }
@@ -162,6 +162,8 @@ func (cra *cpuResourceAdvisor) update() {
 		return
 	}
 
+	cra.updateNumasAvailableResource()
+
 	// assign containers to regions
 	if err := cra.assignContainersToRegions(); err != nil {
 		klog.Errorf("[qosaware-cpu] assign containers to regions failed: %v", err)
@@ -169,8 +171,8 @@ func (cra *cpuResourceAdvisor) update() {
 	}
 
 	cra.gcRegionMap()
+	cra.setRegionEntries()
 	cra.updateAdvisorEssentials()
-	klog.Infof("[qosaware-cpu] region map: %v", general.ToString(cra.regionMap))
 
 	// run an episode of provision and headroom policy update for each region
 	for name, r := range cra.regionMap {
@@ -180,9 +182,15 @@ func (cra *cpuResourceAdvisor) update() {
 			ResourceLowerBound:  cra.getRegionMinRequirement(name),
 			ReservedForAllocate: cra.getRegionReservedForAllocate(name),
 		})
+
 		r.TryUpdateProvision()
+		cra.updateRegionProvision()
+
 		r.TryUpdateHeadroom()
+		cra.updateRegionHeadroom()
 	}
+
+	klog.Infof("[qosaware-cpu] region map: %v", general.ToString(cra.regionMap))
 
 	// skip notifying cpu server during startup
 	if time.Now().Before(cra.startTime.Add(types.StartUpPeriod)) {
@@ -198,14 +206,6 @@ func (cra *cpuResourceAdvisor) update() {
 	}
 	cra.sendCh <- calculationResult
 	klog.Infof("[qosaware-cpu] notify cpu server: %+v", calculationResult)
-
-	// sync region information to metacache
-	regionEntries, err := cra.assembleRegionEntries()
-	if err != nil {
-		klog.Errorf("[qosaware-cpu] assemble region entries failed: %v", err)
-		return
-	}
-	_ = cra.metaCache.UpdateRegionEntries(regionEntries)
 }
 
 // assignContainersToRegions re-construct regions every time (instead of an incremental way),
@@ -242,7 +242,7 @@ func (cra *cpuResourceAdvisor) assignContainersToRegions() error {
 		cra.setContainerRegions(ci, regions)
 
 		// update pool info
-		if ci.OwnerPoolName != state.PoolNameDedicated {
+		if ci.OwnerPoolName == state.PoolNameDedicated {
 			// dedicated pool should not exist in metaCache.poolEntries
 			return true
 		}
@@ -353,35 +353,4 @@ func (cra *cpuResourceAdvisor) assembleProvision() (types.InternalCalculationRes
 	}
 
 	return cra.provisionAssembler.AssembleProvision()
-}
-
-// assembleRegionEntries generates region entries based on region map
-func (cra *cpuResourceAdvisor) assembleRegionEntries() (types.RegionEntries, error) {
-	entries := make(types.RegionEntries)
-
-	for regionName, r := range cra.regionMap {
-		controlKnobMap, err := r.GetProvision()
-		if err != nil {
-			return nil, err
-		}
-
-		regionInfo := &types.RegionInfo{
-			RegionType:     r.Type(),
-			BindingNumas:   r.GetBindingNumas(),
-			ControlKnobMap: controlKnobMap,
-		}
-		regionInfo.HeadroomPolicyTopPriority, regionInfo.HeadroomPolicyInUse = r.GetHeadRoomPolicy()
-		regionInfo.ProvisionPolicyTopPriority, regionInfo.ProvisionPolicyInUse = r.GetProvisionPolicy()
-
-		headroom, err := r.GetHeadroom()
-		if err != nil {
-			klog.Warningf("[qosaware-cpu] get headroom for region %v failed: %v", regionName, err)
-		} else {
-			regionInfo.Headroom = headroom
-		}
-
-		entries[regionName] = regionInfo
-	}
-
-	return entries, nil
 }

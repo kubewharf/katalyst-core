@@ -67,16 +67,16 @@ type QoSRegionBase struct {
 	containerTopologyAwareAssignment types.TopologyAwareAssignment
 
 	// provisionPolicies for comparing and merging different provision policy results,
-	// the former has higher priority; provisionPolicyInUse indicates the provision policy
-	// that is in-use currently
-	provisionPolicies    []*internalProvisionPolicy
-	provisionPolicyInUse *internalProvisionPolicy
+	// the former has higher priority; provisionPolicyNameInUse indicates the provision
+	// policy in-use currently
+	provisionPolicies        []*internalProvisionPolicy
+	provisionPolicyNameInUse types.CPUProvisionPolicyName
 
 	// headroomPolicies for comparing and merging different headroom policy results,
-	// the former has higher priority; headroomPolicyInUse indicates the provision policy
-	// that is in-use currently
-	headroomPolicies    []*internalHeadroomPolicy
-	headroomPolicyInUse *internalHeadroomPolicy
+	// the former has higher priority; headroomPolicyNameInUse indicates the headroom
+	// policy in-use currently
+	headroomPolicies        []*internalHeadroomPolicy
+	headroomPolicyNameInUse types.CPUHeadroomPolicyName
 
 	metaReader metacache.MetaReader
 	metaServer *metaserver.MetaServer
@@ -212,16 +212,18 @@ func (r *QoSRegionBase) GetProvision() (types.ControlKnob, error) {
 	r.Lock()
 	defer r.Unlock()
 
+	r.provisionPolicyNameInUse = types.CPUProvisionPolicyNone
+
 	for _, internal := range r.provisionPolicies {
 		if internal.updateStatus != types.PolicyUpdateSucceeded {
 			continue
 		}
 		controlKnobAdjusted, err := internal.policy.GetControlKnobAdjusted()
 		if err != nil {
-			klog.Errorf("[qosaware-cpu] get control knob adjusted by policy %v failed: %v", internal.name, err)
+			klog.Errorf("[qosaware-cpu] get control knob by policy %v failed: %v", internal.name, err)
 			continue
 		}
-		r.provisionPolicyInUse = internal
+		r.provisionPolicyNameInUse = internal.name
 		return controlKnobAdjusted, nil
 	}
 
@@ -232,16 +234,18 @@ func (r *QoSRegionBase) GetHeadroom() (float64, error) {
 	r.Lock()
 	defer r.Unlock()
 
+	r.headroomPolicyNameInUse = types.CPUHeadroomPolicyNone
+
 	for _, internal := range r.headroomPolicies {
 		if internal.updateStatus != types.PolicyUpdateSucceeded {
 			continue
 		}
 		headroom, err := internal.policy.GetHeadroom()
 		if err != nil {
-			klog.Errorf("[qosaware-cpu] get headroom updated by policy %v failed: %v", internal.name, err)
+			klog.Errorf("[qosaware-cpu] get headroom by policy %v failed: %v", internal.name, err)
 			continue
 		}
-		r.headroomPolicyInUse = internal
+		r.headroomPolicyNameInUse = internal.name
 		return headroom, nil
 	}
 
@@ -256,11 +260,7 @@ func (r *QoSRegionBase) GetProvisionPolicy() (policyTopPriority types.CPUProvisi
 	if len(r.provisionPolicies) > 0 {
 		policyTopPriority = r.provisionPolicies[0].name
 	}
-
-	policyInUse = types.CPUProvisionPolicyNone
-	if r.provisionPolicyInUse != nil {
-		policyInUse = r.provisionPolicyInUse.name
-	}
+	policyInUse = r.provisionPolicyNameInUse
 
 	return
 }
@@ -273,11 +273,7 @@ func (r *QoSRegionBase) GetHeadRoomPolicy() (policyTopPriority types.CPUHeadroom
 	if len(r.headroomPolicies) > 0 {
 		policyTopPriority = r.headroomPolicies[0].name
 	}
-
-	policyInUse = types.CPUHeadroomPolicyNone
-	if r.headroomPolicyInUse != nil {
-		policyInUse = r.headroomPolicyInUse.name
-	}
+	policyInUse = r.headroomPolicyNameInUse
 
 	return
 }

@@ -46,11 +46,14 @@ func NewPolicyCanonical(regionName string, _ *config.Configuration, _ interface{
 	return p
 }
 
-func (p *PolicyCanonical) estimationCPUUsage() (cpuEstimation float64, containerCnt uint, err error) {
+func (p *PolicyCanonical) estimateCPUUsage() (float64, error) {
+	cpuEstimation := 0.0
+	containerCnt := 0
+
 	for podUID, containerSet := range p.podSet {
 		enableReclaim, err := helper.PodEnableReclaim(context.Background(), p.metaServer, podUID, p.EnableReclaim)
 		if err != nil {
-			return 0, 0, err
+			return 0, err
 		}
 
 		for containerName := range containerSet {
@@ -62,7 +65,7 @@ func (p *PolicyCanonical) estimationCPUUsage() (cpuEstimation float64, container
 			// when ramping up, estimation of cpu should be set as cpu request
 			containerEstimation, err := helper.EstimateContainerCPUUsage(ci, p.metaReader, enableReclaim && !ci.RampUp)
 			if err != nil {
-				return 0, 0, err
+				return 0, err
 			}
 
 			// FIXME: metric server doesn't support to report cpu usage in numa granularity,
@@ -80,11 +83,14 @@ func (p *PolicyCanonical) estimationCPUUsage() (cpuEstimation float64, container
 			containerCnt += 1
 		}
 	}
-	return
+
+	klog.Infof("[qosaware-cpu] #container %v", containerCnt)
+
+	return cpuEstimation, nil
 }
 
 func (p *PolicyCanonical) Update() error {
-	cpuEstimation, containerCnt, err := p.estimationCPUUsage()
+	cpuEstimation, err := p.estimateCPUUsage()
 	if err != nil {
 		return err
 	}
@@ -95,7 +101,6 @@ func (p *PolicyCanonical) Update() error {
 	p.regulator.Regulate(cpuEstimation)
 	p.cpuRequirement = p.regulator.GetCPURequirement()
 
-	klog.Infof("[qosaware-cpu-provision] cpu requirement updated: %.2f, #container %v", p.cpuRequirement, containerCnt)
 	return nil
 }
 

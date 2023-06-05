@@ -33,8 +33,8 @@ type ProvisionAssembler interface {
 }
 
 type InitFunc func(conf *config.Configuration, regionMap *map[string]region.QoSRegion,
-	numaAvailable *map[int]int, nonBindingNumas *machine.CPUSet, metaCache metacache.MetaCache,
-	metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter) ProvisionAssembler
+	reservedForReclaim *map[int]int, numaAvailable *map[int]int, nonBindingNumas *machine.CPUSet,
+	metaCache metacache.MetaCache, metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter) ProvisionAssembler
 
 var initializers sync.Map
 

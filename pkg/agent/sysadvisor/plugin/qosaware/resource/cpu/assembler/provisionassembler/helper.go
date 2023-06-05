@@ -32,13 +32,13 @@ func getNumasAvailableResource(numaAvailable map[int]int, numas machine.CPUSet) 
 	return res
 }
 
-// regulatePoolSizes modifies pool size map to legal values, taking total available resource
-// and enable reclaim config into account. should hold any cases and not return error.
+// regulatePoolSizes modifies pool size map to legal values, taking total available
+// resource and config such as enable reclaim into account. should be compatible with
+// any case and not return error.
 func regulatePoolSizes(poolSizes map[string]int, available int, enableReclaim bool) {
-	sum := general.SumUpMapValues(poolSizes)
-	targetSum := sum
+	targetSum := general.SumUpMapValues(poolSizes)
 
-	if !enableReclaim || sum > available {
+	if !enableReclaim || targetSum > available {
 		// use up all available resource for pools in this case
 		targetSum = available
 	}
@@ -57,23 +57,62 @@ func normalizePoolSizes(poolSizes map[string]int, targetSum int) error {
 		return nil
 	}
 
-	sorted := general.TraverseMapByValueDescending(poolSizes)
+	poolSizesNormalized := make(map[string]int)
 	normalizedSum := 0
 
-	for _, v := range sorted {
-		v.Value = int(math.Ceil(float64(v.Value*targetSum) / float64(sum)))
-		normalizedSum += v.Value
+	for k, v := range poolSizes {
+		value := int(math.Ceil(float64(v*targetSum) / float64(sum)))
+		poolSizesNormalized[k] = value
+		normalizedSum += value
 	}
 
-	for i := 0; i < normalizedSum-targetSum; i++ {
-		if sorted[i].Value <= 1 {
+	for {
+		if normalizedSum <= targetSum {
+			break
+		}
+		poolName := selectPoolHelper(poolSizes, poolSizesNormalized)
+		if poolName == "" {
 			return fmt.Errorf("no enough resource")
 		}
-		sorted[i].Value -= 1
+		poolSizesNormalized[poolName] -= 1
+		normalizedSum -= 1
 	}
 
-	for _, v := range sorted {
-		poolSizes[v.Key] = v.Value
+	for k, v := range poolSizesNormalized {
+		poolSizes[k] = v
 	}
 	return nil
+}
+
+func selectPoolHelper(poolSizesOriginal, poolSizesNormalized map[string]int) string {
+	candidates := []string{}
+	rMax := 0.0
+	for k, v := range poolSizesNormalized {
+		if v <= 1 {
+			continue
+		}
+		r := float64(v) / float64(poolSizesOriginal[k])
+		if r > rMax {
+			candidates = []string{k}
+			rMax = r
+		} else if r == rMax {
+			candidates = append(candidates, k)
+		}
+	}
+
+	if len(candidates) <= 0 {
+		return ""
+	} else if len(candidates) == 1 {
+		return candidates[0]
+	}
+
+	selected := ""
+	vMax := 0
+	for _, pool := range candidates {
+		if v := poolSizesNormalized[pool]; v > vMax {
+			selected = pool
+			vMax = v
+		}
+	}
+	return selected
 }

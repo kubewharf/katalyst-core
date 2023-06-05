@@ -75,7 +75,7 @@ func (c *CPURegulator) Regulate(cpuRequirement float64) {
 	cpuRequirementRound := c.round(cpuRequirementSlowdown)
 	cpuRequirementClamp := c.clamp(cpuRequirementRound)
 
-	klog.Infof("[qosaware-cpu] cpu requirement by policy: %.2f, added reserve: %.2f, after slowdown: %.2f, after round: %d, after clamp: %d",
+	klog.Infof("[qosaware-cpu] cpu requirement by policy: %.2f, with reserve: %.2f, after slowdown: %.2f, after round: %d, after clamp: %d",
 		cpuRequirement, cpuRequirementReserved, cpuRequirementSlowdown, cpuRequirementRound, cpuRequirementClamp)
 
 	if cpuRequirementClamp != c.latestCPURequirement {

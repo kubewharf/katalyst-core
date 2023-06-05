@@ -118,7 +118,9 @@ type ContainerInfo struct {
 	OwnerPoolName                    string
 	TopologyAwareAssignments         TopologyAwareAssignment
 	OriginalTopologyAwareAssignments TopologyAwareAssignment
-	RegionNames                      sets.String
+
+	// QoS information updated by advisor
+	RegionNames sets.String
 }
 
 // PoolInfo contains pool information for sysadvisor plugins
@@ -134,13 +136,13 @@ type RegionInfo struct {
 	RegionType   QoSRegionType  `json:"region_type"`
 	BindingNumas machine.CPUSet `json:"binding_numas"`
 
-	HeadroomPolicyTopPriority CPUHeadroomPolicyName `json:"headroom_policy_top_priority"`
-	HeadroomPolicyInUse       CPUHeadroomPolicyName `json:"headroom_policy_in_use"`
-	Headroom                  float64               `json:"headroom"`
-
 	ControlKnobMap             ControlKnob            `json:"control_knob_map"`
 	ProvisionPolicyTopPriority CPUProvisionPolicyName `json:"provision_policy_top_priority"`
 	ProvisionPolicyInUse       CPUProvisionPolicyName `json:"provision_policy_in_use"`
+
+	Headroom                  float64               `json:"headroom"`
+	HeadroomPolicyTopPriority CPUHeadroomPolicyName `json:"headroom_policy_top_priority"`
+	HeadroomPolicyInUse       CPUHeadroomPolicyName `json:"headroom_policy_in_use"`
 }
 
 // ContainerEntries stores container info keyed by container name
