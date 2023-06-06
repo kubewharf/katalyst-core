@@ -35,7 +35,7 @@ func TestLoggingPrefix(t *testing.T) {
 	require.Equal(t, "[testing/tRunner] extra 1 test", withoutStruct)
 
 	withStruct := test{}.log("extra %v %v", 1, "test")
-	require.Equal(t, "[general/TestLoggingPrefix] extra 1 test", withStruct)
+	require.Equal(t, "[katalyst-core/pkg/util/general/TestLoggingPrefix] extra 1 test", withStruct)
 
 	InfoS("test-InfoS", "param-key", "param-InfoS")
 	Infof("test-Infof %v", "extra-Infof")

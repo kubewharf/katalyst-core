@@ -25,6 +25,7 @@ import (
 )
 
 const callDepth = 3
+const pkgPrefix = "github.com/kubewharf/"
 
 // loggingWithDepth returns the logging-prefix for caller.
 // it will help to avoid hardcode function names in logging
@@ -35,12 +36,8 @@ func loggingWithDepth() string {
 		return ""
 	}
 
-	funcPaths := strings.Split(runtime.FuncForPC(pc).Name(), "/")
-	if len(funcPaths) == 0 {
-		return ""
-	}
-
-	funcNames := strings.Split(funcPaths[len(funcPaths)-1], ".")
+	funcPaths := strings.TrimPrefix(runtime.FuncForPC(pc).Name(), pkgPrefix)
+	funcNames := strings.Split(funcPaths, ".")
 	switch len(funcNames) {
 	case 0, 1:
 	case 2:
