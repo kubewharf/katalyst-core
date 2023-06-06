@@ -20,8 +20,6 @@ import (
 	"time"
 
 	"golang.org/x/time/rate"
-
-	"github.com/kubewharf/katalyst-core/pkg/config/dynamic"
 )
 
 type MetaServerConfiguration struct {
@@ -46,7 +44,4 @@ type MetaServerConfiguration struct {
 
 func NewMetaServerConfiguration() *MetaServerConfiguration {
 	return &MetaServerConfiguration{}
-}
-
-func (c *MetaServerConfiguration) ApplyConfiguration(*MetaServerConfiguration, *dynamic.DynamicConfigCRD) {
 }

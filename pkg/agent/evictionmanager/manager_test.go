@@ -30,7 +30,7 @@ import (
 	endpointpkg "github.com/kubewharf/katalyst-core/pkg/agent/evictionmanager/endpoint"
 	"github.com/kubewharf/katalyst-core/pkg/client"
 	"github.com/kubewharf/katalyst-core/pkg/config"
-	evictionconfig "github.com/kubewharf/katalyst-core/pkg/config/agent/eviction"
+	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/eviction"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/pod"
@@ -91,7 +91,7 @@ var (
 func makeConf() *config.Configuration {
 	conf := config.NewConfiguration()
 	conf.EvictionManagerSyncPeriod = evictionManagerSyncPeriod
-	conf.MemoryPressureEvictionPluginConfiguration.DynamicConf.SetGracePeriod(evictionconfig.DefaultGracePeriod)
+	conf.GetDynamicConfiguration().GracePeriod = eviction.DefaultGracePeriod
 
 	return conf
 }

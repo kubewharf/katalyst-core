@@ -29,7 +29,7 @@ import (
 	apiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
 	pluginapi "github.com/kubewharf/katalyst-api/pkg/protocol/evictionplugin/v1alpha1"
 	"github.com/kubewharf/katalyst-core/pkg/config"
-	evictionconfig "github.com/kubewharf/katalyst-core/pkg/config/agent/eviction"
+	evictionconfig "github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/eviction"
 	"github.com/kubewharf/katalyst-core/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
@@ -64,11 +64,11 @@ func TestNewNumaPressureEvictionPlugin(t *testing.T) {
 	assert.NoError(t, err)
 	assert.NotNil(t, plugin)
 
-	assert.Equal(t, numaFreeBelowWatermarkTimesThreshold, plugin.memoryEvictionPluginConfig.DynamicConf.NumaFreeBelowWatermarkTimesThreshold())
-	assert.Equal(t, systemKswapdRateThreshold, plugin.memoryEvictionPluginConfig.DynamicConf.SystemKswapdRateThreshold())
-	assert.Equal(t, systemKswapdRateExceedTimesThreshold, plugin.memoryEvictionPluginConfig.DynamicConf.SystemKswapdRateExceedTimesThreshold())
-	assert.Equal(t, evictionconfig.DefaultNumaEvictionRankingMetrics, plugin.memoryEvictionPluginConfig.DynamicConf.NumaEvictionRankingMetrics())
-	assert.Equal(t, evictionconfig.DefaultSystemEvictionRankingMetrics, plugin.memoryEvictionPluginConfig.DynamicConf.SystemEvictionRankingMetrics())
+	assert.Equal(t, numaFreeBelowWatermarkTimesThreshold, plugin.dynamicConf.GetDynamicConfiguration().NumaFreeBelowWatermarkTimesThreshold)
+	assert.Equal(t, systemKswapdRateThreshold, plugin.dynamicConf.GetDynamicConfiguration().SystemKswapdRateThreshold)
+	assert.Equal(t, systemKswapdRateExceedTimesThreshold, plugin.dynamicConf.GetDynamicConfiguration().SystemKswapdRateExceedTimesThreshold)
+	assert.Equal(t, evictionconfig.DefaultNumaEvictionRankingMetrics, plugin.dynamicConf.GetDynamicConfiguration().NumaEvictionRankingMetrics)
+	assert.Equal(t, evictionconfig.DefaultSystemEvictionRankingMetrics, plugin.dynamicConf.GetDynamicConfiguration().SystemEvictionRankingMetrics)
 }
 
 func TestNumaMemoryPressurePlugin_ThresholdMet(t *testing.T) {

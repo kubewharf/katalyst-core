@@ -16,10 +16,6 @@ limitations under the License.
 
 package qrm
 
-import (
-	"github.com/kubewharf/katalyst-core/pkg/config/dynamic"
-)
-
 type GenericQRMPluginConfiguration struct {
 	StateFileDirectory            string
 	QRMPluginSocketDirs           []string
@@ -38,19 +34,10 @@ func NewGenericQRMPluginConfiguration() *GenericQRMPluginConfiguration {
 	return &GenericQRMPluginConfiguration{}
 }
 
-func (c *GenericQRMPluginConfiguration) ApplyConfiguration(*GenericQRMPluginConfiguration, *dynamic.DynamicConfigCRD) {
-}
-
 func NewQRMPluginsConfiguration() *QRMPluginsConfiguration {
 	return &QRMPluginsConfiguration{
 		CPUQRMPluginConfig:     NewCPUQRMPluginConfig(),
 		MemoryQRMPluginConfig:  NewMemoryQRMPluginConfig(),
 		NetworkQRMPluginConfig: NewNetworkQRMPluginConfig(),
 	}
-}
-
-func (c *QRMPluginsConfiguration) ApplyConfiguration(defaultConf *QRMPluginsConfiguration, conf *dynamic.DynamicConfigCRD) {
-	c.CPUQRMPluginConfig.ApplyConfiguration(defaultConf.CPUQRMPluginConfig, conf)
-	c.MemoryQRMPluginConfig.ApplyConfiguration(defaultConf.MemoryQRMPluginConfig, conf)
-	c.NetworkQRMPluginConfig.ApplyConfiguration(defaultConf.NetworkQRMPluginConfig, conf)
 }

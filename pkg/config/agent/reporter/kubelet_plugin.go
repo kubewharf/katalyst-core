@@ -16,10 +16,6 @@ limitations under the License.
 
 package reporter
 
-import (
-	"github.com/kubewharf/katalyst-core/pkg/config/dynamic"
-)
-
 type KubeletPluginConfiguration struct {
 	PodResourcesServerEndpoints []string
 	KubeletResourcePluginPaths  []string
@@ -27,7 +23,4 @@ type KubeletPluginConfiguration struct {
 
 func NewKubeletPluginConfiguration() *KubeletPluginConfiguration {
 	return &KubeletPluginConfiguration{}
-}
-
-func (c *KubeletPluginConfiguration) ApplyConfiguration(*KubeletPluginConfiguration, *dynamic.DynamicConfigCRD) {
 }

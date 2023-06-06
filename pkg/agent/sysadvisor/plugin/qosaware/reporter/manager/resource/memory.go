@@ -22,7 +22,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/reporter/manager"
 	hmadvisor "github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource"
 	"github.com/kubewharf/katalyst-core/pkg/config"
-	"github.com/kubewharf/katalyst-core/pkg/config/agent/global/adminqos"
+	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/sysadvisor/qosaware/reporter"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
@@ -42,7 +42,7 @@ func NewMemoryHeadroomManager(emitter metrics.MetricEmitter, _ *metaserver.MetaS
 		headroomAdvisor,
 		emitter,
 		generateMemoryWindowOptions(conf.HeadroomReporterConfiguration),
-		generateReclaimedMemoryOptionsFunc(conf.ReclaimedResourceConfiguration),
+		generateReclaimedMemoryOptionsFunc(conf.DynamicAgentConfiguration),
 	)
 
 	cm := &memoryHeadroomManagerImpl{
@@ -60,12 +60,12 @@ func generateMemoryWindowOptions(conf *reporter.HeadroomReporterConfiguration) G
 	}
 }
 
-func generateReclaimedMemoryOptionsFunc(conf *adminqos.ReclaimedResourceConfiguration) GetGenericReclaimOptionsFunc {
+func generateReclaimedMemoryOptionsFunc(conf *dynamic.DynamicAgentConfiguration) GetGenericReclaimOptionsFunc {
 	return func() GenericReclaimOptions {
 		return GenericReclaimOptions{
-			EnableReclaim:                 conf.EnableReclaim(),
-			ReservedResourceForReport:     conf.ReservedResourceForReport()[v1.ResourceMemory],
-			MinReclaimedResourceForReport: conf.MinReclaimedResourceForReport()[v1.ResourceMemory],
+			EnableReclaim:                 conf.GetDynamicConfiguration().EnableReclaim,
+			ReservedResourceForReport:     conf.GetDynamicConfiguration().ReservedResourceForReport[v1.ResourceMemory],
+			MinReclaimedResourceForReport: conf.GetDynamicConfiguration().MinReclaimedResourceForReport[v1.ResourceMemory],
 		}
 	}
 }

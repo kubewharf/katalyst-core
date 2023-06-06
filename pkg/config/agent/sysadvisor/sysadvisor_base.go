@@ -20,7 +20,6 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/sysadvisor/metacache"
 	metricemitter "github.com/kubewharf/katalyst-core/pkg/config/agent/sysadvisor/metric-emitter"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/sysadvisor/qosaware"
-	"github.com/kubewharf/katalyst-core/pkg/config/dynamic"
 )
 
 // GenericSysAdvisorConfiguration stores configurations of generic sysadvisor
@@ -32,10 +31,6 @@ type GenericSysAdvisorConfiguration struct {
 // NewGenericSysAdvisorConfiguration creates a new generic sysadvisor plugin configuration.
 func NewGenericSysAdvisorConfiguration() *GenericSysAdvisorConfiguration {
 	return &GenericSysAdvisorConfiguration{}
-}
-
-// ApplyConfiguration is used to set configuration based on the parameter.
-func (c *GenericSysAdvisorConfiguration) ApplyConfiguration(*GenericSysAdvisorConfiguration, *dynamic.DynamicConfigCRD) {
 }
 
 // SysAdvisorPluginsConfiguration stores configurations of sysadvisor plugins
@@ -52,11 +47,4 @@ func NewSysAdvisorPluginsConfiguration() *SysAdvisorPluginsConfiguration {
 		MetaCachePluginConfiguration:     metacache.NewMetaCachePluginConfiguration(),
 		MetricEmitterPluginConfiguration: metricemitter.NewMetricEmitterPluginConfiguration(),
 	}
-}
-
-// ApplyConfiguration is used to set configuration based on the conf.
-func (c *SysAdvisorPluginsConfiguration) ApplyConfiguration(defaultConf *SysAdvisorPluginsConfiguration, conf *dynamic.DynamicConfigCRD) {
-	c.QoSAwarePluginConfiguration.ApplyConfiguration(defaultConf.QoSAwarePluginConfiguration, conf)
-	c.MetaCachePluginConfiguration.ApplyConfiguration(defaultConf.MetaCachePluginConfiguration, conf)
-	c.MetricEmitterPluginConfiguration.ApplyConfiguration(defaultConf.MetricEmitterPluginConfiguration, conf)
 }

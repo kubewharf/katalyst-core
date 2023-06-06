@@ -16,8 +16,6 @@ limitations under the License.
 
 package headroom
 
-import "github.com/kubewharf/katalyst-core/pkg/config/dynamic"
-
 type MemoryHeadroomPolicyConfiguration struct {
 	MemoryPolicyCanonicalConfiguration *MemoryPolicyCanonicalConfiguration
 }
@@ -26,8 +24,4 @@ func NewMemoryHeadroomPolicyConfiguration() *MemoryHeadroomPolicyConfiguration {
 	return &MemoryHeadroomPolicyConfiguration{
 		MemoryPolicyCanonicalConfiguration: NewMemoryPolicyCanonicalConfiguration(),
 	}
-}
-
-func (c *MemoryHeadroomPolicyConfiguration) ApplyConfiguration(defaultConf *MemoryHeadroomPolicyConfiguration, conf *dynamic.DynamicConfigCRD) {
-	c.MemoryPolicyCanonicalConfiguration.ApplyConfiguration(defaultConf.MemoryPolicyCanonicalConfiguration, conf)
 }

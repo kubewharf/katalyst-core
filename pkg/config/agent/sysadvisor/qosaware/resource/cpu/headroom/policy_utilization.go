@@ -16,8 +16,6 @@ limitations under the License.
 
 package headroom
 
-import "github.com/kubewharf/katalyst-core/pkg/config/dynamic"
-
 type PolicyUtilizationConfiguration struct {
 	ReclaimedCPUTargetCoreUtilization   float64
 	ReclaimedCPUMaxCoreUtilization      float64
@@ -27,7 +25,4 @@ type PolicyUtilizationConfiguration struct {
 
 func NewPolicyUtilizationConfiguration() *PolicyUtilizationConfiguration {
 	return &PolicyUtilizationConfiguration{}
-}
-
-func (c *PolicyUtilizationConfiguration) ApplyConfiguration(*PolicyUtilizationConfiguration, *dynamic.DynamicConfigCRD) {
 }

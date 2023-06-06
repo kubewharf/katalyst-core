@@ -177,7 +177,7 @@ func (cra *cpuResourceAdvisor) update() {
 	// run an episode of provision and headroom policy update for each region
 	for name, r := range cra.regionMap {
 		r.SetEssentials(types.ResourceEssentials{
-			EnableReclaim:       cra.conf.ReclaimedResourceConfiguration.EnableReclaim(),
+			EnableReclaim:       cra.conf.GetDynamicConfiguration().EnableReclaim,
 			ResourceUpperBound:  cra.getRegionMaxRequirement(name),
 			ResourceLowerBound:  cra.getRegionMinRequirement(name),
 			ReservedForAllocate: cra.getRegionReservedForAllocate(name),

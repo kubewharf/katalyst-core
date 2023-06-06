@@ -19,81 +19,22 @@ package eviction
 import (
 	cliflag "k8s.io/component-base/cli/flag"
 
-	evictionconfig "github.com/kubewharf/katalyst-core/pkg/config/agent/eviction"
+	"github.com/kubewharf/katalyst-core/pkg/config/agent/eviction"
 )
 
 // MemoryPressureEvictionPluginOptions is the options of MemoryPressureEvictionPlugin
 type MemoryPressureEvictionPluginOptions struct {
-	EnableNumaLevelDetection             bool
-	EnableSystemLevelDetection           bool
-	NumaFreeBelowWatermarkTimesThreshold int
-	SystemKswapdRateThreshold            int
-	SystemKswapdRateExceedTimesThreshold int
-	NumaEvictionRankingMetrics           []string
-	SystemEvictionRankingMetrics         []string
-	GracePeriod                          int64
-	EnableRSSOveruseDetection            bool
-	RssOveruseRateThreshold              float64
 }
 
 // NewMemoryPressureEvictionPluginOptions returns a new MemoryPressureEvictionPluginOptions
 func NewMemoryPressureEvictionPluginOptions() *MemoryPressureEvictionPluginOptions {
-	return &MemoryPressureEvictionPluginOptions{
-		EnableNumaLevelDetection:             evictionconfig.DefaultEnableNumaLevelDetection,
-		EnableSystemLevelDetection:           evictionconfig.DefaultEnableSystemLevelDetection,
-		NumaFreeBelowWatermarkTimesThreshold: evictionconfig.DefaultNumaFreeBelowWatermarkTimesThreshold,
-		SystemKswapdRateThreshold:            evictionconfig.DefaultSystemKswapdRateThreshold,
-		SystemKswapdRateExceedTimesThreshold: evictionconfig.DefaultSystemKswapdRateExceedTimesThreshold,
-		NumaEvictionRankingMetrics:           evictionconfig.DefaultNumaEvictionRankingMetrics,
-		SystemEvictionRankingMetrics:         evictionconfig.DefaultSystemEvictionRankingMetrics,
-		GracePeriod:                          evictionconfig.DefaultGracePeriod,
-		EnableRSSOveruseDetection:            evictionconfig.DefaultEnableRssOveruseDetection,
-		RssOveruseRateThreshold:              evictionconfig.DefaultRssOveruseRateThreshold,
-	}
+	return &MemoryPressureEvictionPluginOptions{}
 }
 
 // AddFlags parses the flags to MemoryPressureEvictionPluginOptions
-func (o *MemoryPressureEvictionPluginOptions) AddFlags(fss *cliflag.NamedFlagSets) {
-	fs := fss.FlagSet("eviction-memory-pressure")
-
-	fs.BoolVar(&o.EnableNumaLevelDetection, "eviction-enable-numa-level-detection",
-		o.EnableNumaLevelDetection,
-		"whether to enable numa-level detection")
-	fs.BoolVar(&o.EnableSystemLevelDetection, "eviction-enable-system-level-detection",
-		o.EnableSystemLevelDetection,
-		"whether to enable system-level detection")
-	fs.IntVar(&o.NumaFreeBelowWatermarkTimesThreshold, "eviction-numa-free-below-watermark-times-threshold",
-		o.NumaFreeBelowWatermarkTimesThreshold,
-		"the threshold for the number of times NUMA's free memory falls below the watermark")
-	fs.IntVar(&o.SystemKswapdRateThreshold, "eviction-system-kswapd-rate-threshold", o.SystemKswapdRateThreshold,
-		"the threshold for the rate of kswapd reclaiming rate")
-	fs.IntVar(&o.SystemKswapdRateExceedTimesThreshold, "eviction-system-kswapd-rate-exceed-times-threshold",
-		o.SystemKswapdRateExceedTimesThreshold,
-		"the threshold for the number of times the kswapd reclaiming rate exceeds the threshold")
-	fs.StringSliceVar(&o.NumaEvictionRankingMetrics, "eviction-numa-ranking-metrics", o.NumaEvictionRankingMetrics,
-		"the metrics used to rank pods for eviction at the NUMA level")
-	fs.StringSliceVar(&o.SystemEvictionRankingMetrics, "eviction-system-ranking-metrics", o.SystemEvictionRankingMetrics,
-		"the metrics used to rank pods for eviction at the system level")
-	fs.Int64Var(&o.GracePeriod, "eviction-grace-period", o.GracePeriod,
-		"the grace period of memory pressure eviction")
-	fs.BoolVar(&o.EnableRSSOveruseDetection, "eviction-enable-rss-overuse-detection", o.EnableRSSOveruseDetection,
-		"whether to enable pod-level rss overuse detection")
-	fs.Float64Var(&o.RssOveruseRateThreshold, "eviction-rss-overuse-rate-threshold", o.RssOveruseRateThreshold,
-		"the threshold for the rate of rss overuse threshold")
-}
+func (o *MemoryPressureEvictionPluginOptions) AddFlags(_ *cliflag.NamedFlagSets) {}
 
 // ApplyTo applies MemoryPressureEvictionPluginOptions to MemoryPressureEvictionPluginConfiguration
-func (o *MemoryPressureEvictionPluginOptions) ApplyTo(c *evictionconfig.MemoryPressureEvictionPluginConfiguration) error {
-	c.DynamicConf.SetEnableNumaLevelDetection(o.EnableNumaLevelDetection)
-	c.DynamicConf.SetEnableSystemLevelDetection(o.EnableSystemLevelDetection)
-	c.DynamicConf.SetNumaFreeBelowWatermarkTimesThreshold(o.NumaFreeBelowWatermarkTimesThreshold)
-	c.DynamicConf.SetSystemKswapdRateThreshold(o.SystemKswapdRateThreshold)
-	c.DynamicConf.SetSystemKswapdRateExceedTimesThreshold(o.SystemKswapdRateExceedTimesThreshold)
-	c.DynamicConf.SetNumaEvictionRankingMetrics(o.NumaEvictionRankingMetrics)
-	c.DynamicConf.SetSystemEvictionRankingMetrics(o.SystemEvictionRankingMetrics)
-	c.DynamicConf.SetGracePeriod(o.GracePeriod)
-	c.DynamicConf.SetEnableRssOveruseDetection(o.EnableRSSOveruseDetection)
-	c.DynamicConf.SetRssOveruseRateThreshold(o.RssOveruseRateThreshold)
-
+func (o *MemoryPressureEvictionPluginOptions) ApplyTo(_ *eviction.MemoryPressureEvictionPluginConfiguration) error {
 	return nil
 }

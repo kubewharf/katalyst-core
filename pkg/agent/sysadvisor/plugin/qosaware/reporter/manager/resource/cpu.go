@@ -22,7 +22,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/reporter/manager"
 	hmadvisor "github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource"
 	"github.com/kubewharf/katalyst-core/pkg/config"
-	"github.com/kubewharf/katalyst-core/pkg/config/agent/global/adminqos"
+	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/sysadvisor/qosaware/reporter"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
@@ -42,7 +42,7 @@ func NewCPUHeadroomManager(emitter metrics.MetricEmitter, _ *metaserver.MetaServ
 		headroomAdvisor,
 		emitter,
 		generateCPUWindowOptions(conf.HeadroomReporterConfiguration),
-		generateReclaimCPUOptionsFunc(conf.ReclaimedResourceConfiguration),
+		generateReclaimCPUOptionsFunc(conf.DynamicAgentConfiguration),
 	)
 
 	cm := &cpuHeadroomManagerImpl{
@@ -60,12 +60,12 @@ func generateCPUWindowOptions(conf *reporter.HeadroomReporterConfiguration) Gene
 	}
 }
 
-func generateReclaimCPUOptionsFunc(conf *adminqos.ReclaimedResourceConfiguration) GetGenericReclaimOptionsFunc {
+func generateReclaimCPUOptionsFunc(conf *dynamic.DynamicAgentConfiguration) GetGenericReclaimOptionsFunc {
 	return func() GenericReclaimOptions {
 		return GenericReclaimOptions{
-			EnableReclaim:                 conf.EnableReclaim(),
-			ReservedResourceForReport:     conf.ReservedResourceForReport()[v1.ResourceCPU],
-			MinReclaimedResourceForReport: conf.MinReclaimedResourceForReport()[v1.ResourceCPU],
+			EnableReclaim:                 conf.GetDynamicConfiguration().EnableReclaim,
+			ReservedResourceForReport:     conf.GetDynamicConfiguration().ReservedResourceForReport[v1.ResourceCPU],
+			MinReclaimedResourceForReport: conf.GetDynamicConfiguration().MinReclaimedResourceForReport[v1.ResourceCPU],
 		}
 	}
 }

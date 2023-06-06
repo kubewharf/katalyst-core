@@ -16,10 +16,6 @@ limitations under the License.
 
 package qrm
 
-import (
-	"github.com/kubewharf/katalyst-core/pkg/config/dynamic"
-)
-
 type CPUQRMPluginConfig struct {
 	// PolicyName is used to switch between several strategies
 	PolicyName string
@@ -38,5 +34,3 @@ type CPUQRMPluginConfig struct {
 func NewCPUQRMPluginConfig() *CPUQRMPluginConfig {
 	return &CPUQRMPluginConfig{}
 }
-
-func (c *CPUQRMPluginConfig) ApplyConfiguration(*CPUQRMPluginConfig, *dynamic.DynamicConfigCRD) {}

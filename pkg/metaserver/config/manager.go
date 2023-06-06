@@ -37,7 +37,9 @@ import (
 	"github.com/kubewharf/katalyst-api/pkg/apis/config/v1alpha1"
 	"github.com/kubewharf/katalyst-core/pkg/client"
 	pkgconfig "github.com/kubewharf/katalyst-core/pkg/config"
-	"github.com/kubewharf/katalyst-core/pkg/config/dynamic"
+	"github.com/kubewharf/katalyst-core/pkg/config/agent"
+	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic"
+	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/crd"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/cnc"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/native"
@@ -103,12 +105,12 @@ type DynamicConfigManager struct {
 	// defaultConfig is used to store the static configuration parsed from flags
 	// currentConfig merges default conf with dynamic conf (defined in kcc); and
 	// the dynamic conf is used as an incremental way.
-	defaultConfig *pkgconfig.DynamicConfiguration
-	currentConfig *pkgconfig.DynamicConfiguration
+	conf          *agent.AgentConfiguration
+	defaultConfig *dynamic.Configuration
 
 	// lastDynamicConfigCRD is used to record the last dynamic config CRD
 	// to avoid unnecessary update
-	lastDynamicConfigCRD *dynamic.DynamicConfigCRD
+	lastDynamicConfigCRD *crd.DynamicConfigCRD
 
 	configLoader ConfigurationLoader
 	emitter      metrics.MetricEmitter
@@ -134,8 +136,8 @@ func NewDynamicConfigManager(clientSet *client.GenericClientSet, emitter metrics
 	}
 
 	return &DynamicConfigManager{
-		defaultConfig:       deepCopy(conf.DynamicConfiguration),
-		currentConfig:       conf.DynamicConfiguration,
+		conf:                conf.AgentConfiguration,
+		defaultConfig:       deepCopy(conf.GetDynamicConfiguration()),
 		configLoader:        configLoader,
 		emitter:             emitter,
 		resourceGVRMap:      make(map[string]metav1.GroupVersionResource),
@@ -180,7 +182,7 @@ func (c *DynamicConfigManager) InitializeConfig(ctx context.Context) error {
 			return true, nil
 		}
 
-		if c.defaultConfig.ConfigSkipFailedInitialization {
+		if c.conf.ConfigSkipFailedInitialization {
 			klog.Warningf("unable to update dynamic config: %v, fallback to default config", err)
 			return true, nil
 		}
@@ -230,7 +232,9 @@ func (c *DynamicConfigManager) updateConfig(ctx context.Context) error {
 	}
 
 	klog.Infof("dynamic config crd is changed from %v to %v", c.lastDynamicConfigCRD, dynamicConfigCRD)
-	applyDynamicConfig(c.defaultConfig, c.currentConfig, dynamicConfigCRD)
+	currentConfig := deepCopy(c.defaultConfig)
+	applyDynamicConfig(currentConfig, dynamicConfigCRD)
+	c.conf.SetDynamicConfiguration(currentConfig)
 	c.lastDynamicConfigCRD = dynamicConfigCRD
 	return err
 }
@@ -272,8 +276,8 @@ func (c *DynamicConfigManager) readCheckpoint() (ConfigManagerCheckpoint, error)
 
 func (c *DynamicConfigManager) updateDynamicConfig(resourceGVRMap map[string]metav1.GroupVersionResource,
 	gvrToKind map[schema.GroupVersionResource]schema.GroupVersionKind,
-	loader func(gvr metav1.GroupVersionResource, conf interface{}) error) (*dynamic.DynamicConfigCRD, bool, error) {
-	dynamicConfiguration := &dynamic.DynamicConfigCRD{}
+	loader func(gvr metav1.GroupVersionResource, conf interface{}) error) (*crd.DynamicConfigCRD, bool, error) {
+	dynamicConfiguration := &crd.DynamicConfigCRD{}
 	success := false
 
 	var errList []error
@@ -346,11 +350,11 @@ func getGVRToGVKMap() map[schema.GroupVersionResource]schema.GroupVersionKind {
 	return gvrToKind
 }
 
-func applyDynamicConfig(defaultConfig, currentConfig *pkgconfig.DynamicConfiguration,
-	dynamicConfigCRD *dynamic.DynamicConfigCRD) {
-	currentConfig.ApplyConfiguration(defaultConfig, dynamicConfigCRD)
+func applyDynamicConfig(config *dynamic.Configuration,
+	dynamicConfigCRD *crd.DynamicConfigCRD) {
+	config.ApplyConfiguration(dynamicConfigCRD)
 }
 
-func deepCopy(src *pkgconfig.DynamicConfiguration) *pkgconfig.DynamicConfiguration {
-	return syntax.DeepCopy(src).(*pkgconfig.DynamicConfiguration)
+func deepCopy(src *dynamic.Configuration) *dynamic.Configuration {
+	return syntax.DeepCopy(src).(*dynamic.Configuration)
 }

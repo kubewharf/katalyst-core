@@ -552,7 +552,7 @@ func TestAdvisorUpdate(t *testing.T) {
 
 			advisor, metaCache := newTestCPUResourceAdvisor(t, tt.pods, ckDir, sfDir)
 			advisor.startTime = time.Now().Add(-types.StartUpPeriod * 2)
-			advisor.conf.ReclaimedResourceConfiguration.SetEnableReclaim(tt.enableReclaim)
+			advisor.conf.GetDynamicConfiguration().EnableReclaim = tt.enableReclaim
 
 			recvChInterface, sendChInterface := advisor.GetChannels()
 			recvCh := recvChInterface.(chan struct{})

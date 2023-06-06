@@ -21,9 +21,9 @@ import (
 	cliflag "k8s.io/component-base/cli/flag"
 
 	"github.com/kubewharf/katalyst-core/cmd/base/options"
+	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/options/dynamic"
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/options/eviction"
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/options/global"
-	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/options/global/adminqos"
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/options/qrm"
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/options/reporter"
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/options/sysadvisor"
@@ -34,13 +34,13 @@ import (
 type Options struct {
 	// those are options used by all the katalyst components
 	*options.GenericOptions
+	*dynamic.DynamicOptions
 
 	// those are options used by all the katalyst agents
 	*global.BaseOptions
 	*global.PluginManagerOptions
 	*global.MetaServerOptions
 	*global.QRMAdvisorOptions
-	*adminqos.AdminQoSOptions
 
 	// the below are options used by all each individual katalyst module/plugin
 	genericEvictionOptions *eviction.GenericEvictionOptions
@@ -59,13 +59,12 @@ type Options struct {
 // NewOptions creates a new Options with a default config.
 func NewOptions() *Options {
 	return &Options{
-		GenericOptions: options.NewGenericOptions(),
-
+		GenericOptions:       options.NewGenericOptions(),
+		DynamicOptions:       dynamic.NewDynamicOptions(),
 		BaseOptions:          global.NewBaseOptions(),
 		MetaServerOptions:    global.NewMetaServerOptions(),
 		PluginManagerOptions: global.NewPluginManagerOptions(),
 		QRMAdvisorOptions:    global.NewQRMAdvisorOptions(),
-		AdminQoSOptions:      adminqos.NewAdminQoSOptions(),
 
 		genericEvictionOptions:   eviction.NewGenericEvictionOptions(),
 		evictionPluginsOptions:   eviction.NewEvictionPluginsOptions(),
@@ -81,10 +80,10 @@ func NewOptions() *Options {
 // AddFlags adds flags  to the specified FlagSet.
 func (o *Options) AddFlags(fss *cliflag.NamedFlagSets) {
 	o.GenericOptions.AddFlags(fss)
+	o.DynamicOptions.AddFlags(fss)
 	o.MetaServerOptions.AddFlags(fss)
 	o.PluginManagerOptions.AddFlags(fss)
 	o.BaseOptions.AddFlags(fss)
-	o.ReclaimedResourceOptions.AddFlags(fss)
 	o.QRMAdvisorOptions.AddFlags(fss)
 	o.genericEvictionOptions.AddFlags(fss)
 	o.evictionPluginsOptions.AddFlags(fss)
@@ -101,10 +100,10 @@ func (o *Options) ApplyTo(c *config.Configuration) error {
 	var errList []error
 
 	errList = append(errList, o.GenericOptions.ApplyTo(c.GenericConfiguration))
+	errList = append(errList, o.DynamicOptions.ApplyTo(c.GetDynamicConfiguration()))
 	errList = append(errList, o.BaseOptions.ApplyTo(c.BaseConfiguration))
 	errList = append(errList, o.PluginManagerOptions.ApplyTo(c.PluginManagerConfiguration))
 	errList = append(errList, o.MetaServerOptions.ApplyTo(c.MetaServerConfiguration))
-	errList = append(errList, o.AdminQoSOptions.ApplyTo(c.AdminQoSConfiguration))
 	errList = append(errList, o.QRMAdvisorOptions.ApplyTo(c.QRMAdvisorConfiguration))
 	errList = append(errList, o.genericEvictionOptions.ApplyTo(c.GenericEvictionConfiguration))
 	errList = append(errList, o.evictionPluginsOptions.ApplyTo(c.EvictionPluginsConfiguration))

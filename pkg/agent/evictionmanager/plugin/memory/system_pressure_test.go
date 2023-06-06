@@ -29,7 +29,7 @@ import (
 	apiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
 	pluginapi "github.com/kubewharf/katalyst-api/pkg/protocol/evictionplugin/v1alpha1"
 	"github.com/kubewharf/katalyst-core/pkg/config"
-	evictionconfig "github.com/kubewharf/katalyst-core/pkg/config/agent/eviction"
+	evictionconfig "github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/eviction"
 	"github.com/kubewharf/katalyst-core/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent"
@@ -60,14 +60,14 @@ var (
 func makeConf() *config.Configuration {
 	conf := config.NewConfiguration()
 	conf.EvictionManagerSyncPeriod = evictionManagerSyncPeriod
-	conf.MemoryPressureEvictionPluginConfiguration.DynamicConf.SetEnableNumaLevelDetection(evictionconfig.DefaultEnableNumaLevelDetection)
-	conf.MemoryPressureEvictionPluginConfiguration.DynamicConf.SetEnableSystemLevelDetection(evictionconfig.DefaultEnableSystemLevelDetection)
-	conf.MemoryPressureEvictionPluginConfiguration.DynamicConf.SetNumaFreeBelowWatermarkTimesThreshold(numaFreeBelowWatermarkTimesThreshold)
-	conf.MemoryPressureEvictionPluginConfiguration.DynamicConf.SetSystemKswapdRateThreshold(systemKswapdRateThreshold)
-	conf.MemoryPressureEvictionPluginConfiguration.DynamicConf.SetSystemKswapdRateExceedTimesThreshold(systemKswapdRateExceedTimesThreshold)
-	conf.MemoryPressureEvictionPluginConfiguration.DynamicConf.SetNumaEvictionRankingMetrics(evictionconfig.DefaultNumaEvictionRankingMetrics)
-	conf.MemoryPressureEvictionPluginConfiguration.DynamicConf.SetSystemEvictionRankingMetrics(evictionconfig.DefaultSystemEvictionRankingMetrics)
-	conf.MemoryPressureEvictionPluginConfiguration.DynamicConf.SetGracePeriod(evictionconfig.DefaultGracePeriod)
+	conf.GetDynamicConfiguration().EnableNumaLevelDetection = evictionconfig.DefaultEnableNumaLevelDetection
+	conf.GetDynamicConfiguration().EnableSystemLevelDetection = evictionconfig.DefaultEnableSystemLevelDetection
+	conf.GetDynamicConfiguration().NumaFreeBelowWatermarkTimesThreshold = numaFreeBelowWatermarkTimesThreshold
+	conf.GetDynamicConfiguration().SystemKswapdRateThreshold = systemKswapdRateThreshold
+	conf.GetDynamicConfiguration().SystemKswapdRateExceedTimesThreshold = systemKswapdRateExceedTimesThreshold
+	conf.GetDynamicConfiguration().NumaEvictionRankingMetrics = evictionconfig.DefaultNumaEvictionRankingMetrics
+	conf.GetDynamicConfiguration().SystemEvictionRankingMetrics = evictionconfig.DefaultSystemEvictionRankingMetrics
+	conf.GetDynamicConfiguration().GracePeriod = evictionconfig.DefaultGracePeriod
 
 	return conf
 }
@@ -97,11 +97,11 @@ func TestNewSystemPressureEvictionPlugin(t *testing.T) {
 	assert.NotNil(t, plugin)
 
 	assert.Equal(t, evictionManagerSyncPeriod, plugin.evictionManagerSyncPeriod)
-	assert.Equal(t, numaFreeBelowWatermarkTimesThreshold, plugin.memoryEvictionPluginConfig.DynamicConf.NumaFreeBelowWatermarkTimesThreshold())
-	assert.Equal(t, systemKswapdRateThreshold, plugin.memoryEvictionPluginConfig.DynamicConf.SystemKswapdRateThreshold())
-	assert.Equal(t, systemKswapdRateExceedTimesThreshold, plugin.memoryEvictionPluginConfig.DynamicConf.SystemKswapdRateExceedTimesThreshold())
-	assert.Equal(t, evictionconfig.DefaultNumaEvictionRankingMetrics, plugin.memoryEvictionPluginConfig.DynamicConf.NumaEvictionRankingMetrics())
-	assert.Equal(t, evictionconfig.DefaultSystemEvictionRankingMetrics, plugin.memoryEvictionPluginConfig.DynamicConf.SystemEvictionRankingMetrics())
+	assert.Equal(t, numaFreeBelowWatermarkTimesThreshold, plugin.dynamicConf.GetDynamicConfiguration().NumaFreeBelowWatermarkTimesThreshold)
+	assert.Equal(t, systemKswapdRateThreshold, plugin.dynamicConf.GetDynamicConfiguration().SystemKswapdRateThreshold)
+	assert.Equal(t, systemKswapdRateExceedTimesThreshold, plugin.dynamicConf.GetDynamicConfiguration().SystemKswapdRateExceedTimesThreshold)
+	assert.Equal(t, evictionconfig.DefaultNumaEvictionRankingMetrics, plugin.dynamicConf.GetDynamicConfiguration().NumaEvictionRankingMetrics)
+	assert.Equal(t, evictionconfig.DefaultSystemEvictionRankingMetrics, plugin.dynamicConf.GetDynamicConfiguration().SystemEvictionRankingMetrics)
 }
 
 func TestSystemPressureEvictionPlugin_ThresholdMet(t *testing.T) {

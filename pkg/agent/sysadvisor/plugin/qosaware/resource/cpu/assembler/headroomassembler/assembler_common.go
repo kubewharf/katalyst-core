@@ -46,7 +46,7 @@ func NewHeadroomAssemblerCommon(conf *config.Configuration, _ *map[string]region
 }
 
 func (ha *HeadroomAssemblerCommon) GetHeadroom() (resource.Quantity, error) {
-	enableReclaim := ha.conf.ReclaimedResourceConfiguration.EnableReclaim()
+	enableReclaim := ha.conf.GetDynamicConfiguration().EnableReclaim
 
 	// return zero when reclaim is disabled
 	if !enableReclaim {

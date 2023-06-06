@@ -70,7 +70,7 @@ func tmpSocketDir() (socketDir string, err error) {
 
 func generateTestConfiguration(dir string) *katalystconfig.Configuration {
 	return &katalystconfig.Configuration{
-		DynamicConfiguration: &katalystconfig.DynamicConfiguration{
+		AgentConfiguration: &agent.AgentConfiguration{
 			GenericAgentConfiguration: &agent.GenericAgentConfiguration{
 				MetaServerConfiguration: &global.MetaServerConfiguration{CheckpointManagerDir: dir},
 				GenericReporterConfiguration: &reporterconfig.GenericReporterConfiguration{

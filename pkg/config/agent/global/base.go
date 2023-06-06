@@ -16,8 +16,6 @@ limitations under the License.
 
 package global
 
-import "github.com/kubewharf/katalyst-core/pkg/config/dynamic"
-
 type BaseConfiguration struct {
 	// Agents is the list of agent components to enable or disable
 	// '*' means "all enabled by default agents"
@@ -46,7 +44,4 @@ func NewBaseConfiguration() *BaseConfiguration {
 	return &BaseConfiguration{
 		MachineInfoConfiguration: &MachineInfoConfiguration{},
 	}
-}
-
-func (c *BaseConfiguration) ApplyConfiguration(*BaseConfiguration, *dynamic.DynamicConfigCRD) {
 }

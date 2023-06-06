@@ -53,8 +53,7 @@ func NewReclaimedResourcesEvictionPlugin(_ *client.GenericClientSet, _ events.Ev
 	}
 
 	reclaimedThresholdGetter := func(resourceName v1.ResourceName) float64 {
-		if threshold, ok := conf.ReclaimedResourcesEvictionPluginConfiguration.DynamicConf.
-			EvictionThreshold()[resourceName]; !ok {
+		if threshold, ok := conf.GetDynamicConfiguration().EvictionThreshold[resourceName]; !ok {
 			return 1.
 		} else {
 			return threshold

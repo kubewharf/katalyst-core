@@ -88,7 +88,7 @@ func (pa *ProvisionAssemblerCommon) AssembleProvision() (types.InternalCalculati
 	}
 
 	// regulate share pool sizes
-	enableReclaim := pa.conf.ReclaimedResourceConfiguration.EnableReclaim()
+	enableReclaim := pa.conf.GetDynamicConfiguration().EnableReclaim
 	sharePoolAvailable := getNumasAvailableResource(*pa.numaAvailable, *pa.nonBindingNumas)
 	regulatePoolSizes(sharePoolSizes, sharePoolAvailable, enableReclaim)
 

@@ -86,7 +86,7 @@ func generateTestConfiguration(t *testing.T, checkpointDir, stateFileDir string)
 
 	conf.GenericSysAdvisorConfiguration.StateFileDirectory = stateFileDir
 	conf.MetaServerConfiguration.CheckpointManagerDir = checkpointDir
-	conf.ReclaimedResourceConfiguration.ReservedResourceForAllocate()[v1.ResourceMemory] = resource.MustParse(fmt.Sprintf("%d", 4<<30))
+	conf.GetDynamicConfiguration().ReservedResourceForAllocate[v1.ResourceMemory] = resource.MustParse(fmt.Sprintf("%d", 4<<30))
 
 	return conf
 }
@@ -260,7 +260,7 @@ func TestUpdate(t *testing.T) {
 
 			advisor, metaCache := newTestMemoryAdvisor(t, tt.pods, ckDir, sfDir)
 			advisor.startTime = time.Now().Add(-startUpPeriod * 2)
-			advisor.conf.ReclaimedResourceConfiguration.SetEnableReclaim(tt.reclaimedEnable)
+			advisor.conf.GetDynamicConfiguration().EnableReclaim = tt.reclaimedEnable
 			_, _ = advisor.GetChannels()
 
 			for poolName, poolInfo := range tt.pools {
