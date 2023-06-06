@@ -67,6 +67,7 @@ func (r *QoSRegionDedicatedNumaExclusive) TryUpdateProvision() {
 		// set essentials for policy and regulator
 		internal.policy.SetPodSet(r.podSet)
 		internal.policy.SetEssentials(r.buildProvisionEssentials(types.MinDedicatedCPURequirement))
+		internal.policy.SetBindingNumas(r.bindingNumas)
 
 		// try set initial cpu requirement to restore calculator after metaCache has been initialized
 		internal.initDoOnce.Do(func() {
