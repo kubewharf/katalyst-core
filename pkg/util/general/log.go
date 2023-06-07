@@ -24,33 +24,48 @@ import (
 	"k8s.io/klog/v2"
 )
 
+type LoggingPKG int
+
 const callDepth = 3
-const pkgPrefix = "github.com/kubewharf/"
+
+const (
+	LoggingPKGNone LoggingPKG = iota
+	LoggingPKGShort
+	LoggingPKGFull
+)
 
 // loggingWithDepth returns the logging-prefix for caller.
 // it will help to avoid hardcode function names in logging
 // message especially for cases that function names are changed.
-func loggingWithDepth() string {
+func loggingWithDepth(pkg LoggingPKG) string {
 	pc, _, _, ok := runtime.Caller(callDepth)
 	if !ok {
 		return ""
 	}
 
-	funcPaths := strings.TrimPrefix(runtime.FuncForPC(pc).Name(), pkgPrefix)
-	funcNames := strings.Split(funcPaths, ".")
-	switch len(funcNames) {
-	case 0, 1:
-	case 2:
-		return fmt.Sprintf("[%v/%v]", funcNames[0], funcNames[1])
-	default:
-		return fmt.Sprintf("[%v/%v.%v]", funcNames[0], funcNames[1], funcNames[2])
+	callPath := runtime.FuncForPC(pc).Name()
+	callerNames := strings.Split(callPath, "/")
+	if len(callerNames) == 0 {
+		return ""
 	}
 
+	switch pkg {
+	case LoggingPKGNone:
+		funcNames := strings.Split(callerNames[len(callerNames)-1], ".")
+		if len(funcNames) == 0 {
+			return ""
+		}
+		return funcNames[len(funcNames)-1]
+	case LoggingPKGShort:
+		return callerNames[len(callerNames)-1]
+	case LoggingPKGFull:
+		return callPath
+	}
 	return ""
 }
 
 func logging(message string, params ...interface{}) string {
-	return loggingWithDepth() + " " + fmt.Sprintf(message, params...)
+	return "[" + loggingWithDepth(LoggingPKGShort) + "] " + fmt.Sprintf(message, params...)
 }
 
 func InfoS(message string, params ...interface{}) {
@@ -79,4 +94,48 @@ func ErrorS(err error, message string, params ...interface{}) {
 
 func Fatalf(message string, params ...interface{}) {
 	klog.FatalfDepth(1, logging(message, params...))
+}
+
+type Logger struct {
+	pkg    LoggingPKG
+	prefix string
+}
+
+func LoggerWithPrefix(prefix string, pkg LoggingPKG) Logger {
+	if len(prefix) > 0 {
+		prefix = fmt.Sprintf("%v: ", prefix)
+	}
+	return Logger{pkg: pkg, prefix: prefix}
+}
+
+func (l Logger) logging(message string, params ...interface{}) string {
+	return "[" + l.prefix + loggingWithDepth(l.pkg) + "] " + fmt.Sprintf(message, params...)
+}
+
+func (l Logger) InfoS(message string, params ...interface{}) {
+	klog.InfoSDepth(1, l.logging(message), params...)
+}
+
+func (l Logger) Infof(message string, params ...interface{}) {
+	klog.InfofDepth(1, l.logging(message, params...))
+}
+
+func (l Logger) InfofV(level int, message string, params ...interface{}) {
+	klog.V(klog.Level(level)).InfofDepth(1, l.logging(message, params...))
+}
+
+func (l Logger) Warningf(message string, params ...interface{}) {
+	klog.WarningfDepth(1, l.logging(message, params...))
+}
+
+func (l Logger) Errorf(message string, params ...interface{}) {
+	klog.ErrorfDepth(1, l.logging(message, params...))
+}
+
+func (l Logger) ErrorS(err error, message string, params ...interface{}) {
+	klog.ErrorSDepth(1, err, l.logging(message), params...)
+}
+
+func (l Logger) Fatalf(message string, params ...interface{}) {
+	klog.FatalfDepth(1, l.logging(message, params...))
 }

@@ -24,18 +24,44 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-type test struct{}
+type testLogging struct{}
 
-func (_ test) log(message string, params ...interface{}) string {
+func (_ testLogging) log(message string, params ...interface{}) string {
 	return logging(message, params...)
 }
 
-func TestLoggingPrefix(t *testing.T) {
-	withoutStruct := logging("extra %v %v", 1, "test")
-	require.Equal(t, "[testing/tRunner] extra 1 test", withoutStruct)
+type testLogger struct {
+	klog Logger // klog for katalyst-log
+}
 
-	withStruct := test{}.log("extra %v %v", 1, "test")
-	require.Equal(t, "[katalyst-core/pkg/util/general/TestLoggingPrefix] extra 1 test", withStruct)
+func (t testLogger) log(message string, params ...interface{}) string {
+	return t.klog.logging(message, params...)
+}
+
+func TestLogging(t *testing.T) {
+	loggingWithoutStruct := logging("extra %v %v", 1, "test")
+	require.Equal(t, "[testing.tRunner] extra 1 test", loggingWithoutStruct)
+
+	loggingWithStruct := testLogging{}.log("extra %v %v", 1, "test")
+	require.Equal(t, "[general.TestLogging] extra 1 test", loggingWithStruct)
+
+	loggerWithoutStruct := LoggerWithPrefix("p-test", LoggingPKGNone).logging("extra %v %v", 1, "test")
+	require.Equal(t, "[p-test: tRunner] extra 1 test", loggerWithoutStruct)
+
+	loggerWithoutStruct = LoggerWithPrefix("p-test", LoggingPKGShort).logging("extra %v %v", 1, "test")
+	require.Equal(t, "[p-test: testing.tRunner] extra 1 test", loggerWithoutStruct)
+
+	loggerWithoutStruct = LoggerWithPrefix("p-test", LoggingPKGFull).logging("extra %v %v", 1, "test")
+	require.Equal(t, "[p-test: testing.tRunner] extra 1 test", loggerWithoutStruct)
+
+	loggerWithStruct := testLogger{klog: LoggerWithPrefix("p-test", LoggingPKGNone)}.log("extra %v %v", 1, "test")
+	require.Equal(t, "[p-test: TestLogging] extra 1 test", loggerWithStruct)
+
+	loggerWithStruct = testLogger{klog: LoggerWithPrefix("p-test", LoggingPKGShort)}.log("extra %v %v", 1, "test")
+	require.Equal(t, "[p-test: general.TestLogging] extra 1 test", loggerWithStruct)
+
+	loggerWithStruct = testLogger{klog: LoggerWithPrefix("p-test", LoggingPKGFull)}.log("extra %v %v", 1, "test")
+	require.Equal(t, "[p-test: github.com/kubewharf/katalyst-core/pkg/util/general.TestLogging] extra 1 test", loggerWithStruct)
 
 	InfoS("test-InfoS", "param-key", "param-InfoS")
 	Infof("test-Infof %v", "extra-Infof")
@@ -46,12 +72,12 @@ func TestLoggingPrefix(t *testing.T) {
 
 	go func() {
 		goStr := logging("extra %v %v", 1, "test")
-		require.Equal(t, "[runtime/goexit] extra 1 test", goStr)
+		require.Equal(t, "[runtime.goexit] extra 1 test", goStr)
 	}()
 
 	f := func() {
 		funcStr := logging("extra %v %v", 1, "test")
-		require.Equal(t, "[runtime/goexit] extra 1 test", funcStr)
+		require.Equal(t, "[runtime.goexit] extra 1 test", funcStr)
 	}
 	go f()
 

@@ -28,6 +28,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
 	"github.com/kubewharf/katalyst-core/pkg/config"
+	"github.com/kubewharf/katalyst-core/pkg/util/general"
 )
 
 func generateMachineConfig(t *testing.T) *config.Configuration {
@@ -74,7 +75,12 @@ func TestContainer(t *testing.T) {
 }
 
 func TestPool(t *testing.T) {
+	general.Infof("ready to start %v", "test pool")
+
 	metaCache := newTestMetaCache(t)
+
+	log := general.LoggerWithPrefix("advisor", general.LoggingPKGFull)
+	log.Infof("started %v", "test pool")
 
 	err := metaCache.SetPoolInfo("pool-0", &types.PoolInfo{})
 	assert.Nil(t, err)
