@@ -32,7 +32,6 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/cpuadvisor"
 	qrmstate "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
-	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource/cpu"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
@@ -62,7 +61,7 @@ type cpuServer struct {
 	period               time.Duration
 	cpuAdvisorSocketPath string
 	cpuPluginSocketPath  string
-	recvCh               chan cpu.InternalCalculationResult
+	recvCh               chan types.InternalCalculationResult
 	sendCh               chan struct{}
 	lwCalledChan         chan struct{}
 	stopCh               chan struct{}
@@ -76,7 +75,7 @@ type cpuServer struct {
 	cpuadvisor.UnimplementedCPUAdvisorServer
 }
 
-func NewCPUServer(recvCh chan cpu.InternalCalculationResult, sendCh chan struct{}, conf *config.Configuration,
+func NewCPUServer(recvCh chan types.InternalCalculationResult, sendCh chan struct{}, conf *config.Configuration,
 	metaCache metacache.MetaCache, emitter metrics.MetricEmitter) (*cpuServer, error) {
 	return &cpuServer{
 		name:                 cpuServerName,
@@ -257,7 +256,7 @@ func (cs *cpuServer) getCheckpoint() {
 	}
 
 	// clean up the containers not existed in resp.Entries
-	cs.metaCache.RangeAndDeleteContainer(func(containerInfo *types.ContainerInfo) bool {
+	_ = cs.metaCache.RangeAndDeleteContainer(func(containerInfo *types.ContainerInfo) bool {
 		info, ok := resp.Entries[containerInfo.PodUID]
 		if !ok {
 			return true
@@ -269,9 +268,7 @@ func (cs *cpuServer) getCheckpoint() {
 	})
 
 	// GC pool entries
-	if err := cs.metaCache.GCPoolEntries(livingPoolNameSet); err != nil {
-		klog.Errorf("[qosaware-server-cpu] gc pool entries with error: %v", err)
-	}
+	_ = cs.metaCache.GCPoolEntries(livingPoolNameSet)
 
 	// Trigger advisor update
 	cs.sendCh <- struct{}{}
@@ -428,11 +425,11 @@ func (cs *cpuServer) updateContainerInfo(podUID string, containerName string, in
 
 // assemblePoolEntries fills up calculationEntriesMap and blockSet based on cpu.InternalCalculationResult
 // - for each [pool, numa] set, there exists a new Block (and corresponding internalBlock)
-func (cs *cpuServer) assemblePoolEntries(advisorResp *cpu.InternalCalculationResult, calculationEntriesMap map[string]*cpuadvisor.CalculationEntries, bs blockSet) {
+func (cs *cpuServer) assemblePoolEntries(advisorResp *types.InternalCalculationResult, calculationEntriesMap map[string]*cpuadvisor.CalculationEntries, bs blockSet) {
 	for poolName, entries := range advisorResp.PoolEntries {
 		poolEntry := NewPoolCalculationEntries(poolName)
 		for numaID, size := range entries {
-			block := NewBlock(uint64(size.Value()), "")
+			block := NewBlock(uint64(size), "")
 			numaCalculationResult := &cpuadvisor.NumaCalculationResult{Blocks: []*cpuadvisor.Block{block}}
 
 			innerBlock := NewInnerBlock(block, int64(numaID), poolName, nil, numaCalculationResult)

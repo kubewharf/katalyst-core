@@ -119,7 +119,6 @@ func TestPolicyUtilization_GetHeadroom(t *testing.T) {
 				},
 				essentials: types.ResourceEssentials{
 					EnableReclaim: true,
-					Total:         96,
 				},
 				setFakeMetric: func(store *utilmetric.MetricStore) {
 					for i := 0; i < 10; i++ {
@@ -162,7 +161,6 @@ func TestPolicyUtilization_GetHeadroom(t *testing.T) {
 				},
 				essentials: types.ResourceEssentials{
 					EnableReclaim: true,
-					Total:         96,
 				},
 				setFakeMetric: func(store *utilmetric.MetricStore) {
 					for i := 0; i < 10; i++ {
@@ -205,7 +203,6 @@ func TestPolicyUtilization_GetHeadroom(t *testing.T) {
 				},
 				essentials: types.ResourceEssentials{
 					EnableReclaim: true,
-					Total:         96,
 				},
 				setFakeMetric: func(store *utilmetric.MetricStore) {
 					for i := 0; i < 96; i++ {
@@ -249,7 +246,6 @@ func TestPolicyUtilization_GetHeadroom(t *testing.T) {
 				},
 				essentials: types.ResourceEssentials{
 					EnableReclaim: true,
-					Total:         96,
 				},
 				setFakeMetric: func(store *utilmetric.MetricStore) {
 					for i := 0; i < 96; i++ {
@@ -285,7 +281,7 @@ func TestPolicyUtilization_GetHeadroom(t *testing.T) {
 			metaCache, err := metacache.NewMetaCacheImp(conf, metricsFetcher)
 			require.NoError(t, err)
 
-			err = metaCache.UpdateRegionEntries(tt.fields.entries)
+			err = metaCache.SetRegionEntries(tt.fields.entries)
 			require.NoError(t, err)
 			tt.fields.setMetaCache(metaCache)
 

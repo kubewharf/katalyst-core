@@ -96,5 +96,5 @@ func (mcp *MetaCachePlugin) periodicWork(ctx context.Context) {
 		}
 		return true
 	}
-	mcp.rawMetaWriter.RangeAndUpdateContainer(f)
+	_ = mcp.rawMetaWriter.RangeAndUpdateContainer(f)
 }

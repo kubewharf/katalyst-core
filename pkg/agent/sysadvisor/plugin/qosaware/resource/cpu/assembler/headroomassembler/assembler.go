@@ -14,44 +14,38 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package headroompolicy
+package headroomassembler
 
 import (
 	"sync"
 
+	"k8s.io/apimachinery/pkg/api/resource"
+
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
+	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource/cpu/region"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 )
 
-// HeadroomPolicy generates resource headroom estimation based on configured algorithm
-type HeadroomPolicy interface {
-	// SetPodSet overwrites policy's pod/container record
-	SetPodSet(types.PodSet)
-	// SetEssentials updates essential values for policy update
-	SetEssentials(essentials types.ResourceEssentials)
-
-	// Update triggers an episode of headroom update
-	Update() error
-	// GetHeadroom returns the latest legal headroom estimation
-	GetHeadroom() (float64, error)
+type HeadroomAssembler interface {
+	GetHeadroom() (resource.Quantity, error)
 }
 
-type InitFunc func(regionName string, conf *config.Configuration, extraConfig interface{}, metaReader metacache.MetaReader,
-	metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter) HeadroomPolicy
+type InitFunc func(conf *config.Configuration, regionMap *map[string]region.QoSRegion,
+	metaCache metacache.MetaCache, metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter) HeadroomAssembler
 
 var initializers sync.Map
 
-func RegisterInitializer(name types.CPUHeadroomPolicyName, initFunc InitFunc) {
+func RegisterInitializer(name types.CPUHeadroomAssemblerName, initFunc InitFunc) {
 	initializers.Store(name, initFunc)
 }
 
-func GetRegisteredInitializers() map[types.CPUHeadroomPolicyName]InitFunc {
-	res := make(map[types.CPUHeadroomPolicyName]InitFunc)
+func GetRegisteredInitializers() map[types.CPUHeadroomAssemblerName]InitFunc {
+	res := make(map[types.CPUHeadroomAssemblerName]InitFunc)
 	initializers.Range(func(key, value interface{}) bool {
-		res[key.(types.CPUHeadroomPolicyName)] = value.(InitFunc)
+		res[key.(types.CPUHeadroomAssemblerName)] = value.(InitFunc)
 		return true
 	})
 	return res

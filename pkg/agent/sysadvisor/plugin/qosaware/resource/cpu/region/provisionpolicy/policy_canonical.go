@@ -18,6 +18,8 @@ package provisionpolicy
 
 import (
 	"context"
+	"fmt"
+	"math"
 
 	"k8s.io/klog/v2"
 
@@ -44,11 +46,14 @@ func NewPolicyCanonical(regionName string, _ *config.Configuration, _ interface{
 	return p
 }
 
-func (p *PolicyCanonical) estimationCPUUsage() (cpuEstimation float64, containerCnt uint, err error) {
+func (p *PolicyCanonical) estimateCPUUsage() (float64, error) {
+	cpuEstimation := 0.0
+	containerCnt := 0
+
 	for podUID, containerSet := range p.podSet {
-		enableReclaim, err := helper.PodEnableReclaim(context.Background(), p.metaServer, podUID, p.essentials.EnableReclaim)
+		enableReclaim, err := helper.PodEnableReclaim(context.Background(), p.metaServer, podUID, p.EnableReclaim)
 		if err != nil {
-			return 0, 0, err
+			return 0, err
 		}
 
 		for containerName := range containerSet {
@@ -60,11 +65,11 @@ func (p *PolicyCanonical) estimationCPUUsage() (cpuEstimation float64, container
 			// when ramping up, estimation of cpu should be set as cpu request
 			containerEstimation, err := helper.EstimateContainerCPUUsage(ci, p.metaReader, enableReclaim && !ci.RampUp)
 			if err != nil {
-				return 0, 0, err
+				return 0, err
 			}
 
 			// FIXME: metric server doesn't support to report cpu usage in numa granularity,
-			//  so we split cpu usage evenly across the binding numas of container.
+			// so we split cpu usage evenly across the binding numas of container.
 			if p.bindingNumas.Size() > 0 {
 				cpuSize := 0
 				for _, numaID := range p.bindingNumas.ToSliceInt() {
@@ -78,30 +83,53 @@ func (p *PolicyCanonical) estimationCPUUsage() (cpuEstimation float64, container
 			containerCnt += 1
 		}
 	}
-	return
+
+	klog.Infof("[qosaware-cpu] #container %v", containerCnt)
+
+	return cpuEstimation, nil
 }
 
 func (p *PolicyCanonical) Update() error {
-	cpuEstimation, containerCnt, err := p.estimationCPUUsage()
+	cpuEstimation, err := p.estimateCPUUsage()
 	if err != nil {
 		return err
 	}
 
 	// we need to call SetLatestCPURequirement to ensure the previous requirements are passed to
 	// regulator in case that sysadvisor restarts, to avoid the slow-start always begin with zero.
-	p.regulator.SetLatestCPURequirement(p.requirement)
+	p.regulator.SetLatestCPURequirement(p.cpuRequirement)
 	p.regulator.Regulate(cpuEstimation)
-	p.requirement = p.regulator.GetCPURequirement()
+	p.cpuRequirement = p.regulator.GetCPURequirement()
 
-	klog.Infof("[qosaware-cpu-provision] cpu requirement estimation: %.2f, requirement: %v #container %v", cpuEstimation, p.requirement, containerCnt)
 	return nil
 }
 
 func (p *PolicyCanonical) GetControlKnobAdjusted() (types.ControlKnob, error) {
-	return map[types.ControlKnobName]types.ControlKnobValue{
-		types.ControlKnobNonReclaimedCPUSetSize: {
-			Value:  float64(p.requirement),
-			Action: types.ControlKnobActionNone,
-		},
-	}, nil
+	regionInfo, ok := p.metaReader.GetRegionInfo(p.regionName)
+	if !ok || regionInfo == nil {
+		return nil, fmt.Errorf("illegal region info")
+	}
+
+	switch regionInfo.RegionType {
+	case types.QoSRegionTypeShare:
+		return map[types.ControlKnobName]types.ControlKnobValue{
+			types.ControlKnobNonReclaimedCPUSetSize: {
+				Value:  float64(p.cpuRequirement),
+				Action: types.ControlKnobActionNone,
+			},
+		}, nil
+
+	case types.QoSRegionTypeDedicatedNumaExclusive:
+		// Do conversion because canonical policy calculates resource estimation according to
+		// non reclaim workloads and is ignorant of reclaimed cpu supplied
+		return types.ControlKnob{
+			types.ControlKnobReclaimedCPUSupplied: types.ControlKnobValue{
+				Value:  math.Max(p.ResourceUpperBound-float64(p.cpuRequirement), 0),
+				Action: types.ControlKnobActionNone,
+			},
+		}, nil
+
+	default:
+		return nil, fmt.Errorf("unsupported region type %v", regionInfo.RegionType)
+	}
 }

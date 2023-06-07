@@ -105,7 +105,7 @@ func (p *PolicyCanonical) Update() (err error) {
 		memoryBuffer              float64
 	)
 
-	maxAllocatableMemory := float64(p.essentials.Total - p.essentials.ReservedForAllocate)
+	maxAllocatableMemory := p.essentials.ResourceUpperBound - p.essentials.ReservedForAllocate
 	memoryEstimateRequirement, err = p.estimateNonReclaimedQoSMemoryRequirement()
 	if err != nil {
 		return err

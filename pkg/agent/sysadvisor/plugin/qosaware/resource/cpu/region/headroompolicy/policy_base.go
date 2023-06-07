@@ -24,11 +24,11 @@ import (
 )
 
 type PolicyBase struct {
-	regionName string
+	types.ResourceEssentials
 
+	regionName string
 	headroom   float64
 	podSet     types.PodSet
-	essentials types.ResourceEssentials
 
 	metaReader metacache.MetaReader
 	metaServer *metaserver.MetaServer
@@ -53,5 +53,5 @@ func (p *PolicyBase) SetPodSet(podSet types.PodSet) {
 }
 
 func (p *PolicyBase) SetEssentials(essentials types.ResourceEssentials) {
-	p.essentials = essentials
+	p.ResourceEssentials = essentials
 }

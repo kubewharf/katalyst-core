@@ -21,6 +21,7 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
+	"math"
 	"sort"
 	"strconv"
 	"strings"
@@ -303,4 +304,10 @@ func TraverseMapByValueDescending(m map[string]int) []Pair {
 	})
 
 	return pairs
+}
+
+// IntFractionMultiply is a wrapper for this kind of operation:
+// ceil(origin * numerator / denominator)
+func IntFractionMultiply(origin int, numerator int, denominator int) int {
+	return int(math.Ceil(float64(origin) * float64(numerator) / float64(denominator)))
 }

@@ -47,6 +47,7 @@ func (p *PolicyCanonical) Update() error {
 	}
 
 	controlKnobValue := types.ControlKnobValue{}
+
 	switch regionInfo.RegionType {
 	case types.QoSRegionTypeShare:
 		controlKnobValue, ok = regionInfo.ControlKnobMap[types.ControlKnobNonReclaimedCPUSetSize]
@@ -54,15 +55,17 @@ func (p *PolicyCanonical) Update() error {
 			return fmt.Errorf("get control knob value failed")
 		}
 		cpuRequirement := controlKnobValue.Value
-		p.headroom = math.Max(float64(p.essentials.Total-p.essentials.ReservePoolSize)-cpuRequirement, 0)
+		p.headroom = math.Max(p.ResourceUpperBound-cpuRequirement, 0)
+
 	case types.QoSRegionTypeDedicatedNumaExclusive:
 		controlKnobValue, ok = regionInfo.ControlKnobMap[types.ControlKnobReclaimedCPUSupplied]
 		if !ok {
 			return fmt.Errorf("get control knob value failed")
 		}
 		p.headroom = math.Max(controlKnobValue.Value, 0)
+
 	default:
-		return fmt.Errorf("region type %v is invalid", regionInfo.RegionType)
+		return fmt.Errorf("illegal region type %v", regionInfo.RegionType)
 	}
 
 	return nil

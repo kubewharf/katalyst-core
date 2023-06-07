@@ -55,6 +55,24 @@ const (
 	CPUHeadroomPolicyUtilization CPUHeadroomPolicyName = "utilization"
 )
 
+// CPUProvisionAssemblerName defines assemblers for cpu advisor to generate node
+// provision result from region control knobs
+type CPUProvisionAssemblerName string
+
+const (
+	CPUProvisionAssemblerNone   CPUProvisionAssemblerName = "none"
+	CPUProvisionAssemblerCommon CPUProvisionAssemblerName = "common"
+)
+
+// CPUHeadroomAssemblerName defines assemblers for cpu advisor to generate node
+// headroom from region headroom or node level policy
+type CPUHeadroomAssemblerName string
+
+const (
+	CPUHeadroomAssemblerNone   CPUHeadroomAssemblerName = "none"
+	CPUHeadroomAssemblerCommon CPUHeadroomAssemblerName = "common"
+)
+
 // MemoryHeadroomPolicyName defines policy names for memory advisor headroom estimation
 type MemoryHeadroomPolicyName string
 
@@ -100,7 +118,9 @@ type ContainerInfo struct {
 	OwnerPoolName                    string
 	TopologyAwareAssignments         TopologyAwareAssignment
 	OriginalTopologyAwareAssignments TopologyAwareAssignment
-	RegionNames                      sets.String
+
+	// QoS information updated by advisor
+	RegionNames sets.String
 }
 
 // PoolInfo contains pool information for sysadvisor plugins
@@ -116,13 +136,13 @@ type RegionInfo struct {
 	RegionType   QoSRegionType  `json:"region_type"`
 	BindingNumas machine.CPUSet `json:"binding_numas"`
 
-	HeadroomPolicyTopPriority CPUHeadroomPolicyName `json:"headroom_policy_top_priority"`
-	HeadroomPolicyInUse       CPUHeadroomPolicyName `json:"headroom_policy_in_use"`
-	Headroom                  float64               `json:"headroom"`
-
 	ControlKnobMap             ControlKnob            `json:"control_knob_map"`
 	ProvisionPolicyTopPriority CPUProvisionPolicyName `json:"provision_policy_top_priority"`
 	ProvisionPolicyInUse       CPUProvisionPolicyName `json:"provision_policy_in_use"`
+
+	Headroom                  float64               `json:"headroom"`
+	HeadroomPolicyTopPriority CPUHeadroomPolicyName `json:"headroom_policy_top_priority"`
+	HeadroomPolicyInUse       CPUHeadroomPolicyName `json:"headroom_policy_in_use"`
 }
 
 // ContainerEntries stores container info keyed by container name
@@ -140,6 +160,20 @@ type RegionEntries map[string]*RegionInfo
 // PodSet stores container names keyed by pod uid
 type PodSet map[string]sets.String
 
+// InternalCalculationResult conveys minimal information to cpu server for composing
+// calculation result
+type InternalCalculationResult struct {
+	PoolEntries map[string]map[int]int // map[poolName][numaId]cpuSize
+}
+
+// ResourceEssentials defines essential (const) variables, and those variables may be adjusted by KCC
+type ResourceEssentials struct {
+	EnableReclaim       bool
+	ResourceUpperBound  float64
+	ResourceLowerBound  float64
+	ReservedForAllocate float64
+}
+
 // ControlKnob holds tunable system entries affecting indicator metrics
 type ControlKnob map[ControlKnobName]ControlKnobValue
 
@@ -153,18 +187,6 @@ const (
 	// ControlKnobReclaimedCPUSupplied refers to the cpu resource could be supplied to the pods with reclaimed_cores QoS level
 	ControlKnobReclaimedCPUSupplied ControlKnobName = "reclaimed-cpu-supplied"
 )
-
-// ResourceEssentials defines essential (const) variables, and those variables may be adjusted by KCC
-type ResourceEssentials struct {
-	EnableReclaim bool
-
-	Total               int
-	ReservePoolSize     int
-	ReservedForAllocate int
-
-	MinRequirement int
-	MaxRequirement int
-}
 
 // ControlKnobValue holds control knob value and action
 type ControlKnobValue struct {

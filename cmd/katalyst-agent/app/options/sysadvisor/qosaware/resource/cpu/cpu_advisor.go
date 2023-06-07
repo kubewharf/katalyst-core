@@ -31,6 +31,8 @@ import (
 type CPUAdvisorOptions struct {
 	CPUProvisionPolicyPriority map[string]string
 	CPUHeadroomPolicyPriority  map[string]string
+	CPUProvisionAssembler      string
+	CPUHeadroomAssembler       string
 
 	*headroom.CPUHeadroomPolicyOptions
 }
@@ -46,6 +48,8 @@ func NewCPUAdvisorOptions() *CPUAdvisorOptions {
 			string(types.QoSRegionTypeShare):                  string(types.CPUHeadroomPolicyCanonical),
 			string(types.QoSRegionTypeDedicatedNumaExclusive): string(types.CPUHeadroomPolicyCanonical),
 		},
+		CPUProvisionAssembler:    string(types.CPUProvisionAssemblerCommon),
+		CPUHeadroomAssembler:     string(types.CPUHeadroomAssemblerCommon),
 		CPUHeadroomPolicyOptions: headroom.NewCPUHeadroomPolicyOptions(),
 	}
 }
@@ -58,6 +62,10 @@ func (o *CPUAdvisorOptions) AddFlags(fs *pflag.FlagSet) {
 	fs.StringToStringVar(&o.CPUHeadroomPolicyPriority, "cpu-headroom-policy-priority", o.CPUHeadroomPolicyPriority,
 		"policies of each region type for cpu advisor to estimate resource headroom, sorted by priority descending order, "+
 			"should be formatted as 'share=rama/canonical,dedicated-numa-exclusive=rama/canonical'")
+	fs.StringVar(&o.CPUProvisionAssembler, "cpu-provision-assembler", o.CPUProvisionAssembler,
+		"cpu provision assembler for cpu advisor to generate node provision result from region provision results")
+	fs.StringVar(&o.CPUHeadroomAssembler, "cpu-headroom-assembler", o.CPUHeadroomAssembler,
+		"cpu headroom assembler for cpu advisor to generate node headroom from region headroom or node level policy")
 	o.CPUHeadroomPolicyOptions.AddFlags(fs)
 }
 

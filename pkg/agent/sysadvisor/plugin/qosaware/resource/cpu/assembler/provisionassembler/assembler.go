@@ -14,44 +14,38 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package headroompolicy
+package provisionassembler
 
 import (
 	"sync"
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
+	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource/cpu/region"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
+	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
-// HeadroomPolicy generates resource headroom estimation based on configured algorithm
-type HeadroomPolicy interface {
-	// SetPodSet overwrites policy's pod/container record
-	SetPodSet(types.PodSet)
-	// SetEssentials updates essential values for policy update
-	SetEssentials(essentials types.ResourceEssentials)
-
-	// Update triggers an episode of headroom update
-	Update() error
-	// GetHeadroom returns the latest legal headroom estimation
-	GetHeadroom() (float64, error)
+type ProvisionAssembler interface {
+	AssembleProvision() (types.InternalCalculationResult, error)
 }
 
-type InitFunc func(regionName string, conf *config.Configuration, extraConfig interface{}, metaReader metacache.MetaReader,
-	metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter) HeadroomPolicy
+type InitFunc func(conf *config.Configuration, regionMap *map[string]region.QoSRegion,
+	reservedForReclaim *map[int]int, numaAvailable *map[int]int, nonBindingNumas *machine.CPUSet,
+	metaCache metacache.MetaCache, metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter) ProvisionAssembler
 
 var initializers sync.Map
 
-func RegisterInitializer(name types.CPUHeadroomPolicyName, initFunc InitFunc) {
+func RegisterInitializer(name types.CPUProvisionAssemblerName, initFunc InitFunc) {
 	initializers.Store(name, initFunc)
 }
 
-func GetRegisteredInitializers() map[types.CPUHeadroomPolicyName]InitFunc {
-	res := make(map[types.CPUHeadroomPolicyName]InitFunc)
+func GetRegisteredInitializers() map[types.CPUProvisionAssemblerName]InitFunc {
+	res := make(map[types.CPUProvisionAssemblerName]InitFunc)
 	initializers.Range(func(key, value interface{}) bool {
-		res[key.(types.CPUHeadroomPolicyName)] = value.(InitFunc)
+		res[key.(types.CPUProvisionAssemblerName)] = value.(InitFunc)
 		return true
 	})
 	return res

@@ -188,12 +188,42 @@ func (ps PodSet) Insert(podUID string, containerName string) {
 	containerSet.Insert(containerName)
 }
 
+func (r *InternalCalculationResult) GetPoolEntry(poolName string, numaID int) (int, bool) {
+	v1, ok := r.PoolEntries[poolName]
+	if ok {
+		v2, ok := v1[numaID]
+		return v2, ok
+	}
+	return 0, false
+}
+
+func (r *InternalCalculationResult) SetPoolEntry(poolName string, numaID int, poolSize int) {
+	if poolSize <= 0 {
+		return
+	}
+	if r.PoolEntries[poolName] == nil {
+		r.PoolEntries[poolName] = make(map[int]int)
+	}
+	r.PoolEntries[poolName][numaID] = poolSize
+}
+
 func (ck ControlKnob) Clone() ControlKnob {
 	if ck == nil {
 		return nil
 	}
 	clone := make(ControlKnob)
 	for k, v := range ck {
+		clone[k] = v
+	}
+	return clone
+}
+
+func (i Indicator) Clone() Indicator {
+	if i == nil {
+		return nil
+	}
+	clone := make(Indicator)
+	for k, v := range i {
 		clone[k] = v
 	}
 	return clone

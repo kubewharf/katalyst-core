@@ -19,20 +19,18 @@ package cpu
 import (
 	"context"
 	"fmt"
-	"math"
 	"sync"
 	"time"
 
-	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/util/errors"
-	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/klog/v2"
 
 	"github.com/kubewharf/katalyst-api/pkg/consts"
-	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/cpuadvisor"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
+	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource/cpu/assembler/headroomassembler"
+	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource/cpu/assembler/provisionassembler"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource/cpu/region"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource/cpu/region/headroompolicy"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource/cpu/region/provisionpolicy"
@@ -44,30 +42,17 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
+// todo:
+// 1. Isolate bursting pods or containers to isolation regions
+// 2. Support dedicated without and with numa binding but non numa exclusive containers
+
 func init() {
 	provisionpolicy.RegisterInitializer(types.CPUProvisionPolicyCanonical, provisionpolicy.NewPolicyCanonical)
 	headroompolicy.RegisterInitializer(types.CPUHeadroomPolicyCanonical, headroompolicy.NewPolicyCanonical)
 	headroompolicy.RegisterInitializer(types.CPUHeadroomPolicyUtilization, headroompolicy.NewPolicyUtilization)
-}
 
-// todo:
-// 1. Support dedicated with numa binding non-exclusive containers
-// 2. Support shared cores containers with different cpu enhancement
-// 3. Isolate bursting containers to isolation regions
-
-// InternalCalculationResult conveys minimal calculation result to cpu server
-type InternalCalculationResult struct {
-	PoolEntries map[string]map[int]resource.Quantity // map[poolName][numaId]cores
-}
-
-func (r *InternalCalculationResult) SetPoolEntry(poolName string, numaID int, poolSize int64) {
-	if poolSize <= 0 {
-		return
-	}
-	if r.PoolEntries[poolName] == nil {
-		r.PoolEntries[poolName] = make(map[int]resource.Quantity)
-	}
-	r.PoolEntries[poolName][numaID] = *resource.NewQuantity(poolSize, resource.DecimalSI)
+	provisionassembler.RegisterInitializer(types.CPUProvisionAssemblerCommon, provisionassembler.NewProvisionAssemblerCommon)
+	headroomassembler.RegisterInitializer(types.CPUHeadroomAssemblerCommon, headroomassembler.NewHeadroomAssemblerCommon)
 }
 
 // cpuResourceAdvisor is the entrance of updating cpu resource provision advice for
@@ -78,16 +63,20 @@ type cpuResourceAdvisor struct {
 	conf      *config.Configuration
 	extraConf interface{}
 
-	recvCh      chan struct{}
-	sendCh      chan InternalCalculationResult
-	startTime   time.Time
-	systemNumas machine.CPUSet
+	recvCh    chan struct{}
+	sendCh    chan types.InternalCalculationResult
+	startTime time.Time
 
-	regionMap map[string]region.QoSRegion // map[regionName]region
+	regionMap          map[string]region.QoSRegion // map[regionName]region
+	reservedForReclaim map[int]int                 // map[numaID]reservedForReclaim
+	numaAvailable      map[int]int                 // map[numaID]availableResource
+	numRegionsPerNuma  map[int]int                 // map[numaID]regionQuantity
+	nonBindingNumas    machine.CPUSet              // numas without numa binding pods
 
-	nonBindingNumas machine.CPUSet // numas without numa binding pods
-	mutex           sync.RWMutex
+	provisionAssembler provisionassembler.ProvisionAssembler
+	headroomAssembler  headroomassembler.HeadroomAssembler
 
+	mutex      sync.RWMutex
 	metaCache  metacache.MetaCache
 	metaServer *metaserver.MetaServer
 	emitter    metrics.MetricEmitter
@@ -98,21 +87,31 @@ func NewCPUResourceAdvisor(conf *config.Configuration, extraConf interface{}, me
 	metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter) *cpuResourceAdvisor {
 
 	cra := &cpuResourceAdvisor{
-		recvCh:      make(chan struct{}),
-		sendCh:      make(chan InternalCalculationResult),
-		startTime:   time.Now(),
-		systemNumas: metaServer.CPUDetails.NUMANodes(),
-
-		regionMap: make(map[string]region.QoSRegion),
-
-		nonBindingNumas: machine.NewCPUSet(),
-
 		conf:      conf,
 		extraConf: extraConf,
+
+		recvCh:    make(chan struct{}),
+		sendCh:    make(chan types.InternalCalculationResult),
+		startTime: time.Now(),
+
+		regionMap:          make(map[string]region.QoSRegion),
+		reservedForReclaim: make(map[int]int),
+		numaAvailable:      make(map[int]int),
+		numRegionsPerNuma:  make(map[int]int),
+		nonBindingNumas:    machine.NewCPUSet(),
 
 		metaCache:  metaCache,
 		metaServer: metaServer,
 		emitter:    emitter,
+	}
+
+	cra.initializeReservedForReclaim()
+
+	if err := cra.initializeProvisionAssembler(); err != nil {
+		klog.Errorf("[qosaware-cpu] initialize provision assembler failed: %v", err)
+	}
+	if err := cra.initializeHeadroomAssembler(); err != nil {
+		klog.Errorf("[qosaware-cpu] initialize headroom assembler failed: %v", err)
 	}
 
 	return cra
@@ -138,112 +137,60 @@ func (cra *cpuResourceAdvisor) GetHeadroom() (resource.Quantity, error) {
 	cra.mutex.RLock()
 	defer cra.mutex.RUnlock()
 
-	reservePoolSize, ok := cra.metaCache.GetPoolSize(state.PoolNameReserve)
-	if !ok {
-		return resource.Quantity{}, fmt.Errorf("reserve pool not exist")
+	if cra.headroomAssembler == nil {
+		klog.Errorf("[qosaware-cpu] get headroom failed: no legal assembler")
+		return resource.Quantity{}, fmt.Errorf("no legal assembler")
 	}
 
-	// Return maximum available resource value as headroom when no region exists
-	if len(cra.regionMap) <= 0 {
-		return *resource.NewQuantity(int64(cra.metaServer.NumCPUs-reservePoolSize), resource.DecimalSI), nil
+	headroom, err := cra.headroomAssembler.GetHeadroom()
+	if err != nil {
+		klog.Errorf("[qosaware-cpu] get headroom failed: %v", err)
 	}
-
-	shareRegionRequirement := 0
-
-	totalHeadroom := resource.NewQuantity(0, resource.DecimalSI)
-	for _, r := range cra.regionMap {
-		// For regions other than the share region, their cpuset adjustment ranges are mutually exclusive, so it makes sense to sum their headroom.
-		// However, regions in the share pool share the same cpuset adjustment range.
-		// In this case, headroom should be obtained by subtracting the sum of provision from the maximum value.
-		if r.Type() == types.QoSRegionTypeShare {
-			controlKnob, err := r.GetProvision()
-			if err != nil {
-				return resource.Quantity{}, fmt.Errorf("get provision with error: %v", err)
-			}
-			shareRegionRequirement += int(controlKnob[types.ControlKnobNonReclaimedCPUSetSize].Value)
-			continue
-		}
-		headroom, err := r.GetHeadroom()
-		if err != nil {
-			return headroom, err
-		}
-		totalHeadroom.Add(headroom)
-	}
-
-	// Add headroom of numas without numa binding pods if there is no share region
-	reservePoolSizeOfNonBindingNumas := int(math.Ceil(float64(reservePoolSize*cra.nonBindingNumas.Size()) / float64(cra.metaServer.NumNUMANodes)))
-
-	headroomOfNonBindingNumas := resource.NewQuantity(int64(general.Max(cra.nonBindingNumas.Size()*cra.metaServer.CPUsPerNuma()-reservePoolSizeOfNonBindingNumas-shareRegionRequirement,
-		int(math.Ceil(float64(types.MinReclaimCPURequirement)/float64(cra.metaServer.NumNUMANodes)))*cra.nonBindingNumas.Size())), resource.DecimalSI)
-	totalHeadroom.Add(*headroomOfNonBindingNumas)
-
-	return *totalHeadroom, nil
+	return headroom, err
 }
 
-// update works in a monolith way to maintain lifecycle and trigger update actions for all regions;
+// update works in a monolithic way to maintain lifecycle and triggers update actions for all regions;
 // todo: re-consider whether it's efficient or we should make start individual goroutine for each region
 func (cra *cpuResourceAdvisor) update() {
 	cra.mutex.Lock()
 	defer cra.mutex.Unlock()
 
-	// check if essential pool info exists. skip update if not in which case sysadvisor
-	// is ignorant of pools and containers
+	// sanity check: if reserve pool exists
 	reservePoolInfo, ok := cra.metaCache.GetPoolInfo(state.PoolNameReserve)
 	if !ok || reservePoolInfo == nil {
-		klog.Warningf("[qosaware-cpu] skip update: reserve pool not exist")
+		klog.Errorf("[qosaware-cpu] skip update: reserve pool does not exist")
 		return
 	}
+
+	cra.updateNumasAvailableResource()
 
 	// assign containers to regions
 	if err := cra.assignContainersToRegions(); err != nil {
 		klog.Errorf("[qosaware-cpu] assign containers to regions failed: %v", err)
 		return
 	}
-	klog.Infof("[qosaware-cpu] region map: %v", general.ToString(cra.regionMap))
 
-	// run an episode of provision policy update for each region
-	for _, r := range cra.regionMap {
-		regionNumas := r.GetBindingNumas()
+	cra.gcRegionMap()
+	cra.setRegionEntries()
+	cra.updateAdvisorEssentials()
 
-		// calculate region max available cpu limit,
-		// which equals the number of cpus in region numas
-		regionCPULimit := regionNumas.Size() * cra.metaServer.CPUsPerNuma()
-
-		// calculate region reserve pool size value, which equals the cpuset intersection
-		// size between region numas and node reserve pool
-		regionReservePoolSize := 0
-		for _, numaID := range regionNumas.ToSliceInt() {
-			if cpuset, ok := reservePoolInfo.TopologyAwareAssignments[numaID]; ok {
-				regionReservePoolSize += cpuset.Size()
-			}
-		}
-
-		// The reserved pool should be evenly distributed between the shared regions.
-		reserved := cra.conf.ReclaimedResourceConfiguration.ReservedResourceForAllocate()[v1.ResourceCPU]
-		reservedForAllocate := reserved.Value()
-
-		// calculate region reserved for allocate, which equals average per numa reserved
-		// value times the number of numa nodes
-		regionReservedForAllocate := int(math.Ceil(float64(int(reservedForAllocate)*regionNumas.Size()) /
-			float64(cra.metaServer.NumNUMANodes)))
-
+	// run an episode of provision and headroom policy update for each region
+	for name, r := range cra.regionMap {
 		r.SetEssentials(types.ResourceEssentials{
-			Total:               regionCPULimit,
-			ReservePoolSize:     regionReservePoolSize,
-			ReservedForAllocate: regionReservedForAllocate,
 			EnableReclaim:       cra.conf.ReclaimedResourceConfiguration.EnableReclaim(),
+			ResourceUpperBound:  cra.getRegionMaxRequirement(name),
+			ResourceLowerBound:  cra.getRegionMinRequirement(name),
+			ReservedForAllocate: cra.getRegionReservedForAllocate(name),
 		})
 
 		r.TryUpdateProvision()
+		cra.updateRegionProvision()
+
+		r.TryUpdateHeadroom()
+		cra.updateRegionHeadroom()
 	}
 
-	// sync region information to metacache
-	regionEntries, err := cra.assembleRegionEntries()
-	if err != nil {
-		klog.Errorf("[qosaware-cpu] assemble region entries failed: %v", err)
-		return
-	}
-	_ = cra.metaCache.UpdateRegionEntries(regionEntries)
+	klog.Infof("[qosaware-cpu] region map: %v", general.ToString(cra.regionMap))
 
 	// skip notifying cpu server during startup
 	if time.Now().Before(cra.startTime.Add(types.StartUpPeriod)) {
@@ -251,24 +198,14 @@ func (cra *cpuResourceAdvisor) update() {
 		return
 	}
 
-	// assemble provision result from each region
-	provision, err := cra.assembleProvision()
+	// assemble provision result from each region and notify cpu server
+	calculationResult, err := cra.assembleProvision()
 	if err != nil {
 		klog.Errorf("[qosaware-cpu] assemble provision failed: %v", err)
 		return
 	}
-
-	// notify cpu server about provision result
-	cra.sendCh <- provision
-	klog.Infof("[qosaware-cpu] notify cpu server: %+v", provision)
-
-	// update headroom policy. do this after updating provision because headroom policy
-	// may need the latest region provision result from metacache.
-	for _, r := range cra.regionMap {
-		r.TryUpdateHeadroom()
-	}
-	cra.updateHeadroomForRegionEntries(regionEntries)
-	_ = cra.metaCache.UpdateRegionEntries(regionEntries)
+	cra.sendCh <- calculationResult
+	klog.Infof("[qosaware-cpu] notify cpu server: %+v", calculationResult)
 }
 
 // assignContainersToRegions re-construct regions every time (instead of an incremental way),
@@ -276,12 +213,12 @@ func (cra *cpuResourceAdvisor) update() {
 func (cra *cpuResourceAdvisor) assignContainersToRegions() error {
 	var errList []error
 
-	// Clear containers for all regions
+	// clear containers for all regions
 	for _, r := range cra.regionMap {
 		r.Clear()
 	}
 
-	// Sync containers
+	// sync containers
 	f := func(podUID string, containerName string, ci *types.ContainerInfo) bool {
 		regions, err := cra.assignToRegions(ci)
 		if err != nil {
@@ -291,6 +228,7 @@ func (cra *cpuResourceAdvisor) assignContainersToRegions() error {
 			return true
 		}
 
+		// update region pod set and region map
 		for _, r := range regions {
 			if err := r.AddContainer(ci); err != nil {
 				errList = append(errList, err)
@@ -300,9 +238,12 @@ func (cra *cpuResourceAdvisor) assignContainersToRegions() error {
 			cra.regionMap[r.Name()] = r
 		}
 
+		// update container info
 		cra.setContainerRegions(ci, regions)
-		// dedicated pool is not existed in metaCache.poolEntries
+
+		// update pool info
 		if ci.OwnerPoolName == state.PoolNameDedicated {
+			// dedicated pool should not exist in metaCache.poolEntries
 			return true
 		}
 		if err := cra.setPoolRegions(ci.OwnerPoolName, regions); err != nil {
@@ -314,9 +255,6 @@ func (cra *cpuResourceAdvisor) assignContainersToRegions() error {
 	}
 	cra.metaCache.RangeAndUpdateContainer(f)
 
-	cra.gc()
-	cra.updateNonBindingNumas()
-
 	return errors.NewAggregate(errList)
 }
 
@@ -324,25 +262,27 @@ func (cra *cpuResourceAdvisor) assignContainersToRegions() error {
 // may need to construct region structures if they don't exist.
 func (cra *cpuResourceAdvisor) assignToRegions(ci *types.ContainerInfo) ([]region.QoSRegion, error) {
 	if ci == nil {
-		return nil, fmt.Errorf("ci is nil")
+		return nil, fmt.Errorf("container info is nil")
 	}
+
 	if ci.QoSLevel == consts.PodAnnotationQoSLevelSharedCores {
-		// not assign container to any region when ramping up because OwnerPoolName is still empty
+		// do not assign shared container to region when ramping up because its owner pool name is empty
 		if ci.RampUp {
 			return nil, nil
 		}
-		// Assign shared cores container. Focus on pool.
+
+		// assign shared cores container. focus on pool.
 		regions := cra.getPoolRegions(ci.OwnerPoolName)
 		if len(regions) > 0 {
 			return regions, nil
 		}
 
+		// create one region by owner pool name
 		r := region.NewQoSRegionShare(ci, cra.conf, cra.extraConf, cra.metaCache, cra.metaServer, cra.emitter)
-
 		return []region.QoSRegion{r}, nil
 
 	} else if ci.IsNumaBinding() {
-		// Assign dedicated cores numa exclusive containers. Focus on container.
+		// assign dedicated cores numa exclusive containers. focus on container.
 		regions, err := cra.getContainerRegions(ci)
 		if err != nil {
 			return nil, err
@@ -351,140 +291,19 @@ func (cra *cpuResourceAdvisor) assignToRegions(ci *types.ContainerInfo) ([]regio
 			return regions, nil
 		}
 
-		// Create regions by numa node
+		// create regions by numa node
 		for numaID := range ci.TopologyAwareAssignments {
 			r := region.NewQoSRegionDedicatedNumaExclusive(ci, cra.conf, numaID, cra.extraConf, cra.metaCache, cra.metaServer, cra.emitter)
 			regions = append(regions, r)
 		}
-
 		return regions, nil
 	}
 
 	return nil, nil
 }
 
-// updateNonBindingNumas updates numas without numa binding pods
-// non-binding-numa = system-numa - dedicated-exclusive-numa
-func (cra *cpuResourceAdvisor) updateNonBindingNumas() {
-	cra.nonBindingNumas = cra.systemNumas
-
-	for _, r := range cra.regionMap {
-		if r.Type() == types.QoSRegionTypeDedicatedNumaExclusive {
-			cra.nonBindingNumas = cra.nonBindingNumas.Difference(r.GetBindingNumas())
-		}
-	}
-
-	// Set binding numas for non numa binding regions
-	for _, r := range cra.regionMap {
-		if r.Type() == types.QoSRegionTypeShare {
-			r.SetBindingNumas(cra.nonBindingNumas)
-		}
-	}
-}
-
-// assembleRegionEntries generates region entries based on region map
-func (cra *cpuResourceAdvisor) assembleRegionEntries() (types.RegionEntries, error) {
-	entries := make(types.RegionEntries)
-
-	for regionName, r := range cra.regionMap {
-		controlKnobMap, err := r.GetProvision()
-		if err != nil {
-			return nil, err
-		}
-
-		regionInfo := &types.RegionInfo{
-			RegionType:     r.Type(),
-			BindingNumas:   r.GetBindingNumas(),
-			ControlKnobMap: controlKnobMap,
-		}
-		regionInfo.HeadroomPolicyTopPriority, regionInfo.HeadroomPolicyInUse = r.GetHeadRoomPolicy()
-		regionInfo.ProvisionPolicyTopPriority, regionInfo.ProvisionPolicyInUse = r.GetProvisionPolicy()
-
-		entries[regionName] = regionInfo
-	}
-
-	return entries, nil
-}
-
-// updateHeadroomForRegionEntries sets headroom for all region entries
-// after headroom has been successfully updates
-func (cra *cpuResourceAdvisor) updateHeadroomForRegionEntries(regionEntries types.RegionEntries) {
-	for regionName := range regionEntries {
-		r, ok := cra.regionMap[regionName]
-		if !ok {
-			klog.Errorf("region %v in region entries but not in region map", regionName)
-			continue
-		}
-
-		headroom, err := r.GetHeadroom()
-		if err != nil {
-			klog.Errorf("get headroom for region %v err: %v", regionName, err)
-			continue
-		}
-
-		regionEntries[regionName].Headroom = float64(headroom.MilliValue()) / 1000
-	}
-}
-
-func (cra *cpuResourceAdvisor) assembleProvision() (InternalCalculationResult, error) {
-	// generate internal calculation result.
-	// must make sure pool names from cpu provision following qrm definition;
-	// numa ID set as -1 means no numa-preference is needed.
-	provision := InternalCalculationResult{PoolEntries: map[string]map[int]resource.Quantity{}}
-
-	// fill in reserve pool entry
-	reservePoolSize, _ := cra.metaCache.GetPoolSize(state.PoolNameReserve)
-	provision.SetPoolEntry(state.PoolNameReserve, cpuadvisor.FakedNUMAID, int64(reservePoolSize))
-
-	nonNumaBindingRequirement := 0
-	shareRegionRequirement := make(map[string]int)
-
-	for _, r := range cra.regionMap {
-		controlKnob, err := r.GetProvision()
-		if err != nil {
-			return provision, fmt.Errorf("get provision with error: %v", err)
-		}
-
-		if r.Type() == types.QoSRegionTypeShare {
-			// fill in share pool entry
-			sharePoolSize := int(controlKnob[types.ControlKnobNonReclaimedCPUSetSize].Value)
-			provision.PoolEntries[state.PoolNameShare] = make(map[int]resource.Quantity)
-			provision.PoolEntries[state.PoolNameShare][cpuadvisor.FakedNUMAID] = *resource.NewQuantity(int64(sharePoolSize), resource.DecimalSI)
-			nonNumaBindingRequirement += sharePoolSize
-
-			shareRegionRequirement[r.OwnerPoolName()] = sharePoolSize
-
-		} else if r.Type() == types.QoSRegionTypeDedicatedNumaExclusive {
-			regionNumas := r.GetBindingNumas().ToSliceInt()
-			if len(regionNumas) != 1 {
-				klog.Errorf("region %v with type %v has invalid numa count: %v", r.Name(), r.Type(), regionNumas)
-			}
-
-			// fill in reclaim pool entry for dedicated numa exclusive regions
-			reclaimPoolSize := controlKnob[types.ControlKnobReclaimedCPUSupplied].Value
-			regionNuma := regionNumas[0] // Always one binding numa for this type of region
-			provision.SetPoolEntry(state.PoolNameReclaim, regionNuma, int64(reclaimPoolSize))
-		}
-	}
-
-	// fill in reclaimed pool size of non-binding numas
-	reservePoolSizeOfNonBindingNumas := int(math.Ceil(float64(reservePoolSize*cra.nonBindingNumas.Size()) / float64(cra.metaServer.NumNUMANodes)))
-
-	reclaimPoolSizeOfNonBindingNumas := general.Max(cra.nonBindingNumas.Size()*cra.metaServer.CPUsPerNuma()-nonNumaBindingRequirement-reservePoolSizeOfNonBindingNumas,
-		int(math.Ceil(float64(types.MinReclaimCPURequirement)/float64(cra.metaServer.NumNUMANodes)))*cra.nonBindingNumas.Size())
-	sharePoolSize := cra.nonBindingNumas.Size()*cra.metaServer.CPUsPerNuma() - reclaimPoolSizeOfNonBindingNumas - reservePoolSizeOfNonBindingNumas
-
-	sharePools := genShareRegionPools(shareRegionRequirement, sharePoolSize)
-	for poolName, size := range sharePools {
-		provision.SetPoolEntry(poolName, cpuadvisor.FakedNUMAID, int64(size))
-	}
-
-	provision.SetPoolEntry(state.PoolNameReclaim, cpuadvisor.FakedNUMAID, int64(reclaimPoolSizeOfNonBindingNumas))
-	return provision, nil
-}
-
-func (cra *cpuResourceAdvisor) gc() {
-	// Delete empty regions in region map
+// gcRegionMap deletes empty regions in region map
+func (cra *cpuResourceAdvisor) gcRegionMap() {
 	for regionName, r := range cra.regionMap {
 		if r.IsEmpty() {
 			delete(cra.regionMap, regionName)
@@ -493,112 +312,45 @@ func (cra *cpuResourceAdvisor) gc() {
 	}
 }
 
-func (cra *cpuResourceAdvisor) getRegionsByRegionNames(names sets.String) []region.QoSRegion {
-	var regions []region.QoSRegion = nil
-	for regionName := range names {
-		r, ok := cra.regionMap[regionName]
-		if !ok {
-			return nil
-		}
-		regions = append(regions, r)
-	}
-	return regions
-}
+// updateAdvisorEssentials updates following essentials after assigning containers to regions:
+// 1. non binding numas, i.e. numas without numa binding containers
+// 2. binding numas of non numa binding regions
+// 3. region quantity of each numa
+func (cra *cpuResourceAdvisor) updateAdvisorEssentials() {
+	cra.nonBindingNumas = cra.metaServer.CPUDetails.NUMANodes()
 
-func (cra *cpuResourceAdvisor) getRegionsByPodUID(podUID string) []region.QoSRegion {
-	var regions []region.QoSRegion = nil
+	// update non binding numas
 	for _, r := range cra.regionMap {
-		podSet := r.GetPods()
-		for uid := range podSet {
-			if uid == podUID {
-				regions = append(regions, r)
-			}
+		if r.Type() == types.QoSRegionTypeDedicatedNumaExclusive {
+			cra.nonBindingNumas = cra.nonBindingNumas.Difference(r.GetBindingNumas())
 		}
 	}
-	return regions
-}
 
-func (cra *cpuResourceAdvisor) getContainerRegions(ci *types.ContainerInfo) ([]region.QoSRegion, error) {
-	// For non-newly allocated containers, they already had regionNames,
-	// we can directly get the regions by regionMap.
-	regions := cra.getRegionsByRegionNames(ci.RegionNames)
-	if len(regions) > 0 {
-		return regions, nil
+	// reset region quantity
+	for _, numaID := range cra.metaServer.CPUDetails.NUMANodes().ToSliceInt() {
+		cra.numRegionsPerNuma[numaID] = 0
 	}
 
-	// The regionNames of newly allocated containers are empty, if other containers of the same pod have been assigned regions,
-	// we can get regions by pod UID, otherwise create new region.
-	regions = cra.getRegionsByPodUID(ci.PodUID)
-	return regions, nil
-}
-
-func (cra *cpuResourceAdvisor) setContainerRegions(ci *types.ContainerInfo, regions []region.QoSRegion) {
-	ci.RegionNames = sets.NewString()
-	for _, r := range regions {
-		ci.RegionNames.Insert(r.Name())
-	}
-}
-
-func (cra *cpuResourceAdvisor) getPoolRegions(poolName string) []region.QoSRegion {
-	pool, ok := cra.metaCache.GetPoolInfo(poolName)
-	if !ok || pool == nil {
-		return nil
-	}
-
-	var regions []region.QoSRegion = nil
-	for regionName := range pool.RegionNames {
-		r, ok := cra.regionMap[regionName]
-		if !ok {
-			return nil
+	for _, r := range cra.regionMap {
+		// set binding numas for non numa binding regions
+		if r.Type() == types.QoSRegionTypeShare {
+			r.SetBindingNumas(cra.nonBindingNumas)
 		}
-		regions = append(regions, r)
-	}
-	return regions
-}
 
-func (cra *cpuResourceAdvisor) setPoolRegions(poolName string, regions []region.QoSRegion) error {
-	pool, ok := cra.metaCache.GetPoolInfo(poolName)
-	if !ok {
-		return fmt.Errorf("failed to find pool %v", poolName)
-	}
-
-	pool.RegionNames = sets.NewString()
-	for _, r := range regions {
-		pool.RegionNames.Insert(r.Name())
-	}
-	return cra.metaCache.SetPoolInfo(poolName, pool)
-}
-
-// shareRegionRequirement refers to the resource demand of each share region,
-// sharePoolSize represents the total capacity of the share pool.
-// If the total resource requirement of all share regions exceeds the total capacity of the pool,
-// we need to distribute the total capacity proportionally according to the resource requirement.
-func genShareRegionPools(shareRegionRequirement map[string]int, sharePoolSize int) map[string]int {
-	sharePools := make(map[string]int)
-
-	requirementSum := 0
-	for _, requirement := range shareRegionRequirement {
-		requirementSum += requirement
-	}
-	if requirementSum <= sharePoolSize {
-		return shareRegionRequirement
-	}
-
-	for poolName, requirement := range shareRegionRequirement {
-		sharePools[poolName] = sharePoolSize * requirement / requirementSum
-	}
-
-	pools := general.TraverseMapByValueDescending(sharePools)
-
-	sharePools = make(map[string]int)
-	poolSizeSum := 0
-	for i, pool := range pools {
-		size := pool.Value
-		if i == len(pools)-1 {
-			size = sharePoolSize - poolSizeSum
+		// accumulate region quantity for each numa
+		for _, numaID := range r.GetBindingNumas().ToSliceInt() {
+			cra.numRegionsPerNuma[numaID] += 1
 		}
-		sharePools[pool.Key] = size
-		poolSizeSum += size
 	}
-	return sharePools
+}
+
+// assembleProvision generates internal calculation result.
+// must make sure pool names from cpu provision following qrm definition;
+// numa ID set as -1 means no numa-preference is needed.
+func (cra *cpuResourceAdvisor) assembleProvision() (types.InternalCalculationResult, error) {
+	if cra.provisionAssembler == nil {
+		return types.InternalCalculationResult{}, fmt.Errorf("no legal provision assembler")
+	}
+
+	return cra.provisionAssembler.AssembleProvision()
 }

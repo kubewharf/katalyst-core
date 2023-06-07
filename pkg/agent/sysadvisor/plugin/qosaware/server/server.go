@@ -25,7 +25,6 @@ import (
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource"
-	resourcecpu "github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource/cpu"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/server/cpu"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
 	"github.com/kubewharf/katalyst-core/pkg/config"
@@ -97,7 +96,7 @@ func newSubQRMServer(resourceName v1.ResourceName, advisorWrapper resource.Resou
 		}
 		advisorRecvChInterface, advisorSendChInterface := subAdvisor.GetChannels()
 		advisorRecvCh := advisorRecvChInterface.(chan struct{})
-		advisorSendCh := advisorSendChInterface.(chan resourcecpu.InternalCalculationResult)
+		advisorSendCh := advisorSendChInterface.(chan types.InternalCalculationResult)
 		return cpu.NewCPUServer(advisorSendCh, advisorRecvCh, conf, metaCache, emitter)
 	default:
 		return nil, fmt.Errorf("illegal resource %v", resourceName)
