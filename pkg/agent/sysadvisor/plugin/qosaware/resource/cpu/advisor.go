@@ -155,6 +155,12 @@ func (cra *cpuResourceAdvisor) update() {
 	cra.mutex.Lock()
 	defer cra.mutex.Unlock()
 
+	// skip updating during startup
+	if time.Now().Before(cra.startTime.Add(types.StartUpPeriod)) {
+		klog.Infof("[qosaware-cpu] skip updating: starting up")
+		return
+	}
+
 	// sanity check: if reserve pool exists
 	reservePoolInfo, ok := cra.metaCache.GetPoolInfo(state.PoolNameReserve)
 	if !ok || reservePoolInfo == nil {
@@ -191,12 +197,6 @@ func (cra *cpuResourceAdvisor) update() {
 	}
 
 	klog.Infof("[qosaware-cpu] region map: %v", general.ToString(cra.regionMap))
-
-	// skip notifying cpu server during startup
-	if time.Now().Before(cra.startTime.Add(types.StartUpPeriod)) {
-		klog.Infof("[qosaware-cpu] skip notifying cpu server: starting up")
-		return
-	}
 
 	// assemble provision result from each region and notify cpu server
 	calculationResult, err := cra.assembleProvision()
