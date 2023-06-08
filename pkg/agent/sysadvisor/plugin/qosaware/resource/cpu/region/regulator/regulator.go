@@ -31,10 +31,10 @@ type CPURegulator struct {
 	types.ResourceEssentials
 
 	// maxRampUpStep is the max cpu cores can be increased during each cpu requirement update
-	maxRampUpStep float64
+	maxRampUpStep int
 
 	// maxRampDownStep is the max cpu cores can be decreased during each cpu requirement update
-	maxRampDownStep float64
+	maxRampDownStep int
 
 	// minRampDownPeriod is the min time gap between two consecutive cpu requirement ramp down
 	minRampDownPeriod time.Duration
@@ -71,12 +71,12 @@ func (c *CPURegulator) SetLatestCPURequirement(latestCPURequirement int) {
 // as the latest cpu requirement value
 func (c *CPURegulator) Regulate(cpuRequirement float64) {
 	cpuRequirementReserved := cpuRequirement + c.ReservedForAllocate
-	cpuRequirementSlowdown := c.slowdown(cpuRequirementReserved)
-	cpuRequirementRound := c.round(cpuRequirementSlowdown)
-	cpuRequirementClamp := c.clamp(cpuRequirementRound)
+	cpuRequirementRound := c.round(cpuRequirementReserved)
+	cpuRequirementSlowdown := c.slowdown(cpuRequirementRound)
+	cpuRequirementClamp := c.clamp(cpuRequirementSlowdown)
 
-	klog.Infof("[qosaware-cpu] cpu requirement by policy: %.2f, with reserve: %.2f, after slowdown: %.2f, after round: %d, after clamp: %d",
-		cpuRequirement, cpuRequirementReserved, cpuRequirementSlowdown, cpuRequirementRound, cpuRequirementClamp)
+	klog.Infof("[qosaware-cpu] cpu requirement by policy: %.2f, with reserve: %.2f, after round: %d, after slowdown: %d, after clamp: %d",
+		cpuRequirement, cpuRequirementReserved, cpuRequirementRound, cpuRequirementSlowdown, cpuRequirementClamp)
 
 	if cpuRequirementClamp != c.latestCPURequirement {
 		c.latestCPURequirement = cpuRequirementClamp
@@ -89,20 +89,19 @@ func (c *CPURegulator) GetCPURequirement() int {
 	return c.latestCPURequirement
 }
 
-func (c *CPURegulator) slowdown(cpuRequirement float64) float64 {
+func (c *CPURegulator) slowdown(cpuRequirement int) int {
 	now := time.Now()
-	latestCPURequirement := float64(c.latestCPURequirement)
 
-	// Restrict ramp down period
-	if cpuRequirement < latestCPURequirement && now.Before(c.latestRampDownTime.Add(c.minRampDownPeriod)) {
-		return latestCPURequirement
+	// Restrict ramp down frequency
+	if cpuRequirement < c.latestCPURequirement && now.Before(c.latestRampDownTime.Add(c.minRampDownPeriod)) {
+		return c.latestCPURequirement
 	}
 
 	// Restrict ramp up and down step
-	if cpuRequirement-latestCPURequirement > c.maxRampUpStep {
-		cpuRequirement = latestCPURequirement + c.maxRampUpStep
-	} else if latestCPURequirement-cpuRequirement > c.maxRampDownStep {
-		cpuRequirement = latestCPURequirement - c.maxRampDownStep
+	if cpuRequirement-c.latestCPURequirement > c.maxRampUpStep {
+		cpuRequirement = c.latestCPURequirement + c.maxRampUpStep
+	} else if c.latestCPURequirement-cpuRequirement > c.maxRampDownStep {
+		cpuRequirement = c.latestCPURequirement - c.maxRampDownStep
 	}
 
 	return cpuRequirement
