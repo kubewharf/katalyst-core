@@ -92,7 +92,9 @@ func (e *evictionRespCollector) collectEvictPods(pluginName string, resp *plugin
 
 		if dryRun {
 			_ = e.emitter.StoreInt64(MetricsNameDryrunVictimPodCNT, 1, metrics.MetricTypeNameRaw,
-				metrics.MetricTag{Key: "name", Val: pluginName})
+				metrics.MetricTag{Key: "name", Val: pluginName},
+				metrics.MetricTag{Key: "victim_ns", Val: evictPod.Pod.Namespace},
+				metrics.MetricTag{Key: "victim_name", Val: evictPod.Pod.Name})
 		} else {
 			evictPods = append(evictPods, resp.EvictPods[i])
 		}
@@ -162,7 +164,9 @@ func (e *evictionRespCollector) collectTopEvictionPods(pluginName string, thresh
 				e.getLogPrefix(dryRun), pluginName, pod.Namespace, pod.Namespace, threshold.EvictionScope)
 
 			_ = e.emitter.StoreInt64(MetricsNameDryrunVictimPodCNT, 1, metrics.MetricTypeNameRaw,
-				metrics.MetricTag{Key: "name", Val: pluginName})
+				metrics.MetricTag{Key: "name", Val: pluginName},
+				metrics.MetricTag{Key: "victim_ns", Val: pod.Namespace},
+				metrics.MetricTag{Key: "victim_name", Val: pod.Name})
 		} else {
 			targetPods = append(targetPods, resp.TargetPods[i])
 		}
