@@ -118,7 +118,17 @@ func (p *PolicyCanonical) GetControlKnobAdjusted() (types.ControlKnob, error) {
 				Action: types.ControlKnobActionNone,
 			},
 		}, nil
-
+	case types.QoSRegionTypeIsolation:
+		return map[types.ControlKnobName]types.ControlKnobValue{
+			types.ControlKnobNonIsolateCPUUpperSize: {
+				Value:  p.ResourceUpperBound,
+				Action: types.ControlKnobActionNone,
+			},
+			types.ControlKnobNonIsolateCPULowerSize: {
+				Value:  p.ResourceLowerBound,
+				Action: types.ControlKnobActionNone,
+			},
+		}, nil
 	case types.QoSRegionTypeDedicatedNumaExclusive:
 		// Do conversion because canonical policy calculates resource estimation according to
 		// non reclaim workloads and is ignorant of reclaimed cpu supplied

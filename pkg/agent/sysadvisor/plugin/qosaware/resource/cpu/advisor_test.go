@@ -38,6 +38,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
 	"github.com/kubewharf/katalyst-core/pkg/config"
+	metric_consts "github.com/kubewharf/katalyst-core/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric"
@@ -58,7 +59,7 @@ func generateTestConfiguration(t *testing.T, checkpointDir, stateFileDir string)
 	return conf
 }
 
-func newTestCPUResourceAdvisor(t *testing.T, pods []*v1.Pod, checkpointDir, stateFileDir string) (*cpuResourceAdvisor, metacache.MetaCache) {
+func newTestCPUResourceAdvisor(t *testing.T, pods []*v1.Pod, checkpointDir, stateFileDir string, mf *metric.FakeMetricsFetcher) (*cpuResourceAdvisor, metacache.MetaCache) {
 	conf := generateTestConfiguration(t, checkpointDir, stateFileDir)
 
 	metaCache, err := metacache.NewMetaCacheImp(conf, metric.NewFakeMetricsFetcher(metrics.DummyMetrics{}))
@@ -82,6 +83,7 @@ func newTestCPUResourceAdvisor(t *testing.T, pods []*v1.Pod, checkpointDir, stat
 		PodFetcher: &pod.PodFetcherStub{
 			PodList: pods,
 		},
+		MetricsFetcher: mf,
 	}
 
 	err = metaServer.SetServiceProfilingManager(&spd.DummyServiceProfilingManager{})
@@ -94,7 +96,14 @@ func newTestCPUResourceAdvisor(t *testing.T, pods []*v1.Pod, checkpointDir, stat
 }
 
 func makeContainerInfo(podUID, namespace, podName, containerName, qoSLevel, ownerPoolName string, annotations map[string]string,
-	topologyAwareAssignments types.TopologyAwareAssignment, cpuRequest float64) *types.ContainerInfo {
+	topologyAwareAssignments types.TopologyAwareAssignment, cpu ...float64) *types.ContainerInfo {
+	req, limit := 0., 0.
+	if len(cpu) == 1 {
+		req, limit = cpu[0], cpu[0]
+	} else if len(cpu) == 2 {
+		req, limit = cpu[0], cpu[1]
+	}
+
 	return &types.ContainerInfo{
 		PodUID:                           podUID,
 		PodNamespace:                     namespace,
@@ -104,9 +113,12 @@ func makeContainerInfo(podUID, namespace, podName, containerName, qoSLevel, owne
 		Labels:                           nil,
 		Annotations:                      annotations,
 		QoSLevel:                         qoSLevel,
-		CPURequest:                       cpuRequest,
+		CPURequest:                       req,
+		CPULimit:                         limit,
 		MemoryRequest:                    0,
+		MemoryLimit:                      0,
 		RampUp:                           false,
+		OriginOwnerPoolName:              ownerPoolName,
 		OwnerPoolName:                    ownerPoolName,
 		TopologyAwareAssignments:         topologyAwareAssignments,
 		OriginalTopologyAwareAssignments: topologyAwareAssignments,
@@ -114,6 +126,12 @@ func makeContainerInfo(podUID, namespace, podName, containerName, qoSLevel, owne
 }
 
 func TestAdvisorUpdate(t *testing.T) {
+	type metricItem struct {
+		pod       string
+		container string
+		value     float64
+	}
+
 	tests := []struct {
 		name                          string
 		pools                         map[string]*types.PoolInfo
@@ -122,6 +140,7 @@ func TestAdvisorUpdate(t *testing.T) {
 		enableReclaim                 bool
 		wantInternalCalculationResult types.InternalCalculationResult
 		wantHeadroom                  resource.Quantity
+		metrics                       []metricItem
 	}{
 		{
 			name:                          "missing_reserve_pool",
@@ -538,21 +557,220 @@ func TestAdvisorUpdate(t *testing.T) {
 			},
 			wantHeadroom: *resource.NewQuantity(0, resource.DecimalSI),
 		},
+		{
+			name: "provision:single_large_share_pool&isolation_within_limits",
+			pools: map[string]*types.PoolInfo{
+				state.PoolNameReserve: {
+					PoolName: state.PoolNameReserve,
+					TopologyAwareAssignments: map[int]machine.CPUSet{
+						0: machine.MustParse("0"),
+						1: machine.MustParse("24"),
+					},
+				},
+				state.PoolNameShare: {
+					PoolName: state.PoolNameShare,
+					TopologyAwareAssignments: map[int]machine.CPUSet{
+						0: machine.MustParse("1-23,48-71"),
+						1: machine.MustParse("25-47,72-95"),
+					},
+				},
+			},
+			containers: []*types.ContainerInfo{
+				makeContainerInfo("uid1", "default", "pod1", "c1", consts.PodAnnotationQoSLevelSharedCores, state.PoolNameShare, nil,
+					map[int]machine.CPUSet{
+						0: machine.MustParse("1-22,48-70"),
+						1: machine.MustParse("25-46,72-94"),
+					}, 10),
+				makeContainerInfo("uid2", "default", "pod2", "c2", consts.PodAnnotationQoSLevelSharedCores, state.PoolNameShare, nil,
+					map[int]machine.CPUSet{
+						0: machine.MustParse("1-22,48-70"),
+						1: machine.MustParse("25-46,72-94"),
+					}, 20),
+				makeContainerInfo("uid3", "default", "pod3", "c3", consts.PodAnnotationQoSLevelSharedCores, state.PoolNameShare, nil,
+					map[int]machine.CPUSet{
+						0: machine.MustParse("1-22,48-70"),
+						1: machine.MustParse("25-46,72-94"),
+					}, 30),
+			},
+			pods: []*v1.Pod{
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "pod1",
+						Namespace: "default",
+						UID:       "uid1",
+					},
+				},
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "pod2",
+						Namespace: "default",
+						UID:       "uid2",
+					},
+				},
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "pod3",
+						Namespace: "default",
+						UID:       "uid3",
+					},
+				},
+			},
+			enableReclaim: true,
+			wantInternalCalculationResult: types.InternalCalculationResult{
+				PoolEntries: map[string]map[int]int{
+					state.PoolNameReserve:             {-1: 2},
+					state.PoolNameShare:               {-1: 81},
+					state.PoolNameIsolation + "-uid1": {-1: 9},
+					state.PoolNameReclaim:             {-1: 4},
+				},
+			},
+			wantHeadroom: resource.Quantity{},
+			metrics: []metricItem{
+				{
+					pod:       "uid1",
+					container: "c1",
+					value:     50,
+				},
+				{
+					pod:       "uid2",
+					container: "c2",
+					value:     8,
+				},
+				{
+					pod:       "uid3",
+					container: "c3",
+					value:     4,
+				},
+			},
+		},
+		{
+			name: "provision:single_large_share_pool&isolation_within_request",
+			pools: map[string]*types.PoolInfo{
+				state.PoolNameReserve: {
+					PoolName: state.PoolNameReserve,
+					TopologyAwareAssignments: map[int]machine.CPUSet{
+						0: machine.MustParse("0"),
+						1: machine.MustParse("24"),
+					},
+				},
+				state.PoolNameShare: {
+					PoolName: state.PoolNameShare,
+					TopologyAwareAssignments: map[int]machine.CPUSet{
+						0: machine.MustParse("1-23,48-71"),
+						1: machine.MustParse("25-47,72-95"),
+					},
+				},
+			},
+			containers: []*types.ContainerInfo{
+				makeContainerInfo("uid1", "default", "pod1", "c1", consts.PodAnnotationQoSLevelSharedCores, state.PoolNameShare, nil,
+					map[int]machine.CPUSet{
+						0: machine.MustParse("1-22,48-70"),
+						1: machine.MustParse("25-46,72-94"),
+					}, 5, 8),
+				makeContainerInfo("uid2", "default", "pod2", "c2", consts.PodAnnotationQoSLevelSharedCores, state.PoolNameShare, nil,
+					map[int]machine.CPUSet{
+						0: machine.MustParse("1-22,48-70"),
+						1: machine.MustParse("25-46,72-94"),
+					}, 20),
+				makeContainerInfo("uid3", "default", "pod3", "c3", consts.PodAnnotationQoSLevelSharedCores, state.PoolNameShare, nil,
+					map[int]machine.CPUSet{
+						0: machine.MustParse("1-22,48-70"),
+						1: machine.MustParse("25-46,72-94"),
+					}, 30),
+				makeContainerInfo("uid4", "default", "pod4", "c4", consts.PodAnnotationQoSLevelSharedCores, state.PoolNameShare, nil,
+					map[int]machine.CPUSet{
+						0: machine.MustParse("1-22,48-70"),
+						1: machine.MustParse("25-46,72-94"),
+					}, 2, 8),
+			},
+			pods: []*v1.Pod{
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "pod1",
+						Namespace: "default",
+						UID:       "uid1",
+					},
+				},
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "pod2",
+						Namespace: "default",
+						UID:       "uid2",
+					},
+				},
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "pod3",
+						Namespace: "default",
+						UID:       "uid3",
+					},
+				},
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "pod4",
+						Namespace: "default",
+						UID:       "uid4",
+					},
+				},
+			},
+			enableReclaim: true,
+			wantInternalCalculationResult: types.InternalCalculationResult{
+				PoolEntries: map[string]map[int]int{
+					state.PoolNameReserve:             {-1: 2},
+					state.PoolNameShare:               {-1: 84},
+					state.PoolNameIsolation + "-uid1": {-1: 4},
+					state.PoolNameIsolation + "-uid4": {-1: 2},
+					state.PoolNameReclaim:             {-1: 4},
+				},
+			},
+			wantHeadroom: resource.Quantity{},
+			metrics: []metricItem{
+				{
+					pod:       "uid1",
+					container: "c1",
+					value:     50,
+				},
+				{
+					pod:       "uid2",
+					container: "c2",
+					value:     8,
+				},
+				{
+					pod:       "uid3",
+					container: "c3",
+					value:     4,
+				},
+				{
+					pod:       "uid4",
+					container: "c4",
+					value:     70,
+				},
+			},
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			ckDir, err := ioutil.TempDir("", "checkpoint")
 			require.NoError(t, err)
-			defer os.RemoveAll(ckDir)
+			defer func() { _ = os.RemoveAll(ckDir) }()
 
 			sfDir, err := ioutil.TempDir("", "statefile")
 			require.NoError(t, err)
-			defer os.RemoveAll(sfDir)
+			defer func() { _ = os.RemoveAll(sfDir) }()
 
-			advisor, metaCache := newTestCPUResourceAdvisor(t, tt.pods, ckDir, sfDir)
+			mf := metric.NewFakeMetricsFetcher(metrics.DummyMetrics{}).(*metric.FakeMetricsFetcher)
+
+			advisor, metaCache := newTestCPUResourceAdvisor(t, tt.pods, ckDir, sfDir, mf)
 			advisor.startTime = time.Now().Add(-types.StartUpPeriod * 2)
 			advisor.conf.GetDynamicConfiguration().EnableReclaim = tt.enableReclaim
+
+			if len(tt.metrics) > 0 {
+				advisor.conf.IsolationDisabled = false
+				for _, m := range tt.metrics {
+					mf.SetContainerMetric(m.pod, m.container, metric_consts.MetricCPUNrRunnableContainer, m.value)
+				}
+			}
 
 			recvChInterface, sendChInterface := advisor.GetChannels()
 			recvCh := recvChInterface.(chan struct{})
@@ -573,11 +791,15 @@ func TestAdvisorUpdate(t *testing.T) {
 
 			// check provision
 			if !reflect.DeepEqual(tt.wantInternalCalculationResult, types.InternalCalculationResult{}) {
-				advisorResp := <-sendCh
-				if !reflect.DeepEqual(tt.wantInternalCalculationResult, advisorResp) {
-					t.Errorf("cpu provision\nexpected: %+v,\nactual: %+v", tt.wantInternalCalculationResult, advisorResp)
+				timeoutTick := time.NewTimer(time.Second * 5)
+				select {
+				case <-timeoutTick.C:
+					t.Errorf("timeout get response")
+				case advisorResp := <-sendCh:
+					if !reflect.DeepEqual(tt.wantInternalCalculationResult, advisorResp) {
+						t.Errorf("cpu provision\nexpected: %+v,\nactual: %+v", tt.wantInternalCalculationResult, advisorResp)
+					}
 				}
-
 			}
 
 			// check headroom

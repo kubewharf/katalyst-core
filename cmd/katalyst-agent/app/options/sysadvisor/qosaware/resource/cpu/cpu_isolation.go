@@ -58,7 +58,7 @@ func NewCPUIsolationOptions() *CPUIsolationOptions {
 		IsolationLockInThreshold:   1,
 		IsolationLockOutPeriodSecs: 30,
 
-		IsolationDisabled:      false,
+		IsolationDisabled:      true,
 		IsolationDisabledPools: []string{},
 	}
 }

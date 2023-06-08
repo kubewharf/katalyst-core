@@ -472,6 +472,10 @@ func (m *MalachiteMetricsFetcher) processCgroupCPUData(podUID, containerName str
 		m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricCPUThrottledPeriodContainer, float64(cpu.CPUNrPeriods))
 		m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricCPUThrottledTimeContainer, float64(cpu.CPUThrottledTime))
 
+		m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricCPUNrRunnableContainer, float64(cpu.TaskNrRunning))
+		m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricCPUNrUninterruptibleContainer, float64(cpu.TaskNrUninterruptible))
+		m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricCPUNrIOWaitContainer, float64(cpu.TaskNrIoWait))
+
 		m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricLoad1MinContainer, cpu.Load.One)
 		m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricLoad5MinContainer, cpu.Load.Five)
 		m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricLoad15MinContainer, cpu.Load.Fifteen)
@@ -487,6 +491,10 @@ func (m *MalachiteMetricsFetcher) processCgroupCPUData(podUID, containerName str
 		m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricCPUUsageRatioContainer, cpu.CPUUsageRatio)
 		m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricCPUUsageUserContainer, cpu.CPUUserUsageRatio)
 		m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricCPUUsageSysContainer, cpu.CPUSysUsageRatio)
+
+		m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricCPUNrRunnableContainer, float64(cpu.TaskNrRunning))
+		m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricCPUNrUninterruptibleContainer, float64(cpu.TaskNrUninterruptible))
+		m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricCPUNrIOWaitContainer, float64(cpu.TaskNrIoWait))
 
 		m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricLoad1MinContainer, cpu.Load.One)
 		m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricLoad5MinContainer, cpu.Load.Five)

@@ -415,9 +415,16 @@ func (cs *cpuServer) updateContainerInfo(podUID string, containerName string, in
 	}
 
 	ci.RampUp = info.RampUp
-	ci.OwnerPoolName = info.OwnerPoolName
 	ci.TopologyAwareAssignments = machine.TransformCPUAssignmentFormat(info.TopologyAwareAssignments)
 	ci.OriginalTopologyAwareAssignments = machine.TransformCPUAssignmentFormat(info.OriginalTopologyAwareAssignments)
+
+	// only reset pool-name according to QRM during starting process
+	if len(ci.OriginOwnerPoolName) == 0 {
+		ci.OriginOwnerPoolName = info.OwnerPoolName
+	}
+	if len(ci.OwnerPoolName) == 0 {
+		ci.OwnerPoolName = info.OwnerPoolName
+	}
 
 	// Need to set back because of deep copy
 	return cs.metaCache.SetContainerInfo(podUID, containerName, ci)

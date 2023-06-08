@@ -52,6 +52,7 @@ func (ci *ContainerInfo) Clone() *ContainerInfo {
 		MemoryRequest:                    ci.MemoryRequest,
 		MemoryLimit:                      ci.MemoryLimit,
 		RampUp:                           ci.RampUp,
+		OriginOwnerPoolName:              ci.OriginOwnerPoolName,
 		OwnerPoolName:                    ci.OwnerPoolName,
 		TopologyAwareAssignments:         ci.TopologyAwareAssignments.Clone(),
 		OriginalTopologyAwareAssignments: ci.OriginalTopologyAwareAssignments.Clone(),

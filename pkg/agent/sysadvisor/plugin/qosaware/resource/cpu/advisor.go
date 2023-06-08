@@ -24,6 +24,7 @@ import (
 
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/util/errors"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/klog/v2"
 
 	"github.com/kubewharf/katalyst-api/pkg/consts"
@@ -31,6 +32,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource/cpu/assembler/headroomassembler"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource/cpu/assembler/provisionassembler"
+	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource/cpu/isolation"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource/cpu/region"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource/cpu/region/headroompolicy"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource/cpu/region/provisionpolicy"
@@ -78,6 +80,8 @@ type cpuResourceAdvisor struct {
 	provisionAssembler provisionassembler.ProvisionAssembler
 	headroomAssembler  headroomassembler.HeadroomAssembler
 
+	isolator isolation.Isolator
+
 	mutex      sync.RWMutex
 	metaCache  metacache.MetaCache
 	metaServer *metaserver.MetaServer
@@ -101,6 +105,8 @@ func NewCPUResourceAdvisor(conf *config.Configuration, extraConf interface{}, me
 		numaAvailable:      make(map[int]int),
 		numRegionsPerNuma:  make(map[int]int),
 		nonBindingNumas:    machine.NewCPUSet(),
+
+		isolator: isolation.NewLoadIsolator(conf, extraConf, emitter, metaCache, metaServer),
 
 		metaCache:  metaCache,
 		metaServer: metaServer,
@@ -171,6 +177,7 @@ func (cra *cpuResourceAdvisor) update() {
 	}
 
 	cra.updateNumasAvailableResource()
+	cra.setIsolatedContainers()
 
 	// assign containers to regions
 	if err := cra.assignContainersToRegions(); err != nil {
@@ -208,6 +215,37 @@ func (cra *cpuResourceAdvisor) update() {
 	}
 	cra.sendCh <- calculationResult
 	klog.Infof("[qosaware-cpu] notify cpu server: %+v", calculationResult)
+}
+
+// setIsolatedContainers get isolation status from isolator and update into containers
+func (cra *cpuResourceAdvisor) setIsolatedContainers() {
+	isolatedPods := sets.NewString(cra.isolator.GetIsolatedPods()...)
+	if len(isolatedPods) > 0 {
+		general.Infof("current isolated pod: %v", isolatedPods.List())
+	}
+
+	_ = cra.metaCache.RangeAndUpdateContainer(func(podUID string, _ string, ci *types.ContainerInfo) bool {
+		if isolatedPods.Has(podUID) {
+			ci.Isolated = true
+			ci.OwnerPoolName = state.PoolNameIsolation + "-" + podUID
+
+			// ensure the existence of isolation pool
+			if _, ok := cra.metaCache.GetPoolInfo(ci.OwnerPoolName); !ok {
+				_ = cra.metaCache.SetPoolInfo(ci.OwnerPoolName, &types.PoolInfo{
+					PoolName: ci.OwnerPoolName,
+				})
+			}
+		} else if ci.Isolated {
+			ci.Isolated = false
+			ci.OwnerPoolName = ci.OriginOwnerPoolName
+
+			// ensure to delete the isolation pool
+			if _, ok := cra.metaCache.GetPoolInfo(ci.OwnerPoolName); ok {
+				_ = cra.metaCache.DeletePool(ci.OwnerPoolName)
+			}
+		}
+		return true
+	})
 }
 
 // assignContainersToRegions re-construct regions every time (instead of an incremental way),
@@ -255,7 +293,7 @@ func (cra *cpuResourceAdvisor) assignContainersToRegions() error {
 
 		return true
 	}
-	cra.metaCache.RangeAndUpdateContainer(f)
+	_ = cra.metaCache.RangeAndUpdateContainer(f)
 
 	return errors.NewAggregate(errList)
 }
@@ -277,6 +315,11 @@ func (cra *cpuResourceAdvisor) assignToRegions(ci *types.ContainerInfo) ([]regio
 		regions := cra.getPoolRegions(ci.OwnerPoolName)
 		if len(regions) > 0 {
 			return regions, nil
+		}
+
+		if ci.Isolated {
+			r := region.NewQoSRegionIsolation(ci, cra.conf, cra.extraConf, cra.metaCache, cra.metaServer, cra.emitter)
+			return []region.QoSRegion{r}, nil
 		}
 
 		// create one region by owner pool name

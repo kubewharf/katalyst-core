@@ -17,9 +17,10 @@ limitations under the License.
 package types
 
 import (
-	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
+
+	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
 const (
@@ -87,6 +88,9 @@ const (
 	// QoSRegionTypeShare for each share pool
 	QoSRegionTypeShare QoSRegionType = "share"
 
+	// QoSRegionTypeIsolation for each isolation pool
+	QoSRegionTypeIsolation QoSRegionType = "isolation"
+
 	// QoSRegionTypeDedicatedNumaExclusive for each dedicated core with numa binding
 	// and numa exclusive container
 	QoSRegionTypeDedicatedNumaExclusive QoSRegionType = "dedicated-numa-exclusive"
@@ -116,13 +120,14 @@ type ContainerInfo struct {
 
 	// Allocation information changing by list and watch
 	RampUp                           bool
-	OwnerPoolName                    string
+	OriginOwnerPoolName              string
 	TopologyAwareAssignments         TopologyAwareAssignment
 	OriginalTopologyAwareAssignments TopologyAwareAssignment
 
 	// QoS information updated by advisor
-	RegionNames sets.String
-	Isolated    bool
+	RegionNames   sets.String
+	Isolated      bool
+	OwnerPoolName string
 }
 
 // PoolInfo contains pool information for sysadvisor plugins
@@ -188,6 +193,11 @@ const (
 
 	// ControlKnobReclaimedCPUSupplied refers to the cpu resource could be supplied to the pods with reclaimed_cores QoS level
 	ControlKnobReclaimedCPUSupplied ControlKnobName = "reclaimed-cpu-supplied"
+
+	// ControlKnobNonIsolateCPUUpperSize refers to the cpuset size based on upper for isolated pods
+	// ControlKnobNonIsolateCPULowerSize refers to the cpuset size based on lower for isolated pods
+	ControlKnobNonIsolateCPUUpperSize ControlKnobName = "isolated-cpu-upper-size"
+	ControlKnobNonIsolateCPULowerSize ControlKnobName = "isolated-cpu-lower-size"
 )
 
 // ControlKnobValue holds control knob value and action
