@@ -20,8 +20,6 @@ import (
 	"time"
 
 	"k8s.io/apimachinery/pkg/util/sets"
-
-	"github.com/kubewharf/katalyst-core/pkg/config/dynamic"
 )
 
 type GenericEvictionConfiguration struct {
@@ -65,19 +63,10 @@ func NewGenericEvictionConfiguration() *GenericEvictionConfiguration {
 	}
 }
 
-func (c *GenericEvictionConfiguration) ApplyConfiguration(*GenericEvictionConfiguration, *dynamic.DynamicConfigCRD) {
-}
-
 func NewEvictionPluginsConfiguration() *EvictionPluginsConfiguration {
 	return &EvictionPluginsConfiguration{
 		ReclaimedResourcesEvictionPluginConfiguration: NewReclaimedResourcesEvictionPluginConfiguration(),
 		MemoryPressureEvictionPluginConfiguration:     NewMemoryPressureEvictionPluginConfiguration(),
 		CPUPressureEvictionPluginConfiguration:        NewCPUPressureEvictionPluginConfiguration(),
 	}
-}
-
-func (c *EvictionPluginsConfiguration) ApplyConfiguration(defaultConf *EvictionPluginsConfiguration, conf *dynamic.DynamicConfigCRD) {
-	c.ReclaimedResourcesEvictionPluginConfiguration.ApplyConfiguration(defaultConf.ReclaimedResourcesEvictionPluginConfiguration, conf)
-	c.MemoryPressureEvictionPluginConfiguration.ApplyConfiguration(defaultConf.MemoryPressureEvictionPluginConfiguration, conf)
-	c.CPUPressureEvictionPluginConfiguration.ApplyConfiguration(defaultConf.CPUPressureEvictionPluginConfiguration, conf)
 }

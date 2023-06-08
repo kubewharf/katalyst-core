@@ -21,7 +21,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	cliflag "k8s.io/component-base/cli/flag"
 
-	"github.com/kubewharf/katalyst-core/pkg/config/agent/global/adminqos"
+	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/adminqos"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 )
 
@@ -66,9 +66,9 @@ func (o *ReclaimedResourceOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 
 // ApplyTo fills up config with options
 func (o *ReclaimedResourceOptions) ApplyTo(c *adminqos.ReclaimedResourceConfiguration) error {
-	c.SetEnableReclaim(o.EnableReclaim)
-	c.SetReservedResourceForReport(v1.ResourceList(o.ReservedResourceForReport))
-	c.SetMinReclaimedResourceForReport(v1.ResourceList(o.MinReclaimedResourceForReport))
-	c.SetReservedResourceForAllocate(v1.ResourceList(o.ReservedResourceForAllocate))
+	c.EnableReclaim = o.EnableReclaim
+	c.ReservedResourceForReport = v1.ResourceList(o.ReservedResourceForReport)
+	c.MinReclaimedResourceForReport = v1.ResourceList(o.MinReclaimedResourceForReport)
+	c.ReservedResourceForAllocate = v1.ResourceList(o.ReservedResourceForAllocate)
 	return nil
 }

@@ -31,7 +31,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/evictionmanager/plugin"
 	"github.com/kubewharf/katalyst-core/pkg/client"
 	"github.com/kubewharf/katalyst-core/pkg/config"
-	evictionconfig "github.com/kubewharf/katalyst-core/pkg/config/agent/eviction"
+	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic"
 	"github.com/kubewharf/katalyst-core/pkg/config/generic"
 	"github.com/kubewharf/katalyst-core/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
@@ -58,8 +58,8 @@ func NewRssOveruseEvictionPlugin(_ *client.GenericClientSet, _ events.EventRecor
 		evictionHelper:     NewEvictionHelper(emitter, metaServer, conf),
 		supportedQosLevels: sets.NewString(apiconsts.PodAnnotationQoSLevelReclaimedCores, apiconsts.PodAnnotationQoSLevelSharedCores),
 
-		memoryEvictionPluginConfig: conf.MemoryPressureEvictionPluginConfiguration,
-		qosConf:                    conf.QoSConfiguration,
+		dynamicConfig: conf.DynamicAgentConfiguration,
+		qosConf:       conf.QoSConfiguration,
 	}
 }
 
@@ -77,8 +77,8 @@ type RssOveruseEvictionPlugin struct {
 	evictionHelper     *EvictionHelper
 	supportedQosLevels sets.String
 
-	memoryEvictionPluginConfig *evictionconfig.MemoryPressureEvictionPluginConfiguration
-	qosConf                    *generic.QoSConfiguration
+	dynamicConfig *dynamic.DynamicAgentConfiguration
+	qosConf       *generic.QoSConfiguration
 }
 
 func (r *RssOveruseEvictionPlugin) Name() string {
@@ -102,7 +102,7 @@ func (r *RssOveruseEvictionPlugin) GetTopEvictionPods(_ context.Context, _ *plug
 func (r *RssOveruseEvictionPlugin) GetEvictPods(_ context.Context, request *pluginapi.GetEvictPodsRequest) (*pluginapi.GetEvictPodsResponse, error) {
 	result := make([]*pluginapi.EvictPod, 0)
 
-	if !r.memoryEvictionPluginConfig.DynamicConf.EnableRssOveruseDetection() {
+	if !r.dynamicConfig.GetDynamicConfiguration().EnableRssOveruseDetection {
 		return &pluginapi.GetEvictPodsResponse{EvictPods: result}, nil
 	}
 
@@ -126,7 +126,7 @@ func (r *RssOveruseEvictionPlugin) GetEvictPods(_ context.Context, request *plug
 			continue
 		}
 
-		threshold := r.memoryEvictionPluginConfig.DynamicConf.RssOveruseRateThreshold()
+		threshold := r.dynamicConfig.GetDynamicConfiguration().RssOveruseRateThreshold
 		// user set threshold explicitly,use default value
 		if userSpecifiedThreshold != nil {
 			threshold = *userSpecifiedThreshold

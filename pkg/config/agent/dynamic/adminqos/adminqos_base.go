@@ -17,28 +17,19 @@ limitations under the License.
 package adminqos
 
 import (
-	cliflag "k8s.io/component-base/cli/flag"
-
-	"github.com/kubewharf/katalyst-core/pkg/config/agent/global/adminqos"
+	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/crd"
 )
 
-type AdminQoSOptions struct {
-	*ReclaimedResourceOptions
+type AdminQoSConfiguration struct {
+	*ReclaimedResourceConfiguration
 }
 
-func NewAdminQoSOptions() *AdminQoSOptions {
-	return &AdminQoSOptions{
-		ReclaimedResourceOptions: NewReclaimedResourceOptions(),
+func NewAdminQoSConfiguration() *AdminQoSConfiguration {
+	return &AdminQoSConfiguration{
+		ReclaimedResourceConfiguration: NewReclaimedResourceConfiguration(),
 	}
 }
 
-func (o *AdminQoSOptions) AddFlags(fss *cliflag.NamedFlagSets) {
-	o.ReclaimedResourceOptions.AddFlags(fss)
-}
-
-func (o *AdminQoSOptions) ApplyTo(c *adminqos.AdminQoSConfiguration) error {
-	if err := o.ReclaimedResourceOptions.ApplyTo(c.ReclaimedResourceConfiguration); err != nil {
-		return err
-	}
-	return nil
+func (c *AdminQoSConfiguration) ApplyConfiguration(conf *crd.DynamicConfigCRD) {
+	c.ReclaimedResourceConfiguration.ApplyConfiguration(conf)
 }

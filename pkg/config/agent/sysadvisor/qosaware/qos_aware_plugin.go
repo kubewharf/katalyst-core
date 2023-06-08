@@ -22,7 +22,6 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/sysadvisor/qosaware/reporter"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/sysadvisor/qosaware/resource"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/sysadvisor/qosaware/server"
-	"github.com/kubewharf/katalyst-core/pkg/config/dynamic"
 )
 
 // QoSAwarePluginConfiguration stores configurations of qos aware plugin
@@ -41,11 +40,4 @@ func NewQoSAwarePluginConfiguration() *QoSAwarePluginConfiguration {
 		QRMServerConfiguration:        server.NewQRMServerConfiguration(),
 		HeadroomReporterConfiguration: reporter.NewHeadroomReporterConfiguration(),
 	}
-}
-
-// ApplyConfiguration is used to set configuration based on conf.
-func (c *QoSAwarePluginConfiguration) ApplyConfiguration(defaultConf *QoSAwarePluginConfiguration, conf *dynamic.DynamicConfigCRD) {
-	c.ResourceAdvisorConfiguration.ApplyConfiguration(defaultConf.ResourceAdvisorConfiguration, conf)
-	c.QRMServerConfiguration.ApplyConfiguration(defaultConf.QRMServerConfiguration, conf)
-	c.HeadroomReporterConfiguration.ApplyConfiguration(defaultConf.HeadroomReporterConfiguration, conf)
 }

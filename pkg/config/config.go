@@ -22,32 +22,10 @@ package config // import "github.com/kubewharf/katalyst-core/pkg/config"
 import (
 	"github.com/kubewharf/katalyst-core/pkg/config/agent"
 	"github.com/kubewharf/katalyst-core/pkg/config/controller"
-	"github.com/kubewharf/katalyst-core/pkg/config/dynamic"
 	"github.com/kubewharf/katalyst-core/pkg/config/generic"
 	"github.com/kubewharf/katalyst-core/pkg/config/metric"
 	"github.com/kubewharf/katalyst-core/pkg/config/webhook"
 )
-
-// DynamicConfiguration stores all the configurations needed by core katalyst components,
-// and those configurations can be modified dynamically
-type DynamicConfiguration struct {
-	// those configurations are used by agents
-	*agent.GenericAgentConfiguration
-	*agent.AgentConfiguration
-}
-
-func NewDynamicConfiguration() *DynamicConfiguration {
-	return &DynamicConfiguration{
-		GenericAgentConfiguration: agent.NewGenericAgentConfiguration(),
-		AgentConfiguration:        agent.NewAgentConfiguration(),
-	}
-}
-
-// ApplyConfiguration is used to set configuration contents by CR dynamically.
-func (d *DynamicConfiguration) ApplyConfiguration(defaultConf *DynamicConfiguration, conf *dynamic.DynamicConfigCRD) {
-	d.GenericAgentConfiguration.ApplyConfiguration(defaultConf.GenericAgentConfiguration, conf)
-	d.AgentConfiguration.ApplyConfiguration(defaultConf.AgentConfiguration, conf)
-}
 
 // Configuration stores all the configurations needed by core katalyst components,
 // both for static config (only support to be modified by flag) and dynamic config
@@ -67,7 +45,7 @@ type Configuration struct {
 	*metric.GenericMetricConfiguration
 	*metric.CustomMetricConfiguration
 
-	*DynamicConfiguration
+	*agent.AgentConfiguration
 }
 
 func NewConfiguration() *Configuration {
@@ -79,6 +57,6 @@ func NewConfiguration() *Configuration {
 		ControllersConfiguration:       controller.NewControllersConfiguration(),
 		GenericMetricConfiguration:     metric.NewGenericMetricConfiguration(),
 		CustomMetricConfiguration:      metric.NewCustomMetricConfiguration(),
-		DynamicConfiguration:           NewDynamicConfiguration(),
+		AgentConfiguration:             agent.NewAgentConfiguration(),
 	}
 }

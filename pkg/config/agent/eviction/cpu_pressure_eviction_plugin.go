@@ -18,8 +18,6 @@ package eviction
 
 import (
 	"time"
-
-	"github.com/kubewharf/katalyst-core/pkg/config/dynamic"
 )
 
 // CPUPressureEvictionPluginConfiguration is the config of CPUPressureEvictionPlugin
@@ -38,9 +36,4 @@ type CPUPressureEvictionPluginConfiguration struct {
 // NewCPUPressureEvictionPluginConfiguration returns a new CPUPressureEvictionPluginConfiguration
 func NewCPUPressureEvictionPluginConfiguration() *CPUPressureEvictionPluginConfiguration {
 	return &CPUPressureEvictionPluginConfiguration{}
-}
-
-// ApplyConfiguration applies dynamic.DynamicConfigCRD to CPUPressureEvictionPluginConfiguration
-func (c *CPUPressureEvictionPluginConfiguration) ApplyConfiguration(*CPUPressureEvictionPluginConfiguration,
-	*dynamic.DynamicConfigCRD) {
 }

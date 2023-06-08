@@ -20,8 +20,6 @@ import (
 	"time"
 
 	v1 "k8s.io/api/core/v1"
-
-	"github.com/kubewharf/katalyst-core/pkg/config/dynamic"
 )
 
 // HeadroomReporterConfiguration stores configurations of headroom reporters in qos aware plugin
@@ -43,10 +41,6 @@ func NewHeadroomReporterConfiguration() *HeadroomReporterConfiguration {
 		CPUHeadroomManagerConfiguration:      NewCPUHeadroomManagerConfiguration(),
 		MemoryHeadroomManagerConfiguration:   NewMemoryHeadroomManagerConfiguration(),
 	}
-}
-
-// ApplyConfiguration is used to set configuration based on conf.
-func (c *HeadroomReporterConfiguration) ApplyConfiguration(*HeadroomReporterConfiguration, *dynamic.DynamicConfigCRD) {
 }
 
 type CPUHeadroomManagerConfiguration struct {

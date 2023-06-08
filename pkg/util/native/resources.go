@@ -17,6 +17,11 @@ limitations under the License.
 package native
 
 import (
+	"fmt"
+	"sort"
+	"strconv"
+	"strings"
+
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/klog/v2"
@@ -24,6 +29,39 @@ import (
 	"github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 )
+
+// ResourceThreshold is map of resource name to threshold of water level
+type ResourceThreshold map[v1.ResourceName]float64
+
+func (t *ResourceThreshold) Type() string {
+	return "ResourceThreshold"
+}
+
+func (t *ResourceThreshold) String() string {
+	var pairs []string
+	for k, v := range *t {
+		pairs = append(pairs, fmt.Sprintf("%s=%f", k, v))
+	}
+	sort.Strings(pairs)
+	return strings.Join(pairs, ",")
+}
+
+func (t *ResourceThreshold) Set(value string) error {
+	for _, s := range strings.Split(value, ",") {
+		if len(s) == 0 {
+			continue
+		}
+		arr := strings.SplitN(s, "=", 2)
+		if len(arr) == 2 {
+			parseFloat, err := strconv.ParseFloat(arr[1], 64)
+			if err != nil {
+				return err
+			}
+			(*t)[v1.ResourceName(strings.TrimSpace(arr[0]))] = parseFloat
+		}
+	}
+	return nil
+}
 
 // ResourcesEqual checks whether the given resources are equal with each other
 func ResourcesEqual(a, b v1.ResourceList) bool {

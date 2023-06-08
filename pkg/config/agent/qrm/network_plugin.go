@@ -16,10 +16,6 @@ limitations under the License.
 
 package qrm
 
-import (
-	"github.com/kubewharf/katalyst-core/pkg/config/dynamic"
-)
-
 // NetworkQRMPluginConfig is the config of network QRM plugin
 type NetworkQRMPluginConfig struct {
 	// PolicyName is used to switch between several strategies
@@ -49,8 +45,4 @@ type NetClassConfig struct {
 // NewNetworkQRMPluginConfig returns a NetworkQRMPluginConfig
 func NewNetworkQRMPluginConfig() *NetworkQRMPluginConfig {
 	return &NetworkQRMPluginConfig{}
-}
-
-// ApplyConfiguration applies the DynamicConfigCRD to NetworkQRMPluginConfig
-func (c *NetworkQRMPluginConfig) ApplyConfiguration(_ *NetworkQRMPluginConfig, _ *dynamic.DynamicConfigCRD) {
 }

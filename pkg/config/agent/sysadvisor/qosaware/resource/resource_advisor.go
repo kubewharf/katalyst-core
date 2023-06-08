@@ -19,7 +19,6 @@ package resource
 import (
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/sysadvisor/qosaware/resource/cpu"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/sysadvisor/qosaware/resource/memory"
-	"github.com/kubewharf/katalyst-core/pkg/config/dynamic"
 )
 
 // ResourceAdvisorConfiguration stores configurations of resource advisors in qos aware plugin
@@ -37,10 +36,4 @@ func NewResourceAdvisorConfiguration() *ResourceAdvisorConfiguration {
 		CPUAdvisorConfiguration:    cpu.NewCPUAdvisorConfiguration(),
 		MemoryAdvisorConfiguration: memory.NewMemoryAdvisorConfiguration(),
 	}
-}
-
-// ApplyConfiguration is used to set configuration based on conf.
-func (c *ResourceAdvisorConfiguration) ApplyConfiguration(defaultConf *ResourceAdvisorConfiguration, conf *dynamic.DynamicConfigCRD) {
-	c.CPUAdvisorConfiguration.ApplyConfiguration(defaultConf.CPUAdvisorConfiguration, conf)
-	c.MemoryAdvisorConfiguration.ApplyConfiguration(defaultConf.MemoryAdvisorConfiguration, conf)
 }

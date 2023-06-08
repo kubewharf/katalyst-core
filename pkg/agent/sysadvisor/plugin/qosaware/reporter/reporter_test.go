@@ -65,7 +65,7 @@ func generateTestConfiguration(t *testing.T, dir string) *config.Configuration {
 	require.NoError(t, err)
 	require.NotNil(t, testConfiguration)
 
-	testConfiguration.ReclaimedResourceConfiguration.SetEnableReclaim(true)
+	testConfiguration.GetDynamicConfiguration().EnableReclaim = true
 
 	testConfiguration.PluginRegistrationDir = dir
 	testConfiguration.CheckpointManagerDir = dir

@@ -16,8 +16,6 @@ limitations under the License.
 
 package server
 
-import "github.com/kubewharf/katalyst-core/pkg/config/dynamic"
-
 // QRMServerConfiguration stores configurations of qrm servers in qos aware plugin
 type QRMServerConfiguration struct {
 	QRMServers []string
@@ -26,8 +24,4 @@ type QRMServerConfiguration struct {
 // NewQRMServerConfiguration creates new qrm server configurations
 func NewQRMServerConfiguration() *QRMServerConfiguration {
 	return &QRMServerConfiguration{}
-}
-
-// ApplyConfiguration is used to set configuration based on conf.
-func (c *QRMServerConfiguration) ApplyConfiguration(*QRMServerConfiguration, *dynamic.DynamicConfigCRD) {
 }

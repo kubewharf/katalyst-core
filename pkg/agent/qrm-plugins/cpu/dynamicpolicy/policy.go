@@ -40,8 +40,8 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/validator"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util"
 	"github.com/kubewharf/katalyst-core/pkg/config"
-	"github.com/kubewharf/katalyst-core/pkg/config/agent/global/adminqos"
-	"github.com/kubewharf/katalyst-core/pkg/config/dynamic"
+	dynamicconfig "github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic"
+	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/crd"
 	"github.com/kubewharf/katalyst-core/pkg/config/generic"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
@@ -123,7 +123,7 @@ type DynamicPolicy struct {
 	enableSyncingCPUIdle          bool
 	reclaimRelativeRootCgroupPath string
 	qosConfig                     *generic.QoSConfiguration
-	reclaimedResourceConfig       *adminqos.ReclaimedResourceConfiguration
+	dynamicConfig                 *dynamicconfig.DynamicAgentConfiguration
 	podDebugAnnoKeys              []string
 }
 
@@ -180,7 +180,7 @@ func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration
 		cpuEvictionPlugin: cpuEvictionPlugin,
 
 		qosConfig:                     conf.QoSConfiguration,
-		reclaimedResourceConfig:       conf.ReclaimedResourceConfiguration,
+		dynamicConfig:                 conf.DynamicAgentConfiguration,
 		cpuAdvisorSocketAbsPath:       conf.CPUAdvisorSocketAbsPath,
 		cpuPluginSocketAbsPath:        conf.CPUPluginSocketAbsPath,
 		enableCPUSysAdvisor:           conf.CPUQRMPluginConfig.EnableSysAdvisor,
@@ -221,7 +221,7 @@ func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration
 		return false, agent.ComponentStub{}, fmt.Errorf("dynamic policy initReclaimPool failed with error: %v", err)
 	}
 
-	err = agentCtx.MetaServer.ConfigurationManager.AddConfigWatcher(dynamic.AdminQoSConfigurationGVR)
+	err = agentCtx.MetaServer.ConfigurationManager.AddConfigWatcher(crd.AdminQoSConfigurationGVR)
 	if err != nil {
 		return false, nil, err
 	}

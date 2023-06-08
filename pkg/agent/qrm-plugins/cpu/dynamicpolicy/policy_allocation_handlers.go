@@ -572,7 +572,7 @@ func (p *DynamicPolicy) adjustPoolsAndIsolatedEntries(poolsQuantityMap map[strin
 // with the intersection of previous reclaim pool and non-ramp-up dedicated_cores numa_binding containers
 func (p *DynamicPolicy) reclaimOverlapNUMABinding(poolsCPUSet map[string]machine.CPUSet, entries state.PodEntries) error {
 	// reclaimOverlapNUMABinding only works with cpu advisor and reclaim enabled
-	if !(p.enableCPUSysAdvisor && p.reclaimedResourceConfig.EnableReclaim()) {
+	if !(p.enableCPUSysAdvisor && p.dynamicConfig.GetDynamicConfiguration().EnableReclaim) {
 		return nil
 	}
 
@@ -941,7 +941,7 @@ func (p *DynamicPolicy) generatePoolsAndIsolation(poolsQuantityMap map[string]in
 		poolsCPUSet[state.PoolNameReclaim] = reclaimedCPUSet
 	}
 
-	enableReclaim := p.reclaimedResourceConfig.EnableReclaim()
+	enableReclaim := p.dynamicConfig.GetDynamicConfiguration().EnableReclaim
 	if !enableReclaim && poolsCPUSet[state.PoolNameReclaim].Size() > reservedReclaimedCPUsSize {
 		poolsCPUSet[state.PoolNameReclaim] = p.apportionReclaimedPool(poolsCPUSet, poolsCPUSet[state.PoolNameReclaim].Clone())
 		general.Infof("apportionReclaimedPool finished, current %s pool: %s",

@@ -25,13 +25,13 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/kubewharf/katalyst-api/pkg/apis/config/v1alpha1"
-	"github.com/kubewharf/katalyst-core/pkg/config/dynamic"
+	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/crd"
 )
 
 func TestNewCheckpoint(t *testing.T) {
 	now := metav1.Now()
 	kind := "EvictionConfiguration"
-	crd := &dynamic.DynamicConfigCRD{
+	dynamicCRD := &crd.DynamicConfigCRD{
 		EvictionConfiguration: &v1alpha1.EvictionConfiguration{
 			Spec: v1alpha1.EvictionConfigurationSpec{
 				Config: v1alpha1.EvictionConfig{
@@ -47,7 +47,7 @@ func TestNewCheckpoint(t *testing.T) {
 		},
 	}
 
-	configField := reflect.ValueOf(crd).Elem().FieldByName(kind)
+	configField := reflect.ValueOf(dynamicCRD).Elem().FieldByName(kind)
 
 	cp := NewCheckpoint(make(map[string]TargetConfigData))
 	cp.SetData(kind, configField, now)
@@ -61,10 +61,10 @@ func TestNewCheckpoint(t *testing.T) {
 	err = cp.VerifyChecksum()
 	assert.NoError(t, err)
 
-	dynamicConfigCRD := &dynamic.DynamicConfigCRD{}
+	dynamicConfigCRD := &crd.DynamicConfigCRD{}
 	configData, timestamp := cp.GetData(kind)
 	configField = reflect.ValueOf(dynamicConfigCRD).Elem().FieldByName(kind)
 	configField.Set(configData)
 	assert.Equal(t, metav1.Unix(now.Unix(), 0), timestamp)
-	assert.Equal(t, crd, dynamicConfigCRD)
+	assert.Equal(t, dynamicCRD, dynamicConfigCRD)
 }

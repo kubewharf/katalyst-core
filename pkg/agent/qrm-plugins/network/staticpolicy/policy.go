@@ -33,6 +33,7 @@ import (
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/agent"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util"
 	"github.com/kubewharf/katalyst-core/pkg/config"
+	agentconfig "github.com/kubewharf/katalyst-core/pkg/config/agent"
 	"github.com/kubewharf/katalyst-core/pkg/config/generic"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
@@ -108,7 +109,7 @@ func NewStaticPolicy(agentCtx *agent.GenericContext, conf *config.Configuration,
 		policyImplement.applyNetClassFunc = cgroupcmutils.ApplyNetClsForContainer
 	}
 
-	policyImplement.ApplyConfig(conf.DynamicConfiguration)
+	policyImplement.ApplyConfig(conf.StaticAgentConfiguration)
 
 	pluginWrapper, err := skeleton.NewRegistrationPluginWrapper(
 		policyImplement, conf.QRMPluginSocketDirs, nil)
@@ -120,7 +121,7 @@ func NewStaticPolicy(agentCtx *agent.GenericContext, conf *config.Configuration,
 }
 
 // ApplyConfig applies config to StaticPolicy
-func (p *StaticPolicy) ApplyConfig(conf *config.DynamicConfiguration) {
+func (p *StaticPolicy) ApplyConfig(conf *agentconfig.StaticAgentConfiguration) {
 	p.Lock()
 	defer p.Unlock()
 

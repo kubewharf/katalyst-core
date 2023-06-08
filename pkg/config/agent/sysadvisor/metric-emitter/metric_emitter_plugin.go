@@ -20,8 +20,6 @@ import (
 	"time"
 
 	"k8s.io/apimachinery/pkg/util/sets"
-
-	"github.com/kubewharf/katalyst-core/pkg/config/dynamic"
 )
 
 // MetricEmitterPluginConfiguration stores configurations of custom-metric emitter plugin
@@ -48,8 +46,4 @@ func NewMetricEmitterPluginConfiguration() *MetricEmitterPluginConfiguration {
 
 		NodeMetricLabel: make(sets.String),
 	}
-}
-
-// ApplyConfiguration is used to set configuration based on conf.
-func (c *MetricEmitterPluginConfiguration) ApplyConfiguration(*MetricEmitterPluginConfiguration, *dynamic.DynamicConfigCRD) {
 }

@@ -18,8 +18,6 @@ package metacache
 
 import (
 	"time"
-
-	"github.com/kubewharf/katalyst-core/pkg/config/dynamic"
 )
 
 // MetaCachePluginConfiguration stores configurations of metacache Plugin
@@ -30,8 +28,4 @@ type MetaCachePluginConfiguration struct {
 // NewMetaCachePluginConfiguration creates a new metacache Plugin configuration.
 func NewMetaCachePluginConfiguration() *MetaCachePluginConfiguration {
 	return &MetaCachePluginConfiguration{}
-}
-
-// ApplyConfiguration is used to set configuration based on conf.
-func (c *MetaCachePluginConfiguration) ApplyConfiguration(*MetaCachePluginConfiguration, *dynamic.DynamicConfigCRD) {
 }

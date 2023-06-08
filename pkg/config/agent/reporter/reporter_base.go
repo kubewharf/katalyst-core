@@ -18,8 +18,6 @@ package reporter
 
 import (
 	"time"
-
-	"github.com/kubewharf/katalyst-core/pkg/config/dynamic"
 )
 
 type GenericReporterConfiguration struct {
@@ -43,15 +41,8 @@ func NewGenericReporterConfiguration() *GenericReporterConfiguration {
 	return &GenericReporterConfiguration{}
 }
 
-func (c *GenericReporterConfiguration) ApplyConfiguration(*GenericReporterConfiguration, *dynamic.DynamicConfigCRD) {
-}
-
 func NewReporterPluginsConfiguration() *ReporterPluginsConfiguration {
 	return &ReporterPluginsConfiguration{
 		KubeletPluginConfiguration: NewKubeletPluginConfiguration(),
 	}
-}
-
-func (c *ReporterPluginsConfiguration) ApplyConfiguration(defaultConf *ReporterPluginsConfiguration, conf *dynamic.DynamicConfigCRD) {
-	c.KubeletPluginConfiguration.ApplyConfiguration(defaultConf.KubeletPluginConfiguration, conf)
 }

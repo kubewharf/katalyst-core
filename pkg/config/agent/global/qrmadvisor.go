@@ -16,10 +16,6 @@ limitations under the License.
 
 package global
 
-import (
-	"github.com/kubewharf/katalyst-core/pkg/config/dynamic"
-)
-
 type QRMAdvisorConfiguration struct {
 	CPUAdvisorSocketAbsPath string
 	CPUPluginSocketAbsPath  string
@@ -27,7 +23,4 @@ type QRMAdvisorConfiguration struct {
 
 func NewQRMAdvisorConfiguration() *QRMAdvisorConfiguration {
 	return &QRMAdvisorConfiguration{}
-}
-
-func (qa *QRMAdvisorConfiguration) ApplyConfiguration(*QRMAdvisorConfiguration, *dynamic.DynamicConfigCRD) {
 }

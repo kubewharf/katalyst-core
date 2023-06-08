@@ -19,7 +19,6 @@ package cpu
 import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/sysadvisor/qosaware/resource/cpu/headroom"
-	"github.com/kubewharf/katalyst-core/pkg/config/dynamic"
 )
 
 // CPUAdvisorConfiguration stores configurations of cpu advisors in qos aware plugin
@@ -41,9 +40,4 @@ func NewCPUAdvisorConfiguration() *CPUAdvisorConfiguration {
 		HeadroomAssembler:              types.CPUHeadroomAssemblerCommon,
 		CPUHeadroomPolicyConfiguration: headroom.NewCPUHeadroomPolicyConfiguration(),
 	}
-}
-
-// ApplyConfiguration is used to set configuration based on conf.
-func (c *CPUAdvisorConfiguration) ApplyConfiguration(defaultConf *CPUAdvisorConfiguration, conf *dynamic.DynamicConfigCRD) {
-	c.CPUHeadroomPolicyConfiguration.ApplyConfiguration(defaultConf.CPUHeadroomPolicyConfiguration, conf)
 }

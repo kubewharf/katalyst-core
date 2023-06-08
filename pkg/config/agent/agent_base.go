@@ -17,14 +17,30 @@ limitations under the License.
 package agent
 
 import (
+	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/eviction"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/global"
-	"github.com/kubewharf/katalyst-core/pkg/config/agent/global/adminqos"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/qrm"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/reporter"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/sysadvisor"
-	"github.com/kubewharf/katalyst-core/pkg/config/dynamic"
 )
+
+// AgentConfiguration stores all the configurations needed by core katalyst components,
+// and those configurations can be modified dynamically
+type AgentConfiguration struct {
+	// those configurations are used by agents
+	*GenericAgentConfiguration
+	*StaticAgentConfiguration
+	*dynamic.DynamicAgentConfiguration
+}
+
+func NewAgentConfiguration() *AgentConfiguration {
+	return &AgentConfiguration{
+		GenericAgentConfiguration: NewGenericAgentConfiguration(),
+		StaticAgentConfiguration:  NewStaticAgentConfiguration(),
+		DynamicAgentConfiguration: dynamic.NewDynamicAgentConfiguration(),
+	}
+}
 
 type GenericAgentConfiguration struct {
 	// those configurations should be used as generic configurations, and
@@ -33,7 +49,6 @@ type GenericAgentConfiguration struct {
 	*global.PluginManagerConfiguration
 	*global.MetaServerConfiguration
 	*global.QRMAdvisorConfiguration
-	*adminqos.AdminQoSConfiguration
 
 	*eviction.GenericEvictionConfiguration
 	*reporter.GenericReporterConfiguration
@@ -41,7 +56,7 @@ type GenericAgentConfiguration struct {
 	*qrm.GenericQRMPluginConfiguration
 }
 
-type AgentConfiguration struct {
+type StaticAgentConfiguration struct {
 	*eviction.EvictionPluginsConfiguration
 	*reporter.ReporterPluginsConfiguration
 	*sysadvisor.SysAdvisorPluginsConfiguration
@@ -54,7 +69,6 @@ func NewGenericAgentConfiguration() *GenericAgentConfiguration {
 		PluginManagerConfiguration:     global.NewPluginManagerConfiguration(),
 		MetaServerConfiguration:        global.NewMetaServerConfiguration(),
 		QRMAdvisorConfiguration:        global.NewQRMAdvisorConfiguration(),
-		AdminQoSConfiguration:          adminqos.NewAdminQoSConfiguration(),
 		GenericEvictionConfiguration:   eviction.NewGenericEvictionConfiguration(),
 		GenericReporterConfiguration:   reporter.NewGenericReporterConfiguration(),
 		GenericSysAdvisorConfiguration: sysadvisor.NewGenericSysAdvisorConfiguration(),
@@ -62,30 +76,11 @@ func NewGenericAgentConfiguration() *GenericAgentConfiguration {
 	}
 }
 
-func (c *GenericAgentConfiguration) ApplyConfiguration(defaultConf *GenericAgentConfiguration, conf *dynamic.DynamicConfigCRD) {
-	c.BaseConfiguration.ApplyConfiguration(defaultConf.BaseConfiguration, conf)
-	c.MetaServerConfiguration.ApplyConfiguration(defaultConf.MetaServerConfiguration, conf)
-	c.PluginManagerConfiguration.ApplyConfiguration(defaultConf.PluginManagerConfiguration, conf)
-	c.AdminQoSConfiguration.ApplyConfiguration(defaultConf.ReclaimedResourceConfiguration, conf)
-	c.QRMAdvisorConfiguration.ApplyConfiguration(defaultConf.QRMAdvisorConfiguration, conf)
-	c.GenericEvictionConfiguration.ApplyConfiguration(defaultConf.GenericEvictionConfiguration, conf)
-	c.GenericReporterConfiguration.ApplyConfiguration(defaultConf.GenericReporterConfiguration, conf)
-	c.GenericSysAdvisorConfiguration.ApplyConfiguration(defaultConf.GenericSysAdvisorConfiguration, conf)
-	c.GenericQRMPluginConfiguration.ApplyConfiguration(defaultConf.GenericQRMPluginConfiguration, conf)
-}
-
-func NewAgentConfiguration() *AgentConfiguration {
-	return &AgentConfiguration{
+func NewStaticAgentConfiguration() *StaticAgentConfiguration {
+	return &StaticAgentConfiguration{
 		EvictionPluginsConfiguration:   eviction.NewEvictionPluginsConfiguration(),
 		ReporterPluginsConfiguration:   reporter.NewReporterPluginsConfiguration(),
 		SysAdvisorPluginsConfiguration: sysadvisor.NewSysAdvisorPluginsConfiguration(),
 		QRMPluginsConfiguration:        qrm.NewQRMPluginsConfiguration(),
 	}
-}
-
-func (c *AgentConfiguration) ApplyConfiguration(defaultConf *AgentConfiguration, conf *dynamic.DynamicConfigCRD) {
-	c.EvictionPluginsConfiguration.ApplyConfiguration(defaultConf.EvictionPluginsConfiguration, conf)
-	c.ReporterPluginsConfiguration.ApplyConfiguration(defaultConf.ReporterPluginsConfiguration, conf)
-	c.SysAdvisorPluginsConfiguration.ApplyConfiguration(defaultConf.SysAdvisorPluginsConfiguration, conf)
-	c.QRMPluginsConfiguration.ApplyConfiguration(defaultConf.QRMPluginsConfiguration, conf)
 }

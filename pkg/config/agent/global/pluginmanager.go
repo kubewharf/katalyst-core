@@ -16,15 +16,10 @@ limitations under the License.
 
 package global
 
-import "github.com/kubewharf/katalyst-core/pkg/config/dynamic"
-
 type PluginManagerConfiguration struct {
 	PluginRegistrationDir string
 }
 
 func NewPluginManagerConfiguration() *PluginManagerConfiguration {
 	return &PluginManagerConfiguration{}
-}
-
-func (c *PluginManagerConfiguration) ApplyConfiguration(*PluginManagerConfiguration, *dynamic.DynamicConfigCRD) {
 }

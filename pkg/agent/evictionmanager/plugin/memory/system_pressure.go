@@ -29,7 +29,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/evictionmanager/plugin"
 	"github.com/kubewharf/katalyst-core/pkg/client"
 	"github.com/kubewharf/katalyst-core/pkg/config"
-	evictionconfig "github.com/kubewharf/katalyst-core/pkg/config/agent/eviction"
+	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
@@ -46,14 +46,14 @@ const (
 func NewSystemPressureEvictionPlugin(_ *client.GenericClientSet, _ events.EventRecorder,
 	metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter, conf *config.Configuration) plugin.EvictionPlugin {
 	return &SystemPressureEvictionPlugin{
-		pluginName:                 EvictionPluginNameSystemMemoryPressure,
-		emitter:                    emitter,
-		StopControl:                process.NewStopControl(time.Time{}),
-		metaServer:                 metaServer,
-		evictionManagerSyncPeriod:  conf.EvictionManagerSyncPeriod,
-		memoryEvictionPluginConfig: conf.MemoryPressureEvictionPluginConfiguration,
-		reclaimedPodFilter:         conf.CheckReclaimedQoSForPod,
-		evictionHelper:             NewEvictionHelper(emitter, metaServer, conf),
+		pluginName:                EvictionPluginNameSystemMemoryPressure,
+		emitter:                   emitter,
+		StopControl:               process.NewStopControl(time.Time{}),
+		metaServer:                metaServer,
+		evictionManagerSyncPeriod: conf.EvictionManagerSyncPeriod,
+		dynamicConf:               conf.DynamicAgentConfiguration,
+		reclaimedPodFilter:        conf.CheckReclaimedQoSForPod,
+		evictionHelper:            NewEvictionHelper(emitter, metaServer, conf),
 	}
 }
 
@@ -69,7 +69,7 @@ type SystemPressureEvictionPlugin struct {
 	metaServer                *metaserver.MetaServer
 	evictionHelper            *EvictionHelper
 
-	memoryEvictionPluginConfig *evictionconfig.MemoryPressureEvictionPluginConfiguration
+	dynamicConf *dynamic.DynamicAgentConfiguration
 
 	systemAction                int
 	isUnderSystemPressure       bool
@@ -90,7 +90,7 @@ func (s *SystemPressureEvictionPlugin) ThresholdMet(_ context.Context) (*plugina
 		MetType: pluginapi.ThresholdMetType_NOT_MET,
 	}
 
-	if !s.memoryEvictionPluginConfig.DynamicConf.EnableSystemLevelDetection() {
+	if !s.dynamicConf.GetDynamicConfiguration().EnableSystemLevelDetection {
 		return resp, nil
 	}
 
@@ -171,12 +171,13 @@ func (s *SystemPressureEvictionPlugin) detectSystemKswapdStealPressure() {
 		return
 	}
 
+	dynamicConf := s.dynamicConf.GetDynamicConfiguration()
 	general.Infof("system kswapd metrics, "+
 		"kswapdSteal: %+v, kswapdStealPreviousCycle: %+v, systemKswapdRateThreshold: %+v, evictionManagerSyncPeriod: %+v, "+
 		"systemKswapdRateExceedTimes: %+v, systemKswapdRateExceedTimesThreshold: %+v",
-		kswapdSteal, s.kswapdStealPreviousCycle, s.memoryEvictionPluginConfig.DynamicConf.SystemKswapdRateThreshold(),
+		kswapdSteal, s.kswapdStealPreviousCycle, dynamicConf.SystemKswapdRateThreshold,
 		s.evictionManagerSyncPeriod.Seconds(), s.systemKswapdRateExceedTimes,
-		s.memoryEvictionPluginConfig.DynamicConf.SystemKswapdRateExceedTimesThreshold())
+		dynamicConf.SystemKswapdRateExceedTimesThreshold)
 	_ = s.emitter.StoreFloat64(metricsNameSystemMetric, float64(s.systemKswapdRateExceedTimes), metrics.MetricTypeNameRaw,
 		metrics.ConvertMapToTags(map[string]string{
 			metricsTagKeyMetricName: metricsTagValueSystemKswapdRateExceedTimes,
@@ -193,13 +194,13 @@ func (s *SystemPressureEvictionPlugin) detectSystemKswapdStealPressure() {
 		return
 	}
 
-	if kswapdSteal-kswapdStealPreviousCycle >= float64(s.memoryEvictionPluginConfig.DynamicConf.SystemKswapdRateThreshold())*s.evictionManagerSyncPeriod.Seconds() {
+	if kswapdSteal-kswapdStealPreviousCycle >= float64(dynamicConf.SystemKswapdRateThreshold)*s.evictionManagerSyncPeriod.Seconds() {
 		s.systemKswapdRateExceedTimes++
 	} else {
 		s.systemKswapdRateExceedTimes = 0
 	}
 
-	if s.systemKswapdRateExceedTimes >= s.memoryEvictionPluginConfig.DynamicConf.SystemKswapdRateExceedTimesThreshold() {
+	if s.systemKswapdRateExceedTimes >= dynamicConf.SystemKswapdRateExceedTimesThreshold {
 		s.isUnderSystemPressure = true
 		s.systemAction = actionEviction
 	}
@@ -215,15 +216,16 @@ func (s *SystemPressureEvictionPlugin) GetTopEvictionPods(_ context.Context, req
 		return &pluginapi.GetTopEvictionPodsResponse{}, nil
 	}
 
+	dynamicConf := s.dynamicConf.GetDynamicConfiguration()
 	targetPods := make([]*v1.Pod, 0, len(request.ActivePods))
 	podToEvictMap := make(map[string]*v1.Pod)
 
 	general.Infof("GetTopEvictionPods condition, m.isUnderSystemPressure: %+v, "+
 		"m.systemAction: %+v", s.isUnderSystemPressure, s.systemAction)
 
-	if s.memoryEvictionPluginConfig.DynamicConf.EnableSystemLevelDetection() && s.isUnderSystemPressure {
+	if dynamicConf.EnableSystemLevelDetection && s.isUnderSystemPressure {
 		s.evictionHelper.selectTopNPodsToEvictByMetrics(request.ActivePods, request.TopN, nonExistNumaID, s.systemAction,
-			s.memoryEvictionPluginConfig.DynamicConf.SystemEvictionRankingMetrics(), podToEvictMap)
+			dynamicConf.SystemEvictionRankingMetrics, podToEvictMap)
 	}
 
 	for uid := range podToEvictMap {
@@ -236,7 +238,7 @@ func (s *SystemPressureEvictionPlugin) GetTopEvictionPods(_ context.Context, req
 	resp := &pluginapi.GetTopEvictionPodsResponse{
 		TargetPods: targetPods,
 	}
-	if gracePeriod := s.memoryEvictionPluginConfig.DynamicConf.GracePeriod(); gracePeriod > 0 {
+	if gracePeriod := dynamicConf.GracePeriod; gracePeriod > 0 {
 		resp.DeletionOptions = &pluginapi.DeletionOptions{
 			GracePeriodSeconds: gracePeriod,
 		}

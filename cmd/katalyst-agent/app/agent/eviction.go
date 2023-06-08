@@ -24,7 +24,7 @@ import (
 
 	evict "github.com/kubewharf/katalyst-core/pkg/agent/evictionmanager"
 	"github.com/kubewharf/katalyst-core/pkg/config"
-	"github.com/kubewharf/katalyst-core/pkg/config/dynamic"
+	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/crd"
 )
 
 const (
@@ -37,7 +37,7 @@ func InitEvictionManager(agentCtx *GenericContext, conf *config.Configuration, _
 		agentCtx.EmitterPool.GetDefaultMetricsEmitter(), conf)
 
 	// add eviction configuration to dynamic configuration watch list
-	err := agentCtx.MetaServer.AddConfigWatcher(dynamic.EvictionConfigurationGVR)
+	err := agentCtx.MetaServer.AddConfigWatcher(crd.EvictionConfigurationGVR)
 	if err != nil {
 		return false, ComponentStub{}, fmt.Errorf("failed register dynamic config: %s", err)
 	}

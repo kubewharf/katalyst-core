@@ -16,8 +16,6 @@ limitations under the License.
 
 package headroom
 
-import "github.com/kubewharf/katalyst-core/pkg/config/dynamic"
-
 type CPUHeadroomPolicyConfiguration struct {
 	PolicyUtilization *PolicyUtilizationConfiguration
 }
@@ -26,9 +24,4 @@ func NewCPUHeadroomPolicyConfiguration() *CPUHeadroomPolicyConfiguration {
 	return &CPUHeadroomPolicyConfiguration{
 		PolicyUtilization: NewPolicyUtilizationConfiguration(),
 	}
-}
-
-// ApplyConfiguration is used to set configuration based on conf.
-func (c *CPUHeadroomPolicyConfiguration) ApplyConfiguration(defaultConf *CPUHeadroomPolicyConfiguration, conf *dynamic.DynamicConfigCRD) {
-	c.PolicyUtilization.ApplyConfiguration(defaultConf.PolicyUtilization, conf)
 }

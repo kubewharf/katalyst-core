@@ -23,6 +23,7 @@ import (
 	"fmt"
 
 	info "github.com/google/cadvisor/info/v1"
+
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/global"
 )
 

@@ -217,7 +217,7 @@ func TestEvictionHelper_getEvictionCmpFuncs(t *testing.T) {
 	for i, pod := range pods {
 		fakeMetricsFetcher.SetContainerMetric(string(pod.UID), pod.Spec.Containers[0].Name, consts.MetricMemUsageContainer, podUsageSystem[i])
 	}
-	general.NewMultiSorter(helper.getEvictionCmpFuncs(conf.MemoryPressureEvictionPluginConfiguration.DynamicConf.SystemEvictionRankingMetrics(),
+	general.NewMultiSorter(helper.getEvictionCmpFuncs(conf.GetDynamicConfiguration().SystemEvictionRankingMetrics,
 		nonExistNumaID)...).Sort(native.NewPodSourceImpList(pods))
 
 	wantPodNameList := []string{

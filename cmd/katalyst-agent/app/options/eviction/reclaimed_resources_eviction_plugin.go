@@ -19,23 +19,17 @@ package eviction
 import (
 	cliflag "k8s.io/component-base/cli/flag"
 
-	"github.com/kubewharf/katalyst-api/pkg/consts"
-	evictionconfig "github.com/kubewharf/katalyst-core/pkg/config/agent/eviction"
+	"github.com/kubewharf/katalyst-core/pkg/config/agent/eviction"
 )
 
 type ReclaimedResourcesEvictionPluginOptions struct {
 	EvictionReclaimedResourcesPodGracePeriod int64
-	EvictionThreshold                        evictionconfig.ResourceEvictionThreshold
 	SkipZeroQuantityResourceNames            []string
 }
 
 func NewReclaimedResourcesEvictionPluginOptions() *ReclaimedResourcesEvictionPluginOptions {
 	return &ReclaimedResourcesEvictionPluginOptions{
 		EvictionReclaimedResourcesPodGracePeriod: 60,
-		EvictionThreshold: evictionconfig.ResourceEvictionThreshold{
-			consts.ReclaimedResourceMilliCPU: 5.0,
-			consts.ReclaimedResourceMemory:   5.0,
-		},
 	}
 }
 
@@ -44,17 +38,14 @@ func (o *ReclaimedResourcesEvictionPluginOptions) AddFlags(fss *cliflag.NamedFla
 
 	fs.Int64Var(&o.EvictionReclaimedResourcesPodGracePeriod, "eviction-reclaimed-resources-pod-grace-period",
 		o.EvictionReclaimedResourcesPodGracePeriod, "The graceful eviction period (in seconds) for reclaimed pods")
-	fs.Var(&o.EvictionThreshold, "eviction-reclaimed-resources-threshold", "The threshold rate for best effort resources")
 	fs.StringSliceVar(&o.SkipZeroQuantityResourceNames, "eviction-skip-zero-quantity-resource-name", o.SkipZeroQuantityResourceNames,
 		"skip to evict when some resource with zero quantity to avoid abnormal eviction")
 }
 
-func (o *ReclaimedResourcesEvictionPluginOptions) ApplyTo(c *evictionconfig.ReclaimedResourcesEvictionPluginConfiguration) error {
+func (o *ReclaimedResourcesEvictionPluginOptions) ApplyTo(c *eviction.ReclaimedResourcesEvictionPluginConfiguration) error {
 	c.EvictionReclaimedPodGracefulPeriod = o.EvictionReclaimedResourcesPodGracePeriod
 	for _, name := range o.SkipZeroQuantityResourceNames {
 		c.SkipZeroQuantityResourceNames.Insert(name)
 	}
-
-	c.DynamicConf.SetEvictionThreshold(o.EvictionThreshold)
 	return nil
 }

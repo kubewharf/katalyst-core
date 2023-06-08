@@ -130,13 +130,13 @@ func (ra *memoryResourceAdvisor) update() {
 		return
 	}
 
-	reservedForAllocate := ra.conf.ReclaimedResourceConfiguration.
-		ReservedResourceForAllocate()[v1.ResourceMemory]
+	reservedForAllocate := ra.conf.GetDynamicConfiguration().
+		ReservedResourceForAllocate[v1.ResourceMemory]
 
 	for _, headroomPolicy := range ra.headroomPolices {
 		// capacity and reserved can both be adjusted dynamically during running process
 		headroomPolicy.SetEssentials(types.ResourceEssentials{
-			EnableReclaim:       ra.conf.ReclaimedResourceConfiguration.EnableReclaim(),
+			EnableReclaim:       ra.conf.GetDynamicConfiguration().EnableReclaim,
 			ResourceUpperBound:  float64(ra.metaServer.MemoryCapacity),
 			ReservedForAllocate: reservedForAllocate.AsApproximateFloat64(),
 		})

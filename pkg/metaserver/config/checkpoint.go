@@ -24,7 +24,7 @@ import (
 	"k8s.io/kubernetes/pkg/kubelet/checkpointmanager"
 	"k8s.io/kubernetes/pkg/kubelet/checkpointmanager/checksum"
 
-	"github.com/kubewharf/katalyst-core/pkg/config/dynamic"
+	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/crd"
 )
 
 type ConfigManagerCheckpoint interface {
@@ -35,7 +35,7 @@ type ConfigManagerCheckpoint interface {
 
 type TargetConfigData struct {
 	// Value only store spec of dynamic config crd
-	Value     *dynamic.DynamicConfigCRD
+	Value     *crd.DynamicConfigCRD
 	Timestamp metav1.Time
 }
 
@@ -81,7 +81,7 @@ func (d *Data) SetData(kind string, val reflect.Value, t metav1.Time) {
 	}
 
 	// get target dynamic configField by kind
-	dynamicConfiguration := &dynamic.DynamicConfigCRD{}
+	dynamicConfiguration := &crd.DynamicConfigCRD{}
 	configField := reflect.ValueOf(dynamicConfiguration).Elem().FieldByName(kind)
 	configField.Set(reflect.New(configField.Type().Elem()))
 
