@@ -22,6 +22,7 @@ import (
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/klog/v2"
+	"k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource/cpu/assembler/headroomassembler"
@@ -194,7 +195,7 @@ func (cra *cpuResourceAdvisor) getRegionMaxRequirement(regionName string) float6
 	switch r.Type() {
 	case types.QoSRegionTypeIsolation:
 		cra.metaCache.RangeContainer(func(podUID string, containerName string, ci *types.ContainerInfo) bool {
-			if _, ok := r.GetPods()[podUID]; ok {
+			if _, ok := r.GetPods()[podUID]; ok && ci.ContainerType == v1alpha1.ContainerType_MAIN {
 				res += ci.CPULimit
 			}
 			return true
@@ -219,7 +220,7 @@ func (cra *cpuResourceAdvisor) getRegionMinRequirement(regionName string) float6
 	case types.QoSRegionTypeIsolation:
 		res := 0.0
 		cra.metaCache.RangeContainer(func(podUID string, containerName string, ci *types.ContainerInfo) bool {
-			if _, ok := r.GetPods()[podUID]; ok {
+			if _, ok := r.GetPods()[podUID]; ok && ci.ContainerType == v1alpha1.ContainerType_MAIN {
 				res += ci.CPURequest
 			}
 			return true

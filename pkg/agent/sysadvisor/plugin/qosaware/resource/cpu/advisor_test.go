@@ -21,6 +21,7 @@ import (
 	"io/ioutil"
 	"os"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -30,6 +31,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 
 	"github.com/kubewharf/katalyst-api/pkg/consts"
 	katalyst_base "github.com/kubewharf/katalyst-core/cmd/base"
@@ -122,6 +124,7 @@ func makeContainerInfo(podUID, namespace, podName, containerName, qoSLevel, owne
 		OwnerPoolName:                    ownerPoolName,
 		TopologyAwareAssignments:         topologyAwareAssignments,
 		OriginalTopologyAwareAssignments: topologyAwareAssignments,
+		ContainerType:                    v1alpha1.ContainerType_MAIN,
 	}
 }
 
@@ -618,10 +621,10 @@ func TestAdvisorUpdate(t *testing.T) {
 			enableReclaim: true,
 			wantInternalCalculationResult: types.InternalCalculationResult{
 				PoolEntries: map[string]map[int]int{
-					state.PoolNameReserve:             {-1: 2},
-					state.PoolNameShare:               {-1: 81},
-					state.PoolNameIsolation + "-uid1": {-1: 9},
-					state.PoolNameReclaim:             {-1: 4},
+					state.PoolNameReserve: {-1: 2},
+					state.PoolNameShare:   {-1: 81},
+					"isolation-pod1":      {-1: 9},
+					state.PoolNameReclaim: {-1: 4},
 				},
 			},
 			wantHeadroom: resource.Quantity{},
@@ -716,11 +719,11 @@ func TestAdvisorUpdate(t *testing.T) {
 			enableReclaim: true,
 			wantInternalCalculationResult: types.InternalCalculationResult{
 				PoolEntries: map[string]map[int]int{
-					state.PoolNameReserve:             {-1: 2},
-					state.PoolNameShare:               {-1: 84},
-					state.PoolNameIsolation + "-uid1": {-1: 4},
-					state.PoolNameIsolation + "-uid4": {-1: 2},
-					state.PoolNameReclaim:             {-1: 4},
+					state.PoolNameReserve: {-1: 2},
+					state.PoolNameShare:   {-1: 84},
+					"isolation-pod1":      {-1: 4},
+					"isolation-pod4":      {-1: 2},
+					state.PoolNameReclaim: {-1: 4},
 				},
 			},
 			wantHeadroom: resource.Quantity{},
@@ -796,7 +799,15 @@ func TestAdvisorUpdate(t *testing.T) {
 				case <-timeoutTick.C:
 					t.Errorf("timeout get response")
 				case advisorResp := <-sendCh:
-					if !reflect.DeepEqual(tt.wantInternalCalculationResult, advisorResp) {
+					resp := make(map[string]map[int]int)
+					for pool := range advisorResp.PoolEntries {
+						if strings.HasPrefix(pool, "isolation") && len(pool) > 15 {
+							resp[pool[:14]] = advisorResp.PoolEntries[pool]
+						} else {
+							resp[pool] = advisorResp.PoolEntries[pool]
+						}
+					}
+					if !reflect.DeepEqual(tt.wantInternalCalculationResult.PoolEntries, resp) {
 						t.Errorf("cpu provision\nexpected: %+v,\nactual: %+v", tt.wantInternalCalculationResult, advisorResp)
 					}
 				}

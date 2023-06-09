@@ -87,10 +87,10 @@ func (pa *ProvisionAssemblerCommon) AssembleProvision() (types.InternalCalculati
 			shares += sharePoolSizes[r.OwnerPoolName()]
 		case types.QoSRegionTypeIsolation:
 			// save limits and requests for isolated region
-			isolationUpperSizes[r.OwnerPoolName()] = int(controlKnob[types.ControlKnobNonIsolateCPUUpperSize].Value)
-			isolationLowerSizes[r.OwnerPoolName()] = int(controlKnob[types.ControlKnobNonIsolateCPULowerSize].Value)
+			isolationUpperSizes[r.Name()] = int(controlKnob[types.ControlKnobNonIsolateCPUUpperSize].Value)
+			isolationLowerSizes[r.Name()] = int(controlKnob[types.ControlKnobNonIsolateCPULowerSize].Value)
 
-			isolationUppers += isolationUpperSizes[r.OwnerPoolName()]
+			isolationUppers += isolationUpperSizes[r.Name()]
 		case types.QoSRegionTypeDedicatedNumaExclusive:
 			// fill in reclaim pool entry for dedicated numa exclusive regions
 			regionNuma := r.GetBindingNumas().ToSliceInt()[0] // always one binding numa for this type of region
@@ -103,9 +103,9 @@ func (pa *ProvisionAssemblerCommon) AssembleProvision() (types.InternalCalculati
 	enableReclaim := pa.conf.GetDynamicConfiguration().EnableReclaim
 	shareAndIsolatedPoolAvailable := getNumasAvailableResource(*pa.numaAvailable, *pa.nonBindingNumas)
 
-	general.InfofV(4, "share size: %v", sharePoolSizes)
-	general.InfofV(4, "isolate upper-size: %v", isolationUpperSizes)
-	general.InfofV(4, "isolate lower-size: %v", isolationLowerSizes)
+	general.Infof("share size: %v", sharePoolSizes)
+	general.Infof("isolate upper-size: %v", isolationUpperSizes)
+	general.Infof("isolate lower-size: %v", isolationLowerSizes)
 	shareAndIsolatePoolSizes := general.MergeMapInt(sharePoolSizes, isolationUpperSizes)
 	if shares+isolationUppers > shareAndIsolatedPoolAvailable {
 		shareAndIsolatePoolSizes = general.MergeMapInt(sharePoolSizes, isolationLowerSizes)

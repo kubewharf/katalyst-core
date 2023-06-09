@@ -135,7 +135,7 @@ func (cs *cpuServer) Stop() error {
 	return nil
 }
 
-func (cs *cpuServer) AddContainer(ctx context.Context, request *cpuadvisor.AddContainerRequest) (*cpuadvisor.AddContainerResponse, error) {
+func (cs *cpuServer) AddContainer(_ context.Context, request *cpuadvisor.AddContainerRequest) (*cpuadvisor.AddContainerResponse, error) {
 	_ = cs.emitter.StoreInt64(metricCPUServerAddContainerCalled, int64(cs.period.Seconds()), metrics.MetricTypeNameCount)
 
 	if request == nil {
@@ -152,7 +152,7 @@ func (cs *cpuServer) AddContainer(ctx context.Context, request *cpuadvisor.AddCo
 	return &cpuadvisor.AddContainerResponse{}, err
 }
 
-func (cs *cpuServer) RemovePod(ctx context.Context, request *cpuadvisor.RemovePodRequest) (*cpuadvisor.RemovePodResponse, error) {
+func (cs *cpuServer) RemovePod(_ context.Context, request *cpuadvisor.RemovePodRequest) (*cpuadvisor.RemovePodResponse, error) {
 	_ = cs.emitter.StoreInt64(metricCPUServerRemovePodCalled, int64(cs.period.Seconds()), metrics.MetricTypeNameCount)
 
 	if request == nil {
@@ -168,7 +168,7 @@ func (cs *cpuServer) RemovePod(ctx context.Context, request *cpuadvisor.RemovePo
 	return &cpuadvisor.RemovePodResponse{}, err
 }
 
-func (cs *cpuServer) ListAndWatch(empty *cpuadvisor.Empty, server cpuadvisor.CPUAdvisor_ListAndWatchServer) error {
+func (cs *cpuServer) ListAndWatch(_ *cpuadvisor.Empty, server cpuadvisor.CPUAdvisor_ListAndWatchServer) error {
 	_ = cs.emitter.StoreInt64(metricCPUServerLWCalled, int64(cs.period.Seconds()), metrics.MetricTypeNameCount)
 
 	if !cs.getCheckpointCalled {
@@ -454,6 +454,13 @@ func (cs *cpuServer) assemblePodEntries(calculationEntriesMap map[string]*cpuadv
 	calculationInfo := &cpuadvisor.CalculationInfo{
 		OwnerPoolName:             ci.OwnerPoolName,
 		CalculationResultsByNumas: nil,
+	}
+
+	if ci.Isolated {
+		if ci.RegionNames.Len() != 1 {
+			return fmt.Errorf("isolated container should be in only one region")
+		}
+		calculationInfo.OwnerPoolName = ci.RegionNames.List()[0]
 	}
 
 	// currently, only pods in "dedicated_nums with numa binding" has topology aware allocations

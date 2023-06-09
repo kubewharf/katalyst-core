@@ -37,7 +37,7 @@ func NewQoSRegionIsolation(ci *types.ContainerInfo, conf *config.Configuration, 
 
 	regionName := getRegionNameFromMetaCache(ci, cpuadvisor.FakedNUMAID, metaReader)
 	if regionName == "" {
-		regionName = string(types.QoSRegionTypeIsolation) + types.RegionNameSeparator + string(uuid.NewUUID())
+		regionName = string(types.QoSRegionTypeIsolation) + types.RegionNameSeparator + ci.PodName + types.RegionNameSeparator + string(uuid.NewUUID())
 	}
 
 	r := &QoSRegionIsolation{

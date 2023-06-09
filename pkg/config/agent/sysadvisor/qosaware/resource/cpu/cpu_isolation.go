@@ -18,8 +18,6 @@ package cpu
 
 import (
 	"k8s.io/apimachinery/pkg/util/sets"
-
-	"github.com/kubewharf/katalyst-core/pkg/config/dynamic"
 )
 
 // CPUIsolationConfiguration stores configurations of cpu isolation
@@ -46,8 +44,4 @@ type CPUIsolationConfiguration struct {
 // NewCPUIsolationConfiguration creates new resource advisor configurations
 func NewCPUIsolationConfiguration() *CPUIsolationConfiguration {
 	return &CPUIsolationConfiguration{}
-}
-
-// ApplyConfiguration is used to set configuration based on conf.
-func (c *CPUIsolationConfiguration) ApplyConfiguration(_ *CPUIsolationConfiguration, _ *dynamic.DynamicConfigCRD) {
 }
