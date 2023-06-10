@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -30,6 +31,7 @@ import (
 
 	configapis "github.com/kubewharf/katalyst-api/pkg/apis/config/v1alpha1"
 	katalyst_base "github.com/kubewharf/katalyst-core/cmd/base"
+	"github.com/kubewharf/katalyst-core/cmd/katalyst-controller/app/options"
 )
 
 func TestCNCLifecycle_Run(t *testing.T) {
@@ -118,7 +120,9 @@ func TestCNCLifecycle_Run(t *testing.T) {
 			genericCtx, err := katalyst_base.GenerateFakeGenericContext([]runtime.Object{tt.fields.node}, []runtime.Object{tt.fields.cnc})
 			assert.NoError(t, err)
 
-			conf := generateTestConfiguration(t)
+			conf, err := options.NewOptions().Config()
+			require.NoError(t, err)
+			require.NotNil(t, conf)
 
 			cl, err := NewCNCLifecycle(context.Background(),
 				conf.GenericConfiguration,

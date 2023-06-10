@@ -24,6 +24,7 @@ import (
 	katalystbase "github.com/kubewharf/katalyst-core/cmd/base"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/controller/lifecycle"
+	agent_healthz "github.com/kubewharf/katalyst-core/pkg/controller/lifecycle/agent-healthz"
 )
 
 const (
@@ -35,7 +36,7 @@ func StartLifeCycleController(ctx context.Context, controlCtx *katalystbase.Gene
 	var (
 		cnrLifecycle *lifecycle.CNRLifecycle
 		cncLifecycle *lifecycle.CNCLifecycle
-		eviction     *lifecycle.EvictionController
+		eviction     *agent_healthz.HealthzController
 		err          error
 	)
 
@@ -67,8 +68,8 @@ func StartLifeCycleController(ctx context.Context, controlCtx *katalystbase.Gene
 		return false, err
 	}
 
-	if conf.LifeCycleConfig.EnableEviction {
-		eviction, err = lifecycle.NewEvictionController(ctx,
+	if conf.LifeCycleConfig.EnableHealthz {
+		eviction, err = agent_healthz.NewHealthzController(ctx,
 			conf.GenericConfiguration,
 			conf.GenericControllerConfiguration,
 			conf.ControllersConfiguration.LifeCycleConfig,

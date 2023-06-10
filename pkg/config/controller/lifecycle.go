@@ -18,38 +18,48 @@ package controller
 
 import (
 	"time"
+
+	"k8s.io/apimachinery/pkg/labels"
 )
 
-type CNRLifecycleConfig struct {
-	// EnableEviction is true, lifecycle controller start eviction logic.
-	EnableEviction bool
+type CNRLifecycleConfig struct{}
 
-	// DryRun controls if dry-run is enabled
-	DryRun bool
+type CNCLifecycleConfig struct{}
 
-	// CNR related configuration to control the strategies of handling
-	// abnormal scenarios of agent logic
-	CNRUpdateTimeWindow   time.Duration
-	CNRMonitorPeriod      time.Duration
-	CNRMonitorTaintPeriod time.Duration
-	CNRMonitorGracePeriod time.Duration
+type HealthzConfig struct {
+	DryRun        bool
+	NodeSelector  labels.Selector
+	AgentSelector map[string]labels.Selector
 
-	// select CNR related agents from selected nodes matching the given selector
-	CNRAgentSelector []string
-	NodeSelector     string
-}
+	// config for checking logic
+	CheckWindow           time.Duration
+	UnhealthyPeriods      time.Duration
+	AgentUnhealthyPeriods map[string]time.Duration
 
-type CNCLifecycleConfig struct {
+	// config for handling logic
+	HandlePeriod  time.Duration
+	AgentHandlers map[string]string
+
+	// config for disrupting logic
+	TaintQPS                 float32
+	EvictQPS                 float32
+	DisruptionTaintThreshold float32
+	DisruptionEvictThreshold float32
 }
 
 type LifeCycleConfig struct {
+	EnableHealthz bool
+
 	*CNRLifecycleConfig
 	*CNCLifecycleConfig
+	*HealthzConfig
 }
 
 func NewLifeCycleConfig() *LifeCycleConfig {
 	return &LifeCycleConfig{
-		&CNRLifecycleConfig{},
-		&CNCLifecycleConfig{},
+		EnableHealthz:      false,
+		CNRLifecycleConfig: &CNRLifecycleConfig{},
+		CNCLifecycleConfig: &CNCLifecycleConfig{},
+		HealthzConfig:      &HealthzConfig{},
 	}
 }
