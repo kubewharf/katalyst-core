@@ -21,11 +21,11 @@ import (
 	"sync"
 
 	"k8s.io/apimachinery/pkg/runtime/schema"
-	"k8s.io/client-go/tools/cache"
 
 	apiworkload "github.com/kubewharf/katalyst-api/pkg/apis/workload/v1alpha1"
 	katalystbase "github.com/kubewharf/katalyst-core/cmd/base"
 	"github.com/kubewharf/katalyst-core/pkg/config/controller"
+	"github.com/kubewharf/katalyst-core/pkg/util/native"
 )
 
 // IndicatorPlugin represent an implementation for indicator sources;
@@ -68,7 +68,7 @@ func (d DummyIndicatorPlugin) GetSupportedBusinessIndicatorStatus() []apiworkloa
 var pluginInitializers sync.Map
 
 type InitFunc func(ctx context.Context, conf *controller.SPDConfig, extraConf interface{},
-	workloadLister map[schema.GroupVersionResource]cache.GenericLister,
+	spdWorkloadInformer map[schema.GroupVersionResource]native.DynamicInformer,
 	controlCtx *katalystbase.GenericContext, updater IndicatorUpdater) (IndicatorPlugin, error)
 
 // RegisterPluginInitializer is used to register user-defined indicator plugins

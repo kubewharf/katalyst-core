@@ -78,9 +78,10 @@ type SPDController struct {
 	spdIndexer cache.Indexer
 	podIndexer cache.Indexer
 
-	podLister      corelisters.PodLister
-	spdLister      apiListers.ServiceProfileDescriptorLister
-	workloadLister map[schema.GroupVersionResource]cache.GenericLister
+	podLister           corelisters.PodLister
+	spdLister           apiListers.ServiceProfileDescriptorLister
+	workloadLister      map[schema.GroupVersionResource]cache.GenericLister
+	spdWorkloadInformer map[schema.GroupVersionResource]native.DynamicInformer
 
 	syncedFunc        []cache.InformerSynced
 	spdQueue          workqueue.RateLimitingInterface
@@ -106,15 +107,16 @@ func NewSPDController(ctx context.Context, controlCtx *katalystbase.GenericConte
 	spdInformer := controlCtx.InternalInformerFactory.Workload().V1alpha1().ServiceProfileDescriptors()
 
 	spdController := &SPDController{
-		ctx:               ctx,
-		conf:              conf,
-		podUpdater:        &control.DummyPodUpdater{},
-		spdControl:        &control.DummySPDControl{},
-		workloadControl:   &control.DummyUnstructuredControl{},
-		spdQueue:          workqueue.NewNamedRateLimitingQueue(workqueue.DefaultControllerRateLimiter(), "spd"),
-		workloadSyncQueue: workqueue.NewNamedRateLimitingQueue(workqueue.DefaultControllerRateLimiter(), "workload"),
-		metricsEmitter:    controlCtx.EmitterPool.GetDefaultMetricsEmitter().WithTags(spdControllerName),
-		workloadLister:    make(map[schema.GroupVersionResource]cache.GenericLister),
+		ctx:                 ctx,
+		conf:                conf,
+		podUpdater:          &control.DummyPodUpdater{},
+		spdControl:          &control.DummySPDControl{},
+		workloadControl:     &control.DummyUnstructuredControl{},
+		spdQueue:            workqueue.NewNamedRateLimitingQueue(workqueue.DefaultControllerRateLimiter(), "spd"),
+		workloadSyncQueue:   workqueue.NewNamedRateLimitingQueue(workqueue.DefaultControllerRateLimiter(), "workload"),
+		metricsEmitter:      controlCtx.EmitterPool.GetDefaultMetricsEmitter().WithTags(spdControllerName),
+		workloadLister:      make(map[schema.GroupVersionResource]cache.GenericLister),
+		spdWorkloadInformer: make(map[schema.GroupVersionResource]native.DynamicInformer),
 	}
 
 	spdController.podLister = podInformer.Lister()
@@ -136,6 +138,7 @@ func NewSPDController(ctx context.Context, controlCtx *katalystbase.GenericConte
 			continue
 		}
 
+		spdController.spdWorkloadInformer[wf.GVR] = wf
 		wf.Informer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
 			AddFunc:    spdController.addWorkload(workload),
 			UpdateFunc: spdController.updateWorkload(workload),
@@ -236,7 +239,8 @@ func (sc *SPDController) initializeIndicatorPlugins(controlCtx *katalystbase.Gen
 	sc.indicatorsStatusBusiness = make(map[apiworkload.ServiceBusinessIndicatorName]interface{})
 
 	for pluginName, initFunc := range indicator_plugin.GetPluginInitializers() {
-		plugin, err := initFunc(sc.ctx, sc.conf, extraConf, sc.workloadLister, controlCtx, sc.indicatorManager)
+		plugin, err := initFunc(sc.ctx, sc.conf, extraConf, sc.spdWorkloadInformer,
+			controlCtx, sc.indicatorManager)
 		if err != nil {
 			return err
 		}
