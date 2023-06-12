@@ -56,7 +56,9 @@ func (p *PolicyCanonical) Update() error {
 		}
 		cpuRequirement := controlKnobValue.Value
 		p.headroom = math.Max(p.ResourceUpperBound-cpuRequirement, 0)
-
+	case types.QoSRegionTypeIsolation:
+		// todo consider whether we should return headroom for isolation region
+		return nil
 	case types.QoSRegionTypeDedicatedNumaExclusive:
 		controlKnobValue, ok = regionInfo.ControlKnobMap[types.ControlKnobReclaimedCPUSupplied]
 		if !ok {

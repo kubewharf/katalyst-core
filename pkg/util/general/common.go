@@ -221,6 +221,18 @@ func MergeMap(src, override map[string]string) map[string]string {
 	return res
 }
 
+// MergeMapInt merges the contents from override into the src
+func MergeMapInt(src, override map[string]int) map[string]int {
+	res := map[string]int{}
+	for k, v := range src {
+		res[k] = v
+	}
+	for k, v := range override {
+		res[k] = v
+	}
+	return res
+}
+
 // GetSortedMapKeys returns a slice containing sorted keys for the given map
 func GetSortedMapKeys(m map[string]int) []string {
 	ret := make([]string, 0, len(m))

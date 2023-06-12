@@ -81,7 +81,7 @@ func (mcp *MetaCachePlugin) Run(ctx context.Context) {
 	go wait.UntilWithContext(ctx, mcp.periodicWork, mcp.period)
 }
 
-func (mcp *MetaCachePlugin) periodicWork(ctx context.Context) {
+func (mcp *MetaCachePlugin) periodicWork(_ context.Context) {
 	_ = mcp.emitter.StoreInt64(MetricsNamePlugMetaCacheHeartbeat, int64(mcp.period.Seconds()), metrics.MetricTypeNameCount)
 
 	// Fill missing container metadata from metaserver
@@ -91,8 +91,14 @@ func (mcp *MetaCachePlugin) periodicWork(ctx context.Context) {
 			klog.Errorf("[metacache] get container spec failed: %v, %v/%v", err, podUID, containerName)
 			return true
 		}
+		if ci.CPULimit <= 0 {
+			ci.CPULimit = spec.Resources.Limits.Cpu().AsApproximateFloat64()
+		}
 		if ci.MemoryRequest <= 0 {
 			ci.MemoryRequest = spec.Resources.Requests.Memory().AsApproximateFloat64()
+		}
+		if ci.MemoryLimit <= 0 {
+			ci.MemoryLimit = spec.Resources.Limits.Memory().AsApproximateFloat64()
 		}
 		return true
 	}

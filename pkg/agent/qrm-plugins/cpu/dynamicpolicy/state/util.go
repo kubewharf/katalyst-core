@@ -33,6 +33,7 @@ const (
 	PoolNameReclaim   = "reclaim"
 	PoolNameDedicated = "dedicated"
 	PoolNameReserve   = "reserve"
+	PoolNameIsolation = "isolation"
 
 	// PoolNameFallback is not a real pool, and is a union of
 	// all none-reclaimed pools to put pod should have been isolated

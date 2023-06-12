@@ -30,13 +30,13 @@ import (
 type HeadroomAssemblerCommon struct {
 	conf *config.Configuration
 
-	metaCache  metacache.MetaCache
+	metaCache  metacache.MetaReader
 	metaServer *metaserver.MetaServer
 	emitter    metrics.MetricEmitter
 }
 
 func NewHeadroomAssemblerCommon(conf *config.Configuration, _ *map[string]region.QoSRegion,
-	metaCache metacache.MetaCache, metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter) HeadroomAssembler {
+	metaCache metacache.MetaReader, metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter) HeadroomAssembler {
 	return &HeadroomAssemblerCommon{
 		conf:       conf,
 		metaCache:  metaCache,

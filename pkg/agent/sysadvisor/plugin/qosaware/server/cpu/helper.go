@@ -195,8 +195,8 @@ func (bs blockSet) get(blockID string) []*internalBlock {
 	return internalBlocks
 }
 
-// GetNumaCalculationResult returns numa-level calculation results
-func GetNumaCalculationResult(calculationEntriesMap map[string]*cpuadvisor.CalculationEntries,
+// getNumaCalculationResult returns numa-level calculation results
+func getNumaCalculationResult(calculationEntriesMap map[string]*cpuadvisor.CalculationEntries,
 	entryName, containerName string, numa int64) (*cpuadvisor.NumaCalculationResult, bool) {
 	entries, ok := calculationEntriesMap[entryName]
 	if !ok {

@@ -19,11 +19,13 @@ package cpu
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/util/errors"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/klog/v2"
 
 	"github.com/kubewharf/katalyst-api/pkg/consts"
@@ -31,6 +33,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource/cpu/assembler/headroomassembler"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource/cpu/assembler/provisionassembler"
+	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource/cpu/isolation"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource/cpu/region"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource/cpu/region/headroompolicy"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource/cpu/region/provisionpolicy"
@@ -48,10 +51,12 @@ import (
 
 func init() {
 	provisionpolicy.RegisterInitializer(types.CPUProvisionPolicyCanonical, provisionpolicy.NewPolicyCanonical)
+
 	headroompolicy.RegisterInitializer(types.CPUHeadroomPolicyCanonical, headroompolicy.NewPolicyCanonical)
 	headroompolicy.RegisterInitializer(types.CPUHeadroomPolicyUtilization, headroompolicy.NewPolicyUtilization)
 
 	provisionassembler.RegisterInitializer(types.CPUProvisionAssemblerCommon, provisionassembler.NewProvisionAssemblerCommon)
+
 	headroomassembler.RegisterInitializer(types.CPUHeadroomAssemblerCommon, headroomassembler.NewHeadroomAssemblerCommon)
 }
 
@@ -76,6 +81,8 @@ type cpuResourceAdvisor struct {
 	provisionAssembler provisionassembler.ProvisionAssembler
 	headroomAssembler  headroomassembler.HeadroomAssembler
 
+	isolator isolation.Isolator
+
 	mutex      sync.RWMutex
 	metaCache  metacache.MetaCache
 	metaServer *metaserver.MetaServer
@@ -99,6 +106,8 @@ func NewCPUResourceAdvisor(conf *config.Configuration, extraConf interface{}, me
 		numaAvailable:      make(map[int]int),
 		numRegionsPerNuma:  make(map[int]int),
 		nonBindingNumas:    machine.NewCPUSet(),
+
+		isolator: isolation.NewLoadIsolator(conf, extraConf, emitter, metaCache, metaServer),
 
 		metaCache:  metaCache,
 		metaServer: metaServer,
@@ -169,6 +178,7 @@ func (cra *cpuResourceAdvisor) update() {
 	}
 
 	cra.updateNumasAvailableResource()
+	cra.setIsolatedContainers()
 
 	// assign containers to regions
 	if err := cra.assignContainersToRegions(); err != nil {
@@ -208,6 +218,22 @@ func (cra *cpuResourceAdvisor) update() {
 	klog.Infof("[qosaware-cpu] notify cpu server: %+v", calculationResult)
 }
 
+// setIsolatedContainers get isolation status from isolator and update into containers
+func (cra *cpuResourceAdvisor) setIsolatedContainers() {
+	isolatedPods := sets.NewString(cra.isolator.GetIsolatedPods()...)
+	if len(isolatedPods) > 0 {
+		general.Infof("current isolated pod: %v", isolatedPods.List())
+	}
+
+	_ = cra.metaCache.RangeAndUpdateContainer(func(podUID string, _ string, ci *types.ContainerInfo) bool {
+		ci.Isolated = false
+		if isolatedPods.Has(podUID) {
+			ci.Isolated = true
+		}
+		return true
+	})
+}
+
 // assignContainersToRegions re-construct regions every time (instead of an incremental way),
 // and this requires metaCache to ensure data integrity
 func (cra *cpuResourceAdvisor) assignContainersToRegions() error {
@@ -245,15 +271,21 @@ func (cra *cpuResourceAdvisor) assignContainersToRegions() error {
 		if ci.OwnerPoolName == state.PoolNameDedicated {
 			// dedicated pool should not exist in metaCache.poolEntries
 			return true
-		}
-		if err := cra.setPoolRegions(ci.OwnerPoolName, regions); err != nil {
-			errList = append(errList, err)
+		} else if ci.Isolated && !strings.HasPrefix(ci.OwnerPoolName, state.PoolNameIsolation) {
+			// if we haven't generated corresponding pods isolated containers, just return
 			return true
+		} else {
+			// todo currently, we may call setPoolRegions multiple time, and we
+			//  depend on the reentrant of it, need to refine
+			if err := cra.setPoolRegions(ci.OwnerPoolName, regions); err != nil {
+				errList = append(errList, err)
+				return true
+			}
 		}
 
 		return true
 	}
-	cra.metaCache.RangeAndUpdateContainer(f)
+	_ = cra.metaCache.RangeAndUpdateContainer(f)
 
 	return errors.NewAggregate(errList)
 }
@@ -271,6 +303,18 @@ func (cra *cpuResourceAdvisor) assignToRegions(ci *types.ContainerInfo) ([]regio
 			return nil, nil
 		}
 
+		if ci.Isolated {
+			if ci.OwnerPoolName != state.PoolNameShare {
+				regions := cra.getPoolRegions(ci.OwnerPoolName)
+				if len(regions) > 0 {
+					return regions, nil
+				}
+			}
+
+			r := region.NewQoSRegionIsolation(ci, cra.conf, cra.extraConf, cra.metaCache, cra.metaServer, cra.emitter)
+			return []region.QoSRegion{r}, nil
+		}
+
 		// assign shared cores container. focus on pool.
 		regions := cra.getPoolRegions(ci.OwnerPoolName)
 		if len(regions) > 0 {
@@ -280,7 +324,6 @@ func (cra *cpuResourceAdvisor) assignToRegions(ci *types.ContainerInfo) ([]regio
 		// create one region by owner pool name
 		r := region.NewQoSRegionShare(ci, cra.conf, cra.extraConf, cra.metaCache, cra.metaServer, cra.emitter)
 		return []region.QoSRegion{r}, nil
-
 	} else if ci.IsNumaBinding() {
 		// assign dedicated cores numa exclusive containers. focus on container.
 		regions, err := cra.getContainerRegions(ci)
@@ -313,13 +356,13 @@ func (cra *cpuResourceAdvisor) gcRegionMap() {
 }
 
 // updateAdvisorEssentials updates following essentials after assigning containers to regions:
-// 1. non binding numas, i.e. numas without numa binding containers
+// 1. non-binding numas, i.e. numas without numa binding containers
 // 2. binding numas of non numa binding regions
 // 3. region quantity of each numa
 func (cra *cpuResourceAdvisor) updateAdvisorEssentials() {
 	cra.nonBindingNumas = cra.metaServer.CPUDetails.NUMANodes()
 
-	// update non binding numas
+	// update non-binding numas
 	for _, r := range cra.regionMap {
 		if r.Type() == types.QoSRegionTypeDedicatedNumaExclusive {
 			cra.nonBindingNumas = cra.nonBindingNumas.Difference(r.GetBindingNumas())

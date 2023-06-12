@@ -75,7 +75,7 @@ type RawMetaWriter interface {
 	// SetContainerInfo updates ContainerInfo keyed by pod uid and container name
 	SetContainerInfo(podUID string, containerName string, containerInfo *types.ContainerInfo) error
 	// RangeAndUpdateContainer applies a function to every podUID, containerName, containerInfo set.
-	// Not recommended to use if RangeContainer satisfies the requirement.
+	// Not recommended using if RangeContainer satisfies the requirement.
 	// If f returns false, range stops the iteration.
 	RangeAndUpdateContainer(f func(podUID string, containerName string, containerInfo *types.ContainerInfo) bool) error
 

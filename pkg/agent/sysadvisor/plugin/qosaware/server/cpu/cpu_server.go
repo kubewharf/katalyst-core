@@ -135,7 +135,7 @@ func (cs *cpuServer) Stop() error {
 	return nil
 }
 
-func (cs *cpuServer) AddContainer(ctx context.Context, request *cpuadvisor.AddContainerRequest) (*cpuadvisor.AddContainerResponse, error) {
+func (cs *cpuServer) AddContainer(_ context.Context, request *cpuadvisor.AddContainerRequest) (*cpuadvisor.AddContainerResponse, error) {
 	_ = cs.emitter.StoreInt64(metricCPUServerAddContainerCalled, int64(cs.period.Seconds()), metrics.MetricTypeNameCount)
 
 	if request == nil {
@@ -152,7 +152,7 @@ func (cs *cpuServer) AddContainer(ctx context.Context, request *cpuadvisor.AddCo
 	return &cpuadvisor.AddContainerResponse{}, err
 }
 
-func (cs *cpuServer) RemovePod(ctx context.Context, request *cpuadvisor.RemovePodRequest) (*cpuadvisor.RemovePodResponse, error) {
+func (cs *cpuServer) RemovePod(_ context.Context, request *cpuadvisor.RemovePodRequest) (*cpuadvisor.RemovePodResponse, error) {
 	_ = cs.emitter.StoreInt64(metricCPUServerRemovePodCalled, int64(cs.period.Seconds()), metrics.MetricTypeNameCount)
 
 	if request == nil {
@@ -168,7 +168,7 @@ func (cs *cpuServer) RemovePod(ctx context.Context, request *cpuadvisor.RemovePo
 	return &cpuadvisor.RemovePodResponse{}, err
 }
 
-func (cs *cpuServer) ListAndWatch(empty *cpuadvisor.Empty, server cpuadvisor.CPUAdvisor_ListAndWatchServer) error {
+func (cs *cpuServer) ListAndWatch(_ *cpuadvisor.Empty, server cpuadvisor.CPUAdvisor_ListAndWatchServer) error {
 	_ = cs.emitter.StoreInt64(metricCPUServerLWCalled, int64(cs.period.Seconds()), metrics.MetricTypeNameCount)
 
 	if !cs.getCheckpointCalled {
@@ -415,9 +415,16 @@ func (cs *cpuServer) updateContainerInfo(podUID string, containerName string, in
 	}
 
 	ci.RampUp = info.RampUp
-	ci.OwnerPoolName = info.OwnerPoolName
 	ci.TopologyAwareAssignments = machine.TransformCPUAssignmentFormat(info.TopologyAwareAssignments)
 	ci.OriginalTopologyAwareAssignments = machine.TransformCPUAssignmentFormat(info.OriginalTopologyAwareAssignments)
+
+	// only reset pool-name according to QRM during starting process
+	if len(ci.OriginOwnerPoolName) == 0 {
+		ci.OriginOwnerPoolName = info.OwnerPoolName
+	}
+	if len(ci.OwnerPoolName) == 0 {
+		ci.OwnerPoolName = info.OwnerPoolName
+	}
 
 	// Need to set back because of deep copy
 	return cs.metaCache.SetContainerInfo(podUID, containerName, ci)
@@ -449,6 +456,13 @@ func (cs *cpuServer) assemblePodEntries(calculationEntriesMap map[string]*cpuadv
 		CalculationResultsByNumas: nil,
 	}
 
+	if ci.Isolated {
+		if ci.RegionNames.Len() != 1 {
+			return fmt.Errorf("isolated container should be in only one region")
+		}
+		calculationInfo.OwnerPoolName = ci.RegionNames.List()[0]
+	}
+
 	// currently, only pods in "dedicated_nums with numa binding" has topology aware allocations
 	if ci.IsNumaBinding() {
 		calculationResultsByNumas := make(map[int64]*cpuadvisor.NumaCalculationResult)
@@ -473,7 +487,7 @@ func (cs *cpuServer) assemblePodEntries(calculationEntriesMap map[string]*cpuadv
 			} else {
 				// if this podUID appears firstly, we should generate a new Block
 
-				reclaimPoolCalculationResults, ok := GetNumaCalculationResult(calculationEntriesMap, qrmstate.PoolNameReclaim,
+				reclaimPoolCalculationResults, ok := getNumaCalculationResult(calculationEntriesMap, qrmstate.PoolNameReclaim,
 					cpuadvisor.FakedContainerName, int64(numaID))
 				if !ok {
 					// if no reclaimed pool exists, return the generated Block
@@ -486,6 +500,7 @@ func (cs *cpuServer) assemblePodEntries(calculationEntriesMap map[string]*cpuadv
 					// if reclaimed pool exists, join the generated Block with Block in reclaimed pool
 
 					for _, block := range reclaimPoolCalculationResults.Blocks {
+						// todo assume only one reclaimed block exists in a certain numa
 						if block.OverlapTargets == nil || len(block.OverlapTargets) == 0 {
 							newBlock := NewBlock(uint64(cpuset.Size()), "")
 							innerBlock := NewInnerBlock(newBlock, int64(numaID), "", ci, numaCalculationResult)

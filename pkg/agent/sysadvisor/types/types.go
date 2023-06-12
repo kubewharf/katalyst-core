@@ -88,6 +88,9 @@ const (
 	// QoSRegionTypeShare for each share pool
 	QoSRegionTypeShare QoSRegionType = "share"
 
+	// QoSRegionTypeIsolation for each isolation pool
+	QoSRegionTypeIsolation QoSRegionType = "isolation"
+
 	// QoSRegionTypeDedicatedNumaExclusive for each dedicated core with numa binding
 	// and numa exclusive container
 	QoSRegionTypeDedicatedNumaExclusive QoSRegionType = "dedicated-numa-exclusive"
@@ -111,16 +114,20 @@ type ContainerInfo struct {
 	Annotations    map[string]string
 	QoSLevel       string
 	CPURequest     float64
+	CPULimit       float64
 	MemoryRequest  float64
+	MemoryLimit    float64
 
 	// Allocation information changing by list and watch
 	RampUp                           bool
-	OwnerPoolName                    string
+	OriginOwnerPoolName              string
 	TopologyAwareAssignments         TopologyAwareAssignment
 	OriginalTopologyAwareAssignments TopologyAwareAssignment
 
 	// QoS information updated by advisor
-	RegionNames sets.String
+	RegionNames   sets.String
+	Isolated      bool
+	OwnerPoolName string
 }
 
 // PoolInfo contains pool information for sysadvisor plugins
@@ -186,6 +193,11 @@ const (
 
 	// ControlKnobReclaimedCPUSupplied refers to the cpu resource could be supplied to the pods with reclaimed_cores QoS level
 	ControlKnobReclaimedCPUSupplied ControlKnobName = "reclaimed-cpu-supplied"
+
+	// ControlKnobNonIsolateCPUUpperSize refers to the cpuset size based on upper for isolated pods
+	// ControlKnobNonIsolateCPULowerSize refers to the cpuset size based on lower for isolated pods
+	ControlKnobNonIsolateCPUUpperSize ControlKnobName = "isolated-cpu-upper-size"
+	ControlKnobNonIsolateCPULowerSize ControlKnobName = "isolated-cpu-lower-size"
 )
 
 // ControlKnobValue holds control knob value and action
