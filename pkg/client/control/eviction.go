@@ -19,7 +19,6 @@ package control
 import (
 	"context"
 
-	core "k8s.io/api/core/v1"
 	policy "k8s.io/api/policy/v1beta1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
@@ -27,17 +26,17 @@ import (
 
 // PodEjector is used to evict Pods
 type PodEjector interface {
-	DeletePod(ctx context.Context, pod *core.Pod, opts metav1.DeleteOptions) error
+	DeletePod(ctx context.Context, namespace, name string, opts metav1.DeleteOptions) error
 	EvictPod(ctx context.Context, eviction *policy.Eviction) error
 }
 
 type DummyPodEjector struct{}
 
-func (d *DummyPodEjector) DeletePod(ctx context.Context, pod *core.Pod, opts metav1.DeleteOptions) error {
+func (d DummyPodEjector) DeletePod(_ context.Context, _, _ string, _ metav1.DeleteOptions) error {
 	return nil
 }
 
-func (d *DummyPodEjector) EvictPod(ctx context.Context, eviction *policy.Eviction) error {
+func (d DummyPodEjector) EvictPod(_ context.Context, _ *policy.Eviction) error {
 	return nil
 }
 
@@ -51,8 +50,8 @@ func NewRealPodEjector(client kubernetes.Interface) *RealPodEjector {
 	}
 }
 
-func (d *RealPodEjector) DeletePod(ctx context.Context, pod *core.Pod, opts metav1.DeleteOptions) error {
-	return d.client.CoreV1().Pods(pod.Namespace).Delete(ctx, pod.Name, opts)
+func (d *RealPodEjector) DeletePod(ctx context.Context, namespace, name string, opts metav1.DeleteOptions) error {
+	return d.client.CoreV1().Pods(namespace).Delete(ctx, name, opts)
 }
 
 func (d *RealPodEjector) EvictPod(ctx context.Context, eviction *policy.Eviction) error {

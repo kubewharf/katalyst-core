@@ -49,11 +49,6 @@ var (
 		Kind:    CNRKind,
 		Version: nodev1alpha1.SchemeGroupVersion.Version,
 	}
-
-	NoScheduleForReclaimedTasksTaint = apis.Taint{
-		Key:    corev1.TaintNodeUnschedulable,
-		Effect: apis.TaintEffectNoScheduleForReclaimedTasks,
-	}
 )
 
 // GetCNRCondition extracts the provided condition from the given status and returns that.
