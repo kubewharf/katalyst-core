@@ -45,5 +45,6 @@ func (o *DynamicOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 func (o *DynamicOptions) ApplyTo(c *dynamic.Configuration) error {
 	var errList []error
 	errList = append(errList, o.AdminQoSOptions.ApplyTo(c.AdminQoSConfiguration))
+	errList = append(errList, o.EvictionOptions.ApplyTo(c.EvictionConfiguration))
 	return errors.NewAggregate(errList)
 }
