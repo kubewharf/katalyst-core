@@ -20,6 +20,7 @@ package cpuadvisor;
 
 import "github.com/gogo/protobuf/gogoproto/gogo.proto";
 import "github.com/kubewharf/kubelet/pkg/apis/resourceplugin/v1alpha1/api.proto";
+import "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/advisorsvc/advisor_svc.proto";
 
 option (gogoproto.goproto_stringer_all) = false;
 option (gogoproto.stringer_all) =  true;
@@ -30,33 +31,6 @@ option (gogoproto.unmarshaler_all) = true;
 option (gogoproto.goproto_unrecognized_all) = false;
 
 option go_package = "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/cpuadvisor";
-
-// containing metadata of the container which won't be changed during container's lifecycle
-message AddContainerRequest {
-    string pod_uid = 1;
-    string pod_namespace = 2;
-    string pod_name = 3;
-    string container_name = 4;
-    resourceplugin.v1alpha1.ContainerType container_type = 5;
-    uint64 container_index = 6;
-    map<string,string> labels = 7;
-    map<string,string> annotations = 8;
-    string qos_level = 9;
-    uint64 requestQuantity = 10;
-}
-
-message AddContainerResponse {
-}
-
-message Empty {
-}
-
-message RemovePodRequest {
-        string pod_uid = 1;
-}
-
-message RemovePodResponse {
-}
 
 message ListAndWatchResponse {
     map<string,CalculationEntries> entries = 1; // keyed by pool name or podUID
@@ -125,9 +99,9 @@ message AllocationInfo {
 }
 
 service CPUAdvisor {
-    rpc AddContainer(AddContainerRequest) returns (AddContainerResponse) {}
-    rpc RemovePod(RemovePodRequest) returns (RemovePodResponse) {}
-    rpc ListAndWatch(Empty) returns (stream ListAndWatchResponse) {}
+    rpc AddContainer(advisorsvc.AddContainerRequest) returns (advisorsvc.AddContainerResponse) {}
+    rpc RemovePod(advisorsvc.RemovePodRequest) returns (advisorsvc.RemovePodResponse) {}
+    rpc ListAndWatch(advisorsvc.Empty) returns (stream ListAndWatchResponse) {}
 }
 
 service CPUPlugin {

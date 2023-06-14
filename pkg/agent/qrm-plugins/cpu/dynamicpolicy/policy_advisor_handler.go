@@ -29,6 +29,7 @@ import (
 	maputil "k8s.io/kubernetes/pkg/util/maps"
 
 	"github.com/kubewharf/katalyst-api/pkg/consts"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/advisorsvc"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/calculator"
 	advisorapi "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/cpuadvisor"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
@@ -178,7 +179,7 @@ func (p *DynamicPolicy) pushCPUAdvisor() error {
 					allocationInfo.ContainerName, allocationInfo.ContainerType)
 			}
 
-			_, err := p.advisorClient.AddContainer(context.Background(), &advisorapi.AddContainerRequest{
+			_, err := p.advisorClient.AddContainer(context.Background(), &advisorsvc.AddContainerRequest{
 				PodUid:          allocationInfo.PodUid,
 				PodNamespace:    allocationInfo.PodNamespace,
 				PodName:         allocationInfo.PodName,
@@ -210,7 +211,7 @@ func (p *DynamicPolicy) lwCPUAdvisorServer(stopCh <-chan struct{}) error {
 		cancel()
 	}()
 
-	stream, err := p.advisorClient.ListAndWatch(ctx, &advisorapi.Empty{})
+	stream, err := p.advisorClient.ListAndWatch(ctx, &advisorsvc.Empty{})
 	if err != nil {
 		return fmt.Errorf("call ListAndWatch of CPUAdvisorServer failed with error: %v", err)
 	}

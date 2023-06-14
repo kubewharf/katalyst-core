@@ -29,6 +29,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/klog/v2"
 
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/advisorsvc"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/cpuadvisor"
 	qrmstate "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
@@ -135,7 +136,7 @@ func (cs *cpuServer) Stop() error {
 	return nil
 }
 
-func (cs *cpuServer) AddContainer(_ context.Context, request *cpuadvisor.AddContainerRequest) (*cpuadvisor.AddContainerResponse, error) {
+func (cs *cpuServer) AddContainer(_ context.Context, request *advisorsvc.AddContainerRequest) (*advisorsvc.AddContainerResponse, error) {
 	_ = cs.emitter.StoreInt64(metricCPUServerAddContainerCalled, int64(cs.period.Seconds()), metrics.MetricTypeNameCount)
 
 	if request == nil {
@@ -149,10 +150,10 @@ func (cs *cpuServer) AddContainer(_ context.Context, request *cpuadvisor.AddCont
 		klog.Errorf("[qosaware-server-cpu] add container with error: %v", err)
 	}
 
-	return &cpuadvisor.AddContainerResponse{}, err
+	return &advisorsvc.AddContainerResponse{}, err
 }
 
-func (cs *cpuServer) RemovePod(_ context.Context, request *cpuadvisor.RemovePodRequest) (*cpuadvisor.RemovePodResponse, error) {
+func (cs *cpuServer) RemovePod(_ context.Context, request *advisorsvc.RemovePodRequest) (*advisorsvc.RemovePodResponse, error) {
 	_ = cs.emitter.StoreInt64(metricCPUServerRemovePodCalled, int64(cs.period.Seconds()), metrics.MetricTypeNameCount)
 
 	if request == nil {
@@ -165,10 +166,10 @@ func (cs *cpuServer) RemovePod(_ context.Context, request *cpuadvisor.RemovePodR
 		klog.Errorf("[qosaware-server-cpu] remove pod with error: %v", err)
 	}
 
-	return &cpuadvisor.RemovePodResponse{}, err
+	return &advisorsvc.RemovePodResponse{}, err
 }
 
-func (cs *cpuServer) ListAndWatch(_ *cpuadvisor.Empty, server cpuadvisor.CPUAdvisor_ListAndWatchServer) error {
+func (cs *cpuServer) ListAndWatch(_ *advisorsvc.Empty, server cpuadvisor.CPUAdvisor_ListAndWatchServer) error {
 	_ = cs.emitter.StoreInt64(metricCPUServerLWCalled, int64(cs.period.Seconds()), metrics.MetricTypeNameCount)
 
 	if !cs.getCheckpointCalled {
@@ -368,7 +369,7 @@ func (cs *cpuServer) dial(unixSocketPath string, timeout time.Duration) (*grpc.C
 	return c, nil
 }
 
-func (cs *cpuServer) addContainer(request *cpuadvisor.AddContainerRequest) error {
+func (cs *cpuServer) addContainer(request *advisorsvc.AddContainerRequest) error {
 	ci := &types.ContainerInfo{
 		PodUID:         request.PodUid,
 		PodNamespace:   request.PodNamespace,
