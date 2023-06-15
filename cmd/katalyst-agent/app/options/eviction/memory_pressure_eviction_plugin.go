@@ -17,6 +17,9 @@ limitations under the License.
 package eviction
 
 import (
+	"fmt"
+
+	"k8s.io/apimachinery/pkg/labels"
 	cliflag "k8s.io/component-base/cli/flag"
 
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/eviction"
@@ -24,6 +27,7 @@ import (
 
 // MemoryPressureEvictionPluginOptions is the options of MemoryPressureEvictionPlugin
 type MemoryPressureEvictionPluginOptions struct {
+	RssOveruseEvictionFilter string
 }
 
 // NewMemoryPressureEvictionPluginOptions returns a new MemoryPressureEvictionPluginOptions
@@ -32,9 +36,21 @@ func NewMemoryPressureEvictionPluginOptions() *MemoryPressureEvictionPluginOptio
 }
 
 // AddFlags parses the flags to MemoryPressureEvictionPluginOptions
-func (o *MemoryPressureEvictionPluginOptions) AddFlags(_ *cliflag.NamedFlagSets) {}
+func (o *MemoryPressureEvictionPluginOptions) AddFlags(fss *cliflag.NamedFlagSets) {
+	fs := fss.FlagSet("memory-pressure-eviction")
+
+	fs.StringVar(&o.RssOveruseEvictionFilter, "rss-overuse-evict-filter", o.RssOveruseEvictionFilter,
+		"the labels which used to filter pods which can be evict by rss overuse eviction plugin")
+}
 
 // ApplyTo applies MemoryPressureEvictionPluginOptions to MemoryPressureEvictionPluginConfiguration
-func (o *MemoryPressureEvictionPluginOptions) ApplyTo(_ *eviction.MemoryPressureEvictionPluginConfiguration) error {
+func (o *MemoryPressureEvictionPluginOptions) ApplyTo(c *eviction.MemoryPressureEvictionPluginConfiguration) error {
+	if o.RssOveruseEvictionFilter != "" {
+		labelFilter, err := labels.ConvertSelectorToLabelsMap(o.RssOveruseEvictionFilter)
+		if err != nil {
+			return fmt.Errorf("parse \"rss-overuse-evict-filter\" flag failed, value:%v, err: %v", o.RssOveruseEvictionFilter, err)
+		}
+		c.RssOveruseEvictionFilter = labelFilter
+	}
 	return nil
 }

@@ -24,6 +24,7 @@ import (
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/util/sets"
 
 	apiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
@@ -133,6 +134,9 @@ func TestRssOveruseEvictionPlugin_GetEvictPods(t *testing.T) {
 			ObjectMeta: metav1.ObjectMeta{
 				Name: "pod-5",
 				UID:  "005",
+				Labels: map[string]string{
+					"canEvict": "true",
+				},
 			},
 			Spec: v1.PodSpec{
 				Containers: []v1.Container{
@@ -214,6 +218,9 @@ func TestRssOveruseEvictionPlugin_GetEvictPods(t *testing.T) {
 				UID:  "008",
 				Annotations: map[string]string{
 					apiconsts.PodAnnotationMemoryEnhancementKey: "{\"rss_overuse_threshold\":\"0.8\"}",
+				},
+				Labels: map[string]string{
+					"canEvict": "true",
 				},
 			},
 			Spec: v1.PodSpec{
@@ -300,12 +307,14 @@ func TestRssOveruseEvictionPlugin_GetEvictPods(t *testing.T) {
 		enableRssOveruse           bool
 		defaultRssOveruseThreshold float64
 		wantedResult               sets.String
+		podFilter                  labels.Set
 	}{
 		{
 			name:                       "disable rss overuse eviction",
 			enableRssOveruse:           false,
 			defaultRssOveruseThreshold: 0.1,
 			wantedResult:               map[string]sets.Empty{},
+			podFilter:                  map[string]string{},
 		},
 		{
 			name:                       "enable rss overuse eviction, threshold is 1",
@@ -315,6 +324,7 @@ func TestRssOveruseEvictionPlugin_GetEvictPods(t *testing.T) {
 				"pod-3": {},
 				"pod-8": {},
 			},
+			podFilter: map[string]string{},
 		},
 		{
 			name:                       "enable rss overuse eviction, threshold is 0.1",
@@ -326,12 +336,24 @@ func TestRssOveruseEvictionPlugin_GetEvictPods(t *testing.T) {
 				"pod-5": {},
 				"pod-8": {},
 			},
+			podFilter: map[string]string{},
+		},
+		{
+			name:                       "enable rss overuse eviction, threshold is 0.1",
+			enableRssOveruse:           true,
+			defaultRssOveruseThreshold: 0.1,
+			wantedResult: map[string]sets.Empty{
+				"pod-5": {},
+				"pod-8": {},
+			},
+			podFilter: map[string]string{"canEvict": "true"},
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			plugin.dynamicConfig.GetDynamicConfiguration().EnableRssOveruseDetection = tt.enableRssOveruse
 			plugin.dynamicConfig.GetDynamicConfiguration().RssOveruseRateThreshold = tt.defaultRssOveruseThreshold
+			plugin.pluginConfig.RssOveruseEvictionFilter = tt.podFilter
 
 			evictPods, err2 := plugin.GetEvictPods(context.TODO(), &pluginapi.GetEvictPodsRequest{
 				ActivePods: pods,
