@@ -13,7 +13,7 @@ Please make sure you have deployed all pre-dependent components before moving on
 ## Functionalities
 Before going to the next step, let's assume that we will use those settings and configurations as baseline:
 
-- Total resources are set as 48 cores and 195924424Ki per nod;
+- Total resources are set as 48 cores and 195924424Ki per node;
 - Reserved resources for pods with shared_cores are set as 4 cores and 5Gi, and it means that we'll always keep at least this amount of resources for those pods for bursting requirements.
   
 Based on the assumption above, you can follow the steps to deep dive into the colocation workflow.
