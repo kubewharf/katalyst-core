@@ -1,0 +1,85 @@
+/*
+Copyright 2022 The Katalyst Authors.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
+syntax = 'proto3';
+
+package advisorsvc;
+
+import "github.com/gogo/protobuf/gogoproto/gogo.proto";
+import "github.com/kubewharf/kubelet/pkg/apis/resourceplugin/v1alpha1/api.proto";
+
+option (gogoproto.goproto_stringer_all) = false;
+option (gogoproto.stringer_all) =  true;
+option (gogoproto.goproto_getters_all) = true;
+option (gogoproto.marshaler_all) = true;
+option (gogoproto.sizer_all) = true;
+option (gogoproto.unmarshaler_all) = true;
+option (gogoproto.goproto_unrecognized_all) = false;
+
+option go_package = "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/advisorsvc";
+
+// containing metadata of the container which won't be changed during container's lifecycle
+message AddContainerRequest {
+    string pod_uid = 1;
+    string pod_namespace = 2;
+    string pod_name = 3;
+    string container_name = 4;
+    resourceplugin.v1alpha1.ContainerType container_type = 5;
+    uint64 container_index = 6;
+    map<string,string> labels = 7;
+    map<string,string> annotations = 8;
+    string qos_level = 9;
+    uint64 requestQuantity = 10;
+}
+
+message AddContainerResponse {
+}
+
+message Empty {
+}
+
+message RemovePodRequest {
+        string pod_uid = 1;
+}
+
+message RemovePodResponse {
+}
+
+message ListAndWatchResponse {
+    map<string,CalculationEntries> pod_entries = 1; // keyed by podUID
+    repeated CalculationInfo extra_entries = 2; // for non-container level adjustment (eg. /kubepods/besteffort) 
+}
+
+message CalculationEntries {
+    map<string,CalculationInfo> container_entries = 1; // keyed by container name
+}
+
+message CalculationInfo {
+    // eg. "/kubepods/besteffort";
+    // empty for container; non-empty for high level cgroup path; since subsystem may be different for different control knob, so we use relative path here. 
+    string cgroup_path = 1; 
+    CalculationResult calculation_result  = 2;
+}
+
+message CalculationResult {  
+    map<string,string> values = 1;  // eg. map[string]string{"memory_limit_in_bytes": "1073741824"}    
+}
+
+service AdvisorService {
+    rpc AddContainer(AddContainerRequest) returns (AddContainerResponse) {}
+    rpc RemovePod(RemovePodRequest) returns (RemovePodResponse) {}
+    rpc ListAndWatch(Empty) returns (stream ListAndWatchResponse) {}
+}

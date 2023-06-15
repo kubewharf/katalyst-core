@@ -52,7 +52,7 @@ generate:
 ## --------------------------------------
 
 .PHONY: generate-pb
-generate-pb: generate-sys-advisor-cpu-plugin
+generate-pb: generate-sys-advisor-cpu-plugin generate-advisor-svc
 
 SysAdvisorCPUPluginPath = $(MakeFilePath)/pkg/agent/qrm-plugins/cpu/dynamicpolicy/cpuadvisor/
 .PHONY: generate-sys-advisor-cpu-plugin ## Generate Protocol for cpu resource plugin with sys-advisor
@@ -70,6 +70,23 @@ generate-sys-advisor-cpu-plugin:
 	cat $(MakeFilePath)/hack/boilerplate.go.txt "$(SysAdvisorCPUPluginPath)cpu.pb.go" > tmpfile && mv tmpfile "$(SysAdvisorCPUPluginPath)cpu.pb.go"
 	if [ `uname` == "Linux" ]; then sedi=(-i); else sedi=(-i ""); fi && \
 		sed "$${sedi[@]}" s,github.com/kubewharf/kubelet,k8s.io/kubelet,g $(SysAdvisorCPUPluginPath)cpu.pb.go
+
+AdvisorSvcPath = $(MakeFilePath)/pkg/agent/qrm-plugins/advisorsvc/
+.PHONY: generate-advisor-svc ## Generate Protocol for general qrm-plugin with sys-advisor
+generate-advisor-svc:
+	if [ ! -d $(GOPATH)/src/github.com/kubewharf/kubelet ]; then git clone https://github.com/kubewharf/kubelet.git $(GOPATH)/src/github.com/kubewharf/kubelet; fi
+	targetTag=`cat $(MakeFilePath)/go.mod | grep kubewharf/kubelet | awk '{print $$4}'` && \
+        cd $(GOPATH)/src/github.com/kubewharf/kubelet && \
+		git fetch --tags && \
+		originalBranch=`git symbolic-ref --short -q HEAD` && \
+		git checkout $$targetTag && \
+		cd - && \
+		protoc -I=$(AdvisorSvcPath) -I=$(GOPATH)/src/ -I=$(GOPATH)/pkg/mod/ --gogo_out=plugins=grpc,paths=source_relative:$(AdvisorSvcPath) $(AdvisorSvcPath)advisor_svc.proto && \
+		cd - && \
+		git checkout $$originalBranch
+	cat $(MakeFilePath)/hack/boilerplate.go.txt "$(AdvisorSvcPath)advisor_svc.pb.go" > tmpfile && mv tmpfile "$(AdvisorSvcPath)advisor_svc.pb.go"
+	if [ `uname` == "Linux" ]; then sedi=(-i); else sedi=(-i ""); fi && \
+		sed "$${sedi[@]}" s,github.com/kubewharf/kubelet,k8s.io/kubelet,g $(AdvisorSvcPath)advisor_svc.pb.go
 
 ## --------------------------------------
 ## Cleanup / Verification

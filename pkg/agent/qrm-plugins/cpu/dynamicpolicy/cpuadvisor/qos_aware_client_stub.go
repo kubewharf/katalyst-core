@@ -19,6 +19,8 @@ package cpuadvisor
 import (
 	"context"
 
+	advisorsvc "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/advisorsvc"
+
 	"google.golang.org/grpc"
 )
 
@@ -28,17 +30,17 @@ func NewCPUAdvisorClientStub() CPUAdvisorClient {
 	return &cpuAdvisorClientStub{}
 }
 
-func (c *cpuAdvisorClientStub) AddContainer(_ context.Context, _ *AddContainerRequest,
-	_ ...grpc.CallOption) (*AddContainerResponse, error) {
+func (c *cpuAdvisorClientStub) AddContainer(_ context.Context, _ *advisorsvc.AddContainerRequest,
+	_ ...grpc.CallOption) (*advisorsvc.AddContainerResponse, error) {
 	return nil, nil
 }
 
-func (c *cpuAdvisorClientStub) RemovePod(_ context.Context, _ *RemovePodRequest,
-	_ ...grpc.CallOption) (*RemovePodResponse, error) {
+func (c *cpuAdvisorClientStub) RemovePod(_ context.Context, _ *advisorsvc.RemovePodRequest,
+	_ ...grpc.CallOption) (*advisorsvc.RemovePodResponse, error) {
 	return nil, nil
 }
 
-func (c *cpuAdvisorClientStub) ListAndWatch(_ context.Context, _ *Empty,
+func (c *cpuAdvisorClientStub) ListAndWatch(_ context.Context, _ *advisorsvc.Empty,
 	_ ...grpc.CallOption) (CPUAdvisor_ListAndWatchClient, error) {
 	return nil, nil
 }

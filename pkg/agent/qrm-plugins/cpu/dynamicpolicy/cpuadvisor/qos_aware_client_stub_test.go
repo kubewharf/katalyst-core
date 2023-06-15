@@ -19,19 +19,21 @@ package cpuadvisor
 import (
 	context "context"
 	"testing"
+
+	advisorsvc "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/advisorsvc"
 )
 
 func TestClientAddContainer(t *testing.T) {
 	client := NewCPUAdvisorClientStub()
-	_, _ = client.AddContainer(context.Background(), &AddContainerRequest{})
+	_, _ = client.AddContainer(context.Background(), &advisorsvc.AddContainerRequest{})
 }
 
 func TestClientRemovePod(t *testing.T) {
 	client := NewCPUAdvisorClientStub()
-	_, _ = client.RemovePod(context.Background(), &RemovePodRequest{})
+	_, _ = client.RemovePod(context.Background(), &advisorsvc.RemovePodRequest{})
 }
 
 func TestClientListAndWatch(t *testing.T) {
 	client := NewCPUAdvisorClientStub()
-	_, _ = client.ListAndWatch(context.Background(), &Empty{})
+	_, _ = client.ListAndWatch(context.Background(), &advisorsvc.Empty{})
 }

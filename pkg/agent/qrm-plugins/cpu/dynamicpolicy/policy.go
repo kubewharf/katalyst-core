@@ -33,6 +33,7 @@ import (
 	"github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-api/pkg/plugins/skeleton"
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/agent"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/advisorsvc"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/calculator"
 	advisorapi "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/cpuadvisor"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/cpueviction"
@@ -691,7 +692,7 @@ func (p *DynamicPolicy) Allocate(ctx context.Context,
 	defer func() {
 		// calls sys-advisor to inform the latest container
 		if p.enableCPUSysAdvisor && respErr == nil && req.ContainerType != pluginapi.ContainerType_INIT {
-			_, err := p.advisorClient.AddContainer(ctx, &advisorapi.AddContainerRequest{
+			_, err := p.advisorClient.AddContainer(ctx, &advisorsvc.AddContainerRequest{
 				PodUid:          req.PodUid,
 				PodNamespace:    req.PodNamespace,
 				PodName:         req.PodName,
@@ -784,7 +785,7 @@ func (p *DynamicPolicy) RemovePod(ctx context.Context,
 	}()
 
 	if p.enableCPUSysAdvisor {
-		_, err = p.advisorClient.RemovePod(ctx, &advisorapi.RemovePodRequest{PodUid: req.PodUid})
+		_, err = p.advisorClient.RemovePod(ctx, &advisorsvc.RemovePodRequest{PodUid: req.PodUid})
 		if err != nil {
 			return nil, fmt.Errorf("remove pod in QoS aware server failed with error: %v", err)
 		}

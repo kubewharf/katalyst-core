@@ -24,7 +24,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 
 	"github.com/kubewharf/katalyst-api/pkg/consts"
-	advisorapi "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/cpuadvisor"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/advisorsvc"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
@@ -198,7 +198,7 @@ func (p *DynamicPolicy) clearResidualState() {
 
 			var rErr error
 			if p.enableCPUSysAdvisor {
-				_, rErr = p.advisorClient.RemovePod(ctx, &advisorapi.RemovePodRequest{
+				_, rErr = p.advisorClient.RemovePod(ctx, &advisorsvc.RemovePodRequest{
 					PodUid: podUID,
 				})
 			}

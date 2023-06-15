@@ -31,6 +31,7 @@ import (
 
 	"github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/options"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/advisorsvc"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/cpuadvisor"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
@@ -89,14 +90,14 @@ func TestCPUServerStartAndStop(t *testing.T) {
 func TestCPUServerAddContainer(t *testing.T) {
 	tests := []struct {
 		name              string
-		request           *cpuadvisor.AddContainerRequest
-		want              *cpuadvisor.AddContainerResponse
+		request           *advisorsvc.AddContainerRequest
+		want              *advisorsvc.AddContainerResponse
 		wantErr           bool
 		wantContainerInfo *types.ContainerInfo
 	}{
 		{
 			name: "test1",
-			request: &cpuadvisor.AddContainerRequest{
+			request: &advisorsvc.AddContainerRequest{
 				PodUid:          "testUID",
 				PodNamespace:    "testPodNamespace",
 				PodName:         "testPodName",
@@ -108,7 +109,7 @@ func TestCPUServerAddContainer(t *testing.T) {
 				QosLevel:        consts.PodAnnotationQoSLevelSharedCores,
 				RequestQuantity: 1,
 			},
-			want:    &cpuadvisor.AddContainerResponse{},
+			want:    &advisorsvc.AddContainerResponse{},
 			wantErr: false,
 			wantContainerInfo: &types.ContainerInfo{
 				PodUID:         "testUID",
@@ -149,16 +150,16 @@ func TestCPUServerAddContainer(t *testing.T) {
 func TestCPUServerRemovePod(t *testing.T) {
 	tests := []struct {
 		name    string
-		request *cpuadvisor.RemovePodRequest
-		want    *cpuadvisor.RemovePodResponse
+		request *advisorsvc.RemovePodRequest
+		want    *advisorsvc.RemovePodResponse
 		wantErr bool
 	}{
 		{
 			name: "test1",
-			request: &cpuadvisor.RemovePodRequest{
+			request: &advisorsvc.RemovePodRequest{
 				PodUid: "testPodUID",
 			},
-			want:    &cpuadvisor.RemovePodResponse{},
+			want:    &advisorsvc.RemovePodResponse{},
 			wantErr: false,
 		},
 	}
@@ -218,13 +219,13 @@ func DeepCopyResponse(response *cpuadvisor.ListAndWatchResponse) (*cpuadvisor.Li
 
 func TestCPUServerListAndWatch(t *testing.T) {
 	type ContainerInfo struct {
-		request        *cpuadvisor.AddContainerRequest
+		request        *advisorsvc.AddContainerRequest
 		allocationInfo *cpuadvisor.AllocationInfo
 	}
 
 	tests := []struct {
 		name      string
-		empty     *cpuadvisor.Empty
+		empty     *advisorsvc.Empty
 		provision types.InternalCalculationResult
 		infos     []*ContainerInfo
 		wantErr   bool
@@ -232,7 +233,7 @@ func TestCPUServerListAndWatch(t *testing.T) {
 	}{
 		{
 			name:  "reclaim pool with shared pool",
-			empty: &cpuadvisor.Empty{},
+			empty: &advisorsvc.Empty{},
 			provision: types.InternalCalculationResult{PoolEntries: map[string]map[int]int{
 				state.PoolNameShare:   {-1: 2},
 				state.PoolNameReclaim: {-1: 4},
@@ -277,7 +278,7 @@ func TestCPUServerListAndWatch(t *testing.T) {
 		},
 		{
 			name:  "reclaim pool with dedicated pod",
-			empty: &cpuadvisor.Empty{},
+			empty: &advisorsvc.Empty{},
 			provision: types.InternalCalculationResult{PoolEntries: map[string]map[int]int{
 				state.PoolNameReclaim: {
 					0: 4,
@@ -286,7 +287,7 @@ func TestCPUServerListAndWatch(t *testing.T) {
 			}},
 			infos: []*ContainerInfo{
 				{
-					request: &cpuadvisor.AddContainerRequest{
+					request: &advisorsvc.AddContainerRequest{
 						PodUid:        "pod1",
 						ContainerName: "c1",
 						Annotations: map[string]string{
@@ -387,7 +388,7 @@ func TestCPUServerListAndWatch(t *testing.T) {
 		},
 		{
 			name:  "reclaim pool colocated with dedicated pod(2 containers)",
-			empty: &cpuadvisor.Empty{},
+			empty: &advisorsvc.Empty{},
 			provision: types.InternalCalculationResult{PoolEntries: map[string]map[int]int{
 				state.PoolNameReclaim: {
 					0: 4,
@@ -396,7 +397,7 @@ func TestCPUServerListAndWatch(t *testing.T) {
 			}},
 			infos: []*ContainerInfo{
 				{
-					request: &cpuadvisor.AddContainerRequest{
+					request: &advisorsvc.AddContainerRequest{
 						PodUid:        "pod1",
 						ContainerName: "c1",
 						Annotations: map[string]string{
@@ -413,7 +414,7 @@ func TestCPUServerListAndWatch(t *testing.T) {
 					},
 				},
 				{
-					request: &cpuadvisor.AddContainerRequest{
+					request: &advisorsvc.AddContainerRequest{
 						PodUid:        "pod1",
 						ContainerName: "c2",
 						Annotations: map[string]string{

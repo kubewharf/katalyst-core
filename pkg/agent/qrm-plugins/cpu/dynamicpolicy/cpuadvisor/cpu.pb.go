@@ -20,19 +20,19 @@ package cpuadvisor
 import (
 	context "context"
 	fmt "fmt"
+	_ "github.com/gogo/protobuf/gogoproto"
+	proto "github.com/gogo/protobuf/proto"
+	github_com_gogo_protobuf_sortkeys "github.com/gogo/protobuf/sortkeys"
+	advisorsvc "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/advisorsvc"
+	grpc "google.golang.org/grpc"
+	codes "google.golang.org/grpc/codes"
+	status "google.golang.org/grpc/status"
 	io "io"
+	_ "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 	math "math"
 	math_bits "math/bits"
 	reflect "reflect"
 	strings "strings"
-
-	_ "github.com/gogo/protobuf/gogoproto"
-	proto "github.com/gogo/protobuf/proto"
-	github_com_gogo_protobuf_sortkeys "github.com/gogo/protobuf/sortkeys"
-	grpc "google.golang.org/grpc"
-	codes "google.golang.org/grpc/codes"
-	status "google.golang.org/grpc/status"
-	v1alpha1 "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 )
 
 // Reference imports to suppress errors if they are not otherwise used.
@@ -71,280 +71,6 @@ func (OverlapType) EnumDescriptor() ([]byte, []int) {
 	return fileDescriptor_08fc9a87e8768c24, []int{0}
 }
 
-// containing metadata of the container which won't be changed during container's lifecycle
-type AddContainerRequest struct {
-	PodUid               string                 `protobuf:"bytes,1,opt,name=pod_uid,json=podUid,proto3" json:"pod_uid,omitempty"`
-	PodNamespace         string                 `protobuf:"bytes,2,opt,name=pod_namespace,json=podNamespace,proto3" json:"pod_namespace,omitempty"`
-	PodName              string                 `protobuf:"bytes,3,opt,name=pod_name,json=podName,proto3" json:"pod_name,omitempty"`
-	ContainerName        string                 `protobuf:"bytes,4,opt,name=container_name,json=containerName,proto3" json:"container_name,omitempty"`
-	ContainerType        v1alpha1.ContainerType `protobuf:"varint,5,opt,name=container_type,json=containerType,proto3,enum=resourceplugin.v1alpha1.ContainerType" json:"container_type,omitempty"`
-	ContainerIndex       uint64                 `protobuf:"varint,6,opt,name=container_index,json=containerIndex,proto3" json:"container_index,omitempty"`
-	Labels               map[string]string      `protobuf:"bytes,7,rep,name=labels,proto3" json:"labels,omitempty" protobuf_key:"bytes,1,opt,name=key,proto3" protobuf_val:"bytes,2,opt,name=value,proto3"`
-	Annotations          map[string]string      `protobuf:"bytes,8,rep,name=annotations,proto3" json:"annotations,omitempty" protobuf_key:"bytes,1,opt,name=key,proto3" protobuf_val:"bytes,2,opt,name=value,proto3"`
-	QosLevel             string                 `protobuf:"bytes,9,opt,name=qos_level,json=qosLevel,proto3" json:"qos_level,omitempty"`
-	RequestQuantity      uint64                 `protobuf:"varint,10,opt,name=requestQuantity,proto3" json:"requestQuantity,omitempty"`
-	XXX_NoUnkeyedLiteral struct{}               `json:"-"`
-	XXX_sizecache        int32                  `json:"-"`
-}
-
-func (m *AddContainerRequest) Reset()      { *m = AddContainerRequest{} }
-func (*AddContainerRequest) ProtoMessage() {}
-func (*AddContainerRequest) Descriptor() ([]byte, []int) {
-	return fileDescriptor_08fc9a87e8768c24, []int{0}
-}
-func (m *AddContainerRequest) XXX_Unmarshal(b []byte) error {
-	return m.Unmarshal(b)
-}
-func (m *AddContainerRequest) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
-	if deterministic {
-		return xxx_messageInfo_AddContainerRequest.Marshal(b, m, deterministic)
-	} else {
-		b = b[:cap(b)]
-		n, err := m.MarshalToSizedBuffer(b)
-		if err != nil {
-			return nil, err
-		}
-		return b[:n], nil
-	}
-}
-func (m *AddContainerRequest) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_AddContainerRequest.Merge(m, src)
-}
-func (m *AddContainerRequest) XXX_Size() int {
-	return m.Size()
-}
-func (m *AddContainerRequest) XXX_DiscardUnknown() {
-	xxx_messageInfo_AddContainerRequest.DiscardUnknown(m)
-}
-
-var xxx_messageInfo_AddContainerRequest proto.InternalMessageInfo
-
-func (m *AddContainerRequest) GetPodUid() string {
-	if m != nil {
-		return m.PodUid
-	}
-	return ""
-}
-
-func (m *AddContainerRequest) GetPodNamespace() string {
-	if m != nil {
-		return m.PodNamespace
-	}
-	return ""
-}
-
-func (m *AddContainerRequest) GetPodName() string {
-	if m != nil {
-		return m.PodName
-	}
-	return ""
-}
-
-func (m *AddContainerRequest) GetContainerName() string {
-	if m != nil {
-		return m.ContainerName
-	}
-	return ""
-}
-
-func (m *AddContainerRequest) GetContainerType() v1alpha1.ContainerType {
-	if m != nil {
-		return m.ContainerType
-	}
-	return v1alpha1.ContainerType_INIT
-}
-
-func (m *AddContainerRequest) GetContainerIndex() uint64 {
-	if m != nil {
-		return m.ContainerIndex
-	}
-	return 0
-}
-
-func (m *AddContainerRequest) GetLabels() map[string]string {
-	if m != nil {
-		return m.Labels
-	}
-	return nil
-}
-
-func (m *AddContainerRequest) GetAnnotations() map[string]string {
-	if m != nil {
-		return m.Annotations
-	}
-	return nil
-}
-
-func (m *AddContainerRequest) GetQosLevel() string {
-	if m != nil {
-		return m.QosLevel
-	}
-	return ""
-}
-
-func (m *AddContainerRequest) GetRequestQuantity() uint64 {
-	if m != nil {
-		return m.RequestQuantity
-	}
-	return 0
-}
-
-type AddContainerResponse struct {
-	XXX_NoUnkeyedLiteral struct{} `json:"-"`
-	XXX_sizecache        int32    `json:"-"`
-}
-
-func (m *AddContainerResponse) Reset()      { *m = AddContainerResponse{} }
-func (*AddContainerResponse) ProtoMessage() {}
-func (*AddContainerResponse) Descriptor() ([]byte, []int) {
-	return fileDescriptor_08fc9a87e8768c24, []int{1}
-}
-func (m *AddContainerResponse) XXX_Unmarshal(b []byte) error {
-	return m.Unmarshal(b)
-}
-func (m *AddContainerResponse) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
-	if deterministic {
-		return xxx_messageInfo_AddContainerResponse.Marshal(b, m, deterministic)
-	} else {
-		b = b[:cap(b)]
-		n, err := m.MarshalToSizedBuffer(b)
-		if err != nil {
-			return nil, err
-		}
-		return b[:n], nil
-	}
-}
-func (m *AddContainerResponse) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_AddContainerResponse.Merge(m, src)
-}
-func (m *AddContainerResponse) XXX_Size() int {
-	return m.Size()
-}
-func (m *AddContainerResponse) XXX_DiscardUnknown() {
-	xxx_messageInfo_AddContainerResponse.DiscardUnknown(m)
-}
-
-var xxx_messageInfo_AddContainerResponse proto.InternalMessageInfo
-
-type Empty struct {
-	XXX_NoUnkeyedLiteral struct{} `json:"-"`
-	XXX_sizecache        int32    `json:"-"`
-}
-
-func (m *Empty) Reset()      { *m = Empty{} }
-func (*Empty) ProtoMessage() {}
-func (*Empty) Descriptor() ([]byte, []int) {
-	return fileDescriptor_08fc9a87e8768c24, []int{2}
-}
-func (m *Empty) XXX_Unmarshal(b []byte) error {
-	return m.Unmarshal(b)
-}
-func (m *Empty) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
-	if deterministic {
-		return xxx_messageInfo_Empty.Marshal(b, m, deterministic)
-	} else {
-		b = b[:cap(b)]
-		n, err := m.MarshalToSizedBuffer(b)
-		if err != nil {
-			return nil, err
-		}
-		return b[:n], nil
-	}
-}
-func (m *Empty) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_Empty.Merge(m, src)
-}
-func (m *Empty) XXX_Size() int {
-	return m.Size()
-}
-func (m *Empty) XXX_DiscardUnknown() {
-	xxx_messageInfo_Empty.DiscardUnknown(m)
-}
-
-var xxx_messageInfo_Empty proto.InternalMessageInfo
-
-type RemovePodRequest struct {
-	PodUid               string   `protobuf:"bytes,1,opt,name=pod_uid,json=podUid,proto3" json:"pod_uid,omitempty"`
-	XXX_NoUnkeyedLiteral struct{} `json:"-"`
-	XXX_sizecache        int32    `json:"-"`
-}
-
-func (m *RemovePodRequest) Reset()      { *m = RemovePodRequest{} }
-func (*RemovePodRequest) ProtoMessage() {}
-func (*RemovePodRequest) Descriptor() ([]byte, []int) {
-	return fileDescriptor_08fc9a87e8768c24, []int{3}
-}
-func (m *RemovePodRequest) XXX_Unmarshal(b []byte) error {
-	return m.Unmarshal(b)
-}
-func (m *RemovePodRequest) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
-	if deterministic {
-		return xxx_messageInfo_RemovePodRequest.Marshal(b, m, deterministic)
-	} else {
-		b = b[:cap(b)]
-		n, err := m.MarshalToSizedBuffer(b)
-		if err != nil {
-			return nil, err
-		}
-		return b[:n], nil
-	}
-}
-func (m *RemovePodRequest) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_RemovePodRequest.Merge(m, src)
-}
-func (m *RemovePodRequest) XXX_Size() int {
-	return m.Size()
-}
-func (m *RemovePodRequest) XXX_DiscardUnknown() {
-	xxx_messageInfo_RemovePodRequest.DiscardUnknown(m)
-}
-
-var xxx_messageInfo_RemovePodRequest proto.InternalMessageInfo
-
-func (m *RemovePodRequest) GetPodUid() string {
-	if m != nil {
-		return m.PodUid
-	}
-	return ""
-}
-
-type RemovePodResponse struct {
-	XXX_NoUnkeyedLiteral struct{} `json:"-"`
-	XXX_sizecache        int32    `json:"-"`
-}
-
-func (m *RemovePodResponse) Reset()      { *m = RemovePodResponse{} }
-func (*RemovePodResponse) ProtoMessage() {}
-func (*RemovePodResponse) Descriptor() ([]byte, []int) {
-	return fileDescriptor_08fc9a87e8768c24, []int{4}
-}
-func (m *RemovePodResponse) XXX_Unmarshal(b []byte) error {
-	return m.Unmarshal(b)
-}
-func (m *RemovePodResponse) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
-	if deterministic {
-		return xxx_messageInfo_RemovePodResponse.Marshal(b, m, deterministic)
-	} else {
-		b = b[:cap(b)]
-		n, err := m.MarshalToSizedBuffer(b)
-		if err != nil {
-			return nil, err
-		}
-		return b[:n], nil
-	}
-}
-func (m *RemovePodResponse) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_RemovePodResponse.Merge(m, src)
-}
-func (m *RemovePodResponse) XXX_Size() int {
-	return m.Size()
-}
-func (m *RemovePodResponse) XXX_DiscardUnknown() {
-	xxx_messageInfo_RemovePodResponse.DiscardUnknown(m)
-}
-
-var xxx_messageInfo_RemovePodResponse proto.InternalMessageInfo
-
 type ListAndWatchResponse struct {
 	Entries              map[string]*CalculationEntries `protobuf:"bytes,1,rep,name=entries,proto3" json:"entries,omitempty" protobuf_key:"bytes,1,opt,name=key,proto3" protobuf_val:"bytes,2,opt,name=value,proto3"`
 	XXX_NoUnkeyedLiteral struct{}                       `json:"-"`
@@ -354,7 +80,7 @@ type ListAndWatchResponse struct {
 func (m *ListAndWatchResponse) Reset()      { *m = ListAndWatchResponse{} }
 func (*ListAndWatchResponse) ProtoMessage() {}
 func (*ListAndWatchResponse) Descriptor() ([]byte, []int) {
-	return fileDescriptor_08fc9a87e8768c24, []int{5}
+	return fileDescriptor_08fc9a87e8768c24, []int{0}
 }
 func (m *ListAndWatchResponse) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
@@ -399,7 +125,7 @@ type CalculationEntries struct {
 func (m *CalculationEntries) Reset()      { *m = CalculationEntries{} }
 func (*CalculationEntries) ProtoMessage() {}
 func (*CalculationEntries) Descriptor() ([]byte, []int) {
-	return fileDescriptor_08fc9a87e8768c24, []int{6}
+	return fileDescriptor_08fc9a87e8768c24, []int{1}
 }
 func (m *CalculationEntries) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
@@ -450,7 +176,7 @@ type CalculationInfo struct {
 func (m *CalculationInfo) Reset()      { *m = CalculationInfo{} }
 func (*CalculationInfo) ProtoMessage() {}
 func (*CalculationInfo) Descriptor() ([]byte, []int) {
-	return fileDescriptor_08fc9a87e8768c24, []int{7}
+	return fileDescriptor_08fc9a87e8768c24, []int{2}
 }
 func (m *CalculationInfo) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
@@ -503,7 +229,7 @@ type NumaCalculationResult struct {
 func (m *NumaCalculationResult) Reset()      { *m = NumaCalculationResult{} }
 func (*NumaCalculationResult) ProtoMessage() {}
 func (*NumaCalculationResult) Descriptor() ([]byte, []int) {
-	return fileDescriptor_08fc9a87e8768c24, []int{8}
+	return fileDescriptor_08fc9a87e8768c24, []int{3}
 }
 func (m *NumaCalculationResult) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
@@ -550,7 +276,7 @@ type Block struct {
 func (m *Block) Reset()      { *m = Block{} }
 func (*Block) ProtoMessage() {}
 func (*Block) Descriptor() ([]byte, []int) {
-	return fileDescriptor_08fc9a87e8768c24, []int{9}
+	return fileDescriptor_08fc9a87e8768c24, []int{4}
 }
 func (m *Block) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
@@ -612,7 +338,7 @@ type OverlapTarget struct {
 func (m *OverlapTarget) Reset()      { *m = OverlapTarget{} }
 func (*OverlapTarget) ProtoMessage() {}
 func (*OverlapTarget) Descriptor() ([]byte, []int) {
-	return fileDescriptor_08fc9a87e8768c24, []int{10}
+	return fileDescriptor_08fc9a87e8768c24, []int{5}
 }
 func (m *OverlapTarget) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
@@ -677,7 +403,7 @@ type GetCheckpointRequest struct {
 func (m *GetCheckpointRequest) Reset()      { *m = GetCheckpointRequest{} }
 func (*GetCheckpointRequest) ProtoMessage() {}
 func (*GetCheckpointRequest) Descriptor() ([]byte, []int) {
-	return fileDescriptor_08fc9a87e8768c24, []int{11}
+	return fileDescriptor_08fc9a87e8768c24, []int{6}
 }
 func (m *GetCheckpointRequest) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
@@ -715,7 +441,7 @@ type GetCheckpointResponse struct {
 func (m *GetCheckpointResponse) Reset()      { *m = GetCheckpointResponse{} }
 func (*GetCheckpointResponse) ProtoMessage() {}
 func (*GetCheckpointResponse) Descriptor() ([]byte, []int) {
-	return fileDescriptor_08fc9a87e8768c24, []int{12}
+	return fileDescriptor_08fc9a87e8768c24, []int{7}
 }
 func (m *GetCheckpointResponse) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
@@ -760,7 +486,7 @@ type AllocationEntries struct {
 func (m *AllocationEntries) Reset()      { *m = AllocationEntries{} }
 func (*AllocationEntries) ProtoMessage() {}
 func (*AllocationEntries) Descriptor() ([]byte, []int) {
-	return fileDescriptor_08fc9a87e8768c24, []int{13}
+	return fileDescriptor_08fc9a87e8768c24, []int{8}
 }
 func (m *AllocationEntries) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
@@ -815,7 +541,7 @@ type AllocationInfo struct {
 func (m *AllocationInfo) Reset()      { *m = AllocationInfo{} }
 func (*AllocationInfo) ProtoMessage() {}
 func (*AllocationInfo) Descriptor() ([]byte, []int) {
-	return fileDescriptor_08fc9a87e8768c24, []int{14}
+	return fileDescriptor_08fc9a87e8768c24, []int{9}
 }
 func (m *AllocationInfo) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
@@ -874,13 +600,6 @@ func (m *AllocationInfo) GetOriginalTopologyAwareAssignments() map[uint64]string
 
 func init() {
 	proto.RegisterEnum("cpuadvisor.OverlapType", OverlapType_name, OverlapType_value)
-	proto.RegisterType((*AddContainerRequest)(nil), "cpuadvisor.AddContainerRequest")
-	proto.RegisterMapType((map[string]string)(nil), "cpuadvisor.AddContainerRequest.AnnotationsEntry")
-	proto.RegisterMapType((map[string]string)(nil), "cpuadvisor.AddContainerRequest.LabelsEntry")
-	proto.RegisterType((*AddContainerResponse)(nil), "cpuadvisor.AddContainerResponse")
-	proto.RegisterType((*Empty)(nil), "cpuadvisor.Empty")
-	proto.RegisterType((*RemovePodRequest)(nil), "cpuadvisor.RemovePodRequest")
-	proto.RegisterType((*RemovePodResponse)(nil), "cpuadvisor.RemovePodResponse")
 	proto.RegisterType((*ListAndWatchResponse)(nil), "cpuadvisor.ListAndWatchResponse")
 	proto.RegisterMapType((map[string]*CalculationEntries)(nil), "cpuadvisor.ListAndWatchResponse.EntriesEntry")
 	proto.RegisterType((*CalculationEntries)(nil), "cpuadvisor.CalculationEntries")
@@ -903,84 +622,71 @@ func init() {
 func init() { proto.RegisterFile("cpu.proto", fileDescriptor_08fc9a87e8768c24) }
 
 var fileDescriptor_08fc9a87e8768c24 = []byte{
-	// 1219 bytes of a gzipped FileDescriptorProto
-	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0x94, 0x57, 0x4f, 0x73, 0xdb, 0x44,
-	0x14, 0xb7, 0x62, 0xc7, 0x89, 0x9f, 0x93, 0x38, 0xdd, 0xf4, 0x8f, 0xaa, 0x36, 0xc6, 0x75, 0xa7,
-	0x25, 0xb4, 0x13, 0xbb, 0x4d, 0x19, 0x5a, 0x7a, 0x60, 0x70, 0x4c, 0x26, 0x04, 0x42, 0x6b, 0xdc,
-	0xa4, 0x19, 0x7a, 0xf1, 0xac, 0xa5, 0x8d, 0xad, 0x89, 0xac, 0xdd, 0x48, 0x2b, 0x07, 0x0d, 0x33,
-	0x0c, 0xdf, 0x00, 0xbe, 0x05, 0x67, 0x66, 0xb8, 0xc1, 0x07, 0xe8, 0x91, 0x23, 0x47, 0x1a, 0x2e,
-	0x7c, 0x02, 0x4e, 0x30, 0xc3, 0x68, 0x25, 0xdb, 0x2b, 0xc5, 0x7f, 0xe8, 0xcd, 0x6f, 0xdf, 0xfb,
-	0xfd, 0xf6, 0xb7, 0x6f, 0xbd, 0xef, 0x3d, 0x41, 0x4e, 0x67, 0x5e, 0x85, 0x39, 0x94, 0x53, 0x04,
-	0x3a, 0xf3, 0xb0, 0xd1, 0x37, 0x5d, 0xea, 0x68, 0x9b, 0x1d, 0x93, 0x77, 0xbd, 0x76, 0x45, 0xa7,
-	0xbd, 0x6a, 0x87, 0x76, 0x68, 0x55, 0x84, 0xb4, 0xbd, 0x63, 0x61, 0x09, 0x43, 0xfc, 0x0a, 0xa1,
-	0xda, 0xae, 0x14, 0x7e, 0xe2, 0xb5, 0xc9, 0x59, 0x17, 0x3b, 0xc7, 0xe2, 0x97, 0x45, 0x78, 0x95,
-	0x9d, 0x74, 0xaa, 0x98, 0x99, 0x6e, 0xd5, 0x21, 0x2e, 0xf5, 0x1c, 0x9d, 0x30, 0xcb, 0xeb, 0x98,
-	0x76, 0xb5, 0xff, 0x10, 0x5b, 0xac, 0x8b, 0x1f, 0x06, 0xce, 0x90, 0xa8, 0xfc, 0x57, 0x06, 0xd6,
-	0x6a, 0x86, 0x51, 0xa7, 0x36, 0xc7, 0xa6, 0x4d, 0x9c, 0x26, 0x39, 0xf5, 0x88, 0xcb, 0xd1, 0x35,
-	0x58, 0x60, 0xd4, 0x68, 0x79, 0xa6, 0xa1, 0x2a, 0x25, 0x65, 0x23, 0xd7, 0xcc, 0x32, 0x6a, 0x1c,
-	0x9a, 0x06, 0xba, 0x0d, 0xcb, 0x81, 0xc3, 0xc6, 0x3d, 0xe2, 0x32, 0xac, 0x13, 0x75, 0x4e, 0xb8,
-	0x97, 0x18, 0x35, 0x9e, 0x0d, 0xd6, 0xd0, 0x75, 0x58, 0x1c, 0x04, 0xa9, 0x69, 0xe1, 0x5f, 0x88,
-	0xfc, 0xe8, 0x0e, 0xac, 0xe8, 0x83, 0xcd, 0xc2, 0x80, 0x8c, 0x08, 0x58, 0x1e, 0xae, 0x8a, 0xb0,
-	0x2f, 0xe4, 0x30, 0xee, 0x33, 0xa2, 0xce, 0x97, 0x94, 0x8d, 0x95, 0xad, 0xbb, 0x95, 0xf8, 0x99,
-	0x2a, 0x83, 0x33, 0x55, 0x86, 0x47, 0x38, 0xf0, 0x19, 0x91, 0xe8, 0x02, 0x13, 0xbd, 0x0b, 0x85,
-	0x11, 0x9d, 0x69, 0x1b, 0xe4, 0x6b, 0x35, 0x5b, 0x52, 0x36, 0x32, 0xcd, 0xd1, 0x2e, 0x7b, 0xc1,
-	0x2a, 0xaa, 0x43, 0xd6, 0xc2, 0x6d, 0x62, 0xb9, 0xea, 0x42, 0x29, 0xbd, 0x91, 0xdf, 0xba, 0x5f,
-	0x19, 0x5d, 0x52, 0x65, 0x4c, 0xa2, 0x2a, 0xfb, 0x22, 0x7a, 0xc7, 0xe6, 0x8e, 0xdf, 0x8c, 0xa0,
-	0xa8, 0x09, 0x79, 0x6c, 0xdb, 0x94, 0x63, 0x6e, 0x52, 0xdb, 0x55, 0x17, 0x05, 0xd3, 0x83, 0x59,
-	0x4c, 0xb5, 0x11, 0x24, 0xa4, 0x93, 0x49, 0xd0, 0x0d, 0xc8, 0x9d, 0x52, 0xb7, 0x65, 0x91, 0x3e,
-	0xb1, 0xd4, 0x9c, 0x48, 0xd9, 0xe2, 0x29, 0x75, 0xf7, 0x03, 0x1b, 0x6d, 0x40, 0xc1, 0x09, 0x59,
-	0xbe, 0xf4, 0xb0, 0xcd, 0x4d, 0xee, 0xab, 0x20, 0x8e, 0x97, 0x5c, 0xd6, 0x3e, 0x84, 0xbc, 0xa4,
-	0x18, 0xad, 0x42, 0xfa, 0x84, 0xf8, 0xd1, 0x15, 0x07, 0x3f, 0xd1, 0x65, 0x98, 0xef, 0x63, 0xcb,
-	0x1b, 0xdc, 0x6b, 0x68, 0x3c, 0x9d, 0x7b, 0xa2, 0x68, 0x1f, 0xc1, 0x6a, 0x52, 0xe2, 0xdb, 0xe0,
-	0xcb, 0x57, 0xe1, 0x72, 0xfc, 0xd8, 0x2e, 0xa3, 0xb6, 0x4b, 0xca, 0x0b, 0x30, 0xbf, 0xd3, 0x63,
-	0xdc, 0x2f, 0xdf, 0x87, 0xd5, 0x26, 0xe9, 0xd1, 0x3e, 0x69, 0x50, 0x63, 0xd6, 0xff, 0xb0, 0xbc,
-	0x06, 0x97, 0xa4, 0xe0, 0x88, 0xea, 0x17, 0x05, 0x2e, 0xef, 0x9b, 0x2e, 0xaf, 0xd9, 0xc6, 0x11,
-	0xe6, 0x7a, 0x77, 0xe0, 0x40, 0xbb, 0xb0, 0x40, 0x6c, 0xee, 0x98, 0xc4, 0x55, 0x15, 0x71, 0x1b,
-	0x9b, 0xf2, 0x6d, 0x8c, 0x83, 0x54, 0x76, 0xc2, 0xf8, 0xf0, 0x2a, 0x06, 0x68, 0xed, 0x15, 0x2c,
-	0xc9, 0x8e, 0x31, 0x09, 0x78, 0x5f, 0x4e, 0x40, 0x7e, 0xab, 0x28, 0x6f, 0x54, 0xc7, 0x96, 0xee,
-	0x59, 0x22, 0x81, 0x11, 0x8b, 0x9c, 0xa0, 0x9f, 0x15, 0x40, 0x17, 0x23, 0xd0, 0x4e, 0x52, 0xfb,
-	0xfd, 0xe9, 0x94, 0x13, 0x94, 0x1f, 0xcd, 0x54, 0xfe, 0x30, 0xae, 0xfc, 0xc6, 0x84, 0x6d, 0xf6,
-	0xec, 0x63, 0x2a, 0xcb, 0xfe, 0x71, 0x0e, 0x0a, 0x09, 0x37, 0xba, 0x0b, 0x05, 0x7a, 0x16, 0xbc,
-	0x35, 0x46, 0xa9, 0x15, 0x3e, 0xf3, 0x70, 0xa3, 0x65, 0xb1, 0xdc, 0xa0, 0xd4, 0x12, 0xcf, 0xfc,
-	0x1b, 0xb8, 0xa9, 0x8f, 0xa0, 0x2d, 0x87, 0xb8, 0x9e, 0xc5, 0xdd, 0x56, 0xdb, 0x6f, 0xd9, 0x5e,
-	0x0f, 0xbb, 0xea, 0x9c, 0x38, 0xf0, 0xd3, 0x29, 0x4a, 0x64, 0xbb, 0x19, 0xc2, 0xb7, 0xfd, 0x67,
-	0x01, 0x38, 0x3c, 0xff, 0x75, 0x7d, 0x92, 0x5f, 0xa3, 0x50, 0x9c, 0x0e, 0x96, 0x73, 0x94, 0x0e,
-	0x73, 0xf4, 0x38, 0x9e, 0xa3, 0x5b, 0xb2, 0xb2, 0x00, 0x78, 0x81, 0x50, 0xce, 0xd4, 0x36, 0x5c,
-	0x19, 0x1b, 0x83, 0xde, 0x83, 0x6c, 0xdb, 0xa2, 0xfa, 0xc9, 0xe0, 0xc0, 0x97, 0x64, 0xda, 0xed,
-	0xc0, 0xd3, 0x8c, 0x02, 0xca, 0xdf, 0xc2, 0xbc, 0x58, 0x40, 0x57, 0x21, 0x1b, 0xa6, 0x4b, 0xc8,
-	0xcb, 0x34, 0x23, 0x0b, 0x6d, 0x43, 0x81, 0xf6, 0x89, 0x63, 0x61, 0xd6, 0xe2, 0xd8, 0xe9, 0x10,
-	0x3e, 0x20, 0xbd, 0x2e, 0x93, 0x3e, 0x0f, 0x43, 0x0e, 0x44, 0x44, 0x73, 0x85, 0xca, 0xa6, 0x1b,
-	0xd4, 0x6f, 0xb1, 0x5d, 0xcb, 0x34, 0x06, 0xf5, 0x5b, 0xd8, 0x7b, 0x46, 0xf9, 0x1f, 0x05, 0x96,
-	0x63, 0x60, 0xf4, 0x18, 0xd4, 0xf8, 0x86, 0x17, 0x2e, 0xfd, 0x4a, 0x8c, 0x7e, 0x78, 0xf9, 0x8f,
-	0xe0, 0xea, 0x05, 0x60, 0xf8, 0xd4, 0xc3, 0xda, 0xb1, 0x96, 0x80, 0x89, 0xfe, 0x53, 0x83, 0xf5,
-	0x04, 0x28, 0xd1, 0x4e, 0x42, 0xbd, 0x5a, 0x0c, 0x5b, 0x8f, 0xf5, 0x96, 0xa7, 0xb0, 0x34, 0xa4,
-	0x08, 0x3a, 0x4b, 0x46, 0x74, 0x96, 0x6b, 0xe3, 0xd2, 0x13, 0xb4, 0x92, 0x3c, 0x1d, 0x19, 0x41,
-	0x11, 0xdb, 0x25, 0xbc, 0xde, 0x25, 0xfa, 0x09, 0xa3, 0xa6, 0xcd, 0xa3, 0x3a, 0x55, 0xfe, 0x55,
-	0x81, 0x2b, 0x09, 0x47, 0x54, 0x7a, 0x3e, 0x4d, 0x3e, 0xdf, 0x8a, 0xbc, 0xd1, 0x58, 0xcc, 0x84,
-	0x17, 0xfc, 0xd5, 0xcc, 0x17, 0xfc, 0x28, 0xfe, 0xef, 0x5c, 0x8f, 0xb5, 0x1c, 0xcb, 0xa2, 0xfa,
-	0xa4, 0xd2, 0xf3, 0x93, 0x02, 0x97, 0x2e, 0x04, 0xa0, 0x4f, 0x92, 0xd2, 0xef, 0x4d, 0x25, 0x9c,
-	0x20, 0xfb, 0xe5, 0x4c, 0xd9, 0x0f, 0xe2, 0xb2, 0xb5, 0xf1, 0xbb, 0x24, 0xeb, 0xce, 0xbf, 0x69,
-	0x58, 0x89, 0x7b, 0x83, 0x6e, 0xe1, 0xe0, 0x1e, 0x6b, 0x79, 0x4c, 0xd0, 0x2f, 0x36, 0xb3, 0x81,
-	0x79, 0xc8, 0xc6, 0xd5, 0xa3, 0xb9, 0x71, 0xf5, 0xa8, 0x0f, 0x1a, 0xa7, 0x8c, 0x5a, 0xb4, 0xe3,
-	0xb7, 0xf0, 0x19, 0x76, 0x48, 0x0b, 0xbb, 0xae, 0xd9, 0xb1, 0x7b, 0xc4, 0xe6, 0xae, 0x9a, 0x16,
-	0x49, 0x78, 0x32, 0x59, 0x5e, 0xe5, 0x20, 0x02, 0xd7, 0x02, 0x6c, 0x6d, 0x04, 0x0d, 0x53, 0xa2,
-	0xf2, 0x09, 0x6e, 0xf4, 0xbd, 0x02, 0xb7, 0xa9, 0x63, 0x76, 0x4c, 0x1b, 0x5b, 0xad, 0x29, 0x0a,
-	0x32, 0x42, 0xc1, 0xc7, 0x53, 0x14, 0x3c, 0x8f, 0x58, 0xa6, 0x2b, 0x29, 0xd1, 0x19, 0x61, 0xda,
-	0xe7, 0xb0, 0x3e, 0x95, 0x42, 0xbe, 0xc6, 0xcc, 0xac, 0xd1, 0xe1, 0x05, 0xdc, 0xf9, 0x5f, 0xba,
-	0xde, 0x86, 0xf4, 0xde, 0x07, 0x90, 0x97, 0x9e, 0x29, 0x42, 0xb0, 0x12, 0x99, 0x47, 0x26, 0xef,
-	0x36, 0xa8, 0xb1, 0x9a, 0x42, 0x6b, 0x50, 0x88, 0xad, 0x51, 0x6b, 0x55, 0xd9, 0xfa, 0x5b, 0x01,
-	0xa8, 0x37, 0x0e, 0x6b, 0x61, 0xfe, 0xd0, 0x0b, 0x58, 0x92, 0xc7, 0x12, 0xf4, 0xce, 0x8c, 0x39,
-	0x4d, 0x2b, 0x4d, 0x0e, 0x88, 0xc6, 0x90, 0x14, 0xfa, 0x0c, 0x72, 0xc3, 0xe9, 0x04, 0xdd, 0x94,
-	0x01, 0xc9, 0x09, 0x47, 0x5b, 0x9f, 0xe0, 0x1d, 0x72, 0xed, 0xc2, 0x92, 0x3c, 0xa0, 0xa0, 0x58,
-	0x73, 0x10, 0x93, 0x53, 0x5c, 0xd2, 0xb8, 0x69, 0xa6, 0x9c, 0x7a, 0xa0, 0x6c, 0xe9, 0x90, 0xab,
-	0x37, 0x0e, 0x1b, 0x62, 0x6e, 0x46, 0x2f, 0x61, 0x39, 0x56, 0x7b, 0x50, 0x69, 0x4a, 0x59, 0x0a,
-	0x95, 0xde, 0x9a, 0x59, 0xb8, 0xca, 0xa9, 0x6d, 0xf7, 0xf5, 0x9b, 0xa2, 0xf2, 0xfb, 0x9b, 0x62,
-	0xea, 0xbb, 0xf3, 0xa2, 0xf2, 0xfa, 0xbc, 0xa8, 0xfc, 0x76, 0x5e, 0x54, 0xfe, 0x38, 0x2f, 0x2a,
-	0x3f, 0xfc, 0x59, 0x4c, 0xbd, 0x3a, 0x1c, 0xff, 0xdd, 0x82, 0x39, 0xb6, 0x7c, 0x97, 0x6f, 0xea,
-	0xd4, 0x21, 0xe1, 0xd7, 0x4b, 0x87, 0xd8, 0xbc, 0x7a, 0xea, 0xf4, 0x36, 0xc3, 0x31, 0xdf, 0xad,
-	0xea, 0xcc, 0xab, 0x1a, 0xbe, 0x8d, 0x7b, 0xa6, 0xce, 0xa8, 0x65, 0xea, 0x7e, 0x75, 0x24, 0xa6,
-	0x9d, 0x15, 0x1f, 0x33, 0x8f, 0xfe, 0x0b, 0x00, 0x00, 0xff, 0xff, 0x92, 0x5a, 0xfd, 0x54, 0x5d,
-	0x0d, 0x00, 0x00,
+	// 1009 bytes of a gzipped FileDescriptorProto
+	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0x9c, 0x56, 0xdf, 0x6e, 0x1b, 0xc5,
+	0x17, 0xf6, 0xc4, 0x69, 0x52, 0x9f, 0xfc, 0x9f, 0x26, 0xa9, 0xb3, 0xbf, 0xc6, 0x3f, 0xd7, 0x08,
+	0x14, 0x8a, 0x62, 0x37, 0x09, 0xa2, 0x55, 0xae, 0x70, 0x42, 0x14, 0x0a, 0xa8, 0xb5, 0xb6, 0x4d,
+	0x23, 0x7a, 0xb3, 0x1a, 0xef, 0x4e, 0xec, 0x55, 0xd6, 0x3b, 0xd3, 0x9d, 0x59, 0x47, 0x2b, 0x24,
+	0xc4, 0x1b, 0xc0, 0x5b, 0x70, 0x8d, 0xc4, 0x1d, 0x3c, 0x40, 0x2f, 0xb9, 0xe4, 0x92, 0x86, 0x77,
+	0xe0, 0x0a, 0x24, 0xe4, 0xd9, 0x75, 0x3c, 0x6b, 0x7b, 0x6d, 0xe0, 0xca, 0x73, 0xe6, 0x7c, 0xdf,
+	0x77, 0xbe, 0x3d, 0xe3, 0x39, 0x1a, 0x28, 0xd8, 0x3c, 0xac, 0xf2, 0x80, 0x49, 0x86, 0xc1, 0xe6,
+	0x21, 0x71, 0xba, 0xae, 0x60, 0x81, 0xb1, 0xdb, 0x72, 0x65, 0x3b, 0x6c, 0x56, 0x6d, 0xd6, 0xa9,
+	0xb5, 0x58, 0x8b, 0xd5, 0x14, 0xa4, 0x19, 0x5e, 0xa8, 0x48, 0x05, 0x6a, 0x15, 0x53, 0x8d, 0x53,
+	0x0d, 0x7e, 0x19, 0x36, 0xe9, 0x55, 0x9b, 0x04, 0x17, 0x6a, 0xe5, 0x51, 0x59, 0xe3, 0x97, 0xad,
+	0x1a, 0xe1, 0xae, 0xa8, 0x05, 0x54, 0xb0, 0x30, 0xb0, 0x29, 0xf7, 0xc2, 0x96, 0xeb, 0xd7, 0xba,
+	0x7b, 0xc4, 0xe3, 0x6d, 0xb2, 0xd7, 0x4b, 0x26, 0x42, 0x67, 0xe3, 0x85, 0x88, 0x24, 0x5e, 0x24,
+	0xe4, 0xae, 0xcd, 0x02, 0x1a, 0xcb, 0xb5, 0xa8, 0x2f, 0x6b, 0xaf, 0x83, 0xce, 0x6e, 0xac, 0x25,
+	0x6a, 0x89, 0x73, 0xd1, 0xb5, 0xfb, 0x4b, 0x4b, 0x74, 0xed, 0x58, 0xb6, 0xf2, 0x13, 0x82, 0xf5,
+	0x2f, 0x5c, 0x21, 0xeb, 0xbe, 0x73, 0x4e, 0xa4, 0xdd, 0x36, 0xa9, 0xe0, 0xcc, 0x17, 0x14, 0x9f,
+	0xc2, 0x3c, 0xf5, 0x65, 0xe0, 0x52, 0x51, 0x44, 0xe5, 0xfc, 0xce, 0xc2, 0xfe, 0x6e, 0x75, 0xd0,
+	0x85, 0xea, 0x38, 0x4a, 0xf5, 0x24, 0xc6, 0xf7, 0x7e, 0x22, 0xb3, 0xcf, 0x36, 0x5e, 0xc1, 0xa2,
+	0x9e, 0xc0, 0xab, 0x90, 0xbf, 0xa4, 0x51, 0x11, 0x95, 0xd1, 0x4e, 0xc1, 0xec, 0x2d, 0xf1, 0x87,
+	0x70, 0xab, 0x4b, 0xbc, 0x90, 0x16, 0x67, 0xca, 0x68, 0x67, 0x61, 0xbf, 0xa4, 0x17, 0x3a, 0x26,
+	0x9e, 0x1d, 0x7a, 0x44, 0xba, 0xcc, 0x4f, 0x54, 0xcc, 0x18, 0x7c, 0x38, 0xf3, 0x18, 0x55, 0x7e,
+	0x44, 0x80, 0x47, 0x11, 0xf8, 0x64, 0xd8, 0xfb, 0x07, 0x93, 0x25, 0x33, 0x9c, 0x9f, 0x4f, 0x75,
+	0xbe, 0x97, 0x76, 0xfe, 0xbf, 0x8c, 0x32, 0x4f, 0xfc, 0x0b, 0xa6, 0xdb, 0xfe, 0x7e, 0x06, 0x56,
+	0x86, 0xd2, 0xf8, 0x3d, 0x58, 0x61, 0x57, 0x3e, 0x0d, 0x2c, 0xce, 0x98, 0x67, 0xf9, 0xa4, 0x43,
+	0x93, 0x42, 0x4b, 0x6a, 0xbb, 0xc1, 0x98, 0xf7, 0x94, 0x74, 0x28, 0xfe, 0x0a, 0xee, 0xd9, 0x03,
+	0xaa, 0x15, 0x50, 0x11, 0x7a, 0x52, 0x58, 0xcd, 0xc8, 0xf2, 0xc3, 0x0e, 0x11, 0xc5, 0x19, 0xf5,
+	0xc1, 0x87, 0x13, 0x9c, 0xe8, 0xb1, 0x19, 0xd3, 0x8f, 0xa2, 0xa7, 0x3d, 0x72, 0xfc, 0xfd, 0x5b,
+	0x76, 0x56, 0xde, 0x60, 0x50, 0x9a, 0x4c, 0xd6, 0x7b, 0x94, 0x8f, 0x7b, 0xf4, 0x28, 0xdd, 0xa3,
+	0xfb, 0xba, 0xb3, 0x1e, 0x71, 0x44, 0x50, 0xef, 0xd4, 0x11, 0x6c, 0x8c, 0xc5, 0xe0, 0xf7, 0x61,
+	0xae, 0xe9, 0x31, 0xfb, 0xb2, 0xff, 0xc1, 0x6b, 0xba, 0xec, 0x51, 0x2f, 0x63, 0x26, 0x80, 0xca,
+	0xd7, 0x70, 0x4b, 0x6d, 0xe0, 0x4d, 0x98, 0x8b, 0xdb, 0xa5, 0xec, 0xcd, 0x9a, 0x49, 0x84, 0x8f,
+	0x60, 0x85, 0x75, 0x69, 0xe0, 0x11, 0x6e, 0x49, 0x12, 0xb4, 0xa8, 0xec, 0x8b, 0x6e, 0xe9, 0xa2,
+	0xcf, 0x62, 0xc8, 0x0b, 0x85, 0x30, 0x97, 0x99, 0x1e, 0x0a, 0xbc, 0x05, 0xb7, 0x55, 0x39, 0xcb,
+	0x75, 0x8a, 0x79, 0x75, 0x6e, 0xf3, 0x2a, 0x7e, 0xe2, 0x54, 0xfe, 0x44, 0xb0, 0x94, 0x22, 0xe3,
+	0x47, 0x50, 0x4c, 0x17, 0x1c, 0x39, 0xf4, 0x8d, 0x94, 0xfc, 0xcd, 0xe1, 0x1f, 0xc0, 0xe6, 0x08,
+	0xd1, 0xb1, 0x42, 0xd7, 0x51, 0xcd, 0x2d, 0x98, 0x77, 0x86, 0x68, 0xce, 0x99, 0xeb, 0xe0, 0x3a,
+	0x6c, 0x0f, 0x91, 0x6c, 0xe6, 0x4b, 0xe2, 0xf6, 0xfe, 0x6c, 0xaa, 0x64, 0xec, 0xd7, 0x48, 0x71,
+	0x8f, 0xfb, 0x10, 0x55, 0xf7, 0x10, 0x16, 0x6f, 0x24, 0x22, 0x4e, 0x8b, 0xb3, 0x65, 0xb4, 0xb3,
+	0xbc, 0x7f, 0x77, 0x5c, 0x7b, 0x22, 0x4e, 0xcd, 0x05, 0x36, 0x08, 0x2a, 0x9b, 0xb0, 0x7e, 0x4a,
+	0xe5, 0x71, 0x9b, 0xda, 0x97, 0x9c, 0xb9, 0xbe, 0x34, 0xe9, 0xeb, 0x90, 0x0a, 0x59, 0xf9, 0x19,
+	0xc1, 0xc6, 0x50, 0x22, 0x19, 0x3d, 0x9f, 0x0e, 0x5f, 0xdf, 0xaa, 0x5e, 0x68, 0x2c, 0x27, 0xe3,
+	0x06, 0x7f, 0x39, 0xf5, 0x06, 0x1f, 0xa4, 0xff, 0x9d, 0xdb, 0x7a, 0xa5, 0xba, 0xe7, 0x31, 0x3b,
+	0x6b, 0xf4, 0xfc, 0x80, 0x60, 0x6d, 0x04, 0x80, 0x3f, 0x19, 0xb6, 0xfe, 0x60, 0xa2, 0x60, 0x86,
+	0xed, 0x97, 0x53, 0x6d, 0x3f, 0x4c, 0xdb, 0x36, 0xc6, 0x57, 0x19, 0x9e, 0x3b, 0x7f, 0xe5, 0x61,
+	0x39, 0x9d, 0xc5, 0x77, 0x61, 0x3e, 0x20, 0x1d, 0x6e, 0x85, 0x5c, 0xc9, 0xdf, 0x36, 0xe7, 0x7a,
+	0xe1, 0x19, 0x1f, 0x37, 0x8f, 0x66, 0xc6, 0xcd, 0xa3, 0x2e, 0x18, 0x92, 0x71, 0xe6, 0xb1, 0x56,
+	0x64, 0x91, 0x2b, 0x12, 0x50, 0x8b, 0x08, 0xe1, 0xb6, 0xfc, 0x0e, 0xf5, 0xa5, 0x28, 0xe6, 0x55,
+	0x13, 0x1e, 0x67, 0xdb, 0xab, 0xbe, 0x48, 0xc8, 0xf5, 0x1e, 0xb7, 0x3e, 0xa0, 0xc6, 0x2d, 0x29,
+	0xca, 0x8c, 0x34, 0xfe, 0x16, 0xc1, 0x3b, 0x2c, 0x70, 0x5b, 0xae, 0x4f, 0x3c, 0x6b, 0x82, 0x83,
+	0x59, 0xe5, 0xe0, 0xe3, 0x09, 0x0e, 0x9e, 0x25, 0x2a, 0x93, 0x9d, 0x94, 0xd9, 0x14, 0x98, 0xf1,
+	0x39, 0x6c, 0x4f, 0x94, 0xd0, 0x8f, 0x71, 0x36, 0x3e, 0xc6, 0x75, 0xfd, 0x18, 0x0b, 0xda, 0x51,
+	0x19, 0xcf, 0xe1, 0xdd, 0x7f, 0xe4, 0xeb, 0xdf, 0x88, 0x3e, 0xf8, 0x08, 0x16, 0xb4, 0x6b, 0x8a,
+	0x31, 0x2c, 0x27, 0xe1, 0xb9, 0x2b, 0xdb, 0x0d, 0xe6, 0xac, 0xe6, 0xf0, 0x1d, 0x58, 0x49, 0xed,
+	0x31, 0x6f, 0x15, 0xed, 0xff, 0x81, 0x00, 0x8e, 0x1b, 0x67, 0xf5, 0xb8, 0x7f, 0xf8, 0x39, 0x2c,
+	0xd6, 0x1d, 0xe7, 0x66, 0x42, 0xe0, 0xff, 0x57, 0x07, 0x4f, 0x8c, 0xaa, 0x9e, 0x49, 0xae, 0xba,
+	0x51, 0xce, 0x06, 0xc4, 0xd7, 0xb7, 0x92, 0xc3, 0x9f, 0x41, 0xc1, 0xa4, 0x1d, 0xd6, 0xa5, 0x0d,
+	0xe6, 0xe0, 0x7b, 0x3a, 0xe1, 0x66, 0xbb, 0x2f, 0xb7, 0x9d, 0x91, 0xbd, 0xd1, 0x3a, 0x85, 0x45,
+	0xfd, 0x81, 0x82, 0xd7, 0x74, 0xc2, 0x49, 0x87, 0xcb, 0xc8, 0x28, 0x4f, 0x7b, 0xcd, 0x54, 0x72,
+	0x0f, 0xd1, 0xbe, 0x0d, 0x85, 0xe3, 0xc6, 0x59, 0x43, 0x3d, 0xa4, 0xf0, 0x4b, 0x58, 0x4a, 0xcd,
+	0x1e, 0x5c, 0x9e, 0x30, 0x96, 0x62, 0xa7, 0xf7, 0xa7, 0x0e, 0xae, 0x4a, 0xee, 0x48, 0xbc, 0x79,
+	0x5b, 0x42, 0xbf, 0xbe, 0x2d, 0xe5, 0xbe, 0xb9, 0x2e, 0xa1, 0x37, 0xd7, 0x25, 0xf4, 0xcb, 0x75,
+	0x09, 0xfd, 0x76, 0x5d, 0x42, 0xdf, 0xfd, 0x5e, 0xca, 0xbd, 0xfa, 0xef, 0xef, 0x3e, 0x9b, 0x87,
+	0x35, 0x27, 0xf2, 0x49, 0xc7, 0xb5, 0x39, 0xf3, 0x5c, 0x3b, 0xaa, 0x0d, 0xcc, 0x34, 0xe7, 0xd4,
+	0xf3, 0xef, 0xe0, 0xef, 0x00, 0x00, 0x00, 0xff, 0xff, 0xbb, 0x38, 0x83, 0xda, 0xe6, 0x0a, 0x00,
+	0x00,
 }
 
 // Reference imports to suppress errors if they are not otherwise used.
@@ -995,9 +701,9 @@ const _ = grpc.SupportPackageIsVersion4
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://godoc.org/google.golang.org/grpc#ClientConn.NewStream.
 type CPUAdvisorClient interface {
-	AddContainer(ctx context.Context, in *AddContainerRequest, opts ...grpc.CallOption) (*AddContainerResponse, error)
-	RemovePod(ctx context.Context, in *RemovePodRequest, opts ...grpc.CallOption) (*RemovePodResponse, error)
-	ListAndWatch(ctx context.Context, in *Empty, opts ...grpc.CallOption) (CPUAdvisor_ListAndWatchClient, error)
+	AddContainer(ctx context.Context, in *advisorsvc.AddContainerRequest, opts ...grpc.CallOption) (*advisorsvc.AddContainerResponse, error)
+	RemovePod(ctx context.Context, in *advisorsvc.RemovePodRequest, opts ...grpc.CallOption) (*advisorsvc.RemovePodResponse, error)
+	ListAndWatch(ctx context.Context, in *advisorsvc.Empty, opts ...grpc.CallOption) (CPUAdvisor_ListAndWatchClient, error)
 }
 
 type cPUAdvisorClient struct {
@@ -1008,8 +714,8 @@ func NewCPUAdvisorClient(cc *grpc.ClientConn) CPUAdvisorClient {
 	return &cPUAdvisorClient{cc}
 }
 
-func (c *cPUAdvisorClient) AddContainer(ctx context.Context, in *AddContainerRequest, opts ...grpc.CallOption) (*AddContainerResponse, error) {
-	out := new(AddContainerResponse)
+func (c *cPUAdvisorClient) AddContainer(ctx context.Context, in *advisorsvc.AddContainerRequest, opts ...grpc.CallOption) (*advisorsvc.AddContainerResponse, error) {
+	out := new(advisorsvc.AddContainerResponse)
 	err := c.cc.Invoke(ctx, "/cpuadvisor.CPUAdvisor/AddContainer", in, out, opts...)
 	if err != nil {
 		return nil, err
@@ -1017,8 +723,8 @@ func (c *cPUAdvisorClient) AddContainer(ctx context.Context, in *AddContainerReq
 	return out, nil
 }
 
-func (c *cPUAdvisorClient) RemovePod(ctx context.Context, in *RemovePodRequest, opts ...grpc.CallOption) (*RemovePodResponse, error) {
-	out := new(RemovePodResponse)
+func (c *cPUAdvisorClient) RemovePod(ctx context.Context, in *advisorsvc.RemovePodRequest, opts ...grpc.CallOption) (*advisorsvc.RemovePodResponse, error) {
+	out := new(advisorsvc.RemovePodResponse)
 	err := c.cc.Invoke(ctx, "/cpuadvisor.CPUAdvisor/RemovePod", in, out, opts...)
 	if err != nil {
 		return nil, err
@@ -1026,7 +732,7 @@ func (c *cPUAdvisorClient) RemovePod(ctx context.Context, in *RemovePodRequest, 
 	return out, nil
 }
 
-func (c *cPUAdvisorClient) ListAndWatch(ctx context.Context, in *Empty, opts ...grpc.CallOption) (CPUAdvisor_ListAndWatchClient, error) {
+func (c *cPUAdvisorClient) ListAndWatch(ctx context.Context, in *advisorsvc.Empty, opts ...grpc.CallOption) (CPUAdvisor_ListAndWatchClient, error) {
 	stream, err := c.cc.NewStream(ctx, &_CPUAdvisor_serviceDesc.Streams[0], "/cpuadvisor.CPUAdvisor/ListAndWatch", opts...)
 	if err != nil {
 		return nil, err
@@ -1060,22 +766,22 @@ func (x *cPUAdvisorListAndWatchClient) Recv() (*ListAndWatchResponse, error) {
 
 // CPUAdvisorServer is the server API for CPUAdvisor service.
 type CPUAdvisorServer interface {
-	AddContainer(context.Context, *AddContainerRequest) (*AddContainerResponse, error)
-	RemovePod(context.Context, *RemovePodRequest) (*RemovePodResponse, error)
-	ListAndWatch(*Empty, CPUAdvisor_ListAndWatchServer) error
+	AddContainer(context.Context, *advisorsvc.AddContainerRequest) (*advisorsvc.AddContainerResponse, error)
+	RemovePod(context.Context, *advisorsvc.RemovePodRequest) (*advisorsvc.RemovePodResponse, error)
+	ListAndWatch(*advisorsvc.Empty, CPUAdvisor_ListAndWatchServer) error
 }
 
 // UnimplementedCPUAdvisorServer can be embedded to have forward compatible implementations.
 type UnimplementedCPUAdvisorServer struct {
 }
 
-func (*UnimplementedCPUAdvisorServer) AddContainer(ctx context.Context, req *AddContainerRequest) (*AddContainerResponse, error) {
+func (*UnimplementedCPUAdvisorServer) AddContainer(ctx context.Context, req *advisorsvc.AddContainerRequest) (*advisorsvc.AddContainerResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method AddContainer not implemented")
 }
-func (*UnimplementedCPUAdvisorServer) RemovePod(ctx context.Context, req *RemovePodRequest) (*RemovePodResponse, error) {
+func (*UnimplementedCPUAdvisorServer) RemovePod(ctx context.Context, req *advisorsvc.RemovePodRequest) (*advisorsvc.RemovePodResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method RemovePod not implemented")
 }
-func (*UnimplementedCPUAdvisorServer) ListAndWatch(req *Empty, srv CPUAdvisor_ListAndWatchServer) error {
+func (*UnimplementedCPUAdvisorServer) ListAndWatch(req *advisorsvc.Empty, srv CPUAdvisor_ListAndWatchServer) error {
 	return status.Errorf(codes.Unimplemented, "method ListAndWatch not implemented")
 }
 
@@ -1084,7 +790,7 @@ func RegisterCPUAdvisorServer(s *grpc.Server, srv CPUAdvisorServer) {
 }
 
 func _CPUAdvisor_AddContainer_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(AddContainerRequest)
+	in := new(advisorsvc.AddContainerRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
@@ -1096,13 +802,13 @@ func _CPUAdvisor_AddContainer_Handler(srv interface{}, ctx context.Context, dec 
 		FullMethod: "/cpuadvisor.CPUAdvisor/AddContainer",
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(CPUAdvisorServer).AddContainer(ctx, req.(*AddContainerRequest))
+		return srv.(CPUAdvisorServer).AddContainer(ctx, req.(*advisorsvc.AddContainerRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
 func _CPUAdvisor_RemovePod_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(RemovePodRequest)
+	in := new(advisorsvc.RemovePodRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
@@ -1114,13 +820,13 @@ func _CPUAdvisor_RemovePod_Handler(srv interface{}, ctx context.Context, dec fun
 		FullMethod: "/cpuadvisor.CPUAdvisor/RemovePod",
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(CPUAdvisorServer).RemovePod(ctx, req.(*RemovePodRequest))
+		return srv.(CPUAdvisorServer).RemovePod(ctx, req.(*advisorsvc.RemovePodRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
 func _CPUAdvisor_ListAndWatch_Handler(srv interface{}, stream grpc.ServerStream) error {
-	m := new(Empty)
+	m := new(advisorsvc.Empty)
 	if err := stream.RecvMsg(m); err != nil {
 		return err
 	}
@@ -1233,216 +939,6 @@ var _CPUPlugin_serviceDesc = grpc.ServiceDesc{
 	},
 	Streams:  []grpc.StreamDesc{},
 	Metadata: "cpu.proto",
-}
-
-func (m *AddContainerRequest) Marshal() (dAtA []byte, err error) {
-	size := m.Size()
-	dAtA = make([]byte, size)
-	n, err := m.MarshalToSizedBuffer(dAtA[:size])
-	if err != nil {
-		return nil, err
-	}
-	return dAtA[:n], nil
-}
-
-func (m *AddContainerRequest) MarshalTo(dAtA []byte) (int, error) {
-	size := m.Size()
-	return m.MarshalToSizedBuffer(dAtA[:size])
-}
-
-func (m *AddContainerRequest) MarshalToSizedBuffer(dAtA []byte) (int, error) {
-	i := len(dAtA)
-	_ = i
-	var l int
-	_ = l
-	if m.RequestQuantity != 0 {
-		i = encodeVarintCpu(dAtA, i, uint64(m.RequestQuantity))
-		i--
-		dAtA[i] = 0x50
-	}
-	if len(m.QosLevel) > 0 {
-		i -= len(m.QosLevel)
-		copy(dAtA[i:], m.QosLevel)
-		i = encodeVarintCpu(dAtA, i, uint64(len(m.QosLevel)))
-		i--
-		dAtA[i] = 0x4a
-	}
-	if len(m.Annotations) > 0 {
-		for k := range m.Annotations {
-			v := m.Annotations[k]
-			baseI := i
-			i -= len(v)
-			copy(dAtA[i:], v)
-			i = encodeVarintCpu(dAtA, i, uint64(len(v)))
-			i--
-			dAtA[i] = 0x12
-			i -= len(k)
-			copy(dAtA[i:], k)
-			i = encodeVarintCpu(dAtA, i, uint64(len(k)))
-			i--
-			dAtA[i] = 0xa
-			i = encodeVarintCpu(dAtA, i, uint64(baseI-i))
-			i--
-			dAtA[i] = 0x42
-		}
-	}
-	if len(m.Labels) > 0 {
-		for k := range m.Labels {
-			v := m.Labels[k]
-			baseI := i
-			i -= len(v)
-			copy(dAtA[i:], v)
-			i = encodeVarintCpu(dAtA, i, uint64(len(v)))
-			i--
-			dAtA[i] = 0x12
-			i -= len(k)
-			copy(dAtA[i:], k)
-			i = encodeVarintCpu(dAtA, i, uint64(len(k)))
-			i--
-			dAtA[i] = 0xa
-			i = encodeVarintCpu(dAtA, i, uint64(baseI-i))
-			i--
-			dAtA[i] = 0x3a
-		}
-	}
-	if m.ContainerIndex != 0 {
-		i = encodeVarintCpu(dAtA, i, uint64(m.ContainerIndex))
-		i--
-		dAtA[i] = 0x30
-	}
-	if m.ContainerType != 0 {
-		i = encodeVarintCpu(dAtA, i, uint64(m.ContainerType))
-		i--
-		dAtA[i] = 0x28
-	}
-	if len(m.ContainerName) > 0 {
-		i -= len(m.ContainerName)
-		copy(dAtA[i:], m.ContainerName)
-		i = encodeVarintCpu(dAtA, i, uint64(len(m.ContainerName)))
-		i--
-		dAtA[i] = 0x22
-	}
-	if len(m.PodName) > 0 {
-		i -= len(m.PodName)
-		copy(dAtA[i:], m.PodName)
-		i = encodeVarintCpu(dAtA, i, uint64(len(m.PodName)))
-		i--
-		dAtA[i] = 0x1a
-	}
-	if len(m.PodNamespace) > 0 {
-		i -= len(m.PodNamespace)
-		copy(dAtA[i:], m.PodNamespace)
-		i = encodeVarintCpu(dAtA, i, uint64(len(m.PodNamespace)))
-		i--
-		dAtA[i] = 0x12
-	}
-	if len(m.PodUid) > 0 {
-		i -= len(m.PodUid)
-		copy(dAtA[i:], m.PodUid)
-		i = encodeVarintCpu(dAtA, i, uint64(len(m.PodUid)))
-		i--
-		dAtA[i] = 0xa
-	}
-	return len(dAtA) - i, nil
-}
-
-func (m *AddContainerResponse) Marshal() (dAtA []byte, err error) {
-	size := m.Size()
-	dAtA = make([]byte, size)
-	n, err := m.MarshalToSizedBuffer(dAtA[:size])
-	if err != nil {
-		return nil, err
-	}
-	return dAtA[:n], nil
-}
-
-func (m *AddContainerResponse) MarshalTo(dAtA []byte) (int, error) {
-	size := m.Size()
-	return m.MarshalToSizedBuffer(dAtA[:size])
-}
-
-func (m *AddContainerResponse) MarshalToSizedBuffer(dAtA []byte) (int, error) {
-	i := len(dAtA)
-	_ = i
-	var l int
-	_ = l
-	return len(dAtA) - i, nil
-}
-
-func (m *Empty) Marshal() (dAtA []byte, err error) {
-	size := m.Size()
-	dAtA = make([]byte, size)
-	n, err := m.MarshalToSizedBuffer(dAtA[:size])
-	if err != nil {
-		return nil, err
-	}
-	return dAtA[:n], nil
-}
-
-func (m *Empty) MarshalTo(dAtA []byte) (int, error) {
-	size := m.Size()
-	return m.MarshalToSizedBuffer(dAtA[:size])
-}
-
-func (m *Empty) MarshalToSizedBuffer(dAtA []byte) (int, error) {
-	i := len(dAtA)
-	_ = i
-	var l int
-	_ = l
-	return len(dAtA) - i, nil
-}
-
-func (m *RemovePodRequest) Marshal() (dAtA []byte, err error) {
-	size := m.Size()
-	dAtA = make([]byte, size)
-	n, err := m.MarshalToSizedBuffer(dAtA[:size])
-	if err != nil {
-		return nil, err
-	}
-	return dAtA[:n], nil
-}
-
-func (m *RemovePodRequest) MarshalTo(dAtA []byte) (int, error) {
-	size := m.Size()
-	return m.MarshalToSizedBuffer(dAtA[:size])
-}
-
-func (m *RemovePodRequest) MarshalToSizedBuffer(dAtA []byte) (int, error) {
-	i := len(dAtA)
-	_ = i
-	var l int
-	_ = l
-	if len(m.PodUid) > 0 {
-		i -= len(m.PodUid)
-		copy(dAtA[i:], m.PodUid)
-		i = encodeVarintCpu(dAtA, i, uint64(len(m.PodUid)))
-		i--
-		dAtA[i] = 0xa
-	}
-	return len(dAtA) - i, nil
-}
-
-func (m *RemovePodResponse) Marshal() (dAtA []byte, err error) {
-	size := m.Size()
-	dAtA = make([]byte, size)
-	n, err := m.MarshalToSizedBuffer(dAtA[:size])
-	if err != nil {
-		return nil, err
-	}
-	return dAtA[:n], nil
-}
-
-func (m *RemovePodResponse) MarshalTo(dAtA []byte) (int, error) {
-	size := m.Size()
-	return m.MarshalToSizedBuffer(dAtA[:size])
-}
-
-func (m *RemovePodResponse) MarshalToSizedBuffer(dAtA []byte) (int, error) {
-	i := len(dAtA)
-	_ = i
-	var l int
-	_ = l
-	return len(dAtA) - i, nil
 }
 
 func (m *ListAndWatchResponse) Marshal() (dAtA []byte, err error) {
@@ -1938,100 +1434,6 @@ func encodeVarintCpu(dAtA []byte, offset int, v uint64) int {
 	dAtA[offset] = uint8(v)
 	return base
 }
-func (m *AddContainerRequest) Size() (n int) {
-	if m == nil {
-		return 0
-	}
-	var l int
-	_ = l
-	l = len(m.PodUid)
-	if l > 0 {
-		n += 1 + l + sovCpu(uint64(l))
-	}
-	l = len(m.PodNamespace)
-	if l > 0 {
-		n += 1 + l + sovCpu(uint64(l))
-	}
-	l = len(m.PodName)
-	if l > 0 {
-		n += 1 + l + sovCpu(uint64(l))
-	}
-	l = len(m.ContainerName)
-	if l > 0 {
-		n += 1 + l + sovCpu(uint64(l))
-	}
-	if m.ContainerType != 0 {
-		n += 1 + sovCpu(uint64(m.ContainerType))
-	}
-	if m.ContainerIndex != 0 {
-		n += 1 + sovCpu(uint64(m.ContainerIndex))
-	}
-	if len(m.Labels) > 0 {
-		for k, v := range m.Labels {
-			_ = k
-			_ = v
-			mapEntrySize := 1 + len(k) + sovCpu(uint64(len(k))) + 1 + len(v) + sovCpu(uint64(len(v)))
-			n += mapEntrySize + 1 + sovCpu(uint64(mapEntrySize))
-		}
-	}
-	if len(m.Annotations) > 0 {
-		for k, v := range m.Annotations {
-			_ = k
-			_ = v
-			mapEntrySize := 1 + len(k) + sovCpu(uint64(len(k))) + 1 + len(v) + sovCpu(uint64(len(v)))
-			n += mapEntrySize + 1 + sovCpu(uint64(mapEntrySize))
-		}
-	}
-	l = len(m.QosLevel)
-	if l > 0 {
-		n += 1 + l + sovCpu(uint64(l))
-	}
-	if m.RequestQuantity != 0 {
-		n += 1 + sovCpu(uint64(m.RequestQuantity))
-	}
-	return n
-}
-
-func (m *AddContainerResponse) Size() (n int) {
-	if m == nil {
-		return 0
-	}
-	var l int
-	_ = l
-	return n
-}
-
-func (m *Empty) Size() (n int) {
-	if m == nil {
-		return 0
-	}
-	var l int
-	_ = l
-	return n
-}
-
-func (m *RemovePodRequest) Size() (n int) {
-	if m == nil {
-		return 0
-	}
-	var l int
-	_ = l
-	l = len(m.PodUid)
-	if l > 0 {
-		n += 1 + l + sovCpu(uint64(l))
-	}
-	return n
-}
-
-func (m *RemovePodResponse) Size() (n int) {
-	if m == nil {
-		return 0
-	}
-	var l int
-	_ = l
-	return n
-}
-
 func (m *ListAndWatchResponse) Size() (n int) {
 	if m == nil {
 		return 0
@@ -2254,88 +1656,12 @@ func sovCpu(x uint64) (n int) {
 func sozCpu(x uint64) (n int) {
 	return sovCpu(uint64((x << 1) ^ uint64((int64(x) >> 63))))
 }
-func (this *AddContainerRequest) String() string {
-	if this == nil {
-		return "nil"
-	}
-	keysForLabels := make([]string, 0, len(this.Labels))
-	for k := range this.Labels {
-		keysForLabels = append(keysForLabels, k)
-	}
-	github_com_gogo_protobuf_sortkeys.Strings(keysForLabels)
-	mapStringForLabels := "map[string]string{"
-	for _, k := range keysForLabels {
-		mapStringForLabels += fmt.Sprintf("%v: %v,", k, this.Labels[k])
-	}
-	mapStringForLabels += "}"
-	keysForAnnotations := make([]string, 0, len(this.Annotations))
-	for k := range this.Annotations {
-		keysForAnnotations = append(keysForAnnotations, k)
-	}
-	github_com_gogo_protobuf_sortkeys.Strings(keysForAnnotations)
-	mapStringForAnnotations := "map[string]string{"
-	for _, k := range keysForAnnotations {
-		mapStringForAnnotations += fmt.Sprintf("%v: %v,", k, this.Annotations[k])
-	}
-	mapStringForAnnotations += "}"
-	s := strings.Join([]string{`&AddContainerRequest{`,
-		`PodUid:` + fmt.Sprintf("%v", this.PodUid) + `,`,
-		`PodNamespace:` + fmt.Sprintf("%v", this.PodNamespace) + `,`,
-		`PodName:` + fmt.Sprintf("%v", this.PodName) + `,`,
-		`ContainerName:` + fmt.Sprintf("%v", this.ContainerName) + `,`,
-		`ContainerType:` + fmt.Sprintf("%v", this.ContainerType) + `,`,
-		`ContainerIndex:` + fmt.Sprintf("%v", this.ContainerIndex) + `,`,
-		`Labels:` + mapStringForLabels + `,`,
-		`Annotations:` + mapStringForAnnotations + `,`,
-		`QosLevel:` + fmt.Sprintf("%v", this.QosLevel) + `,`,
-		`RequestQuantity:` + fmt.Sprintf("%v", this.RequestQuantity) + `,`,
-		`}`,
-	}, "")
-	return s
-}
-func (this *AddContainerResponse) String() string {
-	if this == nil {
-		return "nil"
-	}
-	s := strings.Join([]string{`&AddContainerResponse{`,
-		`}`,
-	}, "")
-	return s
-}
-func (this *Empty) String() string {
-	if this == nil {
-		return "nil"
-	}
-	s := strings.Join([]string{`&Empty{`,
-		`}`,
-	}, "")
-	return s
-}
-func (this *RemovePodRequest) String() string {
-	if this == nil {
-		return "nil"
-	}
-	s := strings.Join([]string{`&RemovePodRequest{`,
-		`PodUid:` + fmt.Sprintf("%v", this.PodUid) + `,`,
-		`}`,
-	}, "")
-	return s
-}
-func (this *RemovePodResponse) String() string {
-	if this == nil {
-		return "nil"
-	}
-	s := strings.Join([]string{`&RemovePodResponse{`,
-		`}`,
-	}, "")
-	return s
-}
 func (this *ListAndWatchResponse) String() string {
 	if this == nil {
 		return "nil"
 	}
 	keysForEntries := make([]string, 0, len(this.Entries))
-	for k := range this.Entries {
+	for k, _ := range this.Entries {
 		keysForEntries = append(keysForEntries, k)
 	}
 	github_com_gogo_protobuf_sortkeys.Strings(keysForEntries)
@@ -2355,7 +1681,7 @@ func (this *CalculationEntries) String() string {
 		return "nil"
 	}
 	keysForEntries := make([]string, 0, len(this.Entries))
-	for k := range this.Entries {
+	for k, _ := range this.Entries {
 		keysForEntries = append(keysForEntries, k)
 	}
 	github_com_gogo_protobuf_sortkeys.Strings(keysForEntries)
@@ -2375,7 +1701,7 @@ func (this *CalculationInfo) String() string {
 		return "nil"
 	}
 	keysForCalculationResultsByNumas := make([]int64, 0, len(this.CalculationResultsByNumas))
-	for k := range this.CalculationResultsByNumas {
+	for k, _ := range this.CalculationResultsByNumas {
 		keysForCalculationResultsByNumas = append(keysForCalculationResultsByNumas, k)
 	}
 	github_com_gogo_protobuf_sortkeys.Int64s(keysForCalculationResultsByNumas)
@@ -2450,7 +1776,7 @@ func (this *GetCheckpointResponse) String() string {
 		return "nil"
 	}
 	keysForEntries := make([]string, 0, len(this.Entries))
-	for k := range this.Entries {
+	for k, _ := range this.Entries {
 		keysForEntries = append(keysForEntries, k)
 	}
 	github_com_gogo_protobuf_sortkeys.Strings(keysForEntries)
@@ -2470,7 +1796,7 @@ func (this *AllocationEntries) String() string {
 		return "nil"
 	}
 	keysForEntries := make([]string, 0, len(this.Entries))
-	for k := range this.Entries {
+	for k, _ := range this.Entries {
 		keysForEntries = append(keysForEntries, k)
 	}
 	github_com_gogo_protobuf_sortkeys.Strings(keysForEntries)
@@ -2490,7 +1816,7 @@ func (this *AllocationInfo) String() string {
 		return "nil"
 	}
 	keysForTopologyAwareAssignments := make([]uint64, 0, len(this.TopologyAwareAssignments))
-	for k := range this.TopologyAwareAssignments {
+	for k, _ := range this.TopologyAwareAssignments {
 		keysForTopologyAwareAssignments = append(keysForTopologyAwareAssignments, k)
 	}
 	github_com_gogo_protobuf_sortkeys.Uint64s(keysForTopologyAwareAssignments)
@@ -2500,7 +1826,7 @@ func (this *AllocationInfo) String() string {
 	}
 	mapStringForTopologyAwareAssignments += "}"
 	keysForOriginalTopologyAwareAssignments := make([]uint64, 0, len(this.OriginalTopologyAwareAssignments))
-	for k := range this.OriginalTopologyAwareAssignments {
+	for k, _ := range this.OriginalTopologyAwareAssignments {
 		keysForOriginalTopologyAwareAssignments = append(keysForOriginalTopologyAwareAssignments, k)
 	}
 	github_com_gogo_protobuf_sortkeys.Uint64s(keysForOriginalTopologyAwareAssignments)
@@ -2525,774 +1851,6 @@ func valueToStringCpu(v interface{}) string {
 	}
 	pv := reflect.Indirect(rv).Interface()
 	return fmt.Sprintf("*%v", pv)
-}
-func (m *AddContainerRequest) Unmarshal(dAtA []byte) error {
-	l := len(dAtA)
-	iNdEx := 0
-	for iNdEx < l {
-		preIndex := iNdEx
-		var wire uint64
-		for shift := uint(0); ; shift += 7 {
-			if shift >= 64 {
-				return ErrIntOverflowCpu
-			}
-			if iNdEx >= l {
-				return io.ErrUnexpectedEOF
-			}
-			b := dAtA[iNdEx]
-			iNdEx++
-			wire |= uint64(b&0x7F) << shift
-			if b < 0x80 {
-				break
-			}
-		}
-		fieldNum := int32(wire >> 3)
-		wireType := int(wire & 0x7)
-		if wireType == 4 {
-			return fmt.Errorf("proto: AddContainerRequest: wiretype end group for non-group")
-		}
-		if fieldNum <= 0 {
-			return fmt.Errorf("proto: AddContainerRequest: illegal tag %d (wire type %d)", fieldNum, wire)
-		}
-		switch fieldNum {
-		case 1:
-			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field PodUid", wireType)
-			}
-			var stringLen uint64
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return ErrIntOverflowCpu
-				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
-				}
-				b := dAtA[iNdEx]
-				iNdEx++
-				stringLen |= uint64(b&0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
-			intStringLen := int(stringLen)
-			if intStringLen < 0 {
-				return ErrInvalidLengthCpu
-			}
-			postIndex := iNdEx + intStringLen
-			if postIndex < 0 {
-				return ErrInvalidLengthCpu
-			}
-			if postIndex > l {
-				return io.ErrUnexpectedEOF
-			}
-			m.PodUid = string(dAtA[iNdEx:postIndex])
-			iNdEx = postIndex
-		case 2:
-			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field PodNamespace", wireType)
-			}
-			var stringLen uint64
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return ErrIntOverflowCpu
-				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
-				}
-				b := dAtA[iNdEx]
-				iNdEx++
-				stringLen |= uint64(b&0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
-			intStringLen := int(stringLen)
-			if intStringLen < 0 {
-				return ErrInvalidLengthCpu
-			}
-			postIndex := iNdEx + intStringLen
-			if postIndex < 0 {
-				return ErrInvalidLengthCpu
-			}
-			if postIndex > l {
-				return io.ErrUnexpectedEOF
-			}
-			m.PodNamespace = string(dAtA[iNdEx:postIndex])
-			iNdEx = postIndex
-		case 3:
-			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field PodName", wireType)
-			}
-			var stringLen uint64
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return ErrIntOverflowCpu
-				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
-				}
-				b := dAtA[iNdEx]
-				iNdEx++
-				stringLen |= uint64(b&0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
-			intStringLen := int(stringLen)
-			if intStringLen < 0 {
-				return ErrInvalidLengthCpu
-			}
-			postIndex := iNdEx + intStringLen
-			if postIndex < 0 {
-				return ErrInvalidLengthCpu
-			}
-			if postIndex > l {
-				return io.ErrUnexpectedEOF
-			}
-			m.PodName = string(dAtA[iNdEx:postIndex])
-			iNdEx = postIndex
-		case 4:
-			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field ContainerName", wireType)
-			}
-			var stringLen uint64
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return ErrIntOverflowCpu
-				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
-				}
-				b := dAtA[iNdEx]
-				iNdEx++
-				stringLen |= uint64(b&0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
-			intStringLen := int(stringLen)
-			if intStringLen < 0 {
-				return ErrInvalidLengthCpu
-			}
-			postIndex := iNdEx + intStringLen
-			if postIndex < 0 {
-				return ErrInvalidLengthCpu
-			}
-			if postIndex > l {
-				return io.ErrUnexpectedEOF
-			}
-			m.ContainerName = string(dAtA[iNdEx:postIndex])
-			iNdEx = postIndex
-		case 5:
-			if wireType != 0 {
-				return fmt.Errorf("proto: wrong wireType = %d for field ContainerType", wireType)
-			}
-			m.ContainerType = 0
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return ErrIntOverflowCpu
-				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
-				}
-				b := dAtA[iNdEx]
-				iNdEx++
-				m.ContainerType |= v1alpha1.ContainerType(b&0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
-		case 6:
-			if wireType != 0 {
-				return fmt.Errorf("proto: wrong wireType = %d for field ContainerIndex", wireType)
-			}
-			m.ContainerIndex = 0
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return ErrIntOverflowCpu
-				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
-				}
-				b := dAtA[iNdEx]
-				iNdEx++
-				m.ContainerIndex |= uint64(b&0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
-		case 7:
-			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field Labels", wireType)
-			}
-			var msglen int
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return ErrIntOverflowCpu
-				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
-				}
-				b := dAtA[iNdEx]
-				iNdEx++
-				msglen |= int(b&0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
-			if msglen < 0 {
-				return ErrInvalidLengthCpu
-			}
-			postIndex := iNdEx + msglen
-			if postIndex < 0 {
-				return ErrInvalidLengthCpu
-			}
-			if postIndex > l {
-				return io.ErrUnexpectedEOF
-			}
-			if m.Labels == nil {
-				m.Labels = make(map[string]string)
-			}
-			var mapkey string
-			var mapvalue string
-			for iNdEx < postIndex {
-				entryPreIndex := iNdEx
-				var wire uint64
-				for shift := uint(0); ; shift += 7 {
-					if shift >= 64 {
-						return ErrIntOverflowCpu
-					}
-					if iNdEx >= l {
-						return io.ErrUnexpectedEOF
-					}
-					b := dAtA[iNdEx]
-					iNdEx++
-					wire |= uint64(b&0x7F) << shift
-					if b < 0x80 {
-						break
-					}
-				}
-				fieldNum := int32(wire >> 3)
-				if fieldNum == 1 {
-					var stringLenmapkey uint64
-					for shift := uint(0); ; shift += 7 {
-						if shift >= 64 {
-							return ErrIntOverflowCpu
-						}
-						if iNdEx >= l {
-							return io.ErrUnexpectedEOF
-						}
-						b := dAtA[iNdEx]
-						iNdEx++
-						stringLenmapkey |= uint64(b&0x7F) << shift
-						if b < 0x80 {
-							break
-						}
-					}
-					intStringLenmapkey := int(stringLenmapkey)
-					if intStringLenmapkey < 0 {
-						return ErrInvalidLengthCpu
-					}
-					postStringIndexmapkey := iNdEx + intStringLenmapkey
-					if postStringIndexmapkey < 0 {
-						return ErrInvalidLengthCpu
-					}
-					if postStringIndexmapkey > l {
-						return io.ErrUnexpectedEOF
-					}
-					mapkey = string(dAtA[iNdEx:postStringIndexmapkey])
-					iNdEx = postStringIndexmapkey
-				} else if fieldNum == 2 {
-					var stringLenmapvalue uint64
-					for shift := uint(0); ; shift += 7 {
-						if shift >= 64 {
-							return ErrIntOverflowCpu
-						}
-						if iNdEx >= l {
-							return io.ErrUnexpectedEOF
-						}
-						b := dAtA[iNdEx]
-						iNdEx++
-						stringLenmapvalue |= uint64(b&0x7F) << shift
-						if b < 0x80 {
-							break
-						}
-					}
-					intStringLenmapvalue := int(stringLenmapvalue)
-					if intStringLenmapvalue < 0 {
-						return ErrInvalidLengthCpu
-					}
-					postStringIndexmapvalue := iNdEx + intStringLenmapvalue
-					if postStringIndexmapvalue < 0 {
-						return ErrInvalidLengthCpu
-					}
-					if postStringIndexmapvalue > l {
-						return io.ErrUnexpectedEOF
-					}
-					mapvalue = string(dAtA[iNdEx:postStringIndexmapvalue])
-					iNdEx = postStringIndexmapvalue
-				} else {
-					iNdEx = entryPreIndex
-					skippy, err := skipCpu(dAtA[iNdEx:])
-					if err != nil {
-						return err
-					}
-					if skippy < 0 {
-						return ErrInvalidLengthCpu
-					}
-					if (iNdEx + skippy) > postIndex {
-						return io.ErrUnexpectedEOF
-					}
-					iNdEx += skippy
-				}
-			}
-			m.Labels[mapkey] = mapvalue
-			iNdEx = postIndex
-		case 8:
-			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field Annotations", wireType)
-			}
-			var msglen int
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return ErrIntOverflowCpu
-				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
-				}
-				b := dAtA[iNdEx]
-				iNdEx++
-				msglen |= int(b&0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
-			if msglen < 0 {
-				return ErrInvalidLengthCpu
-			}
-			postIndex := iNdEx + msglen
-			if postIndex < 0 {
-				return ErrInvalidLengthCpu
-			}
-			if postIndex > l {
-				return io.ErrUnexpectedEOF
-			}
-			if m.Annotations == nil {
-				m.Annotations = make(map[string]string)
-			}
-			var mapkey string
-			var mapvalue string
-			for iNdEx < postIndex {
-				entryPreIndex := iNdEx
-				var wire uint64
-				for shift := uint(0); ; shift += 7 {
-					if shift >= 64 {
-						return ErrIntOverflowCpu
-					}
-					if iNdEx >= l {
-						return io.ErrUnexpectedEOF
-					}
-					b := dAtA[iNdEx]
-					iNdEx++
-					wire |= uint64(b&0x7F) << shift
-					if b < 0x80 {
-						break
-					}
-				}
-				fieldNum := int32(wire >> 3)
-				if fieldNum == 1 {
-					var stringLenmapkey uint64
-					for shift := uint(0); ; shift += 7 {
-						if shift >= 64 {
-							return ErrIntOverflowCpu
-						}
-						if iNdEx >= l {
-							return io.ErrUnexpectedEOF
-						}
-						b := dAtA[iNdEx]
-						iNdEx++
-						stringLenmapkey |= uint64(b&0x7F) << shift
-						if b < 0x80 {
-							break
-						}
-					}
-					intStringLenmapkey := int(stringLenmapkey)
-					if intStringLenmapkey < 0 {
-						return ErrInvalidLengthCpu
-					}
-					postStringIndexmapkey := iNdEx + intStringLenmapkey
-					if postStringIndexmapkey < 0 {
-						return ErrInvalidLengthCpu
-					}
-					if postStringIndexmapkey > l {
-						return io.ErrUnexpectedEOF
-					}
-					mapkey = string(dAtA[iNdEx:postStringIndexmapkey])
-					iNdEx = postStringIndexmapkey
-				} else if fieldNum == 2 {
-					var stringLenmapvalue uint64
-					for shift := uint(0); ; shift += 7 {
-						if shift >= 64 {
-							return ErrIntOverflowCpu
-						}
-						if iNdEx >= l {
-							return io.ErrUnexpectedEOF
-						}
-						b := dAtA[iNdEx]
-						iNdEx++
-						stringLenmapvalue |= uint64(b&0x7F) << shift
-						if b < 0x80 {
-							break
-						}
-					}
-					intStringLenmapvalue := int(stringLenmapvalue)
-					if intStringLenmapvalue < 0 {
-						return ErrInvalidLengthCpu
-					}
-					postStringIndexmapvalue := iNdEx + intStringLenmapvalue
-					if postStringIndexmapvalue < 0 {
-						return ErrInvalidLengthCpu
-					}
-					if postStringIndexmapvalue > l {
-						return io.ErrUnexpectedEOF
-					}
-					mapvalue = string(dAtA[iNdEx:postStringIndexmapvalue])
-					iNdEx = postStringIndexmapvalue
-				} else {
-					iNdEx = entryPreIndex
-					skippy, err := skipCpu(dAtA[iNdEx:])
-					if err != nil {
-						return err
-					}
-					if skippy < 0 {
-						return ErrInvalidLengthCpu
-					}
-					if (iNdEx + skippy) > postIndex {
-						return io.ErrUnexpectedEOF
-					}
-					iNdEx += skippy
-				}
-			}
-			m.Annotations[mapkey] = mapvalue
-			iNdEx = postIndex
-		case 9:
-			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field QosLevel", wireType)
-			}
-			var stringLen uint64
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return ErrIntOverflowCpu
-				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
-				}
-				b := dAtA[iNdEx]
-				iNdEx++
-				stringLen |= uint64(b&0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
-			intStringLen := int(stringLen)
-			if intStringLen < 0 {
-				return ErrInvalidLengthCpu
-			}
-			postIndex := iNdEx + intStringLen
-			if postIndex < 0 {
-				return ErrInvalidLengthCpu
-			}
-			if postIndex > l {
-				return io.ErrUnexpectedEOF
-			}
-			m.QosLevel = string(dAtA[iNdEx:postIndex])
-			iNdEx = postIndex
-		case 10:
-			if wireType != 0 {
-				return fmt.Errorf("proto: wrong wireType = %d for field RequestQuantity", wireType)
-			}
-			m.RequestQuantity = 0
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return ErrIntOverflowCpu
-				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
-				}
-				b := dAtA[iNdEx]
-				iNdEx++
-				m.RequestQuantity |= uint64(b&0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
-		default:
-			iNdEx = preIndex
-			skippy, err := skipCpu(dAtA[iNdEx:])
-			if err != nil {
-				return err
-			}
-			if skippy < 0 {
-				return ErrInvalidLengthCpu
-			}
-			if (iNdEx + skippy) < 0 {
-				return ErrInvalidLengthCpu
-			}
-			if (iNdEx + skippy) > l {
-				return io.ErrUnexpectedEOF
-			}
-			iNdEx += skippy
-		}
-	}
-
-	if iNdEx > l {
-		return io.ErrUnexpectedEOF
-	}
-	return nil
-}
-func (m *AddContainerResponse) Unmarshal(dAtA []byte) error {
-	l := len(dAtA)
-	iNdEx := 0
-	for iNdEx < l {
-		preIndex := iNdEx
-		var wire uint64
-		for shift := uint(0); ; shift += 7 {
-			if shift >= 64 {
-				return ErrIntOverflowCpu
-			}
-			if iNdEx >= l {
-				return io.ErrUnexpectedEOF
-			}
-			b := dAtA[iNdEx]
-			iNdEx++
-			wire |= uint64(b&0x7F) << shift
-			if b < 0x80 {
-				break
-			}
-		}
-		fieldNum := int32(wire >> 3)
-		wireType := int(wire & 0x7)
-		if wireType == 4 {
-			return fmt.Errorf("proto: AddContainerResponse: wiretype end group for non-group")
-		}
-		if fieldNum <= 0 {
-			return fmt.Errorf("proto: AddContainerResponse: illegal tag %d (wire type %d)", fieldNum, wire)
-		}
-		switch fieldNum {
-		default:
-			iNdEx = preIndex
-			skippy, err := skipCpu(dAtA[iNdEx:])
-			if err != nil {
-				return err
-			}
-			if skippy < 0 {
-				return ErrInvalidLengthCpu
-			}
-			if (iNdEx + skippy) < 0 {
-				return ErrInvalidLengthCpu
-			}
-			if (iNdEx + skippy) > l {
-				return io.ErrUnexpectedEOF
-			}
-			iNdEx += skippy
-		}
-	}
-
-	if iNdEx > l {
-		return io.ErrUnexpectedEOF
-	}
-	return nil
-}
-func (m *Empty) Unmarshal(dAtA []byte) error {
-	l := len(dAtA)
-	iNdEx := 0
-	for iNdEx < l {
-		preIndex := iNdEx
-		var wire uint64
-		for shift := uint(0); ; shift += 7 {
-			if shift >= 64 {
-				return ErrIntOverflowCpu
-			}
-			if iNdEx >= l {
-				return io.ErrUnexpectedEOF
-			}
-			b := dAtA[iNdEx]
-			iNdEx++
-			wire |= uint64(b&0x7F) << shift
-			if b < 0x80 {
-				break
-			}
-		}
-		fieldNum := int32(wire >> 3)
-		wireType := int(wire & 0x7)
-		if wireType == 4 {
-			return fmt.Errorf("proto: Empty: wiretype end group for non-group")
-		}
-		if fieldNum <= 0 {
-			return fmt.Errorf("proto: Empty: illegal tag %d (wire type %d)", fieldNum, wire)
-		}
-		switch fieldNum {
-		default:
-			iNdEx = preIndex
-			skippy, err := skipCpu(dAtA[iNdEx:])
-			if err != nil {
-				return err
-			}
-			if skippy < 0 {
-				return ErrInvalidLengthCpu
-			}
-			if (iNdEx + skippy) < 0 {
-				return ErrInvalidLengthCpu
-			}
-			if (iNdEx + skippy) > l {
-				return io.ErrUnexpectedEOF
-			}
-			iNdEx += skippy
-		}
-	}
-
-	if iNdEx > l {
-		return io.ErrUnexpectedEOF
-	}
-	return nil
-}
-func (m *RemovePodRequest) Unmarshal(dAtA []byte) error {
-	l := len(dAtA)
-	iNdEx := 0
-	for iNdEx < l {
-		preIndex := iNdEx
-		var wire uint64
-		for shift := uint(0); ; shift += 7 {
-			if shift >= 64 {
-				return ErrIntOverflowCpu
-			}
-			if iNdEx >= l {
-				return io.ErrUnexpectedEOF
-			}
-			b := dAtA[iNdEx]
-			iNdEx++
-			wire |= uint64(b&0x7F) << shift
-			if b < 0x80 {
-				break
-			}
-		}
-		fieldNum := int32(wire >> 3)
-		wireType := int(wire & 0x7)
-		if wireType == 4 {
-			return fmt.Errorf("proto: RemovePodRequest: wiretype end group for non-group")
-		}
-		if fieldNum <= 0 {
-			return fmt.Errorf("proto: RemovePodRequest: illegal tag %d (wire type %d)", fieldNum, wire)
-		}
-		switch fieldNum {
-		case 1:
-			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field PodUid", wireType)
-			}
-			var stringLen uint64
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return ErrIntOverflowCpu
-				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
-				}
-				b := dAtA[iNdEx]
-				iNdEx++
-				stringLen |= uint64(b&0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
-			intStringLen := int(stringLen)
-			if intStringLen < 0 {
-				return ErrInvalidLengthCpu
-			}
-			postIndex := iNdEx + intStringLen
-			if postIndex < 0 {
-				return ErrInvalidLengthCpu
-			}
-			if postIndex > l {
-				return io.ErrUnexpectedEOF
-			}
-			m.PodUid = string(dAtA[iNdEx:postIndex])
-			iNdEx = postIndex
-		default:
-			iNdEx = preIndex
-			skippy, err := skipCpu(dAtA[iNdEx:])
-			if err != nil {
-				return err
-			}
-			if skippy < 0 {
-				return ErrInvalidLengthCpu
-			}
-			if (iNdEx + skippy) < 0 {
-				return ErrInvalidLengthCpu
-			}
-			if (iNdEx + skippy) > l {
-				return io.ErrUnexpectedEOF
-			}
-			iNdEx += skippy
-		}
-	}
-
-	if iNdEx > l {
-		return io.ErrUnexpectedEOF
-	}
-	return nil
-}
-func (m *RemovePodResponse) Unmarshal(dAtA []byte) error {
-	l := len(dAtA)
-	iNdEx := 0
-	for iNdEx < l {
-		preIndex := iNdEx
-		var wire uint64
-		for shift := uint(0); ; shift += 7 {
-			if shift >= 64 {
-				return ErrIntOverflowCpu
-			}
-			if iNdEx >= l {
-				return io.ErrUnexpectedEOF
-			}
-			b := dAtA[iNdEx]
-			iNdEx++
-			wire |= uint64(b&0x7F) << shift
-			if b < 0x80 {
-				break
-			}
-		}
-		fieldNum := int32(wire >> 3)
-		wireType := int(wire & 0x7)
-		if wireType == 4 {
-			return fmt.Errorf("proto: RemovePodResponse: wiretype end group for non-group")
-		}
-		if fieldNum <= 0 {
-			return fmt.Errorf("proto: RemovePodResponse: illegal tag %d (wire type %d)", fieldNum, wire)
-		}
-		switch fieldNum {
-		default:
-			iNdEx = preIndex
-			skippy, err := skipCpu(dAtA[iNdEx:])
-			if err != nil {
-				return err
-			}
-			if skippy < 0 {
-				return ErrInvalidLengthCpu
-			}
-			if (iNdEx + skippy) < 0 {
-				return ErrInvalidLengthCpu
-			}
-			if (iNdEx + skippy) > l {
-				return io.ErrUnexpectedEOF
-			}
-			iNdEx += skippy
-		}
-	}
-
-	if iNdEx > l {
-		return io.ErrUnexpectedEOF
-	}
-	return nil
 }
 func (m *ListAndWatchResponse) Unmarshal(dAtA []byte) error {
 	l := len(dAtA)
@@ -3441,7 +1999,7 @@ func (m *ListAndWatchResponse) Unmarshal(dAtA []byte) error {
 					if err != nil {
 						return err
 					}
-					if skippy < 0 {
+					if (skippy < 0) || (iNdEx+skippy) < 0 {
 						return ErrInvalidLengthCpu
 					}
 					if (iNdEx + skippy) > postIndex {
@@ -3458,10 +2016,7 @@ func (m *ListAndWatchResponse) Unmarshal(dAtA []byte) error {
 			if err != nil {
 				return err
 			}
-			if skippy < 0 {
-				return ErrInvalidLengthCpu
-			}
-			if (iNdEx + skippy) < 0 {
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
 				return ErrInvalidLengthCpu
 			}
 			if (iNdEx + skippy) > l {
@@ -3623,7 +2178,7 @@ func (m *CalculationEntries) Unmarshal(dAtA []byte) error {
 					if err != nil {
 						return err
 					}
-					if skippy < 0 {
+					if (skippy < 0) || (iNdEx+skippy) < 0 {
 						return ErrInvalidLengthCpu
 					}
 					if (iNdEx + skippy) > postIndex {
@@ -3640,10 +2195,7 @@ func (m *CalculationEntries) Unmarshal(dAtA []byte) error {
 			if err != nil {
 				return err
 			}
-			if skippy < 0 {
-				return ErrInvalidLengthCpu
-			}
-			if (iNdEx + skippy) < 0 {
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
 				return ErrInvalidLengthCpu
 			}
 			if (iNdEx + skippy) > l {
@@ -3823,7 +2375,7 @@ func (m *CalculationInfo) Unmarshal(dAtA []byte) error {
 					if err != nil {
 						return err
 					}
-					if skippy < 0 {
+					if (skippy < 0) || (iNdEx+skippy) < 0 {
 						return ErrInvalidLengthCpu
 					}
 					if (iNdEx + skippy) > postIndex {
@@ -3840,10 +2392,7 @@ func (m *CalculationInfo) Unmarshal(dAtA []byte) error {
 			if err != nil {
 				return err
 			}
-			if skippy < 0 {
-				return ErrInvalidLengthCpu
-			}
-			if (iNdEx + skippy) < 0 {
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
 				return ErrInvalidLengthCpu
 			}
 			if (iNdEx + skippy) > l {
@@ -3927,10 +2476,7 @@ func (m *NumaCalculationResult) Unmarshal(dAtA []byte) error {
 			if err != nil {
 				return err
 			}
-			if skippy < 0 {
-				return ErrInvalidLengthCpu
-			}
-			if (iNdEx + skippy) < 0 {
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
 				return ErrInvalidLengthCpu
 			}
 			if (iNdEx + skippy) > l {
@@ -4065,10 +2611,7 @@ func (m *Block) Unmarshal(dAtA []byte) error {
 			if err != nil {
 				return err
 			}
-			if skippy < 0 {
-				return ErrInvalidLengthCpu
-			}
-			if (iNdEx + skippy) < 0 {
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
 				return ErrInvalidLengthCpu
 			}
 			if (iNdEx + skippy) > l {
@@ -4233,10 +2776,7 @@ func (m *OverlapTarget) Unmarshal(dAtA []byte) error {
 			if err != nil {
 				return err
 			}
-			if skippy < 0 {
-				return ErrInvalidLengthCpu
-			}
-			if (iNdEx + skippy) < 0 {
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
 				return ErrInvalidLengthCpu
 			}
 			if (iNdEx + skippy) > l {
@@ -4286,10 +2826,7 @@ func (m *GetCheckpointRequest) Unmarshal(dAtA []byte) error {
 			if err != nil {
 				return err
 			}
-			if skippy < 0 {
-				return ErrInvalidLengthCpu
-			}
-			if (iNdEx + skippy) < 0 {
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
 				return ErrInvalidLengthCpu
 			}
 			if (iNdEx + skippy) > l {
@@ -4451,7 +2988,7 @@ func (m *GetCheckpointResponse) Unmarshal(dAtA []byte) error {
 					if err != nil {
 						return err
 					}
-					if skippy < 0 {
+					if (skippy < 0) || (iNdEx+skippy) < 0 {
 						return ErrInvalidLengthCpu
 					}
 					if (iNdEx + skippy) > postIndex {
@@ -4468,10 +3005,7 @@ func (m *GetCheckpointResponse) Unmarshal(dAtA []byte) error {
 			if err != nil {
 				return err
 			}
-			if skippy < 0 {
-				return ErrInvalidLengthCpu
-			}
-			if (iNdEx + skippy) < 0 {
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
 				return ErrInvalidLengthCpu
 			}
 			if (iNdEx + skippy) > l {
@@ -4633,7 +3167,7 @@ func (m *AllocationEntries) Unmarshal(dAtA []byte) error {
 					if err != nil {
 						return err
 					}
-					if skippy < 0 {
+					if (skippy < 0) || (iNdEx+skippy) < 0 {
 						return ErrInvalidLengthCpu
 					}
 					if (iNdEx + skippy) > postIndex {
@@ -4650,10 +3184,7 @@ func (m *AllocationEntries) Unmarshal(dAtA []byte) error {
 			if err != nil {
 				return err
 			}
-			if skippy < 0 {
-				return ErrInvalidLengthCpu
-			}
-			if (iNdEx + skippy) < 0 {
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
 				return ErrInvalidLengthCpu
 			}
 			if (iNdEx + skippy) > l {
@@ -4851,7 +3382,7 @@ func (m *AllocationInfo) Unmarshal(dAtA []byte) error {
 					if err != nil {
 						return err
 					}
-					if skippy < 0 {
+					if (skippy < 0) || (iNdEx+skippy) < 0 {
 						return ErrInvalidLengthCpu
 					}
 					if (iNdEx + skippy) > postIndex {
@@ -4964,7 +3495,7 @@ func (m *AllocationInfo) Unmarshal(dAtA []byte) error {
 					if err != nil {
 						return err
 					}
-					if skippy < 0 {
+					if (skippy < 0) || (iNdEx+skippy) < 0 {
 						return ErrInvalidLengthCpu
 					}
 					if (iNdEx + skippy) > postIndex {
@@ -4981,10 +3512,7 @@ func (m *AllocationInfo) Unmarshal(dAtA []byte) error {
 			if err != nil {
 				return err
 			}
-			if skippy < 0 {
-				return ErrInvalidLengthCpu
-			}
-			if (iNdEx + skippy) < 0 {
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
 				return ErrInvalidLengthCpu
 			}
 			if (iNdEx + skippy) > l {

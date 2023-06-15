@@ -21,6 +21,7 @@ import (
 	context "context"
 	"testing"
 
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/advisorsvc"
 	grpc "google.golang.org/grpc"
 )
 
@@ -28,7 +29,7 @@ func TestCPUPB(t *testing.T) {
 	OverlapType_OverlapWithPod.EnumDescriptor()
 	_ = OverlapType_OverlapWithPod.String()
 
-	req := &AddContainerRequest{}
+	req := &advisorsvc.AddContainerRequest{}
 	req.Reset()
 	_ = req.String()
 	req.ProtoMessage()
@@ -49,7 +50,7 @@ func TestCPUPB(t *testing.T) {
 	req.GetQosLevel()
 	req.GetRequestQuantity()
 
-	resp := &AddContainerResponse{}
+	resp := &advisorsvc.AddContainerResponse{}
 	resp.Reset()
 	_ = resp.String()
 	resp.ProtoMessage()
@@ -60,7 +61,7 @@ func TestCPUPB(t *testing.T) {
 	resp.XXX_Marshal(nil, false)
 	resp.XXX_DiscardUnknown()
 
-	empty := &Empty{}
+	empty := &advisorsvc.Empty{}
 	empty.Reset()
 	_ = empty.String()
 	empty.ProtoMessage()
@@ -71,7 +72,7 @@ func TestCPUPB(t *testing.T) {
 	empty.XXX_Marshal(nil, false)
 	empty.XXX_DiscardUnknown()
 
-	removeReq := &RemovePodRequest{}
+	removeReq := &advisorsvc.RemovePodRequest{}
 	removeReq.Reset()
 	_ = removeReq.String()
 	removeReq.ProtoMessage()
@@ -83,7 +84,7 @@ func TestCPUPB(t *testing.T) {
 	removeReq.XXX_DiscardUnknown()
 	removeReq.GetPodUid()
 
-	removeResp := &RemovePodResponse{}
+	removeResp := &advisorsvc.RemovePodResponse{}
 	removeResp.Reset()
 	_ = removeResp.String()
 	removeResp.ProtoMessage()
@@ -217,17 +218,17 @@ func TestCPUPB(t *testing.T) {
 
 func TestAddContainer(t *testing.T) {
 	testServer := &UnimplementedCPUAdvisorServer{}
-	testServer.AddContainer(context.Background(), &AddContainerRequest{})
+	testServer.AddContainer(context.Background(), &advisorsvc.AddContainerRequest{})
 }
 
 func TestRemovePod(t *testing.T) {
 	testServer := &UnimplementedCPUAdvisorServer{}
-	testServer.RemovePod(context.Background(), &RemovePodRequest{})
+	testServer.RemovePod(context.Background(), &advisorsvc.RemovePodRequest{})
 }
 
 func TestListAndWatch(t *testing.T) {
 	testServer := &UnimplementedCPUAdvisorServer{}
-	testServer.ListAndWatch(&Empty{}, &cPUAdvisorListAndWatchServer{})
+	testServer.ListAndWatch(&advisorsvc.Empty{}, &cPUAdvisorListAndWatchServer{})
 }
 
 func TestGetCheckpoint(t *testing.T) {
