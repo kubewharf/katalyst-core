@@ -14,14 +14,17 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package adminqos
+package reclaimedresource
 
 import (
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
+	"k8s.io/apimachinery/pkg/util/errors"
 	cliflag "k8s.io/component-base/cli/flag"
 
-	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/adminqos"
+	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/options/dynamic/adminqos/reclaimedresource/cpuheadroom"
+	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/options/dynamic/adminqos/reclaimedresource/memoryheadroom"
+	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/adminqos/reclaimedresource"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 )
 
@@ -30,6 +33,9 @@ type ReclaimedResourceOptions struct {
 	ReservedResourceForReport     general.ResourceList
 	MinReclaimedResourceForReport general.ResourceList
 	ReservedResourceForAllocate   general.ResourceList
+
+	*cpuheadroom.CPUHeadroomOptions
+	*memoryheadroom.MemoryHeadroomOptions
 }
 
 func NewReclaimedResourceOptions() *ReclaimedResourceOptions {
@@ -47,6 +53,8 @@ func NewReclaimedResourceOptions() *ReclaimedResourceOptions {
 			v1.ResourceCPU:    resource.MustParse("4"),
 			v1.ResourceMemory: resource.MustParse("5Gi"),
 		},
+		CPUHeadroomOptions:    cpuheadroom.NewCPUHeadroomOptions(),
+		MemoryHeadroomOptions: memoryheadroom.NewMemoryHeadroomOptions(),
 	}
 }
 
@@ -62,13 +70,20 @@ func (o *ReclaimedResourceOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 		"min reclaimed resource report to cnr")
 	fs.Var(&o.ReservedResourceForAllocate, "reserved-resource-for-allocate",
 		"reserved reclaimed resource actually not allocate to reclaimed resource")
+
+	o.CPUHeadroomOptions.AddFlags(fss)
+	o.MemoryHeadroomOptions.AddFlags(fss)
 }
 
 // ApplyTo fills up config with options
-func (o *ReclaimedResourceOptions) ApplyTo(c *adminqos.ReclaimedResourceConfiguration) error {
+func (o *ReclaimedResourceOptions) ApplyTo(c *reclaimedresource.ReclaimedResourceConfiguration) error {
+	var errList []error
 	c.EnableReclaim = o.EnableReclaim
 	c.ReservedResourceForReport = v1.ResourceList(o.ReservedResourceForReport)
 	c.MinReclaimedResourceForReport = v1.ResourceList(o.MinReclaimedResourceForReport)
 	c.ReservedResourceForAllocate = v1.ResourceList(o.ReservedResourceForAllocate)
-	return nil
+
+	errList = append(errList, o.CPUHeadroomOptions.ApplyTo(c.CPUHeadroomConfiguration))
+	errList = append(errList, o.MemoryHeadroomOptions.ApplyTo(c.MemoryHeadroomConfiguration))
+	return errors.NewAggregate(errList)
 }

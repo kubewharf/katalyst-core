@@ -17,16 +17,15 @@ limitations under the License.
 package eviction
 
 import (
-	"k8s.io/apimachinery/pkg/util/sets"
+	"time"
 )
 
-type ReclaimedResourcesEvictionPluginConfiguration struct {
-	EvictionReclaimedPodGracefulPeriod int64
-	SkipZeroQuantityResourceNames      sets.String
+// CPUPressureEvictionConfiguration is the config of CPUPressureEviction
+type CPUPressureEvictionConfiguration struct {
+	LoadEvictionSyncPeriod time.Duration
 }
 
-func NewReclaimedResourcesEvictionPluginConfiguration() *ReclaimedResourcesEvictionPluginConfiguration {
-	return &ReclaimedResourcesEvictionPluginConfiguration{
-		SkipZeroQuantityResourceNames: sets.String{},
-	}
+// NewCPUPressureEvictionConfiguration returns a new CPUPressureEvictionConfiguration
+func NewCPUPressureEvictionConfiguration() *CPUPressureEvictionConfiguration {
+	return &CPUPressureEvictionConfiguration{}
 }

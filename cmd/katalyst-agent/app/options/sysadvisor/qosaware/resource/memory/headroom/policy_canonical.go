@@ -23,11 +23,6 @@ import (
 )
 
 const (
-	defaultEnabled             = false
-	defaultFreeBasedRatio      = 0.6
-	defaultStaticBasedCapacity = 20 << 30 // 20GB
-
-	defaultCacheBaseRatio        = 0
 	defaultCPUMemRatioLowerBound = 1. / 6.
 	defaultCPUMemRatioUpperBound = 1. / 3.5
 )
@@ -37,11 +32,6 @@ type MemoryPolicyCanonicalOptions struct {
 }
 
 type MemoryUtilBasedOptions struct {
-	Enabled             bool
-	FreeBasedRatio      float64
-	CacheBasedRatio     float64
-	StaticBasedCapacity float64
-
 	CPUMemRatioLowerBound float64
 	CPUMemRatioUpperBound float64
 }
@@ -49,10 +39,6 @@ type MemoryUtilBasedOptions struct {
 func NewMemoryPolicyCanonicalOptions() *MemoryPolicyCanonicalOptions {
 	return &MemoryPolicyCanonicalOptions{
 		MemoryUtilBasedOptions: &MemoryUtilBasedOptions{
-			Enabled:               defaultEnabled,
-			FreeBasedRatio:        defaultFreeBasedRatio,
-			StaticBasedCapacity:   defaultStaticBasedCapacity,
-			CacheBasedRatio:       defaultCacheBaseRatio,
 			CPUMemRatioLowerBound: defaultCPUMemRatioLowerBound,
 			CPUMemRatioUpperBound: defaultCPUMemRatioUpperBound,
 		},
@@ -60,25 +46,13 @@ func NewMemoryPolicyCanonicalOptions() *MemoryPolicyCanonicalOptions {
 }
 
 func (o *MemoryPolicyCanonicalOptions) AddFlags(fs *pflag.FlagSet) {
-	fs.BoolVar(&o.Enabled, "memory-headroom-policy-canonical-util-based-enabled", o.Enabled,
-		"the flag to enable memory buffer")
-	fs.Float64Var(&o.FreeBasedRatio, "memory-headroom-policy-canonical-free-based-ratio", o.FreeBasedRatio,
-		"the estimation of free memory utilization, which can be used as system buffer to oversold memory")
-	fs.Float64Var(&o.StaticBasedCapacity, "memory-headroom-policy-canonical-static-based-capacity", o.StaticBasedCapacity,
-		"the static oversold memory size by bytes")
-	fs.Float64Var(&o.CacheBasedRatio, "memory-headroom-policy-canonical-cache-based-ratio", o.CacheBasedRatio,
-		"the rate of cache oversold, 0 means disable cache oversold")
-	fs.Float64Var(&o.CPUMemRatioLowerBound, "memory-headroom-policy-canonical-cpu-mem-ratio-lower-bound", o.CPUMemRatioLowerBound,
+	fs.Float64Var(&o.CPUMemRatioLowerBound, "memory-headroom-cpu-mem-ratio-lower-bound", o.CPUMemRatioLowerBound,
 		"the upper bound of memory to cpu ratio for enabling cache oversold")
-	fs.Float64Var(&o.CPUMemRatioUpperBound, "memory-headroom-policy-canonical-cpu-mem-ratio-upper-bound", o.CPUMemRatioUpperBound,
+	fs.Float64Var(&o.CPUMemRatioUpperBound, "memory-headroom-cpu-mem-ratio-upper-bound", o.CPUMemRatioUpperBound,
 		"the lower bound of memory to cpu ratio for enabling cache oversold")
 }
 
 func (o *MemoryPolicyCanonicalOptions) ApplyTo(c *headroom.MemoryPolicyCanonicalConfiguration) error {
-	c.Enabled = o.Enabled
-	c.FreeBasedRatio = o.FreeBasedRatio
-	c.StaticBasedCapacity = o.StaticBasedCapacity
-	c.CacheBasedRatio = o.CacheBasedRatio
 	c.CPUMemRatioLowerBound = o.CPUMemRatioLowerBound
 	c.CPUMemRatioUpperBound = o.CPUMemRatioUpperBound
 	return nil

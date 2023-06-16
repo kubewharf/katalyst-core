@@ -64,13 +64,14 @@ func makeMetaServer(metricsFetcher metric.MetricsFetcher, cpuTopology *machine.C
 	return metaServer
 }
 
-func makeConf(metricRingSize int, cpuPressureEvictionPodGracePeriodSeconds int64, loadUpperBoundRatio,
+func makeConf(metricRingSize int, gracePeriod int64, loadUpperBoundRatio,
 	loadThresholdMetPercentage float64) *config.Configuration {
 	conf := config.NewConfiguration()
-	conf.MetricRingSize = metricRingSize
-	conf.LoadUpperBoundRatio = loadUpperBoundRatio
-	conf.LoadThresholdMetPercentage = loadThresholdMetPercentage
-	conf.CPUPressureEvictionPodGracePeriodSeconds = cpuPressureEvictionPodGracePeriodSeconds
+	conf.GetDynamicConfiguration().EnableLoadEviction = true
+	conf.GetDynamicConfiguration().LoadMetricRingSize = metricRingSize
+	conf.GetDynamicConfiguration().LoadUpperBoundRatio = loadUpperBoundRatio
+	conf.GetDynamicConfiguration().LoadThresholdMetPercentage = loadThresholdMetPercentage
+	conf.GetDynamicConfiguration().CPUPressureEvictionConfiguration.GracePeriod = gracePeriod
 	return conf
 }
 
@@ -93,13 +94,9 @@ func TestNewCPUPressureLoadEviction(t *testing.T) {
 	stateImpl, err := makeState(cpuTopology)
 	as.Nil(err)
 
-	plugin := NewCPUPressureEviction(metrics.DummyMetrics{}, metaServer, conf, stateImpl)
+	plugin := NewCPUPressureLoadEviction(metrics.DummyMetrics{}, metaServer, conf, stateImpl)
 	as.Nil(err)
 	as.NotNil(plugin)
-	as.Equal(defaultMetricRingSize, plugin.(*CPUPressureLoadEviction).metricRingSize)
-	as.EqualValues(defaultCPUPressureEvictionPodGracePeriodSeconds, plugin.(*CPUPressureLoadEviction).podGracePeriodSeconds)
-	as.Equal(defaultLoadUpperBoundRatio, plugin.(*CPUPressureLoadEviction).loadUpperBoundRatio)
-	as.Equal(defaultLoadThresholdMetPercentage, plugin.(*CPUPressureLoadEviction).loadThresholdMetPercentage)
 }
 
 func TestThresholdMet(t *testing.T) {
@@ -113,7 +110,7 @@ func TestThresholdMet(t *testing.T) {
 	stateImpl, err := makeState(cpuTopology)
 	as.Nil(err)
 
-	plugin := NewCPUPressureEviction(metrics.DummyMetrics{}, metaServer, conf, stateImpl)
+	plugin := NewCPUPressureLoadEviction(metrics.DummyMetrics{}, metaServer, conf, stateImpl)
 	as.NotNil(plugin)
 
 	pod1UID := string(uuid.NewUUID())
@@ -394,7 +391,7 @@ func TestGetTopEvictionPods(t *testing.T) {
 	stateImpl, err := makeState(cpuTopology)
 	as.Nil(err)
 
-	plugin := NewCPUPressureEviction(metrics.DummyMetrics{}, metaServer, conf, stateImpl)
+	plugin := NewCPUPressureLoadEviction(metrics.DummyMetrics{}, metaServer, conf, stateImpl)
 	as.Nil(err)
 	as.NotNil(plugin)
 

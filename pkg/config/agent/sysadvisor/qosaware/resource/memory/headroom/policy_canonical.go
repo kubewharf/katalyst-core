@@ -21,10 +21,6 @@ type MemoryPolicyCanonicalConfiguration struct {
 }
 
 type MemoryUtilBasedConfiguration struct {
-	Enabled               bool
-	FreeBasedRatio        float64
-	StaticBasedCapacity   float64
-	CacheBasedRatio       float64
 	CPUMemRatioLowerBound float64
 	CPUMemRatioUpperBound float64
 }

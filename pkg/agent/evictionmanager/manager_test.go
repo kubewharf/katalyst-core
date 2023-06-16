@@ -30,7 +30,7 @@ import (
 	endpointpkg "github.com/kubewharf/katalyst-core/pkg/agent/evictionmanager/endpoint"
 	"github.com/kubewharf/katalyst-core/pkg/client"
 	"github.com/kubewharf/katalyst-core/pkg/config"
-	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/eviction"
+	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/adminqos/eviction"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/pod"
@@ -91,7 +91,7 @@ var (
 func makeConf() *config.Configuration {
 	conf := config.NewConfiguration()
 	conf.EvictionManagerSyncPeriod = evictionManagerSyncPeriod
-	conf.GetDynamicConfiguration().GracePeriod = eviction.DefaultGracePeriod
+	conf.GetDynamicConfiguration().MemoryPressureEvictionConfiguration.GracePeriod = eviction.DefaultGracePeriod
 
 	return conf
 }
@@ -122,17 +122,17 @@ type plugin1 struct {
 	pluginSkeleton
 }
 
-func (p *plugin1) ThresholdMet(c context.Context) (*pluginapi.ThresholdMetResponse, error) {
+func (p *plugin1) ThresholdMet(_ context.Context) (*pluginapi.ThresholdMetResponse, error) {
 	return &pluginapi.ThresholdMetResponse{
 		MetType: pluginapi.ThresholdMetType_NOT_MET,
 	}, nil
 }
 
-func (p *plugin1) GetTopEvictionPods(c context.Context, request *pluginapi.GetTopEvictionPodsRequest) (*pluginapi.GetTopEvictionPodsResponse, error) {
+func (p *plugin1) GetTopEvictionPods(_ context.Context, _ *pluginapi.GetTopEvictionPodsRequest) (*pluginapi.GetTopEvictionPodsResponse, error) {
 	return &pluginapi.GetTopEvictionPodsResponse{}, nil
 }
 
-func (p *plugin1) GetEvictPods(c context.Context, request *pluginapi.GetEvictPodsRequest) (*pluginapi.GetEvictPodsResponse, error) {
+func (p *plugin1) GetEvictPods(_ context.Context, _ *pluginapi.GetEvictPodsRequest) (*pluginapi.GetEvictPodsResponse, error) {
 	return &pluginapi.GetEvictPodsResponse{
 		EvictPods: []*pluginapi.EvictPod{
 			{
@@ -179,7 +179,7 @@ type plugin2 struct {
 	pluginSkeleton
 }
 
-func (p plugin2) ThresholdMet(c context.Context) (*pluginapi.ThresholdMetResponse, error) {
+func (p plugin2) ThresholdMet(_ context.Context) (*pluginapi.ThresholdMetResponse, error) {
 	return &pluginapi.ThresholdMetResponse{
 		MetType:            pluginapi.ThresholdMetType_HARD_MET,
 		ThresholdValue:     0.8,
@@ -196,7 +196,7 @@ func (p plugin2) ThresholdMet(c context.Context) (*pluginapi.ThresholdMetRespons
 	}, nil
 }
 
-func (p plugin2) GetTopEvictionPods(c context.Context, request *pluginapi.GetTopEvictionPodsRequest) (*pluginapi.GetTopEvictionPodsResponse, error) {
+func (p plugin2) GetTopEvictionPods(_ context.Context, _ *pluginapi.GetTopEvictionPodsRequest) (*pluginapi.GetTopEvictionPodsResponse, error) {
 	return &pluginapi.GetTopEvictionPodsResponse{TargetPods: []*v1.Pod{
 		{
 			ObjectMeta: metav1.ObjectMeta{
@@ -210,7 +210,7 @@ func (p plugin2) GetTopEvictionPods(c context.Context, request *pluginapi.GetTop
 	}}, nil
 }
 
-func (p plugin2) GetEvictPods(c context.Context, request *pluginapi.GetEvictPodsRequest) (*pluginapi.GetEvictPodsResponse, error) {
+func (p plugin2) GetEvictPods(_ context.Context, _ *pluginapi.GetEvictPodsRequest) (*pluginapi.GetEvictPodsResponse, error) {
 	return &pluginapi.GetEvictPodsResponse{EvictPods: []*pluginapi.EvictPod{}}, nil
 }
 
@@ -228,14 +228,14 @@ func TestEvictionManger_collectEvictionResult(t *testing.T) {
 	mgr := makeEvictionManager()
 	tests := []struct {
 		name               string
-		dryrunPlugins      []string
+		dryrun             []string
 		wantSoftEvictPods  sets.String
 		wantForceEvictPods sets.String
 		wantConditions     sets.String
 	}{
 		{
-			name:          "no dryrun",
-			dryrunPlugins: []string{},
+			name:   "no dryrun",
+			dryrun: []string{},
 			wantSoftEvictPods: sets.String{
 				"pod-1": sets.Empty{},
 				"pod-5": sets.Empty{},
@@ -250,7 +250,7 @@ func TestEvictionManger_collectEvictionResult(t *testing.T) {
 		},
 		{
 			name:              "dryrun plugin1",
-			dryrunPlugins:     []string{"plugin1"},
+			dryrun:            []string{"plugin1"},
 			wantSoftEvictPods: sets.String{},
 			wantForceEvictPods: sets.String{
 				"pod-3": sets.Empty{},
@@ -260,8 +260,8 @@ func TestEvictionManger_collectEvictionResult(t *testing.T) {
 			},
 		},
 		{
-			name:          "dryrun plugin2",
-			dryrunPlugins: []string{"plugin2"},
+			name:   "dryrun plugin2",
+			dryrun: []string{"plugin2"},
 			wantSoftEvictPods: sets.String{
 				"pod-1": sets.Empty{},
 				"pod-5": sets.Empty{},
@@ -273,14 +273,14 @@ func TestEvictionManger_collectEvictionResult(t *testing.T) {
 		},
 		{
 			name:               "dryrun plugin1 & plugin2",
-			dryrunPlugins:      []string{"plugin1", "plugin2"},
+			dryrun:             []string{"plugin1", "plugin2"},
 			wantSoftEvictPods:  sets.String{},
 			wantForceEvictPods: sets.String{},
 			wantConditions:     sets.String{},
 		},
 		{
 			name:               "dryrun *",
-			dryrunPlugins:      []string{"*"},
+			dryrun:             []string{"*"},
 			wantSoftEvictPods:  sets.String{},
 			wantForceEvictPods: sets.String{},
 			wantConditions:     sets.String{},
@@ -288,7 +288,7 @@ func TestEvictionManger_collectEvictionResult(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			mgr.conf.DryRunPlugins = tt.dryrunPlugins
+			mgr.conf.GetDynamicConfiguration().DryRun = tt.dryrun
 
 			collector := mgr.collectEvictionResult(pods)
 			gotForceEvictPods := sets.String{}

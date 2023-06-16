@@ -30,13 +30,13 @@ import (
 
 func TestNewCheckpoint(t *testing.T) {
 	now := metav1.Now()
-	kind := "EvictionConfiguration"
+	kind := crd.ResourceKindAdminQoSConfiguration
 	dynamicCRD := &crd.DynamicConfigCRD{
-		EvictionConfiguration: &v1alpha1.EvictionConfiguration{
-			Spec: v1alpha1.EvictionConfigurationSpec{
-				Config: v1alpha1.EvictionConfig{
-					EvictionPluginsConfig: v1alpha1.EvictionPluginsConfig{
-						ReclaimedResourcesEvictionPluginConfig: v1alpha1.ReclaimedResourcesEvictionPluginConfig{
+		AdminQoSConfiguration: &v1alpha1.AdminQoSConfiguration{
+			Spec: v1alpha1.AdminQoSConfigurationSpec{
+				Config: v1alpha1.AdminQoSConfig{
+					EvictionConfig: &v1alpha1.EvictionConfig{
+						ReclaimedResourcesEvictionConfig: &v1alpha1.ReclaimedResourcesEvictionConfig{
 							EvictionThreshold: map[corev1.ResourceName]float64{
 								corev1.ResourceCPU: 5.0,
 							},

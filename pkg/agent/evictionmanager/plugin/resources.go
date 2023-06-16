@@ -42,6 +42,8 @@ type ResourcesGetter func(ctx context.Context) (v1.ResourceList, error)
 
 type ThresholdGetter func(resourceName v1.ResourceName) float64
 
+type GracePeriodGetter func() int64
+
 // ResourcesEvictionPlugin implements EvictPlugin interface it trigger
 // pod eviction logic based on the tolerance of resources.
 type ResourcesEvictionPlugin struct {
@@ -49,22 +51,22 @@ type ResourcesEvictionPlugin struct {
 	emitter metrics.MetricEmitter
 
 	// thresholdGetter is used to get the threshold of resources.
-	thresholdGetter ThresholdGetter
+	thresholdGetter   ThresholdGetter
+	resourcesGetter   ResourcesGetter
+	gracePeriodGetter GracePeriodGetter
 
-	evictionPodGracefulPeriod     int64
 	skipZeroQuantityResourceNames sets.String
 	podFilter                     func(pod *v1.Pod) (bool, error)
 
 	pluginName string
 
-	metaServer      *metaserver.MetaServer
-	resourcesGetter ResourcesGetter
+	metaServer *metaserver.MetaServer
 }
 
 func NewResourcesEvictionPlugin(pluginName string, metaServer *metaserver.MetaServer,
 	emitter metrics.MetricEmitter, resourcesGetter ResourcesGetter, thresholdGetter ThresholdGetter,
-	skipZeroQuantityResourceNames sets.String, podFilter func(pod *v1.Pod) (bool, error),
-	evictionPodGracefulPeriod int64) *ResourcesEvictionPlugin {
+	gracePeriodGetter GracePeriodGetter, skipZeroQuantityResourceNames sets.String,
+	podFilter func(pod *v1.Pod) (bool, error)) *ResourcesEvictionPlugin {
 	// use the given threshold to override the default configurations
 	plugin := &ResourcesEvictionPlugin{
 		pluginName:                    pluginName,
@@ -72,9 +74,9 @@ func NewResourcesEvictionPlugin(pluginName string, metaServer *metaserver.MetaSe
 		metaServer:                    metaServer,
 		resourcesGetter:               resourcesGetter,
 		thresholdGetter:               thresholdGetter,
+		gracePeriodGetter:             gracePeriodGetter,
 		skipZeroQuantityResourceNames: skipZeroQuantityResourceNames,
 		podFilter:                     podFilter,
-		evictionPodGracefulPeriod:     evictionPodGracefulPeriod,
 	}
 	return plugin
 }
@@ -192,7 +194,7 @@ func (b *ResourcesEvictionPlugin) ThresholdMet(ctx context.Context) (*pluginapi.
 	}, nil
 }
 
-func (b *ResourcesEvictionPlugin) GetTopEvictionPods(ctx context.Context, request *pluginapi.GetTopEvictionPodsRequest) (*pluginapi.GetTopEvictionPodsResponse, error) {
+func (b *ResourcesEvictionPlugin) GetTopEvictionPods(_ context.Context, request *pluginapi.GetTopEvictionPodsRequest) (*pluginapi.GetTopEvictionPodsResponse, error) {
 	if request == nil {
 		return nil, fmt.Errorf("GetTopEvictionPods got nil request")
 	}
@@ -219,15 +221,20 @@ func (b *ResourcesEvictionPlugin) GetTopEvictionPods(ctx context.Context, reques
 
 	retLen := general.MinUInt64(request.TopN, uint64(len(activeFilteredPods)))
 
+	var deletionOptions *pluginapi.DeletionOptions
+	if gracePeriod := b.gracePeriodGetter(); gracePeriod > 0 {
+		deletionOptions = &pluginapi.DeletionOptions{
+			GracePeriodSeconds: gracePeriod,
+		}
+	}
+
 	return &pluginapi.GetTopEvictionPodsResponse{
-		TargetPods: activeFilteredPods[:retLen],
-		DeletionOptions: &pluginapi.DeletionOptions{
-			GracePeriodSeconds: b.evictionPodGracefulPeriod,
-		},
+		TargetPods:      activeFilteredPods[:retLen],
+		DeletionOptions: deletionOptions,
 	}, nil
 }
 
-func (b *ResourcesEvictionPlugin) GetEvictPods(ctx context.Context, request *pluginapi.GetEvictPodsRequest) (*pluginapi.GetEvictPodsResponse, error) {
+func (b *ResourcesEvictionPlugin) GetEvictPods(_ context.Context, request *pluginapi.GetEvictPodsRequest) (*pluginapi.GetEvictPodsResponse, error) {
 	if request == nil {
 		return nil, fmt.Errorf("GetEvictPods got nil request")
 	}

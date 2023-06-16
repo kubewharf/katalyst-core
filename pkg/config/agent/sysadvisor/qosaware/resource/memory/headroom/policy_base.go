@@ -17,7 +17,7 @@ limitations under the License.
 package headroom
 
 type MemoryHeadroomPolicyConfiguration struct {
-	MemoryPolicyCanonicalConfiguration *MemoryPolicyCanonicalConfiguration
+	*MemoryPolicyCanonicalConfiguration
 }
 
 func NewMemoryHeadroomPolicyConfiguration() *MemoryHeadroomPolicyConfiguration {

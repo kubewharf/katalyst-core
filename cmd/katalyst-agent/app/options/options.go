@@ -44,7 +44,7 @@ type Options struct {
 
 	// the below are options used by all each individual katalyst module/plugin
 	genericEvictionOptions *eviction.GenericEvictionOptions
-	evictionPluginsOptions *eviction.EvictionPluginsOptions
+	evictionOptions        *eviction.EvictionOptions
 
 	genericReporterOptions *reporter.GenericReporterOptions
 	reporterPluginsOptions *reporter.ReporterPluginsOptions
@@ -67,7 +67,7 @@ func NewOptions() *Options {
 		QRMAdvisorOptions:    global.NewQRMAdvisorOptions(),
 
 		genericEvictionOptions:   eviction.NewGenericEvictionOptions(),
-		evictionPluginsOptions:   eviction.NewEvictionPluginsOptions(),
+		evictionOptions:          eviction.NewEvictionOptions(),
 		genericReporterOptions:   reporter.NewGenericReporterOptions(),
 		reporterPluginsOptions:   reporter.NewReporterPluginsOptions(),
 		genericSysAdvisorOptions: sysadvisor.NewGenericSysAdvisorOptions(),
@@ -86,7 +86,7 @@ func (o *Options) AddFlags(fss *cliflag.NamedFlagSets) {
 	o.BaseOptions.AddFlags(fss)
 	o.QRMAdvisorOptions.AddFlags(fss)
 	o.genericEvictionOptions.AddFlags(fss)
-	o.evictionPluginsOptions.AddFlags(fss)
+	o.evictionOptions.AddFlags(fss)
 	o.genericReporterOptions.AddFlags(fss)
 	o.reporterPluginsOptions.AddFlags(fss)
 	o.genericSysAdvisorOptions.AddFlags(fss)
@@ -106,7 +106,7 @@ func (o *Options) ApplyTo(c *config.Configuration) error {
 	errList = append(errList, o.MetaServerOptions.ApplyTo(c.MetaServerConfiguration))
 	errList = append(errList, o.QRMAdvisorOptions.ApplyTo(c.QRMAdvisorConfiguration))
 	errList = append(errList, o.genericEvictionOptions.ApplyTo(c.GenericEvictionConfiguration))
-	errList = append(errList, o.evictionPluginsOptions.ApplyTo(c.EvictionPluginsConfiguration))
+	errList = append(errList, o.evictionOptions.ApplyTo(c.EvictionConfiguration))
 	errList = append(errList, o.genericReporterOptions.ApplyTo(c.GenericReporterConfiguration))
 	errList = append(errList, o.reporterPluginsOptions.ApplyTo(c.ReporterPluginsConfiguration))
 	errList = append(errList, o.genericSysAdvisorOptions.ApplyTo(c.GenericSysAdvisorConfiguration))

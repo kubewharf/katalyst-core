@@ -60,15 +60,19 @@ func NewReclaimedResourcesEvictionPlugin(_ *client.GenericClientSet, _ events.Ev
 		}
 	}
 
+	gracePeriodGetter := func() int64 {
+		return conf.GetDynamicConfiguration().ReclaimedResourcesEvictionConfiguration.GracePeriod
+	}
+
 	p := NewResourcesEvictionPlugin(
 		ReclaimedResourcesEvictionPluginName,
 		metaServer,
 		emitter,
 		reclaimedResourcesGetter,
 		reclaimedThresholdGetter,
+		gracePeriodGetter,
 		conf.SkipZeroQuantityResourceNames,
 		conf.CheckReclaimedQoSForPod,
-		conf.EvictionReclaimedPodGracefulPeriod,
 	)
 
 	return &reclaimedResourcesPlugin{

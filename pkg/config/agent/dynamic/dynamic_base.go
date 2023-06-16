@@ -21,7 +21,6 @@ import (
 
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/adminqos"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/crd"
-	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/eviction"
 )
 
 type DynamicAgentConfiguration struct {
@@ -51,17 +50,14 @@ func (c *DynamicAgentConfiguration) SetDynamicConfiguration(conf *Configuration)
 
 type Configuration struct {
 	*adminqos.AdminQoSConfiguration
-	*eviction.EvictionConfiguration
 }
 
 func NewConfiguration() *Configuration {
 	return &Configuration{
 		AdminQoSConfiguration: adminqos.NewAdminQoSConfiguration(),
-		EvictionConfiguration: eviction.NewEvictionConfiguration(),
 	}
 }
 
 func (c *Configuration) ApplyConfiguration(conf *crd.DynamicConfigCRD) {
 	c.AdminQoSConfiguration.ApplyConfiguration(conf)
-	c.EvictionConfiguration.ApplyConfiguration(conf)
 }

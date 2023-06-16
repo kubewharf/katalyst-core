@@ -29,7 +29,7 @@ import (
 	apiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
 	pluginapi "github.com/kubewharf/katalyst-api/pkg/protocol/evictionplugin/v1alpha1"
 	"github.com/kubewharf/katalyst-core/pkg/config"
-	evictionconfig "github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/eviction"
+	evictionconfig "github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/adminqos/eviction"
 	"github.com/kubewharf/katalyst-core/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent"
@@ -60,14 +60,14 @@ var (
 func makeConf() *config.Configuration {
 	conf := config.NewConfiguration()
 	conf.EvictionManagerSyncPeriod = evictionManagerSyncPeriod
-	conf.GetDynamicConfiguration().EnableNumaLevelDetection = evictionconfig.DefaultEnableNumaLevelDetection
-	conf.GetDynamicConfiguration().EnableSystemLevelDetection = evictionconfig.DefaultEnableSystemLevelDetection
+	conf.GetDynamicConfiguration().EnableNumaLevelEviction = evictionconfig.DefaultEnableNumaLevelEviction
+	conf.GetDynamicConfiguration().EnableSystemLevelEviction = evictionconfig.DefaultEnableSystemLevelEviction
 	conf.GetDynamicConfiguration().NumaFreeBelowWatermarkTimesThreshold = numaFreeBelowWatermarkTimesThreshold
 	conf.GetDynamicConfiguration().SystemKswapdRateThreshold = systemKswapdRateThreshold
 	conf.GetDynamicConfiguration().SystemKswapdRateExceedTimesThreshold = systemKswapdRateExceedTimesThreshold
 	conf.GetDynamicConfiguration().NumaEvictionRankingMetrics = evictionconfig.DefaultNumaEvictionRankingMetrics
 	conf.GetDynamicConfiguration().SystemEvictionRankingMetrics = evictionconfig.DefaultSystemEvictionRankingMetrics
-	conf.GetDynamicConfiguration().GracePeriod = evictionconfig.DefaultGracePeriod
+	conf.GetDynamicConfiguration().MemoryPressureEvictionConfiguration.GracePeriod = evictionconfig.DefaultGracePeriod
 
 	return conf
 }
@@ -97,11 +97,11 @@ func TestNewSystemPressureEvictionPlugin(t *testing.T) {
 	assert.NotNil(t, plugin)
 
 	assert.Equal(t, evictionManagerSyncPeriod, plugin.evictionManagerSyncPeriod)
-	assert.Equal(t, numaFreeBelowWatermarkTimesThreshold, plugin.dynamicConf.GetDynamicConfiguration().NumaFreeBelowWatermarkTimesThreshold)
-	assert.Equal(t, systemKswapdRateThreshold, plugin.dynamicConf.GetDynamicConfiguration().SystemKswapdRateThreshold)
-	assert.Equal(t, systemKswapdRateExceedTimesThreshold, plugin.dynamicConf.GetDynamicConfiguration().SystemKswapdRateExceedTimesThreshold)
-	assert.Equal(t, evictionconfig.DefaultNumaEvictionRankingMetrics, plugin.dynamicConf.GetDynamicConfiguration().NumaEvictionRankingMetrics)
-	assert.Equal(t, evictionconfig.DefaultSystemEvictionRankingMetrics, plugin.dynamicConf.GetDynamicConfiguration().SystemEvictionRankingMetrics)
+	assert.Equal(t, numaFreeBelowWatermarkTimesThreshold, plugin.dynamicConfig.GetDynamicConfiguration().NumaFreeBelowWatermarkTimesThreshold)
+	assert.Equal(t, systemKswapdRateThreshold, plugin.dynamicConfig.GetDynamicConfiguration().SystemKswapdRateThreshold)
+	assert.Equal(t, systemKswapdRateExceedTimesThreshold, plugin.dynamicConfig.GetDynamicConfiguration().SystemKswapdRateExceedTimesThreshold)
+	assert.Equal(t, evictionconfig.DefaultNumaEvictionRankingMetrics, plugin.dynamicConfig.GetDynamicConfiguration().NumaEvictionRankingMetrics)
+	assert.Equal(t, evictionconfig.DefaultSystemEvictionRankingMetrics, plugin.dynamicConfig.GetDynamicConfiguration().SystemEvictionRankingMetrics)
 }
 
 func TestSystemPressureEvictionPlugin_ThresholdMet(t *testing.T) {

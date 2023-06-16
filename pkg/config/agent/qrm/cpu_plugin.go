@@ -23,11 +23,14 @@ type CPUQRMPluginConfig struct {
 	EnableSysAdvisor bool
 	// ReservedCPUCores indicates reserved cpus number for system agents
 	ReservedCPUCores int
-	// SkipCPUStateCorruption is set to skip cpu state corruption and it will be used after updating state properties
+	// SkipCPUStateCorruption is set to skip cpu state corruption, and it will be used after updating state properties
 	SkipCPUStateCorruption bool
+	// EnableCPUPressureEviction indicates whether to enable cpu-pressure eviction, such as cpu load eviction or cpu
+	// suppress eviction
+	EnableCPUPressureEviction bool
 	// EnableSyncingCPUIdle is set to sync specific cgroup path with EnableCPUIdle
 	EnableSyncingCPUIdle bool
-	// EnableCPUIdle indicateds whether enabling cpu idle
+	// EnableCPUIdle indicates whether enabling cpu idle
 	EnableCPUIdle bool
 }
 

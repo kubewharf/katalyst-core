@@ -35,7 +35,7 @@ import (
 var (
 	nonDefaultNumaFreeBelowWatermarkTimesThreshold = 5
 	nonDefaultSystemKswapdRateThreshold            = 3000
-	nonDefaulSsystemKswapdRateExceedTimesThreshold = 5
+	nonDefaultSystemKswapdRateExceedTimesThreshold = 5
 	nonDefaultNumaEvictionRankingMetrics           = []string{"metric1", "metric2"}
 	nonDefaultSystemEvictionRankingMetrics         = []string{"metric3"}
 )
@@ -78,14 +78,14 @@ func Test_kccTargetResource_GetCollisionCount(t *testing.T) {
 		{
 			name: "test-1",
 			fields: fields{
-				Unstructured: toTestUnstructured(&v1alpha1.EvictionConfiguration{}),
+				Unstructured: toTestUnstructured(&v1alpha1.AdminQoSConfiguration{}),
 			},
 			want: nil,
 		},
 		{
 			name: "test-2",
 			fields: fields{
-				Unstructured: toTestUnstructured(&v1alpha1.EvictionConfiguration{
+				Unstructured: toTestUnstructured(&v1alpha1.AdminQoSConfiguration{
 					Status: v1alpha1.GenericConfigStatus{
 						CollisionCount: pointer.Int32(10),
 					},
@@ -125,7 +125,7 @@ func Test_kccTargetResource_GetHash(t *testing.T) {
 		{
 			name: "test-2",
 			fields: fields{
-				Unstructured: toTestUnstructured(&v1alpha1.EvictionConfiguration{
+				Unstructured: toTestUnstructured(&v1alpha1.AdminQoSConfiguration{
 					ObjectMeta: metav1.ObjectMeta{
 						Annotations: map[string]string{
 							consts.KatalystCustomConfigAnnotationKeyConfigHash: "hash-1",
@@ -160,15 +160,15 @@ func Test_kccTargetResource_GetLabelSelector(t *testing.T) {
 		{
 			name: "test-1",
 			fields: fields{
-				Unstructured: toTestUnstructured(&v1alpha1.EvictionConfiguration{}),
+				Unstructured: toTestUnstructured(&v1alpha1.AdminQoSConfiguration{}),
 			},
 			want: "",
 		},
 		{
 			name: "test-2",
 			fields: fields{
-				Unstructured: toTestUnstructured(&v1alpha1.EvictionConfiguration{
-					Spec: v1alpha1.EvictionConfigurationSpec{
+				Unstructured: toTestUnstructured(&v1alpha1.AdminQoSConfiguration{
+					Spec: v1alpha1.AdminQoSConfigurationSpec{
 						GenericConfigSpec: v1alpha1.GenericConfigSpec{
 							NodeLabelSelector: "aa=bb",
 						},
@@ -202,15 +202,15 @@ func Test_kccTargetResource_GetLastDuration(t *testing.T) {
 		{
 			name: "test-1",
 			fields: fields{
-				Unstructured: toTestUnstructured(&v1alpha1.EvictionConfiguration{}),
+				Unstructured: toTestUnstructured(&v1alpha1.AdminQoSConfiguration{}),
 			},
 			want: nil,
 		},
 		{
 			name: "test-2",
 			fields: fields{
-				Unstructured: toTestUnstructured(&v1alpha1.EvictionConfiguration{
-					Spec: v1alpha1.EvictionConfigurationSpec{
+				Unstructured: toTestUnstructured(&v1alpha1.AdminQoSConfiguration{
+					Spec: v1alpha1.AdminQoSConfigurationSpec{
 						GenericConfigSpec: v1alpha1.GenericConfigSpec{
 							EphemeralSelector: v1alpha1.EphemeralSelector{
 								LastDuration: generateTestDuration(10 * time.Hour),
@@ -246,15 +246,15 @@ func Test_kccTargetResource_GetNodeNames(t *testing.T) {
 		{
 			name: "test-1",
 			fields: fields{
-				Unstructured: toTestUnstructured(&v1alpha1.EvictionConfiguration{}),
+				Unstructured: toTestUnstructured(&v1alpha1.AdminQoSConfiguration{}),
 			},
 			want: nil,
 		},
 		{
 			name: "test-2",
 			fields: fields{
-				Unstructured: toTestUnstructured(&v1alpha1.EvictionConfiguration{
-					Spec: v1alpha1.EvictionConfigurationSpec{
+				Unstructured: toTestUnstructured(&v1alpha1.AdminQoSConfiguration{
+					Spec: v1alpha1.AdminQoSConfigurationSpec{
 						GenericConfigSpec: v1alpha1.GenericConfigSpec{
 							EphemeralSelector: v1alpha1.EphemeralSelector{
 								NodeNames: []string{
@@ -296,14 +296,14 @@ func Test_kccTargetResource_GetObservedGeneration(t *testing.T) {
 		{
 			name: "test-1",
 			fields: fields{
-				Unstructured: toTestUnstructured(&v1alpha1.EvictionConfiguration{}),
+				Unstructured: toTestUnstructured(&v1alpha1.AdminQoSConfiguration{}),
 			},
 			want: 0,
 		},
 		{
 			name: "test-2",
 			fields: fields{
-				Unstructured: toTestUnstructured(&v1alpha1.EvictionConfiguration{
+				Unstructured: toTestUnstructured(&v1alpha1.AdminQoSConfiguration{
 					Status: v1alpha1.GenericConfigStatus{
 						ObservedGeneration: 10,
 					},
@@ -336,15 +336,15 @@ func Test_kccTargetResource_GetRevisionHistoryLimit(t *testing.T) {
 		{
 			name: "test-1",
 			fields: fields{
-				Unstructured: toTestUnstructured(&v1alpha1.EvictionConfiguration{}),
+				Unstructured: toTestUnstructured(&v1alpha1.AdminQoSConfiguration{}),
 			},
 			want: 0,
 		},
 		{
 			name: "test-2",
 			fields: fields{
-				Unstructured: toTestUnstructured(&v1alpha1.EvictionConfiguration{
-					Spec: v1alpha1.EvictionConfigurationSpec{
+				Unstructured: toTestUnstructured(&v1alpha1.AdminQoSConfiguration{
+					Spec: v1alpha1.AdminQoSConfigurationSpec{
 						GenericConfigSpec: v1alpha1.GenericConfigSpec{
 							RevisionHistoryLimit: 3,
 						},
@@ -382,12 +382,12 @@ func Test_kccTargetResource_SetCollisionCount(t *testing.T) {
 		{
 			name: "test-1",
 			fields: fields{
-				Unstructured: toTestUnstructured(&v1alpha1.EvictionConfiguration{}),
+				Unstructured: toTestUnstructured(&v1alpha1.AdminQoSConfiguration{}),
 			},
 			args: args{
 				pointer.Int32(30),
 			},
-			want: toTestUnstructured(&v1alpha1.EvictionConfiguration{
+			want: toTestUnstructured(&v1alpha1.AdminQoSConfiguration{
 				Status: v1alpha1.GenericConfigStatus{
 					CollisionCount: pointer.Int32(30),
 				},
@@ -396,7 +396,7 @@ func Test_kccTargetResource_SetCollisionCount(t *testing.T) {
 		{
 			name: "test-2",
 			fields: fields{
-				Unstructured: toTestUnstructured(&v1alpha1.EvictionConfiguration{
+				Unstructured: toTestUnstructured(&v1alpha1.AdminQoSConfiguration{
 					Status: v1alpha1.GenericConfigStatus{
 						CollisionCount: pointer.Int32(10),
 					},
@@ -405,7 +405,7 @@ func Test_kccTargetResource_SetCollisionCount(t *testing.T) {
 			args: args{
 				pointer.Int32(20),
 			},
-			want: toTestUnstructured(&v1alpha1.EvictionConfiguration{
+			want: toTestUnstructured(&v1alpha1.AdminQoSConfiguration{
 				Status: v1alpha1.GenericConfigStatus{
 					CollisionCount: pointer.Int32(20),
 				},
@@ -414,7 +414,7 @@ func Test_kccTargetResource_SetCollisionCount(t *testing.T) {
 		{
 			name: "test-3",
 			fields: fields{
-				Unstructured: toTestUnstructured(&v1alpha1.EvictionConfiguration{
+				Unstructured: toTestUnstructured(&v1alpha1.AdminQoSConfiguration{
 					Status: v1alpha1.GenericConfigStatus{
 						CollisionCount: pointer.Int32(10),
 					},
@@ -423,7 +423,7 @@ func Test_kccTargetResource_SetCollisionCount(t *testing.T) {
 			args: args{
 				nil,
 			},
-			want: toTestUnstructured(&v1alpha1.EvictionConfiguration{
+			want: toTestUnstructured(&v1alpha1.AdminQoSConfiguration{
 				Status: v1alpha1.GenericConfigStatus{
 					CollisionCount: nil,
 				},
@@ -459,12 +459,12 @@ func Test_kccTargetResource_SetHash(t *testing.T) {
 		{
 			name: "test-1",
 			fields: fields{
-				Unstructured: toTestUnstructured(&v1alpha1.EvictionConfiguration{}),
+				Unstructured: toTestUnstructured(&v1alpha1.AdminQoSConfiguration{}),
 			},
 			args: args{
 				"hash-1",
 			},
-			want: toTestUnstructured(&v1alpha1.EvictionConfiguration{
+			want: toTestUnstructured(&v1alpha1.AdminQoSConfiguration{
 				ObjectMeta: metav1.ObjectMeta{
 					Annotations: map[string]string{
 						consts.KatalystCustomConfigAnnotationKeyConfigHash: "hash-1",
@@ -475,7 +475,7 @@ func Test_kccTargetResource_SetHash(t *testing.T) {
 		{
 			name: "test-2",
 			fields: fields{
-				Unstructured: toTestUnstructured(&v1alpha1.EvictionConfiguration{
+				Unstructured: toTestUnstructured(&v1alpha1.AdminQoSConfiguration{
 					ObjectMeta: metav1.ObjectMeta{
 						Annotations: map[string]string{
 							consts.KatalystCustomConfigAnnotationKeyConfigHash: "hash-1",
@@ -486,7 +486,7 @@ func Test_kccTargetResource_SetHash(t *testing.T) {
 			args: args{
 				"hash-2",
 			},
-			want: toTestUnstructured(&v1alpha1.EvictionConfiguration{
+			want: toTestUnstructured(&v1alpha1.AdminQoSConfiguration{
 				ObjectMeta: metav1.ObjectMeta{
 					Annotations: map[string]string{
 						consts.KatalystCustomConfigAnnotationKeyConfigHash: "hash-2",
@@ -524,7 +524,7 @@ func Test_kccTargetResource_SetObservedGeneration(t *testing.T) {
 		{
 			name: "test-1",
 			fields: fields{
-				Unstructured: toTestUnstructured(&v1alpha1.EvictionConfiguration{
+				Unstructured: toTestUnstructured(&v1alpha1.AdminQoSConfiguration{
 					Status: v1alpha1.GenericConfigStatus{
 						ObservedGeneration: 10,
 					},
@@ -533,7 +533,7 @@ func Test_kccTargetResource_SetObservedGeneration(t *testing.T) {
 			args: args{
 				20,
 			},
-			want: toTestUnstructured(&v1alpha1.EvictionConfiguration{
+			want: toTestUnstructured(&v1alpha1.AdminQoSConfiguration{
 				Status: v1alpha1.GenericConfigStatus{
 					ObservedGeneration: 20,
 				},
@@ -542,12 +542,12 @@ func Test_kccTargetResource_SetObservedGeneration(t *testing.T) {
 		{
 			name: "test-2",
 			fields: fields{
-				Unstructured: toTestUnstructured(&v1alpha1.EvictionConfiguration{}),
+				Unstructured: toTestUnstructured(&v1alpha1.AdminQoSConfiguration{}),
 			},
 			args: args{
 				30,
 			},
-			want: toTestUnstructured(&v1alpha1.EvictionConfiguration{
+			want: toTestUnstructured(&v1alpha1.AdminQoSConfiguration{
 				Status: v1alpha1.GenericConfigStatus{
 					ObservedGeneration: 30,
 				},
@@ -584,30 +584,30 @@ func Test_kccTargetResource_GetConfig(t *testing.T) {
 		{
 			name: "test-1",
 			fields: fields{
-				Unstructured: toTestUnstructured(&v1alpha1.EvictionConfiguration{
-					Spec: v1alpha1.EvictionConfigurationSpec{
-						Config: v1alpha1.EvictionConfig{},
+				Unstructured: toTestUnstructured(&v1alpha1.AdminQoSConfiguration{
+					Spec: v1alpha1.AdminQoSConfigurationSpec{
+						Config: v1alpha1.AdminQoSConfig{},
 					},
 				}),
 			},
 			args: args{
-				&v1alpha1.EvictionConfiguration{},
+				&v1alpha1.AdminQoSConfiguration{},
 			},
-			want: &v1alpha1.EvictionConfiguration{
-				Spec: v1alpha1.EvictionConfigurationSpec{
-					Config: v1alpha1.EvictionConfig{},
+			want: &v1alpha1.AdminQoSConfiguration{
+				Spec: v1alpha1.AdminQoSConfigurationSpec{
+					Config: v1alpha1.AdminQoSConfig{},
 				},
 			},
 		},
 		{
 			name: "test-2",
 			fields: fields{
-				Unstructured: toTestUnstructured(&v1alpha1.EvictionConfiguration{}),
+				Unstructured: toTestUnstructured(&v1alpha1.AdminQoSConfiguration{}),
 			},
 			args: args{
-				&v1alpha1.EvictionConfiguration{},
+				&v1alpha1.AdminQoSConfiguration{},
 			},
-			want: &v1alpha1.EvictionConfiguration{},
+			want: &v1alpha1.AdminQoSConfiguration{},
 		},
 	}
 	for _, tt := range tests {
@@ -638,7 +638,7 @@ func Test_kccTargetResource_GetGenericStatus(t *testing.T) {
 		{
 			name: "test-1",
 			fields: fields{
-				Unstructured: toTestUnstructured(&v1alpha1.EvictionConfiguration{
+				Unstructured: toTestUnstructured(&v1alpha1.AdminQoSConfiguration{
 					Status: v1alpha1.GenericConfigStatus{
 						Conditions: []v1alpha1.GenericConfigCondition{
 							{
@@ -687,7 +687,7 @@ func Test_kccTargetResource_SetGenericStatus(t *testing.T) {
 		{
 			name: "test-1",
 			fields: fields{
-				Unstructured: toTestUnstructured(&v1alpha1.EvictionConfiguration{
+				Unstructured: toTestUnstructured(&v1alpha1.AdminQoSConfiguration{
 					Status: v1alpha1.GenericConfigStatus{
 						Conditions: []v1alpha1.GenericConfigCondition{
 							{
@@ -720,7 +720,7 @@ func Test_kccTargetResource_SetGenericStatus(t *testing.T) {
 		{
 			name: "test-2",
 			fields: fields{
-				Unstructured: toTestUnstructured(&v1alpha1.EvictionConfiguration{}),
+				Unstructured: toTestUnstructured(&v1alpha1.AdminQoSConfiguration{}),
 			},
 			args: args{
 				v1alpha1.GenericConfigStatus{
@@ -769,7 +769,7 @@ func Test_kccTargetResource_GetIsValid(t *testing.T) {
 		{
 			name: "test-1",
 			fields: fields{
-				Unstructured: toTestUnstructured(&v1alpha1.EvictionConfiguration{}),
+				Unstructured: toTestUnstructured(&v1alpha1.AdminQoSConfiguration{}),
 			},
 			want: false,
 		},
@@ -799,39 +799,39 @@ func Test_kccTargetResource_GenerateConfigHash(t *testing.T) {
 		{
 			name: "test-1",
 			fields: fields{
-				Unstructured: toTestUnstructured(&v1alpha1.EvictionConfiguration{
-					Spec: v1alpha1.EvictionConfigurationSpec{
-						Config: v1alpha1.EvictionConfig{
-							EvictionPluginsConfig: v1alpha1.EvictionPluginsConfig{
-								ReclaimedResourcesEvictionPluginConfig: v1alpha1.ReclaimedResourcesEvictionPluginConfig{
+				Unstructured: toTestUnstructured(&v1alpha1.AdminQoSConfiguration{
+					Spec: v1alpha1.AdminQoSConfigurationSpec{
+						Config: v1alpha1.AdminQoSConfig{
+							EvictionConfig: &v1alpha1.EvictionConfig{
+								ReclaimedResourcesEvictionConfig: &v1alpha1.ReclaimedResourcesEvictionConfig{
 									EvictionThreshold: map[v1.ResourceName]float64{
 										"aa": 11,
 									},
 								},
-								MemoryEvictionPluginConfig: v1alpha1.MemoryEvictionPluginConfig{
+								MemoryPressureEvictionConfig: &v1alpha1.MemoryPressureEvictionConfig{
 									NumaFreeBelowWatermarkTimesThreshold: &nonDefaultNumaFreeBelowWatermarkTimesThreshold,
 									SystemKswapdRateThreshold:            &nonDefaultSystemKswapdRateThreshold,
-									SystemKswapdRateExceedTimesThreshold: &nonDefaulSsystemKswapdRateExceedTimesThreshold,
-									NumaEvictionRankingMetrics:           nonDefaultNumaEvictionRankingMetrics,
-									SystemEvictionRankingMetrics:         nonDefaultSystemEvictionRankingMetrics,
+									SystemKswapdRateExceedTimesThreshold: &nonDefaultSystemKswapdRateExceedTimesThreshold,
+									NumaEvictionRankingMetrics:           ConvertStringListToNumaEvictionRankingMetrics(nonDefaultNumaEvictionRankingMetrics),
+									SystemEvictionRankingMetrics:         ConvertStringListToSystemEvictionRankingMetrics(nonDefaultSystemEvictionRankingMetrics),
 								},
 							},
 						},
 					},
 				}),
 			},
-			want: "a7f80116f4bf",
+			want: "7e6046bb4b30",
 		},
 		{
 			name: "test-2",
 			fields: fields{
-				Unstructured: toTestUnstructured(&v1alpha1.EvictionConfiguration{
-					Spec: v1alpha1.EvictionConfigurationSpec{
-						Config: v1alpha1.EvictionConfig{},
+				Unstructured: toTestUnstructured(&v1alpha1.AdminQoSConfiguration{
+					Spec: v1alpha1.AdminQoSConfigurationSpec{
+						Config: v1alpha1.AdminQoSConfig{},
 					},
 				}),
 			},
-			want: "507ae5ec8961",
+			want: "44136fa355b3",
 		},
 	}
 	for _, tt := range tests {
@@ -867,11 +867,11 @@ func TestKCCTargetResource_IsExpired(t *testing.T) {
 		{
 			name: "test-1",
 			fields: fields{
-				Unstructured: toTestUnstructured(&v1alpha1.EvictionConfiguration{
+				Unstructured: toTestUnstructured(&v1alpha1.AdminQoSConfiguration{
 					ObjectMeta: metav1.ObjectMeta{
 						CreationTimestamp: generateTestMetaV1Time("2006-01-02T15:04:05Z"),
 					},
-					Spec: v1alpha1.EvictionConfigurationSpec{
+					Spec: v1alpha1.AdminQoSConfigurationSpec{
 						GenericConfigSpec: v1alpha1.GenericConfigSpec{
 							EphemeralSelector: v1alpha1.EphemeralSelector{
 								LastDuration: generateTestDuration(5 * time.Hour),
@@ -888,11 +888,11 @@ func TestKCCTargetResource_IsExpired(t *testing.T) {
 		{
 			name: "test-2",
 			fields: fields{
-				Unstructured: toTestUnstructured(&v1alpha1.EvictionConfiguration{
+				Unstructured: toTestUnstructured(&v1alpha1.AdminQoSConfiguration{
 					ObjectMeta: metav1.ObjectMeta{
 						CreationTimestamp: generateTestMetaV1Time("2006-01-02T15:04:05Z"),
 					},
-					Spec: v1alpha1.EvictionConfigurationSpec{
+					Spec: v1alpha1.AdminQoSConfigurationSpec{
 						GenericConfigSpec: v1alpha1.GenericConfigSpec{
 							EphemeralSelector: v1alpha1.EphemeralSelector{
 								LastDuration: generateTestDuration(5 * time.Hour),

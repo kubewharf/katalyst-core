@@ -60,9 +60,9 @@ func NewRssOveruseEvictionPlugin(_ *client.GenericClientSet, _ events.EventRecor
 		evictionHelper:     NewEvictionHelper(emitter, metaServer, conf),
 		supportedQosLevels: sets.NewString(apiconsts.PodAnnotationQoSLevelReclaimedCores, apiconsts.PodAnnotationQoSLevelSharedCores),
 
-		dynamicConfig: conf.DynamicAgentConfiguration,
-		qosConf:       conf.QoSConfiguration,
-		pluginConfig:  conf.MemoryPressureEvictionPluginConfiguration,
+		dynamicConfig:  conf.DynamicAgentConfiguration,
+		qosConf:        conf.QoSConfiguration,
+		evictionConfig: conf.MemoryPressureEvictionConfiguration,
 	}
 }
 
@@ -80,9 +80,9 @@ type RssOveruseEvictionPlugin struct {
 	evictionHelper     *EvictionHelper
 	supportedQosLevels sets.String
 
-	dynamicConfig *dynamic.DynamicAgentConfiguration
-	qosConf       *generic.QoSConfiguration
-	pluginConfig  *eviction.MemoryPressureEvictionPluginConfiguration
+	dynamicConfig  *dynamic.DynamicAgentConfiguration
+	qosConf        *generic.QoSConfiguration
+	evictionConfig *eviction.MemoryPressureEvictionConfiguration
 }
 
 func (r *RssOveruseEvictionPlugin) Name() string {
@@ -106,12 +106,13 @@ func (r *RssOveruseEvictionPlugin) GetTopEvictionPods(_ context.Context, _ *plug
 func (r *RssOveruseEvictionPlugin) GetEvictPods(_ context.Context, request *pluginapi.GetEvictPodsRequest) (*pluginapi.GetEvictPodsResponse, error) {
 	result := make([]*pluginapi.EvictPod, 0)
 
-	if !r.dynamicConfig.GetDynamicConfiguration().EnableRssOveruseDetection {
+	dynamicConfig := r.dynamicConfig.GetDynamicConfiguration()
+	if !dynamicConfig.EnableRSSOveruseEviction {
 		return &pluginapi.GetEvictPodsResponse{EvictPods: result}, nil
 	}
 
 	filterPods := make([]*v1.Pod, 0, len(request.ActivePods))
-	selector := r.pluginConfig.RssOveruseEvictionFilter.AsSelector()
+	selector := r.evictionConfig.RSSOveruseEvictionFilter.AsSelector()
 
 	for i := range request.ActivePods {
 		pod := request.ActivePods[i]
@@ -141,7 +142,7 @@ func (r *RssOveruseEvictionPlugin) GetEvictPods(_ context.Context, request *plug
 			continue
 		}
 
-		threshold := r.dynamicConfig.GetDynamicConfiguration().RssOveruseRateThreshold
+		threshold := dynamicConfig.RSSOveruseRateThreshold
 		// user set threshold explicitly,use default value
 		if userSpecifiedThreshold != nil {
 			threshold = *userSpecifiedThreshold

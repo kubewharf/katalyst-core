@@ -109,8 +109,8 @@ type DynamicPolicy struct {
 	allocationHandlers map[string]util.AllocationHandler
 	hintHandlers       map[string]util.HintHandler
 
-	cpuEvictionPlugin       *agent.PluginWrapper
-	cpuEvictionPluginCancel context.CancelFunc
+	cpuPressureEviction       agent.Component
+	cpuPressureEvictionCancel context.CancelFunc
 
 	// those are parsed from configurations
 	// todo if we want to use dynamic configuration, we'd better not use self-defined conf
@@ -119,7 +119,6 @@ type DynamicPolicy struct {
 	cpuAdvisorSocketAbsPath       string
 	cpuPluginSocketAbsPath        string
 	extraStateFileAbsPath         string
-	enableCPUPressureEviction     bool
 	enableCPUIdle                 bool
 	enableSyncingCPUIdle          bool
 	reclaimRelativeRootCgroupPath string
@@ -155,10 +154,16 @@ func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration
 		Val: CPUResourcePluginPolicyNameDynamic,
 	})
 
-	cpuEvictionPlugin, err := cpueviction.NewCPUPressureEvictionPlugin(
-		agentCtx.EmitterPool.GetDefaultMetricsEmitter(), agentCtx.MetaServer, conf, stateImpl)
-	if err != nil {
-		return false, agent.ComponentStub{}, err
+	var (
+		cpuPressureEviction agent.Component
+		err                 error
+	)
+	if conf.EnableCPUPressureEviction {
+		cpuPressureEviction, err = cpueviction.NewCPUPressureEviction(
+			agentCtx.EmitterPool.GetDefaultMetricsEmitter(), agentCtx.MetaServer, conf, stateImpl)
+		if err != nil {
+			return false, agent.ComponentStub{}, err
+		}
 	}
 
 	// since the reservedCPUs won't influence stateImpl directly.
@@ -178,7 +183,7 @@ func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration
 
 		advisorValidator: validator.NewCPUAdvisorValidator(stateImpl, agentCtx.KatalystMachineInfo),
 
-		cpuEvictionPlugin: cpuEvictionPlugin,
+		cpuPressureEviction: cpuPressureEviction,
 
 		qosConfig:                     conf.QoSConfiguration,
 		dynamicConfig:                 conf.DynamicAgentConfiguration,
@@ -187,7 +192,6 @@ func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration
 		enableCPUSysAdvisor:           conf.CPUQRMPluginConfig.EnableSysAdvisor,
 		reservedCPUs:                  reservedCPUs,
 		extraStateFileAbsPath:         conf.ExtraStateFileAbsPath,
-		enableCPUPressureEviction:     conf.EnableCPUPressureEviction,
 		enableSyncingCPUIdle:          conf.CPUQRMPluginConfig.EnableSyncingCPUIdle,
 		enableCPUIdle:                 conf.CPUQRMPluginConfig.EnableCPUIdle,
 		reclaimRelativeRootCgroupPath: conf.ReclaimRelativeRootCgroupPath,
@@ -275,10 +279,10 @@ func (p *DynamicPolicy) Start() (err error) {
 	}
 
 	// start cpu-pressure eviction plugin if needed
-	if p.enableCPUPressureEviction {
+	if p.cpuPressureEviction != nil {
 		var ctx context.Context
-		ctx, p.cpuEvictionPluginCancel = context.WithCancel(context.Background())
-		go p.cpuEvictionPlugin.Run(ctx)
+		ctx, p.cpuPressureEvictionCancel = context.WithCancel(context.Background())
+		go p.cpuPressureEviction.Run(ctx)
 	}
 
 	// pre-check necessary dirs if sys-advisor is enabled
@@ -348,8 +352,8 @@ func (p *DynamicPolicy) Stop() error {
 		return p.advisorConn.Close()
 	}
 
-	if p.cpuEvictionPluginCancel != nil {
-		p.cpuEvictionPluginCancel()
+	if p.cpuPressureEvictionCancel != nil {
+		p.cpuPressureEvictionCancel()
 	}
 	return nil
 }

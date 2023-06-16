@@ -23,7 +23,6 @@ import (
 
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/klog/v2"
 
 	"github.com/kubewharf/katalyst-api/pkg/plugins/skeleton"
 	pluginapi "github.com/kubewharf/katalyst-api/pkg/protocol/evictionplugin/v1alpha1"
@@ -33,11 +32,12 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
+	"github.com/kubewharf/katalyst-core/pkg/util/general"
 )
 
 const cpuPressureEvictionPluginName = "cpu-pressure-eviction-plugin"
 
-type cpuPressureEvictionPlugin struct {
+type cpuPressureEviction struct {
 	ctx    context.Context
 	cancel context.CancelFunc
 
@@ -49,9 +49,9 @@ type cpuPressureEvictionPlugin struct {
 	thresholdEvictionList []strategy.CPUPressureThresholdEviction
 }
 
-func NewCPUPressureEvictionPlugin(emitter metrics.MetricEmitter, metaServer *metaserver.MetaServer,
-	conf *config.Configuration, state state.State) (*agent.PluginWrapper, error) {
-	plugin, err := newCPUPressureEvictionPlugin(emitter, metaServer, conf, state)
+func NewCPUPressureEviction(emitter metrics.MetricEmitter, metaServer *metaserver.MetaServer,
+	conf *config.Configuration, state state.State) (agent.Component, error) {
+	plugin, err := newCPUPressureEviction(emitter, metaServer, conf, state)
 	if err != nil {
 		return nil, fmt.Errorf("create cpu eviction plugin failed: %s", err)
 	}
@@ -59,16 +59,16 @@ func NewCPUPressureEvictionPlugin(emitter metrics.MetricEmitter, metaServer *met
 	return &agent.PluginWrapper{GenericPlugin: plugin}, nil
 }
 
-func newCPUPressureEvictionPlugin(emitter metrics.MetricEmitter, metaServer *metaserver.MetaServer,
+func newCPUPressureEviction(emitter metrics.MetricEmitter, metaServer *metaserver.MetaServer,
 	conf *config.Configuration, state state.State) (skeleton.GenericPlugin, error) {
 	wrappedEmitter := emitter.WithTags(cpuPressureEvictionPluginName)
 
-	plugin := &cpuPressureEvictionPlugin{
+	plugin := &cpuPressureEviction{
 		forceEvictionList: []strategy.CPUPressureForceEviction{
 			strategy.NewCPUPressureSuppressionEviction(emitter, metaServer, conf, state),
 		},
 		thresholdEvictionList: []strategy.CPUPressureThresholdEviction{
-			strategy.NewCPUPressureEviction(emitter, metaServer, conf, state),
+			strategy.NewCPUPressureLoadEviction(emitter, metaServer, conf, state),
 		},
 	}
 
@@ -78,11 +78,11 @@ func newCPUPressureEvictionPlugin(emitter metrics.MetricEmitter, metaServer *met
 		})
 }
 
-func (p *cpuPressureEvictionPlugin) Name() string {
+func (p *cpuPressureEviction) Name() string {
 	return cpuPressureEvictionPluginName
 }
 
-func (p *cpuPressureEvictionPlugin) Start() (err error) {
+func (p *cpuPressureEviction) Start() (err error) {
 	p.Lock()
 	defer func() {
 		if err == nil {
@@ -95,7 +95,7 @@ func (p *cpuPressureEvictionPlugin) Start() (err error) {
 		return
 	}
 
-	klog.Infof("[cpu-pressure-eviction-plugin] start %s", p.Name())
+	general.Infof("%s", p.Name())
 	p.ctx, p.cancel = context.WithCancel(context.Background())
 	for _, s := range p.forceEvictionList {
 		if startErr := s.Start(p.ctx); startErr != nil {
@@ -110,7 +110,7 @@ func (p *cpuPressureEvictionPlugin) Start() (err error) {
 	return
 }
 
-func (p *cpuPressureEvictionPlugin) Stop() error {
+func (p *cpuPressureEviction) Stop() error {
 	p.Lock()
 	defer func() {
 		p.started = false
@@ -123,7 +123,7 @@ func (p *cpuPressureEvictionPlugin) Stop() error {
 		return nil
 	}
 
-	klog.Infof("[cpu-pressure-eviction-plugin] stop %s", p.Name())
+	general.Infof("%s", p.Name())
 	p.cancel()
 	return nil
 }
@@ -131,7 +131,7 @@ func (p *cpuPressureEvictionPlugin) Stop() error {
 // GetEvictPods works as the following logic
 // - walk through all strategies, union all the target pods (after removing duplicated pods)
 // - if any strategy fails, return error immediately
-func (p *cpuPressureEvictionPlugin) GetEvictPods(ctx context.Context,
+func (p *cpuPressureEviction) GetEvictPods(ctx context.Context,
 	request *pluginapi.GetEvictPodsRequest) (*pluginapi.GetEvictPodsResponse, error) {
 	var evictPods map[types.UID]*pluginapi.EvictPod
 	generateEvictPods := func() []*pluginapi.EvictPod {
@@ -161,7 +161,7 @@ func (p *cpuPressureEvictionPlugin) GetEvictPods(ctx context.Context,
 // GetTopEvictionPods works as the following logic
 // - walk through all strategies, until the amount of different targets reach topN
 // - if any strategy fails, just ignore
-func (p *cpuPressureEvictionPlugin) GetTopEvictionPods(ctx context.Context,
+func (p *cpuPressureEviction) GetTopEvictionPods(ctx context.Context,
 	request *pluginapi.GetTopEvictionPodsRequest) (*pluginapi.GetTopEvictionPodsResponse, error) {
 	var targets map[types.UID]*v1.Pod
 	generateTargetPods := func() []*v1.Pod {
@@ -175,7 +175,7 @@ func (p *cpuPressureEvictionPlugin) GetTopEvictionPods(ctx context.Context,
 	for _, s := range p.thresholdEvictionList {
 		resp, err := s.GetTopEvictionPods(ctx, request)
 		if err != nil {
-			klog.Errorf("%v GetTopEvictionPods failed: %v", s.Name(), err)
+			general.Errorf("%v GetTopEvictionPods failed: %v", s.Name(), err)
 		} else {
 			for _, pod := range resp.TargetPods {
 				targets[pod.UID] = pod
@@ -197,7 +197,7 @@ func (p *cpuPressureEvictionPlugin) GetTopEvictionPods(ctx context.Context,
 // - if some strategy falls into hardMet, return it immediately
 // - else if some strategy falls into softMet, return the first softMet
 // - else, return as not-met
-func (p *cpuPressureEvictionPlugin) ThresholdMet(ctx context.Context,
+func (p *cpuPressureEviction) ThresholdMet(ctx context.Context,
 	empty *pluginapi.Empty) (*pluginapi.ThresholdMetResponse, error) {
 	var softMetResponse *pluginapi.ThresholdMetResponse
 
@@ -205,7 +205,7 @@ func (p *cpuPressureEvictionPlugin) ThresholdMet(ctx context.Context,
 		resp, err := s.ThresholdMet(ctx, empty)
 
 		if err != nil {
-			klog.Errorf("%v ThresholdMet failed: %v", s.Name(), err)
+			general.Errorf("%v ThresholdMet failed: %v", s.Name(), err)
 		} else if resp.MetType == pluginapi.ThresholdMetType_HARD_MET {
 			return resp, nil
 		} else if softMetResponse == nil {

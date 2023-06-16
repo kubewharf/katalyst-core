@@ -17,46 +17,76 @@ limitations under the License.
 package headroomassembler
 
 import (
+	"fmt"
+
 	"k8s.io/apimachinery/pkg/api/resource"
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource/cpu/region"
 	"github.com/kubewharf/katalyst-core/pkg/config"
+	pkgconsts "github.com/kubewharf/katalyst-core/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
+	"github.com/kubewharf/katalyst-core/pkg/util/metric"
 )
 
 type HeadroomAssemblerCommon struct {
 	conf *config.Configuration
 
-	metaCache  metacache.MetaReader
+	metaReader metacache.MetaReader
 	metaServer *metaserver.MetaServer
 	emitter    metrics.MetricEmitter
 }
 
 func NewHeadroomAssemblerCommon(conf *config.Configuration, _ interface{}, _ *map[string]region.QoSRegion,
-	metaCache metacache.MetaReader, metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter) HeadroomAssembler {
+	metaReader metacache.MetaReader, metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter) HeadroomAssembler {
 	return &HeadroomAssemblerCommon{
 		conf:       conf,
-		metaCache:  metaCache,
+		metaReader: metaReader,
 		metaServer: metaServer,
 		emitter:    emitter,
 	}
 }
 
 func (ha *HeadroomAssemblerCommon) GetHeadroom() (resource.Quantity, error) {
-	enableReclaim := ha.conf.GetDynamicConfiguration().EnableReclaim
+	dynamicConfig := ha.conf.GetDynamicConfiguration()
 
 	// return zero when reclaim is disabled
-	if !enableReclaim {
+	if !dynamicConfig.EnableReclaim {
 		return *resource.NewQuantity(0, resource.DecimalSI), nil
 	}
 
-	// return total reclaim pool size as headroom
-	v, ok := ha.metaCache.GetPoolSize(state.PoolNameReclaim)
-	if !ok {
-		return *resource.NewQuantity(0, resource.DecimalSI), nil
+	reclaimedMetrics, err := ha.getPoolMetrics(state.PoolNameReclaim)
+	if err != nil {
+		return resource.Quantity{}, err
 	}
-	return *resource.NewQuantity(int64(v), resource.DecimalSI), nil
+
+	// if util based cpu headroom disable, just return total reclaim pool size as headroom
+	if !dynamicConfig.CPUUtilBasedConfiguration.Enable {
+		return *resource.NewQuantity(int64(reclaimedMetrics.poolSize), resource.DecimalSI), nil
+	}
+
+	return ha.getUtilBasedHeadroom(dynamicConfig, reclaimedMetrics)
+}
+
+type poolMetrics struct {
+	coreAvgUtil float64
+	poolSize    int
+}
+
+// getPoolMetrics get reclaimed pool metrics, including the average utilization of each core in
+// the reclaimed pool and the size of the pool
+func (ha *HeadroomAssemblerCommon) getPoolMetrics(poolName string) (*poolMetrics, error) {
+	reclaimedInfo, ok := ha.metaReader.GetPoolInfo(poolName)
+	if !ok {
+		return nil, fmt.Errorf("failed get reclaim pool info")
+	}
+
+	cpuSet := reclaimedInfo.TopologyAwareAssignments.MergeCPUSet()
+	coreAvgUtil := ha.metaServer.AggregateCoreMetric(cpuSet, pkgconsts.MetricCPUUsage, metric.AggregatorAvg)
+	return &poolMetrics{
+		coreAvgUtil: coreAvgUtil / 100.,
+		poolSize:    cpuSet.Size(),
+	}, nil
 }

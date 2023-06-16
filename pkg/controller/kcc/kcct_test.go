@@ -34,6 +34,7 @@ import (
 	"github.com/kubewharf/katalyst-api/pkg/apis/config/v1alpha1"
 	katalyst_base "github.com/kubewharf/katalyst-core/cmd/base"
 	"github.com/kubewharf/katalyst-core/pkg/config"
+	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/crd"
 	kcctarget "github.com/kubewharf/katalyst-core/pkg/controller/kcc/target"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util"
@@ -49,11 +50,11 @@ func toTestUnstructured(obj interface{}) *unstructured.Unstructured {
 }
 
 func generateTestLabelSelectorTargetResource(name, labelSelector string) util.KCCTargetResource {
-	return util.ToKCCTargetResource(toTestUnstructured(&v1alpha1.EvictionConfiguration{
+	return util.ToKCCTargetResource(toTestUnstructured(&v1alpha1.AdminQoSConfiguration{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: name,
 		},
-		Spec: v1alpha1.EvictionConfigurationSpec{
+		Spec: v1alpha1.AdminQoSConfigurationSpec{
 			GenericConfigSpec: v1alpha1.GenericConfigSpec{
 				NodeLabelSelector: labelSelector,
 			},
@@ -62,11 +63,11 @@ func generateTestLabelSelectorTargetResource(name, labelSelector string) util.KC
 }
 
 func generateTestNodeNamesTargetResource(name string, nodeNames []string) util.KCCTargetResource {
-	return util.ToKCCTargetResource(toTestUnstructured(&v1alpha1.EvictionConfiguration{
+	return util.ToKCCTargetResource(toTestUnstructured(&v1alpha1.AdminQoSConfiguration{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: name,
 		},
-		Spec: v1alpha1.EvictionConfigurationSpec{
+		Spec: v1alpha1.AdminQoSConfigurationSpec{
 			GenericConfigSpec: v1alpha1.GenericConfigSpec{
 				EphemeralSelector: v1alpha1.EphemeralSelector{
 					NodeNames: nodeNames,
@@ -96,17 +97,13 @@ func TestKatalystCustomConfigTargetController_Run(t *testing.T) {
 							Namespace: "default",
 						},
 						Spec: v1alpha1.KatalystCustomConfigSpec{
-							TargetType: metav1.GroupVersionResource{
-								Group:    v1alpha1.SchemeGroupVersion.Group,
-								Version:  v1alpha1.SchemeGroupVersion.Version,
-								Resource: v1alpha1.ResourceNameEvictionConfigurations,
-							},
+							TargetType:           crd.AdminQoSConfigurationGVR,
 							NodeLabelSelectorKey: "aa",
 						},
 					},
 				},
 				kccTargetList: []runtime.Object{
-					&v1alpha1.EvictionConfiguration{
+					&v1alpha1.AdminQoSConfiguration{
 						TypeMeta: metav1.TypeMeta{
 							Kind:       "EvictionConfiguration",
 							APIVersion: "config.katalyst.kubewharf.io/v1alpha1",
@@ -115,10 +112,10 @@ func TestKatalystCustomConfigTargetController_Run(t *testing.T) {
 							Name:      "default",
 							Namespace: "default",
 						},
-						Spec: v1alpha1.EvictionConfigurationSpec{
-							Config: v1alpha1.EvictionConfig{
-								EvictionPluginsConfig: v1alpha1.EvictionPluginsConfig{
-									ReclaimedResourcesEvictionPluginConfig: v1alpha1.ReclaimedResourcesEvictionPluginConfig{
+						Spec: v1alpha1.AdminQoSConfigurationSpec{
+							Config: v1alpha1.AdminQoSConfig{
+								EvictionConfig: &v1alpha1.EvictionConfig{
+									ReclaimedResourcesEvictionConfig: &v1alpha1.ReclaimedResourcesEvictionConfig{
 										EvictionThreshold: map[v1.ResourceName]float64{
 											v1.ResourceCPU: 5.0,
 										},
@@ -127,7 +124,7 @@ func TestKatalystCustomConfigTargetController_Run(t *testing.T) {
 							},
 						},
 					},
-					&v1alpha1.EvictionConfiguration{
+					&v1alpha1.AdminQoSConfiguration{
 						TypeMeta: metav1.TypeMeta{
 							Kind:       "EvictionConfiguration",
 							APIVersion: "config.katalyst.kubewharf.io/v1alpha1",
@@ -136,13 +133,13 @@ func TestKatalystCustomConfigTargetController_Run(t *testing.T) {
 							Name:      "aa=bb",
 							Namespace: "default",
 						},
-						Spec: v1alpha1.EvictionConfigurationSpec{
+						Spec: v1alpha1.AdminQoSConfigurationSpec{
 							GenericConfigSpec: v1alpha1.GenericConfigSpec{
 								NodeLabelSelector: "aa=bb",
 							},
-							Config: v1alpha1.EvictionConfig{
-								EvictionPluginsConfig: v1alpha1.EvictionPluginsConfig{
-									ReclaimedResourcesEvictionPluginConfig: v1alpha1.ReclaimedResourcesEvictionPluginConfig{
+							Config: v1alpha1.AdminQoSConfig{
+								EvictionConfig: &v1alpha1.EvictionConfig{
+									ReclaimedResourcesEvictionConfig: &v1alpha1.ReclaimedResourcesEvictionConfig{
 										EvictionThreshold: map[v1.ResourceName]float64{
 											v1.ResourceCPU: 5.0,
 										},
@@ -151,7 +148,7 @@ func TestKatalystCustomConfigTargetController_Run(t *testing.T) {
 							},
 						},
 					},
-					&v1alpha1.EvictionConfiguration{
+					&v1alpha1.AdminQoSConfiguration{
 						TypeMeta: metav1.TypeMeta{
 							Kind:       "EvictionConfiguration",
 							APIVersion: "config.katalyst.kubewharf.io/v1alpha1",
@@ -161,7 +158,7 @@ func TestKatalystCustomConfigTargetController_Run(t *testing.T) {
 							Namespace:         "default",
 							CreationTimestamp: metav1.Now(),
 						},
-						Spec: v1alpha1.EvictionConfigurationSpec{
+						Spec: v1alpha1.AdminQoSConfigurationSpec{
 							GenericConfigSpec: v1alpha1.GenericConfigSpec{
 								EphemeralSelector: v1alpha1.EphemeralSelector{
 									NodeNames: []string{
@@ -172,9 +169,9 @@ func TestKatalystCustomConfigTargetController_Run(t *testing.T) {
 									},
 								},
 							},
-							Config: v1alpha1.EvictionConfig{
-								EvictionPluginsConfig: v1alpha1.EvictionPluginsConfig{
-									ReclaimedResourcesEvictionPluginConfig: v1alpha1.ReclaimedResourcesEvictionPluginConfig{
+							Config: v1alpha1.AdminQoSConfig{
+								EvictionConfig: &v1alpha1.EvictionConfig{
+									ReclaimedResourcesEvictionConfig: &v1alpha1.ReclaimedResourcesEvictionConfig{
 										EvictionThreshold: map[v1.ResourceName]float64{
 											v1.ResourceCPU: 5.0,
 										},
@@ -423,11 +420,11 @@ func Test_updateTargetResourceStatus(t *testing.T) {
 		{
 			name: "test-1",
 			args: args{
-				targetResource: util.ToKCCTargetResource(toTestUnstructured(&v1alpha1.EvictionConfiguration{
+				targetResource: util.ToKCCTargetResource(toTestUnstructured(&v1alpha1.AdminQoSConfiguration{
 					ObjectMeta: metav1.ObjectMeta{
 						Name: "config-1",
 					},
-					Spec: v1alpha1.EvictionConfigurationSpec{
+					Spec: v1alpha1.AdminQoSConfigurationSpec{
 						GenericConfigSpec: v1alpha1.GenericConfigSpec{
 							NodeLabelSelector: "aa=bb",
 						},
@@ -437,11 +434,11 @@ func Test_updateTargetResourceStatus(t *testing.T) {
 				msg:     "ssasfr",
 				reason:  "dasf",
 			},
-			wantResource: util.ToKCCTargetResource(toTestUnstructured(&v1alpha1.EvictionConfiguration{
+			wantResource: util.ToKCCTargetResource(toTestUnstructured(&v1alpha1.AdminQoSConfiguration{
 				ObjectMeta: metav1.ObjectMeta{
 					Name: "config-1",
 				},
-				Spec: v1alpha1.EvictionConfigurationSpec{
+				Spec: v1alpha1.AdminQoSConfigurationSpec{
 					GenericConfigSpec: v1alpha1.GenericConfigSpec{
 						NodeLabelSelector: "aa=bb",
 					},
