@@ -23,6 +23,7 @@ import (
 	"time"
 
 	v1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/tools/events"
 
@@ -32,6 +33,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/client"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic"
+	"github.com/kubewharf/katalyst-core/pkg/config/agent/eviction"
 	"github.com/kubewharf/katalyst-core/pkg/config/generic"
 	"github.com/kubewharf/katalyst-core/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
@@ -60,6 +62,7 @@ func NewRssOveruseEvictionPlugin(_ *client.GenericClientSet, _ events.EventRecor
 
 		dynamicConfig: conf.DynamicAgentConfiguration,
 		qosConf:       conf.QoSConfiguration,
+		pluginConfig:  conf.MemoryPressureEvictionPluginConfiguration,
 	}
 }
 
@@ -79,6 +82,7 @@ type RssOveruseEvictionPlugin struct {
 
 	dynamicConfig *dynamic.DynamicAgentConfiguration
 	qosConf       *generic.QoSConfiguration
+	pluginConfig  *eviction.MemoryPressureEvictionPluginConfiguration
 }
 
 func (r *RssOveruseEvictionPlugin) Name() string {
@@ -106,8 +110,19 @@ func (r *RssOveruseEvictionPlugin) GetEvictPods(_ context.Context, request *plug
 		return &pluginapi.GetEvictPodsResponse{EvictPods: result}, nil
 	}
 
+	filterPods := make([]*v1.Pod, 0, len(request.ActivePods))
+	selector := r.pluginConfig.RssOveruseEvictionFilter.AsSelector()
+
 	for i := range request.ActivePods {
 		pod := request.ActivePods[i]
+		set := (labels.Set)(pod.Labels)
+		if selector.Matches(set) {
+			filterPods = append(filterPods, pod)
+		}
+	}
+
+	for i := range filterPods {
+		pod := filterPods[i]
 
 		qosLevel, err := r.qosConf.GetQoSLevelForPod(pod)
 		if err != nil {

@@ -16,8 +16,11 @@ limitations under the License.
 
 package eviction
 
+import "k8s.io/apimachinery/pkg/labels"
+
 // MemoryPressureEvictionPluginConfiguration is the config of MemoryPressureEvictionPlugin
 type MemoryPressureEvictionPluginConfiguration struct {
+	RssOveruseEvictionFilter labels.Set
 }
 
 // NewMemoryPressureEvictionPluginConfiguration returns a new MemoryPressureEvictionPluginConfiguration
