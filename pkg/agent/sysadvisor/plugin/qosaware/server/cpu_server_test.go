@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package cpu
+package server
 
 import (
 	"context"
@@ -606,7 +606,8 @@ func TestCPUServerListAndWatch(t *testing.T) {
 				}
 				stop <- struct{}{}
 			}()
-			cs.recvCh <- tt.provision
+			recvCh := cs.recvCh.(chan types.InternalCalculationResult)
+			recvCh <- tt.provision
 			res := <-s.ResultsChan
 			close(cs.stopCh)
 			<-stop

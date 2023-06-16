@@ -14,15 +14,11 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package cpu
+package server
 
 import (
 	"context"
 	"fmt"
-	"net"
-	"os"
-	"path"
-	"time"
 
 	"google.golang.org/grpc"
 	"k8s.io/apimachinery/pkg/util/sets"
@@ -45,133 +41,33 @@ const (
 	cpuServerName string = "cpu-server"
 )
 
-// Metric names for cpu server
-const (
-	metricCPUServerStartCalled              = "cpuserver_start_called"
-	metricCPUServerStopCalled               = "cpuserver_stop_called"
-	metricCPUServerAddContainerCalled       = "cpuserver_add_container_called"
-	metricCPUServerRemovePodCalled          = "cpuserver_remove_pod_called"
-	metricCPUServerLWCalled                 = "cpuserver_lw_called"
-	metricCPUServerLWGetCheckpointFailed    = "cpuserver_lw_get_checkpoint_failed"
-	metricCPUServerLWGetCheckpointSucceeded = "cpuserver_lw_get_checkpoint_succeeded"
-	metricCPUServerLWSendResponseFailed     = "cpuserver_lw_send_response_failed"
-	metricCPUServerLWSendResponseSucceeded  = "cpuserver_lw_send_response_succeeded"
-)
-
 type cpuServer struct {
-	name                 string
-	period               time.Duration
-	cpuAdvisorSocketPath string
-	cpuPluginSocketPath  string
-	recvCh               chan types.InternalCalculationResult
-	sendCh               chan struct{}
-	lwCalledChan         chan struct{}
-	stopCh               chan struct{}
-	getCheckpointCalled  bool
-	cpuPluginClient      cpuadvisor.CPUPluginClient
-
-	metaCache metacache.MetaCache
-	emitter   metrics.MetricEmitter
-
-	server *grpc.Server
-	cpuadvisor.UnimplementedCPUAdvisorServer
+	*baseServer
+	getCheckpointCalled bool
+	cpuPluginClient     cpuadvisor.CPUPluginClient
 }
 
 func NewCPUServer(recvCh chan types.InternalCalculationResult, sendCh chan struct{}, conf *config.Configuration,
 	metaCache metacache.MetaCache, emitter metrics.MetricEmitter) (*cpuServer, error) {
-	return &cpuServer{
-		name:                 cpuServerName,
-		period:               conf.QoSAwarePluginConfiguration.SyncPeriod,
-		cpuAdvisorSocketPath: conf.CPUAdvisorSocketAbsPath,
-		cpuPluginSocketPath:  conf.CPUPluginSocketAbsPath,
-		recvCh:               recvCh,
-		sendCh:               sendCh,
-		lwCalledChan:         make(chan struct{}),
-		stopCh:               make(chan struct{}),
-		metaCache:            metaCache,
-		emitter:              emitter,
-	}, nil
+	cs := &cpuServer{}
+	cs.baseServer = newBaseServer(cpuServerName, conf, recvCh, sendCh, metaCache, emitter, cs)
+	cs.advisorSocketPath = conf.CPUAdvisorSocketAbsPath
+	cs.pluginSocketPath = conf.CPUPluginSocketAbsPath
+	return cs, nil
 }
 
-func (cs *cpuServer) Name() string {
-	return cs.name
+func (cs *cpuServer) RegisterAdvisorServer() {
+	grpcServer := grpc.NewServer()
+	cpuadvisor.RegisterCPUAdvisorServer(grpcServer, cs)
+	cs.grpcServer = grpcServer
 }
 
-func (cs *cpuServer) Start() error {
-	_ = cs.emitter.StoreInt64(metricCPUServerStartCalled, int64(cs.period.Seconds()), metrics.MetricTypeNameCount)
-
-	if err := cs.serve(); err != nil {
-		klog.Errorf("[qosaware-server-cpu] start cpu server failed: %v", err)
-		_ = cs.Stop()
-		return err
-	}
-	klog.Infof("[qosaware-server-cpu] started cpu server")
-
-	go func() {
-		for {
-			select {
-			case <-cs.lwCalledChan:
-				return
-			case <-cs.stopCh:
-				return
-			}
-		}
-	}()
-
-	return nil
-}
-
-func (cs *cpuServer) Stop() error {
-	close(cs.stopCh)
-	_ = cs.emitter.StoreInt64(metricCPUServerStopCalled, int64(cs.period.Seconds()), metrics.MetricTypeNameCount)
-
-	if cs.server != nil {
-		cs.server.Stop()
-		klog.Infof("[qosaware-server-cpu] stopped cpu server")
-	}
-
-	if err := os.Remove(cs.cpuAdvisorSocketPath); err != nil && !os.IsNotExist(err) {
-		return fmt.Errorf("remove %v failed: %v", cs.cpuAdvisorSocketPath, err)
-	}
-
-	return nil
-}
-
-func (cs *cpuServer) AddContainer(_ context.Context, request *advisorsvc.AddContainerRequest) (*advisorsvc.AddContainerResponse, error) {
-	_ = cs.emitter.StoreInt64(metricCPUServerAddContainerCalled, int64(cs.period.Seconds()), metrics.MetricTypeNameCount)
-
-	if request == nil {
-		klog.Errorf("[qosaware-server-cpu] get add container request nil")
-		return nil, fmt.Errorf("add container request nil")
-	}
-	klog.Infof("[qosaware-server-cpu] get add container request: %v", general.ToString(request))
-
-	err := cs.addContainer(request)
-	if err != nil {
-		klog.Errorf("[qosaware-server-cpu] add container with error: %v", err)
-	}
-
-	return &advisorsvc.AddContainerResponse{}, err
-}
-
-func (cs *cpuServer) RemovePod(_ context.Context, request *advisorsvc.RemovePodRequest) (*advisorsvc.RemovePodResponse, error) {
-	_ = cs.emitter.StoreInt64(metricCPUServerRemovePodCalled, int64(cs.period.Seconds()), metrics.MetricTypeNameCount)
-
-	if request == nil {
-		return nil, fmt.Errorf("remove pod request is nil")
-	}
-	klog.Infof("[qosaware-server-cpu] get remove pod request: %v", request.PodUid)
-
-	err := cs.removePod(request.PodUid)
-	if err != nil {
-		klog.Errorf("[qosaware-server-cpu] remove pod with error: %v", err)
-	}
-
-	return &advisorsvc.RemovePodResponse{}, err
+func (cs *cpuServer) UpdateContainerResources(request *advisorsvc.AddContainerRequest, containerInfo *types.ContainerInfo) {
+	containerInfo.CPURequest = float64(request.RequestQuantity)
 }
 
 func (cs *cpuServer) ListAndWatch(_ *advisorsvc.Empty, server cpuadvisor.CPUAdvisor_ListAndWatchServer) error {
-	_ = cs.emitter.StoreInt64(metricCPUServerLWCalled, int64(cs.period.Seconds()), metrics.MetricTypeNameCount)
+	_ = cs.emitter.StoreInt64(cs.genMetricsName(metricServerLWCalled), int64(cs.period.Seconds()), metrics.MetricTypeNameCount)
 
 	if !cs.getCheckpointCalled {
 		if err := cs.startToGetCheckpointFromCPUPlugin(); err != nil {
@@ -182,12 +78,17 @@ func (cs *cpuServer) ListAndWatch(_ *advisorsvc.Empty, server cpuadvisor.CPUAdvi
 		cs.getCheckpointCalled = true
 	}
 
+	recvCh, ok := cs.recvCh.(chan types.InternalCalculationResult)
+	if !ok {
+		return fmt.Errorf("recvCh convert failed")
+	}
+
 	for {
 		select {
 		case <-cs.stopCh:
 			klog.Infof("[qosaware-server-cpu] lw stopped because cpu server stopped")
 			return nil
-		case advisorResp, more := <-cs.recvCh:
+		case advisorResp, more := <-recvCh:
 			if !more {
 				klog.Infof("[qosaware-server-cpu] recv channel is closed")
 				return nil
@@ -211,11 +112,11 @@ func (cs *cpuServer) ListAndWatch(_ *advisorsvc.Empty, server cpuadvisor.CPUAdvi
 			// Send result
 			if err := server.Send(&cpuadvisor.ListAndWatchResponse{Entries: calculationEntriesMap}); err != nil {
 				klog.Errorf("[qosaware-server-cpu] send response failed: %v", err)
-				_ = cs.emitter.StoreInt64(metricCPUServerLWSendResponseFailed, int64(cs.period.Seconds()), metrics.MetricTypeNameCount)
+				_ = cs.emitter.StoreInt64(cs.genMetricsName(metricServerLWSendResponseFailed), int64(cs.period.Seconds()), metrics.MetricTypeNameCount)
 				return err
 			}
 			klog.Infof("[qosaware-server-cpu] send calculation result: %v", general.ToString(calculationEntriesMap))
-			_ = cs.emitter.StoreInt64(metricCPUServerLWSendResponseSucceeded, int64(cs.period.Seconds()), metrics.MetricTypeNameCount)
+			_ = cs.emitter.StoreInt64(cs.genMetricsName(metricServerLWSendResponseSucceeded), int64(cs.period.Seconds()), metrics.MetricTypeNameCount)
 		}
 	}
 }
@@ -225,15 +126,15 @@ func (cs *cpuServer) getCheckpoint() {
 	resp, err := cs.cpuPluginClient.GetCheckpoint(context.Background(), &cpuadvisor.GetCheckpointRequest{})
 	if err != nil {
 		klog.Errorf("[qosaware-server-cpu] get checkpoint failed: %v", err)
-		_ = cs.emitter.StoreInt64(metricCPUServerLWGetCheckpointFailed, int64(cs.period.Seconds()), metrics.MetricTypeNameCount)
+		_ = cs.emitter.StoreInt64(cs.genMetricsName(metricServerLWGetCheckpointFailed), int64(cs.period.Seconds()), metrics.MetricTypeNameCount)
 		return
 	} else if resp == nil {
 		klog.Errorf("[qosaware-server-cpu] get nil checkpoint")
-		_ = cs.emitter.StoreInt64(metricCPUServerLWGetCheckpointFailed, int64(cs.period.Seconds()), metrics.MetricTypeNameCount)
+		_ = cs.emitter.StoreInt64(cs.genMetricsName(metricServerLWGetCheckpointFailed), int64(cs.period.Seconds()), metrics.MetricTypeNameCount)
 		return
 	}
 	klog.Infof("[qosaware-server-cpu] get checkpoint: %v", general.ToString(resp.Entries))
-	_ = cs.emitter.StoreInt64(metricCPUServerLWGetCheckpointSucceeded, int64(cs.period.Seconds()), metrics.MetricTypeNameCount)
+	_ = cs.emitter.StoreInt64(cs.genMetricsName(metricServerLWGetCheckpointSucceeded), int64(cs.period.Seconds()), metrics.MetricTypeNameCount)
 
 	livingPoolNameSet := sets.NewString()
 
@@ -280,15 +181,15 @@ func (cs *cpuServer) getCheckpoint() {
 }
 
 func (cs *cpuServer) startToGetCheckpointFromCPUPlugin() error {
-	if !general.IsPathExists(cs.cpuPluginSocketPath) {
-		_ = cs.emitter.StoreInt64(metricCPUServerLWGetCheckpointFailed, int64(cs.period.Seconds()), metrics.MetricTypeNameCount)
-		return fmt.Errorf("cpu plugin socket %v doesn't exist", cs.cpuPluginSocketPath)
+	if !general.IsPathExists(cs.pluginSocketPath) {
+		_ = cs.emitter.StoreInt64(cs.genMetricsName(metricServerLWGetCheckpointFailed), int64(cs.period.Seconds()), metrics.MetricTypeNameCount)
+		return fmt.Errorf("cpu plugin socket %v doesn't exist", cs.pluginSocketPath)
 	}
 
-	conn, err := cs.dial(cs.cpuPluginSocketPath, cs.period)
+	conn, err := cs.dial(cs.pluginSocketPath, cs.period)
 	if err != nil {
-		klog.Errorf("dial cpu plugin socket %v failed: %v", cs.cpuPluginSocketPath, err)
-		_ = cs.emitter.StoreInt64(metricCPUServerLWGetCheckpointFailed, int64(cs.period.Seconds()), metrics.MetricTypeNameCount)
+		klog.Errorf("dial cpu plugin socket %v failed: %v", cs.pluginSocketPath, err)
+		_ = cs.emitter.StoreInt64(cs.genMetricsName(metricServerLWGetCheckpointFailed), int64(cs.period.Seconds()), metrics.MetricTypeNameCount)
 		return err
 	}
 
@@ -296,108 +197,6 @@ func (cs *cpuServer) startToGetCheckpointFromCPUPlugin() error {
 	go wait.Until(cs.getCheckpoint, cs.period, cs.stopCh)
 
 	return nil
-}
-
-func (cs *cpuServer) serve() error {
-	cpuAdvisorSocketDir := path.Dir(cs.cpuAdvisorSocketPath)
-
-	err := general.EnsureDirectory(cpuAdvisorSocketDir)
-	if err != nil {
-		return fmt.Errorf("ensure cpuAdvisorSocketDir: %s failed with error: %v",
-			cpuAdvisorSocketDir, err)
-	}
-
-	klog.Infof("[qosaware-server-cpu] ensure cpuAdvisorSocketDir: %s successfully", cpuAdvisorSocketDir)
-
-	if err := os.Remove(cs.cpuAdvisorSocketPath); err != nil && !os.IsNotExist(err) {
-		return fmt.Errorf("remove %v failed: %v", cs.cpuAdvisorSocketPath, err)
-	}
-
-	sock, err := net.Listen("unix", cs.cpuAdvisorSocketPath)
-	if err != nil {
-		return fmt.Errorf("listen %s failed: %v", cs.cpuAdvisorSocketPath, err)
-	}
-
-	klog.Infof("[qosaware-server-cpu] listen at: %s successfully", cs.cpuAdvisorSocketPath)
-
-	grpcServer := grpc.NewServer()
-	cpuadvisor.RegisterCPUAdvisorServer(grpcServer, cs)
-	cs.server = grpcServer
-
-	go func() {
-		lastCrashTime := time.Now()
-		restartCount := 0
-		for {
-			klog.Infof("[qosaware-server-cpu] starting grpc server at %v", cs.cpuAdvisorSocketPath)
-			if err := grpcServer.Serve(sock); err == nil {
-				break
-			}
-			klog.Errorf("[qosaware-server-cpu] grpc server at %v crashed: %v", cs.cpuAdvisorSocketPath, err)
-
-			if restartCount > 5 {
-				klog.Errorf("[qosaware-server-cpu] grpc server at %v has crashed repeatedly recently, quit", cs.cpuAdvisorSocketPath)
-				os.Exit(0)
-			}
-			timeSinceLastCrash := time.Since(lastCrashTime).Seconds()
-			lastCrashTime = time.Now()
-			if timeSinceLastCrash > 3600 {
-				restartCount = 1
-			} else {
-				restartCount++
-			}
-		}
-	}()
-
-	if conn, err := cs.dial(cs.cpuAdvisorSocketPath, cs.period); err != nil {
-		return fmt.Errorf("dial check at %v failed: %v", cs.cpuAdvisorSocketPath, err)
-	} else {
-		_ = conn.Close()
-	}
-
-	return nil
-}
-
-// nolint
-func (cs *cpuServer) dial(unixSocketPath string, timeout time.Duration) (*grpc.ClientConn, error) {
-	c, err := grpc.Dial(unixSocketPath, grpc.WithInsecure(), grpc.WithBlock(),
-		grpc.WithTimeout(timeout),
-		grpc.WithDialer(func(addr string, timeout time.Duration) (net.Conn, error) {
-			return net.DialTimeout("unix", addr, timeout)
-		}),
-	)
-
-	if err != nil {
-		return nil, err
-	}
-
-	return c, nil
-}
-
-func (cs *cpuServer) addContainer(request *advisorsvc.AddContainerRequest) error {
-	ci := &types.ContainerInfo{
-		PodUID:         request.PodUid,
-		PodNamespace:   request.PodNamespace,
-		PodName:        request.PodName,
-		ContainerName:  request.ContainerName,
-		ContainerType:  request.ContainerType,
-		ContainerIndex: int(request.ContainerIndex),
-		Labels:         request.Labels,
-		Annotations:    request.Annotations,
-		QoSLevel:       request.QosLevel,
-		CPURequest:     float64(request.RequestQuantity),
-	}
-
-	if err := cs.metaCache.AddContainer(request.PodUid, request.ContainerName, ci); err != nil {
-		// Try to delete container info in both memory and state file if add container returns error
-		_ = cs.metaCache.DeleteContainer(request.PodUid, request.ContainerName)
-		return err
-	}
-
-	return nil
-}
-
-func (cs *cpuServer) removePod(podUID string) error {
-	return cs.metaCache.RemovePod(podUID)
 }
 
 func (cs *cpuServer) updatePoolInfo(poolName string, info *cpuadvisor.AllocationInfo) error {

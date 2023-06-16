@@ -23,9 +23,9 @@ import (
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/klog/v2"
 
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/advisorsvc"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource"
-	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/server/cpu"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
@@ -43,6 +43,8 @@ type subQRMServer interface {
 	Name() string
 	Start() error
 	Stop() error
+	RegisterAdvisorServer()
+	UpdateContainerResources(request *advisorsvc.AddContainerRequest, containerInfo *types.ContainerInfo)
 }
 
 type qrmServerWrapper struct {
@@ -97,7 +99,7 @@ func newSubQRMServer(resourceName v1.ResourceName, advisorWrapper resource.Resou
 		advisorRecvChInterface, advisorSendChInterface := subAdvisor.GetChannels()
 		advisorRecvCh := advisorRecvChInterface.(chan struct{})
 		advisorSendCh := advisorSendChInterface.(chan types.InternalCalculationResult)
-		return cpu.NewCPUServer(advisorSendCh, advisorRecvCh, conf, metaCache, emitter)
+		return NewCPUServer(advisorSendCh, advisorRecvCh, conf, metaCache, emitter)
 	default:
 		return nil, fmt.Errorf("illegal resource %v", resourceName)
 	}
