@@ -27,7 +27,6 @@ import (
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 	maputil "k8s.io/kubernetes/pkg/util/maps"
 
-	"github.com/kubewharf/katalyst-api/pkg/consts"
 	apiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-api/pkg/plugins/skeleton"
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/agent"
@@ -48,9 +47,6 @@ import (
 const (
 	// NetworkResourcePluginPolicyNameStatic is the policy name of static network resource plugin
 	NetworkResourcePluginPolicyNameStatic = "static"
-
-	// ResourceNameNetBandwidth is the resource name provided by network plugin
-	ResourceNameNetBandwidth = "qrm.katalyst.kubewharf.io/net_bandwidth"
 
 	// IPsSeparator is used to split merged IPs string
 	IPsSeparator = ","
@@ -199,12 +195,12 @@ func (p *StaticPolicy) Name() string {
 
 // ResourceName returns resource names managed by this plugin
 func (p *StaticPolicy) ResourceName() string {
-	return ResourceNameNetBandwidth
+	return string(apiconsts.ResourceNetBandwidth)
 }
 
 func (p *StaticPolicy) calculateHints(req *pluginapi.ResourceRequest) (map[string]*pluginapi.ListOfTopologyHints, error) {
 	hints := map[string]*pluginapi.ListOfTopologyHints{
-		ResourceNameNetBandwidth: {
+		p.ResourceName(): {
 			Hints: []*pluginapi.TopologyHint{},
 		},
 	}
@@ -253,7 +249,7 @@ func (p *StaticPolicy) calculateHints(req *pluginapi.ResourceRequest) (map[strin
 	}
 
 	for _, hint := range numasToHintMap {
-		hints[ResourceNameNetBandwidth].Hints = append(hints[ResourceNameNetBandwidth].Hints, hint)
+		hints[p.ResourceName()].Hints = append(hints[p.ResourceName()].Hints, hint)
 	}
 
 	if !isReqAffinityRestricted(req.Annotations) && !isReqNamespaceRestricted(req.Annotations) {
@@ -261,10 +257,10 @@ func (p *StaticPolicy) calculateHints(req *pluginapi.ResourceRequest) (map[strin
 			"podNamespace", req.PodNamespace,
 			"podName", req.PodName,
 			"containerName", req.ContainerName,
-			req.Annotations[consts.PodAnnotationNetworkEnhancementAffinityRestricted],
-			consts.PodAnnotationNetworkEnhancementAffinityRestrictedTrue)
+			req.Annotations[apiconsts.PodAnnotationNetworkEnhancementAffinityRestricted],
+			apiconsts.PodAnnotationNetworkEnhancementAffinityRestrictedTrue)
 
-		hints[ResourceNameNetBandwidth].Hints = append(hints[ResourceNameNetBandwidth].Hints, &pluginapi.TopologyHint{
+		hints[p.ResourceName()].Hints = append(hints[p.ResourceName()].Hints, &pluginapi.TopologyHint{
 			Nodes: p.agentCtx.CPUDetails.NUMANodes().ToSliceUInt64(),
 		})
 	}
@@ -304,8 +300,8 @@ func (p *StaticPolicy) GetTopologyHints(_ context.Context,
 	}()
 
 	if req.ContainerType == pluginapi.ContainerType_INIT {
-		return util.PackResourceHintsResponse(req, ResourceNameNetBandwidth, map[string]*pluginapi.ListOfTopologyHints{
-			ResourceNameNetBandwidth: nil, // indicates that there is no numa preference
+		return util.PackResourceHintsResponse(req, p.ResourceName(), map[string]*pluginapi.ListOfTopologyHints{
+			p.ResourceName(): nil, // indicates that there is no numa preference
 		})
 	}
 
@@ -317,7 +313,7 @@ func (p *StaticPolicy) GetTopologyHints(_ context.Context,
 		return nil, err
 	}
 
-	return util.PackResourceHintsResponse(req, ResourceNameNetBandwidth, hints)
+	return util.PackResourceHintsResponse(req, p.ResourceName(), hints)
 }
 
 func (p *StaticPolicy) RemovePod(_ context.Context,
@@ -438,7 +434,7 @@ func (p *StaticPolicy) Allocate(_ context.Context,
 			ContainerIndex: req.ContainerIndex,
 			PodRole:        req.PodRole,
 			PodType:        req.PodType,
-			ResourceName:   ResourceNameNetBandwidth,
+			ResourceName:   p.ResourceName(),
 			Labels:         general.DeepCopyMap(req.Labels),
 			Annotations:    general.DeepCopyMap(req.Annotations),
 		}, nil
@@ -469,10 +465,10 @@ func (p *StaticPolicy) Allocate(_ context.Context,
 		ContainerIndex: req.ContainerIndex,
 		PodRole:        req.PodRole,
 		PodType:        req.PodType,
-		ResourceName:   ResourceNameNetBandwidth,
+		ResourceName:   p.ResourceName(),
 		AllocationResult: &pluginapi.ResourceAllocation{
 			ResourceAllocation: map[string]*pluginapi.ResourceAllocationInfo{
-				ResourceNameNetBandwidth: {
+				p.ResourceName(): {
 					IsNodeResource:    false,
 					IsScalarResource:  true, // to avoid re-allocating
 					AllocatedQuantity: 0,    // TODO fill it with allocated bandwidth quantity

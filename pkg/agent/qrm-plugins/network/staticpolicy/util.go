@@ -32,7 +32,6 @@ import (
 type NICFilter func(nics []machine.InterfaceInfo, req *pluginapi.ResourceRequest, agentCtx *agent.GenericContext) []machine.InterfaceInfo
 
 var nicFilters = []NICFilter{
-	// TODO: inject dns && consul check
 	filterNICsByAvailability,
 	filterNICsByNamespaceType,
 	filterNICsByHint,
@@ -85,7 +84,9 @@ func checkNICPreferenceOfReq(nic machine.InterfaceInfo, reqAnnotations map[strin
 			return false, nil
 		}
 	default:
-		return false, nil
+		// there is no preference,
+		// so any type will be preferred.
+		return true, nil
 	}
 }
 
