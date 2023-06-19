@@ -17,15 +17,13 @@ limitations under the License.
 package headroompolicy
 
 import (
-	"fmt"
-	"math"
-
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
-	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 )
+
+// todo: deprecate this
 
 type PolicyCanonical struct {
 	*PolicyBase
@@ -41,35 +39,6 @@ func NewPolicyCanonical(regionName string, _ *config.Configuration, _ interface{
 }
 
 func (p *PolicyCanonical) Update() error {
-	regionInfo, ok := p.metaReader.GetRegionInfo(p.regionName)
-	if !ok {
-		return fmt.Errorf("get region info for %v failed", p.regionName)
-	}
-
-	controlKnobValue := types.ControlKnobValue{}
-
-	switch regionInfo.RegionType {
-	case types.QoSRegionTypeShare:
-		controlKnobValue, ok = regionInfo.ControlKnobMap[types.ControlKnobNonReclaimedCPUSetSize]
-		if !ok {
-			return fmt.Errorf("get control knob value failed")
-		}
-		cpuRequirement := controlKnobValue.Value
-		p.headroom = math.Max(p.ResourceUpperBound-cpuRequirement, 0)
-	case types.QoSRegionTypeIsolation:
-		// todo consider whether we should return headroom for isolation region
-		return nil
-	case types.QoSRegionTypeDedicatedNumaExclusive:
-		controlKnobValue, ok = regionInfo.ControlKnobMap[types.ControlKnobReclaimedCPUSupplied]
-		if !ok {
-			return fmt.Errorf("get control knob value failed")
-		}
-		p.headroom = math.Max(controlKnobValue.Value, 0)
-
-	default:
-		return fmt.Errorf("illegal region type %v", regionInfo.RegionType)
-	}
-
 	return nil
 }
 

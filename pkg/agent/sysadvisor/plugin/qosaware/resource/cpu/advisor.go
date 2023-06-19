@@ -46,11 +46,11 @@ import (
 )
 
 // todo:
-// 1. Isolate bursting pods or containers to isolation regions
-// 2. Support dedicated without and with numa binding but non numa exclusive containers
+// 1. Support dedicated without and with numa binding but non numa exclusive containers
 
 func init() {
 	provisionpolicy.RegisterInitializer(types.CPUProvisionPolicyCanonical, provisionpolicy.NewPolicyCanonical)
+	provisionpolicy.RegisterInitializer(types.CPUProvisionPolicyRama, provisionpolicy.NewPolicyRama)
 
 	headroompolicy.RegisterInitializer(types.CPUHeadroomPolicyCanonical, headroompolicy.NewPolicyCanonical)
 	headroompolicy.RegisterInitializer(types.CPUHeadroomPolicyUtilization, headroompolicy.NewPolicyUtilization)
@@ -191,12 +191,13 @@ func (cra *cpuResourceAdvisor) update() {
 	cra.updateAdvisorEssentials()
 
 	// run an episode of provision and headroom policy update for each region
-	for name, r := range cra.regionMap {
+	for _, r := range cra.regionMap {
 		r.SetEssentials(types.ResourceEssentials{
 			EnableReclaim:       cra.conf.GetDynamicConfiguration().EnableReclaim,
-			ResourceUpperBound:  cra.getRegionMaxRequirement(name),
-			ResourceLowerBound:  cra.getRegionMinRequirement(name),
-			ReservedForAllocate: cra.getRegionReservedForAllocate(name),
+			ResourceUpperBound:  cra.getRegionMaxRequirement(r),
+			ResourceLowerBound:  cra.getRegionMinRequirement(r),
+			ReservedForReclaim:  cra.getRegionReservedForReclaim(r),
+			ReservedForAllocate: cra.getRegionReservedForAllocate(r),
 		})
 
 		r.TryUpdateProvision()

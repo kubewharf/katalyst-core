@@ -28,6 +28,8 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 )
 
+// todo: support rama policy, with cpu schedwait avg as indicator
+
 type QoSRegionShare struct {
 	*QoSRegionBase
 }
@@ -54,17 +56,14 @@ func (r *QoSRegionShare) TryUpdateProvision() {
 	for _, internal := range r.provisionPolicies {
 		internal.updateStatus = types.PolicyUpdateFailed
 
+		controlEssentials := types.ControlEssentials{
+			ControlKnobs: r.getControlKnobs(),
+			Indicators:   nil,
+		}
+
 		// set essentials for policy and regulator
 		internal.policy.SetPodSet(r.podSet)
-		internal.policy.SetEssentials(r.ResourceEssentials)
-
-		// try set initial cpu requirement to restore calculator after metaCache has been initialized
-		internal.initDoOnce.Do(func() {
-			if poolSize, ok := r.metaReader.GetPoolSize(r.ownerPoolName); ok {
-				internal.policy.SetCPURequirement(poolSize)
-				klog.Infof("[qosaware-cpu] set initial cpu requirement %v", poolSize)
-			}
-		})
+		internal.policy.SetEssentials(r.ResourceEssentials, controlEssentials)
 
 		// run an episode of policy update
 		if err := internal.policy.Update(); err != nil {
@@ -72,5 +71,24 @@ func (r *QoSRegionShare) TryUpdateProvision() {
 			continue
 		}
 		internal.updateStatus = types.PolicyUpdateSucceeded
+	}
+}
+
+func (r *QoSRegionShare) getControlKnobs() types.ControlKnob {
+	poolSize, ok := r.metaReader.GetPoolSize(r.ownerPoolName)
+	if !ok {
+		klog.Errorf("[qosaware-cpu] pool %v not exist", r.ownerPoolName)
+		return nil
+	}
+	if poolSize <= 0 {
+		klog.Errorf("[qosaware-cpu] pool %v of non positive size", r.ownerPoolName)
+		return nil
+	}
+
+	return types.ControlKnob{
+		types.ControlKnobNonReclaimedCPUSize: {
+			Value:  float64(poolSize),
+			Action: types.ControlKnobActionNone,
+		},
 	}
 }

@@ -17,6 +17,8 @@ limitations under the License.
 package provisionpolicy
 
 import (
+	"fmt"
+
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource/cpu/region/regulator"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
@@ -27,52 +29,71 @@ import (
 
 type PolicyBase struct {
 	types.ResourceEssentials
-	regulator *regulator.CPURegulator
+	types.ControlEssentials
 
-	regionName     string
-	cpuRequirement int
-	podSet         types.PodSet
-	indicator      types.Indicator
-	bindingNumas   machine.CPUSet
+	regionName    string
+	regionType    types.QoSRegionType
+	ownerPoolName string
+	podSet        types.PodSet
+	bindingNumas  machine.CPUSet
 
+	regulator  *regulator.CPURegulator
 	metaReader metacache.MetaReader
 	metaServer *metaserver.MetaServer
 	emitter    metrics.MetricEmitter
 }
 
-func NewPolicyBase(regionName string, regulator *regulator.CPURegulator, metaReader metacache.MetaReader,
-	metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter) *PolicyBase {
+func NewPolicyBase(regionName string, regionType types.QoSRegionType, ownerPoolName string,
+	metaReader metacache.MetaReader, metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter) *PolicyBase {
 	cp := &PolicyBase{
-		regulator: regulator,
-
-		regionName: regionName,
-		podSet:     make(types.PodSet),
-		indicator:  make(types.Indicator),
-
-		metaReader: metaReader,
-		metaServer: metaServer,
-		emitter:    emitter,
+		regionName:    regionName,
+		regionType:    regionType,
+		ownerPoolName: ownerPoolName,
+		regulator:     regulator.NewCPURegulator(),
+		metaReader:    metaReader,
+		metaServer:    metaServer,
+		emitter:       emitter,
 	}
 	return cp
+}
+
+func (p *PolicyBase) SetEssentials(resourceEssentials types.ResourceEssentials, controlEssentials types.ControlEssentials) {
+	p.ResourceEssentials = resourceEssentials
+	p.ControlEssentials = controlEssentials
+	p.regulator.SetEssentials(resourceEssentials)
 }
 
 func (p *PolicyBase) SetPodSet(podSet types.PodSet) {
 	p.podSet = podSet.Clone()
 }
 
-func (p *PolicyBase) SetIndicator(indicator types.Indicator) {
-	p.indicator = indicator.Clone()
-}
-
-func (p *PolicyBase) SetCPURequirement(cpuRequirement int) {
-	p.cpuRequirement = cpuRequirement
-}
-
-func (p *PolicyBase) SetEssentials(essentials types.ResourceEssentials) {
-	p.ResourceEssentials = essentials
-	p.regulator.SetEssentials(essentials)
-}
-
 func (p *PolicyBase) SetBindingNumas(numas machine.CPUSet) {
 	p.bindingNumas = numas
+}
+
+func (p *PolicyBase) GetControlKnobAdjusted() (types.ControlKnob, error) {
+	switch p.regionType {
+	case types.QoSRegionTypeShare, types.QoSRegionTypeDedicatedNumaExclusive:
+		return map[types.ControlKnobName]types.ControlKnobValue{
+			types.ControlKnobNonReclaimedCPUSize: {
+				Value:  float64(p.regulator.GetCPURequirement()),
+				Action: types.ControlKnobActionNone,
+			},
+		}, nil
+
+	case types.QoSRegionTypeIsolation:
+		return map[types.ControlKnobName]types.ControlKnobValue{
+			types.ControlKnobNonReclaimedCPUSizeUpper: {
+				Value:  p.ResourceUpperBound,
+				Action: types.ControlKnobActionNone,
+			},
+			types.ControlKnobNonReclaimedCPUSizeLower: {
+				Value:  p.ResourceLowerBound,
+				Action: types.ControlKnobActionNone,
+			},
+		}, nil
+
+	default:
+		return nil, fmt.Errorf("unsupported region type %v", p.regionType)
+	}
 }

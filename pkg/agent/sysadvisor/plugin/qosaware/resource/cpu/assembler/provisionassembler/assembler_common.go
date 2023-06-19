@@ -58,6 +58,8 @@ func NewProvisionAssemblerCommon(conf *config.Configuration, regionMap *map[stri
 }
 
 func (pa *ProvisionAssemblerCommon) AssembleProvision() (types.InternalCalculationResult, error) {
+	enableReclaim := pa.conf.GetDynamicConfiguration().EnableReclaim
+
 	calculationResult := types.InternalCalculationResult{
 		PoolEntries: make(map[string]map[int]int),
 	}
@@ -82,30 +84,41 @@ func (pa *ProvisionAssemblerCommon) AssembleProvision() (types.InternalCalculati
 		switch r.Type() {
 		case types.QoSRegionTypeShare:
 			// save raw share pool sizes
-			sharePoolSizes[r.OwnerPoolName()] = int(controlKnob[types.ControlKnobNonReclaimedCPUSetSize].Value)
+			sharePoolSizes[r.OwnerPoolName()] = int(controlKnob[types.ControlKnobNonReclaimedCPUSize].Value)
 
 			shares += sharePoolSizes[r.OwnerPoolName()]
+
 		case types.QoSRegionTypeIsolation:
 			// save limits and requests for isolated region
-			isolationUpperSizes[r.Name()] = int(controlKnob[types.ControlKnobNonIsolateCPUUpperSize].Value)
-			isolationLowerSizes[r.Name()] = int(controlKnob[types.ControlKnobNonIsolateCPULowerSize].Value)
+			isolationUpperSizes[r.Name()] = int(controlKnob[types.ControlKnobNonReclaimedCPUSizeUpper].Value)
+			isolationLowerSizes[r.Name()] = int(controlKnob[types.ControlKnobNonReclaimedCPUSizeLower].Value)
 
 			isolationUppers += isolationUpperSizes[r.Name()]
+
 		case types.QoSRegionTypeDedicatedNumaExclusive:
-			// fill in reclaim pool entry for dedicated numa exclusive regions
 			regionNuma := r.GetBindingNumas().ToSliceInt()[0] // always one binding numa for this type of region
-			reclaimPoolSize := int(controlKnob[types.ControlKnobReclaimedCPUSupplied].Value)
-			reclaimPoolSize += pa.getNumasReservedForReclaim(machine.NewCPUSet(regionNuma))
-			calculationResult.SetPoolEntry(state.PoolNameReclaim, regionNuma, reclaimPoolSize)
+			reservedForReclaim := pa.getNumasReservedForReclaim(r.GetBindingNumas())
+
+			// fill in reclaim pool entry for dedicated numa exclusive regions
+			if !enableReclaim {
+				if reservedForReclaim > 0 {
+					calculationResult.SetPoolEntry(state.PoolNameReclaim, regionNuma, reservedForReclaim)
+				}
+			} else {
+				available := getNumasAvailableResource(*pa.numaAvailable, r.GetBindingNumas())
+				nonReclaimRequirement := int(controlKnob[types.ControlKnobNonReclaimedCPUSize].Value)
+				reclaimed := available - nonReclaimRequirement + reservedForReclaim
+
+				calculationResult.SetPoolEntry(state.PoolNameReclaim, regionNuma, reclaimed)
+			}
 		}
 	}
-
-	enableReclaim := pa.conf.GetDynamicConfiguration().EnableReclaim
-	shareAndIsolatedPoolAvailable := getNumasAvailableResource(*pa.numaAvailable, *pa.nonBindingNumas)
 
 	general.Infof("share size: %v", sharePoolSizes)
 	general.Infof("isolate upper-size: %v", isolationUpperSizes)
 	general.Infof("isolate lower-size: %v", isolationLowerSizes)
+
+	shareAndIsolatedPoolAvailable := getNumasAvailableResource(*pa.numaAvailable, *pa.nonBindingNumas)
 	shareAndIsolatePoolSizes := general.MergeMapInt(sharePoolSizes, isolationUpperSizes)
 	if shares+isolationUppers > shareAndIsolatedPoolAvailable {
 		shareAndIsolatePoolSizes = general.MergeMapInt(sharePoolSizes, isolationLowerSizes)
