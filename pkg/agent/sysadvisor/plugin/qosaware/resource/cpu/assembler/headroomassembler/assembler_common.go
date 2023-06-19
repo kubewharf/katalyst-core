@@ -35,7 +35,7 @@ type HeadroomAssemblerCommon struct {
 	emitter    metrics.MetricEmitter
 }
 
-func NewHeadroomAssemblerCommon(conf *config.Configuration, _ *map[string]region.QoSRegion,
+func NewHeadroomAssemblerCommon(conf *config.Configuration, _ interface{}, _ *map[string]region.QoSRegion,
 	metaCache metacache.MetaReader, metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter) HeadroomAssembler {
 	return &HeadroomAssemblerCommon{
 		conf:       conf,

@@ -46,15 +46,11 @@ func NewCPUAdvisorOptions() *CPUAdvisorOptions {
 			string(types.QoSRegionTypeIsolation):              string(types.CPUProvisionPolicyCanonical),
 			string(types.QoSRegionTypeDedicatedNumaExclusive): string(types.CPUProvisionPolicyCanonical),
 		},
-		CPUHeadroomPolicyPriority: map[string]string{
-			string(types.QoSRegionTypeShare):                  string(types.CPUHeadroomPolicyCanonical),
-			string(types.QoSRegionTypeIsolation):              string(types.CPUHeadroomPolicyCanonical),
-			string(types.QoSRegionTypeDedicatedNumaExclusive): string(types.CPUHeadroomPolicyCanonical),
-		},
-		CPUProvisionAssembler:    string(types.CPUProvisionAssemblerCommon),
-		CPUHeadroomAssembler:     string(types.CPUHeadroomAssemblerCommon),
-		CPUHeadroomPolicyOptions: headroom.NewCPUHeadroomPolicyOptions(),
-		CPUIsolationOptions:      NewCPUIsolationOptions(),
+		CPUHeadroomPolicyPriority: map[string]string{},
+		CPUProvisionAssembler:     string(types.CPUProvisionAssemblerCommon),
+		CPUHeadroomAssembler:      string(types.CPUHeadroomAssemblerCommon),
+		CPUHeadroomPolicyOptions:  headroom.NewCPUHeadroomPolicyOptions(),
+		CPUIsolationOptions:       NewCPUIsolationOptions(),
 	}
 }
 

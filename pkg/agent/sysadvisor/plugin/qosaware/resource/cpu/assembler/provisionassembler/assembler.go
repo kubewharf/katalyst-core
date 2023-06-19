@@ -32,7 +32,7 @@ type ProvisionAssembler interface {
 	AssembleProvision() (types.InternalCalculationResult, error)
 }
 
-type InitFunc func(conf *config.Configuration, regionMap *map[string]region.QoSRegion,
+type InitFunc func(conf *config.Configuration, extraConf interface{}, regionMap *map[string]region.QoSRegion,
 	reservedForReclaim *map[int]int, numaAvailable *map[int]int, nonBindingNumas *machine.CPUSet,
 	reader metacache.MetaReader, metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter) ProvisionAssembler
 

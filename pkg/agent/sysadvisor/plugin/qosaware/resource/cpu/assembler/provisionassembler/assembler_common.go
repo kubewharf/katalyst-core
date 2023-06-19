@@ -41,7 +41,7 @@ type ProvisionAssemblerCommon struct {
 	emitter    metrics.MetricEmitter
 }
 
-func NewProvisionAssemblerCommon(conf *config.Configuration, regionMap *map[string]region.QoSRegion,
+func NewProvisionAssemblerCommon(conf *config.Configuration, _ interface{}, regionMap *map[string]region.QoSRegion,
 	reservedForReclaim *map[int]int, numaAvailable *map[int]int, nonBindingNumas *machine.CPUSet,
 	metaCache metacache.MetaReader, metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter) ProvisionAssembler {
 	return &ProvisionAssemblerCommon{

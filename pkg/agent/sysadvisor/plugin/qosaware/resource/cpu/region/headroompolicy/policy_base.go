@@ -21,25 +21,30 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
+	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
 type PolicyBase struct {
 	types.ResourceEssentials
 
-	regionName string
-	headroom   float64
-	podSet     types.PodSet
+	regionName    string
+	regionType    types.QoSRegionType
+	ownerPoolName string
+	podSet        types.PodSet
+	bindingNumas  machine.CPUSet
 
 	metaReader metacache.MetaReader
 	metaServer *metaserver.MetaServer
 	emitter    metrics.MetricEmitter
 }
 
-func NewPolicyBase(regionName string, metaReader metacache.MetaReader, metaServer *metaserver.MetaServer,
-	emitter metrics.MetricEmitter) *PolicyBase {
+func NewPolicyBase(regionName string, regionType types.QoSRegionType, ownerPoolName string,
+	metaReader metacache.MetaReader, metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter) *PolicyBase {
 	cp := &PolicyBase{
-		regionName: regionName,
-		podSet:     make(types.PodSet),
+		regionName:    regionName,
+		regionType:    regionType,
+		ownerPoolName: ownerPoolName,
+		podSet:        make(types.PodSet),
 
 		metaReader: metaReader,
 		metaServer: metaServer,
@@ -50,6 +55,10 @@ func NewPolicyBase(regionName string, metaReader metacache.MetaReader, metaServe
 
 func (p *PolicyBase) SetPodSet(podSet types.PodSet) {
 	p.podSet = podSet.Clone()
+}
+
+func (p *PolicyBase) SetBindingNumas(numas machine.CPUSet) {
+	p.bindingNumas = numas
 }
 
 func (p *PolicyBase) SetEssentials(essentials types.ResourceEssentials) {

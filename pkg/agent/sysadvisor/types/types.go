@@ -50,9 +50,7 @@ const (
 type CPUHeadroomPolicyName string
 
 const (
-	CPUHeadroomPolicyNone        CPUHeadroomPolicyName = "none"
-	CPUHeadroomPolicyCanonical   CPUHeadroomPolicyName = "canonical"
-	CPUHeadroomPolicyUtilization CPUHeadroomPolicyName = "utilization"
+	CPUHeadroomPolicyNone CPUHeadroomPolicyName = "none"
 )
 
 // CPUProvisionAssemblerName defines assemblers for cpu advisor to generate node
