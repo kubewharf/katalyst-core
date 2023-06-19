@@ -55,8 +55,8 @@ func (r *QoSRegionIsolation) TryUpdateProvision() {
 	for _, internal := range r.provisionPolicies {
 		internal.updateStatus = types.PolicyUpdateSucceeded
 
-		// set essentials for policy and regulator
+		// set essentials for policy
 		internal.policy.SetPodSet(r.podSet)
-		internal.policy.SetEssentials(r.ResourceEssentials)
+		internal.policy.SetEssentials(r.ResourceEssentials, types.ControlEssentials{})
 	}
 }

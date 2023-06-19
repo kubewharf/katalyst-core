@@ -584,7 +584,7 @@ func (m *MalachiteMetricsFetcher) processCgroupPerfData(podUID, containerName st
 	if perf == nil {
 		return
 	}
-	m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricCPUCpiContainer, perf.Cpi)
+	m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricCPUCPIContainer, perf.Cpi)
 	m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricCPUCyclesContainer, perf.Cycles)
 	m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricCPUInstructionsContainer, perf.Instructions)
 	m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricCPUICacheMissContainer, perf.IcacheMiss)

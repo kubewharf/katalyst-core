@@ -26,7 +26,6 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource/cpu/region/headroompolicy"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource/cpu/region/provisionpolicy"
-	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource/cpu/region/regulator"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
@@ -53,6 +52,7 @@ type internalHeadroomPolicy struct {
 
 type QoSRegionBase struct {
 	sync.Mutex
+	conf *config.Configuration
 
 	name          string
 	ownerPoolName string
@@ -87,6 +87,7 @@ type QoSRegionBase struct {
 func NewQoSRegionBase(name string, ownerPoolName string, regionType types.QoSRegionType, conf *config.Configuration, extraConf interface{},
 	metaReader metacache.MetaReader, metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter) *QoSRegionBase {
 	r := &QoSRegionBase{
+		conf:          conf,
 		name:          name,
 		ownerPoolName: ownerPoolName,
 		regionType:    regionType,
@@ -106,7 +107,8 @@ func NewQoSRegionBase(name string, ownerPoolName string, regionType types.QoSReg
 	r.initHeadroomPolicy(conf, extraConf, metaReader, metaServer, emitter)
 	r.initProvisionPolicy(conf, extraConf, metaReader, metaServer, emitter)
 
-	klog.Infof("region [%v/%v/%v] created", r.Name(), r.Type(), r.OwnerPoolName())
+	klog.Infof("[qosaware-cpu] created region [%v/%v/%v]", r.Name(), r.Type(), r.OwnerPoolName())
+
 	return r
 }
 
@@ -195,7 +197,7 @@ func (r *QoSRegionBase) TryUpdateHeadroom() {
 	for _, internal := range r.headroomPolicies {
 		internal.updateStatus = types.PolicyUpdateFailed
 
-		// set essentials for policy and regulator
+		// set essentials for policy
 		internal.policy.SetPodSet(r.podSet)
 		internal.policy.SetEssentials(r.ResourceEssentials)
 
@@ -319,8 +321,7 @@ func (r *QoSRegionBase) initProvisionPolicy(conf *config.Configuration, extraCon
 	initializers := provisionpolicy.GetRegisteredInitializers()
 	for _, policyName := range configuredProvisionPolicy {
 		if initializer, ok := initializers[policyName]; ok {
-			cpuRegulator := regulator.NewCPURegulator()
-			policy := initializer(r.name, conf, extraConf, cpuRegulator, metaReader, metaServer, emitter)
+			policy := initializer(r.name, r.regionType, r.ownerPoolName, conf, extraConf, metaReader, metaServer, emitter)
 			policy.SetBindingNumas(r.bindingNumas)
 			r.provisionPolicies = append(r.provisionPolicies, &internalProvisionPolicy{
 				name:                policyName,

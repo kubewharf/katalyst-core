@@ -52,7 +52,7 @@ func NewCPURegulator() *CPURegulator {
 		maxRampUpStep:      types.MaxRampUpStep,
 		maxRampDownStep:    types.MaxRampDownStep,
 		minRampDownPeriod:  types.MinRampDownPeriod,
-		latestRampDownTime: time.Now(),
+		latestRampDownTime: time.Now().Add(-types.MinRampDownPeriod),
 	}
 	return c
 }

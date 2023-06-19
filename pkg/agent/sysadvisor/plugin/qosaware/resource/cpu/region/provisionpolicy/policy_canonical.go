@@ -19,12 +19,11 @@ package provisionpolicy
 import (
 	"context"
 	"fmt"
-	"math"
 
+	"k8s.io/apimachinery/pkg/util/errors"
 	"k8s.io/klog/v2"
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
-	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource/cpu/region/regulator"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource/helper"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
 	"github.com/kubewharf/katalyst-core/pkg/config"
@@ -38,12 +37,56 @@ type PolicyCanonical struct {
 	*PolicyBase
 }
 
-func NewPolicyCanonical(regionName string, _ *config.Configuration, _ interface{}, regulator *regulator.CPURegulator,
-	metaReader metacache.MetaReader, metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter) ProvisionPolicy {
+func NewPolicyCanonical(regionName string, regionType types.QoSRegionType, ownerPoolName string,
+	_ *config.Configuration, _ interface{}, metaReader metacache.MetaReader,
+	metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter) ProvisionPolicy {
 	p := &PolicyCanonical{
-		PolicyBase: NewPolicyBase(regionName, regulator, metaReader, metaServer, emitter),
+		PolicyBase: NewPolicyBase(regionName, regionType, ownerPoolName, metaReader, metaServer, emitter),
 	}
 	return p
+}
+
+func (p *PolicyCanonical) Update() error {
+	// sanity check
+	if err := p.sanityCheck(); err != nil {
+		return err
+	}
+
+	cpuRequirement := p.ControlKnobs[types.ControlKnobNonReclaimedCPUSize].Value
+
+	// pass the current value to regulator to avoid slow start from zero after restart
+	p.regulator.SetLatestCPURequirement(int(cpuRequirement))
+
+	cpuEstimation, err := p.estimateCPUUsage()
+	if err != nil {
+		return err
+	}
+	p.regulator.Regulate(cpuEstimation)
+
+	return nil
+}
+
+func (p *PolicyCanonical) sanityCheck() error {
+	var (
+		isLegal bool
+		errList []error
+	)
+
+	// 1. check control knob legality
+	isLegal = true
+	if p.ControlKnobs == nil || len(p.ControlKnobs) <= 0 {
+		isLegal = false
+	} else {
+		v, ok := p.ControlKnobs[types.ControlKnobNonReclaimedCPUSize]
+		if !ok || v.Value <= 0 {
+			isLegal = false
+		}
+	}
+	if !isLegal {
+		errList = append(errList, fmt.Errorf("illegal control knob %v", p.ControlKnobs))
+	}
+
+	return errors.NewAggregate(errList)
 }
 
 func (p *PolicyCanonical) estimateCPUUsage() (float64, error) {
@@ -87,59 +130,4 @@ func (p *PolicyCanonical) estimateCPUUsage() (float64, error) {
 	klog.Infof("[qosaware-cpu] #container %v", containerCnt)
 
 	return cpuEstimation, nil
-}
-
-func (p *PolicyCanonical) Update() error {
-	cpuEstimation, err := p.estimateCPUUsage()
-	if err != nil {
-		return err
-	}
-
-	// we need to call SetLatestCPURequirement to ensure the previous requirements are passed to
-	// regulator in case that sysadvisor restarts, to avoid the slow-start always begin with zero.
-	p.regulator.SetLatestCPURequirement(p.cpuRequirement)
-	p.regulator.Regulate(cpuEstimation)
-	p.cpuRequirement = p.regulator.GetCPURequirement()
-
-	return nil
-}
-
-func (p *PolicyCanonical) GetControlKnobAdjusted() (types.ControlKnob, error) {
-	regionInfo, ok := p.metaReader.GetRegionInfo(p.regionName)
-	if !ok || regionInfo == nil {
-		return nil, fmt.Errorf("illegal region info")
-	}
-
-	switch regionInfo.RegionType {
-	case types.QoSRegionTypeShare:
-		return map[types.ControlKnobName]types.ControlKnobValue{
-			types.ControlKnobNonReclaimedCPUSetSize: {
-				Value:  float64(p.cpuRequirement),
-				Action: types.ControlKnobActionNone,
-			},
-		}, nil
-	case types.QoSRegionTypeIsolation:
-		return map[types.ControlKnobName]types.ControlKnobValue{
-			types.ControlKnobNonIsolateCPUUpperSize: {
-				Value:  p.ResourceUpperBound,
-				Action: types.ControlKnobActionNone,
-			},
-			types.ControlKnobNonIsolateCPULowerSize: {
-				Value:  p.ResourceLowerBound,
-				Action: types.ControlKnobActionNone,
-			},
-		}, nil
-	case types.QoSRegionTypeDedicatedNumaExclusive:
-		// Do conversion because canonical policy calculates resource estimation according to
-		// non reclaim workloads and is ignorant of reclaimed cpu supplied
-		return types.ControlKnob{
-			types.ControlKnobReclaimedCPUSupplied: types.ControlKnobValue{
-				Value:  math.Max(p.ResourceUpperBound-float64(p.cpuRequirement), 0),
-				Action: types.ControlKnobActionNone,
-			},
-		}, nil
-
-	default:
-		return nil, fmt.Errorf("unsupported region type %v", regionInfo.RegionType)
-	}
 }

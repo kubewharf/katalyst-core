@@ -397,13 +397,20 @@ func TestAdvisorUpdate(t *testing.T) {
 						1: machine.MustParse("24"),
 					},
 				},
+				state.PoolNameReclaim: {
+					PoolName: state.PoolNameReclaim,
+					TopologyAwareAssignments: map[int]machine.CPUSet{
+						0: machine.MustParse("70-71"),
+						1: machine.MustParse("25-47,72-95"),
+					},
+				},
 			},
 			containers: []*types.ContainerInfo{
 				makeContainerInfo("uid1", "default", "pod1", "c1", consts.PodAnnotationQoSLevelDedicatedCores, state.PoolNameDedicated,
 					map[string]string{consts.PodAnnotationMemoryEnhancementNumaBinding: consts.PodAnnotationMemoryEnhancementNumaBindingEnable},
 					map[int]machine.CPUSet{
 						0: machine.MustParse("1-23,48-71"),
-					}, 48),
+					}, 36),
 			},
 			pods: []*v1.Pod{
 				{
@@ -421,12 +428,12 @@ func TestAdvisorUpdate(t *testing.T) {
 						-1: 2,
 					},
 					state.PoolNameReclaim: {
-						0:  2,
+						0:  4,
 						-1: 47,
 					},
 				},
 			},
-			wantHeadroom: resource.Quantity{},
+			wantHeadroom: *resource.NewQuantity(49, resource.DecimalSI),
 		},
 		{
 			name: "dedicated_numa_exclusive_&_share",
@@ -457,7 +464,7 @@ func TestAdvisorUpdate(t *testing.T) {
 					map[string]string{consts.PodAnnotationMemoryEnhancementNumaBinding: consts.PodAnnotationMemoryEnhancementNumaBindingEnable},
 					map[int]machine.CPUSet{
 						0: machine.MustParse("1-23,48-71"),
-					}, 48),
+					}, 36),
 				makeContainerInfo("uid2", "default", "pod2", "c2", consts.PodAnnotationQoSLevelSharedCores, state.PoolNameShare, nil,
 					map[int]machine.CPUSet{
 						1: machine.MustParse("25-28"),
@@ -485,9 +492,11 @@ func TestAdvisorUpdate(t *testing.T) {
 					state.PoolNameReserve: {
 						-1: 2,
 					},
-					state.PoolNameShare: {-1: 6},
+					state.PoolNameShare: {
+						-1: 6,
+					},
 					state.PoolNameReclaim: {
-						0:  2,
+						0:  4,
 						-1: 41,
 					},
 				},
@@ -523,7 +532,7 @@ func TestAdvisorUpdate(t *testing.T) {
 					map[string]string{consts.PodAnnotationMemoryEnhancementNumaBinding: consts.PodAnnotationMemoryEnhancementNumaBindingEnable},
 					map[int]machine.CPUSet{
 						0: machine.MustParse("1-23,48-71"),
-					}, 48),
+					}, 36),
 				makeContainerInfo("uid2", "default", "pod2", "c2", consts.PodAnnotationQoSLevelSharedCores, state.PoolNameShare, nil,
 					map[int]machine.CPUSet{
 						1: machine.MustParse("25-28"),
@@ -551,7 +560,9 @@ func TestAdvisorUpdate(t *testing.T) {
 					state.PoolNameReserve: {
 						-1: 2,
 					},
-					state.PoolNameShare: {-1: 45},
+					state.PoolNameShare: {
+						-1: 45,
+					},
 					state.PoolNameReclaim: {
 						0:  2,
 						-1: 2,
@@ -765,7 +776,7 @@ func TestAdvisorUpdate(t *testing.T) {
 			mf := metric.NewFakeMetricsFetcher(metrics.DummyMetrics{}).(*metric.FakeMetricsFetcher)
 
 			advisor, metaCache := newTestCPUResourceAdvisor(t, tt.pods, ckDir, sfDir, mf)
-			advisor.startTime = time.Now().Add(-types.StartUpPeriod * 2)
+			advisor.startTime = time.Now().Add(-types.StartUpPeriod)
 			advisor.conf.GetDynamicConfiguration().EnableReclaim = tt.enableReclaim
 
 			if len(tt.metrics) > 0 {

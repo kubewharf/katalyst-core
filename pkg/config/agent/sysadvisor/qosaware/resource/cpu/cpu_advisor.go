@@ -19,6 +19,7 @@ package cpu
 import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/sysadvisor/qosaware/resource/cpu/headroom"
+	"github.com/kubewharf/katalyst-core/pkg/config/agent/sysadvisor/qosaware/resource/cpu/provision"
 )
 
 // CPUAdvisorConfiguration stores configurations of cpu advisors in qos aware plugin
@@ -29,17 +30,19 @@ type CPUAdvisorConfiguration struct {
 	HeadroomAssembler  types.CPUHeadroomAssemblerName
 
 	*headroom.CPUHeadroomPolicyConfiguration
+	*provision.CPUProvisionPolicyConfiguration
 	*CPUIsolationConfiguration
 }
 
 // NewCPUAdvisorConfiguration creates new cpu advisor configurations
 func NewCPUAdvisorConfiguration() *CPUAdvisorConfiguration {
 	return &CPUAdvisorConfiguration{
-		ProvisionPolicies:              map[types.QoSRegionType][]types.CPUProvisionPolicyName{},
-		HeadroomPolicies:               map[types.QoSRegionType][]types.CPUHeadroomPolicyName{},
-		ProvisionAssembler:             types.CPUProvisionAssemblerCommon,
-		HeadroomAssembler:              types.CPUHeadroomAssemblerCommon,
-		CPUHeadroomPolicyConfiguration: headroom.NewCPUHeadroomPolicyConfiguration(),
-		CPUIsolationConfiguration:      NewCPUIsolationConfiguration(),
+		ProvisionPolicies:               map[types.QoSRegionType][]types.CPUProvisionPolicyName{},
+		HeadroomPolicies:                map[types.QoSRegionType][]types.CPUHeadroomPolicyName{},
+		ProvisionAssembler:              types.CPUProvisionAssemblerCommon,
+		HeadroomAssembler:               types.CPUHeadroomAssemblerCommon,
+		CPUHeadroomPolicyConfiguration:  headroom.NewCPUHeadroomPolicyConfiguration(),
+		CPUProvisionPolicyConfiguration: provision.NewCPUProvisionPolicyConfiguration(),
+		CPUIsolationConfiguration:       NewCPUIsolationConfiguration(),
 	}
 }

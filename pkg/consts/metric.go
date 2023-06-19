@@ -149,7 +149,7 @@ const (
 
 // Cgroup perf metrics
 const (
-	MetricCPUCpiContainer          = "cpu.cpi.container"
+	MetricCPUCPIContainer          = "cpu.cpi.container"
 	MetricCPUCyclesContainer       = "cpu.cycles.container"
 	MetricCPUInstructionsContainer = "cpu.instructions.container"
 	MetricCPUICacheMissContainer   = "cpu.icachemiss.container"
