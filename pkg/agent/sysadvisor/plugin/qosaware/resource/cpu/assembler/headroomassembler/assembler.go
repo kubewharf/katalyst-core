@@ -33,7 +33,7 @@ type HeadroomAssembler interface {
 	GetHeadroom() (resource.Quantity, error)
 }
 
-type InitFunc func(conf *config.Configuration, regionMap *map[string]region.QoSRegion,
+type InitFunc func(conf *config.Configuration, extraConf interface{}, regionMap *map[string]region.QoSRegion,
 	metaCache metacache.MetaReader, metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter) HeadroomAssembler
 
 var initializers sync.Map
