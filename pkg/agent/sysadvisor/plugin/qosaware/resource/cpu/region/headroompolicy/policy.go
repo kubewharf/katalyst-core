@@ -24,12 +24,17 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
+	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
+
+// todo: implement advanced headroom policies for different regions
 
 // HeadroomPolicy generates resource headroom estimation based on configured algorithm
 type HeadroomPolicy interface {
 	// SetPodSet overwrites policy's pod/container record
 	SetPodSet(types.PodSet)
+	// SetBindingNumas overwrites the numa ids this policy interested in
+	SetBindingNumas(machine.CPUSet)
 	// SetEssentials updates essential values for policy update
 	SetEssentials(essentials types.ResourceEssentials)
 
@@ -39,7 +44,8 @@ type HeadroomPolicy interface {
 	GetHeadroom() (float64, error)
 }
 
-type InitFunc func(regionName string, conf *config.Configuration, extraConfig interface{}, metaReader metacache.MetaReader,
+type InitFunc func(regionName string, regionType types.QoSRegionType, ownerPoolName string,
+	conf *config.Configuration, extraConfig interface{}, metaReader metacache.MetaReader,
 	metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter) HeadroomPolicy
 
 var initializers sync.Map

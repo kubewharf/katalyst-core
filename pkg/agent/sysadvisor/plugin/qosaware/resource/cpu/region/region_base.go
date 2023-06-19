@@ -345,7 +345,7 @@ func (r *QoSRegionBase) initHeadroomPolicy(conf *config.Configuration, extraConf
 	headroomInitializers := headroompolicy.GetRegisteredInitializers()
 	for _, policyName := range configuredHeadroomPolicy {
 		if initializer, ok := headroomInitializers[policyName]; ok {
-			policy := initializer(r.name, conf, extraConf, metaReader, metaServer, emitter)
+			policy := initializer(r.name, r.regionType, r.ownerPoolName, conf, extraConf, metaReader, metaServer, emitter)
 			r.headroomPolicies = append(r.headroomPolicies, &internalHeadroomPolicy{
 				name:                policyName,
 				policy:              policy,
