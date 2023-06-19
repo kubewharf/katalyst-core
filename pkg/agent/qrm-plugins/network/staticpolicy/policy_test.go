@@ -211,7 +211,7 @@ func TestAllocate(t *testing.T) {
 				ContainerName:    testName,
 				ContainerType:    pluginapi.ContainerType_INIT,
 				ContainerIndex:   0,
-				ResourceName:     ResourceNameNetBandwidth,
+				ResourceName:     string(consts.ResourceNetBandwidth),
 				ResourceRequests: make(map[string]float64),
 				Labels: map[string]string{
 					consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
@@ -226,7 +226,7 @@ func TestAllocate(t *testing.T) {
 				ContainerName:    testName,
 				ContainerType:    pluginapi.ContainerType_INIT,
 				ContainerIndex:   0,
-				ResourceName:     ResourceNameNetBandwidth,
+				ResourceName:     string(consts.ResourceNetBandwidth),
 				AllocationResult: nil,
 				Labels: map[string]string{
 					consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
@@ -245,7 +245,7 @@ func TestAllocate(t *testing.T) {
 				ContainerName:  testName,
 				ContainerType:  pluginapi.ContainerType_MAIN,
 				ContainerIndex: 0,
-				ResourceName:   ResourceNameNetBandwidth,
+				ResourceName:   string(consts.ResourceNetBandwidth),
 				Hint: &pluginapi.TopologyHint{
 					Nodes:     []uint64{0, 1},
 					Preferred: true,
@@ -266,10 +266,10 @@ func TestAllocate(t *testing.T) {
 				ContainerName:  testName,
 				ContainerType:  pluginapi.ContainerType_MAIN,
 				ContainerIndex: 0,
-				ResourceName:   ResourceNameNetBandwidth,
+				ResourceName:   string(consts.ResourceNetBandwidth),
 				AllocationResult: &pluginapi.ResourceAllocation{
 					ResourceAllocation: map[string]*pluginapi.ResourceAllocationInfo{
-						ResourceNameNetBandwidth: {
+						string(consts.ResourceNetBandwidth): {
 							IsNodeResource:    false,
 							IsScalarResource:  true,
 							AllocatedQuantity: 0,
@@ -309,7 +309,7 @@ func TestAllocate(t *testing.T) {
 				ContainerName:  testName,
 				ContainerType:  pluginapi.ContainerType_MAIN,
 				ContainerIndex: 0,
-				ResourceName:   ResourceNameNetBandwidth,
+				ResourceName:   string(consts.ResourceNetBandwidth),
 				Hint: &pluginapi.TopologyHint{
 					Nodes:     []uint64{2, 3},
 					Preferred: true,
@@ -330,10 +330,10 @@ func TestAllocate(t *testing.T) {
 				ContainerName:  testName,
 				ContainerType:  pluginapi.ContainerType_MAIN,
 				ContainerIndex: 0,
-				ResourceName:   ResourceNameNetBandwidth,
+				ResourceName:   string(consts.ResourceNetBandwidth),
 				AllocationResult: &pluginapi.ResourceAllocation{
 					ResourceAllocation: map[string]*pluginapi.ResourceAllocationInfo{
-						ResourceNameNetBandwidth: {
+						string(consts.ResourceNetBandwidth): {
 							IsNodeResource:    false,
 							IsScalarResource:  true,
 							AllocatedQuantity: 0,
@@ -373,7 +373,7 @@ func TestAllocate(t *testing.T) {
 				ContainerName:  testName,
 				ContainerType:  pluginapi.ContainerType_MAIN,
 				ContainerIndex: 0,
-				ResourceName:   ResourceNameNetBandwidth,
+				ResourceName:   string(consts.ResourceNetBandwidth),
 				Hint: &pluginapi.TopologyHint{
 					Nodes:     []uint64{0, 1},
 					Preferred: true,
@@ -393,10 +393,10 @@ func TestAllocate(t *testing.T) {
 				ContainerName:  testName,
 				ContainerType:  pluginapi.ContainerType_MAIN,
 				ContainerIndex: 0,
-				ResourceName:   ResourceNameNetBandwidth,
+				ResourceName:   string(consts.ResourceNetBandwidth),
 				AllocationResult: &pluginapi.ResourceAllocation{
 					ResourceAllocation: map[string]*pluginapi.ResourceAllocationInfo{
-						ResourceNameNetBandwidth: {
+						string(consts.ResourceNetBandwidth): {
 							IsNodeResource:    false,
 							IsScalarResource:  true,
 							AllocatedQuantity: 0,
@@ -554,7 +554,7 @@ func TestResourceName(t *testing.T) {
 	policy := makeStaticPolicy(t)
 	assert.NotNil(t, policy)
 
-	assert.Equal(t, ResourceNameNetBandwidth, policy.ResourceName())
+	assert.Equal(t, string(consts.ResourceNetBandwidth), policy.ResourceName())
 }
 
 func TestGetTopologyHints(t *testing.T) {
@@ -574,7 +574,7 @@ func TestGetTopologyHints(t *testing.T) {
 				ContainerName:    testName,
 				ContainerType:    pluginapi.ContainerType_INIT,
 				ContainerIndex:   0,
-				ResourceName:     ResourceNameNetBandwidth,
+				ResourceName:     string(consts.ResourceNetBandwidth),
 				ResourceRequests: make(map[string]float64),
 				Labels: map[string]string{
 					consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
@@ -589,9 +589,9 @@ func TestGetTopologyHints(t *testing.T) {
 				ContainerName:  testName,
 				ContainerType:  pluginapi.ContainerType_INIT,
 				ContainerIndex: 0,
-				ResourceName:   ResourceNameNetBandwidth,
+				ResourceName:   string(consts.ResourceNetBandwidth),
 				ResourceHints: map[string]*pluginapi.ListOfTopologyHints{
-					ResourceNameNetBandwidth: nil,
+					string(consts.ResourceNetBandwidth): nil,
 				},
 				Labels: map[string]string{
 					consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
@@ -610,7 +610,7 @@ func TestGetTopologyHints(t *testing.T) {
 				ContainerName:    testName,
 				ContainerType:    pluginapi.ContainerType_MAIN,
 				ContainerIndex:   0,
-				ResourceName:     ResourceNameNetBandwidth,
+				ResourceName:     string(consts.ResourceNetBandwidth),
 				ResourceRequests: make(map[string]float64),
 				Labels: map[string]string{
 					consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
@@ -627,9 +627,9 @@ func TestGetTopologyHints(t *testing.T) {
 				ContainerName:  testName,
 				ContainerType:  pluginapi.ContainerType_MAIN,
 				ContainerIndex: 0,
-				ResourceName:   ResourceNameNetBandwidth,
+				ResourceName:   string(consts.ResourceNetBandwidth),
 				ResourceHints: map[string]*pluginapi.ListOfTopologyHints{
-					ResourceNameNetBandwidth: {
+					string(consts.ResourceNetBandwidth): {
 						Hints: []*pluginapi.TopologyHint{
 							{
 								Nodes:     []uint64{0, 1},
@@ -664,7 +664,7 @@ func TestGetTopologyHints(t *testing.T) {
 				ContainerName:    testName,
 				ContainerType:    pluginapi.ContainerType_MAIN,
 				ContainerIndex:   0,
-				ResourceName:     ResourceNameNetBandwidth,
+				ResourceName:     string(consts.ResourceNetBandwidth),
 				ResourceRequests: make(map[string]float64),
 				Annotations: map[string]string{
 					consts.PodAnnotationNetClassKey:           testReclaimedNetClsId,
@@ -681,9 +681,9 @@ func TestGetTopologyHints(t *testing.T) {
 				ContainerName:  testName,
 				ContainerType:  pluginapi.ContainerType_MAIN,
 				ContainerIndex: 0,
-				ResourceName:   ResourceNameNetBandwidth,
+				ResourceName:   string(consts.ResourceNetBandwidth),
 				ResourceHints: map[string]*pluginapi.ListOfTopologyHints{
-					ResourceNameNetBandwidth: {
+					string(consts.ResourceNetBandwidth): {
 						Hints: []*pluginapi.TopologyHint{
 							{
 								Nodes:     []uint64{0, 1},
@@ -718,7 +718,7 @@ func TestGetTopologyHints(t *testing.T) {
 				ContainerName:    testName,
 				ContainerType:    pluginapi.ContainerType_MAIN,
 				ContainerIndex:   0,
-				ResourceName:     ResourceNameNetBandwidth,
+				ResourceName:     string(consts.ResourceNetBandwidth),
 				ResourceRequests: make(map[string]float64),
 				Annotations: map[string]string{
 					consts.PodAnnotationQoSLevelKey:           consts.PodAnnotationQoSLevelDedicatedCores,
@@ -734,9 +734,9 @@ func TestGetTopologyHints(t *testing.T) {
 				ContainerName:  testName,
 				ContainerType:  pluginapi.ContainerType_MAIN,
 				ContainerIndex: 0,
-				ResourceName:   ResourceNameNetBandwidth,
+				ResourceName:   string(consts.ResourceNetBandwidth),
 				ResourceHints: map[string]*pluginapi.ListOfTopologyHints{
-					ResourceNameNetBandwidth: {
+					string(consts.ResourceNetBandwidth): {
 						Hints: []*pluginapi.TopologyHint{
 							{
 								Nodes:     []uint64{0, 1},
@@ -789,17 +789,17 @@ func TestGetTopologyHints(t *testing.T) {
 			}
 		}
 
-		if resp.ResourceHints[ResourceNameNetBandwidth] != nil {
-			sort.SliceStable(resp.ResourceHints[ResourceNameNetBandwidth].Hints, func(i, j int) bool {
-				return compareHint(resp.ResourceHints[ResourceNameNetBandwidth].Hints[i],
-					resp.ResourceHints[ResourceNameNetBandwidth].Hints[j])
+		if resp.ResourceHints[string(consts.ResourceNetBandwidth)] != nil {
+			sort.SliceStable(resp.ResourceHints[string(consts.ResourceNetBandwidth)].Hints, func(i, j int) bool {
+				return compareHint(resp.ResourceHints[string(consts.ResourceNetBandwidth)].Hints[i],
+					resp.ResourceHints[string(consts.ResourceNetBandwidth)].Hints[j])
 			})
 		}
 
-		if tc.expectedResp.ResourceHints[ResourceNameNetBandwidth] != nil {
-			sort.SliceStable(tc.expectedResp.ResourceHints[ResourceNameNetBandwidth].Hints, func(i, j int) bool {
-				return compareHint(tc.expectedResp.ResourceHints[ResourceNameNetBandwidth].Hints[i],
-					tc.expectedResp.ResourceHints[ResourceNameNetBandwidth].Hints[j])
+		if tc.expectedResp.ResourceHints[string(consts.ResourceNetBandwidth)] != nil {
+			sort.SliceStable(tc.expectedResp.ResourceHints[string(consts.ResourceNetBandwidth)].Hints, func(i, j int) bool {
+				return compareHint(tc.expectedResp.ResourceHints[string(consts.ResourceNetBandwidth)].Hints[i],
+					tc.expectedResp.ResourceHints[string(consts.ResourceNetBandwidth)].Hints[j])
 			})
 		}
 
