@@ -1,6 +1,3 @@
-//go:build linux
-// +build linux
-
 /*
 Copyright 2022 The Katalyst Authors.
 
@@ -22,6 +19,7 @@ package util
 import (
 	"context"
 	"io/ioutil"
+	"os"
 	"testing"
 	"time"
 
@@ -41,26 +39,38 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/client"
 	katalystconfig "github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
+	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent"
+	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric"
+	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/pod"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	metricspool "github.com/kubewharf/katalyst-core/pkg/metrics/metrics-pool"
+	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
-func generatePluginConfig(t *testing.T) *katalystconfig.Configuration {
+func generatePluginConfig(t *testing.T, ckDir, sfDir string) *katalystconfig.Configuration {
 	testConfiguration, err := options.NewOptions().Config()
 	require.NoError(t, err)
 	require.NotNil(t, testConfiguration)
 
 	testConfiguration.QRMServers = []string{}
 
-	tmpStateDir, err := ioutil.TempDir("", "sys-advisor-test")
-	require.NoError(t, err)
-	testConfiguration.GenericSysAdvisorConfiguration.StateFileDirectory = tmpStateDir
+	testConfiguration.GenericSysAdvisorConfiguration.StateFileDirectory = sfDir
+	testConfiguration.MetaServerConfiguration.CheckpointManagerDir = ckDir
 
 	return testConfiguration
 }
 
 func TestAdvisor(t *testing.T) {
-	conf := generatePluginConfig(t)
+
+	ckDir, err := ioutil.TempDir("", "checkpoint")
+	require.NoError(t, err)
+	defer os.RemoveAll(ckDir)
+
+	sfDir, err := ioutil.TempDir("", "statefile")
+	require.NoError(t, err)
+	defer os.RemoveAll(sfDir)
+
+	conf := generatePluginConfig(t, ckDir, sfDir)
 
 	genericClient := &client.GenericClientSet{
 		KubeClient:     fake.NewSimpleClientset(),
@@ -69,6 +79,20 @@ func TestAdvisor(t *testing.T) {
 	}
 	meta, err := metaserver.NewMetaServer(genericClient, metrics.DummyMetrics{}, conf)
 	assert.NoError(t, err)
+
+	cpuTopology, err := machine.GenerateDummyCPUTopology(96, 2, 2)
+	assert.NoError(t, err)
+
+	meta.MetaAgent = &agent.MetaAgent{
+		KatalystMachineInfo: &machine.KatalystMachineInfo{
+			CPUTopology: cpuTopology,
+		},
+	}
+
+	fakeMetricsFetcher := metric.NewFakeMetricsFetcher(metrics.DummyMetrics{}).(*metric.FakeMetricsFetcher)
+	assert.NotNil(t, fakeMetricsFetcher)
+	meta.MetricsFetcher = fakeMetricsFetcher
+	meta.PodFetcher = &pod.PodFetcherStub{}
 
 	advisor, err := sysadvisor.NewAdvisorAgent(conf, struct{}{}, meta, metricspool.DummyMetricsEmitterPool{})
 	assert.NoError(t, err)
@@ -108,10 +132,32 @@ func TestPlugins(t *testing.T) {
 		DynamicClient:  dynamicfake.NewSimpleDynamicClient(runtime.NewScheme()),
 	}
 
+	ckDir, err := ioutil.TempDir("", "checkpoint")
+	require.NoError(t, err)
+	defer os.RemoveAll(ckDir)
+
+	sfDir, err := ioutil.TempDir("", "statefile")
+	require.NoError(t, err)
+	defer os.RemoveAll(sfDir)
+
 	ctx, cancel := context.WithCancel(context.Background())
-	conf := generatePluginConfig(t)
+	conf := generatePluginConfig(t, ckDir, sfDir)
 	meta, err := metaserver.NewMetaServer(genericClient, metrics.DummyMetrics{}, conf)
 	assert.NoError(t, err)
+
+	cpuTopology, err := machine.GenerateDummyCPUTopology(96, 2, 2)
+	assert.NoError(t, err)
+
+	meta.MetaAgent = &agent.MetaAgent{
+		KatalystMachineInfo: &machine.KatalystMachineInfo{
+			CPUTopology: cpuTopology,
+		},
+	}
+
+	fakeMetricsFetcher := metric.NewFakeMetricsFetcher(metrics.DummyMetrics{}).(*metric.FakeMetricsFetcher)
+	assert.NotNil(t, fakeMetricsFetcher)
+	meta.MetricsFetcher = fakeMetricsFetcher
+	meta.PodFetcher = &pod.PodFetcherStub{}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -138,7 +184,15 @@ func TestMetaServer(t *testing.T) {
 		DynamicClient:  dynamicfake.NewSimpleDynamicClient(runtime.NewScheme()),
 	}
 
-	conf := generatePluginConfig(t)
+	ckDir, err := ioutil.TempDir("", "checkpoint")
+	require.NoError(t, err)
+	defer os.RemoveAll(ckDir)
+
+	sfDir, err := ioutil.TempDir("", "statefile")
+	require.NoError(t, err)
+	defer os.RemoveAll(sfDir)
+
+	conf := generatePluginConfig(t, ckDir, sfDir)
 	meta, err := metaserver.NewMetaServer(client, metrics.DummyMetrics{}, conf)
 	if err == nil {
 		ctx, cancel := context.WithCancel(context.Background())

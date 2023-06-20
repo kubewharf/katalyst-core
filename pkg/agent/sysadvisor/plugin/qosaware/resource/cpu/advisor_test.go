@@ -142,14 +142,14 @@ func TestAdvisorUpdate(t *testing.T) {
 		containers                    []*types.ContainerInfo
 		pods                          []*v1.Pod
 		enableReclaim                 bool
-		wantInternalCalculationResult types.InternalCalculationResult
+		wantInternalCalculationResult types.InternalCPUCalculationResult
 		wantHeadroom                  resource.Quantity
 		metrics                       []metricItem
 	}{
 		{
 			name:                          "missing_reserve_pool",
 			pools:                         map[string]*types.PoolInfo{},
-			wantInternalCalculationResult: types.InternalCalculationResult{},
+			wantInternalCalculationResult: types.InternalCPUCalculationResult{},
 			wantHeadroom:                  resource.Quantity{},
 		},
 		{
@@ -164,7 +164,7 @@ func TestAdvisorUpdate(t *testing.T) {
 				},
 			},
 			enableReclaim: true,
-			wantInternalCalculationResult: types.InternalCalculationResult{
+			wantInternalCalculationResult: types.InternalCPUCalculationResult{
 				PoolEntries: map[string]map[int]int{
 					state.PoolNameReserve: {-1: 2},
 					state.PoolNameReclaim: {-1: 94},
@@ -207,7 +207,7 @@ func TestAdvisorUpdate(t *testing.T) {
 				},
 			},
 			enableReclaim: true,
-			wantInternalCalculationResult: types.InternalCalculationResult{
+			wantInternalCalculationResult: types.InternalCPUCalculationResult{
 				PoolEntries: map[string]map[int]int{
 					state.PoolNameReserve: {-1: 2},
 					state.PoolNameShare:   {-1: 8},
@@ -251,7 +251,7 @@ func TestAdvisorUpdate(t *testing.T) {
 				},
 			},
 			enableReclaim: true,
-			wantInternalCalculationResult: types.InternalCalculationResult{
+			wantInternalCalculationResult: types.InternalCPUCalculationResult{
 				PoolEntries: map[string]map[int]int{
 					state.PoolNameReserve: {-1: 2},
 					state.PoolNameShare:   {-1: 90},
@@ -314,7 +314,7 @@ func TestAdvisorUpdate(t *testing.T) {
 				},
 			},
 			enableReclaim: true,
-			wantInternalCalculationResult: types.InternalCalculationResult{
+			wantInternalCalculationResult: types.InternalCPUCalculationResult{
 				PoolEntries: map[string]map[int]int{
 					state.PoolNameReserve: {-1: 2},
 					state.PoolNameShare:   {-1: 6},
@@ -378,7 +378,7 @@ func TestAdvisorUpdate(t *testing.T) {
 				},
 			},
 			enableReclaim: true,
-			wantInternalCalculationResult: types.InternalCalculationResult{
+			wantInternalCalculationResult: types.InternalCPUCalculationResult{
 				PoolEntries: map[string]map[int]int{
 					state.PoolNameReserve: {-1: 2},
 					state.PoolNameShare:   {-1: 30},
@@ -423,7 +423,7 @@ func TestAdvisorUpdate(t *testing.T) {
 				},
 			},
 			enableReclaim: true,
-			wantInternalCalculationResult: types.InternalCalculationResult{
+			wantInternalCalculationResult: types.InternalCPUCalculationResult{
 				PoolEntries: map[string]map[int]int{
 					state.PoolNameReserve: {
 						-1: 2,
@@ -488,7 +488,7 @@ func TestAdvisorUpdate(t *testing.T) {
 				},
 			},
 			enableReclaim: true,
-			wantInternalCalculationResult: types.InternalCalculationResult{
+			wantInternalCalculationResult: types.InternalCPUCalculationResult{
 				PoolEntries: map[string]map[int]int{
 					state.PoolNameReserve: {
 						-1: 2,
@@ -556,7 +556,7 @@ func TestAdvisorUpdate(t *testing.T) {
 				},
 			},
 			enableReclaim: false,
-			wantInternalCalculationResult: types.InternalCalculationResult{
+			wantInternalCalculationResult: types.InternalCPUCalculationResult{
 				PoolEntries: map[string]map[int]int{
 					state.PoolNameReserve: {
 						-1: 2,
@@ -631,7 +631,7 @@ func TestAdvisorUpdate(t *testing.T) {
 				},
 			},
 			enableReclaim: true,
-			wantInternalCalculationResult: types.InternalCalculationResult{
+			wantInternalCalculationResult: types.InternalCPUCalculationResult{
 				PoolEntries: map[string]map[int]int{
 					state.PoolNameReserve: {-1: 2},
 					state.PoolNameShare:   {-1: 81},
@@ -729,7 +729,7 @@ func TestAdvisorUpdate(t *testing.T) {
 				},
 			},
 			enableReclaim: true,
-			wantInternalCalculationResult: types.InternalCalculationResult{
+			wantInternalCalculationResult: types.InternalCPUCalculationResult{
 				PoolEntries: map[string]map[int]int{
 					state.PoolNameReserve: {-1: 2},
 					state.PoolNameShare:   {-1: 84},
@@ -791,7 +791,7 @@ func TestAdvisorUpdate(t *testing.T) {
 
 			recvChInterface, sendChInterface := advisor.GetChannels()
 			recvCh := recvChInterface.(chan struct{})
-			sendCh := sendChInterface.(chan types.InternalCalculationResult)
+			sendCh := sendChInterface.(chan types.InternalCPUCalculationResult)
 
 			for poolName, poolInfo := range tt.pools {
 				_ = metaCache.SetPoolInfo(poolName, poolInfo)
@@ -807,7 +807,7 @@ func TestAdvisorUpdate(t *testing.T) {
 			recvCh <- struct{}{}
 
 			// check provision
-			if !reflect.DeepEqual(tt.wantInternalCalculationResult, types.InternalCalculationResult{}) {
+			if !reflect.DeepEqual(tt.wantInternalCalculationResult, types.InternalCPUCalculationResult{}) {
 				timeoutTick := time.NewTimer(time.Second * 5)
 				select {
 				case <-timeoutTick.C:

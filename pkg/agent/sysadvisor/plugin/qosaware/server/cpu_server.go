@@ -47,12 +47,13 @@ type cpuServer struct {
 	cpuPluginClient     cpuadvisor.CPUPluginClient
 }
 
-func NewCPUServer(recvCh chan types.InternalCalculationResult, sendCh chan struct{}, conf *config.Configuration,
+func NewCPUServer(recvCh chan types.InternalCPUCalculationResult, sendCh chan struct{}, conf *config.Configuration,
 	metaCache metacache.MetaCache, emitter metrics.MetricEmitter) (*cpuServer, error) {
 	cs := &cpuServer{}
 	cs.baseServer = newBaseServer(cpuServerName, conf, recvCh, sendCh, metaCache, emitter, cs)
 	cs.advisorSocketPath = conf.CPUAdvisorSocketAbsPath
 	cs.pluginSocketPath = conf.CPUPluginSocketAbsPath
+	cs.resourceRequestName = "CPURequest"
 	return cs, nil
 }
 
@@ -60,10 +61,6 @@ func (cs *cpuServer) RegisterAdvisorServer() {
 	grpcServer := grpc.NewServer()
 	cpuadvisor.RegisterCPUAdvisorServer(grpcServer, cs)
 	cs.grpcServer = grpcServer
-}
-
-func (cs *cpuServer) UpdateContainerResources(request *advisorsvc.AddContainerRequest, containerInfo *types.ContainerInfo) {
-	containerInfo.CPURequest = float64(request.RequestQuantity)
 }
 
 func (cs *cpuServer) ListAndWatch(_ *advisorsvc.Empty, server cpuadvisor.CPUAdvisor_ListAndWatchServer) error {
@@ -78,7 +75,7 @@ func (cs *cpuServer) ListAndWatch(_ *advisorsvc.Empty, server cpuadvisor.CPUAdvi
 		cs.getCheckpointCalled = true
 	}
 
-	recvCh, ok := cs.recvCh.(chan types.InternalCalculationResult)
+	recvCh, ok := cs.recvCh.(chan types.InternalCPUCalculationResult)
 	if !ok {
 		return fmt.Errorf("recvCh convert failed")
 	}
@@ -243,9 +240,9 @@ func (cs *cpuServer) updateContainerInfo(podUID string, containerName string, in
 	return cs.metaCache.SetContainerInfo(podUID, containerName, ci)
 }
 
-// assemblePoolEntries fills up calculationEntriesMap and blockSet based on cpu.InternalCalculationResult
+// assemblePoolEntries fills up calculationEntriesMap and blockSet based on cpu.InternalCPUCalculationResult
 // - for each [pool, numa] set, there exists a new Block (and corresponding internalBlock)
-func (cs *cpuServer) assemblePoolEntries(advisorResp *types.InternalCalculationResult, calculationEntriesMap map[string]*cpuadvisor.CalculationEntries, bs blockSet) {
+func (cs *cpuServer) assemblePoolEntries(advisorResp *types.InternalCPUCalculationResult, calculationEntriesMap map[string]*cpuadvisor.CalculationEntries, bs blockSet) {
 	for poolName, entries := range advisorResp.PoolEntries {
 		poolEntry := NewPoolCalculationEntries(poolName)
 		for numaID, size := range entries {

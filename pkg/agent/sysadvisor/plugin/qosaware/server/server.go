@@ -23,7 +23,6 @@ import (
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/klog/v2"
 
-	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/advisorsvc"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
@@ -43,8 +42,8 @@ type subQRMServer interface {
 	Name() string
 	Start() error
 	Stop() error
+	// RegisterAdvisorServer registers resource server and its implementation to the gRPC server.
 	RegisterAdvisorServer()
-	UpdateContainerResources(request *advisorsvc.AddContainerRequest, containerInfo *types.ContainerInfo)
 }
 
 type qrmServerWrapper struct {
@@ -98,8 +97,16 @@ func newSubQRMServer(resourceName v1.ResourceName, advisorWrapper resource.Resou
 		}
 		advisorRecvChInterface, advisorSendChInterface := subAdvisor.GetChannels()
 		advisorRecvCh := advisorRecvChInterface.(chan struct{})
-		advisorSendCh := advisorSendChInterface.(chan types.InternalCalculationResult)
+		advisorSendCh := advisorSendChInterface.(chan types.InternalCPUCalculationResult)
 		return NewCPUServer(advisorSendCh, advisorRecvCh, conf, metaCache, emitter)
+	case v1.ResourceMemory:
+		subAdvisor, err := advisorWrapper.GetSubAdvisor(types.QoSResourceMemory)
+		if err != nil {
+			return nil, err
+		}
+		_, advisorSendChInterface := subAdvisor.GetChannels()
+		advisorSendCh := advisorSendChInterface.(chan types.InternalMemoryCalculationResult)
+		return NewMemoryServer(advisorSendCh, nil, conf, metaCache, emitter)
 	default:
 		return nil, fmt.Errorf("illegal resource %v", resourceName)
 	}

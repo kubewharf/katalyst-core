@@ -60,7 +60,7 @@ func generateTestConfiguration(t *testing.T) *config.Configuration {
 }
 
 func newTestCPUServer(t *testing.T) *cpuServer {
-	recvCh := make(chan types.InternalCalculationResult)
+	recvCh := make(chan types.InternalCPUCalculationResult)
 	sendCh := make(chan struct{})
 	conf := generateTestConfiguration(t)
 
@@ -226,7 +226,7 @@ func TestCPUServerListAndWatch(t *testing.T) {
 	tests := []struct {
 		name      string
 		empty     *advisorsvc.Empty
-		provision types.InternalCalculationResult
+		provision types.InternalCPUCalculationResult
 		infos     []*ContainerInfo
 		wantErr   bool
 		wantRes   *cpuadvisor.ListAndWatchResponse
@@ -234,7 +234,7 @@ func TestCPUServerListAndWatch(t *testing.T) {
 		{
 			name:  "reclaim pool with shared pool",
 			empty: &advisorsvc.Empty{},
-			provision: types.InternalCalculationResult{PoolEntries: map[string]map[int]int{
+			provision: types.InternalCPUCalculationResult{PoolEntries: map[string]map[int]int{
 				state.PoolNameShare:   {-1: 2},
 				state.PoolNameReclaim: {-1: 4},
 			}},
@@ -279,7 +279,7 @@ func TestCPUServerListAndWatch(t *testing.T) {
 		{
 			name:  "reclaim pool with dedicated pod",
 			empty: &advisorsvc.Empty{},
-			provision: types.InternalCalculationResult{PoolEntries: map[string]map[int]int{
+			provision: types.InternalCPUCalculationResult{PoolEntries: map[string]map[int]int{
 				state.PoolNameReclaim: {
 					0: 4,
 					1: 8,
@@ -389,7 +389,7 @@ func TestCPUServerListAndWatch(t *testing.T) {
 		{
 			name:  "reclaim pool colocated with dedicated pod(2 containers)",
 			empty: &advisorsvc.Empty{},
-			provision: types.InternalCalculationResult{PoolEntries: map[string]map[int]int{
+			provision: types.InternalCPUCalculationResult{PoolEntries: map[string]map[int]int{
 				state.PoolNameReclaim: {
 					0: 4,
 					1: 8,
@@ -606,7 +606,7 @@ func TestCPUServerListAndWatch(t *testing.T) {
 				}
 				stop <- struct{}{}
 			}()
-			recvCh := cs.recvCh.(chan types.InternalCalculationResult)
+			recvCh := cs.recvCh.(chan types.InternalCPUCalculationResult)
 			recvCh <- tt.provision
 			res := <-s.ResultsChan
 			close(cs.stopCh)

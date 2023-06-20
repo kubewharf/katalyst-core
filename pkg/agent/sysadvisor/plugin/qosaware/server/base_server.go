@@ -22,6 +22,7 @@ import (
 	"net"
 	"os"
 	"path"
+	"reflect"
 	"strings"
 	"time"
 
@@ -58,6 +59,9 @@ type baseServer struct {
 	lwCalledChan        chan struct{}
 	stopCh              chan struct{}
 	getCheckpointCalled bool
+	// resourceRequestName and resourceLimitName are field names of types.ContainerInfo
+	resourceRequestName string
+	resourceLimitName   string
 
 	metaCache metacache.MetaCache
 	emitter   metrics.MetricEmitter
@@ -249,7 +253,12 @@ func (bs *baseServer) addContainer(request *advisorsvc.AddContainerRequest) erro
 		QoSLevel:       request.QosLevel,
 	}
 
-	bs.resourceServer.UpdateContainerResources(request, containerInfo)
+	rv := reflect.ValueOf(containerInfo)
+	field := rv.Elem().FieldByName(bs.resourceRequestName)
+	if !field.IsValid() {
+		return fmt.Errorf("%v is invalid", bs.resourceRequestName)
+	}
+	field.SetFloat(float64(request.RequestQuantity))
 
 	if err := bs.metaCache.AddContainer(containerInfo.PodUID, containerInfo.ContainerName, containerInfo); err != nil {
 		// Try to delete container info in both memory and state file if add container returns error
