@@ -48,11 +48,11 @@ func generateTestCNC(name string, labels map[string]string) *apisv1alpha1.Custom
 }
 
 func generateTestTargetResource(name, labelSelector string, nodeNames []string) *unstructured.Unstructured {
-	return toTestUnstructured(&apisv1alpha1.EvictionConfiguration{
+	return toTestUnstructured(&apisv1alpha1.AdminQoSConfiguration{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: name,
 		},
-		Spec: apisv1alpha1.EvictionConfigurationSpec{
+		Spec: apisv1alpha1.AdminQoSConfigurationSpec{
 			GenericConfigSpec: apisv1alpha1.GenericConfigSpec{
 				NodeLabelSelector: labelSelector,
 				EphemeralSelector: apisv1alpha1.EphemeralSelector{
@@ -65,12 +65,12 @@ func generateTestTargetResource(name, labelSelector string, nodeNames []string) 
 }
 
 func generateTestTargetResourceWithTimeout(name, labelSelector string, nodeNames []string) *unstructured.Unstructured {
-	return toTestUnstructured(&apisv1alpha1.EvictionConfiguration{
+	return toTestUnstructured(&apisv1alpha1.AdminQoSConfiguration{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:              name,
 			CreationTimestamp: metav1.NewTime(time.Now().Add(-1 * time.Minute * 10)),
 		},
-		Spec: apisv1alpha1.EvictionConfigurationSpec{
+		Spec: apisv1alpha1.AdminQoSConfigurationSpec{
 			GenericConfigSpec: apisv1alpha1.GenericConfigSpec{
 				NodeLabelSelector: labelSelector,
 				EphemeralSelector: apisv1alpha1.EphemeralSelector{

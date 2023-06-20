@@ -351,9 +351,9 @@ func TestRssOveruseEvictionPlugin_GetEvictPods(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			plugin.dynamicConfig.GetDynamicConfiguration().EnableRssOveruseDetection = tt.enableRssOveruse
-			plugin.dynamicConfig.GetDynamicConfiguration().RssOveruseRateThreshold = tt.defaultRssOveruseThreshold
-			plugin.pluginConfig.RssOveruseEvictionFilter = tt.podFilter
+			plugin.dynamicConfig.GetDynamicConfiguration().EnableRSSOveruseEviction = tt.enableRssOveruse
+			plugin.dynamicConfig.GetDynamicConfiguration().RSSOveruseRateThreshold = tt.defaultRssOveruseThreshold
+			plugin.evictionConfig.RSSOveruseEvictionFilter = tt.podFilter
 
 			evictPods, err2 := plugin.GetEvictPods(context.TODO(), &pluginapi.GetEvictPodsRequest{
 				ActivePods: pods,

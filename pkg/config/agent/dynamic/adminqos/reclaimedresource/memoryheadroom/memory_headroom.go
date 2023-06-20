@@ -14,16 +14,20 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package eviction
+package memoryheadroom
 
-import "k8s.io/apimachinery/pkg/labels"
+import "github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/crd"
 
-// MemoryPressureEvictionPluginConfiguration is the config of MemoryPressureEvictionPlugin
-type MemoryPressureEvictionPluginConfiguration struct {
-	RssOveruseEvictionFilter labels.Set
+type MemoryHeadroomConfiguration struct {
+	*MemoryUtilBasedConfiguration
 }
 
-// NewMemoryPressureEvictionPluginConfiguration returns a new MemoryPressureEvictionPluginConfiguration
-func NewMemoryPressureEvictionPluginConfiguration() *MemoryPressureEvictionPluginConfiguration {
-	return &MemoryPressureEvictionPluginConfiguration{}
+func NewMemoryHeadroomConfiguration() *MemoryHeadroomConfiguration {
+	return &MemoryHeadroomConfiguration{
+		MemoryUtilBasedConfiguration: NewMemoryUtilBasedConfiguration(),
+	}
+}
+
+func (c *MemoryHeadroomConfiguration) ApplyConfiguration(conf *crd.DynamicConfigCRD) {
+	c.MemoryUtilBasedConfiguration.ApplyConfiguration(conf)
 }

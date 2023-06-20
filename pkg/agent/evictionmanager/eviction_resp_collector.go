@@ -46,7 +46,7 @@ type evictionRespCollector struct {
 	emitter metrics.MetricEmitter
 }
 
-func newEvictionRespCollector(conf *pkgconfig.Configuration, emitter metrics.MetricEmitter) *evictionRespCollector {
+func newEvictionRespCollector(dryRun []string, conf *pkgconfig.Configuration, emitter metrics.MetricEmitter) *evictionRespCollector {
 	collector := &evictionRespCollector{
 		conf:                 conf,
 		currentMetThresholds: make(map[string]*pluginapi.ThresholdMetResponse),
@@ -57,16 +57,16 @@ func newEvictionRespCollector(conf *pkgconfig.Configuration, emitter metrics.Met
 
 		emitter: emitter,
 	}
-	general.Infof("dry run plugins is %v", conf.GenericEvictionConfiguration.DryRunPlugins)
+	general.Infof("dry run plugins is %v", dryRun)
 	return collector
 }
 
-func (e *evictionRespCollector) isDryRun(pluginName string) bool {
-	if e.conf.GenericEvictionConfiguration.DryRunPlugins == nil {
+func (e *evictionRespCollector) isDryRun(dryRunPlugins []string, pluginName string) bool {
+	if len(dryRunPlugins) == 0 {
 		return false
 	}
 
-	return general.IsNameEnabled(pluginName, nil, e.conf.GenericEvictionConfiguration.DryRunPlugins)
+	return general.IsNameEnabled(pluginName, nil, dryRunPlugins)
 }
 
 func (e *evictionRespCollector) getLogPrefix(dryRun bool) string {
@@ -77,8 +77,8 @@ func (e *evictionRespCollector) getLogPrefix(dryRun bool) string {
 	return ""
 }
 
-func (e *evictionRespCollector) collectEvictPods(pluginName string, resp *pluginapi.GetEvictPodsResponse) {
-	dryRun := e.isDryRun(pluginName)
+func (e *evictionRespCollector) collectEvictPods(dryRunPlugins []string, pluginName string, resp *pluginapi.GetEvictPodsResponse) {
+	dryRun := e.isDryRun(dryRunPlugins, pluginName)
 
 	evictPods := make([]*pluginapi.EvictPod, 0, len(resp.EvictPods))
 	for i, evictPod := range resp.EvictPods {
@@ -128,8 +128,8 @@ func (e *evictionRespCollector) collectEvictPods(pluginName string, resp *plugin
 	}
 }
 
-func (e *evictionRespCollector) collectMetThreshold(pluginName string, resp *pluginapi.ThresholdMetResponse) {
-	dryRun := e.isDryRun(pluginName)
+func (e *evictionRespCollector) collectMetThreshold(dryRunPlugins []string, pluginName string, resp *pluginapi.ThresholdMetResponse) {
+	dryRun := e.isDryRun(dryRunPlugins, pluginName)
 
 	if resp.MetType == pluginapi.ThresholdMetType_NOT_MET {
 		general.InfofV(6, "%v plugin: %s threshold isn't met", e.getLogPrefix(dryRun), pluginName)
@@ -150,8 +150,8 @@ func (e *evictionRespCollector) collectMetThreshold(pluginName string, resp *plu
 	}
 }
 
-func (e *evictionRespCollector) collectTopEvictionPods(pluginName string, threshold *pluginapi.ThresholdMetResponse, resp *pluginapi.GetTopEvictionPodsResponse) {
-	dryRun := e.isDryRun(pluginName)
+func (e *evictionRespCollector) collectTopEvictionPods(dryRunPlugins []string, pluginName string, threshold *pluginapi.ThresholdMetResponse, resp *pluginapi.GetTopEvictionPodsResponse) {
+	dryRun := e.isDryRun(dryRunPlugins, pluginName)
 
 	targetPods := make([]*v1.Pod, 0, len(resp.TargetPods))
 	for i, pod := range resp.TargetPods {

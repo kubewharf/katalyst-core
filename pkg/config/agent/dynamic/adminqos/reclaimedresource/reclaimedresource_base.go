@@ -14,11 +14,13 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package adminqos
+package reclaimedresource
 
 import (
 	v1 "k8s.io/api/core/v1"
 
+	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/adminqos/reclaimedresource/cpuheadroom"
+	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/adminqos/reclaimedresource/memoryheadroom"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/crd"
 )
 
@@ -27,34 +29,44 @@ type ReclaimedResourceConfiguration struct {
 	ReservedResourceForReport     v1.ResourceList
 	MinReclaimedResourceForReport v1.ResourceList
 	ReservedResourceForAllocate   v1.ResourceList
+
+	*cpuheadroom.CPUHeadroomConfiguration
+	*memoryheadroom.MemoryHeadroomConfiguration
 }
 
 func NewReclaimedResourceConfiguration() *ReclaimedResourceConfiguration {
-	return &ReclaimedResourceConfiguration{}
+	return &ReclaimedResourceConfiguration{
+		CPUHeadroomConfiguration:    cpuheadroom.NewCPUHeadroomConfiguration(),
+		MemoryHeadroomConfiguration: memoryheadroom.NewMemoryHeadroomConfiguration(),
+	}
 }
 
 func (c *ReclaimedResourceConfiguration) ApplyConfiguration(conf *crd.DynamicConfigCRD) {
-	if ac := conf.AdminQoSConfiguration; ac != nil {
-		if ac.Spec.Config.ReclaimedResourceConfig.EnableReclaim != nil {
-			c.EnableReclaim = *ac.Spec.Config.ReclaimedResourceConfig.EnableReclaim
+	if aqc := conf.AdminQoSConfiguration; aqc != nil && aqc.Spec.Config.ReclaimedResourceConfig != nil {
+		config := aqc.Spec.Config.ReclaimedResourceConfig
+		if config.EnableReclaim != nil {
+			c.EnableReclaim = *config.EnableReclaim
 		}
 
-		if reservedResourceForReport := ac.Spec.Config.ReclaimedResourceConfig.ReservedResourceForReport; reservedResourceForReport != nil {
-			for resourceName, value := range *reservedResourceForReport {
+		if config.ReservedResourceForReport != nil {
+			for resourceName, value := range *config.ReservedResourceForReport {
 				c.ReservedResourceForReport[resourceName] = value
 			}
 		}
 
-		if minReclaimedResourceForReport := ac.Spec.Config.ReclaimedResourceConfig.MinReclaimedResourceForReport; minReclaimedResourceForReport != nil {
-			for resourceName, value := range *minReclaimedResourceForReport {
+		if config.MinReclaimedResourceForReport != nil {
+			for resourceName, value := range *config.MinReclaimedResourceForReport {
 				c.MinReclaimedResourceForReport[resourceName] = value
 			}
 		}
 
-		if reservedResourceForAllocate := ac.Spec.Config.ReclaimedResourceConfig.ReservedResourceForAllocate; reservedResourceForAllocate != nil {
-			for resourceName, value := range *reservedResourceForAllocate {
+		if config.ReservedResourceForAllocate != nil {
+			for resourceName, value := range *config.ReservedResourceForAllocate {
 				c.ReservedResourceForAllocate[resourceName] = value
 			}
 		}
 	}
+
+	c.CPUHeadroomConfiguration.ApplyConfiguration(conf)
+	c.MemoryHeadroomConfiguration.ApplyConfiguration(conf)
 }

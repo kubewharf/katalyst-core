@@ -50,7 +50,7 @@ func NewNumaMemoryPressureEvictionPlugin(_ *client.GenericClientSet, _ events.Ev
 		emitter:                        emitter,
 		StopControl:                    process.NewStopControl(time.Time{}),
 		metaServer:                     metaServer,
-		dynamicConf:                    conf.DynamicAgentConfiguration,
+		dynamicConfig:                  conf.DynamicAgentConfiguration,
 		reclaimedPodFilter:             conf.CheckReclaimedQoSForPod,
 		numaActionMap:                  make(map[int]int),
 		numaFreeBelowWatermarkTimesMap: make(map[int]int),
@@ -69,7 +69,7 @@ type NumaMemoryPressurePlugin struct {
 	metaServer         *metaserver.MetaServer
 	evictionHelper     *EvictionHelper
 
-	dynamicConf *dynamic.DynamicAgentConfiguration
+	dynamicConfig *dynamic.DynamicAgentConfiguration
 
 	numaActionMap                  map[int]int
 	numaFreeBelowWatermarkTimesMap map[int]int
@@ -89,7 +89,7 @@ func (n *NumaMemoryPressurePlugin) ThresholdMet(_ context.Context) (*pluginapi.T
 		MetType: pluginapi.ThresholdMetType_NOT_MET,
 	}
 
-	if !n.dynamicConf.GetDynamicConfiguration().EnableNumaLevelDetection {
+	if !n.dynamicConfig.GetDynamicConfiguration().EnableNumaLevelEviction {
 		return resp, nil
 	}
 
@@ -129,11 +129,11 @@ func (n *NumaMemoryPressurePlugin) detectNumaWatermarkPressure(numaID int) error
 		return err
 	}
 
-	dynamicConf := n.dynamicConf.GetDynamicConfiguration()
+	dynamicConfig := n.dynamicConfig.GetDynamicConfiguration()
 	general.Infof("numa watermark metrics of ID: %d, "+
 		"free: %+v, total: %+v, scaleFactor: %+v, numaFreeBelowWatermarkTimes: %+v, numaFreeBelowWatermarkTimesThreshold: %+v",
 		numaID, free, total, scaleFactor, n.numaFreeBelowWatermarkTimesMap[numaID],
-		dynamicConf.NumaFreeBelowWatermarkTimesThreshold)
+		dynamicConfig.NumaFreeBelowWatermarkTimesThreshold)
 	_ = n.emitter.StoreFloat64(metricsNameNumaMetric, float64(n.numaFreeBelowWatermarkTimesMap[numaID]), metrics.MetricTypeNameRaw,
 		metrics.ConvertMapToTags(map[string]string{
 			metricsTagKeyNumaID:     strconv.Itoa(numaID),
@@ -148,7 +148,7 @@ func (n *NumaMemoryPressurePlugin) detectNumaWatermarkPressure(numaID int) error
 		n.numaFreeBelowWatermarkTimesMap[numaID] = 0
 	}
 
-	if n.numaFreeBelowWatermarkTimesMap[numaID] >= dynamicConf.NumaFreeBelowWatermarkTimesThreshold {
+	if n.numaFreeBelowWatermarkTimesMap[numaID] >= dynamicConfig.NumaFreeBelowWatermarkTimesThreshold {
 		n.numaActionMap[numaID] = actionEviction
 	}
 
@@ -184,7 +184,7 @@ func (n *NumaMemoryPressurePlugin) GetTopEvictionPods(_ context.Context, request
 		return &pluginapi.GetTopEvictionPodsResponse{}, nil
 	}
 
-	dynamicConf := n.dynamicConf.GetDynamicConfiguration()
+	dynamicConfig := n.dynamicConfig.GetDynamicConfiguration()
 	targetPods := make([]*v1.Pod, 0, len(request.ActivePods))
 	podToEvictMap := make(map[string]*v1.Pod)
 
@@ -192,10 +192,10 @@ func (n *NumaMemoryPressurePlugin) GetTopEvictionPods(_ context.Context, request
 		n.isUnderNumaPressure,
 		n.numaActionMap)
 
-	if dynamicConf.EnableNumaLevelDetection && n.isUnderNumaPressure {
+	if dynamicConfig.EnableNumaLevelEviction && n.isUnderNumaPressure {
 		for numaID, action := range n.numaActionMap {
 			n.evictionHelper.selectTopNPodsToEvictByMetrics(request.ActivePods, request.TopN, numaID, action,
-				dynamicConf.NumaEvictionRankingMetrics, podToEvictMap)
+				dynamicConfig.NumaEvictionRankingMetrics, podToEvictMap)
 		}
 	}
 
@@ -209,7 +209,7 @@ func (n *NumaMemoryPressurePlugin) GetTopEvictionPods(_ context.Context, request
 	resp := &pluginapi.GetTopEvictionPodsResponse{
 		TargetPods: targetPods,
 	}
-	if gracePeriod := dynamicConf.GracePeriod; gracePeriod > 0 {
+	if gracePeriod := dynamicConfig.MemoryPressureEvictionConfiguration.GracePeriod; gracePeriod > 0 {
 		resp.DeletionOptions = &pluginapi.DeletionOptions{
 			GracePeriodSeconds: gracePeriod,
 		}

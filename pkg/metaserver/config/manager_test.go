@@ -36,8 +36,8 @@ import (
 	pkgconfig "github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic"
+	evictionconfig "github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/adminqos/eviction"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/crd"
-	evictionconfig "github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/eviction"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/cnc"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util"
@@ -51,23 +51,23 @@ var (
 	defaultSystemKswapdRateThreshold            = 2000
 	defaultSystemKswapdRateExceedTimesThreshold = 4
 
-	nonDefaultEnableNumaLevelDetection                   = false
-	nonDefaultEnableSystemLevelDetection                 = false
+	nonDefaultEnableNumaLevelEviction                    = false
+	nonDefaultEnableSystemLevelEviction                  = false
 	nonDefaultNumaFreeBelowWatermarkTimesThreshold       = 5
 	nonDefaultSystemKswapdRateThreshold                  = 3000
-	nonDefaulSsystemKswapdRateExceedTimesThreshold       = 5
+	nonDefaultSystemKswapdRateExceedTimesThreshold       = 5
 	nonDefaultNumaEvictionRankingMetrics                 = []string{"metric1", "metric2"}
 	nonDefaultSystemEvictionRankingMetrics               = []string{"metric3"}
 	nonDefaultGracePeriod                          int64 = 30
 
-	nonDefaultMemoryEvictionPluginConfig = v1alpha1.MemoryEvictionPluginConfig{
-		EnableNumaLevelDetection:             &nonDefaultEnableNumaLevelDetection,
-		EnableSystemLevelDetection:           &nonDefaultEnableSystemLevelDetection,
+	nonDefaultMemoryEvictionPluginConfig = v1alpha1.MemoryPressureEvictionConfig{
+		EnableNumaLevelEviction:              &nonDefaultEnableNumaLevelEviction,
+		EnableSystemLevelEviction:            &nonDefaultEnableSystemLevelEviction,
 		NumaFreeBelowWatermarkTimesThreshold: &nonDefaultNumaFreeBelowWatermarkTimesThreshold,
 		SystemKswapdRateThreshold:            &nonDefaultSystemKswapdRateThreshold,
-		SystemKswapdRateExceedTimesThreshold: &nonDefaulSsystemKswapdRateExceedTimesThreshold,
-		NumaEvictionRankingMetrics:           nonDefaultNumaEvictionRankingMetrics,
-		SystemEvictionRankingMetrics:         nonDefaultSystemEvictionRankingMetrics,
+		SystemKswapdRateExceedTimesThreshold: &nonDefaultSystemKswapdRateExceedTimesThreshold,
+		NumaEvictionRankingMetrics:           util.ConvertStringListToNumaEvictionRankingMetrics(nonDefaultNumaEvictionRankingMetrics),
+		SystemEvictionRankingMetrics:         util.ConvertStringListToSystemEvictionRankingMetrics(nonDefaultSystemEvictionRankingMetrics),
 		GracePeriod:                          &nonDefaultGracePeriod,
 	}
 
@@ -102,24 +102,24 @@ func generateTestCNC(nodeName string) *v1alpha1.CustomNodeConfig {
 	}
 }
 
-func generateTestEvictionConfiguration(evictionThreshold map[v1.ResourceName]float64) *v1alpha1.EvictionConfiguration {
-	return &v1alpha1.EvictionConfiguration{
+func generateTestEvictionConfiguration(evictionThreshold map[v1.ResourceName]float64) *v1alpha1.AdminQoSConfiguration {
+	return &v1alpha1.AdminQoSConfiguration{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "default",
 			Namespace: "test-namespace",
 		},
-		Spec: v1alpha1.EvictionConfigurationSpec{
-			Config: v1alpha1.EvictionConfig{
-				EvictionPluginsConfig: v1alpha1.EvictionPluginsConfig{
-					ReclaimedResourcesEvictionPluginConfig: v1alpha1.ReclaimedResourcesEvictionPluginConfig{
+		Spec: v1alpha1.AdminQoSConfigurationSpec{
+			Config: v1alpha1.AdminQoSConfig{
+				EvictionConfig: &v1alpha1.EvictionConfig{
+					ReclaimedResourcesEvictionConfig: &v1alpha1.ReclaimedResourcesEvictionConfig{
 						EvictionThreshold: evictionThreshold,
 					},
-					MemoryEvictionPluginConfig: v1alpha1.MemoryEvictionPluginConfig{
+					MemoryPressureEvictionConfig: &v1alpha1.MemoryPressureEvictionConfig{
 						NumaFreeBelowWatermarkTimesThreshold: &defaultNumaFreeBelowWatermarkTimesThreshold,
 						SystemKswapdRateThreshold:            &defaultSystemKswapdRateThreshold,
 						SystemKswapdRateExceedTimesThreshold: &defaultSystemKswapdRateExceedTimesThreshold,
-						NumaEvictionRankingMetrics:           evictionconfig.DefaultNumaEvictionRankingMetrics,
-						SystemEvictionRankingMetrics:         evictionconfig.DefaultSystemEvictionRankingMetrics,
+						NumaEvictionRankingMetrics:           util.ConvertStringListToNumaEvictionRankingMetrics(evictionconfig.DefaultNumaEvictionRankingMetrics),
+						SystemEvictionRankingMetrics:         util.ConvertStringListToSystemEvictionRankingMetrics(evictionconfig.DefaultSystemEvictionRankingMetrics),
 					},
 				},
 			},
@@ -127,7 +127,7 @@ func generateTestEvictionConfiguration(evictionThreshold map[v1.ResourceName]flo
 	}
 }
 
-func constructTestDynamicConfigManager(t *testing.T, nodeName string, evictionConfiguration *v1alpha1.EvictionConfiguration) *DynamicConfigManager {
+func constructTestDynamicConfigManager(t *testing.T, nodeName string, evictionConfiguration *v1alpha1.AdminQoSConfiguration) *DynamicConfigManager {
 	clientSet := generateTestGenericClientSet(generateTestCNC(nodeName), evictionConfiguration)
 	conf := generateTestConfiguration(t, nodeName)
 	cncFetcher := cnc.NewCachedCNCFetcher(conf.NodeName, conf.ConfigCacheTTL,
@@ -257,27 +257,27 @@ func Test_applyDynamicConfig(t *testing.T) {
 						"cpu": 1.5,
 					}
 
-					d.EnableNumaLevelDetection = defaultEnableNumaLevelDetection
-					d.EnableSystemLevelDetection = defaultEnableSystemLevelDetection
+					d.EnableNumaLevelEviction = defaultEnableNumaLevelDetection
+					d.EnableSystemLevelEviction = defaultEnableSystemLevelDetection
 					d.NumaFreeBelowWatermarkTimesThreshold = defaultNumaFreeBelowWatermarkTimesThreshold
 					d.SystemKswapdRateThreshold = defaultSystemKswapdRateThreshold
 					d.SystemKswapdRateExceedTimesThreshold = defaultSystemKswapdRateExceedTimesThreshold
 					d.NumaEvictionRankingMetrics = evictionconfig.DefaultNumaEvictionRankingMetrics
 					d.SystemEvictionRankingMetrics = evictionconfig.DefaultSystemEvictionRankingMetrics
-					d.GracePeriod = evictionconfig.DefaultGracePeriod
+					d.MemoryPressureEvictionConfiguration.GracePeriod = evictionconfig.DefaultGracePeriod
 					return d
 				}(),
 				dynamicConf: &crd.DynamicConfigCRD{
-					EvictionConfiguration: &v1alpha1.EvictionConfiguration{
-						Spec: v1alpha1.EvictionConfigurationSpec{
-							Config: v1alpha1.EvictionConfig{
-								EvictionPluginsConfig: v1alpha1.EvictionPluginsConfig{
-									ReclaimedResourcesEvictionPluginConfig: v1alpha1.ReclaimedResourcesEvictionPluginConfig{
+					AdminQoSConfiguration: &v1alpha1.AdminQoSConfiguration{
+						Spec: v1alpha1.AdminQoSConfigurationSpec{
+							Config: v1alpha1.AdminQoSConfig{
+								EvictionConfig: &v1alpha1.EvictionConfig{
+									ReclaimedResourcesEvictionConfig: &v1alpha1.ReclaimedResourcesEvictionConfig{
 										EvictionThreshold: map[v1.ResourceName]float64{
 											"cpu": 1.3,
 										},
 									},
-									MemoryEvictionPluginConfig: nonDefaultMemoryEvictionPluginConfig,
+									MemoryPressureEvictionConfig: &nonDefaultMemoryEvictionPluginConfig,
 								},
 							},
 						},
@@ -286,14 +286,14 @@ func Test_applyDynamicConfig(t *testing.T) {
 			},
 			want: func(got *dynamic.Configuration) bool {
 				return got.EvictionThreshold["cpu"] == 1.3 &&
-					got.EnableNumaLevelDetection == nonDefaultEnableNumaLevelDetection &&
-					got.EnableSystemLevelDetection == nonDefaultEnableSystemLevelDetection &&
+					got.EnableNumaLevelEviction == nonDefaultEnableNumaLevelEviction &&
+					got.EnableSystemLevelEviction == nonDefaultEnableSystemLevelEviction &&
 					got.NumaFreeBelowWatermarkTimesThreshold == nonDefaultNumaFreeBelowWatermarkTimesThreshold &&
 					got.SystemKswapdRateThreshold == nonDefaultSystemKswapdRateThreshold &&
-					got.SystemKswapdRateExceedTimesThreshold == nonDefaulSsystemKswapdRateExceedTimesThreshold &&
+					got.SystemKswapdRateExceedTimesThreshold == nonDefaultSystemKswapdRateExceedTimesThreshold &&
 					reflect.DeepEqual(got.NumaEvictionRankingMetrics, nonDefaultNumaEvictionRankingMetrics) &&
 					reflect.DeepEqual(got.SystemEvictionRankingMetrics, nonDefaultSystemEvictionRankingMetrics) &&
-					got.GracePeriod == nonDefaultGracePeriod
+					got.MemoryPressureEvictionConfiguration.GracePeriod == nonDefaultGracePeriod
 			},
 		},
 		{
@@ -305,27 +305,27 @@ func Test_applyDynamicConfig(t *testing.T) {
 						"cpu": 1.3,
 					}
 
-					d.EnableNumaLevelDetection = nonDefaultEnableNumaLevelDetection
-					d.EnableSystemLevelDetection = nonDefaultEnableSystemLevelDetection
+					d.EnableNumaLevelEviction = nonDefaultEnableNumaLevelEviction
+					d.EnableSystemLevelEviction = nonDefaultEnableSystemLevelEviction
 					d.NumaFreeBelowWatermarkTimesThreshold = nonDefaultNumaFreeBelowWatermarkTimesThreshold
 					d.SystemKswapdRateThreshold = nonDefaultSystemKswapdRateThreshold
-					d.SystemKswapdRateExceedTimesThreshold = nonDefaulSsystemKswapdRateExceedTimesThreshold
+					d.SystemKswapdRateExceedTimesThreshold = nonDefaultSystemKswapdRateExceedTimesThreshold
 					d.NumaEvictionRankingMetrics = nonDefaultNumaEvictionRankingMetrics
 					d.SystemEvictionRankingMetrics = nonDefaultSystemEvictionRankingMetrics
-					d.GracePeriod = nonDefaultGracePeriod
+					d.MemoryPressureEvictionConfiguration.GracePeriod = nonDefaultGracePeriod
 					return d
 				}(),
 				dynamicConf: &crd.DynamicConfigCRD{
-					EvictionConfiguration: &v1alpha1.EvictionConfiguration{
-						Spec: v1alpha1.EvictionConfigurationSpec{
-							Config: v1alpha1.EvictionConfig{
-								EvictionPluginsConfig: v1alpha1.EvictionPluginsConfig{
-									ReclaimedResourcesEvictionPluginConfig: v1alpha1.ReclaimedResourcesEvictionPluginConfig{
+					AdminQoSConfiguration: &v1alpha1.AdminQoSConfiguration{
+						Spec: v1alpha1.AdminQoSConfigurationSpec{
+							Config: v1alpha1.AdminQoSConfig{
+								EvictionConfig: &v1alpha1.EvictionConfig{
+									ReclaimedResourcesEvictionConfig: &v1alpha1.ReclaimedResourcesEvictionConfig{
 										EvictionThreshold: map[v1.ResourceName]float64{
 											"cpu": 1.3,
 										},
 									},
-									MemoryEvictionPluginConfig: nonDefaultMemoryEvictionPluginConfig,
+									MemoryPressureEvictionConfig: &nonDefaultMemoryEvictionPluginConfig,
 								},
 							},
 						},
@@ -334,14 +334,14 @@ func Test_applyDynamicConfig(t *testing.T) {
 			},
 			want: func(got *dynamic.Configuration) bool {
 				return got.EvictionThreshold["cpu"] == 1.3 &&
-					got.EnableNumaLevelDetection == nonDefaultEnableNumaLevelDetection &&
-					got.EnableSystemLevelDetection == nonDefaultEnableSystemLevelDetection &&
+					got.EnableNumaLevelEviction == nonDefaultEnableNumaLevelEviction &&
+					got.EnableSystemLevelEviction == nonDefaultEnableSystemLevelEviction &&
 					got.NumaFreeBelowWatermarkTimesThreshold == nonDefaultNumaFreeBelowWatermarkTimesThreshold &&
 					got.SystemKswapdRateThreshold == nonDefaultSystemKswapdRateThreshold &&
-					got.SystemKswapdRateExceedTimesThreshold == nonDefaulSsystemKswapdRateExceedTimesThreshold &&
+					got.SystemKswapdRateExceedTimesThreshold == nonDefaultSystemKswapdRateExceedTimesThreshold &&
 					reflect.DeepEqual(got.NumaEvictionRankingMetrics, nonDefaultNumaEvictionRankingMetrics) &&
 					reflect.DeepEqual(got.SystemEvictionRankingMetrics, nonDefaultSystemEvictionRankingMetrics) &&
-					got.GracePeriod == nonDefaultGracePeriod
+					got.MemoryPressureEvictionConfiguration.GracePeriod == nonDefaultGracePeriod
 			},
 		},
 	}
@@ -361,29 +361,12 @@ func Test_getGVRToKindMap(t *testing.T) {
 		wantGVK schema.GroupVersionKind
 	}{
 		{
-			name: "ec",
-			wantGVR: schema.GroupVersionResource{
-				Group:    v1alpha1.SchemeGroupVersion.Group,
-				Version:  v1alpha1.SchemeGroupVersion.Version,
-				Resource: v1alpha1.ResourceNameEvictionConfigurations,
-			},
+			name:    "aqc",
+			wantGVR: schema.GroupVersionResource(crd.AdminQoSConfigurationGVR),
 			wantGVK: schema.GroupVersionKind{
 				Group:   v1alpha1.SchemeGroupVersion.Group,
 				Version: v1alpha1.SchemeGroupVersion.Version,
-				Kind:    "EvictionConfiguration",
-			},
-		},
-		{
-			name: "ac",
-			wantGVR: schema.GroupVersionResource{
-				Group:    v1alpha1.SchemeGroupVersion.Group,
-				Version:  v1alpha1.SchemeGroupVersion.Version,
-				Resource: v1alpha1.ResourceNameAdminQoSConfigurations,
-			},
-			wantGVK: schema.GroupVersionKind{
-				Group:   v1alpha1.SchemeGroupVersion.Group,
-				Version: v1alpha1.SchemeGroupVersion.Version,
-				Kind:    "AdminQoSConfiguration",
+				Kind:    crd.ResourceKindAdminQoSConfiguration,
 			},
 		},
 	}
@@ -423,17 +406,17 @@ func Test_updateDynamicConf(t *testing.T) {
 			args: args{
 				resourceGVRMap: generateTestResourceGVRMap(),
 				gvrToKind:      getGVRToGVKMap(),
-				loader: generateTestLoader(toTestUnstructured(&v1alpha1.EvictionConfiguration{
+				loader: generateTestLoader(toTestUnstructured(&v1alpha1.AdminQoSConfiguration{
 					ObjectMeta: metav1.ObjectMeta{
 						Name: "config-1",
 					},
-					Spec: v1alpha1.EvictionConfigurationSpec{
+					Spec: v1alpha1.AdminQoSConfigurationSpec{
 						GenericConfigSpec: v1alpha1.GenericConfigSpec{
 							NodeLabelSelector: "aa=bb",
 						},
-						Config: v1alpha1.EvictionConfig{
-							EvictionPluginsConfig: v1alpha1.EvictionPluginsConfig{
-								ReclaimedResourcesEvictionPluginConfig: v1alpha1.ReclaimedResourcesEvictionPluginConfig{
+						Config: v1alpha1.AdminQoSConfig{
+							EvictionConfig: &v1alpha1.EvictionConfig{
+								ReclaimedResourcesEvictionConfig: &v1alpha1.ReclaimedResourcesEvictionConfig{
 									EvictionThreshold: map[v1.ResourceName]float64{
 										v1.ResourceCPU:    1.3,
 										v1.ResourceMemory: 1.5,
@@ -445,17 +428,17 @@ func Test_updateDynamicConf(t *testing.T) {
 				})),
 			},
 			want: &crd.DynamicConfigCRD{
-				EvictionConfiguration: &v1alpha1.EvictionConfiguration{
+				AdminQoSConfiguration: &v1alpha1.AdminQoSConfiguration{
 					ObjectMeta: metav1.ObjectMeta{
 						Name: "config-1",
 					},
-					Spec: v1alpha1.EvictionConfigurationSpec{
+					Spec: v1alpha1.AdminQoSConfigurationSpec{
 						GenericConfigSpec: v1alpha1.GenericConfigSpec{
 							NodeLabelSelector: "aa=bb",
 						},
-						Config: v1alpha1.EvictionConfig{
-							EvictionPluginsConfig: v1alpha1.EvictionPluginsConfig{
-								ReclaimedResourcesEvictionPluginConfig: v1alpha1.ReclaimedResourcesEvictionPluginConfig{
+						Config: v1alpha1.AdminQoSConfig{
+							EvictionConfig: &v1alpha1.EvictionConfig{
+								ReclaimedResourcesEvictionConfig: &v1alpha1.ReclaimedResourcesEvictionConfig{
 									EvictionThreshold: map[v1.ResourceName]float64{
 										v1.ResourceCPU:    1.3,
 										v1.ResourceMemory: 1.5,
@@ -489,11 +472,7 @@ func Test_updateDynamicConf(t *testing.T) {
 
 func generateTestResourceGVRMap() map[string]metav1.GroupVersionResource {
 	return map[string]metav1.GroupVersionResource{
-		v1alpha1.ResourceNameEvictionConfigurations: {
-			Group:    v1alpha1.SchemeGroupVersion.Group,
-			Version:  v1alpha1.SchemeGroupVersion.Version,
-			Resource: v1alpha1.ResourceNameEvictionConfigurations,
-		},
+		v1alpha1.ResourceNameAdminQoSConfigurations: crd.AdminQoSConfigurationGVR,
 	}
 }
 

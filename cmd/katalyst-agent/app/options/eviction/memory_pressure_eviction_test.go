@@ -26,12 +26,12 @@ import (
 )
 
 func TestMemoryPressureEvictionPluginOptions_ApplyTo(t *testing.T) {
-	options := NewMemoryPressureEvictionPluginOptions()
+	options := NewMemoryPressureEvictionOptions()
 	configuration := eviction.NewMemoryPressureEvictionPluginConfiguration()
 
-	options.RssOveruseEvictionFilter = "canEvict=true,canBeEvict=true"
+	options.RSSOveruseEvictionFilter = "canEvict=true,canBeEvict=true"
 	err := options.ApplyTo(configuration)
 
 	assert.NoError(t, err)
-	assert.Equal(t, configuration.RssOveruseEvictionFilter, labels.Set{"canEvict": "true", "canBeEvict": "true"})
+	assert.Equal(t, configuration.RSSOveruseEvictionFilter, labels.Set{"canEvict": "true", "canBeEvict": "true"})
 }

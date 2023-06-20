@@ -32,6 +32,7 @@ import (
 	katalyst_base "github.com/kubewharf/katalyst-core/cmd/base"
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-controller/app/options"
 	"github.com/kubewharf/katalyst-core/pkg/config"
+	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/crd"
 	"github.com/kubewharf/katalyst-core/pkg/consts"
 	kcctarget "github.com/kubewharf/katalyst-core/pkg/controller/kcc/target"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
@@ -69,11 +70,7 @@ func TestKatalystCustomConfigController_Run(t *testing.T) {
 							Namespace: "default",
 						},
 						Spec: v1alpha1.KatalystCustomConfigSpec{
-							TargetType: v1.GroupVersionResource{
-								Group:    v1alpha1.SchemeGroupVersion.Group,
-								Version:  v1alpha1.SchemeGroupVersion.Version,
-								Resource: v1alpha1.ResourceNameEvictionConfigurations,
-							},
+							TargetType:           crd.AdminQoSConfigurationGVR,
 							NodeLabelSelectorKey: "aa",
 						},
 					},
@@ -90,17 +87,13 @@ func TestKatalystCustomConfigController_Run(t *testing.T) {
 							Namespace: "default",
 						},
 						Spec: v1alpha1.KatalystCustomConfigSpec{
-							TargetType: v1.GroupVersionResource{
-								Group:    v1alpha1.SchemeGroupVersion.Group,
-								Version:  v1alpha1.SchemeGroupVersion.Version,
-								Resource: v1alpha1.ResourceNameEvictionConfigurations,
-							},
+							TargetType:           crd.AdminQoSConfigurationGVR,
 							NodeLabelSelectorKey: "aa",
 						},
 					},
 				},
 				kccTargetList: []runtime.Object{
-					&v1alpha1.EvictionConfiguration{
+					&v1alpha1.AdminQoSConfiguration{
 						TypeMeta: v1.TypeMeta{
 							Kind:       "EvictionConfiguration",
 							APIVersion: "config.katalyst.kubewharf.io/v1alpha1",
@@ -109,10 +102,10 @@ func TestKatalystCustomConfigController_Run(t *testing.T) {
 							Name:      "default",
 							Namespace: "default",
 						},
-						Spec: v1alpha1.EvictionConfigurationSpec{
-							Config: v1alpha1.EvictionConfig{
-								EvictionPluginsConfig: v1alpha1.EvictionPluginsConfig{
-									ReclaimedResourcesEvictionPluginConfig: v1alpha1.ReclaimedResourcesEvictionPluginConfig{
+						Spec: v1alpha1.AdminQoSConfigurationSpec{
+							Config: v1alpha1.AdminQoSConfig{
+								EvictionConfig: &v1alpha1.EvictionConfig{
+									ReclaimedResourcesEvictionConfig: &v1alpha1.ReclaimedResourcesEvictionConfig{
 										EvictionThreshold: map[corev1.ResourceName]float64{
 											corev1.ResourceCPU: 5.0,
 										},
@@ -134,11 +127,7 @@ func TestKatalystCustomConfigController_Run(t *testing.T) {
 							Namespace: "default",
 						},
 						Spec: v1alpha1.KatalystCustomConfigSpec{
-							TargetType: v1.GroupVersionResource{
-								Group:    v1alpha1.SchemeGroupVersion.Group,
-								Version:  v1alpha1.SchemeGroupVersion.Version,
-								Resource: v1alpha1.ResourceNameEvictionConfigurations,
-							},
+							TargetType:           crd.AdminQoSConfigurationGVR,
 							NodeLabelSelectorKey: "aa",
 						},
 					},
@@ -148,17 +137,13 @@ func TestKatalystCustomConfigController_Run(t *testing.T) {
 							Namespace: "default",
 						},
 						Spec: v1alpha1.KatalystCustomConfigSpec{
-							TargetType: v1.GroupVersionResource{
-								Group:    v1alpha1.SchemeGroupVersion.Group,
-								Version:  v1alpha1.SchemeGroupVersion.Version,
-								Resource: v1alpha1.ResourceNameEvictionConfigurations,
-							},
+							TargetType:           crd.AdminQoSConfigurationGVR,
 							NodeLabelSelectorKey: "bb",
 						},
 					},
 				},
 				kccTargetList: []runtime.Object{
-					&v1alpha1.EvictionConfiguration{
+					&v1alpha1.AdminQoSConfiguration{
 						TypeMeta: v1.TypeMeta{
 							Kind:       "EvictionConfiguration",
 							APIVersion: "config.katalyst.kubewharf.io/v1alpha1",
@@ -167,10 +152,10 @@ func TestKatalystCustomConfigController_Run(t *testing.T) {
 							Name:      "default",
 							Namespace: "default",
 						},
-						Spec: v1alpha1.EvictionConfigurationSpec{
-							Config: v1alpha1.EvictionConfig{
-								EvictionPluginsConfig: v1alpha1.EvictionPluginsConfig{
-									ReclaimedResourcesEvictionPluginConfig: v1alpha1.ReclaimedResourcesEvictionPluginConfig{
+						Spec: v1alpha1.AdminQoSConfigurationSpec{
+							Config: v1alpha1.AdminQoSConfig{
+								EvictionConfig: &v1alpha1.EvictionConfig{
+									ReclaimedResourcesEvictionConfig: &v1alpha1.ReclaimedResourcesEvictionConfig{
 										EvictionThreshold: map[corev1.ResourceName]float64{
 											corev1.ResourceCPU: 5.0,
 										},
@@ -196,11 +181,7 @@ func TestKatalystCustomConfigController_Run(t *testing.T) {
 							},
 						},
 						Spec: v1alpha1.KatalystCustomConfigSpec{
-							TargetType: v1.GroupVersionResource{
-								Group:    v1alpha1.SchemeGroupVersion.Group,
-								Version:  v1alpha1.SchemeGroupVersion.Version,
-								Resource: v1alpha1.ResourceNameEvictionConfigurations,
-							},
+							TargetType:           crd.AdminQoSConfigurationGVR,
 							NodeLabelSelectorKey: "aa",
 						},
 					},
@@ -210,17 +191,13 @@ func TestKatalystCustomConfigController_Run(t *testing.T) {
 							Namespace: "default",
 						},
 						Spec: v1alpha1.KatalystCustomConfigSpec{
-							TargetType: v1.GroupVersionResource{
-								Group:    v1alpha1.SchemeGroupVersion.Group,
-								Version:  v1alpha1.SchemeGroupVersion.Version,
-								Resource: v1alpha1.ResourceNameEvictionConfigurations,
-							},
+							TargetType:           crd.AdminQoSConfigurationGVR,
 							NodeLabelSelectorKey: "bb",
 						},
 					},
 				},
 				kccTargetList: []runtime.Object{
-					&v1alpha1.EvictionConfiguration{
+					&v1alpha1.AdminQoSConfiguration{
 						TypeMeta: v1.TypeMeta{
 							Kind:       "EvictionConfiguration",
 							APIVersion: "config.katalyst.kubewharf.io/v1alpha1",
@@ -229,10 +206,10 @@ func TestKatalystCustomConfigController_Run(t *testing.T) {
 							Name:      "default",
 							Namespace: "default",
 						},
-						Spec: v1alpha1.EvictionConfigurationSpec{
-							Config: v1alpha1.EvictionConfig{
-								EvictionPluginsConfig: v1alpha1.EvictionPluginsConfig{
-									ReclaimedResourcesEvictionPluginConfig: v1alpha1.ReclaimedResourcesEvictionPluginConfig{
+						Spec: v1alpha1.AdminQoSConfigurationSpec{
+							Config: v1alpha1.AdminQoSConfig{
+								EvictionConfig: &v1alpha1.EvictionConfig{
+									ReclaimedResourcesEvictionConfig: &v1alpha1.ReclaimedResourcesEvictionConfig{
 										EvictionThreshold: map[corev1.ResourceName]float64{
 											corev1.ResourceCPU: 5.0,
 										},
@@ -258,11 +235,7 @@ func TestKatalystCustomConfigController_Run(t *testing.T) {
 							},
 						},
 						Spec: v1alpha1.KatalystCustomConfigSpec{
-							TargetType: v1.GroupVersionResource{
-								Group:    v1alpha1.SchemeGroupVersion.Group,
-								Version:  v1alpha1.SchemeGroupVersion.Version,
-								Resource: v1alpha1.ResourceNameEvictionConfigurations,
-							},
+							TargetType:           crd.AdminQoSConfigurationGVR,
 							NodeLabelSelectorKey: "aa",
 						},
 					},
@@ -272,11 +245,7 @@ func TestKatalystCustomConfigController_Run(t *testing.T) {
 							Namespace: "default",
 						},
 						Spec: v1alpha1.KatalystCustomConfigSpec{
-							TargetType: v1.GroupVersionResource{
-								Group:    v1alpha1.SchemeGroupVersion.Group,
-								Version:  v1alpha1.SchemeGroupVersion.Version,
-								Resource: v1alpha1.ResourceNameEvictionConfigurations,
-							},
+							TargetType:           crd.AdminQoSConfigurationGVR,
 							NodeLabelSelectorKey: "bb",
 						},
 					},

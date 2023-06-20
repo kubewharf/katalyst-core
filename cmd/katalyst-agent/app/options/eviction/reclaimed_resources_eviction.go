@@ -22,28 +22,22 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/eviction"
 )
 
-type ReclaimedResourcesEvictionPluginOptions struct {
-	EvictionReclaimedResourcesPodGracePeriod int64
-	SkipZeroQuantityResourceNames            []string
+type ReclaimedResourcesEvictionOptions struct {
+	SkipZeroQuantityResourceNames []string
 }
 
-func NewReclaimedResourcesEvictionPluginOptions() *ReclaimedResourcesEvictionPluginOptions {
-	return &ReclaimedResourcesEvictionPluginOptions{
-		EvictionReclaimedResourcesPodGracePeriod: 60,
-	}
+func NewReclaimedResourcesEvictionOptions() *ReclaimedResourcesEvictionOptions {
+	return &ReclaimedResourcesEvictionOptions{}
 }
 
-func (o *ReclaimedResourcesEvictionPluginOptions) AddFlags(fss *cliflag.NamedFlagSets) {
+func (o *ReclaimedResourcesEvictionOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 	fs := fss.FlagSet("eviction-reclaimed-resources")
 
-	fs.Int64Var(&o.EvictionReclaimedResourcesPodGracePeriod, "eviction-reclaimed-resources-pod-grace-period",
-		o.EvictionReclaimedResourcesPodGracePeriod, "The graceful eviction period (in seconds) for reclaimed pods")
 	fs.StringSliceVar(&o.SkipZeroQuantityResourceNames, "eviction-skip-zero-quantity-resource-name", o.SkipZeroQuantityResourceNames,
 		"skip to evict when some resource with zero quantity to avoid abnormal eviction")
 }
 
-func (o *ReclaimedResourcesEvictionPluginOptions) ApplyTo(c *eviction.ReclaimedResourcesEvictionPluginConfiguration) error {
-	c.EvictionReclaimedPodGracefulPeriod = o.EvictionReclaimedResourcesPodGracePeriod
+func (o *ReclaimedResourcesEvictionOptions) ApplyTo(c *eviction.ReclaimedResourcesEvictionConfiguration) error {
 	for _, name := range o.SkipZeroQuantityResourceNames {
 		c.SkipZeroQuantityResourceNames.Insert(name)
 	}

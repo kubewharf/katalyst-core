@@ -36,8 +36,8 @@ func InitEvictionManager(agentCtx *GenericContext, conf *config.Configuration, _
 	evictionMgr := evict.NewEvictionManager(agentCtx.Client, recorder, agentCtx.MetaServer,
 		agentCtx.EmitterPool.GetDefaultMetricsEmitter(), conf)
 
-	// add eviction configuration to dynamic configuration watch list
-	err := agentCtx.MetaServer.AddConfigWatcher(crd.EvictionConfigurationGVR)
+	// add dynamic config watcher
+	err := agentCtx.MetaServer.AddConfigWatcher(crd.AdminQoSConfigurationGVR)
 	if err != nil {
 		return false, ComponentStub{}, fmt.Errorf("failed register dynamic config: %s", err)
 	}

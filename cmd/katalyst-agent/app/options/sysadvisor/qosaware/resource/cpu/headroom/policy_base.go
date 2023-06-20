@@ -23,19 +23,15 @@ import (
 )
 
 type CPUHeadroomPolicyOptions struct {
-	PolicyUtilization *PolicyUtilizationOptions
 }
 
 func NewCPUHeadroomPolicyOptions() *CPUHeadroomPolicyOptions {
-	return &CPUHeadroomPolicyOptions{
-		PolicyUtilization: NewPolicyUtilizationOptions(),
-	}
+	return &CPUHeadroomPolicyOptions{}
 }
 
-func (o *CPUHeadroomPolicyOptions) AddFlags(fs *pflag.FlagSet) {
-	o.PolicyUtilization.AddFlags(fs)
+func (o *CPUHeadroomPolicyOptions) AddFlags(_ *pflag.FlagSet) {
 }
 
-func (o *CPUHeadroomPolicyOptions) ApplyTo(c *headroom.CPUHeadroomPolicyConfiguration) error {
-	return o.PolicyUtilization.ApplyTo(c.PolicyUtilization)
+func (o *CPUHeadroomPolicyOptions) ApplyTo(_ *headroom.CPUHeadroomPolicyConfiguration) error {
+	return nil
 }

@@ -46,10 +46,12 @@ const (
 	defaultCPUMinSuppressionToleranceDuration = 1 * time.Second
 )
 
-func makeSuppressionEvictionConf(cpuMaxSuppressionToleranceRate float64, cpuMinSuppressionToleranceDuration time.Duration) *config.Configuration {
+func makeSuppressionEvictionConf(cpuMaxSuppressionToleranceRate float64,
+	cpuMinSuppressionToleranceDuration time.Duration) *config.Configuration {
 	conf := config.NewConfiguration()
-	conf.MaxCPUSuppressionToleranceRate = cpuMaxSuppressionToleranceRate
-	conf.MinCPUSuppressionToleranceDuration = cpuMinSuppressionToleranceDuration
+	conf.GetDynamicConfiguration().EnableSuppressionEviction = true
+	conf.GetDynamicConfiguration().MaxSuppressionToleranceRate = cpuMaxSuppressionToleranceRate
+	conf.GetDynamicConfiguration().MinSuppressionToleranceDuration = cpuMinSuppressionToleranceDuration
 	return conf
 }
 
@@ -66,8 +68,6 @@ func TestNewCPUPressureSuppressionEviction(t *testing.T) {
 	plugin := NewCPUPressureSuppressionEviction(metrics.DummyMetrics{}, metaServer, conf, stateImpl)
 	as.Nil(err)
 	as.NotNil(plugin)
-	as.Equal(defaultCPUMaxSuppressionToleranceRate, plugin.(*CPUPressureSuppression).maxToleranceRate)
-	as.EqualValues(defaultCPUMinSuppressionToleranceDuration, plugin.(*CPUPressureSuppression).minToleranceDuration)
 }
 
 func TestCPUPressureSuppression_GetEvictPods(t *testing.T) {

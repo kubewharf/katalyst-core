@@ -14,15 +14,16 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package headroom
+package eviction
 
-type PolicyUtilizationConfiguration struct {
-	ReclaimedCPUTargetCoreUtilization   float64
-	ReclaimedCPUMaxCoreUtilization      float64
-	ReclaimedCPUMaxOversoldRate         float64
-	ReclaimedCPUMaxHeadroomCapacityRate float64
+import "k8s.io/apimachinery/pkg/labels"
+
+// MemoryPressureEvictionConfiguration is the config of MemoryPressureEviction
+type MemoryPressureEvictionConfiguration struct {
+	RSSOveruseEvictionFilter labels.Set
 }
 
-func NewPolicyUtilizationConfiguration() *PolicyUtilizationConfiguration {
-	return &PolicyUtilizationConfiguration{}
+// NewMemoryPressureEvictionPluginConfiguration returns a new MemoryPressureEvictionConfiguration
+func NewMemoryPressureEvictionPluginConfiguration() *MemoryPressureEvictionConfiguration {
+	return &MemoryPressureEvictionConfiguration{}
 }

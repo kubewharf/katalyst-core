@@ -17,11 +17,8 @@ limitations under the License.
 package headroom
 
 type CPUHeadroomPolicyConfiguration struct {
-	PolicyUtilization *PolicyUtilizationConfiguration
 }
 
 func NewCPUHeadroomPolicyConfiguration() *CPUHeadroomPolicyConfiguration {
-	return &CPUHeadroomPolicyConfiguration{
-		PolicyUtilization: NewPolicyUtilizationConfiguration(),
-	}
+	return &CPUHeadroomPolicyConfiguration{}
 }

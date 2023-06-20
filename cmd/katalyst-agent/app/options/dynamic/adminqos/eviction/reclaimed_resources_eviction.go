@@ -20,30 +20,36 @@ import (
 	cliflag "k8s.io/component-base/cli/flag"
 
 	"github.com/kubewharf/katalyst-api/pkg/consts"
-	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/eviction"
+	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/adminqos/eviction"
 	"github.com/kubewharf/katalyst-core/pkg/util/native"
 )
 
-type ReclaimedResourcesEvictionPluginOptions struct {
+type ReclaimedResourcesEvictionOptions struct {
 	EvictionThreshold native.ResourceThreshold
+	GracePeriod       int64
 }
 
-func NewReclaimedResourcesEvictionPluginOptions() *ReclaimedResourcesEvictionPluginOptions {
-	return &ReclaimedResourcesEvictionPluginOptions{
+func NewReclaimedResourcesEvictionOptions() *ReclaimedResourcesEvictionOptions {
+	return &ReclaimedResourcesEvictionOptions{
 		EvictionThreshold: native.ResourceThreshold{
 			consts.ReclaimedResourceMilliCPU: 5.0,
 			consts.ReclaimedResourceMemory:   5.0,
 		},
+		GracePeriod: 60,
 	}
 }
 
-func (o *ReclaimedResourcesEvictionPluginOptions) AddFlags(fss *cliflag.NamedFlagSets) {
+func (o *ReclaimedResourcesEvictionOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 	fs := fss.FlagSet("eviction-reclaimed-resources")
 
-	fs.Var(&o.EvictionThreshold, "eviction-reclaimed-resources-threshold", "The threshold rate for best effort resources")
+	fs.Var(&o.EvictionThreshold, "eviction-reclaimed-resources-threshold",
+		"the threshold rate for best effort resources")
+	fs.Int64Var(&o.GracePeriod, "eviction-reclaimed-resources-grace-period", o.GracePeriod,
+		"the graceful eviction period (in seconds) for reclaimed pods")
 }
 
-func (o *ReclaimedResourcesEvictionPluginOptions) ApplyTo(c *eviction.ReclaimedResourcesEvictionPluginConfiguration) error {
+func (o *ReclaimedResourcesEvictionOptions) ApplyTo(c *eviction.ReclaimedResourcesEvictionConfiguration) error {
 	c.EvictionThreshold = o.EvictionThreshold
+	c.GracePeriod = o.GracePeriod
 	return nil
 }

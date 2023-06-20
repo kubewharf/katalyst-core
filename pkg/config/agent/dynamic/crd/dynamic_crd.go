@@ -22,19 +22,19 @@ import (
 	"github.com/kubewharf/katalyst-api/pkg/apis/config/v1alpha1"
 )
 
+const (
+	ResourceKindAdminQoSConfiguration = "AdminQoSConfiguration"
+)
+
 // DynamicConfigCRD records all those configurations defined by CRD
 // and managed by KCC, which field nme must be the same as the Kind
 // of CRD. KCC components are responsible to identify those CRs and
 // trigger notification.
 type DynamicConfigCRD struct {
 	AdminQoSConfiguration *v1alpha1.AdminQoSConfiguration
-	EvictionConfiguration *v1alpha1.EvictionConfiguration
 }
 
 var (
 	// AdminQoSConfigurationGVR is the group version resource for AdminQoSConfiguration
 	AdminQoSConfigurationGVR = metav1.GroupVersionResource(v1alpha1.SchemeGroupVersion.WithResource(v1alpha1.ResourceNameAdminQoSConfigurations))
-
-	// EvictionConfigurationGVR is the group version resource for EvictionConfiguration
-	EvictionConfigurationGVR = metav1.GroupVersionResource(v1alpha1.SchemeGroupVersion.WithResource(v1alpha1.ResourceNameEvictionConfigurations))
 )

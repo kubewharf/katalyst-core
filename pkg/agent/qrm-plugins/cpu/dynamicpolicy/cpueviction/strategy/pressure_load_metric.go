@@ -21,6 +21,7 @@ import (
 
 	advisorapi "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/cpuadvisor"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
+	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic"
 )
 
 type MetricInfo struct {
@@ -53,7 +54,8 @@ func (se SubEntries) IsPoolEntry() bool {
 // Entries are keyed by pod UID or pool name
 type Entries map[string]SubEntries
 
-type PoolMetricCollectHandler func(metricName string, metricValue float64, _ *state.AllocationInfo, collectTime int64)
+type PoolMetricCollectHandler func(dynamicConfig *dynamic.Configuration,
+	metricName string, metricValue float64, _ *state.AllocationInfo, collectTime int64)
 
 func (ring *MetricRing) Sum() float64 {
 	ring.RLock()

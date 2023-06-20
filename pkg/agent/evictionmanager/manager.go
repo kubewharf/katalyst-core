@@ -178,7 +178,8 @@ func (m *EvictionManger) sync(ctx context.Context) {
 }
 
 func (m *EvictionManger) collectEvictionResult(pods []*v1.Pod) *evictionRespCollector {
-	collector := newEvictionRespCollector(m.conf, m.emitter)
+	dynamicConfig := m.conf.GetDynamicConfiguration()
+	collector := newEvictionRespCollector(dynamicConfig.DryRun, m.conf, m.emitter)
 
 	m.endpointLock.RLock()
 	for pluginName, ep := range m.endpoints {
@@ -191,7 +192,7 @@ func (m *EvictionManger) collectEvictionResult(pods []*v1.Pod) *evictionRespColl
 			general.Errorf(" calling GetEvictPods of plugin: %s and getting nil resp", pluginName)
 		} else {
 			general.Infof(" GetEvictPods of plugin: %s with %d pods to evict", pluginName, len(getEvictResp.EvictPods))
-			collector.collectEvictPods(pluginName, getEvictResp)
+			collector.collectEvictPods(dynamicConfig.DryRun, pluginName, getEvictResp)
 		}
 
 		metResp, err := ep.ThresholdMet(context.Background())
@@ -203,7 +204,7 @@ func (m *EvictionManger) collectEvictionResult(pods []*v1.Pod) *evictionRespColl
 			continue
 		}
 
-		collector.collectMetThreshold(pluginName, metResp)
+		collector.collectMetThreshold(dynamicConfig.DryRun, pluginName, metResp)
 	}
 	m.endpointLock.RUnlock()
 
@@ -254,7 +255,7 @@ func (m *EvictionManger) collectEvictionResult(pods []*v1.Pod) *evictionRespColl
 			continue
 		}
 
-		collector.collectTopEvictionPods(pluginName, threshold, resp)
+		collector.collectTopEvictionPods(dynamicConfig.DryRun, pluginName, threshold, resp)
 	}
 
 	return collector
@@ -301,7 +302,7 @@ func (m *EvictionManger) ValidatePlugin(pluginName string, endpoint string, vers
 	return nil
 }
 
-func (m *EvictionManger) RegisterPlugin(pluginName string, endpoint string, versions []string) error {
+func (m *EvictionManger) RegisterPlugin(pluginName string, endpoint string, _ []string) error {
 	general.Infof(" Registering Plugin %s at endpoint %s", pluginName, endpoint)
 
 	e, err := endpointpkg.NewRemoteEndpointImpl(endpoint, pluginName)

@@ -17,28 +17,34 @@ limitations under the License.
 package adminqos
 
 import (
+	"k8s.io/apimachinery/pkg/util/errors"
 	cliflag "k8s.io/component-base/cli/flag"
 
+	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/options/dynamic/adminqos/eviction"
+	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/options/dynamic/adminqos/reclaimedresource"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/adminqos"
 )
 
 type AdminQoSOptions struct {
-	*ReclaimedResourceOptions
+	*reclaimedresource.ReclaimedResourceOptions
+	*eviction.EvictionOptions
 }
 
 func NewAdminQoSOptions() *AdminQoSOptions {
 	return &AdminQoSOptions{
-		ReclaimedResourceOptions: NewReclaimedResourceOptions(),
+		ReclaimedResourceOptions: reclaimedresource.NewReclaimedResourceOptions(),
+		EvictionOptions:          eviction.NewEvictionOptions(),
 	}
 }
 
 func (o *AdminQoSOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 	o.ReclaimedResourceOptions.AddFlags(fss)
+	o.EvictionOptions.AddFlags(fss)
 }
 
 func (o *AdminQoSOptions) ApplyTo(c *adminqos.AdminQoSConfiguration) error {
-	if err := o.ReclaimedResourceOptions.ApplyTo(c.ReclaimedResourceConfiguration); err != nil {
-		return err
-	}
-	return nil
+	var errList []error
+	errList = append(errList, o.ReclaimedResourceOptions.ApplyTo(c.ReclaimedResourceConfiguration))
+	errList = append(errList, o.EvictionOptions.ApplyTo(c.EvictionConfiguration))
+	return errors.NewAggregate(errList)
 }

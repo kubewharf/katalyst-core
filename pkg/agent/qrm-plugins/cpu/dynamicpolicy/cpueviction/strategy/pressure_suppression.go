@@ -25,13 +25,11 @@ import (
 
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
-	"k8s.io/klog/v2"
 
 	"github.com/kubewharf/katalyst-api/pkg/protocol/evictionplugin/v1alpha1"
 	pluginapi "github.com/kubewharf/katalyst-api/pkg/protocol/evictionplugin/v1alpha1"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
 	"github.com/kubewharf/katalyst-core/pkg/config"
-	"github.com/kubewharf/katalyst-core/pkg/config/generic"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
@@ -40,24 +38,18 @@ import (
 )
 
 type CPUPressureSuppression struct {
-	qosConf *generic.QoSConfiguration
-	state   state.State
+	conf  *config.Configuration
+	state state.State
 
-	lastToleranceTime    sync.Map
-	minToleranceDuration time.Duration
-	maxToleranceRate     float64
+	lastToleranceTime sync.Map
 }
 
 func NewCPUPressureSuppressionEviction(_ metrics.MetricEmitter, _ *metaserver.MetaServer,
 	conf *config.Configuration, state state.State) CPUPressureForceEviction {
 	return &CPUPressureSuppression{
-		qosConf: conf.QoSConfiguration,
-		state:   state,
-
-		minToleranceDuration: conf.MinCPUSuppressionToleranceDuration,
-		maxToleranceRate:     conf.MaxCPUSuppressionToleranceRate,
+		conf:  conf,
+		state: state,
 	}
-
 }
 
 func (p *CPUPressureSuppression) Start(context.Context) error { return nil }
@@ -66,6 +58,11 @@ func (p *CPUPressureSuppression) Name() string                { return "pressure
 func (p *CPUPressureSuppression) GetEvictPods(_ context.Context, request *pluginapi.GetEvictPodsRequest) (*pluginapi.GetEvictPodsResponse, error) {
 	if request == nil {
 		return nil, fmt.Errorf("GetTopEvictionPods got nil request")
+	}
+
+	dynamicConfig := p.conf.GetDynamicConfiguration()
+	if !dynamicConfig.EnableSuppressionEviction {
+		return &pluginapi.GetEvictPodsResponse{}, nil
 	}
 
 	// only reclaim pool support suppression tolerance eviction
@@ -81,7 +78,7 @@ func (p *CPUPressureSuppression) GetEvictPods(_ context.Context, request *plugin
 		return &pluginapi.GetEvictPodsResponse{}, nil
 	}
 
-	filteredPods := native.FilterPods(request.ActivePods, p.qosConf.CheckReclaimedQoSForPod)
+	filteredPods := native.FilterPods(request.ActivePods, p.conf.CheckReclaimedQoSForPod)
 	if len(filteredPods) == 0 {
 		return &pluginapi.GetEvictPodsResponse{}, nil
 	}
@@ -104,15 +101,15 @@ func (p *CPUPressureSuppression) GetEvictPods(_ context.Context, request *plugin
 		key := native.GenerateUniqObjectNameKey(pod)
 		poolSuppressionRate := float64(totalCPURequest.Value()) / float64(poolSize)
 
-		if podToleranceRate := p.getPodToleranceRate(pod); podToleranceRate < poolSuppressionRate {
+		if podToleranceRate := p.getPodToleranceRate(pod, dynamicConfig.MaxSuppressionToleranceRate); podToleranceRate < poolSuppressionRate {
 			last, _ := p.lastToleranceTime.LoadOrStore(key, now)
 			lastDuration := now.Sub(last.(time.Time))
-			klog.Infof("[pressure-suppression] current pool suppression rate %.2f, "+
+			general.Infof("current pool suppression rate %.2f, "+
 				"and it is over than suppression tolerance rate %.2f of pod %s, last duration: %s secs", poolSuppressionRate,
 				podToleranceRate, key, now.Sub(last.(time.Time)))
 
 			// a pod will only be evicted if its cpu suppression lasts longer than minToleranceDuration
-			if lastDuration > p.minToleranceDuration {
+			if lastDuration > dynamicConfig.MinSuppressionToleranceDuration {
 				evictPods = append(evictPods, &v1alpha1.EvictPod{
 					Pod: pod,
 					Reason: fmt.Sprintf("current pool suppression rate %.2f is over than the "+
@@ -139,13 +136,13 @@ func (p *CPUPressureSuppression) GetEvictPods(_ context.Context, request *plugin
 
 // getPodToleranceRate returns pod suppression tolerance rate,
 // and it is limited by max cpu suppression tolerance rate.
-func (p *CPUPressureSuppression) getPodToleranceRate(pod *v1.Pod) float64 {
-	rate, err := qos.GetPodCPUSuppressionToleranceRate(p.qosConf, pod)
+func (p *CPUPressureSuppression) getPodToleranceRate(pod *v1.Pod, maxToleranceRate float64) float64 {
+	rate, err := qos.GetPodCPUSuppressionToleranceRate(p.conf.QoSConfiguration, pod)
 	if err != nil {
-		klog.Errorf("[pressure-suppression] pod %s get cpu suppression tolerance rate failed: %s",
+		general.Errorf("pod %s get cpu suppression tolerance rate failed: %s",
 			native.GenerateUniqObjectNameKey(pod), err)
-		return p.maxToleranceRate
+		return maxToleranceRate
 	} else {
-		return math.Min(rate, p.maxToleranceRate)
+		return math.Min(rate, maxToleranceRate)
 	}
 }

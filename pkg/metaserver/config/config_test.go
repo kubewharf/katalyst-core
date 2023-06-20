@@ -31,15 +31,12 @@ import (
 	"github.com/kubewharf/katalyst-api/pkg/apis/config/v1alpha1"
 	internalfake "github.com/kubewharf/katalyst-api/pkg/client/clientset/versioned/fake"
 	"github.com/kubewharf/katalyst-core/pkg/client"
+	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/crd"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/cnc"
 )
 
 var (
-	testTargetGVR = metav1.GroupVersionResource{
-		Group:    v1alpha1.SchemeGroupVersion.Group,
-		Version:  v1alpha1.SchemeGroupVersion.Version,
-		Resource: v1alpha1.ResourceNameEvictionConfigurations,
-	}
+	testTargetGVR = crd.AdminQoSConfigurationGVR
 )
 
 func generateTestGenericClientSet(objects ...runtime.Object) *client.GenericClientSet {
@@ -70,15 +67,15 @@ func constructKatalystCustomConfigLoader() ConfigurationLoader {
 		},
 	}
 
-	ec := &v1alpha1.EvictionConfiguration{
+	aqc := &v1alpha1.AdminQoSConfiguration{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "default",
 			Namespace: "test-namespace",
 		},
-		Spec: v1alpha1.EvictionConfigurationSpec{
-			Config: v1alpha1.EvictionConfig{
-				EvictionPluginsConfig: v1alpha1.EvictionPluginsConfig{
-					ReclaimedResourcesEvictionPluginConfig: v1alpha1.ReclaimedResourcesEvictionPluginConfig{
+		Spec: v1alpha1.AdminQoSConfigurationSpec{
+			Config: v1alpha1.AdminQoSConfig{
+				EvictionConfig: &v1alpha1.EvictionConfig{
+					ReclaimedResourcesEvictionConfig: &v1alpha1.ReclaimedResourcesEvictionConfig{
 						EvictionThreshold: map[v1.ResourceName]float64{
 							v1.ResourceCPU:    1.2,
 							v1.ResourceMemory: 1.3,
@@ -89,7 +86,7 @@ func constructKatalystCustomConfigLoader() ConfigurationLoader {
 		},
 	}
 
-	clientSet := generateTestGenericClientSet(c, ec)
+	clientSet := generateTestGenericClientSet(c, aqc)
 	cncFetcher := cnc.NewCachedCNCFetcher(nodeName, 1*time.Second,
 		clientSet.InternalClient.ConfigV1alpha1().CustomNodeConfigs())
 
@@ -112,7 +109,7 @@ func Test_katalystCustomConfigLoader_LoadConfig(t *testing.T) {
 			args: args{
 				ctx:  context.TODO(),
 				gvr:  testTargetGVR,
-				conf: &v1alpha1.EvictionConfiguration{},
+				conf: &v1alpha1.AdminQoSConfiguration{},
 			},
 		},
 	}

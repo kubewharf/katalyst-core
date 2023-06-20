@@ -30,12 +30,6 @@ type GenericEvictionConfiguration struct {
 	// first item for a particular name wins
 	InnerPlugins []string
 
-	// Dryrun plugins is the list of plugins to dryrun
-	// '*' means "all dryrun by default"
-	// 'foo' means "dryrun 'foo'"
-	// first item for a particular name wins
-	DryRunPlugins []string
-
 	// ConditionTransitionPeriod is duration the eviction manager has to wait before transitioning out of a condition.
 	ConditionTransitionPeriod time.Duration
 
@@ -50,10 +44,10 @@ type GenericEvictionConfiguration struct {
 	EvictionBurst int
 }
 
-type EvictionPluginsConfiguration struct {
-	*ReclaimedResourcesEvictionPluginConfiguration
-	*MemoryPressureEvictionPluginConfiguration
-	*CPUPressureEvictionPluginConfiguration
+type EvictionConfiguration struct {
+	*ReclaimedResourcesEvictionConfiguration
+	*MemoryPressureEvictionConfiguration
+	*CPUPressureEvictionConfiguration
 }
 
 func NewGenericEvictionConfiguration() *GenericEvictionConfiguration {
@@ -63,10 +57,10 @@ func NewGenericEvictionConfiguration() *GenericEvictionConfiguration {
 	}
 }
 
-func NewEvictionPluginsConfiguration() *EvictionPluginsConfiguration {
-	return &EvictionPluginsConfiguration{
-		ReclaimedResourcesEvictionPluginConfiguration: NewReclaimedResourcesEvictionPluginConfiguration(),
-		MemoryPressureEvictionPluginConfiguration:     NewMemoryPressureEvictionPluginConfiguration(),
-		CPUPressureEvictionPluginConfiguration:        NewCPUPressureEvictionPluginConfiguration(),
+func NewEvictionConfiguration() *EvictionConfiguration {
+	return &EvictionConfiguration{
+		ReclaimedResourcesEvictionConfiguration: NewReclaimedResourcesEvictionConfiguration(),
+		MemoryPressureEvictionConfiguration:     NewMemoryPressureEvictionPluginConfiguration(),
+		CPUPressureEvictionConfiguration:        NewCPUPressureEvictionConfiguration(),
 	}
 }

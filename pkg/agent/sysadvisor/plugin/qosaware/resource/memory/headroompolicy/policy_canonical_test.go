@@ -34,6 +34,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
 	"github.com/kubewharf/katalyst-core/pkg/config"
+	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/adminqos/reclaimedresource/memoryheadroom"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/sysadvisor/qosaware/resource/memory/headroom"
 	pkgconsts "github.com/kubewharf/katalyst-core/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
@@ -114,6 +115,7 @@ func TestPolicyCanonical_calculateMemoryBuffer(t *testing.T) {
 	type fields struct {
 		podList                      []*v1.Pod
 		containers                   []*types.ContainerInfo
+		memoryHeadroomConfiguration  *memoryheadroom.MemoryHeadroomConfiguration
 		policyCanonicalConfiguration *headroom.MemoryPolicyCanonicalConfiguration
 		essentials                   types.ResourceEssentials
 		setFakeMetric                func(store *utilmetric.MetricStore)
@@ -163,10 +165,13 @@ func TestPolicyCanonical_calculateMemoryBuffer(t *testing.T) {
 						consts.PodAnnotationQoSLevelSystemCores, nil,
 						nil, 1),
 				},
-				policyCanonicalConfiguration: &headroom.MemoryPolicyCanonicalConfiguration{
-					MemoryUtilBasedConfiguration: &headroom.MemoryUtilBasedConfiguration{
-						Enabled: false,
+				memoryHeadroomConfiguration: &memoryheadroom.MemoryHeadroomConfiguration{
+					MemoryUtilBasedConfiguration: &memoryheadroom.MemoryUtilBasedConfiguration{
+						Enable: false,
 					},
+				},
+				policyCanonicalConfiguration: &headroom.MemoryPolicyCanonicalConfiguration{
+					MemoryUtilBasedConfiguration: &headroom.MemoryUtilBasedConfiguration{},
 				},
 				essentials: types.ResourceEssentials{
 					EnableReclaim:       true,
@@ -232,12 +237,15 @@ func TestPolicyCanonical_calculateMemoryBuffer(t *testing.T) {
 						consts.PodAnnotationQoSLevelSystemCores, nil,
 						nil, 1),
 				},
-				policyCanonicalConfiguration: &headroom.MemoryPolicyCanonicalConfiguration{
-					MemoryUtilBasedConfiguration: &headroom.MemoryUtilBasedConfiguration{
-						Enabled:             true,
+				memoryHeadroomConfiguration: &memoryheadroom.MemoryHeadroomConfiguration{
+					MemoryUtilBasedConfiguration: &memoryheadroom.MemoryUtilBasedConfiguration{
+						Enable:              true,
 						FreeBasedRatio:      0.6,
 						StaticBasedCapacity: 20 << 30,
 					},
+				},
+				policyCanonicalConfiguration: &headroom.MemoryPolicyCanonicalConfiguration{
+					MemoryUtilBasedConfiguration: &headroom.MemoryUtilBasedConfiguration{},
 				},
 				essentials: types.ResourceEssentials{
 					EnableReclaim:       true,
@@ -308,12 +316,15 @@ func TestPolicyCanonical_calculateMemoryBuffer(t *testing.T) {
 						consts.PodAnnotationQoSLevelSystemCores, nil,
 						nil, 1),
 				},
-				policyCanonicalConfiguration: &headroom.MemoryPolicyCanonicalConfiguration{
-					MemoryUtilBasedConfiguration: &headroom.MemoryUtilBasedConfiguration{
-						Enabled:             true,
+				memoryHeadroomConfiguration: &memoryheadroom.MemoryHeadroomConfiguration{
+					MemoryUtilBasedConfiguration: &memoryheadroom.MemoryUtilBasedConfiguration{
+						Enable:              true,
 						FreeBasedRatio:      0.6,
 						StaticBasedCapacity: 20 << 30,
 					},
+				},
+				policyCanonicalConfiguration: &headroom.MemoryPolicyCanonicalConfiguration{
+					MemoryUtilBasedConfiguration: &headroom.MemoryUtilBasedConfiguration{},
 				},
 				essentials: types.ResourceEssentials{
 					EnableReclaim:       true,
@@ -384,14 +395,18 @@ func TestPolicyCanonical_calculateMemoryBuffer(t *testing.T) {
 						consts.PodAnnotationQoSLevelSystemCores, nil,
 						nil, 1),
 				},
+				memoryHeadroomConfiguration: &memoryheadroom.MemoryHeadroomConfiguration{
+					MemoryUtilBasedConfiguration: &memoryheadroom.MemoryUtilBasedConfiguration{
+						Enable:              true,
+						CacheBasedRatio:     0.6,
+						FreeBasedRatio:      0.6,
+						StaticBasedCapacity: 20 << 30,
+					},
+				},
 				policyCanonicalConfiguration: &headroom.MemoryPolicyCanonicalConfiguration{
 					MemoryUtilBasedConfiguration: &headroom.MemoryUtilBasedConfiguration{
-						Enabled:               true,
-						CacheBasedRatio:       0.6,
 						CPUMemRatioLowerBound: 1. / 6.,
 						CPUMemRatioUpperBound: 1. / 3.5,
-						FreeBasedRatio:        0.6,
-						StaticBasedCapacity:   20 << 30,
 					},
 				},
 				essentials: types.ResourceEssentials{
@@ -427,6 +442,7 @@ func TestPolicyCanonical_calculateMemoryBuffer(t *testing.T) {
 
 			conf := generateTestConfiguration(t, ckDir, sfDir)
 			conf.MemoryPolicyCanonicalConfiguration = tt.fields.policyCanonicalConfiguration
+			conf.GetDynamicConfiguration().MemoryHeadroomConfiguration = tt.fields.memoryHeadroomConfiguration
 
 			metricsFetcher := metric.NewFakeMetricsFetcher(metrics.DummyMetrics{})
 			metaCache, err := metacache.NewMetaCacheImp(conf, metricsFetcher)
@@ -450,11 +466,11 @@ func TestPolicyCanonical_calculateMemoryBuffer(t *testing.T) {
 			require.NoError(t, err)
 			got, err := p.GetHeadroom()
 			if (err != nil) != tt.wantErr {
-				t.Errorf("calculateMemoryBuffer() error = %v, wantErr %v", err, tt.wantErr)
+				t.Errorf("calculateUtilBasedBuffer() error = %v, wantErr %v", err, tt.wantErr)
 				return
 			}
 			if got != tt.want {
-				t.Errorf("calculateMemoryBuffer() got = %v, want %v", got, tt.want)
+				t.Errorf("calculateUtilBasedBuffer() got = %v, want %v", got, tt.want)
 			}
 		})
 	}

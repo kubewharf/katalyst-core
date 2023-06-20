@@ -30,8 +30,6 @@ import (
 type GenericEvictionOptions struct {
 	InnerPlugins []string
 
-	DryRunPlugins []string
-
 	// ConditionTransitionPeriod is duration the eviction manager has to wait before transitioning out of a condition.
 	ConditionTransitionPeriod time.Duration
 
@@ -50,7 +48,6 @@ type GenericEvictionOptions struct {
 func NewGenericEvictionOptions() *GenericEvictionOptions {
 	return &GenericEvictionOptions{
 		InnerPlugins:                  []string{},
-		DryRunPlugins:                 []string{},
 		ConditionTransitionPeriod:     5 * time.Minute,
 		EvictionManagerSyncPeriod:     5 * time.Second,
 		EvictionSkippedAnnotationKeys: []string{},
@@ -66,9 +63,6 @@ func (o *GenericEvictionOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 	fs.StringSliceVar(&o.InnerPlugins, "eviction-plugins", o.InnerPlugins, fmt.Sprintf(""+
 		"A list of eviction plugins to enable. '*' enables all on-by-default eviction plugins, 'foo' enables the eviction plugin "+
 		"named 'foo', '-foo' disables the eviction plugin named 'foo'"))
-
-	fs.StringSliceVar(&o.DryRunPlugins, "eviction-dry-run-plugins", o.DryRunPlugins, fmt.Sprintf(" A list of "+
-		"eviction plugins to dry run. If a plugin in this list, it will enter dry run mode"))
 
 	fs.DurationVar(&o.ConditionTransitionPeriod, "eviction-condition-transition-period", o.ConditionTransitionPeriod,
 		"duration the eviction manager has to wait before transitioning out of a condition")
@@ -88,7 +82,6 @@ func (o *GenericEvictionOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 // ApplyTo fills up config with options
 func (o *GenericEvictionOptions) ApplyTo(c *evictionconfig.GenericEvictionConfiguration) error {
 	c.InnerPlugins = o.InnerPlugins
-	c.DryRunPlugins = o.DryRunPlugins
 	c.ConditionTransitionPeriod = o.ConditionTransitionPeriod
 	c.EvictionManagerSyncPeriod = o.EvictionManagerSyncPeriod
 	c.EvictionSkippedAnnotationKeys.Insert(o.EvictionSkippedAnnotationKeys...)
@@ -105,39 +98,39 @@ func (o *GenericEvictionOptions) Config() (*evictionconfig.GenericEvictionConfig
 	return c, nil
 }
 
-type EvictionPluginsOptions struct {
-	*ReclaimedResourcesEvictionPluginOptions
-	*MemoryPressureEvictionPluginOptions
-	*CPUPressureEvictionPluginOptions
+type EvictionOptions struct {
+	*ReclaimedResourcesEvictionOptions
+	*MemoryPressureEvictionOptions
+	*CPUPressureEvictionOptions
 }
 
-func NewEvictionPluginsOptions() *EvictionPluginsOptions {
-	return &EvictionPluginsOptions{
-		ReclaimedResourcesEvictionPluginOptions: NewReclaimedResourcesEvictionPluginOptions(),
-		MemoryPressureEvictionPluginOptions:     NewMemoryPressureEvictionPluginOptions(),
-		CPUPressureEvictionPluginOptions:        NewCPUPressureEvictionPluginOptions(),
+func NewEvictionOptions() *EvictionOptions {
+	return &EvictionOptions{
+		ReclaimedResourcesEvictionOptions: NewReclaimedResourcesEvictionOptions(),
+		MemoryPressureEvictionOptions:     NewMemoryPressureEvictionOptions(),
+		CPUPressureEvictionOptions:        NewCPUPressureEvictionOptions(),
 	}
 }
 
-func (o *EvictionPluginsOptions) AddFlags(fss *cliflag.NamedFlagSets) {
-	o.ReclaimedResourcesEvictionPluginOptions.AddFlags(fss)
-	o.MemoryPressureEvictionPluginOptions.AddFlags(fss)
-	o.CPUPressureEvictionPluginOptions.AddFlags(fss)
+func (o *EvictionOptions) AddFlags(fss *cliflag.NamedFlagSets) {
+	o.ReclaimedResourcesEvictionOptions.AddFlags(fss)
+	o.MemoryPressureEvictionOptions.AddFlags(fss)
+	o.CPUPressureEvictionOptions.AddFlags(fss)
 }
 
 // ApplyTo fills up config with options
-func (o *EvictionPluginsOptions) ApplyTo(c *evictionconfig.EvictionPluginsConfiguration) error {
+func (o *EvictionOptions) ApplyTo(c *evictionconfig.EvictionConfiguration) error {
 	var errList []error
 	errList = append(errList,
-		o.ReclaimedResourcesEvictionPluginOptions.ApplyTo(c.ReclaimedResourcesEvictionPluginConfiguration),
-		o.MemoryPressureEvictionPluginOptions.ApplyTo(c.MemoryPressureEvictionPluginConfiguration),
-		o.CPUPressureEvictionPluginOptions.ApplyTo(c.CPUPressureEvictionPluginConfiguration),
+		o.ReclaimedResourcesEvictionOptions.ApplyTo(c.ReclaimedResourcesEvictionConfiguration),
+		o.MemoryPressureEvictionOptions.ApplyTo(c.MemoryPressureEvictionConfiguration),
+		o.CPUPressureEvictionOptions.ApplyTo(c.CPUPressureEvictionConfiguration),
 	)
 	return errors.NewAggregate(errList)
 }
 
-func (o *EvictionPluginsOptions) Config() (*evictionconfig.EvictionPluginsConfiguration, error) {
-	c := evictionconfig.NewEvictionPluginsConfiguration()
+func (o *EvictionOptions) Config() (*evictionconfig.EvictionConfiguration, error) {
+	c := evictionconfig.NewEvictionConfiguration()
 	if err := o.ApplyTo(c); err != nil {
 		return nil, err
 	}

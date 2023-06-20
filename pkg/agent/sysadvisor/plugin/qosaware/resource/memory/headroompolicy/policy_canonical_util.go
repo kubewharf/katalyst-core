@@ -24,13 +24,14 @@ import (
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/klog/v2"
 
+	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic"
 	"github.com/kubewharf/katalyst-core/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/metric"
 )
 
 // getSystemMemoryInfo returns the total memory and available memory of the system in bytes
-func (p *PolicyCanonical) calculateMemoryBuffer(estimateNonReclaimedRequirement float64) (float64, error) {
+func (p *PolicyCanonical) calculateUtilBasedBuffer(dynamicConfig *dynamic.Configuration, estimateNonReclaimedRequirement float64) (float64, error) {
 	var (
 		systemMetrics               *systemMemoryMetrics
 		systemQoSMetrics            *memoryMetrics
@@ -61,7 +62,7 @@ func (p *PolicyCanonical) calculateMemoryBuffer(estimateNonReclaimedRequirement 
 
 	// calculate system buffer with double scale_factor to make kswapd less happened
 	systemFactor := systemMetrics.memoryTotal * 2 * systemMetrics.scaleFactor / 10000
-	systemBuffer := systemMetrics.memoryFree*p.policyCanonicalConfig.FreeBasedRatio - systemFactor
+	systemBuffer := systemMetrics.memoryFree*dynamicConfig.FreeBasedRatio - systemFactor
 
 	// calculate shared and dedicate qos total used
 	sharedAndDedicateQoSTotalUsed := sharedAndDedicateQoSMetrics.rss + sharedAndDedicateQoSMetrics.shmem +
@@ -77,19 +78,19 @@ func (p *PolicyCanonical) calculateMemoryBuffer(estimateNonReclaimedRequirement 
 	buffer := math.Max(systemBuffer-nonReclaimedQoSExtraUsage, 0)
 
 	// calculate cache oversold buffer if cache oversold rate is set and cpu/memory ratio is in range and memory utilization is not 0
-	if p.policyCanonicalConfig.CacheBasedRatio > 0 && nodeCPUMemoryRatio > p.policyCanonicalConfig.CPUMemRatioLowerBound &&
-		nodeCPUMemoryRatio < p.policyCanonicalConfig.CPUMemRatioUpperBound && systemMetrics.memoryUtilization > 0 {
+	if dynamicConfig.CacheBasedRatio > 0 && nodeCPUMemoryRatio > p.conf.CPUMemRatioLowerBound &&
+		nodeCPUMemoryRatio < p.conf.CPUMemRatioUpperBound && systemMetrics.memoryUtilization > 0 {
 		cacheBuffer := (systemMetrics.memoryTotal*(1-systemMetrics.memoryUtilization) - systemMetrics.memoryFree) *
-			p.policyCanonicalConfig.CacheBasedRatio
+			dynamicConfig.CacheBasedRatio
 		buffer = math.Max(buffer, cacheBuffer)
 		general.Infof("cache oversold rate: %.2f, cache buffer: %.2e, buffer: %.2e",
-			p.policyCanonicalConfig.CacheBasedRatio, cacheBuffer, buffer)
+			dynamicConfig.CacheBasedRatio, cacheBuffer, buffer)
 	}
 
 	// add static oversold buffer
-	result := buffer + p.policyCanonicalConfig.StaticBasedCapacity
+	result := buffer + dynamicConfig.StaticBasedCapacity
 	general.Infof("system buffer: %.2e, non-reclaimed QoS extra usage: %.2e, static oversold: %.2e, result: %.2e",
-		systemBuffer, nonReclaimedQoSExtraUsage, p.policyCanonicalConfig.StaticBasedCapacity, result)
+		systemBuffer, nonReclaimedQoSExtraUsage, dynamicConfig.StaticBasedCapacity, result)
 	return result, nil
 }
 
@@ -167,7 +168,7 @@ func (p *PolicyCanonical) getMemoryMetrics(filter func(pod *v1.Pod) bool) (*memo
 
 // filterSystemQoSPods filter system qos pods
 func (p *PolicyCanonical) filterSystemQoSPods(pod *v1.Pod) bool {
-	if ok, err := p.qosConfig.CheckSystemQoSForPod(pod); err != nil {
+	if ok, err := p.conf.CheckSystemQoSForPod(pod); err != nil {
 		klog.Errorf("filter pod %v err: %v", pod.Name, err)
 		return false
 	} else {
@@ -177,13 +178,13 @@ func (p *PolicyCanonical) filterSystemQoSPods(pod *v1.Pod) bool {
 
 // filterSharedAndDedicateQoSPods filter shared and dedicate qos pods
 func (p *PolicyCanonical) filterSharedAndDedicateQoSPods(pod *v1.Pod) bool {
-	isSharedQoS, err := p.qosConfig.CheckSharedQoSForPod(pod)
+	isSharedQoS, err := p.conf.CheckSharedQoSForPod(pod)
 	if err != nil {
 		klog.Errorf("filter pod %v err: %v", pod.Name, err)
 		return false
 	}
 
-	isDedicateQoS, err := p.qosConfig.CheckDedicatedQoSForPod(pod)
+	isDedicateQoS, err := p.conf.CheckDedicatedQoSForPod(pod)
 	if err != nil {
 		klog.Errorf("filter pod %v err: %v", pod.Name, err)
 		return false

@@ -28,8 +28,6 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource/helper"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
 	"github.com/kubewharf/katalyst-core/pkg/config"
-	"github.com/kubewharf/katalyst-core/pkg/config/agent/sysadvisor/qosaware/resource/memory/headroom"
-	"github.com/kubewharf/katalyst-core/pkg/config/generic"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
@@ -42,17 +40,15 @@ type PolicyCanonical struct {
 	memoryHeadroom float64
 	updateStatus   types.PolicyUpdateStatus
 
-	qosConfig             *generic.QoSConfiguration
-	policyCanonicalConfig *headroom.MemoryPolicyCanonicalConfiguration
+	conf *config.Configuration
 }
 
 func NewPolicyCanonical(conf *config.Configuration, _ interface{}, metaReader metacache.MetaReader,
 	metaServer *metaserver.MetaServer, _ metrics.MetricEmitter) HeadroomPolicy {
 	p := PolicyCanonical{
-		PolicyBase:            NewPolicyBase(metaReader, metaServer),
-		updateStatus:          types.PolicyUpdateFailed,
-		qosConfig:             conf.QoSConfiguration,
-		policyCanonicalConfig: conf.MemoryHeadroomPolicyConfiguration.MemoryPolicyCanonicalConfiguration,
+		PolicyBase:   NewPolicyBase(metaReader, metaServer),
+		updateStatus: types.PolicyUpdateFailed,
+		conf:         conf,
 	}
 
 	return &p
@@ -100,9 +96,11 @@ func (p *PolicyCanonical) Update() (err error) {
 		}
 	}()
 
+	dynamicConfig := p.conf.GetDynamicConfiguration()
+
 	var (
 		memoryEstimateRequirement float64
-		memoryBuffer              float64
+		utilBasedBuffer           float64
 	)
 
 	maxAllocatableMemory := p.essentials.ResourceUpperBound - p.essentials.ReservedForAllocate
@@ -112,17 +110,17 @@ func (p *PolicyCanonical) Update() (err error) {
 	}
 	memoryHeadroomWithoutBuffer := math.Max(maxAllocatableMemory-memoryEstimateRequirement, 0)
 
-	if p.policyCanonicalConfig.Enabled {
-		memoryBuffer, err = p.calculateMemoryBuffer(memoryEstimateRequirement)
+	if dynamicConfig.MemoryUtilBasedConfiguration.Enable {
+		utilBasedBuffer, err = p.calculateUtilBasedBuffer(dynamicConfig, memoryEstimateRequirement)
 		if err != nil {
 			return err
 		}
 	}
 
-	p.memoryHeadroom = math.Max(memoryHeadroomWithoutBuffer+memoryBuffer, 0)
+	p.memoryHeadroom = math.Max(memoryHeadroomWithoutBuffer+utilBasedBuffer, 0)
 	p.memoryHeadroom = math.Min(p.memoryHeadroom, maxAllocatableMemory)
 	general.Infof("without buffer memory headroom: %.2e, final memory headroom: %.2e, memory buffer: %.2e, max memory allocatable: %.2e",
-		memoryHeadroomWithoutBuffer, p.memoryHeadroom, memoryBuffer, maxAllocatableMemory)
+		memoryHeadroomWithoutBuffer, p.memoryHeadroom, utilBasedBuffer, maxAllocatableMemory)
 
 	return nil
 }

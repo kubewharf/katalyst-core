@@ -57,7 +57,7 @@ type GenericAgentConfiguration struct {
 }
 
 type StaticAgentConfiguration struct {
-	*eviction.EvictionPluginsConfiguration
+	*eviction.EvictionConfiguration
 	*reporter.ReporterPluginsConfiguration
 	*sysadvisor.SysAdvisorPluginsConfiguration
 	*qrm.QRMPluginsConfiguration
@@ -78,7 +78,7 @@ func NewGenericAgentConfiguration() *GenericAgentConfiguration {
 
 func NewStaticAgentConfiguration() *StaticAgentConfiguration {
 	return &StaticAgentConfiguration{
-		EvictionPluginsConfiguration:   eviction.NewEvictionPluginsConfiguration(),
+		EvictionConfiguration:          eviction.NewEvictionConfiguration(),
 		ReporterPluginsConfiguration:   reporter.NewReporterPluginsConfiguration(),
 		SysAdvisorPluginsConfiguration: sysadvisor.NewSysAdvisorPluginsConfiguration(),
 		QRMPluginsConfiguration:        qrm.NewQRMPluginsConfiguration(),

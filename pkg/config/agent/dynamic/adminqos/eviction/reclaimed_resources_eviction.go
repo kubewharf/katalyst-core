@@ -21,20 +21,27 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/util/native"
 )
 
-type ReclaimedResourcesEvictionPluginConfiguration struct {
+type ReclaimedResourcesEvictionConfiguration struct {
 	EvictionThreshold native.ResourceThreshold
+	GracePeriod       int64
 }
 
-func NewReclaimedResourcesEvictionPluginConfiguration() *ReclaimedResourcesEvictionPluginConfiguration {
-	return &ReclaimedResourcesEvictionPluginConfiguration{
+func NewReclaimedResourcesEvictionConfiguration() *ReclaimedResourcesEvictionConfiguration {
+	return &ReclaimedResourcesEvictionConfiguration{
 		EvictionThreshold: native.ResourceThreshold{},
 	}
 }
 
-func (c *ReclaimedResourcesEvictionPluginConfiguration) ApplyConfiguration(conf *crd.DynamicConfigCRD) {
-	if ec := conf.EvictionConfiguration; ec != nil {
-		for resourceName, value := range ec.Spec.Config.EvictionPluginsConfig.ReclaimedResourcesEvictionPluginConfig.EvictionThreshold {
+func (c *ReclaimedResourcesEvictionConfiguration) ApplyConfiguration(conf *crd.DynamicConfigCRD) {
+	if aqc := conf.AdminQoSConfiguration; aqc != nil && aqc.Spec.Config.EvictionConfig != nil &&
+		aqc.Spec.Config.EvictionConfig.ReclaimedResourcesEvictionConfig != nil {
+		config := aqc.Spec.Config.EvictionConfig.ReclaimedResourcesEvictionConfig
+		for resourceName, value := range config.EvictionThreshold {
 			c.EvictionThreshold[resourceName] = value
+		}
+
+		if config.GracePeriod != nil {
+			c.GracePeriod = *config.GracePeriod
 		}
 	}
 }
