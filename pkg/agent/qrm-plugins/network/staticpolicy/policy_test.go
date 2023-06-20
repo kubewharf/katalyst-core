@@ -276,7 +276,6 @@ func TestAllocate(t *testing.T) {
 							Annotations: map[string]string{
 								testIPv4ResourceAllocationAnnotationKey:             testEth0IPv4,
 								testIPv6ResourceAllocationAnnotationKey:             "",
-								testNetNSPathResourceAllocationAnnotationKey:        testEth0NSAbsolutePath,
 								testNetInterfaceNameResourceAllocationAnnotationKey: testEth0Name,
 								testNetClassIDResourceAllocationAnnotationKey:       testSharedNetClsId,
 							},
@@ -403,7 +402,6 @@ func TestAllocate(t *testing.T) {
 							Annotations: map[string]string{
 								testIPv4ResourceAllocationAnnotationKey:             testEth0IPv4,
 								testIPv6ResourceAllocationAnnotationKey:             "",
-								testNetNSPathResourceAllocationAnnotationKey:        testEth0NSAbsolutePath,
 								testNetInterfaceNameResourceAllocationAnnotationKey: testEth0Name,
 								testNetClassIDResourceAllocationAnnotationKey:       fmt.Sprintf("%d", testDefaultDedicatedNetClsId),
 							},
