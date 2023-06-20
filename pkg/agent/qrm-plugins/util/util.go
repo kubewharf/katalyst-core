@@ -208,7 +208,9 @@ func GetNUMANodesCountToFitCPUReq(cpuReq int, cpuTopology *machine.CPUTopology) 
 
 	cpusPerNUMA := cpuTopology.NumCPUs / numaCount
 	numaCountNeeded := int(math.Ceil(float64(cpuReq) / float64(cpusPerNUMA)))
-	if numaCountNeeded > numaCount {
+	if numaCountNeeded == 0 {
+		return 0, 0, fmt.Errorf("zero numaCountNeeded")
+	} else if numaCountNeeded > numaCount {
 		return 0, 0, fmt.Errorf("invalid cpu req: %d in topology with NUMAs count: %d and CPUs count: %d", cpuReq, numaCount, cpuTopology.NumCPUs)
 	}
 
@@ -220,8 +222,15 @@ func GetNUMANodesCountToFitCPUReq(cpuReq int, cpuTopology *machine.CPUTopology) 
 // we need if we try to allocate memory among them, assuming that all numa nodes
 // contain the same memory capacity
 func GetNUMANodesCountToFitMemoryReq(memoryReq, bytesPerNUMA uint64, numaCount int) (int, uint64, error) {
+	if bytesPerNUMA == 0 {
+		return 0, 0, fmt.Errorf("zero bytesPerNUMA")
+	}
+
 	numaCountNeeded := int(math.Ceil(float64(memoryReq) / float64(bytesPerNUMA)))
-	if numaCountNeeded > numaCount {
+
+	if numaCountNeeded == 0 {
+		return 0, 0, fmt.Errorf("zero numaCountNeeded")
+	} else if numaCountNeeded > numaCount {
 		return 0, 0, fmt.Errorf("invalid memory req: %d in topology with NUMAs count: %d and bytesPerNUMA: %d", memoryReq, numaCount, bytesPerNUMA)
 	}
 

@@ -202,11 +202,12 @@ func (p *DynamicPolicy) calculateHints(reqInt uint64, resourcesMachineState stat
 			if machineState[nodeID] == nil {
 				general.Warningf("NUMA: %d has nil state", nodeID)
 				return
-			} else if machineState[nodeID].Free == 0 {
-				general.Warningf("NUMA: %d free quantity is zero, skip mask: %s",
-					nodeID, mask.String())
+			} else if qosutil.AnnotationsIndicateNUMAExclusive(reqAnnotations) && machineState[nodeID].Allocated > 0 {
+				general.Warningf("numa_exclusive container skip mask: %s with NUMA: %d allocated: %d",
+					mask.String(), nodeID, machineState[nodeID].Allocated)
 				return
 			}
+
 			freeBytesInMask += machineState[nodeID].Free
 		}
 
