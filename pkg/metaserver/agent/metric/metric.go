@@ -457,8 +457,12 @@ func (m *MalachiteMetricsFetcher) processSystemCPUComputeData(systemComputeData 
 func (m *MalachiteMetricsFetcher) processCgroupCPUData(podUID, containerName string, cgStats *cgroup.MalachiteCgroupInfo) {
 	m.processContainerMemBandwidth(podUID, containerName, cgStats)
 
+	cyclesOld, _ := m.GetContainerMetric(podUID, containerName, consts.MetricCPUCyclesContainer)
+	instructionsOld, _ := m.GetContainerMetric(podUID, containerName, consts.MetricCPUInstructionsContainer)
+
 	if cgStats.CgroupType == "V1" {
 		cpu := cgStats.V1.Cpu
+
 		m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricCPULimitContainer, float64(cpu.CfsQuotaUs)/float64(cpu.CfsPeriodUs))
 		m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricCPUUsageContainer, float64(cpu.NewCPUBasicInfo.CPUUsage-cpu.OldCPUBasicInfo.CPUUsage)/(float64(cpu.NewCPUBasicInfo.UpdateTime-cpu.OldCPUBasicInfo.UpdateTime)*1e9))
 		m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricCPUUsageRatioContainer, cpu.CPUUsageRatio)
@@ -484,10 +488,27 @@ func (m *MalachiteMetricsFetcher) processCgroupCPUData(podUID, containerName str
 		m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricIMCWriteContainer, float64(cpu.IMCWrites))
 		m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricStoreAllInsContainer, float64(cpu.StoreAllInstructions))
 		m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricStoreInsContainer, float64(cpu.StoreInstructions))
-
 		m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricUpdateTimeContainer, float64(cpu.UpdateTime))
+		m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricCPUCyclesContainer, float64(cpu.Cycles))
+		m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricCPUInstructionsContainer, float64(cpu.Instructions))
+
+		updateTimeDiff := cpu.NewCPUBasicInfo.UpdateTime - cpu.OldCPUBasicInfo.UpdateTime
+		if updateTimeDiff > 0 {
+			usage := float64(cpu.NewCPUBasicInfo.CPUUsage-cpu.OldCPUBasicInfo.CPUUsage) / (float64(updateTimeDiff) * 1e9)
+			m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricCPUUsageContainer, usage)
+		}
+
+		if cyclesOld > 0 && instructionsOld > 0 {
+			instructionDiff := float64(cpu.Instructions) - instructionsOld
+			if instructionDiff > 0 {
+				cpi := (float64(cpu.Cycles) - cyclesOld) / instructionDiff
+				m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricCPUCPIContainer, cpi)
+			}
+		}
+
 	} else if cgStats.CgroupType == "V2" {
 		cpu := cgStats.V2.Cpu
+
 		m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricCPUUsageRatioContainer, cpu.CPUUsageRatio)
 		m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricCPUUsageUserContainer, cpu.CPUUserUsageRatio)
 		m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricCPUUsageSysContainer, cpu.CPUSysUsageRatio)
@@ -504,8 +525,17 @@ func (m *MalachiteMetricsFetcher) processCgroupCPUData(podUID, containerName str
 		m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricIMCWriteContainer, float64(cpu.IMCWrites))
 		m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricStoreAllInsContainer, float64(cpu.StoreAllInstructions))
 		m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricStoreInsContainer, float64(cpu.StoreInstructions))
-
 		m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricUpdateTimeContainer, float64(cpu.UpdateTime))
+		m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricCPUCyclesContainer, float64(cpu.Cycles))
+		m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricCPUInstructionsContainer, float64(cpu.Instructions))
+
+		if cyclesOld > 0 && instructionsOld > 0 {
+			instructionDiff := float64(cpu.Instructions) - instructionsOld
+			if instructionDiff > 0 {
+				cpi := (float64(cpu.Cycles) - cyclesOld) / instructionDiff
+				m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricCPUCPIContainer, cpi)
+			}
+		}
 	}
 }
 
@@ -584,9 +614,7 @@ func (m *MalachiteMetricsFetcher) processCgroupPerfData(podUID, containerName st
 	if perf == nil {
 		return
 	}
-	m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricCPUCPIContainer, perf.Cpi)
-	m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricCPUCyclesContainer, perf.Cycles)
-	m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricCPUInstructionsContainer, perf.Instructions)
+	// cpu cycles and instructions are collected from container's cgroup data, and cpi is derived from them
 	m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricCPUICacheMissContainer, perf.IcacheMiss)
 	m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricCPUL2CacheMissContainer, perf.L2CacheMiss)
 	m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricCPUL3CacheMissContainer, perf.L3CacheMiss)
