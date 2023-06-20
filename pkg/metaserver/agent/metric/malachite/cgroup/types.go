@@ -241,6 +241,8 @@ type CPUCgDataV1 struct {
 	StoreAllInstructions  uint64       `json:"store_all_ins"`
 	StoreInstructions     uint64       `json:"store_ins"`
 	UpdateTime            uint64       `json:"update_time"`
+	Cycles                uint64       `json:"cycles"`
+	Instructions          uint64       `json:"instructions"`
 }
 
 type SubSystemGroupsV2 struct {
@@ -327,6 +329,8 @@ type CPUCgDataV2 struct {
 	StoreAllInstructions  uint64          `json:"store_all_ins"`
 	StoreInstructions     uint64          `json:"store_ins"`
 	UpdateTime            uint64          `json:"update_time"`
+	Cycles                uint64          `json:"cycles"`
+	Instructions          uint64          `json:"instructions"`
 }
 
 type CPUSetCgDataV2 struct {
