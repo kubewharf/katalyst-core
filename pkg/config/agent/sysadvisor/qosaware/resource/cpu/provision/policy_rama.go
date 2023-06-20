@@ -45,6 +45,8 @@ func NewPolicyRamaConfiguration() *PolicyRamaConfiguration {
 				Kdn:                  0.0,
 				AdjustmentUpperBound: types.MaxRampUpStep,
 				AdjustmentLowerBound: -types.MaxRampDownStep,
+				DeadbandLowerPct:     0.8,
+				DeadbandUpperPct:     0.05,
 			},
 			consts.MetricCPUCPIContainer: {
 				Kpp:                  10.0,
@@ -53,6 +55,8 @@ func NewPolicyRamaConfiguration() *PolicyRamaConfiguration {
 				Kdn:                  0.0,
 				AdjustmentUpperBound: types.MaxRampUpStep,
 				AdjustmentLowerBound: -types.MaxRampDownStep,
+				DeadbandLowerPct:     0.95,
+				DeadbandUpperPct:     0.02,
 			},
 			consts.MetricMemBandwidthNuma: {
 				Kpp:                  10.0,
@@ -61,6 +65,8 @@ func NewPolicyRamaConfiguration() *PolicyRamaConfiguration {
 				Kdn:                  0.0,
 				AdjustmentUpperBound: types.MaxRampUpStep,
 				AdjustmentLowerBound: -types.MaxRampDownStep,
+				DeadbandLowerPct:     0.95,
+				DeadbandUpperPct:     0.02,
 			},
 		},
 	}

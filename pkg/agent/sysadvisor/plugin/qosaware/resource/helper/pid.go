@@ -46,35 +46,42 @@ func NewPIDController(params types.FirstOrderPIDParams) PIDController {
 func (c *PIDController) Adjust(controlKnob, target, current float64) float64 {
 	var (
 		kp, kd, kpSign, kdSign float64
+		pterm                  float64 = 0
+		dterm                  float64 = 0
+		adjustment             float64 = 0
 	)
 
 	c.errorValuePrev = c.errorValue
 	c.errorValue = math.Log(current) - math.Log(target)
 	c.errorRate = math.Abs(c.errorValue) - math.Abs(c.errorValuePrev)
+	errorRaw := current - target
 
-	if c.errorValue >= 0 {
-		kp = c.params.Kpp
-		kpSign = 1
-	} else {
-		kp = c.params.Kpn
-		kpSign = -1
+	// apply adjustment when current is out of deadband
+	if (errorRaw > 0 && errorRaw/target > c.params.DeadbandUpperPct) || (errorRaw < 0 && errorRaw/target < -c.params.DeadbandUpperPct) {
+		if c.errorValue >= 0 {
+			kp = c.params.Kpp
+			kpSign = 1
+		} else {
+			kp = c.params.Kpn
+			kpSign = -1
+		}
+
+		if c.errorRate >= 0 {
+			kdSign = kpSign
+		} else {
+			kdSign = -kpSign
+		}
+
+		if kdSign >= 0 {
+			kd = c.params.Kdp
+		} else {
+			kd = c.params.Kdn
+		}
+
+		pterm = kp * c.errorValue
+		dterm = kdSign * kd * math.Abs(c.errorRate)
+		adjustment = pterm + dterm
 	}
-
-	if c.errorRate >= 0 {
-		kdSign = kpSign
-	} else {
-		kdSign = -kpSign
-	}
-
-	if kdSign >= 0 {
-		kd = c.params.Kdp
-	} else {
-		kd = c.params.Kdn
-	}
-
-	pterm := kp * c.errorValue
-	dterm := kdSign * kd * math.Abs(c.errorRate)
-	adjustment := pterm + dterm
 
 	if c.controlKnobPrev != controlKnob {
 		c.adjustmentTotal = 0

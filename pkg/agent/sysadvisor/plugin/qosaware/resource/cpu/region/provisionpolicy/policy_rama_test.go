@@ -63,6 +63,8 @@ func generateTestConfiguration(t *testing.T, checkpointDir, stateFileDir string)
 				Kdn:                  0.0,
 				AdjustmentUpperBound: types.MaxRampUpStep,
 				AdjustmentLowerBound: -types.MaxRampDownStep,
+				DeadbandLowerPct:     0.8,
+				DeadbandUpperPct:     0.05,
 			},
 			consts.MetricCPUCPIContainer: {
 				Kpp:                  10.0,
@@ -71,6 +73,8 @@ func generateTestConfiguration(t *testing.T, checkpointDir, stateFileDir string)
 				Kdn:                  0.0,
 				AdjustmentUpperBound: types.MaxRampUpStep,
 				AdjustmentLowerBound: -types.MaxRampDownStep,
+				DeadbandLowerPct:     0.95,
+				DeadbandUpperPct:     0.02,
 			},
 			consts.MetricMemBandwidthNuma: {
 				Kpp:                  10.0,
@@ -79,6 +83,8 @@ func generateTestConfiguration(t *testing.T, checkpointDir, stateFileDir string)
 				Kdn:                  0.0,
 				AdjustmentUpperBound: types.MaxRampUpStep,
 				AdjustmentLowerBound: -types.MaxRampDownStep,
+				DeadbandLowerPct:     0.95,
+				DeadbandUpperPct:     0.02,
 			},
 		},
 	}
@@ -174,6 +180,39 @@ func TestPolicyRama(t *testing.T) {
 			wantResult: types.ControlKnob{
 				types.ControlKnobNonReclaimedCPUSize: {
 					Value:  38,
+					Action: types.ControlKnobActionNone,
+				},
+			},
+		},
+		{
+			name: "share_deadband",
+			regionInfo: types.RegionInfo{
+				RegionName: "share-xxx",
+				RegionType: types.QoSRegionTypeShare,
+			},
+			resourceEssentials: types.ResourceEssentials{
+				EnableReclaim:       true,
+				ResourceUpperBound:  90,
+				ResourceLowerBound:  4,
+				ReservedForAllocate: 0,
+			},
+			controlEssentials: types.ControlEssentials{
+				ControlKnobs: types.ControlKnob{
+					types.ControlKnobNonReclaimedCPUSize: {
+						Value:  40,
+						Action: types.ControlKnobActionNone,
+					},
+				},
+				Indicators: types.Indicator{
+					consts.MetricCPUSchedwait: {
+						Current: 401,
+						Target:  400,
+					},
+				},
+			},
+			wantResult: types.ControlKnob{
+				types.ControlKnobNonReclaimedCPUSize: {
+					Value:  40,
 					Action: types.ControlKnobActionNone,
 				},
 			},
