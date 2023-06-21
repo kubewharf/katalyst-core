@@ -188,7 +188,12 @@ func (p *DynamicPolicy) calculateHints(reqInt int, machineState state.NUMANodeMa
 			if machineState[nodeID] == nil {
 				general.Warningf("NUMA: %d has nil state", nodeID)
 				return
+			} else if qosutil.AnnotationsIndicateNUMAExclusive(reqAnnotations) && machineState[nodeID].AllocatedCPUSet.Size() > 0 {
+				general.Warningf("numa_exclusive container skip mask: %s with NUMA: %d allocated: %d",
+					mask.String(), nodeID, machineState[nodeID].AllocatedCPUSet.Size())
+				return
 			}
+
 			allAvailableCPUsInMask = allAvailableCPUsInMask.Union(machineState[nodeID].GetAvailableCPUSet(p.reservedCPUs))
 		}
 
