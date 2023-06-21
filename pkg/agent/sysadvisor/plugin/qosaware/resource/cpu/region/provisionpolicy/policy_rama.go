@@ -35,7 +35,7 @@ type PolicyRama struct {
 	*PolicyBase
 
 	configuredIndicatorMetrics []string
-	controllers                map[string]helper.PIDController // map[metricName]controller
+	controllers                map[string]*helper.PIDController // map[metricName]controller
 }
 
 func NewPolicyRama(regionName string, regionType types.QoSRegionType, ownerPoolName string,
@@ -44,7 +44,7 @@ func NewPolicyRama(regionName string, regionType types.QoSRegionType, ownerPoolN
 	p := &PolicyRama{
 		PolicyBase:                 NewPolicyBase(regionName, regionType, ownerPoolName, metaReader, metaServer, emitter),
 		configuredIndicatorMetrics: []string{},
-		controllers:                make(map[string]helper.PIDController),
+		controllers:                make(map[string]*helper.PIDController),
 	}
 
 	// initialize indicator metrics region interested in

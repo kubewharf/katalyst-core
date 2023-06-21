@@ -29,17 +29,15 @@ type PIDController struct {
 	controlKnobPrev float64
 	errorValue      float64
 	errorValuePrev  float64
-	errorRate       float64
 }
 
-func NewPIDController(params types.FirstOrderPIDParams) PIDController {
-	return PIDController{
+func NewPIDController(params types.FirstOrderPIDParams) *PIDController {
+	return &PIDController{
 		params:          params,
 		adjustmentTotal: 0,
 		controlKnobPrev: 0,
 		errorValue:      0,
 		errorValuePrev:  0,
-		errorRate:       0,
 	}
 }
 
@@ -53,8 +51,9 @@ func (c *PIDController) Adjust(controlKnob, target, current float64) float64 {
 
 	c.errorValuePrev = c.errorValue
 	c.errorValue = math.Log(current) - math.Log(target)
-	c.errorRate = math.Abs(c.errorValue) - math.Abs(c.errorValuePrev)
+
 	errorRaw := current - target
+	errorRate := math.Abs(c.errorValue) - math.Abs(c.errorValuePrev)
 
 	// apply adjustment when current is out of deadband
 	if (errorRaw > 0 && errorRaw/target > c.params.DeadbandUpperPct) || (errorRaw < 0 && errorRaw/target < -c.params.DeadbandUpperPct) {
@@ -66,7 +65,7 @@ func (c *PIDController) Adjust(controlKnob, target, current float64) float64 {
 			kpSign = -1
 		}
 
-		if c.errorRate >= 0 {
+		if errorRate >= 0 {
 			kdSign = kpSign
 		} else {
 			kdSign = -kpSign
@@ -79,18 +78,20 @@ func (c *PIDController) Adjust(controlKnob, target, current float64) float64 {
 		}
 
 		pterm = kp * c.errorValue
-		dterm = kdSign * kd * math.Abs(c.errorRate)
+		dterm = kdSign * kd * math.Abs(errorRate)
 		adjustment = pterm + dterm
 	}
 
 	if c.controlKnobPrev != controlKnob {
+		c.controlKnobPrev = controlKnob
 		c.adjustmentTotal = 0
 	}
+
 	c.adjustmentTotal += adjustment
 	c.adjustmentTotal = general.Clamp(c.adjustmentTotal, c.params.AdjustmentLowerBound, c.params.AdjustmentUpperBound)
 
 	general.Infof("adjustment %.2f adjustmentTotal %.2f target %.2f current %.2f errorValue %.2f errorRate %.2f pterm %.2f dterm %.2f",
-		adjustment, c.adjustmentTotal, target, current, c.errorValue, c.errorRate, pterm, dterm)
+		adjustment, c.adjustmentTotal, target, current, c.errorValue, errorRate, pterm, dterm)
 
 	return controlKnob + c.adjustmentTotal
 }
