@@ -39,8 +39,8 @@ func NewPolicyRamaConfiguration() *PolicyRamaConfiguration {
 		},
 		PIDParameters: map[string]types.FirstOrderPIDParams{
 			consts.MetricCPUSchedwait: {
-				Kpp:                  10.0,
-				Kpn:                  1.0,
+				Kpp:                  5.0,
+				Kpn:                  0.9,
 				Kdp:                  0.0,
 				Kdn:                  0.0,
 				AdjustmentUpperBound: types.MaxRampUpStep,
@@ -50,23 +50,23 @@ func NewPolicyRamaConfiguration() *PolicyRamaConfiguration {
 			},
 			consts.MetricCPUCPIContainer: {
 				Kpp:                  10.0,
-				Kpn:                  1.0,
+				Kpn:                  2.0,
 				Kdp:                  0.0,
 				Kdn:                  0.0,
 				AdjustmentUpperBound: types.MaxRampUpStep,
 				AdjustmentLowerBound: -types.MaxRampDownStep,
 				DeadbandLowerPct:     0.95,
-				DeadbandUpperPct:     0.02,
+				DeadbandUpperPct:     0.01,
 			},
 			consts.MetricMemBandwidthNuma: {
 				Kpp:                  10.0,
-				Kpn:                  1.0,
+				Kpn:                  2.0,
 				Kdp:                  0.0,
 				Kdn:                  0.0,
 				AdjustmentUpperBound: types.MaxRampUpStep,
 				AdjustmentLowerBound: -types.MaxRampDownStep,
 				DeadbandLowerPct:     0.95,
-				DeadbandUpperPct:     0.02,
+				DeadbandUpperPct:     0.01,
 			},
 		},
 	}

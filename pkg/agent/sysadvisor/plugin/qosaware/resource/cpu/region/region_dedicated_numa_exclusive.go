@@ -128,9 +128,9 @@ func (r *QoSRegionDedicatedNumaExclusive) getIndicators() types.Indicator {
 	return types.Indicator{
 		consts.MetricCPUCPIContainer: {
 			Current: cpiSum / containerCnt,
-			Target:  1.1, // temporary
-			Upper:   1.1,
-			Lower:   1.1,
+			Target:  1.4, // temporary
+			Upper:   1.4,
+			Lower:   1.4,
 		},
 	}
 }
