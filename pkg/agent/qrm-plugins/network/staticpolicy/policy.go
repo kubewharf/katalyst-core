@@ -299,7 +299,8 @@ func (p *StaticPolicy) GetTopologyHints(_ context.Context,
 		}
 	}()
 
-	if req.ContainerType == pluginapi.ContainerType_INIT {
+	if req.ContainerType == pluginapi.ContainerType_INIT ||
+		req.ContainerType == pluginapi.ContainerType_SIDECAR {
 		return util.PackResourceHintsResponse(req, p.ResourceName(), map[string]*pluginapi.ListOfTopologyHints{
 			p.ResourceName(): nil, // indicates that there is no numa preference
 		})
@@ -377,13 +378,18 @@ func (p *StaticPolicy) getResourceAllocationAnnotations(podAnnotations map[strin
 		return nil, fmt.Errorf("getNetClassID failed with error: %v", err)
 	}
 
-	return map[string]string{
+	resourceAllocationAnnotations := map[string]string{
 		p.ipv4ResourceAllocationAnnotationKey:             strings.Join(selectedNIC.GetNICIPs(machine.IPVersionV4), IPsSeparator),
 		p.ipv6ResourceAllocationAnnotationKey:             strings.Join(selectedNIC.GetNICIPs(machine.IPVersionV6), IPsSeparator),
-		p.netNSPathResourceAllocationAnnotationKey:        selectedNIC.NSAbsolutePath,
 		p.netInterfaceNameResourceAllocationAnnotationKey: selectedNIC.Iface,
 		p.netClassIDResourceAllocationAnnotationKey:       fmt.Sprintf("%d", netClsID),
-	}, nil
+	}
+
+	if len(selectedNIC.NSAbsolutePath) > 0 {
+		resourceAllocationAnnotations[p.netNSPathResourceAllocationAnnotationKey] = selectedNIC.NSAbsolutePath
+	}
+
+	return resourceAllocationAnnotations, nil
 }
 
 // Allocate is called during pod admit so that the resource
@@ -438,6 +444,9 @@ func (p *StaticPolicy) Allocate(_ context.Context,
 			Labels:         general.DeepCopyMap(req.Labels),
 			Annotations:    general.DeepCopyMap(req.Annotations),
 		}, nil
+	} else if req.ContainerType == pluginapi.ContainerType_SIDECAR {
+		// not to deal with sidcars, and return a trivial allocationResult to avoid re-allocating
+		return packAllocationResponse(req, p.ResourceName(), 0, nil)
 	}
 
 	selectedNIC, err := p.selectNICByReq(req)
@@ -456,34 +465,8 @@ func (p *StaticPolicy) Allocate(_ context.Context,
 		return nil, err
 	}
 
-	return &pluginapi.ResourceAllocationResponse{
-		PodUid:         req.PodUid,
-		PodNamespace:   req.PodNamespace,
-		PodName:        req.PodName,
-		ContainerName:  req.ContainerName,
-		ContainerType:  req.ContainerType,
-		ContainerIndex: req.ContainerIndex,
-		PodRole:        req.PodRole,
-		PodType:        req.PodType,
-		ResourceName:   p.ResourceName(),
-		AllocationResult: &pluginapi.ResourceAllocation{
-			ResourceAllocation: map[string]*pluginapi.ResourceAllocationInfo{
-				p.ResourceName(): {
-					IsNodeResource:    false,
-					IsScalarResource:  true, // to avoid re-allocating
-					AllocatedQuantity: 0,    // TODO fill it with allocated bandwidth quantity
-					Annotations:       resourceAllocationAnnotations,
-					ResourceHints: &pluginapi.ListOfTopologyHints{
-						Hints: []*pluginapi.TopologyHint{
-							req.Hint,
-						},
-					},
-				},
-			},
-		},
-		Labels:      general.DeepCopyMap(req.Labels),
-		Annotations: general.DeepCopyMap(req.Annotations),
-	}, nil
+	// TODO fill it with allocated bandwidth quantity
+	return packAllocationResponse(req, p.ResourceName(), 0, resourceAllocationAnnotations)
 }
 
 // PreStartContainer is called, if indicated by resource plugin during registration phase,

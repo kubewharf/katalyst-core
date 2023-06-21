@@ -213,3 +213,40 @@ func getRandomNICs(nics []machine.InterfaceInfo) machine.InterfaceInfo {
 	rand.Seed(time.Now().UnixNano())
 	return nics[rand.Intn(len(nics))]
 }
+
+// packAllocationResponse fills pluginapi.ResourceAllocationResponse with information from AllocationInfo and pluginapi.ResourceRequest
+func packAllocationResponse(req *pluginapi.ResourceRequest, resourceName string,
+	allocatedQuantity float64, resourceAllocationAnnotations map[string]string) (*pluginapi.ResourceAllocationResponse, error) {
+	if req == nil {
+		return nil, fmt.Errorf("packAllocationResponse got nil request")
+	}
+
+	return &pluginapi.ResourceAllocationResponse{
+		PodUid:         req.PodUid,
+		PodNamespace:   req.PodNamespace,
+		PodName:        req.PodName,
+		ContainerName:  req.ContainerName,
+		ContainerType:  req.ContainerType,
+		ContainerIndex: req.ContainerIndex,
+		PodRole:        req.PodRole,
+		PodType:        req.PodType,
+		ResourceName:   resourceName,
+		AllocationResult: &pluginapi.ResourceAllocation{
+			ResourceAllocation: map[string]*pluginapi.ResourceAllocationInfo{
+				resourceName: {
+					IsNodeResource:    false,
+					IsScalarResource:  true, // to avoid re-allocating
+					AllocatedQuantity: allocatedQuantity,
+					Annotations:       resourceAllocationAnnotations,
+					ResourceHints: &pluginapi.ListOfTopologyHints{
+						Hints: []*pluginapi.TopologyHint{
+							req.Hint,
+						},
+					},
+				},
+			},
+		},
+		Labels:      general.DeepCopyMap(req.Labels),
+		Annotations: general.DeepCopyMap(req.Annotations),
+	}, nil
+}
