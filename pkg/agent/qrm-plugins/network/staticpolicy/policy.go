@@ -30,6 +30,7 @@ import (
 	apiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-api/pkg/plugins/skeleton"
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/agent"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/network/state"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	agentconfig "github.com/kubewharf/katalyst-core/pkg/config/agent"
@@ -48,6 +49,8 @@ const (
 	// NetworkResourcePluginPolicyNameStatic is the policy name of static network resource plugin
 	NetworkResourcePluginPolicyNameStatic = "static"
 
+	NetworkPluginStateFileName = "network_plugin_state"
+
 	// IPsSeparator is used to split merged IPs string
 	IPsSeparator = ","
 )
@@ -56,14 +59,16 @@ const (
 type StaticPolicy struct {
 	sync.Mutex
 
-	name       string
-	stopCh     chan struct{}
-	started    bool
-	qosConfig  *generic.QoSConfiguration
-	emitter    metrics.MetricEmitter
-	metaServer *metaserver.MetaServer
-	agentCtx   *agent.GenericContext
-	nics       []machine.InterfaceInfo
+	name              string
+	stopCh            chan struct{}
+	started           bool
+	qosConfig         *generic.QoSConfiguration
+	emitter           metrics.MetricEmitter
+	metaServer        *metaserver.MetaServer
+	agentCtx          *agent.GenericContext
+	nics              []machine.InterfaceInfo
+	state             state.State
+	reservedBandwidth map[string]uint32
 
 	CgroupV2Env                                     bool
 	qosLevelToNetClassMap                           map[string]uint32
@@ -86,12 +91,28 @@ func NewStaticPolicy(agentCtx *agent.GenericContext, conf *config.Configuration,
 		Val: NetworkResourcePluginPolicyNameStatic,
 	})
 
+	enabledNICs := filterNICsByAvailability(agentCtx.KatalystMachineInfo.ExtraNetworkInfo.Interface, nil, nil)
+
+	// We only support one spreading policy for now: reserve the bandwidth on the first NIC
+	reservation, err := GetReservedBandwidth(enabledNICs, conf.ReservedBandwidth, FirstNIC)
+	if err != nil {
+		return false, agent.ComponentStub{}, fmt.Errorf("getReservedBandwidth failed with error: %v", err)
+	}
+
+	stateImpl, err := state.NewCheckpointState(conf.QRMPluginsConfiguration, conf.GenericQRMPluginConfiguration.StateFileDirectory, NetworkPluginStateFileName,
+		NetworkResourcePluginPolicyNameStatic, agentCtx.MachineInfo, enabledNICs, reservation, conf.SkipNetworkStateCorruption)
+	if err != nil {
+		return false, agent.ComponentStub{}, fmt.Errorf("NewCheckpointState failed with error: %v", err)
+	}
+
 	policyImplement := &StaticPolicy{
-		nics:                  agentCtx.KatalystMachineInfo.ExtraNetworkInfo.Interface,
+		nics:                  enabledNICs,
+		reservedBandwidth:     reservation,
 		qosConfig:             conf.QoSConfiguration,
 		emitter:               wrappedEmitter,
 		metaServer:            agentCtx.MetaServer,
 		agentCtx:              agentCtx,
+		state:                 stateImpl,
 		stopCh:                make(chan struct{}),
 		name:                  fmt.Sprintf("%s_%s", agentName, NetworkResourcePluginPolicyNameStatic),
 		qosLevelToNetClassMap: make(map[string]uint32),
@@ -413,13 +434,19 @@ func (p *StaticPolicy) Allocate(_ context.Context,
 		return nil, err
 	}
 
+	reqInt, err := util.GetQuantityFromResourceReq(req)
+	if err != nil {
+		return nil, fmt.Errorf("getReqQuantityFromResourceReq failed with error: %v", err)
+	}
+
 	general.InfoS("called",
 		"podNamespace", req.PodNamespace,
 		"podName", req.PodName,
 		"containerName", req.ContainerName,
 		"qosLevel", qosLevel,
 		"resourceRequests", req.ResourceRequests,
-		"reqAnnotations", req.Annotations)
+		"reqAnnotations", req.Annotations,
+		"netBandwidthReq(Mbps)", reqInt)
 
 	p.Lock()
 	defer func() {

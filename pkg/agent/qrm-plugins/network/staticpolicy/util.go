@@ -37,6 +37,13 @@ var nicFilters = []NICFilter{
 	filterNICsByHint,
 }
 
+type ReservationPolicy string
+
+const (
+	FirstNIC         ReservationPolicy = "first"
+	EvenDistribution ReservationPolicy = "even"
+)
+
 // isReqAffinityRestricted returns true if allocated network interface must have affinity with allocated numa
 func isReqAffinityRestricted(reqAnnotations map[string]string) bool {
 	return reqAnnotations[consts.PodAnnotationNetworkEnhancementAffinityRestricted] ==
@@ -249,4 +256,32 @@ func packAllocationResponse(req *pluginapi.ResourceRequest, resourceName string,
 		Labels:      general.DeepCopyMap(req.Labels),
 		Annotations: general.DeepCopyMap(req.Annotations),
 	}, nil
+}
+
+// GetReservedBandwidth is used to spread total reserved bandwidth into per-nic level.
+func GetReservedBandwidth(nics []machine.InterfaceInfo, reservation uint32, policy ReservationPolicy) (map[string]uint32, error) {
+	nicCount := len(nics)
+
+	if nicCount == 0 {
+		return nil, fmt.Errorf("getReservedBandwidth got invalid NICs")
+	}
+
+	general.Infof("reservedBanwidth: %d, nicCount: %d, policy: %s, ",
+		reservation, nicCount, policy)
+
+	reservedBandwidth := make(map[string]uint32)
+
+	switch policy {
+	case FirstNIC:
+		// Suppose the NICs are in order. Are they?
+		reservedBandwidth[nics[0].Iface] = reservation
+	case EvenDistribution:
+		for _, iface := range nics {
+			reservedBandwidth[iface.Iface] = reservation / uint32(nicCount)
+		}
+	default:
+		return nil, fmt.Errorf("unsupported network bandwidth reservation policy: %s", policy)
+	}
+
+	return reservedBandwidth, nil
 }

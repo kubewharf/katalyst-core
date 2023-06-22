@@ -49,6 +49,8 @@ func GetQuantityFromResourceReq(req *pluginapi.ResourceRequest) (int, error) {
 			return general.Max(int(math.Ceil(req.ResourceRequests[key]/1000.0)), 0), nil
 		case string(v1.ResourceMemory), string(consts.ReclaimedResourceMemory):
 			return general.Max(int(math.Ceil(req.ResourceRequests[key])), 0), nil
+		case string(consts.ResourceNetBandwidth):
+			return general.Max(int(math.Ceil(req.ResourceRequests[key])), 0), nil
 		default:
 			return 0, fmt.Errorf("invalid request resource name: %s", key)
 		}
