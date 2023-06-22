@@ -26,6 +26,10 @@ import (
 type NetworkOptions struct {
 	PolicyName                                      string
 	NetClass                                        NetClassOptions
+	ReservedBandwidth                               uint32
+	EgressCapacityRate                              float32
+	IngressCapacityRate                             float32
+	SkipNetworkStateCorruption                      bool
 	PodLevelNetClassAnnoKey                         string
 	PodLevelNetAttributesAnnoKeys                   string
 	IPv4ResourceAllocationAnnotationKey             string
@@ -51,6 +55,10 @@ func NewNetworkOptions() *NetworkOptions {
 	return &NetworkOptions{
 		PolicyName:                                      "static",
 		PodLevelNetClassAnnoKey:                         consts.PodAnnotationNetClassKey,
+		ReservedBandwidth:                               0,
+		EgressCapacityRate:                              0.94,
+		IngressCapacityRate:                             0.9,
+		SkipNetworkStateCorruption:                      false,
 		PodLevelNetAttributesAnnoKeys:                   "",
 		IPv4ResourceAllocationAnnotationKey:             "qrm.katalyst.kubewharf.io/inet_addr",
 		IPv6ResourceAllocationAnnotationKey:             "qrm.katalyst.kubewharf.io/inet_addr_ipv6",
@@ -74,6 +82,14 @@ func (o *NetworkOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 		o.NetClass.DedicatedCores, "net class id for dedicated_cores")
 	fs.Uint32Var(&o.NetClass.SystemCores, "network-resource-plugin-class-id-system-cores",
 		o.NetClass.SystemCores, "net class id for system_cores")
+	fs.Uint32Var(&o.ReservedBandwidth, "network-resource-plugin-reserved-bandwidth",
+		o.ReservedBandwidth, "reserved bandwidth for business-critical jobs")
+	fs.Float32Var(&o.EgressCapacityRate, "network-resource-plugin-egress-capacity-rate",
+		o.EgressCapacityRate, "ratio of available egress capacity to egress line speed")
+	fs.Float32Var(&o.IngressCapacityRate, "network-resource-plugin-ingress-capacity-rate",
+		o.IngressCapacityRate, "ratio of available ingress capacity to ingress line speed")
+	fs.BoolVar(&o.SkipNetworkStateCorruption, "skip-network-state-corruption",
+		o.SkipNetworkStateCorruption, "if set true, we will skip network state corruption")
 	fs.StringVar(&o.PodLevelNetClassAnnoKey, "network-resource-plugin-net-class-annotation-key",
 		o.PodLevelNetClassAnnoKey, "The annotation key of pod-level net class")
 	fs.StringVar(&o.PodLevelNetAttributesAnnoKeys, "network-resource-plugin-net-attributes-keys",
@@ -98,6 +114,10 @@ func (o *NetworkOptions) ApplyTo(conf *qrmconfig.NetworkQRMPluginConfig) error {
 	conf.NetClass.SharedCores = o.NetClass.SharedCores
 	conf.NetClass.DedicatedCores = o.NetClass.DedicatedCores
 	conf.NetClass.SystemCores = o.NetClass.SystemCores
+	conf.ReservedBandwidth = o.ReservedBandwidth
+	conf.EgressCapacityRate = o.EgressCapacityRate
+	conf.IngressCapacityRate = o.IngressCapacityRate
+	conf.SkipNetworkStateCorruption = o.SkipNetworkStateCorruption
 	conf.PodLevelNetClassAnnoKey = o.PodLevelNetClassAnnoKey
 	conf.PodLevelNetAttributesAnnoKeys = o.PodLevelNetAttributesAnnoKeys
 	conf.IPv4ResourceAllocationAnnotationKey = o.IPv4ResourceAllocationAnnotationKey
