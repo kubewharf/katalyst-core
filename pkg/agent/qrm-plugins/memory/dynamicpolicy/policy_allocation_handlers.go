@@ -19,6 +19,7 @@ package dynamicpolicy
 import (
 	"context"
 	"fmt"
+	"time"
 
 	v1 "k8s.io/api/core/v1"
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
@@ -26,7 +27,7 @@ import (
 	apiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/memory/dynamicpolicy/state"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util"
-	cgroupcmutils "github.com/kubewharf/katalyst-core/pkg/util/cgroup/manager"
+	"github.com/kubewharf/katalyst-core/pkg/util/asyncworker"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 	qosutil "github.com/kubewharf/katalyst-core/pkg/util/qos"
@@ -427,21 +428,29 @@ func (p *DynamicPolicy) adjustAllocationEntries() error {
 	// drop cache for containers whose numaset changed
 	for podUID, containers := range numaSetChangedContainers {
 		for containerName := range containers {
-			go func(curPodUID, curContainerName string) {
-				containerID, err := p.metaServer.GetContainerID(curPodUID, curContainerName)
-				if err != nil {
-					general.Errorf("get container id of pod: %s container: %s failed with error: %v", curPodUID, curContainerName, err)
-					return
-				}
+			containerID, err := p.metaServer.GetContainerID(podUID, containerName)
+			if err != nil {
+				general.Errorf("get container id of pod: %s container: %s failed with error: %v", podUID, containerName, err)
+				continue
+			}
 
-				err = cgroupcmutils.DropCacheWithTimeoutForContainer(curPodUID, containerID, 30)
-				if err != nil {
-					general.Errorf("drop cache of pod: %s container: %s failed with error: %v", curPodUID, curContainerName, err)
-					return
-				}
+			// start a asynchronous work to migrate pages for containers whose numaset changed and doesn't require numa_binding
+			p.asyncWorkers.AddWork(util.GetContainerAsyncWorkName(podUID, containerName,
+				memoryPluginAsyncWorkTopicMigratePage),
+				&asyncworker.Work{
+					Fn: MigratePagesForContainerAsyncWorkWrapper,
+					Params: []interface{}{podUID, containerID,
+						p.topology.NumNUMANodes, p.topology.CPUDetails.NUMANodes(),
+						numaWithoutNUMABindingPods.Clone()},
+					DeliveredAt: time.Now()})
 
-				general.Infof("drop cache of pod: %s container: %s successfully", curPodUID, curContainerName)
-			}(podUID, containerName)
+			// start a asynchronous work to drop cache for the container whose numaset changed and doesn't require numa_binding
+			p.asyncWorkers.AddWork(util.GetContainerAsyncWorkName(podUID, containerName,
+				memoryPluginAsyncWorkTopicDropCache),
+				&asyncworker.Work{
+					Fn:          DropCacheWithTimeoutForContainerAsyncWorkWrapper,
+					Params:      []interface{}{podUID, containerID, 30},
+					DeliveredAt: time.Now()})
 		}
 	}
 
