@@ -17,13 +17,16 @@ limitations under the License.
 package dynamicpolicy
 
 import (
+	"context"
 	"fmt"
 	"math"
 
 	info "github.com/google/cadvisor/info/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 
+	cgroupmgr "github.com/kubewharf/katalyst-core/pkg/util/cgroup/manager"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
+	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
 // GetReservedMemory is used to spread total reserved memories into per-numa level.
@@ -47,4 +50,61 @@ func getReservedMemory(machineInfo *info.MachineInfo, reservedMemoryGB uint64) (
 		reservedMemory[node.Id] = uint64(perNumaReservedQuantity.Value())
 	}
 	return reservedMemory, nil
+}
+
+func MigratePagesForContainerAsyncWorkWrapper(ctx context.Context, args ...interface{}) error {
+	if len(args) != 5 {
+		return fmt.Errorf("invalid args length: %v", len(args))
+	}
+
+	podUID, ok := args[0].(string)
+	if !ok {
+		return fmt.Errorf("invalid podUID: %v", args[0])
+	}
+
+	containerId, ok := args[1].(string)
+	if !ok {
+		return fmt.Errorf("invalid containerId: %v", args[1])
+	}
+
+	numasCount, ok := args[2].(int)
+	if !ok {
+		return fmt.Errorf("invalid numasCount %v", args[2])
+	}
+
+	sourceNUMAs, ok := args[3].(machine.CPUSet)
+	if !ok {
+		return fmt.Errorf("invalid sourceNUMAs %v", args[3])
+	}
+
+	destNUMAs, ok := args[4].(machine.CPUSet)
+	if !ok {
+		return fmt.Errorf("invalid destNUMAs %v", args[4])
+	}
+
+	return MigratePagesForContainer(ctx, podUID, containerId,
+		numasCount, sourceNUMAs, destNUMAs)
+}
+
+func DropCacheWithTimeoutForContainerAsyncWorkWrapper(ctx context.Context, args ...interface{}) error {
+	if len(args) != 3 {
+		return fmt.Errorf("invalid args length: %v", len(args))
+	}
+
+	podUID, ok := args[0].(string)
+	if !ok {
+		return fmt.Errorf("invalid podUID: %v", args[0])
+	}
+
+	containerId, ok := args[1].(string)
+	if !ok {
+		return fmt.Errorf("invalid containerId: %v", args[1])
+	}
+
+	timeoutSecs, ok := args[2].(int)
+	if !ok {
+		return fmt.Errorf("invalid timeoutSecs: %v", args[2])
+	}
+
+	return cgroupmgr.DropCacheWithTimeoutForContainer(podUID, containerId, timeoutSecs)
 }

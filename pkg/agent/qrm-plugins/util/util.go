@@ -22,6 +22,7 @@ import (
 	"io/ioutil"
 	"math"
 	"sort"
+	"strings"
 
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/klog/v2"
@@ -304,4 +305,8 @@ func GetHintsFromExtraStateFile(podName, resourceName, extraHintsStateFileAbsPat
 		},
 	}
 	return hints, nil
+}
+
+func GetContainerAsyncWorkName(podUID, containerName, topic string) string {
+	return strings.Join([]string{podUID, containerName, topic}, "/")
 }
