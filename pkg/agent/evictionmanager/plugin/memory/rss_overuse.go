@@ -164,7 +164,7 @@ func (r *RssOveruseEvictionPlugin) GetEvictPods(_ context.Context, request *plug
 			continue
 		}
 
-		podRss, found := r.evictionHelper.getPodMetric(pod, consts.MetricMemRssContainer, nonExistNumaID)
+		podRss, found := r.evictionHelper.GetPodMetric(pod, consts.MetricMemRssContainer, nonExistNumaID)
 		if !found {
 			_ = r.emitter.StoreInt64(metricsNameFetchMetricError, 1, metrics.MetricTypeNameCount,
 				metrics.ConvertMapToTags(map[string]string{

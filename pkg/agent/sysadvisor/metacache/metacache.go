@@ -46,6 +46,8 @@ const (
 
 // MetaReader provides a standard interface to refer to metadata type
 type MetaReader interface {
+	// GetContainers returns containers filtered by containerFilter
+	GetContainers(containerFilter func(*types.ContainerInfo) bool) []*types.ContainerInfo
 	// GetContainerEntries returns a ContainerEntry copy keyed by pod uid
 	GetContainerEntries(podUID string) (types.ContainerEntries, bool)
 	// GetContainerInfo returns a ContainerInfo copy keyed by pod uid and container name
@@ -179,6 +181,21 @@ func (mc *MetaCacheImp) GetContainerInfo(podUID string, containerName string) (*
 	containerInfo, ok := podInfo[containerName]
 
 	return containerInfo.Clone(), ok
+}
+func (mc *MetaCacheImp) GetContainers(containerFilter func(*types.ContainerInfo) bool) []*types.ContainerInfo {
+	mc.podMutex.RLock()
+	defer mc.podMutex.RUnlock()
+
+	containerInfos := make([]*types.ContainerInfo, 0)
+	for _, podInfo := range mc.podEntries.Clone() {
+		for _, containerInfo := range podInfo {
+			if containerFilter != nil && !containerFilter(containerInfo) {
+				continue
+			}
+			containerInfos = append(containerInfos, containerInfo)
+		}
+	}
+	return containerInfos
 }
 
 // RangeContainer should deepcopy so that pod and container entries will not be overwritten.

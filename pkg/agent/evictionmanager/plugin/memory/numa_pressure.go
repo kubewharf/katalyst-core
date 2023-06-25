@@ -119,7 +119,7 @@ func (n *NumaMemoryPressurePlugin) detectNumaPressures() {
 }
 
 func (n *NumaMemoryPressurePlugin) detectNumaWatermarkPressure(numaID int) error {
-	free, total, scaleFactor, err := n.evictionHelper.getWatermarkMetrics(numaID)
+	free, total, scaleFactor, err := n.evictionHelper.GetWatermarkMetrics(numaID)
 	if err != nil {
 		general.Errorf("failed to getWatermarkMetrics for numa %d, err: %v", numaID, err)
 		_ = n.emitter.StoreInt64(metricsNameFetchMetricError, 1, metrics.MetricTypeNameCount,

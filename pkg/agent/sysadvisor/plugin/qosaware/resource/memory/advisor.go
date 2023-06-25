@@ -19,6 +19,7 @@ package memory
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"sync"
 	"time"
 
@@ -36,14 +37,44 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
+	"github.com/kubewharf/katalyst-core/pkg/util/qos"
 )
 
 func init() {
 	headroompolicy.RegisterInitializer(types.MemoryHeadroomPolicyCanonical, headroompolicy.NewPolicyCanonical)
+	memadvisorplugin.RegisterInitializer(memadvisorplugin.CacheReaper, memadvisorplugin.NewCacheReaper)
 }
 
 const (
-	startUpPeriod time.Duration = 30 * time.Second
+	startUpPeriod    = 30 * time.Second
+	nonExistNumaID   = -1
+	scaleDenominator = 10000
+)
+
+const (
+	metricsNameFetchMetricError   = "fetch_metric_error_count"
+	metricsNameNumberOfTargetPods = "number_of_target_pods_raw"
+	metricsNameThresholdMet       = "threshold_met_count"
+	metricsNameNumaMetric         = "numa_metric_raw"
+	metricsNameSystemMetric       = "system_metric_raw"
+	metricsNameContainerMetric    = "container_metric_raw"
+	metricsNamePodMetric          = "pod_metric_raw"
+
+	metricsTagKeyEvictionScope  = "eviction_scope"
+	metricsTagKeyDetectionLevel = "detection_level"
+	metricsTagKeyNumaID         = "numa_id"
+	metricsTagKeyAction         = "action"
+	metricsTagKeyMetricName     = "metric_name"
+	metricsTagKeyPodUID         = "pod_uid"
+	metricsTagKeyContainerName  = "container_name"
+
+	metricsTagValueDetectionLevelNuma          = "numa"
+	metricsTagValueDetectionLevelSystem        = "system"
+	metricsTagValueActionReclaimedEviction     = "reclaimed_eviction"
+	metricsTagValueActionEviction              = "eviction"
+	metricsTagValueNumaFreeBelowWatermarkTimes = "numa_free_below_watermark_times"
+	metricsTagValueSystemKswapdDiff            = "system_kswapd_diff"
+	metricsTagValueSystemKswapdRateExceedTimes = "system_kswapd_rate_exceed_times"
 )
 
 // memoryResourceAdvisor updates memory headroom for reclaimed resource
@@ -58,7 +89,8 @@ type memoryResourceAdvisor struct {
 	metaServer *metaserver.MetaServer
 	emitter    metrics.MetricEmitter
 
-	sendChan chan types.InternalMemoryCalculationResult
+	sendChan  chan types.InternalMemoryCalculationResult
+	qosHelper *qos.QosHelper
 }
 
 // NewMemoryResourceAdvisor returns a memoryResourceAdvisor instance
@@ -74,6 +106,7 @@ func NewMemoryResourceAdvisor(conf *config.Configuration, extraConf interface{},
 		metaServer: metaServer,
 		emitter:    emitter,
 		sendChan:   make(chan types.InternalMemoryCalculationResult),
+		qosHelper:  qos.NewQosHelper(emitter, metaServer),
 	}
 
 	headroomPolicyInitializers := headroompolicy.GetRegisteredInitializers()
@@ -203,9 +236,67 @@ func (ra *memoryResourceAdvisor) update() {
 
 func (ra *memoryResourceAdvisor) detectNUMAPressureConditions() (map[int]*types.MemoryPressureCondition, error) {
 	pressureConditions := make(map[int]*types.MemoryPressureCondition)
+	for _, numaID := range ra.metaServer.CPUDetails.NUMANodes().ToSliceNoSortInt() {
+		pressureCondition, err := ra.detectNUMAPressure(numaID)
+		if err != nil {
+			general.Errorf("detect NUMA(%v) pressure err %v", numaID, err)
+			return nil, err
+		}
+		pressureConditions[numaID] = pressureCondition
+	}
 	return pressureConditions, nil
 }
 
+func (ra *memoryResourceAdvisor) detectNUMAPressure(numaID int) (*types.MemoryPressureCondition, error) {
+	free, total, scaleFactor, err := ra.qosHelper.GetWatermarkMetrics(numaID)
+	if err != nil {
+		general.Errorf("failed to getWatermarkMetrics for numa %d, err: %v", numaID, err)
+		_ = ra.emitter.StoreInt64(metricsNameFetchMetricError, 1, metrics.MetricTypeNameCount,
+			metrics.ConvertMapToTags(map[string]string{
+				metricsTagKeyNumaID: strconv.Itoa(numaID),
+			})...)
+		return nil, err
+	}
+
+	targetReclaimed := resource.NewQuantity(0, resource.BinarySI)
+
+	pressureState := types.MemoryPressureNoRisk
+	if free < 2*total*scaleFactor/scaleDenominator {
+		pressureState = types.MemoryPressureDropCache
+		targetReclaimed.Set(int64(4*total*scaleFactor/scaleDenominator - free))
+	}
+
+	return &types.MemoryPressureCondition{
+		TargetReclaimed: targetReclaimed,
+		State:           pressureState,
+	}, nil
+}
+
 func (ra *memoryResourceAdvisor) detectNodePressureCondition() (*types.MemoryPressureCondition, error) {
-	return &types.MemoryPressureCondition{}, nil
+	free, total, scaleFactor, err := ra.qosHelper.GetWatermarkMetrics(nonExistNumaID)
+	if err != nil {
+		_ = ra.emitter.StoreInt64(metricsNameFetchMetricError, 1, metrics.MetricTypeNameCount,
+			metrics.ConvertMapToTags(map[string]string{
+				metricsTagKeyNumaID: strconv.Itoa(nonExistNumaID),
+			})...)
+		general.Errorf("failed to getWatermarkMetrics for system, err: %v", err)
+		return nil, err
+	}
+
+	general.Infof("system watermark metrics, free: %+v, total: %+v, scaleFactor: %+v", free, total, scaleFactor)
+
+	targetReclaimed := resource.NewQuantity(0, resource.BinarySI)
+
+	pressureState := types.MemoryPressureNoRisk
+	if free < 2*total*scaleFactor/scaleDenominator {
+		pressureState = types.MemoryPressureDropCache
+		targetReclaimed.Set(int64(4*total*scaleFactor/scaleDenominator - free))
+	} else if free < 4*total*scaleFactor/scaleDenominator {
+		pressureState = types.MemoryPressureTuneMemCg
+		targetReclaimed.Set(int64(4*total*scaleFactor/10000 - free))
+	}
+	return &types.MemoryPressureCondition{
+		TargetReclaimed: targetReclaimed,
+		State:           pressureState,
+	}, nil
 }

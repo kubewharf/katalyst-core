@@ -141,7 +141,7 @@ func (s *SystemPressureEvictionPlugin) detectSystemPressures() {
 }
 
 func (s *SystemPressureEvictionPlugin) detectSystemWatermarkPressure() {
-	free, total, scaleFactor, err := s.evictionHelper.getWatermarkMetrics(nonExistNumaID)
+	free, total, scaleFactor, err := s.evictionHelper.GetWatermarkMetrics(nonExistNumaID)
 	if err != nil {
 		_ = s.emitter.StoreInt64(metricsNameFetchMetricError, 1, metrics.MetricTypeNameCount,
 			metrics.ConvertMapToTags(map[string]string{
@@ -162,7 +162,7 @@ func (s *SystemPressureEvictionPlugin) detectSystemWatermarkPressure() {
 }
 
 func (s *SystemPressureEvictionPlugin) detectSystemKswapdStealPressure() {
-	kswapdSteal, err := s.evictionHelper.getSystemKswapdStealMetrics()
+	kswapdSteal, err := s.evictionHelper.GetSystemKswapdStealMetrics()
 	if err != nil {
 		s.kswapdStealPreviousCycle = kswapdStealPreviousCycleMissing
 		s.kswapdStealPreviousCycleTime = time.Now()
