@@ -271,6 +271,8 @@ func (p *DynamicPolicy) Start() (err error) {
 	go wait.Until(p.checkCPUSet, cpusetCheckPeriod, p.stopCh)
 
 	// start cpu-idle syncing if needed
+	// todo, actually, this goroutine should be registered as async-handlers
+	//  for instance, register this handler in cpu-plugin new function
 	if p.enableSyncingCPUIdle {
 		if p.reclaimRelativeRootCgroupPath == "" {
 			return fmt.Errorf("enable syncing cpu idle but not set reclaiemd relative root cgroup path in configuration")
