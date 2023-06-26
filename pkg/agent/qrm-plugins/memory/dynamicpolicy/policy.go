@@ -100,6 +100,8 @@ type DynamicPolicy struct {
 	extraStateFileAbsPath string
 	name                  string
 
+	enableSettingMemoryMigrate bool
+
 	podDebugAnnoKeys []string
 
 	asyncWorkers *asyncworker.AsyncWorkers
@@ -131,18 +133,19 @@ func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration
 	})
 
 	policyImplement := &DynamicPolicy{
-		topology:              agentCtx.CPUTopology,
-		qosConfig:             conf.QoSConfiguration,
-		emitter:               wrappedEmitter,
-		metaServer:            agentCtx.MetaServer,
-		state:                 stateImpl,
-		stopCh:                make(chan struct{}),
-		migratingMemory:       make(map[string]map[string]bool),
-		residualHitMap:        make(map[string]int64),
-		extraStateFileAbsPath: conf.ExtraStateFileAbsPath,
-		name:                  fmt.Sprintf("%s_%s", agentName, MemoryResourcePluginPolicyNameDynamic),
-		podDebugAnnoKeys:      conf.PodDebugAnnoKeys,
-		asyncWorkers:          asyncworker.NewAsyncWorkers(memoryPluginAsyncWorkersName),
+		topology:                   agentCtx.CPUTopology,
+		qosConfig:                  conf.QoSConfiguration,
+		emitter:                    wrappedEmitter,
+		metaServer:                 agentCtx.MetaServer,
+		state:                      stateImpl,
+		stopCh:                     make(chan struct{}),
+		migratingMemory:            make(map[string]map[string]bool),
+		residualHitMap:             make(map[string]int64),
+		extraStateFileAbsPath:      conf.ExtraStateFileAbsPath,
+		name:                       fmt.Sprintf("%s_%s", agentName, MemoryResourcePluginPolicyNameDynamic),
+		podDebugAnnoKeys:           conf.PodDebugAnnoKeys,
+		asyncWorkers:               asyncworker.NewAsyncWorkers(memoryPluginAsyncWorkersName),
+		enableSettingMemoryMigrate: conf.EnableSettingMemoryMigrate,
 	}
 
 	policyImplement.allocationHandlers = map[string]util.AllocationHandler{
@@ -188,7 +191,11 @@ func (p *DynamicPolicy) Start() (err error) {
 	}, time.Second*30, p.stopCh)
 	go wait.Until(p.clearResidualState, stateCheckPeriod, p.stopCh)
 	go wait.Until(p.checkMemorySet, memsetCheckPeriod, p.stopCh)
-	go wait.Until(p.setMemoryMigrate, 5*time.Second, p.stopCh)
+
+	if p.enableSettingMemoryMigrate {
+		general.Infof("setMemoryMigrate enabled")
+		go wait.Until(p.setMemoryMigrate, 5*time.Second, p.stopCh)
+	}
 
 	return nil
 }

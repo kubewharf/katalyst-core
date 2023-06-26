@@ -272,6 +272,8 @@ func (p *DynamicPolicy) Start() (err error) {
 
 	// start cpu-idle syncing if needed
 	if p.enableSyncingCPUIdle {
+		general.Infof("syncCPUIdle enabled")
+
 		if p.reclaimRelativeRootCgroupPath == "" {
 			return fmt.Errorf("enable syncing cpu idle but not set reclaiemd relative root cgroup path in configuration")
 		}

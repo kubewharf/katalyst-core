@@ -23,16 +23,18 @@ import (
 )
 
 type MemoryOptions struct {
-	PolicyName                string
-	ReservedMemoryGB          uint64
-	SkipMemoryStateCorruption bool
+	PolicyName                 string
+	ReservedMemoryGB           uint64
+	SkipMemoryStateCorruption  bool
+	EnableSettingMemoryMigrate bool
 }
 
 func NewMemoryOptions() *MemoryOptions {
 	return &MemoryOptions{
-		PolicyName:                "dynamic",
-		ReservedMemoryGB:          0,
-		SkipMemoryStateCorruption: false,
+		PolicyName:                 "dynamic",
+		ReservedMemoryGB:           0,
+		SkipMemoryStateCorruption:  false,
+		EnableSettingMemoryMigrate: false,
 	}
 }
 
@@ -45,11 +47,13 @@ func (o *MemoryOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 		o.ReservedMemoryGB, "reserved memory(GB) for system agents")
 	fs.BoolVar(&o.SkipMemoryStateCorruption, "skip-memory-state-corruption",
 		o.SkipMemoryStateCorruption, "if set true, we will skip memory state corruption")
-
+	fs.BoolVar(&o.EnableSettingMemoryMigrate, "enable-setting-memory-migrate",
+		o.EnableSettingMemoryMigrate, "if set true, we will enable cpuset.memory_migrate for containers not numa_binding")
 }
 func (o *MemoryOptions) ApplyTo(conf *qrmconfig.MemoryQRMPluginConfig) error {
 	conf.PolicyName = o.PolicyName
 	conf.ReservedMemoryGB = o.ReservedMemoryGB
 	conf.SkipMemoryStateCorruption = o.SkipMemoryStateCorruption
+	conf.EnableSettingMemoryMigrate = o.EnableSettingMemoryMigrate
 	return nil
 }
