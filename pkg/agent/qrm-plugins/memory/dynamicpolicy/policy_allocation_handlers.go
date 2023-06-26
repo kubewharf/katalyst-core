@@ -401,7 +401,7 @@ func (p *DynamicPolicy) adjustAllocationEntries() error {
 
 			// todo: currently we only set cpuset.mems to NUMAs without NUMA binding for pods isn't NUMA binding
 			//  when cgroup memory policy becomes ready, we will allocate quantity for each pod meticulously.
-			if !allocationInfo.NumaAllocationResult.Equals(numaWithoutNUMABindingPods) {
+			if !allocationInfo.NumaAllocationResult.IsSubsetOf(numaWithoutNUMABindingPods) {
 				if numaSetChangedContainers[podUID] == nil {
 					numaSetChangedContainers[podUID] = make(map[string]bool)
 				}
@@ -434,15 +434,17 @@ func (p *DynamicPolicy) adjustAllocationEntries() error {
 				continue
 			}
 
-			// start a asynchronous work to migrate pages for containers whose numaset changed and doesn't require numa_binding
-			p.asyncWorkers.AddWork(util.GetContainerAsyncWorkName(podUID, containerName,
-				memoryPluginAsyncWorkTopicMigratePage),
-				&asyncworker.Work{
-					Fn: MigratePagesForContainerAsyncWorkWrapper,
-					Params: []interface{}{podUID, containerID,
-						p.topology.NumNUMANodes, p.topology.CPUDetails.NUMANodes(),
-						numaWithoutNUMABindingPods.Clone()},
-					DeliveredAt: time.Now()})
+			if !numaWithoutNUMABindingPods.IsEmpty() {
+				// start a asynchronous work to migrate pages for containers whose numaset changed and doesn't require numa_binding
+				p.asyncWorkers.AddWork(util.GetContainerAsyncWorkName(podUID, containerName,
+					memoryPluginAsyncWorkTopicMigratePage),
+					&asyncworker.Work{
+						Fn: MigratePagesForContainerAsyncWorkWrapper,
+						Params: []interface{}{podUID, containerID,
+							p.topology.NumNUMANodes, p.topology.CPUDetails.NUMANodes(),
+							numaWithoutNUMABindingPods.Clone()},
+						DeliveredAt: time.Now()})
+			}
 
 			// start a asynchronous work to drop cache for the container whose numaset changed and doesn't require numa_binding
 			p.asyncWorkers.AddWork(util.GetContainerAsyncWorkName(podUID, containerName,
