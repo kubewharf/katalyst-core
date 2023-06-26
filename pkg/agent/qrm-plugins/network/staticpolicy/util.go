@@ -25,6 +25,7 @@ import (
 
 	"github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/agent"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/network/state"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
@@ -32,16 +33,20 @@ import (
 type NICFilter func(nics []machine.InterfaceInfo, req *pluginapi.ResourceRequest, agentCtx *agent.GenericContext) []machine.InterfaceInfo
 
 var nicFilters = []NICFilter{
-	filterNICsByAvailability,
 	filterNICsByNamespaceType,
 	filterNICsByHint,
 }
 
 type ReservationPolicy string
+type NICSelectionPoligy string
 
 const (
 	FirstNIC         ReservationPolicy = "first"
 	EvenDistribution ReservationPolicy = "even"
+
+	RandomOne NICSelectionPoligy = "random"
+	FirstOne  NICSelectionPoligy = "first"
+	LastOne   NICSelectionPoligy = "last"
 )
 
 // isReqAffinityRestricted returns true if allocated network interface must have affinity with allocated numa
@@ -97,7 +102,6 @@ func checkNICPreferenceOfReq(nic machine.InterfaceInfo, reqAnnotations map[strin
 	}
 }
 
-// filterAvailableNICsByReq walks through nicFilters to select the targeted network interfaces
 func filterAvailableNICsByReq(nics []machine.InterfaceInfo, req *pluginapi.ResourceRequest, agentCtx *agent.GenericContext) ([]machine.InterfaceInfo, error) {
 	if req == nil {
 		return nil, fmt.Errorf("filterAvailableNICsByReq got nil req")
@@ -221,10 +225,31 @@ func getRandomNICs(nics []machine.InterfaceInfo) machine.InterfaceInfo {
 	return nics[rand.Intn(len(nics))]
 }
 
+func selectOneNIC(nics []machine.InterfaceInfo, policy NICSelectionPoligy) machine.InterfaceInfo {
+	if len(nics) == 0 {
+		general.Errorf("no NIC to select")
+		return machine.InterfaceInfo{}
+	}
+
+	switch policy {
+	case RandomOne:
+		return getRandomNICs(nics)
+	case FirstOne:
+		// since we only pass filtered nics, always picking the first one actually indicates binpacking
+		return nics[0]
+	case LastOne:
+		return nics[len(nics)-1]
+	}
+
+	// use FirstOne as default
+	return nics[0]
+}
+
 // packAllocationResponse fills pluginapi.ResourceAllocationResponse with information from AllocationInfo and pluginapi.ResourceRequest
-func packAllocationResponse(req *pluginapi.ResourceRequest, resourceName string,
-	allocatedQuantity float64, resourceAllocationAnnotations map[string]string) (*pluginapi.ResourceAllocationResponse, error) {
-	if req == nil {
+func packAllocationResponse(req *pluginapi.ResourceRequest, allocationInfo *state.AllocationInfo, resourceAllocationAnnotations map[string]string) (*pluginapi.ResourceAllocationResponse, error) {
+	if allocationInfo == nil {
+		return nil, fmt.Errorf("packAllocationResponse got nil allocationInfo")
+	} else if req == nil {
 		return nil, fmt.Errorf("packAllocationResponse got nil request")
 	}
 
@@ -237,13 +262,14 @@ func packAllocationResponse(req *pluginapi.ResourceRequest, resourceName string,
 		ContainerIndex: req.ContainerIndex,
 		PodRole:        req.PodRole,
 		PodType:        req.PodType,
-		ResourceName:   resourceName,
+		ResourceName:   req.ResourceName,
 		AllocationResult: &pluginapi.ResourceAllocation{
 			ResourceAllocation: map[string]*pluginapi.ResourceAllocationInfo{
-				resourceName: {
+				req.ResourceName: {
 					IsNodeResource:    false,
 					IsScalarResource:  true, // to avoid re-allocating
-					AllocatedQuantity: allocatedQuantity,
+					AllocatedQuantity: float64(allocationInfo.Egress),
+					AllocationResult:  allocationInfo.NumaNodes.String(),
 					Annotations:       resourceAllocationAnnotations,
 					ResourceHints: &pluginapi.ListOfTopologyHints{
 						Hints: []*pluginapi.TopologyHint{

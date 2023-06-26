@@ -102,7 +102,7 @@ func (sc *stateCheckpoint) restoreState(conf *qrm.QRMPluginsConfiguration, nics 
 		return fmt.Errorf("[network_plugin] configured policy %q differs from state checkpoint policy %q", sc.policyName, checkpoint.PolicyName)
 	}
 
-	generatedNetworkState, err := GenerateNetworkStateFromPodEntries(conf, nics, checkpoint.PodEntries, reservedBandwidth)
+	generatedNetworkState, err := GenerateMachineStateFromPodEntries(conf, nics, checkpoint.PodEntries, reservedBandwidth)
 
 	if err != nil {
 		return fmt.Errorf("GenerateMachineStateFromPodEntries failed with error: %v", err)

@@ -23,8 +23,8 @@ type AllocationInfo struct {
 	PodType        string         `json:"pod_type,omitempty"`
 	Egress         uint32         `json:"egress"`
 	Ingress        uint32         `json:"ingress"`
-	IfName         string         `json:"if_name"` // a Pod can not use cross-nic bandwidth
-	NumaNode       machine.CPUSet `json:"numa_node"`
+	IfName         string         `json:"if_name"`   // we do not support cross-nic bandwidth
+	NumaNodes      machine.CPUSet `json:"numa_node"` // associated numa nodes of the socket connecting to the selected NIC
 
 	Labels      map[string]string `json:"labels"`
 	Annotations map[string]string `json:"annotations"`
@@ -90,7 +90,7 @@ func (ai *AllocationInfo) Clone() *AllocationInfo {
 		Egress:         ai.Egress,
 		Ingress:        ai.Ingress,
 		IfName:         ai.IfName,
-		NumaNode:       ai.NumaNode,
+		NumaNodes:      ai.NumaNodes.Clone(),
 		Labels:         general.DeepCopyMap(ai.Labels),
 		Annotations:    general.DeepCopyMap(ai.Annotations),
 	}
