@@ -23,7 +23,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 )
 
-func isPluginInDryRun(pluginName string, dynamicConf *dynamic.DynamicAgentConfiguration) bool {
+func IsPluginInDryRun(pluginName string, dynamicConf *dynamic.DynamicAgentConfiguration) bool {
 	dryRunPlugins := dynamicConf.GetDynamicConfiguration().DryRun
 	return general.IsNameEnabled(pluginName, sets.String{}, dryRunPlugins)
 }
