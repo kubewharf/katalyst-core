@@ -25,16 +25,30 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/config/generic"
 )
 
+func ParseMemoryEnhancement(qosConf *generic.QoSConfiguration, pod *v1.Pod) map[string]string {
+	return ParseKatalystQOSEnhancement(qosConf.GetQoSEnhancementsForPod(pod), consts.PodAnnotationMemoryEnhancementKey)
+}
+
 // IsPodNumaBinding checks whether the pod needs numa-binding
 func IsPodNumaBinding(qosConf *generic.QoSConfiguration, pod *v1.Pod) bool {
-	qosLevel, _ := qosConf.GetQoSLevelForPod(pod)
-	if qosLevel != consts.PodAnnotationQoSLevelDedicatedCores {
+	isDedicatedPod, err := qosConf.CheckDedicatedQoSForPod(pod)
+	if err != nil || !isDedicatedPod {
 		return false
 	}
 
-	memoryEnhancement := ParseKatalystQOSEnhancement(qosConf.GetQoSEnhancementsForPod(pod), consts.PodAnnotationMemoryEnhancementKey)
-
+	memoryEnhancement := ParseMemoryEnhancement(qosConf, pod)
 	return AnnotationsIndicateNUMABinding(memoryEnhancement)
+}
+
+// IsPodNumaExclusive checks whether the pod needs numa-exclusive
+func IsPodNumaExclusive(qosConf *generic.QoSConfiguration, pod *v1.Pod) bool {
+	isPodNumaBinding := IsPodNumaBinding(qosConf, pod)
+	if !isPodNumaBinding {
+		return false
+	}
+
+	memoryEnhancement := ParseMemoryEnhancement(qosConf, pod)
+	return AnnotationsIndicateNUMAExclusive(memoryEnhancement)
 }
 
 func AnnotationsIndicateNUMABinding(annotations map[string]string) bool {
@@ -50,7 +64,7 @@ func AnnotationsIndicateNUMAExclusive(annotations map[string]string) bool {
 
 // GetRSSOverUseEvictThreshold parse the user specified threshold and checks if it's valid
 func GetRSSOverUseEvictThreshold(qosConf *generic.QoSConfiguration, pod *v1.Pod) (threshold *float64, invalid bool) {
-	memoryEnhancement := ParseKatalystQOSEnhancement(qosConf.GetQoSEnhancementsForPod(pod), consts.PodAnnotationMemoryEnhancementKey)
+	memoryEnhancement := ParseMemoryEnhancement(qosConf, pod)
 	thresholdStr, ok := memoryEnhancement[consts.PodAnnotationMemoryEnhancementRssOverUseThreshold]
 	if !ok {
 		return
