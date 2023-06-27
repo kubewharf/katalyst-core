@@ -65,12 +65,14 @@ func (r *QoSRegionDedicatedNumaExclusive) TryUpdateProvision() {
 		internal.updateStatus = types.PolicyUpdateFailed
 
 		controlEssentials := types.ControlEssentials{
-			ControlKnobs: r.getControlKnobs(),
-			Indicators:   r.getIndicators(),
+			ControlKnobs:   r.getControlKnobs(),
+			Indicators:     r.getIndicators(),
+			ReclaimOverlap: true,
 		}
 
 		// set essentials for policy and regulator
 		internal.policy.SetPodSet(r.podSet)
+		internal.policy.SetBindingNumas(r.bindingNumas)
 		internal.policy.SetEssentials(r.ResourceEssentials, controlEssentials)
 
 		// run an episode of policy update
