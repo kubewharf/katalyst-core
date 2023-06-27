@@ -33,7 +33,7 @@ import (
 
 func Test_noneExistMetricsFetcher(t *testing.T) {
 	var err error
-	implement := NewMalachiteMetricsFetcher(metrics.DummyMetrics{})
+	implement := NewMalachiteMetricsFetcher(metrics.DummyMetrics{}, nil)
 
 	fakeSystemCompute := &system.SystemComputeData{
 		CPU: []system.CPU{
@@ -135,7 +135,7 @@ func Test_noneExistMetricsFetcher(t *testing.T) {
 func Test_notifySystem(t *testing.T) {
 	now := time.Now()
 
-	f := NewMalachiteMetricsFetcher(metrics.DummyMetrics{})
+	f := NewMalachiteMetricsFetcher(metrics.DummyMetrics{}, nil)
 
 	rChan := make(chan NotifiedResponse, 20)
 	f.RegisterNotifier(MetricsScopeNode, NotifiedRequest{
@@ -201,7 +201,7 @@ func Test_notifySystem(t *testing.T) {
 func TestStore_Aggregate(t *testing.T) {
 	now := time.Now()
 
-	f := NewMalachiteMetricsFetcher(metrics.DummyMetrics{}).(*MalachiteMetricsFetcher)
+	f := NewMalachiteMetricsFetcher(metrics.DummyMetrics{}, nil).(*MalachiteMetricsFetcher)
 
 	pod1 := &v1.Pod{
 		ObjectMeta: metav1.ObjectMeta{

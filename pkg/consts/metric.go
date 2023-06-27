@@ -162,3 +162,72 @@ const (
 	MetricsMemFilePerNumaContainer  = "mem.file.numa.container"
 	MetricsMemAnonPerNumaContainer  = "mem.anon.numa.container"
 )
+
+// QoS class cpu metrics
+const (
+	MetricCPULimitQoSClass     = "cpu.limit.qosClass"
+	MetricCPUUsageQoSClass     = "cpu.usage.qosClass"
+	MetricCPUUsageUserQoSClass = "cpu.usage.user.qosClass"
+	MetricCPUUsageSysQoSClass  = "cpu.usage.sys.qosClass"
+
+	MetricCPUShareQoSClass           = "cpu.share.qosClass"
+	MetricCPUQuotaQoSClass           = "cpu.quota.qosClass"
+	MetricCPUPeriodQoSClass          = "cpu.period.qosClass"
+	MetricCPUNrThrottledQoSClass     = "cpu.nr.throttled.qosClass"
+	MetricCPUThrottledPeriodQoSClass = "cpu.throttled.period.qosClass"
+	MetricCPUThrottledTimeQoSClass   = "cpu.throttled.time.qosClass"
+
+	MetricCPUNrRunnableQoSClass        = "cpu.nr.runnable.qosClass"
+	MetricCPUNrUninterruptibleQoSClass = "cpu.nr.uninterruptible.qosClass"
+	MetricCPUNrIOWaitQoSClass          = "cpu.nr.iowait.qosClass"
+
+	MetricLoad1MinQoSClass  = "cpu.load.1min.qosClass"
+	MetricLoad5MinQoSClass  = "cpu.load.5min.qosClass"
+	MetricLoad15MinQoSClass = "cpu.load.15min.qosClass"
+
+	MetricUpdateTimeQoSClass = "cpu.updatetime.qosClass"
+)
+
+// Cgroup memory metrics
+const (
+	MetricMemLimitQoSClass     = "mem.limit.qosClass"
+	MetricMemUsageQoSClass     = "mem.usage.qosClass"
+	MetricMemUsageUserQoSClass = "mem.usage.user.qosClass"
+	MetricMemUsageSysQoSClass  = "mem.usage.sys.qosClass"
+	MetricMemRssQoSClass       = "mem.rss.qosClass"
+	MetricMemCacheQoSClass     = "mem.cache.qosClass"
+	MetricMemShmemQoSClass     = "mem.shmem.qosClass"
+
+	MetricMemDirtyQoSClass       = "mem.dirty.qosClass"
+	MetricMemWritebackQoSClass   = "mem.writeback.qosClass"
+	MetricMemPgfaultQoSClass     = "mem.pgfault.qosClass"
+	MetricMemPgmajfaultQoSClass  = "mem.pgmajfault.qosClass"
+	MetricMemAllocstallQoSClass  = "mem.allocstall.qosClass"
+	MetricMemKswapdstealQoSClass = "mem.kswapdstall.qosClass"
+
+	MetricMemOomQoSClass         = "mem.oom.qosClass"
+	MetricMemScaleFactorQoSClass = "mem.scalefactor.qosClass"
+)
+
+// Cgroup blkio metrics
+const (
+	MetricBlkioReadIopsQoSClass  = "blkio.read.iops.qosClass"
+	MetricBlkioWriteIopsQoSClass = "blkio.write.iops.qosClass"
+	MetricBlkioReadBpsQoSClass   = "blkio.read.bps.qosClass"
+	MetricBlkioWriteBpsQoSClass  = "blkio.write.bps.qosClass"
+)
+
+// Cgroup net metrics
+const (
+	MetricNetTcpSendByteQoSClass = "net.tcp.send.byte.qosClass"
+	MetricNetTcpSendPpsQoSClass  = "net.tcp.send.pps.qosClass"
+	MetricNetTcpRecvByteQoSClass = "net.tcp.recv.byte.qosClass"
+	MetricNetTcpRecvPpsQoSClass  = "net.tcp.recv.pps.qosClass"
+)
+
+// Cgroup per numa metrics
+const (
+	MetricsMemTotalPerNumaQoSClass = "mem.total.numa.qosClass"
+	MetricsMemFilePerNumaQoSClass  = "mem.file.numa.qosClass"
+	MetricsMemAnonPerNumaQoSClass  = "mem.anon.numa.qosClass"
+)

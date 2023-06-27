@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"math/rand"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -29,11 +30,13 @@ import (
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/klog/v2"
 
+	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric/malachite/cgroup"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric/malachite/client"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric/malachite/system"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
+	"github.com/kubewharf/katalyst-core/pkg/util/cgroup/common"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 	"github.com/kubewharf/katalyst-core/pkg/util/metric"
@@ -116,6 +119,11 @@ type MetricsFetcher interface {
 	AggregatePodMetric(podList []*v1.Pod, metricName string, agg metric.Aggregator, filter metric.ContainerMetricFilter) metric.MetricData
 	// AggregateCoreMetric handles metric for all cores
 	AggregateCoreMetric(cpuset machine.CPUSet, metricName string, agg metric.Aggregator) metric.MetricData
+
+	// GetQoSClassMetric get metric of qos class: burstable, besteffort, etc.
+	GetQoSClassMetric(qosClass, metricName string) (metric.MetricData, error)
+	// GetQoSClassNumaMetric get NUMA metric of qos class: burstable, besteffort, etc.
+	GetQoSClassNumaMetric(qosClass, numaNode, metricName string) (metric.MetricData, error)
 }
 
 var (
@@ -123,10 +131,11 @@ var (
 )
 
 // NewMalachiteMetricsFetcher returns the default implementation of MetricsFetcher.
-func NewMalachiteMetricsFetcher(emitter metrics.MetricEmitter) MetricsFetcher {
+func NewMalachiteMetricsFetcher(emitter metrics.MetricEmitter, conf *config.Configuration) MetricsFetcher {
 	return &MalachiteMetricsFetcher{
 		metricStore: metric.GetMetricStoreInstance(),
 		emitter:     emitter,
+		conf:        conf,
 		registeredNotifier: map[MetricsScope]map[string]NotifiedData{
 			MetricsScopeNode:      make(map[string]NotifiedData),
 			MetricsScopeNuma:      make(map[string]NotifiedData),
@@ -139,6 +148,7 @@ func NewMalachiteMetricsFetcher(emitter metrics.MetricEmitter) MetricsFetcher {
 
 type MalachiteMetricsFetcher struct {
 	metricStore *metric.MetricStore
+	conf        *config.Configuration
 
 	registeredMetric   []func(store *metric.MetricStore)
 	registeredNotifier map[MetricsScope]map[string]NotifiedData
@@ -209,6 +219,13 @@ func (m *MalachiteMetricsFetcher) GetContainerNumaMetric(podUID, containerName, 
 	return m.metricStore.GetContainerNumaMetric(podUID, containerName, numaNode, metricName)
 }
 
+func (m *MalachiteMetricsFetcher) GetQoSClassMetric(qosClass, metricName string) (metric.MetricData, error) {
+	return m.metricStore.GetQosClassMetric(qosClass, metricName)
+}
+
+func (m *MalachiteMetricsFetcher) GetQoSClassNumaMetric(qosClass, numaNode, metricName string) (metric.MetricData, error) {
+	return m.metricStore.GetQosClassNumaMetric(qosClass, numaNode, metricName)
+}
 func (m *MalachiteMetricsFetcher) AggregatePodNumaMetric(podList []*v1.Pod, numaNode, metricName string,
 	agg metric.Aggregator, filter metric.ContainerMetricFilter) metric.MetricData {
 	return m.metricStore.AggregatePodNumaMetric(podList, numaNode, metricName, agg, filter)
@@ -234,6 +251,8 @@ func (m *MalachiteMetricsFetcher) sample() {
 	m.updateSystemStats()
 	// Update pod data
 	m.updatePodsCgroupData()
+	// Update qos class group
+	m.updateQoSClassCgroupData()
 
 	// after sampling, we should call the registered function to get external metric
 	for _, f := range m.registeredMetric {
@@ -284,6 +303,23 @@ func (m *MalachiteMetricsFetcher) updateSystemStats() {
 			metrics.MetricTag{Key: "kind", Val: "io"})
 	} else {
 		m.processSystemIOData(systemIOData)
+	}
+}
+
+func (m *MalachiteMetricsFetcher) updateQoSClassCgroupData() {
+	qosClassCgroupPath := []string{m.conf.ReclaimRelativeRootCgroupPath, common.CgroupFsRootPathBurstable, common.CgroupFsRootPathBestEffort}
+	for _, path := range qosClassCgroupPath {
+		qosClassStats, err := cgroup.GetCgroupStats(path)
+		if err != nil {
+			general.Errorf("GetCgroupStats %v err %v", path, err)
+			continue
+		}
+		qosClass := filepath.Base(path)
+		m.processQoSClassCPUData(qosClass, qosClassStats)
+		m.processQoSClassMemoryData(qosClass, qosClassStats)
+		m.processQoSClassBlkIOData(qosClass, qosClassStats)
+		m.processQoSClassNetData(qosClass, qosClassStats)
+		m.processQoSClassPerNumaMemoryData(qosClass, qosClassStats)
 	}
 }
 
@@ -519,6 +555,153 @@ func (m *MalachiteMetricsFetcher) processSystemCPUComputeData(systemComputeData 
 			metric.MetricData{Value: cpu.CPUSchedWait, Time: &updateTime})
 		m.metricStore.SetCPUMetric(cpuID, consts.MetricCPUIOWaitRatio,
 			metric.MetricData{Value: cpu.CPUIowaitRatio, Time: &updateTime})
+	}
+}
+
+func (m *MalachiteMetricsFetcher) processQoSClassCPUData(qosClass string, cgStats *cgroup.MalachiteCgroupInfo) {
+	if cgStats.CgroupType == "V1" {
+		cpu := cgStats.V1.Cpu
+		updateTime := time.Unix(cgStats.V1.Cpu.UpdateTime, 0)
+
+		m.metricStore.SetQosClassMetric(qosClass, consts.MetricCPULimitQoSClass, metric.MetricData{Value: float64(cpu.CfsQuotaUs) / float64(cpu.CfsPeriodUs), Time: &updateTime})
+		m.metricStore.SetQosClassMetric(qosClass, consts.MetricCPUUsageQoSClass, metric.MetricData{Value: cpu.CPUUsageRatio, Time: &updateTime})
+		m.metricStore.SetQosClassMetric(qosClass, consts.MetricCPUUsageUserQoSClass, metric.MetricData{Value: cpu.CPUUserUsageRatio, Time: &updateTime})
+		m.metricStore.SetQosClassMetric(qosClass, consts.MetricCPUUsageSysQoSClass, metric.MetricData{Value: cpu.CPUSysUsageRatio, Time: &updateTime})
+
+		m.metricStore.SetQosClassMetric(qosClass, consts.MetricCPUShareQoSClass, metric.MetricData{Value: float64(cpu.CPUShares), Time: &updateTime})
+		m.metricStore.SetQosClassMetric(qosClass, consts.MetricCPUQuotaQoSClass, metric.MetricData{Value: float64(cpu.CfsQuotaUs), Time: &updateTime})
+		m.metricStore.SetQosClassMetric(qosClass, consts.MetricCPUPeriodQoSClass, metric.MetricData{Value: float64(cpu.CfsPeriodUs), Time: &updateTime})
+		m.metricStore.SetQosClassMetric(qosClass, consts.MetricCPUNrThrottledQoSClass, metric.MetricData{Value: float64(cpu.CPUNrThrottled), Time: &updateTime})
+		m.metricStore.SetQosClassMetric(qosClass, consts.MetricCPUThrottledPeriodQoSClass, metric.MetricData{Value: float64(cpu.CPUNrPeriods), Time: &updateTime})
+		m.metricStore.SetQosClassMetric(qosClass, consts.MetricCPUThrottledTimeQoSClass, metric.MetricData{Value: float64(cpu.CPUThrottledTime), Time: &updateTime})
+
+		m.metricStore.SetQosClassMetric(qosClass, consts.MetricCPUNrRunnableQoSClass, metric.MetricData{Value: float64(cpu.TaskNrRunning), Time: &updateTime})
+		m.metricStore.SetQosClassMetric(qosClass, consts.MetricCPUNrUninterruptibleQoSClass, metric.MetricData{Value: float64(cpu.TaskNrUninterruptible), Time: &updateTime})
+		m.metricStore.SetQosClassMetric(qosClass, consts.MetricCPUNrIOWaitQoSClass, metric.MetricData{Value: float64(cpu.TaskNrIoWait), Time: &updateTime})
+
+		m.metricStore.SetQosClassMetric(qosClass, consts.MetricLoad1MinQoSClass, metric.MetricData{Value: cpu.Load.One, Time: &updateTime})
+		m.metricStore.SetQosClassMetric(qosClass, consts.MetricLoad5MinQoSClass, metric.MetricData{Value: cpu.Load.Five, Time: &updateTime})
+		m.metricStore.SetQosClassMetric(qosClass, consts.MetricLoad15MinQoSClass, metric.MetricData{Value: cpu.Load.Fifteen, Time: &updateTime})
+
+	} else if cgStats.CgroupType == "V2" {
+		cpu := cgStats.V2.Cpu
+		updateTime := time.Unix(cgStats.V2.Cpu.UpdateTime, 0)
+
+		m.metricStore.SetQosClassMetric(qosClass, consts.MetricCPUUsageQoSClass, metric.MetricData{Value: cpu.CPUUsageRatio, Time: &updateTime})
+		m.metricStore.SetQosClassMetric(qosClass, consts.MetricCPUUsageUserQoSClass, metric.MetricData{Value: cpu.CPUUserUsageRatio, Time: &updateTime})
+		m.metricStore.SetQosClassMetric(qosClass, consts.MetricCPUUsageSysQoSClass, metric.MetricData{Value: cpu.CPUSysUsageRatio, Time: &updateTime})
+
+		m.metricStore.SetQosClassMetric(qosClass, consts.MetricCPUNrRunnableQoSClass, metric.MetricData{Value: float64(cpu.TaskNrRunning), Time: &updateTime})
+		m.metricStore.SetQosClassMetric(qosClass, consts.MetricCPUNrUninterruptibleQoSClass, metric.MetricData{Value: float64(cpu.TaskNrUninterruptible), Time: &updateTime})
+		m.metricStore.SetQosClassMetric(qosClass, consts.MetricCPUNrIOWaitQoSClass, metric.MetricData{Value: float64(cpu.TaskNrIoWait), Time: &updateTime})
+
+		m.metricStore.SetQosClassMetric(qosClass, consts.MetricLoad1MinQoSClass, metric.MetricData{Value: cpu.Load.One, Time: &updateTime})
+		m.metricStore.SetQosClassMetric(qosClass, consts.MetricLoad5MinQoSClass, metric.MetricData{Value: cpu.Load.Five, Time: &updateTime})
+		m.metricStore.SetQosClassMetric(qosClass, consts.MetricLoad15MinQoSClass, metric.MetricData{Value: cpu.Load.Fifteen, Time: &updateTime})
+	}
+}
+
+func (m *MalachiteMetricsFetcher) processQoSClassMemoryData(qosClass string, cgStats *cgroup.MalachiteCgroupInfo) {
+	if cgStats.CgroupType == "V1" {
+		mem := cgStats.V1.Memory
+		updateTime := time.Unix(cgStats.V1.Memory.UpdateTime, 0)
+
+		m.metricStore.SetQosClassMetric(qosClass, consts.MetricMemLimitQoSClass, metric.MetricData{Time: &updateTime, Value: float64(mem.MemoryLimitInBytes)})
+		m.metricStore.SetQosClassMetric(qosClass, consts.MetricMemUsageQoSClass, metric.MetricData{Time: &updateTime, Value: float64(mem.MemoryUsageInBytes)})
+		m.metricStore.SetQosClassMetric(qosClass, consts.MetricMemUsageUserQoSClass, metric.MetricData{Time: &updateTime, Value: float64(mem.MemoryLimitInBytes - mem.KernMemoryUsageInBytes)})
+		m.metricStore.SetQosClassMetric(qosClass, consts.MetricMemUsageSysQoSClass, metric.MetricData{Time: &updateTime, Value: float64(mem.KernMemoryUsageInBytes)})
+		m.metricStore.SetQosClassMetric(qosClass, consts.MetricMemRssQoSClass, metric.MetricData{Time: &updateTime, Value: float64(mem.TotalRss)})
+		m.metricStore.SetQosClassMetric(qosClass, consts.MetricMemCacheQoSClass, metric.MetricData{Time: &updateTime, Value: float64(mem.TotalCache)})
+		m.metricStore.SetQosClassMetric(qosClass, consts.MetricMemShmemQoSClass, metric.MetricData{Time: &updateTime, Value: float64(mem.TotalShmem)})
+
+		m.metricStore.SetQosClassMetric(qosClass, consts.MetricMemDirtyQoSClass, metric.MetricData{Time: &updateTime, Value: float64(mem.TotalDirty)})
+		m.metricStore.SetQosClassMetric(qosClass, consts.MetricMemWritebackQoSClass, metric.MetricData{Time: &updateTime, Value: float64(mem.TotalWriteback)})
+		m.metricStore.SetQosClassMetric(qosClass, consts.MetricMemPgfaultQoSClass, metric.MetricData{Time: &updateTime, Value: float64(mem.TotalPgfault)})
+		m.metricStore.SetQosClassMetric(qosClass, consts.MetricMemPgmajfaultQoSClass, metric.MetricData{Time: &updateTime, Value: float64(mem.TotalPgmajfault)})
+		m.metricStore.SetQosClassMetric(qosClass, consts.MetricMemAllocstallQoSClass, metric.MetricData{Time: &updateTime, Value: float64(mem.TotalAllocstall)})
+		m.metricStore.SetQosClassMetric(qosClass, consts.MetricMemKswapdstealQoSClass, metric.MetricData{Time: &updateTime, Value: float64(mem.KswapdSteal)})
+
+		m.metricStore.SetQosClassMetric(qosClass, consts.MetricMemOomQoSClass, metric.MetricData{Time: &updateTime, Value: float64(mem.OomCnt)})
+		m.metricStore.SetQosClassMetric(qosClass, consts.MetricMemScaleFactorQoSClass, metric.MetricData{Time: &updateTime, Value: general.UIntPointerToFloat64(mem.WatermarkScaleFactor)})
+	} else if cgStats.CgroupType == "V2" {
+		mem := cgStats.V2.Memory
+		updateTime := time.Unix(cgStats.V2.Memory.UpdateTime, 0)
+		m.metricStore.SetQosClassMetric(qosClass, consts.MetricMemUsageQoSClass, metric.MetricData{Value: float64(mem.MemoryUsageInBytes), Time: &updateTime})
+		m.metricStore.SetQosClassMetric(qosClass, consts.MetricMemRssQoSClass, metric.MetricData{Value: float64(mem.MemStats.Anon), Time: &updateTime})
+		m.metricStore.SetQosClassMetric(qosClass, consts.MetricMemCacheQoSClass, metric.MetricData{Value: float64(mem.MemStats.File), Time: &updateTime})
+
+		m.metricStore.SetQosClassMetric(qosClass, consts.MetricMemShmemQoSClass, metric.MetricData{Value: float64(mem.MemStats.Shmem), Time: &updateTime})
+		m.metricStore.SetQosClassMetric(qosClass, consts.MetricMemPgfaultQoSClass, metric.MetricData{Value: float64(mem.MemStats.Pgfault), Time: &updateTime})
+		m.metricStore.SetQosClassMetric(qosClass, consts.MetricMemPgmajfaultQoSClass, metric.MetricData{Value: float64(mem.MemStats.Pgmajfault), Time: &updateTime})
+
+		m.metricStore.SetQosClassMetric(qosClass, consts.MetricMemOomQoSClass, metric.MetricData{Value: float64(mem.OomCnt), Time: &updateTime})
+		m.metricStore.SetQosClassMetric(qosClass, consts.MetricMemScaleFactorQoSClass, metric.MetricData{Value: general.UInt64PointerToFloat64(mem.WatermarkScaleFactor), Time: &updateTime})
+	}
+}
+
+func (m *MalachiteMetricsFetcher) processQoSClassBlkIOData(qosClass string, cgStats *cgroup.MalachiteCgroupInfo) {
+
+	if cgStats.CgroupType == "V1" {
+		updateTime := time.Unix(cgStats.V1.Blkio.UpdateTime, 0)
+
+		io := cgStats.V1.Blkio
+		m.metricStore.SetQosClassMetric(qosClass, consts.MetricBlkioReadIopsQoSClass, metric.MetricData{Time: &updateTime, Value: float64(io.BpfFsData.FsRead - io.OldBpfFsData.FsRead)})
+		m.metricStore.SetQosClassMetric(qosClass, consts.MetricBlkioWriteIopsQoSClass, metric.MetricData{Time: &updateTime, Value: float64(io.BpfFsData.FsWrite - io.OldBpfFsData.FsWrite)})
+		m.metricStore.SetQosClassMetric(qosClass, consts.MetricBlkioReadBpsQoSClass, metric.MetricData{Time: &updateTime, Value: float64(io.BpfFsData.FsReadBytes - io.OldBpfFsData.FsReadBytes)})
+		m.metricStore.SetQosClassMetric(qosClass, consts.MetricBlkioWriteBpsQoSClass, metric.MetricData{Time: &updateTime, Value: float64(io.BpfFsData.FsWriteBytes - io.OldBpfFsData.FsWriteBytes)})
+	} else if cgStats.CgroupType == "V2" {
+		io := cgStats.V2.Blkio
+		updateTime := time.Unix(cgStats.V2.Blkio.UpdateTime, 0)
+
+		m.metricStore.SetQosClassMetric(qosClass, consts.MetricBlkioReadIopsQoSClass, metric.MetricData{Time: &updateTime, Value: float64(io.BpfFsData.FsRead - io.OldBpfFsData.FsRead)})
+		m.metricStore.SetQosClassMetric(qosClass, consts.MetricBlkioWriteIopsQoSClass, metric.MetricData{Time: &updateTime, Value: float64(io.BpfFsData.FsWrite - io.OldBpfFsData.FsWrite)})
+		m.metricStore.SetQosClassMetric(qosClass, consts.MetricBlkioReadBpsQoSClass, metric.MetricData{Time: &updateTime, Value: float64(io.BpfFsData.FsReadBytes - io.OldBpfFsData.FsReadBytes)})
+		m.metricStore.SetQosClassMetric(qosClass, consts.MetricBlkioWriteBpsQoSClass, metric.MetricData{Time: &updateTime, Value: float64(io.BpfFsData.FsWriteBytes - io.OldBpfFsData.FsWriteBytes)})
+	}
+}
+
+func (m *MalachiteMetricsFetcher) processQoSClassNetData(qosClass string, cgStats *cgroup.MalachiteCgroupInfo) {
+	updateTime := time.Now()
+
+	var net *cgroup.NetClsCgData
+	if cgStats.CgroupType == "V1" {
+		net = cgStats.V1.NetCls
+		updateTime = time.Unix(cgStats.V1.Blkio.UpdateTime, 0)
+	} else if cgStats.CgroupType == "V2" {
+		net = cgStats.V2.NetCls
+		updateTime = time.Unix(cgStats.V2.Blkio.UpdateTime, 0)
+	}
+	if net == nil {
+		return
+	}
+	m.metricStore.SetQosClassMetric(qosClass, consts.MetricNetTcpSendByteQoSClass, metric.MetricData{Time: &updateTime, Value: float64(net.BpfNetData.NetTxBytes - net.OldBpfNetData.NetTxBytes)})
+	m.metricStore.SetQosClassMetric(qosClass, consts.MetricNetTcpSendPpsQoSClass, metric.MetricData{Time: &updateTime, Value: float64(net.BpfNetData.NetTx - net.OldBpfNetData.NetTx)})
+	m.metricStore.SetQosClassMetric(qosClass, consts.MetricNetTcpRecvByteQoSClass, metric.MetricData{Time: &updateTime, Value: float64(net.BpfNetData.NetRxBytes - net.OldBpfNetData.NetRxBytes)})
+	m.metricStore.SetQosClassMetric(qosClass, consts.MetricNetTcpRecvPpsQoSClass, metric.MetricData{Time: &updateTime, Value: float64(net.BpfNetData.NetRx - net.OldBpfNetData.NetRx)})
+}
+
+func (m *MalachiteMetricsFetcher) processQoSClassPerNumaMemoryData(qosClass string, cgStats *cgroup.MalachiteCgroupInfo) {
+	if cgStats.CgroupType == "V1" {
+		numaStats := cgStats.V1.Memory.NumaStats
+		updateTime := time.Unix(cgStats.V1.Memory.UpdateTime, 0)
+
+		for _, data := range numaStats {
+			numaID := strings.TrimPrefix(data.NumaName, "N")
+			m.metricStore.SetQosClassNumaMetric(qosClass, numaID, consts.MetricsMemTotalPerNumaQoSClass, metric.MetricData{Time: &updateTime, Value: float64(data.Total << 10)})
+			m.metricStore.SetQosClassNumaMetric(qosClass, numaID, consts.MetricsMemFilePerNumaQoSClass, metric.MetricData{Time: &updateTime, Value: float64(data.File << 10)})
+			m.metricStore.SetQosClassNumaMetric(qosClass, numaID, consts.MetricsMemAnonPerNumaQoSClass, metric.MetricData{Time: &updateTime, Value: float64(data.Anon << 10)})
+		}
+	} else if cgStats.CgroupType == "V2" {
+		numaStats := cgStats.V2.Memory.MemNumaStats
+		updateTime := time.Unix(cgStats.V2.Memory.UpdateTime, 0)
+
+		for numa, data := range numaStats {
+			numaID := strings.TrimPrefix(numa, "N")
+			total := data.Anon + data.File + data.Unevictable
+			m.metricStore.SetQosClassNumaMetric(qosClass, numaID, consts.MetricsMemTotalPerNumaQoSClass, metric.MetricData{Time: &updateTime, Value: float64(total << 10)})
+			m.metricStore.SetQosClassNumaMetric(qosClass, numaID, consts.MetricsMemFilePerNumaQoSClass, metric.MetricData{Time: &updateTime, Value: float64(data.File << 10)})
+			m.metricStore.SetQosClassNumaMetric(qosClass, numaID, consts.MetricsMemAnonPerNumaQoSClass, metric.MetricData{Time: &updateTime, Value: float64(data.Anon << 10)})
+		}
 	}
 }
 

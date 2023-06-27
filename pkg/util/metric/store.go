@@ -18,6 +18,7 @@ package metric
 
 import (
 	"errors"
+	"fmt"
 	"sync"
 	"time"
 )
@@ -43,6 +44,8 @@ type MetricStore struct {
 	cpuMetricMap              map[int]map[string]MetricData                          // map[cpuID]map[metricName]data
 	podContainerMetricMap     map[string]map[string]map[string]MetricData            // map[podUID]map[containerName]map[metricName]data
 	podContainerNumaMetricMap map[string]map[string]map[string]map[string]MetricData // map[podUID]map[containerName]map[numaNode]map[metricName]data
+	qosClassMetricMap         map[string]map[string]MetricData                       // map[qosClass]map[metricName]value
+	qosClassNumaMetricMap     map[string]map[string]map[string]MetricData            // map[qosClass]map[numaNode]map[metricName]value
 }
 
 var (
@@ -62,6 +65,8 @@ func GetMetricStoreInstance() *MetricStore {
 				cpuMetricMap:              make(map[int]map[string]MetricData),
 				podContainerMetricMap:     make(map[string]map[string]map[string]MetricData),
 				podContainerNumaMetricMap: make(map[string]map[string]map[string]map[string]MetricData),
+				qosClassMetricMap:         make(map[string]map[string]MetricData),
+				qosClassNumaMetricMap:     make(map[string]map[string]map[string]MetricData),
 			}
 		})
 	return metricStoreInstance
@@ -221,4 +226,65 @@ func (c *MetricStore) GCPodsMetric(livingPodUIDSet map[string]bool) {
 			delete(c.podContainerNumaMetricMap, podUID)
 		}
 	}
+}
+
+func (c *MetricStore) SetQosClassMetric(qosClass, metricName string, data MetricData) {
+	c.mutex.Lock()
+	defer c.mutex.Unlock()
+	metrics, ok := c.qosClassMetricMap[qosClass]
+	if !ok {
+		metrics = make(map[string]MetricData)
+		c.qosClassMetricMap[qosClass] = metrics
+	}
+	metrics[metricName] = data
+}
+
+func (c *MetricStore) GetQosClassMetric(qosClass, metricName string) (MetricData, error) {
+	c.mutex.RLock()
+	defer c.mutex.RUnlock()
+
+	metrics, ok := c.qosClassMetricMap[qosClass]
+	if !ok {
+		return MetricData{}, fmt.Errorf("[MetricStore] load value for %v failed", qosClass)
+	}
+	data, ok := metrics[metricName]
+	if !ok {
+		return MetricData{}, fmt.Errorf("[MetricStore] load value for %v failed", metricName)
+	}
+	return data, nil
+}
+
+func (c *MetricStore) SetQosClassNumaMetric(qosClass, numaNode, metricName string, data MetricData) {
+	c.mutex.Lock()
+	defer c.mutex.Unlock()
+
+	numaMetrics, ok := c.qosClassNumaMetricMap[qosClass]
+	if !ok {
+		numaMetrics = make(map[string]map[string]MetricData)
+		c.qosClassNumaMetricMap[qosClass] = numaMetrics
+	}
+	metrics, ok := numaMetrics[numaNode]
+	if !ok {
+		metrics = make(map[string]MetricData)
+		numaMetrics[numaNode] = metrics
+	}
+	metrics[metricName] = data
+}
+
+func (c *MetricStore) GetQosClassNumaMetric(qosClass, numaNode, metricName string) (MetricData, error) {
+	c.mutex.RLock()
+	defer c.mutex.RUnlock()
+	numaMetrics, ok := c.qosClassNumaMetricMap[qosClass]
+	if !ok {
+		return MetricData{}, fmt.Errorf("[MetricStore] load value for %v failed", qosClass)
+	}
+	metrics, ok := numaMetrics[numaNode]
+	if !ok {
+		return MetricData{}, fmt.Errorf("[MetricStore] load value for %v failed", numaNode)
+	}
+	metric, ok := metrics[metricName]
+	if !ok {
+		return MetricData{}, fmt.Errorf("[MetricStore] load value for %v failed", metricName)
+	}
+	return metric, nil
 }

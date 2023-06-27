@@ -122,3 +122,19 @@ func (f *FakeMetricsFetcher) AggregatePodMetric(podList []*v1.Pod, metricName st
 func (f *FakeMetricsFetcher) AggregateCoreMetric(cpuset machine.CPUSet, metricName string, agg metric.Aggregator) metric.MetricData {
 	return f.metricStore.AggregateCoreMetric(cpuset, metricName, agg)
 }
+
+func (f *FakeMetricsFetcher) SetQoSClassMetric(qosClass, metricName string, data metric.MetricData) {
+	f.metricStore.SetQosClassMetric(qosClass, metricName, data)
+}
+
+func (f *FakeMetricsFetcher) GetQoSClassMetric(qosClass, metricName string) (metric.MetricData, error) {
+	return f.metricStore.GetQosClassMetric(qosClass, metricName)
+}
+
+func (f *FakeMetricsFetcher) SetQoSClassNumaMetric(qosClass, numaNode, metricName string, data metric.MetricData) {
+	f.metricStore.SetQosClassNumaMetric(qosClass, numaNode, metricName, data)
+}
+
+func (f *FakeMetricsFetcher) GetQoSClassNumaMetric(qosClass, numaNode, metricName string) (metric.MetricData, error) {
+	return f.metricStore.GetQosClassNumaMetric(qosClass, numaNode, metricName)
+}
