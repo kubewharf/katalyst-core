@@ -18,19 +18,27 @@ package asyncworker
 
 import (
 	"fmt"
+	"reflect"
 )
 
 func (s *workStatus) IsWorking() bool {
 	return s.working
 }
 
-func validateWork(work *Work) error {
+func validateWork(work *Work) (err error) {
 	if work == nil {
 		return fmt.Errorf("nil work")
 	} else if work.Fn == nil {
 		return fmt.Errorf("nil work Fn")
 	} else if work.DeliveredAt.IsZero() {
 		return fmt.Errorf("zero work DeliveredAt")
+	}
+
+	fnType := reflect.TypeOf(work.Fn)
+	if fnType.Kind() != reflect.Func {
+		return fmt.Errorf("work Fn isn't a function")
+	} else if fnType.NumOut() != 1 || !fnType.Out(0).Implements(reflect.TypeOf(&err).Elem()) {
+		return fmt.Errorf("work Fn doesn't return only an error, numOut: %d", fnType.NumOut())
 	}
 
 	return nil

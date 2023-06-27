@@ -17,6 +17,7 @@ limitations under the License.
 package manager
 
 import (
+	"context"
 	"fmt"
 	"os/exec"
 	"path/filepath"
@@ -161,7 +162,7 @@ func GetCPUSetForContainer(podUID, containerId string) (*common.CPUSetStats, err
 	return GetCPUSetWithAbsolutePath(cpusetAbsCGPath)
 }
 
-func DropCacheWithTimeoutForContainer(podUID, containerId string, timeoutSecs int) error {
+func DropCacheWithTimeoutForContainer(ctx context.Context, podUID, containerId string, timeoutSecs int) error {
 	cpusetAbsCGPath, err := common.GetContainerAbsCgroupPath(common.CgroupSubsysMemory, podUID, containerId)
 	if err != nil {
 		return fmt.Errorf("GetContainerAbsCgroupPath failed with error: %v", err)

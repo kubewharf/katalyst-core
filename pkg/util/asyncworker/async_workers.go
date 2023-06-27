@@ -19,11 +19,12 @@ package asyncworker
 import (
 	"context"
 	"fmt"
+	"reflect"
 	"time"
 
-	"github.com/kubewharf/katalyst-core/pkg/util/general"
-	"k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/apimachinery/pkg/util/wait"
+
+	"github.com/kubewharf/katalyst-core/pkg/util/general"
 )
 
 func NewAsyncWorkers(name string) *AsyncWorkers {
@@ -69,10 +70,7 @@ func (aws *AsyncWorkers) AddWork(workName string, work *Work) error {
 
 		ctx := aws.contextForWork(workName, work)
 
-		go func() {
-			defer runtime.HandleCrash()
-			aws.handleWork(ctx, workName, work)
-		}()
+		go aws.handleWork(ctx, workName, work)
 
 		return nil
 	}
@@ -102,7 +100,7 @@ func (aws *AsyncWorkers) AddWork(workName string, work *Work) error {
 		general.Fatalf("[AsyncWorkers: %s] %s nil work in working status", aws.name, workName)
 	}
 
-	general.InfoS("cancelling current working work",
+	general.InfoS("canceling current working work",
 		"AsyncWorkers", aws.name,
 		"workName", workName,
 		"params", status.work.Params,
@@ -112,18 +110,43 @@ func (aws *AsyncWorkers) AddWork(workName string, work *Work) error {
 	return nil
 }
 
-func (aws *AsyncWorkers) handleWork(ctx context.Context, workName string, work *Work) error {
+func (aws *AsyncWorkers) handleWork(ctx context.Context, workName string, work *Work) {
+	var handleErr error
+
+	defer func() {
+		if r := recover(); r != nil {
+			handleErr = fmt.Errorf("recover from %v", r)
+		}
+
+		aws.completeWork(workName, work, handleErr)
+	}()
+
 	general.InfoS("handle work",
 		"AsyncWorkers", aws.name,
 		"workName", workName,
 		"params", work.Params,
 		"deliveredAt", work.DeliveredAt)
 
-	err := work.Fn(ctx, work.Params...)
+	funcValue := reflect.ValueOf(work.Fn)
 
-	aws.completeWork(workName, work, err)
+	paramValues := make([]reflect.Value, 1, len(work.Params)+1)
+	paramValues[0] = reflect.ValueOf(ctx)
+	for _, param := range work.Params {
+		paramValues = append(paramValues, reflect.ValueOf(param))
+	}
 
-	return nil
+	funcRets := funcValue.Call(paramValues)
+
+	if len(funcRets) != 1 {
+		handleErr = fmt.Errorf("work Fn returns invalid number: %d of return values", len(funcRets))
+	} else if funcRets[0].Interface() != nil {
+		var ok bool
+		handleErr, ok = funcRets[0].Interface().(error)
+
+		if !ok {
+			handleErr = fmt.Errorf("work Fn returns return value: %v of invalid type", funcRets[0].Interface())
+		}
+	}
 }
 
 func (aws *AsyncWorkers) completeWork(workName string, completedWork *Work, workErr error) {
@@ -142,10 +165,7 @@ func (aws *AsyncWorkers) completeWork(workName string, completedWork *Work, work
 
 		ctx := aws.contextForWork(workName, work)
 
-		go func() {
-			defer runtime.HandleCrash()
-			aws.handleWork(ctx, workName, work)
-		}()
+		go aws.handleWork(ctx, workName, work)
 		delete(aws.lastUndeliveredWork, workName)
 	} else {
 		aws.resetWorkStatus(workName)
