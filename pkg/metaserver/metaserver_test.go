@@ -55,7 +55,7 @@ func generateTestMetaServer(clientSet *client.GenericClientSet, conf *config.Con
 			PodFetcher:     &pod.PodFetcherStub{},
 			NodeFetcher:    node.NewRemoteNodeFetcher(conf.NodeName, clientSet.KubeClient.CoreV1().Nodes()),
 			CNRFetcher:     cnr.NewCachedCNRFetcher(conf.NodeName, conf.CNRCacheTTL, clientSet.InternalClient.NodeV1alpha1().CustomNodeResources()),
-			MetricsFetcher: metric.NewMalachiteMetricsFetcher(metrics.DummyMetrics{}),
+			MetricsFetcher: metric.NewMalachiteMetricsFetcher(metrics.DummyMetrics{}, nil),
 		},
 		ConfigurationManager:    &dynamicconfig.DummyConfigurationManager{},
 		ServiceProfilingManager: &spd.DummyServiceProfilingManager{},

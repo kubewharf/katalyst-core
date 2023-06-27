@@ -18,6 +18,7 @@ package metric
 
 import (
 	"errors"
+	"fmt"
 	"sync"
 	"time"
 )
@@ -43,6 +44,8 @@ type MetricStore struct {
 	cpuMetricMap              map[int]map[string]MetricData                          // map[cpuID]map[metricName]data
 	podContainerMetricMap     map[string]map[string]map[string]MetricData            // map[podUID]map[containerName]map[metricName]data
 	podContainerNumaMetricMap map[string]map[string]map[string]map[string]MetricData // map[podUID]map[containerName]map[numaNode]map[metricName]data
+	cgroupMetricMap           map[string]map[string]MetricData                       // map[cgroupPath]map[metricName]value
+	cgroupNumaMetricMap       map[string]map[string]map[string]MetricData            // map[cgroupPath]map[numaNode]map[metricName]value
 }
 
 var (
@@ -62,6 +65,8 @@ func GetMetricStoreInstance() *MetricStore {
 				cpuMetricMap:              make(map[int]map[string]MetricData),
 				podContainerMetricMap:     make(map[string]map[string]map[string]MetricData),
 				podContainerNumaMetricMap: make(map[string]map[string]map[string]map[string]MetricData),
+				cgroupMetricMap:           make(map[string]map[string]MetricData),
+				cgroupNumaMetricMap:       make(map[string]map[string]map[string]MetricData),
 			}
 		})
 	return metricStoreInstance
@@ -221,4 +226,65 @@ func (c *MetricStore) GCPodsMetric(livingPodUIDSet map[string]bool) {
 			delete(c.podContainerNumaMetricMap, podUID)
 		}
 	}
+}
+
+func (c *MetricStore) SetCgroupMetric(cgroupPath, metricName string, data MetricData) {
+	c.mutex.Lock()
+	defer c.mutex.Unlock()
+	metrics, ok := c.cgroupMetricMap[cgroupPath]
+	if !ok {
+		metrics = make(map[string]MetricData)
+		c.cgroupMetricMap[cgroupPath] = metrics
+	}
+	metrics[metricName] = data
+}
+
+func (c *MetricStore) GetCgroupMetric(cgroupPath, metricName string) (MetricData, error) {
+	c.mutex.RLock()
+	defer c.mutex.RUnlock()
+
+	metrics, ok := c.cgroupMetricMap[cgroupPath]
+	if !ok {
+		return MetricData{}, fmt.Errorf("[MetricStore] load value for %v failed", cgroupPath)
+	}
+	data, ok := metrics[metricName]
+	if !ok {
+		return MetricData{}, fmt.Errorf("[MetricStore] load value for %v failed", metricName)
+	}
+	return data, nil
+}
+
+func (c *MetricStore) SetCgroupNumaMetric(cgroupPath, numaNode, metricName string, data MetricData) {
+	c.mutex.Lock()
+	defer c.mutex.Unlock()
+
+	numaMetrics, ok := c.cgroupNumaMetricMap[cgroupPath]
+	if !ok {
+		numaMetrics = make(map[string]map[string]MetricData)
+		c.cgroupNumaMetricMap[cgroupPath] = numaMetrics
+	}
+	metrics, ok := numaMetrics[numaNode]
+	if !ok {
+		metrics = make(map[string]MetricData)
+		numaMetrics[numaNode] = metrics
+	}
+	metrics[metricName] = data
+}
+
+func (c *MetricStore) GetCgroupNumaMetric(cgroupPath, numaNode, metricName string) (MetricData, error) {
+	c.mutex.RLock()
+	defer c.mutex.RUnlock()
+	numaMetrics, ok := c.cgroupNumaMetricMap[cgroupPath]
+	if !ok {
+		return MetricData{}, fmt.Errorf("[MetricStore] load value for %v failed", cgroupPath)
+	}
+	metrics, ok := numaMetrics[numaNode]
+	if !ok {
+		return MetricData{}, fmt.Errorf("[MetricStore] load value for %v failed", numaNode)
+	}
+	metric, ok := metrics[metricName]
+	if !ok {
+		return MetricData{}, fmt.Errorf("[MetricStore] load value for %v failed", metricName)
+	}
+	return metric, nil
 }

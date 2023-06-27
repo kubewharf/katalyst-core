@@ -33,7 +33,7 @@ import (
 
 func Test_noneExistMetricsFetcher(t *testing.T) {
 	var err error
-	implement := NewMalachiteMetricsFetcher(metrics.DummyMetrics{})
+	implement := NewMalachiteMetricsFetcher(metrics.DummyMetrics{}, nil)
 
 	fakeSystemCompute := &system.SystemComputeData{
 		CPU: []system.CPU{
@@ -81,19 +81,19 @@ func Test_noneExistMetricsFetcher(t *testing.T) {
 	implement.(*MalachiteMetricsFetcher).processSystemNumaData(fakeSystemMemory)
 	implement.(*MalachiteMetricsFetcher).processSystemCPUComputeData(fakeSystemCompute)
 
-	implement.(*MalachiteMetricsFetcher).processCgroupCPUData("pod-not-exist", "container-not-exist", fakeCgroupInfoV1)
-	implement.(*MalachiteMetricsFetcher).processCgroupMemoryData("pod-not-exist", "container-not-exist", fakeCgroupInfoV1)
-	implement.(*MalachiteMetricsFetcher).processCgroupBlkIOData("pod-not-exist", "container-not-exist", fakeCgroupInfoV1)
-	implement.(*MalachiteMetricsFetcher).processCgroupNetData("pod-not-exist", "container-not-exist", fakeCgroupInfoV1)
-	implement.(*MalachiteMetricsFetcher).processCgroupPerfData("pod-not-exist", "container-not-exist", fakeCgroupInfoV1)
-	implement.(*MalachiteMetricsFetcher).processCgroupPerNumaMemoryData("pod-not-exist", "container-not-exist", fakeCgroupInfoV1)
+	implement.(*MalachiteMetricsFetcher).processContainerCPUData("pod-not-exist", "container-not-exist", fakeCgroupInfoV1)
+	implement.(*MalachiteMetricsFetcher).processContainerMemoryData("pod-not-exist", "container-not-exist", fakeCgroupInfoV1)
+	implement.(*MalachiteMetricsFetcher).processContainerBlkIOData("pod-not-exist", "container-not-exist", fakeCgroupInfoV1)
+	implement.(*MalachiteMetricsFetcher).processContainerNetData("pod-not-exist", "container-not-exist", fakeCgroupInfoV1)
+	implement.(*MalachiteMetricsFetcher).processContainerPerfData("pod-not-exist", "container-not-exist", fakeCgroupInfoV1)
+	implement.(*MalachiteMetricsFetcher).processContainerPerNumaMemoryData("pod-not-exist", "container-not-exist", fakeCgroupInfoV1)
 
-	implement.(*MalachiteMetricsFetcher).processCgroupCPUData("pod-not-exist", "container-not-exist", fakeCgroupInfoV2)
-	implement.(*MalachiteMetricsFetcher).processCgroupMemoryData("pod-not-exist", "container-not-exist", fakeCgroupInfoV2)
-	implement.(*MalachiteMetricsFetcher).processCgroupBlkIOData("pod-not-exist", "container-not-exist", fakeCgroupInfoV2)
-	implement.(*MalachiteMetricsFetcher).processCgroupNetData("pod-not-exist", "container-not-exist", fakeCgroupInfoV2)
-	implement.(*MalachiteMetricsFetcher).processCgroupPerfData("pod-not-exist", "container-not-exist", fakeCgroupInfoV2)
-	implement.(*MalachiteMetricsFetcher).processCgroupPerNumaMemoryData("pod-not-exist", "container-not-exist", fakeCgroupInfoV2)
+	implement.(*MalachiteMetricsFetcher).processContainerCPUData("pod-not-exist", "container-not-exist", fakeCgroupInfoV2)
+	implement.(*MalachiteMetricsFetcher).processContainerMemoryData("pod-not-exist", "container-not-exist", fakeCgroupInfoV2)
+	implement.(*MalachiteMetricsFetcher).processContainerBlkIOData("pod-not-exist", "container-not-exist", fakeCgroupInfoV2)
+	implement.(*MalachiteMetricsFetcher).processContainerNetData("pod-not-exist", "container-not-exist", fakeCgroupInfoV2)
+	implement.(*MalachiteMetricsFetcher).processContainerPerfData("pod-not-exist", "container-not-exist", fakeCgroupInfoV2)
+	implement.(*MalachiteMetricsFetcher).processContainerPerNumaMemoryData("pod-not-exist", "container-not-exist", fakeCgroupInfoV2)
 
 	_, err = implement.GetNodeMetric("test-not-exist")
 	if err == nil {
@@ -135,7 +135,7 @@ func Test_noneExistMetricsFetcher(t *testing.T) {
 func Test_notifySystem(t *testing.T) {
 	now := time.Now()
 
-	f := NewMalachiteMetricsFetcher(metrics.DummyMetrics{})
+	f := NewMalachiteMetricsFetcher(metrics.DummyMetrics{}, nil)
 
 	rChan := make(chan NotifiedResponse, 20)
 	f.RegisterNotifier(MetricsScopeNode, NotifiedRequest{
@@ -201,7 +201,7 @@ func Test_notifySystem(t *testing.T) {
 func TestStore_Aggregate(t *testing.T) {
 	now := time.Now()
 
-	f := NewMalachiteMetricsFetcher(metrics.DummyMetrics{}).(*MalachiteMetricsFetcher)
+	f := NewMalachiteMetricsFetcher(metrics.DummyMetrics{}, nil).(*MalachiteMetricsFetcher)
 
 	pod1 := &v1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
