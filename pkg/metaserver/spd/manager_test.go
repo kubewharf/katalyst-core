@@ -24,6 +24,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 	v1 "k8s.io/api/core/v1"
+	apiequality "k8s.io/apimachinery/pkg/api/equality"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/utils/pointer"
@@ -262,7 +263,7 @@ func Test_serviceProfilingManager_ServiceBusinessPerformanceLevel(t *testing.T) 
 			require.NoError(t, err)
 			require.NotNil(t, s)
 
-			m, err := NewServiceProfilingManager(genericCtx.Client, metrics.DummyMetrics{}, cncFetcher, conf)
+			m := NewServiceProfilingManager(s)
 			require.NoError(t, err)
 
 			go m.Run(context.Background())
@@ -274,6 +275,137 @@ func Test_serviceProfilingManager_ServiceBusinessPerformanceLevel(t *testing.T) 
 			}
 			if got != tt.want {
 				t.Errorf("ServiceBusinessPerformanceLevel() got = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func Test_serviceProfilingManager_ServiceSystemPerformanceTarget(t *testing.T) {
+	type fields struct {
+		nodeName string
+		spd      *workloadapis.ServiceProfileDescriptor
+		cnc      *v1alpha1.CustomNodeConfig
+	}
+	type args struct {
+		pod *v1.Pod
+	}
+	tests := []struct {
+		name    string
+		fields  fields
+		args    args
+		want    IndicatorTarget
+		wantErr bool
+	}{
+		{
+			name: "service performance is good",
+			fields: fields{
+				nodeName: "node-1",
+				spd: &workloadapis.ServiceProfileDescriptor{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "spd-1",
+						Namespace: "default",
+						Annotations: map[string]string{
+							pkgconsts.ServiceProfileDescriptorAnnotationKeyConfigHash: "3c7e3ff3f218",
+						},
+					},
+					Spec: workloadapis.ServiceProfileDescriptorSpec{
+						SystemIndicator: []workloadapis.ServiceSystemIndicatorSpec{
+							{
+								Name: workloadapis.TargetIndicatorNameCPUSchedWait,
+								Indicators: []workloadapis.Indicator{
+									{
+										IndicatorLevel: workloadapis.IndicatorLevelLowerBound,
+										Value:          10,
+									},
+									{
+										IndicatorLevel: workloadapis.IndicatorLevelUpperBound,
+										Value:          100,
+									},
+								},
+							},
+							{
+								Name: workloadapis.TargetIndicatorNameCPI,
+								Indicators: []workloadapis.Indicator{
+									{
+										IndicatorLevel: workloadapis.IndicatorLevelLowerBound,
+										Value:          1.4,
+									},
+									{
+										IndicatorLevel: workloadapis.IndicatorLevelUpperBound,
+										Value:          2.4,
+									},
+								},
+							},
+						},
+					},
+				},
+				cnc: &v1alpha1.CustomNodeConfig{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "node-1",
+					},
+					Status: v1alpha1.CustomNodeConfigStatus{
+						ServiceProfileConfigList: []v1alpha1.TargetConfig{
+							{
+								ConfigName:      "spd-1",
+								ConfigNamespace: "default",
+								Hash:            "3c7e3ff3f218",
+							},
+						},
+					},
+				},
+			},
+			args: args{
+				pod: &v1.Pod{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "pod-1",
+						Namespace: "default",
+						Annotations: map[string]string{
+							consts.PodAnnotationSPDNameKey: "spd-1",
+						},
+					},
+				},
+			},
+			want: IndicatorTarget{
+				string(workloadapis.TargetIndicatorNameCPUSchedWait): {
+					UpperBound: pointer.Float64(100),
+					LowerBound: pointer.Float64(10),
+				},
+				string(workloadapis.TargetIndicatorNameCPI): {
+					UpperBound: pointer.Float64(2.4),
+					LowerBound: pointer.Float64(1.4),
+				},
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir, err := ioutil.TempDir("", "checkpoint")
+			require.NoError(t, err)
+			defer os.RemoveAll(dir)
+
+			conf := generateTestConfiguration(t, tt.fields.nodeName, dir)
+			genericCtx, err := katalyst_base.GenerateFakeGenericContext(nil, []runtime.Object{
+				tt.fields.spd,
+				tt.fields.cnc,
+			})
+			require.NoError(t, err)
+
+			cncFetcher := cnc.NewCachedCNCFetcher(conf.NodeName, conf.CustomNodeConfigCacheTTL, genericCtx.Client.InternalClient.ConfigV1alpha1().CustomNodeConfigs())
+			s, err := NewSPDFetcher(genericCtx.Client, metrics.DummyMetrics{}, cncFetcher, conf)
+			require.NoError(t, err)
+			require.NotNil(t, s)
+
+			m := NewServiceProfilingManager(s)
+			require.NoError(t, err)
+
+			go m.Run(context.Background())
+			got, err := m.ServiceSystemPerformanceTarget(context.Background(), tt.args.pod)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("ServiceSystemPerformanceTarget() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if apiequality.Semantic.DeepEqual(tt.want, got) {
+				t.Errorf("ServiceSystemPerformanceTarget() got = %v, want %v", got, tt.want)
 			}
 		})
 	}

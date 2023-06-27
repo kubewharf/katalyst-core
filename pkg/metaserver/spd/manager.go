@@ -22,10 +22,6 @@ import (
 
 	v1 "k8s.io/api/core/v1"
 
-	"github.com/kubewharf/katalyst-core/pkg/client"
-	pkgconfig "github.com/kubewharf/katalyst-core/pkg/config"
-	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/cnc"
-	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util"
 )
 
@@ -40,6 +36,8 @@ const (
 	PerformanceLevelPoor    PerformanceLevel = 2
 )
 
+type IndicatorTarget map[string]util.IndicatorTarget
+
 type ServiceProfilingManager interface {
 	// ServiceBusinessPerformanceLevel returns the service business performance level for the given pod
 	ServiceBusinessPerformanceLevel(ctx context.Context, pod *v1.Pod) (PerformanceLevel, error)
@@ -47,6 +45,9 @@ type ServiceProfilingManager interface {
 	// ServiceBusinessPerformanceScore returns the service business performance score for the given pod
 	// The score is in range [0, 100]
 	ServiceBusinessPerformanceScore(ctx context.Context, pod *v1.Pod) (float64, error)
+
+	// ServiceSystemPerformanceTarget returns the system performance target for the given pod
+	ServiceSystemPerformanceTarget(ctx context.Context, pod *v1.Pod) (IndicatorTarget, error)
 
 	// Run starts the service profiling manager
 	Run(ctx context.Context)
@@ -62,6 +63,10 @@ func (d *DummyServiceProfilingManager) ServiceBusinessPerformanceScore(_ context
 	return 100, nil
 }
 
+func (d *DummyServiceProfilingManager) ServiceSystemPerformanceTarget(_ context.Context, _ *v1.Pod) (IndicatorTarget, error) {
+	return IndicatorTarget{}, nil
+}
+
 func (d *DummyServiceProfilingManager) Run(_ context.Context) {}
 
 var _ ServiceProfilingManager = &DummyServiceProfilingManager{}
@@ -70,16 +75,10 @@ type serviceProfilingManager struct {
 	fetcher SPDFetcher
 }
 
-func NewServiceProfilingManager(clientSet *client.GenericClientSet, emitter metrics.MetricEmitter,
-	cncFetcher cnc.CNCFetcher, conf *pkgconfig.Configuration) (ServiceProfilingManager, error) {
-	fetcher, err := NewSPDFetcher(clientSet, emitter, cncFetcher, conf)
-	if err != nil {
-		return nil, fmt.Errorf("initializes service profiling manager failed: %s", err)
-	}
-
+func NewServiceProfilingManager(fetcher SPDFetcher) ServiceProfilingManager {
 	return &serviceProfilingManager{
 		fetcher: fetcher,
-	}, nil
+	}
 }
 
 func (m *serviceProfilingManager) ServiceBusinessPerformanceScore(_ context.Context, _ *v1.Pod) (float64, error) {
@@ -136,6 +135,17 @@ func (m *serviceProfilingManager) ServiceBusinessPerformanceLevel(ctx context.Co
 	}
 
 	return result, nil
+}
+
+// ServiceSystemPerformanceTarget gets the service system performance target by spd and return the indicator name
+// and its upper and lower bounds
+func (m *serviceProfilingManager) ServiceSystemPerformanceTarget(ctx context.Context, pod *v1.Pod) (IndicatorTarget, error) {
+	spd, err := m.fetcher.GetSPD(ctx, pod)
+	if err != nil {
+		return nil, err
+	}
+
+	return util.GetServiceSystemIndicatorTarget(spd)
 }
 
 func (m *serviceProfilingManager) Run(ctx context.Context) {

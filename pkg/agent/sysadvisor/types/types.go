@@ -226,9 +226,10 @@ type Indicator map[string]IndicatorValue
 type IndicatorValue struct {
 	Current float64
 	Target  float64
-	Upper   float64
-	Lower   float64
 }
+
+// IndicatorCurrentGetter get pod indicator current value by podUID
+type IndicatorCurrentGetter func() (float64, error)
 
 // PolicyUpdateStatus works as a flag indicating update result
 type PolicyUpdateStatus string
