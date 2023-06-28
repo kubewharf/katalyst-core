@@ -57,7 +57,7 @@ func NewCheckpointState(conf *qrm.QRMPluginsConfiguration, stateDir, checkpointN
 
 	defaultCache, err := NewNetworkPluginState(conf, machineInfo, nics, reservedBandwidth)
 	if err != nil {
-		return nil, fmt.Errorf("NewMemoryPluginState failed with error: %v", err)
+		return nil, fmt.Errorf("NewNetworkPluginState failed with error: %v", err)
 	}
 
 	stateCheckpoint := &stateCheckpoint{

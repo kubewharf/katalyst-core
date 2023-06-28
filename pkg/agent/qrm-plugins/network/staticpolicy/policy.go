@@ -19,6 +19,7 @@ package staticpolicy
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -61,30 +62,28 @@ const (
 type StaticPolicy struct {
 	sync.Mutex
 
-	name              string
-	stopCh            chan struct{}
-	started           bool
-	qosConfig         *generic.QoSConfiguration
-	qrmConfig         *qrm.QRMPluginsConfiguration
-	emitter           metrics.MetricEmitter
-	metaServer        *metaserver.MetaServer
-	agentCtx          *agent.GenericContext
-	nics              []machine.InterfaceInfo
-	state             state.State
-	reservedBandwidth map[string]uint32
+	name       string
+	stopCh     chan struct{}
+	started    bool
+	qosConfig  *generic.QoSConfiguration
+	qrmConfig  *qrm.QRMPluginsConfiguration
+	emitter    metrics.MetricEmitter
+	metaServer *metaserver.MetaServer
+	agentCtx   *agent.GenericContext
+	nics       []machine.InterfaceInfo
+	state      state.State
 
-	CgroupV2Env                                        bool
-	qosLevelToNetClassMap                              map[string]uint32
-	applyNetClassFunc                                  func(podUID, containerID string, data *common.NetClsData) error
-	podLevelNetClassAnnoKey                            string
-	podLevelNetAttributesAnnoKeys                      []string
-	ipv4ResourceAllocationAnnotationKey                string
-	ipv6ResourceAllocationAnnotationKey                string
-	netNSPathResourceAllocationAnnotationKey           string
-	netInterfaceNameResourceAllocationAnnotationKey    string
-	netClassIDResourceAllocationAnnotationKey          string
-	netEgressBandwidthResourceAllocationAnnotationKey  string
-	netIngressBandwidthResourceAllocationAnnotationKey string
+	CgroupV2Env                                     bool
+	qosLevelToNetClassMap                           map[string]uint32
+	applyNetClassFunc                               func(podUID, containerID string, data *common.NetClsData) error
+	podLevelNetClassAnnoKey                         string
+	podLevelNetAttributesAnnoKeys                   []string
+	ipv4ResourceAllocationAnnotationKey             string
+	ipv6ResourceAllocationAnnotationKey             string
+	netNSPathResourceAllocationAnnotationKey        string
+	netInterfaceNameResourceAllocationAnnotationKey string
+	netClassIDResourceAllocationAnnotationKey       string
+	netBandwidthResourceAllocationAnnotationKey     string
 }
 
 // NewStaticPolicy returns a static network policy
@@ -95,10 +94,18 @@ func NewStaticPolicy(agentCtx *agent.GenericContext, conf *config.Configuration,
 		Val: NetworkResourcePluginPolicyNameStatic,
 	})
 
-	// It is incorrect to reserve bandwidth on those diabled NICs
+	// it is incorrect to reserve bandwidth on those diabled NICs.
+	// we only count active NICs as available network devices and allocate bandwidth on them
 	enabledNICs := filterNICsByAvailability(agentCtx.KatalystMachineInfo.ExtraNetworkInfo.Interface, nil, nil)
 
-	// We only support one spreading policy for now: reserve the bandwidth on the first NIC
+	// the NICs should be in order by interface name so that we can adopt specific policies for bandwidth reservation or allocation
+	// e.g. reserve bandwidth for high-priority tasks on the first NIC
+	sort.SliceStable(enabledNICs, func(i, j int) bool {
+		return enabledNICs[i].Iface < enabledNICs[j].Iface
+	})
+
+	// we only support one spreading policy for now: reserve the bandwidth on the first NIC.
+	// it would be configurable later
 	reservation, err := GetReservedBandwidth(enabledNICs, conf.ReservedBandwidth, FirstNIC)
 	if err != nil {
 		return false, agent.ComponentStub{}, fmt.Errorf("getReservedBandwidth failed with error: %v", err)
@@ -112,7 +119,6 @@ func NewStaticPolicy(agentCtx *agent.GenericContext, conf *config.Configuration,
 
 	policyImplement := &StaticPolicy{
 		nics:                  enabledNICs,
-		reservedBandwidth:     reservation,
 		qosConfig:             conf.QoSConfiguration,
 		qrmConfig:             conf.QRMPluginsConfiguration,
 		emitter:               wrappedEmitter,
@@ -160,8 +166,7 @@ func (p *StaticPolicy) ApplyConfig(conf *agentconfig.StaticAgentConfiguration) {
 	p.netNSPathResourceAllocationAnnotationKey = conf.NetNSPathResourceAllocationAnnotationKey
 	p.netInterfaceNameResourceAllocationAnnotationKey = conf.NetInterfaceNameResourceAllocationAnnotationKey
 	p.netClassIDResourceAllocationAnnotationKey = conf.NetClassIDResourceAllocationAnnotationKey
-	p.netEgressBandwidthResourceAllocationAnnotationKey = conf.NetBandwidthResourceAllocationAnnotationKey
-	p.netIngressBandwidthResourceAllocationAnnotationKey = conf.NetBandwidthResourceAllocationAnnotationKey
+	p.netBandwidthResourceAllocationAnnotationKey = conf.NetBandwidthResourceAllocationAnnotationKey
 
 	general.Infof("apply configs, "+
 		"qosLevelToNetClassMap: %+v, "+
@@ -237,8 +242,8 @@ func (p *StaticPolicy) filterAvailableNICsByBandwidth(req *pluginapi.ResourceReq
 	}
 
 	machineState := p.state.GetMachineState()
-	if len(machineState) == 0 {
-		return nil, fmt.Errorf("filterNICsByBandwidth with empty machineState")
+	if len(machineState) == 0 || len(p.nics) == 0 {
+		return nil, fmt.Errorf("filterNICsByBandwidth with 0 NIC")
 	}
 
 	filteredNICs := make([]machine.InterfaceInfo, 0, len(p.nics))
@@ -392,8 +397,47 @@ func (p *StaticPolicy) RemovePod(_ context.Context,
 
 // GetResourcesAllocation returns allocation results of corresponding resources
 func (p *StaticPolicy) GetResourcesAllocation(_ context.Context,
-	_ *pluginapi.GetResourcesAllocationRequest) (*pluginapi.GetResourcesAllocationResponse, error) {
-	return &pluginapi.GetResourcesAllocationResponse{}, nil
+	req *pluginapi.GetResourcesAllocationRequest) (*pluginapi.GetResourcesAllocationResponse, error) {
+	if req == nil {
+		return nil, fmt.Errorf("GetResourcesAllocation got nil req")
+	}
+
+	p.Lock()
+	defer p.Unlock()
+
+	podResources := make(map[string]*pluginapi.ContainerResources)
+	podEntries := p.state.GetPodEntries()
+	for podUID, containerEntries := range podEntries {
+		if podResources[podUID] == nil {
+			podResources[podUID] = &pluginapi.ContainerResources{}
+		}
+
+		for containerName, allocationInfo := range containerEntries {
+			if allocationInfo == nil {
+				continue
+			}
+
+			if podResources[podUID].ContainerResources == nil {
+				podResources[podUID].ContainerResources = make(map[string]*pluginapi.ResourceAllocation)
+			}
+
+			podResources[podUID].ContainerResources[containerName] = &pluginapi.ResourceAllocation{
+				ResourceAllocation: map[string]*pluginapi.ResourceAllocationInfo{
+					string(apiconsts.ResourceNetBandwidth): {
+						// no ociproperty needed for network
+						IsNodeResource:    false,
+						IsScalarResource:  true,
+						AllocatedQuantity: float64(allocationInfo.Egress),
+						AllocationResult:  allocationInfo.NumaNodes.String(),
+					},
+				},
+			}
+		}
+	}
+
+	return &pluginapi.GetResourcesAllocationResponse{
+		PodResources: podResources,
+	}, nil
 }
 
 // GetTopologyAwareResources returns allocation results of corresponding resources as topology aware format
@@ -482,8 +526,7 @@ func (p *StaticPolicy) getResourceAllocationAnnotations(podAnnotations map[strin
 		p.netInterfaceNameResourceAllocationAnnotationKey: selectedNIC.Iface,
 		p.netClassIDResourceAllocationAnnotationKey:       fmt.Sprintf("%d", netClsID),
 		// TODO: support differentiated Egress/Ingress bandwidth later
-		p.netEgressBandwidthResourceAllocationAnnotationKey:  strconv.Itoa(reqBandwidth),
-		p.netIngressBandwidthResourceAllocationAnnotationKey: strconv.Itoa(reqBandwidth),
+		p.netBandwidthResourceAllocationAnnotationKey: strconv.Itoa(reqBandwidth),
 	}
 
 	if len(selectedNIC.NSAbsolutePath) > 0 {
@@ -524,7 +567,6 @@ func (p *StaticPolicy) Allocate(_ context.Context,
 		"podName", req.PodName,
 		"containerName", req.ContainerName,
 		"qosLevel", qosLevel,
-		"resourceRequests", req.ResourceRequests,
 		"reqAnnotations", req.Annotations,
 		"netBandwidthReq(Mbps)", reqInt)
 
@@ -566,13 +608,21 @@ func (p *StaticPolicy) Allocate(_ context.Context,
 		return nil, err
 	}
 
-	// Shall we return an error if no NIC available?
+	// Shall we return an error or an empty response if no NIC meets the requirment?
 	if len(candidateNICs) == 0 {
-		return emptyResponse, nil
+		general.ErrorS(err, "insufficient bandwidth on this node to satisfy the request",
+			"podNamespace", req.PodNamespace,
+			"podName", req.PodName,
+			"containerName", req.ContainerName,
+			"netBandwidthReq(Mbps)", reqInt,
+			"nicState", p.state.GetMachineState().String())
+		return nil, fmt.Errorf("failed to meet the bandwidth requirement of %d Mbps", reqInt)
 	}
 
 	// we only support one policy and hard code it for now, it would be configurable later
 	selectedNIC := selectOneNIC(candidateNICs, LastOne)
+
+	general.Infof("select NIC %s to allocate bandwidth (%dMbps)", selectedNIC.Iface, reqInt)
 
 	resourceAllocationAnnotations, err := p.getResourceAllocationAnnotations(podAnnotations, selectedNIC, reqInt)
 	if err != nil {
@@ -580,6 +630,23 @@ func (p *StaticPolicy) Allocate(_ context.Context,
 			req.PodNamespace, req.PodName, req.ContainerName, err)
 		general.Errorf("%s", err.Error())
 		return nil, err
+	}
+
+	siblingNUMAs, err := machine.GetSiblingNUMAs(selectedNIC.NumaNode, p.agentCtx.CPUTopology)
+	if err != nil {
+		general.Errorf("get siblingNUMAs for nic: %s failed with error: %v. Incorrect NumaNodes in machineState allocationInfo", selectedNIC.Iface, err)
+	}
+
+	// Generate the response hint
+	// It could be different from the req.Hint if the affinitive NIC does not have sufficient bandwidth
+	nicPreference, err := checkNICPreferenceOfReq(selectedNIC, req.Annotations)
+	if err != nil {
+		return nil, fmt.Errorf("checkNICPreferenceOfReq for nic: %s failed with error: %v", selectedNIC.Iface, err)
+	}
+
+	respHint := &pluginapi.TopologyHint{
+		Nodes:     siblingNUMAs.ToSliceUInt64(),
+		Preferred: nicPreference,
 	}
 
 	// generate allocationInfo and update the checkpoint accordingly
@@ -596,7 +663,7 @@ func (p *StaticPolicy) Allocate(_ context.Context,
 				"bandwidthReq(Mbps)", reqInt,
 				"currentResult(Mbps)", allocationInfo.Egress)
 
-			resp, packErr := packAllocationResponse(req, allocationInfo, resourceAllocationAnnotations)
+			resp, packErr := packAllocationResponse(req, allocationInfo, req.Hint, resourceAllocationAnnotations)
 			if packErr != nil {
 				general.Errorf("pod: %s/%s, container: %s packAllocationResponse failed with error: %v",
 					req.PodNamespace, req.PodName, req.ContainerName, packErr)
@@ -640,11 +707,6 @@ func (p *StaticPolicy) Allocate(_ context.Context,
 		machineState[selectedNIC.Iface].PodEntries[req.PodUid] = make(state.ContainerEntries)
 	}
 
-	siblingNUMAs, err := machine.GetSiblingNUMAs(selectedNIC.NumaNode, p.agentCtx.CPUTopology)
-	if err != nil {
-		general.Errorf("get siblingNUMAs for nic: %s failed with error: %v. Incorrect NumaNodes in machineState allocationInfo", selectedNIC.Iface, err)
-	}
-
 	newAllocation := &state.AllocationInfo{
 		PodUid:         req.PodUid,
 		PodNamespace:   req.PodNamespace,
@@ -668,7 +730,7 @@ func (p *StaticPolicy) Allocate(_ context.Context,
 	p.state.SetAllocationInfo(req.PodUid, req.ContainerName, newAllocation)
 	p.state.SetMachineState(machineState)
 
-	return packAllocationResponse(req, allocationInfo, resourceAllocationAnnotations)
+	return packAllocationResponse(req, newAllocation, respHint, resourceAllocationAnnotations)
 }
 
 // PreStartContainer is called, if indicated by resource plugin during registration phase,

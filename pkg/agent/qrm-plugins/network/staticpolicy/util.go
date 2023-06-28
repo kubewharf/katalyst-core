@@ -190,7 +190,6 @@ func filterNICsByHint(nics []machine.InterfaceInfo, req *pluginapi.ResourceReque
 		}
 
 		if siblingNUMAs.Equals(hintNUMASet) {
-			// TODO: if multi-nics meets the hint, we need to choose best one according to left bandwidth or other properties
 			if exactlyMatchNIC == nil {
 				general.InfoS("add hint exactly matched nic",
 					"podNamespace", req.PodNamespace,
@@ -235,18 +234,18 @@ func selectOneNIC(nics []machine.InterfaceInfo, policy NICSelectionPoligy) machi
 	case RandomOne:
 		return getRandomNICs(nics)
 	case FirstOne:
-		// since we only pass filtered nics, always picking the first one actually indicates binpacking
+		// since we only pass filtered nics, always picking the first or the last one actually indicates a kind of binpacking
 		return nics[0]
 	case LastOne:
 		return nics[len(nics)-1]
 	}
 
-	// use FirstOne as default
-	return nics[0]
+	// use LastOne as default
+	return nics[len(nics)-1]
 }
 
 // packAllocationResponse fills pluginapi.ResourceAllocationResponse with information from AllocationInfo and pluginapi.ResourceRequest
-func packAllocationResponse(req *pluginapi.ResourceRequest, allocationInfo *state.AllocationInfo, resourceAllocationAnnotations map[string]string) (*pluginapi.ResourceAllocationResponse, error) {
+func packAllocationResponse(req *pluginapi.ResourceRequest, allocationInfo *state.AllocationInfo, respHint *pluginapi.TopologyHint, resourceAllocationAnnotations map[string]string) (*pluginapi.ResourceAllocationResponse, error) {
 	if allocationInfo == nil {
 		return nil, fmt.Errorf("packAllocationResponse got nil allocationInfo")
 	} else if req == nil {
@@ -273,7 +272,7 @@ func packAllocationResponse(req *pluginapi.ResourceRequest, allocationInfo *stat
 					Annotations:       resourceAllocationAnnotations,
 					ResourceHints: &pluginapi.ListOfTopologyHints{
 						Hints: []*pluginapi.TopologyHint{
-							req.Hint,
+							respHint,
 						},
 					},
 				},

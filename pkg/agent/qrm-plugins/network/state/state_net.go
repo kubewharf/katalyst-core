@@ -57,6 +57,7 @@ func NewNetworkPluginState(conf *qrm.QRMPluginsConfiguration, machineInfo *info.
 		machineState:      defaultMachineState,
 		machineInfo:       machineInfo.Clone(),
 		reservedBandwidth: reservedBandwidth,
+		podEntries:        make(PodEntries),
 	}, nil
 }
 
