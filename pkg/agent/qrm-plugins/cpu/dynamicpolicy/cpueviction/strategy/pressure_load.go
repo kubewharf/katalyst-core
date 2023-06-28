@@ -330,7 +330,7 @@ func (p *CPUPressureLoadEviction) collectMetrics(_ context.Context) {
 
 			poolName := containerEntry.OwnerPoolName
 			for _, metricName := range handleMetrics.UnsortedList() {
-				value, err := p.metaServer.GetContainerMetric(podUID, containerName, metricName)
+				m, err := p.metaServer.GetContainerMetric(podUID, containerName, metricName)
 				if err != nil {
 					general.Errorf("GetContainerMetric for pod: %s, "+
 						"container: %s failed with error: %v", podUID, containerName, err)
@@ -340,7 +340,7 @@ func (p *CPUPressureLoadEviction) collectMetrics(_ context.Context) {
 				snapshot := &MetricSnapshot{
 					Info: MetricInfo{
 						Name:  metricName,
-						Value: value,
+						Value: m.Value,
 					},
 					Time: collectTime,
 				}
@@ -349,7 +349,7 @@ func (p *CPUPressureLoadEviction) collectMetrics(_ context.Context) {
 				if poolsMetric[poolName] == nil {
 					poolsMetric[poolName] = make(map[string]float64)
 				}
-				poolsMetric[poolName][metricName] += value
+				poolsMetric[poolName][metricName] += m.Value
 			}
 		}
 	}

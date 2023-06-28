@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"os"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -42,6 +43,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
+	utilmetric "github.com/kubewharf/katalyst-core/pkg/util/metric"
 )
 
 const (
@@ -339,6 +341,8 @@ func TestThresholdMet(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			now := time.Now()
+
 			stateImpl, err := makeState(cpuTopology)
 			as.Nil(err)
 
@@ -355,7 +359,7 @@ func TestThresholdMet(t *testing.T) {
 
 					curLoad, found := tt.loads[entryName][subEntryName]
 					as.True(found)
-					fakeMetricsFetcher.SetContainerMetric(entryName, subEntryName, consts.MetricLoad1MinContainer, curLoad)
+					fakeMetricsFetcher.SetContainerMetric(entryName, subEntryName, consts.MetricLoad1MinContainer, utilmetric.MetricData{Value: curLoad, Time: &now})
 				}
 			}
 
@@ -699,6 +703,8 @@ func TestGetTopEvictionPods(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			now := time.Now()
+
 			stateImpl, err := makeState(cpuTopology)
 			as.Nil(err)
 
@@ -741,7 +747,7 @@ func TestGetTopEvictionPods(t *testing.T) {
 
 					curLoad, found := tt.loads[entryName][subEntryName]
 					as.True(found)
-					fakeMetricsFetcher.SetContainerMetric(entryName, subEntryName, consts.MetricLoad1MinContainer, curLoad)
+					fakeMetricsFetcher.SetContainerMetric(entryName, subEntryName, consts.MetricLoad1MinContainer, utilmetric.MetricData{Value: curLoad, Time: &now})
 				}
 			}
 

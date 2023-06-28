@@ -19,6 +19,7 @@ package memory
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	v1 "k8s.io/api/core/v1"
@@ -34,6 +35,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
+	utilmetric "github.com/kubewharf/katalyst-core/pkg/util/metric"
 )
 
 func makeRssOverusePlugin(conf *config.Configuration) (*RssOveruseEvictionPlugin, error) {
@@ -296,9 +298,10 @@ func TestRssOveruseEvictionPlugin_GetEvictPods(t *testing.T) {
 		{9 * 1024 * 1024 * 1024},
 	}
 
+	now := time.Now()
 	for i := range pods {
 		for j := range pods[i].Spec.Containers {
-			fakeMetricsFetcher.SetContainerMetric(string(pods[i].UID), pods[i].Spec.Containers[j].Name, consts.MetricMemRssContainer, RssMetrics[i][j])
+			fakeMetricsFetcher.SetContainerMetric(string(pods[i].UID), pods[i].Spec.Containers[j].Name, consts.MetricMemRssContainer, utilmetric.MetricData{Value: RssMetrics[i][j], Time: &now})
 		}
 	}
 

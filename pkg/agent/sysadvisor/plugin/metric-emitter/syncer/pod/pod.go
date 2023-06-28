@@ -37,6 +37,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
+	metricspool "github.com/kubewharf/katalyst-core/pkg/metrics/metrics-pool"
 	"github.com/kubewharf/katalyst-core/pkg/util/native"
 )
 
@@ -73,9 +74,17 @@ type MetricSyncerPod struct {
 	metaReader metacache.MetaReader
 }
 
-func NewMetricSyncerPod(conf *config.Configuration, _ interface{}, metricEmitter, dataEmitter metrics.MetricEmitter,
+func NewMetricSyncerPod(conf *config.Configuration, _ interface{},
+	metricEmitter metrics.MetricEmitter, emitterPool metricspool.MetricsEmitterPool,
 	metaServer *metaserver.MetaServer, metaReader metacache.MetaReader) (syncer.CustomMetricSyncer, error) {
 	klog.Infof("skip anno: %v, skip label: %v", conf.AgentConfiguration.PodSkipAnnotations, conf.AgentConfiguration.PodSkipLabels)
+	dataEmitter, err := emitterPool.GetMetricsEmitter(metricspool.PrometheusMetricOptions{
+		Path: metrics.PrometheusMetricPathNameCustomMetric,
+	})
+	if err != nil {
+		klog.Errorf("[cus-metric-emitter] failed to init metric emitter: %v", err)
+		return nil, err
+	}
 
 	return &MetricSyncerPod{
 		emitterConf: conf.AgentConfiguration.MetricEmitterPluginConfiguration,
@@ -167,6 +176,8 @@ func (p *MetricSyncerPod) receiveRawPod(ctx context.Context, pod *v1.Pod, rChan 
 
 			if response.Req.MetricName == "" {
 				continue
+			} else if response.Time == nil {
+				continue
 			}
 
 			targetMetricName, ok := podRawMetricNameMapping[response.Req.MetricName]
@@ -175,13 +186,13 @@ func (p *MetricSyncerPod) receiveRawPod(ctx context.Context, pod *v1.Pod, rChan 
 				continue
 			}
 
-			klog.V(4).Infof("get metric %v for pod %v, collect time %v, left len %v",
-				response.Req.MetricName, name, response.Timestamp, len(rChan))
+			klog.V(4).Infof("get metric %v for pod %v, collect time %+v, left len %v",
+				response.Req.MetricName, name, response.Time, len(rChan))
 			if len(tags) > 0 {
-				_ = p.dataEmitter.StoreFloat64(targetMetricName, response.Result, metrics.MetricTypeNameRaw, append(tags,
+				_ = p.dataEmitter.StoreFloat64(targetMetricName, response.Value, metrics.MetricTypeNameRaw, append(tags,
 					metrics.MetricTag{
 						Key: fmt.Sprintf("%s", data.CustomMetricLabelKeyTimestamp),
-						Val: fmt.Sprintf("%v", response.Timestamp.UnixMilli()),
+						Val: fmt.Sprintf("%v", response.Time.UnixMilli()),
 					},
 					metrics.MetricTag{
 						Key: fmt.Sprintf("%scontainer", data.CustomMetricLabelSelectorPrefixKey),

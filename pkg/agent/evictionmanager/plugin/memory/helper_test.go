@@ -18,6 +18,7 @@ package memory
 
 import (
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	v1 "k8s.io/api/core/v1"
@@ -29,6 +30,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
+	utilmetric "github.com/kubewharf/katalyst-core/pkg/util/metric"
 	"github.com/kubewharf/katalyst-core/pkg/util/native"
 )
 
@@ -214,8 +216,9 @@ func TestEvictionHelper_getEvictionCmpFuncs(t *testing.T) {
 		80 * 1024 * 1024 * 1024,
 	}
 
+	now := time.Now()
 	for i, pod := range pods {
-		fakeMetricsFetcher.SetContainerMetric(string(pod.UID), pod.Spec.Containers[0].Name, consts.MetricMemUsageContainer, podUsageSystem[i])
+		fakeMetricsFetcher.SetContainerMetric(string(pod.UID), pod.Spec.Containers[0].Name, consts.MetricMemUsageContainer, utilmetric.MetricData{Value: podUsageSystem[i], Time: &now})
 	}
 	general.NewMultiSorter(helper.getEvictionCmpFuncs(conf.GetDynamicConfiguration().SystemEvictionRankingMetrics,
 		nonExistNumaID)...).Sort(native.NewPodSourceImpList(pods))

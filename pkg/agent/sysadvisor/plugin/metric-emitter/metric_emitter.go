@@ -30,7 +30,6 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/metric-emitter/types"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
-	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	metricspool "github.com/kubewharf/katalyst-core/pkg/metrics/metrics-pool"
 )
 
@@ -48,19 +47,12 @@ type CustomMetricEmitter struct {
 
 func NewCustomMetricEmitter(conf *config.Configuration, extraConf interface{}, emitterPool metricspool.MetricsEmitterPool,
 	metaServer *metaserver.MetaServer, metaCache metacache.MetaCache) (plugin.SysAdvisorPlugin, error) {
-	dataEmitter, err := emitterPool.GetMetricsEmitter(metricspool.PrometheusMetricOptions{
-		Path: metrics.PrometheusMetricPathNameCustomMetric,
-	})
-	if err != nil {
-		klog.Errorf("[cus-metric-emitter] failed to init metric emitter: %v", err)
-		return plugin.DummySysAdvisorPlugin{}, err
-	}
 	metricEmitter := emitterPool.GetDefaultMetricsEmitter().WithTags("custom-metric")
 
 	var syncers []syncer.CustomMetricSyncer
 	for _, name := range conf.AgentConfiguration.SysAdvisorPluginsConfiguration.MetricSyncers {
 		if f, ok := syncer.GetRegisteredMetricSyncers()[name]; ok {
-			if s, err := f(conf, extraConf, metricEmitter, dataEmitter, metaServer, metaCache); err != nil {
+			if s, err := f(conf, extraConf, metricEmitter, emitterPool, metaServer, metaCache); err != nil {
 				return plugin.DummySysAdvisorPlugin{}, err
 			} else {
 				syncers = append(syncers, s)

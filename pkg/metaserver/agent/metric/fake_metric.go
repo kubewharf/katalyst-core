@@ -61,62 +61,62 @@ func (f *FakeMetricsFetcher) RegisterNotifier(scope MetricsScope, req NotifiedRe
 
 func (f *FakeMetricsFetcher) DeRegisterNotifier(scope MetricsScope, key string) {}
 
-func (f *FakeMetricsFetcher) GetNodeMetric(metricName string) (float64, error) {
+func (f *FakeMetricsFetcher) GetNodeMetric(metricName string) (metric.MetricData, error) {
 	return f.metricStore.GetNodeMetric(metricName)
 }
 
-func (f *FakeMetricsFetcher) GetNumaMetric(numaID int, metricName string) (float64, error) {
+func (f *FakeMetricsFetcher) GetNumaMetric(numaID int, metricName string) (metric.MetricData, error) {
 	return f.metricStore.GetNumaMetric(numaID, metricName)
 }
 
-func (f *FakeMetricsFetcher) GetDeviceMetric(deviceName string, metricName string) (float64, error) {
+func (f *FakeMetricsFetcher) GetDeviceMetric(deviceName string, metricName string) (metric.MetricData, error) {
 	return f.metricStore.GetDeviceMetric(deviceName, metricName)
 }
 
-func (f *FakeMetricsFetcher) GetCPUMetric(coreID int, metricName string) (float64, error) {
+func (f *FakeMetricsFetcher) GetCPUMetric(coreID int, metricName string) (metric.MetricData, error) {
 	return f.metricStore.GetCPUMetric(coreID, metricName)
 }
 
-func (f *FakeMetricsFetcher) GetContainerMetric(podUID, containerName, metricName string) (float64, error) {
+func (f *FakeMetricsFetcher) GetContainerMetric(podUID, containerName, metricName string) (metric.MetricData, error) {
 	return f.metricStore.GetContainerMetric(podUID, containerName, metricName)
 }
 
-func (f *FakeMetricsFetcher) GetContainerNumaMetric(podUID, containerName, numaNode, metricName string) (float64, error) {
+func (f *FakeMetricsFetcher) GetContainerNumaMetric(podUID, containerName, numaNode, metricName string) (metric.MetricData, error) {
 	return f.metricStore.GetContainerNumaMetric(podUID, containerName, numaNode, metricName)
 }
 
-func (f *FakeMetricsFetcher) SetNodeMetric(metricName string, value float64) {
-	f.metricStore.SetNodeMetric(metricName, value)
+func (f *FakeMetricsFetcher) SetNodeMetric(metricName string, data metric.MetricData) {
+	f.metricStore.SetNodeMetric(metricName, data)
 }
 
-func (f *FakeMetricsFetcher) SetNumaMetric(numaID int, metricName string, value float64) {
-	f.metricStore.SetNumaMetric(numaID, metricName, value)
+func (f *FakeMetricsFetcher) SetNumaMetric(numaID int, metricName string, data metric.MetricData) {
+	f.metricStore.SetNumaMetric(numaID, metricName, data)
 }
 
-func (f *FakeMetricsFetcher) SetCPUMetric(cpu int, metricName string, value float64) {
-	f.metricStore.SetCPUMetric(cpu, metricName, value)
+func (f *FakeMetricsFetcher) SetCPUMetric(cpu int, metricName string, data metric.MetricData) {
+	f.metricStore.SetCPUMetric(cpu, metricName, data)
 }
 
-func (f *FakeMetricsFetcher) SetDeviceMetric(deviceName string, metricName string, value float64) {
-	f.metricStore.SetDeviceMetric(deviceName, metricName, value)
+func (f *FakeMetricsFetcher) SetDeviceMetric(deviceName string, metricName string, data metric.MetricData) {
+	f.metricStore.SetDeviceMetric(deviceName, metricName, data)
 }
 
-func (f *FakeMetricsFetcher) SetContainerMetric(podUID, containerName, metricName string, value float64) {
-	f.metricStore.SetContainerMetric(podUID, containerName, metricName, value)
+func (f *FakeMetricsFetcher) SetContainerMetric(podUID, containerName, metricName string, data metric.MetricData) {
+	f.metricStore.SetContainerMetric(podUID, containerName, metricName, data)
 }
 
-func (f *FakeMetricsFetcher) SetContainerNumaMetric(podUID, containerName, numaNode, metricName string, value float64) {
-	f.metricStore.SetContainerNumaMetric(podUID, containerName, numaNode, metricName, value)
+func (f *FakeMetricsFetcher) SetContainerNumaMetric(podUID, containerName, numaNode, metricName string, data metric.MetricData) {
+	f.metricStore.SetContainerNumaMetric(podUID, containerName, numaNode, metricName, data)
 }
 
-func (f *FakeMetricsFetcher) AggregatePodNumaMetric(podList []*v1.Pod, numaNode, metricName string, agg metric.Aggregator, filter metric.ContainerMetricFilter) float64 {
+func (f *FakeMetricsFetcher) AggregatePodNumaMetric(podList []*v1.Pod, numaNode, metricName string, agg metric.Aggregator, filter metric.ContainerMetricFilter) metric.MetricData {
 	return f.metricStore.AggregatePodNumaMetric(podList, numaNode, metricName, agg, filter)
 }
 
-func (f *FakeMetricsFetcher) AggregatePodMetric(podList []*v1.Pod, metricName string, agg metric.Aggregator, filter metric.ContainerMetricFilter) float64 {
+func (f *FakeMetricsFetcher) AggregatePodMetric(podList []*v1.Pod, metricName string, agg metric.Aggregator, filter metric.ContainerMetricFilter) metric.MetricData {
 	return f.metricStore.AggregatePodMetric(podList, metricName, agg, filter)
 }
 
-func (f *FakeMetricsFetcher) AggregateCoreMetric(cpuset machine.CPUSet, metricName string, agg metric.Aggregator) float64 {
+func (f *FakeMetricsFetcher) AggregateCoreMetric(cpuset machine.CPUSet, metricName string, agg metric.Aggregator) metric.MetricData {
 	return f.metricStore.AggregateCoreMetric(cpuset, metricName, agg)
 }

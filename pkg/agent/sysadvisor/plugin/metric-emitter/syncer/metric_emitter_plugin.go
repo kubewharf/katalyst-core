@@ -24,6 +24,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
+	metricspool "github.com/kubewharf/katalyst-core/pkg/metrics/metrics-pool"
 )
 
 // CustomMetricSyncer is used as a common implementation for custom-metrics emitter
@@ -33,8 +34,8 @@ type CustomMetricSyncer interface {
 }
 
 type SyncerInitFunc func(conf *config.Configuration, extraConf interface{},
-	metricEmitter, dataEmitter metrics.MetricEmitter, metaServer *metaserver.MetaServer,
-	metaReader metacache.MetaReader) (CustomMetricSyncer, error)
+	metricEmitter metrics.MetricEmitter, emitterPool metricspool.MetricsEmitterPool,
+	metaServer *metaserver.MetaServer, metaReader metacache.MetaReader) (CustomMetricSyncer, error)
 
 var metricSyncInitializers sync.Map
 

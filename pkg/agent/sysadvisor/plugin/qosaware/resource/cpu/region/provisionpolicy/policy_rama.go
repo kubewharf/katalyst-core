@@ -182,9 +182,10 @@ func (p *PolicyRama) getReclaimStatus() (usage float64, cnt int) {
 			return true
 		}
 
-		containerUsage, err := p.metaServer.GetContainerMetric(podUID, containerName, consts.MetricCPUUsageContainer)
-		if err != nil {
-			containerUsage = ci.CPURequest
+		containerUsage := ci.CPURequest
+		m, err := p.metaServer.GetContainerMetric(podUID, containerName, consts.MetricCPUUsageContainer)
+		if err == nil {
+			containerUsage = m.Value
 		}
 
 		// FIXME: metric server doesn't support to report cpu usage in numa granularity,

@@ -19,8 +19,11 @@ package metric
 // for those metrics need extra calculation logic,
 // we will put them in a separate file here
 import (
+	"time"
+
 	"github.com/kubewharf/katalyst-core/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric/malachite/cgroup"
+	"github.com/kubewharf/katalyst-core/pkg/util/metric"
 )
 
 func (m *MalachiteMetricsFetcher) processContainerMemBandwidth(podUID, containerName string, cgStats *cgroup.MalachiteCgroupInfo) {
@@ -49,17 +52,20 @@ func (m *MalachiteMetricsFetcher) processContainerMemBandwidth(podUID, container
 	}
 
 	// read/write bandwidth calculation formula
-	timediffSecs := curUpdateTime - lastUpdateTime
+	timediffSecs := curUpdateTime - lastUpdateTime.Value
 	if timediffSecs > 0 {
-		readBytes := (curOCRReadDRAMs - lastOCRReadDRAMs) * 64
+		readBytes := (curOCRReadDRAMs - lastOCRReadDRAMs.Value) * 64
 		readBandwidth = readBytes / (1024 * 1024 * timediffSecs)
 
-		if curStoreAllIns > lastStoreIns {
-			writeBytes := (curStoreIns - lastStoreIns) * (curIMCWrites - lastIMCWrites) * 64 / (curStoreAllIns - lastStoreAllIns)
+		if curStoreAllIns > lastStoreIns.Value {
+			writeBytes := (curStoreIns - lastStoreIns.Value) * (curIMCWrites - lastIMCWrites.Value) * 64 / (curStoreAllIns - lastStoreAllIns.Value)
 			writeBandwidth = writeBytes / (1024 * 1024 * timediffSecs)
 		}
 	}
 
-	m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricMemBandwidthReadContainer, readBandwidth)
-	m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricMemBandwidthWriteContainer, writeBandwidth)
+	updateTime := time.Unix(int64(curUpdateTime), 0)
+	m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricMemBandwidthReadContainer,
+		metric.MetricData{Value: readBandwidth, Time: &updateTime})
+	m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricMemBandwidthWriteContainer,
+		metric.MetricData{Value: writeBandwidth, Time: &updateTime})
 }

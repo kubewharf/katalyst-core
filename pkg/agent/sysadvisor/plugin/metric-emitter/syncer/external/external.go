@@ -34,6 +34,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/custom-metric/store/data"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
+	metricspool "github.com/kubewharf/katalyst-core/pkg/metrics/metrics-pool"
 )
 
 type MetricSyncerExternal struct {
@@ -47,8 +48,17 @@ type MetricSyncerExternal struct {
 	metaReader metacache.MetaReader
 }
 
-func NewMetricSyncerExternal(conf *config.Configuration, _ interface{}, metricEmitter, dataEmitter metrics.MetricEmitter,
+func NewMetricSyncerExternal(conf *config.Configuration, _ interface{},
+	metricEmitter metrics.MetricEmitter, emitterPool metricspool.MetricsEmitterPool,
 	metaServer *metaserver.MetaServer, metaReader metacache.MetaReader) (syncer.CustomMetricSyncer, error) {
+	dataEmitter, err := emitterPool.GetMetricsEmitter(metricspool.PrometheusMetricOptions{
+		Path: metrics.PrometheusMetricPathNameCustomMetric,
+	})
+	if err != nil {
+		klog.Errorf("[cus-metric-emitter] failed to init metric emitter: %v", err)
+		return nil, err
+	}
+
 	return &MetricSyncerExternal{
 		conf: conf.AgentConfiguration.MetricEmitterPluginConfiguration,
 
