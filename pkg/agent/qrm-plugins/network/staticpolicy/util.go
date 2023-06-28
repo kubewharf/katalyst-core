@@ -30,13 +30,6 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
-type NICFilter func(nics []machine.InterfaceInfo, req *pluginapi.ResourceRequest, agentCtx *agent.GenericContext) []machine.InterfaceInfo
-
-var nicFilters = []NICFilter{
-	filterNICsByNamespaceType,
-	filterNICsByHint,
-}
-
 type ReservationPolicy string
 type NICSelectionPoligy string
 
@@ -100,20 +93,6 @@ func checkNICPreferenceOfReq(nic machine.InterfaceInfo, reqAnnotations map[strin
 		// so any type will be preferred.
 		return true, nil
 	}
-}
-
-func filterAvailableNICsByReq(nics []machine.InterfaceInfo, req *pluginapi.ResourceRequest, agentCtx *agent.GenericContext) ([]machine.InterfaceInfo, error) {
-	if req == nil {
-		return nil, fmt.Errorf("filterAvailableNICsByReq got nil req")
-	} else if agentCtx == nil {
-		return nil, fmt.Errorf("filterAvailableNICsByReq got nil agentCtx")
-	}
-
-	filteredNICs := nics
-	for _, nicFilter := range nicFilters {
-		filteredNICs = nicFilter(filteredNICs, req, agentCtx)
-	}
-	return filteredNICs, nil
 }
 
 func filterNICsByAvailability(nics []machine.InterfaceInfo, _ *pluginapi.ResourceRequest, _ *agent.GenericContext) []machine.InterfaceInfo {
@@ -298,7 +277,6 @@ func GetReservedBandwidth(nics []machine.InterfaceInfo, reservation uint32, poli
 
 	switch policy {
 	case FirstNIC:
-		// Suppose the NICs are in order. Are they?
 		reservedBandwidth[nics[0].Iface] = reservation
 	case EvenDistribution:
 		for _, iface := range nics {

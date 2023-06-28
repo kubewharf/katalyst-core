@@ -608,7 +608,6 @@ func (p *StaticPolicy) Allocate(_ context.Context,
 		return nil, err
 	}
 
-	// Shall we return an error or an empty response if no NIC meets the requirment?
 	if len(candidateNICs) == 0 {
 		general.ErrorS(err, "insufficient bandwidth on this node to satisfy the request",
 			"podNamespace", req.PodNamespace,
@@ -637,8 +636,8 @@ func (p *StaticPolicy) Allocate(_ context.Context,
 		general.Errorf("get siblingNUMAs for nic: %s failed with error: %v. Incorrect NumaNodes in machineState allocationInfo", selectedNIC.Iface, err)
 	}
 
-	// Generate the response hint
-	// It could be different from the req.Hint if the affinitive NIC does not have sufficient bandwidth
+	// generate the response hint
+	// it could be different from the req.Hint if the affinitive NIC does not have sufficient bandwidth
 	nicPreference, err := checkNICPreferenceOfReq(selectedNIC, req.Annotations)
 	if err != nil {
 		return nil, fmt.Errorf("checkNICPreferenceOfReq for nic: %s failed with error: %v", selectedNIC.Iface, err)
