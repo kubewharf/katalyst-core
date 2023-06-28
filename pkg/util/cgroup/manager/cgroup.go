@@ -107,6 +107,20 @@ func ApplyNetClsForContainer(podUID, containerId string, data *common.NetClsData
 	return ApplyNetClsWithAbsolutePath(netClsAbsCGPath, data)
 }
 
+func ApplyUnifiedDataWithAbsolutePath(absCgroupPath, cgroupFileName, data string) error {
+	return GetManager().ApplyUnifiedData(absCgroupPath, cgroupFileName, data)
+}
+
+// ApplyUnifiedDataForContainer applies the data to cgroupFileName in subsys for a container.
+func ApplyUnifiedDataForContainer(podUID, containerId, subsys, cgroupFileName, data string) error {
+	absCgroupPath, err := common.GetContainerAbsCgroupPath(subsys, podUID, containerId)
+	if err != nil {
+		return fmt.Errorf("GetContainerAbsCgroupPath failed with error: %v", err)
+	}
+
+	return ApplyUnifiedDataWithAbsolutePath(absCgroupPath, cgroupFileName, data)
+}
+
 func GetMemoryWithRelativePath(relCgroupPath string) (*common.MemoryStats, error) {
 	absCgroupPath := common.GetAbsCgroupPath("memory", relCgroupPath)
 	return GetManager().GetMemory(absCgroupPath)

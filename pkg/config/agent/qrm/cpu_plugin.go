@@ -19,8 +19,8 @@ package qrm
 type CPUQRMPluginConfig struct {
 	// PolicyName is used to switch between several strategies
 	PolicyName string
-	// EnableSysAdvisor indicates whether to enable sys-advisor module to calculate cpu resources
-	EnableSysAdvisor bool
+	// EnableCPUAdvisor indicates whether to enable sys-advisor module to calculate cpu resources
+	EnableCPUAdvisor bool
 	// ReservedCPUCores indicates reserved cpus number for system agents
 	ReservedCPUCores int
 	// SkipCPUStateCorruption is set to skip cpu state corruption, and it will be used after updating state properties

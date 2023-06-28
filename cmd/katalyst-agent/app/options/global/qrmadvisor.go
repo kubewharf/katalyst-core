@@ -24,8 +24,9 @@ import (
 
 // QRMAdvisorOptions holds the configurations for both qrm plugins and sys advisor qrm servers
 type QRMAdvisorOptions struct {
-	CPUAdvisorSocketAbsPath    string
-	CPUPluginSocketAbsPath     string
+	CPUAdvisorSocketAbsPath string
+	CPUPluginSocketAbsPath  string
+
 	MemoryAdvisorSocketAbsPath string
 }
 

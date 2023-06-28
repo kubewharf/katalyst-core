@@ -25,6 +25,10 @@ type MemoryQRMPluginConfig struct {
 	SkipMemoryStateCorruption bool
 	// EnableSettingMemoryMigrate is used to enable cpuset.memory_migrate for containers not numa_binding
 	EnableSettingMemoryMigrate bool
+	// EnableMemoryAdvisor indicates whether to enable sys-advisor module to calculate memory resources
+	EnableMemoryAdvisor bool
+	// ExtraControlKnobConfigFile: the absolute path of extra control knob config file
+	ExtraControlKnobConfigFile string
 }
 
 func NewMemoryQRMPluginConfig() *MemoryQRMPluginConfig {
