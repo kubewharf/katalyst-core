@@ -19,6 +19,11 @@ package types
 import "time"
 
 const (
+	RegionNameSeparator = "-"
+)
+
+// consts for cpu provision
+const (
 	ReservedForReclaim = 4
 
 	MinShareCPURequirement     = 4
@@ -29,5 +34,5 @@ const (
 	MinRampDownPeriod = 30 * time.Second
 	StartUpPeriod     = 30 * time.Second
 
-	RegionNameSeparator = "-"
+	ReclaimUsageMarginForOverlap = 6
 )

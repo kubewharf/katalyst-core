@@ -143,6 +143,7 @@ func TestPolicyRama(t *testing.T) {
 						Target:  400,
 					},
 				},
+				ReclaimOverlap: false,
 			},
 			wantResult: types.ControlKnob{
 				types.ControlKnobNonReclaimedCPUSize: {
@@ -176,6 +177,7 @@ func TestPolicyRama(t *testing.T) {
 						Target:  400,
 					},
 				},
+				ReclaimOverlap: false,
 			},
 			wantResult: types.ControlKnob{
 				types.ControlKnobNonReclaimedCPUSize: {
@@ -209,6 +211,7 @@ func TestPolicyRama(t *testing.T) {
 						Target:  400,
 					},
 				},
+				ReclaimOverlap: false,
 			},
 			wantResult: types.ControlKnob{
 				types.ControlKnobNonReclaimedCPUSize: {
@@ -246,6 +249,7 @@ func TestPolicyRama(t *testing.T) {
 						Target:  40,
 					},
 				},
+				ReclaimOverlap: false,
 			},
 			wantResult: types.ControlKnob{
 				types.ControlKnobNonReclaimedCPUSize: {

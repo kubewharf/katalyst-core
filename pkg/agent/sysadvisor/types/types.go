@@ -184,8 +184,9 @@ type ResourceEssentials struct {
 
 // ControlEssentials defines essential metrics for cpu advisor feedback control
 type ControlEssentials struct {
-	ControlKnobs ControlKnob
-	Indicators   Indicator
+	ControlKnobs   ControlKnob
+	Indicators     Indicator
+	ReclaimOverlap bool
 }
 
 // ControlKnob holds tunable system entries affecting indicator metrics
