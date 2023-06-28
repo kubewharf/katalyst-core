@@ -97,9 +97,13 @@ func generateTestConfiguration(t *testing.T, checkpointDir, stateFileDir string)
 	return conf
 }
 
-func newTestMemoryAdvisor(t *testing.T, pods []*v1.Pod, checkpointDir, stateFileDir string, fetcher metric.MetricsFetcher) (*memoryResourceAdvisor, metacache.MetaCache) {
+func newTestMemoryAdvisor(t *testing.T, pods []*v1.Pod, checkpointDir, stateFileDir string, fetcher metric.MetricsFetcher, plugins []types.MemoryAdvisorPluginName) (*memoryResourceAdvisor, metacache.MetaCache) {
 	conf := generateTestConfiguration(t, checkpointDir, stateFileDir)
-	conf.MemoryAdvisorPlugins = []types.MemoryAdvisorPluginName{memadvisorplugin.CacheReaper}
+	if len(plugins) == 0 {
+		conf.MemoryAdvisorPlugins = []types.MemoryAdvisorPluginName{memadvisorplugin.CacheReaper}
+	} else {
+		conf.MemoryAdvisorPlugins = plugins
+	}
 
 	metaCache, err := metacache.NewMetaCacheImp(conf, metric.NewFakeMetricsFetcher(metrics.DummyMetrics{}))
 	require.NoError(t, err)
@@ -159,6 +163,12 @@ type containerNUMAMetric struct {
 	podUID        string
 	containerName string
 	numdID        int
+}
+
+type qosClassMetric struct {
+	metricName  string
+	metricValue metricutil.MetricData
+	qosClass    string
 }
 
 var defaultNodeMetrics = []nodeMetric{
@@ -292,6 +302,14 @@ var dropCacheNUMAMetrics = []numaMetric{
 	},
 }
 
+var qosMetrics = []qosClassMetric{
+	{
+		metricName:  coreconsts.MetricMemUsageQoSClass,
+		metricValue: metricutil.MetricData{Value: 100 << 30},
+		qosClass:    "besteffort",
+	},
+}
+
 func TestUpdate(t *testing.T) {
 	tests := []struct {
 		name                 string
@@ -301,10 +319,12 @@ func TestUpdate(t *testing.T) {
 		wantHeadroom         resource.Quantity
 		reclaimedEnable      bool
 		needRecvAdvices      bool
+		plugins              []types.MemoryAdvisorPluginName
 		nodeMetrics          []nodeMetric
 		numaMetrics          []numaMetric
 		containerMetrics     []containerMetric
 		containerNUMAMetrics []containerNUMAMetric
+		qosClassMetrics      []qosClassMetric
 		wantAdviceResult     types.InternalMemoryCalculationResult
 	}{
 		{
@@ -578,6 +598,37 @@ func TestUpdate(t *testing.T) {
 				},
 			},
 		},
+		{
+			name: "set offline group memory limit",
+			pools: map[string]*types.PoolInfo{
+				state.PoolNameReserve: {
+					PoolName: state.PoolNameReserve,
+					TopologyAwareAssignments: map[int]machine.CPUSet{
+						0: machine.MustParse("0"),
+						1: machine.MustParse("24"),
+					},
+					OriginalTopologyAwareAssignments: map[int]machine.CPUSet{
+						0: machine.MustParse("0"),
+						1: machine.MustParse("24"),
+					},
+				},
+			},
+			reclaimedEnable: true,
+			needRecvAdvices: true,
+			wantHeadroom:    *resource.NewQuantity(996<<30, resource.DecimalSI),
+			nodeMetrics:     defaultNodeMetrics,
+			numaMetrics:     defaultNumaMetrics,
+			qosClassMetrics: qosMetrics,
+			plugins:         []types.MemoryAdvisorPluginName{memadvisorplugin.MemoryGuard},
+			wantAdviceResult: types.InternalMemoryCalculationResult{
+				ExtraEntries: []types.ExtraMemoryAdvices{
+					{
+						CgroupPath: "/kubepods/besteffort",
+						Values:     map[string]string{"memory_limit": strconv.Itoa(325 << 30)},
+					},
+				},
+			},
+		},
 	}
 
 	for _, tt := range tests {
@@ -604,8 +655,11 @@ func TestUpdate(t *testing.T) {
 			for _, containerNUMAMetric := range tt.containerNUMAMetrics {
 				metricsFetcher.SetContainerNumaMetric(containerNUMAMetric.podUID, containerNUMAMetric.containerName, strconv.Itoa(containerNUMAMetric.numdID), containerNUMAMetric.metricName, containerNUMAMetric.metricValue)
 			}
+			for _, qosClassMetric := range tt.qosClassMetrics {
+				metricsFetcher.SetQoSClassMetric(qosClassMetric.qosClass, qosClassMetric.metricName, qosClassMetric.metricValue)
+			}
 
-			advisor, metaCache := newTestMemoryAdvisor(t, tt.pods, ckDir, sfDir, fetcher)
+			advisor, metaCache := newTestMemoryAdvisor(t, tt.pods, ckDir, sfDir, fetcher, tt.plugins)
 			advisor.startTime = time.Now().Add(-startUpPeriod * 2)
 			advisor.conf.GetDynamicConfiguration().EnableReclaim = tt.reclaimedEnable
 			_, advisorRecvChInterface := advisor.GetChannels()
