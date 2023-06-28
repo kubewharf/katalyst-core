@@ -57,8 +57,9 @@ func (r *QoSRegionShare) TryUpdateProvision() {
 		internal.updateStatus = types.PolicyUpdateFailed
 
 		controlEssentials := types.ControlEssentials{
-			ControlKnobs: r.getControlKnobs(),
-			Indicators:   nil,
+			ControlKnobs:   r.getControlKnobs(),
+			Indicators:     nil,
+			ReclaimOverlap: false,
 		}
 
 		// set essentials for policy and regulator

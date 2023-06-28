@@ -14,25 +14,16 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package types
+package eviction
 
-import "time"
+import (
+	"k8s.io/apimachinery/pkg/util/sets"
 
-const (
-	RegionNameSeparator = "-"
+	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic"
+	"github.com/kubewharf/katalyst-core/pkg/util/general"
 )
 
-// consts for cpu provision
-const (
-	ReservedForReclaim = 4
-
-	MinShareCPURequirement     = 4
-	MinDedicatedCPURequirement = 4
-
-	MaxRampUpStep     = 10
-	MaxRampDownStep   = 2
-	MinRampDownPeriod = 30 * time.Second
-	StartUpPeriod     = 30 * time.Second
-
-	ReclaimUsageMarginForOverlap = 6
-)
+func IsPluginInDryRun(pluginName string, dynamicConf *dynamic.DynamicAgentConfiguration) bool {
+	dryRunPlugins := dynamicConf.GetDynamicConfiguration().DryRun
+	return general.IsNameEnabled(pluginName, sets.String{}, dryRunPlugins)
+}

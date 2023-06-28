@@ -29,6 +29,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/klog/v2"
 
+	"github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/advisorsvc"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/cpuadvisor"
 	qrmstate "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
@@ -220,7 +221,7 @@ func (cs *cpuServer) ListAndWatch(_ *advisorsvc.Empty, server cpuadvisor.CPUAdvi
 }
 
 func (cs *cpuServer) getCheckpoint() {
-	// Get checkpoint
+	// get checkpoint
 	resp, err := cs.cpuPluginClient.GetCheckpoint(context.Background(), &cpuadvisor.GetCheckpointRequest{})
 	if err != nil {
 		klog.Errorf("[qosaware-server-cpu] get checkpoint failed: %v", err)
@@ -236,17 +237,20 @@ func (cs *cpuServer) getCheckpoint() {
 
 	livingPoolNameSet := sets.NewString()
 
-	// Parse checkpoint
+	// parse pool entries first, which are needed for parsing container entries
 	for entryName, entry := range resp.Entries {
 		if poolInfo, ok := entry.Entries[cpuadvisor.FakedContainerName]; ok {
-			// Update pool info
 			poolName := entryName
 			livingPoolNameSet.Insert(poolName)
 			if err := cs.updatePoolInfo(poolName, poolInfo); err != nil {
 				klog.Errorf("[qosaware-server-cpu] update pool info with error: %v", err)
 			}
-		} else {
-			// Update container info
+		}
+	}
+
+	// parse container entries after pool entries
+	for entryName, entry := range resp.Entries {
+		if _, ok := entry.Entries[cpuadvisor.FakedContainerName]; !ok {
 			podUID := entryName
 			for containerName, info := range entry.Entries {
 				if err := cs.updateContainerInfo(podUID, containerName, info); err != nil {
@@ -425,6 +429,15 @@ func (cs *cpuServer) updateContainerInfo(podUID string, containerName string, in
 	}
 	if len(ci.OwnerPoolName) == 0 {
 		ci.OwnerPoolName = info.OwnerPoolName
+	}
+
+	// fill in topology aware assignment for containers with owner pool
+	if ci.QoSLevel != consts.PodAnnotationQoSLevelDedicatedCores {
+		if len(ci.OwnerPoolName) > 0 {
+			if poolInfo, ok := cs.metaCache.GetPoolInfo(ci.OwnerPoolName); ok {
+				ci.TopologyAwareAssignments = poolInfo.TopologyAwareAssignments.Clone()
+			}
+		}
 	}
 
 	// Need to set back because of deep copy

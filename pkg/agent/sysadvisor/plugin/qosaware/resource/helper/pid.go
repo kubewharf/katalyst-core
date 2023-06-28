@@ -24,11 +24,12 @@ import (
 )
 
 type PIDController struct {
-	params          types.FirstOrderPIDParams
-	adjustmentTotal float64
-	controlKnobPrev float64
-	errorValue      float64
-	errorValuePrev  float64
+	resourceEssentials types.ResourceEssentials
+	params             types.FirstOrderPIDParams
+	adjustmentTotal    float64
+	controlKnobPrev    float64
+	errorValue         float64
+	errorValuePrev     float64
 }
 
 func NewPIDController(params types.FirstOrderPIDParams) *PIDController {
@@ -39,6 +40,10 @@ func NewPIDController(params types.FirstOrderPIDParams) *PIDController {
 		errorValue:      0,
 		errorValuePrev:  0,
 	}
+}
+
+func (c *PIDController) SetEssentials(resourceEssentials types.ResourceEssentials) {
+	c.resourceEssentials = resourceEssentials
 }
 
 func (c *PIDController) Adjust(controlKnob, target, current float64) float64 {
@@ -89,6 +94,7 @@ func (c *PIDController) Adjust(controlKnob, target, current float64) float64 {
 
 	c.adjustmentTotal += adjustment
 	c.adjustmentTotal = general.Clamp(c.adjustmentTotal, c.params.AdjustmentLowerBound, c.params.AdjustmentUpperBound)
+	c.adjustmentTotal = general.Clamp(c.adjustmentTotal, c.resourceEssentials.ResourceLowerBound-controlKnob, c.resourceEssentials.ResourceUpperBound-controlKnob)
 
 	general.Infof("adjustment %.2f adjustmentTotal %.2f target %.2f current %.2f errorValue %.2f errorRate %.2f pterm %.2f dterm %.2f",
 		adjustment, c.adjustmentTotal, target, current, c.errorValue, errorRate, pterm, dterm)

@@ -18,57 +18,68 @@ package metric
 
 import (
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 )
 
 func TestStore_SetAndGetNodeMetric(t *testing.T) {
+	now := time.Now()
+
 	store := GetMetricStoreInstance()
-	store.SetNodeMetric("test-metric-name", 1.0)
+	store.SetNodeMetric("test-metric-name", MetricData{Value: 1.0, Time: &now})
 	value, _ := store.GetNodeMetric("test-metric-name")
-	assert.Equal(t, 1.0, value)
+	assert.Equal(t, MetricData{Value: 1.0, Time: &now}, value)
 	_, err := store.GetNodeMetric("test-not-exist")
 	assert.Error(t, err)
 }
 
 func TestStore_SetAndGetNumaMetric(t *testing.T) {
+	now := time.Now()
+
 	store := GetMetricStoreInstance()
-	store.SetNumaMetric(0, "test-metric-name", 1.0)
+	store.SetNumaMetric(0, "test-metric-name", MetricData{Value: 1.0, Time: &now})
 	value, _ := store.GetNumaMetric(0, "test-metric-name")
-	assert.Equal(t, 1.0, value)
+	assert.Equal(t, MetricData{Value: 1.0, Time: &now}, value)
 	_, err := store.GetNumaMetric(1, "test-not-exist")
 	assert.Error(t, err)
 }
 
 func TestStore_SetAndGeDeviceMetric(t *testing.T) {
+	now := time.Now()
+
 	store := GetMetricStoreInstance()
-	store.SetDeviceMetric("test-device", "test-metric-name", 1.0)
+	store.SetDeviceMetric("test-device", "test-metric-name", MetricData{Value: 1.0, Time: &now})
 	value, _ := store.GetDeviceMetric("test-device", "test-metric-name")
-	assert.Equal(t, 1.0, value)
+	assert.Equal(t, MetricData{Value: 1.0, Time: &now}, value)
 	_, err := store.GetDeviceMetric("test-device", "test-not-exist")
 	assert.Error(t, err)
 }
 
 func TestStore_SetAndGetCPUMetric(t *testing.T) {
+	now := time.Now()
+
 	store := GetMetricStoreInstance()
-	store.SetCPUMetric(0, "test-metric-name", 1.0)
+	store.SetCPUMetric(0, "test-metric-name", MetricData{Value: 1.0, Time: &now})
 	value, _ := store.GetCPUMetric(0, "test-metric-name")
-	assert.Equal(t, 1.0, value)
+	assert.Equal(t, MetricData{Value: 1.0, Time: &now}, value)
 	_, err := store.GetCPUMetric(1, "test-not-exist")
 	assert.Error(t, err)
 }
 
 func TestStore_ContainerMetric(t *testing.T) {
+	now := time.Now()
+
 	store := GetMetricStoreInstance()
-	store.SetContainerMetric("pod1", "container1", "test-metric-name", 1.0)
-	store.SetContainerMetric("pod2", "container1", "test-metric-name", 1.0)
+	store.SetContainerMetric("pod1", "container1", "test-metric-name", MetricData{Value: 1.0, Time: &now})
+	store.SetContainerMetric("pod2", "container1", "test-metric-name", MetricData{Value: 1.0, Time: &now})
 	value, _ := store.GetContainerMetric("pod1", "container1", "test-metric-name")
-	assert.Equal(t, 1.0, value)
+	assert.Equal(t, MetricData{Value: 1.0, Time: &now}, value)
 	_, err := store.GetContainerMetric("pod1", "container2", "test-not-exist")
 	assert.Error(t, err)
 	store.GCPodsMetric(map[string]bool{"pod2": true})
 	_, err = store.GetContainerMetric("pod1", "container1", "test-metric-name")
 	assert.Error(t, err)
 	value, _ = store.GetContainerMetric("pod2", "container1", "test-metric-name")
-	assert.Equal(t, 1.0, value)
+	assert.Equal(t, MetricData{Value: 1.0, Time: &now}, value)
 }

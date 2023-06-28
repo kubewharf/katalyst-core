@@ -44,6 +44,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/pod"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
+	utilmetric "github.com/kubewharf/katalyst-core/pkg/util/metric"
 )
 
 func makeContainerInfo(podUID, namespace, podName, containerName, qoSLevel, ownerPoolName string,
@@ -219,28 +220,30 @@ func TestLoadIsolator(t *testing.T) {
 		assert.NoError(t, err)
 	}
 
-	metricFetcher.SetContainerMetric("uid1", "c1-1", metric_consts.MetricCPUNrRunnableContainer, 3)
-	metricFetcher.SetContainerMetric("uid1", "c1-2", metric_consts.MetricCPUNrRunnableContainer, 2.0)
+	now := time.Now()
 
-	metricFetcher.SetContainerMetric("uid2", "c2-1", metric_consts.MetricCPUNrRunnableContainer, 6)
-	metricFetcher.SetContainerMetric("uid2", "c2-2", metric_consts.MetricCPUNrRunnableContainer, 2)
-	metricFetcher.SetContainerMetric("uid2", "c2-3", metric_consts.MetricCPUNrRunnableContainer, 7)
+	metricFetcher.SetContainerMetric("uid1", "c1-1", metric_consts.MetricCPUNrRunnableContainer, utilmetric.MetricData{Value: 3, Time: &now})
+	metricFetcher.SetContainerMetric("uid1", "c1-2", metric_consts.MetricCPUNrRunnableContainer, utilmetric.MetricData{Value: 2.0, Time: &now})
 
-	metricFetcher.SetContainerMetric("uid3", "c3-1", metric_consts.MetricCPUNrRunnableContainer, 2)
-	metricFetcher.SetContainerMetric("uid3", "c3-2", metric_consts.MetricCPUNrRunnableContainer, 4.1)
+	metricFetcher.SetContainerMetric("uid2", "c2-1", metric_consts.MetricCPUNrRunnableContainer, utilmetric.MetricData{Value: 6, Time: &now})
+	metricFetcher.SetContainerMetric("uid2", "c2-2", metric_consts.MetricCPUNrRunnableContainer, utilmetric.MetricData{Value: 2, Time: &now})
+	metricFetcher.SetContainerMetric("uid2", "c2-3", metric_consts.MetricCPUNrRunnableContainer, utilmetric.MetricData{Value: 7, Time: &now})
 
-	metricFetcher.SetContainerMetric("uid4", "c4-1", metric_consts.MetricCPUNrRunnableContainer, 18)
+	metricFetcher.SetContainerMetric("uid3", "c3-1", metric_consts.MetricCPUNrRunnableContainer, utilmetric.MetricData{Value: 2, Time: &now})
+	metricFetcher.SetContainerMetric("uid3", "c3-2", metric_consts.MetricCPUNrRunnableContainer, utilmetric.MetricData{Value: 4.1, Time: &now})
 
-	metricFetcher.SetContainerMetric("uid5", "c5-1", metric_consts.MetricCPUNrRunnableContainer, 5.1)
-	metricFetcher.SetContainerMetric("uid5", "c5-2", metric_consts.MetricCPUNrRunnableContainer, 8)
+	metricFetcher.SetContainerMetric("uid4", "c4-1", metric_consts.MetricCPUNrRunnableContainer, utilmetric.MetricData{Value: 18, Time: &now})
 
-	metricFetcher.SetContainerMetric("uid6", "c6-1", metric_consts.MetricCPUNrRunnableContainer, 9)
-	metricFetcher.SetContainerMetric("uid6", "c6-2", metric_consts.MetricCPUNrRunnableContainer, 7)
-	metricFetcher.SetContainerMetric("uid6", "c6-3", metric_consts.MetricCPUNrRunnableContainer, 4)
+	metricFetcher.SetContainerMetric("uid5", "c5-1", metric_consts.MetricCPUNrRunnableContainer, utilmetric.MetricData{Value: 5.1, Time: &now})
+	metricFetcher.SetContainerMetric("uid5", "c5-2", metric_consts.MetricCPUNrRunnableContainer, utilmetric.MetricData{Value: 8, Time: &now})
 
-	metricFetcher.SetContainerMetric("uid7", "c7-1", metric_consts.MetricCPUNrRunnableContainer, 2.1)
+	metricFetcher.SetContainerMetric("uid6", "c6-1", metric_consts.MetricCPUNrRunnableContainer, utilmetric.MetricData{Value: 9, Time: &now})
+	metricFetcher.SetContainerMetric("uid6", "c6-2", metric_consts.MetricCPUNrRunnableContainer, utilmetric.MetricData{Value: 7, Time: &now})
+	metricFetcher.SetContainerMetric("uid6", "c6-3", metric_consts.MetricCPUNrRunnableContainer, utilmetric.MetricData{Value: 4, Time: &now})
 
-	metricFetcher.SetContainerMetric("uid8", "c8-1", metric_consts.MetricCPUNrRunnableContainer, 1.1)
+	metricFetcher.SetContainerMetric("uid7", "c7-1", metric_consts.MetricCPUNrRunnableContainer, utilmetric.MetricData{Value: 2.1, Time: &now})
+
+	metricFetcher.SetContainerMetric("uid8", "c8-1", metric_consts.MetricCPUNrRunnableContainer, utilmetric.MetricData{Value: 1.1, Time: &now})
 
 	for _, tc := range []struct {
 		comment string

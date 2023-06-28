@@ -20,6 +20,7 @@ import (
 	"context"
 	"strconv"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	v1 "k8s.io/api/core/v1"
@@ -34,6 +35,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
+	utilMetric "github.com/kubewharf/katalyst-core/pkg/util/metric"
 )
 
 var (
@@ -79,9 +81,10 @@ func TestNumaMemoryPressurePlugin_ThresholdMet(t *testing.T) {
 	fakeMetricsFetcher := plugin.metaServer.MetricsFetcher.(*metric.FakeMetricsFetcher)
 	assert.NotNil(t, fakeMetricsFetcher)
 
-	fakeMetricsFetcher.SetNodeMetric(consts.MetricMemScaleFactorSystem, float64(scaleFactor))
+	now := time.Now()
+	fakeMetricsFetcher.SetNodeMetric(consts.MetricMemScaleFactorSystem, utilMetric.MetricData{Value: float64(scaleFactor), Time: &now})
 	for numaID, numaTotal := range numaTotalMap {
-		fakeMetricsFetcher.SetNumaMetric(numaID, consts.MetricMemTotalNuma, numaTotal)
+		fakeMetricsFetcher.SetNumaMetric(numaID, consts.MetricMemTotalNuma, utilMetric.MetricData{Value: numaTotal, Time: &now})
 	}
 
 	tests := []struct {
@@ -187,8 +190,9 @@ func TestNumaMemoryPressurePlugin_ThresholdMet(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			now := time.Now()
 			for numaID, numaFree := range tt.numaFree {
-				fakeMetricsFetcher.SetNumaMetric(numaID, consts.MetricMemFreeNuma, numaFree)
+				fakeMetricsFetcher.SetNumaMetric(numaID, consts.MetricMemFreeNuma, utilMetric.MetricData{Value: numaFree, Time: &now})
 			}
 
 			metResp, err := plugin.ThresholdMet(context.TODO())
@@ -269,10 +273,11 @@ func TestNumaMemoryPressurePlugin_GetTopEvictionPods(t *testing.T) {
 		},
 	}
 
+	now := time.Now()
 	for i, pod := range bePods {
-		fakeMetricsFetcher.SetContainerMetric(string(pod.UID), pod.Spec.Containers[0].Name, consts.MetricMemUsageContainer, bePodUsageSystem[i])
+		fakeMetricsFetcher.SetContainerMetric(string(pod.UID), pod.Spec.Containers[0].Name, consts.MetricMemUsageContainer, utilMetric.MetricData{Value: bePodUsageSystem[i], Time: &now})
 		for numaID, usage := range bePodUsageNuma[i] {
-			fakeMetricsFetcher.SetContainerNumaMetric(string(pod.UID), pod.Spec.Containers[0].Name, strconv.Itoa(numaID), consts.MetricsMemTotalPerNumaContainer, usage)
+			fakeMetricsFetcher.SetContainerNumaMetric(string(pod.UID), pod.Spec.Containers[0].Name, strconv.Itoa(numaID), consts.MetricsMemTotalPerNumaContainer, utilMetric.MetricData{Value: usage, Time: &now})
 		}
 	}
 

@@ -36,6 +36,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
+	utilMetric "github.com/kubewharf/katalyst-core/pkg/util/metric"
 )
 
 func makeMetaServer() *metaserver.MetaServer {
@@ -112,8 +113,9 @@ func TestSystemPressureEvictionPlugin_ThresholdMet(t *testing.T) {
 	fakeMetricsFetcher := plugin.metaServer.MetricsFetcher.(*metric.FakeMetricsFetcher)
 	assert.NotNil(t, fakeMetricsFetcher)
 
-	fakeMetricsFetcher.SetNodeMetric(consts.MetricMemTotalSystem, float64(systemTotal))
-	fakeMetricsFetcher.SetNodeMetric(consts.MetricMemScaleFactorSystem, float64(scaleFactor))
+	now := time.Now()
+	fakeMetricsFetcher.SetNodeMetric(consts.MetricMemTotalSystem, utilMetric.MetricData{Value: float64(systemTotal), Time: &now})
+	fakeMetricsFetcher.SetNodeMetric(consts.MetricMemScaleFactorSystem, utilMetric.MetricData{Value: float64(scaleFactor), Time: &now})
 
 	tests := []struct {
 		name                      string
@@ -207,8 +209,9 @@ func TestSystemPressureEvictionPlugin_ThresholdMet(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			fakeMetricsFetcher.SetNodeMetric(consts.MetricMemFreeSystem, tt.systemFree)
-			fakeMetricsFetcher.SetNodeMetric(consts.MetricMemKswapdstealSystem, tt.systemKswapSteal)
+			now := time.Now()
+			fakeMetricsFetcher.SetNodeMetric(consts.MetricMemFreeSystem, utilMetric.MetricData{Value: tt.systemFree, Time: &now})
+			fakeMetricsFetcher.SetNodeMetric(consts.MetricMemKswapdstealSystem, utilMetric.MetricData{Value: tt.systemKswapSteal, Time: &now})
 
 			metResp, err := plugin.ThresholdMet(context.TODO())
 			assert.NoError(t, err)
@@ -277,8 +280,9 @@ func TestSystemPressureEvictionPlugin_GetTopEvictionPods(t *testing.T) {
 		5 * 1024 * 1024 * 1024,
 	}
 
+	now := time.Now()
 	for i, pod := range bePods {
-		fakeMetricsFetcher.SetContainerMetric(string(pod.UID), pod.Spec.Containers[0].Name, consts.MetricMemUsageContainer, bePodUsageSystem[i])
+		fakeMetricsFetcher.SetContainerMetric(string(pod.UID), pod.Spec.Containers[0].Name, consts.MetricMemUsageContainer, utilMetric.MetricData{Value: bePodUsageSystem[i], Time: &now})
 	}
 
 	tests := []struct {

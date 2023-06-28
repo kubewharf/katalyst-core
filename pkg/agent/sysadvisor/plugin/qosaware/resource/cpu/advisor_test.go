@@ -48,6 +48,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/spd"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
+	utilmetric "github.com/kubewharf/katalyst-core/pkg/util/metric"
 )
 
 func generateTestConfiguration(t *testing.T, checkpointDir, stateFileDir string) *config.Configuration {
@@ -765,6 +766,8 @@ func TestAdvisorUpdate(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			now := time.Now()
+
 			ckDir, err := ioutil.TempDir("", "checkpoint")
 			require.NoError(t, err)
 			defer func() { _ = os.RemoveAll(ckDir) }()
@@ -782,7 +785,7 @@ func TestAdvisorUpdate(t *testing.T) {
 			if len(tt.metrics) > 0 {
 				advisor.conf.IsolationDisabled = false
 				for _, m := range tt.metrics {
-					mf.SetContainerMetric(m.pod, m.container, metric_consts.MetricCPUNrRunnableContainer, m.value)
+					mf.SetContainerMetric(m.pod, m.container, metric_consts.MetricCPUNrRunnableContainer, utilmetric.MetricData{Value: m.value, Time: &now})
 				}
 			}
 

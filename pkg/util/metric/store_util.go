@@ -17,10 +17,13 @@ limitations under the License.
 package metric
 
 import (
+	"time"
+
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/klog/v2"
 
+	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
@@ -37,8 +40,10 @@ type ContainerMetricFilter func(pod *v1.Pod, container *v1.Container) bool
 var DefaultContainerMetricFilter = func(_ *v1.Pod, _ *v1.Container) bool { return true }
 
 // AggregatePodNumaMetric handles numa-level metric for all pods
-func (c *MetricStore) AggregatePodNumaMetric(podList []*v1.Pod, numa, metricName string, agg Aggregator, filter ContainerMetricFilter) float64 {
-	sumMetric := 0.
+func (c *MetricStore) AggregatePodNumaMetric(podList []*v1.Pod, numa, metricName string, agg Aggregator, filter ContainerMetricFilter) MetricData {
+	now := time.Now()
+	data := MetricData{Value: .0, Time: &now}
+
 	validPods := sets.NewString()
 	for _, pod := range podList {
 		if validPods.Has(string(pod.UID)) {
@@ -57,24 +62,26 @@ func (c *MetricStore) AggregatePodNumaMetric(podList []*v1.Pod, numa, metricName
 				continue
 			}
 			validPods.Insert(string(pod.UID))
-			sumMetric += metric
+
+			data.Value += metric.Value
+			data.Time = general.MaxTimePtr(data.Time, metric.Time)
 		}
 	}
 
 	switch agg {
-	case AggregatorSum:
-		return sumMetric
 	case AggregatorAvg:
 		if validPods.Len() > 0 {
-			return sumMetric / float64(validPods.Len())
+			data.Value /= float64(validPods.Len())
 		}
 	}
-	return sumMetric
+	return data
 }
 
 // AggregatePodMetric handles metric for all pods
-func (c *MetricStore) AggregatePodMetric(podList []*v1.Pod, metricName string, agg Aggregator, filter ContainerMetricFilter) float64 {
-	sumMetric := 0.
+func (c *MetricStore) AggregatePodMetric(podList []*v1.Pod, metricName string, agg Aggregator, filter ContainerMetricFilter) MetricData {
+	now := time.Now()
+	data := MetricData{Value: .0, Time: &now}
+
 	validPods := sets.NewString()
 	for _, pod := range podList {
 		if validPods.Has(string(pod.UID)) {
@@ -93,24 +100,27 @@ func (c *MetricStore) AggregatePodMetric(podList []*v1.Pod, metricName string, a
 				continue
 			}
 			validPods.Insert(string(pod.UID))
-			sumMetric += metric
+
+			data.Value += metric.Value
+			data.Time = general.MaxTimePtr(data.Time, metric.Time)
 		}
 	}
 
 	switch agg {
-	case AggregatorSum:
-		return sumMetric
 	case AggregatorAvg:
 		if validPods.Len() > 0 {
-			return sumMetric / float64(validPods.Len())
+			data.Value /= float64(validPods.Len())
 		}
 	}
-	return sumMetric
+	return data
 }
 
 // AggregateCoreMetric handles metric for all cores
-func (c *MetricStore) AggregateCoreMetric(cpuset machine.CPUSet, metricName string, agg Aggregator) float64 {
-	sumMetric, coreCount := 0., 0.
+func (c *MetricStore) AggregateCoreMetric(cpuset machine.CPUSet, metricName string, agg Aggregator) MetricData {
+	now := time.Now()
+	data := MetricData{Value: .0, Time: &now}
+
+	coreCount := 0.
 	for _, cpu := range cpuset.ToSliceInt() {
 		metric, err := c.GetCPUMetric(cpu, metricName)
 		if err != nil {
@@ -119,14 +129,13 @@ func (c *MetricStore) AggregateCoreMetric(cpuset machine.CPUSet, metricName stri
 		}
 
 		coreCount++
-		sumMetric += metric
+		data.Value += metric.Value
+		data.Time = general.MaxTimePtr(data.Time, metric.Time)
 	}
 
 	switch agg {
-	case AggregatorSum:
-		return sumMetric
 	case AggregatorAvg:
-		return sumMetric / coreCount
+		data.Value /= coreCount
 	}
-	return sumMetric
+	return data
 }

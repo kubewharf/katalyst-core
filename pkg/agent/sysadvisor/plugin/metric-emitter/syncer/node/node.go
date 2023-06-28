@@ -34,6 +34,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
+	metricspool "github.com/kubewharf/katalyst-core/pkg/metrics/metrics-pool"
 )
 
 // nodeRawMetricNameMapping maps the raw metricName (collected from agent.MetricsFetcher)
@@ -58,8 +59,17 @@ type MetricSyncerNode struct {
 	metaReader metacache.MetaReader
 }
 
-func NewMetricSyncerNode(conf *config.Configuration, _ interface{}, metricEmitter, dataEmitter metrics.MetricEmitter,
+func NewMetricSyncerNode(conf *config.Configuration, _ interface{},
+	metricEmitter metrics.MetricEmitter, emitterPool metricspool.MetricsEmitterPool,
 	metaServer *metaserver.MetaServer, metaReader metacache.MetaReader) (syncer.CustomMetricSyncer, error) {
+	dataEmitter, err := emitterPool.GetMetricsEmitter(metricspool.PrometheusMetricOptions{
+		Path: metrics.PrometheusMetricPathNameCustomMetric,
+	})
+	if err != nil {
+		klog.Errorf("[cus-metric-emitter] failed to init metric emitter: %v", err)
+		return nil, err
+	}
+
 	return &MetricSyncerNode{
 		conf: conf.AgentConfiguration.MetricEmitterPluginConfiguration,
 
@@ -95,6 +105,8 @@ func (n *MetricSyncerNode) receiveRawNode(ctx context.Context, rChan chan metric
 		case response := <-rChan:
 			if response.Req.MetricName == "" {
 				continue
+			} else if response.Time == nil {
+				continue
 			}
 
 			targetMetricName, ok := nodeRawMetricNameMapping[response.Req.MetricName]
@@ -105,10 +117,10 @@ func (n *MetricSyncerNode) receiveRawNode(ctx context.Context, rChan chan metric
 
 			klog.V(4).Infof("get metric %v for node", response.Req.MetricName)
 			if tags := n.generateMetricTag(ctx); len(tags) > 0 {
-				_ = n.dataEmitter.StoreFloat64(targetMetricName, response.Result, metrics.MetricTypeNameRaw, append(tags,
+				_ = n.dataEmitter.StoreFloat64(targetMetricName, response.Value, metrics.MetricTypeNameRaw, append(tags,
 					metrics.MetricTag{
 						Key: fmt.Sprintf("%s", data.CustomMetricLabelKeyTimestamp),
-						Val: fmt.Sprintf("%v", response.Timestamp.UnixMilli()),
+						Val: fmt.Sprintf("%v", response.Time.UnixMilli()),
 					})...)
 			}
 		case <-ctx.Done():

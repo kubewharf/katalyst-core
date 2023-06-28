@@ -23,12 +23,15 @@ import (
 	"k8s.io/apimachinery/pkg/util/errors"
 	"k8s.io/klog/v2"
 
+	apiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource/helper"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
 	"github.com/kubewharf/katalyst-core/pkg/config"
+	"github.com/kubewharf/katalyst-core/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
+	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
 type PolicyRama struct {
@@ -79,19 +82,44 @@ func (p *PolicyRama) Update() error {
 	// pass the current value to regulator to avoid slow start from zero after restart
 	p.regulator.SetLatestCPURequirement(int(cpuSize))
 
-	cpuSizeAdjustedGlobal := math.Inf(-1)
+	cpuAdjustedRaw := math.Inf(-1)
 
 	// run pid control for each indicator
 	for _, metricName := range p.configuredIndicatorMetrics {
 		indicator := p.Indicators[metricName]
 		controller := p.controllers[metricName]
 
-		cpuSizeAdjusted := controller.Adjust(cpuSize, indicator.Target, indicator.Current)
-		if cpuSizeAdjusted > cpuSizeAdjustedGlobal {
-			cpuSizeAdjustedGlobal = cpuSizeAdjusted
+		controller.SetEssentials(p.ResourceEssentials)
+		cpuAdjusted := controller.Adjust(cpuSize, indicator.Target, indicator.Current)
+
+		if cpuAdjusted > cpuAdjustedRaw {
+			cpuAdjustedRaw = cpuAdjusted
 		}
 	}
-	p.regulator.Regulate(cpuSizeAdjustedGlobal)
+	cpuAdjustedRestricted := cpuAdjustedRaw
+
+	// restrict cpu size adjusted
+	if p.ControlEssentials.ReclaimOverlap {
+		reclaimedUsage, reclaimedCnt := p.getReclaimStatus()
+		klog.Infof("[qosaware-cpu-rama] reclaim usage %.2f #container %v", reclaimedUsage, reclaimedCnt)
+
+		reason := ""
+		if reclaimedCnt <= 0 {
+			// do not reclaim if no reclaimed containers
+			cpuAdjustedRestricted = p.ResourceUpperBound
+			reason = "no reclaimed container"
+		} else {
+			// do not overlap more if reclaim usage is below threshold
+			threshold := p.ResourceUpperBound - reclaimedUsage - types.ReclaimUsageMarginForOverlap
+			cpuAdjustedRestricted = math.Max(cpuAdjustedRestricted, threshold)
+			reason = "low reclaim usage"
+		}
+		if cpuAdjustedRestricted != cpuAdjustedRaw {
+			klog.Infof("[qosaware-cpu-rama] restrict cpu adjusted from %.2f to %.2f, reason: %v", cpuAdjustedRaw, cpuAdjustedRestricted, reason)
+		}
+	}
+
+	p.regulator.Regulate(cpuAdjustedRestricted)
 
 	return nil
 }
@@ -143,4 +171,38 @@ func (p *PolicyRama) sanityCheck() error {
 	}
 
 	return errors.NewAggregate(errList)
+}
+
+func (p *PolicyRama) getReclaimStatus() (usage float64, cnt int) {
+	usage = 0
+	cnt = 0
+
+	f := func(podUID string, containerName string, ci *types.ContainerInfo) bool {
+		if ci.QoSLevel != apiconsts.PodAnnotationQoSLevelReclaimedCores {
+			return true
+		}
+
+		containerUsage := ci.CPURequest
+		m, err := p.metaServer.GetContainerMetric(podUID, containerName, consts.MetricCPUUsageContainer)
+		if err == nil {
+			containerUsage = m.Value
+		}
+
+		// FIXME: metric server doesn't support to report cpu usage in numa granularity,
+		// so we split cpu usage evenly across the binding numas of container.
+		if p.bindingNumas.Size() > 0 {
+			cpuSize := 0
+			for _, numaID := range p.bindingNumas.ToSliceInt() {
+				cpuSize += ci.TopologyAwareAssignments[numaID].Size()
+			}
+			containerUsageNuma := containerUsage * float64(cpuSize) / float64(machine.CountCPUAssignmentCPUs(ci.TopologyAwareAssignments))
+			usage += containerUsageNuma
+		}
+
+		cnt += 1
+		return true
+	}
+	p.metaReader.RangeContainer(f)
+
+	return usage, cnt
 }

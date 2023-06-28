@@ -134,17 +134,17 @@ func (l *LoadIsolator) checkContainerIsolated(info *types.ContainerInfo, isolati
 
 // checkContainerLoad returns true if the load reaches target and last for pre-defined period
 func (l *LoadIsolator) checkContainerLoad(info *types.ContainerInfo) bool {
-	load, err := l.metaServer.GetContainerMetric(info.PodUID, info.ContainerName, metric_consts.MetricCPUNrRunnableContainer)
+	m, err := l.metaServer.GetContainerMetric(info.PodUID, info.ContainerName, metric_consts.MetricCPUNrRunnableContainer)
 	if err != nil {
 		// if we failed to get the latest load, keep the isolation states as it is
 		general.Errorf("get load for pod %v container %v err: %v", info.PodName, info.ContainerName, err)
 		return info.Isolated
 	}
 
-	general.Infof("pod %v container %v current load %v", info.PodName, info.ContainerName, load)
+	general.Infof("pod %v container %v current load %v", info.PodName, info.ContainerName, m.Value)
 	state := l.getIsolationState(info)
 
-	loadBeyondTarget := load > info.CPULimit*float64(l.conf.IsolationCPURatio) || load > info.CPULimit+float64(l.conf.IsolationCPUSize)
+	loadBeyondTarget := m.Value > info.CPULimit*float64(l.conf.IsolationCPURatio) || m.Value > info.CPULimit+float64(l.conf.IsolationCPUSize)
 	if loadBeyondTarget {
 		// reset lock-out observed and add up lock-in hits
 		if state.lockedInHits < l.conf.IsolationLockInThreshold {

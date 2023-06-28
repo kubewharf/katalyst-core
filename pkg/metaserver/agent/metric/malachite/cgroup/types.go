@@ -127,6 +127,7 @@ type MemoryCgDataV1 struct {
 	WatermarkScaleFactor   *uint         `json:"watermark_scale_factor"`
 	OomCnt                 int           `json:"oom_cnt"`
 	NumaStats              []NumaStatsV1 `json:"numa_stat"`
+	UpdateTime             int64         `json:"update_time"`
 }
 
 type NumaStatsV1 struct {
@@ -168,6 +169,7 @@ type BlkIOCgDataV1 struct {
 	BpsTotal     uint64                     `json:"bps_total"`
 	BpfFsData    BpfFsData                  `json:"bpf_fs_data"`
 	OldBpfFsData BpfFsData                  `json:"old_bpf_fs_data"`
+	UpdateTime   int64                      `json:"update_time"`
 }
 
 type BpfNetData struct {
@@ -182,6 +184,7 @@ type NetClsCgData struct {
 	UserPath      string     `json:"user_path"`
 	BpfNetData    BpfNetData `json:"bpf_net_data"`
 	OldBpfNetData BpfNetData `json:"old_bpf_net_data"`
+	UpdateTime    int64      `json:"update_time"`
 }
 
 type PerfEventData struct {
@@ -194,6 +197,7 @@ type PerfEventData struct {
 	L2CacheMiss        float64 `json:"l2_cache_miss"`
 	L3CacheMiss        float64 `json:"l3_cache_miss"`
 	PhyCoreUtilization float64 `json:"utilization"`
+	UpdateTime         int64   `json:"update_time"`
 }
 
 type Mems struct {
@@ -207,9 +211,10 @@ type Cpus struct {
 }
 
 type CPUSetCgDataV1 struct {
-	FullPath string `json:"full_path"`
-	Mems     Mems   `json:"mems"`
-	Cpus     Cpus   `json:"cpus"`
+	FullPath   string `json:"full_path"`
+	Mems       Mems   `json:"mems"`
+	Cpus       Cpus   `json:"cpus"`
+	UpdateTime int64  `json:"update_time"`
 }
 
 type CPUBasicInfo struct {
@@ -240,7 +245,7 @@ type CPUCgDataV1 struct {
 	IMCWrites             uint64       `json:"imc_writes"`
 	StoreAllInstructions  uint64       `json:"store_all_ins"`
 	StoreInstructions     uint64       `json:"store_ins"`
-	UpdateTime            uint64       `json:"update_time"`
+	UpdateTime            int64        `json:"update_time"`
 	Cycles                uint64       `json:"cycles"`
 	Instructions          uint64       `json:"instructions"`
 }
@@ -293,6 +298,7 @@ type MemoryCgDataV2 struct {
 	WatermarkScaleFactor *uint64                `json:"watermark_scale_factor"`
 	OomCnt               uint64                 `json:"oom_cnt"`
 	MemoryUsageInBytes   uint64                 `json:"memory_usage_in_bytes"`
+	UpdateTime           int64                  `json:"update_time"`
 }
 
 type BlkIOCgDataV2 struct {
@@ -306,6 +312,7 @@ type BlkIOCgDataV2 struct {
 	BpfFsData    BpfFsData                  `json:"bpf_fs_data"`
 	OldBpfFsData BpfFsData                  `json:"old_bpf_fs_data"`
 	BpfIoLatency BpfIoLatency               `json:"bpf_io_latency"`
+	UpdateTime   int64                      `json:"update_time"`
 }
 
 type CPUCgDataV2 struct {
@@ -328,15 +335,16 @@ type CPUCgDataV2 struct {
 	IMCWrites             uint64          `json:"imc_writes"`
 	StoreAllInstructions  uint64          `json:"store_all_ins"`
 	StoreInstructions     uint64          `json:"store_ins"`
-	UpdateTime            uint64          `json:"update_time"`
+	UpdateTime            int64           `json:"update_time"`
 	Cycles                uint64          `json:"cycles"`
 	Instructions          uint64          `json:"instructions"`
 }
 
 type CPUSetCgDataV2 struct {
-	FullPath string `json:"full_path"`
-	Mems     Mems   `json:"mems"`
-	Cpus     Cpus   `json:"cpus"`
+	FullPath   string `json:"full_path"`
+	Mems       Mems   `json:"mems"`
+	Cpus       Cpus   `json:"cpus"`
+	UpdateTime int64  `json:"update_time"`
 }
 
 type MemStats struct {

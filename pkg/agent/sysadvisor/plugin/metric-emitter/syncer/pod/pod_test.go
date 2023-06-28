@@ -34,6 +34,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/pod"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
+	metricspool "github.com/kubewharf/katalyst-core/pkg/metrics/metrics-pool"
 )
 
 func generateTestConfiguration(t *testing.T) *config.Configuration {
@@ -90,7 +91,7 @@ func Test_podAddAndRemoved(t *testing.T) {
 			MetricsFetcher: metric.NewFakeMetricsFetcher(metrics.DummyMetrics{}),
 		},
 	}
-	si, err := NewMetricSyncerPod(conf, struct{}{}, metrics.DummyMetrics{}, metrics.DummyMetrics{}, meta, &metacache.MetaCacheImp{})
+	si, err := NewMetricSyncerPod(conf, struct{}{}, metrics.DummyMetrics{}, metricspool.DummyMetricsEmitterPool{}, meta, &metacache.MetaCacheImp{})
 	assert.NoError(t, err)
 
 	s := si.(*MetricSyncerPod)
