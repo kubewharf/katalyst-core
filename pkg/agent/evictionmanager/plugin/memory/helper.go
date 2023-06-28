@@ -161,10 +161,14 @@ func (e *EvictionHelper) getWatermarkMetrics(numaID int) (free, total, scaleFact
 	return free, total, scaleFactor, nil
 }
 
-func (e *EvictionHelper) getSystemKswapdStealMetrics() (float64, error) {
+func (e *EvictionHelper) getSystemKswapdStealMetrics() (metric.MetricData, error) {
 	m, err := e.metaServer.GetNodeMetric(consts.MetricMemKswapdstealSystem)
 	if err != nil {
-		return 0, fmt.Errorf(errMsgGetSystemMetrics, "mem.kswapdsteal.system", err)
+		return m, fmt.Errorf(errMsgGetSystemMetrics, consts.MetricMemKswapdstealSystem, err)
+	}
+
+	if m.Time == nil {
+		return m, fmt.Errorf(errMsgGetSystemMetrics, consts.MetricMemKswapdstealSystem, fmt.Errorf("metric timestamp is nil"))
 	}
 
 	kswapdSteal := m.Value
@@ -173,7 +177,7 @@ func (e *EvictionHelper) getSystemKswapdStealMetrics() (float64, error) {
 			metricsTagKeyMetricName: consts.MetricMemKswapdstealSystem,
 		})...)
 
-	return kswapdSteal, nil
+	return m, nil
 }
 
 func (e *EvictionHelper) selectTopNPodsToEvictByMetrics(activePods []*v1.Pod, topN uint64, numaID,
