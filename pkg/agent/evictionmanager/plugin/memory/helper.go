@@ -28,6 +28,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
+	"github.com/kubewharf/katalyst-core/pkg/util/metric"
 	"github.com/kubewharf/katalyst-core/pkg/util/native"
 )
 
@@ -97,50 +98,61 @@ func NewEvictionHelper(emitter metrics.MetricEmitter, metaServer *metaserver.Met
 // getWatermarkMetrics returns system-water mark related metrics (config)
 // if numa node is specified, return config in this numa; otherwise return system-level config
 func (e *EvictionHelper) getWatermarkMetrics(numaID int) (free, total, scaleFactor float64, err error) {
+	var m metric.MetricData
 	if numaID >= 0 {
-		free, err = e.metaServer.GetNumaMetric(numaID, consts.MetricMemFreeNuma)
+		m, err = e.metaServer.GetNumaMetric(numaID, consts.MetricMemFreeNuma)
 		if err != nil {
 			return 0, 0, 0, fmt.Errorf(errMsgGetNumaMetrics, consts.MetricMemFreeNuma, numaID, err)
 		}
+
+		free = m.Value
 		_ = e.emitter.StoreFloat64(metricsNameNumaMetric, free, metrics.MetricTypeNameRaw,
 			metrics.ConvertMapToTags(map[string]string{
 				metricsTagKeyNumaID:     strconv.Itoa(numaID),
 				metricsTagKeyMetricName: consts.MetricMemFreeNuma,
 			})...)
 
-		total, err = e.metaServer.GetNumaMetric(numaID, consts.MetricMemTotalNuma)
+		m, err = e.metaServer.GetNumaMetric(numaID, consts.MetricMemTotalNuma)
 		if err != nil {
 			return 0, 0, 0, fmt.Errorf(errMsgGetNumaMetrics, consts.MetricMemTotalNuma, numaID, err)
 		}
+
+		total = m.Value
 		_ = e.emitter.StoreFloat64(metricsNameNumaMetric, total, metrics.MetricTypeNameRaw,
 			metrics.ConvertMapToTags(map[string]string{
 				metricsTagKeyNumaID:     strconv.Itoa(numaID),
 				metricsTagKeyMetricName: consts.MetricMemTotalNuma,
 			})...)
 	} else {
-		free, err = e.metaServer.GetNodeMetric(consts.MetricMemFreeSystem)
+		m, err = e.metaServer.GetNodeMetric(consts.MetricMemFreeSystem)
 		if err != nil {
 			return 0, 0, 0, fmt.Errorf(errMsgGetSystemMetrics, consts.MetricMemFreeSystem, err)
 		}
+
+		free = m.Value
 		_ = e.emitter.StoreFloat64(metricsNameSystemMetric, free, metrics.MetricTypeNameRaw,
 			metrics.ConvertMapToTags(map[string]string{
 				metricsTagKeyMetricName: consts.MetricMemFreeSystem,
 			})...)
 
-		total, err = e.metaServer.GetNodeMetric(consts.MetricMemTotalSystem)
+		m, err = e.metaServer.GetNodeMetric(consts.MetricMemTotalSystem)
 		if err != nil {
 			return 0, 0, 0, fmt.Errorf(errMsgGetSystemMetrics, consts.MetricMemTotalSystem, err)
 		}
+
+		total = m.Value
 		_ = e.emitter.StoreFloat64(metricsNameSystemMetric, total, metrics.MetricTypeNameRaw,
 			metrics.ConvertMapToTags(map[string]string{
 				metricsTagKeyMetricName: consts.MetricMemTotalSystem,
 			})...)
 	}
 
-	scaleFactor, err = e.metaServer.GetNodeMetric(consts.MetricMemScaleFactorSystem)
+	m, err = e.metaServer.GetNodeMetric(consts.MetricMemScaleFactorSystem)
 	if err != nil {
 		return 0, 0, 0, fmt.Errorf(errMsgGetSystemMetrics, consts.MetricMemScaleFactorSystem, err)
 	}
+
+	scaleFactor = m.Value
 	_ = e.emitter.StoreFloat64(metricsNameSystemMetric, scaleFactor, metrics.MetricTypeNameRaw,
 		metrics.ConvertMapToTags(map[string]string{
 			metricsTagKeyMetricName: consts.MetricMemScaleFactorSystem,
@@ -150,10 +162,12 @@ func (e *EvictionHelper) getWatermarkMetrics(numaID int) (free, total, scaleFact
 }
 
 func (e *EvictionHelper) getSystemKswapdStealMetrics() (float64, error) {
-	kswapdSteal, err := e.metaServer.GetNodeMetric(consts.MetricMemKswapdstealSystem)
+	m, err := e.metaServer.GetNodeMetric(consts.MetricMemKswapdstealSystem)
 	if err != nil {
 		return 0, fmt.Errorf(errMsgGetSystemMetrics, "mem.kswapdsteal.system", err)
 	}
+
+	kswapdSteal := m.Value
 	_ = e.emitter.StoreFloat64(metricsNameSystemMetric, kswapdSteal, metrics.MetricTypeNameRaw,
 		metrics.ConvertMapToTags(map[string]string{
 			metricsTagKeyMetricName: consts.MetricMemKswapdstealSystem,
@@ -243,16 +257,19 @@ func (e *EvictionHelper) getPodMetric(pod *v1.Pod, metricName string, numaID int
 		return 0, false
 	}
 
+	var m metric.MetricData
 	var podMetricValue float64
 	for _, container := range pod.Spec.Containers {
 		var containerMetricValue float64
 		var err error
 		if numaID >= 0 {
-			containerMetricValue, err = e.metaServer.GetContainerNumaMetric(string(pod.UID), container.Name, strconv.Itoa(numaID), metricName)
+			m, err = e.metaServer.GetContainerNumaMetric(string(pod.UID), container.Name, strconv.Itoa(numaID), metricName)
 			if err != nil {
 				general.Errorf(errMsgGetContainerNumaMetrics, metricName, pod.UID, container.Name, numaID, err)
 				return 0, false
 			}
+
+			containerMetricValue = m.Value
 			_ = e.emitter.StoreFloat64(metricsNameContainerMetric, containerMetricValue, metrics.MetricTypeNameRaw,
 				metrics.ConvertMapToTags(map[string]string{
 					metricsTagKeyPodUID:        string(pod.UID),
@@ -261,11 +278,13 @@ func (e *EvictionHelper) getPodMetric(pod *v1.Pod, metricName string, numaID int
 					metricsTagKeyMetricName:    metricName,
 				})...)
 		} else {
-			containerMetricValue, err = e.metaServer.GetContainerMetric(string(pod.UID), container.Name, metricName)
+			m, err = e.metaServer.GetContainerMetric(string(pod.UID), container.Name, metricName)
 			if err != nil {
 				general.Errorf(errMsgGetContainerSystemMetrics, metricName, pod.UID, container.Name, err)
 				return 0, false
 			}
+
+			containerMetricValue = m.Value
 			_ = e.emitter.StoreFloat64(metricsNameContainerMetric, containerMetricValue, metrics.MetricTypeNameRaw,
 				metrics.ConvertMapToTags(map[string]string{
 					metricsTagKeyPodUID:        string(pod.UID),

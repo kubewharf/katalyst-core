@@ -196,7 +196,11 @@ func (mc *MetaCacheImp) RangeContainer(f func(podUID string, containerName strin
 }
 
 func (mc *MetaCacheImp) GetContainerMetric(podUID string, containerName string, metricName string) (float64, error) {
-	return mc.metricsFetcher.GetContainerMetric(podUID, containerName, metricName)
+	m, err := mc.metricsFetcher.GetContainerMetric(podUID, containerName, metricName)
+	if err != nil {
+		return 0, err
+	}
+	return m.Value, nil
 }
 
 func (mc *MetaCacheImp) GetPoolInfo(poolName string) (*types.PoolInfo, bool) {

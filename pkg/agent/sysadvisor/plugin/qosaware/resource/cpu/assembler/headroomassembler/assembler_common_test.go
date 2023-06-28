@@ -21,6 +21,7 @@ import (
 	"os"
 	"reflect"
 	"testing"
+	"time"
 
 	info "github.com/google/cadvisor/info/v1"
 	"github.com/stretchr/testify/require"
@@ -82,6 +83,8 @@ func generateTestMetaServer(t *testing.T, cnr *v1alpha1.CustomNodeResource, podL
 }
 
 func TestHeadroomAssemblerCommon_GetHeadroom(t *testing.T) {
+	now := time.Now()
+
 	type fields struct {
 		entries                        types.RegionEntries
 		cnr                            *v1alpha1.CustomNodeResource
@@ -126,7 +129,7 @@ func TestHeadroomAssemblerCommon_GetHeadroom(t *testing.T) {
 				},
 				setFakeMetric: func(store *utilmetric.MetricStore) {
 					for i := 0; i < 10; i++ {
-						store.SetCPUMetric(i, pkgconsts.MetricCPUUsage, 30)
+						store.SetCPUMetric(i, pkgconsts.MetricCPUUsage, utilmetric.MetricData{Value: 30, Time: &now})
 					}
 				},
 				setMetaCache: func(cache *metacache.MetaCacheImp) {
@@ -171,7 +174,7 @@ func TestHeadroomAssemblerCommon_GetHeadroom(t *testing.T) {
 				},
 				setFakeMetric: func(store *utilmetric.MetricStore) {
 					for i := 0; i < 10; i++ {
-						store.SetCPUMetric(i, pkgconsts.MetricCPUUsage, 30)
+						store.SetCPUMetric(i, pkgconsts.MetricCPUUsage, utilmetric.MetricData{Value: 30, Time: &now})
 					}
 				},
 				setMetaCache: func(cache *metacache.MetaCacheImp) {
@@ -216,7 +219,7 @@ func TestHeadroomAssemblerCommon_GetHeadroom(t *testing.T) {
 				},
 				setFakeMetric: func(store *utilmetric.MetricStore) {
 					for i := 0; i < 10; i++ {
-						store.SetCPUMetric(i, pkgconsts.MetricCPUUsage, 0)
+						store.SetCPUMetric(i, pkgconsts.MetricCPUUsage, utilmetric.MetricData{Time: &now})
 					}
 				},
 				setMetaCache: func(cache *metacache.MetaCacheImp) {
@@ -261,7 +264,7 @@ func TestHeadroomAssemblerCommon_GetHeadroom(t *testing.T) {
 				},
 				setFakeMetric: func(store *utilmetric.MetricStore) {
 					for i := 0; i < 96; i++ {
-						store.SetCPUMetric(i, pkgconsts.MetricCPUUsage, 90)
+						store.SetCPUMetric(i, pkgconsts.MetricCPUUsage, utilmetric.MetricData{Value: 90, Time: &now})
 					}
 				},
 				setMetaCache: func(cache *metacache.MetaCacheImp) {
@@ -306,8 +309,9 @@ func TestHeadroomAssemblerCommon_GetHeadroom(t *testing.T) {
 					},
 				},
 				setFakeMetric: func(store *utilmetric.MetricStore) {
+					now := time.Now()
 					for i := 0; i < 96; i++ {
-						store.SetCPUMetric(i, pkgconsts.MetricCPUUsage, 30)
+						store.SetCPUMetric(i, pkgconsts.MetricCPUUsage, utilmetric.MetricData{Value: 30, Time: &now})
 					}
 				},
 				setMetaCache: func(cache *metacache.MetaCacheImp) {

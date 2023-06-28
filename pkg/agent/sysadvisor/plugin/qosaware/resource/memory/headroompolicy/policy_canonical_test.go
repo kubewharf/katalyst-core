@@ -20,6 +20,7 @@ import (
 	"io/ioutil"
 	"os"
 	"testing"
+	"time"
 
 	info "github.com/google/cadvisor/info/v1"
 	"github.com/stretchr/testify/assert"
@@ -112,6 +113,8 @@ func makeContainerInfo(podUID, namespace, podName, containerName, qoSLevel strin
 }
 
 func TestPolicyCanonical_calculateMemoryBuffer(t *testing.T) {
+	now := time.Now()
+
 	type fields struct {
 		podList                      []*v1.Pod
 		containers                   []*types.ContainerInfo
@@ -179,11 +182,11 @@ func TestPolicyCanonical_calculateMemoryBuffer(t *testing.T) {
 					ReservedForAllocate: 4 << 30,
 				},
 				setFakeMetric: func(store *utilmetric.MetricStore) {
-					store.SetContainerMetric("pod1", "container1", pkgconsts.MetricMemRssContainer, 10<<30)
-					store.SetContainerMetric("pod1", "container1", pkgconsts.MetricMemCacheContainer, 10<<30)
+					store.SetContainerMetric("pod1", "container1", pkgconsts.MetricMemRssContainer, utilmetric.MetricData{Value: 10 << 30, Time: &now})
+					store.SetContainerMetric("pod1", "container1", pkgconsts.MetricMemCacheContainer, utilmetric.MetricData{Value: 10 << 30, Time: &now})
 
-					store.SetContainerMetric("pod2", "container2", pkgconsts.MetricMemRssContainer, 10<<30)
-					store.SetContainerMetric("pod2", "container1", pkgconsts.MetricMemCacheContainer, 10<<30)
+					store.SetContainerMetric("pod2", "container2", pkgconsts.MetricMemRssContainer, utilmetric.MetricData{Value: 10 << 30, Time: &now})
+					store.SetContainerMetric("pod2", "container1", pkgconsts.MetricMemCacheContainer, utilmetric.MetricData{Value: 10 << 30, Time: &now})
 				},
 			},
 			want: *resource.NewQuantity((96<<30)-(20<<30)*1.1-(10<<30), resource.BinarySI),
@@ -253,16 +256,16 @@ func TestPolicyCanonical_calculateMemoryBuffer(t *testing.T) {
 					ReservedForAllocate: 4 << 30,
 				},
 				setFakeMetric: func(store *utilmetric.MetricStore) {
-					store.SetNodeMetric(pkgconsts.MetricMemTotalSystem, 100<<30)
-					store.SetNodeMetric(pkgconsts.MetricMemFreeSystem, 60<<30)
-					store.SetNodeMetric(pkgconsts.MetricMemScaleFactorSystem, 500)
-					store.SetNodeMetric(pkgconsts.MetricMemUsedSystem, 40<<30)
+					store.SetNodeMetric(pkgconsts.MetricMemTotalSystem, utilmetric.MetricData{Value: 100 << 30, Time: &now})
+					store.SetNodeMetric(pkgconsts.MetricMemFreeSystem, utilmetric.MetricData{Value: 60 << 30, Time: &now})
+					store.SetNodeMetric(pkgconsts.MetricMemScaleFactorSystem, utilmetric.MetricData{Value: 500, Time: &now})
+					store.SetNodeMetric(pkgconsts.MetricMemUsedSystem, utilmetric.MetricData{Value: 40 << 30, Time: &now})
 
-					store.SetContainerMetric("pod1", "container1", pkgconsts.MetricMemRssContainer, 10<<30)
-					store.SetContainerMetric("pod1", "container1", pkgconsts.MetricMemCacheContainer, 10<<30)
+					store.SetContainerMetric("pod1", "container1", pkgconsts.MetricMemRssContainer, utilmetric.MetricData{Value: 10 << 30, Time: &now})
+					store.SetContainerMetric("pod1", "container1", pkgconsts.MetricMemCacheContainer, utilmetric.MetricData{Value: 10 << 30, Time: &now})
 
-					store.SetContainerMetric("pod2", "container2", pkgconsts.MetricMemRssContainer, 10<<30)
-					store.SetContainerMetric("pod2", "container2", pkgconsts.MetricMemCacheContainer, 10<<30)
+					store.SetContainerMetric("pod2", "container2", pkgconsts.MetricMemRssContainer, utilmetric.MetricData{Value: 10 << 30, Time: &now})
+					store.SetContainerMetric("pod2", "container2", pkgconsts.MetricMemCacheContainer, utilmetric.MetricData{Value: 10 << 30, Time: &now})
 				},
 			},
 			want: *resource.NewQuantity((96<<30)-((20<<30)*1.1+(10<<30))+((60<<30)*0.6-(10<<30)-((20<<30)*1.1+(10<<30)-(20<<30)+(10<<30))+(20<<30)), resource.BinarySI),
@@ -332,16 +335,16 @@ func TestPolicyCanonical_calculateMemoryBuffer(t *testing.T) {
 					ReservedForAllocate: 4 << 30,
 				},
 				setFakeMetric: func(store *utilmetric.MetricStore) {
-					store.SetNodeMetric(pkgconsts.MetricMemTotalSystem, 100<<30)
-					store.SetNodeMetric(pkgconsts.MetricMemFreeSystem, 30<<30)
-					store.SetNodeMetric(pkgconsts.MetricMemScaleFactorSystem, 500)
-					store.SetNodeMetric(pkgconsts.MetricMemUsedSystem, 40<<30)
+					store.SetNodeMetric(pkgconsts.MetricMemTotalSystem, utilmetric.MetricData{Value: 100 << 30, Time: &now})
+					store.SetNodeMetric(pkgconsts.MetricMemFreeSystem, utilmetric.MetricData{Value: 30 << 30, Time: &now})
+					store.SetNodeMetric(pkgconsts.MetricMemScaleFactorSystem, utilmetric.MetricData{Value: 500, Time: &now})
+					store.SetNodeMetric(pkgconsts.MetricMemUsedSystem, utilmetric.MetricData{Value: 40 << 30, Time: &now})
 
-					store.SetContainerMetric("pod1", "container1", pkgconsts.MetricMemRssContainer, 10<<30)
-					store.SetContainerMetric("pod1", "container1", pkgconsts.MetricMemCacheContainer, 10<<30)
+					store.SetContainerMetric("pod1", "container1", pkgconsts.MetricMemRssContainer, utilmetric.MetricData{Value: 10 << 30, Time: &now})
+					store.SetContainerMetric("pod1", "container1", pkgconsts.MetricMemCacheContainer, utilmetric.MetricData{Value: 10 << 30, Time: &now})
 
-					store.SetContainerMetric("pod2", "container2", pkgconsts.MetricMemRssContainer, 10<<30)
-					store.SetContainerMetric("pod2", "container2", pkgconsts.MetricMemCacheContainer, 10<<30)
+					store.SetContainerMetric("pod2", "container2", pkgconsts.MetricMemRssContainer, utilmetric.MetricData{Value: 10 << 30, Time: &now})
+					store.SetContainerMetric("pod2", "container2", pkgconsts.MetricMemCacheContainer, utilmetric.MetricData{Value: 10 << 30, Time: &now})
 				},
 			},
 			want: *resource.NewQuantity((96<<30)-((20<<30)*1.1+(10<<30))+(20<<30), resource.BinarySI),
@@ -415,16 +418,16 @@ func TestPolicyCanonical_calculateMemoryBuffer(t *testing.T) {
 					ReservedForAllocate: 4 << 30,
 				},
 				setFakeMetric: func(store *utilmetric.MetricStore) {
-					store.SetNodeMetric(pkgconsts.MetricMemTotalSystem, 100<<30)
-					store.SetNodeMetric(pkgconsts.MetricMemFreeSystem, 20<<30)
-					store.SetNodeMetric(pkgconsts.MetricMemScaleFactorSystem, 500)
-					store.SetNodeMetric(pkgconsts.MetricMemUsedSystem, 60<<30)
+					store.SetNodeMetric(pkgconsts.MetricMemTotalSystem, utilmetric.MetricData{Value: 100 << 30, Time: &now})
+					store.SetNodeMetric(pkgconsts.MetricMemFreeSystem, utilmetric.MetricData{Value: 20 << 30, Time: &now})
+					store.SetNodeMetric(pkgconsts.MetricMemScaleFactorSystem, utilmetric.MetricData{Value: 500, Time: &now})
+					store.SetNodeMetric(pkgconsts.MetricMemUsedSystem, utilmetric.MetricData{Value: 60 << 30, Time: &now})
 
-					store.SetContainerMetric("pod1", "container1", pkgconsts.MetricMemRssContainer, 15<<30)
-					store.SetContainerMetric("pod1", "container1", pkgconsts.MetricMemCacheContainer, 15<<30)
+					store.SetContainerMetric("pod1", "container1", pkgconsts.MetricMemRssContainer, utilmetric.MetricData{Value: 15 << 30, Time: &now})
+					store.SetContainerMetric("pod1", "container1", pkgconsts.MetricMemCacheContainer, utilmetric.MetricData{Value: 15 << 30, Time: &now})
 
-					store.SetContainerMetric("pod2", "container2", pkgconsts.MetricMemRssContainer, 10<<30)
-					store.SetContainerMetric("pod2", "container2", pkgconsts.MetricMemCacheContainer, 10<<30)
+					store.SetContainerMetric("pod2", "container2", pkgconsts.MetricMemRssContainer, utilmetric.MetricData{Value: 10 << 30, Time: &now})
+					store.SetContainerMetric("pod2", "container2", pkgconsts.MetricMemCacheContainer, utilmetric.MetricData{Value: 10 << 30, Time: &now})
 				},
 			},
 			want: *resource.NewQuantity((96<<30)-((30<<30)*1.1+(10<<30))+((40<<30)-(20<<30))*0.6+(20<<30), resource.BinarySI),

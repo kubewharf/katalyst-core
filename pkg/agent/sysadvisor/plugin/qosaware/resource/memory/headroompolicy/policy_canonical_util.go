@@ -104,29 +104,34 @@ type systemMemoryMetrics struct {
 // getSystemMemoryInfo get system memory info from meta server
 func (p *PolicyCanonical) getSystemMemoryInfo() (*systemMemoryMetrics, error) {
 	var (
+		m    metric.MetricData
 		info systemMemoryMetrics
 		err  error
 	)
 
-	info.memoryTotal, err = p.metaServer.GetNodeMetric(consts.MetricMemTotalSystem)
+	m, err = p.metaServer.GetNodeMetric(consts.MetricMemTotalSystem)
 	if err != nil {
 		return nil, err
 	}
+	info.memoryTotal = m.Value
 
-	info.memoryFree, err = p.metaServer.GetNodeMetric(consts.MetricMemFreeSystem)
+	m, err = p.metaServer.GetNodeMetric(consts.MetricMemFreeSystem)
 	if err != nil {
 		return nil, err
 	}
+	info.memoryFree = m.Value
 
-	info.scaleFactor, err = p.metaServer.GetNodeMetric(consts.MetricMemScaleFactorSystem)
+	m, err = p.metaServer.GetNodeMetric(consts.MetricMemScaleFactorSystem)
 	if err != nil {
 		return nil, err
 	}
+	info.scaleFactor = m.Value
 
-	used, err := p.metaServer.GetNodeMetric(consts.MetricMemUsedSystem)
+	m, err = p.metaServer.GetNodeMetric(consts.MetricMemUsedSystem)
 	if err != nil {
 		return nil, err
 	}
+	used := m.Value
 	info.memoryUtilization = used / info.memoryTotal
 
 	return &info, nil
@@ -156,13 +161,13 @@ func (p *PolicyCanonical) getMemoryMetrics(filter func(pod *v1.Pod) bool) (*memo
 		return nil, err
 	}
 
-	cache := p.metaServer.AggregatePodMetric(regionPods, consts.MetricMemCacheContainer, metric.AggregatorSum, metric.DefaultContainerMetricFilter)
-	shmem := p.metaServer.AggregatePodMetric(regionPods, consts.MetricMemShmemContainer, metric.AggregatorSum, metric.DefaultContainerMetricFilter)
-	rss := p.metaServer.AggregatePodMetric(regionPods, consts.MetricMemRssContainer, metric.AggregatorSum, metric.DefaultContainerMetricFilter)
+	cacheMetric := p.metaServer.AggregatePodMetric(regionPods, consts.MetricMemCacheContainer, metric.AggregatorSum, metric.DefaultContainerMetricFilter)
+	shmemMetric := p.metaServer.AggregatePodMetric(regionPods, consts.MetricMemShmemContainer, metric.AggregatorSum, metric.DefaultContainerMetricFilter)
+	rssMetric := p.metaServer.AggregatePodMetric(regionPods, consts.MetricMemRssContainer, metric.AggregatorSum, metric.DefaultContainerMetricFilter)
 	return &memoryMetrics{
-		cache: cache,
-		shmem: shmem,
-		rss:   rss,
+		cache: cacheMetric.Value,
+		shmem: shmemMetric.Value,
+		rss:   rssMetric.Value,
 	}, nil
 }
 

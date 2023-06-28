@@ -25,6 +25,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"k8s.io/apimachinery/pkg/util/sets"
 )
@@ -37,14 +38,6 @@ func Max(a, b int) int {
 	}
 }
 
-func Min(a, b int) int {
-	if a >= b {
-		return b
-	} else {
-		return a
-	}
-}
-
 func MaxUInt64(a, b uint64) uint64 {
 	if a >= b {
 		return a
@@ -53,16 +46,35 @@ func MaxUInt64(a, b uint64) uint64 {
 	}
 }
 
-func MinUInt64(a, b uint64) uint64 {
-	if a <= b {
+func MaxInt64(a, b int64) int64 {
+	if a >= b {
 		return a
 	} else {
 		return b
 	}
 }
 
-func MaxInt64(a, b int64) int64 {
+func MaxTimePtr(a, b *time.Time) *time.Time {
+	if a == nil {
+		return b
+	} else if b == nil {
+		return a
+	} else if a.After(*b) {
+		return a
+	}
+	return b
+}
+
+func Min(a, b int) int {
 	if a >= b {
+		return b
+	} else {
+		return a
+	}
+}
+
+func MinUInt64(a, b uint64) uint64 {
+	if a <= b {
 		return a
 	} else {
 		return b

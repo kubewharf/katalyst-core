@@ -19,18 +19,30 @@ package metric
 import (
 	"errors"
 	"sync"
+	"time"
 )
+
+// MetricData represents the standard response data for metric getter functions
+type MetricData struct {
+	Value float64
+
+	// Time may have different meanings in different scenarios
+	// - for single metric: it represents the exact collecting time
+	// - for aggregated metric: it represents the newest time among all metric items
+	Time *time.Time
+}
 
 // MetricStore stores those raw metric data items collected from
 // agent.MetricsFetcher
 type MetricStore struct {
-	nodeMetricMap             map[string]float64                                  // map[metricName]value
-	numaMetricMap             map[int]map[string]float64                          // map[numaID]map[metricName]value
-	deviceMetricMap           map[string]map[string]float64                       // map[deviceName]map[metricName]value
-	cpuMetricMap              map[int]map[string]float64                          // map[cpuID]map[metricName]value
-	podContainerMetricMap     map[string]map[string]map[string]float64            // map[podUID]map[containerName]map[metricName]value
-	podContainerNumaMetricMap map[string]map[string]map[string]map[string]float64 // map[podUID]map[containerName]map[numaNode]map[metricName]value
-	mutex                     sync.RWMutex
+	mutex sync.RWMutex
+
+	nodeMetricMap             map[string]MetricData                                  // map[metricName]data
+	numaMetricMap             map[int]map[string]MetricData                          // map[numaID]map[metricName]data
+	deviceMetricMap           map[string]map[string]MetricData                       // map[deviceName]map[metricName]data
+	cpuMetricMap              map[int]map[string]MetricData                          // map[cpuID]map[metricName]data
+	podContainerMetricMap     map[string]map[string]map[string]MetricData            // map[podUID]map[containerName]map[metricName]data
+	podContainerNumaMetricMap map[string]map[string]map[string]map[string]MetricData // map[podUID]map[containerName]map[numaNode]map[metricName]data
 }
 
 var (
@@ -44,160 +56,160 @@ func GetMetricStoreInstance() *MetricStore {
 	metricStoreInitOnce.Do(
 		func() {
 			metricStoreInstance = &MetricStore{
-				nodeMetricMap:             make(map[string]float64),
-				numaMetricMap:             make(map[int]map[string]float64),
-				deviceMetricMap:           make(map[string]map[string]float64),
-				cpuMetricMap:              make(map[int]map[string]float64),
-				podContainerMetricMap:     make(map[string]map[string]map[string]float64),
-				podContainerNumaMetricMap: make(map[string]map[string]map[string]map[string]float64),
+				nodeMetricMap:             make(map[string]MetricData),
+				numaMetricMap:             make(map[int]map[string]MetricData),
+				deviceMetricMap:           make(map[string]map[string]MetricData),
+				cpuMetricMap:              make(map[int]map[string]MetricData),
+				podContainerMetricMap:     make(map[string]map[string]map[string]MetricData),
+				podContainerNumaMetricMap: make(map[string]map[string]map[string]map[string]MetricData),
 			}
 		})
 	return metricStoreInstance
 }
 
-func (c *MetricStore) SetNodeMetric(metricName string, value float64) {
+func (c *MetricStore) SetNodeMetric(metricName string, data MetricData) {
 	c.mutex.Lock()
 	defer c.mutex.Unlock()
-	c.nodeMetricMap[metricName] = value
+	c.nodeMetricMap[metricName] = data
 }
 
-func (c *MetricStore) SetNumaMetric(numaID int, metricName string, value float64) {
+func (c *MetricStore) SetNumaMetric(numaID int, metricName string, data MetricData) {
 	c.mutex.Lock()
 	defer c.mutex.Unlock()
 	if _, ok := c.numaMetricMap[numaID]; !ok {
-		c.numaMetricMap[numaID] = make(map[string]float64)
+		c.numaMetricMap[numaID] = make(map[string]MetricData)
 	}
-	c.numaMetricMap[numaID][metricName] = value
+	c.numaMetricMap[numaID][metricName] = data
 }
 
-func (c *MetricStore) SetDeviceMetric(deviceName string, metricName string, value float64) {
+func (c *MetricStore) SetDeviceMetric(deviceName string, metricName string, data MetricData) {
 	c.mutex.Lock()
 	defer c.mutex.Unlock()
 	if _, ok := c.deviceMetricMap[deviceName]; !ok {
-		c.deviceMetricMap[deviceName] = make(map[string]float64)
+		c.deviceMetricMap[deviceName] = make(map[string]MetricData)
 	}
-	c.deviceMetricMap[deviceName][metricName] = value
+	c.deviceMetricMap[deviceName][metricName] = data
 }
 
-func (c *MetricStore) SetCPUMetric(cpuID int, metricName string, value float64) {
+func (c *MetricStore) SetCPUMetric(cpuID int, metricName string, data MetricData) {
 	c.mutex.Lock()
 	defer c.mutex.Unlock()
 	if _, ok := c.cpuMetricMap[cpuID]; !ok {
-		c.cpuMetricMap[cpuID] = make(map[string]float64)
+		c.cpuMetricMap[cpuID] = make(map[string]MetricData)
 	}
-	c.cpuMetricMap[cpuID][metricName] = value
+	c.cpuMetricMap[cpuID][metricName] = data
 }
 
-func (c *MetricStore) SetContainerMetric(podUID, containerName, metricName string, value float64) {
+func (c *MetricStore) SetContainerMetric(podUID, containerName, metricName string, data MetricData) {
 	c.mutex.Lock()
 	defer c.mutex.Unlock()
 	if _, ok := c.podContainerMetricMap[podUID]; !ok {
-		c.podContainerMetricMap[podUID] = make(map[string]map[string]float64)
+		c.podContainerMetricMap[podUID] = make(map[string]map[string]MetricData)
 	}
 
 	if _, ok := c.podContainerMetricMap[podUID][containerName]; !ok {
-		c.podContainerMetricMap[podUID][containerName] = make(map[string]float64)
+		c.podContainerMetricMap[podUID][containerName] = make(map[string]MetricData)
 	}
-	c.podContainerMetricMap[podUID][containerName][metricName] = value
+	c.podContainerMetricMap[podUID][containerName][metricName] = data
 }
 
-func (c *MetricStore) SetContainerNumaMetric(podUID, containerName, numaNode, metricName string, value float64) {
+func (c *MetricStore) SetContainerNumaMetric(podUID, containerName, numaNode, metricName string, data MetricData) {
 	c.mutex.Lock()
 	defer c.mutex.Unlock()
 
 	if _, ok := c.podContainerNumaMetricMap[podUID]; !ok {
-		c.podContainerNumaMetricMap[podUID] = make(map[string]map[string]map[string]float64)
+		c.podContainerNumaMetricMap[podUID] = make(map[string]map[string]map[string]MetricData)
 	}
 
 	if _, ok := c.podContainerNumaMetricMap[podUID][containerName]; !ok {
-		c.podContainerNumaMetricMap[podUID][containerName] = make(map[string]map[string]float64)
+		c.podContainerNumaMetricMap[podUID][containerName] = make(map[string]map[string]MetricData)
 	}
 
 	if _, ok := c.podContainerNumaMetricMap[podUID][containerName][numaNode]; !ok {
-		c.podContainerNumaMetricMap[podUID][containerName][numaNode] = make(map[string]float64)
+		c.podContainerNumaMetricMap[podUID][containerName][numaNode] = make(map[string]MetricData)
 	}
-	c.podContainerNumaMetricMap[podUID][containerName][numaNode][metricName] = value
+	c.podContainerNumaMetricMap[podUID][containerName][numaNode][metricName] = data
 }
 
-func (c *MetricStore) GetNodeMetric(metricName string) (float64, error) {
+func (c *MetricStore) GetNodeMetric(metricName string) (MetricData, error) {
 	c.mutex.RLock()
 	defer c.mutex.RUnlock()
-	if value, ok := c.nodeMetricMap[metricName]; ok {
-		return value, nil
+	if data, ok := c.nodeMetricMap[metricName]; ok {
+		return data, nil
 	} else {
-		return 0, errors.New("[MetricStore] load value failed")
+		return MetricData{}, errors.New("[MetricStore] load value failed")
 	}
 }
 
-func (c *MetricStore) GetNumaMetric(numaID int, metricName string) (float64, error) {
+func (c *MetricStore) GetNumaMetric(numaID int, metricName string) (MetricData, error) {
 	c.mutex.RLock()
 	defer c.mutex.RUnlock()
 	if c.numaMetricMap[numaID] != nil {
-		if value, ok := c.numaMetricMap[numaID][metricName]; ok {
-			return value, nil
+		if data, ok := c.numaMetricMap[numaID][metricName]; ok {
+			return data, nil
 		} else {
-			return 0, errors.New("[MetricStore] load value failed")
+			return MetricData{}, errors.New("[MetricStore] load value failed")
 		}
 	}
-	return 0, errors.New("[MetricStore] empty map")
+	return MetricData{}, errors.New("[MetricStore] empty map")
 }
 
-func (c *MetricStore) GetDeviceMetric(deviceName string, metricName string) (float64, error) {
+func (c *MetricStore) GetDeviceMetric(deviceName string, metricName string) (MetricData, error) {
 	c.mutex.RLock()
 	defer c.mutex.RUnlock()
 	if c.deviceMetricMap[deviceName] != nil {
-		if value, ok := c.deviceMetricMap[deviceName][metricName]; ok {
-			return value, nil
+		if data, ok := c.deviceMetricMap[deviceName][metricName]; ok {
+			return data, nil
 		} else {
-			return 0, errors.New("[MetricStore] load value failed")
+			return MetricData{}, errors.New("[MetricStore] load value failed")
 		}
 	}
-	return 0, errors.New("[MetricStore] empty map")
+	return MetricData{}, errors.New("[MetricStore] empty map")
 }
 
-func (c *MetricStore) GetCPUMetric(coreID int, metricName string) (float64, error) {
+func (c *MetricStore) GetCPUMetric(coreID int, metricName string) (MetricData, error) {
 	c.mutex.RLock()
 	defer c.mutex.RUnlock()
 	if c.cpuMetricMap[coreID] != nil {
-		if value, ok := c.cpuMetricMap[coreID][metricName]; ok {
-			return value, nil
+		if data, ok := c.cpuMetricMap[coreID][metricName]; ok {
+			return data, nil
 		} else {
-			return 0, errors.New("[MetricStore] load value failed")
+			return MetricData{}, errors.New("[MetricStore] load value failed")
 		}
 	}
-	return 0, errors.New("[MetricStore] empty map")
+	return MetricData{}, errors.New("[MetricStore] empty map")
 }
 
-func (c *MetricStore) GetContainerMetric(podUID, containerName, metricName string) (float64, error) {
+func (c *MetricStore) GetContainerMetric(podUID, containerName, metricName string) (MetricData, error) {
 	c.mutex.RLock()
 	defer c.mutex.RUnlock()
 	if c.podContainerMetricMap[podUID] != nil {
 		if c.podContainerMetricMap[podUID][containerName] != nil {
-			if value, ok := c.podContainerMetricMap[podUID][containerName][metricName]; ok {
-				return value, nil
+			if data, ok := c.podContainerMetricMap[podUID][containerName][metricName]; ok {
+				return data, nil
 			} else {
-				return 0, errors.New("[MetricStore] load value failed")
+				return MetricData{}, errors.New("[MetricStore] load value failed")
 			}
 		}
 	}
-	return 0, errors.New("[MetricStore] empty map")
+	return MetricData{}, errors.New("[MetricStore] empty map")
 }
 
-func (c *MetricStore) GetContainerNumaMetric(podUID, containerName, numaNode, metricName string) (float64, error) {
+func (c *MetricStore) GetContainerNumaMetric(podUID, containerName, numaNode, metricName string) (MetricData, error) {
 	c.mutex.RLock()
 	defer c.mutex.RUnlock()
 	if c.podContainerNumaMetricMap[podUID] != nil {
 		if c.podContainerNumaMetricMap[podUID][containerName] != nil {
 			if c.podContainerNumaMetricMap[podUID][containerName][numaNode] != nil {
-				if value, ok := c.podContainerNumaMetricMap[podUID][containerName][numaNode][metricName]; ok {
-					return value, nil
+				if data, ok := c.podContainerNumaMetricMap[podUID][containerName][numaNode][metricName]; ok {
+					return data, nil
 				} else {
-					return 0, errors.New("[MetricStore] load value failed")
+					return MetricData{}, errors.New("[MetricStore] load value failed")
 				}
 			}
 		}
 	}
-	return 0, errors.New("[MetricStore] empty map")
+	return MetricData{}, errors.New("[MetricStore] empty map")
 }
 
 func (c *MetricStore) GCPodsMetric(livingPodUIDSet map[string]bool) {
