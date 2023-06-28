@@ -38,6 +38,7 @@ type Manager interface {
 	ApplyCPU(absCgroupPath string, data *common.CPUData) error
 	ApplyCPUSet(absCgroupPath string, data *common.CPUSetData) error
 	ApplyNetCls(absCgroupPath string, data *common.NetClsData) error
+	ApplyUnifiedData(absCgroupPath, cgroupFileName, data string) error
 
 	GetMemory(absCgroupPath string) (*common.MemoryStats, error)
 	GetCPU(absCgroupPath string) (*common.CPUStats, error)

@@ -17,8 +17,9 @@ limitations under the License.
 package global
 
 type QRMAdvisorConfiguration struct {
-	CPUAdvisorSocketAbsPath    string
-	CPUPluginSocketAbsPath     string
+	CPUAdvisorSocketAbsPath string
+	CPUPluginSocketAbsPath  string
+
 	MemoryAdvisorSocketAbsPath string
 }
 

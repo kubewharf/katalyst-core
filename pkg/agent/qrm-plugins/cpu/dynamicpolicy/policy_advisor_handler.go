@@ -38,6 +38,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 	"github.com/kubewharf/katalyst-core/pkg/util/process"
+	"google.golang.org/grpc/status"
 )
 
 /* in the below, cpu-plugin works in server-mode, while cpu-advisor works in client-mode */
@@ -204,6 +205,8 @@ func (p *DynamicPolicy) pushCPUAdvisor() error {
 // lwCPUAdvisorServer works as a client to connect with cpu-advisor.
 // it will wait to receive allocations from cpu-advisor, and perform allocate actions
 func (p *DynamicPolicy) lwCPUAdvisorServer(stopCh <-chan struct{}) error {
+	general.Infof("called")
+
 	ctx, cancel := context.WithCancel(context.Background())
 	go func() {
 		<-stopCh
@@ -220,7 +223,8 @@ func (p *DynamicPolicy) lwCPUAdvisorServer(stopCh <-chan struct{}) error {
 		resp, err := stream.Recv()
 		if err != nil {
 			_ = p.emitter.StoreInt64(util.MetricNameLWCPUAdvisorServerFailed, 1, metrics.MetricTypeNameRaw)
-			return fmt.Errorf("receive ListAndWatch response of CPUAdvisorServer failed with error: %v", err)
+			return fmt.Errorf("receive ListAndWatch response of CPUAdvisorServer failed with error: %v, grpc code: %v",
+				err, status.Code(err))
 		}
 
 		err = p.allocateByCPUAdvisor(resp)

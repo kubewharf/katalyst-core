@@ -114,7 +114,7 @@ type DynamicPolicy struct {
 
 	// those are parsed from configurations
 	// todo if we want to use dynamic configuration, we'd better not use self-defined conf
-	enableCPUSysAdvisor           bool
+	enableCPUAdvisor              bool
 	reservedCPUs                  machine.CPUSet
 	cpuAdvisorSocketAbsPath       string
 	cpuPluginSocketAbsPath        string
@@ -189,7 +189,7 @@ func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration
 		dynamicConfig:                 conf.DynamicAgentConfiguration,
 		cpuAdvisorSocketAbsPath:       conf.CPUAdvisorSocketAbsPath,
 		cpuPluginSocketAbsPath:        conf.CPUPluginSocketAbsPath,
-		enableCPUSysAdvisor:           conf.CPUQRMPluginConfig.EnableSysAdvisor,
+		enableCPUAdvisor:              conf.CPUQRMPluginConfig.EnableCPUAdvisor,
 		reservedCPUs:                  reservedCPUs,
 		extraStateFileAbsPath:         conf.ExtraStateFileAbsPath,
 		enableSyncingCPUIdle:          conf.CPUQRMPluginConfig.EnableSyncingCPUIdle,
@@ -288,7 +288,7 @@ func (p *DynamicPolicy) Start() (err error) {
 	}
 
 	// pre-check necessary dirs if sys-advisor is enabled
-	if !p.enableCPUSysAdvisor {
+	if !p.enableCPUAdvisor {
 		general.Infof("start dynamic policy cpu plugin without sys-advisor")
 		return nil
 	} else if p.cpuAdvisorSocketAbsPath == "" || p.cpuPluginSocketAbsPath == "" {
@@ -697,7 +697,7 @@ func (p *DynamicPolicy) Allocate(ctx context.Context,
 	p.Lock()
 	defer func() {
 		// calls sys-advisor to inform the latest container
-		if p.enableCPUSysAdvisor && respErr == nil && req.ContainerType != pluginapi.ContainerType_INIT {
+		if p.enableCPUAdvisor && respErr == nil && req.ContainerType != pluginapi.ContainerType_INIT {
 			_, err := p.advisorClient.AddContainer(ctx, &advisorsvc.AddContainerRequest{
 				PodUid:          req.PodUid,
 				PodNamespace:    req.PodNamespace,
@@ -790,7 +790,7 @@ func (p *DynamicPolicy) RemovePod(ctx context.Context,
 		}
 	}()
 
-	if p.enableCPUSysAdvisor {
+	if p.enableCPUAdvisor {
 		_, err = p.advisorClient.RemovePod(ctx, &advisorsvc.RemovePodRequest{PodUid: req.PodUid})
 		if err != nil {
 			return nil, fmt.Errorf("remove pod in QoS aware server failed with error: %v", err)

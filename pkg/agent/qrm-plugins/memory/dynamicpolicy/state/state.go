@@ -24,8 +24,10 @@ import (
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/klog/v2"
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
+	maputil "k8s.io/kubernetes/pkg/util/maps"
 
 	"github.com/kubewharf/katalyst-api/pkg/consts"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
@@ -43,11 +45,33 @@ type AllocationInfo struct {
 	AggregatedQuantity   uint64         `json:"aggregated_quantity"`
 	NumaAllocationResult machine.CPUSet `json:"numa_allocation_result,omitempty"`
 
-	// key by numa node id, value is assignment for the pod in corresponding NUMA node
-	TopologyAwareAllocations map[int]uint64    `json:"topology_aware_allocations"`
-	Labels                   map[string]string `json:"labels"`
-	Annotations              map[string]string `json:"annotations"`
-	QoSLevel                 string            `json:"qosLevel"`
+	// keyed by numa node id, value is assignment for the pod in corresponding NUMA node
+	TopologyAwareAllocations map[int]uint64 `json:"topology_aware_allocations"`
+
+	// keyed by control knob names referred in memoryadvisor package
+	ExtraControlKnobInfo map[string]ControlKnobInfo `json:"extra_control_knob_info"`
+	Labels               map[string]string          `json:"labels"`
+	Annotations          map[string]string          `json:"annotations"`
+	QoSLevel             string                     `json:"qosLevel"`
+}
+
+// shows common types of control knobs:
+// 1. applied by cgroup manager according to entryName, subEntryName, cgroupIfaceName and cgroupSubsysName
+// 2. applied by QRM framework according to ociPropertyName
+//
+// there may be new types of control knobs,
+// we won't modified this struct to identify them,
+// and we will register custom per-control-knob executor to deal with them.
+type ControlKnobInfo struct {
+	ControlKnobValue string `json:"control_knob_value"`
+
+	// for control knobs applied by cgroup manager
+	// according to entryName, subEntryName, cgroupIfaceName and cgroupSubsysName
+	CgroupVersionToIfaceName map[string]string `json:"cgroup_version_to_iface_name"`
+	CgroupSubsysName         string            `json:"cgroup_subsys_name"`
+
+	// for control knobs applied by QRM framework according to ociPropertyName
+	OciPropertyName string `json:"oci_property_name"`
 }
 
 type ContainerEntries map[string]*AllocationInfo       // Keyed by container name
@@ -101,10 +125,15 @@ func (ai *AllocationInfo) Clone() *AllocationInfo {
 		QoSLevel:                 ai.QoSLevel,
 		Labels:                   general.DeepCopyMap(ai.Labels),
 		Annotations:              general.DeepCopyMap(ai.Annotations),
+		ExtraControlKnobInfo:     make(map[string]ControlKnobInfo),
 	}
 
 	for node, quantity := range ai.TopologyAwareAllocations {
 		clone.TopologyAwareAllocations[node] = quantity
+	}
+
+	for name := range ai.ExtraControlKnobInfo {
+		clone.ExtraControlKnobInfo[name] = ai.ExtraControlKnobInfo[name]
 	}
 	return clone
 }
@@ -124,6 +153,44 @@ func (ai *AllocationInfo) CheckMainContainer() bool {
 // CheckSideCar returns true if the AllocationInfo is for side-car container
 func (ai *AllocationInfo) CheckSideCar() bool {
 	return ai.ContainerType == pluginapi.ContainerType_SIDECAR.String()
+}
+
+// GetResourceAllocation transforms resource allocation information into *pluginapi.ResourceAllocation
+func (ai *AllocationInfo) GetResourceAllocation() (*pluginapi.ResourceAllocation, error) {
+	if ai == nil {
+		return nil, fmt.Errorf("GetResourceAllocation of nil AllocationInfo")
+	}
+
+	// deal with main resource
+	resourceAllocation := &pluginapi.ResourceAllocation{
+		ResourceAllocation: map[string]*pluginapi.ResourceAllocationInfo{
+			string(v1.ResourceMemory): {
+				OciPropertyName:   util.OCIPropertyNameCPUSetMems,
+				IsNodeResource:    false,
+				IsScalarResource:  true,
+				AllocatedQuantity: float64(ai.AggregatedQuantity),
+				AllocationResult:  ai.NumaAllocationResult.String(),
+			},
+		},
+	}
+
+	// deal with accompanying resources
+	for name, entry := range ai.ExtraControlKnobInfo {
+		if entry.OciPropertyName == "" {
+			continue
+		}
+
+		if resourceAllocation.ResourceAllocation[name] != nil {
+			return nil, fmt.Errorf("name: %s meets conflict", name)
+		}
+
+		resourceAllocation.ResourceAllocation[name] = &pluginapi.ResourceAllocationInfo{
+			OciPropertyName:  entry.OciPropertyName,
+			AllocationResult: entry.ControlKnobValue,
+		}
+	}
+
+	return resourceAllocation, nil
 }
 
 func (pe PodEntries) Clone() PodEntries {
@@ -284,6 +351,15 @@ func (nrm NUMANodeResourcesMap) Clone() NUMANodeResourcesMap {
 		clone[resourceName] = nm.Clone()
 	}
 	return clone
+}
+
+func (cki ControlKnobInfo) Clone() ControlKnobInfo {
+	return ControlKnobInfo{
+		ControlKnobValue:         cki.ControlKnobValue,
+		CgroupVersionToIfaceName: maputil.CopySS(cki.CgroupVersionToIfaceName),
+		CgroupSubsysName:         cki.CgroupSubsysName,
+		OciPropertyName:          cki.OciPropertyName,
+	}
 }
 
 // reader is used to get information from local states

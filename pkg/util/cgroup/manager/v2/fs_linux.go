@@ -25,6 +25,7 @@ import (
 	"io/ioutil"
 	"math"
 	"os"
+	"path"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -158,6 +159,17 @@ func (m *manager) ApplyCPUSet(absCgroupPath string, data *common.CPUSetData) err
 
 func (m *manager) ApplyNetCls(_ string, _ *common.NetClsData) error {
 	return errors.New("cgroups v2 does not support net_cls cgroup, please use eBPF via external manager")
+}
+
+func (m *manager) ApplyUnifiedData(absCgroupPath, cgroupFileName, data string) error {
+	if err, applied, oldData := common.WriteFileIfChange(absCgroupPath, cgroupFileName, data); err != nil {
+		return err
+	} else if applied {
+		klog.Infof("[CgroupV2] apply unified data successfully,"+
+			" cgroupPath: %s, data: %v, old data: %v\n", path.Join(absCgroupPath, cgroupFileName), data, oldData)
+	}
+
+	return nil
 }
 
 func (m *manager) GetMemory(absCgroupPath string) (*common.MemoryStats, error) {
