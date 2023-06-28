@@ -440,11 +440,11 @@ func (p *DynamicPolicy) allocateNumaBindingCPUs(numCPUs int, hint *pluginapi.Top
 		var err error
 		alignedCPUs, err = calculator.TakeByTopology(p.machineInfo, alignedAvailableCPUs, numCPUs)
 
-		general.ErrorS(err, "take cpu for NUMA not exclusive binding container failed",
-			"hints", hint.Nodes,
-			"alignedAvailableCPUs", alignedAvailableCPUs.String())
-
 		if err != nil {
+			general.ErrorS(err, "take cpu for NUMA not exclusive binding container failed",
+				"hints", hint.Nodes,
+				"alignedAvailableCPUs", alignedAvailableCPUs.String())
+
 			return machine.NewCPUSet(),
 				fmt.Errorf("take cpu for NUMA not exclusive binding container failed with err: %v", err)
 		}
