@@ -21,6 +21,7 @@ package v1
 
 import (
 	"fmt"
+	"path"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -172,6 +173,17 @@ func (m *manager) ApplyNetCls(absCgroupPath string, data *common.NetClsData) err
 		} else if applied {
 			klog.Infof("[CgroupV1] apply net cls successfully, cgroupPath: %s, data: %v, old data: %v\n", absCgroupPath, data.ClassID, oldData)
 		}
+	}
+
+	return nil
+}
+
+func (m *manager) ApplyUnifiedData(absCgroupPath, cgroupFileName, data string) error {
+	if err, applied, oldData := common.WriteFileIfChange(absCgroupPath, cgroupFileName, data); err != nil {
+		return err
+	} else if applied {
+		klog.Infof("[CgroupV2] apply unified data successfully,"+
+			" cgroupPath: %s, data: %v, old data: %v\n", path.Join(absCgroupPath, cgroupFileName), data, oldData)
 	}
 
 	return nil

@@ -197,7 +197,7 @@ func (p *DynamicPolicy) clearResidualState() {
 			}
 
 			var rErr error
-			if p.enableCPUSysAdvisor {
+			if p.enableCPUAdvisor {
 				_, rErr = p.advisorClient.RemovePod(ctx, &advisorsvc.RemovePodRequest{
 					PodUid: podUID,
 				})

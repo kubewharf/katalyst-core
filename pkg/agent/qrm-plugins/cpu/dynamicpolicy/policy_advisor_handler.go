@@ -25,6 +25,7 @@ import (
 	"time"
 
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/status"
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 	maputil "k8s.io/kubernetes/pkg/util/maps"
 
@@ -204,6 +205,8 @@ func (p *DynamicPolicy) pushCPUAdvisor() error {
 // lwCPUAdvisorServer works as a client to connect with cpu-advisor.
 // it will wait to receive allocations from cpu-advisor, and perform allocate actions
 func (p *DynamicPolicy) lwCPUAdvisorServer(stopCh <-chan struct{}) error {
+	general.Infof("called")
+
 	ctx, cancel := context.WithCancel(context.Background())
 	go func() {
 		<-stopCh
@@ -220,7 +223,8 @@ func (p *DynamicPolicy) lwCPUAdvisorServer(stopCh <-chan struct{}) error {
 		resp, err := stream.Recv()
 		if err != nil {
 			_ = p.emitter.StoreInt64(util.MetricNameLWCPUAdvisorServerFailed, 1, metrics.MetricTypeNameRaw)
-			return fmt.Errorf("receive ListAndWatch response of CPUAdvisorServer failed with error: %v", err)
+			return fmt.Errorf("receive ListAndWatch response of CPUAdvisorServer failed with error: %v, grpc code: %v",
+				err, status.Code(err))
 		}
 
 		err = p.allocateByCPUAdvisor(resp)
