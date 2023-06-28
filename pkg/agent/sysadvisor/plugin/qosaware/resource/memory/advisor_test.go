@@ -40,6 +40,7 @@ import (
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/options"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
 	qrmstate "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/memory/dynamicpolicy/memoryadvisor"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
 	memadvisorplugin "github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource/memory/plugin"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
@@ -97,9 +98,13 @@ func generateTestConfiguration(t *testing.T, checkpointDir, stateFileDir string)
 	return conf
 }
 
-func newTestMemoryAdvisor(t *testing.T, pods []*v1.Pod, checkpointDir, stateFileDir string, fetcher metric.MetricsFetcher) (*memoryResourceAdvisor, metacache.MetaCache) {
+func newTestMemoryAdvisor(t *testing.T, pods []*v1.Pod, checkpointDir, stateFileDir string, fetcher metric.MetricsFetcher, plugins []types.MemoryAdvisorPluginName) (*memoryResourceAdvisor, metacache.MetaCache) {
 	conf := generateTestConfiguration(t, checkpointDir, stateFileDir)
-	conf.MemoryAdvisorPlugins = []types.MemoryAdvisorPluginName{memadvisorplugin.CacheReaper}
+	if len(plugins) == 0 {
+		conf.MemoryAdvisorPlugins = []types.MemoryAdvisorPluginName{memadvisorplugin.CacheReaper}
+	} else {
+		conf.MemoryAdvisorPlugins = plugins
+	}
 
 	metaCache, err := metacache.NewMetaCacheImp(conf, metric.NewFakeMetricsFetcher(metrics.DummyMetrics{}))
 	require.NoError(t, err)
@@ -161,10 +166,20 @@ type containerNUMAMetric struct {
 	numdID        int
 }
 
+type cgroupMetric struct {
+	metricName  string
+	metricValue metricutil.MetricData
+	cgroupPath  string
+}
+
 var defaultNodeMetrics = []nodeMetric{
 	{
 		metricName:  coreconsts.MetricMemFreeSystem,
 		metricValue: metricutil.MetricData{Value: 250 << 30},
+	},
+	{
+		metricName:  coreconsts.MetricMemAvailableSystem,
+		metricValue: metricutil.MetricData{Value: 300 << 30},
 	},
 	{
 		metricName:  coreconsts.MetricMemTotalSystem,
@@ -292,6 +307,14 @@ var dropCacheNUMAMetrics = []numaMetric{
 	},
 }
 
+var cgroupMetrics = []cgroupMetric{
+	{
+		metricName:  coreconsts.MetricMemRssCgroup,
+		metricValue: metricutil.MetricData{Value: 100 << 30},
+		cgroupPath:  "/kubepods/besteffort",
+	},
+}
+
 func TestUpdate(t *testing.T) {
 	t.Parallel()
 
@@ -303,10 +326,12 @@ func TestUpdate(t *testing.T) {
 		wantHeadroom         resource.Quantity
 		reclaimedEnable      bool
 		needRecvAdvices      bool
+		plugins              []types.MemoryAdvisorPluginName
 		nodeMetrics          []nodeMetric
 		numaMetrics          []numaMetric
 		containerMetrics     []containerMetric
 		containerNUMAMetrics []containerNUMAMetric
+		cgroupMetrics        []cgroupMetric
 		wantAdviceResult     types.InternalMemoryCalculationResult
 	}{
 		{
@@ -495,12 +520,12 @@ func TestUpdate(t *testing.T) {
 					{
 						PodUID:        "uid1",
 						ContainerName: "c1",
-						Values:        map[string]string{"drop_cache": "true"},
+						Values:        map[string]string{string(memoryadvisor.ControKnobKeyDropCache): "true"},
 					},
 					{
 						PodUID:        "uid3",
 						ContainerName: "c3",
-						Values:        map[string]string{"drop_cache": "true"},
+						Values:        map[string]string{string(memoryadvisor.ControKnobKeyDropCache): "true"},
 					},
 				},
 			},
@@ -580,6 +605,37 @@ func TestUpdate(t *testing.T) {
 				},
 			},
 		},
+		{
+			name: "set reclaimed group memory limit",
+			pools: map[string]*types.PoolInfo{
+				state.PoolNameReserve: {
+					PoolName: state.PoolNameReserve,
+					TopologyAwareAssignments: map[int]machine.CPUSet{
+						0: machine.MustParse("0"),
+						1: machine.MustParse("24"),
+					},
+					OriginalTopologyAwareAssignments: map[int]machine.CPUSet{
+						0: machine.MustParse("0"),
+						1: machine.MustParse("24"),
+					},
+				},
+			},
+			reclaimedEnable: true,
+			needRecvAdvices: true,
+			wantHeadroom:    *resource.NewQuantity(996<<30, resource.DecimalSI),
+			nodeMetrics:     defaultNodeMetrics,
+			numaMetrics:     defaultNumaMetrics,
+			cgroupMetrics:   cgroupMetrics,
+			plugins:         []types.MemoryAdvisorPluginName{memadvisorplugin.MemoryGuard},
+			wantAdviceResult: types.InternalMemoryCalculationResult{
+				ExtraEntries: []types.ExtraMemoryAdvices{
+					{
+						CgroupPath: "/kubepods/besteffort",
+						Values:     map[string]string{string(memoryadvisor.ControKnobKeyMemoryLimitInBytes): strconv.Itoa(375 << 30)},
+					},
+				},
+			},
+		},
 	}
 
 	for _, tt := range tests {
@@ -606,8 +662,11 @@ func TestUpdate(t *testing.T) {
 			for _, containerNUMAMetric := range tt.containerNUMAMetrics {
 				metricsFetcher.SetContainerNumaMetric(containerNUMAMetric.podUID, containerNUMAMetric.containerName, strconv.Itoa(containerNUMAMetric.numdID), containerNUMAMetric.metricName, containerNUMAMetric.metricValue)
 			}
+			for _, qosClassMetric := range tt.cgroupMetrics {
+				metricsFetcher.SetCgroupMetric(qosClassMetric.cgroupPath, qosClassMetric.metricName, qosClassMetric.metricValue)
+			}
 
-			advisor, metaCache := newTestMemoryAdvisor(t, tt.pods, ckDir, sfDir, fetcher)
+			advisor, metaCache := newTestMemoryAdvisor(t, tt.pods, ckDir, sfDir, fetcher, tt.plugins)
 			advisor.startTime = time.Now().Add(-startUpPeriod * 2)
 			advisor.conf.GetDynamicConfiguration().EnableReclaim = tt.reclaimedEnable
 			_, advisorRecvChInterface := advisor.GetChannels()
