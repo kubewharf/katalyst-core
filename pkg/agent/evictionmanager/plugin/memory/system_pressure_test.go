@@ -113,12 +113,13 @@ func TestSystemPressureEvictionPlugin_ThresholdMet(t *testing.T) {
 	fakeMetricsFetcher := plugin.metaServer.MetricsFetcher.(*metric.FakeMetricsFetcher)
 	assert.NotNil(t, fakeMetricsFetcher)
 
-	now := time.Now()
-	fakeMetricsFetcher.SetNodeMetric(consts.MetricMemTotalSystem, utilMetric.MetricData{Value: float64(systemTotal), Time: &now})
-	fakeMetricsFetcher.SetNodeMetric(consts.MetricMemScaleFactorSystem, utilMetric.MetricData{Value: float64(scaleFactor), Time: &now})
+	start := time.Now()
+	fakeMetricsFetcher.SetNodeMetric(consts.MetricMemTotalSystem, utilMetric.MetricData{Value: float64(systemTotal), Time: &start})
+	fakeMetricsFetcher.SetNodeMetric(consts.MetricMemScaleFactorSystem, utilMetric.MetricData{Value: float64(scaleFactor), Time: &start})
 
 	tests := []struct {
 		name                      string
+		round                     int64
 		systemFree                float64
 		systemKswapSteal          float64
 		wantMetType               pluginapi.ThresholdMetType
@@ -129,6 +130,7 @@ func TestSystemPressureEvictionPlugin_ThresholdMet(t *testing.T) {
 	}{
 		{
 			name:                      "system above watermark, kswapd steal not exceed",
+			round:                     0,
 			systemFree:                45 * 1024 * 1024 * 1024,
 			systemKswapSteal:          10000,
 			wantMetType:               pluginapi.ThresholdMetType_NOT_MET,
@@ -139,6 +141,7 @@ func TestSystemPressureEvictionPlugin_ThresholdMet(t *testing.T) {
 		},
 		{
 			name:              "system below watermark, kswapd steal exceed",
+			round:             1,
 			systemFree:        3 * 1024 * 1024 * 1024,
 			systemKswapSteal:  45000,
 			wantMetType:       pluginapi.ThresholdMetType_HARD_MET,
@@ -154,6 +157,7 @@ func TestSystemPressureEvictionPlugin_ThresholdMet(t *testing.T) {
 		},
 		{
 			name:                      "system above watermark, kswapd steal not exceed",
+			round:                     2,
 			systemFree:                11 * 1024 * 1024 * 1024,
 			systemKswapSteal:          55000,
 			wantMetType:               pluginapi.ThresholdMetType_NOT_MET,
@@ -163,6 +167,7 @@ func TestSystemPressureEvictionPlugin_ThresholdMet(t *testing.T) {
 		},
 		{
 			name:              "system below watermark, kswapd steal exceed",
+			round:             3,
 			systemFree:        3 * 1024 * 1024 * 1024,
 			systemKswapSteal:  90000,
 			wantMetType:       pluginapi.ThresholdMetType_HARD_MET,
@@ -178,6 +183,7 @@ func TestSystemPressureEvictionPlugin_ThresholdMet(t *testing.T) {
 		},
 		{
 			name:              "system below watermark, kswapd steal exceed",
+			round:             4,
 			systemFree:        3 * 1024 * 1024 * 1024,
 			systemKswapSteal:  125000,
 			wantMetType:       pluginapi.ThresholdMetType_HARD_MET,
@@ -193,6 +199,7 @@ func TestSystemPressureEvictionPlugin_ThresholdMet(t *testing.T) {
 		},
 		{
 			name:              "system above watermark, kswapd steal exceed",
+			round:             5,
 			systemFree:        12 * 1024 * 1024 * 1024,
 			systemKswapSteal:  160000,
 			wantMetType:       pluginapi.ThresholdMetType_HARD_MET,
@@ -209,7 +216,7 @@ func TestSystemPressureEvictionPlugin_ThresholdMet(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			now := time.Now()
+			now := start.Add(time.Duration(tt.round) * evictionManagerSyncPeriod)
 			fakeMetricsFetcher.SetNodeMetric(consts.MetricMemFreeSystem, utilMetric.MetricData{Value: tt.systemFree, Time: &now})
 			fakeMetricsFetcher.SetNodeMetric(consts.MetricMemKswapdstealSystem, utilMetric.MetricData{Value: tt.systemKswapSteal, Time: &now})
 
