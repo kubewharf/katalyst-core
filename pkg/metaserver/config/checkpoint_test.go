@@ -36,6 +36,7 @@ func TestNewCheckpoint(t *testing.T) {
 			Spec: v1alpha1.AdminQoSConfigurationSpec{
 				Config: v1alpha1.AdminQoSConfig{
 					EvictionConfig: &v1alpha1.EvictionConfig{
+						DryRun: []string{},
 						ReclaimedResourcesEvictionConfig: &v1alpha1.ReclaimedResourcesEvictionConfig{
 							EvictionThreshold: map[corev1.ResourceName]float64{
 								corev1.ResourceCPU: 5.0,

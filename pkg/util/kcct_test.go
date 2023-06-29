@@ -820,7 +820,7 @@ func Test_kccTargetResource_GenerateConfigHash(t *testing.T) {
 					},
 				}),
 			},
-			want: "7e6046bb4b30",
+			want: "d19f7162addf",
 		},
 		{
 			name: "test-2",
