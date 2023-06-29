@@ -50,7 +50,8 @@ const (
 type CPUHeadroomPolicyName string
 
 const (
-	CPUHeadroomPolicyNone CPUHeadroomPolicyName = "none"
+	CPUHeadroomPolicyNone      CPUHeadroomPolicyName = "none"
+	CPUHeadroomPolicyCanonical CPUHeadroomPolicyName = "canonical"
 )
 
 // CPUProvisionAssemblerName defines assemblers for cpu advisor to generate node
@@ -67,8 +68,9 @@ const (
 type CPUHeadroomAssemblerName string
 
 const (
-	CPUHeadroomAssemblerNone   CPUHeadroomAssemblerName = "none"
-	CPUHeadroomAssemblerCommon CPUHeadroomAssemblerName = "common"
+	CPUHeadroomAssemblerNone      CPUHeadroomAssemblerName = "none"
+	CPUHeadroomAssemblerCommon    CPUHeadroomAssemblerName = "common"
+	CPUHeadroomAssemblerDedicated CPUHeadroomAssemblerName = "dedicated"
 )
 
 // MemoryHeadroomPolicyName defines policy names for memory advisor headroom estimation

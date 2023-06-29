@@ -46,8 +46,8 @@ func NewPolicyRamaConfiguration() *PolicyRamaConfiguration {
 				Kdn:                  0.0,
 				AdjustmentUpperBound: types.MaxRampUpStep,
 				AdjustmentLowerBound: -types.MaxRampDownStep,
-				DeadbandLowerPct:     0.95,
-				DeadbandUpperPct:     0.01,
+				DeadbandLowerPct:     0.98,
+				DeadbandUpperPct:     0.0,
 			},
 		},
 	}

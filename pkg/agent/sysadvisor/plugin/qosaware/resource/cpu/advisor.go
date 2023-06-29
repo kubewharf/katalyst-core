@@ -35,6 +35,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource/cpu/assembler/provisionassembler"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource/cpu/isolation"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource/cpu/region"
+	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource/cpu/region/headroompolicy"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource/cpu/region/provisionpolicy"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
 	"github.com/kubewharf/katalyst-core/pkg/config"
@@ -51,9 +52,12 @@ func init() {
 	provisionpolicy.RegisterInitializer(types.CPUProvisionPolicyCanonical, provisionpolicy.NewPolicyCanonical)
 	provisionpolicy.RegisterInitializer(types.CPUProvisionPolicyRama, provisionpolicy.NewPolicyRama)
 
+	headroompolicy.RegisterInitializer(types.CPUHeadroomPolicyCanonical, headroompolicy.NewPolicyCanonical)
+
 	provisionassembler.RegisterInitializer(types.CPUProvisionAssemblerCommon, provisionassembler.NewProvisionAssemblerCommon)
 
 	headroomassembler.RegisterInitializer(types.CPUHeadroomAssemblerCommon, headroomassembler.NewHeadroomAssemblerCommon)
+	headroomassembler.RegisterInitializer(types.CPUHeadroomAssemblerDedicated, headroomassembler.NewHeadroomAssemblerDedicated)
 }
 
 // cpuResourceAdvisor is the entrance of updating cpu resource provision advice for
@@ -64,9 +68,10 @@ type cpuResourceAdvisor struct {
 	conf      *config.Configuration
 	extraConf interface{}
 
-	recvCh    chan struct{}
-	sendCh    chan types.InternalCalculationResult
-	startTime time.Time
+	recvCh         chan struct{}
+	sendCh         chan types.InternalCalculationResult
+	startTime      time.Time
+	advisorUpdated bool
 
 	regionMap          map[string]region.QoSRegion // map[regionName]region
 	reservedForReclaim map[int]int                 // map[numaID]reservedForReclaim
@@ -93,9 +98,10 @@ func NewCPUResourceAdvisor(conf *config.Configuration, extraConf interface{}, me
 		conf:      conf,
 		extraConf: extraConf,
 
-		recvCh:    make(chan struct{}),
-		sendCh:    make(chan types.InternalCalculationResult),
-		startTime: time.Now(),
+		recvCh:         make(chan struct{}),
+		sendCh:         make(chan types.InternalCalculationResult),
+		startTime:      time.Now(),
+		advisorUpdated: false,
 
 		regionMap:          make(map[string]region.QoSRegion),
 		reservedForReclaim: make(map[int]int),
@@ -141,6 +147,10 @@ func (cra *cpuResourceAdvisor) GetChannels() (interface{}, interface{}) {
 func (cra *cpuResourceAdvisor) GetHeadroom() (resource.Quantity, error) {
 	cra.mutex.RLock()
 	defer cra.mutex.RUnlock()
+
+	if !cra.advisorUpdated {
+		return resource.Quantity{}, fmt.Errorf("starting up")
+	}
 
 	if cra.headroomAssembler == nil {
 		klog.Errorf("[qosaware-cpu] get headroom failed: no legal assembler")
@@ -202,6 +212,7 @@ func (cra *cpuResourceAdvisor) update() {
 		r.TryUpdateHeadroom()
 		cra.updateRegionHeadroom()
 	}
+	cra.advisorUpdated = true
 
 	klog.Infof("[qosaware-cpu] region map: %v", general.ToString(cra.regionMap))
 

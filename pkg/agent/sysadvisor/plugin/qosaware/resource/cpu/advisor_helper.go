@@ -129,7 +129,7 @@ func (cra *cpuResourceAdvisor) initializeHeadroomAssembler() error {
 	if !ok {
 		return fmt.Errorf("unsupported headroom assembler %v", assemblerName)
 	}
-	cra.headroomAssembler = initializer(cra.conf, cra.extraConf, &cra.regionMap, cra.metaCache, cra.metaServer, cra.emitter)
+	cra.headroomAssembler = initializer(cra.conf, cra.extraConf, &cra.regionMap, &cra.reservedForReclaim, &cra.numaAvailable, &cra.nonBindingNumas, cra.metaCache, cra.metaServer, cra.emitter)
 
 	return nil
 }

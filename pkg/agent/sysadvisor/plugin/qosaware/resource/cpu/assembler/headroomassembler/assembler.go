@@ -27,13 +27,18 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
+	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
+// HeadroomAssembler assembles node headroom value.
+// Advisor data elements are shared ONLY by assemblers as pointer to avoid rebuild in advisor,
+// and NOT supposed to be used by other components.
 type HeadroomAssembler interface {
 	GetHeadroom() (resource.Quantity, error)
 }
 
 type InitFunc func(conf *config.Configuration, extraConf interface{}, regionMap *map[string]region.QoSRegion,
+	reservedForReclaim *map[int]int, numaAvailable *map[int]int, nonBindingNumas *machine.CPUSet,
 	metaReader metacache.MetaReader, metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter) HeadroomAssembler
 
 var initializers sync.Map

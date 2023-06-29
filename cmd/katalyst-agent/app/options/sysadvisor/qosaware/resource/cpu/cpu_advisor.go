@@ -89,6 +89,9 @@ func (o *CPUAdvisorOptions) ApplyTo(c *cpu.CPUAdvisorConfiguration) error {
 		}
 	}
 
+	c.ProvisionAssembler = types.CPUProvisionAssemblerName(o.CPUProvisionAssembler)
+	c.HeadroomAssembler = types.CPUHeadroomAssemblerName(o.CPUHeadroomAssembler)
+
 	var errList []error
 	errList = append(errList, o.CPUHeadroomPolicyOptions.ApplyTo(c.CPUHeadroomPolicyConfiguration))
 	errList = append(errList, o.CPUIsolationOptions.ApplyTo(c.CPUIsolationConfiguration))
