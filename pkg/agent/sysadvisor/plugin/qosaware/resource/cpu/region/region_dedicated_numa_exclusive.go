@@ -18,9 +18,9 @@ package region
 
 import (
 	"k8s.io/apimachinery/pkg/util/uuid"
-	"k8s.io/klog/v2"
 	"k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 
+	workloadapis "github.com/kubewharf/katalyst-api/pkg/apis/workload/v1alpha1"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
@@ -28,6 +28,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
+	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
@@ -37,6 +38,7 @@ import (
 
 type QoSRegionDedicatedNumaExclusive struct {
 	*QoSRegionBase
+	indicatorCurrentGetterMap map[string]types.IndicatorCurrentGetter
 }
 
 // NewQoSRegionDedicatedNumaExclusive returns a region instance for dedicated cores
@@ -53,6 +55,9 @@ func NewQoSRegionDedicatedNumaExclusive(ci *types.ContainerInfo, conf *config.Co
 		QoSRegionBase: NewQoSRegionBase(regionName, ci.OwnerPoolName, types.QoSRegionTypeDedicatedNumaExclusive, conf, extraConf, metaReader, metaServer, emitter),
 	}
 	r.bindingNumas = machine.NewCPUSet(numaID)
+	r.indicatorCurrentGetterMap = map[string]types.IndicatorCurrentGetter{
+		string(workloadapis.TargetIndicatorNameCPI): r.getPodCPICurrent,
+	}
 
 	return r
 }
@@ -61,14 +66,20 @@ func (r *QoSRegionDedicatedNumaExclusive) TryUpdateProvision() {
 	r.Lock()
 	defer r.Unlock()
 
+	controlEssentials := types.ControlEssentials{
+		ControlKnobs:   r.getControlKnobs(),
+		ReclaimOverlap: true,
+	}
+
+	indicators, err := r.getIndicators(r.indicatorCurrentGetterMap)
+	if err != nil {
+		general.Errorf("get indicators failed: %v", err)
+	} else {
+		controlEssentials.Indicators = indicators
+	}
+
 	for _, internal := range r.provisionPolicies {
 		internal.updateStatus = types.PolicyUpdateFailed
-
-		controlEssentials := types.ControlEssentials{
-			ControlKnobs:   r.getControlKnobs(),
-			Indicators:     r.getIndicators(),
-			ReclaimOverlap: true,
-		}
 
 		// set essentials for policy and regulator
 		internal.policy.SetPodSet(r.podSet)
@@ -77,7 +88,7 @@ func (r *QoSRegionDedicatedNumaExclusive) TryUpdateProvision() {
 
 		// run an episode of policy update
 		if err := internal.policy.Update(); err != nil {
-			klog.Errorf("[qosaware-cpu] update policy %v failed: %v", internal.name, err)
+			general.Errorf("update policy %v failed: %v", internal.name, err)
 			continue
 		}
 		internal.updateStatus = types.PolicyUpdateSucceeded
@@ -101,25 +112,24 @@ func (r *QoSRegionDedicatedNumaExclusive) getControlKnobs() types.ControlKnob {
 	}
 }
 
-func (r *QoSRegionDedicatedNumaExclusive) getIndicators() types.Indicator {
+func (r *QoSRegionDedicatedNumaExclusive) getPodCPICurrent() (float64, error) {
 	var (
 		cpiSum       float64 = 0
 		containerCnt float64 = 0
 	)
 
-	// get cpi of the main container in this region
 	for podUID, containerSet := range r.podSet {
 		for containerName := range containerSet {
 			ci, ok := r.metaReader.GetContainerInfo(podUID, containerName)
 			if !ok || ci == nil {
-				klog.Errorf("[qosaware-cpu] illegal container info of %v/%v", podUID, containerName)
-				return nil
+				general.Errorf("illegal container info of %v/%v", podUID, containerName)
+				return 0, nil
 			}
 			if ci.ContainerType == v1alpha1.ContainerType_MAIN {
 				cpi, err := r.metaReader.GetContainerMetric(podUID, containerName, consts.MetricCPUCPIContainer)
 				if err != nil {
-					klog.Errorf("[qosaware-cpu] get %v of %v/%v failed: %v", consts.MetricCPUCPIContainer, podUID, containerName, err)
-					return nil
+					general.Errorf("get %v of %v/%v failed: %v", consts.MetricCPUCPIContainer, podUID, containerName, err)
+					return 0, nil
 				}
 				cpiSum += cpi
 				containerCnt += 1
@@ -127,12 +137,5 @@ func (r *QoSRegionDedicatedNumaExclusive) getIndicators() types.Indicator {
 		}
 	}
 
-	return types.Indicator{
-		consts.MetricCPUCPIContainer: {
-			Current: cpiSum / containerCnt,
-			Target:  1.4, // temporary
-			Upper:   1.4,
-			Lower:   1.4,
-		},
-	}
+	return cpiSum / containerCnt, nil
 }

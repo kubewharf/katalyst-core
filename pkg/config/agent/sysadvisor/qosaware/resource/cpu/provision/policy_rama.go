@@ -17,28 +17,19 @@ limitations under the License.
 package provision
 
 import (
+	"github.com/kubewharf/katalyst-api/pkg/apis/workload/v1alpha1"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
-	"github.com/kubewharf/katalyst-core/pkg/consts"
 )
 
 type PolicyRamaConfiguration struct {
-	IndicatorMetrics map[types.QoSRegionType][]string
-	PIDParameters    map[string]types.FirstOrderPIDParams
+	PIDParameters map[string]types.FirstOrderPIDParams
 }
 
 // todo: support update pid parameters by kcc
 func NewPolicyRamaConfiguration() *PolicyRamaConfiguration {
 	return &PolicyRamaConfiguration{
-		IndicatorMetrics: map[types.QoSRegionType][]string{
-			types.QoSRegionTypeShare: {
-				consts.MetricCPUSchedwait,
-			},
-			types.QoSRegionTypeDedicatedNumaExclusive: {
-				consts.MetricCPUCPIContainer,
-			},
-		},
 		PIDParameters: map[string]types.FirstOrderPIDParams{
-			consts.MetricCPUSchedwait: {
+			string(v1alpha1.TargetIndicatorNameCPUSchedWait): {
 				Kpp:                  5.0,
 				Kpn:                  0.9,
 				Kdp:                  0.0,
@@ -48,17 +39,7 @@ func NewPolicyRamaConfiguration() *PolicyRamaConfiguration {
 				DeadbandLowerPct:     0.8,
 				DeadbandUpperPct:     0.05,
 			},
-			consts.MetricCPUCPIContainer: {
-				Kpp:                  10.0,
-				Kpn:                  2.0,
-				Kdp:                  0.0,
-				Kdn:                  0.0,
-				AdjustmentUpperBound: types.MaxRampUpStep,
-				AdjustmentLowerBound: -types.MaxRampDownStep,
-				DeadbandLowerPct:     0.95,
-				DeadbandUpperPct:     0.01,
-			},
-			consts.MetricMemBandwidthNuma: {
+			string(v1alpha1.TargetIndicatorNameCPI): {
 				Kpp:                  10.0,
 				Kpn:                  2.0,
 				Kdp:                  0.0,
