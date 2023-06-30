@@ -105,7 +105,6 @@ func (sc *stateCheckpoint) restoreState(conf *qrm.QRMPluginsConfiguration, nics 
 	}
 
 	generatedNetworkState, err := GenerateMachineStateFromPodEntries(conf, nics, checkpoint.PodEntries, reservedBandwidth)
-
 	if err != nil {
 		return fmt.Errorf("GenerateMachineStateFromPodEntries failed with error: %v", err)
 	}
@@ -117,8 +116,8 @@ func (sc *stateCheckpoint) restoreState(conf *qrm.QRMPluginsConfiguration, nics 
 		klog.Warningf("[network_plugin] machine state changed: "+
 			"generatedNetworkState: %s; checkpointMachineState: %s",
 			generatedNetworkState.String(), checkpoint.MachineState.String())
-		err = sc.storeState()
 
+		err = sc.storeState()
 		if err != nil {
 			return fmt.Errorf("storeState when machine state changed failed with error: %v", err)
 		}
@@ -126,8 +125,8 @@ func (sc *stateCheckpoint) restoreState(conf *qrm.QRMPluginsConfiguration, nics 
 
 	if foundAndSkippedStateCorruption {
 		klog.Infof("[network_plugin] found and skipped state corruption, we shoud store to rectify the checksum")
-		err = sc.storeState()
 
+		err = sc.storeState()
 		if err != nil {
 			return fmt.Errorf("storeState failed with error: %v", err)
 		}

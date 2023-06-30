@@ -66,7 +66,7 @@ type BandwidthInfo struct {
 	// It's configurable. Its value = NIC line speed x configured CapacityRate
 	Capacity uint32
 	// Reserved bandwidth on this NIC (e.g. for system components or high priority tasks)
-	// For the sake of safety, we generally keep a overflow buffer and do not allocate all bandwidth to tasks
+	// For the sake of safety, we generally keep an overflow buffer and do not allocate all bandwidth to tasks
 	// Thus, it should be set slightly larger than the actual required amount
 	SysReservation uint32
 	Reservation    uint32
@@ -203,6 +203,11 @@ func (ns *NICState) Clone() *NICState {
 // SetAllocationInfo adds a new AllocationInfo (for pod/container pairs) into the given NICState
 func (ns *NICState) SetAllocationInfo(podUID string, containerName string, allocationInfo *AllocationInfo) {
 	if ns == nil {
+		return
+	}
+
+	if allocationInfo == nil {
+		klog.Errorf("[NICState.SetAllocationInfo] passed allocationInfo is nil")
 		return
 	}
 

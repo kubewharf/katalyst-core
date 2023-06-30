@@ -105,7 +105,7 @@ func NewStaticPolicy(agentCtx *agent.GenericContext, conf *config.Configuration,
 	})
 
 	// we only support one spreading policy for now: reserve the bandwidth on the first NIC.
-	// it would be configurable later
+	// TODO: make the reservation policy configurable
 	reservation, err := GetReservedBandwidth(enabledNICs, conf.ReservedBandwidth, FirstNIC)
 	if err != nil {
 		return false, agent.ComponentStub{}, fmt.Errorf("getReservedBandwidth failed with error: %v", err)
@@ -229,101 +229,6 @@ func (p *StaticPolicy) Name() string {
 // ResourceName returns resource names managed by this plugin
 func (p *StaticPolicy) ResourceName() string {
 	return string(apiconsts.ResourceNetBandwidth)
-}
-
-func (p *StaticPolicy) filterAvailableNICsByBandwidth(req *pluginapi.ResourceRequest) ([]machine.InterfaceInfo, error) {
-	if req == nil {
-		return nil, fmt.Errorf("filterNICsByBandwidth got nil req")
-	}
-
-	reqInt, err := util.GetQuantityFromResourceReq(req)
-	if err != nil {
-		return nil, fmt.Errorf("getReqQuantityFromResourceReq failed with error: %v", err)
-	}
-
-	machineState := p.state.GetMachineState()
-	if len(machineState) == 0 || len(p.nics) == 0 {
-		return nil, fmt.Errorf("filterNICsByBandwidth with 0 NIC")
-	}
-
-	filteredNICs := make([]machine.InterfaceInfo, 0, len(p.nics))
-	// filter NICs by available bandwidth
-	for _, iface := range p.nics {
-		if machineState[iface.Iface].EgressState.Free >= uint32(reqInt) && machineState[iface.Iface].IngressState.Free >= uint32(reqInt) {
-			filteredNICs = append(filteredNICs, iface)
-		}
-	}
-
-	return filteredNICs, nil
-}
-
-func (p *StaticPolicy) calculateHints(req *pluginapi.ResourceRequest) (map[string]*pluginapi.ListOfTopologyHints, error) {
-	hints := map[string]*pluginapi.ListOfTopologyHints{
-		p.ResourceName(): {
-			Hints: []*pluginapi.TopologyHint{},
-		},
-	}
-
-	candidateNICs, err := p.selectNICsByReq(req)
-	if err != nil {
-		return hints, fmt.Errorf("failed to select available NICs: %v", err)
-	}
-
-	if len(candidateNICs) == 0 {
-		general.InfoS("candidateNICs is empty",
-			"podNamespace", req.PodNamespace,
-			"podName", req.PodName,
-			"containerName", req.ContainerName)
-		return hints, nil
-	}
-
-	numasToHintMap := make(map[string]*pluginapi.TopologyHint)
-	for _, nic := range candidateNICs {
-		siblingNUMAs, err := machine.GetSiblingNUMAs(nic.NumaNode, p.agentCtx.CPUTopology)
-		if err != nil {
-			return nil, fmt.Errorf("get siblingNUMAs for nic: %s failed with error: %v", nic.Iface, err)
-		}
-
-		nicPreference, err := checkNICPreferenceOfReq(nic, req.Annotations)
-		if err != nil {
-			return nil, fmt.Errorf("checkNICPreferenceOfReq for nic: %s failed with error: %v", nic.Iface, err)
-		}
-
-		siblingNUMAsStr := siblingNUMAs.String()
-		if numasToHintMap[siblingNUMAsStr] == nil {
-			numasToHintMap[siblingNUMAsStr] = &pluginapi.TopologyHint{
-				Nodes: siblingNUMAs.ToSliceUInt64(),
-			}
-		}
-
-		if nicPreference {
-			general.InfoS("set nic preferred to true",
-				"podNamespace", req.PodNamespace,
-				"podName", req.PodName,
-				"containerName", req.ContainerName,
-				"nic", nic.Iface)
-			numasToHintMap[siblingNUMAsStr].Preferred = nicPreference
-		}
-	}
-
-	for _, hint := range numasToHintMap {
-		hints[p.ResourceName()].Hints = append(hints[p.ResourceName()].Hints, hint)
-	}
-
-	if !isReqAffinityRestricted(req.Annotations) && !isReqNamespaceRestricted(req.Annotations) {
-		general.InfoS("add all NUMAs to hint to avoid affinity error",
-			"podNamespace", req.PodNamespace,
-			"podName", req.PodName,
-			"containerName", req.ContainerName,
-			req.Annotations[apiconsts.PodAnnotationNetworkEnhancementAffinityRestricted],
-			apiconsts.PodAnnotationNetworkEnhancementAffinityRestrictedTrue)
-
-		hints[p.ResourceName()].Hints = append(hints[p.ResourceName()].Hints, &pluginapi.TopologyHint{
-			Nodes: p.agentCtx.CPUDetails.NUMANodes().ToSliceUInt64(),
-		})
-	}
-
-	return hints, nil
 }
 
 // GetTopologyHints returns hints of corresponding resources
@@ -462,80 +367,6 @@ func (p *StaticPolicy) GetResourcePluginOptions(context.Context,
 	}, nil
 }
 
-/*
-The NIC selection depends on the following three aspects: available Bandwidth on each NIC, Namespace parameter in request, and req.Hints.
-1) The availability of sufficient bandwidth on the NIC is a prerequisite for determining whether the card can be selected.
-If there is insufficient bandwidth on a NIC, it cannot be included in the candidate list.
-
-2) We may put NICs into separate net namespaces in order to use both NICs simultaneously (Host network mode).
-If a container wants to request a specific NIC through the namespace parameter, this requirement must also be met.
-If the specified NIC has insufficient bandwidth, it cannot be included in the candidate list.
-
-3) The req.Hints parameter represents the affinity of a NIC. For example, a socket container running on a specific socket
-may use req.Hints to prioritize the selection of a NIC connected to that socket. However, this requirement is only satisfied as much as possible.
-If the NIC connected to the socket has sufficient bandwidth, only this NIC is returned. Otherwise, other cards with sufficient bandwidth will be returned.
-*/
-func (p *StaticPolicy) selectNICsByReq(req *pluginapi.ResourceRequest) ([]machine.InterfaceInfo, error) {
-	candidateNICs := make([]machine.InterfaceInfo, 0, len(p.nics))
-
-	availableNICs, err := p.filterAvailableNICsByBandwidth(req)
-	if err != nil {
-		return nil, fmt.Errorf("filterAvailableNICsByBandwidth failed with error: %v", err)
-	}
-
-	// this node can not meet the bandwidth request
-	if len(availableNICs) == 0 {
-		general.InfoS("nic list returned by filtereNICsByBandwidth is empty",
-			"podNamespace", req.PodNamespace,
-			"podName", req.PodName,
-			"containerName", req.ContainerName)
-		return candidateNICs, nil
-	}
-
-	availableNICs = filterNICsByNamespaceType(availableNICs, req, nil)
-	// this node can not meet the ns + bandwidth request
-	if len(availableNICs) == 0 {
-		general.InfoS("nic list returned by filterNICsByNamespaceType is empty",
-			"podNamespace", req.PodNamespace,
-			"podName", req.PodName,
-			"containerName", req.ContainerName)
-		return candidateNICs, nil
-	}
-
-	// calculate the intersection
-	candidateNICs = filterNICsByHint(availableNICs, req, p.agentCtx)
-
-	// If filteredNICs and "hintNICs" indicated by req.Hint have an overlap, the intersection of two sets is what we need.
-	// Otherwise, pick their difference (i.e. the NICs in filteredNICs but not in "hintNICs", which actually equals to the former set).
-	if len(candidateNICs) > 0 {
-		return candidateNICs, nil
-	}
-
-	return availableNICs, nil
-}
-
-func (p *StaticPolicy) getResourceAllocationAnnotations(podAnnotations map[string]string, selectedNIC machine.InterfaceInfo, reqBandwidth int) (map[string]string, error) {
-	netClsID, err := p.getNetClassID(podAnnotations, p.podLevelNetClassAnnoKey)
-	if err != nil {
-		return nil, fmt.Errorf("getNetClassID failed with error: %v", err)
-	}
-
-	resourceAllocationAnnotations := map[string]string{
-		p.ipv4ResourceAllocationAnnotationKey:             strings.Join(selectedNIC.GetNICIPs(machine.IPVersionV4), IPsSeparator),
-		p.ipv6ResourceAllocationAnnotationKey:             strings.Join(selectedNIC.GetNICIPs(machine.IPVersionV6), IPsSeparator),
-		p.netInterfaceNameResourceAllocationAnnotationKey: selectedNIC.Iface,
-		p.netClassIDResourceAllocationAnnotationKey:       fmt.Sprintf("%d", netClsID),
-		// TODO: support differentiated Egress/Ingress bandwidth later
-		p.netBandwidthResourceAllocationAnnotationKey: strconv.Itoa(reqBandwidth),
-	}
-
-	if len(selectedNIC.NSAbsolutePath) > 0 {
-		resourceAllocationAnnotations[p.netNSPathResourceAllocationAnnotationKey] = selectedNIC.NSAbsolutePath
-	}
-
-	return resourceAllocationAnnotations, nil
-}
-
 // Allocate is called during pod admit so that the resource
 // plugin can allocate corresponding resource for the container
 // according to resource request
@@ -596,7 +427,7 @@ func (p *StaticPolicy) Allocate(_ context.Context,
 	if req.ContainerType == pluginapi.ContainerType_INIT {
 		return emptyResponse, nil
 	} else if req.ContainerType == pluginapi.ContainerType_SIDECAR {
-		// not to deal with sidcars, and return a trivial allocationResult to avoid re-allocating
+		// not to deal with sidecars, and return a trivial allocationResult to avoid re-allocating
 		return emptyResponse, nil
 	}
 
@@ -618,7 +449,8 @@ func (p *StaticPolicy) Allocate(_ context.Context,
 		return nil, fmt.Errorf("failed to meet the bandwidth requirement of %d Mbps", reqInt)
 	}
 
-	// we only support one policy and hard code it for now, it would be configurable later
+	// we only support one policy and hard code it for now
+	// TODO: make the policy configurable
 	selectedNIC := selectOneNIC(candidateNICs, LastOne)
 
 	general.Infof("select NIC %s to allocate bandwidth (%dMbps)", selectedNIC.Iface, reqInt)
@@ -692,7 +524,7 @@ func (p *StaticPolicy) Allocate(_ context.Context,
 		}
 	}
 
-	// update the machienState
+	// update the machineState
 	machineState[selectedNIC.Iface].EgressState.Allocated += uint32(reqInt)
 	machineState[selectedNIC.Iface].IngressState.Allocated += uint32(reqInt)
 	machineState[selectedNIC.Iface].EgressState.Free -= uint32(reqInt)
@@ -807,6 +639,175 @@ func (p *StaticPolicy) applyNetClass() {
 			}(string(pod.UID), container.Name, netClsData)
 		}
 	}
+}
+
+func (p *StaticPolicy) filterAvailableNICsByBandwidth(req *pluginapi.ResourceRequest) ([]machine.InterfaceInfo, error) {
+	if req == nil {
+		return nil, fmt.Errorf("filterNICsByBandwidth got nil req")
+	}
+
+	reqInt, err := util.GetQuantityFromResourceReq(req)
+	if err != nil {
+		return nil, fmt.Errorf("getReqQuantityFromResourceReq failed with error: %v", err)
+	}
+
+	machineState := p.state.GetMachineState()
+	if len(machineState) == 0 || len(p.nics) == 0 {
+		return nil, fmt.Errorf("filterNICsByBandwidth with 0 NIC")
+	}
+
+	filteredNICs := make([]machine.InterfaceInfo, 0, len(p.nics))
+	// filter NICs by available bandwidth
+	for _, iface := range p.nics {
+		if machineState[iface.Iface].EgressState.Free >= uint32(reqInt) && machineState[iface.Iface].IngressState.Free >= uint32(reqInt) {
+			filteredNICs = append(filteredNICs, iface)
+		}
+	}
+
+	return filteredNICs, nil
+}
+
+func (p *StaticPolicy) calculateHints(req *pluginapi.ResourceRequest) (map[string]*pluginapi.ListOfTopologyHints, error) {
+	hints := map[string]*pluginapi.ListOfTopologyHints{
+		p.ResourceName(): {
+			Hints: []*pluginapi.TopologyHint{},
+		},
+	}
+
+	candidateNICs, err := p.selectNICsByReq(req)
+	if err != nil {
+		return hints, fmt.Errorf("failed to select available NICs: %v", err)
+	}
+
+	if len(candidateNICs) == 0 {
+		general.InfoS("candidateNICs is empty",
+			"podNamespace", req.PodNamespace,
+			"podName", req.PodName,
+			"containerName", req.ContainerName)
+		return hints, nil
+	}
+
+	numasToHintMap := make(map[string]*pluginapi.TopologyHint)
+	for _, nic := range candidateNICs {
+		siblingNUMAs, err := machine.GetSiblingNUMAs(nic.NumaNode, p.agentCtx.CPUTopology)
+		if err != nil {
+			return nil, fmt.Errorf("get siblingNUMAs for nic: %s failed with error: %v", nic.Iface, err)
+		}
+
+		nicPreference, err := checkNICPreferenceOfReq(nic, req.Annotations)
+		if err != nil {
+			return nil, fmt.Errorf("checkNICPreferenceOfReq for nic: %s failed with error: %v", nic.Iface, err)
+		}
+
+		siblingNUMAsStr := siblingNUMAs.String()
+		if numasToHintMap[siblingNUMAsStr] == nil {
+			numasToHintMap[siblingNUMAsStr] = &pluginapi.TopologyHint{
+				Nodes: siblingNUMAs.ToSliceUInt64(),
+			}
+		}
+
+		if nicPreference {
+			general.InfoS("set nic preferred to true",
+				"podNamespace", req.PodNamespace,
+				"podName", req.PodName,
+				"containerName", req.ContainerName,
+				"nic", nic.Iface)
+			numasToHintMap[siblingNUMAsStr].Preferred = nicPreference
+		}
+	}
+
+	for _, hint := range numasToHintMap {
+		hints[p.ResourceName()].Hints = append(hints[p.ResourceName()].Hints, hint)
+	}
+
+	if !isReqAffinityRestricted(req.Annotations) && !isReqNamespaceRestricted(req.Annotations) {
+		general.InfoS("add all NUMAs to hint to avoid affinity error",
+			"podNamespace", req.PodNamespace,
+			"podName", req.PodName,
+			"containerName", req.ContainerName,
+			req.Annotations[apiconsts.PodAnnotationNetworkEnhancementAffinityRestricted],
+			apiconsts.PodAnnotationNetworkEnhancementAffinityRestrictedTrue)
+
+		hints[p.ResourceName()].Hints = append(hints[p.ResourceName()].Hints, &pluginapi.TopologyHint{
+			Nodes: p.agentCtx.CPUDetails.NUMANodes().ToSliceUInt64(),
+		})
+	}
+
+	return hints, nil
+}
+
+/*
+The NIC selection depends on the following three aspects: available Bandwidth on each NIC, Namespace parameter in request, and req.Hints.
+1) The availability of sufficient bandwidth on the NIC is a prerequisite for determining whether the card can be selected.
+If there is insufficient bandwidth on a NIC, it cannot be included in the candidate list.
+
+2) We may put NICs into separate net namespaces in order to use both NICs simultaneously (Host network mode).
+If a container wants to request a specific NIC through the namespace parameter, this requirement must also be met.
+If the specified NIC has insufficient bandwidth, it cannot be included in the candidate list.
+
+3) The req.Hints parameter represents the affinity of a NIC. For example, a socket container running on a specific socket
+may use req.Hints to prioritize the selection of a NIC connected to that socket. However, this requirement is only satisfied as much as possible.
+If the NIC connected to the socket has sufficient bandwidth, only this NIC is returned. Otherwise, other cards with sufficient bandwidth will be returned.
+*/
+func (p *StaticPolicy) selectNICsByReq(req *pluginapi.ResourceRequest) ([]machine.InterfaceInfo, error) {
+	candidateNICs := make([]machine.InterfaceInfo, 0, len(p.nics))
+
+	availableNICs, err := p.filterAvailableNICsByBandwidth(req)
+	if err != nil {
+		return nil, fmt.Errorf("filterAvailableNICsByBandwidth failed with error: %v", err)
+	}
+
+	// this node can not meet the bandwidth request
+	if len(availableNICs) == 0 {
+		general.InfoS("nic list returned by filtereNICsByBandwidth is empty",
+			"podNamespace", req.PodNamespace,
+			"podName", req.PodName,
+			"containerName", req.ContainerName)
+		return candidateNICs, nil
+	}
+
+	availableNICs = filterNICsByNamespaceType(availableNICs, req, nil)
+	// this node can not meet the ns + bandwidth request
+	if len(availableNICs) == 0 {
+		general.InfoS("nic list returned by filterNICsByNamespaceType is empty",
+			"podNamespace", req.PodNamespace,
+			"podName", req.PodName,
+			"containerName", req.ContainerName)
+		return candidateNICs, nil
+	}
+
+	// calculate the intersection
+	candidateNICs = filterNICsByHint(availableNICs, req, p.agentCtx)
+
+	// If filteredNICs and "hintNICs" indicated by req.Hint have an overlap, the intersection of two sets is what we need.
+	// Otherwise, pick their difference (i.e. the NICs in filteredNICs but not in "hintNICs", which actually equals to the former set).
+	if len(candidateNICs) > 0 {
+		return candidateNICs, nil
+	}
+
+	return availableNICs, nil
+}
+
+func (p *StaticPolicy) getResourceAllocationAnnotations(podAnnotations map[string]string, selectedNIC machine.InterfaceInfo, reqBandwidth int) (map[string]string, error) {
+	netClsID, err := p.getNetClassID(podAnnotations, p.podLevelNetClassAnnoKey)
+	if err != nil {
+		return nil, fmt.Errorf("getNetClassID failed with error: %v", err)
+	}
+
+	resourceAllocationAnnotations := map[string]string{
+		p.ipv4ResourceAllocationAnnotationKey:             strings.Join(selectedNIC.GetNICIPs(machine.IPVersionV4), IPsSeparator),
+		p.ipv6ResourceAllocationAnnotationKey:             strings.Join(selectedNIC.GetNICIPs(machine.IPVersionV6), IPsSeparator),
+		p.netInterfaceNameResourceAllocationAnnotationKey: selectedNIC.Iface,
+		p.netClassIDResourceAllocationAnnotationKey:       fmt.Sprintf("%d", netClsID),
+		// TODO: support differentiated Egress/Ingress bandwidth later
+		p.netBandwidthResourceAllocationAnnotationKey: strconv.Itoa(reqBandwidth),
+	}
+
+	if len(selectedNIC.NSAbsolutePath) > 0 {
+		resourceAllocationAnnotations[p.netNSPathResourceAllocationAnnotationKey] = selectedNIC.NSAbsolutePath
+	}
+
+	return resourceAllocationAnnotations, nil
 }
 
 func (p *StaticPolicy) removePod(podUID string) error {
