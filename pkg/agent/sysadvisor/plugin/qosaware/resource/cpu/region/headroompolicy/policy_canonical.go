@@ -14,13 +14,12 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package provisionpolicy
+package headroompolicy
 
 import (
 	"context"
-	"fmt"
+	"math"
 
-	"k8s.io/apimachinery/pkg/util/errors"
 	"k8s.io/klog/v2"
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
@@ -34,11 +33,12 @@ import (
 
 type PolicyCanonical struct {
 	*PolicyBase
+	headroom float64
 }
 
 func NewPolicyCanonical(regionName string, regionType types.QoSRegionType, ownerPoolName string,
 	_ *config.Configuration, _ interface{}, metaReader metacache.MetaReader,
-	metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter) ProvisionPolicy {
+	metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter) HeadroomPolicy {
 	p := &PolicyCanonical{
 		PolicyBase: NewPolicyBase(regionName, regionType, ownerPoolName, metaReader, metaServer, emitter),
 	}
@@ -46,69 +46,25 @@ func NewPolicyCanonical(regionName string, regionType types.QoSRegionType, owner
 }
 
 func (p *PolicyCanonical) Update() error {
-	// sanity check
-	if err := p.sanityCheck(); err != nil {
-		return err
-	}
-
-	cpuRequirement := p.ControlKnobs[types.ControlKnobNonReclaimedCPUSize].Value
-
-	// pass the current value to regulator to avoid slow start from zero after restart
-	p.regulator.SetLatestCPURequirement(int(cpuRequirement))
-
-	cpuEstimation, err := p.estimateCPUUsage()
-	if err != nil {
-		return err
-	}
-	p.regulator.Regulate(cpuEstimation)
-
-	return nil
-}
-
-func (p *PolicyCanonical) sanityCheck() error {
-	var (
-		isLegal bool
-		errList []error
-	)
-
-	// 1. check control knob legality
-	isLegal = true
-	if p.ControlKnobs == nil || len(p.ControlKnobs) <= 0 {
-		isLegal = false
-	} else {
-		v, ok := p.ControlKnobs[types.ControlKnobNonReclaimedCPUSize]
-		if !ok || v.Value <= 0 {
-			isLegal = false
-		}
-	}
-	if !isLegal {
-		errList = append(errList, fmt.Errorf("illegal control knob %v", p.ControlKnobs))
-	}
-
-	return errors.NewAggregate(errList)
-}
-
-func (p *PolicyCanonical) estimateCPUUsage() (float64, error) {
 	cpuEstimation := 0.0
 	containerCnt := 0
 
 	for podUID, containerSet := range p.podSet {
 		enableReclaim, err := helper.PodEnableReclaim(context.Background(), p.metaServer, podUID, p.EnableReclaim)
 		if err != nil {
-			return 0, err
+			return err
 		}
 
 		for containerName := range containerSet {
 			ci, ok := p.metaReader.GetContainerInfo(podUID, containerName)
 			if !ok || ci == nil {
-				klog.Errorf("[qosaware-cpu-canonical] illegal container info of %v/%v", podUID, containerName)
+				klog.Errorf("[qosaware-cpu-headroom] illegal container info of %v/%v", podUID, containerName)
 				continue
 			}
 
-			// when ramping up, estimation of cpu should be set as cpu request
-			containerEstimation, err := helper.EstimateContainerCPUUsage(ci, p.metaReader, enableReclaim && !ci.RampUp)
+			containerEstimation, err := helper.EstimateContainerCPUUsage(ci, p.metaReader, enableReclaim)
 			if err != nil {
-				return 0, err
+				return err
 			}
 
 			// FIXME: metric server doesn't support to report cpu usage in numa granularity,
@@ -125,7 +81,16 @@ func (p *PolicyCanonical) estimateCPUUsage() (float64, error) {
 			containerCnt += 1
 		}
 	}
-	klog.Infof("[qosaware-cpu-canonical] region %v cpu estimation %.2f #container %v", p.regionName, cpuEstimation, containerCnt)
+	cpuEstimation += p.ReservedForAllocate
 
-	return cpuEstimation, nil
+	p.headroom = math.Max(p.ResourceUpperBound-cpuEstimation+p.ReservedForReclaim, 0)
+
+	klog.Infof("[qosaware-cpu-canonical] region %v cpuEstimation %v with reserve %v headroom %v #container %v",
+		p.regionName, cpuEstimation, p.ReservedForAllocate, p.headroom, containerCnt)
+
+	return nil
+}
+
+func (p *PolicyCanonical) GetHeadroom() (float64, error) {
+	return p.headroom, nil
 }

@@ -348,7 +348,7 @@ func TestHeadroomAssemblerCommon_GetHeadroom(t *testing.T) {
 			tt.fields.setMetaCache(metaCache)
 
 			metaServer := generateTestMetaServer(t, tt.fields.cnr, tt.fields.podList, metricsFetcher)
-			ha := NewHeadroomAssemblerCommon(conf, nil, nil, metaCache, metaServer, metrics.DummyMetrics{})
+			ha := NewHeadroomAssemblerCommon(conf, nil, nil, nil, nil, nil, metaCache, metaServer, metrics.DummyMetrics{})
 
 			store := utilmetric.GetMetricStoreInstance()
 			tt.fields.setFakeMetric(store)

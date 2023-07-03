@@ -28,6 +28,7 @@ import (
 	pkgconsts "github.com/kubewharf/katalyst-core/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
+	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 	"github.com/kubewharf/katalyst-core/pkg/util/metric"
 )
 
@@ -40,7 +41,8 @@ type HeadroomAssemblerCommon struct {
 }
 
 func NewHeadroomAssemblerCommon(conf *config.Configuration, _ interface{}, _ *map[string]region.QoSRegion,
-	metaReader metacache.MetaReader, metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter) HeadroomAssembler {
+	_ *map[int]int, _ *map[int]int, _ *machine.CPUSet, metaReader metacache.MetaReader,
+	metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter) HeadroomAssembler {
 	return &HeadroomAssemblerCommon{
 		conf:       conf,
 		metaReader: metaReader,

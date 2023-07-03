@@ -202,6 +202,7 @@ func (r *QoSRegionBase) TryUpdateHeadroom() {
 
 		// set essentials for policy
 		internal.policy.SetPodSet(r.podSet)
+		internal.policy.SetBindingNumas(r.bindingNumas)
 		internal.policy.SetEssentials(r.ResourceEssentials)
 
 		// run an episode of policy and calculator update
