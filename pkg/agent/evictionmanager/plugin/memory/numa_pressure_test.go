@@ -219,42 +219,44 @@ func TestNumaMemoryPressurePlugin_GetTopEvictionPods(t *testing.T) {
 
 	fakeMetricsFetcher := plugin.metaServer.MetricsFetcher.(*metric.FakeMetricsFetcher)
 	assert.NotNil(t, fakeMetricsFetcher)
+	pod1 := &v1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			UID:  "000001",
+			Name: "pod-1",
+			Annotations: map[string]string{
+				apiconsts.PodAnnotationQoSLevelKey: apiconsts.PodAnnotationQoSLevelReclaimedCores,
+			},
+		},
+		Spec: v1.PodSpec{
+			Priority: &highPriority,
+			Containers: []v1.Container{
+				{
+					Name: "c",
+				},
+			},
+		},
+	}
+	pod2 := &v1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			UID:  "000002",
+			Name: "pod-2",
+			Annotations: map[string]string{
+				apiconsts.PodAnnotationQoSLevelKey: apiconsts.PodAnnotationQoSLevelReclaimedCores,
+			},
+		},
+		Spec: v1.PodSpec{
+			Priority: &highPriority,
+			Containers: []v1.Container{
+				{
+					Name: "c",
+				},
+			},
+		},
+	}
 
 	bePods := []*v1.Pod{
-		{
-			ObjectMeta: metav1.ObjectMeta{
-				UID:  "000001",
-				Name: "pod-1",
-				Annotations: map[string]string{
-					apiconsts.PodAnnotationQoSLevelKey: apiconsts.PodAnnotationQoSLevelReclaimedCores,
-				},
-			},
-			Spec: v1.PodSpec{
-				Priority: &highPriority,
-				Containers: []v1.Container{
-					{
-						Name: "c",
-					},
-				},
-			},
-		},
-		{
-			ObjectMeta: metav1.ObjectMeta{
-				UID:  "000002",
-				Name: "pod-2",
-				Annotations: map[string]string{
-					apiconsts.PodAnnotationQoSLevelKey: apiconsts.PodAnnotationQoSLevelReclaimedCores,
-				},
-			},
-			Spec: v1.PodSpec{
-				Priority: &highPriority,
-				Containers: []v1.Container{
-					{
-						Name: "c",
-					},
-				},
-			},
-		},
+		pod1,
+		pod2,
 	}
 
 	bePodUsageSystem := []float64{
@@ -278,6 +280,17 @@ func TestNumaMemoryPressurePlugin_GetTopEvictionPods(t *testing.T) {
 		fakeMetricsFetcher.SetContainerMetric(string(pod.UID), pod.Spec.Containers[0].Name, consts.MetricMemUsageContainer, utilMetric.MetricData{Value: bePodUsageSystem[i], Time: &now})
 		for numaID, usage := range bePodUsageNuma[i] {
 			fakeMetricsFetcher.SetContainerNumaMetric(string(pod.UID), pod.Spec.Containers[0].Name, strconv.Itoa(numaID), consts.MetricsMemTotalPerNumaContainer, utilMetric.MetricData{Value: usage, Time: &now})
+		}
+	}
+
+	plugin.numaIDPodFilter = func(pods []*v1.Pod, i int) []*v1.Pod {
+		switch i {
+		case 0:
+			return []*v1.Pod{pod2}
+		case 1:
+			return []*v1.Pod{pod1}
+		default:
+			return []*v1.Pod{}
 		}
 	}
 

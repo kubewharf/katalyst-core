@@ -32,7 +32,9 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
+	cgroupcmutils "github.com/kubewharf/katalyst-core/pkg/util/cgroup/manager"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
+	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 	"github.com/kubewharf/katalyst-core/pkg/util/native"
 	"github.com/kubewharf/katalyst-core/pkg/util/process"
 )
@@ -45,7 +47,7 @@ const (
 // NewNumaMemoryPressureEvictionPlugin returns a new MemoryPressureEvictionPlugin
 func NewNumaMemoryPressureEvictionPlugin(_ *client.GenericClientSet, _ events.EventRecorder,
 	metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter, conf *config.Configuration) plugin.EvictionPlugin {
-	return &NumaMemoryPressurePlugin{
+	p := &NumaMemoryPressurePlugin{
 		pluginName:                     EvictionPluginNameNumaMemoryPressure,
 		emitter:                        emitter,
 		StopControl:                    process.NewStopControl(time.Time{}),
@@ -56,6 +58,8 @@ func NewNumaMemoryPressureEvictionPlugin(_ *client.GenericClientSet, _ events.Ev
 		numaFreeBelowWatermarkTimesMap: make(map[int]int),
 		evictionHelper:                 NewEvictionHelper(emitter, metaServer, conf),
 	}
+	p.numaIDPodFilter = p.filterByNumaId
+	return p
 }
 
 // NumaMemoryPressurePlugin implements the EvictionPlugin interface
@@ -74,6 +78,9 @@ type NumaMemoryPressurePlugin struct {
 	numaActionMap                  map[int]int
 	numaFreeBelowWatermarkTimesMap map[int]int
 	isUnderNumaPressure            bool
+
+	// numaIDPodFilter field make it can be replaced in unit test
+	numaIDPodFilter func([]*v1.Pod, int) []*v1.Pod
 }
 
 func (n *NumaMemoryPressurePlugin) Name() string {
@@ -174,6 +181,43 @@ func (n *NumaMemoryPressurePlugin) detectNumaWatermarkPressure(numaID int) error
 	return nil
 }
 
+func (n *NumaMemoryPressurePlugin) filterByNumaId(pods []*v1.Pod, numaID int) []*v1.Pod {
+	result := make([]*v1.Pod, 0, len(pods))
+	for i, pod := range pods {
+		if len(pod.Spec.Containers) <= 0 {
+			continue
+		}
+
+		for _, container := range pod.Spec.Containers {
+
+			containerID, err := n.metaServer.GetContainerID(string(pod.UID), container.Name)
+			if err != nil {
+				general.Warningf("get container id for container %v/%v/%v failed, err: %v", pod.Namespace, pod.Name, container.Name, err)
+				continue
+			}
+
+			cpusetStatus, cpuSetErr := cgroupcmutils.GetCPUSetForContainer(string(pod.UID), containerID)
+			if cpuSetErr != nil {
+				general.Warningf("get cpuset for container %v/%v/%v failed, err: %v", pod.Namespace, pod.Name, container.Name, err)
+				continue
+			}
+
+			memNodes, parseErr := machine.Parse(cpusetStatus.Mems)
+			if parseErr != nil {
+				general.Warningf("parse cpuset.mems for container %v/%v/%v failed, err: %v", pod.Namespace, pod.Name, container.Name, err)
+				continue
+			}
+
+			if memNodes.Contains(numaID) {
+				result = append(result, pods[i])
+			}
+		}
+
+	}
+
+	return result
+}
+
 func (n *NumaMemoryPressurePlugin) GetTopEvictionPods(_ context.Context, request *pluginapi.GetTopEvictionPodsRequest) (*pluginapi.GetTopEvictionPodsResponse, error) {
 	if request == nil {
 		return nil, fmt.Errorf("GetTopEvictionPods got nil request")
@@ -194,7 +238,9 @@ func (n *NumaMemoryPressurePlugin) GetTopEvictionPods(_ context.Context, request
 
 	if dynamicConfig.EnableNumaLevelEviction && n.isUnderNumaPressure {
 		for numaID, action := range n.numaActionMap {
-			n.evictionHelper.selectTopNPodsToEvictByMetrics(request.ActivePods, request.TopN, numaID, action,
+			pods := n.numaIDPodFilter(request.ActivePods, numaID)
+			general.Infof("get %v pod related to numa %v from %v pods", len(pods), numaID, len(request.ActivePods))
+			n.evictionHelper.selectTopNPodsToEvictByMetrics(pods, request.TopN, numaID, action,
 				dynamicConfig.NumaEvictionRankingMetrics, podToEvictMap)
 		}
 	}
