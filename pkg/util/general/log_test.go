@@ -30,6 +30,10 @@ func (_ testLogging) log(message string, params ...interface{}) string {
 	return logging(message, params...)
 }
 
+func (_ testLogging) logPath(pkg LoggingPKG, message string, params ...interface{}) string {
+	return loggingPath(pkg, message, params...)
+}
+
 type testLogger struct {
 	klog Logger // klog for katalyst-log
 }
@@ -43,7 +47,10 @@ func TestLogging(t *testing.T) {
 	require.Equal(t, "[testing.tRunner] extra 1 test", loggingWithoutStruct)
 
 	loggingWithStruct := testLogging{}.log("extra %v %v", 1, "test")
-	require.Equal(t, "[general.TestLogging] extra 1 test", loggingWithStruct)
+	require.Equal(t, "[katalyst-core/pkg/util/general.TestLogging] extra 1 test", loggingWithStruct)
+
+	loggingPathWithStruct := testLogging{}.logPath(LoggingPKGShort, "extra %v %v", 1, "test")
+	require.Equal(t, "[general.TestLogging] extra 1 test", loggingPathWithStruct)
 
 	loggerWithoutStruct := LoggerWithPrefix("p-test", LoggingPKGNone).logging("extra %v %v", 1, "test")
 	require.Equal(t, "[p-test: tRunner] extra 1 test", loggerWithoutStruct)
@@ -61,7 +68,7 @@ func TestLogging(t *testing.T) {
 	require.Equal(t, "[p-test: general.TestLogging] extra 1 test", loggerWithStruct)
 
 	loggerWithStruct = testLogger{klog: LoggerWithPrefix("p-test", LoggingPKGFull)}.log("extra %v %v", 1, "test")
-	require.Equal(t, "[p-test: github.com/kubewharf/katalyst-core/pkg/util/general.TestLogging] extra 1 test", loggerWithStruct)
+	require.Equal(t, "[p-test: katalyst-core/pkg/util/general.TestLogging] extra 1 test", loggerWithStruct)
 
 	InfoS("test-InfoS", "param-key", "param-InfoS")
 	Infof("test-Infof %v", "extra-Infof")
@@ -69,6 +76,13 @@ func TestLogging(t *testing.T) {
 	Warningf("test-Warningf %v", "extra-Warningf")
 	Errorf("test-Errorf %v", "extra-Errorf")
 	ErrorS(fmt.Errorf("err"), "test-ErrorS", "param-key", "param-ErrorS")
+
+	InfoSPath(LoggingPKGShort, "test-InfoS", "param-key", "param-InfoS")
+	InfofPath(LoggingPKGShort, "test-Infof %v", "extra-Infof")
+	InfofVPath(LoggingPKGShort, 1, "test-InfofV %v", "extra-InfofV")
+	WarningfPath(LoggingPKGShort, "test-Warningf %v", "extra-Warningf")
+	ErrorfPath(LoggingPKGShort, "test-Errorf %v", "extra-Errorf")
+	ErrorSPath(LoggingPKGShort, fmt.Errorf("err"), "test-ErrorS", "param-key", "param-ErrorS")
 
 	go func() {
 		goStr := logging("extra %v %v", 1, "test")
