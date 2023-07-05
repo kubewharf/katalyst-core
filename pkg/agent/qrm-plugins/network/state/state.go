@@ -67,7 +67,7 @@ type BandwidthInfo struct {
 	Capacity uint32
 	// Reserved bandwidth on this NIC (e.g. for system components or high priority tasks)
 	// For the sake of safety, we generally keep an overflow buffer and do not allocate all bandwidth to tasks
-	// Thus, it should be set slightly larger than the actual required amount
+	// Thus, both reservations should be set slightly larger than the actual required amount
 	SysReservation uint32
 	Reservation    uint32
 	Allocatable    uint32

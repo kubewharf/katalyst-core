@@ -34,7 +34,9 @@ import (
 	"k8s.io/apimachinery/pkg/util/uuid"
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 
+	apinode "github.com/kubewharf/katalyst-api/pkg/apis/node/v1alpha1"
 	"github.com/kubewharf/katalyst-api/pkg/consts"
+	apiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
 	katalyst_base "github.com/kubewharf/katalyst-core/cmd/base"
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/agent"
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/options"
@@ -125,6 +127,10 @@ func makeStaticPolicy(t *testing.T) *StaticPolicy {
 		Key: util.QRMPluginPolicyTagName,
 		Val: NetworkResourcePluginPolicyNameStatic,
 	})
+
+	cpuTopology, err := machine.GenerateDummyCPUTopology(16, 2, 4)
+	assert.NoError(t, err)
+	agentCtx.KatalystMachineInfo.CPUTopology = cpuTopology
 
 	mockQrmConfig := generateTestConfiguration(t).QRMPluginsConfiguration
 	mockQrmConfig.ReservedBandwidth = 4000
@@ -1044,29 +1050,169 @@ func TestGetResourcesAllocation(t *testing.T) {
 	policy := makeStaticPolicy(t)
 	assert.NotNil(t, policy)
 
-	_, err := policy.GetResourcesAllocation(context.TODO(), &pluginapi.GetResourcesAllocationRequest{})
+	podID := string(uuid.NewUUID())
+	testName := "test"
+	var bwReq float64 = 5000
+
+	// create a new Pod with bandwidth request
+	addReq := &pluginapi.ResourceRequest{
+		PodUid:         podID,
+		PodNamespace:   testName,
+		PodName:        testName,
+		ContainerName:  testName,
+		ContainerType:  pluginapi.ContainerType_MAIN,
+		ContainerIndex: 0,
+		ResourceName:   string(consts.ResourceNetBandwidth),
+		Hint: &pluginapi.TopologyHint{
+			Nodes:     []uint64{0, 1},
+			Preferred: true,
+		},
+		ResourceRequests: map[string]float64{
+			string(consts.ResourceNetBandwidth): bwReq,
+		},
+		Labels: map[string]string{
+			consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
+		},
+		Annotations: map[string]string{
+			consts.PodAnnotationNetClassKey:           testSharedNetClsId,
+			consts.PodAnnotationQoSLevelKey:           consts.PodAnnotationQoSLevelSharedCores,
+			consts.PodAnnotationNetworkEnhancementKey: testHostPreferEnhancementValue,
+		},
+	}
+
+	_, err := policy.Allocate(context.Background(), addReq)
 	assert.NoError(t, err)
+
+	resp, err := policy.GetResourcesAllocation(context.Background(), &pluginapi.GetResourcesAllocationRequest{})
+	assert.NoError(t, err)
+	assert.NotNil(t, resp)
+	assert.Len(t, resp.PodResources, 1)
+	assert.Len(t, resp.PodResources[podID].ContainerResources, 1)
+	assert.Equal(t, resp.PodResources[podID].ContainerResources[testName].ResourceAllocation[string(apiconsts.ResourceNetBandwidth)].AllocatedQuantity, bwReq)
+	assert.Equal(t, resp.PodResources[podID].ContainerResources[testName].ResourceAllocation[string(apiconsts.ResourceNetBandwidth)].AllocationResult, "0-1")
 }
 
 func TestGetTopologyAwareResources(t *testing.T) {
 	policy := makeStaticPolicy(t)
 	assert.NotNil(t, policy)
 
-	req := &pluginapi.GetTopologyAwareResourcesRequest{
-		PodUid:        string(uuid.NewUUID()),
-		ContainerName: "test-container-name",
+	podID := string(uuid.NewUUID())
+	testName := "test"
+	var bwReq float64 = 5000
+
+	// create a new Pod with bandwidth request
+	addReq := &pluginapi.ResourceRequest{
+		PodUid:         podID,
+		PodNamespace:   testName,
+		PodName:        testName,
+		ContainerName:  testName,
+		ContainerType:  pluginapi.ContainerType_MAIN,
+		ContainerIndex: 0,
+		ResourceName:   string(consts.ResourceNetBandwidth),
+		Hint: &pluginapi.TopologyHint{
+			Nodes:     []uint64{0, 1},
+			Preferred: true,
+		},
+		ResourceRequests: map[string]float64{
+			string(consts.ResourceNetBandwidth): bwReq,
+		},
+		Labels: map[string]string{
+			consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
+		},
+		Annotations: map[string]string{
+			consts.PodAnnotationNetClassKey:           testSharedNetClsId,
+			consts.PodAnnotationQoSLevelKey:           consts.PodAnnotationQoSLevelSharedCores,
+			consts.PodAnnotationNetworkEnhancementKey: testHostPreferEnhancementValue,
+		},
 	}
 
-	_, err := policy.GetTopologyAwareResources(context.TODO(), req)
+	_, err := policy.Allocate(context.Background(), addReq)
 	assert.NoError(t, err)
+
+	req := &pluginapi.GetTopologyAwareResourcesRequest{
+		PodUid:        podID,
+		ContainerName: testName,
+	}
+
+	resp, err := policy.GetTopologyAwareResources(context.TODO(), req)
+	assert.NoError(t, err)
+	assert.NotNil(t, resp)
+	assert.Len(t, resp.ContainerTopologyAwareResources.AllocatedResources, 1)
+	assert.Equal(t, resp.ContainerTopologyAwareResources.AllocatedResources[string(apiconsts.ResourceNetBandwidth)].AggregatedQuantity, bwReq)
+	assert.Len(t, resp.ContainerTopologyAwareResources.AllocatedResources[string(apiconsts.ResourceNetBandwidth)].TopologyAwareQuantityList, 1)
+
+	expectedTopologyAwareQuantity := pluginapi.TopologyAwareQuantity{
+		ResourceValue: bwReq,
+		Node:          uint64(0),
+		Name:          testEth0Name,
+		Type:          string(apinode.TopologyTypeNIC),
+		TopologyLevel: pluginapi.TopologyLevel_SOCKET,
+		Annotations: map[string]string{
+			apiconsts.ResourceAnnotationKeyResourceIdentifier: fmt.Sprintf("%s-%s", testEth0NSName, testEth0Name),
+		},
+	}
+	assert.Equal(t, *resp.ContainerTopologyAwareResources.AllocatedResources[string(apiconsts.ResourceNetBandwidth)].TopologyAwareQuantityList[0], expectedTopologyAwareQuantity)
 }
 
 func TestGetTopologyAwareAllocatableResources(t *testing.T) {
 	policy := makeStaticPolicy(t)
 	assert.NotNil(t, policy)
 
-	_, err := policy.GetTopologyAwareAllocatableResources(context.TODO(), &pluginapi.GetTopologyAwareAllocatableResourcesRequest{})
+	resp, err := policy.GetTopologyAwareAllocatableResources(context.TODO(), &pluginapi.GetTopologyAwareAllocatableResourcesRequest{})
+	assert.NotNil(t, resp)
 	assert.NoError(t, err)
+	assert.Equal(t, resp.AllocatableResources[string(apiconsts.ResourceNetBandwidth)].AggregatedAllocatableQuantity, float64(41000))
+	assert.Equal(t, resp.AllocatableResources[string(apiconsts.ResourceNetBandwidth)].AggregatedCapacityQuantity, float64(45000))
+	assert.Len(t, resp.AllocatableResources[string(apiconsts.ResourceNetBandwidth)].TopologyAwareAllocatableQuantityList, 2)
+	assert.Len(t, resp.AllocatableResources[string(apiconsts.ResourceNetBandwidth)].TopologyAwareCapacityQuantityList, 2)
+
+	expectedTopologyAwareAllocatableQuantityList := []*pluginapi.TopologyAwareQuantity{
+		{
+			ResourceValue: float64(18500),
+			Node:          uint64(0),
+			Name:          testEth0Name,
+			Type:          string(apinode.TopologyTypeNIC),
+			TopologyLevel: pluginapi.TopologyLevel_SOCKET,
+			Annotations: map[string]string{
+				apiconsts.ResourceAnnotationKeyResourceIdentifier: fmt.Sprintf("%s-%s", testEth0NSName, testEth0Name),
+			},
+		},
+		{
+			ResourceValue: float64(22500),
+			Node:          uint64(1),
+			Name:          testEth2Name,
+			Type:          string(apinode.TopologyTypeNIC),
+			TopologyLevel: pluginapi.TopologyLevel_SOCKET,
+			Annotations: map[string]string{
+				apiconsts.ResourceAnnotationKeyResourceIdentifier: fmt.Sprintf("%s-%s", testEth2NSName, testEth2Name),
+			},
+		},
+	}
+	assert.Equal(t, resp.AllocatableResources[string(apiconsts.ResourceNetBandwidth)].TopologyAwareAllocatableQuantityList, expectedTopologyAwareAllocatableQuantityList)
+
+	expectedTopologyAwareCapacityQuantityList := []*pluginapi.TopologyAwareQuantity{
+		{
+			ResourceValue: float64(22500),
+			Node:          uint64(0),
+			Name:          testEth0Name,
+			Type:          string(apinode.TopologyTypeNIC),
+			TopologyLevel: pluginapi.TopologyLevel_SOCKET,
+			Annotations: map[string]string{
+				apiconsts.ResourceAnnotationKeyResourceIdentifier: fmt.Sprintf("%s-%s", testEth0NSName, testEth0Name),
+			},
+		},
+		{
+			ResourceValue: float64(22500),
+			Node:          uint64(1),
+			Name:          testEth2Name,
+			Type:          string(apinode.TopologyTypeNIC),
+			TopologyLevel: pluginapi.TopologyLevel_SOCKET,
+			Annotations: map[string]string{
+				apiconsts.ResourceAnnotationKeyResourceIdentifier: fmt.Sprintf("%s-%s", testEth2NSName, testEth2Name),
+			},
+		},
+	}
+	assert.Equal(t, resp.AllocatableResources[string(apiconsts.ResourceNetBandwidth)].TopologyAwareCapacityQuantityList, expectedTopologyAwareCapacityQuantityList)
 }
 
 func TestGetResourcePluginOptions(t *testing.T) {

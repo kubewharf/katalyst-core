@@ -29,7 +29,9 @@ import (
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 	maputil "k8s.io/kubernetes/pkg/util/maps"
 
+	apinode "github.com/kubewharf/katalyst-api/pkg/apis/node/v1alpha1"
 	apiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
+
 	"github.com/kubewharf/katalyst-api/pkg/plugins/skeleton"
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/agent"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/network/state"
@@ -347,14 +349,129 @@ func (p *StaticPolicy) GetResourcesAllocation(_ context.Context,
 
 // GetTopologyAwareResources returns allocation results of corresponding resources as topology aware format
 func (p *StaticPolicy) GetTopologyAwareResources(_ context.Context,
-	_ *pluginapi.GetTopologyAwareResourcesRequest) (*pluginapi.GetTopologyAwareResourcesResponse, error) {
-	return &pluginapi.GetTopologyAwareResourcesResponse{}, nil
+	req *pluginapi.GetTopologyAwareResourcesRequest) (*pluginapi.GetTopologyAwareResourcesResponse, error) {
+	if req == nil {
+		return nil, fmt.Errorf("GetTopologyAwareResources got nil req")
+	}
+
+	p.Lock()
+	defer p.Unlock()
+
+	allocationInfo := p.state.GetAllocationInfo(req.PodUid, req.ContainerName)
+	if allocationInfo == nil {
+		return nil, fmt.Errorf("pod: %s, container: %s is not show up in network plugin state", req.PodUid, req.ContainerName)
+	}
+
+	topologyNode, err := p.getSocketIDByNIC(allocationInfo.IfName)
+	if err != nil {
+		return nil, fmt.Errorf("failed to find topologyNode for pod %s, container %s : %v", req.PodUid, req.ContainerName, err)
+	}
+
+	nic := p.getNICByName(allocationInfo.IfName)
+	topologyAwareQuantityList := []*pluginapi.TopologyAwareQuantity{
+		{
+			ResourceValue: float64(allocationInfo.Egress),
+			Node:          uint64(topologyNode),
+			Name:          allocationInfo.IfName,
+			Type:          string(apinode.TopologyTypeNIC),
+			TopologyLevel: pluginapi.TopologyLevel_SOCKET,
+			Annotations: map[string]string{
+				apiconsts.ResourceAnnotationKeyResourceIdentifier: fmt.Sprintf("%s-%s", nic.NSName, allocationInfo.IfName),
+			},
+		},
+	}
+	resp := &pluginapi.GetTopologyAwareResourcesResponse{
+		PodUid:       allocationInfo.PodUid,
+		PodName:      allocationInfo.PodName,
+		PodNamespace: allocationInfo.PodNamespace,
+		ContainerTopologyAwareResources: &pluginapi.ContainerTopologyAwareResources{
+			ContainerName: allocationInfo.ContainerName,
+		},
+	}
+
+	if allocationInfo.CheckSideCar() {
+		resp.ContainerTopologyAwareResources.AllocatedResources = map[string]*pluginapi.TopologyAwareResource{
+			string(apiconsts.ResourceNetBandwidth): {
+				IsNodeResource:                    false,
+				IsScalarResource:                  true,
+				AggregatedQuantity:                0,
+				OriginalAggregatedQuantity:        0,
+				TopologyAwareQuantityList:         nil,
+				OriginalTopologyAwareQuantityList: nil,
+			},
+		}
+	} else {
+		resp.ContainerTopologyAwareResources.AllocatedResources = map[string]*pluginapi.TopologyAwareResource{
+			string(apiconsts.ResourceNetBandwidth): {
+				IsNodeResource:                    false,
+				IsScalarResource:                  true,
+				AggregatedQuantity:                float64(allocationInfo.Egress),
+				OriginalAggregatedQuantity:        float64(allocationInfo.Egress),
+				TopologyAwareQuantityList:         topologyAwareQuantityList,
+				OriginalTopologyAwareQuantityList: topologyAwareQuantityList,
+			},
+		}
+	}
+
+	return resp, nil
 }
 
 // GetTopologyAwareAllocatableResources returns corresponding allocatable resources as topology aware format
 func (p *StaticPolicy) GetTopologyAwareAllocatableResources(_ context.Context,
 	_ *pluginapi.GetTopologyAwareAllocatableResourcesRequest) (*pluginapi.GetTopologyAwareAllocatableResourcesResponse, error) {
-	return &pluginapi.GetTopologyAwareAllocatableResourcesResponse{}, nil
+	machineState := p.state.GetMachineState()
+
+	topologyAwareAllocatableQuantityList := make([]*pluginapi.TopologyAwareQuantity, 0, len(machineState))
+	topologyAwareCapacityQuantityList := make([]*pluginapi.TopologyAwareQuantity, 0, len(machineState))
+
+	var aggregatedAllocatableQuantity, aggregatedCapacityQuantity uint64 = 0, 0
+	for _, iface := range p.nics {
+		nicState := machineState[iface.Iface]
+		if nicState == nil {
+			return nil, fmt.Errorf("nil nicState for NIC: %s", iface.Iface)
+		}
+
+		topologyNode, err := p.getSocketIDByNIC(iface.Iface)
+		if err != nil {
+			return nil, fmt.Errorf("failed to find topologyNode: %v", err)
+		}
+
+		topologyAwareAllocatableQuantityList = append(topologyAwareAllocatableQuantityList, &pluginapi.TopologyAwareQuantity{
+			ResourceValue: float64(nicState.EgressState.Allocatable),
+			Node:          uint64(topologyNode),
+			Name:          iface.Iface,
+			Type:          string(apinode.TopologyTypeNIC),
+			TopologyLevel: pluginapi.TopologyLevel_SOCKET,
+			Annotations: map[string]string{
+				apiconsts.ResourceAnnotationKeyResourceIdentifier: fmt.Sprintf("%s-%s", iface.NSName, iface.Iface),
+			},
+		})
+		topologyAwareCapacityQuantityList = append(topologyAwareCapacityQuantityList, &pluginapi.TopologyAwareQuantity{
+			ResourceValue: float64(nicState.EgressState.Capacity),
+			Node:          uint64(topologyNode),
+			Name:          iface.Iface,
+			Type:          string(apinode.TopologyTypeNIC),
+			TopologyLevel: pluginapi.TopologyLevel_SOCKET,
+			Annotations: map[string]string{
+				apiconsts.ResourceAnnotationKeyResourceIdentifier: fmt.Sprintf("%s-%s", iface.NSName, iface.Iface),
+			},
+		})
+		aggregatedAllocatableQuantity += uint64(nicState.EgressState.Allocatable)
+		aggregatedCapacityQuantity += uint64(nicState.EgressState.Capacity)
+	}
+
+	return &pluginapi.GetTopologyAwareAllocatableResourcesResponse{
+		AllocatableResources: map[string]*pluginapi.AllocatableTopologyAwareResource{
+			string(apiconsts.ResourceNetBandwidth): {
+				IsNodeResource:                       false,
+				IsScalarResource:                     true,
+				AggregatedAllocatableQuantity:        float64(aggregatedAllocatableQuantity),
+				TopologyAwareAllocatableQuantityList: topologyAwareAllocatableQuantityList,
+				AggregatedCapacityQuantity:           float64(aggregatedCapacityQuantity),
+				TopologyAwareCapacityQuantityList:    topologyAwareCapacityQuantityList,
+			},
+		},
+	}, nil
 }
 
 // GetResourcePluginOptions returns options to be communicated with Resource Manager
@@ -865,4 +982,30 @@ func (p *StaticPolicy) getNetClassIDByQoSLevel(qosLevel string) (uint32, error) 
 	} else {
 		return 0, fmt.Errorf("netClsID for qosLevel: %s isn't found", qosLevel)
 	}
+}
+
+func (p *StaticPolicy) getNICByName(ifName string) machine.InterfaceInfo {
+	for idx := range p.nics {
+		if p.nics[idx].Iface == ifName {
+			return p.nics[idx]
+		}
+	}
+
+	return machine.InterfaceInfo{}
+}
+
+// return the Socket id/index that the specified NIC attached to
+func (p *StaticPolicy) getSocketIDByNIC(ifName string) (int, error) {
+	for _, iface := range p.nics {
+		if iface.Iface == ifName {
+			socketIDs := p.agentCtx.KatalystMachineInfo.CPUDetails.SocketsInNUMANodes(iface.NumaNode)
+			if socketIDs.Size() == 0 {
+				return -1, fmt.Errorf("failed to find the associated socket ID for the specified NIC %s", ifName)
+			}
+
+			return socketIDs.ToSliceInt()[0], nil
+		}
+	}
+
+	return -1, fmt.Errorf("invalid NIC name - failed to find a matched NIC")
 }
