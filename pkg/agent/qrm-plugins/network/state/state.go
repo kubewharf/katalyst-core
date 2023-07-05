@@ -25,8 +25,6 @@ import (
 
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
-
-	"k8s.io/klog"
 )
 
 type AllocationInfo struct {
@@ -84,7 +82,7 @@ func (ai *AllocationInfo) String() string {
 
 	contentBytes, err := json.Marshal(ai)
 	if err != nil {
-		klog.Errorf("[AllocationInfo.String] marshal AllocationInfo failed with error: %v", err)
+		general.LoggerWithPrefix("AllocationInfo.String", general.LoggingPKGFull).Errorf("marshal AllocationInfo failed with error: %v", err)
 		return ""
 	}
 	return string(contentBytes)
@@ -144,7 +142,7 @@ func (pe PodEntries) String() string {
 
 	contentBytes, err := json.Marshal(pe)
 	if err != nil {
-		klog.Errorf("[PodEntries.String] marshal PodEntries failed with error: %v", err)
+		general.LoggerWithPrefix("PodEntries.String", general.LoggingPKGFull).Errorf("marshal PodEntries failed with error: %v", err)
 		return ""
 	}
 	return string(contentBytes)
@@ -168,7 +166,7 @@ func (ns *NICState) String() string {
 
 	contentBytes, err := json.Marshal(ns)
 	if err != nil {
-		klog.Errorf("[NICState.String] marshal NICState failed with error: %v", err)
+		general.LoggerWithPrefix("NICState.String", general.LoggingPKGFull).Errorf("marshal NICState failed with error: %v", err)
 		return ""
 	}
 	return string(contentBytes)
@@ -207,7 +205,7 @@ func (ns *NICState) SetAllocationInfo(podUID string, containerName string, alloc
 	}
 
 	if allocationInfo == nil {
-		klog.Errorf("[NICState.SetAllocationInfo] passed allocationInfo is nil")
+		general.LoggerWithPrefix("NICState.SetAllocationInfo", general.LoggingPKGFull).Errorf("passed allocationInfo is nil")
 		return
 	}
 
@@ -267,7 +265,7 @@ func (nm NICMap) String() string {
 
 	contentBytes, err := json.Marshal(nm)
 	if err != nil {
-		klog.Errorf("[NICMap.String] marshal NICMap failed with error: %v", err)
+		general.LoggerWithPrefix("NICMap.String", general.LoggingPKGFull).Errorf("marshal NICMap failed with error: %v", err)
 		return ""
 	}
 	return string(contentBytes)

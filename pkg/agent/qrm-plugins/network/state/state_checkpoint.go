@@ -25,14 +25,15 @@ import (
 	info "github.com/google/cadvisor/info/v1"
 
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/qrm"
+	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 
-	"k8s.io/klog/v2"
 	"k8s.io/kubernetes/pkg/kubelet/checkpointmanager"
 	"k8s.io/kubernetes/pkg/kubelet/checkpointmanager/errors"
 )
 
 var _ State = &stateCheckpoint{}
+var generalLog general.Logger = general.LoggerWithPrefix("network_plugin", general.LoggingPKGFull)
 
 // stateCheckpoint is an in-memory implementation of State;
 // everytime we want to read or write states, those requests will always
@@ -94,7 +95,7 @@ func (sc *stateCheckpoint) restoreState(conf *qrm.QRMPluginsConfiguration, nics 
 			}
 
 			foundAndSkippedStateCorruption = true
-			klog.Warningf("[network_plugin] restore checkpoint failed with err: %s, but we skip it", err)
+			generalLog.Infof("restore checkpoint failed with err: %s, but we skip it", err)
 		} else {
 			return err
 		}
@@ -113,7 +114,7 @@ func (sc *stateCheckpoint) restoreState(conf *qrm.QRMPluginsConfiguration, nics 
 	sc.cache.SetPodEntries(checkpoint.PodEntries)
 
 	if !reflect.DeepEqual(generatedNetworkState, checkpoint.MachineState) {
-		klog.Warningf("[network_plugin] machine state changed: "+
+		generalLog.Warningf("machine state changed: "+
 			"generatedNetworkState: %s; checkpointMachineState: %s",
 			generatedNetworkState.String(), checkpoint.MachineState.String())
 
@@ -124,7 +125,7 @@ func (sc *stateCheckpoint) restoreState(conf *qrm.QRMPluginsConfiguration, nics 
 	}
 
 	if foundAndSkippedStateCorruption {
-		klog.Infof("[network_plugin] found and skipped state corruption, we shoud store to rectify the checksum")
+		generalLog.Infof("found and skipped state corruption, we shoud store to rectify the checksum")
 
 		err = sc.storeState()
 		if err != nil {
@@ -132,7 +133,7 @@ func (sc *stateCheckpoint) restoreState(conf *qrm.QRMPluginsConfiguration, nics 
 		}
 	}
 
-	klog.InfoS("[network_plugin] state checkpoint: restored state from checkpoint")
+	generalLog.InfoS("state checkpoint: restored state from checkpoint")
 
 	return nil
 }
@@ -145,7 +146,7 @@ func (sc *stateCheckpoint) storeState() error {
 
 	err := sc.checkpointManager.CreateCheckpoint(sc.checkpointName, checkpoint)
 	if err != nil {
-		klog.ErrorS(err, "Could not save checkpoint")
+		generalLog.ErrorS(err, "could not save checkpoint")
 		return err
 	}
 	return nil
@@ -200,7 +201,7 @@ func (sc *stateCheckpoint) SetMachineState(nicMap NICMap) {
 	sc.cache.SetMachineState(nicMap)
 	err := sc.storeState()
 	if err != nil {
-		klog.ErrorS(err, "[network_plugin] store machineState to checkpoint error")
+		generalLog.ErrorS(err, "store machineState to checkpoint error")
 	}
 }
 
@@ -211,7 +212,7 @@ func (sc *stateCheckpoint) SetAllocationInfo(podUID, containerName string, alloc
 	sc.cache.SetAllocationInfo(podUID, containerName, allocationInfo)
 	err := sc.storeState()
 	if err != nil {
-		klog.ErrorS(err, "[network_plugin] store allocationInfo to checkpoint error")
+		generalLog.ErrorS(err, "store allocationInfo to checkpoint error")
 	}
 }
 
@@ -222,7 +223,7 @@ func (sc *stateCheckpoint) SetPodEntries(podEntries PodEntries) {
 	sc.cache.SetPodEntries(podEntries)
 	err := sc.storeState()
 	if err != nil {
-		klog.ErrorS(err, "[network_plugin] store pod entries to checkpoint error", "err")
+		generalLog.ErrorS(err, "store pod entries to checkpoint error", "err")
 	}
 }
 
@@ -233,7 +234,7 @@ func (sc *stateCheckpoint) Delete(podUID, containerName string) {
 	sc.cache.Delete(podUID, containerName)
 	err := sc.storeState()
 	if err != nil {
-		klog.ErrorS(err, "[network_plugin] store state after delete operation to checkpoint error")
+		generalLog.ErrorS(err, "store state after delete operation to checkpoint error")
 	}
 }
 
@@ -244,6 +245,6 @@ func (sc *stateCheckpoint) ClearState() {
 	sc.cache.ClearState()
 	err := sc.storeState()
 	if err != nil {
-		klog.ErrorS(err, "[network_plugin] store state after clear operation to checkpoint error")
+		generalLog.ErrorS(err, "store state after clear operation to checkpoint error")
 	}
 }

@@ -19,9 +19,8 @@ package state
 import (
 	"fmt"
 
-	"k8s.io/klog/v2"
-
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/qrm"
+	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
@@ -95,8 +94,9 @@ func GenerateMachineStateFromPodEntries(conf *qrm.QRMPluginsConfiguration, nics 
 		nicState.EgressState.Allocated = allocatedEgressOnNIC
 		nicState.IngressState.Allocated = allocatedIngressOnNIC
 
+		generalLog := general.LoggerWithPrefix("GenerateBandwidthStateFromPodEntries", general.LoggingPKGFull)
 		if nicState.EgressState.Allocatable < nicState.EgressState.Allocated || nicState.IngressState.Allocatable < nicState.EgressState.Allocated {
-			klog.Warningf("[GenerateBandwidthStateFromPodEntries] invalid allocated egress bandwidth: %d on NIC: %d"+
+			generalLog.Warningf("invalid allocated egress bandwidth: %d on NIC: %s"+
 				" with allocatable bandwidth size: %d, total egress capacity size: %d, reserved bandwidth size: %d",
 				nicState.EgressState.Allocated, nicName, nicState.EgressState.Allocatable, nicState.EgressState.Capacity, nicState.EgressState.Reservation)
 			nicState.EgressState.Allocatable = nicState.EgressState.Allocated
@@ -104,7 +104,7 @@ func GenerateMachineStateFromPodEntries(conf *qrm.QRMPluginsConfiguration, nics 
 		nicState.EgressState.Free = nicState.EgressState.Allocatable - nicState.EgressState.Allocated
 
 		if nicState.IngressState.Allocatable < nicState.IngressState.Allocated {
-			klog.Warningf("[GenerateBandwidthStateFromPodEntries] invalid allocated ingress bandwidth: %d on NIC: %d"+
+			generalLog.Warningf("invalid allocated ingress bandwidth: %d on NIC: %s"+
 				" with allocatable bandwidth size: %d, total ingress capacity size: %d, reserved bandwidth size: %d",
 				nicState.IngressState.Allocated, nicName, nicState.IngressState.Allocatable, nicState.IngressState.Capacity, nicState.EgressState.Reservation)
 			nicState.IngressState.Allocatable = nicState.IngressState.Allocated

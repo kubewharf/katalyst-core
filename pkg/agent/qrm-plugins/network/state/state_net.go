@@ -20,8 +20,6 @@ import (
 	"fmt"
 	"sync"
 
-	"k8s.io/klog/v2"
-
 	info "github.com/google/cadvisor/info/v1"
 
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/qrm"
@@ -46,7 +44,7 @@ type networkPluginState struct {
 var _ State = &networkPluginState{}
 
 func NewNetworkPluginState(conf *qrm.QRMPluginsConfiguration, machineInfo *info.MachineInfo, nics []machine.InterfaceInfo, reservedBandwidth map[string]uint32) (State, error) {
-	klog.InfoS("[network_plugin] initializing new network plugin in-memory state store")
+	generalLog.InfoS("initializing new network plugin in-memory state store")
 
 	defaultMachineState, err := GenerateMachineState(conf, nics, reservedBandwidth)
 	if err != nil {
@@ -120,7 +118,7 @@ func (s *networkPluginState) SetMachineState(nicMap NICMap) {
 	defer s.Unlock()
 
 	s.machineState = nicMap.Clone()
-	klog.InfoS("[network_plugin] Updated network plugin machine state",
+	generalLog.InfoS("updated network plugin machine state",
 		"NICMap", nicMap.String())
 }
 
@@ -133,7 +131,7 @@ func (s *networkPluginState) SetAllocationInfo(podUID, containerName string, all
 	}
 
 	s.podEntries[podUID][containerName] = allocationInfo.Clone()
-	klog.InfoS("[network_plugin] updated network plugin pod resource entries",
+	generalLog.InfoS("updated network plugin pod resource entries",
 		"podUID", podUID,
 		"containerName", containerName,
 		"allocationInfo", allocationInfo.String())
@@ -144,7 +142,7 @@ func (s *networkPluginState) SetPodEntries(podEntries PodEntries) {
 	defer s.Unlock()
 
 	s.podEntries = podEntries.Clone()
-	klog.InfoS("[network_plugin] Updated network plugin pod resource entries",
+	generalLog.InfoS("updated network plugin pod resource entries",
 		"podEntries", podEntries.String())
 }
 
@@ -160,7 +158,7 @@ func (s *networkPluginState) Delete(podUID, containerName string) {
 	if len(s.podEntries[podUID]) == 0 {
 		delete(s.podEntries, podUID)
 	}
-	klog.V(2).InfoS("[network_plugin] deleted container entry", "podUID", podUID, "containerName", containerName)
+	generalLog.InfoS("deleted container entry", "podUID", podUID, "containerName", containerName)
 }
 
 func (s *networkPluginState) ClearState() {
@@ -170,5 +168,5 @@ func (s *networkPluginState) ClearState() {
 	s.machineState, _ = GenerateMachineState(s.qrmConf, s.nics, s.reservedBandwidth)
 	s.podEntries = make(PodEntries)
 
-	klog.V(2).InfoS("[network_plugin] cleared state")
+	generalLog.InfoS("cleared state")
 }
