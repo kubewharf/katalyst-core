@@ -61,6 +61,8 @@ func (f *FakeMetricsFetcher) RegisterNotifier(scope MetricsScope, req NotifiedRe
 
 func (f *FakeMetricsFetcher) DeRegisterNotifier(scope MetricsScope, key string) {}
 
+func (f *FakeMetricsFetcher) RegisterExternalMetric(_ func(store *metric.MetricStore)) {}
+
 func (f *FakeMetricsFetcher) GetNodeMetric(metricName string) (metric.MetricData, error) {
 	return f.metricStore.GetNodeMetric(metricName)
 }
