@@ -93,6 +93,10 @@ type MetricsFetcher interface {
 	RegisterNotifier(scope MetricsScope, req NotifiedRequest, response chan NotifiedResponse) string
 	DeRegisterNotifier(scope MetricsScope, key string)
 
+	// RegisterExternalMetric register a function to set metric that can
+	// only be obtained from external sources
+	RegisterExternalMetric(f func(store *metric.MetricStore))
+
 	// GetNodeMetric get metric of node.
 	GetNodeMetric(metricName string) (metric.MetricData, error)
 	// GetNumaMetric get metric of numa.
@@ -123,7 +127,7 @@ func NewMalachiteMetricsFetcher(emitter metrics.MetricEmitter) MetricsFetcher {
 	return &MalachiteMetricsFetcher{
 		metricStore: metric.GetMetricStoreInstance(),
 		emitter:     emitter,
-		registered: map[MetricsScope]map[string]NotifiedData{
+		registeredNotifier: map[MetricsScope]map[string]NotifiedData{
 			MetricsScopeNode:      make(map[string]NotifiedData),
 			MetricsScopeNuma:      make(map[string]NotifiedData),
 			MetricsScopeCPU:       make(map[string]NotifiedData),
@@ -135,10 +139,12 @@ func NewMalachiteMetricsFetcher(emitter metrics.MetricEmitter) MetricsFetcher {
 
 type MalachiteMetricsFetcher struct {
 	metricStore *metric.MetricStore
-	emitter     metrics.MetricEmitter
+
+	registeredMetric   []func(store *metric.MetricStore)
+	registeredNotifier map[MetricsScope]map[string]NotifiedData
 
 	sync.RWMutex
-	registered map[MetricsScope]map[string]NotifiedData
+	emitter metrics.MetricEmitter
 }
 
 func (m *MalachiteMetricsFetcher) Run(ctx context.Context) {
@@ -147,8 +153,9 @@ func (m *MalachiteMetricsFetcher) Run(ctx context.Context) {
 	})
 }
 
-func (m *MalachiteMetricsFetcher) RegisterNotifier(scope MetricsScope, req NotifiedRequest, response chan NotifiedResponse) string {
-	if _, ok := m.registered[scope]; !ok {
+func (m *MalachiteMetricsFetcher) RegisterNotifier(scope MetricsScope, req NotifiedRequest,
+	response chan NotifiedResponse) string {
+	if _, ok := m.registeredNotifier[scope]; !ok {
 		return ""
 	}
 
@@ -159,7 +166,7 @@ func (m *MalachiteMetricsFetcher) RegisterNotifier(scope MetricsScope, req Notif
 	rand.Read(randBytes)
 	key := string(randBytes)
 
-	m.registered[scope][key] = NotifiedData{
+	m.registeredNotifier[scope][key] = NotifiedData{
 		scope:    scope,
 		req:      req,
 		response: response,
@@ -171,7 +178,11 @@ func (m *MalachiteMetricsFetcher) DeRegisterNotifier(scope MetricsScope, key str
 	m.Lock()
 	defer m.Unlock()
 
-	delete(m.registered[scope], key)
+	delete(m.registeredNotifier[scope], key)
+}
+
+func (m *MalachiteMetricsFetcher) RegisterExternalMetric(f func(store *metric.MetricStore)) {
+	m.registeredMetric = append(m.registeredMetric, f)
 }
 
 func (m *MalachiteMetricsFetcher) GetNodeMetric(metricName string) (metric.MetricData, error) {
@@ -221,9 +232,15 @@ func (m *MalachiteMetricsFetcher) sample() {
 
 	// Update system data
 	m.updateSystemStats()
-
 	// Update pod data
 	m.updatePodsCgroupData()
+
+	// after sampling, we should call the registered function to get external metric
+	for _, f := range m.registeredMetric {
+		f(m.metricStore)
+	}
+	m.notifySystem()
+	m.notifyPods()
 }
 
 // checkMalachiteHealthy is to check whether malachite is healthy
@@ -268,8 +285,6 @@ func (m *MalachiteMetricsFetcher) updateSystemStats() {
 	} else {
 		m.processSystemIOData(systemIOData)
 	}
-
-	m.notifySystem()
 }
 
 // Get raw cgroup data by malachite sdk and set container metrics to metricStore, GC not existed pod metrics
@@ -293,8 +308,6 @@ func (m *MalachiteMetricsFetcher) updatePodsCgroupData() {
 		}
 	}
 	m.metricStore.GCPodsMetric(podUIDSet)
-
-	m.notifyPods()
 }
 
 // notifySystem notifies system-related data
@@ -303,7 +316,7 @@ func (m *MalachiteMetricsFetcher) notifySystem() {
 	m.RLock()
 	defer m.RUnlock()
 
-	for _, reg := range m.registered[MetricsScopeNode] {
+	for _, reg := range m.registeredNotifier[MetricsScopeNode] {
 		v, err := m.metricStore.GetNodeMetric(reg.req.MetricName)
 		if err != nil {
 			continue
@@ -316,7 +329,7 @@ func (m *MalachiteMetricsFetcher) notifySystem() {
 		}
 	}
 
-	for _, reg := range m.registered[MetricsScopeDevice] {
+	for _, reg := range m.registeredNotifier[MetricsScopeDevice] {
 		v, err := m.metricStore.GetDeviceMetric(reg.req.DeviceID, reg.req.MetricName)
 		if err != nil {
 			continue
@@ -329,7 +342,7 @@ func (m *MalachiteMetricsFetcher) notifySystem() {
 		}
 	}
 
-	for _, reg := range m.registered[MetricsScopeNuma] {
+	for _, reg := range m.registeredNotifier[MetricsScopeNuma] {
 		v, err := m.metricStore.GetNumaMetric(reg.req.NumaID, reg.req.MetricName)
 		if err != nil {
 			continue
@@ -342,7 +355,7 @@ func (m *MalachiteMetricsFetcher) notifySystem() {
 		}
 	}
 
-	for _, reg := range m.registered[MetricsScopeCPU] {
+	for _, reg := range m.registeredNotifier[MetricsScopeCPU] {
 		v, err := m.metricStore.GetCPUMetric(reg.req.CoreID, reg.req.MetricName)
 		if err != nil {
 			continue
@@ -362,7 +375,7 @@ func (m *MalachiteMetricsFetcher) notifyPods() {
 	m.RLock()
 	defer m.RUnlock()
 
-	for _, reg := range m.registered[MetricsScopeContainer] {
+	for _, reg := range m.registeredNotifier[MetricsScopeContainer] {
 		v, err := m.metricStore.GetContainerMetric(reg.req.PodUID, reg.req.ContainerName, reg.req.MetricName)
 		if err != nil {
 			continue
@@ -392,8 +405,8 @@ func (m *MalachiteMetricsFetcher) notifyPods() {
 }
 
 func (m *MalachiteMetricsFetcher) processSystemComputeData(systemComputeData *system.SystemComputeData) {
-	// todo, currently there exits no updateTime, so we will use current-time instead
-	updateTime := time.Now()
+	// todo, currently we only get a unified data for the whole system compute data
+	updateTime := time.Unix(systemComputeData.UpdateTime, 0)
 
 	load := systemComputeData.Load
 	m.metricStore.SetNodeMetric(consts.MetricLoad1MinSystem,
@@ -405,8 +418,8 @@ func (m *MalachiteMetricsFetcher) processSystemComputeData(systemComputeData *sy
 }
 
 func (m *MalachiteMetricsFetcher) processSystemMemoryData(systemMemoryData *system.SystemMemoryData) {
-	// todo, currently there exits no updateTime, so we will use current-time instead
-	updateTime := time.Now()
+	// todo, currently we only get a unified data for the whole system memory data
+	updateTime := time.Unix(systemMemoryData.UpdateTime, 0)
 
 	mem := systemMemoryData.System
 	m.metricStore.SetNodeMetric(consts.MetricMemTotalSystem,
@@ -441,8 +454,8 @@ func (m *MalachiteMetricsFetcher) processSystemMemoryData(systemMemoryData *syst
 }
 
 func (m *MalachiteMetricsFetcher) processSystemIOData(systemIOData *system.SystemDiskIoData) {
-	// todo, currently there exits no updateTime, so we will use current-time instead
-	updateTime := time.Now()
+	// todo, currently we only get a unified data for the whole system io data
+	updateTime := time.Unix(systemIOData.UpdateTime, 0)
 
 	for _, device := range systemIOData.DiskIo {
 		m.metricStore.SetDeviceMetric(device.DeviceName, consts.MetricIOReadSystem,
@@ -455,8 +468,8 @@ func (m *MalachiteMetricsFetcher) processSystemIOData(systemIOData *system.Syste
 }
 
 func (m *MalachiteMetricsFetcher) processSystemNumaData(systemMemoryData *system.SystemMemoryData) {
-	// todo, currently there exits no updateTime, so we will use current-time instead
-	updateTime := time.Now()
+	// todo, currently we only get a unified data for the whole system memory data
+	updateTime := time.Unix(systemMemoryData.UpdateTime, 0)
 
 	for _, numa := range systemMemoryData.Numa {
 		m.metricStore.SetNumaMetric(numa.ID, consts.MetricMemTotalNuma,
@@ -491,8 +504,8 @@ func (m *MalachiteMetricsFetcher) processSystemNumaData(systemMemoryData *system
 }
 
 func (m *MalachiteMetricsFetcher) processSystemCPUComputeData(systemComputeData *system.SystemComputeData) {
-	// todo, currently there exits no updateTime, so we will use current-time instead
-	updateTime := time.Now()
+	// todo, currently we only get a unified data for the whole system compute data
+	updateTime := time.Unix(systemComputeData.UpdateTime, 0)
 
 	for _, cpu := range systemComputeData.CPU {
 		cpuID, err := strconv.Atoi(cpu.Name[3:])
@@ -522,8 +535,6 @@ func (m *MalachiteMetricsFetcher) processCgroupCPUData(podUID, containerName str
 		m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricCPULimitContainer,
 			metric.MetricData{Value: float64(cpu.CfsQuotaUs) / float64(cpu.CfsPeriodUs), Time: &updateTime})
 		m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricCPUUsageContainer,
-			metric.MetricData{Value: float64(cpu.NewCPUBasicInfo.CPUUsage-cpu.OldCPUBasicInfo.CPUUsage) / (float64(cpu.NewCPUBasicInfo.UpdateTime-cpu.OldCPUBasicInfo.UpdateTime) * 1e9), Time: &updateTime})
-		m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricCPUUsageRatioContainer,
 			metric.MetricData{Value: cpu.CPUUsageRatio, Time: &updateTime})
 		m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricCPUUsageUserContainer,
 			metric.MetricData{Value: cpu.CPUUserUsageRatio, Time: &updateTime})
@@ -572,13 +583,6 @@ func (m *MalachiteMetricsFetcher) processCgroupCPUData(podUID, containerName str
 		m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricCPUInstructionsContainer,
 			metric.MetricData{Value: float64(cpu.Instructions), Time: &updateTime})
 
-		updateTimeDiff := cpu.NewCPUBasicInfo.UpdateTime - cpu.OldCPUBasicInfo.UpdateTime
-		if updateTimeDiff > 0 {
-			usage := float64(cpu.NewCPUBasicInfo.CPUUsage-cpu.OldCPUBasicInfo.CPUUsage) / (float64(updateTimeDiff) * 1e9)
-			m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricCPUUsageContainer,
-				metric.MetricData{Value: usage, Time: &updateTime})
-		}
-
 		if cyclesOld.Value > 0 && instructionsOld.Value > 0 {
 			instructionDiff := float64(cpu.Instructions) - instructionsOld.Value
 			if instructionDiff > 0 {
@@ -592,7 +596,7 @@ func (m *MalachiteMetricsFetcher) processCgroupCPUData(podUID, containerName str
 		cpu := cgStats.V2.Cpu
 		updateTime := time.Unix(cgStats.V2.Cpu.UpdateTime, 0)
 
-		m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricCPUUsageRatioContainer,
+		m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricCPUUsageContainer,
 			metric.MetricData{Value: cpu.CPUUsageRatio, Time: &updateTime})
 		m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricCPUUsageUserContainer,
 			metric.MetricData{Value: cpu.CPUUserUsageRatio, Time: &updateTime})
@@ -682,6 +686,10 @@ func (m *MalachiteMetricsFetcher) processCgroupMemoryData(podUID, containerName 
 
 		m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricMemUsageContainer,
 			metric.MetricData{Value: float64(mem.MemoryUsageInBytes), Time: &updateTime})
+		m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricMemRssContainer,
+			metric.MetricData{Value: float64(mem.MemStats.Anon), Time: &updateTime})
+		m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricMemCacheContainer,
+			metric.MetricData{Value: float64(mem.MemStats.File), Time: &updateTime})
 
 		m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricMemShmemContainer,
 			metric.MetricData{Value: float64(mem.MemStats.Shmem), Time: &updateTime})

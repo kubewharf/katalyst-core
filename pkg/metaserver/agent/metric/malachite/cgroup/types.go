@@ -224,6 +224,9 @@ type CPUBasicInfo struct {
 	UpdateTime  uint64 `json:"update_time"`
 }
 
+// CPUCgDataV1
+// for legacy reasons, those all represent cores rather than ratio, we need to transform in collector,
+// and it will take effect for metric including: cpu_usage_ratio, cpu_user_usage_ratio, cpu_sys_usage_ratio
 type CPUCgDataV1 struct {
 	FullPath              string       `json:"full_path"`
 	CfsQuotaUs            int64        `json:"cfs_quota_us"`
@@ -315,6 +318,9 @@ type BlkIOCgDataV2 struct {
 	UpdateTime   int64                      `json:"update_time"`
 }
 
+// CPUCgDataV2
+// for legacy reasons, those all represent cores rather than ratio, we need to transform in collector,
+// and it will take effect for metric including: cpu_usage_ratio, cpu_user_usage_ratio, cpu_sys_usage_ratio
 type CPUCgDataV2 struct {
 	FullPath              string          `json:"full_path"`
 	CPUStats              CPUStats        `json:"cpu_stats"`
@@ -322,7 +328,7 @@ type CPUCgDataV2 struct {
 	Weight                int             `json:"weight"`
 	WeightNice            int             `json:"weight_nice"`
 	MaxBurst              int             `json:"max_burst"`
-	Max                   uint64          `json:"max"` //18446744073709551615(u64_max) means unlimited
+	Max                   uint64          `json:"max"` // 18446744073709551615(u64_max) means unlimited
 	MaxPeriod             int64           `json:"max_period"`
 	CPUUsageRatio         float64         `json:"cpu_usage_ratio"`
 	CPUUserUsageRatio     float64         `json:"cpu_user_usage_ratio"`

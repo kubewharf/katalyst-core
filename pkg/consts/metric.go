@@ -78,11 +78,10 @@ const (
 
 // Cgroup cpu metrics
 const (
-	MetricCPULimitContainer      = "cpu.limit.container"
-	MetricCPUUsageContainer      = "cpu.usage.container"
-	MetricCPUUsageRatioContainer = "cpu.usage.ratio.container"
-	MetricCPUUsageUserContainer  = "cpu.usage.user.container"
-	MetricCPUUsageSysContainer   = "cpu.usage.sys.container"
+	MetricCPULimitContainer     = "cpu.limit.container"
+	MetricCPUUsageContainer     = "cpu.usage.container"
+	MetricCPUUsageUserContainer = "cpu.usage.user.container"
+	MetricCPUUsageSysContainer  = "cpu.usage.sys.container"
 
 	MetricCPUShareContainer           = "cpu.share.container"
 	MetricCPUQuotaContainer           = "cpu.quota.container"

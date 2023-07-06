@@ -26,6 +26,8 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/util/metric"
 )
 
+// processContainerMemBandwidth handles memory bandwidth (read/write) rate in a period while,
+// and it will need the previously collected datat to do this
 func (m *MalachiteMetricsFetcher) processContainerMemBandwidth(podUID, containerName string, cgStats *cgroup.MalachiteCgroupInfo) {
 	var (
 		lastOCRReadDRAMs, _ = m.metricStore.GetContainerMetric(podUID, containerName, consts.MetricOCRReadDRAMsContainer)

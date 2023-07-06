@@ -31,7 +31,8 @@ type DiskIo struct {
 }
 
 type SystemDiskIoData struct {
-	DiskIo []DiskIo `json:"disk_io"`
+	DiskIo     []DiskIo `json:"disk_io"`
+	UpdateTime int64    `json:"update_time"`
 }
 
 type MalachiteSystemNetworkResponse struct {
@@ -42,6 +43,7 @@ type MalachiteSystemNetworkResponse struct {
 type SystemNetworkData struct {
 	NetworkCard []NetworkCard `json:"networkcard"`
 	TCP         TCP           `json:"tcp"`
+	UpdateTime  int64         `json:"update_time"`
 }
 
 type NetworkCard struct {
@@ -84,8 +86,9 @@ type MalachiteSystemComputeResponse struct {
 }
 
 type SystemComputeData struct {
-	Load Load  `json:"load"`
-	CPU  []CPU `json:"cpu"`
+	Load       Load  `json:"load"`
+	CPU        []CPU `json:"cpu"`
+	UpdateTime int64 `json:"update_time"`
 }
 
 type Load struct {
@@ -116,8 +119,9 @@ type MalachiteSystemMemoryResponse struct {
 }
 
 type SystemMemoryData struct {
-	System System `json:"system"`
-	Numa   []Numa `json:"numa"`
+	System     System `json:"system"`
+	Numa       []Numa `json:"numa"`
+	UpdateTime int64  `json:"update_time"`
 }
 
 type System struct {
