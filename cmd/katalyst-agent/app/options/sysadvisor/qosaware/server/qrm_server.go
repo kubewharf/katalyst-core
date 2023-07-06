@@ -30,7 +30,7 @@ type QRMServerOptions struct {
 // NewQRMServerOptions creates a new Options with a default config
 func NewQRMServerOptions() *QRMServerOptions {
 	return &QRMServerOptions{
-		QRMServers: []string{"cpu"},
+		QRMServers: []string{"cpu", "memory"},
 	}
 }
 

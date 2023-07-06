@@ -69,7 +69,7 @@ type cpuResourceAdvisor struct {
 	extraConf interface{}
 
 	recvCh         chan struct{}
-	sendCh         chan types.InternalCalculationResult
+	sendCh         chan types.InternalCPUCalculationResult
 	startTime      time.Time
 	advisorUpdated bool
 
@@ -99,7 +99,7 @@ func NewCPUResourceAdvisor(conf *config.Configuration, extraConf interface{}, me
 		extraConf: extraConf,
 
 		recvCh:         make(chan struct{}),
-		sendCh:         make(chan types.InternalCalculationResult),
+		sendCh:         make(chan types.InternalCPUCalculationResult),
 		startTime:      time.Now(),
 		advisorUpdated: false,
 
@@ -398,9 +398,9 @@ func (cra *cpuResourceAdvisor) updateAdvisorEssentials() {
 // assembleProvision generates internal calculation result.
 // must make sure pool names from cpu provision following qrm definition;
 // numa ID set as -1 means no numa-preference is needed.
-func (cra *cpuResourceAdvisor) assembleProvision() (types.InternalCalculationResult, error) {
+func (cra *cpuResourceAdvisor) assembleProvision() (types.InternalCPUCalculationResult, error) {
 	if cra.provisionAssembler == nil {
-		return types.InternalCalculationResult{}, fmt.Errorf("no legal provision assembler")
+		return types.InternalCPUCalculationResult{}, fmt.Errorf("no legal provision assembler")
 	}
 
 	return cra.provisionAssembler.AssembleProvision()
