@@ -36,14 +36,14 @@ type ProvisionAssemblerCommon struct {
 	numaAvailable      *map[int]int
 	nonBindingNumas    *machine.CPUSet
 
-	metaCache  metacache.MetaReader
+	metaReader metacache.MetaReader
 	metaServer *metaserver.MetaServer
 	emitter    metrics.MetricEmitter
 }
 
 func NewProvisionAssemblerCommon(conf *config.Configuration, _ interface{}, regionMap *map[string]region.QoSRegion,
 	reservedForReclaim *map[int]int, numaAvailable *map[int]int, nonBindingNumas *machine.CPUSet,
-	metaCache metacache.MetaReader, metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter) ProvisionAssembler {
+	metaReader metacache.MetaReader, metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter) ProvisionAssembler {
 	return &ProvisionAssemblerCommon{
 		conf:               conf,
 		regionMap:          regionMap,
@@ -51,7 +51,7 @@ func NewProvisionAssemblerCommon(conf *config.Configuration, _ interface{}, regi
 		numaAvailable:      numaAvailable,
 		nonBindingNumas:    nonBindingNumas,
 
-		metaCache:  metaCache,
+		metaReader: metaReader,
 		metaServer: metaServer,
 		emitter:    emitter,
 	}
@@ -65,7 +65,7 @@ func (pa *ProvisionAssemblerCommon) AssembleProvision() (types.InternalCalculati
 	}
 
 	// fill in reserve pool entry
-	reservePoolSize, _ := pa.metaCache.GetPoolSize(state.PoolNameReserve)
+	reservePoolSize, _ := pa.metaReader.GetPoolSize(state.PoolNameReserve)
 	calculationResult.SetPoolEntry(state.PoolNameReserve, cpuadvisor.FakedNUMAID, reservePoolSize)
 
 	shares := 0

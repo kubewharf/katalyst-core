@@ -28,6 +28,9 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
+// ProvisionAssembler assembles internal node provision result.
+// Advisor data elements are shared ONLY by assemblers as pointer to avoid rebuild in advisor,
+// and NOT supposed to be used by other components.
 type ProvisionAssembler interface {
 	AssembleProvision() (types.InternalCalculationResult, error)
 }

@@ -18,20 +18,24 @@ package region
 
 import (
 	"k8s.io/apimachinery/pkg/util/uuid"
-	"k8s.io/klog/v2"
 
+	"github.com/kubewharf/katalyst-api/pkg/apis/workload/v1alpha1"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/cpuadvisor"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
 	"github.com/kubewharf/katalyst-core/pkg/config"
+	pkgconsts "github.com/kubewharf/katalyst-core/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
+	"github.com/kubewharf/katalyst-core/pkg/util/general"
+	"github.com/kubewharf/katalyst-core/pkg/util/metric"
 )
 
 // todo: support rama policy, with cpu schedwait avg as indicator
 
 type QoSRegionShare struct {
 	*QoSRegionBase
+	indicatorCurrentGetterMap map[string]types.IndicatorCurrentGetter
 }
 
 // NewQoSRegionShare returns a region instance for shared pool
@@ -46,6 +50,10 @@ func NewQoSRegionShare(ci *types.ContainerInfo, conf *config.Configuration, extr
 	r := &QoSRegionShare{
 		QoSRegionBase: NewQoSRegionBase(regionName, ci.OwnerPoolName, types.QoSRegionTypeShare, conf, extraConf, metaReader, metaServer, emitter),
 	}
+
+	r.indicatorCurrentGetterMap = map[string]types.IndicatorCurrentGetter{
+		string(v1alpha1.TargetIndicatorNameCPUSchedWait): r.getPodSchedWaitCurrent,
+	}
 	return r
 }
 
@@ -53,14 +61,20 @@ func (r *QoSRegionShare) TryUpdateProvision() {
 	r.Lock()
 	defer r.Unlock()
 
+	controlEssentials := types.ControlEssentials{
+		ControlKnobs:   r.getControlKnobs(),
+		ReclaimOverlap: false,
+	}
+
+	indicators, err := r.getIndicators(r.indicatorCurrentGetterMap)
+	if err != nil {
+		general.Errorf("get indicators failed: %v", err)
+	} else {
+		controlEssentials.Indicators = indicators
+	}
+
 	for _, internal := range r.provisionPolicies {
 		internal.updateStatus = types.PolicyUpdateFailed
-
-		controlEssentials := types.ControlEssentials{
-			ControlKnobs:   r.getControlKnobs(),
-			Indicators:     nil,
-			ReclaimOverlap: false,
-		}
 
 		// set essentials for policy and regulator
 		internal.policy.SetPodSet(r.podSet)
@@ -68,7 +82,7 @@ func (r *QoSRegionShare) TryUpdateProvision() {
 
 		// run an episode of policy update
 		if err := internal.policy.Update(); err != nil {
-			klog.Errorf("[qosaware-cpu] update policy %v failed: %v", internal.name, err)
+			general.Errorf("update policy %v failed: %v", internal.name, err)
 			continue
 		}
 		internal.updateStatus = types.PolicyUpdateSucceeded
@@ -78,11 +92,11 @@ func (r *QoSRegionShare) TryUpdateProvision() {
 func (r *QoSRegionShare) getControlKnobs() types.ControlKnob {
 	poolSize, ok := r.metaReader.GetPoolSize(r.ownerPoolName)
 	if !ok {
-		klog.Errorf("[qosaware-cpu] pool %v not exist", r.ownerPoolName)
+		general.Errorf("pool %v not exist", r.ownerPoolName)
 		return nil
 	}
 	if poolSize <= 0 {
-		klog.Errorf("[qosaware-cpu] pool %v of non positive size", r.ownerPoolName)
+		general.Errorf("pool %v of non positive size", r.ownerPoolName)
 		return nil
 	}
 
@@ -92,4 +106,16 @@ func (r *QoSRegionShare) getControlKnobs() types.ControlKnob {
 			Action: types.ControlKnobActionNone,
 		},
 	}
+}
+
+func (r *QoSRegionShare) getPodSchedWaitCurrent() (float64, error) {
+	poolInfo, ok := r.metaReader.GetPoolInfo(r.ownerPoolName)
+	if !ok {
+		general.Errorf("pool %v not exist", r.ownerPoolName)
+		return 0, nil
+	}
+
+	cpuSet := poolInfo.TopologyAwareAssignments.MergeCPUSet()
+	shedWait := r.metaServer.AggregateCoreMetric(cpuSet, pkgconsts.MetricCPUSchedwait, metric.AggregatorAvg)
+	return shedWait.Value, nil
 }

@@ -71,10 +71,11 @@ type SystemPressureEvictionPlugin struct {
 
 	dynamicConfig *dynamic.DynamicAgentConfiguration
 
-	systemAction                int
-	isUnderSystemPressure       bool
-	kswapdStealPreviousCycle    float64
-	systemKswapdRateExceedTimes int
+	systemAction                 int
+	isUnderSystemPressure        bool
+	kswapdStealPreviousCycle     float64
+	kswapdStealPreviousCycleTime time.Time
+	systemKswapdRateExceedTimes  int
 }
 
 func (s *SystemPressureEvictionPlugin) Name() string {
@@ -164,11 +165,17 @@ func (s *SystemPressureEvictionPlugin) detectSystemKswapdStealPressure() {
 	kswapdSteal, err := s.evictionHelper.getSystemKswapdStealMetrics()
 	if err != nil {
 		s.kswapdStealPreviousCycle = kswapdStealPreviousCycleMissing
+		s.kswapdStealPreviousCycleTime = time.Now()
 		_ = s.emitter.StoreInt64(metricsNameFetchMetricError, 1, metrics.MetricTypeNameCount,
 			metrics.ConvertMapToTags(map[string]string{
 				metricsTagKeyNumaID: strconv.Itoa(nonExistNumaID),
 			})...)
 		general.Errorf("failed to getSystemKswapdStealMetrics, err: %v", err)
+		return
+	}
+
+	if kswapdSteal.Time.Equal(s.kswapdStealPreviousCycleTime) {
+		general.Warningf("getSystemKswapdStealMetrics get same result as last round,skip current round")
 		return
 	}
 
@@ -183,19 +190,21 @@ func (s *SystemPressureEvictionPlugin) detectSystemKswapdStealPressure() {
 		metrics.ConvertMapToTags(map[string]string{
 			metricsTagKeyMetricName: metricsTagValueSystemKswapdRateExceedTimes,
 		})...)
-	_ = s.emitter.StoreFloat64(metricsNameSystemMetric, kswapdSteal-s.kswapdStealPreviousCycle, metrics.MetricTypeNameRaw,
+	_ = s.emitter.StoreFloat64(metricsNameSystemMetric, kswapdSteal.Value-s.kswapdStealPreviousCycle, metrics.MetricTypeNameRaw,
 		metrics.ConvertMapToTags(map[string]string{
 			metricsTagKeyMetricName: metricsTagValueSystemKswapdDiff,
 		})...)
 
 	kswapdStealPreviousCycle := s.kswapdStealPreviousCycle
-	s.kswapdStealPreviousCycle = kswapdSteal
+	kswapdStealPreviousCycleTime := s.kswapdStealPreviousCycleTime
+	s.kswapdStealPreviousCycle = kswapdSteal.Value
+	s.kswapdStealPreviousCycleTime = *(kswapdSteal.Time)
 	if kswapdStealPreviousCycle == kswapdStealPreviousCycleMissing {
 		general.Warningf("kswapd steal of the previous cycle is missing")
 		return
 	}
 
-	if kswapdSteal-kswapdStealPreviousCycle >= float64(dynamicConfig.SystemKswapdRateThreshold)*s.evictionManagerSyncPeriod.Seconds() {
+	if (kswapdSteal.Value-kswapdStealPreviousCycle)/(kswapdSteal.Time.Sub(kswapdStealPreviousCycleTime)).Seconds() >= float64(dynamicConfig.SystemKswapdRateThreshold) {
 		s.systemKswapdRateExceedTimes++
 	} else {
 		s.systemKswapdRateExceedTimes = 0

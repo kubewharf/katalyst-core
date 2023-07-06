@@ -17,9 +17,12 @@ limitations under the License.
 package region
 
 import (
+	"context"
 	"fmt"
+	"math"
 	"sync"
 
+	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/klog/v2"
 
 	"github.com/kubewharf/katalyst-api/pkg/consts"
@@ -199,6 +202,7 @@ func (r *QoSRegionBase) TryUpdateHeadroom() {
 
 		// set essentials for policy
 		internal.policy.SetPodSet(r.podSet)
+		internal.policy.SetBindingNumas(r.bindingNumas)
 		internal.policy.SetEssentials(r.ResourceEssentials)
 
 		// run an episode of policy and calculator update
@@ -353,4 +357,92 @@ func (r *QoSRegionBase) initHeadroomPolicy(conf *config.Configuration, extraConf
 			})
 		}
 	}
+}
+
+// getIndicators gets indicators by given map of indicator name to the getter of current value
+func (r *QoSRegionBase) getIndicators(indicatorCurrentGetterMap map[string]types.IndicatorCurrentGetter) (types.Indicator, error) {
+	ctx := context.Background()
+	indicatorTargetConfig, ok := r.conf.RegionIndicatorTargetConfiguration[r.regionType]
+	if !ok {
+		return nil, fmt.Errorf("get %v indicators failed", r.regionType)
+	}
+
+	indicators := make(types.Indicator)
+	for _, indicator := range indicatorTargetConfig {
+		indicatorName := indicator.Name
+		defaultTarget := indicator.Target
+		indicatorCurrentGetter, ok := indicatorCurrentGetterMap[indicatorName]
+		if !ok {
+			continue
+		}
+
+		current, err := indicatorCurrentGetter()
+		if err != nil {
+			return nil, err
+		}
+
+		minTarget := defaultTarget
+		if len(r.podSet) > 0 {
+			minTarget = math.MaxFloat64
+			for podUID := range r.podSet {
+				indicatorTarget, err := r.getPodIndicatorTarget(ctx, podUID, indicatorName, defaultTarget)
+				if err != nil {
+					return nil, err
+				}
+
+				minTarget = math.Min(minTarget, *indicatorTarget)
+			}
+		}
+
+		indicatorValue := types.IndicatorValue{
+			Current: current,
+			Target:  minTarget,
+		}
+
+		if indicatorValue.Target <= 0 || indicatorValue.Current <= 0 {
+			return nil, fmt.Errorf("%v with invalid indicator value %v", indicatorName, indicatorValue)
+		}
+
+		indicators[indicatorName] = indicatorValue
+	}
+
+	return indicators, nil
+}
+
+// getPodIndicatorTarget gets pod indicator target by given pod uid and indicator name,
+// if no performance target or indicator is found, it will return default target
+func (r *QoSRegionBase) getPodIndicatorTarget(ctx context.Context, podUID string,
+	indicatorName string, defaultTarget float64) (*float64, error) {
+	pod, err := r.metaServer.GetPod(ctx, podUID)
+	if err != nil {
+		return nil, err
+	}
+
+	indicatorTarget := defaultTarget
+	servicePerformanceTarget, err := r.metaServer.ServiceSystemPerformanceTarget(ctx, pod)
+	if err != nil && !errors.IsNotFound(err) {
+		return nil, err
+	} else if err != nil {
+		return &indicatorTarget, nil
+	}
+
+	target, ok := servicePerformanceTarget[indicatorName]
+	if !ok {
+		return &indicatorTarget, nil
+	}
+
+	// get the indicator target in the following order:
+	// 1. service indicator upperBound
+	// 2. service indicator lowerBound
+	// 3. default indicator target
+
+	if target.LowerBound != nil {
+		indicatorTarget = *target.LowerBound
+	}
+
+	if target.UpperBound != nil {
+		indicatorTarget = *target.UpperBound
+	}
+
+	return &indicatorTarget, nil
 }

@@ -50,7 +50,8 @@ const (
 type CPUHeadroomPolicyName string
 
 const (
-	CPUHeadroomPolicyNone CPUHeadroomPolicyName = "none"
+	CPUHeadroomPolicyNone      CPUHeadroomPolicyName = "none"
+	CPUHeadroomPolicyCanonical CPUHeadroomPolicyName = "canonical"
 )
 
 // CPUProvisionAssemblerName defines assemblers for cpu advisor to generate node
@@ -67,8 +68,9 @@ const (
 type CPUHeadroomAssemblerName string
 
 const (
-	CPUHeadroomAssemblerNone   CPUHeadroomAssemblerName = "none"
-	CPUHeadroomAssemblerCommon CPUHeadroomAssemblerName = "common"
+	CPUHeadroomAssemblerNone      CPUHeadroomAssemblerName = "none"
+	CPUHeadroomAssemblerCommon    CPUHeadroomAssemblerName = "common"
+	CPUHeadroomAssemblerDedicated CPUHeadroomAssemblerName = "dedicated"
 )
 
 // MemoryHeadroomPolicyName defines policy names for memory advisor headroom estimation
@@ -226,9 +228,10 @@ type Indicator map[string]IndicatorValue
 type IndicatorValue struct {
 	Current float64
 	Target  float64
-	Upper   float64
-	Lower   float64
 }
+
+// IndicatorCurrentGetter get pod indicator current value by podUID
+type IndicatorCurrentGetter func() (float64, error)
 
 // PolicyUpdateStatus works as a flag indicating update result
 type PolicyUpdateStatus string

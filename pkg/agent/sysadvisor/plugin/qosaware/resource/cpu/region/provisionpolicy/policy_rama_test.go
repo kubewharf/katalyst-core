@@ -45,16 +45,23 @@ func generateTestConfiguration(t *testing.T, checkpointDir, stateFileDir string)
 	conf.GenericSysAdvisorConfiguration.StateFileDirectory = stateFileDir
 	conf.MetaServerConfiguration.CheckpointManagerDir = checkpointDir
 
-	conf.PolicyRama = &provisionconf.PolicyRamaConfiguration{
-		IndicatorMetrics: map[types.QoSRegionType][]string{
-			types.QoSRegionTypeShare: {
-				consts.MetricCPUSchedwait,
-			},
-			types.QoSRegionTypeDedicatedNumaExclusive: {
-				consts.MetricCPUCPIContainer,
-				consts.MetricMemBandwidthNuma,
+	conf.RegionIndicatorTargetConfiguration = map[types.QoSRegionType][]provisionconf.IndicatorTargetConfiguration{
+		types.QoSRegionTypeShare: {
+			{
+				Name: consts.MetricCPUSchedwait,
 			},
 		},
+		types.QoSRegionTypeDedicatedNumaExclusive: {
+			{
+				Name: consts.MetricCPUCPIContainer,
+			},
+			{
+				Name: consts.MetricMemBandwidthNuma,
+			},
+		},
+	}
+
+	conf.PolicyRama = &provisionconf.PolicyRamaConfiguration{
 		PIDParameters: map[string]types.FirstOrderPIDParams{
 			consts.MetricCPUSchedwait: {
 				Kpp:                  10.0,

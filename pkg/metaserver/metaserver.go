@@ -70,15 +70,15 @@ func NewMetaServer(clientSet *client.GenericClientSet, emitter metrics.MetricEmi
 		configurationManager = &config.DummyConfigurationManager{}
 	}
 
-	serviceProfilingManager, err := spd.NewServiceProfilingManager(clientSet, emitter, metaAgent.CNCFetcher, conf)
+	spdFetcher, err := spd.NewSPDFetcher(clientSet, emitter, metaAgent.CNCFetcher, conf)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("initializes spd fetcher failed: %s", err)
 	}
 
 	return &MetaServer{
 		MetaAgent:               metaAgent,
 		ConfigurationManager:    configurationManager,
-		ServiceProfilingManager: serviceProfilingManager,
+		ServiceProfilingManager: spd.NewServiceProfilingManager(spdFetcher),
 		ExternalManager:         external.InitExternalManager(metaAgent.PodFetcher),
 	}, nil
 }

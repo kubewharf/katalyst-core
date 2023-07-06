@@ -36,36 +36,17 @@ import (
 
 type PolicyRama struct {
 	*PolicyBase
-
-	configuredIndicatorMetrics []string
-	controllers                map[string]*helper.PIDController // map[metricName]controller
+	conf        *config.Configuration
+	controllers map[string]*helper.PIDController // map[metricName]controller
 }
 
 func NewPolicyRama(regionName string, regionType types.QoSRegionType, ownerPoolName string,
-	conf *config.Configuration, extraConfig interface{}, metaReader metacache.MetaReader,
+	conf *config.Configuration, _ interface{}, metaReader metacache.MetaReader,
 	metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter) ProvisionPolicy {
 	p := &PolicyRama{
-		PolicyBase:                 NewPolicyBase(regionName, regionType, ownerPoolName, metaReader, metaServer, emitter),
-		configuredIndicatorMetrics: []string{},
-		controllers:                make(map[string]*helper.PIDController),
-	}
-
-	// initialize indicator metrics region interested in
-	indicatorMetrics, ok := conf.PolicyRama.IndicatorMetrics[regionType]
-	if !ok {
-		klog.Warningf("[qosaware-cpu-rama] indicator metrics not found for region %v", regionType)
-		return p
-	}
-	p.configuredIndicatorMetrics = indicatorMetrics
-
-	// initialize pid controllers for every indicator of this region
-	for _, metricName := range p.configuredIndicatorMetrics {
-		params, ok := conf.PolicyRama.PIDParameters[metricName]
-		if !ok {
-			klog.Warningf("[qosaware-cpu-rama] pid parameter not found for indicator %v", metricName)
-			continue
-		}
-		p.controllers[metricName] = helper.NewPIDController(params)
+		conf:        conf,
+		PolicyBase:  NewPolicyBase(regionName, regionType, ownerPoolName, metaReader, metaServer, emitter),
+		controllers: make(map[string]*helper.PIDController),
 	}
 
 	return p
@@ -85,9 +66,18 @@ func (p *PolicyRama) Update() error {
 	cpuAdjustedRaw := math.Inf(-1)
 
 	// run pid control for each indicator
-	for _, metricName := range p.configuredIndicatorMetrics {
-		indicator := p.Indicators[metricName]
-		controller := p.controllers[metricName]
+	for metricName, indicator := range p.Indicators {
+		params, ok := p.conf.PolicyRama.PIDParameters[metricName]
+		if !ok {
+			klog.Warningf("[qosaware-cpu-rama] pid parameter not found for indicator %v", metricName)
+			continue
+		}
+
+		controller, ok := p.controllers[metricName]
+		if !ok {
+			controller = helper.NewPIDController(params)
+			p.controllers[metricName] = controller
+		}
 
 		controller.SetEssentials(p.ResourceEssentials)
 		cpuAdjusted := controller.Adjust(cpuSize, indicator.Target, indicator.Current)
@@ -96,6 +86,14 @@ func (p *PolicyRama) Update() error {
 			cpuAdjustedRaw = cpuAdjusted
 		}
 	}
+
+	for metricName := range p.controllers {
+		_, ok := p.conf.PolicyRama.PIDParameters[metricName]
+		if !ok {
+			delete(p.controllers, metricName)
+		}
+	}
+
 	cpuAdjustedRestricted := cpuAdjustedRaw
 
 	// restrict cpu size adjusted
@@ -144,25 +142,9 @@ func (p *PolicyRama) sanityCheck() error {
 		errList = append(errList, fmt.Errorf("illegal control knob %v", p.ControlKnobs))
 	}
 
-	// 2. check indicator legality
-	isLegal = true
-	for _, metricName := range p.configuredIndicatorMetrics {
-		indicator, ok := p.Indicators[metricName]
-		if !ok {
-			isLegal = false
-		} else if indicator.Target <= 0 || indicator.Current <= 0 {
-			isLegal = false
-		}
-	}
-	if !isLegal {
-		errList = append(errList, fmt.Errorf("illegal indicator %v", p.Indicators))
-	}
-
-	// 3. check pid controllers
-	for _, metricName := range p.configuredIndicatorMetrics {
-		if _, ok := p.controllers[metricName]; !ok {
-			errList = append(errList, fmt.Errorf("missing controller for indicator %v", metricName))
-		}
+	// 2. check indicators legality
+	if p.Indicators == nil {
+		errList = append(errList, fmt.Errorf("illegal indicators"))
 	}
 
 	// 4. check margin. skip update when margin is non zero

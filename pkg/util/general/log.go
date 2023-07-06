@@ -34,6 +34,8 @@ const (
 	LoggingPKGFull
 )
 
+const skippedPackagePrefix = "github.com/kubewharf/"
+
 // loggingWithDepth returns the logging-prefix for caller.
 // it will help to avoid hardcode function names in logging
 // message especially for cases that function names are changed.
@@ -59,41 +61,73 @@ func loggingWithDepth(pkg LoggingPKG) string {
 	case LoggingPKGShort:
 		return callerNames[len(callerNames)-1]
 	case LoggingPKGFull:
-		return callPath
+		return strings.TrimPrefix(callPath, skippedPackagePrefix)
 	}
 	return ""
 }
 
 func logging(message string, params ...interface{}) string {
-	return "[" + loggingWithDepth(LoggingPKGShort) + "] " + fmt.Sprintf(message, params...)
+	return "[" + loggingWithDepth(LoggingPKGFull) + "] " + fmt.Sprintf(message, params...)
+}
+
+func loggingPath(pkg LoggingPKG, message string, params ...interface{}) string {
+	return "[" + loggingWithDepth(pkg) + "] " + fmt.Sprintf(message, params...)
 }
 
 func InfoS(message string, params ...interface{}) {
 	klog.InfoSDepth(1, logging(message), params...)
 }
 
+func InfoSPath(pkg LoggingPKG, message string, params ...interface{}) {
+	klog.InfoSDepth(1, loggingPath(pkg, message), params...)
+}
+
 func Infof(message string, params ...interface{}) {
 	klog.InfofDepth(1, logging(message, params...))
+}
+
+func InfofPath(pkg LoggingPKG, message string, params ...interface{}) {
+	klog.InfofDepth(1, loggingPath(pkg, message, params...))
 }
 
 func InfofV(level int, message string, params ...interface{}) {
 	klog.V(klog.Level(level)).InfofDepth(1, logging(message, params...))
 }
 
+func InfofVPath(pkg LoggingPKG, level int, message string, params ...interface{}) {
+	klog.V(klog.Level(level)).InfofDepth(1, loggingPath(pkg, message, params...))
+}
+
 func Warningf(message string, params ...interface{}) {
 	klog.WarningfDepth(1, logging(message, params...))
+}
+
+func WarningfPath(pkg LoggingPKG, message string, params ...interface{}) {
+	klog.WarningfDepth(1, loggingPath(pkg, message, params...))
 }
 
 func Errorf(message string, params ...interface{}) {
 	klog.ErrorfDepth(1, logging(message, params...))
 }
 
+func ErrorfPath(pkg LoggingPKG, message string, params ...interface{}) {
+	klog.ErrorfDepth(1, loggingPath(pkg, message, params...))
+}
+
 func ErrorS(err error, message string, params ...interface{}) {
 	klog.ErrorSDepth(1, err, logging(message), params...)
 }
 
+func ErrorSPath(pkg LoggingPKG, err error, message string, params ...interface{}) {
+	klog.ErrorSDepth(1, err, loggingPath(pkg, message), params...)
+}
+
 func Fatalf(message string, params ...interface{}) {
 	klog.FatalfDepth(1, logging(message, params...))
+}
+
+func FatalfPath(pkg LoggingPKG, message string, params ...interface{}) {
+	klog.FatalfDepth(1, loggingPath(pkg, message, params...))
 }
 
 type Logger struct {
