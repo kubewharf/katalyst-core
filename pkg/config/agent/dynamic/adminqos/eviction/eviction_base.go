@@ -40,7 +40,7 @@ func NewEvictionConfiguration() *EvictionConfiguration {
 
 func (c *EvictionConfiguration) ApplyConfiguration(conf *crd.DynamicConfigCRD) {
 	if aqc := conf.AdminQoSConfiguration; aqc != nil && aqc.Spec.Config.EvictionConfig != nil &&
-		len(aqc.Spec.Config.EvictionConfig.DryRun) > 0 {
+		aqc.Spec.Config.EvictionConfig.DryRun != nil {
 		c.DryRun = aqc.Spec.Config.EvictionConfig.DryRun
 	}
 
