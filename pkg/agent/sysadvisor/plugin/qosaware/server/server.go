@@ -25,7 +25,6 @@ import (
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource"
-	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/server/cpu"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
@@ -43,6 +42,8 @@ type subQRMServer interface {
 	Name() string
 	Start() error
 	Stop() error
+	// RegisterAdvisorServer registers resource server and its implementation to the gRPC server.
+	RegisterAdvisorServer()
 }
 
 type qrmServerWrapper struct {
@@ -96,8 +97,16 @@ func newSubQRMServer(resourceName v1.ResourceName, advisorWrapper resource.Resou
 		}
 		advisorRecvChInterface, advisorSendChInterface := subAdvisor.GetChannels()
 		advisorRecvCh := advisorRecvChInterface.(chan struct{})
-		advisorSendCh := advisorSendChInterface.(chan types.InternalCalculationResult)
-		return cpu.NewCPUServer(advisorSendCh, advisorRecvCh, conf, metaCache, emitter)
+		advisorSendCh := advisorSendChInterface.(chan types.InternalCPUCalculationResult)
+		return NewCPUServer(advisorSendCh, advisorRecvCh, conf, metaCache, emitter)
+	case v1.ResourceMemory:
+		subAdvisor, err := advisorWrapper.GetSubAdvisor(types.QoSResourceMemory)
+		if err != nil {
+			return nil, err
+		}
+		_, advisorSendChInterface := subAdvisor.GetChannels()
+		advisorSendCh := advisorSendChInterface.(chan types.InternalMemoryCalculationResult)
+		return NewMemoryServer(advisorSendCh, nil, conf, metaCache, emitter)
 	default:
 		return nil, fmt.Errorf("illegal resource %v", resourceName)
 	}

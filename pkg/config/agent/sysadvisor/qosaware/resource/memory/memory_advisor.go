@@ -24,8 +24,8 @@ import (
 // MemoryAdvisorConfiguration stores configurations of memory advisors in qos aware plugin
 type MemoryAdvisorConfiguration struct {
 	MemoryHeadroomPolicies []types.MemoryHeadroomPolicyName
-
 	*headroom.MemoryHeadroomPolicyConfiguration
+	MemoryAdvisorPlugins []types.MemoryAdvisorPluginName
 }
 
 // NewMemoryAdvisorConfiguration creates new memory advisor configurations
@@ -33,5 +33,6 @@ func NewMemoryAdvisorConfiguration() *MemoryAdvisorConfiguration {
 	return &MemoryAdvisorConfiguration{
 		MemoryHeadroomPolicies:            make([]types.MemoryHeadroomPolicyName, 0),
 		MemoryHeadroomPolicyConfiguration: headroom.NewMemoryHeadroomPolicyConfiguration(),
+		MemoryAdvisorPlugins:              make([]types.MemoryAdvisorPluginName, 0),
 	}
 }

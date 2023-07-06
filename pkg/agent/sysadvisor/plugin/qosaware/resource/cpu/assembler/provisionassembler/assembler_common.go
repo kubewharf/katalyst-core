@@ -57,10 +57,10 @@ func NewProvisionAssemblerCommon(conf *config.Configuration, _ interface{}, regi
 	}
 }
 
-func (pa *ProvisionAssemblerCommon) AssembleProvision() (types.InternalCalculationResult, error) {
+func (pa *ProvisionAssemblerCommon) AssembleProvision() (types.InternalCPUCalculationResult, error) {
 	enableReclaim := pa.conf.GetDynamicConfiguration().EnableReclaim
 
-	calculationResult := types.InternalCalculationResult{
+	calculationResult := types.InternalCPUCalculationResult{
 		PoolEntries: make(map[string]map[int]int),
 	}
 
@@ -78,7 +78,7 @@ func (pa *ProvisionAssemblerCommon) AssembleProvision() (types.InternalCalculati
 	for _, r := range *pa.regionMap {
 		controlKnob, err := r.GetProvision()
 		if err != nil {
-			return types.InternalCalculationResult{}, err
+			return types.InternalCPUCalculationResult{}, err
 		}
 
 		switch r.Type() {

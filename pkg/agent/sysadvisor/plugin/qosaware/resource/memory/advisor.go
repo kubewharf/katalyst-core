@@ -30,10 +30,12 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource/memory/headroompolicy"
+	memadvisorplugin "github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource/memory/plugin"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
+	"github.com/kubewharf/katalyst-core/pkg/util/general"
 )
 
 func init() {
@@ -49,11 +51,14 @@ type memoryResourceAdvisor struct {
 	conf            *config.Configuration
 	startTime       time.Time
 	headroomPolices []headroompolicy.HeadroomPolicy
+	plugins         []memadvisorplugin.MemoryAdvisorPlugin
 	mutex           sync.RWMutex
 
 	metaReader metacache.MetaReader
 	metaServer *metaserver.MetaServer
 	emitter    metrics.MetricEmitter
+
+	sendChan chan types.InternalMemoryCalculationResult
 }
 
 // NewMemoryResourceAdvisor returns a memoryResourceAdvisor instance
@@ -68,16 +73,27 @@ func NewMemoryResourceAdvisor(conf *config.Configuration, extraConf interface{},
 		metaReader: metaCache,
 		metaServer: metaServer,
 		emitter:    emitter,
+		sendChan:   make(chan types.InternalMemoryCalculationResult),
 	}
 
-	initializers := headroompolicy.GetRegisteredInitializers()
+	headroomPolicyInitializers := headroompolicy.GetRegisteredInitializers()
 	for _, headroomPolicyName := range conf.MemoryHeadroomPolicies {
-		initFunc, ok := initializers[headroomPolicyName]
+		initFunc, ok := headroomPolicyInitializers[headroomPolicyName]
 		if !ok {
 			klog.Errorf("failed to find registered initializer %v", headroomPolicyName)
 			continue
 		}
 		ra.headroomPolices = append(ra.headroomPolices, initFunc(conf, extraConf, metaCache, metaServer, emitter))
+	}
+
+	memoryAdvisorPluginInitializers := memadvisorplugin.GetRegisteredInitializers()
+	for _, memadvisorPluginName := range conf.MemoryAdvisorPlugins {
+		initFunc, ok := memoryAdvisorPluginInitializers[memadvisorPluginName]
+		if !ok {
+			klog.Errorf("failed to find registered initializer %v", memadvisorPluginName)
+			continue
+		}
+		ra.plugins = append(ra.plugins, initFunc(conf, extraConf, metaCache, metaServer, emitter))
 	}
 
 	return ra
@@ -86,14 +102,11 @@ func NewMemoryResourceAdvisor(conf *config.Configuration, extraConf interface{},
 func (ra *memoryResourceAdvisor) Run(ctx context.Context) {
 	period := ra.conf.SysAdvisorPluginsConfiguration.QoSAwarePluginConfiguration.SyncPeriod
 
-	go wait.Until(func() {
-		ra.update()
-	}, period, ctx.Done())
+	go wait.Until(ra.update, period, ctx.Done())
 }
 
 func (ra *memoryResourceAdvisor) GetChannels() (interface{}, interface{}) {
-	klog.Warningf("[qosaware-memory] get channel is not supported")
-	return nil, nil
+	return nil, ra.sendChan
 }
 
 func (ra *memoryResourceAdvisor) GetHeadroom() (resource.Quantity, error) {
@@ -110,6 +123,17 @@ func (ra *memoryResourceAdvisor) GetHeadroom() (resource.Quantity, error) {
 	}
 
 	return resource.Quantity{}, fmt.Errorf("failed to get valid headroom")
+}
+
+func (ra *memoryResourceAdvisor) sendAdvices() {
+	// send to server
+	result := types.InternalMemoryCalculationResult{}
+	for _, plugin := range ra.plugins {
+		advices := plugin.GetAdvices()
+		result.ContainerEntries = append(result.ContainerEntries, advices.ContainerEntries...)
+		result.ExtraEntries = append(result.ExtraEntries, advices.ExtraEntries...)
+	}
+	ra.sendChan <- result
 }
 
 func (ra *memoryResourceAdvisor) update() {
@@ -145,4 +169,35 @@ func (ra *memoryResourceAdvisor) update() {
 			klog.Errorf("[qosaware-memory] update headroom policy failed: %v", err)
 		}
 	}
+
+	nodeCondition, err := ra.detectNodePressureCondition()
+	if err != nil {
+		general.Errorf("detect node memory pressure err %v", err)
+		return
+	}
+	NUMAConditions, err := ra.detectNUMAPressureConditions()
+	if err != nil {
+		general.Errorf("detect NUMA pressures err %v", err)
+		return
+	}
+
+	memoryPressureStatus := types.MemoryPressureStatus{
+		NodeCondition:  nodeCondition,
+		NUMAConditions: NUMAConditions,
+	}
+
+	for _, plugin := range ra.plugins {
+		plugin.Reconcile(&memoryPressureStatus)
+	}
+
+	ra.sendAdvices()
+}
+
+func (ra *memoryResourceAdvisor) detectNUMAPressureConditions() (map[int]*types.MemoryPressureCondition, error) {
+	pressureConditions := make(map[int]*types.MemoryPressureCondition)
+	return pressureConditions, nil
+}
+
+func (ra *memoryResourceAdvisor) detectNodePressureCondition() (*types.MemoryPressureCondition, error) {
+	return &types.MemoryPressureCondition{}, nil
 }

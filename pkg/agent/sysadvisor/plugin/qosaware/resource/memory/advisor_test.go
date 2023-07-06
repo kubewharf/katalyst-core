@@ -131,12 +131,14 @@ func TestUpdate(t *testing.T) {
 		pods            []*v1.Pod
 		wantHeadroom    resource.Quantity
 		reclaimedEnable bool
+		needRecvAdvices bool
 	}{
 		{
 			name:            "missing reserve pool",
 			pools:           map[string]*types.PoolInfo{},
 			reclaimedEnable: true,
 			wantHeadroom:    resource.Quantity{},
+			needRecvAdvices: false,
 		},
 		{
 			name: "reserve pool only",
@@ -154,6 +156,7 @@ func TestUpdate(t *testing.T) {
 				},
 			},
 			reclaimedEnable: true,
+			needRecvAdvices: true,
 			wantHeadroom:    *resource.NewQuantity(996<<30, resource.DecimalSI),
 		},
 		{
@@ -183,6 +186,7 @@ func TestUpdate(t *testing.T) {
 				},
 			},
 			reclaimedEnable: true,
+			needRecvAdvices: true,
 			containers: []*types.ContainerInfo{
 				makeContainerInfo("uid1", "default", "pod1", "c1", consts.PodAnnotationQoSLevelSharedCores, nil,
 					map[int]machine.CPUSet{
@@ -228,6 +232,7 @@ func TestUpdate(t *testing.T) {
 				},
 			},
 			reclaimedEnable: false,
+			needRecvAdvices: true,
 			containers: []*types.ContainerInfo{
 				makeContainerInfo("uid1", "default", "pod1", "c1", consts.PodAnnotationQoSLevelSharedCores, nil,
 					map[int]machine.CPUSet{
@@ -261,7 +266,9 @@ func TestUpdate(t *testing.T) {
 			advisor, metaCache := newTestMemoryAdvisor(t, tt.pods, ckDir, sfDir)
 			advisor.startTime = time.Now().Add(-startUpPeriod * 2)
 			advisor.conf.GetDynamicConfiguration().EnableReclaim = tt.reclaimedEnable
-			_, _ = advisor.GetChannels()
+			_, advisorRecvChInterface := advisor.GetChannels()
+
+			recvCh := advisorRecvChInterface.(chan types.InternalMemoryCalculationResult)
 
 			for poolName, poolInfo := range tt.pools {
 				err := metaCache.SetPoolInfo(poolName, poolInfo)
@@ -276,6 +283,9 @@ func TestUpdate(t *testing.T) {
 			advisor.Run(ctx)
 
 			time.Sleep(10 * time.Millisecond) // Wait some time because no signal will be sent to channel
+			if tt.needRecvAdvices {
+				<-recvCh
+			}
 			headroom, err := advisor.GetHeadroom()
 
 			if reflect.DeepEqual(tt.wantHeadroom, resource.Quantity{}) {

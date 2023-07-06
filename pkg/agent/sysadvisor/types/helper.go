@@ -198,7 +198,7 @@ func (ps PodSet) Insert(podUID string, containerName string) {
 	containerSet.Insert(containerName)
 }
 
-func (r *InternalCalculationResult) GetPoolEntry(poolName string, numaID int) (int, bool) {
+func (r *InternalCPUCalculationResult) GetPoolEntry(poolName string, numaID int) (int, bool) {
 	v1, ok := r.PoolEntries[poolName]
 	if ok {
 		v2, ok := v1[numaID]
@@ -207,7 +207,7 @@ func (r *InternalCalculationResult) GetPoolEntry(poolName string, numaID int) (i
 	return 0, false
 }
 
-func (r *InternalCalculationResult) SetPoolEntry(poolName string, numaID int, poolSize int) {
+func (r *InternalCPUCalculationResult) SetPoolEntry(poolName string, numaID int, poolSize int) {
 	if poolSize <= 0 {
 		return
 	}
