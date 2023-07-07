@@ -68,7 +68,7 @@ func TestNewNumaPressureEvictionPlugin(t *testing.T) {
 
 	assert.Equal(t, numaFreeBelowWatermarkTimesThreshold, plugin.dynamicConfig.GetDynamicConfiguration().NumaFreeBelowWatermarkTimesThreshold)
 	assert.Equal(t, systemKswapdRateThreshold, plugin.dynamicConfig.GetDynamicConfiguration().SystemKswapdRateThreshold)
-	assert.Equal(t, systemKswapdRateExceedTimesThreshold, plugin.dynamicConfig.GetDynamicConfiguration().SystemKswapdRateExceedTimesThreshold)
+	assert.Equal(t, systemKswapdRateExceedDurationThreshold, plugin.dynamicConfig.GetDynamicConfiguration().SystemKswapdRateExceedDurationThreshold)
 	assert.Equal(t, evictionconfig.DefaultNumaEvictionRankingMetrics, plugin.dynamicConfig.GetDynamicConfiguration().NumaEvictionRankingMetrics)
 	assert.Equal(t, evictionconfig.DefaultSystemEvictionRankingMetrics, plugin.dynamicConfig.GetDynamicConfiguration().SystemEvictionRankingMetrics)
 }

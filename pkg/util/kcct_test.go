@@ -33,11 +33,11 @@ import (
 )
 
 var (
-	nonDefaultNumaFreeBelowWatermarkTimesThreshold = 5
-	nonDefaultSystemKswapdRateThreshold            = 3000
-	nonDefaultSystemKswapdRateExceedTimesThreshold = 5
-	nonDefaultNumaEvictionRankingMetrics           = []string{"metric1", "metric2"}
-	nonDefaultSystemEvictionRankingMetrics         = []string{"metric3"}
+	nonDefaultNumaFreeBelowWatermarkTimesThreshold    = 5
+	nonDefaultSystemKswapdRateThreshold               = 3000
+	nonDefaultSystemKswapdRateExceedDurationThreshold = 5
+	nonDefaultNumaEvictionRankingMetrics              = []string{"metric1", "metric2"}
+	nonDefaultSystemEvictionRankingMetrics            = []string{"metric3"}
 )
 
 func generateTestDuration(t time.Duration) *metav1.Duration {
@@ -809,18 +809,18 @@ func Test_kccTargetResource_GenerateConfigHash(t *testing.T) {
 									},
 								},
 								MemoryPressureEvictionConfig: &v1alpha1.MemoryPressureEvictionConfig{
-									NumaFreeBelowWatermarkTimesThreshold: &nonDefaultNumaFreeBelowWatermarkTimesThreshold,
-									SystemKswapdRateThreshold:            &nonDefaultSystemKswapdRateThreshold,
-									SystemKswapdRateExceedTimesThreshold: &nonDefaultSystemKswapdRateExceedTimesThreshold,
-									NumaEvictionRankingMetrics:           ConvertStringListToNumaEvictionRankingMetrics(nonDefaultNumaEvictionRankingMetrics),
-									SystemEvictionRankingMetrics:         ConvertStringListToSystemEvictionRankingMetrics(nonDefaultSystemEvictionRankingMetrics),
+									NumaFreeBelowWatermarkTimesThreshold:    &nonDefaultNumaFreeBelowWatermarkTimesThreshold,
+									SystemKswapdRateThreshold:               &nonDefaultSystemKswapdRateThreshold,
+									SystemKswapdRateExceedDurationThreshold: &nonDefaultSystemKswapdRateExceedDurationThreshold,
+									NumaEvictionRankingMetrics:              ConvertStringListToNumaEvictionRankingMetrics(nonDefaultNumaEvictionRankingMetrics),
+									SystemEvictionRankingMetrics:            ConvertStringListToSystemEvictionRankingMetrics(nonDefaultSystemEvictionRankingMetrics),
 								},
 							},
 						},
 					},
 				}),
 			},
-			want: "d19f7162addf",
+			want: "c16ed236c692",
 		},
 		{
 			name: "test-2",
