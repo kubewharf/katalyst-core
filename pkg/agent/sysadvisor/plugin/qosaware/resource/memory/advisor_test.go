@@ -234,21 +234,6 @@ var defaultNumaMetrics = []numaMetric{
 	},
 }
 
-var tuneMemcgNodeMetrics = []nodeMetric{
-	{
-		metricName:  coreconsts.MetricMemFreeSystem,
-		metricValue: metricutil.MetricData{Value: 80 << 30},
-	},
-	{
-		metricName:  coreconsts.MetricMemTotalSystem,
-		metricValue: metricutil.MetricData{Value: 500 << 30},
-	},
-	{
-		metricName:  coreconsts.MetricMemScaleFactorSystem,
-		metricValue: metricutil.MetricData{Value: 500},
-	},
-}
-
 var dropCacheNodeMetrics = []nodeMetric{
 	{
 		metricName:  coreconsts.MetricMemFreeSystem,
@@ -636,6 +621,63 @@ func TestUpdate(t *testing.T) {
 				},
 			},
 		},
+		{
+			name: "bind memset",
+			pools: map[string]*types.PoolInfo{
+				state.PoolNameReserve: {
+					PoolName: state.PoolNameReserve,
+					TopologyAwareAssignments: map[int]machine.CPUSet{
+						0: machine.MustParse("0"),
+						1: machine.MustParse("24"),
+					},
+					OriginalTopologyAwareAssignments: map[int]machine.CPUSet{
+						0: machine.MustParse("0"),
+						1: machine.MustParse("24"),
+					},
+				},
+			},
+			reclaimedEnable: false,
+			needRecvAdvices: true,
+			containers: []*types.ContainerInfo{
+				makeContainerInfo("uid1", "default", "pod1", "c1", consts.PodAnnotationQoSLevelReclaimedCores, nil,
+					map[int]machine.CPUSet{
+						0: machine.MustParse("1"),
+						1: machine.MustParse("25"),
+					}, 200<<30),
+				makeContainerInfo("uid2", "default", "pod2", "c2", consts.PodAnnotationQoSLevelReclaimedCores, nil,
+					map[int]machine.CPUSet{
+						0: machine.MustParse("1"),
+						1: machine.MustParse("25"),
+					}, 200<<30),
+				makeContainerInfo("uid3", "default", "pod3", "c3", consts.PodAnnotationQoSLevelReclaimedCores, nil,
+					map[int]machine.CPUSet{
+						0: machine.MustParse("1"),
+					}, 200<<30),
+			},
+			plugins:      []types.MemoryAdvisorPluginName{memadvisorplugin.MemsetBinder},
+			nodeMetrics:  defaultNodeMetrics,
+			numaMetrics:  defaultNumaMetrics,
+			wantHeadroom: *resource.NewQuantity(996<<30, resource.DecimalSI),
+			wantAdviceResult: types.InternalMemoryCalculationResult{
+				ContainerEntries: []types.ContainerMemoryAdvices{
+					{
+						PodUID:        "uid1",
+						ContainerName: "c1",
+						Values:        map[string]string{string(memoryadvisor.ControKnobKeyCPUSetMems): "0-1"},
+					},
+					{
+						PodUID:        "uid2",
+						ContainerName: "c2",
+						Values:        map[string]string{string(memoryadvisor.ControKnobKeyCPUSetMems): "0-1"},
+					},
+					{
+						PodUID:        "uid3",
+						ContainerName: "c3",
+						Values:        map[string]string{string(memoryadvisor.ControKnobKeyCPUSetMems): "0"},
+					},
+				},
+			},
+		},
 	}
 
 	for _, tt := range tests {
@@ -689,8 +731,8 @@ func TestUpdate(t *testing.T) {
 			if tt.needRecvAdvices {
 				result := <-recvCh
 
-				assert.Equal(t, tt.wantAdviceResult.ExtraEntries, result.ExtraEntries)
-				assert.Equal(t, tt.wantAdviceResult.ContainerEntries, result.ContainerEntries)
+				assert.ElementsMatch(t, tt.wantAdviceResult.ExtraEntries, result.ExtraEntries)
+				assert.ElementsMatch(t, tt.wantAdviceResult.ContainerEntries, result.ContainerEntries)
 			}
 			headroom, err := advisor.GetHeadroom()
 

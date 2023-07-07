@@ -110,3 +110,14 @@ func GetSiblingNUMAs(numaID int, topology *CPUTopology) (CPUSet, error) {
 
 	return numaSet, nil
 }
+
+// CPUSet2MemSet returns memset for cpuset
+func CPUSet2MemSet(assignment map[int]CPUSet) CPUSet {
+	memset := NewCPUSet()
+	for numaID, cpuset := range assignment {
+		if cpuset.Size() > 0 {
+			memset.Add(numaID)
+		}
+	}
+	return memset
+}

@@ -44,6 +44,7 @@ func init() {
 
 	memadvisorplugin.RegisterInitializer(memadvisorplugin.CacheReaper, memadvisorplugin.NewCacheReaper)
 	memadvisorplugin.RegisterInitializer(memadvisorplugin.MemoryGuard, memadvisorplugin.NewMemoryGuard)
+	memadvisorplugin.RegisterInitializer(memadvisorplugin.MemsetBinder, memadvisorplugin.NewMemsetBinder)
 }
 
 const (
@@ -225,6 +226,10 @@ func (ra *memoryResourceAdvisor) detectNUMAPressure(numaID int) (*types.MemoryPr
 		return nil, err
 	}
 
+	general.Infof("numa %v metrics, free: %+v, total: %+v, scaleFactor: %+v", numaID,
+		resource.NewQuantity(int64(free), resource.BinarySI).String(),
+		resource.NewQuantity(int64(total), resource.BinarySI).String(), scaleFactor)
+
 	targetReclaimed := resource.NewQuantity(0, resource.BinarySI)
 
 	pressureState := types.MemoryPressureNoRisk
@@ -246,7 +251,9 @@ func (ra *memoryResourceAdvisor) detectNodePressureCondition() (*types.MemoryPre
 		return nil, err
 	}
 
-	general.Infof("system watermark metrics, free: %+v, total: %+v, scaleFactor: %+v", free, total, scaleFactor)
+	general.Infof("system watermark metrics, free: %+v, total: %+v, scaleFactor: %+v",
+		resource.NewQuantity(int64(free), resource.BinarySI).String(),
+		resource.NewQuantity(int64(total), resource.BinarySI).String(), scaleFactor)
 
 	targetReclaimed := resource.NewQuantity(0, resource.BinarySI)
 
