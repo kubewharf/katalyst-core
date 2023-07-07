@@ -17,6 +17,8 @@ limitations under the License.
 package types
 
 import (
+	"time"
+
 	"k8s.io/apimachinery/pkg/util/sets"
 
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
@@ -139,6 +141,7 @@ type RegionInfo struct {
 // calculation result
 type InternalCPUCalculationResult struct {
 	PoolEntries map[string]map[int]int // map[poolName][numaId]cpuSize
+	TimeStamp   time.Time
 }
 
 // ControlEssentials defines essential metrics for cpu advisor feedback control

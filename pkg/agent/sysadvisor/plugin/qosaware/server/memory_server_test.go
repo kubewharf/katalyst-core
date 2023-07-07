@@ -20,6 +20,7 @@ import (
 	"io/ioutil"
 	"reflect"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -104,6 +105,7 @@ func TestMemoryServerListAndWatch(t *testing.T) {
 			name:  "normal",
 			empty: &advisorsvc.Empty{},
 			provision: types.InternalMemoryCalculationResult{
+				TimeStamp: time.Now(),
 				ContainerEntries: []types.ContainerMemoryAdvices{
 					{
 						PodUID:        "pod1",

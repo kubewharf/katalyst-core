@@ -222,8 +222,12 @@ func (cra *cpuResourceAdvisor) update() {
 		klog.Errorf("[qosaware-cpu] assemble provision failed: %v", err)
 		return
 	}
-	cra.sendCh <- calculationResult
-	klog.Infof("[qosaware-cpu] notify cpu server: %+v", calculationResult)
+	select {
+	case cra.sendCh <- calculationResult:
+		general.Infof("notify cpu server: %+v", calculationResult)
+	default:
+		general.Errorf("channel is full")
+	}
 }
 
 // setIsolatedContainers get isolation status from isolator and update into containers
