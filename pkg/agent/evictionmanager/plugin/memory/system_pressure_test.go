@@ -46,10 +46,10 @@ func makeMetaServer() *metaserver.MetaServer {
 }
 
 var (
-	evictionManagerSyncPeriod            = 10 * time.Second
-	numaFreeBelowWatermarkTimesThreshold = 3
-	systemKswapdRateThreshold            = 3000
-	systemKswapdRateExceedTimesThreshold = 3
+	evictionManagerSyncPeriod               = 10 * time.Second
+	numaFreeBelowWatermarkTimesThreshold    = 3
+	systemKswapdRateThreshold               = 3000
+	systemKswapdRateExceedDurationThreshold = 30
 
 	scaleFactor = 600
 	systemTotal = 100 * 1024 * 1024 * 1024
@@ -65,7 +65,7 @@ func makeConf() *config.Configuration {
 	conf.GetDynamicConfiguration().EnableSystemLevelEviction = evictionconfig.DefaultEnableSystemLevelEviction
 	conf.GetDynamicConfiguration().NumaFreeBelowWatermarkTimesThreshold = numaFreeBelowWatermarkTimesThreshold
 	conf.GetDynamicConfiguration().SystemKswapdRateThreshold = systemKswapdRateThreshold
-	conf.GetDynamicConfiguration().SystemKswapdRateExceedTimesThreshold = systemKswapdRateExceedTimesThreshold
+	conf.GetDynamicConfiguration().SystemKswapdRateExceedDurationThreshold = systemKswapdRateExceedDurationThreshold
 	conf.GetDynamicConfiguration().NumaEvictionRankingMetrics = evictionconfig.DefaultNumaEvictionRankingMetrics
 	conf.GetDynamicConfiguration().SystemEvictionRankingMetrics = evictionconfig.DefaultSystemEvictionRankingMetrics
 	conf.GetDynamicConfiguration().MemoryPressureEvictionConfiguration.GracePeriod = evictionconfig.DefaultGracePeriod
@@ -100,7 +100,7 @@ func TestNewSystemPressureEvictionPlugin(t *testing.T) {
 	assert.Equal(t, evictionManagerSyncPeriod, plugin.evictionManagerSyncPeriod)
 	assert.Equal(t, numaFreeBelowWatermarkTimesThreshold, plugin.dynamicConfig.GetDynamicConfiguration().NumaFreeBelowWatermarkTimesThreshold)
 	assert.Equal(t, systemKswapdRateThreshold, plugin.dynamicConfig.GetDynamicConfiguration().SystemKswapdRateThreshold)
-	assert.Equal(t, systemKswapdRateExceedTimesThreshold, plugin.dynamicConfig.GetDynamicConfiguration().SystemKswapdRateExceedTimesThreshold)
+	assert.Equal(t, systemKswapdRateExceedDurationThreshold, plugin.dynamicConfig.GetDynamicConfiguration().SystemKswapdRateExceedDurationThreshold)
 	assert.Equal(t, evictionconfig.DefaultNumaEvictionRankingMetrics, plugin.dynamicConfig.GetDynamicConfiguration().NumaEvictionRankingMetrics)
 	assert.Equal(t, evictionconfig.DefaultSystemEvictionRankingMetrics, plugin.dynamicConfig.GetDynamicConfiguration().SystemEvictionRankingMetrics)
 }
@@ -202,6 +202,52 @@ func TestSystemPressureEvictionPlugin_ThresholdMet(t *testing.T) {
 			round:             5,
 			systemFree:        12 * 1024 * 1024 * 1024,
 			systemKswapSteal:  160000,
+			wantMetType:       pluginapi.ThresholdMetType_HARD_MET,
+			wantEvictionScope: EvictionScopeSystemMemory,
+			wantCondition: &pluginapi.Condition{
+				ConditionType: pluginapi.ConditionType_NODE_CONDITION,
+				Effects:       []string{string(v1.TaintEffectNoSchedule)},
+				ConditionName: evictionConditionMemoryPressure,
+				MetCondition:  true,
+			},
+			wantIsUnderSystemPressure: true,
+			wantSystemAction:          actionEviction,
+		},
+		{
+			name:                      "system above watermark, kswapd steal exceed",
+			round:                     6,
+			systemFree:                12 * 1024 * 1024 * 1024,
+			systemKswapSteal:          170000,
+			wantMetType:               pluginapi.ThresholdMetType_NOT_MET,
+			wantCondition:             nil,
+			wantIsUnderSystemPressure: false,
+			wantSystemAction:          actionNoop,
+		},
+		{
+			name:                      "system above watermark, kswapd steal exceed",
+			round:                     7,
+			systemFree:                12 * 1024 * 1024 * 1024,
+			systemKswapSteal:          210000,
+			wantMetType:               pluginapi.ThresholdMetType_NOT_MET,
+			wantCondition:             nil,
+			wantIsUnderSystemPressure: false,
+			wantSystemAction:          actionNoop,
+		},
+		{
+			name:                      "system above watermark, kswapd steal exceed",
+			round:                     8,
+			systemFree:                12 * 1024 * 1024 * 1024,
+			systemKswapSteal:          260000,
+			wantMetType:               pluginapi.ThresholdMetType_NOT_MET,
+			wantCondition:             nil,
+			wantIsUnderSystemPressure: false,
+			wantSystemAction:          actionNoop,
+		},
+		{
+			name:              "system above watermark, kswapd steal exceed",
+			round:             9,
+			systemFree:        12 * 1024 * 1024 * 1024,
+			systemKswapSteal:  300000,
 			wantMetType:       pluginapi.ThresholdMetType_HARD_MET,
 			wantEvictionScope: EvictionScopeSystemMemory,
 			wantCondition: &pluginapi.Condition{

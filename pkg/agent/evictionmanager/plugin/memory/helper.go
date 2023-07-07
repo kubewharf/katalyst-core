@@ -63,13 +63,13 @@ const (
 	metricsTagKeyPodUID         = "pod_uid"
 	metricsTagKeyContainerName  = "container_name"
 
-	metricsTagValueDetectionLevelNuma          = "numa"
-	metricsTagValueDetectionLevelSystem        = "system"
-	metricsTagValueActionReclaimedEviction     = "reclaimed_eviction"
-	metricsTagValueActionEviction              = "eviction"
-	metricsTagValueNumaFreeBelowWatermarkTimes = "numa_free_below_watermark_times"
-	metricsTagValueSystemKswapdDiff            = "system_kswapd_diff"
-	metricsTagValueSystemKswapdRateExceedTimes = "system_kswapd_rate_exceed_times"
+	metricsTagValueDetectionLevelNuma             = "numa"
+	metricsTagValueDetectionLevelSystem           = "system"
+	metricsTagValueActionReclaimedEviction        = "reclaimed_eviction"
+	metricsTagValueActionEviction                 = "eviction"
+	metricsTagValueNumaFreeBelowWatermarkTimes    = "numa_free_below_watermark_times"
+	metricsTagValueSystemKswapdDiff               = "system_kswapd_diff"
+	metricsTagValueSystemKswapdRateExceedDuration = "system_kswapd_rate_exceed_duration"
 )
 
 const (
