@@ -127,13 +127,19 @@ func (ra *memoryResourceAdvisor) GetHeadroom() (resource.Quantity, error) {
 
 func (ra *memoryResourceAdvisor) sendAdvices() {
 	// send to server
-	result := types.InternalMemoryCalculationResult{}
+	result := types.InternalMemoryCalculationResult{TimeStamp: time.Now()}
 	for _, plugin := range ra.plugins {
 		advices := plugin.GetAdvices()
 		result.ContainerEntries = append(result.ContainerEntries, advices.ContainerEntries...)
 		result.ExtraEntries = append(result.ExtraEntries, advices.ExtraEntries...)
 	}
-	ra.sendChan <- result
+
+	select {
+	case ra.sendChan <- result:
+		general.Infof("notify memory server: %+v", result)
+	default:
+		general.Errorf("channel is full")
+	}
 }
 
 func (ra *memoryResourceAdvisor) update() {
@@ -185,6 +191,8 @@ func (ra *memoryResourceAdvisor) update() {
 		NodeCondition:  nodeCondition,
 		NUMAConditions: NUMAConditions,
 	}
+
+	general.Infof("memoryPressureStatus: %v", general.ToString(memoryPressureStatus))
 
 	for _, plugin := range ra.plugins {
 		plugin.Reconcile(&memoryPressureStatus)

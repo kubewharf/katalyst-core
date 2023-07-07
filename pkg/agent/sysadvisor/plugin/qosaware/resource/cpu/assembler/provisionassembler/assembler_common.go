@@ -17,6 +17,8 @@ limitations under the License.
 package provisionassembler
 
 import (
+	"time"
+
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/cpuadvisor"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
@@ -62,6 +64,7 @@ func (pa *ProvisionAssemblerCommon) AssembleProvision() (types.InternalCPUCalcul
 
 	calculationResult := types.InternalCPUCalculationResult{
 		PoolEntries: make(map[string]map[int]int),
+		TimeStamp:   time.Now(),
 	}
 
 	// fill in reserve pool entry
