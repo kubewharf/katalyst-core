@@ -360,7 +360,10 @@ func (p *DynamicPolicy) generateBlockCPUSet(resp *advisorapi.ListAndWatchRespons
 				blockID, err)
 		}
 
-		cpuset, err := calculator.TakeByTopology(machineInfo, availableCPUs, blockResult)
+		// use NUMA balance strategy to aviod changing memset as much as possible
+		// for blocks with faked NUMA id
+		var cpuset machine.CPUSet
+		cpuset, availableCPUs, err = calculator.TakeByNUMABalance(machineInfo, availableCPUs, blockResult)
 		if err != nil {
 			return nil, fmt.Errorf("allocate cpuset for non NUMA Aware block: %s failed with error: %v, availableCPUs: %d(%s), blockResult: %d",
 				blockID, err, availableCPUs.Size(), availableCPUs.String(), blockResult)
