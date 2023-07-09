@@ -31,6 +31,8 @@ import (
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 
 	"github.com/kubewharf/katalyst-api/pkg/consts"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/advisorsvc"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/memory/dynamicpolicy/memoryadvisor"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/memory/dynamicpolicy/state"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util"
 	"github.com/kubewharf/katalyst-core/pkg/config/generic"
@@ -93,6 +95,16 @@ func getTestDynamicPolicyWithInitialization(topology *machine.CPUTopology, machi
 		consts.PodAnnotationQoSLevelDedicatedCores: policyImplement.dedicatedCoresHintHandler,
 		consts.PodAnnotationQoSLevelReclaimedCores: policyImplement.reclaimedCoresHintHandler,
 	}
+
+	memoryadvisor.RegisterControlKnobHandler(memoryadvisor.ControKnobKeyMemoryLimitInBytes,
+		memoryadvisor.ControlKnobHandlerWithChecker(policyImplement.handleAdvisorMemoryLimitInBytes))
+	memoryadvisor.RegisterControlKnobHandler(memoryadvisor.ControKnobKeyDropCache,
+		memoryadvisor.ControlKnobHandlerWithChecker(func(podUID, containerName string,
+			calculationInfo *advisorsvc.CalculationInfo, podResourceEntries state.PodResourceEntries) error {
+			return nil
+		}))
+	memoryadvisor.RegisterControlKnobHandler(memoryadvisor.ControKnobKeyCPUSetMems,
+		memoryadvisor.ControlKnobHandlerWithChecker(policyImplement.handleAdvisorCPUSetMems))
 
 	return policyImplement, nil
 }
@@ -1291,8 +1303,8 @@ func TestGetTopologyAwareResources(t *testing.T) {
 							IsScalarResource:                  true,
 							AggregatedQuantity:                0,
 							OriginalAggregatedQuantity:        0,
-							TopologyAwareQuantityList:         []*pluginapi.TopologyAwareQuantity{},
-							OriginalTopologyAwareQuantityList: []*pluginapi.TopologyAwareQuantity{},
+							TopologyAwareQuantityList:         nil,
+							OriginalTopologyAwareQuantityList: nil,
 						},
 					},
 				},
@@ -1329,8 +1341,8 @@ func TestGetTopologyAwareResources(t *testing.T) {
 							IsScalarResource:                  true,
 							AggregatedQuantity:                0,
 							OriginalAggregatedQuantity:        0,
-							TopologyAwareQuantityList:         []*pluginapi.TopologyAwareQuantity{},
-							OriginalTopologyAwareQuantityList: []*pluginapi.TopologyAwareQuantity{},
+							TopologyAwareQuantityList:         nil,
+							OriginalTopologyAwareQuantityList: nil,
 						},
 					},
 				},
@@ -1606,4 +1618,412 @@ func TestGenerateResourcesMachineStateFromPodEntries(t *testing.T) {
 
 	as.NotNil(resourcesMachineState[v1.ResourceMemory][0])
 	as.Equal(uint64(9663676416), resourcesMachineState[v1.ResourceMemory][0].Allocatable)
+}
+
+func TestHandleAdvisorResp(t *testing.T) {
+	as := require.New(t)
+	cpuTopology, err := machine.GenerateDummyCPUTopology(16, 2, 4)
+	as.Nil(err)
+
+	machineInfo, err := machine.GenerateDummyMachineInfo(4, 32)
+	as.Nil(err)
+
+	reservedMemory, err := getReservedMemory(machineInfo, 4)
+	as.Nil(err)
+
+	resourcesReservedMemory := map[v1.ResourceName]map[int]uint64{
+		v1.ResourceMemory: reservedMemory,
+	}
+
+	pod1UID := string(uuid.NewUUID())
+	pod2UID := string(uuid.NewUUID())
+	pod3UID := string(uuid.NewUUID())
+	testName := "test"
+
+	testCases := []struct {
+		description                string
+		podResourceEntries         state.PodResourceEntries
+		expectedPodResourceEntries state.PodResourceEntries
+		expectedMachineState       state.NUMANodeResourcesMap
+		lwResp                     *advisorsvc.ListAndWatchResponse
+	}{
+		{
+			description: "one shared_cores container, one reclaimed_cores container, one dedicated_cores container",
+			podResourceEntries: state.PodResourceEntries{
+				v1.ResourceMemory: state.PodEntries{
+					pod1UID: state.ContainerEntries{
+						testName: &state.AllocationInfo{
+							PodUid:               pod1UID,
+							PodNamespace:         testName,
+							PodName:              testName,
+							ContainerName:        testName,
+							ContainerType:        pluginapi.ContainerType_MAIN.String(),
+							ContainerIndex:       0,
+							QoSLevel:             consts.PodAnnotationQoSLevelDedicatedCores,
+							RampUp:               false,
+							AggregatedQuantity:   7516192768,
+							NumaAllocationResult: machine.NewCPUSet(0),
+							TopologyAwareAllocations: map[int]uint64{
+								0: 7516192768,
+							},
+							Annotations: map[string]string{
+								consts.PodAnnotationQoSLevelKey:                    consts.PodAnnotationQoSLevelDedicatedCores,
+								consts.PodAnnotationMemoryEnhancementNumaBinding:   consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
+								consts.PodAnnotationMemoryEnhancementNumaExclusive: consts.PodAnnotationMemoryEnhancementNumaExclusiveEnable,
+							},
+							Labels: map[string]string{
+								consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelDedicatedCores,
+							},
+						},
+					},
+					pod2UID: state.ContainerEntries{
+						testName: &state.AllocationInfo{
+							PodUid:               pod2UID,
+							PodNamespace:         testName,
+							PodName:              testName,
+							ContainerName:        testName,
+							ContainerType:        pluginapi.ContainerType_MAIN.String(),
+							ContainerIndex:       0,
+							QoSLevel:             consts.PodAnnotationQoSLevelSharedCores,
+							RampUp:               false,
+							NumaAllocationResult: machine.NewCPUSet(1, 2, 3),
+							Annotations: map[string]string{
+								consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
+							},
+							Labels: map[string]string{
+								consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
+							},
+						},
+					},
+					pod3UID: state.ContainerEntries{
+						testName: &state.AllocationInfo{
+							PodUid:               pod3UID,
+							PodNamespace:         testName,
+							PodName:              testName,
+							ContainerName:        testName,
+							ContainerType:        pluginapi.ContainerType_MAIN.String(),
+							ContainerIndex:       0,
+							QoSLevel:             consts.PodAnnotationQoSLevelReclaimedCores,
+							RampUp:               false,
+							NumaAllocationResult: machine.NewCPUSet(0, 1, 2, 3),
+							Annotations: map[string]string{
+								consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelReclaimedCores,
+							},
+							Labels: map[string]string{
+								consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelReclaimedCores,
+							},
+						},
+					},
+				},
+			},
+			lwResp: &advisorsvc.ListAndWatchResponse{
+				PodEntries: map[string]*advisorsvc.CalculationEntries{
+					pod1UID: {
+						ContainerEntries: map[string]*advisorsvc.CalculationInfo{
+							testName: {
+								CalculationResult: &advisorsvc.CalculationResult{
+									Values: map[string]string{
+										string(memoryadvisor.ControKnobKeyMemoryLimitInBytes): "5516192768",
+									},
+								},
+							},
+						},
+					},
+					pod2UID: {
+						ContainerEntries: map[string]*advisorsvc.CalculationInfo{
+							testName: {
+								CalculationResult: &advisorsvc.CalculationResult{
+									Values: map[string]string{
+										string(memoryadvisor.ControKnobKeyDropCache): "true",
+									},
+								},
+							},
+						},
+					},
+					pod3UID: {
+						ContainerEntries: map[string]*advisorsvc.CalculationInfo{
+							testName: {
+								CalculationResult: &advisorsvc.CalculationResult{
+									Values: map[string]string{
+										string(memoryadvisor.ControKnobKeyCPUSetMems): "2-3",
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+			expectedPodResourceEntries: state.PodResourceEntries{
+				v1.ResourceMemory: state.PodEntries{
+					pod1UID: state.ContainerEntries{
+						testName: &state.AllocationInfo{
+							PodUid:               pod1UID,
+							PodNamespace:         testName,
+							PodName:              testName,
+							ContainerName:        testName,
+							ContainerType:        pluginapi.ContainerType_MAIN.String(),
+							ContainerIndex:       0,
+							QoSLevel:             consts.PodAnnotationQoSLevelDedicatedCores,
+							RampUp:               false,
+							AggregatedQuantity:   7516192768,
+							NumaAllocationResult: machine.NewCPUSet(0),
+							TopologyAwareAllocations: map[int]uint64{
+								0: 7516192768,
+							},
+							Annotations: map[string]string{
+								consts.PodAnnotationQoSLevelKey:                    consts.PodAnnotationQoSLevelDedicatedCores,
+								consts.PodAnnotationMemoryEnhancementNumaBinding:   consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
+								consts.PodAnnotationMemoryEnhancementNumaExclusive: consts.PodAnnotationMemoryEnhancementNumaExclusiveEnable,
+							},
+							Labels: map[string]string{
+								consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelDedicatedCores,
+							},
+							ExtraControlKnobInfo: map[string]state.ControlKnobInfo{
+								string(memoryadvisor.ControKnobKeyMemoryLimitInBytes): {
+									ControlKnobValue: "5516192768",
+									OciPropertyName:  util.OCIPropertyNameMemoryLimitInBytes,
+								},
+							},
+						},
+					},
+					pod2UID: state.ContainerEntries{
+						testName: &state.AllocationInfo{
+							PodUid:               pod2UID,
+							PodNamespace:         testName,
+							PodName:              testName,
+							ContainerName:        testName,
+							ContainerType:        pluginapi.ContainerType_MAIN.String(),
+							ContainerIndex:       0,
+							QoSLevel:             consts.PodAnnotationQoSLevelSharedCores,
+							RampUp:               false,
+							NumaAllocationResult: machine.NewCPUSet(1, 2, 3),
+							Annotations: map[string]string{
+								consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
+							},
+							Labels: map[string]string{
+								consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
+							},
+							ExtraControlKnobInfo: make(map[string]state.ControlKnobInfo),
+						},
+					},
+					pod3UID: state.ContainerEntries{
+						testName: &state.AllocationInfo{
+							PodUid:               pod3UID,
+							PodNamespace:         testName,
+							PodName:              testName,
+							ContainerName:        testName,
+							ContainerType:        pluginapi.ContainerType_MAIN.String(),
+							ContainerIndex:       0,
+							QoSLevel:             consts.PodAnnotationQoSLevelReclaimedCores,
+							RampUp:               false,
+							NumaAllocationResult: machine.NewCPUSet(2, 3),
+							Annotations: map[string]string{
+								consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelReclaimedCores,
+							},
+							Labels: map[string]string{
+								consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelReclaimedCores,
+							},
+							ExtraControlKnobInfo: make(map[string]state.ControlKnobInfo),
+						},
+					},
+				},
+			},
+			expectedMachineState: state.NUMANodeResourcesMap{
+				v1.ResourceMemory: {
+					0: &state.NUMANodeState{
+						TotalMemSize:   8589934592,
+						SystemReserved: 1073741824,
+						Allocatable:    7516192768,
+						Allocated:      7516192768,
+						Free:           0,
+						PodEntries: state.PodEntries{
+							pod1UID: state.ContainerEntries{
+								testName: &state.AllocationInfo{
+									PodUid:               pod1UID,
+									PodNamespace:         testName,
+									PodName:              testName,
+									ContainerName:        testName,
+									ContainerType:        pluginapi.ContainerType_MAIN.String(),
+									ContainerIndex:       0,
+									QoSLevel:             consts.PodAnnotationQoSLevelDedicatedCores,
+									RampUp:               false,
+									AggregatedQuantity:   7516192768,
+									NumaAllocationResult: machine.NewCPUSet(0),
+									TopologyAwareAllocations: map[int]uint64{
+										0: 7516192768,
+									},
+									Annotations: map[string]string{
+										consts.PodAnnotationQoSLevelKey:                    consts.PodAnnotationQoSLevelDedicatedCores,
+										consts.PodAnnotationMemoryEnhancementNumaBinding:   consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
+										consts.PodAnnotationMemoryEnhancementNumaExclusive: consts.PodAnnotationMemoryEnhancementNumaExclusiveEnable,
+									},
+									Labels: map[string]string{
+										consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelDedicatedCores,
+									},
+									ExtraControlKnobInfo: map[string]state.ControlKnobInfo{
+										string(memoryadvisor.ControKnobKeyMemoryLimitInBytes): {
+											ControlKnobValue: "5516192768",
+											OciPropertyName:  util.OCIPropertyNameMemoryLimitInBytes,
+										},
+									},
+								},
+							},
+						},
+					},
+					1: &state.NUMANodeState{
+						TotalMemSize:   8589934592,
+						SystemReserved: 1073741824,
+						Allocatable:    7516192768,
+						Allocated:      0,
+						Free:           7516192768,
+						PodEntries: state.PodEntries{
+							pod2UID: state.ContainerEntries{
+								testName: &state.AllocationInfo{
+									PodUid:               pod2UID,
+									PodNamespace:         testName,
+									PodName:              testName,
+									ContainerName:        testName,
+									ContainerType:        pluginapi.ContainerType_MAIN.String(),
+									ContainerIndex:       0,
+									QoSLevel:             consts.PodAnnotationQoSLevelSharedCores,
+									RampUp:               false,
+									NumaAllocationResult: machine.NewCPUSet(1),
+									Annotations: map[string]string{
+										consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
+									},
+									Labels: map[string]string{
+										consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
+									},
+									ExtraControlKnobInfo: make(map[string]state.ControlKnobInfo),
+								},
+							},
+						},
+					},
+					2: &state.NUMANodeState{
+						TotalMemSize:   8589934592,
+						SystemReserved: 1073741824,
+						Allocatable:    7516192768,
+						Allocated:      0,
+						Free:           7516192768,
+						PodEntries: state.PodEntries{
+							pod2UID: state.ContainerEntries{
+								testName: &state.AllocationInfo{
+									PodUid:               pod2UID,
+									PodNamespace:         testName,
+									PodName:              testName,
+									ContainerName:        testName,
+									ContainerType:        pluginapi.ContainerType_MAIN.String(),
+									ContainerIndex:       0,
+									QoSLevel:             consts.PodAnnotationQoSLevelSharedCores,
+									RampUp:               false,
+									NumaAllocationResult: machine.NewCPUSet(2),
+									Annotations: map[string]string{
+										consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
+									},
+									Labels: map[string]string{
+										consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
+									},
+									ExtraControlKnobInfo: make(map[string]state.ControlKnobInfo),
+								},
+							},
+							pod3UID: state.ContainerEntries{
+								testName: &state.AllocationInfo{
+									PodUid:               pod3UID,
+									PodNamespace:         testName,
+									PodName:              testName,
+									ContainerName:        testName,
+									ContainerType:        pluginapi.ContainerType_MAIN.String(),
+									ContainerIndex:       0,
+									QoSLevel:             consts.PodAnnotationQoSLevelReclaimedCores,
+									RampUp:               false,
+									NumaAllocationResult: machine.NewCPUSet(2),
+									Annotations: map[string]string{
+										consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelReclaimedCores,
+									},
+									Labels: map[string]string{
+										consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelReclaimedCores,
+									},
+									ExtraControlKnobInfo: make(map[string]state.ControlKnobInfo),
+								},
+							},
+						},
+					},
+					3: &state.NUMANodeState{
+						TotalMemSize:   8589934592,
+						SystemReserved: 1073741824,
+						Allocatable:    7516192768,
+						Allocated:      0,
+						Free:           7516192768,
+						PodEntries: state.PodEntries{
+							pod2UID: state.ContainerEntries{
+								testName: &state.AllocationInfo{
+									PodUid:               pod2UID,
+									PodNamespace:         testName,
+									PodName:              testName,
+									ContainerName:        testName,
+									ContainerType:        pluginapi.ContainerType_MAIN.String(),
+									ContainerIndex:       0,
+									QoSLevel:             consts.PodAnnotationQoSLevelSharedCores,
+									RampUp:               false,
+									NumaAllocationResult: machine.NewCPUSet(3),
+									Annotations: map[string]string{
+										consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
+									},
+									Labels: map[string]string{
+										consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
+									},
+									ExtraControlKnobInfo: make(map[string]state.ControlKnobInfo),
+								},
+							},
+							pod3UID: state.ContainerEntries{
+								testName: &state.AllocationInfo{
+									PodUid:               pod3UID,
+									PodNamespace:         testName,
+									PodName:              testName,
+									ContainerName:        testName,
+									ContainerType:        pluginapi.ContainerType_MAIN.String(),
+									ContainerIndex:       0,
+									QoSLevel:             consts.PodAnnotationQoSLevelReclaimedCores,
+									RampUp:               false,
+									NumaAllocationResult: machine.NewCPUSet(3),
+									Annotations: map[string]string{
+										consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelReclaimedCores,
+									},
+									Labels: map[string]string{
+										consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelReclaimedCores,
+									},
+									ExtraControlKnobInfo: make(map[string]state.ControlKnobInfo),
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	for _, tc := range testCases {
+		tmpDir, err := ioutil.TempDir("", "checkpoint")
+		as.Nil(err)
+
+		dynamicPolicy, err := getTestDynamicPolicyWithInitialization(cpuTopology, machineInfo, tmpDir)
+		as.Nil(err)
+
+		machineState, err := state.GenerateMachineStateFromPodEntries(machineInfo, tc.podResourceEntries, resourcesReservedMemory)
+		as.Nil(err)
+
+		dynamicPolicy.state.SetPodResourceEntries(tc.podResourceEntries)
+		dynamicPolicy.state.SetMachineState(machineState)
+
+		err = dynamicPolicy.handleAdvisorResp(tc.lwResp)
+		as.Nilf(err, "dynamicPolicy.handleAdvisorResp got err: %v, case: %s", err, tc.description)
+
+		as.Equalf(tc.expectedPodResourceEntries, dynamicPolicy.state.GetPodResourceEntries(),
+			"PodResourceEntries mismatches with expected one, failed in test case: %s", tc.description)
+
+		as.Equalf(tc.expectedMachineState, dynamicPolicy.state.GetMachineState(),
+			"MachineState mismatches with expected one, failed in test case: %s", tc.description)
+
+		os.RemoveAll(tmpDir)
+	}
 }
