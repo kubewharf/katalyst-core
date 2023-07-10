@@ -46,7 +46,7 @@ func (o *MemoryAdvisorOptions) AddFlags(fs *pflag.FlagSet) {
 	fs.StringSliceVar(&o.MemoryHeadroomPolicyPriority, "memory-headroom-policy-priority", o.MemoryHeadroomPolicyPriority,
 		"policy memory advisor to estimate resource headroom, sorted by priority descending order, should be formatted as 'policy1,policy2'")
 	o.MemoryHeadroomPolicyOptions.AddFlags(fs)
-	fs.StringSliceVar(&o.MemoryAdvisorPlugins, "memory-advisor-plguins", o.MemoryAdvisorPlugins,
+	fs.StringSliceVar(&o.MemoryAdvisorPlugins, "memory-advisor-plugins", o.MemoryAdvisorPlugins,
 		"memory advisor plugins to use.")
 }
 

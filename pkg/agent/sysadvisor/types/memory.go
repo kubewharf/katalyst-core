@@ -16,7 +16,11 @@ limitations under the License.
 
 package types
 
-import "k8s.io/apimachinery/pkg/api/resource"
+import (
+	"time"
+
+	"k8s.io/apimachinery/pkg/api/resource"
+)
 
 type MemoryAdvisorPluginName string
 type MemoryPressureState int
@@ -57,4 +61,5 @@ type ExtraMemoryAdvices struct {
 type InternalMemoryCalculationResult struct {
 	ContainerEntries []ContainerMemoryAdvices
 	ExtraEntries     []ExtraMemoryAdvices
+	TimeStamp        time.Time
 }
