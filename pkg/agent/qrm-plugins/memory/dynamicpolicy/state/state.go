@@ -110,31 +110,38 @@ func (ai *AllocationInfo) Clone() *AllocationInfo {
 	}
 
 	clone := &AllocationInfo{
-		PodUid:                   ai.PodUid,
-		PodNamespace:             ai.PodNamespace,
-		PodName:                  ai.PodName,
-		ContainerName:            ai.ContainerName,
-		ContainerType:            ai.ContainerType,
-		ContainerIndex:           ai.ContainerIndex,
-		RampUp:                   ai.RampUp,
-		PodRole:                  ai.PodRole,
-		PodType:                  ai.PodType,
-		AggregatedQuantity:       ai.AggregatedQuantity,
-		NumaAllocationResult:     ai.NumaAllocationResult.Clone(),
-		TopologyAwareAllocations: make(map[int]uint64),
-		QoSLevel:                 ai.QoSLevel,
-		Labels:                   general.DeepCopyMap(ai.Labels),
-		Annotations:              general.DeepCopyMap(ai.Annotations),
-		ExtraControlKnobInfo:     make(map[string]ControlKnobInfo),
+		PodUid:               ai.PodUid,
+		PodNamespace:         ai.PodNamespace,
+		PodName:              ai.PodName,
+		ContainerName:        ai.ContainerName,
+		ContainerType:        ai.ContainerType,
+		ContainerIndex:       ai.ContainerIndex,
+		RampUp:               ai.RampUp,
+		PodRole:              ai.PodRole,
+		PodType:              ai.PodType,
+		AggregatedQuantity:   ai.AggregatedQuantity,
+		NumaAllocationResult: ai.NumaAllocationResult.Clone(),
+		QoSLevel:             ai.QoSLevel,
+		Labels:               general.DeepCopyMap(ai.Labels),
+		Annotations:          general.DeepCopyMap(ai.Annotations),
 	}
 
-	for node, quantity := range ai.TopologyAwareAllocations {
-		clone.TopologyAwareAllocations[node] = quantity
+	if ai.TopologyAwareAllocations != nil {
+		clone.TopologyAwareAllocations = make(map[int]uint64)
+
+		for node, quantity := range ai.TopologyAwareAllocations {
+			clone.TopologyAwareAllocations[node] = quantity
+		}
 	}
 
-	for name := range ai.ExtraControlKnobInfo {
-		clone.ExtraControlKnobInfo[name] = ai.ExtraControlKnobInfo[name]
+	if ai.ExtraControlKnobInfo != nil {
+		clone.ExtraControlKnobInfo = make(map[string]ControlKnobInfo)
+
+		for name := range ai.ExtraControlKnobInfo {
+			clone.ExtraControlKnobInfo[name] = ai.ExtraControlKnobInfo[name]
+		}
 	}
+
 	return clone
 }
 
@@ -194,8 +201,16 @@ func (ai *AllocationInfo) GetResourceAllocation() (*pluginapi.ResourceAllocation
 }
 
 func (pe PodEntries) Clone() PodEntries {
+	if pe == nil {
+		return nil
+	}
+
 	clone := make(PodEntries)
 	for podUID, containerEntries := range pe {
+		if containerEntries == nil {
+			continue
+		}
+
 		clone[podUID] = make(ContainerEntries)
 		for containerName, allocationInfo := range containerEntries {
 			clone[podUID][containerName] = allocationInfo.Clone()
@@ -229,6 +244,10 @@ func (pre PodResourceEntries) String() string {
 }
 
 func (pre PodResourceEntries) Clone() PodResourceEntries {
+	if pre == nil {
+		return nil
+	}
+
 	clone := make(PodResourceEntries)
 	for resourceName, podEntries := range pre {
 		clone[resourceName] = podEntries.Clone()
