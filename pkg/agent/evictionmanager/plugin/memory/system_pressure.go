@@ -20,9 +20,11 @@ import (
 	"context"
 	"fmt"
 	"strconv"
+	"sync"
 	"time"
 
 	v1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/tools/events"
 
 	pluginapi "github.com/kubewharf/katalyst-api/pkg/protocol/evictionplugin/v1alpha1"
@@ -45,22 +47,26 @@ const (
 
 func NewSystemPressureEvictionPlugin(_ *client.GenericClientSet, _ events.EventRecorder,
 	metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter, conf *config.Configuration) plugin.EvictionPlugin {
-	return &SystemPressureEvictionPlugin{
+	p := &SystemPressureEvictionPlugin{
 		pluginName:                EvictionPluginNameSystemMemoryPressure,
 		emitter:                   emitter,
 		StopControl:               process.NewStopControl(time.Time{}),
 		metaServer:                metaServer,
 		evictionManagerSyncPeriod: conf.EvictionManagerSyncPeriod,
+		coolDownPeriod:            conf.SystemPressureCoolDownPeriod,
+		syncPeriod:                time.Duration(conf.SystemPressureSyncPeriod) * time.Second,
 		dynamicConfig:             conf.DynamicAgentConfiguration,
 		reclaimedPodFilter:        conf.CheckReclaimedQoSForPod,
 		evictionHelper:            NewEvictionHelper(emitter, metaServer, conf),
 	}
+	return p
 }
 
 // SystemPressureEvictionPlugin implements the EvictPlugin interface.
 // It triggers pod eviction based on the system pressure of memory.
 type SystemPressureEvictionPlugin struct {
 	*process.StopControl
+	sync.Mutex
 
 	emitter                   metrics.MetricEmitter
 	reclaimedPodFilter        func(pod *v1.Pod) (bool, error)
@@ -69,13 +75,16 @@ type SystemPressureEvictionPlugin struct {
 	metaServer                *metaserver.MetaServer
 	evictionHelper            *EvictionHelper
 
-	dynamicConfig *dynamic.DynamicAgentConfiguration
+	syncPeriod     time.Duration
+	coolDownPeriod int
+	dynamicConfig  *dynamic.DynamicAgentConfiguration
 
 	systemAction                   int
 	isUnderSystemPressure          bool
 	kswapdStealPreviousCycle       float64
 	kswapdStealPreviousCycleTime   time.Time
 	kswapdStealRateExceedStartTime *time.Time
+	lastEvictionTime               time.Time
 }
 
 func (s *SystemPressureEvictionPlugin) Name() string {
@@ -84,6 +93,10 @@ func (s *SystemPressureEvictionPlugin) Name() string {
 	}
 
 	return s.pluginName
+}
+
+func (s *SystemPressureEvictionPlugin) Start() {
+	go wait.UntilWithContext(context.TODO(), s.detectSystemPressures, s.syncPeriod)
 }
 
 func (s *SystemPressureEvictionPlugin) ThresholdMet(_ context.Context) (*pluginapi.ThresholdMetResponse, error) {
@@ -96,7 +109,10 @@ func (s *SystemPressureEvictionPlugin) ThresholdMet(_ context.Context) (*plugina
 		return resp, nil
 	}
 
-	s.detectSystemPressures()
+	//TODO maybe we should set timeout for this lock operation in case it blocks the entire sync loop
+	s.Lock()
+	defer s.Unlock()
+
 	if s.isUnderSystemPressure {
 		resp = &pluginapi.ThresholdMetResponse{
 			MetType:       pluginapi.ThresholdMetType_HARD_MET,
@@ -115,7 +131,10 @@ func (s *SystemPressureEvictionPlugin) ThresholdMet(_ context.Context) (*plugina
 	return resp, nil
 }
 
-func (s *SystemPressureEvictionPlugin) detectSystemPressures() {
+func (s *SystemPressureEvictionPlugin) detectSystemPressures(_ context.Context) {
+	s.Lock()
+	defer s.Unlock()
+
 	s.isUnderSystemPressure = false
 	s.systemAction = actionNoop
 
@@ -213,7 +232,7 @@ func (s *SystemPressureEvictionPlugin) detectSystemKswapdStealPressure() {
 			s.kswapdStealRateExceedStartTime = &kswapdStealPreviousCycleTime
 		}
 	} else {
-		// there is no pressure any more, clear the start time
+		// there is no pressure anymore, clear the start time
 		s.kswapdStealRateExceedStartTime = nil
 	}
 
@@ -235,6 +254,14 @@ func (s *SystemPressureEvictionPlugin) GetTopEvictionPods(_ context.Context, req
 		general.Warningf("GetTopEvictionPods got empty active pods list")
 		return &pluginapi.GetTopEvictionPodsResponse{}, nil
 	}
+
+	now := time.Now()
+	if !s.lastEvictionTime.IsZero() && now.Sub(s.lastEvictionTime) < time.Duration(s.coolDownPeriod)*time.Second {
+		general.Infof("in eviction cool-down time, skip eviction. now: %s, lastEvictionTime: %s",
+			now.String(), s.lastEvictionTime.String())
+		return &pluginapi.GetTopEvictionPodsResponse{}, nil
+	}
+	s.lastEvictionTime = now
 
 	dynamicConfig := s.dynamicConfig.GetDynamicConfiguration()
 	targetPods := make([]*v1.Pod, 0, len(request.ActivePods))

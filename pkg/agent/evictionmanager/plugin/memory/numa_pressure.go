@@ -76,6 +76,10 @@ type NumaMemoryPressurePlugin struct {
 	isUnderNumaPressure            bool
 }
 
+func (n *NumaMemoryPressurePlugin) Start() {
+	return
+}
+
 func (n *NumaMemoryPressurePlugin) Name() string {
 	if n == nil {
 		return ""
