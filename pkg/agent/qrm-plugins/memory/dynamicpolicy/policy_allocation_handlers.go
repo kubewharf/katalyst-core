@@ -19,6 +19,7 @@ package dynamicpolicy
 import (
 	"context"
 	"fmt"
+	"time"
 
 	v1 "k8s.io/api/core/v1"
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
@@ -26,7 +27,8 @@ import (
 	apiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/memory/dynamicpolicy/state"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util"
-	cgroupcmutils "github.com/kubewharf/katalyst-core/pkg/util/cgroup/manager"
+	"github.com/kubewharf/katalyst-core/pkg/util/asyncworker"
+	cgroupmgr "github.com/kubewharf/katalyst-core/pkg/util/cgroup/manager"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 	qosutil "github.com/kubewharf/katalyst-core/pkg/util/qos"
@@ -400,11 +402,14 @@ func (p *DynamicPolicy) adjustAllocationEntries() error {
 
 			// todo: currently we only set cpuset.mems to NUMAs without NUMA binding for pods isn't NUMA binding
 			//  when cgroup memory policy becomes ready, we will allocate quantity for each pod meticulously.
-			if !allocationInfo.NumaAllocationResult.Equals(numaWithoutNUMABindingPods) {
+			if !allocationInfo.NumaAllocationResult.IsSubsetOf(numaWithoutNUMABindingPods) {
 				if numaSetChangedContainers[podUID] == nil {
 					numaSetChangedContainers[podUID] = make(map[string]bool)
 				}
 				numaSetChangedContainers[podUID][containerName] = true
+			}
+
+			if !allocationInfo.NumaAllocationResult.Equals(numaWithoutNUMABindingPods) {
 				general.Infof("pod: %s/%s, container: %s change cpuset.mems from: %s to %s",
 					allocationInfo.PodNamespace, allocationInfo.PodName, allocationInfo.ContainerName,
 					allocationInfo.NumaAllocationResult.String(), numaWithoutNUMABindingPods.String())
@@ -427,21 +432,41 @@ func (p *DynamicPolicy) adjustAllocationEntries() error {
 	// drop cache for containers whose numaset changed
 	for podUID, containers := range numaSetChangedContainers {
 		for containerName := range containers {
-			go func(curPodUID, curContainerName string) {
-				containerID, err := p.metaServer.GetContainerID(curPodUID, curContainerName)
-				if err != nil {
-					general.Errorf("get container id of pod: %s container: %s failed with error: %v", curPodUID, curContainerName, err)
-					return
-				}
+			containerID, err := p.metaServer.GetContainerID(podUID, containerName)
+			if err != nil {
+				general.Errorf("get container id of pod: %s container: %s failed with error: %v", podUID, containerName, err)
+				continue
+			}
 
-				err = cgroupcmutils.DropCacheWithTimeoutForContainer(curPodUID, containerID, 30)
-				if err != nil {
-					general.Errorf("drop cache of pod: %s container: %s failed with error: %v", curPodUID, curContainerName, err)
-					return
-				}
+			if !numaWithoutNUMABindingPods.IsEmpty() {
+				migratePagesWorkName := util.GetContainerAsyncWorkName(podUID, containerName,
+					memoryPluginAsyncWorkTopicMigratePage)
+				// start a asynchronous work to migrate pages for containers whose numaset changed and doesn't require numa_binding
+				err = p.asyncWorkers.AddWork(migratePagesWorkName,
+					&asyncworker.Work{
+						Fn: MigratePagesForContainer,
+						Params: []interface{}{podUID, containerID,
+							p.topology.NumNUMANodes, p.topology.CPUDetails.NUMANodes(),
+							numaWithoutNUMABindingPods.Clone()},
+						DeliveredAt: time.Now()})
 
-				general.Infof("drop cache of pod: %s container: %s successfully", curPodUID, curContainerName)
-			}(podUID, containerName)
+				if err != nil {
+					general.Errorf("add work: %s pod: %s container: %s failed with error: %v", migratePagesWorkName, podUID, containerName, err)
+				}
+			}
+
+			dropCacheWorkName := util.GetContainerAsyncWorkName(podUID, containerName,
+				memoryPluginAsyncWorkTopicDropCache)
+			// start a asynchronous work to drop cache for the container whose numaset changed and doesn't require numa_binding
+			err = p.asyncWorkers.AddWork(dropCacheWorkName,
+				&asyncworker.Work{
+					Fn:          cgroupmgr.DropCacheWithTimeoutForContainer,
+					Params:      []interface{}{podUID, containerID, dropCacheTimeoutSeconds},
+					DeliveredAt: time.Now()})
+
+			if err != nil {
+				general.Errorf("add work: %s pod: %s container: %s failed with error: %v", dropCacheWorkName, podUID, containerName, err)
+			}
 		}
 	}
 

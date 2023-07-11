@@ -21,8 +21,10 @@ type MemoryQRMPluginConfig struct {
 	PolicyName string
 	// ReservedMemoryGB: the total reserved memories in GB
 	ReservedMemoryGB uint64
-	// skip memory state corruption and it will be used after updating state properties
+	// SkipMemoryStateCorruption is ued to skip memory state corruption and it will be used after updating state properties
 	SkipMemoryStateCorruption bool
+	// EnableSettingMemoryMigrate is used to enable cpuset.memory_migrate for containers not numa_binding
+	EnableSettingMemoryMigrate bool
 }
 
 func NewMemoryQRMPluginConfig() *MemoryQRMPluginConfig {

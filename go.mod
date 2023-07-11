@@ -1,6 +1,6 @@
 module github.com/kubewharf/katalyst-core
 
-go 1.17
+go 1.18
 
 require (
 	github.com/alecthomas/units v0.0.0-20190924025748-f65c72e2690d

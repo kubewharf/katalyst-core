@@ -35,14 +35,22 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/config/generic"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
+	"github.com/kubewharf/katalyst-core/pkg/util/asyncworker"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 	"github.com/kubewharf/katalyst-core/pkg/util/native"
 )
 
-const MemoryResourcePluginPolicyNameDynamic = "dynamic"
+const (
+	MemoryResourcePluginPolicyNameDynamic = "dynamic"
 
-const memoryPluginStateFileName = "memory_plugin_state"
+	memoryPluginStateFileName             = "memory_plugin_state"
+	memoryPluginAsyncWorkersName          = "qrm_memory_plugin_async_workers"
+	memoryPluginAsyncWorkTopicDropCache   = "qrm_memory_plugin_drop_cache"
+	memoryPluginAsyncWorkTopicMigratePage = "qrm_memory_plugin_migrate_page"
+
+	dropCacheTimeoutSeconds = 30
+)
 
 const (
 	memsetCheckPeriod = 10 * time.Second
@@ -92,7 +100,11 @@ type DynamicPolicy struct {
 	extraStateFileAbsPath string
 	name                  string
 
+	enableSettingMemoryMigrate bool
+
 	podDebugAnnoKeys []string
+
+	asyncWorkers *asyncworker.AsyncWorkers
 }
 
 func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration,
@@ -121,17 +133,19 @@ func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration
 	})
 
 	policyImplement := &DynamicPolicy{
-		topology:              agentCtx.CPUTopology,
-		qosConfig:             conf.QoSConfiguration,
-		emitter:               wrappedEmitter,
-		metaServer:            agentCtx.MetaServer,
-		state:                 stateImpl,
-		stopCh:                make(chan struct{}),
-		migratingMemory:       make(map[string]map[string]bool),
-		residualHitMap:        make(map[string]int64),
-		extraStateFileAbsPath: conf.ExtraStateFileAbsPath,
-		name:                  fmt.Sprintf("%s_%s", agentName, MemoryResourcePluginPolicyNameDynamic),
-		podDebugAnnoKeys:      conf.PodDebugAnnoKeys,
+		topology:                   agentCtx.CPUTopology,
+		qosConfig:                  conf.QoSConfiguration,
+		emitter:                    wrappedEmitter,
+		metaServer:                 agentCtx.MetaServer,
+		state:                      stateImpl,
+		stopCh:                     make(chan struct{}),
+		migratingMemory:            make(map[string]map[string]bool),
+		residualHitMap:             make(map[string]int64),
+		extraStateFileAbsPath:      conf.ExtraStateFileAbsPath,
+		name:                       fmt.Sprintf("%s_%s", agentName, MemoryResourcePluginPolicyNameDynamic),
+		podDebugAnnoKeys:           conf.PodDebugAnnoKeys,
+		asyncWorkers:               asyncworker.NewAsyncWorkers(memoryPluginAsyncWorkersName),
+		enableSettingMemoryMigrate: conf.EnableSettingMemoryMigrate,
 	}
 
 	policyImplement.allocationHandlers = map[string]util.AllocationHandler{
@@ -177,7 +191,11 @@ func (p *DynamicPolicy) Start() (err error) {
 	}, time.Second*30, p.stopCh)
 	go wait.Until(p.clearResidualState, stateCheckPeriod, p.stopCh)
 	go wait.Until(p.checkMemorySet, memsetCheckPeriod, p.stopCh)
-	go wait.Until(p.setMemoryMigrate, 5*time.Second, p.stopCh)
+
+	if p.enableSettingMemoryMigrate {
+		general.Infof("setMemoryMigrate enabled")
+		go wait.Until(p.setMemoryMigrate, 5*time.Second, p.stopCh)
+	}
 
 	return nil
 }
