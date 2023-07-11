@@ -159,10 +159,9 @@ func (e *evictionRespCollector) collectTopEvictionPods(dryRunPlugins []string, p
 			continue
 		}
 
+		general.Infof("%v plugin %v request to evict topN pod %v/%v, reason: met threshold in scope [%v]",
+			e.getLogPrefix(dryRun), pluginName, pod.Namespace, pod.Name, threshold.EvictionScope)
 		if dryRun {
-			general.Infof("%v plugin %v request to evict topN pod %v/%v, reason: met threshold in scope [%v]",
-				e.getLogPrefix(dryRun), pluginName, pod.Namespace, pod.Namespace, threshold.EvictionScope)
-
 			_ = e.emitter.StoreInt64(MetricsNameDryrunVictimPodCNT, 1, metrics.MetricTypeNameRaw,
 				metrics.MetricTag{Key: "name", Val: pluginName},
 				metrics.MetricTag{Key: "victim_ns", Val: pod.Namespace},
