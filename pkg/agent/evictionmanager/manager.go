@@ -153,6 +153,9 @@ func (m *EvictionManger) Run(ctx context.Context) {
 	defer general.Infof(" started")
 
 	m.podKiller.Start(ctx)
+	for _, endpoint := range m.endpoints {
+		endpoint.Start()
+	}
 	go wait.UntilWithContext(ctx, m.sync, m.conf.EvictionManagerSyncPeriod)
 	go wait.UntilWithContext(ctx, m.reportConditionsAsNodeTaints, time.Second*5)
 	<-ctx.Done()
@@ -339,6 +342,7 @@ func (m *EvictionManger) registerEndpoint(pluginName string, e endpointpkg.Endpo
 	}
 
 	m.endpoints[pluginName] = e
+	e.Start()
 
 	general.Infof(" registered endpoint %s", pluginName)
 }

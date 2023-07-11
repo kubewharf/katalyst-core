@@ -48,6 +48,7 @@ type Endpoint interface {
 	// GetTopEvictionPods notice: this function only be called when plugin's threshold is met
 	GetTopEvictionPods(c context.Context, request *pluginapi.GetTopEvictionPodsRequest) (*pluginapi.GetTopEvictionPodsResponse, error)
 	GetEvictPods(c context.Context, request *pluginapi.GetEvictPodsRequest) (*pluginapi.GetEvictPodsResponse, error)
+	Start()
 	Stop()
 	IsStopped() bool
 	StopGracePeriodExpired() bool
@@ -142,4 +143,9 @@ func (e *RemoteEndpointImpl) Stop() {
 		e.clientConn.Close()
 	}
 	e.stopTime = time.Now()
+}
+
+// Start has no need do anything for now
+func (e *RemoteEndpointImpl) Start() {
+	return
 }
