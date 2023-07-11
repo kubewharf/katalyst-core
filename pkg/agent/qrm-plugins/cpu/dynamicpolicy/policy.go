@@ -33,6 +33,7 @@ import (
 	"github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-api/pkg/plugins/skeleton"
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/agent"
+	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/agent/qrm"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/advisorsvc"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/calculator"
 	advisorapi "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/cpuadvisor"
@@ -40,6 +41,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/validator"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util"
+	"github.com/kubewharf/katalyst-core/pkg/agent/utilcomponent/periodicalhandler"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	dynamicconfig "github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/crd"
@@ -52,17 +54,17 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/util/process"
 )
 
-const CPUResourcePluginPolicyNameDynamic = "dynamic"
-
-const cpuPluginStateFileName = "cpu_plugin_state"
-
 const (
+	CPUResourcePluginPolicyNameDynamic = "dynamic"
+	cpuPluginStateFileName             = "cpu_plugin_state"
+
 	reservedReclaimedCPUsSize = 4
 
 	cpusetCheckPeriod = 10 * time.Second
 	stateCheckPeriod  = 30 * time.Second
 	maxResidualTime   = 5 * time.Minute
 	syncCPUIdlePeriod = 30 * time.Second
+	transitionPeriod  = 30 * time.Second
 )
 
 var (
@@ -285,6 +287,8 @@ func (p *DynamicPolicy) Start() (err error) {
 		go p.cpuPressureEviction.Run(ctx)
 	}
 
+	periodicalhandler.ReadyToStartHandlersByGroup(qrm.QRMCPUPluginPeriodicalHandlerGroupName)
+
 	// pre-check necessary dirs if sys-advisor is enabled
 	if !p.enableCPUAdvisor {
 		general.Infof("start dynamic policy cpu plugin without sys-advisor")
@@ -346,15 +350,19 @@ func (p *DynamicPolicy) Stop() error {
 		general.Warningf("already stopped")
 		return nil
 	}
+
 	close(p.stopCh)
+
+	if p.cpuPressureEvictionCancel != nil {
+		p.cpuPressureEvictionCancel()
+	}
+
+	periodicalhandler.StopHandlersByGroup(qrm.QRMCPUPluginPeriodicalHandlerGroupName)
 
 	if p.advisorConn != nil {
 		return p.advisorConn.Close()
 	}
 
-	if p.cpuPressureEvictionCancel != nil {
-		p.cpuPressureEvictionCancel()
-	}
 	return nil
 }
 
