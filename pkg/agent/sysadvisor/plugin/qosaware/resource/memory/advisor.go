@@ -73,7 +73,7 @@ func NewMemoryResourceAdvisor(conf *config.Configuration, extraConf interface{},
 		metaReader: metaCache,
 		metaServer: metaServer,
 		emitter:    emitter,
-		sendChan:   make(chan types.InternalMemoryCalculationResult),
+		sendChan:   make(chan types.InternalMemoryCalculationResult, 1),
 	}
 
 	headroomPolicyInitializers := headroompolicy.GetRegisteredInitializers()

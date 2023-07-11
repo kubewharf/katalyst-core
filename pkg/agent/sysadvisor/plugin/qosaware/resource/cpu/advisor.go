@@ -99,7 +99,7 @@ func NewCPUResourceAdvisor(conf *config.Configuration, extraConf interface{}, me
 		extraConf: extraConf,
 
 		recvCh:         make(chan struct{}),
-		sendCh:         make(chan types.InternalCPUCalculationResult),
+		sendCh:         make(chan types.InternalCPUCalculationResult, 1),
 		startTime:      time.Now(),
 		advisorUpdated: false,
 
