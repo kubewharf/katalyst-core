@@ -243,7 +243,7 @@ func packAllocationResponse(req *pluginapi.ResourceRequest, allocationInfo *stat
 		ResourceName:   req.ResourceName,
 		AllocationResult: &pluginapi.ResourceAllocation{
 			ResourceAllocation: map[string]*pluginapi.ResourceAllocationInfo{
-				req.ResourceName: {
+				string(consts.ResourceNetBandwidth): {
 					IsNodeResource:    false,
 					IsScalarResource:  true, // to avoid re-allocating
 					AllocatedQuantity: float64(allocationInfo.Egress),

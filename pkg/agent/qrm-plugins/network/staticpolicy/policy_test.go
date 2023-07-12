@@ -1050,46 +1050,8 @@ func TestGetResourcesAllocation(t *testing.T) {
 	policy := makeStaticPolicy(t)
 	assert.NotNil(t, policy)
 
-	podID := string(uuid.NewUUID())
-	testName := "test"
-	var bwReq float64 = 5000
-
-	// create a new Pod with bandwidth request
-	addReq := &pluginapi.ResourceRequest{
-		PodUid:         podID,
-		PodNamespace:   testName,
-		PodName:        testName,
-		ContainerName:  testName,
-		ContainerType:  pluginapi.ContainerType_MAIN,
-		ContainerIndex: 0,
-		ResourceName:   string(consts.ResourceNetBandwidth),
-		Hint: &pluginapi.TopologyHint{
-			Nodes:     []uint64{0, 1},
-			Preferred: true,
-		},
-		ResourceRequests: map[string]float64{
-			string(consts.ResourceNetBandwidth): bwReq,
-		},
-		Labels: map[string]string{
-			consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
-		},
-		Annotations: map[string]string{
-			consts.PodAnnotationNetClassKey:           testSharedNetClsId,
-			consts.PodAnnotationQoSLevelKey:           consts.PodAnnotationQoSLevelSharedCores,
-			consts.PodAnnotationNetworkEnhancementKey: testHostPreferEnhancementValue,
-		},
-	}
-
-	_, err := policy.Allocate(context.Background(), addReq)
+	_, err := policy.GetResourcesAllocation(context.TODO(), &pluginapi.GetResourcesAllocationRequest{})
 	assert.NoError(t, err)
-
-	resp, err := policy.GetResourcesAllocation(context.Background(), &pluginapi.GetResourcesAllocationRequest{})
-	assert.NoError(t, err)
-	assert.NotNil(t, resp)
-	assert.Len(t, resp.PodResources, 1)
-	assert.Len(t, resp.PodResources[podID].ContainerResources, 1)
-	assert.Equal(t, resp.PodResources[podID].ContainerResources[testName].ResourceAllocation[string(apiconsts.ResourceNetBandwidth)].AllocatedQuantity, bwReq)
-	assert.Equal(t, resp.PodResources[podID].ContainerResources[testName].ResourceAllocation[string(apiconsts.ResourceNetBandwidth)].AllocationResult, "0-1")
 }
 
 func TestGetTopologyAwareResources(t *testing.T) {

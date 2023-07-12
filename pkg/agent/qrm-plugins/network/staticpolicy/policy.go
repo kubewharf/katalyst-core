@@ -304,47 +304,9 @@ func (p *StaticPolicy) RemovePod(_ context.Context,
 
 // GetResourcesAllocation returns allocation results of corresponding resources
 func (p *StaticPolicy) GetResourcesAllocation(_ context.Context,
-	req *pluginapi.GetResourcesAllocationRequest) (*pluginapi.GetResourcesAllocationResponse, error) {
-	if req == nil {
-		return nil, fmt.Errorf("GetResourcesAllocation got nil req")
-	}
-
-	p.Lock()
-	defer p.Unlock()
-
-	podResources := make(map[string]*pluginapi.ContainerResources)
-	podEntries := p.state.GetPodEntries()
-	for podUID, containerEntries := range podEntries {
-		if podResources[podUID] == nil {
-			podResources[podUID] = &pluginapi.ContainerResources{}
-		}
-
-		for containerName, allocationInfo := range containerEntries {
-			if allocationInfo == nil {
-				continue
-			}
-
-			if podResources[podUID].ContainerResources == nil {
-				podResources[podUID].ContainerResources = make(map[string]*pluginapi.ResourceAllocation)
-			}
-
-			podResources[podUID].ContainerResources[containerName] = &pluginapi.ResourceAllocation{
-				ResourceAllocation: map[string]*pluginapi.ResourceAllocationInfo{
-					string(apiconsts.ResourceNetBandwidth): {
-						// no ociproperty needed for network
-						IsNodeResource:    false,
-						IsScalarResource:  true,
-						AllocatedQuantity: float64(allocationInfo.Egress),
-						AllocationResult:  allocationInfo.NumaNodes.String(),
-					},
-				},
-			}
-		}
-	}
-
-	return &pluginapi.GetResourcesAllocationResponse{
-		PodResources: podResources,
-	}, nil
+	_ *pluginapi.GetResourcesAllocationRequest) (*pluginapi.GetResourcesAllocationResponse, error) {
+	// no need to implement this function, because NeedReconcile is false
+	return &pluginapi.GetResourcesAllocationResponse{}, nil
 }
 
 // GetTopologyAwareResources returns allocation results of corresponding resources as topology aware format
@@ -359,10 +321,10 @@ func (p *StaticPolicy) GetTopologyAwareResources(_ context.Context,
 
 	allocationInfo := p.state.GetAllocationInfo(req.PodUid, req.ContainerName)
 	if allocationInfo == nil {
-		return nil, fmt.Errorf("pod: %s, container: %s is not show up in network plugin state", req.PodUid, req.ContainerName)
+		return &pluginapi.GetTopologyAwareResourcesResponse{}, nil
 	}
 
-	topologyNode, err := p.getSocketIDByNIC(allocationInfo.IfName)
+	socket, err := p.getSocketIDByNIC(allocationInfo.IfName)
 	if err != nil {
 		return nil, fmt.Errorf("failed to find topologyNode for pod %s, container %s : %v", req.PodUid, req.ContainerName, err)
 	}
@@ -371,7 +333,7 @@ func (p *StaticPolicy) GetTopologyAwareResources(_ context.Context,
 	topologyAwareQuantityList := []*pluginapi.TopologyAwareQuantity{
 		{
 			ResourceValue: float64(allocationInfo.Egress),
-			Node:          uint64(topologyNode),
+			Node:          uint64(socket),
 			Name:          allocationInfo.IfName,
 			Type:          string(apinode.TopologyTypeNIC),
 			TopologyLevel: pluginapi.TopologyLevel_SOCKET,
@@ -545,7 +507,57 @@ func (p *StaticPolicy) Allocate(_ context.Context,
 		return emptyResponse, nil
 	} else if req.ContainerType == pluginapi.ContainerType_SIDECAR {
 		// not to deal with sidecars, and return a trivial allocationResult to avoid re-allocating
-		return emptyResponse, nil
+		return packAllocationResponse(req, &state.AllocationInfo{}, nil, nil)
+	}
+
+	// check allocationInfo is nil or not
+	podEntries := p.state.GetPodEntries()
+	allocationInfo := p.state.GetAllocationInfo(req.PodUid, req.ContainerName)
+
+	if allocationInfo != nil {
+		if allocationInfo.Egress >= uint32(reqInt) && allocationInfo.Ingress >= uint32(reqInt) {
+			general.InfoS("already allocated and meet requirement",
+				"podNamespace", req.PodNamespace,
+				"podName", req.PodName,
+				"containerName", req.ContainerName,
+				"bandwidthReq(Mbps)", reqInt,
+				"currentResult(Mbps)", allocationInfo.Egress)
+
+			resourceAllocationAnnotations, err := p.getResourceAllocationAnnotations(podAnnotations, allocationInfo)
+			if err != nil {
+				err = fmt.Errorf("getResourceAllocationAnnotations for pod: %s/%s, container: %s failed with error: %v",
+					req.PodNamespace, req.PodName, req.ContainerName, err)
+				general.Errorf("%s", err.Error())
+				return nil, err
+			}
+
+			resp, packErr := packAllocationResponse(req, allocationInfo, req.Hint, resourceAllocationAnnotations)
+			if packErr != nil {
+				general.Errorf("pod: %s/%s, container: %s packAllocationResponse failed with error: %v",
+					req.PodNamespace, req.PodName, req.ContainerName, packErr)
+				return nil, fmt.Errorf("packAllocationResponse failed with error: %v", packErr)
+			}
+			return resp, nil
+		} else {
+			general.InfoS("not meet requirement, clear record and re-allocate",
+				"podNamespace", req.PodNamespace,
+				"podName", req.PodName,
+				"containerName", req.ContainerName,
+				"bandwidthReq(Mbps)", reqInt,
+				"currentResult(Mbps)", allocationInfo.Egress)
+			delete(podEntries, req.PodUid)
+
+			_, stateErr := state.GenerateMachineStateFromPodEntries(p.qrmConfig, p.nics, podEntries, p.state.GetReservedBandwidth())
+			if stateErr != nil {
+				general.ErrorS(stateErr, "generateNetworkMachineStateByPodEntries failed",
+					"podNamespace", req.PodNamespace,
+					"podName", req.PodName,
+					"containerName", req.ContainerName,
+					"bandwidthReq(Mbps)", reqInt,
+					"currentResult(Mbps)", allocationInfo.Egress)
+				return nil, fmt.Errorf("generateNetworkMachineStateByPodEntries failed with error: %v", stateErr)
+			}
+		}
 	}
 
 	candidateNICs, err := p.selectNICsByReq(req)
@@ -568,17 +580,8 @@ func (p *StaticPolicy) Allocate(_ context.Context,
 
 	// we only support one policy and hard code it for now
 	// TODO: make the policy configurable
-	selectedNIC := selectOneNIC(candidateNICs, LastOne)
-
+	selectedNIC := selectOneNIC(candidateNICs, RandomOne)
 	general.Infof("select NIC %s to allocate bandwidth (%dMbps)", selectedNIC.Iface, reqInt)
-
-	resourceAllocationAnnotations, err := p.getResourceAllocationAnnotations(podAnnotations, selectedNIC, reqInt)
-	if err != nil {
-		err = fmt.Errorf("getResourceAllocationAnnotations for pod: %s/%s, container: %s failed with error: %v",
-			req.PodNamespace, req.PodName, req.ContainerName, err)
-		general.Errorf("%s", err.Error())
-		return nil, err
-	}
 
 	siblingNUMAs, err := machine.GetSiblingNUMAs(selectedNIC.NumaNode, p.agentCtx.CPUTopology)
 	if err != nil {
@@ -598,63 +601,6 @@ func (p *StaticPolicy) Allocate(_ context.Context,
 	}
 
 	// generate allocationInfo and update the checkpoint accordingly
-	machineState := p.state.GetMachineState()
-	podEntries := p.state.GetPodEntries()
-	allocationInfo := p.state.GetAllocationInfo(req.PodUid, req.ContainerName)
-
-	if allocationInfo != nil {
-		if allocationInfo.Egress >= uint32(reqInt) && allocationInfo.Ingress >= uint32(reqInt) {
-			general.InfoS("already allocated and meet requirement",
-				"podNamespace", req.PodNamespace,
-				"podName", req.PodName,
-				"containerName", req.ContainerName,
-				"bandwidthReq(Mbps)", reqInt,
-				"currentResult(Mbps)", allocationInfo.Egress)
-
-			resp, packErr := packAllocationResponse(req, allocationInfo, req.Hint, resourceAllocationAnnotations)
-			if packErr != nil {
-				general.Errorf("pod: %s/%s, container: %s packAllocationResponse failed with error: %v",
-					req.PodNamespace, req.PodName, req.ContainerName, packErr)
-				return nil, fmt.Errorf("packAllocationResponse failed with error: %v", packErr)
-			}
-			return resp, nil
-		} else {
-			general.InfoS("not meet requirement, clear record and re-allocate",
-				"podNamespace", req.PodNamespace,
-				"podName", req.PodName,
-				"containerName", req.ContainerName,
-				"bandwidthReq(Mbps)", reqInt,
-				"currentResult(Mbps)", allocationInfo.Egress)
-			delete(podEntries, req.PodUid)
-
-			var stateErr error
-			machineState, stateErr = state.GenerateMachineStateFromPodEntries(p.qrmConfig, p.nics, podEntries, p.state.GetReservedBandwidth())
-			if stateErr != nil {
-				general.ErrorS(stateErr, "generateNetworkMachineStateByPodEntries failed",
-					"podNamespace", req.PodNamespace,
-					"podName", req.PodName,
-					"containerName", req.ContainerName,
-					"bandwidthReq(Mbps)", reqInt,
-					"currentResult(Mbps)", allocationInfo.Egress)
-				return nil, fmt.Errorf("generateNetworkMachineStateByPodEntries failed with error: %v", stateErr)
-			}
-		}
-	}
-
-	// update the machineState
-	machineState[selectedNIC.Iface].EgressState.Allocated += uint32(reqInt)
-	machineState[selectedNIC.Iface].IngressState.Allocated += uint32(reqInt)
-	machineState[selectedNIC.Iface].EgressState.Free -= uint32(reqInt)
-	machineState[selectedNIC.Iface].IngressState.Free -= uint32(reqInt)
-
-	if machineState[selectedNIC.Iface].PodEntries == nil {
-		machineState[selectedNIC.Iface].PodEntries = make(state.PodEntries)
-	}
-
-	if machineState[selectedNIC.Iface].PodEntries[req.PodUid] == nil {
-		machineState[selectedNIC.Iface].PodEntries[req.PodUid] = make(state.ContainerEntries)
-	}
-
 	newAllocation := &state.AllocationInfo{
 		PodUid:         req.PodUid,
 		PodNamespace:   req.PodNamespace,
@@ -672,10 +618,29 @@ func (p *StaticPolicy) Allocate(_ context.Context,
 		Annotations:    general.DeepCopyMap(req.Annotations),
 	}
 
-	machineState[selectedNIC.Iface].PodEntries[req.PodUid][req.ContainerName] = newAllocation
+	resourceAllocationAnnotations, err := p.getResourceAllocationAnnotations(podAnnotations, newAllocation)
+	if err != nil {
+		err = fmt.Errorf("getResourceAllocationAnnotations for pod: %s/%s, container: %s failed with error: %v",
+			req.PodNamespace, req.PodName, req.ContainerName, err)
+		general.Errorf("%s", err.Error())
+		return nil, err
+	}
+
+	// update PodEntries
+	p.state.SetAllocationInfo(req.PodUid, req.ContainerName, newAllocation)
+
+	machineState, stateErr := state.GenerateMachineStateFromPodEntries(p.qrmConfig, p.nics, p.state.GetPodEntries(), p.state.GetReservedBandwidth())
+	if stateErr != nil {
+		general.ErrorS(stateErr, "generateNetworkMachineStateByPodEntries failed",
+			"podNamespace", req.PodNamespace,
+			"podName", req.PodName,
+			"containerName", req.ContainerName,
+			"bandwidthReq(Mbps)", reqInt,
+			"currentResult(Mbps)", allocationInfo.Egress)
+		return nil, fmt.Errorf("generateNetworkMachineStateByPodEntries failed with error: %v", stateErr)
+	}
 
 	// update state cache
-	p.state.SetAllocationInfo(req.PodUid, req.ContainerName, newAllocation)
 	p.state.SetMachineState(machineState)
 
 	return packAllocationResponse(req, newAllocation, respHint, resourceAllocationAnnotations)
@@ -905,11 +870,13 @@ func (p *StaticPolicy) selectNICsByReq(req *pluginapi.ResourceRequest) ([]machin
 	return availableNICs, nil
 }
 
-func (p *StaticPolicy) getResourceAllocationAnnotations(podAnnotations map[string]string, selectedNIC machine.InterfaceInfo, reqBandwidth int) (map[string]string, error) {
+func (p *StaticPolicy) getResourceAllocationAnnotations(podAnnotations map[string]string, allocation *state.AllocationInfo) (map[string]string, error) {
 	netClsID, err := p.getNetClassID(podAnnotations, p.podLevelNetClassAnnoKey)
 	if err != nil {
 		return nil, fmt.Errorf("getNetClassID failed with error: %v", err)
 	}
+
+	selectedNIC := p.getNICByName(allocation.IfName)
 
 	resourceAllocationAnnotations := map[string]string{
 		p.ipv4ResourceAllocationAnnotationKey:             strings.Join(selectedNIC.GetNICIPs(machine.IPVersionV4), IPsSeparator),
@@ -917,7 +884,7 @@ func (p *StaticPolicy) getResourceAllocationAnnotations(podAnnotations map[strin
 		p.netInterfaceNameResourceAllocationAnnotationKey: selectedNIC.Iface,
 		p.netClassIDResourceAllocationAnnotationKey:       fmt.Sprintf("%d", netClsID),
 		// TODO: support differentiated Egress/Ingress bandwidth later
-		p.netBandwidthResourceAllocationAnnotationKey: strconv.Itoa(reqBandwidth),
+		p.netBandwidthResourceAllocationAnnotationKey: strconv.Itoa(int(allocation.Egress)),
 	}
 
 	if len(selectedNIC.NSAbsolutePath) > 0 {
