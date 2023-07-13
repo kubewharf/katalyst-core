@@ -24,6 +24,7 @@ import (
 	"k8s.io/klog/v2"
 
 	advisorapi "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/cpuadvisor"
+	coreconsts "github.com/kubewharf/katalyst-core/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
@@ -151,7 +152,7 @@ func GetSharedQuantityMapFromPodEntries(podEntries PodEntries, ignoreAllocationI
 
 // GenerateMachineStateFromPodEntries returns NUMANodeMap for given resource based on
 // machine info and reserved resources along with existed pod entries
-func GenerateMachineStateFromPodEntries(topology *machine.CPUTopology, podEntries PodEntries) (NUMANodeMap, error) {
+func GenerateMachineStateFromPodEntries(topology *machine.CPUTopology, podEntries PodEntries, policyName string) (NUMANodeMap, error) {
 	if topology == nil {
 		return nil, fmt.Errorf("GenerateMachineStateFromPodEntries got nil topology")
 	}
@@ -172,9 +173,17 @@ func GenerateMachineStateFromPodEntries(topology *machine.CPUTopology, podEntrie
 						continue
 					}
 
-					// only modify allocated and default properties in NUMA node state for dedicated_cores with NUMA binding
-					if CheckDedicatedNUMABinding(allocationInfo) {
-						allocatedCPUsInNumaNode = allocatedCPUsInNumaNode.Union(allocationInfo.OriginalTopologyAwareAssignments[int(numaNode)])
+					switch policyName {
+					case coreconsts.CPUResourcePluginPolicyNameDynamic:
+						// only modify allocated and default properties in NUMA node state if the policy is dynamic and the QoS class is dedicated_cores with NUMA binding
+						if CheckDedicatedNUMABinding(allocationInfo) {
+							allocatedCPUsInNumaNode = allocatedCPUsInNumaNode.Union(allocationInfo.OriginalTopologyAwareAssignments[int(numaNode)])
+						}
+					case coreconsts.CPUResourcePluginPolicyNameNative:
+						// only modify allocated and default properties in NUMA node state if the policy is native and the QoS class is Guaranteed
+						if CheckGuaranteed(allocationInfo) {
+							allocatedCPUsInNumaNode = allocatedCPUsInNumaNode.Union(allocationInfo.OriginalTopologyAwareAssignments[int(numaNode)])
+						}
 					}
 
 					topologyAwareAssignments, _ := machine.GetNumaAwareAssignments(topology, allocationInfo.AllocationResult.Intersection(numaNodeAllCPUs))

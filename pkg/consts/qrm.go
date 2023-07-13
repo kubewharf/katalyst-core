@@ -19,4 +19,10 @@ package consts
 const (
 	// KubeletQoSResourceManagerCheckpoint is the name of the checkpoint file for kubelet QoS resource manager
 	KubeletQoSResourceManagerCheckpoint = "kubelet_qrm_checkpoint"
+
+	// CPUResourcePluginPolicyNameDynamic is the name of the dynamic policy.
+	CPUResourcePluginPolicyNameDynamic = "dynamic"
+
+	// CPUResourcePluginPolicyNameNative is the name of the native policy.
+	CPUResourcePluginPolicyNameNative = "native"
 )

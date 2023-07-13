@@ -29,6 +29,7 @@ import (
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 
 	"github.com/kubewharf/katalyst-api/pkg/consts"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
 	"github.com/kubewharf/katalyst-core/pkg/config/generic"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
@@ -309,4 +310,83 @@ func GetHintsFromExtraStateFile(podName, resourceName, extraHintsStateFileAbsPat
 
 func GetContainerAsyncWorkName(podUID, containerName, topic string) string {
 	return strings.Join([]string{podUID, containerName, topic}, "/")
+}
+
+// RegenerateHints regenerates hints for container that'd already been allocated cpu,
+// and regenerateHints will assemble hints based on already-existed AllocationInfo,
+// without any calculation logics at all
+func RegenerateHints(allocationInfo *state.AllocationInfo, reqInt int) map[string]*pluginapi.ListOfTopologyHints {
+	hints := map[string]*pluginapi.ListOfTopologyHints{}
+
+	if allocationInfo.OriginalAllocationResult.Size() < reqInt {
+		general.ErrorS(nil, "cpus already allocated with smaller quantity than requested",
+			"podUID", allocationInfo.PodUid,
+			"containerName", allocationInfo.ContainerName,
+			"requestedResource", reqInt,
+			"allocatedSize", allocationInfo.OriginalAllocationResult.Size())
+
+		return nil
+	}
+
+	allocatedNumaNodes := make([]uint64, 0, len(allocationInfo.TopologyAwareAssignments))
+	for numaNode, cset := range allocationInfo.TopologyAwareAssignments {
+		if cset.Size() > 0 {
+			allocatedNumaNodes = append(allocatedNumaNodes, uint64(numaNode))
+		}
+	}
+
+	general.InfoS("regenerating machineInfo hints, cpus was already allocated to pod",
+		"podNamespace", allocationInfo.PodNamespace,
+		"podName", allocationInfo.PodName,
+		"containerName", allocationInfo.ContainerName,
+		"hint", allocatedNumaNodes)
+	hints[string(v1.ResourceCPU)] = &pluginapi.ListOfTopologyHints{
+		Hints: []*pluginapi.TopologyHint{
+			{
+				Nodes:     allocatedNumaNodes,
+				Preferred: true,
+			},
+		},
+	}
+	return hints
+}
+
+// PackAllocationResponse fills pluginapi.ResourceAllocationResponse with information from AllocationInfo and pluginapi.ResourceRequest
+func PackAllocationResponse(allocationInfo *state.AllocationInfo, resourceName, ociPropertyName string,
+	isNodeResource, isScalarResource bool, req *pluginapi.ResourceRequest) (*pluginapi.ResourceAllocationResponse, error) {
+	if allocationInfo == nil {
+		return nil, fmt.Errorf("packAllocationResponse got nil allocationInfo")
+	} else if req == nil {
+		return nil, fmt.Errorf("packAllocationResponse got nil request")
+	}
+
+	return &pluginapi.ResourceAllocationResponse{
+		PodUid:         req.PodUid,
+		PodNamespace:   req.PodNamespace,
+		PodName:        req.PodName,
+		ContainerName:  req.ContainerName,
+		ContainerType:  req.ContainerType,
+		ContainerIndex: req.ContainerIndex,
+		PodRole:        req.PodRole,
+		PodType:        req.PodType,
+		ResourceName:   resourceName,
+		AllocationResult: &pluginapi.ResourceAllocation{
+			ResourceAllocation: map[string]*pluginapi.ResourceAllocationInfo{
+				resourceName: {
+					OciPropertyName:   ociPropertyName,
+					IsNodeResource:    isNodeResource,
+					IsScalarResource:  isScalarResource,
+					AllocatedQuantity: float64(allocationInfo.AllocationResult.Size()),
+					AllocationResult:  allocationInfo.AllocationResult.String(),
+					ResourceHints: &pluginapi.ListOfTopologyHints{
+						Hints: []*pluginapi.TopologyHint{
+							req.Hint,
+						},
+					},
+				},
+			},
+		},
+		Labels:      general.DeepCopyMap(req.Labels),
+		Annotations: general.DeepCopyMap(req.Annotations),
+	}, nil
 }

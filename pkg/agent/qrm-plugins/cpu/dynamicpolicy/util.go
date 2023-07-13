@@ -16,6 +16,16 @@ limitations under the License.
 
 package dynamicpolicy
 
+import (
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
+	coreconsts "github.com/kubewharf/katalyst-core/pkg/consts"
+	"github.com/kubewharf/katalyst-core/pkg/util/machine"
+)
+
 func getProportionalSize(oldPoolSize, oldTotalSize, newTotalSize int) int {
 	return int(float64(newTotalSize) * (float64(oldPoolSize) / float64(oldTotalSize)))
+}
+
+func generateMachineStateFromPodEntries(topology *machine.CPUTopology, podEntries state.PodEntries) (state.NUMANodeMap, error) {
+	return state.GenerateMachineStateFromPodEntries(topology, podEntries, coreconsts.CPUResourcePluginPolicyNameDynamic)
 }

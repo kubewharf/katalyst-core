@@ -82,6 +82,13 @@ func (s *cpuPluginState) GetAllocationInfo(podUID string, containerName string) 
 	return nil
 }
 
+func (s *cpuPluginState) GetCPUSetOrDefault(podUID string, containerName string) machine.CPUSet {
+	if res := s.GetAllocationInfo(podUID, containerName); res != nil {
+		return res.AllocationResult
+	}
+	return s.machineState.GetDefaultCPUSet()
+}
+
 func (s *cpuPluginState) GetPodEntries() PodEntries {
 	s.RLock()
 	defer s.RUnlock()

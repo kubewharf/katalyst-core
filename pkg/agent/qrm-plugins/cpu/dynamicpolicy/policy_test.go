@@ -2811,7 +2811,7 @@ func TestAllocateByQoSAwareServerListAndWatchResp(t *testing.T) {
 
 		dynamicPolicy.dynamicConfig.GetDynamicConfiguration().EnableReclaim = true
 
-		machineState, err := state.GenerateMachineStateFromPodEntries(tc.cpuTopology, tc.podEntries)
+		machineState, err := generateMachineStateFromPodEntries(tc.cpuTopology, tc.podEntries)
 		as.Nil(err)
 
 		dynamicPolicy.state.SetPodEntries(tc.podEntries)

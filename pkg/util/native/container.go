@@ -17,6 +17,7 @@ limitations under the License.
 package native
 
 import (
+	"fmt"
 	"strings"
 
 	v1 "k8s.io/api/core/v1"
@@ -29,6 +30,25 @@ const (
 
 const ContainerMetricPortName = "metrics"
 const ContainerMetricStorePortName = "store"
+
+// CheckContainerNotRunning returns whether the given container is not-runnin
+func CheckContainerNotRunning(pod *v1.Pod, containerName string) (bool, error) {
+	cstatus, err := findContainerStatusByName(&pod.Status, containerName)
+	if err != nil {
+		return false, fmt.Errorf("container status not found in pod status, err: %v", err)
+	}
+
+	return containerNotRunning([]v1.ContainerStatus{cstatus}), nil
+}
+
+func findContainerStatusByName(status *v1.PodStatus, name string) (v1.ContainerStatus, error) {
+	for _, containerStatus := range append(status.InitContainerStatuses, status.ContainerStatuses...) {
+		if containerStatus.Name == name {
+			return containerStatus, nil
+		}
+	}
+	return v1.ContainerStatus{}, fmt.Errorf("unable to find status for container with name %v in pod status (it may not be running)", name)
+}
 
 // containerNotRunning returns whether the given containers are all not-running, ie.
 // if anyone falls to not-running state, returns false

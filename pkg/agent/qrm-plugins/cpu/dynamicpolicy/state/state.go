@@ -20,6 +20,7 @@ import (
 	"encoding/json"
 	"fmt"
 
+	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/klog/v2"
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
@@ -213,6 +214,11 @@ func CheckDedicatedNUMABinding(ai *AllocationInfo) bool {
 	return CheckDedicated(ai) && CheckNUMABinding(ai)
 }
 
+// CheckGuaranteed returns true if the AllocationInfo is for pod with a Guaranteed QoS class
+func CheckGuaranteed(ai *AllocationInfo) bool {
+	return ai.QoSLevel == string(v1.PodQOSGuaranteed)
+}
+
 // IsPoolEntry returns true if this entry is for a pool;
 // otherwise, this entry is for a container entity.
 func (ce ContainerEntries) IsPoolEntry() bool {
@@ -401,6 +407,7 @@ func (ns *NUMANodeState) SetAllocationInfo(podUID string, containerName string, 
 	ns.PodEntries[podUID][containerName] = allocationInfo.Clone()
 }
 
+// TODO: racing?
 // GetDefaultCPUSet returns default cpuset in this node
 func (nm NUMANodeMap) GetDefaultCPUSet() machine.CPUSet {
 	res := machine.NewCPUSet()
@@ -408,6 +415,11 @@ func (nm NUMANodeMap) GetDefaultCPUSet() machine.CPUSet {
 		res = res.Union(numaNodeState.DefaultCPUSet)
 	}
 	return res
+}
+
+// GetAvailableCPUSet returns available cpuset in this node
+func (nm NUMANodeMap) GetAvailableCPUSet(reservedCPUs machine.CPUSet) machine.CPUSet {
+	return nm.GetDefaultCPUSet().Difference(reservedCPUs)
 }
 
 // GetFilteredDefaultCPUSet returns default cpuset in this node, along with the filter functions
@@ -455,6 +467,7 @@ type reader interface {
 	GetMachineState() NUMANodeMap
 	GetPodEntries() PodEntries
 	GetAllocationInfo(podUID string, containerName string) *AllocationInfo
+	GetCPUSetOrDefault(podUID string, containerName string) machine.CPUSet
 }
 
 // writer is used to store information into local states,

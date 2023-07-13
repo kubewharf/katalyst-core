@@ -211,7 +211,7 @@ func (p *DynamicPolicy) clearResidualState() {
 			delete(podEntries, podUID)
 		}
 
-		updatedMachineState, err := state.GenerateMachineStateFromPodEntries(p.machineInfo.CPUTopology, podEntries)
+		updatedMachineState, err := generateMachineStateFromPodEntries(p.machineInfo.CPUTopology, podEntries)
 		if err != nil {
 			general.Errorf("GenerateMachineStateFromPodEntries failed with error: %v", err)
 			return

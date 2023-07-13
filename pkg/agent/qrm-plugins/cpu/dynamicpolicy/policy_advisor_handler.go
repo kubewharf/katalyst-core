@@ -597,7 +597,7 @@ func (p *DynamicPolicy) applyBlocks(blockCPUSet advisorapi.BlockCPUSet, resp *ad
 	}
 
 	// use pod entries generated above to generate machine state info, and store in local state
-	newMachineState, err := state.GenerateMachineStateFromPodEntries(p.machineInfo.CPUTopology, newEntries)
+	newMachineState, err := generateMachineStateFromPodEntries(p.machineInfo.CPUTopology, newEntries)
 	if err != nil {
 		return fmt.Errorf("calculate machineState by newPodEntries failed with error: %v", err)
 	}
