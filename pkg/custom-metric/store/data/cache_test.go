@@ -164,6 +164,10 @@ func Test_cache(t *testing.T) {
 	names = c.ListAllMetricNames()
 	assert.ElementsMatch(t, []string{"m-1", "m-2", "m-3"}, names)
 
+	oneMetric, exist = c.GetMetric("n-4", "m-3", &schema.GroupResource{Resource: "pod"})
+	assert.Equal(t, true, exist)
+	assert.Equal(t, 0, len(oneMetric))
+
 	oneMetric, exist = c.GetMetric("n-3", "m-3", &schema.GroupResource{Resource: "pod"})
 	assert.Equal(t, true, exist)
 	assert.Equal(t, &InternalMetric{
