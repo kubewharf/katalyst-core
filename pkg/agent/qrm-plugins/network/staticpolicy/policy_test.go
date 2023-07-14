@@ -588,8 +588,8 @@ func TestAllocate(t *testing.T) {
 			expectedResp: nil,
 		},
 		{
-			description: "req for dedicated_cores main container with exceeded bandwidth over the 1st NIC",
-			noError:     true,
+			description: "req for dedicated_cores main container with host netns guarantee and exceeded bandwidth over the 1st NIC which is preferred",
+			noError:     false,
 			req: &pluginapi.ResourceRequest{
 				PodUid:         string(uuid.NewUUID()),
 				PodNamespace:   testName,
@@ -606,7 +606,8 @@ func TestAllocate(t *testing.T) {
 					string(consts.ResourceNetBandwidth): 20000,
 				},
 				Annotations: map[string]string{
-					consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelDedicatedCores,
+					consts.PodAnnotationQoSLevelKey:           consts.PodAnnotationQoSLevelDedicatedCores,
+					consts.PodAnnotationNetworkEnhancementKey: testHostPreferEnhancementValue,
 				},
 				Labels: map[string]string{
 					consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelDedicatedCores,
@@ -627,18 +628,17 @@ func TestAllocate(t *testing.T) {
 							AllocatedQuantity: 20000,
 							AllocationResult:  machine.NewCPUSet(2, 3).String(),
 							Annotations: map[string]string{
-								testIPv4ResourceAllocationAnnotationKey:             "",
-								testIPv6ResourceAllocationAnnotationKey:             testEth2IPv6,
-								testNetClassIDResourceAllocationAnnotationKey:       fmt.Sprintf("%d", testDefaultDedicatedNetClsId),
-								testNetNSPathResourceAllocationAnnotationKey:        testEth2NSAbsolutePath,
+								testIPv4ResourceAllocationAnnotationKey:             testEth2IPv6,
+								testIPv6ResourceAllocationAnnotationKey:             "",
 								testNetInterfaceNameResourceAllocationAnnotationKey: testEth2Name,
+								testNetClassIDResourceAllocationAnnotationKey:       fmt.Sprintf("%d", testDefaultDedicatedNetClsId),
 								testNetBandwidthResourceAllocationAnnotationKey:     "20000",
 							},
 							ResourceHints: &pluginapi.ListOfTopologyHints{
 								Hints: []*pluginapi.TopologyHint{
 									{
 										Nodes:     []uint64{2, 3},
-										Preferred: true, // default value is true when no ns enhancement specified
+										Preferred: false,
 									},
 								},
 							},
@@ -649,7 +649,8 @@ func TestAllocate(t *testing.T) {
 					consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelDedicatedCores,
 				},
 				Annotations: map[string]string{
-					consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelDedicatedCores,
+					consts.PodAnnotationQoSLevelKey:                     consts.PodAnnotationQoSLevelDedicatedCores,
+					consts.PodAnnotationNetworkEnhancementNamespaceType: consts.PodAnnotationNetworkEnhancementNamespaceTypeHostPrefer,
 				},
 			},
 		},
@@ -982,6 +983,99 @@ func TestGetTopologyHints(t *testing.T) {
 								Preferred: true,
 							},
 						},
+					},
+				},
+				Labels: map[string]string{
+					consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelDedicatedCores,
+				},
+				Annotations: map[string]string{
+					consts.PodAnnotationQoSLevelKey:                     consts.PodAnnotationQoSLevelDedicatedCores,
+					consts.PodAnnotationNetworkEnhancementNamespaceType: consts.PodAnnotationNetworkEnhancementNamespaceTypeHost,
+				},
+			},
+		},
+		{
+			description: "req for dedicated_cores main container with exceeded bandwidth over the 1st NIC which is preferred",
+			req: &pluginapi.ResourceRequest{
+				PodUid:         string(uuid.NewUUID()),
+				PodNamespace:   testName,
+				PodName:        testName,
+				ContainerName:  testName,
+				ContainerType:  pluginapi.ContainerType_MAIN,
+				ContainerIndex: 0,
+				ResourceName:   string(consts.ResourceNetBandwidth),
+				ResourceRequests: map[string]float64{
+					string(consts.ResourceNetBandwidth): 20000,
+				},
+				Annotations: map[string]string{
+					consts.PodAnnotationQoSLevelKey:           consts.PodAnnotationQoSLevelDedicatedCores,
+					consts.PodAnnotationNetworkEnhancementKey: testHostPreferEnhancementValue,
+				},
+				Labels: map[string]string{
+					consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelDedicatedCores,
+				},
+			},
+			expectedResp: &pluginapi.ResourceHintsResponse{
+				PodNamespace:   testName,
+				PodName:        testName,
+				ContainerName:  testName,
+				ContainerType:  pluginapi.ContainerType_MAIN,
+				ContainerIndex: 0,
+				ResourceName:   string(consts.ResourceNetBandwidth),
+				ResourceHints: map[string]*pluginapi.ListOfTopologyHints{
+					string(consts.ResourceNetBandwidth): {
+						Hints: []*pluginapi.TopologyHint{
+							{
+								Nodes:     []uint64{2, 3},
+								Preferred: false,
+							},
+							{
+								Nodes:     []uint64{0, 1, 2, 3},
+								Preferred: false,
+							},
+						},
+					},
+				},
+				Labels: map[string]string{
+					consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelDedicatedCores,
+				},
+				Annotations: map[string]string{
+					consts.PodAnnotationQoSLevelKey:                     consts.PodAnnotationQoSLevelDedicatedCores,
+					consts.PodAnnotationNetworkEnhancementNamespaceType: consts.PodAnnotationNetworkEnhancementNamespaceTypeHostPrefer,
+				},
+			},
+		},
+		{
+			description: "req for dedicated_cores main container with exceeded bandwidth over the 1st NIC which is required",
+			req: &pluginapi.ResourceRequest{
+				PodUid:         string(uuid.NewUUID()),
+				PodNamespace:   testName,
+				PodName:        testName,
+				ContainerName:  testName,
+				ContainerType:  pluginapi.ContainerType_MAIN,
+				ContainerIndex: 0,
+				ResourceName:   string(consts.ResourceNetBandwidth),
+				ResourceRequests: map[string]float64{
+					string(consts.ResourceNetBandwidth): 20000,
+				},
+				Annotations: map[string]string{
+					consts.PodAnnotationQoSLevelKey:           consts.PodAnnotationQoSLevelDedicatedCores,
+					consts.PodAnnotationNetworkEnhancementKey: testHostEnhancementValue,
+				},
+				Labels: map[string]string{
+					consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelDedicatedCores,
+				},
+			},
+			expectedResp: &pluginapi.ResourceHintsResponse{
+				PodNamespace:   testName,
+				PodName:        testName,
+				ContainerName:  testName,
+				ContainerType:  pluginapi.ContainerType_MAIN,
+				ContainerIndex: 0,
+				ResourceName:   string(consts.ResourceNetBandwidth),
+				ResourceHints: map[string]*pluginapi.ListOfTopologyHints{
+					string(consts.ResourceNetBandwidth): {
+						Hints: []*pluginapi.TopologyHint{},
 					},
 				},
 				Labels: map[string]string{

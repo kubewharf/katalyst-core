@@ -723,33 +723,47 @@ func (p *StaticPolicy) applyNetClass() {
 	}
 }
 
-func (p *StaticPolicy) filterAvailableNICsByBandwidth(req *pluginapi.ResourceRequest) ([]machine.InterfaceInfo, error) {
+func (p *StaticPolicy) filterAvailableNICsByBandwidth(nics []machine.InterfaceInfo, req *pluginapi.ResourceRequest, _ *agent.GenericContext) []machine.InterfaceInfo {
+	filteredNICs := make([]machine.InterfaceInfo, 0, len(nics))
+
 	if req == nil {
-		return nil, fmt.Errorf("filterNICsByBandwidth got nil req")
+		general.Infof("filterNICsByBandwidth got nil req")
+		return nil
 	}
 
 	reqInt, err := util.GetQuantityFromResourceReq(req)
 	if err != nil {
-		return nil, fmt.Errorf("getReqQuantityFromResourceReq failed with error: %v", err)
+		general.Errorf("getReqQuantityFromResourceReq failed with error: %v", err)
+		return nil
 	}
 
 	machineState := p.state.GetMachineState()
-	if len(machineState) == 0 || len(p.nics) == 0 {
-		return nil, fmt.Errorf("filterNICsByBandwidth with 0 NIC")
+	if len(machineState) == 0 || len(nics) == 0 {
+		general.Errorf("filterNICsByBandwidth with 0 NIC")
+		return nil
 	}
 
-	filteredNICs := make([]machine.InterfaceInfo, 0, len(p.nics))
 	// filter NICs by available bandwidth
-	for _, iface := range p.nics {
+	for _, iface := range nics {
 		if machineState[iface.Iface].EgressState.Free >= uint32(reqInt) && machineState[iface.Iface].IngressState.Free >= uint32(reqInt) {
 			filteredNICs = append(filteredNICs, iface)
 		}
 	}
 
-	return filteredNICs, nil
+	// no nic meets the bandwidth request
+	if len(filteredNICs) == 0 {
+		general.InfoS("nic list returned by filtereNICsByBandwidth is empty",
+			"podNamespace", req.PodNamespace,
+			"podName", req.PodName,
+			"containerName", req.ContainerName)
+	}
+
+	return filteredNICs
 }
 
 func (p *StaticPolicy) calculateHints(req *pluginapi.ResourceRequest) (map[string]*pluginapi.ListOfTopologyHints, error) {
+	// resp.hints: 1) empty, means no resource (i.e. NIC) meeting requirements found; 2) nil, does not care about the hints
+	// since NIC is a kind of topology-aware resource, it is incorrect to return nil
 	hints := map[string]*pluginapi.ListOfTopologyHints{
 		p.ResourceName(): {
 			Hints: []*pluginapi.TopologyHint{},
@@ -766,7 +780,8 @@ func (p *StaticPolicy) calculateHints(req *pluginapi.ResourceRequest) (map[strin
 			"podNamespace", req.PodNamespace,
 			"podName", req.PodName,
 			"containerName", req.ContainerName)
-		return hints, nil
+		// if the req.NS asks to allocate on the 1st NIC which does not have sufficient bandwidth, candidateNICs is empty.
+		// however, we should not return directly here. To indicate the option of the 2nd NIC if no restricted affinity or ns requested, we return [0,1,2,3] instead.
 	}
 
 	numasToHintMap := make(map[string]*pluginapi.TopologyHint)
@@ -802,6 +817,7 @@ func (p *StaticPolicy) calculateHints(req *pluginapi.ResourceRequest) (map[strin
 		hints[p.ResourceName()].Hints = append(hints[p.ResourceName()].Hints, hint)
 	}
 
+	// check if restricted affinity or ns requested
 	if !isReqAffinityRestricted(req.Annotations) && !isReqNamespaceRestricted(req.Annotations) {
 		general.InfoS("add all NUMAs to hint to avoid affinity error",
 			"podNamespace", req.PodNamespace,
@@ -832,42 +848,26 @@ may use req.Hints to prioritize the selection of a NIC connected to that socket.
 If the NIC connected to the socket has sufficient bandwidth, only this NIC is returned. Otherwise, other cards with sufficient bandwidth will be returned.
 */
 func (p *StaticPolicy) selectNICsByReq(req *pluginapi.ResourceRequest) ([]machine.InterfaceInfo, error) {
-	candidateNICs := make([]machine.InterfaceInfo, 0, len(p.nics))
+	nicFilters := []NICFilter{
+		p.filterAvailableNICsByBandwidth,
+		filterNICsByNamespaceType,
+		filterNICsByHint,
+	}
 
-	availableNICs, err := p.filterAvailableNICsByBandwidth(req)
+	candidateNICs, err := filterAvailableNICsByReq(p.nics, req, p.agentCtx, nicFilters)
 	if err != nil {
-		return nil, fmt.Errorf("filterAvailableNICsByBandwidth failed with error: %v", err)
+		return nil, fmt.Errorf("filterAvailableNICsByReq failed with error: %v", err)
 	}
 
-	// this node can not meet the bandwidth request
-	if len(availableNICs) == 0 {
-		general.InfoS("nic list returned by filtereNICsByBandwidth is empty",
+	// this node can not meet the combined requests
+	if len(candidateNICs) == 0 {
+		general.InfoS("nic list returned by filterAvailableNICsByReq is empty",
 			"podNamespace", req.PodNamespace,
 			"podName", req.PodName,
 			"containerName", req.ContainerName)
-		return candidateNICs, nil
 	}
 
-	availableNICs = filterNICsByNamespaceType(availableNICs, req, nil)
-	// this node can not meet the ns + bandwidth request
-	if len(availableNICs) == 0 {
-		general.InfoS("nic list returned by filterNICsByNamespaceType is empty",
-			"podNamespace", req.PodNamespace,
-			"podName", req.PodName,
-			"containerName", req.ContainerName)
-		return candidateNICs, nil
-	}
-
-	// calculate the intersection
-	candidateNICs = filterNICsByHint(availableNICs, req, p.agentCtx)
-
-	// If filteredNICs and "hintNICs" indicated by req.Hint have an overlap, the intersection of two sets is what we need.
-	// Otherwise, pick their difference (i.e. the NICs in filteredNICs but not in "hintNICs", which actually equals to the former set).
-	if len(candidateNICs) > 0 {
-		return candidateNICs, nil
-	}
-
-	return availableNICs, nil
+	return candidateNICs, nil
 }
 
 func (p *StaticPolicy) getResourceAllocationAnnotations(podAnnotations map[string]string, allocation *state.AllocationInfo) (map[string]string, error) {

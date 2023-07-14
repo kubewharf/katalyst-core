@@ -42,6 +42,8 @@ const (
 	LastOne   NICSelectionPoligy = "last"
 )
 
+type NICFilter func(nics []machine.InterfaceInfo, req *pluginapi.ResourceRequest, agentCtx *agent.GenericContext) []machine.InterfaceInfo
+
 // isReqAffinityRestricted returns true if allocated network interface must have affinity with allocated numa
 func isReqAffinityRestricted(reqAnnotations map[string]string) bool {
 	return reqAnnotations[consts.PodAnnotationNetworkEnhancementAffinityRestricted] ==
@@ -95,7 +97,22 @@ func checkNICPreferenceOfReq(nic machine.InterfaceInfo, reqAnnotations map[strin
 	}
 }
 
-func filterNICsByAvailability(nics []machine.InterfaceInfo, _ *pluginapi.ResourceRequest, _ *agent.GenericContext) []machine.InterfaceInfo {
+// filterAvailableNICsByReq walks through nicFilters to select the targeted network interfaces
+func filterAvailableNICsByReq(nics []machine.InterfaceInfo, req *pluginapi.ResourceRequest, agentCtx *agent.GenericContext, nicFilters []NICFilter) ([]machine.InterfaceInfo, error) {
+	if req == nil {
+		return nil, fmt.Errorf("filterAvailableNICsByReq got nil req")
+	} else if agentCtx == nil {
+		return nil, fmt.Errorf("filterAvailableNICsByReq got nil agentCtx")
+	}
+
+	filteredNICs := nics
+	for _, nicFilter := range nicFilters {
+		filteredNICs = nicFilter(filteredNICs, req, agentCtx)
+	}
+	return filteredNICs, nil
+}
+
+func filterNICsByAvailability(nics []machine.InterfaceInfo, req *pluginapi.ResourceRequest, _ *agent.GenericContext) []machine.InterfaceInfo {
 	filteredNICs := make([]machine.InterfaceInfo, 0, len(nics))
 	for _, nic := range nics {
 		if !nic.Enable {
@@ -107,6 +124,13 @@ func filterNICsByAvailability(nics []machine.InterfaceInfo, _ *pluginapi.Resourc
 		}
 
 		filteredNICs = append(filteredNICs, nic)
+	}
+
+	if len(filteredNICs) == 0 {
+		general.InfoS("nic list returned by filterNICsByAvailability is empty",
+			"podNamespace", req.PodNamespace,
+			"podName", req.PodName,
+			"containerName", req.ContainerName)
 	}
 
 	return filteredNICs
@@ -137,6 +161,13 @@ func filterNICsByNamespaceType(nics []machine.InterfaceInfo, req *pluginapi.Reso
 			general.Infof("filter out nic: %s mismatching with enhancement %s: %s",
 				nic.Iface, consts.PodAnnotationNetworkEnhancementNamespaceType, consts.PodAnnotationNetworkEnhancementNamespaceTypeHost)
 		}
+	}
+
+	if len(filteredNICs) == 0 {
+		general.InfoS("nic list returned by filterNICsByNamespaceType is empty",
+			"podNamespace", req.PodNamespace,
+			"podName", req.PodName,
+			"containerName", req.ContainerName)
 	}
 
 	return filteredNICs
