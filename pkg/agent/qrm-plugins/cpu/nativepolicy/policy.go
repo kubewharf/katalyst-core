@@ -59,7 +59,6 @@ var (
 	readonlyState     state.ReadonlyState
 )
 
-// TODO: what is the use of readonlyState?
 // GetReadonlyState returns state.ReadonlyState to provides a way
 // to obtain the running states of the plugin
 func GetReadonlyState() (state.ReadonlyState, error) {
@@ -83,10 +82,8 @@ type NativePolicy struct {
 	metaServer  *metaserver.MetaServer
 	machineInfo *machine.KatalystMachineInfo
 
-	state             state.State
-	residualHitMap    map[string]int64
-	allocationHandler util.AllocationHandler
-	hintHandler       util.HintHandler
+	state          state.State
+	residualHitMap map[string]int64
 	// set of CPUs to reuse across allocations in a pod
 	cpusToReuse map[string]machine.CPUSet
 
@@ -154,8 +151,6 @@ func NewNativePolicy(agentCtx *agent.GenericContext, conf *config.Configuration,
 		enableDistributeCPUsAcrossNUMA: conf.EnableDistributeCPUsAcrossNUMA,
 	}
 
-	policyImplement.hintHandler = policyImplement.HintHandler
-	policyImplement.allocationHandler = policyImplement.AllocationHandler
 	state.GetContainerRequestedCores = policyImplement.getContainerRequestedCores
 
 	err := agentCtx.MetaServer.ConfigurationManager.AddConfigWatcher(crd.AdminQoSConfigurationGVR)
@@ -269,8 +264,7 @@ func (p *NativePolicy) GetTopologyHints(ctx context.Context,
 		"isDebugPod", isDebugPod,
 		"isInteger", isInteger)
 
-	if req.ContainerType == pluginapi.ContainerType_INIT || isDebugPod ||
-		qosClass != v1.PodQOSGuaranteed || !isInteger {
+	if req.ContainerType == pluginapi.ContainerType_INIT || isDebugPod {
 		general.Infof("there is no NUMA preference, return nil hint")
 		return util.PackResourceHintsResponse(req, string(v1.ResourceCPU),
 			map[string]*pluginapi.ListOfTopologyHints{
@@ -286,7 +280,10 @@ func (p *NativePolicy) GetTopologyHints(ctx context.Context,
 		}
 	}()
 
-	return p.hintHandler(ctx, req)
+	if qosClass != v1.PodQOSGuaranteed || !isInteger {
+		return p.sharedPoolHintHandler(ctx, req)
+	}
+	return p.dedicatedCoresHintHandler(ctx, req)
 }
 
 // Allocate is called during pod admit so that the resource
@@ -329,9 +326,7 @@ func (p *NativePolicy) Allocate(ctx context.Context,
 		"isDebugPod", isDebugPod,
 		"isInteger", isInteger)
 
-	// TODO: whether to return an empty AllocationResult?
-	if req.ContainerType == pluginapi.ContainerType_INIT ||
-		qosClass != v1.PodQOSGuaranteed || !isInteger {
+	if req.ContainerType == pluginapi.ContainerType_INIT {
 		return &pluginapi.ResourceAllocationResponse{
 			PodUid:         req.PodUid,
 			PodNamespace:   req.PodNamespace,
@@ -385,7 +380,6 @@ func (p *NativePolicy) Allocate(ctx context.Context,
 	}()
 
 	allocationInfo := p.state.GetAllocationInfo(req.PodUid, req.ContainerName)
-	// TODO: OriginalAllocationResult, not AllocationResult?
 	if allocationInfo != nil && allocationInfo.OriginalAllocationResult.Size() >= reqInt {
 		general.InfoS("already allocated and meet requirement",
 			"podNamespace", req.PodNamespace,
@@ -423,7 +417,10 @@ func (p *NativePolicy) Allocate(ctx context.Context,
 		}, nil
 	}
 
-	return p.allocationHandler(ctx, req)
+	if qosClass != v1.PodQOSGuaranteed || !isInteger {
+		return p.sharedPoolAllocationHandler(ctx, req)
+	}
+	return p.dedicatedCoresAllocationHandler(ctx, req)
 }
 
 // GetResourcesAllocation returns allocation results of corresponding resources
@@ -535,19 +532,20 @@ func (p *NativePolicy) GetTopologyAwareResources(_ context.Context,
 		PodName:      allocationInfo.PodName,
 		PodNamespace: allocationInfo.PodNamespace,
 		ContainerTopologyAwareResources: &pluginapi.ContainerTopologyAwareResources{
-			ContainerName: allocationInfo.ContainerName,
+			ContainerName:      allocationInfo.ContainerName,
+			AllocatedResources: make(map[string]*pluginapi.TopologyAwareResource),
 		},
 	}
 
-	resp.ContainerTopologyAwareResources.AllocatedResources = map[string]*pluginapi.TopologyAwareResource{
-		string(v1.ResourceCPU): {
+	if allocationInfo.OwnerPoolName == state.PoolNameDedicated {
+		resp.ContainerTopologyAwareResources.AllocatedResources[string(v1.ResourceCPU)] = &pluginapi.TopologyAwareResource{
 			IsNodeResource:                    false,
 			IsScalarResource:                  true,
 			AggregatedQuantity:                float64(allocationInfo.AllocationResult.Size()),
 			OriginalAggregatedQuantity:        float64(allocationInfo.OriginalAllocationResult.Size()),
 			TopologyAwareQuantityList:         util.GetTopologyAwareQuantityFromAssignments(allocationInfo.TopologyAwareAssignments),
 			OriginalTopologyAwareQuantityList: util.GetTopologyAwareQuantityFromAssignments(allocationInfo.OriginalTopologyAwareAssignments),
-		},
+		}
 	}
 
 	return resp, nil

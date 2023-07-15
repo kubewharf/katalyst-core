@@ -19,6 +19,7 @@ package nativepolicy
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -52,10 +53,10 @@ func (e SMTAlignmentError) Type() string {
 	return ErrorSMTAlignment
 }
 
-func (p *NativePolicy) AllocationHandler(ctx context.Context,
+func (p *NativePolicy) dedicatedCoresAllocationHandler(_ context.Context,
 	req *pluginapi.ResourceRequest) (*pluginapi.ResourceAllocationResponse, error) {
 	if req == nil {
-		return nil, fmt.Errorf("AllocationHandler got nil req")
+		return nil, fmt.Errorf("dedicatedCoresAllocationHandler got nil req")
 	}
 
 	reqInt, err := util.GetQuantityFromResourceReq(req)
@@ -106,28 +107,99 @@ func (p *NativePolicy) AllocationHandler(ctx context.Context,
 			"podName", req.PodName,
 			"containerName", req.ContainerName,
 			"numCPUs", reqInt,
-			"result cpuset", result.String())
+			"cpuset", result.String())
 		return nil, err
 	}
 
 	allocationInfo := &state.AllocationInfo{
-		PodUid:         req.PodUid,
-		PodNamespace:   req.PodNamespace,
-		PodName:        req.PodName,
-		ContainerName:  req.ContainerName,
-		ContainerType:  req.ContainerType.String(),
-		ContainerIndex: req.ContainerIndex,
-		RampUp:         true,
-		PodRole:        req.PodRole,
-		PodType:        req.PodType,
-		// TODO: do we need this field?
+		PodUid:                           req.PodUid,
+		PodNamespace:                     req.PodNamespace,
+		PodName:                          req.PodName,
+		ContainerName:                    req.ContainerName,
+		ContainerType:                    req.ContainerType.String(),
+		ContainerIndex:                   req.ContainerIndex,
+		PodType:                          req.PodType,
 		OwnerPoolName:                    state.PoolNameDedicated,
 		AllocationResult:                 result.Clone(),
 		OriginalAllocationResult:         result.Clone(),
 		TopologyAwareAssignments:         topologyAwareAssignments,
 		OriginalTopologyAwareAssignments: machine.DeepcopyCPUAssignment(topologyAwareAssignments),
 		InitTimestamp:                    time.Now().Format(util.QRMTimeFormat),
-		QoSLevel:                         string(v1.PodQOSGuaranteed),
+		Labels:                           general.DeepCopyMap(req.Labels),
+		Annotations:                      general.DeepCopyMap(req.Annotations),
+		RequestQuantity:                  reqInt,
+	}
+
+	// update pod entries directly.
+	// if one of subsequent steps is failed, we will delete current allocationInfo from podEntries in defer function of allocation function.
+	p.state.SetAllocationInfo(allocationInfo.PodUid, allocationInfo.ContainerName, allocationInfo)
+	podEntries := p.state.GetPodEntries()
+
+	updatedMachineState, err := generateMachineStateFromPodEntries(p.machineInfo.CPUTopology, podEntries)
+	if err != nil {
+		general.Errorf("pod: %s/%s, container: %s GenerateMachineStateFromPodEntries failed with error: %v",
+			req.PodNamespace, req.PodName, req.ContainerName, err)
+		return nil, fmt.Errorf("GenerateMachineStateFromPodEntries failed with error: %v", err)
+	}
+	p.state.SetMachineState(updatedMachineState)
+
+	resp, err := util.PackAllocationResponse(allocationInfo, string(v1.ResourceCPU), util.OCIPropertyNameCPUSetCPUs, false, true, req)
+	if err != nil {
+		general.Errorf("pod: %s/%s, container: %s PackResourceAllocationResponseByAllocationInfo failed with error: %v",
+			req.PodNamespace, req.PodName, req.ContainerName, err)
+		return nil, fmt.Errorf("PackResourceAllocationResponseByAllocationInfo failed with error: %v", err)
+	}
+	return resp, nil
+}
+
+func (p *NativePolicy) sharedPoolAllocationHandler(ctx context.Context,
+	req *pluginapi.ResourceRequest) (*pluginapi.ResourceAllocationResponse, error) {
+	if req == nil {
+		return nil, fmt.Errorf("dedicatedCoresAllocationHandler got nil req")
+	}
+
+	reqInt, err := util.GetQuantityFromResourceReq(req)
+	if err != nil {
+		return nil, fmt.Errorf("getReqQuantityFromResourceReq failed with error: %v", err)
+	}
+
+	defaultCPUSet := p.state.GetMachineState().GetDefaultCPUSet()
+	if defaultCPUSet.IsEmpty() {
+		return nil, errors.New("default cpuset is empty")
+	}
+
+	general.InfoS("allocate default cpuset successfully",
+		"podNamespace", req.PodNamespace,
+		"podName", req.PodName,
+		"containerName", req.ContainerName,
+		"numCPUs", reqInt,
+		"result", defaultCPUSet.String())
+
+	topologyAwareAssignments, err := machine.GetNumaAwareAssignments(p.machineInfo.CPUTopology, defaultCPUSet)
+	if err != nil {
+		general.ErrorS(err, "unable to calculate topologyAwareAssignments",
+			"podNamespace", req.PodNamespace,
+			"podName", req.PodName,
+			"containerName", req.ContainerName,
+			"numCPUs", reqInt,
+			"cpuset", defaultCPUSet.String())
+		return nil, err
+	}
+
+	allocationInfo := &state.AllocationInfo{
+		PodUid:                           req.PodUid,
+		PodNamespace:                     req.PodNamespace,
+		PodName:                          req.PodName,
+		ContainerName:                    req.ContainerName,
+		ContainerType:                    req.ContainerType.String(),
+		ContainerIndex:                   req.ContainerIndex,
+		PodType:                          req.PodType,
+		OwnerPoolName:                    state.PoolNameShare,
+		AllocationResult:                 defaultCPUSet.Clone(),
+		OriginalAllocationResult:         defaultCPUSet.Clone(),
+		TopologyAwareAssignments:         topologyAwareAssignments,
+		OriginalTopologyAwareAssignments: machine.DeepcopyCPUAssignment(topologyAwareAssignments),
+		InitTimestamp:                    time.Now().Format(util.QRMTimeFormat),
 		Labels:                           general.DeepCopyMap(req.Labels),
 		Annotations:                      general.DeepCopyMap(req.Annotations),
 		RequestQuantity:                  reqInt,

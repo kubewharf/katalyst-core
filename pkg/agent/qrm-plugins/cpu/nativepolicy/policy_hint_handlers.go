@@ -30,7 +30,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
-func (p *NativePolicy) HintHandler(ctx context.Context,
+func (p *NativePolicy) dedicatedCoresHintHandler(ctx context.Context,
 	req *pluginapi.ResourceRequest) (*pluginapi.ResourceHintsResponse, error) {
 	if req == nil {
 		return nil, fmt.Errorf("HintHandler got nil req")
@@ -82,6 +82,14 @@ func (p *NativePolicy) HintHandler(ctx context.Context,
 	general.InfoS("TopologyHints generated", "pod", fmt.Sprintf("%s/%s", req.PodNamespace, req.PodName), "containerName", req.ContainerName, "cpuHints", hints)
 
 	return util.PackResourceHintsResponse(req, string(v1.ResourceCPU), hints)
+}
+
+func (p *NativePolicy) sharedPoolHintHandler(_ context.Context,
+	req *pluginapi.ResourceRequest) (*pluginapi.ResourceHintsResponse, error) {
+	return util.PackResourceHintsResponse(req, string(v1.ResourceCPU),
+		map[string]*pluginapi.ListOfTopologyHints{
+			string(v1.ResourceCPU): nil, // indicates that there is no numa preference
+		})
 }
 
 // generateCPUtopologyHints generates a set of TopologyHints given the set of

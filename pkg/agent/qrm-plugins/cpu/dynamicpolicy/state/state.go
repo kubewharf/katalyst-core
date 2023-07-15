@@ -20,7 +20,6 @@ import (
 	"encoding/json"
 	"fmt"
 
-	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/klog/v2"
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
@@ -214,9 +213,9 @@ func CheckDedicatedNUMABinding(ai *AllocationInfo) bool {
 	return CheckDedicated(ai) && CheckNUMABinding(ai)
 }
 
-// CheckGuaranteed returns true if the AllocationInfo is for pod with a Guaranteed QoS class
-func CheckGuaranteed(ai *AllocationInfo) bool {
-	return ai.QoSLevel == string(v1.PodQOSGuaranteed)
+// CheckDedicatedPool returns true if the AllocationInfo is for a container in the dedicated pool
+func CheckDedicatedPool(ai *AllocationInfo) bool {
+	return ai.OwnerPoolName == PoolNameDedicated
 }
 
 // IsPoolEntry returns true if this entry is for a pool;

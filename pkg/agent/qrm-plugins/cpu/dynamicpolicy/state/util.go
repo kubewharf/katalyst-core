@@ -181,7 +181,7 @@ func GenerateMachineStateFromPodEntries(topology *machine.CPUTopology, podEntrie
 						}
 					case coreconsts.CPUResourcePluginPolicyNameNative:
 						// only modify allocated and default properties in NUMA node state if the policy is native and the QoS class is Guaranteed
-						if CheckGuaranteed(allocationInfo) {
+						if CheckDedicatedPool(allocationInfo) {
 							allocatedCPUsInNumaNode = allocatedCPUsInNumaNode.Union(allocationInfo.OriginalTopologyAwareAssignments[int(numaNode)])
 						}
 					}
