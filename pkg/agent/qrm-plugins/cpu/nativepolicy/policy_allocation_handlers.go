@@ -1,3 +1,20 @@
+/*
+Copyright 2022 The Katalyst Authors.
+Copyright 2017 The Kubernetes Authors.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
 package nativepolicy
 
 import (
@@ -53,7 +70,7 @@ func (p *NativePolicy) AllocationHandler(ctx context.Context,
 		// in Failed state, with SMTAlignmentError as reason. Since the allocation happens in terms of physical cores
 		// and the scheduler is responsible for ensuring that the workload goes to a node that has enough CPUs,
 		// the pod would be placed on a node where there are enough physical cores available to be allocated.
-		// Just like the behaviour in case of static policy, takeByTopology will try to first allocate CPUs from the same socket
+		// Just like the behavior in case of static policy, takeByTopology will try to first allocate CPUs from the same socket
 		// and only in case the request cannot be satisfied on a single socket, CPU allocation is done for a workload to occupy all
 		// CPUs on a physical core. Allocation of individual threads would never have to occur.
 		return nil, SMTAlignmentError{

@@ -44,6 +44,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic"
 	"github.com/kubewharf/katalyst-core/pkg/config/generic"
+	coreconsts "github.com/kubewharf/katalyst-core/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/cgroup/common"
 	cgroupcm "github.com/kubewharf/katalyst-core/pkg/util/cgroup/common"
@@ -71,7 +72,7 @@ func getTestDynamicPolicyWithInitialization(topology *machine.CPUTopology, state
 }
 
 func getTestDynamicPolicyWithoutInitialization(topology *machine.CPUTopology, stateFileDirectory string) (*DynamicPolicy, error) {
-	stateImpl, err := state.NewCheckpointState(stateFileDirectory, cpuPluginStateFileName, CPUResourcePluginPolicyNameDynamic, topology, false)
+	stateImpl, err := state.NewCheckpointState(stateFileDirectory, cpuPluginStateFileName, coreconsts.CPUResourcePluginPolicyNameDynamic, topology, false)
 	if err != nil {
 		return nil, err
 	}

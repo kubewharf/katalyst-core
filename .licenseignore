@@ -1,2 +1,5 @@
 vendor
 cmd/katalyst-scheduler/app/server.go
+pkg/agent/qrm-plugins/cpu/nativepolicy/calculator/cpu_assignment.go
+pkg/agent/qrm-plugins/cpu/nativepolicy/policy_allocation_handlers.go
+pkg/agent/qrm-plugins/cpu/nativepolicy/policy_hint_handlers.go
