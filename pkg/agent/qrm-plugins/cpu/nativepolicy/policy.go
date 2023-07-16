@@ -100,9 +100,8 @@ type NativePolicy struct {
 	// different containers to possibly end up on the same core.
 	enableFullPhysicalCPUsOnly bool
 
-	// enableDistributeCPUsAcrossNUMA is a flag to evenly distribute CPUs across NUMA nodes in cases where more
-	// than one NUMA node is required to satisfy the allocation.
-	enableDistributeCPUsAcrossNUMA bool
+	// cpuAllocationOption is is the allocation option of cpu (packed/distributed).
+	cpuAllocationOption string
 }
 
 func NewNativePolicy(agentCtx *agent.GenericContext, conf *config.Configuration,
@@ -134,21 +133,21 @@ func NewNativePolicy(agentCtx *agent.GenericContext, conf *config.Configuration,
 	})
 
 	policyImplement := &NativePolicy{
-		name:                           fmt.Sprintf("%s_%s", agentName, coreconsts.CPUResourcePluginPolicyNameNative),
-		stopCh:                         make(chan struct{}),
-		machineInfo:                    agentCtx.KatalystMachineInfo,
-		emitter:                        wrappedEmitter,
-		metaServer:                     agentCtx.MetaServer,
-		residualHitMap:                 make(map[string]int64),
-		cpusToReuse:                    make(map[string]machine.CPUSet),
-		state:                          stateImpl,
-		reservedCPUs:                   reservedCPUs,
-		dynamicConfig:                  conf.DynamicAgentConfiguration,
-		cpuPluginSocketAbsPath:         conf.CPUPluginSocketAbsPath,
-		extraStateFileAbsPath:          conf.ExtraStateFileAbsPath,
-		podDebugAnnoKeys:               conf.PodDebugAnnoKeys,
-		enableFullPhysicalCPUsOnly:     conf.EnableFullPhysicalCPUsOnly,
-		enableDistributeCPUsAcrossNUMA: conf.EnableDistributeCPUsAcrossNUMA,
+		name:                       fmt.Sprintf("%s_%s", agentName, coreconsts.CPUResourcePluginPolicyNameNative),
+		stopCh:                     make(chan struct{}),
+		machineInfo:                agentCtx.KatalystMachineInfo,
+		emitter:                    wrappedEmitter,
+		metaServer:                 agentCtx.MetaServer,
+		residualHitMap:             make(map[string]int64),
+		cpusToReuse:                make(map[string]machine.CPUSet),
+		state:                      stateImpl,
+		reservedCPUs:               reservedCPUs,
+		dynamicConfig:              conf.DynamicAgentConfiguration,
+		cpuPluginSocketAbsPath:     conf.CPUPluginSocketAbsPath,
+		extraStateFileAbsPath:      conf.ExtraStateFileAbsPath,
+		podDebugAnnoKeys:           conf.PodDebugAnnoKeys,
+		enableFullPhysicalCPUsOnly: conf.EnableFullPhysicalCPUsOnly,
+		cpuAllocationOption:        conf.CPUAllocationOption,
 	}
 
 	state.GetContainerRequestedCores = policyImplement.getContainerRequestedCores

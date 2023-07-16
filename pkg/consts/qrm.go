@@ -25,4 +25,10 @@ const (
 
 	// CPUResourcePluginPolicyNameNative is the name of the native policy.
 	CPUResourcePluginPolicyNameNative = "native"
+
+	// CPUResourcePluginNativePolicyAllocationOptionDistributed is the name of the distributed allocation policy in the native policy.
+	CPUResourcePluginNativePolicyAllocationOptionDistributed = "distributed"
+
+	// CPUResourcePluginNativePolicyAllocationOptionPacked is the name of the packed allocation policy in the native policy.
+	CPUResourcePluginNativePolicyAllocationOptionPacked = "packed"
 )

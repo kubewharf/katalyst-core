@@ -23,28 +23,28 @@ import (
 )
 
 type CPUOptions struct {
-	PolicyName                     string
-	EnableCPUAdvisor               bool
-	ReservedCPUCores               int
-	SkipCPUStateCorruption         bool
-	EnableCPUPressureEviction      bool
-	EnableSyncingCPUIdle           bool
-	EnableCPUIdle                  bool
-	EnableFullPhysicalCPUsOnly     bool
-	EnableDistributeCPUsAcrossNUMA bool
+	PolicyName                 string
+	EnableCPUAdvisor           bool
+	ReservedCPUCores           int
+	SkipCPUStateCorruption     bool
+	EnableCPUPressureEviction  bool
+	EnableSyncingCPUIdle       bool
+	EnableCPUIdle              bool
+	EnableFullPhysicalCPUsOnly bool
+	CPUAllocationOption        string
 }
 
 func NewCPUOptions() *CPUOptions {
 	return &CPUOptions{
-		PolicyName:                     "dynamic",
-		EnableCPUAdvisor:               false,
-		ReservedCPUCores:               0,
-		SkipCPUStateCorruption:         false,
-		EnableCPUPressureEviction:      false,
-		EnableSyncingCPUIdle:           false,
-		EnableCPUIdle:                  false,
-		EnableFullPhysicalCPUsOnly:     false,
-		EnableDistributeCPUsAcrossNUMA: false,
+		PolicyName:                 "dynamic",
+		EnableCPUAdvisor:           false,
+		ReservedCPUCores:           0,
+		SkipCPUStateCorruption:     false,
+		EnableCPUPressureEviction:  false,
+		EnableSyncingCPUIdle:       false,
+		EnableCPUIdle:              false,
+		EnableFullPhysicalCPUsOnly: false,
+		CPUAllocationOption:        "packed",
 	}
 }
 
@@ -66,12 +66,12 @@ func (o *CPUOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 	fs.BoolVar(&o.EnableCPUIdle, "enable-cpu-idle", o.EnableCPUIdle,
 		"if set true, we will enable cpu idle for "+
 			"specific cgroup paths and it requires --enable-syncing-cpu-idle=true to make effect")
+	fs.StringVar(&o.CPUAllocationOption, "cpu-allocation-option",
+		o.CPUAllocationOption, "The allocation option of cpu (packed/distributed). The default value is packed."+
+			"in cases where more than one NUMA node is required to satisfy the allocation.")
 	fs.BoolVar(&o.EnableFullPhysicalCPUsOnly, "enable-full-physical-cpus-only",
 		o.EnableFullPhysicalCPUsOnly, "if set true, we will enable extra allocation restrictions to "+
 			"avoid different containers to possibly end up on the same core.")
-	fs.BoolVar(&o.EnableDistributeCPUsAcrossNUMA, "enable-distribute-cpus-across-numa",
-		o.EnableDistributeCPUsAcrossNUMA, "if set true, we will evenly distribute CPUs across NUMA nodes "+
-			"in cases where more than one NUMA node is required to satisfy the allocation.")
 }
 
 func (o *CPUOptions) ApplyTo(conf *qrmconfig.CPUQRMPluginConfig) error {
@@ -83,6 +83,6 @@ func (o *CPUOptions) ApplyTo(conf *qrmconfig.CPUQRMPluginConfig) error {
 	conf.EnableSyncingCPUIdle = o.EnableSyncingCPUIdle
 	conf.EnableCPUIdle = o.EnableCPUIdle
 	conf.EnableFullPhysicalCPUsOnly = o.EnableFullPhysicalCPUsOnly
-	conf.EnableDistributeCPUsAcrossNUMA = o.EnableDistributeCPUsAcrossNUMA
+	conf.CPUAllocationOption = o.CPUAllocationOption
 	return nil
 }

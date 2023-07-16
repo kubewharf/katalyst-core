@@ -35,9 +35,8 @@ type CPUQRMPluginConfig struct {
 	// EnableFullPhysicalCPUsOnly is a flag to enable extra allocation restrictions to avoid
 	// different containers to possibly end up on the same core.
 	EnableFullPhysicalCPUsOnly bool
-	// EnableDistributeCPUsAcrossNUMA is a flag to evenly distribute CPUs across NUMA nodes in cases where more
-	// than one NUMA node is required to satisfy the allocation.
-	EnableDistributeCPUsAcrossNUMA bool
+	// CPUAllocationOption is the allocation option of cpu (packed/distributed).
+	CPUAllocationOption string
 }
 
 func NewCPUQRMPluginConfig() *CPUQRMPluginConfig {

@@ -30,6 +30,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/nativepolicy/calculator"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util"
+	"github.com/kubewharf/katalyst-core/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
@@ -265,7 +266,7 @@ func (p *NativePolicy) allocateCPUs(machineState state.NUMANodeMap, numCPUs int,
 }
 
 func (p *NativePolicy) takeByTopology(availableCPUs machine.CPUSet, numCPUs int) (machine.CPUSet, error) {
-	if p.enableDistributeCPUsAcrossNUMA {
+	if p.cpuAllocationOption == consts.CPUResourcePluginNativePolicyAllocationOptionDistributed {
 		cpuGroupSize := 1
 		if p.enableFullPhysicalCPUsOnly {
 			cpuGroupSize = p.machineInfo.CPUsPerCore()
