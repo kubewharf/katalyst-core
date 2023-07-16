@@ -32,9 +32,13 @@ type MetaServerConfiguration struct {
 	ConfigCheckpointGraceTime      time.Duration
 
 	KubeletReadOnlyPort          int
+	KubeletSecurePort            int
 	KubeletPodCacheSyncPeriod    time.Duration
 	KubeletPodCacheSyncMaxRate   rate.Limit
 	KubeletPodCacheSyncBurstBulk int
+	KubeletConfigURI             string
+	APIAuthTokenFile             string
+	KubeletConfigCacheSyncPeriod time.Duration
 
 	RemoteRuntimeEndpoint     string
 	RuntimePodCacheSyncPeriod time.Duration
