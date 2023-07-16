@@ -24,9 +24,9 @@ import (
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/klog/v2"
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
-	maputil "k8s.io/kubernetes/pkg/util/maps"
 
 	"github.com/kubewharf/katalyst-api/pkg/consts"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
@@ -49,29 +49,10 @@ type AllocationInfo struct {
 	TopologyAwareAllocations map[int]uint64 `json:"topology_aware_allocations"`
 
 	// keyed by control knob names referred in memoryadvisor package
-	ExtraControlKnobInfo map[string]ControlKnobInfo `json:"extra_control_knob_info"`
-	Labels               map[string]string          `json:"labels"`
-	Annotations          map[string]string          `json:"annotations"`
-	QoSLevel             string                     `json:"qosLevel"`
-}
-
-// shows common types of control knobs:
-// 1. applied by cgroup manager according to entryName, subEntryName, cgroupIfaceName and cgroupSubsysName
-// 2. applied by QRM framework according to ociPropertyName
-//
-// there may be new types of control knobs,
-// we won't modified this struct to identify them,
-// and we will register custom per-control-knob executor to deal with them.
-type ControlKnobInfo struct {
-	ControlKnobValue string `json:"control_knob_value"`
-
-	// for control knobs applied by cgroup manager
-	// according to entryName, subEntryName, cgroupIfaceName and cgroupSubsysName
-	CgroupVersionToIfaceName map[string]string `json:"cgroup_version_to_iface_name"`
-	CgroupSubsysName         string            `json:"cgroup_subsys_name"`
-
-	// for control knobs applied by QRM framework according to ociPropertyName
-	OciPropertyName string `json:"oci_property_name"`
+	ExtraControlKnobInfo map[string]commonstate.ControlKnobInfo `json:"extra_control_knob_info"`
+	Labels               map[string]string                      `json:"labels"`
+	Annotations          map[string]string                      `json:"annotations"`
+	QoSLevel             string                                 `json:"qosLevel"`
 }
 
 type ContainerEntries map[string]*AllocationInfo       // Keyed by container name
@@ -135,7 +116,7 @@ func (ai *AllocationInfo) Clone() *AllocationInfo {
 	}
 
 	if ai.ExtraControlKnobInfo != nil {
-		clone.ExtraControlKnobInfo = make(map[string]ControlKnobInfo)
+		clone.ExtraControlKnobInfo = make(map[string]commonstate.ControlKnobInfo)
 
 		for name := range ai.ExtraControlKnobInfo {
 			clone.ExtraControlKnobInfo[name] = ai.ExtraControlKnobInfo[name]
@@ -370,15 +351,6 @@ func (nrm NUMANodeResourcesMap) Clone() NUMANodeResourcesMap {
 		clone[resourceName] = nm.Clone()
 	}
 	return clone
-}
-
-func (cki ControlKnobInfo) Clone() ControlKnobInfo {
-	return ControlKnobInfo{
-		ControlKnobValue:         cki.ControlKnobValue,
-		CgroupVersionToIfaceName: maputil.CopySS(cki.CgroupVersionToIfaceName),
-		CgroupSubsysName:         cki.CgroupSubsysName,
-		OciPropertyName:          cki.OciPropertyName,
-	}
 }
 
 // reader is used to get information from local states

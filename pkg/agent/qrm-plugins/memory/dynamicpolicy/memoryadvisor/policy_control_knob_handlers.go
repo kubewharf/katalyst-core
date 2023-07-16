@@ -23,10 +23,11 @@ import (
 	v1 "k8s.io/api/core/v1"
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/advisorsvc"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/memory/dynamicpolicy/state"
 )
 
-// handler may trigger operations for corresponding control knobs
+// MemoryControlKnobHandler may trigger operations for corresponding control knobs
 // or set control knob value to memory plugin checkpoint and take effect asynchronously
 type MemoryControlKnobHandler func(entryName, subEntryName string,
 	calculationInfo *advisorsvc.CalculationInfo, podResourceEntries state.PodResourceEntries) error
@@ -61,7 +62,7 @@ func ControlKnobHandlerWithChecker(handler MemoryControlKnobHandler) MemoryContr
 
 		if podResourceEntries[v1.ResourceMemory][entryName][subEntryName] != nil &&
 			podResourceEntries[v1.ResourceMemory][entryName][subEntryName].ExtraControlKnobInfo == nil {
-			podResourceEntries[v1.ResourceMemory][entryName][subEntryName].ExtraControlKnobInfo = make(map[string]state.ControlKnobInfo)
+			podResourceEntries[v1.ResourceMemory][entryName][subEntryName].ExtraControlKnobInfo = make(map[string]commonstate.ControlKnobInfo)
 		}
 
 		return handler(entryName, subEntryName, calculationInfo, podResourceEntries)

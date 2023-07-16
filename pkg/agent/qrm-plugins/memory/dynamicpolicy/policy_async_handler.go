@@ -26,6 +26,7 @@ import (
 
 	"github.com/kubewharf/katalyst-api/pkg/consts"
 	apiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/memory/dynamicpolicy/state"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
@@ -35,7 +36,10 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
-func setExtraControlKnobByConfigForAllocationInfo(allocationInfo *state.AllocationInfo, extraControlKnobConfigs ExtraControlKnobConfigs, pod *v1.Pod) {
+// setExtraControlKnobByConfigForAllocationInfo sets control knob entry for container,
+// if the container doesn't have the entry in the checkpoint.
+// pod specified value has higher priority than config value.
+func setExtraControlKnobByConfigForAllocationInfo(allocationInfo *state.AllocationInfo, extraControlKnobConfigs commonstate.ExtraControlKnobConfigs, pod *v1.Pod) {
 	if allocationInfo == nil {
 		general.Errorf("nil allocationInfo")
 		return
@@ -44,25 +48,33 @@ func setExtraControlKnobByConfigForAllocationInfo(allocationInfo *state.Allocati
 		return
 	}
 
+	// v1.ResourceMemory is legacy control knob name for cpuset.mems,
+	// it shouldn't be configured in extraControlKnobConfigs
+	legacyControlKnobNames := sets.NewString(string(v1.ResourceMemory))
+
+	for _, legacyControlKnobName := range legacyControlKnobNames.List() {
+		if _, found := extraControlKnobConfigs[legacyControlKnobName]; found {
+			general.Errorf("legacy control knob name: %s is configured", legacyControlKnobName)
+			return
+		}
+	}
+
 	if allocationInfo.ExtraControlKnobInfo == nil {
-		allocationInfo.ExtraControlKnobInfo = make(map[string]state.ControlKnobInfo)
+		allocationInfo.ExtraControlKnobInfo = make(map[string]commonstate.ControlKnobInfo)
 	}
 
 	for controlKnobName, configEntry := range extraControlKnobConfigs {
+
 		if _, found := allocationInfo.ExtraControlKnobInfo[controlKnobName]; found {
 			continue
 		}
 
 		clonedControlKnobInfo := configEntry.ControlKnobInfo.Clone()
 
-		if configEntry.PodExplicitlyAnnotationKey != "" {
-			if specifedValue, ok := pod.Annotations[configEntry.PodExplicitlyAnnotationKey]; ok {
-				clonedControlKnobInfo.ControlKnobValue = specifedValue
-				continue
-			}
-		}
-
-		if qosLevelDefaultValue, ok := configEntry.QoSLevelToDefaultValue[allocationInfo.QoSLevel]; ok {
+		if specifiedValue, ok := pod.Annotations[configEntry.PodExplicitlyAnnotationKey]; ok &&
+			configEntry.PodExplicitlyAnnotationKey != "" {
+			clonedControlKnobInfo.ControlKnobValue = specifiedValue
+		} else if qosLevelDefaultValue, ok := configEntry.QoSLevelToDefaultValue[allocationInfo.QoSLevel]; ok {
 			clonedControlKnobInfo.ControlKnobValue = qosLevelDefaultValue
 		}
 
@@ -80,6 +92,9 @@ func (p *DynamicPolicy) setExtraControlKnobByConfigs() {
 
 	if p.metaServer == nil {
 		general.Errorf("nil metaServer")
+		return
+	} else if len(p.extraControlKnobConfigs) == 0 {
+		general.Errorf("empty extraControlKnobConfigs, skip setExtraControlKnobByConfigs")
 		return
 	}
 

@@ -32,6 +32,7 @@ import (
 	"github.com/kubewharf/katalyst-api/pkg/plugins/skeleton"
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/agent"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/advisorsvc"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/memory/dynamicpolicy/memoryadvisor"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/memory/dynamicpolicy/state"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util"
@@ -88,7 +89,7 @@ type DynamicPolicy struct {
 	stopCh                  chan struct{}
 	started                 bool
 	qosConfig               *generic.QoSConfiguration
-	extraControlKnobConfigs ExtraControlKnobConfigs
+	extraControlKnobConfigs commonstate.ExtraControlKnobConfigs
 
 	// emitter is used to emit metrics.
 	// metaServer is used to collect metadata universal metaServer.
@@ -136,9 +137,14 @@ func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration
 		return false, agent.ComponentStub{}, fmt.Errorf("NewCheckpointState failed with error: %v", err)
 	}
 
-	extraControlKnobConfigs, err := loadExtraControlKnobConfigs(conf.ExtraControlKnobConfigFile)
-	if err != nil {
-		return false, agent.ComponentStub{}, fmt.Errorf("loadExtraControlKnobConfigs failed with error: %v", err)
+	extraControlKnobConfigs := make(commonstate.ExtraControlKnobConfigs)
+	if len(conf.ExtraControlKnobConfigFile) > 0 {
+		extraControlKnobConfigs, err = commonstate.LoadExtraControlKnobConfigs(conf.ExtraControlKnobConfigFile)
+		if err != nil {
+			return false, agent.ComponentStub{}, fmt.Errorf("loadExtraControlKnobConfigs failed with error: %v", err)
+		}
+	} else {
+		general.Infof("empty ExtraControlKnobConfigFile, initialize empty extraControlKnobConfigs")
 	}
 
 	readonlyStateLock.Lock()

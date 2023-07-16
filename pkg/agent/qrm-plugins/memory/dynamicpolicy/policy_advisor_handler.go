@@ -27,6 +27,7 @@ import (
 
 	apiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/advisorsvc"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/memory/dynamicpolicy/memoryadvisor"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/memory/dynamicpolicy/state"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util"
@@ -221,11 +222,11 @@ func (p *DynamicPolicy) handleAdvisorMemoryLimitInBytes(entryName, subEntryName 
 	if allocationInfo == nil {
 		return fmt.Errorf("high level cgroup path and pod resource entry are both nil")
 	} else if allocationInfo.ExtraControlKnobInfo == nil {
-		allocationInfo.ExtraControlKnobInfo = make(map[string]state.ControlKnobInfo)
+		allocationInfo.ExtraControlKnobInfo = make(map[string]commonstate.ControlKnobInfo)
 	}
 
 	allocationInfo.
-		ExtraControlKnobInfo[string(memoryadvisor.ControKnobKeyMemoryLimitInBytes)] = state.ControlKnobInfo{
+		ExtraControlKnobInfo[string(memoryadvisor.ControKnobKeyMemoryLimitInBytes)] = commonstate.ControlKnobInfo{
 		ControlKnobValue: calculatedLimitInBytes,
 		OciPropertyName:  util.OCIPropertyNameMemoryLimitInBytes,
 	}
@@ -233,7 +234,7 @@ func (p *DynamicPolicy) handleAdvisorMemoryLimitInBytes(entryName, subEntryName 
 	return nil
 }
 
-func (p *DynamicPolicy) handleAdvisorDropCache(podUID, containerName string,
+func (p *DynamicPolicy) handleAdvisorDropCache(entryName, subEntryName string,
 	calculationInfo *advisorsvc.CalculationInfo, podResourceEntries state.PodResourceEntries) error {
 
 	dropCache := calculationInfo.CalculationResult.Values[string(memoryadvisor.ControKnobKeyDropCache)]
@@ -251,22 +252,22 @@ func (p *DynamicPolicy) handleAdvisorDropCache(podUID, containerName string,
 		return nil
 	}
 
-	containerID, err := p.metaServer.GetContainerID(podUID, containerName)
+	containerID, err := p.metaServer.GetContainerID(entryName, subEntryName)
 	if err != nil {
-		return fmt.Errorf("get container id of pod: %s container: %s failed with error: %v", podUID, containerName, err)
+		return fmt.Errorf("get container id of pod: %s container: %s failed with error: %v", entryName, subEntryName, err)
 	}
 
-	dropCacheWorkName := util.GetContainerAsyncWorkName(podUID, containerName,
+	dropCacheWorkName := util.GetContainerAsyncWorkName(entryName, subEntryName,
 		memoryPluginAsyncWorkTopicDropCache)
 	// start a asynchronous work to drop cache for the container whose numaset changed and doesn't require numa_binding
 	err = p.asyncWorkers.AddWork(dropCacheWorkName,
 		&asyncworker.Work{
 			Fn:          cgroupmgr.DropCacheWithTimeoutForContainer,
-			Params:      []interface{}{podUID, containerID, dropCacheTimeoutSeconds},
+			Params:      []interface{}{entryName, containerID, dropCacheTimeoutSeconds},
 			DeliveredAt: time.Now()})
 
 	if err != nil {
-		return fmt.Errorf("add work: %s pod: %s container: %s failed with error: %v", dropCacheWorkName, podUID, containerName, err)
+		return fmt.Errorf("add work: %s pod: %s container: %s failed with error: %v", dropCacheWorkName, entryName, subEntryName, err)
 	}
 
 	return nil

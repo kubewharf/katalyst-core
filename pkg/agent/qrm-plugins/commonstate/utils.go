@@ -14,24 +14,14 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package dynamicpolicy
+package commonstate
 
 import (
 	"encoding/json"
 	"io/ioutil"
-
-	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/memory/dynamicpolicy/state"
 )
 
-type ExtraControlKnobConfigs map[string]ExtraControlKnobConfig
-
-type ExtraControlKnobConfig struct {
-	PodExplicitlyAnnotationKey string            `json:"pod_explicitly_annotation_key"`
-	QoSLevelToDefaultValue     map[string]string `json:"qos_level_to_default_value"`
-	state.ControlKnobInfo      `json:"control_knob_info"`
-}
-
-func loadExtraControlKnobConfigs(extraControlKnobConfigAbsPath string) (ExtraControlKnobConfigs, error) {
+func LoadExtraControlKnobConfigs(extraControlKnobConfigAbsPath string) (ExtraControlKnobConfigs, error) {
 	configBytes, err := ioutil.ReadFile(extraControlKnobConfigAbsPath)
 	if err != nil {
 		return nil, err

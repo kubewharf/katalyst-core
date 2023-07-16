@@ -68,6 +68,8 @@ func testManager(t *testing.T, version string) {
 	assert.NoError(t, err)
 	err = ApplyCPUSetForContainer("fake-pod", "fake-container", &common.CPUSetData{})
 	assert.NotNil(t, err)
+	err = ApplyUnifiedDataForContainer("fake-pod", "fake-container", common.CgroupSubsysMemory, "memory.high", "max")
+	assert.NotNil(t, err)
 
 	_, _ = GetMemoryWithRelativePath("/")
 	_, _ = GetMemoryWithAbsolutePath("/")
