@@ -40,6 +40,9 @@ type MetaServerConfiguration struct {
 	RuntimePodCacheSyncPeriod time.Duration
 
 	CheckpointManagerDir string
+
+	EnableMetricsFetcher bool
+	EnableCNCFetcher     bool
 }
 
 func NewMetaServerConfiguration() *MetaServerConfiguration {

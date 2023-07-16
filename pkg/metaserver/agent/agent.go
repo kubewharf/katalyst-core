@@ -52,6 +52,8 @@ type MetaAgent struct {
 
 	// machine info is fetched from once and stored in meta-server
 	*machine.KatalystMachineInfo
+
+	enableMetricsFetcher bool
 }
 
 // NewMetaAgent returns the instance of MetaAgent.
@@ -66,17 +68,26 @@ func NewMetaAgent(conf *config.Configuration, clientSet *client.GenericClientSet
 		return nil, err
 	}
 
-	return &MetaAgent{
-		start:          false,
-		PodFetcher:     podFetcher,
-		NodeFetcher:    node.NewRemoteNodeFetcher(conf.NodeName, clientSet.KubeClient.CoreV1().Nodes()),
-		MetricsFetcher: malachite.NewMalachiteMetricsFetcher(emitter, conf),
+	metaAgent := &MetaAgent{
+		start:       false,
+		PodFetcher:  podFetcher,
+		NodeFetcher: node.NewRemoteNodeFetcher(conf.NodeName, clientSet.KubeClient.CoreV1().Nodes()),
 		CNRFetcher: cnr.NewCachedCNRFetcher(conf.NodeName, conf.CNRCacheTTL,
 			clientSet.InternalClient.NodeV1alpha1().CustomNodeResources()),
-		CNCFetcher: cnc.NewCachedCNCFetcher(conf.NodeName, conf.CustomNodeConfigCacheTTL,
-			clientSet.InternalClient.ConfigV1alpha1().CustomNodeConfigs()),
 		KatalystMachineInfo: machineInfo,
-	}, nil
+	}
+
+	if conf.EnableMetricsFetcher {
+		metaAgent.MetricsFetcher = malachite.NewMalachiteMetricsFetcher(emitter, conf)
+		metaAgent.enableMetricsFetcher = true
+	}
+
+	if conf.EnableCNCFetcher {
+		metaAgent.CNCFetcher = cnc.NewCachedCNCFetcher(conf.NodeName, conf.CustomNodeConfigCacheTTL,
+			clientSet.InternalClient.ConfigV1alpha1().CustomNodeConfigs())
+	}
+
+	return metaAgent, nil
 }
 
 func (a *MetaAgent) SetPodFetcher(p pod.PodFetcher) {
@@ -113,7 +124,10 @@ func (a *MetaAgent) Run(ctx context.Context) {
 
 	go a.PodFetcher.Run(ctx)
 	go a.NodeFetcher.Run(ctx)
-	go a.MetricsFetcher.Run(ctx)
+
+	if a.enableMetricsFetcher {
+		go a.MetricsFetcher.Run(ctx)
+	}
 
 	a.Unlock()
 	<-ctx.Done()
