@@ -37,7 +37,7 @@ type containerInfo struct {
 	name string
 }
 
-//nolint
+// nolint
 func getConnection(endPoint string) (*grpc.ClientConn, error) {
 	if endPoint == "" {
 		return nil, fmt.Errorf("endpoint is not set")

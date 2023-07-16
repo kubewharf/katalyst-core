@@ -96,6 +96,8 @@ func init() {
 }
 
 func TestGetCgroupStats(t *testing.T) {
+	t.Parallel()
+
 	cgroupData := map[string]*MalachiteCgroupResponse{
 		"v1-path": {
 			Status: 0,

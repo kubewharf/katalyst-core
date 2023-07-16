@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"net/http"
+	"sync"
 )
 
 const (
@@ -46,6 +47,7 @@ const (
 var DefaultClient = New()
 
 type Client struct {
+	sync.RWMutex
 	urls map[string]string
 }
 
@@ -66,10 +68,15 @@ func New() MalachiteClient {
 
 // SetURL is used to implement UT for
 func (c *Client) SetURL(urls map[string]string) {
+	c.Lock()
+	defer c.Unlock()
 	c.urls = urls
 }
 
 func (c *Client) GetCgroupStats(cgroupPath string) ([]byte, error) {
+	c.RLock()
+	defer c.RUnlock()
+
 	url, ok := c.urls[CgroupResource]
 	if !ok {
 		return nil, fmt.Errorf("no url for %v", CgroupResource)
@@ -99,6 +106,9 @@ func (c *Client) GetCgroupStats(cgroupPath string) ([]byte, error) {
 }
 
 func (c *Client) GetSystemStats(kind SystemResourceKind) ([]byte, error) {
+	c.RLock()
+	defer c.RUnlock()
+
 	resource := ""
 	switch kind {
 	case Compute:

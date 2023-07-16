@@ -79,6 +79,8 @@ func newTestCPUServer(t *testing.T) *cpuServer {
 }
 
 func TestCPUServerStartAndStop(t *testing.T) {
+	t.Parallel()
+
 	cs := newTestCPUServer(t)
 
 	err := cs.Start()
@@ -89,6 +91,8 @@ func TestCPUServerStartAndStop(t *testing.T) {
 }
 
 func TestCPUServerAddContainer(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name              string
 		request           *advisorsvc.AddContainerRequest
@@ -149,6 +153,8 @@ func TestCPUServerAddContainer(t *testing.T) {
 }
 
 func TestCPUServerRemovePod(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name    string
 		request *advisorsvc.RemovePodRequest
@@ -219,6 +225,8 @@ func DeepCopyResponse(response *cpuadvisor.ListAndWatchResponse) (*cpuadvisor.Li
 }
 
 func TestCPUServerListAndWatch(t *testing.T) {
+	t.Parallel()
+
 	type ContainerInfo struct {
 		request        *advisorsvc.AddContainerRequest
 		allocationInfo *cpuadvisor.AllocationInfo

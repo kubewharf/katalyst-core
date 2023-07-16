@@ -81,7 +81,9 @@ func generateTestMetaCache(t *testing.T, conf *config.Configuration) *metacache.
 }
 
 func TestQoSAwarePlugin(t *testing.T) {
-	checkpoinDir, err := ioutil.TempDir("", "checkpoint")
+	t.Parallel()
+
+	checkpoinDir, err := ioutil.TempDir("", "checkpoint-TestQoSAwarePlugin")
 	require.NoError(t, err)
 	defer os.RemoveAll(checkpoinDir)
 

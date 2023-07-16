@@ -45,6 +45,8 @@ func generateTestConfiguration(t *testing.T) *config.Configuration {
 }
 
 func Test_systemPlugin_GetReportContent(t *testing.T) {
+	t.Parallel()
+
 	genericClient := &client.GenericClientSet{
 		KubeClient:     fake.NewSimpleClientset(),
 		InternalClient: internalfake.NewSimpleClientset(),

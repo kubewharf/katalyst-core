@@ -25,6 +25,8 @@ import (
 )
 
 func TestNewCappedSmoothWindow(t *testing.T) {
+	t.Parallel()
+
 	type args struct {
 		minStep      resource.Quantity
 		maxStep      resource.Quantity
@@ -59,6 +61,8 @@ func TestNewCappedSmoothWindow(t *testing.T) {
 }
 
 func TestCappedSmoothWindow_GetWindowedResources(t *testing.T) {
+	t.Parallel()
+
 	w := NewCappedSmoothWindow(
 		resource.MustParse("0.3"),
 		resource.MustParse("4"),

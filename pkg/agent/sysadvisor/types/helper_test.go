@@ -28,6 +28,8 @@ import (
 )
 
 func TestClonePodEntries(t *testing.T) {
+	t.Parallel()
+
 	ci := &ContainerInfo{
 		PodUID:         "uid1",
 		PodNamespace:   "ns1",

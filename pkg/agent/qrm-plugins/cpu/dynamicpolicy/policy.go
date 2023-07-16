@@ -66,10 +66,6 @@ const (
 )
 
 var (
-	transitionPeriod = 30 * time.Second
-)
-
-var (
 	readonlyStateLock sync.RWMutex
 	readonlyState     state.ReadonlyState
 )
@@ -125,6 +121,7 @@ type DynamicPolicy struct {
 	qosConfig                     *generic.QoSConfiguration
 	dynamicConfig                 *dynamicconfig.DynamicAgentConfiguration
 	podDebugAnnoKeys              []string
+	transitionPeriod              time.Duration
 }
 
 func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration,
@@ -196,6 +193,7 @@ func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration
 		enableCPUIdle:                 conf.CPUQRMPluginConfig.EnableCPUIdle,
 		reclaimRelativeRootCgroupPath: conf.ReclaimRelativeRootCgroupPath,
 		podDebugAnnoKeys:              conf.PodDebugAnnoKeys,
+		transitionPeriod:              time.Second,
 	}
 
 	// register allocation behaviors for pods with different QoS level
@@ -212,7 +210,7 @@ func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration
 		consts.PodAnnotationQoSLevelReclaimedCores: policyImplement.reclaimedCoresHintHandler,
 	}
 
-	state.GetContainerRequestedCores = policyImplement.getContainerRequestedCores
+	state.SetContainerRequestedCores(policyImplement.getContainerRequestedCores)
 
 	if err := policyImplement.cleanPools(); err != nil {
 		return false, agent.ComponentStub{}, fmt.Errorf("cleanPools failed with error: %v", err)
@@ -324,7 +322,7 @@ func (p *DynamicPolicy) Start() (err error) {
 		general.Infof("sync existing containers to cpu advisor successfully")
 
 		// call lw of CPUAdvisorServer and do allocation
-		if err := p.lwCPUAdvisorServer(p.stopCh); err != nil {
+		if err = p.lwCPUAdvisorServer(p.stopCh); err != nil {
 			general.Errorf("lwCPUAdvisorServer failed with error: %v", err)
 		} else {
 			general.Infof("lwCPUAdvisorServer finished")
@@ -420,7 +418,7 @@ func (p *DynamicPolicy) GetResourcesAllocation(_ context.Context,
 
 				allocationInfo.InitTimestamp = time.Now().Format(util.QRMTimeFormat)
 				p.state.SetAllocationInfo(podUID, containerName, allocationInfo)
-			} else if allocationInfo.RampUp && time.Now().After(initTs.Add(transitionPeriod)) {
+			} else if allocationInfo.RampUp && time.Now().After(initTs.Add(p.transitionPeriod)) {
 				general.Infof("pod: %s/%s, container: %s ramp up finished", allocationInfo.PodNamespace, allocationInfo.PodName, allocationInfo.ContainerName)
 				allocationInfo.RampUp = false
 				p.state.SetAllocationInfo(podUID, containerName, allocationInfo)

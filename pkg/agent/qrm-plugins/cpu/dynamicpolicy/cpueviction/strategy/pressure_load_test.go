@@ -78,7 +78,7 @@ func makeConf(metricRingSize int, gracePeriod int64, loadUpperBoundRatio,
 }
 
 func makeState(topo *machine.CPUTopology) (qrmstate.State, error) {
-	tmpDir, err := os.MkdirTemp("", "checkpoint")
+	tmpDir, err := os.MkdirTemp("", "checkpoint-makeState")
 	if err != nil {
 		return nil, fmt.Errorf("make tmp dir for checkpoint failed with error: %v", err)
 	}
@@ -86,6 +86,8 @@ func makeState(topo *machine.CPUTopology) (qrmstate.State, error) {
 }
 
 func TestNewCPUPressureLoadEviction(t *testing.T) {
+	t.Parallel()
+
 	as := require.New(t)
 
 	cpuTopology, err := machine.GenerateDummyCPUTopology(16, 2, 4)
@@ -102,6 +104,8 @@ func TestNewCPUPressureLoadEviction(t *testing.T) {
 }
 
 func TestThresholdMet(t *testing.T) {
+	t.Parallel()
+
 	as := require.New(t)
 
 	cpuTopology, err := machine.GenerateDummyCPUTopology(16, 2, 4)
@@ -385,6 +389,8 @@ func TestThresholdMet(t *testing.T) {
 }
 
 func TestGetTopEvictionPods(t *testing.T) {
+	t.Parallel()
+
 	as := require.New(t)
 
 	cpuTopology, err := machine.GenerateDummyCPUTopology(16, 2, 4)

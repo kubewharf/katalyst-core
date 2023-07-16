@@ -19,6 +19,7 @@ package config
 import (
 	"encoding/json"
 	"reflect"
+	"sync"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/kubernetes/pkg/kubelet/checkpointmanager"
@@ -41,6 +42,11 @@ type TargetConfigData struct {
 
 // Data holds checkpoint data and its checksum
 type Data struct {
+	sync.RWMutex
+	Item *DataItem
+}
+
+type DataItem struct {
 	// Data maps from kind to target config data
 	Data     map[string]TargetConfigData
 	Checksum checksum.Checksum
@@ -49,25 +55,39 @@ type Data struct {
 // NewCheckpoint returns an instance of Checkpoint
 func NewCheckpoint(configResponses map[string]TargetConfigData) ConfigManagerCheckpoint {
 	return &Data{
-		Data: configResponses,
+		Item: &DataItem{
+			Data: configResponses,
+		},
 	}
 }
 
 func (d *Data) MarshalCheckpoint() ([]byte, error) {
-	d.Checksum = checksum.New(d.Data)
-	return json.Marshal(*d)
+	d.RLock()
+	defer d.RUnlock()
+
+	d.Item.Checksum = checksum.New(d.Item.Data)
+	return json.Marshal(*(d.Item))
 }
 
 func (d *Data) UnmarshalCheckpoint(blob []byte) error {
-	return json.Unmarshal(blob, d)
+	d.RLock()
+	defer d.RUnlock()
+
+	return json.Unmarshal(blob, d.Item)
 }
 
 func (d *Data) VerifyChecksum() error {
-	return d.Checksum.Verify(d.Data)
+	d.RLock()
+	defer d.RUnlock()
+
+	return d.Item.Checksum.Verify(d.Item.Data)
 }
 
 func (d *Data) GetData(kind string) (reflect.Value, metav1.Time) {
-	if data, ok := d.Data[kind]; ok {
+	d.RLock()
+	defer d.RUnlock()
+
+	if data, ok := d.Item.Data[kind]; ok {
 		configField := reflect.ValueOf(data.Value).Elem().FieldByName(kind)
 		return configField, data.Timestamp
 	}
@@ -76,8 +96,11 @@ func (d *Data) GetData(kind string) (reflect.Value, metav1.Time) {
 }
 
 func (d *Data) SetData(kind string, val reflect.Value, t metav1.Time) {
-	if d.Data == nil {
-		d.Data = make(map[string]TargetConfigData)
+	d.Lock()
+	defer d.Unlock()
+
+	if d.Item.Data == nil {
+		d.Item.Data = make(map[string]TargetConfigData)
 	}
 
 	// get target dynamic configField by kind
@@ -90,7 +113,7 @@ func (d *Data) SetData(kind string, val reflect.Value, t metav1.Time) {
 	specField := configField.Elem().FieldByName("Spec")
 	specField.Set(specValue)
 
-	d.Data[kind] = TargetConfigData{
+	d.Item.Data[kind] = TargetConfigData{
 		Value:     dynamicConfiguration,
 		Timestamp: metav1.Unix(t.Unix(), 0),
 	}

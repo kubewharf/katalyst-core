@@ -49,6 +49,7 @@ import (
 const (
 	testPluginName       = "fake-reporter-plugin-1"
 	testPluginNameSecond = "fake-reporter-plugin-2"
+	testPluginNameThird  = "fake-reporter-plugin-3"
 )
 
 var (
@@ -82,6 +83,8 @@ func generateTestConfiguration(dir string) *katalystconfig.Configuration {
 }
 
 func TestNewManagerImpl(t *testing.T) {
+	t.Parallel()
+
 	socketDir, err := tmpSocketDir()
 	testReporter := reporter.NewReporterManagerStub()
 	require.NoError(t, err)
@@ -95,6 +98,8 @@ func TestNewManagerImpl(t *testing.T) {
 // making sure that after registration, devices are correctly updated and if a re-registration
 // happens, we will NOT delete devices; and no orphaned devices left.
 func TestReporterPluginReRegistration(t *testing.T) {
+	t.Parallel()
+
 	// change default klog level
 	flagSet := flag.FlagSet{}
 	klog.InitFlags(&flagSet)
@@ -170,6 +175,8 @@ func TestReporterPluginReRegistration(t *testing.T) {
 }
 
 func TestHealthz(t *testing.T) {
+	t.Parallel()
+
 	// change default klog level
 	flagSet := flag.FlagSet{}
 	klog.InitFlags(&flagSet)
@@ -198,7 +205,7 @@ func TestHealthz(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.TODO())
 	defer cancel()
-	_, ch, p := setup(t, ctx, content1, nil, socketDir, testPluginName, testReporter)
+	_, ch, p := setup(t, ctx, content1, nil, socketDir, testPluginNameThird, testReporter)
 
 	select {
 	case <-ch:

@@ -35,6 +35,8 @@ import (
 )
 
 func TestCNRLifecycle_Run(t *testing.T) {
+	t.Parallel()
+
 	type fields struct {
 		node *corev1.Node
 		cnr  *nodeapis.CustomNodeResource
@@ -140,7 +142,7 @@ func TestCNRLifecycle_Run(t *testing.T) {
 			go cl.Run()
 
 			cache.WaitForCacheSync(cl.ctx.Done(), cl.nodeListerSynced, cl.cnrListerSynced)
-			time.Sleep(1 * time.Second)
+			time.Sleep(10 * time.Millisecond)
 
 			gotCNR, err := cl.cnrLister.Get(tt.fields.node.Name)
 			assert.NoError(t, err)
@@ -149,7 +151,7 @@ func TestCNRLifecycle_Run(t *testing.T) {
 			// test recreate
 			err = cl.client.InternalClient.NodeV1alpha1().CustomNodeResources().Delete(context.Background(), tt.fields.node.Name, metav1.DeleteOptions{})
 			assert.NoError(t, err)
-			time.Sleep(1 * time.Second)
+			time.Sleep(100 * time.Millisecond)
 
 			gotCNR, err = cl.cnrLister.Get(tt.fields.node.Name)
 			assert.NoError(t, err)

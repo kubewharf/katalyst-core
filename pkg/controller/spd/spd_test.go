@@ -47,6 +47,8 @@ var (
 )
 
 func TestSPDController_Run(t *testing.T) {
+	t.Parallel()
+
 	type fields struct {
 		pod      *v1.Pod
 		workload *appsv1.StatefulSet
@@ -228,7 +230,7 @@ func TestSPDController_Run(t *testing.T) {
 			go spdController.Run()
 			synced := cache.WaitForCacheSync(ctx.Done(), spdController.syncedFunc...)
 			assert.True(t, synced)
-			time.Sleep(1 * time.Second)
+			time.Sleep(30 * time.Millisecond)
 
 			targetSPD := tt.fields.spd
 			if targetSPD == nil {
@@ -250,6 +252,8 @@ func TestSPDController_Run(t *testing.T) {
 }
 
 func TestPodIndexerDuplicate(t *testing.T) {
+	t.Parallel()
+
 	spdConf := controller.NewSPDConfig()
 	genericConfig := &generic.GenericConfiguration{}
 	controllerConf := &controller.GenericControllerConfiguration{}
@@ -271,6 +275,8 @@ func TestPodIndexerDuplicate(t *testing.T) {
 }
 
 func TestIndicatorUpdater(t *testing.T) {
+	t.Parallel()
+
 	var current float32 = 8.3
 	var value float32 = 23.1
 
@@ -578,7 +584,7 @@ func TestIndicatorUpdater(t *testing.T) {
 			Current: &value,
 		},
 	})
-	time.Sleep(time.Second * 3)
+	time.Sleep(time.Millisecond * 30)
 	newSPD, err := controlCtx.Client.InternalClient.WorkloadV1alpha1().
 		ServiceProfileDescriptors("default").Get(ctx, "spd1", metav1.GetOptions{})
 	assert.NoError(t, err)

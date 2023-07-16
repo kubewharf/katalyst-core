@@ -49,6 +49,8 @@ func getPodJSON(pod *v1.Pod) []byte {
 }
 
 func TestMutatePod(t *testing.T) {
+	t.Parallel()
+
 	container1 := &v1.Container{
 		Name: "c1",
 		Resources: v1.ResourceRequirements{

@@ -43,6 +43,8 @@ var (
 )
 
 func TestGetCgroupIDForContainer(t *testing.T) {
+	t.Parallel()
+
 	cgroupIDManager := NewCgroupIDManager(podFetcher).(*cgroupIDManagerImpl)
 	assert.NotNil(t, cgroupIDManager)
 
@@ -79,6 +81,8 @@ func TestGetCgroupIDForContainer(t *testing.T) {
 }
 
 func TestListCgroupIDsForPod(t *testing.T) {
+	t.Parallel()
+
 	cgroupIDManager := NewCgroupIDManager(podFetcher).(*cgroupIDManagerImpl)
 	assert.NotNil(t, cgroupIDManager)
 
@@ -115,6 +119,8 @@ func TestListCgroupIDsForPod(t *testing.T) {
 }
 
 func TestGetAbsentContainers(t *testing.T) {
+	t.Parallel()
+
 	cgroupIDManager := NewCgroupIDManager(podFetcher).(*cgroupIDManagerImpl)
 	assert.NotNil(t, cgroupIDManager)
 
@@ -151,6 +157,8 @@ func TestGetAbsentContainers(t *testing.T) {
 }
 
 func TestClearResidualPodsInCache(t *testing.T) {
+	t.Parallel()
+
 	cgroupIDManager := NewCgroupIDManager(podFetcher).(*cgroupIDManagerImpl)
 	assert.NotNil(t, cgroupIDManager)
 
@@ -187,7 +195,10 @@ func TestClearResidualPodsInCache(t *testing.T) {
 
 			assert.Equal(t, len(tt.want), len(cgroupIDManager.podCgroupIDCache))
 			for wantPodUID, wantContainerMap := range tt.want {
+				cgroupIDManager.Lock()
 				gotContainerMap, ok := cgroupIDManager.podCgroupIDCache[wantPodUID]
+				cgroupIDManager.Unlock()
+
 				assert.True(t, ok)
 				assert.Equal(t, len(wantContainerMap), len(gotContainerMap))
 				for wantContainerID, wantCgID := range wantContainerMap {

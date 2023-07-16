@@ -56,6 +56,8 @@ func makeHelper() (*EvictionHelper, error) {
 }
 
 func TestEvictionHelper_getEvictionCmpFuncs(t *testing.T) {
+	t.Parallel()
+
 	helper, err := makeHelper()
 	assert.NoError(t, err)
 	assert.NotNil(t, helper)

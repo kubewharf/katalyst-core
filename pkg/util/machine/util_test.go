@@ -25,6 +25,8 @@ import (
 )
 
 func TestParseCPUAssignmentFormat(t *testing.T) {
+	t.Parallel()
+
 	assignment := map[int]CPUSet{
 		0: NewCPUSet(1, 2),
 		1: NewCPUSet(3, 4),
@@ -36,6 +38,8 @@ func TestParseCPUAssignmentFormat(t *testing.T) {
 }
 
 func TestDeepcopyCPUAssignment(t *testing.T) {
+	t.Parallel()
+
 	assignment := map[int]CPUSet{
 		0: NewCPUSet(1, 2),
 		1: NewCPUSet(3, 4),
@@ -44,6 +48,8 @@ func TestDeepcopyCPUAssignment(t *testing.T) {
 }
 
 func TestMaskToUInt64Array(t *testing.T) {
+	t.Parallel()
+
 	mask, err := bitmask.NewBitMask(0, 1, 2, 3)
 	assert.NoError(t, err)
 	assert.Equal(t, []uint64{0, 1, 2, 3}, MaskToUInt64Array(mask))

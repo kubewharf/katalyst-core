@@ -24,9 +24,11 @@ import (
 )
 
 func TestStore_SetAndGetNodeMetric(t *testing.T) {
+	t.Parallel()
+
 	now := time.Now()
 
-	store := GetMetricStoreInstance()
+	store := NewMetricStore()
 	store.SetNodeMetric("test-metric-name", MetricData{Value: 1.0, Time: &now})
 	value, _ := store.GetNodeMetric("test-metric-name")
 	assert.Equal(t, MetricData{Value: 1.0, Time: &now}, value)
@@ -35,9 +37,11 @@ func TestStore_SetAndGetNodeMetric(t *testing.T) {
 }
 
 func TestStore_SetAndGetNumaMetric(t *testing.T) {
+	t.Parallel()
+
 	now := time.Now()
 
-	store := GetMetricStoreInstance()
+	store := NewMetricStore()
 	store.SetNumaMetric(0, "test-metric-name", MetricData{Value: 1.0, Time: &now})
 	value, _ := store.GetNumaMetric(0, "test-metric-name")
 	assert.Equal(t, MetricData{Value: 1.0, Time: &now}, value)
@@ -46,9 +50,11 @@ func TestStore_SetAndGetNumaMetric(t *testing.T) {
 }
 
 func TestStore_SetAndGeDeviceMetric(t *testing.T) {
+	t.Parallel()
+
 	now := time.Now()
 
-	store := GetMetricStoreInstance()
+	store := NewMetricStore()
 	store.SetDeviceMetric("test-device", "test-metric-name", MetricData{Value: 1.0, Time: &now})
 	value, _ := store.GetDeviceMetric("test-device", "test-metric-name")
 	assert.Equal(t, MetricData{Value: 1.0, Time: &now}, value)
@@ -57,9 +63,11 @@ func TestStore_SetAndGeDeviceMetric(t *testing.T) {
 }
 
 func TestStore_SetAndGetCPUMetric(t *testing.T) {
+	t.Parallel()
+
 	now := time.Now()
 
-	store := GetMetricStoreInstance()
+	store := NewMetricStore()
 	store.SetCPUMetric(0, "test-metric-name", MetricData{Value: 1.0, Time: &now})
 	value, _ := store.GetCPUMetric(0, "test-metric-name")
 	assert.Equal(t, MetricData{Value: 1.0, Time: &now}, value)
@@ -68,9 +76,11 @@ func TestStore_SetAndGetCPUMetric(t *testing.T) {
 }
 
 func TestStore_ContainerMetric(t *testing.T) {
+	t.Parallel()
+
 	now := time.Now()
 
-	store := GetMetricStoreInstance()
+	store := NewMetricStore()
 	store.SetContainerMetric("pod1", "container1", "test-metric-name", MetricData{Value: 1.0, Time: &now})
 	store.SetContainerMetric("pod2", "container1", "test-metric-name", MetricData{Value: 1.0, Time: &now})
 	value, _ := store.GetContainerMetric("pod1", "container1", "test-metric-name")

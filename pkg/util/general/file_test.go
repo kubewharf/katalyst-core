@@ -26,8 +26,10 @@ import (
 )
 
 func TestFileUtils(t *testing.T) {
+	t.Parallel()
+
 	// test to read from none-existed and existed files
-	filename := "/tmp/katalyst_test"
+	filename := "/tmp/TestFileUtils"
 	_, err := ReadFileIntoLines(filename)
 	assert.NotNil(t, err)
 
@@ -44,7 +46,9 @@ func TestFileUtils(t *testing.T) {
 }
 
 func Test_fileUniqueLock(t *testing.T) {
-	lockPath := "/tmp/test_lock"
+	t.Parallel()
+
+	lockPath := "/tmp/Test_fileUniqueLock"
 
 	flock, err := GetUniqueLock(lockPath)
 	if err != nil {
@@ -52,7 +56,7 @@ func Test_fileUniqueLock(t *testing.T) {
 		return
 	}
 
-	_, err = getUniqueLockWithTimeout(lockPath, time.Second, 3)
+	_, err = getUniqueLockWithTimeout(lockPath, time.Millisecond*100, 3)
 	if err == nil {
 		t.Errorf("GetNode() error = %v, wantErr not nil", err)
 		return

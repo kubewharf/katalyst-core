@@ -62,6 +62,8 @@ func makeNumaPressureEvictionPlugin(conf *config.Configuration) (*NumaMemoryPres
 }
 
 func TestNewNumaPressureEvictionPlugin(t *testing.T) {
+	t.Parallel()
+
 	plugin, err := makeNumaPressureEvictionPlugin(makeConf())
 	assert.NoError(t, err)
 	assert.NotNil(t, plugin)
@@ -74,6 +76,8 @@ func TestNewNumaPressureEvictionPlugin(t *testing.T) {
 }
 
 func TestNumaMemoryPressurePlugin_ThresholdMet(t *testing.T) {
+	t.Parallel()
+
 	plugin, err := makeNumaPressureEvictionPlugin(makeConf())
 	assert.NoError(t, err)
 	assert.NotNil(t, plugin)
@@ -213,6 +217,8 @@ func TestNumaMemoryPressurePlugin_ThresholdMet(t *testing.T) {
 }
 
 func TestNumaMemoryPressurePlugin_GetTopEvictionPods(t *testing.T) {
+	t.Parallel()
+
 	plugin, err := makeNumaPressureEvictionPlugin(makeConf())
 	assert.NoError(t, err)
 	assert.NotNil(t, plugin)

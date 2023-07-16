@@ -132,6 +132,8 @@ func generateTestMetaServer(podList ...*v1.Pod) *metaserver.MetaServer {
 }
 
 func Test_getZoneAllocationsByPodResources(t *testing.T) {
+	t.Parallel()
+
 	type args struct {
 		podList               []*v1.Pod
 		numaSocketZoneNodeMap map[util.ZoneNode]util.ZoneNode
@@ -412,6 +414,8 @@ func Test_getZoneAllocationsByPodResources(t *testing.T) {
 }
 
 func Test_getZoneResourcesByAllocatableResources(t *testing.T) {
+	t.Parallel()
+
 	type args struct {
 		allocatableResources  *podresv1.AllocatableResourcesResponse
 		numaSocketZoneNodeMap map[util.ZoneNode]util.ZoneNode
@@ -739,6 +743,8 @@ func Test_getZoneResourcesByAllocatableResources(t *testing.T) {
 }
 
 func Test_podResourcesServerTopologyAdapterImpl_GetTopologyZones(t *testing.T) {
+	t.Parallel()
+
 	type fields struct {
 		podList               []*v1.Pod
 		listPodResources      *podresv1.ListPodResourcesResponse
@@ -1420,6 +1426,8 @@ func Test_podResourcesServerTopologyAdapterImpl_GetTopologyZones(t *testing.T) {
 }
 
 func Test_podResourcesServerTopologyAdapterImpl_Run(t *testing.T) {
+	t.Parallel()
+
 	dir, err := tmpSocketDir()
 	assert.NoError(t, err)
 	defer os.RemoveAll(dir)
@@ -1467,9 +1475,9 @@ func Test_podResourcesServerTopologyAdapterImpl_Run(t *testing.T) {
 	err = checkpointManager.CreateCheckpoint(pkgconsts.KubeletQoSResourceManagerCheckpoint, &testutil.MockCheckpoint{})
 	assert.NoError(t, err)
 
-	time.Sleep(1 * time.Second)
+	time.Sleep(10 * time.Millisecond)
 
 	cancel()
 	close(notifier)
-	time.Sleep(1 * time.Second)
+	time.Sleep(10 * time.Millisecond)
 }

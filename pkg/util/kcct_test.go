@@ -67,6 +67,8 @@ func toTestUnstructured(obj interface{}) *unstructured.Unstructured {
 }
 
 func Test_kccTargetResource_GetCollisionCount(t *testing.T) {
+	t.Parallel()
+
 	type fields struct {
 		Unstructured *unstructured.Unstructured
 	}
@@ -107,6 +109,8 @@ func Test_kccTargetResource_GetCollisionCount(t *testing.T) {
 }
 
 func Test_kccTargetResource_GetHash(t *testing.T) {
+	t.Parallel()
+
 	type fields struct {
 		Unstructured *unstructured.Unstructured
 	}
@@ -149,6 +153,8 @@ func Test_kccTargetResource_GetHash(t *testing.T) {
 }
 
 func Test_kccTargetResource_GetLabelSelector(t *testing.T) {
+	t.Parallel()
+
 	type fields struct {
 		Unstructured *unstructured.Unstructured
 	}
@@ -191,6 +197,8 @@ func Test_kccTargetResource_GetLabelSelector(t *testing.T) {
 }
 
 func Test_kccTargetResource_GetLastDuration(t *testing.T) {
+	t.Parallel()
+
 	type fields struct {
 		Unstructured *unstructured.Unstructured
 	}
@@ -235,6 +243,8 @@ func Test_kccTargetResource_GetLastDuration(t *testing.T) {
 }
 
 func Test_kccTargetResource_GetNodeNames(t *testing.T) {
+	t.Parallel()
+
 	type fields struct {
 		Unstructured *unstructured.Unstructured
 	}
@@ -285,6 +295,8 @@ func Test_kccTargetResource_GetNodeNames(t *testing.T) {
 }
 
 func Test_kccTargetResource_GetObservedGeneration(t *testing.T) {
+	t.Parallel()
+
 	type fields struct {
 		Unstructured *unstructured.Unstructured
 	}
@@ -325,6 +337,8 @@ func Test_kccTargetResource_GetObservedGeneration(t *testing.T) {
 }
 
 func Test_kccTargetResource_GetRevisionHistoryLimit(t *testing.T) {
+	t.Parallel()
+
 	type fields struct {
 		Unstructured *unstructured.Unstructured
 	}
@@ -367,6 +381,8 @@ func Test_kccTargetResource_GetRevisionHistoryLimit(t *testing.T) {
 }
 
 func Test_kccTargetResource_SetCollisionCount(t *testing.T) {
+	t.Parallel()
+
 	type fields struct {
 		Unstructured *unstructured.Unstructured
 	}
@@ -444,6 +460,8 @@ func Test_kccTargetResource_SetCollisionCount(t *testing.T) {
 }
 
 func Test_kccTargetResource_SetHash(t *testing.T) {
+	t.Parallel()
+
 	type fields struct {
 		Unstructured *unstructured.Unstructured
 	}
@@ -509,6 +527,8 @@ func Test_kccTargetResource_SetHash(t *testing.T) {
 }
 
 func Test_kccTargetResource_SetObservedGeneration(t *testing.T) {
+	t.Parallel()
+
 	type fields struct {
 		Unstructured *unstructured.Unstructured
 	}
@@ -568,6 +588,8 @@ func Test_kccTargetResource_SetObservedGeneration(t *testing.T) {
 }
 
 func Test_kccTargetResource_GetConfig(t *testing.T) {
+	t.Parallel()
+
 	type fields struct {
 		Unstructured *unstructured.Unstructured
 	}
@@ -627,6 +649,8 @@ func Test_kccTargetResource_GetConfig(t *testing.T) {
 }
 
 func Test_kccTargetResource_GetGenericStatus(t *testing.T) {
+	t.Parallel()
+
 	type fields struct {
 		Unstructured *unstructured.Unstructured
 	}
@@ -672,6 +696,8 @@ func Test_kccTargetResource_GetGenericStatus(t *testing.T) {
 }
 
 func Test_kccTargetResource_SetGenericStatus(t *testing.T) {
+	t.Parallel()
+
 	type fields struct {
 		Unstructured *unstructured.Unstructured
 	}
@@ -758,6 +784,8 @@ func Test_kccTargetResource_SetGenericStatus(t *testing.T) {
 }
 
 func Test_kccTargetResource_GetIsValid(t *testing.T) {
+	t.Parallel()
+
 	type fields struct {
 		Unstructured *unstructured.Unstructured
 	}
@@ -787,6 +815,8 @@ func Test_kccTargetResource_GetIsValid(t *testing.T) {
 }
 
 func Test_kccTargetResource_GenerateConfigHash(t *testing.T) {
+	t.Parallel()
+
 	type fields struct {
 		Unstructured *unstructured.Unstructured
 	}
@@ -852,6 +882,8 @@ func Test_kccTargetResource_GenerateConfigHash(t *testing.T) {
 }
 
 func TestKCCTargetResource_IsExpired(t *testing.T) {
+	t.Parallel()
+
 	type fields struct {
 		Unstructured *unstructured.Unstructured
 	}

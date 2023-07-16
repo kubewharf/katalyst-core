@@ -29,6 +29,8 @@ import (
 )
 
 func TestNewCheckpoint(t *testing.T) {
+	t.Parallel()
+
 	now := metav1.Now()
 	kind := crd.ResourceKindAdminQoSConfiguration
 	dynamicCRD := &crd.DynamicConfigCRD{

@@ -25,6 +25,8 @@ import (
 )
 
 func TestPodTransformer(t *testing.T) {
+	t.Parallel()
+
 	as := require.New(t)
 
 	WithPodTransformer(func(src, dest *core.Pod) {

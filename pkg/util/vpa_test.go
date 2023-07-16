@@ -53,6 +53,8 @@ var (
 )
 
 func TestFindSpdByVpa(t *testing.T) {
+	t.Parallel()
+
 	for _, tc := range []struct {
 		name string
 		vpa  *apis.KatalystVerticalPodAutoscaler
@@ -188,6 +190,8 @@ func TestFindSpdByVpa(t *testing.T) {
 }
 
 func TestGetVPAForPod(t *testing.T) {
+	t.Parallel()
+
 	scheme := runtime.NewScheme()
 	utilruntime.Must(v1.AddToScheme(scheme))
 	utilruntime.Must(appsv1.AddToScheme(scheme))
@@ -311,6 +315,8 @@ func TestGetVPAForPod(t *testing.T) {
 }
 
 func TestGetWorkloadByVPA(t *testing.T) {
+	t.Parallel()
+
 	for _, tc := range []struct {
 		name   string
 		vpa    *apis.KatalystVerticalPodAutoscaler
@@ -364,6 +370,8 @@ func TestGetWorkloadByVPA(t *testing.T) {
 }
 
 func TestCheckVPARecommendationMatchVPA(t *testing.T) {
+	t.Parallel()
+
 	vpa1 := &apis.KatalystVerticalPodAutoscaler{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "vpa1",
@@ -422,6 +430,8 @@ func TestCheckVPARecommendationMatchVPA(t *testing.T) {
 }
 
 func TestIsVPAStatusLegal(t *testing.T) {
+	t.Parallel()
+
 	vpa1 := &apis.KatalystVerticalPodAutoscaler{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "vpa1",

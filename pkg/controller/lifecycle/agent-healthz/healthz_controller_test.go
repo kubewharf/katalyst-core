@@ -137,6 +137,8 @@ func NewFakeHealthzController(t *testing.T) (*HealthzController, error) {
 }
 
 func TestHealthzController(t *testing.T) {
+	t.Parallel()
+
 	ec, err := NewFakeHealthzController(t)
 	if err != nil {
 		klog.Errorf("get new fake cnr lifecycle err %v", err)

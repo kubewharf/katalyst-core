@@ -28,6 +28,8 @@ import (
 )
 
 func TestAddOrUpdateCNRTaint(t *testing.T) {
+	t.Parallel()
+
 	type args struct {
 		cnr   *nodeapis.CustomNodeResource
 		taint *nodeapis.Taint
@@ -151,6 +153,8 @@ func TestAddOrUpdateCNRTaint(t *testing.T) {
 }
 
 func TestCNRTaintExists(t *testing.T) {
+	t.Parallel()
+
 	type args struct {
 		taints      []*nodeapis.Taint
 		taintToFind *nodeapis.Taint
@@ -205,6 +209,8 @@ func TestCNRTaintExists(t *testing.T) {
 }
 
 func TestMergeAllocations(t *testing.T) {
+	t.Parallel()
+
 	type args struct {
 		dst []*nodeapis.Allocation
 		src []*nodeapis.Allocation
@@ -288,6 +294,8 @@ func TestMergeAllocations(t *testing.T) {
 }
 
 func TestMergeAttributes(t *testing.T) {
+	t.Parallel()
+
 	type args struct {
 		dst []nodeapis.Attribute
 		src []nodeapis.Attribute
@@ -356,6 +364,8 @@ func TestMergeAttributes(t *testing.T) {
 }
 
 func TestMergeResources(t *testing.T) {
+	t.Parallel()
+
 	type args struct {
 		dst nodeapis.Resources
 		src nodeapis.Resources
@@ -401,6 +411,8 @@ func TestMergeResources(t *testing.T) {
 }
 
 func TestMergeTopologyZone(t *testing.T) {
+	t.Parallel()
+
 	type args struct {
 		dst []*nodeapis.TopologyZone
 		src []*nodeapis.TopologyZone

@@ -51,6 +51,8 @@ func newTestMetaCache(t *testing.T) *metacache.MetaCacheImp {
 }
 
 func TestContainer(t *testing.T) {
+	t.Parallel()
+
 	metaCache := newTestMetaCache(t)
 
 	err := metaCache.SetContainerInfo("pod-0", "container-0", &types.ContainerInfo{})
@@ -75,6 +77,8 @@ func TestContainer(t *testing.T) {
 }
 
 func TestPool(t *testing.T) {
+	t.Parallel()
+
 	general.Infof("ready to start %v", "test pool")
 
 	metaCache := newTestMetaCache(t)

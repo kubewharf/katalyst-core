@@ -26,20 +26,22 @@ import (
 )
 
 func TestAsyncWorkers(t *testing.T) {
+	t.Parallel()
+
 	rt := require.New(t)
 
 	asw := NewAsyncWorkers("test")
 
 	result, a, b, c, d, e, f := 0, 1, 2, 3, 4, 5, 6
 
-	timeoutSeconds := 10 * time.Second
+	timeoutSeconds := 100 * time.Millisecond
 	fn := func(ctx context.Context, params ...interface{}) error {
 
 		if len(params) != 2 {
 			return fmt.Errorf("invalid params")
 		}
 
-		time.Sleep(5 * time.Second)
+		time.Sleep(5 * time.Millisecond)
 		p1Int := params[0].(int)
 		p2Int := params[1].(int)
 		result = p1Int + p2Int
@@ -63,7 +65,7 @@ func TestAsyncWorkers(t *testing.T) {
 	asw.workLock.Lock()
 	for asw.workStatuses[work1Name].working {
 		asw.workLock.Unlock()
-		time.Sleep(1 * time.Second)
+		time.Sleep(10 * time.Millisecond)
 
 		if time.Now().Sub(work1DeliveredAt) > timeoutSeconds {
 			rt.Failf("%s timeout", work1Name)
@@ -106,7 +108,7 @@ func TestAsyncWorkers(t *testing.T) {
 	asw.workLock.Lock()
 	for asw.workStatuses[work2Name].working {
 		asw.workLock.Unlock()
-		time.Sleep(1 * time.Second)
+		time.Sleep(10 * time.Millisecond)
 
 		if time.Now().Sub(work1DeliveredAt) > 3*timeoutSeconds {
 			rt.Failf("%s timeout", work2Name)

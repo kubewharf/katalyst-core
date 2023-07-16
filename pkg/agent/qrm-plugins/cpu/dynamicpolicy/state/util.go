@@ -18,6 +18,7 @@ package state
 
 import (
 	"fmt"
+	"sync"
 
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/klog/v2"
@@ -54,7 +55,20 @@ var (
 	).Union(StaticPools)
 )
 
-var GetContainerRequestedCores func(allocationInfo *AllocationInfo) int
+var containerRequestedCoresLock sync.RWMutex
+var containerRequestedCores func(allocationInfo *AllocationInfo) int
+
+func GetContainerRequestedCores() func(allocationInfo *AllocationInfo) int {
+	containerRequestedCoresLock.RLock()
+	defer containerRequestedCoresLock.RUnlock()
+	return containerRequestedCores
+}
+
+func SetContainerRequestedCores(f func(allocationInfo *AllocationInfo) int) {
+	containerRequestedCoresLock.Lock()
+	defer containerRequestedCoresLock.Unlock()
+	containerRequestedCores = f
+}
 
 // GetIsolatedQuantityMapFromPodEntries returns a map to indicates isolation info,
 // and the map is formatted as pod -> container -> isolated-quantity
@@ -83,7 +97,7 @@ func GetIsolatedQuantityMapFromPodEntries(podEntries PodEntries, ignoreAllocatio
 			// and we will try to isolate those containers, so we will treat them as containers to be isolated.
 			var quantity int
 			if allocationInfo.OwnerPoolName != PoolNameDedicated {
-				quantity = GetContainerRequestedCores(allocationInfo)
+				quantity = GetContainerRequestedCores()(allocationInfo)
 			} else {
 				quantity = allocationInfo.AllocationResult.Size()
 			}
@@ -128,7 +142,7 @@ func GetSharedQuantityMapFromPodEntries(podEntries PodEntries, ignoreAllocationI
 			}
 
 			if poolName := allocationInfo.GetOwnerPoolName(); poolName != advisorapi.EmptyOwnerPoolName {
-				ret[poolName] += GetContainerRequestedCores(allocationInfo)
+				ret[poolName] += GetContainerRequestedCores()(allocationInfo)
 			}
 		}
 	}

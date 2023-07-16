@@ -66,6 +66,8 @@ var makeCachedCNR = func(name string, res v1.ResourceList) *apis.CustomNodeResou
 }
 
 func Test_CalculateQoSResource(t *testing.T) {
+	t.Parallel()
+
 	cache := schedulercache.GetCache()
 
 	_, err := cache.GetNodeInfo("c1")

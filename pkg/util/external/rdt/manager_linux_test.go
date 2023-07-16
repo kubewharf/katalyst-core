@@ -34,11 +34,15 @@ var (
 )
 
 func TestNewDefaultManager(t *testing.T) {
+	t.Parallel()
+
 	defaultManager := NewDefaultManager()
 	assert.NotNil(t, defaultManager)
 }
 
 func TestCheckSupportRDT(t *testing.T) {
+	t.Parallel()
+
 	defaultManager := NewDefaultManager()
 	assert.NotNil(t, defaultManager)
 
@@ -48,6 +52,8 @@ func TestCheckSupportRDT(t *testing.T) {
 }
 
 func TestInitRDT(t *testing.T) {
+	t.Parallel()
+
 	defaultManager := NewDefaultManager()
 	assert.NotNil(t, defaultManager)
 
@@ -56,6 +62,8 @@ func TestInitRDT(t *testing.T) {
 }
 
 func TestApplyTasks(t *testing.T) {
+	t.Parallel()
+
 	defaultManager := NewDefaultManager()
 	assert.NotNil(t, defaultManager)
 
@@ -64,6 +72,8 @@ func TestApplyTasks(t *testing.T) {
 }
 
 func TestApplyCAT(t *testing.T) {
+	t.Parallel()
+
 	defaultManager := NewDefaultManager()
 	assert.NotNil(t, defaultManager)
 
@@ -81,6 +91,8 @@ func TestApplyCAT(t *testing.T) {
 }
 
 func TestApplyMBA(t *testing.T) {
+	t.Parallel()
+
 	defaultManager := NewDefaultManager()
 	assert.NotNil(t, defaultManager)
 

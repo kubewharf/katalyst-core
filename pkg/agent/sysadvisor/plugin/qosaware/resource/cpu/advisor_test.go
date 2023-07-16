@@ -130,6 +130,8 @@ func makeContainerInfo(podUID, namespace, podName, containerName, qoSLevel, owne
 }
 
 func TestAdvisorUpdate(t *testing.T) {
+	t.Parallel()
+
 	type metricItem struct {
 		pod       string
 		container string
@@ -768,7 +770,7 @@ func TestAdvisorUpdate(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			now := time.Now()
 
-			ckDir, err := ioutil.TempDir("", "checkpoint")
+			ckDir, err := ioutil.TempDir("", "checkpoint-TestAdvisorUpdate")
 			require.NoError(t, err)
 			defer func() { _ = os.RemoveAll(ckDir) }()
 
