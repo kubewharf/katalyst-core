@@ -54,18 +54,20 @@ func StartLifeCycleController(ctx context.Context, controlCtx *katalystbase.Gene
 		return false, err
 	}
 
-	cncLifecycle, err = lifecycle.NewCNCLifecycle(ctx,
-		conf.GenericConfiguration,
-		conf.GenericControllerConfiguration,
-		conf.ControllersConfiguration.CNCLifecycleConfig,
-		controlCtx.Client,
-		controlCtx.KubeInformerFactory.Core().V1().Nodes(),
-		controlCtx.InternalInformerFactory.Config().V1alpha1().CustomNodeConfigs(),
-		controlCtx.EmitterPool.GetDefaultMetricsEmitter(),
-	)
-	if err != nil {
-		klog.Errorf("failed to new CNC lifecycle controller")
-		return false, err
+	if conf.LifeCycleConfig.EnableCNCLifecycle {
+		cncLifecycle, err = lifecycle.NewCNCLifecycle(ctx,
+			conf.GenericConfiguration,
+			conf.GenericControllerConfiguration,
+			conf.ControllersConfiguration.CNCLifecycleConfig,
+			controlCtx.Client,
+			controlCtx.KubeInformerFactory.Core().V1().Nodes(),
+			controlCtx.InternalInformerFactory.Config().V1alpha1().CustomNodeConfigs(),
+			controlCtx.EmitterPool.GetDefaultMetricsEmitter(),
+		)
+		if err != nil {
+			klog.Errorf("failed to new CNC lifecycle controller")
+			return false, err
+		}
 	}
 
 	if conf.LifeCycleConfig.EnableHealthz {
