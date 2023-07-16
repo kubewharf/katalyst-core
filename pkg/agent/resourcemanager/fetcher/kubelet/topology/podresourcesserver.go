@@ -35,6 +35,7 @@ import (
 	podresv1 "k8s.io/kubelet/pkg/apis/podresources/v1"
 
 	nodev1alpha1 "github.com/kubewharf/katalyst-api/pkg/apis/node/v1alpha1"
+	"github.com/kubewharf/katalyst-api/pkg/utils"
 	"github.com/kubewharf/katalyst-core/pkg/agent/resourcemanager/fetcher/util/kubelet/podresources"
 	"github.com/kubewharf/katalyst-core/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
@@ -181,6 +182,19 @@ func (p *podResourcesServerTopologyAdapterImpl) GetTopologyZones(parentCtx conte
 	}
 
 	return topologyZoneGenerator.GenerateTopologyZoneStatus(zoneAllocations, zoneResources, zoneAttributes), nil
+}
+
+// GetTopologyPolicy return newest topology policy status
+func (p *podResourcesServerTopologyAdapterImpl) GetTopologyPolicy(ctx context.Context) (nodev1alpha1.TopologyPolicy, error) {
+	p.mutex.Lock()
+	defer p.mutex.Unlock()
+
+	klConfig, err := p.metaServer.GetKubeletConfig(ctx)
+	if err != nil {
+		return nodev1alpha1.TopologyPolicy(""), errors.Wrap(err, "get kubelet config failed")
+	}
+
+	return utils.GenerateTopologyPolicy(klConfig.TopologyManagerPolicy, klConfig.TopologyManagerScope), nil
 }
 
 func (p *podResourcesServerTopologyAdapterImpl) Run(ctx context.Context, handler func()) error {

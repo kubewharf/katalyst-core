@@ -41,6 +41,7 @@ const (
 	CNRFieldNameNodeResourceProperties = "NodeResourceProperties"
 	CNRFieldNameTopologyZone           = "TopologyZone"
 	CNRFieldNameResources              = "Resources"
+	CNRFieldNameTopologyPolicy         = "TopologyPolicy"
 )
 
 var (

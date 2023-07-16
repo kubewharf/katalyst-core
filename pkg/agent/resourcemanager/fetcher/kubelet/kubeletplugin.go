@@ -195,14 +195,24 @@ func (p *kubeletPlugin) getReportContent(ctx context.Context) (*v1alpha1.GetRepo
 
 // getTopologyStatusContent get topology status content from topologyStatusAdapter
 func (p *kubeletPlugin) getTopologyStatusContent(ctx context.Context) ([]*v1alpha1.ReportContent, error) {
-	topologyStatus, err := p.topologyStatusAdapter.GetTopologyZones(ctx)
+	topologyZones, err := p.topologyStatusAdapter.GetTopologyZones(ctx)
 	if err != nil {
-		return nil, errors.Wrap(err, "get numa topology status from adapter failed")
+		return nil, errors.Wrap(err, "get topology zones from adapter failed")
 	}
 
-	value, err := json.Marshal(&topologyStatus)
+	valueTopologyZones, err := json.Marshal(&topologyZones)
 	if err != nil {
-		return nil, errors.Wrap(err, "marshal topology status failed")
+		return nil, errors.Wrap(err, "marshal topology zones failed")
+	}
+
+	topologyPolicy, err := p.topologyStatusAdapter.GetTopologyPolicy(ctx)
+	if err != nil {
+		return nil, errors.Wrap(err, "get topology policy from adapter failed")
+	}
+
+	valueTopologyPolicy, err := json.Marshal(&topologyPolicy)
+	if err != nil {
+		return nil, errors.Wrap(err, "marshal topology policy failed")
 	}
 
 	return []*v1alpha1.ReportContent{
@@ -212,7 +222,17 @@ func (p *kubeletPlugin) getTopologyStatusContent(ctx context.Context) ([]*v1alph
 				{
 					FieldType: v1alpha1.FieldType_Status,
 					FieldName: util.CNRFieldNameTopologyZone,
-					Value:     value,
+					Value:     valueTopologyZones,
+				},
+			},
+		},
+		{
+			GroupVersionKind: &util.CNRGroupVersionKind,
+			Field: []*v1alpha1.ReportField{
+				{
+					FieldType: v1alpha1.FieldType_Status,
+					FieldName: util.CNRFieldNameTopologyPolicy,
+					Value:     valueTopologyPolicy,
 				},
 			},
 		},
