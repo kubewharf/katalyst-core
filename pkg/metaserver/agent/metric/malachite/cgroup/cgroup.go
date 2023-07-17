@@ -25,8 +25,8 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric/malachite/client"
 )
 
-func GetCgroupStats(cgroupPath string) (*MalachiteCgroupInfo, error) {
-	cgroupStatsRaw, err := client.DefaultClient.GetCgroupStats(cgroupPath)
+func GetCgroupStats(c client.MalachiteClient, cgroupPath string) (*MalachiteCgroupInfo, error) {
+	cgroupStatsRaw, err := c.GetCgroupStats(cgroupPath)
 	if err != nil {
 		return nil, err
 	}
@@ -81,7 +81,7 @@ func GetCgroupStats(cgroupPath string) (*MalachiteCgroupInfo, error) {
 	return cgroupInfo, nil
 }
 
-func GetAllPodsContainersStats() (map[string]map[string]*MalachiteCgroupInfo, error) {
+func GetAllPodsContainersStats(c client.MalachiteClient) (map[string]map[string]*MalachiteCgroupInfo, error) {
 	podsContainersCgroupsPath, err := GetAllPodsContainersCgroupsPath()
 	if err != nil {
 		return nil, fmt.Errorf("failed to GetAllPodsContainersCgroupsPath, err %v", err)
@@ -91,7 +91,7 @@ func GetAllPodsContainersStats() (map[string]map[string]*MalachiteCgroupInfo, er
 	for podUid, containersCgroupsPath := range podsContainersCgroupsPath {
 		containersStats := make(map[string]*MalachiteCgroupInfo)
 		for containerName, cgroupsPath := range containersCgroupsPath {
-			cgStats, err := GetCgroupStats(cgroupsPath)
+			cgStats, err := GetCgroupStats(c, cgroupsPath)
 			if err != nil {
 				klog.V(4).ErrorS(fmt.Errorf("failed to GetCgroupStats for cgroup %s in pod %s, err %s", cgroupsPath, podUid, err), "")
 				continue
