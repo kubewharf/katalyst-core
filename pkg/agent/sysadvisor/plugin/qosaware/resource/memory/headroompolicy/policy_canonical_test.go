@@ -113,6 +113,8 @@ func makeContainerInfo(podUID, namespace, podName, containerName, qoSLevel strin
 }
 
 func TestPolicyCanonical_calculateMemoryBuffer(t *testing.T) {
+	t.Parallel()
+
 	now := time.Now()
 
 	type fields struct {
@@ -121,7 +123,7 @@ func TestPolicyCanonical_calculateMemoryBuffer(t *testing.T) {
 		memoryHeadroomConfiguration  *memoryheadroom.MemoryHeadroomConfiguration
 		policyCanonicalConfiguration *headroom.MemoryPolicyCanonicalConfiguration
 		essentials                   types.ResourceEssentials
-		setFakeMetric                func(store *utilmetric.MetricStore)
+		setFakeMetric                func(store *metric.FakeMetricsFetcher)
 	}
 	type args struct {
 		estimateNonReclaimedRequirement float64
@@ -181,7 +183,7 @@ func TestPolicyCanonical_calculateMemoryBuffer(t *testing.T) {
 					ResourceUpperBound:  100 << 30,
 					ReservedForAllocate: 4 << 30,
 				},
-				setFakeMetric: func(store *utilmetric.MetricStore) {
+				setFakeMetric: func(store *metric.FakeMetricsFetcher) {
 					store.SetContainerMetric("pod1", "container1", pkgconsts.MetricMemRssContainer, utilmetric.MetricData{Value: 10 << 30, Time: &now})
 					store.SetContainerMetric("pod1", "container1", pkgconsts.MetricMemCacheContainer, utilmetric.MetricData{Value: 10 << 30, Time: &now})
 
@@ -255,7 +257,7 @@ func TestPolicyCanonical_calculateMemoryBuffer(t *testing.T) {
 					ResourceUpperBound:  100 << 30,
 					ReservedForAllocate: 4 << 30,
 				},
-				setFakeMetric: func(store *utilmetric.MetricStore) {
+				setFakeMetric: func(store *metric.FakeMetricsFetcher) {
 					store.SetNodeMetric(pkgconsts.MetricMemTotalSystem, utilmetric.MetricData{Value: 100 << 30, Time: &now})
 					store.SetNodeMetric(pkgconsts.MetricMemFreeSystem, utilmetric.MetricData{Value: 60 << 30, Time: &now})
 					store.SetNodeMetric(pkgconsts.MetricMemScaleFactorSystem, utilmetric.MetricData{Value: 500, Time: &now})
@@ -334,7 +336,7 @@ func TestPolicyCanonical_calculateMemoryBuffer(t *testing.T) {
 					ResourceUpperBound:  100 << 30,
 					ReservedForAllocate: 4 << 30,
 				},
-				setFakeMetric: func(store *utilmetric.MetricStore) {
+				setFakeMetric: func(store *metric.FakeMetricsFetcher) {
 					store.SetNodeMetric(pkgconsts.MetricMemTotalSystem, utilmetric.MetricData{Value: 100 << 30, Time: &now})
 					store.SetNodeMetric(pkgconsts.MetricMemFreeSystem, utilmetric.MetricData{Value: 30 << 30, Time: &now})
 					store.SetNodeMetric(pkgconsts.MetricMemScaleFactorSystem, utilmetric.MetricData{Value: 500, Time: &now})
@@ -417,7 +419,7 @@ func TestPolicyCanonical_calculateMemoryBuffer(t *testing.T) {
 					ResourceUpperBound:  100 << 30,
 					ReservedForAllocate: 4 << 30,
 				},
-				setFakeMetric: func(store *utilmetric.MetricStore) {
+				setFakeMetric: func(store *metric.FakeMetricsFetcher) {
 					store.SetNodeMetric(pkgconsts.MetricMemTotalSystem, utilmetric.MetricData{Value: 100 << 30, Time: &now})
 					store.SetNodeMetric(pkgconsts.MetricMemFreeSystem, utilmetric.MetricData{Value: 20 << 30, Time: &now})
 					store.SetNodeMetric(pkgconsts.MetricMemScaleFactorSystem, utilmetric.MetricData{Value: 500, Time: &now})
@@ -435,7 +437,7 @@ func TestPolicyCanonical_calculateMemoryBuffer(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ckDir, err := ioutil.TempDir("", "checkpoint")
+			ckDir, err := ioutil.TempDir("", "checkpoint-TestPolicyCanonical_calculateMemoryBuffer")
 			require.NoError(t, err)
 			defer os.RemoveAll(ckDir)
 
@@ -460,7 +462,7 @@ func TestPolicyCanonical_calculateMemoryBuffer(t *testing.T) {
 
 			p := NewPolicyCanonical(conf, nil, metaCache, metaServer, metrics.DummyMetrics{})
 
-			store := utilmetric.GetMetricStoreInstance()
+			store := metricsFetcher.(*metric.FakeMetricsFetcher)
 			tt.fields.setFakeMetric(store)
 
 			p.SetEssentials(tt.fields.essentials)

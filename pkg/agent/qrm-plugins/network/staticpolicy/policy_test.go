@@ -172,6 +172,8 @@ func makeNICs() []machine.InterfaceInfo {
 }
 
 func TestNewStaticPolicy(t *testing.T) {
+	t.Parallel()
+
 	neetToRun, policy, err := NewStaticPolicy(makeTestGenericContext(t), generateTestConfiguration(t), nil, NetworkResourcePluginPolicyNameStatic)
 	assert.NoError(t, err)
 	assert.NotNil(t, policy)
@@ -181,6 +183,8 @@ func TestNewStaticPolicy(t *testing.T) {
 }
 
 func TestRemovePod(t *testing.T) {
+	t.Parallel()
+
 	policy := makeStaticPolicy(t)
 	assert.NotNil(t, policy)
 
@@ -195,6 +199,8 @@ func TestRemovePod(t *testing.T) {
 }
 
 func TestAllocate(t *testing.T) {
+	t.Parallel()
+
 	testName := "test"
 
 	testCases := []struct {
@@ -442,6 +448,8 @@ func TestAllocate(t *testing.T) {
 }
 
 func TestGetNetClassID(t *testing.T) {
+	t.Parallel()
+
 	staticPolicy := makeStaticPolicy(t)
 	staticPolicy.qosLevelToNetClassMap = map[string]uint32{
 		consts.PodAnnotationQoSLevelReclaimedCores: 10,
@@ -542,6 +550,8 @@ func TestGetNetClassID(t *testing.T) {
 }
 
 func TestName(t *testing.T) {
+	t.Parallel()
+
 	policy := makeStaticPolicy(t)
 	assert.NotNil(t, policy)
 
@@ -549,6 +559,8 @@ func TestName(t *testing.T) {
 }
 
 func TestResourceName(t *testing.T) {
+	t.Parallel()
+
 	policy := makeStaticPolicy(t)
 	assert.NotNil(t, policy)
 
@@ -556,6 +568,8 @@ func TestResourceName(t *testing.T) {
 }
 
 func TestGetTopologyHints(t *testing.T) {
+	t.Parallel()
+
 	testName := "test"
 
 	testCases := []struct {
@@ -806,6 +820,8 @@ func TestGetTopologyHints(t *testing.T) {
 }
 
 func TestGetResourcesAllocation(t *testing.T) {
+	t.Parallel()
+
 	policy := makeStaticPolicy(t)
 	assert.NotNil(t, policy)
 
@@ -814,6 +830,8 @@ func TestGetResourcesAllocation(t *testing.T) {
 }
 
 func TestGetTopologyAwareResources(t *testing.T) {
+	t.Parallel()
+
 	policy := makeStaticPolicy(t)
 	assert.NotNil(t, policy)
 
@@ -827,6 +845,8 @@ func TestGetTopologyAwareResources(t *testing.T) {
 }
 
 func TestGetTopologyAwareAllocatableResources(t *testing.T) {
+	t.Parallel()
+
 	policy := makeStaticPolicy(t)
 	assert.NotNil(t, policy)
 
@@ -835,6 +855,8 @@ func TestGetTopologyAwareAllocatableResources(t *testing.T) {
 }
 
 func TestGetResourcePluginOptions(t *testing.T) {
+	t.Parallel()
+
 	policy := makeStaticPolicy(t)
 	assert.NotNil(t, policy)
 
@@ -850,6 +872,8 @@ func TestGetResourcePluginOptions(t *testing.T) {
 }
 
 func TestPreStartContainer(t *testing.T) {
+	t.Parallel()
+
 	policy := makeStaticPolicy(t)
 	assert.NotNil(t, policy)
 

@@ -499,7 +499,7 @@ func (p *DynamicPolicy) putAllocationsAndAdjustAllocationEntries(allocationInfos
 			return fmt.Errorf("allocationInfo points to empty poolName")
 		}
 
-		reqInt := state.GetContainerRequestedCores(allocationInfo)
+		reqInt := state.GetContainerRequestedCores()(allocationInfo)
 		poolsQuantityMap[poolName] += reqInt
 	}
 
@@ -723,7 +723,7 @@ func (p *DynamicPolicy) applyPoolsAndIsolatedInfo(poolsCPUSet map[string]machine
 				continue
 			}
 
-			reqInt := state.GetContainerRequestedCores(allocationInfo)
+			reqInt := state.GetContainerRequestedCores()(allocationInfo)
 			if newPodEntries[podUID][containerName] != nil {
 				// adapt to old checkpoint without RequestQuantity property
 				newPodEntries[podUID][containerName].RequestQuantity = reqInt

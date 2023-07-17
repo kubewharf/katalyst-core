@@ -64,6 +64,8 @@ func generateTestMetaServer(clientSet *client.GenericClientSet, conf *config.Con
 }
 
 func TestMetaServer_Run(t *testing.T) {
+	t.Parallel()
+
 	genericClient := &client.GenericClientSet{
 		KubeClient:     fake.NewSimpleClientset(),
 		InternalClient: internalfake.NewSimpleClientset(),
@@ -78,7 +80,7 @@ func TestMetaServer_Run(t *testing.T) {
 
 	go meta.Run(context.Background())
 
-	time.Sleep(1 * time.Second)
+	time.Sleep(3 * time.Millisecond)
 
 	meta.Lock()
 	assert.True(t, meta.start)
@@ -86,6 +88,8 @@ func TestMetaServer_Run(t *testing.T) {
 }
 
 func TestMetaServer_SetServiceProfilingManager(t *testing.T) {
+	t.Parallel()
+
 	genericClient := &client.GenericClientSet{
 		KubeClient:     fake.NewSimpleClientset(),
 		InternalClient: internalfake.NewSimpleClientset(),
@@ -99,7 +103,7 @@ func TestMetaServer_SetServiceProfilingManager(t *testing.T) {
 
 	go meta.Run(context.Background())
 
-	time.Sleep(1 * time.Second)
+	time.Sleep(3 * time.Millisecond)
 
 	err = meta.SetServiceProfilingManager(&spd.DummyServiceProfilingManager{})
 	assert.Error(t, err)

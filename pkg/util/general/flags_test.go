@@ -25,6 +25,8 @@ import (
 )
 
 func TestResourceList_Set(t *testing.T) {
+	t.Parallel()
+
 	type args struct {
 		value string
 	}
@@ -57,6 +59,8 @@ func TestResourceList_Set(t *testing.T) {
 }
 
 func TestResourceList_String(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name string
 		r    ResourceList

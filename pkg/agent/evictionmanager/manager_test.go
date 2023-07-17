@@ -228,6 +228,8 @@ func makeEvictionManager() *EvictionManger {
 }
 
 func TestEvictionManger_collectEvictionResult(t *testing.T) {
+	t.Parallel()
+
 	mgr := makeEvictionManager()
 	tests := []struct {
 		name               string

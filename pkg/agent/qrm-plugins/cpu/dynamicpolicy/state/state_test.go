@@ -52,6 +52,7 @@ func assertStateEqual(t *testing.T, restoredState, expectedState State) {
 }
 
 func TestNewCheckpointState(t *testing.T) {
+	t.Parallel()
 
 	testName := "test"
 	cpuTopology, _ := machine.GenerateDummyCPUTopology(16, 2, 4)
@@ -1465,6 +1466,8 @@ func TestNewCheckpointState(t *testing.T) {
 }
 
 func TestClearState(t *testing.T) {
+	t.Parallel()
+
 	as := require.New(t)
 
 	testName := "test"
@@ -1953,6 +1956,8 @@ func TestClearState(t *testing.T) {
 }
 
 func TestCheckpointStateHelpers(t *testing.T) {
+	t.Parallel()
+
 	as := require.New(t)
 
 	testName := "test"
@@ -2450,6 +2455,8 @@ func TestCheckpointStateHelpers(t *testing.T) {
 }
 
 func TestGetDefaultMachineState(t *testing.T) {
+	t.Parallel()
+
 	as := require.New(t)
 
 	cpuTopology, err := machine.GenerateDummyCPUTopology(16, 2, 4)
@@ -2498,6 +2505,8 @@ func TestGetDefaultMachineState(t *testing.T) {
 }
 
 func TestGetSocketTopology(t *testing.T) {
+	t.Parallel()
+
 	as := require.New(t)
 
 	cpuTopology, err := machine.GenerateDummyCPUTopology(16, 2, 4)

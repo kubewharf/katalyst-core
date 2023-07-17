@@ -79,6 +79,8 @@ func newTestMemoryServer(t *testing.T) *memoryServer {
 }
 
 func TestMemoryServerStartAndStop(t *testing.T) {
+	t.Parallel()
+
 	cs := newTestMemoryServer(t)
 
 	err := cs.Start()
@@ -89,6 +91,8 @@ func TestMemoryServerStartAndStop(t *testing.T) {
 }
 
 func TestMemoryServerListAndWatch(t *testing.T) {
+	t.Parallel()
+
 	type ContainerInfo struct {
 		request *advisorsvc.AddContainerRequest
 	}

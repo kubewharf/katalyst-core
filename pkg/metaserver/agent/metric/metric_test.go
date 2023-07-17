@@ -32,6 +32,8 @@ import (
 )
 
 func Test_noneExistMetricsFetcher(t *testing.T) {
+	t.Parallel()
+
 	var err error
 	implement := NewMalachiteMetricsFetcher(metrics.DummyMetrics{}, nil)
 
@@ -133,6 +135,8 @@ func Test_noneExistMetricsFetcher(t *testing.T) {
 }
 
 func Test_notifySystem(t *testing.T) {
+	t.Parallel()
+
 	now := time.Now()
 
 	f := NewMalachiteMetricsFetcher(metrics.DummyMetrics{}, nil)
@@ -195,10 +199,12 @@ func Test_notifySystem(t *testing.T) {
 		}
 	}()
 
-	time.Sleep(time.Second * 10)
+	time.Sleep(time.Millisecond * 3)
 }
 
 func TestStore_Aggregate(t *testing.T) {
+	t.Parallel()
+
 	now := time.Now()
 
 	f := NewMalachiteMetricsFetcher(metrics.DummyMetrics{}, nil).(*MalachiteMetricsFetcher)

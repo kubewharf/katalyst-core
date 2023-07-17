@@ -34,6 +34,8 @@ func newMetricsEmitter() (MetricEmitter, error) {
 }
 
 func TestMetrics(t *testing.T) {
+	t.Parallel()
+
 	emitt, err := newMetricsEmitter()
 	if err != nil {
 		t.Errorf("new open telemetry Prometheus Metrics Emitter error:%v", err)
@@ -63,15 +65,17 @@ func TestMetrics(t *testing.T) {
 }
 
 func TestClock(t *testing.T) {
+	t.Parallel()
+
 	last := time.Now()
 	c := prometheusClock{last: last}
-	_ = c.Ticker(time.Second)
+	_ = c.Ticker(time.Millisecond * 3)
 
 	select {
 	case <-c.t.C():
 		c.Now()
 	}
 
-	assert.Equal(t, true, c.Now().Sub(last) > time.Second)
+	assert.Equal(t, true, c.Now().Sub(last) > time.Millisecond*3)
 	c.Stop()
 }

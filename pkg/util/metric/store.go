@@ -48,28 +48,17 @@ type MetricStore struct {
 	cgroupNumaMetricMap       map[string]map[string]map[string]MetricData            // map[cgroupPath]map[numaNode]map[metricName]value
 }
 
-var (
-	metricStoreInstance *MetricStore
-	metricStoreInitOnce sync.Once
-)
-
-// GetMetricStoreInstance is defined as a singleton function to make sure
-// only one metric instance is initialized
-func GetMetricStoreInstance() *MetricStore {
-	metricStoreInitOnce.Do(
-		func() {
-			metricStoreInstance = &MetricStore{
-				nodeMetricMap:             make(map[string]MetricData),
-				numaMetricMap:             make(map[int]map[string]MetricData),
-				deviceMetricMap:           make(map[string]map[string]MetricData),
-				cpuMetricMap:              make(map[int]map[string]MetricData),
-				podContainerMetricMap:     make(map[string]map[string]map[string]MetricData),
-				podContainerNumaMetricMap: make(map[string]map[string]map[string]map[string]MetricData),
-				cgroupMetricMap:           make(map[string]map[string]MetricData),
-				cgroupNumaMetricMap:       make(map[string]map[string]map[string]MetricData),
-			}
-		})
-	return metricStoreInstance
+func NewMetricStore() *MetricStore {
+	return &MetricStore{
+		nodeMetricMap:             make(map[string]MetricData),
+		numaMetricMap:             make(map[int]map[string]MetricData),
+		deviceMetricMap:           make(map[string]map[string]MetricData),
+		cpuMetricMap:              make(map[int]map[string]MetricData),
+		podContainerMetricMap:     make(map[string]map[string]map[string]MetricData),
+		podContainerNumaMetricMap: make(map[string]map[string]map[string]map[string]MetricData),
+		cgroupMetricMap:           make(map[string]map[string]MetricData),
+		cgroupNumaMetricMap:       make(map[string]map[string]map[string]MetricData),
+	}
 }
 
 func (c *MetricStore) SetNodeMetric(metricName string, data MetricData) {

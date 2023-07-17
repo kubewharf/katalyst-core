@@ -115,6 +115,8 @@ func generateStorePod(namespace, name, nameLabel string, port int32) *v1.Pod {
 }
 
 func TestWithLocalStore(t *testing.T) {
+	t.Parallel()
+
 	ctx := context.Background()
 
 	p1 := generateStorePodMeta("ns-1", "pod-1", "full_metric_with_conflict_time", 11)
@@ -144,9 +146,21 @@ func TestWithLocalStore(t *testing.T) {
 	testProvider(t, p, s, ctx, baseCtx, genericConf, storeConf)
 }
 
-func TestWithRemoteStore(t *testing.T) {
+func TestWithRemoteStoreOne(t *testing.T) {
+	t.Parallel()
+
 	testWithRemoteStoreWithIndex(t, []int{1})
+}
+
+func TestWithRemoteStoreTwo(t *testing.T) {
+	t.Parallel()
+
 	testWithRemoteStoreWithIndex(t, []int{1, 2})
+}
+
+func TestWithRemoteStoreThree(t *testing.T) {
+	t.Parallel()
+
 	testWithRemoteStoreWithIndex(t, []int{1, 2, 3})
 }
 
@@ -161,6 +175,7 @@ func testWithRemoteStoreWithIndex(t *testing.T, index []int) {
 			"test": "local-store",
 		})),
 		StoreServerReplicaTotal: len(index),
+		GCPeriod:                time.Second,
 	}
 
 	lp1 := generateStorePodMeta("ns-1", "pod-1", "full_metric_with_conflict_time", 11)

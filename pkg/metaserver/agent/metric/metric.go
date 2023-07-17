@@ -125,14 +125,10 @@ type MetricsFetcher interface {
 	GetCgroupNumaMetric(cgroupPath, numaNode, metricName string) (metric.MetricData, error)
 }
 
-var (
-	malachiteMetricsFetcherInitOnce sync.Once
-)
-
 // NewMalachiteMetricsFetcher returns the default implementation of MetricsFetcher.
 func NewMalachiteMetricsFetcher(emitter metrics.MetricEmitter, conf *config.Configuration) MetricsFetcher {
 	return &MalachiteMetricsFetcher{
-		metricStore: metric.GetMetricStoreInstance(),
+		metricStore: metric.NewMetricStore(),
 		emitter:     emitter,
 		conf:        conf,
 		registeredNotifier: map[MetricsScope]map[string]NotifiedData{
@@ -153,11 +149,12 @@ type MalachiteMetricsFetcher struct {
 	registeredNotifier map[MetricsScope]map[string]NotifiedData
 
 	sync.RWMutex
-	emitter metrics.MetricEmitter
+	startOnce sync.Once
+	emitter   metrics.MetricEmitter
 }
 
 func (m *MalachiteMetricsFetcher) Run(ctx context.Context) {
-	malachiteMetricsFetcherInitOnce.Do(func() {
+	m.startOnce.Do(func() {
 		go wait.Until(func() { m.sample() }, time.Second*5, ctx.Done())
 	})
 }

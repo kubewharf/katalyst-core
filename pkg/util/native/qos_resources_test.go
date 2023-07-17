@@ -63,6 +63,8 @@ var makeQoSResourcePod = func(name string, container, initContainer, overhead v1
 }
 
 func Test_CalculateQoSResource(t *testing.T) {
+	t.Parallel()
+
 	for _, tc := range []struct {
 		name string
 		pod  *v1.Pod

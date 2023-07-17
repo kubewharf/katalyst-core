@@ -27,23 +27,24 @@ import (
 	"github.com/stretchr/testify/assert"
 
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/pod"
+	"github.com/kubewharf/katalyst-core/pkg/metaserver/external/cgroupid"
+	"github.com/kubewharf/katalyst-core/pkg/util/external/network"
+	"github.com/kubewharf/katalyst-core/pkg/util/external/rdt"
 )
 
 var (
 	podFetcher = &pod.PodFetcherStub{}
 )
 
-func TestInitExternalManager(t *testing.T) {
-	externalManager := InitExternalManager(podFetcher)
-	assert.NotNil(t, externalManager)
-
-	return
-}
-
 func TestSetNetworkManager(t *testing.T) {
-	externalManager := InitExternalManager(podFetcher).(*externalManagerImpl)
-	assert.NotNil(t, externalManager)
+	t.Parallel()
 
+	externalManager := &externalManagerImpl{
+		start:           false,
+		CgroupIDManager: cgroupid.NewCgroupIDManager(podFetcher),
+		NetworkManager:  network.NewNetworkManager(),
+		RDTManager:      rdt.NewDefaultManager(),
+	}
 	externalManager.start = false
 
 	externalManager.SetNetworkManager(nil)
@@ -51,8 +52,14 @@ func TestSetNetworkManager(t *testing.T) {
 }
 
 func TestRun(t *testing.T) {
-	externalManager := InitExternalManager(podFetcher)
-	assert.NotNil(t, externalManager)
+	t.Parallel()
+
+	externalManager := &externalManagerImpl{
+		start:           false,
+		CgroupIDManager: cgroupid.NewCgroupIDManager(podFetcher),
+		NetworkManager:  network.NewNetworkManager(),
+		RDTManager:      rdt.NewDefaultManager(),
+	}
 
 	ctx, cancel := context.WithTimeout(context.TODO(), time.Second)
 	defer cancel()

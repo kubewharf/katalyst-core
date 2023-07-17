@@ -42,6 +42,8 @@ import (
 )
 
 func TestVPARecControllerSyncVPA(t *testing.T) {
+	t.Parallel()
+
 	pod1 := makePod("pod1",
 		map[string]string{apiconsts.WorkloadAnnotationVPAEnabledKey: apiconsts.WorkloadAnnotationVPAEnabled},
 		map[string]string{"workload": "sts1"},
@@ -353,6 +355,8 @@ func TestVPARecControllerSyncVPA(t *testing.T) {
 }
 
 func TestVPARecControllerSyncVPARec(t *testing.T) {
+	t.Parallel()
+
 	for _, tc := range []struct {
 		name      string
 		vparecOld *apis.VerticalPodAutoscalerRecommendation

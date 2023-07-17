@@ -84,6 +84,8 @@ func generateTestTargetResourceWithTimeout(name, labelSelector string, nodeNames
 }
 
 func Test_findMatchedTargetConfig(t *testing.T) {
+	t.Parallel()
+
 	type args struct {
 		cnc        *apisv1alpha1.CustomNodeConfig
 		configList []*unstructured.Unstructured
@@ -204,6 +206,8 @@ func Test_findMatchedTargetConfig(t *testing.T) {
 }
 
 func TestUpdateKCCTGenericConditions(t *testing.T) {
+	t.Parallel()
+
 	type args struct {
 		status          *apisv1alpha1.GenericConfigStatus
 		conditionType   apisv1alpha1.ConfigConditionType

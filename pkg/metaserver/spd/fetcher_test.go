@@ -40,6 +40,8 @@ import (
 )
 
 func generateTestConfiguration(t *testing.T, nodeName string, checkpoint string) *pkgconfig.Configuration {
+	t.Parallel()
+
 	testConfiguration, err := options.NewOptions().Config()
 	require.NoError(t, err)
 	require.NotNil(t, testConfiguration)
@@ -50,6 +52,8 @@ func generateTestConfiguration(t *testing.T, nodeName string, checkpoint string)
 }
 
 func Test_spdManager_GetSPD(t *testing.T) {
+	t.Parallel()
+
 	type fields struct {
 		nodeName string
 		spd      *workloadapis.ServiceProfileDescriptor
@@ -180,7 +184,7 @@ func Test_spdManager_GetSPD(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			dir, err := ioutil.TempDir("", "checkpoint")
+			dir, err := ioutil.TempDir("", "checkpoint-Test_spdManager_GetSPD")
 			require.NoError(t, err)
 			defer os.RemoveAll(dir)
 
@@ -198,7 +202,7 @@ func Test_spdManager_GetSPD(t *testing.T) {
 
 			ctx := context.TODO()
 			go s.Run(ctx)
-			time.Sleep(1 * time.Second)
+			time.Sleep(1 * time.Millisecond)
 
 			got, err := s.GetSPD(ctx, tt.args.pod)
 			if (err != nil) != tt.wantErr {

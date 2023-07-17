@@ -26,6 +26,8 @@ import (
 )
 
 func TestCPUPB(t *testing.T) {
+	t.Parallel()
+
 	OverlapType_OverlapWithPod.EnumDescriptor()
 	_ = OverlapType_OverlapWithPod.String()
 
@@ -217,32 +219,44 @@ func TestCPUPB(t *testing.T) {
 }
 
 func TestAddContainer(t *testing.T) {
+	t.Parallel()
+
 	testServer := &UnimplementedCPUAdvisorServer{}
 	testServer.AddContainer(context.Background(), &advisorsvc.AddContainerRequest{})
 }
 
 func TestRemovePod(t *testing.T) {
+	t.Parallel()
+
 	testServer := &UnimplementedCPUAdvisorServer{}
 	testServer.RemovePod(context.Background(), &advisorsvc.RemovePodRequest{})
 }
 
 func TestListAndWatch(t *testing.T) {
+	t.Parallel()
+
 	testServer := &UnimplementedCPUAdvisorServer{}
 	testServer.ListAndWatch(&advisorsvc.Empty{}, &cPUAdvisorListAndWatchServer{})
 }
 
 func TestGetCheckpoint(t *testing.T) {
+	t.Parallel()
+
 	testServer := &UnimplementedCPUPluginServer{}
 	testServer.GetCheckpoint(context.Background(), &GetCheckpointRequest{})
 }
 
 func TestRegisterCPUAdvisorServer(t *testing.T) {
+	t.Parallel()
+
 	grpcServer := grpc.NewServer()
 	testServer := &UnimplementedCPUAdvisorServer{}
 	RegisterCPUAdvisorServer(grpcServer, testServer)
 }
 
 func TestRegisterCPUPluginServer(t *testing.T) {
+	t.Parallel()
+
 	grpcServer := grpc.NewServer()
 	testServer := &UnimplementedCPUPluginServer{}
 	RegisterCPUPluginServer(grpcServer, testServer)

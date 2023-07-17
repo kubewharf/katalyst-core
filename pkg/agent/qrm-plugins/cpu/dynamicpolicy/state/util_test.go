@@ -33,6 +33,8 @@ import (
 )
 
 func TestGenerateCPUMachineStateByPodEntries(t *testing.T) {
+	t.Parallel()
+
 	as := require.New(t)
 	cpuTopology, err := machine.GenerateDummyCPUTopology(16, 2, 4)
 	as.Nil(err)
@@ -496,7 +498,7 @@ func TestGenerateCPUMachineStateByPodEntries(t *testing.T) {
 	}
 
 	for _, tc := range testCases {
-		tmpDir, err := ioutil.TempDir("", "checkpoint")
+		tmpDir, err := ioutil.TempDir("", "checkpoint-TestGenerateCPUMachineStateByPodEntries")
 		as.Nil(err)
 
 		machineState, err := GenerateMachineStateFromPodEntries(tc.cpuTopology, tc.podEntries)

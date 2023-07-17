@@ -61,8 +61,9 @@ func generatePluginConfig(t *testing.T, ckDir, sfDir string) *katalystconfig.Con
 }
 
 func TestAdvisor(t *testing.T) {
+	t.Parallel()
 
-	ckDir, err := ioutil.TempDir("", "checkpoint")
+	ckDir, err := ioutil.TempDir("", "checkpoint-TestAdvisor")
 	require.NoError(t, err)
 	defer os.RemoveAll(ckDir)
 
@@ -100,11 +101,13 @@ func TestAdvisor(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	go advisor.Run(ctx)
 
-	time.Sleep(time.Second * 3)
+	time.Sleep(time.Millisecond * 30)
 	cancel()
 }
 
 func TestPlugins(t *testing.T) {
+	t.Parallel()
+
 	type args struct {
 		initFn plugin.AdvisorPluginInitFunc
 	}
@@ -132,7 +135,7 @@ func TestPlugins(t *testing.T) {
 		DynamicClient:  dynamicfake.NewSimpleDynamicClient(runtime.NewScheme()),
 	}
 
-	ckDir, err := ioutil.TempDir("", "checkpoint")
+	ckDir, err := ioutil.TempDir("", "checkpoint-TestPlugins")
 	require.NoError(t, err)
 	defer os.RemoveAll(ckDir)
 
@@ -178,13 +181,15 @@ func TestPlugins(t *testing.T) {
 }
 
 func TestMetaServer(t *testing.T) {
+	t.Parallel()
+
 	client := &client.GenericClientSet{
 		KubeClient:     fake.NewSimpleClientset(),
 		InternalClient: internalfake.NewSimpleClientset(),
 		DynamicClient:  dynamicfake.NewSimpleDynamicClient(runtime.NewScheme()),
 	}
 
-	ckDir, err := ioutil.TempDir("", "checkpoint")
+	ckDir, err := ioutil.TempDir("", "checkpoint-TestMetaServer")
 	require.NoError(t, err)
 	defer os.RemoveAll(ckDir)
 

@@ -78,9 +78,11 @@ func constructPodFetcher(names []string) pod.PodFetcher {
 }
 
 func TestFetcher(t *testing.T) {
+	t.Parallel()
+
 	ctx, cancel := context.WithCancel(context.Background())
 	conf, _ := options.NewOptions().Config()
-	conf.CheckpointManagerDir = "/tmp/test"
+	conf.CheckpointManagerDir = "/tmp/TestFetcher"
 	bCtx, _ := katalyst_base.GenerateFakeGenericContext(nil, nil, nil)
 
 	agent, err := NewMetaAgent(conf, bCtx.Client, metrics.DummyMetrics{})

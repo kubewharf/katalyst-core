@@ -124,6 +124,8 @@ func newTestMemoryAdvisor(t *testing.T, pods []*v1.Pod, checkpointDir, stateFile
 }
 
 func TestUpdate(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name            string
 		pools           map[string]*types.PoolInfo
@@ -255,7 +257,7 @@ func TestUpdate(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ckDir, err := ioutil.TempDir("", "checkpoint")
+			ckDir, err := ioutil.TempDir("", "checkpoint-TestUpdate")
 			require.NoError(t, err)
 			defer os.RemoveAll(ckDir)
 

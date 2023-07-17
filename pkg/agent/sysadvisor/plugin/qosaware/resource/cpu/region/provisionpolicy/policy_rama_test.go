@@ -118,6 +118,8 @@ func newTestPolicyRama(t *testing.T, checkpointDir string, stateFileDir string, 
 }
 
 func TestPolicyRama(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name               string
 		regionInfo         types.RegionInfo

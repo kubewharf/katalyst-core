@@ -88,6 +88,8 @@ func testMarshal(t *testing.T, v interface{}) []byte {
 }
 
 func Test_parseReportFieldToCNR(t *testing.T) {
+	t.Parallel()
+
 	type args struct {
 		cnr         *nodev1alpha1.CustomNodeResource
 		reportField v1alpha1.ReportField
@@ -255,6 +257,8 @@ func Test_parseReportFieldToCNR(t *testing.T) {
 }
 
 func Test_initializeCNRFields(t *testing.T) {
+	t.Parallel()
+
 	type args struct {
 		cnr   *nodev1alpha1.CustomNodeResource
 		field v1alpha1.ReportField
@@ -357,6 +361,8 @@ func Test_initializeCNRFields(t *testing.T) {
 }
 
 func Test_cnrReporterImpl_Update(t *testing.T) {
+	t.Parallel()
+
 	type fields struct {
 		defaultCNR *nodev1alpha1.CustomNodeResource
 	}

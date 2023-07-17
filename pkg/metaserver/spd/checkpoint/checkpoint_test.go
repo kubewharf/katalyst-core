@@ -30,6 +30,8 @@ import (
 
 // TestWriteLoadDeleteSPDs validates all combinations of write, load, and delete
 func TestWriteLoadDeleteSPDs(t *testing.T) {
+	t.Parallel()
+
 	testSPDs := []*v1alpha1.ServiceProfileDescriptor{
 		{
 			ObjectMeta: metav1.ObjectMeta{
@@ -61,7 +63,7 @@ func TestWriteLoadDeleteSPDs(t *testing.T) {
 		},
 	}
 
-	dir, err := ioutil.TempDir("", "checkpoint")
+	dir, err := ioutil.TempDir("", "checkpoint-TestWriteLoadDeleteSPDs")
 	if err != nil {
 		t.Errorf("failed to allocate temp directory for TestWriteLoadDeleteSPDs error=%v", err)
 	}

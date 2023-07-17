@@ -270,6 +270,7 @@ func (f *Fit) Filter(ctx context.Context, cycleState *framework.CycleState, pod 
 		}
 		return framework.NewStatus(framework.Unschedulable, failureReasons...)
 	}
+
 	return nil
 }
 

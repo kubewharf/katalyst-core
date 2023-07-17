@@ -31,6 +31,8 @@ import (
 )
 
 func TestMetricsClient(t *testing.T) {
+	t.Parallel()
+
 	client := GenericClientSet{
 		CustomClient:   &cmfake.FakeCustomMetricsClient{},
 		ExternalClient: &emfake.FakeExternalMetricsClient{},

@@ -36,6 +36,8 @@ import (
 )
 
 func TestCustomNodeConfigController_Run(t *testing.T) {
+	t.Parallel()
+
 	type args struct {
 		cncAndKCCList []runtime.Object
 		kccTargetList []runtime.Object

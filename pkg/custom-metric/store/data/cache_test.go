@@ -26,6 +26,8 @@ import (
 )
 
 func Test_cache(t *testing.T) {
+	t.Parallel()
+
 	c := NewCachedMetric(metrics.DummyMetrics{})
 
 	var (

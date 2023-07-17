@@ -40,6 +40,8 @@ import (
 )
 
 func TestGetSPDForPod(t *testing.T) {
+	t.Parallel()
+
 	scheme := runtime.NewScheme()
 	utilruntime.Must(v1.AddToScheme(scheme))
 	utilruntime.Must(appsv1.AddToScheme(scheme))

@@ -30,6 +30,8 @@ import (
 )
 
 func TestNewGenericHeadroomManager(t *testing.T) {
+	t.Parallel()
+
 	type args struct {
 		name                  v1.ResourceName
 		useMilliValue         bool
@@ -77,6 +79,8 @@ func TestNewGenericHeadroomManager(t *testing.T) {
 }
 
 func TestGenericHeadroomManager_Allocatable(t *testing.T) {
+	t.Parallel()
+
 	r := hmadvisor.NewResourceAdvisorStub()
 	reclaimOptions := GenericReclaimOptions{
 		EnableReclaim:                 true,

@@ -35,6 +35,8 @@ var (
 )
 
 func TestNewDefaultManager(t *testing.T) {
+	t.Parallel()
+
 	defaultManager := NewNetworkManager()
 	assert.NotNil(t, defaultManager)
 
@@ -42,6 +44,8 @@ func TestNewDefaultManager(t *testing.T) {
 }
 
 func TestApplyNetClass(t *testing.T) {
+	t.Parallel()
+
 	defaultManager := NewNetworkManager()
 	assert.NotNil(t, defaultManager)
 
@@ -55,6 +59,8 @@ func TestApplyNetClass(t *testing.T) {
 }
 
 func TestClearNetClass(t *testing.T) {
+	t.Parallel()
+
 	defaultManager := NewNetworkManager()
 	assert.NotNil(t, defaultManager)
 

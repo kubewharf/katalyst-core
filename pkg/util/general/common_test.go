@@ -24,32 +24,44 @@ import (
 )
 
 func TestMax(t *testing.T) {
+	t.Parallel()
+
 	as := require.New(t)
 	as.Equal(2, Max(1, 2))
 }
 
 func TestMaxUInt64(t *testing.T) {
+	t.Parallel()
+
 	as := require.New(t)
 	as.Equal(uint64(2), MaxUInt64(1, 2))
 }
 
 func TestMinUInt64(t *testing.T) {
+	t.Parallel()
+
 	as := require.New(t)
 	as.Equal(uint64(2), MaxUInt64(1, 2))
 }
 
 func TestMaxInt64(t *testing.T) {
+	t.Parallel()
+
 	as := require.New(t)
 	as.Equal(int64(2), MaxInt64(1, 2))
 }
 
 func TestGetValueWithDefault(t *testing.T) {
+	t.Parallel()
+
 	as := require.New(t)
 	as.Equal("5", GetValueWithDefault(map[string]string{"2": "2"}, "1", "5"))
 	as.Equal("2", GetValueWithDefault(map[string]string{"1": "2"}, "1", "5"))
 }
 
 func TestIsNameEnabled(t *testing.T) {
+	t.Parallel()
+
 	as := require.New(t)
 	as.Equal(true, IsNameEnabled("test", sets.NewString(), []string{"test"}))
 	as.Equal(true, IsNameEnabled("test", sets.NewString(), []string{"*"}))
@@ -57,12 +69,16 @@ func TestIsNameEnabled(t *testing.T) {
 }
 
 func TestParseUint64PointerToString(t *testing.T) {
+	t.Parallel()
+
 	as := require.New(t)
 	var a uint64 = 5
 	as.Equal(ParseUint64PointerToString(&a), "5")
 }
 
 func TestParseStringToUint64Pointer(t *testing.T) {
+	t.Parallel()
+
 	as := require.New(t)
 	p, err := ParseStringToUint64Pointer("5")
 	as.Nil(err)
@@ -70,6 +86,8 @@ func TestParseStringToUint64Pointer(t *testing.T) {
 }
 
 func TestGetInt64PointerFromUint64Pointer(t *testing.T) {
+	t.Parallel()
+
 	as := require.New(t)
 	var a uint64 = 5
 	p, err := GetInt64PointerFromUint64Pointer(&a)
@@ -78,35 +96,47 @@ func TestGetInt64PointerFromUint64Pointer(t *testing.T) {
 }
 
 func TestGetStringValueFromMap(t *testing.T) {
+	t.Parallel()
+
 	as := require.New(t)
 	as.Equal("a", GetStringValueFromMap(map[string]string{"labelA": "a"}, "labelA"))
 	as.Equal("", GetStringValueFromMap(map[string]string{"labelB": "a"}, "labelA"))
 }
 
 func TestGenerateHash(t *testing.T) {
+	t.Parallel()
+
 	as := require.New(t)
 	as.Greater(len(GenerateHash([]byte{60, 60}, 5)), 0)
 }
 
 func TestCheckMapEqual(t *testing.T) {
+	t.Parallel()
+
 	as := require.New(t)
 	as.Equal(true, CheckMapEqual(map[string]string{"labelA": "a"}, map[string]string{"labelA": "a"}))
 	as.Equal(false, CheckMapEqual(map[string]string{"labelB": "a"}, map[string]string{"labelA": "a"}))
 }
 
 func TestUIntPointerToFloat64(t *testing.T) {
+	t.Parallel()
+
 	as := require.New(t)
 	var a uint = 5
 	as.Equal(5.0, UIntPointerToFloat64(&a))
 }
 
 func TestUInt64PointerToFloat64(t *testing.T) {
+	t.Parallel()
+
 	as := require.New(t)
 	var a uint64 = 5
 	as.Equal(5.0, UInt64PointerToFloat64(&a))
 }
 
 func TestJsonPathEmpty(t *testing.T) {
+	t.Parallel()
+
 	as := require.New(t)
 	as.Equal(true, JsonPathEmpty([]byte("{}")))
 	as.Equal(true, JsonPathEmpty([]byte("")))

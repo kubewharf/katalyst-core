@@ -83,6 +83,8 @@ func generateTestMetaServer(t *testing.T, cnr *v1alpha1.CustomNodeResource, podL
 }
 
 func TestHeadroomAssemblerCommon_GetHeadroom(t *testing.T) {
+	t.Parallel()
+
 	now := time.Now()
 
 	type fields struct {
@@ -90,7 +92,7 @@ func TestHeadroomAssemblerCommon_GetHeadroom(t *testing.T) {
 		cnr                            *v1alpha1.CustomNodeResource
 		podList                        []*v1.Pod
 		reclaimedResourceConfiguration *reclaimedresource.ReclaimedResourceConfiguration
-		setFakeMetric                  func(store *utilmetric.MetricStore)
+		setFakeMetric                  func(store *metric.FakeMetricsFetcher)
 		setMetaCache                   func(cache *metacache.MetaCacheImp)
 	}
 	tests := []struct {
@@ -127,7 +129,7 @@ func TestHeadroomAssemblerCommon_GetHeadroom(t *testing.T) {
 						},
 					},
 				},
-				setFakeMetric: func(store *utilmetric.MetricStore) {
+				setFakeMetric: func(store *metric.FakeMetricsFetcher) {
 					for i := 0; i < 10; i++ {
 						store.SetCPUMetric(i, pkgconsts.MetricCPUUsage, utilmetric.MetricData{Value: 30, Time: &now})
 					}
@@ -172,7 +174,7 @@ func TestHeadroomAssemblerCommon_GetHeadroom(t *testing.T) {
 						},
 					},
 				},
-				setFakeMetric: func(store *utilmetric.MetricStore) {
+				setFakeMetric: func(store *metric.FakeMetricsFetcher) {
 					for i := 0; i < 10; i++ {
 						store.SetCPUMetric(i, pkgconsts.MetricCPUUsage, utilmetric.MetricData{Value: 30, Time: &now})
 					}
@@ -217,7 +219,7 @@ func TestHeadroomAssemblerCommon_GetHeadroom(t *testing.T) {
 						},
 					},
 				},
-				setFakeMetric: func(store *utilmetric.MetricStore) {
+				setFakeMetric: func(store *metric.FakeMetricsFetcher) {
 					for i := 0; i < 10; i++ {
 						store.SetCPUMetric(i, pkgconsts.MetricCPUUsage, utilmetric.MetricData{Time: &now})
 					}
@@ -262,7 +264,7 @@ func TestHeadroomAssemblerCommon_GetHeadroom(t *testing.T) {
 						},
 					},
 				},
-				setFakeMetric: func(store *utilmetric.MetricStore) {
+				setFakeMetric: func(store *metric.FakeMetricsFetcher) {
 					for i := 0; i < 96; i++ {
 						store.SetCPUMetric(i, pkgconsts.MetricCPUUsage, utilmetric.MetricData{Value: 90, Time: &now})
 					}
@@ -308,7 +310,7 @@ func TestHeadroomAssemblerCommon_GetHeadroom(t *testing.T) {
 						},
 					},
 				},
-				setFakeMetric: func(store *utilmetric.MetricStore) {
+				setFakeMetric: func(store *metric.FakeMetricsFetcher) {
 					now := time.Now()
 					for i := 0; i < 96; i++ {
 						store.SetCPUMetric(i, pkgconsts.MetricCPUUsage, utilmetric.MetricData{Value: 30, Time: &now})
@@ -329,7 +331,7 @@ func TestHeadroomAssemblerCommon_GetHeadroom(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ckDir, err := ioutil.TempDir("", "checkpoint")
+			ckDir, err := ioutil.TempDir("", "checkpoint-TestHeadroomAssemblerCommon_GetHeadroom")
 			require.NoError(t, err)
 			defer os.RemoveAll(ckDir)
 
@@ -350,7 +352,7 @@ func TestHeadroomAssemblerCommon_GetHeadroom(t *testing.T) {
 			metaServer := generateTestMetaServer(t, tt.fields.cnr, tt.fields.podList, metricsFetcher)
 			ha := NewHeadroomAssemblerCommon(conf, nil, nil, nil, nil, nil, metaCache, metaServer, metrics.DummyMetrics{})
 
-			store := utilmetric.GetMetricStoreInstance()
+			store := metricsFetcher.(*metric.FakeMetricsFetcher)
 			tt.fields.setFakeMetric(store)
 
 			got, err := ha.GetHeadroom()

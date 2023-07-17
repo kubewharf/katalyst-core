@@ -39,6 +39,8 @@ func makeRuledEvictPodForSort(name, scope string, annotations map[string]string,
 }
 
 func TestEvictionStrategyImp(t *testing.T) {
+	t.Parallel()
+
 	testConf, _ := options.NewOptions().Config()
 	s := NewEvictionStrategyImpl(testConf)
 

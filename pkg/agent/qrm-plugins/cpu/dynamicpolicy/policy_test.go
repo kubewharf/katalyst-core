@@ -99,7 +99,7 @@ func getTestDynamicPolicyWithoutInitialization(topology *machine.CPUTopology, st
 		podDebugAnnoKeys: []string{podDebugAnnoKey},
 	}
 
-	state.GetContainerRequestedCores = policyImplement.getContainerRequestedCores
+	state.SetContainerRequestedCores(policyImplement.getContainerRequestedCores)
 
 	// register allocation behaviors for pods with different QoS level
 	policyImplement.allocationHandlers = map[string]util.AllocationHandler{
@@ -119,14 +119,16 @@ func getTestDynamicPolicyWithoutInitialization(topology *machine.CPUTopology, st
 }
 
 func TestInitPoolAndCalculator(t *testing.T) {
+	t.Parallel()
+
 	as := require.New(t)
 
 	cpuTopology, err := machine.GenerateDummyCPUTopology(16, 2, 4)
 	as.Nil(err)
 
-	tmpDir, err := ioutil.TempDir("", "checkpoint")
+	tmpDir, err := ioutil.TempDir("", "checkpoint-TestInitPoolAndCalculator")
 	as.Nil(err)
-	defer os.RemoveAll(tmpDir)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
 
 	policyImpl, err := getTestDynamicPolicyWithoutInitialization(cpuTopology, tmpDir)
 	as.Nil(err)
@@ -142,11 +144,13 @@ func TestInitPoolAndCalculator(t *testing.T) {
 }
 
 func TestRemovePod(t *testing.T) {
+	t.Parallel()
+
 	as := require.New(t)
 
-	tmpDir, err := ioutil.TempDir("", "checkpoint")
+	tmpDir, err := ioutil.TempDir("", "checkpoint-TestRemovePod")
 	as.Nil(err)
-	defer os.RemoveAll(tmpDir)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
 
 	cpuTopology, err := machine.GenerateDummyCPUTopology(16, 2, 4)
 	as.Nil(err)
@@ -210,7 +214,7 @@ func TestRemovePod(t *testing.T) {
 		},
 	}, resp)
 
-	dynamicPolicy.RemovePod(context.Background(), &pluginapi.RemovePodRequest{
+	_, _ = dynamicPolicy.RemovePod(context.Background(), &pluginapi.RemovePodRequest{
 		PodUid: req.PodUid,
 	})
 
@@ -223,6 +227,8 @@ func TestRemovePod(t *testing.T) {
 }
 
 func TestAllocate(t *testing.T) {
+	t.Parallel()
+
 	as := require.New(t)
 	cpuTopology, err := machine.GenerateDummyCPUTopology(16, 2, 4)
 	as.Nil(err)
@@ -655,7 +661,7 @@ func TestAllocate(t *testing.T) {
 	}
 
 	for _, tc := range testCases {
-		tmpDir, err := ioutil.TempDir("", "checkpoint")
+		tmpDir, err := ioutil.TempDir("", "checkpoint-TestAllocate")
 		as.Nil(err)
 
 		dynamicPolicy, err := getTestDynamicPolicyWithInitialization(tc.cpuTopology, tmpDir)
@@ -671,11 +677,13 @@ func TestAllocate(t *testing.T) {
 		tc.expectedResp.PodUid = tc.req.PodUid
 		as.Equalf(tc.expectedResp, resp, "failed in test case: %s", tc.description)
 
-		os.RemoveAll(tmpDir)
+		_ = os.RemoveAll(tmpDir)
 	}
 }
 
 func TestGetTopologyHints(t *testing.T) {
+	t.Parallel()
+
 	as := require.New(t)
 	cpuTopology, err := machine.GenerateDummyCPUTopology(16, 2, 4)
 	as.Nil(err)
@@ -1069,7 +1077,7 @@ func TestGetTopologyHints(t *testing.T) {
 	}
 
 	for _, tc := range testCases {
-		tmpDir, err := ioutil.TempDir("", "checkpoint")
+		tmpDir, err := ioutil.TempDir("", "checkpoint-TestGetTopologyHints")
 		as.Nil(err)
 
 		dynamicPolicy, err := getTestDynamicPolicyWithInitialization(tc.cpuTopology, tmpDir)
@@ -1085,16 +1093,18 @@ func TestGetTopologyHints(t *testing.T) {
 		tc.expectedResp.PodUid = tc.req.PodUid
 		as.Equalf(tc.expectedResp, resp, "failed in test case: %s", tc.description)
 
-		os.RemoveAll(tmpDir)
+		_ = os.RemoveAll(tmpDir)
 	}
 }
 
 func TestGetTopologyAwareAllocatableResources(t *testing.T) {
+	t.Parallel()
+
 	as := require.New(t)
 
-	tmpDir, err := ioutil.TempDir("", "checkpoint")
+	tmpDir, err := ioutil.TempDir("", "checkpoint-TestGetTopologyAwareAllocatableResources")
 	as.Nil(err)
-	defer os.RemoveAll(tmpDir)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
 
 	cpuTopology, err := machine.GenerateDummyCPUTopology(16, 2, 4)
 	as.Nil(err)
@@ -1130,6 +1140,8 @@ func TestGetTopologyAwareAllocatableResources(t *testing.T) {
 }
 
 func TestGetTopologyAwareResources(t *testing.T) {
+	t.Parallel()
+
 	as := require.New(t)
 	cpuTopology, err := machine.GenerateDummyCPUTopology(16, 2, 4)
 	as.Nil(err)
@@ -1257,7 +1269,7 @@ func TestGetTopologyAwareResources(t *testing.T) {
 	}
 
 	for _, tc := range testCases {
-		tmpDir, err := ioutil.TempDir("", "checkpoint")
+		tmpDir, err := ioutil.TempDir("", "checkpoint-TestGetTopologyAwareResources")
 		as.Nil(err)
 
 		dynamicPolicy, err := getTestDynamicPolicyWithInitialization(tc.cpuTopology, tmpDir)
@@ -1282,11 +1294,11 @@ func TestGetTopologyAwareResources(t *testing.T) {
 		as.Equalf(tc.expectedResp, resp, "failed in test case: %s", tc.description)
 
 		if tc.req.Annotations[consts.PodAnnotationQoSLevelKey] == consts.PodAnnotationQoSLevelSharedCores {
-			originalTransitionPeriod := transitionPeriod
-			transitionPeriod = time.Second
-			time.Sleep(2 * time.Second)
+			originalTransitionPeriod := dynamicPolicy.transitionPeriod
+			dynamicPolicy.transitionPeriod = time.Millisecond * 10
+			time.Sleep(20 * time.Millisecond)
 			_, err = dynamicPolicy.GetResourcesAllocation(context.Background(), &pluginapi.GetResourcesAllocationRequest{})
-			transitionPeriod = originalTransitionPeriod
+			dynamicPolicy.transitionPeriod = originalTransitionPeriod
 			as.Nil(err)
 			allocationInfo := dynamicPolicy.state.GetAllocationInfo(tc.req.PodUid, testName)
 			as.NotNil(allocationInfo)
@@ -1329,11 +1341,13 @@ func TestGetTopologyAwareResources(t *testing.T) {
 }
 
 func TestGetResourcesAllocation(t *testing.T) {
+	t.Parallel()
+
 	as := require.New(t)
 
-	tmpDir, err := ioutil.TempDir("", "checkpoint")
+	tmpDir, err := ioutil.TempDir("", "checkpoint-TestGetResourcesAllocation")
 	as.Nil(err)
-	defer os.RemoveAll(tmpDir)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
 
 	cpuTopology, err := machine.GenerateDummyCPUTopology(16, 2, 4)
 	as.Nil(err)
@@ -1381,12 +1395,12 @@ func TestGetResourcesAllocation(t *testing.T) {
 	})
 
 	// test after ramping up
-	originalTransitionPeriod := transitionPeriod
-	transitionPeriod = time.Second
-	time.Sleep(2 * time.Second)
+	originalTransitionPeriod := dynamicPolicy.transitionPeriod
+	dynamicPolicy.transitionPeriod = time.Millisecond * 10
+	time.Sleep(20 * time.Millisecond)
 	_, err = dynamicPolicy.GetResourcesAllocation(context.Background(), &pluginapi.GetResourcesAllocationRequest{})
 	as.Nil(err)
-	transitionPeriod = originalTransitionPeriod
+	dynamicPolicy.transitionPeriod = originalTransitionPeriod
 	allocationInfo := dynamicPolicy.state.GetAllocationInfo(req.PodUid, testName)
 	as.NotNil(allocationInfo)
 	as.Equal(allocationInfo.RampUp, false)
@@ -1443,6 +1457,8 @@ func TestGetResourcesAllocation(t *testing.T) {
 }
 
 func TestAllocateByQoSAwareServerListAndWatchResp(t *testing.T) {
+	t.Parallel()
+
 	as := require.New(t)
 	cpuTopology, err := machine.GenerateDummyCPUTopology(16, 2, 4)
 	as.Nil(err)
@@ -2786,8 +2802,8 @@ func TestAllocateByQoSAwareServerListAndWatchResp(t *testing.T) {
 		},
 	}
 
-	for _, tc := range testCases {
-		tmpDir, err := ioutil.TempDir("", "checkpoint")
+	for i, tc := range testCases {
+		tmpDir, err := ioutil.TempDir("", fmt.Sprintf("checkpoint-TestAllocateByQoSAwareServerListAndWatchResp-%v", i))
 		as.Nil(err)
 
 		dynamicPolicy, err := getTestDynamicPolicyWithInitialization(tc.cpuTopology, tmpDir)
@@ -2888,6 +2904,8 @@ func entriesMatch(entries1, entries2 state.PodEntries) (bool, error) {
 }
 
 func TestGetReadonlyState(t *testing.T) {
+	t.Parallel()
+
 	as := require.New(t)
 	readonlyState, err := GetReadonlyState()
 	as.NotNil(err)
@@ -2895,9 +2913,11 @@ func TestGetReadonlyState(t *testing.T) {
 }
 
 func TestClearResidualState(t *testing.T) {
+	t.Parallel()
+
 	as := require.New(t)
 
-	tmpDir, err := ioutil.TempDir("", "checkpoint")
+	tmpDir, err := ioutil.TempDir("", "checkpoint_TestClearResidualState")
 	as.Nil(err)
 	defer os.RemoveAll(tmpDir)
 
@@ -2911,9 +2931,11 @@ func TestClearResidualState(t *testing.T) {
 }
 
 func TestStart(t *testing.T) {
+	t.Parallel()
+
 	as := require.New(t)
 
-	tmpDir, err := ioutil.TempDir("", "checkpoint")
+	tmpDir, err := ioutil.TempDir("", "checkpoint_TestStart")
 	as.Nil(err)
 	defer os.RemoveAll(tmpDir)
 
@@ -2928,9 +2950,11 @@ func TestStart(t *testing.T) {
 }
 
 func TestStop(t *testing.T) {
+	t.Parallel()
+
 	as := require.New(t)
 
-	tmpDir, err := ioutil.TempDir("", "checkpoint")
+	tmpDir, err := ioutil.TempDir("", "checkpoint_TestStop")
 	as.Nil(err)
 	defer os.RemoveAll(tmpDir)
 
@@ -2945,9 +2969,11 @@ func TestStop(t *testing.T) {
 }
 
 func TestCheckCPUSet(t *testing.T) {
+	t.Parallel()
+
 	as := require.New(t)
 
-	tmpDir, err := ioutil.TempDir("", "checkpoint")
+	tmpDir, err := ioutil.TempDir("", "checkpoint_TestCheckCPUSet")
 	as.Nil(err)
 	defer os.RemoveAll(tmpDir)
 
@@ -2961,6 +2987,8 @@ func TestCheckCPUSet(t *testing.T) {
 }
 
 func TestSchedIdle(t *testing.T) {
+	t.Parallel()
+
 	as := require.New(t)
 
 	_, err1 := os.Stat("/sys/fs/cgroup/cpu/kubepods/cpu.idle")
@@ -2979,7 +3007,7 @@ func TestSchedIdle(t *testing.T) {
 		as.Nil(err)
 
 		var enableCPUIdle bool
-		cgroupcmutils.ApplyCPUWithRelativePath("test", &cgroupcm.CPUData{CpuIdlePtr: &enableCPUIdle})
+		_ = cgroupcmutils.ApplyCPUWithRelativePath("test", &cgroupcm.CPUData{CpuIdlePtr: &enableCPUIdle})
 
 		contents, err := ioutil.ReadFile(filepath.Join(absCgroupPath, "cpu.idle")) //nolint:gosec
 		as.Nil(err)

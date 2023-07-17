@@ -26,6 +26,8 @@ import (
 )
 
 func TestNewCustomMetricsEmitterPool(t *testing.T) {
+	t.Parallel()
+
 	m, err := NewOpenTelemetryPrometheusMetricsEmitterPool(generic.NewMetricsConfiguration(), http.NewServeMux())
 	assert.NoError(t, err)
 

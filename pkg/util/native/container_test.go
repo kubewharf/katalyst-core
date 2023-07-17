@@ -24,12 +24,16 @@ import (
 )
 
 func TestContainerNotRunning(t *testing.T) {
+	t.Parallel()
+
 	as := require.New(t)
 	notRunning := containerNotRunning([]v1.ContainerStatus{})
 	as.Equal(true, notRunning)
 }
 
 func TestTrimContainerIDPrefix(t *testing.T) {
+	t.Parallel()
+
 	as := require.New(t)
 	ida := "docker://abc"
 	idb := "containerd://abc"

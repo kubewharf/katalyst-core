@@ -43,7 +43,7 @@ import (
 
 const (
 	defaultCPUMaxSuppressionToleranceRate     = 5.0
-	defaultCPUMinSuppressionToleranceDuration = 1 * time.Second
+	defaultCPUMinSuppressionToleranceDuration = 10 * time.Millisecond
 )
 
 func makeSuppressionEvictionConf(cpuMaxSuppressionToleranceRate float64,
@@ -56,6 +56,8 @@ func makeSuppressionEvictionConf(cpuMaxSuppressionToleranceRate float64,
 }
 
 func TestNewCPUPressureSuppressionEviction(t *testing.T) {
+	t.Parallel()
+
 	as := require.New(t)
 
 	cpuTopology, err := machine.GenerateDummyCPUTopology(16, 2, 4)
@@ -71,6 +73,8 @@ func TestNewCPUPressureSuppressionEviction(t *testing.T) {
 }
 
 func TestCPUPressureSuppression_GetEvictPods(t *testing.T) {
+	t.Parallel()
+
 	as := require.New(t)
 
 	cpuTopology, err := machine.GenerateDummyCPUTopology(16, 2, 4)
@@ -304,7 +308,7 @@ func TestCPUPressureSuppression_GetEvictPods(t *testing.T) {
 			assert.NoError(t, err)
 			assert.NotNil(t, resp)
 
-			time.Sleep(1 * time.Second)
+			time.Sleep(defaultCPUMinSuppressionToleranceDuration)
 
 			resp, err = plugin.GetEvictPods(context.TODO(), &evictionpluginapi.GetEvictPodsRequest{
 				ActivePods: pods,

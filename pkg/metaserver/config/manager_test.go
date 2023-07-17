@@ -156,6 +156,8 @@ func constructTestDynamicConfigManager(t *testing.T, nodeName string, evictionCo
 }
 
 func TestNewDynamicConfigManager(t *testing.T) {
+	t.Parallel()
+
 	nodeName := "test-node"
 	evictionConfiguration := generateTestEvictionConfiguration(map[v1.ResourceName]float64{
 		v1.ResourceCPU:    1.2,
@@ -182,6 +184,8 @@ func TestNewDynamicConfigManager(t *testing.T) {
 }
 
 func TestDynamicConfigManager_getConfig(t *testing.T) {
+	t.Parallel()
+
 	type fields struct {
 		manager *DynamicConfigManager
 	}
@@ -239,6 +243,8 @@ func TestDynamicConfigManager_getConfig(t *testing.T) {
 }
 
 func Test_applyDynamicConfig(t *testing.T) {
+	t.Parallel()
+
 	type args struct {
 		currentConfig *dynamic.Configuration
 		dynamicConf   *crd.DynamicConfigCRD
@@ -355,6 +361,8 @@ func Test_applyDynamicConfig(t *testing.T) {
 }
 
 func Test_getGVRToKindMap(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name    string
 		wantGVR schema.GroupVersionResource
@@ -390,6 +398,8 @@ func checkGVRToGVKMap(gvr schema.GroupVersionResource, wantGVK schema.GroupVersi
 }
 
 func Test_updateDynamicConf(t *testing.T) {
+	t.Parallel()
+
 	type args struct {
 		resourceGVRMap map[string]metav1.GroupVersionResource
 		gvrToKind      map[schema.GroupVersionResource]schema.GroupVersionKind

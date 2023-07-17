@@ -97,6 +97,8 @@ func makeSystemPressureEvictionPlugin(conf *config.Configuration) (*SystemPressu
 }
 
 func TestNewSystemPressureEvictionPlugin(t *testing.T) {
+	t.Parallel()
+
 	plugin, err := makeSystemPressureEvictionPlugin(makeConf())
 	assert.NoError(t, err)
 	assert.NotNil(t, plugin)
@@ -111,6 +113,8 @@ func TestNewSystemPressureEvictionPlugin(t *testing.T) {
 }
 
 func TestSystemPressureEvictionPlugin_ThresholdMet(t *testing.T) {
+	t.Parallel()
+
 	plugin, err := makeSystemPressureEvictionPlugin(makeConf())
 	assert.NoError(t, err)
 	assert.NotNil(t, plugin)
@@ -290,6 +294,8 @@ func TestSystemPressureEvictionPlugin_ThresholdMet(t *testing.T) {
 }
 
 func TestSystemPressureEvictionPlugin_GetTopEvictionPods(t *testing.T) {
+	t.Parallel()
+
 	plugin, err := makeSystemPressureEvictionPlugin(makeConf())
 	assert.NoError(t, err)
 	assert.NotNil(t, plugin)

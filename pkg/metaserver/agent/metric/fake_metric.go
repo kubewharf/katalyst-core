@@ -43,7 +43,7 @@ import (
 // NewFakeMetricsFetcher returns a fake MetricsFetcher.
 func NewFakeMetricsFetcher(emitter metrics.MetricEmitter) MetricsFetcher {
 	return &FakeMetricsFetcher{
-		metricStore: metric.GetMetricStoreInstance(),
+		metricStore: metric.NewMetricStore(),
 		emitter:     emitter,
 	}
 }

@@ -30,6 +30,7 @@ import (
 
 // k8sCgroupPathList is used to record cgroup-path related configurations,
 // and it will be set as SystemdRootPath (along with kubernetes levels) as default.
+var k8sCgroupPathLock sync.RWMutex
 var k8sCgroupPathList = sets.NewString(
 	CgroupFsRootPath,
 	CgroupFsRootPathBestEffort,
@@ -44,6 +45,8 @@ var k8sCgroupPathSettingOnce = sync.Once{}
 func InitKubernetesCGroupPath(cgroupType CgroupType, additionalK8SCGroupPath []string) {
 	k8sCgroupPathSettingOnce.Do(func() {
 		if cgroupType == CgroupTypeSystemd {
+			k8sCgroupPathLock.Lock()
+			defer k8sCgroupPathLock.Unlock()
 			k8sCgroupPathList = sets.NewString(
 				SystemdRootPath,
 				SystemdRootPathBestEffort,
@@ -72,6 +75,9 @@ func GetAbsCgroupPath(subsys, suffix string) string {
 // GetKubernetesCgroupRootPathWithSubSys returns all Cgroup paths to run container for
 // kubernetes, and the returned values are merged with subsys.
 func GetKubernetesCgroupRootPathWithSubSys(subsys string) []string {
+	k8sCgroupPathLock.RLock()
+	defer k8sCgroupPathLock.RUnlock()
+
 	var subsysCgroupPathList []string
 	for _, p := range k8sCgroupPathList.List() {
 		subsysCgroupPathList = append(subsysCgroupPathList,

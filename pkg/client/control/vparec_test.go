@@ -28,6 +28,8 @@ import (
 )
 
 func TestPatchVPARec(t *testing.T) {
+	t.Parallel()
+
 	oldvparec1 := &apis.VerticalPodAutoscalerRecommendation{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "vpa1",
@@ -74,6 +76,8 @@ func TestPatchVPARec(t *testing.T) {
 }
 
 func TestPatchVPARecStatus(t *testing.T) {
+	t.Parallel()
+
 	oldvparec1 := &apis.VerticalPodAutoscalerRecommendation{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "vpa1",
