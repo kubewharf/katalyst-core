@@ -14,7 +14,7 @@ Some components and tools are delivered as binary artifacts. The release version
 mkdir deploy
 cd deploy
 
-wget https://github.com/containerd/containerd/releases/download/v1.4.12/containerd-1.6.9-linux-amd64.tar.gz
+wget https://github.com/containerd/containerd/releases/download/v1.4.12/containerd-1.4.12-linux-amd64.tar.gz
 wget https://github.com/opencontainers/runc/releases/download/v1.1.1/runc.amd64
 wget https://github.com/kubernetes-sigs/cri-tools/releases/download/v1.25.0/crictl-v1.25.0-linux-amd64.tar.gz
 wget https://github.com/kubewharf/enhanced-k8s/releases/download/v1.24.6-kubewharf.4/kubernetes-node-linux-amd64.tar.gz
