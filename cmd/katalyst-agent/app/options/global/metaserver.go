@@ -38,6 +38,7 @@ const (
 const (
 	defaultKubeletReadOnlyPort          = 10255
 	defaultKubeletSecurePort            = 10250
+	defaultEnableKubeletSecurePort      = false
 	defaultRemoteRuntimeEndpoint        = "unix:///run/containerd/containerd.sock"
 	defaultKubeletPodCacheSyncPeriod    = 30 * time.Second
 	defaultRuntimePodCacheSyncPeriod    = 30 * time.Second
@@ -68,6 +69,7 @@ type MetaServerOptions struct {
 
 	KubeletReadOnlyPort          int
 	KubeletSecurePort            int
+	EnableKubeletSecurePort      bool
 	KubeletPodCacheSyncPeriod    time.Duration
 	KubeletPodCacheSyncMaxRate   int
 	KubeletPodCacheSyncBurstBulk int
@@ -95,6 +97,7 @@ func NewMetaServerOptions() *MetaServerOptions {
 		ConfigCheckpointGraceTime:      defaultConfigCheckpointGraceTime,
 		KubeletReadOnlyPort:            defaultKubeletReadOnlyPort,
 		KubeletSecurePort:              defaultKubeletSecurePort,
+		EnableKubeletSecurePort:        defaultEnableKubeletSecurePort,
 		RemoteRuntimeEndpoint:          defaultRemoteRuntimeEndpoint,
 		KubeletPodCacheSyncPeriod:      defaultKubeletPodCacheSyncPeriod,
 		RuntimePodCacheSyncPeriod:      defaultRuntimePodCacheSyncPeriod,
@@ -131,6 +134,8 @@ func (o *MetaServerOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 		"The read-only port for the kubelet to serve")
 	fs.IntVar(&o.KubeletSecurePort, "kubelet-secure-port", o.KubeletSecurePort,
 		"The secure port for the kubelet to serve")
+	fs.BoolVar(&o.EnableKubeletSecurePort, "enable-kubelet-secure-port", o.EnableKubeletSecurePort,
+		"Whether to enable get contents from kubelet secure port")
 	fs.StringVar(&o.RemoteRuntimeEndpoint, "remote-runtime-endpoint", o.RemoteRuntimeEndpoint,
 		"The endpoint of remote runtime service")
 	fs.DurationVar(&o.KubeletPodCacheSyncPeriod, "kubelet-pod-cache-sync-period", o.KubeletPodCacheSyncPeriod,
@@ -165,6 +170,7 @@ func (o *MetaServerOptions) ApplyTo(c *global.MetaServerConfiguration) error {
 	c.ConfigSkipFailedInitialization = o.ConfigSkipFailedInitialization
 	c.ConfigCheckpointGraceTime = o.ConfigCheckpointGraceTime
 	c.KubeletReadOnlyPort = o.KubeletReadOnlyPort
+	c.EnableKubeletSecurePort = o.EnableKubeletSecurePort
 	c.KubeletSecurePort = o.KubeletSecurePort
 	c.RemoteRuntimeEndpoint = o.RemoteRuntimeEndpoint
 	c.KubeletPodCacheSyncPeriod = o.KubeletPodCacheSyncPeriod

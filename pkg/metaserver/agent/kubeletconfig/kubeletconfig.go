@@ -1,21 +1,28 @@
+/*
+Copyright 2022 The Katalyst Authors.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
 package kubeletconfig
 
 import (
 	"context"
 	"fmt"
-	"net/url"
-	"os"
-
-	kubeletconfigv1beta1 "k8s.io/kubelet/config/v1beta1"
-
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
-	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/process"
-)
-
-const (
-	defaultNodeAddress = "127.0.0.1"
+	kubeletconfigv1beta1 "k8s.io/kubelet/config/v1beta1"
 )
 
 // KubeletConfigFetcher is used to get the configuration of kubelet.
@@ -26,16 +33,9 @@ type KubeletConfigFetcher interface {
 
 // NewKubeletConfigFetcher returns a KubeletConfigFetcher
 func NewKubeletConfigFetcher(conf *config.Configuration, emitter metrics.MetricEmitter) KubeletConfigFetcher {
-	nodeAddress := os.Getenv("NODE_ADDRESS")
-	if nodeAddress == "" {
-		nodeAddress = defaultNodeAddress
-		general.Infof("get empty NODE_ADDRESS from env, use 127.0.0.1 by default")
-	}
-
 	return &kubeletConfigFetcherImpl{
-		emitter:  emitter,
-		conf:     conf,
-		endpoint: fmt.Sprintf("https://%s:%d%s", nodeAddress, conf.KubeletSecurePort, conf.KubeletConfigURI),
+		emitter: emitter,
+		conf:    conf,
 	}
 }
 
@@ -43,20 +43,12 @@ func NewKubeletConfigFetcher(conf *config.Configuration, emitter metrics.MetricE
 type kubeletConfigFetcherImpl struct {
 	emitter metrics.MetricEmitter
 	conf    *config.Configuration
-
-	endpoint string
 }
 
 // GetKubeletConfig gets kubelet config from kubelet 10250/configz api
 func (k *kubeletConfigFetcherImpl) GetKubeletConfig(ctx context.Context) (*kubeletconfigv1beta1.KubeletConfiguration, error) {
-	u, err := url.ParseRequestURI(k.endpoint)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse -kubelet-config-uri: %w", err)
-	}
-
-	restConfig, err := process.InsecureConfig(u.String(), k.conf.APIAuthTokenFile)
-	if err != nil {
-		return nil, fmt.Errorf("failed to initialize rest config for kubelet config uri: %w", err)
+	if !k.conf.EnableKubeletSecurePort {
+		return nil, fmt.Errorf("it is not enabled to get contents from kubelet secure port")
 	}
 
 	type configzWrapper struct {
@@ -64,7 +56,7 @@ func (k *kubeletConfigFetcherImpl) GetKubeletConfig(ctx context.Context) (*kubel
 	}
 	configz := configzWrapper{}
 
-	if err := process.GetAndUnmarshalForHttps(ctx, restConfig, &configz); err != nil {
+	if err := process.GetAndUnmarshalForHttps(ctx, k.conf.KubeletSecurePort, k.conf.KubeletConfigURI, k.conf.APIAuthTokenFile, &configz); err != nil {
 		return nil, fmt.Errorf("failed to get kubelet config, error: %v", err)
 	}
 

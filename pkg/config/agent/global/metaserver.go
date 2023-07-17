@@ -33,6 +33,7 @@ type MetaServerConfiguration struct {
 
 	KubeletReadOnlyPort          int
 	KubeletSecurePort            int
+	EnableKubeletSecurePort      bool
 	KubeletPodCacheSyncPeriod    time.Duration
 	KubeletPodCacheSyncMaxRate   rate.Limit
 	KubeletPodCacheSyncBurstBulk int

@@ -1,9 +1,26 @@
+/*
+Copyright 2022 The Katalyst Authors.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
 package process
 
 import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"os"
 
 	"k8s.io/client-go/discovery"
@@ -35,7 +52,22 @@ func InsecureConfig(host, tokenFile string) (*rest.Config, error) {
 }
 
 // GetAndUnmarshalForHttps gets data from the given url and unmarshal it into the given struct.
-func GetAndUnmarshalForHttps(ctx context.Context, restConfig *rest.Config, v interface{}) error {
+func GetAndUnmarshalForHttps(ctx context.Context, port int, endpoint string, authTokenFile string, v interface{}) error {
+	nodeAddress := os.Getenv("NODE_ADDRESS")
+	if nodeAddress == "" {
+		return fmt.Errorf("get empty NODE_ADDRESS from env")
+	}
+
+	u, err := url.ParseRequestURI(fmt.Sprintf("https://%s:%d%s", nodeAddress, port, endpoint))
+	if err != nil {
+		return fmt.Errorf("failed to parse -kubelet-config-uri: %w", err)
+	}
+
+	restConfig, err := InsecureConfig(u.String(), authTokenFile)
+	if err != nil {
+		return fmt.Errorf("failed to initialize rest config for kubelet config uri: %w", err)
+	}
+
 	discoveryClient, err := discovery.NewDiscoveryClientForConfig(restConfig)
 	if err != nil {
 		return err
