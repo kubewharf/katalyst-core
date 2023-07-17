@@ -44,6 +44,8 @@ var makePod = func(name string, request, limits v1.ResourceList) *v1.Pod {
 }
 
 func TestNeedUpdateResources(t *testing.T) {
+	t.Parallel()
+
 	for _, tc := range []struct {
 		name                       string
 		pod                        *v1.Pod

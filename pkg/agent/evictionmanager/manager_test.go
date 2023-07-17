@@ -107,6 +107,9 @@ func makeMetaServer() *metaserver.MetaServer {
 type pluginSkeleton struct {
 }
 
+func (p *pluginSkeleton) Start() {
+}
+
 func (p *pluginSkeleton) Stop() {
 }
 
@@ -225,6 +228,8 @@ func makeEvictionManager() *EvictionManger {
 }
 
 func TestEvictionManger_collectEvictionResult(t *testing.T) {
+	t.Parallel()
+
 	mgr := makeEvictionManager()
 	tests := []struct {
 		name               string

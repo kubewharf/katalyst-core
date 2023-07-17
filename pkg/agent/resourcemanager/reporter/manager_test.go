@@ -86,6 +86,8 @@ func generateTestConfiguration(t *testing.T) *config.Configuration {
 }
 
 func TestNewReporterManager(t *testing.T) {
+	t.Parallel()
+
 	testClientSet := generateTestGenericClientSet()
 	testMetricEmitter := &metrics.DummyMetrics{}
 	testConfiguration := generateTestConfiguration(t)
@@ -99,6 +101,8 @@ func TestNewReporterManager(t *testing.T) {
 }
 
 func Test_aggregateReportFieldsByGVK(t *testing.T) {
+	t.Parallel()
+
 	type args struct {
 		reportResponses map[string]*v1alpha1.GetReportContentResponse
 	}
@@ -148,6 +152,8 @@ func Test_aggregateReportFieldsByGVK(t *testing.T) {
 }
 
 func Test_managerImpl_PushContents(t *testing.T) {
+	t.Parallel()
+
 	type fields struct {
 		conf      *config.Configuration
 		reporters map[v1.GroupVersionKind]Reporter
@@ -206,6 +212,8 @@ func Test_managerImpl_PushContents(t *testing.T) {
 }
 
 func Test_managerImpl_Run(t *testing.T) {
+	t.Parallel()
+
 	type fields struct {
 		conf      *config.Configuration
 		reporters map[v1.GroupVersionKind]Reporter
@@ -238,6 +246,8 @@ func Test_managerImpl_Run(t *testing.T) {
 }
 
 func Test_managerImpl_convertReportFieldsIfNeeded(t *testing.T) {
+	t.Parallel()
+
 	type fields struct {
 		converters map[v1.GroupVersionKind]Converter
 	}

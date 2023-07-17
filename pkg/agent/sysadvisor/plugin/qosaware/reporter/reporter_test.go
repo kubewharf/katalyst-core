@@ -113,6 +113,8 @@ func setupReporterManager(t *testing.T, ctx context.Context, socketDir string, c
 }
 
 func TestNewReclaimedResourcedReporter(t *testing.T) {
+	t.Parallel()
+
 	socketDir, err := tmpSocketDir()
 	require.NoError(t, err)
 	defer os.RemoveAll(socketDir)
@@ -134,6 +136,8 @@ func TestNewReclaimedResourcedReporter(t *testing.T) {
 }
 
 func TestReclaimedResourcedReporterWithManager(t *testing.T) {
+	t.Parallel()
+
 	socketDir, err := tmpSocketDir()
 	require.NoError(t, err)
 	defer os.RemoveAll(socketDir)

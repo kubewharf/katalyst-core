@@ -39,6 +39,8 @@ import (
 )
 
 func Test_serviceProfilingManager_ServiceBusinessPerformanceLevel(t *testing.T) {
+	t.Parallel()
+
 	type fields struct {
 		nodeName string
 		spd      *workloadapis.ServiceProfileDescriptor
@@ -247,7 +249,7 @@ func Test_serviceProfilingManager_ServiceBusinessPerformanceLevel(t *testing.T) 
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			dir, err := ioutil.TempDir("", "checkpoint")
+			dir, err := ioutil.TempDir("", "checkpoint-Test_serviceProfilingManager_ServiceBusinessPerformanceLevel")
 			require.NoError(t, err)
 			defer os.RemoveAll(dir)
 
@@ -281,6 +283,8 @@ func Test_serviceProfilingManager_ServiceBusinessPerformanceLevel(t *testing.T) 
 }
 
 func Test_serviceProfilingManager_ServiceSystemPerformanceTarget(t *testing.T) {
+	t.Parallel()
+
 	type fields struct {
 		nodeName string
 		spd      *workloadapis.ServiceProfileDescriptor
@@ -379,7 +383,7 @@ func Test_serviceProfilingManager_ServiceSystemPerformanceTarget(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			dir, err := ioutil.TempDir("", "checkpoint")
+			dir, err := ioutil.TempDir("", "checkpoint-Test_serviceProfilingManager_ServiceSystemPerformanceTarget")
 			require.NoError(t, err)
 			defer os.RemoveAll(dir)
 

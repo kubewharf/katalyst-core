@@ -54,6 +54,8 @@ func makeRssOverusePlugin(conf *config.Configuration) (*RssOveruseEvictionPlugin
 }
 
 func TestRssOveruseEvictionPlugin_GetEvictPods(t *testing.T) {
+	t.Parallel()
+
 	plugin, err := makeRssOverusePlugin(makeConf())
 	assert.NoError(t, err)
 	assert.NotNil(t, plugin)

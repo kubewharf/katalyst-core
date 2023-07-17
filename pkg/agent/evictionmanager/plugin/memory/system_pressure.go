@@ -20,9 +20,11 @@ import (
 	"context"
 	"fmt"
 	"strconv"
+	"sync"
 	"time"
 
 	v1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/tools/events"
 
 	pluginapi "github.com/kubewharf/katalyst-api/pkg/protocol/evictionplugin/v1alpha1"
@@ -45,22 +47,26 @@ const (
 
 func NewSystemPressureEvictionPlugin(_ *client.GenericClientSet, _ events.EventRecorder,
 	metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter, conf *config.Configuration) plugin.EvictionPlugin {
-	return &SystemPressureEvictionPlugin{
+	p := &SystemPressureEvictionPlugin{
 		pluginName:                EvictionPluginNameSystemMemoryPressure,
 		emitter:                   emitter,
 		StopControl:               process.NewStopControl(time.Time{}),
 		metaServer:                metaServer,
 		evictionManagerSyncPeriod: conf.EvictionManagerSyncPeriod,
+		coolDownPeriod:            conf.SystemPressureCoolDownPeriod,
+		syncPeriod:                time.Duration(conf.SystemPressureSyncPeriod) * time.Second,
 		dynamicConfig:             conf.DynamicAgentConfiguration,
 		reclaimedPodFilter:        conf.CheckReclaimedQoSForPod,
 		evictionHelper:            NewEvictionHelper(emitter, metaServer, conf),
 	}
+	return p
 }
 
 // SystemPressureEvictionPlugin implements the EvictPlugin interface.
 // It triggers pod eviction based on the system pressure of memory.
 type SystemPressureEvictionPlugin struct {
 	*process.StopControl
+	sync.Mutex
 
 	emitter                   metrics.MetricEmitter
 	reclaimedPodFilter        func(pod *v1.Pod) (bool, error)
@@ -69,13 +75,16 @@ type SystemPressureEvictionPlugin struct {
 	metaServer                *metaserver.MetaServer
 	evictionHelper            *EvictionHelper
 
-	dynamicConfig *dynamic.DynamicAgentConfiguration
+	syncPeriod     time.Duration
+	coolDownPeriod int
+	dynamicConfig  *dynamic.DynamicAgentConfiguration
 
-	systemAction                 int
-	isUnderSystemPressure        bool
-	kswapdStealPreviousCycle     float64
-	kswapdStealPreviousCycleTime time.Time
-	systemKswapdRateExceedTimes  int
+	systemAction                   int
+	isUnderSystemPressure          bool
+	kswapdStealPreviousCycle       float64
+	kswapdStealPreviousCycleTime   time.Time
+	kswapdStealRateExceedStartTime *time.Time
+	lastEvictionTime               time.Time
 }
 
 func (s *SystemPressureEvictionPlugin) Name() string {
@@ -84,6 +93,10 @@ func (s *SystemPressureEvictionPlugin) Name() string {
 	}
 
 	return s.pluginName
+}
+
+func (s *SystemPressureEvictionPlugin) Start() {
+	go wait.UntilWithContext(context.TODO(), s.detectSystemPressures, s.syncPeriod)
 }
 
 func (s *SystemPressureEvictionPlugin) ThresholdMet(_ context.Context) (*pluginapi.ThresholdMetResponse, error) {
@@ -96,7 +109,10 @@ func (s *SystemPressureEvictionPlugin) ThresholdMet(_ context.Context) (*plugina
 		return resp, nil
 	}
 
-	s.detectSystemPressures()
+	//TODO maybe we should set timeout for this lock operation in case it blocks the entire sync loop
+	s.Lock()
+	defer s.Unlock()
+
 	if s.isUnderSystemPressure {
 		resp = &pluginapi.ThresholdMetResponse{
 			MetType:       pluginapi.ThresholdMetType_HARD_MET,
@@ -115,7 +131,10 @@ func (s *SystemPressureEvictionPlugin) ThresholdMet(_ context.Context) (*plugina
 	return resp, nil
 }
 
-func (s *SystemPressureEvictionPlugin) detectSystemPressures() {
+func (s *SystemPressureEvictionPlugin) detectSystemPressures(_ context.Context) {
+	s.Lock()
+	defer s.Unlock()
+
 	s.isUnderSystemPressure = false
 	s.systemAction = actionNoop
 
@@ -181,15 +200,18 @@ func (s *SystemPressureEvictionPlugin) detectSystemKswapdStealPressure() {
 
 	dynamicConfig := s.dynamicConfig.GetDynamicConfiguration()
 	general.Infof("system kswapd metrics, "+
-		"kswapdSteal: %+v, kswapdStealPreviousCycle: %+v, systemKswapdRateThreshold: %+v, evictionManagerSyncPeriod: %+v, "+
-		"systemKswapdRateExceedTimes: %+v, systemKswapdRateExceedTimesThreshold: %+v",
-		kswapdSteal, s.kswapdStealPreviousCycle, dynamicConfig.SystemKswapdRateThreshold,
-		s.evictionManagerSyncPeriod.Seconds(), s.systemKswapdRateExceedTimes,
-		dynamicConfig.SystemKswapdRateExceedTimesThreshold)
-	_ = s.emitter.StoreFloat64(metricsNameSystemMetric, float64(s.systemKswapdRateExceedTimes), metrics.MetricTypeNameRaw,
-		metrics.ConvertMapToTags(map[string]string{
-			metricsTagKeyMetricName: metricsTagValueSystemKswapdRateExceedTimes,
-		})...)
+		"kswapdSteal: %+v, kswapdStealPreviousCycle: %+v, kswapdStealPreviousCycleTime: %+v, systemKswapdRateThreshold: %+v, evictionManagerSyncPeriod: %+v, "+
+		"kswapdStealRateExceedStartTime: %+v, SystemKswapdRateExceedDurationThreshold: %+v",
+		kswapdSteal, s.kswapdStealPreviousCycle, s.kswapdStealPreviousCycleTime, dynamicConfig.SystemKswapdRateThreshold,
+		s.evictionManagerSyncPeriod.Seconds(), s.kswapdStealRateExceedStartTime,
+		dynamicConfig.SystemKswapdRateExceedDurationThreshold)
+	if s.kswapdStealRateExceedStartTime != nil && !s.kswapdStealRateExceedStartTime.IsZero() {
+		duration := kswapdSteal.Time.Sub(*s.kswapdStealRateExceedStartTime)
+		_ = s.emitter.StoreFloat64(metricsNameSystemMetric, duration.Seconds(), metrics.MetricTypeNameRaw,
+			metrics.ConvertMapToTags(map[string]string{
+				metricsTagKeyMetricName: metricsTagValueSystemKswapdRateExceedDuration,
+			})...)
+	}
 	_ = s.emitter.StoreFloat64(metricsNameSystemMetric, kswapdSteal.Value-s.kswapdStealPreviousCycle, metrics.MetricTypeNameRaw,
 		metrics.ConvertMapToTags(map[string]string{
 			metricsTagKeyMetricName: metricsTagValueSystemKswapdDiff,
@@ -205,14 +227,21 @@ func (s *SystemPressureEvictionPlugin) detectSystemKswapdStealPressure() {
 	}
 
 	if (kswapdSteal.Value-kswapdStealPreviousCycle)/(kswapdSteal.Time.Sub(kswapdStealPreviousCycleTime)).Seconds() >= float64(dynamicConfig.SystemKswapdRateThreshold) {
-		s.systemKswapdRateExceedTimes++
+		// the pressure continues,if there is no recorded start time,we record the previous cycle time as the pressure start time
+		if s.kswapdStealRateExceedStartTime == nil || s.kswapdStealRateExceedStartTime.IsZero() {
+			s.kswapdStealRateExceedStartTime = &kswapdStealPreviousCycleTime
+		}
 	} else {
-		s.systemKswapdRateExceedTimes = 0
+		// there is no pressure anymore, clear the start time
+		s.kswapdStealRateExceedStartTime = nil
 	}
 
-	if s.systemKswapdRateExceedTimes >= dynamicConfig.SystemKswapdRateExceedTimesThreshold {
-		s.isUnderSystemPressure = true
-		s.systemAction = actionEviction
+	if s.kswapdStealRateExceedStartTime != nil && !s.kswapdStealRateExceedStartTime.IsZero() {
+		pressureDuration := kswapdSteal.Time.Sub(*(s.kswapdStealRateExceedStartTime)).Seconds()
+		if int(pressureDuration) >= dynamicConfig.SystemKswapdRateExceedDurationThreshold {
+			s.isUnderSystemPressure = true
+			s.systemAction = actionEviction
+		}
 	}
 }
 
@@ -225,6 +254,14 @@ func (s *SystemPressureEvictionPlugin) GetTopEvictionPods(_ context.Context, req
 		general.Warningf("GetTopEvictionPods got empty active pods list")
 		return &pluginapi.GetTopEvictionPodsResponse{}, nil
 	}
+
+	now := time.Now()
+	if !s.lastEvictionTime.IsZero() && now.Sub(s.lastEvictionTime) < time.Duration(s.coolDownPeriod)*time.Second {
+		general.Infof("in eviction cool-down time, skip eviction. now: %s, lastEvictionTime: %s",
+			now.String(), s.lastEvictionTime.String())
+		return &pluginapi.GetTopEvictionPodsResponse{}, nil
+	}
+	s.lastEvictionTime = now
 
 	dynamicConfig := s.dynamicConfig.GetDynamicConfiguration()
 	targetPods := make([]*v1.Pod, 0, len(request.ActivePods))

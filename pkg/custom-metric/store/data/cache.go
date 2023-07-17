@@ -335,8 +335,13 @@ func (c *CachedMetric) GetMetricWithLimit(namespace, metricName string, gr *sche
 	if gr != nil {
 		metricMeta.SetObjectKind(gr.String())
 	}
+
 	if internalMap, ok := c.metricMap[metricMeta]; ok {
 		for _, internal := range internalMap {
+			if internal.ObjectNamespace != namespace {
+				continue
+			}
+
 			res = append(res, internal.DeepCopyWithLimit(limit))
 
 			if internal.Len() > 0 {

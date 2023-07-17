@@ -3,13 +3,12 @@ name: CI
 on:
   push:
     branches: [ main ]
-  pull_request:
-    branches: [ main ]
-    types: [ opened, reopened, synchronize ]
+  pull_request: {}
+  workflow_dispatch: {}
 
 jobs:
-  lint:
-    name: Lint
+  fmt:
+    name: Format
     runs-on: ubuntu-20.04
     steps:
       - uses: actions/checkout@v3
@@ -25,10 +24,30 @@ jobs:
         run: |
           make fmt && git add pkg cmd &&
           git diff --cached --exit-code || (echo 'Please run "make fmt" to verify gofmt' && exit 1);
+
+  vet:
+    name: Vet
+    runs-on: ubuntu-20.04
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/setup-go@v3
+        with:
+          go-version-file: go.mod
+          cache: false
       - name: Verify govet
         run: |
           make vet && git add pkg cmd &&
           git diff --cached --exit-code || (echo 'Please run "make vet" to verify govet' && exit 1);
+
+  lint:
+    name: Lint
+    runs-on: ubuntu-20.04
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/setup-go@v3
+        with:
+          go-version-file: go.mod
+          cache: false
       - uses: golangci/golangci-lint-action@v3
         with:
           args: --verbose --out-${NO_FUTURE}format colored-line-number --config .golangci.yml
@@ -66,7 +85,7 @@ jobs:
             echo "NEED_TO_CHECK=true" >> $GITHUB_ENV
           fi
       - name: Upload coverage to Codecov
-        if: env.NEED_TO_CHECK == 'true'
+        if: ${{ (env.NEED_TO_CHECK == 'true') || (github.event_name != 'pull_request') }}
         uses: codecov/codecov-action@v3
         with:
           flags: unittest

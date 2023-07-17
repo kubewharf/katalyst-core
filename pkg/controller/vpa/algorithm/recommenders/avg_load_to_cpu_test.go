@@ -34,6 +34,8 @@ import (
 )
 
 func TestGetRecommendedPodResources(t *testing.T) {
+	t.Parallel()
+
 	for _, tc := range []struct {
 		name string
 		spd  *workload.ServiceProfileDescriptor

@@ -49,6 +49,8 @@ func generateTestConfiguration(t *testing.T) *config.Configuration {
 
 // todo: change to dummy malachite implementation instead of fake testing
 func Test_noneExistMetricsFetcher(t *testing.T) {
+	t.Parallel()
+
 	client := &client.GenericClientSet{
 		KubeClient:     fake.NewSimpleClientset(),
 		InternalClient: internalfake.NewSimpleClientset(),
@@ -60,7 +62,7 @@ func Test_noneExistMetricsFetcher(t *testing.T) {
 	if err == nil {
 		ctx, cancel := context.WithCancel(context.Background())
 		go meta.Run(ctx)
-		time.Sleep(100 * time.Millisecond)
+		time.Sleep(10 * time.Millisecond)
 		cancel()
 	}
 
@@ -74,5 +76,5 @@ func Test_noneExistMetricsFetcher(t *testing.T) {
 	assert.NoError(t, err)
 
 	go f.Run(context.Background())
-	time.Sleep(time.Second * 3)
+	time.Sleep(time.Millisecond * 30)
 }

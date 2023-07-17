@@ -42,6 +42,8 @@ import (
 )
 
 func TestResourceRecommendController_Run(t *testing.T) {
+	t.Parallel()
+
 	type fields struct {
 		workload *appsv1.StatefulSet
 		spd      *apiworkload.ServiceProfileDescriptor
@@ -128,7 +130,7 @@ func TestResourceRecommendController_Run(t *testing.T) {
 			go rrc.Run()
 			synced := cache.WaitForCacheSync(ctx.Done(), rrc.syncedFunc...)
 			assert.True(t, synced)
-			time.Sleep(1 * time.Second)
+			time.Sleep(10 * time.Millisecond)
 		})
 	}
 }

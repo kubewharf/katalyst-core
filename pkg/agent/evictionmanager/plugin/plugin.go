@@ -61,5 +61,8 @@ func (_ DummyEvictionPlugin) GetTopEvictionPods(_ context.Context, _ *pluginapi.
 func (_ DummyEvictionPlugin) GetEvictPods(_ context.Context, _ *pluginapi.GetEvictPodsRequest) (*pluginapi.GetEvictPodsResponse, error) {
 	return nil, nil
 }
+func (_ DummyEvictionPlugin) Start() {
+	return
+}
 
 var _ EvictionPlugin = DummyEvictionPlugin{}

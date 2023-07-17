@@ -18,6 +18,7 @@ package server
 
 import (
 	"fmt"
+	"time"
 
 	"google.golang.org/grpc"
 
@@ -70,11 +71,21 @@ func (ms *memoryServer) ListAndWatch(_ *advisorsvc.Empty, server advisorsvc.Advi
 				general.Infof("%v recv channel is closed", ms.name)
 				return nil
 			}
+			if advisorResp.TimeStamp.Add(ms.period * 2).Before(time.Now()) {
+				general.Warningf("advisorResp is expired")
+				continue
+			}
 			resp := ms.assembleResponse(&advisorResp)
 			if resp != nil {
-				server.Send(resp)
+				if err := server.Send(resp); err != nil {
+					general.Errorf("send response failed: %v", err)
+					_ = ms.emitter.StoreInt64(ms.genMetricsName(metricServerLWSendResponseFailed), int64(ms.period.Seconds()), metrics.MetricTypeNameCount)
+					return err
+				}
+
+				general.Infof("send calculation result: %v", general.ToString(resp))
+				_ = ms.emitter.StoreInt64(ms.genMetricsName(metricServerLWSendResponseSucceeded), int64(ms.period.Seconds()), metrics.MetricTypeNameCount)
 			}
-			return nil
 		}
 	}
 }

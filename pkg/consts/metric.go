@@ -76,13 +76,12 @@ const (
 	MetricCPUIOWaitRatio = "cpu.iowait.ratio.cpu"
 )
 
-// Cgroup cpu metrics
+// container cpu metrics
 const (
-	MetricCPULimitContainer      = "cpu.limit.container"
-	MetricCPUUsageContainer      = "cpu.usage.container"
-	MetricCPUUsageRatioContainer = "cpu.usage.ratio.container"
-	MetricCPUUsageUserContainer  = "cpu.usage.user.container"
-	MetricCPUUsageSysContainer   = "cpu.usage.sys.container"
+	MetricCPULimitContainer     = "cpu.limit.container"
+	MetricCPUUsageContainer     = "cpu.usage.container"
+	MetricCPUUsageUserContainer = "cpu.usage.user.container"
+	MetricCPUUsageSysContainer  = "cpu.usage.sys.container"
 
 	MetricCPUShareContainer           = "cpu.share.container"
 	MetricCPUQuotaContainer           = "cpu.quota.container"
@@ -107,7 +106,7 @@ const (
 	MetricUpdateTimeContainer = "cpu.updatetime.container"
 )
 
-// Cgroup memory metrics
+// container memory metrics
 const (
 	MetricMemLimitContainer     = "mem.limit.container"
 	MetricMemUsageContainer     = "mem.usage.container"
@@ -131,7 +130,7 @@ const (
 	MetricMemBandwidthWriteContainer = "mem.bandwidth.write.container"
 )
 
-// Cgroup blkio metrics
+// container blkio metrics
 const (
 	MetricBlkioReadIopsContainer  = "blkio.read.iops.container"
 	MetricBlkioWriteIopsContainer = "blkio.write.iops.container"
@@ -139,7 +138,7 @@ const (
 	MetricBlkioWriteBpsContainer  = "blkio.write.bps.container"
 )
 
-// Cgroup net metrics
+// container net metrics
 const (
 	MetricNetTcpSendByteContainer = "net.tcp.send.byte.container"
 	MetricNetTcpSendPpsContainer  = "net.tcp.send.pps.container"
@@ -147,7 +146,7 @@ const (
 	MetricNetTcpRecvPpsContainer  = "net.tcp.recv.pps.container"
 )
 
-// Cgroup perf metrics
+// container perf metrics
 const (
 	MetricCPUCPIContainer          = "cpu.cpi.container"
 	MetricCPUCyclesContainer       = "cpu.cycles.container"
@@ -157,9 +156,78 @@ const (
 	MetricCPUL3CacheMissContainer  = "cpu.l3cachemiss.container"
 )
 
-// Cgroup per numa metrics
+// container per numa metrics
 const (
 	MetricsMemTotalPerNumaContainer = "mem.total.numa.container"
 	MetricsMemFilePerNumaContainer  = "mem.file.numa.container"
 	MetricsMemAnonPerNumaContainer  = "mem.anon.numa.container"
+)
+
+// Cgroup cpu metrics
+const (
+	MetricCPULimitCgroup     = "cpu.limit.cgroup"
+	MetricCPUUsageCgroup     = "cpu.usage.cgroup"
+	MetricCPUUsageUserCgroup = "cpu.usage.user.cgroup"
+	MetricCPUUsageSysCgroup  = "cpu.usage.sys.cgroup"
+
+	MetricCPUShareCgroup           = "cpu.share.cgroup"
+	MetricCPUQuotaCgroup           = "cpu.quota.cgroup"
+	MetricCPUPeriodCgroup          = "cpu.period.cgroup"
+	MetricCPUNrThrottledCgroup     = "cpu.nr.throttled.cgroup"
+	MetricCPUThrottledPeriodCgroup = "cpu.throttled.period.cgroup"
+	MetricCPUThrottledTimeCgroup   = "cpu.throttled.time.cgroup"
+
+	MetricCPUNrRunnableCgroup        = "cpu.nr.runnable.cgroup"
+	MetricCPUNrUninterruptibleCgroup = "cpu.nr.uninterruptible.cgroup"
+	MetricCPUNrIOWaitCgroup          = "cpu.nr.iowait.cgroup"
+
+	MetricLoad1MinCgroup  = "cpu.load.1min.cgroup"
+	MetricLoad5MinCgroup  = "cpu.load.5min.cgroup"
+	MetricLoad15MinCgroup = "cpu.load.15min.cgroup"
+
+	MetricUpdateTimeCgroup = "cpu.updatetime.cgroup"
+)
+
+// Cgroup memory metrics
+const (
+	MetricMemLimitCgroup     = "mem.limit.cgroup"
+	MetricMemUsageCgroup     = "mem.usage.cgroup"
+	MetricMemUsageUserCgroup = "mem.usage.user.cgroup"
+	MetricMemUsageSysCgroup  = "mem.usage.sys.cgroup"
+	MetricMemRssCgroup       = "mem.rss.cgroup"
+	MetricMemCacheCgroup     = "mem.cache.cgroup"
+	MetricMemShmemCgroup     = "mem.shmem.cgroup"
+
+	MetricMemDirtyCgroup       = "mem.dirty.cgroup"
+	MetricMemWritebackCgroup   = "mem.writeback.cgroup"
+	MetricMemPgfaultCgroup     = "mem.pgfault.cgroup"
+	MetricMemPgmajfaultCgroup  = "mem.pgmajfault.cgroup"
+	MetricMemAllocstallCgroup  = "mem.allocstall.cgroup"
+	MetricMemKswapdstealCgroup = "mem.kswapdstall.cgroup"
+
+	MetricMemOomCgroup         = "mem.oom.cgroup"
+	MetricMemScaleFactorCgroup = "mem.scalefactor.cgroup"
+)
+
+// Cgroup blkio metrics
+const (
+	MetricBlkioReadIopsCgroup  = "blkio.read.iops.cgroup"
+	MetricBlkioWriteIopsCgroup = "blkio.write.iops.cgroup"
+	MetricBlkioReadBpsCgroup   = "blkio.read.bps.cgroup"
+	MetricBlkioWriteBpsCgroup  = "blkio.write.bps.cgroup"
+)
+
+// Cgroup net metrics
+const (
+	MetricNetTcpSendByteCgroup = "net.tcp.send.byte.cgroup"
+	MetricNetTcpSendPpsCgroup  = "net.tcp.send.pps.cgroup"
+	MetricNetTcpRecvByteCgroup = "net.tcp.recv.byte.cgroup"
+	MetricNetTcpRecvPpsCgroup  = "net.tcp.recv.pps.cgroup"
+)
+
+// Cgroup per numa metrics
+const (
+	MetricsMemTotalPerNumaCgroup = "mem.total.numa.cgroup"
+	MetricsMemFilePerNumaCgroup  = "mem.file.numa.cgroup"
+	MetricsMemAnonPerNumaCgroup  = "mem.anon.numa.cgroup"
 )

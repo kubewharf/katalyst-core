@@ -16,6 +16,8 @@ limitations under the License.
 
 package consts
 
+import "math"
+
 const (
 	// OwnerReferenceIndex is the lookup name for the index function
 	OwnerReferenceIndex = "owner-reference-index"
@@ -57,4 +59,10 @@ const (
 const (
 	ObjectFieldNameSpec   = "spec"
 	ObjectFieldNameStatus = "status"
+)
+
+var (
+	EXP1  = 1.0 / math.Exp(5.0/60.0)
+	EXP5  = 1.0 / math.Exp(5.0/300.0)
+	EXP15 = 1.0 / math.Exp(5.0/900.0)
 )

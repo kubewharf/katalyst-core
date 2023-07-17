@@ -69,7 +69,7 @@ func NewMetaAgent(conf *config.Configuration, clientSet *client.GenericClientSet
 		start:          false,
 		PodFetcher:     podFetcher,
 		NodeFetcher:    node.NewRemoteNodeFetcher(conf.NodeName, clientSet.KubeClient.CoreV1().Nodes()),
-		MetricsFetcher: metric.NewMalachiteMetricsFetcher(emitter),
+		MetricsFetcher: metric.NewMalachiteMetricsFetcher(emitter, conf),
 		CNRFetcher: cnr.NewCachedCNRFetcher(conf.NodeName, conf.CNRCacheTTL,
 			clientSet.InternalClient.NodeV1alpha1().CustomNodeResources()),
 		CNCFetcher: cnc.NewCachedCNCFetcher(conf.NodeName, conf.CustomNodeConfigCacheTTL,

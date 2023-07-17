@@ -184,3 +184,7 @@ func (r *RssOveruseEvictionPlugin) GetEvictPods(_ context.Context, request *plug
 
 	return &pluginapi.GetEvictPodsResponse{EvictPods: result}, nil
 }
+
+func (r *RssOveruseEvictionPlugin) Start() {
+	return
+}

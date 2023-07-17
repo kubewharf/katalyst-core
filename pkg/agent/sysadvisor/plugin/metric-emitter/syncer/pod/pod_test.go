@@ -45,6 +45,8 @@ func generateTestConfiguration(t *testing.T) *config.Configuration {
 }
 
 func Test_podAddAndRemoved(t *testing.T) {
+	t.Parallel()
+
 	conf := generateTestConfiguration(t)
 	conf.PodSyncPeriod = time.Second
 

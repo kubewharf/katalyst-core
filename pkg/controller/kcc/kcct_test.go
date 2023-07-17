@@ -78,6 +78,8 @@ func generateTestNodeNamesTargetResource(name string, nodeNames []string) util.K
 }
 
 func TestKatalystCustomConfigTargetController_Run(t *testing.T) {
+	t.Parallel()
+
 	type args struct {
 		kccList       []runtime.Object
 		kccTargetList []runtime.Object
@@ -221,6 +223,8 @@ func TestKatalystCustomConfigTargetController_Run(t *testing.T) {
 }
 
 func Test_validateLabelSelectorWithOthers(t *testing.T) {
+	t.Parallel()
+
 	type args struct {
 		labelSelector  string
 		targetResource util.KCCTargetResource
@@ -292,6 +296,8 @@ func Test_validateLabelSelectorWithOthers(t *testing.T) {
 }
 
 func Test_validateTargetResourceNodeNamesWithOthers(t *testing.T) {
+	t.Parallel()
+
 	type args struct {
 		targetResource util.KCCTargetResource
 		otherResources []util.KCCTargetResource
@@ -358,6 +364,8 @@ func Test_validateTargetResourceNodeNamesWithOthers(t *testing.T) {
 }
 
 func Test_validateTargetResourceGlobalWithOthers(t *testing.T) {
+	t.Parallel()
+
 	type args struct {
 		targetResource util.KCCTargetResource
 		otherResources []util.KCCTargetResource
@@ -405,6 +413,8 @@ func Test_validateTargetResourceGlobalWithOthers(t *testing.T) {
 }
 
 func Test_updateTargetResourceStatus(t *testing.T) {
+	t.Parallel()
+
 	type args struct {
 		targetResource util.KCCTargetResource
 		isValid        bool

@@ -43,6 +43,8 @@ func (t testLogger) log(message string, params ...interface{}) string {
 }
 
 func TestLogging(t *testing.T) {
+	t.Parallel()
+
 	loggingWithoutStruct := logging("extra %v %v", 1, "test")
 	require.Equal(t, "[testing.tRunner] extra 1 test", loggingWithoutStruct)
 
@@ -95,5 +97,5 @@ func TestLogging(t *testing.T) {
 	}
 	go f()
 
-	time.Sleep(time.Second)
+	time.Sleep(time.Millisecond)
 }

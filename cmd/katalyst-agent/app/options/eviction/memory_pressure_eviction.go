@@ -27,12 +27,19 @@ import (
 
 // MemoryPressureEvictionOptions is the options of MemoryPressureEviction
 type MemoryPressureEvictionOptions struct {
-	RSSOveruseEvictionFilter string
+	RSSOveruseEvictionFilter     string
+	SystemPressureSyncPeriod     int
+	SystemPressureCoolDownPeriod int
 }
 
 // NewMemoryPressureEvictionOptions returns a new MemoryPressureEvictionOptions
 func NewMemoryPressureEvictionOptions() *MemoryPressureEvictionOptions {
-	return &MemoryPressureEvictionOptions{}
+	return &MemoryPressureEvictionOptions{
+		SystemPressureSyncPeriod: 30,
+		// make sure the cool down period is greater than sync period in case it triggers many times eviction between
+		// two rounds of sync
+		SystemPressureCoolDownPeriod: 35,
+	}
 }
 
 // AddFlags parses the flags to MemoryPressureEvictionOptions
@@ -41,6 +48,10 @@ func (o *MemoryPressureEvictionOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 
 	fs.StringVar(&o.RSSOveruseEvictionFilter, "eviction-rss-overuse-filter", o.RSSOveruseEvictionFilter,
 		"the labels which used to filter pods which can be evict by rss overuse eviction")
+	fs.IntVar(&o.SystemPressureSyncPeriod, "eviction-system-pressure-sync-period", o.SystemPressureSyncPeriod,
+		"system pressure plugin detection interval")
+	fs.IntVar(&o.SystemPressureCoolDownPeriod, "eviction-system-pressure-cool-down-period", o.SystemPressureCoolDownPeriod,
+		"the cool down time between system pressure plugin executes every two eviction")
 }
 
 // ApplyTo applies MemoryPressureEvictionOptions to MemoryPressureEvictionConfiguration
@@ -52,5 +63,7 @@ func (o *MemoryPressureEvictionOptions) ApplyTo(c *eviction.MemoryPressureEvicti
 		}
 		c.RSSOveruseEvictionFilter = labelFilter
 	}
+	c.SystemPressureSyncPeriod = o.SystemPressureSyncPeriod
+	c.SystemPressureCoolDownPeriod = o.SystemPressureCoolDownPeriod
 	return nil
 }

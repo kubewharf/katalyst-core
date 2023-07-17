@@ -51,6 +51,8 @@ func generateTestDeletionTimestamp() *v1.Time {
 }
 
 func TestKatalystCustomConfigController_Run(t *testing.T) {
+	t.Parallel()
+
 	type args struct {
 		kccList       []runtime.Object
 		kccTargetList []runtime.Object
@@ -285,7 +287,7 @@ func TestKatalystCustomConfigController_Run(t *testing.T) {
 			go kcc.Run()
 
 			cache.WaitForCacheSync(kcc.ctx.Done(), kcc.syncedFunc...)
-			time.Sleep(1 * time.Second)
+			time.Sleep(100 * time.Millisecond)
 		})
 	}
 }

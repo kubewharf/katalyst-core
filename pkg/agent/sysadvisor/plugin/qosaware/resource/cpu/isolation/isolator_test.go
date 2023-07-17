@@ -70,7 +70,9 @@ func makeContainerInfo(podUID, namespace, podName, containerName, qoSLevel, owne
 }
 
 func TestLoadIsolator(t *testing.T) {
-	ckDir, err := ioutil.TempDir("", "checkpoint")
+	t.Parallel()
+
+	ckDir, err := ioutil.TempDir("", "checkpoint-TestLoadIsolator")
 	require.NoError(t, err)
 	defer func() { _ = os.RemoveAll(ckDir) }()
 
@@ -446,7 +448,7 @@ func TestLoadIsolator(t *testing.T) {
 				lockedOutFirstObserved: &now,
 			})
 		}
-		time.Sleep(time.Second)
+		time.Sleep(time.Millisecond * 10)
 
 		res := loader.GetIsolatedPods()
 		assert.EqualValues(t, tc.expects, res)

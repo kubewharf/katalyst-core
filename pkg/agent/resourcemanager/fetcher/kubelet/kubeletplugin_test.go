@@ -129,6 +129,8 @@ func tmpSocketDir() (socketDir string, err error) {
 }
 
 func TestNewKubeletReporterPlugin(t *testing.T) {
+	t.Parallel()
+
 	dir, err := tmpSocketDir()
 	assert.NoError(t, err)
 	defer os.RemoveAll(dir)
@@ -275,8 +277,8 @@ func TestNewKubeletReporterPlugin(t *testing.T) {
 	err = checkpointManager.CreateCheckpoint(pkgconsts.KubeletQoSResourceManagerCheckpoint, &testutil.MockCheckpoint{})
 	assert.NoError(t, err)
 
-	time.Sleep(1 * time.Second)
+	time.Sleep(10 * time.Millisecond)
 	plugin.Stop()
 
-	time.Sleep(1 * time.Second)
+	time.Sleep(10 * time.Millisecond)
 }

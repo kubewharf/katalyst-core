@@ -20,6 +20,7 @@ limitations under the License.
 package manager
 
 import (
+	"context"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -30,18 +31,24 @@ import (
 )
 
 func TestManager(t *testing.T) {
+	t.Parallel()
+
 	_ = GetManager()
 }
 
 func TestV1Manager(t *testing.T) {
-	manager = v1.NewManager()
+	t.Parallel()
+
+	_ = v1.NewManager()
 
 	testManager(t, "v1")
 	testNetCls(t, "v1")
 }
 
 func TestV2Manager(t *testing.T) {
-	manager = v2.NewManager()
+	t.Parallel()
+
+	_ = v2.NewManager()
 
 	testManager(t, "v2")
 }
@@ -71,7 +78,7 @@ func testManager(t *testing.T, version string) {
 	_, _ = GetTasksWithRelativePath("/", "cpu")
 	_, _ = GetTasksWithAbsolutePath("/")
 
-	_ = DropCacheWithTimeoutForContainer("fake-pod", "fake-container", 1)
+	_ = DropCacheWithTimeoutForContainer(context.Background(), "fake-pod", "fake-container", 1)
 	_ = DropCacheWithTimeoutWithRelativePath(1, "/test")
 }
 

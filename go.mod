@@ -1,6 +1,6 @@
 module github.com/kubewharf/katalyst-core
 
-go 1.17
+go 1.18
 
 require (
 	github.com/alecthomas/units v0.0.0-20190924025748-f65c72e2690d
@@ -11,7 +11,7 @@ require (
 	github.com/gogo/protobuf v1.3.2
 	github.com/golang/protobuf v1.5.2
 	github.com/google/cadvisor v0.44.1
-	github.com/kubewharf/katalyst-api v0.1.8
+	github.com/kubewharf/katalyst-api v0.1.9
 	github.com/opencontainers/runc v1.1.1
 	github.com/pkg/errors v0.9.1
 	github.com/prometheus/client_golang v1.12.1

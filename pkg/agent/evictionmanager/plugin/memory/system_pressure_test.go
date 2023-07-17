@@ -46,10 +46,12 @@ func makeMetaServer() *metaserver.MetaServer {
 }
 
 var (
-	evictionManagerSyncPeriod            = 10 * time.Second
-	numaFreeBelowWatermarkTimesThreshold = 3
-	systemKswapdRateThreshold            = 3000
-	systemKswapdRateExceedTimesThreshold = 3
+	evictionManagerSyncPeriod               = 10 * time.Second
+	numaFreeBelowWatermarkTimesThreshold    = 3
+	systemKswapdRateThreshold               = 1000
+	systemKswapdRateExceedDurationThreshold = 90
+	systemPluginSyncPeriod                  = 30
+	systemPluginCoolDownPeriod              = 40
 
 	scaleFactor = 600
 	systemTotal = 100 * 1024 * 1024 * 1024
@@ -61,11 +63,13 @@ var (
 func makeConf() *config.Configuration {
 	conf := config.NewConfiguration()
 	conf.EvictionManagerSyncPeriod = evictionManagerSyncPeriod
+	conf.SystemPressureSyncPeriod = systemPluginSyncPeriod
+	conf.SystemPressureCoolDownPeriod = systemPluginCoolDownPeriod
 	conf.GetDynamicConfiguration().EnableNumaLevelEviction = evictionconfig.DefaultEnableNumaLevelEviction
 	conf.GetDynamicConfiguration().EnableSystemLevelEviction = evictionconfig.DefaultEnableSystemLevelEviction
 	conf.GetDynamicConfiguration().NumaFreeBelowWatermarkTimesThreshold = numaFreeBelowWatermarkTimesThreshold
 	conf.GetDynamicConfiguration().SystemKswapdRateThreshold = systemKswapdRateThreshold
-	conf.GetDynamicConfiguration().SystemKswapdRateExceedTimesThreshold = systemKswapdRateExceedTimesThreshold
+	conf.GetDynamicConfiguration().SystemKswapdRateExceedDurationThreshold = systemKswapdRateExceedDurationThreshold
 	conf.GetDynamicConfiguration().NumaEvictionRankingMetrics = evictionconfig.DefaultNumaEvictionRankingMetrics
 	conf.GetDynamicConfiguration().SystemEvictionRankingMetrics = evictionconfig.DefaultSystemEvictionRankingMetrics
 	conf.GetDynamicConfiguration().MemoryPressureEvictionConfiguration.GracePeriod = evictionconfig.DefaultGracePeriod
@@ -93,19 +97,24 @@ func makeSystemPressureEvictionPlugin(conf *config.Configuration) (*SystemPressu
 }
 
 func TestNewSystemPressureEvictionPlugin(t *testing.T) {
+	t.Parallel()
+
 	plugin, err := makeSystemPressureEvictionPlugin(makeConf())
 	assert.NoError(t, err)
 	assert.NotNil(t, plugin)
 
 	assert.Equal(t, evictionManagerSyncPeriod, plugin.evictionManagerSyncPeriod)
+	assert.Equal(t, time.Duration(systemPluginSyncPeriod)*time.Second, plugin.syncPeriod)
 	assert.Equal(t, numaFreeBelowWatermarkTimesThreshold, plugin.dynamicConfig.GetDynamicConfiguration().NumaFreeBelowWatermarkTimesThreshold)
 	assert.Equal(t, systemKswapdRateThreshold, plugin.dynamicConfig.GetDynamicConfiguration().SystemKswapdRateThreshold)
-	assert.Equal(t, systemKswapdRateExceedTimesThreshold, plugin.dynamicConfig.GetDynamicConfiguration().SystemKswapdRateExceedTimesThreshold)
+	assert.Equal(t, systemKswapdRateExceedDurationThreshold, plugin.dynamicConfig.GetDynamicConfiguration().SystemKswapdRateExceedDurationThreshold)
 	assert.Equal(t, evictionconfig.DefaultNumaEvictionRankingMetrics, plugin.dynamicConfig.GetDynamicConfiguration().NumaEvictionRankingMetrics)
 	assert.Equal(t, evictionconfig.DefaultSystemEvictionRankingMetrics, plugin.dynamicConfig.GetDynamicConfiguration().SystemEvictionRankingMetrics)
 }
 
 func TestSystemPressureEvictionPlugin_ThresholdMet(t *testing.T) {
+	t.Parallel()
+
 	plugin, err := makeSystemPressureEvictionPlugin(makeConf())
 	assert.NoError(t, err)
 	assert.NotNil(t, plugin)
@@ -213,13 +222,60 @@ func TestSystemPressureEvictionPlugin_ThresholdMet(t *testing.T) {
 			wantIsUnderSystemPressure: true,
 			wantSystemAction:          actionEviction,
 		},
+		{
+			name:                      "system above watermark, kswapd not steal exceed",
+			round:                     6,
+			systemFree:                12 * 1024 * 1024 * 1024,
+			systemKswapSteal:          170000,
+			wantMetType:               pluginapi.ThresholdMetType_NOT_MET,
+			wantCondition:             nil,
+			wantIsUnderSystemPressure: false,
+			wantSystemAction:          actionNoop,
+		},
+		{
+			name:                      "system above watermark, kswapd not steal exceed",
+			round:                     7,
+			systemFree:                12 * 1024 * 1024 * 1024,
+			systemKswapSteal:          210000,
+			wantMetType:               pluginapi.ThresholdMetType_NOT_MET,
+			wantCondition:             nil,
+			wantIsUnderSystemPressure: false,
+			wantSystemAction:          actionNoop,
+		},
+		{
+			name:                      "system above watermark, kswapd not steal exceed",
+			round:                     8,
+			systemFree:                12 * 1024 * 1024 * 1024,
+			systemKswapSteal:          260000,
+			wantMetType:               pluginapi.ThresholdMetType_NOT_MET,
+			wantCondition:             nil,
+			wantIsUnderSystemPressure: false,
+			wantSystemAction:          actionNoop,
+		},
+		{
+			name:              "system above watermark, kswapd steal exceed",
+			round:             9,
+			systemFree:        12 * 1024 * 1024 * 1024,
+			systemKswapSteal:  300000,
+			wantMetType:       pluginapi.ThresholdMetType_HARD_MET,
+			wantEvictionScope: EvictionScopeSystemMemory,
+			wantCondition: &pluginapi.Condition{
+				ConditionType: pluginapi.ConditionType_NODE_CONDITION,
+				Effects:       []string{string(v1.TaintEffectNoSchedule)},
+				ConditionName: evictionConditionMemoryPressure,
+				MetCondition:  true,
+			},
+			wantIsUnderSystemPressure: true,
+			wantSystemAction:          actionEviction,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			now := start.Add(time.Duration(tt.round) * evictionManagerSyncPeriod)
+			now := start.Add(time.Duration(tt.round) * plugin.syncPeriod)
 			fakeMetricsFetcher.SetNodeMetric(consts.MetricMemFreeSystem, utilMetric.MetricData{Value: tt.systemFree, Time: &now})
 			fakeMetricsFetcher.SetNodeMetric(consts.MetricMemKswapdstealSystem, utilMetric.MetricData{Value: tt.systemKswapSteal, Time: &now})
 
+			plugin.detectSystemPressures(context.TODO())
 			metResp, err := plugin.ThresholdMet(context.TODO())
 			assert.NoError(t, err)
 			assert.NotNil(t, metResp)
@@ -238,6 +294,8 @@ func TestSystemPressureEvictionPlugin_ThresholdMet(t *testing.T) {
 }
 
 func TestSystemPressureEvictionPlugin_GetTopEvictionPods(t *testing.T) {
+	t.Parallel()
+
 	plugin, err := makeSystemPressureEvictionPlugin(makeConf())
 	assert.NoError(t, err)
 	assert.NotNil(t, plugin)
@@ -297,24 +355,35 @@ func TestSystemPressureEvictionPlugin_GetTopEvictionPods(t *testing.T) {
 		isUnderSystemPressure bool
 		systemAction          int
 		wantEvictPodSet       sets.String
+		lastEvictionTime      time.Time
 	}{
 		{
 			name:                  "not under pressure",
 			isUnderSystemPressure: false,
 			systemAction:          actionNoop,
 			wantEvictPodSet:       sets.String{},
+			lastEvictionTime:      time.Now().Add(-1 * time.Hour),
 		},
 		{
 			name:                  "under pressure, need reclaim",
 			isUnderSystemPressure: true,
 			systemAction:          actionReclaimedEviction,
 			wantEvictPodSet:       sets.NewString("pod-1"),
+			lastEvictionTime:      time.Now().Add(-1 * time.Hour),
 		},
 		{
 			name:                  "under pressure, need eviction",
 			isUnderSystemPressure: true,
 			systemAction:          actionEviction,
 			wantEvictPodSet:       sets.NewString("pod-1"),
+			lastEvictionTime:      time.Now().Add(-1 * time.Hour),
+		},
+		{
+			name:                  "under pressure, need eviction",
+			isUnderSystemPressure: true,
+			systemAction:          actionEviction,
+			wantEvictPodSet:       sets.NewString(),
+			lastEvictionTime:      time.Now().Add(-10 * time.Second),
 		},
 	}
 
@@ -322,6 +391,7 @@ func TestSystemPressureEvictionPlugin_GetTopEvictionPods(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			plugin.isUnderSystemPressure = tt.isUnderSystemPressure
 			plugin.systemAction = tt.systemAction
+			plugin.lastEvictionTime = tt.lastEvictionTime
 			resp, err := plugin.GetTopEvictionPods(context.TODO(), &pluginapi.GetTopEvictionPodsRequest{
 				ActivePods:    bePods,
 				TopN:          1,
@@ -334,7 +404,7 @@ func TestSystemPressureEvictionPlugin_GetTopEvictionPods(t *testing.T) {
 			for _, pod := range resp.TargetPods {
 				targetPodSet.Insert(pod.Name)
 			}
-			assert.Equal(t, targetPodSet, tt.wantEvictPodSet)
+			assert.Equal(t, tt.wantEvictPodSet, targetPodSet)
 		})
 	}
 }

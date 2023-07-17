@@ -63,6 +63,8 @@ func generateTestMetaServer(clientSet *client.GenericClientSet, conf *config.Con
 }
 
 func TestNewReclaimedResourcesEvictionPlugin(t *testing.T) {
+	t.Parallel()
+
 	testNodeName := "test-node"
 	testConf := generateTestConfiguration(t, testNodeName)
 	pods := []*corev1.Pod{

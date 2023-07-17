@@ -32,6 +32,8 @@ import (
 )
 
 func TestEvictionQueue(t *testing.T) {
+	t.Parallel()
+
 	pods := []*v1.Pod{
 		{
 			ObjectMeta: metav1.ObjectMeta{Name: "pod-1"},

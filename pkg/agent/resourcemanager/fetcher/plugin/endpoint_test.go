@@ -39,7 +39,9 @@ var (
 )
 
 func TestNewEndpoint(t *testing.T) {
-	socketDir := path.Join("/tmp")
+	t.Parallel()
+
+	socketDir := path.Join("/tmp/TestNewEndpoint")
 
 	content := []*v1alpha1.ReportContent{
 		{
@@ -53,7 +55,7 @@ func TestNewEndpoint(t *testing.T) {
 }
 
 func TestRun(t *testing.T) {
-	socket := path.Join("/tmp")
+	socket := path.Join("/tmp/TestRun")
 
 	content := []*v1alpha1.ReportContent{
 		{
@@ -144,7 +146,9 @@ func TestRun(t *testing.T) {
 }
 
 func TestGetReportContent(t *testing.T) {
-	socket := path.Join("/tmp")
+	t.Parallel()
+
+	socket := path.Join("/tmp/TestGetReportContent")
 
 	content := []*v1alpha1.ReportContent{
 		{

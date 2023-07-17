@@ -98,7 +98,7 @@ func (l *LocalMemoryMetricStore) Start() error {
 	klog.Info("started local memory store")
 	l.syncSuccess = true
 
-	go wait.Until(l.gc, 10*time.Second, l.ctx.Done())
+	go wait.Until(l.gc, l.storeConf.GCPeriod, l.ctx.Done())
 	go wait.Until(l.monitor, time.Minute*3, l.ctx.Done())
 	return nil
 }
@@ -187,7 +187,7 @@ func (l *LocalMemoryMetricStore) ListMetricMeta(_ context.Context, withObject bo
 func (l *LocalMemoryMetricStore) gc() {
 	begin := time.Now()
 	defer func() {
-		klog.Infof("[LocalMemoryMetricStore] gc costs %s", time.Since(begin).String())
+		klog.V(6).Infof("[LocalMemoryMetricStore] gc costs %s", time.Since(begin).String())
 	}()
 
 	expiredTime := begin.Add(-1 * l.genericConf.OutOfDataPeriod)

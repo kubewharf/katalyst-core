@@ -31,6 +31,8 @@ import (
 )
 
 func TestUpdateVPAConditions(t *testing.T) {
+	t.Parallel()
+
 	oldvpa1 := &apis.KatalystVerticalPodAutoscaler{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "vpa1",
@@ -114,6 +116,8 @@ func TestUpdateVPAConditions(t *testing.T) {
 }
 
 func TestUpdateAPIVPAConditions(t *testing.T) {
+	t.Parallel()
+
 	oldvpa1 := &apis.KatalystVerticalPodAutoscaler{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "vpa1",
@@ -187,6 +191,8 @@ func TestUpdateAPIVPAConditions(t *testing.T) {
 }
 
 func TestUpdateVPARecConditions(t *testing.T) {
+	t.Parallel()
+
 	oldvparec1 := &apis.VerticalPodAutoscalerRecommendation{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "vpa1",

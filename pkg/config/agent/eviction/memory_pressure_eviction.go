@@ -20,7 +20,9 @@ import "k8s.io/apimachinery/pkg/labels"
 
 // MemoryPressureEvictionConfiguration is the config of MemoryPressureEviction
 type MemoryPressureEvictionConfiguration struct {
-	RSSOveruseEvictionFilter labels.Set
+	RSSOveruseEvictionFilter     labels.Set
+	SystemPressureSyncPeriod     int
+	SystemPressureCoolDownPeriod int
 }
 
 // NewMemoryPressureEvictionPluginConfiguration returns a new MemoryPressureEvictionConfiguration

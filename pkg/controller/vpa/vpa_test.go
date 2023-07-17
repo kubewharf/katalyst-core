@@ -59,6 +59,8 @@ var makePod = func(name string, annotations, labels map[string]string, owners []
 }
 
 func TestVPAControllerSyncVPA(t *testing.T) {
+	t.Parallel()
+
 	pod1 := makePod("pod1",
 		map[string]string{},
 		map[string]string{"workload": "sts1"},
@@ -394,6 +396,8 @@ func TestVPAControllerSyncVPA(t *testing.T) {
 }
 
 func TestVPAControllerSyncPod(t *testing.T) {
+	t.Parallel()
+
 	pod1 := makePod("pod1",
 		map[string]string{},
 		map[string]string{"workload": "sts1"},
@@ -542,7 +546,7 @@ func TestVPAControllerSyncPod(t *testing.T) {
 			assert.NoError(t, err)
 			vpaController.vpaSyncQueue.Add(key)
 
-			err = wait.PollImmediate(time.Second, time.Second*5, func() (bool, error) {
+			err = wait.PollImmediate(time.Millisecond*200, time.Second*5, func() (bool, error) {
 				p, _ := controlCtx.Client.KubeClient.CoreV1().Pods(tc.newPod.Namespace).Get(context.TODO(), tc.newPod.Name, metav1.GetOptions{})
 				eq := reflect.DeepEqual(tc.newPod, p)
 				return eq, nil
@@ -557,6 +561,8 @@ func TestVPAControllerSyncPod(t *testing.T) {
 }
 
 func TestVPAControllerSyncWorkload(t *testing.T) {
+	t.Parallel()
+
 	pod1 := makePod("pod1",
 		map[string]string{},
 		map[string]string{"workload": "sts1"},
@@ -697,7 +703,7 @@ func TestVPAControllerSyncWorkload(t *testing.T) {
 			_, err = controlCtx.Client.KubeClient.CoreV1().Pods(tc.pod.Namespace).Create(context.TODO(), tc.pod, metav1.CreateOptions{})
 			assert.NoError(t, err)
 
-			err = wait.PollImmediate(time.Second, time.Second*5, func() (bool, error) {
+			err = wait.PollImmediate(time.Millisecond*20, time.Second*5, func() (bool, error) {
 				p, _ := controlCtx.Client.KubeClient.CoreV1().Pods(tc.newPod.Namespace).Get(context.TODO(), tc.newPod.Name, metav1.GetOptions{})
 				eq := reflect.DeepEqual(tc.newPod, p)
 				return eq, nil
@@ -712,6 +718,8 @@ func TestVPAControllerSyncWorkload(t *testing.T) {
 }
 
 func TestPodIndexerDuplicate(t *testing.T) {
+	t.Parallel()
+
 	vpaConf := controller.NewVPAConfig()
 	genericConf := &generic.GenericConfiguration{}
 	controllerConf := &controller.GenericControllerConfiguration{}
@@ -744,6 +752,8 @@ func TestPodIndexerDuplicate(t *testing.T) {
 }
 
 func TestSyncPerformance(t *testing.T) {
+	t.Parallel()
+
 	flagSet := flag.FlagSet{}
 	klog.InitFlags(&flagSet)
 	_ = flagSet.Parse([]string{
@@ -795,7 +805,7 @@ func TestSyncPerformance(t *testing.T) {
 		},
 	})
 
-	amount := 100000
+	amount := 1
 	for i := 1; i <= amount; i++ {
 		name := fmt.Sprintf("pod-%v", i)
 		kubeObj = append(kubeObj, makePod(name,

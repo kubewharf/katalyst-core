@@ -73,7 +73,7 @@ func NewMemoryResourceAdvisor(conf *config.Configuration, extraConf interface{},
 		metaReader: metaCache,
 		metaServer: metaServer,
 		emitter:    emitter,
-		sendChan:   make(chan types.InternalMemoryCalculationResult),
+		sendChan:   make(chan types.InternalMemoryCalculationResult, 1),
 	}
 
 	headroomPolicyInitializers := headroompolicy.GetRegisteredInitializers()
@@ -127,13 +127,19 @@ func (ra *memoryResourceAdvisor) GetHeadroom() (resource.Quantity, error) {
 
 func (ra *memoryResourceAdvisor) sendAdvices() {
 	// send to server
-	result := types.InternalMemoryCalculationResult{}
+	result := types.InternalMemoryCalculationResult{TimeStamp: time.Now()}
 	for _, plugin := range ra.plugins {
 		advices := plugin.GetAdvices()
 		result.ContainerEntries = append(result.ContainerEntries, advices.ContainerEntries...)
 		result.ExtraEntries = append(result.ExtraEntries, advices.ExtraEntries...)
 	}
-	ra.sendChan <- result
+
+	select {
+	case ra.sendChan <- result:
+		general.Infof("notify memory server: %+v", result)
+	default:
+		general.Errorf("channel is full")
+	}
 }
 
 func (ra *memoryResourceAdvisor) update() {

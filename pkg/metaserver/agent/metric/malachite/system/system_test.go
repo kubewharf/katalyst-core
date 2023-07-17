@@ -83,6 +83,8 @@ func getSystemTestServer(data []byte) *httptest.Server {
 }
 
 func TestGetSystemComputeStats(t *testing.T) {
+	t.Parallel()
+
 	data, _ := json.Marshal(fakeSystemCompute)
 	server := getSystemTestServer(data)
 	defer server.Close()
@@ -101,6 +103,8 @@ func TestGetSystemComputeStats(t *testing.T) {
 }
 
 func TestGetSystemMemoryStats(t *testing.T) {
+	t.Parallel()
+
 	data, _ := json.Marshal(fakeSystemMemory)
 	server := getSystemTestServer(data)
 	defer server.Close()
@@ -119,6 +123,8 @@ func TestGetSystemMemoryStats(t *testing.T) {
 }
 
 func TestGetSystemIOStats(t *testing.T) {
+	t.Parallel()
+
 	data, _ := json.Marshal(fakeSystemIO)
 	server := getSystemTestServer(data)
 	defer server.Close()
@@ -137,6 +143,8 @@ func TestGetSystemIOStats(t *testing.T) {
 }
 
 func TestGetSystemNetStats(t *testing.T) {
+	t.Parallel()
+
 	data, _ := json.Marshal(fakeSystemNet)
 	server := getSystemTestServer(data)
 	defer server.Close()
@@ -155,6 +163,8 @@ func TestGetSystemNetStats(t *testing.T) {
 }
 
 func TestGetSystemNonExistStats(t *testing.T) {
+	t.Parallel()
+
 	server := getSystemTestServer([]byte{})
 	defer server.Close()
 

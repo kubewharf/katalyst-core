@@ -521,7 +521,7 @@ func (p *DynamicPolicy) applyBlocks(blockCPUSet advisorapi.BlockCPUSet, resp *ad
 
 			// adapt to old checkpoint without RequestQuantity property
 			if newEntries[podUID][containerName] != nil {
-				newEntries[podUID][containerName].RequestQuantity = state.GetContainerRequestedCores(allocationInfo)
+				newEntries[podUID][containerName].RequestQuantity = state.GetContainerRequestedCores()(allocationInfo)
 				continue
 			}
 

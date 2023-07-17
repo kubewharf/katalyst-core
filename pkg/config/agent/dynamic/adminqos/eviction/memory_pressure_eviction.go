@@ -40,7 +40,7 @@ const (
 	DefaultSystemKswapdRateThreshold = 2000
 	// DefaultSystemKswapdRateExceedTimesThreshold is the default threshold for the number of times
 	// that the kswapd reclaiming rate exceeds the threshold
-	DefaultSystemKswapdRateExceedTimesThreshold = 4
+	DefaultSystemKswapdRateExceedDurationThreshold = 120
 	// DefaultGracePeriod is the default value of grace period
 	DefaultGracePeriod int64 = -1
 	// DefaultEnableRssOveruseDetection is the default value of whether enable pod-level rss overuse detection
@@ -59,16 +59,16 @@ var (
 )
 
 type MemoryPressureEvictionConfiguration struct {
-	EnableNumaLevelEviction              bool
-	EnableSystemLevelEviction            bool
-	NumaFreeBelowWatermarkTimesThreshold int
-	SystemKswapdRateThreshold            int
-	SystemKswapdRateExceedTimesThreshold int
-	NumaEvictionRankingMetrics           []string
-	SystemEvictionRankingMetrics         []string
-	EnableRSSOveruseEviction             bool
-	RSSOveruseRateThreshold              float64
-	GracePeriod                          int64
+	EnableNumaLevelEviction                 bool
+	EnableSystemLevelEviction               bool
+	NumaFreeBelowWatermarkTimesThreshold    int
+	SystemKswapdRateThreshold               int
+	SystemKswapdRateExceedDurationThreshold int
+	NumaEvictionRankingMetrics              []string
+	SystemEvictionRankingMetrics            []string
+	EnableRSSOveruseEviction                bool
+	RSSOveruseRateThreshold                 float64
+	GracePeriod                             int64
 }
 
 func NewMemoryPressureEvictionPluginConfiguration() *MemoryPressureEvictionConfiguration {
@@ -96,8 +96,8 @@ func (c *MemoryPressureEvictionConfiguration) ApplyConfiguration(conf *crd.Dynam
 			c.SystemKswapdRateThreshold = *(config.SystemKswapdRateThreshold)
 		}
 
-		if config.SystemKswapdRateExceedTimesThreshold != nil {
-			c.SystemKswapdRateExceedTimesThreshold = *(config.SystemKswapdRateExceedTimesThreshold)
+		if config.SystemKswapdRateExceedDurationThreshold != nil {
+			c.SystemKswapdRateExceedDurationThreshold = *(config.SystemKswapdRateExceedDurationThreshold)
 		}
 
 		if len(config.NumaEvictionRankingMetrics) > 0 {

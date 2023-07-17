@@ -94,6 +94,8 @@ func constructKatalystCustomConfigLoader() ConfigurationLoader {
 }
 
 func Test_katalystCustomConfigLoader_LoadConfig(t *testing.T) {
+	t.Parallel()
+
 	type args struct {
 		ctx  context.Context
 		gvr  metav1.GroupVersionResource

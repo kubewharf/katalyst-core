@@ -36,6 +36,8 @@ func toTestUnstructured(t *testing.T, obj interface{}) *unstructured.Unstructure
 }
 
 func Test_prepareUnstructuredPatchBytes(t *testing.T) {
+	t.Parallel()
+
 	type args struct {
 		oldObj *unstructured.Unstructured
 		newObj *unstructured.Unstructured
@@ -102,6 +104,8 @@ func Test_prepareUnstructuredPatchBytes(t *testing.T) {
 }
 
 func Test_prepareUnstructuredStatusPatchBytes(t *testing.T) {
+	t.Parallel()
+
 	type args struct {
 		oldObj *unstructured.Unstructured
 		newObj *unstructured.Unstructured

@@ -35,6 +35,8 @@ import (
 )
 
 func TestCNCLifecycle_Run(t *testing.T) {
+	t.Parallel()
+
 	type fields struct {
 		node *corev1.Node
 		cnc  *configapis.CustomNodeConfig
@@ -140,7 +142,7 @@ func TestCNCLifecycle_Run(t *testing.T) {
 			go cl.Run()
 
 			cache.WaitForCacheSync(cl.ctx.Done(), cl.nodeListerSynced, cl.cncListerSynced)
-			time.Sleep(1 * time.Second)
+			time.Sleep(100 * time.Millisecond)
 
 			gotCNC, err := cl.cncLister.Get(tt.fields.node.Name)
 			assert.NoError(t, err)
@@ -149,7 +151,7 @@ func TestCNCLifecycle_Run(t *testing.T) {
 			// test recreate
 			err = cl.client.InternalClient.ConfigV1alpha1().CustomNodeConfigs().Delete(context.Background(), tt.fields.node.Name, metav1.DeleteOptions{})
 			assert.NoError(t, err)
-			time.Sleep(1 * time.Second)
+			time.Sleep(100 * time.Millisecond)
 
 			gotCNC, err = cl.cncLister.Get(tt.fields.node.Name)
 			assert.NoError(t, err)

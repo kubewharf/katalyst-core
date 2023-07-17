@@ -26,6 +26,8 @@ import (
 )
 
 func TestAbsCgroupPathWithSuffix(t *testing.T) {
+	t.Parallel()
+
 	as := require.New(t)
 	path := GetAbsCgroupPath("cpuset", "abc")
 
@@ -37,24 +39,32 @@ func TestAbsCgroupPathWithSuffix(t *testing.T) {
 }
 
 func TestGetAbsCgroupPath(t *testing.T) {
+	t.Parallel()
+
 	as := require.New(t)
 	_, err := GetKubernetesAnyExistAbsCgroupPath("cpuset", "")
 	as.NotNil(err)
 }
 
 func TestGetPodAbsCgroupPath(t *testing.T) {
+	t.Parallel()
+
 	as := require.New(t)
 	_, err := GetPodAbsCgroupPath("cpuset", "")
 	as.NotNil(err)
 }
 
 func TestGetContainerAbsCgroupPath(t *testing.T) {
+	t.Parallel()
+
 	as := require.New(t)
 	_, err := GetContainerAbsCgroupPath("cpuset", "", "")
 	as.NotNil(err)
 }
 
 func TestIsContainerCgroupExist(t *testing.T) {
+	t.Parallel()
+
 	as := require.New(t)
 	_, err := IsContainerCgroupExist("fake-pod-uid", "fake-container-id")
 	as.NotNil(err)

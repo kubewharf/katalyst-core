@@ -89,6 +89,10 @@ func (b *ResourcesEvictionPlugin) Name() string {
 	return b.pluginName
 }
 
+func (b *ResourcesEvictionPlugin) Start() {
+	return
+}
+
 // ThresholdMet evict pods when the beset effort resources usage is greater than
 // the supply (after considering toleration).
 func (b *ResourcesEvictionPlugin) ThresholdMet(ctx context.Context) (*pluginapi.ThresholdMetResponse, error) {

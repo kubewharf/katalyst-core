@@ -27,6 +27,8 @@ import (
 )
 
 func TestCheckpoint(t *testing.T) {
+	t.Parallel()
+
 	cp := NewMetaCacheCheckpoint()
 	cp.PoolEntries = map[string]*types.PoolInfo{
 		"p1": {

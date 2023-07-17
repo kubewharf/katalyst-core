@@ -98,9 +98,11 @@ func getTestDynamicPolicyWithInitialization(topology *machine.CPUTopology, machi
 }
 
 func TestCheckMemorySet(t *testing.T) {
+	t.Parallel()
+
 	as := require.New(t)
 
-	tmpDir, err := ioutil.TempDir("", "checkpoint")
+	tmpDir, err := ioutil.TempDir("", "checkpoint-TestCheckMemorySet")
 	as.Nil(err)
 	defer os.RemoveAll(tmpDir)
 
@@ -150,9 +152,11 @@ func TestCheckMemorySet(t *testing.T) {
 }
 
 func TestClearResidualState(t *testing.T) {
+	t.Parallel()
+
 	as := require.New(t)
 
-	tmpDir, err := ioutil.TempDir("", "checkpoint")
+	tmpDir, err := ioutil.TempDir("", "checkpoint-TestClearResidualState")
 	as.Nil(err)
 	defer os.RemoveAll(tmpDir)
 
@@ -173,9 +177,11 @@ func TestClearResidualState(t *testing.T) {
 }
 
 func TestSetMemoryMigrate(t *testing.T) {
+	t.Parallel()
+
 	as := require.New(t)
 
-	tmpDir, err := ioutil.TempDir("", "checkpoint")
+	tmpDir, err := ioutil.TempDir("", "checkpoint-TestSetMemoryMigrate")
 	as.Nil(err)
 	defer os.RemoveAll(tmpDir)
 
@@ -242,9 +248,11 @@ func TestSetMemoryMigrate(t *testing.T) {
 }
 
 func TestRemovePod(t *testing.T) {
+	t.Parallel()
+
 	as := require.New(t)
 
-	tmpDir, err := ioutil.TempDir("", "checkpoint")
+	tmpDir, err := ioutil.TempDir("", "checkpoint-TestRemovePod")
 	as.Nil(err)
 	defer os.RemoveAll(tmpDir)
 
@@ -329,6 +337,8 @@ func TestRemovePod(t *testing.T) {
 }
 
 func TestAllocate(t *testing.T) {
+	t.Parallel()
+
 	as := require.New(t)
 	cpuTopology, err := machine.GenerateDummyCPUTopology(16, 2, 4)
 	as.Nil(err)
@@ -755,7 +765,7 @@ func TestAllocate(t *testing.T) {
 	}
 
 	for _, tc := range testCases {
-		tmpDir, err := ioutil.TempDir("", "checkpoint")
+		tmpDir, err := ioutil.TempDir("", "checkpoint-TestAllocate")
 		as.Nil(err)
 
 		dynamicPolicy, err := getTestDynamicPolicyWithInitialization(cpuTopology, machineInfo, tmpDir)
@@ -776,6 +786,8 @@ func TestAllocate(t *testing.T) {
 }
 
 func TestGetTopologyHints(t *testing.T) {
+	t.Parallel()
+
 	as := require.New(t)
 	cpuTopology, err := machine.GenerateDummyCPUTopology(16, 2, 4)
 	as.Nil(err)
@@ -1165,7 +1177,7 @@ func TestGetTopologyHints(t *testing.T) {
 	}
 
 	for _, tc := range testCases {
-		tmpDir, err := ioutil.TempDir("", "checkpoint")
+		tmpDir, err := ioutil.TempDir("", "checkpoint-TestGetTopologyHints")
 		as.Nil(err)
 
 		dynamicPolicy, err := getTestDynamicPolicyWithInitialization(cpuTopology, machineInfo, tmpDir)
@@ -1186,9 +1198,11 @@ func TestGetTopologyHints(t *testing.T) {
 }
 
 func TestGetTopologyAwareAllocatableResources(t *testing.T) {
+	t.Parallel()
+
 	as := require.New(t)
 
-	tmpDir, err := ioutil.TempDir("", "checkpoint")
+	tmpDir, err := ioutil.TempDir("", "checkpoint-TestGetTopologyAwareAllocatableResources")
 	as.Nil(err)
 	defer os.RemoveAll(tmpDir)
 
@@ -1229,6 +1243,8 @@ func TestGetTopologyAwareAllocatableResources(t *testing.T) {
 }
 
 func TestGetTopologyAwareResources(t *testing.T) {
+	t.Parallel()
+
 	as := require.New(t)
 	cpuTopology, err := machine.GenerateDummyCPUTopology(16, 2, 4)
 	as.Nil(err)
@@ -1388,7 +1404,7 @@ func TestGetTopologyAwareResources(t *testing.T) {
 	}
 
 	for _, tc := range testCases {
-		tmpDir, err := ioutil.TempDir("", "checkpoint")
+		tmpDir, err := ioutil.TempDir("", "checkpoint-TestGetTopologyAwareResources")
 		as.Nil(err)
 
 		dynamicPolicy, err := getTestDynamicPolicyWithInitialization(cpuTopology, machineInfo, tmpDir)
@@ -1417,9 +1433,11 @@ func TestGetTopologyAwareResources(t *testing.T) {
 }
 
 func TestGetResourcesAllocation(t *testing.T) {
+	t.Parallel()
+
 	as := require.New(t)
 
-	tmpDir, err := ioutil.TempDir("", "checkpoint")
+	tmpDir, err := ioutil.TempDir("", "checkpoint-TestGetResourcesAllocation")
 	as.Nil(err)
 	defer os.RemoveAll(tmpDir)
 
@@ -1556,6 +1574,8 @@ func TestGetResourcesAllocation(t *testing.T) {
 }
 
 func TestGetReadonlyState(t *testing.T) {
+	t.Parallel()
+
 	as := require.New(t)
 	readonlyState, err := GetReadonlyState()
 	as.NotNil(err)
@@ -1563,6 +1583,8 @@ func TestGetReadonlyState(t *testing.T) {
 }
 
 func TestGenerateResourcesMachineStateFromPodEntries(t *testing.T) {
+	t.Parallel()
+
 	as := require.New(t)
 
 	machineInfo, err := machine.GenerateDummyMachineInfo(4, 32)

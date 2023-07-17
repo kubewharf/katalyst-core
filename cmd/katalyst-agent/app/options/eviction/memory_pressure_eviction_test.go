@@ -26,6 +26,8 @@ import (
 )
 
 func TestMemoryPressureEvictionPluginOptions_ApplyTo(t *testing.T) {
+	t.Parallel()
+
 	options := NewMemoryPressureEvictionOptions()
 	configuration := eviction.NewMemoryPressureEvictionPluginConfiguration()
 

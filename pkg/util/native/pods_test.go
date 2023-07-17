@@ -26,6 +26,8 @@ import (
 )
 
 func TestFilterPodAnnotations(t *testing.T) {
+	t.Parallel()
+
 	for _, tc := range []struct {
 		name       string
 		pod        *v1.Pod
@@ -64,6 +66,8 @@ func TestFilterPodAnnotations(t *testing.T) {
 }
 
 func TestGetContainerID(t *testing.T) {
+	t.Parallel()
+
 	type args struct {
 		pod  *v1.Pod
 		name string
@@ -107,6 +111,8 @@ func TestGetContainerID(t *testing.T) {
 }
 
 func TestGetContainerEnvs(t *testing.T) {
+	t.Parallel()
+
 	type args struct {
 		pod           *v1.Pod
 		containerName string

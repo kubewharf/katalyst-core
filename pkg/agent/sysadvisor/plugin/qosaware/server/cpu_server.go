@@ -19,6 +19,7 @@ package server
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"google.golang.org/grpc"
 	"k8s.io/apimachinery/pkg/util/sets"
@@ -90,6 +91,11 @@ func (cs *cpuServer) ListAndWatch(_ *advisorsvc.Empty, server cpuadvisor.CPUAdvi
 				klog.Infof("[qosaware-server-cpu] recv channel is closed")
 				return nil
 			}
+			if advisorResp.TimeStamp.Add(cs.period * 2).Before(time.Now()) {
+				general.Warningf("advisorResp is expired")
+				continue
+			}
+
 			klog.Infof("[qosaware-server-cpu] get advisor update: %+v", advisorResp)
 
 			calculationEntriesMap := make(map[string]*cpuadvisor.CalculationEntries)

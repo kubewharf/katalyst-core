@@ -30,6 +30,8 @@ import (
 )
 
 func TestGetQuantityFromResourceReq(t *testing.T) {
+	t.Parallel()
+
 	as := require.New(t)
 
 	testCases := []struct {
@@ -90,6 +92,8 @@ func TestGetQuantityFromResourceReq(t *testing.T) {
 }
 
 func TestDeepCopyTopologyAwareAssignments(t *testing.T) {
+	t.Parallel()
+
 	as := require.New(t)
 
 	testCases := []struct {
@@ -117,6 +121,8 @@ func TestDeepCopyTopologyAwareAssignments(t *testing.T) {
 }
 
 func TestHintToIntArray(t *testing.T) {
+	t.Parallel()
+
 	as := require.New(t)
 
 	testCases := []struct {
@@ -161,6 +167,8 @@ func TestHintToIntArray(t *testing.T) {
 }
 
 func TestMaskToUInt64Array(t *testing.T) {
+	t.Parallel()
+
 	as := require.New(t)
 
 	nonEmptyMask, err := bitmask.NewBitMask(0, 1, 2, 3)
@@ -190,6 +198,8 @@ func TestMaskToUInt64Array(t *testing.T) {
 }
 
 func TestTransformTopologyAwareQuantity(t *testing.T) {
+	t.Parallel()
+
 	as := require.New(t)
 
 	testCases := []struct {

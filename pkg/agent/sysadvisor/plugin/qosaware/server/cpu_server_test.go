@@ -23,6 +23,7 @@ import (
 	"reflect"
 	"sort"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -78,6 +79,8 @@ func newTestCPUServer(t *testing.T) *cpuServer {
 }
 
 func TestCPUServerStartAndStop(t *testing.T) {
+	t.Parallel()
+
 	cs := newTestCPUServer(t)
 
 	err := cs.Start()
@@ -88,6 +91,8 @@ func TestCPUServerStartAndStop(t *testing.T) {
 }
 
 func TestCPUServerAddContainer(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name              string
 		request           *advisorsvc.AddContainerRequest
@@ -148,6 +153,8 @@ func TestCPUServerAddContainer(t *testing.T) {
 }
 
 func TestCPUServerRemovePod(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name    string
 		request *advisorsvc.RemovePodRequest
@@ -218,6 +225,8 @@ func DeepCopyResponse(response *cpuadvisor.ListAndWatchResponse) (*cpuadvisor.Li
 }
 
 func TestCPUServerListAndWatch(t *testing.T) {
+	t.Parallel()
+
 	type ContainerInfo struct {
 		request        *advisorsvc.AddContainerRequest
 		allocationInfo *cpuadvisor.AllocationInfo
@@ -234,10 +243,12 @@ func TestCPUServerListAndWatch(t *testing.T) {
 		{
 			name:  "reclaim pool with shared pool",
 			empty: &advisorsvc.Empty{},
-			provision: types.InternalCPUCalculationResult{PoolEntries: map[string]map[int]int{
-				state.PoolNameShare:   {-1: 2},
-				state.PoolNameReclaim: {-1: 4},
-			}},
+			provision: types.InternalCPUCalculationResult{
+				TimeStamp: time.Now(),
+				PoolEntries: map[string]map[int]int{
+					state.PoolNameShare:   {-1: 2},
+					state.PoolNameReclaim: {-1: 4},
+				}},
 			wantErr: false,
 			wantRes: &cpuadvisor.ListAndWatchResponse{
 				Entries: map[string]*cpuadvisor.CalculationEntries{
@@ -279,12 +290,14 @@ func TestCPUServerListAndWatch(t *testing.T) {
 		{
 			name:  "reclaim pool with dedicated pod",
 			empty: &advisorsvc.Empty{},
-			provision: types.InternalCPUCalculationResult{PoolEntries: map[string]map[int]int{
-				state.PoolNameReclaim: {
-					0: 4,
-					1: 8,
-				},
-			}},
+			provision: types.InternalCPUCalculationResult{
+				TimeStamp: time.Now(),
+				PoolEntries: map[string]map[int]int{
+					state.PoolNameReclaim: {
+						0: 4,
+						1: 8,
+					},
+				}},
 			infos: []*ContainerInfo{
 				{
 					request: &advisorsvc.AddContainerRequest{
@@ -389,12 +402,14 @@ func TestCPUServerListAndWatch(t *testing.T) {
 		{
 			name:  "reclaim pool colocated with dedicated pod(2 containers)",
 			empty: &advisorsvc.Empty{},
-			provision: types.InternalCPUCalculationResult{PoolEntries: map[string]map[int]int{
-				state.PoolNameReclaim: {
-					0: 4,
-					1: 8,
-				},
-			}},
+			provision: types.InternalCPUCalculationResult{
+				TimeStamp: time.Now(),
+				PoolEntries: map[string]map[int]int{
+					state.PoolNameReclaim: {
+						0: 4,
+						1: 8,
+					},
+				}},
 			infos: []*ContainerInfo{
 				{
 					request: &advisorsvc.AddContainerRequest{
