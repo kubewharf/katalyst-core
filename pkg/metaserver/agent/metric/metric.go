@@ -128,9 +128,10 @@ type MetricsFetcher interface {
 // NewMalachiteMetricsFetcher returns the default implementation of MetricsFetcher.
 func NewMalachiteMetricsFetcher(emitter metrics.MetricEmitter, conf *config.Configuration) MetricsFetcher {
 	return &MalachiteMetricsFetcher{
-		metricStore: metric.NewMetricStore(),
-		emitter:     emitter,
-		conf:        conf,
+		malachiteClient: client.New(),
+		metricStore:     metric.NewMetricStore(),
+		emitter:         emitter,
+		conf:            conf,
 		registeredNotifier: map[MetricsScope]map[string]NotifiedData{
 			MetricsScopeNode:      make(map[string]NotifiedData),
 			MetricsScopeNuma:      make(map[string]NotifiedData),
@@ -142,13 +143,14 @@ func NewMalachiteMetricsFetcher(emitter metrics.MetricEmitter, conf *config.Conf
 }
 
 type MalachiteMetricsFetcher struct {
-	metricStore *metric.MetricStore
-	conf        *config.Configuration
+	metricStore     *metric.MetricStore
+	malachiteClient client.MalachiteClient
+	conf            *config.Configuration
 
+	sync.RWMutex
 	registeredMetric   []func(store *metric.MetricStore)
 	registeredNotifier map[MetricsScope]map[string]NotifiedData
 
-	sync.RWMutex
 	startOnce sync.Once
 	emitter   metrics.MetricEmitter
 }
@@ -260,7 +262,7 @@ func (m *MalachiteMetricsFetcher) sample() {
 
 // checkMalachiteHealthy is to check whether malachite is healthy
 func (m *MalachiteMetricsFetcher) checkMalachiteHealthy() bool {
-	_, err := client.DefaultClient.GetSystemStats(client.Compute)
+	_, err := m.malachiteClient.GetSystemStats(client.Compute)
 	if err != nil {
 		klog.Errorf("[malachite] malachite is unhealthy: %v", err)
 		_ = m.emitter.StoreInt64(metricsNamMalachiteUnHealthy, 1, metrics.MetricTypeNameRaw)
@@ -272,7 +274,7 @@ func (m *MalachiteMetricsFetcher) checkMalachiteHealthy() bool {
 
 // Get raw system stats by malachite sdk and set to metricStore
 func (m *MalachiteMetricsFetcher) updateSystemStats() {
-	systemComputeData, err := system.GetSystemComputeStats()
+	systemComputeData, err := system.GetSystemComputeStats(m.malachiteClient)
 	if err != nil {
 		klog.Errorf("[malachite] get system compute stats failed, err %v", err)
 		_ = m.emitter.StoreInt64(metricsNameMalachiteGetSystemStatusFailed, 1, metrics.MetricTypeNameCount,
@@ -282,7 +284,7 @@ func (m *MalachiteMetricsFetcher) updateSystemStats() {
 		m.processSystemCPUComputeData(systemComputeData)
 	}
 
-	systemMemoryData, err := system.GetSystemMemoryStats()
+	systemMemoryData, err := system.GetSystemMemoryStats(m.malachiteClient)
 	if err != nil {
 		klog.Errorf("[malachite] get system memory stats failed, err %v", err)
 		_ = m.emitter.StoreInt64(metricsNameMalachiteGetSystemStatusFailed, 1, metrics.MetricTypeNameCount,
@@ -292,7 +294,7 @@ func (m *MalachiteMetricsFetcher) updateSystemStats() {
 		m.processSystemNumaData(systemMemoryData)
 	}
 
-	systemIOData, err := system.GetSystemIOStats()
+	systemIOData, err := system.GetSystemIOStats(m.malachiteClient)
 	if err != nil {
 		klog.Errorf("[malachite] get system io stats failed, err %v", err)
 		_ = m.emitter.StoreInt64(metricsNameMalachiteGetSystemStatusFailed, 1, metrics.MetricTypeNameCount,
@@ -305,7 +307,7 @@ func (m *MalachiteMetricsFetcher) updateSystemStats() {
 func (m *MalachiteMetricsFetcher) updateCgroupData() {
 	cgroupPaths := []string{m.conf.ReclaimRelativeRootCgroupPath, common.CgroupFsRootPathBurstable, common.CgroupFsRootPathBestEffort}
 	for _, path := range cgroupPaths {
-		stats, err := cgroup.GetCgroupStats(path)
+		stats, err := cgroup.GetCgroupStats(m.malachiteClient, path)
 		if err != nil {
 			general.Errorf("GetCgroupStats %v err %v", path, err)
 			continue
@@ -320,7 +322,7 @@ func (m *MalachiteMetricsFetcher) updateCgroupData() {
 
 // Get raw cgroup data by malachite sdk and set container metrics to metricStore, GC not existed pod metrics
 func (m *MalachiteMetricsFetcher) updatePodsCgroupData() {
-	podsContainersStats, err := cgroup.GetAllPodsContainersStats()
+	podsContainersStats, err := cgroup.GetAllPodsContainersStats(m.malachiteClient)
 	if err != nil {
 		klog.Errorf("[malachite] GetAllPodsContainersStats failed, error %v", err)
 		_ = m.emitter.StoreInt64(metricsNameMalachiteGetPodStatusFailed, 1, metrics.MetricTypeNameCount)

@@ -44,8 +44,6 @@ const (
 	Net
 )
 
-var DefaultClient = New()
-
 type Client struct {
 	sync.RWMutex
 	urls map[string]string
@@ -70,6 +68,7 @@ func New() MalachiteClient {
 func (c *Client) SetURL(urls map[string]string) {
 	c.Lock()
 	defer c.Unlock()
+
 	c.urls = urls
 }
 

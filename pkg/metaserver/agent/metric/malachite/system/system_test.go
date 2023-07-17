@@ -89,16 +89,17 @@ func TestGetSystemComputeStats(t *testing.T) {
 	server := getSystemTestServer(data)
 	defer server.Close()
 
-	client.DefaultClient.(*client.Client).SetURL(map[string]string{
+	malachiteClient := client.New()
+	malachiteClient.(*client.Client).SetURL(map[string]string{
 		client.SystemComputeResource: server.URL,
 	})
-	_, err := GetSystemComputeStats()
+	_, err := GetSystemComputeStats(malachiteClient)
 	assert.NoError(t, err)
 
-	client.DefaultClient.(*client.Client).SetURL(map[string]string{
+	malachiteClient.(*client.Client).SetURL(map[string]string{
 		client.SystemComputeResource: "none",
 	})
-	_, err = GetSystemComputeStats()
+	_, err = GetSystemComputeStats(malachiteClient)
 	assert.NotNil(t, err)
 }
 
@@ -109,16 +110,17 @@ func TestGetSystemMemoryStats(t *testing.T) {
 	server := getSystemTestServer(data)
 	defer server.Close()
 
-	client.DefaultClient.(*client.Client).SetURL(map[string]string{
+	malachiteClient := client.New()
+	malachiteClient.(*client.Client).SetURL(map[string]string{
 		client.SystemMemoryResource: server.URL,
 	})
-	_, err := GetSystemMemoryStats()
+	_, err := GetSystemMemoryStats(malachiteClient)
 	assert.NoError(t, err)
 
-	client.DefaultClient.(*client.Client).SetURL(map[string]string{
+	malachiteClient.(*client.Client).SetURL(map[string]string{
 		client.SystemMemoryResource: "none",
 	})
-	_, err = GetSystemComputeStats()
+	_, err = GetSystemComputeStats(malachiteClient)
 	assert.NotNil(t, err)
 }
 
@@ -129,16 +131,17 @@ func TestGetSystemIOStats(t *testing.T) {
 	server := getSystemTestServer(data)
 	defer server.Close()
 
-	client.DefaultClient.(*client.Client).SetURL(map[string]string{
+	malachiteClient := client.New()
+	malachiteClient.(*client.Client).SetURL(map[string]string{
 		client.SystemIOResource: server.URL,
 	})
-	_, err := GetSystemIOStats()
+	_, err := GetSystemIOStats(malachiteClient)
 	assert.NoError(t, err)
 
-	client.DefaultClient.(*client.Client).SetURL(map[string]string{
+	malachiteClient.(*client.Client).SetURL(map[string]string{
 		client.SystemIOResource: "none",
 	})
-	_, err = GetSystemComputeStats()
+	_, err = GetSystemComputeStats(malachiteClient)
 	assert.NotNil(t, err)
 }
 
@@ -149,16 +152,17 @@ func TestGetSystemNetStats(t *testing.T) {
 	server := getSystemTestServer(data)
 	defer server.Close()
 
-	client.DefaultClient.(*client.Client).SetURL(map[string]string{
+	malachiteClient := client.New()
+	malachiteClient.(*client.Client).SetURL(map[string]string{
 		client.SystemNetResource: server.URL,
 	})
-	_, err := GetSystemNetStats()
+	_, err := GetSystemNetStats(malachiteClient)
 	assert.NoError(t, err)
 
-	client.DefaultClient.(*client.Client).SetURL(map[string]string{
+	malachiteClient.(*client.Client).SetURL(map[string]string{
 		client.SystemNetResource: "none",
 	})
-	_, err = GetSystemComputeStats()
+	_, err = GetSystemComputeStats(malachiteClient)
 	assert.NotNil(t, err)
 }
 
@@ -168,6 +172,7 @@ func TestGetSystemNonExistStats(t *testing.T) {
 	server := getSystemTestServer([]byte{})
 	defer server.Close()
 
-	_, err := client.DefaultClient.GetSystemStats(100)
+	malachiteClient := client.New()
+	_, err := malachiteClient.GetSystemStats(100)
 	assert.ErrorContains(t, err, "unknown")
 }

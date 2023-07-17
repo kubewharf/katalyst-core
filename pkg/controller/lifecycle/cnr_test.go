@@ -142,7 +142,7 @@ func TestCNRLifecycle_Run(t *testing.T) {
 			go cl.Run()
 
 			cache.WaitForCacheSync(cl.ctx.Done(), cl.nodeListerSynced, cl.cnrListerSynced)
-			time.Sleep(10 * time.Millisecond)
+			time.Sleep(100 * time.Millisecond)
 
 			gotCNR, err := cl.cnrLister.Get(tt.fields.node.Name)
 			assert.NoError(t, err)
