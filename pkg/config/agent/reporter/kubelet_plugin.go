@@ -19,6 +19,7 @@ package reporter
 type KubeletPluginConfiguration struct {
 	PodResourcesServerEndpoints []string
 	KubeletResourcePluginPaths  []string
+	EnableReportTopologyPolicy  bool
 }
 
 func NewKubeletPluginConfiguration() *KubeletPluginConfiguration {

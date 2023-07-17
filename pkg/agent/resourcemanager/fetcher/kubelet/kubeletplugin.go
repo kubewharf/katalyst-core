@@ -205,17 +205,7 @@ func (p *kubeletPlugin) getTopologyStatusContent(ctx context.Context) ([]*v1alph
 		return nil, errors.Wrap(err, "marshal topology zones failed")
 	}
 
-	topologyPolicy, err := p.topologyStatusAdapter.GetTopologyPolicy(ctx)
-	if err != nil {
-		return nil, errors.Wrap(err, "get topology policy from adapter failed")
-	}
-
-	valueTopologyPolicy, err := json.Marshal(&topologyPolicy)
-	if err != nil {
-		return nil, errors.Wrap(err, "marshal topology policy failed")
-	}
-
-	return []*v1alpha1.ReportContent{
+	topologyStatusContent := []*v1alpha1.ReportContent{
 		{
 			GroupVersionKind: &util.CNRGroupVersionKind,
 			Field: []*v1alpha1.ReportField{
@@ -226,17 +216,33 @@ func (p *kubeletPlugin) getTopologyStatusContent(ctx context.Context) ([]*v1alph
 				},
 			},
 		},
-		{
-			GroupVersionKind: &util.CNRGroupVersionKind,
-			Field: []*v1alpha1.ReportField{
-				{
-					FieldType: v1alpha1.FieldType_Status,
-					FieldName: util.CNRFieldNameTopologyPolicy,
-					Value:     valueTopologyPolicy,
+	}
+
+	if p.conf.EnableReportTopologyPolicy {
+		topologyPolicy, err := p.topologyStatusAdapter.GetTopologyPolicy(ctx)
+		if err != nil {
+			return nil, errors.Wrap(err, "get topology policy from adapter failed")
+		}
+
+		valueTopologyPolicy, err := json.Marshal(&topologyPolicy)
+		if err != nil {
+			return nil, errors.Wrap(err, "marshal topology policy failed")
+		}
+
+		topologyStatusContent = append(topologyStatusContent,
+			&v1alpha1.ReportContent{
+				GroupVersionKind: &util.CNRGroupVersionKind,
+				Field: []*v1alpha1.ReportField{
+					{
+						FieldType: v1alpha1.FieldType_Status,
+						FieldName: util.CNRFieldNameTopologyPolicy,
+						Value:     valueTopologyPolicy,
+					},
 				},
-			},
-		},
-	}, nil
+			})
+	}
+
+	return topologyStatusContent, nil
 }
 
 func (p *kubeletPlugin) getNumaInfo() ([]info.Node, error) {
