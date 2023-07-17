@@ -174,8 +174,6 @@ func (a *MetaAgent) Run(ctx context.Context) {
 		go a.MetricsFetcher.Run(ctx)
 	}
 
-	go a.KubeletConfigFetcher.Run(ctx)
-
 	a.Unlock()
 	<-ctx.Done()
 }
