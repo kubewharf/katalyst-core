@@ -65,7 +65,7 @@ func (mb *memsetBinder) Reconcile(status *types.MemoryPressureStatus) error {
 	})
 
 	for _, ci := range containers {
-		memset := machine.CPUSet2MemSet(ci.TopologyAwareAssignments)
+		memset := machine.GetCPUAssignmentNUMAs(ci.TopologyAwareAssignments)
 		containerMemset[native.GeneratePodContainerName(ci.PodUID, ci.ContainerName)] = memset
 	}
 	mb.mutex.Lock()
