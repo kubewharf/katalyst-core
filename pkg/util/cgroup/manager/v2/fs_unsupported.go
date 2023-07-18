@@ -48,6 +48,10 @@ func (m *unsupportedManager) ApplyNetCls(_ string, _ *common.NetClsData) error {
 	return fmt.Errorf("unsupported manager v2")
 }
 
+func (m *unsupportedManager) ApplyUnifiedData(absCgroupPath, cgroupFileName, data string) error {
+	return fmt.Errorf("unsupported manager v1")
+}
+
 func (m *unsupportedManager) GetMemory(_ string) (*common.MemoryStats, error) {
 	return nil, fmt.Errorf("unsupported manager v2")
 }

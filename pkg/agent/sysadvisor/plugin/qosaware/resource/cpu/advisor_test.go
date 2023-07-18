@@ -22,6 +22,7 @@ import (
 	"os"
 	"reflect"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -802,8 +803,13 @@ func TestAdvisorUpdate(t *testing.T) {
 				_ = metaCache.SetContainerInfo(c.PodUID, c.ContainerName, c)
 			}
 
+			var wg sync.WaitGroup
+			wg.Add(1)
 			ctx, cancel := context.WithCancel(context.Background())
-			go advisor.Run(ctx)
+			go func() {
+				defer wg.Done()
+				advisor.Run(ctx)
+			}()
 
 			// trigger advisor update
 			recvCh <- struct{}{}
@@ -839,6 +845,7 @@ func TestAdvisorUpdate(t *testing.T) {
 			}
 
 			cancel()
+			wg.Wait()
 		})
 	}
 }

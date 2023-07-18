@@ -14,15 +14,25 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package global
+package commonstate
 
-type QRMAdvisorConfiguration struct {
-	CPUAdvisorSocketAbsPath string
-	CPUPluginSocketAbsPath  string
+import (
+	"encoding/json"
+	"io/ioutil"
+)
 
-	MemoryAdvisorSocketAbsPath string
-}
+func LoadExtraControlKnobConfigs(extraControlKnobConfigAbsPath string) (ExtraControlKnobConfigs, error) {
+	configBytes, err := ioutil.ReadFile(extraControlKnobConfigAbsPath)
+	if err != nil {
+		return nil, err
+	}
 
-func NewQRMAdvisorConfiguration() *QRMAdvisorConfiguration {
-	return &QRMAdvisorConfiguration{}
+	extraControlKnobConfigs := make(ExtraControlKnobConfigs)
+
+	err = json.Unmarshal(configBytes, &extraControlKnobConfigs)
+	if err != nil {
+		return nil, err
+	}
+
+	return extraControlKnobConfigs, nil
 }

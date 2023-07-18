@@ -26,6 +26,8 @@ import (
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 
 	"github.com/kubewharf/katalyst-api/pkg/consts"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
@@ -43,11 +45,14 @@ type AllocationInfo struct {
 	AggregatedQuantity   uint64         `json:"aggregated_quantity"`
 	NumaAllocationResult machine.CPUSet `json:"numa_allocation_result,omitempty"`
 
-	// key by numa node id, value is assignment for the pod in corresponding NUMA node
-	TopologyAwareAllocations map[int]uint64    `json:"topology_aware_allocations"`
-	Labels                   map[string]string `json:"labels"`
-	Annotations              map[string]string `json:"annotations"`
-	QoSLevel                 string            `json:"qosLevel"`
+	// keyed by numa node id, value is assignment for the pod in corresponding NUMA node
+	TopologyAwareAllocations map[int]uint64 `json:"topology_aware_allocations"`
+
+	// keyed by control knob names referred in memoryadvisor package
+	ExtraControlKnobInfo map[string]commonstate.ControlKnobInfo `json:"extra_control_knob_info"`
+	Labels               map[string]string                      `json:"labels"`
+	Annotations          map[string]string                      `json:"annotations"`
+	QoSLevel             string                                 `json:"qosLevel"`
 }
 
 type ContainerEntries map[string]*AllocationInfo       // Keyed by container name
@@ -86,26 +91,38 @@ func (ai *AllocationInfo) Clone() *AllocationInfo {
 	}
 
 	clone := &AllocationInfo{
-		PodUid:                   ai.PodUid,
-		PodNamespace:             ai.PodNamespace,
-		PodName:                  ai.PodName,
-		ContainerName:            ai.ContainerName,
-		ContainerType:            ai.ContainerType,
-		ContainerIndex:           ai.ContainerIndex,
-		RampUp:                   ai.RampUp,
-		PodRole:                  ai.PodRole,
-		PodType:                  ai.PodType,
-		AggregatedQuantity:       ai.AggregatedQuantity,
-		NumaAllocationResult:     ai.NumaAllocationResult.Clone(),
-		TopologyAwareAllocations: make(map[int]uint64),
-		QoSLevel:                 ai.QoSLevel,
-		Labels:                   general.DeepCopyMap(ai.Labels),
-		Annotations:              general.DeepCopyMap(ai.Annotations),
+		PodUid:               ai.PodUid,
+		PodNamespace:         ai.PodNamespace,
+		PodName:              ai.PodName,
+		ContainerName:        ai.ContainerName,
+		ContainerType:        ai.ContainerType,
+		ContainerIndex:       ai.ContainerIndex,
+		RampUp:               ai.RampUp,
+		PodRole:              ai.PodRole,
+		PodType:              ai.PodType,
+		AggregatedQuantity:   ai.AggregatedQuantity,
+		NumaAllocationResult: ai.NumaAllocationResult.Clone(),
+		QoSLevel:             ai.QoSLevel,
+		Labels:               general.DeepCopyMap(ai.Labels),
+		Annotations:          general.DeepCopyMap(ai.Annotations),
 	}
 
-	for node, quantity := range ai.TopologyAwareAllocations {
-		clone.TopologyAwareAllocations[node] = quantity
+	if ai.TopologyAwareAllocations != nil {
+		clone.TopologyAwareAllocations = make(map[int]uint64)
+
+		for node, quantity := range ai.TopologyAwareAllocations {
+			clone.TopologyAwareAllocations[node] = quantity
+		}
 	}
+
+	if ai.ExtraControlKnobInfo != nil {
+		clone.ExtraControlKnobInfo = make(map[string]commonstate.ControlKnobInfo)
+
+		for name := range ai.ExtraControlKnobInfo {
+			clone.ExtraControlKnobInfo[name] = ai.ExtraControlKnobInfo[name]
+		}
+	}
+
 	return clone
 }
 
@@ -126,9 +143,55 @@ func (ai *AllocationInfo) CheckSideCar() bool {
 	return ai.ContainerType == pluginapi.ContainerType_SIDECAR.String()
 }
 
+// GetResourceAllocation transforms resource allocation information into *pluginapi.ResourceAllocation
+func (ai *AllocationInfo) GetResourceAllocation() (*pluginapi.ResourceAllocation, error) {
+	if ai == nil {
+		return nil, fmt.Errorf("GetResourceAllocation of nil AllocationInfo")
+	}
+
+	// deal with main resource
+	resourceAllocation := &pluginapi.ResourceAllocation{
+		ResourceAllocation: map[string]*pluginapi.ResourceAllocationInfo{
+			string(v1.ResourceMemory): {
+				OciPropertyName:   util.OCIPropertyNameCPUSetMems,
+				IsNodeResource:    false,
+				IsScalarResource:  true,
+				AllocatedQuantity: float64(ai.AggregatedQuantity),
+				AllocationResult:  ai.NumaAllocationResult.String(),
+			},
+		},
+	}
+
+	// deal with accompanying resources
+	for name, entry := range ai.ExtraControlKnobInfo {
+		if entry.OciPropertyName == "" {
+			continue
+		}
+
+		if resourceAllocation.ResourceAllocation[name] != nil {
+			return nil, fmt.Errorf("name: %s meets conflict", name)
+		}
+
+		resourceAllocation.ResourceAllocation[name] = &pluginapi.ResourceAllocationInfo{
+			OciPropertyName:  entry.OciPropertyName,
+			AllocationResult: entry.ControlKnobValue,
+		}
+	}
+
+	return resourceAllocation, nil
+}
+
 func (pe PodEntries) Clone() PodEntries {
+	if pe == nil {
+		return nil
+	}
+
 	clone := make(PodEntries)
 	for podUID, containerEntries := range pe {
+		if containerEntries == nil {
+			continue
+		}
+
 		clone[podUID] = make(ContainerEntries)
 		for containerName, allocationInfo := range containerEntries {
 			clone[podUID][containerName] = allocationInfo.Clone()
@@ -162,6 +225,10 @@ func (pre PodResourceEntries) String() string {
 }
 
 func (pre PodResourceEntries) Clone() PodResourceEntries {
+	if pre == nil {
+		return nil
+	}
+
 	clone := make(PodResourceEntries)
 	for resourceName, podEntries := range pre {
 		clone[resourceName] = podEntries.Clone()
