@@ -18,6 +18,7 @@ package agent
 
 import (
 	"context"
+	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/kubeletconfig"
 	"testing"
 	"time"
 
@@ -102,6 +103,7 @@ func TestFetcher(t *testing.T) {
 	agent.SetNodeFetcher(node.NewRemoteNodeFetcher("test-node-1", constructNodeInterface("test-node-1")))
 	agent.SetCNRFetcher(cnrmeta.NewCachedCNRFetcher("test-cnr-1", conf.CNRCacheTTL, constructCNRInterface("test-cnr-1")))
 	agent.SetMetricFetcher(metric.NewFakeMetricsFetcher(metrics.DummyMetrics{}))
+	agent.SetKubeletConfigFetcher(kubeletconfig.NewKubeletConfigFetcher(conf, metrics.DummyMetrics{}))
 
 	podObjList, err := agent.GetPodList(ctx, func(*v1.Pod) bool { return true })
 	assert.NoError(t, err)
@@ -118,6 +120,9 @@ func TestFetcher(t *testing.T) {
 	cnrObj, err := agent.GetCNR(ctx)
 	assert.NoError(t, err)
 	assert.Equal(t, "test-cnr-1", cnrObj.Name)
+
+	_, err = agent.GetKubeletConfig(ctx)
+	assert.Error(t, err)
 
 	gvr := metav1.GroupVersionResource{Group: "a", Version: "b", Resource: "c"}
 	_, gErr := agent.GetUnstructured(ctx, gvr, "", "aaa")

@@ -24,7 +24,8 @@ type BaseConfiguration struct {
 	// first item for a particular name wins
 	Agents []string
 
-	NodeName string
+	NodeName    string
+	NodeAddress string
 
 	// LockFileName indicates the file used as unique lock
 	LockFileName string

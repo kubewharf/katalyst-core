@@ -46,7 +46,6 @@ const (
 	defaultKubeletPodCacheSyncBurstBulk = 1
 	defaultKubeletConfigURI             = "/configz"
 	defaultAPIAuthTokenFile             = "/var/run/secrets/kubernetes.io/serviceaccount/token"
-	defaultKubeletConfigCacheSyncPeriod = 30 * time.Second
 )
 
 const (
@@ -73,9 +72,8 @@ type MetaServerOptions struct {
 	KubeletPodCacheSyncPeriod    time.Duration
 	KubeletPodCacheSyncMaxRate   int
 	KubeletPodCacheSyncBurstBulk int
-	KubeletConfigURI             string
+	KubeletConfigEndpoint        string
 	APIAuthTokenFile             string
-	KubeletConfigCacheSyncPeriod time.Duration
 
 	RemoteRuntimeEndpoint     string
 	RuntimePodCacheSyncPeriod time.Duration
@@ -106,9 +104,8 @@ func NewMetaServerOptions() *MetaServerOptions {
 		CheckpointManagerDir:           defaultCheckpointManagerDir,
 		EnableMetricsFetcher:           defaultEnableMetricsFetcher,
 		EnableCNCFetcher:               defaultEnableCNCFetcher,
-		KubeletConfigURI:               defaultKubeletConfigURI,
+		KubeletConfigEndpoint:          defaultKubeletConfigURI,
 		APIAuthTokenFile:               defaultAPIAuthTokenFile,
-		KubeletConfigCacheSyncPeriod:   defaultKubeletConfigCacheSyncPeriod,
 	}
 }
 
@@ -152,12 +149,10 @@ func (o *MetaServerOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 		"Whether to enable metrics fetcher")
 	fs.BoolVar(&o.EnableCNCFetcher, "enable-cnc-fetcher", o.EnableCNCFetcher,
 		"Whether to enable cnc fetcher")
-	fs.StringVar(&o.KubeletConfigURI, "kubelet-config-uri", o.KubeletConfigURI,
+	fs.StringVar(&o.KubeletConfigEndpoint, "kubelet-config-endpoint", o.KubeletConfigEndpoint,
 		"The URI of kubelet config endpoint")
 	fs.StringVar(&o.APIAuthTokenFile, "api-auth-token-file", o.APIAuthTokenFile,
 		"The path of the API auth token file")
-	fs.DurationVar(&o.KubeletConfigCacheSyncPeriod, "kubelet-config-cache-sync-period", o.KubeletConfigCacheSyncPeriod,
-		"The period of meta server to sync config from kubelet 10250 port")
 }
 
 // ApplyTo fills up config with options
@@ -180,9 +175,8 @@ func (o *MetaServerOptions) ApplyTo(c *global.MetaServerConfiguration) error {
 	c.CheckpointManagerDir = o.CheckpointManagerDir
 	c.EnableMetricsFetcher = o.EnableMetricsFetcher
 	c.EnableCNCFetcher = o.EnableCNCFetcher
-	c.KubeletConfigURI = o.KubeletConfigURI
+	c.KubeletConfigEndpoint = o.KubeletConfigEndpoint
 	c.APIAuthTokenFile = o.APIAuthTokenFile
-	c.KubeletConfigCacheSyncPeriod = o.KubeletConfigCacheSyncPeriod
 
 	return nil
 }

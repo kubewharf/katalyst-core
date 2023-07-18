@@ -19,10 +19,12 @@ package kubeletconfig
 import (
 	"context"
 	"fmt"
+
+	kubeletconfigv1beta1 "k8s.io/kubelet/config/v1beta1"
+
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/process"
-	kubeletconfigv1beta1 "k8s.io/kubelet/config/v1beta1"
 )
 
 // KubeletConfigFetcher is used to get the configuration of kubelet.
@@ -56,7 +58,7 @@ func (k *kubeletConfigFetcherImpl) GetKubeletConfig(ctx context.Context) (*kubel
 	}
 	configz := configzWrapper{}
 
-	if err := process.GetAndUnmarshalForHttps(ctx, k.conf.KubeletSecurePort, k.conf.KubeletConfigURI, k.conf.APIAuthTokenFile, &configz); err != nil {
+	if err := process.GetAndUnmarshalForHttps(ctx, k.conf.KubeletSecurePort, k.conf.NodeAddress, k.conf.KubeletConfigEndpoint, k.conf.APIAuthTokenFile, &configz); err != nil {
 		return nil, fmt.Errorf("failed to get kubelet config, error: %v", err)
 	}
 

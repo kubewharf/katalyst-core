@@ -52,8 +52,7 @@ func InsecureConfig(host, tokenFile string) (*rest.Config, error) {
 }
 
 // GetAndUnmarshalForHttps gets data from the given url and unmarshal it into the given struct.
-func GetAndUnmarshalForHttps(ctx context.Context, port int, endpoint string, authTokenFile string, v interface{}) error {
-	nodeAddress := os.Getenv("NODE_ADDRESS")
+func GetAndUnmarshalForHttps(ctx context.Context, port int, nodeAddress, endpoint, authTokenFile string, v interface{}) error {
 	if nodeAddress == "" {
 		return fmt.Errorf("get empty NODE_ADDRESS from env")
 	}
