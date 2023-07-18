@@ -49,6 +49,9 @@ type HandlerCtx struct {
 	funcName string
 }
 
+// PeriodicalHandlerManager works as a general framework to run periodical jobs;
+// you can register those jobs and mark them as started or stopped, and the manager
+// will periodically check and run/cancel according to the job expected status.
 type PeriodicalHandlerManager struct {
 	coreConf    *config.Configuration
 	extraConf   interface{}
@@ -107,11 +110,10 @@ func (phm *PeriodicalHandlerManager) Run(ctx context.Context) {
 	}, 5*time.Second, ctx.Done())
 }
 
-var handlerMtx sync.RWMutex
-
 // the first key is the handlers group name
 // the second key is the handler name
 var handlerCtxs = make(map[string]map[string]*HandlerCtx)
+var handlerMtx sync.RWMutex
 
 func RegisterPeriodicalHandler(groupName, handlerName string, handler Handler, interval time.Duration) (err error) {
 	if groupName == "" || handlerName == "" {
@@ -135,7 +137,6 @@ func RegisterPeriodicalHandler(groupName, handlerName string, handler Handler, i
 	defer handlerMtx.Unlock()
 
 	if handlerCtxs[groupName][handlerName] != nil {
-
 		general.InfoS("replace periodical handler",
 			"groupName", groupName,
 			"handlerName", handlerName,

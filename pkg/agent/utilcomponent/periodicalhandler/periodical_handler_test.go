@@ -84,7 +84,7 @@ func TestPeriodicalHandlerManager(t *testing.T) {
 
 	gName := "test_group"
 	hName := "test_handler"
-	RegisterPeriodicalHandler(gName, hName, func(coreConf *config.Configuration,
+	_ = RegisterPeriodicalHandler(gName, hName, func(coreConf *config.Configuration,
 		extraConf interface{},
 		dynamicConf *dynamicconfig.DynamicAgentConfiguration,
 		emitter metrics.MetricEmitter,

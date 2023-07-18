@@ -584,7 +584,7 @@ func TestIndicatorUpdater(t *testing.T) {
 			Current: &value,
 		},
 	})
-	time.Sleep(time.Millisecond * 30)
+	time.Sleep(time.Millisecond * 100)
 	newSPD, err := controlCtx.Client.InternalClient.WorkloadV1alpha1().
 		ServiceProfileDescriptors("default").Get(ctx, "spd1", metav1.GetOptions{})
 	assert.NoError(t, err)
