@@ -80,15 +80,15 @@ func EstimateContainerCPUUsage(ci *types.ContainerInfo, metaReader metacache.Met
 		reference  string
 	)
 
-	checkRequest := !reclaimEnable
-	if !checkRequest {
+	checkRequest := true
+	if reclaimEnable {
 		for _, metricName := range cpuMetricsToGather {
 			metricValue, err := metaReader.GetContainerMetric(ci.PodUID, ci.ContainerName, metricName)
-			general.Infof("pod %v container %v metric %v value %v", ci.PodName, ci.ContainerName, metricName, metricValue)
+			general.Infof("pod %v container %v metric %v value %v, err %v", ci.PodName, ci.ContainerName, metricName, metricValue, err)
 			if err != nil || metricValue <= 0 {
-				checkRequest = true
 				continue
 			}
+			checkRequest = false
 			if metricValue > estimation {
 				estimation = metricValue
 				reference = metricName
@@ -147,7 +147,7 @@ func EstimateContainerMemoryUsage(ci *types.ContainerInfo, metaReader metacache.
 	if reclaimEnable {
 		for _, metricName := range metricsToGather {
 			metricValue, err := metaReader.GetContainerMetric(ci.PodUID, ci.ContainerName, metricName)
-			general.Infof("pod %v container %v metric %v value %v", ci.PodName, ci.ContainerName, metricName, metricValue)
+			general.Infof("pod %v container %v metric %v value %v, err %v", ci.PodName, ci.ContainerName, metricName, metricValue, err)
 			if err != nil || metricValue <= 0 {
 				continue
 			}
