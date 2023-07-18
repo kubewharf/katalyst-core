@@ -35,6 +35,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	metricspool "github.com/kubewharf/katalyst-core/pkg/metrics/metrics-pool"
+	"github.com/kubewharf/katalyst-core/pkg/util/general"
 )
 
 // nodeRawMetricNameMapping maps the raw metricName (collected from agent.MetricsFetcher)
@@ -49,6 +50,8 @@ var nodeRawMetricNameMapping = map[string]string{
 // to the standard metricName (used by custom-metric-api-server)
 
 type MetricSyncerNode struct {
+	metricMapping map[string]string
+
 	conf *metricemitter.MetricEmitterPluginConfiguration
 	node *v1.Node
 
@@ -70,7 +73,11 @@ func NewMetricSyncerNode(conf *config.Configuration, _ interface{},
 		return nil, err
 	}
 
+	metricMapping := general.MergeMap(nodeRawMetricNameMapping, conf.MetricEmitterNodeConfiguration.MetricMapping)
+
 	return &MetricSyncerNode{
+		metricMapping: metricMapping,
+
 		conf: conf.AgentConfiguration.MetricEmitterPluginConfiguration,
 
 		metricEmitter: metricEmitter,
@@ -88,7 +95,7 @@ func (n *MetricSyncerNode) Run(ctx context.Context) {
 	rChan := make(chan metric.NotifiedResponse, 20)
 
 	// there is no need to deRegister for node-related metric
-	for rawMetricName := range nodeRawMetricNameMapping {
+	for rawMetricName := range n.metricMapping {
 		klog.Infof("register raw node metric: %v", rawMetricName)
 		n.metaServer.MetricsFetcher.RegisterNotifier(metric.MetricsScopeNode, metric.NotifiedRequest{
 			MetricName: rawMetricName,
@@ -109,7 +116,7 @@ func (n *MetricSyncerNode) receiveRawNode(ctx context.Context, rChan chan metric
 				continue
 			}
 
-			targetMetricName, ok := nodeRawMetricNameMapping[response.Req.MetricName]
+			targetMetricName, ok := n.metricMapping[response.Req.MetricName]
 			if !ok {
 				klog.Warningf("invalid node raw metric name: %v", response.Req.MetricName)
 				continue

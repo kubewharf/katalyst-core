@@ -38,6 +38,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	metricspool "github.com/kubewharf/katalyst-core/pkg/metrics/metrics-pool"
+	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/native"
 )
 
@@ -49,6 +50,7 @@ const (
 // to the standard metricName (used by custom-metric-api-server)
 var podRawMetricNameMapping = map[string]string{
 	consts.MetricLoad1MinContainer: apimetricpod.CustomMetricPodCPULoad1Min,
+	consts.MetricCPUUsageContainer: apimetricpod.CustomMetricPodCPUUsage,
 }
 
 type podRawChanel struct {
@@ -60,7 +62,9 @@ type podRawChanel struct {
 // to the standard metricName (used by custom-metric-api-server)
 
 type MetricSyncerPod struct {
-	ctx         context.Context
+	ctx           context.Context
+	metricMapping map[string]string
+
 	emitterConf *metricemitter.MetricEmitterPluginConfiguration
 	qosConf     *generic.QoSConfiguration
 
@@ -86,7 +90,11 @@ func NewMetricSyncerPod(conf *config.Configuration, _ interface{},
 		return nil, err
 	}
 
+	metricMapping := general.MergeMap(podRawMetricNameMapping, conf.MetricEmitterPodConfiguration.MetricMapping)
+
 	return &MetricSyncerPod{
+		metricMapping: metricMapping,
+
 		emitterConf: conf.AgentConfiguration.MetricEmitterPluginConfiguration,
 		qosConf:     conf.GenericConfiguration.QoSConfiguration,
 		rawNotifier: make(map[string]podRawChanel),
@@ -126,7 +134,7 @@ func (p *MetricSyncerPod) syncChanel() {
 
 		var keys []string
 		rChan := make(chan metric.NotifiedResponse, 20)
-		for rawMetricName := range podRawMetricNameMapping {
+		for rawMetricName := range p.metricMapping {
 			for _, container := range podList[i].Spec.Containers {
 				key := p.metaServer.MetricsFetcher.RegisterNotifier(metric.MetricsScopeContainer, metric.NotifiedRequest{
 					PodUID:        uid,
@@ -180,7 +188,7 @@ func (p *MetricSyncerPod) receiveRawPod(ctx context.Context, pod *v1.Pod, rChan 
 				continue
 			}
 
-			targetMetricName, ok := podRawMetricNameMapping[response.Req.MetricName]
+			targetMetricName, ok := p.metricMapping[response.Req.MetricName]
 			if !ok {
 				klog.Warningf("invalid pod raw metric name: %v", response.Req.MetricName)
 				continue
