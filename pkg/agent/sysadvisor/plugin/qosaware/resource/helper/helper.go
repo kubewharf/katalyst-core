@@ -48,8 +48,6 @@ func PodEnableReclaim(ctx context.Context, metaServer *metaserver.MetaServer,
 	pLevel, err := metaServer.ServiceBusinessPerformanceLevel(ctx, pod)
 	if err != nil && !errors.IsNotFound(err) {
 		return false, err
-	} else if err != nil {
-		return true, nil
 	}
 
 	// if performance level not poor, it can not be reclaimed
