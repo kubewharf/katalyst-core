@@ -33,7 +33,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/cnr"
-	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric"
+	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric/malachite"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/node"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/pod"
 	dynamicconfig "github.com/kubewharf/katalyst-core/pkg/metaserver/config"
@@ -55,7 +55,7 @@ func generateTestMetaServer(clientSet *client.GenericClientSet, conf *config.Con
 			PodFetcher:     &pod.PodFetcherStub{},
 			NodeFetcher:    node.NewRemoteNodeFetcher(conf.NodeName, clientSet.KubeClient.CoreV1().Nodes()),
 			CNRFetcher:     cnr.NewCachedCNRFetcher(conf.NodeName, conf.CNRCacheTTL, clientSet.InternalClient.NodeV1alpha1().CustomNodeResources()),
-			MetricsFetcher: metric.NewMalachiteMetricsFetcher(metrics.DummyMetrics{}, nil),
+			MetricsFetcher: malachite.NewMalachiteMetricsFetcher(metrics.DummyMetrics{}, nil),
 		},
 		ConfigurationManager:    &dynamicconfig.DummyConfigurationManager{},
 		ServiceProfilingManager: &spd.DummyServiceProfilingManager{},
