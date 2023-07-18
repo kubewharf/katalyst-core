@@ -406,8 +406,8 @@ func (ns *NUMANodeState) SetAllocationInfo(podUID string, containerName string, 
 	ns.PodEntries[podUID][containerName] = allocationInfo.Clone()
 }
 
-// TODO: racing?
 // GetDefaultCPUSet returns default cpuset in this node
+// TODO: add lock to NUMANodeMap
 func (nm NUMANodeMap) GetDefaultCPUSet() machine.CPUSet {
 	res := machine.NewCPUSet()
 	for _, numaNodeState := range nm {
@@ -466,7 +466,6 @@ type reader interface {
 	GetMachineState() NUMANodeMap
 	GetPodEntries() PodEntries
 	GetAllocationInfo(podUID string, containerName string) *AllocationInfo
-	GetCPUSetOrDefault(podUID string, containerName string) machine.CPUSet
 }
 
 // writer is used to store information into local states,

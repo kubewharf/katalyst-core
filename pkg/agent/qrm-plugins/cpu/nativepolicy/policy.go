@@ -23,11 +23,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/pkg/errors"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/wait"
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
-	"k8s.io/kubernetes/pkg/apis/core/v1/helper/qos"
 
 	"github.com/kubewharf/katalyst-api/pkg/plugins/skeleton"
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/agent"
@@ -236,12 +234,6 @@ func (p *NativePolicy) GetTopologyHints(ctx context.Context,
 		return nil, fmt.Errorf("getReqQuantityFromResourceReq failed with error: %v", err)
 	}
 
-	pod, err := p.metaServer.GetPod(ctx, req.PodUid)
-	if err != nil {
-		return nil, fmt.Errorf("GetPod failed with error: %v", err)
-	}
-
-	qosClass := qos.GetPodQOS(pod)
 	isInteger := float64(reqInt) == req.ResourceRequests[string(v1.ResourceCPU)]
 
 	general.InfoS("called",
@@ -251,7 +243,7 @@ func (p *NativePolicy) GetTopologyHints(ctx context.Context,
 		"podType", req.PodType,
 		"podRole", req.PodRole,
 		"containerType", req.ContainerType,
-		"qosClass", qosClass,
+		"qosClass", req.NativeQosClass,
 		"numCPUs", reqInt,
 		"isDebugPod", isDebugPod,
 		"isInteger", isInteger)
@@ -272,7 +264,7 @@ func (p *NativePolicy) GetTopologyHints(ctx context.Context,
 		}
 	}()
 
-	if qosClass != v1.PodQOSGuaranteed || !isInteger {
+	if req.NativeQosClass != string(v1.PodQOSGuaranteed) || !isInteger {
 		return p.sharedPoolHintHandler(ctx, req)
 	}
 	return p.dedicatedCoresHintHandler(ctx, req)
@@ -298,12 +290,6 @@ func (p *NativePolicy) Allocate(ctx context.Context,
 		return nil, fmt.Errorf("getReqQuantityFromResourceReq failed with error: %v", err)
 	}
 
-	pod, err := p.metaServer.GetPod(ctx, req.PodUid)
-	if err != nil {
-		return nil, fmt.Errorf("GetPod failed with error: %v", err)
-	}
-
-	qosClass := qos.GetPodQOS(pod)
 	isInteger := float64(reqInt) == req.ResourceRequests[string(v1.ResourceCPU)]
 
 	general.InfoS("called",
@@ -313,7 +299,7 @@ func (p *NativePolicy) Allocate(ctx context.Context,
 		"podType", req.PodType,
 		"podRole", req.PodRole,
 		"containerType", req.ContainerType,
-		"qosClass", qosClass,
+		"qosClass", req.NativeQosClass,
 		"numCPUs", reqInt,
 		"isDebugPod", isDebugPod,
 		"isInteger", isInteger)
@@ -409,7 +395,7 @@ func (p *NativePolicy) Allocate(ctx context.Context,
 		}, nil
 	}
 
-	if qosClass != v1.PodQOSGuaranteed || !isInteger {
+	if req.NativeQosClass != string(v1.PodQOSGuaranteed) || !isInteger {
 		return p.sharedPoolAllocationHandler(ctx, req)
 	}
 	return p.dedicatedCoresAllocationHandler(ctx, req)
@@ -426,57 +412,46 @@ func (p *NativePolicy) GetResourcesAllocation(_ context.Context,
 	p.Lock()
 	defer p.Unlock()
 
+	defaultCPUSet := p.state.GetMachineState().GetDefaultCPUSet()
+	defaultCPUSetTopologyAwareAssignments, err := machine.GetNumaAwareAssignments(p.machineInfo.CPUTopology, defaultCPUSet)
+	if err != nil {
+		return nil, fmt.Errorf("GetNumaAwareAssignments err: %v", err)
+	}
+
 	podResources := make(map[string]*pluginapi.ContainerResources)
 
-	if p.metaServer == nil {
-		general.Errorf("nil metaServer")
-		return nil, errors.New("nil metaServer")
-	}
-
-	podList, err := p.metaServer.GetPodList(context.Background(), nil)
-	if err != nil {
-		general.Errorf("get pod list failed, err: %v", err)
-		return nil, fmt.Errorf("get pod list failed, err: %v", err)
-	}
-
-	for _, pod := range podList {
-		if pod == nil {
-			general.Errorf("get nil pod from metaServer")
-			continue
-		}
-
-		podUID := string(pod.UID)
+	for podUID, containerEntries := range p.state.GetPodEntries() {
 		if podResources[podUID] == nil {
 			podResources[podUID] = &pluginapi.ContainerResources{}
 		}
 
-		for _, container := range append(pod.Spec.InitContainers, pod.Spec.Containers...) {
-			containerName := container.Name
-
-			containerID, err := p.metaServer.GetContainerID(podUID, containerName)
-			if err != nil {
-				general.Errorf("get container id failed, pod: %s, container: %s, err: %v",
-					podUID, containerName, err)
+		for containerName, allocationInfo := range containerEntries {
+			if allocationInfo == nil {
 				continue
 			}
+			allocationInfo = allocationInfo.Clone()
 
-			isContainerNotRunning, err := native.CheckContainerNotRunning(pod, containerName)
-			if err != nil {
-				general.Errorf("check container not running failed, pod: %s, container: %s(%s), err: %v",
-					podUID, containerName, containerID, err)
-				continue
-			}
+			resultCPUSet := machine.NewCPUSet()
+			switch allocationInfo.OwnerPoolName {
+			case state.PoolNameDedicated:
+				resultCPUSet = allocationInfo.AllocationResult
+			case state.PoolNameShare:
+				resultCPUSet = defaultCPUSet
 
-			if isContainerNotRunning {
-				general.Infof("skip container because it is not running, pod: %s, container: %s(%s), err: %v",
-					podUID, containerName, containerID, err)
-				continue
-			}
+				if !allocationInfo.AllocationResult.Equals(defaultCPUSet) {
+					clonedDefaultCPUSet := defaultCPUSet.Clone()
+					clonedDefaultCPUSetTopologyAwareAssignments := machine.DeepcopyCPUAssignment(defaultCPUSetTopologyAwareAssignments)
 
-			containerCPUs := p.state.GetCPUSetOrDefault(string(pod.UID), containerName)
-			if containerCPUs.IsEmpty() {
-				general.Errorf("skip container because the cpuset is empty, pod: %s, container: %s(%s), err: %v",
-					podUID, containerName, containerID, err)
+					allocationInfo.AllocationResult = clonedDefaultCPUSet
+					allocationInfo.OriginalAllocationResult = clonedDefaultCPUSet
+					allocationInfo.TopologyAwareAssignments = clonedDefaultCPUSetTopologyAwareAssignments
+					allocationInfo.OriginalTopologyAwareAssignments = clonedDefaultCPUSetTopologyAwareAssignments
+
+					p.state.SetAllocationInfo(podUID, containerName, allocationInfo)
+				}
+			default:
+				general.Errorf("skip container because the pool name is not supported, pod: %s, container: %s, cpuset: %s",
+					podUID, containerName, resultCPUSet.String())
 				continue
 			}
 
@@ -490,8 +465,8 @@ func (p *NativePolicy) GetResourcesAllocation(_ context.Context,
 						OciPropertyName:   util.OCIPropertyNameCPUSetCPUs,
 						IsNodeResource:    false,
 						IsScalarResource:  true,
-						AllocatedQuantity: float64(containerCPUs.Size()),
-						AllocationResult:  containerCPUs.String(),
+						AllocatedQuantity: float64(resultCPUSet.Size()),
+						AllocationResult:  resultCPUSet.String(),
 					},
 				},
 			}

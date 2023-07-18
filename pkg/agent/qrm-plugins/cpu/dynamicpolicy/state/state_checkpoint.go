@@ -150,13 +150,6 @@ func (sc *stateCheckpoint) GetAllocationInfo(podUID string, containerName string
 	return sc.cache.GetAllocationInfo(podUID, containerName)
 }
 
-func (sc *stateCheckpoint) GetCPUSetOrDefault(podUID string, containerName string) machine.CPUSet {
-	sc.RLock()
-	defer sc.RUnlock()
-
-	return sc.cache.GetCPUSetOrDefault(podUID, containerName)
-}
-
 func (sc *stateCheckpoint) GetPodEntries() PodEntries {
 	sc.RLock()
 	defer sc.RUnlock()
