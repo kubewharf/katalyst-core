@@ -53,10 +53,16 @@ type ServiceProfilingManager interface {
 	Run(ctx context.Context)
 }
 
-type DummyServiceProfilingManager struct{}
+type DummyServiceProfilingManager struct {
+	pLevel PerformanceLevel
+}
+
+func NewDummyServiceProfilingManager(pLevel PerformanceLevel) *DummyServiceProfilingManager {
+	return &DummyServiceProfilingManager{pLevel: pLevel}
+}
 
 func (d *DummyServiceProfilingManager) ServiceBusinessPerformanceLevel(_ context.Context, _ *v1.Pod) (PerformanceLevel, error) {
-	return PerformanceLevelPerfect, nil
+	return d.pLevel, nil
 }
 
 func (d *DummyServiceProfilingManager) ServiceBusinessPerformanceScore(_ context.Context, _ *v1.Pod) (float64, error) {

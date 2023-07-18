@@ -22,6 +22,7 @@ import (
 
 	"k8s.io/apimachinery/pkg/util/errors"
 	"k8s.io/klog/v2"
+	"k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource/helper"
@@ -29,6 +30,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
+	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
@@ -105,10 +107,23 @@ func (p *PolicyCanonical) estimateCPUUsage() (float64, error) {
 				continue
 			}
 
-			// when ramping up, estimation of cpu should be set as cpu request
-			containerEstimation, err := helper.EstimateContainerCPUUsage(ci, p.metaReader, enableReclaim && !ci.RampUp)
-			if err != nil {
-				return 0, err
+			var containerEstimation float64 = 0
+			if ci.IsNumaBinding() && !enableReclaim {
+				if ci.ContainerType == v1alpha1.ContainerType_MAIN {
+					bindingNumas := machine.GetCPUAssignmentNUMAs(ci.TopologyAwareAssignments)
+					for range bindingNumas.ToSliceInt() {
+						containerEstimation += float64(p.metaServer.CPUsPerNuma())
+					}
+					general.Infof("container %s/%s occupied cpu %v", ci.PodName, ci.ContainerName, containerEstimation)
+				} else {
+					containerEstimation = 0
+				}
+			} else {
+				// when ramping up, estimation of cpu should be set as cpu request
+				containerEstimation, err = helper.EstimateContainerCPUUsage(ci, p.metaReader, enableReclaim && !ci.RampUp)
+				if err != nil {
+					return 0, err
+				}
 			}
 
 			// FIXME: metric server doesn't support to report cpu usage in numa granularity,

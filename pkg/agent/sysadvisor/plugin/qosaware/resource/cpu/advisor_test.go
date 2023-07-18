@@ -63,9 +63,7 @@ func generateTestConfiguration(t *testing.T, checkpointDir, stateFileDir string)
 	return conf
 }
 
-func newTestCPUResourceAdvisor(t *testing.T, pods []*v1.Pod, checkpointDir, stateFileDir string, mf *metric.FakeMetricsFetcher) (*cpuResourceAdvisor, metacache.MetaCache) {
-	conf := generateTestConfiguration(t, checkpointDir, stateFileDir)
-
+func newTestCPUResourceAdvisor(t *testing.T, pods []*v1.Pod, conf *config.Configuration, mf *metric.FakeMetricsFetcher, performanceLevel spd.PerformanceLevel) (*cpuResourceAdvisor, metacache.MetaCache) {
 	metaCache, err := metacache.NewMetaCacheImp(conf, metric.NewFakeMetricsFetcher(metrics.DummyMetrics{}))
 	require.NoError(t, err)
 
@@ -90,7 +88,7 @@ func newTestCPUResourceAdvisor(t *testing.T, pods []*v1.Pod, checkpointDir, stat
 		MetricsFetcher: mf,
 	}
 
-	err = metaServer.SetServiceProfilingManager(&spd.DummyServiceProfilingManager{})
+	err = metaServer.SetServiceProfilingManager(spd.NewDummyServiceProfilingManager(performanceLevel))
 	require.NoError(t, err)
 
 	cra := NewCPUResourceAdvisor(conf, struct{}{}, metaCache, metaServer, nil)
@@ -144,7 +142,9 @@ func TestAdvisorUpdate(t *testing.T) {
 		pools                         map[string]*types.PoolInfo
 		containers                    []*types.ContainerInfo
 		pods                          []*v1.Pod
-		enableReclaim                 bool
+		nodeEnableReclaim             bool
+		headroomAssembler             types.CPUHeadroomAssemblerName
+		pLevel                        spd.PerformanceLevel
 		wantInternalCalculationResult types.InternalCPUCalculationResult
 		wantHeadroom                  resource.Quantity
 		metrics                       []metricItem
@@ -166,7 +166,7 @@ func TestAdvisorUpdate(t *testing.T) {
 					},
 				},
 			},
-			enableReclaim: true,
+			nodeEnableReclaim: true,
 			wantInternalCalculationResult: types.InternalCPUCalculationResult{
 				PoolEntries: map[string]map[int]int{
 					state.PoolNameReserve: {-1: 2},
@@ -209,7 +209,7 @@ func TestAdvisorUpdate(t *testing.T) {
 					},
 				},
 			},
-			enableReclaim: true,
+			nodeEnableReclaim: true,
 			wantInternalCalculationResult: types.InternalCPUCalculationResult{
 				PoolEntries: map[string]map[int]int{
 					state.PoolNameReserve: {-1: 2},
@@ -253,7 +253,7 @@ func TestAdvisorUpdate(t *testing.T) {
 					},
 				},
 			},
-			enableReclaim: true,
+			nodeEnableReclaim: true,
 			wantInternalCalculationResult: types.InternalCPUCalculationResult{
 				PoolEntries: map[string]map[int]int{
 					state.PoolNameReserve: {-1: 2},
@@ -316,7 +316,7 @@ func TestAdvisorUpdate(t *testing.T) {
 					},
 				},
 			},
-			enableReclaim: true,
+			nodeEnableReclaim: true,
 			wantInternalCalculationResult: types.InternalCPUCalculationResult{
 				PoolEntries: map[string]map[int]int{
 					state.PoolNameReserve: {-1: 2},
@@ -380,7 +380,7 @@ func TestAdvisorUpdate(t *testing.T) {
 					},
 				},
 			},
-			enableReclaim: true,
+			nodeEnableReclaim: true,
 			wantInternalCalculationResult: types.InternalCPUCalculationResult{
 				PoolEntries: map[string]map[int]int{
 					state.PoolNameReserve: {-1: 2},
@@ -425,7 +425,8 @@ func TestAdvisorUpdate(t *testing.T) {
 					},
 				},
 			},
-			enableReclaim: true,
+			nodeEnableReclaim: true,
+			headroomAssembler: types.CPUHeadroomAssemblerDedicated,
 			wantInternalCalculationResult: types.InternalCPUCalculationResult{
 				PoolEntries: map[string]map[int]int{
 					state.PoolNameReserve: {
@@ -437,7 +438,57 @@ func TestAdvisorUpdate(t *testing.T) {
 					},
 				},
 			},
-			wantHeadroom: *resource.NewQuantity(49, resource.DecimalSI),
+			wantHeadroom: *resource.NewQuantity(54, resource.DecimalSI),
+		},
+		{
+			name: "single_dedicated_numa_exclusive pod un-reclaimed",
+			pools: map[string]*types.PoolInfo{
+				state.PoolNameReserve: {
+					PoolName: state.PoolNameReserve,
+					TopologyAwareAssignments: map[int]machine.CPUSet{
+						0: machine.MustParse("0"),
+						1: machine.MustParse("24"),
+					},
+				},
+				state.PoolNameReclaim: {
+					PoolName: state.PoolNameReclaim,
+					TopologyAwareAssignments: map[int]machine.CPUSet{
+						0: machine.MustParse("70-71"),
+						1: machine.MustParse("25-47,72-95"),
+					},
+				},
+			},
+			containers: []*types.ContainerInfo{
+				makeContainerInfo("uid1", "default", "pod1", "c1", consts.PodAnnotationQoSLevelDedicatedCores, state.PoolNameDedicated,
+					map[string]string{consts.PodAnnotationMemoryEnhancementNumaBinding: consts.PodAnnotationMemoryEnhancementNumaBindingEnable},
+					map[int]machine.CPUSet{
+						0: machine.MustParse("1-23,48-71"),
+					}, 36),
+			},
+			pods: []*v1.Pod{
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "pod1",
+						Namespace: "default",
+						UID:       "uid1",
+					},
+				},
+			},
+			nodeEnableReclaim: true,
+			pLevel:            spd.PerformanceLevelPoor,
+			headroomAssembler: types.CPUHeadroomAssemblerDedicated,
+			wantInternalCalculationResult: types.InternalCPUCalculationResult{
+				PoolEntries: map[string]map[int]int{
+					state.PoolNameReserve: {
+						-1: 2,
+					},
+					state.PoolNameReclaim: {
+						0:  2,
+						-1: 47,
+					},
+				},
+			},
+			wantHeadroom: *resource.NewQuantity(45, resource.DecimalSI),
 		},
 		{
 			name: "dedicated_numa_exclusive_&_share",
@@ -490,7 +541,7 @@ func TestAdvisorUpdate(t *testing.T) {
 					},
 				},
 			},
-			enableReclaim: true,
+			nodeEnableReclaim: true,
 			wantInternalCalculationResult: types.InternalCPUCalculationResult{
 				PoolEntries: map[string]map[int]int{
 					state.PoolNameReserve: {
@@ -558,7 +609,7 @@ func TestAdvisorUpdate(t *testing.T) {
 					},
 				},
 			},
-			enableReclaim: false,
+			nodeEnableReclaim: false,
 			wantInternalCalculationResult: types.InternalCPUCalculationResult{
 				PoolEntries: map[string]map[int]int{
 					state.PoolNameReserve: {
@@ -633,7 +684,7 @@ func TestAdvisorUpdate(t *testing.T) {
 					},
 				},
 			},
-			enableReclaim: true,
+			nodeEnableReclaim: true,
 			wantInternalCalculationResult: types.InternalCPUCalculationResult{
 				PoolEntries: map[string]map[int]int{
 					state.PoolNameReserve: {-1: 2},
@@ -731,7 +782,7 @@ func TestAdvisorUpdate(t *testing.T) {
 					},
 				},
 			},
-			enableReclaim: true,
+			nodeEnableReclaim: true,
 			wantInternalCalculationResult: types.InternalCPUCalculationResult{
 				PoolEntries: map[string]map[int]int{
 					state.PoolNameReserve: {-1: 2},
@@ -781,9 +832,14 @@ func TestAdvisorUpdate(t *testing.T) {
 
 			mf := metric.NewFakeMetricsFetcher(metrics.DummyMetrics{}).(*metric.FakeMetricsFetcher)
 
-			advisor, metaCache := newTestCPUResourceAdvisor(t, tt.pods, ckDir, sfDir, mf)
+			conf := generateTestConfiguration(t, ckDir, sfDir)
+			if tt.headroomAssembler != "" {
+				conf.CPUAdvisorConfiguration.HeadroomAssembler = tt.headroomAssembler
+			}
+
+			advisor, metaCache := newTestCPUResourceAdvisor(t, tt.pods, conf, mf, tt.pLevel)
 			advisor.startTime = time.Now().Add(-types.StartUpPeriod)
-			advisor.conf.GetDynamicConfiguration().EnableReclaim = tt.enableReclaim
+			advisor.conf.GetDynamicConfiguration().EnableReclaim = tt.nodeEnableReclaim
 
 			if len(tt.metrics) > 0 {
 				advisor.conf.IsolationDisabled = false
