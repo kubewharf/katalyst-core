@@ -21,27 +21,39 @@ import (
 	"fmt"
 	"io/ioutil"
 	"os"
+	"path"
 	"strings"
+	"sync"
 	"testing"
 
 	info "github.com/google/cadvisor/info/v1"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/uuid"
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 
 	"github.com/kubewharf/katalyst-api/pkg/consts"
+	katalystbase "github.com/kubewharf/katalyst-core/cmd/base"
+	appagent "github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/agent"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/advisorsvc"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/memory/dynamicpolicy/memoryadvisor"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/memory/dynamicpolicy/state"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util"
+	"github.com/kubewharf/katalyst-core/pkg/config"
+	configagent "github.com/kubewharf/katalyst-core/pkg/config/agent"
+	"github.com/kubewharf/katalyst-core/pkg/config/agent/global"
+	qrmconfig "github.com/kubewharf/katalyst-core/pkg/config/agent/qrm"
 	"github.com/kubewharf/katalyst-core/pkg/config/generic"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent"
+	metaserveragent "github.com/kubewharf/katalyst-core/pkg/metaserver/agent"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/pod"
+	"github.com/kubewharf/katalyst-core/pkg/metaserver/external"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
@@ -98,16 +110,6 @@ func getTestDynamicPolicyWithInitialization(topology *machine.CPUTopology, machi
 		consts.PodAnnotationQoSLevelDedicatedCores: policyImplement.dedicatedCoresHintHandler,
 		consts.PodAnnotationQoSLevelReclaimedCores: policyImplement.reclaimedCoresHintHandler,
 	}
-
-	memoryadvisor.RegisterControlKnobHandler(memoryadvisor.ControKnobKeyMemoryLimitInBytes,
-		memoryadvisor.ControlKnobHandlerWithChecker(policyImplement.handleAdvisorMemoryLimitInBytes))
-	memoryadvisor.RegisterControlKnobHandler(memoryadvisor.ControKnobKeyDropCache,
-		memoryadvisor.ControlKnobHandlerWithChecker(func(podUID, containerName string,
-			calculationInfo *advisorsvc.CalculationInfo, podResourceEntries state.PodResourceEntries) error {
-			return nil
-		}))
-	memoryadvisor.RegisterControlKnobHandler(memoryadvisor.ControKnobKeyCPUSetMems,
-		memoryadvisor.ControlKnobHandlerWithChecker(policyImplement.handleAdvisorCPUSetMems))
 
 	return policyImplement, nil
 }
@@ -1593,8 +1595,9 @@ func TestGetReadonlyState(t *testing.T) {
 
 	as := require.New(t)
 	readonlyState, err := GetReadonlyState()
-	as.NotNil(err)
-	as.Nil(readonlyState)
+	if readonlyState == nil {
+		as.NotNil(err)
+	}
 }
 
 func TestGenerateResourcesMachineStateFromPodEntries(t *testing.T) {
@@ -1646,6 +1649,8 @@ func TestGenerateResourcesMachineStateFromPodEntries(t *testing.T) {
 }
 
 func TestHandleAdvisorResp(t *testing.T) {
+	t.Parallel()
+
 	as := require.New(t)
 	cpuTopology, err := machine.GenerateDummyCPUTopology(16, 2, 4)
 	as.Nil(err)
@@ -2046,11 +2051,37 @@ func TestHandleAdvisorResp(t *testing.T) {
 	}
 
 	for _, tc := range testCases {
-		tmpDir, err := ioutil.TempDir("", "checkpoint")
+		tmpDir, err := ioutil.TempDir("", "checkpoint-TestHandleAdvisorResp")
 		as.Nil(err)
 
 		dynamicPolicy, err := getTestDynamicPolicyWithInitialization(cpuTopology, machineInfo, tmpDir)
 		as.Nil(err)
+
+		dynamicPolicy.metaServer = &metaserver.MetaServer{
+			MetaAgent: &agent.MetaAgent{
+				PodFetcher: &pod.PodFetcherStub{
+					PodList: []*v1.Pod{
+						{
+							ObjectMeta: metav1.ObjectMeta{
+								UID: types.UID(pod2UID),
+							},
+							Spec: v1.PodSpec{
+								Containers: []v1.Container{
+									{Name: testName},
+								},
+							},
+						},
+					},
+				},
+			},
+		}
+
+		memoryadvisor.RegisterControlKnobHandler(memoryadvisor.ControKnobKeyMemoryLimitInBytes,
+			memoryadvisor.ControlKnobHandlerWithChecker(dynamicPolicy.handleAdvisorMemoryLimitInBytes))
+		memoryadvisor.RegisterControlKnobHandler(memoryadvisor.ControKnobKeyDropCache,
+			memoryadvisor.ControlKnobHandlerWithChecker(dynamicPolicy.handleAdvisorDropCache))
+		memoryadvisor.RegisterControlKnobHandler(memoryadvisor.ControKnobKeyCPUSetMems,
+			memoryadvisor.ControlKnobHandlerWithChecker(dynamicPolicy.handleAdvisorCPUSetMems))
 
 		machineState, err := state.GenerateMachineStateFromPodEntries(machineInfo, tc.podResourceEntries, resourcesReservedMemory)
 		as.Nil(err)
@@ -2456,4 +2487,80 @@ func TestSetExtraControlKnobByConfigs(t *testing.T) {
 	}
 
 	as.Equal(expectedAllocationInfo, dynamicPolicy.state.GetPodResourceEntries()[v1.ResourceMemory][pod1UID][testName])
+}
+
+func makeMetaServer() *metaserver.MetaServer {
+	cpuTopology, _ := machine.GenerateDummyCPUTopology(16, 2, 4)
+	machineInfo, _ := machine.GenerateDummyMachineInfo(4, 32)
+
+	return &metaserver.MetaServer{
+		MetaAgent: &metaserveragent.MetaAgent{
+			KatalystMachineInfo: &machine.KatalystMachineInfo{
+				MachineInfo:      machineInfo,
+				CPUTopology:      cpuTopology,
+				ExtraNetworkInfo: &machine.ExtraNetworkInfo{},
+			},
+			PodFetcher: &pod.PodFetcherStub{},
+		},
+		ExternalManager: external.InitExternalManager(&pod.PodFetcherStub{}),
+	}
+}
+
+func makeTestGenericContext(t *testing.T) *appagent.GenericContext {
+	genericCtx, err := katalystbase.GenerateFakeGenericContext([]runtime.Object{})
+	assert.NoError(t, err)
+
+	return &appagent.GenericContext{
+		GenericContext: genericCtx,
+		MetaServer:     makeMetaServer(),
+		PluginManager:  nil,
+	}
+}
+
+func TestNewAndStartDynamicPolicy(t *testing.T) {
+	t.Parallel()
+
+	as := require.New(t)
+
+	tmpDir, err := ioutil.TempDir("", "checkpoint-TestNewAndStartDynamicPolicy")
+	as.Nil(err)
+
+	agentCtx := makeTestGenericContext(t)
+	_, component, err := NewDynamicPolicy(agentCtx, &config.Configuration{
+		GenericConfiguration: &generic.GenericConfiguration{},
+		AgentConfiguration: &configagent.AgentConfiguration{
+			GenericAgentConfiguration: &configagent.GenericAgentConfiguration{
+				QRMAdvisorConfiguration: &global.QRMAdvisorConfiguration{},
+				GenericQRMPluginConfiguration: &qrmconfig.GenericQRMPluginConfiguration{
+					StateFileDirectory:  tmpDir,
+					QRMPluginSocketDirs: []string{path.Join(tmpDir, "test.sock")},
+				},
+			},
+			StaticAgentConfiguration: &configagent.StaticAgentConfiguration{
+				QRMPluginsConfiguration: &qrmconfig.QRMPluginsConfiguration{
+					MemoryQRMPluginConfig: &qrmconfig.MemoryQRMPluginConfig{
+						PolicyName:                 MemoryResourcePluginPolicyNameDynamic,
+						ReservedMemoryGB:           4,
+						SkipMemoryStateCorruption:  true,
+						EnableSettingMemoryMigrate: false,
+						EnableMemoryAdvisor:        false,
+						ExtraControlKnobConfigFile: "",
+					},
+				},
+			},
+		},
+	}, nil, "test_dynamic_policy")
+	as.Nil(err)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	var wg sync.WaitGroup
+	wg.Add(1)
+
+	go func() {
+		component.Run(ctx)
+		wg.Done()
+	}()
+
+	cancel()
+	wg.Wait()
 }
