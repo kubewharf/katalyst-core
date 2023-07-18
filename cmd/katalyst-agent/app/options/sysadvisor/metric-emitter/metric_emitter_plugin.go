@@ -33,8 +33,10 @@ type MetricEmitterPluginOptions struct {
 	PodSkipAnnotations string
 	PodSkipLabels      string
 	PodSyncPeriod      time.Duration
+	PodMetricMapping   map[string]string
 
-	NodeMetricLabels []string
+	NodeMetricLabels  []string
+	NodeMetricMapping map[string]string
 
 	MetricSyncers []string
 }
@@ -65,9 +67,13 @@ func (o *MetricEmitterPluginOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 		"if any pod has annotations as defined, skip to collect metrics for them")
 	fs.DurationVar(&o.PodSyncPeriod, "metric-pod-sync-period", o.PodSyncPeriod,
 		"the period that pod sync logic")
+	fs.StringToStringVar(&o.PodMetricMapping, "metric-pod-metrics", o.PodMetricMapping,
+		"the metric name for pod-level to override the default collecting logic")
 
 	fs.StringSliceVar(&o.NodeMetricLabels, "metric-node-labels", o.NodeMetricLabels,
 		"node labels to be added in metric selector lists")
+	fs.StringToStringVar(&o.NodeMetricMapping, "metric-node-metrics", o.NodeMetricMapping,
+		"the metric name for node-level to override the default collecting logic")
 
 	fs.StringSliceVar(&o.MetricSyncers, "metric-syncers", o.MetricSyncers,
 		"those syncers that should be enabled")
@@ -90,7 +96,15 @@ func (o *MetricEmitterPluginOptions) ApplyTo(c *metricemitter.MetricEmitterPlugi
 	}
 	c.PodSkipAnnotations = podSkipAnnotations
 
+	if o.PodMetricMapping != nil && len(o.PodMetricLabels) != 0 {
+		c.MetricEmitterPodConfiguration.MetricMapping = o.PodMetricMapping
+	}
+
 	c.NodeMetricLabel = sets.NewString(o.NodeMetricLabels...)
+
+	if o.NodeMetricMapping != nil && len(o.NodeMetricMapping) != 0 {
+		c.MetricEmitterNodeConfiguration.MetricMapping = o.NodeMetricMapping
+	}
 
 	c.MetricSyncers = o.MetricSyncers
 	return nil
