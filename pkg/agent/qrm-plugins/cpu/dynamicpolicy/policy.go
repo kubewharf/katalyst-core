@@ -64,7 +64,6 @@ const (
 	stateCheckPeriod  = 30 * time.Second
 	maxResidualTime   = 5 * time.Minute
 	syncCPUIdlePeriod = 30 * time.Second
-	transitionPeriod  = 30 * time.Second
 )
 
 var (
@@ -195,7 +194,7 @@ func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration
 		enableCPUIdle:                 conf.CPUQRMPluginConfig.EnableCPUIdle,
 		reclaimRelativeRootCgroupPath: conf.ReclaimRelativeRootCgroupPath,
 		podDebugAnnoKeys:              conf.PodDebugAnnoKeys,
-		transitionPeriod:              time.Second,
+		transitionPeriod:              30 * time.Second,
 	}
 
 	// register allocation behaviors for pods with different QoS level

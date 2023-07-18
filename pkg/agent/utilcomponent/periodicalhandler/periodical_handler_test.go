@@ -68,6 +68,7 @@ func TestPeriodicalHandlerManager(t *testing.T) {
 	t.Parallel()
 	as := require.New(t)
 
+	var lock sync.RWMutex
 	agentCtx := makeTestGenericContext(t)
 	_, pmgr, _ := NewPeriodicalHandlerManager(agentCtx, &config.Configuration{AgentConfiguration: &configagent.AgentConfiguration{}}, nil, "test_periodical_handler_mgr")
 
@@ -88,7 +89,9 @@ func TestPeriodicalHandlerManager(t *testing.T) {
 		dynamicConf *dynamicconfig.DynamicAgentConfiguration,
 		emitter metrics.MetricEmitter,
 		metaServer *metaserver.MetaServer) {
+		lock.Lock()
 		testNum = 10
+		lock.Unlock()
 	},
 		time.Second)
 
@@ -96,7 +99,9 @@ func TestPeriodicalHandlerManager(t *testing.T) {
 
 testLoop1:
 	for {
+		lock.RLock()
 		as.Equal(testNum, 5)
+		lock.RUnlock()
 		select {
 		case <-ticker:
 			break testLoop1
@@ -111,9 +116,12 @@ testLoop1:
 
 testLoop2:
 	for {
+		lock.RLock()
 		if testNum == 10 {
+			lock.RUnlock()
 			break
 		}
+		lock.RUnlock()
 
 		select {
 		case <-ticker:
@@ -123,6 +131,8 @@ testLoop2:
 		time.Sleep(time.Second)
 	}
 
+	lock.RLock()
 	as.Equal(testNum, 10)
+	lock.RUnlock()
 	cancel()
 }
