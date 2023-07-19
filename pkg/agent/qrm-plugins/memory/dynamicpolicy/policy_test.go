@@ -1753,7 +1753,7 @@ func TestHandleAdvisorResp(t *testing.T) {
 							testName: {
 								CalculationResult: &advisorsvc.CalculationResult{
 									Values: map[string]string{
-										string(memoryadvisor.ControKnobKeyMemoryLimitInBytes): "5516192768",
+										string(memoryadvisor.ControlKnobKeyMemoryLimitInBytes): "5516192768",
 									},
 								},
 							},
@@ -1764,7 +1764,7 @@ func TestHandleAdvisorResp(t *testing.T) {
 							testName: {
 								CalculationResult: &advisorsvc.CalculationResult{
 									Values: map[string]string{
-										string(memoryadvisor.ControKnobKeyDropCache): "true",
+										string(memoryadvisor.ControlKnobKeyDropCache): "true",
 									},
 								},
 							},
@@ -1775,7 +1775,7 @@ func TestHandleAdvisorResp(t *testing.T) {
 							testName: {
 								CalculationResult: &advisorsvc.CalculationResult{
 									Values: map[string]string{
-										string(memoryadvisor.ControKnobKeyCPUSetMems): "2-3",
+										string(memoryadvisor.ControlKnobKeyCPUSetMems): "2-3",
 									},
 								},
 							},
@@ -1809,7 +1809,7 @@ func TestHandleAdvisorResp(t *testing.T) {
 								consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelDedicatedCores,
 							},
 							ExtraControlKnobInfo: map[string]commonstate.ControlKnobInfo{
-								string(memoryadvisor.ControKnobKeyMemoryLimitInBytes): {
+								string(memoryadvisor.ControlKnobKeyMemoryLimitInBytes): {
 									ControlKnobValue: "5516192768",
 									OciPropertyName:  util.OCIPropertyNameMemoryLimitInBytes,
 								},
@@ -1891,7 +1891,7 @@ func TestHandleAdvisorResp(t *testing.T) {
 										consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelDedicatedCores,
 									},
 									ExtraControlKnobInfo: map[string]commonstate.ControlKnobInfo{
-										string(memoryadvisor.ControKnobKeyMemoryLimitInBytes): {
+										string(memoryadvisor.ControlKnobKeyMemoryLimitInBytes): {
 											ControlKnobValue: "5516192768",
 											OciPropertyName:  util.OCIPropertyNameMemoryLimitInBytes,
 										},
@@ -2039,7 +2039,7 @@ func TestHandleAdvisorResp(t *testing.T) {
 						CgroupPath: "invalid",
 						CalculationResult: &advisorsvc.CalculationResult{
 							Values: map[string]string{
-								string(memoryadvisor.ControKnobKeyMemoryLimitInBytes): "12345",
+								string(memoryadvisor.ControlKnobKeyMemoryLimitInBytes): "12345",
 							},
 						},
 					},
@@ -2076,11 +2076,11 @@ func TestHandleAdvisorResp(t *testing.T) {
 			},
 		}
 
-		memoryadvisor.RegisterControlKnobHandler(memoryadvisor.ControKnobKeyMemoryLimitInBytes,
+		memoryadvisor.RegisterControlKnobHandler(memoryadvisor.ControlKnobKeyMemoryLimitInBytes,
 			memoryadvisor.ControlKnobHandlerWithChecker(dynamicPolicy.handleAdvisorMemoryLimitInBytes))
-		memoryadvisor.RegisterControlKnobHandler(memoryadvisor.ControKnobKeyDropCache,
+		memoryadvisor.RegisterControlKnobHandler(memoryadvisor.ControlKnobKeyDropCache,
 			memoryadvisor.ControlKnobHandlerWithChecker(dynamicPolicy.handleAdvisorDropCache))
-		memoryadvisor.RegisterControlKnobHandler(memoryadvisor.ControKnobKeyCPUSetMems,
+		memoryadvisor.RegisterControlKnobHandler(memoryadvisor.ControlKnobKeyCPUSetMems,
 			memoryadvisor.ControlKnobHandlerWithChecker(dynamicPolicy.handleAdvisorCPUSetMems))
 
 		machineState, err := state.GenerateMachineStateFromPodEntries(machineInfo, tc.podResourceEntries, resourcesReservedMemory)
@@ -2155,14 +2155,14 @@ func TestSetExtraControlKnobByConfigForAllocationInfo(t *testing.T) {
 					consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelDedicatedCores,
 				},
 				ExtraControlKnobInfo: map[string]commonstate.ControlKnobInfo{
-					string(memoryadvisor.ControKnobKeyMemoryLimitInBytes): {
+					string(memoryadvisor.ControlKnobKeyMemoryLimitInBytes): {
 						ControlKnobValue: "5516192768",
 						OciPropertyName:  util.OCIPropertyNameMemoryLimitInBytes,
 					},
 				},
 			},
 			extraControlKnobConfigs: map[string]commonstate.ExtraControlKnobConfig{
-				string(memoryadvisor.ControKnobKeyMemoryLimitInBytes): {
+				string(memoryadvisor.ControlKnobKeyMemoryLimitInBytes): {
 					PodExplicitlyAnnotationKey: testMemLimitAnnoKey,
 					QoSLevelToDefaultValue: map[string]string{
 						consts.PodAnnotationQoSLevelDedicatedCores: "1516192768",
@@ -2197,7 +2197,7 @@ func TestSetExtraControlKnobByConfigForAllocationInfo(t *testing.T) {
 					consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelDedicatedCores,
 				},
 				ExtraControlKnobInfo: map[string]commonstate.ControlKnobInfo{
-					string(memoryadvisor.ControKnobKeyMemoryLimitInBytes): {
+					string(memoryadvisor.ControlKnobKeyMemoryLimitInBytes): {
 						ControlKnobValue: "5516192768",
 						OciPropertyName:  util.OCIPropertyNameMemoryLimitInBytes,
 					},
@@ -2235,7 +2235,7 @@ func TestSetExtraControlKnobByConfigForAllocationInfo(t *testing.T) {
 				},
 			},
 			extraControlKnobConfigs: map[string]commonstate.ExtraControlKnobConfig{
-				string(memoryadvisor.ControKnobKeyMemoryLimitInBytes): {
+				string(memoryadvisor.ControlKnobKeyMemoryLimitInBytes): {
 					PodExplicitlyAnnotationKey: testMemLimitAnnoKey,
 					QoSLevelToDefaultValue: map[string]string{
 						consts.PodAnnotationQoSLevelDedicatedCores: "1516192768",
@@ -2270,7 +2270,7 @@ func TestSetExtraControlKnobByConfigForAllocationInfo(t *testing.T) {
 					consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelDedicatedCores,
 				},
 				ExtraControlKnobInfo: map[string]commonstate.ControlKnobInfo{
-					string(memoryadvisor.ControKnobKeyMemoryLimitInBytes): {
+					string(memoryadvisor.ControlKnobKeyMemoryLimitInBytes): {
 						ControlKnobValue: "6516192768",
 						OciPropertyName:  util.OCIPropertyNameMemoryLimitInBytes,
 					},
@@ -2304,7 +2304,7 @@ func TestSetExtraControlKnobByConfigForAllocationInfo(t *testing.T) {
 				},
 			},
 			extraControlKnobConfigs: map[string]commonstate.ExtraControlKnobConfig{
-				string(memoryadvisor.ControKnobKeyMemoryLimitInBytes): {
+				string(memoryadvisor.ControlKnobKeyMemoryLimitInBytes): {
 					PodExplicitlyAnnotationKey: testMemLimitAnnoKey,
 					QoSLevelToDefaultValue: map[string]string{
 						consts.PodAnnotationQoSLevelDedicatedCores: "1516192768",
@@ -2339,7 +2339,7 @@ func TestSetExtraControlKnobByConfigForAllocationInfo(t *testing.T) {
 					consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelDedicatedCores,
 				},
 				ExtraControlKnobInfo: map[string]commonstate.ControlKnobInfo{
-					string(memoryadvisor.ControKnobKeyMemoryLimitInBytes): {
+					string(memoryadvisor.ControlKnobKeyMemoryLimitInBytes): {
 						ControlKnobValue: "1516192768",
 						OciPropertyName:  util.OCIPropertyNameMemoryLimitInBytes,
 					},
@@ -2396,7 +2396,7 @@ func TestSetExtraControlKnobByConfigs(t *testing.T) {
 
 	testMemLimitAnnoKey := "test_mem_limit_anno_key"
 	dynamicPolicy.extraControlKnobConfigs = commonstate.ExtraControlKnobConfigs{
-		string(memoryadvisor.ControKnobKeyMemoryLimitInBytes): {
+		string(memoryadvisor.ControlKnobKeyMemoryLimitInBytes): {
 			PodExplicitlyAnnotationKey: testMemLimitAnnoKey,
 			QoSLevelToDefaultValue: map[string]string{
 				consts.PodAnnotationQoSLevelDedicatedCores: "1516192768",
@@ -2479,7 +2479,7 @@ func TestSetExtraControlKnobByConfigs(t *testing.T) {
 			consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelDedicatedCores,
 		},
 		ExtraControlKnobInfo: map[string]commonstate.ControlKnobInfo{
-			string(memoryadvisor.ControKnobKeyMemoryLimitInBytes): {
+			string(memoryadvisor.ControlKnobKeyMemoryLimitInBytes): {
 				ControlKnobValue: "1516192768",
 				OciPropertyName:  util.OCIPropertyNameMemoryLimitInBytes,
 			},

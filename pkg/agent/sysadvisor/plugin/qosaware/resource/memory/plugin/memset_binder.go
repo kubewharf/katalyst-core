@@ -88,7 +88,7 @@ func (mb *memsetBinder) GetAdvices() types.InternalMemoryCalculationResult {
 		entry := types.ContainerMemoryAdvices{
 			PodUID:        podUID,
 			ContainerName: containerName,
-			Values:        map[string]string{string(memoryadvisor.ControKnobKeyCPUSetMems): memset.String()},
+			Values:        map[string]string{string(memoryadvisor.ControlKnobKeyCPUSetMems): memset.String()},
 		}
 		result.ContainerEntries = append(result.ContainerEntries, entry)
 	}

@@ -133,7 +133,7 @@ func (cp *cacheReaper) GetAdvices() types.InternalMemoryCalculationResult {
 		entry := types.ContainerMemoryAdvices{
 			PodUID:        ci.PodUID,
 			ContainerName: ci.ContainerName,
-			Values:        map[string]string{string(memoryadvisor.ControKnobKeyDropCache): "true"},
+			Values:        map[string]string{string(memoryadvisor.ControlKnobKeyDropCache): "true"},
 		}
 		result.ContainerEntries = append(result.ContainerEntries, entry)
 	}

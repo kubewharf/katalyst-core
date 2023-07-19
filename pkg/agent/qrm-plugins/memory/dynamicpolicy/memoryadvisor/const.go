@@ -16,10 +16,10 @@ limitations under the License.
 
 package memoryadvisor
 
-type MemoryControKnobName string
+type MemoryControlKnobName string
 
 const (
-	ControKnobKeyMemoryLimitInBytes MemoryControKnobName = "memory_limit_in_bytes"
-	ControKnobKeyDropCache          MemoryControKnobName = "drop_cache"
-	ControKnobKeyCPUSetMems         MemoryControKnobName = "cpuset_mems"
+	ControlKnobKeyMemoryLimitInBytes MemoryControlKnobName = "memory_limit_in_bytes"
+	ControlKnobKeyDropCache          MemoryControlKnobName = "drop_cache"
+	ControlKnobKeyCPUSetMems         MemoryControlKnobName = "cpuset_mems"
 )
