@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package metric
+package malachite
 
 import (
 	"testing"
@@ -24,6 +24,7 @@ import (
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
+	metric2 "github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric/malachite/cgroup"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric/malachite/system"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
@@ -141,28 +142,28 @@ func Test_notifySystem(t *testing.T) {
 
 	f := NewMalachiteMetricsFetcher(metrics.DummyMetrics{}, nil)
 
-	rChan := make(chan NotifiedResponse, 20)
-	f.RegisterNotifier(MetricsScopeNode, NotifiedRequest{
+	rChan := make(chan metric2.NotifiedResponse, 20)
+	f.RegisterNotifier(metric2.MetricsScopeNode, metric2.NotifiedRequest{
 		MetricName: "test-node-metric",
 	}, rChan)
-	f.RegisterNotifier(MetricsScopeNuma, NotifiedRequest{
+	f.RegisterNotifier(metric2.MetricsScopeNuma, metric2.NotifiedRequest{
 		MetricName: "test-numa-metric",
 		NumaID:     1,
 	}, rChan)
-	f.RegisterNotifier(MetricsScopeCPU, NotifiedRequest{
+	f.RegisterNotifier(metric2.MetricsScopeCPU, metric2.NotifiedRequest{
 		MetricName: "test-cpu-metric",
 		CoreID:     2,
 	}, rChan)
-	f.RegisterNotifier(MetricsScopeDevice, NotifiedRequest{
+	f.RegisterNotifier(metric2.MetricsScopeDevice, metric2.NotifiedRequest{
 		MetricName: "test-device-metric",
 		DeviceID:   "test-device",
 	}, rChan)
-	f.RegisterNotifier(MetricsScopeContainer, NotifiedRequest{
+	f.RegisterNotifier(metric2.MetricsScopeContainer, metric2.NotifiedRequest{
 		MetricName:    "test-container-metric",
 		PodUID:        "test-pod",
 		ContainerName: "test-container",
 	}, rChan)
-	f.RegisterNotifier(MetricsScopeContainer, NotifiedRequest{
+	f.RegisterNotifier(metric2.MetricsScopeContainer, metric2.NotifiedRequest{
 		MetricName:    "test-container-numa-metric",
 		PodUID:        "test-pod",
 		ContainerName: "test-container",

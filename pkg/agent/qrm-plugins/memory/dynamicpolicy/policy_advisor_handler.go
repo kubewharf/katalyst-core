@@ -124,7 +124,7 @@ func (p *DynamicPolicy) handleAdvisorResp(advisorResp *advisorsvc.ListAndWatchRe
 					"subEntryName", subEntryName,
 					"controlKnobName", controlKnobName,
 					"controlKnobValue", controlKnobValue)
-				handler := handlers[memoryadvisor.MemoryControKnobName(controlKnobName)]
+				handler := handlers[memoryadvisor.MemoryControlKnobName(controlKnobName)]
 				if handler != nil {
 					err := handler(entryName, subEntryName, calculationInfo, podResourceEntries)
 
@@ -163,7 +163,7 @@ func (p *DynamicPolicy) handleAdvisorResp(advisorResp *advisorsvc.ListAndWatchRe
 				"cgroupPath", calculationInfo.CgroupPath,
 				"controlKnobName", controlKnobName,
 				"controlKnobValue", controlKnobValue)
-			handler := handlers[memoryadvisor.MemoryControKnobName(controlKnobName)]
+			handler := handlers[memoryadvisor.MemoryControlKnobName(controlKnobName)]
 			if handler != nil {
 				err := handler("", "", calculationInfo, podResourceEntries)
 
@@ -196,11 +196,11 @@ func (p *DynamicPolicy) handleAdvisorResp(advisorResp *advisorsvc.ListAndWatchRe
 func (p *DynamicPolicy) handleAdvisorMemoryLimitInBytes(entryName, subEntryName string,
 	calculationInfo *advisorsvc.CalculationInfo, podResourceEntries state.PodResourceEntries) error {
 
-	calculatedLimitInBytes := calculationInfo.CalculationResult.Values[string(memoryadvisor.ControKnobKeyMemoryLimitInBytes)]
+	calculatedLimitInBytes := calculationInfo.CalculationResult.Values[string(memoryadvisor.ControlKnobKeyMemoryLimitInBytes)]
 	calculatedLimitInBytesInt64, err := strconv.ParseInt(calculatedLimitInBytes, 10, 64)
 
 	if err != nil {
-		return fmt.Errorf("parse %s: %s failed with error: %v", memoryadvisor.ControKnobKeyMemoryLimitInBytes, calculatedLimitInBytes, err)
+		return fmt.Errorf("parse %s: %s failed with error: %v", memoryadvisor.ControlKnobKeyMemoryLimitInBytes, calculatedLimitInBytes, err)
 	}
 
 	if calculationInfo.CgroupPath != "" {
@@ -210,7 +210,7 @@ func (p *DynamicPolicy) handleAdvisorMemoryLimitInBytes(entryName, subEntryName 
 
 		if err != nil {
 			return fmt.Errorf("apply %s: %d to cgroup: %s failed with error: %v",
-				memoryadvisor.ControKnobKeyMemoryLimitInBytes, calculatedLimitInBytesInt64,
+				memoryadvisor.ControlKnobKeyMemoryLimitInBytes, calculatedLimitInBytesInt64,
 				calculationInfo.CgroupPath, err)
 		}
 
@@ -226,7 +226,7 @@ func (p *DynamicPolicy) handleAdvisorMemoryLimitInBytes(entryName, subEntryName 
 	}
 
 	allocationInfo.
-		ExtraControlKnobInfo[string(memoryadvisor.ControKnobKeyMemoryLimitInBytes)] = commonstate.ControlKnobInfo{
+		ExtraControlKnobInfo[string(memoryadvisor.ControlKnobKeyMemoryLimitInBytes)] = commonstate.ControlKnobInfo{
 		ControlKnobValue: calculatedLimitInBytes,
 		OciPropertyName:  util.OCIPropertyNameMemoryLimitInBytes,
 	}
@@ -237,15 +237,15 @@ func (p *DynamicPolicy) handleAdvisorMemoryLimitInBytes(entryName, subEntryName 
 func (p *DynamicPolicy) handleAdvisorDropCache(entryName, subEntryName string,
 	calculationInfo *advisorsvc.CalculationInfo, podResourceEntries state.PodResourceEntries) error {
 
-	dropCache := calculationInfo.CalculationResult.Values[string(memoryadvisor.ControKnobKeyDropCache)]
+	dropCache := calculationInfo.CalculationResult.Values[string(memoryadvisor.ControlKnobKeyDropCache)]
 	dropCacheBool, err := strconv.ParseBool(dropCache)
 	if err != nil {
-		return fmt.Errorf("parse %s: %s failed with error: %v", memoryadvisor.ControKnobKeyDropCache, dropCache, err)
+		return fmt.Errorf("parse %s: %s failed with error: %v", memoryadvisor.ControlKnobKeyDropCache, dropCache, err)
 	}
 
 	if calculationInfo.CgroupPath != "" {
 		return fmt.Errorf("dropping cache at high level cgroup path %s isn't supported",
-			memoryadvisor.ControKnobKeyDropCache)
+			memoryadvisor.ControlKnobKeyDropCache)
 	}
 
 	if !dropCacheBool {
@@ -276,10 +276,10 @@ func (p *DynamicPolicy) handleAdvisorDropCache(entryName, subEntryName string,
 func (p *DynamicPolicy) handleAdvisorCPUSetMems(entryName, subEntryName string,
 	calculationInfo *advisorsvc.CalculationInfo, podResourceEntries state.PodResourceEntries) error {
 
-	cpusetMemsStr := calculationInfo.CalculationResult.Values[string(memoryadvisor.ControKnobKeyCPUSetMems)]
+	cpusetMemsStr := calculationInfo.CalculationResult.Values[string(memoryadvisor.ControlKnobKeyCPUSetMems)]
 	cpusetMems, err := machine.Parse(cpusetMemsStr)
 	if err != nil {
-		return fmt.Errorf("parse %s: %s failed with error: %v", memoryadvisor.ControKnobKeyCPUSetMems, cpusetMemsStr, err)
+		return fmt.Errorf("parse %s: %s failed with error: %v", memoryadvisor.ControlKnobKeyCPUSetMems, cpusetMemsStr, err)
 	}
 
 	allocationInfo := podResourceEntries[v1.ResourceMemory][entryName][subEntryName]

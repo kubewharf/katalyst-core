@@ -30,6 +30,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/cnc"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/cnr"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric"
+	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric/malachite"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/node"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/pod"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
@@ -69,7 +70,7 @@ func NewMetaAgent(conf *config.Configuration, clientSet *client.GenericClientSet
 		start:          false,
 		PodFetcher:     podFetcher,
 		NodeFetcher:    node.NewRemoteNodeFetcher(conf.NodeName, clientSet.KubeClient.CoreV1().Nodes()),
-		MetricsFetcher: metric.NewMalachiteMetricsFetcher(emitter, conf),
+		MetricsFetcher: malachite.NewMalachiteMetricsFetcher(emitter, conf),
 		CNRFetcher: cnr.NewCachedCNRFetcher(conf.NodeName, conf.CNRCacheTTL,
 			clientSet.InternalClient.NodeV1alpha1().CustomNodeResources()),
 		CNCFetcher: cnc.NewCachedCNCFetcher(conf.NodeName, conf.CustomNodeConfigCacheTTL,

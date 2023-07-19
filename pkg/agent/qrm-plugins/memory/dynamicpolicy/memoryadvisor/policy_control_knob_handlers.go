@@ -34,14 +34,14 @@ type MemoryControlKnobHandler func(entryName, subEntryName string,
 
 var memoryControlKnobHandlers sync.Map
 
-func RegisterControlKnobHandler(name MemoryControKnobName, handler MemoryControlKnobHandler) {
+func RegisterControlKnobHandler(name MemoryControlKnobName, handler MemoryControlKnobHandler) {
 	memoryControlKnobHandlers.Store(name, handler)
 }
 
-func GetRegisteredControlKnobHandlers() map[MemoryControKnobName]MemoryControlKnobHandler {
-	res := make(map[MemoryControKnobName]MemoryControlKnobHandler)
+func GetRegisteredControlKnobHandlers() map[MemoryControlKnobName]MemoryControlKnobHandler {
+	res := make(map[MemoryControlKnobName]MemoryControlKnobHandler)
 	memoryControlKnobHandlers.Range(func(key, value interface{}) bool {
-		res[key.(MemoryControKnobName)] = value.(MemoryControlKnobHandler)
+		res[key.(MemoryControlKnobName)] = value.(MemoryControlKnobHandler)
 		return true
 	})
 	return res

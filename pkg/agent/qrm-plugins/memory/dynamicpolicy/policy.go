@@ -193,11 +193,11 @@ func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration
 		return false, agent.ComponentStub{}, fmt.Errorf("dynamic policy new plugin wrapper failed with error: %v", err)
 	}
 
-	memoryadvisor.RegisterControlKnobHandler(memoryadvisor.ControKnobKeyMemoryLimitInBytes,
+	memoryadvisor.RegisterControlKnobHandler(memoryadvisor.ControlKnobKeyMemoryLimitInBytes,
 		memoryadvisor.ControlKnobHandlerWithChecker(policyImplement.handleAdvisorMemoryLimitInBytes))
-	memoryadvisor.RegisterControlKnobHandler(memoryadvisor.ControKnobKeyDropCache,
+	memoryadvisor.RegisterControlKnobHandler(memoryadvisor.ControlKnobKeyDropCache,
 		memoryadvisor.ControlKnobHandlerWithChecker(policyImplement.handleAdvisorDropCache))
-	memoryadvisor.RegisterControlKnobHandler(memoryadvisor.ControKnobKeyCPUSetMems,
+	memoryadvisor.RegisterControlKnobHandler(memoryadvisor.ControlKnobKeyCPUSetMems,
 		memoryadvisor.ControlKnobHandlerWithChecker(policyImplement.handleAdvisorCPUSetMems))
 
 	return true, &agent.PluginWrapper{GenericPlugin: pluginWrapper}, nil

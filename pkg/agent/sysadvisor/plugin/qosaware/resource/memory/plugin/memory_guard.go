@@ -98,7 +98,7 @@ func (mg *memoryGuard) GetAdvices() types.InternalMemoryCalculationResult {
 		ExtraEntries: []types.ExtraMemoryAdvices{
 			{
 				CgroupPath: mg.reclaimRelativeRootCgroupPath,
-				Values:     map[string]string{string(memoryadvisor.ControKnobKeyMemoryLimitInBytes): strconv.FormatInt(mg.reclaimMemoryLimit.Load(), 10)},
+				Values:     map[string]string{string(memoryadvisor.ControlKnobKeyMemoryLimitInBytes): strconv.FormatInt(mg.reclaimMemoryLimit.Load(), 10)},
 			},
 		},
 	}

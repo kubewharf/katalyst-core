@@ -505,12 +505,12 @@ func TestUpdate(t *testing.T) {
 					{
 						PodUID:        "uid1",
 						ContainerName: "c1",
-						Values:        map[string]string{string(memoryadvisor.ControKnobKeyDropCache): "true"},
+						Values:        map[string]string{string(memoryadvisor.ControlKnobKeyDropCache): "true"},
 					},
 					{
 						PodUID:        "uid3",
 						ContainerName: "c3",
-						Values:        map[string]string{string(memoryadvisor.ControKnobKeyDropCache): "true"},
+						Values:        map[string]string{string(memoryadvisor.ControlKnobKeyDropCache): "true"},
 					},
 				},
 			},
@@ -616,7 +616,7 @@ func TestUpdate(t *testing.T) {
 				ExtraEntries: []types.ExtraMemoryAdvices{
 					{
 						CgroupPath: "/kubepods/besteffort",
-						Values:     map[string]string{string(memoryadvisor.ControKnobKeyMemoryLimitInBytes): strconv.Itoa(375 << 30)},
+						Values:     map[string]string{string(memoryadvisor.ControlKnobKeyMemoryLimitInBytes): strconv.Itoa(375 << 30)},
 					},
 				},
 			},
@@ -663,17 +663,17 @@ func TestUpdate(t *testing.T) {
 					{
 						PodUID:        "uid1",
 						ContainerName: "c1",
-						Values:        map[string]string{string(memoryadvisor.ControKnobKeyCPUSetMems): "0-1"},
+						Values:        map[string]string{string(memoryadvisor.ControlKnobKeyCPUSetMems): "0-1"},
 					},
 					{
 						PodUID:        "uid2",
 						ContainerName: "c2",
-						Values:        map[string]string{string(memoryadvisor.ControKnobKeyCPUSetMems): "0-1"},
+						Values:        map[string]string{string(memoryadvisor.ControlKnobKeyCPUSetMems): "0-1"},
 					},
 					{
 						PodUID:        "uid3",
 						ContainerName: "c3",
-						Values:        map[string]string{string(memoryadvisor.ControKnobKeyCPUSetMems): "0"},
+						Values:        map[string]string{string(memoryadvisor.ControlKnobKeyCPUSetMems): "0"},
 					},
 				},
 			},

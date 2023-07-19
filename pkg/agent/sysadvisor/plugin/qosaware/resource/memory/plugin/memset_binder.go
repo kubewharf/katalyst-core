@@ -65,7 +65,7 @@ func (mb *memsetBinder) Reconcile(status *types.MemoryPressureStatus) error {
 	})
 
 	for _, ci := range containers {
-		memset := machine.CPUSet2MemSet(ci.TopologyAwareAssignments)
+		memset := machine.GetCPUAssignmentNUMAs(ci.TopologyAwareAssignments)
 		containerMemset[native.GeneratePodContainerName(ci.PodUID, ci.ContainerName)] = memset
 	}
 	mb.mutex.Lock()
@@ -88,7 +88,7 @@ func (mb *memsetBinder) GetAdvices() types.InternalMemoryCalculationResult {
 		entry := types.ContainerMemoryAdvices{
 			PodUID:        podUID,
 			ContainerName: containerName,
-			Values:        map[string]string{string(memoryadvisor.ControKnobKeyCPUSetMems): memset.String()},
+			Values:        map[string]string{string(memoryadvisor.ControlKnobKeyCPUSetMems): memset.String()},
 		}
 		result.ContainerEntries = append(result.ContainerEntries, entry)
 	}
