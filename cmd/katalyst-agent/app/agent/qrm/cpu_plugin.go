@@ -18,14 +18,21 @@ package qrm
 
 import (
 	"fmt"
+	"strings"
 	"sync"
 
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/agent"
+	phconsts "github.com/kubewharf/katalyst-core/pkg/agent/utilcomponent/periodicalhandler/consts"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 )
 
 const (
 	QRMPluginNameCPU = "qrm_cpu_plugin"
+)
+
+var (
+	QRMCPUPluginPeriodicalHandlerGroupName = strings.Join([]string{QRMPluginNameCPU,
+		phconsts.PeriodicalHandlersGroupNameSuffix}, phconsts.GroupNameSeparator)
 )
 
 // cpuPolicyInitializers is used to store the initializing function for cpu resource-plugin policies

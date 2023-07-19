@@ -26,6 +26,8 @@ import (
 	_ "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu"
 	_ "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/memory"
 	_ "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/network"
+	"github.com/kubewharf/katalyst-core/pkg/agent/utilcomponent/periodicalhandler"
+	phconsts "github.com/kubewharf/katalyst-core/pkg/agent/utilcomponent/periodicalhandler/consts"
 )
 
 // AgentStarter is used to start katalyst agents
@@ -44,6 +46,8 @@ func init() {
 	agentInitializers.Store(agent.ReporterManagerAgent, AgentStarter{Init: agent.InitReporterManager})
 	agentInitializers.Store(agent.EvictionManagerAgent, AgentStarter{Init: agent.InitEvictionManager})
 	agentInitializers.Store(agent.QoSSysAdvisor, AgentStarter{Init: agent.InitSysAdvisor})
+	agentInitializers.Store(phconsts.PeriodicalHandlerManagerName,
+		AgentStarter{Init: periodicalhandler.NewPeriodicalHandlerManager})
 
 	// qrm plugins are registered at top level of agent
 	agentInitializers.Store(qrm.QRMPluginNameCPU, AgentStarter{Init: qrm.InitQRMCPUPlugins})
