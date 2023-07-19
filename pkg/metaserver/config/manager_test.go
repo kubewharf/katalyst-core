@@ -70,17 +70,15 @@ var (
 		SystemEvictionRankingMetrics:            util.ConvertStringListToSystemEvictionRankingMetrics(nonDefaultSystemEvictionRankingMetrics),
 		GracePeriod:                             &nonDefaultGracePeriod,
 	}
-
-	testConfigCheckpointDir = "/tmp/metaserver1/checkpoint1"
 )
 
-func generateTestConfiguration(t *testing.T, nodeName string) *pkgconfig.Configuration {
+func generateTestConfiguration(t *testing.T, nodeName string, dir string) *pkgconfig.Configuration {
 	testConfiguration, err := options.NewOptions().Config()
 	require.NoError(t, err)
 	require.NotNil(t, testConfiguration)
 
 	testConfiguration.NodeName = nodeName
-	testConfiguration.CheckpointManagerDir = testConfigCheckpointDir
+	testConfiguration.CheckpointManagerDir = dir
 	return testConfiguration
 }
 
@@ -127,13 +125,13 @@ func generateTestEvictionConfiguration(evictionThreshold map[v1.ResourceName]flo
 	}
 }
 
-func constructTestDynamicConfigManager(t *testing.T, nodeName string, evictionConfiguration *v1alpha1.AdminQoSConfiguration) *DynamicConfigManager {
+func constructTestDynamicConfigManager(t *testing.T, nodeName, dir string, evictionConfiguration *v1alpha1.AdminQoSConfiguration) *DynamicConfigManager {
 	clientSet := generateTestGenericClientSet(generateTestCNC(nodeName), evictionConfiguration)
-	conf := generateTestConfiguration(t, nodeName)
+	conf := generateTestConfiguration(t, nodeName, dir)
 	cncFetcher := cnc.NewCachedCNCFetcher(conf.NodeName, conf.ConfigCacheTTL,
 		clientSet.InternalClient.ConfigV1alpha1().CustomNodeConfigs())
 
-	err := os.MkdirAll(testConfigCheckpointDir, os.FileMode(0755))
+	err := os.MkdirAll(dir, os.FileMode(0755))
 	require.NoError(t, err)
 
 	checkpointManager, err := checkpointmanager.NewCheckpointManager(conf.CheckpointManagerDir)
@@ -164,11 +162,11 @@ func TestNewDynamicConfigManager(t *testing.T) {
 		v1.ResourceMemory: 1.3,
 	})
 	clientSet := generateTestGenericClientSet(generateTestCNC(nodeName), evictionConfiguration)
-	conf := generateTestConfiguration(t, nodeName)
+	conf := generateTestConfiguration(t, nodeName, "/tmp/metaserver1/TestNewDynamicConfigManager")
 	cncFetcher := cnc.NewCachedCNCFetcher(conf.NodeName, conf.ConfigCacheTTL,
 		clientSet.InternalClient.ConfigV1alpha1().CustomNodeConfigs())
 
-	err := os.MkdirAll(testConfigCheckpointDir, os.FileMode(0755))
+	err := os.MkdirAll("/tmp/metaserver1/TestNewDynamicConfigManager", os.FileMode(0755))
 	require.NoError(t, err)
 
 	manager, err := NewDynamicConfigManager(clientSet, &metrics.DummyMetrics{}, cncFetcher, conf)
@@ -201,7 +199,7 @@ func TestDynamicConfigManager_getConfig(t *testing.T) {
 		{
 			name: "test-1",
 			fields: fields{
-				manager: constructTestDynamicConfigManager(t, "test-node",
+				manager: constructTestDynamicConfigManager(t, "test-node", "/tmp/metaserver1/TestDynamicConfigManager_test-node",
 					generateTestEvictionConfiguration(map[v1.ResourceName]float64{
 						v1.ResourceCPU:    1.2,
 						v1.ResourceMemory: 1.3,
@@ -218,8 +216,8 @@ func TestDynamicConfigManager_getConfig(t *testing.T) {
 		{
 			name: "test-no-change",
 			fields: fields{
-				manager: constructTestDynamicConfigManager(t, "test-node",
-					generateTestEvictionConfiguration(generateTestConfiguration(t, "test-node").
+				manager: constructTestDynamicConfigManager(t, "test-node", "/tmp/metaserver1/TestDynamicConfigManager_test-no-change",
+					generateTestEvictionConfiguration(generateTestConfiguration(t, "test-node", "/tmp/metaserver1/TestDynamicConfigManager_test-no-change").
 						GetDynamicConfiguration().EvictionThreshold)),
 			},
 			args: args{
@@ -227,7 +225,7 @@ func TestDynamicConfigManager_getConfig(t *testing.T) {
 			},
 			want: func(got *agent.AgentConfiguration) bool {
 				return reflect.DeepEqual(got.GetDynamicConfiguration().EvictionThreshold,
-					generateTestConfiguration(t, "test-node").
+					generateTestConfiguration(t, "test-node", "/tmp/metaserver1/TestDynamicConfigManager_test-no-change").
 						GetDynamicConfiguration().EvictionThreshold)
 			},
 		},
@@ -468,7 +466,7 @@ func Test_updateDynamicConf(t *testing.T) {
 				v1.ResourceCPU:    1.2,
 				v1.ResourceMemory: 1.3,
 			})
-			manager := constructTestDynamicConfigManager(t, "node-name", ec)
+			manager := constructTestDynamicConfigManager(t, "node-name", "Test_updateDynamicConf", ec)
 			got, got1, _ := manager.updateDynamicConfig(tt.args.resourceGVRMap, tt.args.gvrToKind, tt.args.loader)
 			if !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("updateDynamicConfig() got = %v, want %v", got, tt.want)
