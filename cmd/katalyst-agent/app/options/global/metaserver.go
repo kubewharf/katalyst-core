@@ -48,6 +48,11 @@ const (
 	defaultCheckpointManagerDir = "/var/lib/katalyst/metaserver/checkpoints"
 )
 
+const (
+	defaultEnableMetricsFetcher = true
+	defaultEnableCNCFetcher     = true
+)
+
 type MetaServerOptions struct {
 	CNRCacheTTL                    time.Duration
 	CustomNodeConfigCacheTTL       time.Duration
@@ -66,6 +71,9 @@ type MetaServerOptions struct {
 	RuntimePodCacheSyncPeriod time.Duration
 
 	CheckpointManagerDir string
+
+	EnableMetricsFetcher bool
+	EnableCNCFetcher     bool
 }
 
 func NewMetaServerOptions() *MetaServerOptions {
@@ -84,6 +92,8 @@ func NewMetaServerOptions() *MetaServerOptions {
 		KubeletPodCacheSyncMaxRate:     defaultKubeletPodCacheSyncMaxRate,
 		KubeletPodCacheSyncBurstBulk:   defaultKubeletPodCacheSyncBurstBulk,
 		CheckpointManagerDir:           defaultCheckpointManagerDir,
+		EnableMetricsFetcher:           defaultEnableMetricsFetcher,
+		EnableCNCFetcher:               defaultEnableCNCFetcher,
 	}
 }
 
@@ -119,6 +129,10 @@ func (o *MetaServerOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 		"The burst bulk for kubelet pod sync")
 	fs.StringVar(&o.CheckpointManagerDir, "checkpoint-manager-directory", o.CheckpointManagerDir,
 		"The checkpoint manager directory")
+	fs.BoolVar(&o.EnableMetricsFetcher, "enable-metrics-fetcher", o.EnableMetricsFetcher,
+		"Whether to enable metrics fetcher")
+	fs.BoolVar(&o.EnableCNCFetcher, "enable-cnc-fetcher", o.EnableCNCFetcher,
+		"Whether to enable cnc fetcher")
 }
 
 // ApplyTo fills up config with options
@@ -137,5 +151,7 @@ func (o *MetaServerOptions) ApplyTo(c *global.MetaServerConfiguration) error {
 	c.KubeletPodCacheSyncMaxRate = rate.Limit(o.KubeletPodCacheSyncMaxRate)
 	c.KubeletPodCacheSyncBurstBulk = o.KubeletPodCacheSyncBurstBulk
 	c.CheckpointManagerDir = o.CheckpointManagerDir
+	c.EnableMetricsFetcher = o.EnableMetricsFetcher
+	c.EnableCNCFetcher = o.EnableCNCFetcher
 	return nil
 }
