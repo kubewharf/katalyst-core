@@ -27,6 +27,8 @@ import (
 
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app"
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/options"
+	"github.com/kubewharf/katalyst-core/pkg/client"
+	"github.com/kubewharf/katalyst-core/pkg/consts"
 )
 
 func main() {
@@ -41,7 +43,20 @@ func main() {
 	_ = commandLine.Parse(os.Args[1:])
 
 	rand.Seed(time.Now().UnixNano())
-	if err := app.Run(opt); err != nil {
+	conf, err := opt.Config()
+	if err != nil {
+		fmt.Printf("parse config error: %v\n", err)
+		os.Exit(1)
+	}
+
+	clientSet, ClientErr := client.BuildGenericClient(conf.GenericConfiguration.ClientConnection, opt.MasterURL,
+		opt.KubeConfig, fmt.Sprintf("%v", consts.KatalystComponentAgent))
+	if ClientErr != nil {
+		fmt.Printf("build client set error: %v\n", err)
+		os.Exit(1)
+	}
+
+	if err := app.Run(conf, clientSet); err != nil {
 		fmt.Printf("run command error: %v\n", err)
 		os.Exit(1)
 	}
