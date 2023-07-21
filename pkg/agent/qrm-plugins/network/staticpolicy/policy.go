@@ -354,7 +354,7 @@ func (p *StaticPolicy) GetTopologyAwareResources(_ context.Context,
 	if allocationInfo.CheckSideCar() {
 		resp.ContainerTopologyAwareResources.AllocatedResources = map[string]*pluginapi.TopologyAwareResource{
 			string(apiconsts.ResourceNetBandwidth): {
-				IsNodeResource:                    false,
+				IsNodeResource:                    true,
 				IsScalarResource:                  true,
 				AggregatedQuantity:                0,
 				OriginalAggregatedQuantity:        0,
@@ -365,7 +365,7 @@ func (p *StaticPolicy) GetTopologyAwareResources(_ context.Context,
 	} else {
 		resp.ContainerTopologyAwareResources.AllocatedResources = map[string]*pluginapi.TopologyAwareResource{
 			string(apiconsts.ResourceNetBandwidth): {
-				IsNodeResource:                    false,
+				IsNodeResource:                    true,
 				IsScalarResource:                  true,
 				AggregatedQuantity:                float64(allocationInfo.Egress),
 				OriginalAggregatedQuantity:        float64(allocationInfo.Egress),
@@ -425,7 +425,7 @@ func (p *StaticPolicy) GetTopologyAwareAllocatableResources(_ context.Context,
 	return &pluginapi.GetTopologyAwareAllocatableResourcesResponse{
 		AllocatableResources: map[string]*pluginapi.AllocatableTopologyAwareResource{
 			string(apiconsts.ResourceNetBandwidth): {
-				IsNodeResource:                       false,
+				IsNodeResource:                       true,
 				IsScalarResource:                     true,
 				AggregatedAllocatableQuantity:        float64(aggregatedAllocatableQuantity),
 				TopologyAwareAllocatableQuantityList: topologyAwareAllocatableQuantityList,
