@@ -398,7 +398,7 @@ func TestAllocate(t *testing.T) {
 				AllocationResult: &pluginapi.ResourceAllocation{
 					ResourceAllocation: map[string]*pluginapi.ResourceAllocationInfo{
 						string(consts.ResourceNetBandwidth): {
-							IsNodeResource:    false,
+							IsNodeResource:    true,
 							IsScalarResource:  true,
 							AllocatedQuantity: 5000,
 							AllocationResult:  machine.NewCPUSet(0, 1).String(),
@@ -466,7 +466,7 @@ func TestAllocate(t *testing.T) {
 				AllocationResult: &pluginapi.ResourceAllocation{
 					ResourceAllocation: map[string]*pluginapi.ResourceAllocationInfo{
 						string(consts.ResourceNetBandwidth): {
-							IsNodeResource:    false,
+							IsNodeResource:    true,
 							IsScalarResource:  true,
 							AllocatedQuantity: 5000,
 							AllocationResult:  machine.NewCPUSet(2, 3).String(),
@@ -534,7 +534,7 @@ func TestAllocate(t *testing.T) {
 				AllocationResult: &pluginapi.ResourceAllocation{
 					ResourceAllocation: map[string]*pluginapi.ResourceAllocationInfo{
 						string(consts.ResourceNetBandwidth): {
-							IsNodeResource:    false,
+							IsNodeResource:    true,
 							IsScalarResource:  true,
 							AllocatedQuantity: 5000,
 							AllocationResult:  machine.NewCPUSet(0, 1).String(),
@@ -629,7 +629,7 @@ func TestAllocate(t *testing.T) {
 				AllocationResult: &pluginapi.ResourceAllocation{
 					ResourceAllocation: map[string]*pluginapi.ResourceAllocationInfo{
 						string(consts.ResourceNetBandwidth): {
-							IsNodeResource:    false,
+							IsNodeResource:    true,
 							IsScalarResource:  true,
 							AllocatedQuantity: 20000,
 							AllocationResult:  machine.NewCPUSet(2, 3).String(),
