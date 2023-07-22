@@ -293,8 +293,8 @@ func packAllocationResponse(req *pluginapi.ResourceRequest, allocationInfo *stat
 	}, nil
 }
 
-// GetReservedBandwidth is used to spread total reserved bandwidth into per-nic level.
-func GetReservedBandwidth(nics []machine.InterfaceInfo, reservation uint32, policy ReservationPolicy) (map[string]uint32, error) {
+// getReservedBandwidth is used to spread total reserved bandwidth into per-nic level.
+func getReservedBandwidth(nics []machine.InterfaceInfo, reservation uint32, policy ReservationPolicy) (map[string]uint32, error) {
 	nicCount := len(nics)
 
 	if nicCount == 0 {

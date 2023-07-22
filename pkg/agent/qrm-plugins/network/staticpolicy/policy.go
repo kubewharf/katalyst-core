@@ -108,7 +108,7 @@ func NewStaticPolicy(agentCtx *agent.GenericContext, conf *config.Configuration,
 
 	// we only support one spreading policy for now: reserve the bandwidth on the first NIC.
 	// TODO: make the reservation policy configurable
-	reservation, err := GetReservedBandwidth(enabledNICs, conf.ReservedBandwidth, FirstNIC)
+	reservation, err := getReservedBandwidth(enabledNICs, conf.ReservedBandwidth, FirstNIC)
 	if err != nil {
 		return false, agent.ComponentStub{}, fmt.Errorf("getReservedBandwidth failed with error: %v", err)
 	}
@@ -294,6 +294,9 @@ func (p *StaticPolicy) RemovePod(_ context.Context,
 		return nil, fmt.Errorf("RemovePod got nil req")
 	}
 
+	p.Lock()
+	defer p.Unlock()
+
 	if err := p.removePod(req.PodUid); err != nil {
 		general.ErrorS(err, "remove pod failed with error", "podUID", req.PodUid)
 		return nil, err
@@ -381,12 +384,15 @@ func (p *StaticPolicy) GetTopologyAwareResources(_ context.Context,
 // GetTopologyAwareAllocatableResources returns corresponding allocatable resources as topology aware format
 func (p *StaticPolicy) GetTopologyAwareAllocatableResources(_ context.Context,
 	_ *pluginapi.GetTopologyAwareAllocatableResourcesRequest) (*pluginapi.GetTopologyAwareAllocatableResourcesResponse, error) {
+	p.Lock()
+	defer p.Unlock()
+
 	machineState := p.state.GetMachineState()
 
 	topologyAwareAllocatableQuantityList := make([]*pluginapi.TopologyAwareQuantity, 0, len(machineState))
 	topologyAwareCapacityQuantityList := make([]*pluginapi.TopologyAwareQuantity, 0, len(machineState))
 
-	var aggregatedAllocatableQuantity, aggregatedCapacityQuantity uint64 = 0, 0
+	var aggregatedAllocatableQuantity, aggregatedCapacityQuantity uint32 = 0, 0
 	for _, iface := range p.nics {
 		nicState := machineState[iface.Iface]
 		if nicState == nil {
@@ -399,7 +405,7 @@ func (p *StaticPolicy) GetTopologyAwareAllocatableResources(_ context.Context,
 		}
 
 		topologyAwareAllocatableQuantityList = append(topologyAwareAllocatableQuantityList, &pluginapi.TopologyAwareQuantity{
-			ResourceValue: float64(nicState.EgressState.Allocatable),
+			ResourceValue: float64(general.MinUInt32(nicState.EgressState.Allocatable, nicState.IngressState.Allocatable)),
 			Node:          uint64(topologyNode),
 			Name:          iface.Iface,
 			Type:          string(apinode.TopologyTypeNIC),
@@ -409,7 +415,7 @@ func (p *StaticPolicy) GetTopologyAwareAllocatableResources(_ context.Context,
 			},
 		})
 		topologyAwareCapacityQuantityList = append(topologyAwareCapacityQuantityList, &pluginapi.TopologyAwareQuantity{
-			ResourceValue: float64(nicState.EgressState.Capacity),
+			ResourceValue: float64(general.MinUInt32(nicState.EgressState.Capacity, nicState.IngressState.Capacity)),
 			Node:          uint64(topologyNode),
 			Name:          iface.Iface,
 			Type:          string(apinode.TopologyTypeNIC),
@@ -418,8 +424,8 @@ func (p *StaticPolicy) GetTopologyAwareAllocatableResources(_ context.Context,
 				apiconsts.ResourceAnnotationKeyResourceIdentifier: fmt.Sprintf("%s-%s", iface.NSName, iface.Iface),
 			},
 		})
-		aggregatedAllocatableQuantity += uint64(nicState.EgressState.Allocatable)
-		aggregatedCapacityQuantity += uint64(nicState.EgressState.Capacity)
+		aggregatedAllocatableQuantity += general.MinUInt32(nicState.EgressState.Allocatable, nicState.IngressState.Allocatable)
+		aggregatedCapacityQuantity += general.MinUInt32(nicState.EgressState.Capacity, nicState.IngressState.Capacity)
 	}
 
 	return &pluginapi.GetTopologyAwareAllocatableResourcesResponse{

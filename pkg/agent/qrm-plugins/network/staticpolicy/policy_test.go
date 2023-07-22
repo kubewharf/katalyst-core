@@ -144,7 +144,7 @@ func makeStaticPolicy(t *testing.T) *StaticPolicy {
 	expectedReservation := map[string]uint32{
 		testEth0Name: 4000,
 	}
-	reservation, err := GetReservedBandwidth(availableNICs, mockQrmConfig.ReservedBandwidth, FirstNIC)
+	reservation, err := getReservedBandwidth(availableNICs, mockQrmConfig.ReservedBandwidth, FirstNIC)
 	assert.NoError(t, err)
 	assert.Equal(t, expectedReservation, reservation)
 
@@ -1237,14 +1237,14 @@ func TestGetTopologyAwareAllocatableResources(t *testing.T) {
 	resp, err := policy.GetTopologyAwareAllocatableResources(context.TODO(), &pluginapi.GetTopologyAwareAllocatableResourcesRequest{})
 	assert.NotNil(t, resp)
 	assert.NoError(t, err)
-	assert.Equal(t, resp.AllocatableResources[string(apiconsts.ResourceNetBandwidth)].AggregatedAllocatableQuantity, float64(41000))
-	assert.Equal(t, resp.AllocatableResources[string(apiconsts.ResourceNetBandwidth)].AggregatedCapacityQuantity, float64(45000))
+	assert.Equal(t, resp.AllocatableResources[string(apiconsts.ResourceNetBandwidth)].AggregatedAllocatableQuantity, float64(38500))
+	assert.Equal(t, resp.AllocatableResources[string(apiconsts.ResourceNetBandwidth)].AggregatedCapacityQuantity, float64(42500))
 	assert.Len(t, resp.AllocatableResources[string(apiconsts.ResourceNetBandwidth)].TopologyAwareAllocatableQuantityList, 2)
 	assert.Len(t, resp.AllocatableResources[string(apiconsts.ResourceNetBandwidth)].TopologyAwareCapacityQuantityList, 2)
 
 	expectedTopologyAwareAllocatableQuantityList := []*pluginapi.TopologyAwareQuantity{
 		{
-			ResourceValue: float64(18500),
+			ResourceValue: float64(17250),
 			Node:          uint64(0),
 			Name:          testEth0Name,
 			Type:          string(apinode.TopologyTypeNIC),
@@ -1254,7 +1254,7 @@ func TestGetTopologyAwareAllocatableResources(t *testing.T) {
 			},
 		},
 		{
-			ResourceValue: float64(22500),
+			ResourceValue: float64(21250),
 			Node:          uint64(1),
 			Name:          testEth2Name,
 			Type:          string(apinode.TopologyTypeNIC),
@@ -1268,7 +1268,7 @@ func TestGetTopologyAwareAllocatableResources(t *testing.T) {
 
 	expectedTopologyAwareCapacityQuantityList := []*pluginapi.TopologyAwareQuantity{
 		{
-			ResourceValue: float64(22500),
+			ResourceValue: float64(21250),
 			Node:          uint64(0),
 			Name:          testEth0Name,
 			Type:          string(apinode.TopologyTypeNIC),
@@ -1278,7 +1278,7 @@ func TestGetTopologyAwareAllocatableResources(t *testing.T) {
 			},
 		},
 		{
-			ResourceValue: float64(22500),
+			ResourceValue: float64(21250),
 			Node:          uint64(1),
 			Name:          testEth2Name,
 			Type:          string(apinode.TopologyTypeNIC),

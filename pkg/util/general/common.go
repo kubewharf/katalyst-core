@@ -81,6 +81,14 @@ func MinUInt64(a, b uint64) uint64 {
 	}
 }
 
+func MinUInt32(a, b uint32) uint32 {
+	if a <= b {
+		return a
+	} else {
+		return b
+	}
+}
+
 // IsNameEnabled check if a specified name enabled or not.
 func IsNameEnabled(name string, disabledByDefault sets.String, enableNames []string) bool {
 	hasStar := false
