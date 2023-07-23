@@ -21,8 +21,11 @@ package agent // import "github.com/kubewharf/katalyst-core/pkg/metaserver/agent
 
 import (
 	"context"
+	"fmt"
 	"sync"
 
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/klog/v2"
 
 	"github.com/kubewharf/katalyst-core/pkg/client"
@@ -37,6 +40,12 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
+// ObjectFetcher is used to get object information.
+type ObjectFetcher interface {
+	// GetUnstructured returns those latest cUnstructured
+	GetUnstructured(ctx context.Context, namespace, name string) (*unstructured.Unstructured, error)
+}
+
 // MetaAgent contains all those implementations for metadata running in this agent.
 type MetaAgent struct {
 	start bool
@@ -49,6 +58,9 @@ type MetaAgent struct {
 	metric.MetricsFetcher
 	cnr.CNRFetcher
 	cnc.CNCFetcher
+
+	// ObjectFetchers provide a way to expand fetcher for objects
+	ObjectFetchers sync.Map
 
 	// machine info is fetched from once and stored in meta-server
 	*machine.KatalystMachineInfo
@@ -107,16 +119,35 @@ func (a *MetaAgent) SetNodeFetcher(n node.NodeFetcher) {
 	})
 }
 
+func (a *MetaAgent) SetMetricFetcher(m metric.MetricsFetcher) {
+	a.setComponentImplementation(func() {
+		a.MetricsFetcher = m
+	})
+}
+
 func (a *MetaAgent) SetCNRFetcher(c cnr.CNRFetcher) {
 	a.setComponentImplementation(func() {
 		a.CNRFetcher = c
 	})
 }
 
-func (a *MetaAgent) SetMetricFetcher(m metric.MetricsFetcher) {
+func (a *MetaAgent) SetCNCFetcher(c cnc.CNCFetcher) {
 	a.setComponentImplementation(func() {
-		a.MetricsFetcher = m
+		a.CNCFetcher = c
 	})
+}
+
+func (a *MetaAgent) SetObjectFetcher(gvr metav1.GroupVersionResource, f ObjectFetcher) {
+	a.ObjectFetchers.Store(gvr, f)
+}
+
+func (a *MetaAgent) GetUnstructured(ctx context.Context, gvr metav1.GroupVersionResource,
+	namespace, name string) (*unstructured.Unstructured, error) {
+	f, ok := a.ObjectFetchers.Load(gvr)
+	if !ok {
+		return nil, fmt.Errorf("gvr %v not exist", gvr)
+	}
+	return f.(ObjectFetcher).GetUnstructured(ctx, namespace, name)
 }
 
 func (a *MetaAgent) Run(ctx context.Context) {
