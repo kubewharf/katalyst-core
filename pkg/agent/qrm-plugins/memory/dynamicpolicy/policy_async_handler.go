@@ -25,17 +25,190 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 
 	"github.com/kubewharf/katalyst-api/pkg/consts"
+	apiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/memory/dynamicpolicy/state"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/cgroup/common"
-	cgroupcmutils "github.com/kubewharf/katalyst-core/pkg/util/cgroup/manager"
+	cgroupmgr "github.com/kubewharf/katalyst-core/pkg/util/cgroup/manager"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
+// setExtraControlKnobByConfigForAllocationInfo sets control knob entry for container,
+// if the container doesn't have the entry in the checkpoint.
+// pod specified value has higher priority than config value.
+func setExtraControlKnobByConfigForAllocationInfo(allocationInfo *state.AllocationInfo, extraControlKnobConfigs commonstate.ExtraControlKnobConfigs, pod *v1.Pod) {
+	if allocationInfo == nil {
+		general.Errorf("nil allocationInfo")
+		return
+	} else if pod == nil {
+		general.Errorf("nil allocationInfo")
+		return
+	}
+
+	// v1.ResourceMemory is legacy control knob name for cpuset.mems,
+	// it shouldn't be configured in extraControlKnobConfigs
+	legacyControlKnobNames := sets.NewString(string(v1.ResourceMemory))
+
+	for _, legacyControlKnobName := range legacyControlKnobNames.List() {
+		if _, found := extraControlKnobConfigs[legacyControlKnobName]; found {
+			general.Errorf("legacy control knob name: %s is configured", legacyControlKnobName)
+			return
+		}
+	}
+
+	if allocationInfo.ExtraControlKnobInfo == nil {
+		allocationInfo.ExtraControlKnobInfo = make(map[string]commonstate.ControlKnobInfo)
+	}
+
+	for controlKnobName, configEntry := range extraControlKnobConfigs {
+
+		if _, found := allocationInfo.ExtraControlKnobInfo[controlKnobName]; found {
+			continue
+		}
+
+		clonedControlKnobInfo := configEntry.ControlKnobInfo.Clone()
+
+		if specifiedValue, ok := pod.Annotations[configEntry.PodExplicitlyAnnotationKey]; ok &&
+			configEntry.PodExplicitlyAnnotationKey != "" {
+			clonedControlKnobInfo.ControlKnobValue = specifiedValue
+		} else if qosLevelDefaultValue, ok := configEntry.QoSLevelToDefaultValue[allocationInfo.QoSLevel]; ok {
+			clonedControlKnobInfo.ControlKnobValue = qosLevelDefaultValue
+		}
+
+		general.Infof("set extral control knob: %s by configs: %#v  for pod: %s/%s, container: %s",
+			controlKnobName, clonedControlKnobInfo,
+			allocationInfo.PodNamespace, allocationInfo.PodName,
+			allocationInfo.ContainerName)
+
+		allocationInfo.ExtraControlKnobInfo[controlKnobName] = clonedControlKnobInfo
+	}
+}
+
+func (p *DynamicPolicy) setExtraControlKnobByConfigs() {
+	general.Infof("called")
+
+	if p.metaServer == nil {
+		general.Errorf("nil metaServer")
+		return
+	} else if len(p.extraControlKnobConfigs) == 0 {
+		general.Errorf("empty extraControlKnobConfigs, skip setExtraControlKnobByConfigs")
+		return
+	}
+
+	podList, err := p.metaServer.GetPodList(context.Background(), nil)
+	if err != nil {
+		general.Errorf("get pod list failed, err: %v", err)
+		return
+	}
+
+	p.Lock()
+	defer p.Unlock()
+
+	podResourceEntries := p.state.GetPodResourceEntries()
+	podEntries := podResourceEntries[v1.ResourceMemory]
+
+	for _, pod := range podList {
+		if pod == nil {
+			general.Errorf("get nil pod from metaServer")
+			continue
+		}
+
+		podUID := string(pod.UID)
+
+		for _, container := range pod.Spec.Containers {
+			containerName := container.Name
+			allocationInfo := podEntries[podUID][containerName]
+
+			if allocationInfo == nil {
+				general.Warningf("no entry for pod: %s/%s, container: %s", pod.Namespace, pod.Name, containerName)
+				continue
+			}
+
+			setExtraControlKnobByConfigForAllocationInfo(allocationInfo, p.extraControlKnobConfigs, pod)
+		}
+	}
+
+	resourcesMachineState, err := state.GenerateMachineStateFromPodEntries(p.state.GetMachineInfo(), podResourceEntries, p.state.GetReservedMemory())
+	if err != nil {
+		general.Errorf("GenerateMachineStateFromPodEntries failed with error: %v", err)
+		return
+	}
+
+	p.state.SetPodResourceEntries(podResourceEntries)
+	p.state.SetMachineState(resourcesMachineState)
+}
+
+func (p *DynamicPolicy) applyExternalCgroupParams() {
+	general.Infof("called")
+
+	podEntries := p.state.GetPodResourceEntries()[v1.ResourceMemory]
+
+	for podUID, containerEntries := range podEntries {
+		for containerName, allocationInfo := range containerEntries {
+			if allocationInfo == nil {
+				continue
+			}
+
+			containerID, err := p.metaServer.GetContainerID(podUID, containerName)
+			if err != nil {
+				general.Errorf("get container id of pod: %s/%s container: %s failed with error: %v",
+					allocationInfo.PodNamespace, allocationInfo.PodName,
+					allocationInfo.ContainerName, err)
+				continue
+			}
+
+			for controlKnobName, entry := range allocationInfo.ExtraControlKnobInfo {
+				if entry.CgroupSubsysName == "" || len(entry.CgroupVersionToIfaceName) == 0 {
+					continue
+				}
+
+				var cgroupIfaceName string
+				if common.CheckCgroup2UnifiedMode() {
+					cgroupIfaceName = entry.CgroupVersionToIfaceName[apiconsts.CgroupV2]
+				} else {
+					cgroupIfaceName = entry.CgroupVersionToIfaceName[apiconsts.CgroupV1]
+				}
+
+				if cgroupIfaceName == "" {
+					general.Errorf("pod: %s/%s container: %s control knob name: %s with empty cgroupIfaceName",
+						allocationInfo.PodNamespace, allocationInfo.PodName,
+						allocationInfo.ContainerName, controlKnobName)
+					continue
+				}
+
+				general.InfoS("ApplyUnifiedDataForContainer",
+					"podNamespace", allocationInfo.PodNamespace,
+					"podName", allocationInfo.PodName,
+					"containerName", allocationInfo.ContainerName,
+					"controlKnobName", controlKnobName,
+					"controlKnobValue", entry.ControlKnobValue,
+					"cgroupSubsysName", entry.CgroupSubsysName,
+					"cgroupIfaceName", cgroupIfaceName)
+
+				err := cgroupmgr.ApplyUnifiedDataForContainer(podUID, containerID, entry.CgroupSubsysName, cgroupIfaceName, entry.ControlKnobValue)
+
+				if err != nil {
+					general.ErrorS(err, "ApplyUnifiedDataForContainer failed",
+						"podNamespace", allocationInfo.PodNamespace,
+						"podName", allocationInfo.PodName,
+						"containerName", allocationInfo.ContainerName,
+						"controlKnobName", controlKnobName,
+						"controlKnobValue", entry.ControlKnobValue,
+						"cgroupSubsysName", entry.CgroupSubsysName,
+						"cgroupIfaceName", cgroupIfaceName)
+				}
+			}
+		}
+	}
+}
+
 // checkMemorySet emit errors if the memory allocation falls into unexpected results
 func (p *DynamicPolicy) checkMemorySet() {
+	general.Infof("called")
+
 	podEntries := p.state.GetPodResourceEntries()[v1.ResourceMemory]
 	actualMemorySets := make(map[string]map[string]machine.CPUSet)
 
@@ -65,7 +238,7 @@ func (p *DynamicPolicy) checkMemorySet() {
 				continue
 			}
 
-			cpusetStats, err := cgroupcmutils.GetCPUSetForContainer(podUID, containerID)
+			cpusetStats, err := cgroupmgr.GetCPUSetForContainer(podUID, containerID)
 			if err != nil {
 				general.Errorf("GetMemorySet of pod: %s container: name(%s), id(%s) failed with error: %v",
 					podUID, containerName, containerID, err)
@@ -153,7 +326,7 @@ func (p *DynamicPolicy) checkMemorySet() {
 
 // clearResidualState is used to clean residual pods in local state
 func (p *DynamicPolicy) clearResidualState() {
-	general.Infof("exec clearResidualState")
+	general.Infof("called")
 	residualSet := make(map[string]bool)
 
 	ctx := context.Background()
@@ -235,6 +408,7 @@ func (p *DynamicPolicy) clearResidualState() {
 // 2. for a certain given pod/container, only one setting action is on the flight
 // 3. the setting action is done asynchronously to avoid hang
 func (p *DynamicPolicy) setMemoryMigrate() {
+	general.Infof("called")
 	p.RLock()
 
 	podResourceEntries := p.state.GetPodResourceEntries()
@@ -290,7 +464,7 @@ func (p *DynamicPolicy) setMemoryMigrate() {
 					general.Infof("start to set cgroup memory migrate for pod: %s, container: %s(%s) and pin memory",
 						podUID, containerName, containerID)
 
-					err = cgroupcmutils.ApplyCPUSetForContainer(podUID, containerID, cgData)
+					err = cgroupmgr.ApplyCPUSetForContainer(podUID, containerID, cgData)
 					general.Infof("end to set cgroup memory migrate for pod: %s, container: %s(%s) and pin memory",
 						podUID, containerName, containerID)
 					if err != nil {

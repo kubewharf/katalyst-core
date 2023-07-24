@@ -24,6 +24,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes/fake"
@@ -77,6 +78,14 @@ func constructPodFetcher(names []string) pod.PodFetcher {
 	return &pod.PodFetcherStub{PodList: pods}
 }
 
+type ObjectFetcherTest struct {
+	obj *unstructured.Unstructured
+}
+
+func (o *ObjectFetcherTest) GetUnstructured(_ context.Context, _, _ string) (*unstructured.Unstructured, error) {
+	return o.obj, nil
+}
+
 func TestFetcher(t *testing.T) {
 	t.Parallel()
 
@@ -110,6 +119,10 @@ func TestFetcher(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, "test-cnr-1", cnrObj.Name)
 
+	gvr := metav1.GroupVersionResource{Group: "a", Version: "b", Resource: "c"}
+	_, gErr := agent.GetUnstructured(ctx, gvr, "", "aaa")
+	assert.NotNil(t, gErr)
+
 	// before start, we can set component implementations for metaServer
 	agent.SetPodFetcher(constructPodFetcher([]string{"test-pod-3", "test-pod-4", "test-pod-5"}))
 	agent.SetNodeFetcher(node.NewRemoteNodeFetcher("test-node-2", constructNodeInterface("test-node-2")))
@@ -133,6 +146,13 @@ func TestFetcher(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, "test-cnr-2", cnrObj.Name)
 
+	obj := &unstructured.Unstructured{
+		Object: map[string]interface{}{
+			"lll": "bbb",
+		},
+	}
+	s := &ObjectFetcherTest{obj: obj}
+
 	// after start, we can't set component implementations for metaServer
 	go agent.Run(ctx)
 	time.Sleep(time.Second)
@@ -140,6 +160,7 @@ func TestFetcher(t *testing.T) {
 	agent.SetPodFetcher(constructPodFetcher([]string{"test-pod-6"}))
 	agent.SetNodeFetcher(node.NewRemoteNodeFetcher("test-node-3", constructNodeInterface("test-node-3")))
 	agent.SetCNRFetcher(cnrmeta.NewCachedCNRFetcher("test-cnr-3", conf.CNRCacheTTL, constructCNRInterface("test-cnr-3")))
+	agent.SetObjectFetcher(gvr, s)
 
 	podObjList, err = agent.GetPodList(ctx, func(*v1.Pod) bool { return true })
 	assert.NoError(t, err)
@@ -153,5 +174,8 @@ func TestFetcher(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, "test-cnr-2", cnrObj.Name)
 
+	o, err := agent.GetUnstructured(ctx, gvr, "", "aaa")
+	assert.NoError(t, err)
+	assert.Equal(t, "bbb", o.Object["lll"])
 	cancel()
 }

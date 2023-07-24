@@ -238,3 +238,27 @@ func (i Indicator) Clone() Indicator {
 	}
 	return clone
 }
+
+type ContainerInfoList struct {
+	containers []*ContainerInfo
+}
+
+var _ general.SourceList = &ContainerInfoList{}
+
+func NewContainerSourceImpList(containers []*ContainerInfo) general.SourceList {
+	return &ContainerInfoList{
+		containers: containers,
+	}
+}
+
+func (cl *ContainerInfoList) Len() int {
+	return len(cl.containers)
+}
+
+func (cl *ContainerInfoList) GetSource(index int) interface{} {
+	return cl.containers[index]
+}
+
+func (cl *ContainerInfoList) SetSource(index int, p interface{}) {
+	cl.containers[index] = p.(*ContainerInfo)
+}

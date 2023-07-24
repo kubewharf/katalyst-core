@@ -230,7 +230,7 @@ func TestSPDController_Run(t *testing.T) {
 			go spdController.Run()
 			synced := cache.WaitForCacheSync(ctx.Done(), spdController.syncedFunc...)
 			assert.True(t, synced)
-			time.Sleep(30 * time.Millisecond)
+			time.Sleep(100 * time.Millisecond)
 
 			targetSPD := tt.fields.spd
 			if targetSPD == nil {
@@ -584,7 +584,7 @@ func TestIndicatorUpdater(t *testing.T) {
 			Current: &value,
 		},
 	})
-	time.Sleep(time.Millisecond * 30)
+	time.Sleep(time.Millisecond * 100)
 	newSPD, err := controlCtx.Client.InternalClient.WorkloadV1alpha1().
 		ServiceProfileDescriptors("default").Get(ctx, "spd1", metav1.GetOptions{})
 	assert.NoError(t, err)

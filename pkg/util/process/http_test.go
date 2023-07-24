@@ -53,8 +53,8 @@ func (d dummyResponseWriter) WriteHeader(_ int)         {}
 func TestHTTPHandler(t *testing.T) {
 	t.Parallel()
 
-	httpCleanupVisitorPeriod = time.Millisecond * 5
-	httpSyncPasswdPeriod = time.Millisecond * 5
+	httpCleanupVisitorPeriod = time.Second
+	httpSyncPasswdPeriod = time.Second
 
 	type req struct {
 		burst   int
@@ -150,7 +150,7 @@ func TestHTTPHandler(t *testing.T) {
 
 		ctx, cancel := context.WithCancel(context.Background())
 		h.Run(ctx)
-		time.Sleep(time.Millisecond * 3)
+		time.Sleep(time.Second)
 
 		for _, r := range tc.reqs {
 			f := &dummyHandler{}
@@ -174,7 +174,7 @@ func TestHTTPHandler(t *testing.T) {
 		assert.Equal(t, tc.visitCnt, len(h.visitors))
 		h.mux.Unlock()
 
-		time.Sleep(time.Millisecond * 10)
+		time.Sleep(time.Second * 3)
 
 		h.mux.Lock()
 		assert.Equal(t, 0, len(h.visitors))

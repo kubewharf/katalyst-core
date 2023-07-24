@@ -27,6 +27,8 @@ type MemoryOptions struct {
 	ReservedMemoryGB           uint64
 	SkipMemoryStateCorruption  bool
 	EnableSettingMemoryMigrate bool
+	EnableMemoryAdvisor        bool
+	ExtraControlKnobConfigFile string
 }
 
 func NewMemoryOptions() *MemoryOptions {
@@ -35,6 +37,7 @@ func NewMemoryOptions() *MemoryOptions {
 		ReservedMemoryGB:           0,
 		SkipMemoryStateCorruption:  false,
 		EnableSettingMemoryMigrate: false,
+		EnableMemoryAdvisor:        false,
 	}
 }
 
@@ -49,11 +52,17 @@ func (o *MemoryOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 		o.SkipMemoryStateCorruption, "if set true, we will skip memory state corruption")
 	fs.BoolVar(&o.EnableSettingMemoryMigrate, "enable-setting-memory-migrate",
 		o.EnableSettingMemoryMigrate, "if set true, we will enable cpuset.memory_migrate for containers not numa_binding")
+	fs.BoolVar(&o.EnableMemoryAdvisor, "memory-resource-plugin-advisor",
+		o.EnableMemoryAdvisor, "Whether memory resource plugin should enable sys-advisor")
+	fs.StringVar(&o.ExtraControlKnobConfigFile, "memory-extra-control-knob-config-file",
+		o.ExtraControlKnobConfigFile, "the absolute path of extra control knob config file")
 }
 func (o *MemoryOptions) ApplyTo(conf *qrmconfig.MemoryQRMPluginConfig) error {
 	conf.PolicyName = o.PolicyName
 	conf.ReservedMemoryGB = o.ReservedMemoryGB
 	conf.SkipMemoryStateCorruption = o.SkipMemoryStateCorruption
 	conf.EnableSettingMemoryMigrate = o.EnableSettingMemoryMigrate
+	conf.EnableMemoryAdvisor = o.EnableMemoryAdvisor
+	conf.ExtraControlKnobConfigFile = o.ExtraControlKnobConfigFile
 	return nil
 }

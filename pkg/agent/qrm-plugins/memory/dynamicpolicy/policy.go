@@ -22,13 +22,18 @@ import (
 	"sync"
 	"time"
 
+	"google.golang.org/grpc"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/wait"
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
+	"k8s.io/utils/clock"
 
 	apiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-api/pkg/plugins/skeleton"
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/agent"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/advisorsvc"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/memory/dynamicpolicy/memoryadvisor"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/memory/dynamicpolicy/state"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util"
 	"github.com/kubewharf/katalyst-core/pkg/config"
@@ -53,9 +58,12 @@ const (
 )
 
 const (
-	memsetCheckPeriod = 10 * time.Second
-	stateCheckPeriod  = 30 * time.Second
-	maxResidualTime   = 5 * time.Minute
+	memsetCheckPeriod          = 10 * time.Second
+	stateCheckPeriod           = 30 * time.Second
+	maxResidualTime            = 5 * time.Minute
+	setMemoryMigratePeriod     = 5 * time.Second
+	applyCgroupPeriod          = 5 * time.Second
+	setExtraControlKnobsPeriod = 5 * time.Second
 )
 
 var (
@@ -78,14 +86,18 @@ func GetReadonlyState() (state.ReadonlyState, error) {
 type DynamicPolicy struct {
 	sync.RWMutex
 
-	stopCh    chan struct{}
-	started   bool
-	qosConfig *generic.QoSConfiguration
+	stopCh                  chan struct{}
+	started                 bool
+	qosConfig               *generic.QoSConfiguration
+	extraControlKnobConfigs commonstate.ExtraControlKnobConfigs
 
 	// emitter is used to emit metrics.
 	// metaServer is used to collect metadata universal metaServer.
 	emitter    metrics.MetricEmitter
 	metaServer *metaserver.MetaServer
+
+	advisorClient advisorsvc.AdvisorServiceClient
+	advisorConn   *grpc.ClientConn
 
 	topology *machine.CPUTopology
 	state    state.State
@@ -100,11 +112,13 @@ type DynamicPolicy struct {
 	extraStateFileAbsPath string
 	name                  string
 
-	enableSettingMemoryMigrate bool
-
 	podDebugAnnoKeys []string
 
 	asyncWorkers *asyncworker.AsyncWorkers
+
+	enableSettingMemoryMigrate bool
+	enableMemroyAdvisor        bool
+	memoryAdvisorSocketAbsPath string
 }
 
 func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration,
@@ -121,6 +135,16 @@ func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration
 		MemoryResourcePluginPolicyNameDynamic, agentCtx.CPUTopology, agentCtx.MachineInfo, resourcesReservedMemory, conf.SkipMemoryStateCorruption)
 	if err != nil {
 		return false, agent.ComponentStub{}, fmt.Errorf("NewCheckpointState failed with error: %v", err)
+	}
+
+	extraControlKnobConfigs := make(commonstate.ExtraControlKnobConfigs)
+	if len(conf.ExtraControlKnobConfigFile) > 0 {
+		extraControlKnobConfigs, err = commonstate.LoadExtraControlKnobConfigs(conf.ExtraControlKnobConfigFile)
+		if err != nil {
+			return false, agent.ComponentStub{}, fmt.Errorf("loadExtraControlKnobConfigs failed with error: %v", err)
+		}
+	} else {
+		general.Infof("empty ExtraControlKnobConfigFile, initialize empty extraControlKnobConfigs")
 	}
 
 	readonlyStateLock.Lock()
@@ -146,6 +170,9 @@ func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration
 		podDebugAnnoKeys:           conf.PodDebugAnnoKeys,
 		asyncWorkers:               asyncworker.NewAsyncWorkers(memoryPluginAsyncWorkersName),
 		enableSettingMemoryMigrate: conf.EnableSettingMemoryMigrate,
+		enableMemroyAdvisor:        conf.EnableMemoryAdvisor,
+		memoryAdvisorSocketAbsPath: conf.MemoryAdvisorSocketAbsPath,
+		extraControlKnobConfigs:    extraControlKnobConfigs, // [TODO]: support modifying extraControlKnobConfigs by KCC
 	}
 
 	policyImplement.allocationHandlers = map[string]util.AllocationHandler{
@@ -165,6 +192,13 @@ func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration
 	if err != nil {
 		return false, agent.ComponentStub{}, fmt.Errorf("dynamic policy new plugin wrapper failed with error: %v", err)
 	}
+
+	memoryadvisor.RegisterControlKnobHandler(memoryadvisor.ControlKnobKeyMemoryLimitInBytes,
+		memoryadvisor.ControlKnobHandlerWithChecker(policyImplement.handleAdvisorMemoryLimitInBytes))
+	memoryadvisor.RegisterControlKnobHandler(memoryadvisor.ControlKnobKeyDropCache,
+		memoryadvisor.ControlKnobHandlerWithChecker(policyImplement.handleAdvisorDropCache))
+	memoryadvisor.RegisterControlKnobHandler(memoryadvisor.ControlKnobKeyCPUSetMems,
+		memoryadvisor.ControlKnobHandlerWithChecker(policyImplement.handleAdvisorCPUSetMems))
 
 	return true, &agent.PluginWrapper{GenericPlugin: pluginWrapper}, nil
 }
@@ -191,12 +225,39 @@ func (p *DynamicPolicy) Start() (err error) {
 	}, time.Second*30, p.stopCh)
 	go wait.Until(p.clearResidualState, stateCheckPeriod, p.stopCh)
 	go wait.Until(p.checkMemorySet, memsetCheckPeriod, p.stopCh)
+	go wait.Until(p.applyExternalCgroupParams, applyCgroupPeriod, p.stopCh)
+	go wait.Until(p.setExtraControlKnobByConfigs, setExtraControlKnobsPeriod, p.stopCh)
 
 	if p.enableSettingMemoryMigrate {
 		general.Infof("setMemoryMigrate enabled")
-		go wait.Until(p.setMemoryMigrate, 5*time.Second, p.stopCh)
+		go wait.Until(p.setMemoryMigrate, setMemoryMigratePeriod, p.stopCh)
 	}
 
+	if !p.enableMemroyAdvisor {
+		general.Infof("start dynamic policy memory plugin without memory advisor")
+		return nil
+	} else if p.memoryAdvisorSocketAbsPath == "" {
+		return fmt.Errorf("invalid memoryAdvisorSocketAbsPath: %s", p.memoryAdvisorSocketAbsPath)
+	}
+
+	general.Infof("start dynamic policy memory plugin with memory advisor")
+	err = p.initAdvisorClientConn()
+	if err != nil {
+		general.Errorf("initAdvisorClientConn failed with error: %v", err)
+		return
+	}
+
+	communicateWithMemoryAdvisorServer := func() {
+		// call lw of MemoryAdvisorServer and do allocation
+		if err := p.lwMemoryAdvisorServer(p.stopCh); err != nil {
+			general.Errorf("lwMemoryAdvisorServer failed with error: %v", err)
+		} else {
+			general.Infof("lwMemoryAdvisorServer finished")
+		}
+	}
+
+	go wait.BackoffUntil(communicateWithMemoryAdvisorServer, wait.NewExponentialBackoffManager(800*time.Millisecond,
+		30*time.Second, 2*time.Minute, 2.0, 0, &clock.RealClock{}), true, p.stopCh)
 	return nil
 }
 
@@ -332,16 +393,16 @@ func (p *DynamicPolicy) GetResourcesAllocation(_ context.Context,
 				podResources[podUID].ContainerResources = make(map[string]*pluginapi.ResourceAllocation)
 			}
 
-			podResources[podUID].ContainerResources[containerName] = &pluginapi.ResourceAllocation{
-				ResourceAllocation: map[string]*pluginapi.ResourceAllocationInfo{
-					string(v1.ResourceMemory): {
-						OciPropertyName:   util.OCIPropertyNameCPUSetMems,
-						IsNodeResource:    false,
-						IsScalarResource:  true,
-						AllocatedQuantity: float64(allocationInfo.AggregatedQuantity),
-						AllocationResult:  allocationInfo.NumaAllocationResult.String(),
-					},
-				},
+			var err error
+			podResources[podUID].ContainerResources[containerName], err = allocationInfo.GetResourceAllocation()
+
+			if err != nil {
+				errMsg := "allocationInfo.GetResourceAllocation failed"
+				general.ErrorS(err, errMsg,
+					"podNamespace", allocationInfo.PodNamespace,
+					"podName", allocationInfo.PodName,
+					"containerName", allocationInfo.ContainerName)
+				return nil, fmt.Errorf(errMsg)
 			}
 		}
 	}

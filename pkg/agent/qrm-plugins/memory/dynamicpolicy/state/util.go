@@ -129,7 +129,8 @@ func GenerateMemoryStateFromPodEntries(machineInfo *info.MachineInfo,
 			for containerName, allocationInfo := range containerEntries {
 				if containerName != "" && allocationInfo != nil {
 					curContainerAllocatedQuantityInNumaNode := allocationInfo.TopologyAwareAllocations[numaId]
-					if curContainerAllocatedQuantityInNumaNode == 0 && allocationInfo.NumaAllocationResult.Intersection(machine.NewCPUSet(numaId)).IsEmpty() {
+					if curContainerAllocatedQuantityInNumaNode == 0 &&
+						allocationInfo.NumaAllocationResult.Intersection(machine.NewCPUSet(numaId)).IsEmpty() {
 						continue
 					}
 

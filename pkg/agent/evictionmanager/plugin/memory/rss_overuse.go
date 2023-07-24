@@ -37,6 +37,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/config/generic"
 	"github.com/kubewharf/katalyst-core/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
+	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric/helper"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/process"
@@ -57,7 +58,6 @@ func NewRssOveruseEvictionPlugin(_ *client.GenericClientSet, _ events.EventRecor
 		reclaimedPodFilter: conf.CheckReclaimedQoSForPod,
 		pluginName:         EvictionPluginNameRssOveruse,
 		metaServer:         metaServer,
-		evictionHelper:     NewEvictionHelper(emitter, metaServer, conf),
 		supportedQosLevels: sets.NewString(apiconsts.PodAnnotationQoSLevelReclaimedCores, apiconsts.PodAnnotationQoSLevelSharedCores),
 
 		dynamicConfig:  conf.DynamicAgentConfiguration,
@@ -77,7 +77,6 @@ type RssOveruseEvictionPlugin struct {
 	reclaimedPodFilter func(pod *v1.Pod) (bool, error)
 	pluginName         string
 	metaServer         *metaserver.MetaServer
-	evictionHelper     *EvictionHelper
 	supportedQosLevels sets.String
 
 	dynamicConfig  *dynamic.DynamicAgentConfiguration
@@ -164,7 +163,7 @@ func (r *RssOveruseEvictionPlugin) GetEvictPods(_ context.Context, request *plug
 			continue
 		}
 
-		podRss, found := r.evictionHelper.getPodMetric(pod, consts.MetricMemRssContainer, nonExistNumaID)
+		podRss, found := helper.GetPodMetric(r.metaServer.MetricsFetcher, r.emitter, pod, consts.MetricMemRssContainer, nonExistNumaID)
 		if !found {
 			_ = r.emitter.StoreInt64(metricsNameFetchMetricError, 1, metrics.MetricTypeNameCount,
 				metrics.ConvertMapToTags(map[string]string{

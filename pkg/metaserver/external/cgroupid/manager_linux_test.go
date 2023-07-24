@@ -197,7 +197,6 @@ func TestClearResidualPodsInCache(t *testing.T) {
 			for wantPodUID, wantContainerMap := range tt.want {
 				cgroupIDManager.Lock()
 				gotContainerMap, ok := cgroupIDManager.podCgroupIDCache[wantPodUID]
-				cgroupIDManager.Unlock()
 
 				assert.True(t, ok)
 				assert.Equal(t, len(wantContainerMap), len(gotContainerMap))
@@ -206,6 +205,7 @@ func TestClearResidualPodsInCache(t *testing.T) {
 					assert.True(t, ok)
 					assert.Equal(t, wantCgID, gotCgID)
 				}
+				cgroupIDManager.Unlock()
 			}
 		})
 	}

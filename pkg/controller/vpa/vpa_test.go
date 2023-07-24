@@ -18,7 +18,6 @@ package vpa
 
 import (
 	"context"
-	"flag"
 	"fmt"
 	"reflect"
 	"testing"
@@ -33,7 +32,6 @@ import (
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/tools/cache"
 	cliflag "k8s.io/component-base/cli/flag"
-	"k8s.io/klog/v2"
 	"k8s.io/utils/pointer"
 
 	apis "github.com/kubewharf/katalyst-api/pkg/apis/autoscaling/v1alpha1"
@@ -753,12 +751,6 @@ func TestPodIndexerDuplicate(t *testing.T) {
 
 func TestSyncPerformance(t *testing.T) {
 	t.Parallel()
-
-	flagSet := flag.FlagSet{}
-	klog.InitFlags(&flagSet)
-	_ = flagSet.Parse([]string{
-		"-v", "3",
-	})
 
 	var kubeObj, internalObj, dynamicObj []runtime.Object
 

@@ -31,6 +31,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
+	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric/helper"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/native"
@@ -123,7 +124,7 @@ func (n *NumaMemoryPressurePlugin) detectNumaPressures() {
 }
 
 func (n *NumaMemoryPressurePlugin) detectNumaWatermarkPressure(numaID int) error {
-	free, total, scaleFactor, err := n.evictionHelper.getWatermarkMetrics(numaID)
+	free, total, scaleFactor, err := helper.GetWatermarkMetrics(n.metaServer.MetricsFetcher, n.emitter, numaID)
 	if err != nil {
 		general.Errorf("failed to getWatermarkMetrics for numa %d, err: %v", numaID, err)
 		_ = n.emitter.StoreInt64(metricsNameFetchMetricError, 1, metrics.MetricTypeNameCount,

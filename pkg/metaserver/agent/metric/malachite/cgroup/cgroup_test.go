@@ -135,21 +135,22 @@ func TestGetCgroupStats(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client.DefaultClient.(*client.Client).SetURL(map[string]string{
+	malachiteClient := client.New()
+	malachiteClient.(*client.Client).SetURL(map[string]string{
 		client.CgroupResource: server.URL,
 	})
 
-	info, err := GetCgroupStats("v1-path")
+	info, err := GetCgroupStats(malachiteClient, "v1-path")
 	assert.NoError(t, err)
 	assert.NotNil(t, info.V1)
 	assert.Nil(t, info.V2)
 
-	info, err = GetCgroupStats("v2-path")
+	info, err = GetCgroupStats(malachiteClient, "v2-path")
 	assert.NoError(t, err)
 	assert.NotNil(t, info.V2)
 	assert.Nil(t, info.V1)
 
-	_, err = GetCgroupStats("no-exist-path")
+	_, err = GetCgroupStats(malachiteClient, "no-exist-path")
 	assert.NotNil(t, err)
 	assert.NotNil(t, info.V2)
 	assert.Nil(t, info.V1)

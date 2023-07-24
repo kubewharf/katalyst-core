@@ -83,32 +83,39 @@ func (ai *AllocationInfo) Clone() *AllocationInfo {
 	}
 
 	clone := &AllocationInfo{
-		PodUid:                           ai.PodUid,
-		PodNamespace:                     ai.PodNamespace,
-		PodName:                          ai.PodName,
-		ContainerName:                    ai.ContainerName,
-		ContainerType:                    ai.ContainerType,
-		ContainerIndex:                   ai.ContainerIndex,
-		RampUp:                           ai.RampUp,
-		OwnerPoolName:                    ai.OwnerPoolName,
-		PodRole:                          ai.PodRole,
-		PodType:                          ai.PodType,
-		AllocationResult:                 ai.AllocationResult.Clone(),
-		OriginalAllocationResult:         ai.OriginalAllocationResult.Clone(),
-		TopologyAwareAssignments:         make(map[int]machine.CPUSet),
-		OriginalTopologyAwareAssignments: make(map[int]machine.CPUSet),
-		InitTimestamp:                    ai.InitTimestamp,
-		QoSLevel:                         ai.QoSLevel,
-		Labels:                           general.DeepCopyMap(ai.Labels),
-		Annotations:                      general.DeepCopyMap(ai.Annotations),
-		RequestQuantity:                  ai.RequestQuantity,
+		PodUid:                   ai.PodUid,
+		PodNamespace:             ai.PodNamespace,
+		PodName:                  ai.PodName,
+		ContainerName:            ai.ContainerName,
+		ContainerType:            ai.ContainerType,
+		ContainerIndex:           ai.ContainerIndex,
+		RampUp:                   ai.RampUp,
+		OwnerPoolName:            ai.OwnerPoolName,
+		PodRole:                  ai.PodRole,
+		PodType:                  ai.PodType,
+		AllocationResult:         ai.AllocationResult.Clone(),
+		OriginalAllocationResult: ai.OriginalAllocationResult.Clone(),
+		InitTimestamp:            ai.InitTimestamp,
+		QoSLevel:                 ai.QoSLevel,
+		Labels:                   general.DeepCopyMap(ai.Labels),
+		Annotations:              general.DeepCopyMap(ai.Annotations),
+		RequestQuantity:          ai.RequestQuantity,
 	}
 
-	for node, cpus := range ai.TopologyAwareAssignments {
-		clone.TopologyAwareAssignments[node] = cpus.Clone()
+	if ai.TopologyAwareAssignments != nil {
+		clone.TopologyAwareAssignments = make(map[int]machine.CPUSet)
+
+		for node, cpus := range ai.TopologyAwareAssignments {
+			clone.TopologyAwareAssignments[node] = cpus.Clone()
+		}
 	}
-	for node, cpus := range ai.OriginalTopologyAwareAssignments {
-		clone.OriginalTopologyAwareAssignments[node] = cpus.Clone()
+
+	if ai.OriginalTopologyAwareAssignments != nil {
+		clone.OriginalTopologyAwareAssignments = make(map[int]machine.CPUSet)
+
+		for node, cpus := range ai.OriginalTopologyAwareAssignments {
+			clone.OriginalTopologyAwareAssignments[node] = cpus.Clone()
+		}
 	}
 
 	return clone
@@ -239,8 +246,16 @@ func (ce ContainerEntries) GetMainContainerPoolName() string {
 }
 
 func (pe PodEntries) Clone() PodEntries {
+	if pe == nil {
+		return nil
+	}
+
 	clone := make(PodEntries)
 	for podUID, containerEntries := range pe {
+		if containerEntries == nil {
+			continue
+		}
+
 		clone[podUID] = make(ContainerEntries)
 		for containerName, allocationInfo := range containerEntries {
 			clone[podUID][containerName] = allocationInfo.Clone()
@@ -411,6 +426,10 @@ func (nm NUMANodeMap) GetFilteredAvailableCPUSet(reservedCPUs machine.CPUSet,
 }
 
 func (nm NUMANodeMap) Clone() NUMANodeMap {
+	if nm == nil {
+		return nil
+	}
+
 	clone := make(NUMANodeMap)
 	for node, ns := range nm {
 		clone[node] = ns.Clone()

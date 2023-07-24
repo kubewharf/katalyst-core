@@ -29,13 +29,16 @@ type HintHandler func(context.Context, *pluginapi.ResourceRequest) (*pluginapi.R
 
 const (
 	MetricNameAllocateByCPUAdvisorServerCalled = "alloc_by_cpu_advisor_server_called"
+	MetricNameHandleAdvisorRespCalled          = "handle_advisor_resp_called"
 	MetricNameIsolatedPodNum                   = "isolated_pod_num"
 	MetricNamePoolSize                         = "pool_size"
 	MetricNameAllocateByCPUAdvisorServerFailed = "alloc_by_cpu_advisor_server_failed"
+	MetricNameHandleAdvisorRespFailed          = "handle_advisor_resp_failed"
 	MetricNameAllocateFailed                   = "alloc_failed"
 	MetricNameGetTopologyHintsFailed           = "get_topology_hints_failed"
 	MetricNameRemovePodFailed                  = "remove_pod_failed"
 	MetricNameLWCPUAdvisorServerFailed         = "lw_cpu_advisor_server_failed"
+	MetricNameLWMemoryAdvisorServerFailed      = "lw_memory_advisor_server_failed"
 	MetricNameHeartBeat                        = "heartbeat"
 	MetricNameRealStateInvalid                 = "real_state_invalid"
 	MetricNameCPUSetInvalid                    = "cpuset_invalid"
@@ -47,8 +50,9 @@ const (
 
 // those are OCI property names to be used by QRM plugins
 const (
-	OCIPropertyNameCPUSetCPUs = "CpusetCpus"
-	OCIPropertyNameCPUSetMems = "CpusetMems"
+	OCIPropertyNameCPUSetCPUs         = "CpusetCpus"
+	OCIPropertyNameCPUSetMems         = "CpusetMems"
+	OCIPropertyNameMemoryLimitInBytes = "MemoryLimitInBytes"
 )
 
 const QRMTimeFormat = "2006-01-02 15:04:05.999999999 -0700 MST"

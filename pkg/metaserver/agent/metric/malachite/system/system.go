@@ -23,8 +23,8 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric/malachite/client"
 )
 
-func GetSystemComputeStats() (*SystemComputeData, error) {
-	statsData, err := client.DefaultClient.GetSystemStats(client.Compute)
+func GetSystemComputeStats(c client.MalachiteClient) (*SystemComputeData, error) {
+	statsData, err := c.GetSystemStats(client.Compute)
 	if err != nil {
 		return nil, err
 	}
@@ -41,8 +41,8 @@ func GetSystemComputeStats() (*SystemComputeData, error) {
 	return &rsp.Data, nil
 }
 
-func GetSystemMemoryStats() (*SystemMemoryData, error) {
-	statsData, err := client.DefaultClient.GetSystemStats(client.Memory)
+func GetSystemMemoryStats(c client.MalachiteClient) (*SystemMemoryData, error) {
+	statsData, err := c.GetSystemStats(client.Memory)
 	if err != nil {
 		return nil, err
 	}
@@ -59,8 +59,8 @@ func GetSystemMemoryStats() (*SystemMemoryData, error) {
 	return &rsp.Data, nil
 }
 
-func GetSystemIOStats() (*SystemDiskIoData, error) {
-	statsData, err := client.DefaultClient.GetSystemStats(client.IO)
+func GetSystemIOStats(c client.MalachiteClient) (*SystemDiskIoData, error) {
+	statsData, err := c.GetSystemStats(client.IO)
 	if err != nil {
 		return nil, err
 	}
@@ -77,8 +77,8 @@ func GetSystemIOStats() (*SystemDiskIoData, error) {
 	return &rsp.Data, nil
 }
 
-func GetSystemNetStats() (*SystemNetworkData, error) {
-	statsData, err := client.DefaultClient.GetSystemStats(client.Net)
+func GetSystemNetStats(c client.MalachiteClient) (*SystemNetworkData, error) {
+	statsData, err := c.GetSystemStats(client.Net)
 	if err != nil {
 		return nil, err
 	}

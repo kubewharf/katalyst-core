@@ -440,11 +440,11 @@ func (p *DynamicPolicy) allocateNumaBindingCPUs(numCPUs int, hint *pluginapi.Top
 		var err error
 		alignedCPUs, err = calculator.TakeByTopology(p.machineInfo, alignedAvailableCPUs, numCPUs)
 
-		general.ErrorS(err, "take cpu for NUMA not exclusive binding container failed",
-			"hints", hint.Nodes,
-			"alignedAvailableCPUs", alignedAvailableCPUs.String())
-
 		if err != nil {
+			general.ErrorS(err, "take cpu for NUMA not exclusive binding container failed",
+				"hints", hint.Nodes,
+				"alignedAvailableCPUs", alignedAvailableCPUs.String())
+
 			return machine.NewCPUSet(),
 				fmt.Errorf("take cpu for NUMA not exclusive binding container failed with err: %v", err)
 		}
@@ -479,9 +479,9 @@ func (p *DynamicPolicy) putAllocationsAndAdjustAllocationEntries(allocationInfos
 	machineState := p.state.GetMachineState()
 
 	var poolsQuantityMap map[string]int
-	if p.enableCPUSysAdvisor {
+	if p.enableCPUAdvisor {
 		// if sys advisor is enabled, we believe the pools' ratio that sys advisor indicates
-		poolsQuantityMap = machine.GetQuantityMap(entries.GetFilteredPoolsCPUSetMap(state.ResidentPools))
+		poolsQuantityMap = machine.ParseCPUAssignmentQuantityMap(entries.GetFilteredPoolsCPUSetMap(state.ResidentPools))
 	} else {
 		// else we do sum(containers req) for each pool to get pools ratio
 		poolsQuantityMap = state.GetSharedQuantityMapFromPodEntries(entries, allocationInfos)
@@ -521,8 +521,8 @@ func (p *DynamicPolicy) adjustAllocationEntries() error {
 	// if sys advisor is enabled, we believe the pools' ratio that sys advisor indicates,
 	// else we do sum(containers req) for each pool to get pools ratio
 	var poolsQuantityMap map[string]int
-	if p.enableCPUSysAdvisor {
-		poolsQuantityMap = machine.GetQuantityMap(entries.GetFilteredPoolsCPUSetMap(state.ResidentPools))
+	if p.enableCPUAdvisor {
+		poolsQuantityMap = machine.ParseCPUAssignmentQuantityMap(entries.GetFilteredPoolsCPUSetMap(state.ResidentPools))
 	} else {
 		poolsQuantityMap = state.GetSharedQuantityMapFromPodEntries(entries, nil)
 	}
@@ -572,7 +572,7 @@ func (p *DynamicPolicy) adjustPoolsAndIsolatedEntries(poolsQuantityMap map[strin
 // with the intersection of previous reclaim pool and non-ramp-up dedicated_cores numa_binding containers
 func (p *DynamicPolicy) reclaimOverlapNUMABinding(poolsCPUSet map[string]machine.CPUSet, entries state.PodEntries) error {
 	// reclaimOverlapNUMABinding only works with cpu advisor and reclaim enabled
-	if !(p.enableCPUSysAdvisor && p.dynamicConfig.GetDynamicConfiguration().EnableReclaim) {
+	if !(p.enableCPUAdvisor && p.dynamicConfig.GetDynamicConfiguration().EnableReclaim) {
 		return nil
 	}
 

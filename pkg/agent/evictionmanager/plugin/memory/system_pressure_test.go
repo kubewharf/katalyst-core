@@ -78,20 +78,19 @@ func makeConf() *config.Configuration {
 }
 
 func makeSystemPressureEvictionPlugin(conf *config.Configuration) (*SystemPressureEvictionPlugin, error) {
-	metaServer := makeMetaServer()
-
-	plugin := NewSystemPressureEvictionPlugin(nil, nil, metaServer, metrics.DummyMetrics{}, conf)
-	res := plugin.(*SystemPressureEvictionPlugin)
-
 	cpuTopology, err := machine.GenerateDummyCPUTopology(16, 1, 2)
 	if err != nil {
 		return nil, err
 	}
 
-	res.metaServer.KatalystMachineInfo = &machine.KatalystMachineInfo{
+	metaServer := makeMetaServer()
+	metaServer.KatalystMachineInfo = &machine.KatalystMachineInfo{
 		CPUTopology: cpuTopology,
 	}
-	res.metaServer.MetricsFetcher = metric.NewFakeMetricsFetcher(metrics.DummyMetrics{})
+	metaServer.MetricsFetcher = metric.NewFakeMetricsFetcher(metrics.DummyMetrics{})
+
+	plugin := NewSystemPressureEvictionPlugin(nil, nil, metaServer, metrics.DummyMetrics{}, conf)
+	res := plugin.(*SystemPressureEvictionPlugin)
 
 	return res, nil
 }
@@ -119,7 +118,7 @@ func TestSystemPressureEvictionPlugin_ThresholdMet(t *testing.T) {
 	assert.NoError(t, err)
 	assert.NotNil(t, plugin)
 
-	fakeMetricsFetcher := plugin.metaServer.MetricsFetcher.(*metric.FakeMetricsFetcher)
+	fakeMetricsFetcher := plugin.metaServer.MetaAgent.MetricsFetcher.(*metric.FakeMetricsFetcher)
 	assert.NotNil(t, fakeMetricsFetcher)
 
 	start := time.Now()

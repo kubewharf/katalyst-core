@@ -53,9 +53,9 @@ func CountCPUAssignmentCPUs(assignment map[int]CPUSet) int {
 	return res
 }
 
-// GetQuantityMap is used to generate cpu resource counting map
+// ParseCPUAssignmentQuantityMap is used to generate cpu resource counting map
 // based on the given CPUSet map
-func GetQuantityMap(csetMap map[string]CPUSet) map[string]int {
+func ParseCPUAssignmentQuantityMap(csetMap map[string]CPUSet) map[string]int {
 	ret := make(map[string]int)
 
 	for name, cset := range csetMap {
@@ -76,6 +76,17 @@ func DeepcopyCPUAssignment(assignment map[int]CPUSet) map[int]CPUSet {
 		copied[numaNode] = cset.Clone()
 	}
 	return copied
+}
+
+// GetCPUAssignmentNUMAs returns memset for cpuset
+func GetCPUAssignmentNUMAs(assignment map[int]CPUSet) CPUSet {
+	memset := NewCPUSet()
+	for numaID, cpuset := range assignment {
+		if cpuset.Size() > 0 {
+			memset.Add(numaID)
+		}
+	}
+	return memset
 }
 
 // MaskToUInt64Array transforms bit mask to uint slices

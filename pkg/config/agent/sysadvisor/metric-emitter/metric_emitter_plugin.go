@@ -22,16 +22,33 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 )
 
-// MetricEmitterPluginConfiguration stores configurations of custom-metric emitter plugin
-type MetricEmitterPluginConfiguration struct {
+type MetricEmitterPodConfiguration struct {
 	PodMetricLabel sets.String
 	PodSyncPeriod  time.Duration
+
 	// nominated annotations and labels to skip to avoid too many metrics;
 	// if multiple key-value pairs are nominated, skip if any pair matches
 	PodSkipAnnotations map[string]string
 	PodSkipLabels      map[string]string
 
+	// MetricMapping will override the default to-collected metrics in pod-level
+	MetricMapping map[string]string
+}
+
+type MetricEmitterNodeConfiguration struct {
 	NodeMetricLabel sets.String
+
+	// MetricMapping will override the default to-collected metrics in node-level
+	MetricMapping map[string]string
+}
+
+type MetricEmitterExternalConfiguration struct{}
+
+// MetricEmitterPluginConfiguration stores configurations of custom-metric emitter plugin
+type MetricEmitterPluginConfiguration struct {
+	*MetricEmitterPodConfiguration
+	*MetricEmitterNodeConfiguration
+	*MetricEmitterExternalConfiguration
 
 	// MetricSyncers defines those syncers that should be enabled
 	MetricSyncers []string
@@ -40,10 +57,14 @@ type MetricEmitterPluginConfiguration struct {
 // NewMetricEmitterPluginConfiguration creates a new custom-metric emitter plugin configuration.
 func NewMetricEmitterPluginConfiguration() *MetricEmitterPluginConfiguration {
 	return &MetricEmitterPluginConfiguration{
-		PodMetricLabel:     make(sets.String),
-		PodSkipAnnotations: make(map[string]string),
-		PodSkipLabels:      make(map[string]string),
-
-		NodeMetricLabel: make(sets.String),
+		MetricEmitterPodConfiguration: &MetricEmitterPodConfiguration{
+			PodMetricLabel:     make(sets.String),
+			PodSkipAnnotations: make(map[string]string),
+			PodSkipLabels:      make(map[string]string),
+		},
+		MetricEmitterNodeConfiguration: &MetricEmitterNodeConfiguration{
+			NodeMetricLabel: make(sets.String),
+		},
+		MetricEmitterExternalConfiguration: &MetricEmitterExternalConfiguration{},
 	}
 }

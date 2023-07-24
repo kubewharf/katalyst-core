@@ -18,7 +18,6 @@ package fetcher
 
 import (
 	"context"
-	"flag"
 	"io/ioutil"
 	"os"
 	"testing"
@@ -28,7 +27,6 @@ import (
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/tools/record"
-	"k8s.io/klog/v2"
 	"k8s.io/kubernetes/pkg/kubelet/config"
 	"k8s.io/kubernetes/pkg/kubelet/pluginmanager"
 	plugincache "k8s.io/kubernetes/pkg/kubelet/pluginmanager/cache"
@@ -100,13 +98,6 @@ func TestNewManagerImpl(t *testing.T) {
 func TestReporterPluginReRegistration(t *testing.T) {
 	t.Parallel()
 
-	// change default klog level
-	flagSet := flag.FlagSet{}
-	klog.InitFlags(&flagSet)
-	_ = flagSet.Parse([]string{
-		"-v", "0",
-	})
-
 	socketDir, err := tmpSocketDir()
 	require.NoError(t, err)
 	defer os.RemoveAll(socketDir)
@@ -176,13 +167,6 @@ func TestReporterPluginReRegistration(t *testing.T) {
 
 func TestHealthz(t *testing.T) {
 	t.Parallel()
-
-	// change default klog level
-	flagSet := flag.FlagSet{}
-	klog.InitFlags(&flagSet)
-	_ = flagSet.Parse([]string{
-		"-v", "0",
-	})
 
 	socketDir, err := tmpSocketDir()
 	require.NoError(t, err)

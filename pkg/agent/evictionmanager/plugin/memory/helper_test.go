@@ -26,6 +26,7 @@ import (
 
 	apiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/consts"
+	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
@@ -34,9 +35,8 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/util/native"
 )
 
-func makeHelper() (*EvictionHelper, error) {
+func makeHelper(metaServer *metaserver.MetaServer) (*EvictionHelper, error) {
 	conf := makeConf()
-	metaServer := makeMetaServer()
 
 	cpuTopology, err := machine.GenerateDummyCPUTopology(16, 1, 2)
 	if err != nil {
@@ -48,23 +48,20 @@ func makeHelper() (*EvictionHelper, error) {
 	}
 	metaServer.MetricsFetcher = metric.NewFakeMetricsFetcher(metrics.DummyMetrics{})
 
-	return &EvictionHelper{
-		emitter:            metrics.DummyMetrics{},
-		metaServer:         metaServer,
-		reclaimedPodFilter: conf.QoSConfiguration.CheckReclaimedQoSForPod,
-	}, nil
+	return NewEvictionHelper(&metrics.DummyMetrics{}, metaServer, conf), nil
 }
 
 func TestEvictionHelper_getEvictionCmpFuncs(t *testing.T) {
 	t.Parallel()
 
-	helper, err := makeHelper()
+	metaServer := makeMetaServer()
+	helper, err := makeHelper(metaServer)
 	assert.NoError(t, err)
 	assert.NotNil(t, helper)
 
 	conf := makeConf()
 
-	fakeMetricsFetcher := helper.metaServer.MetricsFetcher.(*metric.FakeMetricsFetcher)
+	fakeMetricsFetcher := metaServer.MetricsFetcher.(*metric.FakeMetricsFetcher)
 	assert.NotNil(t, fakeMetricsFetcher)
 
 	pods := []*v1.Pod{

@@ -70,7 +70,7 @@ func (c *cachedCNCFetcher) GetCNC(ctx context.Context) (*v1alpha1.CustomNodeConf
 }
 
 func (c *cachedCNCFetcher) syncCNC(ctx context.Context) {
-	klog.Infof("[cnc] sync cnc from remote")
+	klog.Info("[cnc] sync cnc from remote")
 	cnc, err := c.client.Get(ctx, c.nodeName, v1.GetOptions{ResourceVersion: "0"})
 	if err != nil {
 		klog.Errorf("syncCNC failed: %v", err)

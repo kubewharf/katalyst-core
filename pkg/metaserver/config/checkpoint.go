@@ -42,7 +42,7 @@ type TargetConfigData struct {
 
 // Data holds checkpoint data and its checksum
 type Data struct {
-	sync.RWMutex
+	sync.Mutex
 	Item *DataItem
 }
 
@@ -62,30 +62,30 @@ func NewCheckpoint(configResponses map[string]TargetConfigData) ConfigManagerChe
 }
 
 func (d *Data) MarshalCheckpoint() ([]byte, error) {
-	d.RLock()
-	defer d.RUnlock()
+	d.Lock()
+	defer d.Unlock()
 
 	d.Item.Checksum = checksum.New(d.Item.Data)
 	return json.Marshal(*(d.Item))
 }
 
 func (d *Data) UnmarshalCheckpoint(blob []byte) error {
-	d.RLock()
-	defer d.RUnlock()
+	d.Lock()
+	defer d.Unlock()
 
 	return json.Unmarshal(blob, d.Item)
 }
 
 func (d *Data) VerifyChecksum() error {
-	d.RLock()
-	defer d.RUnlock()
+	d.Lock()
+	defer d.Unlock()
 
 	return d.Item.Checksum.Verify(d.Item.Data)
 }
 
 func (d *Data) GetData(kind string) (reflect.Value, metav1.Time) {
-	d.RLock()
-	defer d.RUnlock()
+	d.Lock()
+	defer d.Unlock()
 
 	if data, ok := d.Item.Data[kind]; ok {
 		configField := reflect.ValueOf(data.Value).Elem().FieldByName(kind)

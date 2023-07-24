@@ -21,8 +21,11 @@ package agent // import "github.com/kubewharf/katalyst-core/pkg/metaserver/agent
 
 import (
 	"context"
+	"fmt"
 	"sync"
 
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/klog/v2"
 
 	"github.com/kubewharf/katalyst-core/pkg/client"
@@ -30,11 +33,18 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/cnc"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/cnr"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric"
+	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric/malachite"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/node"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/pod"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
+
+// ObjectFetcher is used to get object information.
+type ObjectFetcher interface {
+	// GetUnstructured returns those latest cUnstructured
+	GetUnstructured(ctx context.Context, namespace, name string) (*unstructured.Unstructured, error)
+}
 
 // MetaAgent contains all those implementations for metadata running in this agent.
 type MetaAgent struct {
@@ -49,8 +59,13 @@ type MetaAgent struct {
 	cnr.CNRFetcher
 	cnc.CNCFetcher
 
+	// ObjectFetchers provide a way to expand fetcher for objects
+	ObjectFetchers sync.Map
+
 	// machine info is fetched from once and stored in meta-server
 	*machine.KatalystMachineInfo
+
+	Conf *config.Configuration
 }
 
 // NewMetaAgent returns the instance of MetaAgent.
@@ -65,17 +80,31 @@ func NewMetaAgent(conf *config.Configuration, clientSet *client.GenericClientSet
 		return nil, err
 	}
 
-	return &MetaAgent{
-		start:          false,
-		PodFetcher:     podFetcher,
-		NodeFetcher:    node.NewRemoteNodeFetcher(conf.NodeName, clientSet.KubeClient.CoreV1().Nodes()),
-		MetricsFetcher: metric.NewMalachiteMetricsFetcher(emitter, conf),
+	metaAgent := &MetaAgent{
+		start:       false,
+		PodFetcher:  podFetcher,
+		NodeFetcher: node.NewRemoteNodeFetcher(conf.NodeName, clientSet.KubeClient.CoreV1().Nodes()),
 		CNRFetcher: cnr.NewCachedCNRFetcher(conf.NodeName, conf.CNRCacheTTL,
 			clientSet.InternalClient.NodeV1alpha1().CustomNodeResources()),
-		CNCFetcher: cnc.NewCachedCNCFetcher(conf.NodeName, conf.CustomNodeConfigCacheTTL,
-			clientSet.InternalClient.ConfigV1alpha1().CustomNodeConfigs()),
 		KatalystMachineInfo: machineInfo,
-	}, nil
+		Conf:                conf,
+	}
+
+	if conf.EnableMetricsFetcher {
+		metaAgent.MetricsFetcher = malachite.NewMalachiteMetricsFetcher(emitter, conf)
+	} else {
+		metaAgent.MetricsFetcher = metric.NewFakeMetricsFetcher(emitter)
+	}
+
+	if conf.EnableCNCFetcher {
+		metaAgent.CNCFetcher = cnc.NewCachedCNCFetcher(conf.NodeName, conf.CustomNodeConfigCacheTTL,
+			clientSet.InternalClient.ConfigV1alpha1().CustomNodeConfigs())
+	} else {
+		metaAgent.CNCFetcher = cnc.NewFakeCNCFetcher(conf.NodeName, conf.CustomNodeConfigCacheTTL,
+			clientSet.InternalClient.ConfigV1alpha1().CustomNodeConfigs())
+	}
+
+	return metaAgent, nil
 }
 
 func (a *MetaAgent) SetPodFetcher(p pod.PodFetcher) {
@@ -90,16 +119,35 @@ func (a *MetaAgent) SetNodeFetcher(n node.NodeFetcher) {
 	})
 }
 
+func (a *MetaAgent) SetMetricFetcher(m metric.MetricsFetcher) {
+	a.setComponentImplementation(func() {
+		a.MetricsFetcher = m
+	})
+}
+
 func (a *MetaAgent) SetCNRFetcher(c cnr.CNRFetcher) {
 	a.setComponentImplementation(func() {
 		a.CNRFetcher = c
 	})
 }
 
-func (a *MetaAgent) SetMetricFetcher(m metric.MetricsFetcher) {
+func (a *MetaAgent) SetCNCFetcher(c cnc.CNCFetcher) {
 	a.setComponentImplementation(func() {
-		a.MetricsFetcher = m
+		a.CNCFetcher = c
 	})
+}
+
+func (a *MetaAgent) SetObjectFetcher(gvr metav1.GroupVersionResource, f ObjectFetcher) {
+	a.ObjectFetchers.Store(gvr, f)
+}
+
+func (a *MetaAgent) GetUnstructured(ctx context.Context, gvr metav1.GroupVersionResource,
+	namespace, name string) (*unstructured.Unstructured, error) {
+	f, ok := a.ObjectFetchers.Load(gvr)
+	if !ok {
+		return nil, fmt.Errorf("gvr %v not exist", gvr)
+	}
+	return f.(ObjectFetcher).GetUnstructured(ctx, namespace, name)
 }
 
 func (a *MetaAgent) Run(ctx context.Context) {
@@ -112,7 +160,10 @@ func (a *MetaAgent) Run(ctx context.Context) {
 
 	go a.PodFetcher.Run(ctx)
 	go a.NodeFetcher.Run(ctx)
-	go a.MetricsFetcher.Run(ctx)
+
+	if a.Conf.EnableMetricsFetcher {
+		go a.MetricsFetcher.Run(ctx)
+	}
 
 	a.Unlock()
 	<-ctx.Done()

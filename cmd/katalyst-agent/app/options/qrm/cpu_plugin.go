@@ -24,7 +24,7 @@ import (
 
 type CPUOptions struct {
 	PolicyName                string
-	EnableSysAdvisor          bool
+	EnableCPUAdvisor          bool
 	ReservedCPUCores          int
 	SkipCPUStateCorruption    bool
 	EnableCPUPressureEviction bool
@@ -35,7 +35,7 @@ type CPUOptions struct {
 func NewCPUOptions() *CPUOptions {
 	return &CPUOptions{
 		PolicyName:                "dynamic",
-		EnableSysAdvisor:          false,
+		EnableCPUAdvisor:          false,
 		ReservedCPUCores:          0,
 		SkipCPUStateCorruption:    false,
 		EnableCPUPressureEviction: false,
@@ -49,8 +49,8 @@ func (o *CPUOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 
 	fs.StringVar(&o.PolicyName, "cpu-resource-plugin-policy",
 		o.PolicyName, "The policy cpu resource plugin should use")
-	fs.BoolVar(&o.EnableSysAdvisor, "cpu-resource-plugin-advisor",
-		o.EnableSysAdvisor, "Whether cpu resource plugin should enable sys-advisor")
+	fs.BoolVar(&o.EnableCPUAdvisor, "cpu-resource-plugin-advisor",
+		o.EnableCPUAdvisor, "Whether cpu resource plugin should enable sys-advisor")
 	fs.IntVar(&o.ReservedCPUCores, "cpu-resource-plugin-reserved",
 		o.ReservedCPUCores, "The total cores cpu resource plugin should reserve")
 	fs.BoolVar(&o.SkipCPUStateCorruption, "skip-cpu-state-corruption",
@@ -66,7 +66,7 @@ func (o *CPUOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 
 func (o *CPUOptions) ApplyTo(conf *qrmconfig.CPUQRMPluginConfig) error {
 	conf.PolicyName = o.PolicyName
-	conf.EnableSysAdvisor = o.EnableSysAdvisor
+	conf.EnableCPUAdvisor = o.EnableCPUAdvisor
 	conf.ReservedCPUCores = o.ReservedCPUCores
 	conf.SkipCPUStateCorruption = o.SkipCPUStateCorruption
 	conf.EnableCPUPressureEviction = o.EnableCPUPressureEviction
