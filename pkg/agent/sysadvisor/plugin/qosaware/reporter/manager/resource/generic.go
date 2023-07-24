@@ -53,7 +53,9 @@ type GenericSlidingWindowOptions struct {
 	// MinStep min step of the value change
 	MinStep resource.Quantity
 	// MaxStep max step of the value change
-	MaxStep resource.Quantity
+	MaxStep       resource.Quantity
+	AggregateFunc string
+	AggregateArgs string
 }
 
 type GenericHeadroomManager struct {
@@ -95,7 +97,9 @@ func NewGenericHeadroomManager(name v1.ResourceName, useMilliValue, reportMilliV
 		reportSlidingWindow: general.NewCappedSmoothWindow(
 			slidingWindowOptions.MinStep,
 			slidingWindowOptions.MaxStep,
-			general.NewAverageWithTTLSmoothWindow(slidingWindowSize, slidingWindowTTL, useMilliValue),
+			general.NewAggregatorSmoothWindow(general.SmoothWindowOpts{WindowSize: slidingWindowSize,
+				TTL: slidingWindowTTL, UsedMillValue: useMilliValue, AggregateFunc: slidingWindowOptions.AggregateFunc,
+				AggregateArgs: slidingWindowOptions.AggregateArgs}),
 		),
 		emitter:           emitter,
 		getReclaimOptions: getReclaimOptions,
