@@ -21,6 +21,7 @@ import (
 	"math"
 
 	"k8s.io/klog/v2"
+	"k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource/helper"
@@ -28,6 +29,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
+	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
@@ -61,10 +63,22 @@ func (p *PolicyCanonical) Update() error {
 				klog.Errorf("[qosaware-cpu-headroom] illegal container info of %v/%v", podUID, containerName)
 				continue
 			}
-
-			containerEstimation, err := helper.EstimateContainerCPUUsage(ci, p.metaReader, enableReclaim)
-			if err != nil {
-				return err
+			var containerEstimation float64 = 0
+			if ci.IsNumaBinding() && !enableReclaim {
+				if ci.ContainerType == v1alpha1.ContainerType_MAIN {
+					bindingNumas := machine.GetCPUAssignmentNUMAs(ci.TopologyAwareAssignments)
+					for range bindingNumas.ToSliceInt() {
+						containerEstimation += float64(p.metaServer.CPUsPerNuma())
+					}
+					general.Infof("container %s/%s occupied cpu %v", ci.PodName, ci.ContainerName, containerEstimation)
+				} else {
+					containerEstimation = 0
+				}
+			} else {
+				containerEstimation, err = helper.EstimateContainerCPUUsage(ci, p.metaReader, enableReclaim)
+				if err != nil {
+					return err
+				}
 			}
 
 			// FIXME: metric server doesn't support to report cpu usage in numa granularity,
@@ -85,8 +99,8 @@ func (p *PolicyCanonical) Update() error {
 
 	p.headroom = math.Max(p.ResourceUpperBound-cpuEstimation+p.ReservedForReclaim, 0)
 
-	klog.Infof("[qosaware-cpu-canonical] region %v cpuEstimation %v with reserve %v headroom %v #container %v",
-		p.regionName, cpuEstimation, p.ReservedForAllocate, p.headroom, containerCnt)
+	klog.Infof("[qosaware-cpu-canonical] region %v cpuEstimation %v with reservedForAllocate %v reservedForReclaim %v headroom %v #container %v",
+		p.regionName, cpuEstimation, p.ReservedForAllocate, p.ReservedForReclaim, p.headroom, containerCnt)
 
 	return nil
 }
