@@ -30,10 +30,12 @@ import (
 
 // HeadroomReporterOptions holds the configurations for headroom reporter in qos aware plugin
 type HeadroomReporterOptions struct {
-	HeadroomReporterSyncPeriod           time.Duration
-	HeadroomReporterSlidingWindowTime    time.Duration
-	HeadroomReporterSlidingWindowMinStep general.ResourceList
-	HeadroomReporterSlidingWindowMaxStep general.ResourceList
+	HeadroomReporterSyncPeriod                      time.Duration
+	HeadroomReporterSlidingWindowTime               time.Duration
+	HeadroomReporterSlidingWindowMinStep            general.ResourceList
+	HeadroomReporterSlidingWindowMaxStep            general.ResourceList
+	HeadroomReporterSlidingWindowAggregateFunction  string
+	HeadroomReporterSlidingWindowAggregateArguments string
 
 	*CPUHeadroomManagerOptions
 	*MemoryHeadroomManagerOptions
@@ -52,8 +54,9 @@ func NewHeadroomReporterOptions() *HeadroomReporterOptions {
 			v1.ResourceCPU:    resource.MustParse("4"),
 			v1.ResourceMemory: resource.MustParse("5Gi"),
 		},
-		CPUHeadroomManagerOptions:    NewCPUHeadroomManagerOptions(),
-		MemoryHeadroomManagerOptions: NewMemoryHeadroomManagerOptions(),
+		HeadroomReporterSlidingWindowAggregateFunction: general.SmoothWindowAggFuncAvg,
+		CPUHeadroomManagerOptions:                      NewCPUHeadroomManagerOptions(),
+		MemoryHeadroomManagerOptions:                   NewMemoryHeadroomManagerOptions(),
 	}
 }
 
@@ -67,6 +70,10 @@ func (o *HeadroomReporterOptions) AddFlags(fs *pflag.FlagSet) {
 		"the min step headroom resource need to change")
 	fs.Var(&o.HeadroomReporterSlidingWindowMaxStep, "headroom-reporter-sliding-window-max-step",
 		"the max step headroom resource can change")
+	fs.StringVar(&o.HeadroomReporterSlidingWindowAggregateFunction, "headroom-reporter-sliding-window-aggregate-function", o.HeadroomReporterSlidingWindowAggregateFunction,
+		"the aggregate function of sliding window, like average, percentile, min, max, std")
+	fs.StringVar(&o.HeadroomReporterSlidingWindowAggregateArguments, "headroom-reporter-sliding-window-aggregate-arguments", o.HeadroomReporterSlidingWindowAggregateArguments,
+		"the args of aggregator function")
 
 	o.CPUHeadroomManagerOptions.AddFlags(fs)
 	o.MemoryHeadroomManagerOptions.AddFlags(fs)
@@ -78,6 +85,8 @@ func (o *HeadroomReporterOptions) ApplyTo(c *reporter.HeadroomReporterConfigurat
 	c.HeadroomReporterSlidingWindowTime = o.HeadroomReporterSlidingWindowTime
 	c.HeadroomReporterSlidingWindowMinStep = v1.ResourceList(o.HeadroomReporterSlidingWindowMinStep)
 	c.HeadroomReporterSlidingWindowMaxStep = v1.ResourceList(o.HeadroomReporterSlidingWindowMaxStep)
+	c.HeadroomReporterSlidingWindowAggregateFunction = o.HeadroomReporterSlidingWindowAggregateFunction
+	c.HeadroomReporterSlidingWindowAggregateArguments = o.HeadroomReporterSlidingWindowAggregateArguments
 
 	var errList []error
 	errList = append(errList, o.CPUHeadroomManagerOptions.ApplyTo(c.CPUHeadroomManagerConfiguration))
