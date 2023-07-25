@@ -19,20 +19,50 @@ package general
 import (
 	"fmt"
 	"runtime"
+	"strconv"
 	"strings"
+	"sync"
 
 	"k8s.io/klog/v2"
 )
 
 type LoggingPKG int
 
-const callDepth = 3
+func (l *LoggingPKG) Type() string {
+	return "LoggingPKG"
+}
+
+func (l *LoggingPKG) String() string {
+	return fmt.Sprintf("logging-level: %v", *l)
+}
+
+func (l *LoggingPKG) Set(value string) error {
+	level, err := strconv.Atoi(value)
+	if err != nil {
+		return err
+	}
+	*l = LoggingPKG(level)
+	return nil
+}
 
 const (
 	LoggingPKGNone LoggingPKG = iota
 	LoggingPKGShort
 	LoggingPKGFull
 )
+
+var defaultLoggingPackage = LoggingPKGFull
+var defaultLoggingOnce sync.Once
+
+// SetDefaultLoggingPackage should only be called by flags,
+// and should not be alerted dynamically.
+func SetDefaultLoggingPackage(l LoggingPKG) {
+	defaultLoggingOnce.Do(func() {
+		defaultLoggingPackage = l
+	})
+}
+
+const callDepth = 3
 
 const skippedPackagePrefix = "github.com/kubewharf/"
 
@@ -67,7 +97,7 @@ func loggingWithDepth(pkg LoggingPKG) string {
 }
 
 func logging(message string, params ...interface{}) string {
-	return "[" + loggingWithDepth(LoggingPKGFull) + "] " + fmt.Sprintf(message, params...)
+	return "[" + loggingWithDepth(defaultLoggingPackage) + "] " + fmt.Sprintf(message, params...)
 }
 
 func loggingPath(pkg LoggingPKG, message string, params ...interface{}) string {
