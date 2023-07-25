@@ -62,7 +62,6 @@ type GenericHeadroomManager struct {
 
 	headroomAdvisor     hmadvisor.ResourceAdvisor
 	emitter             metrics.MetricEmitter
-	originSlidingWindow general.SmoothWindow
 	reportSlidingWindow general.SmoothWindow
 
 	reportResultTransformer func(quantity resource.Quantity) resource.Quantity
@@ -93,11 +92,6 @@ func NewGenericHeadroomManager(name v1.ResourceName, useMilliValue, reportMilliV
 		reportResultTransformer: reportResultTransformer,
 		syncPeriod:              syncPeriod,
 		headroomAdvisor:         headroomAdvisor,
-		originSlidingWindow: general.NewCappedSmoothWindow(
-			slidingWindowOptions.MinStep,
-			slidingWindowOptions.MaxStep,
-			general.NewAverageWithTTLSmoothWindow(slidingWindowSize, slidingWindowTTL, useMilliValue),
-		),
 		reportSlidingWindow: general.NewCappedSmoothWindow(
 			slidingWindowOptions.MinStep,
 			slidingWindowOptions.MaxStep,
