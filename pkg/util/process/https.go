@@ -27,42 +27,13 @@ import (
 	"k8s.io/client-go/rest"
 )
 
-// InsecureConfig returns a kubelet API config object which uses the token path.
-func InsecureConfig(host, tokenFile string) (*rest.Config, error) {
-	if tokenFile == "" {
-		return nil, fmt.Errorf("api auth token file must be defined")
-	}
-	if len(host) == 0 {
-		return nil, fmt.Errorf("kubelet host must be defined")
-	}
-
-	token, err := os.ReadFile(tokenFile)
-	if err != nil {
-		return nil, err
-	}
-
-	tlsClientConfig := rest.TLSClientConfig{Insecure: true}
-
-	return &rest.Config{
-		Host:            host,
-		TLSClientConfig: tlsClientConfig,
-		BearerToken:     string(token),
-		BearerTokenFile: tokenFile,
-	}, nil
-}
-
 // GetAndUnmarshalForHttps gets data from the given url and unmarshal it into the given struct.
 func GetAndUnmarshalForHttps(ctx context.Context, port int, nodeAddress, endpoint, authTokenFile string, v interface{}) error {
-	if nodeAddress == "" {
-		return fmt.Errorf("get empty NODE_ADDRESS from env")
-	}
-
-	u, err := url.ParseRequestURI(fmt.Sprintf("https://%s:%d%s", nodeAddress, port, endpoint))
+	uri, err := generateURI(port, nodeAddress, endpoint)
 	if err != nil {
-		return fmt.Errorf("failed to parse -kubelet-config-uri: %w", err)
+		return err
 	}
-
-	restConfig, err := InsecureConfig(u.String(), authTokenFile)
+	restConfig, err := insecureConfig(uri, authTokenFile)
 	if err != nil {
 		return fmt.Errorf("failed to initialize rest config for kubelet config uri: %w", err)
 	}
@@ -86,4 +57,40 @@ func GetAndUnmarshalForHttps(ctx context.Context, port int, nodeAddress, endpoin
 	}
 
 	return nil
+}
+
+func generateURI(port int, nodeAddress, endpoint string) (string, error) {
+	if nodeAddress == "" {
+		return "", fmt.Errorf("node address is empty")
+	}
+
+	u, err := url.ParseRequestURI(fmt.Sprintf("https://%s:%d%s", nodeAddress, port, endpoint))
+	if err != nil {
+		return "", fmt.Errorf("failed to parse -kubelet-config-uri: %w", err)
+	}
+
+	return u.String(), nil
+}
+
+func insecureConfig(host, tokenFile string) (*rest.Config, error) {
+	if tokenFile == "" {
+		return nil, fmt.Errorf("api auth token file must be defined")
+	}
+	if len(host) == 0 {
+		return nil, fmt.Errorf("kubelet host must be defined")
+	}
+
+	token, err := os.ReadFile(tokenFile)
+	if err != nil {
+		return nil, err
+	}
+
+	tlsClientConfig := rest.TLSClientConfig{Insecure: true}
+
+	return &rest.Config{
+		Host:            host,
+		TLSClientConfig: tlsClientConfig,
+		BearerToken:     string(token),
+		BearerTokenFile: tokenFile,
+	}, nil
 }

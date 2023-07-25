@@ -191,7 +191,7 @@ func (p *podResourcesServerTopologyAdapterImpl) GetTopologyPolicy(ctx context.Co
 
 	klConfig, err := p.metaServer.GetKubeletConfig(ctx)
 	if err != nil {
-		return nodev1alpha1.TopologyPolicy(""), errors.Wrap(err, "get kubelet config failed")
+		return "", errors.Wrap(err, "get kubelet config failed")
 	}
 
 	return utils.GenerateTopologyPolicy(klConfig.TopologyManagerPolicy, klConfig.TopologyManagerScope), nil
