@@ -46,6 +46,7 @@ type GenericOptions struct {
 
 	qosOptions     *QoSOptions
 	metricsOptions *MetricsOptions
+	logsOptions    *LogsOptions
 
 	componentbaseconfig.ClientConnectionConfiguration
 }
@@ -57,6 +58,7 @@ func NewGenericOptions() *GenericOptions {
 		GenericEndpoint:             ":9316",
 		qosOptions:                  NewQoSOptions(),
 		metricsOptions:              NewMetricsOptions(),
+		logsOptions:                 NewLogsOptions(),
 		GenericEndpointHandleChains: []string{process.HTTPChainRateLimiter},
 	}
 }
@@ -91,6 +93,7 @@ func (o *GenericOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 
 	o.qosOptions.AddFlags(fs)
 	o.metricsOptions.AddFlags(fs)
+	o.logsOptions.AddFlags(fs)
 
 	fs.Float32Var(&o.QPS, "kube-api-qps", o.QPS, "QPS to use while talking with kubernetes apiserver.")
 	fs.Int32Var(&o.Burst, "kube-api-burst", o.Burst, "Burst to use while talking with kubernetes apiserver.")
@@ -110,6 +113,7 @@ func (o *GenericOptions) ApplyTo(c *generic.GenericConfiguration) error {
 	errList := make([]error, 0, 1)
 	errList = append(errList, o.qosOptions.ApplyTo(c.QoSConfiguration))
 	errList = append(errList, o.metricsOptions.ApplyTo(c.MetricsConfiguration))
+	errList = append(errList, o.logsOptions.ApplyTo())
 
 	c.ClientConnection.QPS = o.QPS
 	c.ClientConnection.Burst = o.Burst

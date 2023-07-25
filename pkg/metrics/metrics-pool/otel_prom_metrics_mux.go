@@ -24,10 +24,10 @@ import (
 	"time"
 
 	"k8s.io/apimachinery/pkg/util/wait"
-	"k8s.io/klog/v2"
 
 	"github.com/kubewharf/katalyst-core/pkg/config/generic"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
+	"github.com/kubewharf/katalyst-core/pkg/util/general"
 )
 
 type PrometheusMetricOptions struct {
@@ -91,7 +91,7 @@ func (m *openTelemetryPrometheusMetricsEmitterPool) GetMetricsEmitter(para inter
 			return nil, err
 		}
 		m.emitters[pathName] = e
-		klog.Infof("add path %s to metric emitter", pathName)
+		general.Infof("add path %s to metric emitter", pathName)
 	}
 	m.started[pathName] = false
 	return m.emitters[pathName], nil
