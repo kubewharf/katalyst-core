@@ -23,6 +23,7 @@ import (
 	"sync"
 	"time"
 
+	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/util/errors"
 	"k8s.io/apimachinery/pkg/util/sets"
@@ -117,7 +118,8 @@ func NewCPUResourceAdvisor(conf *config.Configuration, extraConf interface{}, me
 		emitter:    emitter,
 	}
 
-	cra.initializeReservedForReclaim()
+	coreNumReservedForReclaim := conf.DynamicAgentConfiguration.GetDynamicConfiguration().MinReclaimedResourceForAllocate[v1.ResourceCPU]
+	cra.reservedForReclaim = machine.GetCoreNumsReservedForReclaim(int(coreNumReservedForReclaim.Value()), metaServer.KatalystMachineInfo.NumNUMANodes)
 
 	if err := cra.initializeProvisionAssembler(); err != nil {
 		klog.Errorf("[qosaware-cpu] initialize provision assembler failed: %v", err)

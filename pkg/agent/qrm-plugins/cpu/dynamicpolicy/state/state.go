@@ -391,6 +391,19 @@ func (ns *NUMANodeState) GetFilteredDefaultCPUSet(excludeEntry, excludeWholeNUMA
 	return res
 }
 
+// Exist returns true if the stated predicate holds true for some pods of this numa else it returns false.
+func (ns *NUMANodeState) Exist(f func(ai *AllocationInfo) bool) bool {
+	for _, containerEntries := range ns.PodEntries {
+		for _, allocationInfo := range containerEntries {
+			if f(allocationInfo) {
+				return true
+			}
+		}
+	}
+
+	return false
+}
+
 func (ns *NUMANodeState) SetAllocationInfo(podUID string, containerName string, allocationInfo *AllocationInfo) {
 	if ns == nil {
 		return
@@ -433,6 +446,18 @@ func (nm NUMANodeMap) GetFilteredDefaultCPUSet(excludeEntry, excludeWholeNUMA fu
 func (nm NUMANodeMap) GetFilteredAvailableCPUSet(reservedCPUs machine.CPUSet,
 	excludeEntry, excludeWholeNUMA func(ai *AllocationInfo) bool) machine.CPUSet {
 	return nm.GetFilteredDefaultCPUSet(excludeEntry, excludeWholeNUMA).Difference(reservedCPUs)
+}
+
+// GetFilteredNUMASet return numa set except the numa which are excluded by the predicate.
+func (nm NUMANodeMap) GetFilteredNUMASet(excludeNUMAPredicate func(ai *AllocationInfo) bool) machine.CPUSet {
+	res := machine.NewCPUSet()
+	for numaID, numaNodeState := range nm {
+		if numaNodeState.Exist(excludeNUMAPredicate) {
+			continue
+		}
+		res.Add(numaID)
+	}
+	return res
 }
 
 func (nm NUMANodeMap) Clone() NUMANodeMap {

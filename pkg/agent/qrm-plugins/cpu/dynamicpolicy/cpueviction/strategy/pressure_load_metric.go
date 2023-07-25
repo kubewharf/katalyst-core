@@ -54,7 +54,7 @@ func (se SubEntries) IsPoolEntry() bool {
 // Entries are keyed by pod UID or pool name
 type Entries map[string]SubEntries
 
-type PoolMetricCollectHandler func(dynamicConfig *dynamic.Configuration,
+type PoolMetricCollectHandler func(dynamicConfig *dynamic.Configuration, poolsUnderPressure bool,
 	metricName string, metricValue float64, _ *state.AllocationInfo, collectTime int64)
 
 func (ring *MetricRing) Sum() float64 {

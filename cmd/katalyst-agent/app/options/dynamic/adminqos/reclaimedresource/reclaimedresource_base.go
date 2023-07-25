@@ -29,10 +29,11 @@ import (
 )
 
 type ReclaimedResourceOptions struct {
-	EnableReclaim                 bool
-	ReservedResourceForReport     general.ResourceList
-	MinReclaimedResourceForReport general.ResourceList
-	ReservedResourceForAllocate   general.ResourceList
+	EnableReclaim                     bool
+	ReservedResourceForReport         general.ResourceList
+	MinReclaimedResourceForReport     general.ResourceList
+	ReservedResourceForAllocate       general.ResourceList
+	ReservedResourceForReclaimedCores general.ResourceList
 
 	*cpuheadroom.CPUHeadroomOptions
 	*memoryheadroom.MemoryHeadroomOptions
@@ -53,6 +54,10 @@ func NewReclaimedResourceOptions() *ReclaimedResourceOptions {
 			v1.ResourceCPU:    resource.MustParse("4"),
 			v1.ResourceMemory: resource.MustParse("5Gi"),
 		},
+		ReservedResourceForReclaimedCores: map[v1.ResourceName]resource.Quantity{
+			v1.ResourceCPU:    resource.MustParse("4"),
+			v1.ResourceMemory: resource.MustParse("0"),
+		},
 		CPUHeadroomOptions:    cpuheadroom.NewCPUHeadroomOptions(),
 		MemoryHeadroomOptions: memoryheadroom.NewMemoryHeadroomOptions(),
 	}
@@ -70,6 +75,8 @@ func (o *ReclaimedResourceOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 		"min reclaimed resource report to cnr")
 	fs.Var(&o.ReservedResourceForAllocate, "reserved-resource-for-allocate",
 		"reserved reclaimed resource actually not allocate to reclaimed resource")
+	fs.Var(&o.ReservedResourceForReclaimedCores, "reserved-resource-for-reclaimed-cores",
+		"reserved resources for reclaimed_cores pods")
 
 	o.CPUHeadroomOptions.AddFlags(fss)
 	o.MemoryHeadroomOptions.AddFlags(fss)
@@ -82,6 +89,7 @@ func (o *ReclaimedResourceOptions) ApplyTo(c *reclaimedresource.ReclaimedResourc
 	c.ReservedResourceForReport = v1.ResourceList(o.ReservedResourceForReport)
 	c.MinReclaimedResourceForReport = v1.ResourceList(o.MinReclaimedResourceForReport)
 	c.ReservedResourceForAllocate = v1.ResourceList(o.ReservedResourceForAllocate)
+	c.MinReclaimedResourceForAllocate = v1.ResourceList(o.ReservedResourceForReclaimedCores)
 
 	errList = append(errList, o.CPUHeadroomOptions.ApplyTo(c.CPUHeadroomConfiguration))
 	errList = append(errList, o.MemoryHeadroomOptions.ApplyTo(c.MemoryHeadroomConfiguration))

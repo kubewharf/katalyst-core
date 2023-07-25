@@ -134,32 +134,6 @@ func (cra *cpuResourceAdvisor) initializeHeadroomAssembler() error {
 	return nil
 }
 
-// initializeReservedForReclaim generates per numa reserved for reclaim resource value map.
-// per numa reserved resource is taken in a fair way with even step, e.g.
-// 4 -> 1 1 1 1; 2 -> 1 0 1 0
-func (cra *cpuResourceAdvisor) initializeReservedForReclaim() {
-	reservedTotal := types.ReservedForReclaim
-	numNumaNodes := cra.metaServer.NumNUMANodes
-	reservedPerNuma := reservedTotal / numNumaNodes
-	step := numNumaNodes / reservedTotal
-
-	if reservedPerNuma < 1 {
-		reservedPerNuma = 1
-	}
-	if step < 1 {
-		step = 1
-	}
-
-	cra.reservedForReclaim = make(map[int]int)
-	for id := 0; id < numNumaNodes; id++ {
-		if id%step == 0 {
-			cra.reservedForReclaim[id] = reservedPerNuma
-		} else {
-			cra.reservedForReclaim[id] = 0
-		}
-	}
-}
-
 // updateNumasAvailableResource updates available resource of all numa nodes.
 // available = total - reserved pool - reserved for reclaim
 func (cra *cpuResourceAdvisor) updateNumasAvailableResource() {

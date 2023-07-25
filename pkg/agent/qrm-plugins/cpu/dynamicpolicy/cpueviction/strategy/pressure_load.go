@@ -30,6 +30,7 @@ import (
 	pluginapi "github.com/kubewharf/katalyst-api/pkg/protocol/evictionplugin/v1alpha1"
 	advisorapi "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/cpuadvisor"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
+	qrmutil "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic"
 	"github.com/kubewharf/katalyst-core/pkg/config/generic"
@@ -37,6 +38,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
+	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 	"github.com/kubewharf/katalyst-core/pkg/util/native"
 )
 
@@ -87,10 +89,12 @@ type CPUPressureLoadEviction struct {
 	lastEvictionTime time.Time
 
 	poolMetricCollectHandlers map[string]PoolMetricCollectHandler
+
+	systemReservedCPUs machine.CPUSet
 }
 
 func NewCPUPressureLoadEviction(emitter metrics.MetricEmitter, metaServer *metaserver.MetaServer,
-	conf *config.Configuration, state state.State) CPUPressureThresholdEviction {
+	conf *config.Configuration, state state.State) (CPUPressureThresholdEviction, error) {
 	plugin := &CPUPressureLoadEviction{
 		state:          state,
 		emitter:        emitter,
@@ -101,10 +105,18 @@ func NewCPUPressureLoadEviction(emitter metrics.MetricEmitter, metaServer *metas
 		syncPeriod:     conf.LoadEvictionSyncPeriod,
 	}
 
+	systemReservedCores, reserveErr := qrmutil.GetSystemReservedCores(conf, metaServer.KatalystMachineInfo, metaServer.CPUDetails.CPUs().Clone())
+	if reserveErr != nil {
+		general.Errorf("GetSystemReservedCores for reservedCPUsNum: %d failed with error: %v",
+			conf.ReservedCPUCores, reserveErr)
+		return plugin, reserveErr
+	}
+	plugin.systemReservedCPUs = systemReservedCores
+
 	plugin.poolMetricCollectHandlers = map[string]PoolMetricCollectHandler{
 		consts.MetricLoad1MinContainer: plugin.collectPoolLoad,
 	}
-	return plugin
+	return plugin, nil
 }
 
 func (p *CPUPressureLoadEviction) Start(ctx context.Context) (err error) {
@@ -354,6 +366,8 @@ func (p *CPUPressureLoadEviction) collectMetrics(_ context.Context) {
 		}
 	}
 
+	underPressure := p.sharedPoolsUnderPressure()
+
 	// push pre-collected local store (i.e. poolsMetric) to metric ring buffer
 	for poolName, entry := range entries {
 		if entry == nil || !entry.IsPoolEntry() || skipPools.Has(poolName) {
@@ -376,14 +390,51 @@ func (p *CPUPressureLoadEviction) collectMetrics(_ context.Context) {
 					"collecting handler, use default handler", metricName)
 				handler = p.collectPoolMetricDefault
 			}
-			handler(dynamicConfig, metricName, poolsMetric[poolName][metricName], poolEntry, collectTime)
+			handler(dynamicConfig, underPressure, metricName, poolsMetric[poolName][metricName], poolEntry, collectTime)
 		}
 	}
 }
 
+// sharedPoolsUnderPressure checks if the sum of all the shared pool size has reached the maximum
+func (p *CPUPressureLoadEviction) sharedPoolsUnderPressure() bool {
+	entries := p.state.GetPodEntries()
+
+	poolSizeSum := 0
+	for poolName, entry := range entries {
+		if entry == nil || !entry.IsPoolEntry() || skipPools.Has(poolName) {
+			continue
+		}
+
+		poolEntry := entry[advisorapi.FakedContainerName]
+		if poolEntry == nil {
+			continue
+		}
+
+		poolSizeSum += poolEntry.AllocationResult.Size()
+	}
+
+	return poolSizeSum >= p.getSharedPoolsLimit()
+}
+
+// getSharedPoolsLimit calculates the cpu core limit used by shared core pool.It should equal to machine core number
+// subtracting the cores used by dedicated core pods and the cores reserved for reclaim_core pods and system_core pods.
+func (p *CPUPressureLoadEviction) getSharedPoolsLimit() int {
+	availableCPUSet := p.state.GetMachineState().GetFilteredAvailableCPUSet(p.systemReservedCPUs, nil, state.CheckDedicatedNUMABinding)
+	sharedCoresNUMAs := p.state.GetMachineState().GetFilteredNUMASet(state.CheckNUMABinding)
+
+	coreNumReservedForReclaim := p.dynamicConf.GetDynamicConfiguration().MinReclaimedResourceForAllocate[v1.ResourceCPU]
+	reservedForReclaim := machine.GetCoreNumsReservedForReclaim(int(coreNumReservedForReclaim.Value()), p.metaServer.NumNUMANodes)
+	reservedForReclaimInSharedNuma := 0
+	for _, numaID := range sharedCoresNUMAs.ToSliceInt() {
+		reservedForReclaimInSharedNuma += reservedForReclaim[numaID]
+	}
+
+	return availableCPUSet.Size() - reservedForReclaimInSharedNuma
+}
+
 // collectPoolLoad is specifically used for cpu-load in pool level,
 // and its upper-bound and lower-bound are calculated by pool size.
-func (p *CPUPressureLoadEviction) collectPoolLoad(dynamicConfig *dynamic.Configuration,
+func (p *CPUPressureLoadEviction) collectPoolLoad(dynamicConfig *dynamic.Configuration, poolsUnderPressure bool,
 	metricName string, metricValue float64, poolEntry *state.AllocationInfo, collectTime int64) {
 	poolSize := poolEntry.AllocationResult.Size()
 	snapshot := &MetricSnapshot{
@@ -396,13 +447,36 @@ func (p *CPUPressureLoadEviction) collectPoolLoad(dynamicConfig *dynamic.Configu
 		Time: collectTime,
 	}
 
+	if p.shouldUseDynamicThreshold() {
+		// it must not be triggered when it's healthy
+		lowerBound := metricValue + 1
+		upperBound := lowerBound * dynamicConfig.LoadUpperBoundRatio
+
+		if poolsUnderPressure {
+			// soft over must be triggered when it's under pressure
+			lowerBound = 1
+			upperBound = float64(poolSize) * dynamicConfig.LoadUpperBoundRatio
+		}
+		snapshot.Info.LowerBound = lowerBound
+		snapshot.Info.UpperBound = upperBound
+	}
+
 	p.logPoolSnapShot(snapshot, poolEntry.OwnerPoolName, true)
 	p.pushMetric(dynamicConfig, metricName, poolEntry.OwnerPoolName, "", snapshot)
 }
 
+// shouldUseDynamicThreshold returns if we should use the dynamic threshold. When it is enabled, plugin must make sure
+// soft over is triggered when shared_core pools can't be expanded anymore.
+func (p *CPUPressureLoadEviction) shouldUseDynamicThreshold() bool {
+	// for now, we consider ReservedResourceForAllocate as downgrading or manual intervention configuration, when it's
+	// set to a value greater than zero, fall back to static threshold
+	reservedCoreNumForAllocate := p.dynamicConf.GetDynamicConfiguration().ReservedResourceForAllocate.Cpu()
+	return reservedCoreNumForAllocate.Value() == 0
+}
+
 // collectPoolMetricDefault is a common collect in pool level,
 // and its upper-bound and lower-bound are not defined.
-func (p *CPUPressureLoadEviction) collectPoolMetricDefault(dynamicConfig *dynamic.Configuration,
+func (p *CPUPressureLoadEviction) collectPoolMetricDefault(dynamicConfig *dynamic.Configuration, _ bool,
 	metricName string, metricValue float64, poolEntry *state.AllocationInfo, collectTime int64) {
 	snapshot := &MetricSnapshot{
 		Info: MetricInfo{

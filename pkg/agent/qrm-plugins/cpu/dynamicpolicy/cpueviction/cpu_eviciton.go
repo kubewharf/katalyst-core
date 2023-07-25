@@ -63,12 +63,17 @@ func newCPUPressureEviction(emitter metrics.MetricEmitter, metaServer *metaserve
 	conf *config.Configuration, state state.State) (skeleton.GenericPlugin, error) {
 	wrappedEmitter := emitter.WithTags(cpuPressureEvictionPluginName)
 
+	pressureLoadEviction, err := strategy.NewCPUPressureLoadEviction(emitter, metaServer, conf, state)
+	if err != nil {
+		return nil, fmt.Errorf("create CPUPressureLoadEviction plugin failed, err:%v", err)
+	}
+
 	plugin := &cpuPressureEviction{
 		forceEvictionList: []strategy.CPUPressureForceEviction{
 			strategy.NewCPUPressureSuppressionEviction(emitter, metaServer, conf, state),
 		},
 		thresholdEvictionList: []strategy.CPUPressureThresholdEviction{
-			strategy.NewCPUPressureLoadEviction(emitter, metaServer, conf, state),
+			pressureLoadEviction,
 		},
 	}
 

@@ -127,15 +127,12 @@ type DynamicPolicy struct {
 
 func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration,
 	_ interface{}, agentName string) (bool, agent.Component, error) {
-	allCPUs := agentCtx.CPUDetails.CPUs().Clone()
-	reservedCPUsNum := conf.ReservedCPUCores
 
-	reservedCPUs, _, reserveErr := calculator.TakeHTByNUMABalance(agentCtx.KatalystMachineInfo, allCPUs, reservedCPUsNum)
+	reservedCPUs, reserveErr := util.GetSystemReservedCores(conf, agentCtx.KatalystMachineInfo, agentCtx.CPUDetails.CPUs().Clone())
 	if reserveErr != nil {
-		return false, agent.ComponentStub{}, fmt.Errorf("takeByNUMABalance for reservedCPUsNum: %d failed with error: %v",
+		return false, agent.ComponentStub{}, fmt.Errorf("GetSystemReservedCores for reservedCPUsNum: %d failed with error: %v",
 			conf.ReservedCPUCores, reserveErr)
 	}
-	general.Infof("take reservedCPUs: %s by reservedCPUsNum: %d", reservedCPUs.String(), reservedCPUsNum)
 
 	stateImpl, stateErr := state.NewCheckpointState(conf.GenericQRMPluginConfiguration.StateFileDirectory, cpuPluginStateFileName,
 		cpuutil.CPUResourcePluginPolicyNameDynamic, agentCtx.CPUTopology, conf.SkipCPUStateCorruption)
