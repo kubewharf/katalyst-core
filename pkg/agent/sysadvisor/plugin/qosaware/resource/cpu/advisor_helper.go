@@ -249,8 +249,10 @@ func (cra *cpuResourceAdvisor) setRegionEntries() {
 
 	for regionName, r := range cra.regionMap {
 		regionInfo := &types.RegionInfo{
-			RegionType:   r.Type(),
-			BindingNumas: r.GetBindingNumas(),
+			RegionName:    r.Name(),
+			RegionType:    r.Type(),
+			OwnerPoolName: r.OwnerPoolName(),
+			BindingNumas:  r.GetBindingNumas(),
 		}
 		entries[regionName] = regionInfo
 	}

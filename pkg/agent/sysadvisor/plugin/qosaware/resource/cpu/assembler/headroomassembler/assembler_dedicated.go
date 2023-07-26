@@ -21,7 +21,6 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/klog/v2"
 
-	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/cpuadvisor"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource/cpu/region"
@@ -70,7 +69,8 @@ func (ha *HeadroomAssemblerDedicated) GetHeadroom() (resource.Quantity, error) {
 	}
 
 	headroomTotal := 0.0
-	emptyNumas := ha.metaServer.CPUDetails.NUMANodes()
+	emptyNUMAs := ha.metaServer.CPUDetails.NUMANodes()
+	exclusiveNUMAs := machine.NewCPUSet()
 
 	// sum up dedicated region headroom
 	for _, r := range *ha.regionMap {
@@ -80,23 +80,24 @@ func (ha *HeadroomAssemblerDedicated) GetHeadroom() (resource.Quantity, error) {
 				return resource.Quantity{}, err
 			}
 			headroomTotal += headroom
+			exclusiveNUMAs = exclusiveNUMAs.Union(r.GetBindingNumas())
 		}
-		emptyNumas = emptyNumas.Difference(r.GetBindingNumas())
+		emptyNUMAs = emptyNUMAs.Difference(r.GetBindingNumas())
 	}
 
 	// add non binding reclaim pool size
 	reclaimPoolInfo, ok := ha.metaReader.GetPoolInfo(state.PoolNameReclaim)
 	if ok && reclaimPoolInfo != nil {
-		nonBindingReclaimPool, ok := reclaimPoolInfo.TopologyAwareAssignments[cpuadvisor.FakedNUMAID]
-		if ok {
-			headroomTotal += float64(nonBindingReclaimPool.Size())
+		reclaimPoolNUMAs := machine.GetCPUAssignmentNUMAs(reclaimPoolInfo.TopologyAwareAssignments)
+		for _, numaID := range reclaimPoolNUMAs.Difference(exclusiveNUMAs).Difference(emptyNUMAs).ToSliceInt() {
+			headroomTotal += float64(reclaimPoolInfo.TopologyAwareAssignments[numaID].Size())
 		}
 	}
 
 	// add empty numa headroom
-	for _, numaID := range emptyNumas.ToSliceInt() {
+	for _, numaID := range emptyNUMAs.ToSliceInt() {
 		available, _ := (*ha.numaAvailable)[numaID]
-		reservedForAllocate := float64(reserved.Value()*int64(emptyNumas.Size())) / float64(ha.metaServer.NumNUMANodes)
+		reservedForAllocate := float64(reserved.Value()*int64(emptyNUMAs.Size())) / float64(ha.metaServer.NumNUMANodes)
 		reservedForReclaim, _ := (*ha.reservedForReclaim)[numaID]
 		headroomTotal += float64(available) - reservedForAllocate + float64(reservedForReclaim)
 	}
