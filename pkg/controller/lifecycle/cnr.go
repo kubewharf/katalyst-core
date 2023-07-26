@@ -295,6 +295,9 @@ func (cl *CNRLifecycle) clearUnexpectedCNR() {
 
 func (cl *CNRLifecycle) updateOrCreateCNR(node *corev1.Node) error {
 	cnr, err := cl.cnrLister.Get(node.Name)
+	if err != nil && !errors.IsNotFound(err) {
+		return fmt.Errorf("failed to get cnr from lister %s: %v", node.Name, err)
+	}
 	if errors.IsNotFound(err) {
 		cnr = &apis.CustomNodeResource{
 			ObjectMeta: metav1.ObjectMeta{
@@ -307,6 +310,12 @@ func (cl *CNRLifecycle) updateOrCreateCNR(node *corev1.Node) error {
 		_, err = cl.cnrControl.CreateCNR(cl.ctx, cnr)
 		if err != nil && !errors.IsAlreadyExists(err) {
 			return fmt.Errorf("failed to create cnr %s: %v", cnr.Name, err)
+		}
+		if errors.IsAlreadyExists(err) {
+			cnr, err = cl.client.InternalClient.NodeV1alpha1().CustomNodeResources().Get(cl.ctx, node.Name, metav1.GetOptions{ResourceVersion: "0"})
+			if err != nil {
+				return fmt.Errorf("failed to get cnr from apiserver %s: %v", node.Name, err)
+			}
 		}
 	}
 
