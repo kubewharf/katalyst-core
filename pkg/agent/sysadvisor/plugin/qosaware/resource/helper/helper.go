@@ -55,3 +55,15 @@ func PodEnableReclaim(ctx context.Context, metaServer *metaserver.MetaServer,
 	// if performance level not poor, it can not be reclaimed
 	return pLevel != spd.PerformanceLevelPoor, nil
 }
+
+func PodPerformanceScore(ctx context.Context, metaServer *metaserver.MetaServer, podUID string) (float64, error) {
+	if metaServer == nil {
+		return 0, fmt.Errorf("metaServer is nil")
+	}
+	pod, err := metaServer.GetPod(ctx, podUID)
+	if err != nil {
+		return 0, err
+	}
+
+	return metaServer.ServiceBusinessPerformanceScore(ctx, pod)
+}

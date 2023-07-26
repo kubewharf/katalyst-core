@@ -141,3 +141,11 @@ func TestJsonPathEmpty(t *testing.T) {
 	as.Equal(true, JsonPathEmpty([]byte("{}")))
 	as.Equal(true, JsonPathEmpty([]byte("")))
 }
+
+func TestFormatMemoryQutantity(t *testing.T) {
+	t.Parallel()
+	as := require.New(t)
+	as.Equal("1024[1Ki]", FormatMemoryQuantity(1<<10))
+	as.Equal("1.048576e+06[1Mi]", FormatMemoryQuantity(1<<20))
+	as.Equal("1.073741824e+09[1Gi]", FormatMemoryQuantity(1<<30))
+}
