@@ -317,6 +317,7 @@ func (p *NativePolicy) Allocate(ctx context.Context,
 			ResourceName:   string(v1.ResourceCPU),
 			Labels:         general.DeepCopyMap(req.Labels),
 			Annotations:    general.DeepCopyMap(req.Annotations),
+			NativeQosClass: req.NativeQosClass,
 		}, nil
 	}
 
@@ -341,8 +342,9 @@ func (p *NativePolicy) Allocate(ctx context.Context,
 					},
 				},
 			},
-			Labels:      general.DeepCopyMap(req.Labels),
-			Annotations: general.DeepCopyMap(req.Annotations),
+			Labels:         general.DeepCopyMap(req.Labels),
+			Annotations:    general.DeepCopyMap(req.Annotations),
+			NativeQosClass: req.NativeQosClass,
 		}, nil
 	}
 
@@ -390,8 +392,9 @@ func (p *NativePolicy) Allocate(ctx context.Context,
 					},
 				},
 			},
-			Labels:      general.DeepCopyMap(req.Labels),
-			Annotations: general.DeepCopyMap(req.Annotations),
+			Labels:         general.DeepCopyMap(req.Labels),
+			Annotations:    general.DeepCopyMap(req.Annotations),
+			NativeQosClass: req.NativeQosClass,
 		}, nil
 	}
 

@@ -188,6 +188,7 @@ func PackResourceHintsResponse(req *pluginapi.ResourceRequest, resourceName stri
 		ResourceHints:  resourceHints,
 		Labels:         general.DeepCopyMap(req.Labels),
 		Annotations:    general.DeepCopyMap(req.Annotations),
+		NativeQosClass: req.NativeQosClass,
 	}, nil
 }
 
@@ -386,7 +387,8 @@ func PackAllocationResponse(allocationInfo *state.AllocationInfo, resourceName, 
 				},
 			},
 		},
-		Labels:      general.DeepCopyMap(req.Labels),
-		Annotations: general.DeepCopyMap(req.Annotations),
+		Labels:         general.DeepCopyMap(req.Labels),
+		Annotations:    general.DeepCopyMap(req.Annotations),
+		NativeQosClass: req.NativeQosClass,
 	}, nil
 }
