@@ -22,6 +22,8 @@ import (
 
 	v1 "k8s.io/api/core/v1"
 
+	"github.com/kubewharf/katalyst-core/pkg/config"
+	"github.com/kubewharf/katalyst-core/pkg/util/native"
 	"github.com/kubewharf/katalyst-core/pkg/util/process"
 )
 
@@ -33,18 +35,27 @@ type KubeletPodFetcher interface {
 }
 
 // kubeletPodFetcherImpl use kubelet 10255 pods interface to get pod directly without cache.
-type kubeletPodFetcherImpl struct{}
+type kubeletPodFetcherImpl struct {
+	conf *config.Configuration
+}
 
 // GetPodList get pods from kubelet 10255/pods api, and the returned slice does not
 // contain pods that don't pass `podFilter`
-func (k *kubeletPodFetcherImpl) GetPodList(_ context.Context, podFilter func(*v1.Pod) bool) ([]*v1.Pod, error) {
-	const podsApi = "http://localhost:10255/pods"
-
+func (k *kubeletPodFetcherImpl) GetPodList(ctx context.Context, podFilter func(*v1.Pod) bool) ([]*v1.Pod, error) {
 	var podList v1.PodList
-	err := process.GetAndUnmarshal(podsApi, &podList)
-	if err != nil {
-		return []*v1.Pod{}, fmt.Errorf("failed to get pod list, error: %v", err)
-	} else if len(podList.Items) == 0 {
+
+	if k.conf.EnableKubeletSecurePort {
+		if err := native.GetAndUnmarshalForHttps(ctx, k.conf.KubeletSecurePort, k.conf.NodeAddress, k.conf.KubeletPodsEndpoint, k.conf.APIAuthTokenFile, &podList); err != nil {
+			return []*v1.Pod{}, fmt.Errorf("failed to get kubelet config, error: %v", err)
+		}
+	} else {
+		const podsApi = "http://localhost:10255/pods"
+		if err := process.GetAndUnmarshal(podsApi, &podList); err != nil {
+			return []*v1.Pod{}, fmt.Errorf("failed to get pod list, error: %v", err)
+		}
+	}
+
+	if len(podList.Items) == 0 {
 		// kubelet should at least contain current pod as an item
 		return []*v1.Pod{}, fmt.Errorf("kubelet returns empty pod list")
 	}
@@ -59,6 +70,8 @@ func (k *kubeletPodFetcherImpl) GetPodList(_ context.Context, podFilter func(*v1
 	return pods, nil
 }
 
-func NewKubeletPodFetcher() KubeletPodFetcher {
-	return &kubeletPodFetcherImpl{}
+func NewKubeletPodFetcher(conf *config.Configuration) KubeletPodFetcher {
+	return &kubeletPodFetcherImpl{
+		conf: conf,
+	}
 }
