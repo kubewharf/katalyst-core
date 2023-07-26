@@ -32,7 +32,9 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	kubeletconfigv1beta1 "k8s.io/kubelet/config/v1beta1"
 	podresv1 "k8s.io/kubelet/pkg/apis/podresources/v1"
+	"k8s.io/kubernetes/pkg/kubelet/apis/config"
 	"k8s.io/kubernetes/pkg/kubelet/checkpointmanager"
 	testutil "k8s.io/kubernetes/pkg/kubelet/cm/cpumanager/state/testing"
 
@@ -43,6 +45,7 @@ import (
 	pkgconsts "github.com/kubewharf/katalyst-core/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent"
+	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/kubeletconfig"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/pod"
 	"github.com/kubewharf/katalyst-core/pkg/util"
 	"github.com/kubewharf/katalyst-core/pkg/util/qos"
@@ -397,7 +400,7 @@ func Test_getZoneAllocationsByPodResources(t *testing.T) {
 				}
 				return podResources, nil
 			}
-			p := &podResourcesServerTopologyAdapterImpl{
+			p := &topologyAdapterImpl{
 				numaSocketZoneNodeMap: tt.args.numaSocketZoneNodeMap,
 				podResourcesFilter:    podResourcesFilter,
 			}
@@ -726,7 +729,7 @@ func Test_getZoneResourcesByAllocatableResources(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			p := &podResourcesServerTopologyAdapterImpl{
+			p := &topologyAdapterImpl{
 				numaSocketZoneNodeMap: tt.args.numaSocketZoneNodeMap,
 			}
 			zoneResourcesMap, err := p.getZoneResources(tt.args.allocatableResources)
@@ -1403,7 +1406,7 @@ func Test_podResourcesServerTopologyAdapterImpl_GetTopologyZones(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 
-			p := &podResourcesServerTopologyAdapterImpl{
+			p := &topologyAdapterImpl{
 				client: &fakePodResourcesListerClient{
 					ListPodResourcesResponse:     tt.fields.listPodResources,
 					AllocatableResourcesResponse: tt.fields.allocatableResources,
@@ -1423,6 +1426,26 @@ func Test_podResourcesServerTopologyAdapterImpl_GetTopologyZones(t *testing.T) {
 			assert.Equal(t, true, apiequality.Semantic.DeepEqual(tt.want, got))
 		})
 	}
+}
+
+func Test_podResourcesServerTopologyAdapterImpl_GetTopologyPolicy(t *testing.T) {
+	t.Parallel()
+
+	fakeKubeletConfig := kubeletconfigv1beta1.KubeletConfiguration{
+		TopologyManagerPolicy: config.SingleNumaNodeTopologyManagerPolicy,
+		TopologyManagerScope:  config.ContainerTopologyManagerScope,
+	}
+
+	p := &topologyAdapterImpl{
+		metaServer: &metaserver.MetaServer{
+			MetaAgent: &agent.MetaAgent{
+				KubeletConfigFetcher: kubeletconfig.NewFakeKubeletConfigFetcher(fakeKubeletConfig),
+			},
+		},
+	}
+	got, err := p.GetTopologyPolicy(context.TODO())
+	assert.NoError(t, err)
+	assert.Equal(t, nodev1alpha1.TopologyPolicySingleNUMANodeContainerLevel, got)
 }
 
 func Test_podResourcesServerTopologyAdapterImpl_Run(t *testing.T) {

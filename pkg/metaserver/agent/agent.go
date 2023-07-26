@@ -32,6 +32,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/cnc"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/cnr"
+	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/kubeletconfig"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric/malachite"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/node"
@@ -58,6 +59,7 @@ type MetaAgent struct {
 	metric.MetricsFetcher
 	cnr.CNRFetcher
 	cnc.CNCFetcher
+	kubeletconfig.KubeletConfigFetcher
 
 	// ObjectFetchers provide a way to expand fetcher for objects
 	ObjectFetchers sync.Map
@@ -86,8 +88,9 @@ func NewMetaAgent(conf *config.Configuration, clientSet *client.GenericClientSet
 		NodeFetcher: node.NewRemoteNodeFetcher(conf.NodeName, clientSet.KubeClient.CoreV1().Nodes()),
 		CNRFetcher: cnr.NewCachedCNRFetcher(conf.NodeName, conf.CNRCacheTTL,
 			clientSet.InternalClient.NodeV1alpha1().CustomNodeResources()),
-		KatalystMachineInfo: machineInfo,
-		Conf:                conf,
+		KubeletConfigFetcher: kubeletconfig.NewKubeletConfigFetcher(conf, emitter),
+		KatalystMachineInfo:  machineInfo,
+		Conf:                 conf,
 	}
 
 	if conf.EnableMetricsFetcher {
@@ -148,6 +151,12 @@ func (a *MetaAgent) GetUnstructured(ctx context.Context, gvr metav1.GroupVersion
 		return nil, fmt.Errorf("gvr %v not exist", gvr)
 	}
 	return f.(ObjectFetcher).GetUnstructured(ctx, namespace, name)
+}
+
+func (a *MetaAgent) SetKubeletConfigFetcher(k kubeletconfig.KubeletConfigFetcher) {
+	a.setComponentImplementation(func() {
+		a.KubeletConfigFetcher = k
+	})
 }
 
 func (a *MetaAgent) Run(ctx context.Context) {
