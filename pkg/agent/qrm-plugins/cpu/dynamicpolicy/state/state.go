@@ -407,7 +407,6 @@ func (ns *NUMANodeState) SetAllocationInfo(podUID string, containerName string, 
 }
 
 // GetDefaultCPUSet returns default cpuset in this node
-// TODO: add lock to NUMANodeMap
 func (nm NUMANodeMap) GetDefaultCPUSet() machine.CPUSet {
 	res := machine.NewCPUSet()
 	for _, numaNodeState := range nm {

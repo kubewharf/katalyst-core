@@ -40,13 +40,13 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/cpueviction"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/validator"
+	cpuutil "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/util"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util"
 	"github.com/kubewharf/katalyst-core/pkg/agent/utilcomponent/periodicalhandler"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	dynamicconfig "github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/crd"
 	"github.com/kubewharf/katalyst-core/pkg/config/generic"
-	coreconsts "github.com/kubewharf/katalyst-core/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
@@ -56,8 +56,7 @@ import (
 )
 
 const (
-	CPUResourcePluginPolicyNameDynamic = "dynamic"
-	cpuPluginStateFileName             = "cpu_plugin_state"
+	cpuPluginStateFileName = "cpu_plugin_state"
 
 	reservedReclaimedCPUsSize = 4
 
@@ -139,7 +138,7 @@ func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration
 	general.Infof("take reservedCPUs: %s by reservedCPUsNum: %d", reservedCPUs.String(), reservedCPUsNum)
 
 	stateImpl, stateErr := state.NewCheckpointState(conf.GenericQRMPluginConfiguration.StateFileDirectory, cpuPluginStateFileName,
-		coreconsts.CPUResourcePluginPolicyNameDynamic, agentCtx.CPUTopology, conf.SkipCPUStateCorruption)
+		cpuutil.CPUResourcePluginPolicyNameDynamic, agentCtx.CPUTopology, conf.SkipCPUStateCorruption)
 	if stateErr != nil {
 		return false, agent.ComponentStub{}, fmt.Errorf("NewCheckpointState failed with error: %v", stateErr)
 	}
@@ -150,7 +149,7 @@ func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration
 
 	wrappedEmitter := agentCtx.EmitterPool.GetDefaultMetricsEmitter().WithTags(agentName, metrics.MetricTag{
 		Key: util.QRMPluginPolicyTagName,
-		Val: coreconsts.CPUResourcePluginPolicyNameDynamic,
+		Val: cpuutil.CPUResourcePluginPolicyNameDynamic,
 	})
 
 	var (
@@ -170,7 +169,7 @@ func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration
 	// for those pods have already been allocated reservedCPUs,
 	// we won't touch them and wait them to be deleted the next update.
 	policyImplement := &DynamicPolicy{
-		name:   fmt.Sprintf("%s_%s", agentName, coreconsts.CPUResourcePluginPolicyNameDynamic),
+		name:   fmt.Sprintf("%s_%s", agentName, cpuutil.CPUResourcePluginPolicyNameDynamic),
 		stopCh: make(chan struct{}),
 
 		machineInfo: agentCtx.KatalystMachineInfo,

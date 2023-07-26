@@ -29,8 +29,8 @@ import (
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
+	cpuutil "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/util"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic"
-	coreconsts "github.com/kubewharf/katalyst-core/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
@@ -41,7 +41,7 @@ const (
 
 func getTestNativePolicy(topology *machine.CPUTopology, stateFileDirectory string) (*NativePolicy, error) {
 	stateImpl, err := state.NewCheckpointState(stateFileDirectory, cpuPluginStateFileName,
-		coreconsts.CPUResourcePluginPolicyNameNative, topology, false)
+		cpuutil.CPUResourcePluginPolicyNameNative, topology, false)
 	if err != nil {
 		return nil, err
 	}

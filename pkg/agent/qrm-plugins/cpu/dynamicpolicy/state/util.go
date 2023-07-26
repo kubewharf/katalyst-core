@@ -24,7 +24,7 @@ import (
 	"k8s.io/klog/v2"
 
 	advisorapi "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/cpuadvisor"
-	coreconsts "github.com/kubewharf/katalyst-core/pkg/consts"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/util"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
@@ -174,12 +174,12 @@ func GenerateMachineStateFromPodEntries(topology *machine.CPUTopology, podEntrie
 					}
 
 					switch policyName {
-					case coreconsts.CPUResourcePluginPolicyNameDynamic:
+					case util.CPUResourcePluginPolicyNameDynamic:
 						// only modify allocated and default properties in NUMA node state if the policy is dynamic and the QoS class is dedicated_cores with NUMA binding
 						if CheckDedicatedNUMABinding(allocationInfo) {
 							allocatedCPUsInNumaNode = allocatedCPUsInNumaNode.Union(allocationInfo.OriginalTopologyAwareAssignments[int(numaNode)])
 						}
-					case coreconsts.CPUResourcePluginPolicyNameNative:
+					case util.CPUResourcePluginPolicyNameNative:
 						// only modify allocated and default properties in NUMA node state if the policy is native and the QoS class is Guaranteed
 						if CheckDedicatedPool(allocationInfo) {
 							allocatedCPUsInNumaNode = allocatedCPUsInNumaNode.Union(allocationInfo.OriginalTopologyAwareAssignments[int(numaNode)])

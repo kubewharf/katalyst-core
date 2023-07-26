@@ -29,8 +29,8 @@ import (
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/nativepolicy/calculator"
+	nativepolicyutil "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/nativepolicy/util"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util"
-	"github.com/kubewharf/katalyst-core/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
@@ -136,7 +136,7 @@ func (p *NativePolicy) dedicatedCoresAllocationHandler(_ context.Context,
 	p.state.SetAllocationInfo(allocationInfo.PodUid, allocationInfo.ContainerName, allocationInfo)
 	podEntries := p.state.GetPodEntries()
 
-	updatedMachineState, err := generateMachineStateFromPodEntries(p.machineInfo.CPUTopology, podEntries)
+	updatedMachineState, err := nativepolicyutil.GenerateMachineStateFromPodEntries(p.machineInfo.CPUTopology, podEntries)
 	if err != nil {
 		general.Errorf("pod: %s/%s, container: %s GenerateMachineStateFromPodEntries failed with error: %v",
 			req.PodNamespace, req.PodName, req.ContainerName, err)
@@ -211,7 +211,7 @@ func (p *NativePolicy) sharedPoolAllocationHandler(ctx context.Context,
 	p.state.SetAllocationInfo(allocationInfo.PodUid, allocationInfo.ContainerName, allocationInfo)
 	podEntries := p.state.GetPodEntries()
 
-	updatedMachineState, err := generateMachineStateFromPodEntries(p.machineInfo.CPUTopology, podEntries)
+	updatedMachineState, err := nativepolicyutil.GenerateMachineStateFromPodEntries(p.machineInfo.CPUTopology, podEntries)
 	if err != nil {
 		general.Errorf("pod: %s/%s, container: %s GenerateMachineStateFromPodEntries failed with error: %v",
 			req.PodNamespace, req.PodName, req.ContainerName, err)
@@ -266,7 +266,7 @@ func (p *NativePolicy) allocateCPUs(machineState state.NUMANodeMap, numCPUs int,
 }
 
 func (p *NativePolicy) takeByTopology(availableCPUs machine.CPUSet, numCPUs int) (machine.CPUSet, error) {
-	if p.cpuAllocationOption == consts.CPUResourcePluginNativePolicyAllocationOptionDistributed {
+	if p.cpuAllocationOption == nativepolicyutil.CPUResourcePluginNativePolicyAllocationOptionDistributed {
 		cpuGroupSize := 1
 		if p.enableFullPhysicalCPUsOnly {
 			cpuGroupSize = p.machineInfo.CPUsPerCore()

@@ -14,9 +14,12 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package consts
+package util
 
 const (
-	// KubeletQoSResourceManagerCheckpoint is the name of the checkpoint file for kubelet QoS resource manager
-	KubeletQoSResourceManagerCheckpoint = "kubelet_qrm_checkpoint"
+	// CPUResourcePluginPolicyNameDynamic is the name of the dynamic policy.
+	CPUResourcePluginPolicyNameDynamic = "dynamic"
+
+	// CPUResourcePluginPolicyNameNative is the name of the native policy.
+	CPUResourcePluginPolicyNameNative = "native"
 )

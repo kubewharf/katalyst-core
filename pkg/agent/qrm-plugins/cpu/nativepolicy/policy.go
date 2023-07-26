@@ -30,11 +30,12 @@ import (
 	"github.com/kubewharf/katalyst-api/pkg/plugins/skeleton"
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/agent"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
+	nativepolicyutil "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/nativepolicy/util"
+	cpuutil "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/util"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	dynamicconfig "github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/crd"
-	coreconsts "github.com/kubewharf/katalyst-core/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
@@ -106,7 +107,7 @@ func NewNativePolicy(agentCtx *agent.GenericContext, conf *config.Configuration,
 	general.Infof("new native policy")
 
 	stateImpl, stateErr := state.NewCheckpointState(conf.GenericQRMPluginConfiguration.StateFileDirectory, cpuPluginStateFileName,
-		coreconsts.CPUResourcePluginPolicyNameNative, agentCtx.CPUTopology, conf.SkipCPUStateCorruption)
+		cpuutil.CPUResourcePluginPolicyNameNative, agentCtx.CPUTopology, conf.SkipCPUStateCorruption)
 	if stateErr != nil {
 		return false, agent.ComponentStub{}, fmt.Errorf("NewCheckpointState failed with error: %v", stateErr)
 	}
@@ -117,11 +118,11 @@ func NewNativePolicy(agentCtx *agent.GenericContext, conf *config.Configuration,
 
 	wrappedEmitter := agentCtx.EmitterPool.GetDefaultMetricsEmitter().WithTags(agentName, metrics.MetricTag{
 		Key: util.QRMPluginPolicyTagName,
-		Val: coreconsts.CPUResourcePluginPolicyNameNative,
+		Val: cpuutil.CPUResourcePluginPolicyNameNative,
 	})
 
 	policyImplement := &NativePolicy{
-		name:                       fmt.Sprintf("%s_%s", agentName, coreconsts.CPUResourcePluginPolicyNameNative),
+		name:                       fmt.Sprintf("%s_%s", agentName, cpuutil.CPUResourcePluginPolicyNameNative),
 		stopCh:                     make(chan struct{}),
 		machineInfo:                agentCtx.KatalystMachineInfo,
 		emitter:                    wrappedEmitter,
@@ -595,7 +596,7 @@ func (p *NativePolicy) removePod(podUID string) error {
 	}
 	delete(podEntries, podUID)
 
-	updatedMachineState, err := generateMachineStateFromPodEntries(p.machineInfo.CPUTopology, podEntries)
+	updatedMachineState, err := nativepolicyutil.GenerateMachineStateFromPodEntries(p.machineInfo.CPUTopology, podEntries)
 	if err != nil {
 		return fmt.Errorf("GenerateMachineStateFromPodEntries failed with error: %v", err)
 	}
@@ -612,7 +613,7 @@ func (p *NativePolicy) removeContainer(podUID, containerName string) error {
 	}
 	delete(podEntries[podUID], containerName)
 
-	updatedMachineState, err := generateMachineStateFromPodEntries(p.machineInfo.CPUTopology, podEntries)
+	updatedMachineState, err := nativepolicyutil.GenerateMachineStateFromPodEntries(p.machineInfo.CPUTopology, podEntries)
 	if err != nil {
 		return fmt.Errorf("GenerateMachineStateFromPodEntries failed with error: %v", err)
 	}
@@ -656,7 +657,7 @@ func (p *NativePolicy) setReservedCPUs(allCPUs machine.CPUSet) error {
 		return fmt.Errorf("NewNativePolicy failed because get kubelet config failed with error: %v", err)
 	}
 
-	reservedQuantity, err := getKubeletReservedQuantity(klConfig)
+	reservedQuantity, err := nativepolicyutil.GetKubeletReservedQuantity(klConfig)
 	if err != nil {
 		return fmt.Errorf("getKubeletReservedQuantity failed because get kubelet reserved quantity failed with error: %v", err)
 	}
@@ -692,7 +693,7 @@ func (p *NativePolicy) setReservedCPUs(allCPUs machine.CPUSet) error {
 		return fmt.Errorf("unable to reserve the required amount of CPUs (size of %s did not equal %d)", reserved, numReservedCPUs)
 	}
 
-	general.Infof("take reservedCPUs: %s by reservedCPUsNum: %d", reservedCPUs.String(), numReservedCPUs)
+	general.Infof("take reserved CPUs: %s by reservedCPUsNum: %d", reserved.String(), numReservedCPUs)
 
 	p.reservedCPUs = reserved
 

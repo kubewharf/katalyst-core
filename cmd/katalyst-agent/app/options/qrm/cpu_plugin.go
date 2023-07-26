@@ -23,28 +23,41 @@ import (
 )
 
 type CPUOptions struct {
-	PolicyName                 string
-	EnableCPUAdvisor           bool
-	ReservedCPUCores           int
-	SkipCPUStateCorruption     bool
-	EnableCPUPressureEviction  bool
-	EnableSyncingCPUIdle       bool
-	EnableCPUIdle              bool
+	PolicyName             string
+	ReservedCPUCores       int
+	SkipCPUStateCorruption bool
+
+	CPUDynamicPolicyOptions
+	CPUNativePolicyOptions
+}
+
+type CPUDynamicPolicyOptions struct {
+	EnableCPUAdvisor          bool
+	EnableCPUPressureEviction bool
+	EnableSyncingCPUIdle      bool
+	EnableCPUIdle             bool
+}
+
+type CPUNativePolicyOptions struct {
 	EnableFullPhysicalCPUsOnly bool
 	CPUAllocationOption        string
 }
 
 func NewCPUOptions() *CPUOptions {
 	return &CPUOptions{
-		PolicyName:                 "dynamic",
-		EnableCPUAdvisor:           false,
-		ReservedCPUCores:           0,
-		SkipCPUStateCorruption:     false,
-		EnableCPUPressureEviction:  false,
-		EnableSyncingCPUIdle:       false,
-		EnableCPUIdle:              false,
-		EnableFullPhysicalCPUsOnly: false,
-		CPUAllocationOption:        "packed",
+		PolicyName:             "dynamic",
+		ReservedCPUCores:       0,
+		SkipCPUStateCorruption: false,
+		CPUDynamicPolicyOptions: CPUDynamicPolicyOptions{
+			EnableCPUAdvisor:          false,
+			EnableCPUPressureEviction: false,
+			EnableSyncingCPUIdle:      false,
+			EnableCPUIdle:             false,
+		},
+		CPUNativePolicyOptions: CPUNativePolicyOptions{
+			EnableFullPhysicalCPUsOnly: false,
+			CPUAllocationOption:        "packed",
+		},
 	}
 }
 

@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package nativepolicy
+package util
 
 import (
 	"fmt"
@@ -24,15 +24,15 @@ import (
 	kubeletconfigv1beta1 "k8s.io/kubelet/config/v1beta1"
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
-	coreconsts "github.com/kubewharf/katalyst-core/pkg/consts"
+	cpuutil "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/util"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
-func generateMachineStateFromPodEntries(topology *machine.CPUTopology, podEntries state.PodEntries) (state.NUMANodeMap, error) {
-	return state.GenerateMachineStateFromPodEntries(topology, podEntries, coreconsts.CPUResourcePluginPolicyNameNative)
+func GenerateMachineStateFromPodEntries(topology *machine.CPUTopology, podEntries state.PodEntries) (state.NUMANodeMap, error) {
+	return state.GenerateMachineStateFromPodEntries(topology, podEntries, cpuutil.CPUResourcePluginPolicyNameNative)
 }
 
-func getKubeletReservedQuantity(klConfig *kubeletconfigv1beta1.KubeletConfiguration) (resource.Quantity, error) {
+func GetKubeletReservedQuantity(klConfig *kubeletconfigv1beta1.KubeletConfiguration) (resource.Quantity, error) {
 	reservedQuantity := resource.NewQuantity(0, resource.DecimalSI)
 	if klConfig.KubeReserved != nil {
 		kubeReserved, err := resource.ParseQuantity(klConfig.KubeReserved[string(v1.ResourceCPU)])

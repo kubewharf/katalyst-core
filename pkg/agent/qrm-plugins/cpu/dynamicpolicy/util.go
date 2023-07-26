@@ -18,7 +18,7 @@ package dynamicpolicy
 
 import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
-	coreconsts "github.com/kubewharf/katalyst-core/pkg/consts"
+	cpuutil "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/util"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
@@ -27,5 +27,5 @@ func getProportionalSize(oldPoolSize, oldTotalSize, newTotalSize int) int {
 }
 
 func generateMachineStateFromPodEntries(topology *machine.CPUTopology, podEntries state.PodEntries) (state.NUMANodeMap, error) {
-	return state.GenerateMachineStateFromPodEntries(topology, podEntries, coreconsts.CPUResourcePluginPolicyNameDynamic)
+	return state.GenerateMachineStateFromPodEntries(topology, podEntries, cpuutil.CPUResourcePluginPolicyNameDynamic)
 }
