@@ -400,7 +400,7 @@ func Test_getZoneAllocationsByPodResources(t *testing.T) {
 				}
 				return podResources, nil
 			}
-			p := &podResourcesServerTopologyAdapterImpl{
+			p := &topologyAdapterImpl{
 				numaSocketZoneNodeMap: tt.args.numaSocketZoneNodeMap,
 				podResourcesFilter:    podResourcesFilter,
 			}
@@ -729,7 +729,7 @@ func Test_getZoneResourcesByAllocatableResources(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			p := &podResourcesServerTopologyAdapterImpl{
+			p := &topologyAdapterImpl{
 				numaSocketZoneNodeMap: tt.args.numaSocketZoneNodeMap,
 			}
 			zoneResourcesMap, err := p.getZoneResources(tt.args.allocatableResources)
@@ -1406,7 +1406,7 @@ func Test_podResourcesServerTopologyAdapterImpl_GetTopologyZones(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 
-			p := &podResourcesServerTopologyAdapterImpl{
+			p := &topologyAdapterImpl{
 				client: &fakePodResourcesListerClient{
 					ListPodResourcesResponse:     tt.fields.listPodResources,
 					AllocatableResourcesResponse: tt.fields.allocatableResources,
@@ -1436,7 +1436,7 @@ func Test_podResourcesServerTopologyAdapterImpl_GetTopologyPolicy(t *testing.T) 
 		TopologyManagerScope:  config.ContainerTopologyManagerScope,
 	}
 
-	p := &podResourcesServerTopologyAdapterImpl{
+	p := &topologyAdapterImpl{
 		metaServer: &metaserver.MetaServer{
 			MetaAgent: &agent.MetaAgent{
 				KubeletConfigFetcher: kubeletconfig.NewFakeKubeletConfigFetcher(fakeKubeletConfig),

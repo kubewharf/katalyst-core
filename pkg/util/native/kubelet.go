@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package process
+package native
 
 import (
 	"context"
@@ -22,9 +22,14 @@ import (
 	"fmt"
 	"net/url"
 	"os"
+	"time"
 
 	"k8s.io/client-go/discovery"
 	"k8s.io/client-go/rest"
+)
+
+const (
+	defaultTimeout = time.Second * 10
 )
 
 // GetAndUnmarshalForHttps gets data from the given url and unmarshal it into the given struct.
@@ -45,7 +50,7 @@ func GetAndUnmarshalForHttps(ctx context.Context, port int, nodeAddress, endpoin
 
 	bytes, err := discoveryClient.RESTClient().
 		Get().
-		Timeout(httpDefaultTimeout).
+		Timeout(defaultTimeout).
 		Do(ctx).
 		Raw()
 	if err != nil {
