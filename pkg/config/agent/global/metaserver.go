@@ -38,6 +38,7 @@ type MetaServerConfiguration struct {
 	KubeletPodCacheSyncMaxRate   rate.Limit
 	KubeletPodCacheSyncBurstBulk int
 	KubeletConfigEndpoint        string
+	KubeletPodsEndpoint          string
 	APIAuthTokenFile             string
 
 	RemoteRuntimeEndpoint     string

@@ -46,6 +46,7 @@ const (
 	defaultKubeletPodCacheSyncBurstBulk = 1
 	defaultKubeletConfigURI             = "/configz"
 	defaultAPIAuthTokenFile             = "/var/run/secrets/kubernetes.io/serviceaccount/token"
+	defaultKubeletPodsEndpoint          = "/pods"
 )
 
 const (
@@ -74,6 +75,7 @@ type MetaServerOptions struct {
 	KubeletPodCacheSyncBurstBulk int
 	KubeletConfigEndpoint        string
 	APIAuthTokenFile             string
+	KubeletPodsEndpoint          string
 
 	RemoteRuntimeEndpoint     string
 	RuntimePodCacheSyncPeriod time.Duration
@@ -105,6 +107,7 @@ func NewMetaServerOptions() *MetaServerOptions {
 		EnableMetricsFetcher:           defaultEnableMetricsFetcher,
 		EnableCNCFetcher:               defaultEnableCNCFetcher,
 		KubeletConfigEndpoint:          defaultKubeletConfigURI,
+		KubeletPodsEndpoint:            defaultKubeletPodsEndpoint,
 		APIAuthTokenFile:               defaultAPIAuthTokenFile,
 	}
 }
@@ -151,6 +154,8 @@ func (o *MetaServerOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 		"Whether to enable cnc fetcher")
 	fs.StringVar(&o.KubeletConfigEndpoint, "kubelet-config-endpoint", o.KubeletConfigEndpoint,
 		"The URI of kubelet config endpoint")
+	fs.StringVar(&o.KubeletPodsEndpoint, "kubelet-pods-endpoint", o.KubeletPodsEndpoint,
+		"The URI of kubelet pods endpoint")
 	fs.StringVar(&o.APIAuthTokenFile, "api-auth-token-file", o.APIAuthTokenFile,
 		"The path of the API auth token file")
 }
@@ -176,6 +181,7 @@ func (o *MetaServerOptions) ApplyTo(c *global.MetaServerConfiguration) error {
 	c.EnableMetricsFetcher = o.EnableMetricsFetcher
 	c.EnableCNCFetcher = o.EnableCNCFetcher
 	c.KubeletConfigEndpoint = o.KubeletConfigEndpoint
+	c.KubeletPodsEndpoint = o.KubeletPodsEndpoint
 	c.APIAuthTokenFile = o.APIAuthTokenFile
 
 	return nil
