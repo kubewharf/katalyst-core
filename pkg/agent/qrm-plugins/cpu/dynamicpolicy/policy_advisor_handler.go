@@ -280,7 +280,7 @@ func (p *DynamicPolicy) generateBlockCPUSet(resp *advisorapi.ListAndWatchRespons
 		return nil, fmt.Errorf("got nil resp")
 	}
 
-	numaBlocks, err := resp.GetBlocks()
+	numaToBlocks, numaToBlocksSeq, err := resp.GetBlocks()
 	if err != nil {
 		return nil, err
 	}
@@ -309,14 +309,16 @@ func (p *DynamicPolicy) generateBlockCPUSet(resp *advisorapi.ListAndWatchRespons
 	}
 
 	// walk through all blocks with specified NUMA ids
-	// for each block, add them into numaBlocks (if not exist) and renew availableCPUs
-	for numaID, blocksMap := range numaBlocks {
+	// for each block, add them into numaToBlocks (if not exist) and renew availableCPUs
+	for numaID, blocksMap := range numaToBlocks {
 		if numaID == advisorapi.FakedNUMAID {
 			continue
 		}
 
 		numaAvailableCPUs := availableCPUs.Intersection(topology.CPUDetails.CPUsInNUMANodes(numaID))
-		for blockID, block := range blocksMap {
+		for _, blockID := range numaToBlocksSeq[numaID] {
+			block := blocksMap[blockID]
+
 			if block == nil {
 				general.Warningf("got nil block")
 				continue
@@ -344,8 +346,10 @@ func (p *DynamicPolicy) generateBlockCPUSet(resp *advisorapi.ListAndWatchRespons
 	}
 
 	// walk through all blocks without specified NUMA id
-	// for each block, add them into numaBlocks (if not exist) and renew availableCPUs
-	for blockID, block := range numaBlocks[advisorapi.FakedNUMAID] {
+	// for each block, add them into numaToBlocks (if not exist) and renew availableCPUs
+	for _, blockID := range numaToBlocksSeq[advisorapi.FakedNUMAID] {
+		block := numaToBlocks[advisorapi.FakedNUMAID][blockID]
+
 		if block == nil {
 			general.Warningf("got nil block")
 			continue

@@ -170,7 +170,7 @@ func (c *CPUAdvisorValidator) validateBlocks(resp *advisorapi.ListAndWatchRespon
 		return fmt.Errorf("validateBlocksByTopology got nil topology")
 	}
 
-	numaToBlocks, err := resp.GetBlocks()
+	numaToBlocks, _, err := resp.GetBlocks()
 	if err != nil {
 		return fmt.Errorf("GetBlocks failed with error: %v", err)
 	}
@@ -178,7 +178,7 @@ func (c *CPUAdvisorValidator) validateBlocks(resp *advisorapi.ListAndWatchRespon
 	totalQuantity := 0
 	numas := c.machineInfo.CPUTopology.CPUDetails.NUMANodes()
 	for numaId, blocksMap := range numaToBlocks {
-		if numaId != -1 && !numas.Contains(numaId) {
+		if numaId != advisorapi.FakedNUMAID && !numas.Contains(numaId) {
 			return fmt.Errorf("NUMA: %d referred by blocks isn't in topology", numaId)
 		}
 
