@@ -19,9 +19,7 @@ package cpuadvisor
 import (
 	"fmt"
 	"sort"
-	strings "strings"
-
-	"k8s.io/klog/v2"
+	"strings"
 
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
@@ -42,36 +40,36 @@ func NewBlockCPUSet() BlockCPUSet {
 	return make(BlockCPUSet)
 }
 
-// GetBlocks parses ListAndWatchResponse and returns map[int]map[string]*Block,
-// the map is keyed as numa id -> block id -> block
-func (lwr *ListAndWatchResponse) GetBlocks() (map[int]map[string]*Block, map[int][]string, error) {
+// GetBlocks parses ListAndWatchResponse and returns map[int][]*Block,
+// the map is keyed as numa id -> blocks slice (which has been sorted and deduped)
+func (lwr *ListAndWatchResponse) GetBlocks() (map[int][]*Block, error) {
 	if lwr == nil {
-		return nil, nil, fmt.Errorf("got nil ListAndWatchResponse")
+		return nil, fmt.Errorf("got nil ListAndWatchResponse")
 	}
 
 	numaToBlocks := make(map[int]map[string]*Block)
-	numaToBlocksSeq := make(map[int][]string)
+	numaToSortedBlocks := make(map[int][]*Block)
 	blocksEntryNames := make(map[string][][]string)
 	visBlocksToNUMA := make(map[string]int)
 
 	for entryName, entry := range lwr.Entries {
 		for subEntryName, calculationInfo := range entry.Entries {
 			if calculationInfo == nil {
-				klog.Warningf("[ListAndWatchResponse.GetBlocks] got nil calculationInfo entry: %s, subEntry: %s",
+				general.Warningf("[ListAndWatchResponse.GetBlocks] got nil calculationInfo entry: %s, subEntry: %s",
 					entryName, subEntryName)
 				continue
 			}
 
 			for numaIdInt64, calculationResult := range calculationInfo.CalculationResultsByNumas {
 				if calculationResult == nil {
-					klog.Warningf("[ListAndWatchResponse.GetBlocks] got nil NUMA result entry: %s, subEntry: %s",
+					general.Warningf("[ListAndWatchResponse.GetBlocks] got nil NUMA result entry: %s, subEntry: %s",
 						entryName, subEntryName)
 					continue
 				}
 
 				numaIdInt, err := general.CovertInt64ToInt(numaIdInt64)
 				if err != nil {
-					return nil, nil, fmt.Errorf("parse nuam id: %d failed with error: %v entry: %s, subEntry: %s",
+					return nil, fmt.Errorf("parse nuam id: %d failed with error: %v entry: %s, subEntry: %s",
 						numaIdInt64, err, entryName, subEntryName)
 				}
 
@@ -81,7 +79,7 @@ func (lwr *ListAndWatchResponse) GetBlocks() (map[int]map[string]*Block, map[int
 
 				for _, block := range calculationResult.Blocks {
 					if block == nil {
-						klog.Warningf("[ListAndWatchResponse.GetBlocks] got nil block result entry: %s, subEntry: %s",
+						general.Warningf("[ListAndWatchResponse.GetBlocks] got nil block result entry: %s, subEntry: %s",
 							entryName, subEntryName)
 						continue
 					}
@@ -89,10 +87,10 @@ func (lwr *ListAndWatchResponse) GetBlocks() (map[int]map[string]*Block, map[int
 					blockId := block.BlockId
 					if foundNUMAId, found := visBlocksToNUMA[blockId]; found && numaToBlocks[foundNUMAId][blockId] != nil {
 						if foundNUMAId != numaIdInt {
-							return nil, nil, fmt.Errorf("found block: %s both in NUMA: %d and NUMA: %d, entry: %s, subEntry: %s",
+							return nil, fmt.Errorf("found block: %s both in NUMA: %d and NUMA: %d, entry: %s, subEntry: %s",
 								blockId, foundNUMAId, numaIdInt, entryName, subEntryName)
 						} else if numaToBlocks[foundNUMAId][blockId].Result != block.Result {
-							return nil, nil, fmt.Errorf("found block: %s result is different with current block: %s result, entry: %s, subEntry: %s",
+							return nil, fmt.Errorf("found block: %s result is different with current block: %s result, entry: %s, subEntry: %s",
 								numaToBlocks[foundNUMAId][blockId].String(), block.String(), entryName, subEntryName)
 						}
 					}
@@ -106,79 +104,84 @@ func (lwr *ListAndWatchResponse) GetBlocks() (map[int]map[string]*Block, map[int
 	}
 
 	for numaId, blocksMap := range numaToBlocks {
-		blockIds := make([]string, 0, len(blocksMap))
+		blocks := make([]*Block, 0, len(blocksMap))
 
-		for blockId := range blocksMap {
-			blockIds = append(blockIds, blockId)
+		for _, block := range blocksMap {
+			blocks = append(blocks, block)
 
-			if len(blocksEntryNames[blockId]) == 0 {
-				return nil, nil, fmt.Errorf("there is no entryName for block: %s", blockId)
+			if len(blocksEntryNames[block.BlockId]) == 0 {
+				return nil, fmt.Errorf("there is no entryName for block: %s", block.BlockId)
 			}
 		}
 
-		sort.Slice(blockIds, func(i, j int) bool {
-			blockId1 := blockIds[i]
-			blockId2 := blockIds[j]
+		sort.Slice(blocks, getBlocksLessFunc(blocksEntryNames, blocks))
 
-			entryNames1 := blocksEntryNames[blockId1]
-			entryNames2 := blocksEntryNames[blockId2]
-
-			getNames := func(entryNames [][]string, isPod bool) []string {
-				names := make([]string, 0, len(entryNames))
-				for _, namesTuple := range entryNames {
-					entryName, subEntryName := namesTuple[0], namesTuple[1]
-
-					if isPod {
-						if subEntryName != "" {
-							names = append(names, entryName)
-						}
-					} else {
-						if subEntryName == "" {
-							names = append(names, entryName)
-						}
-					}
-				}
-				sort.Strings(names)
-				return names
-			}
-
-			podNames1, poolNames1, podNames2, poolNames2 :=
-				getNames(entryNames1, true),
-				getNames(entryNames1, false),
-				getNames(entryNames2, true),
-				getNames(entryNames2, false)
-
-			if len(podNames1) > len(podNames2) {
-				return true
-			} else if len(podNames1) < len(podNames2) {
-				return false
-			} else {
-				if len(podNames1) > 0 {
-					return strings.Join(podNames1, NameSeparator) < strings.Join(podNames2, NameSeparator)
-				}
-
-				if len(poolNames1) > len(poolNames2) {
-					return true
-				} else if len(poolNames1) < len(poolNames2) {
-					return false
-				} else {
-					return strings.Join(poolNames1, NameSeparator) < strings.Join(poolNames2, NameSeparator)
-				}
-			}
-		})
-
-		numaToBlocksSeq[numaId] = blockIds
+		numaToSortedBlocks[numaId] = blocks
 	}
 
-	logNUMAToBlocksSeq(numaToBlocksSeq, blocksEntryNames)
+	logNUMAToBlocksSeq(numaToSortedBlocks, blocksEntryNames)
 
-	return numaToBlocks, numaToBlocksSeq, nil
+	return numaToSortedBlocks, nil
 }
 
-func logNUMAToBlocksSeq(numaToBlocksSeq map[int][]string, blocksEntryNames map[string][][]string) {
-	for numaId, blockIds := range numaToBlocksSeq {
-		for i, blockId := range blockIds {
-			general.InfoS("logNUMAToBlocksSeq", "numaId", numaId, "seq", i, "blockId", blockId, "entryNames", blocksEntryNames[blockId])
+// getBlocksLessFunc judges if a block is less than another by entryNames of them
+func getBlocksLessFunc(blocksEntryNames map[string][][]string, blocks []*Block) func(i, j int) bool {
+	return func(i, j int) bool {
+		blockId1 := blocks[i].BlockId
+		blockId2 := blocks[j].BlockId
+
+		entryNames1 := blocksEntryNames[blockId1]
+		entryNames2 := blocksEntryNames[blockId2]
+
+		getNames := func(entryNames [][]string, isPod bool) []string {
+			names := make([]string, 0, len(entryNames))
+			for _, namesTuple := range entryNames {
+				entryName, subEntryName := namesTuple[0], namesTuple[1]
+
+				if isPod {
+					if subEntryName != FakedContainerName {
+						names = append(names, entryName)
+					}
+				} else {
+					if subEntryName == FakedContainerName {
+						names = append(names, entryName)
+					}
+				}
+			}
+			sort.Strings(names)
+			return names
+		}
+
+		podNames1, poolNames1, podNames2, poolNames2 :=
+			getNames(entryNames1, true),
+			getNames(entryNames1, false),
+			getNames(entryNames2, true),
+			getNames(entryNames2, false)
+
+		if len(podNames1) > len(podNames2) {
+			return true
+		} else if len(podNames1) < len(podNames2) {
+			return false
+		} else {
+			if len(podNames1) > 0 {
+				return strings.Join(podNames1, NameSeparator) < strings.Join(podNames2, NameSeparator)
+			}
+
+			if len(poolNames1) > len(poolNames2) {
+				return true
+			} else if len(poolNames1) < len(poolNames2) {
+				return false
+			} else {
+				return strings.Join(poolNames1, NameSeparator) < strings.Join(poolNames2, NameSeparator)
+			}
+		}
+	}
+}
+
+func logNUMAToBlocksSeq(numaToSortedBlocks map[int][]*Block, blocksEntryNames map[string][][]string) {
+	for numaId, blocks := range numaToSortedBlocks {
+		for i, block := range blocks {
+			general.InfoS("logNUMAToBlocksSeq", "numaId", numaId, "seq", i, "blockId", block.BlockId, "entryNames", blocksEntryNames[block.BlockId])
 		}
 	}
 }
@@ -248,14 +251,14 @@ func (ci *CalculationInfo) GetNUMAQuantities() (map[int]int, error) {
 	numaQuantities := make(map[int]int)
 	for numaId, numaResult := range ci.CalculationResultsByNumas {
 		if numaResult == nil {
-			klog.Warningf("[GetTotalQuantity] got nil NUMA result")
+			general.Warningf("[GetTotalQuantity] got nil NUMA result")
 			continue
 		}
 
 		var quantityUInt64 uint64 = 0
 		for _, block := range numaResult.Blocks {
 			if block == nil {
-				klog.Warningf("[GetTotalQuantity] got nil block")
+				general.Warningf("[GetTotalQuantity] got nil block")
 				continue
 			}
 			quantityUInt64 += block.Result

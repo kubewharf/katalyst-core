@@ -170,28 +170,28 @@ func (c *CPUAdvisorValidator) validateBlocks(resp *advisorapi.ListAndWatchRespon
 		return fmt.Errorf("validateBlocksByTopology got nil topology")
 	}
 
-	numaToBlocks, _, err := resp.GetBlocks()
+	numaToBlocks, err := resp.GetBlocks()
 	if err != nil {
 		return fmt.Errorf("GetBlocks failed with error: %v", err)
 	}
 
 	totalQuantity := 0
 	numas := c.machineInfo.CPUTopology.CPUDetails.NUMANodes()
-	for numaId, blocksMap := range numaToBlocks {
+	for numaId, blocks := range numaToBlocks {
 		if numaId != advisorapi.FakedNUMAID && !numas.Contains(numaId) {
 			return fmt.Errorf("NUMA: %d referred by blocks isn't in topology", numaId)
 		}
 
 		numaQuantity := 0
-		for blockId, block := range blocksMap {
+		for _, block := range blocks {
 			if block == nil {
-				general.Warningf("got nil block: %v", blockId)
+				general.Warningf("got nil block")
 				continue
 			}
 
 			quantityInt, err := general.CovertUInt64ToInt(block.Result)
 			if err != nil {
-				return fmt.Errorf("CovertUInt64ToInt failed with error: %v, blockId: %s, numaId: %d", err, blockId, numaId)
+				return fmt.Errorf("CovertUInt64ToInt failed with error: %v, blockId: %s, numaId: %d", err, block.BlockId, numaId)
 			}
 			numaQuantity += quantityInt
 		}
