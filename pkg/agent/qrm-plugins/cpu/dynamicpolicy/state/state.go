@@ -391,8 +391,8 @@ func (ns *NUMANodeState) GetFilteredDefaultCPUSet(excludeEntry, excludeWholeNUMA
 	return res
 }
 
-// Exist returns true if the stated predicate holds true for some pods of this numa else it returns false.
-func (ns *NUMANodeState) Exist(f func(ai *AllocationInfo) bool) bool {
+// ExistMatchedAllocationInfo returns true if the stated predicate holds true for some pods of this numa else it returns false.
+func (ns *NUMANodeState) ExistMatchedAllocationInfo(f func(ai *AllocationInfo) bool) bool {
 	for _, containerEntries := range ns.PodEntries {
 		for _, allocationInfo := range containerEntries {
 			if f(allocationInfo) {
@@ -452,7 +452,7 @@ func (nm NUMANodeMap) GetFilteredAvailableCPUSet(reservedCPUs machine.CPUSet,
 func (nm NUMANodeMap) GetFilteredNUMASet(excludeNUMAPredicate func(ai *AllocationInfo) bool) machine.CPUSet {
 	res := machine.NewCPUSet()
 	for numaID, numaNodeState := range nm {
-		if numaNodeState.Exist(excludeNUMAPredicate) {
+		if numaNodeState.ExistMatchedAllocationInfo(excludeNUMAPredicate) {
 			continue
 		}
 		res.Add(numaID)

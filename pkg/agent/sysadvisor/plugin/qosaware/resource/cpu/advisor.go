@@ -119,7 +119,7 @@ func NewCPUResourceAdvisor(conf *config.Configuration, extraConf interface{}, me
 	}
 
 	coreNumReservedForReclaim := conf.DynamicAgentConfiguration.GetDynamicConfiguration().MinReclaimedResourceForAllocate[v1.ResourceCPU]
-	cra.reservedForReclaim = machine.GetCoreNumsReservedForReclaim(int(coreNumReservedForReclaim.Value()), metaServer.KatalystMachineInfo.NumNUMANodes)
+	cra.reservedForReclaim = machine.GetCoreNumReservedForReclaim(int(coreNumReservedForReclaim.Value()), metaServer.KatalystMachineInfo.NumNUMANodes)
 
 	if err := cra.initializeProvisionAssembler(); err != nil {
 		klog.Errorf("[qosaware-cpu] initialize provision assembler failed: %v", err)

@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"strconv"
 	"sync"
 	"time"
 
@@ -49,11 +50,14 @@ const (
 	metricsNamePoolMetricValue      = "pool_metric_value_raw"
 	metricsNamePoolMetricBound      = "pool_metric_bound_raw"
 	metricsNameThresholdMet         = "threshold_met_count"
+	metricNameCollectPoolLoadCalled = "collect_pool_load_called"
 
 	metricsTagKeyMetricName       = "metric_name"
 	metricsTagKeyPoolName         = "pool_name"
 	metricsTagKeyBoundType        = "bound_type"
 	metricsTagKeyThresholdMetType = "threshold_type"
+	metricsTagKeyDynamicThreshold = "dynamic_threshold"
+	metricsTagKeyUnderPressure    = "underPressure"
 
 	metricsTagValueBoundTypeUpper       = "upper"
 	metricsTagValueBoundTypeLower       = "lower"
@@ -105,9 +109,9 @@ func NewCPUPressureLoadEviction(emitter metrics.MetricEmitter, metaServer *metas
 		syncPeriod:     conf.LoadEvictionSyncPeriod,
 	}
 
-	systemReservedCores, reserveErr := qrmutil.GetSystemReservedCores(conf, metaServer.KatalystMachineInfo, metaServer.CPUDetails.CPUs().Clone())
+	systemReservedCores, reserveErr := qrmutil.GetCoresReservedForSystem(conf, metaServer.KatalystMachineInfo, metaServer.CPUDetails.CPUs().Clone())
 	if reserveErr != nil {
-		general.Errorf("GetSystemReservedCores for reservedCPUsNum: %d failed with error: %v",
+		general.Errorf("GetCoresReservedForSystem for reservedCPUsNum: %d failed with error: %v",
 			conf.ReservedCPUCores, reserveErr)
 		return plugin, reserveErr
 	}
@@ -413,7 +417,11 @@ func (p *CPUPressureLoadEviction) sharedPoolsUnderPressure() bool {
 		poolSizeSum += poolEntry.AllocationResult.Size()
 	}
 
-	return poolSizeSum >= p.getSharedPoolsLimit()
+	sharedPoolsLimit := p.getSharedPoolsLimit()
+	underPressure := poolSizeSum >= sharedPoolsLimit
+	general.Infof("shared pools under pressure: %v, poolSizeSum: %v, limit: %v", underPressure, poolSizeSum, sharedPoolsLimit)
+
+	return underPressure
 }
 
 // getSharedPoolsLimit calculates the cpu core limit used by shared core pool.It should equal to machine core number
@@ -423,13 +431,16 @@ func (p *CPUPressureLoadEviction) getSharedPoolsLimit() int {
 	sharedCoresNUMAs := p.state.GetMachineState().GetFilteredNUMASet(state.CheckNUMABinding)
 
 	coreNumReservedForReclaim := p.dynamicConf.GetDynamicConfiguration().MinReclaimedResourceForAllocate[v1.ResourceCPU]
-	reservedForReclaim := machine.GetCoreNumsReservedForReclaim(int(coreNumReservedForReclaim.Value()), p.metaServer.NumNUMANodes)
+	reservedForReclaim := machine.GetCoreNumReservedForReclaim(int(coreNumReservedForReclaim.Value()), p.metaServer.NumNUMANodes)
 	reservedForReclaimInSharedNuma := 0
 	for _, numaID := range sharedCoresNUMAs.ToSliceInt() {
 		reservedForReclaimInSharedNuma += reservedForReclaim[numaID]
 	}
 
-	return availableCPUSet.Size() - reservedForReclaimInSharedNuma
+	result := availableCPUSet.Size() - reservedForReclaimInSharedNuma
+	general.Infof("get shared pools limit:%v, availableCPUSet: %v, sharedCoresNUMAs:%v, reservedForReclaim: %v",
+		result, availableCPUSet.String(), sharedCoresNUMAs.String(), reservedForReclaim)
+	return result
 }
 
 // collectPoolLoad is specifically used for cpu-load in pool level,
@@ -447,7 +458,8 @@ func (p *CPUPressureLoadEviction) collectPoolLoad(dynamicConfig *dynamic.Configu
 		Time: collectTime,
 	}
 
-	if p.shouldUseDynamicThreshold() {
+	useDynamicThreshold := p.shouldUseDynamicThreshold()
+	if useDynamicThreshold {
 		// it must not be triggered when it's healthy
 		lowerBound := metricValue + 1
 		upperBound := lowerBound * dynamicConfig.LoadUpperBoundRatio
@@ -460,6 +472,14 @@ func (p *CPUPressureLoadEviction) collectPoolLoad(dynamicConfig *dynamic.Configu
 		snapshot.Info.LowerBound = lowerBound
 		snapshot.Info.UpperBound = upperBound
 	}
+
+	_ = p.emitter.StoreInt64(metricNameCollectPoolLoadCalled, 1, metrics.MetricTypeNameCount,
+		metrics.ConvertMapToTags(map[string]string{
+			metricsTagKeyPoolName:         poolEntry.OwnerPoolName,
+			metricsTagKeyMetricName:       snapshot.Info.Name,
+			metricsTagKeyUnderPressure:    strconv.FormatBool(poolsUnderPressure),
+			metricsTagKeyDynamicThreshold: strconv.FormatBool(useDynamicThreshold),
+		})...)
 
 	p.logPoolSnapShot(snapshot, poolEntry.OwnerPoolName, true)
 	p.pushMetric(dynamicConfig, metricName, poolEntry.OwnerPoolName, "", snapshot)

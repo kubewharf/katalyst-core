@@ -315,7 +315,7 @@ func GetContainerAsyncWorkName(podUID, containerName, topic string) string {
 	return strings.Join([]string{podUID, containerName, topic}, "/")
 }
 
-func GetSystemReservedCores(conf *config.Configuration, machineInfo *machine.KatalystMachineInfo, allCPUs machine.CPUSet) (machine.CPUSet, error) {
+func GetCoresReservedForSystem(conf *config.Configuration, machineInfo *machine.KatalystMachineInfo, allCPUs machine.CPUSet) (machine.CPUSet, error) {
 	systemReservedNum := conf.ReservedCPUCores
 	reservedCPUs, _, reserveErr := calculator.TakeHTByNUMABalance(machineInfo, allCPUs, systemReservedNum)
 	if reserveErr != nil {
