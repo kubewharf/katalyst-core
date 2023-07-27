@@ -584,7 +584,6 @@ func Test_getZoneResourcesByAllocatableResources(t *testing.T) {
 						Type: nodev1alpha1.TopologyTypeNIC,
 						Name: "eth0",
 					},
-					ID: "TopologyLevel-NUMA,Node-0",
 				}: {
 					Capacity: &v1.ResourceList{
 						"nic": resource.MustParse("10G"),
@@ -598,7 +597,6 @@ func Test_getZoneResourcesByAllocatableResources(t *testing.T) {
 						Type: nodev1alpha1.TopologyTypeNIC,
 						Name: "eth1",
 					},
-					ID: "TopologyLevel-NUMA,Node-1",
 				}: {
 					Capacity: &v1.ResourceList{
 						"nic": resource.MustParse("10G"),

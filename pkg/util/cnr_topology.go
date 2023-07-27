@@ -30,11 +30,8 @@ type ZoneMeta struct {
 }
 
 // ZoneNode is a struct that contains the meta and an ID of a zone.
-// The ID is used to ensure that zone nodes are unique even if the
-// type and name are the same.
 type ZoneNode struct {
 	Meta ZoneMeta
-	ID   string
 }
 
 // ZoneAttributes is list of attributes
