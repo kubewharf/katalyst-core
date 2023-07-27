@@ -802,6 +802,8 @@ func TestGetTopEvictionPods(t *testing.T) {
 }
 
 func TestCPUPressureLoadEviction_collectMetrics(t *testing.T) {
+	t.Parallel()
+
 	pod1UID := "pod1"
 	pod2UID := "pod2"
 	pod3UID := "pod3"
