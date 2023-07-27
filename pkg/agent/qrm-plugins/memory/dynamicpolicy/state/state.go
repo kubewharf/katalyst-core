@@ -311,10 +311,15 @@ func (nm NUMANodeMap) BytesPerNUMA() (uint64, error) {
 		return 0, fmt.Errorf("getBytesPerNUMAFromMachineState got nil numaMap")
 	}
 
+	var maxNUMAAllocatable uint64
 	for _, numaState := range nm {
 		if numaState != nil {
-			return numaState.Allocatable, nil
+			maxNUMAAllocatable = general.MaxUInt64(maxNUMAAllocatable, numaState.Allocatable)
 		}
+	}
+
+	if maxNUMAAllocatable > 0 {
+		return maxNUMAAllocatable, nil
 	}
 
 	return 0, fmt.Errorf("getBytesPerNUMAFromMachineState doesn't get valid numaState")
