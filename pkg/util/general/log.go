@@ -52,14 +52,20 @@ const (
 )
 
 var defaultLoggingPackage = LoggingPKGFull
-var defaultLoggingOnce sync.Once
+var defaultLoggingMtx sync.RWMutex
 
 // SetDefaultLoggingPackage should only be called by flags,
 // and should not be alerted dynamically.
 func SetDefaultLoggingPackage(l LoggingPKG) {
-	defaultLoggingOnce.Do(func() {
-		defaultLoggingPackage = l
-	})
+	defaultLoggingMtx.Lock()
+	defer defaultLoggingMtx.Unlock()
+	defaultLoggingPackage = l
+}
+
+func getDefaultLoggingPackage() LoggingPKG {
+	defaultLoggingMtx.RLock()
+	defer defaultLoggingMtx.RUnlock()
+	return defaultLoggingPackage
 }
 
 const callDepth = 3
@@ -97,7 +103,7 @@ func loggingWithDepth(pkg LoggingPKG) string {
 }
 
 func logging(message string, params ...interface{}) string {
-	return "[" + loggingWithDepth(defaultLoggingPackage) + "] " + fmt.Sprintf(message, params...)
+	return "[" + loggingWithDepth(getDefaultLoggingPackage()) + "] " + fmt.Sprintf(message, params...)
 }
 
 func loggingPath(pkg LoggingPKG, message string, params ...interface{}) string {
