@@ -39,13 +39,13 @@ import (
 
 type CPUPressureSuppression struct {
 	conf  *config.Configuration
-	state state.State
+	state state.ReadonlyState
 
 	lastToleranceTime sync.Map
 }
 
 func NewCPUPressureSuppressionEviction(_ metrics.MetricEmitter, _ *metaserver.MetaServer,
-	conf *config.Configuration, state state.State) CPUPressureForceEviction {
+	conf *config.Configuration, state state.ReadonlyState) CPUPressureForceEviction {
 	return &CPUPressureSuppression{
 		conf:  conf,
 		state: state,

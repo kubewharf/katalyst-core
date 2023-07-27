@@ -76,7 +76,7 @@ var (
 
 type CPUPressureLoadEviction struct {
 	sync.Mutex
-	state       state.State
+	state       state.ReadonlyState
 	emitter     metrics.MetricEmitter
 	metaServer  *metaserver.MetaServer
 	qosConf     *generic.QoSConfiguration
@@ -94,7 +94,7 @@ type CPUPressureLoadEviction struct {
 }
 
 func NewCPUPressureLoadEviction(emitter metrics.MetricEmitter, metaServer *metaserver.MetaServer,
-	conf *config.Configuration, state state.State) (CPUPressureThresholdEviction, error) {
+	conf *config.Configuration, state state.ReadonlyState) (CPUPressureThresholdEviction, error) {
 	plugin := &CPUPressureLoadEviction{
 		state:          state,
 		emitter:        emitter,
