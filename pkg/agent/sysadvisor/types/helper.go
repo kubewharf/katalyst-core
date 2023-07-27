@@ -120,8 +120,10 @@ func (ri *RegionInfo) Clone() *RegionInfo {
 		return nil
 	}
 	clone := &RegionInfo{
-		RegionType:   ri.RegionType,
-		BindingNumas: ri.BindingNumas.Clone(),
+		RegionName:    ri.RegionName,
+		RegionType:    ri.RegionType,
+		OwnerPoolName: ri.OwnerPoolName,
+		BindingNumas:  ri.BindingNumas.Clone(),
 
 		HeadroomPolicyTopPriority: ri.HeadroomPolicyTopPriority,
 		HeadroomPolicyInUse:       ri.HeadroomPolicyInUse,

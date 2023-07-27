@@ -405,7 +405,7 @@ func TestAdvisorUpdate(t *testing.T) {
 					PoolName: state.PoolNameReclaim,
 					TopologyAwareAssignments: map[int]machine.CPUSet{
 						0: machine.MustParse("70-71"),
-						1: machine.MustParse("25-47,72-95"),
+						1: machine.MustParse("25-46"),
 					},
 				},
 			},
@@ -438,6 +438,7 @@ func TestAdvisorUpdate(t *testing.T) {
 					},
 				},
 			},
+			// dedicated_cores headroom(9) + empty numa headroom(45)
 			wantHeadroom: *resource.NewQuantity(54, resource.DecimalSI),
 		},
 		{
