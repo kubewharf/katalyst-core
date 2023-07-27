@@ -35,6 +35,7 @@ import (
 	podresv1 "k8s.io/kubelet/pkg/apis/podresources/v1"
 
 	nodev1alpha1 "github.com/kubewharf/katalyst-api/pkg/apis/node/v1alpha1"
+	apiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-api/pkg/utils"
 	"github.com/kubewharf/katalyst-core/pkg/agent/resourcemanager/fetcher/util/kubelet/podresources"
 	"github.com/kubewharf/katalyst-core/pkg/consts"
@@ -675,8 +676,7 @@ func addZoneQuantity(zoneResourceList map[util.ZoneNode]*v1.ResourceList, zoneNo
 // generateZoneNode get zone node and its parent zone node from quantity according to quantity type and topology level
 //   - if Type is empty, it means that the zone is socket or numa according to TopologyLevel
 //   - if Type is not empty, it means that the zone is a child of socket or a child of numa determined by TopologyLevel,
-//     and the zone name is determined by the quantity name. These zones may have the same name and type, so they should
-//     have an extra ID added to make them unique
+//     and the zone name is determined by the quantity name or its resource identifier if existed.
 func (p *topologyAdapterImpl) generateZoneNode(quantity podresv1.TopologyAwareQuantity) (util.ZoneNode, *util.ZoneNode, error) {
 	nodeID := int(quantity.Node)
 	if len(quantity.Type) == 0 {
@@ -695,13 +695,18 @@ func (p *topologyAdapterImpl) generateZoneNode(quantity podresv1.TopologyAwareQu
 			return util.ZoneNode{}, nil, fmt.Errorf("quantity %v unsupport topology level: %s", quantity, quantity.TopologyLevel)
 		}
 	} else {
-		// if quantity has type, the zone's type is quantity type and name is quantity name
+		// if quantity has type, the zone's type is quantity type and name is quantity name by default,
+		// and if it has resource identifier annotation use it instead
+		zoneName := quantity.Name
+		if identifier, ok := quantity.Annotations[apiconsts.ResourceAnnotationKeyResourceIdentifier]; ok && len(identifier) != 0 {
+			zoneName = identifier
+		}
+
 		zoneNode := util.ZoneNode{
 			Meta: util.ZoneMeta{
 				Type: nodev1alpha1.TopologyType(quantity.Type),
-				Name: quantity.Name,
+				Name: zoneName,
 			},
-			ID: generateZoneID(quantity),
 		}
 
 		switch quantity.TopologyLevel {
@@ -715,17 +720,6 @@ func (p *topologyAdapterImpl) generateZoneNode(quantity podresv1.TopologyAwareQu
 			return zoneNode, nil, fmt.Errorf("quantity %v unsupport topology level: %s", quantity, quantity.TopologyLevel)
 		}
 	}
-}
-
-// generateZoneID is to generate zone id for no socket and numa zone node to make it unique
-func generateZoneID(quantity podresv1.TopologyAwareQuantity) string {
-	if len(quantity.Type) == 0 {
-		return ""
-	}
-
-	// todo: It now only needs the parent topology level, and it's node ID to generate a unique zone ID,
-	// 	it may involve more fields such as annotations to generate it in the future more generally
-	return fmt.Sprintf("TopologyLevel-%v,Node-%v", quantity.TopologyLevel, quantity.Node)
 }
 
 // filterAllocatedPodResourcesList is to filter pods that have allocated devices or Resources
