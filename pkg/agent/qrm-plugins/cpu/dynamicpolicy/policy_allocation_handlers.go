@@ -122,7 +122,7 @@ func (p *DynamicPolicy) sharedCoresAllocationHandler(_ context.Context,
 		p.state.SetAllocationInfo(allocationInfo.PodUid, allocationInfo.ContainerName, allocationInfo)
 		podEntries := p.state.GetPodEntries()
 
-		updatedMachineState, err := state.GenerateMachineStateFromPodEntries(p.machineInfo.CPUTopology, podEntries)
+		updatedMachineState, err := generateMachineStateFromPodEntries(p.machineInfo.CPUTopology, podEntries)
 		if err != nil {
 			general.Errorf("pod: %s/%s, container: %s GenerateMachineStateFromPodEntries failed with error: %v",
 				req.PodNamespace, req.PodName, req.ContainerName, err)
@@ -131,7 +131,7 @@ func (p *DynamicPolicy) sharedCoresAllocationHandler(_ context.Context,
 		p.state.SetMachineState(updatedMachineState)
 	}
 
-	resp, err := packAllocationResponse(allocationInfo, string(v1.ResourceCPU), util.OCIPropertyNameCPUSetCPUs, false, true, req)
+	resp, err := util.PackAllocationResponse(allocationInfo, string(v1.ResourceCPU), util.OCIPropertyNameCPUSetCPUs, false, true, req)
 	if err != nil {
 		general.Errorf("pod: %s/%s, container: %s packAllocationResponse failed with error: %v",
 			req.PodNamespace, req.PodName, req.ContainerName, err)
@@ -200,14 +200,14 @@ func (p *DynamicPolicy) reclaimedCoresAllocationHandler(_ context.Context,
 	p.state.SetAllocationInfo(allocationInfo.PodUid, allocationInfo.ContainerName, allocationInfo)
 	podEntries := p.state.GetPodEntries()
 
-	updatedMachineState, err := state.GenerateMachineStateFromPodEntries(p.machineInfo.CPUTopology, podEntries)
+	updatedMachineState, err := generateMachineStateFromPodEntries(p.machineInfo.CPUTopology, podEntries)
 	if err != nil {
 		general.Errorf("pod: %s/%s, container: %s GenerateMachineStateFromPodEntries failed with error: %v",
 			req.PodNamespace, req.PodName, req.ContainerName, err)
 		return nil, fmt.Errorf("GenerateMachineStateFromPodEntries failed with error: %v", err)
 	}
 
-	resp, err := packAllocationResponse(allocationInfo, string(v1.ResourceCPU), util.OCIPropertyNameCPUSetCPUs, false, true, req)
+	resp, err := util.PackAllocationResponse(allocationInfo, string(v1.ResourceCPU), util.OCIPropertyNameCPUSetCPUs, false, true, req)
 	if err != nil {
 		general.Errorf("pod: %s/%s, container: %s packAllocationResponse failed with error: %v",
 			req.PodNamespace, req.PodName, req.ContainerName, err)
@@ -254,7 +254,7 @@ func (p *DynamicPolicy) dedicatedCoresWithNUMABindingAllocationHandler(ctx conte
 		podEntries := p.state.GetPodEntries()
 
 		var err error
-		machineState, err = state.GenerateMachineStateFromPodEntries(p.machineInfo.CPUTopology, podEntries)
+		machineState, err = generateMachineStateFromPodEntries(p.machineInfo.CPUTopology, podEntries)
 		if err != nil {
 			general.Errorf("pod: %s/%s, container: %s GenerateMachineStateFromPodEntries failed with error: %v",
 				req.PodNamespace, req.PodName, req.ContainerName, err)
@@ -322,7 +322,7 @@ func (p *DynamicPolicy) dedicatedCoresWithNUMABindingAllocationHandler(ctx conte
 	p.state.SetAllocationInfo(allocationInfo.PodUid, allocationInfo.ContainerName, allocationInfo)
 	podEntries := p.state.GetPodEntries()
 
-	updatedMachineState, err := state.GenerateMachineStateFromPodEntries(p.machineInfo.CPUTopology, podEntries)
+	updatedMachineState, err := generateMachineStateFromPodEntries(p.machineInfo.CPUTopology, podEntries)
 	if err != nil {
 		general.Errorf("pod: %s/%s, container: %s GenerateMachineStateFromPodEntries failed with error: %v",
 			req.PodNamespace, req.PodName, req.ContainerName, err)
@@ -337,7 +337,7 @@ func (p *DynamicPolicy) dedicatedCoresWithNUMABindingAllocationHandler(ctx conte
 		return nil, fmt.Errorf("adjustAllocationEntries failed with error: %v", err)
 	}
 
-	resp, err := packAllocationResponse(allocationInfo, string(v1.ResourceCPU), util.OCIPropertyNameCPUSetCPUs, false, true, req)
+	resp, err := util.PackAllocationResponse(allocationInfo, string(v1.ResourceCPU), util.OCIPropertyNameCPUSetCPUs, false, true, req)
 	if err != nil {
 		general.Errorf("pod: %s/%s, container: %s PackResourceAllocationResponseByAllocationInfo failed with error: %v",
 			req.PodNamespace, req.PodName, req.ContainerName, err)
@@ -395,7 +395,7 @@ func (p *DynamicPolicy) dedicatedCoresWithNUMABindingAllocationSidecarHandler(_ 
 	p.state.SetAllocationInfo(allocationInfo.PodUid, allocationInfo.ContainerName, allocationInfo)
 	podEntries = p.state.GetPodEntries()
 
-	updatedMachineState, err := state.GenerateMachineStateFromPodEntries(p.machineInfo.CPUTopology, podEntries)
+	updatedMachineState, err := generateMachineStateFromPodEntries(p.machineInfo.CPUTopology, podEntries)
 	if err != nil {
 		general.Errorf("pod: %s/%s, container: %s GenerateMachineStateFromPodEntries failed with error: %v",
 			req.PodNamespace, req.PodName, req.ContainerName, err)
@@ -403,7 +403,7 @@ func (p *DynamicPolicy) dedicatedCoresWithNUMABindingAllocationSidecarHandler(_ 
 	}
 	p.state.SetMachineState(updatedMachineState)
 
-	resp, err := packAllocationResponse(allocationInfo, string(v1.ResourceCPU), util.OCIPropertyNameCPUSetCPUs, false, true, req)
+	resp, err := util.PackAllocationResponse(allocationInfo, string(v1.ResourceCPU), util.OCIPropertyNameCPUSetCPUs, false, true, req)
 	if err != nil {
 		general.Errorf("pod: %s/%s, container: %s packAllocationResponse failed with error: %v",
 			req.PodNamespace, req.PodName, req.ContainerName, err)
@@ -799,7 +799,7 @@ func (p *DynamicPolicy) applyPoolsAndIsolatedInfo(poolsCPUSet map[string]machine
 	}
 
 	// use pod entries generated above to generate machine state info, and store in local state
-	machineState, err = state.GenerateMachineStateFromPodEntries(p.machineInfo.CPUTopology, newPodEntries)
+	machineState, err = generateMachineStateFromPodEntries(p.machineInfo.CPUTopology, newPodEntries)
 	if err != nil {
 		return fmt.Errorf("calculate machineState by newPodEntries failed with error: %v", err)
 	}
@@ -1047,44 +1047,4 @@ func (p *DynamicPolicy) takeCPUsForContainers(containersQuantityMap map[string]m
 		}
 	}
 	return containersCPUSet, availableCPUs, nil
-}
-
-// packAllocationResponse fills pluginapi.ResourceAllocationResponse with information from AllocationInfo and pluginapi.ResourceRequest
-func packAllocationResponse(allocationInfo *state.AllocationInfo, resourceName, ociPropertyName string,
-	isNodeResource, isScalarResource bool, req *pluginapi.ResourceRequest) (*pluginapi.ResourceAllocationResponse, error) {
-	if allocationInfo == nil {
-		return nil, fmt.Errorf("packAllocationResponse got nil allocationInfo")
-	} else if req == nil {
-		return nil, fmt.Errorf("packAllocationResponse got nil request")
-	}
-
-	return &pluginapi.ResourceAllocationResponse{
-		PodUid:         req.PodUid,
-		PodNamespace:   req.PodNamespace,
-		PodName:        req.PodName,
-		ContainerName:  req.ContainerName,
-		ContainerType:  req.ContainerType,
-		ContainerIndex: req.ContainerIndex,
-		PodRole:        req.PodRole,
-		PodType:        req.PodType,
-		ResourceName:   resourceName,
-		AllocationResult: &pluginapi.ResourceAllocation{
-			ResourceAllocation: map[string]*pluginapi.ResourceAllocationInfo{
-				resourceName: {
-					OciPropertyName:   ociPropertyName,
-					IsNodeResource:    isNodeResource,
-					IsScalarResource:  isScalarResource,
-					AllocatedQuantity: float64(allocationInfo.AllocationResult.Size()),
-					AllocationResult:  allocationInfo.AllocationResult.String(),
-					ResourceHints: &pluginapi.ListOfTopologyHints{
-						Hints: []*pluginapi.TopologyHint{
-							req.Hint,
-						},
-					},
-				},
-			},
-		},
-		Labels:      general.DeepCopyMap(req.Labels),
-		Annotations: general.DeepCopyMap(req.Annotations),
-	}, nil
 }

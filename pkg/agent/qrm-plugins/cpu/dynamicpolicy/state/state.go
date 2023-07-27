@@ -213,6 +213,11 @@ func CheckDedicatedNUMABinding(ai *AllocationInfo) bool {
 	return CheckDedicated(ai) && CheckNUMABinding(ai)
 }
 
+// CheckDedicatedPool returns true if the AllocationInfo is for a container in the dedicated pool
+func CheckDedicatedPool(ai *AllocationInfo) bool {
+	return ai.OwnerPoolName == PoolNameDedicated
+}
+
 // IsPoolEntry returns true if this entry is for a pool;
 // otherwise, this entry is for a container entity.
 func (ce ContainerEntries) IsPoolEntry() bool {
@@ -408,6 +413,11 @@ func (nm NUMANodeMap) GetDefaultCPUSet() machine.CPUSet {
 		res = res.Union(numaNodeState.DefaultCPUSet)
 	}
 	return res
+}
+
+// GetAvailableCPUSet returns available cpuset in this node
+func (nm NUMANodeMap) GetAvailableCPUSet(reservedCPUs machine.CPUSet) machine.CPUSet {
+	return nm.GetDefaultCPUSet().Difference(reservedCPUs)
 }
 
 // GetFilteredDefaultCPUSet returns default cpuset in this node, along with the filter functions

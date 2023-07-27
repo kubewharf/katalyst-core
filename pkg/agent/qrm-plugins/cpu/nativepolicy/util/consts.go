@@ -14,16 +14,12 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package cpu
+package util
 
-import (
-	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/agent/qrm"
-	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy"
-	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/nativepolicy"
-	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/util"
+const (
+	// CPUResourcePluginNativePolicyAllocationOptionDistributed is the name of the distributed allocation policy in the native policy.
+	CPUResourcePluginNativePolicyAllocationOptionDistributed = "distributed"
+
+	// CPUResourcePluginNativePolicyAllocationOptionPacked is the name of the packed allocation policy in the native policy.
+	CPUResourcePluginNativePolicyAllocationOptionPacked = "packed"
 )
-
-func init() {
-	qrm.RegisterCPUPolicyInitializer(util.CPUResourcePluginPolicyNameDynamic, dynamicpolicy.NewDynamicPolicy)
-	qrm.RegisterCPUPolicyInitializer(util.CPUResourcePluginPolicyNameNative, nativepolicy.NewNativePolicy)
-}

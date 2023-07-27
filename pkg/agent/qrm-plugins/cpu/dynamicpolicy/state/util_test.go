@@ -24,11 +24,11 @@ import (
 	"os"
 	"testing"
 
+	"github.com/stretchr/testify/require"
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 
-	"github.com/stretchr/testify/require"
-
 	"github.com/kubewharf/katalyst-api/pkg/consts"
+	cpuutil "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/util"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
@@ -501,7 +501,7 @@ func TestGenerateCPUMachineStateByPodEntries(t *testing.T) {
 		tmpDir, err := ioutil.TempDir("", "checkpoint-TestGenerateCPUMachineStateByPodEntries")
 		as.Nil(err)
 
-		machineState, err := GenerateMachineStateFromPodEntries(tc.cpuTopology, tc.podEntries)
+		machineState, err := GenerateMachineStateFromPodEntries(tc.cpuTopology, tc.podEntries, cpuutil.CPUResourcePluginPolicyNameDynamic)
 		as.Nil(err)
 
 		as.Equalf(tc.expectedMachineState, machineState, "failed in test case: %s", tc.description)

@@ -19,12 +19,18 @@ package qrm
 type CPUQRMPluginConfig struct {
 	// PolicyName is used to switch between several strategies
 	PolicyName string
-	// EnableCPUAdvisor indicates whether to enable sys-advisor module to calculate cpu resources
-	EnableCPUAdvisor bool
 	// ReservedCPUCores indicates reserved cpus number for system agents
 	ReservedCPUCores int
 	// SkipCPUStateCorruption is set to skip cpu state corruption, and it will be used after updating state properties
 	SkipCPUStateCorruption bool
+
+	CPUDynamicPolicyConfig
+	CPUNativePolicyConfig
+}
+
+type CPUDynamicPolicyConfig struct {
+	// EnableCPUAdvisor indicates whether to enable sys-advisor module to calculate cpu resources
+	EnableCPUAdvisor bool
 	// EnableCPUPressureEviction indicates whether to enable cpu-pressure eviction, such as cpu load eviction or cpu
 	// suppress eviction
 	EnableCPUPressureEviction bool
@@ -34,6 +40,17 @@ type CPUQRMPluginConfig struct {
 	EnableCPUIdle bool
 }
 
+type CPUNativePolicyConfig struct {
+	// EnableFullPhysicalCPUsOnly is a flag to enable extra allocation restrictions to avoid
+	// different containers to possibly end up on the same core.
+	EnableFullPhysicalCPUsOnly bool
+	// CPUAllocationOption is the allocation option of cpu (packed/distributed).
+	CPUAllocationOption string
+}
+
 func NewCPUQRMPluginConfig() *CPUQRMPluginConfig {
-	return &CPUQRMPluginConfig{}
+	return &CPUQRMPluginConfig{
+		CPUDynamicPolicyConfig: CPUDynamicPolicyConfig{},
+		CPUNativePolicyConfig:  CPUNativePolicyConfig{},
+	}
 }

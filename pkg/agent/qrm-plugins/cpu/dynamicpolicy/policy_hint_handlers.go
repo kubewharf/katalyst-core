@@ -85,7 +85,7 @@ func (p *DynamicPolicy) dedicatedCoresWithNUMABindingHintHandler(_ context.Conte
 
 	allocationInfo := p.state.GetAllocationInfo(req.PodUid, req.ContainerName)
 	if allocationInfo != nil {
-		hints = regenerateHints(allocationInfo, reqInt)
+		hints = util.RegenerateHints(allocationInfo, reqInt)
 
 		// regenerateHints failed. need to clear container record and re-calculate.
 		if hints == nil {
@@ -96,7 +96,7 @@ func (p *DynamicPolicy) dedicatedCoresWithNUMABindingHintHandler(_ context.Conte
 			}
 
 			var err error
-			machineState, err = state.GenerateMachineStateFromPodEntries(p.machineInfo.CPUTopology, podEntries)
+			machineState, err = generateMachineStateFromPodEntries(p.machineInfo.CPUTopology, podEntries)
 			if err != nil {
 				general.Errorf("pod: %s/%s, container: %s GenerateMachineStateFromPodEntries failed with error: %v",
 					req.PodNamespace, req.PodName, req.ContainerName, err)
@@ -220,43 +220,4 @@ func (p *DynamicPolicy) calculateHints(reqInt int, machineState state.NUMANodeMa
 	})
 
 	return hints, nil
-}
-
-// regenerateHints regenerates hints for container that'd already been allocated cpu,
-// and regenerateHints will assemble hints based on already-existed AllocationInfo,
-// without any calculation logics at all
-func regenerateHints(allocationInfo *state.AllocationInfo, reqInt int) map[string]*pluginapi.ListOfTopologyHints {
-	hints := map[string]*pluginapi.ListOfTopologyHints{}
-
-	if allocationInfo.OriginalAllocationResult.Size() < reqInt {
-		general.ErrorS(nil, "cpus already allocated with smaller quantity than requested",
-			"podUID", allocationInfo.PodUid,
-			"containerName", allocationInfo.ContainerName,
-			"requestedResource", reqInt,
-			"allocatedSize", allocationInfo.OriginalAllocationResult.Size())
-
-		return nil
-	}
-
-	allocatedNumaNodes := make([]uint64, 0, len(allocationInfo.TopologyAwareAssignments))
-	for numaNode, cset := range allocationInfo.TopologyAwareAssignments {
-		if cset.Size() > 0 {
-			allocatedNumaNodes = append(allocatedNumaNodes, uint64(numaNode))
-		}
-	}
-
-	general.InfoS("regenerating machineInfo hints, cpus was already allocated to pod",
-		"podNamespace", allocationInfo.PodNamespace,
-		"podName", allocationInfo.PodName,
-		"containerName", allocationInfo.ContainerName,
-		"hint", allocatedNumaNodes)
-	hints[string(v1.ResourceCPU)] = &pluginapi.ListOfTopologyHints{
-		Hints: []*pluginapi.TopologyHint{
-			{
-				Nodes:     allocatedNumaNodes,
-				Preferred: true,
-			},
-		},
-	}
-	return hints
 }

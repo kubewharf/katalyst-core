@@ -40,6 +40,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/cpueviction"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/validator"
+	cpuutil "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/util"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util"
 	"github.com/kubewharf/katalyst-core/pkg/agent/utilcomponent/periodicalhandler"
 	"github.com/kubewharf/katalyst-core/pkg/config"
@@ -55,8 +56,7 @@ import (
 )
 
 const (
-	CPUResourcePluginPolicyNameDynamic = "dynamic"
-	cpuPluginStateFileName             = "cpu_plugin_state"
+	cpuPluginStateFileName = "cpu_plugin_state"
 
 	reservedReclaimedCPUsSize = 4
 
@@ -138,7 +138,7 @@ func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration
 	general.Infof("take reservedCPUs: %s by reservedCPUsNum: %d", reservedCPUs.String(), reservedCPUsNum)
 
 	stateImpl, stateErr := state.NewCheckpointState(conf.GenericQRMPluginConfiguration.StateFileDirectory, cpuPluginStateFileName,
-		CPUResourcePluginPolicyNameDynamic, agentCtx.CPUTopology, conf.SkipCPUStateCorruption)
+		cpuutil.CPUResourcePluginPolicyNameDynamic, agentCtx.CPUTopology, conf.SkipCPUStateCorruption)
 	if stateErr != nil {
 		return false, agent.ComponentStub{}, fmt.Errorf("NewCheckpointState failed with error: %v", stateErr)
 	}
@@ -149,7 +149,7 @@ func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration
 
 	wrappedEmitter := agentCtx.EmitterPool.GetDefaultMetricsEmitter().WithTags(agentName, metrics.MetricTag{
 		Key: util.QRMPluginPolicyTagName,
-		Val: CPUResourcePluginPolicyNameDynamic,
+		Val: cpuutil.CPUResourcePluginPolicyNameDynamic,
 	})
 
 	var (
@@ -169,7 +169,7 @@ func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration
 	// for those pods have already been allocated reservedCPUs,
 	// we won't touch them and wait them to be deleted the next update.
 	policyImplement := &DynamicPolicy{
-		name:   fmt.Sprintf("%s_%s", agentName, CPUResourcePluginPolicyNameDynamic),
+		name:   fmt.Sprintf("%s_%s", agentName, cpuutil.CPUResourcePluginPolicyNameDynamic),
 		stopCh: make(chan struct{}),
 
 		machineInfo: agentCtx.KatalystMachineInfo,
@@ -823,7 +823,7 @@ func (p *DynamicPolicy) removePod(podUID string) error {
 	}
 	delete(podEntries, podUID)
 
-	updatedMachineState, err := state.GenerateMachineStateFromPodEntries(p.machineInfo.CPUTopology, podEntries)
+	updatedMachineState, err := generateMachineStateFromPodEntries(p.machineInfo.CPUTopology, podEntries)
 	if err != nil {
 		return fmt.Errorf("GenerateMachineStateFromPodEntries failed with error: %v", err)
 	}
@@ -840,7 +840,7 @@ func (p *DynamicPolicy) removeContainer(podUID, containerName string) error {
 	}
 	delete(podEntries[podUID], containerName)
 
-	updatedMachineState, err := state.GenerateMachineStateFromPodEntries(p.machineInfo.CPUTopology, podEntries)
+	updatedMachineState, err := generateMachineStateFromPodEntries(p.machineInfo.CPUTopology, podEntries)
 	if err != nil {
 		return fmt.Errorf("GenerateMachineStateFromPodEntries failed with error: %v", err)
 	}
@@ -903,7 +903,7 @@ func (p *DynamicPolicy) cleanPools() error {
 			delete(podEntries, poolName)
 		}
 
-		machineState, err := state.GenerateMachineStateFromPodEntries(p.machineInfo.CPUTopology, podEntries)
+		machineState, err := generateMachineStateFromPodEntries(p.machineInfo.CPUTopology, podEntries)
 		if err != nil {
 			return fmt.Errorf("calculate machineState by podEntries failed with error: %v", err)
 		}
