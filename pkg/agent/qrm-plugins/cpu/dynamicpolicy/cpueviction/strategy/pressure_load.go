@@ -255,7 +255,7 @@ func (p *CPUPressureLoadEviction) GetTopEvictionPods(_ context.Context,
 		return &pluginapi.GetTopEvictionPodsResponse{}, nil
 	}
 
-	entries := p.state.GetPodEntries()
+	podPoolMap := getPodPoolMapFunc(p.metaServer.MetaAgent, p.state)
 	candidatePods := native.FilterPods(request.ActivePods, func(pod *v1.Pod) (bool, error) {
 		if pod == nil {
 			return false, fmt.Errorf("FilterPods got nil pod")
@@ -264,9 +264,9 @@ func (p *CPUPressureLoadEviction) GetTopEvictionPods(_ context.Context,
 		podUID := string(pod.GetUID())
 		for i := range pod.Spec.Containers {
 			containerName := pod.Spec.Containers[i].Name
-			if entries[podUID][containerName] == nil {
+			if podPoolMap[podUID][containerName] == nil {
 				return false, nil
-			} else if entries[podUID][containerName].OwnerPoolName == evictionPoolName {
+			} else if podPoolMap[podUID][containerName].OwnerPool == evictionPoolName {
 				return true, nil
 			}
 		}
@@ -324,27 +324,24 @@ func (p *CPUPressureLoadEviction) collectMetrics(_ context.Context) {
 		return
 	}
 
-	entries := p.state.GetPodEntries()
-	p.clearExpiredMetricsHistory(entries)
+	podPoolMap := getPodPoolMapFunc(p.metaServer.MetaAgent, p.state)
+	p.clearExpiredMetricsHistory(podPoolMap)
 
 	// collect metric for pod/container pairs, and store in local (i.e. poolsMetric)
 	collectTime := time.Now().UnixNano()
 	poolsMetric := make(map[string]map[string]float64)
-	for podUID, entry := range entries {
-		if entry.IsPoolEntry() {
-			continue
-		}
+	for podUID, entry := range podPoolMap {
 
 		for containerName, containerEntry := range entry {
 			if containerEntry == nil {
 				continue
-			} else if containerEntry.OwnerPoolName == "" || skipPools.Has(containerEntry.OwnerPoolName) {
+			} else if containerEntry.OwnerPool == "" || skipPools.Has(containerEntry.OwnerPool) {
 				general.Infof("skip collecting metric for pod: %s, "+
-					"container: %s with owner pool name: %s", podUID, containerName, containerEntry.OwnerPoolName)
+					"container: %s with owner pool name: %s", podUID, containerName, containerEntry.OwnerPool)
 				continue
 			}
 
-			poolName := containerEntry.OwnerPoolName
+			poolName := containerEntry.OwnerPool
 			for _, metricName := range handleMetrics.UnsortedList() {
 				m, err := p.metaServer.GetContainerMetric(podUID, containerName, metricName)
 				if err != nil {
@@ -372,6 +369,7 @@ func (p *CPUPressureLoadEviction) collectMetrics(_ context.Context) {
 
 	underPressure := p.sharedPoolsUnderPressure()
 
+	entries := p.state.GetPodEntries()
 	// push pre-collected local store (i.e. poolsMetric) to metric ring buffer
 	for poolName, entry := range entries {
 		if entry == nil || !entry.IsPoolEntry() || skipPools.Has(poolName) {
@@ -584,11 +582,11 @@ func (p *CPUPressureLoadEviction) getEvictionPoolName() (exists bool, evictionPo
 	return
 }
 
-func (p *CPUPressureLoadEviction) clearExpiredMetricsHistory(entries state.PodEntries) {
+func (p *CPUPressureLoadEviction) clearExpiredMetricsHistory(podPoolMap PodPoolMap) {
 	for _, metricEntries := range p.metricsHistory {
 		for entryName, subMetricEntries := range metricEntries {
 			for subEntryName := range subMetricEntries {
-				if entries[entryName][subEntryName] == nil {
+				if podPoolMap[entryName][subEntryName] == nil {
 					general.Infof("entryName: %s subEntryName: %s metric entry is expired, clear it",
 						entryName, subEntryName)
 					delete(subMetricEntries, subEntryName)
