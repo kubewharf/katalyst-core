@@ -113,6 +113,8 @@ func (m *MalachiteMetricsFetcher) DeRegisterNotifier(scope metric.MetricsScope, 
 }
 
 func (m *MalachiteMetricsFetcher) RegisterExternalMetric(f func(store *utilmetric.MetricStore)) {
+	m.Lock()
+	defer m.Unlock()
 	m.registeredMetric = append(m.registeredMetric, f)
 }
 
@@ -176,9 +178,12 @@ func (m *MalachiteMetricsFetcher) sample(ctx context.Context) {
 	m.updateCgroupData()
 
 	// after sampling, we should call the registered function to get external metric
+	m.RLock()
 	for _, f := range m.registeredMetric {
 		f(m.metricStore)
 	}
+	m.RUnlock()
+
 	m.notifySystem()
 	m.notifyPods()
 }

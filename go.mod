@@ -11,7 +11,7 @@ require (
 	github.com/gogo/protobuf v1.3.2
 	github.com/golang/protobuf v1.5.2
 	github.com/google/cadvisor v0.44.1
-	github.com/kubewharf/katalyst-api v0.1.12
+	github.com/kubewharf/katalyst-api v0.1.14
 	github.com/opencontainers/runc v1.1.1
 	github.com/pkg/errors v0.9.1
 	github.com/prometheus/client_golang v1.12.1
@@ -141,7 +141,6 @@ require (
 )
 
 replace (
-	github.com/kubewharf/katalyst-api => github.com/waynepeking348/katalyst-api v0.0.0-20230726083513-d9782806f48b
 	k8s.io/api => k8s.io/api v0.24.6
 	k8s.io/apiextensions-apiserver => k8s.io/apiextensions-apiserver v0.24.6
 	k8s.io/apimachinery => k8s.io/apimachinery v0.24.6
