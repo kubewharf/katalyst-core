@@ -83,18 +83,17 @@ func NewMetaAgent(conf *config.Configuration, clientSet *client.GenericClientSet
 	}
 
 	metaAgent := &MetaAgent{
-		start:       false,
-		PodFetcher:  podFetcher,
-		NodeFetcher: node.NewRemoteNodeFetcher(conf.NodeName, clientSet.KubeClient.CoreV1().Nodes()),
-		CNRFetcher: cnr.NewCachedCNRFetcher(conf.NodeName, conf.CNRCacheTTL,
-			clientSet.InternalClient.NodeV1alpha1().CustomNodeResources()),
+		start:                false,
+		PodFetcher:           podFetcher,
+		NodeFetcher:          node.NewRemoteNodeFetcher(conf.NodeName, clientSet.KubeClient.CoreV1().Nodes()),
+		CNRFetcher:           cnr.NewCachedCNRFetcher(conf.NodeName, conf.CNRCacheTTL, clientSet.InternalClient.NodeV1alpha1().CustomNodeResources()),
 		KubeletConfigFetcher: kubeletconfig.NewKubeletConfigFetcher(conf, emitter),
 		KatalystMachineInfo:  machineInfo,
 		Conf:                 conf,
 	}
 
 	if conf.EnableMetricsFetcher {
-		metaAgent.MetricsFetcher = malachite.NewMalachiteMetricsFetcher(emitter, conf)
+		metaAgent.MetricsFetcher = malachite.NewMalachiteMetricsFetcher(emitter, metaAgent, conf)
 	} else {
 		metaAgent.MetricsFetcher = metric.NewFakeMetricsFetcher(emitter)
 	}

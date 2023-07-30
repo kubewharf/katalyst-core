@@ -22,13 +22,13 @@ import (
 	"time"
 
 	"github.com/kubewharf/katalyst-core/pkg/consts"
-	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric/malachite/cgroup"
+	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric/malachite/types"
 	"github.com/kubewharf/katalyst-core/pkg/util/metric"
 )
 
 // processContainerMemBandwidth handles memory bandwidth (read/write) rate in a period while,
 // and it will need the previously collected datat to do this
-func (m *MalachiteMetricsFetcher) processContainerMemBandwidth(podUID, containerName string, cgStats *cgroup.MalachiteCgroupInfo) {
+func (m *MalachiteMetricsFetcher) processContainerMemBandwidth(podUID, containerName string, cgStats *types.MalachiteCgroupInfo) {
 	var (
 		lastOCRReadDRAMs, _ = m.metricStore.GetContainerMetric(podUID, containerName, consts.MetricOCRReadDRAMsContainer)
 		lastIMCWrites, _    = m.metricStore.GetContainerMetric(podUID, containerName, consts.MetricIMCWriteContainer)

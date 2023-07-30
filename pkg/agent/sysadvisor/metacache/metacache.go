@@ -103,6 +103,8 @@ type AdvisorMetaWriter interface {
 	SetRegionInfo(regionName string, regionInfo *types.RegionInfo) error
 }
 
+type AdvisorNotifier struct{}
+
 type MetaCache interface {
 	MetaReader
 	RawMetaWriter

@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package system
+package client
 
 import (
 	"encoding/json"
@@ -24,15 +24,16 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
-	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric/malachite/client"
+	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric/malachite/types"
+	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/pod"
 )
 
 var (
-	fakeSystemCompute = &MalachiteSystemComputeResponse{
+	fakeSystemCompute = &types.MalachiteSystemComputeResponse{
 		Status: 0,
-		Data: SystemComputeData{
-			Load: Load{},
-			CPU: []CPU{
+		Data: types.SystemComputeData{
+			Load: types.Load{},
+			CPU: []types.CPU{
 				{
 					Name: "CPU1111",
 				},
@@ -40,32 +41,32 @@ var (
 		},
 	}
 
-	fakeSystemMemory = &MalachiteSystemMemoryResponse{
+	fakeSystemMemory = &types.MalachiteSystemMemoryResponse{
 		Status: 0,
-		Data: SystemMemoryData{
-			System: System{},
-			Numa: []Numa{
+		Data: types.SystemMemoryData{
+			System: types.System{},
+			Numa: []types.Numa{
 				{},
 			},
 		},
 	}
 
-	fakeSystemIO = &MalachiteSystemDiskIoResponse{
+	fakeSystemIO = &types.MalachiteSystemDiskIoResponse{
 		Status: 0,
-		Data: SystemDiskIoData{
-			DiskIo: []DiskIo{
+		Data: types.SystemDiskIoData{
+			DiskIo: []types.DiskIo{
 				{},
 			},
 		},
 	}
 
-	fakeSystemNet = &MalachiteSystemNetworkResponse{
+	fakeSystemNet = &types.MalachiteSystemNetworkResponse{
 		Status: 0,
-		Data: SystemNetworkData{
-			NetworkCard: []NetworkCard{
+		Data: types.SystemNetworkData{
+			NetworkCard: []types.NetworkCard{
 				{},
 			},
-			TCP: TCP{},
+			TCP: types.TCP{},
 		},
 	}
 )
@@ -89,17 +90,17 @@ func TestGetSystemComputeStats(t *testing.T) {
 	server := getSystemTestServer(data)
 	defer server.Close()
 
-	malachiteClient := client.New()
-	malachiteClient.(*client.Client).SetURL(map[string]string{
-		client.SystemComputeResource: server.URL,
+	malachiteClient := NewMalachiteClient(&pod.PodFetcherStub{})
+	malachiteClient.SetURL(map[string]string{
+		SystemComputeResource: server.URL,
 	})
-	_, err := GetSystemComputeStats(malachiteClient)
+	_, err := malachiteClient.GetSystemComputeStats()
 	assert.NoError(t, err)
 
-	malachiteClient.(*client.Client).SetURL(map[string]string{
-		client.SystemComputeResource: "none",
+	malachiteClient.SetURL(map[string]string{
+		SystemComputeResource: "none",
 	})
-	_, err = GetSystemComputeStats(malachiteClient)
+	_, err = malachiteClient.GetSystemComputeStats()
 	assert.NotNil(t, err)
 }
 
@@ -110,17 +111,17 @@ func TestGetSystemMemoryStats(t *testing.T) {
 	server := getSystemTestServer(data)
 	defer server.Close()
 
-	malachiteClient := client.New()
-	malachiteClient.(*client.Client).SetURL(map[string]string{
-		client.SystemMemoryResource: server.URL,
+	malachiteClient := NewMalachiteClient(&pod.PodFetcherStub{})
+	malachiteClient.SetURL(map[string]string{
+		SystemMemoryResource: server.URL,
 	})
-	_, err := GetSystemMemoryStats(malachiteClient)
+	_, err := malachiteClient.GetSystemMemoryStats()
 	assert.NoError(t, err)
 
-	malachiteClient.(*client.Client).SetURL(map[string]string{
-		client.SystemMemoryResource: "none",
+	malachiteClient.SetURL(map[string]string{
+		SystemMemoryResource: "none",
 	})
-	_, err = GetSystemComputeStats(malachiteClient)
+	_, err = malachiteClient.GetSystemComputeStats()
 	assert.NotNil(t, err)
 }
 
@@ -131,17 +132,17 @@ func TestGetSystemIOStats(t *testing.T) {
 	server := getSystemTestServer(data)
 	defer server.Close()
 
-	malachiteClient := client.New()
-	malachiteClient.(*client.Client).SetURL(map[string]string{
-		client.SystemIOResource: server.URL,
+	malachiteClient := NewMalachiteClient(&pod.PodFetcherStub{})
+	malachiteClient.SetURL(map[string]string{
+		SystemIOResource: server.URL,
 	})
-	_, err := GetSystemIOStats(malachiteClient)
+	_, err := malachiteClient.GetSystemIOStats()
 	assert.NoError(t, err)
 
-	malachiteClient.(*client.Client).SetURL(map[string]string{
-		client.SystemIOResource: "none",
+	malachiteClient.SetURL(map[string]string{
+		SystemIOResource: "none",
 	})
-	_, err = GetSystemComputeStats(malachiteClient)
+	_, err = malachiteClient.GetSystemComputeStats()
 	assert.NotNil(t, err)
 }
 
@@ -152,17 +153,17 @@ func TestGetSystemNetStats(t *testing.T) {
 	server := getSystemTestServer(data)
 	defer server.Close()
 
-	malachiteClient := client.New()
-	malachiteClient.(*client.Client).SetURL(map[string]string{
-		client.SystemNetResource: server.URL,
+	malachiteClient := NewMalachiteClient(&pod.PodFetcherStub{})
+	malachiteClient.SetURL(map[string]string{
+		SystemNetResource: server.URL,
 	})
-	_, err := GetSystemNetStats(malachiteClient)
+	_, err := malachiteClient.GetSystemNetStats()
 	assert.NoError(t, err)
 
-	malachiteClient.(*client.Client).SetURL(map[string]string{
-		client.SystemNetResource: "none",
+	malachiteClient.SetURL(map[string]string{
+		SystemNetResource: "none",
 	})
-	_, err = GetSystemComputeStats(malachiteClient)
+	_, err = malachiteClient.GetSystemComputeStats()
 	assert.NotNil(t, err)
 }
 
@@ -172,7 +173,7 @@ func TestGetSystemNonExistStats(t *testing.T) {
 	server := getSystemTestServer([]byte{})
 	defer server.Close()
 
-	malachiteClient := client.New()
-	_, err := malachiteClient.GetSystemStats(100)
+	malachiteClient := NewMalachiteClient(&pod.PodFetcherStub{})
+	_, err := malachiteClient.getSystemStats(100)
 	assert.ErrorContains(t, err, "unknown")
 }
