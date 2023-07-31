@@ -14,12 +14,10 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package cgroup
+package types
 
 import (
 	"encoding/json"
-
-	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric/malachite/system"
 )
 
 type MalachiteCgroupResponse struct {
@@ -243,7 +241,7 @@ type CPUCgDataV1 struct {
 	TaskNrIoWait          uint64       `json:"task_nr_iowait"`
 	TaskNrUninterruptible uint64       `json:"task_nr_unint"`
 	TaskNrRunning         uint64       `json:"task_nr_runnable"`
-	Load                  system.Load  `json:"load"`
+	Load                  Load         `json:"load"`
 	OCRReadDRAMs          uint64       `json:"ocr_read_drams"`
 	IMCWrites             uint64       `json:"imc_writes"`
 	StoreAllInstructions  uint64       `json:"store_all_ins"`
@@ -291,7 +289,7 @@ type MemoryCgDataV2 struct {
 	UserPath             string                 `json:"user_path"`
 	MemStats             MemStats               `json:"mem_stats"`
 	MemNumaStats         map[string]NumaStatsV2 `json:"mem_numa_stats"`
-	MemPressure          system.Pressure        `json:"mem_pressure"`
+	MemPressure          Pressure               `json:"mem_pressure"`
 	MemLocalEvents       MemLocalEvents         `json:"mem_local_events"`
 	Max                  uint64                 `json:"max"`  //18446744073709551615(u64_max) means unlimited
 	High                 uint64                 `json:"high"` //18446744073709551615(u64_max) means unlimited
@@ -309,7 +307,7 @@ type BlkIOCgDataV2 struct {
 	UserPath     string                     `json:"user_path"`
 	IoStat       map[string]DeviceIoDetails `json:"io_stat"`
 	IoMax        map[string]uint64          `json:"io_max"`
-	IoPressure   system.Pressure            `json:"io_pressure"`
+	IoPressure   Pressure                   `json:"io_pressure"`
 	IoLatency    map[string]uint64          `json:"io_latency"`
 	IoWeight     map[string]uint64          `json:"io_weight"`
 	BpfFsData    BpfFsData                  `json:"bpf_fs_data"`
@@ -322,28 +320,28 @@ type BlkIOCgDataV2 struct {
 // for legacy reasons, those all represent cores rather than ratio, we need to transform in collector,
 // and it will take effect for metric including: cpu_usage_ratio, cpu_user_usage_ratio, cpu_sys_usage_ratio
 type CPUCgDataV2 struct {
-	FullPath              string          `json:"full_path"`
-	CPUStats              CPUStats        `json:"cpu_stats"`
-	CPUPressure           system.Pressure `json:"cpu_pressure"`
-	Weight                int             `json:"weight"`
-	WeightNice            int             `json:"weight_nice"`
-	MaxBurst              int             `json:"max_burst"`
-	Max                   uint64          `json:"max"` // 18446744073709551615(u64_max) means unlimited
-	MaxPeriod             int64           `json:"max_period"`
-	CPUUsageRatio         float64         `json:"cpu_usage_ratio"`
-	CPUUserUsageRatio     float64         `json:"cpu_user_usage_ratio"`
-	CPUSysUsageRatio      float64         `json:"cpu_sys_usage_ratio"`
-	TaskNrIoWait          uint64          `json:"task_nr_iowait"`
-	TaskNrUninterruptible uint64          `json:"task_nr_unint"`
-	TaskNrRunning         uint64          `json:"task_nr_runnable"`
-	Load                  system.Load     `json:"load"`
-	OCRReadDRAMs          uint64          `json:"ocr_read_drams"`
-	IMCWrites             uint64          `json:"imc_writes"`
-	StoreAllInstructions  uint64          `json:"store_all_ins"`
-	StoreInstructions     uint64          `json:"store_ins"`
-	UpdateTime            int64           `json:"update_time"`
-	Cycles                uint64          `json:"cycles"`
-	Instructions          uint64          `json:"instructions"`
+	FullPath              string   `json:"full_path"`
+	CPUStats              CPUStats `json:"cpu_stats"`
+	CPUPressure           Pressure `json:"cpu_pressure"`
+	Weight                int      `json:"weight"`
+	WeightNice            int      `json:"weight_nice"`
+	MaxBurst              int      `json:"max_burst"`
+	Max                   uint64   `json:"max"` // 18446744073709551615(u64_max) means unlimited
+	MaxPeriod             int64    `json:"max_period"`
+	CPUUsageRatio         float64  `json:"cpu_usage_ratio"`
+	CPUUserUsageRatio     float64  `json:"cpu_user_usage_ratio"`
+	CPUSysUsageRatio      float64  `json:"cpu_sys_usage_ratio"`
+	TaskNrIoWait          uint64   `json:"task_nr_iowait"`
+	TaskNrUninterruptible uint64   `json:"task_nr_unint"`
+	TaskNrRunning         uint64   `json:"task_nr_runnable"`
+	Load                  Load     `json:"load"`
+	OCRReadDRAMs          uint64   `json:"ocr_read_drams"`
+	IMCWrites             uint64   `json:"imc_writes"`
+	StoreAllInstructions  uint64   `json:"store_all_ins"`
+	StoreInstructions     uint64   `json:"store_ins"`
+	UpdateTime            int64    `json:"update_time"`
+	Cycles                uint64   `json:"cycles"`
+	Instructions          uint64   `json:"instructions"`
 }
 
 type CPUSetCgDataV2 struct {

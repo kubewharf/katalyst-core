@@ -18,9 +18,9 @@ package client
 
 import (
 	"fmt"
-	"io/ioutil"
-	"net/http"
 	"sync"
+
+	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/pod"
 )
 
 const (
@@ -29,10 +29,10 @@ const (
 	CgroupResource     = "cgroup/groups"
 	CgroupPathParamKey = "cgroup_user_path"
 
-	SystemComputeResource = "system/compute"
-	SystemMemoryResource  = "system/memory"
 	SystemIOResource      = "system/io"
 	SystemNetResource     = "system/network"
+	SystemMemoryResource  = "system/memory"
+	SystemComputeResource = "system/compute"
 )
 
 type SystemResourceKind int
@@ -44,104 +44,34 @@ const (
 	Net
 )
 
-type Client struct {
+type MalachiteClient struct {
 	sync.RWMutex
-	urls map[string]string
+
+	urls    map[string]string
+	fetcher pod.PodFetcher
 }
 
-type MalachiteClient interface {
-	GetCgroupStats(cgroup string) ([]byte, error)
-	GetSystemStats(kind SystemResourceKind) ([]byte, error)
-}
-
-func New() MalachiteClient {
+func NewMalachiteClient(fetcher pod.PodFetcher) *MalachiteClient {
 	urls := make(map[string]string)
-	for _, path := range []string{CgroupResource, SystemComputeResource, SystemMemoryResource, SystemIOResource, SystemNetResource} {
+	for _, path := range []string{
+		CgroupResource,
+		SystemIOResource,
+		SystemNetResource,
+		SystemComputeResource,
+		SystemMemoryResource,
+	} {
 		urls[path] = fmt.Sprintf("http://localhost:%d/api/v1/%s", malachiteServicePort, path)
 	}
-	return &Client{
-		urls: urls,
+
+	return &MalachiteClient{
+		fetcher: fetcher,
+		urls:    urls,
 	}
 }
 
 // SetURL is used to implement UT for
-func (c *Client) SetURL(urls map[string]string) {
+func (c *MalachiteClient) SetURL(urls map[string]string) {
 	c.Lock()
 	defer c.Unlock()
-
 	c.urls = urls
-}
-
-func (c *Client) GetCgroupStats(cgroupPath string) ([]byte, error) {
-	c.RLock()
-	defer c.RUnlock()
-
-	url, ok := c.urls[CgroupResource]
-	if !ok {
-		return nil, fmt.Errorf("no url for %v", CgroupResource)
-	}
-
-	req, err := http.NewRequest("GET", url, nil)
-	if err != nil {
-		return nil, fmt.Errorf("failed to http.NewRequest, url: %s, err %s", url, err)
-	}
-
-	q := req.URL.Query()
-	q.Add(CgroupPathParamKey, cgroupPath)
-	req.URL.RawQuery = q.Encode()
-
-	rsp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("failed to http.DefaultClient.Do, url: %s, err %s", req.URL, err)
-	}
-
-	defer func() { _ = rsp.Body.Close() }()
-
-	if rsp.StatusCode != 200 {
-		return nil, fmt.Errorf("invalid http response status code %d, url: %s", rsp.StatusCode, req.URL)
-	}
-
-	return ioutil.ReadAll(rsp.Body)
-}
-
-func (c *Client) GetSystemStats(kind SystemResourceKind) ([]byte, error) {
-	c.RLock()
-	defer c.RUnlock()
-
-	resource := ""
-	switch kind {
-	case Compute:
-		resource = SystemComputeResource
-	case Memory:
-		resource = SystemMemoryResource
-	case IO:
-		resource = SystemIOResource
-	case Net:
-		resource = SystemNetResource
-	default:
-		return nil, fmt.Errorf("unknown system resource kind, %v", kind)
-	}
-
-	url, ok := c.urls[resource]
-	if !ok {
-		return nil, fmt.Errorf("no url for %v", resource)
-	}
-
-	req, err := http.NewRequest("GET", url, nil)
-	if err != nil {
-		return nil, fmt.Errorf("failed to http.NewRequest, url: %s, err %s", url, err)
-	}
-
-	rsp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("failed to http.DefaultClient.Do, url: %s, err %s", req.URL, err)
-	}
-
-	defer func() { _ = rsp.Body.Close() }()
-
-	if rsp.StatusCode != 200 {
-		return nil, fmt.Errorf("invalid http response status code %d, url: %s", rsp.StatusCode, req.URL)
-	}
-
-	return ioutil.ReadAll(rsp.Body)
 }

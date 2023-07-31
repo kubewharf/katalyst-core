@@ -19,8 +19,10 @@ package node
 import (
 	"context"
 	"fmt"
+	"time"
 
 	v1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/klog/v2"
 
 	apimetricnode "github.com/kubewharf/katalyst-api/pkg/metric/node"
@@ -41,7 +43,8 @@ import (
 // nodeRawMetricNameMapping maps the raw metricName (collected from agent.MetricsFetcher)
 // to the standard metricName (used by custom-metric-api-server)
 var nodeRawMetricNameMapping = map[string]string{
-	consts.MetricLoad1MinSystem:     apimetricnode.CustomMetricNodeCPULoad1Min,
+	consts.MetricLoad1MinSystem: apimetricnode.CustomMetricNodeCPULoad1Min,
+
 	consts.MetricMemFreeSystem:      apimetricnode.CustomMetricNodeMemoryFree,
 	consts.MetricMemAvailableSystem: apimetricnode.CustomMetricNodeMemoryAvailable,
 }
@@ -103,6 +106,9 @@ func (n *MetricSyncerNode) Run(ctx context.Context) {
 	}
 
 	go n.receiveRawNode(ctx, rChan)
+	go wait.Until(func() {
+		n.advisorMetric(ctx)
+	}, time.Second*3, ctx.Done())
 }
 
 // receiveRawNode receives notified response from raw data source
@@ -139,7 +145,7 @@ func (n *MetricSyncerNode) receiveRawNode(ctx context.Context, rChan chan metric
 
 // generateMetricTag generates tags that are bounded to current Node object
 func (n *MetricSyncerNode) generateMetricTag(ctx context.Context) (tags []metrics.MetricTag) {
-	if n.node == nil {
+	if n.node == nil && n.metaServer != nil && n.metaServer.NodeFetcher != nil {
 		node, err := n.metaServer.GetNode(ctx)
 		if err != nil {
 			klog.Warningf("get current node failed: %v", err)

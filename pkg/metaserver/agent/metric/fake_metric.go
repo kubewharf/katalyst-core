@@ -32,6 +32,7 @@ package metric
 
 import (
 	"context"
+	"sync"
 
 	v1 "k8s.io/api/core/v1"
 
@@ -49,11 +50,19 @@ func NewFakeMetricsFetcher(emitter metrics.MetricEmitter) MetricsFetcher {
 }
 
 type FakeMetricsFetcher struct {
-	metricStore *metric.MetricStore
-	emitter     metrics.MetricEmitter
+	sync.RWMutex
+	metricStore      *metric.MetricStore
+	emitter          metrics.MetricEmitter
+	registeredMetric []func(store *metric.MetricStore)
 }
 
-func (f *FakeMetricsFetcher) Run(ctx context.Context) {}
+func (f *FakeMetricsFetcher) Run(ctx context.Context) {
+	f.RLock()
+	defer f.RUnlock()
+	for _, fu := range f.registeredMetric {
+		fu(f.metricStore)
+	}
+}
 
 func (f *FakeMetricsFetcher) RegisterNotifier(scope MetricsScope, req NotifiedRequest, response chan NotifiedResponse) string {
 	return ""
@@ -61,7 +70,11 @@ func (f *FakeMetricsFetcher) RegisterNotifier(scope MetricsScope, req NotifiedRe
 
 func (f *FakeMetricsFetcher) DeRegisterNotifier(scope MetricsScope, key string) {}
 
-func (f *FakeMetricsFetcher) RegisterExternalMetric(_ func(store *metric.MetricStore)) {}
+func (f *FakeMetricsFetcher) RegisterExternalMetric(fu func(store *metric.MetricStore)) {
+	f.Lock()
+	defer f.Unlock()
+	f.registeredMetric = append(f.registeredMetric, fu)
+}
 
 func (f *FakeMetricsFetcher) GetNodeMetric(metricName string) (metric.MetricData, error) {
 	return f.metricStore.GetNodeMetric(metricName)

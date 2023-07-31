@@ -85,7 +85,7 @@ type ControlKnob map[ControlKnobName]ControlKnobValue
 type ControlKnobName string
 
 const (
-	// ControlKnobNonReclaimedCPUSize refers to cpu requirement of non reclaimed workloads
+	// ControlKnobNonReclaimedCPUSize refers to cpu requirement of non-reclaimed workloads
 	ControlKnobNonReclaimedCPUSize ControlKnobName = "non-reclaimed-cpu-size"
 
 	// ControlKnobNonReclaimedCPUSizeUpper refers to the upper cpu size, for isolated pods now
