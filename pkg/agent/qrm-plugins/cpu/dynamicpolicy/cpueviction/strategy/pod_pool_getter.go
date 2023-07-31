@@ -24,8 +24,8 @@ import (
 
 var getPodPoolMapFunc = DefaultGetPodPoolMapFunc
 
-// PodPoolMap is a map keyed by pod UID, the value is a map keyed by container name and its value is
-// the container info with owner pool.
+// PodPoolMap is a map keyed by pod UID, the value is a map keyed by container name
+// and its value is the container info with owner pool.
 type PodPoolMap map[string]map[string]*ContainerOwnerPoolInfo
 
 func (p PodPoolMap) PutContainerOwnerPoolInfo(podUID string, containerName string, ownerPool string, poolSize int, isPool bool) {
@@ -38,13 +38,13 @@ func (p PodPoolMap) PutContainerOwnerPoolInfo(podUID string, containerName strin
 	if podMap, ok := p[podUID]; ok {
 		podMap[containerName] = containerOwnerPoolInfo
 	} else {
-		podMap := map[string]*ContainerOwnerPoolInfo{containerName: containerOwnerPoolInfo}
-		p[podUID] = podMap
+		pm := map[string]*ContainerOwnerPoolInfo{containerName: containerOwnerPoolInfo}
+		p[podUID] = pm
 	}
 }
 
-// GetPodPoolMapFunc returns a map keyed by pod UID, the value is a map keyed by container name and its value is
-// the container info with owner pool.
+// GetPodPoolMapFunc returns a map keyed by pod UID, the value is a map keyed by container name
+// and its value is the container info with owner pool.
 type GetPodPoolMapFunc func(pod.PodFetcher, state.ReadonlyState) PodPoolMap
 
 type ContainerOwnerPoolInfo struct {
