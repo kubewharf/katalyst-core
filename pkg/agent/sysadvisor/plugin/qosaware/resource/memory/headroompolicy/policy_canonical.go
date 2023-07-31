@@ -77,7 +77,7 @@ func (p *PolicyCanonical) estimateNonReclaimedQoSMemoryRequirement() (float64, e
 			return true
 		}
 
-		if ci.IsNumaBinding() && !enableReclaim {
+		if ci.IsNumaExclusive() && !enableReclaim {
 			if ci.ContainerType == v1alpha1.ContainerType_MAIN {
 				bindingNumas := machine.GetCPUAssignmentNUMAs(ci.TopologyAwareAssignments)
 				for _, numaID := range bindingNumas.ToSliceInt() {

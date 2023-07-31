@@ -32,6 +32,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	k8stypes "k8s.io/apimachinery/pkg/types"
 	"k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 
 	"github.com/kubewharf/katalyst-api/pkg/consts"
@@ -63,7 +64,7 @@ func generateTestConfiguration(t *testing.T, checkpointDir, stateFileDir string)
 	return conf
 }
 
-func newTestCPUResourceAdvisor(t *testing.T, pods []*v1.Pod, conf *config.Configuration, mf *metric.FakeMetricsFetcher, performanceLevel spd.PerformanceLevel) (*cpuResourceAdvisor, metacache.MetaCache) {
+func newTestCPUResourceAdvisor(t *testing.T, pods []*v1.Pod, conf *config.Configuration, mf *metric.FakeMetricsFetcher, profiles map[k8stypes.UID]spd.DummyPodServiceProfile) (*cpuResourceAdvisor, metacache.MetaCache) {
 	metaCache, err := metacache.NewMetaCacheImp(conf, metric.NewFakeMetricsFetcher(metrics.DummyMetrics{}))
 	require.NoError(t, err)
 
@@ -88,7 +89,7 @@ func newTestCPUResourceAdvisor(t *testing.T, pods []*v1.Pod, conf *config.Config
 		MetricsFetcher: mf,
 	}
 
-	err = metaServer.SetServiceProfilingManager(spd.NewDummyServiceProfilingManager(performanceLevel))
+	err = metaServer.SetServiceProfilingManager(spd.NewDummyServiceProfilingManager(profiles))
 	require.NoError(t, err)
 
 	cra := NewCPUResourceAdvisor(conf, struct{}{}, metaCache, metaServer, nil)
@@ -144,7 +145,8 @@ func TestAdvisorUpdate(t *testing.T) {
 		pods                          []*v1.Pod
 		nodeEnableReclaim             bool
 		headroomAssembler             types.CPUHeadroomAssemblerName
-		pLevel                        spd.PerformanceLevel
+		headroomPolicies              map[types.QoSRegionType][]types.CPUHeadroomPolicyName
+		podProfiles                   map[k8stypes.UID]spd.DummyPodServiceProfile
 		wantInternalCalculationResult types.InternalCPUCalculationResult
 		wantHeadroom                  resource.Quantity
 		metrics                       []metricItem
@@ -476,8 +478,12 @@ func TestAdvisorUpdate(t *testing.T) {
 				},
 			},
 			nodeEnableReclaim: true,
-			pLevel:            spd.PerformanceLevelPoor,
+			podProfiles:       map[k8stypes.UID]spd.DummyPodServiceProfile{"uid1": {PerformanceLevel: spd.PerformanceLevelPoor, Score: 0}},
 			headroomAssembler: types.CPUHeadroomAssemblerDedicated,
+			headroomPolicies: map[types.QoSRegionType][]types.CPUHeadroomPolicyName{
+				types.QoSRegionTypeShare:                  {types.CPUHeadroomPolicyCanonical},
+				types.QoSRegionTypeDedicatedNumaExclusive: {types.CPUHeadroomPolicyNUMAExclusive},
+			},
 			wantInternalCalculationResult: types.InternalCPUCalculationResult{
 				PoolEntries: map[string]map[int]int{
 					state.PoolNameReserve: {
@@ -490,6 +496,60 @@ func TestAdvisorUpdate(t *testing.T) {
 				},
 			},
 			wantHeadroom: *resource.NewQuantity(45, resource.DecimalSI),
+		},
+		{
+			name: "single_dedicated_numa_exclusive pod with performance score",
+			pools: map[string]*types.PoolInfo{
+				state.PoolNameReserve: {
+					PoolName: state.PoolNameReserve,
+					TopologyAwareAssignments: map[int]machine.CPUSet{
+						0: machine.MustParse("0"),
+						1: machine.MustParse("24"),
+					},
+				},
+				state.PoolNameReclaim: {
+					PoolName: state.PoolNameReclaim,
+					TopologyAwareAssignments: map[int]machine.CPUSet{
+						0: machine.MustParse("70-71"),
+						1: machine.MustParse("25-47,72-95"),
+					},
+				},
+			},
+			containers: []*types.ContainerInfo{
+				makeContainerInfo("uid1", "default", "pod1", "c1", consts.PodAnnotationQoSLevelDedicatedCores, state.PoolNameDedicated,
+					map[string]string{consts.PodAnnotationMemoryEnhancementNumaBinding: consts.PodAnnotationMemoryEnhancementNumaBindingEnable},
+					map[int]machine.CPUSet{
+						0: machine.MustParse("1-23,48-71"),
+					}, 36),
+			},
+			pods: []*v1.Pod{
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "pod1",
+						Namespace: "default",
+						UID:       "uid1",
+					},
+				},
+			},
+			nodeEnableReclaim: true,
+			podProfiles:       map[k8stypes.UID]spd.DummyPodServiceProfile{"uid1": {PerformanceLevel: spd.PerformanceLevelPerfect, Score: 50}},
+			headroomAssembler: types.CPUHeadroomAssemblerDedicated,
+			headroomPolicies: map[types.QoSRegionType][]types.CPUHeadroomPolicyName{
+				types.QoSRegionTypeShare:                  {types.CPUHeadroomPolicyCanonical},
+				types.QoSRegionTypeDedicatedNumaExclusive: {types.CPUHeadroomPolicyNUMAExclusive},
+			},
+			wantInternalCalculationResult: types.InternalCPUCalculationResult{
+				PoolEntries: map[string]map[int]int{
+					state.PoolNameReserve: {
+						-1: 2,
+					},
+					state.PoolNameReclaim: {
+						0:  4,
+						-1: 47,
+					},
+				},
+			},
+			wantHeadroom: *resource.NewQuantity(49, resource.DecimalSI),
 		},
 		{
 			name: "dedicated_numa_exclusive_&_share",
@@ -837,8 +897,11 @@ func TestAdvisorUpdate(t *testing.T) {
 			if tt.headroomAssembler != "" {
 				conf.CPUAdvisorConfiguration.HeadroomAssembler = tt.headroomAssembler
 			}
+			if len(tt.headroomPolicies) != 0 {
+				conf.CPUAdvisorConfiguration.HeadroomPolicies = tt.headroomPolicies
+			}
 
-			advisor, metaCache := newTestCPUResourceAdvisor(t, tt.pods, conf, mf, tt.pLevel)
+			advisor, metaCache := newTestCPUResourceAdvisor(t, tt.pods, conf, mf, tt.podProfiles)
 			advisor.startTime = time.Now().Add(-types.StartUpPeriod)
 			advisor.conf.GetDynamicConfiguration().EnableReclaim = tt.nodeEnableReclaim
 

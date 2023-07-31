@@ -53,6 +53,7 @@ func init() {
 	provisionpolicy.RegisterInitializer(types.CPUProvisionPolicyRama, provisionpolicy.NewPolicyRama)
 
 	headroompolicy.RegisterInitializer(types.CPUHeadroomPolicyCanonical, headroompolicy.NewPolicyCanonical)
+	headroompolicy.RegisterInitializer(types.CPUHeadroomPolicyNUMAExclusive, headroompolicy.NewPolicyNUMAExclusive)
 
 	provisionassembler.RegisterInitializer(types.CPUProvisionAssemblerCommon, provisionassembler.NewProvisionAssemblerCommon)
 

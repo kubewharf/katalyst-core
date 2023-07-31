@@ -458,7 +458,8 @@ func TestPolicyCanonical_calculateMemoryBuffer(t *testing.T) {
 					makeContainerInfo("pod1", "default",
 						"pod1", "container1",
 						consts.PodAnnotationQoSLevelDedicatedCores,
-						map[string]string{consts.PodAnnotationMemoryEnhancementNumaBinding: consts.PodAnnotationMemoryEnhancementNumaBindingEnable},
+						map[string]string{consts.PodAnnotationMemoryEnhancementNumaBinding: consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
+							consts.PodAnnotationMemoryEnhancementNumaExclusive: consts.PodAnnotationMemoryEnhancementNumaExclusiveEnable},
 						types.TopologyAwareAssignment{0: machine.NewCPUSet(0, 1, 2, 3, 4)}, 1),
 				},
 				memoryHeadroomConfiguration: &memoryheadroom.MemoryHeadroomConfiguration{
