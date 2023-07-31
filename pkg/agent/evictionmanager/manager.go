@@ -52,7 +52,8 @@ const (
 	MetricsNameVictimPodCNT       = "victims_cnt"
 	MetricsNameRunningPodCNT      = "running_pod_cnt"
 	MetricsNameCandidatePodCNT    = "candidate_pod_cnt"
-	MetricsNameDryrunVictimPodCNT = "dryrun_victims_cnt"
+	MetricsNameDryRunVictimPodCNT = "dryrun_victims_cnt"
+	MetricsNameDryRunConditionCNT = "dryrun_condition_cnt"
 )
 
 // LatestCNRGetter returns the latest CNR resources.

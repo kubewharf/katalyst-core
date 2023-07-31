@@ -28,11 +28,11 @@ var getPodPoolMapFunc = DefaultGetPodPoolMapFunc
 // the container info with owner pool.
 type PodPoolMap map[string]map[string]*ContainerOwnerPoolInfo
 
-func (p PodPoolMap) PutContainerOwnerPoolInfo(podUID string, containerName string, ownerPool string) {
+func (p PodPoolMap) PutContainerOwnerPoolInfo(podUID string, containerName string, ownerPool string, poolSize int, isPool bool) {
 	containerOwnerPoolInfo := &ContainerOwnerPoolInfo{
-		PodUID:        podUID,
-		ContainerName: containerName,
-		OwnerPool:     ownerPool,
+		OwnerPool: ownerPool,
+		PoolSize:  poolSize,
+		IsPool:    isPool,
 	}
 
 	if podMap, ok := p[podUID]; ok {
@@ -48,9 +48,9 @@ func (p PodPoolMap) PutContainerOwnerPoolInfo(podUID string, containerName strin
 type GetPodPoolMapFunc func(pod.PodFetcher, state.ReadonlyState) PodPoolMap
 
 type ContainerOwnerPoolInfo struct {
-	PodUID        string
-	ContainerName string
-	OwnerPool     string
+	OwnerPool string
+	PoolSize  int
+	IsPool    bool
 }
 
 // SetGetPodPoolMapFunc provides a hook to change the implementation of GetPodPoolMapFunc
@@ -63,11 +63,12 @@ var DefaultGetPodPoolMapFunc GetPodPoolMapFunc = func(fetcher pod.PodFetcher, re
 	result := make(PodPoolMap)
 
 	for podUID, entry := range readonlyState.GetPodEntries() {
-		if entry.IsPoolEntry() {
-			continue
-		}
-
 		for containerName, containerEntry := range entry {
+			if entry.IsPoolEntry() {
+				result.PutContainerOwnerPoolInfo(podUID, containerName, podUID, containerEntry.AllocationResult.Size(), true)
+				continue
+			}
+
 			if containerEntry == nil {
 				continue
 			} else if containerEntry.OwnerPoolName == "" {
@@ -76,7 +77,7 @@ var DefaultGetPodPoolMapFunc GetPodPoolMapFunc = func(fetcher pod.PodFetcher, re
 				continue
 			}
 
-			result.PutContainerOwnerPoolInfo(podUID, containerName, containerEntry.OwnerPoolName)
+			result.PutContainerOwnerPoolInfo(podUID, containerName, containerEntry.OwnerPoolName, containerEntry.AllocationResult.Size(), false)
 		}
 	}
 
