@@ -907,14 +907,15 @@ func (p *StaticPolicy) getResourceAllocationAnnotations(podAnnotations map[strin
 }
 
 func (p *StaticPolicy) removePod(podUID string) error {
-	cgIDList, err := p.metaServer.ExternalManager.ListCgroupIDsForPod(podUID)
-	if err != nil {
-		if general.IsErrNotFound(err) {
-			general.Warningf("cgroup ids for pod not found")
-			return nil
+	if p.CgroupV2Env {
+		cgIDList, err := p.metaServer.ExternalManager.ListCgroupIDsForPod(podUID)
+		if err != nil {
+			if general.IsErrNotFound(err) {
+				general.Warningf("cgroup ids for pod not found")
+				return nil
+			}
+			return fmt.Errorf("[NetworkStaticPolicy.removePod] list cgroup ids of pod: %s failed with error: %v", podUID, err)
 		}
-		return fmt.Errorf("[NetworkStaticPolicy.removePod] list cgroup ids of pod: %s failed with error: %v", podUID, err)
-	}
 
 		for _, cgID := range cgIDList {
 			go func(cgID uint64) {
