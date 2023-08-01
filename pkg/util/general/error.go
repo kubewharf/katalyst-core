@@ -16,7 +16,15 @@ limitations under the License.
 
 package general
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"fmt"
+)
+
+// common errors
+var (
+	ErrNotFound = fmt.Errorf("not found")
+)
 
 // IsUnmarshalTypeError check whether is json unmarshal type error
 func IsUnmarshalTypeError(err error) bool {
@@ -24,4 +32,8 @@ func IsUnmarshalTypeError(err error) bool {
 		return true
 	}
 	return false
+}
+
+func IsErrNotFound(err error) bool {
+	return err == ErrNotFound
 }
