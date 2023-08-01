@@ -62,7 +62,7 @@ func (c *MalachiteClient) GetPodStats(ctx context.Context, podUID string) (map[s
 			general.Errorf("GetPodStats err %v", err)
 			continue
 		}
-		containersStats[containerID] = stats
+		containersStats[containerStatus.Name] = stats
 	}
 	return containersStats, nil
 }

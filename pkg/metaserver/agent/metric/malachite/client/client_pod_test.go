@@ -169,15 +169,15 @@ func TestGetPodContainerStats(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, 3, len(stats))
 
-	assert.NotNil(t, stats["p-uid1"]["p1-c-uid1"].V1)
-	assert.Nil(t, stats["p-uid1"]["p1-c-uid1"].V2)
+	assert.NotNil(t, stats["p-uid1"]["p1-c-name1"].V1)
+	assert.Nil(t, stats["p-uid1"]["p1-c-name1"].V2)
 
-	assert.NotNil(t, stats["p-uid1"]["p1-c-uid2"].V2)
-	assert.Nil(t, stats["p-uid1"]["p1-c-uid2"].V1)
+	assert.NotNil(t, stats["p-uid1"]["p1-c-name2"].V2)
+	assert.Nil(t, stats["p-uid1"]["p1-c-name2"].V1)
 
-	assert.NotNil(t, stats["p-uid2"]["p2-c-uid1"].V1)
-	assert.Nil(t, stats["p-uid2"]["p2-c-uid1"].V2)
+	assert.NotNil(t, stats["p-uid2"]["p2-c-name1"].V1)
+	assert.Nil(t, stats["p-uid2"]["p2-c-name1"].V2)
 
-	assert.NotNil(t, stats["p-uid3"]["p3-c-uid1"].V2)
-	assert.Nil(t, stats["p-uid3"]["p3-c-uid1"].V1)
+	assert.NotNil(t, stats["p-uid3"]["p3-c-name1"].V2)
+	assert.Nil(t, stats["p-uid3"]["p3-c-name1"].V1)
 }
