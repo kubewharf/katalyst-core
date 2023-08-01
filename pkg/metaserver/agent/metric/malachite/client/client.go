@@ -45,9 +45,11 @@ const (
 )
 
 type MalachiteClient struct {
+	// those fields are for testing
 	sync.RWMutex
+	urls             map[string]string
+	relativePathFunc *func(podUID, containerId string) (string, error)
 
-	urls    map[string]string
 	fetcher pod.PodFetcher
 }
 
