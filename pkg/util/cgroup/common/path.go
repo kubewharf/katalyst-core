@@ -113,6 +113,24 @@ func GetKubernetesAnyExistAbsCgroupPath(subsys, suffix string) (string, error) {
 	return "", fmt.Errorf("failed to find absolute path of suffix: %s, error: %v", suffix, utilerrors.NewAggregate(errs))
 }
 
+// GetKubernetesAnyExistRelativeCgroupPath returns any relative cgroup path that exists for kubernetes
+func GetKubernetesAnyExistRelativeCgroupPath(suffix string) (string, error) {
+	var errs []error
+
+	k8sCgroupPathLock.RLock()
+	defer k8sCgroupPathLock.RUnlock()
+
+	for _, cgPath := range k8sCgroupPathList.List() {
+		relativePath := path.Join(cgPath, suffix)
+		p := GetKubernetesAbsCgroupPath(DefaultSelectedSubsys, relativePath)
+		if general.IsPathExists(p) {
+			return relativePath, nil
+		}
+	}
+
+	return "", fmt.Errorf("failed to find relative path of suffix: %s, error: %v", suffix, utilerrors.NewAggregate(errs))
+}
+
 // GetPodAbsCgroupPath returns absolute cgroup path for pod level
 func GetPodAbsCgroupPath(subsys, podUID string) (string, error) {
 	return GetKubernetesAnyExistAbsCgroupPath(subsys, podUID)
@@ -124,8 +142,8 @@ func GetContainerAbsCgroupPath(subsys, podUID, containerId string) (string, erro
 }
 
 // GetContainerRelativeCgroupPath returns relative cgroup path for container level
-func GetContainerRelativeCgroupPath(podUID, containerId string) string {
-	return path.Join(fmt.Sprintf("%s%s", PodCgroupPathPrefix, podUID), containerId)
+func GetContainerRelativeCgroupPath(podUID, containerId string) (string, error) {
+	return GetKubernetesAnyExistRelativeCgroupPath(path.Join(fmt.Sprintf("%s%s", PodCgroupPathPrefix, podUID), containerId))
 }
 
 func IsContainerCgroupExist(podUID, containerID string) (bool, error) {

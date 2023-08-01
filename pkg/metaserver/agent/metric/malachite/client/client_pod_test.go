@@ -19,8 +19,10 @@ package client
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"path"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -30,11 +32,10 @@ import (
 
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric/malachite/types"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/pod"
+	"github.com/kubewharf/katalyst-core/pkg/util/cgroup/common"
 )
 
 func TestGetPodContainerStats(t *testing.T) {
-	t.Parallel()
-
 	cgroupData := map[string]*types.MalachiteCgroupResponse{
 		"podp-uid1/p1-c-uid1": {
 			Status: 0,
@@ -96,11 +97,11 @@ func TestGetPodContainerStats(t *testing.T) {
 				ContainerStatuses: []v1.ContainerStatus{
 					{
 						Name:        "p1-c-name1",
-						ContainerID: "p1-c-uid1",
+						ContainerID: "docker://p1-c-uid1",
 					},
 					{
 						Name:        "p1-c-name2",
-						ContainerID: "p1-c-uid2",
+						ContainerID: "containerd://p1-c-uid2",
 					},
 				},
 			},
@@ -128,7 +129,7 @@ func TestGetPodContainerStats(t *testing.T) {
 				ContainerStatuses: []v1.ContainerStatus{
 					{
 						Name:        "p3-c-name1",
-						ContainerID: "p3-c-uid1",
+						ContainerID: "containerd://p3-c-uid1",
 					},
 				},
 			},
@@ -142,7 +143,7 @@ func TestGetPodContainerStats(t *testing.T) {
 				ContainerStatuses: []v1.ContainerStatus{
 					{
 						Name:        "p4-c-name1",
-						ContainerID: "p4-c-uid1",
+						ContainerID: "containerd://p4-c-uid1",
 					},
 				},
 			},
@@ -156,6 +157,15 @@ func TestGetPodContainerStats(t *testing.T) {
 	})
 
 	stats, err := malachiteClient.GetAllPodContainersStats(context.Background())
+	assert.NoError(t, err)
+	assert.Equal(t, 0, len(stats))
+
+	relativePathFunc := func(podUID, containerId string) (string, error) {
+		return path.Join(fmt.Sprintf("%s%s", common.PodCgroupPathPrefix, podUID), containerId), nil
+	}
+	malachiteClient.relativePathFunc = &relativePathFunc
+
+	stats, err = malachiteClient.GetAllPodContainersStats(context.Background())
 	assert.NoError(t, err)
 	assert.Equal(t, 3, len(stats))
 
