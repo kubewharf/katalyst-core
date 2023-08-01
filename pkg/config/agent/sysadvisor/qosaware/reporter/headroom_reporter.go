@@ -24,10 +24,12 @@ import (
 
 // HeadroomReporterConfiguration stores configurations of headroom reporters in qos aware plugin
 type HeadroomReporterConfiguration struct {
-	HeadroomReporterSyncPeriod           time.Duration
-	HeadroomReporterSlidingWindowTime    time.Duration
-	HeadroomReporterSlidingWindowMinStep v1.ResourceList
-	HeadroomReporterSlidingWindowMaxStep v1.ResourceList
+	HeadroomReporterSyncPeriod                      time.Duration
+	HeadroomReporterSlidingWindowTime               time.Duration
+	HeadroomReporterSlidingWindowMinStep            v1.ResourceList
+	HeadroomReporterSlidingWindowMaxStep            v1.ResourceList
+	HeadroomReporterSlidingWindowAggregateFunction  string
+	HeadroomReporterSlidingWindowAggregateArguments string
 
 	*CPUHeadroomManagerConfiguration
 	*MemoryHeadroomManagerConfiguration

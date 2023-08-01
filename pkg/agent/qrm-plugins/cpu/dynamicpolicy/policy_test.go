@@ -41,6 +41,7 @@ import (
 	advisorapi "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/cpuadvisor"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/validator"
+	cpuutil "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/util"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic"
 	"github.com/kubewharf/katalyst-core/pkg/config/generic"
@@ -71,7 +72,7 @@ func getTestDynamicPolicyWithInitialization(topology *machine.CPUTopology, state
 }
 
 func getTestDynamicPolicyWithoutInitialization(topology *machine.CPUTopology, stateFileDirectory string) (*DynamicPolicy, error) {
-	stateImpl, err := state.NewCheckpointState(stateFileDirectory, cpuPluginStateFileName, CPUResourcePluginPolicyNameDynamic, topology, false)
+	stateImpl, err := state.NewCheckpointState(stateFileDirectory, cpuPluginStateFileName, cpuutil.CPUResourcePluginPolicyNameDynamic, topology, false)
 	if err != nil {
 		return nil, err
 	}
@@ -2811,7 +2812,7 @@ func TestAllocateByQoSAwareServerListAndWatchResp(t *testing.T) {
 
 		dynamicPolicy.dynamicConfig.GetDynamicConfiguration().EnableReclaim = true
 
-		machineState, err := state.GenerateMachineStateFromPodEntries(tc.cpuTopology, tc.podEntries)
+		machineState, err := generateMachineStateFromPodEntries(tc.cpuTopology, tc.podEntries)
 		as.Nil(err)
 
 		dynamicPolicy.state.SetPodEntries(tc.podEntries)

@@ -44,6 +44,12 @@ type CPUTopology struct {
 	CPUDetails   CPUDetails
 }
 
+type MemoryDetails map[int]uint64
+
+type MemoryTopology struct {
+	MemoryDetails MemoryDetails
+}
+
 // CPUsPerCore returns the number of logical CPUs
 // associated with each core.
 func (topo *CPUTopology) CPUsPerCore() int {
@@ -158,6 +164,14 @@ func GenerateDummyCPUTopology(cpuNum, socketNum, numaNum int) (*CPUTopology, err
 	}
 
 	return cpuTopology, nil
+}
+
+func GenerateDummyMemoryTopology(numaNum int, memoryCapacity uint64) (*MemoryTopology, error) {
+	memoryTopology := &MemoryTopology{map[int]uint64{}}
+	for i := 0; i < numaNum; i++ {
+		memoryTopology.MemoryDetails[i] = memoryCapacity / uint64(numaNum)
+	}
+	return memoryTopology, nil
 }
 
 // CPUInfo contains the NUMA, socket, and core IDs associated with a CPU.
@@ -313,15 +327,19 @@ func (d CPUDetails) CPUsInCores(ids ...int) CPUSet {
 }
 
 // Discover returns CPUTopology based on cadvisor node info
-func Discover(machineInfo *info.MachineInfo) (*CPUTopology, error) {
+func Discover(machineInfo *info.MachineInfo) (*CPUTopology, *MemoryTopology, error) {
 	if machineInfo.NumCores == 0 {
-		return nil, fmt.Errorf("could not detect number of cpus")
+		return nil, nil, fmt.Errorf("could not detect number of cpus")
 	}
 
 	CPUDetails := CPUDetails{}
 	numPhysicalCores := 0
 
+	memoryTopology := MemoryTopology{MemoryDetails: map[int]uint64{}}
+
 	for _, node := range machineInfo.Topology {
+		memoryTopology.MemoryDetails[node.Id] = node.Memory
+
 		numPhysicalCores += len(node.Cores)
 		for _, core := range node.Cores {
 			if coreID, err := getUniqueCoreID(core.Threads); err == nil {
@@ -335,7 +353,7 @@ func Discover(machineInfo *info.MachineInfo) (*CPUTopology, error) {
 			} else {
 				klog.ErrorS(nil, "Could not get unique coreID for socket",
 					"socket", core.SocketID, "core", core.Id, "threads", core.Threads)
-				return nil, err
+				return nil, nil, err
 			}
 		}
 	}
@@ -346,7 +364,7 @@ func Discover(machineInfo *info.MachineInfo) (*CPUTopology, error) {
 		NumCores:     numPhysicalCores,
 		NumNUMANodes: CPUDetails.NUMANodes().Size(),
 		CPUDetails:   CPUDetails,
-	}, nil
+	}, &memoryTopology, nil
 }
 
 // getUniqueCoreID computes coreId as the lowest cpuID

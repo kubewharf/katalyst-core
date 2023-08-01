@@ -93,7 +93,7 @@ func (sc *stateCheckpoint) restoreState(topology *machine.CPUTopology) error {
 		return fmt.Errorf("[cpu_plugin] configured policy %q differs from state checkpoint policy %q", sc.policyName, checkpoint.PolicyName)
 	}
 
-	generatedMachineState, err := GenerateMachineStateFromPodEntries(topology, checkpoint.PodEntries)
+	generatedMachineState, err := GenerateMachineStateFromPodEntries(topology, checkpoint.PodEntries, sc.policyName)
 	if err != nil {
 		return fmt.Errorf("GenerateMachineStateFromPodEntries failed with error: %v", err)
 	}

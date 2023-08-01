@@ -19,13 +19,13 @@ package headroomassembler
 import (
 	"context"
 	"fmt"
-	"math"
 
 	"k8s.io/apimachinery/pkg/api/resource"
+	"k8s.io/klog/v2"
 
 	"github.com/kubewharf/katalyst-api/pkg/consts"
+	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource/helper"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic"
-	"github.com/kubewharf/katalyst-core/pkg/util/general"
 )
 
 func (ha *HeadroomAssemblerCommon) getUtilBasedHeadroom(dynamicConfig *dynamic.Configuration,
@@ -39,8 +39,20 @@ func (ha *HeadroomAssemblerCommon) getUtilBasedHeadroom(dynamicConfig *dynamic.C
 		return resource.Quantity{}, err
 	}
 
-	headroom := ha.calculateHeadroom(dynamicConfig, float64(reclaimedMetrics.poolSize),
-		reclaimedMetrics.coreAvgUtil, lastReclaimedCPU, float64(ha.metaServer.MachineInfo.NumCores))
+	headroom, err := helper.EstimateUtilBasedCapacity(
+		helper.UtilBasedCapacityOptions{
+			TargetUtilization: dynamicConfig.TargetReclaimedCoreUtilization,
+			MaxUtilization:    dynamicConfig.MaxReclaimedCoreUtilization,
+			MaxOversoldRate:   dynamicConfig.MaxOversoldRate,
+			MaxCapacity:       dynamicConfig.MaxHeadroomCapacityRate * float64(ha.metaServer.MachineInfo.NumCores),
+		},
+		float64(reclaimedMetrics.poolSize),
+		reclaimedMetrics.coreAvgUtil,
+		lastReclaimedCPU,
+	)
+	if err != nil {
+		return resource.Quantity{}, err
+	}
 
 	return *resource.NewQuantity(int64(headroom), resource.DecimalSI), nil
 }
@@ -57,45 +69,6 @@ func (ha *HeadroomAssemblerCommon) getLastReclaimedCPU() (float64, error) {
 		}
 	}
 
-	return 0, fmt.Errorf("cnr status resource allocatable reclaimed milli cpu not found")
-}
-
-// calculateHeadroom calculates headroom by taking into account the difference between the current
-// and target core utilization of the reclaim pool
-func (ha *HeadroomAssemblerCommon) calculateHeadroom(dynamicConfig *dynamic.Configuration,
-	reclaimedSupplyCPU, reclaimedCPUCoreUtilization,
-	lastReclaimedCPU, nodeCPUCapacity float64) float64 {
-	var (
-		oversold, result float64
-	)
-
-	targetCoreUtilization := dynamicConfig.TargetReclaimedCoreUtilization
-	maxCoreUtilization := dynamicConfig.MaxReclaimedCoreUtilization
-	maxOversoldRatio := dynamicConfig.MaxOversoldRate
-	maxHeadroomCapacityRate := dynamicConfig.MaxHeadroomCapacityRate
-
-	defer func() {
-		general.Infof("reclaimed supply %.2f, reclaimed core utilization: %.2f (target: %.2f, max: %.2f), "+
-			"last reclaimed: %.2f, oversold: %.2f, max oversold ratio: %.2f, final result: %.2f (max rate: %.2f, capacity: %.2f)",
-			reclaimedSupplyCPU, reclaimedCPUCoreUtilization, targetCoreUtilization, maxCoreUtilization, lastReclaimedCPU,
-			oversold, maxOversoldRatio, result, maxHeadroomCapacityRate, nodeCPUCapacity)
-	}()
-
-	// calculate the cpu resources that can be oversold to the reclaimed_cores workload, and consider that
-	// the utilization rate of reclaimed cores is proportional to the cpu headroom.
-	// if the maximum reclaimed core utilization is greater than zero, the oversold can be negative to reduce
-	// cpu reporting reclaimed to avoid too many reclaimed_cores workloads being scheduled to that machine.
-	if targetCoreUtilization > reclaimedCPUCoreUtilization {
-		oversold = reclaimedSupplyCPU * (targetCoreUtilization - reclaimedCPUCoreUtilization)
-	} else if maxCoreUtilization > 0 && reclaimedCPUCoreUtilization > maxCoreUtilization {
-		oversold = reclaimedSupplyCPU * (maxCoreUtilization - reclaimedCPUCoreUtilization)
-	}
-
-	result = math.Max(lastReclaimedCPU+oversold, reclaimedSupplyCPU)
-	result = math.Min(result, reclaimedSupplyCPU*maxOversoldRatio)
-	if maxHeadroomCapacityRate > 0 {
-		result = math.Min(result, nodeCPUCapacity*maxHeadroomCapacityRate)
-	}
-
-	return result
+	klog.Errorf("cnr status resource allocatable reclaimed milli cpu not found")
+	return 0, nil
 }

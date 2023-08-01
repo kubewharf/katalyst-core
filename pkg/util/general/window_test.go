@@ -41,7 +41,7 @@ func TestNewCappedSmoothWindow(t *testing.T) {
 			args: args{
 				minStep:      resource.MustParse("0.3"),
 				maxStep:      resource.MustParse("4"),
-				smoothWindow: NewAverageWithTTLSmoothWindow(5, 100*time.Millisecond, true),
+				smoothWindow: NewAggregatorSmoothWindow(SmoothWindowOpts{WindowSize: 5, TTL: 100 * time.Millisecond, UsedMillValue: true, AggregateFunc: SmoothWindowAggFuncAvg}),
 			},
 		},
 		{
@@ -49,7 +49,7 @@ func TestNewCappedSmoothWindow(t *testing.T) {
 			args: args{
 				minStep:      resource.MustParse("300Mi"),
 				maxStep:      resource.MustParse("5Gi"),
-				smoothWindow: NewAverageWithTTLSmoothWindow(5, 100*time.Millisecond, false),
+				smoothWindow: NewAggregatorSmoothWindow(SmoothWindowOpts{WindowSize: 5, TTL: 100 * time.Millisecond, UsedMillValue: false, AggregateFunc: SmoothWindowAggFuncAvg}),
 			},
 		},
 	}
@@ -66,7 +66,7 @@ func TestCappedSmoothWindow_GetWindowedResources(t *testing.T) {
 	w := NewCappedSmoothWindow(
 		resource.MustParse("0.3"),
 		resource.MustParse("4"),
-		NewAverageWithTTLSmoothWindow(3, 100*time.Millisecond, true),
+		NewAggregatorSmoothWindow(SmoothWindowOpts{WindowSize: 3, TTL: 100 * time.Millisecond, UsedMillValue: true, AggregateFunc: SmoothWindowAggFuncAvg}),
 	)
 
 	time.Sleep(10 * time.Millisecond)
@@ -111,4 +111,138 @@ func TestCappedSmoothWindow_GetWindowedResources(t *testing.T) {
 	v = w.GetWindowedResources(resource.MustParse("0"))
 	require.NotNil(t, v)
 	require.Equal(t, int64(1000), v.MilliValue())
+}
+
+func TestPercentileWithTTLSmoothWindow(t *testing.T) {
+	t.Parallel()
+
+	type args struct {
+		windowSize int
+		ttl        time.Duration
+		percentile float64
+		values     []resource.Quantity
+	}
+	tests := []struct {
+		name       string
+		args       args
+		wantValues []resource.Quantity
+	}{
+		{
+			name: "p100(max)",
+			args: args{
+				windowSize: 5,
+				ttl:        1 * time.Second,
+				percentile: 100,
+				values: []resource.Quantity{
+					resource.MustParse("1"),
+					resource.MustParse("2"),
+					resource.MustParse("1.5"),
+					resource.MustParse("3"),
+					resource.MustParse("2"),
+					resource.MustParse("6"),
+					resource.MustParse("5"),
+					resource.MustParse("1"),
+					resource.MustParse("1"),
+					resource.MustParse("1"),
+					resource.MustParse("1"),
+					resource.MustParse("1"),
+				},
+			},
+			wantValues: []resource.Quantity{
+				resource.MustParse("1"),
+				resource.MustParse("2"),
+				resource.MustParse("2"),
+				resource.MustParse("3"),
+				resource.MustParse("3"),
+				resource.MustParse("6"),
+				resource.MustParse("6"),
+				resource.MustParse("6"),
+				resource.MustParse("6"),
+				resource.MustParse("6"),
+				resource.MustParse("5"),
+				resource.MustParse("1"),
+			},
+		},
+		{
+			name: "p0(min)",
+			args: args{
+				windowSize: 5,
+				ttl:        1 * time.Second,
+				percentile: 0.0,
+				values: []resource.Quantity{
+					resource.MustParse("1"),
+					resource.MustParse("2"),
+					resource.MustParse("1.5"),
+					resource.MustParse("3"),
+					resource.MustParse("2"),
+					resource.MustParse("6"),
+					resource.MustParse("5"),
+					resource.MustParse("1"),
+					resource.MustParse("1"),
+					resource.MustParse("1"),
+					resource.MustParse("1"),
+					resource.MustParse("1"),
+				},
+			},
+			wantValues: []resource.Quantity{
+				resource.MustParse("1"),
+				resource.MustParse("1"),
+				resource.MustParse("1"),
+				resource.MustParse("1"),
+				resource.MustParse("1"),
+				resource.MustParse("1.5"),
+				resource.MustParse("1.5"),
+				resource.MustParse("1"),
+				resource.MustParse("1"),
+				resource.MustParse("1"),
+				resource.MustParse("1"),
+				resource.MustParse("1"),
+			},
+		},
+		{
+			name: "p20",
+			args: args{
+				windowSize: 10,
+				ttl:        111111 * time.Second,
+				percentile: 20,
+				values: []resource.Quantity{
+					resource.MustParse("1"),
+					resource.MustParse("2"),
+					resource.MustParse("3"),
+					resource.MustParse("4"),
+					resource.MustParse("5"),
+					resource.MustParse("6"),
+					resource.MustParse("7"),
+					resource.MustParse("8"),
+					resource.MustParse("9"),
+					resource.MustParse("10"),
+					resource.MustParse("11"),
+					resource.MustParse("12"),
+				},
+			},
+			wantValues: []resource.Quantity{
+				resource.MustParse("1"),
+				resource.MustParse("1"),
+				resource.MustParse("1"),
+				resource.MustParse("1"),
+				resource.MustParse("1"),
+				resource.MustParse("2"),
+				resource.MustParse("2"),
+				resource.MustParse("2"),
+				resource.MustParse("2"),
+				resource.MustParse("2"),
+				resource.MustParse("3"),
+				resource.MustParse("4"),
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			w := NewPercentileWithTTLSmoothWindow(tt.args.windowSize, tt.args.ttl, tt.args.percentile, true)
+			for i, v := range tt.args.values {
+				ret := w.GetWindowedResources(v)
+				require.Equal(t, tt.wantValues[i].MilliValue(), ret.MilliValue())
+			}
+		})
+	}
 }

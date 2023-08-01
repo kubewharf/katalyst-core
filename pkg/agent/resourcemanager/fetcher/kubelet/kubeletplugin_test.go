@@ -31,17 +31,21 @@ import (
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/klog/v2"
+	kubeletconfigv1beta1 "k8s.io/kubelet/config/v1beta1"
 	podresv1 "k8s.io/kubelet/pkg/apis/podresources/v1"
+	apisconfig "k8s.io/kubernetes/pkg/kubelet/apis/config"
 	"k8s.io/kubernetes/pkg/kubelet/checkpointmanager"
 	testutil "k8s.io/kubernetes/pkg/kubelet/cm/cpumanager/state/testing"
 
 	"github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-api/pkg/protocol/reporterplugin/v1alpha1"
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/options"
+	"github.com/kubewharf/katalyst-core/pkg/agent/resourcemanager/fetcher/kubelet/topology"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	pkgconsts "github.com/kubewharf/katalyst-core/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent"
+	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/kubeletconfig"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/pod"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
@@ -85,6 +89,11 @@ func generateTestConfiguration(t *testing.T, dir string) *config.Configuration {
 }
 
 func generateTestMetaServer(podList ...*v1.Pod) *metaserver.MetaServer {
+	fakeKubeletConfig := kubeletconfigv1beta1.KubeletConfiguration{
+		TopologyManagerPolicy: apisconfig.SingleNumaNodeTopologyManagerPolicy,
+		TopologyManagerScope:  apisconfig.ContainerTopologyManagerScope,
+	}
+
 	return &metaserver.MetaServer{
 		MetaAgent: &agent.MetaAgent{
 			PodFetcher: &pod.PodFetcherStub{PodList: podList},
@@ -112,6 +121,7 @@ func generateTestMetaServer(podList ...*v1.Pod) *metaserver.MetaServer {
 					},
 				},
 			},
+			KubeletConfigFetcher: kubeletconfig.NewFakeKubeletConfigFetcher(fakeKubeletConfig),
 		},
 	}
 }
@@ -281,4 +291,53 @@ func TestNewKubeletReporterPlugin(t *testing.T) {
 	plugin.Stop()
 
 	time.Sleep(10 * time.Millisecond)
+}
+
+func TestGetTopologyPolicyReportContent(t *testing.T) {
+	t.Parallel()
+
+	dir, err := tmpSocketDir()
+	assert.NoError(t, err)
+	defer os.RemoveAll(dir)
+
+	conf := generateTestConfiguration(t, dir)
+	conf.EnableReportTopologyPolicy = true
+
+	meta := generateTestMetaServer()
+
+	callback := func(name string, resp *v1alpha1.GetReportContentResponse) {
+		klog.Infof("Callback called with name: %s, resp: %#v", name, resp)
+	}
+
+	plugin, err := NewKubeletReporterPlugin(metrics.DummyMetrics{}, meta, conf, callback)
+	assert.NoError(t, err)
+	kubePlugin := plugin.(*kubeletPlugin)
+
+	_, err = kubePlugin.getTopologyPolicyReportContent(context.TODO())
+	assert.NoError(t, err)
+}
+
+func TestGetTopologyStatusContent(t *testing.T) {
+	t.Parallel()
+
+	dir, err := tmpSocketDir()
+	assert.NoError(t, err)
+	defer os.RemoveAll(dir)
+
+	conf := generateTestConfiguration(t, dir)
+	conf.EnableReportTopologyPolicy = true
+
+	meta := generateTestMetaServer()
+
+	callback := func(name string, resp *v1alpha1.GetReportContentResponse) {
+		klog.Infof("Callback called with name: %s, resp: %#v", name, resp)
+	}
+
+	plugin, err := NewKubeletReporterPlugin(metrics.DummyMetrics{}, meta, conf, callback)
+	assert.NoError(t, err)
+	kubePlugin := plugin.(*kubeletPlugin)
+
+	kubePlugin.topologyStatusAdapter = topology.DummyAdapter{}
+	_, err = kubePlugin.getReportContent(context.TODO())
+	assert.NoError(t, err)
 }

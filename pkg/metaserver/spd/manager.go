@@ -21,6 +21,7 @@ import (
 	"fmt"
 
 	v1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/types"
 
 	"github.com/kubewharf/katalyst-core/pkg/util"
 )
@@ -34,6 +35,9 @@ const (
 	PerformanceLevelPerfect PerformanceLevel = 0
 	PerformanceLevelGood    PerformanceLevel = 1
 	PerformanceLevelPoor    PerformanceLevel = 2
+
+	MaxPerformanceScore float64 = 100
+	MinPerformanceScore float64 = 0
 )
 
 type IndicatorTarget map[string]util.IndicatorTarget
@@ -43,7 +47,7 @@ type ServiceProfilingManager interface {
 	ServiceBusinessPerformanceLevel(ctx context.Context, pod *v1.Pod) (PerformanceLevel, error)
 
 	// ServiceBusinessPerformanceScore returns the service business performance score for the given pod
-	// The score is in range [0, 100]
+	// The score is in range [MinPerformanceScore, MaxPerformanceScore]
 	ServiceBusinessPerformanceScore(ctx context.Context, pod *v1.Pod) (float64, error)
 
 	// ServiceSystemPerformanceTarget returns the system performance target for the given pod
@@ -53,14 +57,33 @@ type ServiceProfilingManager interface {
 	Run(ctx context.Context)
 }
 
-type DummyServiceProfilingManager struct{}
-
-func (d *DummyServiceProfilingManager) ServiceBusinessPerformanceLevel(_ context.Context, _ *v1.Pod) (PerformanceLevel, error) {
-	return PerformanceLevelPerfect, nil
+type DummyPodServiceProfile struct {
+	PerformanceLevel PerformanceLevel
+	Score            float64
 }
 
-func (d *DummyServiceProfilingManager) ServiceBusinessPerformanceScore(_ context.Context, _ *v1.Pod) (float64, error) {
-	return 100, nil
+type DummyServiceProfilingManager struct {
+	podProfiles map[types.UID]DummyPodServiceProfile
+}
+
+func NewDummyServiceProfilingManager(podProfiles map[types.UID]DummyPodServiceProfile) *DummyServiceProfilingManager {
+	return &DummyServiceProfilingManager{podProfiles: podProfiles}
+}
+
+func (d *DummyServiceProfilingManager) ServiceBusinessPerformanceLevel(_ context.Context, pod *v1.Pod) (PerformanceLevel, error) {
+	profile, ok := d.podProfiles[pod.UID]
+	if !ok {
+		return PerformanceLevelPerfect, nil
+	}
+	return profile.PerformanceLevel, nil
+}
+
+func (d *DummyServiceProfilingManager) ServiceBusinessPerformanceScore(_ context.Context, pod *v1.Pod) (float64, error) {
+	profile, ok := d.podProfiles[pod.UID]
+	if !ok {
+		return 100, nil
+	}
+	return profile.Score, nil
 }
 
 func (d *DummyServiceProfilingManager) ServiceSystemPerformanceTarget(_ context.Context, _ *v1.Pod) (IndicatorTarget, error) {
@@ -83,7 +106,7 @@ func NewServiceProfilingManager(fetcher SPDFetcher) ServiceProfilingManager {
 
 func (m *serviceProfilingManager) ServiceBusinessPerformanceScore(_ context.Context, _ *v1.Pod) (float64, error) {
 	// todo: implement service business performance score using spd to calculate
-	return 1., nil
+	return MaxPerformanceScore, nil
 }
 
 // ServiceBusinessPerformanceLevel gets the service business performance level by spd, and use the poorest business indicator

@@ -17,10 +17,18 @@ limitations under the License.
 package general
 
 import (
+	"math"
+	"sort"
+	"strconv"
 	"sync"
 	"time"
 
 	"k8s.io/apimachinery/pkg/api/resource"
+)
+
+const (
+	SmoothWindowAggFuncAvg  = "average"
+	SmoothWindowAggFuncPerc = "percentile"
 )
 
 // SmoothWindow is used to smooth the resource
@@ -28,6 +36,14 @@ type SmoothWindow interface {
 	// GetWindowedResources receives a sample and returns the result after smoothing,
 	// it can return nil if there are not enough samples in this window
 	GetWindowedResources(value resource.Quantity) *resource.Quantity
+}
+
+type SmoothWindowOpts struct {
+	WindowSize    int
+	TTL           time.Duration
+	UsedMillValue bool
+	AggregateFunc string
+	AggregateArgs string
 }
 
 type CappedSmoothWindow struct {
@@ -100,6 +116,21 @@ type sample struct {
 	timestamp time.Time
 }
 
+func NewAggregatorSmoothWindow(opts SmoothWindowOpts) SmoothWindow {
+	switch opts.AggregateFunc {
+	case SmoothWindowAggFuncAvg:
+		return NewAverageWithTTLSmoothWindow(opts.WindowSize, opts.TTL, opts.UsedMillValue)
+	case SmoothWindowAggFuncPerc:
+		perc, err := strconv.ParseFloat(opts.AggregateArgs, 64)
+		if err != nil {
+			Errorf("failed to parse AggregateArgs %v, fallback to default aggregator", opts.AggregateFunc)
+		} else {
+			return NewPercentileWithTTLSmoothWindow(opts.WindowSize, opts.TTL, perc, opts.UsedMillValue)
+		}
+	}
+	return NewAverageWithTTLSmoothWindow(opts.WindowSize, opts.TTL, opts.UsedMillValue)
+}
+
 // NewAverageWithTTLSmoothWindow create a smooth window with ttl and window size, and the window size
 // is the sample count while the ttl is the valid lifetime of each sample, and the usedMillValue means
 // whether calculate the result with milli-value.
@@ -148,4 +179,75 @@ func (w *averageWithTTLSmoothWindow) GetWindowedResources(value resource.Quantit
 	}
 
 	return resource.NewQuantity(total.Value()/count, value.Format)
+}
+
+type percentileWithTTLSmoothWindow struct {
+	sync.Mutex
+	windowSize    int
+	percentile    float64
+	ttl           time.Duration
+	usedMillValue bool
+
+	index   int
+	samples []*sample
+}
+
+// NewPercentileWithTTLSmoothWindow create a smooth window with ttl and window size, and the window size
+// is the sample count while the ttl is the valid lifetime of each sample, and the usedMillValue means
+// whether calculate the result with milli-value.
+func NewPercentileWithTTLSmoothWindow(windowSize int, ttl time.Duration, percentile float64, usedMillValue bool) SmoothWindow {
+	return &percentileWithTTLSmoothWindow{
+		windowSize:    windowSize,
+		percentile:    percentile,
+		ttl:           ttl,
+		usedMillValue: usedMillValue,
+		index:         0,
+		samples:       make([]*sample, windowSize),
+	}
+}
+
+// GetWindowedResources inserts a sample, and returns the smoothed result by average all the valid samples.
+func (w *percentileWithTTLSmoothWindow) GetWindowedResources(value resource.Quantity) *resource.Quantity {
+	w.Mutex.Lock()
+	defer w.Mutex.Unlock()
+
+	timestamp := time.Now()
+	w.samples[w.index] = &sample{
+		value:     value,
+		timestamp: timestamp,
+	}
+
+	w.index++
+	if w.index >= w.windowSize {
+		w.index = 0
+	}
+
+	validSamples := make([]resource.Quantity, 0)
+	for _, s := range w.samples {
+		if s != nil && s.timestamp.Add(w.ttl).After(timestamp) {
+			validSamples = append(validSamples, s.value)
+		}
+	}
+
+	v := w.getValueByPercentile(validSamples, w.percentile)
+
+	if w.usedMillValue {
+		return resource.NewMilliQuantity(v.MilliValue(), value.Format)
+	}
+
+	return resource.NewQuantity(v.Value(), value.Format)
+}
+
+func (w *percentileWithTTLSmoothWindow) getValueByPercentile(values []resource.Quantity, percentile float64) resource.Quantity {
+	sort.Slice(values, func(i, j int) bool {
+		return values[i].Cmp(values[j]) < 0
+	})
+
+	percentileIndex := int(math.Ceil(float64(len(values))*percentile/100.0) - 1)
+	if percentileIndex < 0 {
+		percentileIndex = 0
+	} else if percentileIndex >= len(values) {
+		percentileIndex = len(values) - 1
+	}
+	return values[percentileIndex]
 }

@@ -61,7 +61,6 @@ func (p *PolicyCanonical) Update() error {
 				klog.Errorf("[qosaware-cpu-headroom] illegal container info of %v/%v", podUID, containerName)
 				continue
 			}
-
 			containerEstimation, err := helper.EstimateContainerCPUUsage(ci, p.metaReader, enableReclaim)
 			if err != nil {
 				return err
@@ -85,8 +84,8 @@ func (p *PolicyCanonical) Update() error {
 
 	p.headroom = math.Max(p.ResourceUpperBound-cpuEstimation+p.ReservedForReclaim, 0)
 
-	klog.Infof("[qosaware-cpu-canonical] region %v cpuEstimation %v with reserve %v headroom %v #container %v",
-		p.regionName, cpuEstimation, p.ReservedForAllocate, p.headroom, containerCnt)
+	klog.Infof("[qosaware-cpu-canonical] region %v cpuEstimation %v with reservedForAllocate %v reservedForReclaim %v headroom %v #container %v",
+		p.regionName, cpuEstimation, p.ReservedForAllocate, p.ReservedForReclaim, p.headroom, containerCnt)
 
 	return nil
 }

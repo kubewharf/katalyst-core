@@ -23,6 +23,7 @@ import (
 
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/util/errors"
+	"k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource/helper"
@@ -31,6 +32,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
+	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
 type PolicyCanonical struct {
@@ -63,6 +65,11 @@ func (p *PolicyCanonical) estimateNonReclaimedQoSMemoryRequirement() (float64, e
 	)
 
 	f := func(podUID string, containerName string, ci *types.ContainerInfo) bool {
+		var containerEstimation = float64(0)
+		defer func() {
+			containerCnt += 1
+			memoryEstimation += containerEstimation
+		}()
 		// when ramping up, estimation of cpu should be set as cpu request
 		enableReclaim, err := helper.PodEnableReclaim(context.Background(), p.metaServer, podUID, p.essentials.EnableReclaim && !ci.RampUp)
 		if err != nil {
@@ -70,15 +77,31 @@ func (p *PolicyCanonical) estimateNonReclaimedQoSMemoryRequirement() (float64, e
 			return true
 		}
 
-		containerEstimation, err := helper.EstimateContainerMemoryUsage(ci, p.metaReader, enableReclaim)
+		if ci.IsNumaExclusive() && !enableReclaim {
+			if ci.ContainerType == v1alpha1.ContainerType_MAIN {
+				bindingNumas := machine.GetCPUAssignmentNUMAs(ci.TopologyAwareAssignments)
+				for _, numaID := range bindingNumas.ToSliceInt() {
+					memoryCap, ok := p.metaServer.MemoryDetails[numaID]
+					if !ok {
+						errList = append(errList, fmt.Errorf("get memory capacity of numa %v failed", numaID))
+						return true
+					}
+					containerEstimation += float64(memoryCap)
+				}
+				general.Infof("container %s/%s occupied memory %v", ci.PodName, ci.ContainerName, containerEstimation)
+			} else {
+				containerEstimation = 0
+			}
+			return true
+		}
+
+		containerEstimation, err = helper.EstimateContainerMemoryUsage(ci, p.metaReader, enableReclaim)
 		if err != nil {
 			errList = append(errList, err)
 			return true
 		}
 
 		general.Infof("pod %v container %v estimation %.2e", ci.PodName, containerName, containerEstimation)
-		memoryEstimation += containerEstimation
-		containerCnt += 1
 		return true
 	}
 	p.metaReader.RangeContainer(f)

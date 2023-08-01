@@ -205,7 +205,7 @@ func (p *kubeletPlugin) getTopologyStatusContent(ctx context.Context) ([]*v1alph
 		return nil, errors.Wrap(err, "marshal topology status failed")
 	}
 
-	return []*v1alpha1.ReportContent{
+	topologyStatusContent := []*v1alpha1.ReportContent{
 		{
 			GroupVersionKind: &util.CNRGroupVersionKind,
 			Field: []*v1alpha1.ReportField{
@@ -216,7 +216,17 @@ func (p *kubeletPlugin) getTopologyStatusContent(ctx context.Context) ([]*v1alph
 				},
 			},
 		},
-	}, nil
+	}
+
+	if p.conf.EnableReportTopologyPolicy {
+		content, err := p.getTopologyPolicyReportContent(ctx)
+		if err != nil {
+			return nil, errors.Wrap(err, "get topology policy report content failed")
+		}
+		topologyStatusContent = append(topologyStatusContent, content)
+	}
+
+	return topologyStatusContent, nil
 }
 
 func (p *kubeletPlugin) getNumaInfo() ([]info.Node, error) {
@@ -224,4 +234,27 @@ func (p *kubeletPlugin) getNumaInfo() ([]info.Node, error) {
 		return nil, fmt.Errorf("get metaserver machine info is nil")
 	}
 	return p.metaServer.MachineInfo.Topology, nil
+}
+
+func (p *kubeletPlugin) getTopologyPolicyReportContent(ctx context.Context) (*v1alpha1.ReportContent, error) {
+	topologyPolicy, err := p.topologyStatusAdapter.GetTopologyPolicy(ctx)
+	if err != nil {
+		return nil, errors.Wrap(err, "get topology policy from adapter failed")
+	}
+
+	valueTopologyPolicy, err := json.Marshal(&topologyPolicy)
+	if err != nil {
+		return nil, errors.Wrap(err, "marshal topology policy failed")
+	}
+
+	return &v1alpha1.ReportContent{
+		GroupVersionKind: &util.CNRGroupVersionKind,
+		Field: []*v1alpha1.ReportField{
+			{
+				FieldType: v1alpha1.FieldType_Status,
+				FieldName: util.CNRFieldNameTopologyPolicy,
+				Value:     valueTopologyPolicy,
+			},
+		},
+	}, nil
 }

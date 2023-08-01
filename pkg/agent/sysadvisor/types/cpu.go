@@ -39,8 +39,9 @@ const (
 type CPUHeadroomPolicyName string
 
 const (
-	CPUHeadroomPolicyNone      CPUHeadroomPolicyName = "none"
-	CPUHeadroomPolicyCanonical CPUHeadroomPolicyName = "canonical"
+	CPUHeadroomPolicyNone          CPUHeadroomPolicyName = "none"
+	CPUHeadroomPolicyCanonical     CPUHeadroomPolicyName = "canonical"
+	CPUHeadroomPolicyNUMAExclusive CPUHeadroomPolicyName = "numa_exclusive"
 )
 
 // CPUProvisionAssemblerName defines assemblers for cpu advisor to generate node
@@ -84,7 +85,7 @@ type ControlKnob map[ControlKnobName]ControlKnobValue
 type ControlKnobName string
 
 const (
-	// ControlKnobNonReclaimedCPUSize refers to cpu requirement of non reclaimed workloads
+	// ControlKnobNonReclaimedCPUSize refers to cpu requirement of non-reclaimed workloads
 	ControlKnobNonReclaimedCPUSize ControlKnobName = "non-reclaimed-cpu-size"
 
 	// ControlKnobNonReclaimedCPUSizeUpper refers to the upper cpu size, for isolated pods now

@@ -11,7 +11,7 @@ require (
 	github.com/gogo/protobuf v1.3.2
 	github.com/golang/protobuf v1.5.2
 	github.com/google/cadvisor v0.44.1
-	github.com/kubewharf/katalyst-api v0.1.12
+	github.com/kubewharf/katalyst-api v0.1.14
 	github.com/opencontainers/runc v1.1.1
 	github.com/pkg/errors v0.9.1
 	github.com/prometheus/client_golang v1.12.1
@@ -162,7 +162,7 @@ replace (
 	k8s.io/kube-proxy => k8s.io/kube-proxy v0.24.6
 	k8s.io/kube-scheduler => k8s.io/kube-scheduler v0.24.6
 	k8s.io/kubectl => k8s.io/kubectl v0.24.6
-	k8s.io/kubelet => github.com/kubewharf/kubelet v1.24.6-kubewharf.5
+	k8s.io/kubelet => github.com/kubewharf/kubelet v1.24.6-kubewharf.6
 	k8s.io/kubernetes => k8s.io/kubernetes v1.24.6
 	k8s.io/legacy-cloud-providers => k8s.io/legacy-cloud-providers v0.24.6
 	k8s.io/metrics => k8s.io/metrics v0.24.6

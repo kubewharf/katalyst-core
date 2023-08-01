@@ -29,6 +29,8 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes/fake"
 	corev1 "k8s.io/client-go/kubernetes/typed/core/v1"
+	kubeletconfigv1beta1 "k8s.io/kubelet/config/v1beta1"
+	"k8s.io/kubernetes/pkg/kubelet/apis/config"
 
 	"github.com/kubewharf/katalyst-api/pkg/apis/node/v1alpha1"
 	v1alpha1fake "github.com/kubewharf/katalyst-api/pkg/client/clientset/versioned/fake"
@@ -36,6 +38,7 @@ import (
 	katalyst_base "github.com/kubewharf/katalyst-core/cmd/base"
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/options"
 	cnrmeta "github.com/kubewharf/katalyst-core/pkg/metaserver/agent/cnr"
+	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/kubeletconfig"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/node"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/pod"
@@ -102,6 +105,7 @@ func TestFetcher(t *testing.T) {
 	agent.SetNodeFetcher(node.NewRemoteNodeFetcher("test-node-1", constructNodeInterface("test-node-1")))
 	agent.SetCNRFetcher(cnrmeta.NewCachedCNRFetcher("test-cnr-1", conf.CNRCacheTTL, constructCNRInterface("test-cnr-1")))
 	agent.SetMetricFetcher(metric.NewFakeMetricsFetcher(metrics.DummyMetrics{}))
+	agent.SetKubeletConfigFetcher(kubeletconfig.NewKubeletConfigFetcher(conf, metrics.DummyMetrics{}))
 
 	podObjList, err := agent.GetPodList(ctx, func(*v1.Pod) bool { return true })
 	assert.NoError(t, err)
@@ -119,6 +123,9 @@ func TestFetcher(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, "test-cnr-1", cnrObj.Name)
 
+	_, err1 := agent.GetKubeletConfig(ctx)
+	assert.Error(t, err1)
+
 	gvr := metav1.GroupVersionResource{Group: "a", Version: "b", Resource: "c"}
 	_, gErr := agent.GetUnstructured(ctx, gvr, "", "aaa")
 	assert.NotNil(t, gErr)
@@ -127,6 +134,10 @@ func TestFetcher(t *testing.T) {
 	agent.SetPodFetcher(constructPodFetcher([]string{"test-pod-3", "test-pod-4", "test-pod-5"}))
 	agent.SetNodeFetcher(node.NewRemoteNodeFetcher("test-node-2", constructNodeInterface("test-node-2")))
 	agent.SetCNRFetcher(cnrmeta.NewCachedCNRFetcher("test-cnr-2", conf.CNRCacheTTL, constructCNRInterface("test-cnr-2")))
+
+	conf.EnableKubeletSecurePort = true
+	agent.SetKubeletConfigFetcher(kubeletconfig.NewKubeletConfigFetcher(conf, metrics.DummyMetrics{}))
+
 	_ = agent.CNRFetcher.RegisterNotifier("test-cnr-2", cnrmeta.CNRNotifierStub{})
 	assert.NoError(t, err)
 	defer func() {
@@ -146,12 +157,21 @@ func TestFetcher(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, "test-cnr-2", cnrObj.Name)
 
+	_, err2 := agent.GetKubeletConfig(ctx)
+	assert.Error(t, err2)
+
 	obj := &unstructured.Unstructured{
 		Object: map[string]interface{}{
 			"lll": "bbb",
 		},
 	}
 	s := &ObjectFetcherTest{obj: obj}
+
+	fakeKubeletConfig := kubeletconfigv1beta1.KubeletConfiguration{
+		TopologyManagerPolicy: config.SingleNumaNodeTopologyManagerPolicy,
+		TopologyManagerScope:  config.ContainerTopologyManagerScope,
+	}
+	agent.SetKubeletConfigFetcher(kubeletconfig.NewFakeKubeletConfigFetcher(fakeKubeletConfig))
 
 	// after start, we can't set component implementations for metaServer
 	go agent.Run(ctx)
@@ -177,5 +197,11 @@ func TestFetcher(t *testing.T) {
 	o, err := agent.GetUnstructured(ctx, gvr, "", "aaa")
 	assert.NoError(t, err)
 	assert.Equal(t, "bbb", o.Object["lll"])
+
+	kubeletConfig, err3 := agent.GetKubeletConfig(ctx)
+	assert.NoError(t, err3)
+	assert.Equal(t, config.SingleNumaNodeTopologyManagerPolicy, kubeletConfig.TopologyManagerPolicy)
+	assert.Equal(t, config.ContainerTopologyManagerScope, kubeletConfig.TopologyManagerScope)
+
 	cancel()
 }

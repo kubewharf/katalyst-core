@@ -27,6 +27,7 @@ import (
 	"strings"
 	"time"
 
+	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/util/sets"
 )
 
@@ -47,6 +48,14 @@ func MaxUInt64(a, b uint64) uint64 {
 }
 
 func MaxInt64(a, b int64) int64 {
+	if a >= b {
+		return a
+	} else {
+		return b
+	}
+}
+
+func MaxFloat64(a, b float64) float64 {
 	if a >= b {
 		return a
 	} else {
@@ -321,4 +330,19 @@ func CovertUInt64ToInt(numUInt64 uint64) (int, error) {
 // Clamp returns value itself if min < value < max; min if value < min; max if value > max
 func Clamp(value, min, max float64) float64 {
 	return math.Max(math.Min(value, max), min)
+}
+
+// FormatMemoryQuantity aligned to Gi Mi Ki
+func FormatMemoryQuantity(q float64) string {
+	value := int64(q)
+	if (value >> 30) > 0 {
+		value = (value >> 30) << 30
+	} else if (value >> 20) > 0 {
+		value = (value >> 20) << 20
+	} else if (value >> 10) > 0 {
+		value = (value >> 10) << 10
+	}
+	quantity := resource.NewQuantity(value, resource.BinarySI)
+
+	return fmt.Sprintf("%v[%v]", q, quantity.String())
 }

@@ -26,6 +26,7 @@ import (
 type KubeletPluginOptions struct {
 	PodResourcesServerEndpoints []string
 	KubeletResourcePluginPaths  []string
+	EnableReportTopologyPolicy  bool
 }
 
 func NewKubeletPluginOptions() *KubeletPluginOptions {
@@ -36,6 +37,7 @@ func NewKubeletPluginOptions() *KubeletPluginOptions {
 		KubeletResourcePluginPaths: []string{
 			pluginapi.ResourcePluginPath,
 		},
+		EnableReportTopologyPolicy: false,
 	}
 }
 
@@ -46,10 +48,14 @@ func (o *KubeletPluginOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 		"the endpoint of pod resource api server")
 	fs.StringSliceVar(&o.KubeletResourcePluginPaths, "kubelet-resource-plugin-path", o.KubeletResourcePluginPaths,
 		"the path of kubelet resource plugin")
+	fs.BoolVar(&o.EnableReportTopologyPolicy, "enable-report-topology-policy", o.EnableReportTopologyPolicy,
+		"whether to report topology policy")
 }
 
 func (o *KubeletPluginOptions) ApplyTo(c *reporter.KubeletPluginConfiguration) error {
 	c.PodResourcesServerEndpoints = o.PodResourcesServerEndpoints
 	c.KubeletResourcePluginPaths = o.KubeletResourcePluginPaths
+	c.EnableReportTopologyPolicy = o.EnableReportTopologyPolicy
+
 	return nil
 }

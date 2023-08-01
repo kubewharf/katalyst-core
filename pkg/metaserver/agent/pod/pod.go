@@ -85,7 +85,7 @@ func NewPodFetcher(conf *config.Configuration, emitter metrics.MetricEmitter) (P
 	}
 
 	return &podFetcherImpl{
-		kubeletPodFetcher: NewKubeletPodFetcher(),
+		kubeletPodFetcher: NewKubeletPodFetcher(conf),
 		runtimePodFetcher: runtimePodFetcher,
 		emitter:           emitter,
 		conf:              conf,

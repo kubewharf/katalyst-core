@@ -25,8 +25,8 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	metric2 "github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric"
-	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric/malachite/cgroup"
-	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric/malachite/system"
+	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric/malachite/types"
+	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/pod"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 	"github.com/kubewharf/katalyst-core/pkg/util/metric"
@@ -36,45 +36,45 @@ func Test_noneExistMetricsFetcher(t *testing.T) {
 	t.Parallel()
 
 	var err error
-	implement := NewMalachiteMetricsFetcher(metrics.DummyMetrics{}, nil)
+	implement := NewMalachiteMetricsFetcher(metrics.DummyMetrics{}, &pod.PodFetcherStub{}, nil)
 
-	fakeSystemCompute := &system.SystemComputeData{
-		CPU: []system.CPU{
+	fakeSystemCompute := &types.SystemComputeData{
+		CPU: []types.CPU{
 			{
 				Name: "CPU1111",
 			},
 		},
 	}
-	fakeSystemMemory := &system.SystemMemoryData{
-		Numa: []system.Numa{
+	fakeSystemMemory := &types.SystemMemoryData{
+		Numa: []types.Numa{
 			{},
 		},
 	}
-	fakeSystemIO := &system.SystemDiskIoData{
-		DiskIo: []system.DiskIo{
+	fakeSystemIO := &types.SystemDiskIoData{
+		DiskIo: []types.DiskIo{
 			{},
 		},
 	}
-	fakeCgroupInfoV1 := &cgroup.MalachiteCgroupInfo{
+	fakeCgroupInfoV1 := &types.MalachiteCgroupInfo{
 		CgroupType: "V1",
-		V1: &cgroup.MalachiteCgroupV1Info{
-			Memory:    &cgroup.MemoryCgDataV1{},
-			Blkio:     &cgroup.BlkIOCgDataV1{},
-			NetCls:    &cgroup.NetClsCgData{},
-			PerfEvent: &cgroup.PerfEventData{},
-			CpuSet:    &cgroup.CPUSetCgDataV1{},
-			Cpu:       &cgroup.CPUCgDataV1{},
+		V1: &types.MalachiteCgroupV1Info{
+			Memory:    &types.MemoryCgDataV1{},
+			Blkio:     &types.BlkIOCgDataV1{},
+			NetCls:    &types.NetClsCgData{},
+			PerfEvent: &types.PerfEventData{},
+			CpuSet:    &types.CPUSetCgDataV1{},
+			Cpu:       &types.CPUCgDataV1{},
 		},
 	}
-	fakeCgroupInfoV2 := &cgroup.MalachiteCgroupInfo{
+	fakeCgroupInfoV2 := &types.MalachiteCgroupInfo{
 		CgroupType: "V2",
-		V2: &cgroup.MalachiteCgroupV2Info{
-			Memory:    &cgroup.MemoryCgDataV2{},
-			Blkio:     &cgroup.BlkIOCgDataV2{},
-			NetCls:    &cgroup.NetClsCgData{},
-			PerfEvent: &cgroup.PerfEventData{},
-			CpuSet:    &cgroup.CPUSetCgDataV2{},
-			Cpu:       &cgroup.CPUCgDataV2{},
+		V2: &types.MalachiteCgroupV2Info{
+			Memory:    &types.MemoryCgDataV2{},
+			Blkio:     &types.BlkIOCgDataV2{},
+			NetCls:    &types.NetClsCgData{},
+			PerfEvent: &types.PerfEventData{},
+			CpuSet:    &types.CPUSetCgDataV2{},
+			Cpu:       &types.CPUCgDataV2{},
 		},
 	}
 
@@ -140,7 +140,7 @@ func Test_notifySystem(t *testing.T) {
 
 	now := time.Now()
 
-	f := NewMalachiteMetricsFetcher(metrics.DummyMetrics{}, nil)
+	f := NewMalachiteMetricsFetcher(metrics.DummyMetrics{}, &pod.PodFetcherStub{}, nil)
 
 	rChan := make(chan metric2.NotifiedResponse, 20)
 	f.RegisterNotifier(metric2.MetricsScopeNode, metric2.NotifiedRequest{
@@ -208,7 +208,7 @@ func TestStore_Aggregate(t *testing.T) {
 
 	now := time.Now()
 
-	f := NewMalachiteMetricsFetcher(metrics.DummyMetrics{}, nil).(*MalachiteMetricsFetcher)
+	f := NewMalachiteMetricsFetcher(metrics.DummyMetrics{}, &pod.PodFetcherStub{}, nil).(*MalachiteMetricsFetcher)
 
 	pod1 := &v1.Pod{
 		ObjectMeta: metav1.ObjectMeta{

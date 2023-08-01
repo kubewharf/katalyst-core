@@ -24,13 +24,17 @@ import (
 	"github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
+	qosutil "github.com/kubewharf/katalyst-core/pkg/util/qos"
 )
 
-// IsNumaBinding returns true iff current container is for dedicated_cores with numa binding
-// todo: support numa exclusive
+// IsNumaBinding returns true if current container is for dedicated_cores with numa binding
 func (ci *ContainerInfo) IsNumaBinding() bool {
 	return ci.QoSLevel == consts.PodAnnotationQoSLevelDedicatedCores &&
-		ci.Annotations[consts.PodAnnotationMemoryEnhancementNumaBinding] == consts.PodAnnotationMemoryEnhancementNumaBindingEnable
+		qosutil.AnnotationsIndicateNUMABinding(ci.Annotations)
+}
+
+func (ci *ContainerInfo) IsNumaExclusive() bool {
+	return ci.QoSLevel == consts.PodAnnotationQoSLevelDedicatedCores && qosutil.AnnotationsIndicateNUMAExclusive(ci.Annotations)
 }
 
 func (ci *ContainerInfo) Clone() *ContainerInfo {
@@ -120,8 +124,10 @@ func (ri *RegionInfo) Clone() *RegionInfo {
 		return nil
 	}
 	clone := &RegionInfo{
-		RegionType:   ri.RegionType,
-		BindingNumas: ri.BindingNumas.Clone(),
+		RegionName:    ri.RegionName,
+		RegionType:    ri.RegionType,
+		OwnerPoolName: ri.OwnerPoolName,
+		BindingNumas:  ri.BindingNumas.Clone(),
 
 		HeadroomPolicyTopPriority: ri.HeadroomPolicyTopPriority,
 		HeadroomPolicyInUse:       ri.HeadroomPolicyInUse,

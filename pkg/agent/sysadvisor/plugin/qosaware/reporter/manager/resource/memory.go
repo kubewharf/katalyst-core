@@ -57,6 +57,8 @@ func generateMemoryWindowOptions(conf *reporter.HeadroomReporterConfiguration) G
 		SlidingWindowTime: conf.HeadroomReporterSlidingWindowTime,
 		MinStep:           conf.HeadroomReporterSlidingWindowMinStep[v1.ResourceMemory],
 		MaxStep:           conf.HeadroomReporterSlidingWindowMaxStep[v1.ResourceMemory],
+		AggregateFunc:     conf.HeadroomReporterSlidingWindowAggregateFunction,
+		AggregateArgs:     conf.HeadroomReporterSlidingWindowAggregateArguments,
 	}
 }
 

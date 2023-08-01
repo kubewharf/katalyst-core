@@ -28,6 +28,7 @@ import (
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 
 	"github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/options"
@@ -74,6 +75,8 @@ func generateTestMetaServer(t *testing.T, podList []*v1.Pod,
 	// numa node1 cpu(s): 24-47,72-95
 	cpuTopology, err := machine.GenerateDummyCPUTopology(96, 2, 2)
 	require.NoError(t, err)
+	memoryTopology, err := machine.GenerateDummyMemoryTopology(2, 500<<30)
+	require.NoError(t, err)
 
 	metaServer := &metaserver.MetaServer{
 		MetaAgent: &agent.MetaAgent{
@@ -82,7 +85,8 @@ func generateTestMetaServer(t *testing.T, podList []*v1.Pod,
 					NumCores:       96,
 					MemoryCapacity: 500 << 30,
 				},
-				CPUTopology: cpuTopology,
+				CPUTopology:    cpuTopology,
+				MemoryTopology: memoryTopology,
 			},
 			PodFetcher:     &pod.PodFetcherStub{PodList: podList},
 			MetricsFetcher: metricsFetcher,
@@ -99,6 +103,7 @@ func makeContainerInfo(podUID, namespace, podName, containerName, qoSLevel strin
 		PodNamespace:                     namespace,
 		PodName:                          podName,
 		ContainerName:                    containerName,
+		ContainerType:                    v1alpha1.ContainerType_MAIN,
 		ContainerIndex:                   0,
 		Labels:                           nil,
 		Annotations:                      annotations,
@@ -125,13 +130,9 @@ func TestPolicyCanonical_calculateMemoryBuffer(t *testing.T) {
 		essentials                   types.ResourceEssentials
 		setFakeMetric                func(store *metric.FakeMetricsFetcher)
 	}
-	type args struct {
-		estimateNonReclaimedRequirement float64
-	}
 	tests := []struct {
 		name    string
 		fields  fields
-		args    args
 		want    resource.Quantity
 		wantErr bool
 	}{
@@ -433,6 +434,64 @@ func TestPolicyCanonical_calculateMemoryBuffer(t *testing.T) {
 				},
 			},
 			want: *resource.NewQuantity((96<<30)-((30<<30)*1.1+(10<<30))+((40<<30)-(20<<30))*0.6+(20<<30), resource.BinarySI),
+		},
+		{
+			name: "dedicated numabinding pods reclaimed disabled",
+			fields: fields{
+				podList: []*v1.Pod{
+					{
+						ObjectMeta: metav1.ObjectMeta{
+							Name:      "pod1",
+							Namespace: "default",
+							UID:       "pod1",
+						},
+						Spec: v1.PodSpec{
+							Containers: []v1.Container{
+								{
+									Name: "container1",
+								},
+							},
+						},
+					},
+				},
+				containers: []*types.ContainerInfo{
+					makeContainerInfo("pod1", "default",
+						"pod1", "container1",
+						consts.PodAnnotationQoSLevelDedicatedCores,
+						map[string]string{consts.PodAnnotationMemoryEnhancementNumaBinding: consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
+							consts.PodAnnotationMemoryEnhancementNumaExclusive: consts.PodAnnotationMemoryEnhancementNumaExclusiveEnable},
+						types.TopologyAwareAssignment{0: machine.NewCPUSet(0, 1, 2, 3, 4)}, 1),
+				},
+				memoryHeadroomConfiguration: &memoryheadroom.MemoryHeadroomConfiguration{
+					MemoryUtilBasedConfiguration: &memoryheadroom.MemoryUtilBasedConfiguration{
+						Enable:              false,
+						CacheBasedRatio:     0.6,
+						FreeBasedRatio:      0.6,
+						StaticBasedCapacity: 20 << 30,
+					},
+				},
+				policyCanonicalConfiguration: &headroom.MemoryPolicyCanonicalConfiguration{
+					MemoryUtilBasedConfiguration: &headroom.MemoryUtilBasedConfiguration{
+						CPUMemRatioLowerBound: 1. / 6.,
+						CPUMemRatioUpperBound: 1. / 3.5,
+					},
+				},
+				essentials: types.ResourceEssentials{
+					EnableReclaim:       false,
+					ResourceUpperBound:  500 << 30,
+					ReservedForAllocate: 4 << 30,
+				},
+				setFakeMetric: func(store *metric.FakeMetricsFetcher) {
+					store.SetNodeMetric(pkgconsts.MetricMemTotalSystem, utilmetric.MetricData{Value: 100 << 30, Time: &now})
+					store.SetNodeMetric(pkgconsts.MetricMemFreeSystem, utilmetric.MetricData{Value: 20 << 30, Time: &now})
+					store.SetNodeMetric(pkgconsts.MetricMemScaleFactorSystem, utilmetric.MetricData{Value: 500, Time: &now})
+					store.SetNodeMetric(pkgconsts.MetricMemUsedSystem, utilmetric.MetricData{Value: 60 << 30, Time: &now})
+
+					store.SetContainerMetric("pod1", "container1", pkgconsts.MetricMemRssContainer, utilmetric.MetricData{Value: 15 << 30, Time: &now})
+					store.SetContainerMetric("pod1", "container1", pkgconsts.MetricMemCacheContainer, utilmetric.MetricData{Value: 15 << 30, Time: &now})
+				},
+			},
+			want: *resource.NewQuantity((500-250-4)<<30, resource.BinarySI),
 		},
 	}
 	for _, tt := range tests {

@@ -57,6 +57,8 @@ func generateCPUWindowOptions(conf *reporter.HeadroomReporterConfiguration) Gene
 		SlidingWindowTime: conf.HeadroomReporterSlidingWindowTime,
 		MinStep:           conf.HeadroomReporterSlidingWindowMinStep[v1.ResourceCPU],
 		MaxStep:           conf.HeadroomReporterSlidingWindowMaxStep[v1.ResourceCPU],
+		AggregateFunc:     conf.HeadroomReporterSlidingWindowAggregateFunction,
+		AggregateArgs:     conf.HeadroomReporterSlidingWindowAggregateArguments,
 	}
 }
 

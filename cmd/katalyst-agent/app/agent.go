@@ -27,7 +27,6 @@ import (
 
 	katalystbase "github.com/kubewharf/katalyst-core/cmd/base"
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/agent"
-	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/options"
 	"github.com/kubewharf/katalyst-core/pkg/client"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/consts"
@@ -41,18 +40,7 @@ const healthzNameLockingFileAcquired = "LockingFileReady"
 // Run starts common and uniformed agent components here, and starts other
 // specific components in other separate repos (with common components as
 // dependencies)
-func Run(opt *options.Options, genericOptions ...katalystbase.GenericOptions) error {
-	conf, err := opt.Config()
-	if err != nil {
-		return err
-	}
-
-	clientSet, err := client.BuildGenericClient(conf.GenericConfiguration.ClientConnection, opt.MasterURL,
-		opt.KubeConfig, fmt.Sprintf("%v", consts.KatalystComponentAgent))
-	if err != nil {
-		return err
-	}
-
+func Run(conf *config.Configuration, clientSet *client.GenericClientSet, genericOptions ...katalystbase.GenericOptions) error {
 	// Set up signals so that we handle the first shutdown signal gracefully.
 	ctx := process.SetupSignalHandler()
 

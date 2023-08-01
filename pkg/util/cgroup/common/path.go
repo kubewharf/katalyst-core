@@ -86,7 +86,7 @@ func GetKubernetesCgroupRootPathWithSubSys(subsys string) []string {
 	return subsysCgroupPathList
 }
 
-// GetKubernetesAbsCgroupPath returns cgroup path for kubernetes with the given
+// GetKubernetesAbsCgroupPath returns absolute cgroup path for kubernetes with the given
 // suffix without considering whether the path exists or not.
 func GetKubernetesAbsCgroupPath(subsys, suffix string) string {
 	if subsys == "" {
@@ -96,9 +96,12 @@ func GetKubernetesAbsCgroupPath(subsys, suffix string) string {
 	return GetAbsCgroupPath(subsys, suffix)
 }
 
-// GetKubernetesAnyExistAbsCgroupPath returns any cgroup path that exists for kubernetes
+// GetKubernetesAnyExistAbsCgroupPath returns any absolute cgroup path that exists for kubernetes
 func GetKubernetesAnyExistAbsCgroupPath(subsys, suffix string) (string, error) {
 	var errs []error
+
+	k8sCgroupPathLock.RLock()
+	defer k8sCgroupPathLock.RUnlock()
 
 	for _, cgPath := range k8sCgroupPathList.List() {
 		p := GetKubernetesAbsCgroupPath(subsys, path.Join(cgPath, suffix))
@@ -110,14 +113,19 @@ func GetKubernetesAnyExistAbsCgroupPath(subsys, suffix string) (string, error) {
 	return "", fmt.Errorf("failed to find absolute path of suffix: %s, error: %v", suffix, utilerrors.NewAggregate(errs))
 }
 
-// GetPodAbsCgroupPath returns cgroup path for pod level
+// GetPodAbsCgroupPath returns absolute cgroup path for pod level
 func GetPodAbsCgroupPath(subsys, podUID string) (string, error) {
 	return GetKubernetesAnyExistAbsCgroupPath(subsys, podUID)
 }
 
-// GetContainerAbsCgroupPath returns cgroup path for container level
+// GetContainerAbsCgroupPath returns absolute cgroup path for container level
 func GetContainerAbsCgroupPath(subsys, podUID, containerId string) (string, error) {
 	return GetKubernetesAnyExistAbsCgroupPath(subsys, path.Join(fmt.Sprintf("%s%s", PodCgroupPathPrefix, podUID), containerId))
+}
+
+// GetContainerRelativeCgroupPath returns relative cgroup path for container level
+func GetContainerRelativeCgroupPath(podUID, containerId string) string {
+	return path.Join(fmt.Sprintf("%s%s", PodCgroupPathPrefix, podUID), containerId)
 }
 
 func IsContainerCgroupExist(podUID, containerID string) (bool, error) {

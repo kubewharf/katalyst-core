@@ -28,6 +28,9 @@ type Adapter interface {
 	// GetTopologyZones return newest topology zone status
 	GetTopologyZones(ctx context.Context) ([]*nodev1alpha1.TopologyZone, error)
 
+	// GetTopologyPolicy return newest topology policy status
+	GetTopologyPolicy(ctx context.Context) (nodev1alpha1.TopologyPolicy, error)
+
 	// Run is to start the topology adapter to watch the topology change
 	Run(ctx context.Context, handler func()) error
 }
@@ -40,6 +43,12 @@ var _ Adapter = DummyAdapter{}
 // GetTopologyZones is to get dummy topology zone status
 func (d DummyAdapter) GetTopologyZones(_ context.Context) ([]*nodev1alpha1.TopologyZone, error) {
 	return []*nodev1alpha1.TopologyZone{}, nil
+}
+
+// GetTopologyPolicy is to get dummy topology policy status
+func (d DummyAdapter) GetTopologyPolicy(_ context.Context) (nodev1alpha1.TopologyPolicy, error) {
+	dummyTopologyPolicy := nodev1alpha1.TopologyPolicy("")
+	return dummyTopologyPolicy, nil
 }
 
 // Run is to start the dummy topology adapter

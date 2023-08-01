@@ -280,7 +280,7 @@ func (p *DynamicPolicy) generateBlockCPUSet(resp *advisorapi.ListAndWatchRespons
 		return nil, fmt.Errorf("got nil resp")
 	}
 
-	numaBlocks, err := resp.GetBlocks()
+	numaToBlocks, err := resp.GetBlocks()
 	if err != nil {
 		return nil, err
 	}
@@ -309,18 +309,22 @@ func (p *DynamicPolicy) generateBlockCPUSet(resp *advisorapi.ListAndWatchRespons
 	}
 
 	// walk through all blocks with specified NUMA ids
-	// for each block, add them into numaBlocks (if not exist) and renew availableCPUs
-	for numaID, blocksMap := range numaBlocks {
+	// for each block, add them into blockCPUSet (if not exist) and renew availableCPUs
+	for numaID, blocks := range numaToBlocks {
 		if numaID == advisorapi.FakedNUMAID {
 			continue
 		}
 
 		numaAvailableCPUs := availableCPUs.Intersection(topology.CPUDetails.CPUsInNUMANodes(numaID))
-		for blockID, block := range blocksMap {
+		for _, block := range blocks {
 			if block == nil {
 				general.Warningf("got nil block")
 				continue
-			} else if _, found := blockCPUSet[blockID]; found {
+			}
+
+			blockID := block.BlockId
+
+			if _, found := blockCPUSet[blockID]; found {
 				general.Warningf("block: %v already allocated", blockID)
 				continue
 			}
@@ -344,12 +348,16 @@ func (p *DynamicPolicy) generateBlockCPUSet(resp *advisorapi.ListAndWatchRespons
 	}
 
 	// walk through all blocks without specified NUMA id
-	// for each block, add them into numaBlocks (if not exist) and renew availableCPUs
-	for blockID, block := range numaBlocks[advisorapi.FakedNUMAID] {
+	// for each block, add them into blockCPUSet (if not exist) and renew availableCPUs
+	for _, block := range numaToBlocks[advisorapi.FakedNUMAID] {
 		if block == nil {
 			general.Warningf("got nil block")
 			continue
-		} else if _, found := blockCPUSet[blockID]; found {
+		}
+
+		blockID := block.BlockId
+
+		if _, found := blockCPUSet[blockID]; found {
 			general.Warningf("block: %s already allocated", blockID)
 			continue
 		}
@@ -597,7 +605,7 @@ func (p *DynamicPolicy) applyBlocks(blockCPUSet advisorapi.BlockCPUSet, resp *ad
 	}
 
 	// use pod entries generated above to generate machine state info, and store in local state
-	newMachineState, err := state.GenerateMachineStateFromPodEntries(p.machineInfo.CPUTopology, newEntries)
+	newMachineState, err := generateMachineStateFromPodEntries(p.machineInfo.CPUTopology, newEntries)
 	if err != nil {
 		return fmt.Errorf("calculate machineState by newPodEntries failed with error: %v", err)
 	}

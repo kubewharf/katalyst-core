@@ -19,8 +19,11 @@ package cpu
 import (
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/agent/qrm"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/nativepolicy"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/util"
 )
 
 func init() {
-	qrm.RegisterCPUPolicyInitializer(dynamicpolicy.CPUResourcePluginPolicyNameDynamic, dynamicpolicy.NewDynamicPolicy)
+	qrm.RegisterCPUPolicyInitializer(util.CPUResourcePluginPolicyNameDynamic, dynamicpolicy.NewDynamicPolicy)
+	qrm.RegisterCPUPolicyInitializer(util.CPUResourcePluginPolicyNameNative, nativepolicy.NewNativePolicy)
 }
