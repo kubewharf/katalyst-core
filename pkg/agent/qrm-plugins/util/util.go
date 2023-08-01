@@ -29,7 +29,9 @@ import (
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 
 	"github.com/kubewharf/katalyst-api/pkg/consts"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/calculator"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
+	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/config/generic"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
@@ -311,6 +313,18 @@ func GetHintsFromExtraStateFile(podName, resourceName, extraHintsStateFileAbsPat
 
 func GetContainerAsyncWorkName(podUID, containerName, topic string) string {
 	return strings.Join([]string{podUID, containerName, topic}, "/")
+}
+
+func GetCoresReservedForSystem(conf *config.Configuration, machineInfo *machine.KatalystMachineInfo, allCPUs machine.CPUSet) (machine.CPUSet, error) {
+	systemReservedNum := conf.ReservedCPUCores
+	reservedCPUs, _, reserveErr := calculator.TakeHTByNUMABalance(machineInfo, allCPUs, systemReservedNum)
+	if reserveErr != nil {
+		return reservedCPUs, fmt.Errorf("takeByNUMABalance for reservedCPUsNum: %d failed with error: %v",
+			systemReservedNum, reserveErr)
+	}
+
+	general.Infof("take reservedCPUs: %s by reservedCPUsNum: %d", reservedCPUs.String(), systemReservedNum)
+	return reservedCPUs, nil
 }
 
 // RegenerateHints regenerates hints for container that'd already been allocated cpu,

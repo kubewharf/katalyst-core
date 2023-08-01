@@ -18,6 +18,7 @@ package state
 
 import (
 	"fmt"
+	"strings"
 	"sync"
 
 	"k8s.io/apimachinery/pkg/util/sets"
@@ -205,4 +206,8 @@ func GenerateMachineStateFromPodEntries(topology *machine.CPUTopology, podEntrie
 		machineState[int(numaNode)] = numaNodeState
 	}
 	return machineState, nil
+}
+
+func IsIsolationPool(poolName string) bool {
+	return strings.HasPrefix(poolName, PoolNameIsolation)
 }

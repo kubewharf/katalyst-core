@@ -25,6 +25,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric/malachite/types"
 	cgroupcm "github.com/kubewharf/katalyst-core/pkg/util/cgroup/common"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
+	"github.com/kubewharf/katalyst-core/pkg/util/native"
 )
 
 func (c *MalachiteClient) GetAllPodContainersStats(ctx context.Context) (map[string]map[string]*types.MalachiteCgroupInfo, error) {
@@ -55,18 +56,31 @@ func (c *MalachiteClient) GetPodStats(ctx context.Context, podUID string) (map[s
 
 	containersStats := make(map[string]*types.MalachiteCgroupInfo)
 	for _, containerStatus := range pod.Status.ContainerStatuses {
-		stats, err := c.GetPodContainerStats(podUID, containerStatus.ContainerID)
+		containerID := native.TrimContainerIDPrefix(containerStatus.ContainerID)
+		stats, err := c.GetPodContainerStats(podUID, containerID)
 		if err != nil {
 			general.Errorf("GetPodStats err %v", err)
 			continue
 		}
-		containersStats[containerStatus.ContainerID] = stats
+		containersStats[containerStatus.Name] = stats
 	}
 	return containersStats, nil
 }
 
 func (c *MalachiteClient) GetPodContainerStats(podUID, containerID string) (*types.MalachiteCgroupInfo, error) {
-	cgroupPath := cgroupcm.GetContainerRelativeCgroupPath(podUID, containerID)
+	var cgroupPath string
+	var err error
+
+	// if relativePathFunc has been set, we should use it
+	if c.relativePathFunc != nil {
+		cgroupPath, err = (*c.relativePathFunc)(podUID, containerID)
+	} else {
+		cgroupPath, err = cgroupcm.GetContainerRelativeCgroupPath(podUID, containerID)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("GetPodContainerStats %s/%v get-relative-path err %v", podUID, containerID, err)
+	}
+
 	containersStats, err := c.GetCgroupStats(cgroupPath)
 	if err != nil {
 		return nil, fmt.Errorf("GetPodContainerStats %s/%v get-status %v err %v", podUID, containerID, cgroupPath, err)

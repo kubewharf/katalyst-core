@@ -18,6 +18,7 @@ package evictionmanager
 
 import (
 	"fmt"
+	"strings"
 
 	//nolint
 	"github.com/golang/protobuf/proto"
@@ -29,6 +30,8 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 )
+
+const effectTagValueSeparator = "_"
 
 // evictionRespCollector is used to collect eviction result from plugins, it also handles some logic such as dry run.
 type evictionRespCollector struct {
@@ -91,7 +94,7 @@ func (e *evictionRespCollector) collectEvictPods(dryRunPlugins []string, pluginN
 			e.getLogPrefix(dryRun), pluginName, evictPod.Pod.Namespace, evictPod.Pod.Name, evictPod.Reason, evictPod.ForceEvict)
 
 		if dryRun {
-			_ = e.emitter.StoreInt64(MetricsNameDryrunVictimPodCNT, 1, metrics.MetricTypeNameRaw,
+			_ = e.emitter.StoreInt64(MetricsNameDryRunVictimPodCNT, 1, metrics.MetricTypeNameRaw,
 				metrics.MetricTag{Key: "name", Val: pluginName},
 				metrics.MetricTag{Key: "victim_ns", Val: evictPod.Pod.Namespace},
 				metrics.MetricTag{Key: "victim_name", Val: evictPod.Pod.Name})
@@ -143,6 +146,12 @@ func (e *evictionRespCollector) collectMetThreshold(dryRunPlugins []string, plug
 	if resp.Condition != nil && resp.Condition.MetCondition {
 		general.Infof("%v plugin: %s requests to set condition: %s of type: %s",
 			e.getLogPrefix(dryRun), pluginName, resp.Condition.ConditionName, resp.Condition.ConditionType.String())
+		_ = e.emitter.StoreInt64(MetricsNameDryRunConditionCNT, 1, metrics.MetricTypeNameRaw,
+			metrics.MetricTag{Key: "name", Val: pluginName},
+			metrics.MetricTag{Key: "condition_name", Val: resp.Condition.ConditionName},
+			metrics.MetricTag{Key: "condition_type", Val: fmt.Sprint(resp.Condition.ConditionType)},
+			metrics.MetricTag{Key: "effects", Val: strings.Join(resp.Condition.Effects, effectTagValueSeparator)},
+		)
 
 		if !dryRun {
 			e.getCurrentConditions()[resp.Condition.ConditionName] = proto.Clone(resp.Condition).(*pluginapi.Condition)
@@ -162,7 +171,7 @@ func (e *evictionRespCollector) collectTopEvictionPods(dryRunPlugins []string, p
 		general.Infof("%v plugin %v request to evict topN pod %v/%v, reason: met threshold in scope [%v]",
 			e.getLogPrefix(dryRun), pluginName, pod.Namespace, pod.Name, threshold.EvictionScope)
 		if dryRun {
-			_ = e.emitter.StoreInt64(MetricsNameDryrunVictimPodCNT, 1, metrics.MetricTypeNameRaw,
+			_ = e.emitter.StoreInt64(MetricsNameDryRunVictimPodCNT, 1, metrics.MetricTypeNameRaw,
 				metrics.MetricTag{Key: "name", Val: pluginName},
 				metrics.MetricTag{Key: "victim_ns", Val: pod.Namespace},
 				metrics.MetricTag{Key: "victim_name", Val: pod.Name})
