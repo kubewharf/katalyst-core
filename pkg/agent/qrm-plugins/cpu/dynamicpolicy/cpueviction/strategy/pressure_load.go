@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"strconv"
 	"sync"
 	"time"
 
@@ -30,6 +31,7 @@ import (
 	pluginapi "github.com/kubewharf/katalyst-api/pkg/protocol/evictionplugin/v1alpha1"
 	advisorapi "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/cpuadvisor"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
+	qrmutil "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic"
 	"github.com/kubewharf/katalyst-core/pkg/config/generic"
@@ -37,6 +39,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
+	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 	"github.com/kubewharf/katalyst-core/pkg/util/native"
 )
 
@@ -47,11 +50,14 @@ const (
 	metricsNamePoolMetricValue      = "pool_metric_value_raw"
 	metricsNamePoolMetricBound      = "pool_metric_bound_raw"
 	metricsNameThresholdMet         = "threshold_met_count"
+	metricNameCollectPoolLoadCalled = "collect_pool_load_called"
 
-	metricsTagKeyMetricName       = "metric_name"
-	metricsTagKeyPoolName         = "pool_name"
-	metricsTagKeyBoundType        = "bound_type"
-	metricsTagKeyThresholdMetType = "threshold_type"
+	metricsTagKeyMetricName         = "metric_name"
+	metricsTagKeyPoolName           = "pool_name"
+	metricsTagKeyBoundType          = "bound_type"
+	metricsTagKeyThresholdMetType   = "threshold_type"
+	metricsTagKeyAdvisedThreshold   = "advised_threshold"
+	metricsTagKeyPressureByPoolSize = "pool_sized_pressure"
 
 	metricsTagValueBoundTypeUpper       = "upper"
 	metricsTagValueBoundTypeLower       = "lower"
@@ -74,7 +80,7 @@ var (
 
 type CPUPressureLoadEviction struct {
 	sync.Mutex
-	state       state.State
+	state       state.ReadonlyState
 	emitter     metrics.MetricEmitter
 	metaServer  *metaserver.MetaServer
 	qosConf     *generic.QoSConfiguration
@@ -87,10 +93,12 @@ type CPUPressureLoadEviction struct {
 	lastEvictionTime time.Time
 
 	poolMetricCollectHandlers map[string]PoolMetricCollectHandler
+
+	systemReservedCPUs machine.CPUSet
 }
 
 func NewCPUPressureLoadEviction(emitter metrics.MetricEmitter, metaServer *metaserver.MetaServer,
-	conf *config.Configuration, state state.State) CPUPressureThresholdEviction {
+	conf *config.Configuration, state state.ReadonlyState) (CPUPressureThresholdEviction, error) {
 	plugin := &CPUPressureLoadEviction{
 		state:          state,
 		emitter:        emitter,
@@ -101,10 +109,18 @@ func NewCPUPressureLoadEviction(emitter metrics.MetricEmitter, metaServer *metas
 		syncPeriod:     conf.LoadEvictionSyncPeriod,
 	}
 
+	systemReservedCores, reserveErr := qrmutil.GetCoresReservedForSystem(conf, metaServer.KatalystMachineInfo, metaServer.CPUDetails.CPUs().Clone())
+	if reserveErr != nil {
+		general.Errorf("GetCoresReservedForSystem for reservedCPUsNum: %d failed with error: %v",
+			conf.ReservedCPUCores, reserveErr)
+		return plugin, reserveErr
+	}
+	plugin.systemReservedCPUs = systemReservedCores
+
 	plugin.poolMetricCollectHandlers = map[string]PoolMetricCollectHandler{
 		consts.MetricLoad1MinContainer: plugin.collectPoolLoad,
 	}
-	return plugin
+	return plugin, nil
 }
 
 func (p *CPUPressureLoadEviction) Start(ctx context.Context) (err error) {
@@ -127,21 +143,19 @@ func (p *CPUPressureLoadEviction) ThresholdMet(_ context.Context,
 		}, nil
 	}
 
-	general.Infof("with "+
-		"loadUpperBoundRatio: %.2f, loadThresholdMetPercentage: %.2f, podGracePeriodSeconds: %d",
-		dynamicConfig.LoadUpperBoundRatio, dynamicConfig.LoadThresholdMetPercentage,
-		dynamicConfig.CPUPressureEvictionConfiguration.GracePeriod)
+	general.Infof("with loadUpperBoundRatio: %.2f, loadThresholdMetPercentage: %.2f, podGracePeriodSeconds: %d",
+		dynamicConfig.LoadUpperBoundRatio, dynamicConfig.LoadThresholdMetPercentage, dynamicConfig.CPUPressureEvictionConfiguration.GracePeriod)
 
 	var isSoftOver bool
 	var softOverRatio float64
 
 	var softThresholdMetPoolName string
 	for poolName, entries := range p.metricsHistory[consts.MetricLoad1MinContainer] {
-		if !entries.IsPoolEntry() || skipPools.Has(poolName) {
+		if !entries.IsPoolEntry() || skipPools.Has(poolName) || state.IsIsolationPool(poolName) {
 			continue
 		}
 
-		metricRing := entries[""]
+		metricRing := entries[advisorapi.FakedContainerName]
 		if metricRing == nil {
 			general.Warningf("pool: %s hasn't metric: %s metricsRing", poolName, consts.MetricLoad1MinContainer)
 			continue
@@ -189,7 +203,7 @@ func (p *CPUPressureLoadEviction) ThresholdMet(_ context.Context,
 	}
 
 	p.clearEvictionPoolName()
-	if softThresholdMetPoolName != "" {
+	if softThresholdMetPoolName != advisorapi.EmptyOwnerPoolName {
 		_ = p.emitter.StoreFloat64(metricsNameThresholdMet, 1, metrics.MetricTypeNameCount,
 			metrics.ConvertMapToTags(map[string]string{
 				metricsTagKeyPoolName:         softThresholdMetPoolName,
@@ -239,7 +253,7 @@ func (p *CPUPressureLoadEviction) GetTopEvictionPods(_ context.Context,
 		return &pluginapi.GetTopEvictionPodsResponse{}, nil
 	}
 
-	entries := p.state.GetPodEntries()
+	podPoolMap := getPodPoolMapFunc(p.metaServer.MetaAgent, p.state)
 	candidatePods := native.FilterPods(request.ActivePods, func(pod *v1.Pod) (bool, error) {
 		if pod == nil {
 			return false, fmt.Errorf("FilterPods got nil pod")
@@ -248,9 +262,9 @@ func (p *CPUPressureLoadEviction) GetTopEvictionPods(_ context.Context,
 		podUID := string(pod.GetUID())
 		for i := range pod.Spec.Containers {
 			containerName := pod.Spec.Containers[i].Name
-			if entries[podUID][containerName] == nil {
+			if podPoolMap[podUID][containerName] == nil {
 				return false, nil
-			} else if entries[podUID][containerName].OwnerPoolName == evictionPoolName {
+			} else if podPoolMap[podUID][containerName].OwnerPool == evictionPoolName {
 				return true, nil
 			}
 		}
@@ -303,37 +317,33 @@ func (p *CPUPressureLoadEviction) collectMetrics(_ context.Context) {
 	defer p.Unlock()
 
 	dynamicConfig := p.dynamicConf.GetDynamicConfiguration()
+	// always reset in-memory metric histories if load-eviction is disabled
 	if !dynamicConfig.EnableLoadEviction {
 		p.metricsHistory = make(map[string]Entries)
 		return
 	}
 
-	entries := p.state.GetPodEntries()
-	p.clearExpiredMetricsHistory(entries)
+	pod2Pool := getPodPoolMapFunc(p.metaServer.MetaAgent, p.state)
+	p.clearExpiredMetricsHistory(pod2Pool)
 
 	// collect metric for pod/container pairs, and store in local (i.e. poolsMetric)
 	collectTime := time.Now().UnixNano()
 	poolsMetric := make(map[string]map[string]float64)
-	for podUID, entry := range entries {
-		if entry.IsPoolEntry() {
-			continue
-		}
-
+	for podUID, entry := range pod2Pool {
 		for containerName, containerEntry := range entry {
-			if containerEntry == nil {
+			if containerEntry == nil || containerEntry.IsPool {
 				continue
-			} else if containerEntry.OwnerPoolName == "" || skipPools.Has(containerEntry.OwnerPoolName) {
-				general.Infof("skip collecting metric for pod: %s, "+
-					"container: %s with owner pool name: %s", podUID, containerName, containerEntry.OwnerPoolName)
+			} else if containerEntry.OwnerPool == advisorapi.EmptyOwnerPoolName || skipPools.Has(containerEntry.OwnerPool) {
+				general.Infof("skip collecting metric for pod: %s, container: %s with owner pool name: %s",
+					podUID, containerName, containerEntry.OwnerPool)
 				continue
 			}
 
-			poolName := containerEntry.OwnerPoolName
+			poolName := containerEntry.OwnerPool
 			for _, metricName := range handleMetrics.UnsortedList() {
 				m, err := p.metaServer.GetContainerMetric(podUID, containerName, metricName)
 				if err != nil {
-					general.Errorf("GetContainerMetric for pod: %s, "+
-						"container: %s failed with error: %v", podUID, containerName, err)
+					general.Errorf("GetContainerMetric for pod: %s, container: %s failed with error: %v", podUID, containerName, err)
 					continue
 				}
 
@@ -355,37 +365,80 @@ func (p *CPUPressureLoadEviction) collectMetrics(_ context.Context) {
 	}
 
 	// push pre-collected local store (i.e. poolsMetric) to metric ring buffer
-	for poolName, entry := range entries {
-		if entry == nil || !entry.IsPoolEntry() || skipPools.Has(poolName) {
+	underPressure := p.checkSharedPressureByPoolSize(pod2Pool)
+	for poolName, entry := range pod2Pool {
+		if entry == nil {
 			continue
 		}
 
-		poolEntry := entry[advisorapi.FakedContainerName]
-		if poolEntry == nil {
-			continue
-		}
-
-		for _, metricName := range handleMetrics.UnsortedList() {
-			if _, found := poolsMetric[poolName][metricName]; !found {
+		for _, poolEntry := range entry {
+			if poolEntry == nil || !poolEntry.IsPool || skipPools.Has(poolName) {
 				continue
 			}
 
-			handler := p.poolMetricCollectHandlers[metricName]
-			if handler == nil {
-				general.Warningf("metric: %s hasn't pool metric "+
-					"collecting handler, use default handler", metricName)
-				handler = p.collectPoolMetricDefault
+			for _, metricName := range handleMetrics.UnsortedList() {
+				if _, found := poolsMetric[poolName][metricName]; !found {
+					continue
+				}
+
+				handler := p.poolMetricCollectHandlers[metricName]
+				if handler == nil {
+					general.Warningf("metric: %s hasn't pool metric collecting handler, use default handler", metricName)
+					handler = p.collectPoolMetricDefault
+				}
+				handler(dynamicConfig, underPressure, metricName, poolsMetric[poolName][metricName], poolName, poolEntry.PoolSize, collectTime)
 			}
-			handler(dynamicConfig, metricName, poolsMetric[poolName][metricName], poolEntry, collectTime)
 		}
 	}
 }
 
+// checkSharedPressureByPoolSize checks if the sum of all the shared pool size has reached the maximum
+func (p *CPUPressureLoadEviction) checkSharedPressureByPoolSize(pod2Pool PodPoolMap) bool {
+	poolSizeSum := 0
+	for poolName, entry := range pod2Pool {
+		if entry == nil {
+			continue
+		}
+
+		for _, containerEntry := range entry {
+			if !containerEntry.IsPool || skipPools.Has(poolName) || entry[advisorapi.FakedContainerName] == nil {
+				continue
+			}
+			poolSizeSum += containerEntry.PoolSize
+		}
+	}
+
+	sharedPoolsLimit := p.accumulateSharedPoolsLimit()
+	pressureByPoolSize := poolSizeSum >= sharedPoolsLimit
+	general.Infof("shared pools under pressure: %v, poolSizeSum: %v, limit: %v", pressureByPoolSize, poolSizeSum, sharedPoolsLimit)
+
+	return pressureByPoolSize
+}
+
+// accumulateSharedPoolsLimit calculates the cpu core limit used by shared core pool,
+// and it equals: machine-core - cores-for-dedicated-pods - reserved-cores-reclaim-pods - reserved-cores-system-pods.
+func (p *CPUPressureLoadEviction) accumulateSharedPoolsLimit() int {
+	availableCPUSet := p.state.GetMachineState().GetFilteredAvailableCPUSet(p.systemReservedCPUs, nil, state.CheckDedicatedNUMABinding)
+
+	coreNumReservedForReclaim := p.dynamicConf.GetDynamicConfiguration().MinReclaimedResourceForAllocate[v1.ResourceCPU]
+	reservedForReclaim := machine.GetCoreNumReservedForReclaim(int(coreNumReservedForReclaim.Value()), p.metaServer.NumNUMANodes)
+
+	reservedForReclaimInSharedNuma := 0
+	sharedCoresNUMAs := p.state.GetMachineState().GetFilteredNUMASet(state.CheckNUMABinding)
+	for _, numaID := range sharedCoresNUMAs.ToSliceInt() {
+		reservedForReclaimInSharedNuma += reservedForReclaim[numaID]
+	}
+
+	result := availableCPUSet.Size() - reservedForReclaimInSharedNuma
+	general.Infof("get shared pools limit: %v, availableCPUSet: %v, sharedCoresNUMAs:%v, reservedForReclaim: %v",
+		result, availableCPUSet.String(), sharedCoresNUMAs.String(), reservedForReclaim)
+	return result
+}
+
 // collectPoolLoad is specifically used for cpu-load in pool level,
 // and its upper-bound and lower-bound are calculated by pool size.
-func (p *CPUPressureLoadEviction) collectPoolLoad(dynamicConfig *dynamic.Configuration,
-	metricName string, metricValue float64, poolEntry *state.AllocationInfo, collectTime int64) {
-	poolSize := poolEntry.AllocationResult.Size()
+func (p *CPUPressureLoadEviction) collectPoolLoad(dynamicConfig *dynamic.Configuration, pressureByPoolSize bool,
+	metricName string, metricValue float64, poolName string, poolSize int, collectTime int64) {
 	snapshot := &MetricSnapshot{
 		Info: MetricInfo{
 			Name:       metricName,
@@ -396,14 +449,37 @@ func (p *CPUPressureLoadEviction) collectPoolLoad(dynamicConfig *dynamic.Configu
 		Time: collectTime,
 	}
 
-	p.logPoolSnapShot(snapshot, poolEntry.OwnerPoolName, true)
-	p.pushMetric(dynamicConfig, metricName, poolEntry.OwnerPoolName, "", snapshot)
+	useAdvisedThreshold := p.checkPressureWithAdvisedThreshold()
+	if useAdvisedThreshold {
+		// it must not be triggered when it's healthy
+		lowerBound := metricValue + 1
+		upperBound := lowerBound * dynamicConfig.LoadUpperBoundRatio
+
+		if pressureByPoolSize {
+			// soft over must be triggered when it's under pressure
+			lowerBound = 1
+			upperBound = float64(poolSize) * dynamicConfig.LoadUpperBoundRatio
+		}
+		snapshot.Info.LowerBound = lowerBound
+		snapshot.Info.UpperBound = upperBound
+	}
+
+	_ = p.emitter.StoreInt64(metricNameCollectPoolLoadCalled, 1, metrics.MetricTypeNameCount,
+		metrics.ConvertMapToTags(map[string]string{
+			metricsTagKeyPoolName:           poolName,
+			metricsTagKeyMetricName:         snapshot.Info.Name,
+			metricsTagKeyPressureByPoolSize: strconv.FormatBool(pressureByPoolSize),
+			metricsTagKeyAdvisedThreshold:   strconv.FormatBool(useAdvisedThreshold),
+		})...)
+
+	p.logPoolSnapShot(snapshot, poolName, true)
+	p.pushMetric(dynamicConfig, metricName, poolName, advisorapi.FakedContainerName, snapshot)
 }
 
 // collectPoolMetricDefault is a common collect in pool level,
 // and its upper-bound and lower-bound are not defined.
-func (p *CPUPressureLoadEviction) collectPoolMetricDefault(dynamicConfig *dynamic.Configuration,
-	metricName string, metricValue float64, poolEntry *state.AllocationInfo, collectTime int64) {
+func (p *CPUPressureLoadEviction) collectPoolMetricDefault(dynamicConfig *dynamic.Configuration, _ bool,
+	metricName string, metricValue float64, poolName string, _ int, collectTime int64) {
 	snapshot := &MetricSnapshot{
 		Info: MetricInfo{
 			Name:  metricName,
@@ -412,10 +488,11 @@ func (p *CPUPressureLoadEviction) collectPoolMetricDefault(dynamicConfig *dynami
 		Time: collectTime,
 	}
 
-	p.logPoolSnapShot(snapshot, poolEntry.OwnerPoolName, false)
-	p.pushMetric(dynamicConfig, metricName, poolEntry.OwnerPoolName, "", snapshot)
+	p.logPoolSnapShot(snapshot, poolName, false)
+	p.pushMetric(dynamicConfig, metricName, poolName, advisorapi.FakedContainerName, snapshot)
 }
 
+// pushMetric stores and push-in metric for the given pod
 func (p *CPUPressureLoadEviction) pushMetric(dynamicConfig *dynamic.Configuration,
 	metricName, entryName, subEntryName string, snapshot *MetricSnapshot) {
 	if p.metricsHistory[metricName] == nil {
@@ -468,6 +545,7 @@ func (p *CPUPressureLoadEviction) logPoolSnapShot(snapshot *MetricSnapshot, pool
 	}
 }
 
+// clearEvictionPoolName resets pool in local memory
 func (p *CPUPressureLoadEviction) clearEvictionPoolName() {
 	if p.evictionPoolName != advisorapi.FakedContainerName {
 		general.Infof("clear eviction pool name: %s", p.evictionPoolName)
@@ -475,14 +553,16 @@ func (p *CPUPressureLoadEviction) clearEvictionPoolName() {
 	p.evictionPoolName = advisorapi.FakedContainerName
 }
 
+// setEvictionPoolName sets pool in local memory
 func (p *CPUPressureLoadEviction) setEvictionPoolName(evictionPoolName string) {
 	general.Infof("set eviction pool name: %s", evictionPoolName)
 	p.evictionPoolName = evictionPoolName
 }
 
+// getEvictionPoolName returns the previously-set pool
 func (p *CPUPressureLoadEviction) getEvictionPoolName() (exists bool, evictionPoolName string) {
 	evictionPoolName = p.evictionPoolName
-	if evictionPoolName == "" {
+	if evictionPoolName == advisorapi.FakedContainerName {
 		exists = false
 		return
 	}
@@ -490,11 +570,12 @@ func (p *CPUPressureLoadEviction) getEvictionPoolName() (exists bool, evictionPo
 	return
 }
 
-func (p *CPUPressureLoadEviction) clearExpiredMetricsHistory(entries state.PodEntries) {
+// clearExpiredMetricsHistory deletes the expired metric in local memory
+func (p *CPUPressureLoadEviction) clearExpiredMetricsHistory(podPoolMap PodPoolMap) {
 	for _, metricEntries := range p.metricsHistory {
 		for entryName, subMetricEntries := range metricEntries {
 			for subEntryName := range subMetricEntries {
-				if entries[entryName][subEntryName] == nil {
+				if podPoolMap[entryName][subEntryName] == nil {
 					general.Infof("entryName: %s subEntryName: %s metric entry is expired, clear it",
 						entryName, subEntryName)
 					delete(subMetricEntries, subEntryName)
@@ -509,6 +590,7 @@ func (p *CPUPressureLoadEviction) clearExpiredMetricsHistory(entries state.PodEn
 	}
 }
 
+// getMetricHistorySumForPod returns the accumulated value for the given pod
 func (p *CPUPressureLoadEviction) getMetricHistorySumForPod(metricName string, pod *v1.Pod) float64 {
 	if pod == nil {
 		return 0
@@ -523,4 +605,13 @@ func (p *CPUPressureLoadEviction) getMetricHistorySumForPod(metricName string, p
 		}
 	}
 	return ret
+}
+
+// checkPressureWithAdvisedThreshold returns if we should check pressure according to advisor.
+// When enabled, plugin must make sure soft over is triggered when shared_core pools can't be expanded anymore.
+func (p *CPUPressureLoadEviction) checkPressureWithAdvisedThreshold() bool {
+	// for now, we consider ReservedResourceForAllocate as downgrading or manual intervention configuration,
+	// when it's set to a value greater than zero, fall back to static threshold
+	reservedCoreNumForAllocate := p.dynamicConf.GetDynamicConfiguration().ReservedResourceForAllocate.Cpu()
+	return reservedCoreNumForAllocate.Value() == 0
 }

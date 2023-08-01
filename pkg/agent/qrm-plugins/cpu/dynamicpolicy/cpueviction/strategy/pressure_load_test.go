@@ -19,6 +19,7 @@ package strategy
 import (
 	"context"
 	"fmt"
+	"math"
 	"os"
 	"testing"
 	"time"
@@ -26,6 +27,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	v1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
@@ -51,6 +53,9 @@ const (
 	defaultCPUPressureEvictionPodGracePeriodSeconds = -1
 	defaultLoadUpperBoundRatio                      = 1.8
 	defaultLoadThresholdMetPercentage               = 0.8
+	defaultReservedForAllocate                      = "4"
+	defaultReservedForReclaim                       = "4"
+	defaultReservedForSystem                        = 0
 )
 
 func makeMetaServer(metricsFetcher metric.MetricsFetcher, cpuTopology *machine.CPUTopology) *metaserver.MetaServer {
@@ -67,13 +72,20 @@ func makeMetaServer(metricsFetcher metric.MetricsFetcher, cpuTopology *machine.C
 }
 
 func makeConf(metricRingSize int, gracePeriod int64, loadUpperBoundRatio,
-	loadThresholdMetPercentage float64) *config.Configuration {
+	loadThresholdMetPercentage float64, reservedForReclaim, reservedForAllocate string, reservedForSystem int) *config.Configuration {
 	conf := config.NewConfiguration()
 	conf.GetDynamicConfiguration().EnableLoadEviction = true
 	conf.GetDynamicConfiguration().LoadMetricRingSize = metricRingSize
 	conf.GetDynamicConfiguration().LoadUpperBoundRatio = loadUpperBoundRatio
 	conf.GetDynamicConfiguration().LoadThresholdMetPercentage = loadThresholdMetPercentage
 	conf.GetDynamicConfiguration().CPUPressureEvictionConfiguration.GracePeriod = gracePeriod
+	conf.GetDynamicConfiguration().ReservedResourceForAllocate = v1.ResourceList{
+		v1.ResourceCPU: resource.MustParse(reservedForAllocate),
+	}
+	conf.GetDynamicConfiguration().MinReclaimedResourceForAllocate = v1.ResourceList{
+		v1.ResourceCPU: resource.MustParse(reservedForReclaim),
+	}
+	conf.ReservedCPUCores = reservedForSystem
 	return conf
 }
 
@@ -93,12 +105,13 @@ func TestNewCPUPressureLoadEviction(t *testing.T) {
 	cpuTopology, err := machine.GenerateDummyCPUTopology(16, 2, 4)
 	as.Nil(err)
 	conf := makeConf(defaultMetricRingSize, int64(defaultCPUPressureEvictionPodGracePeriodSeconds),
-		defaultLoadUpperBoundRatio, defaultLoadThresholdMetPercentage)
+		defaultLoadUpperBoundRatio, defaultLoadThresholdMetPercentage, defaultReservedForReclaim, defaultReservedForAllocate, defaultReservedForSystem)
 	metaServer := makeMetaServer(metric.NewFakeMetricsFetcher(metrics.DummyMetrics{}), cpuTopology)
 	stateImpl, err := makeState(cpuTopology)
 	as.Nil(err)
 
-	plugin := NewCPUPressureLoadEviction(metrics.DummyMetrics{}, metaServer, conf, stateImpl)
+	plugin, createPluginErr := NewCPUPressureLoadEviction(metrics.DummyMetrics{}, metaServer, conf, stateImpl)
+	as.Nil(createPluginErr)
 	as.Nil(err)
 	as.NotNil(plugin)
 }
@@ -111,12 +124,13 @@ func TestThresholdMet(t *testing.T) {
 	cpuTopology, err := machine.GenerateDummyCPUTopology(16, 2, 4)
 	as.Nil(err)
 	conf := makeConf(defaultMetricRingSize, int64(defaultCPUPressureEvictionPodGracePeriodSeconds),
-		defaultLoadUpperBoundRatio, defaultLoadThresholdMetPercentage)
+		defaultLoadUpperBoundRatio, defaultLoadThresholdMetPercentage, defaultReservedForReclaim, defaultReservedForAllocate, defaultReservedForSystem)
 	metaServer := makeMetaServer(metric.NewFakeMetricsFetcher(metrics.DummyMetrics{}), cpuTopology)
 	stateImpl, err := makeState(cpuTopology)
 	as.Nil(err)
 
-	plugin := NewCPUPressureLoadEviction(metrics.DummyMetrics{}, metaServer, conf, stateImpl)
+	plugin, createPluginErr := NewCPUPressureLoadEviction(metrics.DummyMetrics{}, metaServer, conf, stateImpl)
+	as.Nil(createPluginErr)
 	as.NotNil(plugin)
 
 	pod1UID := string(uuid.NewUUID())
@@ -396,12 +410,13 @@ func TestGetTopEvictionPods(t *testing.T) {
 	cpuTopology, err := machine.GenerateDummyCPUTopology(16, 2, 4)
 	as.Nil(err)
 	conf := makeConf(defaultMetricRingSize, int64(defaultCPUPressureEvictionPodGracePeriodSeconds),
-		defaultLoadUpperBoundRatio, defaultLoadThresholdMetPercentage)
+		defaultLoadUpperBoundRatio, defaultLoadThresholdMetPercentage, defaultReservedForReclaim, defaultReservedForAllocate, defaultReservedForSystem)
 	metaServer := makeMetaServer(metric.NewFakeMetricsFetcher(metrics.DummyMetrics{}), cpuTopology)
 	stateImpl, err := makeState(cpuTopology)
 	as.Nil(err)
 
-	plugin := NewCPUPressureLoadEviction(metrics.DummyMetrics{}, metaServer, conf, stateImpl)
+	plugin, createPluginErr := NewCPUPressureLoadEviction(metrics.DummyMetrics{}, metaServer, conf, stateImpl)
+	as.Nil(createPluginErr)
 	as.Nil(err)
 	as.NotNil(plugin)
 
@@ -782,6 +797,808 @@ func TestGetTopEvictionPods(t *testing.T) {
 				}
 			}
 			as.Equal(tt.wantResp, resp)
+		})
+	}
+}
+
+func TestCPUPressureLoadEviction_collectMetrics(t *testing.T) {
+	t.Parallel()
+
+	pod1UID := "pod1"
+	pod2UID := "pod2"
+	pod3UID := "pod3"
+	pod4UID := "pod4"
+	testName := "test"
+
+	tests := []struct {
+		name                    string
+		reservedCPUForAllocate  string
+		reservedCPUForReclaim   string
+		reservedCPUForSystem    int
+		podEntries              qrmstate.PodEntries
+		loads                   map[string]map[string]float64
+		wantSharedPoolSnapshots MetricInfo
+	}{
+		{
+			name:                   "use default bound, without dedicated core pod",
+			reservedCPUForAllocate: "4",
+			reservedCPUForReclaim:  "4",
+			podEntries: qrmstate.PodEntries{
+				pod1UID: qrmstate.ContainerEntries{
+					testName: &qrmstate.AllocationInfo{
+						PodUid:                   pod1UID,
+						PodNamespace:             testName,
+						PodName:                  testName,
+						ContainerName:            testName,
+						ContainerType:            pluginapi.ContainerType_MAIN.String(),
+						ContainerIndex:           0,
+						RampUp:                   false,
+						OwnerPoolName:            qrmstate.PoolNameShare,
+						AllocationResult:         machine.MustParse("1,3-6,9,11-14"),
+						OriginalAllocationResult: machine.MustParse("1,3-6,9,11-14"),
+						TopologyAwareAssignments: map[int]machine.CPUSet{
+							0: machine.NewCPUSet(1, 9),
+							1: machine.NewCPUSet(3, 11),
+							2: machine.NewCPUSet(4, 5, 11, 12),
+							3: machine.NewCPUSet(6, 14),
+						},
+						OriginalTopologyAwareAssignments: map[int]machine.CPUSet{
+							0: machine.NewCPUSet(1, 9),
+							1: machine.NewCPUSet(3, 11),
+							2: machine.NewCPUSet(4, 5, 11, 12),
+							3: machine.NewCPUSet(6, 14),
+						},
+						Labels: map[string]string{
+							apiconsts.PodAnnotationQoSLevelKey: apiconsts.PodAnnotationQoSLevelSharedCores,
+						},
+						Annotations: map[string]string{
+							apiconsts.PodAnnotationQoSLevelKey: apiconsts.PodAnnotationQoSLevelSharedCores,
+						},
+						QoSLevel:        apiconsts.PodAnnotationQoSLevelSharedCores,
+						RequestQuantity: 2,
+					},
+				},
+				pod2UID: qrmstate.ContainerEntries{
+					testName: &qrmstate.AllocationInfo{
+						PodUid:                   pod2UID,
+						PodNamespace:             testName,
+						PodName:                  testName,
+						ContainerName:            testName,
+						ContainerType:            pluginapi.ContainerType_MAIN.String(),
+						ContainerIndex:           0,
+						RampUp:                   false,
+						OwnerPoolName:            qrmstate.PoolNameShare,
+						AllocationResult:         machine.MustParse("1,3-6,9,11-14"),
+						OriginalAllocationResult: machine.MustParse("1,3-6,9,11-14"),
+						TopologyAwareAssignments: map[int]machine.CPUSet{
+							0: machine.NewCPUSet(1, 9),
+							1: machine.NewCPUSet(3, 11),
+							2: machine.NewCPUSet(4, 5, 11, 12),
+							3: machine.NewCPUSet(6, 14),
+						},
+						OriginalTopologyAwareAssignments: map[int]machine.CPUSet{
+							0: machine.NewCPUSet(1, 9),
+							1: machine.NewCPUSet(3, 11),
+							2: machine.NewCPUSet(4, 5, 11, 12),
+							3: machine.NewCPUSet(6, 14),
+						},
+						Labels: map[string]string{
+							apiconsts.PodAnnotationQoSLevelKey: apiconsts.PodAnnotationQoSLevelSharedCores,
+						},
+						Annotations: map[string]string{
+							apiconsts.PodAnnotationQoSLevelKey: apiconsts.PodAnnotationQoSLevelSharedCores,
+						},
+						QoSLevel:        apiconsts.PodAnnotationQoSLevelSharedCores,
+						RequestQuantity: 2,
+					},
+				},
+				pod3UID: qrmstate.ContainerEntries{
+					testName: &qrmstate.AllocationInfo{
+						PodUid:                   pod3UID,
+						PodNamespace:             testName,
+						PodName:                  testName,
+						ContainerName:            testName,
+						ContainerType:            pluginapi.ContainerType_MAIN.String(),
+						ContainerIndex:           0,
+						RampUp:                   false,
+						OwnerPoolName:            qrmstate.PoolNameReclaim,
+						AllocationResult:         machine.NewCPUSet(7, 8, 10, 15),
+						OriginalAllocationResult: machine.NewCPUSet(7, 8, 10, 15),
+						TopologyAwareAssignments: map[int]machine.CPUSet{
+							0: machine.NewCPUSet(8),
+							1: machine.NewCPUSet(10),
+							3: machine.NewCPUSet(7, 15),
+						},
+						OriginalTopologyAwareAssignments: map[int]machine.CPUSet{
+							0: machine.NewCPUSet(8),
+							1: machine.NewCPUSet(10),
+							3: machine.NewCPUSet(7, 15),
+						},
+						Labels: map[string]string{
+							apiconsts.PodAnnotationQoSLevelKey: apiconsts.PodAnnotationQoSLevelReclaimedCores,
+						},
+						Annotations: map[string]string{
+							apiconsts.PodAnnotationQoSLevelKey: apiconsts.PodAnnotationQoSLevelReclaimedCores,
+						},
+						QoSLevel:        apiconsts.PodAnnotationQoSLevelReclaimedCores,
+						RequestQuantity: 2,
+					},
+				},
+				qrmstate.PoolNameShare: qrmstate.ContainerEntries{
+					"": &qrmstate.AllocationInfo{
+						PodUid:                   qrmstate.PoolNameShare,
+						OwnerPoolName:            qrmstate.PoolNameShare,
+						AllocationResult:         machine.MustParse("1,3-6,9,11-14"),
+						OriginalAllocationResult: machine.MustParse("1,3-6,9,11-14"),
+						TopologyAwareAssignments: map[int]machine.CPUSet{
+							0: machine.NewCPUSet(1, 9),
+							1: machine.NewCPUSet(3, 11),
+							2: machine.NewCPUSet(4, 5, 11, 12),
+							3: machine.NewCPUSet(6, 14),
+						},
+						OriginalTopologyAwareAssignments: map[int]machine.CPUSet{
+							0: machine.NewCPUSet(1, 9),
+							1: machine.NewCPUSet(3, 11),
+							2: machine.NewCPUSet(4, 5, 11, 12),
+							3: machine.NewCPUSet(6, 14),
+						},
+					},
+				},
+				qrmstate.PoolNameReclaim: qrmstate.ContainerEntries{
+					"": &qrmstate.AllocationInfo{
+						PodUid:                   qrmstate.PoolNameReclaim,
+						OwnerPoolName:            qrmstate.PoolNameReclaim,
+						AllocationResult:         machine.MustParse("7-8,10,15"),
+						OriginalAllocationResult: machine.MustParse("7-8,10,15"),
+						TopologyAwareAssignments: map[int]machine.CPUSet{
+							0: machine.NewCPUSet(8),
+							1: machine.NewCPUSet(10),
+							3: machine.NewCPUSet(7, 15),
+						},
+						OriginalTopologyAwareAssignments: map[int]machine.CPUSet{
+							0: machine.NewCPUSet(8),
+							1: machine.NewCPUSet(10),
+							3: machine.NewCPUSet(7, 15),
+						},
+					},
+				},
+			},
+			loads: map[string]map[string]float64{
+				pod1UID: {
+					testName: 1,
+				},
+				pod2UID: {
+					testName: 1.4,
+				},
+				pod3UID: {
+					testName: 5,
+				},
+				pod4UID: {
+					testName: 8,
+				},
+			},
+			wantSharedPoolSnapshots: MetricInfo{
+				Name:       consts.MetricLoad1MinContainer,
+				Value:      2.4,
+				UpperBound: 18,
+				LowerBound: 10,
+			},
+		},
+		{
+			name:                   "use default bound, with dedicated core pod",
+			reservedCPUForAllocate: "4",
+			reservedCPUForReclaim:  "4",
+			podEntries: qrmstate.PodEntries{
+				pod1UID: qrmstate.ContainerEntries{
+					testName: &qrmstate.AllocationInfo{
+						PodUid:                   pod1UID,
+						PodNamespace:             testName,
+						PodName:                  testName,
+						ContainerName:            testName,
+						ContainerType:            pluginapi.ContainerType_MAIN.String(),
+						ContainerIndex:           0,
+						RampUp:                   false,
+						OwnerPoolName:            qrmstate.PoolNameShare,
+						AllocationResult:         machine.MustParse("3-6,11-14"),
+						OriginalAllocationResult: machine.MustParse("3-6,11-14"),
+						TopologyAwareAssignments: map[int]machine.CPUSet{
+							0: machine.NewCPUSet(),
+							1: machine.NewCPUSet(3, 11),
+							2: machine.NewCPUSet(4, 5, 11, 12),
+							3: machine.NewCPUSet(6, 14),
+						},
+						OriginalTopologyAwareAssignments: map[int]machine.CPUSet{
+							0: machine.NewCPUSet(),
+							1: machine.NewCPUSet(3, 11),
+							2: machine.NewCPUSet(4, 5, 11, 12),
+							3: machine.NewCPUSet(6, 14),
+						},
+						Labels: map[string]string{
+							apiconsts.PodAnnotationQoSLevelKey: apiconsts.PodAnnotationQoSLevelSharedCores,
+						},
+						Annotations: map[string]string{
+							apiconsts.PodAnnotationQoSLevelKey: apiconsts.PodAnnotationQoSLevelSharedCores,
+						},
+						QoSLevel:        apiconsts.PodAnnotationQoSLevelSharedCores,
+						RequestQuantity: 2,
+					},
+				},
+				pod2UID: qrmstate.ContainerEntries{
+					testName: &qrmstate.AllocationInfo{
+						PodUid:                   pod2UID,
+						PodNamespace:             testName,
+						PodName:                  testName,
+						ContainerName:            testName,
+						ContainerType:            pluginapi.ContainerType_MAIN.String(),
+						ContainerIndex:           0,
+						RampUp:                   false,
+						OwnerPoolName:            qrmstate.PoolNameShare,
+						AllocationResult:         machine.MustParse("3-6,11-14"),
+						OriginalAllocationResult: machine.MustParse("3-6,11-14"),
+						TopologyAwareAssignments: map[int]machine.CPUSet{
+							0: machine.NewCPUSet(),
+							1: machine.NewCPUSet(3, 11),
+							2: machine.NewCPUSet(4, 5, 11, 12),
+							3: machine.NewCPUSet(6, 14),
+						},
+						OriginalTopologyAwareAssignments: map[int]machine.CPUSet{
+							0: machine.NewCPUSet(),
+							1: machine.NewCPUSet(3, 11),
+							2: machine.NewCPUSet(4, 5, 11, 12),
+							3: machine.NewCPUSet(6, 14),
+						},
+						Labels: map[string]string{
+							apiconsts.PodAnnotationQoSLevelKey: apiconsts.PodAnnotationQoSLevelSharedCores,
+						},
+						Annotations: map[string]string{
+							apiconsts.PodAnnotationQoSLevelKey: apiconsts.PodAnnotationQoSLevelSharedCores,
+						},
+						QoSLevel:        apiconsts.PodAnnotationQoSLevelSharedCores,
+						RequestQuantity: 2,
+					},
+				},
+				pod3UID: qrmstate.ContainerEntries{
+					testName: &qrmstate.AllocationInfo{
+						PodUid:                   pod3UID,
+						PodNamespace:             testName,
+						PodName:                  testName,
+						ContainerName:            testName,
+						ContainerType:            pluginapi.ContainerType_MAIN.String(),
+						ContainerIndex:           0,
+						RampUp:                   false,
+						OwnerPoolName:            qrmstate.PoolNameReclaim,
+						AllocationResult:         machine.NewCPUSet(7, 10, 15),
+						OriginalAllocationResult: machine.NewCPUSet(7, 10, 15),
+						TopologyAwareAssignments: map[int]machine.CPUSet{
+							1: machine.NewCPUSet(10),
+							3: machine.NewCPUSet(7, 15),
+						},
+						OriginalTopologyAwareAssignments: map[int]machine.CPUSet{
+							1: machine.NewCPUSet(10),
+							3: machine.NewCPUSet(7, 15),
+						},
+						Labels: map[string]string{
+							apiconsts.PodAnnotationQoSLevelKey: apiconsts.PodAnnotationQoSLevelReclaimedCores,
+						},
+						Annotations: map[string]string{
+							apiconsts.PodAnnotationQoSLevelKey: apiconsts.PodAnnotationQoSLevelReclaimedCores,
+						},
+						QoSLevel:        apiconsts.PodAnnotationQoSLevelReclaimedCores,
+						RequestQuantity: 2,
+					},
+				},
+				pod4UID: qrmstate.ContainerEntries{
+					testName: &qrmstate.AllocationInfo{
+						PodUid:                   pod4UID,
+						PodNamespace:             testName,
+						PodName:                  testName,
+						ContainerName:            testName,
+						ContainerType:            pluginapi.ContainerType_MAIN.String(),
+						ContainerIndex:           0,
+						RampUp:                   false,
+						OwnerPoolName:            qrmstate.PoolNameDedicated,
+						AllocationResult:         machine.NewCPUSet(0-1, 8-9),
+						OriginalAllocationResult: machine.NewCPUSet(0-1, 8-9),
+						TopologyAwareAssignments: map[int]machine.CPUSet{
+							0: machine.NewCPUSet(0, 1, 8, 9),
+						},
+						OriginalTopologyAwareAssignments: map[int]machine.CPUSet{
+							0: machine.NewCPUSet(0, 1, 8, 9),
+						},
+						Labels: map[string]string{
+							apiconsts.PodAnnotationQoSLevelKey: apiconsts.PodAnnotationQoSLevelDedicatedCores,
+						},
+						Annotations: map[string]string{
+							apiconsts.PodAnnotationQoSLevelKey: apiconsts.PodAnnotationQoSLevelDedicatedCores,
+						},
+						QoSLevel:        apiconsts.PodAnnotationQoSLevelDedicatedCores,
+						RequestQuantity: 2,
+					},
+				},
+
+				qrmstate.PoolNameShare: qrmstate.ContainerEntries{
+					"": &qrmstate.AllocationInfo{
+						PodUid:                   qrmstate.PoolNameShare,
+						OwnerPoolName:            qrmstate.PoolNameShare,
+						AllocationResult:         machine.MustParse("3-6,11-14"),
+						OriginalAllocationResult: machine.MustParse("3-6,11-14"),
+						TopologyAwareAssignments: map[int]machine.CPUSet{
+							0: machine.NewCPUSet(),
+							1: machine.NewCPUSet(3, 11),
+							2: machine.NewCPUSet(4, 5, 11, 12),
+							3: machine.NewCPUSet(6, 14),
+						},
+						OriginalTopologyAwareAssignments: map[int]machine.CPUSet{
+							0: machine.NewCPUSet(),
+							1: machine.NewCPUSet(3, 11),
+							2: machine.NewCPUSet(4, 5, 11, 12),
+							3: machine.NewCPUSet(6, 14),
+						},
+					},
+				},
+				qrmstate.PoolNameReclaim: qrmstate.ContainerEntries{
+					"": &qrmstate.AllocationInfo{
+						PodUid:                   qrmstate.PoolNameReclaim,
+						OwnerPoolName:            qrmstate.PoolNameReclaim,
+						AllocationResult:         machine.MustParse("7,10,15"),
+						OriginalAllocationResult: machine.MustParse("7,10,15"),
+						TopologyAwareAssignments: map[int]machine.CPUSet{
+							1: machine.NewCPUSet(10),
+							3: machine.NewCPUSet(7, 15),
+						},
+						OriginalTopologyAwareAssignments: map[int]machine.CPUSet{
+							1: machine.NewCPUSet(10),
+							3: machine.NewCPUSet(7, 15),
+						},
+					},
+				},
+			},
+			loads: map[string]map[string]float64{
+				pod1UID: {
+					testName: 1,
+				},
+				pod2UID: {
+					testName: 2.4,
+				},
+				pod3UID: {
+					testName: 5,
+				},
+				pod4UID: {
+					testName: 8,
+				},
+			},
+			wantSharedPoolSnapshots: MetricInfo{
+				Name:       consts.MetricLoad1MinContainer,
+				Value:      3.4,
+				UpperBound: 8 * 1.8,
+				LowerBound: 8,
+			},
+		},
+		{
+			name:                   "use dynamic bound, has pressure, with dedicated core pod",
+			reservedCPUForAllocate: "0",
+			reservedCPUForReclaim:  "4",
+			reservedCPUForSystem:   4,
+			podEntries: qrmstate.PodEntries{
+				pod1UID: qrmstate.ContainerEntries{
+					testName: &qrmstate.AllocationInfo{
+						PodUid:                   pod1UID,
+						PodNamespace:             testName,
+						PodName:                  testName,
+						ContainerName:            testName,
+						ContainerType:            pluginapi.ContainerType_MAIN.String(),
+						ContainerIndex:           0,
+						RampUp:                   false,
+						OwnerPoolName:            qrmstate.PoolNameShare,
+						AllocationResult:         machine.MustParse("3-6,11-14"),
+						OriginalAllocationResult: machine.MustParse("3-6,11-14"),
+						TopologyAwareAssignments: map[int]machine.CPUSet{
+							0: machine.NewCPUSet(),
+							1: machine.NewCPUSet(3, 11),
+							2: machine.NewCPUSet(4, 5, 11, 12),
+							3: machine.NewCPUSet(6, 14),
+						},
+						OriginalTopologyAwareAssignments: map[int]machine.CPUSet{
+							0: machine.NewCPUSet(),
+							1: machine.NewCPUSet(3, 11),
+							2: machine.NewCPUSet(4, 5, 11, 12),
+							3: machine.NewCPUSet(6, 14),
+						},
+						Labels: map[string]string{
+							apiconsts.PodAnnotationQoSLevelKey: apiconsts.PodAnnotationQoSLevelSharedCores,
+						},
+						Annotations: map[string]string{
+							apiconsts.PodAnnotationQoSLevelKey: apiconsts.PodAnnotationQoSLevelSharedCores,
+						},
+						QoSLevel:        apiconsts.PodAnnotationQoSLevelSharedCores,
+						RequestQuantity: 2,
+					},
+				},
+				pod2UID: qrmstate.ContainerEntries{
+					testName: &qrmstate.AllocationInfo{
+						PodUid:                   pod2UID,
+						PodNamespace:             testName,
+						PodName:                  testName,
+						ContainerName:            testName,
+						ContainerType:            pluginapi.ContainerType_MAIN.String(),
+						ContainerIndex:           0,
+						RampUp:                   false,
+						OwnerPoolName:            qrmstate.PoolNameShare,
+						AllocationResult:         machine.MustParse("3-6,11-14"),
+						OriginalAllocationResult: machine.MustParse("3-6,11-14"),
+						TopologyAwareAssignments: map[int]machine.CPUSet{
+							0: machine.NewCPUSet(),
+							1: machine.NewCPUSet(3, 11),
+							2: machine.NewCPUSet(4, 5, 11, 12),
+							3: machine.NewCPUSet(6, 14),
+						},
+						OriginalTopologyAwareAssignments: map[int]machine.CPUSet{
+							0: machine.NewCPUSet(),
+							1: machine.NewCPUSet(3, 11),
+							2: machine.NewCPUSet(4, 5, 11, 12),
+							3: machine.NewCPUSet(6, 14),
+						},
+						Labels: map[string]string{
+							apiconsts.PodAnnotationQoSLevelKey: apiconsts.PodAnnotationQoSLevelSharedCores,
+						},
+						Annotations: map[string]string{
+							apiconsts.PodAnnotationQoSLevelKey: apiconsts.PodAnnotationQoSLevelSharedCores,
+						},
+						QoSLevel:        apiconsts.PodAnnotationQoSLevelSharedCores,
+						RequestQuantity: 2,
+					},
+				},
+				pod3UID: qrmstate.ContainerEntries{
+					testName: &qrmstate.AllocationInfo{
+						PodUid:                   pod3UID,
+						PodNamespace:             testName,
+						PodName:                  testName,
+						ContainerName:            testName,
+						ContainerType:            pluginapi.ContainerType_MAIN.String(),
+						ContainerIndex:           0,
+						RampUp:                   false,
+						OwnerPoolName:            qrmstate.PoolNameReclaim,
+						AllocationResult:         machine.NewCPUSet(7, 10, 15),
+						OriginalAllocationResult: machine.NewCPUSet(7, 10, 15),
+						TopologyAwareAssignments: map[int]machine.CPUSet{
+							1: machine.NewCPUSet(10),
+							3: machine.NewCPUSet(7, 15),
+						},
+						OriginalTopologyAwareAssignments: map[int]machine.CPUSet{
+							1: machine.NewCPUSet(10),
+							3: machine.NewCPUSet(7, 15),
+						},
+						Labels: map[string]string{
+							apiconsts.PodAnnotationQoSLevelKey: apiconsts.PodAnnotationQoSLevelReclaimedCores,
+						},
+						Annotations: map[string]string{
+							apiconsts.PodAnnotationQoSLevelKey: apiconsts.PodAnnotationQoSLevelReclaimedCores,
+						},
+						QoSLevel:        apiconsts.PodAnnotationQoSLevelReclaimedCores,
+						RequestQuantity: 2,
+					},
+				},
+				pod4UID: qrmstate.ContainerEntries{
+					testName: &qrmstate.AllocationInfo{
+						PodUid:                   pod4UID,
+						PodNamespace:             testName,
+						PodName:                  testName,
+						ContainerName:            testName,
+						ContainerType:            pluginapi.ContainerType_MAIN.String(),
+						ContainerIndex:           0,
+						RampUp:                   false,
+						OwnerPoolName:            qrmstate.PoolNameDedicated,
+						AllocationResult:         machine.NewCPUSet(0-1, 8-9),
+						OriginalAllocationResult: machine.NewCPUSet(0-1, 8-9),
+						TopologyAwareAssignments: map[int]machine.CPUSet{
+							0: machine.NewCPUSet(0, 1, 8, 9),
+						},
+						OriginalTopologyAwareAssignments: map[int]machine.CPUSet{
+							0: machine.NewCPUSet(0, 1, 8, 9),
+						},
+						Labels: map[string]string{
+							apiconsts.PodAnnotationQoSLevelKey: apiconsts.PodAnnotationQoSLevelDedicatedCores,
+						},
+						Annotations: map[string]string{
+							apiconsts.PodAnnotationQoSLevelKey: apiconsts.PodAnnotationQoSLevelDedicatedCores,
+						},
+						QoSLevel:        apiconsts.PodAnnotationQoSLevelDedicatedCores,
+						RequestQuantity: 2,
+					},
+				},
+
+				qrmstate.PoolNameShare: qrmstate.ContainerEntries{
+					"": &qrmstate.AllocationInfo{
+						PodUid:                   qrmstate.PoolNameShare,
+						OwnerPoolName:            qrmstate.PoolNameShare,
+						AllocationResult:         machine.MustParse("3-6,11-14"),
+						OriginalAllocationResult: machine.MustParse("3-6,11-14"),
+						TopologyAwareAssignments: map[int]machine.CPUSet{
+							0: machine.NewCPUSet(),
+							1: machine.NewCPUSet(3, 11),
+							2: machine.NewCPUSet(4, 5, 11, 12),
+							3: machine.NewCPUSet(6, 14),
+						},
+						OriginalTopologyAwareAssignments: map[int]machine.CPUSet{
+							0: machine.NewCPUSet(),
+							1: machine.NewCPUSet(3, 11),
+							2: machine.NewCPUSet(4, 5, 11, 12),
+							3: machine.NewCPUSet(6, 14),
+						},
+					},
+				},
+				qrmstate.PoolNameReclaim: qrmstate.ContainerEntries{
+					"": &qrmstate.AllocationInfo{
+						PodUid:                   qrmstate.PoolNameReclaim,
+						OwnerPoolName:            qrmstate.PoolNameReclaim,
+						AllocationResult:         machine.MustParse("7,10,15"),
+						OriginalAllocationResult: machine.MustParse("7,10,15"),
+						TopologyAwareAssignments: map[int]machine.CPUSet{
+							1: machine.NewCPUSet(10),
+							3: machine.NewCPUSet(7, 15),
+						},
+						OriginalTopologyAwareAssignments: map[int]machine.CPUSet{
+							1: machine.NewCPUSet(10),
+							3: machine.NewCPUSet(7, 15),
+						},
+					},
+				},
+			},
+			loads: map[string]map[string]float64{
+				pod1UID: {
+					testName: 1,
+				},
+				pod2UID: {
+					testName: 2.4,
+				},
+				pod3UID: {
+					testName: 5,
+				},
+				pod4UID: {
+					testName: 8,
+				},
+			},
+			wantSharedPoolSnapshots: MetricInfo{
+				Name:       consts.MetricLoad1MinContainer,
+				Value:      3.4,
+				LowerBound: 1,
+				UpperBound: 8 * 1.8,
+			},
+		},
+		{
+			name:                   "use dynamic bound, no pressure, with dedicated core pod",
+			reservedCPUForAllocate: "0",
+			reservedCPUForReclaim:  "4",
+			reservedCPUForSystem:   0,
+			podEntries: qrmstate.PodEntries{
+				pod1UID: qrmstate.ContainerEntries{
+					testName: &qrmstate.AllocationInfo{
+						PodUid:                   pod1UID,
+						PodNamespace:             testName,
+						PodName:                  testName,
+						ContainerName:            testName,
+						ContainerType:            pluginapi.ContainerType_MAIN.String(),
+						ContainerIndex:           0,
+						RampUp:                   false,
+						OwnerPoolName:            qrmstate.PoolNameShare,
+						AllocationResult:         machine.MustParse("3-6,11-14"),
+						OriginalAllocationResult: machine.MustParse("3-6,11-14"),
+						TopologyAwareAssignments: map[int]machine.CPUSet{
+							0: machine.NewCPUSet(),
+							1: machine.NewCPUSet(3, 11),
+							2: machine.NewCPUSet(4, 5, 11, 12),
+							3: machine.NewCPUSet(6, 14),
+						},
+						OriginalTopologyAwareAssignments: map[int]machine.CPUSet{
+							0: machine.NewCPUSet(),
+							1: machine.NewCPUSet(3, 11),
+							2: machine.NewCPUSet(4, 5, 11, 12),
+							3: machine.NewCPUSet(6, 14),
+						},
+						Labels: map[string]string{
+							apiconsts.PodAnnotationQoSLevelKey: apiconsts.PodAnnotationQoSLevelSharedCores,
+						},
+						Annotations: map[string]string{
+							apiconsts.PodAnnotationQoSLevelKey: apiconsts.PodAnnotationQoSLevelSharedCores,
+						},
+						QoSLevel:        apiconsts.PodAnnotationQoSLevelSharedCores,
+						RequestQuantity: 2,
+					},
+				},
+				pod2UID: qrmstate.ContainerEntries{
+					testName: &qrmstate.AllocationInfo{
+						PodUid:                   pod2UID,
+						PodNamespace:             testName,
+						PodName:                  testName,
+						ContainerName:            testName,
+						ContainerType:            pluginapi.ContainerType_MAIN.String(),
+						ContainerIndex:           0,
+						RampUp:                   false,
+						OwnerPoolName:            qrmstate.PoolNameShare,
+						AllocationResult:         machine.MustParse("3-6,11-14"),
+						OriginalAllocationResult: machine.MustParse("3-6,11-14"),
+						TopologyAwareAssignments: map[int]machine.CPUSet{
+							0: machine.NewCPUSet(),
+							1: machine.NewCPUSet(3, 11),
+							2: machine.NewCPUSet(4, 5, 11, 12),
+							3: machine.NewCPUSet(6, 14),
+						},
+						OriginalTopologyAwareAssignments: map[int]machine.CPUSet{
+							0: machine.NewCPUSet(),
+							1: machine.NewCPUSet(3, 11),
+							2: machine.NewCPUSet(4, 5, 11, 12),
+							3: machine.NewCPUSet(6, 14),
+						},
+						Labels: map[string]string{
+							apiconsts.PodAnnotationQoSLevelKey: apiconsts.PodAnnotationQoSLevelSharedCores,
+						},
+						Annotations: map[string]string{
+							apiconsts.PodAnnotationQoSLevelKey: apiconsts.PodAnnotationQoSLevelSharedCores,
+						},
+						QoSLevel:        apiconsts.PodAnnotationQoSLevelSharedCores,
+						RequestQuantity: 2,
+					},
+				},
+				pod3UID: qrmstate.ContainerEntries{
+					testName: &qrmstate.AllocationInfo{
+						PodUid:                   pod3UID,
+						PodNamespace:             testName,
+						PodName:                  testName,
+						ContainerName:            testName,
+						ContainerType:            pluginapi.ContainerType_MAIN.String(),
+						ContainerIndex:           0,
+						RampUp:                   false,
+						OwnerPoolName:            qrmstate.PoolNameReclaim,
+						AllocationResult:         machine.NewCPUSet(7, 10, 15),
+						OriginalAllocationResult: machine.NewCPUSet(7, 10, 15),
+						TopologyAwareAssignments: map[int]machine.CPUSet{
+							1: machine.NewCPUSet(10),
+							3: machine.NewCPUSet(7, 15),
+						},
+						OriginalTopologyAwareAssignments: map[int]machine.CPUSet{
+							1: machine.NewCPUSet(10),
+							3: machine.NewCPUSet(7, 15),
+						},
+						Labels: map[string]string{
+							apiconsts.PodAnnotationQoSLevelKey: apiconsts.PodAnnotationQoSLevelReclaimedCores,
+						},
+						Annotations: map[string]string{
+							apiconsts.PodAnnotationQoSLevelKey: apiconsts.PodAnnotationQoSLevelReclaimedCores,
+						},
+						QoSLevel:        apiconsts.PodAnnotationQoSLevelReclaimedCores,
+						RequestQuantity: 2,
+					},
+				},
+				pod4UID: qrmstate.ContainerEntries{
+					testName: &qrmstate.AllocationInfo{
+						PodUid:                   pod4UID,
+						PodNamespace:             testName,
+						PodName:                  testName,
+						ContainerName:            testName,
+						ContainerType:            pluginapi.ContainerType_MAIN.String(),
+						ContainerIndex:           0,
+						RampUp:                   false,
+						OwnerPoolName:            qrmstate.PoolNameDedicated,
+						AllocationResult:         machine.NewCPUSet(0-1, 8-9),
+						OriginalAllocationResult: machine.NewCPUSet(0-1, 8-9),
+						TopologyAwareAssignments: map[int]machine.CPUSet{
+							0: machine.NewCPUSet(0, 1, 8, 9),
+						},
+						OriginalTopologyAwareAssignments: map[int]machine.CPUSet{
+							0: machine.NewCPUSet(0, 1, 8, 9),
+						},
+						Labels: map[string]string{
+							apiconsts.PodAnnotationQoSLevelKey: apiconsts.PodAnnotationQoSLevelDedicatedCores,
+						},
+						Annotations: map[string]string{
+							apiconsts.PodAnnotationQoSLevelKey: apiconsts.PodAnnotationQoSLevelDedicatedCores,
+						},
+						QoSLevel:        apiconsts.PodAnnotationQoSLevelDedicatedCores,
+						RequestQuantity: 2,
+					},
+				},
+
+				qrmstate.PoolNameShare: qrmstate.ContainerEntries{
+					"": &qrmstate.AllocationInfo{
+						PodUid:                   qrmstate.PoolNameShare,
+						OwnerPoolName:            qrmstate.PoolNameShare,
+						AllocationResult:         machine.MustParse("3-6,11-14"),
+						OriginalAllocationResult: machine.MustParse("3-6,11-14"),
+						TopologyAwareAssignments: map[int]machine.CPUSet{
+							0: machine.NewCPUSet(),
+							1: machine.NewCPUSet(3, 11),
+							2: machine.NewCPUSet(4, 5, 11, 12),
+							3: machine.NewCPUSet(6, 14),
+						},
+						OriginalTopologyAwareAssignments: map[int]machine.CPUSet{
+							0: machine.NewCPUSet(),
+							1: machine.NewCPUSet(3, 11),
+							2: machine.NewCPUSet(4, 5, 11, 12),
+							3: machine.NewCPUSet(6, 14),
+						},
+					},
+				},
+				qrmstate.PoolNameReclaim: qrmstate.ContainerEntries{
+					"": &qrmstate.AllocationInfo{
+						PodUid:                   qrmstate.PoolNameReclaim,
+						OwnerPoolName:            qrmstate.PoolNameReclaim,
+						AllocationResult:         machine.MustParse("7,10,15"),
+						OriginalAllocationResult: machine.MustParse("7,10,15"),
+						TopologyAwareAssignments: map[int]machine.CPUSet{
+							1: machine.NewCPUSet(10),
+							3: machine.NewCPUSet(7, 15),
+						},
+						OriginalTopologyAwareAssignments: map[int]machine.CPUSet{
+							1: machine.NewCPUSet(10),
+							3: machine.NewCPUSet(7, 15),
+						},
+					},
+				},
+			},
+			loads: map[string]map[string]float64{
+				pod1UID: {
+					testName: 1,
+				},
+				pod2UID: {
+					testName: 2.4,
+				},
+				pod3UID: {
+					testName: 5,
+				},
+				pod4UID: {
+					testName: 8,
+				},
+			},
+			wantSharedPoolSnapshots: MetricInfo{
+				Name:       consts.MetricLoad1MinContainer,
+				Value:      3.4,
+				LowerBound: 4.4,
+				UpperBound: 4.4 * 1.8,
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			as := require.New(t)
+
+			cpuTopology, err := machine.GenerateDummyCPUTopology(16, 2, 4)
+			as.Nil(err)
+			conf := makeConf(defaultMetricRingSize, int64(defaultCPUPressureEvictionPodGracePeriodSeconds),
+				defaultLoadUpperBoundRatio, defaultLoadThresholdMetPercentage, tt.reservedCPUForReclaim, tt.reservedCPUForAllocate, tt.reservedCPUForSystem)
+			stateImpl, err := makeState(cpuTopology)
+			as.Nil(err)
+
+			fakeMetricsFetcher := metric.NewFakeMetricsFetcher(metrics.DummyMetrics{}).(*metric.FakeMetricsFetcher)
+			metaServer := makeMetaServer(fakeMetricsFetcher, cpuTopology)
+			assert.NotNil(t, fakeMetricsFetcher)
+
+			now := time.Now()
+			for entryName, entries := range tt.podEntries {
+				for subEntryName, entry := range entries {
+					stateImpl.SetAllocationInfo(entryName, subEntryName, entry)
+
+					if entries.IsPoolEntry() {
+						continue
+					}
+
+					curLoad, found := tt.loads[entryName][subEntryName]
+					as.True(found)
+					fakeMetricsFetcher.SetContainerMetric(entryName, subEntryName, consts.MetricLoad1MinContainer, utilmetric.MetricData{Value: curLoad, Time: &now})
+				}
+			}
+
+			plugin, createPluginErr := NewCPUPressureLoadEviction(metrics.DummyMetrics{}, metaServer, conf, stateImpl)
+			as.Nil(createPluginErr)
+			as.Nil(err)
+			as.NotNil(plugin)
+			p := plugin.(*CPUPressureLoadEviction)
+			p.collectMetrics(context.TODO())
+			metricRing := p.metricsHistory[consts.MetricLoad1MinContainer][qrmstate.PoolNameShare][""]
+
+			snapshot := metricRing.Queue[metricRing.CurrentIndex]
+			as.True(math.Abs(tt.wantSharedPoolSnapshots.Value-snapshot.Info.Value) < 0.01)
+			as.True(math.Abs(tt.wantSharedPoolSnapshots.UpperBound-snapshot.Info.UpperBound) < 0.01)
+			as.True(math.Abs(tt.wantSharedPoolSnapshots.LowerBound-snapshot.Info.LowerBound) < 0.01)
 		})
 	}
 }
