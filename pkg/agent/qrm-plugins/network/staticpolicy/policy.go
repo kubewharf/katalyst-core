@@ -393,6 +393,7 @@ func (p *StaticPolicy) GetTopologyAwareAllocatableResources(_ context.Context,
 	topologyAwareCapacityQuantityList := make([]*pluginapi.TopologyAwareQuantity, 0, len(machineState))
 
 	var aggregatedAllocatableQuantity, aggregatedCapacityQuantity uint32 = 0, 0
+	var resourceIdentifier string
 	for _, iface := range p.nics {
 		nicState := machineState[iface.Iface]
 		if nicState == nil {
@@ -404,6 +405,11 @@ func (p *StaticPolicy) GetTopologyAwareAllocatableResources(_ context.Context,
 			return nil, fmt.Errorf("failed to find topologyNode: %v", err)
 		}
 
+		if len(iface.NSName) == 0 {
+			resourceIdentifier = iface.Iface
+		} else {
+			resourceIdentifier = fmt.Sprintf("%s-%s", iface.NSName, iface.Iface)
+		}
 		topologyAwareAllocatableQuantityList = append(topologyAwareAllocatableQuantityList, &pluginapi.TopologyAwareQuantity{
 			ResourceValue: float64(general.MinUInt32(nicState.EgressState.Allocatable, nicState.IngressState.Allocatable)),
 			Node:          uint64(topologyNode),
@@ -411,7 +417,7 @@ func (p *StaticPolicy) GetTopologyAwareAllocatableResources(_ context.Context,
 			Type:          string(apinode.TopologyTypeNIC),
 			TopologyLevel: pluginapi.TopologyLevel_SOCKET,
 			Annotations: map[string]string{
-				apiconsts.ResourceAnnotationKeyResourceIdentifier: fmt.Sprintf("%s-%s", iface.NSName, iface.Iface),
+				apiconsts.ResourceAnnotationKeyResourceIdentifier: resourceIdentifier,
 			},
 		})
 		topologyAwareCapacityQuantityList = append(topologyAwareCapacityQuantityList, &pluginapi.TopologyAwareQuantity{
@@ -421,7 +427,7 @@ func (p *StaticPolicy) GetTopologyAwareAllocatableResources(_ context.Context,
 			Type:          string(apinode.TopologyTypeNIC),
 			TopologyLevel: pluginapi.TopologyLevel_SOCKET,
 			Annotations: map[string]string{
-				apiconsts.ResourceAnnotationKeyResourceIdentifier: fmt.Sprintf("%s-%s", iface.NSName, iface.Iface),
+				apiconsts.ResourceAnnotationKeyResourceIdentifier: resourceIdentifier,
 			},
 		})
 		aggregatedAllocatableQuantity += general.MinUInt32(nicState.EgressState.Allocatable, nicState.IngressState.Allocatable)
