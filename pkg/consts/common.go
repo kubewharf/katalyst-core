@@ -16,7 +16,9 @@ limitations under the License.
 
 package consts
 
-import "math"
+import (
+	"math"
+)
 
 const (
 	// OwnerReferenceIndex is the lookup name for the index function

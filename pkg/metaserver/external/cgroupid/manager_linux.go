@@ -100,7 +100,7 @@ func (m *cgroupIDManagerImpl) ListCgroupIDsForPod(podUID string) ([]uint64, erro
 
 	containerCgroupIDMap, ok := m.podCgroupIDCache[podUID]
 	if !ok {
-		return nil, fmt.Errorf("containerCgroupIDMap not found, podUID: %s", podUID)
+		return nil, general.ErrNotFound
 	}
 
 	var cgIDList []uint64

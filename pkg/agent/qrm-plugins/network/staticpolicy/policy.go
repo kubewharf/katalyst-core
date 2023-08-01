@@ -549,6 +549,10 @@ func (p *StaticPolicy) applyNetClass() {
 func (p *StaticPolicy) removePod(podUID string) error {
 	cgIDList, err := p.metaServer.ExternalManager.ListCgroupIDsForPod(podUID)
 	if err != nil {
+		if general.IsErrNotFound(err) {
+			general.Warningf("cgroup ids for pod not found")
+			return nil
+		}
 		return fmt.Errorf("[NetworkStaticPolicy.removePod] list cgroup ids of pod: %s failed with error: %v", podUID, err)
 	}
 
