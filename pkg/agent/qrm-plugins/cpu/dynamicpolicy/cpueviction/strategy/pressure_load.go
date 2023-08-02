@@ -49,7 +49,7 @@ const (
 	metricsNameCollectMetricsCalled = "collect_metrics_called_raw"
 	metricsNamePoolMetricValue      = "pool_metric_value_raw"
 	metricsNamePoolMetricBound      = "pool_metric_bound_raw"
-	metricsNameThresholdMet         = "threshold_met_count"
+	metricsNameThresholdMet         = "load_pressure_threshold_met_count"
 	metricNameCollectPoolLoadCalled = "collect_pool_load_called"
 
 	metricsTagKeyMetricName         = "metric_name"
@@ -464,6 +464,7 @@ func (p *CPUPressureLoadEviction) collectPoolLoad(dynamicConfig *dynamic.Configu
 		snapshot.Info.UpperBound = upperBound
 	}
 
+	general.Infof("collect pool load, pool name: %v, useAdvisedThreshold:%v, pressureByPoolSize:%v", poolName, useAdvisedThreshold, pressureByPoolSize)
 	_ = p.emitter.StoreInt64(metricNameCollectPoolLoadCalled, 1, metrics.MetricTypeNameCount,
 		metrics.ConvertMapToTags(map[string]string{
 			metricsTagKeyPoolName:           poolName,
@@ -612,6 +613,6 @@ func (p *CPUPressureLoadEviction) getMetricHistorySumForPod(metricName string, p
 func (p *CPUPressureLoadEviction) checkPressureWithAdvisedThreshold() bool {
 	// for now, we consider ReservedResourceForAllocate as downgrading or manual intervention configuration,
 	// when it's set to a value greater than zero, fall back to static threshold
-	reservedCoreNumForAllocate := p.dynamicConf.GetDynamicConfiguration().ReservedResourceForAllocate.Cpu()
-	return reservedCoreNumForAllocate.Value() == 0
+	dynamicConfiguration := p.dynamicConf.GetDynamicConfiguration()
+	return dynamicConfiguration.EnableReclaim && dynamicConfiguration.ReservedResourceForAllocate.Cpu().Value() == 0
 }
