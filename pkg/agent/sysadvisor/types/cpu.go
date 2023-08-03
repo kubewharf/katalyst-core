@@ -108,6 +108,43 @@ const (
 	ControlKnobActionNone ControlKnobAction = "none"
 )
 
+// OvershootType declares overshoot type for region
+type OvershootType string
+
+const (
+	// OvershootTrue indicates overshoot
+	OvershootTrue OvershootType = "true"
+
+	// OvershootFalse indicates not overshoot
+	OvershootFalse OvershootType = "false"
+
+	// OvershootUnknown indicates unknown overshoot status
+	OvershootUnknown OvershootType = "unknown"
+)
+
+// BoundType declares bound types for region
+type BoundType string
+
+const (
+	// BoundUpper indicates reaching resource upper bound, with highest priority
+	BoundUpper BoundType = "upper"
+
+	// BoundLower indicates reaching resource lower bound
+	BoundLower BoundType = "lower"
+
+	// BoundNone indicates between resource upper and lower bound
+	BoundNone BoundType = "none"
+
+	// BoundUnknown indicates unknown bound status
+	BoundUnknown BoundType = "unknown"
+)
+
+// RegionStatus holds stability accouting info of region
+type RegionStatus struct {
+	OvershootStatus map[string]OvershootType `json:"overshoot_status"` // map[indicatorMetric]overshootType
+	BoundType       BoundType                `json:"bound_type"`
+}
+
 // PoolInfo contains pool information for sysadvisor plugins
 type PoolInfo struct {
 	PoolName                         string
@@ -128,6 +165,7 @@ type RegionInfo struct {
 	RegionType    QoSRegionType  `json:"region_type"`
 	OwnerPoolName string         `json:"owner_pool_name"`
 	BindingNumas  machine.CPUSet `json:"binding_numas"`
+	RegionStatus  RegionStatus   `json:"region_status"`
 
 	ControlKnobMap             ControlKnob            `json:"control_knob_map"`
 	ProvisionPolicyTopPriority CPUProvisionPolicyName `json:"provision_policy_top_priority"`

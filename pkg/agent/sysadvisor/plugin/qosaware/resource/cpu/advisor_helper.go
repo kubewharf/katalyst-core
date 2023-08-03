@@ -29,6 +29,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource/cpu/assembler/provisionassembler"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource/cpu/region"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
+	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
@@ -267,5 +268,36 @@ func (cra *cpuResourceAdvisor) updateRegionHeadroom() {
 		regionInfo.HeadroomPolicyTopPriority, regionInfo.HeadroomPolicyInUse = r.GetHeadRoomPolicy()
 
 		_ = cra.metaCache.SetRegionInfo(regionName, regionInfo)
+	}
+}
+
+func (cra *cpuResourceAdvisor) updateRegionStatus(boundUpper bool) {
+	for regionName, r := range cra.regionMap {
+		regionInfo, ok := cra.metaCache.GetRegionInfo(regionName)
+		if !ok {
+			continue
+		}
+
+		status := r.GetStatus()
+		regionInfo.RegionStatus = status
+
+		// set bound upper
+		if boundUpper {
+			regionInfo.RegionStatus.BoundType = types.BoundUpper
+		}
+
+		_ = cra.metaCache.SetRegionInfo(regionName, regionInfo)
+
+		// emit metrics
+		period := cra.conf.SysAdvisorPluginsConfiguration.QoSAwarePluginConfiguration.SyncPeriod
+		basicTags := region.GetRegionBasicMetricTags(r)
+
+		_ = cra.emitter.StoreInt64(metricRegionStatus, int64(period.Seconds()), metrics.MetricTypeNameCount, basicTags...)
+
+		tags := basicTags
+		for k, v := range r.GetStatus().OvershootStatus {
+			tags = append(tags, metrics.MetricTag{Key: k, Val: string(v)})
+		}
+		_ = cra.emitter.StoreInt64(metricRegionOvershoot, int64(period.Seconds()), metrics.MetricTypeNameCount, tags...)
 	}
 }

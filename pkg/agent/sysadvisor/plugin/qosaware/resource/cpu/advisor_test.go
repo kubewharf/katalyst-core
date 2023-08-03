@@ -92,7 +92,7 @@ func newTestCPUResourceAdvisor(t *testing.T, pods []*v1.Pod, conf *config.Config
 	err = metaServer.SetServiceProfilingManager(spd.NewDummyServiceProfilingManager(profiles))
 	require.NoError(t, err)
 
-	cra := NewCPUResourceAdvisor(conf, struct{}{}, metaCache, metaServer, nil)
+	cra := NewCPUResourceAdvisor(conf, struct{}{}, metaCache, metaServer, metrics.DummyMetrics{})
 	require.NotNil(t, cra)
 
 	return cra, metaCache

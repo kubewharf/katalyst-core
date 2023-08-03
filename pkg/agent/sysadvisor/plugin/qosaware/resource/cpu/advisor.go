@@ -49,6 +49,12 @@ import (
 // todo:
 // 1. Support dedicated without and with numa binding but non numa exclusive containers
 
+// metric names for resource advisor
+const (
+	metricRegionStatus    = "region_status"
+	metricRegionOvershoot = "region_overshoot"
+)
+
 func init() {
 	provisionpolicy.RegisterInitializer(types.CPUProvisionPolicyCanonical, provisionpolicy.NewPolicyCanonical)
 	provisionpolicy.RegisterInitializer(types.CPUProvisionPolicyRama, provisionpolicy.NewPolicyRama)
@@ -219,12 +225,15 @@ func (cra *cpuResourceAdvisor) update() {
 
 	klog.Infof("[qosaware-cpu] region map: %v", general.ToString(cra.regionMap))
 
-	// assemble provision result from each region and notify cpu server
-	calculationResult, err := cra.assembleProvision()
+	// assemble provision result from each region
+	calculationResult, boundUpper, err := cra.assembleProvision()
 	if err != nil {
 		klog.Errorf("[qosaware-cpu] assemble provision failed: %v", err)
 		return
 	}
+	cra.updateRegionStatus(boundUpper)
+
+	// notify cpu server
 	select {
 	case cra.sendCh <- calculationResult:
 		general.Infof("notify cpu server: %+v", calculationResult)
@@ -405,9 +414,9 @@ func (cra *cpuResourceAdvisor) updateAdvisorEssentials() {
 // assembleProvision generates internal calculation result.
 // must make sure pool names from cpu provision following qrm definition;
 // numa ID set as -1 means no numa-preference is needed.
-func (cra *cpuResourceAdvisor) assembleProvision() (types.InternalCPUCalculationResult, error) {
+func (cra *cpuResourceAdvisor) assembleProvision() (types.InternalCPUCalculationResult, bool, error) {
 	if cra.provisionAssembler == nil {
-		return types.InternalCPUCalculationResult{}, fmt.Errorf("no legal provision assembler")
+		return types.InternalCPUCalculationResult{}, false, fmt.Errorf("no legal provision assembler")
 	}
 
 	return cra.provisionAssembler.AssembleProvision()

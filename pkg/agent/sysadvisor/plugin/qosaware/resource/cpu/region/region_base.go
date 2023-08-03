@@ -60,14 +60,19 @@ type QoSRegionBase struct {
 	name          string
 	ownerPoolName string
 	regionType    types.QoSRegionType
+	regionStatus  types.RegionStatus
 
 	types.ResourceEssentials
+	types.ControlEssentials
+
 	// bindingNumas records numas assigned to this region
 	bindingNumas machine.CPUSet
 	// podSet records current pod and containers in region keyed by pod uid and container name
 	podSet types.PodSet
 	// containerTopologyAwareAssignment changes dynamically by adding container
 	containerTopologyAwareAssignment types.TopologyAwareAssignment
+	// indicatorCurrentGetters stores metrics getters for indicators interested in
+	indicatorCurrentGetters map[string]types.IndicatorCurrentGetter
 
 	// provisionPolicies for comparing and merging different provision policy results,
 	// the former has higher priority; provisionPolicyNameInUse indicates the provision
@@ -284,6 +289,10 @@ func (r *QoSRegionBase) GetHeadRoomPolicy() (policyTopPriority types.CPUHeadroom
 	return
 }
 
+func (r *QoSRegionBase) GetStatus() types.RegionStatus {
+	return r.regionStatus
+}
+
 // getRegionNameFromMetaCache returns region name owned by container from metacache,
 // to restore region info after restart. If numaID is specified, binding numas of the
 // region will be checked, otherwise only one region should be owned by container.
@@ -360,7 +369,7 @@ func (r *QoSRegionBase) initHeadroomPolicy(conf *config.Configuration, extraConf
 }
 
 // getIndicators gets indicators by given map of indicator name to the getter of current value
-func (r *QoSRegionBase) getIndicators(indicatorCurrentGetterMap map[string]types.IndicatorCurrentGetter) (types.Indicator, error) {
+func (r *QoSRegionBase) getIndicators(indicatorCurrentGetters map[string]types.IndicatorCurrentGetter) (types.Indicator, error) {
 	ctx := context.Background()
 	indicatorTargetConfig, ok := r.conf.RegionIndicatorTargetConfiguration[r.regionType]
 	if !ok {
@@ -371,7 +380,7 @@ func (r *QoSRegionBase) getIndicators(indicatorCurrentGetterMap map[string]types
 	for _, indicator := range indicatorTargetConfig {
 		indicatorName := indicator.Name
 		defaultTarget := indicator.Target
-		indicatorCurrentGetter, ok := indicatorCurrentGetterMap[indicatorName]
+		indicatorCurrentGetter, ok := indicatorCurrentGetters[indicatorName]
 		if !ok {
 			continue
 		}
@@ -445,4 +454,33 @@ func (r *QoSRegionBase) getPodIndicatorTarget(ctx context.Context, podUID string
 	}
 
 	return &indicatorTarget, nil
+}
+
+// updateStatus updates region status based on resource and control essentials
+func (r *QoSRegionBase) updateStatus() {
+	// reset entries
+	r.regionStatus.OvershootStatus = make(map[string]types.OvershootType)
+	r.regionStatus.BoundType = types.BoundUnknown
+
+	for indicatorName := range r.indicatorCurrentGetters {
+		r.regionStatus.OvershootStatus[indicatorName] = types.OvershootUnknown
+	}
+
+	// fill in overshoot entry
+	for indicatorName, indicator := range r.ControlEssentials.Indicators {
+		if indicator.Current > indicator.Target {
+			r.regionStatus.OvershootStatus[indicatorName] = types.OvershootTrue
+		} else {
+			r.regionStatus.OvershootStatus[indicatorName] = types.OvershootFalse
+		}
+	}
+
+	// fill in bound entry
+	if v, ok := r.ControlEssentials.ControlKnobs[types.ControlKnobNonReclaimedCPUSize]; ok {
+		if v.Value <= r.ResourceEssentials.ResourceLowerBound {
+			r.regionStatus.BoundType = types.BoundLower
+		} else {
+			r.regionStatus.BoundType = types.BoundNone
+		}
+	}
 }

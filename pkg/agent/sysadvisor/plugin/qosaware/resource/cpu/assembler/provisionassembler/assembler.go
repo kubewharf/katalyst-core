@@ -32,7 +32,7 @@ import (
 // Advisor data elements are shared ONLY by assemblers as pointer to avoid rebuild in advisor,
 // and NOT supposed to be used by other components.
 type ProvisionAssembler interface {
-	AssembleProvision() (types.InternalCPUCalculationResult, error)
+	AssembleProvision() (types.InternalCPUCalculationResult, bool, error)
 }
 
 type InitFunc func(conf *config.Configuration, extraConf interface{}, regionMap *map[string]region.QoSRegion,
