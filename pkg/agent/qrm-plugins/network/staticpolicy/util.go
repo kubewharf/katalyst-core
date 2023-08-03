@@ -319,3 +319,11 @@ func getReservedBandwidth(nics []machine.InterfaceInfo, reservation uint32, poli
 
 	return reservedBandwidth, nil
 }
+
+func getResourceIdentifier(ifaceNS, ifaceName string) string {
+	if len(ifaceNS) > 0 {
+		return fmt.Sprintf("%s-%s", ifaceNS, ifaceName)
+	}
+
+	return ifaceName
+}

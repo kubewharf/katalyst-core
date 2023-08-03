@@ -1222,7 +1222,8 @@ func TestGetTopologyAwareResources(t *testing.T) {
 		Type:          string(apinode.TopologyTypeNIC),
 		TopologyLevel: pluginapi.TopologyLevel_SOCKET,
 		Annotations: map[string]string{
-			apiconsts.ResourceAnnotationKeyResourceIdentifier: fmt.Sprintf("%s-%s", testEth0NSName, testEth0Name),
+			// testEth0NSName is empty, so remove the prefix
+			apiconsts.ResourceAnnotationKeyResourceIdentifier: testEth0Name,
 		},
 	}
 	assert.Equal(t, *resp.ContainerTopologyAwareResources.AllocatedResources[string(apiconsts.ResourceNetBandwidth)].TopologyAwareQuantityList[0], expectedTopologyAwareQuantity)
