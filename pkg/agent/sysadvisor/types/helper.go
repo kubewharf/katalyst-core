@@ -22,6 +22,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 
 	"github.com/kubewharf/katalyst-api/pkg/consts"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 	qosutil "github.com/kubewharf/katalyst-core/pkg/util/qos"
@@ -214,7 +215,7 @@ func (r *InternalCPUCalculationResult) GetPoolEntry(poolName string, numaID int)
 }
 
 func (r *InternalCPUCalculationResult) SetPoolEntry(poolName string, numaID int, poolSize int) {
-	if poolSize <= 0 {
+	if poolSize <= 0 && !state.StaticPools.Has(poolName) {
 		return
 	}
 	if r.PoolEntries[poolName] == nil {
