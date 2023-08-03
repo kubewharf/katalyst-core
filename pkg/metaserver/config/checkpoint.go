@@ -37,7 +37,7 @@ type ConfigManagerCheckpoint interface {
 type TargetConfigData struct {
 	// Value only store spec of dynamic config crd
 	Value     *crd.DynamicConfigCRD
-	Timestamp metav1.Time
+	Timestamp int64
 }
 
 // Data holds checkpoint data and its checksum
@@ -89,7 +89,7 @@ func (d *Data) GetData(kind string) (reflect.Value, metav1.Time) {
 
 	if data, ok := d.Item.Data[kind]; ok {
 		configField := reflect.ValueOf(data.Value).Elem().FieldByName(kind)
-		return configField, data.Timestamp
+		return configField, metav1.Unix(data.Timestamp, 0)
 	}
 
 	return reflect.Value{}, metav1.Time{}
@@ -115,6 +115,6 @@ func (d *Data) SetData(kind string, val reflect.Value, t metav1.Time) {
 
 	d.Item.Data[kind] = TargetConfigData{
 		Value:     dynamicConfiguration,
-		Timestamp: metav1.Unix(t.Unix(), 0),
+		Timestamp: t.Unix(),
 	}
 }

@@ -815,6 +815,7 @@ func TestCPUPressureLoadEviction_collectMetrics(t *testing.T) {
 		reservedCPUForAllocate  string
 		reservedCPUForReclaim   string
 		reservedCPUForSystem    int
+		enableReclaim           bool
 		podEntries              qrmstate.PodEntries
 		loads                   map[string]map[string]float64
 		wantSharedPoolSnapshots MetricInfo
@@ -823,6 +824,7 @@ func TestCPUPressureLoadEviction_collectMetrics(t *testing.T) {
 			name:                   "use default bound, without dedicated core pod",
 			reservedCPUForAllocate: "4",
 			reservedCPUForReclaim:  "4",
+			enableReclaim:          false,
 			podEntries: qrmstate.PodEntries{
 				pod1UID: qrmstate.ContainerEntries{
 					testName: &qrmstate.AllocationInfo{
@@ -988,6 +990,7 @@ func TestCPUPressureLoadEviction_collectMetrics(t *testing.T) {
 			name:                   "use default bound, with dedicated core pod",
 			reservedCPUForAllocate: "4",
 			reservedCPUForReclaim:  "4",
+			enableReclaim:          false,
 			podEntries: qrmstate.PodEntries{
 				pod1UID: qrmstate.ContainerEntries{
 					testName: &qrmstate.AllocationInfo{
@@ -1179,6 +1182,7 @@ func TestCPUPressureLoadEviction_collectMetrics(t *testing.T) {
 			reservedCPUForAllocate: "0",
 			reservedCPUForReclaim:  "4",
 			reservedCPUForSystem:   4,
+			enableReclaim:          true,
 			podEntries: qrmstate.PodEntries{
 				pod1UID: qrmstate.ContainerEntries{
 					testName: &qrmstate.AllocationInfo{
@@ -1370,6 +1374,7 @@ func TestCPUPressureLoadEviction_collectMetrics(t *testing.T) {
 			reservedCPUForAllocate: "0",
 			reservedCPUForReclaim:  "4",
 			reservedCPUForSystem:   0,
+			enableReclaim:          true,
 			podEntries: qrmstate.PodEntries{
 				pod1UID: qrmstate.ContainerEntries{
 					testName: &qrmstate.AllocationInfo{
@@ -1565,6 +1570,7 @@ func TestCPUPressureLoadEviction_collectMetrics(t *testing.T) {
 			as.Nil(err)
 			conf := makeConf(defaultMetricRingSize, int64(defaultCPUPressureEvictionPodGracePeriodSeconds),
 				defaultLoadUpperBoundRatio, defaultLoadThresholdMetPercentage, tt.reservedCPUForReclaim, tt.reservedCPUForAllocate, tt.reservedCPUForSystem)
+			conf.GetDynamicConfiguration().EnableReclaim = tt.enableReclaim
 			stateImpl, err := makeState(cpuTopology)
 			as.Nil(err)
 
