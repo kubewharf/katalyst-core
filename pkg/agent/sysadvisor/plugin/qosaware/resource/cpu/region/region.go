@@ -18,6 +18,7 @@ package region
 
 import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
+	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
@@ -64,4 +65,19 @@ type QoSRegion interface {
 	// GetHeadRoomPolicy returns headroom policy for this region,
 	// the first is policy with top priority, while the second is the policy that is in-use currently
 	GetHeadRoomPolicy() (types.CPUHeadroomPolicyName, types.CPUHeadroomPolicyName)
+
+	// GetStatus returns region status
+	GetStatus() types.RegionStatus
+}
+
+// GetRegionBasicMetricTags returns metric tag slice of basic region info
+func GetRegionBasicMetricTags(r QoSRegion) []metrics.MetricTag {
+	ret := []metrics.MetricTag{
+		{Key: "region_name", Val: r.Name()},
+		{Key: "region_type", Val: string(r.Type())},
+		{Key: "owner_pool_name", Val: r.OwnerPoolName()},
+		{Key: "binding_numas", Val: r.GetBindingNumas().String()},
+		{Key: "bound_type", Val: string(r.GetStatus().BoundType)},
+	}
+	return ret
 }

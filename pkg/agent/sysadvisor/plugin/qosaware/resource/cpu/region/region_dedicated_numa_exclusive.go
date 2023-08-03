@@ -38,7 +38,6 @@ import (
 
 type QoSRegionDedicatedNumaExclusive struct {
 	*QoSRegionBase
-	indicatorCurrentGetterMap map[string]types.IndicatorCurrentGetter
 }
 
 // NewQoSRegionDedicatedNumaExclusive returns a region instance for dedicated cores
@@ -55,7 +54,7 @@ func NewQoSRegionDedicatedNumaExclusive(ci *types.ContainerInfo, conf *config.Co
 		QoSRegionBase: NewQoSRegionBase(regionName, ci.OwnerPoolName, types.QoSRegionTypeDedicatedNumaExclusive, conf, extraConf, metaReader, metaServer, emitter),
 	}
 	r.bindingNumas = machine.NewCPUSet(numaID)
-	r.indicatorCurrentGetterMap = map[string]types.IndicatorCurrentGetter{
+	r.indicatorCurrentGetters = map[string]types.IndicatorCurrentGetter{
 		string(workloadapis.TargetIndicatorNameCPI): r.getPodCPICurrent,
 	}
 
@@ -66,17 +65,19 @@ func (r *QoSRegionDedicatedNumaExclusive) TryUpdateProvision() {
 	r.Lock()
 	defer r.Unlock()
 
-	controlEssentials := types.ControlEssentials{
+	r.ControlEssentials = types.ControlEssentials{
 		ControlKnobs:   r.getControlKnobs(),
 		ReclaimOverlap: true,
 	}
 
-	indicators, err := r.getIndicators(r.indicatorCurrentGetterMap)
+	indicators, err := r.getIndicators(r.indicatorCurrentGetters)
 	if err != nil {
 		general.Errorf("get indicators failed: %v", err)
 	} else {
-		controlEssentials.Indicators = indicators
+		r.ControlEssentials.Indicators = indicators
 	}
+
+	r.updateStatus()
 
 	for _, internal := range r.provisionPolicies {
 		internal.updateStatus = types.PolicyUpdateFailed
@@ -84,7 +85,7 @@ func (r *QoSRegionDedicatedNumaExclusive) TryUpdateProvision() {
 		// set essentials for policy and regulator
 		internal.policy.SetPodSet(r.podSet)
 		internal.policy.SetBindingNumas(r.bindingNumas)
-		internal.policy.SetEssentials(r.ResourceEssentials, controlEssentials)
+		internal.policy.SetEssentials(r.ResourceEssentials, r.ControlEssentials)
 
 		// run an episode of policy update
 		if err := internal.policy.Update(); err != nil {

@@ -31,11 +31,8 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/util/metric"
 )
 
-// todo: support rama policy, with cpu schedwait avg as indicator
-
 type QoSRegionShare struct {
 	*QoSRegionBase
-	indicatorCurrentGetterMap map[string]types.IndicatorCurrentGetter
 }
 
 // NewQoSRegionShare returns a region instance for shared pool
@@ -51,7 +48,7 @@ func NewQoSRegionShare(ci *types.ContainerInfo, conf *config.Configuration, extr
 		QoSRegionBase: NewQoSRegionBase(regionName, ci.OwnerPoolName, types.QoSRegionTypeShare, conf, extraConf, metaReader, metaServer, emitter),
 	}
 
-	r.indicatorCurrentGetterMap = map[string]types.IndicatorCurrentGetter{
+	r.indicatorCurrentGetters = map[string]types.IndicatorCurrentGetter{
 		string(v1alpha1.TargetIndicatorNameCPUSchedWait): r.getPodSchedWaitCurrent,
 	}
 	return r
@@ -61,24 +58,26 @@ func (r *QoSRegionShare) TryUpdateProvision() {
 	r.Lock()
 	defer r.Unlock()
 
-	controlEssentials := types.ControlEssentials{
+	r.ControlEssentials = types.ControlEssentials{
 		ControlKnobs:   r.getControlKnobs(),
 		ReclaimOverlap: false,
 	}
 
-	indicators, err := r.getIndicators(r.indicatorCurrentGetterMap)
+	indicators, err := r.getIndicators(r.indicatorCurrentGetters)
 	if err != nil {
 		general.Errorf("get indicators failed: %v", err)
 	} else {
-		controlEssentials.Indicators = indicators
+		r.ControlEssentials.Indicators = indicators
 	}
+
+	r.updateStatus()
 
 	for _, internal := range r.provisionPolicies {
 		internal.updateStatus = types.PolicyUpdateFailed
 
 		// set essentials for policy and regulator
 		internal.policy.SetPodSet(r.podSet)
-		internal.policy.SetEssentials(r.ResourceEssentials, controlEssentials)
+		internal.policy.SetEssentials(r.ResourceEssentials, r.ControlEssentials)
 
 		// run an episode of policy update
 		if err := internal.policy.Update(); err != nil {

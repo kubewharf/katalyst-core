@@ -34,13 +34,20 @@ func getNumasAvailableResource(numaAvailable map[int]int, numas machine.CPUSet) 
 
 // regulatePoolSizes modifies pool size map to legal values, taking total available
 // resource and config such as enable reclaim into account. should be compatible with
-// any case and not return error.
-func regulatePoolSizes(poolSizes map[string]int, available int, enableReclaim bool) {
+// any case and not return error. return true if reach resource upper bound.
+func regulatePoolSizes(poolSizes map[string]int, available int, enableReclaim bool) bool {
 	targetSum := general.SumUpMapValues(poolSizes)
+	boundUpper := false
 
+	// use all available resource for pools when reclaim is disabled
 	if !enableReclaim || targetSum > available {
-		// use up all available resource for pools in this case
 		targetSum = available
+	}
+
+	// use all available resource when reaching resource upper bound
+	if targetSum > available {
+		targetSum = available
+		boundUpper = true
 	}
 
 	if err := normalizePoolSizes(poolSizes, targetSum); err != nil {
@@ -49,6 +56,8 @@ func regulatePoolSizes(poolSizes map[string]int, available int, enableReclaim bo
 			poolSizes[k] = available
 		}
 	}
+
+	return boundUpper
 }
 
 func normalizePoolSizes(poolSizes map[string]int, targetSum int) error {
