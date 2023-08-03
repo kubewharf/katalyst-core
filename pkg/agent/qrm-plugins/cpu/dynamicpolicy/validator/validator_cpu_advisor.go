@@ -129,7 +129,7 @@ func (c *CPUAdvisorValidator) validateStaticPools(resp *advisorapi.ListAndWatchR
 
 		if nilStateEntry != nilRespEntry {
 			return fmt.Errorf("pool: %s nilStateEntry: %v and nilRespEntry: %v mismatch",
-				poolName, nilStateEntry, nilStateEntry)
+				poolName, nilStateEntry, nilRespEntry)
 		}
 		if nilStateEntry {
 			general.Warningf("got nil state entry for static pool: %s", poolName)
