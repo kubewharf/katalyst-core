@@ -80,7 +80,8 @@ func (phm *PeriodicalHandlerManager) Run(ctx context.Context) {
 		defer handlerMtx.Unlock()
 
 		for groupName, groupHandlerCtxs := range handlerCtxs {
-			for handlerName, handlerCtx := range groupHandlerCtxs {
+			for handlerName := range groupHandlerCtxs {
+				handlerCtx := groupHandlerCtxs[handlerName]
 				if handlerCtx == nil {
 					general.Warningf("nil handlerCtx")
 					continue
@@ -113,7 +114,7 @@ func (phm *PeriodicalHandlerManager) Run(ctx context.Context) {
 // the first key is the handlers group name
 // the second key is the handler name
 var handlerCtxs = make(map[string]map[string]*HandlerCtx)
-var handlerMtx sync.RWMutex
+var handlerMtx sync.Mutex
 
 func RegisterPeriodicalHandler(groupName, handlerName string, handler Handler, interval time.Duration) (err error) {
 	if groupName == "" || handlerName == "" {
@@ -170,8 +171,8 @@ func RegisterPeriodicalHandler(groupName, handlerName string, handler Handler, i
 }
 
 func ReadyToStartHandlersByGroup(groupName string) {
-	handlerMtx.RLock()
-	defer handlerMtx.RUnlock()
+	handlerMtx.Lock()
+	defer handlerMtx.Unlock()
 
 	general.InfoS("called", "groupName", groupName)
 
@@ -199,8 +200,8 @@ func ReadyToStartHandlersByGroup(groupName string) {
 }
 
 func StopHandlersByGroup(groupName string) {
-	handlerMtx.RLock()
-	defer handlerMtx.RUnlock()
+	handlerMtx.Lock()
+	defer handlerMtx.Unlock()
 
 	general.InfoS("called", "groupName", groupName)
 
