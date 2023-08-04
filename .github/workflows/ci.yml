@@ -41,7 +41,7 @@ jobs:
 
   lint:
     name: Lint
-    runs-on: ubuntu-20.04
+    runs-on: vci-self-hosted
     steps:
       - uses: actions/checkout@v3
       - uses: actions/setup-go@v3
@@ -67,7 +67,7 @@ jobs:
 
   unit-test:
     name: Unit Test
-    runs-on: ubuntu-20.04
+    runs-on: vke-self-hosted
     steps:
       - uses: actions/checkout@v1
       - uses: actions/setup-go@v3
