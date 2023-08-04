@@ -81,6 +81,7 @@ func TestPeriodicalHandlerManager(t *testing.T) {
 	}()
 
 	testNum := 5
+	testNum1 := 1
 
 	gName := "test_group"
 	hName := "test_handler"
@@ -95,12 +96,25 @@ func TestPeriodicalHandlerManager(t *testing.T) {
 	},
 		time.Second)
 
+	hName1 := "test_handler1"
+	_ = RegisterPeriodicalHandler(gName, hName1, func(coreConf *config.Configuration,
+		extraConf interface{},
+		dynamicConf *dynamicconfig.DynamicAgentConfiguration,
+		emitter metrics.MetricEmitter,
+		metaServer *metaserver.MetaServer) {
+		lock.Lock()
+		testNum1 = 2
+		lock.Unlock()
+	},
+		time.Second)
+
 	ticker := time.After(2 * time.Second)
 
 testLoop1:
 	for {
 		lock.RLock()
-		as.Equal(testNum, 5)
+		as.Equal(5, testNum)
+		as.Equal(1, testNum1)
 		lock.RUnlock()
 		select {
 		case <-ticker:
@@ -117,7 +131,7 @@ testLoop1:
 testLoop2:
 	for {
 		lock.RLock()
-		if testNum == 10 {
+		if testNum == 10 && testNum1 == 2 {
 			lock.RUnlock()
 			break
 		}
@@ -132,7 +146,8 @@ testLoop2:
 	}
 
 	lock.RLock()
-	as.Equal(testNum, 10)
+	as.Equal(10, testNum)
+	as.Equal(2, testNum1)
 	lock.RUnlock()
 	cancel()
 }
