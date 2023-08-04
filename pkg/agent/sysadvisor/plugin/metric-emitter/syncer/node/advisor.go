@@ -19,6 +19,7 @@ package node
 import (
 	"context"
 	"fmt"
+	"time"
 
 	v1 "k8s.io/api/core/v1"
 
@@ -35,7 +36,39 @@ func (n *MetricSyncerNode) advisorMetric(ctx context.Context) {
 	tags := n.generateMetricTag(ctx)
 	general.InfofV(4, "get metric advisor metric for node")
 
-	// todo add metrics for knob-status
+	now := time.Now().UnixMilli()
+	n.metaReader.RangeRegionInfo(func(regionName string, regionInfo *types.RegionInfo) bool {
+		if regionInfo == nil {
+			general.Errorf("nil regionInfo %v", regionName)
+			return true
+		}
+
+		// put indicator-overshot infos and region-bound infos in metric tags
+		regionTag := append(tags,
+			[]metrics.MetricTag{
+				{
+					Key: fmt.Sprintf("%s", data.CustomMetricLabelKeyTimestamp),
+					Val: fmt.Sprintf("%v", now),
+				},
+				{
+					Key: fmt.Sprintf("%s%s", data.CustomMetricLabelSelectorPrefixKey, "region"),
+					Val: fmt.Sprintf("%v", regionName),
+				},
+				{
+					Key: fmt.Sprintf("%s%s", data.CustomMetricLabelSelectorPrefixKey, "bound"),
+					Val: fmt.Sprintf("%v", regionInfo.RegionStatus.BoundType),
+				},
+			}...)
+		for indicator, overshot := range regionInfo.RegionStatus.OvershootStatus {
+			regionTag = append(tags, metrics.MetricTag{
+				Key: fmt.Sprintf("%s%s%s", data.CustomMetricLabelSelectorPrefixKey, "indicator_", indicator),
+				Val: fmt.Sprintf("%v", overshot),
+			})
+		}
+
+		_ = n.dataEmitter.StoreFloat64(apimetricnode.CustomMetricNodeAdvisorKnobStatus, 1, metrics.MetricTypeNameRaw, regionTag...)
+		return true
+	})
 
 	pod2Pools := make(map[string]string)
 	n.metaReader.RangeContainer(func(podUID string, containerName string, containerInfo *types.ContainerInfo) bool {
