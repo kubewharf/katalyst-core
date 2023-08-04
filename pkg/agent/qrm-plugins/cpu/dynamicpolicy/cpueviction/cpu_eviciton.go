@@ -20,15 +20,18 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"time"
 
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/wait"
 
 	"github.com/kubewharf/katalyst-api/pkg/plugins/skeleton"
 	pluginapi "github.com/kubewharf/katalyst-api/pkg/protocol/evictionplugin/v1alpha1"
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/agent"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/cpueviction/strategy"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
@@ -47,6 +50,8 @@ type cpuPressureEviction struct {
 	// the order in those list also indicates the priority of those eviction strategies
 	forceEvictionList     []strategy.CPUPressureForceEviction
 	thresholdEvictionList []strategy.CPUPressureThresholdEviction
+
+	emitter metrics.MetricEmitter
 }
 
 func NewCPUPressureEviction(emitter metrics.MetricEmitter, metaServer *metaserver.MetaServer,
@@ -75,6 +80,7 @@ func newCPUPressureEviction(emitter metrics.MetricEmitter, metaServer *metaserve
 		thresholdEvictionList: []strategy.CPUPressureThresholdEviction{
 			pressureLoadEviction,
 		},
+		emitter: wrappedEmitter,
 	}
 
 	return skeleton.NewRegistrationPluginWrapper(plugin, []string{conf.PluginRegistrationDir},
@@ -112,6 +118,10 @@ func (p *cpuPressureEviction) Start() (err error) {
 			return fmt.Errorf("start %v failed: %v", s.Name(), startErr)
 		}
 	}
+
+	go wait.Until(func() {
+		_ = p.emitter.StoreInt64(util.MetricNameHeartBeat, 1, metrics.MetricTypeNameRaw)
+	}, time.Second*30, p.ctx.Done())
 	return
 }
 
