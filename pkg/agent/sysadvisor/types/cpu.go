@@ -139,7 +139,7 @@ const (
 	BoundUnknown BoundType = "unknown"
 )
 
-// RegionStatus holds stability accouting info of region
+// RegionStatus holds stability accounting info of region
 type RegionStatus struct {
 	OvershootStatus map[string]OvershootType `json:"overshoot_status"` // map[indicatorMetric]overshootType
 	BoundType       BoundType                `json:"bound_type"`
