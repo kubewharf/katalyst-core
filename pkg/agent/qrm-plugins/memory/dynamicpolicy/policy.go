@@ -44,6 +44,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 	"github.com/kubewharf/katalyst-core/pkg/util/native"
+	"github.com/kubewharf/katalyst-core/pkg/util/timemonitor"
 )
 
 const (
@@ -96,8 +97,9 @@ type DynamicPolicy struct {
 	emitter    metrics.MetricEmitter
 	metaServer *metaserver.MetaServer
 
-	advisorClient advisorsvc.AdvisorServiceClient
-	advisorConn   *grpc.ClientConn
+	advisorClient     advisorsvc.AdvisorServiceClient
+	advisorConn       *grpc.ClientConn
+	lwRecvTimeMonitor *timemonitor.TimeMonitor
 
 	topology *machine.CPUTopology
 	state    state.State
@@ -258,6 +260,11 @@ func (p *DynamicPolicy) Start() (err error) {
 
 	go wait.BackoffUntil(communicateWithMemoryAdvisorServer, wait.NewExponentialBackoffManager(800*time.Millisecond,
 		30*time.Second, 2*time.Minute, 2.0, 0, &clock.RealClock{}), true, p.stopCh)
+
+	p.lwRecvTimeMonitor = timemonitor.NewTimeMonitor(memoryAdvisorLWRecvTimeMonitorName,
+		memoryAdvisorLWRecvTimeMonitorDurationThreshold, memoryAdvisorLWRecvTimeMonitorInterval,
+		util.MetricNameLWRecvStuck, p.emitter)
+	go p.lwRecvTimeMonitor.Run(p.stopCh)
 	return nil
 }
 

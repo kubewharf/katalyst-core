@@ -41,6 +41,12 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/util/process"
 )
 
+const (
+	cpuAdvisorLWRecvTimeMonitorName              = "cpuAdvisorLWRecvTimeMonitor"
+	cpuAdvisorLWRecvTimeMonitorDurationThreshold = 30 * time.Second
+	cpuAdvisorLWRecvTimeMonitorInterval          = 30 * time.Second
+)
+
 /* in the below, cpu-plugin works in server-mode, while cpu-advisor works in client-mode */
 
 // serveForAdvisor starts a server for cpu-advisor (as a client) to connect with
@@ -221,6 +227,11 @@ func (p *DynamicPolicy) lwCPUAdvisorServer(stopCh <-chan struct{}) error {
 
 	for {
 		resp, err := stream.Recv()
+
+		if p.lwRecvTimeMonitor != nil {
+			p.lwRecvTimeMonitor.UpdateRefreshTime()
+		}
+
 		if err != nil {
 			_ = p.emitter.StoreInt64(util.MetricNameLWCPUAdvisorServerFailed, 1, metrics.MetricTypeNameRaw)
 			return fmt.Errorf("receive ListAndWatch response of CPUAdvisorServer failed with error: %v, grpc code: %v",

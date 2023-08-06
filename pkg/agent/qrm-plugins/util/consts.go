@@ -46,6 +46,7 @@ const (
 	MetricNameMemSetInvalid                    = "memset_invalid"
 	MetricNameMemSetOverlap                    = "memset_overlap"
 	MetricNameNodeMemsetInvalid                = "node_memset_invalid"
+	MetricNameLWRecvStuck                      = "lw_recv_stuck"
 )
 
 // those are OCI property names to be used by QRM plugins
