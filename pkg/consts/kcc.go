@@ -36,6 +36,7 @@ const (
 // generic spec fields for configuration CRD (referred by KCC)
 const (
 	KCCTargetConfFieldNameLabelSelector        = "nodeLabelSelector"
+	KCCTargetConfFieldNamePriority             = "priority"
 	KCCTargetConfFieldEphemeralSelector        = "ephemeralSelector"
 	KCCTargetConfFieldNameRevisionHistoryLimit = "revisionHistoryLimit"
 	KCCTargetConfFieldNameConfig               = "config"

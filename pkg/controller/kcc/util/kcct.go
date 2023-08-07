@@ -134,7 +134,7 @@ func ApplyKCCTargetConfigToCNC(cnc *apisv1alpha1.CustomNodeConfig,
 // FindMatchedKCCTargetConfigForNode is to find this cnc needed config, if there are some configs are still not updated, we skip it.
 // The rule of cnc match to config is:
 // 1. if there is only one matched nodeNames config, and it is valid, return it
-// 2. if there is only one matched labelSelector config, and it is valid, return it
+// 2. if there is only one matched labelSelector config with the highest priority, and it is valid, return it
 // 3. if there is only one global config (either nodeNames or labelSelector is not existed), and it is valid, return it
 // 4. otherwise, return nil to keep current state no changed
 func FindMatchedKCCTargetConfigForNode(cnc *apisv1alpha1.CustomNodeConfig, targetAccessor kcctarget.KatalystCustomConfigTargetAccessor) (*unstructured.Unstructured, error) {
@@ -156,12 +156,22 @@ func FindMatchedKCCTargetConfigForNode(cnc *apisv1alpha1.CustomNodeConfig, targe
 	if len(kccTargetList) == 0 {
 		return nil, fmt.Errorf("matched kcc target config not found")
 	} else if len(kccTargetList) > 1 {
-		return nil, fmt.Errorf("more than one kcc target config found")
-	} else if !util.ToKCCTargetResource(kccTargetList[0]).CheckValid() {
+		sort.SliceStable(kccTargetList, func(i, j int) bool {
+			return util.ToKCCTargetResource(kccTargetList[i]).GetPriority() >
+				util.ToKCCTargetResource(kccTargetList[j]).GetPriority()
+		})
+
+		if util.ToKCCTargetResource(kccTargetList[0]).GetPriority() ==
+			util.ToKCCTargetResource(kccTargetList[1]).GetPriority() {
+			return nil, fmt.Errorf("more than one kcc target config found with same priority")
+		}
+	}
+
+	if !util.ToKCCTargetResource(kccTargetList[0]).CheckValid() {
 		return nil, fmt.Errorf("one kcc target config found but invalid")
 	}
 
-	return kccTargetList[0], err
+	return kccTargetList[0], nil
 }
 
 // ClearUnNeededConfigForNode delete those un-needed configurations from CNC status

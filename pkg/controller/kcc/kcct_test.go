@@ -23,13 +23,14 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	v1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/client-go/tools/cache"
-	"k8s.io/klog/v2"
-
 	apiequality "k8s.io/apimachinery/pkg/api/equality"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/client-go/tools/cache"
+	"k8s.io/klog/v2"
 
 	"github.com/kubewharf/katalyst-api/pkg/apis/config/v1alpha1"
 	katalyst_base "github.com/kubewharf/katalyst-core/cmd/base"
@@ -49,7 +50,15 @@ func toTestUnstructured(obj interface{}) *unstructured.Unstructured {
 	return ret
 }
 
-func generateTestLabelSelectorTargetResource(name, labelSelector string) util.KCCTargetResource {
+func testLabelSelector(t *testing.T, labelSelector string) labels.Selector {
+	parse, err := labels.Parse(labelSelector)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return parse
+}
+
+func generateTestLabelSelectorTargetResource(name, labelSelector string, priority int32) util.KCCTargetResource {
 	return util.ToKCCTargetResource(toTestUnstructured(&v1alpha1.AdminQoSConfiguration{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: name,
@@ -57,6 +66,7 @@ func generateTestLabelSelectorTargetResource(name, labelSelector string) util.KC
 		Spec: v1alpha1.AdminQoSConfigurationSpec{
 			GenericConfigSpec: v1alpha1.GenericConfigSpec{
 				NodeLabelSelector: labelSelector,
+				Priority:          priority,
 			},
 		},
 	}))
@@ -99,8 +109,13 @@ func TestKatalystCustomConfigTargetController_Run(t *testing.T) {
 							Namespace: "default",
 						},
 						Spec: v1alpha1.KatalystCustomConfigSpec{
-							TargetType:           crd.AdminQoSConfigurationGVR,
-							NodeLabelSelectorKey: "aa",
+							TargetType: crd.AdminQoSConfigurationGVR,
+							NodeLabelSelectorAllowedKeyList: []v1alpha1.PriorityNodeLabelSelectorAllowedKeyList{
+								{
+									Priority: 0,
+									KeyList:  []string{"aa"},
+								},
+							},
 						},
 					},
 				},
@@ -226,9 +241,9 @@ func Test_validateLabelSelectorWithOthers(t *testing.T) {
 	t.Parallel()
 
 	type args struct {
-		labelSelector  string
-		targetResource util.KCCTargetResource
-		otherResources []util.KCCTargetResource
+		priorityAllowedKeyListMap map[int32]sets.String
+		targetResource            util.KCCTargetResource
+		otherResources            []util.KCCTargetResource
 	}
 	tests := []struct {
 		name    string
@@ -239,10 +254,12 @@ func Test_validateLabelSelectorWithOthers(t *testing.T) {
 		{
 			name: "test-1",
 			args: args{
-				labelSelector:  "aa",
-				targetResource: generateTestLabelSelectorTargetResource("1", "aa=bb"),
+				priorityAllowedKeyListMap: map[int32]sets.String{
+					0: sets.NewString("aa"),
+				},
+				targetResource: generateTestLabelSelectorTargetResource("1", "aa=bb", 0),
 				otherResources: []util.KCCTargetResource{
-					generateTestLabelSelectorTargetResource("2", "aa=cc"),
+					generateTestLabelSelectorTargetResource("2", "aa=cc", 0),
 				},
 			},
 			want: true,
@@ -250,10 +267,12 @@ func Test_validateLabelSelectorWithOthers(t *testing.T) {
 		{
 			name: "test-2",
 			args: args{
-				labelSelector:  "aa",
-				targetResource: generateTestLabelSelectorTargetResource("1", "aa=bb"),
+				priorityAllowedKeyListMap: map[int32]sets.String{
+					0: sets.NewString("aa"),
+				},
+				targetResource: generateTestLabelSelectorTargetResource("1", "aa=bb", 0),
 				otherResources: []util.KCCTargetResource{
-					generateTestLabelSelectorTargetResource("2", "aa in (cc,dd)"),
+					generateTestLabelSelectorTargetResource("2", "aa in (cc,dd)", 0),
 				},
 			},
 			want: true,
@@ -261,10 +280,12 @@ func Test_validateLabelSelectorWithOthers(t *testing.T) {
 		{
 			name: "test-3",
 			args: args{
-				labelSelector:  "aa",
-				targetResource: generateTestLabelSelectorTargetResource("1", "aa=bb"),
+				priorityAllowedKeyListMap: map[int32]sets.String{
+					0: sets.NewString("aa"),
+				},
+				targetResource: generateTestLabelSelectorTargetResource("1", "aa=bb", 0),
 				otherResources: []util.KCCTargetResource{
-					generateTestLabelSelectorTargetResource("2", "aa in (bb,cc)"),
+					generateTestLabelSelectorTargetResource("2", "aa in (bb,cc)", 0),
 				},
 			},
 			want: false,
@@ -272,10 +293,12 @@ func Test_validateLabelSelectorWithOthers(t *testing.T) {
 		{
 			name: "test-4",
 			args: args{
-				labelSelector:  "aa",
-				targetResource: generateTestLabelSelectorTargetResource("1", "aa=bb"),
+				priorityAllowedKeyListMap: map[int32]sets.String{
+					0: sets.NewString("aa"),
+				},
+				targetResource: generateTestLabelSelectorTargetResource("1", "aa=bb", 0),
 				otherResources: []util.KCCTargetResource{
-					generateTestLabelSelectorTargetResource("2", "aa notin (bb,cc)"),
+					generateTestLabelSelectorTargetResource("2", "aa notin (bb,cc)", 0),
 				},
 			},
 			want: true,
@@ -283,7 +306,7 @@ func Test_validateLabelSelectorWithOthers(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, _, _, err := validateLabelSelectorOverlapped(tt.args.labelSelector, tt.args.targetResource, tt.args.otherResources)
+			got, _, _, err := validateLabelSelectorOverlapped(tt.args.priorityAllowedKeyListMap, tt.args.targetResource, tt.args.otherResources)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("validateLabelSelectorOverlapped() error = %v, wantErr %v", err, tt.wantErr)
 				return
@@ -379,9 +402,9 @@ func Test_validateTargetResourceGlobalWithOthers(t *testing.T) {
 		{
 			name: "test-1",
 			args: args{
-				targetResource: generateTestLabelSelectorTargetResource("1", ""),
+				targetResource: generateTestLabelSelectorTargetResource("1", "", 0),
 				otherResources: []util.KCCTargetResource{
-					generateTestLabelSelectorTargetResource("2", ""),
+					generateTestLabelSelectorTargetResource("2", "", 0),
 				},
 			},
 			want: false,
@@ -389,10 +412,10 @@ func Test_validateTargetResourceGlobalWithOthers(t *testing.T) {
 		{
 			name: "test-2",
 			args: args{
-				targetResource: generateTestLabelSelectorTargetResource("1", ""),
+				targetResource: generateTestLabelSelectorTargetResource("1", "", 0),
 				otherResources: []util.KCCTargetResource{
-					generateTestLabelSelectorTargetResource("1", ""),
-					generateTestLabelSelectorTargetResource("2", "aa=bb"),
+					generateTestLabelSelectorTargetResource("1", "", 0),
+					generateTestLabelSelectorTargetResource("2", "aa=bb", 0),
 				},
 			},
 			want: true,
@@ -488,6 +511,108 @@ func Test_updateTargetResourceStatus(t *testing.T) {
 			if updateTargetResourceStatus(tt.args.targetResource, tt.args.isValid, tt.args.msg, tt.args.reason); !tt.equalFunc(tt.args.targetResource, tt.wantResource) {
 				t.Errorf("updateTargetResourceStatus() = %v, want %v", tt.args.targetResource.GetGenericStatus(), tt.wantResource.GetGenericStatus())
 			}
+		})
+	}
+}
+
+func Test_checkLabelSelectorOverlap(t *testing.T) {
+	t.Parallel()
+
+	type args struct {
+		selector      labels.Selector
+		otherSelector labels.Selector
+		keyList       []string
+	}
+	tests := []struct {
+		name string
+		args args
+		want bool
+	}{
+		{
+			name: "test-1",
+			args: args{
+				selector:      testLabelSelector(t, "label1=aa"),
+				otherSelector: testLabelSelector(t, "label1=bb"),
+				keyList:       []string{"label1"},
+			},
+			want: false,
+		},
+		{
+			name: "test-2",
+			args: args{
+				selector:      testLabelSelector(t, "label1=aa"),
+				otherSelector: testLabelSelector(t, "label1!=bb"),
+				keyList:       []string{"label1"},
+			},
+			want: true,
+		},
+		{
+			name: "test-3",
+			args: args{
+				selector:      testLabelSelector(t, "label1=aa"),
+				otherSelector: testLabelSelector(t, "label1 in (aa,bb)"),
+				keyList:       []string{"label1"},
+			},
+			want: true,
+		},
+		{
+			name: "test-4",
+			args: args{
+				selector:      testLabelSelector(t, "label1=aa"),
+				otherSelector: testLabelSelector(t, "label1 notin (aa,bb)"),
+				keyList:       []string{"label1"},
+			},
+			want: false,
+		},
+		{
+			name: "test-5",
+			args: args{
+				selector:      testLabelSelector(t, "label1=aa"),
+				otherSelector: testLabelSelector(t, "label1 in (aa,bb),label2=cc"),
+				keyList:       []string{"label1", "label2"},
+			},
+			want: true,
+		},
+		{
+			name: "test-6",
+			args: args{
+				selector:      testLabelSelector(t, "label1=aa"),
+				otherSelector: testLabelSelector(t, "label2=bb"),
+				keyList:       []string{"label1", "label2"},
+			},
+			want: true,
+		},
+		{
+			name: "test-7",
+			args: args{
+				selector:      testLabelSelector(t, "label1 notin (aa, bb),label2=bb"),
+				otherSelector: testLabelSelector(t, "label1 in (aa),label2=bb"),
+				keyList:       []string{"label1", "label2"},
+			},
+			want: false,
+		},
+		{
+			name: "test-8",
+			args: args{
+				selector:      testLabelSelector(t, "label1 in (aa),label2 notin (bb,cc)"),
+				otherSelector: testLabelSelector(t, "label1 notin (cc,dd),label2 notin (cc)"),
+				keyList:       []string{"label1", "label2"},
+			},
+			want: true,
+		},
+		{
+			name: "test-9",
+			args: args{
+				selector:      testLabelSelector(t, "label1=aa"),
+				otherSelector: testLabelSelector(t, "label1 notin (cc,dd),label2 notin (cc)"),
+				keyList:       []string{"label1", "label2"},
+			},
+			want: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equalf(t, tt.want, checkLabelSelectorOverlap(tt.args.selector, tt.args.otherSelector, tt.args.keyList), "checkLabelSelectorOverlap(%v, %v, %v)", tt.args.selector, tt.args.otherSelector, tt.args.keyList)
 		})
 	}
 }
