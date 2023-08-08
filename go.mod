@@ -1,4 +1,4 @@
-module github.com/kubewharf/katalyst-core
+module github.com/lubinszARM/katalyst-core
 
 go 1.18
 

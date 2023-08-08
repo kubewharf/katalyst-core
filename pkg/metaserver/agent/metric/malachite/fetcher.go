@@ -545,6 +545,7 @@ func (m *MalachiteMetricsFetcher) processCgroupMemoryData(cgroupPath string, cgS
 		m.metricStore.SetCgroupMetric(cgroupPath, consts.MetricMemPgmajfaultCgroup, utilmetric.MetricData{Time: &updateTime, Value: float64(mem.TotalPgmajfault)})
 		m.metricStore.SetCgroupMetric(cgroupPath, consts.MetricMemAllocstallCgroup, utilmetric.MetricData{Time: &updateTime, Value: float64(mem.TotalAllocstall)})
 		m.metricStore.SetCgroupMetric(cgroupPath, consts.MetricMemKswapdstealCgroup, utilmetric.MetricData{Time: &updateTime, Value: float64(mem.KswapdSteal)})
+		m.metricStore.SetCgroupMetric(cgroupPath, consts.MetricMemSocketCgroup, utilmetric.MetricData{Time: &updateTime, Value: general.UIntPointerToFloat64(mem.KernMemoryTcpLimitInBytes)})
 
 		m.metricStore.SetCgroupMetric(cgroupPath, consts.MetricMemOomCgroup, utilmetric.MetricData{Time: &updateTime, Value: float64(mem.OomCnt)})
 		m.metricStore.SetCgroupMetric(cgroupPath, consts.MetricMemScaleFactorCgroup, utilmetric.MetricData{Time: &updateTime, Value: general.UIntPointerToFloat64(mem.WatermarkScaleFactor)})
@@ -783,6 +784,8 @@ func (m *MalachiteMetricsFetcher) processContainerMemoryData(podUID, containerNa
 			utilmetric.MetricData{Value: float64(mem.TotalAllocstall), Time: &updateTime})
 		m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricMemKswapdstealContainer,
 			utilmetric.MetricData{Value: float64(mem.KswapdSteal), Time: &updateTime})
+		m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricMemSocketContainer,
+			utilmetric.MetricData{Value: float64(mem.KernMemoryTcpLimitInBytes), Time: &updateTime})
 
 		m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricMemOomContainer,
 			utilmetric.MetricData{Value: float64(mem.OomCnt), Time: &updateTime})

@@ -122,6 +122,7 @@ const (
 	MetricMemPgmajfaultContainer  = "mem.pgmajfault.container"
 	MetricMemAllocstallContainer  = "mem.allocstall.container"
 	MetricMemKswapdstealContainer = "mem.kswapdstall.container"
+	MetricMemSocketContainer      = "mem.socket.container"
 
 	MetricMemOomContainer         = "mem.oom.container"
 	MetricMemScaleFactorContainer = "mem.scalefactor.container"
@@ -204,6 +205,7 @@ const (
 	MetricMemPgmajfaultCgroup  = "mem.pgmajfault.cgroup"
 	MetricMemAllocstallCgroup  = "mem.allocstall.cgroup"
 	MetricMemKswapdstealCgroup = "mem.kswapdstall.cgroup"
+	MetricMemSocketCgroup      = "mem.socket.cgroup"
 
 	MetricMemOomCgroup         = "mem.oom.cgroup"
 	MetricMemScaleFactorCgroup = "mem.scalefactor.cgroup"
