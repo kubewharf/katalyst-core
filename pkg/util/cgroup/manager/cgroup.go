@@ -200,6 +200,15 @@ func GetDeviceIOWeightWithAbsolutePath(absCgroupPath, devID string) (uint64, boo
 	return GetManager().GetDeviceIOWeight(absCgroupPath, devID)
 }
 
+func GetIOStatWithRelativePath(relCgroupPath string) (map[string]map[string]string, error) {
+	absCgroupPath := common.GetAbsCgroupPath(common.CgroupSubsysIO, relCgroupPath)
+	return GetIOStatWithAbsolutePath(absCgroupPath)
+}
+
+func GetIOStatWithAbsolutePath(absCgroupPath string) (map[string]map[string]string, error) {
+	return GetManager().GetIOStat(absCgroupPath)
+}
+
 func GetCPUWithRelativePath(relCgroupPath string) (*common.CPUStats, error) {
 	absCgroupPath := common.GetAbsCgroupPath("cpu", relCgroupPath)
 	return GetManager().GetCPU(absCgroupPath)
