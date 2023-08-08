@@ -185,8 +185,12 @@ func (p *StaticPolicy) Start() (err error) {
 
 	p.Lock()
 	defer func() {
-		if err == nil {
-			p.started = true
+		if !p.started {
+			if err == nil {
+				p.started = true
+			} else {
+				close(p.stopCh)
+			}
 		}
 		p.Unlock()
 	}()
