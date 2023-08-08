@@ -25,17 +25,24 @@ import (
 
 	"github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/agent"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/network/state"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
-type NICFilter func(nics []machine.InterfaceInfo, req *pluginapi.ResourceRequest, agentCtx *agent.GenericContext) []machine.InterfaceInfo
+type ReservationPolicy string
+type NICSelectionPoligy string
 
-var nicFilters = []NICFilter{
-	filterNICsByAvailability,
-	filterNICsByNamespaceType,
-	filterNICsByHint,
-}
+const (
+	FirstNIC         ReservationPolicy = "first"
+	EvenDistribution ReservationPolicy = "even"
+
+	RandomOne NICSelectionPoligy = "random"
+	FirstOne  NICSelectionPoligy = "first"
+	LastOne   NICSelectionPoligy = "last"
+)
+
+type NICFilter func(nics []machine.InterfaceInfo, req *pluginapi.ResourceRequest, agentCtx *agent.GenericContext) []machine.InterfaceInfo
 
 // isReqAffinityRestricted returns true if allocated network interface must have affinity with allocated numa
 func isReqAffinityRestricted(reqAnnotations map[string]string) bool {
@@ -91,7 +98,7 @@ func checkNICPreferenceOfReq(nic machine.InterfaceInfo, reqAnnotations map[strin
 }
 
 // filterAvailableNICsByReq walks through nicFilters to select the targeted network interfaces
-func filterAvailableNICsByReq(nics []machine.InterfaceInfo, req *pluginapi.ResourceRequest, agentCtx *agent.GenericContext) ([]machine.InterfaceInfo, error) {
+func filterAvailableNICsByReq(nics []machine.InterfaceInfo, req *pluginapi.ResourceRequest, agentCtx *agent.GenericContext, nicFilters []NICFilter) ([]machine.InterfaceInfo, error) {
 	if req == nil {
 		return nil, fmt.Errorf("filterAvailableNICsByReq got nil req")
 	} else if agentCtx == nil {
@@ -105,7 +112,7 @@ func filterAvailableNICsByReq(nics []machine.InterfaceInfo, req *pluginapi.Resou
 	return filteredNICs, nil
 }
 
-func filterNICsByAvailability(nics []machine.InterfaceInfo, _ *pluginapi.ResourceRequest, _ *agent.GenericContext) []machine.InterfaceInfo {
+func filterNICsByAvailability(nics []machine.InterfaceInfo, req *pluginapi.ResourceRequest, _ *agent.GenericContext) []machine.InterfaceInfo {
 	filteredNICs := make([]machine.InterfaceInfo, 0, len(nics))
 	for _, nic := range nics {
 		if !nic.Enable {
@@ -117,6 +124,13 @@ func filterNICsByAvailability(nics []machine.InterfaceInfo, _ *pluginapi.Resourc
 		}
 
 		filteredNICs = append(filteredNICs, nic)
+	}
+
+	if len(filteredNICs) == 0 {
+		general.InfoS("nic list returned by filterNICsByAvailability is empty",
+			"podNamespace", req.PodNamespace,
+			"podName", req.PodName,
+			"containerName", req.ContainerName)
 	}
 
 	return filteredNICs
@@ -149,6 +163,13 @@ func filterNICsByNamespaceType(nics []machine.InterfaceInfo, req *pluginapi.Reso
 		}
 	}
 
+	if len(filteredNICs) == 0 {
+		general.InfoS("nic list returned by filterNICsByNamespaceType is empty",
+			"podNamespace", req.PodNamespace,
+			"podName", req.PodName,
+			"containerName", req.ContainerName)
+	}
+
 	return filteredNICs
 }
 
@@ -179,7 +200,6 @@ func filterNICsByHint(nics []machine.InterfaceInfo, req *pluginapi.ResourceReque
 		}
 
 		if siblingNUMAs.Equals(hintNUMASet) {
-			// TODO: if multi-nics meets the hint, we need to choose best one according to left bandwidth or other properties
 			if exactlyMatchNIC == nil {
 				general.InfoS("add hint exactly matched nic",
 					"podNamespace", req.PodNamespace,
@@ -214,10 +234,31 @@ func getRandomNICs(nics []machine.InterfaceInfo) machine.InterfaceInfo {
 	return nics[rand.Intn(len(nics))]
 }
 
+func selectOneNIC(nics []machine.InterfaceInfo, policy NICSelectionPoligy) machine.InterfaceInfo {
+	if len(nics) == 0 {
+		general.Errorf("no NIC to select")
+		return machine.InterfaceInfo{}
+	}
+
+	switch policy {
+	case RandomOne:
+		return getRandomNICs(nics)
+	case FirstOne:
+		// since we only pass filtered nics, always picking the first or the last one actually indicates a kind of binpacking
+		return nics[0]
+	case LastOne:
+		return nics[len(nics)-1]
+	}
+
+	// use LastOne as default
+	return nics[len(nics)-1]
+}
+
 // packAllocationResponse fills pluginapi.ResourceAllocationResponse with information from AllocationInfo and pluginapi.ResourceRequest
-func packAllocationResponse(req *pluginapi.ResourceRequest, resourceName string,
-	allocatedQuantity float64, resourceAllocationAnnotations map[string]string) (*pluginapi.ResourceAllocationResponse, error) {
-	if req == nil {
+func packAllocationResponse(req *pluginapi.ResourceRequest, allocationInfo *state.AllocationInfo, respHint *pluginapi.TopologyHint, resourceAllocationAnnotations map[string]string) (*pluginapi.ResourceAllocationResponse, error) {
+	if allocationInfo == nil {
+		return nil, fmt.Errorf("packAllocationResponse got nil allocationInfo")
+	} else if req == nil {
 		return nil, fmt.Errorf("packAllocationResponse got nil request")
 	}
 
@@ -230,17 +271,18 @@ func packAllocationResponse(req *pluginapi.ResourceRequest, resourceName string,
 		ContainerIndex: req.ContainerIndex,
 		PodRole:        req.PodRole,
 		PodType:        req.PodType,
-		ResourceName:   resourceName,
+		ResourceName:   req.ResourceName,
 		AllocationResult: &pluginapi.ResourceAllocation{
 			ResourceAllocation: map[string]*pluginapi.ResourceAllocationInfo{
-				resourceName: {
-					IsNodeResource:    false,
+				string(consts.ResourceNetBandwidth): {
+					IsNodeResource:    true,
 					IsScalarResource:  true, // to avoid re-allocating
-					AllocatedQuantity: allocatedQuantity,
+					AllocatedQuantity: float64(allocationInfo.Egress),
+					AllocationResult:  allocationInfo.NumaNodes.String(),
 					Annotations:       resourceAllocationAnnotations,
 					ResourceHints: &pluginapi.ListOfTopologyHints{
 						Hints: []*pluginapi.TopologyHint{
-							req.Hint,
+							respHint,
 						},
 					},
 				},
@@ -249,4 +291,39 @@ func packAllocationResponse(req *pluginapi.ResourceRequest, resourceName string,
 		Labels:      general.DeepCopyMap(req.Labels),
 		Annotations: general.DeepCopyMap(req.Annotations),
 	}, nil
+}
+
+// getReservedBandwidth is used to spread total reserved bandwidth into per-nic level.
+func getReservedBandwidth(nics []machine.InterfaceInfo, reservation uint32, policy ReservationPolicy) (map[string]uint32, error) {
+	nicCount := len(nics)
+
+	if nicCount == 0 {
+		return nil, fmt.Errorf("getReservedBandwidth got invalid NICs")
+	}
+
+	general.Infof("reservedBanwidth: %d, nicCount: %d, policy: %s, ",
+		reservation, nicCount, policy)
+
+	reservedBandwidth := make(map[string]uint32)
+
+	switch policy {
+	case FirstNIC:
+		reservedBandwidth[nics[0].Iface] = reservation
+	case EvenDistribution:
+		for _, iface := range nics {
+			reservedBandwidth[iface.Iface] = reservation / uint32(nicCount)
+		}
+	default:
+		return nil, fmt.Errorf("unsupported network bandwidth reservation policy: %s", policy)
+	}
+
+	return reservedBandwidth, nil
+}
+
+func getResourceIdentifier(ifaceNS, ifaceName string) string {
+	if len(ifaceNS) > 0 {
+		return fmt.Sprintf("%s-%s", ifaceNS, ifaceName)
+	}
+
+	return ifaceName
 }
