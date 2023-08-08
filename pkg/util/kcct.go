@@ -67,6 +67,11 @@ func (g KCCTargetResource) GetLabelSelector() string {
 	return labelSelector
 }
 
+func (g KCCTargetResource) GetPriority() int32 {
+	priority, _, _ := unstructured.NestedInt64(g.Object, consts.ObjectFieldNameSpec, consts.KCCTargetConfFieldNamePriority)
+	return int32(priority)
+}
+
 func (g KCCTargetResource) GetNodeNames() []string {
 	nodeNames, _, _ := unstructured.NestedStringSlice(g.Object, consts.ObjectFieldNameSpec, consts.KCCTargetConfFieldEphemeralSelector, consts.KCCTargetConfFieldNameNodeNames)
 	return nodeNames

@@ -60,11 +60,12 @@ const (
 )
 
 const (
-	kccConditionTypeValidReasonNormal         = "Normal"
-	kccConditionTypeValidTargetTypeOverlap    = "TargetTypeOverlap"
-	kccConditionTypeValidTargetTypeNotAllowed = "TargetTypeNotAllowed"
-	kccConditionTypeValidTargetTypeNotExist   = "TargetTypeNotExist"
-	kccConditionTypeValidTerminating          = "Terminating"
+	kccConditionTypeValidReasonNormal                     = "Normal"
+	kccConditionTypeValidReasonPrioritySelectorKeyInvalid = "PrioritySelectorKeyInvalid"
+	kccConditionTypeValidReasonTargetTypeOverlap          = "TargetTypeOverlap"
+	kccConditionTypeValidReasonTargetTypeNotAllowed       = "TargetTypeNotAllowed"
+	kccConditionTypeValidReasonTargetTypeNotExist         = "TargetTypeNotExist"
+	kccConditionTypeValidReasonTerminating                = "Terminating"
 )
 
 type KatalystCustomConfigController struct {
@@ -254,14 +255,13 @@ func (k *KatalystCustomConfigController) syncKatalystCustomConfig(key string) er
 		return err
 	}
 
-	var invalidConfigList []string
 	// get related kcc keys of gvr
 	kccKeys := k.targetHandler.GetKCCKeyListByGVR(kcc.Spec.TargetType)
 	if len(kccKeys) == 0 {
 		if !k.kccConfig.ValidAPIGroupSet.Has(kcc.Spec.TargetType.Group) {
 			// kcc with not allowed target type, of which api group is not allowed
 			return k.updateKCCStatusCondition(kcc, configapis.KatalystCustomConfigConditionTypeValid, v1.ConditionFalse,
-				kccConditionTypeValidTargetTypeNotAllowed, fmt.Sprintf("api group %s of target type %s is not in valid api group set %v",
+				kccConditionTypeValidReasonTargetTypeNotAllowed, fmt.Sprintf("api group %s of target type %s is not in valid api group set %v",
 					kcc.Spec.TargetType.Group, kcc.Spec.TargetType, k.kccConfig.ValidAPIGroupSet))
 		}
 
@@ -271,7 +271,7 @@ func (k *KatalystCustomConfigController) syncKatalystCustomConfig(key string) er
 		k.katalystCustomConfigSyncQueue.AddAfter(key, 30*time.Second)
 
 		return k.updateKCCStatusCondition(kcc, configapis.KatalystCustomConfigConditionTypeValid, v1.ConditionFalse,
-			kccConditionTypeValidTargetTypeNotExist, fmt.Sprintf("crd of target type %s is not created", kcc.Spec.TargetType))
+			kccConditionTypeValidReasonTargetTypeNotExist, fmt.Sprintf("crd of target type %s is not created", kcc.Spec.TargetType))
 	} else if len(kccKeys) > 1 {
 		// kcc with overlap target type
 		// we will check other kcc whether is alive
@@ -294,8 +294,15 @@ func (k *KatalystCustomConfigController) syncKatalystCustomConfig(key string) er
 		if len(aliveKeys) > 0 {
 			klog.Errorf("[kcc] kcc %s is overlap with other key: %s", native.GenerateUniqObjectNameKey(kcc), aliveKeys)
 			return k.updateKCCStatusCondition(kcc, configapis.KatalystCustomConfigConditionTypeValid, v1.ConditionFalse,
-				kccConditionTypeValidTargetTypeOverlap, fmt.Sprintf("it is overlap with other kcc %v", aliveKeys))
+				kccConditionTypeValidReasonTargetTypeOverlap, fmt.Sprintf("it is overlap with other kcc %v", aliveKeys))
 		}
+	}
+
+	// check whether kcc node selector allowed key list is valid
+	msg, ok := checkNodeLabelSelectorAllowedKeyList(kcc)
+	if !ok {
+		return k.updateKCCStatusCondition(kcc, configapis.KatalystCustomConfigConditionTypeValid, v1.ConditionFalse,
+			kccConditionTypeValidReasonPrioritySelectorKeyInvalid, msg)
 	}
 
 	targetAccessor, ok := k.targetHandler.GetTargetAccessorByGVR(kcc.Spec.TargetType)
@@ -313,7 +320,7 @@ func (k *KatalystCustomConfigController) syncKatalystCustomConfig(key string) er
 	targets = native.FilterOutDeletingUnstructured(targets)
 
 	// collect all invalid configs
-	invalidConfigList, err = k.collectInvalidConfigs(targets)
+	invalidConfigList, err := k.collectInvalidConfigs(targets)
 	if err != nil {
 		return err
 	}
@@ -449,7 +456,7 @@ func (k *KatalystCustomConfigController) handleKCCFinalizer(kcc *configapis.Kata
 			}
 
 			return k.updateKCCStatusCondition(kcc, configapis.KatalystCustomConfigConditionTypeValid, v1.ConditionFalse,
-				kccConditionTypeValidTerminating, fmt.Sprintf("residue configs: %s", residueObjNames.List()))
+				kccConditionTypeValidReasonTerminating, fmt.Sprintf("residue configs: %s", residueObjNames.List()))
 		}
 	}
 
@@ -516,7 +523,26 @@ func (k *KatalystCustomConfigController) removeKCCFinalizer(kcc *configapis.Kata
 	return nil
 }
 
-// setKCCConditions is used to set conditions for kcc
+// checkNodeLabelSelectorAllowedKeyList checks if the priority of NodeLabelSelectorAllowedKeyList is duplicated
+func checkNodeLabelSelectorAllowedKeyList(kcc *configapis.KatalystCustomConfig) (string, bool) {
+	duplicatedPrioritySet := sets.NewInt32()
+	priorityKeyListMap := map[int32]bool{}
+	for _, priorityAllowedKeyList := range kcc.Spec.NodeLabelSelectorAllowedKeyList {
+		if priorityKeyListMap[priorityAllowedKeyList.Priority] {
+			duplicatedPrioritySet.Insert(priorityAllowedKeyList.Priority)
+			continue
+		}
+		priorityKeyListMap[priorityAllowedKeyList.Priority] = true
+	}
+
+	if len(duplicatedPrioritySet) > 0 {
+		return fmt.Sprintf("duplicated priority: %v", duplicatedPrioritySet.List()), false
+	}
+
+	return "", true
+}
+
+// setKatalystCustomConfigConditions is used to set conditions for kcc
 func setKatalystCustomConfigConditions(
 	kcc *configapis.KatalystCustomConfig,
 	conditionType configapis.KatalystCustomConfigConditionType,

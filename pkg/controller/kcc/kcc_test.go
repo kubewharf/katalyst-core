@@ -72,8 +72,13 @@ func TestKatalystCustomConfigController_Run(t *testing.T) {
 							Namespace: "default",
 						},
 						Spec: v1alpha1.KatalystCustomConfigSpec{
-							TargetType:           crd.AdminQoSConfigurationGVR,
-							NodeLabelSelectorKey: "aa",
+							TargetType: crd.AdminQoSConfigurationGVR,
+							NodeLabelSelectorAllowedKeyList: []v1alpha1.PriorityNodeLabelSelectorAllowedKeyList{
+								{
+									Priority: 0,
+									KeyList:  []string{"aa"},
+								},
+							},
 						},
 					},
 				},
@@ -89,8 +94,13 @@ func TestKatalystCustomConfigController_Run(t *testing.T) {
 							Namespace: "default",
 						},
 						Spec: v1alpha1.KatalystCustomConfigSpec{
-							TargetType:           crd.AdminQoSConfigurationGVR,
-							NodeLabelSelectorKey: "aa",
+							TargetType: crd.AdminQoSConfigurationGVR,
+							NodeLabelSelectorAllowedKeyList: []v1alpha1.PriorityNodeLabelSelectorAllowedKeyList{
+								{
+									Priority: 0,
+									KeyList:  []string{"aa"},
+								},
+							},
 						},
 					},
 				},
@@ -129,8 +139,13 @@ func TestKatalystCustomConfigController_Run(t *testing.T) {
 							Namespace: "default",
 						},
 						Spec: v1alpha1.KatalystCustomConfigSpec{
-							TargetType:           crd.AdminQoSConfigurationGVR,
-							NodeLabelSelectorKey: "aa",
+							TargetType: crd.AdminQoSConfigurationGVR,
+							NodeLabelSelectorAllowedKeyList: []v1alpha1.PriorityNodeLabelSelectorAllowedKeyList{
+								{
+									Priority: 0,
+									KeyList:  []string{"aa"},
+								},
+							},
 						},
 					},
 					&v1alpha1.KatalystCustomConfig{
@@ -139,8 +154,13 @@ func TestKatalystCustomConfigController_Run(t *testing.T) {
 							Namespace: "default",
 						},
 						Spec: v1alpha1.KatalystCustomConfigSpec{
-							TargetType:           crd.AdminQoSConfigurationGVR,
-							NodeLabelSelectorKey: "bb",
+							TargetType: crd.AdminQoSConfigurationGVR,
+							NodeLabelSelectorAllowedKeyList: []v1alpha1.PriorityNodeLabelSelectorAllowedKeyList{
+								{
+									Priority: 0,
+									KeyList:  []string{"aa"},
+								},
+							},
 						},
 					},
 				},
@@ -183,8 +203,13 @@ func TestKatalystCustomConfigController_Run(t *testing.T) {
 							},
 						},
 						Spec: v1alpha1.KatalystCustomConfigSpec{
-							TargetType:           crd.AdminQoSConfigurationGVR,
-							NodeLabelSelectorKey: "aa",
+							TargetType: crd.AdminQoSConfigurationGVR,
+							NodeLabelSelectorAllowedKeyList: []v1alpha1.PriorityNodeLabelSelectorAllowedKeyList{
+								{
+									Priority: 0,
+									KeyList:  []string{"aa"},
+								},
+							},
 						},
 					},
 					&v1alpha1.KatalystCustomConfig{
@@ -193,8 +218,13 @@ func TestKatalystCustomConfigController_Run(t *testing.T) {
 							Namespace: "default",
 						},
 						Spec: v1alpha1.KatalystCustomConfigSpec{
-							TargetType:           crd.AdminQoSConfigurationGVR,
-							NodeLabelSelectorKey: "bb",
+							TargetType: crd.AdminQoSConfigurationGVR,
+							NodeLabelSelectorAllowedKeyList: []v1alpha1.PriorityNodeLabelSelectorAllowedKeyList{
+								{
+									Priority: 0,
+									KeyList:  []string{"aa"},
+								},
+							},
 						},
 					},
 				},
@@ -237,8 +267,13 @@ func TestKatalystCustomConfigController_Run(t *testing.T) {
 							},
 						},
 						Spec: v1alpha1.KatalystCustomConfigSpec{
-							TargetType:           crd.AdminQoSConfigurationGVR,
-							NodeLabelSelectorKey: "aa",
+							TargetType: crd.AdminQoSConfigurationGVR,
+							NodeLabelSelectorAllowedKeyList: []v1alpha1.PriorityNodeLabelSelectorAllowedKeyList{
+								{
+									Priority: 0,
+									KeyList:  []string{"aa"},
+								},
+							},
 						},
 					},
 					&v1alpha1.KatalystCustomConfig{
@@ -247,8 +282,13 @@ func TestKatalystCustomConfigController_Run(t *testing.T) {
 							Namespace: "default",
 						},
 						Spec: v1alpha1.KatalystCustomConfigSpec{
-							TargetType:           crd.AdminQoSConfigurationGVR,
-							NodeLabelSelectorKey: "bb",
+							TargetType: crd.AdminQoSConfigurationGVR,
+							NodeLabelSelectorAllowedKeyList: []v1alpha1.PriorityNodeLabelSelectorAllowedKeyList{
+								{
+									Priority: 0,
+									KeyList:  []string{"aa"},
+								},
+							},
 						},
 					},
 				},
@@ -288,6 +328,70 @@ func TestKatalystCustomConfigController_Run(t *testing.T) {
 
 			cache.WaitForCacheSync(kcc.ctx.Done(), kcc.syncedFunc...)
 			time.Sleep(100 * time.Millisecond)
+		})
+	}
+}
+
+func Test_checkNodeLabelSelectorAllowedKeyList(t *testing.T) {
+	t.Parallel()
+
+	type args struct {
+		kcc *v1alpha1.KatalystCustomConfig
+	}
+	tests := []struct {
+		name  string
+		args  args
+		want  string
+		want1 bool
+	}{
+		{
+			name: "test-1",
+			args: args{
+				kcc: &v1alpha1.KatalystCustomConfig{
+					Spec: v1alpha1.KatalystCustomConfigSpec{
+						NodeLabelSelectorAllowedKeyList: []v1alpha1.PriorityNodeLabelSelectorAllowedKeyList{
+							{
+								Priority: 0,
+								KeyList:  []string{"aa"},
+							},
+							{
+								Priority: 1,
+								KeyList:  []string{"cc"},
+							},
+						},
+					},
+				},
+			},
+			want:  "",
+			want1: true,
+		},
+		{
+			name: "test-2",
+			args: args{
+				kcc: &v1alpha1.KatalystCustomConfig{
+					Spec: v1alpha1.KatalystCustomConfigSpec{
+						NodeLabelSelectorAllowedKeyList: []v1alpha1.PriorityNodeLabelSelectorAllowedKeyList{
+							{
+								Priority: 0,
+								KeyList:  []string{"aa"},
+							},
+							{
+								Priority: 0,
+								KeyList:  []string{"cc"},
+							},
+						},
+					},
+				},
+			},
+			want:  "duplicated priority: [0]",
+			want1: false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, got1 := checkNodeLabelSelectorAllowedKeyList(tt.args.kcc)
+			assert.Equalf(t, tt.want, got, "checkNodeLabelSelectorAllowedKeyList(%v)", tt.args.kcc)
+			assert.Equalf(t, tt.want1, got1, "checkNodeLabelSelectorAllowedKeyList(%v)", tt.args.kcc)
 		})
 	}
 }

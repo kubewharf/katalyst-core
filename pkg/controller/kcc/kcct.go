@@ -327,8 +327,8 @@ func (k *KatalystCustomConfigTargetController) handleKCCTargetFinalizer(gvr meta
 // validateTargetResourceGenericSpec validate target resource generic spec as follows rule:
 // 1. can not set both labelSelector and nodeNames config at the same time
 // 2. if nodeNames is not set, lastDuration must not be set either
-// 3. labelSelector config must only contain kcc' labelSelectorKey
-// 4. labelSelector config cannot overlap with other labelSelector config
+// 3. labelSelector config must only contain kcc' labelSelectorKey in priority allowed key list
+// 4. labelSelector config cannot overlap with other labelSelector config in same priority
 // 5. nodeNames config must set lastDuration to make sure it will be auto cleared
 // 6. nodeNames config cannot overlap with other nodeNames config
 // 7. it is not allowed two global config (without either labelSelector or nodeNames) overlap
@@ -347,7 +347,12 @@ func (k *KatalystCustomConfigTargetController) validateTargetResourceGenericSpec
 }
 
 func (k *KatalystCustomConfigTargetController) validateTargetResourceLabelSelector(kcc *configapis.KatalystCustomConfig, targetResource util.KCCTargetResource) (bool, string, []util.KCCTargetResource, error) {
-	valid, msg, err := validateLabelSelectorMatchWithKCCDefinition(kcc, targetResource)
+	priorityAllowedKeyListMap := getPriorityAllowedKeyListMap(kcc)
+	if len(priorityAllowedKeyListMap) == 0 {
+		return false, fmt.Sprintf("kcc %s no support label selector", native.GenerateUniqObjectNameKey(kcc)), nil, nil
+	}
+
+	valid, msg, err := validateLabelSelectorMatchWithKCCDefinition(priorityAllowedKeyListMap, targetResource)
 	if err != nil {
 		return false, "", nil, nil
 	} else if !valid {
@@ -359,16 +364,19 @@ func (k *KatalystCustomConfigTargetController) validateTargetResourceLabelSelect
 		return false, "", nil, err
 	}
 
-	return validateLabelSelectorOverlapped(kcc.Spec.NodeLabelSelectorKey, targetResource, kccTargetResources)
+	return validateLabelSelectorOverlapped(priorityAllowedKeyListMap, targetResource, kccTargetResources)
 }
 
-// validateLabelSelectorMatchWithKCCDefinition make sures that labelSelector config must only contain kcc's labelSelectorKey
-func validateLabelSelectorMatchWithKCCDefinition(kcc *configapis.KatalystCustomConfig, targetResource util.KCCTargetResource) (bool, string, error) {
-	labelSelectorKey := kcc.Spec.NodeLabelSelectorKey
-	if len(labelSelectorKey) == 0 {
-		return false, fmt.Sprintf("kcc %s no support label selector", native.GenerateUniqObjectNameKey(kcc)), nil
+func getPriorityAllowedKeyListMap(kcc *configapis.KatalystCustomConfig) map[int32]sets.String {
+	priorityAllowedKeyListMap := make(map[int32]sets.String)
+	for _, allowedKey := range kcc.Spec.NodeLabelSelectorAllowedKeyList {
+		priorityAllowedKeyListMap[allowedKey.Priority] = sets.NewString(allowedKey.KeyList...)
 	}
+	return priorityAllowedKeyListMap
+}
 
+// validateLabelSelectorMatchWithKCCDefinition make sures that labelSelector config must only contain key in kcc' allowed key list
+func validateLabelSelectorMatchWithKCCDefinition(priorityAllowedKeyListMap map[int32]sets.String, targetResource util.KCCTargetResource) (bool, string, error) {
 	if targetResource.GetLastDuration() != nil {
 		return false, "both labelSelector and lastDuration has been set", nil
 	}
@@ -379,6 +387,12 @@ func validateLabelSelectorMatchWithKCCDefinition(kcc *configapis.KatalystCustomC
 		return false, fmt.Sprintf("labelSelector parse failed: %s", err), nil
 	}
 
+	priority := targetResource.GetPriority()
+	allowedKeyList, ok := priorityAllowedKeyListMap[priority]
+	if !ok {
+		return false, fmt.Sprintf("priority %d not supported", priority), nil
+	}
+
 	reqs, selectable := selector.Requirements()
 	if !selectable {
 		return false, fmt.Sprintf("labelSelector cannot selectable"), nil
@@ -387,43 +401,31 @@ func validateLabelSelectorMatchWithKCCDefinition(kcc *configapis.KatalystCustomC
 	inValidLabelKeys := sets.String{}
 	for _, r := range reqs {
 		key := r.Key()
-		if key != labelSelectorKey {
+		if !allowedKeyList.Has(key) {
 			inValidLabelKeys.Insert(key)
 		}
 	}
 
 	if len(inValidLabelKeys) > 0 {
-		return false, fmt.Sprintf("labelSelector with invalid key %v (%s)", inValidLabelKeys.List(), labelSelectorKey), nil
+		return false, fmt.Sprintf("labelSelector with invalid key %v (%s)", inValidLabelKeys.List(), allowedKeyList.List()), nil
 	}
 
 	return true, "", nil
 }
 
 // validateLabelSelectorOverlapped make sures that labelSelector config cannot overlap with other labelSelector config
-func validateLabelSelectorOverlapped(labelSelectorKey string, targetResource util.KCCTargetResource, otherResources []util.KCCTargetResource) (bool, string, []util.KCCTargetResource, error) {
+func validateLabelSelectorOverlapped(priorityAllowedKeyListMap map[int32]sets.String, targetResource util.KCCTargetResource,
+	otherResources []util.KCCTargetResource) (bool, string, []util.KCCTargetResource, error) {
 	labelSelector := targetResource.GetLabelSelector()
 	selector, err := labels.Parse(labelSelector)
 	if err != nil {
 		return false, fmt.Sprintf("labelSelector parse failed: %s", err), nil, nil
 	}
 
-	getMatchLabels := func(selector labels.Selector) sets.String {
-		reqs, selectable := selector.Requirements()
-		if !selectable {
-			return nil
-		}
-
-		ls := sets.String{}
-		for _, r := range reqs {
-			if r.Key() != labelSelectorKey {
-				continue
-			}
-			switch r.Operator() {
-			case selection.Equals, selection.DoubleEquals, selection.In:
-				ls = ls.Union(r.Values())
-			}
-		}
-		return ls
+	priority := targetResource.GetPriority()
+	allowedKeyList, ok := priorityAllowedKeyListMap[priority]
+	if !ok {
+		return false, fmt.Sprintf("priority %d not supported", priority), nil, nil
 	}
 
 	var overlapTargets []util.KCCTargetResource
@@ -439,11 +441,15 @@ func validateLabelSelectorOverlapped(labelSelectorKey string, targetResource uti
 			continue
 		}
 
-		// because only one selector key is allowed, if two selectors have the same
-		// matching label it means they are overlapping
-		if getMatchLabels(selector).Intersection(getMatchLabels(otherSelector)).Len() > 0 {
-			overlapResources.Insert(native.GenerateUniqObjectNameKey(res))
+		otherPriority := res.GetPriority()
+		if otherPriority != priority {
+			continue
+		}
+
+		overlap := checkLabelSelectorOverlap(selector, otherSelector, allowedKeyList.List())
+		if overlap {
 			overlapTargets = append(overlapTargets, res)
+			overlapResources.Insert(native.GenerateUniqObjectNameKey(res))
 		}
 	}
 
@@ -560,4 +566,49 @@ func updateTargetResourceStatus(targetResource util.KCCTargetResource, isValid b
 	}
 
 	targetResource.SetGenericStatus(status)
+}
+
+// checkLabelSelectorOverlap checks whether the labelSelector overlap with other labelSelector by the keyList
+func checkLabelSelectorOverlap(selector labels.Selector, otherSelector labels.Selector,
+	keyList []string) bool {
+	for _, key := range keyList {
+		equalLabelSet, inEqualLabelSet, _ := getMatchLabelSet(selector, key)
+		otherEqualLabelSet, otherInEqualLabelSet, _ := getMatchLabelSet(otherSelector, key)
+		if (equalLabelSet.Len() > 0 && otherEqualLabelSet.Len() > 0 && equalLabelSet.Intersection(otherEqualLabelSet).Len() > 0) ||
+			(equalLabelSet.Len() == 0 && otherEqualLabelSet.Len() == 0 && (inEqualLabelSet.Len() > 0 || otherInEqualLabelSet.Len() > 0)) ||
+			(inEqualLabelSet.Len() > 0 && !inEqualLabelSet.Intersection(otherEqualLabelSet).Equal(otherEqualLabelSet)) ||
+			(otherInEqualLabelSet.Len() > 0 && !otherInEqualLabelSet.Intersection(equalLabelSet).Equal(equalLabelSet)) ||
+			(equalLabelSet.Len() > 0 && otherEqualLabelSet.Len() == 0 && otherInEqualLabelSet.Len() == 0) ||
+			(otherEqualLabelSet.Len() > 0 && equalLabelSet.Len() == 0 && inEqualLabelSet.Len() == 0) {
+			continue
+		} else {
+			return false
+		}
+	}
+
+	return true
+}
+
+func getMatchLabelSet(selector labels.Selector, key string) (sets.String, sets.String, error) {
+	reqs, selectable := selector.Requirements()
+	if !selectable {
+		return nil, nil, fmt.Errorf("labelSelector cannot selectable")
+	}
+
+	equalLabelSet := sets.String{}
+	inEqualLabelSet := sets.String{}
+	for _, r := range reqs {
+		if r.Key() != key {
+			continue
+		}
+		switch r.Operator() {
+		case selection.Equals, selection.DoubleEquals, selection.In:
+			equalLabelSet = equalLabelSet.Union(r.Values())
+		case selection.NotEquals, selection.NotIn:
+			inEqualLabelSet = inEqualLabelSet.Union(r.Values())
+		default:
+			return nil, nil, fmt.Errorf("labelSelector operator %s not supported", r.Operator())
+		}
+	}
+	return equalLabelSet, inEqualLabelSet, nil
 }

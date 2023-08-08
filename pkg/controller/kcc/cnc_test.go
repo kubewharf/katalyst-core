@@ -57,8 +57,13 @@ func TestCustomNodeConfigController_Run(t *testing.T) {
 							Namespace: "default",
 						},
 						Spec: v1alpha1.KatalystCustomConfigSpec{
-							TargetType:           crd.AdminQoSConfigurationGVR,
-							NodeLabelSelectorKey: "aa",
+							TargetType: crd.AdminQoSConfigurationGVR,
+							NodeLabelSelectorAllowedKeyList: []v1alpha1.PriorityNodeLabelSelectorAllowedKeyList{
+								{
+									Priority: 0,
+									KeyList:  []string{"aa"},
+								},
+							},
 						},
 					},
 					&v1alpha1.CustomNodeConfig{
