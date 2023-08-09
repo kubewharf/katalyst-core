@@ -293,6 +293,10 @@ func (r *QoSRegionBase) GetStatus() types.RegionStatus {
 	return r.regionStatus
 }
 
+func (r *QoSRegionBase) GetControlEssentials() types.ControlEssentials {
+	return r.ControlEssentials
+}
+
 // getRegionNameFromMetaCache returns region name owned by container from metacache,
 // to restore region info after restart. If numaID is specified, binding numas of the
 // region will be checked, otherwise only one region should be owned by container.

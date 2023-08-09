@@ -19,6 +19,7 @@ package cpu
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -51,8 +52,11 @@ import (
 
 // metric names for resource advisor
 const (
-	metricRegionStatus    = "region_status"
-	metricRegionOvershoot = "region_overshoot"
+	metricAdvisorPoolSize              = "advisor_pool_size"
+	metricRegionStatus                 = "region_status"
+	metricRegionIndicatorTargetPrefix  = "region_indicator_target_"
+	metricRegionIndicatorCurrentPrefix = "region_indicator_current_"
+	metricRegionIndicatorErrorPrefix   = "region_indicator_error_"
 )
 
 func init() {
@@ -232,6 +236,8 @@ func (cra *cpuResourceAdvisor) update() {
 		return
 	}
 	cra.updateRegionStatus(boundUpper)
+
+	cra.emitMetrics(calculationResult)
 
 	// notify cpu server
 	select {
@@ -419,5 +425,34 @@ func (cra *cpuResourceAdvisor) assembleProvision() (types.InternalCPUCalculation
 		return types.InternalCPUCalculationResult{}, false, fmt.Errorf("no legal provision assembler")
 	}
 
-	return cra.provisionAssembler.AssembleProvision()
+	calculationResult, boundUpper, err := cra.provisionAssembler.AssembleProvision()
+
+	return calculationResult, boundUpper, err
+}
+
+func (cra *cpuResourceAdvisor) emitMetrics(calculationResult types.InternalCPUCalculationResult) {
+	period := cra.conf.SysAdvisorPluginsConfiguration.QoSAwarePluginConfiguration.SyncPeriod
+
+	// emit region indicator related metrics
+	for _, r := range cra.regionMap {
+		tags := region.GetRegionBasicMetricTags(r)
+
+		_ = cra.emitter.StoreInt64(metricRegionStatus, int64(period.Seconds()), metrics.MetricTypeNameCount, tags...)
+
+		indicators := r.GetControlEssentials().Indicators
+		for indicatorName, indicator := range indicators {
+			_ = cra.emitter.StoreFloat64(metricRegionIndicatorTargetPrefix+indicatorName, indicator.Target, metrics.MetricTypeNameRaw, tags...)
+			_ = cra.emitter.StoreFloat64(metricRegionIndicatorCurrentPrefix+indicatorName, indicator.Current, metrics.MetricTypeNameRaw, tags...)
+			_ = cra.emitter.StoreFloat64(metricRegionIndicatorErrorPrefix+indicatorName, indicator.Current-indicator.Target, metrics.MetricTypeNameRaw, tags...)
+		}
+	}
+
+	// emit calculated pool sizes
+	for poolName, poolEntry := range calculationResult.PoolEntries {
+		for numaID, size := range poolEntry {
+			_ = cra.emitter.StoreInt64(metricAdvisorPoolSize, int64(size), metrics.MetricTypeNameRaw,
+				metrics.MetricTag{Key: "name", Val: poolName},
+				metrics.MetricTag{Key: "numa_id", Val: strconv.Itoa(numaID)})
+		}
+	}
 }
