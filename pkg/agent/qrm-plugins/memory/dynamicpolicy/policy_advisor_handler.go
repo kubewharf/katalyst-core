@@ -84,7 +84,7 @@ func (p *DynamicPolicy) lwMemoryAdvisorServer(stopCh <-chan struct{}) error {
 		}
 
 		if err != nil {
-			_ = p.emitter.StoreInt64(util.MetricNameLWMemoryAdvisorServerFailed, 1, metrics.MetricTypeNameRaw)
+			_ = p.emitter.StoreInt64(util.MetricNameLWAdvisorServerFailed, 1, metrics.MetricTypeNameRaw)
 			return fmt.Errorf("receive ListAndWatch response of MemoryAdvisorServer failed with error: %v, grpc code: %v",
 				err, status.Code(err))
 		}
@@ -145,8 +145,14 @@ func (p *DynamicPolicy) handleAdvisorResp(advisorResp *advisorsvc.ListAndWatchRe
 							"subEntryName", subEntryName,
 							"controlKnobName", controlKnobName,
 							"controlKnobValue", controlKnobValue)
+
+						_ = p.emitter.StoreInt64(util.MetricNameMemoryHandleAdvisorContainerEntryFailed, 1,
+							metrics.MetricTypeNameRaw, metrics.ConvertMapToTags(map[string]string{
+								"entryName":    entryName,
+								"subEntryName": subEntryName,
+							})...)
 					} else {
-						general.ErrorS(err, "handle control knob successfully",
+						general.InfoS("handle control knob successfully",
 							"entryName", entryName,
 							"subEntryName", subEntryName,
 							"controlKnobName", controlKnobName,
@@ -183,6 +189,11 @@ func (p *DynamicPolicy) handleAdvisorResp(advisorResp *advisorsvc.ListAndWatchRe
 						"cgroupPath", calculationInfo.CgroupPath,
 						"controlKnobName", controlKnobName,
 						"controlKnobValue", controlKnobValue)
+
+					_ = p.emitter.StoreInt64(util.MetricNameMemoryHandleAdvisorExtraEntryFailed, 1,
+						metrics.MetricTypeNameRaw, metrics.ConvertMapToTags(map[string]string{
+							"cgroupPath": calculationInfo.CgroupPath,
+						})...)
 				} else {
 					general.InfoS("handle control knob successfully",
 						"cgroupPath", calculationInfo.CgroupPath,
@@ -225,6 +236,11 @@ func (p *DynamicPolicy) handleAdvisorMemoryLimitInBytes(entryName, subEntryName 
 				calculationInfo.CgroupPath, err)
 		}
 
+		_ = p.emitter.StoreInt64(util.MetricNameMemoryHandleAdvisorMemoryLimit, calculatedLimitInBytesInt64,
+			metrics.MetricTypeNameRaw, metrics.ConvertMapToTags(map[string]string{
+				"cgroupPath": calculationInfo.CgroupPath,
+			})...)
+
 		return nil
 	}
 
@@ -241,6 +257,12 @@ func (p *DynamicPolicy) handleAdvisorMemoryLimitInBytes(entryName, subEntryName 
 		ControlKnobValue: calculatedLimitInBytes,
 		OciPropertyName:  util.OCIPropertyNameMemoryLimitInBytes,
 	}
+
+	_ = p.emitter.StoreInt64(util.MetricNameMemoryHandleAdvisorMemoryLimit, calculatedLimitInBytesInt64,
+		metrics.MetricTypeNameRaw, metrics.ConvertMapToTags(map[string]string{
+			"entryName":    entryName,
+			"subEntryName": subEntryName,
+		})...)
 
 	return nil
 }
@@ -281,6 +303,12 @@ func (p *DynamicPolicy) handleAdvisorDropCache(entryName, subEntryName string,
 		return fmt.Errorf("add work: %s pod: %s container: %s failed with error: %v", dropCacheWorkName, entryName, subEntryName, err)
 	}
 
+	_ = p.emitter.StoreInt64(util.MetricNameMemoryHandleAdvisorDropCache, 1,
+		metrics.MetricTypeNameRaw, metrics.ConvertMapToTags(map[string]string{
+			"entryName":    entryName,
+			"subEntryName": subEntryName,
+		})...)
+
 	return nil
 }
 
@@ -307,6 +335,12 @@ func (p *DynamicPolicy) handleAdvisorCPUSetMems(entryName, subEntryName string,
 	allocationInfo.NumaAllocationResult = cpusetMems
 	allocationInfo.TopologyAwareAllocations = nil
 	allocationInfo.AggregatedQuantity = 0
+
+	_ = p.emitter.StoreInt64(util.MetricNameMemoryHandleAdvisorCPUSetMems, 1,
+		metrics.MetricTypeNameRaw, metrics.ConvertMapToTags(map[string]string{
+			"entryName":    entryName,
+			"subEntryName": subEntryName,
+		})...)
 
 	return nil
 }

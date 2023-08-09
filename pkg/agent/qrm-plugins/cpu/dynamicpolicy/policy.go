@@ -799,6 +799,7 @@ func (p *DynamicPolicy) RemovePod(ctx context.Context,
 	defer func() {
 		p.Unlock()
 		if err != nil {
+			general.ErrorS(err, "remove pod failed with error", "podUID", req.PodUid)
 			_ = p.emitter.StoreInt64(util.MetricNameRemovePodFailed, 1, metrics.MetricTypeNameRaw)
 		}
 	}()
