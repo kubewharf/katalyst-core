@@ -52,7 +52,8 @@ var podRawMetricNameMapping = map[string]string{
 	consts.MetricLoad1MinContainer: apimetricpod.CustomMetricPodCPULoad1Min,
 	consts.MetricCPUUsageContainer: apimetricpod.CustomMetricPodCPUUsage,
 
-	consts.MetricMemRssContainer: apimetricpod.CustomMetricPodMemoryRSS,
+	consts.MetricMemRssContainer:   apimetricpod.CustomMetricPodMemoryRSS,
+	consts.MetricMemUsageContainer: apimetricpod.CustomMetricPodMemoryUsage,
 }
 
 type podRawChanel struct {
