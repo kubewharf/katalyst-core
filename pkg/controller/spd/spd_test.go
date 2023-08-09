@@ -230,7 +230,7 @@ func TestSPDController_Run(t *testing.T) {
 			go spdController.Run()
 			synced := cache.WaitForCacheSync(ctx.Done(), spdController.syncedFunc...)
 			assert.True(t, synced)
-			time.Sleep(100 * time.Millisecond)
+			time.Sleep(1 * time.Second)
 
 			targetSPD := tt.fields.spd
 			if targetSPD == nil {
