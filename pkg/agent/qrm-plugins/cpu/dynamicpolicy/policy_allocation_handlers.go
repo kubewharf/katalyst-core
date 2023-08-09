@@ -664,7 +664,6 @@ func (p *DynamicPolicy) applyPoolsAndIsolatedInfo(poolsCPUSet map[string]machine
 		}
 	}
 
-	_ = p.emitter.StoreInt64(util.MetricNameIsolatedPodNum, int64(len(newPodEntries)), metrics.MetricTypeNameRaw)
 	if poolsCPUSet[state.PoolNameReclaim].IsEmpty() {
 		return fmt.Errorf("entry: %s is empty", state.PoolNameShare)
 	}
