@@ -112,7 +112,7 @@ func filterAvailableNICsByReq(nics []machine.InterfaceInfo, req *pluginapi.Resou
 	return filteredNICs, nil
 }
 
-func filterNICsByAvailability(nics []machine.InterfaceInfo, req *pluginapi.ResourceRequest, _ *agent.GenericContext) []machine.InterfaceInfo {
+func filterNICsByAvailability(nics []machine.InterfaceInfo, _ *pluginapi.ResourceRequest, _ *agent.GenericContext) []machine.InterfaceInfo {
 	filteredNICs := make([]machine.InterfaceInfo, 0, len(nics))
 	for _, nic := range nics {
 		if !nic.Enable {
@@ -127,10 +127,7 @@ func filterNICsByAvailability(nics []machine.InterfaceInfo, req *pluginapi.Resou
 	}
 
 	if len(filteredNICs) == 0 {
-		general.InfoS("nic list returned by filterNICsByAvailability is empty",
-			"podNamespace", req.PodNamespace,
-			"podName", req.PodName,
-			"containerName", req.ContainerName)
+		general.InfoS("nic list returned by filterNICsByAvailability is empty")
 	}
 
 	return filteredNICs

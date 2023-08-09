@@ -240,6 +240,17 @@ func TestNewStaticPolicy(t *testing.T) {
 	assert.NoError(t, err)
 	assert.NotNil(t, policy)
 	assert.True(t, neetToRun)
+
+	// no valid nics on this node
+	agentCtxInvalid := agentCtx
+	agentCtxInvalid.KatalystMachineInfo.ExtraNetworkInfo.Interface[0].Enable = false
+	agentCtxInvalid.KatalystMachineInfo.ExtraNetworkInfo.Interface[2].Enable = false
+	neetToRun, policy, err = NewStaticPolicy(agentCtxInvalid, conf, nil, NetworkResourcePluginPolicyNameStatic)
+
+	assert.False(t, neetToRun)
+	assert.Equal(t, policy, agent.ComponentStub{})
+	assert.Error(t, err)
+	assert.EqualError(t, err, "no available nics on this node")
 }
 
 func TestRemovePod(t *testing.T) {

@@ -99,6 +99,9 @@ func NewStaticPolicy(agentCtx *agent.GenericContext, conf *config.Configuration,
 	// it is incorrect to reserve bandwidth on those diabled NICs.
 	// we only count active NICs as available network devices and allocate bandwidth on them
 	enabledNICs := filterNICsByAvailability(agentCtx.KatalystMachineInfo.ExtraNetworkInfo.Interface, nil, nil)
+	if len(enabledNICs) == 0 {
+		return false, agent.ComponentStub{}, fmt.Errorf("no available nics on this node")
+	}
 
 	// the NICs should be in order by interface name so that we can adopt specific policies for bandwidth reservation or allocation
 	// e.g. reserve bandwidth for high-priority tasks on the first NIC
