@@ -36,7 +36,6 @@ import (
 
 	apinode "github.com/kubewharf/katalyst-api/pkg/apis/node/v1alpha1"
 	"github.com/kubewharf/katalyst-api/pkg/consts"
-	apiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
 	katalyst_base "github.com/kubewharf/katalyst-core/cmd/base"
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/agent"
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/options"
@@ -146,7 +145,7 @@ func makeStaticPolicy(t *testing.T, hasNic bool) *StaticPolicy {
 		expectedReservation := map[string]uint32{
 			testEth0Name: 4000,
 		}
-		var err error = nil
+		var err error
 		reservation, err = getReservedBandwidth(availableNICs, mockQrmConfig.ReservedBandwidth, FirstNIC)
 		assert.NoError(t, err)
 		assert.Equal(t, expectedReservation, reservation)
@@ -726,7 +725,7 @@ func TestAllocate(t *testing.T) {
 		}
 	}
 
-	// no valid nics on this node ()
+	// no valid nics on this node
 	testCasesNoNic := []struct {
 		description  string
 		noError      bool
@@ -1388,7 +1387,7 @@ func TestGetTopologyAwareResources(t *testing.T) {
 				TopologyLevel: pluginapi.TopologyLevel_SOCKET,
 				Annotations: map[string]string{
 					// testEth0NSName is empty, so remove the prefix
-					apiconsts.ResourceAnnotationKeyResourceIdentifier: testEth0Name,
+					consts.ResourceAnnotationKeyResourceIdentifier: testEth0Name,
 				},
 			},
 		},
@@ -1439,10 +1438,10 @@ func TestGetTopologyAwareResources(t *testing.T) {
 		assert.NotNil(t, resp)
 		if tc.hasNic {
 			assert.Len(t, resp.ContainerTopologyAwareResources.AllocatedResources, 1)
-			assert.Equal(t, resp.ContainerTopologyAwareResources.AllocatedResources[string(apiconsts.ResourceNetBandwidth)].AggregatedQuantity, bwReq)
-			assert.Len(t, resp.ContainerTopologyAwareResources.AllocatedResources[string(apiconsts.ResourceNetBandwidth)].TopologyAwareQuantityList, 1)
+			assert.Equal(t, resp.ContainerTopologyAwareResources.AllocatedResources[string(consts.ResourceNetBandwidth)].AggregatedQuantity, bwReq)
+			assert.Len(t, resp.ContainerTopologyAwareResources.AllocatedResources[string(consts.ResourceNetBandwidth)].TopologyAwareQuantityList, 1)
 
-			assert.Equal(t, resp.ContainerTopologyAwareResources.AllocatedResources[string(apiconsts.ResourceNetBandwidth)].TopologyAwareQuantityList[0], tc.expectedTopologyAwareQuantity)
+			assert.Equal(t, resp.ContainerTopologyAwareResources.AllocatedResources[string(consts.ResourceNetBandwidth)].TopologyAwareQuantityList[0], tc.expectedTopologyAwareQuantity)
 		} else {
 			assert.Equal(t, &pluginapi.GetTopologyAwareResourcesResponse{}, resp)
 		}
@@ -1470,7 +1469,7 @@ func TestGetTopologyAwareAllocatableResources(t *testing.T) {
 					TopologyLevel: pluginapi.TopologyLevel_SOCKET,
 					Annotations: map[string]string{
 						// testEth0NSName is empty, so remove the prefix
-						apiconsts.ResourceAnnotationKeyResourceIdentifier: testEth0Name,
+						consts.ResourceAnnotationKeyResourceIdentifier: testEth0Name,
 					},
 				},
 				{
@@ -1480,7 +1479,7 @@ func TestGetTopologyAwareAllocatableResources(t *testing.T) {
 					Type:          string(apinode.TopologyTypeNIC),
 					TopologyLevel: pluginapi.TopologyLevel_SOCKET,
 					Annotations: map[string]string{
-						apiconsts.ResourceAnnotationKeyResourceIdentifier: fmt.Sprintf("%s-%s", testEth2NSName, testEth2Name),
+						consts.ResourceAnnotationKeyResourceIdentifier: fmt.Sprintf("%s-%s", testEth2NSName, testEth2Name),
 					},
 				},
 			},
@@ -1493,7 +1492,7 @@ func TestGetTopologyAwareAllocatableResources(t *testing.T) {
 					TopologyLevel: pluginapi.TopologyLevel_SOCKET,
 					Annotations: map[string]string{
 						// testEth0NSName is empty, so remove the prefix
-						apiconsts.ResourceAnnotationKeyResourceIdentifier: testEth0Name,
+						consts.ResourceAnnotationKeyResourceIdentifier: testEth0Name,
 					},
 				},
 				{
@@ -1503,7 +1502,7 @@ func TestGetTopologyAwareAllocatableResources(t *testing.T) {
 					Type:          string(apinode.TopologyTypeNIC),
 					TopologyLevel: pluginapi.TopologyLevel_SOCKET,
 					Annotations: map[string]string{
-						apiconsts.ResourceAnnotationKeyResourceIdentifier: fmt.Sprintf("%s-%s", testEth2NSName, testEth2Name),
+						consts.ResourceAnnotationKeyResourceIdentifier: fmt.Sprintf("%s-%s", testEth2NSName, testEth2Name),
 					},
 				},
 			},
@@ -1511,8 +1510,8 @@ func TestGetTopologyAwareAllocatableResources(t *testing.T) {
 		{
 			description:                     "has no valid nic",
 			hasNic:                          false,
-			expectedAllocatableQuantityList: make([]*pluginapi.TopologyAwareQuantity, 0, 0),
-			expectedCapacityQuantityList:    make([]*pluginapi.TopologyAwareQuantity, 0, 0),
+			expectedAllocatableQuantityList: make([]*pluginapi.TopologyAwareQuantity, 0),
+			expectedCapacityQuantityList:    make([]*pluginapi.TopologyAwareQuantity, 0),
 		},
 	}
 
@@ -1525,18 +1524,18 @@ func TestGetTopologyAwareAllocatableResources(t *testing.T) {
 		assert.NoError(t, err)
 
 		if tc.hasNic {
-			assert.Equal(t, resp.AllocatableResources[string(apiconsts.ResourceNetBandwidth)].AggregatedAllocatableQuantity, tc.expectedAllocatableQuantityList[0].ResourceValue+tc.expectedAllocatableQuantityList[1].ResourceValue)
-			assert.Equal(t, resp.AllocatableResources[string(apiconsts.ResourceNetBandwidth)].AggregatedCapacityQuantity, tc.expectedCapacityQuantityList[0].ResourceValue+tc.expectedCapacityQuantityList[1].ResourceValue)
-			assert.Len(t, resp.AllocatableResources[string(apiconsts.ResourceNetBandwidth)].TopologyAwareAllocatableQuantityList, len(tc.expectedAllocatableQuantityList))
-			assert.Len(t, resp.AllocatableResources[string(apiconsts.ResourceNetBandwidth)].TopologyAwareCapacityQuantityList, len(tc.expectedCapacityQuantityList))
+			assert.Equal(t, resp.AllocatableResources[string(consts.ResourceNetBandwidth)].AggregatedAllocatableQuantity, tc.expectedAllocatableQuantityList[0].ResourceValue+tc.expectedAllocatableQuantityList[1].ResourceValue)
+			assert.Equal(t, resp.AllocatableResources[string(consts.ResourceNetBandwidth)].AggregatedCapacityQuantity, tc.expectedCapacityQuantityList[0].ResourceValue+tc.expectedCapacityQuantityList[1].ResourceValue)
+			assert.Len(t, resp.AllocatableResources[string(consts.ResourceNetBandwidth)].TopologyAwareAllocatableQuantityList, len(tc.expectedAllocatableQuantityList))
+			assert.Len(t, resp.AllocatableResources[string(consts.ResourceNetBandwidth)].TopologyAwareCapacityQuantityList, len(tc.expectedCapacityQuantityList))
 
-			assert.Equal(t, resp.AllocatableResources[string(apiconsts.ResourceNetBandwidth)].TopologyAwareAllocatableQuantityList, tc.expectedAllocatableQuantityList)
-			assert.Equal(t, resp.AllocatableResources[string(apiconsts.ResourceNetBandwidth)].TopologyAwareCapacityQuantityList, tc.expectedCapacityQuantityList)
+			assert.Equal(t, resp.AllocatableResources[string(consts.ResourceNetBandwidth)].TopologyAwareAllocatableQuantityList, tc.expectedAllocatableQuantityList)
+			assert.Equal(t, resp.AllocatableResources[string(consts.ResourceNetBandwidth)].TopologyAwareCapacityQuantityList, tc.expectedCapacityQuantityList)
 		} else {
-			assert.Equal(t, float64(0), resp.AllocatableResources[string(apiconsts.ResourceNetBandwidth)].AggregatedAllocatableQuantity)
-			assert.Equal(t, float64(0), resp.AllocatableResources[string(apiconsts.ResourceNetBandwidth)].AggregatedCapacityQuantity)
-			assert.Len(t, resp.AllocatableResources[string(apiconsts.ResourceNetBandwidth)].TopologyAwareAllocatableQuantityList, 0)
-			assert.Len(t, resp.AllocatableResources[string(apiconsts.ResourceNetBandwidth)].TopologyAwareCapacityQuantityList, 0)
+			assert.Equal(t, float64(0), resp.AllocatableResources[string(consts.ResourceNetBandwidth)].AggregatedAllocatableQuantity)
+			assert.Equal(t, float64(0), resp.AllocatableResources[string(consts.ResourceNetBandwidth)].AggregatedCapacityQuantity)
+			assert.Len(t, resp.AllocatableResources[string(consts.ResourceNetBandwidth)].TopologyAwareAllocatableQuantityList, 0)
+			assert.Len(t, resp.AllocatableResources[string(consts.ResourceNetBandwidth)].TopologyAwareCapacityQuantityList, 0)
 		}
 	}
 
@@ -1547,10 +1546,10 @@ func TestGetTopologyAwareAllocatableResources(t *testing.T) {
 		resp, err := policy.GetTopologyAwareAllocatableResources(context.TODO(), &pluginapi.GetTopologyAwareAllocatableResourcesRequest{})
 		assert.NotNil(t, resp)
 		assert.NoError(t, err)
-		assert.Equal(t, resp.AllocatableResources[string(apiconsts.ResourceNetBandwidth)].AggregatedAllocatableQuantity, float64(38500))
-		assert.Equal(t, resp.AllocatableResources[string(apiconsts.ResourceNetBandwidth)].AggregatedCapacityQuantity, float64(42500))
-		assert.Len(t, resp.AllocatableResources[string(apiconsts.ResourceNetBandwidth)].TopologyAwareAllocatableQuantityList, 2)
-		assert.Len(t, resp.AllocatableResources[string(apiconsts.ResourceNetBandwidth)].TopologyAwareCapacityQuantityList, 2)
+		assert.Equal(t, resp.AllocatableResources[string(consts.ResourceNetBandwidth)].AggregatedAllocatableQuantity, float64(38500))
+		assert.Equal(t, resp.AllocatableResources[string(consts.ResourceNetBandwidth)].AggregatedCapacityQuantity, float64(42500))
+		assert.Len(t, resp.AllocatableResources[string(consts.ResourceNetBandwidth)].TopologyAwareAllocatableQuantityList, 2)
+		assert.Len(t, resp.AllocatableResources[string(consts.ResourceNetBandwidth)].TopologyAwareCapacityQuantityList, 2)
 
 		expectedTopologyAwareAllocatableQuantityList := []*pluginapi.TopologyAwareQuantity{
 			{
@@ -1561,7 +1560,7 @@ func TestGetTopologyAwareAllocatableResources(t *testing.T) {
 				TopologyLevel: pluginapi.TopologyLevel_SOCKET,
 				Annotations: map[string]string{
 					// testEth0NSName is empty, so remove the prefix
-					apiconsts.ResourceAnnotationKeyResourceIdentifier: testEth0Name,
+					consts.ResourceAnnotationKeyResourceIdentifier: testEth0Name,
 				},
 			},
 			{
@@ -1571,11 +1570,11 @@ func TestGetTopologyAwareAllocatableResources(t *testing.T) {
 				Type:          string(apinode.TopologyTypeNIC),
 				TopologyLevel: pluginapi.TopologyLevel_SOCKET,
 				Annotations: map[string]string{
-					apiconsts.ResourceAnnotationKeyResourceIdentifier: fmt.Sprintf("%s-%s", testEth2NSName, testEth2Name),
+					consts.ResourceAnnotationKeyResourceIdentifier: fmt.Sprintf("%s-%s", testEth2NSName, testEth2Name),
 				},
 			},
 		}
-		assert.Equal(t, resp.AllocatableResources[string(apiconsts.ResourceNetBandwidth)].TopologyAwareAllocatableQuantityList, expectedTopologyAwareAllocatableQuantityList)
+		assert.Equal(t, resp.AllocatableResources[string(consts.ResourceNetBandwidth)].TopologyAwareAllocatableQuantityList, expectedTopologyAwareAllocatableQuantityList)
 
 		expectedTopologyAwareCapacityQuantityList := []*pluginapi.TopologyAwareQuantity{
 			{
@@ -1586,7 +1585,7 @@ func TestGetTopologyAwareAllocatableResources(t *testing.T) {
 				TopologyLevel: pluginapi.TopologyLevel_SOCKET,
 				Annotations: map[string]string{
 					// testEth0NSName is empty, so remove the prefix
-					apiconsts.ResourceAnnotationKeyResourceIdentifier: testEth0Name,
+					consts.ResourceAnnotationKeyResourceIdentifier: testEth0Name,
 				},
 			},
 			{
@@ -1596,11 +1595,11 @@ func TestGetTopologyAwareAllocatableResources(t *testing.T) {
 				Type:          string(apinode.TopologyTypeNIC),
 				TopologyLevel: pluginapi.TopologyLevel_SOCKET,
 				Annotations: map[string]string{
-					apiconsts.ResourceAnnotationKeyResourceIdentifier: fmt.Sprintf("%s-%s", testEth2NSName, testEth2Name),
+					consts.ResourceAnnotationKeyResourceIdentifier: fmt.Sprintf("%s-%s", testEth2NSName, testEth2Name),
 				},
 			},
 		}
-		assert.Equal(t, resp.AllocatableResources[string(apiconsts.ResourceNetBandwidth)].TopologyAwareCapacityQuantityList, expectedTopologyAwareCapacityQuantityList)
+		assert.Equal(t, resp.AllocatableResources[string(consts.ResourceNetBandwidth)].TopologyAwareCapacityQuantityList, expectedTopologyAwareCapacityQuantityList)
 	*/
 }
 
