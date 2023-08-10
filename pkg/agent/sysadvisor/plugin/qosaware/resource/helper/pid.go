@@ -19,11 +19,14 @@ package helper
 import (
 	"math"
 
+	"k8s.io/klog/v2"
+
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 )
 
 type PIDController struct {
+	variableName       string
 	resourceEssentials types.ResourceEssentials
 	params             types.FirstOrderPIDParams
 	adjustmentTotal    float64
@@ -32,8 +35,9 @@ type PIDController struct {
 	errorValuePrev     float64
 }
 
-func NewPIDController(params types.FirstOrderPIDParams) *PIDController {
+func NewPIDController(variableName string, params types.FirstOrderPIDParams) *PIDController {
 	return &PIDController{
+		variableName:    variableName,
 		params:          params,
 		adjustmentTotal: 0,
 		controlKnobPrev: 0,
@@ -61,7 +65,7 @@ func (c *PIDController) Adjust(controlKnob, target, current float64) float64 {
 	errorRate := math.Abs(c.errorValue) - math.Abs(c.errorValuePrev)
 
 	// apply adjustment when current is out of deadband
-	if (errorRaw > 0 && errorRaw/target > c.params.DeadbandUpperPct) || (errorRaw < 0 && errorRaw/target < -c.params.DeadbandUpperPct) {
+	if (errorRaw > 0 && errorRaw/target > c.params.DeadbandUpperPct) || (errorRaw < 0 && errorRaw/target < -c.params.DeadbandLowerPct) {
 		if c.errorValue >= 0 {
 			kp = c.params.Kpp
 			kpSign = 1
@@ -96,8 +100,8 @@ func (c *PIDController) Adjust(controlKnob, target, current float64) float64 {
 	c.adjustmentTotal = general.Clamp(c.adjustmentTotal, c.params.AdjustmentLowerBound, c.params.AdjustmentUpperBound)
 	c.adjustmentTotal = general.Clamp(c.adjustmentTotal, c.resourceEssentials.ResourceLowerBound-controlKnob, c.resourceEssentials.ResourceUpperBound-controlKnob)
 
-	general.Infof("adjustment %.2f adjustmentTotal %.2f target %.2f current %.2f errorValue %.2f errorRate %.2f pterm %.2f dterm %.2f",
-		adjustment, c.adjustmentTotal, target, current, c.errorValue, errorRate, pterm, dterm)
+	klog.Infof("[qosaware-cpu-pid] %v adjustment %.2f adjustmentTotal %.2f target %.2f current %.2f errorValue %.2f errorRate %.2f pterm %.2f dterm %.2f",
+		c.variableName, adjustment, c.adjustmentTotal, target, current, c.errorValue, errorRate, pterm, dterm)
 
 	return controlKnob + c.adjustmentTotal
 }

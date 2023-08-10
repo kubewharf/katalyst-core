@@ -107,6 +107,9 @@ func NewQoSRegionBase(name string, ownerPoolName string, regionType types.QoSReg
 		provisionPolicies: make([]*internalProvisionPolicy, 0),
 		headroomPolicies:  make([]*internalHeadroomPolicy, 0),
 
+		provisionPolicyNameInUse: types.CPUProvisionPolicyNone,
+		headroomPolicyNameInUse:  types.CPUHeadroomPolicyNone,
+
 		metaReader: metaReader,
 		metaServer: metaServer,
 		emitter:    emitter,
@@ -372,8 +375,8 @@ func (r *QoSRegionBase) initHeadroomPolicy(conf *config.Configuration, extraConf
 	}
 }
 
-// getIndicators gets indicators by given map of indicator name to the getter of current value
-func (r *QoSRegionBase) getIndicators(indicatorCurrentGetters map[string]types.IndicatorCurrentGetter) (types.Indicator, error) {
+// getIndicators returns indicator targets from spd and current by region specific indicator getters
+func (r *QoSRegionBase) getIndicators() (types.Indicator, error) {
 	ctx := context.Background()
 	indicatorTargetConfig, ok := r.conf.RegionIndicatorTargetConfiguration[r.regionType]
 	if !ok {
@@ -384,7 +387,7 @@ func (r *QoSRegionBase) getIndicators(indicatorCurrentGetters map[string]types.I
 	for _, indicator := range indicatorTargetConfig {
 		indicatorName := indicator.Name
 		defaultTarget := indicator.Target
-		indicatorCurrentGetter, ok := indicatorCurrentGetters[indicatorName]
+		indicatorCurrentGetter, ok := r.indicatorCurrentGetters[indicatorName]
 		if !ok {
 			continue
 		}

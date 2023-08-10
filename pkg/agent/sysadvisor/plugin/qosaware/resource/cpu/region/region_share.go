@@ -49,7 +49,8 @@ func NewQoSRegionShare(ci *types.ContainerInfo, conf *config.Configuration, extr
 	}
 
 	r.indicatorCurrentGetters = map[string]types.IndicatorCurrentGetter{
-		string(v1alpha1.TargetIndicatorNameCPUSchedWait): r.getPodSchedWaitCurrent,
+		string(v1alpha1.TargetIndicatorNameCPUSchedWait):  r.getPoolCPUSchedWait,
+		string(v1alpha1.TargetIndicatorNameCPUUsageRatio): r.getPoolCPUUsageRatio,
 	}
 	return r
 }
@@ -63,7 +64,7 @@ func (r *QoSRegionShare) TryUpdateProvision() {
 		ReclaimOverlap: false,
 	}
 
-	indicators, err := r.getIndicators(r.indicatorCurrentGetters)
+	indicators, err := r.getIndicators()
 	if err != nil {
 		general.Errorf("get indicators failed: %v", err)
 	} else {
@@ -107,7 +108,7 @@ func (r *QoSRegionShare) getControlKnobs() types.ControlKnob {
 	}
 }
 
-func (r *QoSRegionShare) getPodSchedWaitCurrent() (float64, error) {
+func (r *QoSRegionShare) getPoolCPUSchedWait() (float64, error) {
 	poolInfo, ok := r.metaReader.GetPoolInfo(r.ownerPoolName)
 	if !ok {
 		general.Errorf("pool %v not exist", r.ownerPoolName)
@@ -115,6 +116,18 @@ func (r *QoSRegionShare) getPodSchedWaitCurrent() (float64, error) {
 	}
 
 	cpuSet := poolInfo.TopologyAwareAssignments.MergeCPUSet()
-	shedWait := r.metaServer.AggregateCoreMetric(cpuSet, pkgconsts.MetricCPUSchedwait, metric.AggregatorAvg)
-	return shedWait.Value, nil
+	schedWait := r.metaServer.AggregateCoreMetric(cpuSet, pkgconsts.MetricCPUSchedwait, metric.AggregatorAvg)
+	return schedWait.Value, nil
+}
+
+func (r *QoSRegionShare) getPoolCPUUsageRatio() (float64, error) {
+	poolInfo, ok := r.metaReader.GetPoolInfo(r.ownerPoolName)
+	if !ok {
+		general.Errorf("pool %v not exist", r.ownerPoolName)
+		return 0, nil
+	}
+
+	cpuSet := poolInfo.TopologyAwareAssignments.MergeCPUSet()
+	usageRatio := r.metaServer.AggregateCoreMetric(cpuSet, pkgconsts.MetricCPUUsageRatio, metric.AggregatorAvg)
+	return usageRatio.Value, nil
 }

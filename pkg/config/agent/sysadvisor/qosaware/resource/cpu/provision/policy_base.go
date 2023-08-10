@@ -39,6 +39,10 @@ func NewCPUProvisionPolicyConfiguration() *CPUProvisionPolicyConfiguration {
 					Name:   string(v1alpha1.TargetIndicatorNameCPUSchedWait),
 					Target: 460,
 				},
+				{
+					Name:   string(v1alpha1.TargetIndicatorNameCPUUsageRatio),
+					Target: 0.8,
+				},
 			},
 			types.QoSRegionTypeDedicatedNumaExclusive: {
 				{
