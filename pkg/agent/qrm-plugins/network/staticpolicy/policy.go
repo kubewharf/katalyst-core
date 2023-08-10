@@ -30,6 +30,7 @@ import (
 	maputil "k8s.io/kubernetes/pkg/util/maps"
 
 	apinode "github.com/kubewharf/katalyst-api/pkg/apis/node/v1alpha1"
+	"github.com/kubewharf/katalyst-api/pkg/consts"
 	apiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
 
 	"github.com/kubewharf/katalyst-api/pkg/plugins/skeleton"
@@ -99,15 +100,15 @@ func NewStaticPolicy(agentCtx *agent.GenericContext, conf *config.Configuration,
 	// it is incorrect to reserve bandwidth on those diabled NICs.
 	// we only count active NICs as available network devices and allocate bandwidth on them
 	enabledNICs := filterNICsByAvailability(agentCtx.KatalystMachineInfo.ExtraNetworkInfo.Interface, nil, nil)
-	if len(enabledNICs) == 0 {
-		return false, agent.ComponentStub{}, fmt.Errorf("no available nics on this node")
+	if len(enabledNICs) != 0 {
+		// the NICs should be in order by interface name so that we can adopt specific policies for bandwidth reservation or allocation
+		// e.g. reserve bandwidth for high-priority tasks on the first NIC
+		sort.SliceStable(enabledNICs, func(i, j int) bool {
+			return enabledNICs[i].Iface < enabledNICs[j].Iface
+		})
+	} else {
+		general.Infof("no valid nics on this node")
 	}
-
-	// the NICs should be in order by interface name so that we can adopt specific policies for bandwidth reservation or allocation
-	// e.g. reserve bandwidth for high-priority tasks on the first NIC
-	sort.SliceStable(enabledNICs, func(i, j int) bool {
-		return enabledNICs[i].Iface < enabledNICs[j].Iface
-	})
 
 	// we only support one spreading policy for now: reserve the bandwidth on the first NIC.
 	// TODO: make the reservation policy configurable
@@ -583,13 +584,42 @@ func (p *StaticPolicy) Allocate(_ context.Context,
 	}
 
 	if len(candidateNICs) == 0 {
-		general.ErrorS(err, "insufficient bandwidth on this node to satisfy the request",
-			"podNamespace", req.PodNamespace,
-			"podName", req.PodName,
-			"containerName", req.ContainerName,
-			"netBandwidthReq(Mbps)", reqInt,
-			"nicState", p.state.GetMachineState().String())
-		return nil, fmt.Errorf("failed to meet the bandwidth requirement of %d Mbps", reqInt)
+		if reqInt > 0 {
+			general.ErrorS(err, "insufficient bandwidth on this node to satisfy the request",
+				"podNamespace", req.PodNamespace,
+				"podName", req.PodName,
+				"containerName", req.ContainerName,
+				"netBandwidthReq(Mbps)", reqInt,
+				"nicState", p.state.GetMachineState().String())
+			return nil, fmt.Errorf("failed to meet the bandwidth requirement of %d Mbps", reqInt)
+		} else {
+			return &pluginapi.ResourceAllocationResponse{
+				PodUid:         req.PodUid,
+				PodNamespace:   req.PodNamespace,
+				PodName:        req.PodName,
+				ContainerName:  req.ContainerName,
+				ContainerType:  req.ContainerType,
+				ContainerIndex: req.ContainerIndex,
+				PodRole:        req.PodRole,
+				PodType:        req.PodType,
+				ResourceName:   req.ResourceName,
+				AllocationResult: &pluginapi.ResourceAllocation{
+					ResourceAllocation: map[string]*pluginapi.ResourceAllocationInfo{
+						string(consts.ResourceNetBandwidth): {
+							IsNodeResource:    true,
+							IsScalarResource:  true, // to avoid re-allocating
+							AllocatedQuantity: 0,
+							AllocationResult:  "",
+							ResourceHints: &pluginapi.ListOfTopologyHints{
+								Hints: []*pluginapi.TopologyHint{},
+							},
+						},
+					},
+				},
+				Labels:      general.DeepCopyMap(req.Labels),
+				Annotations: general.DeepCopyMap(req.Annotations),
+			}, nil
+		}
 	}
 
 	// we only support one policy and hard code it for now
@@ -784,6 +814,11 @@ func (p *StaticPolicy) calculateHints(req *pluginapi.ResourceRequest) (map[strin
 		},
 	}
 
+	// return empty hints immediately if no valid nics on this node
+	if len(p.nics) == 0 {
+		return hints, nil
+	}
+
 	candidateNICs, err := p.selectNICsByReq(req)
 	if err != nil {
 		return hints, fmt.Errorf("failed to select available NICs: %v", err)
@@ -866,6 +901,10 @@ func (p *StaticPolicy) selectNICsByReq(req *pluginapi.ResourceRequest) ([]machin
 		p.filterAvailableNICsByBandwidth,
 		filterNICsByNamespaceType,
 		filterNICsByHint,
+	}
+
+	if len(p.nics) == 0 {
+		return []machine.InterfaceInfo{}, nil
 	}
 
 	candidateNICs, err := filterAvailableNICsByReq(p.nics, req, p.agentCtx, nicFilters)

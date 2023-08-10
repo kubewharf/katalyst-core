@@ -27,10 +27,6 @@ import (
 // GenerateMachineState returns NICResourcesMap based on
 // machine info and reserved resources
 func GenerateMachineState(conf *qrm.QRMPluginsConfiguration, nics []machine.InterfaceInfo, reservation map[string]uint32) (NICMap, error) {
-	if len(nics) == 0 {
-		return nil, fmt.Errorf("GenerateMachineState got invalid nics")
-	}
-
 	defaultMachineState := make(NICMap)
 	for _, iface := range nics {
 		reservedBandwidth := reservation[iface.Iface]
