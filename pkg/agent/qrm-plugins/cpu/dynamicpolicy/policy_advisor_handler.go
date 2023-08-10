@@ -233,7 +233,7 @@ func (p *DynamicPolicy) lwCPUAdvisorServer(stopCh <-chan struct{}) error {
 		}
 
 		if err != nil {
-			_ = p.emitter.StoreInt64(util.MetricNameLWCPUAdvisorServerFailed, 1, metrics.MetricTypeNameRaw)
+			_ = p.emitter.StoreInt64(util.MetricNameLWAdvisorServerFailed, 1, metrics.MetricTypeNameRaw)
 			return fmt.Errorf("receive ListAndWatch response of CPUAdvisorServer failed with error: %v, grpc code: %v",
 				err, status.Code(err))
 		}
@@ -252,12 +252,12 @@ func (p *DynamicPolicy) allocateByCPUAdvisor(resp *advisorapi.ListAndWatchRespon
 	}
 
 	general.Infof("allocateByCPUAdvisor is called")
-	_ = p.emitter.StoreInt64(util.MetricNameAllocateByCPUAdvisorServerCalled, 1, metrics.MetricTypeNameRaw)
+	_ = p.emitter.StoreInt64(util.MetricNameHandleAdvisorRespCalled, 1, metrics.MetricTypeNameRaw)
 	p.Lock()
 	defer func() {
 		p.Unlock()
 		if err != nil {
-			_ = p.emitter.StoreInt64(util.MetricNameAllocateByCPUAdvisorServerFailed, 1, metrics.MetricTypeNameRaw)
+			_ = p.emitter.StoreInt64(util.MetricNameHandleAdvisorRespFailed, 1, metrics.MetricTypeNameRaw)
 		}
 	}()
 

@@ -25,12 +25,23 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/advisorsvc"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/memory/dynamicpolicy/state"
+	"github.com/kubewharf/katalyst-core/pkg/config"
+	dynamicconfig "github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic"
+	"github.com/kubewharf/katalyst-core/pkg/metaserver"
+	"github.com/kubewharf/katalyst-core/pkg/metrics"
 )
 
 // MemoryControlKnobHandler may trigger operations for corresponding control knobs
 // or set control knob value to memory plugin checkpoint and take effect asynchronously
-type MemoryControlKnobHandler func(entryName, subEntryName string,
-	calculationInfo *advisorsvc.CalculationInfo, podResourceEntries state.PodResourceEntries) error
+type MemoryControlKnobHandler func(
+	coreConf *config.Configuration,
+	extraConf interface{},
+	dynamicConf *dynamicconfig.DynamicAgentConfiguration,
+	emitter metrics.MetricEmitter,
+	metaServer *metaserver.MetaServer,
+	entryName, subEntryName string,
+	calculationInfo *advisorsvc.CalculationInfo,
+	podResourceEntries state.PodResourceEntries) error
 
 var memoryControlKnobHandlers sync.Map
 
@@ -48,8 +59,15 @@ func GetRegisteredControlKnobHandlers() map[MemoryControlKnobName]MemoryControlK
 }
 
 func ControlKnobHandlerWithChecker(handler MemoryControlKnobHandler) MemoryControlKnobHandler {
-	return func(entryName, subEntryName string,
-		calculationInfo *advisorsvc.CalculationInfo, podResourceEntries state.PodResourceEntries) error {
+	return func(
+		coreConf *config.Configuration,
+		extraConf interface{},
+		dynamicConf *dynamicconfig.DynamicAgentConfiguration,
+		emitter metrics.MetricEmitter,
+		metaServer *metaserver.MetaServer,
+		entryName, subEntryName string,
+		calculationInfo *advisorsvc.CalculationInfo,
+		podResourceEntries state.PodResourceEntries) error {
 
 		if calculationInfo == nil {
 			return fmt.Errorf("handler got nil calculationInfo")
@@ -58,6 +76,10 @@ func ControlKnobHandlerWithChecker(handler MemoryControlKnobHandler) MemoryContr
 		} else if calculationInfo.CgroupPath == "" &&
 			podResourceEntries[v1.ResourceMemory][entryName][subEntryName] == nil {
 			return fmt.Errorf("calculationInfo indicates no target")
+		} else if emitter == nil {
+			return fmt.Errorf("handler got nil emitter")
+		} else if metaServer == nil {
+			return fmt.Errorf("handler got nil metaServer")
 		}
 
 		if podResourceEntries[v1.ResourceMemory][entryName][subEntryName] != nil &&
@@ -65,6 +87,9 @@ func ControlKnobHandlerWithChecker(handler MemoryControlKnobHandler) MemoryContr
 			podResourceEntries[v1.ResourceMemory][entryName][subEntryName].ExtraControlKnobInfo = make(map[string]commonstate.ControlKnobInfo)
 		}
 
-		return handler(entryName, subEntryName, calculationInfo, podResourceEntries)
+		return handler(coreConf, extraConf, dynamicConf,
+			emitter, metaServer,
+			entryName, subEntryName,
+			calculationInfo, podResourceEntries)
 	}
 }

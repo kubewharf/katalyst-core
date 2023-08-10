@@ -257,6 +257,28 @@ func (k *KatalystCustomConfigTargetController) katalystCustomConfigTargetHandler
 			if err != nil {
 				return err
 			}
+		} else if !oldKCCTargetResource.CheckValid() && targetResource.CheckValid() {
+			// if old kcc is overlap and change to valid now, it needs trigger all other invalid kcc targets to reconcile
+			targets, err := k.listAllKCCTargetResource(gvr)
+			if err != nil {
+				return err
+			}
+
+			var invalidTargets []util.KCCTargetResource
+			for _, target := range targets {
+				if targetResource.GetName() == target.GetName() && targetResource.GetNamespace() == target.GetNamespace() {
+					continue
+				}
+
+				if !target.CheckValid() {
+					invalidTargets = append(invalidTargets, target)
+				}
+			}
+
+			err = k.enqueueTargets(gvr, invalidTargets)
+			if err != nil {
+				return err
+			}
 		}
 	}
 

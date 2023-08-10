@@ -19,6 +19,7 @@ package memory
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"sync"
 	"time"
 
@@ -51,6 +52,13 @@ const (
 	startUpPeriod    = 30 * time.Second
 	nonExistNumaID   = -1
 	scaleDenominator = 10000
+
+	metricsNameNodeMemoryPressureState = "node_memory_pressure_state"
+	metricsNameNodeMemoryReclaimTarget = "node_memory_reclaim_target"
+	metricsNameNumaMemoryPressureState = "numa_memory_pressure_state"
+	metricsNameNumaMemoryReclaimTarget = "numa_memory_reclaim_target"
+
+	metricsTagKeyNumaID = "numa_id"
 )
 
 // memoryResourceAdvisor updates memory headroom for reclaimed resource
@@ -238,6 +246,9 @@ func (ra *memoryResourceAdvisor) detectNUMAPressure(numaID int) (*types.MemoryPr
 		targetReclaimed.Set(int64(4*total*scaleFactor/scaleDenominator - free))
 	}
 
+	_ = ra.emitter.StoreInt64(metricsNameNumaMemoryPressureState, int64(pressureState), metrics.MetricTypeNameRaw, metrics.MetricTag{Key: metricsTagKeyNumaID, Val: strconv.Itoa(numaID)})
+	_ = ra.emitter.StoreInt64(metricsNameNumaMemoryReclaimTarget, targetReclaimed.Value(), metrics.MetricTypeNameRaw, metrics.MetricTag{Key: metricsTagKeyNumaID, Val: strconv.Itoa(numaID)})
+
 	return &types.MemoryPressureCondition{
 		TargetReclaimed: targetReclaimed,
 		State:           pressureState,
@@ -265,6 +276,10 @@ func (ra *memoryResourceAdvisor) detectNodePressureCondition() (*types.MemoryPre
 		pressureState = types.MemoryPressureTuneMemCg
 		targetReclaimed.Set(int64(4*total*scaleFactor/10000 - free))
 	}
+
+	_ = ra.emitter.StoreInt64(metricsNameNodeMemoryPressureState, int64(pressureState), metrics.MetricTypeNameRaw)
+	_ = ra.emitter.StoreInt64(metricsNameNodeMemoryReclaimTarget, targetReclaimed.Value(), metrics.MetricTypeNameRaw)
+
 	return &types.MemoryPressureCondition{
 		TargetReclaimed: targetReclaimed,
 		State:           pressureState,

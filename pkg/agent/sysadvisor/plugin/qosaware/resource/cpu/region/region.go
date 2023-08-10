@@ -68,16 +68,30 @@ type QoSRegion interface {
 
 	// GetStatus returns region status
 	GetStatus() types.RegionStatus
+	// GetControlEssentials returns the latest control essentials
+	GetControlEssentials() types.ControlEssentials
 }
 
-// GetRegionBasicMetricTags returns metric tag slice of basic region info
+// GetRegionBasicMetricTags returns metric tag slice of region info and status
 func GetRegionBasicMetricTags(r QoSRegion) []metrics.MetricTag {
-	ret := []metrics.MetricTag{
+	provisionPolicyPrior, provisionPolicyInUse := r.GetProvisionPolicy()
+	headroomPolicyPrior, headroomPolicyInUse := r.GetHeadRoomPolicy()
+
+	tags := []metrics.MetricTag{
 		{Key: "region_name", Val: r.Name()},
 		{Key: "region_type", Val: string(r.Type())},
 		{Key: "owner_pool_name", Val: r.OwnerPoolName()},
 		{Key: "binding_numas", Val: r.GetBindingNumas().String()},
+		{Key: "provision_policy_prior", Val: string(provisionPolicyPrior)},
+		{Key: "provision_policy_in_use", Val: string(provisionPolicyInUse)},
+		{Key: "headroom_policy_prior", Val: string(headroomPolicyPrior)},
+		{Key: "headroom_policy_in_use", Val: string(headroomPolicyInUse)},
 		{Key: "bound_type", Val: string(r.GetStatus().BoundType)},
 	}
-	return ret
+
+	for k, v := range r.GetStatus().OvershootStatus {
+		tags = append(tags, metrics.MetricTag{Key: k, Val: string(v)})
+	}
+
+	return tags
 }

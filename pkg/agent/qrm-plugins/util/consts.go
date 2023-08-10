@@ -28,25 +28,31 @@ type AllocationHandler func(context.Context, *pluginapi.ResourceRequest) (*plugi
 type HintHandler func(context.Context, *pluginapi.ResourceRequest) (*pluginapi.ResourceHintsResponse, error)
 
 const (
-	MetricNameAllocateByCPUAdvisorServerCalled = "alloc_by_cpu_advisor_server_called"
-	MetricNameHandleAdvisorRespCalled          = "handle_advisor_resp_called"
-	MetricNameIsolatedPodNum                   = "isolated_pod_num"
-	MetricNamePoolSize                         = "pool_size"
-	MetricNameAllocateByCPUAdvisorServerFailed = "alloc_by_cpu_advisor_server_failed"
-	MetricNameHandleAdvisorRespFailed          = "handle_advisor_resp_failed"
-	MetricNameAllocateFailed                   = "alloc_failed"
-	MetricNameGetTopologyHintsFailed           = "get_topology_hints_failed"
-	MetricNameRemovePodFailed                  = "remove_pod_failed"
-	MetricNameLWCPUAdvisorServerFailed         = "lw_cpu_advisor_server_failed"
-	MetricNameLWMemoryAdvisorServerFailed      = "lw_memory_advisor_server_failed"
-	MetricNameHeartBeat                        = "heartbeat"
-	MetricNameRealStateInvalid                 = "real_state_invalid"
-	MetricNameCPUSetInvalid                    = "cpuset_invalid"
-	MetricNameCPUSetOverlap                    = "cpuset_overlap"
-	MetricNameMemSetInvalid                    = "memset_invalid"
-	MetricNameMemSetOverlap                    = "memset_overlap"
-	MetricNameNodeMemsetInvalid                = "node_memset_invalid"
-	MetricNameLWRecvStuck                      = "lw_recv_stuck"
+	// common metrics for all types of qrm plugins
+	MetricNameHeartBeat               = "heartbeat"
+	MetricNameAllocateFailed          = "alloc_failed"
+	MetricNameGetTopologyHintsFailed  = "get_topology_hints_failed"
+	MetricNameRemovePodFailed         = "remove_pod_failed"
+	MetricNameLWAdvisorServerFailed   = "lw_advisor_server_failed"
+	MetricNameHandleAdvisorRespCalled = "handle_advisor_resp_called"
+	MetricNameHandleAdvisorRespFailed = "handle_advisor_resp_failed"
+	MetricNameLWRecvStuck             = "lw_recv_stuck"
+
+	// metrics for cpu plugin
+	MetricNamePoolSize         = "pool_size"
+	MetricNameRealStateInvalid = "real_state_invalid"
+	MetricNameCPUSetInvalid    = "cpuset_invalid"
+	MetricNameCPUSetOverlap    = "cpuset_overlap"
+
+	// metrics for memory plugin
+	MetricNameMemSetInvalid                           = "memset_invalid"
+	MetricNameMemSetOverlap                           = "memset_overlap"
+	MetricNameNodeMemsetInvalid                       = "node_memset_invalid"
+	MetricNameMemoryHandleAdvisorContainerEntryFailed = "memory_handle_advisor_container_entry_failed"
+	MetricNameMemoryHandleAdvisorExtraEntryFailed     = "memory_handle_advisor_extra_entry_failed"
+	MetricNameMemoryHandleAdvisorMemoryLimit          = "memory_handle_advisor_memory_limit"
+	MetricNameMemoryHandleAdvisorDropCache            = "memory_handle_advisor_drop_cache"
+	MetricNameMemoryHandleAdvisorCPUSetMems           = "memory_handle_advisor_cpuset_mems"
 )
 
 // those are OCI property names to be used by QRM plugins

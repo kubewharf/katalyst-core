@@ -31,6 +31,9 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/memory/dynamicpolicy/memoryadvisor"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/memory/dynamicpolicy/state"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util"
+	"github.com/kubewharf/katalyst-core/pkg/config"
+	dynamicconfig "github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic"
+	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/asyncworker"
 	cgroupcommon "github.com/kubewharf/katalyst-core/pkg/util/cgroup/common"
@@ -84,7 +87,7 @@ func (p *DynamicPolicy) lwMemoryAdvisorServer(stopCh <-chan struct{}) error {
 		}
 
 		if err != nil {
-			_ = p.emitter.StoreInt64(util.MetricNameLWMemoryAdvisorServerFailed, 1, metrics.MetricTypeNameRaw)
+			_ = p.emitter.StoreInt64(util.MetricNameLWAdvisorServerFailed, 1, metrics.MetricTypeNameRaw)
 			return fmt.Errorf("receive ListAndWatch response of MemoryAdvisorServer failed with error: %v, grpc code: %v",
 				err, status.Code(err))
 		}
@@ -137,7 +140,9 @@ func (p *DynamicPolicy) handleAdvisorResp(advisorResp *advisorsvc.ListAndWatchRe
 					"controlKnobValue", controlKnobValue)
 				handler := handlers[memoryadvisor.MemoryControlKnobName(controlKnobName)]
 				if handler != nil {
-					err := handler(entryName, subEntryName, calculationInfo, podResourceEntries)
+					err := handler(nil, nil, nil,
+						p.emitter, p.metaServer,
+						entryName, subEntryName, calculationInfo, podResourceEntries)
 
 					if err != nil {
 						general.ErrorS(err, "handle control knob failed",
@@ -145,8 +150,14 @@ func (p *DynamicPolicy) handleAdvisorResp(advisorResp *advisorsvc.ListAndWatchRe
 							"subEntryName", subEntryName,
 							"controlKnobName", controlKnobName,
 							"controlKnobValue", controlKnobValue)
+
+						_ = p.emitter.StoreInt64(util.MetricNameMemoryHandleAdvisorContainerEntryFailed, 1,
+							metrics.MetricTypeNameRaw, metrics.ConvertMapToTags(map[string]string{
+								"entryName":    entryName,
+								"subEntryName": subEntryName,
+							})...)
 					} else {
-						general.ErrorS(err, "handle control knob successfully",
+						general.InfoS("handle control knob successfully",
 							"entryName", entryName,
 							"subEntryName", subEntryName,
 							"controlKnobName", controlKnobName,
@@ -176,13 +187,20 @@ func (p *DynamicPolicy) handleAdvisorResp(advisorResp *advisorsvc.ListAndWatchRe
 				"controlKnobValue", controlKnobValue)
 			handler := handlers[memoryadvisor.MemoryControlKnobName(controlKnobName)]
 			if handler != nil {
-				err := handler("", "", calculationInfo, podResourceEntries)
+				err := handler(nil, nil, nil,
+					p.emitter, p.metaServer,
+					"", "", calculationInfo, podResourceEntries)
 
 				if err != nil {
 					general.ErrorS(err, "handle control knob failed",
 						"cgroupPath", calculationInfo.CgroupPath,
 						"controlKnobName", controlKnobName,
 						"controlKnobValue", controlKnobValue)
+
+					_ = p.emitter.StoreInt64(util.MetricNameMemoryHandleAdvisorExtraEntryFailed, 1,
+						metrics.MetricTypeNameRaw, metrics.ConvertMapToTags(map[string]string{
+							"cgroupPath": calculationInfo.CgroupPath,
+						})...)
 				} else {
 					general.InfoS("handle control knob successfully",
 						"cgroupPath", calculationInfo.CgroupPath,
@@ -204,7 +222,13 @@ func (p *DynamicPolicy) handleAdvisorResp(advisorResp *advisorsvc.ListAndWatchRe
 	return nil
 }
 
-func (p *DynamicPolicy) handleAdvisorMemoryLimitInBytes(entryName, subEntryName string,
+func handleAdvisorMemoryLimitInBytes(
+	_ *config.Configuration,
+	_ interface{},
+	_ *dynamicconfig.DynamicAgentConfiguration,
+	emitter metrics.MetricEmitter,
+	metaServer *metaserver.MetaServer,
+	entryName, subEntryName string,
 	calculationInfo *advisorsvc.CalculationInfo, podResourceEntries state.PodResourceEntries) error {
 
 	calculatedLimitInBytes := calculationInfo.CalculationResult.Values[string(memoryadvisor.ControlKnobKeyMemoryLimitInBytes)]
@@ -225,6 +249,11 @@ func (p *DynamicPolicy) handleAdvisorMemoryLimitInBytes(entryName, subEntryName 
 				calculationInfo.CgroupPath, err)
 		}
 
+		_ = emitter.StoreInt64(util.MetricNameMemoryHandleAdvisorMemoryLimit, calculatedLimitInBytesInt64,
+			metrics.MetricTypeNameRaw, metrics.ConvertMapToTags(map[string]string{
+				"cgroupPath": calculationInfo.CgroupPath,
+			})...)
+
 		return nil
 	}
 
@@ -242,10 +271,22 @@ func (p *DynamicPolicy) handleAdvisorMemoryLimitInBytes(entryName, subEntryName 
 		OciPropertyName:  util.OCIPropertyNameMemoryLimitInBytes,
 	}
 
+	_ = emitter.StoreInt64(util.MetricNameMemoryHandleAdvisorMemoryLimit, calculatedLimitInBytesInt64,
+		metrics.MetricTypeNameRaw, metrics.ConvertMapToTags(map[string]string{
+			"entryName":    entryName,
+			"subEntryName": subEntryName,
+		})...)
+
 	return nil
 }
 
-func (p *DynamicPolicy) handleAdvisorDropCache(entryName, subEntryName string,
+func (p *DynamicPolicy) handleAdvisorDropCache(
+	_ *config.Configuration,
+	_ interface{},
+	_ *dynamicconfig.DynamicAgentConfiguration,
+	emitter metrics.MetricEmitter,
+	metaServer *metaserver.MetaServer,
+	entryName, subEntryName string,
 	calculationInfo *advisorsvc.CalculationInfo, podResourceEntries state.PodResourceEntries) error {
 
 	dropCache := calculationInfo.CalculationResult.Values[string(memoryadvisor.ControlKnobKeyDropCache)]
@@ -263,7 +304,7 @@ func (p *DynamicPolicy) handleAdvisorDropCache(entryName, subEntryName string,
 		return nil
 	}
 
-	containerID, err := p.metaServer.GetContainerID(entryName, subEntryName)
+	containerID, err := metaServer.GetContainerID(entryName, subEntryName)
 	if err != nil {
 		return fmt.Errorf("get container id of pod: %s container: %s failed with error: %v", entryName, subEntryName, err)
 	}
@@ -281,10 +322,22 @@ func (p *DynamicPolicy) handleAdvisorDropCache(entryName, subEntryName string,
 		return fmt.Errorf("add work: %s pod: %s container: %s failed with error: %v", dropCacheWorkName, entryName, subEntryName, err)
 	}
 
+	_ = emitter.StoreInt64(util.MetricNameMemoryHandleAdvisorDropCache, 1,
+		metrics.MetricTypeNameRaw, metrics.ConvertMapToTags(map[string]string{
+			"entryName":    entryName,
+			"subEntryName": subEntryName,
+		})...)
+
 	return nil
 }
 
-func (p *DynamicPolicy) handleAdvisorCPUSetMems(entryName, subEntryName string,
+func handleAdvisorCPUSetMems(
+	_ *config.Configuration,
+	_ interface{},
+	_ *dynamicconfig.DynamicAgentConfiguration,
+	emitter metrics.MetricEmitter,
+	metaServer *metaserver.MetaServer,
+	entryName, subEntryName string,
 	calculationInfo *advisorsvc.CalculationInfo, podResourceEntries state.PodResourceEntries) error {
 
 	cpusetMemsStr := calculationInfo.CalculationResult.Values[string(memoryadvisor.ControlKnobKeyCPUSetMems)]
@@ -307,6 +360,12 @@ func (p *DynamicPolicy) handleAdvisorCPUSetMems(entryName, subEntryName string,
 	allocationInfo.NumaAllocationResult = cpusetMems
 	allocationInfo.TopologyAwareAllocations = nil
 	allocationInfo.AggregatedQuantity = 0
+
+	_ = emitter.StoreInt64(util.MetricNameMemoryHandleAdvisorCPUSetMems, 1,
+		metrics.MetricTypeNameRaw, metrics.ConvertMapToTags(map[string]string{
+			"entryName":    entryName,
+			"subEntryName": subEntryName,
+		})...)
 
 	return nil
 }

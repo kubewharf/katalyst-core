@@ -793,12 +793,13 @@ func (p *DynamicPolicy) RemovePod(ctx context.Context,
 	if req == nil {
 		return nil, fmt.Errorf("RemovePod got nil req")
 	}
-	general.InfoS("is called", "podUID", req.PodUid)
+	general.InfoS("called", "podUID", req.PodUid)
 
 	p.Lock()
 	defer func() {
 		p.Unlock()
 		if err != nil {
+			general.ErrorS(err, "remove pod failed with error", "podUID", req.PodUid)
 			_ = p.emitter.StoreInt64(util.MetricNameRemovePodFailed, 1, metrics.MetricTypeNameRaw)
 		}
 	}()
@@ -816,9 +817,9 @@ func (p *DynamicPolicy) RemovePod(ctx context.Context,
 		return nil, err
 	}
 
-	err = p.adjustAllocationEntries()
-	if err != nil {
-		general.ErrorS(err, "adjustAllocationEntries failed", "podUID", req.PodUid)
+	aErr := p.adjustAllocationEntries()
+	if aErr != nil {
+		general.ErrorS(aErr, "adjustAllocationEntries failed", "podUID", req.PodUid)
 	}
 
 	return &pluginapi.RemovePodResponse{}, nil
@@ -843,10 +844,17 @@ func (p *DynamicPolicy) removePod(podUID string) error {
 
 func (p *DynamicPolicy) removeContainer(podUID, containerName string) error {
 	podEntries := p.state.GetPodEntries()
-	if podEntries[podUID][containerName] == nil {
+
+	found := false
+	if podEntries[podUID][containerName] != nil {
+		found = true
+	}
+
+	delete(podEntries[podUID], containerName)
+
+	if !found {
 		return nil
 	}
-	delete(podEntries[podUID], containerName)
 
 	updatedMachineState, err := generateMachineStateFromPodEntries(p.machineInfo.CPUTopology, podEntries)
 	if err != nil {

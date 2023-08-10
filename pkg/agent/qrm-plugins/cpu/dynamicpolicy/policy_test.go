@@ -3016,3 +3016,75 @@ func TestSchedIdle(t *testing.T) {
 		as.Equal("1", contents)
 	}
 }
+
+func TestRemoveContainer(t *testing.T) {
+	t.Parallel()
+
+	as := require.New(t)
+
+	tmpDir, err := ioutil.TempDir("", "checkpoint-TestRemoveContainer")
+	as.Nil(err)
+	defer os.RemoveAll(tmpDir)
+
+	cpuTopology, err := machine.GenerateDummyCPUTopology(16, 2, 4)
+	as.Nil(err)
+
+	dynamicPolicy, err := getTestDynamicPolicyWithInitialization(cpuTopology, tmpDir)
+	as.Nil(err)
+
+	podUID := string(uuid.NewUUID())
+	containerName := "testName"
+	testName := "testName"
+
+	podEntries := state.PodEntries{
+		podUID: state.ContainerEntries{
+			containerName: &state.AllocationInfo{
+				PodUid:                   podUID,
+				PodNamespace:             testName,
+				PodName:                  testName,
+				ContainerName:            containerName,
+				ContainerType:            pluginapi.ContainerType_MAIN.String(),
+				ContainerIndex:           0,
+				RampUp:                   false,
+				OwnerPoolName:            state.PoolNameShare,
+				AllocationResult:         machine.MustParse("1,3-6,9,11-14"),
+				OriginalAllocationResult: machine.MustParse("1,3-6,9,11-14"),
+				TopologyAwareAssignments: map[int]machine.CPUSet{
+					0: machine.NewCPUSet(1, 9),
+					1: machine.NewCPUSet(3, 11),
+					2: machine.NewCPUSet(4, 5, 11, 12),
+					3: machine.NewCPUSet(6, 14),
+				},
+				OriginalTopologyAwareAssignments: map[int]machine.CPUSet{
+					0: machine.NewCPUSet(1, 9),
+					1: machine.NewCPUSet(3, 11),
+					2: machine.NewCPUSet(4, 5, 11, 12),
+					3: machine.NewCPUSet(6, 14),
+				},
+				Labels: map[string]string{
+					consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
+				},
+				Annotations: map[string]string{
+					consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
+				},
+				QoSLevel:        consts.PodAnnotationQoSLevelSharedCores,
+				RequestQuantity: 2,
+			},
+		},
+	}
+
+	dynamicPolicy.state.SetPodEntries(podEntries)
+
+	allocationInfo := dynamicPolicy.state.GetAllocationInfo(podUID, containerName)
+	as.NotNil(allocationInfo)
+
+	dynamicPolicy.removeContainer(podUID, containerName)
+
+	allocationInfo = dynamicPolicy.state.GetAllocationInfo(podUID, containerName)
+	as.Nil(allocationInfo)
+
+	dynamicPolicy.removeContainer(podUID, containerName)
+
+	allocationInfo = dynamicPolicy.state.GetAllocationInfo(podUID, containerName)
+	as.Nil(allocationInfo)
+}

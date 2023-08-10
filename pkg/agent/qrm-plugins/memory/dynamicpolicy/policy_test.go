@@ -792,6 +792,9 @@ func TestAllocate(t *testing.T) {
 			dynamicPolicy.qosConfig.EnhancementDefaultValues = tc.enhancementDefaultValues
 		}
 
+		dynamicPolicy.enableMemroyAdvisor = true
+		dynamicPolicy.advisorClient = advisorsvc.NewStubAdvisorServiceClient()
+
 		resp, err := dynamicPolicy.Allocate(context.Background(), tc.req)
 		as.Nil(err)
 
@@ -2077,11 +2080,11 @@ func TestHandleAdvisorResp(t *testing.T) {
 		}
 
 		memoryadvisor.RegisterControlKnobHandler(memoryadvisor.ControlKnobKeyMemoryLimitInBytes,
-			memoryadvisor.ControlKnobHandlerWithChecker(dynamicPolicy.handleAdvisorMemoryLimitInBytes))
+			memoryadvisor.ControlKnobHandlerWithChecker(handleAdvisorMemoryLimitInBytes))
+		memoryadvisor.RegisterControlKnobHandler(memoryadvisor.ControlKnobKeyCPUSetMems,
+			memoryadvisor.ControlKnobHandlerWithChecker(handleAdvisorCPUSetMems))
 		memoryadvisor.RegisterControlKnobHandler(memoryadvisor.ControlKnobKeyDropCache,
 			memoryadvisor.ControlKnobHandlerWithChecker(dynamicPolicy.handleAdvisorDropCache))
-		memoryadvisor.RegisterControlKnobHandler(memoryadvisor.ControlKnobKeyCPUSetMems,
-			memoryadvisor.ControlKnobHandlerWithChecker(dynamicPolicy.handleAdvisorCPUSetMems))
 
 		machineState, err := state.GenerateMachineStateFromPodEntries(machineInfo, tc.podResourceEntries, resourcesReservedMemory)
 		as.Nil(err)
@@ -2563,4 +2566,67 @@ func TestNewAndStartDynamicPolicy(t *testing.T) {
 
 	cancel()
 	wg.Wait()
+}
+
+func TestRemoveContainer(t *testing.T) {
+	t.Parallel()
+
+	as := require.New(t)
+
+	tmpDir, err := ioutil.TempDir("", "checkpoint-TestRemoveContainer")
+	as.Nil(err)
+	defer os.RemoveAll(tmpDir)
+
+	cpuTopology, err := machine.GenerateDummyCPUTopology(16, 2, 4)
+	as.Nil(err)
+
+	machineInfo := &info.MachineInfo{}
+
+	dynamicPolicy, err := getTestDynamicPolicyWithInitialization(cpuTopology, machineInfo, tmpDir)
+	as.Nil(err)
+
+	podUID := "podUID"
+	containerName := "testName"
+
+	dynamicPolicy.state.SetPodResourceEntries(state.PodResourceEntries{
+		v1.ResourceMemory: state.PodEntries{
+			podUID: state.ContainerEntries{
+				containerName: &state.AllocationInfo{
+					PodUid:               "podUID",
+					PodNamespace:         "testName",
+					PodName:              "testName",
+					ContainerName:        "testName",
+					ContainerType:        pluginapi.ContainerType_MAIN.String(),
+					ContainerIndex:       0,
+					QoSLevel:             consts.PodAnnotationQoSLevelDedicatedCores,
+					RampUp:               false,
+					AggregatedQuantity:   9663676416,
+					NumaAllocationResult: machine.NewCPUSet(0),
+					TopologyAwareAllocations: map[int]uint64{
+						0: 9663676416,
+					},
+					Annotations: map[string]string{
+						consts.PodAnnotationQoSLevelKey:                  consts.PodAnnotationQoSLevelDedicatedCores,
+						consts.PodAnnotationMemoryEnhancementNumaBinding: consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
+					},
+					Labels: map[string]string{
+						consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelDedicatedCores,
+					},
+				},
+			},
+		},
+	})
+
+	allocationInfo := dynamicPolicy.state.GetAllocationInfo(v1.ResourceMemory, podUID, containerName)
+	as.NotNil(allocationInfo)
+
+	dynamicPolicy.removeContainer(podUID, containerName)
+
+	allocationInfo = dynamicPolicy.state.GetAllocationInfo(v1.ResourceMemory, podUID, containerName)
+	as.Nil(allocationInfo)
+
+	dynamicPolicy.removeContainer(podUID, containerName)
+
+	allocationInfo = dynamicPolicy.state.GetAllocationInfo(v1.ResourceMemory, podUID, containerName)
+	as.Nil(allocationInfo)
 }

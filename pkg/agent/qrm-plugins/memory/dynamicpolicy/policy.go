@@ -26,6 +26,7 @@ import (
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/wait"
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
+	maputil "k8s.io/kubernetes/pkg/util/maps"
 	"k8s.io/utils/clock"
 
 	apiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
@@ -196,11 +197,11 @@ func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration
 	}
 
 	memoryadvisor.RegisterControlKnobHandler(memoryadvisor.ControlKnobKeyMemoryLimitInBytes,
-		memoryadvisor.ControlKnobHandlerWithChecker(policyImplement.handleAdvisorMemoryLimitInBytes))
+		memoryadvisor.ControlKnobHandlerWithChecker(handleAdvisorMemoryLimitInBytes))
+	memoryadvisor.RegisterControlKnobHandler(memoryadvisor.ControlKnobKeyCPUSetMems,
+		memoryadvisor.ControlKnobHandlerWithChecker(handleAdvisorCPUSetMems))
 	memoryadvisor.RegisterControlKnobHandler(memoryadvisor.ControlKnobKeyDropCache,
 		memoryadvisor.ControlKnobHandlerWithChecker(policyImplement.handleAdvisorDropCache))
-	memoryadvisor.RegisterControlKnobHandler(memoryadvisor.ControlKnobKeyCPUSetMems,
-		memoryadvisor.ControlKnobHandlerWithChecker(policyImplement.handleAdvisorCPUSetMems))
 
 	return true, &agent.PluginWrapper{GenericPlugin: pluginWrapper}, nil
 }
@@ -355,24 +356,39 @@ func (p *DynamicPolicy) GetTopologyHints(ctx context.Context,
 	return p.hintHandlers[qosLevel](ctx, req)
 }
 
-func (p *DynamicPolicy) RemovePod(_ context.Context,
-	req *pluginapi.RemovePodRequest) (*pluginapi.RemovePodResponse, error) {
+func (p *DynamicPolicy) RemovePod(ctx context.Context,
+	req *pluginapi.RemovePodRequest) (resp *pluginapi.RemovePodResponse, err error) {
 	if req == nil {
 		return nil, fmt.Errorf("RemovePod got nil req")
 	}
 
-	p.Lock()
-	defer p.Unlock()
+	general.InfoS("called", "podUID", req.PodUid)
 
-	err := p.removePod(req.PodUid)
+	p.Lock()
+	defer func() {
+		p.Unlock()
+		if err != nil {
+			_ = p.emitter.StoreInt64(util.MetricNameRemovePodFailed, 1, metrics.MetricTypeNameRaw)
+		}
+	}()
+
+	if p.enableMemroyAdvisor {
+		_, err = p.advisorClient.RemovePod(ctx, &advisorsvc.RemovePodRequest{PodUid: req.PodUid})
+		if err != nil {
+			return nil, fmt.Errorf("remove pod in QoS aware server failed with error: %v", err)
+		}
+	}
+
+	err = p.removePod(req.PodUid)
 	if err != nil {
 		general.ErrorS(err, "remove pod failed with error", "podUID", req.PodUid)
+		_ = p.emitter.StoreInt64(util.MetricNameRemovePodFailed, 1, metrics.MetricTypeNameRaw)
 		return nil, err
 	}
 
-	err = p.adjustAllocationEntries()
-	if err != nil {
-		general.ErrorS(err, "adjustAllocationEntries failed", "podUID", req.PodUid)
+	aErr := p.adjustAllocationEntries()
+	if aErr != nil {
+		general.ErrorS(aErr, "adjustAllocationEntries failed", "podUID", req.PodUid)
 	}
 
 	return &pluginapi.RemovePodResponse{}, nil
@@ -607,11 +623,33 @@ func (p *DynamicPolicy) Allocate(ctx context.Context,
 
 	p.Lock()
 	defer func() {
-		if respErr != nil {
+		// calls sys-advisor to inform the latest container
+		if p.enableMemroyAdvisor && respErr == nil && req.ContainerType != pluginapi.ContainerType_INIT {
+			_, err := p.advisorClient.AddContainer(ctx, &advisorsvc.AddContainerRequest{
+				PodUid:          req.PodUid,
+				PodNamespace:    req.PodNamespace,
+				PodName:         req.PodName,
+				ContainerName:   req.ContainerName,
+				ContainerType:   req.ContainerType,
+				ContainerIndex:  req.ContainerIndex,
+				Labels:          maputil.CopySS(req.Labels),
+				Annotations:     maputil.CopySS(req.Annotations),
+				QosLevel:        qosLevel,
+				RequestQuantity: uint64(reqInt),
+			})
+
+			if err != nil {
+				resp = nil
+				respErr = fmt.Errorf("add container to qos aware server failed with error: %v", err)
+				_ = p.removeContainer(req.PodUid, req.ContainerName)
+			}
+		} else if respErr != nil {
 			_ = p.removeContainer(req.PodUid, req.ContainerName)
 			_ = p.emitter.StoreInt64(util.MetricNameAllocateFailed, 1, metrics.MetricTypeNameRaw)
 		}
+
 		p.Unlock()
+		return
 	}()
 
 	allocationInfo := p.state.GetAllocationInfo(v1.ResourceMemory, req.PodUid, req.ContainerName)
@@ -680,8 +718,18 @@ func (p *DynamicPolicy) removePod(podUID string) error {
 
 func (p *DynamicPolicy) removeContainer(podUID, containerName string) error {
 	podResourceEntries := p.state.GetPodResourceEntries()
+
+	found := false
 	for _, podEntries := range podResourceEntries {
+		if podEntries[podUID][containerName] != nil {
+			found = true
+		}
+
 		delete(podEntries[podUID], containerName)
+	}
+
+	if !found {
+		return nil
 	}
 
 	resourcesMachineState, err := state.GenerateMachineStateFromPodEntries(p.state.GetMachineInfo(), podResourceEntries, p.state.GetReservedMemory())
