@@ -107,8 +107,8 @@ func TestKatalystCustomConfigController_Run(t *testing.T) {
 				kccTargetList: []runtime.Object{
 					&v1alpha1.AdminQoSConfiguration{
 						TypeMeta: v1.TypeMeta{
-							Kind:       "EvictionConfiguration",
-							APIVersion: "config.katalyst.kubewharf.io/v1alpha1",
+							Kind:       crd.ResourceKindAdminQoSConfiguration,
+							APIVersion: v1alpha1.SchemeGroupVersion.String(),
 						},
 						ObjectMeta: v1.ObjectMeta{
 							Name:      "default",
@@ -167,8 +167,8 @@ func TestKatalystCustomConfigController_Run(t *testing.T) {
 				kccTargetList: []runtime.Object{
 					&v1alpha1.AdminQoSConfiguration{
 						TypeMeta: v1.TypeMeta{
-							Kind:       "EvictionConfiguration",
-							APIVersion: "config.katalyst.kubewharf.io/v1alpha1",
+							Kind:       crd.ResourceKindAdminQoSConfiguration,
+							APIVersion: v1alpha1.SchemeGroupVersion.String(),
 						},
 						ObjectMeta: v1.ObjectMeta{
 							Name:      "default",
@@ -231,8 +231,8 @@ func TestKatalystCustomConfigController_Run(t *testing.T) {
 				kccTargetList: []runtime.Object{
 					&v1alpha1.AdminQoSConfiguration{
 						TypeMeta: v1.TypeMeta{
-							Kind:       "EvictionConfiguration",
-							APIVersion: "config.katalyst.kubewharf.io/v1alpha1",
+							Kind:       crd.ResourceKindAdminQoSConfiguration,
+							APIVersion: v1alpha1.SchemeGroupVersion.String(),
 						},
 						ObjectMeta: v1.ObjectMeta{
 							Name:      "default",

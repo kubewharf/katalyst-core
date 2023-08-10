@@ -24,6 +24,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	v1 "k8s.io/api/core/v1"
 	apiequality "k8s.io/apimachinery/pkg/api/equality"
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/labels"
@@ -91,9 +92,11 @@ func TestKatalystCustomConfigTargetController_Run(t *testing.T) {
 	t.Parallel()
 
 	type args struct {
-		kccList       []runtime.Object
-		kccTargetList []runtime.Object
-		kccConfig     *config.Configuration
+		kccList              []runtime.Object
+		kccListChanged       []runtime.Object
+		kccTargetList        []runtime.Object
+		kccTargetListChanged []runtime.Object
+		kccConfig            *config.Configuration
 	}
 	tests := []struct {
 		name string
@@ -122,8 +125,8 @@ func TestKatalystCustomConfigTargetController_Run(t *testing.T) {
 				kccTargetList: []runtime.Object{
 					&v1alpha1.AdminQoSConfiguration{
 						TypeMeta: metav1.TypeMeta{
-							Kind:       "EvictionConfiguration",
-							APIVersion: "config.katalyst.kubewharf.io/v1alpha1",
+							Kind:       crd.ResourceKindAdminQoSConfiguration,
+							APIVersion: v1alpha1.SchemeGroupVersion.String(),
 						},
 						ObjectMeta: metav1.ObjectMeta{
 							Name:      "default",
@@ -143,8 +146,8 @@ func TestKatalystCustomConfigTargetController_Run(t *testing.T) {
 					},
 					&v1alpha1.AdminQoSConfiguration{
 						TypeMeta: metav1.TypeMeta{
-							Kind:       "EvictionConfiguration",
-							APIVersion: "config.katalyst.kubewharf.io/v1alpha1",
+							Kind:       crd.ResourceKindAdminQoSConfiguration,
+							APIVersion: v1alpha1.SchemeGroupVersion.String(),
 						},
 						ObjectMeta: metav1.ObjectMeta{
 							Name:      "aa=bb",
@@ -167,8 +170,8 @@ func TestKatalystCustomConfigTargetController_Run(t *testing.T) {
 					},
 					&v1alpha1.AdminQoSConfiguration{
 						TypeMeta: metav1.TypeMeta{
-							Kind:       "EvictionConfiguration",
-							APIVersion: "config.katalyst.kubewharf.io/v1alpha1",
+							Kind:       crd.ResourceKindAdminQoSConfiguration,
+							APIVersion: v1alpha1.SchemeGroupVersion.String(),
 						},
 						ObjectMeta: metav1.ObjectMeta{
 							Name:              "node-1",
@@ -200,6 +203,104 @@ func TestKatalystCustomConfigTargetController_Run(t *testing.T) {
 				},
 			},
 		},
+		{
+			name: "kcc target from valid to invalid",
+			args: args{
+				kccList: []runtime.Object{
+					&v1alpha1.KatalystCustomConfig{
+						ObjectMeta: metav1.ObjectMeta{
+							Name:      "test-kcc",
+							Namespace: "default",
+						},
+						Spec: v1alpha1.KatalystCustomConfigSpec{
+							TargetType: crd.AdminQoSConfigurationGVR,
+							NodeLabelSelectorAllowedKeyList: []v1alpha1.PriorityNodeLabelSelectorAllowedKeyList{
+								{
+									Priority: 0,
+									KeyList:  []string{"aa"},
+								},
+							},
+						},
+					},
+				},
+				kccTargetList: []runtime.Object{
+					&v1alpha1.AdminQoSConfiguration{
+						TypeMeta: metav1.TypeMeta{
+							Kind:       crd.ResourceKindAdminQoSConfiguration,
+							APIVersion: v1alpha1.SchemeGroupVersion.String(),
+						},
+						ObjectMeta: metav1.ObjectMeta{
+							Name:      "config-1",
+							Namespace: "default",
+						},
+						Spec: v1alpha1.AdminQoSConfigurationSpec{
+							GenericConfigSpec: v1alpha1.GenericConfigSpec{
+								NodeLabelSelector: "aa=bb",
+							},
+							Config: v1alpha1.AdminQoSConfig{
+								EvictionConfig: &v1alpha1.EvictionConfig{
+									ReclaimedResourcesEvictionConfig: &v1alpha1.ReclaimedResourcesEvictionConfig{
+										EvictionThreshold: map[v1.ResourceName]float64{
+											v1.ResourceCPU: 5.0,
+										},
+									},
+								},
+							},
+						},
+					},
+					&v1alpha1.AdminQoSConfiguration{
+						TypeMeta: metav1.TypeMeta{
+							Kind:       crd.ResourceKindAdminQoSConfiguration,
+							APIVersion: v1alpha1.SchemeGroupVersion.String(),
+						},
+						ObjectMeta: metav1.ObjectMeta{
+							Name:      "config-2",
+							Namespace: "default",
+						},
+						Spec: v1alpha1.AdminQoSConfigurationSpec{
+							GenericConfigSpec: v1alpha1.GenericConfigSpec{
+								NodeLabelSelector: "aa=bb",
+							},
+							Config: v1alpha1.AdminQoSConfig{
+								EvictionConfig: &v1alpha1.EvictionConfig{
+									ReclaimedResourcesEvictionConfig: &v1alpha1.ReclaimedResourcesEvictionConfig{
+										EvictionThreshold: map[v1.ResourceName]float64{
+											v1.ResourceCPU: 5.0,
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+				kccTargetListChanged: []runtime.Object{
+					&v1alpha1.AdminQoSConfiguration{
+						TypeMeta: metav1.TypeMeta{
+							Kind:       crd.ResourceKindAdminQoSConfiguration,
+							APIVersion: v1alpha1.SchemeGroupVersion.String(),
+						},
+						ObjectMeta: metav1.ObjectMeta{
+							Name:      "config-2",
+							Namespace: "default",
+						},
+						Spec: v1alpha1.AdminQoSConfigurationSpec{
+							GenericConfigSpec: v1alpha1.GenericConfigSpec{
+								NodeLabelSelector: "aa=cc",
+							},
+							Config: v1alpha1.AdminQoSConfig{
+								EvictionConfig: &v1alpha1.EvictionConfig{
+									ReclaimedResourcesEvictionConfig: &v1alpha1.ReclaimedResourcesEvictionConfig{
+										EvictionThreshold: map[v1.ResourceName]float64{
+											v1.ResourceCPU: 5.0,
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -215,7 +316,7 @@ func TestKatalystCustomConfigTargetController_Run(t *testing.T) {
 				genericContext.InternalInformerFactory.Config().V1alpha1().KatalystCustomConfigs(),
 			)
 
-			kcc, err := NewKatalystCustomConfigTargetController(
+			targetController, err := NewKatalystCustomConfigTargetController(
 				ctx,
 				conf.GenericConfiguration,
 				conf.GenericControllerConfiguration,
@@ -229,9 +330,23 @@ func TestKatalystCustomConfigTargetController_Run(t *testing.T) {
 
 			genericContext.StartInformer(ctx)
 			go targetHandler.Run()
-			go kcc.Run()
+			go targetController.Run()
 
-			cache.WaitForCacheSync(kcc.ctx.Done(), kcc.syncedFunc...)
+			cache.WaitForCacheSync(targetController.ctx.Done(), targetController.syncedFunc...)
+			time.Sleep(1 * time.Second)
+
+			for _, kcc := range tt.args.kccListChanged {
+				_, err := genericContext.Client.InternalClient.ConfigV1alpha1().CustomNodeConfigs().Update(ctx, kcc.(*v1alpha1.CustomNodeConfig), metav1.UpdateOptions{})
+				assert.NoError(t, err)
+			}
+			time.Sleep(1 * time.Second)
+
+			for _, kccTarget := range tt.args.kccTargetListChanged {
+				gvr, _ := meta.UnsafeGuessKindToResource(kccTarget.GetObjectKind().GroupVersionKind())
+				obj := toTestUnstructured(kccTarget)
+				_, err := genericContext.Client.DynamicClient.Resource(gvr).Namespace(obj.GetNamespace()).Update(ctx, obj, metav1.UpdateOptions{})
+				assert.NoError(t, err)
+			}
 			time.Sleep(1 * time.Second)
 		})
 	}

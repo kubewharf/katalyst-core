@@ -39,10 +39,10 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/util/native"
 )
 
-// GetRelatedCNCForTargetConfig get current related cnc for the config obey follow rule:
-// 1. only updated and deleting config will be concerned, which means that ObservedGeneration and Generation is equal, to make sure the config has been checked by kcc controller
-// 2. only valid config will be concerned, because invalid config cover cnc should keep current state
-// 3. select related cnc by the config's labelSelector or nodeNames
+// GetRelatedCNCForTargetConfig retrieves the currently related CNCs for the configuration based on the following rules:
+// 1. Only configurations that have been updated or marked for deletion are considered. This is determined by checking if ObservedGeneration and Generation are equal, ensuring that the configuration has been validated by the KCC controller.
+// 2. Only valid configurations are considered, as invalid configurations may affect the associated CNCs and should maintain their current state.
+// 3. All CNCs are selected because modifying the target resource can involve more CNCs than those initially selected for the target resource.
 func GetRelatedCNCForTargetConfig(customNodeConfigLister v1alpha1.CustomNodeConfigLister, unstructured *unstructured.Unstructured) ([]*apisv1alpha1.CustomNodeConfig, error) {
 	targetResource := util.ToKCCTargetResource(unstructured)
 	if !targetResource.IsUpdated() && targetResource.GetDeletionTimestamp() == nil {
@@ -51,36 +51,6 @@ func GetRelatedCNCForTargetConfig(customNodeConfigLister v1alpha1.CustomNodeConf
 
 	if targetResource.CheckExpired(time.Now()) {
 		return nil, nil
-	}
-
-	labelSelector := targetResource.GetLabelSelector()
-	if labelSelector != "" {
-		selector, err := labels.Parse(labelSelector)
-		if err != nil {
-			return nil, fmt.Errorf("obj %s is valid but parse labelSelector failed",
-				native.GenerateUniqObjectNameKey(targetResource))
-		}
-
-		customNodeConfigList, err := customNodeConfigLister.List(selector)
-		if err != nil {
-			return nil, err
-		}
-
-		return customNodeConfigList, nil
-	}
-
-	nodeNames := targetResource.GetNodeNames()
-	if len(nodeNames) > 0 {
-		var relatedCustomNodeConfig []*apisv1alpha1.CustomNodeConfig
-		for _, nodeName := range nodeNames {
-			cnc, err := customNodeConfigLister.Get(nodeName)
-			if err != nil {
-				return nil, err
-			}
-
-			relatedCustomNodeConfig = append(relatedCustomNodeConfig, cnc)
-		}
-		return relatedCustomNodeConfig, nil
 	}
 
 	return customNodeConfigLister.List(labels.Everything())
