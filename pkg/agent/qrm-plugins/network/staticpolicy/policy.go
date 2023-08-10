@@ -30,7 +30,6 @@ import (
 	maputil "k8s.io/kubernetes/pkg/util/maps"
 
 	apinode "github.com/kubewharf/katalyst-api/pkg/apis/node/v1alpha1"
-	"github.com/kubewharf/katalyst-api/pkg/consts"
 	apiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
 
 	"github.com/kubewharf/katalyst-api/pkg/plugins/skeleton"
@@ -584,42 +583,13 @@ func (p *StaticPolicy) Allocate(_ context.Context,
 	}
 
 	if len(candidateNICs) == 0 {
-		if reqInt > 0 {
-			general.ErrorS(err, "insufficient bandwidth on this node to satisfy the request",
-				"podNamespace", req.PodNamespace,
-				"podName", req.PodName,
-				"containerName", req.ContainerName,
-				"netBandwidthReq(Mbps)", reqInt,
-				"nicState", p.state.GetMachineState().String())
-			return nil, fmt.Errorf("failed to meet the bandwidth requirement of %d Mbps", reqInt)
-		} else {
-			return &pluginapi.ResourceAllocationResponse{
-				PodUid:         req.PodUid,
-				PodNamespace:   req.PodNamespace,
-				PodName:        req.PodName,
-				ContainerName:  req.ContainerName,
-				ContainerType:  req.ContainerType,
-				ContainerIndex: req.ContainerIndex,
-				PodRole:        req.PodRole,
-				PodType:        req.PodType,
-				ResourceName:   req.ResourceName,
-				AllocationResult: &pluginapi.ResourceAllocation{
-					ResourceAllocation: map[string]*pluginapi.ResourceAllocationInfo{
-						string(consts.ResourceNetBandwidth): {
-							IsNodeResource:    true,
-							IsScalarResource:  true, // to avoid re-allocating
-							AllocatedQuantity: 0,
-							AllocationResult:  "",
-							ResourceHints: &pluginapi.ListOfTopologyHints{
-								Hints: []*pluginapi.TopologyHint{},
-							},
-						},
-					},
-				},
-				Labels:      general.DeepCopyMap(req.Labels),
-				Annotations: general.DeepCopyMap(req.Annotations),
-			}, nil
-		}
+		general.ErrorS(err, "insufficient bandwidth on this node to satisfy the request",
+			"podNamespace", req.PodNamespace,
+			"podName", req.PodName,
+			"containerName", req.ContainerName,
+			"netBandwidthReq(Mbps)", reqInt,
+			"nicState", p.state.GetMachineState().String())
+		return nil, fmt.Errorf("failed to meet the bandwidth requirement of %d Mbps", reqInt)
 	}
 
 	// we only support one policy and hard code it for now
