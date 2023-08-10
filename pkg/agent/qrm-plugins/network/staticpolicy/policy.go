@@ -99,12 +99,15 @@ func NewStaticPolicy(agentCtx *agent.GenericContext, conf *config.Configuration,
 	// it is incorrect to reserve bandwidth on those diabled NICs.
 	// we only count active NICs as available network devices and allocate bandwidth on them
 	enabledNICs := filterNICsByAvailability(agentCtx.KatalystMachineInfo.ExtraNetworkInfo.Interface, nil, nil)
-
-	// the NICs should be in order by interface name so that we can adopt specific policies for bandwidth reservation or allocation
-	// e.g. reserve bandwidth for high-priority tasks on the first NIC
-	sort.SliceStable(enabledNICs, func(i, j int) bool {
-		return enabledNICs[i].Iface < enabledNICs[j].Iface
-	})
+	if len(enabledNICs) != 0 {
+		// the NICs should be in order by interface name so that we can adopt specific policies for bandwidth reservation or allocation
+		// e.g. reserve bandwidth for high-priority tasks on the first NIC
+		sort.SliceStable(enabledNICs, func(i, j int) bool {
+			return enabledNICs[i].Iface < enabledNICs[j].Iface
+		})
+	} else {
+		general.Infof("no valid nics on this node")
+	}
 
 	// we only support one spreading policy for now: reserve the bandwidth on the first NIC.
 	// TODO: make the reservation policy configurable
@@ -781,6 +784,11 @@ func (p *StaticPolicy) calculateHints(req *pluginapi.ResourceRequest) (map[strin
 		},
 	}
 
+	// return empty hints immediately if no valid nics on this node
+	if len(p.nics) == 0 {
+		return hints, nil
+	}
+
 	candidateNICs, err := p.selectNICsByReq(req)
 	if err != nil {
 		return hints, fmt.Errorf("failed to select available NICs: %v", err)
@@ -863,6 +871,10 @@ func (p *StaticPolicy) selectNICsByReq(req *pluginapi.ResourceRequest) ([]machin
 		p.filterAvailableNICsByBandwidth,
 		filterNICsByNamespaceType,
 		filterNICsByHint,
+	}
+
+	if len(p.nics) == 0 {
+		return []machine.InterfaceInfo{}, nil
 	}
 
 	candidateNICs, err := filterAvailableNICsByReq(p.nics, req, p.agentCtx, nicFilters)

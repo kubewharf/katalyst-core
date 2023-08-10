@@ -36,7 +36,6 @@ import (
 
 	apinode "github.com/kubewharf/katalyst-api/pkg/apis/node/v1alpha1"
 	"github.com/kubewharf/katalyst-api/pkg/consts"
-	apiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
 	katalyst_base "github.com/kubewharf/katalyst-core/cmd/base"
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/agent"
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/options"
@@ -121,7 +120,7 @@ func makeTestGenericContext(t *testing.T) *agent.GenericContext {
 	}
 }
 
-func makeStaticPolicy(t *testing.T) *StaticPolicy {
+func makeStaticPolicy(t *testing.T, hasNic bool) *StaticPolicy {
 	agentCtx := makeTestGenericContext(t)
 	wrappedEmitter := agentCtx.EmitterPool.GetDefaultMetricsEmitter().WithTags(NetworkResourcePluginPolicyNameStatic, metrics.MetricTag{
 		Key: util.QRMPluginPolicyTagName,
@@ -137,16 +136,20 @@ func makeStaticPolicy(t *testing.T) *StaticPolicy {
 	mockQrmConfig.EgressCapacityRate = 0.9
 	mockQrmConfig.IngressCapacityRate = 0.85
 
-	nics := makeNICs()
+	nics := makeNICs(hasNic)
 	availableNICs := filterNICsByAvailability(nics, nil, nil)
-	assert.Len(t, availableNICs, 2)
+	reservation := make(map[string]uint32)
+	if hasNic {
+		assert.Len(t, availableNICs, 2)
 
-	expectedReservation := map[string]uint32{
-		testEth0Name: 4000,
+		expectedReservation := map[string]uint32{
+			testEth0Name: 4000,
+		}
+		var err error
+		reservation, err = getReservedBandwidth(availableNICs, mockQrmConfig.ReservedBandwidth, FirstNIC)
+		assert.NoError(t, err)
+		assert.Equal(t, expectedReservation, reservation)
 	}
-	reservation, err := getReservedBandwidth(availableNICs, mockQrmConfig.ReservedBandwidth, FirstNIC)
-	assert.NoError(t, err)
-	assert.Equal(t, expectedReservation, reservation)
 
 	tmpDir, err := ioutil.TempDir("", "checkpoint")
 	assert.NoError(t, err)
@@ -182,40 +185,74 @@ func makeStaticPolicy(t *testing.T) *StaticPolicy {
 	}
 }
 
-func makeNICs() []machine.InterfaceInfo {
+func makeNICs(hasNics bool) []machine.InterfaceInfo {
 	v4 := net.ParseIP(testEth0IPv4)
 	v6 := net.ParseIP(testEth2IPv6)
 
-	return []machine.InterfaceInfo{
-		{
-			Iface:    testEth0Name,
-			Speed:    25000,
-			NumaNode: testEth0AffinitiveNUMANode,
-			Enable:   true,
-			Addr: &machine.IfaceAddr{
-				IPV4: []*net.IP{&v4},
+	if hasNics {
+		return []machine.InterfaceInfo{
+			{
+				Iface:    testEth0Name,
+				Speed:    25000,
+				NumaNode: testEth0AffinitiveNUMANode,
+				Enable:   true,
+				Addr: &machine.IfaceAddr{
+					IPV4: []*net.IP{&v4},
+				},
+				NSAbsolutePath: testEth0NSAbsolutePath,
+				NSName:         testEth0NSName,
 			},
-			NSAbsolutePath: testEth0NSAbsolutePath,
-			NSName:         testEth0NSName,
-		},
-		{
-			Iface:    testEth1Name,
-			Speed:    25000,
-			NumaNode: testEth1AffinitiveNUMANode,
-			Enable:   false,
-			Addr:     &machine.IfaceAddr{},
-		},
-		{
-			Iface:    testEth2Name,
-			Speed:    25000,
-			NumaNode: testEth2AffinitiveNUMANode,
-			Enable:   true,
-			Addr: &machine.IfaceAddr{
-				IPV6: []*net.IP{&v6},
+			{
+				Iface:    testEth1Name,
+				Speed:    25000,
+				NumaNode: testEth1AffinitiveNUMANode,
+				Enable:   false,
+				Addr:     &machine.IfaceAddr{},
 			},
-			NSAbsolutePath: testEth2NSAbsolutePath,
-			NSName:         testEth2NSName,
-		},
+			{
+				Iface:    testEth2Name,
+				Speed:    25000,
+				NumaNode: testEth2AffinitiveNUMANode,
+				Enable:   true,
+				Addr: &machine.IfaceAddr{
+					IPV6: []*net.IP{&v6},
+				},
+				NSAbsolutePath: testEth2NSAbsolutePath,
+				NSName:         testEth2NSName,
+			},
+		}
+	} else {
+		return []machine.InterfaceInfo{
+			{
+				Iface:    testEth0Name,
+				Speed:    25000,
+				NumaNode: testEth0AffinitiveNUMANode,
+				Enable:   false,
+				Addr: &machine.IfaceAddr{
+					IPV4: []*net.IP{&v4},
+				},
+				NSAbsolutePath: testEth0NSAbsolutePath,
+				NSName:         testEth0NSName,
+			},
+			{
+				Iface:    testEth1Name,
+				Speed:    25000,
+				NumaNode: testEth1AffinitiveNUMANode,
+				Enable:   false,
+				Addr:     &machine.IfaceAddr{},
+			},
+			{
+				Iface:    testEth2Name,
+				Speed:    25000,
+				NumaNode: testEth2AffinitiveNUMANode,
+				Enable:   false,
+				Addr: &machine.IfaceAddr{
+					IPV6: []*net.IP{&v6},
+				},
+				NSAbsolutePath: testEth2NSAbsolutePath,
+				NSName:         testEth2NSName,
+			},
+		}
 	}
 }
 
@@ -223,7 +260,7 @@ func TestNewStaticPolicy(t *testing.T) {
 	t.Parallel()
 
 	agentCtx := makeTestGenericContext(t)
-	agentCtx.KatalystMachineInfo.ExtraNetworkInfo.Interface = makeNICs()
+	agentCtx.KatalystMachineInfo.ExtraNetworkInfo.Interface = makeNICs(true)
 	agentCtx.MachineInfo = &info.MachineInfo{}
 
 	conf := generateTestConfiguration(t)
@@ -240,12 +277,20 @@ func TestNewStaticPolicy(t *testing.T) {
 	assert.NoError(t, err)
 	assert.NotNil(t, policy)
 	assert.True(t, neetToRun)
+
+	// no valid nics on this node
+	agentCtxInvalid := agentCtx
+	agentCtxInvalid.KatalystMachineInfo.ExtraNetworkInfo.Interface = makeNICs(false)
+	neetToRun, policy, err = NewStaticPolicy(agentCtxInvalid, conf, nil, NetworkResourcePluginPolicyNameStatic)
+	assert.NoError(t, err)
+	assert.NotNil(t, policy)
+	assert.True(t, neetToRun)
 }
 
 func TestRemovePod(t *testing.T) {
 	t.Parallel()
 
-	policy := makeStaticPolicy(t)
+	policy := makeStaticPolicy(t, true)
 	assert.NotNil(t, policy)
 
 	podID := string(uuid.NewUUID())
@@ -318,6 +363,7 @@ func TestAllocate(t *testing.T) {
 
 	testName := "test"
 
+	// common cases
 	testCases := []struct {
 		description  string
 		noError      bool
@@ -663,8 +709,7 @@ func TestAllocate(t *testing.T) {
 	}
 
 	for _, tc := range testCases {
-		staticPolicy := makeStaticPolicy(t)
-
+		staticPolicy := makeStaticPolicy(t, true)
 		resp, err := staticPolicy.Allocate(context.Background(), tc.req)
 		if tc.noError {
 			assert.NoError(t, err)
@@ -679,12 +724,88 @@ func TestAllocate(t *testing.T) {
 			assert.Nil(t, resp)
 		}
 	}
+
+	// no valid nics on this node
+	testCasesNoNic := []struct {
+		description  string
+		noError      bool
+		req          *pluginapi.ResourceRequest
+		expectedResp *pluginapi.ResourceAllocationResponse
+	}{
+		{
+			description: "req for shared_cores main container with host netns preference when no valid nic on this node",
+			noError:     false,
+			req: &pluginapi.ResourceRequest{
+				PodUid:         string(uuid.NewUUID()),
+				PodNamespace:   testName,
+				PodName:        testName,
+				ContainerName:  testName,
+				ContainerType:  pluginapi.ContainerType_MAIN,
+				ContainerIndex: 0,
+				ResourceName:   string(consts.ResourceNetBandwidth),
+				Hint: &pluginapi.TopologyHint{
+					Nodes:     []uint64{0, 1},
+					Preferred: true,
+				},
+				ResourceRequests: map[string]float64{
+					string(consts.ResourceNetBandwidth): 5000,
+				},
+				Labels: map[string]string{
+					consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
+				},
+				Annotations: map[string]string{
+					consts.PodAnnotationNetClassKey:           testSharedNetClsId,
+					consts.PodAnnotationQoSLevelKey:           consts.PodAnnotationQoSLevelSharedCores,
+					consts.PodAnnotationNetworkEnhancementKey: testHostPreferEnhancementValue,
+				},
+			},
+			expectedResp: nil,
+		},
+		{
+			description: "0 bandwidth req for shared_cores main container with host netns preference when no valid nic on this node",
+			noError:     false,
+			req: &pluginapi.ResourceRequest{
+				PodUid:         string(uuid.NewUUID()),
+				PodNamespace:   testName,
+				PodName:        testName,
+				ContainerName:  testName,
+				ContainerType:  pluginapi.ContainerType_MAIN,
+				ContainerIndex: 0,
+				ResourceName:   string(consts.ResourceNetBandwidth),
+				Hint: &pluginapi.TopologyHint{
+					Nodes:     []uint64{0, 1},
+					Preferred: true,
+				},
+				ResourceRequests: map[string]float64{
+					string(consts.ResourceNetBandwidth): 0,
+				},
+				Labels: map[string]string{
+					consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
+				},
+				Annotations: map[string]string{
+					consts.PodAnnotationNetClassKey:           testSharedNetClsId,
+					consts.PodAnnotationQoSLevelKey:           consts.PodAnnotationQoSLevelSharedCores,
+					consts.PodAnnotationNetworkEnhancementKey: testHostPreferEnhancementValue,
+				},
+			},
+			expectedResp: nil,
+		},
+	}
+	staticPolicy := makeStaticPolicy(t, false)
+	for _, tc := range testCasesNoNic {
+		resp, err := staticPolicy.Allocate(context.Background(), tc.req)
+		if tc.noError {
+			assert.Error(t, err)
+			assert.EqualError(t, err, "failed to meet the bandwidth requirement of 5000 Mbps")
+			assert.Nil(t, resp)
+		}
+	}
 }
 
 func TestGetNetClassID(t *testing.T) {
 	t.Parallel()
 
-	staticPolicy := makeStaticPolicy(t)
+	staticPolicy := makeStaticPolicy(t, true)
 	staticPolicy.qosLevelToNetClassMap = map[string]uint32{
 		consts.PodAnnotationQoSLevelReclaimedCores: 10,
 		consts.PodAnnotationQoSLevelSharedCores:    20,
@@ -786,7 +907,7 @@ func TestGetNetClassID(t *testing.T) {
 func TestName(t *testing.T) {
 	t.Parallel()
 
-	policy := makeStaticPolicy(t)
+	policy := makeStaticPolicy(t, true)
 	assert.NotNil(t, policy)
 
 	assert.Equal(t, "qrm_network_plugin_static", policy.Name())
@@ -795,7 +916,7 @@ func TestName(t *testing.T) {
 func TestResourceName(t *testing.T) {
 	t.Parallel()
 
-	policy := makeStaticPolicy(t)
+	policy := makeStaticPolicy(t, true)
 	assert.NotNil(t, policy)
 
 	assert.Equal(t, string(consts.ResourceNetBandwidth), policy.ResourceName())
@@ -806,6 +927,7 @@ func TestGetTopologyHints(t *testing.T) {
 
 	testName := "test"
 
+	// common cases
 	testCases := []struct {
 		description  string
 		req          *pluginapi.ResourceRequest
@@ -1104,7 +1226,7 @@ func TestGetTopologyHints(t *testing.T) {
 	}
 
 	for _, tc := range testCases {
-		staticPolicy := makeStaticPolicy(t)
+		staticPolicy := makeStaticPolicy(t, true)
 
 		resp, err := staticPolicy.GetTopologyHints(context.Background(), tc.req)
 		assert.NoError(t, err)
@@ -1152,12 +1274,23 @@ func TestGetTopologyHints(t *testing.T) {
 
 		assert.Equalf(t, tc.expectedResp, resp, "failed in test case: %s", tc.description)
 	}
+
+	// no valid nics on this node ()
+	staticPolicy := makeStaticPolicy(t, false)
+	resp, err := staticPolicy.GetTopologyHints(context.Background(), testCases[1].req)
+	assert.NoError(t, err)
+	assert.NotNil(t, resp)
+	assert.Equal(t, map[string]*pluginapi.ListOfTopologyHints{
+		resp.ResourceName: {
+			Hints: []*pluginapi.TopologyHint{},
+		},
+	}, resp.ResourceHints)
 }
 
 func TestGetResourcesAllocation(t *testing.T) {
 	t.Parallel()
 
-	policy := makeStaticPolicy(t)
+	policy := makeStaticPolicy(t, true)
 	assert.NotNil(t, policy)
 
 	_, err := policy.GetResourcesAllocation(context.TODO(), &pluginapi.GetResourcesAllocationRequest{})
@@ -1167,137 +1300,215 @@ func TestGetResourcesAllocation(t *testing.T) {
 func TestGetTopologyAwareResources(t *testing.T) {
 	t.Parallel()
 
-	policy := makeStaticPolicy(t)
-	assert.NotNil(t, policy)
-
 	podID := string(uuid.NewUUID())
 	testName := "test"
 	var bwReq float64 = 5000
 
-	// create a new Pod with bandwidth request
-	addReq := &pluginapi.ResourceRequest{
-		PodUid:         podID,
-		PodNamespace:   testName,
-		PodName:        testName,
-		ContainerName:  testName,
-		ContainerType:  pluginapi.ContainerType_MAIN,
-		ContainerIndex: 0,
-		ResourceName:   string(consts.ResourceNetBandwidth),
-		Hint: &pluginapi.TopologyHint{
-			Nodes:     []uint64{0, 1},
-			Preferred: true,
+	testCases := []struct {
+		description                   string
+		hasNic                        bool
+		addReq                        *pluginapi.ResourceRequest
+		req                           *pluginapi.GetTopologyAwareResourcesRequest
+		expectedTopologyAwareQuantity *pluginapi.TopologyAwareQuantity
+	}{
+		{
+			description: "has valid nics and a valid Pod",
+			hasNic:      true,
+			addReq: &pluginapi.ResourceRequest{
+				PodUid:         podID,
+				PodNamespace:   testName,
+				PodName:        testName,
+				ContainerName:  testName,
+				ContainerType:  pluginapi.ContainerType_MAIN,
+				ContainerIndex: 0,
+				ResourceName:   string(consts.ResourceNetBandwidth),
+				Hint: &pluginapi.TopologyHint{
+					Nodes:     []uint64{0, 1},
+					Preferred: true,
+				},
+				ResourceRequests: map[string]float64{
+					string(consts.ResourceNetBandwidth): bwReq,
+				},
+				Labels: map[string]string{
+					consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
+				},
+				Annotations: map[string]string{
+					consts.PodAnnotationNetClassKey:           testSharedNetClsId,
+					consts.PodAnnotationQoSLevelKey:           consts.PodAnnotationQoSLevelSharedCores,
+					consts.PodAnnotationNetworkEnhancementKey: testHostPreferEnhancementValue,
+				},
+			},
+			req: &pluginapi.GetTopologyAwareResourcesRequest{
+				PodUid:        podID,
+				ContainerName: testName,
+			},
+			expectedTopologyAwareQuantity: &pluginapi.TopologyAwareQuantity{
+				ResourceValue: bwReq,
+				Node:          uint64(0),
+				Name:          testEth0Name,
+				Type:          string(apinode.TopologyTypeNIC),
+				TopologyLevel: pluginapi.TopologyLevel_SOCKET,
+				Annotations: map[string]string{
+					// testEth0NSName is empty, so remove the prefix
+					consts.ResourceAnnotationKeyResourceIdentifier: testEth0Name,
+				},
+			},
 		},
-		ResourceRequests: map[string]float64{
-			string(consts.ResourceNetBandwidth): bwReq,
-		},
-		Labels: map[string]string{
-			consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
-		},
-		Annotations: map[string]string{
-			consts.PodAnnotationNetClassKey:           testSharedNetClsId,
-			consts.PodAnnotationQoSLevelKey:           consts.PodAnnotationQoSLevelSharedCores,
-			consts.PodAnnotationNetworkEnhancementKey: testHostPreferEnhancementValue,
+		{
+			description: "has no valid nic",
+			hasNic:      false,
+			addReq: &pluginapi.ResourceRequest{
+				PodUid:         podID,
+				PodNamespace:   testName,
+				PodName:        testName,
+				ContainerName:  testName,
+				ContainerType:  pluginapi.ContainerType_MAIN,
+				ContainerIndex: 0,
+				ResourceName:   string(consts.ResourceNetBandwidth),
+				Hint: &pluginapi.TopologyHint{
+					Nodes:     []uint64{0, 1},
+					Preferred: true,
+				},
+				ResourceRequests: map[string]float64{
+					string(consts.ResourceNetBandwidth): 0,
+				},
+				Labels: map[string]string{
+					consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
+				},
+				Annotations: map[string]string{
+					consts.PodAnnotationNetClassKey:           testSharedNetClsId,
+					consts.PodAnnotationQoSLevelKey:           consts.PodAnnotationQoSLevelSharedCores,
+					consts.PodAnnotationNetworkEnhancementKey: testHostPreferEnhancementValue,
+				},
+			},
+			req: &pluginapi.GetTopologyAwareResourcesRequest{
+				PodUid:        podID,
+				ContainerName: testName,
+			},
+			expectedTopologyAwareQuantity: nil,
 		},
 	}
 
-	_, err := policy.Allocate(context.Background(), addReq)
-	assert.NoError(t, err)
+	for _, tc := range testCases {
+		policy := makeStaticPolicy(t, tc.hasNic)
+		assert.NotNil(t, policy)
 
-	req := &pluginapi.GetTopologyAwareResourcesRequest{
-		PodUid:        podID,
-		ContainerName: testName,
+		_, err := policy.Allocate(context.Background(), tc.addReq)
+		if tc.hasNic {
+			assert.NoError(t, err)
+		}
+
+		resp, err := policy.GetTopologyAwareResources(context.TODO(), tc.req)
+		assert.NoError(t, err)
+		assert.NotNil(t, resp)
+		if tc.hasNic {
+			assert.Len(t, resp.ContainerTopologyAwareResources.AllocatedResources, 1)
+			assert.Equal(t, resp.ContainerTopologyAwareResources.AllocatedResources[string(consts.ResourceNetBandwidth)].AggregatedQuantity, bwReq)
+			assert.Len(t, resp.ContainerTopologyAwareResources.AllocatedResources[string(consts.ResourceNetBandwidth)].TopologyAwareQuantityList, 1)
+
+			assert.Equal(t, resp.ContainerTopologyAwareResources.AllocatedResources[string(consts.ResourceNetBandwidth)].TopologyAwareQuantityList[0], tc.expectedTopologyAwareQuantity)
+		} else {
+			assert.Equal(t, &pluginapi.GetTopologyAwareResourcesResponse{}, resp)
+		}
 	}
-
-	resp, err := policy.GetTopologyAwareResources(context.TODO(), req)
-	assert.NoError(t, err)
-	assert.NotNil(t, resp)
-	assert.Len(t, resp.ContainerTopologyAwareResources.AllocatedResources, 1)
-	assert.Equal(t, resp.ContainerTopologyAwareResources.AllocatedResources[string(apiconsts.ResourceNetBandwidth)].AggregatedQuantity, bwReq)
-	assert.Len(t, resp.ContainerTopologyAwareResources.AllocatedResources[string(apiconsts.ResourceNetBandwidth)].TopologyAwareQuantityList, 1)
-
-	expectedTopologyAwareQuantity := pluginapi.TopologyAwareQuantity{
-		ResourceValue: bwReq,
-		Node:          uint64(0),
-		Name:          testEth0Name,
-		Type:          string(apinode.TopologyTypeNIC),
-		TopologyLevel: pluginapi.TopologyLevel_SOCKET,
-		Annotations: map[string]string{
-			// testEth0NSName is empty, so remove the prefix
-			apiconsts.ResourceAnnotationKeyResourceIdentifier: testEth0Name,
-		},
-	}
-	assert.Equal(t, *resp.ContainerTopologyAwareResources.AllocatedResources[string(apiconsts.ResourceNetBandwidth)].TopologyAwareQuantityList[0], expectedTopologyAwareQuantity)
 }
 
 func TestGetTopologyAwareAllocatableResources(t *testing.T) {
 	t.Parallel()
 
-	policy := makeStaticPolicy(t)
-	assert.NotNil(t, policy)
-
-	resp, err := policy.GetTopologyAwareAllocatableResources(context.TODO(), &pluginapi.GetTopologyAwareAllocatableResourcesRequest{})
-	assert.NotNil(t, resp)
-	assert.NoError(t, err)
-	assert.Equal(t, resp.AllocatableResources[string(apiconsts.ResourceNetBandwidth)].AggregatedAllocatableQuantity, float64(38500))
-	assert.Equal(t, resp.AllocatableResources[string(apiconsts.ResourceNetBandwidth)].AggregatedCapacityQuantity, float64(42500))
-	assert.Len(t, resp.AllocatableResources[string(apiconsts.ResourceNetBandwidth)].TopologyAwareAllocatableQuantityList, 2)
-	assert.Len(t, resp.AllocatableResources[string(apiconsts.ResourceNetBandwidth)].TopologyAwareCapacityQuantityList, 2)
-
-	expectedTopologyAwareAllocatableQuantityList := []*pluginapi.TopologyAwareQuantity{
+	testCases := []struct {
+		description                     string
+		hasNic                          bool
+		expectedAllocatableQuantityList []*pluginapi.TopologyAwareQuantity
+		expectedCapacityQuantityList    []*pluginapi.TopologyAwareQuantity
+	}{
 		{
-			ResourceValue: float64(17250),
-			Node:          uint64(0),
-			Name:          testEth0Name,
-			Type:          string(apinode.TopologyTypeNIC),
-			TopologyLevel: pluginapi.TopologyLevel_SOCKET,
-			Annotations: map[string]string{
-				// testEth0NSName is empty, so remove the prefix
-				apiconsts.ResourceAnnotationKeyResourceIdentifier: testEth0Name,
+			description: "has valid nics",
+			hasNic:      true,
+			expectedAllocatableQuantityList: []*pluginapi.TopologyAwareQuantity{
+				{
+					ResourceValue: float64(17250),
+					Node:          uint64(0),
+					Name:          testEth0Name,
+					Type:          string(apinode.TopologyTypeNIC),
+					TopologyLevel: pluginapi.TopologyLevel_SOCKET,
+					Annotations: map[string]string{
+						// testEth0NSName is empty, so remove the prefix
+						consts.ResourceAnnotationKeyResourceIdentifier: testEth0Name,
+					},
+				},
+				{
+					ResourceValue: float64(21250),
+					Node:          uint64(1),
+					Name:          testEth2Name,
+					Type:          string(apinode.TopologyTypeNIC),
+					TopologyLevel: pluginapi.TopologyLevel_SOCKET,
+					Annotations: map[string]string{
+						consts.ResourceAnnotationKeyResourceIdentifier: fmt.Sprintf("%s-%s", testEth2NSName, testEth2Name),
+					},
+				},
+			},
+			expectedCapacityQuantityList: []*pluginapi.TopologyAwareQuantity{
+				{
+					ResourceValue: float64(21250),
+					Node:          uint64(0),
+					Name:          testEth0Name,
+					Type:          string(apinode.TopologyTypeNIC),
+					TopologyLevel: pluginapi.TopologyLevel_SOCKET,
+					Annotations: map[string]string{
+						// testEth0NSName is empty, so remove the prefix
+						consts.ResourceAnnotationKeyResourceIdentifier: testEth0Name,
+					},
+				},
+				{
+					ResourceValue: float64(21250),
+					Node:          uint64(1),
+					Name:          testEth2Name,
+					Type:          string(apinode.TopologyTypeNIC),
+					TopologyLevel: pluginapi.TopologyLevel_SOCKET,
+					Annotations: map[string]string{
+						consts.ResourceAnnotationKeyResourceIdentifier: fmt.Sprintf("%s-%s", testEth2NSName, testEth2Name),
+					},
+				},
 			},
 		},
 		{
-			ResourceValue: float64(21250),
-			Node:          uint64(1),
-			Name:          testEth2Name,
-			Type:          string(apinode.TopologyTypeNIC),
-			TopologyLevel: pluginapi.TopologyLevel_SOCKET,
-			Annotations: map[string]string{
-				apiconsts.ResourceAnnotationKeyResourceIdentifier: fmt.Sprintf("%s-%s", testEth2NSName, testEth2Name),
-			},
+			description:                     "has no valid nic",
+			hasNic:                          false,
+			expectedAllocatableQuantityList: make([]*pluginapi.TopologyAwareQuantity, 0),
+			expectedCapacityQuantityList:    make([]*pluginapi.TopologyAwareQuantity, 0),
 		},
 	}
-	assert.Equal(t, resp.AllocatableResources[string(apiconsts.ResourceNetBandwidth)].TopologyAwareAllocatableQuantityList, expectedTopologyAwareAllocatableQuantityList)
 
-	expectedTopologyAwareCapacityQuantityList := []*pluginapi.TopologyAwareQuantity{
-		{
-			ResourceValue: float64(21250),
-			Node:          uint64(0),
-			Name:          testEth0Name,
-			Type:          string(apinode.TopologyTypeNIC),
-			TopologyLevel: pluginapi.TopologyLevel_SOCKET,
-			Annotations: map[string]string{
-				// testEth0NSName is empty, so remove the prefix
-				apiconsts.ResourceAnnotationKeyResourceIdentifier: testEth0Name,
-			},
-		},
-		{
-			ResourceValue: float64(21250),
-			Node:          uint64(1),
-			Name:          testEth2Name,
-			Type:          string(apinode.TopologyTypeNIC),
-			TopologyLevel: pluginapi.TopologyLevel_SOCKET,
-			Annotations: map[string]string{
-				apiconsts.ResourceAnnotationKeyResourceIdentifier: fmt.Sprintf("%s-%s", testEth2NSName, testEth2Name),
-			},
-		},
+	for _, tc := range testCases {
+		policy := makeStaticPolicy(t, tc.hasNic)
+		assert.NotNil(t, policy)
+
+		resp, err := policy.GetTopologyAwareAllocatableResources(context.TODO(), &pluginapi.GetTopologyAwareAllocatableResourcesRequest{})
+		assert.NotNil(t, resp)
+		assert.NoError(t, err)
+
+		if tc.hasNic {
+			assert.Equal(t, resp.AllocatableResources[string(consts.ResourceNetBandwidth)].AggregatedAllocatableQuantity, tc.expectedAllocatableQuantityList[0].ResourceValue+tc.expectedAllocatableQuantityList[1].ResourceValue)
+			assert.Equal(t, resp.AllocatableResources[string(consts.ResourceNetBandwidth)].AggregatedCapacityQuantity, tc.expectedCapacityQuantityList[0].ResourceValue+tc.expectedCapacityQuantityList[1].ResourceValue)
+			assert.Len(t, resp.AllocatableResources[string(consts.ResourceNetBandwidth)].TopologyAwareAllocatableQuantityList, len(tc.expectedAllocatableQuantityList))
+			assert.Len(t, resp.AllocatableResources[string(consts.ResourceNetBandwidth)].TopologyAwareCapacityQuantityList, len(tc.expectedCapacityQuantityList))
+
+			assert.Equal(t, resp.AllocatableResources[string(consts.ResourceNetBandwidth)].TopologyAwareAllocatableQuantityList, tc.expectedAllocatableQuantityList)
+			assert.Equal(t, resp.AllocatableResources[string(consts.ResourceNetBandwidth)].TopologyAwareCapacityQuantityList, tc.expectedCapacityQuantityList)
+		} else {
+			assert.Equal(t, float64(0), resp.AllocatableResources[string(consts.ResourceNetBandwidth)].AggregatedAllocatableQuantity)
+			assert.Equal(t, float64(0), resp.AllocatableResources[string(consts.ResourceNetBandwidth)].AggregatedCapacityQuantity)
+			assert.Len(t, resp.AllocatableResources[string(consts.ResourceNetBandwidth)].TopologyAwareAllocatableQuantityList, 0)
+			assert.Len(t, resp.AllocatableResources[string(consts.ResourceNetBandwidth)].TopologyAwareCapacityQuantityList, 0)
+		}
 	}
-	assert.Equal(t, resp.AllocatableResources[string(apiconsts.ResourceNetBandwidth)].TopologyAwareCapacityQuantityList, expectedTopologyAwareCapacityQuantityList)
 }
 
 func TestGetResourcePluginOptions(t *testing.T) {
 	t.Parallel()
 
-	policy := makeStaticPolicy(t)
+	policy := makeStaticPolicy(t, true)
 	assert.NotNil(t, policy)
 
 	expectedResp := &pluginapi.ResourcePluginOptions{
@@ -1314,7 +1525,7 @@ func TestGetResourcePluginOptions(t *testing.T) {
 func TestPreStartContainer(t *testing.T) {
 	t.Parallel()
 
-	policy := makeStaticPolicy(t)
+	policy := makeStaticPolicy(t, true)
 	assert.NotNil(t, policy)
 
 	req := &pluginapi.PreStartContainerRequest{
