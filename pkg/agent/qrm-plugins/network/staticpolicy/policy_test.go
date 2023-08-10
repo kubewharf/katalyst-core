@@ -1538,69 +1538,6 @@ func TestGetTopologyAwareAllocatableResources(t *testing.T) {
 			assert.Len(t, resp.AllocatableResources[string(consts.ResourceNetBandwidth)].TopologyAwareCapacityQuantityList, 0)
 		}
 	}
-
-	/*
-		policy := makeStaticPolicy(t, true)
-		assert.NotNil(t, policy)
-
-		resp, err := policy.GetTopologyAwareAllocatableResources(context.TODO(), &pluginapi.GetTopologyAwareAllocatableResourcesRequest{})
-		assert.NotNil(t, resp)
-		assert.NoError(t, err)
-		assert.Equal(t, resp.AllocatableResources[string(consts.ResourceNetBandwidth)].AggregatedAllocatableQuantity, float64(38500))
-		assert.Equal(t, resp.AllocatableResources[string(consts.ResourceNetBandwidth)].AggregatedCapacityQuantity, float64(42500))
-		assert.Len(t, resp.AllocatableResources[string(consts.ResourceNetBandwidth)].TopologyAwareAllocatableQuantityList, 2)
-		assert.Len(t, resp.AllocatableResources[string(consts.ResourceNetBandwidth)].TopologyAwareCapacityQuantityList, 2)
-
-		expectedTopologyAwareAllocatableQuantityList := []*pluginapi.TopologyAwareQuantity{
-			{
-				ResourceValue: float64(17250),
-				Node:          uint64(0),
-				Name:          testEth0Name,
-				Type:          string(apinode.TopologyTypeNIC),
-				TopologyLevel: pluginapi.TopologyLevel_SOCKET,
-				Annotations: map[string]string{
-					// testEth0NSName is empty, so remove the prefix
-					consts.ResourceAnnotationKeyResourceIdentifier: testEth0Name,
-				},
-			},
-			{
-				ResourceValue: float64(21250),
-				Node:          uint64(1),
-				Name:          testEth2Name,
-				Type:          string(apinode.TopologyTypeNIC),
-				TopologyLevel: pluginapi.TopologyLevel_SOCKET,
-				Annotations: map[string]string{
-					consts.ResourceAnnotationKeyResourceIdentifier: fmt.Sprintf("%s-%s", testEth2NSName, testEth2Name),
-				},
-			},
-		}
-		assert.Equal(t, resp.AllocatableResources[string(consts.ResourceNetBandwidth)].TopologyAwareAllocatableQuantityList, expectedTopologyAwareAllocatableQuantityList)
-
-		expectedTopologyAwareCapacityQuantityList := []*pluginapi.TopologyAwareQuantity{
-			{
-				ResourceValue: float64(21250),
-				Node:          uint64(0),
-				Name:          testEth0Name,
-				Type:          string(apinode.TopologyTypeNIC),
-				TopologyLevel: pluginapi.TopologyLevel_SOCKET,
-				Annotations: map[string]string{
-					// testEth0NSName is empty, so remove the prefix
-					consts.ResourceAnnotationKeyResourceIdentifier: testEth0Name,
-				},
-			},
-			{
-				ResourceValue: float64(21250),
-				Node:          uint64(1),
-				Name:          testEth2Name,
-				Type:          string(apinode.TopologyTypeNIC),
-				TopologyLevel: pluginapi.TopologyLevel_SOCKET,
-				Annotations: map[string]string{
-					consts.ResourceAnnotationKeyResourceIdentifier: fmt.Sprintf("%s-%s", testEth2NSName, testEth2Name),
-				},
-			},
-		}
-		assert.Equal(t, resp.AllocatableResources[string(consts.ResourceNetBandwidth)].TopologyAwareCapacityQuantityList, expectedTopologyAwareCapacityQuantityList)
-	*/
 }
 
 func TestGetResourcePluginOptions(t *testing.T) {
