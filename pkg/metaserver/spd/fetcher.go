@@ -26,6 +26,8 @@ import (
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/wait"
+	"k8s.io/client-go/tools/cache"
 	"k8s.io/klog/v2"
 	"k8s.io/kubernetes/pkg/kubelet/checkpointmanager"
 
@@ -41,7 +43,9 @@ import (
 )
 
 const (
-	defaultClearUnusedSPDPeriod = 10 * time.Minute
+	defaultClearUnusedSPDPeriod = 12 * time.Hour
+	defaultMaxRetryCount        = 3
+	defaultJitterFactor         = 0.5
 )
 
 const (
@@ -70,8 +74,6 @@ type spdFetcher struct {
 	checkpointManager checkpointmanager.CheckpointManager
 	getPodSPDNameFunc GetPodSPDNameFunc
 
-	ServiceProfileCacheTTL time.Duration
-
 	// spdCache is a cache of namespace/name to current target spd
 	spdCache *Cache
 }
@@ -85,16 +87,15 @@ func NewSPDFetcher(clientSet *client.GenericClientSet, emitter metrics.MetricEmi
 	}
 
 	m := &spdFetcher{
-		started:                atomic.NewBool(false),
-		client:                 clientSet,
-		emitter:                emitter,
-		checkpointManager:      checkpointManager,
-		cncFetcher:             cncFetcher,
-		ServiceProfileCacheTTL: conf.ServiceProfileCacheTTL,
+		started:           atomic.NewBool(false),
+		client:            clientSet,
+		emitter:           emitter,
+		checkpointManager: checkpointManager,
+		cncFetcher:        cncFetcher,
 	}
 
 	m.getPodSPDNameFunc = util.GetPodSPDName
-	m.spdCache = NewSPDCache(checkpointManager, defaultClearUnusedSPDPeriod)
+	m.spdCache = NewSPDCache(checkpointManager, conf.ServiceProfileCacheTTL, defaultClearUnusedSPDPeriod, defaultMaxRetryCount, defaultJitterFactor)
 
 	return m, nil
 }
@@ -125,40 +126,18 @@ func (s *spdFetcher) Run(ctx context.Context) {
 	}
 
 	s.spdCache.Run(ctx)
+	go wait.UntilWithContext(ctx, s.sync, 30*time.Second)
 	<-ctx.Done()
 }
 
-func (s *spdFetcher) getSPDByNamespaceName(ctx context.Context, namespace, name string) (*workloadapis.ServiceProfileDescriptor, error) {
+func (s *spdFetcher) getSPDByNamespaceName(_ context.Context, namespace, name string) (*workloadapis.ServiceProfileDescriptor, error) {
 	key := native.GenerateNamespaceNameKey(namespace, name)
 	baseTag := []metrics.MetricTag{
 		{Key: "spdNamespace", Val: namespace},
 		{Key: "spdName", Val: name},
 	}
 
-	// first get spd origin spd from local cache
-	originSPD := s.spdCache.GetSPD(key)
-
-	// get spd current target config from cnc to limit rate of get remote spd by comparing local spd
-	// hash with cnc target config hash, if cnc target config not found it will get remote spd directly
-	targetConfig, err := s.getSPDTargetConfig(ctx, namespace, name)
-	if err != nil {
-		klog.Errorf("[spd-manager] get spd targetConfig config failed: %v, use local cache instead", err)
-		targetConfig = &configapis.TargetConfig{
-			ConfigNamespace: namespace,
-			ConfigName:      name,
-		}
-		_ = s.emitter.StoreInt64(metricsNameGetCNCTargetConfigFailed, 1, metrics.MetricTypeNameCount, baseTag...)
-	}
-
-	// try to update spd cache from remote if cache spd hash is not equal to target config hash,
-	// the rate of getting remote spd will be limited by spd ServiceProfileCacheTTL
-	err = s.updateSPDCacheIfNeed(ctx, originSPD, targetConfig)
-	if err != nil {
-		klog.Errorf("[spd-manager] failed update spd cache from remote: %v, use local cache instead", err)
-		_ = s.emitter.StoreInt64(metricsNameUpdateCacheFailed, 1, metrics.MetricTypeNameCount, baseTag...)
-	}
-
-	// get current spd after cache updated
+	// get current spd from cache
 	currentSPD := s.spdCache.GetSPD(key)
 	if currentSPD != nil {
 		return currentSPD, nil
@@ -185,13 +164,48 @@ func (s *spdFetcher) getSPDTargetConfig(ctx context.Context, namespace, name str
 	return nil, fmt.Errorf("get target spd %s/%s not found", namespace, name)
 }
 
+func (s *spdFetcher) sync(ctx context.Context) {
+	spdKeys := s.spdCache.ListAllSPDKeys()
+	for _, key := range spdKeys {
+		namespace, name, err := cache.SplitMetaNamespaceKey(key)
+		if err != nil {
+			continue
+		}
+
+		baseTag := []metrics.MetricTag{
+			{Key: "spdNamespace", Val: namespace},
+			{Key: "spdName", Val: name},
+		}
+
+		// first get spd origin spd from local cache
+		originSPD := s.spdCache.GetSPD(key)
+
+		// get spd current target config from cnc to limit rate of get remote spd by comparing local spd
+		// hash with cnc target config hash, if cnc target config not found it will get remote spd directly
+		targetConfig, err := s.getSPDTargetConfig(ctx, namespace, name)
+		if err != nil {
+			klog.Errorf("[spd-manager] get spd targetConfig config failed: %v, use local cache instead", err)
+			targetConfig = &configapis.TargetConfig{
+				ConfigNamespace: namespace,
+				ConfigName:      name,
+			}
+			_ = s.emitter.StoreInt64(metricsNameGetCNCTargetConfigFailed, 1, metrics.MetricTypeNameCount, baseTag...)
+		}
+
+		// try to update spd cache from remote if cache spd hash is not equal to target config hash,
+		// the rate of getting remote spd will be limited by spd ServiceProfileCacheTTL
+		err = s.updateSPDCacheIfNeed(ctx, originSPD, targetConfig)
+		if err != nil {
+			klog.Errorf("[spd-manager] failed update spd cache from remote: %v, use local cache instead", err)
+			_ = s.emitter.StoreInt64(metricsNameUpdateCacheFailed, 1, metrics.MetricTypeNameCount, baseTag...)
+		}
+	}
+}
+
 // updateSPDCacheIfNeed checks if the previous spd has changed, and
 // re-get from APIServer if the previous is out-of date.
 func (s *spdFetcher) updateSPDCacheIfNeed(ctx context.Context, originSPD *workloadapis.ServiceProfileDescriptor,
 	targetConfig *configapis.TargetConfig) error {
-	s.mux.Lock()
-	defer s.mux.Unlock()
-
 	if originSPD == nil && targetConfig == nil {
 		return nil
 	}
@@ -199,7 +213,7 @@ func (s *spdFetcher) updateSPDCacheIfNeed(ctx context.Context, originSPD *worklo
 	now := time.Now()
 	if originSPD == nil || util.GetSPDHash(originSPD) != targetConfig.Hash {
 		key := native.GenerateNamespaceNameKey(targetConfig.ConfigNamespace, targetConfig.ConfigName)
-		if lastFetchRemoteTime := s.spdCache.GetLastFetchRemoteTime(key); lastFetchRemoteTime.Add(s.ServiceProfileCacheTTL).After(time.Now()) {
+		if nextFetchRemoteTime := s.spdCache.GetNextFetchRemoteTime(key); nextFetchRemoteTime.After(time.Now()) {
 			return nil
 		} else {
 			// first update the timestamp of the last attempt to fetch the remote spd to

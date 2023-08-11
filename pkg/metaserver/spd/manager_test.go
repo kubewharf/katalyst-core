@@ -21,6 +21,7 @@ import (
 	"io/ioutil"
 	"os"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 	v1 "k8s.io/api/core/v1"
@@ -268,7 +269,10 @@ func Test_serviceProfilingManager_ServiceBusinessPerformanceLevel(t *testing.T) 
 			m := NewServiceProfilingManager(s)
 			require.NoError(t, err)
 
+			// first get spd add spd key to cache
+			_, _ = s.GetSPD(context.Background(), tt.args.pod)
 			go m.Run(context.Background())
+			time.Sleep(1 * time.Second)
 
 			got, err := m.ServiceBusinessPerformanceLevel(context.Background(), tt.args.pod)
 			if (err != nil) != tt.wantErr {
@@ -402,7 +406,11 @@ func Test_serviceProfilingManager_ServiceSystemPerformanceTarget(t *testing.T) {
 			m := NewServiceProfilingManager(s)
 			require.NoError(t, err)
 
+			// first get spd add pod spd key to cache
+			_, _ = s.GetSPD(context.Background(), tt.args.pod)
 			go m.Run(context.Background())
+			time.Sleep(1 * time.Second)
+
 			got, err := m.ServiceSystemPerformanceTarget(context.Background(), tt.args.pod)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("ServiceSystemPerformanceTarget() error = %v, wantErr %v", err, tt.wantErr)

@@ -37,6 +37,12 @@ type spdInfo struct {
 	// the remote spd, not the actual fetch
 	lastFetchRemoteTime time.Time
 
+	// penaltyForFetchingRemoteTime records the penalty of fetching remote spd if it was deleted
+	penaltyForFetchingRemoteTime time.Duration
+
+	// retryCount records the count of fetching remote deleted spd
+	retryCount int64
+
 	// lastGetTime records the timestamp of the last time GetSPD was called to
 	// get spd, which is used for gc spd cache
 	lastGetTime time.Time
@@ -49,17 +55,24 @@ type spdInfo struct {
 type Cache struct {
 	sync.RWMutex
 
-	expiredTime time.Duration
+	expiredTime   time.Duration
+	cacheTTL      time.Duration
+	jitterFactor  float64
+	maxRetryCount int64
 
 	manager checkpointmanager.CheckpointManager
 	spdInfo map[string]*spdInfo
 }
 
-func NewSPDCache(manager checkpointmanager.CheckpointManager, expiredTime time.Duration) *Cache {
+func NewSPDCache(manager checkpointmanager.CheckpointManager, cacheTTL, expiredTime time.Duration,
+	maxRetryCount int64, jitterFactor float64) *Cache {
 	cache := &Cache{
-		spdInfo:     map[string]*spdInfo{},
-		manager:     manager,
-		expiredTime: expiredTime,
+		spdInfo:       map[string]*spdInfo{},
+		manager:       manager,
+		expiredTime:   expiredTime,
+		cacheTTL:      cacheTTL,
+		jitterFactor:  jitterFactor,
+		maxRetryCount: maxRetryCount,
 	}
 
 	err := cache.restore()
@@ -80,17 +93,33 @@ func (s *Cache) SetLastFetchRemoteTime(key string, t time.Time) {
 	s.spdInfo[key].lastFetchRemoteTime = t
 }
 
-// GetLastFetchRemoteTime get last fetch remote spd timestamp
-func (s *Cache) GetLastFetchRemoteTime(key string) time.Time {
+// GetNextFetchRemoteTime get next fetch remote spd timestamp
+func (s *Cache) GetNextFetchRemoteTime(key string) time.Time {
 	s.RLock()
 	defer s.RUnlock()
 
 	info, ok := s.spdInfo[key]
 	if ok && info != nil {
-		return info.lastFetchRemoteTime
+		if info.penaltyForFetchingRemoteTime > 0 {
+			return info.lastFetchRemoteTime.Add(info.penaltyForFetchingRemoteTime)
+		}
+		return info.lastFetchRemoteTime.Add(wait.Jitter(s.cacheTTL, s.jitterFactor))
 	}
 
 	return time.Time{}
+}
+
+// ListAllSPDKeys list all spd key
+func (s *Cache) ListAllSPDKeys() []string {
+	s.RLock()
+	defer s.RUnlock()
+
+	spdKeys := make([]string, 0, len(s.spdInfo))
+	for key := range s.spdInfo {
+		spdKeys = append(spdKeys, key)
+	}
+
+	return spdKeys
 }
 
 // SetSPD set target spd to cache and checkpoint
@@ -114,6 +143,8 @@ func (s *Cache) SetSPD(key string, spd *workloadapis.ServiceProfileDescriptor) e
 	}
 
 	s.spdInfo[key].spd = spd
+	s.spdInfo[key].penaltyForFetchingRemoteTime = 0
+	s.spdInfo[key].retryCount = 0
 	return nil
 }
 
@@ -124,11 +155,18 @@ func (s *Cache) DeleteSPD(key string) error {
 
 	info, ok := s.spdInfo[key]
 	if ok && info != nil {
+		// update the penalty of fetching remote spd if it was already deleted
+		if info.retryCount < s.maxRetryCount {
+			info.retryCount += 1
+			info.penaltyForFetchingRemoteTime += wait.Jitter(s.cacheTTL, s.jitterFactor)
+		} else {
+			info.penaltyForFetchingRemoteTime = s.expiredTime
+		}
+
 		err := checkpoint.DeleteSPD(s.manager, info.spd)
 		if err != nil {
 			return err
 		}
-		delete(s.spdInfo, key)
 	}
 
 	return nil
@@ -136,8 +174,8 @@ func (s *Cache) DeleteSPD(key string) error {
 
 // GetSPD gets target spd by namespace/name key
 func (s *Cache) GetSPD(key string) *workloadapis.ServiceProfileDescriptor {
-	s.RLock()
-	defer s.RUnlock()
+	s.Lock()
+	defer s.Unlock()
 
 	s.initSPDInfoWithoutLock(key)
 	// update last get spd time

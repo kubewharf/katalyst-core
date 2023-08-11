@@ -104,7 +104,7 @@ func TestMetaServer_SetServiceProfilingManager(t *testing.T) {
 
 	go meta.Run(context.Background())
 
-	time.Sleep(3 * time.Millisecond)
+	time.Sleep(3 * time.Second)
 
 	err = meta.SetServiceProfilingManager(&spd.DummyServiceProfilingManager{})
 	assert.Error(t, err)
