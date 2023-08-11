@@ -128,7 +128,6 @@ func (s *Cache) DeleteSPD(key string) error {
 		if err != nil {
 			return err
 		}
-		delete(s.spdInfo, key)
 	}
 
 	return nil
