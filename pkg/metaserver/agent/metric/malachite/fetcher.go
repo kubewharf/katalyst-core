@@ -474,8 +474,8 @@ func (m *MalachiteMetricsFetcher) processSystemCPUComputeData(systemComputeData 
 			klog.Errorf("[malachite] parse cpu name %v with err: %v", cpu.Name, err)
 			continue
 		}
-		m.metricStore.SetCPUMetric(cpuID, consts.MetricCPUUsage,
-			utilmetric.MetricData{Value: cpu.CPUUsage, Time: &updateTime})
+		m.metricStore.SetCPUMetric(cpuID, consts.MetricCPUUsageRatio,
+			utilmetric.MetricData{Value: cpu.CPUUsage / 100.0, Time: &updateTime})
 		m.metricStore.SetCPUMetric(cpuID, consts.MetricCPUSchedwait,
 			utilmetric.MetricData{Value: cpu.CPUSchedWait, Time: &updateTime})
 		m.metricStore.SetCPUMetric(cpuID, consts.MetricCPUIOWaitRatio,

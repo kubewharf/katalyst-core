@@ -431,7 +431,7 @@ func (cra *cpuResourceAdvisor) assembleProvision() (types.InternalCPUCalculation
 }
 
 func (cra *cpuResourceAdvisor) emitMetrics(calculationResult types.InternalCPUCalculationResult) {
-	period := cra.conf.SysAdvisorPluginsConfiguration.QoSAwarePluginConfiguration.SyncPeriod
+	period := cra.conf.QoSAwarePluginConfiguration.SyncPeriod
 
 	// emit region indicator related metrics
 	for _, r := range cra.regionMap {

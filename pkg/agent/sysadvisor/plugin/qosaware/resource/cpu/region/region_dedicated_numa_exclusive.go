@@ -70,7 +70,7 @@ func (r *QoSRegionDedicatedNumaExclusive) TryUpdateProvision() {
 		ReclaimOverlap: true,
 	}
 
-	indicators, err := r.getIndicators(r.indicatorCurrentGetters)
+	indicators, err := r.getIndicators()
 	if err != nil {
 		general.Errorf("get indicators failed: %v", err)
 	} else {

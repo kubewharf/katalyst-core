@@ -34,6 +34,10 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
+const (
+	metricRamaDominantIndicator = "rama_dominant_indicator"
+)
+
 type PolicyRama struct {
 	*PolicyBase
 	conf        *config.Configuration
@@ -64,6 +68,7 @@ func (p *PolicyRama) Update() error {
 	p.regulator.SetLatestCPURequirement(int(cpuSize))
 
 	cpuAdjustedRaw := math.Inf(-1)
+	dominantIndicator := ""
 
 	// run pid control for each indicator
 	for metricName, indicator := range p.Indicators {
@@ -75,7 +80,7 @@ func (p *PolicyRama) Update() error {
 
 		controller, ok := p.controllers[metricName]
 		if !ok {
-			controller = helper.NewPIDController(params)
+			controller = helper.NewPIDController(metricName, params)
 			p.controllers[metricName] = controller
 		}
 
@@ -84,7 +89,14 @@ func (p *PolicyRama) Update() error {
 
 		if cpuAdjusted > cpuAdjustedRaw {
 			cpuAdjustedRaw = cpuAdjusted
+			dominantIndicator = metricName
 		}
+	}
+
+	if dominantIndicator != "" {
+		period := p.conf.QoSAwarePluginConfiguration.SyncPeriod
+		p.emitter.StoreInt64(metricRamaDominantIndicator, int64(period.Seconds()), metrics.MetricTypeNameCount,
+			metrics.MetricTag{Key: "donimant", Val: dominantIndicator})
 	}
 
 	for metricName := range p.controllers {

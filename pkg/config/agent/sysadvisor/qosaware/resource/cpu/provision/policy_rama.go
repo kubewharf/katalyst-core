@@ -25,7 +25,6 @@ type PolicyRamaConfiguration struct {
 	PIDParameters map[string]types.FirstOrderPIDParams
 }
 
-// todo: support update pid parameters by kcc
 func NewPolicyRamaConfiguration() *PolicyRamaConfiguration {
 	return &PolicyRamaConfiguration{
 		PIDParameters: map[string]types.FirstOrderPIDParams{
@@ -36,8 +35,18 @@ func NewPolicyRamaConfiguration() *PolicyRamaConfiguration {
 				Kdn:                  0.0,
 				AdjustmentUpperBound: types.MaxRampUpStep,
 				AdjustmentLowerBound: -types.MaxRampDownStep,
-				DeadbandLowerPct:     0.8,
 				DeadbandUpperPct:     0.05,
+				DeadbandLowerPct:     0.2,
+			},
+			string(v1alpha1.TargetIndicatorNameCPUUsageRatio): {
+				Kpp:                  10.0,
+				Kpn:                  2.0,
+				Kdp:                  0.0,
+				Kdn:                  0.0,
+				AdjustmentUpperBound: types.MaxRampUpStep,
+				AdjustmentLowerBound: -types.MaxRampDownStep,
+				DeadbandUpperPct:     0.01,
+				DeadbandLowerPct:     0.06,
 			},
 			string(v1alpha1.TargetIndicatorNameCPI): {
 				Kpp:                  10.0,
@@ -46,8 +55,8 @@ func NewPolicyRamaConfiguration() *PolicyRamaConfiguration {
 				Kdn:                  0.0,
 				AdjustmentUpperBound: types.MaxRampUpStep,
 				AdjustmentLowerBound: -types.MaxRampDownStep,
-				DeadbandLowerPct:     0.98,
 				DeadbandUpperPct:     0.0,
+				DeadbandLowerPct:     0.02,
 			},
 		},
 	}

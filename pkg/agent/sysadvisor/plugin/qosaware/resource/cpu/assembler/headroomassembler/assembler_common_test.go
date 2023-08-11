@@ -131,7 +131,7 @@ func TestHeadroomAssemblerCommon_GetHeadroom(t *testing.T) {
 				},
 				setFakeMetric: func(store *metric.FakeMetricsFetcher) {
 					for i := 0; i < 10; i++ {
-						store.SetCPUMetric(i, pkgconsts.MetricCPUUsage, utilmetric.MetricData{Value: 30, Time: &now})
+						store.SetCPUMetric(i, pkgconsts.MetricCPUUsageRatio, utilmetric.MetricData{Value: 0.3, Time: &now})
 					}
 				},
 				setMetaCache: func(cache *metacache.MetaCacheImp) {
@@ -176,7 +176,7 @@ func TestHeadroomAssemblerCommon_GetHeadroom(t *testing.T) {
 				},
 				setFakeMetric: func(store *metric.FakeMetricsFetcher) {
 					for i := 0; i < 10; i++ {
-						store.SetCPUMetric(i, pkgconsts.MetricCPUUsage, utilmetric.MetricData{Value: 30, Time: &now})
+						store.SetCPUMetric(i, pkgconsts.MetricCPUUsageRatio, utilmetric.MetricData{Value: 0.3, Time: &now})
 					}
 				},
 				setMetaCache: func(cache *metacache.MetaCacheImp) {
@@ -221,7 +221,7 @@ func TestHeadroomAssemblerCommon_GetHeadroom(t *testing.T) {
 				},
 				setFakeMetric: func(store *metric.FakeMetricsFetcher) {
 					for i := 0; i < 10; i++ {
-						store.SetCPUMetric(i, pkgconsts.MetricCPUUsage, utilmetric.MetricData{Time: &now})
+						store.SetCPUMetric(i, pkgconsts.MetricCPUUsageRatio, utilmetric.MetricData{Time: &now})
 					}
 				},
 				setMetaCache: func(cache *metacache.MetaCacheImp) {
@@ -266,7 +266,7 @@ func TestHeadroomAssemblerCommon_GetHeadroom(t *testing.T) {
 				},
 				setFakeMetric: func(store *metric.FakeMetricsFetcher) {
 					for i := 0; i < 96; i++ {
-						store.SetCPUMetric(i, pkgconsts.MetricCPUUsage, utilmetric.MetricData{Value: 90, Time: &now})
+						store.SetCPUMetric(i, pkgconsts.MetricCPUUsageRatio, utilmetric.MetricData{Value: 0.9, Time: &now})
 					}
 				},
 				setMetaCache: func(cache *metacache.MetaCacheImp) {
@@ -313,7 +313,7 @@ func TestHeadroomAssemblerCommon_GetHeadroom(t *testing.T) {
 				setFakeMetric: func(store *metric.FakeMetricsFetcher) {
 					now := time.Now()
 					for i := 0; i < 96; i++ {
-						store.SetCPUMetric(i, pkgconsts.MetricCPUUsage, utilmetric.MetricData{Value: 30, Time: &now})
+						store.SetCPUMetric(i, pkgconsts.MetricCPUUsageRatio, utilmetric.MetricData{Value: 0.3, Time: &now})
 					}
 				},
 				setMetaCache: func(cache *metacache.MetaCacheImp) {

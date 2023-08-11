@@ -98,6 +98,6 @@ type FirstOrderPIDParams struct {
 	Kdn                  float64
 	AdjustmentUpperBound float64
 	AdjustmentLowerBound float64
-	DeadbandLowerPct     float64
 	DeadbandUpperPct     float64
+	DeadbandLowerPct     float64
 }

@@ -71,8 +71,8 @@ const (
 
 // System cpu compute metrics
 const (
-	MetricCPUUsage       = "cpu.usage.cpu"
 	MetricCPUSchedwait   = "cpu.schedwait.cpu"
+	MetricCPUUsageRatio  = "cpu.usage.ratio.cpu"
 	MetricCPUIOWaitRatio = "cpu.iowait.ratio.cpu"
 )
 

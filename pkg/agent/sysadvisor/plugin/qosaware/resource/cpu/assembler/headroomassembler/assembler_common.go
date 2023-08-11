@@ -86,9 +86,9 @@ func (ha *HeadroomAssemblerCommon) getPoolMetrics(poolName string) (*poolMetrics
 	}
 
 	cpuSet := reclaimedInfo.TopologyAwareAssignments.MergeCPUSet()
-	m := ha.metaServer.AggregateCoreMetric(cpuSet, pkgconsts.MetricCPUUsage, metric.AggregatorAvg)
+	m := ha.metaServer.AggregateCoreMetric(cpuSet, pkgconsts.MetricCPUUsageRatio, metric.AggregatorAvg)
 	return &poolMetrics{
-		coreAvgUtil: m.Value / 100.,
+		coreAvgUtil: m.Value,
 		poolSize:    cpuSet.Size(),
 	}, nil
 }
