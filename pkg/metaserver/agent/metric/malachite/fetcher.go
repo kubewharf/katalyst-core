@@ -76,6 +76,8 @@ type MalachiteMetricsFetcher struct {
 
 	startOnce sync.Once
 	emitter   metrics.MetricEmitter
+
+	synced bool
 }
 
 func (m *MalachiteMetricsFetcher) Run(ctx context.Context) {
@@ -163,6 +165,10 @@ func (m *MalachiteMetricsFetcher) AggregateCoreMetric(cpuset machine.CPUSet, met
 	return m.metricStore.AggregateCoreMetric(cpuset, metricName, agg)
 }
 
+func (m *MalachiteMetricsFetcher) HasSynced() bool {
+	return m.synced
+}
+
 func (m *MalachiteMetricsFetcher) sample(ctx context.Context) {
 	klog.V(4).Infof("[malachite] heartbeat")
 
@@ -186,6 +192,8 @@ func (m *MalachiteMetricsFetcher) sample(ctx context.Context) {
 
 	m.notifySystem()
 	m.notifyPods()
+
+	m.synced = true
 }
 
 // checkMalachiteHealthy is to check whether malachite is healthy

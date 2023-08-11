@@ -28,7 +28,6 @@ import (
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/klog/v2"
 
-	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource/memory/headroompolicy"
 	memadvisorplugin "github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource/memory/plugin"
@@ -49,7 +48,6 @@ func init() {
 }
 
 const (
-	startUpPeriod    = 30 * time.Second
 	nonExistNumaID   = -1
 	scaleDenominator = 10000
 
@@ -161,17 +159,8 @@ func (ra *memoryResourceAdvisor) update() {
 	ra.mutex.Lock()
 	defer ra.mutex.Unlock()
 
-	// Skip update during startup
-	if time.Now().Before(ra.startTime.Add(startUpPeriod)) {
-		klog.Infof("[qosaware-memory] skip update: starting up")
-		return
-	}
-
-	// Check if essential pool info exists. Skip update if not in which case sysadvisor
-	// is ignorant of pools and containers
-	reservePoolInfo, ok := ra.metaReader.GetPoolInfo(state.PoolNameReserve)
-	if !ok || reservePoolInfo == nil {
-		klog.Warningf("[qosaware-memory] skip update: reserve pool not exist")
+	if !ra.metaReader.HasSynced() {
+		general.InfoS("metaReader has not synced, skip updating")
 		return
 	}
 

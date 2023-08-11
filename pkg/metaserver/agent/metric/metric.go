@@ -60,24 +60,7 @@ type NotifiedResponse struct {
 	metric.MetricData
 }
 
-// MetricsFetcher is used to get Node and Pod metrics.
-type MetricsFetcher interface {
-	// Run starts the preparing logic to collect node metadata.
-	Run(ctx context.Context)
-
-	// RegisterNotifier register a channel for raw metric, any time when metric
-	// changes, send a data into this given channel along with current time, and
-	// we will return a unique key to help with deRegister logic.
-	//
-	// this "current time" may not represent precisely time when this metric
-	// is at, but it indeed is the most precise time katalyst system can provide.
-	RegisterNotifier(scope MetricsScope, req NotifiedRequest, response chan NotifiedResponse) string
-	DeRegisterNotifier(scope MetricsScope, key string)
-
-	// RegisterExternalMetric register a function to set metric that can
-	// only be obtained from external sources
-	RegisterExternalMetric(f func(store *metric.MetricStore))
-
+type MetricsReader interface {
 	// GetNodeMetric get metric of node.
 	GetNodeMetric(metricName string) (metric.MetricData, error)
 	// GetNumaMetric get metric of numa.
@@ -102,4 +85,27 @@ type MetricsFetcher interface {
 	GetCgroupMetric(cgroupPath, metricName string) (metric.MetricData, error)
 	// GetCgroupNumaMetric get NUMA metric of qos class: /kubepods/burstable, /kubepods/besteffort, etc.
 	GetCgroupNumaMetric(cgroupPath, numaNode, metricName string) (metric.MetricData, error)
+
+	HasSynced() bool
+}
+
+// MetricsFetcher is used to get Node and Pod metrics.
+type MetricsFetcher interface {
+	// Run starts the preparing logic to collect node metadata.
+	Run(ctx context.Context)
+
+	// RegisterNotifier register a channel for raw metric, any time when metric
+	// changes, send a data into this given channel along with current time, and
+	// we will return a unique key to help with deRegister logic.
+	//
+	// this "current time" may not represent precisely time when this metric
+	// is at, but it indeed is the most precise time katalyst system can provide.
+	RegisterNotifier(scope MetricsScope, req NotifiedRequest, response chan NotifiedResponse) string
+	DeRegisterNotifier(scope MetricsScope, key string)
+
+	// RegisterExternalMetric register a function to set metric that can
+	// only be obtained from external sources
+	RegisterExternalMetric(f func(store *metric.MetricStore))
+
+	MetricsReader
 }

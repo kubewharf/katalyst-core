@@ -46,6 +46,7 @@ func NewFakeMetricsFetcher(emitter metrics.MetricEmitter) MetricsFetcher {
 	return &FakeMetricsFetcher{
 		metricStore: metric.NewMetricStore(),
 		emitter:     emitter,
+		hasSynced:   true,
 	}
 }
 
@@ -54,6 +55,8 @@ type FakeMetricsFetcher struct {
 	metricStore      *metric.MetricStore
 	emitter          metrics.MetricEmitter
 	registeredMetric []func(store *metric.MetricStore)
+
+	hasSynced bool
 }
 
 func (f *FakeMetricsFetcher) Run(ctx context.Context) {
@@ -62,6 +65,14 @@ func (f *FakeMetricsFetcher) Run(ctx context.Context) {
 	for _, fu := range f.registeredMetric {
 		fu(f.metricStore)
 	}
+}
+
+func (f *FakeMetricsFetcher) SetSynced(synced bool) {
+	f.hasSynced = synced
+}
+
+func (f *FakeMetricsFetcher) HasSynced() bool {
+	return f.hasSynced
 }
 
 func (f *FakeMetricsFetcher) RegisterNotifier(scope MetricsScope, req NotifiedRequest, response chan NotifiedResponse) string {
