@@ -18,6 +18,7 @@ package region
 
 import (
 	"k8s.io/apimachinery/pkg/util/uuid"
+	"k8s.io/klog/v2"
 
 	"github.com/kubewharf/katalyst-api/pkg/apis/workload/v1alpha1"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/cpuadvisor"
@@ -27,7 +28,6 @@ import (
 	pkgconsts "github.com/kubewharf/katalyst-core/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
-	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/metric"
 )
 
@@ -66,7 +66,7 @@ func (r *QoSRegionShare) TryUpdateProvision() {
 
 	indicators, err := r.getIndicators()
 	if err != nil {
-		general.Errorf("get indicators failed: %v", err)
+		klog.Errorf("[qosaware-cpu] get indicators failed: %v", err)
 	} else {
 		r.ControlEssentials.Indicators = indicators
 	}
@@ -82,7 +82,7 @@ func (r *QoSRegionShare) TryUpdateProvision() {
 
 		// run an episode of policy update
 		if err := internal.policy.Update(); err != nil {
-			general.Errorf("update policy %v failed: %v", internal.name, err)
+			klog.Errorf("[qosaware-cpu] update policy %v failed: %v", internal.name, err)
 			continue
 		}
 		internal.updateStatus = types.PolicyUpdateSucceeded
@@ -92,11 +92,11 @@ func (r *QoSRegionShare) TryUpdateProvision() {
 func (r *QoSRegionShare) getControlKnobs() types.ControlKnob {
 	poolSize, ok := r.metaReader.GetPoolSize(r.ownerPoolName)
 	if !ok {
-		general.Errorf("pool %v not exist", r.ownerPoolName)
+		klog.Errorf("[qosaware-cpu] pool %v not exist", r.ownerPoolName)
 		return nil
 	}
 	if poolSize <= 0 {
-		general.Errorf("pool %v of non positive size", r.ownerPoolName)
+		klog.Errorf("[qosaware-cpu] pool %v of non positive size", r.ownerPoolName)
 		return nil
 	}
 
@@ -111,7 +111,7 @@ func (r *QoSRegionShare) getControlKnobs() types.ControlKnob {
 func (r *QoSRegionShare) getPoolCPUSchedWait() (float64, error) {
 	poolInfo, ok := r.metaReader.GetPoolInfo(r.ownerPoolName)
 	if !ok {
-		general.Errorf("pool %v not exist", r.ownerPoolName)
+		klog.Errorf("[qosaware-cpu] pool %v not exist", r.ownerPoolName)
 		return 0, nil
 	}
 
@@ -123,7 +123,7 @@ func (r *QoSRegionShare) getPoolCPUSchedWait() (float64, error) {
 func (r *QoSRegionShare) getPoolCPUUsageRatio() (float64, error) {
 	poolInfo, ok := r.metaReader.GetPoolInfo(r.ownerPoolName)
 	if !ok {
-		general.Errorf("pool %v not exist", r.ownerPoolName)
+		klog.Errorf("[qosaware-cpu] pool %v not exist", r.ownerPoolName)
 		return 0, nil
 	}
 

@@ -18,6 +18,7 @@ package region
 
 import (
 	"k8s.io/apimachinery/pkg/util/uuid"
+	"k8s.io/klog/v2"
 	"k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 
 	workloadapis "github.com/kubewharf/katalyst-api/pkg/apis/workload/v1alpha1"
@@ -28,7 +29,6 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
-	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
@@ -72,7 +72,7 @@ func (r *QoSRegionDedicatedNumaExclusive) TryUpdateProvision() {
 
 	indicators, err := r.getIndicators()
 	if err != nil {
-		general.Errorf("get indicators failed: %v", err)
+		klog.Errorf("[qosaware-cpu] get indicators failed: %v", err)
 	} else {
 		r.ControlEssentials.Indicators = indicators
 	}
@@ -89,7 +89,7 @@ func (r *QoSRegionDedicatedNumaExclusive) TryUpdateProvision() {
 
 		// run an episode of policy update
 		if err := internal.policy.Update(); err != nil {
-			general.Errorf("update policy %v failed: %v", internal.name, err)
+			klog.Errorf("[qosaware-cpu] update policy %v failed: %v", internal.name, err)
 			continue
 		}
 		internal.updateStatus = types.PolicyUpdateSucceeded
@@ -123,13 +123,13 @@ func (r *QoSRegionDedicatedNumaExclusive) getPodCPICurrent() (float64, error) {
 		for containerName := range containerSet {
 			ci, ok := r.metaReader.GetContainerInfo(podUID, containerName)
 			if !ok || ci == nil {
-				general.Errorf("illegal container info of %v/%v", podUID, containerName)
+				klog.Errorf("[qosaware-cpu] illegal container info of %v/%v", podUID, containerName)
 				return 0, nil
 			}
 			if ci.ContainerType == v1alpha1.ContainerType_MAIN {
 				cpi, err := r.metaReader.GetContainerMetric(podUID, containerName, consts.MetricCPUCPIContainer)
 				if err != nil {
-					general.Errorf("get %v of %v/%v failed: %v", consts.MetricCPUCPIContainer, podUID, containerName, err)
+					klog.Errorf("[qosaware-cpu] get %v of %v/%v failed: %v", consts.MetricCPUCPIContainer, podUID, containerName, err)
 					return 0, nil
 				}
 				cpiSum += cpi.Value

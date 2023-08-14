@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"google.golang.org/grpc"
+	"k8s.io/klog/v2"
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/advisorsvc"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
@@ -64,26 +65,26 @@ func (ms *memoryServer) ListAndWatch(_ *advisorsvc.Empty, server advisorsvc.Advi
 	for {
 		select {
 		case <-ms.stopCh:
-			general.Infof("lw stopped because %v stopped", ms.name)
+			klog.Infof("[qosaware-server-memory] lw stopped because %v stopped", ms.name)
 			return nil
 		case advisorResp, more := <-recvCh:
 			if !more {
-				general.Infof("%v recv channel is closed", ms.name)
+				klog.Infof("[qosaware-server-memory] %v recv channel is closed", ms.name)
 				return nil
 			}
 			if advisorResp.TimeStamp.Add(ms.period * 2).Before(time.Now()) {
-				general.Warningf("advisorResp is expired")
+				klog.Warningf("[qosaware-server-memory] advisorResp is expired")
 				continue
 			}
 			resp := ms.assembleResponse(&advisorResp)
 			if resp != nil {
 				if err := server.Send(resp); err != nil {
-					general.Errorf("send response failed: %v", err)
+					klog.Warningf("[qosaware-server-memory] send response failed: %v", err)
 					_ = ms.emitter.StoreInt64(ms.genMetricsName(metricServerLWSendResponseFailed), int64(ms.period.Seconds()), metrics.MetricTypeNameCount)
 					return err
 				}
 
-				general.Infof("send calculation result: %v", general.ToString(resp))
+				klog.Infof("[qosaware-server-memory] send calculation result: %v", general.ToString(resp))
 				_ = ms.emitter.StoreInt64(ms.genMetricsName(metricServerLWSendResponseSucceeded), int64(ms.period.Seconds()), metrics.MetricTypeNameCount)
 			}
 		}

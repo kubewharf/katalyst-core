@@ -145,7 +145,6 @@ func (cra *cpuResourceAdvisor) Run(ctx context.Context) {
 	for {
 		select {
 		case <-cra.recvCh:
-			klog.Infof("[qosaware-cpu] receive update trigger from cpu server")
 			cra.update()
 		case <-ctx.Done():
 			return
@@ -158,6 +157,8 @@ func (cra *cpuResourceAdvisor) GetChannels() (interface{}, interface{}) {
 }
 
 func (cra *cpuResourceAdvisor) GetHeadroom() (resource.Quantity, error) {
+	klog.Infof("[qosaware-cpu] receive get headroom request")
+
 	cra.mutex.RLock()
 	defer cra.mutex.RUnlock()
 
@@ -174,12 +175,17 @@ func (cra *cpuResourceAdvisor) GetHeadroom() (resource.Quantity, error) {
 	if err != nil {
 		klog.Errorf("[qosaware-cpu] get headroom failed: %v", err)
 	}
+
+	klog.Infof("[qosaware-cpu] get headroom: %v", headroom)
+
 	return headroom, err
 }
 
 // update works in a monolithic way to maintain lifecycle and triggers update actions for all regions;
 // todo: re-consider whether it's efficient or we should make start individual goroutine for each region
 func (cra *cpuResourceAdvisor) update() {
+	klog.Infof("[qosaware-cpu] trigger update")
+
 	cra.mutex.Lock()
 	defer cra.mutex.Unlock()
 
@@ -242,9 +248,9 @@ func (cra *cpuResourceAdvisor) update() {
 	// notify cpu server
 	select {
 	case cra.sendCh <- calculationResult:
-		general.Infof("notify cpu server: %+v", calculationResult)
+		klog.Infof("[qosaware-cpu] notify cpu server: %+v", calculationResult)
 	default:
-		general.Errorf("channel is full")
+		klog.Errorf("[qosaware-cpu] channel is full")
 	}
 }
 
@@ -252,7 +258,7 @@ func (cra *cpuResourceAdvisor) update() {
 func (cra *cpuResourceAdvisor) setIsolatedContainers() {
 	isolatedPods := sets.NewString(cra.isolator.GetIsolatedPods()...)
 	if len(isolatedPods) > 0 {
-		general.Infof("current isolated pod: %v", isolatedPods.List())
+		klog.Infof("[qosaware-cpu] current isolated pod: %v", isolatedPods.List())
 	}
 
 	_ = cra.metaCache.RangeAndUpdateContainer(func(podUID string, _ string, ci *types.ContainerInfo) bool {

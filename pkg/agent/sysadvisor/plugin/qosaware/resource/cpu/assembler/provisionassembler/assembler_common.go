@@ -19,6 +19,8 @@ package provisionassembler
 import (
 	"time"
 
+	"k8s.io/klog/v2"
+
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/cpuadvisor"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
@@ -117,9 +119,9 @@ func (pa *ProvisionAssemblerCommon) AssembleProvision() (types.InternalCPUCalcul
 		}
 	}
 
-	general.Infof("share size: %v", sharePoolSizes)
-	general.Infof("isolate upper-size: %v", isolationUpperSizes)
-	general.Infof("isolate lower-size: %v", isolationLowerSizes)
+	klog.Infof("[qosaware-cpu] share size: %v", sharePoolSizes)
+	klog.Infof("[qosaware-cpu] isolate upper-size: %v", isolationUpperSizes)
+	klog.Infof("[qosaware-cpu] isolate lower-size: %v", isolationLowerSizes)
 
 	shareAndIsolatedPoolAvailable := getNumasAvailableResource(*pa.numaAvailable, *pa.nonBindingNumas)
 	shareAndIsolatePoolSizes := general.MergeMapInt(sharePoolSizes, isolationUpperSizes)

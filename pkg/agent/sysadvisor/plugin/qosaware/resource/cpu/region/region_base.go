@@ -332,7 +332,7 @@ func (r *QoSRegionBase) initProvisionPolicy(conf *config.Configuration, extraCon
 	metaReader metacache.MetaReader, metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter) {
 	configuredProvisionPolicy, ok := conf.CPUAdvisorConfiguration.ProvisionPolicies[r.regionType]
 	if !ok {
-		klog.Warningf("failed to find provision policies for region %v", r.regionType)
+		klog.Warningf("[qosaware-cpu] failed to find provision policies for region %v", r.regionType)
 		return
 	}
 
@@ -357,7 +357,7 @@ func (r *QoSRegionBase) initHeadroomPolicy(conf *config.Configuration, extraConf
 	metaReader metacache.MetaReader, metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter) {
 	configuredHeadroomPolicy, ok := conf.CPUAdvisorConfiguration.HeadroomPolicies[r.regionType]
 	if !ok {
-		klog.Warningf("failed to find provision policies for region %v", r.regionType)
+		klog.Warningf("[qosaware-cpu] failed to find provision policies for region %v", r.regionType)
 		return
 	}
 
