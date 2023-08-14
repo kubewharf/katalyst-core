@@ -487,6 +487,7 @@ func TestIndicatorUpdater(t *testing.T) {
 
 	spdConfig := &controller.SPDConfig{
 		SPDWorkloadGVResources: []string{"statefulsets.v1.apps"},
+		IndicatorPlugins:       []string{"d1", "d2"},
 	}
 	genericConfig := &generic.GenericConfiguration{}
 	controllerConf := &controller.GenericControllerConfiguration{

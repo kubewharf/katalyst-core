@@ -49,6 +49,7 @@ import (
 	indicator_plugin "github.com/kubewharf/katalyst-core/pkg/controller/spd/indicator-plugin"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util"
+	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/native"
 )
 
@@ -238,25 +239,29 @@ func (sc *SPDController) initializeIndicatorPlugins(controlCtx *katalystbase.Gen
 	sc.indicatorsSpecSystem = make(map[apiworkload.TargetIndicatorName]interface{})
 	sc.indicatorsStatusBusiness = make(map[apiworkload.ServiceBusinessIndicatorName]interface{})
 
-	for pluginName, initFunc := range indicator_plugin.GetPluginInitializers() {
-		plugin, err := initFunc(sc.ctx, sc.conf, extraConf, sc.spdWorkloadInformer,
-			controlCtx, sc.indicatorManager)
-		if err != nil {
-			return err
-		}
+	initializers := indicator_plugin.GetPluginInitializers()
+	for _, pluginName := range sc.conf.IndicatorPlugins {
+		if initFunc, ok := initializers[pluginName]; ok {
+			plugin, err := initFunc(sc.ctx, sc.conf, extraConf, sc.spdWorkloadInformer,
+				controlCtx, sc.indicatorManager)
+			if err != nil {
+				return err
+			}
 
-		klog.Infof("indicator plugin %s initialized", pluginName)
-		sc.indicatorPlugins[pluginName] = plugin
-		for _, name := range plugin.GetSupportedBusinessIndicatorSpec() {
-			sc.indicatorsSpecBusiness[name] = struct{}{}
-		}
-		for _, name := range plugin.GetSupportedSystemIndicatorSpec() {
-			sc.indicatorsSpecSystem[name] = struct{}{}
-		}
-		for _, name := range plugin.GetSupportedBusinessIndicatorStatus() {
-			sc.indicatorsStatusBusiness[name] = struct{}{}
+			general.InfoS("indicator initialized", "plugin", pluginName)
+			sc.indicatorPlugins[pluginName] = plugin
+			for _, name := range plugin.GetSupportedBusinessIndicatorSpec() {
+				sc.indicatorsSpecBusiness[name] = struct{}{}
+			}
+			for _, name := range plugin.GetSupportedSystemIndicatorSpec() {
+				sc.indicatorsSpecSystem[name] = struct{}{}
+			}
+			for _, name := range plugin.GetSupportedBusinessIndicatorStatus() {
+				sc.indicatorsStatusBusiness[name] = struct{}{}
+			}
 		}
 	}
+
 	return nil
 }
 
