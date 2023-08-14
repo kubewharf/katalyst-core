@@ -32,11 +32,13 @@ import (
 	apiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-api/pkg/plugins/skeleton"
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/agent"
+	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/agent/qrm"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/advisorsvc"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/memory/dynamicpolicy/memoryadvisor"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/memory/dynamicpolicy/state"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util"
+	"github.com/kubewharf/katalyst-core/pkg/agent/utilcomponent/periodicalhandler"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/config/generic"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
@@ -240,6 +242,8 @@ func (p *DynamicPolicy) Start() (err error) {
 		go wait.Until(p.setMemoryMigrate, setMemoryMigratePeriod, p.stopCh)
 	}
 
+	periodicalhandler.ReadyToStartHandlersByGroup(qrm.QRMMemoryPluginPeriodicalHandlerGroupName)
+
 	if !p.enableMemroyAdvisor {
 		general.Infof("start dynamic policy memory plugin without memory advisor")
 		return nil
@@ -286,6 +290,9 @@ func (p *DynamicPolicy) Stop() error {
 		return nil
 	}
 	close(p.stopCh)
+
+	periodicalhandler.StopHandlersByGroup(qrm.QRMMemoryPluginPeriodicalHandlerGroupName)
+
 	return nil
 }
 
