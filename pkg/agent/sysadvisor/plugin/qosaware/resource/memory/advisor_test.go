@@ -183,6 +183,18 @@ var defaultNodeMetrics = []nodeMetric{
 		metricValue: metricutil.MetricData{Value: 300 << 30},
 	},
 	{
+		metricName:  coreconsts.MetricMemFreeSystem,
+		metricValue: metricutil.MetricData{Value: 100 << 30},
+	},
+	{
+		metricName:  coreconsts.MetricMemPageCacheSystem,
+		metricValue: metricutil.MetricData{Value: 100 << 30},
+	},
+	{
+		metricName:  coreconsts.MetricMemBufferSystem,
+		metricValue: metricutil.MetricData{Value: 100 << 30},
+	},
+	{
 		metricName:  coreconsts.MetricMemTotalSystem,
 		metricValue: metricutil.MetricData{Value: 500 << 30},
 	},

@@ -401,6 +401,8 @@ func (m *MalachiteMetricsFetcher) processSystemMemoryData(systemMemoryData *type
 		utilmetric.MetricData{Value: float64(mem.MemShm << 10), Time: &updateTime})
 	m.metricStore.SetNodeMetric(consts.MetricMemBufferSystem,
 		utilmetric.MetricData{Value: float64(mem.MemBuffers << 10), Time: &updateTime})
+	m.metricStore.SetNodeMetric(consts.MetricMemPageCacheSystem,
+		utilmetric.MetricData{Value: float64(mem.MemPageCache << 10), Time: &updateTime})
 	m.metricStore.SetNodeMetric(consts.MetricMemAvailableSystem,
 		utilmetric.MetricData{Value: float64(mem.MemAvailable << 10), Time: &updateTime})
 
