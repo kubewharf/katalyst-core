@@ -96,7 +96,7 @@ func newSubQRMServer(resourceName v1.ResourceName, advisorWrapper resource.Resou
 			return nil, err
 		}
 		advisorRecvChInterface, advisorSendChInterface := subAdvisor.GetChannels()
-		advisorRecvCh := advisorRecvChInterface.(chan struct{})
+		advisorRecvCh := advisorRecvChInterface.(chan types.TriggerInfo)
 		advisorSendCh := advisorSendChInterface.(chan types.InternalCPUCalculationResult)
 		return NewCPUServer(advisorSendCh, advisorRecvCh, conf, metaCache, emitter)
 	case v1.ResourceMemory:

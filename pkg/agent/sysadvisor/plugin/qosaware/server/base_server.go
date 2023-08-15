@@ -56,7 +56,7 @@ type baseServer struct {
 	advisorSocketPath   string
 	pluginSocketPath    string
 	recvCh              interface{}
-	sendCh              chan struct{}
+	sendCh              chan types.TriggerInfo
 	lwCalledChan        chan struct{}
 	stopCh              chan struct{}
 	getCheckpointCalled bool
@@ -71,7 +71,7 @@ type baseServer struct {
 	resourceServer subQRMServer
 }
 
-func newBaseServer(name string, conf *config.Configuration, recvCh interface{}, sendCh chan struct{},
+func newBaseServer(name string, conf *config.Configuration, recvCh interface{}, sendCh chan types.TriggerInfo,
 	metaCache metacache.MetaCache, emitter metrics.MetricEmitter, resourceServer subQRMServer) *baseServer {
 	return &baseServer{
 		name:           name,

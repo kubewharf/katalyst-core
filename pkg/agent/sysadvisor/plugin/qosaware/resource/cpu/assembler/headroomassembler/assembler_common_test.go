@@ -44,6 +44,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/pod"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
+	metricspool "github.com/kubewharf/katalyst-core/pkg/metrics/metrics-pool"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 	utilmetric "github.com/kubewharf/katalyst-core/pkg/util/metric"
 )
@@ -342,7 +343,7 @@ func TestHeadroomAssemblerCommon_GetHeadroom(t *testing.T) {
 			conf := generateTestConfiguration(t, ckDir, sfDir)
 			conf.GetDynamicConfiguration().ReclaimedResourceConfiguration = tt.fields.reclaimedResourceConfiguration
 			metricsFetcher := metric.NewFakeMetricsFetcher(metrics.DummyMetrics{})
-			metaCache, err := metacache.NewMetaCacheImp(conf, metricsFetcher)
+			metaCache, err := metacache.NewMetaCacheImp(conf, metricspool.DummyMetricsEmitterPool{}, metricsFetcher)
 			require.NoError(t, err)
 
 			err = metaCache.SetRegionEntries(tt.fields.entries)

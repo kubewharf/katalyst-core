@@ -53,6 +53,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/pod"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/spd"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
+	metricspool "github.com/kubewharf/katalyst-core/pkg/metrics/metrics-pool"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 	metricutil "github.com/kubewharf/katalyst-core/pkg/util/metric"
 )
@@ -107,7 +108,7 @@ func newTestMemoryAdvisor(t *testing.T, pods []*v1.Pod, checkpointDir, stateFile
 		conf.MemoryAdvisorPlugins = plugins
 	}
 
-	metaCache, err := metacache.NewMetaCacheImp(conf, fetcher)
+	metaCache, err := metacache.NewMetaCacheImp(conf, metricspool.DummyMetricsEmitterPool{}, fetcher)
 	require.NoError(t, err)
 	require.NotNil(t, metaCache)
 

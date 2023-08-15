@@ -169,7 +169,7 @@ func TestPlugins(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			metaCache, err := metacache.NewMetaCacheImp(conf, fakeMetricsFetcher)
+			metaCache, err := metacache.NewMetaCacheImp(conf, metricspool.DummyMetricsEmitterPool{}, fakeMetricsFetcher)
 			assert.NoError(t, err)
 			assert.NotNil(t, metaCache)
 

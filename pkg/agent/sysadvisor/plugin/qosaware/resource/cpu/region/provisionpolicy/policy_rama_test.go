@@ -35,6 +35,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
+	metricspool "github.com/kubewharf/katalyst-core/pkg/metrics/metrics-pool"
 )
 
 func generateTestConfiguration(t *testing.T, checkpointDir, stateFileDir string) *config.Configuration {
@@ -102,7 +103,7 @@ func generateTestConfiguration(t *testing.T, checkpointDir, stateFileDir string)
 func newTestPolicyRama(t *testing.T, checkpointDir string, stateFileDir string, regionInfo types.RegionInfo) ProvisionPolicy {
 	conf := generateTestConfiguration(t, checkpointDir, stateFileDir)
 
-	metaCache, err := metacache.NewMetaCacheImp(conf, metric.NewFakeMetricsFetcher(metrics.DummyMetrics{}))
+	metaCache, err := metacache.NewMetaCacheImp(conf, metricspool.DummyMetricsEmitterPool{}, metric.NewFakeMetricsFetcher(metrics.DummyMetrics{}))
 	require.NoError(t, err)
 
 	genericCtx, err := katalyst_base.GenerateFakeGenericContext([]runtime.Object{})

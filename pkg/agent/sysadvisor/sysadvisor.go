@@ -82,7 +82,7 @@ func NewAdvisorAgent(conf *config.Configuration, extraConf interface{}, metaServ
 }
 
 func (m *AdvisorAgent) getAdvisorPlugins(SysAdvisorPluginInitializers map[string]pkgplugin.AdvisorPluginInitFunc) error {
-	metaCache, err := metacache.NewMetaCacheImp(m.config, m.metaServer.MetricsFetcher)
+	metaCache, err := metacache.NewMetaCacheImp(m.config, m.emitPool, m.metaServer.MetricsFetcher)
 	if err != nil {
 		return fmt.Errorf("new metacache failed: %v", err)
 	}

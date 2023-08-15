@@ -39,7 +39,7 @@ type memoryServer struct {
 	*baseServer
 }
 
-func NewMemoryServer(recvCh chan types.InternalMemoryCalculationResult, sendCh chan struct{}, conf *config.Configuration,
+func NewMemoryServer(recvCh chan types.InternalMemoryCalculationResult, sendCh chan types.TriggerInfo, conf *config.Configuration,
 	metaCache metacache.MetaCache, emitter metrics.MetricEmitter) (*memoryServer, error) {
 	ms := &memoryServer{}
 	ms.baseServer = newBaseServer(memoryServerName, conf, recvCh, sendCh, metaCache, emitter, ms)

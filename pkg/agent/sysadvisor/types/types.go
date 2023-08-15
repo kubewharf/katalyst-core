@@ -17,6 +17,8 @@ limitations under the License.
 package types
 
 import (
+	"time"
+
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 )
@@ -90,14 +92,6 @@ const (
 	PolicyUpdateFailed    PolicyUpdateStatus = "failed"
 )
 
-// FirstOrderPIDParams holds parameters for pid controller in rama policy
-type FirstOrderPIDParams struct {
-	Kpp                  float64
-	Kpn                  float64
-	Kdp                  float64
-	Kdn                  float64
-	AdjustmentUpperBound float64
-	AdjustmentLowerBound float64
-	DeadbandUpperPct     float64
-	DeadbandLowerPct     float64
+type TriggerInfo struct {
+	TimeStamp time.Time
 }
