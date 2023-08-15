@@ -55,8 +55,8 @@ type cpuPressureEviction struct {
 }
 
 func NewCPUPressureEviction(emitter metrics.MetricEmitter, metaServer *metaserver.MetaServer,
-	conf *config.Configuration, state state.ReadonlyState) (agent.Component, error) {
-	plugin, err := newCPUPressureEviction(emitter, metaServer, conf, state)
+	conf *config.Configuration, state state.ReadonlyState, podPoolFilter strategy.PodPoolFilter) (agent.Component, error) {
+	plugin, err := newCPUPressureEviction(emitter, metaServer, conf, state, podPoolFilter)
 	if err != nil {
 		return nil, fmt.Errorf("create cpu eviction plugin failed: %s", err)
 	}
@@ -65,10 +65,10 @@ func NewCPUPressureEviction(emitter metrics.MetricEmitter, metaServer *metaserve
 }
 
 func newCPUPressureEviction(emitter metrics.MetricEmitter, metaServer *metaserver.MetaServer,
-	conf *config.Configuration, state state.ReadonlyState) (skeleton.GenericPlugin, error) {
+	conf *config.Configuration, state state.ReadonlyState, podPoolFilter strategy.PodPoolFilter) (skeleton.GenericPlugin, error) {
 	wrappedEmitter := emitter.WithTags(cpuPressureEvictionPluginName)
 
-	pressureLoadEviction, err := strategy.NewCPUPressureLoadEviction(emitter, metaServer, conf, state)
+	pressureLoadEviction, err := strategy.NewCPUPressureLoadEviction(emitter, metaServer, conf, state, podPoolFilter)
 	if err != nil {
 		return nil, fmt.Errorf("create CPUPressureLoadEviction plugin failed, err:%v", err)
 	}

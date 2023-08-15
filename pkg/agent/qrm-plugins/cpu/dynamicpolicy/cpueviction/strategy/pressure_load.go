@@ -78,6 +78,8 @@ var (
 	)
 )
 
+type PodPoolFilter func(poolMap PodPoolMap) PodPoolMap
+
 type CPUPressureLoadEviction struct {
 	sync.Mutex
 	state       state.ReadonlyState
@@ -92,13 +94,15 @@ type CPUPressureLoadEviction struct {
 	evictionPoolName string
 	lastEvictionTime time.Time
 
+	// this func will be called when collect metrics, if a pod is filtered out from pod-pool map, it's load will not be
+	// counted
+	podPoolFilter             PodPoolFilter
+	systemReservedCPUs        machine.CPUSet
 	poolMetricCollectHandlers map[string]PoolMetricCollectHandler
-
-	systemReservedCPUs machine.CPUSet
 }
 
 func NewCPUPressureLoadEviction(emitter metrics.MetricEmitter, metaServer *metaserver.MetaServer,
-	conf *config.Configuration, state state.ReadonlyState) (CPUPressureThresholdEviction, error) {
+	conf *config.Configuration, state state.ReadonlyState, podPoolFilter PodPoolFilter) (CPUPressureThresholdEviction, error) {
 	plugin := &CPUPressureLoadEviction{
 		state:          state,
 		emitter:        emitter,
@@ -107,6 +111,7 @@ func NewCPUPressureLoadEviction(emitter metrics.MetricEmitter, metaServer *metas
 		qosConf:        conf.QoSConfiguration,
 		dynamicConf:    conf.DynamicAgentConfiguration,
 		syncPeriod:     conf.LoadEvictionSyncPeriod,
+		podPoolFilter:  podPoolFilter,
 	}
 
 	systemReservedCores, reserveErr := qrmutil.GetCoresReservedForSystem(conf, metaServer.KatalystMachineInfo, metaServer.CPUDetails.CPUs().Clone())
@@ -325,6 +330,9 @@ func (p *CPUPressureLoadEviction) collectMetrics(_ context.Context) {
 
 	pod2Pool := getPodPoolMapFunc(p.metaServer.MetaAgent, p.state)
 	p.clearExpiredMetricsHistory(pod2Pool)
+
+	// filter pod-pool map
+	pod2Pool = p.podPoolFilter(pod2Pool)
 
 	// collect metric for pod/container pairs, and store in local (i.e. poolsMetric)
 	collectTime := time.Now().UnixNano()

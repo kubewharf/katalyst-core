@@ -146,14 +146,14 @@ func (e *evictionRespCollector) collectMetThreshold(dryRunPlugins []string, plug
 	if resp.Condition != nil && resp.Condition.MetCondition {
 		general.Infof("%v plugin: %s requests to set condition: %s of type: %s",
 			e.getLogPrefix(dryRun), pluginName, resp.Condition.ConditionName, resp.Condition.ConditionType.String())
-		_ = e.emitter.StoreInt64(MetricsNameDryRunConditionCNT, 1, metrics.MetricTypeNameRaw,
-			metrics.MetricTag{Key: "name", Val: pluginName},
-			metrics.MetricTag{Key: "condition_name", Val: resp.Condition.ConditionName},
-			metrics.MetricTag{Key: "condition_type", Val: fmt.Sprint(resp.Condition.ConditionType)},
-			metrics.MetricTag{Key: "effects", Val: strings.Join(resp.Condition.Effects, effectTagValueSeparator)},
-		)
-
-		if !dryRun {
+		if dryRun {
+			_ = e.emitter.StoreInt64(MetricsNameDryRunConditionCNT, 1, metrics.MetricTypeNameRaw,
+				metrics.MetricTag{Key: "name", Val: pluginName},
+				metrics.MetricTag{Key: "condition_name", Val: resp.Condition.ConditionName},
+				metrics.MetricTag{Key: "condition_type", Val: fmt.Sprint(resp.Condition.ConditionType)},
+				metrics.MetricTag{Key: "effects", Val: strings.Join(resp.Condition.Effects, effectTagValueSeparator)},
+			)
+		} else {
 			e.getCurrentConditions()[resp.Condition.ConditionName] = proto.Clone(resp.Condition).(*pluginapi.Condition)
 		}
 	}

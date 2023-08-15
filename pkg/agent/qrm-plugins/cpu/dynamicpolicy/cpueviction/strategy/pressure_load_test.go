@@ -58,6 +58,10 @@ const (
 	defaultReservedForSystem                        = 0
 )
 
+func fakePodFilter(pod2Pool PodPoolMap) PodPoolMap {
+	return pod2Pool
+}
+
 func makeMetaServer(metricsFetcher metric.MetricsFetcher, cpuTopology *machine.CPUTopology) *metaserver.MetaServer {
 	metaServer := &metaserver.MetaServer{
 		MetaAgent: &agent.MetaAgent{},
@@ -110,7 +114,7 @@ func TestNewCPUPressureLoadEviction(t *testing.T) {
 	stateImpl, err := makeState(cpuTopology)
 	as.Nil(err)
 
-	plugin, createPluginErr := NewCPUPressureLoadEviction(metrics.DummyMetrics{}, metaServer, conf, stateImpl)
+	plugin, createPluginErr := NewCPUPressureLoadEviction(metrics.DummyMetrics{}, metaServer, conf, stateImpl, fakePodFilter)
 	as.Nil(createPluginErr)
 	as.Nil(err)
 	as.NotNil(plugin)
@@ -129,7 +133,7 @@ func TestThresholdMet(t *testing.T) {
 	stateImpl, err := makeState(cpuTopology)
 	as.Nil(err)
 
-	plugin, createPluginErr := NewCPUPressureLoadEviction(metrics.DummyMetrics{}, metaServer, conf, stateImpl)
+	plugin, createPluginErr := NewCPUPressureLoadEviction(metrics.DummyMetrics{}, metaServer, conf, stateImpl, fakePodFilter)
 	as.Nil(createPluginErr)
 	as.NotNil(plugin)
 
@@ -415,7 +419,7 @@ func TestGetTopEvictionPods(t *testing.T) {
 	stateImpl, err := makeState(cpuTopology)
 	as.Nil(err)
 
-	plugin, createPluginErr := NewCPUPressureLoadEviction(metrics.DummyMetrics{}, metaServer, conf, stateImpl)
+	plugin, createPluginErr := NewCPUPressureLoadEviction(metrics.DummyMetrics{}, metaServer, conf, stateImpl, fakePodFilter)
 	as.Nil(createPluginErr)
 	as.Nil(err)
 	as.NotNil(plugin)
@@ -1593,7 +1597,7 @@ func TestCPUPressureLoadEviction_collectMetrics(t *testing.T) {
 				}
 			}
 
-			plugin, createPluginErr := NewCPUPressureLoadEviction(metrics.DummyMetrics{}, metaServer, conf, stateImpl)
+			plugin, createPluginErr := NewCPUPressureLoadEviction(metrics.DummyMetrics{}, metaServer, conf, stateImpl, fakePodFilter)
 			as.Nil(createPluginErr)
 			as.Nil(err)
 			as.NotNil(plugin)
