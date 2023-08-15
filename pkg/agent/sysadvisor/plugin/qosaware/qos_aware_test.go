@@ -23,6 +23,7 @@ import (
 	"testing"
 	"time"
 
+	info "github.com/google/cadvisor/info/v1"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -66,14 +67,16 @@ func generateTestMetaServer(t *testing.T, conf *config.Configuration) *metaserve
 	metaServer.MetaAgent = &agent.MetaAgent{
 		KatalystMachineInfo: &machine.KatalystMachineInfo{
 			CPUTopology: cpuTopology,
+			MachineInfo: &info.MachineInfo{},
 		},
+		MetricsFetcher: metric.NewFakeMetricsFetcher(metrics.DummyMetrics{}),
 	}
 
 	return metaServer
 }
 
-func generateTestMetaCache(t *testing.T, conf *config.Configuration) *metacache.MetaCacheImp {
-	metaCache, err := metacache.NewMetaCacheImp(conf, metric.NewFakeMetricsFetcher(metrics.DummyMetrics{}))
+func generateTestMetaCache(t *testing.T, conf *config.Configuration, metricsReader metric.MetricsReader) *metacache.MetaCacheImp {
+	metaCache, err := metacache.NewMetaCacheImp(conf, metricsReader)
 	require.NoError(t, err)
 	require.NotNil(t, metaCache)
 
@@ -93,7 +96,7 @@ func TestQoSAwarePlugin(t *testing.T) {
 
 	conf := generateTestConfiguration(t, checkpoinDir, statefileDir)
 	metaServer := generateTestMetaServer(t, conf)
-	metaCache := generateTestMetaCache(t, conf)
+	metaCache := generateTestMetaCache(t, conf, metaServer.MetricsFetcher)
 
 	plugin, err := NewQoSAwarePlugin(conf, nil, metricspool.DummyMetricsEmitterPool{}, metaServer, metaCache)
 	require.NoError(t, err)

@@ -34,6 +34,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
+	"k8s.io/utils/pointer"
 
 	"github.com/kubewharf/katalyst-api/pkg/consts"
 	katalyst_base "github.com/kubewharf/katalyst-core/cmd/base"
@@ -106,7 +107,7 @@ func newTestMemoryAdvisor(t *testing.T, pods []*v1.Pod, checkpointDir, stateFile
 		conf.MemoryAdvisorPlugins = plugins
 	}
 
-	metaCache, err := metacache.NewMetaCacheImp(conf, metric.NewFakeMetricsFetcher(metrics.DummyMetrics{}))
+	metaCache, err := metacache.NewMetaCacheImp(conf, fetcher)
 	require.NoError(t, err)
 	require.NotNil(t, metaCache)
 
@@ -317,14 +318,16 @@ func TestUpdate(t *testing.T) {
 		containerMetrics     []containerMetric
 		containerNUMAMetrics []containerNUMAMetric
 		cgroupMetrics        []cgroupMetric
+		metricsFetcherSynced *bool
 		wantAdviceResult     types.InternalMemoryCalculationResult
 	}{
 		{
-			name:            "missing reserve pool",
-			pools:           map[string]*types.PoolInfo{},
-			reclaimedEnable: true,
-			wantHeadroom:    resource.Quantity{},
-			needRecvAdvices: false,
+			name:                 "metaCache not synced",
+			pools:                map[string]*types.PoolInfo{},
+			reclaimedEnable:      true,
+			wantHeadroom:         resource.Quantity{},
+			needRecvAdvices:      false,
+			metricsFetcherSynced: pointer.Bool(false),
 		},
 		{
 			name: "reserve pool only",
@@ -707,9 +710,11 @@ func TestUpdate(t *testing.T) {
 			for _, qosClassMetric := range tt.cgroupMetrics {
 				metricsFetcher.SetCgroupMetric(qosClassMetric.cgroupPath, qosClassMetric.metricName, qosClassMetric.metricValue)
 			}
+			if tt.metricsFetcherSynced != nil {
+				metricsFetcher.SetSynced(*tt.metricsFetcherSynced)
+			}
 
 			advisor, metaCache := newTestMemoryAdvisor(t, tt.pods, ckDir, sfDir, fetcher, tt.plugins)
-			advisor.startTime = time.Now().Add(-startUpPeriod * 2)
 			advisor.conf.GetDynamicConfiguration().EnableReclaim = tt.reclaimedEnable
 			_, advisorRecvChInterface := advisor.GetChannels()
 

@@ -23,6 +23,7 @@ import (
 	"testing"
 	"time"
 
+	info "github.com/google/cadvisor/info/v1"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -87,7 +88,9 @@ func TestAdvisor(t *testing.T) {
 	meta.MetaAgent = &agent.MetaAgent{
 		KatalystMachineInfo: &machine.KatalystMachineInfo{
 			CPUTopology: cpuTopology,
+			MachineInfo: &info.MachineInfo{},
 		},
+		MetricsFetcher: metric.NewFakeMetricsFetcher(metrics.DummyMetrics{}),
 	}
 
 	fakeMetricsFetcher := metric.NewFakeMetricsFetcher(metrics.DummyMetrics{}).(*metric.FakeMetricsFetcher)
@@ -145,30 +148,32 @@ func TestPlugins(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	conf := generatePluginConfig(t, ckDir, sfDir)
-	meta, err := metaserver.NewMetaServer(genericClient, metrics.DummyMetrics{}, conf)
+	metaServer, err := metaserver.NewMetaServer(genericClient, metrics.DummyMetrics{}, conf)
 	assert.NoError(t, err)
 
 	cpuTopology, err := machine.GenerateDummyCPUTopology(96, 2, 2)
 	assert.NoError(t, err)
 
-	meta.MetaAgent = &agent.MetaAgent{
+	metaServer.MetaAgent = &agent.MetaAgent{
 		KatalystMachineInfo: &machine.KatalystMachineInfo{
 			CPUTopology: cpuTopology,
+			MachineInfo: &info.MachineInfo{},
 		},
+		MetricsFetcher: metric.NewFakeMetricsFetcher(metrics.DummyMetrics{}),
 	}
 
 	fakeMetricsFetcher := metric.NewFakeMetricsFetcher(metrics.DummyMetrics{}).(*metric.FakeMetricsFetcher)
 	assert.NotNil(t, fakeMetricsFetcher)
-	meta.MetricsFetcher = fakeMetricsFetcher
-	meta.PodFetcher = &pod.PodFetcherStub{}
+	metaServer.MetricsFetcher = fakeMetricsFetcher
+	metaServer.PodFetcher = &pod.PodFetcherStub{}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			metaCache, err := metacache.NewMetaCacheImp(conf, nil)
+			metaCache, err := metacache.NewMetaCacheImp(conf, fakeMetricsFetcher)
 			assert.NoError(t, err)
 			assert.NotNil(t, metaCache)
 
-			curPlugin, _ := tt.arg.initFn(conf, nil, metricspool.DummyMetricsEmitterPool{}, meta, metaCache)
+			curPlugin, _ := tt.arg.initFn(conf, nil, metricspool.DummyMetricsEmitterPool{}, metaServer, metaCache)
 			err = curPlugin.Init()
 			assert.NotEqual(t, curPlugin.Name(), nil)
 			assert.Equal(t, err, nil)

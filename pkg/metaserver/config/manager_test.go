@@ -165,6 +165,7 @@ func TestNewDynamicConfigManager(t *testing.T) {
 	conf := generateTestConfiguration(t, nodeName, "/tmp/metaserver1/TestNewDynamicConfigManager")
 	cncFetcher := cnc.NewCachedCNCFetcher(conf.NodeName, conf.ConfigCacheTTL,
 		clientSet.InternalClient.ConfigV1alpha1().CustomNodeConfigs())
+	defer os.RemoveAll(conf.CheckpointManagerDir)
 
 	err := os.MkdirAll("/tmp/metaserver1/TestNewDynamicConfigManager", os.FileMode(0755))
 	require.NoError(t, err)
@@ -233,6 +234,7 @@ func TestDynamicConfigManager_getConfig(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			c := tt.fields.manager
+			defer os.RemoveAll(c.conf.CheckpointManagerDir)
 			err := c.updateConfig(tt.args.ctx)
 			require.NoError(t, err)
 			require.True(t, tt.want(c.conf))
@@ -467,6 +469,7 @@ func Test_updateDynamicConf(t *testing.T) {
 				v1.ResourceMemory: 1.3,
 			})
 			manager := constructTestDynamicConfigManager(t, "node-name", "Test_updateDynamicConf", ec)
+			defer os.RemoveAll(manager.conf.CheckpointManagerDir)
 			got, got1, _ := manager.updateDynamicConfig(tt.args.resourceGVRMap, tt.args.gvrToKind, tt.args.loader)
 			if !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("updateDynamicConfig() got = %v, want %v", got, tt.want)

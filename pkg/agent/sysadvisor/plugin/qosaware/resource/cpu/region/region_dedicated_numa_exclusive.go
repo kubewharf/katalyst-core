@@ -132,7 +132,7 @@ func (r *QoSRegionDedicatedNumaExclusive) getPodCPICurrent() (float64, error) {
 					general.Errorf("get %v of %v/%v failed: %v", consts.MetricCPUCPIContainer, podUID, containerName, err)
 					return 0, nil
 				}
-				cpiSum += cpi
+				cpiSum += cpi.Value
 				containerCnt += 1
 			}
 		}
