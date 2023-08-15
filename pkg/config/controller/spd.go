@@ -27,6 +27,8 @@ type SPDConfig struct {
 
 	// SPDPodLabelIndexerKeys are used
 	SPDPodLabelIndexerKeys []string
+
+	IndicatorPlugins []string
 }
 
 func NewSPDConfig() *SPDConfig {

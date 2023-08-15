@@ -30,6 +30,7 @@ type SPDOptions struct {
 	ResyncPeriod           time.Duration
 	SPDWorkloadGVResources []string
 	SPDPodLabelIndexerKeys []string
+	IndicatorPlugins       []string
 }
 
 // NewSPDOptions creates a new Options with a default config.
@@ -50,6 +51,8 @@ func (o *SPDOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 		"SPDWorkloadGVResources should be in the format of `resource.version.group.com` like 'deployments.v1.apps'.")
 	fs.StringSliceVar(&o.SPDPodLabelIndexerKeys, "spd-pod-label-indexers", o.SPDPodLabelIndexerKeys, ""+
 		"A list of pod label keys to be used as indexers for pod informer")
+	fs.StringSliceVar(&o.IndicatorPlugins, "spd-indicator-plugins", o.IndicatorPlugins,
+		"A list of indicator plugins to be used")
 }
 
 // ApplyTo fills up config with options
@@ -57,6 +60,7 @@ func (o *SPDOptions) ApplyTo(c *controller.SPDConfig) error {
 	c.ReSyncPeriod = o.ResyncPeriod
 	c.SPDWorkloadGVResources = o.SPDWorkloadGVResources
 	c.SPDPodLabelIndexerKeys = o.SPDPodLabelIndexerKeys
+	c.IndicatorPlugins = o.IndicatorPlugins
 	return nil
 }
 
