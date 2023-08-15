@@ -16,6 +16,12 @@ limitations under the License.
 
 package consts
 
+/*
+ to clarity the detailed meaning for each metric and avoid ambiguity, we will have some appointments here
+ - `usage` represents raw and absolute data, e.g. cpu cores
+ - `ratio` represents percentage data, and will format in range [0,1], e.g. cpu ratio based on total requests
+*/
+
 // System compute metrics
 const (
 	MetricLoad1MinSystem  = "cpu.load.1min.system"

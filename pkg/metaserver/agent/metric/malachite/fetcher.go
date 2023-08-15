@@ -482,6 +482,9 @@ func (m *MalachiteMetricsFetcher) processSystemCPUComputeData(systemComputeData 
 			klog.Errorf("[malachite] parse cpu name %v with err: %v", cpu.Name, err)
 			continue
 		}
+
+		// todo it's kind of confusing but the `cpu-usage` in `system-level` actually represents `ratio`,
+		//  we will always rename metric in local store to replenish `ratio` to avoid ambiguity.
 		m.metricStore.SetCPUMetric(cpuID, consts.MetricCPUUsageRatio,
 			utilmetric.MetricData{Value: cpu.CPUUsage / 100.0, Time: &updateTime})
 		m.metricStore.SetCPUMetric(cpuID, consts.MetricCPUSchedwait,
@@ -496,6 +499,8 @@ func (m *MalachiteMetricsFetcher) processCgroupCPUData(cgroupPath string, cgStat
 		cpu := cgStats.V1.Cpu
 		updateTime := time.Unix(cgStats.V1.Cpu.UpdateTime, 0)
 
+		// todo it's kind of confusing but the `cpu-usage-ratio` in `cgroup-level` actually represents `actual cores`,
+		//  we will always rename metric in local store to eliminate `ratio` to avoid ambiguity.
 		m.metricStore.SetCgroupMetric(cgroupPath, consts.MetricCPULimitCgroup, utilmetric.MetricData{Value: float64(cpu.CfsQuotaUs) / float64(cpu.CfsPeriodUs), Time: &updateTime})
 		m.metricStore.SetCgroupMetric(cgroupPath, consts.MetricCPUUsageCgroup, utilmetric.MetricData{Value: cpu.CPUUsageRatio, Time: &updateTime})
 		m.metricStore.SetCgroupMetric(cgroupPath, consts.MetricCPUUsageUserCgroup, utilmetric.MetricData{Value: cpu.CPUUserUsageRatio, Time: &updateTime})
@@ -520,6 +525,8 @@ func (m *MalachiteMetricsFetcher) processCgroupCPUData(cgroupPath string, cgStat
 		cpu := cgStats.V2.Cpu
 		updateTime := time.Unix(cgStats.V2.Cpu.UpdateTime, 0)
 
+		// todo it's kind of confusing but the `cpu-usage-ratio` in `cgroup-level` actually represents `actual cores`,
+		//  we will always rename metric in local store to eliminate `ratio` to avoid ambiguity.
 		m.metricStore.SetCgroupMetric(cgroupPath, consts.MetricCPUUsageCgroup, utilmetric.MetricData{Value: cpu.CPUUsageRatio, Time: &updateTime})
 		m.metricStore.SetCgroupMetric(cgroupPath, consts.MetricCPUUsageUserCgroup, utilmetric.MetricData{Value: cpu.CPUUserUsageRatio, Time: &updateTime})
 		m.metricStore.SetCgroupMetric(cgroupPath, consts.MetricCPUUsageSysCgroup, utilmetric.MetricData{Value: cpu.CPUSysUsageRatio, Time: &updateTime})
@@ -648,6 +655,8 @@ func (m *MalachiteMetricsFetcher) processContainerCPUData(podUID, containerName 
 		cpu := cgStats.V1.Cpu
 		updateTime := time.Unix(cgStats.V1.Cpu.UpdateTime, 0)
 
+		// todo it's kind of confusing but the `cpu-usage-ratio` in `cgroup-level` actually represents `actual cores`,
+		//  we will always rename metric in local store to eliminate `ratio` to avoid ambiguity.
 		m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricCPULimitContainer,
 			utilmetric.MetricData{Value: float64(cpu.CfsQuotaUs) / float64(cpu.CfsPeriodUs), Time: &updateTime})
 		m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricCPUUsageContainer,
@@ -712,6 +721,8 @@ func (m *MalachiteMetricsFetcher) processContainerCPUData(podUID, containerName 
 		cpu := cgStats.V2.Cpu
 		updateTime := time.Unix(cgStats.V2.Cpu.UpdateTime, 0)
 
+		// todo it's kind of confusing but the `cpu-usage-ratio` in `cgroup-level` actually represents `actual cores`,
+		//  we will always rename metric in local store to eliminate `ratio` to avoid ambiguity.
 		m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricCPUUsageContainer,
 			utilmetric.MetricData{Value: cpu.CPUUsageRatio, Time: &updateTime})
 		m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricCPUUsageUserContainer,
