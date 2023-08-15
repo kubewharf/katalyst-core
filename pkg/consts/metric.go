@@ -36,6 +36,7 @@ const (
 	MetricMemFreeSystem      = "mem.free.system"
 	MetricMemShmemSystem     = "mem.shmem.system"
 	MetricMemBufferSystem    = "mem.buffer.system"
+	MetricMemPageCacheSystem = "mem.pagecache.system"
 	MetricMemAvailableSystem = "mem.available.system"
 
 	MetricMemDirtySystem       = "mem.dirty.system"

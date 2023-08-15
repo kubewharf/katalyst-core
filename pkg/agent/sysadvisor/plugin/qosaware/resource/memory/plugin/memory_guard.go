@@ -21,7 +21,6 @@ import (
 	"sync"
 
 	"go.uber.org/atomic"
-	"k8s.io/apimachinery/pkg/api/resource"
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/memory/dynamicpolicy/memoryadvisor"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
@@ -62,31 +61,44 @@ func (mg *memoryGuard) Reconcile(status *types.MemoryPressureStatus) error {
 		return err
 	}
 
-	memoryAvailable, err := mg.metaServer.GetNodeMetric(consts.MetricMemAvailableSystem)
+	memoryFree, err := mg.metaReader.GetNodeMetric(consts.MetricMemFreeSystem)
 	if err != nil {
 		return err
 	}
 
-	scaleFactor, err := mg.metaServer.GetNodeMetric(consts.MetricMemScaleFactorSystem)
+	memoryCache, err := mg.metaReader.GetNodeMetric(consts.MetricMemPageCacheSystem)
 	if err != nil {
 		return err
 	}
 
-	buffer := memoryAvailable.Value - memoryTotal.Value*scaleFactor.Value/10000
+	memoryBuffer, err := mg.metaReader.GetNodeMetric(consts.MetricMemBufferSystem)
+	if err != nil {
+		return err
+	}
+
+	scaleFactor, err := mg.metaReader.GetNodeMetric(consts.MetricMemScaleFactorSystem)
+	if err != nil {
+		return err
+	}
+
+	buffer := memoryFree.Value + memoryCache.Value + memoryBuffer.Value - memoryTotal.Value*scaleFactor.Value/10000
 	if buffer < 0 {
 		buffer = 0
 	}
 
-	reclaimGroupRss, err := mg.metaServer.GetCgroupMetric(mg.reclaimRelativeRootCgroupPath, consts.MetricMemRssCgroup)
+	reclaimGroupRss, err := mg.metaReader.GetCgroupMetric(mg.reclaimRelativeRootCgroupPath, consts.MetricMemRssCgroup)
 	if err != nil {
 		return err
 	}
 
-	general.Infof("memoryAvailable: %v, memoryTotal: %v, scaleFactor: %v, reclaimGroupRss: %v",
-		resource.NewQuantity(int64(memoryAvailable.Value), resource.BinarySI).String(),
-		resource.NewQuantity(int64(memoryTotal.Value), resource.BinarySI).String(),
-		scaleFactor.Value,
-		resource.NewQuantity(int64(reclaimGroupRss.Value), resource.BinarySI).String())
+	general.InfoS("memory details",
+		"system total", general.FormatMemoryQuantity(memoryTotal.Value),
+		"system free", general.FormatMemoryQuantity(memoryFree.Value),
+		"system cache", general.FormatMemoryQuantity(memoryCache.Value),
+		"system buffer", general.FormatMemoryQuantity(memoryBuffer.Value),
+		"system scaleFactor", general.FormatMemoryQuantity(scaleFactor.Value),
+		"reclaim cgroup rss", general.FormatMemoryQuantity(reclaimGroupRss.Value),
+	)
 
 	mg.reclaimMemoryLimit.Store(int64(buffer + reclaimGroupRss.Value))
 
