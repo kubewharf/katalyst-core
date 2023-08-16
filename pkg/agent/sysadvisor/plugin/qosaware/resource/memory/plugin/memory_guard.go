@@ -34,6 +34,7 @@ import (
 
 const (
 	MemoryGuard = "memory-guard"
+	minReserved = 1 << 30 // 1GiB
 )
 
 type memoryGuard struct {
@@ -91,16 +92,25 @@ func (mg *memoryGuard) Reconcile(status *types.MemoryPressureStatus) error {
 		return err
 	}
 
+	reclaimGroupUsed, err := mg.metaReader.GetCgroupMetric(mg.reclaimRelativeRootCgroupPath, consts.MetricMemUsageCgroup)
+	if err != nil {
+		return err
+	}
+
+	reclaimMemoryLimit := general.MaxFloat64(reclaimGroupUsed.Value+minReserved, reclaimGroupRss.Value+buffer)
+
 	general.InfoS("memory details",
 		"system total", general.FormatMemoryQuantity(memoryTotal.Value),
 		"system free", general.FormatMemoryQuantity(memoryFree.Value),
 		"system cache", general.FormatMemoryQuantity(memoryCache.Value),
 		"system buffer", general.FormatMemoryQuantity(memoryBuffer.Value),
 		"system scaleFactor", general.FormatMemoryQuantity(scaleFactor.Value),
+		"buffer", general.FormatMemoryQuantity(buffer),
 		"reclaim cgroup rss", general.FormatMemoryQuantity(reclaimGroupRss.Value),
+		"reclaim cgroup used", general.FormatMemoryQuantity(reclaimGroupUsed.Value),
 	)
 
-	mg.reclaimMemoryLimit.Store(int64(buffer + reclaimGroupRss.Value))
+	mg.reclaimMemoryLimit.Store(int64(reclaimMemoryLimit))
 
 	return nil
 }

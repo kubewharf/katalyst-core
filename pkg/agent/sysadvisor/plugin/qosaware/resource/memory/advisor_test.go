@@ -311,6 +311,11 @@ var cgroupMetrics = []cgroupMetric{
 		metricValue: metricutil.MetricData{Value: 100 << 30},
 		cgroupPath:  "/kubepods/besteffort",
 	},
+	{
+		metricName:  coreconsts.MetricMemUsageCgroup,
+		metricValue: metricutil.MetricData{Value: 110 << 30},
+		cgroupPath:  "/kubepods/besteffort",
+	},
 }
 
 func TestUpdate(t *testing.T) {
