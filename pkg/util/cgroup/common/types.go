@@ -16,6 +16,8 @@ limitations under the License.
 
 package common
 
+import "fmt"
+
 const (
 	// CgroupFSMountPoint default cgroup mount point
 	CgroupFSMountPoint = "/sys/fs/cgroup"
@@ -29,6 +31,7 @@ const (
 	CgroupSubsysCPUSet = "cpuset"
 	CgroupSubsysMemory = "memory"
 	CgroupSubsysCPU    = "cpu"
+	CgroupSubsysIO     = "io"
 	// CgroupSubsysNetCls is the net_cls sub-system
 	CgroupSubsysNetCls = "net_cls"
 
@@ -80,6 +83,61 @@ type NetClsData struct {
 	CgroupID uint64
 	// Attributes are some optional attributes.
 	Attributes map[string]string
+}
+
+type IOCostCtrlMode string
+type IOCostModel string
+
+const (
+	IOCostCtrlModeAuto IOCostCtrlMode = "auto"
+	IOCostCtrlModeUser IOCostCtrlMode = "user"
+	IOCostModelLinear  IOCostModel    = "linear"
+)
+
+// IOCostQoSData is the io.cost.qos data supported in cgroupv2
+type IOCostQoSData struct {
+	Enable              uint32         `json:"enable"`                //Weight-based control enable
+	CtrlMode            IOCostCtrlMode `json:"ctrl_mode"`             //"auto" or "user"
+	ReadLatencyPercent  float32        `json:"read_latency_percent"`  // read latency percentile [0, 100]
+	ReadLatencyUS       uint32         `json:"read_latency_us"`       // read latency threshold, unit microsecond
+	WriteLatencyPercent float32        `json:"write_latency_percent"` // write latency percentile [0, 100]
+	WriteLatencyUS      uint32         `json:"write_latency_us"`      // write latency threshold, unit microsecond
+	VrateMin            float32        `json:"vrate_min"`             // vrate minimum scaling percentage [1, 10000]
+	VrateMax            float32        `json:"vrate_max"`             // vrate maximum scaling percentage [1, 10000]
+}
+
+func (iocqd *IOCostQoSData) String() string {
+	if iocqd == nil {
+		return ""
+	}
+
+	if iocqd.Enable == 0 {
+		return "enable=0"
+	}
+
+	return fmt.Sprintf("enable=1 ctrl=%s rpct=%.2f rlat=%d wpct=%.2f wlat=%d min=%.2f max=%.2f",
+		iocqd.CtrlMode, iocqd.ReadLatencyPercent, iocqd.ReadLatencyUS, iocqd.WriteLatencyPercent, iocqd.WriteLatencyUS, iocqd.VrateMin, iocqd.VrateMax)
+}
+
+// IOCostModelData is the io.cost.model data supported in cgroupv2
+type IOCostModelData struct {
+	CtrlMode      IOCostCtrlMode `json:"ctrl_mode"`       //"auto" or "user"
+	Model         IOCostModel    `json:"model"`           //The cost model in use - "linear"
+	ReadBPS       uint64         `json:"read_bps"`        // read bytes per second
+	ReadSeqIOPS   uint64         `json:"read_seq_iops"`   // sequential read IOPS
+	ReadRandIOPS  uint64         `json:"read_rand_iops"`  // random read IOPS
+	WriteBPS      uint64         `json:"write_bps"`       // wirte bytes per second
+	WriteSeqIOPS  uint64         `json:"write_seq_iops"`  // sequential write IOPS
+	WriteRandIOPS uint64         `json:"write_rand_iops"` // random write IOPS
+}
+
+func (iocmd *IOCostModelData) String() string {
+	if iocmd == nil {
+		return ""
+	}
+
+	return fmt.Sprintf("ctrl=%s model=%s rbps=%d rseqiops=%d rrandiops=%d wbps=%d wseqiops=%d wrandiops=%d",
+		iocmd.CtrlMode, iocmd.Model, iocmd.ReadBPS, iocmd.ReadSeqIOPS, iocmd.ReadRandIOPS, iocmd.WriteBPS, iocmd.WriteSeqIOPS, iocmd.WriteRandIOPS)
 }
 
 // MemoryStats get cgroup memory data

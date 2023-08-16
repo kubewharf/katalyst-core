@@ -23,6 +23,7 @@ import (
 	"errors"
 	"fmt"
 	"io/ioutil"
+	"log"
 	"math"
 	"os"
 	"path"
@@ -161,6 +162,63 @@ func (m *manager) ApplyNetCls(_ string, _ *common.NetClsData) error {
 	return errors.New("cgroups v2 does not support net_cls cgroup, please use eBPF via external manager")
 }
 
+func (m *manager) ApplyIOCostQoS(absCgroupPath string, devID string, data *common.IOCostQoSData) error {
+	if data == nil {
+		return fmt.Errorf("ApplyIOCostQoS got nil data")
+	}
+
+	dataContent := data.String()
+	if err, applied, oldData := common.WriteFileIfChange(absCgroupPath, "io.cost.qos", fmt.Sprintf("%s %s", devID, dataContent)); err != nil {
+		return err
+	} else if applied {
+		klog.Infof("[CgroupV2] apply io.cost.qos data successfully,"+
+			"cgroupPath: %s, data: %s, old data: %s\n", absCgroupPath, dataContent, oldData)
+	}
+
+	return nil
+}
+
+func (m *manager) ApplyIOCostModel(absCgroupPath string, devID string, data *common.IOCostModelData) error {
+	if data == nil {
+		return fmt.Errorf("ApplyIOCostModel got nil data")
+	}
+
+	dataContent := data.String()
+	if err, applied, oldData := common.WriteFileIfChange(absCgroupPath, "io.cost.model", fmt.Sprintf("%s %s", devID, dataContent)); err != nil {
+		return err
+	} else if applied {
+		klog.Infof("[CgroupV2] apply io.cost.model data successfully,"+
+			"cgroupPath: %s, data: %s, old data: %s\n", absCgroupPath, dataContent, oldData)
+	}
+
+	return nil
+}
+
+func (m *manager) ApplyIOWeight(absCgroupPath string, devID string, weight uint64) error {
+	dataContent := fmt.Sprintf("%s %d", devID, weight)
+
+	curWight, found, err := m.GetDeviceIOWeight(absCgroupPath, devID)
+
+	if err != nil {
+		return fmt.Errorf("try GetDeviceIOWeight before ApplyIOWeight failed with error: %v", err)
+	}
+
+	if found && curWight == weight {
+		klog.Infof("[CgroupV2] io.weight: %d in cgroupPath: %s for device: %s isn't changed, not to apply it",
+			curWight, absCgroupPath, devID)
+		return nil
+	}
+
+	if err, applied, oldData := common.WriteFileIfChange(absCgroupPath, "io.weight", dataContent); err != nil {
+		return err
+	} else if applied {
+		klog.Infof("[CgroupV2] apply io.weight for device: %s successfully,"+
+			"cgroupPath: %s, added data: %s, old data: %s\n", devID, absCgroupPath, dataContent, oldData)
+	}
+
+	return nil
+}
+
 func (m *manager) ApplyUnifiedData(absCgroupPath, cgroupFileName, data string) error {
 	if err, applied, oldData := common.WriteFileIfChange(absCgroupPath, cgroupFileName, data); err != nil {
 		return err
@@ -243,6 +301,138 @@ func (m *manager) GetCPU(absCgroupPath string) (*common.CPUStats, error) {
 	cpuStats.CpuPeriod = period
 	cpuStats.CpuQuota = quota
 	return cpuStats, nil
+}
+
+func (m *manager) GetIOCostQoS(absCgroupPath string) (map[string]*common.IOCostQoSData, error) {
+	contents, err := ioutil.ReadFile(filepath.Join(absCgroupPath, "io.cost.qos"))
+	if err != nil {
+		return nil, err
+	}
+
+	rawStr := strings.TrimRight(string(contents), "\n")
+	qosStrList := strings.Split(rawStr, "\n")
+
+	devIDtoQoSData := make(map[string]*common.IOCostQoSData)
+	for _, str := range qosStrList {
+		if strings.TrimSpace(str) == "" {
+			continue
+		}
+
+		devID, data, err := parseDeviceIOCostQoS(str)
+		if err != nil {
+			general.Errorf("invalid device io cost qos data: %s, err: %v", str, err)
+			continue
+		}
+
+		devIDtoQoSData[devID] = data
+	}
+
+	return devIDtoQoSData, nil
+}
+
+func (m *manager) GetIOCostModel(absCgroupPath string) (map[string]*common.IOCostModelData, error) {
+	contents, err := ioutil.ReadFile(filepath.Join(absCgroupPath, "io.cost.model"))
+	if err != nil {
+		return nil, err
+	}
+
+	rawStr := strings.TrimRight(string(contents), "\n")
+	modelStrList := strings.Split(rawStr, "\n")
+
+	devIDtoModelData := make(map[string]*common.IOCostModelData)
+	for _, str := range modelStrList {
+		if strings.TrimSpace(str) == "" {
+			continue
+		}
+
+		devID, data, err := parseDeviceIOCostModel(str)
+		if err != nil {
+			general.Errorf("invalid device io cost model %s, err %v", str, err)
+			continue
+		}
+
+		devIDtoModelData[devID] = data
+	}
+
+	return devIDtoModelData, nil
+}
+
+func (m *manager) GetDeviceIOWeight(absCgroupPath string, devID string) (uint64, bool, error) {
+	ioWeightFile := path.Join(absCgroupPath, "io.weight")
+	contents, err := ioutil.ReadFile(ioWeightFile)
+	if err != nil {
+		return 0, false, fmt.Errorf("failed to ReadFile %s, err %v", ioWeightFile, err)
+	}
+
+	rawStr := strings.TrimRight(string(contents), "\n")
+	weightStrList := strings.Split(rawStr, "\n")
+
+	var devWeight string
+	for _, line := range weightStrList {
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+
+		fields := strings.Fields(line)
+		if len(fields) != 2 {
+			log.Printf("invalid weight line %s in %s", line, ioWeightFile)
+			continue
+		}
+
+		if fields[0] == devID {
+			devWeight = fields[1]
+			break
+		}
+	}
+
+	if devWeight == "" {
+		return 0, false, nil
+	}
+
+	weight, err := strconv.ParseUint(strings.TrimRight(devWeight, "\n"), 10, 64)
+	return weight, true, err
+}
+
+func (m *manager) GetIOStat(absCgroupPath string) (map[string]map[string]string, error) {
+	ioStatFile := path.Join(absCgroupPath, "io.stat")
+	contents, err := ioutil.ReadFile(ioStatFile)
+	if err != nil {
+		return nil, fmt.Errorf("failed to ReadFile %s, err %v", ioStatFile, err)
+	}
+
+	rawStr := strings.TrimRight(string(contents), "\n")
+	ioStatStrList := strings.Split(rawStr, "\n")
+
+	devIDtoIOStat := make(map[string]map[string]string)
+	for _, line := range ioStatStrList {
+		if len(strings.TrimSpace(line)) == 0 {
+			continue
+		}
+
+		fields := strings.Fields(line)
+
+		if len(fields) == 0 {
+			return nil, fmt.Errorf("got empty line")
+		}
+
+		devID := fields[0]
+
+		if devIDtoIOStat[devID] == nil {
+			devIDtoIOStat[devID] = make(map[string]string)
+		}
+
+		metrics := fields[1:]
+		for _, m := range metrics {
+			kv := strings.Split(m, "=")
+			if len(kv) != 2 {
+				return nil, fmt.Errorf("invalid metric %s in line %s", m, line)
+			}
+
+			devIDtoIOStat[devID][kv[0]] = kv[1]
+		}
+	}
+
+	return devIDtoIOStat, nil
 }
 
 func (m *manager) GetMetrics(relCgroupPath string, _ map[string]struct{}) (*common.CgroupMetrics, error) {
@@ -336,4 +526,133 @@ func numToStr(value int64) (ret string) {
 	}
 
 	return ret
+}
+
+func parseDeviceIOCostQoS(str string) (string, *common.IOCostQoSData, error) {
+	fields := strings.Fields(str)
+	if len(fields) != 9 {
+		return "", nil, fmt.Errorf("device io cost qos line(%s) does not has 9 fields", str)
+	}
+
+	devID := fields[0]
+	others := fields[1:]
+	ioCostQoSData := &common.IOCostQoSData{}
+	for _, o := range others {
+		kv := strings.Split(o, "=")
+		if len(kv) != 2 {
+			return "", nil, fmt.Errorf("invalid device io cost qos line(%s) with invalid option conf %s", str, o)
+		}
+
+		key := kv[0]
+		valStr := kv[1]
+
+		switch key {
+		case "enable":
+			val, err := strconv.ParseUint(valStr, 10, 32)
+			if err != nil {
+				return "", nil, fmt.Errorf("device io cost qos(%s) has invalid value(%s) for option %s", str, valStr, key)
+			}
+			ioCostQoSData.Enable = uint32(val)
+		case "ctrl":
+			ioCostQoSData.CtrlMode = common.IOCostCtrlMode(valStr)
+		case "rpct":
+			val, err := strconv.ParseFloat(valStr, 32)
+			if err != nil {
+				return "", nil, fmt.Errorf("device io cost qos(%s) has invalid value(%s) for option %s", str, valStr, key)
+			}
+			ioCostQoSData.ReadLatencyPercent = float32(val)
+		case "rlat":
+			val, err := strconv.ParseUint(valStr, 10, 32)
+			if err != nil {
+				return "", nil, fmt.Errorf("device io cost qos(%s) has invalid value(%s) for option %s", str, valStr, key)
+			}
+			ioCostQoSData.ReadLatencyUS = uint32(val)
+		case "wpct":
+			val, err := strconv.ParseFloat(valStr, 32)
+			if err != nil {
+				return "", nil, fmt.Errorf("device io cost qos(%s) has invalid value(%s) for option %s", str, valStr, key)
+			}
+			ioCostQoSData.WriteLatencyPercent = float32(val)
+		case "wlat":
+			val, err := strconv.ParseUint(valStr, 10, 32)
+			if err != nil {
+				return "", nil, fmt.Errorf("device io cost qos(%s) has invalid value(%s) for option %s", str, valStr, key)
+			}
+			ioCostQoSData.WriteLatencyUS = uint32(val)
+		case "min":
+			val, err := strconv.ParseFloat(valStr, 32)
+			if err != nil {
+				return "", nil, fmt.Errorf("device io cost qos(%s) has invalid value(%s) for option %s", str, valStr, key)
+			}
+			ioCostQoSData.VrateMin = float32(val)
+		case "max":
+			val, err := strconv.ParseFloat(valStr, 32)
+			if err != nil {
+				return "", nil, fmt.Errorf("device io cost qos(%s) has invalid value(%s) for option %s", str, valStr, key)
+			}
+			ioCostQoSData.VrateMax = float32(val)
+		default:
+			return "", nil, fmt.Errorf("device io cost qos(%s) has invalid option key %s", str, key)
+		}
+	}
+
+	return devID, ioCostQoSData, nil
+}
+
+func parseDeviceIOCostModel(str string) (string, *common.IOCostModelData, error) {
+	fields := strings.Fields(str)
+	if len(fields) != 9 {
+		return "", nil, fmt.Errorf("device io cost model(%s) does not has 9 fields", str)
+	}
+
+	devID := fields[0]
+	others := fields[1:]
+	ioCostModelData := &common.IOCostModelData{}
+lineLoop:
+	for _, o := range others {
+		kv := strings.Split(o, "=")
+		if len(kv) != 2 {
+			return "", nil, fmt.Errorf("invalid device io cost model(%s) with invalid option conf %s", str, o)
+		}
+
+		key := kv[0]
+		valStr := kv[1]
+
+		switch key {
+		case "ctrl":
+			ioCostModelData.CtrlMode = common.IOCostCtrlMode(valStr)
+			continue lineLoop
+		case "model":
+			ioCostModelData.Model = common.IOCostModel(valStr)
+			continue lineLoop
+		}
+
+		val, err := strconv.ParseUint(valStr, 10, 64)
+		if err != nil {
+			return "", nil, fmt.Errorf("device io cost model(%s) has invalid value(%s) for option %s", str, valStr, key)
+		}
+
+		switch key {
+		case "ctrl":
+			ioCostModelData.CtrlMode = common.IOCostCtrlMode(valStr)
+		case "model":
+			ioCostModelData.Model = common.IOCostModel(valStr)
+		case "rbps":
+			ioCostModelData.ReadBPS = val
+		case "rseqiops":
+			ioCostModelData.ReadSeqIOPS = val
+		case "rrandiops":
+			ioCostModelData.ReadRandIOPS = val
+		case "wbps":
+			ioCostModelData.WriteBPS = val
+		case "wseqiops":
+			ioCostModelData.WriteSeqIOPS = val
+		case "wrandiops":
+			ioCostModelData.WriteRandIOPS = val
+		default:
+			return "", nil, fmt.Errorf("device io cost model(%s) has invalid option key %s", str, key)
+		}
+	}
+
+	return devID, ioCostModelData, nil
 }

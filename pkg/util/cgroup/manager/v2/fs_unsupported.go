@@ -48,6 +48,18 @@ func (m *unsupportedManager) ApplyNetCls(_ string, _ *common.NetClsData) error {
 	return fmt.Errorf("unsupported manager v2")
 }
 
+func (m *unsupportedManager) ApplyIOCostQoS(absCgroupPath string, devID string, data *common.IOCostQoSData) error {
+	return fmt.Errorf("unsupported manager v2")
+}
+
+func (m *unsupportedManager) ApplyIOCostModel(absCgroupPath string, devID string, data *common.IOCostModelData) error {
+	return fmt.Errorf("unsupported manager v2")
+}
+
+func (m *unsupportedManager) ApplyIOWeight(absCgroupPath string, devID string, weight uint64) error {
+	return fmt.Errorf("unsupported manager v2")
+}
+
 func (m *unsupportedManager) ApplyUnifiedData(absCgroupPath, cgroupFileName, data string) error {
 	return fmt.Errorf("unsupported manager v1")
 }
@@ -64,7 +76,23 @@ func (m *unsupportedManager) GetCPUSet(_ string) (*common.CPUSetStats, error) {
 	return nil, fmt.Errorf("unsupported manager v2")
 }
 
+func (m *unsupportedManager) GetIOCostQoS(absCgroupPath string) (map[string]*common.IOCostQoSData, error) {
+	return nil, fmt.Errorf("unsupported manager v2")
+}
+
+func (m *unsupportedManager) GetIOCostModel(absCgroupPath string) (map[string]*common.IOCostModelData, error) {
+	return nil, fmt.Errorf("unsupported manager v2")
+}
+
+func (m *unsupportedManager) GetDeviceIOWeight(absCgroupPath string, devID string) (uint64, bool, error) {
+	return 0, false, fmt.Errorf("unsupported manager v2")
+}
+
 func (m *unsupportedManager) GetMetrics(_ string, _ map[string]struct{}) (*common.CgroupMetrics, error) {
+	return nil, fmt.Errorf("unsupported manager v2")
+}
+
+func (m *unsupportedManager) GetIOStat(absCgroupPath string) (map[string]map[string]string, error) {
 	return nil, fmt.Errorf("unsupported manager v2")
 }
 
