@@ -58,7 +58,7 @@ func (p *PolicyCanonical) Update() error {
 		for containerName := range containerSet {
 			ci, ok := p.metaReader.GetContainerInfo(podUID, containerName)
 			if !ok || ci == nil {
-				klog.Errorf("[qosaware-cpu-headroom] illegal container info of %v/%v", podUID, containerName)
+				klog.Errorf("[qosaware-cpu-canonical] illegal container info of %v/%v", podUID, containerName)
 				continue
 			}
 			containerEstimation, err := helper.EstimateContainerCPUUsage(ci, p.metaReader, enableReclaim)

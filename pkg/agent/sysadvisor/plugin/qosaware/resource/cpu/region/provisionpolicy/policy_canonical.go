@@ -30,7 +30,6 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
-	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
@@ -114,7 +113,7 @@ func (p *PolicyCanonical) estimateCPUUsage() (float64, error) {
 					for range bindingNumas.ToSliceInt() {
 						containerEstimation += float64(p.metaServer.CPUsPerNuma())
 					}
-					general.Infof("container %s/%s occupied cpu %v", ci.PodName, ci.ContainerName, containerEstimation)
+					klog.Infof("[qosaware-cpu-canonical] container %s/%s occupied cpu %v", ci.PodName, ci.ContainerName, containerEstimation)
 				} else {
 					containerEstimation = 0
 				}

@@ -48,7 +48,7 @@ type cpuServer struct {
 	cpuPluginClient     cpuadvisor.CPUPluginClient
 }
 
-func NewCPUServer(recvCh chan types.InternalCPUCalculationResult, sendCh chan struct{}, conf *config.Configuration,
+func NewCPUServer(recvCh chan types.InternalCPUCalculationResult, sendCh chan types.TriggerInfo, conf *config.Configuration,
 	metaCache metacache.MetaCache, emitter metrics.MetricEmitter) (*cpuServer, error) {
 	cs := &cpuServer{}
 	cs.baseServer = newBaseServer(cpuServerName, conf, recvCh, sendCh, metaCache, emitter, cs)
@@ -176,11 +176,16 @@ func (cs *cpuServer) getCheckpoint() {
 		return false
 	})
 
-	// GC pool entries
+	// gc pool entries
 	_ = cs.metaCache.GCPoolEntries(livingPoolNameSet)
 
-	// Trigger advisor update
-	cs.sendCh <- struct{}{}
+	// trigger advisor update
+	select {
+	case cs.sendCh <- types.TriggerInfo{TimeStamp: time.Now()}:
+		klog.Infof("[qosaware-server-cpu] trigger advisor update")
+	default:
+		klog.Infof("[qosaware-server-cpu] channel is full")
+	}
 }
 
 func (cs *cpuServer) startToGetCheckpointFromCPUPlugin() error {

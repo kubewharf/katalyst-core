@@ -38,7 +38,9 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
 	"github.com/kubewharf/katalyst-core/pkg/config"
+	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
+	metricspool "github.com/kubewharf/katalyst-core/pkg/metrics/metrics-pool"
 )
 
 func generateTestConfiguration(t *testing.T) *config.Configuration {
@@ -62,10 +64,11 @@ func generateTestConfiguration(t *testing.T) *config.Configuration {
 
 func newTestCPUServer(t *testing.T) *cpuServer {
 	recvCh := make(chan types.InternalCPUCalculationResult)
-	sendCh := make(chan struct{})
+	sendCh := make(chan types.TriggerInfo)
 	conf := generateTestConfiguration(t)
 
-	metaCache, err := metacache.NewMetaCacheImp(conf, nil)
+	metricsFetcher := metric.NewFakeMetricsFetcher(metrics.DummyMetrics{})
+	metaCache, err := metacache.NewMetaCacheImp(conf, metricspool.DummyMetricsEmitterPool{}, metricsFetcher)
 	require.NoError(t, err)
 	require.NotNil(t, metaCache)
 

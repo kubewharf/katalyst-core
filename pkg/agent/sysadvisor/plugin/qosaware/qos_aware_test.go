@@ -76,10 +76,9 @@ func generateTestMetaServer(t *testing.T, conf *config.Configuration) *metaserve
 }
 
 func generateTestMetaCache(t *testing.T, conf *config.Configuration, metricsReader metric.MetricsReader) *metacache.MetaCacheImp {
-	metaCache, err := metacache.NewMetaCacheImp(conf, metricsReader)
+	metaCache, err := metacache.NewMetaCacheImp(conf, metricspool.DummyMetricsEmitterPool{}, metricsReader)
 	require.NoError(t, err)
 	require.NotNil(t, metaCache)
-
 	return metaCache
 }
 

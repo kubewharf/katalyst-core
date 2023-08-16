@@ -112,7 +112,7 @@ func (p *PolicyNUMAExclusive) Update() error {
 	}
 	p.headroom = originHeadroom * (score - spd.MinPerformanceScore) / (spd.MaxPerformanceScore - spd.MinPerformanceScore)
 
-	klog.Infof("region %v cpuEstimation %v with reservedForAllocate %v reservedForReclaim %v"+
+	klog.Infof("[qosaware-cpu-numa-exclusive] region %v cpuEstimation %v with reservedForAllocate %v reservedForReclaim %v"+
 		" originHeadroom %v headroom %v score %v #container %v", p.regionName, cpuEstimation, p.ReservedForAllocate,
 		p.ReservedForReclaim, originHeadroom, p.headroom, score, containerCnt)
 

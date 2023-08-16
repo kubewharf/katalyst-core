@@ -50,9 +50,11 @@ import (
 // todo:
 // 1. Support dedicated without and with numa binding but non numa exclusive containers
 
-// metric names for resource advisor
+// metric names for cpu advisor
 const (
-	metricAdvisorPoolSize              = "advisor_pool_size"
+	metricCPUAdvisorPoolSize           = "cpu_advisor_pool_size"
+	metricCPUAdvisorUpdateLag          = "cpu_advisor_update_lag"
+	metricCPUAdvisorUpdateDuration     = "cpu_advisor_update_duration"
 	metricRegionStatus                 = "region_status"
 	metricRegionIndicatorTargetPrefix  = "region_indicator_target_"
 	metricRegionIndicatorCurrentPrefix = "region_indicator_current_"
@@ -79,8 +81,9 @@ func init() {
 type cpuResourceAdvisor struct {
 	conf      *config.Configuration
 	extraConf interface{}
+	period    time.Duration
 
-	recvCh         chan struct{}
+	recvCh         chan types.TriggerInfo
 	sendCh         chan types.InternalCPUCalculationResult
 	startTime      time.Time
 	advisorUpdated bool
@@ -109,8 +112,9 @@ func NewCPUResourceAdvisor(conf *config.Configuration, extraConf interface{}, me
 	cra := &cpuResourceAdvisor{
 		conf:      conf,
 		extraConf: extraConf,
+		period:    conf.QoSAwarePluginConfiguration.SyncPeriod,
 
-		recvCh:         make(chan struct{}),
+		recvCh:         make(chan types.TriggerInfo, 1),
 		sendCh:         make(chan types.InternalCPUCalculationResult, 1),
 		startTime:      time.Now(),
 		advisorUpdated: false,
@@ -144,9 +148,18 @@ func NewCPUResourceAdvisor(conf *config.Configuration, extraConf interface{}, me
 func (cra *cpuResourceAdvisor) Run(ctx context.Context) {
 	for {
 		select {
-		case <-cra.recvCh:
-			klog.Infof("[qosaware-cpu] receive update trigger from cpu server")
+		case v := <-cra.recvCh:
+			lag := time.Since(v.TimeStamp)
+			klog.Infof("[qosaware-cpu] receive update trigger, checkpoint at %v", v.TimeStamp)
+			cra.emitter.StoreFloat64(metricCPUAdvisorUpdateLag, float64(lag/time.Millisecond), metrics.MetricTypeNameRaw)
+
+			if lag.Seconds() > cra.period.Seconds() {
+				// do not update if checkpoint is outdated
+				klog.Errorf("[qosaware-cpu] skip update: checkpoint is outdated, lag %v", lag)
+				continue
+			}
 			cra.update()
+
 		case <-ctx.Done():
 			return
 		}
@@ -158,11 +171,14 @@ func (cra *cpuResourceAdvisor) GetChannels() (interface{}, interface{}) {
 }
 
 func (cra *cpuResourceAdvisor) GetHeadroom() (resource.Quantity, error) {
+	klog.Infof("[qosaware-cpu] receive get headroom request")
+
 	cra.mutex.RLock()
 	defer cra.mutex.RUnlock()
 
 	if !cra.advisorUpdated {
-		return resource.Quantity{}, fmt.Errorf("starting up")
+		klog.Infof("[qosaware-cpu] skip getting headroom: advisor not updated")
+		return resource.Quantity{}, fmt.Errorf("advisor not updated")
 	}
 
 	if cra.headroomAssembler == nil {
@@ -173,18 +189,28 @@ func (cra *cpuResourceAdvisor) GetHeadroom() (resource.Quantity, error) {
 	headroom, err := cra.headroomAssembler.GetHeadroom()
 	if err != nil {
 		klog.Errorf("[qosaware-cpu] get headroom failed: %v", err)
+	} else {
+		klog.Infof("[qosaware-cpu] get headroom: %v", headroom)
 	}
+
 	return headroom, err
 }
 
 // update works in a monolithic way to maintain lifecycle and triggers update actions for all regions;
 // todo: re-consider whether it's efficient or we should make start individual goroutine for each region
 func (cra *cpuResourceAdvisor) update() {
+	startTime := time.Now()
+	defer func(t time.Time) {
+		elapsed := time.Since(t)
+		cra.emitter.StoreFloat64(metricCPUAdvisorUpdateDuration, float64(elapsed/time.Millisecond), metrics.MetricTypeNameRaw)
+		klog.Infof("[qosaware-cpu] update duration %v", elapsed)
+	}(startTime)
+
 	cra.mutex.Lock()
 	defer cra.mutex.Unlock()
 
 	// skip updating during startup
-	if time.Now().Before(cra.startTime.Add(types.StartUpPeriod)) {
+	if startTime.Before(cra.startTime.Add(types.StartUpPeriod)) {
 		klog.Infof("[qosaware-cpu] skip updating: starting up")
 		return
 	}
@@ -242,9 +268,9 @@ func (cra *cpuResourceAdvisor) update() {
 	// notify cpu server
 	select {
 	case cra.sendCh <- calculationResult:
-		general.Infof("notify cpu server: %+v", calculationResult)
+		klog.Infof("[qosaware-cpu] notify cpu server: %+v", calculationResult)
 	default:
-		general.Errorf("channel is full")
+		klog.Errorf("[qosaware-cpu] channel is full")
 	}
 }
 
@@ -252,7 +278,7 @@ func (cra *cpuResourceAdvisor) update() {
 func (cra *cpuResourceAdvisor) setIsolatedContainers() {
 	isolatedPods := sets.NewString(cra.isolator.GetIsolatedPods()...)
 	if len(isolatedPods) > 0 {
-		general.Infof("current isolated pod: %v", isolatedPods.List())
+		klog.Infof("[qosaware-cpu] current isolated pod: %v", isolatedPods.List())
 	}
 
 	_ = cra.metaCache.RangeAndUpdateContainer(func(podUID string, _ string, ci *types.ContainerInfo) bool {
@@ -431,13 +457,11 @@ func (cra *cpuResourceAdvisor) assembleProvision() (types.InternalCPUCalculation
 }
 
 func (cra *cpuResourceAdvisor) emitMetrics(calculationResult types.InternalCPUCalculationResult) {
-	period := cra.conf.QoSAwarePluginConfiguration.SyncPeriod
-
 	// emit region indicator related metrics
 	for _, r := range cra.regionMap {
 		tags := region.GetRegionBasicMetricTags(r)
 
-		_ = cra.emitter.StoreInt64(metricRegionStatus, int64(period.Seconds()), metrics.MetricTypeNameCount, tags...)
+		_ = cra.emitter.StoreInt64(metricRegionStatus, int64(cra.period.Seconds()), metrics.MetricTypeNameCount, tags...)
 
 		indicators := r.GetControlEssentials().Indicators
 		for indicatorName, indicator := range indicators {
@@ -450,7 +474,7 @@ func (cra *cpuResourceAdvisor) emitMetrics(calculationResult types.InternalCPUCa
 	// emit calculated pool sizes
 	for poolName, poolEntry := range calculationResult.PoolEntries {
 		for numaID, size := range poolEntry {
-			_ = cra.emitter.StoreInt64(metricAdvisorPoolSize, int64(size), metrics.MetricTypeNameRaw,
+			_ = cra.emitter.StoreInt64(metricCPUAdvisorPoolSize, int64(size), metrics.MetricTypeNameRaw,
 				metrics.MetricTag{Key: "name", Val: poolName},
 				metrics.MetricTag{Key: "numa_id", Val: strconv.Itoa(numaID)})
 		}

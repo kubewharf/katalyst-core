@@ -28,6 +28,9 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
 	"github.com/kubewharf/katalyst-core/pkg/config"
+	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric"
+	"github.com/kubewharf/katalyst-core/pkg/metrics"
+	metricspool "github.com/kubewharf/katalyst-core/pkg/metrics/metrics-pool"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 )
 
@@ -44,7 +47,7 @@ func generateMachineConfig(t *testing.T) *config.Configuration {
 }
 
 func newTestMetaCache(t *testing.T) *metacache.MetaCacheImp {
-	metaCache, err := metacache.NewMetaCacheImp(generateMachineConfig(t), nil)
+	metaCache, err := metacache.NewMetaCacheImp(generateMachineConfig(t), metricspool.DummyMetricsEmitterPool{}, metric.NewFakeMetricsFetcher(metrics.DummyMetrics{}))
 	require.NoError(t, err)
 	require.NotNil(t, metaCache)
 	return metaCache

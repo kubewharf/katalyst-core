@@ -31,7 +31,9 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
 	"github.com/kubewharf/katalyst-core/pkg/config"
+	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
+	metricspool "github.com/kubewharf/katalyst-core/pkg/metrics/metrics-pool"
 )
 
 type mockMemoryServerService_ListAndWatchServer struct {
@@ -62,10 +64,11 @@ func generateTestMemoryAdvisorConfiguration(t *testing.T) *config.Configuration 
 
 func newTestMemoryServer(t *testing.T) *memoryServer {
 	recvCh := make(chan types.InternalMemoryCalculationResult)
-	sendCh := make(chan struct{})
+	sendCh := make(chan types.TriggerInfo)
 	conf := generateTestMemoryAdvisorConfiguration(t)
 
-	metaCache, err := metacache.NewMetaCacheImp(conf, nil)
+	metricsFetcher := metric.NewFakeMetricsFetcher(metrics.DummyMetrics{})
+	metaCache, err := metacache.NewMetaCacheImp(conf, metricspool.DummyMetricsEmitterPool{}, metricsFetcher)
 	require.NoError(t, err)
 	require.NotNil(t, metaCache)
 

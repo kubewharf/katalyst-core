@@ -100,8 +100,8 @@ func (c *PIDController) Adjust(controlKnob, target, current float64) float64 {
 	c.adjustmentTotal = general.Clamp(c.adjustmentTotal, c.params.AdjustmentLowerBound, c.params.AdjustmentUpperBound)
 	c.adjustmentTotal = general.Clamp(c.adjustmentTotal, c.resourceEssentials.ResourceLowerBound-controlKnob, c.resourceEssentials.ResourceUpperBound-controlKnob)
 
-	klog.Infof("[qosaware-cpu-pid] %v adjustment %.2f adjustmentTotal %.2f target %.2f current %.2f errorValue %.2f errorRate %.2f pterm %.2f dterm %.2f",
-		c.variableName, adjustment, c.adjustmentTotal, target, current, c.errorValue, errorRate, pterm, dterm)
+	klog.Infof("[qosaware-cpu-pid] indicator %v controlKnob %.2f adjustment %.2f adjustmentTotal %.2f target %.2f current %.2f errorValue %.2f errorRate %.2f pterm %.2f dterm %.2f",
+		c.variableName, controlKnob, adjustment, c.adjustmentTotal, target, current, c.errorValue, errorRate, pterm, dterm)
 
 	return controlKnob + c.adjustmentTotal
 }

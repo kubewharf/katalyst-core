@@ -68,7 +68,7 @@ func (p *PolicyRama) Update() error {
 	p.regulator.SetLatestCPURequirement(int(cpuSize))
 
 	cpuAdjustedRaw := math.Inf(-1)
-	dominantIndicator := ""
+	dominantIndicator := "unknown"
 
 	// run pid control for each indicator
 	for metricName, indicator := range p.Indicators {
@@ -93,11 +93,10 @@ func (p *PolicyRama) Update() error {
 		}
 	}
 
-	if dominantIndicator != "" {
-		period := p.conf.QoSAwarePluginConfiguration.SyncPeriod
-		p.emitter.StoreInt64(metricRamaDominantIndicator, int64(period.Seconds()), metrics.MetricTypeNameCount,
-			metrics.MetricTag{Key: "donimant", Val: dominantIndicator})
-	}
+	period := p.conf.QoSAwarePluginConfiguration.SyncPeriod
+	p.emitter.StoreInt64(metricRamaDominantIndicator, int64(period.Seconds()), metrics.MetricTypeNameCount, []metrics.MetricTag{
+		{Key: "metric_name", Val: dominantIndicator},
+	}...)
 
 	for metricName := range p.controllers {
 		_, ok := p.conf.PolicyRama.PIDParameters[metricName]

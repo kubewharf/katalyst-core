@@ -27,6 +27,7 @@ import (
 	"time"
 
 	"google.golang.org/grpc"
+	"k8s.io/klog/v2"
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/advisorsvc"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
@@ -55,7 +56,7 @@ type baseServer struct {
 	advisorSocketPath   string
 	pluginSocketPath    string
 	recvCh              interface{}
-	sendCh              chan struct{}
+	sendCh              chan types.TriggerInfo
 	lwCalledChan        chan struct{}
 	stopCh              chan struct{}
 	getCheckpointCalled bool
@@ -70,7 +71,7 @@ type baseServer struct {
 	resourceServer subQRMServer
 }
 
-func newBaseServer(name string, conf *config.Configuration, recvCh interface{}, sendCh chan struct{},
+func newBaseServer(name string, conf *config.Configuration, recvCh interface{}, sendCh chan types.TriggerInfo,
 	metaCache metacache.MetaCache, emitter metrics.MetricEmitter, resourceServer subQRMServer) *baseServer {
 	return &baseServer{
 		name:           name,
@@ -99,11 +100,11 @@ func (bs *baseServer) Start() error {
 	_ = bs.emitter.StoreInt64(bs.genMetricsName(metricServerStartCalled), int64(bs.period.Seconds()), metrics.MetricTypeNameCount)
 
 	if err := bs.serve(); err != nil {
-		general.Errorf("start %v failed: %v", bs.name, err)
+		klog.Errorf("[qosaware-server] start %v failed: %v", bs.name, err)
 		_ = bs.Stop()
 		return err
 	}
-	general.Infof("%v stared", bs.name)
+	klog.Infof("[qosaware-server] %v started", bs.name)
 
 	go func() {
 		for {
@@ -126,8 +127,7 @@ func (bs *baseServer) serve() error {
 	if err != nil {
 		return fmt.Errorf("ensure advisorSocketDir: %s failed with error: %v", advisorSocketDir, err)
 	}
-
-	general.Infof("ensure advisorSocketDir: %s successfully", advisorSocketDir)
+	klog.Infof("[qosaware-server] ensure advisorSocketDir: %s successfully", advisorSocketDir)
 
 	if err := os.Remove(bs.advisorSocketPath); err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("remove %v failed: %v", bs.advisorSocketPath, err)
@@ -137,8 +137,7 @@ func (bs *baseServer) serve() error {
 	if err != nil {
 		return fmt.Errorf("%v listen %s failed: %v", bs.name, bs.advisorSocketPath, err)
 	}
-
-	general.Infof("%v listen at: %s successfully", bs.name, bs.advisorSocketPath)
+	klog.Infof("[qosaware-server] %v listen at: %s successfully", bs.name, bs.advisorSocketPath)
 
 	bs.resourceServer.RegisterAdvisorServer()
 
@@ -146,14 +145,14 @@ func (bs *baseServer) serve() error {
 		lastCrashTime := time.Now()
 		restartCount := 0
 		for {
-			general.Infof("%v starting grpc server at %v", bs.name, bs.advisorSocketPath)
+			klog.Infof("[qosaware-server] %v starting grpc server at %v", bs.name, bs.advisorSocketPath)
 			if err := bs.grpcServer.Serve(sock); err == nil {
 				break
 			}
-			general.Errorf("grpc server at %v crashed: %v", bs.advisorSocketPath, err)
+			klog.Errorf("[qosaware-server] grpc server at %v crashed: %v", bs.advisorSocketPath, err)
 
 			if restartCount > 5 {
-				general.Errorf("grpc server at %v has crashed repeatedly recently, quit", bs.advisorSocketPath)
+				klog.Errorf("[qosaware-server] grpc server at %v has crashed repeatedly recently, quit", bs.advisorSocketPath)
 				os.Exit(0)
 			}
 			timeSinceLastCrash := time.Since(lastCrashTime).Seconds()
@@ -197,7 +196,7 @@ func (bs *baseServer) Stop() error {
 
 	if bs.grpcServer != nil {
 		bs.grpcServer.Stop()
-		general.Infof("%v stopped", bs.name)
+		klog.Infof("[qosaware-server] %v stopped", bs.name)
 	}
 
 	if err := os.Remove(bs.advisorSocketPath); err != nil && !os.IsNotExist(err) {
@@ -213,11 +212,11 @@ func (bs *baseServer) RemovePod(_ context.Context, request *advisorsvc.RemovePod
 	if request == nil {
 		return nil, fmt.Errorf("remove pod request is nil")
 	}
-	general.Infof("%v get remove pod request: %v", bs.name, request.PodUid)
+	klog.Infof("[qosaware-server] %v get remove pod request: %v", bs.name, request.PodUid)
 
 	err := bs.metaCache.RemovePod(request.PodUid)
 	if err != nil {
-		general.Errorf("%v remove pod with error: %v", bs.name, err)
+		klog.Errorf("[qosaware-server] %v remove pod with error: %v", bs.name, err)
 	}
 
 	return &advisorsvc.RemovePodResponse{}, err
@@ -227,14 +226,14 @@ func (bs *baseServer) AddContainer(_ context.Context, request *advisorsvc.AddCon
 	_ = bs.emitter.StoreInt64(bs.genMetricsName(metricServerAddContainerCalled), int64(bs.period.Seconds()), metrics.MetricTypeNameCount)
 
 	if request == nil {
-		general.Errorf("%v get add container request nil", bs.name)
+		klog.Errorf("[qosaware-server] %v get add container request nil", bs.name)
 		return nil, fmt.Errorf("add container request nil")
 	}
-	general.Infof("%v get add container request: %v", bs.name, general.ToString(request))
+	klog.Infof("[qosaware-server] %v get add container request: %v", bs.name, general.ToString(request))
 
 	err := bs.addContainer(request)
 	if err != nil {
-		general.Errorf("%v add container with error: %v", bs.name, err)
+		klog.Errorf("[qosaware-server] %v add container with error: %v", bs.name, err)
 	}
 
 	return &advisorsvc.AddContainerResponse{}, err

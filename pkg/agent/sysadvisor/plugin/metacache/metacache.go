@@ -45,9 +45,9 @@ type MetaCachePlugin struct {
 	name   string
 	period time.Duration
 
-	emitter       metrics.MetricEmitter
-	metaServer    *metaserver.MetaServer
-	rawMetaWriter metacache.RawMetaWriter
+	emitter    metrics.MetricEmitter
+	metaServer *metaserver.MetaServer
+	MetaWriter metacache.MetaWriter
 }
 
 // NewMetaCachePlugin creates a metacache plugin with the specified config
@@ -56,11 +56,11 @@ func NewMetaCachePlugin(conf *config.Configuration, _ interface{}, emitterPool m
 	emitter := emitterPool.GetDefaultMetricsEmitter().WithTags("advisor-metacache")
 
 	mcp := &MetaCachePlugin{
-		name:          PluginNameMetaCache,
-		period:        conf.SysAdvisorPluginsConfiguration.MetaCachePluginConfiguration.SyncPeriod,
-		emitter:       emitter,
-		metaServer:    metaServer,
-		rawMetaWriter: metaCache,
+		name:       PluginNameMetaCache,
+		period:     conf.SysAdvisorPluginsConfiguration.MetaCachePluginConfiguration.SyncPeriod,
+		emitter:    emitter,
+		metaServer: metaServer,
+		MetaWriter: metaCache,
 	}
 
 	return mcp, nil
@@ -102,5 +102,5 @@ func (mcp *MetaCachePlugin) periodicWork(_ context.Context) {
 		}
 		return true
 	}
-	_ = mcp.rawMetaWriter.RangeAndUpdateContainer(f)
+	_ = mcp.MetaWriter.RangeAndUpdateContainer(f)
 }
