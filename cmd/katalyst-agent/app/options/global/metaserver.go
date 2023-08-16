@@ -28,7 +28,7 @@ import (
 const (
 	defaultCustomNodeResourceCacheTTL     = 15 * time.Second
 	defaultCustomNodeConfigCacheTTL       = 15 * time.Second
-	defaultServiceProfileCacheTTL         = 15 * time.Second
+	defaultServiceProfileCacheTTL         = 1 * time.Minute
 	defaultConfigCacheTTL                 = 15 * time.Second
 	defaultConfigDisableDynamic           = false
 	defaultConfigSkipFailedInitialization = true

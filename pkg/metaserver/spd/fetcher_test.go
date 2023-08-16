@@ -201,8 +201,10 @@ func Test_spdManager_GetSPD(t *testing.T) {
 			require.NotNil(t, s)
 
 			ctx := context.TODO()
+
+			_, _ = s.GetSPD(ctx, tt.args.pod)
 			go s.Run(ctx)
-			time.Sleep(1 * time.Millisecond)
+			time.Sleep(1 * time.Second)
 
 			got, err := s.GetSPD(ctx, tt.args.pod)
 			if (err != nil) != tt.wantErr {
