@@ -38,11 +38,18 @@ type Manager interface {
 	ApplyCPU(absCgroupPath string, data *common.CPUData) error
 	ApplyCPUSet(absCgroupPath string, data *common.CPUSetData) error
 	ApplyNetCls(absCgroupPath string, data *common.NetClsData) error
+	ApplyIOCostQoS(absCgroupPath string, devID string, data *common.IOCostQoSData) error
+	ApplyIOCostModel(absCgroupPath string, devID string, data *common.IOCostModelData) error
+	ApplyIOWeight(absCgroupPath string, devID string, weight uint64) error
 	ApplyUnifiedData(absCgroupPath, cgroupFileName, data string) error
 
 	GetMemory(absCgroupPath string) (*common.MemoryStats, error)
 	GetCPU(absCgroupPath string) (*common.CPUStats, error)
 	GetCPUSet(absCgroupPath string) (*common.CPUSetStats, error)
+	GetIOCostQoS(absCgroupPath string) (map[string]*common.IOCostQoSData, error)
+	GetIOCostModel(absCgroupPath string) (map[string]*common.IOCostModelData, error)
+	GetDeviceIOWeight(absCgroupPath string, devID string) (uint64, bool, error)
+	GetIOStat(absCgroupPath string) (map[string]map[string]string, error)
 	GetMetrics(relCgroupPath string, subsystems map[string]struct{}) (*common.CgroupMetrics, error)
 
 	GetPids(absCgroupPath string) ([]string, error)
