@@ -461,7 +461,7 @@ func (p *DynamicPolicy) GetResourcesAllocation(_ context.Context,
 	}
 
 	if len(allocationInfosJustFinishRampUp) > 0 {
-		if err = p.putAllocationsAndAdjustAllocationEntries(allocationInfosJustFinishRampUp); err != nil {
+		if err = p.putAllocationsAndAdjustAllocationEntries(allocationInfosJustFinishRampUp, true); err != nil {
 			// not influencing return response to kubelet when putAllocationsAndAdjustAllocationEntries failed
 			general.Errorf("putAllocationsAndAdjustAllocationEntries failed with error: %v", err)
 		}
