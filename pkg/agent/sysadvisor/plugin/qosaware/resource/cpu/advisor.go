@@ -359,6 +359,12 @@ func (cra *cpuResourceAdvisor) assignToRegions(ci *types.ContainerInfo) ([]regio
 			return nil, nil
 		}
 
+		// return error if container owner pool name is empty
+		if !ci.RampUp && ci.OwnerPoolName == "" {
+			return nil, fmt.Errorf("empty owner pool name, %v/%v", ci.PodUID, ci.ContainerName)
+		}
+
+		// assign isolated container
 		if ci.Isolated {
 			if ci.OwnerPoolName != state.PoolNameShare {
 				regions := cra.getPoolRegions(ci.OwnerPoolName)
@@ -380,6 +386,7 @@ func (cra *cpuResourceAdvisor) assignToRegions(ci *types.ContainerInfo) ([]regio
 		// create one region by owner pool name
 		r := region.NewQoSRegionShare(ci, cra.conf, cra.extraConf, cra.metaCache, cra.metaServer, cra.emitter)
 		return []region.QoSRegion{r}, nil
+
 	} else if ci.IsNumaBinding() {
 		// assign dedicated cores numa exclusive containers. focus on container.
 		regions, err := cra.getContainerRegions(ci)
