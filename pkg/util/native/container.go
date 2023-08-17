@@ -68,12 +68,11 @@ func TrimContainerIDPrefix(id string) string {
 }
 
 // ParseHostPortsForContainer gets host port from container spec
-func ParseHostPortsForContainer(container *v1.Container, portName string) []int32 {
-	var res []int32
+func ParseHostPortsForContainer(container *v1.Container, portName string) (int32, bool) {
 	for _, port := range container.Ports {
 		if port.Name == portName && port.HostPort > 0 {
-			res = append(res, port.HostPort)
+			return port.HostPort, true
 		}
 	}
-	return res
+	return 0, false
 }

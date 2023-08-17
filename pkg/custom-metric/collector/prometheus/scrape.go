@@ -178,7 +178,7 @@ func (s *ScrapeManager) scrape() {
 	}()
 
 	buf := bytes.NewBuffer([]byte{})
-	err = s.fetch(s.ctx, s.url, buf)
+	err = s.fetch(s.ctx, buf)
 	if err != nil {
 		klog.Errorf("fetch contents %v failed: %v", s.url, err)
 		return
@@ -237,7 +237,7 @@ func (s *ScrapeManager) scrape() {
 }
 
 // fetch gets contents from prometheus http service.
-func (s *ScrapeManager) fetch(ctx context.Context, url string, w io.Writer) error {
+func (s *ScrapeManager) fetch(ctx context.Context, w io.Writer) error {
 	resp, err := s.client.Do(s.req.WithContext(ctx))
 	if err != nil {
 		return err
@@ -252,7 +252,7 @@ func (s *ScrapeManager) fetch(ctx context.Context, url string, w io.Writer) erro
 		return fmt.Errorf("server returned HTTP status %s", resp.Status)
 	}
 
-	klog.V(6).Infof("url: %v content type: %v", url, resp.Header.Get("Content-Encoding"))
+	klog.V(6).Infof("url: %v content type: %v", s.url, resp.Header.Get("Content-Encoding"))
 	if resp.Header.Get("Content-Encoding") != "gzip" {
 		n, err := io.Copy(w, io.LimitReader(resp.Body, httpBodyLimit))
 		if err != nil {
@@ -264,7 +264,7 @@ func (s *ScrapeManager) fetch(ctx context.Context, url string, w io.Writer) erro
 		return nil
 	}
 
-	klog.V(6).Infof("use gzip to parse url: %v", url)
+	klog.V(6).Infof("use gzip to parse url: %v", s.url)
 	gzipR, err := gzip.NewReader(resp.Body)
 	if err != nil {
 		return fmt.Errorf("failed to init gzipR: %v", err)
