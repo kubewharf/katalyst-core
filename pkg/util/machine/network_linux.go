@@ -200,9 +200,16 @@ func getNSNetworkHardwareTopology(nsName, netNSDirAbsPath string) ([]InterfaceIn
 func getInterfaceAttr(info *InterfaceInfo, nicPath string) {
 	if nicNUMANode, err := general.ReadFileIntoInt(path.Join(nicPath, netFileNameNUMANode)); err != nil {
 		general.Errorf("ns %v name %v, read NUMA node failed with error: %v. Suppose it's associated with NUMA node 0", info.NSName, info.Iface, err)
+		// some net device files are missed on VMs (e.g. numanode, enable etc.)
 		info.NumaNode = 0
 	} else {
-		info.NumaNode = nicNUMANode
+		if nicNUMANode != -1 {
+			info.NumaNode = nicNUMANode
+		} else {
+			// the numanode file is filled by -1 on some VMs (e.g. byte-vm)
+			general.Errorf("Invalid NUMA node %v for interface %v. Suppose it's associated with NUMA node 0", info.NumaNode, info.Iface)
+			info.NumaNode = 0
+		}
 	}
 
 	if nicEnabledStatus, err := general.ReadFileIntoInt(path.Join(nicPath, netFileNameEnable)); err != nil {
