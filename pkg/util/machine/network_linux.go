@@ -199,8 +199,8 @@ func getNSNetworkHardwareTopology(nsName, netNSDirAbsPath string) ([]InterfaceIn
 // getInterfaceAttr parses key information from system files
 func getInterfaceAttr(info *InterfaceInfo, nicPath string) {
 	if nicNUMANode, err := general.ReadFileIntoInt(path.Join(nicPath, netFileNameNUMANode)); err != nil {
-		general.Errorf("ns %v name %v, read NUMA node failed with error: %v", info.NSName, info.Iface, err)
-		info.NumaNode = -1
+		general.Errorf("ns %v name %v, read NUMA node failed with error: %v. Suppose it's associated with NUMA node 0", info.NSName, info.Iface, err)
+		info.NumaNode = 0
 	} else {
 		info.NumaNode = nicNUMANode
 	}
