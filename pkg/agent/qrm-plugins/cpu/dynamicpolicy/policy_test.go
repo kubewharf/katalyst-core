@@ -30,6 +30,7 @@ import (
 	"time"
 
 	v1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/uuid"
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 	utilfs "k8s.io/kubernetes/pkg/util/filesystem"
@@ -45,6 +46,9 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic"
 	"github.com/kubewharf/katalyst-core/pkg/config/generic"
+	"github.com/kubewharf/katalyst-core/pkg/metaserver"
+	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent"
+	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/pod"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/cgroup/common"
 	cgroupcm "github.com/kubewharf/katalyst-core/pkg/util/cgroup/common"
@@ -114,6 +118,12 @@ func getTestDynamicPolicyWithoutInitialization(topology *machine.CPUTopology, st
 		consts.PodAnnotationQoSLevelSharedCores:    policyImplement.sharedCoresHintHandler,
 		consts.PodAnnotationQoSLevelDedicatedCores: policyImplement.dedicatedCoresHintHandler,
 		consts.PodAnnotationQoSLevelReclaimedCores: policyImplement.reclaimedCoresHintHandler,
+	}
+
+	policyImplement.metaServer = &metaserver.MetaServer{
+		MetaAgent: &agent.MetaAgent{
+			PodFetcher: &pod.PodFetcherStub{},
+		},
 	}
 
 	return policyImplement, nil
@@ -3087,4 +3097,118 @@ func TestRemoveContainer(t *testing.T) {
 
 	allocationInfo = dynamicPolicy.state.GetAllocationInfo(podUID, containerName)
 	as.Nil(allocationInfo)
+}
+
+func TestShoudSharedCoresRampUp(t *testing.T) {
+	t.Parallel()
+
+	as := require.New(t)
+
+	tmpDir, err := ioutil.TempDir("", "checkpoint-TestShoudSharedCoresRampUp")
+	as.Nil(err)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
+
+	cpuTopology, err := machine.GenerateDummyCPUTopology(16, 2, 4)
+	as.Nil(err)
+
+	dynamicPolicy, err := getTestDynamicPolicyWithInitialization(cpuTopology, tmpDir)
+	as.Nil(err)
+
+	dynamicPolicy.state.SetAllocationInfo(state.PoolNameShare, "", &state.AllocationInfo{
+		PodUid:                   state.PoolNameShare,
+		OwnerPoolName:            state.PoolNameShare,
+		AllocationResult:         machine.MustParse("1,3-6,9,11-14"),
+		OriginalAllocationResult: machine.MustParse("1,3-6,9,11-14"),
+		TopologyAwareAssignments: map[int]machine.CPUSet{
+			0: machine.NewCPUSet(1, 9),
+			1: machine.NewCPUSet(3, 11),
+			2: machine.NewCPUSet(4, 5, 11, 12),
+			3: machine.NewCPUSet(6, 14),
+		},
+		OriginalTopologyAwareAssignments: map[int]machine.CPUSet{
+			0: machine.NewCPUSet(1, 9),
+			1: machine.NewCPUSet(3, 11),
+			2: machine.NewCPUSet(4, 5, 11, 12),
+			3: machine.NewCPUSet(6, 14),
+		},
+	})
+
+	existPodUID := uuid.NewUUID()
+	existName := "exist"
+	dynamicPolicy.state.SetAllocationInfo(string(existPodUID), existName, &state.AllocationInfo{
+		PodUid:                   string(existPodUID),
+		PodNamespace:             existName,
+		PodName:                  existName,
+		ContainerName:            existName,
+		ContainerType:            pluginapi.ContainerType_MAIN.String(),
+		ContainerIndex:           0,
+		RampUp:                   false,
+		OwnerPoolName:            state.PoolNameShare,
+		AllocationResult:         machine.MustParse("1,3-6,9,11-14"),
+		OriginalAllocationResult: machine.MustParse("1,3-6,9,11-14"),
+		TopologyAwareAssignments: map[int]machine.CPUSet{
+			0: machine.NewCPUSet(1, 9),
+			1: machine.NewCPUSet(3, 11),
+			2: machine.NewCPUSet(4, 5, 11, 12),
+			3: machine.NewCPUSet(6, 14),
+		},
+		OriginalTopologyAwareAssignments: map[int]machine.CPUSet{
+			0: machine.NewCPUSet(1, 9),
+			1: machine.NewCPUSet(3, 11),
+			2: machine.NewCPUSet(4, 5, 11, 12),
+			3: machine.NewCPUSet(6, 14),
+		},
+		Labels: map[string]string{
+			consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
+		},
+		Annotations: map[string]string{
+			consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
+		},
+		QoSLevel:        consts.PodAnnotationQoSLevelSharedCores,
+		RequestQuantity: 2,
+	})
+
+	testName := "test"
+	podUID := uuid.NewUUID()
+	dynamicPolicy.metaServer = &metaserver.MetaServer{
+		MetaAgent: &agent.MetaAgent{
+			PodFetcher: &pod.PodFetcherStub{
+				PodList: []*v1.Pod{
+					{
+						ObjectMeta: metav1.ObjectMeta{
+							Name:      testName,
+							Namespace: testName,
+							UID:       podUID,
+						},
+						Status: v1.PodStatus{
+							Phase: v1.PodRunning,
+						},
+					},
+				},
+			},
+		},
+	}
+
+	req := &pluginapi.ResourceRequest{
+		PodUid:         string(podUID),
+		PodNamespace:   testName,
+		PodName:        testName,
+		ContainerName:  testName,
+		ContainerType:  pluginapi.ContainerType_MAIN,
+		ContainerIndex: 0,
+		ResourceName:   string(v1.ResourceCPU),
+		ResourceRequests: map[string]float64{
+			string(v1.ResourceCPU): 2,
+		},
+		Labels:      map[string]string{},
+		Annotations: map[string]string{},
+	}
+
+	_, err = dynamicPolicy.Allocate(context.Background(), req)
+	as.Nil(err)
+
+	allocationInfo := dynamicPolicy.state.GetAllocationInfo(req.PodUid, testName)
+	as.NotNil(allocationInfo)
+	as.Equal(false, allocationInfo.RampUp)
+	as.Equal(allocationInfo.OwnerPoolName, state.PoolNameShare)
 }
