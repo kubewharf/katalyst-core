@@ -29,17 +29,24 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/consts"
 )
 
-var GetPodHostIP = func(pod *v1.Pod) (string, error) {
+var GetPodHostIPs = func(pod *v1.Pod) ([]string, bool) {
+	ip, ok := GetPodHostIP(pod)
+	if !ok {
+		return []string{}, false
+	}
+	return []string{ip}, true
+}
+
+func GetPodHostIP(pod *v1.Pod) (string, bool) {
 	if pod == nil {
-		return "", fmt.Errorf("empty pod")
+		return "", false
 	}
 
 	hostIP := pod.Status.HostIP
 	if len(hostIP) == 0 {
-		return "", fmt.Errorf("empty hostIP")
+		return "", false
 	}
-
-	return hostIP, nil
+	return hostIP, true
 }
 
 // PodAnnotationFilter is used to filter pods annotated with a pair of specific key and value
@@ -279,13 +286,12 @@ func IsAssignedPod(pod *v1.Pod) bool {
 	return len(pod.Spec.NodeName) != 0
 }
 
-// ParseHostPortsForPod gets host ports from pod spec
-func ParseHostPortsForPod(pod *v1.Pod, portName string) []int32 {
-	var res []int32
+// ParseHostPortForPod gets host ports from pod spec
+func ParseHostPortForPod(pod *v1.Pod, portName string) (int32, bool) {
 	for i := range pod.Spec.Containers {
-		res = append(res, ParseHostPortsForContainer(&pod.Spec.Containers[i], portName)...)
+		return ParseHostPortsForContainer(&pod.Spec.Containers[i], portName)
 	}
-	return res
+	return 0, false
 }
 
 // GetNamespacedNameListFromSlice returns a slice of namespaced name

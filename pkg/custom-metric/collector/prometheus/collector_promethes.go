@@ -19,6 +19,7 @@ package prometheus
 import (
 	"context"
 	"fmt"
+	"net"
 	"net/http"
 	"sync"
 	"time"
@@ -85,7 +86,7 @@ type prometheusCollector struct {
 	// scrapes maps pod identifier (namespace/name) to its scrapManager,
 	// and the scrapManager will use port as unique keys.
 	sync.Mutex
-	scrapes map[string]map[int32]*ScrapeManager
+	scrapes map[string]*ScrapeManager
 }
 
 var _ collector.MetricCollector = &prometheusCollector{}
@@ -125,7 +126,7 @@ func NewPrometheusCollector(ctx context.Context, baseCtx *katalystbase.GenericCo
 		},
 		client:      client,
 		emitter:     baseCtx.EmitterPool.GetDefaultMetricsEmitter().WithTags("prom_collector"),
-		scrapes:     make(map[string]map[int32]*ScrapeManager),
+		scrapes:     make(map[string]*ScrapeManager),
 		syncSuccess: false,
 		metricStore: metricStore,
 	}
@@ -286,36 +287,51 @@ func (p *prometheusCollector) addRequest(pod *v1.Pod) {
 
 	p.Lock()
 	defer p.Unlock()
-	if p.scrapes[key] == nil {
-		p.scrapes[key] = make(map[int32]*ScrapeManager)
-	}
-
-	hostIP, err := native.GetPodHostIP(pod)
-	if err != nil {
-		klog.Errorf("get pod %v hostIP failed: %v", key, err)
+	if _, ok := p.scrapes[key]; ok {
 		return
 	}
 
-	ports := native.ParseHostPortsForPod(pod, native.ContainerMetricPortName)
-	for _, port := range ports {
-		if _, ok := p.scrapes[key][port]; ok {
-			continue
-		}
-
-		url := fmt.Sprintf(httpMetricURL, hostIP, port)
-		klog.Infof("add requests for pod %v with url %v", pod.Name, url)
-
-		// all ScrapeManager will share the same http connection now,
-		// reconsider whether it's reasonable in production
-		s, err := NewScrapeManager(p.ctx, p.genericConf.OutOfDataPeriod, p.client, pod.Spec.NodeName, url, p.emitter)
-		if err != nil {
-			klog.Errorf("failed to new http.Request: %v", err)
-			continue
-		}
-
-		s.Start(p.collectConf.SyncInterval)
-		p.scrapes[key][port] = s
+	port, ok := native.ParseHostPortForPod(pod, native.ContainerMetricPortName)
+	if !ok {
+		klog.Errorf("get pod %v port failed", key)
+		return
 	}
+
+	hostIPs, ok := native.GetPodHostIPs(pod)
+	if !ok {
+		klog.Errorf("get pod %v hostIPs failed", key)
+		return
+	}
+
+	var targetURL string
+	for _, hostIP := range hostIPs {
+		url := fmt.Sprintf("[%s]:%d", hostIP, port)
+		if conn, err := net.DialTimeout("tcp", url, time.Second*5); err == nil {
+			if conn != nil {
+				_ = conn.Close()
+			}
+			klog.Infof("successfully dial for pod %v with url %v", key, url)
+			targetURL = fmt.Sprintf(httpMetricURL, hostIP, port)
+			break
+		} else {
+			klog.Errorf("pod %v dial %v failed: %v", key, url, err)
+		}
+	}
+	if len(targetURL) == 0 {
+		klog.Errorf("pod %v has no valid url", key)
+		return
+	}
+	klog.Infof("add requests for pod %v with url %v", key, targetURL)
+
+	// todo all ScrapeManager will share the same http connection now,
+	//  reconsider whether it's reasonable in production
+	s, err := NewScrapeManager(p.ctx, p.genericConf.OutOfDataPeriod, p.client, pod.Spec.NodeName, targetURL, p.emitter)
+	if err != nil {
+		klog.Errorf("failed to new http.Request: %v", err)
+		return
+	}
+	s.Start(p.collectConf.SyncInterval)
+	p.scrapes[key] = s
 }
 
 // addRequest delete http.Request for the given pod
@@ -329,11 +345,11 @@ func (p *prometheusCollector) removeRequest(pod *v1.Pod) {
 		return
 	}
 
-	klog.Infof("remove requests for pod %v", pod.Name)
-	for _, s := range p.scrapes[key] {
-		s.Stop()
+	if _, ok := p.scrapes[key]; ok {
+		klog.Infof("remove requests for pod %v", pod.Name)
+		p.scrapes[key].Stop()
+		delete(p.scrapes, key)
 	}
-	delete(p.scrapes, key)
 }
 
 // addRequest delete http.Request for the given pod
@@ -350,9 +366,7 @@ func (p *prometheusCollector) clearRequests() {
 
 		if _, err := p.podLister.Pods(namespace).Get(name); err != nil {
 			if errors.IsNotFound(err) {
-				for _, s := range p.scrapes[key] {
-					s.Stop()
-				}
+				p.scrapes[key].Stop()
 				delete(p.scrapes, key)
 			} else {
 				klog.Errorf("failed to get pod %v/%v: %s", namespace, name, err)
@@ -368,10 +382,8 @@ func (p *prometheusCollector) clearRequests() {
 func (p *prometheusCollector) sync() {
 	var scrapeManagers []*ScrapeManager
 	p.Lock()
-	for _, smap := range p.scrapes {
-		for _, s := range smap {
-			scrapeManagers = append(scrapeManagers, s)
-		}
+	for _, s := range p.scrapes {
+		scrapeManagers = append(scrapeManagers, s)
 	}
 	p.Unlock()
 
@@ -405,7 +417,7 @@ func (p *prometheusCollector) sync() {
 	}
 	workqueue.ParallelizeUntil(p.ctx, general.Max(32, len(scrapeManagers)/64), len(scrapeManagers), scrape)
 
-	klog.Infof("prom collector handle %v succeeded requests, %s failed requests", successReqs.Load(), failedReqs.Load())
+	klog.Infof("prom collector handle %v succeeded requests, %v failed requests", successReqs.Load(), failedReqs.Load())
 	_ = p.emitter.StoreInt64(metricNamePromCollectorStoreReqCount, successReqs.Load(), metrics.MetricTypeNameCount, []metrics.MetricTag{
 		{Key: "type", Val: "succeeded"},
 	}...)
