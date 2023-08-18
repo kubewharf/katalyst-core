@@ -32,6 +32,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
+	"github.com/kubewharf/katalyst-core/pkg/util/native"
 	qosutil "github.com/kubewharf/katalyst-core/pkg/util/qos"
 )
 
@@ -63,19 +64,20 @@ func (p *DynamicPolicy) sharedCoresAllocationHandler(_ context.Context,
 
 	needSet := true
 	allocationInfo := p.state.GetAllocationInfo(req.PodUid, req.ContainerName)
+
+	shouldRampUp := p.shoudSharedCoresRampUp(req.PodUid)
 	if allocationInfo == nil {
 		general.Infof("pod: %s/%s, container: %s is met firstly, do ramp up with pooled cpus: %s",
 			req.PodNamespace, req.PodName, req.ContainerName, pooledCPUs.String())
 
 		allocationInfo = &state.AllocationInfo{
-			PodUid:         req.PodUid,
-			PodNamespace:   req.PodNamespace,
-			PodName:        req.PodName,
-			ContainerName:  req.ContainerName,
-			ContainerType:  req.ContainerType.String(),
-			ContainerIndex: req.ContainerIndex,
-			RampUp:         true,
-			// fill OwnerPoolName with empty string when ramping up
+			PodUid:                           req.PodUid,
+			PodNamespace:                     req.PodNamespace,
+			PodName:                          req.PodName,
+			ContainerName:                    req.ContainerName,
+			ContainerType:                    req.ContainerType.String(),
+			ContainerIndex:                   req.ContainerIndex,
+			RampUp:                           shouldRampUp,
 			OwnerPoolName:                    advisorapi.EmptyOwnerPoolName,
 			PodRole:                          req.PodRole,
 			PodType:                          req.PodType,
@@ -89,6 +91,17 @@ func (p *DynamicPolicy) sharedCoresAllocationHandler(_ context.Context,
 			QoSLevel:                         apiconsts.PodAnnotationQoSLevelSharedCores,
 			RequestQuantity:                  reqInt,
 		}
+
+		if !shouldRampUp {
+			p.state.SetAllocationInfo(allocationInfo.PodUid, allocationInfo.ContainerName, allocationInfo)
+			err := p.doAndCheckPutAllocationInfo(allocationInfo, false)
+
+			if err != nil {
+				return nil, err
+			}
+
+			needSet = false
+		}
 	} else if allocationInfo.RampUp {
 		general.Infof("pod: %s/%s, container: %s is still in ramp up, allocate pooled cpus: %s",
 			req.PodNamespace, req.PodName, req.ContainerName, pooledCPUs.String())
@@ -98,20 +111,12 @@ func (p *DynamicPolicy) sharedCoresAllocationHandler(_ context.Context,
 		allocationInfo.TopologyAwareAssignments = pooledCPUsTopologyAwareAssignments
 		allocationInfo.OriginalTopologyAwareAssignments = machine.DeepcopyCPUAssignment(pooledCPUsTopologyAwareAssignments)
 	} else {
-		// need to adjust pools and putAllocationsAndAdjustAllocationEntries will set the allocationInfo after adjusted
-		err = p.putAllocationsAndAdjustAllocationEntries([]*state.AllocationInfo{allocationInfo})
+		err := p.doAndCheckPutAllocationInfo(allocationInfo, true)
+
 		if err != nil {
-			general.Errorf("pod: %s/%s, container: %s putContainerAndReGeneratePool failed with error: %v",
-				req.PodNamespace, req.PodName, req.ContainerName, err)
-			return nil, fmt.Errorf("putContainerAndReGeneratePool failed with error: %v", err)
+			return nil, err
 		}
 
-		allocationInfo = p.state.GetAllocationInfo(req.PodUid, req.ContainerName)
-		if allocationInfo == nil {
-			general.Errorf("pod: %s/%s, container: %s get nil allocationInfo after putContainerAndReGeneratePool",
-				req.PodNamespace, req.PodName, req.ContainerName)
-			return nil, fmt.Errorf("putContainerAndReGeneratePool failed with error: %v", err)
-		}
 		needSet = false
 	}
 
@@ -470,7 +475,7 @@ func (p *DynamicPolicy) allocateNumaBindingCPUs(numCPUs int, hint *pluginapi.Top
 
 // putAllocationsAndAdjustAllocationEntries calculates and generates the latest checkpoint
 // - unlike adjustAllocationEntries, it will also consider AllocationInfo
-func (p *DynamicPolicy) putAllocationsAndAdjustAllocationEntries(allocationInfos []*state.AllocationInfo) error {
+func (p *DynamicPolicy) putAllocationsAndAdjustAllocationEntries(allocationInfos []*state.AllocationInfo, incrByReq bool) error {
 	if len(allocationInfos) == 0 {
 		return nil
 	}
@@ -492,6 +497,9 @@ func (p *DynamicPolicy) putAllocationsAndAdjustAllocationEntries(allocationInfos
 			return fmt.Errorf("found nil allocationInfo in input parameter")
 		} else if !state.CheckShared(allocationInfo) {
 			return fmt.Errorf("put container with invalid qos level: %s into pool", allocationInfo.QoSLevel)
+		} else if entries[allocationInfo.PodUid][allocationInfo.ContainerName] == nil {
+			return fmt.Errorf("entry %s/%s, %s isn't found in state",
+				allocationInfo.PodNamespace, allocationInfo.PodName, allocationInfo.ContainerName)
 		}
 
 		poolName := allocationInfo.GetSpecifiedPoolName()
@@ -499,8 +507,11 @@ func (p *DynamicPolicy) putAllocationsAndAdjustAllocationEntries(allocationInfos
 			return fmt.Errorf("allocationInfo points to empty poolName")
 		}
 
-		reqInt := state.GetContainerRequestedCores()(allocationInfo)
-		poolsQuantityMap[poolName] += reqInt
+		if incrByReq {
+			reqInt := state.GetContainerRequestedCores()(allocationInfo)
+			poolsQuantityMap[poolName] += reqInt
+		}
+
 	}
 
 	isolatedQuantityMap := state.GetIsolatedQuantityMapFromPodEntries(entries, allocationInfos)
@@ -738,19 +749,15 @@ func (p *DynamicPolicy) applyPoolsAndIsolatedInfo(poolsCPUSet map[string]machine
 			newPodEntries[podUID][containerName] = allocationInfo.Clone()
 			switch allocationInfo.QoSLevel {
 			case apiconsts.PodAnnotationQoSLevelDedicatedCores:
-				ownerPoolName := allocationInfo.GetOwnerPoolName()
-				if ownerPoolName == advisorapi.EmptyOwnerPoolName {
-					ownerPoolName = allocationInfo.GetSpecifiedPoolName()
-				}
-				newPodEntries[podUID][containerName].OwnerPoolName = ownerPoolName
+				newPodEntries[podUID][containerName].OwnerPoolName = allocationInfo.GetPoolName()
 
 				// for numa_binding containers, we just clone checkpoint already exist
 				if state.CheckDedicatedNUMABinding(allocationInfo) {
 					continue containerLoop
 				}
 
-				// dedicated_cores with numa_binding is not isolated, we will try to isolate it in next adjustment.
-				general.Warningf("pod: %s/%s, container: %s isa dedicated_cores with numa_binding but not isolated, "+
+				// dedicated_cores without numa_binding is not isolated, we will try to isolate it in next adjustment.
+				general.Warningf("pod: %s/%s, container: %s is dedicated_cores without numa_binding but not isolated, "+
 					"we put it into fallback pool: %s temporary",
 					allocationInfo.PodNamespace, allocationInfo.PodName, allocationInfo.ContainerName, rampUpCPUs.String())
 
@@ -1046,4 +1053,47 @@ func (p *DynamicPolicy) takeCPUsForContainers(containersQuantityMap map[string]m
 		}
 	}
 	return containersCPUSet, availableCPUs, nil
+}
+
+func (p *DynamicPolicy) shoudSharedCoresRampUp(podUID string) bool {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	pod, err := p.metaServer.GetPod(ctx, podUID)
+
+	if err != nil {
+		general.Errorf("get pod failed with error: %v, try to ramp up it", err)
+		return true
+	} else if pod == nil {
+		general.Infof("can't get pod: %s from metaServer, try to ramp up it", podUID)
+		return true
+	} else if native.PodIsActive(pod) {
+		general.Infof("pod: %s/%s is active, not try to ramp up it", pod.Namespace, pod.Name)
+		return false
+	} else {
+		general.Infof("pod: %s/%s isn't active, try to ramp up it", pod.Namespace, pod.Name)
+		return true
+	}
+}
+
+func (p *DynamicPolicy) doAndCheckPutAllocationInfo(allocationInfo *state.AllocationInfo, incrByReq bool) error {
+	if allocationInfo == nil {
+		return fmt.Errorf("doAndCheckPutAllocationInfo got nil allocationInfo")
+	}
+
+	// need to adjust pools and putAllocationsAndAdjustAllocationEntries will set the allocationInfo after adjusted
+	err := p.putAllocationsAndAdjustAllocationEntries([]*state.AllocationInfo{allocationInfo}, incrByReq)
+	if err != nil {
+		general.Errorf("pod: %s/%s, container: %s putAllocationsAndAdjustAllocationEntries failed with error: %v",
+			allocationInfo.PodNamespace, allocationInfo.PodName, allocationInfo.ContainerName, err)
+		return fmt.Errorf("putAllocationsAndAdjustAllocationEntries failed with error: %v", err)
+	}
+
+	checkedAllocationInfo := p.state.GetAllocationInfo(allocationInfo.PodUid, allocationInfo.ContainerName)
+	if checkedAllocationInfo == nil {
+		general.Errorf("pod: %s/%s, container: %s get nil allocationInfo after putAllocationsAndAdjustAllocationEntries",
+			allocationInfo.PodNamespace, allocationInfo.PodName, allocationInfo.ContainerName)
+		return fmt.Errorf("putAllocationsAndAdjustAllocationEntries failed with error: %v", err)
+	}
+
+	return nil
 }

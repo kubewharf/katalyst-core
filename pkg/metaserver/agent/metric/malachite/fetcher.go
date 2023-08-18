@@ -490,7 +490,7 @@ func (m *MalachiteMetricsFetcher) processSystemCPUComputeData(systemComputeData 
 		m.metricStore.SetCPUMetric(cpuID, consts.MetricCPUUsageRatio,
 			utilmetric.MetricData{Value: cpu.CPUUsage / 100.0, Time: &updateTime})
 		m.metricStore.SetCPUMetric(cpuID, consts.MetricCPUSchedwait,
-			utilmetric.MetricData{Value: cpu.CPUSchedWait, Time: &updateTime})
+			utilmetric.MetricData{Value: cpu.CPUSchedWait * 1000, Time: &updateTime})
 		m.metricStore.SetCPUMetric(cpuID, consts.MetricCPUIOWaitRatio,
 			utilmetric.MetricData{Value: cpu.CPUIowaitRatio, Time: &updateTime})
 	}
