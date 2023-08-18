@@ -32,6 +32,7 @@ import (
 
 	"github.com/vishvananda/netns"
 
+	"github.com/google/cadvisor/utils"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/global"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 )
@@ -50,6 +51,8 @@ const (
 	netFileNameSpeed    = "speed"
 	netFileNameNUMANode = "device/numa_node"
 	netFileNameEnable   = "device/enable"
+	netOperstate        = "operstate"
+	netUP               = "up"
 	netEnable           = 1
 )
 
@@ -200,7 +203,7 @@ func getNSNetworkHardwareTopology(nsName, netNSDirAbsPath string) ([]InterfaceIn
 func getInterfaceAttr(info *InterfaceInfo, nicPath string) {
 	if nicNUMANode, err := general.ReadFileIntoInt(path.Join(nicPath, netFileNameNUMANode)); err != nil {
 		general.Errorf("ns %v name %v, read NUMA node failed with error: %v. Suppose it's associated with NUMA node 0", info.NSName, info.Iface, err)
-		// some net device files are missed on VMs (e.g. numanode, enable etc.)
+		// some net device files are missed on VMs (e.g. numanode)
 		info.NumaNode = 0
 	} else {
 		if nicNUMANode != -1 {
@@ -212,11 +215,21 @@ func getInterfaceAttr(info *InterfaceInfo, nicPath string) {
 		}
 	}
 
-	if nicEnabledStatus, err := general.ReadFileIntoInt(path.Join(nicPath, netFileNameEnable)); err != nil {
-		general.Errorf("ns %v name %v, read enable status failed with error: %v", info.NSName, info.Iface, err)
-		info.Enable = false
+	if utils.FileExists(path.Join(nicPath, netFileNameEnable)) {
+		if nicEnabledStatus, err := general.ReadFileIntoInt(path.Join(nicPath, netFileNameEnable)); err != nil {
+			general.Errorf("ns %v name %v, read enable status failed with error: %v", info.NSName, info.Iface, err)
+			info.Enable = false
+		} else {
+			info.Enable = nicEnabledStatus == netEnable
+		}
 	} else {
-		info.Enable = nicEnabledStatus == netEnable
+		// some VMs do not have enable file under nicPath
+		if nicUPStatus, err := general.ReadFileIntoInt(path.Join(nicPath, netOperstate)); err != nil {
+			general.Errorf("ns %v name %v, read operstate failed with error: %v", info.NSName, info.Iface, err)
+			info.Enable = false
+		} else {
+			info.Enable = nicUPStatus == netUP
+		}
 	}
 
 	if nicSpeed, err := general.ReadFileIntoInt(path.Join(nicPath, netFileNameSpeed)); err != nil {
