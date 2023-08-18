@@ -214,7 +214,7 @@ func getInterfaceAttr(info *InterfaceInfo, nicPath string) {
 		}
 	}
 
-	if IsPathExists(path.Join(nicPath, netFileNameEnable)) {
+	if general.IsPathExists(path.Join(nicPath, netFileNameEnable)) {
 		if nicEnabledStatus, err := general.ReadFileIntoInt(path.Join(nicPath, netFileNameEnable)); err != nil {
 			general.Errorf("ns %v name %v, read enable status failed with error: %v", info.NSName, info.Iface, err)
 			info.Enable = false
