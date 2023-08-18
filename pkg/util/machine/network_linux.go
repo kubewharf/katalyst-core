@@ -32,7 +32,6 @@ import (
 
 	"github.com/vishvananda/netns"
 
-	"github.com/google/cadvisor/utils"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/global"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 )
@@ -215,7 +214,7 @@ func getInterfaceAttr(info *InterfaceInfo, nicPath string) {
 		}
 	}
 
-	if utils.FileExists(path.Join(nicPath, netFileNameEnable)) {
+	if IsPathExists(path.Join(nicPath, netFileNameEnable)) {
 		if nicEnabledStatus, err := general.ReadFileIntoInt(path.Join(nicPath, netFileNameEnable)); err != nil {
 			general.Errorf("ns %v name %v, read enable status failed with error: %v", info.NSName, info.Iface, err)
 			info.Enable = false
@@ -224,11 +223,11 @@ func getInterfaceAttr(info *InterfaceInfo, nicPath string) {
 		}
 	} else {
 		// some VMs do not have enable file under nicPath
-		if nicUPStatus, err := general.ReadFileIntoInt(path.Join(nicPath, netOperstate)); err != nil {
+		if nicUPStatus, err := general.ReadFileIntoLines(path.Join(nicPath, netOperstate)); err != nil || len(nicUPStatus) == 0 {
 			general.Errorf("ns %v name %v, read operstate failed with error: %v", info.NSName, info.Iface, err)
 			info.Enable = false
 		} else {
-			info.Enable = nicUPStatus == netUP
+			info.Enable = nicUPStatus[0] == netUP
 		}
 	}
 
