@@ -164,3 +164,102 @@ func TestGetContainerEnvs(t *testing.T) {
 		})
 	}
 }
+
+func TestGetPodHostIPs(t *testing.T) {
+	t.Parallel()
+
+	type args struct {
+		pod *v1.Pod
+	}
+	tests := []struct {
+		name string
+		args args
+		want []string
+	}{
+		{
+			name: "test-1",
+			args: args{
+				pod: &v1.Pod{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "test-pod-2",
+					},
+				},
+			},
+			want: []string{},
+		},
+		{
+			name: "test-2",
+			args: args{
+				pod: &v1.Pod{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "test-pod-2",
+					},
+					Status: v1.PodStatus{
+						HostIP: "xx:xx:xx:xx",
+					},
+				},
+			},
+			want: []string{"xx:xx:xx:xx"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, _ := GetPodHostIPs(tt.args.pod)
+			assert.Equalf(t, tt.want, got, "GetPodHostIP(%v)", tt.args.pod)
+		})
+	}
+}
+
+func TestParseHostPortForPod(t *testing.T) {
+	t.Parallel()
+
+	type args struct {
+		pod *v1.Pod
+	}
+	tests := []struct {
+		name string
+		args args
+		want int32
+	}{
+		{
+			name: "test-1",
+			args: args{
+				pod: &v1.Pod{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "test-pod-2",
+					},
+					Spec: v1.PodSpec{
+						Containers: []v1.Container{
+							{
+								Ports: []v1.ContainerPort{
+									{
+										Name:     "test",
+										HostPort: 11,
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+			want: 11,
+		},
+		{
+			name: "test-1",
+			args: args{
+				pod: &v1.Pod{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "test-pod-2",
+					},
+				},
+			},
+			want: 0,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, _ := ParseHostPortForPod(tt.args.pod, "test")
+			assert.Equalf(t, tt.want, got, "GetPodHostIP(%v)", tt.args.pod)
+		})
+	}
+}

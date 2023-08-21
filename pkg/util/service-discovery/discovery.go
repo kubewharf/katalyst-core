@@ -19,6 +19,7 @@ package service_discovery
 import (
 	"context"
 	"fmt"
+	"net"
 	"sync"
 	"time"
 
@@ -190,19 +191,21 @@ func (m *podInformerServiceDiscoveryManager) addEndpoint(pod *v1.Pod) {
 	m.Lock()
 	defer m.Unlock()
 
+	m.addEndpointWithoutLock(pod)
+}
+
+func (m *podInformerServiceDiscoveryManager) addEndpointWithoutLock(pod *v1.Pod) {
 	key, err := cache.DeletionHandlingMetaNamespaceKeyFunc(pod)
 	if err != nil {
 		klog.Errorf("couldn't get key for pod %#v: %v", pod, err)
+		return
+	} else if _, exist := m.endpoints[key]; exist {
 		return
 	}
 
 	endpoint, err := m.getPodEndpoint(pod)
 	if err != nil {
-		klog.ErrorS(err, "get new endpoint failed", "pod", pod)
-		return
-	}
-
-	if originEndpoint, exist := m.endpoints[key]; exist && originEndpoint == endpoint {
+		klog.ErrorS(err, "get new endpoint failed", "pod", pod.Name)
 		return
 	}
 
@@ -212,18 +215,29 @@ func (m *podInformerServiceDiscoveryManager) addEndpoint(pod *v1.Pod) {
 }
 
 func (m *podInformerServiceDiscoveryManager) getPodEndpoint(pod *v1.Pod) (string, error) {
-	ports := native.ParseHostPortsForPod(pod, m.portName)
-	if len(ports) != 1 {
-		return "", fmt.Errorf("pod has invalid amount of valid ports: %v", ports)
-	}
-	port := ports[0]
-
-	hostIP, err := native.GetPodHostIP(pod)
-	if err != nil {
-		return "", fmt.Errorf("get pod hostIP failed: %v", err)
+	port, ok := native.ParseHostPortForPod(pod, m.portName)
+	if !ok {
+		return "", fmt.Errorf("pod has invalid valid port")
 	}
 
-	return fmt.Sprintf("%s:%d", hostIP, port), nil
+	hostIPs, ok := native.GetPodHostIPs(pod)
+	if !ok {
+		return "", fmt.Errorf("pod has invalid valid host-ip")
+	}
+
+	for _, hostIP := range hostIPs {
+		url := fmt.Sprintf("[%s]:%d", hostIP, port)
+		if conn, err := net.DialTimeout("tcp", url, time.Second*5); err == nil {
+			if conn != nil {
+				_ = conn.Close()
+			}
+			return url, nil
+		} else {
+			klog.Errorf("pod %v dial %v failed: %v", pod.Name, url, err)
+		}
+	}
+
+	return "", fmt.Errorf("invalid endpoint exits")
 }
 
 func (m *podInformerServiceDiscoveryManager) sync() {
@@ -244,5 +258,14 @@ func (m *podInformerServiceDiscoveryManager) sync() {
 				klog.Errorf("failed to get pod %s: %s", key, err)
 			}
 		}
+	}
+
+	pods, err := m.podLister.List(labels.Everything())
+	if err != nil {
+		klog.Errorf("failed to list pods: %v", err)
+		return
+	}
+	for _, pod := range pods {
+		m.addEndpointWithoutLock(pod)
 	}
 }
