@@ -65,10 +65,11 @@ func (p *DynamicPolicy) sharedCoresAllocationHandler(_ context.Context,
 	needSet := true
 	allocationInfo := p.state.GetAllocationInfo(req.PodUid, req.ContainerName)
 
-	shouldRampUp := p.shoudSharedCoresRampUp(req.PodUid)
 	if allocationInfo == nil {
 		general.Infof("pod: %s/%s, container: %s is met firstly, do ramp up with pooled cpus: %s",
 			req.PodNamespace, req.PodName, req.ContainerName, pooledCPUs.String())
+
+		shouldRampUp := p.shouldSharedCoresRampUp(req.PodUid)
 
 		allocationInfo = &state.AllocationInfo{
 			PodUid:                           req.PodUid,
@@ -93,14 +94,23 @@ func (p *DynamicPolicy) sharedCoresAllocationHandler(_ context.Context,
 		}
 
 		if !shouldRampUp {
-			p.state.SetAllocationInfo(allocationInfo.PodUid, allocationInfo.ContainerName, allocationInfo)
-			err := p.doAndCheckPutAllocationInfo(allocationInfo, false)
+			targetPoolName := allocationInfo.GetSpecifiedPoolName()
+			poolAllocationInfo := p.state.GetAllocationInfo(targetPoolName, advisorapi.FakedContainerName)
 
-			if err != nil {
-				return nil, err
+			if poolAllocationInfo == nil {
+				general.Infof("pod: %s/%s, container: %s is active, but its specified pool entry doesn't exist, try to ramp up it",
+					req.PodNamespace, req.PodName, req.ContainerName)
+				allocationInfo.RampUp = true
+			} else {
+				p.state.SetAllocationInfo(allocationInfo.PodUid, allocationInfo.ContainerName, allocationInfo)
+				err := p.doAndCheckPutAllocationInfo(allocationInfo, false)
+
+				if err != nil {
+					return nil, err
+				}
+
+				needSet = false
 			}
-
-			needSet = false
 		}
 	} else if allocationInfo.RampUp {
 		general.Infof("pod: %s/%s, container: %s is still in ramp up, allocate pooled cpus: %s",
@@ -1055,7 +1065,7 @@ func (p *DynamicPolicy) takeCPUsForContainers(containersQuantityMap map[string]m
 	return containersCPUSet, availableCPUs, nil
 }
 
-func (p *DynamicPolicy) shoudSharedCoresRampUp(podUID string) bool {
+func (p *DynamicPolicy) shouldSharedCoresRampUp(podUID string) bool {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 	pod, err := p.metaServer.GetPod(ctx, podUID)
