@@ -149,3 +149,65 @@ func TestHealthzController(t *testing.T) {
 	healthy := ec.healthzHelper.CheckAllAgentReady("node1")
 	assert.Equal(t, true, healthy)
 }
+
+func Test_podTransformerFunc(t *testing.T) {
+	type args struct {
+		src  *corev1.Pod
+		dest *corev1.Pod
+	}
+	tests := []struct {
+		name string
+		args args
+		want *corev1.Pod
+	}{
+		{
+			name: "normal",
+			args: args{
+				src: &corev1.Pod{
+					Spec: corev1.PodSpec{
+						Containers: []corev1.Container{
+							{
+								Name: "container-1",
+							},
+						},
+						NodeName: "node-1",
+						HostPID:  true,
+					},
+					Status: corev1.PodStatus{
+						ContainerStatuses: []corev1.ContainerStatus{
+							{
+								Name:  "container-1",
+								Ready: true,
+							},
+						},
+					},
+				},
+				dest: &corev1.Pod{},
+			},
+			want: &corev1.Pod{
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{
+						{
+							Name: "container-1",
+						},
+					},
+					NodeName: "node-1",
+				},
+				Status: corev1.PodStatus{
+					ContainerStatuses: []corev1.ContainerStatus{
+						{
+							Name:  "container-1",
+							Ready: true,
+						},
+					},
+				},
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			podTransformerFunc(tt.args.src, tt.args.dest)
+			assert.Equal(t, tt.want, tt.args.dest)
+		})
+	}
+}

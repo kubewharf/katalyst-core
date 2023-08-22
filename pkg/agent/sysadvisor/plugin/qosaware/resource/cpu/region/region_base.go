@@ -309,8 +309,16 @@ func getRegionNameFromMetaCache(ci *types.ContainerInfo, numaID int, metaReader 
 			// get region name from metaCache
 			regionName := ci.RegionNames.List()[0]
 			regionInfo, ok := metaReader.GetRegionInfo(regionName)
-			if ok && regionInfo.RegionType == types.QoSRegionTypeShare {
-				return regionName
+			if ok {
+				// the region-name is valid if it suits it follows constrains below
+				// - current container is isolated and the region is for isolation-type
+				// - current container isn't isolated and the region is for share-type
+
+				if !ci.Isolated && regionInfo.RegionType == types.QoSRegionTypeShare {
+					return regionName
+				} else if ci.Isolated && regionInfo.RegionType == types.QoSRegionTypeIsolation {
+					return regionName
+				}
 			}
 		}
 	} else if ci.IsNumaBinding() {
