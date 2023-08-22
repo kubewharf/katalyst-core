@@ -211,3 +211,15 @@ func GenerateMachineStateFromPodEntries(topology *machine.CPUTopology, podEntrie
 func IsIsolationPool(poolName string) bool {
 	return strings.HasPrefix(poolName, PoolNameIsolation)
 }
+
+func GetPoolType(poolName string) string {
+	if IsIsolationPool(poolName) {
+		return PoolNameIsolation
+	}
+	switch poolName {
+	case PoolNameReclaim, PoolNameDedicated, PoolNameReserve, PoolNameFallback:
+		return poolName
+	default:
+		return PoolNameShare
+	}
+}

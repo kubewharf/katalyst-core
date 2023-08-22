@@ -483,7 +483,8 @@ func (cra *cpuResourceAdvisor) emitMetrics(calculationResult types.InternalCPUCa
 		for numaID, size := range poolEntry {
 			_ = cra.emitter.StoreInt64(metricCPUAdvisorPoolSize, int64(size), metrics.MetricTypeNameRaw,
 				metrics.MetricTag{Key: "name", Val: poolName},
-				metrics.MetricTag{Key: "numa_id", Val: strconv.Itoa(numaID)})
+				metrics.MetricTag{Key: "numa_id", Val: strconv.Itoa(numaID)},
+				metrics.MetricTag{Key: "pool_type", Val: state.GetPoolType(poolName)})
 		}
 	}
 }
