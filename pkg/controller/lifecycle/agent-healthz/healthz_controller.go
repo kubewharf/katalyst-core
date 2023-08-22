@@ -303,4 +303,35 @@ func (ec *HealthzController) handleEvictDisruption(healthState string) {
 
 func podTransformerFunc(src, dest *corev1.Pod) {
 	dest.Spec.NodeName = src.Spec.NodeName
+	containersTransformerFunc(&src.Spec.Containers, &dest.Spec.Containers)
+	containerStatusesTransformerFunc(&src.Status.ContainerStatuses, &dest.Status.ContainerStatuses)
+}
+
+func containersTransformerFunc(src, dst *[]corev1.Container) {
+	if src == nil || len(*src) == 0 {
+		return
+	}
+
+	if len(*dst) == 0 {
+		*dst = make([]corev1.Container, len(*src))
+	}
+
+	for i, c := range *src {
+		(*dst)[i].Name = c.Name
+	}
+}
+
+func containerStatusesTransformerFunc(src, dst *[]corev1.ContainerStatus) {
+	if src == nil || len(*src) == 0 {
+		return
+	}
+
+	if len(*dst) == 0 {
+		*dst = make([]corev1.ContainerStatus, len(*src))
+	}
+
+	for i, c := range *src {
+		(*dst)[i].Name = c.Name
+		(*dst)[i].Ready = c.Ready
+	}
 }
