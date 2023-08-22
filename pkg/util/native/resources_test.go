@@ -139,3 +139,63 @@ func TestNeedUpdateResources(t *testing.T) {
 		})
 	}
 }
+
+func TestMultiplyResourceQuantity(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name         string
+		resourceName v1.ResourceName
+		quant        resource.Quantity
+		factor       float64
+		res          resource.Quantity
+		want         bool
+	}{
+		{
+			name:         "resource CPU",
+			resourceName: v1.ResourceCPU,
+			quant:        *resource.NewQuantity(2, resource.DecimalSI),
+			factor:       1.5,
+			res:          *resource.NewQuantity(3, resource.DecimalSI),
+			want:         true,
+		},
+		{
+			name:         "resource memory",
+			resourceName: v1.ResourceMemory,
+			quant:        resource.MustParse("200Gi"),
+			factor:       1.5,
+			res:          resource.MustParse("300Gi"),
+			want:         true,
+		},
+		{
+			name:         "zero value",
+			resourceName: v1.ResourceCPU,
+			quant:        *resource.NewQuantity(0, resource.DecimalSI),
+			factor:       2,
+			res:          *resource.NewQuantity(0, resource.DecimalSI),
+			want:         true,
+		},
+		{
+			name:         "zero factor",
+			resourceName: v1.ResourceCPU,
+			quant:        *resource.NewQuantity(2, resource.DecimalSI),
+			factor:       0,
+			res:          *resource.NewQuantity(0, resource.DecimalSI),
+			want:         true,
+		},
+		{
+			name:         "round down",
+			resourceName: v1.ResourceCPU,
+			quant:        *resource.NewQuantity(2, resource.DecimalSI),
+			factor:       1.23456,
+			res:          *resource.NewMilliQuantity(2469, resource.DecimalSI),
+			want:         true,
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			quant := MultiplyResourceQuantity(c.resourceName, c.quant, c.factor)
+			assert.Equal(t, c.want, quant.Equal(c.res))
+		})
+	}
+}
