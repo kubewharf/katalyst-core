@@ -227,3 +227,45 @@ func ResourceQuantityToInt64Value(resourceName v1.ResourceName, quantity resourc
 func getResourceMetricsName(resourceName v1.ResourceName, quantity resource.Quantity) (string, int64) {
 	return resourceName.String(), ResourceQuantityToInt64Value(resourceName, quantity)
 }
+
+// MultiplyResourceQuantity scales quantity according to its resource name.
+func MultiplyResourceQuantity(resourceName v1.ResourceName, quantity resource.Quantity, y float64) resource.Quantity {
+	switch resourceName {
+	case v1.ResourceCPU:
+		return MultiplyMilliQuantity(quantity, y)
+	case v1.ResourceMemory:
+		fallthrough
+	default:
+		return MultiplyQuantity(quantity, y)
+	}
+}
+
+// MultiplyMilliQuantity scales quantity by y.
+func MultiplyMilliQuantity(quantity resource.Quantity, y float64) resource.Quantity {
+	if 0 == y {
+		return *resource.NewMilliQuantity(0, quantity.Format)
+	}
+
+	milliValue := quantity.MilliValue()
+	if 0 == milliValue {
+		return quantity
+	}
+
+	milliValue = int64(float64(milliValue) * y)
+	return *resource.NewMilliQuantity(milliValue, quantity.Format)
+}
+
+// MultiplyQuantity scales quantity by y.
+func MultiplyQuantity(quantity resource.Quantity, y float64) resource.Quantity {
+	if 0 == y {
+		return *resource.NewQuantity(0, quantity.Format)
+	}
+
+	value := quantity.Value()
+	if 0 == value {
+		return quantity
+	}
+
+	value = int64(float64(value) * y)
+	return *resource.NewQuantity(value, quantity.Format)
+}
