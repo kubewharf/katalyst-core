@@ -718,7 +718,8 @@ func (p *DynamicPolicy) applyPoolsAndIsolatedInfo(poolsCPUSet map[string]machine
 		}
 
 		_ = p.emitter.StoreInt64(util.MetricNamePoolSize, int64(cset.Size()), metrics.MetricTypeNameRaw,
-			metrics.MetricTag{Key: "poolName", Val: poolName})
+			metrics.MetricTag{Key: "poolName", Val: poolName},
+			metrics.MetricTag{Key: "pool_type", Val: state.GetPoolType(poolName)})
 	}
 
 	// rampUpCPUs includes common reclaimed pool

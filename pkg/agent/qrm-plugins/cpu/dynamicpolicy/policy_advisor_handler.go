@@ -482,7 +482,8 @@ func (p *DynamicPolicy) applyBlocks(blockCPUSet advisorapi.BlockCPUSet, resp *ad
 				}
 			} else {
 				_ = p.emitter.StoreInt64(util.MetricNamePoolSize, int64(allocationInfo.AllocationResult.Size()),
-					metrics.MetricTypeNameRaw, metrics.MetricTag{Key: "poolName", Val: allocationInfo.OwnerPoolName})
+					metrics.MetricTypeNameRaw, metrics.MetricTag{Key: "poolName", Val: allocationInfo.OwnerPoolName},
+					metrics.MetricTag{Key: "pool_type", Val: state.GetPoolType(allocationInfo.OwnerPoolName)})
 				general.Infof("try to apply pool %s: %s", allocationInfo.OwnerPoolName, allocationInfo.AllocationResult.String())
 			}
 		}
