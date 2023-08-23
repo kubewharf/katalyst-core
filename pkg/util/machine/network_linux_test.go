@@ -23,7 +23,6 @@ import (
 	"testing"
 
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/global"
-	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -43,7 +42,7 @@ func TestGetExtraNetworkInfo(t *testing.T) {
 func TestGetInterfaceAttr(t *testing.T) {
 	t.Parallel()
 
-	nic := &machine.InterfaceInfo{
+	nic := &InterfaceInfo{
 		Iface: "eth0",
 	}
 
