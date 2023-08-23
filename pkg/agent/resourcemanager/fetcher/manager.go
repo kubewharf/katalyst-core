@@ -174,10 +174,20 @@ func (m *ReporterPluginManager) ValidatePlugin(pluginName string, endpoint strin
 }
 
 // RegisterPlugin is to handle plugin register event
-func (m *ReporterPluginManager) RegisterPlugin(pluginName, endpoint string, versions []string) error {
+func (m *ReporterPluginManager) RegisterPlugin(pluginName, endpoint string, _ []string) error {
 	klog.Infof("[reporter manager] registering Plugin %s at Endpoint %s", pluginName, endpoint)
 
-	e, err := plugin.NewRemoteEndpoint(endpoint, pluginName, m.emitter, m.callback)
+	var cache *v1alpha1.GetReportContentResponse
+	// if the plugin is already registered, use the old cache to avoid data loss
+	// when the plugin is re-registered.
+	m.mutex.Lock()
+	old, ok := m.endpoints[pluginName]
+	m.mutex.Unlock()
+	if ok {
+		cache = old.GetCache()
+	}
+
+	e, err := plugin.NewRemoteEndpoint(endpoint, pluginName, cache, m.emitter, m.callback)
 	if err != nil {
 		return fmt.Errorf("failed to dial device plugin with socketPath %s: %v", endpoint, err)
 	}

@@ -193,7 +193,7 @@ func esetup(t *testing.T, content []*v1alpha1.ReportContent, socket, pluginName 
 	err := p.Start()
 	require.NoError(t, err)
 
-	e, err := NewRemoteEndpoint(path.Join(socket, fmt.Sprintf("%s.sock", p.Name())), pluginName, metrics.DummyMetrics{}, callback)
+	e, err := NewRemoteEndpoint(path.Join(socket, fmt.Sprintf("%s.sock", p.Name())), pluginName, nil, metrics.DummyMetrics{}, callback)
 	require.NoError(t, err)
 
 	return ps, p, e
