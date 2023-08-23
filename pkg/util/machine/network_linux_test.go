@@ -49,6 +49,6 @@ func TestGetInterfaceAttr(t *testing.T) {
 
 	getInterfaceAttr(nic, "/sys/class/net")
 	assert.Nil(t, nic)
-	assert.Equal(t, -1, nic.NumaNode)
+	assert.Equal(t, 0, nic.NumaNode)
 	assert.Equal(t, false, nic.Enable)
 }
