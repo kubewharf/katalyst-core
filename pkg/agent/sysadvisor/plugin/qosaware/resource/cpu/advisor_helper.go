@@ -57,6 +57,16 @@ func (cra *cpuResourceAdvisor) getRegionsByPodUID(podUID string) []region.QoSReg
 	return regions
 }
 
+func (cra *cpuResourceAdvisor) getIsolatedContainerRegions(ci *types.ContainerInfo) ([]region.QoSRegion, error) {
+	var regions []region.QoSRegion
+	for _, r := range cra.getRegionsByPodUID(ci.PodUID) {
+		if r.Type() == types.QoSRegionTypeIsolation {
+			regions = append(regions, r)
+		}
+	}
+	return regions, nil
+}
+
 func (cra *cpuResourceAdvisor) getContainerRegions(ci *types.ContainerInfo) ([]region.QoSRegion, error) {
 	// For non-newly allocated containers, they already had regionNames,
 	// we can directly get the regions by regionMap.

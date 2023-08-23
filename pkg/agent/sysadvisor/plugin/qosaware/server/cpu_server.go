@@ -234,9 +234,7 @@ func (cs *cpuServer) updateContainerInfo(podUID string, containerName string, in
 	if len(ci.OriginOwnerPoolName) == 0 {
 		ci.OriginOwnerPoolName = info.OwnerPoolName
 	}
-	if len(ci.OwnerPoolName) == 0 {
-		ci.OwnerPoolName = info.OwnerPoolName
-	}
+	ci.OwnerPoolName = info.OwnerPoolName
 
 	// fill in topology aware assignment for containers with owner pool
 	if ci.QoSLevel != consts.PodAnnotationQoSLevelDedicatedCores {
@@ -277,11 +275,9 @@ func (cs *cpuServer) assemblePodEntries(calculationEntriesMap map[string]*cpuadv
 		CalculationResultsByNumas: nil,
 	}
 
-	if ci.Isolated {
-		if ci.RegionNames.Len() != 1 {
-			return fmt.Errorf("isolated container should be in only one region")
-		}
-		calculationInfo.OwnerPoolName = ci.RegionNames.List()[0]
+	// if isolation is locking out, pass original owner pool instead of owner pool
+	if !ci.Isolated && qrmstate.IsIsolationPool(ci.OwnerPoolName) {
+		calculationInfo.OwnerPoolName = ci.OriginOwnerPoolName
 	}
 
 	// currently, only pods in "dedicated_nums with numa binding" has topology aware allocations

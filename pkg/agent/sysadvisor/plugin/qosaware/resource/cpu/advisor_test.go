@@ -40,6 +40,7 @@ import (
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/options"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
+	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource/cpu/region"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	metric_consts "github.com/kubewharf/katalyst-core/pkg/consts"
@@ -901,6 +902,9 @@ func TestAdvisorUpdate(t *testing.T) {
 			if len(tt.headroomPolicies) != 0 {
 				conf.CPUAdvisorConfiguration.HeadroomPolicies = tt.headroomPolicies
 			}
+			conf.IsolatedMaxRatios = 0.3
+			conf.IsolationLockInThreshold = 1
+			conf.IsolationLockOutPeriodSecs = 30
 
 			advisor, metaCache := newTestCPUResourceAdvisor(t, tt.pods, conf, mf, tt.podProfiles)
 			advisor.startTime = time.Now().Add(-types.StartUpPeriod)
@@ -969,4 +973,59 @@ func TestAdvisorUpdate(t *testing.T) {
 			wg.Wait()
 		})
 	}
+}
+
+func TestGetIsolatedContainerRegions(t *testing.T) {
+	t.Parallel()
+
+	c1_1 := &types.ContainerInfo{PodUID: "p1", ContainerName: "c1_1"}
+	c1_2 := &types.ContainerInfo{PodUID: "p1", ContainerName: "c1_2"}
+	c2 := &types.ContainerInfo{PodUID: "p2", ContainerName: "c2"}
+	c3_1 := &types.ContainerInfo{PodUID: "p3", ContainerName: "c3_1"}
+	c3_2 := &types.ContainerInfo{PodUID: "p3", ContainerName: "c3_2"}
+
+	conf, _ := options.NewOptions().Config()
+
+	r1 := &region.QoSRegionShare{
+		QoSRegionBase: region.NewQoSRegionBase("r1", "", types.QoSRegionTypeIsolation,
+			conf, struct{}{}, nil, nil, nil),
+	}
+	_ = r1.AddContainer(c1_1)
+	_ = r1.AddContainer(c1_2)
+
+	r2 := &region.QoSRegionShare{
+		QoSRegionBase: region.NewQoSRegionBase("r2", "", types.QoSRegionTypeShare,
+			conf, struct{}{}, nil, nil, nil),
+	}
+	_ = r2.AddContainer(c2)
+
+	r3 := &region.QoSRegionShare{
+		QoSRegionBase: region.NewQoSRegionBase("r3", "", types.QoSRegionTypeDedicatedNumaExclusive,
+			conf, struct{}{}, nil, nil, nil),
+	}
+	_ = r3.AddContainer(c3_1)
+	_ = r3.AddContainer(c3_2)
+
+	advisor := &cpuResourceAdvisor{
+		regionMap: map[string]region.QoSRegion{
+			"r1": r1,
+			"r2": r2,
+			"r3": r3,
+		},
+	}
+
+	f := func(c *types.ContainerInfo) []string {
+		rs, err := advisor.getIsolatedContainerRegions(c)
+		assert.NoError(t, err)
+		var res []string
+		for _, r := range rs {
+			res = append(res, r.Name())
+		}
+		return res
+	}
+	assert.ElementsMatch(t, []string{"r1"}, f(c1_1))
+	assert.ElementsMatch(t, []string{"r1"}, f(c1_2))
+	assert.ElementsMatch(t, []string{}, f(c2))
+	assert.ElementsMatch(t, []string{}, f(c3_1))
+	assert.ElementsMatch(t, []string{}, f(c3_2))
 }

@@ -20,7 +20,6 @@ import (
 	"context"
 	"fmt"
 	"strconv"
-	"strings"
 	"sync"
 	"time"
 
@@ -327,8 +326,8 @@ func (cra *cpuResourceAdvisor) assignContainersToRegions() error {
 		if ci.OwnerPoolName == state.PoolNameDedicated {
 			// dedicated pool should not exist in metaCache.poolEntries
 			return true
-		} else if ci.Isolated && !strings.HasPrefix(ci.OwnerPoolName, state.PoolNameIsolation) {
-			// if we haven't generated corresponding pods isolated containers, just return
+		} else if ci.Isolated {
+			// isolated pool should not exist in metaCache.poolEntries
 			return true
 		} else {
 			// todo currently, we may call setPoolRegions multiple time, and we
@@ -366,11 +365,12 @@ func (cra *cpuResourceAdvisor) assignToRegions(ci *types.ContainerInfo) ([]regio
 
 		// assign isolated container
 		if ci.Isolated {
-			if ci.OwnerPoolName != state.PoolNameShare {
-				regions := cra.getPoolRegions(ci.OwnerPoolName)
-				if len(regions) > 0 {
-					return regions, nil
-				}
+			// if there already exists an isolation region for this pod, just reuse it
+			regions, err := cra.getIsolatedContainerRegions(ci)
+			if err != nil {
+				return nil, err
+			} else if len(regions) > 0 {
+				return regions, nil
 			}
 
 			r := region.NewQoSRegionIsolation(ci, cra.conf, cra.extraConf, cra.metaCache, cra.metaServer, cra.emitter)
@@ -378,7 +378,7 @@ func (cra *cpuResourceAdvisor) assignToRegions(ci *types.ContainerInfo) ([]regio
 		}
 
 		// assign shared cores container. focus on pool.
-		regions := cra.getPoolRegions(ci.OwnerPoolName)
+		regions := cra.getPoolRegions(ci.OriginOwnerPoolName)
 		if len(regions) > 0 {
 			return regions, nil
 		}
@@ -392,8 +392,7 @@ func (cra *cpuResourceAdvisor) assignToRegions(ci *types.ContainerInfo) ([]regio
 		regions, err := cra.getContainerRegions(ci)
 		if err != nil {
 			return nil, err
-		}
-		if len(regions) > 0 {
+		} else if len(regions) > 0 {
 			return regions, nil
 		}
 
