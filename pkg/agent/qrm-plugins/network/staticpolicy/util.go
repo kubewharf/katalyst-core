@@ -227,8 +227,8 @@ func filterNICsByHint(nics []machine.InterfaceInfo, req *pluginapi.ResourceReque
 }
 
 func getRandomNICs(nics []machine.InterfaceInfo) machine.InterfaceInfo {
-	rand.Seed(time.Now().UnixNano())
-	return nics[rand.Intn(len(nics))]
+	r := rand.New(rand.NewSource(time.Now().UnixNano()))
+	return nics[r.Intn(len(nics))]
 }
 
 func selectOneNIC(nics []machine.InterfaceInfo, policy NICSelectionPoligy) machine.InterfaceInfo {
