@@ -65,6 +65,6 @@ func TestGetNSNetworkHardwareTopology(t *testing.T) {
 	t.Parallel()
 
 	nics, err := getNSNetworkHardwareTopology("", "")
-	assert.NotNil(err)
+	assert.Nil(err)
 	assert.NotNil(nics)
 }
