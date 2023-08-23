@@ -52,3 +52,19 @@ func TestGetInterfaceAttr(t *testing.T) {
 	assert.Equal(t, 0, nic.NumaNode)
 	assert.Equal(t, false, nic.Enable)
 }
+
+func TestGetInterfaceAddr(t *testing.T) {
+	t.Parallel()
+
+	addr, err := getInterfaceAddr()
+	assert.NotNil(t, addr)
+	assert.Nil(t, err)
+}
+
+func TestGetNSNetworkHardwareTopology(t *testing.T) {
+	t.Parallel()
+
+	nics, err := getNSNetworkHardwareTopology("", "")
+	assert.NotNil(err)
+	assert.NotNil(nics)
+}
