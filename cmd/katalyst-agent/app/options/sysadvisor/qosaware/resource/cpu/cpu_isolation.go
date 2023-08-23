@@ -52,11 +52,11 @@ func NewCPUIsolationOptions() *CPUIsolationOptions {
 		IsolationCPURatio: 1.5,
 		IsolationCPUSize:  2,
 
-		IsolatedMaxRatios:     0.3,
+		IsolatedMaxRatios:     0.2,
 		IsolatedMaxPoolRatios: map[string]string{},
 
-		IsolationLockInThreshold:   1,
-		IsolationLockOutPeriodSecs: 30,
+		IsolationLockInThreshold:   3,
+		IsolationLockOutPeriodSecs: 120,
 
 		IsolationDisabled:      true,
 		IsolationDisabledPools: []string{},

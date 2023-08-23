@@ -32,11 +32,11 @@ import (
 // notice that pool-name may not have direct mapping relations with qos-level, for instance
 // - both isolated_shared_cores and dedicated_cores fall into PoolNameDedicated
 const (
-	PoolNameShare     = "share"
-	PoolNameReclaim   = "reclaim"
-	PoolNameDedicated = "dedicated"
-	PoolNameReserve   = "reserve"
-	PoolNameIsolation = "isolation"
+	PoolNameShare           = "share"
+	PoolNameReclaim         = "reclaim"
+	PoolNameDedicated       = "dedicated"
+	PoolNameReserve         = "reserve"
+	PoolNamePrefixIsolation = "isolation"
 
 	// PoolNameFallback is not a real pool, and is a union of
 	// all none-reclaimed pools to put pod should have been isolated
@@ -209,12 +209,12 @@ func GenerateMachineStateFromPodEntries(topology *machine.CPUTopology, podEntrie
 }
 
 func IsIsolationPool(poolName string) bool {
-	return strings.HasPrefix(poolName, PoolNameIsolation)
+	return strings.HasPrefix(poolName, PoolNamePrefixIsolation)
 }
 
 func GetPoolType(poolName string) string {
 	if IsIsolationPool(poolName) {
-		return PoolNameIsolation
+		return PoolNamePrefixIsolation
 	}
 	switch poolName {
 	case PoolNameReclaim, PoolNameDedicated, PoolNameReserve, PoolNameFallback:

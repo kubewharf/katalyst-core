@@ -27,6 +27,8 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 )
 
+var isolationRegionDefaultOwnerPoolName = "isolation-default"
+
 type QoSRegionIsolation struct {
 	*QoSRegionBase
 }
@@ -41,7 +43,7 @@ func NewQoSRegionIsolation(ci *types.ContainerInfo, conf *config.Configuration, 
 	}
 
 	r := &QoSRegionIsolation{
-		QoSRegionBase: NewQoSRegionBase(regionName, ci.OwnerPoolName, types.QoSRegionTypeIsolation, conf, extraConf, metaReader, metaServer, emitter),
+		QoSRegionBase: NewQoSRegionBase(regionName, isolationRegionDefaultOwnerPoolName, types.QoSRegionTypeIsolation, conf, extraConf, metaReader, metaServer, emitter),
 	}
 	return r
 }
