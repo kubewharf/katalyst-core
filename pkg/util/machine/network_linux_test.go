@@ -22,8 +22,9 @@ package machine
 import (
 	"testing"
 
-	"github.com/kubewharf/katalyst-core/pkg/config/agent/global"
 	"github.com/stretchr/testify/assert"
+
+	"github.com/kubewharf/katalyst-core/pkg/config/agent/global"
 )
 
 func TestGetExtraNetworkInfo(t *testing.T) {
