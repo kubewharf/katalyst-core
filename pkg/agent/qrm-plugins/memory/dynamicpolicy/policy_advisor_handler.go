@@ -24,6 +24,8 @@ import (
 
 	"google.golang.org/grpc/status"
 	v1 "k8s.io/api/core/v1"
+	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
+	maputil "k8s.io/kubernetes/pkg/util/maps"
 
 	apiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/advisorsvc"
@@ -327,6 +329,43 @@ func (p *DynamicPolicy) handleAdvisorDropCache(
 			"entryName":    entryName,
 			"subEntryName": subEntryName,
 		})...)
+
+	return nil
+}
+
+// pushMemoryAdvisor pushes state info to memory-advisor
+func (p *DynamicPolicy) pushMemoryAdvisor() error {
+	podEntries := p.state.GetPodResourceEntries()[v1.ResourceMemory]
+	for _, entries := range podEntries {
+		for _, allocationInfo := range entries {
+			if allocationInfo == nil {
+				continue
+			}
+
+			containerType, found := pluginapi.ContainerType_value[allocationInfo.ContainerType]
+			if !found {
+				return fmt.Errorf("sync pod: %s/%s, container: %s to memory advisor failed with error: containerType: %s not found",
+					allocationInfo.PodNamespace, allocationInfo.PodName,
+					allocationInfo.ContainerName, allocationInfo.ContainerType)
+			}
+
+			_, err := p.advisorClient.AddContainer(context.Background(), &advisorsvc.AddContainerRequest{
+				PodUid:         allocationInfo.PodUid,
+				PodNamespace:   allocationInfo.PodNamespace,
+				PodName:        allocationInfo.PodName,
+				ContainerName:  allocationInfo.ContainerName,
+				ContainerType:  pluginapi.ContainerType(containerType),
+				ContainerIndex: allocationInfo.ContainerIndex,
+				Labels:         maputil.CopySS(allocationInfo.Labels),
+				Annotations:    maputil.CopySS(allocationInfo.Annotations),
+				QosLevel:       allocationInfo.QoSLevel,
+			})
+			if err != nil {
+				return fmt.Errorf("sync pod: %s/%s, container: %s to memory advisor failed with error: %v",
+					allocationInfo.PodNamespace, allocationInfo.PodName, allocationInfo.ContainerName, err)
+			}
+		}
+	}
 
 	return nil
 }

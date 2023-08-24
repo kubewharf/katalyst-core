@@ -259,6 +259,12 @@ func (p *DynamicPolicy) Start() (err error) {
 	}
 
 	communicateWithMemoryAdvisorServer := func() {
+		err = p.pushMemoryAdvisor()
+		if err != nil {
+			general.Errorf("sync existing containers to memory advisor failed with error: %v", err)
+			return
+		}
+
 		// call lw of MemoryAdvisorServer and do allocation
 		if err := p.lwMemoryAdvisorServer(p.stopCh); err != nil {
 			general.Errorf("lwMemoryAdvisorServer failed with error: %v", err)
