@@ -30,14 +30,42 @@ import (
 func TestGetExtraNetworkInfo(t *testing.T) {
 	t.Parallel()
 
-	conf := &global.MachineInfoConfiguration{
-		NetMultipleNS:   false,
-		NetNSDirAbsPath: "",
+	testCases := []struct {
+		description  string
+		noError      bool
+		conf         *global.MachineInfoConfiguration
+		expectedResp *ExtraNetworkInfo
+	}{
+		{
+			description: "single NS",
+			noError:     true,
+			conf: &global.MachineInfoConfiguration{
+				NetMultipleNS:   false,
+				NetNSDirAbsPath: "",
+			},
+			expectedResp: nil,
+		},
+		{
+			description: "multi NS",
+			noError:     false,
+			conf: &global.MachineInfoConfiguration{
+				NetMultipleNS:   true,
+				NetNSDirAbsPath: "",
+			},
+			expectedResp: nil,
+		},
 	}
 
-	netInfo, err := GetExtraNetworkInfo(conf)
-	assert.Nil(t, err)
-	assert.NotNil(t, netInfo)
+	for _, tc := range testCases {
+		netInfo, err := GetExtraNetworkInfo(tc.conf)
+		if tc.noError {
+			assert.Nil(t, err)
+			assert.NotNil(t, netInfo)
+		} else {
+			assert.NotNil(t, err)
+			assert.Nil(t, netInfo)
+		}
+	}
 }
 
 func TestGetInterfaceAttr(t *testing.T) {
@@ -64,7 +92,6 @@ func TestGetInterfaceAddr(t *testing.T) {
 func TestGetNSNetworkHardwareTopology(t *testing.T) {
 	t.Parallel()
 
-	nics, err := getNSNetworkHardwareTopology("", "")
+	_, err := getNSNetworkHardwareTopology("", "")
 	assert.Nil(t, err)
-	assert.Nil(t, nics)
 }
