@@ -61,7 +61,8 @@ type Endpoint interface {
 
 // NewRemoteEndpoint creates a new Endpoint for the given reporter' plugin name.
 // This is to be used during normal reporter' plugin registration.
-func NewRemoteEndpoint(socketPath, pluginName string, emitter metrics.MetricEmitter, callback ListAndWatchCallback) (Endpoint, error) {
+func NewRemoteEndpoint(socketPath, pluginName string, cache *v1alpha1.GetReportContentResponse,
+	emitter metrics.MetricEmitter, callback ListAndWatchCallback) (Endpoint, error) {
 	c, err := process.Dial(socketPath, dialRemoteEndpointTimeout)
 	if err != nil {
 		klog.Errorf("Can't create new Endpoint with path %s err %v", socketPath, err)
@@ -74,6 +75,7 @@ func NewRemoteEndpoint(socketPath, pluginName string, emitter metrics.MetricEmit
 
 		socketPath: socketPath,
 		pluginName: pluginName,
+		cache:      cache,
 		emitter:    emitter,
 
 		cb:          callback,
