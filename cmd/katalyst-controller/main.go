@@ -18,9 +18,7 @@ package main
 
 import (
 	"fmt"
-	"math/rand"
 	"os"
-	"time"
 
 	"github.com/spf13/pflag"
 	cliflag "k8s.io/component-base/cli/flag"
@@ -43,7 +41,6 @@ func main() {
 		os.Exit(1)
 	}
 
-	rand.Seed(time.Now().UnixNano())
 	if err := app.Run(opt); err != nil {
 		fmt.Printf("run command error: %v\n", err)
 		os.Exit(1)

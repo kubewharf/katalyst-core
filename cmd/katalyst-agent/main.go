@@ -18,9 +18,7 @@ package main
 
 import (
 	"fmt"
-	"math/rand"
 	"os"
-	"time"
 
 	"github.com/spf13/pflag"
 	cliflag "k8s.io/component-base/cli/flag"
@@ -42,7 +40,6 @@ func main() {
 	}
 	_ = commandLine.Parse(os.Args[1:])
 
-	rand.Seed(time.Now().UnixNano())
 	conf, err := opt.Config()
 	if err != nil {
 		fmt.Printf("parse config error: %v\n", err)

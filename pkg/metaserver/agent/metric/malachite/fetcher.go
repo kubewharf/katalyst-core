@@ -18,8 +18,8 @@ package malachite
 
 import (
 	"context"
+	"crypto/rand"
 	"fmt"
-	"math/rand"
 	"strconv"
 	"strings"
 	"sync"
