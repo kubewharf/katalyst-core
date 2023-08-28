@@ -97,6 +97,8 @@ func generateTestConfiguration(t *testing.T, checkpointDir, stateFileDir string)
 		},
 	}
 
+	conf.GetDynamicConfiguration().EnableReclaim = true
+
 	return conf
 }
 

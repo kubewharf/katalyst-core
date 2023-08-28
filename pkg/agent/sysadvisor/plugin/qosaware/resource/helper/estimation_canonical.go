@@ -39,8 +39,9 @@ const (
 	estimationCPUFallbackValue            = 4.0
 	estimationMemoryFallbackValue float64 = 8 << 30
 
-	estimationSharedDedicateQoSContainerBufferRatio = 1.1
-	estimationSystemQoSContainerBufferRatio         = 1.0
+	estimationSharedDedicateQoSContainerCPUUsageBufferRatio = 1.25
+	estimationSharedDedicateQoSContainerBufferRatio         = 1.1
+	estimationSystemQoSContainerBufferRatio                 = 1.0
 )
 
 var (
@@ -61,8 +62,8 @@ var (
 	}
 )
 
-// EstimateContainerCPUUsage used to estimate non-reclaimed pods CPU usage.
-// If reclaimEnable is true, it will estimate reclaimed pods CPU usage.
+// EstimateContainerCPUUsage estimates non-reclaimed container cpu usage.
+// Use cpu request if metrics are missing or reclaimEnable is false.
 func EstimateContainerCPUUsage(ci *types.ContainerInfo, metaReader metacache.MetaReader, reclaimEnable bool) (float64, error) {
 	if ci == nil {
 		return 0, fmt.Errorf("containerInfo nil")
@@ -90,8 +91,14 @@ func EstimateContainerCPUUsage(ci *types.ContainerInfo, metaReader metacache.Met
 				continue
 			}
 			checkRequest = false
-			if metricValue.Value > estimation {
-				estimation = metricValue.Value
+
+			estimationMetric := metricValue.Value
+			if metricName == consts.MetricCPUUsageContainer {
+				estimationMetric *= estimationSharedDedicateQoSContainerCPUUsageBufferRatio
+			}
+
+			if estimationMetric > estimation {
+				estimation = estimationMetric
 				reference = metricName
 			}
 		}
@@ -116,8 +123,8 @@ func EstimateContainerCPUUsage(ci *types.ContainerInfo, metaReader metacache.Met
 	return estimation, nil
 }
 
-// EstimateContainerMemoryUsage used to estimate non-reclaimed pods memory usage.
-// If reclaim disabled or metrics missed, memory usage will be regarded as Pod memory requests.
+// EstimateContainerMemoryUsage estimates non-reclaimed container memory usage.
+// Use memory request if metrics are missing or reclaimEnable is false.
 func EstimateContainerMemoryUsage(ci *types.ContainerInfo, metaReader metacache.MetaReader, reclaimEnable bool) (float64, error) {
 	if ci == nil {
 		return 0, fmt.Errorf("containerInfo nil")
