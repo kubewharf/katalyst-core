@@ -792,7 +792,7 @@ func TestAllocate(t *testing.T) {
 			dynamicPolicy.qosConfig.EnhancementDefaultValues = tc.enhancementDefaultValues
 		}
 
-		dynamicPolicy.enableMemroyAdvisor = true
+		dynamicPolicy.enableMemoryAdvisor = true
 		dynamicPolicy.advisorClient = advisorsvc.NewStubAdvisorServiceClient()
 
 		resp, err := dynamicPolicy.Allocate(context.Background(), tc.req)

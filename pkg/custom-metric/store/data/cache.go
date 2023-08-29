@@ -117,6 +117,7 @@ func (a *InternalMetric) DeepCopy() *InternalMetric {
 	return b
 }
 
+// todo delete this
 func (a *InternalMetric) DeepCopyWithLimit(limit int) *InternalMetric {
 	b := a.DeepCopy()
 
@@ -126,6 +127,11 @@ func (a *InternalMetric) DeepCopyWithLimit(limit int) *InternalMetric {
 	}
 
 	return b
+}
+
+// todo implement this
+func (a *InternalMetric) GetAggregatedMetricValue() *InternalMetric {
+	return &InternalMetric{}
 }
 
 func (a *InternalMetric) GetLabels() map[string]string { return a.Labels }

@@ -122,7 +122,7 @@ type DynamicPolicy struct {
 	asyncWorkers *asyncworker.AsyncWorkers
 
 	enableSettingMemoryMigrate bool
-	enableMemroyAdvisor        bool
+	enableMemoryAdvisor        bool
 	memoryAdvisorSocketAbsPath string
 }
 
@@ -175,7 +175,7 @@ func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration
 		podDebugAnnoKeys:           conf.PodDebugAnnoKeys,
 		asyncWorkers:               asyncworker.NewAsyncWorkers(memoryPluginAsyncWorkersName),
 		enableSettingMemoryMigrate: conf.EnableSettingMemoryMigrate,
-		enableMemroyAdvisor:        conf.EnableMemoryAdvisor,
+		enableMemoryAdvisor:        conf.EnableMemoryAdvisor,
 		memoryAdvisorSocketAbsPath: conf.MemoryAdvisorSocketAbsPath,
 		extraControlKnobConfigs:    extraControlKnobConfigs, // [TODO]: support modifying extraControlKnobConfigs by KCC
 	}
@@ -244,7 +244,7 @@ func (p *DynamicPolicy) Start() (err error) {
 
 	periodicalhandler.ReadyToStartHandlersByGroup(qrm.QRMMemoryPluginPeriodicalHandlerGroupName)
 
-	if !p.enableMemroyAdvisor {
+	if !p.enableMemoryAdvisor {
 		general.Infof("start dynamic policy memory plugin without memory advisor")
 		return nil
 	} else if p.memoryAdvisorSocketAbsPath == "" {
@@ -385,7 +385,7 @@ func (p *DynamicPolicy) RemovePod(ctx context.Context,
 		}
 	}()
 
-	if p.enableMemroyAdvisor {
+	if p.enableMemoryAdvisor {
 		_, err = p.advisorClient.RemovePod(ctx, &advisorsvc.RemovePodRequest{PodUid: req.PodUid})
 		if err != nil {
 			return nil, fmt.Errorf("remove pod in QoS aware server failed with error: %v", err)
@@ -637,7 +637,7 @@ func (p *DynamicPolicy) Allocate(ctx context.Context,
 	p.Lock()
 	defer func() {
 		// calls sys-advisor to inform the latest container
-		if p.enableMemroyAdvisor && respErr == nil && req.ContainerType != pluginapi.ContainerType_INIT {
+		if p.enableMemoryAdvisor && respErr == nil && req.ContainerType != pluginapi.ContainerType_INIT {
 			_, err := p.advisorClient.AddContainer(ctx, &advisorsvc.AddContainerRequest{
 				PodUid:          req.PodUid,
 				PodNamespace:    req.PodNamespace,

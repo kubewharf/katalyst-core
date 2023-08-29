@@ -27,10 +27,9 @@ import (
 	"sync"
 	"time"
 
-	"k8s.io/klog/v2"
-
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/klog/v2"
 
 	katalystbase "github.com/kubewharf/katalyst-core/cmd/base"
 	metricconf "github.com/kubewharf/katalyst-core/pkg/config/metric"
@@ -43,6 +42,15 @@ import (
 
 const MetricStoreNameRemoteMemory = "remote-memory-store"
 
+const sendRequestTimeout = time.Minute * 10
+
+const (
+	metricsNameStoreRemoteGetMetricFinish             = "kcmas_store_get_finish"
+	metricsNameStoreRemoteGetMetricFinishSendRequests = "kcmas_store_get_requests"
+
+	metricsNameStoreRemoteMetricSendRequest = "kcmas_store_send_request"
+)
+
 // RemoteMemoryMetricStore implements MetricStore with multiple-nodes versioned
 // in-memory storage, and each shard will be responsible for some splits of the
 // total metrics. it will be used when the cluster becomes too large.
@@ -51,6 +59,7 @@ const MetricStoreNameRemoteMemory = "remote-memory-store"
 // and it should be a wrapper of LocalMemoryMetricStore to reuse its internalMetric structure.
 type RemoteMemoryMetricStore struct {
 	ctx         context.Context
+	tags        []metrics.MetricTag
 	storeConf   *metricconf.StoreConfiguration
 	genericConf *metricconf.GenericMetricConfiguration
 
@@ -69,9 +78,13 @@ func NewRemoteMemoryMetricStore(ctx context.Context, baseCtx *katalystbase.Gener
 	if storeConf.StoreServerReplicaTotal <= 0 {
 		return nil, fmt.Errorf("total store server replica must be positive")
 	}
+	tags := []metrics.MetricTag{
+		{Key: "name", Val: MetricStoreNameRemoteMemory},
+	}
 
 	return &RemoteMemoryMetricStore{
 		ctx:         ctx,
+		tags:        tags,
 		genericConf: genericConf,
 		storeConf:   storeConf,
 		client:      client,
@@ -106,7 +119,8 @@ func (r *RemoteMemoryMetricStore) InsertMetric(seriesList []*data.MetricSeries) 
 	_, wCnt := r.sharding.GetRWCount()
 	klog.V(4).Infof("insert need to write %v among %v", wCnt, len(requests))
 
-	bodyList, err := r.sendRequests(context.Background(), requests, func(req *http.Request) {
+	// insert will always try to write into all store instances instead of write-counts
+	bodyList, err := r.sendRequests(context.Background(), requests, len(requests), r.tags, func(req *http.Request) {
 		req.Body = ioutil.NopCloser(bytes.NewReader(contents))
 	})
 	if err != nil {
@@ -133,6 +147,7 @@ func (r *RemoteMemoryMetricStore) InsertMetric(seriesList []*data.MetricSeries) 
 func (r *RemoteMemoryMetricStore) GetMetric(ctx context.Context, namespace, metricName, objName string, gr *schema.GroupResource,
 	objSelector, metricSelector labels.Selector, limited int) ([]*data.InternalMetric, error) {
 	start := time.Now()
+	tags := r.generateMetricsTags(metricName, objName)
 
 	requests, err := r.sharding.GetRequests(local.ServingGetPath)
 	if err != nil {
@@ -140,9 +155,9 @@ func (r *RemoteMemoryMetricStore) GetMetric(ctx context.Context, namespace, metr
 	}
 
 	rCnt, _ := r.sharding.GetRWCount()
-	klog.V(6).Infof("get need to read %v among %v", rCnt, len(requests))
+	klog.Infof("[remote-store] metric %v, obj %v, get need to read %v among %v", metricName, objName, rCnt, len(requests))
 
-	bodyList, err := r.sendRequests(ctx, requests, func(req *http.Request) {
+	bodyList, err := r.sendRequests(ctx, requests, rCnt, tags, func(req *http.Request) {
 		values := req.URL.Query()
 		if len(namespace) > 0 {
 			values.Set(local.StoreGETParamNamespace, namespace)
@@ -177,9 +192,16 @@ func (r *RemoteMemoryMetricStore) GetMetric(ctx context.Context, namespace, metr
 			_ = body.Close()
 		}
 
-		finished := time.Now()
-		klog.Infof("get cost %v", finished.Sub(start))
+		finishCosts := time.Now().Sub(start).Microseconds()
+		klog.Infof("[remote-store] get-finish: metric %v, obj %v, costs %v(ms), resultCount %v", metricName, objName, finishCosts, len(bodyList))
+		_ = r.emitter.StoreInt64(metricsNameStoreRemoteGetMetricFinish, finishCosts, metrics.MetricTypeNameRaw, append(tags,
+			metrics.MetricTag{Key: "count", Val: fmt.Sprintf("%v", len(bodyList))})...)
+
 	}()
+
+	finishCosts := time.Now().Sub(start).Microseconds()
+	klog.Infof("[remote-store] get-requests: metric %v, obj %v, costs %v(ms)", metricName, objName, finishCosts)
+	_ = r.emitter.StoreInt64(metricsNameStoreRemoteGetMetricFinishSendRequests, finishCosts, metrics.MetricTypeNameRaw, tags...)
 
 	if len(bodyList) < rCnt {
 		return nil, fmt.Errorf("failed to perform quorum read actual %v expect %v", len(bodyList), rCnt)
@@ -196,7 +218,7 @@ func (r *RemoteMemoryMetricStore) GetMetric(ctx context.Context, namespace, metr
 	}
 
 	res := data.PackInternalMetricList(internalLists...)
-	klog.V(4).Infof("successfully get with len %v", len(res))
+	klog.Infof("[remote-store] metric %v, obj %v, successfully get with len %v", metricName, objName, len(res))
 	return res, nil
 }
 
@@ -211,7 +233,7 @@ func (r *RemoteMemoryMetricStore) ListMetricMeta(ctx context.Context, withObject
 	rCnt, _ := r.sharding.GetRWCount()
 	klog.V(6).Infof("list with objects need to read %v among %v", rCnt, len(requests))
 
-	bodyList, err := r.sendRequests(ctx, requests, func(req *http.Request) {
+	bodyList, err := r.sendRequests(ctx, requests, rCnt, r.tags, func(req *http.Request) {
 		values := req.URL.Query()
 		if withObject {
 			values.Set(local.StoreListParamObjected, "true")
@@ -250,38 +272,71 @@ func (r *RemoteMemoryMetricStore) ListMetricMeta(ctx context.Context, withObject
 	return res, nil
 }
 
-func (r *RemoteMemoryMetricStore) sendRequests(ctx context.Context, reqs []*http.Request, wrapFunc func(req *http.Request)) ([]io.ReadCloser, error) {
+func (r *RemoteMemoryMetricStore) sendRequests(ctx context.Context, reqs []*http.Request, readyCnt int, tags []metrics.MetricTag,
+	wrapFunc func(req *http.Request)) ([]io.ReadCloser, error) {
 	var bodyList []io.ReadCloser
 	var lock sync.Mutex
+	var success = make(chan struct{}, len(reqs))
 
-	wg := sync.WaitGroup{}
+	newCtx, cancel := context.WithCancel(ctx)
 	for i := range reqs {
-
-		wg.Add(1)
 		req := reqs[i]
 
 		go func() {
-			lock.Lock()
-			defer lock.Unlock()
-			defer wg.Done()
-
-			body, err := r.sendRequest(ctx, req, wrapFunc)
+			body, err := r.sendRequest(newCtx, req, tags, wrapFunc)
 			if err != nil {
-				klog.Errorf("failed to send request for %+v: %v", req.URL, err)
+				klog.V(4).ErrorS(err, "failed to send request", "url", req.URL)
 				return
 			}
 
+			lock.Lock()
 			bodyList = append(bodyList, body)
+			lock.Unlock()
+			success <- struct{}{}
 		}()
 	}
-	wg.Wait()
 
+	tick := time.NewTicker(sendRequestTimeout)
+	start := time.Now()
+	for {
+		select {
+		case <-tick.C:
+			klog.Errorf("requests are timeout, cancel all requests")
+			break
+		case <-success:
+			break
+		}
+
+		lock.Lock()
+		if len(bodyList) >= readyCnt || start.Add(sendRequestTimeout).Before(time.Now()) {
+			klog.Infof("break sending requests cause it reaches limits, ready %v, body %v", len(reqs), len(bodyList))
+			lock.Unlock()
+			break
+		}
+		lock.Unlock()
+	}
+	// always try to cancel all requests before quiting
+	cancel()
+
+	lock.Lock()
+	defer lock.Unlock()
+	if len(bodyList) < readyCnt {
+		return nil, fmt.Errorf("timeout to get more than %v valid responses", readyCnt)
+	}
 	return bodyList, nil
 }
 
 // sendRequest works as a uniformed function to construct http requests, as
 // well as send this requests to the server side.
-func (r *RemoteMemoryMetricStore) sendRequest(ctx context.Context, req *http.Request, wrapFunc func(req *http.Request)) (io.ReadCloser, error) {
+func (r *RemoteMemoryMetricStore) sendRequest(ctx context.Context, req *http.Request, tags []metrics.MetricTag,
+	wrapFunc func(req *http.Request)) (io.ReadCloser, error) {
+	start := time.Now()
+	defer func() {
+		finishCosts := time.Now().Sub(start).Microseconds()
+		klog.Infof("[remote-store] send-request: url %+v, costs %v(ms)", req.URL, finishCosts)
+		_ = r.emitter.StoreInt64(metricsNameStoreRemoteMetricSendRequest, finishCosts, metrics.MetricTypeNameRaw, tags...)
+	}()
+
 	wrapFunc(req)
 
 	klog.V(6).Infof("sendRequest %v", req.URL)
@@ -305,4 +360,18 @@ func (r *RemoteMemoryMetricStore) sendRequest(ctx context.Context, req *http.Req
 	}
 
 	return resp.Body, nil
+}
+
+// generateMetricsTags returns tags for the corresponding requests
+func (r *RemoteMemoryMetricStore) generateMetricsTags(metricName, objName string) []metrics.MetricTag {
+	if metricName == "" {
+		metricName = "empty"
+	}
+	if objName == "" {
+		objName = "empty"
+	}
+	return append(r.tags,
+		metrics.MetricTag{Key: "metric_name", Val: metricName},
+		metrics.MetricTag{Key: "object_name", Val: objName},
+	)
 }
