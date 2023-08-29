@@ -221,7 +221,8 @@ func (l *LocalMemoryMetricStore) handleMetricGet(w http.ResponseWriter, r *http.
 
 	writeRespFinished := time.Now()
 
-	klog.Infof("get cost read: %v, json: %v, resp: %v, total %v; len %v",
+	klog.Infof("get metric %v, obj %v, cost read: %v, json: %v, resp: %v, total %v; len %v",
+		metricName, objName,
 		readFinished.Sub(start),
 		jsonMarshalFinished.Sub(readFinished),
 		writeRespFinished.Sub(jsonMarshalFinished),

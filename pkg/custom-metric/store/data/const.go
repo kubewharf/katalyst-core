@@ -31,37 +31,13 @@ type CustomMetricLabelKey string
 // CustomMetricLabelKeyObjectName defines the name of kubernetes objects;
 // CustomMetricLabelKeyTimestamp defines the timestamp of this metric;
 // CustomMetricLabelSelectorPrefixKey nominates those labels that should be used as selector;
-// CustomMetricLabelAggregatePrefixKey means that we should do aggregations for metric with the same labels;
 const (
-	CustomMetricLabelKeyNamespace       CustomMetricLabelKey = "namespace"
-	CustomMetricLabelKeyObject          CustomMetricLabelKey = "object"
-	CustomMetricLabelKeyObjectName      CustomMetricLabelKey = "object_name"
-	CustomMetricLabelKeyTimestamp       CustomMetricLabelKey = "timestamp"
-	CustomMetricLabelSelectorPrefixKey  CustomMetricLabelKey = "selector_"
-	CustomMetricLabelAggregatePrefixKey CustomMetricLabelKey = "agg_"
+	CustomMetricLabelKeyNamespace      CustomMetricLabelKey = "namespace"
+	CustomMetricLabelKeyObject         CustomMetricLabelKey = "object"
+	CustomMetricLabelKeyObjectName     CustomMetricLabelKey = "object_name"
+	CustomMetricLabelKeyTimestamp      CustomMetricLabelKey = "timestamp"
+	CustomMetricLabelSelectorPrefixKey CustomMetricLabelKey = "selector_"
 )
-
-type CustomMetricLabelAggregateFunc string
-
-const (
-	CustomMetricLabelAggregateFuncMax CustomMetricLabelAggregateFunc = "max"
-	CustomMetricLabelAggregateFuncMin CustomMetricLabelAggregateFunc = "min"
-	CustomMetricLabelAggregateFuncP99 CustomMetricLabelAggregateFunc = "p99"
-	CustomMetricLabelAggregateFuncP90 CustomMetricLabelAggregateFunc = "p90"
-	CustomMetricLabelAggregateFuncP50 CustomMetricLabelAggregateFunc = "p50"
-	CustomMetricLabelAggregateFuncAvg CustomMetricLabelAggregateFunc = "avg"
-	CustomMetricLabelAggregateFuncSum CustomMetricLabelAggregateFunc = "sum"
-)
-
-var ValidCustomMetricLabelAggregateFuncMap = map[CustomMetricLabelAggregateFunc]interface{}{
-	CustomMetricLabelAggregateFuncMax: struct{}{},
-	CustomMetricLabelAggregateFuncMin: struct{}{},
-	CustomMetricLabelAggregateFuncP99: struct{}{},
-	CustomMetricLabelAggregateFuncP90: struct{}{},
-	CustomMetricLabelAggregateFuncP50: struct{}{},
-	CustomMetricLabelAggregateFuncAvg: struct{}{},
-	CustomMetricLabelAggregateFuncSum: struct{}{},
-}
 
 // SupportedMetricObject defines those kubernetes objects/CRDs that are supported,
 // the mapped values indicate the GVR for the corresponding objects/CRDs

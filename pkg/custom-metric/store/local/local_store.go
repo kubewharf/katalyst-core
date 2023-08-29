@@ -116,7 +116,7 @@ func (l *LocalMemoryMetricStore) InsertMetric(seriesList []*data.MetricSeries) e
 	// todo: handle aggregate functions in the future if needed
 	for _, series := range seriesList {
 		begin := time.Now()
-		internalData, _ := l.parseMetricSeries(series)
+		internalData := l.parseMetricSeries(series)
 
 		l.cache.Add(internalData)
 		klog.V(6).Infof("insert with %v, costs %s", internalData.String(), time.Since(begin).String())
@@ -205,14 +205,11 @@ func (l *LocalMemoryMetricStore) monitor() {
 }
 
 // parseMetricSeries parses the given data.MetricSeries into internalMetric
-func (l *LocalMemoryMetricStore) parseMetricSeries(series *data.MetricSeries) (*data.InternalMetric,
-	[]data.CustomMetricLabelAggregateFunc) {
+func (l *LocalMemoryMetricStore) parseMetricSeries(series *data.MetricSeries) *data.InternalMetric {
 	// skip already out-of-dated metric contents
 	expiredTime := time.Now().Add(-1 * l.genericConf.OutOfDataPeriod).UnixMilli()
 
 	res := data.NewInternalMetric(series.Name)
-	var aggList []data.CustomMetricLabelAggregateFunc
-
 	for key, value := range series.Labels {
 		switch data.CustomMetricLabelKey(key) {
 		case data.CustomMetricLabelKeyNamespace:
@@ -225,25 +222,18 @@ func (l *LocalMemoryMetricStore) parseMetricSeries(series *data.MetricSeries) (*
 			if strings.HasPrefix(key, fmt.Sprintf("%v", data.CustomMetricLabelSelectorPrefixKey)) {
 				res.SetLabel(strings.TrimPrefix(key, fmt.Sprintf("%v", data.CustomMetricLabelSelectorPrefixKey)), value)
 			}
-
-			if strings.HasPrefix(key, fmt.Sprintf("%v", data.CustomMetricLabelAggregatePrefixKey)) {
-				agg := data.CustomMetricLabelAggregateFunc(strings.TrimPrefix(key, fmt.Sprintf("%v", data.CustomMetricLabelAggregatePrefixKey)))
-				if _, ok := data.ValidCustomMetricLabelAggregateFuncMap[agg]; ok {
-					aggList = append(aggList, agg)
-				}
-			}
 		}
 	}
 
 	if res.GetObjectKind() != "" {
 		if res.GetObjectName() == "" {
-			return &data.InternalMetric{}, aggList
+			return &data.InternalMetric{}
 		}
 
 		_, err := l.getObject(res.GetObjectKind(), res.GetObjectNamespace(), res.GetObjectName())
 		if err != nil {
 			klog.Errorf("invalid objects %v %v/%v: %v", res.GetObjectKind(), res.GetObjectNamespace(), res.GetObjectName(), err)
-			return &data.InternalMetric{}, aggList
+			return &data.InternalMetric{}
 		}
 	}
 
@@ -254,8 +244,7 @@ func (l *LocalMemoryMetricStore) parseMetricSeries(series *data.MetricSeries) (*
 
 		res.AppendMetric(data.NewInternalValue(m.Data, m.Timestamp))
 	}
-
-	return res, aggList
+	return res
 }
 
 // checkInternalMetricMatchedWithMetricInfo checks if the internal matches with metric info

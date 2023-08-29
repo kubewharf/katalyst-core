@@ -87,8 +87,8 @@ func NewMetricProviderImp(ctx context.Context, baseCtx *katalyst_base.GenericCon
 
 func (m *MetricProviderImp) GetMetricByName(ctx context.Context, namespacedName types.NamespacedName,
 	info provider.CustomMetricInfo, metricSelector labels.Selector) (*custom_metrics.MetricValue, error) {
-	klog.Infof("GetMetricByName: metric name %v, object %v, namespace %v, object name %v, metricSelector %v",
-		info.Metric, info.GroupResource, namespacedName.Namespace, namespacedName.Name, metricSelector)
+	klog.Infof("GetMetricByName: metric name %v, object %v, namespace %v, object name %v, metricSelector %v, context-test %v",
+		info.Metric, info.GroupResource, namespacedName.Namespace, namespacedName.Name, metricSelector, ctx.Value("context-test"))
 	var (
 		internalList []*data.InternalMetric
 		err          error
