@@ -42,8 +42,6 @@ import (
 
 const MetricStoreNameRemoteMemory = "remote-memory-store"
 
-const sendRequestTimeout = time.Minute * 10
-
 const (
 	metricsNameStoreRemoteGetMetricFinish             = "kcmas_store_get_finish"
 	metricsNameStoreRemoteGetMetricFinishSendRequests = "kcmas_store_get_requests"
@@ -275,53 +273,52 @@ func (r *RemoteMemoryMetricStore) ListMetricMeta(ctx context.Context, withObject
 func (r *RemoteMemoryMetricStore) sendRequests(ctx context.Context, reqs []*http.Request, readyCnt int, tags []metrics.MetricTag,
 	wrapFunc func(req *http.Request)) ([]io.ReadCloser, error) {
 	var bodyList []io.ReadCloser
-	var lock sync.Mutex
-	var success = make(chan struct{}, len(reqs))
 
+	// todo, currently we will not support any timeout configurations for http-requests
+	var failChan = make(chan string, len(reqs))
+	var successChan = make(chan io.ReadCloser, len(reqs))
+	wg := sync.WaitGroup{}
 	newCtx, cancel := context.WithCancel(ctx)
 	for i := range reqs {
+		wg.Add(1)
 		req := reqs[i]
 
 		go func() {
 			body, err := r.sendRequest(newCtx, req, tags, wrapFunc)
 			if err != nil {
-				klog.V(4).ErrorS(err, "failed to send request", "url", req.URL)
-				return
+				failChan <- req.URL.String()
+			} else {
+				successChan <- body
 			}
-
-			lock.Lock()
-			bodyList = append(bodyList, body)
-			lock.Unlock()
-			success <- struct{}{}
+			wg.Done()
 		}()
 	}
 
-	tick := time.NewTicker(sendRequestTimeout)
-	start := time.Now()
+	fail, success := 0, 0
 	for {
 		select {
-		case <-tick.C:
-			klog.Errorf("requests are timeout, cancel all requests")
-			break
-		case <-success:
-			break
+		case err := <-failChan:
+			fail++
+			klog.Errorf("failed to send request %v", err)
+		case readCloser := <-successChan:
+			success++
+			bodyList = append(bodyList, readCloser)
 		}
 
-		lock.Lock()
-		if len(bodyList) >= readyCnt || start.Add(sendRequestTimeout).Before(time.Now()) {
-			klog.Infof("break sending requests cause it reaches limits, ready %v, body %v", len(reqs), len(bodyList))
-			lock.Unlock()
+		if success >= readyCnt || success+fail >= len(reqs) {
+			// always try to cancel all requests before quiting
+			cancel()
+			klog.Infof("break sending requests, success %v, fail %v, total %v", success, fail, len(reqs))
 			break
 		}
-		lock.Unlock()
 	}
-	// always try to cancel all requests before quiting
-	cancel()
+	// wait for all goroutines to quit, and then close all channels to
+	wg.Wait()
+	close(failChan)
+	close(successChan)
 
-	lock.Lock()
-	defer lock.Unlock()
 	if len(bodyList) < readyCnt {
-		return nil, fmt.Errorf("timeout to get more than %v valid responses", readyCnt)
+		return nil, fmt.Errorf("failed to get more than %v valid responses", readyCnt)
 	}
 	return bodyList, nil
 }
