@@ -105,7 +105,9 @@ func (p *PolicyCanonical) estimateNonReclaimedQoSMemoryRequirement() (float64, e
 		return true
 	}
 	p.metaReader.RangeContainer(f)
-	general.Infof("memory requirement estimation: %.2e, #container %v", memoryEstimation, containerCnt)
+
+	general.InfoS("memoryEstimation details", "memory requirement estimation", general.FormatMemoryQuantity(memoryEstimation),
+		"#container", containerCnt)
 
 	return memoryEstimation, errors.NewAggregate(errList)
 }
@@ -142,8 +144,13 @@ func (p *PolicyCanonical) Update() (err error) {
 
 	p.memoryHeadroom = math.Max(memoryHeadroomWithoutBuffer+utilBasedBuffer, 0)
 	p.memoryHeadroom = math.Min(p.memoryHeadroom, maxAllocatableMemory)
-	general.Infof("without buffer memory headroom: %.2e, final memory headroom: %.2e, memory buffer: %.2e, max memory allocatable: %.2e",
-		memoryHeadroomWithoutBuffer, p.memoryHeadroom, utilBasedBuffer, maxAllocatableMemory)
+
+	general.InfoS("memory details",
+		"without buffer memory headroom", general.FormatMemoryQuantity(memoryHeadroomWithoutBuffer),
+		"final memory headroom", general.FormatMemoryQuantity(p.memoryHeadroom),
+		"memory buffer", general.FormatMemoryQuantity(utilBasedBuffer),
+		"max memory allocatable", general.FormatMemoryQuantity(maxAllocatableMemory),
+	)
 
 	return nil
 }
