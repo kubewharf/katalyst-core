@@ -30,9 +30,10 @@ type TopologyAwareAssignment map[int]machine.CPUSet
 type CPUProvisionPolicyName string
 
 const (
-	CPUProvisionPolicyNone      CPUProvisionPolicyName = "none"
-	CPUProvisionPolicyCanonical CPUProvisionPolicyName = "canonical"
-	CPUProvisionPolicyRama      CPUProvisionPolicyName = "rama"
+	CPUProvisionPolicyNone       CPUProvisionPolicyName = "none"
+	CPUProvisionPolicyNonReclaim CPUProvisionPolicyName = "non-reclaim"
+	CPUProvisionPolicyCanonical  CPUProvisionPolicyName = "canonical"
+	CPUProvisionPolicyRama       CPUProvisionPolicyName = "rama"
 )
 
 // CPUHeadroomPolicyName defines policy names for cpu advisor headroom estimation
@@ -40,8 +41,9 @@ type CPUHeadroomPolicyName string
 
 const (
 	CPUHeadroomPolicyNone          CPUHeadroomPolicyName = "none"
+	CPUHeadroomPolicyNonReclaim    CPUHeadroomPolicyName = "non-reclaim"
 	CPUHeadroomPolicyCanonical     CPUHeadroomPolicyName = "canonical"
-	CPUHeadroomPolicyNUMAExclusive CPUHeadroomPolicyName = "numa_exclusive"
+	CPUHeadroomPolicyNUMAExclusive CPUHeadroomPolicyName = "numa-exclusive"
 )
 
 // CPUProvisionAssemblerName defines assemblers for cpu advisor to generate node
