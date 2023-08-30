@@ -274,7 +274,12 @@ func (r *QoSRegionBase) GetProvisionPolicy() (policyTopPriority types.CPUProvisi
 	if len(r.provisionPolicies) > 0 {
 		policyTopPriority = r.provisionPolicies[0].name
 	}
-	policyInUse = r.provisionPolicyNameInUse
+
+	if !r.EnableReclaim {
+		policyInUse = types.CPUProvisionPolicyNonReclaim
+	} else {
+		policyInUse = r.provisionPolicyNameInUse
+	}
 
 	return
 }
@@ -287,16 +292,27 @@ func (r *QoSRegionBase) GetHeadRoomPolicy() (policyTopPriority types.CPUHeadroom
 	if len(r.headroomPolicies) > 0 {
 		policyTopPriority = r.headroomPolicies[0].name
 	}
-	policyInUse = r.headroomPolicyNameInUse
+
+	if !r.EnableReclaim {
+		policyInUse = types.CPUHeadroomPolicyNonReclaim
+	} else {
+		policyInUse = r.headroomPolicyNameInUse
+	}
 
 	return
 }
 
 func (r *QoSRegionBase) GetStatus() types.RegionStatus {
+	r.Lock()
+	defer r.Unlock()
+
 	return r.regionStatus
 }
 
 func (r *QoSRegionBase) GetControlEssentials() types.ControlEssentials {
+	r.Lock()
+	defer r.Unlock()
+
 	return r.ControlEssentials
 }
 

@@ -17,6 +17,7 @@ limitations under the License.
 package region
 
 import (
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
@@ -81,6 +82,7 @@ func GetRegionBasicMetricTags(r QoSRegion) []metrics.MetricTag {
 		{Key: "region_name", Val: r.Name()},
 		{Key: "region_type", Val: string(r.Type())},
 		{Key: "owner_pool_name", Val: r.OwnerPoolName()},
+		{Key: "pool_type", Val: state.GetPoolType(r.OwnerPoolName())},
 		{Key: "binding_numas", Val: r.GetBindingNumas().String()},
 		{Key: "provision_policy_prior", Val: string(provisionPolicyPrior)},
 		{Key: "provision_policy_in_use", Val: string(provisionPolicyInUse)},

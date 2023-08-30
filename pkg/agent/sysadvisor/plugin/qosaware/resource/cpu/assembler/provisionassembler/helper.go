@@ -39,15 +39,15 @@ func regulatePoolSizes(poolSizes map[string]int, available int, enableReclaim bo
 	targetSum := general.SumUpMapValues(poolSizes)
 	boundUpper := false
 
-	// use all available resource for pools when reclaim is disabled
-	if !enableReclaim || targetSum > available {
-		targetSum = available
+	// set bound upper if reaching max available resource
+	if targetSum >= available {
+		boundUpper = true
 	}
 
-	// use all available resource when reaching resource upper bound
-	if targetSum > available {
+	// use all available resource for pools when reclaim is disabled
+	// or reaching max available resource
+	if !enableReclaim || targetSum > available {
 		targetSum = available
-		boundUpper = true
 	}
 
 	if err := normalizePoolSizes(poolSizes, targetSum); err != nil {
