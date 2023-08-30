@@ -40,6 +40,7 @@ import (
 
 	apis "github.com/kubewharf/katalyst-api/pkg/apis/autoscaling/v1alpha1"
 	"github.com/kubewharf/katalyst-api/pkg/apis/config/v1alpha1"
+	overcommitapis "github.com/kubewharf/katalyst-api/pkg/apis/overcommit/v1alpha1"
 	workloadapis "github.com/kubewharf/katalyst-api/pkg/apis/workload/v1alpha1"
 	externalfake "github.com/kubewharf/katalyst-api/pkg/client/clientset/versioned/fake"
 	"github.com/kubewharf/katalyst-core/pkg/client"
@@ -235,6 +236,7 @@ func GenerateFakeGenericContext(objects ...[]runtime.Object) (*GenericContext, e
 	utilruntime.Must(apis.AddToScheme(scheme))
 	utilruntime.Must(workloadapis.AddToScheme(scheme))
 	utilruntime.Must(v1alpha1.AddToScheme(scheme))
+	utilruntime.Must(overcommitapis.AddToScheme(scheme))
 
 	fakeMetaClient := metaFake.NewSimpleMetadataClient(scheme, nilObjectFilter(metaObjects)...)
 	fakeInternalClient := externalfake.NewSimpleClientset(nilObjectFilter(internalObjects)...)
