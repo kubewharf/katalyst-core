@@ -47,6 +47,7 @@ type ControllersConfiguration struct {
 	*SPDConfig
 	*LifeCycleConfig
 	*MonitorConfig
+	*OvercommitConfig
 }
 
 func NewGenericControllerConfiguration() *GenericControllerConfiguration {
@@ -55,10 +56,11 @@ func NewGenericControllerConfiguration() *GenericControllerConfiguration {
 
 func NewControllersConfiguration() *ControllersConfiguration {
 	return &ControllersConfiguration{
-		VPAConfig:       NewVPAConfig(),
-		KCCConfig:       NewKCCConfig(),
-		SPDConfig:       NewSPDConfig(),
-		LifeCycleConfig: NewLifeCycleConfig(),
-		MonitorConfig:   NewMonitorConfig(),
+		VPAConfig:        NewVPAConfig(),
+		KCCConfig:        NewKCCConfig(),
+		SPDConfig:        NewSPDConfig(),
+		LifeCycleConfig:  NewLifeCycleConfig(),
+		MonitorConfig:    NewMonitorConfig(),
+		OvercommitConfig: NewOvercommitConfig(),
 	}
 }
