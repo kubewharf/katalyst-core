@@ -43,10 +43,12 @@ import (
 const MetricStoreNameRemoteMemory = "remote-memory-store"
 
 const (
-	metricsNameStoreRemoteGetMetricFinish             = "kcmas_store_get_finish"
-	metricsNameStoreRemoteGetMetricFinishSendRequests = "kcmas_store_get_requests"
+	metricsNameStoreRemoteGetCostFinish       = "kcmas_get_finish"
+	metricsNameStoreRemoteGetCostSendRequests = "kcmas_get_requests"
+	metricsNameStoreRemoteGetMetricCount      = "kcmas_get_metric_count"
+	metricsNameStoreRemoteGetItemCount        = "kcmas_get_item_count"
 
-	metricsNameStoreRemoteMetricSendRequest = "kcmas_store_send_request"
+	metricsNameStoreRemoteSendRequest = "kcmas_send_request"
 )
 
 // RemoteMemoryMetricStore implements MetricStore with multiple-nodes versioned
@@ -117,25 +119,31 @@ func (r *RemoteMemoryMetricStore) InsertMetric(seriesList []*data.MetricSeries) 
 	_, wCnt := r.sharding.GetRWCount()
 	klog.V(4).Infof("insert need to write %v among %v", wCnt, len(requests))
 
+	success := 0
+	var responseLock sync.Mutex
 	// insert will always try to write into all store instances instead of write-counts
-	bodyList, err := r.sendRequests(context.Background(), requests, len(requests), r.tags, func(req *http.Request) {
-		req.Body = ioutil.NopCloser(bytes.NewReader(contents))
-	})
+	err = r.sendRequests(context.Background(), requests, len(requests), r.tags,
+		func(req *http.Request) {
+			req.Body = ioutil.NopCloser(bytes.NewReader(contents))
+		},
+		func(_ io.ReadCloser) error {
+			responseLock.Lock()
+			success++
+			responseLock.Unlock()
+			return nil
+		},
+	)
 	if err != nil {
 		return err
 	}
 
 	defer func() {
-		for _, body := range bodyList {
-			_ = body.Close()
-		}
-
 		finished := time.Now()
 		klog.V(6).Infof("insert cost %v", finished.Sub(start))
 	}()
 
-	if len(bodyList) < wCnt {
-		return fmt.Errorf("failed to perform quorum write actual %v expect %v", len(bodyList), wCnt)
+	if success < wCnt {
+		return fmt.Errorf("failed to perform quorum write actual %v expect %v", success, wCnt)
 	}
 
 	klog.V(4).Infof("successfully set with len %v", len(seriesList))
@@ -155,68 +163,73 @@ func (r *RemoteMemoryMetricStore) GetMetric(ctx context.Context, namespace, metr
 	rCnt, _ := r.sharding.GetRWCount()
 	klog.Infof("[remote-store] metric %v, obj %v, get need to read %v among %v", metricName, objName, rCnt, len(requests))
 
-	bodyList, err := r.sendRequests(ctx, requests, rCnt, tags, func(req *http.Request) {
-		values := req.URL.Query()
-		if len(namespace) > 0 {
-			values.Set(local.StoreGETParamNamespace, namespace)
-		}
-		if len(metricName) > 0 {
-			values.Set(local.StoreGETParamMetricName, metricName)
-		}
-		if metricSelector != nil && metricSelector.String() != "" {
-			values.Set(local.StoreGETParamMetricSelector, metricSelector.String())
-		}
-		if gr != nil {
-			values.Set(local.StoreGETParamObjectGR, gr.String())
-		}
-		if len(objName) > 0 {
-			values.Set(local.StoreGETParamObjectName, objName)
-		}
-		if objSelector != nil && objSelector.String() != "" {
-			values.Set(local.StoreGETParamMObjectSelector, objSelector.String())
-		}
-		if limited > 0 {
-			values.Set(local.StoreGETParamLimited, fmt.Sprintf("%d", limited))
-		}
+	var responseLock sync.Mutex
+	var internalLists [][]*data.InternalMetric
+	err = r.sendRequests(ctx, requests, rCnt, tags,
+		func(req *http.Request) {
+			values := req.URL.Query()
+			if len(namespace) > 0 {
+				values.Set(local.StoreGETParamNamespace, namespace)
+			}
+			if len(metricName) > 0 {
+				values.Set(local.StoreGETParamMetricName, metricName)
+			}
+			if metricSelector != nil && metricSelector.String() != "" {
+				values.Set(local.StoreGETParamMetricSelector, metricSelector.String())
+			}
+			if gr != nil {
+				values.Set(local.StoreGETParamObjectGR, gr.String())
+			}
+			if len(objName) > 0 {
+				values.Set(local.StoreGETParamObjectName, objName)
+			}
+			if objSelector != nil && objSelector.String() != "" {
+				values.Set(local.StoreGETParamMObjectSelector, objSelector.String())
+			}
+			if limited > 0 {
+				values.Set(local.StoreGETParamLimited, fmt.Sprintf("%d", limited))
+			}
 
-		req.URL.RawQuery = values.Encode()
-	})
+			req.URL.RawQuery = values.Encode()
+		},
+		func(body io.ReadCloser) error {
+			var internalList []*data.InternalMetric
+			if err := json.NewDecoder(body).Decode(&internalList); err != nil {
+				return fmt.Errorf("decode err: %v", err)
+			}
+			responseLock.Lock()
+			internalLists = append(internalLists, internalList)
+			responseLock.Unlock()
+			return nil
+		},
+	)
 	if err != nil {
 		return nil, err
 	}
 
 	defer func() {
-		for _, body := range bodyList {
-			_ = body.Close()
-		}
-
 		finishCosts := time.Now().Sub(start).Microseconds()
-		klog.Infof("[remote-store] get-finish: metric %v, obj %v, costs %v(ms), resultCount %v", metricName, objName, finishCosts, len(bodyList))
-		_ = r.emitter.StoreInt64(metricsNameStoreRemoteGetMetricFinish, finishCosts, metrics.MetricTypeNameRaw, append(tags,
-			metrics.MetricTag{Key: "count", Val: fmt.Sprintf("%v", len(bodyList))})...)
-
+		klog.Infof("[remote-store] get-finish: metric %v, obj %v, costs %v(ms), resultCount %v", metricName, objName, finishCosts, len(internalLists))
+		_ = r.emitter.StoreInt64(metricsNameStoreRemoteGetCostFinish, finishCosts, metrics.MetricTypeNameRaw, append(tags,
+			metrics.MetricTag{Key: "count", Val: fmt.Sprintf("%v", len(internalLists))})...)
 	}()
 
 	finishCosts := time.Now().Sub(start).Microseconds()
 	klog.Infof("[remote-store] get-requests: metric %v, obj %v, costs %v(ms)", metricName, objName, finishCosts)
-	_ = r.emitter.StoreInt64(metricsNameStoreRemoteGetMetricFinishSendRequests, finishCosts, metrics.MetricTypeNameRaw, tags...)
+	_ = r.emitter.StoreInt64(metricsNameStoreRemoteGetCostSendRequests, finishCosts, metrics.MetricTypeNameRaw, tags...)
 
-	if len(bodyList) < rCnt {
-		return nil, fmt.Errorf("failed to perform quorum read actual %v expect %v", len(bodyList), rCnt)
-	}
-
-	var internalLists [][]*data.InternalMetric
-	for _, body := range bodyList[0:rCnt] {
-		var internalList []*data.InternalMetric
-		if err := json.NewDecoder(body).Decode(&internalList); err != nil {
-			return nil, fmt.Errorf("decode response err: %v", err)
-		}
-
-		internalLists = append(internalLists, internalList)
+	if len(internalLists) < rCnt {
+		return nil, fmt.Errorf("failed to perform quorum read actual %v expect %v", len(internalLists), rCnt)
 	}
 
 	res := data.PackInternalMetricList(internalLists...)
+	itemLen := int64(0)
+	for _, r := range res {
+		itemLen += int64(r.Len())
+	}
 	klog.Infof("[remote-store] metric %v, obj %v, successfully get with len %v", metricName, objName, len(res))
+	_ = r.emitter.StoreInt64(metricsNameStoreRemoteGetMetricCount, int64(len(res)), metrics.MetricTypeNameRaw, tags...)
+	_ = r.emitter.StoreInt64(metricsNameStoreRemoteGetItemCount, itemLen, metrics.MetricTypeNameRaw, tags...)
 	return res, nil
 }
 
@@ -231,38 +244,38 @@ func (r *RemoteMemoryMetricStore) ListMetricMeta(ctx context.Context, withObject
 	rCnt, _ := r.sharding.GetRWCount()
 	klog.V(6).Infof("list with objects need to read %v among %v", rCnt, len(requests))
 
-	bodyList, err := r.sendRequests(ctx, requests, rCnt, r.tags, func(req *http.Request) {
-		values := req.URL.Query()
-		if withObject {
-			values.Set(local.StoreListParamObjected, "true")
-		}
-		req.URL.RawQuery = values.Encode()
-	})
+	var responseLock sync.Mutex
+	var metricMetaLists [][]data.MetricMeta
+	err = r.sendRequests(ctx, requests, rCnt, r.tags,
+		func(req *http.Request) {
+			values := req.URL.Query()
+			if withObject {
+				values.Set(local.StoreListParamObjected, "true")
+			}
+			req.URL.RawQuery = values.Encode()
+		},
+		func(body io.ReadCloser) error {
+			var metricMetaList []data.MetricMeta
+			if err := json.NewDecoder(body).Decode(&metricMetaList); err != nil {
+				return fmt.Errorf("decode response err: %v", err)
+			}
+			responseLock.Lock()
+			metricMetaLists = append(metricMetaLists, metricMetaList)
+			responseLock.Unlock()
+			return nil
+		},
+	)
 	if err != nil {
 		return nil, err
 	}
 
 	defer func() {
-		for _, body := range bodyList {
-			_ = body.Close()
-		}
-
 		finished := time.Now()
 		klog.V(6).Infof("list with objects cost %v", finished.Sub(start))
 	}()
 
-	if len(bodyList) < rCnt {
-		return nil, fmt.Errorf("failed to perform quorum read actual %v expect %v", len(bodyList), rCnt)
-	}
-
-	var metricMetaLists [][]data.MetricMeta
-	for _, body := range bodyList[0:rCnt] {
-		var metricMetaList []data.MetricMeta
-		if err := json.NewDecoder(body).Decode(&metricMetaList); err != nil {
-			return nil, fmt.Errorf("decode response err: %v", err)
-		}
-
-		metricMetaLists = append(metricMetaLists, metricMetaList)
+	if len(metricMetaLists) < rCnt {
+		return nil, fmt.Errorf("failed to perform quorum read actual %v expect %v", len(metricMetaLists), rCnt)
 	}
 
 	res := data.PackMetricMetaList(metricMetaLists...)
@@ -270,13 +283,12 @@ func (r *RemoteMemoryMetricStore) ListMetricMeta(ctx context.Context, withObject
 	return res, nil
 }
 
+// todo, currently we will not support any timeout configurations for http-requests
 func (r *RemoteMemoryMetricStore) sendRequests(ctx context.Context, reqs []*http.Request, readyCnt int, tags []metrics.MetricTag,
-	wrapFunc func(req *http.Request)) ([]io.ReadCloser, error) {
-	var bodyList []io.ReadCloser
+	requestWrapF func(req *http.Request), responseWrapF func(body io.ReadCloser) error) error {
+	var failChan = make(chan error, len(reqs))
+	var successChan = make(chan struct{}, len(reqs))
 
-	// todo, currently we will not support any timeout configurations for http-requests
-	var failChan = make(chan string, len(reqs))
-	var successChan = make(chan io.ReadCloser, len(reqs))
 	wg := sync.WaitGroup{}
 	newCtx, cancel := context.WithCancel(ctx)
 	for i := range reqs {
@@ -284,11 +296,11 @@ func (r *RemoteMemoryMetricStore) sendRequests(ctx context.Context, reqs []*http
 		req := reqs[i]
 
 		go func() {
-			body, err := r.sendRequest(newCtx, req, tags, wrapFunc)
+			err := r.sendRequest(newCtx, req, tags, requestWrapF, responseWrapF)
 			if err != nil {
-				failChan <- req.URL.String()
+				failChan <- fmt.Errorf("%v send request err: %v", req.URL.String(), err)
 			} else {
-				successChan <- body
+				successChan <- struct{}{}
 			}
 			wg.Done()
 		}()
@@ -300,9 +312,8 @@ func (r *RemoteMemoryMetricStore) sendRequests(ctx context.Context, reqs []*http
 		case err := <-failChan:
 			fail++
 			klog.Errorf("failed to send request %v", err)
-		case readCloser := <-successChan:
+		case <-successChan:
 			success++
-			bodyList = append(bodyList, readCloser)
 		}
 
 		if success >= readyCnt || success+fail >= len(reqs) {
@@ -317,35 +328,35 @@ func (r *RemoteMemoryMetricStore) sendRequests(ctx context.Context, reqs []*http
 	close(failChan)
 	close(successChan)
 
-	if len(bodyList) < readyCnt {
-		return nil, fmt.Errorf("failed to get more than %v valid responses", readyCnt)
+	if success < readyCnt {
+		return fmt.Errorf("failed to get more than %v valid responses", readyCnt)
 	}
-	return bodyList, nil
+	return nil
 }
 
 // sendRequest works as a uniformed function to construct http requests, as
 // well as send this requests to the server side.
 func (r *RemoteMemoryMetricStore) sendRequest(ctx context.Context, req *http.Request, tags []metrics.MetricTag,
-	wrapFunc func(req *http.Request)) (io.ReadCloser, error) {
+	requestWrapFunc func(req *http.Request), responseWrapF func(body io.ReadCloser) error) error {
 	start := time.Now()
 	defer func() {
 		finishCosts := time.Now().Sub(start).Microseconds()
 		klog.Infof("[remote-store] send-request: url %+v, costs %v(ms)", req.URL, finishCosts)
-		_ = r.emitter.StoreInt64(metricsNameStoreRemoteMetricSendRequest, finishCosts, metrics.MetricTypeNameRaw, tags...)
+		_ = r.emitter.StoreInt64(metricsNameStoreRemoteSendRequest, finishCosts, metrics.MetricTypeNameRaw, tags...)
 	}()
 
-	wrapFunc(req)
+	requestWrapFunc(req)
 
 	klog.V(6).Infof("sendRequest %v", req.URL)
 	resp, err := r.client.Do(req.WithContext(ctx))
 	if err != nil {
-		return nil, fmt.Errorf("send http requests err: %v", err)
+		return fmt.Errorf("send http requests err: %v", err)
 	}
 
 	if resp == nil {
-		return nil, fmt.Errorf("response err: %v", "respnsonse nil")
+		return fmt.Errorf("response err: %v", "respnsonse nil")
 	} else if resp.Body == nil {
-		return nil, fmt.Errorf("response err: %v", "body is nil")
+		return fmt.Errorf("response err: %v", "body is nil")
 	} else if resp.StatusCode != http.StatusOK {
 		defer func() {
 			_ = resp.Body.Close()
@@ -353,10 +364,16 @@ func (r *RemoteMemoryMetricStore) sendRequest(ctx context.Context, req *http.Req
 
 		buf := bytes.NewBuffer([]byte{})
 		_, _ = io.Copy(buf, resp.Body)
-		return nil, fmt.Errorf("response err: status code %v, body: %v", resp.StatusCode, buf.String())
+		return fmt.Errorf("response err: status code %v, body: %v", resp.StatusCode, buf.String())
 	}
 
-	return resp.Body, nil
+	defer func() {
+		_ = resp.Body.Close()
+	}()
+	if err := responseWrapF(resp.Body); err != nil {
+		return fmt.Errorf("failed to handle response %v", err)
+	}
+	return nil
 }
 
 // generateMetricsTags returns tags for the corresponding requests
