@@ -33,6 +33,9 @@ const (
 
 	// referenceFallback indicates using pod estimation fallback value
 	metricFallback string = "fallback"
+
+	// metricRaw indicates using pod metrics value
+	metricRaw string = "raw metrics"
 )
 
 const (
@@ -136,7 +139,7 @@ func EstimateContainerMemoryUsage(ci *types.ContainerInfo, metaReader metacache.
 
 	var (
 		estimation            float64 = 0
-		reference             string
+		reference                     = metricRaw
 		metricsToGather       []string
 		estimationBufferRatio float64
 	)
@@ -155,7 +158,8 @@ func EstimateContainerMemoryUsage(ci *types.ContainerInfo, metaReader metacache.
 	if reclaimEnable {
 		for _, metricName := range metricsToGather {
 			metricValue, err := metaReader.GetContainerMetric(ci.PodUID, ci.ContainerName, metricName)
-			general.Infof("pod %v container %v metric %v value %v, err %v", ci.PodName, ci.ContainerName, metricName, metricValue, err)
+			general.InfoS("container metric", "podName", ci.PodName, "containerName", ci.ContainerName,
+				"metricName", metricName, "metricValue", general.FormatMemoryQuantity(metricValue.Value), "err", err)
 			if err != nil || metricValue.Value <= 0 {
 				continue
 			}
@@ -167,16 +171,17 @@ func EstimateContainerMemoryUsage(ci *types.ContainerInfo, metaReader metacache.
 		}
 	} else {
 		estimation = ci.MemoryRequest
-		general.Infof("pod %v container %v metric %v value %v", ci.PodName, ci.ContainerName, metricRequest, estimation)
+		reference = metricRequest
 	}
 
 	if estimation <= 0 {
 		estimation = estimationMemoryFallbackValue
 		reference = metricFallback
-		general.Infof("pod %v container %v metric %v value %v", ci.PodName, ci.ContainerName, metricFallback, estimationMemoryFallbackValue)
 	}
 
-	general.Infof("pod %v container %v estimation %.2f reference %v", ci.PodName, ci.ContainerName, estimation, reference)
+	general.InfoS("container memory estimation", "podName", ci.PodName, "containerName", ci.ContainerName,
+		"reference", reference, "value", general.FormatMemoryQuantity(estimation))
+
 	return estimation, nil
 }
 
