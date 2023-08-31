@@ -41,6 +41,7 @@ func TestCustomNodeConfigController_Run(t *testing.T) {
 	type args struct {
 		cncAndKCCList []runtime.Object
 		kccTargetList []runtime.Object
+		updateFunc    func(ctx context.Context, genericContext *katalyst_base.GenericContext, cncAndKCCList, kccTargetList []runtime.Object)
 		kccConfig     *config.Configuration
 	}
 	tests := []struct {
@@ -95,6 +96,20 @@ func TestCustomNodeConfigController_Run(t *testing.T) {
 						},
 					},
 				},
+				updateFunc: func(ctx context.Context, genericContext *katalyst_base.GenericContext, cncAndKCCList, kccTargetList []runtime.Object) {
+					for _, obj := range cncAndKCCList {
+						if cnc, ok := obj.(*v1alpha1.CustomNodeConfig); ok {
+							nodeConfig, err := genericContext.Client.InternalClient.ConfigV1alpha1().CustomNodeConfigs().Get(ctx, cnc.Name, v1.GetOptions{ResourceVersion: "0"})
+							assert.NoError(t, err)
+							nodeConfig.Labels = map[string]string{
+								"aa": "bb",
+							}
+
+							_, err = genericContext.Client.InternalClient.ConfigV1alpha1().CustomNodeConfigs().Update(ctx, nodeConfig, v1.UpdateOptions{})
+							assert.NoError(t, err)
+						}
+					}
+				},
 			},
 		},
 	}
@@ -129,6 +144,9 @@ func TestCustomNodeConfigController_Run(t *testing.T) {
 			go cnc.Run()
 
 			cache.WaitForCacheSync(cnc.ctx.Done(), cnc.syncedFunc...)
+			time.Sleep(1 * time.Second)
+
+			tt.args.updateFunc(ctx, genericContext, tt.args.cncAndKCCList, tt.args.kccTargetList)
 			time.Sleep(1 * time.Second)
 		})
 	}

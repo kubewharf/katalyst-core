@@ -248,7 +248,7 @@ func (cl *CNRLifecycle) sync(key string) error {
 	}
 	node, err := cl.nodeLister.Get(name)
 	if errors.IsNotFound(err) {
-		klog.Info("node has been deleted %v", key)
+		klog.Infof("node has been deleted %v", key)
 		return nil
 	}
 	if err != nil {

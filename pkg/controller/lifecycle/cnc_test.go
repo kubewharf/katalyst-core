@@ -137,6 +137,10 @@ func TestCNCLifecycle_Run(t *testing.T) {
 			)
 			assert.NoError(t, err)
 
+			// test cache not synced
+			err = cl.sync(tt.fields.node.Name)
+			assert.NoError(t, err)
+
 			genericCtx.KubeInformerFactory.Start(cl.ctx.Done())
 			genericCtx.InternalInformerFactory.Start(cl.ctx.Done())
 			go cl.Run()
@@ -156,6 +160,85 @@ func TestCNCLifecycle_Run(t *testing.T) {
 			gotCNC, err = cl.cncLister.Get(tt.fields.node.Name)
 			assert.NoError(t, err)
 			assert.Equal(t, tt.wantCNC, gotCNC)
+		})
+	}
+}
+
+func TestCNCLifecycle_updateOrCreateCNC(t *testing.T) {
+	t.Parallel()
+
+	type fields struct {
+		node *corev1.Node
+		cnc  *configapis.CustomNodeConfig
+	}
+	tests := []struct {
+		name    string
+		fields  fields
+		wantCNC *configapis.CustomNodeConfig
+	}{
+		{
+			name: "test-update",
+			fields: fields{
+				node: &corev1.Node{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "node1",
+						Labels: map[string]string{
+							"test": "test-1",
+						},
+					},
+				},
+				cnc: &configapis.CustomNodeConfig{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "node1",
+						Labels: map[string]string{
+							"test": "test",
+						},
+					},
+				},
+			},
+			wantCNC: &configapis.CustomNodeConfig{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "node1",
+					Labels: map[string]string{
+						"test": "test-1",
+					},
+					OwnerReferences: []metav1.OwnerReference{
+						{
+							APIVersion:         "v1",
+							Kind:               "Node",
+							Name:               "node1",
+							UID:                "",
+							Controller:         pointer.Bool(true),
+							BlockOwnerDeletion: pointer.Bool(true),
+						},
+					},
+				},
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			genericCtx, err := katalyst_base.GenerateFakeGenericContext([]runtime.Object{tt.fields.node}, []runtime.Object{tt.fields.cnc})
+			assert.NoError(t, err)
+
+			conf, err := options.NewOptions().Config()
+			require.NoError(t, err)
+			require.NotNil(t, conf)
+
+			cl, err := NewCNCLifecycle(context.Background(),
+				conf.GenericConfiguration,
+				conf.GenericControllerConfiguration,
+				conf.ControllersConfiguration.CNCLifecycleConfig,
+				genericCtx.Client,
+				genericCtx.KubeInformerFactory.Core().V1().Nodes(),
+				genericCtx.InternalInformerFactory.Config().V1alpha1().CustomNodeConfigs(),
+				genericCtx.EmitterPool.GetDefaultMetricsEmitter(),
+			)
+			assert.NoError(t, err)
+
+			// test cache not synced
+			err = cl.updateOrCreateCNC(tt.fields.node)
+			assert.NoError(t, err)
 		})
 	}
 }
