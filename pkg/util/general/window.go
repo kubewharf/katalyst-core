@@ -229,6 +229,11 @@ func (w *percentileWithTTLSmoothWindow) GetWindowedResources(value resource.Quan
 		}
 	}
 
+	// if count of valid sample is not enough just return nil
+	if len(validSamples) != w.windowSize {
+		return nil
+	}
+
 	v := w.getValueByPercentile(validSamples, w.percentile)
 
 	if w.usedMillValue {
