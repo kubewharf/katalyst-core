@@ -111,7 +111,11 @@ func (r *RemoteMemoryMetricStore) InsertMetric(seriesList []*data.MetricSeries) 
 		return err
 	}
 
-	requests, err := r.sharding.GetRequests(local.ServingSetPath)
+	newCtx, cancel := context.WithCancel(context.Background())
+	defer func() {
+		cancel()
+	}()
+	requests, err := r.sharding.GetRequests(newCtx, local.ServingSetPath)
 	if err != nil {
 		return err
 	}
@@ -122,7 +126,7 @@ func (r *RemoteMemoryMetricStore) InsertMetric(seriesList []*data.MetricSeries) 
 	success := 0
 	var responseLock sync.Mutex
 	// insert will always try to write into all store instances instead of write-counts
-	err = r.sendRequests(context.Background(), requests, len(requests), r.tags,
+	err = r.sendRequests(cancel, requests, len(requests), r.tags,
 		func(req *http.Request) {
 			req.Body = ioutil.NopCloser(bytes.NewReader(contents))
 		},
@@ -155,7 +159,11 @@ func (r *RemoteMemoryMetricStore) GetMetric(ctx context.Context, namespace, metr
 	start := time.Now()
 	tags := r.generateMetricsTags(metricName, objName)
 
-	requests, err := r.sharding.GetRequests(local.ServingGetPath)
+	newCtx, cancel := context.WithCancel(context.Background())
+	defer func() {
+		cancel()
+	}()
+	requests, err := r.sharding.GetRequests(newCtx, local.ServingGetPath)
 	if err != nil {
 		return nil, err
 	}
@@ -165,7 +173,7 @@ func (r *RemoteMemoryMetricStore) GetMetric(ctx context.Context, namespace, metr
 
 	var responseLock sync.Mutex
 	var internalLists [][]*data.InternalMetric
-	err = r.sendRequests(ctx, requests, rCnt, tags,
+	err = r.sendRequests(cancel, requests, rCnt, tags,
 		func(req *http.Request) {
 			values := req.URL.Query()
 			if len(namespace) > 0 {
@@ -236,7 +244,11 @@ func (r *RemoteMemoryMetricStore) GetMetric(ctx context.Context, namespace, metr
 func (r *RemoteMemoryMetricStore) ListMetricMeta(ctx context.Context, withObject bool) ([]data.MetricMeta, error) {
 	start := time.Now()
 
-	requests, err := r.sharding.GetRequests(local.ServingListPath)
+	newCtx, cancel := context.WithCancel(context.Background())
+	defer func() {
+		cancel()
+	}()
+	requests, err := r.sharding.GetRequests(newCtx, local.ServingListPath)
 	if err != nil {
 		return nil, err
 	}
@@ -246,7 +258,7 @@ func (r *RemoteMemoryMetricStore) ListMetricMeta(ctx context.Context, withObject
 
 	var responseLock sync.Mutex
 	var metricMetaLists [][]data.MetricMeta
-	err = r.sendRequests(ctx, requests, rCnt, r.tags,
+	err = r.sendRequests(cancel, requests, rCnt, r.tags,
 		func(req *http.Request) {
 			values := req.URL.Query()
 			if withObject {
@@ -284,19 +296,19 @@ func (r *RemoteMemoryMetricStore) ListMetricMeta(ctx context.Context, withObject
 }
 
 // todo, currently we will not support any timeout configurations for http-requests
-func (r *RemoteMemoryMetricStore) sendRequests(ctx context.Context, reqs []*http.Request, readyCnt int, tags []metrics.MetricTag,
+func (r *RemoteMemoryMetricStore) sendRequests(cancel func(),
+	reqs []*http.Request, readyCnt int, tags []metrics.MetricTag,
 	requestWrapF func(req *http.Request), responseWrapF func(body io.ReadCloser) error) error {
 	var failChan = make(chan error, len(reqs))
 	var successChan = make(chan struct{}, len(reqs))
 
 	wg := sync.WaitGroup{}
-	newCtx, cancel := context.WithCancel(ctx)
 	for i := range reqs {
 		wg.Add(1)
 		req := reqs[i]
 
 		go func() {
-			err := r.sendRequest(newCtx, req, tags, requestWrapF, responseWrapF)
+			err := r.sendRequest(req, tags, requestWrapF, responseWrapF)
 			if err != nil {
 				failChan <- fmt.Errorf("%v send request err: %v", req.URL.String(), err)
 			} else {
@@ -323,7 +335,7 @@ func (r *RemoteMemoryMetricStore) sendRequests(ctx context.Context, reqs []*http
 			break
 		}
 	}
-	// wait for all goroutines to quit, and then close all channels to
+	// wait for all goroutines to quit, and then close all channels to avoid memory leak
 	wg.Wait()
 	close(failChan)
 	close(successChan)
@@ -336,7 +348,7 @@ func (r *RemoteMemoryMetricStore) sendRequests(ctx context.Context, reqs []*http
 
 // sendRequest works as a uniformed function to construct http requests, as
 // well as send this requests to the server side.
-func (r *RemoteMemoryMetricStore) sendRequest(ctx context.Context, req *http.Request, tags []metrics.MetricTag,
+func (r *RemoteMemoryMetricStore) sendRequest(req *http.Request, tags []metrics.MetricTag,
 	requestWrapFunc func(req *http.Request), responseWrapF func(body io.ReadCloser) error) error {
 	start := time.Now()
 	defer func() {
@@ -348,28 +360,25 @@ func (r *RemoteMemoryMetricStore) sendRequest(ctx context.Context, req *http.Req
 	requestWrapFunc(req)
 
 	klog.V(6).Infof("sendRequest %v", req.URL)
-	resp, err := r.client.Do(req.WithContext(ctx))
+	resp, err := r.client.Do(req)
+	defer func() {
+		if resp != nil && resp.Body != nil {
+			_ = resp.Body.Close()
+		}
+	}()
+
 	if err != nil {
 		return fmt.Errorf("send http requests err: %v", err)
-	}
-
-	if resp == nil {
+	} else if resp == nil {
 		return fmt.Errorf("response err: %v", "respnsonse nil")
 	} else if resp.Body == nil {
 		return fmt.Errorf("response err: %v", "body is nil")
 	} else if resp.StatusCode != http.StatusOK {
-		defer func() {
-			_ = resp.Body.Close()
-		}()
-
 		buf := bytes.NewBuffer([]byte{})
 		_, _ = io.Copy(buf, resp.Body)
 		return fmt.Errorf("response err: status code %v, body: %v", resp.StatusCode, buf.String())
 	}
 
-	defer func() {
-		_ = resp.Body.Close()
-	}()
 	if err := responseWrapF(resp.Body); err != nil {
 		return fmt.Errorf("failed to handle response %v", err)
 	}
