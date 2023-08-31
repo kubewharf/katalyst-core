@@ -22,7 +22,7 @@ import (
 	"strings"
 	"time"
 
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -313,9 +313,9 @@ func (l *LocalMemoryMetricStore) checkInternalMetricMatchedWithObjectList(intern
 		return false, err
 	}
 
-	workload, ok := obj.(*unstructured.Unstructured)
+	workload, ok := obj.(*v1.PartialObjectMetadata)
 	if !ok {
-		return false, fmt.Errorf("%#v failed to transform into unstructured", obj)
+		return false, fmt.Errorf("%#v failed to transform into PartialObjectMetadata", obj)
 	}
 
 	if !selector.Matches(labels.Set(workload.GetLabels())) {
