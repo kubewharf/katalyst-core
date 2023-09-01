@@ -28,7 +28,7 @@ import (
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 
 	"github.com/kubewharf/katalyst-api/pkg/consts"
-	cpuutil "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/util"
+	cpuconsts "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/consts"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
@@ -501,7 +501,7 @@ func TestGenerateCPUMachineStateByPodEntries(t *testing.T) {
 		tmpDir, err := ioutil.TempDir("", "checkpoint-TestGenerateCPUMachineStateByPodEntries")
 		as.Nil(err)
 
-		machineState, err := GenerateMachineStateFromPodEntries(tc.cpuTopology, tc.podEntries, cpuutil.CPUResourcePluginPolicyNameDynamic)
+		machineState, err := GenerateMachineStateFromPodEntries(tc.cpuTopology, tc.podEntries, cpuconsts.CPUResourcePluginPolicyNameDynamic)
 		as.Nil(err)
 
 		as.Equalf(tc.expectedMachineState, machineState, "failed in test case: %s", tc.description)

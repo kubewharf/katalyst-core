@@ -29,9 +29,9 @@ import (
 
 	"github.com/kubewharf/katalyst-api/pkg/plugins/skeleton"
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/agent"
+	cpuconsts "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/consts"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
 	nativepolicyutil "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/nativepolicy/util"
-	cpuutil "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/util"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	dynamicconfig "github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic"
@@ -107,7 +107,7 @@ func NewNativePolicy(agentCtx *agent.GenericContext, conf *config.Configuration,
 	general.Infof("new native policy")
 
 	stateImpl, stateErr := state.NewCheckpointState(conf.GenericQRMPluginConfiguration.StateFileDirectory, cpuPluginStateFileName,
-		cpuutil.CPUResourcePluginPolicyNameNative, agentCtx.CPUTopology, conf.SkipCPUStateCorruption)
+		cpuconsts.CPUResourcePluginPolicyNameNative, agentCtx.CPUTopology, conf.SkipCPUStateCorruption)
 	if stateErr != nil {
 		return false, agent.ComponentStub{}, fmt.Errorf("NewCheckpointState failed with error: %v", stateErr)
 	}
@@ -118,11 +118,11 @@ func NewNativePolicy(agentCtx *agent.GenericContext, conf *config.Configuration,
 
 	wrappedEmitter := agentCtx.EmitterPool.GetDefaultMetricsEmitter().WithTags(agentName, metrics.MetricTag{
 		Key: util.QRMPluginPolicyTagName,
-		Val: cpuutil.CPUResourcePluginPolicyNameNative,
+		Val: cpuconsts.CPUResourcePluginPolicyNameNative,
 	})
 
 	policyImplement := &NativePolicy{
-		name:                       fmt.Sprintf("%s_%s", agentName, cpuutil.CPUResourcePluginPolicyNameNative),
+		name:                       fmt.Sprintf("%s_%s", agentName, cpuconsts.CPUResourcePluginPolicyNameNative),
 		stopCh:                     make(chan struct{}),
 		machineInfo:                agentCtx.KatalystMachineInfo,
 		emitter:                    wrappedEmitter,
@@ -657,7 +657,7 @@ func (p *NativePolicy) setReservedCPUs(allCPUs machine.CPUSet) error {
 		return fmt.Errorf("NewNativePolicy failed because get kubelet config failed with error: %v", err)
 	}
 
-	reservedQuantity, err := nativepolicyutil.GetKubeletReservedQuantity(klConfig)
+	reservedQuantity, _, err := util.GetKubeletReservedQuantity(string(v1.ResourceCPU), klConfig)
 	if err != nil {
 		return fmt.Errorf("getKubeletReservedQuantity failed because get kubelet reserved quantity failed with error: %v", err)
 	}
