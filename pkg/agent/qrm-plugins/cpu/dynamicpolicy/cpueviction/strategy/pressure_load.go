@@ -31,7 +31,7 @@ import (
 	pluginapi "github.com/kubewharf/katalyst-api/pkg/protocol/evictionplugin/v1alpha1"
 	advisorapi "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/cpuadvisor"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
-	qrmutil "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util"
+	cpuutil "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/util"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic"
 	"github.com/kubewharf/katalyst-core/pkg/config/generic"
@@ -109,7 +109,7 @@ func NewCPUPressureLoadEviction(emitter metrics.MetricEmitter, metaServer *metas
 		syncPeriod:     conf.LoadEvictionSyncPeriod,
 	}
 
-	systemReservedCores, reserveErr := qrmutil.GetCoresReservedForSystem(conf, metaServer.KatalystMachineInfo, metaServer.CPUDetails.CPUs().Clone())
+	systemReservedCores, reserveErr := cpuutil.GetCoresReservedForSystem(conf, metaServer, metaServer.KatalystMachineInfo, metaServer.CPUDetails.CPUs().Clone())
 	if reserveErr != nil {
 		general.Errorf("GetCoresReservedForSystem for reservedCPUsNum: %d failed with error: %v",
 			conf.ReservedCPUCores, reserveErr)

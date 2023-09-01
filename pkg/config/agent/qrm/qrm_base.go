@@ -22,6 +22,7 @@ type GenericQRMPluginConfiguration struct {
 	ExtraStateFileAbsPath         string
 	ReclaimRelativeRootCgroupPath string
 	PodDebugAnnoKeys              []string
+	UseKubeletReservedConfig      bool
 }
 
 type QRMPluginsConfiguration struct {

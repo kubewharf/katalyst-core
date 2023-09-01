@@ -128,7 +128,7 @@ type DynamicPolicy struct {
 
 func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration,
 	_ interface{}, agentName string) (bool, agent.Component, error) {
-	reservedMemory, err := getReservedMemory(agentCtx.MachineInfo, conf.ReservedMemoryGB)
+	reservedMemory, err := getReservedMemory(conf, agentCtx.MetaServer, agentCtx.MachineInfo)
 	if err != nil {
 		return false, agent.ComponentStub{}, fmt.Errorf("getReservedMemoryFromOptions failed with error: %v", err)
 	}

@@ -62,8 +62,28 @@ const (
 	podDebugAnnoKey = "qrm.katalyst.kubewharf.io/debug_pod"
 )
 
+var (
+	fakeConf = &config.Configuration{
+		AgentConfiguration: &configagent.AgentConfiguration{
+			GenericAgentConfiguration: &configagent.GenericAgentConfiguration{
+				GenericQRMPluginConfiguration: &qrmconfig.GenericQRMPluginConfiguration{
+					UseKubeletReservedConfig: false,
+				},
+			},
+			StaticAgentConfiguration: &configagent.StaticAgentConfiguration{
+				QRMPluginsConfiguration: &qrmconfig.QRMPluginsConfiguration{
+					MemoryQRMPluginConfig: &qrmconfig.MemoryQRMPluginConfig{
+						ReservedMemoryGB: 4,
+					},
+				},
+			},
+		},
+	}
+)
+
 func getTestDynamicPolicyWithInitialization(topology *machine.CPUTopology, machineInfo *info.MachineInfo, stateFileDirectory string) (*DynamicPolicy, error) {
-	reservedMemory, err := getReservedMemory(machineInfo, 4)
+
+	reservedMemory, err := getReservedMemory(fakeConf, &metaserver.MetaServer{}, machineInfo)
 	if err != nil {
 		return nil, err
 	}
@@ -1611,7 +1631,7 @@ func TestGenerateResourcesMachineStateFromPodEntries(t *testing.T) {
 	machineInfo, err := machine.GenerateDummyMachineInfo(4, 32)
 	as.Nil(err)
 
-	reservedMemory, err := getReservedMemory(machineInfo, 4)
+	reservedMemory, err := getReservedMemory(fakeConf, &metaserver.MetaServer{}, machineInfo)
 	as.Nil(err)
 
 	podUID := string(uuid.NewUUID())
@@ -1661,7 +1681,7 @@ func TestHandleAdvisorResp(t *testing.T) {
 	machineInfo, err := machine.GenerateDummyMachineInfo(4, 32)
 	as.Nil(err)
 
-	reservedMemory, err := getReservedMemory(machineInfo, 4)
+	reservedMemory, err := getReservedMemory(fakeConf, &metaserver.MetaServer{}, machineInfo)
 	as.Nil(err)
 
 	resourcesReservedMemory := map[v1.ResourceName]map[int]uint64{
@@ -2444,7 +2464,7 @@ func TestSetExtraControlKnobByConfigs(t *testing.T) {
 		v1.ResourceMemory: podEntries,
 	}
 
-	reservedMemory, err := getReservedMemory(machineInfo, 4)
+	reservedMemory, err := getReservedMemory(fakeConf, &metaserver.MetaServer{}, machineInfo)
 	as.Nil(err)
 
 	reserved := map[v1.ResourceName]map[int]uint64{

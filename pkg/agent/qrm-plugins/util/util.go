@@ -25,13 +25,12 @@ import (
 	"strings"
 
 	v1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/klog/v2"
+	kubeletconfigv1beta1 "k8s.io/kubelet/config/v1beta1"
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 
 	"github.com/kubewharf/katalyst-api/pkg/consts"
-	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/calculator"
-	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
-	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/config/generic"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
@@ -315,94 +314,30 @@ func GetContainerAsyncWorkName(podUID, containerName, topic string) string {
 	return strings.Join([]string{podUID, containerName, topic}, "/")
 }
 
-func GetCoresReservedForSystem(conf *config.Configuration, machineInfo *machine.KatalystMachineInfo, allCPUs machine.CPUSet) (machine.CPUSet, error) {
-	systemReservedNum := conf.ReservedCPUCores
-	reservedCPUs, _, reserveErr := calculator.TakeHTByNUMABalance(machineInfo, allCPUs, systemReservedNum)
-	if reserveErr != nil {
-		return reservedCPUs, fmt.Errorf("takeByNUMABalance for reservedCPUsNum: %d failed with error: %v",
-			systemReservedNum, reserveErr)
+func GetKubeletReservedQuantity(resourceName string, klConfig *kubeletconfigv1beta1.KubeletConfiguration) (resource.Quantity, bool, error) {
+	if klConfig == nil {
+		return resource.MustParse("0"), false, fmt.Errorf("nil klConfig")
 	}
 
-	general.Infof("take reservedCPUs: %s by reservedCPUsNum: %d", reservedCPUs.String(), systemReservedNum)
-	return reservedCPUs, nil
-}
+	reservedQuantity := resource.NewQuantity(0, resource.DecimalSI)
+	found := false
 
-// RegenerateHints regenerates hints for container that'd already been allocated cpu,
-// and regenerateHints will assemble hints based on already-existed AllocationInfo,
-// without any calculation logics at all
-func RegenerateHints(allocationInfo *state.AllocationInfo, reqInt int) map[string]*pluginapi.ListOfTopologyHints {
-	hints := map[string]*pluginapi.ListOfTopologyHints{}
-
-	if allocationInfo.OriginalAllocationResult.Size() < reqInt {
-		general.ErrorS(nil, "cpus already allocated with smaller quantity than requested",
-			"podUID", allocationInfo.PodUid,
-			"containerName", allocationInfo.ContainerName,
-			"requestedResource", reqInt,
-			"allocatedSize", allocationInfo.OriginalAllocationResult.Size())
-
-		return nil
-	}
-
-	allocatedNumaNodes := make([]uint64, 0, len(allocationInfo.TopologyAwareAssignments))
-	for numaNode, cset := range allocationInfo.TopologyAwareAssignments {
-		if cset.Size() > 0 {
-			allocatedNumaNodes = append(allocatedNumaNodes, uint64(numaNode))
+	if klConfig.KubeReserved != nil {
+		kubeReserved, err := resource.ParseQuantity(klConfig.KubeReserved[resourceName])
+		if err != nil {
+			return resource.MustParse("0"), false, fmt.Errorf("getKubeletReservedQuantity failed because parse cpu quantity for kube-reserved failed with error: %v", err)
 		}
+		reservedQuantity.Add(kubeReserved)
+		found = true
+	}
+	if klConfig.SystemReserved != nil {
+		systemReserved, err := resource.ParseQuantity(klConfig.SystemReserved[resourceName])
+		if err != nil {
+			return resource.MustParse("0"), false, fmt.Errorf("getKubeletReservedQuantity parse cpu quantity for system-reserved failed with error: %v", err)
+		}
+		reservedQuantity.Add(systemReserved)
+		found = true
 	}
 
-	general.InfoS("regenerating machineInfo hints, cpus was already allocated to pod",
-		"podNamespace", allocationInfo.PodNamespace,
-		"podName", allocationInfo.PodName,
-		"containerName", allocationInfo.ContainerName,
-		"hint", allocatedNumaNodes)
-	hints[string(v1.ResourceCPU)] = &pluginapi.ListOfTopologyHints{
-		Hints: []*pluginapi.TopologyHint{
-			{
-				Nodes:     allocatedNumaNodes,
-				Preferred: true,
-			},
-		},
-	}
-	return hints
-}
-
-// PackAllocationResponse fills pluginapi.ResourceAllocationResponse with information from AllocationInfo and pluginapi.ResourceRequest
-func PackAllocationResponse(allocationInfo *state.AllocationInfo, resourceName, ociPropertyName string,
-	isNodeResource, isScalarResource bool, req *pluginapi.ResourceRequest) (*pluginapi.ResourceAllocationResponse, error) {
-	if allocationInfo == nil {
-		return nil, fmt.Errorf("packAllocationResponse got nil allocationInfo")
-	} else if req == nil {
-		return nil, fmt.Errorf("packAllocationResponse got nil request")
-	}
-
-	return &pluginapi.ResourceAllocationResponse{
-		PodUid:         req.PodUid,
-		PodNamespace:   req.PodNamespace,
-		PodName:        req.PodName,
-		ContainerName:  req.ContainerName,
-		ContainerType:  req.ContainerType,
-		ContainerIndex: req.ContainerIndex,
-		PodRole:        req.PodRole,
-		PodType:        req.PodType,
-		ResourceName:   resourceName,
-		AllocationResult: &pluginapi.ResourceAllocation{
-			ResourceAllocation: map[string]*pluginapi.ResourceAllocationInfo{
-				resourceName: {
-					OciPropertyName:   ociPropertyName,
-					IsNodeResource:    isNodeResource,
-					IsScalarResource:  isScalarResource,
-					AllocatedQuantity: float64(allocationInfo.AllocationResult.Size()),
-					AllocationResult:  allocationInfo.AllocationResult.String(),
-					ResourceHints: &pluginapi.ListOfTopologyHints{
-						Hints: []*pluginapi.TopologyHint{
-							req.Hint,
-						},
-					},
-				},
-			},
-		},
-		Labels:         general.DeepCopyMap(req.Labels),
-		Annotations:    general.DeepCopyMap(req.Annotations),
-		NativeQosClass: req.NativeQosClass,
-	}, nil
+	return *reservedQuantity, found, nil
 }
