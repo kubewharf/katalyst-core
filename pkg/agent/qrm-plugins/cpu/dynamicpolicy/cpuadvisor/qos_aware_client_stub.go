@@ -19,7 +19,7 @@ package cpuadvisor
 import (
 	"context"
 
-	advisorsvc "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/advisorsvc"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/advisorsvc"
 
 	"google.golang.org/grpc"
 )
@@ -30,7 +30,7 @@ func NewCPUAdvisorClientStub() CPUAdvisorClient {
 	return &cpuAdvisorClientStub{}
 }
 
-func (c *cpuAdvisorClientStub) AddContainer(_ context.Context, _ *advisorsvc.AddContainerRequest,
+func (c *cpuAdvisorClientStub) AddContainer(_ context.Context, _ *advisorsvc.ContainerMetadata,
 	_ ...grpc.CallOption) (*advisorsvc.AddContainerResponse, error) {
 	return nil, nil
 }

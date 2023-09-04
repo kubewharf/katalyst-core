@@ -31,7 +31,7 @@ func TestCPUPB(t *testing.T) {
 	OverlapType_OverlapWithPod.EnumDescriptor()
 	_ = OverlapType_OverlapWithPod.String()
 
-	req := &advisorsvc.AddContainerRequest{}
+	req := &advisorsvc.ContainerMetadata{}
 	req.Reset()
 	_ = req.String()
 	req.ProtoMessage()
@@ -222,7 +222,7 @@ func TestAddContainer(t *testing.T) {
 	t.Parallel()
 
 	testServer := &UnimplementedCPUAdvisorServer{}
-	testServer.AddContainer(context.Background(), &advisorsvc.AddContainerRequest{})
+	testServer.AddContainer(context.Background(), &advisorsvc.ContainerMetadata{})
 }
 
 func TestRemovePod(t *testing.T) {
