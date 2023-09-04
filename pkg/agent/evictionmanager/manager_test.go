@@ -31,6 +31,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/client"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/adminqos/eviction"
+	"github.com/kubewharf/katalyst-core/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/pod"
@@ -92,6 +93,7 @@ func makeConf() *config.Configuration {
 	conf := config.NewConfiguration()
 	conf.EvictionManagerSyncPeriod = evictionManagerSyncPeriod
 	conf.GetDynamicConfiguration().MemoryPressureEvictionConfiguration.GracePeriod = eviction.DefaultGracePeriod
+	conf.PodKiller = consts.KillerNameEvictionKiller
 
 	return conf
 }
@@ -217,8 +219,9 @@ func (p plugin2) GetEvictPods(_ context.Context, _ *pluginapi.GetEvictPodsReques
 	return &pluginapi.GetEvictPodsResponse{EvictPods: []*pluginapi.EvictPod{}}, nil
 }
 
-func makeEvictionManager() *EvictionManger {
-	mgr := NewEvictionManager(&client.GenericClientSet{}, nil, makeMetaServer(), metrics.DummyMetrics{}, makeConf())
+func makeEvictionManager(t *testing.T) *EvictionManger {
+	mgr, err := NewEvictionManager(&client.GenericClientSet{}, nil, makeMetaServer(), metrics.DummyMetrics{}, makeConf())
+	assert.NoError(t, err)
 	mgr.endpoints = map[string]endpointpkg.Endpoint{
 		"plugin1": &plugin1{},
 		"plugin2": &plugin2{},
@@ -230,7 +233,7 @@ func makeEvictionManager() *EvictionManger {
 func TestEvictionManger_collectEvictionResult(t *testing.T) {
 	t.Parallel()
 
-	mgr := makeEvictionManager()
+	mgr := makeEvictionManager(t)
 	tests := []struct {
 		name               string
 		dryrun             []string

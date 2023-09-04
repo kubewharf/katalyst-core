@@ -31,13 +31,21 @@ import (
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/events"
+	cri "k8s.io/cri-api/pkg/apis"
 	"k8s.io/klog/v2"
+	"k8s.io/kubernetes/pkg/kubelet/cri/remote"
 
+	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 )
 
-const MetricsNameKillPod = "kill_pod"
+const (
+	MetricsNameKillPod       = "kill_pod"
+	MetricsNameKillContainer = "kill_container"
+)
+
+type InitFunc func(conf *config.Configuration, client kubernetes.Interface, recorder events.EventRecorder, emitter metrics.MetricEmitter) (Killer, error)
 
 // Killer implements pod eviction logic.
 type Killer interface {
@@ -51,7 +59,7 @@ type Killer interface {
 // DummyKiller is a stub implementation for Killer interface.
 type DummyKiller struct{}
 
-func (d DummyKiller) Name() string                                                { return "fake-killer" }
+func (d DummyKiller) Name() string                                                { return consts.KillerNameFakeKiller }
 func (d DummyKiller) Evict(_ context.Context, _ *v1.Pod, _ int64, _ string) error { return nil }
 
 var _ Killer = DummyKiller{}
@@ -65,15 +73,15 @@ type EvictionAPIKiller struct {
 }
 
 // NewEvictionAPIKiller returns a new updater Object.
-func NewEvictionAPIKiller(client kubernetes.Interface, recorder events.EventRecorder, emitter metrics.MetricEmitter) *EvictionAPIKiller {
+func NewEvictionAPIKiller(_ *config.Configuration, client kubernetes.Interface, recorder events.EventRecorder, emitter metrics.MetricEmitter) (Killer, error) {
 	return &EvictionAPIKiller{
 		emitter:  emitter,
 		client:   client,
 		recorder: recorder,
-	}
+	}, nil
 }
 
-func (e *EvictionAPIKiller) Name() string { return "eviction-api-killer" }
+func (e *EvictionAPIKiller) Name() string { return consts.KillerNameEvictionKiller }
 
 func (e *EvictionAPIKiller) Evict(_ context.Context, pod *v1.Pod, gracePeriodSeconds int64, reason string) error {
 	const (
@@ -110,15 +118,15 @@ type DeletionAPIKiller struct {
 	recorder events.EventRecorder
 }
 
-func NewDeletionAPIKiller(client kubernetes.Interface, recorder events.EventRecorder, emitter metrics.MetricEmitter) *DeletionAPIKiller {
+func NewDeletionAPIKiller(_ *config.Configuration, client kubernetes.Interface, recorder events.EventRecorder, emitter metrics.MetricEmitter) (Killer, error) {
 	return &DeletionAPIKiller{
 		emitter:  emitter,
 		client:   client,
 		recorder: recorder,
-	}
+	}, nil
 }
 
-func (d *DeletionAPIKiller) Name() string { return "deletion-api-killer" }
+func (d *DeletionAPIKiller) Name() string { return consts.KillerNameDeletionKiller }
 
 func (d *DeletionAPIKiller) Evict(ctx context.Context, pod *v1.Pod, gracePeriodSeconds int64, reason string) error {
 	evictPod := func(pod *v1.Pod, gracePeriodOverride int64) error {
@@ -244,6 +252,61 @@ func evict(client kubernetes.Interface, recorder events.EventRecorder, emitter m
 	recorder.Eventf(pod, nil, v1.EventTypeNormal, consts.EventReasonEvictSucceeded, consts.EventActionEvicting,
 		"Evicted pod has been deleted physically; reason: %s", reason)
 	klog.Infof("[killer] pod %s/%s has been deleted physically", pod.Namespace, pod.Name)
+
+	return nil
+}
+
+// ContainerKiller implements Killer interface it actually does not evict pod but
+// stop containers in given pod directly.
+type ContainerKiller struct {
+	containerManager cri.ContainerManager
+	recorder         events.EventRecorder
+	emitter          metrics.MetricEmitter
+}
+
+func NewContainerKiller(conf *config.Configuration, _ kubernetes.Interface, recorder events.EventRecorder, emitter metrics.MetricEmitter) (Killer, error) {
+	remoteRuntimeService, err := remote.NewRemoteRuntimeService(conf.RemoteRuntimeEndpoint, 2*time.Minute)
+	if err != nil {
+		return nil, err
+	}
+
+	return &ContainerKiller{
+		containerManager: remoteRuntimeService,
+		recorder:         recorder,
+		emitter:          emitter,
+	}, nil
+}
+
+func (c *ContainerKiller) Name() string { return consts.KillerNameContainerKiller }
+
+func (c *ContainerKiller) Evict(_ context.Context, pod *v1.Pod, gracePeriodSeconds int64, reason string) error {
+	if pod == nil {
+		return fmt.Errorf("pod is nil")
+	}
+
+	for _, containerStatus := range pod.Status.ContainerStatuses {
+		err := c.containerManager.StopContainer(containerStatus.ContainerID, gracePeriodSeconds)
+		if err != nil {
+			c.recorder.Eventf(pod, nil, v1.EventTypeNormal, consts.EventReasonContainerStopped, consts.EventActionContainerStopping,
+				"Failed to kill container %v; reason: %s", containerStatus.Name, reason)
+			_ = c.emitter.StoreInt64(MetricsNameKillContainer, 1, metrics.MetricTypeNameRaw,
+				metrics.MetricTag{Key: "state", Val: "failed"},
+				metrics.MetricTag{Key: "pod_ns", Val: pod.Namespace},
+				metrics.MetricTag{Key: "pod_name", Val: pod.Name},
+				metrics.MetricTag{Key: "container_name", Val: containerStatus.Name})
+			klog.Infof("[killer] failed to kill container %v/%v for pod %v/%v, error:%v", containerStatus.Name, containerStatus.ContainerID, pod.Namespace, pod.Name, err)
+			return fmt.Errorf("ContainerKiller stop container %v failed with error: %v", containerStatus.ContainerID, err)
+		}
+		c.recorder.Eventf(pod, nil, v1.EventTypeNormal, consts.EventReasonContainerStopped, consts.EventActionContainerStopping,
+			"Successfully kill container %v; reason: %s", containerStatus.Name, reason)
+		_ = c.emitter.StoreInt64(MetricsNameKillContainer, 1, metrics.MetricTypeNameRaw,
+			metrics.MetricTag{Key: "state", Val: "succeeded"},
+			metrics.MetricTag{Key: "pod_ns", Val: pod.Namespace},
+			metrics.MetricTag{Key: "pod_name", Val: pod.Name},
+			metrics.MetricTag{Key: "container_name", Val: containerStatus.Name})
+		klog.Infof("[killer] successfully kill container %v/%v for pod %v/%v", containerStatus.Name, containerStatus.ContainerID, pod.Namespace, pod.Name)
+	}
+	// TODO: do we have to wait for container being completely killed?
 
 	return nil
 }
