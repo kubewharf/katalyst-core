@@ -42,6 +42,9 @@ type GenericEvictionConfiguration struct {
 
 	// EvictionBurst limit the burst eviction counts
 	EvictionBurst int
+
+	// PodKiller specify the pod killer implementation
+	PodKiller string
 }
 
 type EvictionConfiguration struct {

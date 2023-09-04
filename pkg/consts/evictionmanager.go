@@ -17,6 +17,13 @@ limitations under the License.
 package consts
 
 const (
+	KillerNameFakeKiller      = "fake-killer"
+	KillerNameEvictionKiller  = "eviction-api-killer"
+	KillerNameDeletionKiller  = "deletion-api-killer"
+	KillerNameContainerKiller = "container-killer"
+)
+
+const (
 	// EvictionPluginThresholdMetRPCTimeoutInSecs is timeout duration in secs for ThresholdMet RPC
 	EvictionPluginThresholdMetRPCTimeoutInSecs = 10
 	// EvictionPluginGetTopEvictionPodsRPCTimeoutInSecs is timeout duration in secs for GetTopEvictionPods RPC

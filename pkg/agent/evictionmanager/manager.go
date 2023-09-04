@@ -42,6 +42,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/evictionmanager/rule"
 	"github.com/kubewharf/katalyst-core/pkg/client"
 	pkgconfig "github.com/kubewharf/katalyst-core/pkg/config"
+	"github.com/kubewharf/katalyst-core/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
@@ -107,11 +108,30 @@ func NewInnerEvictionPluginInitializers() map[string]plugin.InitFunc {
 	return innerEvictionPluginInitializers
 }
 
+func NewPodKillerInitializers() map[string]podkiller.InitFunc {
+	podKillerInitializers := make(map[string]podkiller.InitFunc)
+	podKillerInitializers[consts.KillerNameEvictionKiller] = podkiller.NewEvictionAPIKiller
+	podKillerInitializers[consts.KillerNameDeletionKiller] = podkiller.NewDeletionAPIKiller
+	podKillerInitializers[consts.KillerNameContainerKiller] = podkiller.NewContainerKiller
+	return podKillerInitializers
+}
+
 func NewEvictionManager(genericClient *client.GenericClientSet, recorder events.EventRecorder,
-	metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter, conf *pkgconfig.Configuration) *EvictionManger {
+	metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter, conf *pkgconfig.Configuration) (*EvictionManger, error) {
 	queue := rule.NewFIFOEvictionQueue(conf.EvictionBurst)
 
-	killer := podkiller.NewEvictionAPIKiller(genericClient.KubeClient, recorder, emitter)
+	podKillerInitializers := NewPodKillerInitializers()
+	var killer podkiller.Killer
+	if initFunc, ok := podKillerInitializers[conf.PodKiller]; ok {
+		var initErr error
+		killer, initErr = initFunc(conf, genericClient.KubeClient, recorder, emitter)
+		if initErr != nil {
+			return nil, fmt.Errorf("failed to init pod killer %v: %v", conf.PodKiller, initErr)
+		}
+	} else {
+		return nil, fmt.Errorf("unsupported pod killer %v", conf.PodKiller)
+	}
+
 	podKiller := podkiller.NewAsynchronizedPodKiller(killer, genericClient.KubeClient)
 
 	e := &EvictionManger{
@@ -131,7 +151,7 @@ func NewEvictionManager(genericClient *client.GenericClientSet, recorder events.
 	}
 
 	e.getEvictionPlugins(genericClient, recorder, metaServer, emitter, conf, NewInnerEvictionPluginInitializers())
-	return e
+	return e, nil
 }
 
 func (m *EvictionManger) getEvictionPlugins(genericClient *client.GenericClientSet, recorder events.EventRecorder, metaServer *metaserver.MetaServer,
