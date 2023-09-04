@@ -97,7 +97,7 @@ func TestMemoryServerListAndWatch(t *testing.T) {
 	t.Parallel()
 
 	type ContainerInfo struct {
-		request *advisorsvc.AddContainerRequest
+		request *advisorsvc.ContainerMetadata
 	}
 
 	tests := []struct {

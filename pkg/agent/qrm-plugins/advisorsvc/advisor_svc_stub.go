@@ -17,14 +17,14 @@ limitations under the License.
 package advisorsvc
 
 import (
-	context "context"
+	"context"
 
-	grpc "google.golang.org/grpc"
+	"google.golang.org/grpc"
 )
 
 type stubAdvisorServiceClient struct{}
 
-func (c *stubAdvisorServiceClient) AddContainer(ctx context.Context, in *AddContainerRequest, opts ...grpc.CallOption) (*AddContainerResponse, error) {
+func (c *stubAdvisorServiceClient) AddContainer(ctx context.Context, in *ContainerMetadata, opts ...grpc.CallOption) (*AddContainerResponse, error) {
 	return nil, nil
 }
 

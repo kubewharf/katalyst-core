@@ -222,7 +222,7 @@ func (bs *baseServer) RemovePod(_ context.Context, request *advisorsvc.RemovePod
 	return &advisorsvc.RemovePodResponse{}, err
 }
 
-func (bs *baseServer) AddContainer(_ context.Context, request *advisorsvc.AddContainerRequest) (*advisorsvc.AddContainerResponse, error) {
+func (bs *baseServer) AddContainer(_ context.Context, request *advisorsvc.ContainerMetadata) (*advisorsvc.AddContainerResponse, error) {
 	_ = bs.emitter.StoreInt64(bs.genMetricsName(metricServerAddContainerCalled), int64(bs.period.Seconds()), metrics.MetricTypeNameCount)
 
 	if request == nil {
@@ -239,7 +239,7 @@ func (bs *baseServer) AddContainer(_ context.Context, request *advisorsvc.AddCon
 	return &advisorsvc.AddContainerResponse{}, err
 }
 
-func (bs *baseServer) addContainer(request *advisorsvc.AddContainerRequest) error {
+func (bs *baseServer) addContainer(request *advisorsvc.ContainerMetadata) error {
 	containerInfo := &types.ContainerInfo{
 		PodUID:         request.PodUid,
 		PodNamespace:   request.PodNamespace,

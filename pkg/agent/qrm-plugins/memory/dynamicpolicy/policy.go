@@ -638,7 +638,7 @@ func (p *DynamicPolicy) Allocate(ctx context.Context,
 	defer func() {
 		// calls sys-advisor to inform the latest container
 		if p.enableMemoryAdvisor && respErr == nil && req.ContainerType != pluginapi.ContainerType_INIT {
-			_, err := p.advisorClient.AddContainer(ctx, &advisorsvc.AddContainerRequest{
+			_, err := p.advisorClient.AddContainer(ctx, &advisorsvc.ContainerMetadata{
 				PodUid:          req.PodUid,
 				PodNamespace:    req.PodNamespace,
 				PodName:         req.PodName,
