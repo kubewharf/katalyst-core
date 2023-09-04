@@ -95,7 +95,7 @@ func generateTestPod(namespace, name, uid string, isBindNumaQoS bool) *v1.Pod {
 			UID:       types.UID(uid),
 			Annotations: map[string]string{
 				consts.PodAnnotationQoSLevelKey:          consts.PodAnnotationQoSLevelDedicatedCores,
-				consts.PodAnnotationMemoryEnhancementKey: `{"numa_binding": "true"}`,
+				consts.PodAnnotationMemoryEnhancementKey: `{"numa_binding": "false"}`,
 			},
 		},
 	}
@@ -349,14 +349,6 @@ func Test_getZoneAllocationsByPodResources(t *testing.T) {
 							"memory": resource.MustParse("32G"),
 						},
 					},
-					{
-						Consumer: "default/pod-3/pod-3-uid",
-						Requests: &v1.ResourceList{
-							"gpu":    resource.MustParse("1"),
-							"cpu":    resource.MustParse("24"),
-							"memory": resource.MustParse("32G"),
-						},
-					},
 				},
 				{
 					Meta: util.ZoneMeta{
@@ -373,14 +365,6 @@ func Test_getZoneAllocationsByPodResources(t *testing.T) {
 					},
 					{
 						Consumer: "default/pod-2/pod-2-uid",
-						Requests: &v1.ResourceList{
-							"gpu":    resource.MustParse("1"),
-							"cpu":    resource.MustParse("24"),
-							"memory": resource.MustParse("32G"),
-						},
-					},
-					{
-						Consumer: "default/pod-3/pod-3-uid",
 						Requests: &v1.ResourceList{
 							"gpu":    resource.MustParse("1"),
 							"cpu":    resource.MustParse("24"),

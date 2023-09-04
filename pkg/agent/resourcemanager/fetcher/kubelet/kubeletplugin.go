@@ -25,7 +25,9 @@ import (
 
 	"github.com/pkg/errors"
 	"go.uber.org/atomic"
+	v1 "k8s.io/api/core/v1"
 	"k8s.io/klog/v2"
+	podresv1 "k8s.io/kubelet/pkg/apis/podresources/v1"
 
 	info "github.com/google/cadvisor/info/v1"
 
@@ -34,6 +36,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/resourcemanager/fetcher/plugin"
 	"github.com/kubewharf/katalyst-core/pkg/agent/resourcemanager/fetcher/util/kubelet/podresources"
 	"github.com/kubewharf/katalyst-core/pkg/config"
+	"github.com/kubewharf/katalyst-core/pkg/config/generic"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util"
@@ -88,9 +91,29 @@ func NewKubeletReporterPlugin(emitter metrics.MetricEmitter, metaServer *metaser
 		StopControl: process.NewStopControl(time.Time{}),
 	}
 
+	// filter pod resources for reclaimed qos pods and shared qos pods
+	qosConf := generic.NewQoSConfiguration()
+	podResourcesFilter := func(pod *v1.Pod, podResources *podresv1.PodResources) (*podresv1.PodResources, error) {
+		a, err := qosConf.CheckReclaimedQoSForPod(pod)
+		if err != nil {
+			return nil, err
+		}
+		b, err := qosConf.CheckSharedQoSForPod(pod)
+		if err != nil {
+			return nil, err
+		}
+		if a || b {
+			for _, container := range podResources.Containers {
+				container.Resources = nil
+			}
+			return podResources, nil
+		}
+		return podResources, nil
+	}
+
 	topologyStatusAdapter, err := topology.NewPodResourcesServerTopologyAdapter(metaServer,
 		conf.PodResourcesServerEndpoints, conf.KubeletResourcePluginPaths, nil,
-		p.getNumaInfo, nil, podresources.GetV1Client)
+		p.getNumaInfo, podResourcesFilter, podresources.GetV1Client)
 	if err != nil {
 		return nil, err
 	}
