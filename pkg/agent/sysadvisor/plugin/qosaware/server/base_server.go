@@ -51,15 +51,14 @@ const (
 )
 
 type baseServer struct {
-	name                string
-	period              time.Duration
-	advisorSocketPath   string
-	pluginSocketPath    string
-	recvCh              interface{}
-	sendCh              chan types.TriggerInfo
-	lwCalledChan        chan struct{}
-	stopCh              chan struct{}
-	getCheckpointCalled bool
+	name              string
+	period            time.Duration
+	advisorSocketPath string
+	pluginSocketPath  string
+	recvCh            interface{}
+	sendCh            chan types.TriggerInfo
+	lwCalledChan      chan struct{}
+	stopCh            chan struct{}
 	// resourceRequestName and resourceLimitName are field names of types.ContainerInfo
 	resourceRequestName string
 	resourceLimitName   string

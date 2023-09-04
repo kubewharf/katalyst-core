@@ -747,6 +747,12 @@ func TestUpdate(t *testing.T) {
 				assert.NoError(t, err)
 			}
 
+			go func() {
+				c, _ := advisor.GetChannels()
+				ch := c.(chan types.TriggerInfo)
+				ch <- types.TriggerInfo{TimeStamp: time.Now()}
+			}()
+
 			ctx, cancel := context.WithCancel(context.Background())
 			advisor.Run(ctx)
 

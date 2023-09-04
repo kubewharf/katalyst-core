@@ -93,6 +93,8 @@ type MetaWriter interface {
 	RangeAndDeleteContainer(f func(containerInfo *types.ContainerInfo) bool) error
 	// RemovePod deletes a PodInfo keyed by pod uid. Repeatedly remove will be ignored.
 	RemovePod(podUID string) error
+	// ClearContainers remove all containers
+	ClearContainers() error
 
 	// SetPoolInfo stores a PoolInfo by pool name
 	SetPoolInfo(poolName string, poolInfo *types.PoolInfo) error
@@ -315,6 +317,18 @@ func (mc *MetaCacheImp) DeleteContainer(podUID string, containerName string) err
 	if mc.deleteContainer(podUID, containerName) {
 		return mc.storeState()
 	}
+	return nil
+}
+
+func (mc *MetaCacheImp) ClearContainers() error {
+	mc.podMutex.Lock()
+	defer mc.podMutex.Unlock()
+
+	if len(mc.podEntries) != 0 {
+		mc.podEntries = map[string]types.ContainerEntries{}
+		return mc.storeState()
+	}
+
 	return nil
 }
 
