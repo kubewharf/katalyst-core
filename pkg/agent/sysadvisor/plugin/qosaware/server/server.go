@@ -104,9 +104,10 @@ func newSubQRMServer(resourceName v1.ResourceName, advisorWrapper resource.Resou
 		if err != nil {
 			return nil, err
 		}
-		_, advisorSendChInterface := subAdvisor.GetChannels()
+		advisorRecvChInterface, advisorSendChInterface := subAdvisor.GetChannels()
+		advisorRecvCh := advisorRecvChInterface.(chan types.TriggerInfo)
 		advisorSendCh := advisorSendChInterface.(chan types.InternalMemoryCalculationResult)
-		return NewMemoryServer(advisorSendCh, nil, conf, metaCache, emitter)
+		return NewMemoryServer(advisorSendCh, advisorRecvCh, conf, metaCache, emitter)
 	default:
 		return nil, fmt.Errorf("illegal resource %v", resourceName)
 	}

@@ -84,8 +84,8 @@ func (m *unsupportedManager) GetIOCostModel(absCgroupPath string) (map[string]*c
 	return nil, fmt.Errorf("unsupported manager v1")
 }
 
-func (m *unsupportedManager) GetDeviceIOWeight(absCgroupPath string, devID string, weight uint64) error {
-	return nil, fmt.Errorf("unsupported manager v1")
+func (m *unsupportedManager) GetDeviceIOWeight(absCgroupPath string, devID string) (uint64, bool, error) {
+	return 0, false, fmt.Errorf("unsupported manager v1")
 }
 
 func (m *unsupportedManager) GetIOStat(absCgroupPath string) (map[string]map[string]string, error) {

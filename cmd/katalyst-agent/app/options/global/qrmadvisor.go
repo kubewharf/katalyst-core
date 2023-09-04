@@ -28,6 +28,7 @@ type QRMAdvisorOptions struct {
 	CPUPluginSocketAbsPath  string
 
 	MemoryAdvisorSocketAbsPath string
+	MemoryPluginSocketAbsPath  string
 }
 
 // NewQRMAdvisorOptions creates a new options with a default config
@@ -36,6 +37,7 @@ func NewQRMAdvisorOptions() *QRMAdvisorOptions {
 		CPUAdvisorSocketAbsPath:    "/var/lib/katalyst/qrm_advisor/cpu_advisor.sock",
 		CPUPluginSocketAbsPath:     "/var/lib/katalyst/qrm_advisor/cpu_plugin.sock",
 		MemoryAdvisorSocketAbsPath: "/var/lib/katalyst/qrm_advisor/memory_advisor.sock",
+		MemoryPluginSocketAbsPath:  "/var/lib/katalyst/qrm_advisor/memory_plugin.sock",
 	}
 }
 
@@ -46,6 +48,7 @@ func (o *QRMAdvisorOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 	fs.StringVar(&o.CPUAdvisorSocketAbsPath, "cpu-advisor-sock-abs-path", o.CPUAdvisorSocketAbsPath, "absolute path of socket file for cpu advisor served in sys-advisor")
 	fs.StringVar(&o.CPUPluginSocketAbsPath, "cpu-plugin-sock-abs-path", o.CPUPluginSocketAbsPath, "absolute path of socket file for cpu plugin to communicate with cpu advisor")
 	fs.StringVar(&o.MemoryAdvisorSocketAbsPath, "memory-advisor-sock-abs-path", o.MemoryAdvisorSocketAbsPath, "absolute path of socket file for memory advisor served in sys-advisor")
+	fs.StringVar(&o.MemoryPluginSocketAbsPath, "memory-plugin-sock-abs-path", o.MemoryPluginSocketAbsPath, "absolute path of socket file for cpu plugin to communicate with memory advisor")
 }
 
 // ApplyTo fills up config with options
@@ -53,5 +56,6 @@ func (o *QRMAdvisorOptions) ApplyTo(c *global.QRMAdvisorConfiguration) error {
 	c.CPUAdvisorSocketAbsPath = o.CPUAdvisorSocketAbsPath
 	c.CPUPluginSocketAbsPath = o.CPUPluginSocketAbsPath
 	c.MemoryAdvisorSocketAbsPath = o.MemoryAdvisorSocketAbsPath
+	c.MemoryPluginSocketAbsPath = o.MemoryPluginSocketAbsPath
 	return nil
 }

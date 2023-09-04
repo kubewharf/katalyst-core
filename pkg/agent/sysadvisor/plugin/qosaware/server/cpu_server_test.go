@@ -257,7 +257,7 @@ func TestCPUServerListAndWatch(t *testing.T) {
 				}},
 			infos: []*ContainerInfo{
 				{
-					request: &advisorsvc.AddContainerRequest{
+					request: &advisorsvc.ContainerMetadata{
 						PodUid:        "pod1",
 						ContainerName: "c1",
 						QosLevel:      consts.PodAnnotationQoSLevelSharedCores,
@@ -662,7 +662,7 @@ func TestCPUServerListAndWatch(t *testing.T) {
 				}},
 			infos: []*ContainerInfo{
 				{
-					request: &advisorsvc.AddContainerRequest{
+					request: &advisorsvc.ContainerMetadata{
 						PodUid:        "pod1",
 						ContainerName: "c1",
 						Annotations: map[string]string{
@@ -679,7 +679,7 @@ func TestCPUServerListAndWatch(t *testing.T) {
 					},
 				},
 				{
-					request: &advisorsvc.AddContainerRequest{
+					request: &advisorsvc.ContainerMetadata{
 						PodUid:        "pod1",
 						ContainerName: "c2",
 						Annotations: map[string]string{
@@ -696,7 +696,7 @@ func TestCPUServerListAndWatch(t *testing.T) {
 					},
 				},
 				{
-					request: &advisorsvc.AddContainerRequest{
+					request: &advisorsvc.ContainerMetadata{
 						PodUid:        "pod1",
 						ContainerName: "c3",
 						Annotations: map[string]string{

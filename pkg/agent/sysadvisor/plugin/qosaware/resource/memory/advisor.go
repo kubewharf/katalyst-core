@@ -71,6 +71,7 @@ type memoryResourceAdvisor struct {
 	metaServer *metaserver.MetaServer
 	emitter    metrics.MetricEmitter
 
+	recvCh   chan types.TriggerInfo
 	sendChan chan types.InternalMemoryCalculationResult
 }
 
@@ -86,6 +87,7 @@ func NewMemoryResourceAdvisor(conf *config.Configuration, extraConf interface{},
 		metaReader: metaCache,
 		metaServer: metaServer,
 		emitter:    emitter,
+		recvCh:     make(chan types.TriggerInfo, 1),
 		sendChan:   make(chan types.InternalMemoryCalculationResult, 1),
 	}
 
@@ -115,11 +117,15 @@ func NewMemoryResourceAdvisor(conf *config.Configuration, extraConf interface{},
 func (ra *memoryResourceAdvisor) Run(ctx context.Context) {
 	period := ra.conf.SysAdvisorPluginsConfiguration.QoSAwarePluginConfiguration.SyncPeriod
 
+	general.InfoS("wait to list containers")
+	<-ra.recvCh
+	general.InfoS("list containers successfully")
+
 	go wait.Until(ra.update, period, ctx.Done())
 }
 
 func (ra *memoryResourceAdvisor) GetChannels() (interface{}, interface{}) {
-	return nil, ra.sendChan
+	return ra.recvCh, ra.sendChan
 }
 
 func (ra *memoryResourceAdvisor) GetHeadroom() (resource.Quantity, error) {

@@ -17,7 +17,9 @@ limitations under the License.
 package server
 
 import (
+	"context"
 	"io/ioutil"
+	"net"
 	"reflect"
 	"testing"
 	"time"
@@ -25,6 +27,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
+	"k8s.io/apimachinery/pkg/util/sets"
 
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/options"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/advisorsvc"
@@ -58,6 +63,7 @@ func generateTestMemoryAdvisorConfiguration(t *testing.T) *config.Configuration 
 
 	conf.GenericSysAdvisorConfiguration.StateFileDirectory = tmpStateDir
 	conf.QRMAdvisorConfiguration.MemoryAdvisorSocketAbsPath = tmpMemoryAdvisorSocketDir + "-memory_advisor.sock"
+	conf.QRMAdvisorConfiguration.MemoryPluginSocketAbsPath = tmpMemoryAdvisorSocketDir + "-memory_plugin.sock"
 
 	return conf
 }
@@ -76,9 +82,82 @@ func newTestMemoryServer(t *testing.T) *memoryServer {
 	require.NoError(t, err)
 	require.NotNil(t, memoryServer)
 
-	memoryServer.getCheckpointCalled = true
+	memoryServer.listAndWatchCalled = true
 
 	return memoryServer
+}
+
+type MockQRMServiceServer struct {
+	containers []*advisorsvc.ContainerMetadata
+	listErr    error
+}
+
+func (ss *MockQRMServiceServer) ListContainers(context.Context, *advisorsvc.Empty) (*advisorsvc.ListContainersResponse, error) {
+	return &advisorsvc.ListContainersResponse{
+		Containers: ss.containers,
+	}, ss.listErr
+}
+
+func TestListContainers(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name           string
+		containers     []*advisorsvc.ContainerMetadata
+		listErr        error
+		wantContainers []*types.ContainerInfo
+	}{
+		{
+			name: "list container normal",
+			containers: []*advisorsvc.ContainerMetadata{
+				{
+					PodUid:        "pod1",
+					PodNamespace:  "ns1",
+					PodName:       "pod1",
+					ContainerName: "container1",
+				},
+			},
+			wantContainers: []*types.ContainerInfo{
+				{
+					PodUID:        "pod1",
+					PodNamespace:  "ns1",
+					PodName:       "pod1",
+					ContainerName: "container1",
+					RegionNames:   sets.NewString(),
+				},
+			},
+		},
+		{
+			name:    "list container not implement",
+			listErr: status.Errorf(codes.Unimplemented, ""),
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			serv := grpc.NewServer()
+
+			mockQRMServiceServer := &MockQRMServiceServer{containers: tt.containers, listErr: tt.listErr}
+			advisorsvc.RegisterQRMServiceServer(serv, mockQRMServiceServer)
+
+			ms := newTestMemoryServer(t)
+
+			lis, err := net.Listen("unix", ms.pluginSocketPath)
+			assert.NoError(t, err)
+			defer lis.Close()
+			go serv.Serve(lis)
+
+			err = ms.Start()
+			assert.NoError(t, err)
+
+			<-ms.sendCh
+
+			for _, ci := range tt.wantContainers {
+				c, ok := ms.metaCache.GetContainerInfo(ci.PodUID, ci.ContainerName)
+				assert.True(t, ok)
+				assert.Equal(t, ci, c)
+			}
+		})
+	}
 }
 
 func TestMemoryServerStartAndStop(t *testing.T) {
