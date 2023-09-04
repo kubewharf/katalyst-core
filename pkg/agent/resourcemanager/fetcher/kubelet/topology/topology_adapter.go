@@ -399,6 +399,10 @@ func (p *topologyAdapterImpl) getZoneAllocations(podList []*v1.Pod, podResources
 			continue
 		}
 
+		if native.PodIsTerminated(pod) {
+			continue
+		}
+
 		// the pod resource filter will filter out unwanted pods
 		if p.podResourcesFilter != nil {
 			podResources, err = p.podResourcesFilter(pod, podResources)
