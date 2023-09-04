@@ -98,14 +98,14 @@ func TestCPUServerAddContainer(t *testing.T) {
 
 	tests := []struct {
 		name              string
-		request           *advisorsvc.AddContainerRequest
+		request           *advisorsvc.ContainerMetadata
 		want              *advisorsvc.AddContainerResponse
 		wantErr           bool
 		wantContainerInfo *types.ContainerInfo
 	}{
 		{
 			name: "test1",
-			request: &advisorsvc.AddContainerRequest{
+			request: &advisorsvc.ContainerMetadata{
 				PodUid:          "testUID",
 				PodNamespace:    "testPodNamespace",
 				PodName:         "testPodName",
@@ -231,7 +231,7 @@ func TestCPUServerListAndWatch(t *testing.T) {
 	t.Parallel()
 
 	type ContainerInfo struct {
-		request        *advisorsvc.AddContainerRequest
+		request        *advisorsvc.ContainerMetadata
 		allocationInfo *cpuadvisor.AllocationInfo
 		isolated       bool
 		regions        sets.String
@@ -257,7 +257,7 @@ func TestCPUServerListAndWatch(t *testing.T) {
 				}},
 			infos: []*ContainerInfo{
 				{
-					request: &advisorsvc.AddContainerRequest{
+					request: &advisorsvc.ContainerMetadata{
 						PodUid:        "pod1",
 						ContainerName: "c1",
 						QosLevel:      consts.PodAnnotationQoSLevelSharedCores,
@@ -344,7 +344,7 @@ func TestCPUServerListAndWatch(t *testing.T) {
 				}},
 			infos: []*ContainerInfo{
 				{
-					request: &advisorsvc.AddContainerRequest{
+					request: &advisorsvc.ContainerMetadata{
 						PodUid:        "pod1",
 						ContainerName: "c1",
 						Annotations: map[string]string{
@@ -456,7 +456,7 @@ func TestCPUServerListAndWatch(t *testing.T) {
 				}},
 			infos: []*ContainerInfo{
 				{
-					request: &advisorsvc.AddContainerRequest{
+					request: &advisorsvc.ContainerMetadata{
 						PodUid:        "pod1",
 						ContainerName: "c1",
 						Annotations: map[string]string{
@@ -473,7 +473,7 @@ func TestCPUServerListAndWatch(t *testing.T) {
 					},
 				},
 				{
-					request: &advisorsvc.AddContainerRequest{
+					request: &advisorsvc.ContainerMetadata{
 						PodUid:        "pod1",
 						ContainerName: "c2",
 						Annotations: map[string]string{
@@ -662,7 +662,7 @@ func TestCPUServerListAndWatch(t *testing.T) {
 				}},
 			infos: []*ContainerInfo{
 				{
-					request: &advisorsvc.AddContainerRequest{
+					request: &advisorsvc.ContainerMetadata{
 						PodUid:        "pod1",
 						ContainerName: "c1",
 						Annotations: map[string]string{
@@ -679,7 +679,7 @@ func TestCPUServerListAndWatch(t *testing.T) {
 					},
 				},
 				{
-					request: &advisorsvc.AddContainerRequest{
+					request: &advisorsvc.ContainerMetadata{
 						PodUid:        "pod1",
 						ContainerName: "c2",
 						Annotations: map[string]string{
@@ -696,7 +696,7 @@ func TestCPUServerListAndWatch(t *testing.T) {
 					},
 				},
 				{
-					request: &advisorsvc.AddContainerRequest{
+					request: &advisorsvc.ContainerMetadata{
 						PodUid:        "pod1",
 						ContainerName: "c3",
 						Annotations: map[string]string{
