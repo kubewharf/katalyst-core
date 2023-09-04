@@ -17,10 +17,13 @@ limitations under the License.
 package server
 
 import (
+	"context"
 	"fmt"
 	"time"
 
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"k8s.io/klog/v2"
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/advisorsvc"
@@ -37,6 +40,7 @@ const (
 
 type memoryServer struct {
 	*baseServer
+	memoryPluginClient advisorsvc.QRMServiceClient
 }
 
 func NewMemoryServer(recvCh chan types.InternalMemoryCalculationResult, sendCh chan types.TriggerInfo, conf *config.Configuration,
@@ -52,6 +56,75 @@ func (ms *memoryServer) RegisterAdvisorServer() {
 	grpcServer := grpc.NewServer()
 	advisorsvc.RegisterAdvisorServiceServer(grpcServer, ms)
 	ms.grpcServer = grpcServer
+}
+
+func (ms *memoryServer) Start() error {
+	if err := ms.baseServer.Start(); err != nil {
+		return err
+	}
+
+	if err := ms.StartListContainers(); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func isUnimplementedError(err error) bool {
+	// Sources:
+	// https://github.com/grpc/grpc/blob/master/doc/statuscodes.md
+	// https://github.com/container-storage-interface/spec/blob/master/spec.md
+	st, ok := status.FromError(err)
+	if !ok {
+		// This is not gRPC error. The operation must have failed before gRPC
+		// method was called, otherwise we would get gRPC error.
+		// We don't know if any previous volume operation is in progress, be on the safe side.
+		return false
+	}
+	switch st.Code() {
+	case codes.Unimplemented:
+		return true
+	}
+	return false
+}
+
+func (ms *memoryServer) StartListContainers() error {
+	conn, err := ms.dial(ms.pluginSocketPath, ms.period)
+	if err != nil {
+		klog.ErrorS(err, "dial memory plugin failed", "memory plugin socket path", ms.pluginSocketPath)
+		goto unimplementedError
+	}
+
+	ms.memoryPluginClient = advisorsvc.NewQRMServiceClient(conn)
+
+	if err := ms.listContainers(); err != nil {
+		if isUnimplementedError(err) {
+			goto unimplementedError
+		}
+		return err
+	}
+	return nil
+
+unimplementedError:
+	go func() {
+		time.Sleep(time.Second * 30)
+		ms.sendCh <- types.TriggerInfo{TimeStamp: time.Now()}
+	}()
+	return nil
+}
+
+func (ms *memoryServer) listContainers() error {
+	resp, err := ms.memoryPluginClient.ListContainers(context.TODO(), &advisorsvc.Empty{})
+	if err != nil {
+		return err
+	}
+	for _, container := range resp.Containers {
+		if err := ms.addContainer(container); err != nil {
+			general.ErrorS(err, "add container failed", "podUID", container.PodUid, "containerName", container.ContainerName)
+		}
+	}
+	ms.sendCh <- types.TriggerInfo{TimeStamp: time.Now()}
+	return nil
 }
 
 func (ms *memoryServer) ListAndWatch(_ *advisorsvc.Empty, server advisorsvc.AdvisorService_ListAndWatchServer) error {

@@ -29,7 +29,7 @@ import (
 )
 
 const (
-	defaultQoSAwareSyncPeriod = 5
+	defaultQoSAwareSyncPeriod = 5 * time.Second
 )
 
 // QoSAwarePluginOptions holds the configurations for qos aware plugin.
@@ -44,7 +44,7 @@ type QoSAwarePluginOptions struct {
 // NewQoSAwarePluginOptions creates a new Options with a default config.
 func NewQoSAwarePluginOptions() *QoSAwarePluginOptions {
 	return &QoSAwarePluginOptions{
-		SyncPeriod:              defaultQoSAwareSyncPeriod * time.Second,
+		SyncPeriod:              defaultQoSAwareSyncPeriod,
 		ResourceAdvisorOptions:  resource.NewResourceAdvisorOptions(),
 		QRMServerOptions:        server.NewQRMServerOptions(),
 		HeadroomReporterOptions: reporter.NewHeadroomReporterOptions(),
