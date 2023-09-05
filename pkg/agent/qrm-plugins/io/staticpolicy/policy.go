@@ -30,7 +30,6 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util"
 	"github.com/kubewharf/katalyst-core/pkg/agent/utilcomponent/periodicalhandler"
 	"github.com/kubewharf/katalyst-core/pkg/config"
-	"github.com/kubewharf/katalyst-core/pkg/config/generic"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
@@ -48,14 +47,13 @@ type StaticPolicy struct {
 	name       string
 	stopCh     chan struct{}
 	started    bool
-	qosConfig  *generic.QoSConfiguration
 	emitter    metrics.MetricEmitter
 	metaServer *metaserver.MetaServer
 	agentCtx   *agent.GenericContext
 }
 
 // NewStaticPolicy returns a static io policy
-func NewStaticPolicy(agentCtx *agent.GenericContext, conf *config.Configuration,
+func NewStaticPolicy(agentCtx *agent.GenericContext, _ *config.Configuration,
 	_ interface{}, agentName string) (bool, agent.Component, error) {
 	wrappedEmitter := agentCtx.EmitterPool.GetDefaultMetricsEmitter().WithTags(agentName, metrics.MetricTag{
 		Key: util.QRMPluginPolicyTagName,
@@ -63,7 +61,6 @@ func NewStaticPolicy(agentCtx *agent.GenericContext, conf *config.Configuration,
 	})
 
 	policyImplement := &StaticPolicy{
-		qosConfig:  conf.QoSConfiguration,
 		emitter:    wrappedEmitter,
 		metaServer: agentCtx.MetaServer,
 		agentCtx:   agentCtx,
