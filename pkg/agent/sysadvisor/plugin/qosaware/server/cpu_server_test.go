@@ -608,6 +608,335 @@ func TestCPUServerListAndWatch(t *testing.T) {
 				},
 			},
 		},
+		{
+			name:  "reclaim pool colocated with dedicated pod(3 containers)",
+			empty: &advisorsvc.Empty{},
+			provision: types.InternalCPUCalculationResult{
+				TimeStamp: time.Now(),
+				PoolEntries: map[string]map[int]int{
+					state.PoolNameReclaim: {
+						0: 4,
+						1: 8,
+					},
+				}},
+			infos: []*ContainerInfo{
+				{
+					request: &advisorsvc.AddContainerRequest{
+						PodUid:        "pod1",
+						ContainerName: "c1",
+						Annotations: map[string]string{
+							consts.PodAnnotationMemoryEnhancementNumaBinding: consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
+						},
+						QosLevel: consts.PodAnnotationQoSLevelDedicatedCores,
+					},
+					allocationInfo: &cpuadvisor.AllocationInfo{
+						OwnerPoolName: state.PoolNameDedicated,
+						TopologyAwareAssignments: map[uint64]string{
+							0: "0-3",
+							1: "24-47",
+						},
+					},
+				},
+				{
+					request: &advisorsvc.AddContainerRequest{
+						PodUid:        "pod1",
+						ContainerName: "c2",
+						Annotations: map[string]string{
+							consts.PodAnnotationMemoryEnhancementNumaBinding: consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
+						},
+						QosLevel: consts.PodAnnotationQoSLevelDedicatedCores,
+					},
+					allocationInfo: &cpuadvisor.AllocationInfo{
+						OwnerPoolName: state.PoolNameDedicated,
+						TopologyAwareAssignments: map[uint64]string{
+							0: "0-3",
+							1: "24-47",
+						},
+					},
+				},
+				{
+					request: &advisorsvc.AddContainerRequest{
+						PodUid:        "pod1",
+						ContainerName: "c3",
+						Annotations: map[string]string{
+							consts.PodAnnotationMemoryEnhancementNumaBinding: consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
+						},
+						QosLevel: consts.PodAnnotationQoSLevelDedicatedCores,
+					},
+					allocationInfo: &cpuadvisor.AllocationInfo{
+						OwnerPoolName: state.PoolNameDedicated,
+						TopologyAwareAssignments: map[uint64]string{
+							0: "0-3",
+							1: "24-47",
+						},
+					},
+				},
+			},
+			wantErr: false,
+			wantRes: &cpuadvisor.ListAndWatchResponse{
+				Entries: map[string]*cpuadvisor.CalculationEntries{
+					state.PoolNameReclaim: {
+						Entries: map[string]*cpuadvisor.CalculationInfo{
+							"": {
+								OwnerPoolName: state.PoolNameReclaim,
+								CalculationResultsByNumas: map[int64]*cpuadvisor.NumaCalculationResult{
+									0: {
+										Blocks: []*cpuadvisor.Block{
+											{
+												Result: 4,
+												OverlapTargets: []*cpuadvisor.OverlapTarget{
+													{
+														OverlapTargetPodUid:        "pod1",
+														OverlapTargetContainerName: "c1",
+														OverlapType:                cpuadvisor.OverlapType_OverlapWithPod,
+													},
+													{
+														OverlapTargetPodUid:        "pod1",
+														OverlapTargetContainerName: "c2",
+														OverlapType:                cpuadvisor.OverlapType_OverlapWithPod,
+													},
+													{
+														OverlapTargetPodUid:        "pod1",
+														OverlapTargetContainerName: "c3",
+														OverlapType:                cpuadvisor.OverlapType_OverlapWithPod,
+													},
+												},
+											},
+										},
+									},
+									1: {
+										Blocks: []*cpuadvisor.Block{
+											{
+												Result: 8,
+												OverlapTargets: []*cpuadvisor.OverlapTarget{
+													{
+														OverlapTargetPodUid:        "pod1",
+														OverlapTargetContainerName: "c1",
+														OverlapType:                cpuadvisor.OverlapType_OverlapWithPod,
+													},
+													{
+														OverlapTargetPodUid:        "pod1",
+														OverlapTargetContainerName: "c2",
+														OverlapType:                cpuadvisor.OverlapType_OverlapWithPod,
+													},
+													{
+														OverlapTargetPodUid:        "pod1",
+														OverlapTargetContainerName: "c3",
+														OverlapType:                cpuadvisor.OverlapType_OverlapWithPod,
+													},
+												},
+											},
+										},
+									},
+								},
+							},
+						},
+					},
+					"pod1": {
+						Entries: map[string]*cpuadvisor.CalculationInfo{
+							"c1": {
+								OwnerPoolName: state.PoolNameDedicated,
+								CalculationResultsByNumas: map[int64]*cpuadvisor.NumaCalculationResult{
+									0: {
+										Blocks: []*cpuadvisor.Block{
+											{
+												Result: 4,
+												OverlapTargets: []*cpuadvisor.OverlapTarget{
+													{
+														OverlapTargetPodUid:        "pod1",
+														OverlapTargetContainerName: "c2",
+														OverlapType:                cpuadvisor.OverlapType_OverlapWithPod,
+													},
+													{
+														OverlapTargetPodUid:        "pod1",
+														OverlapTargetContainerName: "c3",
+														OverlapType:                cpuadvisor.OverlapType_OverlapWithPod,
+													},
+													{
+														OverlapTargetPoolName: state.PoolNameReclaim,
+														OverlapType:           cpuadvisor.OverlapType_OverlapWithPool,
+													},
+												},
+											},
+										},
+									},
+									1: {
+										Blocks: []*cpuadvisor.Block{
+											{
+												Result: 16,
+												OverlapTargets: []*cpuadvisor.OverlapTarget{
+													{
+														OverlapTargetPodUid:        "pod1",
+														OverlapTargetContainerName: "c2",
+														OverlapType:                cpuadvisor.OverlapType_OverlapWithPod,
+													},
+													{
+														OverlapTargetPodUid:        "pod1",
+														OverlapTargetContainerName: "c3",
+														OverlapType:                cpuadvisor.OverlapType_OverlapWithPod,
+													},
+												},
+											},
+											{
+												Result: 8,
+												OverlapTargets: []*cpuadvisor.OverlapTarget{
+													{
+														OverlapTargetPodUid:        "pod1",
+														OverlapTargetContainerName: "c2",
+														OverlapType:                cpuadvisor.OverlapType_OverlapWithPod,
+													},
+													{
+														OverlapTargetPodUid:        "pod1",
+														OverlapTargetContainerName: "c3",
+														OverlapType:                cpuadvisor.OverlapType_OverlapWithPod,
+													},
+													{
+														OverlapTargetPoolName: state.PoolNameReclaim,
+														OverlapType:           cpuadvisor.OverlapType_OverlapWithPool,
+													},
+												},
+											},
+										},
+									},
+								},
+							},
+							"c2": {
+								OwnerPoolName: state.PoolNameDedicated,
+								CalculationResultsByNumas: map[int64]*cpuadvisor.NumaCalculationResult{
+									0: {
+										Blocks: []*cpuadvisor.Block{
+											{
+												Result: 4,
+												OverlapTargets: []*cpuadvisor.OverlapTarget{
+													{
+														OverlapTargetPodUid:        "pod1",
+														OverlapTargetContainerName: "c1",
+														OverlapType:                cpuadvisor.OverlapType_OverlapWithPod,
+													},
+													{
+														OverlapTargetPodUid:        "pod1",
+														OverlapTargetContainerName: "c3",
+														OverlapType:                cpuadvisor.OverlapType_OverlapWithPod,
+													},
+													{
+														OverlapTargetPoolName: state.PoolNameReclaim,
+														OverlapType:           cpuadvisor.OverlapType_OverlapWithPool,
+													},
+												},
+											},
+										},
+									},
+									1: {
+										Blocks: []*cpuadvisor.Block{
+											{
+												Result: 16,
+												OverlapTargets: []*cpuadvisor.OverlapTarget{
+													{
+														OverlapTargetPodUid:        "pod1",
+														OverlapTargetContainerName: "c1",
+														OverlapType:                cpuadvisor.OverlapType_OverlapWithPod,
+													},
+													{
+														OverlapTargetPodUid:        "pod1",
+														OverlapTargetContainerName: "c3",
+														OverlapType:                cpuadvisor.OverlapType_OverlapWithPod,
+													},
+												},
+											},
+											{
+												Result: 8,
+												OverlapTargets: []*cpuadvisor.OverlapTarget{
+													{
+														OverlapTargetPodUid:        "pod1",
+														OverlapTargetContainerName: "c1",
+														OverlapType:                cpuadvisor.OverlapType_OverlapWithPod,
+													},
+													{
+														OverlapTargetPodUid:        "pod1",
+														OverlapTargetContainerName: "c3",
+														OverlapType:                cpuadvisor.OverlapType_OverlapWithPod,
+													},
+													{
+														OverlapTargetPoolName: state.PoolNameReclaim,
+														OverlapType:           cpuadvisor.OverlapType_OverlapWithPool,
+													},
+												},
+											},
+										},
+									},
+								},
+							},
+							"c3": {
+								OwnerPoolName: state.PoolNameDedicated,
+								CalculationResultsByNumas: map[int64]*cpuadvisor.NumaCalculationResult{
+									0: {
+										Blocks: []*cpuadvisor.Block{
+											{
+												Result: 4,
+												OverlapTargets: []*cpuadvisor.OverlapTarget{
+													{
+														OverlapTargetPodUid:        "pod1",
+														OverlapTargetContainerName: "c1",
+														OverlapType:                cpuadvisor.OverlapType_OverlapWithPod,
+													},
+													{
+														OverlapTargetPodUid:        "pod1",
+														OverlapTargetContainerName: "c2",
+														OverlapType:                cpuadvisor.OverlapType_OverlapWithPod,
+													},
+													{
+														OverlapTargetPoolName: state.PoolNameReclaim,
+														OverlapType:           cpuadvisor.OverlapType_OverlapWithPool,
+													},
+												},
+											},
+										},
+									},
+									1: {
+										Blocks: []*cpuadvisor.Block{
+											{
+												Result: 16,
+												OverlapTargets: []*cpuadvisor.OverlapTarget{
+													{
+														OverlapTargetPodUid:        "pod1",
+														OverlapTargetContainerName: "c1",
+														OverlapType:                cpuadvisor.OverlapType_OverlapWithPod,
+													},
+													{
+														OverlapTargetPodUid:        "pod1",
+														OverlapTargetContainerName: "c2",
+														OverlapType:                cpuadvisor.OverlapType_OverlapWithPod,
+													},
+												},
+											},
+											{
+												Result: 8,
+												OverlapTargets: []*cpuadvisor.OverlapTarget{
+													{
+														OverlapTargetPodUid:        "pod1",
+														OverlapTargetContainerName: "c1",
+														OverlapType:                cpuadvisor.OverlapType_OverlapWithPod,
+													},
+													{
+														OverlapTargetPodUid:        "pod1",
+														OverlapTargetContainerName: "c2",
+														OverlapType:                cpuadvisor.OverlapType_OverlapWithPod,
+													},
+													{
+														OverlapTargetPoolName: state.PoolNameReclaim,
+														OverlapType:           cpuadvisor.OverlapType_OverlapWithPool,
+													},
+												},
+											},
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
