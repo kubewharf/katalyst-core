@@ -291,14 +291,15 @@ func (cs *cpuServer) assemblePodEntries(calculationEntriesMap map[string]*cpuadv
 			// in this case, reuse the same blocks as the last container.
 			// i.e. sidecar container will always follow up with the main container.
 			if podEntries, ok := calculationEntriesMap[podUID]; ok {
-				for _, entry := range podEntries.Entries {
-					if result, ok := entry.CalculationResultsByNumas[int64(numaID)]; ok {
+				for _, containerEntry := range podEntries.Entries {
+					if result, ok := containerEntry.CalculationResultsByNumas[int64(numaID)]; ok {
 						for _, block := range result.Blocks {
 							newBlock := NewBlock(block.Result, block.BlockId)
 							newInnerBlock := NewInnerBlock(newBlock, int64(numaID), "", ci, numaCalculationResult)
 							numaCalculationResult.Blocks = append(numaCalculationResult.Blocks, newBlock)
 							newInnerBlock.join(block.BlockId, bs)
 						}
+						break
 					}
 				}
 			} else {
