@@ -73,6 +73,8 @@ func makeTestGenericContext(t *testing.T) *agent.GenericContext {
 }
 
 func TestNewStaticPolicy(t *testing.T) {
+	t.Parallel()
+
 	agentCtx := makeTestGenericContext(t)
 	conf := generateTestConfiguration(t)
 
@@ -118,6 +120,8 @@ func TestNewStaticPolicy(t *testing.T) {
 }
 
 func TestStaticPolicy_Start(t *testing.T) {
+	t.Parallel()
+
 	type fields struct {
 		name       string
 		stopCh     chan struct{}
@@ -162,6 +166,8 @@ func TestStaticPolicy_Start(t *testing.T) {
 }
 
 func TestStaticPolicy_Stop(t *testing.T) {
+	t.Parallel()
+
 	type fields struct {
 		name       string
 		stopCh     chan struct{}
@@ -206,6 +212,8 @@ func TestStaticPolicy_Stop(t *testing.T) {
 }
 
 func TestStaticPolicy_Name(t *testing.T) {
+	t.Parallel()
+
 	type fields struct {
 		name       string
 		stopCh     chan struct{}
@@ -250,6 +258,8 @@ func TestStaticPolicy_Name(t *testing.T) {
 }
 
 func TestStaticPolicy_ResourceName(t *testing.T) {
+	t.Parallel()
+
 	type fields struct {
 		name       string
 		stopCh     chan struct{}
@@ -294,6 +304,8 @@ func TestStaticPolicy_ResourceName(t *testing.T) {
 }
 
 func TestStaticPolicy_GetTopologyHints(t *testing.T) {
+	t.Parallel()
+
 	type fields struct {
 		name       string
 		stopCh     chan struct{}
@@ -354,6 +366,8 @@ func TestStaticPolicy_GetTopologyHints(t *testing.T) {
 }
 
 func TestStaticPolicy_RemovePod(t *testing.T) {
+	t.Parallel()
+
 	type fields struct {
 		name       string
 		stopCh     chan struct{}
@@ -414,6 +428,8 @@ func TestStaticPolicy_RemovePod(t *testing.T) {
 }
 
 func TestStaticPolicy_GetResourcesAllocation(t *testing.T) {
+	t.Parallel()
+
 	type fields struct {
 		name       string
 		stopCh     chan struct{}
@@ -474,6 +490,8 @@ func TestStaticPolicy_GetResourcesAllocation(t *testing.T) {
 }
 
 func TestStaticPolicy_GetTopologyAwareResources(t *testing.T) {
+	t.Parallel()
+
 	type fields struct {
 		name       string
 		stopCh     chan struct{}
@@ -534,6 +552,8 @@ func TestStaticPolicy_GetTopologyAwareResources(t *testing.T) {
 }
 
 func TestStaticPolicy_GetTopologyAwareAllocatableResources(t *testing.T) {
+	t.Parallel()
+
 	type fields struct {
 		name       string
 		stopCh     chan struct{}
@@ -594,6 +614,8 @@ func TestStaticPolicy_GetTopologyAwareAllocatableResources(t *testing.T) {
 }
 
 func TestStaticPolicy_GetResourcePluginOptions(t *testing.T) {
+	t.Parallel()
+
 	type fields struct {
 		name       string
 		stopCh     chan struct{}
@@ -658,6 +680,8 @@ func TestStaticPolicy_GetResourcePluginOptions(t *testing.T) {
 }
 
 func TestStaticPolicy_Allocate(t *testing.T) {
+	t.Parallel()
+
 	type fields struct {
 		name       string
 		stopCh     chan struct{}
@@ -726,6 +750,8 @@ func TestStaticPolicy_Allocate(t *testing.T) {
 }
 
 func TestStaticPolicy_PreStartContainer(t *testing.T) {
+	t.Parallel()
+
 	type fields struct {
 		name       string
 		stopCh     chan struct{}
