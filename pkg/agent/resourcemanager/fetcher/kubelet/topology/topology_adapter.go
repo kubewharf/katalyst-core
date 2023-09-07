@@ -149,8 +149,13 @@ func (p *topologyAdapterImpl) GetTopologyZones(parentCtx context.Context) ([]*no
 		return nil, errors.Wrap(err, "validate pod Resources server response failed")
 	}
 
+	podResources := listPodResourcesResponse.GetPodResources()
+	if len(podResources) == 0 {
+		return nil, errors.Errorf("list pod resources response is empty")
+	}
+
 	// filter already allocated pods
-	podResourcesList := filterAllocatedPodResourcesList(listPodResourcesResponse.GetPodResources())
+	podResourcesList := filterAllocatedPodResourcesList(podResources)
 
 	// get numa Allocations by pod Resources
 	zoneAllocations, err := p.getZoneAllocations(podList, podResourcesList)
