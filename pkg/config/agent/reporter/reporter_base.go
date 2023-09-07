@@ -31,6 +31,9 @@ type GenericReporterConfiguration struct {
 	InnerPlugins []string
 
 	RefreshLatestCNRPeriod time.Duration
+
+	// DefaultCNRLabels is the labels for CNR created by reporter
+	DefaultCNRLabels map[string]string
 }
 
 type ReporterPluginsConfiguration struct {

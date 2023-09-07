@@ -320,7 +320,7 @@ func (cl *CNRLifecycle) updateOrCreateCNR(node *corev1.Node) error {
 	}
 
 	newCNR := cnr.DeepCopy()
-	newCNR.Labels = node.Labels
+	newCNR.Labels = general.MergeMap(newCNR.Labels, node.Labels)
 	setCNROwnerReference(newCNR, node)
 	if apiequality.Semantic.DeepEqual(newCNR, cnr) {
 		return nil
