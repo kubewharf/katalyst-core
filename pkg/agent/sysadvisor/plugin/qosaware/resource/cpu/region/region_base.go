@@ -33,6 +33,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
+	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
@@ -395,6 +396,8 @@ func (r *QoSRegionBase) initHeadroomPolicy(conf *config.Configuration, extraConf
 				policy:              policy,
 				internalPolicyState: internalPolicyState{updateStatus: types.PolicyUpdateFailed},
 			})
+		} else {
+			general.InfoS("failed to find headroom policy", "policyName", policyName, "region", r.regionType)
 		}
 	}
 }
