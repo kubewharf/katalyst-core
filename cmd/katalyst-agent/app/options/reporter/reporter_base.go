@@ -36,6 +36,7 @@ type GenericReporterOptions struct {
 	CollectInterval        time.Duration
 	InnerPlugins           []string
 	RefreshLatestCNRPeriod time.Duration
+	DefaultCNRLabels       map[string]string
 }
 
 // NewGenericReporterOptions creates a new Options with a default config.
@@ -44,6 +45,7 @@ func NewGenericReporterOptions() *GenericReporterOptions {
 		InnerPlugins:           []string{"*"},
 		CollectInterval:        defaultCollectInterval,
 		RefreshLatestCNRPeriod: defaultRefreshLatestCNRPeriod,
+		DefaultCNRLabels:       make(map[string]string),
 	}
 }
 
@@ -59,6 +61,8 @@ func (o *GenericReporterOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 	fs.StringSliceVar(&o.InnerPlugins, "reporter-plugins", o.InnerPlugins, fmt.Sprintf(""+
 		"A list of reporter plugins to enable. '*' enables all on-by-default reporter plugins, 'foo' enables the reporter plugin "+
 		"named 'foo', '-foo' disables the reporter plugin named 'foo'"))
+	fs.StringToStringVar(&o.DefaultCNRLabels, "default-cnr-labels", o.DefaultCNRLabels,
+		"the default labels of cnr created by agent, this config must be consistent with the label-selector in katalyst-controller.")
 }
 
 // ApplyTo fills up config with options
@@ -66,6 +70,7 @@ func (o *GenericReporterOptions) ApplyTo(c *reporterconfig.GenericReporterConfig
 	c.CollectInterval = o.CollectInterval
 	c.InnerPlugins = o.InnerPlugins
 	c.RefreshLatestCNRPeriod = o.RefreshLatestCNRPeriod
+	c.DefaultCNRLabels = o.DefaultCNRLabels
 	return nil
 }
 
