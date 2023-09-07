@@ -61,6 +61,8 @@ const (
 type cnrReporterImpl struct {
 	cnrName string
 
+	// defaultLabels contains the default config for CNR created by reporter
+	defaultLabels map[string]string
 	// latestUpdatedCNR is used as an in-memory cache for CNR;
 	// whenever CNR info is needed, get from this cache firstly
 	latestUpdatedCNR *nodev1alpha1.CustomNodeResource
@@ -83,6 +85,7 @@ func NewCNRReporter(genericClient *client.GenericClientSet, metaServer *metaserv
 	c := &cnrReporterImpl{
 		cnrName:                conf.NodeName,
 		refreshLatestCNRPeriod: conf.RefreshLatestCNRPeriod,
+		defaultLabels:          conf.DefaultCNRLabels,
 		notifiers:              make(map[string]metaservercnr.CNRNotifier),
 		emitter:                emitter,
 		client:                 genericClient.InternalClient,
@@ -337,7 +340,8 @@ func (c *cnrReporterImpl) resetCNRIfNeeded(err error) bool {
 func (c *cnrReporterImpl) defaultCNR() *nodev1alpha1.CustomNodeResource {
 	return &nodev1alpha1.CustomNodeResource{
 		ObjectMeta: metav1.ObjectMeta{
-			Name: c.cnrName,
+			Name:   c.cnrName,
+			Labels: c.defaultLabels,
 		},
 	}
 }
