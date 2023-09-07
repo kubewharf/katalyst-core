@@ -233,6 +233,8 @@ func TestCPUServerListAndWatch(t *testing.T) {
 	type ContainerInfo struct {
 		request        *advisorsvc.AddContainerRequest
 		allocationInfo *cpuadvisor.AllocationInfo
+		isolated       bool
+		regions        sets.String
 	}
 
 	tests := []struct {
@@ -249,9 +251,24 @@ func TestCPUServerListAndWatch(t *testing.T) {
 			provision: types.InternalCPUCalculationResult{
 				TimeStamp: time.Now(),
 				PoolEntries: map[string]map[int]int{
-					state.PoolNameShare:   {-1: 2},
-					state.PoolNameReclaim: {-1: 4},
+					state.PoolNameShare:                       {-1: 2},
+					state.PoolNameReclaim:                     {-1: 4},
+					state.PoolNamePrefixIsolation + "-test-1": {-1: 4},
 				}},
+			infos: []*ContainerInfo{
+				{
+					request: &advisorsvc.AddContainerRequest{
+						PodUid:        "pod1",
+						ContainerName: "c1",
+						QosLevel:      consts.PodAnnotationQoSLevelSharedCores,
+					},
+					allocationInfo: &cpuadvisor.AllocationInfo{
+						OwnerPoolName: state.PoolNameShare,
+					},
+					isolated: true,
+					regions:  sets.NewString(state.PoolNamePrefixIsolation + "-test-1"),
+				},
+			},
 			wantErr: false,
 			wantRes: &cpuadvisor.ListAndWatchResponse{
 				Entries: map[string]*cpuadvisor.CalculationEntries{
@@ -284,6 +301,30 @@ func TestCPUServerListAndWatch(t *testing.T) {
 										},
 									},
 								},
+							},
+						},
+					},
+					state.PoolNamePrefixIsolation + "-test-1": {
+						Entries: map[string]*cpuadvisor.CalculationInfo{
+							"": {
+								OwnerPoolName: state.PoolNamePrefixIsolation + "-test-1",
+								CalculationResultsByNumas: map[int64]*cpuadvisor.NumaCalculationResult{
+									-1: {
+										Blocks: []*cpuadvisor.Block{
+											{
+												Result: 4,
+											},
+										},
+									},
+								},
+							},
+						},
+					},
+
+					"pod1": {
+						Entries: map[string]*cpuadvisor.CalculationInfo{
+							"c1": {
+								OwnerPoolName: state.PoolNamePrefixIsolation + "-test-1",
 							},
 						},
 					},
@@ -616,6 +657,13 @@ func TestCPUServerListAndWatch(t *testing.T) {
 			for _, info := range tt.infos {
 				assert.NoError(t, cs.addContainer(info.request))
 				assert.NoError(t, cs.updateContainerInfo(info.request.PodUid, info.request.ContainerName, info.allocationInfo))
+
+				nodeInfo, _ := cs.metaCache.GetContainerInfo(info.request.PodUid, info.request.ContainerName)
+				nodeInfo.Isolated = info.isolated
+				if info.regions.Len() > 0 {
+					nodeInfo.RegionNames = info.regions
+				}
+				assert.NoError(t, cs.metaCache.SetContainerInfo(info.request.PodUid, info.request.ContainerName, nodeInfo))
 			}
 			stop := make(chan struct{})
 			go func() {
@@ -632,7 +680,7 @@ func TestCPUServerListAndWatch(t *testing.T) {
 			copyres, err := DeepCopyResponse(res)
 			assert.NoError(t, err)
 			if !reflect.DeepEqual(copyres, tt.wantRes) {
-				t.Errorf("ListAndWatch()\ngot = %+v, \nwant= %+v", res, tt.wantRes)
+				t.Errorf("ListAndWatch()\ngot = %+v, \nwant= %+v", copyres, tt.wantRes)
 			}
 		})
 	}
