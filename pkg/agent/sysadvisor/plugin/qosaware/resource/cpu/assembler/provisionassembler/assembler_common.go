@@ -119,16 +119,17 @@ func (pa *ProvisionAssemblerCommon) AssembleProvision() (types.InternalCPUCalcul
 		}
 	}
 
-	klog.Infof("[qosaware-cpu] share size: %v", sharePoolSizes)
-	klog.Infof("[qosaware-cpu] isolate upper-size: %v", isolationUpperSizes)
-	klog.Infof("[qosaware-cpu] isolate lower-size: %v", isolationLowerSizes)
-
 	shareAndIsolatedPoolAvailable := getNumasAvailableResource(*pa.numaAvailable, *pa.nonBindingNumas)
 	shareAndIsolatePoolSizes := general.MergeMapInt(sharePoolSizes, isolationUpperSizes)
 	if shares+isolationUppers > shareAndIsolatedPoolAvailable {
 		shareAndIsolatePoolSizes = general.MergeMapInt(sharePoolSizes, isolationLowerSizes)
 	}
 	boundUpper := regulatePoolSizes(shareAndIsolatePoolSizes, shareAndIsolatedPoolAvailable, enableReclaim)
+
+	klog.InfoS("pool sizes", "share size", sharePoolSizes,
+		"isolate upper-size", isolationUpperSizes, "isolate lower-size", isolationLowerSizes,
+		"shareAndIsolatePoolSizes", shareAndIsolatePoolSizes,
+		"shareAndIsolatedPoolAvailable", shareAndIsolatedPoolAvailable)
 
 	// fill in regulated share-and-isolated pool entries
 	for poolName, poolSize := range shareAndIsolatePoolSizes {
