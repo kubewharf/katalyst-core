@@ -48,6 +48,7 @@ func NewMemoryServer(recvCh chan types.InternalMemoryCalculationResult, sendCh c
 	ms := &memoryServer{}
 	ms.baseServer = newBaseServer(memoryServerName, conf, recvCh, sendCh, metaCache, emitter, ms)
 	ms.advisorSocketPath = conf.MemoryAdvisorSocketAbsPath
+	ms.pluginSocketPath = conf.MemoryPluginSocketAbsPath
 	ms.resourceRequestName = "MemoryRequest"
 	return ms, nil
 }
