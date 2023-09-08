@@ -114,17 +114,6 @@ func (nc *NodeOvercommitController) updateNode(old, new interface{}) {
 	nc.enqueueNode(newNode)
 }
 
-func (nc *NodeOvercommitController) deleteNode(obj interface{}) {
-	node, ok := obj.(*v1.Node)
-	if !ok {
-		klog.Errorf("cannot convert obj to *v1.Node: %v", obj)
-		return
-	}
-
-	klog.V(4).Infof("[noc] notice deletion of Node %s", node.Name)
-	nc.enqueueNode(node)
-}
-
 func (nc *NodeOvercommitController) enqueueNodeOvercommitConfig(noc *v1alpha1.NodeOvercommitConfig, eventType eventType) {
 	if noc == nil {
 		klog.Warning("[noc] trying to enqueue a nil config")
