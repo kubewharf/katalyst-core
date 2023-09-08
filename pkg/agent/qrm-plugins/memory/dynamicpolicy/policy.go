@@ -47,6 +47,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 	"github.com/kubewharf/katalyst-core/pkg/util/native"
+	"github.com/kubewharf/katalyst-core/pkg/util/process"
 	"github.com/kubewharf/katalyst-core/pkg/util/timemonitor"
 )
 
@@ -124,6 +125,7 @@ type DynamicPolicy struct {
 	enableSettingMemoryMigrate bool
 	enableMemoryAdvisor        bool
 	memoryAdvisorSocketAbsPath string
+	memoryPluginSocketAbsPath  string
 }
 
 func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration,
@@ -177,6 +179,7 @@ func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration
 		enableSettingMemoryMigrate: conf.EnableSettingMemoryMigrate,
 		enableMemoryAdvisor:        conf.EnableMemoryAdvisor,
 		memoryAdvisorSocketAbsPath: conf.MemoryAdvisorSocketAbsPath,
+		memoryPluginSocketAbsPath:  conf.MemoryPluginSocketAbsPath,
 		extraControlKnobConfigs:    extraControlKnobConfigs, // [TODO]: support modifying extraControlKnobConfigs by KCC
 	}
 
@@ -258,7 +261,20 @@ func (p *DynamicPolicy) Start() (err error) {
 		return
 	}
 
+	go wait.BackoffUntil(func() { p.serveForAdvisor(p.stopCh) }, wait.NewExponentialBackoffManager(
+		800*time.Millisecond, 30*time.Second, 2*time.Minute, 2.0, 0, &clock.RealClock{}), true, p.stopCh)
+
 	communicateWithMemoryAdvisorServer := func() {
+		general.Infof("waiting memory plugin checkpoint server serving confirmation")
+		if conn, err := process.Dial(p.memoryPluginSocketAbsPath, 5*time.Second); err != nil {
+			general.Errorf("dial check at socket: %s failed with err: %v", p.memoryPluginSocketAbsPath, err)
+			return
+		} else {
+			_ = conn.Close()
+		}
+		general.Infof("memory plugin checkpoint server serving confirmed")
+
+		// keep compatible to old version sys advisor not supporting list containers from memory plugin
 		err = p.pushMemoryAdvisor()
 		if err != nil {
 			general.Errorf("sync existing containers to memory advisor failed with error: %v", err)
