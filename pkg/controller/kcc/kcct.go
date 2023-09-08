@@ -101,6 +101,7 @@ func NewKatalystCustomConfigTargetController(
 		targetHandler:              targetHandler,
 		syncedFunc: []cache.InformerSynced{
 			katalystCustomConfigInformer.Informer().HasSynced,
+			targetHandler.HasSynced,
 		},
 	}
 

@@ -98,6 +98,7 @@ func NewCustomNodeConfigController(
 		customNodeConfigSyncQueue: workqueue.NewNamedRateLimitingQueue(workqueue.DefaultControllerRateLimiter(), cncControllerName),
 		syncedFunc: []cache.InformerSynced{
 			customNodeConfigInformer.Informer().HasSynced,
+			targetHandler.HasSynced,
 		},
 	}
 
