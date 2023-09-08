@@ -19,9 +19,13 @@ package dynamicpolicy
 import (
 	"context"
 	"fmt"
+	"net"
+	"os"
+	"path"
 	"strconv"
 	"time"
 
+	"google.golang.org/grpc"
 	"google.golang.org/grpc/status"
 	v1 "k8s.io/api/core/v1"
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
@@ -407,4 +411,94 @@ func handleAdvisorCPUSetMems(
 		})...)
 
 	return nil
+}
+
+// serveForAdvisor starts a server for memory-advisor (as a client) to connect with
+func (p *DynamicPolicy) serveForAdvisor(stopCh <-chan struct{}) {
+	memoryPluginSocketDir := path.Dir(p.memoryPluginSocketAbsPath)
+
+	err := general.EnsureDirectory(memoryPluginSocketDir)
+	if err != nil {
+		general.Errorf("ensure memoryPluginSocketDir: %s failed with error: %v", memoryPluginSocketDir, err)
+		return
+	}
+
+	general.Infof("ensure memoryPluginSocketDir: %s successfully", memoryPluginSocketDir)
+	if err := os.Remove(p.memoryPluginSocketAbsPath); err != nil && !os.IsNotExist(err) {
+		general.Errorf("failed to remove %s: %v", p.memoryPluginSocketAbsPath, err)
+		return
+	}
+
+	sock, err := net.Listen("unix", p.memoryPluginSocketAbsPath)
+	if err != nil {
+		general.Errorf("listen at socket: %s failed with err: %v", p.memoryPluginSocketAbsPath, err)
+		return
+	}
+	general.Infof("listen at: %s successfully", p.memoryPluginSocketAbsPath)
+
+	grpcServer := grpc.NewServer()
+	advisorsvc.RegisterQRMServiceServer(grpcServer, p)
+
+	exitCh := make(chan struct{})
+	go func() {
+		general.Infof("starting memory plugin checkpoint grpc server at socket: %s", p.memoryPluginSocketAbsPath)
+		if err := grpcServer.Serve(sock); err != nil {
+			general.Errorf("memory plugin checkpoint grpc server crashed with error: %v at socket: %s", err, p.memoryPluginSocketAbsPath)
+		} else {
+			general.Infof("memory plugin checkpoint grpc server at socket: %s exists normally", p.memoryPluginSocketAbsPath)
+		}
+
+		exitCh <- struct{}{}
+	}()
+
+	if conn, err := process.Dial(p.memoryPluginSocketAbsPath, 5*time.Second); err != nil {
+		grpcServer.Stop()
+		general.Errorf("dial check at socket: %s failed with err: %v", p.memoryPluginSocketAbsPath, err)
+	} else {
+		_ = conn.Close()
+	}
+
+	select {
+	case <-exitCh:
+		return
+	case <-stopCh:
+		grpcServer.Stop()
+		return
+	}
+}
+
+func (p *DynamicPolicy) ListContainers(context.Context, *advisorsvc.Empty) (*advisorsvc.ListContainersResponse, error) {
+	general.Infof("called")
+
+	resp := &advisorsvc.ListContainersResponse{}
+
+	podEntries := p.state.GetPodResourceEntries()[v1.ResourceMemory]
+	for _, entries := range podEntries {
+		for _, allocationInfo := range entries {
+			if allocationInfo == nil {
+				continue
+			}
+
+			containerType, found := pluginapi.ContainerType_value[allocationInfo.ContainerType]
+			if !found {
+				return nil, fmt.Errorf("sync pod: %s/%s, container: %s to memory advisor failed with error: containerType: %s not found",
+					allocationInfo.PodNamespace, allocationInfo.PodName,
+					allocationInfo.ContainerName, allocationInfo.ContainerType)
+			}
+
+			resp.Containers = append(resp.Containers, &advisorsvc.ContainerMetadata{
+				PodUid:         allocationInfo.PodUid,
+				PodNamespace:   allocationInfo.PodNamespace,
+				PodName:        allocationInfo.PodName,
+				ContainerName:  allocationInfo.ContainerName,
+				ContainerType:  pluginapi.ContainerType(containerType),
+				ContainerIndex: allocationInfo.ContainerIndex,
+				Labels:         maputil.CopySS(allocationInfo.Labels),
+				Annotations:    maputil.CopySS(allocationInfo.Annotations),
+				QosLevel:       allocationInfo.QoSLevel,
+			})
+		}
+	}
+
+	return resp, nil
 }
