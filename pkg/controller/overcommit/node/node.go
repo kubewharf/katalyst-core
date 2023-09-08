@@ -80,6 +80,18 @@ func NewNodeOvercommitController(
 
 	nodeInformer := controlCtx.KubeInformerFactory.Core().V1().Nodes()
 	nodeOvercommitInformer := controlCtx.InternalInformerFactory.Overcommit().V1alpha1().NodeOvercommitConfigs()
+	err := nodeOvercommitInformer.Informer().AddIndexers(cache.Indexers{
+		matcher.LabelSelectorValIndex: func(obj interface{}) ([]string, error) {
+			noc, ok := obj.(*configv1alpha1.NodeOvercommitConfig)
+			if !ok {
+				return []string{}, nil
+			}
+			return []string{noc.Spec.NodeOvercommitSelectorVal}, nil
+		},
+	})
+	if err != nil {
+		return nil, err
+	}
 	genericClient := controlCtx.Client
 
 	nodeOvercommitConfigController := &NodeOvercommitController{
@@ -105,7 +117,7 @@ func NewNodeOvercommitController(
 	}
 
 	if !genericConf.DryRun {
-		nodeOvercommitConfigController.matcher = matcher.NewMatcher(nodeOvercommitConfigController, nodeOvercommitConfigController)
+		nodeOvercommitConfigController.matcher = matcher.NewMatcher(nodeInformer.Lister(), nodeOvercommitInformer.Lister(), nodeOvercommitInformer.Informer().GetIndexer())
 		nodeOvercommitConfigController.nodeUpdater = control.NewRealNodeUpdater(genericClient.KubeClient)
 		nodeOvercommitConfigController.nocUpdater = control.NewRealNocUpdater(genericClient.InternalClient)
 	}
@@ -226,7 +238,6 @@ func (nc *NodeOvercommitController) processNextEvent() bool {
 	case nodeEvent:
 		err = nc.syncNodeEvent(event.nodeKey)
 	case configEvent:
-		//
 		err = nc.syncConfigEvent(event.configKey)
 	default:
 		nc.nocSyncQueue.Forget(key)
@@ -330,9 +341,13 @@ func (nc *NodeOvercommitController) syncNode(key string) error {
 		return err
 	}
 
-	nc.matcher.MatchNode(name)
+	config, err := nc.matcher.MatchNode(name)
+	if err != nil {
+		klog.Errorf("matchNode %v fail: %v", name, err)
+		return err
+	}
 
-	return nc.setNodeOvercommitAnnotations(name)
+	return nc.setNodeOvercommitAnnotationsWithConfig(name, config)
 }
 
 func (nc *NodeOvercommitController) patchNodeOvercommitConfigStatus(configName string) error {
@@ -359,6 +374,11 @@ func (nc *NodeOvercommitController) patchNodeOvercommitConfigStatus(configName s
 }
 
 func (nc *NodeOvercommitController) setNodeOvercommitAnnotations(nodeName string) error {
+	config := nc.matcher.GetConfig(nodeName)
+	return nc.setNodeOvercommitAnnotationsWithConfig(nodeName, config)
+}
+
+func (nc *NodeOvercommitController) setNodeOvercommitAnnotationsWithConfig(nodeName string, config *configv1alpha1.NodeOvercommitConfig) error {
 	node, err := nc.nodeLister.Get(nodeName)
 	if err != nil {
 		klog.Errorf("get node %s fail: %v", nodeName, err)
@@ -374,13 +394,8 @@ func (nc *NodeOvercommitController) setNodeOvercommitAnnotations(nodeName string
 	var (
 		nodeOvercommitConfig = emptyOvercommitConfig()
 	)
-	config := nc.matcher.GetConfig(nodeName)
 	if config != nil {
-		nodeOvercommitConfig, err = nc.nodeOvercommitLister.Get(config.Name)
-		if err != nil {
-			klog.Errorf("get nodeOvercommitConfig %s fail: %v", config.Name, err)
-			return err
-		}
+		nodeOvercommitConfig = config
 	}
 	for resourceName, annotationKey := range resourceAnnotationKey {
 		c, ok := nodeOvercommitConfig.Spec.ResourceOvercommitRatioConfig[resourceName]
@@ -398,22 +413,6 @@ func (nc *NodeOvercommitController) setNodeOvercommitAnnotations(nodeName string
 	nodeCopy.Annotations = nodeAnnotations
 
 	return nc.nodeUpdater.PatchNode(nc.ctx, node, nodeCopy)
-}
-
-func (nc *NodeOvercommitController) GetNode(nodeName string) (*corev1.Node, error) {
-	return nc.nodeLister.Get(nodeName)
-}
-
-func (nc *NodeOvercommitController) ListNode(selector labels.Selector) ([]*corev1.Node, error) {
-	return nc.nodeLister.List(selector)
-}
-
-func (nc *NodeOvercommitController) GetNoc(name string) (*configv1alpha1.NodeOvercommitConfig, error) {
-	return nc.nodeOvercommitLister.Get(name)
-}
-
-func (nc *NodeOvercommitController) ListNoc() ([]*configv1alpha1.NodeOvercommitConfig, error) {
-	return nc.nodeOvercommitLister.List(labels.Everything())
 }
 
 func emptyOvercommitConfig() *configv1alpha1.NodeOvercommitConfig {

@@ -39,7 +39,8 @@ import (
 func makeNoc(name string, cpuOvercommitRatio, memoryOvercommitRatio string) *v1alpha1.NodeOvercommitConfig {
 	return &v1alpha1.NodeOvercommitConfig{
 		ObjectMeta: metav1.ObjectMeta{
-			Name: name,
+			Name:              name,
+			CreationTimestamp: metav1.NewTime(time.Now()),
 		},
 		Spec: v1alpha1.NodeOvercommitConfigSpec{
 			ResourceOvercommitRatioConfig: map[corev1.ResourceName]string{
@@ -50,17 +51,9 @@ func makeNoc(name string, cpuOvercommitRatio, memoryOvercommitRatio string) *v1a
 	}
 }
 
-func makeSelectorNoc(name string, cpuOvercommitRatio, memoryOvercommitRatio string, labels map[string]string) *v1alpha1.NodeOvercommitConfig {
+func makeSelectorNoc(name string, cpuOvercommitRatio, memoryOvercommitRatio string, value string) *v1alpha1.NodeOvercommitConfig {
 	c := makeNoc(name, cpuOvercommitRatio, memoryOvercommitRatio)
-	c.Spec.Selector = &metav1.LabelSelector{
-		MatchLabels: labels,
-	}
-	return c
-}
-
-func makeNodeListNoc(name string, cpuOvercommitRatio, memoryOvercommitRatio string, nodeList []string) *v1alpha1.NodeOvercommitConfig {
-	c := makeNoc(name, cpuOvercommitRatio, memoryOvercommitRatio)
-	c.Spec.NodeList = nodeList
+	c.Spec.NodeOvercommitSelectorVal = value
 	return c
 }
 
@@ -97,98 +90,19 @@ var defaultInitNodes = func() []*corev1.Node {
 
 var testCases = []testCase{
 	{
-		name:      "init: null config, add: default config",
+		name:      "init: null config, add: config without selector",
 		initNodes: defaultInitNodes,
 		addConfigs: []*v1alpha1.NodeOvercommitConfig{
-			makeNoc("config1-default", "1", "1"),
+			makeNoc("config", "1", "1"),
 		},
-		result: map[string]map[string]string{
-			"node1": {consts.NodeAnnotationCPUOvercommitRatioKey: "1", consts.NodeAnnotationMemoryOvercommitRatioKey: "1"},
-			"node2": {consts.NodeAnnotationCPUOvercommitRatioKey: "1", consts.NodeAnnotationMemoryOvercommitRatioKey: "1"},
-			"node3": {consts.NodeAnnotationCPUOvercommitRatioKey: "1", consts.NodeAnnotationMemoryOvercommitRatioKey: "1"},
-			"node4": {consts.NodeAnnotationCPUOvercommitRatioKey: "1", consts.NodeAnnotationMemoryOvercommitRatioKey: "1"},
-		},
+		result: map[string]map[string]string{},
 	},
 	{
-		name:      "init: null config, add: default / selector / nodelist config",
+		name:      "init: null config, add: selector config",
 		initNodes: defaultInitNodes,
 		addConfigs: []*v1alpha1.NodeOvercommitConfig{
-			makeNoc("config1-default", "1", "1"),
-			makeSelectorNoc("config2-selector", "2", "1", map[string]string{consts.NodeOvercommitSelectorKey: "pool1"}),
-			makeNodeListNoc("config3-nodelist", "4", "2", []string{"node1", "node2"}),
+			makeSelectorNoc("config-selector", "2", "1", "pool1"),
 		},
-		result: map[string]map[string]string{
-			"node1": {consts.NodeAnnotationCPUOvercommitRatioKey: "4", consts.NodeAnnotationMemoryOvercommitRatioKey: "2"},
-			"node2": {consts.NodeAnnotationCPUOvercommitRatioKey: "4", consts.NodeAnnotationMemoryOvercommitRatioKey: "2"},
-			"node3": {consts.NodeAnnotationCPUOvercommitRatioKey: "2", consts.NodeAnnotationMemoryOvercommitRatioKey: "1"},
-			"node4": {consts.NodeAnnotationCPUOvercommitRatioKey: "1", consts.NodeAnnotationMemoryOvercommitRatioKey: "1"},
-		},
-	},
-	{
-		name:      "update selector / nodelist config",
-		initNodes: defaultInitNodes,
-		initConfigs: []*v1alpha1.NodeOvercommitConfig{
-			makeNoc("config1-default", "1", "1"),
-			makeSelectorNoc("config2-selector", "2", "1", map[string]string{consts.NodeOvercommitSelectorKey: "pool1"}),
-			makeNodeListNoc("config3-nodelist", "4", "2", []string{"node1", "node2"}),
-		},
-		updateConfigs: []*v1alpha1.NodeOvercommitConfig{
-			makeSelectorNoc("config2-selector", "2", "1", map[string]string{consts.NodeOvercommitSelectorKey: "pool2"}),
-			makeNodeListNoc("config3-nodelist", "4", "2", []string{"node1", "node4"}),
-		},
-		result: map[string]map[string]string{
-			"node1": {consts.NodeAnnotationCPUOvercommitRatioKey: "4", consts.NodeAnnotationMemoryOvercommitRatioKey: "2"},
-			"node2": {consts.NodeAnnotationCPUOvercommitRatioKey: "2", consts.NodeAnnotationMemoryOvercommitRatioKey: "1"},
-			"node3": {consts.NodeAnnotationCPUOvercommitRatioKey: "1", consts.NodeAnnotationMemoryOvercommitRatioKey: "1"},
-			"node4": {consts.NodeAnnotationCPUOvercommitRatioKey: "4", consts.NodeAnnotationMemoryOvercommitRatioKey: "2"},
-		},
-	},
-	{
-		name:      "only update config resource",
-		initNodes: defaultInitNodes,
-		initConfigs: []*v1alpha1.NodeOvercommitConfig{
-			makeNoc("config1-default", "1", "1"),
-			makeSelectorNoc("config2-selector", "2", "1", map[string]string{consts.NodeOvercommitSelectorKey: "pool1"}),
-			makeNodeListNoc("config3-nodelist", "4", "2", []string{"node1", "node2"}),
-		},
-		updateConfigs: []*v1alpha1.NodeOvercommitConfig{
-			makeSelectorNoc("config2-selector", "3", "1", map[string]string{consts.NodeOvercommitSelectorKey: "pool1"}),
-		},
-		result: map[string]map[string]string{
-			"node1": {consts.NodeAnnotationCPUOvercommitRatioKey: "4", consts.NodeAnnotationMemoryOvercommitRatioKey: "2"},
-			"node2": {consts.NodeAnnotationCPUOvercommitRatioKey: "4", consts.NodeAnnotationMemoryOvercommitRatioKey: "2"},
-			"node3": {consts.NodeAnnotationCPUOvercommitRatioKey: "3", consts.NodeAnnotationMemoryOvercommitRatioKey: "1"},
-			"node4": {consts.NodeAnnotationCPUOvercommitRatioKey: "1", consts.NodeAnnotationMemoryOvercommitRatioKey: "1"},
-		},
-	},
-	{
-		name:      "update node label",
-		initNodes: defaultInitNodes,
-		initConfigs: []*v1alpha1.NodeOvercommitConfig{
-			makeNoc("config1-default", "1", "1"),
-			makeSelectorNoc("config2-selector", "2", "1", map[string]string{consts.NodeOvercommitSelectorKey: "pool1"}),
-			makeNodeListNoc("config3-nodelist", "4", "2", []string{"node1", "node2"}),
-		},
-		updateNodes: []*corev1.Node{
-			makeNode("node3", map[string]string{consts.NodeOvercommitSelectorKey: "pool2"}),
-			makeNode("node4", map[string]string{consts.NodeOvercommitSelectorKey: "pool1"}),
-		},
-		result: map[string]map[string]string{
-			"node1": {consts.NodeAnnotationCPUOvercommitRatioKey: "4", consts.NodeAnnotationMemoryOvercommitRatioKey: "2"},
-			"node2": {consts.NodeAnnotationCPUOvercommitRatioKey: "4", consts.NodeAnnotationMemoryOvercommitRatioKey: "2"},
-			"node3": {consts.NodeAnnotationCPUOvercommitRatioKey: "1", consts.NodeAnnotationMemoryOvercommitRatioKey: "1"},
-			"node4": {consts.NodeAnnotationCPUOvercommitRatioKey: "2", consts.NodeAnnotationMemoryOvercommitRatioKey: "1"},
-		},
-	},
-	{
-		name:      "delete config",
-		initNodes: defaultInitNodes,
-		initConfigs: []*v1alpha1.NodeOvercommitConfig{
-			makeNoc("config1-default", "1", "1"),
-			makeSelectorNoc("config2-selector", "2", "1", map[string]string{consts.NodeOvercommitSelectorKey: "pool1"}),
-			makeNodeListNoc("config3-nodelist", "4", "2", []string{"node1", "node2"}),
-		},
-		deleteConfigs: []string{"config3-nodelist"},
 		result: map[string]map[string]string{
 			"node1": {consts.NodeAnnotationCPUOvercommitRatioKey: "2", consts.NodeAnnotationMemoryOvercommitRatioKey: "1"},
 			"node2": {consts.NodeAnnotationCPUOvercommitRatioKey: "1", consts.NodeAnnotationMemoryOvercommitRatioKey: "1"},
@@ -197,48 +111,78 @@ var testCases = []testCase{
 		},
 	},
 	{
-		name:      "delete node",
+		name:      "update selector / nodelist config",
 		initNodes: defaultInitNodes,
 		initConfigs: []*v1alpha1.NodeOvercommitConfig{
-			makeNoc("config1-default", "1", "1"),
-			makeSelectorNoc("config2-selector", "2", "1", map[string]string{consts.NodeOvercommitSelectorKey: "pool1"}),
-			makeNodeListNoc("config3-nodelist", "4", "2", []string{"node1", "node2"}),
+			makeSelectorNoc("config-selector", "2", "1", "pool1"),
 		},
-		deleteNodes: []string{"node1"},
+		updateConfigs: []*v1alpha1.NodeOvercommitConfig{
+			makeSelectorNoc("config-selector", "2", "1", "pool2"),
+		},
 		result: map[string]map[string]string{
-			"node2": {consts.NodeAnnotationCPUOvercommitRatioKey: "4", consts.NodeAnnotationMemoryOvercommitRatioKey: "2"},
-			"node3": {consts.NodeAnnotationCPUOvercommitRatioKey: "2", consts.NodeAnnotationMemoryOvercommitRatioKey: "1"},
+			"node1": {consts.NodeAnnotationCPUOvercommitRatioKey: "1", consts.NodeAnnotationMemoryOvercommitRatioKey: "1"},
+			"node2": {consts.NodeAnnotationCPUOvercommitRatioKey: "2", consts.NodeAnnotationMemoryOvercommitRatioKey: "1"},
+			"node3": {consts.NodeAnnotationCPUOvercommitRatioKey: "1", consts.NodeAnnotationMemoryOvercommitRatioKey: "1"},
 			"node4": {consts.NodeAnnotationCPUOvercommitRatioKey: "1", consts.NodeAnnotationMemoryOvercommitRatioKey: "1"},
 		},
 	},
 	{
-		name:      "delete default config",
+		name:      "only update config resource",
 		initNodes: defaultInitNodes,
 		initConfigs: []*v1alpha1.NodeOvercommitConfig{
-			makeNoc("config1-default", "1.5", "1.5"),
-			makeSelectorNoc("config2-selector", "2", "1", map[string]string{consts.NodeOvercommitSelectorKey: "pool1"}),
-			makeNodeListNoc("config3-nodelist", "4", "2", []string{"node1", "node2"}),
+			makeSelectorNoc("config-selector", "2", "1", "pool1"),
 		},
-		deleteConfigs: []string{"config1-default"},
+		updateConfigs: []*v1alpha1.NodeOvercommitConfig{
+			makeSelectorNoc("config-selector", "3", "1", "pool1"),
+		},
 		result: map[string]map[string]string{
-			"node1": {consts.NodeAnnotationCPUOvercommitRatioKey: "4", consts.NodeAnnotationMemoryOvercommitRatioKey: "2"},
-			"node2": {consts.NodeAnnotationCPUOvercommitRatioKey: "4", consts.NodeAnnotationMemoryOvercommitRatioKey: "2"},
-			"node3": {consts.NodeAnnotationCPUOvercommitRatioKey: "2", consts.NodeAnnotationMemoryOvercommitRatioKey: "1"},
+			"node1": {consts.NodeAnnotationCPUOvercommitRatioKey: "3", consts.NodeAnnotationMemoryOvercommitRatioKey: "1"},
+			"node2": {consts.NodeAnnotationCPUOvercommitRatioKey: "1", consts.NodeAnnotationMemoryOvercommitRatioKey: "1"},
+			"node3": {consts.NodeAnnotationCPUOvercommitRatioKey: "3", consts.NodeAnnotationMemoryOvercommitRatioKey: "1"},
 			"node4": {consts.NodeAnnotationCPUOvercommitRatioKey: "1", consts.NodeAnnotationMemoryOvercommitRatioKey: "1"},
 		},
 	},
 	{
-		name:      "delete selector / nodelist without default config",
+		name:      "update node label",
 		initNodes: defaultInitNodes,
 		initConfigs: []*v1alpha1.NodeOvercommitConfig{
-			makeSelectorNoc("config2-selector", "2", "1", map[string]string{consts.NodeOvercommitSelectorKey: "pool1"}),
-			makeNodeListNoc("config3-nodelist", "4", "2", []string{"node1", "node2"}),
+			makeSelectorNoc("config-selector", "2", "1", "pool1"),
 		},
-		deleteConfigs: []string{"config2-selector", "config3-nodelist"},
+		updateNodes: []*corev1.Node{
+			makeNode("node3", map[string]string{consts.NodeOvercommitSelectorKey: "pool2"}),
+			makeNode("node4", map[string]string{consts.NodeOvercommitSelectorKey: "pool1"}),
+		},
+		result: map[string]map[string]string{
+			"node1": {consts.NodeAnnotationCPUOvercommitRatioKey: "2", consts.NodeAnnotationMemoryOvercommitRatioKey: "1"},
+			"node2": {consts.NodeAnnotationCPUOvercommitRatioKey: "1", consts.NodeAnnotationMemoryOvercommitRatioKey: "1"},
+			"node3": {consts.NodeAnnotationCPUOvercommitRatioKey: "1", consts.NodeAnnotationMemoryOvercommitRatioKey: "1"},
+			"node4": {consts.NodeAnnotationCPUOvercommitRatioKey: "2", consts.NodeAnnotationMemoryOvercommitRatioKey: "1"},
+		},
+	},
+	{
+		name:      "delete config",
+		initNodes: defaultInitNodes,
+		initConfigs: []*v1alpha1.NodeOvercommitConfig{
+			makeSelectorNoc("config-selector", "2", "1", "pool1"),
+		},
+		deleteConfigs: []string{"config-selector"},
 		result: map[string]map[string]string{
 			"node1": {consts.NodeAnnotationCPUOvercommitRatioKey: "1", consts.NodeAnnotationMemoryOvercommitRatioKey: "1"},
 			"node2": {consts.NodeAnnotationCPUOvercommitRatioKey: "1", consts.NodeAnnotationMemoryOvercommitRatioKey: "1"},
 			"node3": {consts.NodeAnnotationCPUOvercommitRatioKey: "1", consts.NodeAnnotationMemoryOvercommitRatioKey: "1"},
+			"node4": {consts.NodeAnnotationCPUOvercommitRatioKey: "1", consts.NodeAnnotationMemoryOvercommitRatioKey: "1"},
+		},
+	},
+	{
+		name:      "delete node",
+		initNodes: defaultInitNodes,
+		initConfigs: []*v1alpha1.NodeOvercommitConfig{
+			makeSelectorNoc("config2-selector", "2", "1", "pool1"),
+		},
+		deleteNodes: []string{"node1"},
+		result: map[string]map[string]string{
+			"node2": {consts.NodeAnnotationCPUOvercommitRatioKey: "1", consts.NodeAnnotationMemoryOvercommitRatioKey: "1"},
+			"node3": {consts.NodeAnnotationCPUOvercommitRatioKey: "2", consts.NodeAnnotationMemoryOvercommitRatioKey: "1"},
 			"node4": {consts.NodeAnnotationCPUOvercommitRatioKey: "1", consts.NodeAnnotationMemoryOvercommitRatioKey: "1"},
 		},
 	},
@@ -388,6 +332,11 @@ func TestRun(t *testing.T) {
 				for k, v := range annotations {
 					node, err := nocController.nodeLister.Get(nodeName)
 					assert.NoError(t, err)
+					if v == "1" {
+						if _, ok := node.Annotations[k]; ok {
+							assert.Equal(t, v, node.Annotations[k])
+						}
+					}
 					assert.Equal(t, v, node.Annotations[k], fmt.Sprintf("node: %v, k: %v, v: %v, actual: %v", nodeName, k, v, node.Annotations[k]))
 				}
 			}

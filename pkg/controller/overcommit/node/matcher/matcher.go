@@ -19,22 +19,27 @@ package matcher
 import (
 	"context"
 	"fmt"
-	"sort"
 	"sync"
 
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/selection"
 	"k8s.io/apimachinery/pkg/util/sets"
+	corelisters "k8s.io/client-go/listers/core/v1"
+	"k8s.io/client-go/tools/cache"
 	"k8s.io/klog/v2"
 
 	"github.com/kubewharf/katalyst-api/pkg/apis/overcommit/v1alpha1"
+	overcommitlisters "github.com/kubewharf/katalyst-api/pkg/client/listers/overcommit/v1alpha1"
+	"github.com/kubewharf/katalyst-api/pkg/consts"
 )
+
+const LabelSelectorValIndex = "spec.nodeOvercommitSelectorVal"
 
 type (
 	ConfigToNodes map[string]sets.String
-	NodeToConfig  map[string][]*v1alpha1.NodeOvercommitConfig
+	NodeToConfig  map[string]*v1alpha1.NodeOvercommitConfig
 )
 
 type Matcher interface {
@@ -44,27 +49,15 @@ type Matcher interface {
 	// MatchConfig matches nodes for config, return nodeNames whose matched config maybe updated.
 	MatchConfig(configName string) ([]string, error)
 	// MatchNode matches and sorts configs for node.
-	MatchNode(nodeName string)
-	// GetConfig get valid config by nodeName
+	MatchNode(nodeName string) (*v1alpha1.NodeOvercommitConfig, error)
+	// ListNodeToConfig list nodes with matched configName
+	ListNodeToConfig() map[string]string
+	// GetConfigs get matched config by nodeName
 	GetConfig(nodeName string) *v1alpha1.NodeOvercommitConfig
-	// GetNodeToConfig get matched and sorted configList by nodeName
-	GetNodeToConfig(nodeName string) []*v1alpha1.NodeOvercommitConfig
-	// ListNodeToConfig list nodes with all matched configNames
-	ListNodeToConfig() map[string][]string
 	// GetNodes get matched nodes by configName
 	GetNodes(configName string) []string
 	// DelNode delete node in matcher cache
 	DelNode(nodeName string)
-}
-
-type NodeIndexer interface {
-	GetNode(nodeName string) (*v1.Node, error)
-	ListNode(selector labels.Selector) ([]*v1.Node, error)
-}
-
-type NocIndexer interface {
-	GetNoc(name string) (*v1alpha1.NodeOvercommitConfig, error)
-	ListNoc() ([]*v1alpha1.NodeOvercommitConfig, error)
 }
 
 type NodeMatchEvent struct {
@@ -78,39 +71,40 @@ func (dm *DummyMatcher) Reconcile() error {
 	return nil
 }
 
-func (dm *DummyMatcher) MatchConfig(configName string) ([]string, error) {
+func (dm *DummyMatcher) MatchConfig(_ string) ([]string, error) {
 	return []string{}, nil
 }
 
-func (dm *DummyMatcher) MatchNode(nodeName string) {
-	return
+func (dm *DummyMatcher) MatchNode(_ string) (*v1alpha1.NodeOvercommitConfig, error) {
+	return nil, nil
 }
 
-func (dm *DummyMatcher) GetConfig(nodeName string) *v1alpha1.NodeOvercommitConfig {
+func (dm *DummyMatcher) GetConfig(_ string) *v1alpha1.NodeOvercommitConfig {
 	return nil
 }
 
-func (dm *DummyMatcher) DelNode(nodeName string) {}
+func (dm *DummyMatcher) DelNode(_ string) {}
 
-func (dm *DummyMatcher) GetNodeToConfig(nodeName string) []*v1alpha1.NodeOvercommitConfig {
+func (dm *DummyMatcher) GetNodeToConfig(_ string) *v1alpha1.NodeOvercommitConfig {
 	return nil
 }
 
-func (dm *DummyMatcher) ListNodeToConfig() map[string][]string {
+func (dm *DummyMatcher) ListNodeToConfig() map[string]string {
 	return nil
 }
 
-func (dm *DummyMatcher) GetNodes(configName string) []string {
+func (dm *DummyMatcher) GetNodes(_ string) []string {
 	return nil
 }
 
-func NewMatcher(nodeIndexer NodeIndexer, nocIndexer NocIndexer) *MatcherImpl {
+func NewMatcher(nodelister corelisters.NodeLister, noclister overcommitlisters.NodeOvercommitConfigLister, indexer cache.Indexer) *MatcherImpl {
 	return &MatcherImpl{
 		RWMutex:       sync.RWMutex{},
-		nodeIndexer:   nodeIndexer,
-		nocIndexer:    nocIndexer,
+		nodeLister:    nodelister,
+		nocLister:     noclister,
+		nocIndexer:    indexer,
 		configToNodes: make(map[string]sets.String),
-		nodeToConfig:  make(map[string][]*v1alpha1.NodeOvercommitConfig),
+		nodeToConfig:  make(map[string]*v1alpha1.NodeOvercommitConfig),
 	}
 }
 
@@ -118,9 +112,10 @@ type MatcherImpl struct {
 	ctx context.Context
 	sync.RWMutex
 
-	nodeIndexer NodeIndexer
-	nocIndexer  NocIndexer
+	nodeLister corelisters.NodeLister
+	nocLister  overcommitlisters.NodeOvercommitConfigLister
 
+	nocIndexer    cache.Indexer
 	configToNodes ConfigToNodes
 	nodeToConfig  NodeToConfig
 }
@@ -131,11 +126,11 @@ func (i *MatcherImpl) Reconcile() error {
 		return err
 	}
 
-	return i.reconcoleNode()
+	return i.reconcileNode()
 }
 
 func (i *MatcherImpl) reconcileConfig() error {
-	nodeOvercommitConfigs, err := i.nocIndexer.ListNoc()
+	nodeOvercommitConfigs, err := i.nocLister.List(labels.Everything())
 	if err != nil {
 		klog.Errorf("list nodeOvercommitConfig fail: %v", err)
 		return err
@@ -155,15 +150,10 @@ func (i *MatcherImpl) reconcileConfig() error {
 	return nil
 }
 
-func (i *MatcherImpl) reconcoleNode() error {
-	nodeList, err := i.nodeIndexer.ListNode(labels.Everything())
+func (i *MatcherImpl) reconcileNode() error {
+	nodeList, err := i.nodeLister.List(labels.Everything())
 	if err != nil {
 		klog.Errorf("list node fail: %v", err)
-		return err
-	}
-	nodeOvercommitConfigs, err := i.nocIndexer.ListNoc()
-	if err != nil {
-		klog.Errorf("list nodeOvercommitConfig fail: %v", err)
 		return err
 	}
 
@@ -171,32 +161,12 @@ func (i *MatcherImpl) reconcoleNode() error {
 	defer i.Unlock()
 
 	for _, node := range nodeList {
-		configList := NocList{}
-		for _, config := range nodeOvercommitConfigs {
-			if i.configToNodes[config.Name].Has(node.Name) {
-				configList = append(configList, config)
-			}
-		}
-
-		if configList.Len() <= 0 {
-			delete(i.nodeToConfig, node.Name)
-		} else {
-			sort.Sort(configList)
-			i.nodeToConfig[node.Name] = configList
+		_, err := i.matchNode(node)
+		if err != nil {
+			klog.Errorf("matchNode %v fail: %v", node.Name, err)
 		}
 	}
-
 	return nil
-}
-
-func (i *MatcherImpl) GetConfig(nodeName string) *v1alpha1.NodeOvercommitConfig {
-	i.RLock()
-	defer i.RUnlock()
-	configs := i.nodeToConfig[nodeName]
-	if len(configs) == 0 {
-		return nil
-	}
-	return configs[0]
 }
 
 func (i *MatcherImpl) MatchConfig(configName string) ([]string, error) {
@@ -219,37 +189,47 @@ func (i *MatcherImpl) MatchConfig(configName string) ([]string, error) {
 	return nodeUnionSets.UnsortedList(), nil
 }
 
-func (i *MatcherImpl) MatchNode(nodeName string) {
-	var (
-		configList = NocList{}
-		err        error
-		config     *v1alpha1.NodeOvercommitConfig
-	)
-
-	i.RLock()
-	for configName, nodeSet := range i.configToNodes {
-		if nodeSet.Has(nodeName) {
-			config, err = i.nocIndexer.GetNoc(configName)
-			if err != nil {
-				klog.Errorf("get nodeOvercommitConfig %s fail: %v", configName, err)
-				continue
-			}
-			configList = append(configList, config)
+func (i *MatcherImpl) MatchNode(nodeName string) (*v1alpha1.NodeOvercommitConfig, error) {
+	node, err := i.nodeLister.Get(nodeName)
+	if err != nil {
+		if errors.IsNotFound(err) {
+			klog.Errorf("node %v has been deleted", nodeName)
+			i.Lock()
+			delete(i.nodeToConfig, nodeName)
+			i.Unlock()
+			return nil, nil
 		}
+		klog.Errorf("getnode %v fail, err: %v", nodeName, err)
+		return nil, err
 	}
-	i.RUnlock()
-
-	sort.Sort(configList)
 
 	i.Lock()
 	defer i.Unlock()
-	if configList.Len() <= 0 {
-		delete(i.nodeToConfig, nodeName)
-		return
-	}
+	return i.matchNode(node)
+}
 
-	i.nodeToConfig[nodeName] = configList
-	return
+func (i *MatcherImpl) matchNode(node *v1.Node) (*v1alpha1.NodeOvercommitConfig, error) {
+	nodeName := node.Name
+	if len(node.Labels) == 0 {
+		delete(i.nodeToConfig, nodeName)
+		return nil, nil
+	}
+	val, ok := node.Labels[consts.NodeOvercommitSelectorKey]
+	if !ok {
+		klog.Warningf("node %s has no label %s", nodeName, consts.NodeOvercommitSelectorKey)
+		delete(i.nodeToConfig, nodeName)
+		return nil, nil
+	}
+	config, err := GetValidNodeOvercommitConfig(i.nocIndexer, val)
+	if err != nil {
+		return nil, err
+	}
+	if config == nil {
+		delete(i.nodeToConfig, nodeName)
+		return nil, nil
+	}
+	i.nodeToConfig[nodeName] = config
+	return config, nil
 }
 
 func (i *MatcherImpl) DelNode(nodeName string) {
@@ -262,22 +242,19 @@ func (i *MatcherImpl) DelNode(nodeName string) {
 	}
 }
 
-func (i *MatcherImpl) GetNodeToConfig(nodeName string) []*v1alpha1.NodeOvercommitConfig {
+func (i *MatcherImpl) GetConfig(nodeName string) *v1alpha1.NodeOvercommitConfig {
 	i.RLock()
 	defer i.RUnlock()
 	return i.nodeToConfig[nodeName]
 }
 
-func (i *MatcherImpl) ListNodeToConfig() map[string][]string {
-	ret := make(map[string][]string)
+func (i *MatcherImpl) ListNodeToConfig() map[string]string {
+	ret := make(map[string]string)
 	i.RLock()
 	defer i.RUnlock()
 
-	for nodeName, configs := range i.nodeToConfig {
-		ret[nodeName] = make([]string, 0)
-		for i := range configs {
-			ret[nodeName] = append(ret[nodeName], configs[i].Name)
-		}
+	for nodeName, config := range i.nodeToConfig {
+		ret[nodeName] = config.Name
 	}
 	return ret
 }
@@ -289,7 +266,7 @@ func (i *MatcherImpl) GetNodes(configName string) []string {
 }
 
 func (i *MatcherImpl) matchConfigNameToNodes(configName string) ([]string, error) {
-	overcommitConfig, err := i.nocIndexer.GetNoc(configName)
+	overcommitConfig, err := i.nocLister.Get(configName)
 	if err != nil {
 		return nil, err
 	}
@@ -303,44 +280,28 @@ func (i *MatcherImpl) matchConfigNameToNodes(configName string) ([]string, error
 
 func (i *MatcherImpl) matchConfigToNodes(overcommitConfig *v1alpha1.NodeOvercommitConfig) ([]string, error) {
 	var (
-		nodeNames  = make([]string, 0)
-		configType = NodeOvercommitConfigType(overcommitConfig)
+		nodeNames = make([]string, 0)
 	)
 
-	switch configType {
-	case ConfigNodeList:
-		for _, nodeName := range overcommitConfig.Spec.NodeList {
-			nodeNames = append(nodeNames, nodeName)
-		}
-		return nodeNames, nil
-	case ConfigSelector:
-		selector, err := metav1.LabelSelectorAsSelector(overcommitConfig.Spec.Selector)
-		if err != nil {
-			klog.Errorf("config %s LabelSelectorAsSelector fail: %v", overcommitConfig.Name, err)
-			return nil, err
-		}
-		nodeList, err := i.nodeIndexer.ListNode(selector)
-		if err != nil {
-			klog.Errorf("list node by %s fail: %v", selector.String(), err)
-			return nil, err
-		}
-		for _, node := range nodeList {
-			nodeNames = append(nodeNames, node.Name)
-		}
-		return nodeNames, nil
-	case ConfigDefault:
-		fallthrough
-	default:
-		nodeList, err := i.nodeIndexer.ListNode(labels.Everything())
-		if err != nil {
-			klog.Errorf("list all node fail: %v", err)
-			return nil, err
-		}
-		for _, node := range nodeList {
-			nodeNames = append(nodeNames, node.Name)
-		}
-		return nodeNames, nil
+	val := overcommitConfig.Spec.NodeOvercommitSelectorVal
+	if val == "" {
+		return []string{}, nil
 	}
+
+	requirement, err := labels.NewRequirement(consts.NodeOvercommitSelectorKey, selection.Equals, []string{val})
+	if err != nil {
+		return nil, err
+	}
+	selector := labels.NewSelector().Add(*requirement)
+
+	nodeList, err := i.nodeLister.List(selector)
+	if err != nil {
+		return nil, err
+	}
+	for _, node := range nodeList {
+		nodeNames = append(nodeNames, node.Name)
+	}
+	return nodeNames, nil
 }
 
 func (i *MatcherImpl) configNodeUnion(configName string, nodeNames []string) sets.String {

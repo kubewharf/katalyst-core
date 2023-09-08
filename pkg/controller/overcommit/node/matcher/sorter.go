@@ -17,18 +17,16 @@ limitations under the License.
 package matcher
 
 import (
+	"sort"
+
+	"k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/client-go/tools/cache"
+	"k8s.io/klog/v2"
+
 	"github.com/kubewharf/katalyst-api/pkg/apis/overcommit/v1alpha1"
 )
 
 type NocList []*v1alpha1.NodeOvercommitConfig
-
-type ConfigType int
-
-const (
-	ConfigDefault ConfigType = iota
-	ConfigSelector
-	ConfigNodeList
-)
 
 func (nl NocList) Len() int {
 	return len(nl)
@@ -38,27 +36,33 @@ func (nl NocList) Swap(i, j int) {
 	nl[i], nl[j] = nl[j], nl[i]
 }
 
-// ConfigNodeList > ConfigSelector > ConfigDefault
-// Config created later has a higher priority
 func (nl NocList) Less(i, j int) bool {
-	ti := NodeOvercommitConfigType(nl[i])
-	tj := NodeOvercommitConfigType(nl[j])
-
-	if ti == tj {
-		return nl[j].CreationTimestamp.Before(&nl[i].CreationTimestamp)
-	}
-
-	return ti > tj
+	return nl[j].CreationTimestamp.Before(&nl[i].CreationTimestamp)
 }
 
-func NodeOvercommitConfigType(config *v1alpha1.NodeOvercommitConfig) ConfigType {
-	if config.Spec.NodeList != nil {
-		return ConfigNodeList
+func GetValidNodeOvercommitConfig(nocIndexer cache.Indexer, key string) (*v1alpha1.NodeOvercommitConfig, error) {
+	objs, err := nocIndexer.ByIndex(LabelSelectorValIndex, key)
+	if err != nil {
+		if errors.IsNotFound(err) {
+			return nil, nil
+		}
+		return nil, err
 	}
 
-	if config.Spec.Selector != nil {
-		return ConfigSelector
+	nocs := make([]*v1alpha1.NodeOvercommitConfig, 0)
+	for _, obj := range objs {
+		noc, ok := obj.(*v1alpha1.NodeOvercommitConfig)
+		if !ok {
+			klog.Warningf("unknown obj from nocIndexer: %v", obj)
+			continue
+		}
+		nocs = append(nocs, noc)
 	}
-
-	return ConfigDefault
+	if len(nocs) == 0 {
+		return nil, nil
+	}
+	if len(nocs) != 1 {
+		sort.Sort(NocList(nocs))
+	}
+	return nocs[0], nil
 }
