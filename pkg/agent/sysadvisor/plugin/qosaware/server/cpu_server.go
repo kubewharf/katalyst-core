@@ -276,8 +276,8 @@ func (cs *cpuServer) assemblePodEntries(calculationEntriesMap map[string]*cpuadv
 	}
 
 	// if isolation is locking in, pass isolation-region name (equals isolation owner-pool) instead of owner pool
-	if ci.Isolated && !qrmstate.IsIsolationPool(ci.OwnerPoolName) {
-		if ci.RegionNames.Len() == 1 {
+	if ci.Isolated {
+		if ci.RegionNames.Len() == 1 && ci.OwnerPoolName != ci.RegionNames.List()[0] {
 			calculationInfo.OwnerPoolName = ci.RegionNames.List()[0]
 		}
 	}
