@@ -43,6 +43,8 @@ type KatalystCustomConfigTargetHandler struct {
 	client    *kcclient.GenericClientSet
 	kccConfig *controller.KCCConfig
 
+	syncedFunc []cache.InformerSynced
+
 	// map gvr to kcc key set; actually, it's invalid to hold more than one kcc for
 	//one individual gvr, and should be alerted
 	gvrKatalystCustomConfigMap map[metav1.GroupVersionResource]sets.String
@@ -59,9 +61,12 @@ type KatalystCustomConfigTargetHandler struct {
 func NewKatalystCustomConfigTargetHandler(ctx context.Context, client *kcclient.GenericClientSet, kccConfig *controller.KCCConfig,
 	katalystCustomConfigInformer configinformers.KatalystCustomConfigInformer) *KatalystCustomConfigTargetHandler {
 	k := &KatalystCustomConfigTargetHandler{
-		ctx:                        ctx,
-		client:                     client,
-		kccConfig:                  kccConfig,
+		ctx:       ctx,
+		client:    client,
+		kccConfig: kccConfig,
+		syncedFunc: []cache.InformerSynced{
+			katalystCustomConfigInformer.Informer().HasSynced,
+		},
 		gvrKatalystCustomConfigMap: make(map[metav1.GroupVersionResource]sets.String),
 		katalystCustomConfigGVRMap: make(map[string]metav1.GroupVersionResource),
 		targetHandlerFuncMap:       make(map[string]KatalystCustomConfigTargetHandlerFunc),
@@ -74,6 +79,16 @@ func NewKatalystCustomConfigTargetHandler(ctx context.Context, client *kcclient.
 		DeleteFunc: k.deleteKatalystCustomConfigEventHandle,
 	})
 	return k
+}
+
+// HasSynced whether all cache has synced
+func (k *KatalystCustomConfigTargetHandler) HasSynced() bool {
+	for _, hasSynced := range k.syncedFunc {
+		if !hasSynced() {
+			return false
+		}
+	}
+	return true
 }
 
 func (k *KatalystCustomConfigTargetHandler) Run() {
