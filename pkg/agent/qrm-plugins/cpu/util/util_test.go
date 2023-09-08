@@ -35,6 +35,8 @@ import (
 )
 
 func TestGetCoresReservedForSystem(t *testing.T) {
+	t.Parallel()
+
 	topology, err := machine.GenerateDummyCPUTopology(16, 2, 4)
 	assert.Nil(t, err)
 	machineInfo := &machine.KatalystMachineInfo{
@@ -128,6 +130,8 @@ func TestGetCoresReservedForSystem(t *testing.T) {
 }
 
 func TestRegenerateHints(t *testing.T) {
+	t.Parallel()
+
 	type args struct {
 		allocationInfo *state.AllocationInfo
 		reqInt         int
@@ -193,6 +197,8 @@ func TestRegenerateHints(t *testing.T) {
 }
 
 func TestPackAllocationResponse(t *testing.T) {
+	t.Parallel()
+
 	type args struct {
 		allocationInfo   *state.AllocationInfo
 		resourceName     string
