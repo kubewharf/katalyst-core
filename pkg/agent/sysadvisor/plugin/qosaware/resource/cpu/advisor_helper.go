@@ -176,6 +176,7 @@ func (cra *cpuResourceAdvisor) getRegionMaxRequirement(r region.QoSRegion) float
 	case types.QoSRegionTypeIsolation:
 		cra.metaCache.RangeContainer(func(podUID string, containerName string, ci *types.ContainerInfo) bool {
 			if _, ok := r.GetPods()[podUID]; ok && ci.ContainerType == v1alpha1.ContainerType_MAIN {
+				// for pods without limits, fallback to requests instead
 				res += general.MaxFloat64(ci.CPULimit, ci.CPURequest)
 			}
 			return true
@@ -196,7 +197,7 @@ func (cra *cpuResourceAdvisor) getRegionMinRequirement(r region.QoSRegion) float
 		res := 0.0
 		cra.metaCache.RangeContainer(func(podUID string, containerName string, ci *types.ContainerInfo) bool {
 			if _, ok := r.GetPods()[podUID]; ok && ci.ContainerType == v1alpha1.ContainerType_MAIN {
-				res += ci.CPURequest
+				res += general.MinFloat64(ci.CPULimit, ci.CPURequest)
 			}
 			return true
 		})
