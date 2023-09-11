@@ -49,7 +49,7 @@ import (
 )
 
 func makeContainerInfo(podUID, namespace, podName, containerName, qoSLevel, ownerPoolName string,
-	annotations map[string]string, topologyAwareAssignments types.TopologyAwareAssignment, cpu float64) *types.ContainerInfo {
+	annotations map[string]string, topologyAwareAssignments types.TopologyAwareAssignment, req, limit float64) *types.ContainerInfo {
 	return &types.ContainerInfo{
 		PodUID:                           podUID,
 		PodNamespace:                     namespace,
@@ -59,8 +59,8 @@ func makeContainerInfo(podUID, namespace, podName, containerName, qoSLevel, owne
 		Labels:                           nil,
 		Annotations:                      annotations,
 		QoSLevel:                         qoSLevel,
-		CPURequest:                       0,
-		CPULimit:                         cpu,
+		CPURequest:                       req,
+		CPULimit:                         limit,
 		MemoryRequest:                    0,
 		MemoryLimit:                      0,
 		RampUp:                           false,
@@ -169,42 +169,42 @@ func TestLoadIsolator(t *testing.T) {
 	// construct containers
 	containers := []*types.ContainerInfo{
 		makeContainerInfo("uid1", "default", "pod1", "c1-1",
-			consts.PodAnnotationQoSLevelSharedCores, state.PoolNameShare, nil, map[int]machine.CPUSet{}, 4),
+			consts.PodAnnotationQoSLevelSharedCores, state.PoolNameShare, nil, map[int]machine.CPUSet{}, 0, 4),
 		makeContainerInfo("uid1", "default", "pod1", "c1-2",
-			consts.PodAnnotationQoSLevelSharedCores, state.PoolNameShare, nil, map[int]machine.CPUSet{}, 4),
+			consts.PodAnnotationQoSLevelSharedCores, state.PoolNameShare, nil, map[int]machine.CPUSet{}, 4, 0),
 
 		makeContainerInfo("uid2", "default", "pod2", "c2-1",
-			consts.PodAnnotationQoSLevelSharedCores, "batch", nil, map[int]machine.CPUSet{}, 4),
+			consts.PodAnnotationQoSLevelSharedCores, "batch", nil, map[int]machine.CPUSet{}, 0, 4),
 		makeContainerInfo("uid2", "default", "pod2", "c2-2",
-			consts.PodAnnotationQoSLevelSharedCores, "batch", nil, map[int]machine.CPUSet{}, 4),
+			consts.PodAnnotationQoSLevelSharedCores, "batch", nil, map[int]machine.CPUSet{}, 4, 0),
 		makeContainerInfo("uid2", "default", "pod2", "c2-3",
-			consts.PodAnnotationQoSLevelSharedCores, "batch", nil, map[int]machine.CPUSet{}, 4),
+			consts.PodAnnotationQoSLevelSharedCores, "batch", nil, map[int]machine.CPUSet{}, 0, 4),
 
 		makeContainerInfo("uid3", "default", "pod3", "c3-1",
-			consts.PodAnnotationQoSLevelSharedCores, "flink", nil, map[int]machine.CPUSet{}, 4),
+			consts.PodAnnotationQoSLevelSharedCores, "flink", nil, map[int]machine.CPUSet{}, 4, 0),
 		makeContainerInfo("uid3", "default", "pod3", "c3-2",
-			consts.PodAnnotationQoSLevelSharedCores, "flink", nil, map[int]machine.CPUSet{}, 4),
+			consts.PodAnnotationQoSLevelSharedCores, "flink", nil, map[int]machine.CPUSet{}, 0, 4),
 
 		makeContainerInfo("uid4", "default", "pod4", "c4-1",
-			consts.PodAnnotationQoSLevelDedicatedCores, "", nil, map[int]machine.CPUSet{}, 4),
+			consts.PodAnnotationQoSLevelDedicatedCores, "", nil, map[int]machine.CPUSet{}, 4, 4),
 
 		makeContainerInfo("uid5", "default", "pod5", "c5-1",
-			consts.PodAnnotationQoSLevelSharedCores, state.PoolNameShare, nil, map[int]machine.CPUSet{}, 4),
+			consts.PodAnnotationQoSLevelSharedCores, state.PoolNameShare, nil, map[int]machine.CPUSet{}, 0, 4),
 		makeContainerInfo("uid5", "default", "pod5", "c5-2",
-			consts.PodAnnotationQoSLevelSharedCores, state.PoolNameShare, nil, map[int]machine.CPUSet{}, 4),
+			consts.PodAnnotationQoSLevelSharedCores, state.PoolNameShare, nil, map[int]machine.CPUSet{}, 0, 4),
 
 		makeContainerInfo("uid6", "default", "pod6", "c6-1",
-			consts.PodAnnotationQoSLevelSharedCores, state.PoolNameShare, nil, map[int]machine.CPUSet{}, 4),
+			consts.PodAnnotationQoSLevelSharedCores, state.PoolNameShare, nil, map[int]machine.CPUSet{}, 0, 4),
 		makeContainerInfo("uid6", "default", "pod6", "c6-2",
-			consts.PodAnnotationQoSLevelSharedCores, state.PoolNameShare, nil, map[int]machine.CPUSet{}, 4),
+			consts.PodAnnotationQoSLevelSharedCores, state.PoolNameShare, nil, map[int]machine.CPUSet{}, 0, 4),
 		makeContainerInfo("uid6", "default", "pod6", "c6-3",
-			consts.PodAnnotationQoSLevelSharedCores, state.PoolNameShare, nil, map[int]machine.CPUSet{}, 4),
+			consts.PodAnnotationQoSLevelSharedCores, state.PoolNameShare, nil, map[int]machine.CPUSet{}, 4, 0),
 
 		makeContainerInfo("uid7", "default", "pod7", "c7-1",
-			consts.PodAnnotationQoSLevelSharedCores, "batch", nil, map[int]machine.CPUSet{}, 4),
+			consts.PodAnnotationQoSLevelSharedCores, "batch", nil, map[int]machine.CPUSet{}, 0, 4),
 
 		makeContainerInfo("uid8", "default", "pod8", "c8-1",
-			consts.PodAnnotationQoSLevelSharedCores, "batch", nil, map[int]machine.CPUSet{}, 4),
+			consts.PodAnnotationQoSLevelSharedCores, "batch", nil, map[int]machine.CPUSet{}, 0, 4),
 	}
 	for _, c := range containers {
 		err := metaCache.SetContainerInfo(c.PodUID, c.ContainerName, c)
@@ -256,131 +256,141 @@ func TestLoadIsolator(t *testing.T) {
 		{
 			comment: "lock-in: disable all pools",
 			conf: &cpu.CPUIsolationConfiguration{
-				IsolatedMaxPoolRatios: map[string]float32{},
-				IsolationDisabled:     true,
+				IsolatedMaxPoolResourceRatios: map[string]float32{},
+				IsolationDisabled:             true,
 			},
 			expects: []string{},
 		},
 		{
 			comment: "lock-in: disable shared pool",
 			conf: &cpu.CPUIsolationConfiguration{
-				IsolationCPURatio:          1,
-				IsolationCPUSize:           0,
-				IsolationLockInThreshold:   1,
-				IsolationLockOutPeriodSecs: 1,
-				IsolatedMaxRatios:          1,
-				IsolatedMaxPoolRatios:      map[string]float32{},
-				IsolationDisabled:          false,
-				IsolationDisabledPools:     sets.NewString(state.PoolNameShare),
+				IsolationCPURatio:             1,
+				IsolationCPUSize:              0,
+				IsolationLockInThreshold:      1,
+				IsolationLockOutPeriodSecs:    1,
+				IsolatedMaxResourceRatio:      1,
+				IsolatedMaxPoolResourceRatios: map[string]float32{},
+				IsolatedMaxPodRatio:           1,
+				IsolationDisabled:             false,
+				IsolationDisabledPools:        sets.NewString(state.PoolNameShare),
 			},
-			expects: []string{"uid2", "uid3"},
+			expects: []string{"uid2"},
 		},
 		{
 			comment: "lock-in: overload for 4",
 			conf: &cpu.CPUIsolationConfiguration{
-				IsolationCPURatio:          1,
-				IsolationCPUSize:           0,
-				IsolationLockInThreshold:   1,
-				IsolationLockOutPeriodSecs: 1,
-				IsolatedMaxRatios:          1,
-				IsolatedMaxPoolRatios:      map[string]float32{},
-				IsolationDisabled:          false,
-				IsolationDisabledPools:     sets.NewString(),
+				IsolationCPURatio:             1,
+				IsolationCPUSize:              0,
+				IsolationLockInThreshold:      1,
+				IsolationLockOutPeriodSecs:    1,
+				IsolatedMaxResourceRatio:      1,
+				IsolatedMaxPoolResourceRatios: map[string]float32{},
+				IsolatedMaxPodRatio:           1,
+				IsolationDisabled:             false,
+				IsolationDisabledPools:        sets.NewString(),
 			},
-			expects: []string{"uid2", "uid3", "uid5", "uid6"},
+			expects: []string{"uid2", "uid5", "uid6"},
 		},
 		{
 			comment: "lock-in: overload for 5",
 			conf: &cpu.CPUIsolationConfiguration{
-				IsolationCPURatio:          1.3,
-				IsolationCPUSize:           1,
-				IsolationLockInThreshold:   1,
-				IsolationLockOutPeriodSecs: 1,
-				IsolatedMaxRatios:          1,
-				IsolatedMaxPoolRatios:      map[string]float32{},
-				IsolationDisabled:          false,
-				IsolationDisabledPools:     sets.NewString(),
+				IsolationCPURatio:             1.3,
+				IsolationCPUSize:              1,
+				IsolationLockInThreshold:      1,
+				IsolationLockOutPeriodSecs:    1,
+				IsolatedMaxResourceRatio:      1,
+				IsolatedMaxPoolResourceRatios: map[string]float32{},
+				IsolatedMaxPodRatio:           1,
+				IsolationDisabled:             false,
+				IsolationDisabledPools:        sets.NewString(),
 			},
 			expects: []string{"uid2", "uid5", "uid6"},
 		},
 		{
 			comment: "lock-in: overload for 8",
 			conf: &cpu.CPUIsolationConfiguration{
-				IsolationCPURatio:          5,
-				IsolationCPUSize:           4,
-				IsolationLockInThreshold:   1,
-				IsolationLockOutPeriodSecs: 1,
-				IsolatedMaxRatios:          1,
-				IsolatedMaxPoolRatios:      map[string]float32{},
-				IsolationDisabled:          false,
-				IsolationDisabledPools:     sets.NewString(),
+				IsolationCPURatio:             5,
+				IsolationCPUSize:              4,
+				IsolationLockInThreshold:      1,
+				IsolationLockOutPeriodSecs:    1,
+				IsolatedMaxResourceRatio:      1,
+				IsolatedMaxPoolResourceRatios: map[string]float32{},
+				IsolatedMaxPodRatio:           1,
+				IsolationDisabled:             false,
+				IsolationDisabledPools:        sets.NewString(),
 			},
 			expects: []string{"uid6"},
 		},
 		{
 			comment: "lock-in: not-overload because of threshold",
 			conf: &cpu.CPUIsolationConfiguration{
-				IsolationCPURatio:          1,
-				IsolationCPUSize:           0,
-				IsolationLockInThreshold:   2,
-				IsolationLockOutPeriodSecs: 1,
-				IsolatedMaxRatios:          1,
-				IsolatedMaxPoolRatios:      map[string]float32{},
-				IsolationDisabled:          false,
-				IsolationDisabledPools:     sets.NewString(),
+				IsolationCPURatio:             1,
+				IsolationCPUSize:              0,
+				IsolationLockInThreshold:      2,
+				IsolationLockOutPeriodSecs:    1,
+				IsolatedMaxResourceRatio:      1,
+				IsolatedMaxPoolResourceRatios: map[string]float32{},
+				IsolatedMaxPodRatio:           1,
+				IsolationDisabled:             false,
+				IsolationDisabledPools:        sets.NewString(),
 			},
 			expects: []string{},
 		},
 		{
 			comment: "lock-in: only support to use 0.4",
 			conf: &cpu.CPUIsolationConfiguration{
-				IsolationCPURatio:          1,
-				IsolationCPUSize:           0,
-				IsolationLockInThreshold:   1,
-				IsolationLockOutPeriodSecs: 1,
-				IsolatedMaxRatios:          0.4,
-				IsolatedMaxPoolRatios:      map[string]float32{},
-				IsolationDisabled:          false,
-				IsolationDisabledPools:     sets.NewString(),
+				IsolationCPURatio:             1,
+				IsolationCPUSize:              0,
+				IsolationLockInThreshold:      1,
+				IsolationLockOutPeriodSecs:    1,
+				IsolatedMaxResourceRatio:      0.4,
+				IsolatedMaxPoolResourceRatios: map[string]float32{},
+				IsolatedMaxPodRatio:           1,
+				IsolationDisabled:             false,
+				IsolationDisabledPools:        sets.NewString(),
 			},
 			expects: []string{"uid5"},
 		},
 		{
 			comment: "lock-in: only support to use 0.6",
 			conf: &cpu.CPUIsolationConfiguration{
-				IsolationCPURatio:          1,
-				IsolationCPUSize:           0,
-				IsolationLockInThreshold:   1,
-				IsolationLockOutPeriodSecs: 1,
-				IsolatedMaxRatios:          0.6,
-				IsolatedMaxPoolRatios:      map[string]float32{},
-				IsolationDisabled:          false,
-				IsolationDisabledPools:     sets.NewString(),
+				IsolationCPURatio:             1,
+				IsolationCPUSize:              0,
+				IsolationLockInThreshold:      1,
+				IsolationLockOutPeriodSecs:    1,
+				IsolatedMaxResourceRatio:      0.6,
+				IsolatedMaxPoolResourceRatios: map[string]float32{},
+				IsolatedMaxPodRatio:           1,
+				IsolationDisabled:             false,
+				IsolationDisabledPools:        sets.NewString(),
 			},
 			expects: []string{"uid2", "uid6"},
 		},
 		{
 			comment: "lock-in: only support to use 0.8",
 			conf: &cpu.CPUIsolationConfiguration{
-				IsolationCPURatio:          1,
-				IsolationCPUSize:           0,
-				IsolationLockInThreshold:   1,
-				IsolationLockOutPeriodSecs: 1,
-				IsolatedMaxRatios:          0.8,
-				IsolatedMaxPoolRatios:      map[string]float32{},
-				IsolationDisabled:          false,
-				IsolationDisabledPools:     sets.NewString(),
+				IsolationCPURatio:             1,
+				IsolationCPUSize:              0,
+				IsolationLockInThreshold:      1,
+				IsolationLockOutPeriodSecs:    1,
+				IsolatedMaxResourceRatio:      0.8,
+				IsolatedMaxPoolResourceRatios: map[string]float32{},
+				IsolatedMaxPodRatio:           1,
+				IsolationDisabled:             false,
+				IsolationDisabledPools:        sets.NewString(),
 			},
 			expects: []string{"uid2", "uid5", "uid6"},
 		},
 	} {
-		t.Logf("test cases: %v", tc.comment)
+		t.Run(tc.comment, func(t *testing.T) {
+			t.Logf("test cases: %v", tc.comment)
 
-		conf.CPUIsolationConfiguration = tc.conf
-		loader := NewLoadIsolator(conf, struct{}{}, metrics.DummyMetrics{}, metaCache, metaServer)
+			conf.CPUIsolationConfiguration = tc.conf
+			loader := NewLoadIsolator(conf, struct{}{}, metrics.DummyMetrics{}, metaCache, metaServer)
 
-		res := loader.GetIsolatedPods()
-		assert.EqualValues(t, tc.expects, res)
+			res := loader.GetIsolatedPods()
+			assert.EqualValues(t, tc.expects, res)
+		})
 	}
 
 	for i := range containers {
@@ -398,60 +408,65 @@ func TestLoadIsolator(t *testing.T) {
 		{
 			comment: "lock-out: all isolations lock out",
 			conf: &cpu.CPUIsolationConfiguration{
-				IsolationCPURatio:          30,
-				IsolationCPUSize:           30,
-				IsolationLockInThreshold:   1,
-				IsolatedMaxRatios:          1,
-				IsolatedMaxPoolRatios:      map[string]float32{},
-				IsolationDisabled:          false,
-				IsolationDisabledPools:     sets.NewString(),
-				IsolationLockOutPeriodSecs: 0,
+				IsolationCPURatio:             30,
+				IsolationCPUSize:              30,
+				IsolationLockInThreshold:      1,
+				IsolatedMaxResourceRatio:      1,
+				IsolatedMaxPoolResourceRatios: map[string]float32{},
+				IsolatedMaxPodRatio:           1,
+				IsolationDisabled:             false,
+				IsolationDisabledPools:        sets.NewString(),
+				IsolationLockOutPeriodSecs:    0,
 			},
 			expects: []string{},
 		},
 		{
 			comment: "lock-out: lock out for isolation",
 			conf: &cpu.CPUIsolationConfiguration{
-				IsolationCPURatio:          1,
-				IsolationCPUSize:           1,
-				IsolationLockInThreshold:   1,
-				IsolatedMaxRatios:          1,
-				IsolatedMaxPoolRatios:      map[string]float32{},
-				IsolationDisabled:          false,
-				IsolationDisabledPools:     sets.NewString(),
-				IsolationLockOutPeriodSecs: 0,
+				IsolationCPURatio:             1,
+				IsolationCPUSize:              1,
+				IsolationLockInThreshold:      1,
+				IsolatedMaxResourceRatio:      1,
+				IsolatedMaxPoolResourceRatios: map[string]float32{},
+				IsolatedMaxPodRatio:           1,
+				IsolationDisabled:             false,
+				IsolationDisabledPools:        sets.NewString(),
+				IsolationLockOutPeriodSecs:    0,
 			},
-			expects: []string{"uid2", "uid3", "uid5", "uid6"},
+			expects: []string{"uid2", "uid5", "uid6"},
 		},
 		{
 			comment: "lock-out: keep all isolations",
 			conf: &cpu.CPUIsolationConfiguration{
-				IsolationCPURatio:          30,
-				IsolationCPUSize:           30,
-				IsolationLockInThreshold:   1,
-				IsolatedMaxRatios:          1,
-				IsolatedMaxPoolRatios:      map[string]float32{},
-				IsolationDisabled:          false,
-				IsolationDisabledPools:     sets.NewString(),
-				IsolationLockOutPeriodSecs: 20,
+				IsolationCPURatio:             30,
+				IsolationCPUSize:              30,
+				IsolationLockInThreshold:      1,
+				IsolatedMaxResourceRatio:      1,
+				IsolatedMaxPoolResourceRatios: map[string]float32{},
+				IsolatedMaxPodRatio:           1,
+				IsolationDisabled:             false,
+				IsolationDisabledPools:        sets.NewString(),
+				IsolationLockOutPeriodSecs:    20,
 			},
-			expects: []string{"uid1", "uid2", "uid3", "uid5", "uid6", "uid7", "uid8"},
+			expects: []string{"uid5", "uid6", "uid7", "uid8"},
 		},
 	} {
-		t.Logf("test cases: %v", tc.comment)
+		t.Run(tc.comment, func(t *testing.T) {
+			t.Logf("test cases: %v", tc.comment)
 
-		conf.CPUIsolationConfiguration = tc.conf
-		loader := NewLoadIsolator(conf, struct{}{}, metrics.DummyMetrics{}, metaCache, metaServer)
+			conf.CPUIsolationConfiguration = tc.conf
+			loader := NewLoadIsolator(conf, struct{}{}, metrics.DummyMetrics{}, metaCache, metaServer)
 
-		now := time.Now()
-		for i := 0; i < 8; i++ {
-			loader.(*LoadIsolator).states.Store(fmt.Sprintf("uid%v", i), containerIsolationState{
-				lockedOutFirstObserved: &now,
-			})
-		}
-		time.Sleep(time.Millisecond * 10)
+			now := time.Now()
+			for i := 0; i < 8; i++ {
+				loader.(*LoadIsolator).states.Store(fmt.Sprintf("uid%v", i), containerIsolationState{
+					lockedOutFirstObserved: &now,
+				})
+			}
+			time.Sleep(time.Millisecond * 10)
 
-		res := loader.GetIsolatedPods()
-		assert.EqualValues(t, tc.expects, res)
+			res := loader.GetIsolatedPods()
+			assert.EqualValues(t, tc.expects, res)
+		})
 	}
 }

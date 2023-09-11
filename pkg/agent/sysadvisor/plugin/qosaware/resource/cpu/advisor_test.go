@@ -902,7 +902,7 @@ func TestAdvisorUpdate(t *testing.T) {
 			if len(tt.headroomPolicies) != 0 {
 				conf.CPUAdvisorConfiguration.HeadroomPolicies = tt.headroomPolicies
 			}
-			conf.IsolatedMaxRatios = 0.3
+			conf.IsolatedMaxResourceRatio = 0.3
 			conf.IsolationLockInThreshold = 1
 			conf.IsolationLockOutPeriodSecs = 30
 

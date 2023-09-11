@@ -26,11 +26,17 @@ type CPUIsolationConfiguration struct {
 	IsolationCPURatio float32
 	IsolationCPUSize  int32
 
-	// IsolatedMaxPoolRatios defines the max ratio for each pool
+	// IsolatedMaxPoolResourceRatios defines the max resource-ratio for each pool
 	// key indicates the pool-name that supports cpu-isolation
 	// val indicates the max ratio for this cpu-isolation,
-	IsolatedMaxRatios     float32
-	IsolatedMaxPoolRatios map[string]float32
+	IsolatedMaxResourceRatio      float32
+	IsolatedMaxPoolResourceRatios map[string]float32
+
+	// IsolatedMaxPoolPodRatios defines the max pod-amount-ratio for each pool
+	// key indicates the pool-name that supports cpu-isolation
+	// val indicates the max ratio for this cpu-isolation,
+	IsolatedMaxPodRatio      float32
+	IsolatedMaxPoolPodRatios map[string]float32
 
 	// IsolationLockInThreshold and IsolationLockOutPeriodSecs defines the lasting periods
 	// before state switches between lock-in and lock-out
