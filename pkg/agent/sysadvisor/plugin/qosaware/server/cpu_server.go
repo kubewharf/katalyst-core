@@ -268,6 +268,8 @@ func (cs *cpuServer) assemblePoolEntries(advisorResp *types.InternalCPUCalculati
 }
 
 // assemblePoolEntries fills up calculationEntriesMap and blockSet based on types.ContainerInfo
+//
+// todo this logic should be refined to make sure we will assemble entries from	internalCalculationInfo rather than walking through containerInfo
 func (cs *cpuServer) assemblePodEntries(calculationEntriesMap map[string]*cpuadvisor.CalculationEntries,
 	bs blockSet, podUID string, ci *types.ContainerInfo) error {
 	calculationInfo := &cpuadvisor.CalculationInfo{

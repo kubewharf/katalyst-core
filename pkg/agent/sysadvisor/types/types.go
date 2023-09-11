@@ -40,30 +40,31 @@ const (
 // ContainerInfo contains container information for sysadvisor plugins
 type ContainerInfo struct {
 	// Metadata unchanged during container's lifecycle
-	PodUID         string
-	PodNamespace   string
-	PodName        string
-	ContainerName  string
-	ContainerType  v1alpha1.ContainerType
-	ContainerIndex int
-	Labels         map[string]string
-	Annotations    map[string]string
-	QoSLevel       string
-	CPURequest     float64
-	CPULimit       float64
-	MemoryRequest  float64
-	MemoryLimit    float64
+	PodUID              string
+	PodNamespace        string
+	PodName             string
+	ContainerName       string
+	ContainerType       v1alpha1.ContainerType
+	ContainerIndex      int
+	Labels              map[string]string
+	Annotations         map[string]string
+	QoSLevel            string
+	CPURequest          float64
+	CPULimit            float64
+	MemoryRequest       float64
+	MemoryLimit         float64
+	OriginOwnerPoolName string
 
-	// Allocation information changing by list and watch
+	// Allocation information changing by list and watch (and
+	// should not be changed by other components or processes)
 	RampUp                           bool
-	OriginOwnerPoolName              string
+	OwnerPoolName                    string
 	TopologyAwareAssignments         TopologyAwareAssignment
 	OriginalTopologyAwareAssignments TopologyAwareAssignment
 
 	// QoS information updated by advisor
-	RegionNames   sets.String
-	Isolated      bool
-	OwnerPoolName string
+	RegionNames sets.String
+	Isolated    bool
 }
 
 // ContainerEntries stores container info keyed by container name
