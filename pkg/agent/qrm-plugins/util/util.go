@@ -255,7 +255,8 @@ func GetNUMANodesCountToFitMemoryReq(memoryReq, bytesPerNUMA uint64, numaCount i
 	},
 }
 */
-func GetHintsFromExtraStateFile(podName, resourceName, extraHintsStateFileAbsPath string) (map[string]*pluginapi.ListOfTopologyHints, error) {
+func GetHintsFromExtraStateFile(podName, resourceName, extraHintsStateFileAbsPath string,
+	availableNUMAs machine.CPUSet) (map[string]*pluginapi.ListOfTopologyHints, error) {
 	if extraHintsStateFileAbsPath == "" {
 		return nil, nil
 	}
@@ -289,6 +290,10 @@ func GetHintsFromExtraStateFile(podName, resourceName, extraHintsStateFileAbsPat
 	numaSet, err := machine.Parse(memoryEntry)
 	if err != nil {
 		return nil, fmt.Errorf("parse memory entry: %s failed with error: %v", memoryEntry, err)
+	}
+
+	if !numaSet.IsSubsetOf(availableNUMAs) {
+		return nil, fmt.Errorf("NUMAs: %s in extra state file isn't subset of available NUMAs: %s", numaSet.String(), availableNUMAs.String())
 	}
 
 	allocatedNumaNodes := numaSet.ToSliceUInt64()

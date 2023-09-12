@@ -108,8 +108,10 @@ func (p *DynamicPolicy) dedicatedCoresWithNUMABindingHintHandler(_ context.Conte
 
 	// if hints exists in extra state-file, prefer to use them
 	if hints == nil {
+		availableNUMAs := machineState.GetFilteredNUMASet(state.CheckNUMABinding)
+
 		var extraErr error
-		hints, extraErr = util.GetHintsFromExtraStateFile(req.PodName, string(v1.ResourceCPU), p.extraStateFileAbsPath)
+		hints, extraErr = util.GetHintsFromExtraStateFile(req.PodName, string(v1.ResourceCPU), p.extraStateFileAbsPath, availableNUMAs)
 		if extraErr != nil {
 			general.Infof("pod: %s/%s, container: %s GetHintsFromExtraStateFile failed with error: %v",
 				req.PodNamespace, req.PodName, req.ContainerName, extraErr)
