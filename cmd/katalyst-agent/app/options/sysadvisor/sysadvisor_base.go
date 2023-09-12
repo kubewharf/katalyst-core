@@ -22,6 +22,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/errors"
 	cliflag "k8s.io/component-base/cli/flag"
 
+	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/options/sysadvisor/inference"
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/options/sysadvisor/metacache"
 	metricemitter "github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/options/sysadvisor/metric-emitter"
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/options/sysadvisor/qosaware"
@@ -73,6 +74,7 @@ type SysAdvisorPluginsOptions struct {
 	*qosaware.QoSAwarePluginOptions
 	*metacache.MetaCachePluginOptions
 	*metricemitter.MetricEmitterPluginOptions
+	*inference.InferencePluginOptions
 }
 
 // NewSysAdvisorPluginsOptions creates a new Options with a default config.
@@ -81,6 +83,7 @@ func NewSysAdvisorPluginsOptions() *SysAdvisorPluginsOptions {
 		QoSAwarePluginOptions:      qosaware.NewQoSAwarePluginOptions(),
 		MetaCachePluginOptions:     metacache.NewMetaCachePluginOptions(),
 		MetricEmitterPluginOptions: metricemitter.NewMetricEmitterPluginOptions(),
+		InferencePluginOptions:     inference.NewInferencePluginOptions(),
 	}
 }
 
@@ -89,6 +92,7 @@ func (o *SysAdvisorPluginsOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 	o.QoSAwarePluginOptions.AddFlags(fss)
 	o.MetaCachePluginOptions.AddFlags(fss)
 	o.MetricEmitterPluginOptions.AddFlags(fss)
+	o.InferencePluginOptions.AddFlags(fss)
 }
 
 // ApplyTo fills up config with options
@@ -97,6 +101,7 @@ func (o *SysAdvisorPluginsOptions) ApplyTo(c *sysadvisor.SysAdvisorPluginsConfig
 	errList = append(errList, o.QoSAwarePluginOptions.ApplyTo(c.QoSAwarePluginConfiguration))
 	errList = append(errList, o.MetaCachePluginOptions.ApplyTo(c.MetaCachePluginConfiguration))
 	errList = append(errList, o.MetricEmitterPluginOptions.ApplyTo(c.MetricEmitterPluginConfiguration))
+	errList = append(errList, o.InferencePluginOptions.ApplyTo(c.InferencePluginConfiguration))
 	return errors.NewAggregate(errList)
 }
 

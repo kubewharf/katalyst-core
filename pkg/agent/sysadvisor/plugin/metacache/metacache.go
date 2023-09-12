@@ -33,9 +33,6 @@ import (
 )
 
 const (
-	// PluginNameMetaCache is the name of MetaCachePlugin
-	PluginNameMetaCache = "metacache-plugin"
-
 	// MetricsNamePlugMetaCacheHeartbeat is the heartbeat metrics of metacache plugin
 	MetricsNamePlugMetaCacheHeartbeat = "plugin_metacache_heartbeat"
 )
@@ -51,12 +48,12 @@ type MetaCachePlugin struct {
 }
 
 // NewMetaCachePlugin creates a metacache plugin with the specified config
-func NewMetaCachePlugin(conf *config.Configuration, _ interface{}, emitterPool metricspool.MetricsEmitterPool,
+func NewMetaCachePlugin(pluginName string, conf *config.Configuration, _ interface{}, emitterPool metricspool.MetricsEmitterPool,
 	metaServer *metaserver.MetaServer, metaCache metacache.MetaCache) (plugin.SysAdvisorPlugin, error) {
 	emitter := emitterPool.GetDefaultMetricsEmitter().WithTags("advisor-metacache")
 
 	mcp := &MetaCachePlugin{
-		name:       PluginNameMetaCache,
+		name:       pluginName,
 		period:     conf.SysAdvisorPluginsConfiguration.MetaCachePluginConfiguration.SyncPeriod,
 		emitter:    emitter,
 		metaServer: metaServer,

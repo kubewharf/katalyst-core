@@ -37,6 +37,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin"
 	metacacheplugin "github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/metacache"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware"
+	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
 	"github.com/kubewharf/katalyst-core/pkg/client"
 	katalystconfig "github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
@@ -98,11 +99,15 @@ func TestAdvisor(t *testing.T) {
 	meta.MetricsFetcher = fakeMetricsFetcher
 	meta.PodFetcher = &pod.PodFetcherStub{}
 
+	conf.SysAdvisorPlugins = []string{"-" + types.AdvisorPluginNameInference}
 	advisor, err := sysadvisor.NewAdvisorAgent(conf, struct{}{}, meta, metricspool.DummyMetricsEmitterPool{})
 	assert.NoError(t, err)
 
 	ctx, cancel := context.WithCancel(context.Background())
-	go advisor.Run(ctx)
+
+	if advisor != nil {
+		go advisor.Run(ctx)
+	}
 
 	time.Sleep(time.Millisecond * 30)
 	cancel()
@@ -173,9 +178,9 @@ func TestPlugins(t *testing.T) {
 			assert.NoError(t, err)
 			assert.NotNil(t, metaCache)
 
-			curPlugin, _ := tt.arg.initFn(conf, nil, metricspool.DummyMetricsEmitterPool{}, metaServer, metaCache)
+			curPlugin, _ := tt.arg.initFn("test", conf, nil, metricspool.DummyMetricsEmitterPool{}, metaServer, metaCache)
 			err = curPlugin.Init()
-			assert.NotEqual(t, curPlugin.Name(), nil)
+			assert.NotEqual(t, curPlugin.Name(), "")
 			assert.Equal(t, err, nil)
 			go curPlugin.Run(ctx)
 		})

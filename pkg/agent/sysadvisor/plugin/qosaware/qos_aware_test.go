@@ -97,7 +97,7 @@ func TestQoSAwarePlugin(t *testing.T) {
 	metaServer := generateTestMetaServer(t, conf)
 	metaCache := generateTestMetaCache(t, conf, metaServer.MetricsFetcher)
 
-	plugin, err := NewQoSAwarePlugin(conf, nil, metricspool.DummyMetricsEmitterPool{}, metaServer, metaCache)
+	plugin, err := NewQoSAwarePlugin("test-qos-aware-plugin", conf, nil, metricspool.DummyMetricsEmitterPool{}, metaServer, metaCache)
 	require.NoError(t, err)
 	require.NotNil(t, plugin)
 
@@ -105,7 +105,7 @@ func TestQoSAwarePlugin(t *testing.T) {
 	require.NoError(t, err)
 
 	name := plugin.Name()
-	assert.Equal(t, name, PluginNameQosAware)
+	assert.Equal(t, name, "test-qos-aware-plugin")
 
 	ctx, cancel := context.WithCancel(context.Background())
 	go plugin.Run(ctx)
