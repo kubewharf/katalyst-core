@@ -893,13 +893,8 @@ func (p *DynamicPolicy) cleanPools() error {
 
 		for _, allocationInfo := range entries {
 			ownerPool := allocationInfo.GetOwnerPoolName()
-			specifiedPool := allocationInfo.GetSpecifiedPoolName()
-			if specifiedPool != advisorapi.EmptyOwnerPoolName || ownerPool != advisorapi.EmptyOwnerPoolName {
-				remainPools[specifiedPool] = true
-			} else if state.CheckReclaimed(allocationInfo) {
-				remainPools[state.PoolNameReclaim] = true
-			} else if state.CheckShared(allocationInfo) {
-				remainPools[state.PoolNameShare] = true
+			if ownerPool != advisorapi.EmptyOwnerPoolName {
+				remainPools[ownerPool] = true
 			}
 		}
 	}
