@@ -22,9 +22,11 @@ import (
 	"io/ioutil"
 	"os"
 	"path"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	info "github.com/google/cadvisor/info/v1"
 	"github.com/stretchr/testify/assert"
@@ -35,6 +37,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/uuid"
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
+	maputil "k8s.io/kubernetes/pkg/util/maps"
 
 	"github.com/kubewharf/katalyst-api/pkg/consts"
 	katalystbase "github.com/kubewharf/katalyst-core/cmd/base"
@@ -2649,4 +2652,135 @@ func TestRemoveContainer(t *testing.T) {
 
 	allocationInfo = dynamicPolicy.state.GetAllocationInfo(v1.ResourceMemory, podUID, containerName)
 	as.Nil(allocationInfo)
+}
+
+func TestServeForAdvisor(t *testing.T) {
+	t.Parallel()
+
+	as := require.New(t)
+
+	tmpDir, err := ioutil.TempDir("", "checkpoint-TestServeForAdvisor")
+	as.Nil(err)
+	defer os.RemoveAll(tmpDir)
+
+	cpuTopology, err := machine.GenerateDummyCPUTopology(16, 2, 4)
+	as.Nil(err)
+
+	machineInfo := &info.MachineInfo{}
+
+	dynamicPolicy, err := getTestDynamicPolicyWithInitialization(cpuTopology, machineInfo, tmpDir)
+	as.Nil(err)
+
+	tmpMemPluginSvrSockDir, err := ioutil.TempDir("", "checkpoint-TestServeForAdvisor-MemSvrSock")
+	as.Nil(err)
+
+	dynamicPolicy.memoryPluginSocketAbsPath = path.Join(tmpMemPluginSvrSockDir, "memSvr.sock")
+	stopCh := make(chan struct{})
+
+	go func() {
+		select {
+		case <-time.After(time.Second):
+			close(stopCh)
+		}
+	}()
+	dynamicPolicy.serveForAdvisor(stopCh)
+}
+
+func TestDynamicPolicy_ListContainers(t *testing.T) {
+	t.Parallel()
+
+	as := require.New(t)
+
+	tmpDir, err := ioutil.TempDir("", "checkpoint-TestDynamicPolicy_ListContainers")
+	as.Nil(err)
+	defer os.RemoveAll(tmpDir)
+
+	cpuTopology, err := machine.GenerateDummyCPUTopology(16, 2, 4)
+	as.Nil(err)
+
+	machineInfo := &info.MachineInfo{}
+
+	dynamicPolicy, err := getTestDynamicPolicyWithInitialization(cpuTopology, machineInfo, tmpDir)
+	as.Nil(err)
+
+	allocationInfo := &state.AllocationInfo{
+		PodUid:               "podUID",
+		PodNamespace:         "testName",
+		PodName:              "testName",
+		ContainerName:        "testName",
+		ContainerType:        pluginapi.ContainerType_MAIN.String(),
+		ContainerIndex:       0,
+		QoSLevel:             consts.PodAnnotationQoSLevelDedicatedCores,
+		RampUp:               false,
+		AggregatedQuantity:   9663676416,
+		NumaAllocationResult: machine.NewCPUSet(0),
+		TopologyAwareAllocations: map[int]uint64{
+			0: 9663676416,
+		},
+		Annotations: map[string]string{
+			consts.PodAnnotationQoSLevelKey:                  consts.PodAnnotationQoSLevelDedicatedCores,
+			consts.PodAnnotationMemoryEnhancementNumaBinding: consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
+		},
+		Labels: map[string]string{
+			consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelDedicatedCores,
+		},
+	}
+
+	dynamicPolicy.state.SetPodResourceEntries(state.PodResourceEntries{
+		v1.ResourceMemory: state.PodEntries{
+			"podUID": state.ContainerEntries{
+				"testName": allocationInfo,
+			},
+		},
+	})
+
+	containerType, found := pluginapi.ContainerType_value[allocationInfo.ContainerType]
+	as.True(found)
+
+	type args struct {
+		in0 context.Context
+		in1 *advisorsvc.Empty
+	}
+	tests := []struct {
+		name    string
+		args    args
+		want    *advisorsvc.ListContainersResponse
+		wantErr bool
+	}{
+		{
+			name: "test list contaienrs",
+			args: args{
+				in0: context.Background(),
+				in1: &advisorsvc.Empty{},
+			},
+			want: &advisorsvc.ListContainersResponse{
+				Containers: []*advisorsvc.ContainerMetadata{
+					{
+						PodUid:         allocationInfo.PodUid,
+						PodNamespace:   allocationInfo.PodNamespace,
+						PodName:        allocationInfo.PodName,
+						ContainerName:  allocationInfo.ContainerName,
+						ContainerIndex: allocationInfo.ContainerIndex,
+						ContainerType:  pluginapi.ContainerType(containerType),
+						QosLevel:       allocationInfo.QoSLevel,
+						Labels:         maputil.CopySS(allocationInfo.Labels),
+						Annotations:    maputil.CopySS(allocationInfo.Annotations),
+					},
+				},
+			},
+			wantErr: false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := dynamicPolicy.ListContainers(tt.args.in0, tt.args.in1)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("DynamicPolicy.ListContainers() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("DynamicPolicy.ListContainers() = %v, want %v", got, tt.want)
+			}
+		})
+	}
 }
