@@ -176,6 +176,13 @@ func (cs *cpuServer) getCheckpoint() {
 		return false
 	})
 
+	// complement living containers' original owner pools for pool gc
+	// todo: deprecate original owner pool and generate owner pool by realtime container status
+	cs.metaCache.RangeContainer(func(podUID string, containerName string, containerInfo *types.ContainerInfo) bool {
+		livingPoolNameSet.Insert(containerInfo.OriginOwnerPoolName)
+		return true
+	})
+
 	// gc pool entries
 	_ = cs.metaCache.GCPoolEntries(livingPoolNameSet)
 
