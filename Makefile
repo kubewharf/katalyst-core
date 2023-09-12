@@ -52,10 +52,10 @@ generate:
 ## --------------------------------------
 
 .PHONY: generate-pb
-generate-pb: generate-sys-advisor-cpu-plugin generate-advisor-svc
+generate-pb: generate-sys-advisor-cpu-plugin generate-advisor-svc generate-borwein-inference-svc
 
 SysAdvisorCPUPluginPath = $(MakeFilePath)/pkg/agent/qrm-plugins/cpu/dynamicpolicy/cpuadvisor/
-.PHONY: generate-sys-advisor-cpu-plugin ## Generate Protocol for cpu resource plugin with sys-advisor
+.PHONY: generate-sys-advisor-cpu-plugin ## Generate protocol for cpu resource plugin with sys-advisor
 generate-sys-advisor-cpu-plugin:
 	if [ ! -d $(GOPATH)/src/github.com/kubewharf/kubelet ]; then git clone https://github.com/kubewharf/kubelet.git $(GOPATH)/src/github.com/kubewharf/kubelet; fi
 	targetTag=`cat $(MakeFilePath)/go.mod | grep kubewharf/kubelet | awk '{print $$4}'` && \
@@ -72,7 +72,7 @@ generate-sys-advisor-cpu-plugin:
 		sed "$${sedi[@]}" s,github.com/kubewharf/kubelet,k8s.io/kubelet,g $(SysAdvisorCPUPluginPath)cpu.pb.go
 
 AdvisorSvcPath = $(MakeFilePath)/pkg/agent/qrm-plugins/advisorsvc/
-.PHONY: generate-advisor-svc ## Generate Protocol for general qrm-plugin with sys-advisor
+.PHONY: generate-advisor-svc ## Generate protocol for general qrm-plugin with sys-advisor
 generate-advisor-svc:
 	if [ ! -d $(GOPATH)/src/github.com/kubewharf/kubelet ]; then git clone https://github.com/kubewharf/kubelet.git $(GOPATH)/src/github.com/kubewharf/kubelet; fi
 	targetTag=`cat $(MakeFilePath)/go.mod | grep kubewharf/kubelet | awk '{print $$4}'` && \
@@ -87,6 +87,13 @@ generate-advisor-svc:
 	cat $(MakeFilePath)/hack/boilerplate.go.txt "$(AdvisorSvcPath)advisor_svc.pb.go" > tmpfile && mv tmpfile "$(AdvisorSvcPath)advisor_svc.pb.go"
 	if [ `uname` == "Linux" ]; then sedi=(-i); else sedi=(-i ""); fi && \
 		sed "$${sedi[@]}" s,github.com/kubewharf/kubelet,k8s.io/kubelet,g $(AdvisorSvcPath)advisor_svc.pb.go
+
+BorweinInferenceSvcPath = $(MakeFilePath)/pkg/agent/sysadvisor/plugin/inference/models/borwein/inferencesvc/
+.PHONY: generate-borwein-inference-svc ## Generate protocol for borwein inference service
+generate-borwein-inference-svc:
+	protoc -I=$(BorweinInferenceSvcPath) -I=$(GOPATH)/src/ -I=$(GOPATH)/pkg/mod/ --gogo_out=plugins=grpc,paths=source_relative:$(BorweinInferenceSvcPath) $(BorweinInferenceSvcPath)inference_svc.proto && \
+	cat $(MakeFilePath)/hack/boilerplate.go.txt "$(BorweinInferenceSvcPath)inference_svc.pb.go" > tmpfile && mv tmpfile "$(BorweinInferenceSvcPath)inference_svc.pb.go"
+
 
 ## --------------------------------------
 ## Cleanup / Verification

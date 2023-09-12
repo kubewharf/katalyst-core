@@ -22,6 +22,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/errors"
 	cliflag "k8s.io/component-base/cli/flag"
 
+	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/options/sysadvisor/qosaware/model"
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/options/sysadvisor/qosaware/reporter"
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/options/sysadvisor/qosaware/resource"
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/options/sysadvisor/qosaware/server"
@@ -39,6 +40,7 @@ type QoSAwarePluginOptions struct {
 	*resource.ResourceAdvisorOptions
 	*server.QRMServerOptions
 	*reporter.HeadroomReporterOptions
+	*model.ModelOptions
 }
 
 // NewQoSAwarePluginOptions creates a new Options with a default config.
@@ -48,6 +50,7 @@ func NewQoSAwarePluginOptions() *QoSAwarePluginOptions {
 		ResourceAdvisorOptions:  resource.NewResourceAdvisorOptions(),
 		QRMServerOptions:        server.NewQRMServerOptions(),
 		HeadroomReporterOptions: reporter.NewHeadroomReporterOptions(),
+		ModelOptions:            model.NewModelOptions(),
 	}
 }
 
@@ -60,6 +63,7 @@ func (o *QoSAwarePluginOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 	o.ResourceAdvisorOptions.AddFlags(fs)
 	o.QRMServerOptions.AddFlags(fs)
 	o.HeadroomReporterOptions.AddFlags(fs)
+	o.ModelOptions.AddFlags(fs)
 }
 
 // ApplyTo fills up config with options
@@ -70,6 +74,7 @@ func (o *QoSAwarePluginOptions) ApplyTo(c *qosaware.QoSAwarePluginConfiguration)
 	errList = append(errList, o.ResourceAdvisorOptions.ApplyTo(c.ResourceAdvisorConfiguration))
 	errList = append(errList, o.QRMServerOptions.ApplyTo(c.QRMServerConfiguration))
 	errList = append(errList, o.HeadroomReporterOptions.ApplyTo(c.HeadroomReporterConfiguration))
+	errList = append(errList, o.ModelOptions.ApplyTo(c.ModelConfiguration))
 
 	return errors.NewAggregate(errList)
 }

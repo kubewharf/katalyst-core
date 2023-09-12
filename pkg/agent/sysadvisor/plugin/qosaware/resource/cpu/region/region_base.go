@@ -29,6 +29,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource/cpu/region/headroompolicy"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource/cpu/region/provisionpolicy"
+	borweinctrl "github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource/helper/modelctrl/borwein"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
@@ -100,6 +101,11 @@ type QoSRegionBase struct {
 	metaReader metacache.MetaReader
 	metaServer *metaserver.MetaServer
 	emitter    metrics.MetricEmitter
+
+	// enableBorweinModel and borweinController will take effect only when using rama provision policy.
+	// If enableBorweinModel is set, borweinController will update target indicators by model inference.
+	enableBorweinModel bool
+	borweinController  *borweinctrl.BorweinController
 }
 
 // NewQoSRegionBase returns a base qos region instance with common region methods
@@ -124,10 +130,16 @@ func NewQoSRegionBase(name string, ownerPoolName string, regionType types.QoSReg
 		metaReader: metaReader,
 		metaServer: metaServer,
 		emitter:    emitter,
+
+		enableBorweinModel: conf.PolicyRama.EnableBorwein,
 	}
 
 	r.initHeadroomPolicy(conf, extraConf, metaReader, metaServer, emitter)
 	r.initProvisionPolicy(conf, extraConf, metaReader, metaServer, emitter)
+
+	if r.enableBorweinModel {
+		r.borweinController = borweinctrl.NewBorweinController(name, regionType, ownerPoolName, conf, metaReader)
+	}
 
 	klog.Infof("[qosaware-cpu] created region [%v/%v/%v]", r.Name(), r.Type(), r.OwnerPoolName())
 
@@ -465,7 +477,12 @@ func (r *QoSRegionBase) getIndicators() (types.Indicator, error) {
 		indicators[indicatorName] = indicatorValue
 	}
 
-	return indicators, nil
+	if r.enableBorweinModel {
+		return r.borweinController.GetUpdatedIndicators(indicators, r.podSet), nil
+	} else {
+		return indicators, nil
+	}
+
 }
 
 // getPodIndicatorTarget gets pod indicator target by given pod uid and indicator name,

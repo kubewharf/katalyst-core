@@ -27,6 +27,7 @@ const (
 	AdvisorPluginNameQoSAware      = "qos_aware"
 	AdvisorPluginNameMetaCache     = "metacache"
 	AdvisorPluginNameMetricEmitter = "metric_emitter"
+	AdvisorPluginNameInference     = "inference"
 )
 
 // QoSResourceName describes different resources under qos aware control

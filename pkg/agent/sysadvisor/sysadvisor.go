@@ -27,6 +27,7 @@ import (
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
 	pkgplugin "github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin"
+	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/inference"
 	metacacheplugin "github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/metacache"
 	metricemitter "github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/metric-emitter"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware"
@@ -43,6 +44,7 @@ func init() {
 	pkgplugin.RegisterAdvisorPlugin(types.AdvisorPluginNameQoSAware, qosaware.NewQoSAwarePlugin)
 	pkgplugin.RegisterAdvisorPlugin(types.AdvisorPluginNameMetaCache, metacacheplugin.NewMetaCachePlugin)
 	pkgplugin.RegisterAdvisorPlugin(types.AdvisorPluginNameMetricEmitter, metricemitter.NewCustomMetricEmitter)
+	pkgplugin.RegisterAdvisorPlugin(types.AdvisorPluginNameInference, inference.NewInferencePlugin)
 }
 
 // AdvisorAgent for sysadvisor
@@ -94,7 +96,7 @@ func (m *AdvisorAgent) getAdvisorPlugins(SysAdvisorPluginInitializers map[string
 		}
 
 		klog.Infof("[sysadvisor] %s plugin is enabled", pluginName)
-		curPlugin, err := initFn(m.config, m.extraConf, m.emitPool, m.metaServer, metaCache)
+		curPlugin, err := initFn(pluginName, m.config, m.extraConf, m.emitPool, m.metaServer, metaCache)
 		if err != nil {
 			return fmt.Errorf("failed to start sysadvisor plugin %v: %v", pluginName, err)
 		}

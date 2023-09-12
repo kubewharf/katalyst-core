@@ -17,6 +17,7 @@ limitations under the License.
 package sysadvisor
 
 import (
+	"github.com/kubewharf/katalyst-core/pkg/config/agent/sysadvisor/inference"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/sysadvisor/metacache"
 	metricemitter "github.com/kubewharf/katalyst-core/pkg/config/agent/sysadvisor/metric-emitter"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/sysadvisor/qosaware"
@@ -38,6 +39,7 @@ type SysAdvisorPluginsConfiguration struct {
 	*qosaware.QoSAwarePluginConfiguration
 	*metacache.MetaCachePluginConfiguration
 	*metricemitter.MetricEmitterPluginConfiguration
+	*inference.InferencePluginConfiguration
 }
 
 // NewSysAdvisorPluginsConfiguration creates a new sysadvisor plugins configuration.
@@ -46,5 +48,6 @@ func NewSysAdvisorPluginsConfiguration() *SysAdvisorPluginsConfiguration {
 		QoSAwarePluginConfiguration:      qosaware.NewQoSAwarePluginConfiguration(),
 		MetaCachePluginConfiguration:     metacache.NewMetaCachePluginConfiguration(),
 		MetricEmitterPluginConfiguration: metricemitter.NewMetricEmitterPluginConfiguration(),
+		InferencePluginConfiguration:     inference.NewInferencePluginConfiguration(),
 	}
 }
