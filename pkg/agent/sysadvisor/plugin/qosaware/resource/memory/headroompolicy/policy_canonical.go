@@ -88,7 +88,9 @@ func (p *PolicyCanonical) estimateNonReclaimedQoSMemoryRequirement() (float64, e
 					}
 					containerEstimation += float64(memoryCap)
 				}
-				general.Infof("container %s/%s occupied memory %v", ci.PodName, ci.ContainerName, containerEstimation)
+				general.InfoS("occupied memory exclusively",
+					"podName", ci.PodName, "containerName", containerName,
+					"value", general.FormatMemoryQuantity(containerEstimation))
 			} else {
 				containerEstimation = 0
 			}
@@ -101,7 +103,8 @@ func (p *PolicyCanonical) estimateNonReclaimedQoSMemoryRequirement() (float64, e
 			return true
 		}
 
-		general.Infof("pod %v container %v estimation %.2e", ci.PodName, containerName, containerEstimation)
+		general.InfoS("memory estimation", "podName",
+			ci.PodName, "containerName", containerName, "value", general.FormatMemoryQuantity(containerEstimation))
 		return true
 	}
 	p.metaReader.RangeContainer(f)
