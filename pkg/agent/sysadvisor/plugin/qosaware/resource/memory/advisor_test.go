@@ -119,13 +119,16 @@ func newTestMemoryAdvisor(t *testing.T, pods []*v1.Pod, checkpointDir, stateFile
 
 	cpuTopology, err := machine.GenerateDummyCPUTopology(96, 2, 4)
 	require.NoError(t, err)
+	memoryTopology, err := machine.GenerateDummyMemoryTopology(4, 500<<30)
+	require.NoError(t, err)
 
 	metaServer.MetaAgent = &agent.MetaAgent{
 		KatalystMachineInfo: &machine.KatalystMachineInfo{
 			MachineInfo: &info.MachineInfo{
 				MemoryCapacity: 1000 << 30,
 			},
-			CPUTopology: cpuTopology,
+			CPUTopology:    cpuTopology,
+			MemoryTopology: memoryTopology,
 		},
 		PodFetcher: &pod.PodFetcherStub{
 			PodList: pods,
@@ -674,27 +677,33 @@ func TestUpdate(t *testing.T) {
 					map[int]machine.CPUSet{
 						0: machine.MustParse("1"),
 					}, 200<<30),
+				makeContainerInfo("uid4", "default", "pod4", "c4", consts.PodAnnotationQoSLevelDedicatedCores, map[string]string{
+					consts.PodAnnotationMemoryEnhancementNumaBinding:   consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
+					consts.PodAnnotationMemoryEnhancementNumaExclusive: consts.PodAnnotationMemoryEnhancementNumaExclusiveEnable},
+					map[int]machine.CPUSet{
+						0: machine.MustParse("1"),
+					}, 200<<30),
 			},
 			plugins:      []types.MemoryAdvisorPluginName{memadvisorplugin.MemsetBinder},
 			nodeMetrics:  defaultNodeMetrics,
 			numaMetrics:  defaultNumaMetrics,
-			wantHeadroom: *resource.NewQuantity(996<<30, resource.DecimalSI),
+			wantHeadroom: *resource.NewQuantity(871<<30, resource.DecimalSI),
 			wantAdviceResult: types.InternalMemoryCalculationResult{
 				ContainerEntries: []types.ContainerMemoryAdvices{
 					{
 						PodUID:        "uid1",
 						ContainerName: "c1",
-						Values:        map[string]string{string(memoryadvisor.ControlKnobKeyCPUSetMems): "0-1"},
+						Values:        map[string]string{string(memoryadvisor.ControlKnobKeyCPUSetMems): "1-3"},
 					},
 					{
 						PodUID:        "uid2",
 						ContainerName: "c2",
-						Values:        map[string]string{string(memoryadvisor.ControlKnobKeyCPUSetMems): "0-1"},
+						Values:        map[string]string{string(memoryadvisor.ControlKnobKeyCPUSetMems): "1-3"},
 					},
 					{
 						PodUID:        "uid3",
 						ContainerName: "c3",
-						Values:        map[string]string{string(memoryadvisor.ControlKnobKeyCPUSetMems): "0"},
+						Values:        map[string]string{string(memoryadvisor.ControlKnobKeyCPUSetMems): "1-3"},
 					},
 				},
 			},
