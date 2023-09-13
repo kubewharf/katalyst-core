@@ -56,6 +56,10 @@ func NewPolicyCanonical(conf *config.Configuration, _ interface{}, metaReader me
 	return &p
 }
 
+func (p *PolicyCanonical) Name() types.MemoryHeadroomPolicyName {
+	return types.MemoryHeadroomPolicyCanonical
+}
+
 // estimateNonReclaimedQoSMemoryRequirement estimates the memory requirement of all containers that are not reclaimed
 func (p *PolicyCanonical) estimateNonReclaimedQoSMemoryRequirement() (float64, error) {
 	var (

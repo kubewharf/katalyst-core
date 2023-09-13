@@ -41,6 +41,7 @@ import (
 
 func init() {
 	headroompolicy.RegisterInitializer(types.MemoryHeadroomPolicyCanonical, headroompolicy.NewPolicyCanonical)
+	headroompolicy.RegisterInitializer(types.MemoryHeadroomPolicyNUMAAware, headroompolicy.NewPolicyNUMAAware)
 
 	memadvisorplugin.RegisterInitializer(memadvisorplugin.CacheReaper, memadvisorplugin.NewCacheReaper)
 	memadvisorplugin.RegisterInitializer(memadvisorplugin.MemoryGuard, memadvisorplugin.NewMemoryGuard)
@@ -98,7 +99,10 @@ func NewMemoryResourceAdvisor(conf *config.Configuration, extraConf interface{},
 			klog.Errorf("failed to find registered initializer %v", headroomPolicyName)
 			continue
 		}
-		ra.headroomPolices = append(ra.headroomPolices, initFunc(conf, extraConf, metaCache, metaServer, emitter))
+		policy := initFunc(conf, extraConf, metaCache, metaServer, emitter)
+		general.InfoS("add new memory headroom policy", "policyName", policy.Name())
+
+		ra.headroomPolices = append(ra.headroomPolices, policy)
 	}
 
 	memoryAdvisorPluginInitializers := memadvisorplugin.GetRegisteredInitializers()
@@ -108,6 +112,7 @@ func NewMemoryResourceAdvisor(conf *config.Configuration, extraConf interface{},
 			klog.Errorf("failed to find registered initializer %v", memadvisorPluginName)
 			continue
 		}
+		general.InfoS("add new memory advisor policy", "policyName", memadvisorPluginName)
 		ra.plugins = append(ra.plugins, initFunc(conf, extraConf, metaCache, metaServer, emitter))
 	}
 
@@ -135,7 +140,7 @@ func (ra *memoryResourceAdvisor) GetHeadroom() (resource.Quantity, error) {
 	for _, headroomPolicy := range ra.headroomPolices {
 		headroom, err := headroomPolicy.GetHeadroom()
 		if err != nil {
-			klog.Warningf("[qosaware-memory] get headroom with error: %v", err)
+			klog.ErrorS(err, "get headroom failed", "headroomPolicy", headroomPolicy.Name())
 			continue
 		}
 		return headroom, nil
@@ -182,7 +187,7 @@ func (ra *memoryResourceAdvisor) update() {
 		})
 
 		if err := headroomPolicy.Update(); err != nil {
-			klog.Errorf("[qosaware-memory] update headroom policy failed: %v", err)
+			general.ErrorS(err, "[qosaware-memory] update headroom policy failed", "headroomPolicy", headroomPolicy.Name())
 		}
 	}
 
