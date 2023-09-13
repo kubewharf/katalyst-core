@@ -181,6 +181,7 @@ func (cra *cpuResourceAdvisor) getRegionMaxRequirement(r region.QoSRegion) float
 			}
 			return true
 		})
+		res = general.MaxFloat64(1, res)
 	default:
 		for _, numaID := range r.GetBindingNumas().ToSliceInt() {
 			res += float64(cra.numaAvailable[numaID])
@@ -201,6 +202,7 @@ func (cra *cpuResourceAdvisor) getRegionMinRequirement(r region.QoSRegion) float
 			}
 			return true
 		})
+		res = general.MaxFloat64(1, res)
 		return res
 	case types.QoSRegionTypeDedicatedNumaExclusive:
 		return types.MinDedicatedCPURequirement
