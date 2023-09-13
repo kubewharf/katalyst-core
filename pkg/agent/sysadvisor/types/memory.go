@@ -35,6 +35,7 @@ const (
 
 	MemoryHeadroomPolicyNone      MemoryHeadroomPolicyName = "none"
 	MemoryHeadroomPolicyCanonical MemoryHeadroomPolicyName = "canonical"
+	MemoryHeadroomPolicyNUMAAware MemoryHeadroomPolicyName = "numa-aware"
 )
 
 type MemoryPressureCondition struct {
