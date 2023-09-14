@@ -45,16 +45,19 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
+	"github.com/kubewharf/katalyst-core/pkg/util/credential"
+	"github.com/kubewharf/katalyst-core/pkg/util/credential/authorization"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/native"
 )
 
 const (
-	MetricsNameVictimPodCNT        = "victims_cnt"
-	MetricsNameRunningPodCNT       = "running_pod_cnt"
-	MetricsNameCandidatePodCNT     = "candidate_pod_cnt"
-	MetricsNameDryRunVictimPodCNT  = "dryrun_victims_cnt"
-	MetricsNameRequestConditionCNT = "request_condition_cnt"
+	MetricsNameVictimPodCNT         = "victims_cnt"
+	MetricsNameRunningPodCNT        = "running_pod_cnt"
+	MetricsNameCandidatePodCNT      = "candidate_pod_cnt"
+	MetricsNameDryRunVictimPodCNT   = "dryrun_victims_cnt"
+	MetricsNameRequestConditionCNT  = "request_condition_cnt"
+	MetricsNameEvictionPluginCalled = "eviction_plugin_called"
 )
 
 // LatestCNRGetter returns the latest CNR resources.
@@ -95,6 +98,9 @@ type EvictionManger struct {
 	conditionsLastObservedAt map[string]conditionObservedAt
 	// thresholdsFirstObservedAt map eviction plugin name to *pluginapi.Condition with firstly observed timestamp.
 	thresholdsFirstObservedAt map[string]thresholdObservedAt
+
+	cred credential.Credential
+	auth authorization.AccessControl
 }
 
 var InnerEvictionPluginsDisabledByDefault = sets.NewString()
@@ -148,6 +154,8 @@ func NewEvictionManager(genericClient *client.GenericClientSet, recorder events.
 		thresholdsFirstObservedAt: make(map[string]thresholdObservedAt),
 		clock:                     clocks.RealClock{},
 		genericClient:             genericClient,
+		cred:                      credential.DefaultCredential(),
+		auth:                      authorization.DefaultAccessControl(),
 	}
 
 	e.getEvictionPlugins(genericClient, recorder, metaServer, emitter, conf, NewInnerEvictionPluginInitializers())
@@ -207,6 +215,9 @@ func (m *EvictionManger) collectEvictionResult(pods []*v1.Pod) *evictionRespColl
 
 	m.endpointLock.RLock()
 	for pluginName, ep := range m.endpoints {
+		_ = m.emitter.StoreInt64(MetricsNameEvictionPluginCalled, 1, metrics.MetricTypeNameCount,
+			metrics.MetricTag{Key: "name", Val: pluginName})
+
 		getEvictResp, err := ep.GetEvictPods(context.Background(), &pluginapi.GetEvictPodsRequest{
 			ActivePods: pods,
 		})
@@ -321,6 +332,38 @@ func (m *EvictionManger) ValidatePlugin(pluginName string, endpoint string, vers
 
 	if !m.isVersionCompatibleWithPlugin(versions) {
 		return fmt.Errorf("manager version, %s, is not among plugin supported versions %v", pluginapi.Version, versions)
+	}
+
+	e, err := endpointpkg.NewRemoteEndpointImpl(endpoint, pluginName)
+	if err != nil {
+		return fmt.Errorf(" failed to dial resource plugin with socketPath %s: %v", endpoint, err)
+	}
+
+	// try to push authentication process as far as we can even in non-strict mode, it helps to identify who
+	// registers this plugin
+	tokenResp, tokenErr := e.GetToken(context.TODO())
+	if tokenErr != nil {
+		if m.conf.StrictAuthentication {
+			return fmt.Errorf(" failed to get token:%v", tokenErr)
+		}
+		general.Warningf("no valid token for plugin %s:%v", pluginName, tokenErr)
+		return nil
+	}
+
+	authInfo, authErr := m.cred.AuthToken(tokenResp.Token)
+	if authErr != nil {
+		if m.conf.StrictAuthentication {
+			return fmt.Errorf(" failed to verify token:%v", authErr)
+		}
+		general.Warningf("failed to verify token for plugin %s:%v", pluginName, authErr)
+		return nil
+	}
+
+	general.Infof("user %v request to register plugin %v", authInfo.SubjectName(), pluginName)
+
+	verifyErr := m.auth.Verify(authInfo, authorization.PermissionTypeEvictionPlugin)
+	if verifyErr != nil && m.conf.StrictAuthentication {
+		return err
 	}
 
 	return nil

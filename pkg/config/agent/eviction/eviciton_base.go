@@ -45,6 +45,9 @@ type GenericEvictionConfiguration struct {
 
 	// PodKiller specify the pod killer implementation
 	PodKiller string
+
+	// StrictAuthentication means whether to authenticate plugins strictly
+	StrictAuthentication bool
 }
 
 type EvictionConfiguration struct {
