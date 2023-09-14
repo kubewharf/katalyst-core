@@ -236,3 +236,10 @@ func (p *cpuPressureEviction) ThresholdMet(ctx context.Context,
 		MetType: pluginapi.ThresholdMetType_NOT_MET,
 	}, nil
 }
+
+// GetToken TODO implementation
+func (p *cpuPressureEviction) GetToken(_ context.Context, _ *pluginapi.Empty) (*pluginapi.GetTokenResponse, error) {
+	return &pluginapi.GetTokenResponse{
+		Token: "",
+	}, nil
+}

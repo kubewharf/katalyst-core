@@ -19,9 +19,11 @@ package process
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io/ioutil"
 	"net"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -29,6 +31,9 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/klog/v2"
+
+	"github.com/kubewharf/katalyst-core/pkg/util/credential"
+	"github.com/kubewharf/katalyst-core/pkg/util/credential/authorization"
 )
 
 const (
@@ -37,17 +42,19 @@ const (
 )
 
 const (
-	HTTPChainAuth        = "auth"
+	HTTPChainCredential  = "credential"
 	HTTPChainRateLimiter = "rateLimiter"
+)
+
+type contextKey string
+
+const (
+	KeyAuthInfo contextKey = "auth"
 )
 
 var (
 	httpCleanupVisitorPeriod = time.Minute * 3
-	httpSyncPasswdPeriod     = time.Minute * 3
 )
-
-// GetAuthPair is a uniformed helper function to get auth pair maps (user:passwd)
-type GetAuthPair func() (map[string]string, error)
 
 type visitor struct {
 	limiter  *rate.Limiter
@@ -55,19 +62,26 @@ type visitor struct {
 }
 
 type HTTPHandler struct {
-	mux     sync.Mutex
-	authFun GetAuthPair
+	mux       sync.Mutex
+	cred      credential.Credential
+	accessCtl authorization.AccessControl
 
-	enabled  sets.String
-	visitors map[string]*visitor
-	authInfo map[string]string
+	enabled           sets.String
+	visitors          map[string]*visitor
+	authInfo          map[string]string
+	skipAuthURLPrefix []string
 }
 
-func NewHTTPHandler(authFun GetAuthPair, enabled []string) *HTTPHandler {
+func NewHTTPHandler(enabled []string, skipAuthURLPrefix []string) *HTTPHandler {
+
 	return &HTTPHandler{
 		visitors: make(map[string]*visitor),
-		authFun:  authFun,
 		enabled:  sets.NewString(enabled...),
+		// no credential by default
+		cred: credential.DefaultCredential(),
+		// no authorization check by default
+		accessCtl:         authorization.DefaultAccessControl(),
+		skipAuthURLPrefix: skipAuthURLPrefix,
 	}
 }
 
@@ -76,32 +90,25 @@ func (h *HTTPHandler) Run(ctx context.Context) {
 		go wait.Until(h.cleanupVisitor, httpCleanupVisitorPeriod, ctx.Done())
 	}
 
-	if h.enabled.Has(HTTPChainAuth) {
-		go wait.Until(h.syncPasswd, httpSyncPasswdPeriod, ctx.Done())
+	if h.enabled.Has(HTTPChainCredential) {
+		h.cred.Run(ctx)
+		h.accessCtl.Run(ctx)
 	}
 }
 
-func (h *HTTPHandler) getHTTPVisitor(addr string) *rate.Limiter {
+func (h *HTTPHandler) getHTTPVisitor(subject string) *rate.Limiter {
 	h.mux.Lock()
 	defer h.mux.Unlock()
 
-	v, exists := h.visitors[addr]
+	v, exists := h.visitors[subject]
 	if !exists {
 		limiter := rate.NewLimiter(0.5, 1)
-		h.visitors[addr] = &visitor{limiter, time.Now()}
+		h.visitors[subject] = &visitor{limiter, time.Now()}
 		return limiter
 	}
 
 	v.lastSeen = time.Now()
 	return v.limiter
-}
-
-func (h *HTTPHandler) getAuthPair(user string) (string, bool) {
-	h.mux.Lock()
-	defer h.mux.Unlock()
-
-	passwd, ok := h.authInfo[user]
-	return passwd, ok
 }
 
 // cleanupVisitor periodically cleanups visitors if they are not called for a long time
@@ -116,49 +123,69 @@ func (h *HTTPHandler) cleanupVisitor() {
 	}
 }
 
-// syncPasswd periodically syncs user and passwd since it may change dynamically
-func (h *HTTPHandler) syncPasswd() {
-	if pairs, err := h.authFun(); err != nil {
-		klog.Errorf("failed to get auth pairs: %v", err)
-	} else {
-		h.mux.Lock()
-		h.authInfo = pairs
-		h.mux.Unlock()
-	}
-}
+// withBasicAuth is used to verify the requests and bind authInfo to request.
+func (h *HTTPHandler) withCredential(f http.HandlerFunc) http.HandlerFunc {
 
-// withBasicAuth is used to verify the requests with basic-auth
-// the common use cases are: `curl -i --user "user-name:user-passwd"`
-func (h *HTTPHandler) withBasicAuth(f http.HandlerFunc) http.HandlerFunc {
+	skipAuth := func(r *http.Request) bool {
+		for _, prefix := range h.skipAuthURLPrefix {
+			if strings.HasPrefix(r.URL.Path, prefix) {
+				return true
+			}
+		}
+		return false
+	}
+
 	return func(w http.ResponseWriter, r *http.Request) {
-		if r != nil {
-			user, passwd, ok := r.BasicAuth()
-			if ok {
-				klog.V(4).Infof("user %v request %+v ", user, r.URL)
-				expectedPasswd, ok := h.getAuthPair(user)
-				if ok && passwd == expectedPasswd {
-					klog.V(4).Infof("user %v request %+v is valid", user, r.URL)
-					f(w, r)
-					return
-				}
-				klog.Warningf("request %+v with user %v doesn't have proper auth", r.URL, user)
+		if r == nil {
+			klog.Warningf("request is nil")
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+
+		var authInfo credential.AuthInfo
+		shouldSkipAuth := skipAuth(r)
+		if !shouldSkipAuth {
+			var err error
+			authInfo, err = h.cred.Auth(r)
+			if err != nil {
+				klog.Warningf("request %+v doesn't have proper auth", r.URL)
+				w.Header().Set("Katalyst-Authenticate", `Basic realm="Restricted"`)
+				w.WriteHeader(http.StatusUnauthorized)
+				return
+			}
+
+			r = attachAuthInfo(r, authInfo)
+			klog.V(4).Infof("user %v request %+v  with auth type %v", authInfo.SubjectName(), r.URL, authInfo.AuthType())
+			if verifyErr := h.accessCtl.Verify(authInfo, authorization.PermissionTypeHttpEndpoint); verifyErr != nil {
+				klog.Warningf("request %+v with user %v doesn't have permission, msg: %v", r.URL, authInfo.SubjectName(), verifyErr)
+				w.Header().Set("Katalyst-Authenticate", `Basic realm="Restricted"`)
+				w.WriteHeader(http.StatusUnauthorized)
+				return
 			}
 		}
 
-		klog.Warningf("request %+v doesn't have proper auth", r.URL)
-		w.Header().Set("Katalyst-Authenticate", `Basic realm="Restricted"`)
-		w.WriteHeader(http.StatusUnauthorized)
+		if authInfo != nil {
+			klog.V(4).Infof("user %v request %+v is valid", authInfo.SubjectName(), r.URL)
+		}
+		f(w, r)
 	}
 }
 
 // withRateLimiter is used to limit user-requests to protect server
-// todo, actually, we'd better to build different limiter rate for each user
 func (h *HTTPHandler) withRateLimiter(f http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r != nil {
-			limiter := h.getHTTPVisitor(r.RemoteAddr)
+			rateLimiterKey := r.RemoteAddr
+			authInfo, err := getAuthInfo(r)
+			if err != nil {
+				klog.Warningf("request %+v has no valid auth info bound to it, using Remote address %v as RateLimiter key， err: %v", r.URL, r.RemoteAddr, err)
+			} else {
+				rateLimiterKey = authInfo.SubjectName()
+			}
+
+			limiter := h.getHTTPVisitor(rateLimiterKey)
 			if !limiter.Allow() {
-				klog.Warningf("request %+v has too many requests from addr %v", r.URL, r.RemoteAddr)
+				klog.Warningf("request %+v has too many requests from %v", r.URL, rateLimiterKey)
 				w.Header().Set("Katalyst-Limit", `too many requests`)
 				w.WriteHeader(http.StatusTooManyRequests)
 				return
@@ -169,13 +196,31 @@ func (h *HTTPHandler) withRateLimiter(f http.HandlerFunc) http.HandlerFunc {
 	}
 }
 
+func (h *HTTPHandler) WithCredential(cred credential.Credential) error {
+	if cred == nil {
+		return fmt.Errorf("nil Credential is not allowed")
+	}
+
+	h.cred = cred
+	return nil
+}
+
+func (h *HTTPHandler) WithAuthorization(auth authorization.AccessControl) error {
+	if auth == nil {
+		return fmt.Errorf("nil AccessControl is not allowed")
+	}
+
+	h.accessCtl = auth
+	return nil
+}
+
 // WithHandleChain builds handler chains for http.Handler
 func (h *HTTPHandler) WithHandleChain(f http.Handler) http.Handler {
 	// build orders for http chains
-	chains := []string{HTTPChainRateLimiter, HTTPChainAuth}
+	chains := []string{HTTPChainRateLimiter, HTTPChainCredential}
 	funcs := map[string]func(http.HandlerFunc) http.HandlerFunc{
 		HTTPChainRateLimiter: h.withRateLimiter,
-		HTTPChainAuth:        h.withBasicAuth,
+		HTTPChainCredential:  h.withCredential,
 	}
 
 	var handler http.Handler = f
@@ -230,4 +275,23 @@ func GetAndUnmarshal(url string, v interface{}) error {
 	}
 
 	return nil
+}
+
+func attachAuthInfo(r *http.Request, authInfo credential.AuthInfo) *http.Request {
+	newCtx := context.WithValue(r.Context(), KeyAuthInfo, &authInfo)
+	return r.WithContext(newCtx)
+}
+
+func getAuthInfo(r *http.Request) (credential.AuthInfo, error) {
+	value := r.Context().Value(KeyAuthInfo)
+	if value == nil {
+		return nil, fmt.Errorf("no auth info bound to this request")
+	}
+
+	authInfo, ok := value.(*credential.AuthInfo)
+	if !ok {
+		return nil, fmt.Errorf("invalid auth info bound to this request")
+	}
+
+	return *authInfo, nil
 }

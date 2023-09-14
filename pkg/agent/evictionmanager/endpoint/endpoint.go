@@ -135,6 +135,15 @@ func (e *RemoteEndpointImpl) GetEvictPods(c context.Context, request *pluginapi.
 	return e.client.GetEvictPods(ctx, request)
 }
 
+func (e *RemoteEndpointImpl) GetToken(c context.Context) (*pluginapi.GetTokenResponse, error) {
+	if e.IsStopped() {
+		return nil, fmt.Errorf(errEndpointStopped, e)
+	}
+	ctx, cancel := context.WithTimeout(c, consts.EvictionPluginGetEvictPodsRPCTimeoutInSecs*time.Second)
+	defer cancel()
+	return e.client.GetToken(ctx, &pluginapi.Empty{})
+}
+
 // Stop is used to stop this remote endpoint
 func (e *RemoteEndpointImpl) Stop() {
 	e.mutex.Lock()
