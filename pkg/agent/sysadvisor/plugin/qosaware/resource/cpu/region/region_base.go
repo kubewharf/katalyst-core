@@ -37,6 +37,13 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
+const (
+	metricCPUGetHeadroomFailed  = "get_cpu_headroom_failed"
+	metricCPUGetProvisionFailed = "get_cpu_provision_failed"
+
+	metricTagKeyPolicyName = "policy_name"
+)
+
 type internalPolicyState struct {
 	updateStatus types.PolicyUpdateStatus
 	initDoOnce   sync.Once
@@ -231,6 +238,8 @@ func (r *QoSRegionBase) GetProvision() (types.ControlKnob, error) {
 
 	for _, internal := range r.provisionPolicies {
 		if internal.updateStatus != types.PolicyUpdateSucceeded {
+			_ = r.emitter.StoreInt64(metricCPUGetProvisionFailed, 1, metrics.MetricTypeNameRaw,
+				metrics.MetricTag{Key: metricTagKeyPolicyName, Val: string(internal.name)})
 			continue
 		}
 		controlKnobAdjusted, err := internal.policy.GetControlKnobAdjusted()
@@ -253,6 +262,8 @@ func (r *QoSRegionBase) GetHeadroom() (float64, error) {
 
 	for _, internal := range r.headroomPolicies {
 		if internal.updateStatus != types.PolicyUpdateSucceeded {
+			_ = r.emitter.StoreInt64(metricCPUGetHeadroomFailed, 1, metrics.MetricTypeNameRaw,
+				metrics.MetricTag{Key: metricTagKeyPolicyName, Val: string(internal.name)})
 			continue
 		}
 		headroom, err := internal.policy.GetHeadroom()
