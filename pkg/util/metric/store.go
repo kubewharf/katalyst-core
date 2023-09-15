@@ -33,8 +33,9 @@ type MetricData struct {
 	Time *time.Time
 }
 
-// MetricStore stores those raw metric data items collected from
-// agent.MetricsFetcher
+// MetricStore stores those metric data. Including:
+// 1. raw data collected from agent.MetricsFetcher.
+// 2. data calculated based on raw data.
 type MetricStore struct {
 	mutex sync.RWMutex
 

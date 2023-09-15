@@ -430,7 +430,38 @@ func (m *MalachiteMetricsFetcher) processSystemIOData(systemIOData *types.System
 	// todo, currently we only get a unified data for the whole system io data
 	updateTime := time.Unix(systemIOData.UpdateTime, 0)
 
+	// calculate rate of the metric, and tell the caller if it's a valid value.
+	ioStatFunc := func(deviceName, metricName string, value float64) (float64, bool) {
+		prevData, err := m.metricStore.GetDeviceMetric(deviceName, metricName)
+		if err != nil || prevData.Time == nil {
+			return 0, false
+		}
+
+		timestampDeltaInMill := updateTime.UnixMilli() - prevData.Time.UnixMilli()
+		if timestampDeltaInMill == 0 {
+			return prevData.Value, false
+		}
+
+		return (value - prevData.Value) / float64(timestampDeltaInMill), true
+	}
+
+	setStatMetricIfValid := func(deviceName, rawMetricName, metricName string, value, scale float64) {
+		ioStatData, isValid := ioStatFunc(deviceName, rawMetricName, value)
+		if !isValid {
+			return
+		}
+		m.metricStore.SetDeviceMetric(deviceName, metricName,
+			utilmetric.MetricData{
+				Value: ioStatData * scale,
+				Time:  &updateTime,
+			})
+	}
+
 	for _, device := range systemIOData.DiskIo {
+		setStatMetricIfValid(device.DeviceName, consts.MetricIOReadSystem, consts.MetricIOReadOpsSystem, float64(device.IoRead), 1000.0)
+		setStatMetricIfValid(device.DeviceName, consts.MetricIOWriteSystem, consts.MetricIOWriteOpsSystem, float64(device.IoWrite), 1000.0)
+		setStatMetricIfValid(device.DeviceName, consts.MetricIOBusySystem, consts.MetricIOBusyRateSystem, float64(device.IoBusy), 1.0)
+
 		m.metricStore.SetDeviceMetric(device.DeviceName, consts.MetricIOReadSystem,
 			utilmetric.MetricData{Value: float64(device.IoRead), Time: &updateTime})
 		m.metricStore.SetDeviceMetric(device.DeviceName, consts.MetricIOWriteSystem,
