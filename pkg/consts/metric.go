@@ -55,6 +55,10 @@ const (
 	MetricIOReadSystem  = "io.read.system"
 	MetricIOWriteSystem = "io.write.system"
 	MetricIOBusySystem  = "io.busy.system"
+
+	MetricIOReadOpsSystem  = "io.read.ops.system"
+	MetricIOWriteOpsSystem = "io.write.ops.system"
+	MetricIOBusyRateSystem = "io.busy.rate.system"
 )
 
 // System numa metrics
