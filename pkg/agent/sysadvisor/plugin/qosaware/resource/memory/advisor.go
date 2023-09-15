@@ -56,8 +56,10 @@ const (
 	metricsNameNodeMemoryReclaimTarget = "node_memory_reclaim_target"
 	metricsNameNumaMemoryPressureState = "numa_memory_pressure_state"
 	metricsNameNumaMemoryReclaimTarget = "numa_memory_reclaim_target"
+	metricNameMemoryGetHeadroomFailed  = "get_memory_headroom_failed"
 
-	metricsTagKeyNumaID = "numa_id"
+	metricsTagKeyNumaID    = "numa_id"
+	metricTagKeyPolicyName = "policy_name"
 )
 
 // memoryResourceAdvisor updates memory headroom for reclaimed resource
@@ -141,6 +143,8 @@ func (ra *memoryResourceAdvisor) GetHeadroom() (resource.Quantity, error) {
 		headroom, err := headroomPolicy.GetHeadroom()
 		if err != nil {
 			klog.ErrorS(err, "get headroom failed", "headroomPolicy", headroomPolicy.Name())
+			_ = ra.emitter.StoreInt64(metricNameMemoryGetHeadroomFailed, 1, metrics.MetricTypeNameRaw,
+				metrics.MetricTag{Key: metricTagKeyPolicyName, Val: string(headroomPolicy.Name())})
 			continue
 		}
 		return headroom, nil
