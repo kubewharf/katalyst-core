@@ -17,6 +17,8 @@ limitations under the License.
 package provisionassembler
 
 import (
+	"context"
+	"fmt"
 	"time"
 
 	"k8s.io/klog/v2"
@@ -25,6 +27,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource/cpu/region"
+	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource/helper"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
@@ -62,7 +65,7 @@ func NewProvisionAssemblerCommon(conf *config.Configuration, _ interface{}, regi
 }
 
 func (pa *ProvisionAssemblerCommon) AssembleProvision() (types.InternalCPUCalculationResult, bool, error) {
-	enableReclaim := pa.conf.GetDynamicConfiguration().EnableReclaim
+	nodeEnableReclaim := pa.conf.GetDynamicConfiguration().EnableReclaim
 
 	calculationResult := types.InternalCPUCalculationResult{
 		PoolEntries: make(map[string]map[int]int),
@@ -104,6 +107,17 @@ func (pa *ProvisionAssemblerCommon) AssembleProvision() (types.InternalCPUCalcul
 			regionNuma := r.GetBindingNumas().ToSliceInt()[0] // always one binding numa for this type of region
 			reservedForReclaim := pa.getNumasReservedForReclaim(r.GetBindingNumas())
 
+			podSet := r.GetPods()
+			if podSet.Len() != 1 {
+				return types.InternalCPUCalculationResult{}, false, fmt.Errorf("more than one pod are assgined to numa exclusive region")
+			}
+			podUID, _, _ := podSet.PopAny()
+
+			enableReclaim, err := helper.PodEnableReclaim(context.Background(), pa.metaServer, podUID, nodeEnableReclaim)
+			if err != nil {
+				return types.InternalCPUCalculationResult{}, false, err
+			}
+
 			// fill in reclaim pool entry for dedicated numa exclusive regions
 			if !enableReclaim {
 				if reservedForReclaim > 0 {
@@ -124,7 +138,7 @@ func (pa *ProvisionAssemblerCommon) AssembleProvision() (types.InternalCPUCalcul
 	if shares+isolationUppers > shareAndIsolatedPoolAvailable {
 		shareAndIsolatePoolSizes = general.MergeMapInt(sharePoolSizes, isolationLowerSizes)
 	}
-	boundUpper := regulatePoolSizes(shareAndIsolatePoolSizes, shareAndIsolatedPoolAvailable, enableReclaim)
+	boundUpper := regulatePoolSizes(shareAndIsolatePoolSizes, shareAndIsolatedPoolAvailable, nodeEnableReclaim)
 
 	klog.InfoS("pool sizes", "share size", sharePoolSizes,
 		"isolate upper-size", isolationUpperSizes, "isolate lower-size", isolationLowerSizes,

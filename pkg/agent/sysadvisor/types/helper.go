@@ -205,6 +205,30 @@ func (ps PodSet) Insert(podUID string, containerName string) {
 	containerSet.Insert(containerName)
 }
 
+// PopAny Returns a single element from the set, in format of podUID, containerName
+func (ps PodSet) PopAny() (string, string, bool) {
+	var zeroValue string
+	for podUID, containerNames := range ps {
+		containerName, ok := containerNames.PopAny()
+		if !ok {
+			return zeroValue, zeroValue, false
+		}
+		if containerNames.Len() == 0 {
+			delete(ps, podUID)
+		}
+		return podUID, containerName, true
+	}
+	return zeroValue, zeroValue, false
+}
+
+func (ps PodSet) Len() int {
+	length := 0
+	for _, containerNames := range ps {
+		length += containerNames.Len()
+	}
+	return length
+}
+
 func (r *InternalCPUCalculationResult) GetPoolEntry(poolName string, numaID int) (int, bool) {
 	v1, ok := r.PoolEntries[poolName]
 	if ok {
