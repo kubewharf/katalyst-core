@@ -26,6 +26,7 @@ coverage:
 
 ignore:
   - "**/*_generated.*"
+  - "pkg/config/**/*.*"
 
 github_checks:
   annotations: true
