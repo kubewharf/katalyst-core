@@ -91,6 +91,13 @@ func (mcp *MetaCachePlugin) periodicWork(_ context.Context) {
 			klog.Errorf("[metacache] get container spec failed: %v, %v/%v", err, podUID, containerName)
 			return true
 		}
+
+		// For these containers do not belong to NumaExclusive, assign the actual value to CPURequest of them.
+		// Because CPURequest of containerInfo would be assigned as math.Ceil(Actual CPURequest).
+		// As for NumaExclusive containers, the "math.Ceil(Actual CPURequest)" is acceptable.
+		if ci.CPURequest <= 0 || !ci.IsNumaExclusive() {
+			ci.CPURequest = spec.Resources.Requests.Cpu().AsApproximateFloat64()
+		}
 		if ci.CPULimit <= 0 {
 			ci.CPULimit = spec.Resources.Limits.Cpu().AsApproximateFloat64()
 		}

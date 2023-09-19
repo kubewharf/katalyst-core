@@ -69,6 +69,8 @@ func (ci *ContainerInfo) Clone() *ContainerInfo {
 
 // UpdateMeta updates mutable container meta from another container info
 func (ci *ContainerInfo) UpdateMeta(c *ContainerInfo) {
+	// The CPURequest here is calculated from math.Ceil(Actual CPURequest), but the "Actual CPURequest" fails to be retrieved at this stage.
+	// So this value will be replaced with its "Actual CPURequest" in periodicWork of MetaCachePlugin(pkg/agent/sysadvisor/plugin/metacache/metacache.go).
 	if c.CPURequest > 0 {
 		ci.CPURequest = c.CPURequest
 	}
