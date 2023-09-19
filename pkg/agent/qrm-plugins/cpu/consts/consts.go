@@ -16,10 +16,12 @@ limitations under the License.
 
 package consts
 
+import "github.com/kubewharf/katalyst-api/pkg/consts"
+
 const (
 	// CPUResourcePluginPolicyNameDynamic is the name of the dynamic policy.
-	CPUResourcePluginPolicyNameDynamic = "dynamic"
+	CPUResourcePluginPolicyNameDynamic = string(consts.ResourcePluginPolicyNameDynamic)
 
 	// CPUResourcePluginPolicyNameNative is the name of the native policy.
-	CPUResourcePluginPolicyNameNative = "native"
+	CPUResourcePluginPolicyNameNative = string(consts.ResourcePluginPolicyNameNative)
 )

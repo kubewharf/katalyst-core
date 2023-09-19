@@ -19,4 +19,6 @@ package consts
 const (
 	// KubeletQoSResourceManagerCheckpoint is the name of the checkpoint file for kubelet QoS resource manager
 	KubeletQoSResourceManagerCheckpoint = "kubelet_qrm_checkpoint"
+
+	MainContainerNameAnnotationKey = "kubernetes.io/main-container-name"
 )

@@ -17,7 +17,12 @@ limitations under the License.
 package util
 
 import (
+	"encoding/json"
 	"sync"
+
+	"k8s.io/klog/v2"
+
+	"github.com/kubewharf/katalyst-api/pkg/consts"
 
 	v1 "k8s.io/api/core/v1"
 
@@ -36,4 +41,61 @@ func SetQoSConfig(config *generic.QoSConfiguration) {
 func IsReclaimedPod(pod *v1.Pod) bool {
 	ok, _ := qosConfig.CheckReclaimedQoSForPod(pod)
 	return ok
+}
+
+func IsDedicatedPod(pod *v1.Pod) bool {
+	ok, _ := qosConfig.CheckDedicatedQoSForPod(pod)
+	return ok
+}
+
+func IsNumaBinding(pod *v1.Pod) bool {
+	if pod == nil {
+		return false
+	}
+
+	enhancementKey, ok := pod.Annotations[consts.PodAnnotationMemoryEnhancementKey]
+	if !ok {
+		return false
+	}
+	return memoryEnhancement(
+		enhancementKey,
+		consts.PodAnnotationMemoryEnhancementNumaBinding,
+		consts.PodAnnotationMemoryEnhancementNumaBindingEnable)
+}
+
+func IsExclusive(pod *v1.Pod) bool {
+	if pod == nil {
+		return false
+	}
+
+	enhancementKey, ok := pod.Annotations[consts.PodAnnotationMemoryEnhancementKey]
+	if !ok {
+		return false
+	}
+	return memoryEnhancement(
+		enhancementKey,
+		consts.PodAnnotationMemoryEnhancementNumaExclusive,
+		consts.PodAnnotationMemoryEnhancementNumaExclusiveEnable)
+}
+
+func memoryEnhancement(enhancementStr string, key, value string) bool {
+	if key == "" {
+		return true
+	}
+	if enhancementStr == "" {
+		return false
+	}
+
+	var enhancement map[string]string
+	if err := json.Unmarshal([]byte(enhancementStr), &enhancement); err != nil {
+		klog.Errorf("failed to unmarshal %s: %v", enhancementStr, err)
+		return false
+	}
+
+	enable, ok := enhancement[key]
+	if !ok {
+		return false
+	}
+
+	return enable == value
 }

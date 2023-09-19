@@ -31,7 +31,6 @@ import (
 
 	apinode "github.com/kubewharf/katalyst-api/pkg/apis/node/v1alpha1"
 	apiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
-
 	"github.com/kubewharf/katalyst-api/pkg/plugins/skeleton"
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/agent"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/network/state"
@@ -52,7 +51,7 @@ import (
 
 const (
 	// NetworkResourcePluginPolicyNameStatic is the policy name of static network resource plugin
-	NetworkResourcePluginPolicyNameStatic = "static"
+	NetworkResourcePluginPolicyNameStatic = string(apiconsts.ResourcePluginPolicyNameStatic)
 
 	NetworkPluginStateFileName = "network_plugin_state"
 
