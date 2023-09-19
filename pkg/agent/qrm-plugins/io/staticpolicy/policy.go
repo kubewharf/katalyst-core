@@ -25,6 +25,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/wait"
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 
+	"github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/agent"
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/agent/qrm"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util"
@@ -37,7 +38,7 @@ import (
 
 const (
 	// IOResourcePluginPolicyNameStatic is the policy name of static io resource plugin
-	IOResourcePluginPolicyNameStatic = "static"
+	IOResourcePluginPolicyNameStatic = string(consts.ResourcePluginPolicyNameStatic)
 )
 
 // StaticPolicy is the static io policy

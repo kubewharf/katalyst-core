@@ -56,7 +56,7 @@ import (
 )
 
 const (
-	MemoryResourcePluginPolicyNameDynamic = "dynamic"
+	MemoryResourcePluginPolicyNameDynamic = string(apiconsts.ResourcePluginPolicyNameDynamic)
 
 	memoryPluginStateFileName             = "memory_plugin_state"
 	memoryPluginAsyncWorkersName          = "qrm_memory_plugin_async_workers"

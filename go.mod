@@ -33,6 +33,7 @@ require (
 	go.uber.org/atomic v1.7.0
 	golang.org/x/sys v0.7.0
 	golang.org/x/time v0.0.0-20220210224613-90d013bbcef8
+	gonum.org/v1/gonum v0.6.2
 	google.golang.org/grpc v1.51.0
 	k8s.io/api v0.24.16
 	k8s.io/apimachinery v0.24.16
@@ -145,6 +146,7 @@ require (
 )
 
 replace (
+	github.com/kubewharf/katalyst-api => github.com/kubewharf/katalyst-api v0.3.4-0.20231227064317-59eb6f3f6ae0
 	k8s.io/api => k8s.io/api v0.24.6
 	k8s.io/apiextensions-apiserver => k8s.io/apiextensions-apiserver v0.24.6
 	k8s.io/apimachinery => k8s.io/apimachinery v0.24.6
@@ -166,7 +168,7 @@ replace (
 	k8s.io/kube-proxy => k8s.io/kube-proxy v0.24.6
 	k8s.io/kube-scheduler => k8s.io/kube-scheduler v0.24.6
 	k8s.io/kubectl => k8s.io/kubectl v0.24.6
-	k8s.io/kubelet => github.com/kubewharf/kubelet v1.24.6-kubewharf.7
+	k8s.io/kubelet => github.com/kubewharf/kubelet v1.24.6-kubewharf.8
 	k8s.io/kubernetes => k8s.io/kubernetes v1.24.6
 	k8s.io/legacy-cloud-providers => k8s.io/legacy-cloud-providers v0.24.6
 	k8s.io/metrics => k8s.io/metrics v0.24.6
