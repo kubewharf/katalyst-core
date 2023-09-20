@@ -108,8 +108,8 @@ func (pa *ProvisionAssemblerCommon) AssembleProvision() (types.InternalCPUCalcul
 			reservedForReclaim := pa.getNumasReservedForReclaim(r.GetBindingNumas())
 
 			podSet := r.GetPods()
-			if podSet.Len() != 1 {
-				return types.InternalCPUCalculationResult{}, false, fmt.Errorf("more than one pod are assgined to numa exclusive region")
+			if podSet.Pods() != 1 {
+				return types.InternalCPUCalculationResult{}, false, fmt.Errorf("more than one pod are assgined to numa exclusive region: %v", podSet)
 			}
 			podUID, _, _ := podSet.PopAny()
 
