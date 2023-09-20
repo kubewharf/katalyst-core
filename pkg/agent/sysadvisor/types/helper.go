@@ -221,12 +221,14 @@ func (ps PodSet) PopAny() (string, string, bool) {
 	return zeroValue, zeroValue, false
 }
 
-func (ps PodSet) Len() int {
-	length := 0
+func (ps PodSet) Pods() int {
+	count := 0
 	for _, containerNames := range ps {
-		length += containerNames.Len()
+		if containerNames.Len() > 0 {
+			count++
+		}
 	}
-	return length
+	return count
 }
 
 func (r *InternalCPUCalculationResult) GetPoolEntry(poolName string, numaID int) (int, bool) {
