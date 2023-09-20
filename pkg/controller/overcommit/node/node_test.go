@@ -43,7 +43,7 @@ func makeNoc(name string, cpuOvercommitRatio, memoryOvercommitRatio string) *v1a
 			CreationTimestamp: metav1.NewTime(time.Now()),
 		},
 		Spec: v1alpha1.NodeOvercommitConfigSpec{
-			ResourceOvercommitRatioConfig: map[corev1.ResourceName]string{
+			ResourceOvercommitRatio: map[corev1.ResourceName]string{
 				corev1.ResourceCPU:    cpuOvercommitRatio,
 				corev1.ResourceMemory: memoryOvercommitRatio,
 			},

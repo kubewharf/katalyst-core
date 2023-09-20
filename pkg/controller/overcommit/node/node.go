@@ -398,7 +398,7 @@ func (nc *NodeOvercommitController) setNodeOvercommitAnnotationsWithConfig(nodeN
 		nodeOvercommitConfig = config
 	}
 	for resourceName, annotationKey := range resourceAnnotationKey {
-		c, ok := nodeOvercommitConfig.Spec.ResourceOvercommitRatioConfig[resourceName]
+		c, ok := nodeOvercommitConfig.Spec.ResourceOvercommitRatio[resourceName]
 		if !ok {
 			switch resourceName {
 			case corev1.ResourceCPU:
@@ -418,7 +418,7 @@ func (nc *NodeOvercommitController) setNodeOvercommitAnnotationsWithConfig(nodeN
 func emptyOvercommitConfig() *configv1alpha1.NodeOvercommitConfig {
 	return &configv1alpha1.NodeOvercommitConfig{
 		Spec: configv1alpha1.NodeOvercommitConfigSpec{
-			ResourceOvercommitRatioConfig: map[corev1.ResourceName]string{},
+			ResourceOvercommitRatio: map[corev1.ResourceName]string{},
 		},
 	}
 }

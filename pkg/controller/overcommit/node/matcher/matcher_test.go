@@ -101,7 +101,7 @@ func testNocIndexer() cache.Indexer {
 		},
 		Spec: v1alpha1.NodeOvercommitConfigSpec{
 			NodeOvercommitSelectorVal: "pool1",
-			ResourceOvercommitRatioConfig: map[v1.ResourceName]string{
+			ResourceOvercommitRatio: map[v1.ResourceName]string{
 				v1.ResourceCPU:    "1.5",
 				v1.ResourceMemory: "1",
 			},
@@ -114,7 +114,7 @@ func testNocIndexer() cache.Indexer {
 		},
 		Spec: v1alpha1.NodeOvercommitConfigSpec{
 			NodeOvercommitSelectorVal: "pool2",
-			ResourceOvercommitRatioConfig: map[v1.ResourceName]string{
+			ResourceOvercommitRatio: map[v1.ResourceName]string{
 				v1.ResourceCPU:    "2",
 				v1.ResourceMemory: "1",
 			},
@@ -176,7 +176,7 @@ func TestMatchConfig(t *testing.T) {
 			},
 			Spec: v1alpha1.NodeOvercommitConfigSpec{
 				NodeOvercommitSelectorVal: "pool3",
-				ResourceOvercommitRatioConfig: map[v1.ResourceName]string{
+				ResourceOvercommitRatio: map[v1.ResourceName]string{
 					v1.ResourceCPU:    "2",
 					v1.ResourceMemory: "1",
 				},
@@ -191,7 +191,7 @@ func TestMatchConfig(t *testing.T) {
 		},
 		Spec: v1alpha1.NodeOvercommitConfigSpec{
 			NodeOvercommitSelectorVal: "pool3",
-			ResourceOvercommitRatioConfig: map[v1.ResourceName]string{
+			ResourceOvercommitRatio: map[v1.ResourceName]string{
 				v1.ResourceCPU: "3",
 			},
 		},
@@ -206,7 +206,7 @@ func TestMatchConfig(t *testing.T) {
 		},
 		Spec: v1alpha1.NodeOvercommitConfigSpec{
 			NodeOvercommitSelectorVal: "pool1",
-			ResourceOvercommitRatioConfig: map[v1.ResourceName]string{
+			ResourceOvercommitRatio: map[v1.ResourceName]string{
 				v1.ResourceCPU:    "1.5",
 				v1.ResourceMemory: "1",
 			},
@@ -261,7 +261,7 @@ func TestMatchNode(t *testing.T) {
 		},
 		Spec: v1alpha1.NodeOvercommitConfigSpec{
 			NodeOvercommitSelectorVal: "pool3",
-			ResourceOvercommitRatioConfig: map[v1.ResourceName]string{
+			ResourceOvercommitRatio: map[v1.ResourceName]string{
 				v1.ResourceCPU:    "2",
 				v1.ResourceMemory: "1",
 			},
@@ -276,7 +276,7 @@ func TestMatchNode(t *testing.T) {
 		},
 		Spec: v1alpha1.NodeOvercommitConfigSpec{
 			NodeOvercommitSelectorVal: "pool3",
-			ResourceOvercommitRatioConfig: map[v1.ResourceName]string{
+			ResourceOvercommitRatio: map[v1.ResourceName]string{
 				v1.ResourceCPU: "3",
 			},
 		},
