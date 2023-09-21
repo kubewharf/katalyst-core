@@ -220,10 +220,11 @@ func (ra *memoryResourceAdvisor) update() {
 
 func (ra *memoryResourceAdvisor) detectNUMAPressureConditions() (map[int]*types.MemoryPressureCondition, error) {
 	pressureConditions := make(map[int]*types.MemoryPressureCondition)
+
 	for _, numaID := range ra.metaServer.CPUDetails.NUMANodes().ToSliceNoSortInt() {
 		pressureCondition, err := ra.detectNUMAPressure(numaID)
 		if err != nil {
-			general.Errorf("detect NUMA(%v) pressure err %v", numaID, err)
+			general.ErrorS(err, "detect NUMA pressure failed", "numaID", numaID)
 			return nil, err
 		}
 		pressureConditions[numaID] = pressureCondition
@@ -238,17 +239,24 @@ func (ra *memoryResourceAdvisor) detectNUMAPressure(numaID int) (*types.MemoryPr
 		return nil, err
 	}
 
-	general.Infof("numa %v metrics, free: %+v, total: %+v, scaleFactor: %+v", numaID,
-		resource.NewQuantity(int64(free), resource.BinarySI).String(),
-		resource.NewQuantity(int64(total), resource.BinarySI).String(), scaleFactor)
-
 	targetReclaimed := resource.NewQuantity(0, resource.BinarySI)
 
 	pressureState := types.MemoryPressureNoRisk
-	if free < 2*total*scaleFactor/scaleDenominator {
+
+	criticalWatermark := general.MaxFloat64(float64(ra.conf.MinCriticalWatermark), 2*total*scaleFactor/scaleDenominator)
+	if free < criticalWatermark {
 		pressureState = types.MemoryPressureDropCache
-		targetReclaimed.Set(int64(4*total*scaleFactor/scaleDenominator - free))
+		targetReclaimed.Set(int64(2*criticalWatermark - free))
 	}
+
+	general.InfoS("NUMA memory metrics",
+		"numaID", numaID,
+		"total", general.FormatMemoryQuantity(total),
+		"free", general.FormatMemoryQuantity(free),
+		"scaleFactor", scaleFactor,
+		"criticalWatermark", general.FormatMemoryQuantity(criticalWatermark),
+		"targetReclaimed", targetReclaimed.String(),
+		"pressureState", pressureState)
 
 	_ = ra.emitter.StoreInt64(metricsNameNumaMemoryPressureState, int64(pressureState), metrics.MetricTypeNameRaw, metrics.MetricTag{Key: metricsTagKeyNumaID, Val: strconv.Itoa(numaID)})
 	_ = ra.emitter.StoreInt64(metricsNameNumaMemoryReclaimTarget, targetReclaimed.Value(), metrics.MetricTypeNameRaw, metrics.MetricTag{Key: metricsTagKeyNumaID, Val: strconv.Itoa(numaID)})
@@ -266,20 +274,25 @@ func (ra *memoryResourceAdvisor) detectNodePressureCondition() (*types.MemoryPre
 		return nil, err
 	}
 
-	general.Infof("system watermark metrics, free: %+v, total: %+v, scaleFactor: %+v",
-		resource.NewQuantity(int64(free), resource.BinarySI).String(),
-		resource.NewQuantity(int64(total), resource.BinarySI).String(), scaleFactor)
+	criticalWatermark := general.MaxFloat64(float64(ra.conf.MinCriticalWatermark*int64(ra.metaServer.NumNUMANodes)), 2*total*scaleFactor/scaleDenominator)
 
 	targetReclaimed := resource.NewQuantity(0, resource.BinarySI)
 
 	pressureState := types.MemoryPressureNoRisk
-	if free < 2*total*scaleFactor/scaleDenominator {
+	if free < criticalWatermark {
 		pressureState = types.MemoryPressureDropCache
-		targetReclaimed.Set(int64(4*total*scaleFactor/scaleDenominator - free))
-	} else if free < 4*total*scaleFactor/scaleDenominator {
+		targetReclaimed.Set(int64(2*criticalWatermark - free))
+	} else if free < 2*criticalWatermark {
 		pressureState = types.MemoryPressureTuneMemCg
-		targetReclaimed.Set(int64(4*total*scaleFactor/10000 - free))
+		targetReclaimed.Set(int64(2*criticalWatermark - free))
 	}
+
+	general.InfoS("system watermark metrics",
+		"free", general.FormatMemoryQuantity(free),
+		"total", general.FormatMemoryQuantity(total),
+		"criticalWatermark", general.FormatMemoryQuantity(criticalWatermark),
+		"targetReclaimed", targetReclaimed.Value(),
+		"scaleFactor", scaleFactor)
 
 	_ = ra.emitter.StoreInt64(metricsNameNodeMemoryPressureState, int64(pressureState), metrics.MetricTypeNameRaw)
 	_ = ra.emitter.StoreInt64(metricsNameNodeMemoryReclaimTarget, targetReclaimed.Value(), metrics.MetricTypeNameRaw)
