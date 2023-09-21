@@ -129,6 +129,7 @@ func (ri *RegionInfo) Clone() *RegionInfo {
 		RegionType:    ri.RegionType,
 		OwnerPoolName: ri.OwnerPoolName,
 		BindingNumas:  ri.BindingNumas.Clone(),
+		RegionStatus:  ri.RegionStatus.Clone(),
 
 		HeadroomPolicyTopPriority: ri.HeadroomPolicyTopPriority,
 		HeadroomPolicyInUse:       ri.HeadroomPolicyInUse,
@@ -181,6 +182,18 @@ func (re RegionEntries) Clone() RegionEntries {
 	clone := make(RegionEntries)
 	for regionName, regionInfo := range re {
 		clone[regionName] = regionInfo.Clone()
+	}
+	return clone
+}
+
+func (s RegionStatus) Clone() RegionStatus {
+	clone := RegionStatus{
+		OvershootStatus: make(map[string]OvershootType),
+		BoundType:       s.BoundType,
+	}
+
+	for metric, overshootType := range s.OvershootStatus {
+		clone.OvershootStatus[metric] = overshootType
 	}
 	return clone
 }
