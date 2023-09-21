@@ -26,6 +26,7 @@ type MemoryAdvisorConfiguration struct {
 	MemoryHeadroomPolicies []types.MemoryHeadroomPolicyName
 	*headroom.MemoryHeadroomPolicyConfiguration
 	MemoryAdvisorPlugins []types.MemoryAdvisorPluginName
+	MinCriticalWatermark int64
 }
 
 // NewMemoryAdvisorConfiguration creates new memory advisor configurations
