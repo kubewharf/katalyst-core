@@ -186,13 +186,13 @@ func (re RegionEntries) Clone() RegionEntries {
 	return clone
 }
 
-func (s RegionStatus) Clone() RegionStatus {
+func (rs RegionStatus) Clone() RegionStatus {
 	clone := RegionStatus{
 		OvershootStatus: make(map[string]OvershootType),
-		BoundType:       s.BoundType,
+		BoundType:       rs.BoundType,
 	}
 
-	for metric, overshootType := range s.OvershootStatus {
+	for metric, overshootType := range rs.OvershootStatus {
 		clone.OvershootStatus[metric] = overshootType
 	}
 	return clone
