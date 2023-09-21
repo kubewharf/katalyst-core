@@ -60,7 +60,7 @@ func (n *MetricSyncerNode) advisorMetric(ctx context.Context) {
 				},
 			}...)
 		for indicator, overshot := range regionInfo.RegionStatus.OvershootStatus {
-			regionTag = append(tags, metrics.MetricTag{
+			regionTag = append(regionTag, metrics.MetricTag{
 				Key: fmt.Sprintf("%s%s%s", data.CustomMetricLabelSelectorPrefixKey, "indicator_", indicator),
 				Val: fmt.Sprintf("%v", overshot),
 			})
