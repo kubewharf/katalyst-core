@@ -229,7 +229,7 @@ func (s *ScrapeManager) scrape() {
 
 			totalMetricDataCount++
 			s.storedSeriesMap[hash].Series = append(s.storedSeriesMap[hash].Series, &data.MetricData{
-				Data:      int64(*m.Gauge.Value),
+				Data:      *m.Gauge.Value,
 				Timestamp: timestamp,
 			})
 		}

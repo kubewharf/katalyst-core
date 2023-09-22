@@ -19,10 +19,12 @@ package data
 import (
 	"encoding/json"
 	"fmt"
+	"math/big"
 	"sort"
 	"sync"
 	"time"
 
+	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
@@ -35,11 +37,11 @@ const (
 )
 
 type InternalValue struct {
-	Value     int64 `json:"value,omitempty"`
-	Timestamp int64 `json:"timestamp,omitempty"`
+	Value     float64 `json:"value,omitempty"`
+	Timestamp int64   `json:"timestamp,omitempty"`
 }
 
-func NewInternalValue(value int64, timestamp int64) *InternalValue {
+func NewInternalValue(value float64, timestamp int64) *InternalValue {
 	return &InternalValue{
 		Value:     value,
 		Timestamp: timestamp,
@@ -53,7 +55,9 @@ func (i *InternalValue) DeepCopy() *InternalValue {
 	}
 }
 
-func (i *InternalValue) GetValue() int64     { return i.Value }
+func (i *InternalValue) GetQuantity() resource.Quantity {
+	return resource.MustParse(big.NewFloat(i.Value).String())
+}
 func (i *InternalValue) GetTimestamp() int64 { return i.Timestamp }
 
 type MetricMeta struct {
@@ -689,6 +693,6 @@ func (s *seriesMetric) empty() bool {
 }
 
 type metric struct {
-	data      int64
+	data      float64
 	timestamp int64
 }

@@ -19,7 +19,6 @@ package provider
 import (
 	"time"
 
-	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/klog/v2"
 	"k8s.io/metrics/pkg/apis/custom_metrics"
@@ -71,7 +70,7 @@ func PackMetricValue(internal *data.InternalMetric, value *data.InternalValue) *
 			},
 		},
 		Timestamp: metav1.NewTime(time.UnixMilli(value.GetTimestamp())),
-		Value:     *resource.NewQuantity(value.GetValue(), resource.DecimalSI),
+		Value:     value.GetQuantity(),
 	}
 }
 
@@ -88,6 +87,6 @@ func PackExternalMetricValue(internal *data.InternalMetric, value *data.Internal
 		MetricName:   internal.GetName(),
 		MetricLabels: internal.GetLabels(),
 		Timestamp:    metav1.NewTime(time.UnixMilli(value.GetTimestamp())),
-		Value:        *resource.NewQuantity(value.GetValue(), resource.DecimalSI),
+		Value:        value.GetQuantity(),
 	}
 }

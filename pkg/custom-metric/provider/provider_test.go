@@ -449,7 +449,7 @@ func testProvider(t *testing.T, p MetricProvider, s store.MetricStore, ctx conte
 			},
 		},
 		Timestamp: metav1.NewTime(time.UnixMilli(now.UnixMilli() - genericConf.OutOfDataPeriod.Milliseconds() - time.Second.Milliseconds()*2)),
-		Value:     *resource.NewQuantity(73, resource.DecimalSI),
+		Value:     resource.MustParse("73"),
 	}, oneMetric)
 
 	t.Log("#### 1.2.2: GetMetricByName for pod")
@@ -480,7 +480,7 @@ func testProvider(t *testing.T, p MetricProvider, s store.MetricStore, ctx conte
 			},
 		},
 		Timestamp: metav1.NewTime(time.UnixMilli(now.UnixMilli())),
-		Value:     *resource.NewQuantity(31, resource.DecimalSI),
+		Value:     resource.MustParse("31"),
 	}, oneMetric)
 
 	t.Log("#### 1.3.1: GetMetricBySelector empty ns")
@@ -503,7 +503,7 @@ func testProvider(t *testing.T, p MetricProvider, s store.MetricStore, ctx conte
 				},
 			},
 			Timestamp: metav1.NewTime(time.UnixMilli(now.UnixMilli() - genericConf.OutOfDataPeriod.Milliseconds() - time.Second.Milliseconds()*2)),
-			Value:     *resource.NewQuantity(73, resource.DecimalSI),
+			Value:     resource.MustParse("73"),
 		},
 	}, batchMetric.Items)
 
@@ -528,7 +528,7 @@ func testProvider(t *testing.T, p MetricProvider, s store.MetricStore, ctx conte
 				},
 			},
 			Timestamp: metav1.NewTime(time.UnixMilli(now.UnixMilli())),
-			Value:     *resource.NewQuantity(31, resource.DecimalSI),
+			Value:     resource.MustParse("31"),
 		},
 	}, batchMetric.Items)
 
@@ -553,7 +553,7 @@ func testProvider(t *testing.T, p MetricProvider, s store.MetricStore, ctx conte
 				},
 			},
 			Timestamp: metav1.NewTime(time.UnixMilli(now.UnixMilli())),
-			Value:     *resource.NewQuantity(31, resource.DecimalSI),
+			Value:     resource.MustParse("31"),
 		},
 		{
 			DescribedObject: custom_metrics.ObjectReference{
@@ -570,7 +570,7 @@ func testProvider(t *testing.T, p MetricProvider, s store.MetricStore, ctx conte
 				},
 			},
 			Timestamp: metav1.NewTime(time.UnixMilli(now.UnixMilli() - genericConf.OutOfDataPeriod.Milliseconds() - time.Second.Milliseconds()*3)),
-			Value:     *resource.NewQuantity(44, resource.DecimalSI),
+			Value:     resource.MustParse("44"),
 		},
 		{
 			DescribedObject: custom_metrics.ObjectReference{
@@ -587,7 +587,7 @@ func testProvider(t *testing.T, p MetricProvider, s store.MetricStore, ctx conte
 				},
 			},
 			Timestamp: metav1.NewTime(time.UnixMilli(now.UnixMilli() - genericConf.OutOfDataPeriod.Milliseconds() - time.Second.Milliseconds()*2)),
-			Value:     *resource.NewQuantity(86, resource.DecimalSI),
+			Value:     resource.MustParse("86"),
 		},
 	}, batchMetric.Items)
 
@@ -619,7 +619,7 @@ func testProvider(t *testing.T, p MetricProvider, s store.MetricStore, ctx conte
 				"name": "none_namespace_metric",
 			},
 			Timestamp: metav1.NewTime(time.UnixMilli(now.UnixMilli())),
-			Value:     *resource.NewQuantity(1, resource.DecimalSI),
+			Value:     resource.MustParse("1"),
 		},
 		{
 			MetricName: "none_namespace_metric",
@@ -627,7 +627,7 @@ func testProvider(t *testing.T, p MetricProvider, s store.MetricStore, ctx conte
 				"name": "none_namespace_metric",
 			},
 			Timestamp: metav1.NewTime(time.UnixMilli(now.UnixMilli() - genericConf.OutOfDataPeriod.Milliseconds() + time.Second.Milliseconds()*5)),
-			Value:     *resource.NewQuantity(2, resource.DecimalSI),
+			Value:     resource.MustParse("2"),
 		},
 		{
 			MetricName: "none_namespace_metric_all_timeout",
@@ -635,7 +635,7 @@ func testProvider(t *testing.T, p MetricProvider, s store.MetricStore, ctx conte
 				"name": "none_namespace_metric_all_timeout",
 			},
 			Timestamp: metav1.NewTime(time.UnixMilli(now.UnixMilli() - genericConf.OutOfDataPeriod.Milliseconds() + time.Second.Milliseconds()*5)),
-			Value:     *resource.NewQuantity(2, resource.DecimalSI),
+			Value:     resource.MustParse("2"),
 		},
 	}, batchExternal.Items)
 
@@ -651,7 +651,7 @@ func testProvider(t *testing.T, p MetricProvider, s store.MetricStore, ctx conte
 				"name": "none_object_metric",
 			},
 			Timestamp: metav1.NewTime(time.UnixMilli(now.UnixMilli())),
-			Value:     *resource.NewQuantity(19, resource.DecimalSI),
+			Value:     resource.MustParse("19"),
 		},
 		{
 			MetricName: "none_object_metric",
@@ -659,7 +659,7 @@ func testProvider(t *testing.T, p MetricProvider, s store.MetricStore, ctx conte
 				"name": "none_object_metric",
 			},
 			Timestamp: metav1.NewTime(time.UnixMilli(now.UnixMilli() - genericConf.OutOfDataPeriod.Milliseconds())),
-			Value:     *resource.NewQuantity(23, resource.DecimalSI),
+			Value:     resource.MustParse("23"),
 		},
 	}, batchExternal.Items)
 
@@ -710,7 +710,7 @@ func testProvider(t *testing.T, p MetricProvider, s store.MetricStore, ctx conte
 				},
 			},
 			Timestamp: metav1.NewTime(time.UnixMilli(now.UnixMilli())),
-			Value:     *resource.NewQuantity(31, resource.DecimalSI),
+			Value:     resource.MustParse("31"),
 		},
 	}, batchMetric.Items)
 
@@ -735,7 +735,7 @@ func testProvider(t *testing.T, p MetricProvider, s store.MetricStore, ctx conte
 				},
 			},
 			Timestamp: metav1.NewTime(time.UnixMilli(now.UnixMilli())),
-			Value:     *resource.NewQuantity(31, resource.DecimalSI),
+			Value:     resource.MustParse("31"),
 		},
 	}, batchMetric.Items)
 
@@ -764,7 +764,7 @@ func testProvider(t *testing.T, p MetricProvider, s store.MetricStore, ctx conte
 				"name": "none_namespace_metric",
 			},
 			Timestamp: metav1.NewTime(time.UnixMilli(now.UnixMilli())),
-			Value:     *resource.NewQuantity(1, resource.DecimalSI),
+			Value:     resource.MustParse("1"),
 		},
 	}, batchExternal.Items)
 
@@ -780,7 +780,7 @@ func testProvider(t *testing.T, p MetricProvider, s store.MetricStore, ctx conte
 				"name": "none_object_metric",
 			},
 			Timestamp: metav1.NewTime(time.UnixMilli(now.UnixMilli())),
-			Value:     *resource.NewQuantity(19, resource.DecimalSI),
+			Value:     resource.MustParse("19"),
 		},
 	}, batchExternal.Items)
 
