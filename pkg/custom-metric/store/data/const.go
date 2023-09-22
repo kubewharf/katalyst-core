@@ -62,8 +62,8 @@ func GetSupportedMetricObject() map[string]schema.GroupVersionResource {
 }
 
 type MetricData struct {
-	Data      int64 `json:"data,omitempty"`
-	Timestamp int64 `json:"timestamp,omitempty"`
+	Data      float64 `json:"data,omitempty"`
+	Timestamp int64   `json:"timestamp,omitempty"`
 }
 
 type MetricSeries struct {
