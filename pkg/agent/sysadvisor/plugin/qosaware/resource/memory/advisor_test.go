@@ -708,6 +708,214 @@ func TestUpdate(t *testing.T) {
 				},
 			},
 		},
+		{
+			name: "bind memset(numa1 pressure)",
+			pools: map[string]*types.PoolInfo{
+				state.PoolNameReserve: {
+					PoolName: state.PoolNameReserve,
+					TopologyAwareAssignments: map[int]machine.CPUSet{
+						0: machine.MustParse("0"),
+						1: machine.MustParse("24"),
+					},
+					OriginalTopologyAwareAssignments: map[int]machine.CPUSet{
+						0: machine.MustParse("0"),
+						1: machine.MustParse("24"),
+					},
+				},
+			},
+			reclaimedEnable: false,
+			needRecvAdvices: true,
+			containers: []*types.ContainerInfo{
+				makeContainerInfo("uid1", "default", "pod1", "c1", consts.PodAnnotationQoSLevelReclaimedCores, nil,
+					map[int]machine.CPUSet{
+						0: machine.MustParse("1"),
+						1: machine.MustParse("25"),
+					}, 200<<30),
+				makeContainerInfo("uid2", "default", "pod2", "c2", consts.PodAnnotationQoSLevelReclaimedCores, nil,
+					map[int]machine.CPUSet{
+						0: machine.MustParse("1"),
+						1: machine.MustParse("25"),
+					}, 200<<30),
+				makeContainerInfo("uid3", "default", "pod3", "c3", consts.PodAnnotationQoSLevelReclaimedCores, nil,
+					map[int]machine.CPUSet{
+						0: machine.MustParse("1"),
+					}, 200<<30),
+				makeContainerInfo("uid4", "default", "pod4", "c4", consts.PodAnnotationQoSLevelDedicatedCores, map[string]string{
+					consts.PodAnnotationMemoryEnhancementNumaBinding:   consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
+					consts.PodAnnotationMemoryEnhancementNumaExclusive: consts.PodAnnotationMemoryEnhancementNumaExclusiveEnable},
+					map[int]machine.CPUSet{
+						0: machine.MustParse("1"),
+					}, 200<<30),
+			},
+			plugins:     []types.MemoryAdvisorPluginName{memadvisorplugin.MemsetBinder},
+			nodeMetrics: defaultNodeMetrics,
+			numaMetrics: []numaMetric{
+				{
+					numaID:      0,
+					metricName:  coreconsts.MetricMemFreeNuma,
+					metricValue: metricutil.MetricData{Value: 60 << 30},
+				},
+				{
+					numaID:      1,
+					metricName:  coreconsts.MetricMemFreeNuma,
+					metricValue: metricutil.MetricData{Value: 1 << 30},
+				},
+				{
+					numaID:      2,
+					metricName:  coreconsts.MetricMemFreeNuma,
+					metricValue: metricutil.MetricData{Value: 60 << 30},
+				},
+				{
+					numaID:      3,
+					metricName:  coreconsts.MetricMemFreeNuma,
+					metricValue: metricutil.MetricData{Value: 60 << 30},
+				},
+				{
+					numaID:      0,
+					metricName:  coreconsts.MetricMemTotalNuma,
+					metricValue: metricutil.MetricData{Value: 120 << 30},
+				},
+				{
+					numaID:      1,
+					metricName:  coreconsts.MetricMemTotalNuma,
+					metricValue: metricutil.MetricData{Value: 120 << 30},
+				},
+				{
+					numaID:      2,
+					metricName:  coreconsts.MetricMemTotalNuma,
+					metricValue: metricutil.MetricData{Value: 120 << 30},
+				},
+				{
+					numaID:      3,
+					metricName:  coreconsts.MetricMemTotalNuma,
+					metricValue: metricutil.MetricData{Value: 120 << 30},
+				},
+			},
+			wantHeadroom: *resource.NewQuantity(871<<30, resource.DecimalSI),
+			wantAdviceResult: types.InternalMemoryCalculationResult{
+				ContainerEntries: []types.ContainerMemoryAdvices{
+					{
+						PodUID:        "uid1",
+						ContainerName: "c1",
+						Values:        map[string]string{string(memoryadvisor.ControlKnobKeyCPUSetMems): "2-3"},
+					},
+					{
+						PodUID:        "uid2",
+						ContainerName: "c2",
+						Values:        map[string]string{string(memoryadvisor.ControlKnobKeyCPUSetMems): "2-3"},
+					},
+					{
+						PodUID:        "uid3",
+						ContainerName: "c3",
+						Values:        map[string]string{string(memoryadvisor.ControlKnobKeyCPUSetMems): "2-3"},
+					},
+				},
+			},
+		},
+		{
+			name: "bind memset(numa1-3 pressure)",
+			pools: map[string]*types.PoolInfo{
+				state.PoolNameReserve: {
+					PoolName: state.PoolNameReserve,
+					TopologyAwareAssignments: map[int]machine.CPUSet{
+						0: machine.MustParse("0"),
+						1: machine.MustParse("24"),
+					},
+					OriginalTopologyAwareAssignments: map[int]machine.CPUSet{
+						0: machine.MustParse("0"),
+						1: machine.MustParse("24"),
+					},
+				},
+			},
+			reclaimedEnable: false,
+			needRecvAdvices: true,
+			containers: []*types.ContainerInfo{
+				makeContainerInfo("uid1", "default", "pod1", "c1", consts.PodAnnotationQoSLevelReclaimedCores, nil,
+					map[int]machine.CPUSet{
+						0: machine.MustParse("1"),
+						1: machine.MustParse("25"),
+					}, 200<<30),
+				makeContainerInfo("uid2", "default", "pod2", "c2", consts.PodAnnotationQoSLevelReclaimedCores, nil,
+					map[int]machine.CPUSet{
+						0: machine.MustParse("1"),
+						1: machine.MustParse("25"),
+					}, 200<<30),
+				makeContainerInfo("uid3", "default", "pod3", "c3", consts.PodAnnotationQoSLevelReclaimedCores, nil,
+					map[int]machine.CPUSet{
+						0: machine.MustParse("1"),
+					}, 200<<30),
+				makeContainerInfo("uid4", "default", "pod4", "c4", consts.PodAnnotationQoSLevelDedicatedCores, map[string]string{
+					consts.PodAnnotationMemoryEnhancementNumaBinding:   consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
+					consts.PodAnnotationMemoryEnhancementNumaExclusive: consts.PodAnnotationMemoryEnhancementNumaExclusiveEnable},
+					map[int]machine.CPUSet{
+						0: machine.MustParse("1"),
+					}, 200<<30),
+			},
+			plugins:     []types.MemoryAdvisorPluginName{memadvisorplugin.MemsetBinder},
+			nodeMetrics: defaultNodeMetrics,
+			numaMetrics: []numaMetric{
+				{
+					numaID:      0,
+					metricName:  coreconsts.MetricMemFreeNuma,
+					metricValue: metricutil.MetricData{Value: 60 << 30},
+				},
+				{
+					numaID:      1,
+					metricName:  coreconsts.MetricMemFreeNuma,
+					metricValue: metricutil.MetricData{Value: 1 << 30},
+				},
+				{
+					numaID:      2,
+					metricName:  coreconsts.MetricMemFreeNuma,
+					metricValue: metricutil.MetricData{Value: 1 << 30},
+				},
+				{
+					numaID:      3,
+					metricName:  coreconsts.MetricMemFreeNuma,
+					metricValue: metricutil.MetricData{Value: 1 << 30},
+				},
+				{
+					numaID:      0,
+					metricName:  coreconsts.MetricMemTotalNuma,
+					metricValue: metricutil.MetricData{Value: 120 << 30},
+				},
+				{
+					numaID:      1,
+					metricName:  coreconsts.MetricMemTotalNuma,
+					metricValue: metricutil.MetricData{Value: 120 << 30},
+				},
+				{
+					numaID:      2,
+					metricName:  coreconsts.MetricMemTotalNuma,
+					metricValue: metricutil.MetricData{Value: 120 << 30},
+				},
+				{
+					numaID:      3,
+					metricName:  coreconsts.MetricMemTotalNuma,
+					metricValue: metricutil.MetricData{Value: 120 << 30},
+				},
+			},
+			wantHeadroom: *resource.NewQuantity(871<<30, resource.DecimalSI),
+			wantAdviceResult: types.InternalMemoryCalculationResult{
+				ContainerEntries: []types.ContainerMemoryAdvices{
+					{
+						PodUID:        "uid1",
+						ContainerName: "c1",
+						Values:        map[string]string{string(memoryadvisor.ControlKnobKeyCPUSetMems): "1-3"},
+					},
+					{
+						PodUID:        "uid2",
+						ContainerName: "c2",
+						Values:        map[string]string{string(memoryadvisor.ControlKnobKeyCPUSetMems): "1-3"},
+					},
+					{
+						PodUID:        "uid3",
+						ContainerName: "c3",
+						Values:        map[string]string{string(memoryadvisor.ControlKnobKeyCPUSetMems): "1-3"},
+					},
+				},
+			},
+		},
 	}
 
 	for _, tt := range tests {

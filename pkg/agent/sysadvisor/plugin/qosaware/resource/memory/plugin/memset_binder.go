@@ -106,6 +106,17 @@ func (mb *memsetBinder) Reconcile(status *types.MemoryPressureStatus) error {
 	if availNUMAs.IsEmpty() {
 		availNUMAs = allNUMAs
 		general.InfoS("availNUMAs is empty, have to bind all NUMAs to reclaimed_cores containers")
+	} else {
+		onPressureNUMAs := machine.NewCPUSet()
+		for _, numaID := range availNUMAs.ToSliceInt() {
+			condition := status.NUMAConditions[numaID]
+			if condition != nil && condition.State != types.MemoryPressureNoRisk {
+				onPressureNUMAs.Add(numaID)
+			}
+		}
+		if !onPressureNUMAs.Equals(availNUMAs) {
+			availNUMAs = availNUMAs.Difference(onPressureNUMAs)
+		}
 	}
 
 	for _, ci := range containers {
