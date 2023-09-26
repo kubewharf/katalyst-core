@@ -33,6 +33,9 @@ const (
 	DefaultEnableNumaLevelEviction = true
 	// DefaultEnableSystemLevelEviction is the default value of whether enable system-level eviction
 	DefaultEnableSystemLevelEviction = true
+	// DefaultNumaVictimMinimumUtilizationThreshold is the victim's minimum memory usage on a NUMA node, if a pod
+	// uses less memory on a NUMA node than this threshold,it won't be evicted by this NUMA's memory pressure.
+	DefaultNumaVictimMinimumUtilizationThreshold = 0.001
 	// DefaultNumaFreeBelowWatermarkTimesThreshold is the default threshold for the number of times
 	// that NUMA's free memory falls below the watermark
 	DefaultNumaFreeBelowWatermarkTimesThreshold = 4
@@ -61,6 +64,7 @@ var (
 type MemoryPressureEvictionConfiguration struct {
 	EnableNumaLevelEviction                 bool
 	EnableSystemLevelEviction               bool
+	NumaVictimMinimumUtilizationThreshold   float64
 	NumaFreeBelowWatermarkTimesThreshold    int
 	SystemKswapdRateThreshold               int
 	SystemKswapdRateExceedDurationThreshold int
@@ -86,6 +90,10 @@ func (c *MemoryPressureEvictionConfiguration) ApplyConfiguration(conf *crd.Dynam
 
 		if config.EnableSystemLevelEviction != nil {
 			c.EnableSystemLevelEviction = *(config.EnableSystemLevelEviction)
+		}
+
+		if config.NumaVictimMinimumUtilizationThreshold != nil {
+			c.NumaVictimMinimumUtilizationThreshold = *(config.NumaVictimMinimumUtilizationThreshold)
 		}
 
 		if config.NumaFreeBelowWatermarkTimesThreshold != nil {
