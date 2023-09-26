@@ -579,7 +579,7 @@ func TestUpdate(t *testing.T) {
 			containerNUMAMetrics: []containerNUMAMetric{
 				{
 					metricName:    coreconsts.MetricsMemFilePerNumaContainer,
-					metricValue:   metricutil.MetricData{Value: 10 << 30},
+					metricValue:   metricutil.MetricData{Value: 10 << 20},
 					podUID:        "uid1",
 					containerName: "c1",
 					numdID:        0,
@@ -598,18 +598,39 @@ func TestUpdate(t *testing.T) {
 					containerName: "c3",
 					numdID:        0,
 				},
+				{
+					metricName:    coreconsts.MetricsMemFilePerNumaContainer,
+					metricValue:   metricutil.MetricData{Value: 10 << 20},
+					podUID:        "uid1",
+					containerName: "c1",
+					numdID:        1,
+				},
+				{
+					metricName:    coreconsts.MetricsMemFilePerNumaContainer,
+					metricValue:   metricutil.MetricData{Value: 9 << 30},
+					podUID:        "uid2",
+					containerName: "c2",
+					numdID:        1,
+				},
+				{
+					metricName:    coreconsts.MetricsMemFilePerNumaContainer,
+					metricValue:   metricutil.MetricData{Value: 2 << 30},
+					podUID:        "uid3",
+					containerName: "c3",
+					numdID:        1,
+				},
 			},
 			wantAdviceResult: types.InternalMemoryCalculationResult{
 				ContainerEntries: []types.ContainerMemoryAdvices{
 					{
-						PodUID:        "uid1",
-						ContainerName: "c1",
-						Values:        map[string]string{"drop_cache": "true"},
+						PodUID:        "uid3",
+						ContainerName: "c3",
+						Values:        map[string]string{string(memoryadvisor.ControlKnobKeyDropCache): "true"},
 					},
 					{
 						PodUID:        "uid2",
 						ContainerName: "c2",
-						Values:        map[string]string{"drop_cache": "true"},
+						Values:        map[string]string{string(memoryadvisor.ControlKnobKeyDropCache): "true"},
 					},
 				},
 			},

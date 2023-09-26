@@ -60,6 +60,9 @@ const (
 
 	metricsTagKeyNumaID    = "numa_id"
 	metricTagKeyPolicyName = "policy_name"
+
+	// multiply the scale by the criticalWaterMark to get the safe watermark
+	criticalWaterMarkScaleFactor = 2
 )
 
 // memoryResourceAdvisor updates memory headroom for reclaimed resource
@@ -246,7 +249,9 @@ func (ra *memoryResourceAdvisor) detectNUMAPressure(numaID int) (*types.MemoryPr
 	criticalWatermark := general.MaxFloat64(float64(ra.conf.MinCriticalWatermark), 2*total*scaleFactor/scaleDenominator)
 	if free < criticalWatermark {
 		pressureState = types.MemoryPressureDropCache
-		targetReclaimed.Set(int64(2*criticalWatermark - free))
+		targetReclaimed.Set(int64(criticalWaterMarkScaleFactor*criticalWatermark - free))
+	} else if free < criticalWaterMarkScaleFactor*criticalWatermark {
+		pressureState = types.MemoryPressureTuneMemCg
 	}
 
 	general.InfoS("NUMA memory metrics",
@@ -281,10 +286,10 @@ func (ra *memoryResourceAdvisor) detectNodePressureCondition() (*types.MemoryPre
 	pressureState := types.MemoryPressureNoRisk
 	if free < criticalWatermark {
 		pressureState = types.MemoryPressureDropCache
-		targetReclaimed.Set(int64(2*criticalWatermark - free))
-	} else if free < 2*criticalWatermark {
+		targetReclaimed.Set(int64(criticalWaterMarkScaleFactor*criticalWatermark - free))
+	} else if free < criticalWaterMarkScaleFactor*criticalWatermark {
 		pressureState = types.MemoryPressureTuneMemCg
-		targetReclaimed.Set(int64(2*criticalWatermark - free))
+		targetReclaimed.Set(int64(criticalWaterMarkScaleFactor*criticalWatermark - free))
 	}
 
 	general.InfoS("system watermark metrics",

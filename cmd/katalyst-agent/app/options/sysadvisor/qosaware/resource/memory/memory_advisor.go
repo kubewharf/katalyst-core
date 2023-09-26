@@ -22,6 +22,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/errors"
 
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/options/sysadvisor/qosaware/resource/memory/headroom"
+	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/options/sysadvisor/qosaware/resource/memory/plugins"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/sysadvisor/qosaware/resource/memory"
 )
@@ -32,6 +33,7 @@ type MemoryAdvisorOptions struct {
 	*headroom.MemoryHeadroomPolicyOptions
 	MemoryAdvisorPlugins []string
 	MinCriticalWatermark resource.QuantityValue
+	*plugins.MemoryAdvisorPluginsOptions
 }
 
 // NewMemoryAdvisorOptions creates a new Options with a default config
@@ -41,6 +43,7 @@ func NewMemoryAdvisorOptions() *MemoryAdvisorOptions {
 		MemoryHeadroomPolicyOptions:  headroom.NewMemoryHeadroomPolicyOptions(),
 		MemoryAdvisorPlugins:         []string{},
 		MinCriticalWatermark:         resource.QuantityValue{Quantity: resource.MustParse("4Gi")},
+		MemoryAdvisorPluginsOptions:  plugins.NewMemoryAdvisorPluginsOptions(),
 	}
 }
 
@@ -52,6 +55,7 @@ func (o *MemoryAdvisorOptions) AddFlags(fs *pflag.FlagSet) {
 	fs.StringSliceVar(&o.MemoryAdvisorPlugins, "memory-advisor-plugins", o.MemoryAdvisorPlugins,
 		"memory advisor plugins to use.")
 	fs.Var(&o.MinCriticalWatermark, "memory-advisor-min-critical-watermark", "min watermark to trigger reclaim")
+	o.MemoryAdvisorPluginsOptions.AddFlags(fs)
 }
 
 // ApplyTo fills up config with options
@@ -66,5 +70,6 @@ func (o *MemoryAdvisorOptions) ApplyTo(c *memory.MemoryAdvisorConfiguration) err
 
 	var errList []error
 	errList = append(errList, o.MemoryHeadroomPolicyOptions.ApplyTo(c.MemoryHeadroomPolicyConfiguration))
+	errList = append(errList, o.MemoryAdvisorPluginsOptions.ApplyTo(c.MemoryAdvisorPluginsConfiguration))
 	return errors.NewAggregate(errList)
 }
