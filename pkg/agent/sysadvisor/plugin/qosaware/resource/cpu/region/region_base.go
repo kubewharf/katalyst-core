@@ -40,8 +40,11 @@ import (
 const (
 	metricCPUGetHeadroomFailed  = "get_cpu_headroom_failed"
 	metricCPUGetProvisionFailed = "get_cpu_provision_failed"
+	metricRegionHeadroom        = "region_headroom"
 
 	metricTagKeyPolicyName = "policy_name"
+	metricTagKeyRegionType = "region_type"
+	metricTagKeyRegionName = "region_name"
 )
 
 type internalPolicyState struct {
@@ -271,6 +274,8 @@ func (r *QoSRegionBase) GetHeadroom() (float64, error) {
 			klog.Errorf("[qosaware-cpu] get headroom by policy %v failed: %v", internal.name, err)
 			continue
 		}
+		r.emitter.StoreFloat64(metricRegionHeadroom, headroom, metrics.MetricTypeNameRaw,
+			metrics.ConvertMapToTags(map[string]string{metricTagKeyRegionType: string(r.regionType), metricTagKeyRegionName: r.name})...)
 		r.headroomPolicyNameInUse = internal.name
 		return headroom, nil
 	}
