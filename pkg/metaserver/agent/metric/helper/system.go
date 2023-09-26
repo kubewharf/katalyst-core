@@ -23,6 +23,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
+	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	metricutil "github.com/kubewharf/katalyst-core/pkg/util/metric"
 )
 
@@ -30,71 +31,71 @@ import (
 // if numa node is specified, return config in this numa; otherwise return system-level config
 func GetWatermarkMetrics(metricsFetcher metric.MetricsFetcher, emitter metrics.MetricEmitter, numaID int) (free, total, scaleFactor float64, err error) {
 	if numaID >= 0 {
-		data, err := metricsFetcher.GetNumaMetric(numaID, consts.MetricMemFreeNuma)
+		free, err = GetNumaMetric(metricsFetcher, emitter, consts.MetricMemFreeNuma, numaID)
 		if err != nil {
 			return 0, 0, 0, fmt.Errorf(errMsgGetNumaMetrics, consts.MetricMemFreeNuma, numaID, err)
 		}
-		free = data.Value
-		_ = emitter.StoreFloat64(metricsNameNumaMetric, free, metrics.MetricTypeNameRaw,
-			metrics.ConvertMapToTags(map[string]string{
-				metricsTagKeyNumaID:     strconv.Itoa(numaID),
-				metricsTagKeyMetricName: consts.MetricMemFreeNuma,
-			})...)
-
-		data, err = metricsFetcher.GetNumaMetric(numaID, consts.MetricMemTotalNuma)
+		total, err = GetNumaMetric(metricsFetcher, emitter, consts.MetricMemTotalNuma, numaID)
 		if err != nil {
-			return 0, 0, 0, fmt.Errorf(errMsgGetNumaMetrics, consts.MetricMemTotalNuma, numaID, err)
+			return 0, 0, 0, fmt.Errorf(errMsgGetNumaMetrics, consts.MetricMemFreeNuma, numaID, err)
 		}
-		total = data.Value
-		_ = emitter.StoreFloat64(metricsNameNumaMetric, total, metrics.MetricTypeNameRaw,
-			metrics.ConvertMapToTags(map[string]string{
-				metricsTagKeyNumaID:     strconv.Itoa(numaID),
-				metricsTagKeyMetricName: consts.MetricMemTotalNuma,
-			})...)
 	} else {
-		data, err := metricsFetcher.GetNodeMetric(consts.MetricMemFreeSystem)
+		free, err = GetNodeMetric(metricsFetcher, emitter, consts.MetricMemFreeSystem)
 		if err != nil {
 			return 0, 0, 0, fmt.Errorf(errMsgGetSystemMetrics, consts.MetricMemFreeSystem, err)
 		}
-		free = data.Value
-		_ = emitter.StoreFloat64(metricsNameSystemMetric, free, metrics.MetricTypeNameRaw,
-			metrics.ConvertMapToTags(map[string]string{
-				metricsTagKeyMetricName: consts.MetricMemFreeSystem,
-			})...)
-
-		data, err = metricsFetcher.GetNodeMetric(consts.MetricMemTotalSystem)
+		total, err = GetNodeMetric(metricsFetcher, emitter, consts.MetricMemTotalSystem)
 		if err != nil {
 			return 0, 0, 0, fmt.Errorf(errMsgGetSystemMetrics, consts.MetricMemTotalSystem, err)
 		}
-		total = data.Value
-		_ = emitter.StoreFloat64(metricsNameSystemMetric, total, metrics.MetricTypeNameRaw,
-			metrics.ConvertMapToTags(map[string]string{
-				metricsTagKeyMetricName: consts.MetricMemTotalSystem,
-			})...)
 	}
 
-	data, err := metricsFetcher.GetNodeMetric(consts.MetricMemScaleFactorSystem)
+	scaleFactor, err = GetNodeMetric(metricsFetcher, emitter, consts.MetricMemScaleFactorSystem)
 	if err != nil {
 		return 0, 0, 0, fmt.Errorf(errMsgGetSystemMetrics, consts.MetricMemScaleFactorSystem, err)
 	}
-	scaleFactor = data.Value
-	_ = emitter.StoreFloat64(metricsNameSystemMetric, scaleFactor, metrics.MetricTypeNameRaw,
-		metrics.ConvertMapToTags(map[string]string{
-			metricsTagKeyMetricName: consts.MetricMemScaleFactorSystem,
-		})...)
 
 	return free, total, scaleFactor, nil
 }
 
-func GetSystemKswapdStealMetrics(metricsFetcher metric.MetricsFetcher, emitter metrics.MetricEmitter) (metricutil.MetricData, error) {
-	kswapdSteal, err := metricsFetcher.GetNodeMetric(consts.MetricMemKswapdstealSystem)
+func GetNodeMetricWithTime(metricsFetcher metric.MetricsFetcher, emitter metrics.MetricEmitter, metricName string) (metricutil.MetricData, error) {
+	metricData, err := metricsFetcher.GetNodeMetric(metricName)
 	if err != nil {
-		return metricutil.MetricData{}, fmt.Errorf(errMsgGetSystemMetrics, "mem.kswapdsteal.system", err)
+		return metricutil.MetricData{}, fmt.Errorf(errMsgGetSystemMetrics, metricName, err)
 	}
-	_ = emitter.StoreFloat64(metricsNameSystemMetric, kswapdSteal.Value, metrics.MetricTypeNameRaw,
+	_ = emitter.StoreFloat64(metricsNameSystemMetric, metricData.Value, metrics.MetricTypeNameRaw,
 		metrics.ConvertMapToTags(map[string]string{
-			metricsTagKeyMetricName: consts.MetricMemKswapdstealSystem,
+			metricsTagKeyMetricName: metricName,
 		})...)
+	return metricData, nil
+}
 
-	return kswapdSteal, nil
+func GetNodeMetric(metricsFetcher metric.MetricsFetcher, emitter metrics.MetricEmitter, metricName string) (float64, error) {
+	metricWithTime, err := GetNodeMetricWithTime(metricsFetcher, emitter, metricName)
+	if err != nil {
+		return 0, err
+	}
+	return metricWithTime.Value, err
+}
+
+func GetNumaMetricWithTime(metricsFetcher metric.MetricsFetcher, emitter metrics.MetricEmitter, metricName string, numaID int) (metricutil.MetricData, error) {
+	metricData, err := metricsFetcher.GetNumaMetric(numaID, metricName)
+	if err != nil {
+		general.Errorf(errMsgGetNumaMetrics, metricName, numaID, err)
+		return metricutil.MetricData{}, err
+	}
+	_ = emitter.StoreFloat64(metricsNameNumaMetric, metricData.Value, metrics.MetricTypeNameRaw,
+		metrics.ConvertMapToTags(map[string]string{
+			metricsTagKeyNumaID:     strconv.Itoa(numaID),
+			metricsTagKeyMetricName: metricName,
+		})...)
+	return metricData, nil
+}
+
+func GetNumaMetric(metricsFetcher metric.MetricsFetcher, emitter metrics.MetricEmitter, metricName string, numaID int) (float64, error) {
+	metricWithTime, err := GetNumaMetricWithTime(metricsFetcher, emitter, metricName, numaID)
+	if err != nil {
+		return 0, err
+	}
+	return metricWithTime.Value, err
 }

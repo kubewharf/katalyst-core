@@ -39,11 +39,11 @@ import (
 )
 
 var (
-	numaTotalMap = []float64{50 * 1024 * 1024 * 1024, 50 * 1024 * 1024 * 1024}
+	numaTotalMap = []float64{50 * 1024 * 1024 * 1024, 50 * 1024 * 1024 * 1024, 50 * 1024 * 1024 * 1024, 50 * 1024 * 1024 * 1024}
 )
 
 func makeNumaPressureEvictionPlugin(conf *config.Configuration) (*NumaMemoryPressurePlugin, error) {
-	cpuTopology, err := machine.GenerateDummyCPUTopology(16, 1, 2)
+	cpuTopology, err := machine.GenerateDummyCPUTopology(16, 2, 4)
 	if err != nil {
 		return nil, err
 	}
@@ -112,6 +112,8 @@ func TestNumaMemoryPressurePlugin_ThresholdMet(t *testing.T) {
 			wantNumaAction: map[int]int{
 				0: actionNoop,
 				1: actionNoop,
+				2: actionNoop,
+				3: actionNoop,
 			},
 		},
 		{
@@ -127,6 +129,8 @@ func TestNumaMemoryPressurePlugin_ThresholdMet(t *testing.T) {
 			wantNumaAction: map[int]int{
 				0: actionReclaimedEviction,
 				1: actionReclaimedEviction,
+				2: actionNoop,
+				3: actionNoop,
 			},
 		},
 		{
@@ -142,6 +146,8 @@ func TestNumaMemoryPressurePlugin_ThresholdMet(t *testing.T) {
 			wantNumaAction: map[int]int{
 				0: actionReclaimedEviction,
 				1: actionNoop,
+				2: actionNoop,
+				3: actionNoop,
 			},
 		},
 		{
@@ -157,6 +163,8 @@ func TestNumaMemoryPressurePlugin_ThresholdMet(t *testing.T) {
 			wantNumaAction: map[int]int{
 				0: actionEviction,
 				1: actionReclaimedEviction,
+				2: actionNoop,
+				3: actionNoop,
 			},
 		},
 		{
@@ -172,6 +180,8 @@ func TestNumaMemoryPressurePlugin_ThresholdMet(t *testing.T) {
 			wantNumaAction: map[int]int{
 				0: actionEviction,
 				1: actionReclaimedEviction,
+				2: actionNoop,
+				3: actionNoop,
 			},
 		},
 		{
@@ -187,6 +197,8 @@ func TestNumaMemoryPressurePlugin_ThresholdMet(t *testing.T) {
 			wantNumaAction: map[int]int{
 				0: actionNoop,
 				1: actionEviction,
+				2: actionNoop,
+				3: actionNoop,
 			},
 		},
 	}
@@ -262,28 +274,29 @@ func TestNumaMemoryPressurePlugin_GetTopEvictionPods(t *testing.T) {
 		},
 	}
 
-	bePodUsageSystem := []float64{
-		10 * 1024 * 1024 * 1024,
-		5 * 1024 * 1024 * 1024,
-	}
-
 	bePodUsageNuma := []map[int]float64{
 		{
 			0: 1 * 1024 * 1024 * 1024,
 			1: 9 * 1024 * 1024 * 1024,
+			2: 1 * 1024,
+			3: 1 * 1024,
 		},
 		{
 			0: 4 * 1024 * 1024 * 1024,
 			1: 1 * 1024 * 1024 * 1024,
+			2: 1 * 1024,
+			3: 1 * 1024,
 		},
 	}
 
 	now := time.Now()
 	for i, pod := range bePods {
-		fakeMetricsFetcher.SetContainerMetric(string(pod.UID), pod.Spec.Containers[0].Name, consts.MetricMemUsageContainer, utilMetric.MetricData{Value: bePodUsageSystem[i], Time: &now})
 		for numaID, usage := range bePodUsageNuma[i] {
 			fakeMetricsFetcher.SetContainerNumaMetric(string(pod.UID), pod.Spec.Containers[0].Name, strconv.Itoa(numaID), consts.MetricsMemTotalPerNumaContainer, utilMetric.MetricData{Value: usage, Time: &now})
 		}
+	}
+	for numaID, numaTotal := range numaTotalMap {
+		fakeMetricsFetcher.SetNumaMetric(numaID, consts.MetricMemTotalNuma, utilMetric.MetricData{Value: numaTotal, Time: &now})
 	}
 
 	tests := []struct {
@@ -297,6 +310,8 @@ func TestNumaMemoryPressurePlugin_GetTopEvictionPods(t *testing.T) {
 			numaAction: map[int]int{
 				0: actionNoop,
 				1: actionNoop,
+				2: actionNoop,
+				3: actionNoop,
 			},
 			wantEvictPodSet: sets.String{},
 		},
@@ -305,6 +320,8 @@ func TestNumaMemoryPressurePlugin_GetTopEvictionPods(t *testing.T) {
 			numaAction: map[int]int{
 				0: actionEviction,
 				1: actionNoop,
+				2: actionNoop,
+				3: actionNoop,
 			},
 			wantEvictPodSet: sets.NewString("pod-2"),
 		},
@@ -313,6 +330,8 @@ func TestNumaMemoryPressurePlugin_GetTopEvictionPods(t *testing.T) {
 			numaAction: map[int]int{
 				0: actionNoop,
 				1: actionReclaimedEviction,
+				2: actionNoop,
+				3: actionNoop,
 			},
 			wantEvictPodSet: sets.NewString("pod-1"),
 		},
@@ -321,6 +340,8 @@ func TestNumaMemoryPressurePlugin_GetTopEvictionPods(t *testing.T) {
 			numaAction: map[int]int{
 				0: actionReclaimedEviction,
 				1: actionReclaimedEviction,
+				2: actionNoop,
+				3: actionNoop,
 			},
 			wantEvictPodSet: sets.NewString("pod-1", "pod-2"),
 		},
@@ -329,8 +350,20 @@ func TestNumaMemoryPressurePlugin_GetTopEvictionPods(t *testing.T) {
 			numaAction: map[int]int{
 				0: actionEviction,
 				1: actionEviction,
+				2: actionNoop,
+				3: actionNoop,
 			},
 			wantEvictPodSet: sets.NewString("pod-1", "pod-2"),
+		},
+		{
+			isUnderNumaPressure: true,
+			numaAction: map[int]int{
+				0: actionNoop,
+				1: actionNoop,
+				2: actionEviction,
+				3: actionEviction,
+			},
+			wantEvictPodSet: sets.NewString(),
 		},
 	}
 
