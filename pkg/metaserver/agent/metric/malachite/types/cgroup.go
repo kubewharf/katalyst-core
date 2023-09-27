@@ -232,6 +232,7 @@ type CPUCgDataV1 struct {
 	CPUShares             uint64       `json:"cpu_shares"`
 	OldCPUBasicInfo       CPUBasicInfo `json:"old_cpu_basic_info"`
 	NewCPUBasicInfo       CPUBasicInfo `json:"new_cpu_basic_info"`
+	PerCPUUsage           []uint64     `json:"per_cpu_usage"`
 	CPUUsageRatio         float64      `json:"cpu_usage_ratio"`
 	CPUUserUsageRatio     float64      `json:"cpu_user_usage_ratio"`
 	CPUSysUsageRatio      float64      `json:"cpu_sys_usage_ratio"`
@@ -328,6 +329,7 @@ type CPUCgDataV2 struct {
 	MaxBurst              int      `json:"max_burst"`
 	Max                   uint64   `json:"max"` // 18446744073709551615(u64_max) means unlimited
 	MaxPeriod             int64    `json:"max_period"`
+	PerCPUUsage           []uint64 `json:"per_cpu_usage"`
 	CPUUsageRatio         float64  `json:"cpu_usage_ratio"`
 	CPUUserUsageRatio     float64  `json:"cpu_user_usage_ratio"`
 	CPUSysUsageRatio      float64  `json:"cpu_sys_usage_ratio"`

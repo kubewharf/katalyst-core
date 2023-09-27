@@ -51,12 +51,13 @@ const (
 )
 
 // NewMalachiteMetricsFetcher returns the default implementation of MetricsFetcher.
-func NewMalachiteMetricsFetcher(emitter metrics.MetricEmitter, fetcher pod.PodFetcher, conf *config.Configuration) metric.MetricsFetcher {
+func NewMalachiteMetricsFetcher(emitter metrics.MetricEmitter, fetcher pod.PodFetcher, conf *config.Configuration, machineInfo *machine.KatalystMachineInfo) metric.MetricsFetcher {
 	return &MalachiteMetricsFetcher{
 		malachiteClient: client.NewMalachiteClient(fetcher),
 		metricStore:     utilmetric.NewMetricStore(),
 		emitter:         emitter,
 		conf:            conf,
+		machineInfo:     machineInfo,
 		registeredNotifier: map[metric.MetricsScope]map[string]metric.NotifiedData{
 			metric.MetricsScopeNode:      make(map[string]metric.NotifiedData),
 			metric.MetricsScopeNuma:      make(map[string]metric.NotifiedData),
@@ -71,6 +72,7 @@ type MalachiteMetricsFetcher struct {
 	metricStore     *utilmetric.MetricStore
 	malachiteClient *client.MalachiteClient
 	conf            *config.Configuration
+	machineInfo     *machine.KatalystMachineInfo
 
 	sync.RWMutex
 	registeredMetric   []func(store *utilmetric.MetricStore)
@@ -972,5 +974,35 @@ func (m *MalachiteMetricsFetcher) processContainerPerNumaMemoryData(podUID, cont
 			m.metricStore.SetContainerNumaMetric(podUID, containerName, numaID, consts.MetricsMemAnonPerNumaContainer,
 				utilmetric.MetricData{Value: float64(data.Anon << pageShift), Time: &updateTime})
 		}
+	}
+}
+
+func (m *MalachiteMetricsFetcher) processContainerPerNumaCPUData(podUID, containerName string, cgStats *types.MalachiteCgroupInfo) {
+	numaCPUTime := make(map[int]uint64)
+	updateTime := time.Time{}
+	if cgStats.CgroupType == "V1" {
+		updateTime = time.Unix(cgStats.V1.Cpu.UpdateTime, 0)
+		if len(cgStats.V1.Cpu.PerCPUUsage) != len(m.machineInfo.CPUDetails) {
+			return
+		}
+		for cpu, usage := range cgStats.V1.Cpu.PerCPUUsage {
+			numaCPUTime[m.machineInfo.CPUDetails[cpu].NUMANodeID] += usage
+		}
+	} else if cgStats.CgroupType == "V2" {
+		updateTime = time.Unix(cgStats.V2.Cpu.UpdateTime, 0)
+		if len(cgStats.V2.Cpu.PerCPUUsage) != len(m.machineInfo.CPUDetails) {
+			return
+		}
+		for cpu, usage := range cgStats.V2.Cpu.PerCPUUsage {
+			numaCPUTime[m.machineInfo.CPUDetails[cpu].NUMANodeID] += usage
+		}
+	}
+	for numaID, cpuTime := range numaCPUTime {
+		lastCPUTime, err := m.metricStore.GetContainerNumaMetric(podUID, containerName, strconv.Itoa(numaID), consts.MetricsCPUPerNumaRunTime)
+		if err == nil {
+			usage := (float64(cpuTime) - lastCPUTime.Value) / float64(updateTime.UnixNano()-lastCPUTime.Time.UnixNano())
+			m.metricStore.SetContainerNumaMetric(podUID, containerName, strconv.Itoa(numaID), consts.MetricsCPUPerNumaUsage, utilmetric.MetricData{Value: usage, Time: &updateTime})
+		}
+		m.metricStore.SetContainerNumaMetric(podUID, containerName, strconv.Itoa(numaID), consts.MetricsCPUPerNumaRunTime, utilmetric.MetricData{Value: float64(cpuTime), Time: &updateTime})
 	}
 }

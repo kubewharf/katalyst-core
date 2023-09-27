@@ -172,6 +172,9 @@ const (
 	MetricsMemTotalPerNumaContainer = "mem.total.numa.container"
 	MetricsMemFilePerNumaContainer  = "mem.file.numa.container"
 	MetricsMemAnonPerNumaContainer  = "mem.anon.numa.container"
+
+	MetricsCPUPerNumaRunTime = "cpu.runtime.numa.container"
+	MetricsCPUPerNumaUsage   = "cpu.usage.numa.container"
 )
 
 // Cgroup cpu metrics
