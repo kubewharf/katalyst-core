@@ -97,7 +97,7 @@ func TestPolicyNUMAAware(t *testing.T) {
 					makeContainerInfo("pod1", "default",
 						"pod1", "container1",
 						consts.PodAnnotationQoSLevelReclaimedCores, nil,
-						nil, 1),
+						nil, 20<<30),
 				},
 				essentials: types.ResourceEssentials{
 					EnableReclaim:       true,
@@ -107,13 +107,10 @@ func TestPolicyNUMAAware(t *testing.T) {
 				setFakeMetric: func(store *metric.FakeMetricsFetcher) {
 					store.SetNumaMetric(0, pkgconsts.MetricMemFreeNuma, utilmetric.MetricData{Value: 100 << 30, Time: &now})
 					store.SetNumaMetric(1, pkgconsts.MetricMemFreeNuma, utilmetric.MetricData{Value: 100 << 30, Time: &now})
-
-					store.SetContainerNumaMetric("pod1", "container1", "0", pkgconsts.MetricsMemTotalPerNumaContainer, utilmetric.MetricData{Value: 20 << 30, Time: &now})
-					store.SetContainerNumaMetric("pod1", "container1", "1", pkgconsts.MetricsMemTotalPerNumaContainer, utilmetric.MetricData{Value: 20 << 30, Time: &now})
 				},
 			},
 			wantErr: false,
-			want:    resource.MustParse("236Gi"),
+			want:    resource.MustParse("216Gi"),
 		},
 		{
 			name: "normal: reclaimed_cores containers with numa-exclusive containers",
@@ -123,7 +120,7 @@ func TestPolicyNUMAAware(t *testing.T) {
 					makeContainerInfo("pod1", "default",
 						"pod1", "container1",
 						consts.PodAnnotationQoSLevelReclaimedCores, nil,
-						nil, 1),
+						nil, 20<<30),
 					makeContainerInfo("pod2", "default",
 						"pod2", "container2",
 						consts.PodAnnotationQoSLevelDedicatedCores, map[string]string{
@@ -132,7 +129,7 @@ func TestPolicyNUMAAware(t *testing.T) {
 						},
 						types.TopologyAwareAssignment{
 							0: machine.NewCPUSet(0),
-						}, 1)},
+						}, 30<<30)},
 				essentials: types.ResourceEssentials{
 					EnableReclaim:       true,
 					ResourceUpperBound:  400 << 30,
@@ -141,9 +138,6 @@ func TestPolicyNUMAAware(t *testing.T) {
 				setFakeMetric: func(store *metric.FakeMetricsFetcher) {
 					store.SetNumaMetric(0, pkgconsts.MetricMemFreeNuma, utilmetric.MetricData{Value: 100 << 30, Time: &now})
 					store.SetNumaMetric(1, pkgconsts.MetricMemFreeNuma, utilmetric.MetricData{Value: 100 << 30, Time: &now})
-
-					store.SetContainerNumaMetric("pod1", "container1", "0", pkgconsts.MetricsMemTotalPerNumaContainer, utilmetric.MetricData{Value: 20 << 30, Time: &now})
-					store.SetContainerNumaMetric("pod1", "container1", "1", pkgconsts.MetricsMemTotalPerNumaContainer, utilmetric.MetricData{Value: 20 << 30, Time: &now})
 				},
 			},
 			wantErr: false,
