@@ -19,7 +19,6 @@ package headroompolicy
 import (
 	"context"
 	"fmt"
-	"strconv"
 
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/util/errors"
@@ -118,23 +117,11 @@ func (p *PolicyNUMAAware) Update() (err error) {
 		if err != nil {
 			return err
 		}
-		numaFree := data.Value
+		reclaimableMemory += data.Value
+	}
 
-		reclaimedCoresUsed := 0.
-		for _, container := range reclaimedCoresContainers {
-			data, err = p.metaServer.GetContainerNumaMetric(container.PodUID, container.ContainerName, strconv.Itoa(numaID), consts.MetricsMemTotalPerNumaContainer)
-			if err != nil {
-				general.ErrorS(err, "failed to get metric", "name", consts.MetricsMemTotalPerNumaContainer,
-					"podName", container.PodName, "ContainerName", container.ContainerName, "numaID", numaID)
-				return err
-			}
-			reclaimedCoresUsed += data.Value
-			general.InfoS("container memory", "podName", container.PodName, "containerName", container.ContainerName, "numaID", numaID, "memory used", general.FormatMemoryQuantity(data.Value))
-		}
-
-		reclaimableMemory += numaFree + reclaimedCoresUsed
-
-		general.InfoS("memory reclaimable", "numaID", numaID, "numaFree", general.FormatMemoryQuantity(numaFree), "reclaimable", general.FormatMemoryQuantity(numaFree+reclaimedCoresUsed))
+	for _, container := range reclaimedCoresContainers {
+		reclaimableMemory += container.MemoryRequest
 	}
 
 	general.InfoS("total memory reclaimable",
