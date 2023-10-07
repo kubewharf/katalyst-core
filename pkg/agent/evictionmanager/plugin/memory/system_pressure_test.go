@@ -48,6 +48,7 @@ func makeMetaServer() *metaserver.MetaServer {
 var (
 	evictionManagerSyncPeriod               = 10 * time.Second
 	numaFreeBelowWatermarkTimesThreshold    = 3
+	numaVictimMinimumUsageThreshold         = 0.001
 	systemKswapdRateThreshold               = 1000
 	systemKswapdRateExceedDurationThreshold = 90
 	systemPluginSyncPeriod                  = 30
@@ -68,6 +69,7 @@ func makeConf() *config.Configuration {
 	conf.GetDynamicConfiguration().EnableNumaLevelEviction = evictionconfig.DefaultEnableNumaLevelEviction
 	conf.GetDynamicConfiguration().EnableSystemLevelEviction = evictionconfig.DefaultEnableSystemLevelEviction
 	conf.GetDynamicConfiguration().NumaFreeBelowWatermarkTimesThreshold = numaFreeBelowWatermarkTimesThreshold
+	conf.GetDynamicConfiguration().NumaVictimMinimumUtilizationThreshold = numaVictimMinimumUsageThreshold
 	conf.GetDynamicConfiguration().SystemKswapdRateThreshold = systemKswapdRateThreshold
 	conf.GetDynamicConfiguration().SystemKswapdRateExceedDurationThreshold = systemKswapdRateExceedDurationThreshold
 	conf.GetDynamicConfiguration().NumaEvictionRankingMetrics = evictionconfig.DefaultNumaEvictionRankingMetrics
