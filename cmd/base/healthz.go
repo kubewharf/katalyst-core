@@ -57,7 +57,7 @@ func (h *HealthzChecker) CheckHealthy() (bool, string) {
 // state transition time, and state lasting period here.
 //
 // for more information about readiness check, please refer to
-// https://github.com/kubernetes/api/blob/ec40acc5b8d728b4554800cdf96fb735949a434b/core/v1/types.go#L221
+// https://github.com/kubernetes/api/blob/9a776fe3a720323e4f706b3ebb462b3dd661634f/core/v1/types.go#L2565
 func (h *HealthzChecker) check() {
 	responses := general.CheckHealthz()
 
