@@ -118,6 +118,7 @@ func (p *PolicyNUMAAware) Update() (err error) {
 			return err
 		}
 		reclaimableMemory += data.Value
+		general.InfoS("numa memory free", "numaID", numaID, "numaFree", general.FormatMemoryQuantity(data.Value))
 	}
 
 	for _, container := range reclaimedCoresContainers {
