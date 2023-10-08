@@ -178,7 +178,7 @@ func (h *HTTPHandler) withRateLimiter(f http.HandlerFunc) http.HandlerFunc {
 			rateLimiterKey := r.RemoteAddr
 			authInfo, err := getAuthInfo(r)
 			if err != nil {
-				klog.Warningf("request %+v has no valid auth info bound to it, using Remote address %v as RateLimiter key， err: %v", r.URL, r.RemoteAddr, err)
+				klog.Warningf("request %+v has no valid auth info bound to it, using Remote address %v as RateLimiter key, err: %v", r.URL, r.RemoteAddr, err)
 			} else {
 				rateLimiterKey = authInfo.SubjectName()
 			}
