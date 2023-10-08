@@ -44,3 +44,6 @@ output/
 *.un~
 Session.vim
 .netrwhist
+
+# Test coverage profile file
+coverage.txt
