@@ -81,6 +81,7 @@ var fakeDiscoveryClient = &fakedisco.FakeDiscovery{Fake: &coretesting.Fake{
 			GroupVersion: v1alpha1.SchemeGroupVersion.String(),
 			APIResources: []metav1.APIResource{
 				{Name: v1alpha1.ResourceNameAdminQoSConfigurations, Namespaced: true, Kind: crd.ResourceKindAdminQoSConfiguration},
+				{Name: v1alpha1.ResourceNameAuthConfigurations, Namespaced: true, Kind: crd.ResourceKindAuthConfiguration},
 			},
 		},
 	},
@@ -266,6 +267,6 @@ func GenerateFakeGenericContext(objects ...[]runtime.Object) (*GenericContext, e
 		},
 	}
 	controlCtx, err := NewGenericContext(&clientSet, "", dynamicResources,
-		sets.NewString(), genericConf, "")
+		sets.NewString(), genericConf, "", nil)
 	return controlCtx, err
 }

@@ -21,7 +21,7 @@ import (
 	"fmt"
 	"net/http"
 
-	"github.com/kubewharf/katalyst-core/pkg/client"
+	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic"
 	"github.com/kubewharf/katalyst-core/pkg/config/generic"
 )
 
@@ -54,7 +54,7 @@ type Credential interface {
 	Run(ctx context.Context)
 }
 
-type NewCredentialFunc func(authConfig *generic.AuthConfiguration, clientSet *client.GenericClientSet) (Credential, error)
+type NewCredentialFunc func(authConfig *generic.AuthConfiguration, dynamicConfig *dynamic.DynamicAgentConfiguration) (Credential, error)
 
 var credentialInitializer = make(map[AuthType]NewCredentialFunc)
 
@@ -71,10 +71,10 @@ func init() {
 	RegisterCredentialInitializer(AuthTypeInsecure, NewInsecureCredential)
 }
 
-func GetCredential(genericConf *generic.GenericConfiguration, clientSet *client.GenericClientSet) (Credential, error) {
+func GetCredential(genericConf *generic.GenericConfiguration, dynamicConfig *dynamic.DynamicAgentConfiguration) (Credential, error) {
 	credentialInitializer, ok := GetCredentialInitializer()[AuthType(genericConf.AuthConfiguration.AuthType)]
 	if ok {
-		cred, err := credentialInitializer(genericConf.AuthConfiguration, clientSet)
+		cred, err := credentialInitializer(genericConf.AuthConfiguration, dynamicConfig)
 		if err != nil {
 			return nil, fmt.Errorf("initialize credential failed,type: %v, err: %v", genericConf.AuthType, err)
 		}

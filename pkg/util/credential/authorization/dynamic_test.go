@@ -17,48 +17,41 @@ limitations under the License.
 package authorization
 
 import (
-	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-	core "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/client-go/kubernetes/fake"
 
-	"github.com/kubewharf/katalyst-core/pkg/client"
+	"github.com/kubewharf/katalyst-api/pkg/apis/config/v1alpha1"
+	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic"
 	"github.com/kubewharf/katalyst-core/pkg/config/generic"
 	"github.com/kubewharf/katalyst-core/pkg/util/credential"
 )
 
-func Test_secretBackedAccessControl_Verify(t *testing.T) {
+func Test_dynamicConfAccessControl_Verify(t *testing.T) {
 	t.Parallel()
 
 	conf := generic.NewAuthConfiguration()
-	conf.AccessControlSecretName = "access-control"
-	conf.AccessControlSecretNameSpace = "default"
 
-	fakeKubeClient := fake.NewSimpleClientset()
-	clientSet := &client.GenericClientSet{
-		KubeClient: fakeKubeClient,
+	configuration := dynamic.NewDynamicAgentConfiguration()
+	dynamicConf := dynamic.NewConfiguration()
+	dynamicConf.AccessControlPolicies = []v1alpha1.AccessControlPolicy{
+		{Username: "user-1",
+			PolicyRule: v1alpha1.PolicyRule{
+				Resources: []string{PermissionTypeAll},
+			}},
+		{Username: "user-2",
+			PolicyRule: v1alpha1.PolicyRule{
+				Resources: []string{PermissionTypeHttpEndpoint},
+			}},
 	}
+	configuration.SetDynamicConfiguration(dynamicConf)
 
-	_ = fakeKubeClient.Tracker().Add(&core.Secret{
-		ObjectMeta: metav1.ObjectMeta{
-			Namespace: conf.AccessControlSecretNameSpace,
-			Name:      conf.AccessControlSecretName,
-		},
-		StringData: map[string]string{
-			"user-1": PermissionTypeAll,
-			"user-2": strings.Join([]string{PermissionTypeHttpEndpoint}, resourceSeparator),
-		},
-	})
-
-	accessControl, err := NewSecretBackedAccessControl(conf, clientSet)
+	accessControl, err := NewDynamicConfAccessControl(conf, configuration)
 	assert.NoError(t, err)
 	assert.NotNil(t, accessControl)
 
-	secretBackedAC := accessControl.(*secretBackedAccessControl)
-	secretBackedAC.updateAuthInfoFromSecret()
+	secretBackedAC := accessControl.(*dynamicConfAccessControl)
+	secretBackedAC.updateAuthInfoFromDynamicConf()
 
 	type args struct {
 		authInfo       credential.AuthInfo

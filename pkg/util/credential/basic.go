@@ -22,19 +22,18 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/wait"
-	"k8s.io/client-go/kubernetes"
 
-	"github.com/kubewharf/katalyst-core/pkg/client"
+	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic"
 	"github.com/kubewharf/katalyst-core/pkg/config/generic"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 )
 
 const (
-	secretSyncInterval = 10 * time.Minute
+	secretSyncInterval = 30 * time.Second
 )
 
 type BasicAuthInfo struct {
@@ -50,24 +49,21 @@ func (b BasicAuthInfo) SubjectName() string {
 	return b.Username
 }
 
-func NewBasicAuthCredential(authConfig *generic.AuthConfiguration, clientSet *client.GenericClientSet) (Credential, error) {
+func NewBasicAuthCredential(_ *generic.AuthConfiguration, dynamicConfiguration *dynamic.DynamicAgentConfiguration) (Credential, error) {
 	return &basicAuthCredential{
-		kubeClient: clientSet.KubeClient,
-		namespace:  authConfig.BasicAuthSecretNameSpace,
-		name:       authConfig.BasicAuthSecretName,
-		authPairs:  map[string]string{},
+		authPairs:     map[string]string{},
+		dynamicConfig: dynamicConfiguration,
 	}, nil
 }
 
 type basicAuthCredential struct {
-	kubeClient kubernetes.Interface
-	namespace  string
-	name       string
-	authPairs  map[string]string
+	mutex         sync.RWMutex
+	dynamicConfig *dynamic.DynamicAgentConfiguration
+	authPairs     map[string]string
 }
 
 func (b *basicAuthCredential) Run(ctx context.Context) {
-	go wait.Until(b.updateAuthPairFromSecret, secretSyncInterval, ctx.Done())
+	go wait.Until(b.updateAuthPairFromDynamicConf, secretSyncInterval, ctx.Done())
 }
 
 func (b *basicAuthCredential) AuthType() AuthType {
@@ -104,6 +100,9 @@ func (b *basicAuthCredential) AuthToken(token string) (AuthInfo, error) {
 }
 
 func (b *basicAuthCredential) verifyAuthInfo(username, password string) error {
+	b.mutex.RLock()
+	defer b.mutex.RUnlock()
+
 	storedPassword, ok := b.authPairs[username]
 	if !ok {
 		return fmt.Errorf("user %v not found in store", username)
@@ -135,15 +134,18 @@ func parseBasicAuth(auth string) (username, password string, ok bool) {
 	return username, password, true
 }
 
-func (b *basicAuthCredential) updateAuthPairFromSecret() {
-	secret, err := b.kubeClient.CoreV1().Secrets(b.namespace).Get(context.TODO(), b.name, metav1.GetOptions{})
-	if err != nil {
-		general.Errorf("get auth pair secret failed:%v", err)
-	} else {
-		newAuthPairs := make(map[string]string)
-		for username, password := range secret.StringData {
-			newAuthPairs[username] = password
+func (b *basicAuthCredential) updateAuthPairFromDynamicConf() {
+	dynamicConfiguration := b.dynamicConfig.GetDynamicConfiguration()
+	newAuthPairs := make(map[string]string)
+	for _, pair := range dynamicConfiguration.UserPasswordPairs {
+		p, err := base64.StdEncoding.DecodeString(pair.Password)
+		if err != nil {
+			general.Warningf("fail to decode password, err: %v", err)
+			continue
 		}
-		b.authPairs = newAuthPairs
+		newAuthPairs[pair.Username] = string(p)
 	}
+	b.mutex.Lock()
+	b.authPairs = newAuthPairs
+	b.mutex.Unlock()
 }

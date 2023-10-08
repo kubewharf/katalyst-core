@@ -57,7 +57,7 @@ func Run(opt *options.Options, genericOptions ...katalystbase.GenericOptions) er
 
 	controllerCtx, err := katalystbase.NewGenericContext(clientSet, conf.GenericControllerConfiguration.LabelSelector,
 		conf.GenericControllerConfiguration.DynamicGVResources, ControllersDisabledByDefault,
-		conf.GenericConfiguration, consts.KatalystComponentController)
+		conf.GenericConfiguration, consts.KatalystComponentController, nil)
 	if err != nil {
 		return err
 	}

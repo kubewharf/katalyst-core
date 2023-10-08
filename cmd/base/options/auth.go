@@ -28,30 +28,14 @@ type AuthOptions struct {
 	// Authentication type
 	AuthType string
 
-	// Configurations about BasicAuth,it only takes effect when AuthType is credential.AuthTypeBasicAuth
-	BasicAuthSecretNameSpace string
-	BasicAuthSecretName      string
-
 	// AccessControl type
 	AccessControlType string
-
-	// Configurations about SecretBacked AccessControl, it only takes effects when AccessControlType
-	// is authorization.AccessControlTypeSecretBacked
-	AccessControlSecretNameSpace string
-	AccessControlSecretName      string
 }
 
 func NewAuthOptions() *AuthOptions {
 	return &AuthOptions{
-		AuthType: credential.AuthTypeInsecure,
-
-		BasicAuthSecretName:      "katalyst-acconuts",
-		BasicAuthSecretNameSpace: "default",
-
+		AuthType:          credential.AuthTypeInsecure,
 		AccessControlType: authorization.AccessControlTypeInsecure,
-
-		AccessControlSecretName:      "katalyst-access-rules",
-		AccessControlSecretNameSpace: "default",
 	}
 }
 
@@ -59,30 +43,12 @@ func NewAuthOptions() *AuthOptions {
 func (o *AuthOptions) AddFlags(fs *pflag.FlagSet) {
 	fs.StringVar(&o.AuthType, "auth-type", o.AuthType, "which auth type for common http endpoint,"+
 		"e.g. BasicAuth")
-
-	fs.StringVar(&o.BasicAuthSecretName, "basic-auth-secret-name", o.BasicAuthSecretName, "the secret name which stores"+
-		" the username and password pairs")
-	fs.StringVar(&o.BasicAuthSecretNameSpace, "basic-auth-secret-namespace", o.BasicAuthSecretNameSpace, "the namespace "+
-		"where the secret which stores the username and password pairs is in")
-
 	fs.StringVar(&o.AccessControlType, "access-control-type", o.AccessControlType, "access control type")
-
-	fs.StringVar(&o.AccessControlSecretName, "access-control-secret-name", o.AccessControlSecretName, "the secret "+
-		"name which stores the access control rules")
-	fs.StringVar(&o.AccessControlSecretNameSpace, "access-control-secret-namespace", o.AccessControlSecretNameSpace, "the secret "+
-		"name which stores the access control rules")
 }
 
 func (o *AuthOptions) ApplyTo(c *generic.AuthConfiguration) error {
 	c.AuthType = o.AuthType
-
-	c.BasicAuthSecretName = o.BasicAuthSecretName
-	c.BasicAuthSecretNameSpace = o.BasicAuthSecretNameSpace
-
 	c.AccessControlType = o.AccessControlType
-
-	c.AccessControlSecretName = o.AccessControlSecretName
-	c.AccessControlSecretNameSpace = o.AccessControlSecretNameSpace
 
 	return nil
 }

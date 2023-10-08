@@ -20,7 +20,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/kubewharf/katalyst-core/pkg/client"
+	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic"
 	"github.com/kubewharf/katalyst-core/pkg/config/generic"
 	"github.com/kubewharf/katalyst-core/pkg/util/credential"
 )
@@ -41,9 +41,9 @@ const (
 )
 
 const (
-	AccessControlTypeInsecure     = "insecure"
-	AccessControlTypeStatic       = "static"
-	AccessControlTypeSecretBacked = "secret_backed"
+	AccessControlTypeInsecure    = "insecure"
+	AccessControlTypeStatic      = "static"
+	AccessControlTypeDynamicConf = "dynamic_conf"
 )
 
 const (
@@ -74,7 +74,7 @@ func verify(authInfo credential.AuthInfo, targetResource PermissionType, rules A
 	return fmt.Errorf(ErrorMsgNoPermission, authInfo.SubjectName(), targetResource)
 }
 
-type NewAccessControlFunc func(authConfig *generic.AuthConfiguration, clientSet *client.GenericClientSet) (AccessControl, error)
+type NewAccessControlFunc func(authConfig *generic.AuthConfiguration, dynamicConfig *dynamic.DynamicAgentConfiguration) (AccessControl, error)
 
 var accessControlInitializer = make(map[AccessControlType]NewAccessControlFunc)
 
@@ -88,14 +88,14 @@ func GetAccessControlInitializer() map[AccessControlType]NewAccessControlFunc {
 
 func init() {
 	RegisterAccessControlInitializer(AccessControlTypeInsecure, NewInsecureAccessControl)
-	RegisterAccessControlInitializer(AccessControlTypeSecretBacked, NewSecretBackedAccessControl)
+	RegisterAccessControlInitializer(AccessControlTypeDynamicConf, NewDynamicConfAccessControl)
 	RegisterAccessControlInitializer(AccessControlTypeStatic, NewStaticAccessControl)
 }
 
-func GetAccessControl(genericConf *generic.GenericConfiguration, clientSet *client.GenericClientSet) (AccessControl, error) {
+func GetAccessControl(genericConf *generic.GenericConfiguration, dynamicConfig *dynamic.DynamicAgentConfiguration) (AccessControl, error) {
 	accessControlInitializer, ok := GetAccessControlInitializer()[AccessControlType(genericConf.AuthConfiguration.AccessControlType)]
 	if ok {
-		ac, err := accessControlInitializer(genericConf.AuthConfiguration, clientSet)
+		ac, err := accessControlInitializer(genericConf.AuthConfiguration, dynamicConfig)
 		if err != nil {
 			return nil, fmt.Errorf("initialize access control failed,type: %v, err: %v", genericConf.AccessControlType, err)
 		}

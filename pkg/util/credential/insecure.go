@@ -20,7 +20,7 @@ import (
 	"context"
 	"net/http"
 
-	"github.com/kubewharf/katalyst-core/pkg/client"
+	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic"
 	"github.com/kubewharf/katalyst-core/pkg/config/generic"
 )
 
@@ -37,7 +37,7 @@ func (a AnonymousAuthInfo) SubjectName() string {
 	return SubjectNameAnonymous
 }
 
-func NewInsecureCredential(_ *generic.AuthConfiguration, _ *client.GenericClientSet) (Credential, error) {
+func NewInsecureCredential(_ *generic.AuthConfiguration, _ *dynamic.DynamicAgentConfiguration) (Credential, error) {
 	return &insecureCredential{}, nil
 }
 

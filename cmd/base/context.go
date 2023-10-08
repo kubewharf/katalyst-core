@@ -34,6 +34,7 @@ import (
 
 	"github.com/kubewharf/katalyst-api/pkg/client/informers/externalversions"
 	"github.com/kubewharf/katalyst-core/pkg/client"
+	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic"
 	"github.com/kubewharf/katalyst-core/pkg/config/generic"
 	"github.com/kubewharf/katalyst-core/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
@@ -91,6 +92,7 @@ func NewGenericContext(
 	disabledByDefault sets.String,
 	genericConf *generic.GenericConfiguration,
 	component consts.KatalystComponent,
+	dynamicConfiguration *dynamic.DynamicAgentConfiguration,
 ) (*GenericContext, error) {
 	var (
 		err                     error
@@ -152,22 +154,26 @@ func NewGenericContext(
 
 	httpHandler := process.NewHTTPHandler(genericConf.GenericEndpointHandleChains, []string{healthZPath, pprofPrefix})
 
-	cred, credErr := credential.GetCredential(genericConf, clientSet)
-	if credErr != nil {
-		return nil, credErr
-	}
-	err = httpHandler.WithCredential(cred)
-	if err != nil {
-		return nil, err
-	}
+	// since some authentication implementation needs kcc and kcc only support agent component, so we only enable
+	// authentication for agent component for now.
+	if component == consts.KatalystComponentAgent {
+		cred, credErr := credential.GetCredential(genericConf, dynamicConfiguration)
+		if credErr != nil {
+			return nil, credErr
+		}
+		err = httpHandler.WithCredential(cred)
+		if err != nil {
+			return nil, err
+		}
 
-	accessControl, acErr := authorization.GetAccessControl(genericConf, clientSet)
-	if acErr != nil {
-		return nil, acErr
-	}
-	err = httpHandler.WithAuthorization(accessControl)
-	if err != nil {
-		return nil, err
+		accessControl, acErr := authorization.GetAccessControl(genericConf, dynamicConfiguration)
+		if acErr != nil {
+			return nil, acErr
+		}
+		err = httpHandler.WithAuthorization(accessControl)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	c := &GenericContext{

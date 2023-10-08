@@ -14,16 +14,23 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package generic
+package auth
 
-// AuthConfiguration stores all configurations related to authentication and authorization
+import "github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/crd"
+
 type AuthConfiguration struct {
-	// Authentication type
-	AuthType string
-
-	AccessControlType string
+	*AccessControlConfig
+	*BasicAuthConfig
 }
 
 func NewAuthConfiguration() *AuthConfiguration {
-	return &AuthConfiguration{}
+	return &AuthConfiguration{
+		AccessControlConfig: NewAccessControlConfig(),
+		BasicAuthConfig:     NewBasicAuthConfig(),
+	}
+}
+
+func (a *AuthConfiguration) ApplyConfiguration(conf *crd.DynamicConfigCRD) {
+	a.AccessControlConfig.ApplyConfiguration(conf)
+	a.BasicAuthConfig.ApplyConfiguration(conf)
 }
