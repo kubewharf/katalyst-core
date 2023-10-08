@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"sort"
 
 	v1 "k8s.io/api/core/v1"
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
@@ -99,6 +100,10 @@ func RegenerateHints(allocationInfo *state.AllocationInfo, reqInt int) map[strin
 			allocatedNumaNodes = append(allocatedNumaNodes, uint64(numaNode))
 		}
 	}
+
+	sort.Slice(allocatedNumaNodes, func(i, j int) bool {
+		return allocatedNumaNodes[i] < allocatedNumaNodes[j]
+	})
 
 	general.InfoS("regenerating machineInfo hints, cpus was already allocated to pod",
 		"podNamespace", allocationInfo.PodNamespace,
