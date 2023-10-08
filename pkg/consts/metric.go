@@ -114,7 +114,7 @@ const (
 	MetricStoreAllInsContainer  = "cpu.store.allins.container"
 	MetricStoreInsContainer     = "cpu.store.ins.container"
 
-	MetricUpdateTimeContainer = "cpu.updatetime.container"
+	MetricCPUUpdateTimeContainer = "cpu.updatetime.container"
 )
 
 // container memory metrics
@@ -147,6 +147,8 @@ const (
 	MetricBlkioWriteIopsContainer = "blkio.write.iops.container"
 	MetricBlkioReadBpsContainer   = "blkio.read.bps.container"
 	MetricBlkioWriteBpsContainer  = "blkio.write.bps.container"
+
+	MetricBlkioUpdateTimeContainer = "blkio.updatetime.container"
 )
 
 // container net metrics
