@@ -39,6 +39,16 @@ func GenerateUniqObjectUIDKey(obj metav1.Object) string {
 	return fmt.Sprintf("%s/%s/%s", obj.GetNamespace(), obj.GetName(), obj.GetUID())
 }
 
+// ParseUniqObjectUIDKey parse the given key into namespace, name and uid
+func ParseUniqObjectUIDKey(key string) (namespace string, name string, uid string, err error) {
+	names := strings.Split(key, "/")
+	if len(names) != 3 {
+		return "", "", "", fmt.Errorf("workload key %s split error", key)
+	}
+
+	return names[0], names[1], names[2], nil
+}
+
 // GenerateUniqObjectNameKey generate a uniq key (without UID) for the given object.
 func GenerateUniqObjectNameKey(obj metav1.Object) string {
 	return GenerateNamespaceNameKey(obj.GetNamespace(), obj.GetName())

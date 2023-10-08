@@ -46,6 +46,7 @@ type ControllersConfiguration struct {
 	*KCCConfig
 	*SPDConfig
 	*LifeCycleConfig
+	*MonitorConfig
 }
 
 func NewGenericControllerConfiguration() *GenericControllerConfiguration {
@@ -58,5 +59,6 @@ func NewControllersConfiguration() *ControllersConfiguration {
 		KCCConfig:       NewKCCConfig(),
 		SPDConfig:       NewSPDConfig(),
 		LifeCycleConfig: NewLifeCycleConfig(),
+		MonitorConfig:   NewMonitorConfig(),
 	}
 }
