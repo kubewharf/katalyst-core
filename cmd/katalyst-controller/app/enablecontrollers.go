@@ -51,6 +51,7 @@ func init() {
 	controllerInitializers.Store(controller.KCCControllerName, ControllerStarter{Starter: controller.StartKCCController})
 	controllerInitializers.Store(controller.SPDControllerName, ControllerStarter{Starter: controller.StartSPDController})
 	controllerInitializers.Store(controller.LifeCycleControllerName, ControllerStarter{Starter: controller.StartLifeCycleController})
+	controllerInitializers.Store(controller.MonitorControllerName, ControllerStarter{Starter: controller.StartMonitorController})
 }
 
 // RegisterControllerInitializer is used to register user-defined controllers

@@ -184,7 +184,7 @@ func (cl *CNRLifecycle) addCNREventHandle(obj interface{}) {
 func (cl *CNRLifecycle) updateCNREventHandle(_, new interface{}) {
 	c, ok := new.(*apis.CustomNodeResource)
 	if !ok {
-		klog.Errorf("cannot convert oldObj to *apis.CNR: %v", c)
+		klog.Errorf("cannot convert newObj to *apis.CNR: %v", c)
 		return
 	}
 	klog.V(4).Infof("notice addition of cnr %s", c.Name)
