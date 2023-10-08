@@ -27,47 +27,64 @@ import (
 )
 
 // processContainerMemBandwidth handles memory bandwidth (read/write) rate in a period while,
-// and it will need the previously collected datat to do this
-func (m *MalachiteMetricsFetcher) processContainerMemBandwidth(podUID, containerName string, cgStats *types.MalachiteCgroupInfo) {
+// and it will need the previously collected data to do this
+func (m *MalachiteMetricsFetcher) processContainerMemBandwidth(podUID, containerName string, cgStats *types.MalachiteCgroupInfo, lastUpdateTimeInSec float64) {
 	var (
 		lastOCRReadDRAMs, _ = m.metricStore.GetContainerMetric(podUID, containerName, consts.MetricOCRReadDRAMsContainer)
 		lastIMCWrites, _    = m.metricStore.GetContainerMetric(podUID, containerName, consts.MetricIMCWriteContainer)
 		lastStoreAllIns, _  = m.metricStore.GetContainerMetric(podUID, containerName, consts.MetricStoreAllInsContainer)
 		lastStoreIns, _     = m.metricStore.GetContainerMetric(podUID, containerName, consts.MetricStoreInsContainer)
-		lastUpdateTime, _   = m.metricStore.GetContainerMetric(podUID, containerName, consts.MetricUpdateTimeContainer)
 	)
 
-	var readBandwidth, writeBandwidth float64
-	var curOCRReadDRAMs, curIMCWrites, curStoreAllIns, curStoreIns, curUpdateTime float64
+	var curOCRReadDRAMs, curIMCWrites, curStoreAllIns, curStoreIns, curUpdateTimeInSec float64
 	if cgStats.CgroupType == "V1" {
 		curOCRReadDRAMs = float64(cgStats.V1.Cpu.OCRReadDRAMs)
 		curIMCWrites = float64(cgStats.V1.Cpu.IMCWrites)
 		curStoreAllIns = float64(cgStats.V1.Cpu.StoreAllInstructions)
 		curStoreIns = float64(cgStats.V1.Cpu.StoreInstructions)
-		curUpdateTime = float64(cgStats.V1.Cpu.UpdateTime)
+		curUpdateTimeInSec = float64(cgStats.V1.Cpu.UpdateTime)
 	} else if cgStats.CgroupType == "V2" {
 		curOCRReadDRAMs = float64(cgStats.V2.Cpu.OCRReadDRAMs)
 		curIMCWrites = float64(cgStats.V2.Cpu.IMCWrites)
 		curStoreAllIns = float64(cgStats.V2.Cpu.StoreAllInstructions)
 		curStoreIns = float64(cgStats.V2.Cpu.StoreInstructions)
-		curUpdateTime = float64(cgStats.V2.Cpu.UpdateTime)
+		curUpdateTimeInSec = float64(cgStats.V2.Cpu.UpdateTime)
 	}
 
-	// read/write bandwidth calculation formula
-	timediffSecs := curUpdateTime - lastUpdateTime.Value
-	if timediffSecs > 0 {
-		readBytes := (curOCRReadDRAMs - lastOCRReadDRAMs.Value) * 64
-		readBandwidth = readBytes / (1024 * 1024 * timediffSecs)
+	// read bandwidth
+	m.setContainerRateMetric(podUID, containerName, consts.MetricMemBandwidthReadContainer,
+		func() float64 {
+			// read megabyte
+			return (curOCRReadDRAMs - lastOCRReadDRAMs.Value) * 64 / (1024 * 1024)
+		},
+		int64(lastUpdateTimeInSec), int64(curUpdateTimeInSec))
 
-		if curStoreAllIns > lastStoreIns.Value {
-			writeBytes := (curStoreIns - lastStoreIns.Value) * (curIMCWrites - lastIMCWrites.Value) * 64 / (curStoreAllIns - lastStoreAllIns.Value)
-			writeBandwidth = writeBytes / (1024 * 1024 * timediffSecs)
-		}
+	// write bandwidth
+	m.setContainerRateMetric(podUID, containerName, consts.MetricMemBandwidthWriteContainer,
+		func() float64 {
+			// write megabyte
+			return (curStoreIns - lastStoreIns.Value) * (curIMCWrites - lastIMCWrites.Value) * 64 / (curStoreAllIns - lastStoreAllIns.Value) / (1024 * 1024)
+		},
+		int64(lastUpdateTimeInSec), int64(curUpdateTimeInSec))
+}
+
+// setContainerRateMetric is used to set rate metric in container level.
+// This method will check if the metric is really updated, and decide weather to update metric in metricStore.
+// The method could help avoid lots of meaningless "zero" value.
+func (m *MalachiteMetricsFetcher) setContainerRateMetric(podUID, containerName, targetMetricName string, deltaValueFunc func() float64, lastUpdateTime, curUpdateTime int64) {
+	timeDeltaInSec := curUpdateTime - lastUpdateTime
+	if lastUpdateTime == 0 || timeDeltaInSec <= 0 {
+		// Return directly when the following situations happen:
+		// 1. lastUpdateTime == 0, which means no previous data.
+		// 2. timeDeltaInSec == 0, which means the metric is not updated,
+		//	this is originated from the sampling lag between katalyst-core and malachite(data source)
+		// 3. timeDeltaInSec < 0, this is illegal and unlikely to happen.
+		return
 	}
 
-	updateTime := time.Unix(int64(curUpdateTime), 0)
-	m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricMemBandwidthReadContainer,
-		metric.MetricData{Value: readBandwidth, Time: &updateTime})
-	m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricMemBandwidthWriteContainer,
-		metric.MetricData{Value: writeBandwidth, Time: &updateTime})
+	// TODO this will duplicate "updateTime" a lot.
+	// But to my knowledge, the cost could be acceptable.
+	updateTime := time.Unix(curUpdateTime, 0)
+	m.metricStore.SetContainerMetric(podUID, containerName, targetMetricName,
+		metric.MetricData{Value: deltaValueFunc() / float64(timeDeltaInSec), Time: &updateTime})
 }
