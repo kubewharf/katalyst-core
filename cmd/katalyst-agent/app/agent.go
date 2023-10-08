@@ -47,7 +47,7 @@ func Run(conf *config.Configuration, clientSet *client.GenericClientSet, generic
 	ctx := process.SetupSignalHandler()
 
 	baseCtx, err := katalystbase.NewGenericContext(clientSet, "", nil, AgentsDisabledByDefault,
-		conf.GenericConfiguration, consts.KatalystComponentAgent)
+		conf.GenericConfiguration, consts.KatalystComponentAgent, conf.DynamicAgentConfiguration)
 	if err != nil {
 		return err
 	}

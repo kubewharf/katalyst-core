@@ -23,11 +23,9 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-	core "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/client-go/kubernetes/fake"
 
-	"github.com/kubewharf/katalyst-core/pkg/client"
+	"github.com/kubewharf/katalyst-api/pkg/apis/config/v1alpha1"
+	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic"
 	"github.com/kubewharf/katalyst-core/pkg/config/generic"
 )
 
@@ -39,31 +37,21 @@ func makeBasicToken(user, password string) string {
 func makeCred(t *testing.T) Credential {
 
 	conf := generic.NewAuthConfiguration()
-	conf.BasicAuthSecretName = "basic-auth-pairs"
-	conf.BasicAuthSecretNameSpace = "default"
 
-	fakeKubeClient := fake.NewSimpleClientset()
-	clientSet := &client.GenericClientSet{
-		KubeClient: fakeKubeClient,
+	configuration := dynamic.NewDynamicAgentConfiguration()
+	dynamicConf := dynamic.NewConfiguration()
+	dynamicConf.UserPasswordPairs = []v1alpha1.UserPasswordPair{
+		{Username: "user-1", Password: base64.StdEncoding.EncodeToString([]byte("123456"))},
+		{Username: "user-2", Password: base64.StdEncoding.EncodeToString([]byte("abcdefg"))},
 	}
+	configuration.SetDynamicConfiguration(dynamicConf)
 
-	_ = fakeKubeClient.Tracker().Add(&core.Secret{
-		ObjectMeta: metav1.ObjectMeta{
-			Namespace: conf.BasicAuthSecretNameSpace,
-			Name:      conf.BasicAuthSecretName,
-		},
-		StringData: map[string]string{
-			"user-1": "123456",
-			"user-2": "abcdefg",
-		},
-	})
-
-	credential, err := NewBasicAuthCredential(conf, clientSet)
+	credential, err := NewBasicAuthCredential(conf, configuration)
 	assert.NoError(t, err)
 	assert.NotNil(t, credential)
 
 	basicAuth := credential.(*basicAuthCredential)
-	basicAuth.updateAuthPairFromSecret()
+	basicAuth.updateAuthPairFromDynamicConf()
 
 	return credential
 }

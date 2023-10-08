@@ -61,7 +61,7 @@ func Run(opt *options.Options, genericOptions ...katalystbase.GenericOptions) er
 
 	webhookCtx, err := katalystbase.NewGenericContext(clientSet, conf.GenericControllerConfiguration.LabelSelector,
 		conf.GenericWebhookConfiguration.DynamicGVResources, WebhooksDisabledByDefault, conf.GenericConfiguration,
-		consts.KatalystComponentWebhook)
+		consts.KatalystComponentWebhook, nil)
 	if err != nil {
 		return err
 	}

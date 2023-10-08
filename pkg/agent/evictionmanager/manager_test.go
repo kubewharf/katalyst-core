@@ -36,6 +36,8 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/pod"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
+	"github.com/kubewharf/katalyst-core/pkg/util/credential"
+	"github.com/kubewharf/katalyst-core/pkg/util/credential/authorization"
 )
 
 var (
@@ -94,6 +96,8 @@ func makeConf() *config.Configuration {
 	conf.EvictionManagerSyncPeriod = evictionManagerSyncPeriod
 	conf.GetDynamicConfiguration().MemoryPressureEvictionConfiguration.GracePeriod = eviction.DefaultGracePeriod
 	conf.PodKiller = consts.KillerNameEvictionKiller
+	conf.GenericConfiguration.AuthConfiguration.AuthType = credential.AuthTypeInsecure
+	conf.GenericConfiguration.AuthConfiguration.AccessControlType = authorization.AccessControlTypeInsecure
 
 	return conf
 }

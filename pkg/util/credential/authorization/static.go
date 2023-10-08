@@ -19,12 +19,12 @@ package authorization
 import (
 	"context"
 
-	"github.com/kubewharf/katalyst-core/pkg/client"
+	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic"
 	"github.com/kubewharf/katalyst-core/pkg/config/generic"
 	"github.com/kubewharf/katalyst-core/pkg/util/credential"
 )
 
-func NewStaticAccessControl(_ *generic.AuthConfiguration, _ *client.GenericClientSet) (AccessControl, error) {
+func NewStaticAccessControl(_ *generic.AuthConfiguration, _ *dynamic.DynamicAgentConfiguration) (AccessControl, error) {
 	return &staticAccessControl{
 		SubjectToResources: AuthRule{},
 	}, nil

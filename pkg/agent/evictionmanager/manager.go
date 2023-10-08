@@ -21,6 +21,7 @@ package evictionmanager // import "github.com/kubewharf/katalyst-core/pkg/evicti
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"sync"
 	"time"
 
@@ -52,12 +53,19 @@ import (
 )
 
 const (
-	MetricsNameVictimPodCNT         = "victims_cnt"
-	MetricsNameRunningPodCNT        = "running_pod_cnt"
-	MetricsNameCandidatePodCNT      = "candidate_pod_cnt"
-	MetricsNameDryRunVictimPodCNT   = "dryrun_victims_cnt"
-	MetricsNameRequestConditionCNT  = "request_condition_cnt"
-	MetricsNameEvictionPluginCalled = "eviction_plugin_called"
+	MetricsNameVictimPodCNT           = "victims_cnt"
+	MetricsNameRunningPodCNT          = "running_pod_cnt"
+	MetricsNameCandidatePodCNT        = "candidate_pod_cnt"
+	MetricsNameDryRunVictimPodCNT     = "dryrun_victims_cnt"
+	MetricsNameRequestConditionCNT    = "request_condition_cnt"
+	MetricsNameEvictionPluginCalled   = "eviction_plugin_called"
+	MetricsNameEvictionPluginValidate = "eviction_plugin_validate"
+
+	ValidateFailedReasonGetTokenFailed     = "get_token_failed"
+	ValidateFailedReasonAuthenticateFailed = "authenticate_failed"
+	ValidateFailedReasonNoPermission       = "no_permission"
+
+	UserUnknown = "unknown"
 )
 
 // LatestCNRGetter returns the latest CNR resources.
@@ -158,6 +166,18 @@ func NewEvictionManager(genericClient *client.GenericClientSet, recorder events.
 		auth:                      authorization.DefaultAccessControl(),
 	}
 
+	cred, credErr := credential.GetCredential(conf.GenericConfiguration, conf.DynamicAgentConfiguration)
+	if credErr != nil {
+		return nil, credErr
+	}
+	e.cred = cred
+
+	accessControl, acErr := authorization.GetAccessControl(conf.GenericConfiguration, conf.DynamicAgentConfiguration)
+	if acErr != nil {
+		return nil, acErr
+	}
+	e.auth = accessControl
+
 	e.getEvictionPlugins(genericClient, recorder, metaServer, emitter, conf, NewInnerEvictionPluginInitializers())
 	return e, nil
 }
@@ -185,6 +205,8 @@ func (m *EvictionManger) Run(ctx context.Context) {
 	for _, endpoint := range m.endpoints {
 		endpoint.Start()
 	}
+	m.cred.Run(ctx)
+	m.auth.Run(ctx)
 	go wait.UntilWithContext(ctx, m.sync, m.conf.EvictionManagerSyncPeriod)
 	go wait.UntilWithContext(ctx, m.reportConditionsAsNodeTaints, time.Second*5)
 	<-ctx.Done()
@@ -343,6 +365,7 @@ func (m *EvictionManger) ValidatePlugin(pluginName string, endpoint string, vers
 	// registers this plugin
 	tokenResp, tokenErr := e.GetToken(context.TODO())
 	if tokenErr != nil {
+		m.emitPluginValidateResult(pluginName, m.conf.StrictAuthentication, false, ValidateFailedReasonGetTokenFailed, UserUnknown)
 		if m.conf.StrictAuthentication {
 			return fmt.Errorf(" failed to get token:%v", tokenErr)
 		}
@@ -352,6 +375,7 @@ func (m *EvictionManger) ValidatePlugin(pluginName string, endpoint string, vers
 
 	authInfo, authErr := m.cred.AuthToken(tokenResp.Token)
 	if authErr != nil {
+		m.emitPluginValidateResult(pluginName, m.conf.StrictAuthentication, false, ValidateFailedReasonAuthenticateFailed, UserUnknown)
 		if m.conf.StrictAuthentication {
 			return fmt.Errorf(" failed to verify token:%v", authErr)
 		}
@@ -362,11 +386,25 @@ func (m *EvictionManger) ValidatePlugin(pluginName string, endpoint string, vers
 	general.Infof("user %v request to register plugin %v", authInfo.SubjectName(), pluginName)
 
 	verifyErr := m.auth.Verify(authInfo, authorization.PermissionTypeEvictionPlugin)
-	if verifyErr != nil && m.conf.StrictAuthentication {
-		return err
+	if verifyErr != nil {
+		m.emitPluginValidateResult(pluginName, m.conf.StrictAuthentication, false, ValidateFailedReasonNoPermission, authInfo.SubjectName())
+		if m.conf.StrictAuthentication {
+			return err
+		}
+		return nil
 	}
 
+	m.emitPluginValidateResult(pluginName, m.conf.StrictAuthentication, true, "", authInfo.SubjectName())
 	return nil
+}
+
+func (m *EvictionManger) emitPluginValidateResult(pluginName string, strict bool, valid bool, reason string, user string) {
+	_ = m.emitter.StoreInt64(MetricsNameEvictionPluginValidate, 1, metrics.MetricTypeNameCount,
+		metrics.MetricTag{Key: "name", Val: pluginName},
+		metrics.MetricTag{Key: "strict", Val: strconv.FormatBool(strict)},
+		metrics.MetricTag{Key: "valid", Val: strconv.FormatBool(valid)},
+		metrics.MetricTag{Key: "reason", Val: reason},
+		metrics.MetricTag{Key: "user", Val: user})
 }
 
 func (m *EvictionManger) RegisterPlugin(pluginName string, endpoint string, _ []string) error {
