@@ -37,6 +37,8 @@ import (
 
 const healthzNameLockingFileAcquired = "LockingFileReady"
 
+const metricsNameLockingFailed = "get_lock_failed"
+
 // Run starts common and uniformed agent components here, and starts other
 // specific components in other separate repos (with common components as
 // dependencies)
@@ -150,7 +152,7 @@ func acquireLock(genericCtx *agent.GenericContext, conf *config.Configuration) *
 	for {
 		lock, err := general.GetUniqueLock(conf.LockFileName)
 		if err != nil {
-			_ = genericCtx.EmitterPool.GetDefaultMetricsEmitter().StoreInt64("get_lock.failed", 1, metrics.MetricTypeNameRaw)
+			_ = genericCtx.EmitterPool.GetDefaultMetricsEmitter().StoreInt64(metricsNameLockingFailed, 1, metrics.MetricTypeNameRaw)
 			// if waiting is enabled, we will always wait until lock has been obtained successfully;
 			if conf.LockWaitingEnabled {
 				continue
