@@ -142,6 +142,7 @@ func TestAdvisorUpdate(t *testing.T) {
 
 	tests := []struct {
 		name                          string
+		preUpdate                     bool
 		pools                         map[string]*types.PoolInfo
 		containers                    []*types.ContainerInfo
 		pods                          []*v1.Pod
@@ -690,7 +691,8 @@ func TestAdvisorUpdate(t *testing.T) {
 			wantHeadroom: *resource.NewQuantity(0, resource.DecimalSI),
 		},
 		{
-			name: "provision:single_large_share_pool&isolation_within_limits",
+			name:      "provision:single_large_share_pool&isolation_within_limits",
+			preUpdate: true,
 			pools: map[string]*types.PoolInfo{
 				state.PoolNameReserve: {
 					PoolName: state.PoolNameReserve,
@@ -702,8 +704,15 @@ func TestAdvisorUpdate(t *testing.T) {
 				state.PoolNameShare: {
 					PoolName: state.PoolNameShare,
 					TopologyAwareAssignments: map[int]machine.CPUSet{
-						0: machine.MustParse("1-23,48-71"),
-						1: machine.MustParse("25-47,72-95"),
+						0: machine.MustParse("1-21,48-69"),
+						1: machine.MustParse("25-45,72-93"),
+					},
+				},
+				state.PoolNameReclaim: {
+					PoolName: state.PoolNameReclaim,
+					TopologyAwareAssignments: map[int]machine.CPUSet{
+						0: machine.MustParse("22-23,70-71"),
+						1: machine.MustParse("46-47,94-95"),
 					},
 				},
 			},
@@ -712,7 +721,7 @@ func TestAdvisorUpdate(t *testing.T) {
 					map[int]machine.CPUSet{
 						0: machine.MustParse("1-22,48-70"),
 						1: machine.MustParse("25-46,72-94"),
-					}, 10),
+					}, 2),
 				makeContainerInfo("uid2", "default", "pod2", "c2", consts.PodAnnotationQoSLevelSharedCores, state.PoolNameShare, nil,
 					map[int]machine.CPUSet{
 						0: machine.MustParse("1-22,48-70"),
@@ -751,9 +760,9 @@ func TestAdvisorUpdate(t *testing.T) {
 			wantInternalCalculationResult: types.InternalCPUCalculationResult{
 				PoolEntries: map[string]map[int]int{
 					state.PoolNameReserve: {-1: 2},
-					state.PoolNameShare:   {-1: 81},
-					"isolation-pod1":      {-1: 9},
-					state.PoolNameReclaim: {-1: 4},
+					state.PoolNameShare:   {-1: 86},
+					state.PoolNameReclaim: {-1: 6},
+					"isolation-pod1":      {-1: 2},
 				},
 			},
 			wantHeadroom: resource.Quantity{},
@@ -776,7 +785,8 @@ func TestAdvisorUpdate(t *testing.T) {
 			},
 		},
 		{
-			name: "provision:single_large_share_pool&isolation_within_request",
+			name:      "provision:single_large_share_pool&isolation_exceed_limit",
+			preUpdate: true,
 			pools: map[string]*types.PoolInfo{
 				state.PoolNameReserve: {
 					PoolName: state.PoolNameReserve,
@@ -798,7 +808,7 @@ func TestAdvisorUpdate(t *testing.T) {
 					map[int]machine.CPUSet{
 						0: machine.MustParse("1-22,48-70"),
 						1: machine.MustParse("25-46,72-94"),
-					}, 5, 8),
+					}, 8),
 				makeContainerInfo("uid2", "default", "pod2", "c2", consts.PodAnnotationQoSLevelSharedCores, state.PoolNameShare, nil,
 					map[int]machine.CPUSet{
 						0: machine.MustParse("1-22,48-70"),
@@ -849,9 +859,7 @@ func TestAdvisorUpdate(t *testing.T) {
 			wantInternalCalculationResult: types.InternalCPUCalculationResult{
 				PoolEntries: map[string]map[int]int{
 					state.PoolNameReserve: {-1: 2},
-					state.PoolNameShare:   {-1: 84},
-					"isolation-pod1":      {-1: 4},
-					"isolation-pod4":      {-1: 2},
+					state.PoolNameShare:   {-1: 90},
 					state.PoolNameReclaim: {-1: 4},
 				},
 			},
@@ -935,6 +943,17 @@ func TestAdvisorUpdate(t *testing.T) {
 				defer wg.Done()
 				advisor.Run(ctx)
 			}()
+
+			// if preUpdate is enabled, trigger an empty update firstly
+			if tt.preUpdate {
+				recvCh <- types.TriggerInfo{TimeStamp: time.Now()}
+				timeoutTick := time.NewTimer(time.Second * 5)
+				select {
+				case <-timeoutTick.C:
+					t.Errorf("timeout get response")
+				case _ = <-sendCh:
+				}
+			}
 
 			// trigger advisor update
 			recvCh <- types.TriggerInfo{TimeStamp: time.Now()}
