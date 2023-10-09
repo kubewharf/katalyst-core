@@ -96,7 +96,8 @@ type cpuResourceAdvisor struct {
 	provisionAssembler provisionassembler.ProvisionAssembler
 	headroomAssembler  headroomassembler.HeadroomAssembler
 
-	isolator isolation.Isolator
+	isolator        isolation.Isolator
+	isolationSafety bool
 
 	mutex      sync.RWMutex
 	metaCache  metacache.MetaCache
@@ -198,41 +199,52 @@ func (cra *cpuResourceAdvisor) GetHeadroom() (resource.Quantity, error) {
 // update works in a monolithic way to maintain lifecycle and triggers update actions for all regions;
 // todo: re-consider whether it's efficient or we should make start individual goroutine for each region
 func (cra *cpuResourceAdvisor) update() {
+	cra.mutex.Lock()
+	defer cra.mutex.Unlock()
+	if !cra.updateWithIsolationGuardian(true) {
+		cra.updateWithIsolationGuardian(false)
+	}
+}
+
+// updateWithIsolationGuardian returns true if the process works as expected,
+// otherwise, we should retry with the isolation disabled
+// todo: we should re-design the mechanism of isolation instead of disabling this functionality
+func (cra *cpuResourceAdvisor) updateWithIsolationGuardian(tryIsolation bool) bool {
 	startTime := time.Now()
 	defer func(t time.Time) {
 		elapsed := time.Since(t)
-		cra.emitter.StoreFloat64(metricCPUAdvisorUpdateDuration, float64(elapsed/time.Millisecond), metrics.MetricTypeNameRaw)
+		_ = cra.emitter.StoreFloat64(metricCPUAdvisorUpdateDuration, float64(elapsed/time.Millisecond), metrics.MetricTypeNameRaw)
 		klog.Infof("[qosaware-cpu] update duration %v", elapsed)
 	}(startTime)
-
-	cra.mutex.Lock()
-	defer cra.mutex.Unlock()
 
 	// skip updating during startup
 	if startTime.Before(cra.startTime.Add(types.StartUpPeriod)) {
 		klog.Infof("[qosaware-cpu] skip updating: starting up")
-		return
+		return true
 	}
 
 	// sanity check: if reserve pool exists
 	reservePoolInfo, ok := cra.metaCache.GetPoolInfo(state.PoolNameReserve)
 	if !ok || reservePoolInfo == nil {
 		klog.Errorf("[qosaware-cpu] skip update: reserve pool does not exist")
-		return
+		return true
 	}
 
 	cra.updateNumasAvailableResource()
-	cra.setIsolatedContainers()
+	isolationExists := cra.setIsolatedContainers(tryIsolation)
 
 	// assign containers to regions
 	if err := cra.assignContainersToRegions(); err != nil {
 		klog.Errorf("[qosaware-cpu] assign containers to regions failed: %v", err)
-		return
+		return true
 	}
 
 	cra.gcRegionMap()
 	cra.setRegionEntries()
 	cra.updateAdvisorEssentials()
+	if tryIsolation && isolationExists && !cra.checkIsolationSafety() {
+		return false
+	}
 
 	// run an episode of provision and headroom policy update for each region
 	for _, r := range cra.regionMap {
@@ -258,10 +270,9 @@ func (cra *cpuResourceAdvisor) update() {
 	calculationResult, boundUpper, err := cra.assembleProvision()
 	if err != nil {
 		klog.Errorf("[qosaware-cpu] assemble provision failed: %v", err)
-		return
+		return true
 	}
 	cra.updateRegionStatus(boundUpper)
-
 	cra.emitMetrics(calculationResult)
 
 	// notify cpu server
@@ -271,11 +282,15 @@ func (cra *cpuResourceAdvisor) update() {
 	default:
 		klog.Errorf("[qosaware-cpu] channel is full")
 	}
+	return true
 }
 
 // setIsolatedContainers get isolation status from isolator and update into containers
-func (cra *cpuResourceAdvisor) setIsolatedContainers() {
-	isolatedPods := sets.NewString(cra.isolator.GetIsolatedPods()...)
+func (cra *cpuResourceAdvisor) setIsolatedContainers(enableIsolated bool) bool {
+	isolatedPods := sets.NewString()
+	if enableIsolated {
+		isolatedPods = sets.NewString(cra.isolator.GetIsolatedPods()...)
+	}
 	if len(isolatedPods) > 0 {
 		klog.Infof("[qosaware-cpu] current isolated pod: %v", isolatedPods.List())
 	}
@@ -287,6 +302,41 @@ func (cra *cpuResourceAdvisor) setIsolatedContainers() {
 		}
 		return true
 	})
+	return len(isolatedPods) > 0
+}
+
+// checkIsolationSafety returns true iff the isolated-limit-sum and share-pool-size exceed total capacity
+// todo: this logic contains a lot of assumptions and should be refined in the future
+func (cra *cpuResourceAdvisor) checkIsolationSafety() bool {
+	shareAndIsolationPoolSize := 0
+	nonBindingNumas := cra.metaServer.CPUDetails.NUMANodes()
+	for _, r := range cra.regionMap {
+		if r.Type() == types.QoSRegionTypeShare {
+			controlKnob, err := r.GetProvision()
+			if err != nil {
+				klog.Errorf("[qosaware-cpu] get controlKnob for %v err: %v", r.Name(), err)
+				return false
+			}
+			shareAndIsolationPoolSize += int(controlKnob[types.ControlKnobNonReclaimedCPUSize].Value)
+		} else if r.Type() == types.QoSRegionTypeIsolation {
+			pods := r.GetPods()
+			cra.metaCache.RangeContainer(func(podUID string, _ string, containerInfo *types.ContainerInfo) bool {
+				if _, ok := pods[podUID]; ok {
+					shareAndIsolationPoolSize += int(containerInfo.CPULimit)
+				}
+				return true
+			})
+		} else if r.Type() == types.QoSRegionTypeDedicatedNumaExclusive {
+			nonBindingNumas = nonBindingNumas.Difference(r.GetBindingNumas())
+		}
+	}
+
+	nonBindingSize := cra.metaServer.CPUsPerNuma() * nonBindingNumas.Size()
+	klog.Infof("[qosaware-cpu] shareAndIsolationPoolSize %v, nonBindingSize %v", shareAndIsolationPoolSize, nonBindingSize)
+	if shareAndIsolationPoolSize > nonBindingSize {
+		return false
+	}
+	return true
 }
 
 // assignContainersToRegions re-construct regions every time (instead of an incremental way),
