@@ -358,7 +358,7 @@ func (sc *SPDController) syncWorkload(key string) error {
 		return err
 	}
 
-	if !util.CheckWorkloadSPDEnabled(workload) {
+	if !util.WorkloadSPDEnabled(workload) {
 		if err := sc.cleanPodListSPDAnnotation(podList); err != nil {
 			klog.Errorf("[spd] clear pod list annotations for workload %s/%s failed: %v", namespace, name, err)
 			return err
@@ -485,7 +485,7 @@ func (sc *SPDController) cleanSPD() {
 			}
 		} else {
 			workload := workloadObj.(*unstructured.Unstructured)
-			if !util.CheckWorkloadSPDEnabled(workload) {
+			if !util.WorkloadSPDEnabled(workload) {
 				needDelete = true
 
 				klog.Warningf("[spd] clear un-wanted spd annotation %v for workload %v", spd.Name, workload.GetName())
