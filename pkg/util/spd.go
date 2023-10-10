@@ -91,7 +91,7 @@ func GetWorkloadForSPD(spd *apiworkload.ServiceProfileDescriptor, lister cache.G
 // the preference is annotation ---> indexer --> lister
 func GetSPDForWorkload(workload *unstructured.Unstructured, spdIndexer cache.Indexer,
 	spdLister workloadlister.ServiceProfileDescriptorLister) (*apiworkload.ServiceProfileDescriptor, error) {
-	if !CheckWorkloadSPDEnabled(workload) {
+	if !WorkloadSPDEnabled(workload) {
 		return nil, fmt.Errorf("workload not enable spd")
 	}
 
@@ -186,11 +186,6 @@ func GetPodListForSPD(spd *apiworkload.ServiceProfileDescriptor, podIndexer cach
  helper functions to do validation works
 */
 
-// CheckWorkloadSPDEnabled checks if the given workload is enabled with service profiling.
-func CheckWorkloadSPDEnabled(workload metav1.Object) bool {
-	return workload.GetAnnotations()[apiconsts.WorkloadAnnotationSPDEnableKey] == apiconsts.WorkloadAnnotationSPDEnabled
-}
-
 // CheckSPDMatchWithPod checks whether the given pod and spd matches with each other
 func CheckSPDMatchWithPod(pod *core.Pod, spd *apiworkload.ServiceProfileDescriptor, workloadListerMap map[schema.GroupVersionKind]cache.GenericLister) bool {
 	gvk := schema.FromAPIVersionAndKind(spd.Spec.TargetRef.APIVersion, spd.Spec.TargetRef.Kind)
@@ -204,7 +199,7 @@ func CheckSPDMatchWithPod(pod *core.Pod, spd *apiworkload.ServiceProfileDescript
 		return false
 	}
 
-	if !CheckWorkloadSPDEnabled(workloadObj.(metav1.Object)) {
+	if !WorkloadSPDEnabled(workloadObj.(metav1.Object)) {
 		return false
 	}
 

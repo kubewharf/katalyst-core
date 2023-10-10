@@ -155,7 +155,7 @@ func TestCNCLifecycle_Run(t *testing.T) {
 			// test recreate
 			err = cl.client.InternalClient.ConfigV1alpha1().CustomNodeConfigs().Delete(context.Background(), tt.fields.node.Name, metav1.DeleteOptions{})
 			assert.NoError(t, err)
-			time.Sleep(1 * time.Second)
+			time.Sleep(3 * time.Second)
 
 			gotCNC, err = cl.cncLister.Get(tt.fields.node.Name)
 			assert.NoError(t, err)

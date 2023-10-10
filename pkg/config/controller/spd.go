@@ -24,7 +24,6 @@ type SPDConfig struct {
 
 	// SPDWorkloadGVResources define those SPD concerned GVRs
 	SPDWorkloadGVResources []string
-
 	// SPDPodLabelIndexerKeys are used
 	SPDPodLabelIndexerKeys []string
 
