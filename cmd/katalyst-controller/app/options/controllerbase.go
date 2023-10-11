@@ -35,9 +35,10 @@ type WorkloadProfilingOptions struct {
 	ExplicitChecking bool
 
 	// the requirements below work as 'and' rather than 'or'
-	AnnoSelector  string
-	LabelSelector string
-	Namespaces    []string
+	AnnoSelector   string
+	LabelSelector  string
+	Namespaces     []string
+	AntiNamespaces []string
 }
 
 func (w WorkloadProfilingOptions) getWorkloadEnableFunc() (util.WorkloadSPDEnabledFunc, bool, error) {
@@ -51,6 +52,14 @@ func (w WorkloadProfilingOptions) getWorkloadEnableFunc() (util.WorkloadSPDEnabl
 		ns := sets.NewString(w.Namespaces...)
 		rules = append(rules, func(workload metav1.Object) bool {
 			return ns.Has(workload.GetNamespace())
+		})
+
+	}
+
+	if len(w.AntiNamespaces) > 0 {
+		ns := sets.NewString(w.AntiNamespaces...)
+		rules = append(rules, func(workload metav1.Object) bool {
+			return !ns.Has(workload.GetNamespace())
 		})
 
 	}
@@ -159,6 +168,8 @@ func (o *GenericControllerOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 		"otherwise we will switch to check by the given checking requirements."))
 	fs.StringSliceVar(&o.Namespaces, "spd-workload-namespaces", o.Namespaces, fmt.Sprintf(""+
 		"Workload should be in the given namespaces if it wants service-profiling"))
+	fs.StringSliceVar(&o.AntiNamespaces, "spd-workload-anti-namespaces", o.AntiNamespaces, fmt.Sprintf(""+
+		"Workload should [not] be in the given namespaces if it wants service-profiling"))
 	fs.StringVar(&o.AnnoSelector, "spd-workload-anno-selector", o.AnnoSelector, fmt.Sprintf(""+
 		"Workload should match with the selector for annotations if it wants service-profiling"))
 	fs.StringVar(&o.LabelSelector, "spd-workload-label-selector", o.LabelSelector, fmt.Sprintf(""+
