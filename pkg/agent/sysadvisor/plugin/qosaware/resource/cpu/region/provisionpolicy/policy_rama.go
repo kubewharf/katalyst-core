@@ -195,7 +195,15 @@ func (p *PolicyRama) getReclaimStatus() (usage float64, cnt int) {
 			for _, numaID := range p.bindingNumas.ToSliceInt() {
 				cpuSize += ci.TopologyAwareAssignments[numaID].Size()
 			}
-			containerUsageNuma := containerUsage * float64(cpuSize) / float64(machine.CountCPUAssignmentCPUs(ci.TopologyAwareAssignments))
+			containerUsageNuma := 0.0
+			cpuAssignmentCPUs := machine.CountCPUAssignmentCPUs(ci.TopologyAwareAssignments)
+			if cpuAssignmentCPUs != 0 {
+				containerUsageNuma = containerUsage * float64(cpuSize) / float64(cpuAssignmentCPUs)
+			} else {
+				// handle the case that cpuAssignmentCPUs is 0
+				klog.Warningf("[qosaware-cpu-rama] cpuAssignmentCPUs is 0 for %v/%v", podUID, containerName)
+				containerUsageNuma = 0
+			}
 			usage += containerUsageNuma
 		}
 

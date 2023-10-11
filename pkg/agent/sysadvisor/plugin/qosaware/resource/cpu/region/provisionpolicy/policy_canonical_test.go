@@ -44,11 +44,11 @@ import (
 )
 
 var (
-	metaCacheRama  *metacache.MetaCacheImp
-	metaServerRama *metaserver.MetaServer
+	metaCacheCanonical  *metacache.MetaCacheImp
+	metaServerCanonical *metaserver.MetaServer
 )
 
-func generateRamaTestConfiguration(t *testing.T, checkpointDir, stateFileDir, checkpointManagerDir string) *config.Configuration {
+func generateCanonicalTestConfiguration(t *testing.T, checkpointDir, stateFileDir, checkpointManagerDir string) *config.Configuration {
 	conf, err := options.NewOptions().Config()
 	require.NoError(t, err)
 	require.NotNil(t, conf)
@@ -113,24 +113,24 @@ func generateRamaTestConfiguration(t *testing.T, checkpointDir, stateFileDir, ch
 	return conf
 }
 
-func newTestPolicyRama(t *testing.T, checkpointDir string, stateFileDir string, checkpointManagerDir string, regionInfo types.RegionInfo, podSet types.PodSet) ProvisionPolicy {
-	conf := generateRamaTestConfiguration(t, checkpointDir, stateFileDir, checkpointManagerDir)
+func newTestPolicyCanonical(t *testing.T, checkpointDir string, stateFileDir string, checkpointManagerDir string, regionInfo types.RegionInfo, podSet types.PodSet) ProvisionPolicy {
+	conf := generateCanonicalTestConfiguration(t, checkpointDir, stateFileDir, checkpointManagerDir)
 
 	metaCacheTmp, err := metacache.NewMetaCacheImp(conf, metricspool.DummyMetricsEmitterPool{}, metric.NewFakeMetricsFetcher(metrics.DummyMetrics{}))
-	metaCacheRama = metaCacheTmp
+	metaCacheCanonical = metaCacheTmp
 	require.NoError(t, err)
-	require.NotNil(t, metaCacheRama)
+	require.NotNil(t, metaCacheCanonical)
 
 	genericCtx, err := katalyst_base.GenerateFakeGenericContext([]runtime.Object{})
 	require.NoError(t, err)
 
 	metaServerTmp, err := metaserver.NewMetaServer(genericCtx.Client, metrics.DummyMetrics{}, conf)
-	metaServerRama = metaServerTmp
+	metaServerCanonical = metaServerTmp
 	assert.NoError(t, err)
-	require.NotNil(t, metaServerRama)
+	require.NotNil(t, metaServerCanonical)
 
-	p := NewPolicyRama(regionInfo.RegionName, regionInfo.RegionType, regionInfo.OwnerPoolName, conf, nil, metaCacheRama, metaServerRama, metrics.DummyMetrics{})
-	metaCacheRama.SetRegionInfo(regionInfo.RegionName, &regionInfo)
+	p := NewPolicyCanonical(regionInfo.RegionName, regionInfo.RegionType, regionInfo.OwnerPoolName, conf, nil, metaCacheCanonical, metaServerCanonical, metrics.DummyMetrics{})
+	metaCacheCanonical.SetRegionInfo(regionInfo.RegionName, &regionInfo)
 
 	p.SetBindingNumas(regionInfo.BindingNumas)
 	p.SetPodSet(podSet)
@@ -138,7 +138,7 @@ func newTestPolicyRama(t *testing.T, checkpointDir string, stateFileDir string, 
 	return p
 }
 
-func constructPodFetcherRama(names []string) pod.PodFetcher {
+func constructPodFetcherCanonical(names []string) pod.PodFetcher {
 	var pods []*v1.Pod
 	for _, name := range names {
 		pods = append(pods, &v1.Pod{
@@ -152,7 +152,7 @@ func constructPodFetcherRama(names []string) pod.PodFetcher {
 	return &pod.PodFetcherStub{PodList: pods}
 }
 
-func TestPolicyRama(t *testing.T) {
+func TestPolicyCanonical(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -198,7 +198,7 @@ func TestPolicyRama(t *testing.T) {
 			},
 			wantResult: types.ControlKnob{
 				types.ControlKnobNonReclaimedCPUSize: {
-					Value:  48,
+					Value:  38,
 					Action: types.ControlKnobActionNone,
 				},
 			},
@@ -278,7 +278,7 @@ func TestPolicyRama(t *testing.T) {
 			},
 			wantResult: types.ControlKnob{
 				types.ControlKnobNonReclaimedCPUSize: {
-					Value:  40,
+					Value:  38,
 					Action: types.ControlKnobActionNone,
 				},
 			},
@@ -322,7 +322,7 @@ func TestPolicyRama(t *testing.T) {
 			},
 			wantResult: types.ControlKnob{
 				types.ControlKnobNonReclaimedCPUSize: {
-					Value:  48,
+					Value:  38,
 					Action: types.ControlKnobActionNone,
 				},
 			},
@@ -342,18 +342,18 @@ func TestPolicyRama(t *testing.T) {
 	defer func() { _ = os.RemoveAll(checkpointManagerDir) }()
 
 	for _, tt := range tests {
-		policy := newTestPolicyRama(t, checkpointDir, stateFileDir, checkpointManagerDir, tt.regionInfo, tt.podSet).(*PolicyRama)
+		policy := newTestPolicyCanonical(t, checkpointDir, stateFileDir, checkpointManagerDir, tt.regionInfo, tt.podSet).(*PolicyCanonical)
 		assert.NotNil(t, policy)
 
 		podNames := []string{}
 		for podName, containerSet := range tt.podSet {
 			podNames = append(podNames, podName)
 			for containerName := range containerSet {
-				err = metaCacheRama.AddContainer(podName, containerName, &types.ContainerInfo{})
+				err = metaCacheCanonical.AddContainer(podName, containerName, &types.ContainerInfo{})
 				assert.Nil(t, err)
 			}
 		}
-		policy.metaServer.MetaAgent.SetPodFetcher(constructPodFetcherRama(podNames))
+		policy.metaServer.MetaAgent.SetPodFetcher(constructPodFetcherCanonical(podNames))
 
 		t.Run(tt.name, func(t *testing.T) {
 			policy.SetEssentials(tt.resourceEssentials, tt.controlEssentials)
