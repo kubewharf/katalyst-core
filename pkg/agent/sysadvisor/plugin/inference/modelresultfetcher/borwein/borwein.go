@@ -19,11 +19,13 @@ package borwein
 import (
 	"context"
 	"fmt"
+	"sync"
 	"time"
 
 	//nolint
 	"github.com/golang/protobuf/proto"
 	v1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
@@ -53,11 +55,8 @@ type BorweinModelResultFetcher struct {
 	containerFeatureNames         []string // handled by GetContainerFeature
 	inferenceServiceSocketAbsPath string
 
-	//metaServer *metaserver.MetaServer
-	//metaWriter metacache.MetaWriter
-	//metaReader metacache.MetaReader
-
 	infSvcClient borweininfsvc.InferenceServiceClient
+	clientLock   sync.RWMutex
 }
 
 const (
@@ -68,21 +67,21 @@ type GetNodeFeatureValueFunc func(featureName string, metaServer *metaserver.Met
 type GetContainerFeatureValueFunc func(podUID string, containerName string, featureName string,
 	metaServer *metaserver.MetaServer, metaReader metacache.MetaReader) (string, error)
 
-var GetNodeFeatureValue GetNodeFeatureValueFunc = NativeGetNodeFeatureValue
-var GetContainerFeatureValue GetContainerFeatureValueFunc = NativeGetContainerFeatureValue
+var getNodeFeatureValue GetNodeFeatureValueFunc = nativeGetNodeFeatureValue
+var getContainerFeatureValue GetContainerFeatureValueFunc = nativeGetContainerFeatureValue
 
-// Register func from adapter
+// RegisterGetNodeFeatureValueFunc allows to register pluggable function providing node features
 func SetGetNodeFeatureValueFunc(f GetNodeFeatureValueFunc) {
-	GetNodeFeatureValue = f
+	getNodeFeatureValue = f
 }
 
-// Register func from adapter
+// RegisterGetContainerFeatureValueFunc allows to register pluggable function providing container features
 func SetGetContainerFeatureValueFunc(f GetContainerFeatureValueFunc) {
-	GetContainerFeatureValue = f
+	getContainerFeatureValue = f
 }
 
 // Registered from adapter
-func NativeGetNodeFeatureValue(featureName string, metaServer *metaserver.MetaServer, metaReader metacache.MetaReader) (string, error) {
+func nativeGetNodeFeatureValue(featureName string, metaServer *metaserver.MetaServer, metaReader metacache.MetaReader) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
@@ -100,7 +99,7 @@ func NativeGetNodeFeatureValue(featureName string, metaServer *metaserver.MetaSe
 	}
 }
 
-func NativeGetContainerFeatureValue(podUID string, containerName string, featureName string,
+func nativeGetContainerFeatureValue(podUID string, containerName string, featureName string,
 	metaServer *metaserver.MetaServer, metaReader metacache.MetaReader) (string, error) {
 
 	switch featureName {
@@ -119,6 +118,13 @@ func NativeGetContainerFeatureValue(podUID string, containerName string, feature
 
 func (bmrf *BorweinModelResultFetcher) FetchModelResult(ctx context.Context, metaReader metacache.MetaReader,
 	metaWriter metacache.MetaWriter, metaServer *metaserver.MetaServer) error {
+
+	bmrf.clientLock.RLock()
+	if bmrf.infSvcClient == nil {
+		bmrf.clientLock.RUnlock()
+		return fmt.Errorf("infSvcClient isn't initialized")
+	}
+	bmrf.clientLock.RUnlock()
 
 	pods, err := metaServer.GetPodList(ctx, func(pod *v1.Pod) bool {
 		if pod == nil {
@@ -149,7 +155,9 @@ func (bmrf *BorweinModelResultFetcher) FetchModelResult(ctx context.Context, met
 		return fmt.Errorf("getInferenceRequestForPods failed with error: %v", err)
 	}
 
+	bmrf.clientLock.RLock()
 	resp, err := bmrf.infSvcClient.Inference(ctx, req)
+	bmrf.clientLock.RUnlock()
 
 	if err != nil {
 		return fmt.Errorf("Inference failed with error: %v", err)
@@ -161,7 +169,10 @@ func (bmrf *BorweinModelResultFetcher) FetchModelResult(ctx context.Context, met
 		return fmt.Errorf("parseInferenceRespForPods failed with error: %v", err)
 	}
 
-	metaWriter.SetInferenceResult(borweinconsts.ModelNameBorwein, borweinInferenceResults)
+	err = metaWriter.SetInferenceResult(borweinconsts.ModelNameBorwein, borweinInferenceResults)
+	if err != nil {
+		return fmt.Errorf("SetInferenceResult failed with error: %v", err)
+	}
 	return nil
 }
 
@@ -210,11 +221,11 @@ func (bmrf *BorweinModelResultFetcher) getInferenceRequestForPods(pods []*v1.Pod
 
 	nodeFeatureValues := make([]string, 0, len(bmrf.nodeFeatureNames))
 	for _, nodeFeatureName := range bmrf.nodeFeatureNames {
-		if GetNodeFeatureValue == nil {
-			return nil, fmt.Errorf("nil GetNodeFeatureValue")
+		if getNodeFeatureValue == nil {
+			return nil, fmt.Errorf("nil getNodeFeatureValue")
 		}
 
-		nodeFeatureValue, err := GetNodeFeatureValue(nodeFeatureName, metaServer, metaReader)
+		nodeFeatureValue, err := getNodeFeatureValue(nodeFeatureName, metaServer, metaReader)
 
 		if err != nil {
 			return nil, fmt.Errorf("get node feature: %v failed with error: %v", nodeFeatureName, err)
@@ -253,16 +264,16 @@ func (bmrf *BorweinModelResultFetcher) getInferenceRequestForPods(pods []*v1.Pod
 				unionFeatureValues.Values = append(unionFeatureValues.Values, nodeFeatureValues...)
 
 				for _, containerFeatureName := range bmrf.containerFeatureNames {
-					if GetContainerFeatureValue == nil {
-						return nil, fmt.Errorf("nil GetContainerFeatureValue")
+					if getContainerFeatureValue == nil {
+						return nil, fmt.Errorf("nil getContainerFeatureValue")
 					}
 
-					containerFeatureValue, err := GetContainerFeatureValue(string(pod.UID),
+					containerFeatureValue, err := getContainerFeatureValue(string(pod.UID),
 						containerName, containerFeatureName,
 						metaServer, metaReader)
 
 					if err != nil {
-						return nil, fmt.Errorf("GetContainerFeatureValue for pod: %s/%s, container: %s failed",
+						return nil, fmt.Errorf("getContainerFeatureValue for pod: %s/%s, container: %s failed",
 							pod.Namespace, pod.Name, containerName)
 					}
 
@@ -285,18 +296,25 @@ func (bmrf *BorweinModelResultFetcher) getInferenceRequestForPods(pods []*v1.Pod
 }
 
 // initAdvisorClientConn initializes memory-advisor related connections
-func (bmrf *BorweinModelResultFetcher) initInferenceSvcClientConn() error {
+func (bmrf *BorweinModelResultFetcher) initInferenceSvcClientConn() (bool, error) {
+
+	// todo: emit metrics when initializing client connection failed
+
+	// never success
 	if bmrf.inferenceServiceSocketAbsPath == "" {
-		return fmt.Errorf("empty inferenceServiceSocketAbsPath")
+		return false, fmt.Errorf("empty inferenceServiceSocketAbsPath")
 	}
 
 	infSvcConn, err := process.Dial(bmrf.inferenceServiceSocketAbsPath, 5*time.Second)
 	if err != nil {
-		return fmt.Errorf("get inference svc connection with socket: %s failed with error: %v", bmrf.inferenceServiceSocketAbsPath, err)
+		general.Errorf("get inference svc connection with socket: %s failed with error: %v", bmrf.inferenceServiceSocketAbsPath, err)
+		return false, nil
 	}
 
+	bmrf.clientLock.Lock()
 	bmrf.infSvcClient = borweininfsvc.NewInferenceServiceClient(infSvcConn)
-	return nil
+	bmrf.clientLock.Unlock()
+	return true, nil
 }
 
 func NewBorweinModelResultFetcher(fetcherName string, conf *config.Configuration, extraConf interface{},
@@ -318,11 +336,16 @@ func NewBorweinModelResultFetcher(fetcherName string, conf *config.Configuration
 		inferenceServiceSocketAbsPath: conf.BorweinConfiguration.InferenceServiceSocketAbsPath,
 	}
 
-	err := bmrf.initInferenceSvcClientConn()
+	// fetcher initializing doesn't block sys-adviosr main process
+	go func() {
+		err := wait.PollImmediateInfinite(5*time.Second, bmrf.initInferenceSvcClientConn)
 
-	if err != nil {
-		return nil, fmt.Errorf("initInferenceSvcClientConn failed with error: %v", err)
-	}
+		if err != nil {
+			general.Fatalf("polling to connect borwein inference server failed with error: %v", err)
+		}
+
+		general.Infof("connect borwein inference server successfully")
+	}()
 
 	return bmrf, nil
 }

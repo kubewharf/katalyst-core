@@ -129,7 +129,7 @@ func TestNativeGetNodeFeatureValue(t *testing.T) {
 			}}, nil)
 			metaServer := generateTestMetaServer(clientSet)
 			metaServer.NodeFetcher = node.NewRemoteNodeFetcher(nodeName, clientSet.KubeClient.CoreV1().Nodes())
-			got, err := NativeGetNodeFeatureValue(tt.args.featureName, metaServer, nil)
+			got, err := nativeGetNodeFeatureValue(tt.args.featureName, metaServer, nil)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("NativeGetNodeFeatureValue() error = %v, wantErr %v", err, tt.wantErr)
 				return
@@ -190,7 +190,7 @@ func TestNativeGetContainerFeatureValue(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 
-			got, err := NativeGetContainerFeatureValue(tt.args.podUID, tt.args.containerName,
+			got, err := nativeGetContainerFeatureValue(tt.args.podUID, tt.args.containerName,
 				tt.args.featureName, metaServer,
 				&metacache.MetaCacheImp{MetricsReader: metaServer.MetricsFetcher})
 			if (err != nil) != tt.wantErr {
@@ -740,17 +740,6 @@ func TestNewBorweinModelResultFetcher(t *testing.T) {
 				metaServer:                    metaServer,
 				metaCache:                     nil,
 				inferenceServiceSocketAbsPath: path.Join(sockDir, "test.sock"),
-			},
-			wantErr: true,
-		},
-		{
-			name: "test new borwein with empty inferenceServiceSocketAbsPath",
-			args: args{
-				fetcherName: BorweinModelResultFetcherName,
-				conf:        conf,
-				emitterPool: metricspool.DummyMetricsEmitterPool{},
-				metaServer:  metaServer,
-				metaCache:   mc,
 			},
 			wantErr: true,
 		},

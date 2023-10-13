@@ -129,7 +129,7 @@ func updateCPUSchedWaitIndicatorOffset(podSet types.PodSet, currentIndicatorOffs
 
 			// todo: emit metrics
 
-			// Do not trust regression predict for default psm
+			// regression prediction by default model isn't trusted
 			if !result.IsDefault {
 				if result.RegressionPredict > result.RegressionPercentile {
 					regressionAbnormalCnt += 1

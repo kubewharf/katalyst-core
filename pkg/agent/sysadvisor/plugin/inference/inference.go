@@ -81,6 +81,7 @@ func NewInferencePlugin(pluginName string, conf *config.Configuration, extraConf
 	}
 
 	for fetcherName, initFn := range modelresultfetcher.GetRegisteredModelResultFetcherInitFuncs() {
+		// todo: support only enabling part of fetchers
 		general.Infof("try init fetcher: %s", fetcherName)
 		fetcher, err := initFn(fetcherName, conf, extraConf, emitterPool, metaServer, metaCache)
 		if err != nil {

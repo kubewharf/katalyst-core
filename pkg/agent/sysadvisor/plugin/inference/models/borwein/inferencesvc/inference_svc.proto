@@ -31,7 +31,7 @@ option (gogoproto.goproto_unrecognized_all) = false;
 option go_package = "github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/inference/models/bowein/inferencesvc";
 
 message InferenceRequest {
-    repeated string feature_names = 1; 
+    repeated string feature_names = 1;
     map<string,ContainerRequestEntries> pod_request_entries = 2; // keyed by podUID
 }
 
@@ -52,13 +52,16 @@ message ContainerResponseEntries {
 }
 
 message InferenceResult {
+    // if use default model. default model should be trained using all service data for fallback.
     bool is_default  = 1;
+    // abnormal probability estimation by classification model. should be float between 0 and 1.
     float classification_prob = 2;
+    // latency estimation by regression model. should be positive float.
     float regression_predict = 3;
-    float classification_label_limit = 4;
-    float regression_label_limit = 5;
-    float classification_percentile = 6;
-    float regression_percentile = 7;
+    // threshold of classifcation_prob to judge abnormal. should be float between 0 and 1.
+    float classification_percentile = 4;
+    // threshold of regresion_predict to judge abnormal. should be float between 0 and 1.
+    float regression_percentile = 5;
 }
 
 service InferenceService {
