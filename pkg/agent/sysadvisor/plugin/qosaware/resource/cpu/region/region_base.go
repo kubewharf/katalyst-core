@@ -137,6 +137,10 @@ func NewQoSRegionBase(name string, ownerPoolName string, regionType types.QoSReg
 	r.initHeadroomPolicy(conf, extraConf, metaReader, metaServer, emitter)
 	r.initProvisionPolicy(conf, extraConf, metaReader, metaServer, emitter)
 
+	// enableBorweinModel is initialized according to rama provision policy config.
+	// it only takes effect when updating target indicators,
+	// if there are more code positions depending on it,
+	// we should consider provide a dummy borwein controller to avoid redundant judgement.
 	if r.enableBorweinModel {
 		r.borweinController = borweinctrl.NewBorweinController(name, regionType, ownerPoolName, conf, metaReader)
 	}

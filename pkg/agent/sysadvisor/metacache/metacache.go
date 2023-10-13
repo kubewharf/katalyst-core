@@ -495,6 +495,10 @@ func (mc *MetaCacheImp) SetRegionInfo(regionName string, regionInfo *types.Regio
 func (mc *MetaCacheImp) SetInferenceResult(modelName string, result interface{}) error {
 	general.InfoS("called", "modelName", modelName)
 
+	if result == nil {
+		return fmt.Errorf("nil result")
+	}
+
 	mc.modelMutex.Lock()
 	defer mc.modelMutex.Unlock()
 
