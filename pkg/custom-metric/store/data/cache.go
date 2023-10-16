@@ -17,18 +17,13 @@ limitations under the License.
 package data
 
 import (
-	"encoding/json"
-	"fmt"
-	"math/big"
-	"sort"
 	"sync"
 	"time"
 
-	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 
+	"github.com/kubewharf/katalyst-core/pkg/custom-metric/store/data/types"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
-	"github.com/kubewharf/katalyst-core/pkg/util/general"
 )
 
 const (
@@ -36,271 +31,83 @@ const (
 	metricsNameKCMASStoreDataLatencyGet = "kcmas_store_data_latency_get"
 )
 
-type InternalValue struct {
-	Value     float64 `json:"value,omitempty"`
-	Timestamp int64   `json:"timestamp,omitempty"`
-}
-
-func NewInternalValue(value float64, timestamp int64) *InternalValue {
-	return &InternalValue{
-		Value:     value,
-		Timestamp: timestamp,
-	}
-}
-
-func (i *InternalValue) DeepCopy() *InternalValue {
-	return &InternalValue{
-		Value:     i.Value,
-		Timestamp: i.Timestamp,
-	}
-}
-
-func (i *InternalValue) GetQuantity() resource.Quantity {
-	return resource.MustParse(big.NewFloat(i.Value).String())
-}
-func (i *InternalValue) GetTimestamp() int64 { return i.Timestamp }
-
-type MetricMeta struct {
-	Name       string `json:"name,omitempty"`
-	Namespaced bool   `json:"namespaced,omitempty"`
-	ObjectKind string `json:"objectKind,omitempty"`
-}
-
-func (m *MetricMeta) GetName() string       { return m.Name }
-func (m *MetricMeta) GetNamespaced() bool   { return m.Namespaced }
-func (m *MetricMeta) GetObjectKind() string { return m.ObjectKind }
-
-func (m *MetricMeta) SetObjectKind(objectKind string) { m.ObjectKind = objectKind }
-func (m *MetricMeta) SetNamespaced(namespaced bool)   { m.Namespaced = namespaced }
-func (m *MetricMeta) SetName(name string)             { m.Name = name }
-
-type ObjectMeta struct {
-	ObjectNamespace string `json:"objectNamespace,omitempty"`
-	ObjectName      string `json:"objectName,omitempty"`
-}
-
-func (m *ObjectMeta) GetObjectNamespace() string { return m.ObjectNamespace }
-func (m *ObjectMeta) GetObjectName() string      { return m.ObjectName }
-
-func (m *ObjectMeta) SetObjectNamespace(objectNamespace string) { m.ObjectNamespace = objectNamespace }
-func (m *ObjectMeta) SetObjectName(objectName string)           { m.ObjectName = objectName }
-
-// InternalMetric is used as an internal version of metricItem
-type InternalMetric struct {
-	MetricMeta `json:",inline"`
-	ObjectMeta `json:",inline"`
-
-	Labels        map[string]string `json:"labels,omitempty"`
-	InternalValue []*InternalValue  `json:"internalValue,omitempty"`
-}
-
-func NewInternalMetric(name string) *InternalMetric {
-	return &InternalMetric{
-		MetricMeta: MetricMeta{
-			Name: name,
-		},
-		Labels: make(map[string]string),
-	}
-}
-
-func (a *InternalMetric) String() string {
-	return fmt.Sprintf("{ObjectNamespace: %v, Name: %v, ObjectKind: %v, ObjectName: %v}",
-		a.ObjectNamespace, a.Name, a.ObjectKind, a.ObjectName)
-}
-
-func (a *InternalMetric) DeepCopy() *InternalMetric {
-	b := &InternalMetric{
-		MetricMeta: a.MetricMeta,
-		ObjectMeta: a.ObjectMeta,
-		Labels:     general.DeepCopyMap(a.Labels),
-	}
-
-	for _, i := range a.InternalValue {
-		b.InternalValue = append(b.InternalValue, i.DeepCopy())
-	}
-	return b
-}
-
-// todo delete this
-func (a *InternalMetric) DeepCopyWithLimit(limit int) *InternalMetric {
-	b := a.DeepCopy()
-
-	total := len(b.InternalValue)
-	if limit > 0 && total > limit {
-		b.InternalValue = b.InternalValue[total-limit:]
-	}
-
-	return b
-}
-
-// todo implement this
-func (a *InternalMetric) GetAggregatedMetricValue() *InternalMetric {
-	return &InternalMetric{}
-}
-
-func (a *InternalMetric) GetLabels() map[string]string { return a.Labels }
-func (a *InternalMetric) GetValues() []*InternalValue  { return a.InternalValue }
-
-func (a *InternalMetric) SetObjectNamespace(objectNamespace string) {
-	a.ObjectMeta.SetObjectNamespace(objectNamespace)
-	a.SetNamespaced(objectNamespace != "")
-}
-
-func (a *InternalMetric) SetLabel(key, value string)    { a.Labels[key] = value }
-func (a *InternalMetric) AppendMetric(i *InternalValue) { a.InternalValue = append(a.InternalValue, i) }
-
-func (a *InternalMetric) Len() int { return len(a.InternalValue) }
-func (a *InternalMetric) Less(i, j int) bool {
-	return a.InternalValue[i].Timestamp < a.InternalValue[j].Timestamp
-}
-func (a *InternalMetric) Swap(i, j int) {
-	a.InternalValue[i], a.InternalValue[j] = a.InternalValue[j], a.InternalValue[i]
-}
-
-func (a *InternalMetric) GenerateTags() []metrics.MetricTag {
-	return []metrics.MetricTag{
-		{Key: "metric_name", Val: a.Name},
-		{Key: "object_name", Val: a.ObjectName},
-	}
-}
-
-func Marshal(internalList []*InternalMetric) ([]byte, error) {
-	return json.Marshal(internalList)
-}
-
-func Unmarshal(bytes []byte) ([]*InternalMetric, error) {
-	var res []*InternalMetric
-	err := json.Unmarshal(bytes, &res)
-	return res, err
-}
-
-// PackInternalMetricList merges internal metric lists and sort them, if the same
-// timestamp appears in different list (which should happen actually), we will
-// randomly choose one item.
-func PackInternalMetricList(internalLists ...[]*InternalMetric) []*InternalMetric {
-	if len(internalLists) == 0 {
-		return []*InternalMetric{}
-	} else if len(internalLists) == 1 {
-		return internalLists[0]
-	}
-
-	c := NewCachedMetric(metrics.DummyMetrics{})
-	for _, internalList := range internalLists {
-		c.Add(internalList...)
-	}
-	return c.ListAllMetric()
-}
-
-// PackMetricMetaList merges MetricMeta lists and removes duplicates
-func PackMetricMetaList(metricMetaLists ...[]MetricMeta) []MetricMeta {
-	metricTypeMap := make(map[MetricMeta]interface{})
-	for _, metricsTypeList := range metricMetaLists {
-		for _, metricsType := range metricsTypeList {
-			if _, ok := metricTypeMap[metricsType]; !ok {
-				metricTypeMap[metricsType] = struct{}{}
-			}
-		}
-	}
-
-	var res []MetricMeta
-	for metricType := range metricTypeMap {
-		res = append(res, metricType)
-	}
-	return res
-}
-
-// GenerateMetaTags returns tag based on the given meta-info
-func GenerateMetaTags(m *MetricMeta, d *ObjectMeta) []metrics.MetricTag {
-	return []metrics.MetricTag{
-		{Key: "metric_name", Val: m.Name},
-		{Key: "object_name", Val: d.ObjectName},
-	}
-}
-
-// CachedMetric stores all metricItems in an organized way;
+// CachedMetric stores all metricItems in an organized way.
+// the aggregation logic will be performed in this package.
 type CachedMetric struct {
 	sync.RWMutex
-	metricsEmitter metrics.MetricEmitter
-
-	// namespaced is used as a normal storage format, while
-	// metricMap flatten the metrics as a reversed index to make refer faster
-	namespaced map[string]*namespacedMetric
-	metricMap  map[MetricMeta]map[ObjectMeta]*InternalMetric
+	emitter   metrics.MetricEmitter
+	metricMap map[types.MetricMeta]map[types.ObjectMeta]*internalMetricImp
 }
 
 func NewCachedMetric(metricsEmitter metrics.MetricEmitter) *CachedMetric {
 	return &CachedMetric{
-		metricsEmitter: metricsEmitter,
-		namespaced:     make(map[string]*namespacedMetric),
-		metricMap:      make(map[MetricMeta]map[ObjectMeta]*InternalMetric),
+		emitter:   metricsEmitter,
+		metricMap: make(map[types.MetricMeta]map[types.ObjectMeta]*internalMetricImp),
 	}
 }
 
-func (c *CachedMetric) Add(dList ...*InternalMetric) {
+func (c *CachedMetric) AddSeriesMetric(sList ...types.Metric) {
 	now := time.Now()
 
 	c.Lock()
 	defer c.Unlock()
 
-	for _, d := range dList {
-		if d == nil || len(d.InternalValue) == 0 || d.Name == "" {
+	var needReAggregate []*internalMetricImp
+	for _, s := range sList {
+		d, ok := s.(*types.SeriesMetric)
+		if !ok || d == nil || len(d.GetItemList()) == 0 || d.GetName() == "" {
 			continue
 		}
 
-		objectNamespace := d.ObjectNamespace
-		if _, ok := c.namespaced[objectNamespace]; !ok {
-			c.namespaced[objectNamespace] = newNamespacedMetric()
+		if _, ok := c.metricMap[d.MetricMetaImp]; !ok {
+			c.metricMap[d.MetricMetaImp] = make(map[types.ObjectMeta]*internalMetricImp)
 		}
-		addedValues := c.namespaced[objectNamespace].add(d)
-		if len(addedValues) == 0 {
-			continue
+		if _, ok := c.metricMap[d.MetricMetaImp][d.ObjectMetaImp]; !ok {
+			c.metricMap[d.MetricMetaImp][d.ObjectMetaImp] = newInternalMetric(d.MetricMetaImp, d.ObjectMetaImp, d.BasicMetric)
 		}
 
-		if _, ok := c.metricMap[d.MetricMeta]; !ok {
-			c.metricMap[d.MetricMeta] = make(map[ObjectMeta]*InternalMetric)
+		added := c.metricMap[d.MetricMetaImp][d.ObjectMetaImp].addSeriesMetric(d)
+		if len(added) > 0 {
+			needReAggregate = append(needReAggregate, c.metricMap[d.MetricMetaImp][d.ObjectMetaImp])
+			index := c.metricMap[d.MetricMetaImp][d.ObjectMetaImp].seriesMetric.Len() - 1
+			costs := now.Sub(time.UnixMilli(c.metricMap[d.MetricMetaImp][d.ObjectMetaImp].seriesMetric.Values[index].Timestamp)).Microseconds()
+			_ = c.emitter.StoreInt64(metricsNameKCMASStoreDataLatencySet, costs, metrics.MetricTypeNameRaw,
+				types.GenerateMetaTags(d.MetricMetaImp, d.ObjectMetaImp)...)
 		}
-		if _, ok := c.metricMap[d.MetricMeta][d.ObjectMeta]; !ok {
-			c.metricMap[d.MetricMeta][d.ObjectMeta] = &InternalMetric{
-				MetricMeta: d.MetricMeta,
-				ObjectMeta: d.ObjectMeta,
-			}
-		}
+	}
 
-		c.metricMap[d.MetricMeta][d.ObjectMeta].Labels = d.Labels
-		c.metricMap[d.MetricMeta][d.ObjectMeta].InternalValue = append(c.metricMap[d.MetricMeta][d.ObjectMeta].InternalValue, addedValues...)
-
-		if len(addedValues) > 0 {
-			sort.Sort(c.metricMap[d.MetricMeta][d.ObjectMeta])
-
-			// todo, support to emit metrics only when the functionality switched on
-			index := c.metricMap[d.MetricMeta][d.ObjectMeta].Len() - 1
-			costs := now.Sub(time.UnixMilli(c.metricMap[d.MetricMeta][d.ObjectMeta].InternalValue[index].Timestamp)).Microseconds()
-			_ = c.metricsEmitter.StoreInt64(metricsNameKCMASStoreDataLatencySet, costs, metrics.MetricTypeNameRaw,
-				GenerateMetaTags(&d.MetricMeta, &d.ObjectMeta)...)
-		}
+	for _, i := range needReAggregate {
+		i.aggregateMetric()
 	}
 }
 
-// ListAllMetric returns all metric with a flattened slice
-func (c *CachedMetric) ListAllMetric() []*InternalMetric {
-	c.RLock()
-	defer c.RUnlock()
+func (c *CachedMetric) AddAggregatedMetric(aList ...types.Metric) {
+	c.Lock()
+	defer c.Unlock()
 
-	var res []*InternalMetric
-	for _, internalMap := range c.metricMap {
-		for _, internal := range internalMap {
-			res = append(res, internal.DeepCopy())
+	for _, a := range aList {
+		d, ok := a.(*types.AggregatedMetric)
+		if !ok || d == nil || len(d.GetItemList()) != 1 || d.GetName() == "" {
+			continue
 		}
+
+		if _, ok := c.metricMap[d.MetricMetaImp]; !ok {
+			c.metricMap[d.MetricMetaImp] = make(map[types.ObjectMeta]*internalMetricImp)
+		}
+		if _, ok := c.metricMap[d.MetricMetaImp][d.ObjectMetaImp]; !ok {
+			c.metricMap[d.MetricMetaImp][d.ObjectMetaImp] = newInternalMetric(d.MetricMetaImp, d.ObjectMetaImp, d.BasicMetric)
+		}
+
+		c.metricMap[d.MetricMetaImp][d.ObjectMetaImp].mergeAggregatedMetric(d)
 	}
-	return res
 }
 
 // ListAllMetricMeta returns all metric meta with a flattened slice
-func (c *CachedMetric) ListAllMetricMeta(withObject bool) []MetricMeta {
+func (c *CachedMetric) ListAllMetricMeta(withObject bool) []types.MetricMeta {
 	c.RLock()
 	defer c.RUnlock()
 
-	var res []MetricMeta
+	var res []types.MetricMeta
 	for metricMeta := range c.metricMap {
 		if (withObject && metricMeta.GetObjectKind() == "") ||
 			(!withObject && metricMeta.GetObjectKind() != "") {
@@ -321,42 +128,45 @@ func (c *CachedMetric) ListAllMetricNames() []string {
 		if len(internalMap) == 0 {
 			continue
 		}
-		res = append(res, metricMeta.Name)
+		res = append(res, metricMeta.GetName())
 	}
 	return res
 }
 
-// GetMetric returns the metric matched with the given key
-func (c *CachedMetric) GetMetric(namespace, metricName string, gr *schema.GroupResource) ([]*InternalMetric, bool) {
-	return c.GetMetricWithLimit(namespace, metricName, gr, -1)
-}
-
-func (c *CachedMetric) GetMetricWithLimit(namespace, metricName string, gr *schema.GroupResource, limit int) ([]*InternalMetric, bool) {
+func (c *CachedMetric) GetMetric(namespace, metricName string, objName string, gr *schema.GroupResource, latest bool) ([]types.Metric, bool) {
 	now := time.Now()
+	originMetricName, aggName := types.ParseAggregator(metricName)
 
 	c.RLock()
 	defer c.RUnlock()
 
-	var res []*InternalMetric
-	metricMeta := MetricMeta{
-		Name:       metricName,
+	var res []types.Metric
+	metricMeta := types.MetricMetaImp{
+		Name:       originMetricName,
 		Namespaced: namespace != "",
 	}
 	if gr != nil {
-		metricMeta.SetObjectKind(gr.String())
+		metricMeta.ObjectKind = gr.String()
 	}
 
 	if internalMap, ok := c.metricMap[metricMeta]; ok {
 		for _, internal := range internalMap {
-			if internal.ObjectNamespace != namespace {
+			if internal.GetObjectNamespace() != namespace || (objName != "" && internal.GetObjectName() != objName) {
 				continue
 			}
 
-			res = append(res, internal.DeepCopyWithLimit(limit))
+			var metricItem types.Metric
+			var exist bool
+			if aggName == "" {
+				metricItem, exist = internal.getSeriesItems(latest)
+			} else {
+				metricItem, exist = internal.getAggregatedItems(aggName)
+			}
 
-			if internal.Len() > 0 {
-				costs := now.Sub(time.UnixMilli(internal.InternalValue[internal.Len()-1].Timestamp)).Microseconds()
-				_ = c.metricsEmitter.StoreInt64(metricsNameKCMASStoreDataLatencyGet, costs, metrics.MetricTypeNameRaw, internal.GenerateTags()...)
+			if exist && metricItem.Len() > 0 {
+				res = append(res, metricItem.DeepCopy())
+				costs := now.Sub(time.UnixMilli(internal.seriesMetric.Values[internal.len()-1].Timestamp)).Microseconds()
+				_ = c.emitter.StoreInt64(metricsNameKCMASStoreDataLatencyGet, costs, metrics.MetricTypeNameRaw, internal.generateTags()...)
 			}
 		}
 		return res, true
@@ -365,334 +175,90 @@ func (c *CachedMetric) GetMetricWithLimit(namespace, metricName string, gr *sche
 	return nil, false
 }
 
-// GetMetricInNamespace returns the metric matched with the given Namespace
-func (c *CachedMetric) GetMetricInNamespace(namespace string) []*InternalMetric {
-	return c.GetMetricInNamespaceWithLimit(namespace, -1)
-}
-
-func (c *CachedMetric) GetMetricInNamespaceWithLimit(namespace string, limit int) []*InternalMetric {
+// GetAllMetricsInNamespace & GetAllMetricsInNamespaceWithLimit may be too time-consuming,
+// so we should ensure that client falls into this functions as less frequent as possible.
+func (c *CachedMetric) GetAllMetricsInNamespace(namespace string) []types.Metric {
 	now := time.Now()
 
 	c.RLock()
 	defer c.RUnlock()
 
-	var res []*InternalMetric
-	if _, ok := c.namespaced[namespace]; !ok {
-		return res
-	}
+	var res []types.Metric
+	for _, internalMap := range c.metricMap {
+		for _, internal := range internalMap {
+			if internal.GetObjectNamespace() != namespace {
+				continue
+			}
 
-	for _, internal := range c.namespaced[namespace].listAllMetric() {
-		internal.SetObjectNamespace(namespace)
-		res = append(res, internal.DeepCopyWithLimit(limit))
-
-		if internal.Len() > 0 {
-			costs := now.Sub(time.UnixMilli(internal.InternalValue[internal.Len()-1].Timestamp)).Microseconds()
-			_ = c.metricsEmitter.StoreInt64(metricsNameKCMASStoreDataLatencyGet, costs, metrics.MetricTypeNameRaw, internal.GenerateTags()...)
+			metricItem, exist := internal.getSeriesItems(false)
+			if exist && metricItem.Len() > 0 {
+				res = append(res, metricItem.DeepCopy())
+				costs := now.Sub(time.UnixMilli(internal.seriesMetric.Values[internal.len()-1].Timestamp)).Microseconds()
+				_ = c.emitter.StoreInt64(metricsNameKCMASStoreDataLatencyGet, costs, metrics.MetricTypeNameRaw, internal.generateTags()...)
+			}
 		}
 	}
+
 	return res
 }
 
 func (c *CachedMetric) GC(expiredTime time.Time) {
 	c.gcWithTimestamp(expiredTime.UnixMilli())
 }
-
 func (c *CachedMetric) gcWithTimestamp(expiredTimestamp int64) {
 	c.Lock()
 	defer c.Unlock()
 
-	for name, n := range c.namespaced {
-		n.gc(expiredTimestamp)
-		if n.empty() {
-			delete(c.namespaced, name)
-		}
-	}
-
 	for metricMeta, internalMap := range c.metricMap {
 		for objectMeta, internal := range internalMap {
-			var valueList []*InternalValue
-			for _, value := range internal.InternalValue {
-				if value.Timestamp > expiredTimestamp {
-					valueList = append(valueList, value)
-				}
-			}
-
-			internal.InternalValue = valueList
-			if len(internal.InternalValue) == 0 {
+			internal.gc(expiredTimestamp)
+			if len(internal.seriesMetric.Values) == 0 {
 				delete(internalMap, objectMeta)
 			}
 		}
-
 		if len(internalMap) == 0 {
 			delete(c.metricMap, metricMeta)
 		}
 	}
 }
 
-// namespacedMetric stores all metricItems in a certain Namespace in an organized way
-type namespacedMetric struct {
-	sync.RWMutex
-
-	resourced map[string]*resourcedMetric
-}
-
-func newNamespacedMetric() *namespacedMetric {
-	return &namespacedMetric{
-		resourced: make(map[string]*resourcedMetric),
+// MergeInternalMetricList merges internal metric lists and sort them
+// for series: if the same timestamp appears in different list, randomly choose one item.
+// for aggregated: we will just skip the duplicated items
+func MergeInternalMetricList(metricName string, metricLists ...[]types.Metric) []types.Metric {
+	if len(metricLists) == 0 {
+		return []types.Metric{}
+	} else if len(metricLists) == 1 {
+		return metricLists[0]
 	}
-}
 
-func (n *namespacedMetric) listAllMetric() []*InternalMetric {
-	n.RLock()
-	defer n.RUnlock()
+	var res []types.Metric
+	c := NewCachedMetric(metrics.DummyMetrics{})
 
-	var res []*InternalMetric
-	for objectKind, resourced := range n.resourced {
-		for _, internal := range resourced.listAllMetric() {
-			internal.SetObjectKind(objectKind)
-			res = append(res, internal)
+	_, aggName := types.ParseAggregator(metricName)
+	if len(aggName) == 0 {
+		for _, metricList := range metricLists {
+			c.AddSeriesMetric(metricList...)
 		}
-	}
-	return res
-}
-
-func (n *namespacedMetric) add(d *InternalMetric) []*InternalValue {
-	objectKind := d.ObjectKind
-
-	n.Lock()
-	defer n.Unlock()
-
-	if _, ok := n.resourced[objectKind]; !ok {
-		n.resourced[objectKind] = newResourcedMetric()
-	}
-	return n.resourced[objectKind].add(d)
-}
-
-func (n *namespacedMetric) gc(expiredTimestamp int64) {
-	n.Lock()
-	defer n.Unlock()
-
-	for name, r := range n.resourced {
-		r.gc(expiredTimestamp)
-		if r.empty() {
-			delete(n.resourced, name)
+		for _, internalMap := range c.metricMap {
+			for _, internal := range internalMap {
+				if metricItem, exist := internal.getSeriesItems(false); exist && metricItem.Len() > 0 {
+					res = append(res, metricItem)
+				}
+			}
 		}
-	}
-}
-
-func (n *namespacedMetric) empty() bool {
-	return len(n.resourced) == 0
-}
-
-// resourcedMetric stores all metricItems for a certain Object kind in an organized way
-type resourcedMetric struct {
-	sync.RWMutex
-
-	objected map[string]*objectedMetric
-}
-
-func newResourcedMetric() *resourcedMetric {
-	return &resourcedMetric{
-		objected: make(map[string]*objectedMetric),
-	}
-}
-
-func (r *resourcedMetric) listAllMetric() []*InternalMetric {
-	r.RLock()
-	defer r.RUnlock()
-
-	var res []*InternalMetric
-	for objectName, objected := range r.objected {
-		for _, internal := range objected.listAllMetric() {
-			internal.SetObjectName(objectName)
-			res = append(res, internal)
+	} else {
+		for _, metricList := range metricLists {
+			c.AddAggregatedMetric(metricList...)
 		}
-	}
-	return res
-}
-
-func (r *resourcedMetric) add(d *InternalMetric) []*InternalValue {
-	objName := d.ObjectName
-
-	r.Lock()
-	defer r.Unlock()
-
-	if _, ok := r.objected[objName]; !ok {
-		r.objected[objName] = newObjectedMetric()
-	}
-	return r.objected[objName].add(d)
-}
-
-func (r *resourcedMetric) gc(expiredTimestamp int64) {
-	r.Lock()
-	defer r.Unlock()
-
-	for name, o := range r.objected {
-		o.gc(expiredTimestamp)
-		if o.empty() {
-			delete(r.objected, name)
+		for _, internalMap := range c.metricMap {
+			for _, internal := range internalMap {
+				if metricItem, exist := internal.getAggregatedItems(aggName); exist && metricItem.Len() > 0 {
+					res = append(res, metricItem)
+				}
+			}
 		}
-	}
-}
-
-func (r *resourcedMetric) empty() bool {
-	return len(r.objected) == 0
-}
-
-// objectedMetric stores all metricItems for a certain Object in an organized way
-type objectedMetric struct {
-	sync.RWMutex
-
-	series map[string]*seriesMetric
-}
-
-func newObjectedMetric() *objectedMetric {
-	return &objectedMetric{
-		series: make(map[string]*seriesMetric),
-	}
-}
-
-func (o *objectedMetric) listAllMetric() []*InternalMetric {
-	o.RLock()
-	defer o.RUnlock()
-
-	var res []*InternalMetric
-	for name, series := range o.series {
-		internal := series.listAllMetric()
-		internal.SetName(name)
-
-		res = append(res, internal)
-	}
-	return res
-}
-
-func (o *objectedMetric) add(d *InternalMetric) []*InternalValue {
-	// not support for empty metric Name
-	if d.Name == "" {
-		return []*InternalValue{}
-	}
-
-	o.Lock()
-	defer o.Unlock()
-
-	if _, ok := o.series[d.Name]; !ok {
-		o.series[d.Name] = newSeriesMetric(d.Labels)
-	}
-
-	// always overwrite Labels if we have changed it
-	o.series[d.Name].labels = d.Labels
-	return o.series[d.Name].add(d.InternalValue)
-}
-
-func (o *objectedMetric) gc(expiredTimestamp int64) {
-	o.Lock()
-	defer o.Unlock()
-
-	for name, s := range o.series {
-		s.gc(expiredTimestamp)
-		if s.empty() {
-			delete(o.series, name)
-		}
-	}
-}
-
-func (o *objectedMetric) empty() bool {
-	return len(o.series) == 0
-}
-
-// seriesMetric stores all metricItems for a certain Object in an organized way
-type seriesMetric struct {
-	sync.RWMutex
-
-	// Timestamp will be used as a unique key to avoid
-	// duplicated metric to be written more than once
-	timestampSets map[int64]interface{}
-	expiredTime   int64
-	labels        map[string]string
-
-	ordered []metric
-}
-
-func newSeriesMetric(labels map[string]string) *seriesMetric {
-	return &seriesMetric{
-		labels:        labels,
-		timestampSets: make(map[int64]interface{}),
-	}
-}
-
-func (s *seriesMetric) listAllMetric() *InternalMetric {
-	s.RLock()
-	defer s.RUnlock()
-
-	res := &InternalMetric{
-		Labels: s.labels,
-	}
-	for _, ordered := range s.ordered {
-		res.InternalValue = append(res.InternalValue, &InternalValue{
-			Value:     ordered.data,
-			Timestamp: ordered.timestamp,
-		})
-	}
-	return res
-}
-
-// add returns those valid InternalMetric slice
-func (s *seriesMetric) add(valueList []*InternalValue) []*InternalValue {
-	s.Lock()
-	defer s.Unlock()
-
-	var res []*InternalValue
-	for _, v := range valueList {
-		// Timestamp must be none-empty and valid
-		if v.Timestamp == 0 || v.Timestamp < s.expiredTime {
-			continue
-		}
-		// Timestamp must be unique
-		if _, ok := s.timestampSets[v.Timestamp]; ok {
-			continue
-		}
-		s.timestampSets[v.Timestamp] = struct{}{}
-
-		// always make the Value list as ordered
-		i := sort.Search(len(s.ordered), func(i int) bool {
-			return v.Timestamp < s.ordered[i].timestamp
-		})
-
-		s.ordered = append(s.ordered, metric{})
-		copy(s.ordered[i+1:], s.ordered[i:])
-		s.ordered[i] = metric{
-			data:      v.Value,
-			timestamp: v.Timestamp,
-		}
-
-		res = append(res, v)
 	}
 
 	return res
-}
-
-func (s *seriesMetric) gc(expiredTimestamp int64) {
-	s.Lock()
-	defer s.Unlock()
-
-	s.expiredTime = expiredTimestamp
-
-	var ordered []metric
-	for _, m := range s.ordered {
-		if m.timestamp > expiredTimestamp {
-			ordered = append(ordered, m)
-		} else {
-			delete(s.timestampSets, m.timestamp)
-		}
-	}
-	s.ordered = ordered
-}
-
-func (s *seriesMetric) empty() bool {
-	return len(s.ordered) == 0
-}
-
-type metric struct {
-	data      float64
-	timestamp int64
 }
