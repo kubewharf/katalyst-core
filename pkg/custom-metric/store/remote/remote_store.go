@@ -35,6 +35,7 @@ import (
 	metricconf "github.com/kubewharf/katalyst-core/pkg/config/metric"
 	"github.com/kubewharf/katalyst-core/pkg/custom-metric/store"
 	"github.com/kubewharf/katalyst-core/pkg/custom-metric/store/data"
+	"github.com/kubewharf/katalyst-core/pkg/custom-metric/store/data/types"
 	"github.com/kubewharf/katalyst-core/pkg/custom-metric/store/local"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/process"
@@ -154,8 +155,8 @@ func (r *RemoteMemoryMetricStore) InsertMetric(seriesList []*data.MetricSeries) 
 	return nil
 }
 
-func (r *RemoteMemoryMetricStore) GetMetric(ctx context.Context, namespace, metricName, objName string, gr *schema.GroupResource,
-	objSelector, metricSelector labels.Selector, limited int) ([]*data.InternalMetric, error) {
+func (r *RemoteMemoryMetricStore) GetMetric(_ context.Context, namespace, metricName, objName string, gr *schema.GroupResource,
+	objSelector, metricSelector labels.Selector, latest bool) ([]types.Metric, error) {
 	start := time.Now()
 	tags := r.generateMetricsTags(metricName, objName)
 
@@ -172,7 +173,7 @@ func (r *RemoteMemoryMetricStore) GetMetric(ctx context.Context, namespace, metr
 	klog.Infof("[remote-store] metric %v, obj %v, get need to read %v among %v", metricName, objName, rCnt, len(requests))
 
 	var responseLock sync.Mutex
-	var internalLists [][]*data.InternalMetric
+	var metricLists [][]types.Metric
 	err = r.sendRequests(cancel, requests, rCnt, tags,
 		func(req *http.Request) {
 			values := req.URL.Query()
@@ -194,19 +195,19 @@ func (r *RemoteMemoryMetricStore) GetMetric(ctx context.Context, namespace, metr
 			if objSelector != nil && objSelector.String() != "" {
 				values.Set(local.StoreGETParamMObjectSelector, objSelector.String())
 			}
-			if limited > 0 {
-				values.Set(local.StoreGETParamLimited, fmt.Sprintf("%d", limited))
+			if latest {
+				values.Set(local.StoreGETParamLatest, fmt.Sprintf("%v", latest))
 			}
 
 			req.URL.RawQuery = values.Encode()
 		},
 		func(body io.ReadCloser) error {
-			var internalList []*data.InternalMetric
-			if err := json.NewDecoder(body).Decode(&internalList); err != nil {
+			metricList, err := types.DecodeMetricList(body)
+			if err != nil {
 				return fmt.Errorf("decode err: %v", err)
 			}
 			responseLock.Lock()
-			internalLists = append(internalLists, internalList)
+			metricLists = append(metricLists, metricList)
 			responseLock.Unlock()
 			return nil
 		},
@@ -217,20 +218,20 @@ func (r *RemoteMemoryMetricStore) GetMetric(ctx context.Context, namespace, metr
 
 	defer func() {
 		finishCosts := time.Now().Sub(start).Microseconds()
-		klog.Infof("[remote-store] get-finish: metric %v, obj %v, costs %v(ms), resultCount %v", metricName, objName, finishCosts, len(internalLists))
+		klog.Infof("[remote-store] get-finish: metric %v, obj %v, costs %v(ms), resultCount %v", metricName, objName, finishCosts, len(metricLists))
 		_ = r.emitter.StoreInt64(metricsNameStoreRemoteGetCostFinish, finishCosts, metrics.MetricTypeNameRaw, append(tags,
-			metrics.MetricTag{Key: "count", Val: fmt.Sprintf("%v", len(internalLists))})...)
+			metrics.MetricTag{Key: "count", Val: fmt.Sprintf("%v", len(metricLists))})...)
 	}()
 
 	finishCosts := time.Now().Sub(start).Microseconds()
 	klog.Infof("[remote-store] get-requests: metric %v, obj %v, costs %v(ms)", metricName, objName, finishCosts)
 	_ = r.emitter.StoreInt64(metricsNameStoreRemoteGetCostSendRequests, finishCosts, metrics.MetricTypeNameRaw, tags...)
 
-	if len(internalLists) < rCnt {
-		return nil, fmt.Errorf("failed to perform quorum read actual %v expect %v", len(internalLists), rCnt)
+	if len(metricLists) < rCnt {
+		return nil, fmt.Errorf("failed to perform quorum read actual %v expect %v", len(metricLists), rCnt)
 	}
 
-	res := data.PackInternalMetricList(internalLists...)
+	res := data.MergeInternalMetricList(metricName, metricLists...)
 	itemLen := int64(0)
 	for _, r := range res {
 		itemLen += int64(r.Len())
@@ -241,7 +242,7 @@ func (r *RemoteMemoryMetricStore) GetMetric(ctx context.Context, namespace, metr
 	return res, nil
 }
 
-func (r *RemoteMemoryMetricStore) ListMetricMeta(ctx context.Context, withObject bool) ([]data.MetricMeta, error) {
+func (r *RemoteMemoryMetricStore) ListMetricMeta(ctx context.Context, withObject bool) ([]types.MetricMeta, error) {
 	start := time.Now()
 
 	newCtx, cancel := context.WithCancel(context.Background())
@@ -257,7 +258,7 @@ func (r *RemoteMemoryMetricStore) ListMetricMeta(ctx context.Context, withObject
 	klog.V(6).Infof("list with objects need to read %v among %v", rCnt, len(requests))
 
 	var responseLock sync.Mutex
-	var metricMetaLists [][]data.MetricMeta
+	var metricMetaLists [][]types.MetricMeta
 	err = r.sendRequests(cancel, requests, rCnt, r.tags,
 		func(req *http.Request) {
 			values := req.URL.Query()
@@ -267,8 +268,8 @@ func (r *RemoteMemoryMetricStore) ListMetricMeta(ctx context.Context, withObject
 			req.URL.RawQuery = values.Encode()
 		},
 		func(body io.ReadCloser) error {
-			var metricMetaList []data.MetricMeta
-			if err := json.NewDecoder(body).Decode(&metricMetaList); err != nil {
+			metricMetaList, err := types.DecodeMetricMetaList(body)
+			if err != nil {
 				return fmt.Errorf("decode response err: %v", err)
 			}
 			responseLock.Lock()
@@ -290,7 +291,7 @@ func (r *RemoteMemoryMetricStore) ListMetricMeta(ctx context.Context, withObject
 		return nil, fmt.Errorf("failed to perform quorum read actual %v expect %v", len(metricMetaLists), rCnt)
 	}
 
-	res := data.PackMetricMetaList(metricMetaLists...)
+	res := types.PackMetricMetaList(metricMetaLists...)
 	klog.V(4).Infof("successfully list with len %v", len(res))
 	return res, nil
 }

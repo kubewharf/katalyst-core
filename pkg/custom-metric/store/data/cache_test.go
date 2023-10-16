@@ -17,894 +17,494 @@ limitations under the License.
 package data
 
 import (
+	"encoding/json"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 
+	"github.com/kubewharf/katalyst-api/pkg/metric"
+	"github.com/kubewharf/katalyst-core/pkg/custom-metric/store/data/types"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 )
 
-func Test_cache(t *testing.T) {
+func TestCache(t *testing.T) {
 	t.Parallel()
 
 	c := NewCachedMetric(metrics.DummyMetrics{})
 
 	var (
-		exist        bool
-		names        []string
-		oneMetric    []*InternalMetric
-		allMetric    []*InternalMetric
-		spacedMetric []*InternalMetric
+		exist      bool
+		names      []string
+		metaList   []types.MetricMeta
+		metricList []types.Metric
 	)
 
 	t.Log("#### 1: Add with none-namespaced metric")
 
-	c.Add(&InternalMetric{
-		MetricMeta: MetricMeta{
+	s1 := &types.SeriesMetric{
+		MetricMetaImp: types.MetricMetaImp{
 			Name: "m-1",
 		},
-		Labels: map[string]string{
-			"Name": "m-1",
-		},
-		InternalValue: []*InternalValue{
-			{
-				Value:     1,
-				Timestamp: 1,
+		ObjectMetaImp: types.ObjectMetaImp{},
+		BasicMetric: types.BasicMetric{
+			Labels: map[string]string{
+				"Name": "m-1",
 			},
 		},
+	}
+	s1.AddMetric(&types.SeriesItem{
+		Value:     1,
+		Timestamp: 1,
 	})
+	c.AddSeriesMetric(s1)
 
 	names = c.ListAllMetricNames()
 	assert.ElementsMatch(t, []string{"m-1"}, names)
 
-	oneMetric, exist = c.GetMetric("", "m-1", nil)
+	metricList, exist = c.GetMetric("", "m-1", "", nil, false)
 	assert.Equal(t, true, exist)
-	assert.Equal(t, &InternalMetric{
-		MetricMeta: MetricMeta{
-			Name: "m-1",
-		},
-		Labels: map[string]string{
-			"Name": "m-1",
-		},
-		InternalValue: []*InternalValue{
-			{
-				Value:     1,
-				Timestamp: 1,
-			},
-		},
-	}, oneMetric[0])
+	assert.Equal(t, s1, metricList[0])
 
-	_, exist = c.GetMetric("", "m-2", nil)
+	_, exist = c.GetMetric("", "m-2", "", nil, false)
 	assert.Equal(t, false, exist)
 
 	t.Log("#### 2: Add with namespaced metric")
 
-	c.Add(&InternalMetric{
-		MetricMeta: MetricMeta{
+	s2 := &types.SeriesMetric{
+		MetricMetaImp: types.MetricMetaImp{
 			Name:       "m-2",
 			Namespaced: true,
 		},
-		ObjectMeta: ObjectMeta{
+		ObjectMetaImp: types.ObjectMetaImp{
 			ObjectNamespace: "n-2",
 		},
-		Labels: map[string]string{
-			"Name": "m-2",
-		},
-		InternalValue: []*InternalValue{
-			{
-				Value:     2,
-				Timestamp: 3,
+		BasicMetric: types.BasicMetric{
+			Labels: map[string]string{
+				"Name": "m-2",
 			},
 		},
+	}
+	s2.AddMetric(&types.SeriesItem{
+		Value:     2,
+		Timestamp: 3,
 	})
+	c.AddSeriesMetric(s2)
 
 	names = c.ListAllMetricNames()
 	assert.ElementsMatch(t, []string{"m-1", "m-2"}, names)
 
-	oneMetric, exist = c.GetMetric("", "m-1", nil)
+	metricList, exist = c.GetMetric("", "m-1", "", nil, false)
 	assert.Equal(t, true, exist)
-	assert.Equal(t, &InternalMetric{
-		MetricMeta: MetricMeta{
-			Name: "m-1",
-		},
-		Labels: map[string]string{
-			"Name": "m-1",
-		},
-		InternalValue: []*InternalValue{
-			{
-				Value:     1,
-				Timestamp: 1,
-			},
-		},
-	}, oneMetric[0])
+	assert.Equal(t, s1, metricList[0])
 
-	oneMetric, exist = c.GetMetric("n-2", "m-2", nil)
+	metricList, exist = c.GetMetric("n-2", "m-2", "", nil, false)
 	assert.Equal(t, true, exist)
-	assert.Equal(t, &InternalMetric{
-		MetricMeta: MetricMeta{
-			Name:       "m-2",
-			Namespaced: true,
-		},
-		ObjectMeta: ObjectMeta{
-			ObjectNamespace: "n-2",
-		},
-		Labels: map[string]string{
-			"Name": "m-2",
-		},
-		InternalValue: []*InternalValue{
-			{
-				Value:     2,
-				Timestamp: 3,
-			},
-		},
-	}, oneMetric[0])
+	assert.Equal(t, s2, metricList[0])
 
 	t.Log("#### 3: Add pod with objected metric")
 
-	c.Add(&InternalMetric{
-		MetricMeta: MetricMeta{
+	s3 := &types.SeriesMetric{
+		MetricMetaImp: types.MetricMetaImp{
 			Name:       "m-3",
 			Namespaced: true,
 			ObjectKind: "pod",
 		},
-		ObjectMeta: ObjectMeta{
+		ObjectMetaImp: types.ObjectMetaImp{
 			ObjectNamespace: "n-3",
 			ObjectName:      "pod-3",
 		},
-		Labels: map[string]string{
-			"Name": "m-3",
-		},
-		InternalValue: []*InternalValue{
-			{
-				Value:     4,
-				Timestamp: 5,
+		BasicMetric: types.BasicMetric{
+			Labels: map[string]string{
+				"Name": "m-3",
 			},
 		},
+	}
+	s3.AddMetric(&types.SeriesItem{
+		Value:     4,
+		Timestamp: 5,
 	})
+	c.AddSeriesMetric(s3)
 
 	names = c.ListAllMetricNames()
 	assert.ElementsMatch(t, []string{"m-1", "m-2", "m-3"}, names)
 
-	oneMetric, exist = c.GetMetric("n-4", "m-3", &schema.GroupResource{Resource: "pod"})
-	assert.Equal(t, true, exist)
-	assert.Equal(t, 0, len(oneMetric))
+	metaList = c.ListAllMetricMeta(false)
+	assert.ElementsMatch(t, []types.MetricMetaImp{
+		{
+			Name: "m-1",
+		},
+		{
+			Name:       "m-2",
+			Namespaced: true,
+		},
+	}, metaList)
 
-	oneMetric, exist = c.GetMetric("n-3", "m-3", &schema.GroupResource{Resource: "pod"})
-	assert.Equal(t, true, exist)
-	assert.Equal(t, &InternalMetric{
-		MetricMeta: MetricMeta{
+	metaList = c.ListAllMetricMeta(true)
+	assert.ElementsMatch(t, []types.MetricMetaImp{
+		{
 			Name:       "m-3",
 			Namespaced: true,
 			ObjectKind: "pod",
 		},
-		ObjectMeta: ObjectMeta{
-			ObjectNamespace: "n-3",
-			ObjectName:      "pod-3",
-		},
-		Labels: map[string]string{
-			"Name": "m-3",
-		},
-		InternalValue: []*InternalValue{
-			{
-				Value:     4,
-				Timestamp: 5,
-			},
-		},
-	}, oneMetric[0])
+	}, metaList)
+
+	_, exist = c.GetMetric("n-4", "m-3", "", &schema.GroupResource{Resource: "pod"}, false)
+	assert.Equal(t, true, exist)
+
+	metricList, exist = c.GetMetric("n-3", "m-3", "", &schema.GroupResource{Resource: "pod"}, false)
+	assert.Equal(t, true, exist)
+	assert.Equal(t, s3, metricList[0])
 
 	t.Log("#### 4: Add pod with the same metric Name")
 
-	c.Add(&InternalMetric{
-		MetricMeta: MetricMeta{
+	s3_1 := &types.SeriesMetric{
+		MetricMetaImp: types.MetricMetaImp{
 			Name:       "m-3",
 			Namespaced: true,
 			ObjectKind: "pod",
 		},
-		ObjectMeta: ObjectMeta{
+		ObjectMetaImp: types.ObjectMetaImp{
 			ObjectNamespace: "n-3",
 			ObjectName:      "pod-3",
 		},
-		Labels: map[string]string{
-			"Name": "m-3",
-		},
-		InternalValue: []*InternalValue{
-			{
-				Value:     7,
-				Timestamp: 8,
+		BasicMetric: types.BasicMetric{
+			Labels: map[string]string{
+				"Name": "m-3",
 			},
 		},
+	}
+	s3_1.AddMetric(&types.SeriesItem{
+		Value:     7,
+		Timestamp: 8,
 	})
+	c.AddSeriesMetric(s3_1)
 
 	names = c.ListAllMetricNames()
 	assert.ElementsMatch(t, []string{"m-1", "m-2", "m-3"}, names)
 
-	oneMetric, exist = c.GetMetric("n-3", "m-3", &schema.GroupResource{Resource: "pod"})
-	assert.Equal(t, true, exist)
-	assert.Equal(t, &InternalMetric{
-		MetricMeta: MetricMeta{
+	s3 = &types.SeriesMetric{
+		MetricMetaImp: types.MetricMetaImp{
 			Name:       "m-3",
 			Namespaced: true,
 			ObjectKind: "pod",
 		},
-		ObjectMeta: ObjectMeta{
+		ObjectMetaImp: types.ObjectMetaImp{
 			ObjectNamespace: "n-3",
 			ObjectName:      "pod-3",
 		},
-		Labels: map[string]string{
-			"Name": "m-3",
-		},
-		InternalValue: []*InternalValue{
-			{
-				Value:     4,
-				Timestamp: 5,
-			},
-			{
-				Value:     7,
-				Timestamp: 8,
+		BasicMetric: types.BasicMetric{
+			Labels: map[string]string{
+				"Name": "m-3",
 			},
 		},
-	}, oneMetric[0])
+	}
+	s3.AddMetric(&types.SeriesItem{
+		Value:     4,
+		Timestamp: 5,
+	})
+	s3.AddMetric(&types.SeriesItem{
+		Value:     7,
+		Timestamp: 8,
+	})
+	metricList, exist = c.GetMetric("n-3", "m-3", "", &schema.GroupResource{Resource: "pod"}, false)
+	assert.Equal(t, true, exist)
+	assert.Equal(t, s3, metricList[0])
 
 	t.Log("#### 5: Add pod another meta")
 
-	c.Add(&InternalMetric{
-		MetricMeta: MetricMeta{
+	s4 := &types.SeriesMetric{
+		MetricMetaImp: types.MetricMetaImp{
 			Name:       "m-3",
 			Namespaced: true,
 			ObjectKind: "pod",
 		},
-		ObjectMeta: ObjectMeta{
+		ObjectMetaImp: types.ObjectMetaImp{
 			ObjectNamespace: "n-3",
 			ObjectName:      "pod-4",
 		},
-		Labels: map[string]string{
-			"Name": "m-3",
-		},
-		InternalValue: []*InternalValue{
-			{
-				Value:     10,
-				Timestamp: 12,
+		BasicMetric: types.BasicMetric{
+			Labels: map[string]string{
+				"Name": "m-3",
 			},
 		},
+	}
+	s4.AddMetric(&types.SeriesItem{
+		Value:     10,
+		Timestamp: 12,
 	})
+	c.AddSeriesMetric(s4)
 
 	names = c.ListAllMetricNames()
 	assert.ElementsMatch(t, []string{"m-1", "m-2", "m-3"}, names)
 
-	oneMetric, exist = c.GetMetric("n-3", "m-3", &schema.GroupResource{Resource: "pod"})
+	metricList, exist = c.GetMetric("n-3", "m-3", "", &schema.GroupResource{Resource: "pod"}, false)
 	assert.Equal(t, true, exist)
-	assert.ElementsMatch(t, []*InternalMetric{
-		{
-			MetricMeta: MetricMeta{
-				Name:       "m-3",
-				Namespaced: true,
-				ObjectKind: "pod",
-			},
-			ObjectMeta: ObjectMeta{
-				ObjectNamespace: "n-3",
-				ObjectName:      "pod-3",
-			},
-			Labels: map[string]string{
-				"Name": "m-3",
-			},
-			InternalValue: []*InternalValue{
-				{
-					Value:     4,
-					Timestamp: 5,
-				},
-				{
-					Value:     7,
-					Timestamp: 8,
-				},
-			},
-		},
-		{
-			MetricMeta: MetricMeta{
-				Name:       "m-3",
-				Namespaced: true,
-				ObjectKind: "pod",
-			},
-			ObjectMeta: ObjectMeta{
-				ObjectNamespace: "n-3",
-				ObjectName:      "pod-4",
-			},
-			Labels: map[string]string{
-				"Name": "m-3",
-			},
-			InternalValue: []*InternalValue{
-				{
-					Value:     10,
-					Timestamp: 12,
-				},
-			},
-		},
-	}, oneMetric)
+	assert.ElementsMatch(t, []*types.SeriesMetric{s3, s4}, metricList)
+
+	metricList, exist = c.GetMetric("n-3", "m-3", "pod-3", &schema.GroupResource{Resource: "pod"}, false)
+	assert.Equal(t, true, exist)
+	assert.ElementsMatch(t, []*types.SeriesMetric{s3}, metricList)
+
+	metricList, exist = c.GetMetric("n-3", "m-3", "pod-4", &schema.GroupResource{Resource: "pod"}, false)
+	assert.Equal(t, true, exist)
+	assert.ElementsMatch(t, []*types.SeriesMetric{s4}, metricList)
 
 	t.Log("#### 6: Add pod with the duplicated Timestamp")
 
-	c.Add(&InternalMetric{
-		MetricMeta: MetricMeta{
+	s3_2 := &types.SeriesMetric{
+		MetricMetaImp: types.MetricMetaImp{
 			Name:       "m-3",
 			Namespaced: true,
 			ObjectKind: "pod",
 		},
-		ObjectMeta: ObjectMeta{
+		ObjectMetaImp: types.ObjectMetaImp{
 			ObjectNamespace: "n-3",
 			ObjectName:      "pod-3",
 		},
-		Labels: map[string]string{
-			"Name":  "m-3",
-			"extra": "m-3",
-		},
-		InternalValue: []*InternalValue{
-			{
-				Value:     9,
-				Timestamp: 8,
-			},
-			{
-				Value:     10,
-				Timestamp: 9,
+		BasicMetric: types.BasicMetric{
+			Labels: map[string]string{
+				"Name":  "m-3",
+				"extra": "m-3",
 			},
 		},
+	}
+	s3_2.AddMetric(&types.SeriesItem{
+		Value:     10,
+		Timestamp: 9,
 	})
+	s3_2.AddMetric(&types.SeriesItem{
+		Value:     9,
+		Timestamp: 8,
+	})
+	c.AddSeriesMetric(s3_2)
 
 	names = c.ListAllMetricNames()
 	assert.ElementsMatch(t, []string{"m-1", "m-2", "m-3"}, names)
 
-	oneMetric, exist = c.GetMetric("n-3", "m-3", &schema.GroupResource{Resource: "pod"})
-	assert.Equal(t, true, exist)
-	assert.ElementsMatch(t, []*InternalMetric{
-		{
-			MetricMeta: MetricMeta{
-				Name:       "m-3",
-				Namespaced: true,
-				ObjectKind: "pod",
-			},
-			ObjectMeta: ObjectMeta{
-				ObjectNamespace: "n-3",
-				ObjectName:      "pod-3",
-			},
-			Labels: map[string]string{
-				"Name":  "m-3",
-				"extra": "m-3",
-			},
-			InternalValue: []*InternalValue{
-				{
-					Value:     4,
-					Timestamp: 5,
-				},
-				{
-					Value:     7,
-					Timestamp: 8,
-				},
-				{
-					Value:     10,
-					Timestamp: 9,
-				},
-			},
+	s3 = &types.SeriesMetric{
+		MetricMetaImp: types.MetricMetaImp{
+			Name:       "m-3",
+			Namespaced: true,
+			ObjectKind: "pod",
 		},
-		{
-			MetricMeta: MetricMeta{
-				Name:       "m-3",
-				Namespaced: true,
-				ObjectKind: "pod",
-			},
-			ObjectMeta: ObjectMeta{
-				ObjectNamespace: "n-3",
-				ObjectName:      "pod-4",
-			},
+		ObjectMetaImp: types.ObjectMetaImp{
+			ObjectNamespace: "n-3",
+			ObjectName:      "pod-3",
+		},
+		BasicMetric: types.BasicMetric{
 			Labels: map[string]string{
 				"Name": "m-3",
 			},
-			InternalValue: []*InternalValue{
-				{
-					Value:     10,
-					Timestamp: 12,
-				},
+		},
+	}
+	s3.AddMetric(&types.SeriesItem{
+		Value:     4,
+		Timestamp: 5,
+	})
+	s3.AddMetric(&types.SeriesItem{
+		Value:     7,
+		Timestamp: 8,
+	})
+	s3.AddMetric(&types.SeriesItem{
+		Value:     10,
+		Timestamp: 9,
+	})
+	metricList, exist = c.GetMetric("n-3", "m-3", "", &schema.GroupResource{Resource: "pod"}, false)
+	assert.Equal(t, true, exist)
+	assert.ElementsMatch(t, []*types.SeriesMetric{s3, s4}, metricList)
+
+	s3_latest := &types.SeriesMetric{
+		MetricMetaImp: types.MetricMetaImp{
+			Name:       "m-3",
+			Namespaced: true,
+			ObjectKind: "pod",
+		},
+		ObjectMetaImp: types.ObjectMetaImp{
+			ObjectNamespace: "n-3",
+			ObjectName:      "pod-3",
+		},
+		BasicMetric: types.BasicMetric{
+			Labels: map[string]string{
+				"Name": "m-3",
 			},
 		},
-	}, oneMetric)
+	}
+	s3_latest.AddMetric(&types.SeriesItem{
+		Value:     10,
+		Timestamp: 9,
+	})
+	metricList, exist = c.GetMetric("n-3", "m-3", "", &schema.GroupResource{Resource: "pod"}, true)
+	assert.Equal(t, true, exist)
+	assert.ElementsMatch(t, []*types.SeriesMetric{s3_latest, s4}, metricList)
 
 	t.Log("#### 7: list all metric")
 
-	spacedMetric = c.GetMetricInNamespace("")
-	assert.ElementsMatch(t, []*InternalMetric{
-		{
-			MetricMeta: MetricMeta{
-				Name: "m-1",
-			},
-			Labels: map[string]string{
-				"Name": "m-1",
-			},
-			InternalValue: []*InternalValue{
-				{
-					Value:     1,
-					Timestamp: 1,
-				},
-			},
-		},
-	}, spacedMetric)
+	metricList = c.GetAllMetricsInNamespace("")
+	assert.ElementsMatch(t, []*types.SeriesMetric{s1}, metricList)
 
-	spacedMetric = c.GetMetricInNamespace("n-2")
-	assert.ElementsMatch(t, []*InternalMetric{
-		{
-			MetricMeta: MetricMeta{
-				Name:       "m-2",
-				Namespaced: true,
-			},
-			ObjectMeta: ObjectMeta{
-				ObjectNamespace: "n-2",
-			},
-			Labels: map[string]string{
-				"Name": "m-2",
-			},
-			InternalValue: []*InternalValue{
-				{
-					Value:     2,
-					Timestamp: 3,
-				},
-			},
-		},
-	}, spacedMetric)
+	metricList = c.GetAllMetricsInNamespace("n-2")
+	assert.ElementsMatch(t, []*types.SeriesMetric{s2}, metricList)
 
-	spacedMetric = c.GetMetricInNamespace("n-3")
-	assert.ElementsMatch(t, []*InternalMetric{
-		{
-			MetricMeta: MetricMeta{
-				Name:       "m-3",
-				Namespaced: true,
-				ObjectKind: "pod",
-			},
-			ObjectMeta: ObjectMeta{
-				ObjectNamespace: "n-3",
-				ObjectName:      "pod-3",
-			},
-			Labels: map[string]string{
-				"Name":  "m-3",
-				"extra": "m-3",
-			},
-			InternalValue: []*InternalValue{
-				{
-					Value:     4,
-					Timestamp: 5,
-				},
-				{
-					Value:     7,
-					Timestamp: 8,
-				},
-				{
-					Value:     10,
-					Timestamp: 9,
-				},
-			},
-		},
-		{
-			MetricMeta: MetricMeta{
-				Name:       "m-3",
-				Namespaced: true,
-				ObjectKind: "pod",
-			},
-			ObjectMeta: ObjectMeta{
-				ObjectNamespace: "n-3",
-				ObjectName:      "pod-4",
-			},
-			Labels: map[string]string{
-				"Name": "m-3",
-			},
-			InternalValue: []*InternalValue{
-				{
-					Value:     10,
-					Timestamp: 12,
-				},
-			},
-		},
-	}, spacedMetric)
+	metricList = c.GetAllMetricsInNamespace("n-3")
+	assert.ElementsMatch(t, []*types.SeriesMetric{s3, s4}, metricList)
 
-	allMetric = c.ListAllMetric()
-	assert.ElementsMatch(t, []*InternalMetric{
-		{
-			MetricMeta: MetricMeta{
-				Name: "m-1",
-			},
-			Labels: map[string]string{
-				"Name": "m-1",
-			},
-			InternalValue: []*InternalValue{
-				{
-					Value:     1,
-					Timestamp: 1,
-				},
-			},
-		},
-		{
-			MetricMeta: MetricMeta{
-				Name:       "m-2",
-				Namespaced: true,
-			},
-			ObjectMeta: ObjectMeta{
-				ObjectNamespace: "n-2",
-			},
-			Labels: map[string]string{
-				"Name": "m-2",
-			},
-			InternalValue: []*InternalValue{
-				{
-					Value:     2,
-					Timestamp: 3,
-				},
-			},
-		},
-		{
-			MetricMeta: MetricMeta{
-				Name:       "m-3",
-				Namespaced: true,
-				ObjectKind: "pod",
-			},
-			ObjectMeta: ObjectMeta{
-				ObjectNamespace: "n-3",
-				ObjectName:      "pod-3",
-			},
-			Labels: map[string]string{
-				"Name":  "m-3",
-				"extra": "m-3",
-			},
-			InternalValue: []*InternalValue{
-				{
-					Value:     4,
-					Timestamp: 5,
-				},
-				{
-					Value:     7,
-					Timestamp: 8,
-				},
-				{
-					Value:     10,
-					Timestamp: 9,
-				},
-			},
-		},
-		{
-			MetricMeta: MetricMeta{
-				Name:       "m-3",
-				Namespaced: true,
-				ObjectKind: "pod",
-			},
-			ObjectMeta: ObjectMeta{
-				ObjectNamespace: "n-3",
-				ObjectName:      "pod-4",
-			},
-			Labels: map[string]string{
-				"Name": "m-3",
-			},
-			InternalValue: []*InternalValue{
-				{
-					Value:     10,
-					Timestamp: 12,
-				},
-			},
-		},
-	}, allMetric)
-
-	t.Log("#### 8: GC")
+	t.Log("#### 8: gcMetric")
 	c.gcWithTimestamp(3)
 	names = c.ListAllMetricNames()
 	assert.ElementsMatch(t, []string{"m-3"}, names)
-	allMetric = c.ListAllMetric()
-	assert.ElementsMatch(t, []*InternalMetric{
-		{
-			MetricMeta: MetricMeta{
-				Name:       "m-3",
-				Namespaced: true,
-				ObjectKind: "pod",
-			},
-			ObjectMeta: ObjectMeta{
-				ObjectNamespace: "n-3",
-				ObjectName:      "pod-3",
-			},
-			Labels: map[string]string{
-				"Name":  "m-3",
-				"extra": "m-3",
-			},
-			InternalValue: []*InternalValue{
-				{
-					Value:     4,
-					Timestamp: 5,
-				},
-				{
-					Value:     7,
-					Timestamp: 8,
-				},
-				{
-					Value:     10,
-					Timestamp: 9,
-				},
-			},
-		},
-		{
-			MetricMeta: MetricMeta{
-				Name:       "m-3",
-				Namespaced: true,
-				ObjectKind: "pod",
-			},
-			ObjectMeta: ObjectMeta{
-				ObjectNamespace: "n-3",
-				ObjectName:      "pod-4",
-			},
-			Labels: map[string]string{
-				"Name": "m-3",
-			},
-			InternalValue: []*InternalValue{
-				{
-					Value:     10,
-					Timestamp: 12,
-				},
-			},
-		},
-	}, allMetric)
+
+	metricList = c.GetAllMetricsInNamespace("")
+	assert.ElementsMatch(t, []*types.SeriesMetric{}, metricList)
+
+	metricList = c.GetAllMetricsInNamespace("n-2")
+	assert.ElementsMatch(t, []*types.SeriesMetric{}, metricList)
+
+	metricList = c.GetAllMetricsInNamespace("n-3")
+	assert.ElementsMatch(t, []*types.SeriesMetric{s3, s4}, metricList)
 
 	c.gcWithTimestamp(8)
 	names = c.ListAllMetricNames()
 	assert.ElementsMatch(t, []string{"m-3"}, names)
-	allMetric = c.ListAllMetric()
-	assert.ElementsMatch(t, []*InternalMetric{
-		{
-			MetricMeta: MetricMeta{
-				Name:       "m-3",
-				Namespaced: true,
-				ObjectKind: "pod",
-			},
-			ObjectMeta: ObjectMeta{
-				ObjectNamespace: "n-3",
-				ObjectName:      "pod-3",
-			},
-			Labels: map[string]string{
-				"Name":  "m-3",
-				"extra": "m-3",
-			},
-			InternalValue: []*InternalValue{
-				{
-					Value:     10,
-					Timestamp: 9,
-				},
-			},
+
+	s3 = &types.SeriesMetric{
+		MetricMetaImp: types.MetricMetaImp{
+			Name:       "m-3",
+			Namespaced: true,
+			ObjectKind: "pod",
 		},
-		{
-			MetricMeta: MetricMeta{
-				Name:       "m-3",
-				Namespaced: true,
-				ObjectKind: "pod",
-			},
-			ObjectMeta: ObjectMeta{
-				ObjectNamespace: "n-3",
-				ObjectName:      "pod-4",
-			},
+		ObjectMetaImp: types.ObjectMetaImp{
+			ObjectNamespace: "n-3",
+			ObjectName:      "pod-3",
+		},
+		BasicMetric: types.BasicMetric{
 			Labels: map[string]string{
 				"Name": "m-3",
-			},
-			InternalValue: []*InternalValue{
-				{
-					Value:     10,
-					Timestamp: 12,
-				},
-			},
-		},
-	}, allMetric)
-}
-
-func Test_marshal(t *testing.T) {
-	c := NewCachedMetric(metrics.DummyMetrics{})
-
-	c.Add(&InternalMetric{
-		MetricMeta: MetricMeta{
-			Name: "m-1",
-		},
-		Labels: map[string]string{
-			"Name": "m-1",
-		},
-		InternalValue: []*InternalValue{
-			{
-				Value:     1,
-				Timestamp: 1,
-			},
-		},
-	})
-	c.Add(&InternalMetric{
-		MetricMeta: MetricMeta{
-			Name:       "m-2",
-			Namespaced: true,
-		},
-		ObjectMeta: ObjectMeta{
-			ObjectNamespace: "n-2",
-		},
-		Labels: map[string]string{
-			"Name": "m-2",
-		},
-		InternalValue: []*InternalValue{
-			{
-				Value:     2,
-				Timestamp: 3,
-			},
-		},
-	})
-	c.Add(&InternalMetric{
-		MetricMeta: MetricMeta{
-			Name:       "m-3",
-			Namespaced: true,
-			ObjectKind: "pod",
-		},
-		ObjectMeta: ObjectMeta{
-			ObjectNamespace: "n-3",
-			ObjectName:      "pod-3",
-		},
-		Labels: map[string]string{
-			"Name": "m-3",
-		},
-		InternalValue: []*InternalValue{
-			{
-				Value:     4,
-				Timestamp: 5,
-			},
-		},
-	})
-	c.Add(&InternalMetric{
-		MetricMeta: MetricMeta{
-			Name:       "m-3",
-			Namespaced: true,
-			ObjectKind: "pod",
-		},
-		ObjectMeta: ObjectMeta{
-			ObjectNamespace: "n-3",
-			ObjectName:      "pod-3",
-		},
-		Labels: map[string]string{
-			"Name": "m-3",
-		},
-		InternalValue: []*InternalValue{
-			{
-				Value:     7,
-				Timestamp: 8,
-			},
-		},
-	})
-	c.Add(&InternalMetric{
-		MetricMeta: MetricMeta{
-			Name:       "m-3",
-			Namespaced: true,
-			ObjectKind: "pod",
-		},
-		ObjectMeta: ObjectMeta{
-			ObjectNamespace: "n-3",
-			ObjectName:      "pod-4",
-		},
-		Labels: map[string]string{
-			"Name": "m-3",
-		},
-		InternalValue: []*InternalValue{
-			{
-				Value:     10,
-				Timestamp: 12,
-			},
-		},
-	})
-	c.Add(&InternalMetric{
-		MetricMeta: MetricMeta{
-			Name:       "m-3",
-			Namespaced: true,
-			ObjectKind: "pod",
-		},
-		ObjectMeta: ObjectMeta{
-			ObjectNamespace: "n-3",
-			ObjectName:      "pod-3",
-		},
-		Labels: map[string]string{
-			"Name":  "m-3",
-			"extra": "m-3",
-		},
-		InternalValue: []*InternalValue{
-			{
-				Value:     9,
-				Timestamp: 8,
-			},
-			{
-				Value:     10,
-				Timestamp: 9,
-			},
-		},
-	})
-
-	target := []*InternalMetric{
-		{
-			MetricMeta: MetricMeta{
-				Name: "m-1",
-			},
-			Labels: map[string]string{
-				"Name": "m-1",
-			},
-			InternalValue: []*InternalValue{
-				{
-					Value:     1,
-					Timestamp: 1,
-				},
-			},
-		},
-		{
-			MetricMeta: MetricMeta{
-				Name:       "m-2",
-				Namespaced: true,
-			},
-			ObjectMeta: ObjectMeta{
-				ObjectNamespace: "n-2",
-			},
-			Labels: map[string]string{
-				"Name": "m-2",
-			},
-			InternalValue: []*InternalValue{
-				{
-					Value:     2,
-					Timestamp: 3,
-				},
-			},
-		},
-		{
-			MetricMeta: MetricMeta{
-				Name:       "m-3",
-				Namespaced: true,
-				ObjectKind: "pod",
-			},
-			ObjectMeta: ObjectMeta{
-				ObjectNamespace: "n-3",
-				ObjectName:      "pod-3",
-			},
-			Labels: map[string]string{
-				"Name":  "m-3",
-				"extra": "m-3",
-			},
-			InternalValue: []*InternalValue{
-				{
-					Value:     4,
-					Timestamp: 5,
-				},
-				{
-					Value:     7,
-					Timestamp: 8,
-				},
-				{
-					Value:     10,
-					Timestamp: 9,
-				},
-			},
-		},
-		{
-			MetricMeta: MetricMeta{
-				Name:       "m-3",
-				Namespaced: true,
-				ObjectKind: "pod",
-			},
-			ObjectMeta: ObjectMeta{
-				ObjectNamespace: "n-3",
-				ObjectName:      "pod-4",
-			},
-			Labels: map[string]string{
-				"Name": "m-3",
-			},
-			InternalValue: []*InternalValue{
-				{
-					Value:     10,
-					Timestamp: 12,
-				},
 			},
 		},
 	}
+	s3.AddMetric(&types.SeriesItem{
+		Value:     10,
+		Timestamp: 9,
+	})
 
-	allMetric := c.ListAllMetric()
-	assert.ElementsMatch(t, target, allMetric)
+	s4 = &types.SeriesMetric{
+		MetricMetaImp: types.MetricMetaImp{
+			Name:       "m-3",
+			Namespaced: true,
+			ObjectKind: "pod",
+		},
+		ObjectMetaImp: types.ObjectMetaImp{
+			ObjectNamespace: "n-3",
+			ObjectName:      "pod-4",
+		},
+		BasicMetric: types.BasicMetric{
+			Labels: map[string]string{
+				"Name": "m-3",
+			},
+		},
+	}
+	s4.AddMetric(&types.SeriesItem{
+		Value:     10,
+		Timestamp: 12,
+	})
+	metricList = c.GetAllMetricsInNamespace("n-3")
+	assert.ElementsMatch(t, []*types.SeriesMetric{s3, s4}, metricList)
 
-	bytes, err := Marshal(allMetric)
-	assert.Nil(t, err)
+	bytes, err := json.Marshal(metricList)
+	assert.NoError(t, err)
+	t.Logf("%v", string(bytes))
 
-	allMetric, err = Unmarshal(bytes)
-	assert.Nil(t, err)
-	assert.ElementsMatch(t, target, allMetric)
+	res, err := types.UnmarshalMetricList(bytes)
+	assert.NoError(t, err)
+	assert.ElementsMatch(t, metricList, res)
 
+	t.Log("#### 9: get agg metric")
+
+	s5 := &types.SeriesMetric{
+		MetricMetaImp: types.MetricMetaImp{
+			Name:       "m-3",
+			Namespaced: true,
+			ObjectKind: "pod",
+		},
+		ObjectMetaImp: types.ObjectMetaImp{
+			ObjectNamespace: "n-3",
+			ObjectName:      "pod-5",
+		},
+		BasicMetric: types.BasicMetric{
+			Labels: map[string]string{
+				"Name": "m-3",
+			},
+		},
+	}
+	s5.AddMetric(&types.SeriesItem{
+		Value:     4,
+		Timestamp: 12 * time.Second.Milliseconds(),
+	})
+	s5.AddMetric(&types.SeriesItem{
+		Value:     7,
+		Timestamp: 14 * time.Second.Milliseconds(),
+	})
+	s5.AddMetric(&types.SeriesItem{
+		Value:     12,
+		Timestamp: 18 * time.Second.Milliseconds(),
+	})
+	s5.AddMetric(&types.SeriesItem{
+		Value:     10,
+		Timestamp: 20 * time.Second.Milliseconds(),
+	})
+	c.AddSeriesMetric(s5)
+
+	metricList, exist = c.GetMetric("n-3", "m-3", "pod-5", &schema.GroupResource{Resource: "pod"}, false)
+	assert.Equal(t, true, exist)
+	assert.ElementsMatch(t, []*types.SeriesMetric{s5}, metricList)
+
+	agg := &types.AggregatedMetric{
+		MetricMetaImp: types.MetricMetaImp{
+			Name:       "m-3",
+			Namespaced: true,
+			ObjectKind: "pod",
+		},
+		ObjectMetaImp: types.ObjectMetaImp{
+			ObjectNamespace: "n-3",
+			ObjectName:      "pod-5",
+		},
+		BasicMetric: types.BasicMetric{
+			Labels: map[string]string{
+				"Name": "m-3",
+			},
+		},
+		AggregatedIdentity: types.AggregatedIdentity{
+			Count:         4,
+			Timestamp:     12 * time.Second.Milliseconds(),
+			WindowSeconds: 8,
+		},
+		Values: map[string]float64{},
+	}
+
+	agg.Values = map[string]float64{"m-3" + metric.AggregateFunctionAvg: 8.25}
+	metricList, exist = c.GetMetric("n-3", "m-3"+metric.AggregateFunctionAvg, "pod-5", &schema.GroupResource{Resource: "pod"}, false)
+	assert.Equal(t, true, exist)
+	assert.ElementsMatch(t, []*types.AggregatedMetric{agg}, metricList)
+
+	agg.Values = map[string]float64{"m-3" + metric.AggregateFunctionMax: 12}
+	metricList, exist = c.GetMetric("n-3", "m-3"+metric.AggregateFunctionMax, "pod-5", &schema.GroupResource{Resource: "pod"}, false)
+	assert.Equal(t, true, exist)
+	assert.ElementsMatch(t, []*types.AggregatedMetric{agg}, metricList)
+
+	agg.Values = map[string]float64{"m-3" + metric.AggregateFunctionMin: 4}
+	metricList, exist = c.GetMetric("n-3", "m-3"+metric.AggregateFunctionMin, "pod-5", &schema.GroupResource{Resource: "pod"}, false)
+	assert.Equal(t, true, exist)
+	assert.ElementsMatch(t, []*types.AggregatedMetric{agg}, metricList)
+
+	agg.Values = map[string]float64{"m-3" + metric.AggregateFunctionP99: 11}
+	metricList, exist = c.GetMetric("n-3", "m-3"+metric.AggregateFunctionP99, "pod-5", &schema.GroupResource{Resource: "pod"}, false)
+	assert.Equal(t, true, exist)
+	assert.ElementsMatch(t, []*types.AggregatedMetric{agg}, metricList)
+
+	agg.Values = map[string]float64{"m-3" + metric.AggregateFunctionP90: 11}
+	metricList, exist = c.GetMetric("n-3", "m-3"+metric.AggregateFunctionP90, "pod-5", &schema.GroupResource{Resource: "pod"}, false)
+	assert.Equal(t, true, exist)
+	assert.ElementsMatch(t, []*types.AggregatedMetric{agg}, metricList)
 }

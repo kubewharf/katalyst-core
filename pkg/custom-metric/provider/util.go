@@ -24,7 +24,7 @@ import (
 	"k8s.io/metrics/pkg/apis/custom_metrics"
 	"k8s.io/metrics/pkg/apis/external_metrics"
 
-	"github.com/kubewharf/katalyst-core/pkg/custom-metric/store/data"
+	"github.com/kubewharf/katalyst-core/pkg/custom-metric/store/data/types"
 )
 
 // findMetricValueLatest returns metric with the latest timestamp.
@@ -45,48 +45,50 @@ func findMetricValueLatest(metricName string, metricValueList []custom_metrics.M
 }
 
 /*
- those packing functions are helpers to pack out standard Metric structs
+ those packing functions are helpers to pack out standard Item structs
 */
 
-func PackMetricValueList(internal *data.InternalMetric) []custom_metrics.MetricValue {
+func PackMetricValueList(metricItem types.Metric) []custom_metrics.MetricValue {
 	var res []custom_metrics.MetricValue
-	for _, value := range internal.GetValues() {
-		res = append(res, *PackMetricValue(internal, value))
+	for _, item := range metricItem.GetItemList() {
+		res = append(res, *PackMetricValue(metricItem, item))
 	}
 	return res
 }
 
-func PackMetricValue(internal *data.InternalMetric, value *data.InternalValue) *custom_metrics.MetricValue {
+func PackMetricValue(m types.Metric, item types.Item) *custom_metrics.MetricValue {
 	return &custom_metrics.MetricValue{
 		DescribedObject: custom_metrics.ObjectReference{
-			Kind:      internal.GetObjectKind(),
-			Namespace: internal.GetObjectNamespace(),
-			Name:      internal.GetObjectName(),
+			Kind:      m.GetObjectKind(),
+			Namespace: m.GetObjectNamespace(),
+			Name:      m.GetObjectName(),
 		},
 		Metric: custom_metrics.MetricIdentifier{
-			Name: internal.GetName(),
+			Name: m.GetName(),
 			Selector: &metav1.LabelSelector{
-				MatchLabels: internal.GetLabels(),
+				MatchLabels: m.GetLabels(),
 			},
 		},
-		Timestamp: metav1.NewTime(time.UnixMilli(value.GetTimestamp())),
-		Value:     value.GetQuantity(),
+		Timestamp:     metav1.NewTime(time.UnixMilli(item.GetTimestamp())),
+		WindowSeconds: item.GetWindowSeconds(),
+		Value:         item.GetQuantity(),
 	}
 }
 
-func PackExternalMetricValueList(internal *data.InternalMetric) []external_metrics.ExternalMetricValue {
+func PackExternalMetricValueList(metricItem types.Metric) []external_metrics.ExternalMetricValue {
 	var res []external_metrics.ExternalMetricValue
-	for _, value := range internal.GetValues() {
-		res = append(res, *PackExternalMetricValue(internal, value))
+	for _, item := range metricItem.GetItemList() {
+		res = append(res, *PackExternalMetricValue(metricItem, item))
 	}
 	return res
 }
 
-func PackExternalMetricValue(internal *data.InternalMetric, value *data.InternalValue) *external_metrics.ExternalMetricValue {
+func PackExternalMetricValue(metricItem types.Metric, metric types.Item) *external_metrics.ExternalMetricValue {
 	return &external_metrics.ExternalMetricValue{
-		MetricName:   internal.GetName(),
-		MetricLabels: internal.GetLabels(),
-		Timestamp:    metav1.NewTime(time.UnixMilli(value.GetTimestamp())),
-		Value:        value.GetQuantity(),
+		MetricName:    metricItem.GetName(),
+		MetricLabels:  metricItem.GetLabels(),
+		Timestamp:     metav1.NewTime(time.UnixMilli(metric.GetTimestamp())),
+		WindowSeconds: metric.GetWindowSeconds(),
+		Value:         metric.GetQuantity(),
 	}
 }

@@ -27,6 +27,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 
 	"github.com/kubewharf/katalyst-core/pkg/custom-metric/store/data"
+	"github.com/kubewharf/katalyst-core/pkg/custom-metric/store/data/types"
 )
 
 // MetricStore is a standard metric storage interface
@@ -47,7 +48,7 @@ type MetricStore interface {
 	// metrics references; if sharding is needed, it should be implemented
 	// as a specific MetricStore inner logic.
 	GetMetric(ctx context.Context, namespace, metricName, objName string, gr *schema.GroupResource,
-		objSelector, metricSelector labels.Selector, limited int) ([]*data.InternalMetric, error)
+		objSelector, metricSelector labels.Selector, latest bool) ([]types.Metric, error)
 	// ListMetricMeta returns all metrics type bounded with a kubernetes objects if withObject is true
-	ListMetricMeta(ctx context.Context, withObject bool) ([]data.MetricMeta, error)
+	ListMetricMeta(ctx context.Context, withObject bool) ([]types.MetricMeta, error)
 }
