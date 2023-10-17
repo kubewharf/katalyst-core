@@ -20,6 +20,7 @@ type KubeletPluginConfiguration struct {
 	PodResourcesServerEndpoints []string
 	KubeletResourcePluginPaths  []string
 	EnableReportTopologyPolicy  bool
+	EnableReportRDMATopology    bool
 }
 
 func NewKubeletPluginConfiguration() *KubeletPluginConfiguration {

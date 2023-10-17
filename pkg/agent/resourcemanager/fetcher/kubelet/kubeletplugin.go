@@ -90,7 +90,7 @@ func NewKubeletReporterPlugin(emitter metrics.MetricEmitter, metaServer *metaser
 
 	topologyStatusAdapter, err := topology.NewPodResourcesServerTopologyAdapter(metaServer,
 		conf.PodResourcesServerEndpoints, conf.KubeletResourcePluginPaths, nil,
-		p.getNumaInfo, nil, podresources.GetV1Client)
+		p.getNumaInfo, nil, podresources.GetV1Client, conf.EnableReportRDMATopology)
 	if err != nil {
 		return nil, err
 	}
