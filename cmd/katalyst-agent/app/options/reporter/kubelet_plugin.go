@@ -27,6 +27,7 @@ type KubeletPluginOptions struct {
 	PodResourcesServerEndpoints []string
 	KubeletResourcePluginPaths  []string
 	EnableReportTopologyPolicy  bool
+	EnableReportRDMATopology    bool
 }
 
 func NewKubeletPluginOptions() *KubeletPluginOptions {
@@ -38,6 +39,7 @@ func NewKubeletPluginOptions() *KubeletPluginOptions {
 			pluginapi.ResourcePluginPath,
 		},
 		EnableReportTopologyPolicy: false,
+		EnableReportRDMATopology:   false,
 	}
 }
 
@@ -50,12 +52,15 @@ func (o *KubeletPluginOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 		"the path of kubelet resource plugin")
 	fs.BoolVar(&o.EnableReportTopologyPolicy, "enable-report-topology-policy", o.EnableReportTopologyPolicy,
 		"whether to report topology policy")
+	fs.BoolVar(&o.EnableReportRDMATopology, "enable-report-rdma-topology", false, "enable report rdma topology, default false")
+
 }
 
 func (o *KubeletPluginOptions) ApplyTo(c *reporter.KubeletPluginConfiguration) error {
 	c.PodResourcesServerEndpoints = o.PodResourcesServerEndpoints
 	c.KubeletResourcePluginPaths = o.KubeletResourcePluginPaths
 	c.EnableReportTopologyPolicy = o.EnableReportTopologyPolicy
+	c.EnableReportRDMATopology = o.EnableReportRDMATopology
 
 	return nil
 }
