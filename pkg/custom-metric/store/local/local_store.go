@@ -299,7 +299,8 @@ func (l *LocalMemoryMetricStore) checkInternalMetricMatchedWithObjectList(intern
 
 	obj, err := l.getObject(internal.GetObjectKind(), namespace, internal.GetObjectName())
 	if err != nil {
-		return false, err
+		klog.V(5).Infof("get object %v/%v kind %s failed, %v", namespace, internal.GetName(), internal.GetObjectKind(), err)
+		return false, nil
 	}
 
 	workload, ok := obj.(*v1.PartialObjectMetadata)
