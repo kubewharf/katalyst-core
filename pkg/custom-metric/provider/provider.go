@@ -41,6 +41,9 @@ const (
 
 	metricsNameKCMASProviderDataCount = "kcmas_provider_data_count"
 	metricsNameKCMASProviderDataEmpty = "kcmas_provider_data_empty"
+
+	metricsNameKCMASProviderCustomMetricLatency   = "kcmas_provider_custom_metric_latency"
+	metricsNameKCMASProviderExternalMetricLatency = "kcmas_provider_external_metric_latency"
 )
 
 // MetricProvider is a standard interface to query metric data;
@@ -123,6 +126,8 @@ func (m *MetricProviderImp) GetMetricByName(ctx context.Context, namespacedName 
 	if res == nil {
 		return nil, fmt.Errorf("no mtaching metric exists")
 	}
+
+	m.emitCustomMetricLatency(res)
 	return res, nil
 }
 
@@ -158,6 +163,12 @@ func (m *MetricProviderImp) GetMetricBySelector(ctx context.Context, namespace s
 		resultCount += internal.Len()
 		items = append(items, PackMetricValueList(internal)...)
 	}
+
+	// TODO, emit metrics only when this functionality switched on
+	for i := range items {
+		m.emitCustomMetricLatency(&items[i])
+	}
+
 	return &custom_metrics.MetricValueList{
 		Items: items,
 	}, nil
@@ -233,6 +244,11 @@ func (m *MetricProviderImp) GetExternalMetric(ctx context.Context, namespace str
 		resultCount += internal.Len()
 		items = append(items, PackExternalMetricValueList(internal)...)
 	}
+
+	for i := range items {
+		m.emitExternalMetricLatency(&items[i])
+	}
+
 	return &external_metrics.ExternalMetricValueList{
 		Items: items,
 	}, nil
@@ -273,6 +289,26 @@ func (m *MetricProviderImp) ListAllExternalMetrics() []provider.ExternalMetricIn
 		res = append(res, info)
 	}
 	return res
+}
+
+func (m *MetricProviderImp) emitCustomMetricLatency(metric *custom_metrics.MetricValue) {
+	dataLatency := time.Now().Sub(metric.Timestamp.Time).Microseconds()
+	tags := []metrics.MetricTag{
+		{Key: "metric_name", Val: metric.Metric.Name},
+		{Key: "object_name", Val: metric.DescribedObject.Name},
+		{Key: "object_kind", Val: metric.DescribedObject.Kind},
+	}
+
+	_ = m.metricsEmitter.StoreInt64(metricsNameKCMASProviderCustomMetricLatency, dataLatency, metrics.MetricTypeNameRaw, tags...)
+}
+
+func (m *MetricProviderImp) emitExternalMetricLatency(metric *external_metrics.ExternalMetricValue) {
+	dataLatency := time.Now().Sub(metric.Timestamp.Time).Microseconds()
+	tags := []metrics.MetricTag{
+		{Key: "metric_name", Val: metric.MetricName},
+	}
+
+	_ = m.metricsEmitter.StoreInt64(metricsNameKCMASProviderExternalMetricLatency, dataLatency, metrics.MetricTypeNameRaw, tags...)
 }
 
 // emitMetrics provides a unified way to emit metrics about the running states for each interface.
