@@ -34,6 +34,11 @@ type CollectorConfiguration struct {
 
 	// CollectorName is used to switch from different collector implementations.
 	CollectorName string
+
+	// CredentialPath is the path where the credential files should be in. Which and how many files should be in it
+	// depends on the authentication method. For now, we only support basic auth,so there should be two files with name
+	// username and password.
+	CredentialPath string
 }
 
 func NewCollectorConfiguration() *CollectorConfiguration {
