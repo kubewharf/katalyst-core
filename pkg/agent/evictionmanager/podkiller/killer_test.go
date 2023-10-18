@@ -106,7 +106,7 @@ func TestContainerKiller_Evict(t *testing.T) {
 					ContainerStatuses: []v1.ContainerStatus{
 						{
 							Name:        "container-01",
-							ContainerID: "container-01",
+							ContainerID: "containerd://container-01",
 						},
 					},
 				},
@@ -131,11 +131,11 @@ func TestContainerKiller_Evict(t *testing.T) {
 					ContainerStatuses: []v1.ContainerStatus{
 						{
 							Name:        "container-01",
-							ContainerID: "container-01",
+							ContainerID: "containerd://container-01",
 						},
 						{
 							Name:        "container-02",
-							ContainerID: "container-02",
+							ContainerID: "containerd://container-02",
 						},
 					},
 				},
@@ -157,7 +157,7 @@ func TestContainerKiller_Evict(t *testing.T) {
 					ContainerStatuses: []v1.ContainerStatus{
 						{
 							Name:        "container-03",
-							ContainerID: "container-03",
+							ContainerID: "containerd://container-03",
 						},
 					},
 				},
