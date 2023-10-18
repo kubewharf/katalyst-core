@@ -29,6 +29,9 @@ import (
 const (
 	metricsNameKCMASStoreDataLatencySet = "kcmas_store_data_latency_set"
 	metricsNameKCMASStoreDataLatencyGet = "kcmas_store_data_latency_get"
+
+	metricsNameKCMASStoreDataLength    = "kcmas_store_data_length"
+	metricsNameKCMASStoreWindowSeconds = "kcmas_store_data_window_seconds"
 )
 
 // CachedMetric stores all metricItems in an organized way.
@@ -215,6 +218,11 @@ func (c *CachedMetric) gcWithTimestamp(expiredTimestamp int64) {
 			internal.gc(expiredTimestamp)
 			if len(internal.seriesMetric.Values) == 0 {
 				delete(internalMap, objectMeta)
+			} else {
+				_ = c.emitter.StoreInt64(metricsNameKCMASStoreDataLength, int64(len(internal.seriesMetric.Values)),
+					metrics.MetricTypeNameRaw, internal.generateTags()...)
+				_ = c.emitter.StoreInt64(metricsNameKCMASStoreWindowSeconds, (internal.seriesMetric.Values[len(internal.seriesMetric.Values)-1].Timestamp-
+					internal.seriesMetric.Values[0].Timestamp)/time.Second.Milliseconds(), metrics.MetricTypeNameRaw, internal.generateTags()...)
 			}
 		}
 		if len(internalMap) == 0 {
