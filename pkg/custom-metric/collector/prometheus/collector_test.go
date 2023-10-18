@@ -17,9 +17,12 @@ limitations under the License.
 package prometheus
 
 import (
+	"bufio"
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path"
 	"strconv"
 	"strings"
 	"testing"
@@ -33,8 +36,42 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/config/metric"
 	metricconf "github.com/kubewharf/katalyst-core/pkg/config/metric"
 	"github.com/kubewharf/katalyst-core/pkg/custom-metric/store/local"
+	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/native"
 )
+
+var (
+	credentialPath = "/tmp/katalyst-ut/credential"
+	username       = "katalyst"
+	password       = "password"
+)
+
+func setupCredential(credentialPath string) error {
+	err := general.EnsureDirectory(credentialPath)
+	if err != nil {
+		return err
+	}
+
+	usernameFile, err := os.OpenFile(path.Join(credentialPath, fileNameUsername), os.O_WRONLY|os.O_CREATE, 0755)
+	if err != nil {
+		return err
+	}
+	defer usernameFile.Close()
+	usernameWriter := bufio.NewWriter(usernameFile)
+	_, _ = usernameWriter.WriteString(username)
+	_ = usernameWriter.Flush()
+
+	passwordFile, err := os.OpenFile(path.Join(credentialPath, fileNamePassword), os.O_WRONLY|os.O_CREATE, 0755)
+	if err != nil {
+		return err
+	}
+	defer passwordFile.Close()
+	passwordWriter := bufio.NewWriter(passwordFile)
+	_, _ = passwordWriter.WriteString(password)
+	_ = passwordWriter.Flush()
+
+	return nil
+}
 
 func TestPrometheusAddRequests(t *testing.T) {
 	t.Parallel()
@@ -45,11 +82,15 @@ func TestPrometheusAddRequests(t *testing.T) {
 	}))
 	defer server.Close()
 
+	err2 := setupCredential(credentialPath)
+	assert.NoError(t, err2)
+
 	baseCtx, _ := katalystbase.GenerateFakeGenericContext(nil, nil, nil, nil)
 	genericConf := &metricconf.GenericMetricConfiguration{}
 	collectConf := &metric.CollectorConfiguration{
-		PodSelector:  labels.NewSelector(),
-		NodeSelector: labels.NewSelector(),
+		PodSelector:    labels.NewSelector(),
+		NodeSelector:   labels.NewSelector(),
+		CredentialPath: credentialPath,
 	}
 	storeConf := &metricconf.StoreConfiguration{}
 	localStore, _ := local.NewLocalMemoryMetricStore(ctx, baseCtx, genericConf, storeConf)
@@ -57,6 +98,8 @@ func TestPrometheusAddRequests(t *testing.T) {
 	promCollector, err := NewPrometheusCollector(ctx, baseCtx, genericConf, collectConf, localStore)
 	assert.NoError(t, err)
 	promCollector.(*prometheusCollector).client, _ = newPrometheusClient()
+	assert.Equal(t, promCollector.(*prometheusCollector).username, username)
+	assert.Equal(t, promCollector.(*prometheusCollector).password, password)
 
 	hostAndPort := strings.Split(strings.TrimPrefix(server.URL, "http://"), ":")
 	assert.Equal(t, 2, len(hostAndPort))

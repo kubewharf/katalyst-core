@@ -48,7 +48,7 @@ import (
 
 const (
 	healthZPath = "/healthz"
-	pprofPrefix = "/debug/pprof"
+	debugPrefix = "/debug"
 )
 
 // GenericOptions is used as an extendable way to support
@@ -152,7 +152,7 @@ func NewGenericContext(
 	// it will use corev1 event recorder and wrap it with a v1 event recorder adapter.
 	broadcastAdapter := events.NewEventBroadcasterAdapter(clientSet.KubeClient)
 
-	httpHandler := process.NewHTTPHandler(genericConf.GenericEndpointHandleChains, []string{healthZPath, pprofPrefix})
+	httpHandler := process.NewHTTPHandler(genericConf.GenericEndpointHandleChains, []string{healthZPath, debugPrefix})
 
 	// since some authentication implementation needs kcc and kcc only support agent component, so we only enable
 	// authentication for agent component for now.
