@@ -202,7 +202,7 @@ func (r *RemoteMemoryMetricStore) GetMetric(_ context.Context, namespace, metric
 			req.URL.RawQuery = values.Encode()
 		},
 		func(body io.ReadCloser) error {
-			metricList, err := types.DecodeMetricList(body)
+			metricList, err := types.DecodeMetricList(body, metricName)
 			if err != nil {
 				return fmt.Errorf("decode err: %v", err)
 			}
