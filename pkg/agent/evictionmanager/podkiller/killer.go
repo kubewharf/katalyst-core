@@ -33,6 +33,7 @@ import (
 	"k8s.io/client-go/tools/events"
 	cri "k8s.io/cri-api/pkg/apis"
 	"k8s.io/klog/v2"
+	"k8s.io/kubernetes/pkg/kubelet/container"
 	"k8s.io/kubernetes/pkg/kubelet/cri/remote"
 
 	"github.com/kubewharf/katalyst-core/pkg/config"
@@ -285,7 +286,8 @@ func (c *ContainerKiller) Evict(_ context.Context, pod *v1.Pod, gracePeriodSecon
 	}
 
 	for _, containerStatus := range pod.Status.ContainerStatuses {
-		err := c.containerManager.StopContainer(containerStatus.ContainerID, gracePeriodSeconds)
+		containerID := container.ParseContainerID(containerStatus.ContainerID)
+		err := c.containerManager.StopContainer(containerID.ID, gracePeriodSeconds)
 		if err != nil {
 			c.recorder.Eventf(pod, nil, v1.EventTypeNormal, consts.EventReasonContainerStopped, consts.EventActionContainerStopping,
 				"Failed to kill container %v; reason: %s", containerStatus.Name, reason)
@@ -294,7 +296,7 @@ func (c *ContainerKiller) Evict(_ context.Context, pod *v1.Pod, gracePeriodSecon
 				metrics.MetricTag{Key: "pod_ns", Val: pod.Namespace},
 				metrics.MetricTag{Key: "pod_name", Val: pod.Name},
 				metrics.MetricTag{Key: "container_name", Val: containerStatus.Name})
-			klog.Infof("[killer] failed to kill container %v/%v for pod %v/%v, error:%v", containerStatus.Name, containerStatus.ContainerID, pod.Namespace, pod.Name, err)
+			klog.Infof("[killer] failed to kill container %v(containerID: %v) for pod %v/%v, error:%v", containerStatus.Name, containerID, pod.Namespace, pod.Name, err)
 			return fmt.Errorf("ContainerKiller stop container %v failed with error: %v", containerStatus.ContainerID, err)
 		}
 		c.recorder.Eventf(pod, nil, v1.EventTypeNormal, consts.EventReasonContainerStopped, consts.EventActionContainerStopping,
