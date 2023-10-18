@@ -43,7 +43,7 @@ type internalMetricImp struct {
 	timestampSets map[int64]interface{}
 	seriesMetric  *types.SeriesMetric
 
-	aggregatedMetric *types.AggregatedMetric
+	aggregatedMetric map[string]*types.AggregatedMetric
 }
 
 func newInternalMetric(m types.MetricMetaImp, o types.ObjectMetaImp, b types.BasicMetric) *internalMetricImp {
@@ -53,7 +53,7 @@ func newInternalMetric(m types.MetricMetaImp, o types.ObjectMetaImp, b types.Bas
 		BasicMetric:      b,
 		timestampSets:    make(map[int64]interface{}),
 		seriesMetric:     types.NewSeriesMetric(),
-		aggregatedMetric: types.NewAggregatedInternalMetric(),
+		aggregatedMetric: make(map[string]*types.AggregatedMetric),
 	}
 }
 
@@ -73,16 +73,15 @@ func (a *internalMetricImp) getSeriesItems(latest bool) (types.Metric, bool) {
 }
 
 func (a *internalMetricImp) getAggregatedItems(agg string) (types.Metric, bool) {
-	v, ok := a.aggregatedMetric.Values[agg]
+	v, ok := a.aggregatedMetric[agg]
 	if !ok {
 		return nil, false
 	}
 
-	res := a.aggregatedMetric.DeepCopy().(*types.AggregatedMetric)
-	res.MetricMetaImp = a.MetricMetaImp.DeepCopy()
+	res := v.DeepCopy().(*types.AggregatedMetric)
+	res.MetricMetaImp = types.AggregatorMetricMetaImp(a.MetricMetaImp, agg)
 	res.ObjectMetaImp = a.ObjectMetaImp.DeepCopy()
 	res.BasicMetric = a.BasicMetric.DeepCopy()
-	res.Values = map[string]float64{a.GetName() + agg: v}
 	return res, true
 }
 
@@ -119,21 +118,15 @@ func (a *internalMetricImp) addSeriesMetric(is *types.SeriesMetric) []*types.Ser
 }
 
 func (a *internalMetricImp) mergeAggregatedMetric(as *types.AggregatedMetric) {
-	if len(a.aggregatedMetric.Values) == 0 {
-		a.aggregatedMetric = as
-		return
-	}
-
-	for k, v := range as.Values {
-		if _, ok := a.aggregatedMetric.Values[k]; !ok {
-			a.aggregatedMetric.Values[k] = v
-		}
+	_, aggName := types.ParseAggregator(as.GetName())
+	if _, ok := a.aggregatedMetric[aggName]; !ok {
+		a.aggregatedMetric[aggName] = as
 	}
 }
 
 // aggregateMetric calculate the aggregated metric based on snapshot of current store
 func (a *internalMetricImp) aggregateMetric() {
-	a.aggregatedMetric.Values = make(map[string]float64)
+	a.aggregatedMetric = make(map[string]*types.AggregatedMetric)
 	if len(a.seriesMetric.Values) <= 0 {
 		return
 	}
@@ -149,23 +142,25 @@ func (a *internalMetricImp) aggregateMetric() {
 		statsData = append(statsData, item.Value)
 	}
 
-	a.aggregatedMetric.Count = int64(a.seriesMetric.Len())
-	a.aggregatedMetric.Timestamp = a.seriesMetric.Values[0].Timestamp
-	a.aggregatedMetric.WindowSeconds = (a.seriesMetric.Values[a.seriesMetric.Len()-1].Timestamp - a.seriesMetric.Values[0].Timestamp) / time.Second.Milliseconds()
-	a.aggregatedMetric.Values[apimetric.AggregateFunctionMax] = max
-	a.aggregatedMetric.Values[apimetric.AggregateFunctionMin] = min
-	a.aggregatedMetric.Values[apimetric.AggregateFunctionAvg] = sum / float64(a.seriesMetric.Len())
+	identity := types.AggregatedIdentity{
+		Count:         int64(a.seriesMetric.Len()),
+		Timestamp:     a.seriesMetric.Values[0].Timestamp,
+		WindowSeconds: (a.seriesMetric.Values[a.seriesMetric.Len()-1].Timestamp - a.seriesMetric.Values[0].Timestamp) / time.Second.Milliseconds(),
+	}
+	a.aggregatedMetric[apimetric.AggregateFunctionMax] = types.NewAggregatedInternalMetric(max, identity)
+	a.aggregatedMetric[apimetric.AggregateFunctionMin] = types.NewAggregatedInternalMetric(min, identity)
+	a.aggregatedMetric[apimetric.AggregateFunctionAvg] = types.NewAggregatedInternalMetric(sum/float64(a.seriesMetric.Len()), identity)
 
 	if p99, err := statsData.Percentile(99); err != nil {
 		general.Errorf("failed to get stats p99: %v", err)
 	} else {
-		a.aggregatedMetric.Values[apimetric.AggregateFunctionP99] = p99
+		a.aggregatedMetric[apimetric.AggregateFunctionP99] = types.NewAggregatedInternalMetric(p99, identity)
 	}
 
 	if p90, err := statsData.Percentile(90); err != nil {
 		general.Errorf("failed to get stats p90: %v", err)
 	} else {
-		a.aggregatedMetric.Values[apimetric.AggregateFunctionP90] = p90
+		a.aggregatedMetric[apimetric.AggregateFunctionP90] = types.NewAggregatedInternalMetric(p90, identity)
 	}
 }
 

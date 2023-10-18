@@ -122,7 +122,7 @@ func (l *LocalMemoryMetricStore) InsertMetric(seriesList []*data.MetricSeries) e
 		}
 
 		l.cache.AddSeriesMetric(seriesData)
-		klog.Infof("insert with %v, costs %s", seriesData.String(), time.Since(begin).String())
+		klog.V(6).Infof("LocalMemoryMetricStore] insert with %v, costs %s", seriesData.String(), time.Since(begin).String())
 	}
 	return nil
 }

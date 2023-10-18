@@ -24,7 +24,6 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 
 	"github.com/kubewharf/katalyst-api/pkg/metric"
-	"github.com/kubewharf/katalyst-core/pkg/util/general"
 )
 
 var validAggregatorSuffixList = []string{
@@ -72,14 +71,15 @@ type AggregatedMetric struct {
 	BasicMetric   `json:",inline"`
 
 	AggregatedIdentity `json:",inline"`
-	Values             map[string]float64 `json:"values,omitempty"`
+	Value              float64 `json:"values,omitempty"`
 }
 
 var _ Metric = &AggregatedMetric{}
 
-func NewAggregatedInternalMetric() *AggregatedMetric {
+func NewAggregatedInternalMetric(value float64, identity AggregatedIdentity) *AggregatedMetric {
 	return &AggregatedMetric{
-		Values: make(map[string]float64),
+		Value:              value,
+		AggregatedIdentity: identity,
 	}
 }
 
@@ -90,12 +90,21 @@ func (as *AggregatedMetric) DeepCopy() Metric {
 		BasicMetric:   as.BasicMetric.DeepCopy(),
 
 		AggregatedIdentity: as.AggregatedIdentity,
-		Values:             general.DeepCopyFload64Map(as.Values),
+		Value:              as.Value,
+	}
+}
+
+func (as *AggregatedMetric) GetBaseMetricMetaImp() MetricMetaImp {
+	origin, _ := ParseAggregator(as.GetName())
+	return MetricMetaImp{
+		Name:       origin,
+		Namespaced: as.Namespaced,
+		ObjectKind: as.ObjectKind,
 	}
 }
 
 func (as *AggregatedMetric) Len() int {
-	return len(as.Values)
+	return 1
 }
 
 func (as *AggregatedMetric) String() string {
@@ -104,16 +113,20 @@ func (as *AggregatedMetric) String() string {
 }
 
 func (as *AggregatedMetric) GetItemList() []Item {
-	var res []Item
-	for k, v := range as.Values {
-		if len(k) > 0 {
-			res = append(res, &AggregatedItem{
-				AggregatedIdentity: as.AggregatedIdentity,
-				Value:              v,
-			})
-		}
+	return []Item{
+		&AggregatedItem{
+			AggregatedIdentity: as.AggregatedIdentity,
+			Value:              as.Value,
+		},
 	}
-	return res
+}
+
+func AggregatorMetricMetaImp(origin MetricMetaImp, aggName string) MetricMetaImp {
+	return MetricMetaImp{
+		Name:       origin.GetName() + aggName,
+		Namespaced: origin.GetNamespaced(),
+		ObjectKind: origin.GetObjectKind(),
+	}
 }
 
 // ParseAggregator parses the given metricName into aggregator-suffix and origin-metric,
@@ -125,4 +138,13 @@ func ParseAggregator(metricName string) (string, string) {
 		}
 	}
 	return metricName, ""
+}
+
+// IsAggregatorMetric return whether this metric is aggregator metric
+func IsAggregatorMetric(metricName string) bool {
+	_, agg := ParseAggregator(metricName)
+	if len(agg) > 0 {
+		return true
+	}
+	return false
 }

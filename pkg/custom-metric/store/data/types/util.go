@@ -48,25 +48,27 @@ func UnmarshalMetricList(bytes []byte) (res []Metric, err error) {
 	return nil, fmt.Errorf("bytes can be unmarshalled into neither series metric nor aggregated metric")
 }
 
-func DecodeMetricList(body io.ReadCloser) (res []Metric, err error) {
-	var sList []*SeriesMetric
-	if err = json.NewDecoder(body).Decode(&sList); err == nil {
-		for _, s := range sList {
-			res = append(res, s)
+func DecodeMetricList(body io.ReadCloser, metricName string) (res []Metric, err error) {
+	if IsAggregatorMetric(metricName) {
+		var aList []*AggregatedMetric
+		if err = json.NewDecoder(body).Decode(&aList); err == nil {
+			for _, a := range aList {
+				res = append(res, a)
+			}
+			return
+		} else {
+			klog.Infof("bytes decoded into aggregated metric err: %v", err)
 		}
-		return
 	} else {
-		klog.Infof("bytes decoded into series metric err: %v", err)
-	}
-
-	var aList []*AggregatedMetric
-	if err = json.NewDecoder(body).Decode(&aList); err == nil {
-		for _, a := range aList {
-			res = append(res, a)
+		var sList []*SeriesMetric
+		if err = json.NewDecoder(body).Decode(&sList); err == nil {
+			for _, s := range sList {
+				res = append(res, s)
+			}
+			return
+		} else {
+			klog.Infof("bytes decoded into series metric err: %v", err)
 		}
-		return
-	} else {
-		klog.Infof("bytes decoded into aggregated metric err: %v", err)
 	}
 
 	return nil, fmt.Errorf("bytes can be decoded into neither series metric nor aggregated metric")

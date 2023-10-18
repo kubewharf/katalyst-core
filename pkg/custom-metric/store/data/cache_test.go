@@ -480,31 +480,134 @@ func TestCache(t *testing.T) {
 			Timestamp:     12 * time.Second.Milliseconds(),
 			WindowSeconds: 8,
 		},
-		Values: map[string]float64{},
 	}
 
-	agg.Values = map[string]float64{"m-3" + metric.AggregateFunctionAvg: 8.25}
+	agg.Name = "m-3" + metric.AggregateFunctionAvg
+	agg.Value = 8.25
 	metricList, exist = c.GetMetric("n-3", "m-3"+metric.AggregateFunctionAvg, "pod-5", &schema.GroupResource{Resource: "pod"}, false)
 	assert.Equal(t, true, exist)
 	assert.ElementsMatch(t, []*types.AggregatedMetric{agg}, metricList)
 
-	agg.Values = map[string]float64{"m-3" + metric.AggregateFunctionMax: 12}
+	agg.Name = "m-3" + metric.AggregateFunctionMax
+	agg.Value = 12
 	metricList, exist = c.GetMetric("n-3", "m-3"+metric.AggregateFunctionMax, "pod-5", &schema.GroupResource{Resource: "pod"}, false)
 	assert.Equal(t, true, exist)
 	assert.ElementsMatch(t, []*types.AggregatedMetric{agg}, metricList)
 
-	agg.Values = map[string]float64{"m-3" + metric.AggregateFunctionMin: 4}
+	agg.Name = "m-3" + metric.AggregateFunctionMin
+	agg.Value = 4
 	metricList, exist = c.GetMetric("n-3", "m-3"+metric.AggregateFunctionMin, "pod-5", &schema.GroupResource{Resource: "pod"}, false)
 	assert.Equal(t, true, exist)
 	assert.ElementsMatch(t, []*types.AggregatedMetric{agg}, metricList)
 
-	agg.Values = map[string]float64{"m-3" + metric.AggregateFunctionP99: 11}
+	agg.Name = "m-3" + metric.AggregateFunctionP99
+	agg.Value = 11
 	metricList, exist = c.GetMetric("n-3", "m-3"+metric.AggregateFunctionP99, "pod-5", &schema.GroupResource{Resource: "pod"}, false)
 	assert.Equal(t, true, exist)
 	assert.ElementsMatch(t, []*types.AggregatedMetric{agg}, metricList)
 
-	agg.Values = map[string]float64{"m-3" + metric.AggregateFunctionP90: 11}
+	agg.Name = "m-3" + metric.AggregateFunctionP90
+	agg.Value = 11
 	metricList, exist = c.GetMetric("n-3", "m-3"+metric.AggregateFunctionP90, "pod-5", &schema.GroupResource{Resource: "pod"}, false)
 	assert.Equal(t, true, exist)
 	assert.ElementsMatch(t, []*types.AggregatedMetric{agg}, metricList)
+}
+
+func TestMergeInternalMetricList(t *testing.T) {
+	t.Parallel()
+
+	type args struct {
+		metricName  string
+		metricLists [][]types.Metric
+	}
+	tests := []struct {
+		name string
+		args args
+		want []types.Metric
+	}{
+		{
+			args: args{
+				metricName: "pod_cpu_usage_agg_max",
+				metricLists: [][]types.Metric{
+					{
+						&types.AggregatedMetric{
+							MetricMetaImp: types.MetricMetaImp{
+								Name:       "pod_cpu_usage_agg_max",
+								Namespaced: true,
+								ObjectKind: "pod",
+							},
+							ObjectMetaImp: types.ObjectMetaImp{
+								ObjectNamespace: "n-1",
+								ObjectName:      "pod-1",
+							},
+							BasicMetric: types.BasicMetric{
+								Labels: map[string]string{
+									"Name": "m-1",
+								},
+							},
+							AggregatedIdentity: types.AggregatedIdentity{
+								Count:         4,
+								Timestamp:     12 * time.Second.Milliseconds(),
+								WindowSeconds: 8,
+							},
+							Value: 10,
+						},
+					},
+					{
+						&types.AggregatedMetric{
+							MetricMetaImp: types.MetricMetaImp{
+								Name:       "pod_cpu_usage_agg_max",
+								Namespaced: true,
+								ObjectKind: "pod",
+							},
+							ObjectMetaImp: types.ObjectMetaImp{
+								ObjectNamespace: "n-1",
+								ObjectName:      "pod-1",
+							},
+							BasicMetric: types.BasicMetric{
+								Labels: map[string]string{
+									"Name": "m-1",
+								},
+							},
+							AggregatedIdentity: types.AggregatedIdentity{
+								Count:         4,
+								Timestamp:     12 * time.Second.Milliseconds(),
+								WindowSeconds: 8,
+							},
+							Value: 10,
+						},
+					},
+				},
+			},
+			want: []types.Metric{
+				&types.AggregatedMetric{
+					MetricMetaImp: types.MetricMetaImp{
+						Name:       "pod_cpu_usage_agg_max",
+						Namespaced: true,
+						ObjectKind: "pod",
+					},
+					ObjectMetaImp: types.ObjectMetaImp{
+						ObjectNamespace: "n-1",
+						ObjectName:      "pod-1",
+					},
+					BasicMetric: types.BasicMetric{
+						Labels: map[string]string{
+							"Name": "m-1",
+						},
+					},
+					AggregatedIdentity: types.AggregatedIdentity{
+						Count:         4,
+						Timestamp:     12 * time.Second.Milliseconds(),
+						WindowSeconds: 8,
+					},
+					Value: 10,
+				},
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equalf(t, tt.want, MergeInternalMetricList(tt.args.metricName, tt.args.metricLists...), "MergeInternalMetricList(%v, %v)", tt.args.metricName, tt.args.metricLists)
+		})
+	}
 }

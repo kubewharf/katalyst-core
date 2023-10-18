@@ -91,14 +91,15 @@ func (c *CachedMetric) AddAggregatedMetric(aList ...types.Metric) {
 			continue
 		}
 
-		if _, ok := c.metricMap[d.MetricMetaImp]; !ok {
-			c.metricMap[d.MetricMetaImp] = make(map[types.ObjectMeta]*internalMetricImp)
+		baseMetricMetaImp := d.GetBaseMetricMetaImp()
+		if _, ok := c.metricMap[baseMetricMetaImp]; !ok {
+			c.metricMap[baseMetricMetaImp] = make(map[types.ObjectMeta]*internalMetricImp)
 		}
-		if _, ok := c.metricMap[d.MetricMetaImp][d.ObjectMetaImp]; !ok {
-			c.metricMap[d.MetricMetaImp][d.ObjectMetaImp] = newInternalMetric(d.MetricMetaImp, d.ObjectMetaImp, d.BasicMetric)
+		if _, ok := c.metricMap[baseMetricMetaImp][d.ObjectMetaImp]; !ok {
+			c.metricMap[baseMetricMetaImp][d.ObjectMetaImp] = newInternalMetric(baseMetricMetaImp, d.ObjectMetaImp, d.BasicMetric)
 		}
 
-		c.metricMap[d.MetricMetaImp][d.ObjectMetaImp].mergeAggregatedMetric(d)
+		c.metricMap[baseMetricMetaImp][d.ObjectMetaImp].mergeAggregatedMetric(d)
 	}
 }
 
