@@ -63,7 +63,7 @@ func (a *AggregatedItem) GetCount() *int64 { return &a.Count }
 
 func (a *AggregatedItem) GetTimestamp() int64 { return a.Timestamp }
 
-func (a *AggregatedItem) GetWindowSeconds() *int64 { return &a.Count }
+func (a *AggregatedItem) GetWindowSeconds() *int64 { return &a.WindowSeconds }
 
 type AggregatedMetric struct {
 	MetricMetaImp `json:",inline"`
