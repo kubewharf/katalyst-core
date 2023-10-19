@@ -86,6 +86,9 @@ func NewInferencePlugin(pluginName string, conf *config.Configuration, extraConf
 		fetcher, err := initFn(fetcherName, conf, extraConf, emitterPool, metaServer, metaCache)
 		if err != nil {
 			return nil, fmt.Errorf("failed to start sysadvisor plugin %v: %v", pluginName, err)
+		} else if fetcher == nil {
+			general.Infof("fetcher: %s isn't enabled", fetcherName)
+			continue
 		}
 
 		inferencePlugin.modelsResultFetchers[fetcherName] = fetcher

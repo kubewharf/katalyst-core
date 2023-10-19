@@ -31,6 +31,12 @@ import (
 	metricspool "github.com/kubewharf/katalyst-core/pkg/metrics/metrics-pool"
 )
 
+func NewNilModelResultFetcher(fetcherName string, conf *config.Configuration, extraConf interface{},
+	emitterPool metricspool.MetricsEmitterPool, metaServer *metaserver.MetaServer,
+	metaCache metacache.MetaCache) (modelresultfetcher.ModelResultFetcher, error) {
+	return nil, nil
+}
+
 func TestNewInferencePlugin(t *testing.T) {
 	t.Parallel()
 	type args struct {
@@ -63,6 +69,8 @@ func TestNewInferencePlugin(t *testing.T) {
 
 	modelresultfetcher.RegisterModelResultFetcherInitFunc(borweinfetcher.BorweinModelResultFetcherName,
 		modelresultfetcher.NewDummyModelResultFetcher)
+	modelresultfetcher.RegisterModelResultFetcherInitFunc("test-nil-fetcher",
+		NewNilModelResultFetcher)
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

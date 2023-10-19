@@ -683,6 +683,7 @@ func TestNewBorweinModelResultFetcher(t *testing.T) {
 
 	type args struct {
 		fetcherName                   string
+		enableBorwein                 bool
 		conf                          *config.Configuration
 		extraConf                     interface{}
 		emitterPool                   metricspool.MetricsEmitterPool
@@ -700,6 +701,7 @@ func TestNewBorweinModelResultFetcher(t *testing.T) {
 			name: "test normal new borwein model result fetcher",
 			args: args{
 				fetcherName:                   BorweinModelResultFetcherName,
+				enableBorwein:                 true,
 				conf:                          conf,
 				emitterPool:                   metricspool.DummyMetricsEmitterPool{},
 				metaServer:                    metaServer,
@@ -711,11 +713,12 @@ func TestNewBorweinModelResultFetcher(t *testing.T) {
 		{
 			name: "test new borwein with nil conf",
 			args: args{
-				fetcherName: BorweinModelResultFetcherName,
-				conf:        nil,
-				emitterPool: metricspool.DummyMetricsEmitterPool{},
-				metaServer:  metaServer,
-				metaCache:   mc,
+				fetcherName:   BorweinModelResultFetcherName,
+				enableBorwein: true,
+				conf:          nil,
+				emitterPool:   metricspool.DummyMetricsEmitterPool{},
+				metaServer:    metaServer,
+				metaCache:     mc,
 			},
 			wantErr: true,
 		},
@@ -723,6 +726,7 @@ func TestNewBorweinModelResultFetcher(t *testing.T) {
 			name: "test new borwein with nil metaServer",
 			args: args{
 				fetcherName:                   BorweinModelResultFetcherName,
+				enableBorwein:                 true,
 				conf:                          conf,
 				emitterPool:                   metricspool.DummyMetricsEmitterPool{},
 				metaServer:                    nil,
@@ -735,6 +739,7 @@ func TestNewBorweinModelResultFetcher(t *testing.T) {
 			name: "test new borwein with nil metacache",
 			args: args{
 				fetcherName:                   BorweinModelResultFetcherName,
+				enableBorwein:                 true,
 				conf:                          conf,
 				emitterPool:                   metricspool.DummyMetricsEmitterPool{},
 				metaServer:                    metaServer,
@@ -743,9 +748,25 @@ func TestNewBorweinModelResultFetcher(t *testing.T) {
 			},
 			wantErr: true,
 		},
+		{
+			name: "test new borwein fetcher with enableBorwein false",
+			args: args{
+				fetcherName:                   BorweinModelResultFetcherName,
+				enableBorwein:                 false,
+				conf:                          conf,
+				emitterPool:                   metricspool.DummyMetricsEmitterPool{},
+				metaServer:                    metaServer,
+				metaCache:                     nil,
+				inferenceServiceSocketAbsPath: path.Join(sockDir, "test.sock"),
+			},
+			wantErr: false,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			if tt.args.conf != nil {
+				tt.args.conf.PolicyRama.EnableBorwein = tt.args.enableBorwein
+			}
 
 			var svr *grpc.Server
 			if tt.args.inferenceServiceSocketAbsPath != "" {
@@ -754,9 +775,18 @@ func TestNewBorweinModelResultFetcher(t *testing.T) {
 				conf.BorweinConfiguration.InferenceServiceSocketAbsPath = tt.args.inferenceServiceSocketAbsPath
 			}
 
-			_, err := NewBorweinModelResultFetcher(tt.args.fetcherName, tt.args.conf, tt.args.extraConf, tt.args.emitterPool, tt.args.metaServer, tt.args.metaCache)
+			fetcher, err := NewBorweinModelResultFetcher(tt.args.fetcherName, tt.args.conf, tt.args.extraConf, tt.args.emitterPool, tt.args.metaServer, tt.args.metaCache)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("NewBorweinModelResultFetcher() error = %v, wantErr %v", err, tt.wantErr)
+				if svr != nil {
+					svr.Stop()
+				}
+				return
+			} else if !tt.args.enableBorwein {
+				require.Nil(t, fetcher)
+				if svr != nil {
+					svr.Stop()
+				}
 				return
 			}
 

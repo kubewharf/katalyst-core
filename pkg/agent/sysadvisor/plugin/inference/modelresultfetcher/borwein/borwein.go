@@ -322,6 +322,8 @@ func NewBorweinModelResultFetcher(fetcherName string, conf *config.Configuration
 	metaCache metacache.MetaCache) (modelresultfetcher.ModelResultFetcher, error) {
 	if conf == nil || conf.BorweinConfiguration == nil {
 		return nil, fmt.Errorf("nil conf")
+	} else if !conf.PolicyRama.EnableBorwein {
+		return nil, nil
 	} else if metaServer == nil {
 		return nil, fmt.Errorf("nil metaServer")
 	} else if metaCache == nil {
