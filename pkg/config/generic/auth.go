@@ -22,6 +22,8 @@ type AuthConfiguration struct {
 	AuthType string
 
 	AccessControlType string
+
+	HttpStrictAuthentication bool
 }
 
 func NewAuthConfiguration() *AuthConfiguration {

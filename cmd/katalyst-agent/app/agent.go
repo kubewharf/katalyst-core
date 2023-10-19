@@ -29,6 +29,7 @@ import (
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/agent"
 	"github.com/kubewharf/katalyst-core/pkg/client"
 	"github.com/kubewharf/katalyst-core/pkg/config"
+	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/crd"
 	"github.com/kubewharf/katalyst-core/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
@@ -112,6 +113,12 @@ func startAgent(ctx context.Context, genericCtx *agent.GenericContext,
 		defer wg.Done()
 		genericCtx.Run(ctx)
 	}()
+
+	// watch auth configuration
+	err = genericCtx.MetaServer.AddConfigWatcher(crd.AuthConfigurationGVR)
+	if err != nil {
+		return fmt.Errorf("add authconfiguration watcher failed")
+	}
 
 	// start all component and make sure them can be stopped completely
 	for agentName, component := range componentMap {

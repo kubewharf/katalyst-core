@@ -30,8 +30,6 @@ type GenericConfiguration struct {
 
 	GenericEndpoint             string
 	GenericEndpointHandleChains []string
-	GenericAuthStaticUser       string
-	GenericAuthStaticPasswd     string
 
 	*QoSConfiguration
 	*MetricsConfiguration

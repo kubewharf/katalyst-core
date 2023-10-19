@@ -45,11 +45,6 @@ func InitEvictionManager(agentCtx *GenericContext, conf *config.Configuration, _
 		return false, ComponentStub{}, fmt.Errorf("failed register dynamic config %v: %s", crd.AdminQoSConfigurationGVR.String(), err)
 	}
 
-	err = agentCtx.MetaServer.AddConfigWatcher(crd.AuthConfigurationGVR)
-	if err != nil {
-		return false, ComponentStub{}, fmt.Errorf("failed register dynamic config %v: %s", crd.AuthConfigurationGVR.String(), err)
-	}
-
 	klog.Infof("starting eviction manager")
 
 	agentCtx.PluginManager.AddHandler(evictionMgr.GetHandlerType(), plugincache.PluginHandler(evictionMgr))

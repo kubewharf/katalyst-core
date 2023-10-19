@@ -30,12 +30,15 @@ type AuthOptions struct {
 
 	// AccessControl type
 	AccessControlType string
+
+	HttpStrictAuthentication bool
 }
 
 func NewAuthOptions() *AuthOptions {
 	return &AuthOptions{
-		AuthType:          credential.AuthTypeInsecure,
-		AccessControlType: authorization.AccessControlTypeInsecure,
+		AuthType:                 credential.AuthTypeInsecure,
+		AccessControlType:        authorization.AccessControlTypeInsecure,
+		HttpStrictAuthentication: false,
 	}
 }
 
@@ -44,11 +47,13 @@ func (o *AuthOptions) AddFlags(fs *pflag.FlagSet) {
 	fs.StringVar(&o.AuthType, "auth-type", o.AuthType, "which auth type for common http endpoint,"+
 		"e.g. BasicAuth")
 	fs.StringVar(&o.AccessControlType, "access-control-type", o.AccessControlType, "access control type")
+	fs.BoolVar(&o.HttpStrictAuthentication, "http-strict-authentication", o.HttpStrictAuthentication,
+		"whether to strict authenticate http request")
 }
 
 func (o *AuthOptions) ApplyTo(c *generic.AuthConfiguration) error {
 	c.AuthType = o.AuthType
 	c.AccessControlType = o.AccessControlType
-
+	c.HttpStrictAuthentication = o.HttpStrictAuthentication
 	return nil
 }

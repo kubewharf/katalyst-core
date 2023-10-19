@@ -20,10 +20,13 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"net/url"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
+
+	"github.com/kubewharf/katalyst-core/pkg/metrics"
 )
 
 type dummyHandler struct {
@@ -122,7 +125,7 @@ func TestHTTPHandler(t *testing.T) {
 		},
 	} {
 		t.Logf("test case: %v", tc.comment)
-		h := NewHTTPHandler(tc.enabled, []string{})
+		h := NewHTTPHandler(tc.enabled, []string{}, true, metrics.DummyMetrics{})
 
 		ctx, cancel := context.WithCancel(context.Background())
 		h.Run(ctx)
@@ -134,7 +137,10 @@ func TestHTTPHandler(t *testing.T) {
 
 			for j := 0; j < r.burst; j++ {
 				hr := &http.Request{
-					Header:     make(http.Header),
+					Header: make(http.Header),
+					URL: &url.URL{
+						Path: "fake_path",
+					},
 					RemoteAddr: fmt.Sprintf("%v", r.remoteAddr),
 					Method:     fmt.Sprintf("%v-order-%v", r.remoteAddr, j),
 				}
