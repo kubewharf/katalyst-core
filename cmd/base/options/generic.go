@@ -41,8 +41,6 @@ type GenericOptions struct {
 	// todo actually those auth info should be stored in secrets or somewhere like that
 	GenericEndpoint             string
 	GenericEndpointHandleChains []string
-	GenericAuthStaticUser       string
-	GenericAuthStaticPasswd     string
 
 	qosOptions     *QoSOptions
 	metricsOptions *MetricsOptions
@@ -54,14 +52,15 @@ type GenericOptions struct {
 
 func NewGenericOptions() *GenericOptions {
 	return &GenericOptions{
-		DryRun:                      false,
-		TransformedInformerForPod:   false,
-		GenericEndpoint:             ":9316",
-		qosOptions:                  NewQoSOptions(),
-		metricsOptions:              NewMetricsOptions(),
-		logsOptions:                 NewLogsOptions(),
-		authOptions:                 NewAuthOptions(),
-		GenericEndpointHandleChains: []string{process.HTTPChainCredential, process.HTTPChainRateLimiter},
+		DryRun:                    false,
+		TransformedInformerForPod: false,
+		GenericEndpoint:           ":9316",
+		qosOptions:                NewQoSOptions(),
+		metricsOptions:            NewMetricsOptions(),
+		logsOptions:               NewLogsOptions(),
+		authOptions:               NewAuthOptions(),
+		GenericEndpointHandleChains: []string{process.HTTPChainCredential, process.HTTPChainRateLimiter,
+			process.HTTPChainMonitor},
 	}
 }
 
@@ -88,10 +87,6 @@ func (o *GenericOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 		"the endpoint of generic purpose, which will use as prometheus, health check and profiling")
 	fs.StringSliceVar(&o.GenericEndpointHandleChains, "generic-handler-chains", o.GenericEndpointHandleChains,
 		"this flag defines the handler chains that should be enabled")
-	fs.StringVar(&o.GenericAuthStaticUser, "generic-auth-static-user", o.GenericAuthStaticUser,
-		"basic auth is build auth chain for http, and this defines the static user")
-	fs.StringVar(&o.GenericAuthStaticPasswd, "generic-auth-static-passwd", o.GenericAuthStaticPasswd,
-		"basic auth is build auth chain for http, and this defines the static passwd")
 
 	o.qosOptions.AddFlags(fs)
 	o.metricsOptions.AddFlags(fs)
@@ -110,8 +105,6 @@ func (o *GenericOptions) ApplyTo(c *generic.GenericConfiguration) error {
 
 	c.GenericEndpoint = o.GenericEndpoint
 	c.GenericEndpointHandleChains = o.GenericEndpointHandleChains
-	c.GenericAuthStaticUser = o.GenericAuthStaticUser
-	c.GenericAuthStaticPasswd = o.GenericAuthStaticPasswd
 
 	errList := make([]error, 0, 1)
 	errList = append(errList, o.qosOptions.ApplyTo(c.QoSConfiguration))

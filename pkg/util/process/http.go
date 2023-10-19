@@ -32,6 +32,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/klog/v2"
 
+	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/credential"
 	"github.com/kubewharf/katalyst-core/pkg/util/credential/authorization"
 )
@@ -44,6 +45,16 @@ const (
 const (
 	HTTPChainCredential  = "credential"
 	HTTPChainRateLimiter = "rateLimiter"
+	HTTPChainMonitor     = "monitor"
+)
+
+const (
+	HTTPRequestCount       = "http_request_count"
+	HTTPAuthenticateFailed = "http_request_authenticate_failed"
+	HTTPNoPermission       = "http_request_no_permission"
+	HTTPThrottled          = "http_request_throttled"
+
+	UserUnknown = "unknown"
 )
 
 type contextKey string
@@ -66,13 +77,16 @@ type HTTPHandler struct {
 	cred      credential.Credential
 	accessCtl authorization.AccessControl
 
-	enabled           sets.String
-	visitors          map[string]*visitor
-	authInfo          map[string]string
-	skipAuthURLPrefix []string
+	enabled              sets.String
+	visitors             map[string]*visitor
+	authInfo             map[string]string
+	skipAuthURLPrefix    []string
+	strictAuthentication bool
+
+	emitter metrics.MetricEmitter
 }
 
-func NewHTTPHandler(enabled []string, skipAuthURLPrefix []string) *HTTPHandler {
+func NewHTTPHandler(enabled []string, skipAuthURLPrefix []string, strictAuthentication bool, emitter metrics.MetricEmitter) *HTTPHandler {
 
 	return &HTTPHandler{
 		visitors: make(map[string]*visitor),
@@ -80,8 +94,10 @@ func NewHTTPHandler(enabled []string, skipAuthURLPrefix []string) *HTTPHandler {
 		// no credential by default
 		cred: credential.DefaultCredential(),
 		// no authorization check by default
-		accessCtl:         authorization.DefaultAccessControl(),
-		skipAuthURLPrefix: skipAuthURLPrefix,
+		accessCtl:            authorization.DefaultAccessControl(),
+		skipAuthURLPrefix:    skipAuthURLPrefix,
+		strictAuthentication: strictAuthentication,
+		emitter:              emitter,
 	}
 }
 
@@ -144,22 +160,33 @@ func (h *HTTPHandler) withCredential(f http.HandlerFunc) http.HandlerFunc {
 
 		var authInfo credential.AuthInfo
 		shouldSkipAuth := skipAuth(r)
-		if !shouldSkipAuth {
-			var err error
-			authInfo, err = h.cred.Auth(r)
-			if err != nil {
+		if shouldSkipAuth {
+			f(w, r)
+			return
+		}
+
+		var err error
+		authInfo, err = h.cred.Auth(r)
+		if err != nil {
+			if h.strictAuthentication {
 				klog.Warningf("request %+v doesn't have proper auth", r.URL)
 				w.Header().Set("Katalyst-Authenticate", `Basic realm="Restricted"`)
 				w.WriteHeader(http.StatusUnauthorized)
+				_ = h.emitter.StoreInt64(HTTPAuthenticateFailed, 1, metrics.MetricTypeNameCount,
+					metrics.MetricTag{Key: "path", Val: r.URL.Path})
 				return
 			}
-
+		} else {
 			r = attachAuthInfo(r, authInfo)
 			klog.V(4).Infof("user %v request %+v  with auth type %v", authInfo.SubjectName(), r.URL, authInfo.AuthType())
-			if verifyErr := h.accessCtl.Verify(authInfo, authorization.PermissionTypeHttpEndpoint); verifyErr != nil {
+			if verifyErr := h.accessCtl.Verify(authInfo, authorization.PermissionTypeHttpEndpoint); verifyErr != nil &&
+				h.strictAuthentication {
 				klog.Warningf("request %+v with user %v doesn't have permission, msg: %v", r.URL, authInfo.SubjectName(), verifyErr)
 				w.Header().Set("Katalyst-Authenticate", `Basic realm="Restricted"`)
 				w.WriteHeader(http.StatusUnauthorized)
+				_ = h.emitter.StoreInt64(HTTPNoPermission, 1, metrics.MetricTypeNameCount,
+					metrics.MetricTag{Key: "path", Val: r.URL.Path},
+					metrics.MetricTag{Key: "user", Val: authInfo.SubjectName()})
 				return
 			}
 		}
@@ -188,11 +215,28 @@ func (h *HTTPHandler) withRateLimiter(f http.HandlerFunc) http.HandlerFunc {
 				klog.Warningf("request %+v has too many requests from %v", r.URL, rateLimiterKey)
 				w.Header().Set("Katalyst-Limit", `too many requests`)
 				w.WriteHeader(http.StatusTooManyRequests)
+				_ = h.emitter.StoreInt64(HTTPThrottled, 1, metrics.MetricTypeNameCount,
+					metrics.MetricTag{Key: "path", Val: r.URL.Path},
+					metrics.MetricTag{Key: "rateLimiterKey", Val: rateLimiterKey})
 				return
 			}
 		}
 
 		f(w, r)
+	}
+}
+
+func (h *HTTPHandler) withMonitor(f http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		f(w, r)
+
+		user := UserUnknown
+		if authInfo, err := getAuthInfo(r); err == nil {
+			user = authInfo.SubjectName()
+		}
+		_ = h.emitter.StoreInt64(HTTPRequestCount, 1, metrics.MetricTypeNameCount,
+			metrics.MetricTag{Key: "path", Val: r.URL.Path},
+			metrics.MetricTag{Key: "user", Val: user})
 	}
 }
 
@@ -217,10 +261,11 @@ func (h *HTTPHandler) WithAuthorization(auth authorization.AccessControl) error 
 // WithHandleChain builds handler chains for http.Handler
 func (h *HTTPHandler) WithHandleChain(f http.Handler) http.Handler {
 	// build orders for http chains
-	chains := []string{HTTPChainRateLimiter, HTTPChainCredential}
+	chains := []string{HTTPChainMonitor, HTTPChainRateLimiter, HTTPChainCredential}
 	funcs := map[string]func(http.HandlerFunc) http.HandlerFunc{
 		HTTPChainRateLimiter: h.withRateLimiter,
 		HTTPChainCredential:  h.withCredential,
+		HTTPChainMonitor:     h.withMonitor,
 	}
 
 	var handler http.Handler = f
@@ -278,6 +323,9 @@ func GetAndUnmarshal(url string, v interface{}) error {
 }
 
 func attachAuthInfo(r *http.Request, authInfo credential.AuthInfo) *http.Request {
+	if authInfo == nil {
+		return r
+	}
 	newCtx := context.WithValue(r.Context(), KeyAuthInfo, &authInfo)
 	return r.WithContext(newCtx)
 }

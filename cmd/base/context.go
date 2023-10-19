@@ -147,12 +147,15 @@ func NewGenericContext(
 		return nil, err
 	}
 
+	customMetricsEmitterPool := metricspool.NewCustomMetricsEmitterPool(emitterPool)
+
 	// CreateEventRecorder create a v1 event (k8s 1.19 or later supported) recorder,
 	// which uses discovery client to check whether api server support v1 event, if not,
 	// it will use corev1 event recorder and wrap it with a v1 event recorder adapter.
 	broadcastAdapter := events.NewEventBroadcasterAdapter(clientSet.KubeClient)
 
-	httpHandler := process.NewHTTPHandler(genericConf.GenericEndpointHandleChains, []string{healthZPath, debugPrefix})
+	httpHandler := process.NewHTTPHandler(genericConf.GenericEndpointHandleChains, []string{healthZPath, debugPrefix},
+		genericConf.HttpStrictAuthentication, customMetricsEmitterPool.GetDefaultMetricsEmitter())
 
 	// since some authentication implementation needs kcc and kcc only support agent component, so we only enable
 	// authentication for agent component for now.
@@ -190,7 +193,7 @@ func NewGenericContext(
 		DynamicInformerFactory:    dynamicInformerFactory,
 		BroadcastAdapter:          broadcastAdapter,
 		Client:                    clientSet,
-		EmitterPool:               metricspool.NewCustomMetricsEmitterPool(emitterPool),
+		EmitterPool:               customMetricsEmitterPool,
 		DynamicResourcesManager:   dynamicResourceManager,
 		transformedInformerForPod: genericConf.TransformedInformerForPod,
 	}
