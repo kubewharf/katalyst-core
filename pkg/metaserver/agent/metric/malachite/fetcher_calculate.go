@@ -62,6 +62,9 @@ func (m *MalachiteMetricsFetcher) processContainerMemBandwidth(podUID, container
 	// write bandwidth
 	m.setContainerRateMetric(podUID, containerName, consts.MetricMemBandwidthWriteContainer,
 		func() float64 {
+			if (curStoreAllIns - lastStoreAllIns.Value) == 0 {
+				return 0
+			}
 			// write megabyte
 			return (curStoreIns - lastStoreIns.Value) * (curIMCWrites - lastIMCWrites.Value) * 64 / (curStoreAllIns - lastStoreAllIns.Value) / (1024 * 1024)
 		},
