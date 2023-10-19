@@ -135,7 +135,9 @@ func (c *MetricStore) AggregateCoreMetric(cpuset machine.CPUSet, metricName stri
 
 	switch agg {
 	case AggregatorAvg:
-		data.Value /= coreCount
+		if coreCount > 0 {
+			data.Value /= coreCount
+		}
 	}
 	return data
 }
