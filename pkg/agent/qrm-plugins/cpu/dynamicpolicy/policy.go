@@ -30,7 +30,7 @@ import (
 	maputil "k8s.io/kubernetes/pkg/util/maps"
 	"k8s.io/utils/clock"
 
-	"github.com/kubewharf/katalyst-api/pkg/consts"
+	apiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-api/pkg/plugins/skeleton"
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/agent"
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/agent/qrm"
@@ -83,6 +83,12 @@ func GetReadonlyState() (state.ReadonlyState, error) {
 		return nil, fmt.Errorf("readonlyState isn't setted")
 	}
 	return readonlyState, nil
+}
+
+// Pod's inter-pod affinity & anti-affinity seletor at NUMA level
+type MicroTopologyPodAffnity struct {
+	Affinity     *apiconsts.MicroTopologyPodAffinityAnnotation
+	AntiAffinity *apiconsts.MicroTopologyPodAffinityAnnotation
 }
 
 // DynamicPolicy is the policy that's used by default;
@@ -199,16 +205,16 @@ func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration
 
 	// register allocation behaviors for pods with different QoS level
 	policyImplement.allocationHandlers = map[string]util.AllocationHandler{
-		consts.PodAnnotationQoSLevelSharedCores:    policyImplement.sharedCoresAllocationHandler,
-		consts.PodAnnotationQoSLevelDedicatedCores: policyImplement.dedicatedCoresAllocationHandler,
-		consts.PodAnnotationQoSLevelReclaimedCores: policyImplement.reclaimedCoresAllocationHandler,
+		apiconsts.PodAnnotationQoSLevelSharedCores:    policyImplement.sharedCoresAllocationHandler,
+		apiconsts.PodAnnotationQoSLevelDedicatedCores: policyImplement.dedicatedCoresAllocationHandler,
+		apiconsts.PodAnnotationQoSLevelReclaimedCores: policyImplement.reclaimedCoresAllocationHandler,
 	}
 
 	// register hint providers for pods with different QoS level
 	policyImplement.hintHandlers = map[string]util.HintHandler{
-		consts.PodAnnotationQoSLevelSharedCores:    policyImplement.sharedCoresHintHandler,
-		consts.PodAnnotationQoSLevelDedicatedCores: policyImplement.dedicatedCoresHintHandler,
-		consts.PodAnnotationQoSLevelReclaimedCores: policyImplement.reclaimedCoresHintHandler,
+		apiconsts.PodAnnotationQoSLevelSharedCores:    policyImplement.sharedCoresHintHandler,
+		apiconsts.PodAnnotationQoSLevelDedicatedCores: policyImplement.dedicatedCoresHintHandler,
+		apiconsts.PodAnnotationQoSLevelReclaimedCores: policyImplement.reclaimedCoresHintHandler,
 	}
 
 	state.SetContainerRequestedCores(policyImplement.getContainerRequestedCores)
@@ -738,7 +744,6 @@ func (p *DynamicPolicy) Allocate(ctx context.Context,
 		}
 
 		p.Unlock()
-		return
 	}()
 
 	allocationInfo := p.state.GetAllocationInfo(req.PodUid, req.ContainerName)
