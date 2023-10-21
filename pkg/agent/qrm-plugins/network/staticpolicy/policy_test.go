@@ -120,7 +120,7 @@ func makeTestGenericContext(t *testing.T) *agent.GenericContext {
 	}
 }
 
-func makeStaticPolicy(t *testing.T, hasNic bool) *StaticPolicy {
+func makeStaticPolicy(t *testing.T, hasNic, isVM bool) *StaticPolicy {
 	agentCtx := makeTestGenericContext(t)
 	wrappedEmitter := agentCtx.EmitterPool.GetDefaultMetricsEmitter().WithTags(NetworkResourcePluginPolicyNameStatic, metrics.MetricTag{
 		Key: util.QRMPluginPolicyTagName,
@@ -137,6 +137,11 @@ func makeStaticPolicy(t *testing.T, hasNic bool) *StaticPolicy {
 	mockQrmConfig.IngressCapacityRate = 0.85
 
 	nics := makeNICs(hasNic)
+	if isVM {
+		mockQrmConfig.ConfigurableNICSpeed = 20000
+		nics[0].Speed = -1
+		nics[1].Speed = -1
+	}
 	availableNICs := filterNICsByAvailability(nics, nil, nil)
 	reservation := make(map[string]uint32)
 	if hasNic {
@@ -264,6 +269,7 @@ func TestNewStaticPolicy(t *testing.T) {
 	agentCtx.MachineInfo = &info.MachineInfo{}
 
 	conf := generateTestConfiguration(t)
+	conf.QRMPluginsConfiguration.ConfigurableNICSpeed = 20000
 	conf.QRMPluginsConfiguration.ReservedBandwidth = 4000
 	conf.QRMPluginsConfiguration.EgressCapacityRate = 0.9
 	conf.QRMPluginsConfiguration.IngressCapacityRate = 0.85
@@ -290,7 +296,7 @@ func TestNewStaticPolicy(t *testing.T) {
 func TestRemovePod(t *testing.T) {
 	t.Parallel()
 
-	policy := makeStaticPolicy(t, true)
+	policy := makeStaticPolicy(t, true, false)
 	assert.NotNil(t, policy)
 
 	podID := string(uuid.NewUUID())
@@ -366,6 +372,7 @@ func TestAllocate(t *testing.T) {
 	// common cases
 	testCases := []struct {
 		description  string
+		isVM         bool
 		noError      bool
 		req          *pluginapi.ResourceRequest
 		expectedResp *pluginapi.ResourceAllocationResponse
@@ -409,6 +416,75 @@ func TestAllocate(t *testing.T) {
 		},
 		{
 			description: "req for shared_cores main container with host netns preference",
+			noError:     true,
+			req: &pluginapi.ResourceRequest{
+				PodUid:         string(uuid.NewUUID()),
+				PodNamespace:   testName,
+				PodName:        testName,
+				ContainerName:  testName,
+				ContainerType:  pluginapi.ContainerType_MAIN,
+				ContainerIndex: 0,
+				ResourceName:   string(consts.ResourceNetBandwidth),
+				Hint: &pluginapi.TopologyHint{
+					Nodes:     []uint64{0, 1},
+					Preferred: true,
+				},
+				ResourceRequests: map[string]float64{
+					string(consts.ResourceNetBandwidth): 5000,
+				},
+				Labels: map[string]string{
+					consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
+				},
+				Annotations: map[string]string{
+					consts.PodAnnotationNetClassKey:           testSharedNetClsId,
+					consts.PodAnnotationQoSLevelKey:           consts.PodAnnotationQoSLevelSharedCores,
+					consts.PodAnnotationNetworkEnhancementKey: testHostPreferEnhancementValue,
+				},
+			},
+			expectedResp: &pluginapi.ResourceAllocationResponse{
+				PodNamespace:   testName,
+				PodName:        testName,
+				ContainerName:  testName,
+				ContainerType:  pluginapi.ContainerType_MAIN,
+				ContainerIndex: 0,
+				ResourceName:   string(consts.ResourceNetBandwidth),
+				AllocationResult: &pluginapi.ResourceAllocation{
+					ResourceAllocation: map[string]*pluginapi.ResourceAllocationInfo{
+						string(consts.ResourceNetBandwidth): {
+							IsNodeResource:    true,
+							IsScalarResource:  true,
+							AllocatedQuantity: 5000,
+							AllocationResult:  machine.NewCPUSet(0, 1).String(),
+							Annotations: map[string]string{
+								testIPv4ResourceAllocationAnnotationKey:             testEth0IPv4,
+								testIPv6ResourceAllocationAnnotationKey:             "",
+								testNetInterfaceNameResourceAllocationAnnotationKey: testEth0Name,
+								testNetClassIDResourceAllocationAnnotationKey:       testSharedNetClsId,
+								testNetBandwidthResourceAllocationAnnotationKey:     "5000",
+							},
+							ResourceHints: &pluginapi.ListOfTopologyHints{
+								Hints: []*pluginapi.TopologyHint{
+									{
+										Nodes:     []uint64{0, 1},
+										Preferred: true,
+									},
+								},
+							},
+						},
+					},
+				},
+				Labels: map[string]string{
+					consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
+				},
+				Annotations: map[string]string{
+					consts.PodAnnotationQoSLevelKey:                     consts.PodAnnotationQoSLevelSharedCores,
+					consts.PodAnnotationNetworkEnhancementNamespaceType: consts.PodAnnotationNetworkEnhancementNamespaceTypeHostPrefer,
+				},
+			},
+		},
+		{
+			description: "req for shared_cores main container with host netns preference in a VM",
+			isVM:        true,
 			noError:     true,
 			req: &pluginapi.ResourceRequest{
 				PodUid:         string(uuid.NewUUID()),
@@ -709,7 +785,7 @@ func TestAllocate(t *testing.T) {
 	}
 
 	for _, tc := range testCases {
-		staticPolicy := makeStaticPolicy(t, true)
+		staticPolicy := makeStaticPolicy(t, true, tc.isVM)
 		resp, err := staticPolicy.Allocate(context.Background(), tc.req)
 		if tc.noError {
 			assert.NoError(t, err)
@@ -791,7 +867,7 @@ func TestAllocate(t *testing.T) {
 			expectedResp: nil,
 		},
 	}
-	staticPolicy := makeStaticPolicy(t, false)
+	staticPolicy := makeStaticPolicy(t, false, false)
 	for _, tc := range testCasesNoNic {
 		resp, err := staticPolicy.Allocate(context.Background(), tc.req)
 		if tc.noError {
@@ -805,7 +881,7 @@ func TestAllocate(t *testing.T) {
 func TestGetNetClassID(t *testing.T) {
 	t.Parallel()
 
-	staticPolicy := makeStaticPolicy(t, true)
+	staticPolicy := makeStaticPolicy(t, true, false)
 	staticPolicy.qosLevelToNetClassMap = map[string]uint32{
 		consts.PodAnnotationQoSLevelReclaimedCores: 10,
 		consts.PodAnnotationQoSLevelSharedCores:    20,
@@ -907,7 +983,7 @@ func TestGetNetClassID(t *testing.T) {
 func TestName(t *testing.T) {
 	t.Parallel()
 
-	policy := makeStaticPolicy(t, true)
+	policy := makeStaticPolicy(t, true, false)
 	assert.NotNil(t, policy)
 
 	assert.Equal(t, "qrm_network_plugin_static", policy.Name())
@@ -916,7 +992,7 @@ func TestName(t *testing.T) {
 func TestResourceName(t *testing.T) {
 	t.Parallel()
 
-	policy := makeStaticPolicy(t, true)
+	policy := makeStaticPolicy(t, true, false)
 	assert.NotNil(t, policy)
 
 	assert.Equal(t, string(consts.ResourceNetBandwidth), policy.ResourceName())
@@ -1226,7 +1302,7 @@ func TestGetTopologyHints(t *testing.T) {
 	}
 
 	for _, tc := range testCases {
-		staticPolicy := makeStaticPolicy(t, true)
+		staticPolicy := makeStaticPolicy(t, true, false)
 
 		resp, err := staticPolicy.GetTopologyHints(context.Background(), tc.req)
 		assert.NoError(t, err)
@@ -1276,7 +1352,7 @@ func TestGetTopologyHints(t *testing.T) {
 	}
 
 	// no valid nics on this node ()
-	staticPolicy := makeStaticPolicy(t, false)
+	staticPolicy := makeStaticPolicy(t, false, false)
 	resp, err := staticPolicy.GetTopologyHints(context.Background(), testCases[1].req)
 	assert.NoError(t, err)
 	assert.NotNil(t, resp)
@@ -1290,7 +1366,7 @@ func TestGetTopologyHints(t *testing.T) {
 func TestGetResourcesAllocation(t *testing.T) {
 	t.Parallel()
 
-	policy := makeStaticPolicy(t, true)
+	policy := makeStaticPolicy(t, true, false)
 	assert.NotNil(t, policy)
 
 	_, err := policy.GetResourcesAllocation(context.TODO(), &pluginapi.GetResourcesAllocationRequest{})
@@ -1390,7 +1466,7 @@ func TestGetTopologyAwareResources(t *testing.T) {
 	}
 
 	for _, tc := range testCases {
-		policy := makeStaticPolicy(t, tc.hasNic)
+		policy := makeStaticPolicy(t, tc.hasNic, false)
 		assert.NotNil(t, policy)
 
 		_, err := policy.Allocate(context.Background(), tc.addReq)
@@ -1481,7 +1557,7 @@ func TestGetTopologyAwareAllocatableResources(t *testing.T) {
 	}
 
 	for _, tc := range testCases {
-		policy := makeStaticPolicy(t, tc.hasNic)
+		policy := makeStaticPolicy(t, tc.hasNic, false)
 		assert.NotNil(t, policy)
 
 		resp, err := policy.GetTopologyAwareAllocatableResources(context.TODO(), &pluginapi.GetTopologyAwareAllocatableResourcesRequest{})
@@ -1508,7 +1584,7 @@ func TestGetTopologyAwareAllocatableResources(t *testing.T) {
 func TestGetResourcePluginOptions(t *testing.T) {
 	t.Parallel()
 
-	policy := makeStaticPolicy(t, true)
+	policy := makeStaticPolicy(t, true, false)
 	assert.NotNil(t, policy)
 
 	expectedResp := &pluginapi.ResourcePluginOptions{
@@ -1525,7 +1601,7 @@ func TestGetResourcePluginOptions(t *testing.T) {
 func TestPreStartContainer(t *testing.T) {
 	t.Parallel()
 
-	policy := makeStaticPolicy(t, true)
+	policy := makeStaticPolicy(t, true, false)
 	assert.NotNil(t, policy)
 
 	req := &pluginapi.PreStartContainerRequest{

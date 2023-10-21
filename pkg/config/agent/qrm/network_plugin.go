@@ -25,6 +25,8 @@ type NetworkQRMPluginConfig struct {
 	// In phase 1, we only support the reservation for business-critical jobs. The system component reservation might be added later.
 	// Also, we do not differentiate the egress and ingress reservation for now. That is, the reserved bandwidth on egress and ingress is supposed to be same
 	ReservedBandwidth uint32
+	// Configurable NIC speed for those machines (e.g. VMs) in which we can not get NIC speed by reading /sys/class/net/ethx/speed.
+	ConfigurableNICSpeed uint32
 	// The ratio of available capacity to NIC line speed. For example, a 25Gbps NIC's max bandwidth is around 23.5Gbps.
 	// Please note, the ingress rate throttling may need additional virtual device like ifb, which results in lower capacity than egress
 	EgressCapacityRate  float32

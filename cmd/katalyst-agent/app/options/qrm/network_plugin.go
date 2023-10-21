@@ -27,6 +27,7 @@ type NetworkOptions struct {
 	PolicyName                                      string
 	NetClass                                        NetClassOptions
 	ReservedBandwidth                               uint32
+	ConfigurableNICSpeed                            uint32
 	EgressCapacityRate                              float32
 	IngressCapacityRate                             float32
 	SkipNetworkStateCorruption                      bool
@@ -56,6 +57,7 @@ func NewNetworkOptions() *NetworkOptions {
 		PolicyName:                                      "static",
 		PodLevelNetClassAnnoKey:                         consts.PodAnnotationNetClassKey,
 		ReservedBandwidth:                               0,
+		ConfigurableNICSpeed:                            0,
 		EgressCapacityRate:                              0.94,
 		IngressCapacityRate:                             0.9,
 		SkipNetworkStateCorruption:                      false,
@@ -84,6 +86,8 @@ func (o *NetworkOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 		o.NetClass.SystemCores, "net class id for system_cores")
 	fs.Uint32Var(&o.ReservedBandwidth, "network-resource-plugin-reserved-bandwidth",
 		o.ReservedBandwidth, "reserved bandwidth for business-critical jobs")
+	fs.Uint32Var(&o.ConfigurableNICSpeed, "network-resource-plugin-configurable-nic-speed",
+		o.ConfigurableNICSpeed, "configurable nic speed for VMs")
 	fs.Float32Var(&o.EgressCapacityRate, "network-resource-plugin-egress-capacity-rate",
 		o.EgressCapacityRate, "ratio of available egress capacity to egress line speed")
 	fs.Float32Var(&o.IngressCapacityRate, "network-resource-plugin-ingress-capacity-rate",
@@ -115,6 +119,7 @@ func (o *NetworkOptions) ApplyTo(conf *qrmconfig.NetworkQRMPluginConfig) error {
 	conf.NetClass.DedicatedCores = o.NetClass.DedicatedCores
 	conf.NetClass.SystemCores = o.NetClass.SystemCores
 	conf.ReservedBandwidth = o.ReservedBandwidth
+	conf.ConfigurableNICSpeed = o.ConfigurableNICSpeed
 	conf.EgressCapacityRate = o.EgressCapacityRate
 	conf.IngressCapacityRate = o.IngressCapacityRate
 	conf.SkipNetworkStateCorruption = o.SkipNetworkStateCorruption
