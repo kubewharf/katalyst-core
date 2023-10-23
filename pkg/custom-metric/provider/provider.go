@@ -33,6 +33,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/custom-metric/store"
 	"github.com/kubewharf/katalyst-core/pkg/custom-metric/store/data/types"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
+	"github.com/kubewharf/katalyst-core/pkg/util/general"
 )
 
 const (
@@ -160,13 +161,9 @@ func (m *MetricProviderImp) GetMetricBySelector(ctx context.Context, namespace s
 			continue
 		}
 
+		m.emitCustomMetricLatencyByRawMetrics(metric)
 		resultCount += metric.Len()
 		items = append(items, PackMetricValueList(metric)...)
-	}
-
-	// TODO, emit metrics only when this functionality switched on
-	for i := range items {
-		m.emitCustomMetricLatency(&items[i])
 	}
 
 	return &custom_metrics.MetricValueList{
@@ -291,8 +288,25 @@ func (m *MetricProviderImp) ListAllExternalMetrics() []provider.ExternalMetricIn
 	return res
 }
 
+func (m *MetricProviderImp) emitCustomMetricLatencyByRawMetrics(metric types.Metric) {
+	items := metric.GetItemList()
+	latestItem := items[len(items)-1]
+	dataLatency := time.Now().Sub(time.UnixMilli(latestItem.GetTimestamp())).Microseconds()
+	general.Infof("query custom metrics, metric name:%v, object name:%v, object kind: %v, latest timestamp: %v(parsed: %v), data latency: %v(microseconds)", metric.GetName(),
+		metric.GetObjectName(), metric.GetObjectKind(), latestItem.GetTimestamp(), time.UnixMilli(latestItem.GetTimestamp()), dataLatency)
+	tags := []metrics.MetricTag{
+		{Key: "metric_name", Val: metric.GetName()},
+		{Key: "object_name", Val: metric.GetObjectName()},
+		{Key: "object_kind", Val: metric.GetObjectKind()},
+	}
+
+	_ = m.metricsEmitter.StoreInt64(metricsNameKCMASProviderCustomMetricLatency, dataLatency, metrics.MetricTypeNameRaw, tags...)
+}
+
 func (m *MetricProviderImp) emitCustomMetricLatency(metric *custom_metrics.MetricValue) {
 	dataLatency := time.Now().Sub(metric.Timestamp.Time).Microseconds()
+	general.Infof("query custom metrics, metric name:%v, object name:%v, object kind: %v, latest timestamp: %v(parsed: %v), data latency: %v(microseconds)", metric.Metric.Name,
+		metric.Metric.Name, metric.GetObjectKind(), metric.Timestamp.UnixMilli(), metric.Timestamp.Time, dataLatency)
 	tags := []metrics.MetricTag{
 		{Key: "metric_name", Val: metric.Metric.Name},
 		{Key: "object_name", Val: metric.DescribedObject.Name},
