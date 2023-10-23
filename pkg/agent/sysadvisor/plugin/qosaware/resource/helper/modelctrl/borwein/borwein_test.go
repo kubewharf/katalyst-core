@@ -698,3 +698,40 @@ func TestBorweinController_GetUpdatedIndicators(t *testing.T) {
 		})
 	}
 }
+
+func TestBorweinController_ResetIndicatorOffsets(t *testing.T) {
+	t.Parallel()
+
+	type fields struct {
+		indicatorOffsets map[string]float64
+	}
+	tests := []struct {
+		name    string
+		fields  fields
+		results map[string]float64
+	}{
+		{
+			name: "test with nil indicatorOffsets",
+		},
+		{
+			name: "test with non-nil indicatorOffsets",
+			fields: fields{
+				indicatorOffsets: map[string]float64{
+					string(workloadv1alpha1.TargetIndicatorNameCPUSchedWait): 460,
+				},
+			},
+			results: map[string]float64{
+				string(workloadv1alpha1.TargetIndicatorNameCPUSchedWait): 0,
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			bc := &BorweinController{
+				indicatorOffsets: tt.fields.indicatorOffsets,
+			}
+			bc.ResetIndicatorOffsets()
+			require.True(t, reflect.DeepEqual(bc.indicatorOffsets, tt.results))
+		})
+	}
+}

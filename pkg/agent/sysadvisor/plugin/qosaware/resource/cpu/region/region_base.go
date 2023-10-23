@@ -253,6 +253,7 @@ func (r *QoSRegionBase) GetProvision() (types.ControlKnob, error) {
 	r.Lock()
 	defer r.Unlock()
 
+	oldProvisionPolicyNameInUse := r.provisionPolicyNameInUse
 	r.provisionPolicyNameInUse = types.CPUProvisionPolicyNone
 
 	for _, internal := range r.provisionPolicies {
@@ -267,6 +268,15 @@ func (r *QoSRegionBase) GetProvision() (types.ControlKnob, error) {
 			continue
 		}
 		r.provisionPolicyNameInUse = internal.name
+
+		if r.provisionPolicyNameInUse != oldProvisionPolicyNameInUse {
+			klog.Infof("[qosaware-cpu] region: %s provision policy switch from %s to %s",
+				r.Name, oldProvisionPolicyNameInUse, r.provisionPolicyNameInUse)
+			if r.enableBorweinModel {
+				r.borweinController.ResetIndicatorOffsets()
+			}
+		}
+
 		return controlKnobAdjusted, nil
 	}
 
@@ -481,7 +491,8 @@ func (r *QoSRegionBase) getIndicators() (types.Indicator, error) {
 		indicators[indicatorName] = indicatorValue
 	}
 
-	if r.enableBorweinModel {
+	if r.enableBorweinModel && r.provisionPolicyNameInUse == types.CPUProvisionPolicyRama {
+		general.Infof("try to update indicators by borwein model")
 		return r.borweinController.GetUpdatedIndicators(indicators, r.podSet), nil
 	} else {
 		return indicators, nil
