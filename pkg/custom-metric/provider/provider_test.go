@@ -38,14 +38,14 @@ import (
 	"k8s.io/metrics/pkg/apis/external_metrics"
 	"sigs.k8s.io/custom-metrics-apiserver/pkg/provider"
 
-	"github.com/kubewharf/katalyst-core/pkg/util/native"
-
 	katalystbase "github.com/kubewharf/katalyst-core/cmd/base"
+	"github.com/kubewharf/katalyst-core/pkg/config/generic"
 	metricconf "github.com/kubewharf/katalyst-core/pkg/config/metric"
 	"github.com/kubewharf/katalyst-core/pkg/custom-metric/store"
 	"github.com/kubewharf/katalyst-core/pkg/custom-metric/store/data"
 	"github.com/kubewharf/katalyst-core/pkg/custom-metric/store/local"
 	"github.com/kubewharf/katalyst-core/pkg/custom-metric/store/remote"
+	"github.com/kubewharf/katalyst-core/pkg/util/native"
 )
 
 func generateStorePodMeta(namespace, name, nameLabel string, port int32) *metav1.PartialObjectMetadata {
@@ -130,9 +130,14 @@ func TestWithLocalStore(t *testing.T) {
 		OutOfDataPeriod: time.Second * 20,
 	}
 	storeConf := &metricconf.StoreConfiguration{
-		StoreServerSelector: labels.SelectorFromSet(map[string]string{
-			"test": "local-store",
-		}),
+		ServiceDiscoveryConf: &generic.ServiceDiscoveryConf{
+			PodSinglePortSDConf: &generic.PodSinglePortSDConf{
+				PortName: native.ContainerMetricStorePortName,
+				PodLister: labels.SelectorFromSet(map[string]string{
+					"test": "local-store",
+				}),
+			},
+		},
 	}
 
 	s, err := local.NewLocalMemoryMetricStore(ctx, baseCtx, genericConf, storeConf)
@@ -171,9 +176,14 @@ func testWithRemoteStoreWithIndex(t *testing.T, index []int) {
 		OutOfDataPeriod: time.Second * 20,
 	}
 	storeConf := &metricconf.StoreConfiguration{
-		StoreServerSelector: labels.SelectorFromSet(labels.Set(map[string]string{
-			"test": "local-store",
-		})),
+		ServiceDiscoveryConf: &generic.ServiceDiscoveryConf{
+			PodSinglePortSDConf: &generic.PodSinglePortSDConf{
+				PortName: native.ContainerMetricStorePortName,
+				PodLister: labels.SelectorFromSet(map[string]string{
+					"test": "local-store",
+				}),
+			},
+		},
 		StoreServerReplicaTotal: len(index),
 		GCPeriod:                time.Second,
 	}

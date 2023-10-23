@@ -19,21 +19,22 @@ package metric
 import (
 	"time"
 
-	"k8s.io/apimachinery/pkg/labels"
+	"github.com/kubewharf/katalyst-core/pkg/config/generic"
 )
 
 type StoreConfiguration struct {
+	StoreName string
+	GCPeriod  time.Duration
+
 	StoreServerShardCount   int
 	StoreServerReplicaTotal int
-	StoreServerSelector     labels.Selector
 
-	StoreName string
-
-	GCPeriod time.Duration
+	*generic.ServiceDiscoveryConf
 }
 
 func NewStoreConfiguration() *StoreConfiguration {
 	return &StoreConfiguration{
-		GCPeriod: time.Second * 10,
+		GCPeriod:             time.Second * 10,
+		ServiceDiscoveryConf: generic.NewServiceDiscoveryConf(),
 	}
 }

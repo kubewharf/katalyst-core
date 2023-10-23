@@ -17,13 +17,12 @@ limitations under the License.
 package options
 
 import (
-	"fmt"
-
 	"k8s.io/apimachinery/pkg/labels"
 	cliflag "k8s.io/component-base/cli/flag"
 
 	"github.com/kubewharf/katalyst-core/pkg/config/metric"
 	"github.com/kubewharf/katalyst-core/pkg/custom-metric/store/local"
+	"github.com/kubewharf/katalyst-core/pkg/util/native"
 )
 
 // StoreOptions holds the configurations for katalyst metrics stores.
@@ -32,7 +31,11 @@ type StoreOptions struct {
 
 	StoreServerShardCount   int
 	StoreServerReplicaTotal int
-	StoreServerSelector     string
+
+	ServiceDiscoveryName string
+	SDPodSelector        string
+	SDServiceNamespace   string
+	SDServiceName        string
 }
 
 // NewStoreOptions creates a new StoreOptions with a default config.
@@ -41,7 +44,8 @@ func NewStoreOptions() *StoreOptions {
 		StoreName:               local.MetricStoreNameLocalMemory,
 		StoreServerShardCount:   1,
 		StoreServerReplicaTotal: 3,
-		StoreServerSelector:     "katalyst-custom-metric=store-server",
+
+		SDPodSelector: "katalyst-custom-metric=store-server",
 	}
 }
 
@@ -49,15 +53,22 @@ func NewStoreOptions() *StoreOptions {
 func (o *StoreOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 	fs := fss.FlagSet("metric-store")
 
-	fs.StringVar(&o.StoreName, "store-name", o.StoreName, fmt.Sprintf(
-		"which store implementation will be started"))
+	fs.StringVar(&o.StoreName, "store-name", o.StoreName,
+		"which store implementation will be started")
 
-	fs.IntVar(&o.StoreServerShardCount, "store-server-shard", o.StoreServerShardCount, fmt.Sprintf(
-		"the amount of shardings this store implementation splits, only valid in store-server mode"))
-	fs.IntVar(&o.StoreServerReplicaTotal, "store-server-replica-total", o.StoreServerReplicaTotal, fmt.Sprintf(
-		"the amount of duplicated replicas this store will use, only valid in store-server mode"))
-	fs.StringVar(&o.StoreServerSelector, "store-server-selector", o.StoreServerSelector, fmt.Sprintf(
-		"the selector to match up with store server pods, only valid in store-server mode"))
+	fs.IntVar(&o.StoreServerShardCount, "store-server-shard", o.StoreServerShardCount,
+		"the amount of sharding this store implementation splits, only valid in store-server mode")
+	fs.IntVar(&o.StoreServerReplicaTotal, "store-server-replica-total", o.StoreServerReplicaTotal,
+		"the amount of duplicated replicas this store will use, only valid in store-server mode")
+
+	fs.StringVar(&o.ServiceDiscoveryName, "store-server-sd-name", o.ServiceDiscoveryName,
+		"defines which service-discovery manager will be used")
+	fs.StringVar(&o.SDServiceNamespace, "store-server-service-ns", o.SDServiceNamespace,
+		"for service sd-manager, this defines the namespace for service object")
+	fs.StringVar(&o.SDServiceName, "store-server-service-name", o.SDServiceName,
+		"for service sd-manager, this defines the name for service object")
+	fs.StringVar(&o.SDPodSelector, "store-server-pod-selector", o.SDPodSelector,
+		"for pod sd-manager, this defines the label-selector to match up with pods")
 }
 
 // ApplyTo fills up config with options
@@ -66,11 +77,19 @@ func (o *StoreOptions) ApplyTo(c *metric.StoreConfiguration) error {
 
 	c.StoreServerShardCount = o.StoreServerShardCount
 	c.StoreServerReplicaTotal = o.StoreServerReplicaTotal
-	selector, err := labels.Parse(o.StoreServerSelector)
+
+	c.ServiceDiscoveryConf.Name = o.ServiceDiscoveryName
+
+	c.ServiceDiscoveryConf.PodSinglePortSDConf.PortName = native.ContainerMetricStorePortName
+	selector, err := labels.Parse(o.SDPodSelector)
 	if err != nil {
 		return err
 	}
-	c.StoreServerSelector = selector
+	c.ServiceDiscoveryConf.PodSinglePortSDConf.PodLister = selector
+
+	c.ServiceDiscoveryConf.ServiceSinglePortSDConf.PortName = native.ContainerMetricStorePortName
+	c.ServiceDiscoveryConf.ServiceSinglePortSDConf.Namespace = o.SDServiceNamespace
+	c.ServiceDiscoveryConf.ServiceSinglePortSDConf.Name = o.SDServiceName
 
 	return nil
 }

@@ -21,13 +21,12 @@ import (
 	"fmt"
 	"net/http"
 
-	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/klog/v2"
 
 	katalystbase "github.com/kubewharf/katalyst-core/cmd/base"
+	metricconf "github.com/kubewharf/katalyst-core/pkg/config/metric"
 	"github.com/kubewharf/katalyst-core/pkg/custom-metric/store/local"
-	"github.com/kubewharf/katalyst-core/pkg/util/native"
-	servicediscovery "github.com/kubewharf/katalyst-core/pkg/util/service-discovery"
+	sd "github.com/kubewharf/katalyst-core/pkg/util/service-discovery"
 )
 
 const httpMetricURL = "http://%v"
@@ -40,24 +39,29 @@ const httpMetricURL = "http://%v"
 type ShardingController struct {
 	ctx context.Context
 
-	serviceDiscoveryManager servicediscovery.ServiceDiscoveryManager
-	totalCount              int
+	sdManager  sd.ServiceDiscoveryManager
+	totalCount int
 }
 
-func NewShardingController(ctx context.Context, baseCtx *katalystbase.GenericContext, podSelector labels.Selector, totalCount int) *ShardingController {
+func NewShardingController(ctx context.Context, baseCtx *katalystbase.GenericContext,
+	storeConf *metricconf.StoreConfiguration) (*ShardingController, error) {
+	sdManager, err := sd.GetSDManager(ctx, baseCtx, storeConf.ServiceDiscoveryConf)
+	if err != nil {
+		return nil, err
+	}
+
 	// since collector will define its own pod/node label selectors, so we will construct informer separately
 	s := &ShardingController{
 		ctx:        ctx,
-		totalCount: totalCount,
-		serviceDiscoveryManager: servicediscovery.NewPodInformerServiceDiscoveryManager(ctx, baseCtx.Client.KubeClient,
-			podSelector, native.ContainerMetricStorePortName),
+		totalCount: storeConf.StoreServerReplicaTotal,
+		sdManager:  sdManager,
 	}
 
-	return s
+	return s, nil
 }
 
 func (s *ShardingController) Start() error {
-	return s.serviceDiscoveryManager.Run()
+	return s.sdManager.Run()
 }
 
 func (s *ShardingController) Stop() error {
@@ -73,10 +77,11 @@ func (s *ShardingController) GetRWCount() (int, int) {
 
 // GetRequests returns the pre-generated http requests
 func (s *ShardingController) GetRequests(ctx context.Context, path string) ([]*http.Request, error) {
-	endpoints, err := s.serviceDiscoveryManager.GetEndpoints()
+	endpoints, err := s.sdManager.GetEndpoints()
 	if err != nil {
 		return nil, fmt.Errorf("failed get endpoints from serviceDiscoveryManager: %v", err)
 	}
+	klog.V(6).Infof("%v current endpoints is %v", s.sdManager.Name(), endpoints)
 
 	requests := make([]*http.Request, 0, len(endpoints))
 	for _, endpoint := range endpoints {
