@@ -17,12 +17,14 @@ limitations under the License.
 package plugin
 
 import (
+	"strconv"
 	"sync"
 
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 
 	apiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/cpuadvisor"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/memory/dynamicpolicy/memoryadvisor"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
@@ -32,6 +34,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric/helper"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
+	"github.com/kubewharf/katalyst-core/pkg/util/metric"
 	"github.com/kubewharf/katalyst-core/pkg/util/native"
 )
 
@@ -40,6 +43,7 @@ const (
 )
 
 type cacheReaper struct {
+	conf                  *config.Configuration
 	mutex                 sync.RWMutex
 	metaReader            metacache.MetaReader
 	metaServer            *metaserver.MetaServer
@@ -49,6 +53,7 @@ type cacheReaper struct {
 
 func NewCacheReaper(conf *config.Configuration, extraConfig interface{}, metaReader metacache.MetaReader, metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter) MemoryAdvisorPlugin {
 	return &cacheReaper{
+		conf:                  conf,
 		metaReader:            metaReader,
 		metaServer:            metaServer,
 		containersToReapCache: make(map[consts.PodContainerName]*types.ContainerInfo),
@@ -87,15 +92,58 @@ func (cp *cacheReaper) selectContainers(containers []*types.ContainerInfo, cache
 	return selected
 }
 
-func (cp *cacheReaper) reclaimedContainersFilter(ci *types.ContainerInfo) bool {
-	return ci != nil && ci.QoSLevel == apiconsts.PodAnnotationQoSLevelReclaimedCores && ci.ContainerType == v1alpha1.ContainerType_MAIN
+func (cp *cacheReaper) reclaimedContainersFilter(ci *types.ContainerInfo, numaID int, minCacheUtilizationThreshold float64) bool {
+	if ci == nil || ci.QoSLevel != apiconsts.PodAnnotationQoSLevelReclaimedCores || ci.ContainerType != v1alpha1.ContainerType_MAIN {
+		return false
+	}
+
+	var (
+		total metric.MetricData
+		cache metric.MetricData
+		err   error
+	)
+
+	if numaID < 0 {
+		total, err = cp.metaServer.GetNodeMetric(consts.MetricMemTotalSystem)
+		if err != nil {
+			general.ErrorS(err, "failed to get MetricMemTotalSystem")
+			return true
+		}
+		cache, err = cp.metaServer.GetContainerMetric(ci.PodUID, ci.ContainerName, consts.MetricMemCacheContainer)
+		if err != nil {
+			general.ErrorS(err, "failed to get MetricMemCacheContainer", "podName", ci.PodName, "containerName", ci.ContainerName)
+			return true
+		}
+	} else {
+		total, err = cp.metaServer.GetNumaMetric(numaID, consts.MetricMemTotalNuma)
+		if err != nil {
+			general.ErrorS(err, "failed to get MetricMemTotalNuma")
+			return true
+		}
+		cache, err = cp.metaServer.GetContainerNumaMetric(ci.PodUID, ci.ContainerName, strconv.Itoa(numaID), consts.MetricsMemFilePerNumaContainer)
+		if err != nil {
+			general.ErrorS(err, "failed to get MetricsMemFilePerNumaContainer", "podName", ci.PodName, "containerName", ci.ContainerName, "numaID", numaID)
+			return true
+		}
+	}
+
+	if cache.Value < total.Value*minCacheUtilizationThreshold {
+		general.InfoS("skip reclaiming it because cache usage is less than threshold",
+			"podName", ci.PodName, "containerName", ci.ContainerName, "numaID", numaID,
+			"minCacheUtilizationThreshold", minCacheUtilizationThreshold, "cache", general.FormatMemoryQuantity(cache.Value),
+			"total", general.FormatMemoryQuantity(total.Value))
+		return false
+	}
+	return true
 }
 
 func (cp *cacheReaper) Reconcile(status *types.MemoryPressureStatus) error {
 	containersToReapCache := make(map[consts.PodContainerName]*types.ContainerInfo)
+	minCacheUtilizationThreshold := cp.conf.MinCacheUtilizationThreshold
+
 	containers := make([]*types.ContainerInfo, 0)
 	cp.metaReader.RangeContainer(func(podUID string, containerName string, containerInfo *types.ContainerInfo) bool {
-		if cp.reclaimedContainersFilter(containerInfo) {
+		if cp.reclaimedContainersFilter(containerInfo, cpuadvisor.FakedNUMAID, minCacheUtilizationThreshold) {
 			containers = append(containers, containerInfo)
 		}
 		return true
@@ -110,6 +158,13 @@ func (cp *cacheReaper) Reconcile(status *types.MemoryPressureStatus) error {
 
 	for numaID, condition := range status.NUMAConditions {
 		if condition.State == types.MemoryPressureDropCache && condition.TargetReclaimed != nil {
+			containers = make([]*types.ContainerInfo, 0)
+			cp.metaReader.RangeContainer(func(podUID string, containerName string, containerInfo *types.ContainerInfo) bool {
+				if cp.reclaimedContainersFilter(containerInfo, numaID, minCacheUtilizationThreshold) {
+					containers = append(containers, containerInfo)
+				}
+				return true
+			})
 			selected := cp.selectContainers(containers, *condition.TargetReclaimed, numaID, consts.MetricsMemFilePerNumaContainer)
 			for _, ci := range selected {
 				containersToReapCache[native.GeneratePodContainerName(ci.PodName, ci.ContainerName)] = ci

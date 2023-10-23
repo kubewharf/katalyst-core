@@ -39,6 +39,7 @@ type CollectorOptions struct {
 	ShardNum        int
 	CollectorName   string
 	CollectInterval time.Duration
+	CredentialPath  string
 }
 
 // NewCollectorOptions creates a new CollectorOptions with a default config.
@@ -50,6 +51,8 @@ func NewCollectorOptions() *CollectorOptions {
 
 		PodLabelSelector:  labels.Nothing().String(),
 		NodeLabelSelector: labels.Everything().String(),
+
+		CredentialPath: "/etc/katalyst/credential",
 	}
 }
 
@@ -69,6 +72,8 @@ func (o *CollectorOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 	fs.DurationVar(&o.CollectInterval, "collector-interval", o.CollectInterval, fmt.Sprintf(
 		"the interval between two collecting actions"))
 
+	fs.StringVar(&o.CredentialPath, "credential-path", o.CredentialPath, fmt.Sprintf(
+		"directory path where credential files should be in"))
 }
 
 // ApplyTo fills up config with options
@@ -89,6 +94,7 @@ func (o *CollectorOptions) ApplyTo(c *metric.CollectorConfiguration) error {
 	}
 	c.NodeSelector = nodeSelector
 
+	c.CredentialPath = o.CredentialPath
 	return nil
 }
 

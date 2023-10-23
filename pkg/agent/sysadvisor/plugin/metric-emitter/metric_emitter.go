@@ -42,10 +42,11 @@ func init() {
 const PluginNameCustomMetricEmitter = "metric-emitter-plugin"
 
 type CustomMetricEmitter struct {
+	name    string
 	syncers []syncer.CustomMetricSyncer
 }
 
-func NewCustomMetricEmitter(conf *config.Configuration, extraConf interface{}, emitterPool metricspool.MetricsEmitterPool,
+func NewCustomMetricEmitter(pluginName string, conf *config.Configuration, extraConf interface{}, emitterPool metricspool.MetricsEmitterPool,
 	metaServer *metaserver.MetaServer, metaCache metacache.MetaCache) (plugin.SysAdvisorPlugin, error) {
 	metricEmitter := emitterPool.GetDefaultMetricsEmitter().WithTags("custom-metric")
 
@@ -61,12 +62,13 @@ func NewCustomMetricEmitter(conf *config.Configuration, extraConf interface{}, e
 	}
 
 	return &CustomMetricEmitter{
+		name:    pluginName,
 		syncers: syncers,
 	}, nil
 }
 
 func (cme *CustomMetricEmitter) Name() string {
-	return PluginNameCustomMetricEmitter
+	return cme.name
 }
 
 func (cme *CustomMetricEmitter) Init() error {

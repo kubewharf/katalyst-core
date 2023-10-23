@@ -186,7 +186,7 @@ func (p *DynamicPolicy) pushCPUAdvisor() error {
 					allocationInfo.ContainerName, allocationInfo.ContainerType)
 			}
 
-			_, err := p.advisorClient.AddContainer(context.Background(), &advisorsvc.AddContainerRequest{
+			_, err := p.advisorClient.AddContainer(context.Background(), &advisorsvc.ContainerMetadata{
 				PodUid:          allocationInfo.PodUid,
 				PodNamespace:    allocationInfo.PodNamespace,
 				PodName:         allocationInfo.PodName,

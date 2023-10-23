@@ -247,7 +247,7 @@ func (cl *CNCLifecycle) sync(key string) error {
 	}
 	node, err := cl.nodeLister.Get(name)
 	if errors.IsNotFound(err) {
-		klog.Info("node has been deleted %v", key)
+		klog.Infof("node has been deleted %v", key)
 		return nil
 	}
 	if err != nil {
@@ -294,6 +294,9 @@ func (cl *CNCLifecycle) clearUnexpectedCNC() {
 
 func (cl *CNCLifecycle) updateOrCreateCNC(node *corev1.Node) error {
 	cnc, err := cl.cncLister.Get(node.Name)
+	if err != nil && !errors.IsNotFound(err) {
+		return fmt.Errorf("failed to get cnc from lister %s: %v", node.Name, err)
+	}
 	if errors.IsNotFound(err) {
 		cnc = &apis.CustomNodeConfig{
 			ObjectMeta: metav1.ObjectMeta{
@@ -306,6 +309,12 @@ func (cl *CNCLifecycle) updateOrCreateCNC(node *corev1.Node) error {
 		_, err = cl.cncControl.CreateCNC(cl.ctx, cnc, metav1.CreateOptions{})
 		if err != nil && !errors.IsAlreadyExists(err) {
 			return fmt.Errorf("failed to create cnc %s: %v", cnc.Name, err)
+		}
+		if errors.IsAlreadyExists(err) {
+			cnc, err = cl.client.InternalClient.ConfigV1alpha1().CustomNodeConfigs().Get(cl.ctx, node.Name, metav1.GetOptions{ResourceVersion: "0"})
+			if err != nil {
+				return fmt.Errorf("failed to get cnc from apiserver %s: %v", node.Name, err)
+			}
 		}
 	}
 

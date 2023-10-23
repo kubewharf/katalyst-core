@@ -98,6 +98,7 @@ func NewCustomNodeConfigController(
 		customNodeConfigSyncQueue: workqueue.NewNamedRateLimitingQueue(workqueue.DefaultControllerRateLimiter(), cncControllerName),
 		syncedFunc: []cache.InformerSynced{
 			customNodeConfigInformer.Informer().HasSynced,
+			targetHandler.HasSynced,
 		},
 	}
 
@@ -228,13 +229,7 @@ func (c *CustomNodeConfigController) addCustomNodeConfigEventHandle(obj interfac
 	c.enqueueCustomNodeConfig(t)
 }
 
-func (c *CustomNodeConfigController) updateCustomNodeConfigEventHandle(old, new interface{}) {
-	oldCNC, ok := old.(*apisv1alpha1.CustomNodeConfig)
-	if !ok {
-		klog.Errorf("[cnc] cannot convert obj to *CustomNodeConfig: %v", new)
-		return
-	}
-
+func (c *CustomNodeConfigController) updateCustomNodeConfigEventHandle(_, new interface{}) {
 	newCNC, ok := new.(*apisv1alpha1.CustomNodeConfig)
 	if !ok {
 		klog.Errorf("[cnc] cannot convert obj to *CustomNodeConfig: %v", new)
@@ -242,9 +237,7 @@ func (c *CustomNodeConfigController) updateCustomNodeConfigEventHandle(old, new 
 	}
 
 	klog.V(4).Infof("[cnc] notice update of CustomNodeConfig %s", native.GenerateUniqObjectNameKey(newCNC))
-	if !apiequality.Semantic.DeepEqual(oldCNC.Status, newCNC.Status) {
-		c.enqueueCustomNodeConfig(newCNC)
-	}
+	c.enqueueCustomNodeConfig(newCNC)
 }
 
 func (c *CustomNodeConfigController) enqueueCustomNodeConfig(cnc *apisv1alpha1.CustomNodeConfig) {

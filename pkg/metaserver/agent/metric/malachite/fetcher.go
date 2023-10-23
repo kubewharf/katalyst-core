@@ -46,6 +46,8 @@ const (
 	metricsNamMalachiteUnHealthy              = "malachite_unhealthy"
 	metricsNameMalachiteGetSystemStatusFailed = "malachite_get_system_status_failed"
 	metricsNameMalachiteGetPodStatusFailed    = "malachite_get_pod_status_failed"
+
+	pageShift = 12
 )
 
 // NewMalachiteMetricsFetcher returns the default implementation of MetricsFetcher.
@@ -428,7 +430,38 @@ func (m *MalachiteMetricsFetcher) processSystemIOData(systemIOData *types.System
 	// todo, currently we only get a unified data for the whole system io data
 	updateTime := time.Unix(systemIOData.UpdateTime, 0)
 
+	// calculate rate of the metric, and tell the caller if it's a valid value.
+	ioStatFunc := func(deviceName, metricName string, value float64) (float64, bool) {
+		prevData, err := m.metricStore.GetDeviceMetric(deviceName, metricName)
+		if err != nil || prevData.Time == nil {
+			return 0, false
+		}
+
+		timestampDeltaInMill := updateTime.UnixMilli() - prevData.Time.UnixMilli()
+		if timestampDeltaInMill == 0 {
+			return prevData.Value, false
+		}
+
+		return (value - prevData.Value) / float64(timestampDeltaInMill), true
+	}
+
+	setStatMetricIfValid := func(deviceName, rawMetricName, metricName string, value, scale float64) {
+		ioStatData, isValid := ioStatFunc(deviceName, rawMetricName, value)
+		if !isValid {
+			return
+		}
+		m.metricStore.SetDeviceMetric(deviceName, metricName,
+			utilmetric.MetricData{
+				Value: ioStatData * scale,
+				Time:  &updateTime,
+			})
+	}
+
 	for _, device := range systemIOData.DiskIo {
+		setStatMetricIfValid(device.DeviceName, consts.MetricIOReadSystem, consts.MetricIOReadOpsSystem, float64(device.IoRead), 1000.0)
+		setStatMetricIfValid(device.DeviceName, consts.MetricIOWriteSystem, consts.MetricIOWriteOpsSystem, float64(device.IoWrite), 1000.0)
+		setStatMetricIfValid(device.DeviceName, consts.MetricIOBusySystem, consts.MetricIOBusyRateSystem, float64(device.IoBusy), 1.0)
+
 		m.metricStore.SetDeviceMetric(device.DeviceName, consts.MetricIOReadSystem,
 			utilmetric.MetricData{Value: float64(device.IoRead), Time: &updateTime})
 		m.metricStore.SetDeviceMetric(device.DeviceName, consts.MetricIOWriteSystem,
@@ -629,9 +662,9 @@ func (m *MalachiteMetricsFetcher) processCgroupPerNumaMemoryData(cgroupPath stri
 
 		for _, data := range numaStats {
 			numaID := strings.TrimPrefix(data.NumaName, "N")
-			m.metricStore.SetCgroupNumaMetric(cgroupPath, numaID, consts.MetricsMemTotalPerNumaCgroup, utilmetric.MetricData{Time: &updateTime, Value: float64(data.Total << 10)})
-			m.metricStore.SetCgroupNumaMetric(cgroupPath, numaID, consts.MetricsMemFilePerNumaCgroup, utilmetric.MetricData{Time: &updateTime, Value: float64(data.File << 10)})
-			m.metricStore.SetCgroupNumaMetric(cgroupPath, numaID, consts.MetricsMemAnonPerNumaCgroup, utilmetric.MetricData{Time: &updateTime, Value: float64(data.Anon << 10)})
+			m.metricStore.SetCgroupNumaMetric(cgroupPath, numaID, consts.MetricsMemTotalPerNumaCgroup, utilmetric.MetricData{Time: &updateTime, Value: float64(data.Total << pageShift)})
+			m.metricStore.SetCgroupNumaMetric(cgroupPath, numaID, consts.MetricsMemFilePerNumaCgroup, utilmetric.MetricData{Time: &updateTime, Value: float64(data.File << pageShift)})
+			m.metricStore.SetCgroupNumaMetric(cgroupPath, numaID, consts.MetricsMemAnonPerNumaCgroup, utilmetric.MetricData{Time: &updateTime, Value: float64(data.Anon << pageShift)})
 		}
 	} else if cgStats.CgroupType == "V2" {
 		numaStats := cgStats.V2.Memory.MemNumaStats
@@ -640,18 +673,21 @@ func (m *MalachiteMetricsFetcher) processCgroupPerNumaMemoryData(cgroupPath stri
 		for numa, data := range numaStats {
 			numaID := strings.TrimPrefix(numa, "N")
 			total := data.Anon + data.File + data.Unevictable
-			m.metricStore.SetCgroupNumaMetric(cgroupPath, numaID, consts.MetricsMemTotalPerNumaCgroup, utilmetric.MetricData{Time: &updateTime, Value: float64(total << 10)})
-			m.metricStore.SetCgroupNumaMetric(cgroupPath, numaID, consts.MetricsMemFilePerNumaCgroup, utilmetric.MetricData{Time: &updateTime, Value: float64(data.File << 10)})
-			m.metricStore.SetCgroupNumaMetric(cgroupPath, numaID, consts.MetricsMemAnonPerNumaCgroup, utilmetric.MetricData{Time: &updateTime, Value: float64(data.Anon << 10)})
+			m.metricStore.SetCgroupNumaMetric(cgroupPath, numaID, consts.MetricsMemTotalPerNumaCgroup, utilmetric.MetricData{Time: &updateTime, Value: float64(total << pageShift)})
+			m.metricStore.SetCgroupNumaMetric(cgroupPath, numaID, consts.MetricsMemFilePerNumaCgroup, utilmetric.MetricData{Time: &updateTime, Value: float64(data.File << pageShift)})
+			m.metricStore.SetCgroupNumaMetric(cgroupPath, numaID, consts.MetricsMemAnonPerNumaCgroup, utilmetric.MetricData{Time: &updateTime, Value: float64(data.Anon << pageShift)})
 		}
 	}
 }
 
 func (m *MalachiteMetricsFetcher) processContainerCPUData(podUID, containerName string, cgStats *types.MalachiteCgroupInfo) {
-	m.processContainerMemBandwidth(podUID, containerName, cgStats)
+	var (
+		metricLastUpdateTime, _ = m.metricStore.GetContainerMetric(podUID, containerName, consts.MetricCPUUpdateTimeContainer)
+		cyclesOld, _            = m.GetContainerMetric(podUID, containerName, consts.MetricCPUCyclesContainer)
+		instructionsOld, _      = m.GetContainerMetric(podUID, containerName, consts.MetricCPUInstructionsContainer)
+	)
 
-	cyclesOld, _ := m.GetContainerMetric(podUID, containerName, consts.MetricCPUCyclesContainer)
-	instructionsOld, _ := m.GetContainerMetric(podUID, containerName, consts.MetricCPUInstructionsContainer)
+	m.processContainerMemBandwidth(podUID, containerName, cgStats, metricLastUpdateTime.Value)
 
 	if cgStats.CgroupType == "V1" {
 		cpu := cgStats.V1.Cpu
@@ -703,7 +739,7 @@ func (m *MalachiteMetricsFetcher) processContainerCPUData(podUID, containerName 
 			utilmetric.MetricData{Value: float64(cpu.StoreAllInstructions), Time: &updateTime})
 		m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricStoreInsContainer,
 			utilmetric.MetricData{Value: float64(cpu.StoreInstructions), Time: &updateTime})
-		m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricUpdateTimeContainer,
+		m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricCPUUpdateTimeContainer,
 			utilmetric.MetricData{Value: float64(cpu.UpdateTime), Time: &updateTime})
 		m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricCPUCyclesContainer,
 			utilmetric.MetricData{Value: float64(cpu.Cycles), Time: &updateTime})
@@ -718,7 +754,6 @@ func (m *MalachiteMetricsFetcher) processContainerCPUData(podUID, containerName 
 					utilmetric.MetricData{Value: cpi, Time: &updateTime})
 			}
 		}
-
 	} else if cgStats.CgroupType == "V2" {
 		cpu := cgStats.V2.Cpu
 		updateTime := time.Unix(cgStats.V2.Cpu.UpdateTime, 0)
@@ -754,7 +789,7 @@ func (m *MalachiteMetricsFetcher) processContainerCPUData(podUID, containerName 
 			utilmetric.MetricData{Value: float64(cpu.StoreAllInstructions), Time: &updateTime})
 		m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricStoreInsContainer,
 			utilmetric.MetricData{Value: float64(cpu.StoreInstructions), Time: &updateTime})
-		m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricUpdateTimeContainer,
+		m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricCPUUpdateTimeContainer,
 			utilmetric.MetricData{Value: float64(cpu.UpdateTime), Time: &updateTime})
 		m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricCPUCyclesContainer,
 			utilmetric.MetricData{Value: float64(cpu.Cycles), Time: &updateTime})
@@ -835,30 +870,48 @@ func (m *MalachiteMetricsFetcher) processContainerMemoryData(podUID, containerNa
 }
 
 func (m *MalachiteMetricsFetcher) processContainerBlkIOData(podUID, containerName string, cgStats *types.MalachiteCgroupInfo) {
+	lastUpdateTime, _ := m.metricStore.GetContainerMetric(podUID, containerName, consts.MetricBlkioUpdateTimeContainer)
+
 	if cgStats.CgroupType == "V1" {
 		io := cgStats.V1.Blkio
-		updateTime := time.Unix(cgStats.V1.Blkio.UpdateTime, 0)
+		updateTime := time.Unix(io.UpdateTime, 0)
+		updateTimestampInSec := updateTime.Unix()
 
-		m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricBlkioReadIopsContainer,
-			utilmetric.MetricData{Value: float64(io.BpfFsData.FsRead - io.OldBpfFsData.FsRead), Time: &updateTime})
-		m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricBlkioWriteIopsContainer,
-			utilmetric.MetricData{Value: float64(io.BpfFsData.FsWrite - io.OldBpfFsData.FsWrite), Time: &updateTime})
-		m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricBlkioReadBpsContainer,
-			utilmetric.MetricData{Value: float64(io.BpfFsData.FsReadBytes - io.OldBpfFsData.FsReadBytes), Time: &updateTime})
-		m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricBlkioWriteBpsContainer,
-			utilmetric.MetricData{Value: float64(io.BpfFsData.FsWriteBytes - io.OldBpfFsData.FsWriteBytes), Time: &updateTime})
+		m.setContainerRateMetric(podUID, containerName, consts.MetricBlkioReadIopsContainer,
+			func() float64 { return float64(io.BpfFsData.FsRead - io.OldBpfFsData.FsRead) },
+			int64(lastUpdateTime.Value), updateTimestampInSec)
+		m.setContainerRateMetric(podUID, containerName, consts.MetricBlkioWriteIopsContainer,
+			func() float64 { return float64(io.BpfFsData.FsWrite - io.OldBpfFsData.FsWrite) },
+			int64(lastUpdateTime.Value), updateTimestampInSec)
+		m.setContainerRateMetric(podUID, containerName, consts.MetricBlkioReadBpsContainer,
+			func() float64 { return float64(io.BpfFsData.FsReadBytes - io.OldBpfFsData.FsReadBytes) },
+			int64(lastUpdateTime.Value), updateTimestampInSec)
+		m.setContainerRateMetric(podUID, containerName, consts.MetricBlkioWriteBpsContainer,
+			func() float64 { return float64(io.BpfFsData.FsWriteBytes - io.OldBpfFsData.FsWriteBytes) },
+			int64(lastUpdateTime.Value), updateTimestampInSec)
+
+		m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricBlkioUpdateTimeContainer,
+			utilmetric.MetricData{Value: float64(updateTimestampInSec), Time: &updateTime})
 	} else if cgStats.CgroupType == "V2" {
 		io := cgStats.V2.Blkio
-		updateTime := time.Unix(cgStats.V2.Blkio.UpdateTime, 0)
+		updateTime := time.Unix(io.UpdateTime, 0)
+		updateTimestampInSec := updateTime.Unix()
 
-		m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricBlkioReadIopsContainer,
-			utilmetric.MetricData{Value: float64(io.BpfFsData.FsRead - io.OldBpfFsData.FsRead), Time: &updateTime})
-		m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricBlkioWriteIopsContainer,
-			utilmetric.MetricData{Value: float64(io.BpfFsData.FsWrite - io.OldBpfFsData.FsWrite), Time: &updateTime})
-		m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricBlkioReadBpsContainer,
-			utilmetric.MetricData{Value: float64(io.BpfFsData.FsReadBytes - io.OldBpfFsData.FsReadBytes), Time: &updateTime})
-		m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricBlkioWriteBpsContainer,
-			utilmetric.MetricData{Value: float64(io.BpfFsData.FsWriteBytes - io.OldBpfFsData.FsWriteBytes), Time: &updateTime})
+		m.setContainerRateMetric(podUID, containerName, consts.MetricBlkioReadIopsContainer,
+			func() float64 { return float64(io.BpfFsData.FsRead - io.OldBpfFsData.FsRead) },
+			int64(lastUpdateTime.Value), updateTimestampInSec)
+		m.setContainerRateMetric(podUID, containerName, consts.MetricBlkioWriteIopsContainer,
+			func() float64 { return float64(io.BpfFsData.FsWrite - io.OldBpfFsData.FsWrite) },
+			int64(lastUpdateTime.Value), updateTimestampInSec)
+		m.setContainerRateMetric(podUID, containerName, consts.MetricBlkioReadBpsContainer,
+			func() float64 { return float64(io.BpfFsData.FsReadBytes - io.OldBpfFsData.FsReadBytes) },
+			int64(lastUpdateTime.Value), updateTimestampInSec)
+		m.setContainerRateMetric(podUID, containerName, consts.MetricBlkioWriteBpsContainer,
+			func() float64 { return float64(io.BpfFsData.FsWriteBytes - io.OldBpfFsData.FsWriteBytes) },
+			int64(lastUpdateTime.Value), updateTimestampInSec)
+
+		m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricBlkioUpdateTimeContainer,
+			utilmetric.MetricData{Value: float64(io.UpdateTime), Time: &updateTime})
 	}
 }
 
@@ -919,11 +972,11 @@ func (m *MalachiteMetricsFetcher) processContainerPerNumaMemoryData(podUID, cont
 		for _, data := range numaStats {
 			numaID := strings.TrimPrefix(data.NumaName, "N")
 			m.metricStore.SetContainerNumaMetric(podUID, containerName, numaID, consts.MetricsMemTotalPerNumaContainer,
-				utilmetric.MetricData{Value: float64(data.Total << 10), Time: &updateTime})
+				utilmetric.MetricData{Value: float64(data.Total << pageShift), Time: &updateTime})
 			m.metricStore.SetContainerNumaMetric(podUID, containerName, numaID, consts.MetricsMemFilePerNumaContainer,
-				utilmetric.MetricData{Value: float64(data.File << 10), Time: &updateTime})
+				utilmetric.MetricData{Value: float64(data.File << pageShift), Time: &updateTime})
 			m.metricStore.SetContainerNumaMetric(podUID, containerName, numaID, consts.MetricsMemAnonPerNumaContainer,
-				utilmetric.MetricData{Value: float64(data.Anon << 10), Time: &updateTime})
+				utilmetric.MetricData{Value: float64(data.Anon << pageShift), Time: &updateTime})
 		}
 	} else if cgStats.CgroupType == "V2" {
 		numaStats := cgStats.V2.Memory.MemNumaStats
@@ -933,11 +986,11 @@ func (m *MalachiteMetricsFetcher) processContainerPerNumaMemoryData(podUID, cont
 			numaID := strings.TrimPrefix(numa, "N")
 			total := data.Anon + data.File + data.Unevictable
 			m.metricStore.SetContainerNumaMetric(podUID, containerName, numaID, consts.MetricsMemTotalPerNumaContainer,
-				utilmetric.MetricData{Value: float64(total << 10), Time: &updateTime})
+				utilmetric.MetricData{Value: float64(total << pageShift), Time: &updateTime})
 			m.metricStore.SetContainerNumaMetric(podUID, containerName, numaID, consts.MetricsMemFilePerNumaContainer,
-				utilmetric.MetricData{Value: float64(data.File << 10), Time: &updateTime})
+				utilmetric.MetricData{Value: float64(data.File << pageShift), Time: &updateTime})
 			m.metricStore.SetContainerNumaMetric(podUID, containerName, numaID, consts.MetricsMemAnonPerNumaContainer,
-				utilmetric.MetricData{Value: float64(data.Anon << 10), Time: &updateTime})
+				utilmetric.MetricData{Value: float64(data.Anon << pageShift), Time: &updateTime})
 		}
 	}
 }

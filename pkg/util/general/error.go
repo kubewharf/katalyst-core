@@ -19,6 +19,9 @@ package general
 import (
 	"encoding/json"
 	"fmt"
+
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 // common errors
@@ -36,4 +39,22 @@ func IsUnmarshalTypeError(err error) bool {
 
 func IsErrNotFound(err error) bool {
 	return err == ErrNotFound
+}
+
+func IsUnimplementedError(err error) bool {
+	// Sources:
+	// https://github.com/grpc/grpc/blob/master/doc/statuscodes.md
+	// https://github.com/container-storage-interface/spec/blob/master/spec.md
+	st, ok := status.FromError(err)
+	if !ok {
+		// This is not gRPC error. The operation must have failed before gRPC
+		// method was called, otherwise we would get gRPC error.
+		// We don't know if any previous volume operation is in progress, be on the safe side.
+		return false
+	}
+	switch st.Code() {
+	case codes.Unimplemented:
+		return true
+	}
+	return false
 }

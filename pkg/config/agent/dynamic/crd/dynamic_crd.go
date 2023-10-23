@@ -24,6 +24,7 @@ import (
 
 const (
 	ResourceKindAdminQoSConfiguration = "AdminQoSConfiguration"
+	ResourceKindAuthConfiguration     = "AuthConfiguration"
 )
 
 // DynamicConfigCRD records all those configurations defined by CRD
@@ -32,9 +33,12 @@ const (
 // trigger notification.
 type DynamicConfigCRD struct {
 	AdminQoSConfiguration *v1alpha1.AdminQoSConfiguration
+	AuthConfiguration     *v1alpha1.AuthConfiguration
 }
 
 var (
 	// AdminQoSConfigurationGVR is the group version resource for AdminQoSConfiguration
 	AdminQoSConfigurationGVR = metav1.GroupVersionResource(v1alpha1.SchemeGroupVersion.WithResource(v1alpha1.ResourceNameAdminQoSConfigurations))
+	// AuthConfigurationGVR is the group version resource for AuthConfiguration
+	AuthConfigurationGVR = metav1.GroupVersionResource(v1alpha1.SchemeGroupVersion.WithResource(v1alpha1.ResourceNameAuthConfigurations))
 )

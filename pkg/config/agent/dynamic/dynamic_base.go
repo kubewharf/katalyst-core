@@ -20,6 +20,7 @@ import (
 	"sync"
 
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/adminqos"
+	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/auth"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/crd"
 )
 
@@ -50,14 +51,17 @@ func (c *DynamicAgentConfiguration) SetDynamicConfiguration(conf *Configuration)
 
 type Configuration struct {
 	*adminqos.AdminQoSConfiguration
+	*auth.AuthConfiguration
 }
 
 func NewConfiguration() *Configuration {
 	return &Configuration{
 		AdminQoSConfiguration: adminqos.NewAdminQoSConfiguration(),
+		AuthConfiguration:     auth.NewAuthConfiguration(),
 	}
 }
 
 func (c *Configuration) ApplyConfiguration(conf *crd.DynamicConfigCRD) {
 	c.AdminQoSConfiguration.ApplyConfiguration(conf)
+	c.AuthConfiguration.ApplyConfiguration(conf)
 }

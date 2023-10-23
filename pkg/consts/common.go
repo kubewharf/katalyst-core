@@ -35,10 +35,15 @@ const (
 	EventReasonEvictCreated             = "EvictCreated"
 	EventReasonEvictExceededGracePeriod = "EvictExceededGracePeriod"
 	EventReasonEvictSucceeded           = "EvictSucceeded"
+
+	EventReasonContainerStopped = "ContainerStopped"
 )
 
-// EventActionEvicting is const variable for pod eviction action identifier in event.
-const EventActionEvicting = "Evicting"
+// const variable for pod eviction action identifier in event.
+const (
+	EventActionEvicting          = "Evicting"
+	EventActionContainerStopping = "ContainerStopping"
+)
 
 // KeySeparator : to split parts of a key
 const KeySeparator = "/"

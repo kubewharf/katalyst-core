@@ -33,13 +33,16 @@ const (
 
 func InitEvictionManager(agentCtx *GenericContext, conf *config.Configuration, _ interface{}, _ string) (bool, Component, error) {
 	recorder := agentCtx.BroadcastAdapter.NewRecorder(EvictionManagerAgent)
-	evictionMgr := evict.NewEvictionManager(agentCtx.Client, recorder, agentCtx.MetaServer,
+	evictionMgr, err := evict.NewEvictionManager(agentCtx.Client, recorder, agentCtx.MetaServer,
 		agentCtx.EmitterPool.GetDefaultMetricsEmitter(), conf)
+	if err != nil {
+		return false, ComponentStub{}, fmt.Errorf("failed to init eviction manager: %s", err)
+	}
 
 	// add dynamic config watcher
-	err := agentCtx.MetaServer.AddConfigWatcher(crd.AdminQoSConfigurationGVR)
+	err = agentCtx.MetaServer.AddConfigWatcher(crd.AdminQoSConfigurationGVR)
 	if err != nil {
-		return false, ComponentStub{}, fmt.Errorf("failed register dynamic config: %s", err)
+		return false, ComponentStub{}, fmt.Errorf("failed register dynamic config %v: %s", crd.AdminQoSConfigurationGVR.String(), err)
 	}
 
 	klog.Infof("starting eviction manager")

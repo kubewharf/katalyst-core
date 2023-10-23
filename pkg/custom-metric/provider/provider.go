@@ -23,7 +23,7 @@ import (
 
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime/schema"
-	"k8s.io/apimachinery/pkg/types"
+	apitypes "k8s.io/apimachinery/pkg/types"
 	"k8s.io/klog/v2"
 	"k8s.io/metrics/pkg/apis/custom_metrics"
 	"k8s.io/metrics/pkg/apis/external_metrics"
@@ -31,7 +31,7 @@ import (
 
 	katalyst_base "github.com/kubewharf/katalyst-core/cmd/base"
 	"github.com/kubewharf/katalyst-core/pkg/custom-metric/store"
-	"github.com/kubewharf/katalyst-core/pkg/custom-metric/store/data"
+	"github.com/kubewharf/katalyst-core/pkg/custom-metric/store/data/types"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 )
 
@@ -41,6 +41,9 @@ const (
 
 	metricsNameKCMASProviderDataCount = "kcmas_provider_data_count"
 	metricsNameKCMASProviderDataEmpty = "kcmas_provider_data_empty"
+
+	metricsNameKCMASProviderCustomMetricLatency   = "kcmas_provider_custom_metric_latency"
+	metricsNameKCMASProviderExternalMetricLatency = "kcmas_provider_external_metric_latency"
 )
 
 // MetricProvider is a standard interface to query metric data;
@@ -85,44 +88,46 @@ func NewMetricProviderImp(ctx context.Context, baseCtx *katalyst_base.GenericCon
 	}
 }
 
-func (m *MetricProviderImp) GetMetricByName(ctx context.Context, namespacedName types.NamespacedName,
+func (m *MetricProviderImp) GetMetricByName(ctx context.Context, namespacedName apitypes.NamespacedName,
 	info provider.CustomMetricInfo, metricSelector labels.Selector) (*custom_metrics.MetricValue, error) {
-	klog.Infof("GetMetricByName: metric name %v, object %v, namespace %v, object name %v, metricSelector %v",
-		info.Metric, info.GroupResource, namespacedName.Namespace, namespacedName.Name, metricSelector)
+	klog.Infof("GetMetricByName: metric name %v, object %v, namespace %v, object name %v, metricSelector %v, context-test %v",
+		info.Metric, info.GroupResource, namespacedName.Namespace, namespacedName.Name, metricSelector, ctx.Value("context-test"))
 	var (
-		internalList []*data.InternalMetric
-		err          error
-		start        = time.Now()
+		metricList []types.Metric
+		err        error
+		start      = time.Now()
 	)
 	defer func() {
 		m.emitMetrics("GetMetricByName", info.Metric, namespacedName.Name, start, 1, err)
 	}()
 
-	internalList, err = m.storeImp.GetMetric(ctx, namespacedName.Namespace, info.Metric, namespacedName.Name,
-		&info.GroupResource, nil, metricSelector, 1)
+	metricList, err = m.storeImp.GetMetric(ctx, namespacedName.Namespace, info.Metric, namespacedName.Name,
+		&info.GroupResource, nil, metricSelector, true)
 	if err != nil {
 		klog.Errorf("GetMetric err: %v", err)
 		return nil, err
 	}
 
 	var res *custom_metrics.MetricValue
-	for _, internal := range internalList {
-		if internal.GetObjectKind() == "" || internal.GetObjectName() == "" {
+	for _, metric := range metricList {
+		if metric.GetObjectKind() == "" || metric.GetObjectName() == "" {
 			klog.Errorf("custom metric %v doesn't have object %v/%v",
-				internal.Name, internal.GetObjectKind(), internal.GetObjectName())
+				metric.GetName(), metric.GetObjectKind(), metric.GetObjectName())
 			continue
 		}
 
 		if res == nil {
-			res = findMetricValueLatest(internal.Name, PackMetricValueList(internal))
+			res = findMetricValueLatest(metric.GetName(), PackMetricValueList(metric))
 		} else {
-			res = findMetricValueLatest(internal.Name, append(PackMetricValueList(internal), *res))
+			res = findMetricValueLatest(metric.GetName(), append(PackMetricValueList(metric), *res))
 		}
 	}
 
 	if res == nil {
 		return nil, fmt.Errorf("no mtaching metric exists")
 	}
+
+	m.emitCustomMetricLatency(res)
 	return res, nil
 }
 
@@ -131,33 +136,39 @@ func (m *MetricProviderImp) GetMetricBySelector(ctx context.Context, namespace s
 	klog.Infof("GetMetricBySelector: metric name %v, object %v, namespace %v, objSelector %v, metricSelector %v",
 		info.Metric, info.GroupResource, namespace, objSelector, metricSelector)
 	var (
-		internalList []*data.InternalMetric
-		resultCount  int
-		err          error
-		start        = time.Now()
+		metricList  []types.Metric
+		resultCount int
+		err         error
+		start       = time.Now()
 	)
 	defer func() {
 		m.emitMetrics("GetMetricBySelector", info.Metric, "", start, resultCount, err)
 	}()
 
-	internalList, err = m.storeImp.GetMetric(ctx, namespace, info.Metric, "",
-		&info.GroupResource, objSelector, metricSelector, -1)
+	metricList, err = m.storeImp.GetMetric(ctx, namespace, info.Metric, "",
+		&info.GroupResource, objSelector, metricSelector, false)
 	if err != nil {
 		klog.Errorf("GetMetric err: %v", err)
 		return nil, err
 	}
 
 	var items []custom_metrics.MetricValue
-	for _, internal := range internalList {
-		if internal.GetObjectKind() == "" || internal.GetObjectName() == "" {
+	for _, metric := range metricList {
+		if metric.GetObjectKind() == "" || metric.GetObjectName() == "" {
 			klog.Errorf("custom metric %v doesn't have object %v/%v",
-				internal.Name, internal.GetObjectKind(), internal.GetObjectName())
+				metric.GetName(), metric.GetObjectKind(), metric.GetObjectName())
 			continue
 		}
 
-		resultCount += internal.Len()
-		items = append(items, PackMetricValueList(internal)...)
+		resultCount += metric.Len()
+		items = append(items, PackMetricValueList(metric)...)
 	}
+
+	// TODO, emit metrics only when this functionality switched on
+	for i := range items {
+		m.emitCustomMetricLatency(&items[i])
+	}
+
 	return &custom_metrics.MetricValueList{
 		Items: items,
 	}, nil
@@ -166,7 +177,7 @@ func (m *MetricProviderImp) GetMetricBySelector(ctx context.Context, namespace s
 func (m *MetricProviderImp) ListAllMetrics() []provider.CustomMetricInfo {
 	klog.V(6).Info("ListAllMetrics")
 	var (
-		metricTypeList []data.MetricMeta
+		metricTypeList []types.MetricMeta
 		resultCount    int
 		err            error
 		start          = time.Now()
@@ -207,32 +218,37 @@ func (m *MetricProviderImp) GetExternalMetric(ctx context.Context, namespace str
 	info provider.ExternalMetricInfo) (*external_metrics.ExternalMetricValueList, error) {
 	klog.Infof("GetExternalMetric: metric name %v, namespace %v, metricSelector %v", info.Metric, namespace, metricSelector)
 	var (
-		internalList []*data.InternalMetric
-		resultCount  int
-		err          error
-		start        = time.Now()
+		metricList  []types.Metric
+		resultCount int
+		err         error
+		start       = time.Now()
 	)
 	defer func() {
 		m.emitMetrics("GetExternalMetric", info.Metric, "", start, resultCount, err)
 	}()
 
-	internalList, err = m.storeImp.GetMetric(ctx, namespace, info.Metric, "", nil, nil, metricSelector, -1)
+	metricList, err = m.storeImp.GetMetric(ctx, namespace, info.Metric, "", nil, nil, metricSelector, true)
 	if err != nil {
 		klog.Errorf("GetMetric err: %v", err)
 		return nil, err
 	}
 
 	var items []external_metrics.ExternalMetricValue
-	for _, internal := range internalList {
-		if internal.GetObjectKind() != "" || internal.GetObjectName() != "" {
+	for _, metric := range metricList {
+		if metric.GetObjectKind() != "" || metric.GetObjectName() != "" {
 			klog.Errorf("internal metric %v has object %v/%v unexpectedly",
-				internal.Name, internal.GetObjectKind(), internal.GetObjectName())
+				metric.GetName(), metric.GetObjectKind(), metric.GetObjectName())
 			continue
 		}
 
-		resultCount += internal.Len()
-		items = append(items, PackExternalMetricValueList(internal)...)
+		resultCount += metric.Len()
+		items = append(items, PackExternalMetricValueList(metric)...)
 	}
+
+	for i := range items {
+		m.emitExternalMetricLatency(&items[i])
+	}
+
 	return &external_metrics.ExternalMetricValueList{
 		Items: items,
 	}, nil
@@ -241,23 +257,23 @@ func (m *MetricProviderImp) GetExternalMetric(ctx context.Context, namespace str
 func (m *MetricProviderImp) ListAllExternalMetrics() []provider.ExternalMetricInfo {
 	klog.V(6).Info("ListAllExternalMetrics")
 	var (
-		internalList []data.MetricMeta
-		resultCount  int
-		err          error
-		start        = time.Now()
+		metricTypeList []types.MetricMeta
+		resultCount    int
+		err            error
+		start          = time.Now()
 	)
 	defer func() {
 		m.emitMetrics("ListAllExternalMetrics", "", "", start, resultCount, err)
 	}()
 
-	internalList, err = m.storeImp.ListMetricMeta(context.Background(), false)
+	metricTypeList, err = m.storeImp.ListMetricMeta(context.Background(), false)
 	if err != nil {
 		klog.Errorf("ListAllExternalMetrics err: %v", err)
 		return []provider.ExternalMetricInfo{}
 	}
 
 	infoMap := make(map[provider.ExternalMetricInfo]interface{})
-	for _, internal := range internalList {
+	for _, internal := range metricTypeList {
 		if internal.GetObjectKind() != "" {
 			continue
 		}
@@ -273,6 +289,26 @@ func (m *MetricProviderImp) ListAllExternalMetrics() []provider.ExternalMetricIn
 		res = append(res, info)
 	}
 	return res
+}
+
+func (m *MetricProviderImp) emitCustomMetricLatency(metric *custom_metrics.MetricValue) {
+	dataLatency := time.Now().Sub(metric.Timestamp.Time).Microseconds()
+	tags := []metrics.MetricTag{
+		{Key: "metric_name", Val: metric.Metric.Name},
+		{Key: "object_name", Val: metric.DescribedObject.Name},
+		{Key: "object_kind", Val: metric.DescribedObject.Kind},
+	}
+
+	_ = m.metricsEmitter.StoreInt64(metricsNameKCMASProviderCustomMetricLatency, dataLatency, metrics.MetricTypeNameRaw, tags...)
+}
+
+func (m *MetricProviderImp) emitExternalMetricLatency(metric *external_metrics.ExternalMetricValue) {
+	dataLatency := time.Now().Sub(metric.Timestamp.Time).Microseconds()
+	tags := []metrics.MetricTag{
+		{Key: "metric_name", Val: metric.MetricName},
+	}
+
+	_ = m.metricsEmitter.StoreInt64(metricsNameKCMASProviderExternalMetricLatency, dataLatency, metrics.MetricTypeNameRaw, tags...)
 }
 
 // emitMetrics provides a unified way to emit metrics about the running states for each interface.

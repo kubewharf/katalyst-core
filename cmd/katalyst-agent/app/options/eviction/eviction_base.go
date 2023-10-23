@@ -24,6 +24,7 @@ import (
 	cliflag "k8s.io/component-base/cli/flag"
 
 	evictionconfig "github.com/kubewharf/katalyst-core/pkg/config/agent/eviction"
+	"github.com/kubewharf/katalyst-core/pkg/consts"
 )
 
 // GenericEvictionOptions holds the configurations for eviction manager.
@@ -42,6 +43,12 @@ type GenericEvictionOptions struct {
 
 	// EvictionBurst limit the burst eviction counts
 	EvictionBurst int
+
+	// PodKiller specify the pod killer implementation
+	PodKiller string
+
+	// StrictAuthentication means whether to authenticate plugins strictly
+	StrictAuthentication bool
 }
 
 // NewGenericEvictionOptions creates a new Options with a default config.
@@ -53,6 +60,8 @@ func NewGenericEvictionOptions() *GenericEvictionOptions {
 		EvictionSkippedAnnotationKeys: []string{},
 		EvictionSkippedLabelKeys:      []string{},
 		EvictionBurst:                 3,
+		PodKiller:                     consts.KillerNameEvictionKiller,
+		StrictAuthentication:          false,
 	}
 }
 
@@ -77,6 +86,13 @@ func (o *GenericEvictionOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 
 	fs.IntVar(&o.EvictionBurst, "eviction-burst", o.EvictionBurst,
 		"The burst amount of pods to be evicted by edition manager")
+
+	fs.StringVar(&o.PodKiller, "pod-killer", o.PodKiller,
+		"the pod killer used to evict pod")
+
+	fs.BoolVar(&o.StrictAuthentication, "strict-authentication", o.StrictAuthentication,
+		"whether to authenticate plugins strictly, the out-of-tree plugins must use valid and authorized token "+
+			"to register if it set to true")
 }
 
 // ApplyTo fills up config with options
@@ -87,6 +103,8 @@ func (o *GenericEvictionOptions) ApplyTo(c *evictionconfig.GenericEvictionConfig
 	c.EvictionSkippedAnnotationKeys.Insert(o.EvictionSkippedAnnotationKeys...)
 	c.EvictionSkippedLabelKeys.Insert(o.EvictionSkippedLabelKeys...)
 	c.EvictionBurst = o.EvictionBurst
+	c.PodKiller = o.PodKiller
+	c.StrictAuthentication = o.StrictAuthentication
 	return nil
 }
 

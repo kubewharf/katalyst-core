@@ -20,21 +20,14 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"net/url"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
+
+	"github.com/kubewharf/katalyst-core/pkg/metrics"
 )
-
-func emptyAuthPair() (map[string]string, error) {
-	return map[string]string{}, nil
-}
-
-func dummyAuthPair() (map[string]string, error) {
-	return map[string]string{
-		"t-user-1": "t-passwd",
-	}, nil
-}
 
 type dummyHandler struct {
 	success int
@@ -54,99 +47,85 @@ func TestHTTPHandler(t *testing.T) {
 	t.Parallel()
 
 	httpCleanupVisitorPeriod = time.Second
-	httpSyncPasswdPeriod = time.Second
 
 	type req struct {
-		burst   int
-		success int
-		user    string
-		passwd  string
+		burst      int
+		success    int
+		remoteAddr string
 	}
 
 	for _, tc := range []struct {
 		comment  string
-		pairFunc GetAuthPair
 		enabled  []string
 		reqs     []req
 		visitCnt int
 	}{
 		{
-			comment:  "empty chain to pass all",
-			pairFunc: emptyAuthPair,
-			enabled:  []string{},
+			comment: "empty chain to pass all",
+			enabled: []string{},
 			reqs: []req{
 				{
-					burst:   2,
-					success: 2,
-					user:    "t-user-1",
-					passwd:  "t-passwd",
+					burst:      2,
+					success:    2,
+					remoteAddr: "addr-1",
 				},
 			},
 			visitCnt: 0,
 		},
 		{
-			comment:  "rate limiter chain to limit requests",
-			pairFunc: emptyAuthPair,
-			enabled:  []string{HTTPChainRateLimiter},
+			comment: "rate limiter chain to limit requests",
+			enabled: []string{HTTPChainRateLimiter},
 			reqs: []req{
 				{
-					burst:   1,
-					success: 1,
-					user:    "t-user-1",
-					passwd:  "t-passwd",
+					burst:      1,
+					success:    1,
+					remoteAddr: "addr-1",
 				},
 				{
-					burst:   2,
-					success: 1,
-					user:    "t-user-2",
-					passwd:  "t-passwd",
+					burst:      2,
+					success:    1,
+					remoteAddr: "addr-2",
 				},
 			},
 			visitCnt: 2,
 		},
 		{
-			comment:  "auth chain to build auth for user",
-			pairFunc: dummyAuthPair,
-			enabled:  []string{HTTPChainAuth},
+			comment: "auth chain to build auth for user",
+			enabled: []string{HTTPChainCredential},
 			reqs: []req{
 				{
-					burst:   2,
-					success: 2,
-					user:    "t-user-1",
-					passwd:  "t-passwd",
+					burst:      2,
+					success:    2,
+					remoteAddr: "addr-1",
 				},
 				{
-					burst:   1,
-					success: 0,
-					user:    "t-user-2",
-					passwd:  "t-passwd",
+					burst:      1,
+					success:    1,
+					remoteAddr: "addr-2",
 				},
 			},
 			visitCnt: 0,
 		},
 		{
-			comment:  "auth chain to limit requests",
-			pairFunc: dummyAuthPair,
-			enabled:  []string{HTTPChainAuth, HTTPChainRateLimiter},
+			comment: "auth chain to limit requests",
+			enabled: []string{HTTPChainCredential, HTTPChainRateLimiter},
 			reqs: []req{
 				{
-					burst:   2,
-					success: 1,
-					user:    "t-user-1",
-					passwd:  "t-passwd",
+					burst:      2,
+					success:    1,
+					remoteAddr: "addr-1",
 				},
 				{
-					burst:   2,
-					success: 0,
-					user:    "t-user-2",
-					passwd:  "t-passwd",
+					burst:      2,
+					success:    0,
+					remoteAddr: "addr-2",
 				},
 			},
 			visitCnt: 1,
 		},
 	} {
 		t.Logf("test case: %v", tc.comment)
-		h := NewHTTPHandler(tc.pairFunc, tc.enabled)
+		h := NewHTTPHandler(tc.enabled, []string{}, true, metrics.DummyMetrics{})
 
 		ctx, cancel := context.WithCancel(context.Background())
 		h.Run(ctx)
@@ -158,11 +137,13 @@ func TestHTTPHandler(t *testing.T) {
 
 			for j := 0; j < r.burst; j++ {
 				hr := &http.Request{
-					Header:     make(http.Header),
-					RemoteAddr: fmt.Sprintf("%v", r.user),
-					Method:     fmt.Sprintf("%v-order-%v", r.user, j),
+					Header: make(http.Header),
+					URL: &url.URL{
+						Path: "fake_path",
+					},
+					RemoteAddr: fmt.Sprintf("%v", r.remoteAddr),
+					Method:     fmt.Sprintf("%v-order-%v", r.remoteAddr, j),
 				}
-				hr.SetBasicAuth(r.user, r.passwd)
 
 				hf.ServeHTTP(dummyResponseWriter{}, hr)
 			}

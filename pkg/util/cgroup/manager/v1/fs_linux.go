@@ -20,6 +20,7 @@ limitations under the License.
 package v1
 
 import (
+	"errors"
 	"fmt"
 	"path"
 	"path/filepath"
@@ -178,6 +179,18 @@ func (m *manager) ApplyNetCls(absCgroupPath string, data *common.NetClsData) err
 	return nil
 }
 
+func (m *manager) ApplyIOCostQoS(absCgroupPath string, devID string, data *common.IOCostQoSData) error {
+	return errors.New("cgroups v1 does not support io.cost.qos")
+}
+
+func (m *manager) ApplyIOCostModel(absCgroupPath string, devID string, data *common.IOCostModelData) error {
+	return errors.New("cgroups v1 does not support io.cost.model")
+}
+
+func (m *manager) ApplyIOWeight(absCgroupPath string, devID string, weight uint64) error {
+	return errors.New("cgroups v1 does not support io.weight")
+}
+
 func (m *manager) ApplyUnifiedData(absCgroupPath, cgroupFileName, data string) error {
 	if err, applied, oldData := common.WriteFileIfChange(absCgroupPath, cgroupFileName, data); err != nil {
 		return err
@@ -245,6 +258,22 @@ func (m *manager) GetCPUSet(absCgroupPath string) (*common.CPUSetStats, error) {
 	}
 
 	return cpusetStats, nil
+}
+
+func (m *manager) GetIOCostQoS(absCgroupPath string) (map[string]*common.IOCostQoSData, error) {
+	return nil, errors.New("cgroups v1 does not support io.cost.qos")
+}
+
+func (m *manager) GetIOCostModel(absCgroupPath string) (map[string]*common.IOCostModelData, error) {
+	return nil, errors.New("cgroups v1 does not support io.cost.model")
+}
+
+func (m *manager) GetDeviceIOWeight(absCgroupPath string, devID string) (uint64, bool, error) {
+	return 0, false, errors.New("cgroups v1 does not support io.weight")
+}
+
+func (m *manager) GetIOStat(absCgroupPath string) (map[string]map[string]string, error) {
+	return nil, errors.New("cgroups v1 does not support io.stat")
 }
 
 func (m *manager) GetMetrics(relCgroupPath string, subsystemMap map[string]struct{}) (*common.CgroupMetrics, error) {

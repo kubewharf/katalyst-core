@@ -26,6 +26,7 @@ import (
 	"k8s.io/kubernetes/pkg/kubelet/cm/topologymanager/bitmask"
 
 	nativepolicyutil "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/nativepolicy/util"
+	cpuutil "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/util"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
@@ -47,7 +48,7 @@ func (p *NativePolicy) dedicatedCoresHintHandler(ctx context.Context,
 
 	allocationInfo := p.state.GetAllocationInfo(req.PodUid, req.ContainerName)
 	if allocationInfo != nil {
-		hints = util.RegenerateHints(allocationInfo, reqInt)
+		hints = cpuutil.RegenerateHints(allocationInfo, reqInt)
 
 		// regenerateHints failed. need to clear container record and re-calculate.
 		if hints == nil {

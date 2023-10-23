@@ -99,7 +99,7 @@ message AllocationInfo {
 }
 
 service CPUAdvisor {
-    rpc AddContainer(advisorsvc.AddContainerRequest) returns (advisorsvc.AddContainerResponse) {}
+    rpc AddContainer(advisorsvc.ContainerMetadata) returns (advisorsvc.AddContainerResponse) {}
     rpc RemovePod(advisorsvc.RemovePodRequest) returns (advisorsvc.RemovePodResponse) {}
     rpc ListAndWatch(advisorsvc.Empty) returns (stream ListAndWatchResponse) {}
 }

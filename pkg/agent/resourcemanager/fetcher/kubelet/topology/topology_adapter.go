@@ -149,8 +149,13 @@ func (p *topologyAdapterImpl) GetTopologyZones(parentCtx context.Context) ([]*no
 		return nil, errors.Wrap(err, "validate pod Resources server response failed")
 	}
 
+	podResources := listPodResourcesResponse.GetPodResources()
+	if len(podResources) == 0 {
+		return nil, errors.Errorf("list pod resources response is empty")
+	}
+
 	// filter already allocated pods
-	podResourcesList := filterAllocatedPodResourcesList(listPodResourcesResponse.GetPodResources())
+	podResourcesList := filterAllocatedPodResourcesList(podResources)
 
 	// get numa Allocations by pod Resources
 	zoneAllocations, err := p.getZoneAllocations(podList, podResourcesList)
@@ -396,6 +401,10 @@ func (p *topologyAdapterImpl) getZoneAllocations(podList []*v1.Pod, podResources
 		pod, ok := podMap[podKey]
 		if !ok {
 			errList = append(errList, fmt.Errorf("pod %s not found in metaserver", podKey))
+			continue
+		}
+
+		if native.PodIsTerminated(pod) {
 			continue
 		}
 

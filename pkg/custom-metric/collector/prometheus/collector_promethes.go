@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"path"
 	"sync"
 	"time"
 
@@ -59,6 +60,9 @@ const (
 	metricNamePromCollectorStoreReqCount  = "kcmas_collector_store_req_cnt"
 	metricNamePromCollectorStoreItemCount = "kcmas_collector_store_item_cnt"
 	metricNamePromCollectorStoreLatency   = "kcmas_collector_store_latency"
+
+	fileNameUsername = "username"
+	fileNamePassword = "password"
 )
 
 // prometheusCollector implements MetricCollector using self-defined parser functionality
@@ -70,7 +74,10 @@ type prometheusCollector struct {
 	collectConf *metric.CollectorConfiguration
 	genericConf *metric.GenericMetricConfiguration
 
-	client      *http.Client
+	client   *http.Client
+	username string
+	password string
+
 	emitter     metrics.MetricEmitter
 	metricStore store.MetricStore
 
@@ -97,6 +104,8 @@ func NewPrometheusCollector(ctx context.Context, baseCtx *katalystbase.GenericCo
 	if err != nil {
 		return nil, fmt.Errorf("creating HTTP client failed: %v", err)
 	}
+
+	username, password := extractCredential(collectConf.CredentialPath)
 
 	// since collector will define its own pod/node label selectors, so we will construct informer separately
 	klog.Infof("enabled with pod selector: %v, node selector: %v", collectConf.PodSelector.String(), collectConf.NodeSelector.String())
@@ -125,6 +134,8 @@ func NewPrometheusCollector(ctx context.Context, baseCtx *katalystbase.GenericCo
 			nodeInformer.Informer().HasSynced,
 		},
 		client:      client,
+		username:    username,
+		password:    password,
 		emitter:     baseCtx.EmitterPool.GetDefaultMetricsEmitter().WithTags("prom_collector"),
 		scrapes:     make(map[string]*ScrapeManager),
 		syncSuccess: false,
@@ -325,7 +336,8 @@ func (p *prometheusCollector) addRequest(pod *v1.Pod) {
 
 	// todo all ScrapeManager will share the same http connection now,
 	//  reconsider whether it's reasonable in production
-	s, err := NewScrapeManager(p.ctx, p.genericConf.OutOfDataPeriod, p.client, pod.Spec.NodeName, targetURL, p.emitter)
+	s, err := NewScrapeManager(p.ctx, p.genericConf.OutOfDataPeriod, p.client, pod.Spec.NodeName, targetURL,
+		p.emitter, p.username, p.password)
 	if err != nil {
 		klog.Errorf("failed to new http.Request: %v", err)
 		return
@@ -424,4 +436,39 @@ func (p *prometheusCollector) sync() {
 	_ = p.emitter.StoreInt64(metricNamePromCollectorStoreReqCount, failedReqs.Load(), metrics.MetricTypeNameCount, []metrics.MetricTag{
 		{Key: "type", Val: "failed"},
 	}...)
+}
+
+// extractCredential get username and password from the credential directory
+func extractCredential(credentialDir string) (string, string) {
+	usernameFilePath := path.Join(credentialDir, fileNameUsername)
+	username, usernameErr := extractCredentialFile(usernameFilePath)
+	if usernameErr != nil {
+		general.Warningf("get username failed, err:%v", usernameErr)
+		return "", ""
+	}
+
+	passwordFilePath := path.Join(credentialDir, fileNamePassword)
+	password, passwordErr := extractCredentialFile(passwordFilePath)
+	if passwordErr != nil {
+		general.Warningf("get password failed, err:%v", passwordErr)
+		return "", ""
+	}
+
+	return username, password
+}
+
+func extractCredentialFile(filePath string) (string, error) {
+	FileExists := general.IsPathExists(filePath)
+	if !FileExists {
+		return "", fmt.Errorf("file %v does not exist", filePath)
+	}
+
+	lines, err := general.ReadFileIntoLines(filePath)
+	if err != nil {
+		return "", fmt.Errorf("read username file failed, err:%v", err)
+	}
+	if len(lines) != 1 {
+		return "", fmt.Errorf("username is more than 1 line which is unexpected")
+	}
+	return lines[0], nil
 }

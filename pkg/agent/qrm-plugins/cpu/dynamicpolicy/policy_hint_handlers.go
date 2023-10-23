@@ -27,6 +27,7 @@ import (
 
 	apiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
+	cpuutil "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/util"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
@@ -85,7 +86,7 @@ func (p *DynamicPolicy) dedicatedCoresWithNUMABindingHintHandler(_ context.Conte
 
 	allocationInfo := p.state.GetAllocationInfo(req.PodUid, req.ContainerName)
 	if allocationInfo != nil {
-		hints = util.RegenerateHints(allocationInfo, reqInt)
+		hints = cpuutil.RegenerateHints(allocationInfo, reqInt)
 
 		// regenerateHints failed. need to clear container record and re-calculate.
 		if hints == nil {
@@ -107,8 +108,10 @@ func (p *DynamicPolicy) dedicatedCoresWithNUMABindingHintHandler(_ context.Conte
 
 	// if hints exists in extra state-file, prefer to use them
 	if hints == nil {
+		availableNUMAs := machineState.GetFilteredNUMASet(state.CheckNUMABinding)
+
 		var extraErr error
-		hints, extraErr = util.GetHintsFromExtraStateFile(req.PodName, string(v1.ResourceCPU), p.extraStateFileAbsPath)
+		hints, extraErr = util.GetHintsFromExtraStateFile(req.PodName, string(v1.ResourceCPU), p.extraStateFileAbsPath, availableNUMAs)
 		if extraErr != nil {
 			general.Infof("pod: %s/%s, container: %s GetHintsFromExtraStateFile failed with error: %v",
 				req.PodNamespace, req.PodName, req.ContainerName, extraErr)

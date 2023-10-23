@@ -33,9 +33,6 @@ import (
 )
 
 const (
-	// PluginNameMetaCache is the name of MetaCachePlugin
-	PluginNameMetaCache = "metacache-plugin"
-
 	// MetricsNamePlugMetaCacheHeartbeat is the heartbeat metrics of metacache plugin
 	MetricsNamePlugMetaCacheHeartbeat = "plugin_metacache_heartbeat"
 )
@@ -51,12 +48,12 @@ type MetaCachePlugin struct {
 }
 
 // NewMetaCachePlugin creates a metacache plugin with the specified config
-func NewMetaCachePlugin(conf *config.Configuration, _ interface{}, emitterPool metricspool.MetricsEmitterPool,
+func NewMetaCachePlugin(pluginName string, conf *config.Configuration, _ interface{}, emitterPool metricspool.MetricsEmitterPool,
 	metaServer *metaserver.MetaServer, metaCache metacache.MetaCache) (plugin.SysAdvisorPlugin, error) {
 	emitter := emitterPool.GetDefaultMetricsEmitter().WithTags("advisor-metacache")
 
 	mcp := &MetaCachePlugin{
-		name:       PluginNameMetaCache,
+		name:       pluginName,
 		period:     conf.SysAdvisorPluginsConfiguration.MetaCachePluginConfiguration.SyncPeriod,
 		emitter:    emitter,
 		metaServer: metaServer,
@@ -90,6 +87,13 @@ func (mcp *MetaCachePlugin) periodicWork(_ context.Context) {
 		if err != nil {
 			klog.Errorf("[metacache] get container spec failed: %v, %v/%v", err, podUID, containerName)
 			return true
+		}
+
+		// For these containers do not belong to NumaExclusive, assign the actual value to CPURequest of them.
+		// Because CPURequest of containerInfo would be assigned as math.Ceil(Actual CPURequest).
+		// As for NumaExclusive containers, the "math.Ceil(Actual CPURequest)" is acceptable.
+		if ci.CPURequest <= 0 || !ci.IsNumaExclusive() {
+			ci.CPURequest = spec.Resources.Requests.Cpu().AsApproximateFloat64()
 		}
 		if ci.CPULimit <= 0 {
 			ci.CPULimit = spec.Resources.Limits.Cpu().AsApproximateFloat64()

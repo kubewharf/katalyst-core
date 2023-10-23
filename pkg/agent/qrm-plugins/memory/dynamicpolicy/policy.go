@@ -47,6 +47,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 	"github.com/kubewharf/katalyst-core/pkg/util/native"
+	"github.com/kubewharf/katalyst-core/pkg/util/process"
 	"github.com/kubewharf/katalyst-core/pkg/util/timemonitor"
 )
 
@@ -122,13 +123,14 @@ type DynamicPolicy struct {
 	asyncWorkers *asyncworker.AsyncWorkers
 
 	enableSettingMemoryMigrate bool
-	enableMemroyAdvisor        bool
+	enableMemoryAdvisor        bool
 	memoryAdvisorSocketAbsPath string
+	memoryPluginSocketAbsPath  string
 }
 
 func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration,
 	_ interface{}, agentName string) (bool, agent.Component, error) {
-	reservedMemory, err := getReservedMemory(agentCtx.MachineInfo, conf.ReservedMemoryGB)
+	reservedMemory, err := getReservedMemory(conf, agentCtx.MetaServer, agentCtx.MachineInfo)
 	if err != nil {
 		return false, agent.ComponentStub{}, fmt.Errorf("getReservedMemoryFromOptions failed with error: %v", err)
 	}
@@ -175,8 +177,9 @@ func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration
 		podDebugAnnoKeys:           conf.PodDebugAnnoKeys,
 		asyncWorkers:               asyncworker.NewAsyncWorkers(memoryPluginAsyncWorkersName),
 		enableSettingMemoryMigrate: conf.EnableSettingMemoryMigrate,
-		enableMemroyAdvisor:        conf.EnableMemoryAdvisor,
+		enableMemoryAdvisor:        conf.EnableMemoryAdvisor,
 		memoryAdvisorSocketAbsPath: conf.MemoryAdvisorSocketAbsPath,
+		memoryPluginSocketAbsPath:  conf.MemoryPluginSocketAbsPath,
 		extraControlKnobConfigs:    extraControlKnobConfigs, // [TODO]: support modifying extraControlKnobConfigs by KCC
 	}
 
@@ -244,7 +247,7 @@ func (p *DynamicPolicy) Start() (err error) {
 
 	periodicalhandler.ReadyToStartHandlersByGroup(qrm.QRMMemoryPluginPeriodicalHandlerGroupName)
 
-	if !p.enableMemroyAdvisor {
+	if !p.enableMemoryAdvisor {
 		general.Infof("start dynamic policy memory plugin without memory advisor")
 		return nil
 	} else if p.memoryAdvisorSocketAbsPath == "" {
@@ -258,7 +261,20 @@ func (p *DynamicPolicy) Start() (err error) {
 		return
 	}
 
+	go wait.BackoffUntil(func() { p.serveForAdvisor(p.stopCh) }, wait.NewExponentialBackoffManager(
+		800*time.Millisecond, 30*time.Second, 2*time.Minute, 2.0, 0, &clock.RealClock{}), true, p.stopCh)
+
 	communicateWithMemoryAdvisorServer := func() {
+		general.Infof("waiting memory plugin checkpoint server serving confirmation")
+		if conn, err := process.Dial(p.memoryPluginSocketAbsPath, 5*time.Second); err != nil {
+			general.Errorf("dial check at socket: %s failed with err: %v", p.memoryPluginSocketAbsPath, err)
+			return
+		} else {
+			_ = conn.Close()
+		}
+		general.Infof("memory plugin checkpoint server serving confirmed")
+
+		// keep compatible to old version sys advisor not supporting list containers from memory plugin
 		err = p.pushMemoryAdvisor()
 		if err != nil {
 			general.Errorf("sync existing containers to memory advisor failed with error: %v", err)
@@ -385,7 +401,7 @@ func (p *DynamicPolicy) RemovePod(ctx context.Context,
 		}
 	}()
 
-	if p.enableMemroyAdvisor {
+	if p.enableMemoryAdvisor {
 		_, err = p.advisorClient.RemovePod(ctx, &advisorsvc.RemovePodRequest{PodUid: req.PodUid})
 		if err != nil {
 			return nil, fmt.Errorf("remove pod in QoS aware server failed with error: %v", err)
@@ -637,8 +653,8 @@ func (p *DynamicPolicy) Allocate(ctx context.Context,
 	p.Lock()
 	defer func() {
 		// calls sys-advisor to inform the latest container
-		if p.enableMemroyAdvisor && respErr == nil && req.ContainerType != pluginapi.ContainerType_INIT {
-			_, err := p.advisorClient.AddContainer(ctx, &advisorsvc.AddContainerRequest{
+		if p.enableMemoryAdvisor && respErr == nil && req.ContainerType != pluginapi.ContainerType_INIT {
+			_, err := p.advisorClient.AddContainer(ctx, &advisorsvc.ContainerMetadata{
 				PodUid:          req.PodUid,
 				PodNamespace:    req.PodNamespace,
 				PodName:         req.PodName,

@@ -23,6 +23,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/errors"
 
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/options/sysadvisor/qosaware/resource/cpu/headroom"
+	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/options/sysadvisor/qosaware/resource/cpu/provision"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/sysadvisor/qosaware/resource/cpu"
 )
@@ -36,6 +37,7 @@ type CPUAdvisorOptions struct {
 
 	*headroom.CPUHeadroomPolicyOptions
 	*CPUIsolationOptions
+	*provision.CPUProvisionPolicyOptions
 }
 
 // NewCPUAdvisorOptions creates a new Options with a default config
@@ -51,10 +53,11 @@ func NewCPUAdvisorOptions() *CPUAdvisorOptions {
 			string(types.QoSRegionTypeIsolation):              string(types.CPUHeadroomPolicyCanonical),
 			string(types.QoSRegionTypeDedicatedNumaExclusive): string(types.CPUHeadroomPolicyCanonical),
 		},
-		CPUProvisionAssembler:    string(types.CPUProvisionAssemblerCommon),
-		CPUHeadroomAssembler:     string(types.CPUHeadroomAssemblerCommon),
-		CPUHeadroomPolicyOptions: headroom.NewCPUHeadroomPolicyOptions(),
-		CPUIsolationOptions:      NewCPUIsolationOptions(),
+		CPUProvisionAssembler:     string(types.CPUProvisionAssemblerCommon),
+		CPUHeadroomAssembler:      string(types.CPUHeadroomAssemblerCommon),
+		CPUHeadroomPolicyOptions:  headroom.NewCPUHeadroomPolicyOptions(),
+		CPUIsolationOptions:       NewCPUIsolationOptions(),
+		CPUProvisionPolicyOptions: provision.NewCPUProvisionPolicyOptions(),
 	}
 }
 
@@ -73,6 +76,7 @@ func (o *CPUAdvisorOptions) AddFlags(fs *pflag.FlagSet) {
 
 	o.CPUHeadroomPolicyOptions.AddFlags(fs)
 	o.CPUIsolationOptions.AddFlags(fs)
+	o.CPUProvisionPolicyOptions.AddFlags(fs)
 }
 
 // ApplyTo fills up config with options
@@ -99,6 +103,6 @@ func (o *CPUAdvisorOptions) ApplyTo(c *cpu.CPUAdvisorConfiguration) error {
 	var errList []error
 	errList = append(errList, o.CPUHeadroomPolicyOptions.ApplyTo(c.CPUHeadroomPolicyConfiguration))
 	errList = append(errList, o.CPUIsolationOptions.ApplyTo(c.CPUIsolationConfiguration))
-
+	errList = append(errList, o.CPUProvisionPolicyOptions.ApplyTo(c.CPUProvisionPolicyConfiguration))
 	return errors.NewAggregate(errList)
 }

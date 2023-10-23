@@ -41,7 +41,7 @@ func GenerateMachineState(conf *qrm.QRMPluginsConfiguration, nics []machine.Inte
 		ingressCapacity := uint32(float32(capacity) * conf.IngressCapacityRate)
 
 		// we do not differentiate egress reservation and ingress reservation for now. That is, they are supposed to be the same.
-		if reservedBandwidth >= egressCapacity || reservedBandwidth >= ingressCapacity {
+		if reservedBandwidth > 0 && (reservedBandwidth >= egressCapacity || reservedBandwidth >= ingressCapacity) {
 			return nil, fmt.Errorf("invalid bandwidth reservation: %d on NIC: %s with capacity: [%d/%d]", reservedBandwidth, iface.Iface, egressCapacity, ingressCapacity)
 		}
 

@@ -111,6 +111,7 @@ func NewKatalystCustomConfigController(
 		katalystCustomConfigSyncQueue: workqueue.NewNamedRateLimitingQueue(workqueue.DefaultControllerRateLimiter(), kccControllerName),
 		syncedFunc: []cache.InformerSynced{
 			katalystCustomConfigInformer.Informer().HasSynced,
+			targetHandler.HasSynced,
 		},
 	}
 

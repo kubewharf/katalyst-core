@@ -22,7 +22,7 @@ import (
 	"strings"
 	"time"
 
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -34,6 +34,7 @@ import (
 	metricconf "github.com/kubewharf/katalyst-core/pkg/config/metric"
 	"github.com/kubewharf/katalyst-core/pkg/custom-metric/store"
 	"github.com/kubewharf/katalyst-core/pkg/custom-metric/store/data"
+	"github.com/kubewharf/katalyst-core/pkg/custom-metric/store/data/types"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 )
 
@@ -113,68 +114,70 @@ func (l *LocalMemoryMetricStore) InsertMetric(seriesList []*data.MetricSeries) e
 		klog.V(5).Infof("[LocalMemoryMetricStore] InsertMetric costs %s", time.Since(begin).String())
 	}()
 
-	// todo: handle aggregate functions in the future if needed
 	for _, series := range seriesList {
 		begin := time.Now()
-		internalData, _ := l.parseMetricSeries(series)
+		seriesData, ok := l.parseMetricSeries(series)
+		if !ok {
+			continue
+		}
 
-		l.cache.Add(internalData)
-		klog.V(6).Infof("insert with %v, costs %s", internalData.String(), time.Since(begin).String())
+		l.cache.AddSeriesMetric(seriesData)
+		klog.V(6).Infof("LocalMemoryMetricStore] insert with %v, costs %s", seriesData.String(), time.Since(begin).String())
 	}
 	return nil
 }
 
 func (l *LocalMemoryMetricStore) GetMetric(_ context.Context, namespace, metricName, objName string, gr *schema.GroupResource,
-	objSelector, metricSelector labels.Selector, limited int) ([]*data.InternalMetric, error) {
+	objSelector, metricSelector labels.Selector, latest bool) ([]types.Metric, error) {
 	begin := time.Now()
 	defer func() {
 		klog.V(5).Infof("[LocalMemoryMetricStore] GetMetric costs %s", time.Since(begin).String())
 	}()
 
-	var res []*data.InternalMetric
-	var internalList []*data.InternalMetric
+	var res []types.Metric
+	var metricList []types.Metric
 
 	// always try to get by metric-name if nominated, otherwise list all internal metrics
 	if metricName != "" && metricName != "*" {
-		internalList, _ = l.cache.GetMetricWithLimit(namespace, metricName, gr, limited)
+		metricList, _ = l.cache.GetMetric(namespace, metricName, objName, gr, latest)
 	} else {
-		internalList = l.cache.GetMetricInNamespaceWithLimit(namespace, limited)
+		metricList = l.cache.GetAllMetricsInNamespace(namespace)
 	}
 
-	for _, internal := range internalList {
+	for _, metricItem := range metricList {
 		if metricSelector != nil {
-			if valid, err := l.checkInternalMetricMatchedWithMetricInfo(internal, namespace, metricSelector); err != nil {
-				klog.Errorf("check %+v metric selector %v err %v", internal.GetName(), metricSelector, err)
+			if valid, err := l.checkInternalMetricMatchedWithMetricInfo(metricItem, namespace, metricSelector); err != nil {
+				klog.Errorf("check %+v metric selector %v err %v", metricItem.GetName(), metricSelector, err)
 			} else if !valid {
-				klog.V(6).Infof("%v invalid metricSelector", internal.String())
+				klog.V(6).Infof("%v invalid metricSelector", metricItem.String())
 				continue
 			}
 		}
 
 		if objName != "" {
-			if valid, err := l.checkInternalMetricMatchedWithObject(internal, gr, namespace, objName); err != nil {
-				klog.Errorf("check %+v object %v err %v", internal.GetName(), objName, err)
+			if valid, err := l.checkInternalMetricMatchedWithObject(metricItem, gr, namespace, objName); err != nil {
+				klog.Errorf("check %+v object %v err %v", metricItem.GetName(), objName, err)
 			} else if !valid {
-				klog.V(6).Infof("%v invalid object", internal.String())
+				klog.V(6).Infof("%v invalid object", metricItem.String())
 				continue
 			}
 		}
 
 		if objSelector != nil {
-			if valid, err := l.checkInternalMetricMatchedWithObjectList(internal, gr, namespace, objSelector); err != nil {
-				klog.Errorf("check %+v object selector %v err %v", internal.GetName(), objSelector, err)
+			if valid, err := l.checkInternalMetricMatchedWithObjectList(metricItem, gr, namespace, objSelector); err != nil {
+				klog.Errorf("check %+v object selector %v err %v", metricItem.GetName(), objSelector, err)
 			} else if !valid {
-				klog.V(6).Infof("%v invalid objectSelector", internal.String())
+				klog.V(6).Infof("%v invalid objectSelector", metricItem.String())
 				continue
 			}
 		}
 
-		res = append(res, internal)
+		res = append(res, metricItem)
 	}
 	return res, nil
 }
 
-func (l *LocalMemoryMetricStore) ListMetricMeta(_ context.Context, withObject bool) ([]data.MetricMeta, error) {
+func (l *LocalMemoryMetricStore) ListMetricMeta(_ context.Context, withObject bool) ([]types.MetricMeta, error) {
 	begin := time.Now()
 	defer func() {
 		klog.V(5).Infof("[LocalMemoryMetricStore] ListMetricMeta costs %s", time.Since(begin).String())
@@ -205,45 +208,43 @@ func (l *LocalMemoryMetricStore) monitor() {
 }
 
 // parseMetricSeries parses the given data.MetricSeries into internalMetric
-func (l *LocalMemoryMetricStore) parseMetricSeries(series *data.MetricSeries) (*data.InternalMetric,
-	[]data.CustomMetricLabelAggregateFunc) {
+func (l *LocalMemoryMetricStore) parseMetricSeries(series *data.MetricSeries) (types.Metric, bool) {
 	// skip already out-of-dated metric contents
 	expiredTime := time.Now().Add(-1 * l.genericConf.OutOfDataPeriod).UnixMilli()
 
-	res := data.NewInternalMetric(series.Name)
-	var aggList []data.CustomMetricLabelAggregateFunc
+	res := types.NewSeriesMetric()
 
+	metricMeta := types.MetricMetaImp{Name: series.Name}
+	objectMeta := types.ObjectMetaImp{}
+	basicLabel := make(map[string]string)
 	for key, value := range series.Labels {
 		switch data.CustomMetricLabelKey(key) {
 		case data.CustomMetricLabelKeyNamespace:
-			res.SetObjectNamespace(value)
+			metricMeta.Namespaced = true
+			objectMeta.ObjectNamespace = value
 		case data.CustomMetricLabelKeyObject:
-			res.SetObjectKind(value)
+			metricMeta.ObjectKind = value
 		case data.CustomMetricLabelKeyObjectName:
-			res.SetObjectName(value)
+			objectMeta.ObjectName = value
 		default:
 			if strings.HasPrefix(key, fmt.Sprintf("%v", data.CustomMetricLabelSelectorPrefixKey)) {
-				res.SetLabel(strings.TrimPrefix(key, fmt.Sprintf("%v", data.CustomMetricLabelSelectorPrefixKey)), value)
-			}
-
-			if strings.HasPrefix(key, fmt.Sprintf("%v", data.CustomMetricLabelAggregatePrefixKey)) {
-				agg := data.CustomMetricLabelAggregateFunc(strings.TrimPrefix(key, fmt.Sprintf("%v", data.CustomMetricLabelAggregatePrefixKey)))
-				if _, ok := data.ValidCustomMetricLabelAggregateFuncMap[agg]; ok {
-					aggList = append(aggList, agg)
-				}
+				basicLabel[strings.TrimPrefix(key, fmt.Sprintf("%v", data.CustomMetricLabelSelectorPrefixKey))] = value
 			}
 		}
 	}
+	res.MetricMetaImp = metricMeta
+	res.ObjectMetaImp = objectMeta
+	res.BasicMetric = types.BasicMetric{Labels: basicLabel}
 
 	if res.GetObjectKind() != "" {
 		if res.GetObjectName() == "" {
-			return &data.InternalMetric{}, aggList
+			return nil, false
 		}
 
 		_, err := l.getObject(res.GetObjectKind(), res.GetObjectNamespace(), res.GetObjectName())
 		if err != nil {
 			klog.Errorf("invalid objects %v %v/%v: %v", res.GetObjectKind(), res.GetObjectNamespace(), res.GetObjectName(), err)
-			return &data.InternalMetric{}, aggList
+			return nil, false
 		}
 	}
 
@@ -251,16 +252,14 @@ func (l *LocalMemoryMetricStore) parseMetricSeries(series *data.MetricSeries) (*
 		if m.Timestamp < expiredTime {
 			continue
 		}
-
-		res.AppendMetric(data.NewInternalValue(m.Data, m.Timestamp))
+		res.AddMetric(&types.SeriesItem{Value: m.Data, Timestamp: m.Timestamp})
 	}
-
-	return res, aggList
+	return res, true
 }
 
 // checkInternalMetricMatchedWithMetricInfo checks if the internal matches with metric info
 // if not, return an error to represent the unmatched reasons
-func (l *LocalMemoryMetricStore) checkInternalMetricMatchedWithMetricInfo(internal *data.InternalMetric, namespace string,
+func (l *LocalMemoryMetricStore) checkInternalMetricMatchedWithMetricInfo(internal types.Metric, namespace string,
 	metricSelector labels.Selector) (bool, error) {
 	if namespace != "" && namespace != "*" && namespace != internal.GetObjectNamespace() {
 		klog.V(5).Infof("%v namespace %v not match metric namespace %v", internal.GetName(), namespace, internal.GetObjectNamespace())
@@ -278,7 +277,7 @@ func (l *LocalMemoryMetricStore) checkInternalMetricMatchedWithMetricInfo(intern
 // checkInternalMetricMatchedWithObject checks if the internal matches with kubernetes object
 // the kubernetes object should be obtained by namespace/name
 // if not, return an error to represent the unmatched reasons
-func (l *LocalMemoryMetricStore) checkInternalMetricMatchedWithObject(internal *data.InternalMetric,
+func (l *LocalMemoryMetricStore) checkInternalMetricMatchedWithObject(internal types.Metric,
 	gr *schema.GroupResource, namespace, name string) (bool, error) {
 	if gr != nil && gr.String() != internal.GetObjectKind() {
 		klog.V(5).Infof("gvr %+v not match with objects %v", gr, internal.GetObjectKind())
@@ -301,7 +300,7 @@ func (l *LocalMemoryMetricStore) checkInternalMetricMatchedWithObject(internal *
 // checkInternalMetricMatchedWithObject checks if the internal matches with kubernetes object
 // the kubernetes object should be obtained by label selector
 // if not, return an error to represent the unmatched reasons
-func (l *LocalMemoryMetricStore) checkInternalMetricMatchedWithObjectList(internal *data.InternalMetric,
+func (l *LocalMemoryMetricStore) checkInternalMetricMatchedWithObjectList(internal types.Metric,
 	gr *schema.GroupResource, namespace string, selector labels.Selector) (bool, error) {
 	if gr != nil && gr.String() != internal.GetObjectKind() {
 		klog.V(5).Infof("gvr %+v not match with objects %v", gr, internal.GetObjectKind())
@@ -310,12 +309,13 @@ func (l *LocalMemoryMetricStore) checkInternalMetricMatchedWithObjectList(intern
 
 	obj, err := l.getObject(internal.GetObjectKind(), namespace, internal.GetObjectName())
 	if err != nil {
-		return false, err
+		klog.V(5).Infof("get object %v/%v kind %s failed, %v", namespace, internal.GetName(), internal.GetObjectKind(), err)
+		return false, nil
 	}
 
-	workload, ok := obj.(*unstructured.Unstructured)
+	workload, ok := obj.(*v1.PartialObjectMetadata)
 	if !ok {
-		return false, fmt.Errorf("%#v failed to transform into unstructured", obj)
+		return false, fmt.Errorf("%#v failed to transform into PartialObjectMetadata", obj)
 	}
 
 	if !selector.Matches(labels.Set(workload.GetLabels())) {

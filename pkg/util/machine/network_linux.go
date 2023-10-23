@@ -50,6 +50,8 @@ const (
 	netFileNameSpeed    = "speed"
 	netFileNameNUMANode = "device/numa_node"
 	netFileNameEnable   = "device/enable"
+	netOperstate        = "operstate"
+	netUP               = "up"
 	netEnable           = 1
 )
 
@@ -199,17 +201,34 @@ func getNSNetworkHardwareTopology(nsName, netNSDirAbsPath string) ([]InterfaceIn
 // getInterfaceAttr parses key information from system files
 func getInterfaceAttr(info *InterfaceInfo, nicPath string) {
 	if nicNUMANode, err := general.ReadFileIntoInt(path.Join(nicPath, netFileNameNUMANode)); err != nil {
-		general.Errorf("ns %v name %v, read NUMA node failed with error: %v", info.NSName, info.Iface, err)
-		info.NumaNode = -1
+		general.Errorf("ns %v name %v, read NUMA node failed with error: %v. Suppose it's associated with NUMA node 0", info.NSName, info.Iface, err)
+		// some net device files are missed on VMs (e.g. "device/numanode")
+		info.NumaNode = 0
 	} else {
-		info.NumaNode = nicNUMANode
+		if nicNUMANode != -1 {
+			info.NumaNode = nicNUMANode
+		} else {
+			// the "device/numanode" file is filled with -1 on some VMs (e.g. byte-vm), we should return 0 instead
+			general.Errorf("Invalid NUMA node %v for interface %v. Suppose it's associated with NUMA node 0", info.NumaNode, info.Iface)
+			info.NumaNode = 0
+		}
 	}
 
-	if nicEnabledStatus, err := general.ReadFileIntoInt(path.Join(nicPath, netFileNameEnable)); err != nil {
-		general.Errorf("ns %v name %v, read enable status failed with error: %v", info.NSName, info.Iface, err)
-		info.Enable = false
+	if general.IsPathExists(path.Join(nicPath, netFileNameEnable)) {
+		if nicEnabledStatus, err := general.ReadFileIntoInt(path.Join(nicPath, netFileNameEnable)); err != nil {
+			general.Errorf("ns %v name %v, read enable status failed with error: %v", info.NSName, info.Iface, err)
+			info.Enable = false
+		} else {
+			info.Enable = nicEnabledStatus == netEnable
+		}
 	} else {
-		info.Enable = nicEnabledStatus == netEnable
+		// some VMs do not have "device/enable" file under nicPath, we can read "operstate" for nic status instead
+		if nicUPStatus, err := general.ReadFileIntoLines(path.Join(nicPath, netOperstate)); err != nil || len(nicUPStatus) == 0 {
+			general.Errorf("ns %v name %v, read operstate failed with error: %v", info.NSName, info.Iface, err)
+			info.Enable = false
+		} else {
+			info.Enable = nicUPStatus[0] == netUP
+		}
 	}
 
 	if nicSpeed, err := general.ReadFileIntoInt(path.Join(nicPath, netFileNameSpeed)); err != nil {

@@ -132,7 +132,14 @@ func (p *PolicyCanonical) estimateCPUUsage() (float64, error) {
 				for _, numaID := range p.bindingNumas.ToSliceInt() {
 					cpuSize += ci.TopologyAwareAssignments[numaID].Size()
 				}
-				containerEstimation = containerEstimation * float64(cpuSize) / float64(machine.CountCPUAssignmentCPUs(ci.TopologyAwareAssignments))
+				cpuAssignmentCPUs := machine.CountCPUAssignmentCPUs(ci.TopologyAwareAssignments)
+				if cpuAssignmentCPUs != 0 {
+					containerEstimation = containerEstimation * float64(cpuSize) / float64(cpuAssignmentCPUs)
+				} else {
+					// handle the case that cpuAssignmentCPUs is 0
+					klog.Warningf("[qosaware-cpu-canonical] cpuAssignmentCPUs is 0 for %v/%v", podUID, containerName)
+					containerEstimation = 0
+				}
 			}
 
 			cpuEstimation += containerEstimation

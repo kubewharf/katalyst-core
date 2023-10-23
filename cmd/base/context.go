@@ -34,10 +34,13 @@ import (
 
 	"github.com/kubewharf/katalyst-api/pkg/client/informers/externalversions"
 	"github.com/kubewharf/katalyst-core/pkg/client"
+	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic"
 	"github.com/kubewharf/katalyst-core/pkg/config/generic"
 	"github.com/kubewharf/katalyst-core/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	metricspool "github.com/kubewharf/katalyst-core/pkg/metrics/metrics-pool"
+	"github.com/kubewharf/katalyst-core/pkg/util/credential"
+	"github.com/kubewharf/katalyst-core/pkg/util/credential/authorization"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/native"
 	"github.com/kubewharf/katalyst-core/pkg/util/process"
@@ -45,6 +48,7 @@ import (
 
 const (
 	healthZPath = "/healthz"
+	debugPrefix = "/debug"
 )
 
 // GenericOptions is used as an extendable way to support
@@ -88,6 +92,7 @@ func NewGenericContext(
 	disabledByDefault sets.String,
 	genericConf *generic.GenericConfiguration,
 	component consts.KatalystComponent,
+	dynamicConfiguration *dynamic.DynamicAgentConfiguration,
 ) (*GenericContext, error) {
 	var (
 		err                     error
@@ -142,13 +147,37 @@ func NewGenericContext(
 		return nil, err
 	}
 
+	customMetricsEmitterPool := metricspool.NewCustomMetricsEmitterPool(emitterPool)
+
 	// CreateEventRecorder create a v1 event (k8s 1.19 or later supported) recorder,
 	// which uses discovery client to check whether api server support v1 event, if not,
 	// it will use corev1 event recorder and wrap it with a v1 event recorder adapter.
 	broadcastAdapter := events.NewEventBroadcasterAdapter(clientSet.KubeClient)
 
-	httpHandler := process.NewHTTPHandler(getStaticAuth(genericConf.GenericAuthStaticUser,
-		genericConf.GenericAuthStaticPasswd), genericConf.GenericEndpointHandleChains)
+	httpHandler := process.NewHTTPHandler(genericConf.GenericEndpointHandleChains, []string{healthZPath, debugPrefix},
+		genericConf.HttpStrictAuthentication, customMetricsEmitterPool.GetDefaultMetricsEmitter())
+
+	// since some authentication implementation needs kcc and kcc only support agent component, so we only enable
+	// authentication for agent component for now.
+	if component == consts.KatalystComponentAgent {
+		cred, credErr := credential.GetCredential(genericConf, dynamicConfiguration)
+		if credErr != nil {
+			return nil, credErr
+		}
+		err = httpHandler.WithCredential(cred)
+		if err != nil {
+			return nil, err
+		}
+
+		accessControl, acErr := authorization.GetAccessControl(genericConf, dynamicConfiguration)
+		if acErr != nil {
+			return nil, acErr
+		}
+		err = httpHandler.WithAuthorization(accessControl)
+		if err != nil {
+			return nil, err
+		}
+	}
 
 	c := &GenericContext{
 		httpHandler: httpHandler,
@@ -164,7 +193,7 @@ func NewGenericContext(
 		DynamicInformerFactory:    dynamicInformerFactory,
 		BroadcastAdapter:          broadcastAdapter,
 		Client:                    clientSet,
-		EmitterPool:               metricspool.NewCustomMetricsEmitterPool(emitterPool),
+		EmitterPool:               customMetricsEmitterPool,
 		DynamicResourcesManager:   dynamicResourceManager,
 		transformedInformerForPod: genericConf.TransformedInformerForPod,
 	}
@@ -248,11 +277,4 @@ func serveProfilingHTTP(mux *http.ServeMux) {
 	mux.Handle("/debug/pprof/trace", http.HandlerFunc(pprof.Trace))
 
 	mux.Handle("/debug/metrics", promhttp.Handler())
-}
-
-// getStaticAuth returns static auth info
-func getStaticAuth(user, passwd string) process.GetAuthPair {
-	return func() (map[string]string, error) {
-		return map[string]string{user: passwd}, nil
-	}
 }

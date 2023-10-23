@@ -41,6 +41,7 @@ import (
 
 func init() {
 	headroompolicy.RegisterInitializer(types.MemoryHeadroomPolicyCanonical, headroompolicy.NewPolicyCanonical)
+	headroompolicy.RegisterInitializer(types.MemoryHeadroomPolicyNUMAAware, headroompolicy.NewPolicyNUMAAware)
 
 	memadvisorplugin.RegisterInitializer(memadvisorplugin.CacheReaper, memadvisorplugin.NewCacheReaper)
 	memadvisorplugin.RegisterInitializer(memadvisorplugin.MemoryGuard, memadvisorplugin.NewMemoryGuard)
@@ -55,8 +56,13 @@ const (
 	metricsNameNodeMemoryReclaimTarget = "node_memory_reclaim_target"
 	metricsNameNumaMemoryPressureState = "numa_memory_pressure_state"
 	metricsNameNumaMemoryReclaimTarget = "numa_memory_reclaim_target"
+	metricNameMemoryGetHeadroomFailed  = "get_memory_headroom_failed"
 
-	metricsTagKeyNumaID = "numa_id"
+	metricsTagKeyNumaID    = "numa_id"
+	metricTagKeyPolicyName = "policy_name"
+
+	// multiply the scale by the criticalWaterMark to get the safe watermark
+	criticalWaterMarkScaleFactor = 2
 )
 
 // memoryResourceAdvisor updates memory headroom for reclaimed resource
@@ -71,6 +77,7 @@ type memoryResourceAdvisor struct {
 	metaServer *metaserver.MetaServer
 	emitter    metrics.MetricEmitter
 
+	recvCh   chan types.TriggerInfo
 	sendChan chan types.InternalMemoryCalculationResult
 }
 
@@ -86,6 +93,7 @@ func NewMemoryResourceAdvisor(conf *config.Configuration, extraConf interface{},
 		metaReader: metaCache,
 		metaServer: metaServer,
 		emitter:    emitter,
+		recvCh:     make(chan types.TriggerInfo, 1),
 		sendChan:   make(chan types.InternalMemoryCalculationResult, 1),
 	}
 
@@ -96,7 +104,10 @@ func NewMemoryResourceAdvisor(conf *config.Configuration, extraConf interface{},
 			klog.Errorf("failed to find registered initializer %v", headroomPolicyName)
 			continue
 		}
-		ra.headroomPolices = append(ra.headroomPolices, initFunc(conf, extraConf, metaCache, metaServer, emitter))
+		policy := initFunc(conf, extraConf, metaCache, metaServer, emitter)
+		general.InfoS("add new memory headroom policy", "policyName", policy.Name())
+
+		ra.headroomPolices = append(ra.headroomPolices, policy)
 	}
 
 	memoryAdvisorPluginInitializers := memadvisorplugin.GetRegisteredInitializers()
@@ -106,6 +117,7 @@ func NewMemoryResourceAdvisor(conf *config.Configuration, extraConf interface{},
 			klog.Errorf("failed to find registered initializer %v", memadvisorPluginName)
 			continue
 		}
+		general.InfoS("add new memory advisor policy", "policyName", memadvisorPluginName)
 		ra.plugins = append(ra.plugins, initFunc(conf, extraConf, metaCache, metaServer, emitter))
 	}
 
@@ -115,11 +127,15 @@ func NewMemoryResourceAdvisor(conf *config.Configuration, extraConf interface{},
 func (ra *memoryResourceAdvisor) Run(ctx context.Context) {
 	period := ra.conf.SysAdvisorPluginsConfiguration.QoSAwarePluginConfiguration.SyncPeriod
 
+	general.InfoS("wait to list containers")
+	<-ra.recvCh
+	general.InfoS("list containers successfully")
+
 	go wait.Until(ra.update, period, ctx.Done())
 }
 
 func (ra *memoryResourceAdvisor) GetChannels() (interface{}, interface{}) {
-	return nil, ra.sendChan
+	return ra.recvCh, ra.sendChan
 }
 
 func (ra *memoryResourceAdvisor) GetHeadroom() (resource.Quantity, error) {
@@ -129,7 +145,9 @@ func (ra *memoryResourceAdvisor) GetHeadroom() (resource.Quantity, error) {
 	for _, headroomPolicy := range ra.headroomPolices {
 		headroom, err := headroomPolicy.GetHeadroom()
 		if err != nil {
-			klog.Warningf("[qosaware-memory] get headroom with error: %v", err)
+			klog.ErrorS(err, "get headroom failed", "headroomPolicy", headroomPolicy.Name())
+			_ = ra.emitter.StoreInt64(metricNameMemoryGetHeadroomFailed, 1, metrics.MetricTypeNameRaw,
+				metrics.MetricTag{Key: metricTagKeyPolicyName, Val: string(headroomPolicy.Name())})
 			continue
 		}
 		return headroom, nil
@@ -176,7 +194,7 @@ func (ra *memoryResourceAdvisor) update() {
 		})
 
 		if err := headroomPolicy.Update(); err != nil {
-			klog.Errorf("[qosaware-memory] update headroom policy failed: %v", err)
+			general.ErrorS(err, "[qosaware-memory] update headroom policy failed", "headroomPolicy", headroomPolicy.Name())
 		}
 	}
 
@@ -205,10 +223,11 @@ func (ra *memoryResourceAdvisor) update() {
 
 func (ra *memoryResourceAdvisor) detectNUMAPressureConditions() (map[int]*types.MemoryPressureCondition, error) {
 	pressureConditions := make(map[int]*types.MemoryPressureCondition)
+
 	for _, numaID := range ra.metaServer.CPUDetails.NUMANodes().ToSliceNoSortInt() {
 		pressureCondition, err := ra.detectNUMAPressure(numaID)
 		if err != nil {
-			general.Errorf("detect NUMA(%v) pressure err %v", numaID, err)
+			general.ErrorS(err, "detect NUMA pressure failed", "numaID", numaID)
 			return nil, err
 		}
 		pressureConditions[numaID] = pressureCondition
@@ -223,17 +242,26 @@ func (ra *memoryResourceAdvisor) detectNUMAPressure(numaID int) (*types.MemoryPr
 		return nil, err
 	}
 
-	general.Infof("numa %v metrics, free: %+v, total: %+v, scaleFactor: %+v", numaID,
-		resource.NewQuantity(int64(free), resource.BinarySI).String(),
-		resource.NewQuantity(int64(total), resource.BinarySI).String(), scaleFactor)
-
 	targetReclaimed := resource.NewQuantity(0, resource.BinarySI)
 
 	pressureState := types.MemoryPressureNoRisk
-	if free < 2*total*scaleFactor/scaleDenominator {
+
+	criticalWatermark := general.MaxFloat64(float64(ra.conf.MinCriticalWatermark), 2*total*scaleFactor/scaleDenominator)
+	if free < criticalWatermark {
 		pressureState = types.MemoryPressureDropCache
-		targetReclaimed.Set(int64(4*total*scaleFactor/scaleDenominator - free))
+		targetReclaimed.Set(int64(criticalWaterMarkScaleFactor*criticalWatermark - free))
+	} else if free < criticalWaterMarkScaleFactor*criticalWatermark {
+		pressureState = types.MemoryPressureTuneMemCg
 	}
+
+	general.InfoS("NUMA memory metrics",
+		"numaID", numaID,
+		"total", general.FormatMemoryQuantity(total),
+		"free", general.FormatMemoryQuantity(free),
+		"scaleFactor", scaleFactor,
+		"criticalWatermark", general.FormatMemoryQuantity(criticalWatermark),
+		"targetReclaimed", targetReclaimed.String(),
+		"pressureState", pressureState)
 
 	_ = ra.emitter.StoreInt64(metricsNameNumaMemoryPressureState, int64(pressureState), metrics.MetricTypeNameRaw, metrics.MetricTag{Key: metricsTagKeyNumaID, Val: strconv.Itoa(numaID)})
 	_ = ra.emitter.StoreInt64(metricsNameNumaMemoryReclaimTarget, targetReclaimed.Value(), metrics.MetricTypeNameRaw, metrics.MetricTag{Key: metricsTagKeyNumaID, Val: strconv.Itoa(numaID)})
@@ -251,20 +279,25 @@ func (ra *memoryResourceAdvisor) detectNodePressureCondition() (*types.MemoryPre
 		return nil, err
 	}
 
-	general.Infof("system watermark metrics, free: %+v, total: %+v, scaleFactor: %+v",
-		resource.NewQuantity(int64(free), resource.BinarySI).String(),
-		resource.NewQuantity(int64(total), resource.BinarySI).String(), scaleFactor)
+	criticalWatermark := general.MaxFloat64(float64(ra.conf.MinCriticalWatermark*int64(ra.metaServer.NumNUMANodes)), 2*total*scaleFactor/scaleDenominator)
 
 	targetReclaimed := resource.NewQuantity(0, resource.BinarySI)
 
 	pressureState := types.MemoryPressureNoRisk
-	if free < 2*total*scaleFactor/scaleDenominator {
+	if free < criticalWatermark {
 		pressureState = types.MemoryPressureDropCache
-		targetReclaimed.Set(int64(4*total*scaleFactor/scaleDenominator - free))
-	} else if free < 4*total*scaleFactor/scaleDenominator {
+		targetReclaimed.Set(int64(criticalWaterMarkScaleFactor*criticalWatermark - free))
+	} else if free < criticalWaterMarkScaleFactor*criticalWatermark {
 		pressureState = types.MemoryPressureTuneMemCg
-		targetReclaimed.Set(int64(4*total*scaleFactor/10000 - free))
+		targetReclaimed.Set(int64(criticalWaterMarkScaleFactor*criticalWatermark - free))
 	}
+
+	general.InfoS("system watermark metrics",
+		"free", general.FormatMemoryQuantity(free),
+		"total", general.FormatMemoryQuantity(total),
+		"criticalWatermark", general.FormatMemoryQuantity(criticalWatermark),
+		"targetReclaimed", targetReclaimed.Value(),
+		"scaleFactor", scaleFactor)
 
 	_ = ra.emitter.StoreInt64(metricsNameNodeMemoryPressureState, int64(pressureState), metrics.MetricTypeNameRaw)
 	_ = ra.emitter.StoreInt64(metricsNameNodeMemoryReclaimTarget, targetReclaimed.Value(), metrics.MetricTypeNameRaw)

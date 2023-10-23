@@ -1400,6 +1400,133 @@ func Test_podResourcesServerTopologyAdapterImpl_GetTopologyZones(t *testing.T) {
 			},
 			wantErr: true,
 		},
+		{
+			name: "pod resources empty",
+			fields: fields{
+				podList: []*v1.Pod{
+					generateTestPod("default", "pod-1", "pod-1-uid", true),
+					generateTestPod("default", "pod-2", "pod-2-uid", true),
+					generateTestPod("default", "pod-3", "pod-3-uid", false),
+				},
+				listPodResources: &podresv1.ListPodResourcesResponse{
+					PodResources: []*podresv1.PodResources{},
+				},
+				allocatableResources: &podresv1.AllocatableResourcesResponse{
+					Devices: []*podresv1.ContainerDevices{
+						{
+							ResourceName: "gpu",
+							DeviceIds: []string{
+								"0",
+							},
+							Topology: &podresv1.TopologyInfo{
+								Nodes: []*podresv1.NUMANode{
+									{ID: 0},
+								},
+							},
+						},
+						{
+							ResourceName: "gpu",
+							DeviceIds: []string{
+								"1",
+							},
+							Topology: &podresv1.TopologyInfo{
+								Nodes: []*podresv1.NUMANode{
+									{ID: 0},
+								},
+							},
+						},
+					},
+					Resources: []*podresv1.AllocatableTopologyAwareResource{
+						{
+							ResourceName: "cpu",
+							TopologyAwareCapacityQuantityList: []*podresv1.TopologyAwareQuantity{
+								{
+									ResourceValue: 24,
+									Node:          0,
+								},
+								{
+									ResourceValue: 24,
+									Node:          1,
+								},
+							},
+							TopologyAwareAllocatableQuantityList: []*podresv1.TopologyAwareQuantity{
+								{
+									ResourceValue: 24,
+									Node:          0,
+								},
+								{
+									ResourceValue: 24,
+									Node:          1,
+								},
+							},
+						},
+						{
+							ResourceName: "memory",
+							TopologyAwareCapacityQuantityList: []*podresv1.TopologyAwareQuantity{
+								{
+									ResourceValue: generateFloat64ResourceValue("32G"),
+									Node:          0,
+								},
+								{
+									ResourceValue: generateFloat64ResourceValue("32G"),
+									Node:          1,
+								},
+							},
+							TopologyAwareAllocatableQuantityList: []*podresv1.TopologyAwareQuantity{
+								{
+									ResourceValue: generateFloat64ResourceValue("32G"),
+									Node:          0,
+								},
+								{
+									ResourceValue: generateFloat64ResourceValue("32G"),
+									Node:          1,
+								},
+							},
+						},
+						{
+							ResourceName: "nic",
+							TopologyAwareAllocatableQuantityList: []*podresv1.TopologyAwareQuantity{
+								{
+									ResourceValue: generateFloat64ResourceValue("10G"),
+									Node:          0,
+									Type:          "NIC",
+									Name:          "eth0",
+									TopologyLevel: podresv1.TopologyLevel_NUMA,
+								},
+								{
+									ResourceValue: generateFloat64ResourceValue("10G"),
+									Node:          1,
+									Type:          "NIC",
+									Name:          "eth1",
+									TopologyLevel: podresv1.TopologyLevel_NUMA,
+								},
+							},
+							TopologyAwareCapacityQuantityList: []*podresv1.TopologyAwareQuantity{
+								{
+									ResourceValue: generateFloat64ResourceValue("10G"),
+									Node:          0,
+									Type:          "NIC",
+									Name:          "eth0",
+									TopologyLevel: podresv1.TopologyLevel_NUMA,
+								},
+								{
+									ResourceValue: generateFloat64ResourceValue("10G"),
+									Node:          1,
+									Type:          "NIC",
+									Name:          "eth1",
+									TopologyLevel: podresv1.TopologyLevel_NUMA,
+								},
+							},
+						},
+					},
+				},
+				numaSocketZoneNodeMap: map[util.ZoneNode]util.ZoneNode{
+					util.GenerateNumaZoneNode(0): util.GenerateSocketZoneNode(0),
+					util.GenerateNumaZoneNode(1): util.GenerateSocketZoneNode(1),
+				},
+			},
+			wantErr: true,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

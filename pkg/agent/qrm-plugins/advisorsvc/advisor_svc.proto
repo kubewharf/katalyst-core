@@ -32,7 +32,7 @@ option (gogoproto.goproto_unrecognized_all) = false;
 option go_package = "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/advisorsvc";
 
 // containing metadata of the container which won't be changed during container's lifecycle
-message AddContainerRequest {
+message ContainerMetadata {
     string pod_uid = 1;
     string pod_namespace = 2;
     string pod_name = 3;
@@ -79,7 +79,15 @@ message CalculationResult {
 }
 
 service AdvisorService {
-    rpc AddContainer(AddContainerRequest) returns (AddContainerResponse) {}
+    rpc AddContainer(ContainerMetadata) returns (AddContainerResponse) {}
     rpc RemovePod(RemovePodRequest) returns (RemovePodResponse) {}
     rpc ListAndWatch(Empty) returns (stream ListAndWatchResponse) {}
+}
+
+message ListContainersResponse {
+    repeated ContainerMetadata containers = 1;
+}
+
+service QRMService {
+    rpc ListContainers(Empty) returns (ListContainersResponse) {}
 }

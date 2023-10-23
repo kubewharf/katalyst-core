@@ -30,6 +30,7 @@ import (
 
 // HeadroomPolicy generates resource headroom estimation based on configured algorithm
 type HeadroomPolicy interface {
+	Name() types.MemoryHeadroomPolicyName
 	// SetPodSet overwrites policy's pod/container record
 	SetPodSet(types.PodSet)
 

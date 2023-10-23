@@ -69,7 +69,7 @@ type ScrapeManager struct {
 	metricTags []metrics.MetricTag
 }
 
-func NewScrapeManager(ctx context.Context, outOfDataPeriod time.Duration, client *http.Client, node, url string, emitter metrics.MetricEmitter) (*ScrapeManager, error) {
+func NewScrapeManager(ctx context.Context, outOfDataPeriod time.Duration, client *http.Client, node, url string, emitter metrics.MetricEmitter, username, password string) (*ScrapeManager, error) {
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
 		return nil, err
@@ -79,6 +79,7 @@ func NewScrapeManager(ctx context.Context, outOfDataPeriod time.Duration, client
 	req.Header.Add("Accept-Encoding", "gzip")
 	req.Header.Set("User-Agent", httpUserAgent)
 	req.Header.Set("X-Prometheus-Scrape-Timeout-Seconds", strconv.FormatFloat(60, 'f', -1, 64))
+	req.SetBasicAuth(username, password)
 
 	sCtx, cancel := context.WithCancel(ctx)
 	return &ScrapeManager{
@@ -229,7 +230,7 @@ func (s *ScrapeManager) scrape() {
 
 			totalMetricDataCount++
 			s.storedSeriesMap[hash].Series = append(s.storedSeriesMap[hash].Series, &data.MetricData{
-				Data:      int64(*m.Gauge.Value),
+				Data:      *m.Gauge.Value,
 				Timestamp: timestamp,
 			})
 		}

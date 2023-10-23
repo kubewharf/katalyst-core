@@ -332,7 +332,7 @@ func (cra *cpuResourceAdvisor) assignContainersToRegions() error {
 		} else {
 			// todo currently, we may call setPoolRegions multiple time, and we
 			//  depend on the reentrant of it, need to refine
-			if err := cra.setPoolRegions(ci.OwnerPoolName, regions); err != nil {
+			if err := cra.setPoolRegions(ci.OriginOwnerPoolName, regions); err != nil {
 				errList = append(errList, err)
 				return true
 			}

@@ -17,17 +17,17 @@ limitations under the License.
 package cpuadvisor
 
 import (
-	context "context"
+	"context"
 	"testing"
 
-	advisorsvc "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/advisorsvc"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/advisorsvc"
 )
 
 func TestClientAddContainer(t *testing.T) {
 	t.Parallel()
 
 	client := NewCPUAdvisorClientStub()
-	_, _ = client.AddContainer(context.Background(), &advisorsvc.AddContainerRequest{})
+	_, _ = client.AddContainer(context.Background(), &advisorsvc.ContainerMetadata{})
 }
 
 func TestClientRemovePod(t *testing.T) {

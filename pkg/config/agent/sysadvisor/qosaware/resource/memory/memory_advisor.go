@@ -19,6 +19,7 @@ package memory
 import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/sysadvisor/qosaware/resource/memory/headroom"
+	"github.com/kubewharf/katalyst-core/pkg/config/agent/sysadvisor/qosaware/resource/memory/plugins"
 )
 
 // MemoryAdvisorConfiguration stores configurations of memory advisors in qos aware plugin
@@ -26,6 +27,8 @@ type MemoryAdvisorConfiguration struct {
 	MemoryHeadroomPolicies []types.MemoryHeadroomPolicyName
 	*headroom.MemoryHeadroomPolicyConfiguration
 	MemoryAdvisorPlugins []types.MemoryAdvisorPluginName
+	MinCriticalWatermark int64
+	*plugins.MemoryAdvisorPluginsConfiguration
 }
 
 // NewMemoryAdvisorConfiguration creates new memory advisor configurations
@@ -34,5 +37,6 @@ func NewMemoryAdvisorConfiguration() *MemoryAdvisorConfiguration {
 		MemoryHeadroomPolicies:            make([]types.MemoryHeadroomPolicyName, 0),
 		MemoryHeadroomPolicyConfiguration: headroom.NewMemoryHeadroomPolicyConfiguration(),
 		MemoryAdvisorPlugins:              make([]types.MemoryAdvisorPluginName, 0),
+		MemoryAdvisorPluginsConfiguration: plugins.NewMemoryAdvisorPluginsConfiguration(),
 	}
 }

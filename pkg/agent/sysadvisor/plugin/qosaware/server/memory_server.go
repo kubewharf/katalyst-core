@@ -17,10 +17,13 @@ limitations under the License.
 package server
 
 import (
+	"context"
 	"fmt"
 	"time"
 
 	"google.golang.org/grpc"
+	"k8s.io/apimachinery/pkg/util/wait"
+	"k8s.io/client-go/util/retry"
 	"k8s.io/klog/v2"
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/advisorsvc"
@@ -32,11 +35,15 @@ import (
 )
 
 const (
-	memoryServerName string = "memory-server"
+	memoryServerName                 string = "memory-server"
+	durationToWaitAddContainer              = time.Second * 30
+	durationToWaitListAndWatchCalled        = time.Second * 5
 )
 
 type memoryServer struct {
 	*baseServer
+	memoryPluginClient advisorsvc.QRMServiceClient
+	listAndWatchCalled bool
 }
 
 func NewMemoryServer(recvCh chan types.InternalMemoryCalculationResult, sendCh chan types.TriggerInfo, conf *config.Configuration,
@@ -44,6 +51,7 @@ func NewMemoryServer(recvCh chan types.InternalMemoryCalculationResult, sendCh c
 	ms := &memoryServer{}
 	ms.baseServer = newBaseServer(memoryServerName, conf, recvCh, sendCh, metaCache, emitter, ms)
 	ms.advisorSocketPath = conf.MemoryAdvisorSocketAbsPath
+	ms.pluginSocketPath = conf.MemoryPluginSocketAbsPath
 	ms.resourceRequestName = "MemoryRequest"
 	return ms, nil
 }
@@ -54,6 +62,75 @@ func (ms *memoryServer) RegisterAdvisorServer() {
 	ms.grpcServer = grpcServer
 }
 
+// Start is override to list containers when starting up
+func (ms *memoryServer) Start() error {
+	if err := ms.baseServer.Start(); err != nil {
+		return err
+	}
+
+	// list containers to make sure metaCache is populated before memory advisor updating.
+	// For CPU advisor, sanity checks will be performed before updating, such as checking the existence of the reserve pool.
+	// TODO: list containers and pool entries before updating cpu advisor, same as this approach here.
+	if err := ms.StartListContainers(); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (ms *memoryServer) StartListContainers() error {
+	conn, err := ms.dial(ms.pluginSocketPath, ms.period)
+	if err != nil {
+		klog.ErrorS(err, "dial memory plugin failed", "memory plugin socket path", ms.pluginSocketPath)
+		goto unimplementedError
+	}
+
+	ms.memoryPluginClient = advisorsvc.NewQRMServiceClient(conn)
+
+	err = retry.OnError(retry.DefaultRetry, func(err error) bool {
+		return !general.IsUnimplementedError(err)
+	}, func() error {
+		if err := ms.listContainers(); err != nil {
+			_ = ms.metaCache.ClearContainers()
+			return err
+		}
+		return nil
+	})
+	if err == nil {
+		return nil
+	}
+
+unimplementedError:
+	go func() {
+		wait.PollUntil(durationToWaitListAndWatchCalled, func() (done bool, err error) { return ms.listAndWatchCalled, nil }, ms.stopCh)
+
+		// Is listContainer RPC is not implemented, we need to wait for the QRM to call addContainer to update the metaCache.
+		// Actually, this does not guarantee that all the containers will be fully walked through.
+		general.Infof("wait %v to get add container query", durationToWaitAddContainer.String())
+		time.Sleep(durationToWaitAddContainer)
+		ms.sendCh <- types.TriggerInfo{TimeStamp: time.Now()}
+	}()
+	return nil
+}
+
+func (ms *memoryServer) listContainers() error {
+	resp, err := ms.memoryPluginClient.ListContainers(context.TODO(), &advisorsvc.Empty{})
+	if err != nil {
+		return err
+	}
+	for _, container := range resp.Containers {
+		if err := ms.addContainer(container); err != nil {
+			general.ErrorS(err, "add container failed", "podUID", container.PodUid, "containerName", container.ContainerName)
+			return err
+		}
+		general.InfoS("add container", "container", container.String())
+	}
+	go func() {
+		ms.sendCh <- types.TriggerInfo{TimeStamp: time.Now()}
+	}()
+	return nil
+}
+
 func (ms *memoryServer) ListAndWatch(_ *advisorsvc.Empty, server advisorsvc.AdvisorService_ListAndWatchServer) error {
 	_ = ms.emitter.StoreInt64(ms.genMetricsName(metricServerLWCalled), int64(ms.period.Seconds()), metrics.MetricTypeNameCount)
 
@@ -61,6 +138,7 @@ func (ms *memoryServer) ListAndWatch(_ *advisorsvc.Empty, server advisorsvc.Advi
 	if !ok {
 		return fmt.Errorf("recvCh convert failed")
 	}
+	ms.listAndWatchCalled = true
 
 	for {
 		select {

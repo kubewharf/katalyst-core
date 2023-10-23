@@ -30,11 +30,10 @@ type GenericConfiguration struct {
 
 	GenericEndpoint             string
 	GenericEndpointHandleChains []string
-	GenericAuthStaticUser       string
-	GenericAuthStaticPasswd     string
 
 	*QoSConfiguration
 	*MetricsConfiguration
+	*AuthConfiguration
 
 	// ClientConnection specifies the kubeconfig file and client connection
 	// settings for the proxy server to use when communicating with the apiserver.
@@ -47,5 +46,6 @@ func NewGenericConfiguration() *GenericConfiguration {
 		DryRun:               false,
 		QoSConfiguration:     NewQoSConfiguration(),
 		MetricsConfiguration: NewMetricsConfiguration(),
+		AuthConfiguration:    NewAuthConfiguration(),
 	}
 }

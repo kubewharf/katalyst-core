@@ -14,15 +14,13 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package evictionmanager
+package io
 
-const (
-	EventReasonEvictFailed              = "EvictFailed"
-	EventReasonEvictCreated             = "EvictCreated"
-	EventReasonEvictExceededGracePeriod = "EvictExceededGracePeriod"
-	EventReasonEvictSucceeded           = "EvictSucceeded"
+import (
+	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/agent/qrm"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/io/staticpolicy"
 )
 
-const (
-	EventActionEvicting = "Evicting"
-)
+func init() {
+	qrm.RegisterIOPolicyInitializer(staticpolicy.IOResourcePluginPolicyNameStatic, staticpolicy.NewStaticPolicy)
+}

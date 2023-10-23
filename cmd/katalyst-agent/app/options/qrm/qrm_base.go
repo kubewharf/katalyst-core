@@ -28,6 +28,7 @@ type GenericQRMPluginOptions struct {
 	ExtraStateFileAbsPath         string
 	ReclaimRelativeRootCgroupPath string
 	PodDebugAnnoKeys              []string
+	UseKubeletReservedConfig      bool
 }
 
 func NewGenericQRMPluginOptions() *GenericQRMPluginOptions {
@@ -51,6 +52,8 @@ func (o *GenericQRMPluginOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 		"top level cgroup path for reclaimed_cores qos level")
 	fs.StringSliceVar(&o.PodDebugAnnoKeys, "qrm-pod-debug-anno-keys",
 		o.PodDebugAnnoKeys, "pod annotations keys to identify the pod is a debug pod, and qrm plugins will apply specific strategy to it")
+	fs.BoolVar(&o.UseKubeletReservedConfig, "use-kubelet-reserved-config",
+		o.UseKubeletReservedConfig, "if set true, we will prefer to use kubelet reserved config to reserved resource configuration in katalyst")
 }
 
 func (o *GenericQRMPluginOptions) ApplyTo(conf *qrmconfig.GenericQRMPluginConfiguration) error {
@@ -59,6 +62,7 @@ func (o *GenericQRMPluginOptions) ApplyTo(conf *qrmconfig.GenericQRMPluginConfig
 	conf.ExtraStateFileAbsPath = o.ExtraStateFileAbsPath
 	conf.ReclaimRelativeRootCgroupPath = o.ReclaimRelativeRootCgroupPath
 	conf.PodDebugAnnoKeys = o.PodDebugAnnoKeys
+	conf.UseKubeletReservedConfig = o.UseKubeletReservedConfig
 	return nil
 }
 
@@ -66,6 +70,7 @@ type QRMPluginsOptions struct {
 	CPUOptions     *CPUOptions
 	MemoryOptions  *MemoryOptions
 	NetworkOptions *NetworkOptions
+	IOOptions      *IOOptions
 }
 
 func NewQRMPluginsOptions() *QRMPluginsOptions {
@@ -73,6 +78,7 @@ func NewQRMPluginsOptions() *QRMPluginsOptions {
 		CPUOptions:     NewCPUOptions(),
 		MemoryOptions:  NewMemoryOptions(),
 		NetworkOptions: NewNetworkOptions(),
+		IOOptions:      NewIOOptions(),
 	}
 }
 
@@ -80,6 +86,7 @@ func (o *QRMPluginsOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 	o.CPUOptions.AddFlags(fss)
 	o.MemoryOptions.AddFlags(fss)
 	o.NetworkOptions.AddFlags(fss)
+	o.IOOptions.AddFlags(fss)
 }
 
 func (o *QRMPluginsOptions) ApplyTo(conf *qrmconfig.QRMPluginsConfiguration) error {
@@ -90,6 +97,9 @@ func (o *QRMPluginsOptions) ApplyTo(conf *qrmconfig.QRMPluginsConfiguration) err
 		return err
 	}
 	if err := o.NetworkOptions.ApplyTo(conf.NetworkQRMPluginConfig); err != nil {
+		return err
+	}
+	if err := o.IOOptions.ApplyTo(conf.IOQRMPluginConfig); err != nil {
 		return err
 	}
 	return nil

@@ -149,10 +149,10 @@ func TestPercentileWithTTLSmoothWindow(t *testing.T) {
 				},
 			},
 			wantValues: []resource.Quantity{
-				resource.MustParse("1"),
-				resource.MustParse("2"),
-				resource.MustParse("2"),
-				resource.MustParse("3"),
+				resource.MustParse("0"),
+				resource.MustParse("0"),
+				resource.MustParse("0"),
+				resource.MustParse("0"),
 				resource.MustParse("3"),
 				resource.MustParse("6"),
 				resource.MustParse("6"),
@@ -185,10 +185,10 @@ func TestPercentileWithTTLSmoothWindow(t *testing.T) {
 				},
 			},
 			wantValues: []resource.Quantity{
-				resource.MustParse("1"),
-				resource.MustParse("1"),
-				resource.MustParse("1"),
-				resource.MustParse("1"),
+				resource.MustParse("0"),
+				resource.MustParse("0"),
+				resource.MustParse("0"),
+				resource.MustParse("0"),
 				resource.MustParse("1"),
 				resource.MustParse("1.5"),
 				resource.MustParse("1.5"),
@@ -221,15 +221,15 @@ func TestPercentileWithTTLSmoothWindow(t *testing.T) {
 				},
 			},
 			wantValues: []resource.Quantity{
-				resource.MustParse("1"),
-				resource.MustParse("1"),
-				resource.MustParse("1"),
-				resource.MustParse("1"),
-				resource.MustParse("1"),
-				resource.MustParse("2"),
-				resource.MustParse("2"),
-				resource.MustParse("2"),
-				resource.MustParse("2"),
+				resource.MustParse("0"),
+				resource.MustParse("0"),
+				resource.MustParse("0"),
+				resource.MustParse("0"),
+				resource.MustParse("0"),
+				resource.MustParse("0"),
+				resource.MustParse("0"),
+				resource.MustParse("0"),
+				resource.MustParse("0"),
 				resource.MustParse("2"),
 				resource.MustParse("3"),
 				resource.MustParse("4"),
@@ -241,7 +241,11 @@ func TestPercentileWithTTLSmoothWindow(t *testing.T) {
 			w := NewPercentileWithTTLSmoothWindow(tt.args.windowSize, tt.args.ttl, tt.args.percentile, true)
 			for i, v := range tt.args.values {
 				ret := w.GetWindowedResources(v)
-				require.Equal(t, tt.wantValues[i].MilliValue(), ret.MilliValue())
+				if ret == nil {
+					require.Equal(t, tt.wantValues[i].MilliValue(), int64(0))
+				} else {
+					require.Equal(t, tt.wantValues[i].MilliValue(), ret.MilliValue())
+				}
 			}
 		})
 	}

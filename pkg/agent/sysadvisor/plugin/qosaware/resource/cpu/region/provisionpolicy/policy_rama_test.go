@@ -17,13 +17,16 @@ limitations under the License.
 package provisionpolicy
 
 import (
-	"io/ioutil"
 	"os"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	v1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	k8types "k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/sets"
 
 	katalyst_base "github.com/kubewharf/katalyst-core/cmd/base"
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/options"
@@ -34,17 +37,25 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric"
+	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/pod"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	metricspool "github.com/kubewharf/katalyst-core/pkg/metrics/metrics-pool"
+	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
-func generateTestConfiguration(t *testing.T, checkpointDir, stateFileDir string) *config.Configuration {
+var (
+	metaCacheRama  *metacache.MetaCacheImp
+	metaServerRama *metaserver.MetaServer
+)
+
+func generateRamaTestConfiguration(t *testing.T, checkpointDir, stateFileDir, checkpointManagerDir string) *config.Configuration {
 	conf, err := options.NewOptions().Config()
 	require.NoError(t, err)
 	require.NotNil(t, conf)
 
 	conf.GenericSysAdvisorConfiguration.StateFileDirectory = stateFileDir
 	conf.MetaServerConfiguration.CheckpointManagerDir = checkpointDir
+	conf.CheckpointManagerDir = checkpointManagerDir
 
 	conf.RegionIndicatorTargetConfiguration = map[types.QoSRegionType][]provisionconf.IndicatorTargetConfiguration{
 		types.QoSRegionTypeShare: {
@@ -97,25 +108,48 @@ func generateTestConfiguration(t *testing.T, checkpointDir, stateFileDir string)
 		},
 	}
 
+	conf.GetDynamicConfiguration().EnableReclaim = true
+
 	return conf
 }
 
-func newTestPolicyRama(t *testing.T, checkpointDir string, stateFileDir string, regionInfo types.RegionInfo) ProvisionPolicy {
-	conf := generateTestConfiguration(t, checkpointDir, stateFileDir)
+func newTestPolicyRama(t *testing.T, checkpointDir string, stateFileDir string, checkpointManagerDir string, regionInfo types.RegionInfo, podSet types.PodSet) ProvisionPolicy {
+	conf := generateRamaTestConfiguration(t, checkpointDir, stateFileDir, checkpointManagerDir)
 
-	metaCache, err := metacache.NewMetaCacheImp(conf, metricspool.DummyMetricsEmitterPool{}, metric.NewFakeMetricsFetcher(metrics.DummyMetrics{}))
+	metaCacheTmp, err := metacache.NewMetaCacheImp(conf, metricspool.DummyMetricsEmitterPool{}, metric.NewFakeMetricsFetcher(metrics.DummyMetrics{}))
+	metaCacheRama = metaCacheTmp
 	require.NoError(t, err)
+	require.NotNil(t, metaCacheRama)
 
 	genericCtx, err := katalyst_base.GenerateFakeGenericContext([]runtime.Object{})
 	require.NoError(t, err)
 
-	metaServer, err := metaserver.NewMetaServer(genericCtx.Client, metrics.DummyMetrics{}, conf)
-	require.NoError(t, err)
+	metaServerTmp, err := metaserver.NewMetaServer(genericCtx.Client, metrics.DummyMetrics{}, conf)
+	metaServerRama = metaServerTmp
+	assert.NoError(t, err)
+	require.NotNil(t, metaServerRama)
 
-	p := NewPolicyRama(regionInfo.RegionName, regionInfo.RegionType, regionInfo.OwnerPoolName, conf, nil, metaCache, metaServer, metrics.DummyMetrics{})
-	metaCache.SetRegionInfo(regionInfo.RegionName, &regionInfo)
+	p := NewPolicyRama(regionInfo.RegionName, regionInfo.RegionType, regionInfo.OwnerPoolName, conf, nil, metaCacheRama, metaServerRama, metrics.DummyMetrics{})
+	metaCacheRama.SetRegionInfo(regionInfo.RegionName, &regionInfo)
+
+	p.SetBindingNumas(regionInfo.BindingNumas)
+	p.SetPodSet(podSet)
 
 	return p
+}
+
+func constructPodFetcherRama(names []string) pod.PodFetcher {
+	var pods []*v1.Pod
+	for _, name := range names {
+		pods = append(pods, &v1.Pod{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: name,
+				UID:  k8types.UID(name),
+			},
+		})
+	}
+
+	return &pod.PodFetcherStub{PodList: pods}
 }
 
 func TestPolicyRama(t *testing.T) {
@@ -124,15 +158,22 @@ func TestPolicyRama(t *testing.T) {
 	tests := []struct {
 		name               string
 		regionInfo         types.RegionInfo
+		podSet             types.PodSet
 		resourceEssentials types.ResourceEssentials
 		controlEssentials  types.ControlEssentials
 		wantResult         types.ControlKnob
 	}{
 		{
 			name: "share_ramp_up",
+			podSet: types.PodSet{
+				"pod0": sets.String{
+					"container0": struct{}{},
+				},
+			},
 			regionInfo: types.RegionInfo{
-				RegionName: "share-xxx",
-				RegionType: types.QoSRegionTypeShare,
+				RegionName:   "share-xxx",
+				RegionType:   types.QoSRegionTypeShare,
+				BindingNumas: machine.NewCPUSet(0),
 			},
 			resourceEssentials: types.ResourceEssentials{
 				EnableReclaim:       true,
@@ -164,9 +205,15 @@ func TestPolicyRama(t *testing.T) {
 		},
 		{
 			name: "share_ramp_down",
+			podSet: types.PodSet{
+				"pod0": sets.String{
+					"container0": struct{}{},
+				},
+			},
 			regionInfo: types.RegionInfo{
-				RegionName: "share-xxx",
-				RegionType: types.QoSRegionTypeShare,
+				RegionName:   "share-xxx",
+				RegionType:   types.QoSRegionTypeShare,
+				BindingNumas: machine.NewCPUSet(0),
 			},
 			resourceEssentials: types.ResourceEssentials{
 				EnableReclaim:       true,
@@ -198,9 +245,15 @@ func TestPolicyRama(t *testing.T) {
 		},
 		{
 			name: "share_deadband",
+			podSet: types.PodSet{
+				"pod0": sets.String{
+					"container0": struct{}{},
+				},
+			},
 			regionInfo: types.RegionInfo{
-				RegionName: "share-xxx",
-				RegionType: types.QoSRegionTypeShare,
+				RegionName:   "share-xxx",
+				RegionType:   types.QoSRegionTypeShare,
+				BindingNumas: machine.NewCPUSet(0),
 			},
 			resourceEssentials: types.ResourceEssentials{
 				EnableReclaim:       true,
@@ -232,9 +285,15 @@ func TestPolicyRama(t *testing.T) {
 		},
 		{
 			name: "dedicated_numa_exclusive",
+			podSet: types.PodSet{
+				"pod0": sets.String{
+					"container0": struct{}{},
+				},
+			},
 			regionInfo: types.RegionInfo{
-				RegionName: "dedicated-numa-exclusive-xxx",
-				RegionType: types.QoSRegionTypeDedicatedNumaExclusive,
+				RegionName:   "dedicated-numa-exclusive-xxx",
+				RegionType:   types.QoSRegionTypeDedicatedNumaExclusive,
+				BindingNumas: machine.NewCPUSet(0),
 			},
 			resourceEssentials: types.ResourceEssentials{
 				EnableReclaim:       true,
@@ -270,16 +329,31 @@ func TestPolicyRama(t *testing.T) {
 		},
 	}
 
-	checkpointDir, err := ioutil.TempDir("", "checkpoint")
+	checkpointDir, err := os.MkdirTemp("", "checkpoint")
 	require.NoError(t, err)
 	defer func() { _ = os.RemoveAll(checkpointDir) }()
 
-	stateFileDir, err := ioutil.TempDir("", "statefile")
+	stateFileDir, err := os.MkdirTemp("", "statefile")
 	require.NoError(t, err)
 	defer func() { _ = os.RemoveAll(stateFileDir) }()
 
+	checkpointManagerDir, err := os.MkdirTemp("", "checkpointmanager")
+	require.NoError(t, err)
+	defer func() { _ = os.RemoveAll(checkpointManagerDir) }()
+
 	for _, tt := range tests {
-		policy := newTestPolicyRama(t, checkpointDir, stateFileDir, tt.regionInfo)
+		policy := newTestPolicyRama(t, checkpointDir, stateFileDir, checkpointManagerDir, tt.regionInfo, tt.podSet).(*PolicyRama)
+		assert.NotNil(t, policy)
+
+		podNames := []string{}
+		for podName, containerSet := range tt.podSet {
+			podNames = append(podNames, podName)
+			for containerName := range containerSet {
+				err = metaCacheRama.AddContainer(podName, containerName, &types.ContainerInfo{})
+				assert.Nil(t, err)
+			}
+		}
+		policy.metaServer.MetaAgent.SetPodFetcher(constructPodFetcherRama(podNames))
 
 		t.Run(tt.name, func(t *testing.T) {
 			policy.SetEssentials(tt.resourceEssentials, tt.controlEssentials)

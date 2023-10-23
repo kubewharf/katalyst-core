@@ -107,6 +107,49 @@ func ApplyNetClsForContainer(podUID, containerId string, data *common.NetClsData
 	return ApplyNetClsWithAbsolutePath(netClsAbsCGPath, data)
 }
 
+func ApplyIOCostQoSWithRelativePath(relCgroupPath string, devID string, data *common.IOCostQoSData) error {
+	if data == nil {
+		return fmt.Errorf("ApplyIOCostQoSWithRelativePath with nil cgroup data")
+	}
+
+	absCgroupPath := common.GetAbsCgroupPath(common.CgroupSubsysIO, relCgroupPath)
+	return ApplyIOCostQoSWithAbsolutePath(absCgroupPath, devID, data)
+}
+
+func ApplyIOCostQoSWithAbsolutePath(absCgroupPath string, devID string, data *common.IOCostQoSData) error {
+	if data == nil {
+		return fmt.Errorf("ApplyIOCostQoSWithAbsolutePath with nil cgroup data")
+	}
+
+	return GetManager().ApplyIOCostQoS(absCgroupPath, devID, data)
+}
+
+func ApplyIOCostModelWithRelativePath(relCgroupPath string, devID string, data *common.IOCostModelData) error {
+	if data == nil {
+		return fmt.Errorf("ApplyIOCostModelWithRelativePath with nil cgroup data")
+	}
+
+	absCgroupPath := common.GetAbsCgroupPath(common.CgroupSubsysIO, relCgroupPath)
+	return ApplyIOCostModelWithAbsolutePath(absCgroupPath, devID, data)
+}
+
+func ApplyIOCostModelWithAbsolutePath(absCgroupPath string, devID string, data *common.IOCostModelData) error {
+	if data == nil {
+		return fmt.Errorf("ApplyIOCostModelWithAbsolutePath with nil cgroup data")
+	}
+
+	return GetManager().ApplyIOCostModel(absCgroupPath, devID, data)
+}
+
+func ApplyIOWeightWithRelativePath(relCgroupPath string, devID string, weight uint64) error {
+	absCgroupPath := common.GetAbsCgroupPath(common.CgroupSubsysIO, relCgroupPath)
+	return ApplyIOWeightWithAbsolutePath(absCgroupPath, devID, weight)
+}
+
+func ApplyIOWeightWithAbsolutePath(absCgroupPath string, devID string, weight uint64) error {
+	return GetManager().ApplyIOWeight(absCgroupPath, devID, weight)
+}
+
 func ApplyUnifiedDataWithAbsolutePath(absCgroupPath, cgroupFileName, data string) error {
 	return GetManager().ApplyUnifiedData(absCgroupPath, cgroupFileName, data)
 }
@@ -128,6 +171,42 @@ func GetMemoryWithRelativePath(relCgroupPath string) (*common.MemoryStats, error
 
 func GetMemoryWithAbsolutePath(absCgroupPath string) (*common.MemoryStats, error) {
 	return GetManager().GetMemory(absCgroupPath)
+}
+
+func GetIOCostQoSWithRelativePath(relCgroupPath string) (map[string]*common.IOCostQoSData, error) {
+	absCgroupPath := common.GetAbsCgroupPath(common.CgroupSubsysIO, relCgroupPath)
+	return GetIOCostQoSWithAbsolutePath(absCgroupPath)
+}
+
+func GetIOCostQoSWithAbsolutePath(absCgroupPath string) (map[string]*common.IOCostQoSData, error) {
+	return GetManager().GetIOCostQoS(absCgroupPath)
+}
+
+func GetIOCostModelWithRelativePath(relCgroupPath string) (map[string]*common.IOCostModelData, error) {
+	absCgroupPath := common.GetAbsCgroupPath(common.CgroupSubsysIO, relCgroupPath)
+	return GetIOCostModelWithAbsolutePath(absCgroupPath)
+}
+
+func GetIOCostModelWithAbsolutePath(absCgroupPath string) (map[string]*common.IOCostModelData, error) {
+	return GetManager().GetIOCostModel(absCgroupPath)
+}
+
+func GetDeviceIOWeightWithRelativePath(relCgroupPath, devID string) (uint64, bool, error) {
+	absCgroupPath := common.GetAbsCgroupPath(common.CgroupSubsysIO, relCgroupPath)
+	return GetDeviceIOWeightWithAbsolutePath(absCgroupPath, devID)
+}
+
+func GetDeviceIOWeightWithAbsolutePath(absCgroupPath, devID string) (uint64, bool, error) {
+	return GetManager().GetDeviceIOWeight(absCgroupPath, devID)
+}
+
+func GetIOStatWithRelativePath(relCgroupPath string) (map[string]map[string]string, error) {
+	absCgroupPath := common.GetAbsCgroupPath(common.CgroupSubsysIO, relCgroupPath)
+	return GetIOStatWithAbsolutePath(absCgroupPath)
+}
+
+func GetIOStatWithAbsolutePath(absCgroupPath string) (map[string]map[string]string, error) {
+	return GetManager().GetIOStat(absCgroupPath)
 }
 
 func GetCPUWithRelativePath(relCgroupPath string) (*common.CPUStats, error) {

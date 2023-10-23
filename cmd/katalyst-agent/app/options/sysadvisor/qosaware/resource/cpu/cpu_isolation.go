@@ -31,11 +31,17 @@ type CPUIsolationOptions struct {
 	IsolationCPURatio float32
 	IsolationCPUSize  int32
 
-	// IsolatedMaxPoolRatios defines the max ratio for each pool
+	// IsolatedMaxPoolResourceRatios defines the max ratio for each pool
 	// key indicates the pool-name that supports cpu-isolation
 	// val indicates the max ratio for this cpu-isolation,
-	IsolatedMaxRatios     float32
-	IsolatedMaxPoolRatios map[string]string
+	IsolatedMaxResourceRatio      float32
+	IsolatedMaxPoolResourceRatios map[string]string
+
+	// IsolatedMaxPoolPodRatios defines the max pod-amount-ratio for each pool
+	// key indicates the pool-name that supports cpu-isolation
+	// val indicates the max ratio for this cpu-isolation,
+	IsolatedMaxPodRatio      float32
+	IsolatedMaxPoolPodRatios map[string]string
 
 	// IsolationLockInThreshold and IsolationLockOutPeriodSecs defines the lasting periods
 	// before state switches between lock-in and lock-out
@@ -52,8 +58,11 @@ func NewCPUIsolationOptions() *CPUIsolationOptions {
 		IsolationCPURatio: 1.5,
 		IsolationCPUSize:  2,
 
-		IsolatedMaxRatios:     0.2,
-		IsolatedMaxPoolRatios: map[string]string{},
+		IsolatedMaxResourceRatio:      0.2,
+		IsolatedMaxPoolResourceRatios: map[string]string{},
+
+		IsolatedMaxPodRatio:      0.5,
+		IsolatedMaxPoolPodRatios: map[string]string{},
 
 		IsolationLockInThreshold:   3,
 		IsolationLockOutPeriodSecs: 120,
@@ -70,11 +79,18 @@ func (o *CPUIsolationOptions) AddFlags(fs *pflag.FlagSet) {
 	fs.Int32Var(&o.IsolationCPUSize, "isolation-cpu-size", o.IsolationCPUSize,
 		"mark as isolated if container load exceeds its limit added with this size")
 
-	fs.Float32Var(&o.IsolatedMaxRatios, "isolation-max-ratios", o.IsolatedMaxRatios,
-		"stop marking container isolated if the isolated container exceeds the defined ratio,to avoid "+
+	fs.Float32Var(&o.IsolatedMaxResourceRatio, "isolation-max-ratios", o.IsolatedMaxResourceRatio,
+		"stop marking container isolated if the isolated container exceeds the defined resource-ratio,to avoid "+
 			"the left containers lack of enough resources to run; this param works as a default ratio for all pools")
-	fs.StringToStringVar(&o.IsolatedMaxPoolRatios, "isolation-max-pool-ratios", o.IsolatedMaxPoolRatios,
-		"stop marking container isolated if the isolated container exceeds the defined ratio, to avoid "+
+	fs.StringToStringVar(&o.IsolatedMaxPoolResourceRatios, "isolation-max-pool-ratios", o.IsolatedMaxPoolResourceRatios,
+		"stop marking container isolated if the isolated container exceeds the defined resource-ratio, to avoid "+
+			"the left containers lack of enough resources to run; this param works as separate ratio for all pools")
+
+	fs.Float32Var(&o.IsolatedMaxPodRatio, "isolation-max-pod-ratios", o.IsolatedMaxPodRatio,
+		"stop marking container isolated if the isolated container exceeds the defined pod-amount-ratio,to avoid "+
+			"the left containers lack of enough resources to run; this param works as a default ratio for all pools")
+	fs.StringToStringVar(&o.IsolatedMaxPoolPodRatios, "isolation-max-pool-pod-ratios", o.IsolatedMaxPoolPodRatios,
+		"stop marking container isolated if the isolated container exceeds the defined pod-amount-ratio, to avoid "+
 			"the left containers lack of enough resources to run; this param works as separate ratio for all pools")
 
 	fs.IntVar(&o.IsolationLockInThreshold, "isolation-lockin-threshold", o.IsolationLockInThreshold,
@@ -93,18 +109,32 @@ func (o *CPUIsolationOptions) ApplyTo(c *cpu.CPUIsolationConfiguration) error {
 	c.IsolationCPURatio = o.IsolationCPURatio
 	c.IsolationCPUSize = o.IsolationCPUSize
 
-	c.IsolatedMaxRatios = o.IsolatedMaxRatios
-	if o.IsolatedMaxRatios >= 1 {
-		return fmt.Errorf("isolation ratio must be smaller than 1")
+	c.IsolatedMaxResourceRatio = o.IsolatedMaxResourceRatio
+	if o.IsolatedMaxResourceRatio >= 1 {
+		return fmt.Errorf("isolation resource-ratio must be smaller than 1")
 	}
-	for pool, ratioStr := range o.IsolatedMaxPoolRatios {
+	for pool, ratioStr := range o.IsolatedMaxPoolResourceRatios {
 		ratio, err := strconv.ParseFloat(ratioStr, 32)
 		if err != nil {
 			return err
 		} else if ratio >= 1 {
-			return fmt.Errorf("pool %v isolation ratio must be smaller than 1", pool)
+			return fmt.Errorf("pool %v isolation resource-ratio must be smaller than 1", pool)
 		}
-		c.IsolatedMaxPoolRatios[pool] = float32(ratio)
+		c.IsolatedMaxPoolResourceRatios[pool] = float32(ratio)
+	}
+
+	c.IsolatedMaxPodRatio = o.IsolatedMaxPodRatio
+	if o.IsolatedMaxPodRatio >= 1 {
+		return fmt.Errorf("isolation pod-ratio must be smaller than 1")
+	}
+	for pool, ratioStr := range o.IsolatedMaxPoolPodRatios {
+		ratio, err := strconv.ParseFloat(ratioStr, 32)
+		if err != nil {
+			return err
+		} else if ratio >= 1 {
+			return fmt.Errorf("pool %v isolation pod-ratio must be smaller than 1", pool)
+		}
+		c.IsolatedMaxPoolPodRatios[pool] = float32(ratio)
 	}
 
 	c.IsolationLockInThreshold = o.IsolationLockInThreshold

@@ -41,25 +41,26 @@ type GenericOptions struct {
 	// todo actually those auth info should be stored in secrets or somewhere like that
 	GenericEndpoint             string
 	GenericEndpointHandleChains []string
-	GenericAuthStaticUser       string
-	GenericAuthStaticPasswd     string
 
 	qosOptions     *QoSOptions
 	metricsOptions *MetricsOptions
 	logsOptions    *LogsOptions
+	authOptions    *AuthOptions
 
 	componentbaseconfig.ClientConnectionConfiguration
 }
 
 func NewGenericOptions() *GenericOptions {
 	return &GenericOptions{
-		DryRun:                      false,
-		TransformedInformerForPod:   false,
-		GenericEndpoint:             ":9316",
-		qosOptions:                  NewQoSOptions(),
-		metricsOptions:              NewMetricsOptions(),
-		logsOptions:                 NewLogsOptions(),
-		GenericEndpointHandleChains: []string{process.HTTPChainRateLimiter},
+		DryRun:                    false,
+		TransformedInformerForPod: false,
+		GenericEndpoint:           ":9316",
+		qosOptions:                NewQoSOptions(),
+		metricsOptions:            NewMetricsOptions(),
+		logsOptions:               NewLogsOptions(),
+		authOptions:               NewAuthOptions(),
+		GenericEndpointHandleChains: []string{process.HTTPChainCredential, process.HTTPChainRateLimiter,
+			process.HTTPChainMonitor},
 	}
 }
 
@@ -86,14 +87,11 @@ func (o *GenericOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 		"the endpoint of generic purpose, which will use as prometheus, health check and profiling")
 	fs.StringSliceVar(&o.GenericEndpointHandleChains, "generic-handler-chains", o.GenericEndpointHandleChains,
 		"this flag defines the handler chains that should be enabled")
-	fs.StringVar(&o.GenericAuthStaticUser, "generic-auth-static-user", o.GenericAuthStaticUser,
-		"basic auth is build auth chain for http, and this defines the static user")
-	fs.StringVar(&o.GenericAuthStaticPasswd, "generic-auth-static-passwd", o.GenericAuthStaticPasswd,
-		"basic auth is build auth chain for http, and this defines the static passwd")
 
 	o.qosOptions.AddFlags(fs)
 	o.metricsOptions.AddFlags(fs)
 	o.logsOptions.AddFlags(fs)
+	o.authOptions.AddFlags(fs)
 
 	fs.Float32Var(&o.QPS, "kube-api-qps", o.QPS, "QPS to use while talking with kubernetes apiserver.")
 	fs.Int32Var(&o.Burst, "kube-api-burst", o.Burst, "Burst to use while talking with kubernetes apiserver.")
@@ -107,13 +105,12 @@ func (o *GenericOptions) ApplyTo(c *generic.GenericConfiguration) error {
 
 	c.GenericEndpoint = o.GenericEndpoint
 	c.GenericEndpointHandleChains = o.GenericEndpointHandleChains
-	c.GenericAuthStaticUser = o.GenericAuthStaticUser
-	c.GenericAuthStaticPasswd = o.GenericAuthStaticPasswd
 
 	errList := make([]error, 0, 1)
 	errList = append(errList, o.qosOptions.ApplyTo(c.QoSConfiguration))
 	errList = append(errList, o.metricsOptions.ApplyTo(c.MetricsConfiguration))
 	errList = append(errList, o.logsOptions.ApplyTo())
+	errList = append(errList, o.authOptions.ApplyTo(c.AuthConfiguration))
 
 	c.ClientConnection.QPS = o.QPS
 	c.ClientConnection.Burst = o.Burst

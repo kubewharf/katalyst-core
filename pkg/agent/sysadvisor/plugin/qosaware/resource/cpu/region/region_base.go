@@ -29,11 +29,23 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource/cpu/region/headroompolicy"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource/cpu/region/provisionpolicy"
+	borweinctrl "github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource/helper/modelctrl/borwein"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
+	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
+)
+
+const (
+	metricCPUGetHeadroomFailed  = "get_cpu_headroom_failed"
+	metricCPUGetProvisionFailed = "get_cpu_provision_failed"
+	metricRegionHeadroom        = "region_headroom"
+
+	metricTagKeyPolicyName = "policy_name"
+	metricTagKeyRegionType = "region_type"
+	metricTagKeyRegionName = "region_name"
 )
 
 type internalPolicyState struct {
@@ -89,6 +101,11 @@ type QoSRegionBase struct {
 	metaReader metacache.MetaReader
 	metaServer *metaserver.MetaServer
 	emitter    metrics.MetricEmitter
+
+	// enableBorweinModel and borweinController will take effect only when using rama provision policy.
+	// If enableBorweinModel is set, borweinController will update target indicators by model inference.
+	enableBorweinModel bool
+	borweinController  *borweinctrl.BorweinController
 }
 
 // NewQoSRegionBase returns a base qos region instance with common region methods
@@ -113,10 +130,20 @@ func NewQoSRegionBase(name string, ownerPoolName string, regionType types.QoSReg
 		metaReader: metaReader,
 		metaServer: metaServer,
 		emitter:    emitter,
+
+		enableBorweinModel: conf.PolicyRama.EnableBorwein,
 	}
 
 	r.initHeadroomPolicy(conf, extraConf, metaReader, metaServer, emitter)
 	r.initProvisionPolicy(conf, extraConf, metaReader, metaServer, emitter)
+
+	// enableBorweinModel is initialized according to rama provision policy config.
+	// it only takes effect when updating target indicators,
+	// if there are more code positions depending on it,
+	// we should consider provide a dummy borwein controller to avoid redundant judgement.
+	if r.enableBorweinModel {
+		r.borweinController = borweinctrl.NewBorweinController(name, regionType, ownerPoolName, conf, metaReader)
+	}
 
 	klog.Infof("[qosaware-cpu] created region [%v/%v/%v]", r.Name(), r.Type(), r.OwnerPoolName())
 
@@ -230,6 +257,8 @@ func (r *QoSRegionBase) GetProvision() (types.ControlKnob, error) {
 
 	for _, internal := range r.provisionPolicies {
 		if internal.updateStatus != types.PolicyUpdateSucceeded {
+			_ = r.emitter.StoreInt64(metricCPUGetProvisionFailed, 1, metrics.MetricTypeNameRaw,
+				metrics.MetricTag{Key: metricTagKeyPolicyName, Val: string(internal.name)})
 			continue
 		}
 		controlKnobAdjusted, err := internal.policy.GetControlKnobAdjusted()
@@ -252,6 +281,8 @@ func (r *QoSRegionBase) GetHeadroom() (float64, error) {
 
 	for _, internal := range r.headroomPolicies {
 		if internal.updateStatus != types.PolicyUpdateSucceeded {
+			_ = r.emitter.StoreInt64(metricCPUGetHeadroomFailed, 1, metrics.MetricTypeNameRaw,
+				metrics.MetricTag{Key: metricTagKeyPolicyName, Val: string(internal.name)})
 			continue
 		}
 		headroom, err := internal.policy.GetHeadroom()
@@ -259,6 +290,8 @@ func (r *QoSRegionBase) GetHeadroom() (float64, error) {
 			klog.Errorf("[qosaware-cpu] get headroom by policy %v failed: %v", internal.name, err)
 			continue
 		}
+		r.emitter.StoreFloat64(metricRegionHeadroom, headroom, metrics.MetricTypeNameRaw,
+			metrics.ConvertMapToTags(map[string]string{metricTagKeyRegionType: string(r.regionType), metricTagKeyRegionName: r.name})...)
 		r.headroomPolicyNameInUse = internal.name
 		return headroom, nil
 	}
@@ -274,7 +307,12 @@ func (r *QoSRegionBase) GetProvisionPolicy() (policyTopPriority types.CPUProvisi
 	if len(r.provisionPolicies) > 0 {
 		policyTopPriority = r.provisionPolicies[0].name
 	}
-	policyInUse = r.provisionPolicyNameInUse
+
+	if !r.EnableReclaim {
+		policyInUse = types.CPUProvisionPolicyNonReclaim
+	} else {
+		policyInUse = r.provisionPolicyNameInUse
+	}
 
 	return
 }
@@ -287,16 +325,27 @@ func (r *QoSRegionBase) GetHeadRoomPolicy() (policyTopPriority types.CPUHeadroom
 	if len(r.headroomPolicies) > 0 {
 		policyTopPriority = r.headroomPolicies[0].name
 	}
-	policyInUse = r.headroomPolicyNameInUse
+
+	if !r.EnableReclaim {
+		policyInUse = types.CPUHeadroomPolicyNonReclaim
+	} else {
+		policyInUse = r.headroomPolicyNameInUse
+	}
 
 	return
 }
 
 func (r *QoSRegionBase) GetStatus() types.RegionStatus {
+	r.Lock()
+	defer r.Unlock()
+
 	return r.regionStatus
 }
 
 func (r *QoSRegionBase) GetControlEssentials() types.ControlEssentials {
+	r.Lock()
+	defer r.Unlock()
+
 	return r.ControlEssentials
 }
 
@@ -379,6 +428,8 @@ func (r *QoSRegionBase) initHeadroomPolicy(conf *config.Configuration, extraConf
 				policy:              policy,
 				internalPolicyState: internalPolicyState{updateStatus: types.PolicyUpdateFailed},
 			})
+		} else {
+			general.InfoS("failed to find headroom policy", "policyName", policyName, "region", r.regionType)
 		}
 	}
 }
@@ -430,7 +481,12 @@ func (r *QoSRegionBase) getIndicators() (types.Indicator, error) {
 		indicators[indicatorName] = indicatorValue
 	}
 
-	return indicators, nil
+	if r.enableBorweinModel {
+		return r.borweinController.GetUpdatedIndicators(indicators, r.podSet), nil
+	} else {
+		return indicators, nil
+	}
+
 }
 
 // getPodIndicatorTarget gets pod indicator target by given pod uid and indicator name,

@@ -30,6 +30,7 @@ import (
 	"k8s.io/klog/v2"
 
 	"github.com/kubewharf/katalyst-core/pkg/custom-metric/store/data"
+	"github.com/kubewharf/katalyst-core/pkg/custom-metric/store/data/types"
 )
 
 const (
@@ -49,7 +50,7 @@ const (
 	StoreGETParamObjectGR        = "objGR"
 	StoreGETParamObjectName      = "objName"
 	StoreGETParamMObjectSelector = "objSelector"
-	StoreGETParamLimited         = "limited"
+	StoreGETParamLatest          = "latest"
 )
 
 type MemoryStoreData struct {
@@ -84,7 +85,7 @@ func (l *LocalMemoryMetricStore) handleMetricList(w http.ResponseWriter, r *http
 
 	var (
 		err             error
-		metricMetalList []data.MetricMeta
+		metricMetalList []types.MetricMeta
 	)
 	if r.URL.Query() == nil || len(getQueryParam(r, StoreListParamObjected)) == 0 {
 		metricMetalList, err = l.ListMetricMeta(context.Background(), false)
@@ -147,7 +148,7 @@ func (l *LocalMemoryMetricStore) handleMetricGet(w http.ResponseWriter, r *http.
 		objGR          *schema.GroupResource
 		objSelector    labels.Selector = nil
 		metricSelector labels.Selector = nil
-		limited        int             = -1
+		latest         bool
 	)
 
 	namespace := getQueryParam(r, StoreGETParamNamespace)
@@ -159,7 +160,7 @@ func (l *LocalMemoryMetricStore) handleMetricGet(w http.ResponseWriter, r *http.
 		if err != nil {
 			klog.Errorf("metric selector parsing err: %v", err)
 			w.WriteHeader(http.StatusBadRequest)
-			_, _ = fmt.Fprintf(w, "Metric selector parsing %v err: %v", metricSelectorStr, err)
+			_, _ = fmt.Fprintf(w, "Item selector parsing %v err: %v", metricSelectorStr, err)
 			return
 		}
 		metricSelector = selector
@@ -183,22 +184,22 @@ func (l *LocalMemoryMetricStore) handleMetricGet(w http.ResponseWriter, r *http.
 		objSelector = selector
 	}
 
-	limitedStr := getQueryParam(r, StoreGETParamLimited)
-	if len(limitedStr) > 0 {
-		i, err := strconv.Atoi(limitedStr)
+	latestStr := getQueryParam(r, StoreGETParamLatest)
+	if len(latestStr) > 0 {
+		var err error
+		latest, err = strconv.ParseBool(latestStr)
 		if err != nil {
-			klog.Errorf("limited parsing err: %v", err)
+			klog.Errorf("limited parsing %v err: %v", latestStr, err)
 			w.WriteHeader(http.StatusBadRequest)
-			_, _ = fmt.Fprintf(w, "Limited parsing %v err: %v", limitedStr, err)
+			_, _ = fmt.Fprintf(w, "Limited parsing %v err %v", latestStr, err)
 			return
 		}
-		limited = i
 	}
 
 	readFinished := time.Now()
 
 	// 2. get from local cache and unmarshal into writer
-	internalList, err := l.GetMetric(context.Background(), namespace, metricName, objName, objGR, objSelector, metricSelector, limited)
+	internalList, err := l.GetMetric(context.Background(), namespace, metricName, objName, objGR, objSelector, metricSelector, latest)
 	if err != nil {
 		klog.Errorf("get internal list err: %v", err)
 		w.WriteHeader(http.StatusNotAcceptable)
@@ -221,7 +222,8 @@ func (l *LocalMemoryMetricStore) handleMetricGet(w http.ResponseWriter, r *http.
 
 	writeRespFinished := time.Now()
 
-	klog.Infof("get cost read: %v, json: %v, resp: %v, total %v; len %v",
+	klog.Infof("get metric %v, obj %v, cost read: %v, json: %v, resp: %v, total %v; len %v",
+		metricName, objName,
 		readFinished.Sub(start),
 		jsonMarshalFinished.Sub(readFinished),
 		writeRespFinished.Sub(jsonMarshalFinished),

@@ -184,7 +184,7 @@ func (cl *CNRLifecycle) addCNREventHandle(obj interface{}) {
 func (cl *CNRLifecycle) updateCNREventHandle(_, new interface{}) {
 	c, ok := new.(*apis.CustomNodeResource)
 	if !ok {
-		klog.Errorf("cannot convert oldObj to *apis.CNR: %v", c)
+		klog.Errorf("cannot convert newObj to *apis.CNR: %v", c)
 		return
 	}
 	klog.V(4).Infof("notice addition of cnr %s", c.Name)
@@ -248,7 +248,7 @@ func (cl *CNRLifecycle) sync(key string) error {
 	}
 	node, err := cl.nodeLister.Get(name)
 	if errors.IsNotFound(err) {
-		klog.Info("node has been deleted %v", key)
+		klog.Infof("node has been deleted %v", key)
 		return nil
 	}
 	if err != nil {
@@ -320,7 +320,7 @@ func (cl *CNRLifecycle) updateOrCreateCNR(node *corev1.Node) error {
 	}
 
 	newCNR := cnr.DeepCopy()
-	newCNR.Labels = node.Labels
+	newCNR.Labels = general.MergeMap(newCNR.Labels, node.Labels)
 	setCNROwnerReference(newCNR, node)
 	if apiequality.Semantic.DeepEqual(newCNR, cnr) {
 		return nil

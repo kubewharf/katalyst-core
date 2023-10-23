@@ -18,9 +18,11 @@ package memory
 
 import (
 	"github.com/spf13/pflag"
+	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/util/errors"
 
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/options/sysadvisor/qosaware/resource/memory/headroom"
+	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/options/sysadvisor/qosaware/resource/memory/plugins"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/sysadvisor/qosaware/resource/memory"
 )
@@ -30,6 +32,8 @@ type MemoryAdvisorOptions struct {
 	MemoryHeadroomPolicyPriority []string
 	*headroom.MemoryHeadroomPolicyOptions
 	MemoryAdvisorPlugins []string
+	MinCriticalWatermark resource.QuantityValue
+	*plugins.MemoryAdvisorPluginsOptions
 }
 
 // NewMemoryAdvisorOptions creates a new Options with a default config
@@ -38,6 +42,8 @@ func NewMemoryAdvisorOptions() *MemoryAdvisorOptions {
 		MemoryHeadroomPolicyPriority: []string{string(types.MemoryHeadroomPolicyCanonical)},
 		MemoryHeadroomPolicyOptions:  headroom.NewMemoryHeadroomPolicyOptions(),
 		MemoryAdvisorPlugins:         []string{},
+		MinCriticalWatermark:         resource.QuantityValue{Quantity: resource.MustParse("4Gi")},
+		MemoryAdvisorPluginsOptions:  plugins.NewMemoryAdvisorPluginsOptions(),
 	}
 }
 
@@ -48,6 +54,8 @@ func (o *MemoryAdvisorOptions) AddFlags(fs *pflag.FlagSet) {
 	o.MemoryHeadroomPolicyOptions.AddFlags(fs)
 	fs.StringSliceVar(&o.MemoryAdvisorPlugins, "memory-advisor-plugins", o.MemoryAdvisorPlugins,
 		"memory advisor plugins to use.")
+	fs.Var(&o.MinCriticalWatermark, "memory-advisor-min-critical-watermark", "min watermark to trigger reclaim")
+	o.MemoryAdvisorPluginsOptions.AddFlags(fs)
 }
 
 // ApplyTo fills up config with options
@@ -58,8 +66,10 @@ func (o *MemoryAdvisorOptions) ApplyTo(c *memory.MemoryAdvisorConfiguration) err
 	for _, plugin := range o.MemoryAdvisorPlugins {
 		c.MemoryAdvisorPlugins = append(c.MemoryAdvisorPlugins, types.MemoryAdvisorPluginName(plugin))
 	}
+	c.MinCriticalWatermark = o.MinCriticalWatermark.Value()
 
 	var errList []error
 	errList = append(errList, o.MemoryHeadroomPolicyOptions.ApplyTo(c.MemoryHeadroomPolicyConfiguration))
+	errList = append(errList, o.MemoryAdvisorPluginsOptions.ApplyTo(c.MemoryAdvisorPluginsConfiguration))
 	return errors.NewAggregate(errList)
 }

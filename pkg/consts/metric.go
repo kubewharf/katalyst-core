@@ -55,6 +55,10 @@ const (
 	MetricIOReadSystem  = "io.read.system"
 	MetricIOWriteSystem = "io.write.system"
 	MetricIOBusySystem  = "io.busy.system"
+
+	MetricIOReadOpsSystem  = "io.read.ops.system"
+	MetricIOWriteOpsSystem = "io.write.ops.system"
+	MetricIOBusyRateSystem = "io.busy.rate.system"
 )
 
 // System numa metrics
@@ -110,7 +114,7 @@ const (
 	MetricStoreAllInsContainer  = "cpu.store.allins.container"
 	MetricStoreInsContainer     = "cpu.store.ins.container"
 
-	MetricUpdateTimeContainer = "cpu.updatetime.container"
+	MetricCPUUpdateTimeContainer = "cpu.updatetime.container"
 )
 
 // container memory metrics
@@ -143,6 +147,8 @@ const (
 	MetricBlkioWriteIopsContainer = "blkio.write.iops.container"
 	MetricBlkioReadBpsContainer   = "blkio.read.bps.container"
 	MetricBlkioWriteBpsContainer  = "blkio.write.bps.container"
+
+	MetricBlkioUpdateTimeContainer = "blkio.updatetime.container"
 )
 
 // container net metrics

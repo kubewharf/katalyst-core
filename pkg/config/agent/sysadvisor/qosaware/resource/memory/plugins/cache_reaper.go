@@ -14,12 +14,14 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package util
+package plugins
 
-const (
-	// CPUResourcePluginPolicyNameDynamic is the name of the dynamic policy.
-	CPUResourcePluginPolicyNameDynamic = "dynamic"
+type CacheReaperConfiguration struct {
+	MinCacheUtilizationThreshold float64
+}
 
-	// CPUResourcePluginPolicyNameNative is the name of the native policy.
-	CPUResourcePluginPolicyNameNative = "native"
-)
+func NewCacheReaperConfiguration() *CacheReaperConfiguration {
+	return &CacheReaperConfiguration{
+		MinCacheUtilizationThreshold: 0,
+	}
+}

@@ -19,6 +19,7 @@ package qosaware
 import (
 	"time"
 
+	"github.com/kubewharf/katalyst-core/pkg/config/agent/sysadvisor/qosaware/model"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/sysadvisor/qosaware/reporter"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/sysadvisor/qosaware/resource"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/sysadvisor/qosaware/server"
@@ -31,6 +32,7 @@ type QoSAwarePluginConfiguration struct {
 	*resource.ResourceAdvisorConfiguration
 	*server.QRMServerConfiguration
 	*reporter.HeadroomReporterConfiguration
+	*model.ModelConfiguration
 }
 
 // NewQoSAwarePluginConfiguration creates a new qos aware plugin configuration.
@@ -39,5 +41,6 @@ func NewQoSAwarePluginConfiguration() *QoSAwarePluginConfiguration {
 		ResourceAdvisorConfiguration:  resource.NewResourceAdvisorConfiguration(),
 		QRMServerConfiguration:        server.NewQRMServerConfiguration(),
 		HeadroomReporterConfiguration: reporter.NewHeadroomReporterConfiguration(),
+		ModelConfiguration:            model.NewModelConfiguration(),
 	}
 }

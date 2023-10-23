@@ -42,6 +42,12 @@ type GenericEvictionConfiguration struct {
 
 	// EvictionBurst limit the burst eviction counts
 	EvictionBurst int
+
+	// PodKiller specify the pod killer implementation
+	PodKiller string
+
+	// StrictAuthentication means whether to authenticate plugins strictly
+	StrictAuthentication bool
 }
 
 type EvictionConfiguration struct {

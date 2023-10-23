@@ -35,9 +35,6 @@ import (
 )
 
 const (
-	// PluginNameQosAware is the name of QoSAwarePlugin
-	PluginNameQosAware = "qos-aware-plugin"
-
 	// MetricsNamePlugQoSAwareHearBeat is the heartbeat metrics of qos aware plugin
 	MetricsNamePlugQoSAwareHearBeat = "plugin_qosaware_heartbeat"
 )
@@ -60,7 +57,7 @@ type QoSAwarePlugin struct {
 }
 
 // NewQoSAwarePlugin creates a qos aware plugin with the specified config
-func NewQoSAwarePlugin(conf *config.Configuration, extraConf interface{}, emitterPool metricspool.MetricsEmitterPool,
+func NewQoSAwarePlugin(pluginName string, conf *config.Configuration, extraConf interface{}, emitterPool metricspool.MetricsEmitterPool,
 	metaServer *metaserver.MetaServer, metaCache metacache.MetaCache) (plugin.SysAdvisorPlugin, error) {
 	emitter := emitterPool.GetDefaultMetricsEmitter().WithTags("advisor-qosaware")
 
@@ -86,7 +83,7 @@ func NewQoSAwarePlugin(conf *config.Configuration, extraConf interface{}, emitte
 	}
 
 	qap := &QoSAwarePlugin{
-		name:   PluginNameQosAware,
+		name:   pluginName,
 		period: conf.SysAdvisorPluginsConfiguration.QoSAwarePluginConfiguration.SyncPeriod,
 
 		resourceAdvisor:  resourceAdvisor,

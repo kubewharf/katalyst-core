@@ -139,7 +139,19 @@ func (p *PolicyRama) sanityCheck() error {
 		errList []error
 	)
 
-	// 1. check control knob legality
+	enableReclaim := p.conf.GetDynamicConfiguration().EnableReclaim
+
+	// 1. check if enable reclaim
+	if !enableReclaim {
+		errList = append(errList, fmt.Errorf("reclaim disabled"))
+	}
+
+	// 2. check margin. skip update when margin is non zero
+	if p.ResourceEssentials.ReservedForAllocate != 0 {
+		errList = append(errList, fmt.Errorf("margin exists"))
+	}
+
+	// 3. check control knob legality
 	isLegal = true
 	if p.ControlKnobs == nil || len(p.ControlKnobs) <= 0 {
 		isLegal = false
@@ -153,14 +165,9 @@ func (p *PolicyRama) sanityCheck() error {
 		errList = append(errList, fmt.Errorf("illegal control knob %v", p.ControlKnobs))
 	}
 
-	// 2. check indicators legality
+	// 4. check indicators legality
 	if p.Indicators == nil {
 		errList = append(errList, fmt.Errorf("illegal indicators"))
-	}
-
-	// 4. check margin. skip update when margin is non zero
-	if p.ResourceEssentials.ReservedForAllocate != 0 {
-		errList = append(errList, fmt.Errorf("margin exists"))
 	}
 
 	return errors.NewAggregate(errList)
@@ -188,7 +195,15 @@ func (p *PolicyRama) getReclaimStatus() (usage float64, cnt int) {
 			for _, numaID := range p.bindingNumas.ToSliceInt() {
 				cpuSize += ci.TopologyAwareAssignments[numaID].Size()
 			}
-			containerUsageNuma := containerUsage * float64(cpuSize) / float64(machine.CountCPUAssignmentCPUs(ci.TopologyAwareAssignments))
+			containerUsageNuma := 0.0
+			cpuAssignmentCPUs := machine.CountCPUAssignmentCPUs(ci.TopologyAwareAssignments)
+			if cpuAssignmentCPUs != 0 {
+				containerUsageNuma = containerUsage * float64(cpuSize) / float64(cpuAssignmentCPUs)
+			} else {
+				// handle the case that cpuAssignmentCPUs is 0
+				klog.Warningf("[qosaware-cpu-rama] cpuAssignmentCPUs is 0 for %v/%v", podUID, containerName)
+				containerUsageNuma = 0
+			}
 			usage += containerUsageNuma
 		}
 

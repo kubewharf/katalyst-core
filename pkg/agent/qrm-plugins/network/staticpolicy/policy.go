@@ -994,7 +994,7 @@ func (p *StaticPolicy) getSocketIDByNIC(ifName string) (int, error) {
 		if iface.Iface == ifName {
 			socketIDs := p.agentCtx.KatalystMachineInfo.CPUDetails.SocketsInNUMANodes(iface.NumaNode)
 			if socketIDs.Size() == 0 {
-				return -1, fmt.Errorf("failed to find the associated socket ID for the specified NIC %s", ifName)
+				return -1, fmt.Errorf("failed to find the associated socket ID for the specified NIC %s - numanode: %d, cpuDetails: %v", ifName, iface.NumaNode, p.agentCtx.KatalystMachineInfo.CPUDetails)
 			}
 
 			return socketIDs.ToSliceInt()[0], nil

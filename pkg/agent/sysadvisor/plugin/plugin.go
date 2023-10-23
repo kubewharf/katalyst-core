@@ -45,7 +45,7 @@ func (d DummySysAdvisorPlugin) Init() error           { return nil }
 func (d DummySysAdvisorPlugin) Run(_ context.Context) {}
 
 // AdvisorPluginInitFunc is used to initialize a particular inter SysAdvisor plugin.
-type AdvisorPluginInitFunc func(conf *config.Configuration, extraConf interface{},
+type AdvisorPluginInitFunc func(pluginName string, conf *config.Configuration, extraConf interface{},
 	emitterPool metricspool.MetricsEmitterPool, metaServer *metaserver.MetaServer,
 	metaCache metacache.MetaCache) (SysAdvisorPlugin, error)
 

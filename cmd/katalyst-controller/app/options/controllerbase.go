@@ -21,11 +21,78 @@ import (
 	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/util/sets"
 	cliflag "k8s.io/component-base/cli/flag"
 	election "k8s.io/component-base/config"
 
 	controllerconfig "github.com/kubewharf/katalyst-core/pkg/config/controller"
+	"github.com/kubewharf/katalyst-core/pkg/util"
 )
+
+// WorkloadProfilingOptions holds the configurations for spd lifecycle
+type WorkloadProfilingOptions struct {
+	ExplicitChecking bool
+
+	// the requirements below work as 'and' rather than 'or'
+	AnnoSelector   string
+	LabelSelector  string
+	Namespaces     []string
+	AntiNamespaces []string
+}
+
+func (w WorkloadProfilingOptions) getWorkloadEnableFunc() (util.WorkloadSPDEnabledFunc, bool, error) {
+	if !w.ExplicitChecking {
+		return nil, false, nil
+	}
+
+	var rules []util.WorkloadSPDEnabledFunc
+
+	if len(w.Namespaces) > 0 {
+		ns := sets.NewString(w.Namespaces...)
+		rules = append(rules, func(workload metav1.Object) bool {
+			return ns.Has(workload.GetNamespace())
+		})
+
+	}
+
+	if len(w.AntiNamespaces) > 0 {
+		ns := sets.NewString(w.AntiNamespaces...)
+		rules = append(rules, func(workload metav1.Object) bool {
+			return !ns.Has(workload.GetNamespace())
+		})
+
+	}
+
+	if w.AnnoSelector != "" {
+		if selector, err := labels.Parse(w.AnnoSelector); err != nil {
+			return nil, false, err
+		} else {
+			rules = append(rules, func(workload metav1.Object) bool {
+				return selector.Matches(labels.Set(workload.GetAnnotations()))
+			})
+		}
+	}
+
+	if w.LabelSelector != "" {
+		if selector, err := labels.Parse(w.LabelSelector); err != nil {
+			return nil, false, err
+		} else {
+			rules = append(rules, func(workload metav1.Object) bool {
+				return selector.Matches(labels.Set(workload.GetLabels()))
+			})
+		}
+	}
+
+	return func(workload metav1.Object) bool {
+		for _, f := range rules {
+			if !f(workload) {
+				return false
+			}
+		}
+		return true
+	}, true, nil
+}
 
 // GenericControllerOptions holds the configurations for controller based configurations.
 type GenericControllerOptions struct {
@@ -34,6 +101,8 @@ type GenericControllerOptions struct {
 	DynamicGVResources []string
 
 	election.LeaderElectionConfiguration
+
+	WorkloadProfilingOptions
 }
 
 // NewGenericControllerOptions creates a new Options with a default config.
@@ -47,6 +116,9 @@ func NewGenericControllerOptions() *GenericControllerOptions {
 			ResourceLock:      "leases",
 			ResourceName:      "katalyst-controller",
 			ResourceNamespace: "kube-system",
+		},
+		WorkloadProfilingOptions: WorkloadProfilingOptions{
+			ExplicitChecking: false,
 		},
 	}
 }
@@ -90,6 +162,18 @@ func (o *GenericControllerOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 	fs.StringSliceVar(&o.DynamicGVResources, "dynamic-resources", o.DynamicGVResources, fmt.Sprintf(""+
 		"A list of resources to be list and watched. "+
 		"DynamicGVResources should be in the format of `resource.version.group.com` like 'deployments.v1.apps'."))
+
+	fs.BoolVar(&o.ExplicitChecking, "spd-workload-explicit-checking", o.ExplicitChecking, fmt.Sprintf(""+
+		"If set as true, we will use default judgements to check whether workload need auto-profiing; "+
+		"otherwise we will switch to check by the given checking requirements."))
+	fs.StringSliceVar(&o.Namespaces, "spd-workload-namespaces", o.Namespaces, fmt.Sprintf(""+
+		"Workload should be in the given namespaces if it wants service-profiling"))
+	fs.StringSliceVar(&o.AntiNamespaces, "spd-workload-anti-namespaces", o.AntiNamespaces, fmt.Sprintf(""+
+		"Workload should [not] be in the given namespaces if it wants service-profiling"))
+	fs.StringVar(&o.AnnoSelector, "spd-workload-anno-selector", o.AnnoSelector, fmt.Sprintf(""+
+		"Workload should match with the selector for annotations if it wants service-profiling"))
+	fs.StringVar(&o.LabelSelector, "spd-workload-label-selector", o.LabelSelector, fmt.Sprintf(""+
+		"Workload should match with the selector for labels if it wants service-profiling"))
 }
 
 // ApplyTo fills up config with options
@@ -105,6 +189,12 @@ func (o *GenericControllerOptions) ApplyTo(c *controllerconfig.GenericController
 	c.Controllers = o.Controllers
 	c.LabelSelector = o.LabelSelector
 	c.DynamicGVResources = o.DynamicGVResources
+
+	if f, ok, err := o.getWorkloadEnableFunc(); err != nil {
+		return fmt.Errorf("failed to construct workload-enable func: %v", err)
+	} else if ok {
+		util.SetWorkloadEnableFunc(f)
+	}
 
 	return nil
 }

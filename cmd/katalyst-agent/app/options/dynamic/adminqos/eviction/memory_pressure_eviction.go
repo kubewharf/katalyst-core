@@ -26,6 +26,7 @@ import (
 type MemoryPressureEvictionOptions struct {
 	EnableNumaLevelEviction                 bool
 	EnableSystemLevelEviction               bool
+	NumaVictimMinimumUtilizationThreshold   float64
 	NumaFreeBelowWatermarkTimesThreshold    int
 	SystemKswapdRateThreshold               int
 	SystemKswapdRateExceedDurationThreshold int
@@ -41,6 +42,7 @@ func NewMemoryPressureEvictionOptions() *MemoryPressureEvictionOptions {
 	return &MemoryPressureEvictionOptions{
 		EnableNumaLevelEviction:                 eviction.DefaultEnableNumaLevelEviction,
 		EnableSystemLevelEviction:               eviction.DefaultEnableSystemLevelEviction,
+		NumaVictimMinimumUtilizationThreshold:   eviction.DefaultNumaVictimMinimumUtilizationThreshold,
 		NumaFreeBelowWatermarkTimesThreshold:    eviction.DefaultNumaFreeBelowWatermarkTimesThreshold,
 		SystemKswapdRateThreshold:               eviction.DefaultSystemKswapdRateThreshold,
 		SystemKswapdRateExceedDurationThreshold: eviction.DefaultSystemKswapdRateExceedDurationThreshold,
@@ -60,6 +62,8 @@ func (o *MemoryPressureEvictionOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 		"whether to enable numa-level eviction")
 	fs.BoolVar(&o.EnableSystemLevelEviction, "eviction-enable-system-level", o.EnableSystemLevelEviction,
 		"whether to enable system-level eviction")
+	fs.Float64Var(&o.NumaVictimMinimumUtilizationThreshold, "eviction-numa-victim-minimum-utilization-threshold", o.NumaVictimMinimumUtilizationThreshold,
+		"the threshold for the victim's minimum memory utilization on a NUMA node")
 	fs.IntVar(&o.NumaFreeBelowWatermarkTimesThreshold, "eviction-numa-free-below-watermark-times-threshold", o.NumaFreeBelowWatermarkTimesThreshold,
 		"the threshold for the number of times NUMA's free memory falls below the watermark")
 	fs.IntVar(&o.SystemKswapdRateThreshold, "eviction-system-kswapd-rate-threshold", o.SystemKswapdRateThreshold,
@@ -82,6 +86,7 @@ func (o *MemoryPressureEvictionOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 func (o *MemoryPressureEvictionOptions) ApplyTo(c *eviction.MemoryPressureEvictionConfiguration) error {
 	c.EnableNumaLevelEviction = o.EnableNumaLevelEviction
 	c.EnableSystemLevelEviction = o.EnableSystemLevelEviction
+	c.NumaVictimMinimumUtilizationThreshold = o.NumaVictimMinimumUtilizationThreshold
 	c.NumaFreeBelowWatermarkTimesThreshold = o.NumaFreeBelowWatermarkTimesThreshold
 	c.SystemKswapdRateThreshold = o.SystemKswapdRateThreshold
 	c.SystemKswapdRateExceedDurationThreshold = o.SystemKswapdRateExceedDurationThreshold

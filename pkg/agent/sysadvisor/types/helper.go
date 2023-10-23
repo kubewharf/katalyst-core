@@ -69,6 +69,8 @@ func (ci *ContainerInfo) Clone() *ContainerInfo {
 
 // UpdateMeta updates mutable container meta from another container info
 func (ci *ContainerInfo) UpdateMeta(c *ContainerInfo) {
+	// The CPURequest here is calculated from math.Ceil(Actual CPURequest), but the "Actual CPURequest" fails to be retrieved at this stage.
+	// So this value will be replaced with its "Actual CPURequest" in periodicWork of MetaCachePlugin(pkg/agent/sysadvisor/plugin/metacache/metacache.go).
 	if c.CPURequest > 0 {
 		ci.CPURequest = c.CPURequest
 	}
@@ -129,6 +131,7 @@ func (ri *RegionInfo) Clone() *RegionInfo {
 		RegionType:    ri.RegionType,
 		OwnerPoolName: ri.OwnerPoolName,
 		BindingNumas:  ri.BindingNumas.Clone(),
+		RegionStatus:  ri.RegionStatus.Clone(),
 
 		HeadroomPolicyTopPriority: ri.HeadroomPolicyTopPriority,
 		HeadroomPolicyInUse:       ri.HeadroomPolicyInUse,
@@ -185,6 +188,18 @@ func (re RegionEntries) Clone() RegionEntries {
 	return clone
 }
 
+func (rs RegionStatus) Clone() RegionStatus {
+	clone := RegionStatus{
+		OvershootStatus: make(map[string]OvershootType),
+		BoundType:       rs.BoundType,
+	}
+
+	for metric, overshootType := range rs.OvershootStatus {
+		clone.OvershootStatus[metric] = overshootType
+	}
+	return clone
+}
+
 func (ps PodSet) Clone() PodSet {
 	if ps == nil {
 		return nil
@@ -203,6 +218,32 @@ func (ps PodSet) Insert(podUID string, containerName string) {
 		containerSet = ps[podUID]
 	}
 	containerSet.Insert(containerName)
+}
+
+// PopAny Returns a single element from the set, in format of podUID, containerName
+func (ps PodSet) PopAny() (string, string, bool) {
+	var zeroValue string
+	for podUID, containerNames := range ps {
+		containerName, ok := containerNames.PopAny()
+		if !ok {
+			return zeroValue, zeroValue, false
+		}
+		if containerNames.Len() == 0 {
+			delete(ps, podUID)
+		}
+		return podUID, containerName, true
+	}
+	return zeroValue, zeroValue, false
+}
+
+func (ps PodSet) Pods() int {
+	count := 0
+	for _, containerNames := range ps {
+		if containerNames.Len() > 0 {
+			count++
+		}
+	}
+	return count
 }
 
 func (r *InternalCPUCalculationResult) GetPoolEntry(poolName string, numaID int) (int, bool) {

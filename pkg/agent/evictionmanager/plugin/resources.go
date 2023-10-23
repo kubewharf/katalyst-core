@@ -40,7 +40,7 @@ const (
 
 type ResourcesGetter func(ctx context.Context) (v1.ResourceList, error)
 
-type ThresholdGetter func(resourceName v1.ResourceName) float64
+type ThresholdGetter func(resourceName v1.ResourceName) *float64
 
 type GracePeriodGetter func() int64
 
@@ -172,15 +172,22 @@ func (b *ResourcesEvictionPlugin) ThresholdMet(ctx context.Context) (*pluginapi.
 		}
 
 		used := float64((&usedQuantity).Value())
+
+		// get resource threshold (i.e. tolerance) for each resource
+		// if nil, eviction will not be triggered.
 		thresholdRate := b.thresholdGetter(resourceName)
-		thresholdValue := total * thresholdRate
+		if thresholdRate == nil {
+			continue
+		}
+
+		thresholdValue := *thresholdRate * total
 		klog.Infof("[%s] resources %v: total %v, used %v, thresholdRate %v, thresholdValue: %v", b.pluginName,
-			resourceName, total, used, thresholdRate, thresholdValue)
+			resourceName, total, used, *thresholdRate, thresholdValue)
 
 		exceededValue := thresholdValue - used
 		if exceededValue < 0 {
 			klog.Infof("[%s] resources %v exceeded: total %v, used %v, thresholdRate %v, thresholdValue: %v", b.pluginName,
-				resourceName, total, used, thresholdRate, thresholdValue)
+				resourceName, total, used, *thresholdRate, thresholdValue)
 
 			return &pluginapi.ThresholdMetResponse{
 				ThresholdValue:    thresholdValue,

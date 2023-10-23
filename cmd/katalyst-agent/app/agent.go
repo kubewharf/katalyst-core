@@ -29,6 +29,7 @@ import (
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/agent"
 	"github.com/kubewharf/katalyst-core/pkg/client"
 	"github.com/kubewharf/katalyst-core/pkg/config"
+	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/crd"
 	"github.com/kubewharf/katalyst-core/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
@@ -36,6 +37,8 @@ import (
 )
 
 const healthzNameLockingFileAcquired = "LockingFileReady"
+
+const metricsNameLockingFailed = "get_lock_failed"
 
 // Run starts common and uniformed agent components here, and starts other
 // specific components in other separate repos (with common components as
@@ -45,7 +48,7 @@ func Run(conf *config.Configuration, clientSet *client.GenericClientSet, generic
 	ctx := process.SetupSignalHandler()
 
 	baseCtx, err := katalystbase.NewGenericContext(clientSet, "", nil, AgentsDisabledByDefault,
-		conf.GenericConfiguration, consts.KatalystComponentAgent)
+		conf.GenericConfiguration, consts.KatalystComponentAgent, conf.DynamicAgentConfiguration)
 	if err != nil {
 		return err
 	}
@@ -111,6 +114,12 @@ func startAgent(ctx context.Context, genericCtx *agent.GenericContext,
 		genericCtx.Run(ctx)
 	}()
 
+	// watch auth configuration
+	err = genericCtx.MetaServer.AddConfigWatcher(crd.AuthConfigurationGVR)
+	if err != nil {
+		return fmt.Errorf("add authconfiguration watcher failed")
+	}
+
 	// start all component and make sure them can be stopped completely
 	for agentName, component := range componentMap {
 		wg.Add(1)
@@ -150,7 +159,7 @@ func acquireLock(genericCtx *agent.GenericContext, conf *config.Configuration) *
 	for {
 		lock, err := general.GetUniqueLock(conf.LockFileName)
 		if err != nil {
-			_ = genericCtx.EmitterPool.GetDefaultMetricsEmitter().StoreInt64("get_lock.failed", 1, metrics.MetricTypeNameRaw)
+			_ = genericCtx.EmitterPool.GetDefaultMetricsEmitter().StoreInt64(metricsNameLockingFailed, 1, metrics.MetricTypeNameRaw)
 			// if waiting is enabled, we will always wait until lock has been obtained successfully;
 			if conf.LockWaitingEnabled {
 				continue

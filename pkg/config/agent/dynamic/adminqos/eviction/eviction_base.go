@@ -28,6 +28,7 @@ type EvictionConfiguration struct {
 	*CPUPressureEvictionConfiguration
 	*MemoryPressureEvictionConfiguration
 	*ReclaimedResourcesEvictionConfiguration
+	*SystemLoadEvictionPluginConfiguration
 }
 
 func NewEvictionConfiguration() *EvictionConfiguration {
@@ -35,6 +36,7 @@ func NewEvictionConfiguration() *EvictionConfiguration {
 		CPUPressureEvictionConfiguration:        NewCPUPressureEvictionConfiguration(),
 		MemoryPressureEvictionConfiguration:     NewMemoryPressureEvictionPluginConfiguration(),
 		ReclaimedResourcesEvictionConfiguration: NewReclaimedResourcesEvictionConfiguration(),
+		SystemLoadEvictionPluginConfiguration:   NewSystemLoadEvictionPluginConfiguration(),
 	}
 }
 
@@ -47,4 +49,5 @@ func (c *EvictionConfiguration) ApplyConfiguration(conf *crd.DynamicConfigCRD) {
 	c.CPUPressureEvictionConfiguration.ApplyConfiguration(conf)
 	c.MemoryPressureEvictionConfiguration.ApplyConfiguration(conf)
 	c.ReclaimedResourcesEvictionConfiguration.ApplyConfiguration(conf)
+	c.SystemLoadEvictionPluginConfiguration.ApplyConfiguration(conf)
 }

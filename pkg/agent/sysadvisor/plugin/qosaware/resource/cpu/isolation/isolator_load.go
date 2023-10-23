@@ -40,17 +40,21 @@ type containerIsolationState struct {
 	lockedOutFirstObserved *time.Time
 }
 
-type poolIsolationResources struct {
-	// totalLimits records total cpu limits in this pool
-	// podLimits records cpu limits for this pod-uid
-	totalLimits float64
-	podLimits   map[string]float64
-	maxRatio    float64
+type poolIsolationStates struct {
+	// totalResources records total cpu in this pool
+	// podResources records cpu for this pod-uid
+	totalResources float64
+	podResources   map[string]float64
+
+	maxResources     float64
+	maxResourceRatio float32
+	maxPods          int
+	maxPodRatio      float32
 
 	// isolatedPods records pod-uid that already isolated
-	// isolatedLimits records total already-isolated cpu limits in this pool
-	isolatedPods   sets.String
-	isolatedLimits float64
+	// isolatedResources records total already-isolated cpu in this pool
+	isolatedPods      sets.String
+	isolatedResources float64
 }
 
 // LoadIsolator decides isolation states based on cpu-load for containers
@@ -81,7 +85,7 @@ func (l *LoadIsolator) GetIsolatedPods() []string {
 		return []string{}
 	}
 
-	isolationResources := l.initIsolationResources()
+	isolationResources := l.initIsolationStates()
 	for k, v := range isolationResources {
 		general.Infof("initialized %v resource: %v", k, *v)
 	}
@@ -113,19 +117,23 @@ func (l *LoadIsolator) GetIsolatedPods() []string {
 }
 
 // checkContainerIsolated returns true if current container for isolation
-func (l *LoadIsolator) checkContainerIsolated(info *types.ContainerInfo, isolationResources map[string]*poolIsolationResources) (isolated bool) {
+func (l *LoadIsolator) checkContainerIsolated(info *types.ContainerInfo, isolationResources map[string]*poolIsolationStates) (isolated bool) {
+	// if this pod has already been locked-in, just return
+	if isolationResources[info.OriginOwnerPoolName] != nil && isolationResources[info.OriginOwnerPoolName].isolatedPods.Has(info.PodUID) {
+		return false
+	}
+
+	// record container resources if we finally define this container as isolated
 	defer func() {
-		// record container limit
-		if isolated && !isolationResources[info.OriginOwnerPoolName].isolatedPods.Has(info.PodUID) {
+		if isolated {
 			isolationResources[info.OriginOwnerPoolName].isolatedPods.Insert(info.PodUID)
-			isolationResources[info.OriginOwnerPoolName].isolatedLimits += isolationResources[info.OriginOwnerPoolName].podLimits[info.PodUID]
+			isolationResources[info.OriginOwnerPoolName].isolatedResources += isolationResources[info.OriginOwnerPoolName].podResources[info.PodUID]
 		}
 	}()
 
 	if !checkTargetContainer(info) {
 		return false
-	} else if !l.checkIsolationPoolLimit(info, isolationResources) {
-		general.Warningf("pod %v container %v can't be isolated cause it will exceeds limit ratio", info.PodName, info.ContainerName)
+	} else if !l.checkIsolationPoolThreshold(info, isolationResources) {
 		return false
 	}
 
@@ -144,7 +152,8 @@ func (l *LoadIsolator) checkContainerLoad(info *types.ContainerInfo) bool {
 	general.Infof("pod %v container %v current load %v", info.PodName, info.ContainerName, m.Value)
 	state := l.getIsolationState(info)
 
-	loadBeyondTarget := m.Value > info.CPULimit*float64(l.conf.IsolationCPURatio) || m.Value > info.CPULimit+float64(l.conf.IsolationCPUSize)
+	r := getMaxContainerResource(info)
+	loadBeyondTarget := m.Value > r*float64(l.conf.IsolationCPURatio) || m.Value > r+float64(l.conf.IsolationCPUSize)
 	if loadBeyondTarget {
 		// reset lock-out observed and add up lock-in hits
 		if state.lockedInHits < l.conf.IsolationLockInThreshold {
@@ -166,46 +175,73 @@ func (l *LoadIsolator) checkContainerLoad(info *types.ContainerInfo) bool {
 	}
 }
 
-// checkIsolationPoolLimit returns true if this container can be isolated
+// checkIsolationPoolThreshold returns true if this container can be isolated
 // aspect of the limitation of total isolated containers in this pool
-func (l *LoadIsolator) checkIsolationPoolLimit(info *types.ContainerInfo, isolationResources map[string]*poolIsolationResources) bool {
+func (l *LoadIsolator) checkIsolationPoolThreshold(info *types.ContainerInfo, isolationResources map[string]*poolIsolationStates) bool {
 	poolResource := isolationResources[info.OriginOwnerPoolName]
-	if poolResource.isolatedLimits+poolResource.podLimits[info.PodUID] > poolResource.totalLimits*poolResource.maxRatio {
+
+	if poolResource.isolatedResources+poolResource.podResources[info.PodUID] > poolResource.maxResources {
+		general.Warningf("pod %v container %v can't be isolated: exceeds resource-ratio, current %v, max %v",
+			info.PodName, info.ContainerName, poolResource.isolatedResources, poolResource.maxResources)
 		return false
 	}
+	if poolResource.isolatedPods.Len()+1 > poolResource.maxPods {
+		general.Warningf("pod %v container %v can't be isolated: exceeds pod-ratio, current %v, max %v",
+			info.PodName, info.ContainerName, poolResource.isolatedPods.Len(), poolResource.maxPods)
+		return false
+	}
+
 	return true
 }
 
-// initIsolationResources init poolIsolationResources for each pool
-func (l *LoadIsolator) initIsolationResources() map[string]*poolIsolationResources {
-	// sum up the total limits and construct isolation resources for each pool
-	isolationResources := make(map[string]*poolIsolationResources)
+// initIsolationStates init poolIsolationStates for each pool
+func (l *LoadIsolator) initIsolationStates() map[string]*poolIsolationStates {
+	// sum up the total resources and construct isolation resources for each pool
+	isolationResources := make(map[string]*poolIsolationStates)
 	l.metaReader.RangeContainer(func(podUID string, containerName string, ci *types.ContainerInfo) bool {
-		if checkTargetContainer(ci) {
-			// init for corresponding pool
-			if _, ok := isolationResources[ci.OriginOwnerPoolName]; !ok {
-				maxRatio := l.conf.IsolatedMaxRatios
-				if ratio, ratioOK := l.conf.IsolatedMaxPoolRatios[ci.OriginOwnerPoolName]; ratioOK {
-					maxRatio = ratio
-				}
-
-				isolationResources[ci.OriginOwnerPoolName] = &poolIsolationResources{
-					maxRatio:     float64(maxRatio),
-					podLimits:    make(map[string]float64),
-					isolatedPods: sets.NewString(),
-				}
-			}
-
-			// init for corresponding pod
-			if _, ok := isolationResources[ci.OriginOwnerPoolName].podLimits[podUID]; !ok {
-				isolationResources[ci.OriginOwnerPoolName].podLimits[podUID] = 0.
-			}
-
-			isolationResources[ci.OriginOwnerPoolName].totalLimits += ci.CPULimit
-			isolationResources[ci.OriginOwnerPoolName].podLimits[podUID] += ci.CPULimit
+		if !checkTargetContainer(ci) {
+			return true
 		}
+
+		// init for corresponding pool
+		if _, ok := isolationResources[ci.OriginOwnerPoolName]; !ok {
+			state := &poolIsolationStates{
+				maxResourceRatio: l.conf.IsolatedMaxResourceRatio,
+				maxPodRatio:      l.conf.IsolatedMaxPodRatio,
+				podResources:     make(map[string]float64),
+				isolatedPods:     sets.NewString(),
+			}
+
+			if ratio, ratioOK := l.conf.IsolatedMaxPoolResourceRatios[ci.OriginOwnerPoolName]; ratioOK {
+				state.maxResourceRatio = ratio
+			}
+			if ratio, ratioOK := l.conf.IsolatedMaxPoolPodRatios[ci.OriginOwnerPoolName]; ratioOK {
+				state.maxPodRatio = ratio
+			}
+
+			isolationResources[ci.OriginOwnerPoolName] = state
+		}
+
+		// init for corresponding pod
+		if _, ok := isolationResources[ci.OriginOwnerPoolName].podResources[podUID]; !ok {
+			isolationResources[ci.OriginOwnerPoolName].podResources[podUID] = 0.
+		}
+
+		r := getMaxContainerResource(ci)
+		isolationResources[ci.OriginOwnerPoolName].totalResources += r
+		isolationResources[ci.OriginOwnerPoolName].podResources[podUID] += r
+
 		return true
 	})
+
+	for pool := range isolationResources {
+		totalPods := len(isolationResources[pool].podResources)
+		isolationResources[pool].maxPods = general.Min(
+			totalPods-1,
+			int(float32(totalPods)*isolationResources[pool].maxPodRatio),
+		)
+		isolationResources[pool].maxResources = isolationResources[pool].totalResources * float64(isolationResources[pool].maxResourceRatio)
+	}
 	return isolationResources
 }
 
@@ -236,4 +272,8 @@ func containerMeta(info *types.ContainerInfo) string {
 // only shared pools are supported to be isolated
 func checkTargetContainer(info *types.ContainerInfo) bool {
 	return strings.HasPrefix(info.QoSLevel, consts.PodAnnotationQoSLevelSharedCores) && !info.RampUp
+}
+
+func getMaxContainerResource(ci *types.ContainerInfo) float64 {
+	return general.MaxFloat64(ci.CPULimit, ci.CPURequest)
 }

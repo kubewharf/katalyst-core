@@ -72,7 +72,7 @@ func (s *ShardingController) GetRWCount() (int, int) {
 }
 
 // GetRequests returns the pre-generated http requests
-func (s *ShardingController) GetRequests(path string) ([]*http.Request, error) {
+func (s *ShardingController) GetRequests(ctx context.Context, path string) ([]*http.Request, error) {
 	endpoints, err := s.serviceDiscoveryManager.GetEndpoints()
 	if err != nil {
 		return nil, fmt.Errorf("failed get endpoints from serviceDiscoveryManager: %v", err)
@@ -80,7 +80,7 @@ func (s *ShardingController) GetRequests(path string) ([]*http.Request, error) {
 
 	requests := make([]*http.Request, 0, len(endpoints))
 	for _, endpoint := range endpoints {
-		req, err := s.generateRequest(endpoint, path)
+		req, err := s.generateRequest(ctx, endpoint, path)
 		if err != nil {
 			klog.Errorf("failed to generate request err: %v", err)
 			continue
@@ -91,10 +91,10 @@ func (s *ShardingController) GetRequests(path string) ([]*http.Request, error) {
 	return requests, nil
 }
 
-func (s *ShardingController) generateRequest(endpoint, path string) (*http.Request, error) {
+func (s *ShardingController) generateRequest(ctx context.Context, endpoint, path string) (*http.Request, error) {
 	url := fmt.Sprintf(httpMetricURL, endpoint+path)
 
-	req, err := http.NewRequest("GET", url, nil)
+	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {
 		return nil, fmt.Errorf("new http request for %v err: %v", url, err)
 	}

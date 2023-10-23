@@ -31,6 +31,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	metricspool "github.com/kubewharf/katalyst-core/pkg/metrics/metrics-pool"
+	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
@@ -71,6 +72,11 @@ type MetaReader interface {
 	// If f returns false, range stops the iteration.
 	RangeRegionInfo(f func(regionName string, regionInfo *types.RegionInfo) bool)
 
+	// GetFilteredInferenceResult gets specified model inference result with filter function
+	GetFilteredInferenceResult(filterFunc func(result interface{}) (interface{}, error), modelName string) (interface{}, error)
+	// GetPodsInferenceResult gets specified model inference result
+	GetInferenceResult(modelName string) (interface{}, error)
+
 	metric.MetricsReader
 }
 
@@ -93,6 +99,8 @@ type MetaWriter interface {
 	RangeAndDeleteContainer(f func(containerInfo *types.ContainerInfo) bool) error
 	// RemovePod deletes a PodInfo keyed by pod uid. Repeatedly remove will be ignored.
 	RemovePod(podUID string) error
+	// ClearContainers remove all containers
+	ClearContainers() error
 
 	// SetPoolInfo stores a PoolInfo by pool name
 	SetPoolInfo(poolName string, poolInfo *types.PoolInfo) error
@@ -105,6 +113,9 @@ type MetaWriter interface {
 	SetRegionEntries(entries types.RegionEntries) error
 	// SetRegionInfo stores a RegionInfo by region name
 	SetRegionInfo(regionName string, regionInfo *types.RegionInfo) error
+
+	// SetInferenceResult sets specified model inference result
+	SetInferenceResult(modelName string, result interface{}) error
 }
 
 type AdvisorNotifier struct{}
@@ -134,6 +145,9 @@ type MetaCacheImp struct {
 	checkpointName    string
 
 	emitter metrics.MetricEmitter
+
+	modelToResult map[string]interface{}
+	modelMutex    sync.RWMutex
 }
 
 var _ MetaCache = &MetaCacheImp{}
@@ -155,6 +169,7 @@ func NewMetaCacheImp(conf *config.Configuration, emitterPool metricspool.Metrics
 		checkpointManager: checkpointManager,
 		checkpointName:    stateFileName,
 		emitter:           emitter,
+		modelToResult:     make(map[string]interface{}),
 	}
 
 	// Restore from checkpoint before any function call to metacache api
@@ -229,6 +244,32 @@ func (mc *MetaCacheImp) GetRegionInfo(regionName string) (*types.RegionInfo, boo
 
 	regionInfo, ok := mc.regionEntries[regionName]
 	return regionInfo.Clone(), ok
+}
+
+// GetFilteredInferenceResult gets specified model inference result with filter function
+// whether it returns a deep copied result depends on the implementation of filterFunc
+func (mc *MetaCacheImp) GetFilteredInferenceResult(filterFunc func(result interface{}) (interface{}, error),
+	modelName string) (interface{}, error) {
+
+	mc.modelMutex.RLock()
+	defer mc.modelMutex.RUnlock()
+
+	if mc.modelToResult[modelName] == nil {
+		return nil, fmt.Errorf("result for model: %s doesn't exist", modelName)
+	}
+
+	if filterFunc == nil {
+		return mc.modelToResult[modelName], nil
+	} else {
+		return filterFunc(mc.modelToResult[modelName])
+	}
+
+}
+
+// GetPodsInferenceResult gets specified model inference result
+// notice it doesn't return a deep copied result
+func (mc *MetaCacheImp) GetInferenceResult(modelName string) (interface{}, error) {
+	return mc.GetFilteredInferenceResult(nil, modelName)
 }
 
 func (mc *MetaCacheImp) RangeRegionInfo(f func(regionName string, regionInfo *types.RegionInfo) bool) {
@@ -315,6 +356,18 @@ func (mc *MetaCacheImp) DeleteContainer(podUID string, containerName string) err
 	if mc.deleteContainer(podUID, containerName) {
 		return mc.storeState()
 	}
+	return nil
+}
+
+func (mc *MetaCacheImp) ClearContainers() error {
+	mc.podMutex.Lock()
+	defer mc.podMutex.Unlock()
+
+	if len(mc.podEntries) != 0 {
+		mc.podEntries = map[string]types.ContainerEntries{}
+		return mc.storeState()
+	}
+
 	return nil
 }
 
@@ -436,6 +489,21 @@ func (mc *MetaCacheImp) SetRegionInfo(regionName string, regionInfo *types.Regio
 		mc.regionEntries[regionName] = regionInfo
 		return mc.storeState()
 	}
+}
+
+// SetInferenceResult sets specified model inference result
+func (mc *MetaCacheImp) SetInferenceResult(modelName string, result interface{}) error {
+	general.InfoS("called", "modelName", modelName)
+
+	if result == nil {
+		return fmt.Errorf("nil result")
+	}
+
+	mc.modelMutex.Lock()
+	defer mc.modelMutex.Unlock()
+
+	mc.modelToResult[modelName] = result
+	return nil
 }
 
 /*

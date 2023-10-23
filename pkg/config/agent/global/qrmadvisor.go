@@ -21,6 +21,7 @@ type QRMAdvisorConfiguration struct {
 	CPUPluginSocketAbsPath  string
 
 	MemoryAdvisorSocketAbsPath string
+	MemoryPluginSocketAbsPath  string
 }
 
 func NewQRMAdvisorConfiguration() *QRMAdvisorConfiguration {

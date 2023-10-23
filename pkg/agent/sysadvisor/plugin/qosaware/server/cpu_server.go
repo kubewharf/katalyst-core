@@ -176,6 +176,13 @@ func (cs *cpuServer) getCheckpoint() {
 		return false
 	})
 
+	// complement living containers' original owner pools for pool gc
+	// todo: deprecate original owner pool and generate owner pool by realtime container status
+	cs.metaCache.RangeContainer(func(podUID string, containerName string, containerInfo *types.ContainerInfo) bool {
+		livingPoolNameSet.Insert(containerInfo.OriginOwnerPoolName)
+		return true
+	})
+
 	// gc pool entries
 	_ = cs.metaCache.GCPoolEntries(livingPoolNameSet)
 
@@ -268,6 +275,8 @@ func (cs *cpuServer) assemblePoolEntries(advisorResp *types.InternalCPUCalculati
 }
 
 // assemblePoolEntries fills up calculationEntriesMap and blockSet based on types.ContainerInfo
+//
+// todo this logic should be refined to make sure we will assemble entries from	internalCalculationInfo rather than walking through containerInfo
 func (cs *cpuServer) assemblePodEntries(calculationEntriesMap map[string]*cpuadvisor.CalculationEntries,
 	bs blockSet, podUID string, ci *types.ContainerInfo) error {
 	calculationInfo := &cpuadvisor.CalculationInfo{
@@ -275,6 +284,12 @@ func (cs *cpuServer) assemblePodEntries(calculationEntriesMap map[string]*cpuadv
 		CalculationResultsByNumas: nil,
 	}
 
+	// if isolation is locking in, pass isolation-region name (equals isolation owner-pool) instead of owner pool
+	if ci.Isolated {
+		if ci.RegionNames.Len() == 1 && ci.OwnerPoolName != ci.RegionNames.List()[0] {
+			calculationInfo.OwnerPoolName = ci.RegionNames.List()[0]
+		}
+	}
 	// if isolation is locking out, pass original owner pool instead of owner pool
 	if !ci.Isolated && qrmstate.IsIsolationPool(ci.OwnerPoolName) {
 		calculationInfo.OwnerPoolName = ci.OriginOwnerPoolName
@@ -291,14 +306,15 @@ func (cs *cpuServer) assemblePodEntries(calculationEntriesMap map[string]*cpuadv
 			// in this case, reuse the same blocks as the last container.
 			// i.e. sidecar container will always follow up with the main container.
 			if podEntries, ok := calculationEntriesMap[podUID]; ok {
-				for _, entry := range podEntries.Entries {
-					if result, ok := entry.CalculationResultsByNumas[int64(numaID)]; ok {
+				for _, containerEntry := range podEntries.Entries {
+					if result, ok := containerEntry.CalculationResultsByNumas[int64(numaID)]; ok {
 						for _, block := range result.Blocks {
 							newBlock := NewBlock(block.Result, block.BlockId)
 							newInnerBlock := NewInnerBlock(newBlock, int64(numaID), "", ci, numaCalculationResult)
 							numaCalculationResult.Blocks = append(numaCalculationResult.Blocks, newBlock)
 							newInnerBlock.join(block.BlockId, bs)
 						}
+						break
 					}
 				}
 			} else {

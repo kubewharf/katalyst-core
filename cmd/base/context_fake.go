@@ -45,6 +45,8 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/client"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/crd"
 	"github.com/kubewharf/katalyst-core/pkg/config/generic"
+	"github.com/kubewharf/katalyst-core/pkg/util/credential"
+	"github.com/kubewharf/katalyst-core/pkg/util/credential/authorization"
 	"github.com/kubewharf/katalyst-core/pkg/util/native"
 )
 
@@ -79,6 +81,7 @@ var fakeDiscoveryClient = &fakedisco.FakeDiscovery{Fake: &coretesting.Fake{
 			GroupVersion: v1alpha1.SchemeGroupVersion.String(),
 			APIResources: []metav1.APIResource{
 				{Name: v1alpha1.ResourceNameAdminQoSConfigurations, Namespaced: true, Kind: crd.ResourceKindAdminQoSConfiguration},
+				{Name: v1alpha1.ResourceNameAuthConfigurations, Namespaced: true, Kind: crd.ResourceKindAuthConfiguration},
 			},
 		},
 	},
@@ -257,7 +260,13 @@ func GenerateFakeGenericContext(objects ...[]runtime.Object) (*GenericContext, e
 		dynamicResources = append(dynamicResources, native.GenerateDynamicResourceByGVR(gvr))
 	}
 
+	genericConf := &generic.GenericConfiguration{
+		AuthConfiguration: &generic.AuthConfiguration{
+			AuthType:          credential.AuthTypeInsecure,
+			AccessControlType: authorization.AccessControlTypeInsecure,
+		},
+	}
 	controlCtx, err := NewGenericContext(&clientSet, "", dynamicResources,
-		sets.NewString(), &generic.GenericConfiguration{}, "")
+		sets.NewString(), genericConf, "", nil)
 	return controlCtx, err
 }
