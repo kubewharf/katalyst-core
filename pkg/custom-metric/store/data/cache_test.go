@@ -477,7 +477,7 @@ func TestCache(t *testing.T) {
 		},
 		AggregatedIdentity: types.AggregatedIdentity{
 			Count:         4,
-			Timestamp:     12 * time.Second.Milliseconds(),
+			Timestamp:     20 * time.Second.Milliseconds(),
 			WindowSeconds: 8,
 		},
 	}

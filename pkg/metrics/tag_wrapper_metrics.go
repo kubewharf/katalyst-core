@@ -33,15 +33,19 @@ type MetricTagWrapper struct {
 var _ MetricEmitter = &MetricTagWrapper{}
 
 func (t *MetricTagWrapper) StoreInt64(key string, val int64, emitType MetricTypeName, tags ...MetricTag) error {
-	tags = append(tags, t.commonTags...)
-	tags = append(tags, t.unitTag)
-	return t.MetricEmitter.StoreInt64(key, val, emitType, tags...)
+	allTags := make([]MetricTag, 0, len(tags)+len(t.commonTags)+1)
+	allTags = append(allTags, tags...)
+	allTags = append(allTags, t.commonTags...)
+	allTags = append(allTags, t.unitTag)
+	return t.MetricEmitter.StoreInt64(key, val, emitType, allTags...)
 }
 
 func (t *MetricTagWrapper) StoreFloat64(key string, val float64, emitType MetricTypeName, tags ...MetricTag) error {
-	tags = append(tags, t.commonTags...)
-	tags = append(tags, t.unitTag)
-	return t.MetricEmitter.StoreFloat64(key, val, emitType, tags...)
+	allTags := make([]MetricTag, 0, len(tags)+len(t.commonTags)+1)
+	allTags = append(allTags, tags...)
+	allTags = append(allTags, t.commonTags...)
+	allTags = append(allTags, t.unitTag)
+	return t.MetricEmitter.StoreFloat64(key, val, emitType, allTags...)
 }
 
 func (t *MetricTagWrapper) Run(ctx context.Context) {

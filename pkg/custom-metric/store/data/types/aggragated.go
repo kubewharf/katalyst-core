@@ -17,7 +17,7 @@ limitations under the License.
 package types
 
 import (
-	"fmt"
+	"bytes"
 	"math/big"
 	"strings"
 
@@ -108,8 +108,17 @@ func (as *AggregatedMetric) Len() int {
 }
 
 func (as *AggregatedMetric) String() string {
-	return fmt.Sprintf("{ObjectNamespace: %v, Name: %v, ObjectKind: %v, ObjectName: %v}",
-		as.GetObjectNamespace(), as.GetName(), as.GetObjectKind(), as.GetObjectName())
+	b := bytes.Buffer{}
+	b.WriteString("{ObjectNamespace: ")
+	b.WriteString(as.GetObjectNamespace())
+	b.WriteString(", Name: ")
+	b.WriteString(as.GetName())
+	b.WriteString(", ObjectKind: ")
+	b.WriteString(as.GetObjectKind())
+	b.WriteString(", ObjectName: ")
+	b.WriteString(as.GetObjectName())
+	b.WriteString("}")
+	return b.String()
 }
 
 func (as *AggregatedMetric) GetItemList() []Item {

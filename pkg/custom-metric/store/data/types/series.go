@@ -17,7 +17,7 @@ limitations under the License.
 package types
 
 import (
-	"fmt"
+	"bytes"
 	"math/big"
 
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -72,6 +72,7 @@ func (is *SeriesMetric) DeepCopy() Metric {
 		MetricMetaImp: is.MetricMetaImp.DeepCopy(),
 		ObjectMetaImp: is.ObjectMetaImp.DeepCopy(),
 		BasicMetric:   is.BasicMetric.DeepCopy(),
+		Values:        make([]*SeriesItem, 0, len(is.Values)),
 	}
 	for _, i := range is.Values {
 		res.Values = append(res.Values, i.DeepCopy().(*SeriesItem))
@@ -92,8 +93,17 @@ func (is *SeriesMetric) Len() int {
 }
 
 func (is *SeriesMetric) String() string {
-	return fmt.Sprintf("{ObjectNamespace: %v, Name: %v, ObjectKind: %v, ObjectName: %v}",
-		is.GetObjectNamespace(), is.GetName(), is.GetObjectKind(), is.GetObjectName())
+	b := bytes.Buffer{}
+	b.WriteString("{ObjectNamespace: ")
+	b.WriteString(is.GetObjectNamespace())
+	b.WriteString(", Name: ")
+	b.WriteString(is.GetName())
+	b.WriteString(", ObjectKind: ")
+	b.WriteString(is.GetObjectKind())
+	b.WriteString(", ObjectName: ")
+	b.WriteString(is.GetObjectName())
+	b.WriteString("}")
+	return b.String()
 }
 
 func (is *SeriesMetric) AddMetric(item *SeriesItem) {
