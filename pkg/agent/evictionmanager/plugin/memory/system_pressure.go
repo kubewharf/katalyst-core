@@ -19,6 +19,7 @@ package memory
 import (
 	"context"
 	"fmt"
+	"math"
 	"strconv"
 	"sync"
 	"time"
@@ -172,11 +173,14 @@ func (s *SystemPressureEvictionPlugin) detectSystemWatermarkPressure() {
 		return
 	}
 
-	general.Infof("system watermark metrics, "+
-		"free: %+v, total: %+v, scaleFactor: %+v",
-		free, total, scaleFactor)
+	thresholdMinimum := float64(s.dynamicConfig.GetDynamicConfiguration().SystemFreeMemoryThresholdMinimum)
+	threshold := math.Max(thresholdMinimum, total*scaleFactor/10000)
 
-	if free < total*scaleFactor/10000 {
+	general.Infof("system watermark metrics, "+
+		"free: %+v, total: %+v, scaleFactor: %+v, configuration minimum: %+v, final threshold: %+v",
+		free, total, scaleFactor, thresholdMinimum, threshold)
+
+	if free < threshold {
 		s.isUnderSystemPressure = true
 		s.systemAction = actionReclaimedEviction
 	}
