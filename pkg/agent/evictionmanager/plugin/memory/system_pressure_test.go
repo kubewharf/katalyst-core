@@ -49,12 +49,13 @@ var (
 	evictionManagerSyncPeriod               = 10 * time.Second
 	numaFreeBelowWatermarkTimesThreshold    = 3
 	numaVictimMinimumUsageThreshold         = 0.001
+	systemFreeMemoryThresholdMinimum        = int64(5 * 1024 * 1024 * 1024)
 	systemKswapdRateThreshold               = 1000
 	systemKswapdRateExceedDurationThreshold = 90
 	systemPluginSyncPeriod                  = 30
 	systemPluginCoolDownPeriod              = 40
 
-	scaleFactor = 600
+	scaleFactor = 100
 	systemTotal = 100 * 1024 * 1024 * 1024
 
 	highPriority int32 = 100000
@@ -75,6 +76,7 @@ func makeConf() *config.Configuration {
 	conf.GetDynamicConfiguration().NumaEvictionRankingMetrics = evictionconfig.DefaultNumaEvictionRankingMetrics
 	conf.GetDynamicConfiguration().SystemEvictionRankingMetrics = evictionconfig.DefaultSystemEvictionRankingMetrics
 	conf.GetDynamicConfiguration().MemoryPressureEvictionConfiguration.GracePeriod = evictionconfig.DefaultGracePeriod
+	conf.GetDynamicConfiguration().SystemFreeMemoryThresholdMinimum = systemFreeMemoryThresholdMinimum
 
 	return conf
 }
