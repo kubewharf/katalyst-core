@@ -35,7 +35,7 @@ func (ci *ContainerInfo) IsNumaBinding() bool {
 }
 
 func (ci *ContainerInfo) IsNumaExclusive() bool {
-	return ci.QoSLevel == consts.PodAnnotationQoSLevelDedicatedCores && qosutil.AnnotationsIndicateNUMAExclusive(ci.Annotations)
+	return ci.IsNumaBinding() && qosutil.AnnotationsIndicateNUMAExclusive(ci.Annotations)
 }
 
 func (ci *ContainerInfo) Clone() *ContainerInfo {

@@ -359,6 +359,13 @@ func TestBorweinModelResultFetcher_parseInferenceRespForPods(t *testing.T) {
 		})
 	})
 	metaServer.MetricsFetcher.Run(context.Background())
+	containers := []*advisortypes.ContainerInfo{
+		{
+			PodUID:        podUID,
+			PodName:       podName,
+			ContainerName: containerName,
+		},
+	}
 	pods := []*v1.Pod{
 		{
 			ObjectMeta: metav1.ObjectMeta{
@@ -405,8 +412,8 @@ func TestBorweinModelResultFetcher_parseInferenceRespForPods(t *testing.T) {
 		infSvcClient          borweininfsvc.InferenceServiceClient
 	}
 	type args struct {
-		pods []*v1.Pod
-		resp *borweininfsvc.InferenceResponse
+		containers []*advisortypes.ContainerInfo
+		resp       *borweininfsvc.InferenceResponse
 	}
 	tests := []struct {
 		name    string
@@ -425,7 +432,7 @@ func TestBorweinModelResultFetcher_parseInferenceRespForPods(t *testing.T) {
 				infSvcClient:          infSvcClient,
 			},
 			args: args{
-				pods: pods,
+				containers: containers,
 				resp: &borweininfsvc.InferenceResponse{
 					PodResponseEntries: map[string]*borweininfsvc.ContainerResponseEntries{
 						podUID: {
@@ -456,7 +463,7 @@ func TestBorweinModelResultFetcher_parseInferenceRespForPods(t *testing.T) {
 				containerFeatureNames: tt.fields.containerFeatureNames,
 				infSvcClient:          tt.fields.infSvcClient,
 			}
-			got, err := bmrf.parseInferenceRespForPods(tt.args.pods, tt.args.resp)
+			got, err := bmrf.parseInferenceRespForPods(tt.args.containers, tt.args.resp)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("BorweinModelResultFetcher.parseInferenceRespForPods() error = %v, wantErr %v", err, tt.wantErr)
 				return
@@ -500,6 +507,13 @@ func TestBorweinModelResultFetcher_getInferenceRequestForPods(t *testing.T) {
 		})
 	})
 	metaServer.MetricsFetcher.Run(context.Background())
+	containers := []*advisortypes.ContainerInfo{
+		{
+			PodUID:        podUID,
+			PodName:       podName,
+			ContainerName: containerName,
+		},
+	}
 	pods := []*v1.Pod{
 		{
 			ObjectMeta: metav1.ObjectMeta{
@@ -546,7 +560,7 @@ func TestBorweinModelResultFetcher_getInferenceRequestForPods(t *testing.T) {
 		infSvcClient          borweininfsvc.InferenceServiceClient
 	}
 	type args struct {
-		pods       []*v1.Pod
+		containers []*advisortypes.ContainerInfo
 		metaServer *metaserver.MetaServer
 		metaWriter metacache.MetaWriter
 		metaReader metacache.MetaReader
@@ -568,7 +582,7 @@ func TestBorweinModelResultFetcher_getInferenceRequestForPods(t *testing.T) {
 				infSvcClient:          infSvcClient,
 			},
 			args: args{
-				pods:       pods,
+				containers: containers,
 				metaReader: mc,
 				metaWriter: mc,
 				metaServer: metaServer,
@@ -596,7 +610,7 @@ func TestBorweinModelResultFetcher_getInferenceRequestForPods(t *testing.T) {
 				containerFeatureNames: tt.fields.containerFeatureNames,
 				infSvcClient:          tt.fields.infSvcClient,
 			}
-			got, err := bmrf.getInferenceRequestForPods(tt.args.pods, tt.args.metaReader, tt.args.metaWriter, tt.args.metaServer)
+			got, err := bmrf.getInferenceRequestForPods(tt.args.containers, tt.args.metaReader, tt.args.metaWriter, tt.args.metaServer)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("BorweinModelResultFetcher.getInferenceRequestForPods() error = %v, wantErr %v", err, tt.wantErr)
 				return
