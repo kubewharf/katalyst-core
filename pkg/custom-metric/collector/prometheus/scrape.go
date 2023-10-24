@@ -233,6 +233,15 @@ func (s *ScrapeManager) scrape() {
 				Data:      *m.Gauge.Value,
 				Timestamp: timestamp,
 			})
+
+			if timestamp <= start.Add(-1*s.outOfDataPeriod).UnixMilli() {
+				tags := append(s.metricTags, []metrics.MetricTag{
+					{Key: "metric_name", Val: *v.Name},
+					{Key: "object_name", Val: labels[string(data.CustomMetricLabelKeyObjectName)]},
+					{Key: "object_namespace", Val: labels[string(data.CustomMetricLabelKeyNamespace)]},
+				}...)
+				_ = s.emitter.StoreInt64(metricNamePromCollectorScrapeOutOfDate, 1, metrics.MetricTypeNameRaw, tags...)
+			}
 		}
 	}
 }
