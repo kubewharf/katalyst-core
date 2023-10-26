@@ -178,7 +178,7 @@ func (p *cpuPressureEviction) GetEvictPods(ctx context.Context,
 // - if any strategy fails, just ignore
 func (p *cpuPressureEviction) GetTopEvictionPods(ctx context.Context,
 	request *pluginapi.GetTopEvictionPodsRequest) (*pluginapi.GetTopEvictionPodsResponse, error) {
-	var targets map[types.UID]*v1.Pod
+	var targets = make(map[types.UID]*v1.Pod)
 	generateTargetPods := func() []*v1.Pod {
 		var ret []*v1.Pod
 		for _, pod := range targets {
