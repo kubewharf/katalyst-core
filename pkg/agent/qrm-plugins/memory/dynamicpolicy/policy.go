@@ -93,12 +93,6 @@ func GetReadonlyState() (state.ReadonlyState, error) {
 	return readonlyState, nil
 }
 
-// Pod's inter-pod affinity & anti-affinity seletor at NUMA level
-type MicroTopologyPodAffnity struct {
-	Affinity     *apiconsts.MicroTopologyPodAffinityAnnotation
-	AntiAffinity *apiconsts.MicroTopologyPodAffinityAnnotation
-}
-
 type DynamicPolicy struct {
 	sync.RWMutex
 

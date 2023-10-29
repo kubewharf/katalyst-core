@@ -1250,89 +1250,6 @@ func TestGetTopologyHints(t *testing.T) {
 	}
 }
 
-func TestUnmarshalAffinityAnnotation(t *testing.T) {
-	testcases := []struct {
-		description string
-		annotations map[string]string
-		expectResp  *MicroTopologyPodAffnity
-		ifErr       bool
-	}{
-		{
-			description: "nil annotations",
-			annotations: make(map[string]string),
-			expectResp: &MicroTopologyPodAffnity{
-				Affinity:     nil,
-				AntiAffinity: nil,
-			},
-			ifErr: false,
-		},
-		{
-			description: "affinity without matchLabel",
-			annotations: map[string]string{consts.PodAnnotationMicroTopologyInterPodAffinity: `{"required": [{"zone":"socket"}]}`},
-			expectResp:  nil,
-			ifErr:       true,
-		},
-		{
-			description: "affinity with matchLabel",
-			annotations: map[string]string{consts.PodAnnotationMicroTopologyInterPodAffinity: `{"required": [{"matchLabels": {"k": "v", "k2": "v2"}, "zone":"numa"}]}`},
-			expectResp: &MicroTopologyPodAffnity{
-				Affinity: &consts.MicroTopologyPodAffinityAnnotation{
-					Required: []consts.Selector{
-						{
-							MatchLabels: map[string]string{"k": "v", "k2": "v2"},
-							Zone:        "numa",
-						},
-					},
-				},
-				AntiAffinity: nil,
-			},
-			ifErr: false,
-		},
-		{
-			description: "antiaffinity with matchLabel",
-			annotations: map[string]string{consts.PodAnnotationMicroTopologyInterPodAntiAffinity: `{"required": [{"matchLabels": {"k": "v", "k2": "v2"}, "zone":"numa"}]}`},
-			expectResp: &MicroTopologyPodAffnity{
-				Affinity: nil,
-				AntiAffinity: &consts.MicroTopologyPodAffinityAnnotation{
-					Required: []consts.Selector{
-						{
-							MatchLabels: map[string]string{"k": "v", "k2": "v2"},
-							Zone:        "numa",
-						},
-					},
-				},
-			},
-			ifErr: false,
-		},
-		{
-			description: "antiaffinity without zone",
-			annotations: map[string]string{consts.PodAnnotationMicroTopologyInterPodAntiAffinity: `{"required": [{"matchLabels": {"k": "v", "k2": "v2"}}]}`},
-			expectResp: &MicroTopologyPodAffnity{
-				Affinity: nil,
-				AntiAffinity: &consts.MicroTopologyPodAffinityAnnotation{
-					Required: []consts.Selector{
-						{
-							MatchLabels: map[string]string{"k": "v", "k2": "v2"},
-							Zone:        "numa",
-						},
-					},
-				},
-			},
-			ifErr: false,
-		},
-	}
-
-	for _, tc := range testcases {
-		t.Run(tc.description, func(t *testing.T) {
-			podAffinity, err := unmarshalAffinity(tc.annotations)
-			if tc.ifErr != (err != nil) {
-				fmt.Printf("ifErr:%v, err:%v\n", tc.ifErr, err)
-			}
-			assert.Equal(t, tc.expectResp, podAffinity)
-		})
-	}
-}
-
 func TestGetInterPodAffinityTopologyHints(t *testing.T) {
 	t.Parallel()
 
@@ -2251,8 +2168,8 @@ func TestGetInterPodAffinityTopologyHints(t *testing.T) {
 
 		dynamicPolicy, err := getTestDynamicPolicyWithInitialization(cpuTopology, machineInfo, tmpDir)
 		as.Nil(err)
-		dynamicPolicy.qosConfig.SetExpandQoSLevelSelector(consts.PodAnnotationQoSLevelDedicatedCores,
-			map[string]string{affinityKey: affinityValue, antiAffinityKey: antiAffinityValue})
+
+		dynamicPolicy.qosConfig.SetNUMAInterPodAffinityLabelsSelector(map[string]string{affinityKey: affinityValue, antiAffinityKey: antiAffinityValue})
 
 		machineState := dynamicPolicy.state.GetMachineState()
 		for i, alloInfo := range allocationList {
