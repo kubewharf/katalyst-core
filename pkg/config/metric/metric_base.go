@@ -32,6 +32,7 @@ type GenericMetricConfiguration struct {
 type CustomMetricConfiguration struct {
 	WorkMode []string
 
+	*MockConfiguration
 	*CollectorConfiguration
 	*StoreConfiguration
 	*ProviderConfiguration
@@ -43,6 +44,7 @@ func NewGenericMetricConfiguration() *GenericMetricConfiguration {
 
 func NewCustomMetricConfiguration() *CustomMetricConfiguration {
 	return &CustomMetricConfiguration{
+		MockConfiguration:      NewMockConfiguration(),
 		CollectorConfiguration: NewCollectorConfiguration(),
 		StoreConfiguration:     NewStoreConfiguration(),
 		ProviderConfiguration:  NewProviderConfiguration(),
