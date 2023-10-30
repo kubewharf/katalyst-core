@@ -44,6 +44,7 @@ type Options struct {
 	WorkMode        []string
 	OutOfDataPeriod time.Duration
 
+	*MockOptions
 	*StoreOptions
 	*ProviderOptions
 	*CollectorOptions
@@ -69,6 +70,7 @@ func NewOptions() *Options {
 		StoreOptions:     NewStoreOptions(),
 		ProviderOptions:  NewProviderOptions(),
 		CollectorOptions: NewCollectorOptions(),
+		MockOptions:      NewMockOptions(),
 	}
 }
 
@@ -109,6 +111,7 @@ func (o *Options) AddFlags(fss *cliflag.NamedFlagSets) {
 	o.StoreOptions.AddFlags(fss)
 	o.ProviderOptions.AddFlags(fss)
 	o.CollectorOptions.AddFlags(fss)
+	o.MockOptions.AddFlags(fss)
 }
 
 // ApplyTo fills up config with options
@@ -130,6 +133,7 @@ func (o *Options) ApplyTo(c *config.Configuration) error {
 	errList = append(errList, o.StoreOptions.ApplyTo(c.StoreConfiguration))
 	errList = append(errList, o.ProviderOptions.ApplyTo(c.ProviderConfiguration))
 	errList = append(errList, o.CollectorOptions.ApplyTo(c.CollectorConfiguration))
+	errList = append(errList, o.MockOptions.ApplyTo(c.MockConfiguration))
 
 	if len(errList) > 0 {
 		return errors.NewAggregate(errList)
