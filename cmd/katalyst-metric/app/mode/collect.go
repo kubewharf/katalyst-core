@@ -29,14 +29,16 @@ import (
 	katalystbase "github.com/kubewharf/katalyst-core/cmd/base"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/consts"
+	"github.com/kubewharf/katalyst-core/pkg/custom-metric/collector"
 	"github.com/kubewharf/katalyst-core/pkg/custom-metric/collector/prometheus"
+	"github.com/kubewharf/katalyst-core/pkg/custom-metric/mock"
 	"github.com/kubewharf/katalyst-core/pkg/custom-metric/store"
 )
 
 func StartCustomMetricCollect(ctx context.Context, baseCtx *katalystbase.GenericContext, conf *config.Configuration,
 	metricStore store.MetricStore) (func() error, func() error, error) {
 
-	metricCollector, err := prometheus.NewPrometheusCollector(ctx, baseCtx, conf.GenericMetricConfiguration, conf.CollectorConfiguration, metricStore)
+	metricCollector, err := initMetricCollector(ctx, baseCtx, conf, metricStore)
 	if err != nil {
 		return nil, nil, fmt.Errorf("init collector failed: %v", err)
 	}
@@ -103,4 +105,16 @@ func StartCustomMetricCollect(ctx context.Context, baseCtx *katalystbase.Generic
 	}
 
 	return start, stop, nil
+}
+
+func initMetricCollector(ctx context.Context, baseCtx *katalystbase.GenericContext, conf *config.Configuration, metricStore store.MetricStore) (collector.MetricCollector, error) {
+
+	switch conf.CollectorConfiguration.CollectorName {
+	case prometheus.MetricCollectorNamePrometheus:
+		return prometheus.NewPrometheusCollector(ctx, baseCtx, conf.GenericMetricConfiguration, conf.CollectorConfiguration, metricStore)
+	case mock.MetricCollectorNameMock:
+		return mock.NewMockCollector(ctx, baseCtx, conf.GenericMetricConfiguration, conf.CollectorConfiguration, conf.MockConfiguration, metricStore)
+	}
+
+	return nil, fmt.Errorf("unsupported collector name: %v", conf.CollectorConfiguration.CollectorName)
 }

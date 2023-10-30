@@ -31,6 +31,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/client"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/consts"
+	"github.com/kubewharf/katalyst-core/pkg/custom-metric/mock"
 	"github.com/kubewharf/katalyst-core/pkg/custom-metric/store"
 	"github.com/kubewharf/katalyst-core/pkg/custom-metric/store/local"
 	"github.com/kubewharf/katalyst-core/pkg/custom-metric/store/remote"
@@ -148,6 +149,11 @@ func initStore(ctx context.Context, baseCtx *katalystbase.GenericContext, conf *
 
 	switch conf.CustomMetricConfiguration.StoreConfiguration.StoreName {
 	case local.MetricStoreNameLocalMemory:
+		return local.NewLocalMemoryMetricStore(ctx, baseCtx, conf.GenericMetricConfiguration, conf.StoreConfiguration)
+	case mock.MetricStoreNameMockLocalMemory:
+		// beware of using this store implementation. It's for pressure test only, never use it in any product environment
+		// just replace the MetaInformer filled by mock data
+		mock.ReplaceMetaInformerWithMockData(baseCtx, conf)
 		return local.NewLocalMemoryMetricStore(ctx, baseCtx, conf.GenericMetricConfiguration, conf.StoreConfiguration)
 	case remote.MetricStoreNameRemoteMemory:
 		return remote.NewRemoteMemoryMetricStore(ctx, baseCtx, conf.GenericMetricConfiguration, conf.StoreConfiguration)
