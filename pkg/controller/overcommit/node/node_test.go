@@ -28,6 +28,7 @@ import (
 	"k8s.io/client-go/tools/cache"
 	cliflag "k8s.io/component-base/cli/flag"
 
+	nodev1alpha1 "github.com/kubewharf/katalyst-api/pkg/apis/node/v1alpha1"
 	"github.com/kubewharf/katalyst-api/pkg/apis/overcommit/v1alpha1"
 	"github.com/kubewharf/katalyst-api/pkg/consts"
 	katalyst_base "github.com/kubewharf/katalyst-core/cmd/base"
@@ -70,10 +71,13 @@ type testCase struct {
 	name          string
 	initNodes     []*corev1.Node
 	initConfigs   []*v1alpha1.NodeOvercommitConfig
+	initCNR       []*nodev1alpha1.CustomNodeResource
 	updateNodes   []*corev1.Node
 	updateConfigs []*v1alpha1.NodeOvercommitConfig
+	updateCNR     []*nodev1alpha1.CustomNodeResource
 	addNodes      []*corev1.Node
 	addConfigs    []*v1alpha1.NodeOvercommitConfig
+	addCNR        []*nodev1alpha1.CustomNodeResource
 	deleteNodes   []string
 	deleteConfigs []string
 	result        map[string]map[string]string
@@ -85,6 +89,24 @@ var defaultInitNodes = func() []*corev1.Node {
 		makeNode("node2", map[string]string{consts.NodeOvercommitSelectorKey: "pool2"}),
 		makeNode("node3", map[string]string{consts.NodeOvercommitSelectorKey: "pool1"}),
 		makeNode("node4", map[string]string{consts.NodeOvercommitSelectorKey: "pool3"}),
+	}
+}()
+
+var defaultInitCNR = func() []*nodev1alpha1.CustomNodeResource {
+	return []*nodev1alpha1.CustomNodeResource{
+		{ObjectMeta: metav1.ObjectMeta{Name: "node1", Annotations: map[string]string{
+			consts.NodeAnnotationCPUOvercommitRatioKey:    "1",
+			consts.NodeAnnotationMemoryOvercommitRatioKey: "1",
+		}}}, {ObjectMeta: metav1.ObjectMeta{Name: "node2", Annotations: map[string]string{
+			consts.NodeAnnotationCPUOvercommitRatioKey:    "1",
+			consts.NodeAnnotationMemoryOvercommitRatioKey: "1",
+		}}}, {ObjectMeta: metav1.ObjectMeta{Name: "node3", Annotations: map[string]string{
+			consts.NodeAnnotationCPUOvercommitRatioKey:    "3",
+			consts.NodeAnnotationMemoryOvercommitRatioKey: "3",
+		}}}, {ObjectMeta: metav1.ObjectMeta{Name: "node4", Annotations: map[string]string{
+			consts.NodeAnnotationCPUOvercommitRatioKey:    "2",
+			consts.NodeAnnotationMemoryOvercommitRatioKey: "2",
+		}}},
 	}
 }()
 
@@ -186,6 +208,58 @@ var testCases = []testCase{
 			"node4": {consts.NodeAnnotationCPUOvercommitRatioKey: "1", consts.NodeAnnotationMemoryOvercommitRatioKey: "1"},
 		},
 	},
+	{
+		name:      "init: node and cnr, add config",
+		initNodes: defaultInitNodes,
+		initCNR:   defaultInitCNR,
+		addConfigs: []*v1alpha1.NodeOvercommitConfig{
+			makeSelectorNoc("config-selector", "2", "2", "pool1"),
+		},
+		result: map[string]map[string]string{
+			"node1": {consts.NodeAnnotationCPUOvercommitRatioKey: "1", consts.NodeAnnotationMemoryOvercommitRatioKey: "1"},
+			"node2": {consts.NodeAnnotationCPUOvercommitRatioKey: "1", consts.NodeAnnotationMemoryOvercommitRatioKey: "1"},
+			"node3": {consts.NodeAnnotationCPUOvercommitRatioKey: "2", consts.NodeAnnotationMemoryOvercommitRatioKey: "2"},
+			"node4": {consts.NodeAnnotationCPUOvercommitRatioKey: "1", consts.NodeAnnotationMemoryOvercommitRatioKey: "1"},
+		},
+	},
+	{
+		name:      "add CNR",
+		initNodes: defaultInitNodes,
+		initConfigs: []*v1alpha1.NodeOvercommitConfig{
+			makeSelectorNoc("config-selector", "2", "2", "pool1"),
+		},
+		addCNR: defaultInitCNR,
+		result: map[string]map[string]string{
+			"node1": {consts.NodeAnnotationCPUOvercommitRatioKey: "1", consts.NodeAnnotationMemoryOvercommitRatioKey: "1"},
+			"node2": {consts.NodeAnnotationCPUOvercommitRatioKey: "1", consts.NodeAnnotationMemoryOvercommitRatioKey: "1"},
+			"node3": {consts.NodeAnnotationCPUOvercommitRatioKey: "2", consts.NodeAnnotationMemoryOvercommitRatioKey: "2"},
+			"node4": {consts.NodeAnnotationCPUOvercommitRatioKey: "1", consts.NodeAnnotationMemoryOvercommitRatioKey: "1"},
+		},
+	},
+	{
+		name:      "update CNR",
+		initNodes: defaultInitNodes,
+		initCNR:   defaultInitCNR,
+		initConfigs: []*v1alpha1.NodeOvercommitConfig{
+			makeSelectorNoc("config-selector", "2", "2", "pool1"),
+		},
+		updateCNR: []*nodev1alpha1.CustomNodeResource{
+			{ObjectMeta: metav1.ObjectMeta{Name: "node3", Annotations: map[string]string{
+				consts.NodeAnnotationCPUOvercommitRatioKey:    "1.5",
+				consts.NodeAnnotationMemoryOvercommitRatioKey: "1.5",
+			}}},
+			{ObjectMeta: metav1.ObjectMeta{Name: "node1", Annotations: map[string]string{
+				consts.NodeAnnotationCPUOvercommitRatioKey:    "3",
+				consts.NodeAnnotationMemoryOvercommitRatioKey: "3",
+			}}},
+		},
+		result: map[string]map[string]string{
+			"node1": {consts.NodeAnnotationCPUOvercommitRatioKey: "2", consts.NodeAnnotationMemoryOvercommitRatioKey: "2"},
+			"node2": {consts.NodeAnnotationCPUOvercommitRatioKey: "1", consts.NodeAnnotationMemoryOvercommitRatioKey: "1"},
+			"node3": {consts.NodeAnnotationCPUOvercommitRatioKey: "1.5", consts.NodeAnnotationMemoryOvercommitRatioKey: "1.5"},
+			"node4": {consts.NodeAnnotationCPUOvercommitRatioKey: "1", consts.NodeAnnotationMemoryOvercommitRatioKey: "1"},
+		},
+	},
 }
 
 func TestReconcile(t *testing.T) {
@@ -218,6 +292,10 @@ func TestReconcile(t *testing.T) {
 				_, err = controlCtx.Client.KubeClient.CoreV1().Nodes().Create(ctx, node, metav1.CreateOptions{})
 				assert.NoError(t, err)
 			}
+			for _, cnr := range tc.initCNR {
+				_, err = controlCtx.Client.InternalClient.NodeV1alpha1().CustomNodeResources().Create(ctx, cnr, metav1.CreateOptions{})
+				assert.NoError(t, err)
+			}
 			for _, config := range tc.initConfigs {
 				_, err = controlCtx.Client.InternalClient.OvercommitV1alpha1().NodeOvercommitConfigs().Create(ctx, config, metav1.CreateOptions{})
 				assert.NoError(t, err)
@@ -236,6 +314,10 @@ func TestReconcile(t *testing.T) {
 				_, err = controlCtx.Client.KubeClient.CoreV1().Nodes().Create(ctx, node, metav1.CreateOptions{})
 				assert.NoError(t, err)
 			}
+			for _, cnr := range tc.addCNR {
+				_, err = controlCtx.Client.InternalClient.NodeV1alpha1().CustomNodeResources().Create(ctx, cnr, metav1.CreateOptions{})
+				assert.NoError(t, err)
+			}
 			for _, config := range tc.addConfigs {
 				_, err = controlCtx.Client.InternalClient.OvercommitV1alpha1().NodeOvercommitConfigs().Create(ctx, config, metav1.CreateOptions{})
 				assert.NoError(t, err)
@@ -246,6 +328,10 @@ func TestReconcile(t *testing.T) {
 			}
 			for _, config := range tc.updateConfigs {
 				_, err = controlCtx.Client.InternalClient.OvercommitV1alpha1().NodeOvercommitConfigs().Update(ctx, config, metav1.UpdateOptions{})
+				assert.NoError(t, err)
+			}
+			for _, cnr := range tc.updateCNR {
+				_, err = controlCtx.Client.InternalClient.NodeV1alpha1().CustomNodeResources().Update(ctx, cnr, metav1.UpdateOptions{})
 				assert.NoError(t, err)
 			}
 			for _, node := range tc.deleteNodes {
@@ -297,6 +383,10 @@ func TestRun(t *testing.T) {
 				_, err = controlCtx.Client.KubeClient.CoreV1().Nodes().Create(ctx, node, metav1.CreateOptions{})
 				assert.NoError(t, err)
 			}
+			for _, cnr := range tc.initCNR {
+				_, err = controlCtx.Client.InternalClient.NodeV1alpha1().CustomNodeResources().Create(ctx, cnr, metav1.CreateOptions{})
+				assert.NoError(t, err)
+			}
 			for _, config := range tc.initConfigs {
 				_, err = controlCtx.Client.InternalClient.OvercommitV1alpha1().NodeOvercommitConfigs().Create(ctx, config, metav1.CreateOptions{})
 				assert.NoError(t, err)
@@ -314,12 +404,20 @@ func TestRun(t *testing.T) {
 				_, err = controlCtx.Client.InternalClient.OvercommitV1alpha1().NodeOvercommitConfigs().Create(ctx, config, metav1.CreateOptions{})
 				assert.NoError(t, err)
 			}
+			for _, cnr := range tc.addCNR {
+				_, err = controlCtx.Client.InternalClient.NodeV1alpha1().CustomNodeResources().Create(ctx, cnr, metav1.CreateOptions{})
+				assert.NoError(t, err)
+			}
 			for _, node := range tc.updateNodes {
 				_, err = controlCtx.Client.KubeClient.CoreV1().Nodes().Update(ctx, node, metav1.UpdateOptions{})
 				assert.NoError(t, err)
 			}
 			for _, config := range tc.updateConfigs {
 				_, err = controlCtx.Client.InternalClient.OvercommitV1alpha1().NodeOvercommitConfigs().Update(ctx, config, metav1.UpdateOptions{})
+				assert.NoError(t, err)
+			}
+			for _, cnr := range tc.updateCNR {
+				_, err = controlCtx.Client.InternalClient.NodeV1alpha1().CustomNodeResources().Update(ctx, cnr, metav1.UpdateOptions{})
 				assert.NoError(t, err)
 			}
 			for _, node := range tc.deleteNodes {
