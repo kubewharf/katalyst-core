@@ -19,6 +19,8 @@ package node
 import (
 	"context"
 	"fmt"
+	"reflect"
+	"strconv"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
@@ -32,6 +34,7 @@ import (
 	"k8s.io/klog/v2"
 
 	configv1alpha1 "github.com/kubewharf/katalyst-api/pkg/apis/overcommit/v1alpha1"
+	nodev1alpha1 "github.com/kubewharf/katalyst-api/pkg/client/listers/node/v1alpha1"
 	"github.com/kubewharf/katalyst-api/pkg/client/listers/overcommit/v1alpha1"
 	"github.com/kubewharf/katalyst-api/pkg/consts"
 	katalyst_base "github.com/kubewharf/katalyst-core/cmd/base"
@@ -56,6 +59,7 @@ type NodeOvercommitController struct {
 
 	nodeLister           v1.NodeLister
 	nodeOvercommitLister v1alpha1.NodeOvercommitConfigLister
+	cnrLister            nodev1alpha1.CustomNodeResourceLister
 	nodeUpdater          control.NodeUpdater
 	nocUpdater           control.NocUpdater
 
@@ -64,6 +68,7 @@ type NodeOvercommitController struct {
 	matcher         matcher.Matcher
 	nocSyncQueue    workqueue.RateLimitingInterface
 	nodeSyncQueue   workqueue.RateLimitingInterface
+	cnrSyncQueue    workqueue.RateLimitingInterface
 	workerCount     int
 	reconcilePeriod time.Duration
 	firstReconcile  bool
@@ -94,14 +99,18 @@ func NewNodeOvercommitController(
 	}
 	genericClient := controlCtx.Client
 
+	cnrInformer := controlCtx.InternalInformerFactory.Node().V1alpha1().CustomNodeResources()
+
 	nodeOvercommitConfigController := &NodeOvercommitController{
 		ctx:                  ctx,
 		nodeLister:           nodeInformer.Lister(),
 		nodeOvercommitLister: nodeOvercommitInformer.Lister(),
+		cnrLister:            cnrInformer.Lister(),
 		nodeUpdater:          &control.DummyNodeUpdater{},
 		nocUpdater:           &control.DummyNocUpdater{},
 		nocSyncQueue:         workqueue.NewNamedRateLimitingQueue(workqueue.DefaultControllerRateLimiter(), "noc"),
 		nodeSyncQueue:        workqueue.NewNamedRateLimitingQueue(workqueue.DefaultControllerRateLimiter(), "node"),
+		cnrSyncQueue:         workqueue.NewNamedRateLimitingQueue(workqueue.DefaultControllerRateLimiter(), "cnr"),
 		workerCount:          overcommitConf.Node.SyncWorkers,
 		syncedFunc: []cache.InformerSynced{
 			nodeInformer.Informer().HasSynced,
@@ -134,6 +143,11 @@ func NewNodeOvercommitController(
 		UpdateFunc: nodeOvercommitConfigController.updateNode,
 	})
 
+	cnrInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
+		AddFunc:    nodeOvercommitConfigController.addCNR,
+		UpdateFunc: nodeOvercommitConfigController.updateCNR,
+	})
+
 	return nodeOvercommitConfigController, nil
 }
 
@@ -164,6 +178,8 @@ func (nc *NodeOvercommitController) Run() {
 		go wait.Until(nc.nodeWorker, time.Second, nc.ctx.Done())
 
 		go wait.Until(nc.worker, time.Second, nc.ctx.Done())
+
+		go wait.Until(nc.cnrWorker, time.Second, nc.ctx.Done())
 	}
 
 	nc.reconcile()
@@ -189,7 +205,7 @@ func (nc *NodeOvercommitController) reconcile() {
 			return
 		}
 		for _, node := range nodeList {
-			err = nc.setNodeOvercommitAnnotations(node.Name)
+			err = nc.setNodeOvercommitAnnotations(node.Name, nil)
 			if err != nil {
 				klog.Errorf("%s controller reconcile set node annotation fail: %v", nodeOvercommitControllerName, err)
 				continue
@@ -218,6 +234,11 @@ func (nc *NodeOvercommitController) worker() {
 
 func (nc *NodeOvercommitController) nodeWorker() {
 	for nc.processNextNode() {
+	}
+}
+
+func (nc *NodeOvercommitController) cnrWorker() {
+	for nc.processNextCNR() {
 	}
 }
 
@@ -270,6 +291,25 @@ func (nc *NodeOvercommitController) processNextNode() bool {
 
 	utilruntime.HandleError(fmt.Errorf("sync %q failed with %v", key, err))
 	nc.nodeSyncQueue.AddRateLimited(key)
+
+	return true
+}
+
+func (nc *NodeOvercommitController) processNextCNR() bool {
+	key, quit := nc.cnrSyncQueue.Get()
+	if quit {
+		return false
+	}
+	defer nc.cnrSyncQueue.Done(key)
+
+	err := nc.syncCNR(key.(string))
+	if err == nil {
+		nc.cnrSyncQueue.Forget(key)
+		return true
+	}
+
+	utilruntime.HandleError(fmt.Errorf("sync %q failed with %v", key, err))
+	nc.cnrSyncQueue.AddRateLimited(key)
 
 	return true
 }
@@ -347,7 +387,17 @@ func (nc *NodeOvercommitController) syncNode(key string) error {
 		return err
 	}
 
-	return nc.setNodeOvercommitAnnotationsWithConfig(name, config)
+	return nc.setNodeOvercommitAnnotations(name, config)
+}
+
+func (nc *NodeOvercommitController) syncCNR(key string) error {
+	_, name, err := cache.SplitMetaNamespaceKey(key)
+	if err != nil {
+		klog.Errorf("failed to split namespace and name from key %s", key)
+		return err
+	}
+
+	return nc.setNodeOvercommitAnnotations(name, nil)
 }
 
 func (nc *NodeOvercommitController) patchNodeOvercommitConfigStatus(configName string) error {
@@ -373,9 +423,64 @@ func (nc *NodeOvercommitController) patchNodeOvercommitConfigStatus(configName s
 	return nil
 }
 
-func (nc *NodeOvercommitController) setNodeOvercommitAnnotations(nodeName string) error {
-	config := nc.matcher.GetConfig(nodeName)
-	return nc.setNodeOvercommitAnnotationsWithConfig(nodeName, config)
+func (nc *NodeOvercommitController) setNodeOvercommitAnnotations(nodeName string, config *configv1alpha1.NodeOvercommitConfig) error {
+	if config == nil {
+		config = nc.matcher.GetConfig(nodeName)
+	}
+	if config == nil {
+		return nc.setNodeOvercommitAnnotationsWithConfig(nodeName, config)
+	}
+
+	cnr, err := nc.cnrLister.Get(nodeName)
+	if err != nil {
+		if errors.IsNotFound(err) {
+			klog.V(6).Infof("node %v without cnr", nodeName)
+		} else {
+			klog.Errorf("get node %s cnr fail: %v", nodeName, err)
+		}
+		return nc.setNodeOvercommitAnnotationsWithConfig(nodeName, config)
+	}
+
+	if len(cnr.Annotations) == 0 {
+		return nc.setNodeOvercommitAnnotationsWithConfig(nodeName, config)
+	}
+
+	_, cpuOk := cnr.Annotations[consts.NodeAnnotationCPUOvercommitRatioKey]
+	_, memOk := cnr.Annotations[consts.NodeAnnotationMemoryOvercommitRatioKey]
+	if !cpuOk && !memOk {
+		return nc.setNodeOvercommitAnnotationsWithConfig(nodeName, config)
+	}
+
+	nocCopy := config.DeepCopy()
+	for resourceName, annotationKey := range resourceAnnotationKey {
+		c, ok := config.Spec.ResourceOvercommitRatio[resourceName]
+		if !ok {
+			continue
+		}
+		cnrOvercommitRatioAnnotation, ok := cnr.Annotations[annotationKey]
+		if !ok {
+			continue
+		}
+
+		setOvercommitRatio, err := strconv.ParseFloat(c, 64)
+		if err != nil {
+			klog.Errorf("unexpected overcommitRatio: %s", c)
+			return err
+		}
+		cnrOvercommitRatio, err := strconv.ParseFloat(cnrOvercommitRatioAnnotation, 64)
+		if err != nil {
+			klog.Errorf("unexpected overcommitRatio: %s", cnrOvercommitRatioAnnotation)
+			continue
+		}
+
+		klog.V(5).Infof("[noc] syncCNR, resourceName: %v, setOvercommitRatio: %v, cnrOvercommitRatio: %v", resourceName, setOvercommitRatio, cnrOvercommitRatio)
+		if cnrOvercommitRatio >= setOvercommitRatio {
+			continue
+		}
+		nocCopy.Spec.ResourceOvercommitRatio[resourceName] = cnrOvercommitRatioAnnotation
+	}
+
+	return nc.setNodeOvercommitAnnotationsWithConfig(nodeName, nocCopy)
 }
 
 func (nc *NodeOvercommitController) setNodeOvercommitAnnotationsWithConfig(nodeName string, config *configv1alpha1.NodeOvercommitConfig) error {
@@ -411,8 +516,11 @@ func (nc *NodeOvercommitController) setNodeOvercommitAnnotationsWithConfig(nodeN
 		}
 	}
 	nodeCopy.Annotations = nodeAnnotations
+	if !reflect.DeepEqual(nodeAnnotations, node.Annotations) {
+		return nc.nodeUpdater.PatchNode(nc.ctx, node, nodeCopy)
+	}
 
-	return nc.nodeUpdater.PatchNode(nc.ctx, node, nodeCopy)
+	return nil
 }
 
 func emptyOvercommitConfig() *configv1alpha1.NodeOvercommitConfig {
