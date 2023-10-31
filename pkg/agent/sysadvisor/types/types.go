@@ -24,10 +24,11 @@ import (
 )
 
 const (
-	AdvisorPluginNameQoSAware      = "qos_aware"
-	AdvisorPluginNameMetaCache     = "metacache"
-	AdvisorPluginNameMetricEmitter = "metric_emitter"
-	AdvisorPluginNameInference     = "inference"
+	AdvisorPluginNameQoSAware        = "qos_aware"
+	AdvisorPluginNameMetaCache       = "metacache"
+	AdvisorPluginNameMetricEmitter   = "metric_emitter"
+	AdvisorPluginNameInference       = "inference"
+	AdvisorPluginNameOvercommitAware = "overcommit_aware"
 )
 
 // QoSResourceName describes different resources under qos aware control
