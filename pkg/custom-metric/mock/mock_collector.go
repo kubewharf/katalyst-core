@@ -49,7 +49,6 @@ const (
 
 // MockCollector produces mock data for test.
 type MockCollector struct {
-	sync.Mutex
 	ctx               context.Context
 	collectConf       *metric.CollectorConfiguration
 	genericConf       *metric.GenericMetricConfiguration
@@ -65,6 +64,14 @@ type MockCollector struct {
 
 func NewMockCollector(ctx context.Context, baseCtx *katalystbase.GenericContext, genericConf *metric.GenericMetricConfiguration,
 	collectConf *metric.CollectorConfiguration, mockConf *metric.MockConfiguration, metricStore store.MetricStore) (collector.MetricCollector, error) {
+
+	bufferBucketSize := 2000
+	metricBuffer := make(map[int]*metricBucket, bufferBucketSize)
+	for i := 0; i < bufferBucketSize; i++ {
+		bucketID := i
+		metricBuffer[bucketID] = newMetricBucket(bucketID)
+	}
+
 	return &MockCollector{
 		ctx:         ctx,
 		collectConf: collectConf,
@@ -76,8 +83,8 @@ func NewMockCollector(ctx context.Context, baseCtx *katalystbase.GenericContext,
 			"pod_cpu_load_1min",
 			"pod_cpu_usage",
 		},
-		metricBuffer:      make(map[int]*metricBucket),
-		bufferBucketSize:  2000,
+		metricBuffer:      metricBuffer,
+		bufferBucketSize:  bufferBucketSize,
 		generateBatchSize: 10,
 		metricStore:       metricStore,
 		emitter:           baseCtx.EmitterPool.GetDefaultMetricsEmitter().WithTags("mock_collector"),
@@ -105,8 +112,6 @@ func (m *MockCollector) Stop() error {
 }
 
 func (m *MockCollector) sync() {
-	m.Lock()
-	defer m.Unlock()
 
 	syncStart := time.Now()
 	defer func() {
@@ -160,8 +165,6 @@ func formatPodName(pod *v1.Pod) string {
 }
 
 func (m *MockCollector) generateData(batchID int) {
-	m.Lock()
-	defer m.Unlock()
 	general.Infof("start generate mock data for batch %v", batchID)
 
 	start := time.Now()
@@ -181,11 +184,6 @@ func (m *MockCollector) generateData(batchID int) {
 		}
 
 		for _, metricName := range m.metricNames {
-			_, bucketExists := m.metricBuffer[bucketID]
-			if !bucketExists {
-				m.metricBuffer[bucketID] = newMetricBucket(bucketID)
-			}
-
 			m.metricBuffer[bucketID].insert(pod, metricName, rand.Float64(), now.UnixMilli())
 		}
 	}
