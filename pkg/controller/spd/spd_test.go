@@ -33,7 +33,6 @@ import (
 	apis "github.com/kubewharf/katalyst-api/pkg/apis/autoscaling/v1alpha1"
 	apiworkload "github.com/kubewharf/katalyst-api/pkg/apis/workload/v1alpha1"
 	"github.com/kubewharf/katalyst-api/pkg/consts"
-	apiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
 	katalystbase "github.com/kubewharf/katalyst-core/cmd/base"
 	"github.com/kubewharf/katalyst-core/pkg/config/controller"
 	"github.com/kubewharf/katalyst-core/pkg/config/generic"
@@ -75,7 +74,7 @@ func TestSPDController_Run(t *testing.T) {
 							},
 						},
 						Annotations: map[string]string{
-							apiconsts.PodAnnotationSPDNameKey: "spd1",
+							consts.PodAnnotationSPDNameKey: "spd1",
 						},
 						Labels: map[string]string{
 							"workload": "sts1",

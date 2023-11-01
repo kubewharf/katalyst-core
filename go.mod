@@ -11,7 +11,7 @@ require (
 	github.com/gogo/protobuf v1.3.2
 	github.com/golang/protobuf v1.5.2
 	github.com/google/cadvisor v0.44.1
-	github.com/kubewharf/katalyst-api v0.1.17-0.20231026110318-f28161d56ba5
+	github.com/kubewharf/katalyst-api v0.1.17-0.20231103034307-03a36866a851
 	github.com/montanaflynn/stats v0.7.1
 	github.com/opencontainers/runc v1.1.1
 	github.com/pkg/errors v0.9.1

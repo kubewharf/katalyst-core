@@ -28,7 +28,7 @@ import (
 
 // PodEnableReclaim checks whether the pod can be reclaimed,
 // if node does not enable reclaim, it will return false directly,
-// if node enable reclaim, it will check whether the pod is degraded.
+// if node enable reclaim, it will check whether the pod is degraded or baseline.
 func PodEnableReclaim(ctx context.Context, metaServer *metaserver.MetaServer,
 	podUID string, nodeEnableReclaim bool) (bool, error) {
 	if !nodeEnableReclaim {
@@ -50,10 +50,21 @@ func PodEnableReclaim(ctx context.Context, metaServer *metaserver.MetaServer,
 		return false, err
 	} else if err != nil {
 		return true, nil
+	} else if pLevel == spd.PerformanceLevelPoor {
+		// if performance level is poor, it can not be reclaimed
+		return false, nil
 	}
 
-	// if performance level not poor, it can not be reclaimed
-	return pLevel != spd.PerformanceLevelPoor, nil
+	// check whether current pod is service baseline
+	baseline, err := metaServer.ServiceBaseline(ctx, pod)
+	if err != nil {
+		return false, err
+	} else if baseline {
+		// if pod is baseline, it can not be reclaimed
+		return false, nil
+	}
+
+	return true, nil
 }
 
 func PodPerformanceScore(ctx context.Context, metaServer *metaserver.MetaServer, podUID string) (float64, error) {
