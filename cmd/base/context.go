@@ -30,6 +30,7 @@ import (
 	"k8s.io/client-go/metadata/metadatainformer"
 	"k8s.io/client-go/tools/events"
 	"k8s.io/klog/v2"
+	aggregator "k8s.io/kube-aggregator/pkg/client/informers/externalversions"
 	"sigs.k8s.io/custom-metrics-apiserver/pkg/dynamicmapper"
 
 	"github.com/kubewharf/katalyst-api/pkg/client/informers/externalversions"
@@ -71,11 +72,12 @@ type GenericContext struct {
 	//
 	// since those variables may be un-initialized in some component, we must be
 	// very careful when we use them
-	MetaInformerFactory     metadatainformer.SharedInformerFactory
-	KubeInformerFactory     informers.SharedInformerFactory
-	InternalInformerFactory externalversions.SharedInformerFactory
-	DynamicInformerFactory  dynamicinformer.DynamicSharedInformerFactory
-	DynamicResourcesManager *native.DynamicResourcesManager
+	MetaInformerFactory       metadatainformer.SharedInformerFactory
+	KubeInformerFactory       informers.SharedInformerFactory
+	InternalInformerFactory   externalversions.SharedInformerFactory
+	DynamicInformerFactory    dynamicinformer.DynamicSharedInformerFactory
+	AggregatorInformerFactory aggregator.SharedInformerFactory
+	DynamicResourcesManager   *native.DynamicResourcesManager
 
 	// if we want to support for transformed informer for a certain object,
 	// it must be enabled transparently
@@ -95,13 +97,14 @@ func NewGenericContext(
 	dynamicConfiguration *dynamic.DynamicAgentConfiguration,
 ) (*GenericContext, error) {
 	var (
-		err                     error
-		metaInformerFactory     metadatainformer.SharedInformerFactory
-		kubeInformerFactory     informers.SharedInformerFactory
-		internalInformerFactory externalversions.SharedInformerFactory
-		dynamicInformerFactory  dynamicinformer.DynamicSharedInformerFactory
-		mapper                  *dynamicmapper.RegeneratingDiscoveryRESTMapper
-		dynamicResourceManager  *native.DynamicResourcesManager
+		err                       error
+		metaInformerFactory       metadatainformer.SharedInformerFactory
+		kubeInformerFactory       informers.SharedInformerFactory
+		internalInformerFactory   externalversions.SharedInformerFactory
+		dynamicInformerFactory    dynamicinformer.DynamicSharedInformerFactory
+		aggregatorInformerFactory aggregator.SharedInformerFactory
+		mapper                    *dynamicmapper.RegeneratingDiscoveryRESTMapper
+		dynamicResourceManager    *native.DynamicResourcesManager
 	)
 
 	// agent no need initialize informer
@@ -138,6 +141,7 @@ func NewGenericContext(
 
 		if component == consts.KatalystComponentMetric {
 			clientSet.BuildMetricClient(mapper)
+			aggregatorInformerFactory = aggregator.NewSharedInformerFactory(clientSet.AggregatorClient, time.Hour*24)
 		}
 	}
 
@@ -191,6 +195,7 @@ func NewGenericContext(
 		KubeInformerFactory:       kubeInformerFactory,
 		InternalInformerFactory:   internalInformerFactory,
 		DynamicInformerFactory:    dynamicInformerFactory,
+		AggregatorInformerFactory: aggregatorInformerFactory,
 		BroadcastAdapter:          broadcastAdapter,
 		Client:                    clientSet,
 		EmitterPool:               customMetricsEmitterPool,
@@ -251,6 +256,10 @@ func (c *GenericContext) StartInformer(ctx context.Context) {
 
 	if c.DynamicResourcesManager != nil {
 		c.DynamicResourcesManager.Run(ctx)
+	}
+
+	if c.AggregatorInformerFactory != nil {
+		c.AggregatorInformerFactory.Start(ctx.Done())
 	}
 }
 

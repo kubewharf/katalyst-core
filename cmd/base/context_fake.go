@@ -37,6 +37,8 @@ import (
 	"k8s.io/client-go/kubernetes/fake"
 	metaFake "k8s.io/client-go/metadata/fake"
 	coretesting "k8s.io/client-go/testing"
+	"k8s.io/kube-aggregator/pkg/apis/apiregistration"
+	aggregatorfake "k8s.io/kube-aggregator/pkg/client/clientset_generated/clientset/fake"
 
 	apis "github.com/kubewharf/katalyst-api/pkg/apis/autoscaling/v1alpha1"
 	"github.com/kubewharf/katalyst-api/pkg/apis/config/v1alpha1"
@@ -238,22 +240,25 @@ func GenerateFakeGenericContext(objects ...[]runtime.Object) (*GenericContext, e
 	utilruntime.Must(workloadapis.AddToScheme(scheme))
 	utilruntime.Must(v1alpha1.AddToScheme(scheme))
 	utilruntime.Must(overcommitapis.AddToScheme(scheme))
+	utilruntime.Must(apiregistration.AddToScheme(scheme))
 
 	fakeMetaClient := metaFake.NewSimpleMetadataClient(scheme, nilObjectFilter(metaObjects)...)
 	fakeInternalClient := externalfake.NewSimpleClientset(nilObjectFilter(internalObjects)...)
 	fakeDynamicClient := dynamicfake.NewSimpleDynamicClient(scheme, nilObjectFilter(dynamicObjects)...)
 	fakeKubeClient := fake.NewSimpleClientset(nilObjectFilter(kubeObjects)...)
+	fakeAggregatorClient := aggregatorfake.NewSimpleClientset()
 
 	prependVersionedUpdateAndPatchReactor(fakeKubeClient)
 	prependVersionedUpdateAndPatchReactor(fakeInternalClient)
 	prependVersionedUpdateAndPatchReactor(fakeDynamicClient)
 
 	clientSet := client.GenericClientSet{
-		MetaClient:      fakeMetaClient,
-		KubeClient:      fakeKubeClient,
-		InternalClient:  fakeInternalClient,
-		DynamicClient:   fakeDynamicClient,
-		DiscoveryClient: fakeDiscoveryClient,
+		MetaClient:       fakeMetaClient,
+		KubeClient:       fakeKubeClient,
+		InternalClient:   fakeInternalClient,
+		DynamicClient:    fakeDynamicClient,
+		DiscoveryClient:  fakeDiscoveryClient,
+		AggregatorClient: fakeAggregatorClient,
 	}
 
 	var dynamicResources []string
