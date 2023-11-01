@@ -45,6 +45,7 @@ require (
 	k8s.io/kubernetes v1.24.6
 	k8s.io/metrics v0.24.6
 	k8s.io/utils v0.0.0-20221108210102-8e77b1f39fe2
+	k8s.io/kube-aggregator v0.24.6
 	sigs.k8s.io/controller-runtime v0.11.2
 	sigs.k8s.io/custom-metrics-apiserver v1.24.0
 )

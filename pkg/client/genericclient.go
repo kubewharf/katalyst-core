@@ -30,6 +30,7 @@ import (
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 	componentbaseconfig "k8s.io/component-base/config"
+	aggregator "k8s.io/kube-aggregator/pkg/client/clientset_generated/clientset"
 	"k8s.io/metrics/pkg/client/custom_metrics"
 	customclient "k8s.io/metrics/pkg/client/custom_metrics"
 	cmfake "k8s.io/metrics/pkg/client/custom_metrics/fake"
@@ -45,11 +46,12 @@ import (
 type GenericClientSet struct {
 	cfg *rest.Config
 
-	MetaClient      metadata.Interface
-	KubeClient      kubernetes.Interface
-	InternalClient  clientset.Interface
-	DynamicClient   dynamic.Interface
-	DiscoveryClient discovery.DiscoveryInterface
+	MetaClient       metadata.Interface
+	KubeClient       kubernetes.Interface
+	InternalClient   clientset.Interface
+	DynamicClient    dynamic.Interface
+	DiscoveryClient  discovery.DiscoveryInterface
+	AggregatorClient aggregator.Interface
 
 	CustomClient   customclient.CustomMetricsClient
 	ExternalClient externalclient.ExternalMetricsClient
@@ -94,13 +96,19 @@ func newForConfig(cfg *rest.Config) (*GenericClientSet, error) {
 		return nil, err
 	}
 
+	aggregatorClient, err := aggregator.NewForConfig(cfg)
+	if err != nil {
+		return nil, err
+	}
+
 	return &GenericClientSet{
-		cfg:             cfg,
-		MetaClient:      metaClient,
-		KubeClient:      kubeClient,
-		InternalClient:  internalClient,
-		DynamicClient:   dynamicClient,
-		DiscoveryClient: discoveryClient,
+		cfg:              cfg,
+		MetaClient:       metaClient,
+		KubeClient:       kubeClient,
+		InternalClient:   internalClient,
+		DynamicClient:    dynamicClient,
+		DiscoveryClient:  discoveryClient,
+		AggregatorClient: aggregatorClient,
 
 		CustomClient:   &cmfake.FakeCustomMetricsClient{},
 		ExternalClient: &emfake.FakeExternalMetricsClient{},
