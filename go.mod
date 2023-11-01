@@ -41,6 +41,7 @@ require (
 	k8s.io/component-helpers v0.24.6
 	k8s.io/cri-api v0.24.6
 	k8s.io/klog/v2 v2.80.1
+	k8s.io/kube-aggregator v0.24.6
 	k8s.io/kubelet v0.24.6
 	k8s.io/kubernetes v1.24.6
 	k8s.io/metrics v0.24.6
