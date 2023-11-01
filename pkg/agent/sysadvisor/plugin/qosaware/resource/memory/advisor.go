@@ -42,6 +42,7 @@ import (
 func init() {
 	headroompolicy.RegisterInitializer(types.MemoryHeadroomPolicyCanonical, headroompolicy.NewPolicyCanonical)
 	headroompolicy.RegisterInitializer(types.MemoryHeadroomPolicyNUMAAware, headroompolicy.NewPolicyNUMAAware)
+	headroompolicy.RegisterInitializer(types.MemoryHeadroomPolicyNormal, headroompolicy.NewPolicyNormal)
 
 	memadvisorplugin.RegisterInitializer(memadvisorplugin.CacheReaper, memadvisorplugin.NewCacheReaper)
 	memadvisorplugin.RegisterInitializer(memadvisorplugin.MemoryGuard, memadvisorplugin.NewMemoryGuard)
