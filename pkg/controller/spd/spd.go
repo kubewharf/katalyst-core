@@ -178,6 +178,13 @@ func NewSPDController(ctx context.Context, controlCtx *katalystbase.GenericConte
 		}
 	}
 
+	// spd controller need watch pod create and delete to update its spd baseline percentile key
+	podInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
+		AddFunc:    spdController.addPod,
+		UpdateFunc: spdController.updatePod,
+		DeleteFunc: spdController.deletePod,
+	})
+
 	if !genericConf.DryRun {
 		spdController.podUpdater = control.NewRealPodUpdater(controlCtx.Client.KubeClient)
 		spdController.spdControl = control.NewSPDControlImp(controlCtx.Client.InternalClient)
@@ -446,7 +453,7 @@ func (sc *SPDController) syncSPD(key string) error {
 		return err
 	}
 
-	_, err = sc.spdLister.ServiceProfileDescriptors(namespace).Get(name)
+	spd, err := sc.spdLister.ServiceProfileDescriptors(namespace).Get(name)
 	if err != nil {
 		klog.Errorf("[spd] failed to get spd [%v]", key)
 		if errors.IsNotFound(err) {
@@ -455,8 +462,19 @@ func (sc *SPDController) syncSPD(key string) error {
 		return err
 	}
 
+	// update baseline percentile
+	newSPD := spd.DeepCopy()
+	err = sc.updateBaselinePercentile(newSPD)
+	if err != nil {
+		return err
+	}
+
+	_, err = sc.spdControl.PatchSPD(sc.ctx, spd, newSPD)
+	if err != nil {
+		return err
+	}
+
 	return nil
-	// todo: sync metrics data from custom metrics apiServer and update into spd status
 }
 
 // cleanSPD is mainly responsible to clean all spd CR that should not exist if its workload
@@ -689,4 +707,62 @@ func (sc *SPDController) cleanPodSPDAnnotation(pod *core.Pod) error {
 	return nil
 }
 
-func podTransformerFunc(_, _ *core.Pod) {}
+func (sc *SPDController) addPod(obj interface{}) {
+	pod, ok := obj.(*core.Pod)
+	if !ok {
+		klog.Errorf("[spd] cannot convert obj to *core.Pod")
+		return
+	}
+	sc.enqueuePod(pod)
+}
+
+func (sc *SPDController) deletePod(obj interface{}) {
+	pod, ok := obj.(*core.Pod)
+	if !ok {
+		klog.Errorf("[spd] cannot convert obj to *core.Pod")
+		return
+	}
+	sc.enqueuePod(pod)
+}
+
+func (sc *SPDController) updatePod(_ interface{}, newObj interface{}) {
+	pod, ok := newObj.(*core.Pod)
+	if !ok {
+		klog.Errorf("[spd] cannot convert obj to *core.Pod")
+		return
+	}
+	sc.enqueuePod(pod)
+}
+
+func (sc *SPDController) enqueuePod(pod *core.Pod) {
+	name, err := util.GetPodSPDName(pod)
+	if err != nil {
+		return
+	}
+
+	spd, err := sc.spdLister.ServiceProfileDescriptors(pod.Namespace).Get(name)
+	if err != nil {
+		return
+	}
+	sc.enqueueSPD(spd)
+}
+
+func podTransformerFunc(src, dest *core.Pod) {
+	dest.Spec.NodeName = src.Spec.NodeName
+	dest.Status.Phase = src.Status.Phase
+	containerStatusesTransformerFunc(&src.Status.ContainerStatuses, &dest.Status.ContainerStatuses)
+}
+
+func containerStatusesTransformerFunc(src, dst *[]core.ContainerStatus) {
+	if src == nil || len(*src) == 0 {
+		return
+	}
+
+	if len(*dst) == 0 {
+		*dst = make([]core.ContainerStatus, len(*src))
+	}
+
+	for i, c := range *src {
+		(*dst)[i].State = c.State
+	}
+}
