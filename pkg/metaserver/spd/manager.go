@@ -53,6 +53,9 @@ type ServiceProfilingManager interface {
 	// ServiceSystemPerformanceTarget returns the system performance target for the given pod
 	ServiceSystemPerformanceTarget(ctx context.Context, pod *v1.Pod) (IndicatorTarget, error)
 
+	// ServiceBaseline returns whether this pod is baseline
+	ServiceBaseline(ctx context.Context, pod *v1.Pod) (bool, error)
+
 	// Run starts the service profiling manager
 	Run(ctx context.Context)
 }
@@ -64,6 +67,10 @@ type DummyPodServiceProfile struct {
 
 type DummyServiceProfilingManager struct {
 	podProfiles map[types.UID]DummyPodServiceProfile
+}
+
+func (d *DummyServiceProfilingManager) ServiceBaseline(ctx context.Context, pod *v1.Pod) (bool, error) {
+	return false, nil
 }
 
 func NewDummyServiceProfilingManager(podProfiles map[types.UID]DummyPodServiceProfile) *DummyServiceProfilingManager {
@@ -96,6 +103,24 @@ var _ ServiceProfilingManager = &DummyServiceProfilingManager{}
 
 type serviceProfilingManager struct {
 	fetcher SPDFetcher
+}
+
+func (m *serviceProfilingManager) ServiceBaseline(ctx context.Context, pod *v1.Pod) (bool, error) {
+	spd, err := m.fetcher.GetSPD(ctx, pod)
+	if err != nil {
+		return false, err
+	}
+
+	baselinePod, enable, err := util.IsBaselinePod(pod, spd)
+	if err != nil {
+		return false, err
+	}
+
+	if enable {
+		return baselinePod, nil
+	}
+
+	return false, nil
 }
 
 func NewServiceProfilingManager(fetcher SPDFetcher) ServiceProfilingManager {
