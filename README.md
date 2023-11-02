@@ -40,14 +40,27 @@ Katalyst provides several example yaml to demonstrate the common use cases. For 
 
 ## Community
 
-### Contributing
+### Meeting
 
-If you are willing to be a contributor of the Katalyst project, please refer to our [CONTRIBUTING](CONTRIBUTING.md) document for details.
+We currently have a tentative bi-weekly meeting to discuss proposals, review milestones, do Q&As and so forth.
+- Bi-weekly, Thursday at 19:30 UTC+8
+- [Meeting Link(Lark)](vc.feishu.cn/j/414822034)
+- [Meeting Agenda](https://bytedance.feishu.cn/docx/VXGfdiddUoemoQx54uacwSHonPd)
 
 ### Contact
 
 If you have any questions or wish to contribute, you are welcome to communicate via GitHub issues or pull requests.
-Alternatively, you may reach out to our [Maintainers](./MAINTAINERS.md).
+Alternatively, you may reach out to us via
+- [Email](./MAINTAINERS.md)
+- [Lark(Chinese)](https://applink.feishu.cn/client/chat/chatter/add_by_link?link_token=d2eo5b1d-87e0-428e-8625-15326353bcd4)
+
+  <img src="/docs/imgs/lark-qrcode.png" width="200">
+
+- [Slack(English)](https://kubewharf.slack.com/archives/C0522F1HRGW)
+
+### Contributing
+
+If you are willing to be a contributor of the Katalyst project, please refer to our [CONTRIBUTING](CONTRIBUTING.md) document for details.
 
 ## License
 
