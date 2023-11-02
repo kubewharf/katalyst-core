@@ -11,7 +11,7 @@ require (
 	github.com/gogo/protobuf v1.3.2
 	github.com/golang/protobuf v1.5.2
 	github.com/google/cadvisor v0.44.1
-	github.com/kubewharf/katalyst-api v0.1.17-0.20231017105031-928367ab240d
+	github.com/kubewharf/katalyst-api v0.1.17-0.20231026110318-f28161d56ba5
 	github.com/montanaflynn/stats v0.7.1
 	github.com/opencontainers/runc v1.1.1
 	github.com/pkg/errors v0.9.1
@@ -41,6 +41,7 @@ require (
 	k8s.io/component-helpers v0.24.6
 	k8s.io/cri-api v0.24.6
 	k8s.io/klog/v2 v2.80.1
+	k8s.io/kube-aggregator v0.24.6
 	k8s.io/kubelet v0.24.6
 	k8s.io/kubernetes v1.24.6
 	k8s.io/metrics v0.24.6

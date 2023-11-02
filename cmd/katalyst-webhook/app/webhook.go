@@ -115,6 +115,7 @@ func NewWebhookInitializers() map[string]InitFunc {
 	webhooks := make(map[string]InitFunc)
 	webhooks[validating.VPAWebhookName] = validating.StartVPAWebhook
 	webhooks[mutating.PodWebhookName] = mutating.StartPodWebhook
+	webhooks[mutating.NodeWebhookName] = mutating.StartNodeWebhook
 	return webhooks
 }
 

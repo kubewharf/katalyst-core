@@ -24,11 +24,15 @@ import (
 
 	"github.com/kubewharf/katalyst-core/pkg/custom-metric/store/data/types"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
+	"github.com/kubewharf/katalyst-core/pkg/util/general"
 )
 
 const (
 	metricsNameKCMASStoreDataLatencySet = "kcmas_store_data_latency_set"
 	metricsNameKCMASStoreDataLatencyGet = "kcmas_store_data_latency_get"
+
+	metricsNameKCMASStoreDataSetCost = "kcmas_store_data_cost_set"
+	metricsNameKCMASStoreDataGetCost = "kcmas_store_data_cost_get"
 
 	metricsNameKCMASStoreDataLength    = "kcmas_store_data_length"
 	metricsNameKCMASStoreWindowSeconds = "kcmas_store_data_window_seconds"
@@ -50,10 +54,13 @@ func NewCachedMetric(metricsEmitter metrics.MetricEmitter) *CachedMetric {
 }
 
 func (c *CachedMetric) AddSeriesMetric(sList ...types.Metric) {
-	now := time.Now()
+	start := time.Now()
 
 	c.Lock()
 	defer c.Unlock()
+	defer func() {
+		_ = c.emitter.StoreInt64(metricsNameKCMASStoreDataSetCost, time.Now().Sub(start).Microseconds(), metrics.MetricTypeNameRaw)
+	}()
 
 	var needReAggregate []*internalMetricImp
 	for _, s := range sList {
@@ -73,7 +80,10 @@ func (c *CachedMetric) AddSeriesMetric(sList ...types.Metric) {
 		if len(added) > 0 {
 			needReAggregate = append(needReAggregate, c.metricMap[d.MetricMetaImp][d.ObjectMetaImp])
 			index := c.metricMap[d.MetricMetaImp][d.ObjectMetaImp].seriesMetric.Len() - 1
-			costs := now.Sub(time.UnixMilli(c.metricMap[d.MetricMetaImp][d.ObjectMetaImp].seriesMetric.Values[index].Timestamp)).Microseconds()
+			latestTimestamp := c.metricMap[d.MetricMetaImp][d.ObjectMetaImp].seriesMetric.Values[index].Timestamp
+			costs := start.Sub(time.UnixMilli(latestTimestamp)).Microseconds()
+			general.InfofV(6, "set cache,metric name: %v, series length: %v, add length:%v, latest timestamp: %v, costs: %v(microsecond)", d.MetricMetaImp.Name,
+				s.Len(), len(added), latestTimestamp, costs)
 			_ = c.emitter.StoreInt64(metricsNameKCMASStoreDataLatencySet, costs, metrics.MetricTypeNameRaw,
 				types.GenerateMetaTags(d.MetricMetaImp, d.ObjectMetaImp)...)
 		}
@@ -138,11 +148,14 @@ func (c *CachedMetric) ListAllMetricNames() []string {
 }
 
 func (c *CachedMetric) GetMetric(namespace, metricName string, objName string, gr *schema.GroupResource, latest bool) ([]types.Metric, bool) {
-	now := time.Now()
+	start := time.Now()
 	originMetricName, aggName := types.ParseAggregator(metricName)
 
 	c.RLock()
 	defer c.RUnlock()
+	defer func() {
+		_ = c.emitter.StoreInt64(metricsNameKCMASStoreDataGetCost, time.Now().Sub(start).Microseconds(), metrics.MetricTypeNameRaw)
+	}()
 
 	var res []types.Metric
 	metricMeta := types.MetricMetaImp{
@@ -168,9 +181,10 @@ func (c *CachedMetric) GetMetric(namespace, metricName string, objName string, g
 			}
 
 			if exist && metricItem.Len() > 0 {
-				res = append(res, metricItem.DeepCopy())
-				costs := now.Sub(time.UnixMilli(internal.seriesMetric.Values[internal.len()-1].Timestamp)).Microseconds()
-				_ = c.emitter.StoreInt64(metricsNameKCMASStoreDataLatencyGet, costs, metrics.MetricTypeNameRaw, internal.generateTags()...)
+				res = append(res, metricItem)
+				// TODO this metrics costs great mount of cpu resource
+				//costs := now.Sub(time.UnixMilli(internal.seriesMetric.Values[internal.len()-1].Timestamp)).Microseconds()
+				//_ = c.emitter.StoreInt64(metricsNameKCMASStoreDataLatencyGet, costs, metrics.MetricTypeNameRaw, internal.generateTags()...)
 			}
 		}
 		return res, true

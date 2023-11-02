@@ -30,41 +30,25 @@ import (
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/informers"
-	"k8s.io/client-go/kubernetes"
 	corelisters "k8s.io/client-go/listers/core/v1"
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/klog/v2"
 
+	katalystbase "github.com/kubewharf/katalyst-core/cmd/base"
+	"github.com/kubewharf/katalyst-core/pkg/config/generic"
 	"github.com/kubewharf/katalyst-core/pkg/util/native"
 )
 
+func init() { RegisterSDManagerInitializers(ServiceDiscoveryPodSinglePort, NewPodSinglePortSDManager) }
+
+const ServiceDiscoveryPodSinglePort = "pod-single-port"
+
 const (
-	defaultReSyncPeriod = time.Hour * 24
-	defaultSyncPeriod   = time.Second * 3
+	defaultPodReSyncPeriod = time.Hour * 24
+	defaultPodSyncPeriod   = time.Second * 3
 )
 
-// ServiceDiscoveryManager is used to discover all available endpoints.
-type ServiceDiscoveryManager interface {
-	// GetEndpoints get all endpoints list in the format `host:port`
-	GetEndpoints() ([]string, error)
-
-	// Run starts the service discovery manager
-	Run() error
-}
-
-type DummyServiceDiscoveryManager struct{}
-
-var _ ServiceDiscoveryManager = DummyServiceDiscoveryManager{}
-
-func (d DummyServiceDiscoveryManager) GetEndpoints() ([]string, error) {
-	return []string{}, nil
-}
-
-func (d DummyServiceDiscoveryManager) Run() error {
-	return nil
-}
-
-type podInformerServiceDiscoveryManager struct {
+type podSinglePortSDManager struct {
 	sync.RWMutex
 	endpoints map[string]string
 
@@ -74,17 +58,17 @@ type podInformerServiceDiscoveryManager struct {
 	syncedFunc cache.InformerSynced
 }
 
-func NewPodInformerServiceDiscoveryManager(ctx context.Context, client kubernetes.Interface,
-	podSelector labels.Selector, portName string) ServiceDiscoveryManager {
-	klog.Infof("service discovery manager enabled with pod selector: %v", podSelector.String())
-	podFactory := informers.NewSharedInformerFactoryWithOptions(client, defaultReSyncPeriod,
+func NewPodSinglePortSDManager(ctx context.Context, agentCtx *katalystbase.GenericContext,
+	conf *generic.ServiceDiscoveryConf) (ServiceDiscoveryManager, error) {
+	klog.Infof("%v sd manager enabled with pod selector: %v", ServiceDiscoveryPodSinglePort, conf.PodLister.String())
+	podFactory := informers.NewSharedInformerFactoryWithOptions(agentCtx.Client.KubeClient, defaultPodReSyncPeriod,
 		informers.WithTweakListOptions(func(options *metav1.ListOptions) {
-			options.LabelSelector = podSelector.String()
+			options.LabelSelector = conf.PodLister.String()
 		}))
 	podInformer := podFactory.Core().V1().Pods()
 
-	m := &podInformerServiceDiscoveryManager{
-		portName:   portName,
+	m := &podSinglePortSDManager{
+		portName:   conf.PodSinglePortSDConf.PortName,
 		ctx:        ctx,
 		endpoints:  make(map[string]string),
 		podLister:  podInformer.Lister(),
@@ -116,11 +100,12 @@ func NewPodInformerServiceDiscoveryManager(ctx context.Context, client kubernete
 
 	podFactory.Start(ctx.Done())
 
-	return m
+	return m, nil
 }
 
-// GetEndpoints get current all endpoints
-func (m *podInformerServiceDiscoveryManager) GetEndpoints() ([]string, error) {
+func (m *podSinglePortSDManager) Name() string { return ServiceDiscoveryPodSinglePort }
+
+func (m *podSinglePortSDManager) GetEndpoints() ([]string, error) {
 	m.RLock()
 	defer m.RUnlock()
 
@@ -132,16 +117,16 @@ func (m *podInformerServiceDiscoveryManager) GetEndpoints() ([]string, error) {
 	return endpoints, nil
 }
 
-func (m *podInformerServiceDiscoveryManager) Run() error {
+func (m *podSinglePortSDManager) Run() error {
 	if !cache.WaitForCacheSync(m.ctx.Done(), m.syncedFunc) {
-		return fmt.Errorf("unable to sync caches for podInformerServiceDiscoveryManager")
+		return fmt.Errorf("unable to sync caches for podSinglePortSDManager")
 	}
 
-	go wait.Until(m.sync, defaultSyncPeriod, m.ctx.Done())
+	go wait.Until(m.sync, defaultPodSyncPeriod, m.ctx.Done())
 	return nil
 }
 
-func (m *podInformerServiceDiscoveryManager) addPod(obj interface{}) {
+func (m *podSinglePortSDManager) addPod(obj interface{}) {
 	pod, ok := obj.(*v1.Pod)
 	if !ok {
 		klog.ErrorS(nil, "Cannot convert to *v1.Pod", "obj", obj)
@@ -152,7 +137,7 @@ func (m *podInformerServiceDiscoveryManager) addPod(obj interface{}) {
 	m.addEndpoint(pod)
 }
 
-func (m *podInformerServiceDiscoveryManager) updatePod(_, newObj interface{}) {
+func (m *podSinglePortSDManager) updatePod(_, newObj interface{}) {
 	newPod, ok := newObj.(*v1.Pod)
 	if !ok {
 		klog.ErrorS(nil, "Cannot convert to *v1.Pod", "obj", newObj)
@@ -163,7 +148,7 @@ func (m *podInformerServiceDiscoveryManager) updatePod(_, newObj interface{}) {
 	m.addEndpoint(newPod)
 }
 
-func (m *podInformerServiceDiscoveryManager) deletePod(obj interface{}) {
+func (m *podSinglePortSDManager) deletePod(obj interface{}) {
 	pod, ok := obj.(*v1.Pod)
 	if !ok {
 		klog.ErrorS(nil, "Cannot convert to *v1.Pod", "obj", obj)
@@ -174,7 +159,7 @@ func (m *podInformerServiceDiscoveryManager) deletePod(obj interface{}) {
 	m.removeEndpoint(pod)
 }
 
-func (m *podInformerServiceDiscoveryManager) removeEndpoint(pod *v1.Pod) {
+func (m *podSinglePortSDManager) removeEndpoint(pod *v1.Pod) {
 	m.Lock()
 	defer m.Unlock()
 
@@ -187,14 +172,14 @@ func (m *podInformerServiceDiscoveryManager) removeEndpoint(pod *v1.Pod) {
 	delete(m.endpoints, key)
 }
 
-func (m *podInformerServiceDiscoveryManager) addEndpoint(pod *v1.Pod) {
+func (m *podSinglePortSDManager) addEndpoint(pod *v1.Pod) {
 	m.Lock()
 	defer m.Unlock()
 
 	m.addEndpointWithoutLock(pod)
 }
 
-func (m *podInformerServiceDiscoveryManager) addEndpointWithoutLock(pod *v1.Pod) {
+func (m *podSinglePortSDManager) addEndpointWithoutLock(pod *v1.Pod) {
 	key, err := cache.DeletionHandlingMetaNamespaceKeyFunc(pod)
 	if err != nil {
 		klog.Errorf("couldn't get key for pod %#v: %v", pod, err)
@@ -214,10 +199,10 @@ func (m *podInformerServiceDiscoveryManager) addEndpointWithoutLock(pod *v1.Pod)
 	m.endpoints[key] = endpoint
 }
 
-func (m *podInformerServiceDiscoveryManager) getPodEndpoint(pod *v1.Pod) (string, error) {
+func (m *podSinglePortSDManager) getPodEndpoint(pod *v1.Pod) (string, error) {
 	port, ok := native.ParseHostPortForPod(pod, m.portName)
 	if !ok {
-		return "", fmt.Errorf("pod has invalid valid port")
+		return "", fmt.Errorf("pod has invalid valid port：%v", m.portName)
 	}
 
 	hostIPs, ok := native.GetPodHostIPs(pod)
@@ -240,7 +225,7 @@ func (m *podInformerServiceDiscoveryManager) getPodEndpoint(pod *v1.Pod) (string
 	return "", fmt.Errorf("invalid endpoint exits")
 }
 
-func (m *podInformerServiceDiscoveryManager) sync() {
+func (m *podSinglePortSDManager) sync() {
 	m.Lock()
 	defer m.Unlock()
 

@@ -144,7 +144,7 @@ func (a *internalMetricImp) aggregateMetric() {
 
 	identity := types.AggregatedIdentity{
 		Count:         int64(a.seriesMetric.Len()),
-		Timestamp:     a.seriesMetric.Values[0].Timestamp,
+		Timestamp:     a.seriesMetric.Values[len(a.seriesMetric.Values)-1].Timestamp,
 		WindowSeconds: (a.seriesMetric.Values[a.seriesMetric.Len()-1].Timestamp - a.seriesMetric.Values[0].Timestamp) / time.Second.Milliseconds(),
 	}
 	a.aggregatedMetric[apimetric.AggregateFunctionMax] = types.NewAggregatedInternalMetric(max, identity)

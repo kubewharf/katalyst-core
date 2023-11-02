@@ -30,6 +30,7 @@ import (
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 	componentbaseconfig "k8s.io/component-base/config"
+	aggregator "k8s.io/kube-aggregator/pkg/client/clientset_generated/clientset"
 	"k8s.io/metrics/pkg/client/custom_metrics"
 	customclient "k8s.io/metrics/pkg/client/custom_metrics"
 	cmfake "k8s.io/metrics/pkg/client/custom_metrics/fake"
@@ -45,11 +46,12 @@ import (
 type GenericClientSet struct {
 	cfg *rest.Config
 
-	MetaClient      metadata.Interface
-	KubeClient      kubernetes.Interface
-	InternalClient  clientset.Interface
-	DynamicClient   dynamic.Interface
-	DiscoveryClient discovery.DiscoveryInterface
+	MetaClient       metadata.Interface
+	KubeClient       kubernetes.Interface
+	InternalClient   clientset.Interface
+	DynamicClient    dynamic.Interface
+	DiscoveryClient  discovery.DiscoveryInterface
+	AggregatorClient aggregator.Interface
 
 	CustomClient   customclient.CustomMetricsClient
 	ExternalClient externalclient.ExternalMetricsClient
@@ -62,6 +64,7 @@ func (g *GenericClientSet) BuildMetricClient(mapper *dynamicmapper.RegeneratingD
 	apiVersionsGetter := custom_metrics.NewAvailableAPIsGetter(g.KubeClient.Discovery())
 	g.CustomClient = custom_metrics.NewForConfig(g.cfg, mapper, apiVersionsGetter)
 	g.ExternalClient = external_metrics.NewForConfigOrDie(g.cfg)
+	g.AggregatorClient = aggregator.NewForConfigOrDie(g.cfg)
 }
 
 // newForConfig creates a new clientSet for the given config.

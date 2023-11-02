@@ -30,9 +30,9 @@ spec:
       imagePullPolicy: IfNotPresent
       resources:
         requests:
-          "katalyst.kubewharf.io/reclaimed_millicpu": "2k"
-          "katalyst.kubewharf.io/reclaimed_memory": 1Gi
+          resource.katalyst.kubewharf.io/reclaimed_millicpu: 2k
+          resource.katalyst.kubewharf.io/reclaimed_memory: 1Gi
         limits:
-          "katalyst.kubewharf.io/reclaimed_millicpu": "2k"
-          "katalyst.kubewharf.io/reclaimed_memory": 1Gi
+          resource.katalyst.kubewharf.io/reclaimed_millicpu: 2k
+          resource.katalyst.kubewharf.io/reclaimed_memory: 1Gi
   schedulerName: katalyst-scheduler

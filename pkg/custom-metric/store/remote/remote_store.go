@@ -79,10 +79,14 @@ func NewRemoteMemoryMetricStore(ctx context.Context, baseCtx *katalystbase.Gener
 	if storeConf.StoreServerReplicaTotal <= 0 {
 		return nil, fmt.Errorf("total store server replica must be positive")
 	}
+	sharding, err := NewShardingController(ctx, baseCtx, storeConf)
+	if err != nil {
+		return nil, err
+	}
+
 	tags := []metrics.MetricTag{
 		{Key: "name", Val: MetricStoreNameRemoteMemory},
 	}
-
 	return &RemoteMemoryMetricStore{
 		ctx:         ctx,
 		tags:        tags,
@@ -90,7 +94,7 @@ func NewRemoteMemoryMetricStore(ctx context.Context, baseCtx *katalystbase.Gener
 		storeConf:   storeConf,
 		client:      client,
 		emitter:     baseCtx.EmitterPool.GetDefaultMetricsEmitter().WithTags("remote_store"),
-		sharding:    NewShardingController(ctx, baseCtx, storeConf.StoreServerSelector, storeConf.StoreServerReplicaTotal),
+		sharding:    sharding,
 	}, nil
 }
 

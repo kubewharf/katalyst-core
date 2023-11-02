@@ -17,6 +17,7 @@ limitations under the License.
 package eviction
 
 import (
+	"k8s.io/apimachinery/pkg/api/resource"
 	cliflag "k8s.io/component-base/cli/flag"
 
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/adminqos/eviction"
@@ -28,6 +29,7 @@ type MemoryPressureEvictionOptions struct {
 	EnableSystemLevelEviction               bool
 	NumaVictimMinimumUtilizationThreshold   float64
 	NumaFreeBelowWatermarkTimesThreshold    int
+	SystemFreeMemoryThresholdMinimum        string
 	SystemKswapdRateThreshold               int
 	SystemKswapdRateExceedDurationThreshold int
 	NumaEvictionRankingMetrics              []string
@@ -44,6 +46,7 @@ func NewMemoryPressureEvictionOptions() *MemoryPressureEvictionOptions {
 		EnableSystemLevelEviction:               eviction.DefaultEnableSystemLevelEviction,
 		NumaVictimMinimumUtilizationThreshold:   eviction.DefaultNumaVictimMinimumUtilizationThreshold,
 		NumaFreeBelowWatermarkTimesThreshold:    eviction.DefaultNumaFreeBelowWatermarkTimesThreshold,
+		SystemFreeMemoryThresholdMinimum:        eviction.DefaultSystemFreeMemoryThresholdMinimum,
 		SystemKswapdRateThreshold:               eviction.DefaultSystemKswapdRateThreshold,
 		SystemKswapdRateExceedDurationThreshold: eviction.DefaultSystemKswapdRateExceedDurationThreshold,
 		NumaEvictionRankingMetrics:              eviction.DefaultNumaEvictionRankingMetrics,
@@ -66,6 +69,8 @@ func (o *MemoryPressureEvictionOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 		"the threshold for the victim's minimum memory utilization on a NUMA node")
 	fs.IntVar(&o.NumaFreeBelowWatermarkTimesThreshold, "eviction-numa-free-below-watermark-times-threshold", o.NumaFreeBelowWatermarkTimesThreshold,
 		"the threshold for the number of times NUMA's free memory falls below the watermark")
+	fs.StringVar(&o.SystemFreeMemoryThresholdMinimum, "eviction-system-free-memory-threshold-minimum", o.SystemFreeMemoryThresholdMinimum,
+		"the minimum of free memory threshold,it should be a string can be parsed to a quantity, e.g. 10Gi,20Ki")
 	fs.IntVar(&o.SystemKswapdRateThreshold, "eviction-system-kswapd-rate-threshold", o.SystemKswapdRateThreshold,
 		"the threshold for the rate of kswapd reclaiming rate")
 	fs.IntVar(&o.SystemKswapdRateExceedDurationThreshold, "eviction-system-kswapd-rate-exceed-duration-threshold", o.SystemKswapdRateExceedDurationThreshold,
@@ -88,6 +93,11 @@ func (o *MemoryPressureEvictionOptions) ApplyTo(c *eviction.MemoryPressureEvicti
 	c.EnableSystemLevelEviction = o.EnableSystemLevelEviction
 	c.NumaVictimMinimumUtilizationThreshold = o.NumaVictimMinimumUtilizationThreshold
 	c.NumaFreeBelowWatermarkTimesThreshold = o.NumaFreeBelowWatermarkTimesThreshold
+	quantity, err := resource.ParseQuantity(o.SystemFreeMemoryThresholdMinimum)
+	if err != nil {
+		return err
+	}
+	c.SystemFreeMemoryThresholdMinimum = quantity.Value()
 	c.SystemKswapdRateThreshold = o.SystemKswapdRateThreshold
 	c.SystemKswapdRateExceedDurationThreshold = o.SystemKswapdRateExceedDurationThreshold
 	c.NumaEvictionRankingMetrics = o.NumaEvictionRankingMetrics

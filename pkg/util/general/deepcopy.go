@@ -21,7 +21,7 @@ func DeepCopyMap(origin map[string]string) map[string]string {
 		return nil
 	}
 
-	res := make(map[string]string)
+	res := make(map[string]string, len(origin))
 	for key, val := range origin {
 		res[key] = val
 	}
@@ -33,7 +33,7 @@ func DeepCopyFload64Map(origin map[string]float64) map[string]float64 {
 		return nil
 	}
 
-	res := make(map[string]float64)
+	res := make(map[string]float64, len(origin))
 	for key, val := range origin {
 		res[key] = val
 	}

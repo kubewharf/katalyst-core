@@ -242,3 +242,12 @@ func (bc *BorweinController) GetUpdatedIndicators(indicators types.Indicator, po
 	bc.updateIndicatorOffsets(podSet)
 	return bc.getUpdatedIndicators(indicators)
 }
+
+func (bc *BorweinController) ResetIndicatorOffsets() {
+	for indicatorName, currentIndicatorOffset := range bc.indicatorOffsets {
+		general.Infof("reset indicator: %s offset from %.2f to 0",
+			indicatorName, currentIndicatorOffset)
+
+		bc.indicatorOffsets[indicatorName] = 0
+	}
+}

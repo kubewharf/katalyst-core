@@ -39,7 +39,8 @@ import (
 )
 
 var (
-	numaTotalMap = []float64{50 * 1024 * 1024 * 1024, 50 * 1024 * 1024 * 1024, 50 * 1024 * 1024 * 1024, 50 * 1024 * 1024 * 1024}
+	numaTotalMap    = []float64{50 * 1024 * 1024 * 1024, 50 * 1024 * 1024 * 1024, 50 * 1024 * 1024 * 1024, 50 * 1024 * 1024 * 1024}
+	numaScaleFactor = 600
 )
 
 func makeNumaPressureEvictionPlugin(conf *config.Configuration) (*NumaMemoryPressurePlugin, error) {
@@ -85,7 +86,7 @@ func TestNumaMemoryPressurePlugin_ThresholdMet(t *testing.T) {
 	assert.NotNil(t, fakeMetricsFetcher)
 
 	now := time.Now()
-	fakeMetricsFetcher.SetNodeMetric(consts.MetricMemScaleFactorSystem, utilMetric.MetricData{Value: float64(scaleFactor), Time: &now})
+	fakeMetricsFetcher.SetNodeMetric(consts.MetricMemScaleFactorSystem, utilMetric.MetricData{Value: float64(numaScaleFactor), Time: &now})
 	for numaID, numaTotal := range numaTotalMap {
 		fakeMetricsFetcher.SetNumaMetric(numaID, consts.MetricMemTotalNuma, utilMetric.MetricData{Value: numaTotal, Time: &now})
 	}
