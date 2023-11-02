@@ -186,6 +186,7 @@ func testWithRemoteStoreWithIndex(t *testing.T, index []int) {
 		},
 		StoreServerReplicaTotal: len(index),
 		GCPeriod:                time.Second,
+		PurgePeriod:             time.Second,
 	}
 
 	lp1 := generateStorePodMeta("ns-1", "pod-1", "full_metric_with_conflict_time", 11)

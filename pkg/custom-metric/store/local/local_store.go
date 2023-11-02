@@ -101,6 +101,7 @@ func (l *LocalMemoryMetricStore) Start() error {
 
 	go wait.Until(l.gc, l.storeConf.GCPeriod, l.ctx.Done())
 	go wait.Until(l.monitor, time.Minute*3, l.ctx.Done())
+	go wait.Until(l.purge, l.storeConf.PurgePeriod, l.ctx.Done())
 	return nil
 }
 
@@ -195,6 +196,15 @@ func (l *LocalMemoryMetricStore) gc() {
 
 	expiredTime := begin.Add(-1 * l.genericConf.OutOfDataPeriod)
 	l.cache.GC(expiredTime)
+}
+
+func (l *LocalMemoryMetricStore) purge() {
+	begin := time.Now()
+	defer func() {
+		klog.V(6).Infof("[LocalMemoryMetricStore] purge costs %s", time.Since(begin).String())
+	}()
+
+	l.cache.Purge()
 }
 
 func (l *LocalMemoryMetricStore) monitor() {

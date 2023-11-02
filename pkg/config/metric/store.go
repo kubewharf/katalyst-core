@@ -23,8 +23,9 @@ import (
 )
 
 type StoreConfiguration struct {
-	StoreName string
-	GCPeriod  time.Duration
+	StoreName   string
+	GCPeriod    time.Duration
+	PurgePeriod time.Duration
 
 	StoreServerShardCount   int
 	StoreServerReplicaTotal int
@@ -35,6 +36,7 @@ type StoreConfiguration struct {
 func NewStoreConfiguration() *StoreConfiguration {
 	return &StoreConfiguration{
 		GCPeriod:             time.Second * 10,
+		PurgePeriod:          time.Minute * 10,
 		ServiceDiscoveryConf: generic.NewServiceDiscoveryConf(),
 	}
 }
