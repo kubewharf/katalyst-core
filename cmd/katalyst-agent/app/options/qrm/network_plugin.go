@@ -58,7 +58,7 @@ func NewNetworkOptions() *NetworkOptions {
 		PodLevelNetClassAnnoKey:                         consts.PodAnnotationNetClassKey,
 		ReservedBandwidth:                               0,
 		ConfigurableNICSpeed:                            0,
-		EgressCapacityRate:                              0.94,
+		EgressCapacityRate:                              0.9,
 		IngressCapacityRate:                             0.9,
 		SkipNetworkStateCorruption:                      false,
 		PodLevelNetAttributesAnnoKeys:                   "",
