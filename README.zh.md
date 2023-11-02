@@ -37,14 +37,26 @@ Katalyst 提供了丰富的样例为您展示相关的使用；详细内容请�
 
 ## 社区
 
-### 贡献
+### 会议
 
-若您期望成为 Katalyst 的贡献者，请参考 [CONTRIBUTING](CONTRIBUTING.md) 文档。
+当前我们有尝试性的双周会议来讨论 proposal，分享 milestone，做 Q&A 等等。会议相关信息：
+- 双周四 19:30 UTC+8
+- [会议链接（飞书）](vc.feishu.cn/j/414822034)
+- [会议日程](https://bytedance.feishu.cn/docx/VXGfdiddUoemoQx54uacwSHonPd)
 
 ### 联系方式
 
-如果您有任何疑问，欢迎提交 GitHub issues 或者 pull requests，或者联系我们的 [Maintainers](./MAINTAINERS.md)。
+如果您有任何疑问，欢迎提交 GitHub issues 或者 pull requests，或者通过以下方式联系我们
+- [Email](./MAINTAINERS.md)
+- [飞书](https://applink.feishu.cn/client/chat/chatter/add_by_link?link_token=d2eo5b1d-87e0-428e-8625-15326353bcd4)
 
+  <img src="/docs/imgs/lark-qrcode.png" width="200">
+
+- [Slack](https://kubewharf.slack.com/archives/C0522F1HRGW)
+
+### 贡献
+
+若您期望成为 Katalyst 的贡献者，请参考 [CONTRIBUTING](CONTRIBUTING.md) 文档。
 
 ## 协议
 
