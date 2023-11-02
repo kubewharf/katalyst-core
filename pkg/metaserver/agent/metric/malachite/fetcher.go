@@ -527,6 +527,8 @@ func (m *MalachiteMetricsFetcher) processSystemCPUComputeData(systemComputeData 
 		m.metricStore.SetCPUMetric(cpuID, consts.MetricCPUIOWaitRatio,
 			utilmetric.MetricData{Value: cpu.CPUIowaitRatio, Time: &updateTime})
 	}
+	m.metricStore.SetNodeMetric(consts.MetricCPUUsageRatio,
+		utilmetric.MetricData{Value: systemComputeData.GlobalCPU.CPUUsage / 100.0, Time: &updateTime})
 }
 
 func (m *MalachiteMetricsFetcher) processCgroupCPUData(cgroupPath string, cgStats *types.MalachiteCgroupInfo) {
