@@ -14,10 +14,11 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package data
+package internal
 
 import (
 	"sort"
+	"sync"
 	"time"
 
 	"github.com/montanaflynn/stats"
@@ -28,14 +29,16 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 )
 
-// internalMetricImp is used as an internal version of metricItem.
+// MetricImp is used as an internal version of metricItem.
 // notice: we will not add any locks for this structure, and it should be done in caller
-type internalMetricImp struct {
-	// those unified fields is only kept for one replica in internalMetricImp,
+type MetricImp struct {
+	// those unified fields is only kept for one replica in MetricImp,
 	// and we will try to copy into types.Metric when corresponding functions are called.
 	types.MetricMetaImp
 	types.ObjectMetaImp
 	types.BasicMetric
+
+	sync.RWMutex
 
 	// Timestamp will be used as a unique key to avoid
 	// duplicated metric to be written more than once
@@ -46,8 +49,8 @@ type internalMetricImp struct {
 	aggregatedMetric map[string]*types.AggregatedMetric
 }
 
-func newInternalMetric(m types.MetricMetaImp, o types.ObjectMetaImp, b types.BasicMetric) *internalMetricImp {
-	return &internalMetricImp{
+func NewInternalMetric(m types.MetricMetaImp, o types.ObjectMetaImp, b types.BasicMetric) *MetricImp {
+	return &MetricImp{
 		MetricMetaImp:    m,
 		ObjectMetaImp:    o,
 		BasicMetric:      b,
@@ -57,7 +60,10 @@ func newInternalMetric(m types.MetricMetaImp, o types.ObjectMetaImp, b types.Bas
 	}
 }
 
-func (a *internalMetricImp) getSeriesItems(latest bool) (types.Metric, bool) {
+func (a *MetricImp) GetSeriesItems(latest bool) (types.Metric, bool) {
+	a.RLock()
+	defer a.RUnlock()
+
 	if a.seriesMetric.Len() == 0 {
 		return nil, false
 	}
@@ -72,7 +78,10 @@ func (a *internalMetricImp) getSeriesItems(latest bool) (types.Metric, bool) {
 	return res, true
 }
 
-func (a *internalMetricImp) getAggregatedItems(agg string) (types.Metric, bool) {
+func (a *MetricImp) GetAggregatedItems(agg string) (types.Metric, bool) {
+	a.RLock()
+	defer a.RUnlock()
+
 	v, ok := a.aggregatedMetric[agg]
 	if !ok {
 		return nil, false
@@ -85,7 +94,10 @@ func (a *internalMetricImp) getAggregatedItems(agg string) (types.Metric, bool) 
 	return res, true
 }
 
-func (a *internalMetricImp) addSeriesMetric(is *types.SeriesMetric) []*types.SeriesItem {
+func (a *MetricImp) AddSeriesMetric(is *types.SeriesMetric) []*types.SeriesItem {
+	a.Lock()
+	defer a.Unlock()
+
 	var res []*types.SeriesItem
 	for _, v := range is.Values {
 		// timestamp must be none-empty and valid
@@ -117,15 +129,18 @@ func (a *internalMetricImp) addSeriesMetric(is *types.SeriesMetric) []*types.Ser
 	return res
 }
 
-func (a *internalMetricImp) mergeAggregatedMetric(as *types.AggregatedMetric) {
+func (a *MetricImp) MergeAggregatedMetric(as *types.AggregatedMetric) {
+	a.Lock()
+	defer a.Unlock()
+
 	_, aggName := types.ParseAggregator(as.GetName())
 	if _, ok := a.aggregatedMetric[aggName]; !ok {
 		a.aggregatedMetric[aggName] = as
 	}
 }
 
-// aggregateMetric calculate the aggregated metric based on snapshot of current store
-func (a *internalMetricImp) aggregateMetric() {
+// aggregate calculate the aggregated metric based on snapshot of current store.
+func (a *MetricImp) aggregate() {
 	a.aggregatedMetric = make(map[string]*types.AggregatedMetric)
 	if len(a.seriesMetric.Values) <= 0 {
 		return
@@ -164,7 +179,18 @@ func (a *internalMetricImp) aggregateMetric() {
 	}
 }
 
-func (a *internalMetricImp) gc(expiredTimestamp int64) {
+// AggregateMetric calculate the aggregated metric based on snapshot of current store
+func (a *MetricImp) AggregateMetric() {
+	a.Lock()
+	defer a.Unlock()
+
+	a.aggregate()
+}
+
+func (a *MetricImp) GC(expiredTimestamp int64) {
+	a.Lock()
+	defer a.Unlock()
+
 	a.expiredTime = expiredTimestamp
 
 	var ordered []*types.SeriesItem
@@ -176,16 +202,50 @@ func (a *internalMetricImp) gc(expiredTimestamp int64) {
 		}
 	}
 	a.seriesMetric.Values = ordered
-	a.aggregateMetric()
+	a.aggregate()
 }
 
-func (a *internalMetricImp) empty() bool { return a.seriesMetric.Len() == 0 }
+func (a *MetricImp) Empty() bool {
+	a.RLock()
+	defer a.RUnlock()
 
-func (a *internalMetricImp) len() int { return a.seriesMetric.Len() }
+	return a.seriesMetric.Len() == 0
+}
 
-func (a *internalMetricImp) generateTags() []metrics.MetricTag {
+func (a *MetricImp) Len() int {
+	a.RLock()
+	defer a.RUnlock()
+
+	return a.seriesMetric.Len()
+}
+
+func (a *MetricImp) GenerateTags() []metrics.MetricTag {
 	return []metrics.MetricTag{
 		{Key: "metric_name", Val: a.GetName()},
 		{Key: "object_name", Val: a.GetObjectName()},
 	}
+}
+
+// GetLatestTimestamp returns the latest metric timestamp in milliseconds.
+func (a *MetricImp) GetLatestTimestamp() int64 {
+	a.RLock()
+	defer a.RUnlock()
+
+	if !a.Empty() {
+		return a.seriesMetric.Values[a.Len()-1].Timestamp
+	}
+
+	return -1
+}
+
+// GetOldestTimestamp returns the latest metric timestamp in milliseconds.
+func (a *MetricImp) GetOldestTimestamp() int64 {
+	a.RLock()
+	defer a.RUnlock()
+
+	if !a.Empty() {
+		return a.seriesMetric.Values[0].Timestamp
+	}
+
+	return -1
 }

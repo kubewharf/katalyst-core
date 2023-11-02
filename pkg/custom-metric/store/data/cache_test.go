@@ -352,6 +352,7 @@ func TestCache(t *testing.T) {
 
 	t.Log("#### 8: gcMetric")
 	c.gcWithTimestamp(3)
+	c.Purge()
 	names = c.ListAllMetricNames()
 	assert.ElementsMatch(t, []string{"m-3"}, names)
 
@@ -607,7 +608,8 @@ func TestMergeInternalMetricList(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			assert.Equalf(t, tt.want, MergeInternalMetricList(tt.args.metricName, tt.args.metricLists...), "MergeInternalMetricList(%v, %v)", tt.args.metricName, tt.args.metricLists)
+			got := MergeInternalMetricList(tt.args.metricName, tt.args.metricLists...)
+			assert.Equalf(t, tt.want, got, "MergeInternalMetricList(%v, %v)", tt.args.metricName, tt.args.metricLists)
 		})
 	}
 }
