@@ -19,6 +19,7 @@ package malachite
 // for those metrics need extra calculation logic,
 // we will put them in a separate file here
 import (
+	"math"
 	"time"
 
 	"github.com/kubewharf/katalyst-core/pkg/consts"
@@ -30,24 +31,34 @@ import (
 // and it will need the previously collected data to do this
 func (m *MalachiteMetricsFetcher) processContainerMemBandwidth(podUID, containerName string, cgStats *types.MalachiteCgroupInfo, lastUpdateTimeInSec float64) {
 	var (
-		lastOCRReadDRAMs, _ = m.metricStore.GetContainerMetric(podUID, containerName, consts.MetricOCRReadDRAMsContainer)
-		lastIMCWrites, _    = m.metricStore.GetContainerMetric(podUID, containerName, consts.MetricIMCWriteContainer)
-		lastStoreAllIns, _  = m.metricStore.GetContainerMetric(podUID, containerName, consts.MetricStoreAllInsContainer)
-		lastStoreIns, _     = m.metricStore.GetContainerMetric(podUID, containerName, consts.MetricStoreInsContainer)
+		lastOCRReadDRAMsMetric, _ = m.metricStore.GetContainerMetric(podUID, containerName, consts.MetricOCRReadDRAMsContainer)
+		lastIMCWritesMetric, _    = m.metricStore.GetContainerMetric(podUID, containerName, consts.MetricIMCWriteContainer)
+		lastStoreAllInsMetric, _  = m.metricStore.GetContainerMetric(podUID, containerName, consts.MetricStoreAllInsContainer)
+		lastStoreInsMetric, _     = m.metricStore.GetContainerMetric(podUID, containerName, consts.MetricStoreInsContainer)
+
+		// those value are uint64 type from source
+		lastOCRReadDRAMs = uint64(lastOCRReadDRAMsMetric.Value)
+		lastIMCWrites    = uint64(lastIMCWritesMetric.Value)
+		lastStoreAllIns  = uint64(lastStoreAllInsMetric.Value)
+		lastStoreIns     = uint64(lastStoreInsMetric.Value)
 	)
 
-	var curOCRReadDRAMs, curIMCWrites, curStoreAllIns, curStoreIns, curUpdateTimeInSec float64
+	var (
+		curOCRReadDRAMs, curIMCWrites, curStoreAllIns, curStoreIns uint64
+		curUpdateTimeInSec                                         float64
+	)
+
 	if cgStats.CgroupType == "V1" {
-		curOCRReadDRAMs = float64(cgStats.V1.Cpu.OCRReadDRAMs)
-		curIMCWrites = float64(cgStats.V1.Cpu.IMCWrites)
-		curStoreAllIns = float64(cgStats.V1.Cpu.StoreAllInstructions)
-		curStoreIns = float64(cgStats.V1.Cpu.StoreInstructions)
+		curOCRReadDRAMs = cgStats.V1.Cpu.OCRReadDRAMs
+		curIMCWrites = cgStats.V1.Cpu.IMCWrites
+		curStoreAllIns = cgStats.V1.Cpu.StoreAllInstructions
+		curStoreIns = cgStats.V1.Cpu.StoreInstructions
 		curUpdateTimeInSec = float64(cgStats.V1.Cpu.UpdateTime)
 	} else if cgStats.CgroupType == "V2" {
-		curOCRReadDRAMs = float64(cgStats.V2.Cpu.OCRReadDRAMs)
-		curIMCWrites = float64(cgStats.V2.Cpu.IMCWrites)
-		curStoreAllIns = float64(cgStats.V2.Cpu.StoreAllInstructions)
-		curStoreIns = float64(cgStats.V2.Cpu.StoreInstructions)
+		curOCRReadDRAMs = cgStats.V2.Cpu.OCRReadDRAMs
+		curIMCWrites = cgStats.V2.Cpu.IMCWrites
+		curStoreAllIns = cgStats.V2.Cpu.StoreAllInstructions
+		curStoreIns = cgStats.V2.Cpu.StoreInstructions
 		curUpdateTimeInSec = float64(cgStats.V2.Cpu.UpdateTime)
 	}
 
@@ -55,18 +66,22 @@ func (m *MalachiteMetricsFetcher) processContainerMemBandwidth(podUID, container
 	m.setContainerRateMetric(podUID, containerName, consts.MetricMemBandwidthReadContainer,
 		func() float64 {
 			// read megabyte
-			return (curOCRReadDRAMs - lastOCRReadDRAMs.Value) * 64 / (1024 * 1024)
+			return float64(uint64CounterDelta(lastOCRReadDRAMs, curOCRReadDRAMs)) * 64 / (1024 * 1024)
 		},
 		int64(lastUpdateTimeInSec), int64(curUpdateTimeInSec))
 
 	// write bandwidth
 	m.setContainerRateMetric(podUID, containerName, consts.MetricMemBandwidthWriteContainer,
 		func() float64 {
-			if (curStoreAllIns - lastStoreAllIns.Value) == 0 {
+			if (curStoreAllIns - lastStoreAllIns) == 0 {
 				return 0
 			}
+
+			storeInsInc := uint64CounterDelta(lastStoreIns, curStoreIns)
+			imcWritesInc := uint64CounterDelta(lastIMCWrites, curIMCWrites)
+			storeAllInsInc := uint64CounterDelta(lastStoreAllIns, curStoreAllIns)
 			// write megabyte
-			return (curStoreIns - lastStoreIns.Value) * (curIMCWrites - lastIMCWrites.Value) * 64 / (curStoreAllIns - lastStoreAllIns.Value) / (1024 * 1024)
+			return float64(storeInsInc) * float64(imcWritesInc) * 64 / float64(storeAllInsInc) / (1024 * 1024)
 		},
 		int64(lastUpdateTimeInSec), int64(curUpdateTimeInSec))
 }
@@ -90,4 +105,15 @@ func (m *MalachiteMetricsFetcher) setContainerRateMetric(podUID, containerName, 
 	updateTime := time.Unix(curUpdateTime, 0)
 	m.metricStore.SetContainerMetric(podUID, containerName, targetMetricName,
 		metric.MetricData{Value: deltaValueFunc() / float64(timeDeltaInSec), Time: &updateTime})
+}
+
+// uint64CounterDelta calculate the delta between two uint64 counters
+// Sometimes the counter value would go beyond the MaxUint64. In that case,
+// negative counter delta would happen, and the data is not incorrect.
+func uint64CounterDelta(previous, current uint64) uint64 {
+	if current >= previous {
+		return current - previous
+	}
+
+	return math.MaxUint64 - previous + current
 }
