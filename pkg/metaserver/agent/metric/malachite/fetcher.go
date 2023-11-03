@@ -880,16 +880,20 @@ func (m *MalachiteMetricsFetcher) processContainerBlkIOData(podUID, containerNam
 		updateTimestampInSec := updateTime.Unix()
 
 		m.setContainerRateMetric(podUID, containerName, consts.MetricBlkioReadIopsContainer,
-			func() float64 { return float64(io.BpfFsData.FsRead - io.OldBpfFsData.FsRead) },
+			func() float64 { return float64(uint64CounterDelta(io.OldBpfFsData.FsRead, io.BpfFsData.FsRead)) },
 			int64(lastUpdateTime.Value), updateTimestampInSec)
 		m.setContainerRateMetric(podUID, containerName, consts.MetricBlkioWriteIopsContainer,
-			func() float64 { return float64(io.BpfFsData.FsWrite - io.OldBpfFsData.FsWrite) },
+			func() float64 { return float64(uint64CounterDelta(io.OldBpfFsData.FsWrite, io.BpfFsData.FsWrite)) },
 			int64(lastUpdateTime.Value), updateTimestampInSec)
 		m.setContainerRateMetric(podUID, containerName, consts.MetricBlkioReadBpsContainer,
-			func() float64 { return float64(io.BpfFsData.FsReadBytes - io.OldBpfFsData.FsReadBytes) },
+			func() float64 {
+				return float64(uint64CounterDelta(io.OldBpfFsData.FsReadBytes, io.BpfFsData.FsReadBytes))
+			},
 			int64(lastUpdateTime.Value), updateTimestampInSec)
 		m.setContainerRateMetric(podUID, containerName, consts.MetricBlkioWriteBpsContainer,
-			func() float64 { return float64(io.BpfFsData.FsWriteBytes - io.OldBpfFsData.FsWriteBytes) },
+			func() float64 {
+				return float64(uint64CounterDelta(io.OldBpfFsData.FsWriteBytes, io.BpfFsData.FsWriteBytes))
+			},
 			int64(lastUpdateTime.Value), updateTimestampInSec)
 
 		m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricBlkioUpdateTimeContainer,
@@ -900,16 +904,20 @@ func (m *MalachiteMetricsFetcher) processContainerBlkIOData(podUID, containerNam
 		updateTimestampInSec := updateTime.Unix()
 
 		m.setContainerRateMetric(podUID, containerName, consts.MetricBlkioReadIopsContainer,
-			func() float64 { return float64(io.BpfFsData.FsRead - io.OldBpfFsData.FsRead) },
+			func() float64 { return float64(uint64CounterDelta(io.OldBpfFsData.FsRead, io.BpfFsData.FsRead)) },
 			int64(lastUpdateTime.Value), updateTimestampInSec)
 		m.setContainerRateMetric(podUID, containerName, consts.MetricBlkioWriteIopsContainer,
-			func() float64 { return float64(io.BpfFsData.FsWrite - io.OldBpfFsData.FsWrite) },
+			func() float64 { return float64(uint64CounterDelta(io.OldBpfFsData.FsWrite, io.BpfFsData.FsWrite)) },
 			int64(lastUpdateTime.Value), updateTimestampInSec)
 		m.setContainerRateMetric(podUID, containerName, consts.MetricBlkioReadBpsContainer,
-			func() float64 { return float64(io.BpfFsData.FsReadBytes - io.OldBpfFsData.FsReadBytes) },
+			func() float64 {
+				return float64(uint64CounterDelta(io.OldBpfFsData.FsReadBytes, io.BpfFsData.FsReadBytes))
+			},
 			int64(lastUpdateTime.Value), updateTimestampInSec)
 		m.setContainerRateMetric(podUID, containerName, consts.MetricBlkioWriteBpsContainer,
-			func() float64 { return float64(io.BpfFsData.FsWriteBytes - io.OldBpfFsData.FsWriteBytes) },
+			func() float64 {
+				return float64(uint64CounterDelta(io.OldBpfFsData.FsWriteBytes, io.BpfFsData.FsWriteBytes))
+			},
 			int64(lastUpdateTime.Value), updateTimestampInSec)
 
 		m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricBlkioUpdateTimeContainer,
