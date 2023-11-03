@@ -85,7 +85,7 @@ jobs:
             echo "NEED_TO_CHECK=true" >> $GITHUB_ENV
           fi
       - name: Upload coverage to Codecov
-        if: ${{ (env.NEED_TO_CHECK == 'true') || (github.event_name != 'pull_request') }}
+        if: ${{ (env.NEED_TO_CHECK == 'true') }}
         uses: codecov/codecov-action@v3
         with:
           flags: unittest
