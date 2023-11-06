@@ -22,10 +22,12 @@ import (
 	"strings"
 	"time"
 
+	"k8s.io/apimachinery/pkg/api/meta"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/selection"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/klog/v2"
@@ -40,6 +42,27 @@ import (
 
 const MetricStoreNameLocalMemory = "local-memory-store"
 
+const labelIndexEmpty string = "empty"
+
+// getLabelIndexFunc is a function to get a index function that indexes based on object's label[labelName]
+var getLabelIndexFunc = func(labelName string) func(interface{}) ([]string, error) {
+	return func(obj interface{}) ([]string, error) {
+		objectMeta, err := meta.Accessor(obj)
+		if err != nil {
+			return []string{""}, fmt.Errorf("object has no meta: %v", err)
+		}
+		objectLabels := objectMeta.GetLabels()
+		if objectLabels == nil {
+			return []string{labelIndexEmpty}, nil
+		}
+		value, ok := objectLabels[labelName]
+		if !ok {
+			return []string{labelIndexEmpty}, nil
+		}
+		return []string{value}, nil
+	}
+}
+
 // LocalMemoryMetricStore implements MetricStore with single-node versioned
 // in-memory storage, and it will be used as a default implementation, especially
 // when the amount of internalMetric or the size of cluster is small.
@@ -53,7 +76,9 @@ type LocalMemoryMetricStore struct {
 
 	// validMetricObject is used to map kubernetes objects to gvk and informer
 	validMetricObject map[string]schema.GroupVersionResource
-	objectInformer    map[string]cache.GenericLister
+	objectLister      map[string]cache.GenericLister
+	objectInformer    map[string]cache.SharedIndexInformer
+	indexLabelKey     string
 
 	syncedFunc  []cache.InformerSynced
 	syncSuccess bool
@@ -76,13 +101,22 @@ func NewLocalMemoryMetricStore(ctx context.Context, baseCtx *katalystbase.Generi
 		storeConf:         storeConf,
 		cache:             data.NewCachedMetric(metricsEmitter),
 		validMetricObject: data.GetSupportedMetricObject(),
-		objectInformer:    make(map[string]cache.GenericLister),
+		objectLister:      make(map[string]cache.GenericLister),
+		objectInformer:    make(map[string]cache.SharedIndexInformer),
+		indexLabelKey:     storeConf.IndexLabelKey,
 		emitter:           baseCtx.EmitterPool.GetDefaultMetricsEmitter().WithTags("local_store"),
 	}
 
 	for r, gvrSchema := range l.validMetricObject {
 		wf := baseCtx.MetaInformerFactory.ForResource(gvrSchema)
-		l.objectInformer[r] = wf.Lister()
+		l.objectLister[r] = wf.Lister()
+		l.objectInformer[r] = wf.Informer()
+		if _, ok := wf.Informer().GetIndexer().GetIndexers()[storeConf.IndexLabelKey]; !ok {
+			if err := wf.Informer().AddIndexers(cache.Indexers{storeConf.IndexLabelKey: getLabelIndexFunc(storeConf.IndexLabelKey)}); err != nil {
+				klog.Errorf("create label indexer failed, indexName: %v, indexKey: %v, err: %v", storeConf.IndexLabelKey, storeConf.IndexLabelKey, err)
+				return nil, err
+			}
+		}
 		l.syncedFunc = append(l.syncedFunc, wf.Informer().HasSynced)
 	}
 
@@ -128,6 +162,49 @@ func (l *LocalMemoryMetricStore) InsertMetric(seriesList []*data.MetricSeries) e
 	return nil
 }
 
+func (l *LocalMemoryMetricStore) getObjectMetaByIndex(gr *schema.GroupResource, objSelector labels.Selector) (bool, []types.ObjectMetaImp, error) {
+	hitIndex := false
+	matchedObjectMeta := make([]types.ObjectMetaImp, 0)
+
+	if objSelector == nil {
+		return false, matchedObjectMeta, nil
+	}
+
+	requirements, _ := objSelector.Requirements()
+	for _, requirement := range requirements {
+		if hitIndex {
+			break
+		}
+
+		if requirement.Key() == l.indexLabelKey {
+			switch requirement.Operator() {
+			case selection.Equals, selection.DoubleEquals, selection.In:
+				hitIndex = true
+				for indexValue := range requirement.Values() {
+					objects, err := l.objectInformer[gr.String()].GetIndexer().ByIndex(l.indexLabelKey, indexValue)
+					if err != nil {
+						return false, matchedObjectMeta, fmt.Errorf("get object by index failed,err:%v", err)
+					}
+					for i := range objects {
+						obj := objects[i]
+						metadata, ok := obj.(*v1.PartialObjectMetadata)
+						if !ok {
+							return false, matchedObjectMeta, fmt.Errorf("%#v failed to transform into PartialObjectMetadata", obj)
+						}
+
+						matchedObjectMeta = append(matchedObjectMeta, types.ObjectMetaImp{
+							ObjectNamespace: metadata.Namespace,
+							ObjectName:      metadata.Name,
+						})
+					}
+				}
+			}
+		}
+	}
+
+	return hitIndex, matchedObjectMeta, nil
+}
+
 func (l *LocalMemoryMetricStore) GetMetric(_ context.Context, namespace, metricName, objName string, gr *schema.GroupResource,
 	objSelector, metricSelector labels.Selector, latest bool) ([]types.Metric, error) {
 	begin := time.Now()
@@ -140,7 +217,20 @@ func (l *LocalMemoryMetricStore) GetMetric(_ context.Context, namespace, metricN
 
 	// always try to get by metric-name if nominated, otherwise list all internal metrics
 	if metricName != "" && metricName != "*" {
-		metricList, _ = l.cache.GetMetric(namespace, metricName, objName, gr, latest)
+		if objName != "" && objName != "*" {
+			metricList, _ = l.cache.GetMetric(namespace, metricName, objName, nil, gr, latest)
+		} else {
+			hitIndex, matchedObjectMeta, err := l.getObjectMetaByIndex(gr, objSelector)
+			if err != nil {
+				return metricList, err
+			}
+
+			if hitIndex {
+				metricList, _ = l.cache.GetMetric(namespace, metricName, objName, matchedObjectMeta, gr, latest)
+			} else {
+				metricList, _ = l.cache.GetMetric(namespace, metricName, objName, nil, gr, latest)
+			}
+		}
 	} else {
 		metricList = l.cache.GetAllMetricsInNamespace(namespace)
 	}
@@ -341,7 +431,7 @@ func (l *LocalMemoryMetricStore) getObject(gvr, namespace, name string) (runtime
 		return nil, fmt.Errorf("name should not be empty")
 	}
 
-	lister, ok := l.objectInformer[gvr]
+	lister, ok := l.objectLister[gvr]
 	if !ok {
 		return nil, fmt.Errorf("unsupported obejct: %v", gvr)
 	}
@@ -353,7 +443,7 @@ func (l *LocalMemoryMetricStore) getObject(gvr, namespace, name string) (runtime
 }
 
 func (l *LocalMemoryMetricStore) getObjectList(gvr, namespace string, selector labels.Selector) ([]runtime.Object, error) {
-	lister, ok := l.objectInformer[gvr]
+	lister, ok := l.objectLister[gvr]
 	if !ok {
 		return nil, fmt.Errorf("unsupported obejct: %v", gvr)
 	}
