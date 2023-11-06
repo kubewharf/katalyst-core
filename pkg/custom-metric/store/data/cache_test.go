@@ -63,11 +63,11 @@ func TestCache(t *testing.T) {
 	names = c.ListAllMetricNames()
 	assert.ElementsMatch(t, []string{"m-1"}, names)
 
-	metricList, exist = c.GetMetric("", "m-1", "", nil, false)
+	metricList, exist = c.GetMetric("", "m-1", "", nil, nil, false)
 	assert.Equal(t, true, exist)
 	assert.Equal(t, s1, metricList[0])
 
-	_, exist = c.GetMetric("", "m-2", "", nil, false)
+	_, exist = c.GetMetric("", "m-2", "", nil, nil, false)
 	assert.Equal(t, false, exist)
 
 	t.Log("#### 2: Add with namespaced metric")
@@ -95,11 +95,11 @@ func TestCache(t *testing.T) {
 	names = c.ListAllMetricNames()
 	assert.ElementsMatch(t, []string{"m-1", "m-2"}, names)
 
-	metricList, exist = c.GetMetric("", "m-1", "", nil, false)
+	metricList, exist = c.GetMetric("", "m-1", "", nil, nil, false)
 	assert.Equal(t, true, exist)
 	assert.Equal(t, s1, metricList[0])
 
-	metricList, exist = c.GetMetric("n-2", "m-2", "", nil, false)
+	metricList, exist = c.GetMetric("n-2", "m-2", "", nil, nil, false)
 	assert.Equal(t, true, exist)
 	assert.Equal(t, s2, metricList[0])
 
@@ -150,10 +150,10 @@ func TestCache(t *testing.T) {
 		},
 	}, metaList)
 
-	_, exist = c.GetMetric("n-4", "m-3", "", &schema.GroupResource{Resource: "pod"}, false)
+	_, exist = c.GetMetric("n-4", "m-3", "", nil, &schema.GroupResource{Resource: "pod"}, false)
 	assert.Equal(t, true, exist)
 
-	metricList, exist = c.GetMetric("n-3", "m-3", "", &schema.GroupResource{Resource: "pod"}, false)
+	metricList, exist = c.GetMetric("n-3", "m-3", "", nil, &schema.GroupResource{Resource: "pod"}, false)
 	assert.Equal(t, true, exist)
 	assert.Equal(t, s3, metricList[0])
 
@@ -208,7 +208,7 @@ func TestCache(t *testing.T) {
 		Value:     7,
 		Timestamp: 8,
 	})
-	metricList, exist = c.GetMetric("n-3", "m-3", "", &schema.GroupResource{Resource: "pod"}, false)
+	metricList, exist = c.GetMetric("n-3", "m-3", "", nil, &schema.GroupResource{Resource: "pod"}, false)
 	assert.Equal(t, true, exist)
 	assert.Equal(t, s3, metricList[0])
 
@@ -239,15 +239,15 @@ func TestCache(t *testing.T) {
 	names = c.ListAllMetricNames()
 	assert.ElementsMatch(t, []string{"m-1", "m-2", "m-3"}, names)
 
-	metricList, exist = c.GetMetric("n-3", "m-3", "", &schema.GroupResource{Resource: "pod"}, false)
+	metricList, exist = c.GetMetric("n-3", "m-3", "", nil, &schema.GroupResource{Resource: "pod"}, false)
 	assert.Equal(t, true, exist)
 	assert.ElementsMatch(t, []*types.SeriesMetric{s3, s4}, metricList)
 
-	metricList, exist = c.GetMetric("n-3", "m-3", "pod-3", &schema.GroupResource{Resource: "pod"}, false)
+	metricList, exist = c.GetMetric("n-3", "m-3", "pod-3", nil, &schema.GroupResource{Resource: "pod"}, false)
 	assert.Equal(t, true, exist)
 	assert.ElementsMatch(t, []*types.SeriesMetric{s3}, metricList)
 
-	metricList, exist = c.GetMetric("n-3", "m-3", "pod-4", &schema.GroupResource{Resource: "pod"}, false)
+	metricList, exist = c.GetMetric("n-3", "m-3", "pod-4", nil, &schema.GroupResource{Resource: "pod"}, false)
 	assert.Equal(t, true, exist)
 	assert.ElementsMatch(t, []*types.SeriesMetric{s4}, metricList)
 
@@ -311,7 +311,7 @@ func TestCache(t *testing.T) {
 		Value:     10,
 		Timestamp: 9,
 	})
-	metricList, exist = c.GetMetric("n-3", "m-3", "", &schema.GroupResource{Resource: "pod"}, false)
+	metricList, exist = c.GetMetric("n-3", "m-3", "", nil, &schema.GroupResource{Resource: "pod"}, false)
 	assert.Equal(t, true, exist)
 	assert.ElementsMatch(t, []*types.SeriesMetric{s3, s4}, metricList)
 
@@ -335,7 +335,7 @@ func TestCache(t *testing.T) {
 		Value:     10,
 		Timestamp: 9,
 	})
-	metricList, exist = c.GetMetric("n-3", "m-3", "", &schema.GroupResource{Resource: "pod"}, true)
+	metricList, exist = c.GetMetric("n-3", "m-3", "", nil, &schema.GroupResource{Resource: "pod"}, true)
 	assert.Equal(t, true, exist)
 	assert.ElementsMatch(t, []*types.SeriesMetric{s3_latest, s4}, metricList)
 
@@ -457,7 +457,7 @@ func TestCache(t *testing.T) {
 	})
 	c.AddSeriesMetric(s5)
 
-	metricList, exist = c.GetMetric("n-3", "m-3", "pod-5", &schema.GroupResource{Resource: "pod"}, false)
+	metricList, exist = c.GetMetric("n-3", "m-3", "pod-5", nil, &schema.GroupResource{Resource: "pod"}, false)
 	assert.Equal(t, true, exist)
 	assert.ElementsMatch(t, []*types.SeriesMetric{s5}, metricList)
 
@@ -485,31 +485,31 @@ func TestCache(t *testing.T) {
 
 	agg.Name = "m-3" + metric.AggregateFunctionAvg
 	agg.Value = 8.25
-	metricList, exist = c.GetMetric("n-3", "m-3"+metric.AggregateFunctionAvg, "pod-5", &schema.GroupResource{Resource: "pod"}, false)
+	metricList, exist = c.GetMetric("n-3", "m-3"+metric.AggregateFunctionAvg, "pod-5", nil, &schema.GroupResource{Resource: "pod"}, false)
 	assert.Equal(t, true, exist)
 	assert.ElementsMatch(t, []*types.AggregatedMetric{agg}, metricList)
 
 	agg.Name = "m-3" + metric.AggregateFunctionMax
 	agg.Value = 12
-	metricList, exist = c.GetMetric("n-3", "m-3"+metric.AggregateFunctionMax, "pod-5", &schema.GroupResource{Resource: "pod"}, false)
+	metricList, exist = c.GetMetric("n-3", "m-3"+metric.AggregateFunctionMax, "pod-5", nil, &schema.GroupResource{Resource: "pod"}, false)
 	assert.Equal(t, true, exist)
 	assert.ElementsMatch(t, []*types.AggregatedMetric{agg}, metricList)
 
 	agg.Name = "m-3" + metric.AggregateFunctionMin
 	agg.Value = 4
-	metricList, exist = c.GetMetric("n-3", "m-3"+metric.AggregateFunctionMin, "pod-5", &schema.GroupResource{Resource: "pod"}, false)
+	metricList, exist = c.GetMetric("n-3", "m-3"+metric.AggregateFunctionMin, "pod-5", nil, &schema.GroupResource{Resource: "pod"}, false)
 	assert.Equal(t, true, exist)
 	assert.ElementsMatch(t, []*types.AggregatedMetric{agg}, metricList)
 
 	agg.Name = "m-3" + metric.AggregateFunctionP99
 	agg.Value = 11
-	metricList, exist = c.GetMetric("n-3", "m-3"+metric.AggregateFunctionP99, "pod-5", &schema.GroupResource{Resource: "pod"}, false)
+	metricList, exist = c.GetMetric("n-3", "m-3"+metric.AggregateFunctionP99, "pod-5", nil, &schema.GroupResource{Resource: "pod"}, false)
 	assert.Equal(t, true, exist)
 	assert.ElementsMatch(t, []*types.AggregatedMetric{agg}, metricList)
 
 	agg.Name = "m-3" + metric.AggregateFunctionP90
 	agg.Value = 11
-	metricList, exist = c.GetMetric("n-3", "m-3"+metric.AggregateFunctionP90, "pod-5", &schema.GroupResource{Resource: "pod"}, false)
+	metricList, exist = c.GetMetric("n-3", "m-3"+metric.AggregateFunctionP90, "pod-5", nil, &schema.GroupResource{Resource: "pod"}, false)
 	assert.Equal(t, true, exist)
 	assert.ElementsMatch(t, []*types.AggregatedMetric{agg}, metricList)
 }

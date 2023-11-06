@@ -163,7 +163,7 @@ func (c *CachedMetric) ListAllMetricNames() []string {
 	return res
 }
 
-func (c *CachedMetric) GetMetric(namespace, metricName string, objName string, gr *schema.GroupResource, latest bool) ([]types.Metric, bool) {
+func (c *CachedMetric) GetMetric(namespace, metricName string, objName string, objectMetaList []types.ObjectMetaImp, gr *schema.GroupResource, latest bool) ([]types.Metric, bool) {
 	start := time.Now()
 	originMetricName, aggName := types.ParseAggregator(metricName)
 
@@ -180,28 +180,38 @@ func (c *CachedMetric) GetMetric(namespace, metricName string, objName string, g
 		metricMeta.ObjectKind = gr.String()
 	}
 
+	handleIntermalMetric := func(internalMetric *internal.MetricImp) {
+		if internalMetric.GetObjectNamespace() != namespace || (objName != "" && internalMetric.GetObjectName() != objName) {
+			return
+		}
+
+		var metricItem types.Metric
+		var exist bool
+		if aggName == "" {
+			metricItem, exist = internalMetric.GetSeriesItems(latest)
+		} else {
+			metricItem, exist = internalMetric.GetAggregatedItems(aggName)
+		}
+
+		if exist && metricItem.Len() > 0 {
+			res = append(res, metricItem)
+		}
+	}
+
 	objectMetricStore := c.getObjectMetricStore(metricMeta)
 	if objectMetricStore != nil {
-		objectMetricStore.iterate(func(internalMetric *internal.MetricImp) {
-			if internalMetric.GetObjectNamespace() != namespace || (objName != "" && internalMetric.GetObjectName() != objName) {
-				return
+		if len(objectMetaList) != 0 {
+			// get by object list selected by caller
+			for _, objectMeta := range objectMetaList {
+				internalMetric := objectMetricStore.getInternalMetricImp(objectMeta)
+				handleIntermalMetric(internalMetric)
 			}
+		} else {
+			objectMetricStore.iterate(func(internalMetric *internal.MetricImp) {
+				handleIntermalMetric(internalMetric)
+			})
+		}
 
-			var metricItem types.Metric
-			var exist bool
-			if aggName == "" {
-				metricItem, exist = internalMetric.GetSeriesItems(latest)
-			} else {
-				metricItem, exist = internalMetric.GetAggregatedItems(aggName)
-			}
-
-			if exist && metricItem.Len() > 0 {
-				res = append(res, metricItem)
-				// TODO this metrics costs great mount of cpu resource
-				//costs := now.Sub(time.UnixMilli(internal.seriesMetric.Values[internal.len()-1].Timestamp)).Microseconds()
-				//_ = c.emitter.StoreInt64(metricsNameKCMASStoreDataLatencyGet, costs, metrics.MetricTypeNameRaw, internal.generateTags()...)
-			}
-		})
 		return res, true
 	}
 

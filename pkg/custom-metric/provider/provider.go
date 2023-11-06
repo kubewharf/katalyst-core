@@ -296,7 +296,6 @@ func (m *MetricProviderImp) emitCustomMetricLatencyByRawMetrics(metric types.Met
 		metric.GetObjectName(), metric.GetObjectKind(), latestItem.GetTimestamp(), time.UnixMilli(latestItem.GetTimestamp()), dataLatency)
 	tags := []metrics.MetricTag{
 		{Key: "metric_name", Val: metric.GetName()},
-		{Key: "object_name", Val: metric.GetObjectName()},
 		{Key: "object_kind", Val: metric.GetObjectKind()},
 	}
 
@@ -309,7 +308,6 @@ func (m *MetricProviderImp) emitCustomMetricLatency(metric *custom_metrics.Metri
 		metric.Metric.Name, metric.GetObjectKind(), metric.Timestamp.UnixMilli(), metric.Timestamp.Time, dataLatency)
 	tags := []metrics.MetricTag{
 		{Key: "metric_name", Val: metric.Metric.Name},
-		{Key: "object_name", Val: metric.DescribedObject.Name},
 		{Key: "object_kind", Val: metric.DescribedObject.Kind},
 	}
 
