@@ -17,6 +17,9 @@ limitations under the License.
 package region
 
 import (
+	"context"
+	"fmt"
+
 	"k8s.io/apimachinery/pkg/util/uuid"
 	"k8s.io/klog/v2"
 	"k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
@@ -24,11 +27,13 @@ import (
 	workloadapis "github.com/kubewharf/katalyst-api/pkg/apis/workload/v1alpha1"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
+	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource/helper"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
+	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
@@ -57,8 +62,34 @@ func NewQoSRegionDedicatedNumaExclusive(ci *types.ContainerInfo, conf *config.Co
 	r.indicatorCurrentGetters = map[string]types.IndicatorCurrentGetter{
 		string(workloadapis.TargetIndicatorNameCPI): r.getPodCPICurrent,
 	}
+	r.enableReclaim = r.EnableReclaim
 
 	return r
+}
+
+func (r *QoSRegionDedicatedNumaExclusive) getPodUID() (string, error) {
+	if len(r.podSet) != 1 {
+		return "", fmt.Errorf("more than one pod are assgined to this policy")
+	}
+	for podUID := range r.podSet {
+		return podUID, nil
+	}
+	return "", fmt.Errorf("should never get here")
+}
+
+func (r *QoSRegionDedicatedNumaExclusive) EnableReclaim() bool {
+	podUID, err := r.getPodUID()
+	if err != nil {
+		general.ErrorS(err, "getPodUID failed")
+		return false
+	}
+
+	enableReclaim, err := helper.PodEnableReclaim(context.Background(), r.metaServer, podUID, r.ResourceEssentials.EnableReclaim)
+	if err != nil {
+		general.ErrorS(err, "failed to check PodEnableReclaim", "name", r.name)
+		return false
+	}
+	return enableReclaim
 }
 
 func (r *QoSRegionDedicatedNumaExclusive) TryUpdateProvision() {

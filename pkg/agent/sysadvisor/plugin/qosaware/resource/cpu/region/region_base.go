@@ -106,6 +106,9 @@ type QoSRegionBase struct {
 	// If enableBorweinModel is set, borweinController will update target indicators by model inference.
 	enableBorweinModel bool
 	borweinController  *borweinctrl.BorweinController
+
+	// enableReclaim returns true if the resources of region can be reclaimed to supply for reclaimed_cores
+	enableReclaim func() bool
 }
 
 // NewQoSRegionBase returns a base qos region instance with common region methods
@@ -144,6 +147,7 @@ func NewQoSRegionBase(name string, ownerPoolName string, regionType types.QoSReg
 	if r.enableBorweinModel {
 		r.borweinController = borweinctrl.NewBorweinController(name, regionType, ownerPoolName, conf, metaReader)
 	}
+	r.enableReclaim = r.EnableReclaim
 
 	klog.Infof("[qosaware-cpu] created region [%v/%v/%v]", r.Name(), r.Type(), r.OwnerPoolName())
 
@@ -318,7 +322,7 @@ func (r *QoSRegionBase) GetProvisionPolicy() (policyTopPriority types.CPUProvisi
 		policyTopPriority = r.provisionPolicies[0].name
 	}
 
-	if !r.EnableReclaim {
+	if !r.enableReclaim() {
 		policyInUse = types.CPUProvisionPolicyNonReclaim
 	} else {
 		policyInUse = r.provisionPolicyNameInUse
@@ -336,7 +340,7 @@ func (r *QoSRegionBase) GetHeadRoomPolicy() (policyTopPriority types.CPUHeadroom
 		policyTopPriority = r.headroomPolicies[0].name
 	}
 
-	if !r.EnableReclaim {
+	if !r.enableReclaim() {
 		policyInUse = types.CPUHeadroomPolicyNonReclaim
 	} else {
 		policyInUse = r.headroomPolicyNameInUse
@@ -565,4 +569,8 @@ func (r *QoSRegionBase) updateStatus() {
 			r.regionStatus.BoundType = types.BoundNone
 		}
 	}
+}
+
+func (r *QoSRegionBase) EnableReclaim() bool {
+	return r.ResourceEssentials.EnableReclaim
 }
