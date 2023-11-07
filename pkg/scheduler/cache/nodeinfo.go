@@ -190,7 +190,7 @@ func (n *NodeInfo) DeleteAssumedPod(pod *v1.Pod) {
 	n.AssumedPodResources.DeletePod(pod)
 }
 
-func (n *NodeInfo) GetResourceTopologyCopy() *ResourceTopology {
+func (n *NodeInfo) GetResourceTopologyCopy(filterFn podFilter) *ResourceTopology {
 	n.Mutex.RLock()
 	defer n.Mutex.RUnlock()
 
@@ -198,5 +198,5 @@ func (n *NodeInfo) GetResourceTopologyCopy() *ResourceTopology {
 		return nil
 	}
 
-	return n.ResourceTopology.WithPodReousrce(n.AssumedPodResources)
+	return n.ResourceTopology.WithPodReousrce(n.AssumedPodResources, filterFn)
 }

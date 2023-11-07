@@ -53,8 +53,16 @@ func (tm *TopologyMatch) Filter(ctx context.Context, cycleState *framework.Cycle
 		return nil
 	}
 
-	nodeName := nodeInfo.Node().Name
-	nodeResourceTopologycache := cache.GetCache().GetNodeResourceTopology(nodeName)
+	var (
+		nodeName                  = nodeInfo.Node().Name
+		nodeResourceTopologycache *cache.ResourceTopology
+	)
+	if consts.ResourcePluginPolicyNameDynamic == tm.resourcePolicy {
+		// only dedicated pods will participate in the calculation
+		nodeResourceTopologycache = cache.GetCache().GetNodeResourceTopology(nodeName, tm.dedicatedPodsFilter(nodeInfo))
+	} else {
+		nodeResourceTopologycache = cache.GetCache().GetNodeResourceTopology(nodeName, nil)
+	}
 	if nodeResourceTopologycache == nil {
 		return nil
 	}

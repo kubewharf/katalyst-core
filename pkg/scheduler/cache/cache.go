@@ -143,7 +143,7 @@ func (cache *extendedCache) UnreserveNodeResource(nodeName string, pod *v1.Pod) 
 }
 
 // GetNodeResourceTopology assumedPodResource will be added to nodeResourceTopology
-func (cache *extendedCache) GetNodeResourceTopology(nodeName string) *ResourceTopology {
+func (cache *extendedCache) GetNodeResourceTopology(nodeName string, filterFn podFilter) *ResourceTopology {
 	cache.mu.RLock()
 	defer cache.mu.RUnlock()
 
@@ -151,5 +151,5 @@ func (cache *extendedCache) GetNodeResourceTopology(nodeName string) *ResourceTo
 	if !ok {
 		return nil
 	}
-	return nodeInfo.GetResourceTopologyCopy()
+	return nodeInfo.GetResourceTopologyCopy(filterFn)
 }

@@ -35,6 +35,7 @@ import (
 	"github.com/kubewharf/katalyst-api/pkg/apis/scheduling/config/validation"
 	"github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/scheduler/util"
+	"github.com/kubewharf/katalyst-core/pkg/util/native"
 )
 
 const (
@@ -65,6 +66,7 @@ type TopologyMatch struct {
 	resourceToWeightMap resourceToWeightMap
 	alignedResources    sets.String
 	resourcePolicy      consts.ResourcePluginPolicyName
+	sharedLister        framework.SharedLister
 }
 
 var _ framework.FilterPlugin = &TopologyMatch{}
@@ -77,7 +79,7 @@ func (tm *TopologyMatch) Name() string {
 	return TopologyMatchName
 }
 
-func New(args runtime.Object, _ framework.Handle) (framework.Plugin, error) {
+func New(args runtime.Object, h framework.Handle) (framework.Plugin, error) {
 	klog.Info("Creating new TopologyMatch plugin")
 	klog.Infof("args: %+v", args)
 	tcfg, ok := args.(*apisconfig.NodeResourceTopologyArgs)
@@ -106,7 +108,8 @@ func New(args runtime.Object, _ framework.Handle) (framework.Plugin, error) {
 		alignedResources:    alignedResources,
 		resourceToWeightMap: resourceToWeightMap,
 		scoreStrategyFunc:   strategy,
-		resourcePolicy:      tcfg.ResourcePolicy,
+		resourcePolicy:      tcfg.ResourcePluginPolicy,
+		sharedLister:        h.SnapshotSharedLister(),
 	}, nil
 }
 
@@ -143,6 +146,32 @@ func (tm *TopologyMatch) topologyMatchSupport(pod *v1.Pod) bool {
 	}
 
 	return false
+}
+
+func (tm *TopologyMatch) dedicatedPodsFilter(nodeInfo *framework.NodeInfo) func(consumer string) bool {
+	dedicatedPods := make(map[string]struct{})
+	for _, podInfo := range nodeInfo.Pods {
+		if util.IsDedicatedPod(podInfo.Pod) {
+			key := native.GenerateNamespaceNameKey(podInfo.Pod.Namespace, podInfo.Pod.Name)
+			dedicatedPods[key] = struct{}{}
+		}
+	}
+
+	return func(consumer string) bool {
+		namespace, name, _, err := native.ParseNamespaceNameUIDKey(consumer)
+		if err != nil {
+			klog.Errorf("ParseNamespaceNameUIDKey consumer %v fail: %v", consumer, err)
+			return false
+		}
+
+		// read only after map inited
+		key := native.GenerateNamespaceNameKey(namespace, name)
+		if _, ok := dedicatedPods[key]; ok {
+			return true
+		}
+
+		return false
+	}
 }
 
 func getScoringStrategyFunction(strategy config.ScoringStrategyType) (scoreStrategyFn, error) {

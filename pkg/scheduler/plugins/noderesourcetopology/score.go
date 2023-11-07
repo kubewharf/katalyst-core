@@ -64,7 +64,23 @@ func (tm *TopologyMatch) Score(ctx context.Context, state *framework.CycleState,
 		return framework.MaxNodeScore, nil
 	}
 
-	nodeResourceCache := cache.GetCache().GetNodeResourceTopology(nodeName)
+	var (
+		nodeInfo          *framework.NodeInfo
+		err               error
+		nodeResourceCache *cache.ResourceTopology
+	)
+	nodeInfo, err = tm.sharedLister.NodeInfos().Get(nodeName)
+	if err != nil {
+		klog.Errorf("get node %v from snapshot fail: %v", nodeName, err)
+		return 0, framework.AsStatus(err)
+	}
+	if consts.ResourcePluginPolicyNameDynamic == tm.resourcePolicy {
+		// only dedicated pods will participate in the calculation
+		nodeResourceCache = cache.GetCache().GetNodeResourceTopology(nodeName, tm.dedicatedPodsFilter(nodeInfo))
+	} else {
+		nodeResourceCache = cache.GetCache().GetNodeResourceTopology(nodeName, nil)
+	}
+
 	if nodeResourceCache == nil {
 		klog.Warningf("node %s nodeCache is nil", nodeName)
 		return 0, nil

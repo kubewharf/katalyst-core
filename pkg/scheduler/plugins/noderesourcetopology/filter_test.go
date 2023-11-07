@@ -26,6 +26,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/kubernetes/pkg/scheduler/apis/config"
 	"k8s.io/kubernetes/pkg/scheduler/framework"
+	"k8s.io/kubernetes/pkg/scheduler/framework/runtime"
 
 	"github.com/kubewharf/katalyst-api/pkg/apis/node/v1alpha1"
 	"github.com/kubewharf/katalyst-api/pkg/consts"
@@ -34,7 +35,63 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/scheduler/util"
 )
 
-func makeTestFilterNodes(policy v1alpha1.TopologyPolicy) ([]*v1alpha1.CustomNodeResource, []string) {
+var _ framework.SharedLister = &testSharedLister{}
+
+type testSharedLister struct {
+	nodes       []*v1.Node
+	nodeInfos   []*framework.NodeInfo
+	nodeInfoMap map[string]*framework.NodeInfo
+}
+
+func (f *testSharedLister) NodeInfos() framework.NodeInfoLister {
+	return f
+}
+
+func (f *testSharedLister) List() ([]*framework.NodeInfo, error) {
+	return f.nodeInfos, nil
+}
+
+func (f *testSharedLister) HavePodsWithAffinityList() ([]*framework.NodeInfo, error) {
+	return nil, nil
+}
+
+func (f *testSharedLister) HavePodsWithRequiredAntiAffinityList() ([]*framework.NodeInfo, error) {
+	return nil, nil
+}
+
+func (f *testSharedLister) Get(nodeName string) (*framework.NodeInfo, error) {
+	return f.nodeInfoMap[nodeName], nil
+}
+
+func newTestSharedLister(pods []*v1.Pod, nodes []*v1.Node) *testSharedLister {
+	nodeInfoMap := make(map[string]*framework.NodeInfo)
+	nodeInfos := make([]*framework.NodeInfo, 0)
+	for _, pod := range pods {
+		nodeName := pod.Spec.NodeName
+		if _, ok := nodeInfoMap[nodeName]; !ok {
+			nodeInfoMap[nodeName] = framework.NewNodeInfo()
+		}
+		nodeInfoMap[nodeName].AddPod(pod)
+	}
+	for _, node := range nodes {
+		if _, ok := nodeInfoMap[node.Name]; !ok {
+			nodeInfoMap[node.Name] = framework.NewNodeInfo()
+		}
+		nodeInfoMap[node.Name].SetNode(node)
+	}
+
+	for _, v := range nodeInfoMap {
+		nodeInfos = append(nodeInfos, v)
+	}
+
+	return &testSharedLister{
+		nodes:       nodes,
+		nodeInfos:   nodeInfos,
+		nodeInfoMap: nodeInfoMap,
+	}
+}
+
+func makeTestFilterNodes(policy v1alpha1.TopologyPolicy) ([]*v1alpha1.CustomNodeResource, []string, []*v1.Pod) {
 	cnrs := []*v1alpha1.CustomNodeResource{
 		{
 			ObjectMeta: metav1.ObjectMeta{Name: "node-2numa-8c16g"},
@@ -373,7 +430,71 @@ func makeTestFilterNodes(policy v1alpha1.TopologyPolicy) ([]*v1alpha1.CustomNode
 			},
 		},
 	}
-	return cnrs, []string{"node-2numa-8c16g", "node-2numa-4c8g", "node-2numa-8c16g-with-allocation", "node-4numa-8c16g-cross-socket", "node-4numa-8c16g-full-socket"}
+
+	pods := []*v1.Pod{
+		{
+			ObjectMeta: metav1.ObjectMeta{
+				Namespace: "testNamespace",
+				Name:      "testPod1",
+				Annotations: map[string]string{
+					consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelDedicatedCores,
+				},
+			},
+			Spec: v1.PodSpec{
+				NodeName: "node-2numa-8c16g-with-allocation",
+			},
+		},
+		{
+			ObjectMeta: metav1.ObjectMeta{
+				Namespace: "testNamespace",
+				Name:      "testPod2",
+				Annotations: map[string]string{
+					consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelDedicatedCores,
+				},
+			},
+			Spec: v1.PodSpec{
+				NodeName: "node-4numa-8c16g-cross-socket",
+			},
+		},
+		{
+			ObjectMeta: metav1.ObjectMeta{
+				Namespace: "testNamespace",
+				Name:      "testPod3",
+				Annotations: map[string]string{
+					consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelDedicatedCores,
+				},
+			},
+			Spec: v1.PodSpec{
+				NodeName: "node-4numa-8c16g-cross-socket",
+			},
+		},
+		{
+			ObjectMeta: metav1.ObjectMeta{
+				Namespace: "testNamespace",
+				Name:      "testPod4",
+				Annotations: map[string]string{
+					consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelDedicatedCores,
+				},
+			},
+			Spec: v1.PodSpec{
+				NodeName: "node-4numa-8c16g-full-socket",
+			},
+		},
+		{
+			ObjectMeta: metav1.ObjectMeta{
+				Namespace: "testNamespace",
+				Name:      "testPod5",
+				Annotations: map[string]string{
+					consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelDedicatedCores,
+				},
+			},
+			Spec: v1.PodSpec{
+				NodeName: "node-4numa-8c16g-full-socket",
+			},
+		},
+	}
+
+	return cnrs, []string{"node-2numa-8c16g", "node-2numa-4c8g", "node-2numa-8c16g-with-allocation", "node-4numa-8c16g-cross-socket", "node-4numa-8c16g-full-socket"}, pods
 }
 
 func TestFilterNative(t *testing.T) {
@@ -500,23 +621,37 @@ func TestFilterNative(t *testing.T) {
 	c := cache.GetCache()
 	util.SetQoSConfig(generic.NewQoSConfiguration())
 	for _, tc := range nativeTestCase {
-		cnrs, nodes := makeTestFilterNodes(tc.policy)
+		cnrs, nodeNames, pods := makeTestFilterNodes(tc.policy)
 		for _, cnr := range cnrs {
 			c.AddOrUpdateCNR(cnr)
 		}
 
-		tm, err := MakeTestTm(MakeTestArgs(config.MostAllocated, tc.alignedResource, "native"))
-		assert.NoError(t, err)
-
 		ret := make(map[string]*framework.Status)
-		for _, node := range nodes {
+		nodeInfos := make([]*framework.NodeInfo, 0)
+		nodes := make([]*v1.Node, 0)
+		for _, node := range nodeNames {
 			n := &v1.Node{}
 			n.SetName(node)
+			nodes = append(nodes, n)
 			nodeInfo := framework.NewNodeInfo()
 			nodeInfo.SetNode(n)
-			status := tm.(*TopologyMatch).Filter(context.TODO(), nil, tc.pod, nodeInfo)
-			ret[node] = status
+			for _, pod := range pods {
+				nodeInfo.AddPod(pod)
+			}
+			nodeInfos = append(nodeInfos, nodeInfo)
 		}
+		f, err := runtime.NewFramework(nil, nil,
+			runtime.WithSnapshotSharedLister(newTestSharedLister(pods, nodes)))
+		assert.NoError(t, err)
+
+		tm, err := MakeTestTm(MakeTestArgs(config.MostAllocated, tc.alignedResource, "native"), f)
+		assert.NoError(t, err)
+
+		for _, nodeInfo := range nodeInfos {
+			status := tm.(*TopologyMatch).Filter(context.TODO(), nil, tc.pod, nodeInfo)
+			ret[nodeInfo.Node().Name] = status
+		}
+
 		// check result
 		for wantN, wantS := range tc.wantRes {
 			if wantS == nil {
@@ -678,23 +813,37 @@ func TestFilterDedicatedNumaBinding(t *testing.T) {
 	c := cache.GetCache()
 	util.SetQoSConfig(generic.NewQoSConfiguration())
 	for _, tc := range numaBindingCase {
-		cnrs, nodes := makeTestFilterNodes(tc.policy)
+		cnrs, nodeNames, pods := makeTestFilterNodes(tc.policy)
 		for _, cnr := range cnrs {
 			c.AddOrUpdateCNR(cnr)
 		}
 
-		tm, err := MakeTestTm(MakeTestArgs(config.MostAllocated, tc.alignedResource, "dynamic"))
-		assert.NoError(t, err)
-
 		ret := make(map[string]*framework.Status)
-		for _, node := range nodes {
+		nodeInfos := make([]*framework.NodeInfo, 0)
+		nodes := make([]*v1.Node, 0)
+		for _, node := range nodeNames {
 			n := &v1.Node{}
 			n.SetName(node)
+			nodes = append(nodes, n)
 			nodeInfo := framework.NewNodeInfo()
 			nodeInfo.SetNode(n)
-			status := tm.(*TopologyMatch).Filter(context.TODO(), nil, tc.pod, nodeInfo)
-			ret[node] = status
+			for _, pod := range pods {
+				nodeInfo.AddPod(pod)
+			}
+			nodeInfos = append(nodeInfos, nodeInfo)
 		}
+		f, err := runtime.NewFramework(nil, nil,
+			runtime.WithSnapshotSharedLister(newTestSharedLister(pods, nodes)))
+		assert.NoError(t, err)
+
+		tm, err := MakeTestTm(MakeTestArgs(config.MostAllocated, tc.alignedResource, "dynamic"), f)
+		assert.NoError(t, err)
+
+		for _, nodeInfo := range nodeInfos {
+			status := tm.(*TopologyMatch).Filter(context.TODO(), nil, tc.pod, nodeInfo)
+			ret[nodeInfo.Node().Name] = status
+		}
+
 		// check result
 		for wantN, wantS := range tc.wantRes {
 			if wantS == nil {
@@ -809,22 +958,35 @@ func TestFilterDedicatedExclusive(t *testing.T) {
 	c := cache.GetCache()
 	util.SetQoSConfig(generic.NewQoSConfiguration())
 	for _, tc := range numaExclusiveCase {
-		cnrs, nodes := makeTestFilterNodes(tc.policy)
+		cnrs, nodeNames, pods := makeTestFilterNodes(tc.policy)
 		for _, cnr := range cnrs {
 			c.AddOrUpdateCNR(cnr)
 		}
 
-		tm, err := MakeTestTm(MakeTestArgs(config.MostAllocated, tc.alignedResource, "dynamic"))
-		assert.NoError(t, err)
-
 		ret := make(map[string]*framework.Status)
-		for _, node := range nodes {
+		nodeInfos := make([]*framework.NodeInfo, 0)
+		nodes := make([]*v1.Node, 0)
+		for _, node := range nodeNames {
 			n := &v1.Node{}
 			n.SetName(node)
+			nodes = append(nodes, n)
 			nodeInfo := framework.NewNodeInfo()
 			nodeInfo.SetNode(n)
+			for _, pod := range pods {
+				nodeInfo.AddPod(pod)
+			}
+			nodeInfos = append(nodeInfos, nodeInfo)
+		}
+		f, err := runtime.NewFramework(nil, nil,
+			runtime.WithSnapshotSharedLister(newTestSharedLister(pods, nodes)))
+		assert.NoError(t, err)
+
+		tm, err := MakeTestTm(MakeTestArgs(config.MostAllocated, tc.alignedResource, "dynamic"), f)
+		assert.NoError(t, err)
+
+		for _, nodeInfo := range nodeInfos {
 			status := tm.(*TopologyMatch).Filter(context.TODO(), nil, tc.pod, nodeInfo)
-			ret[node] = status
+			ret[nodeInfo.Node().Name] = status
 		}
 		// check result
 		for wantN, wantS := range tc.wantRes {
