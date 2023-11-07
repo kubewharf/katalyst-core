@@ -231,8 +231,8 @@ func (a *MetricImp) GetLatestTimestamp() int64 {
 	a.RLock()
 	defer a.RUnlock()
 
-	if !a.Empty() {
-		return a.seriesMetric.Values[a.Len()-1].Timestamp
+	if a.seriesMetric.Len() != 0 {
+		return a.seriesMetric.Values[a.seriesMetric.Len()-1].Timestamp
 	}
 
 	return -1
@@ -243,7 +243,7 @@ func (a *MetricImp) GetOldestTimestamp() int64 {
 	a.RLock()
 	defer a.RUnlock()
 
-	if !a.Empty() {
+	if a.seriesMetric.Len() != 0 {
 		return a.seriesMetric.Values[0].Timestamp
 	}
 
