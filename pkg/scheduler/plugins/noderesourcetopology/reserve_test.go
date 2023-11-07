@@ -26,6 +26,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/kubernetes/pkg/scheduler/apis/config"
 	"k8s.io/kubernetes/pkg/scheduler/framework"
+	"k8s.io/kubernetes/pkg/scheduler/framework/runtime"
 
 	"github.com/kubewharf/katalyst-api/pkg/apis/node/v1alpha1"
 	"github.com/kubewharf/katalyst-api/pkg/consts"
@@ -112,7 +113,10 @@ func TestReserve(t *testing.T) {
 		cnr, nodeName := makeTestReserveNode()
 		c.AddOrUpdateCNR(cnr)
 
-		tm, err := MakeTestTm(MakeTestArgs(config.MostAllocated, tc.alignedResource, "dynamic"))
+		f, err := runtime.NewFramework(nil, nil,
+			runtime.WithSnapshotSharedLister(newTestSharedLister(nil, nil)))
+		assert.NoError(t, err)
+		tm, err := MakeTestTm(MakeTestArgs(config.MostAllocated, tc.alignedResource, "dynamic"), f)
 		assert.NoError(t, err)
 
 		n := &v1.Node{}

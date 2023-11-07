@@ -29,8 +29,8 @@ import (
 	config2 "github.com/kubewharf/katalyst-api/pkg/apis/scheduling/config"
 )
 
-func MakeTestTm(args *config2.NodeResourceTopologyArgs) (framework.Plugin, error) {
-	return New(args, nil)
+func MakeTestTm(args *config2.NodeResourceTopologyArgs, h framework.Handle) (framework.Plugin, error) {
+	return New(args, h)
 }
 
 func MakeTestArgs(scoringType config.ScoringStrategyType, alignedResource []string, resourcePolicy consts.ResourcePluginPolicyName) *config2.NodeResourceTopologyArgs {
@@ -52,8 +52,8 @@ func MakeTestArgs(scoringType config.ScoringStrategyType, alignedResource []stri
 				},
 			},
 		},
-		AlignedResources: alignedResource,
-		ResourcePolicy:   resourcePolicy,
+		AlignedResources:     alignedResource,
+		ResourcePluginPolicy: resourcePolicy,
 	}
 
 	return args

@@ -27,6 +27,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/kubernetes/pkg/scheduler/apis/config"
 	"k8s.io/kubernetes/pkg/scheduler/framework"
+	"k8s.io/kubernetes/pkg/scheduler/framework/runtime"
 
 	"github.com/kubewharf/katalyst-api/pkg/apis/node/v1alpha1"
 	"github.com/kubewharf/katalyst-api/pkg/consts"
@@ -35,7 +36,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/scheduler/util"
 )
 
-func makeTestScoreNodes(policy v1alpha1.TopologyPolicy) ([]*v1alpha1.CustomNodeResource, []string) {
+func makeTestScoreNodes(policy v1alpha1.TopologyPolicy) ([]*v1alpha1.CustomNodeResource, []string, []*v1.Pod) {
 	cnrs := []*v1alpha1.CustomNodeResource{
 		{
 			ObjectMeta: metav1.ObjectMeta{Name: "node-2numa-8c16g"},
@@ -270,7 +271,34 @@ func makeTestScoreNodes(policy v1alpha1.TopologyPolicy) ([]*v1alpha1.CustomNodeR
 			},
 		},
 	}
-	return cnrs, []string{"node-2numa-8c16g", "node-2numa-4c8g", "node-2numa-8c16g-with-allocation", "node-4numa-8c16g"}
+
+	pods := []*v1.Pod{
+		{
+			ObjectMeta: metav1.ObjectMeta{
+				Namespace: "testNamespace",
+				Name:      "testPod1",
+				Annotations: map[string]string{
+					consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelDedicatedCores,
+				},
+			},
+			Spec: v1.PodSpec{
+				NodeName: "node-2numa-8c16g-with-allocation",
+			},
+		},
+		{
+			ObjectMeta: metav1.ObjectMeta{
+				Namespace: "testNamespace",
+				Name:      "testPod2",
+				Annotations: map[string]string{
+					consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelDedicatedCores,
+				},
+			},
+			Spec: v1.PodSpec{
+				NodeName: "node-2numa-8c16g-with-allocation",
+			},
+		},
+	}
+	return cnrs, []string{"node-2numa-8c16g", "node-2numa-4c8g", "node-2numa-8c16g-with-allocation", "node-4numa-8c16g"}, pods
 }
 
 func TestScore(t *testing.T) {
@@ -500,15 +528,25 @@ func TestScore(t *testing.T) {
 	c := cache.GetCache()
 	for _, tc := range nativeTestCases {
 		util.SetQoSConfig(generic.NewQoSConfiguration())
-		cnrs, nodes := makeTestScoreNodes(tc.policy)
+		cnrs, nodeNames, pods := makeTestScoreNodes(tc.policy)
 		for _, cnr := range cnrs {
 			c.AddOrUpdateCNR(cnr)
 		}
 
-		tm, err := MakeTestTm(MakeTestArgs(tc.strategy, tc.alignedResource, "native"))
+		nodes := make([]*v1.Node, 0)
+		for _, node := range nodeNames {
+			n := &v1.Node{}
+			n.SetName(node)
+			nodes = append(nodes, n)
+		}
+		f, err := runtime.NewFramework(nil, nil,
+			runtime.WithSnapshotSharedLister(newTestSharedLister(pods, nodes)))
 		assert.NoError(t, err)
+		tm, err := MakeTestTm(MakeTestArgs(tc.strategy, tc.alignedResource, "native"), f)
+		assert.NoError(t, err)
+
 		nodeToScore := make(map[string]int64)
-		for _, node := range nodes {
+		for _, node := range nodeNames {
 			score, status := tm.(*TopologyMatch).Score(context.TODO(), nil, tc.pod, node)
 			assert.True(t, reflect.DeepEqual(status, tc.wantStatus), tc.name)
 
@@ -526,15 +564,24 @@ func TestScore(t *testing.T) {
 
 	for _, tc := range dedicatedTestCases {
 		util.SetQoSConfig(generic.NewQoSConfiguration())
-		cnrs, nodes := makeTestScoreNodes(tc.policy)
+		cnrs, nodeNames, pods := makeTestScoreNodes(tc.policy)
 		for _, cnr := range cnrs {
 			c.AddOrUpdateCNR(cnr)
 		}
 
-		tm, err := MakeTestTm(MakeTestArgs(tc.strategy, tc.alignedResource, "dynamic"))
+		nodes := make([]*v1.Node, 0)
+		for _, node := range nodeNames {
+			n := &v1.Node{}
+			n.SetName(node)
+			nodes = append(nodes, n)
+		}
+		f, err := runtime.NewFramework(nil, nil,
+			runtime.WithSnapshotSharedLister(newTestSharedLister(pods, nodes)))
+		assert.NoError(t, err)
+		tm, err := MakeTestTm(MakeTestArgs(tc.strategy, tc.alignedResource, "dynamic"), f)
 		assert.NoError(t, err)
 		nodeToScore := make(map[string]int64)
-		for _, node := range nodes {
+		for _, node := range nodeNames {
 			score, status := tm.(*TopologyMatch).Score(context.TODO(), nil, tc.pod, node)
 			assert.True(t, reflect.DeepEqual(status, tc.wantStatus), tc.name)
 

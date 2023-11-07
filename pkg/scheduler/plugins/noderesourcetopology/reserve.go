@@ -34,7 +34,7 @@ func (tm *TopologyMatch) Reserve(ctx context.Context, state *framework.CycleStat
 		podCopy := pod.DeepCopy()
 		if util.IsNumaBinding(pod) && util.IsExclusive(pod) {
 			// get node NUMA capacity
-			rt := cache.GetCache().GetNodeResourceTopology(nodeName)
+			rt := cache.GetCache().GetNodeResourceTopology(nodeName, nil)
 			var numaCapacity *corev1.ResourceList
 			for _, topologyZone := range rt.TopologyZone {
 				if topologyZone.Type != v1alpha1.TopologyTypeSocket {

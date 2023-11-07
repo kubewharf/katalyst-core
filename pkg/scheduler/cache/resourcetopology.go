@@ -29,6 +29,8 @@ type ResourceTopology struct {
 	TopologyPolicy v1alpha1.TopologyPolicy
 }
 
+type podFilter func(consumer string) bool
+
 func (rt *ResourceTopology) Update(nrt *v1alpha1.CustomNodeResource) {
 	cp := nrt.DeepCopy()
 
@@ -39,28 +41,39 @@ func (rt *ResourceTopology) Update(nrt *v1alpha1.CustomNodeResource) {
 
 // WithPodReousrce add assumedPodResource to ResourceTopology,
 // performing pessimistic overallocation across all the NUMA zones.
-func (rt *ResourceTopology) WithPodReousrce(podResource native.PodResource) *ResourceTopology {
+func (rt *ResourceTopology) WithPodReousrce(podResource native.PodResource, filter podFilter) *ResourceTopology {
 	cp := rt.DeepCopy()
 
-	if len(podResource) == 0 {
-		return cp
-	}
-	for _, topologyZone := range cp.TopologyZone {
-		if topologyZone.Type != v1alpha1.TopologyTypeSocket {
+	for i := range cp.TopologyZone {
+		if cp.TopologyZone[i].Type != v1alpha1.TopologyTypeSocket {
 			continue
 		}
-		for _, child := range topologyZone.Children {
+		for j, child := range cp.TopologyZone[i].Children {
 			if child.Type != v1alpha1.TopologyTypeNuma {
 				continue
 			}
+			allocation := make([]*v1alpha1.Allocation, 0)
+
+			if filter != nil {
+				for _, alloc := range child.Allocations {
+					if filter(alloc.Consumer) {
+						allocation = append(allocation, alloc.DeepCopy())
+					}
+				}
+			} else {
+				allocation = append(allocation, child.Allocations...)
+			}
+
 			for key, podReq := range podResource {
 				copyReq := podReq.DeepCopy()
 				fakeAllocation := v1alpha1.Allocation{
 					Consumer: fmt.Sprintf("fake-consumer/%s/uid", key),
 					Requests: &copyReq,
 				}
-				child.Allocations = append(child.Allocations, &fakeAllocation)
+				allocation = append(allocation, &fakeAllocation)
 			}
+
+			cp.TopologyZone[i].Children[j].Allocations = allocation
 		}
 	}
 
