@@ -555,6 +555,8 @@ Compatibility matrix:
           filter:
             enabled:
             - name: QoSAwareNodeResourcesFit
+            disabled:
+            - name: NodeResourcesFit
           score:
             enabled:
             - name: QoSAwareNodeResourcesFit
@@ -619,6 +621,8 @@ Compatibility matrix:
           filter:
             enabled:
             - name: QoSAwareNodeResourcesFit
+            disabled:
+            - name: NodeResourcesFit
           score:
             enabled:
             - name: QoSAwareNodeResourcesFit
@@ -761,6 +765,8 @@ Compatibility matrix:
           filter:
             enabled:
             - name: QoSAwareNodeResourcesFit
+            disabled:
+            - name: NodeResourcesFit
           score:
             enabled:
             - name: QoSAwareNodeResourcesFit
@@ -825,6 +831,8 @@ Compatibility matrix:
           filter:
             enabled:
             - name: QoSAwareNodeResourcesFit
+            disabled:
+            - name: NodeResourcesFit
           score:
             enabled:
             - name: QoSAwareNodeResourcesFit

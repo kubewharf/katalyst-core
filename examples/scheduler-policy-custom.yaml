@@ -35,6 +35,8 @@ data:
           filter:
             enabled:
               - name: QoSAwareNodeResourcesFit
+            disabled:
+              - name: NodeResourcesFit
           score:
             enabled:
               - name: QoSAwareNodeResourcesFit
