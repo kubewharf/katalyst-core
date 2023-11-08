@@ -17,6 +17,7 @@ limitations under the License.
 package types
 
 import (
+	"sync"
 	"time"
 
 	"k8s.io/apimachinery/pkg/util/sets"
@@ -96,4 +97,8 @@ const (
 
 type TriggerInfo struct {
 	TimeStamp time.Time
+}
+
+type NodeInfo struct {
+	Headroom sync.Map
 }

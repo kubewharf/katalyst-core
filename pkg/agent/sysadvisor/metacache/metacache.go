@@ -22,6 +22,7 @@ import (
 	"sync"
 	"time"
 
+	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/klog/v2"
 	"k8s.io/kubernetes/pkg/kubelet/checkpointmanager"
@@ -77,6 +78,8 @@ type MetaReader interface {
 	// GetPodsInferenceResult gets specified model inference result
 	GetInferenceResult(modelName string) (interface{}, error)
 
+	GetHeadroom(name types.QoSResourceName) (*resource.Quantity, error)
+
 	metric.MetricsReader
 }
 
@@ -116,6 +119,8 @@ type MetaWriter interface {
 
 	// SetInferenceResult sets specified model inference result
 	SetInferenceResult(modelName string, result interface{}) error
+
+	SetHeadroom(name types.QoSResourceName, headroom resource.Quantity)
 }
 
 type AdvisorNotifier struct{}
@@ -148,6 +153,8 @@ type MetaCacheImp struct {
 
 	modelToResult map[string]interface{}
 	modelMutex    sync.RWMutex
+
+	nodeInfo types.NodeInfo
 }
 
 var _ MetaCache = &MetaCacheImp{}
@@ -504,6 +511,22 @@ func (mc *MetaCacheImp) SetInferenceResult(modelName string, result interface{})
 
 	mc.modelToResult[modelName] = result
 	return nil
+}
+
+func (mc *MetaCacheImp) SetHeadroom(name types.QoSResourceName, headroom resource.Quantity) {
+	mc.nodeInfo.Headroom.Store(name, headroom)
+}
+
+func (mc *MetaCacheImp) GetHeadroom(name types.QoSResourceName) (*resource.Quantity, error) {
+	v, ok := mc.nodeInfo.Headroom.Load(name)
+	if !ok {
+		return nil, fmt.Errorf("failed to get %v", name)
+	}
+	q, ok := v.(*resource.Quantity)
+	if !ok {
+		return nil, fmt.Errorf("%v failed to convert to *resource.Quantity", name)
+	}
+	return q, nil
 }
 
 /*

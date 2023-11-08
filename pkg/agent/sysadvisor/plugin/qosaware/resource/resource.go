@@ -62,6 +62,7 @@ type SubResourceAdvisor interface {
 
 type resourceAdvisorWrapper struct {
 	subAdvisorsToRun map[types.QoSResourceName]SubResourceAdvisor
+	metaCache        metacache.MetaCache
 }
 
 // NewResourceAdvisor returns a resource advisor wrapper instance, initializing all required
@@ -70,6 +71,7 @@ func NewResourceAdvisor(conf *config.Configuration, extraConf interface{}, metaC
 	metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter) (ResourceAdvisor, error) {
 	resourceAdvisor := resourceAdvisorWrapper{
 		subAdvisorsToRun: make(map[types.QoSResourceName]SubResourceAdvisor),
+		metaCache:        metaCache,
 	}
 
 	for _, resourceNameStr := range conf.ResourceAdvisors {
@@ -112,10 +114,12 @@ func (ra *resourceAdvisorWrapper) GetSubAdvisor(resourceName types.QoSResourceNa
 
 func (ra *resourceAdvisorWrapper) GetHeadroom(resourceName v1.ResourceName) (resource.Quantity, error) {
 	switch resourceName {
-	case v1.ResourceCPU:
-		return ra.getSubAdvisorHeadroom(types.QoSResourceCPU)
-	case v1.ResourceMemory:
-		return ra.getSubAdvisorHeadroom(types.QoSResourceMemory)
+	case v1.ResourceCPU, v1.ResourceMemory:
+		headroom, err := ra.getSubAdvisorHeadroom(types.QoSResourceName(resourceName))
+		if err == nil {
+			ra.metaCache.SetHeadroom(types.QoSResourceName(resourceName), headroom)
+		}
+		return headroom, err
 	default:
 		return resource.Quantity{}, fmt.Errorf("illegal resource %v", resourceName)
 	}
