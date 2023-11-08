@@ -21,6 +21,7 @@ import (
 	"fmt"
 
 	v1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
 
 	"github.com/kubewharf/katalyst-core/pkg/util"
@@ -107,8 +108,10 @@ type serviceProfilingManager struct {
 
 func (m *serviceProfilingManager) ServiceBaseline(ctx context.Context, pod *v1.Pod) (bool, error) {
 	spd, err := m.fetcher.GetSPD(ctx, pod)
-	if err != nil {
+	if err != nil && !errors.IsNotFound(err) {
 		return false, err
+	} else if err != nil {
+		return false, nil
 	}
 
 	baselinePod, enable, err := util.IsBaselinePod(pod, spd)
