@@ -14,10 +14,11 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package plugin
+package resource
 
 import (
 	"context"
+	"github.com/kubewharf/katalyst-core/pkg/agent/evictionmanager/plugin"
 	"time"
 
 	v1 "k8s.io/api/core/v1"
@@ -38,7 +39,7 @@ type reclaimedResourcesPlugin struct {
 }
 
 func NewReclaimedResourcesEvictionPlugin(_ *client.GenericClientSet, _ events.EventRecorder,
-	metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter, conf *config.Configuration) EvictionPlugin {
+	metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter, conf *config.Configuration) plugin.EvictionPlugin {
 	reclaimedResourcesGetter := func(ctx context.Context) (v1.ResourceList, error) {
 		cnr, err := metaServer.GetCNR(ctx)
 		if err != nil {
