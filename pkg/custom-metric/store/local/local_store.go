@@ -40,9 +40,13 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 )
 
-const MetricStoreNameLocalMemory = "local-memory-store"
+const (
+	MetricStoreNameLocalMemory = "local-memory-store"
 
-const labelIndexEmpty string = "empty"
+	labelIndexEmpty string = "empty"
+
+	MetricNameInsertFailed = "kcmas_local_store_insert_failed"
+)
 
 // getLabelIndexFunc is a function to get a index function that indexes based on object's label[labelName]
 var getLabelIndexFunc = func(labelName string) func(interface{}) ([]string, error) {
@@ -99,7 +103,7 @@ func NewLocalMemoryMetricStore(ctx context.Context, baseCtx *katalystbase.Generi
 		ctx:               ctx,
 		genericConf:       genericConf,
 		storeConf:         storeConf,
-		cache:             data.NewCachedMetric(metricsEmitter),
+		cache:             data.NewCachedMetric(metricsEmitter, data.ObjectMetricStoreTypeBucket),
 		validMetricObject: data.GetSupportedMetricObject(),
 		objectLister:      make(map[string]cache.GenericLister),
 		objectInformer:    make(map[string]cache.SharedIndexInformer),
@@ -156,7 +160,15 @@ func (l *LocalMemoryMetricStore) InsertMetric(seriesList []*data.MetricSeries) e
 			continue
 		}
 
-		l.cache.AddSeriesMetric(seriesData)
+		err := l.cache.AddSeriesMetric(seriesData)
+		if err != nil {
+			klog.Infof("Insert Metric failed, metricName: %v,objectName:%v,len:%v,", seriesData.GetName(), seriesData.GetObjectName(), seriesData.Len())
+			_ = l.emitter.StoreInt64(MetricNameInsertFailed, 1, metrics.MetricTypeNameCount,
+				metrics.MetricTag{Key: "metric_name", Val: seriesData.GetName()},
+				metrics.MetricTag{Key: "object_kind", Val: seriesData.GetObjectKind()},
+			)
+			return err
+		}
 		klog.V(6).Infof("LocalMemoryMetricStore] insert with %v, costs %s", seriesData.String(), time.Since(begin).String())
 	}
 	return nil
@@ -212,27 +224,36 @@ func (l *LocalMemoryMetricStore) GetMetric(_ context.Context, namespace, metricN
 		klog.V(5).Infof("[LocalMemoryMetricStore] GetMetric costs %s", time.Since(begin).String())
 	}()
 
-	var res []types.Metric
-	var metricList []types.Metric
+	var (
+		res               []types.Metric
+		metricList        []types.Metric
+		err               error
+		hitIndex          bool
+		matchedObjectMeta []types.ObjectMetaImp
+	)
 
 	// always try to get by metric-name if nominated, otherwise list all internal metrics
 	if metricName != "" && metricName != "*" {
 		if objName != "" && objName != "*" {
-			metricList, _ = l.cache.GetMetric(namespace, metricName, objName, nil, gr, latest)
+			metricList, _, err = l.cache.GetMetric(namespace, metricName, objName, nil, gr, latest)
 		} else {
-			hitIndex, matchedObjectMeta, err := l.getObjectMetaByIndex(gr, objSelector)
+			hitIndex, matchedObjectMeta, err = l.getObjectMetaByIndex(gr, objSelector)
 			if err != nil {
 				return metricList, err
 			}
 
 			if hitIndex {
-				metricList, _ = l.cache.GetMetric(namespace, metricName, objName, matchedObjectMeta, gr, latest)
+				metricList, _, err = l.cache.GetMetric(namespace, metricName, objName, matchedObjectMeta, gr, latest)
 			} else {
-				metricList, _ = l.cache.GetMetric(namespace, metricName, objName, nil, gr, latest)
+				metricList, _, err = l.cache.GetMetric(namespace, metricName, objName, nil, gr, latest)
 			}
 		}
 	} else {
 		metricList = l.cache.GetAllMetricsInNamespace(namespace)
+	}
+
+	if err != nil {
+		return metricList, err
 	}
 
 	for _, metricItem := range metricList {
