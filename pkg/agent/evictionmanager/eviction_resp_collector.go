@@ -161,7 +161,8 @@ func (e *evictionRespCollector) collectMetThreshold(dryRunPlugins []string, plug
 	}
 }
 
-func (e *evictionRespCollector) collectTopEvictionPods(dryRunPlugins []string, pluginName string, threshold *pluginapi.ThresholdMetResponse, resp *pluginapi.GetTopEvictionPodsResponse) {
+func (e *evictionRespCollector) collectTopEvictionPods(dryRunPlugins []string, pluginName string,
+	threshold *pluginapi.ThresholdMetResponse, resp *pluginapi.GetTopEvictionPodsResponse) {
 	dryRun := e.isDryRun(dryRunPlugins, pluginName)
 
 	targetPods := make([]*v1.Pod, 0, len(resp.TargetPods))
@@ -184,7 +185,8 @@ func (e *evictionRespCollector) collectTopEvictionPods(dryRunPlugins []string, p
 
 	for _, pod := range targetPods {
 		deletionOptions := resp.DeletionOptions
-		reason := fmt.Sprintf(" met threshold in scope: %s from plugin: %s", threshold.EvictionScope, pluginName)
+		reason := fmt.Sprintf("plugin %s met threshold in scope %s, target %v, observed %v",
+			pluginName, threshold.EvictionScope, threshold.ThresholdValue, threshold.ObservedValue)
 
 		forceEvictPod := e.getForceEvictPods()[string(pod.UID)]
 		if forceEvictPod != nil {
