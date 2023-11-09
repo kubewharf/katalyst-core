@@ -18,6 +18,7 @@ package general
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 
 	"google.golang.org/grpc/codes"
@@ -26,7 +27,8 @@ import (
 
 // common errors
 var (
-	ErrNotFound = fmt.Errorf("not found")
+	ErrNotFound    = fmt.Errorf("not found")
+	ErrKeyNotExist = errors.New("key does not exist")
 )
 
 // IsUnmarshalTypeError check whether is json unmarshal type error
@@ -39,6 +41,10 @@ func IsUnmarshalTypeError(err error) bool {
 
 func IsErrNotFound(err error) bool {
 	return err == ErrNotFound
+}
+
+func IsErrKeyNotExist(err error) bool {
+	return err == ErrKeyNotExist
 }
 
 func IsUnimplementedError(err error) bool {
