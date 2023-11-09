@@ -32,6 +32,7 @@ import (
 	dto "github.com/prometheus/client_model/go"
 	"github.com/prometheus/common/config"
 	"github.com/prometheus/common/expfmt"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/klog/v2"
 
@@ -67,9 +68,11 @@ type ScrapeManager struct {
 	client     *http.Client
 	emitter    metrics.MetricEmitter
 	metricTags []metrics.MetricTag
+
+	metricFilter sets.String
 }
 
-func NewScrapeManager(ctx context.Context, outOfDataPeriod time.Duration, client *http.Client, node, url string, emitter metrics.MetricEmitter, username, password string) (*ScrapeManager, error) {
+func NewScrapeManager(ctx context.Context, outOfDataPeriod time.Duration, client *http.Client, node, url string, emitter metrics.MetricEmitter, username, password string, metricFilter sets.String) (*ScrapeManager, error) {
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
 		return nil, err
@@ -96,6 +99,7 @@ func NewScrapeManager(ctx context.Context, outOfDataPeriod time.Duration, client
 
 		outOfDataPeriod: outOfDataPeriod,
 		storedSeriesMap: make(map[uint64]*data.MetricSeries),
+		metricFilter:    metricFilter,
 	}, nil
 }
 
@@ -121,10 +125,18 @@ func (s *ScrapeManager) HandleMetric(f func(d []*data.MetricSeries, tags ...metr
 	}
 
 	var totalMetricDataCount int64
+	needFilter := s.metricFilter.Len() > 0
 	storedSeriesList := make([]*data.MetricSeries, 0, len(s.storedSeriesMap))
 	for _, series := range s.storedSeriesMap {
-		storedSeriesList = append(storedSeriesList, series)
-		totalMetricDataCount += int64(len(series.Series))
+		if needFilter {
+			if s.metricFilter.Has(series.Name) {
+				storedSeriesList = append(storedSeriesList, series)
+				totalMetricDataCount += int64(len(series.Series))
+			}
+		} else {
+			storedSeriesList = append(storedSeriesList, series)
+			totalMetricDataCount += int64(len(series.Series))
+		}
 	}
 
 	if err := f(storedSeriesList, s.metricTags...); err != nil {

@@ -21,7 +21,7 @@ import (
 	"time"
 
 	"k8s.io/apimachinery/pkg/labels"
-
+	"k8s.io/apimachinery/pkg/util/sets"
 	cliflag "k8s.io/component-base/cli/flag"
 
 	"github.com/kubewharf/katalyst-core/pkg/config/metric"
@@ -40,6 +40,8 @@ type CollectorOptions struct {
 	CollectorName   string
 	CollectInterval time.Duration
 	CredentialPath  string
+
+	MetricFilter []string
 }
 
 // NewCollectorOptions creates a new CollectorOptions with a default config.
@@ -53,6 +55,7 @@ func NewCollectorOptions() *CollectorOptions {
 		NodeLabelSelector: labels.Everything().String(),
 
 		CredentialPath: "/etc/katalyst/credential",
+		MetricFilter:   make([]string, 0),
 	}
 }
 
@@ -74,6 +77,9 @@ func (o *CollectorOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 
 	fs.StringVar(&o.CredentialPath, "credential-path", o.CredentialPath, fmt.Sprintf(
 		"directory path where credential files should be in"))
+
+	fs.StringArrayVar(&o.MetricFilter, "metric-filter", o.MetricFilter, fmt.Sprintf(
+		"which metrics will be collected. If not set,all metrics will be collected."))
 }
 
 // ApplyTo fills up config with options
@@ -95,6 +101,9 @@ func (o *CollectorOptions) ApplyTo(c *metric.CollectorConfiguration) error {
 	c.NodeSelector = nodeSelector
 
 	c.CredentialPath = o.CredentialPath
+
+	c.MetricFilter = sets.String{}
+	c.MetricFilter.Insert(o.MetricFilter...)
 	return nil
 }
 

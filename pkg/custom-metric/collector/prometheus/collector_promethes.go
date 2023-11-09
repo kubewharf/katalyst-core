@@ -338,7 +338,7 @@ func (p *prometheusCollector) addRequest(pod *v1.Pod) {
 	// todo all ScrapeManager will share the same http connection now,
 	//  reconsider whether it's reasonable in production
 	s, err := NewScrapeManager(p.ctx, p.genericConf.OutOfDataPeriod, p.client, pod.Spec.NodeName, targetURL,
-		p.emitter, p.username, p.password)
+		p.emitter, p.username, p.password, p.collectConf.MetricFilter)
 	if err != nil {
 		klog.Errorf("failed to new http.Request: %v", err)
 		return

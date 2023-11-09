@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/util/sets"
 )
 
 type CollectorConfiguration struct {
@@ -39,6 +40,9 @@ type CollectorConfiguration struct {
 	// depends on the authentication method. For now, we only support basic auth,so there should be two files with name
 	// username and password.
 	CredentialPath string
+
+	// metricFilter indicates which metrics will be collected.If metricFilter is not set,all metrics will be collected.
+	MetricFilter sets.String
 }
 
 func NewCollectorConfiguration() *CollectorConfiguration {
