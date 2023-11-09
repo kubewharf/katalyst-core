@@ -30,7 +30,7 @@ import (
 	kubeletconfigv1beta1 "k8s.io/kubelet/config/v1beta1"
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 
-	"github.com/kubewharf/katalyst-api/pkg/consts"
+	apiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/config/generic"
 	"github.com/kubewharf/katalyst-core/pkg/util/asyncworker"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
@@ -49,9 +49,9 @@ func GetQuantityFromResourceReq(req *pluginapi.ResourceRequest) (int, error) {
 		switch key {
 		case string(v1.ResourceCPU):
 			return general.Max(int(math.Ceil(req.ResourceRequests[key])), 0), nil
-		case string(consts.ReclaimedResourceMilliCPU):
+		case string(apiconsts.ReclaimedResourceMilliCPU):
 			return general.Max(int(math.Ceil(req.ResourceRequests[key]/1000.0)), 0), nil
-		case string(v1.ResourceMemory), string(consts.ReclaimedResourceMemory), string(consts.ResourceNetBandwidth):
+		case string(v1.ResourceMemory), string(apiconsts.ReclaimedResourceMemory), string(apiconsts.ResourceNetBandwidth):
 			return general.Max(int(math.Ceil(req.ResourceRequests[key])), 0), nil
 		default:
 			return 0, fmt.Errorf("invalid request resource name: %s", key)
@@ -90,7 +90,7 @@ func GetKatalystQoSLevelFromResourceReq(qosConf *generic.QoSConfiguration, req *
 	if req.Annotations == nil {
 		req.Annotations = make(map[string]string)
 	}
-	req.Annotations[consts.PodAnnotationQoSLevelKey] = qosLevel
+	req.Annotations[apiconsts.PodAnnotationQoSLevelKey] = qosLevel
 	parsedAnnotations, err := qosConf.FilterQoSAndEnhancement(req.Annotations)
 	if err != nil {
 		err = fmt.Errorf("ParseKatalystAnnotations failed with error: %v", err)
@@ -101,7 +101,7 @@ func GetKatalystQoSLevelFromResourceReq(qosConf *generic.QoSConfiguration, req *
 	if req.Labels == nil {
 		req.Labels = make(map[string]string)
 	}
-	req.Labels[consts.PodAnnotationQoSLevelKey] = qosLevel
+	req.Labels[apiconsts.PodAnnotationQoSLevelKey] = qosLevel
 	req.Labels = qosConf.FilterQoSMap(req.Labels)
 	return
 }

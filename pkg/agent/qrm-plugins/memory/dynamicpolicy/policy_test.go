@@ -1,3 +1,6 @@
+//go:build linux
+// +build linux
+
 /*
 Copyright 2022 The Katalyst Authors.
 
@@ -22,12 +25,16 @@ import (
 	"io/ioutil"
 	"os"
 	"path"
+	"path/filepath"
 	"reflect"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/cilium/ebpf"
+	"github.com/cilium/ebpf/rlimit"
 	info "github.com/google/cadvisor/info/v1"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -45,6 +52,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/advisorsvc"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/memory/dynamicpolicy/memoryadvisor"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/memory/dynamicpolicy/oom"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/memory/dynamicpolicy/state"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util"
 	"github.com/kubewharf/katalyst-core/pkg/config"
@@ -59,6 +67,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/external"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
+	"github.com/kubewharf/katalyst-core/pkg/util/qos"
 )
 
 const (
@@ -2780,6 +2789,451 @@ func TestDynamicPolicy_ListContainers(t *testing.T) {
 			}
 			if !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("DynamicPolicy.ListContainers() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestDynamicPolicy_hasLastLevelEnhancementKey(t *testing.T) {
+	t.Parallel()
+
+	as := require.New(t)
+
+	tmpDir, err := ioutil.TempDir("", "checkpoint-TestDynamicPolicy_hasLastLevelEnhancementKey")
+	as.Nil(err)
+	defer os.RemoveAll(tmpDir)
+
+	cpuTopology, err := machine.GenerateDummyCPUTopology(16, 2, 4)
+	as.Nil(err)
+
+	machineInfo, err := machine.GenerateDummyMachineInfo(4, 32)
+	as.Nil(err)
+
+	dynamicPolicy, err := getTestDynamicPolicyWithInitialization(cpuTopology, machineInfo, tmpDir)
+	as.Nil(err)
+
+	dynamicPolicy.state.SetPodResourceEntries(state.PodResourceEntries{
+		v1.ResourceMemory: state.PodEntries{
+			"podUID": state.ContainerEntries{
+				"testName": &state.AllocationInfo{
+					PodUid:               "podUID",
+					PodNamespace:         "testName",
+					PodName:              "testName",
+					ContainerName:        "testName",
+					ContainerType:        pluginapi.ContainerType_MAIN.String(),
+					ContainerIndex:       0,
+					QoSLevel:             consts.PodAnnotationQoSLevelDedicatedCores,
+					RampUp:               false,
+					AggregatedQuantity:   9663676416,
+					NumaAllocationResult: machine.NewCPUSet(0),
+					TopologyAwareAllocations: map[int]uint64{
+						0: 9663676416,
+					},
+					Annotations: map[string]string{
+						consts.PodAnnotationQoSLevelKey:                  consts.PodAnnotationQoSLevelDedicatedCores,
+						consts.PodAnnotationMemoryEnhancementNumaBinding: consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
+						consts.PodAnnotationMemoryEnhancementOOMPriority: strconv.Itoa(qos.DefaultDedicatedCoresOOMPriorityScore),
+					},
+					Labels: map[string]string{
+						consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelDedicatedCores,
+					},
+				},
+			},
+			"podUID-1": state.ContainerEntries{
+				"testName-1": &state.AllocationInfo{
+					PodUid:               "podUID-1",
+					PodNamespace:         "testName-1",
+					PodName:              "testName-1",
+					ContainerName:        "testName-1",
+					ContainerType:        pluginapi.ContainerType_MAIN.String(),
+					ContainerIndex:       0,
+					QoSLevel:             consts.PodAnnotationQoSLevelDedicatedCores,
+					RampUp:               false,
+					AggregatedQuantity:   9663676416,
+					NumaAllocationResult: machine.NewCPUSet(0),
+					TopologyAwareAllocations: map[int]uint64{
+						0: 9663676416,
+					},
+				},
+			},
+		},
+	})
+
+	type args struct {
+		lastLevelEnhancementKey string
+		podUID                  string
+	}
+	tests := []struct {
+		name string
+		args args
+		want bool
+	}{
+		{
+			name: "test hasLastLevelEnhancementKey with key",
+			args: args{
+				lastLevelEnhancementKey: consts.PodAnnotationMemoryEnhancementOOMPriority,
+				podUID:                  "podUID",
+			},
+			want: true,
+		},
+		{
+			name: "test hasLastLevelEnhancementKey without key",
+			args: args{
+				lastLevelEnhancementKey: consts.PodAnnotationMemoryEnhancementOOMPriority,
+				podUID:                  "podUID-1",
+			},
+			want: false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := dynamicPolicy.hasLastLevelEnhancementKey(tt.args.lastLevelEnhancementKey, tt.args.podUID); got != tt.want {
+				t.Errorf("DynamicPolicy.hasLastLevelEnhancementKey() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+var once sync.Once
+
+func bpfTestInit() {
+	if err := rlimit.RemoveMemlock(); err != nil {
+		fmt.Println("Error removing memlock:", err)
+	}
+}
+
+// TempBPFFS creates a temporary directory on a BPF FS.
+//
+// The directory is automatically cleaned up at the end of the test run.
+func TempBPFFS(tb testing.TB) string {
+	tb.Helper()
+
+	if err := os.MkdirAll("/sys/fs/bpf", 0755); err != nil {
+		tb.Fatal("Failed to create /sys/fs/bpf directory:", err)
+	}
+
+	tmp, err := os.MkdirTemp("/sys/fs/bpf", "ebpf-test")
+	if err != nil {
+		tb.Fatal("Create temporary directory on BPFFS:", err)
+	}
+	tb.Cleanup(func() { os.RemoveAll(tmp) })
+
+	return tmp
+}
+
+func createMap(t *testing.T) *ebpf.Map {
+	t.Helper()
+
+	m, err := ebpf.NewMap(&ebpf.MapSpec{
+		Type:       ebpf.Hash,
+		KeySize:    8,
+		ValueSize:  8,
+		MaxEntries: 2,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return m
+}
+
+func TestClearResidualOOMPriority(t *testing.T) {
+	t.Parallel()
+
+	as := require.New(t)
+
+	once.Do(bpfTestInit)
+
+	tmpDir, err := ioutil.TempDir("", "checkpoint-TestClearResidualOOMPriority")
+	as.Nil(err)
+	defer os.RemoveAll(tmpDir)
+
+	cpuTopology, err := machine.GenerateDummyCPUTopology(16, 2, 4)
+	as.Nil(err)
+
+	machineInfo, err := machine.GenerateDummyMachineInfo(4, 32)
+	as.Nil(err)
+
+	dynamicPolicy, err := getTestDynamicPolicyWithInitialization(cpuTopology, machineInfo, tmpDir)
+	as.Nil(err)
+
+	dynamicPolicy.metaServer = &metaserver.MetaServer{
+		MetaAgent: &agent.MetaAgent{
+			PodFetcher: &pod.PodFetcherStub{},
+		},
+	}
+
+	dynamicPolicy.enableOOMPriority = true
+	dynamicPolicy.enhancementHandlers = make(util.ResourceEnhancementHandlerMap)
+
+	m := createMap(t)
+	defer m.Close()
+
+	tmp := TempBPFFS(t)
+	path := filepath.Join(tmp, "map")
+
+	if err := m.Pin(path); err != nil {
+		t.Fatal(err)
+	}
+
+	pinned := m.IsPinned()
+	as.True(pinned)
+
+	m.Close()
+
+	dynamicPolicy.clearResidualOOMPriority(&config.Configuration{
+		GenericConfiguration: &generic.GenericConfiguration{
+			QoSConfiguration: dynamicPolicy.qosConfig,
+		},
+	}, nil, nil, dynamicPolicy.emitter, dynamicPolicy.metaServer)
+
+	dynamicPolicy.oomPriorityMap, err = ebpf.LoadPinnedMap(path, &ebpf.LoadPinOptions{})
+	if err != nil {
+		t.Fatalf("load oom priority map at: %s failed with error: %v", path, err)
+	}
+	defer dynamicPolicy.oomPriorityMap.Close()
+
+	time.Sleep(1 * time.Second)
+
+	if err := dynamicPolicy.oomPriorityMap.Put(uint64(0), int64(100)); err != nil {
+		t.Fatal("Can't put:", err)
+	}
+
+	dynamicPolicy.clearResidualOOMPriority(&config.Configuration{
+		GenericConfiguration: &generic.GenericConfiguration{
+			QoSConfiguration: dynamicPolicy.qosConfig,
+		},
+	}, nil, nil, dynamicPolicy.emitter, dynamicPolicy.metaServer)
+}
+
+func TestSyncOOMPriority(t *testing.T) {
+	t.Parallel()
+
+	as := require.New(t)
+
+	once.Do(bpfTestInit)
+
+	tmpDir, err := ioutil.TempDir("", "checkpoint-TestSyncOOMPriority")
+	as.Nil(err)
+	defer os.RemoveAll(tmpDir)
+
+	cpuTopology, err := machine.GenerateDummyCPUTopology(16, 2, 4)
+	as.Nil(err)
+
+	machineInfo, err := machine.GenerateDummyMachineInfo(4, 32)
+	as.Nil(err)
+
+	dynamicPolicy, err := getTestDynamicPolicyWithInitialization(cpuTopology, machineInfo, tmpDir)
+	as.Nil(err)
+
+	dynamicPolicy.metaServer = &metaserver.MetaServer{
+		MetaAgent: &agent.MetaAgent{
+			PodFetcher: &pod.PodFetcherStub{},
+		},
+	}
+
+	m := createMap(t)
+	defer m.Close()
+
+	tmp := TempBPFFS(t)
+	path := filepath.Join(tmp, "map")
+
+	if err := m.Pin(path); err != nil {
+		t.Fatal(err)
+	}
+
+	pinned := m.IsPinned()
+	as.True(pinned)
+
+	m.Close()
+
+	dynamicPolicy.syncOOMPriority(&config.Configuration{
+		GenericConfiguration: &generic.GenericConfiguration{
+			QoSConfiguration: dynamicPolicy.qosConfig,
+		},
+	}, nil, nil, dynamicPolicy.emitter, dynamicPolicy.metaServer)
+
+	dynamicPolicy.oomPriorityMap, err = ebpf.LoadPinnedMap(path, &ebpf.LoadPinOptions{})
+	if err != nil {
+		t.Fatalf("load oom priority map at: %s failed with error: %v", path, err)
+	}
+	defer dynamicPolicy.oomPriorityMap.Close()
+
+	time.Sleep(1 * time.Second)
+
+	dynamicPolicy.syncOOMPriority(&config.Configuration{
+		GenericConfiguration: &generic.GenericConfiguration{
+			QoSConfiguration: dynamicPolicy.qosConfig,
+		},
+	}, nil, nil, dynamicPolicy.emitter, nil)
+
+	dynamicPolicy.syncOOMPriority(&config.Configuration{
+		GenericConfiguration: &generic.GenericConfiguration{
+			QoSConfiguration: dynamicPolicy.qosConfig,
+		},
+	}, nil, nil, dynamicPolicy.emitter, dynamicPolicy.metaServer)
+}
+
+func TestClearOOMPriority(t *testing.T) {
+	t.Parallel()
+
+	as := require.New(t)
+
+	once.Do(bpfTestInit)
+
+	tmpDir, err := ioutil.TempDir("", "checkpoint-TestClearOOMPriority")
+	as.Nil(err)
+	defer os.RemoveAll(tmpDir)
+
+	cpuTopology, err := machine.GenerateDummyCPUTopology(16, 2, 4)
+	as.Nil(err)
+
+	machineInfo, err := machine.GenerateDummyMachineInfo(4, 32)
+	as.Nil(err)
+
+	dynamicPolicy, err := getTestDynamicPolicyWithInitialization(cpuTopology, machineInfo, tmpDir)
+	as.Nil(err)
+
+	dynamicPolicy.metaServer = &metaserver.MetaServer{
+		MetaAgent: &agent.MetaAgent{
+			PodFetcher: &pod.PodFetcherStub{},
+		},
+		ExternalManager: external.InitExternalManager(&pod.PodFetcherStub{}),
+	}
+
+	m := createMap(t)
+	defer m.Close()
+
+	tmp := TempBPFFS(t)
+	path := filepath.Join(tmp, "map")
+
+	if err := m.Pin(path); err != nil {
+		t.Fatal(err)
+	}
+
+	pinned := m.IsPinned()
+	as.True(pinned)
+
+	m.Close()
+
+	req1 := &pluginapi.ResourceRequest{
+		PodUid: "pod-1",
+	}
+
+	req2 := &pluginapi.RemovePodRequest{
+		PodUid: "pod-1",
+	}
+
+	dynamicPolicy.clearOOMPriority(context.Background(), dynamicPolicy.emitter,
+		dynamicPolicy.metaServer, req1, nil)
+
+	dynamicPolicy.oomPriorityMap, err = ebpf.LoadPinnedMap(path, &ebpf.LoadPinOptions{})
+	if err != nil {
+		t.Fatalf("load oom priority map at: %s failed with error: %v", path, err)
+	}
+	defer dynamicPolicy.oomPriorityMap.Close()
+
+	time.Sleep(1 * time.Second)
+
+	dynamicPolicy.clearOOMPriority(context.Background(), dynamicPolicy.emitter,
+		dynamicPolicy.metaServer, req2, nil)
+}
+
+func TestPollOOMBPFInit(t *testing.T) {
+	t.Parallel()
+
+	as := require.New(t)
+
+	once.Do(bpfTestInit)
+
+	cpuTopology, err := machine.GenerateDummyCPUTopology(16, 2, 4)
+	as.Nil(err)
+
+	machineInfo, err := machine.GenerateDummyMachineInfo(4, 32)
+	as.Nil(err)
+
+	m := createMap(t)
+	defer m.Close()
+
+	tmp := TempBPFFS(t)
+	path := filepath.Join(tmp, "map")
+
+	if err := m.Pin(path); err != nil {
+		t.Fatal(err)
+	}
+
+	pinned := m.IsPinned()
+	as.True(pinned)
+
+	m.Close()
+
+	type args struct {
+		isNilMap      bool
+		isNilInitFunc bool
+	}
+	tests := []struct {
+		name      string
+		args      args
+		isWantNil bool
+	}{
+		{
+			name: "test with nil ebpf map and nil initOOMPriorityBPF",
+			args: args{
+				isNilMap:      true,
+				isNilInitFunc: true,
+			},
+			isWantNil: true,
+		},
+		{
+			name: "test with nil ebpf map and dummyInitOOMPriorityBPF",
+			args: args{
+				isNilMap:      true,
+				isNilInitFunc: false,
+			},
+			isWantNil: true,
+		},
+		{
+			name: "test with loaded ebpf map and dummyInitOOMPriorityBPF",
+			args: args{
+				isNilMap:      false,
+				isNilInitFunc: false,
+			},
+			isWantNil: false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tmpDir, err := ioutil.TempDir("", "checkpoint-TestPollOOMBPFInit")
+			as.Nil(err)
+			defer os.RemoveAll(tmpDir)
+
+			dynamicPolicy, err := getTestDynamicPolicyWithInitialization(cpuTopology, machineInfo, tmpDir)
+			as.Nil(err)
+
+			if !tt.args.isNilMap {
+				dynamicPolicy.oomPriorityMapPinnedPath = path
+			}
+
+			if !tt.args.isNilInitFunc {
+				oom.SetInitOOMPriorityBPFFunc(oom.DummyInitOOMPriorityBPF)
+			}
+
+			dynamicPolicy.stopCh = make(chan struct{})
+			go dynamicPolicy.PollOOMBPFInit(dynamicPolicy.stopCh)
+			time.Sleep(1 * time.Second)
+			close(dynamicPolicy.stopCh)
+
+			dynamicPolicy.oomPriorityMapLock.Lock()
+			defer func() {
+				if dynamicPolicy.oomPriorityMap != nil {
+					dynamicPolicy.oomPriorityMap.Close()
+				}
+				dynamicPolicy.oomPriorityMapLock.Unlock()
+			}()
+
+			if tt.isWantNil && dynamicPolicy.oomPriorityMap != nil {
+				t.Errorf("TestPollOOMBPFInit() failed: oomPriorityMap should be nil, but it's not")
+			} else if !tt.isWantNil && dynamicPolicy.oomPriorityMap == nil {
+				t.Errorf("TestPollOOMBPFInit() failed: oomPriorityMap should not be nil, but it is")
 			}
 		})
 	}

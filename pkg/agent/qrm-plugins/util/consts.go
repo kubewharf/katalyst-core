@@ -16,17 +16,6 @@ limitations under the License.
 
 package util
 
-import (
-	"context"
-
-	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
-)
-
-// AllocationHandler and HintHandler are used as standard functions
-// for qrm plugins to acquire resource allocation/hint info
-type AllocationHandler func(context.Context, *pluginapi.ResourceRequest) (*pluginapi.ResourceAllocationResponse, error)
-type HintHandler func(context.Context, *pluginapi.ResourceRequest) (*pluginapi.ResourceHintsResponse, error)
-
 const (
 	// common metrics for all types of qrm plugins
 	MetricNameHeartBeat               = "heartbeat"
@@ -53,6 +42,8 @@ const (
 	MetricNameMemoryHandleAdvisorMemoryLimit          = "memory_handle_advisor_memory_limit"
 	MetricNameMemoryHandleAdvisorDropCache            = "memory_handle_advisor_drop_cache"
 	MetricNameMemoryHandleAdvisorCPUSetMems           = "memory_handle_advisor_cpuset_mems"
+	MetricNameMemoryOOMPriorityDeleteFailed           = "memory_oom_priority_delete_failed"
+	MetricNameMemoryOOMPriorityUpdateFailed           = "memory_oom_priority_update_failed"
 )
 
 // those are OCI property names to be used by QRM plugins

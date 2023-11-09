@@ -5,6 +5,7 @@ go 1.18
 require (
 	github.com/alecthomas/units v0.0.0-20190924025748-f65c72e2690d
 	github.com/cespare/xxhash v1.1.0
+	github.com/cilium/ebpf v0.7.0
 	github.com/containerd/cgroups v1.0.1
 	github.com/evanphx/json-patch v4.12.0+incompatible
 	github.com/fsnotify/fsnotify v1.5.1
@@ -60,7 +61,6 @@ require (
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/blang/semver/v4 v4.0.0 // indirect
 	github.com/cespare/xxhash/v2 v2.1.2 // indirect
-	github.com/cilium/ebpf v0.7.0 // indirect
 	github.com/coreos/go-semver v0.3.0 // indirect
 	github.com/coreos/go-systemd/v22 v22.3.2 // indirect
 	github.com/cyphar/filepath-securejoin v0.2.3 // indirect

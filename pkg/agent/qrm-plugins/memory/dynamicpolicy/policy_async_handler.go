@@ -19,6 +19,8 @@ package dynamicpolicy
 import (
 	"context"
 	"fmt"
+	"strconv"
+	"sync"
 	"time"
 
 	v1 "k8s.io/api/core/v1"
@@ -27,13 +29,19 @@ import (
 	"github.com/kubewharf/katalyst-api/pkg/consts"
 	apiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/memory/dynamicpolicy/oom"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/memory/dynamicpolicy/state"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util"
+	coreconfig "github.com/kubewharf/katalyst-core/pkg/config"
+	dynamicconfig "github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic"
+	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/cgroup/common"
 	cgroupmgr "github.com/kubewharf/katalyst-core/pkg/util/cgroup/manager"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
+	"github.com/kubewharf/katalyst-core/pkg/util/native"
+	"github.com/kubewharf/katalyst-core/pkg/util/qos"
 )
 
 // setExtraControlKnobByConfigForAllocationInfo sets control knob entry for container,
@@ -219,7 +227,7 @@ func (p *DynamicPolicy) checkMemorySet() {
 				continue
 			} else if allocationInfo.QoSLevel == consts.PodAnnotationQoSLevelSharedCores &&
 				p.getContainerRequestedMemoryBytes(allocationInfo) == 0 {
-				general.Warningf("skip memset checking for pod: %s/%s container: %s with zero cpu request",
+				general.Warningf("skip memset checking for pod: %s/%s container: %s with zero memory request",
 					allocationInfo.PodNamespace, allocationInfo.PodName, containerName)
 				continue
 			} else if allocationInfo.CheckNumaBinding() {
@@ -255,7 +263,7 @@ func (p *DynamicPolicy) checkMemorySet() {
 				allocationInfo.PodNamespace, allocationInfo.PodName, allocationInfo.ContainerName,
 				allocationInfo.NumaAllocationResult.String(), actualMemorySets[podUID][containerName].String())
 
-			// only do comparison for dedicated_cores with numa_biding to avoid effect of adjustment for shared_cores
+			// only do comparison for dedicated_cores with numa_binding to avoid effect of adjustment for shared_cores
 			if !allocationInfo.CheckNumaBinding() {
 				continue
 			}
@@ -480,4 +488,226 @@ func (p *DynamicPolicy) setMemoryMigrate() {
 		}
 	}
 	p.migrateMemoryLock.Unlock()
+}
+
+// clearResidualOOMPriority is used to clean residual oom pinned map entries
+func (p *DynamicPolicy) clearResidualOOMPriority(conf *coreconfig.Configuration,
+	_ interface{}, _ *dynamicconfig.DynamicAgentConfiguration,
+	emitter metrics.MetricEmitter, metaServer *metaserver.MetaServer) {
+	if p.oomPriorityMap == nil {
+		general.Infof("oom priority bpf has not been initialized yet")
+		return
+	}
+	general.Infof("called")
+
+	ctx := context.Background()
+	activePods, err := metaServer.GetPodList(ctx, native.PodIsActive)
+	if err != nil {
+		general.Errorf("failed to list active pods from metaServer: %v", err)
+		return
+	}
+
+	var activeCgroupIDsMap = make(map[uint64]struct{})
+	for _, pod := range activePods {
+		if pod == nil {
+			general.Errorf("get nil pod from metaServer")
+			continue
+		}
+
+		podUID := string(pod.UID)
+
+		for _, container := range pod.Spec.Containers {
+			containerName := container.Name
+			containerID, err := metaServer.GetContainerID(podUID, containerName)
+			if err != nil {
+				general.Errorf("get container id of pod: %s container: %s failed with error: %v",
+					podUID, containerName, err)
+				continue
+			}
+
+			if exist, err := common.IsContainerCgroupExist(podUID, containerID); err != nil {
+				general.Errorf("check if container cgroup exists failed, pod: %s, container: %s(%s), err: %v",
+					podUID, containerName, containerID, err)
+				continue
+			} else if !exist {
+				general.Infof("container cgroup does not exist, pod: %s, container: %s(%s)", podUID, containerName, containerID)
+				continue
+			}
+
+			cgID, err := metaServer.ExternalManager.GetCgroupIDForContainer(podUID, containerID)
+			if err != nil {
+				general.Errorf("get cgroup id failed, pod: %s, container: %s(%s), err: %v",
+					podUID, containerName, containerID, err)
+				continue
+			}
+
+			activeCgroupIDsMap[cgID] = struct{}{}
+		}
+	}
+
+	p.oomPriorityMapLock.Lock()
+	defer p.oomPriorityMapLock.Unlock()
+
+	// delete the keys in OOM pinned map which do not exist in activeCgroupIDsMap
+	var key uint64
+	var value int64
+	var toDeleteKeys []uint64
+	iter := p.oomPriorityMap.Iterate()
+	for iter.Next(&key, &value) {
+		if _, ok := activeCgroupIDsMap[key]; !ok {
+			toDeleteKeys = append(toDeleteKeys, key)
+		}
+	}
+
+	var wg sync.WaitGroup
+	for _, key := range toDeleteKeys {
+		wg.Add(1)
+		go func(cgID uint64) {
+			err := p.oomPriorityMap.Delete(cgID)
+			if err != nil && !general.IsErrKeyNotExist(err) {
+				general.Errorf("[clearResidualOOMPriority] delete oom pinned map failed: %v", err)
+				_ = emitter.StoreInt64(util.MetricNameMemoryOOMPriorityDeleteFailed, 1,
+					metrics.MetricTypeNameRaw, metrics.ConvertMapToTags(map[string]string{
+						"cg_id": strconv.FormatUint(cgID, 10),
+					})...)
+			}
+			wg.Done()
+		}(key)
+	}
+	wg.Wait()
+}
+
+// syncOOMPriority is used to sync the OOM pinned map according to the current pod list
+func (p *DynamicPolicy) syncOOMPriority(conf *coreconfig.Configuration,
+	_ interface{}, _ *dynamicconfig.DynamicAgentConfiguration,
+	emitter metrics.MetricEmitter, metaServer *metaserver.MetaServer) {
+	if p.oomPriorityMap == nil {
+		general.Infof("oom priority bpf has not been initialized yet")
+		return
+	}
+	general.Infof("called")
+
+	if metaServer == nil {
+		general.Errorf("nil metaServer")
+		return
+	}
+
+	ctx := context.Background()
+	podList, err := metaServer.GetPodList(ctx, native.PodIsActive)
+	if err != nil {
+		general.Infof("get pod list failed: %v", err)
+		return
+	}
+
+	podOOMMaps := make(map[string]map[string]int)
+	var toUpdateKeys []uint64
+	var toUpdateValues []int
+
+	for _, pod := range podList {
+		if pod == nil {
+			general.Errorf("get nil pod from metaServer")
+			continue
+		}
+
+		oomPriority, err := oom.GetOOMPriority(conf.QoSConfiguration, pod)
+		if err != nil {
+			general.Errorf("get oom priority failed for pod: %s, err: %v", string(pod.UID), err)
+			continue
+		}
+
+		if oomPriority == qos.IgnoreOOMPriorityScore {
+			general.Infof("ignore oom priority for pod: %s", string(pod.UID))
+			continue
+		}
+
+		podUID := string(pod.UID)
+		podOOMMaps[podUID] = make(map[string]int)
+
+		for _, container := range pod.Spec.Containers {
+			containerName := container.Name
+			containerID, err := metaServer.GetContainerID(podUID, containerName)
+			if err != nil {
+				general.Errorf("get container id failed, pod: %s, container: %s(%s), err: %v",
+					podUID, containerName, containerID, err)
+				continue
+			}
+
+			if exist, err := common.IsContainerCgroupExist(podUID, containerID); err != nil {
+				general.Errorf("check if container cgroup exists failed, pod: %s, container: %s(%s), err: %v",
+					podUID, containerName, containerID, err)
+				continue
+			} else if !exist {
+				general.Infof("container cgroup does not exist, pod: %s, container: %s(%s)", podUID, containerName, containerID)
+				continue
+			}
+
+			cgID, err := metaServer.ExternalManager.GetCgroupIDForContainer(podUID, containerID)
+			if err != nil {
+				general.Errorf("get cgroup id failed, pod: %s, container: %s(%s), err: %v",
+					podUID, containerName, containerID, err)
+				continue
+			}
+
+			toUpdateKeys = append(toUpdateKeys, cgID)
+			toUpdateValues = append(toUpdateValues, oomPriority)
+			podOOMMaps[podUID][containerName] = oomPriority
+		}
+	}
+
+	// update the OOM pinned map according to the current pod list
+	p.oomPriorityMapLock.Lock()
+	var wg sync.WaitGroup
+
+	for i := 0; i < len(toUpdateKeys); i++ {
+		toUpdateKey, toUpdateValue := toUpdateKeys[i], toUpdateValues[i]
+		wg.Add(1)
+		go func(cgID uint64, oomPriority int) {
+			err := p.oomPriorityMap.Put(cgID, int64(oomPriority))
+			if err != nil {
+				general.Errorf("update oom pinned map failed: %v", err)
+				_ = emitter.StoreInt64(util.MetricNameMemoryOOMPriorityUpdateFailed, 1,
+					metrics.MetricTypeNameRaw, metrics.ConvertMapToTags(map[string]string{
+						"cg_id": strconv.FormatUint(cgID, 10),
+					})...)
+			}
+			wg.Done()
+		}(toUpdateKey, toUpdateValue)
+	}
+	wg.Wait()
+	p.oomPriorityMapLock.Unlock()
+
+	// update oom priority annotation in local state
+	p.Lock()
+	defer p.Unlock()
+
+	podResourceEntries := p.state.GetPodResourceEntries()
+	podEntries := podResourceEntries[v1.ResourceMemory]
+
+	for podUID, containerEntries := range podEntries {
+		if podOOMMaps[podUID] == nil {
+			continue
+		}
+
+		for containerName, allocationInfo := range containerEntries {
+			if allocationInfo == nil {
+				continue
+			}
+
+			if oomPriority, ok := podOOMMaps[podUID][containerName]; !ok ||
+				allocationInfo.Annotations[apiconsts.PodAnnotationMemoryEnhancementOOMPriority] == strconv.Itoa(oomPriority) {
+				continue
+			}
+
+			allocationInfo.Annotations[apiconsts.PodAnnotationMemoryEnhancementOOMPriority] = strconv.Itoa(podOOMMaps[podUID][containerName])
+		}
+	}
+
+	resourcesMachineState, err := state.GenerateMachineStateFromPodEntries(p.state.GetMachineInfo(), podResourceEntries, p.state.GetReservedMemory())
+	if err != nil {
+		general.Errorf("GenerateMachineStateFromPodEntries failed with error: %v", err)
+		return
+	}
+
+	p.state.SetPodResourceEntries(podResourceEntries)
+	p.state.SetMachineState(resourcesMachineState)
 }
