@@ -36,7 +36,8 @@ type ObjectMetricStore interface {
 	Add(objectMeta types.ObjectMetaImp, basicMeta types.BasicMetric) error
 	ObjectExists(objectMeta types.ObjectMetaImp) (bool, error)
 	GetInternalMetricImp(objectMeta types.ObjectMetaImp) (*internal.MetricImp, error)
-	// Iterate is read only,please do not perform any write operation like add/delete to this object
+
+	// Iterate is read only, please do not perform any write operation like add/delete to this object
 	Iterate(f func(internalMetric *internal.MetricImp))
 	Purge()
 	Len() int
