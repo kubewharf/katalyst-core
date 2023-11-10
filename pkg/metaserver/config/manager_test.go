@@ -25,6 +25,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 	v1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -101,6 +102,7 @@ func generateTestCNC(nodeName string) *v1alpha1.CustomNodeConfig {
 }
 
 func generateTestEvictionConfiguration(evictionThreshold map[v1.ResourceName]float64) *v1alpha1.AdminQoSConfiguration {
+	rssOveruseHighMemPodBound := resource.MustParse("100Gi")
 	return &v1alpha1.AdminQoSConfiguration{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "default",
@@ -118,6 +120,7 @@ func generateTestEvictionConfiguration(evictionThreshold map[v1.ResourceName]flo
 						SystemKswapdRateExceedDurationThreshold: &defaultSystemKswapdRateExceedDurationThreshold,
 						NumaEvictionRankingMetrics:              util.ConvertStringListToNumaEvictionRankingMetrics(evictionconfig.DefaultNumaEvictionRankingMetrics),
 						SystemEvictionRankingMetrics:            util.ConvertStringListToSystemEvictionRankingMetrics(evictionconfig.DefaultSystemEvictionRankingMetrics),
+						RSSOveruseHighMemPodBound:               &rssOveruseHighMemPodBound,
 					},
 				},
 			},

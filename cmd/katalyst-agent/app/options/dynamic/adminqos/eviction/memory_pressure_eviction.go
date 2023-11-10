@@ -37,6 +37,8 @@ type MemoryPressureEvictionOptions struct {
 	GracePeriod                             int64
 	EnableRSSOveruseEviction                bool
 	RSSOveruseRateThreshold                 float64
+	RSSOveruseHighMemPodBound               string
+	RSSOveruseHighMemPodRateThreshold       float64
 }
 
 // NewMemoryPressureEvictionOptions returns a new MemoryPressureEvictionOptions
@@ -54,6 +56,8 @@ func NewMemoryPressureEvictionOptions() *MemoryPressureEvictionOptions {
 		GracePeriod:                             eviction.DefaultGracePeriod,
 		EnableRSSOveruseEviction:                eviction.DefaultEnableRssOveruseDetection,
 		RSSOveruseRateThreshold:                 eviction.DefaultRSSOveruseRateThreshold,
+		RSSOveruseHighMemPodBound:               eviction.DefaultRSSOveruseHighMemPodBound,
+		RSSOveruseHighMemPodRateThreshold:       eviction.DefaultRSSOveruseHighMemPodRateThreshold,
 	}
 }
 
@@ -84,7 +88,11 @@ func (o *MemoryPressureEvictionOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 	fs.BoolVar(&o.EnableRSSOveruseEviction, "eviction-enable-rss-overuse", o.EnableRSSOveruseEviction,
 		"whether to enable pod-level rss overuse eviction")
 	fs.Float64Var(&o.RSSOveruseRateThreshold, "eviction-rss-overuse-rate-threshold", o.RSSOveruseRateThreshold,
-		"the threshold for the rate of rss overuse threshold")
+		"the rss overuse ratio threshold")
+	fs.StringVar(&o.RSSOveruseHighMemPodBound, "eviction-rss-overuse-high-mem-pod-bound", o.RSSOveruseHighMemPodBound,
+		"the bound of high memory pod,pods have memory request greater than it will be considered as high memory pod.")
+	fs.Float64Var(&o.RSSOveruseHighMemPodRateThreshold, "eviction-rss-overuse-high-mem-rate-threshold", o.RSSOveruseHighMemPodRateThreshold,
+		"the rss overuse ratio threshold for high memory pods.")
 }
 
 // ApplyTo applies MemoryPressureEvictionOptions to MemoryPressureEvictionConfiguration
@@ -105,6 +113,12 @@ func (o *MemoryPressureEvictionOptions) ApplyTo(c *eviction.MemoryPressureEvicti
 	c.GracePeriod = o.GracePeriod
 	c.EnableRSSOveruseEviction = o.EnableRSSOveruseEviction
 	c.RSSOveruseRateThreshold = o.RSSOveruseRateThreshold
+	quantity, err = resource.ParseQuantity(o.RSSOveruseHighMemPodBound)
+	if err != nil {
+		return err
+	}
+	c.RSSOveruseHighMemPodBound = quantity
+	c.RSSOveruseHighMemPodRateThreshold = o.RSSOveruseHighMemPodRateThreshold
 
 	return nil
 }

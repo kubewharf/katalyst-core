@@ -271,6 +271,44 @@ func TestRssOveruseEvictionPlugin_GetEvictPods(t *testing.T) {
 				},
 			},
 		},
+		// high mem pod,one container,one has no memory limit, has no specified threshold
+		{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: "pod-10",
+				UID:  "010",
+			},
+			Spec: v1.PodSpec{
+				Containers: []v1.Container{
+					{
+						Name: "container-1",
+						Resources: v1.ResourceRequirements{
+							Requests: v1.ResourceList{
+								"memory": resource.MustParse("150Gi"),
+							},
+						},
+					},
+				},
+			},
+		},
+		// high mem pod,one container,one has no memory limit, has no specified threshold
+		{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: "pod-11",
+				UID:  "011",
+			},
+			Spec: v1.PodSpec{
+				Containers: []v1.Container{
+					{
+						Name: "container-1",
+						Resources: v1.ResourceRequirements{
+							Requests: v1.ResourceList{
+								"memory": resource.MustParse("150Gi"),
+							},
+						},
+					},
+				},
+			},
+		},
 	}
 
 	fakeMetricsFetcher := plugin.metaServer.MetricsFetcher.(*metric.FakeMetricsFetcher)
@@ -298,6 +336,8 @@ func TestRssOveruseEvictionPlugin_GetEvictPods(t *testing.T) {
 			3 * 1024 * 1024 * 1024,
 		},
 		{9 * 1024 * 1024 * 1024},
+		{100 * 1024 * 1024 * 1024},
+		{150 * 1024 * 1024 * 1024},
 	}
 
 	now := time.Now()
@@ -311,6 +351,8 @@ func TestRssOveruseEvictionPlugin_GetEvictPods(t *testing.T) {
 		name                       string
 		enableRssOveruse           bool
 		defaultRssOveruseThreshold float64
+		defaultHighMemPodThreshold float64
+		highMemPodBound            string
 		wantedResult               sets.String
 		podFilter                  labels.Set
 	}{
@@ -318,6 +360,8 @@ func TestRssOveruseEvictionPlugin_GetEvictPods(t *testing.T) {
 			name:                       "disable rss overuse eviction",
 			enableRssOveruse:           false,
 			defaultRssOveruseThreshold: 0.1,
+			defaultHighMemPodThreshold: 0.8,
+			highMemPodBound:            "100Gi",
 			wantedResult:               map[string]sets.Empty{},
 			podFilter:                  map[string]string{},
 		},
@@ -325,9 +369,12 @@ func TestRssOveruseEvictionPlugin_GetEvictPods(t *testing.T) {
 			name:                       "enable rss overuse eviction, threshold is 1",
 			enableRssOveruse:           true,
 			defaultRssOveruseThreshold: 1.05,
+			defaultHighMemPodThreshold: 0.8,
+			highMemPodBound:            "100Gi",
 			wantedResult: map[string]sets.Empty{
-				"pod-3": {},
-				"pod-8": {},
+				"pod-3":  {},
+				"pod-8":  {},
+				"pod-11": {},
 			},
 			podFilter: map[string]string{},
 		},
@@ -335,6 +382,8 @@ func TestRssOveruseEvictionPlugin_GetEvictPods(t *testing.T) {
 			name:                       "enable rss overuse eviction, threshold is 0.1",
 			enableRssOveruse:           true,
 			defaultRssOveruseThreshold: 0.1,
+			defaultHighMemPodThreshold: 2,
+			highMemPodBound:            "100Gi",
 			wantedResult: map[string]sets.Empty{
 				"pod-1": {},
 				"pod-3": {},
@@ -347,6 +396,8 @@ func TestRssOveruseEvictionPlugin_GetEvictPods(t *testing.T) {
 			name:                       "enable rss overuse eviction, threshold is 0.1",
 			enableRssOveruse:           true,
 			defaultRssOveruseThreshold: 0.1,
+			defaultHighMemPodThreshold: 0.8,
+			highMemPodBound:            "100Gi",
 			wantedResult: map[string]sets.Empty{
 				"pod-5": {},
 				"pod-8": {},
@@ -358,6 +409,8 @@ func TestRssOveruseEvictionPlugin_GetEvictPods(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			plugin.dynamicConfig.GetDynamicConfiguration().EnableRSSOveruseEviction = tt.enableRssOveruse
 			plugin.dynamicConfig.GetDynamicConfiguration().RSSOveruseRateThreshold = tt.defaultRssOveruseThreshold
+			plugin.dynamicConfig.GetDynamicConfiguration().RSSOveruseHighMemPodBound = resource.MustParse(tt.highMemPodBound)
+			plugin.dynamicConfig.GetDynamicConfiguration().RSSOveruseHighMemPodRateThreshold = tt.defaultHighMemPodThreshold
 			plugin.evictionConfig.RSSOveruseEvictionFilter = tt.podFilter
 
 			evictPods, err2 := plugin.GetEvictPods(context.TODO(), &pluginapi.GetEvictPodsRequest{

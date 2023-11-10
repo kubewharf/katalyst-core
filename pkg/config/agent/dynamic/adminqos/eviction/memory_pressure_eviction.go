@@ -17,6 +17,8 @@ limitations under the License.
 package eviction
 
 import (
+	"k8s.io/apimachinery/pkg/api/resource"
+
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/crd"
 	"github.com/kubewharf/katalyst-core/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/util"
@@ -52,6 +54,10 @@ const (
 	DefaultEnableRssOveruseDetection = false
 	// DefaultRSSOveruseRateThreshold is the default threshold for the rate of rss
 	DefaultRSSOveruseRateThreshold = 1.05
+	// DefaultRSSOveruseHighMemPodBound is the default bound for high memory pod.
+	DefaultRSSOveruseHighMemPodBound = "100Gi"
+	// DefaultRSSOveruseHighMemPodRateThreshold is the default rss overuse threshold for high memory pods.
+	DefaultRSSOveruseHighMemPodRateThreshold = 1.05
 )
 
 var (
@@ -75,6 +81,8 @@ type MemoryPressureEvictionConfiguration struct {
 	SystemEvictionRankingMetrics            []string
 	EnableRSSOveruseEviction                bool
 	RSSOveruseRateThreshold                 float64
+	RSSOveruseHighMemPodBound               resource.Quantity
+	RSSOveruseHighMemPodRateThreshold       float64
 	GracePeriod                             int64
 }
 
@@ -133,6 +141,14 @@ func (c *MemoryPressureEvictionConfiguration) ApplyConfiguration(conf *crd.Dynam
 
 		if config.RSSOveruseRateThreshold != nil {
 			c.RSSOveruseRateThreshold = *(config.RSSOveruseRateThreshold)
+		}
+
+		if config.RSSOveruseHighMemPodBound != nil {
+			c.RSSOveruseHighMemPodBound = *config.RSSOveruseHighMemPodBound
+		}
+
+		if config.RSSOveruseHighMemPodRateThreshold != nil {
+			c.RSSOveruseHighMemPodRateThreshold = *config.RSSOveruseHighMemPodRateThreshold
 		}
 	}
 }

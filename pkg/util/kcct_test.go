@@ -22,6 +22,7 @@ import (
 	"time"
 
 	v1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/klog/v2"
@@ -816,6 +817,7 @@ func Test_kccTargetResource_GetIsValid(t *testing.T) {
 
 func Test_kccTargetResource_GenerateConfigHash(t *testing.T) {
 	t.Parallel()
+	rssOveruseHighMemPodBound := resource.MustParse("100Gi")
 
 	type fields struct {
 		Unstructured *unstructured.Unstructured
@@ -844,13 +846,14 @@ func Test_kccTargetResource_GenerateConfigHash(t *testing.T) {
 									SystemKswapdRateExceedDurationThreshold: &nonDefaultSystemKswapdRateExceedDurationThreshold,
 									NumaEvictionRankingMetrics:              ConvertStringListToNumaEvictionRankingMetrics(nonDefaultNumaEvictionRankingMetrics),
 									SystemEvictionRankingMetrics:            ConvertStringListToSystemEvictionRankingMetrics(nonDefaultSystemEvictionRankingMetrics),
+									RSSOveruseHighMemPodBound:               &rssOveruseHighMemPodBound,
 								},
 							},
 						},
 					},
 				}),
 			},
-			want: "c16ed236c692",
+			want: "b21e6bf9c0a5",
 		},
 		{
 			name: "test-2",

@@ -134,19 +134,6 @@ func (r *RssOveruseEvictionPlugin) GetEvictPods(_ context.Context, request *plug
 			continue
 		}
 
-		userSpecifiedThreshold, invalid := qos.GetRSSOverUseEvictThreshold(r.qosConf, pod)
-		// don't perform eviction for safety if user set an invalid threshold
-		if invalid {
-			general.Warningf("pod %+v/%+v set invalid overuse eviction threshold, skip check rss overuse", pod.Namespace, pod.Name)
-			continue
-		}
-
-		threshold := dynamicConfig.RSSOveruseRateThreshold
-		// user set threshold explicitly,use default value
-		if userSpecifiedThreshold != nil {
-			threshold = *userSpecifiedThreshold
-		}
-
 		var memRequest int64 = 0
 		var requestNotSet = false
 		for _, container := range pod.Spec.Containers {
@@ -161,6 +148,24 @@ func (r *RssOveruseEvictionPlugin) GetEvictPods(_ context.Context, request *plug
 		// if there is at least one container without memory limit, skip it
 		if requestNotSet {
 			continue
+		}
+
+		userSpecifiedThreshold, invalid := qos.GetRSSOverUseEvictThreshold(r.qosConf, pod)
+		// don't perform eviction for safety if user set an invalid threshold
+		if invalid {
+			general.Warningf("pod %+v/%+v set invalid overuse eviction threshold, skip check rss overuse", pod.Namespace, pod.Name)
+			continue
+		}
+
+		threshold := dynamicConfig.RSSOveruseRateThreshold
+
+		if memRequest > dynamicConfig.RSSOveruseHighMemPodBound.Value() {
+			threshold = dynamicConfig.RSSOveruseHighMemPodRateThreshold
+		}
+
+		// user set threshold explicitly,use default value
+		if userSpecifiedThreshold != nil {
+			threshold = *userSpecifiedThreshold
 		}
 
 		podRss, found := helper.GetPodMetric(r.metaServer.MetricsFetcher, r.emitter, pod, consts.MetricMemRssContainer, nonExistNumaID)
