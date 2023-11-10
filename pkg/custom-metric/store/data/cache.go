@@ -56,7 +56,7 @@ func NewCachedMetric(metricsEmitter metrics.MetricEmitter, storeType ObjectMetri
 	}
 }
 
-func (c *CachedMetric) addNewMetricMeta(metricMeta types.MetricMetaImp) error {
+func (c *CachedMetric) addNewObjectMetricStore(metricMeta types.MetricMetaImp) (ObjectMetricStore, error) {
 	c.Lock()
 	defer c.Unlock()
 
@@ -67,10 +67,11 @@ func (c *CachedMetric) addNewMetricMeta(metricMeta types.MetricMetaImp) error {
 		case ObjectMetricStoreTypeSimple:
 			c.metricMap[metricMeta] = NewSimpleObjectMetricStore(metricMeta)
 		default:
-			return fmt.Errorf("unsupported store type: %v", c.storeType)
+			return nil, fmt.Errorf("unsupported store type: %v", c.storeType)
 		}
 	}
-	return nil
+
+	return c.metricMap[metricMeta], nil
 }
 
 func (c *CachedMetric) getObjectMetricStore(metricMeta types.MetricMetaImp) ObjectMetricStore {
@@ -96,13 +97,14 @@ func (c *CachedMetric) AddSeriesMetric(sList ...types.Metric) error {
 			continue
 		}
 
-		if _, ok := c.metricMap[d.MetricMetaImp]; !ok {
-			err := c.addNewMetricMeta(d.MetricMetaImp)
+		objectMetricStore := c.getObjectMetricStore(d.MetricMetaImp)
+		if objectMetricStore == nil {
+			var err error
+			objectMetricStore, err = c.addNewObjectMetricStore(d.MetricMetaImp)
 			if err != nil {
 				return err
 			}
 		}
-		objectMetricStore := c.getObjectMetricStore(d.MetricMetaImp)
 
 		exists, err := objectMetricStore.ObjectExists(d.ObjectMetaImp)
 		if err != nil {
@@ -143,13 +145,14 @@ func (c *CachedMetric) AddAggregatedMetric(aList ...types.Metric) error {
 		}
 
 		baseMetricMetaImp := d.GetBaseMetricMetaImp()
-		if _, ok := c.metricMap[baseMetricMetaImp]; !ok {
-			err := c.addNewMetricMeta(baseMetricMetaImp)
+		objectMetricStore := c.getObjectMetricStore(baseMetricMetaImp)
+		if objectMetricStore == nil {
+			var err error
+			objectMetricStore, err = c.addNewObjectMetricStore(baseMetricMetaImp)
 			if err != nil {
 				return err
 			}
 		}
-		objectMetricStore := c.getObjectMetricStore(baseMetricMetaImp)
 
 		exists, err := objectMetricStore.ObjectExists(d.ObjectMetaImp)
 		if err != nil {
@@ -218,7 +221,11 @@ func (c *CachedMetric) GetMetric(namespace, metricName string, objName string, o
 		metricMeta.ObjectKind = gr.String()
 	}
 
-	handleIntermalMetric := func(internalMetric *internal.MetricImp) {
+	handleInternalMetric := func(internalMetric *internal.MetricImp) {
+		if internalMetric == nil {
+			return
+		}
+
 		if internalMetric.GetObjectNamespace() != namespace || (objName != "" && internalMetric.GetObjectName() != objName) {
 			return
 		}
@@ -245,11 +252,14 @@ func (c *CachedMetric) GetMetric(namespace, metricName string, objName string, o
 				if err != nil {
 					return nil, false, err
 				}
-				handleIntermalMetric(internalMetric)
+				if internalMetric == nil {
+					continue
+				}
+				handleInternalMetric(internalMetric)
 			}
 		} else {
 			objectMetricStore.Iterate(func(internalMetric *internal.MetricImp) {
-				handleIntermalMetric(internalMetric)
+				handleInternalMetric(internalMetric)
 			})
 		}
 
@@ -262,6 +272,9 @@ func (c *CachedMetric) GetMetric(namespace, metricName string, objName string, o
 // GetAllMetricsInNamespace & GetAllMetricsInNamespaceWithLimit may be too time-consuming,
 // so we should ensure that client falls into this functions as less frequent as possible.
 func (c *CachedMetric) GetAllMetricsInNamespace(namespace string) []types.Metric {
+	c.RLock()
+	defer c.RUnlock()
+
 	var res []types.Metric
 	for _, internalMap := range c.metricMap {
 		internalMap.Iterate(func(internalMetric *internal.MetricImp) {
