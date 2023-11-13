@@ -31,6 +31,14 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/util/native"
 )
 
+const (
+	CommonPodHandler = "CommonPodHandler"
+)
+
+func RegisterCommonPodHandler() {
+	RegisterEventHandler(CommonPodHandler, AddPodEventHandler)
+}
+
 // AddPodEventHandler adds Pod event handlers for the scheduler.
 func AddPodEventHandler(informerFactory informers.SharedInformerFactory, _ externalversions.SharedInformerFactory) {
 	podInformer := informerFactory.Core().V1().Pods()

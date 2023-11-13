@@ -55,7 +55,7 @@ func NewOvercommitmentAwarePlugin(
 
 	realtimeOvercommitmentAdvisor := realtime.NewRealtimeOvercommitmentAdvisor(conf, metaServer, emitter)
 
-	overcommitRatioReporter, err := reporter.NewOvercommitRatioReporter(emitter, conf, realtimeOvercommitmentAdvisor)
+	overcommitRatioReporter, err := reporter.NewOvercommitRatioReporter(emitter, conf, realtimeOvercommitmentAdvisor, metaServer)
 	if err != nil {
 		return nil, err
 	}

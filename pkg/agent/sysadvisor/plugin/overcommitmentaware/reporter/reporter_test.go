@@ -22,16 +22,39 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/kubewharf/katalyst-api/pkg/consts"
-
 	"github.com/stretchr/testify/assert"
-
 	v1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
+	v12 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	kubeletconfigv1beta1 "k8s.io/kubelet/config/v1beta1"
+	"k8s.io/kubernetes/pkg/features"
+	"k8s.io/kubernetes/pkg/kubelet/cm/cpumanager"
+
+	"github.com/kubewharf/katalyst-api/pkg/consts"
+	"github.com/kubewharf/katalyst-core/pkg/metaserver"
+	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent"
+	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/kubeletconfig"
+	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/pod"
 )
 
 func TestGetReportContent(t *testing.T) {
+	t.Parallel()
+
+	fakeKubeletConfig := kubeletconfigv1beta1.KubeletConfiguration{
+		FeatureGates: map[string]bool{
+			string(features.CPUManager):    true,
+			string(features.MemoryManager): false,
+		},
+		CPUManagerPolicy: string(cpumanager.PolicyStatic),
+	}
+
 	p := &OvercommitRatioReporterPlugin{
 		manager: NewFakeOvercommitManager(map[v1.ResourceName]float64{}),
+		metaServer: &metaserver.MetaServer{
+			MetaAgent: &agent.MetaAgent{
+				KubeletConfigFetcher: kubeletconfig.NewFakeKubeletConfigFetcher(fakeKubeletConfig),
+			},
+		},
 	}
 
 	_, err := p.GetReportContent(context.TODO(), nil)
@@ -43,17 +66,53 @@ func TestGetReportContent(t *testing.T) {
 			v1.ResourceMemory:  1.2678,
 			v1.ResourceStorage: 1.0,
 		}),
+		metaServer: &metaserver.MetaServer{
+			MetaAgent: &agent.MetaAgent{
+				KubeletConfigFetcher: kubeletconfig.NewFakeKubeletConfigFetcher(fakeKubeletConfig),
+				PodFetcher: &pod.PodFetcherStub{
+					PodList: []*v1.Pod{
+						{
+							ObjectMeta: v12.ObjectMeta{
+								Name: "p1",
+							},
+							Spec: v1.PodSpec{
+								Containers: []v1.Container{
+									{
+										Name: "c1",
+										Resources: v1.ResourceRequirements{
+											Limits: map[v1.ResourceName]resource.Quantity{
+												v1.ResourceCPU:    resource.MustParse("1"),
+												v1.ResourceMemory: resource.MustParse("4Gi"),
+											},
+											Requests: map[v1.ResourceName]resource.Quantity{
+												v1.ResourceCPU:    resource.MustParse("1"),
+												v1.ResourceMemory: resource.MustParse("4Gi"),
+											},
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
 	}
 
 	res, err := p.GetReportContent(context.TODO(), nil)
 	assert.NoError(t, err)
-	assert.Equal(t, 1, len(res.Content))
+	assert.Equal(t, 2, len(res.Content))
 
 	ratio := map[string]string{}
 	err = json.Unmarshal(res.Content[0].Field[0].Value, &ratio)
 	assert.NoError(t, err)
 	assert.Equal(t, "1.51", ratio[consts.NodeAnnotationCPUOvercommitRatioKey])
 	assert.Equal(t, "1.27", ratio[consts.NodeAnnotationMemoryOvercommitRatioKey])
+
+	anno := map[string]string{}
+	err = json.Unmarshal(res.Content[1].Field[0].Value, &anno)
+	assert.NoError(t, err)
+	assert.Equal(t, "static", anno[string(consts.KCNRAnnotationCPUManager)])
 }
 
 func TestStart(t *testing.T) {

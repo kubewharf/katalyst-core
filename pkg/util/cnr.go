@@ -43,6 +43,7 @@ const (
 	CNRFieldNameResources              = "Resources"
 	CNRFieldNameTopologyPolicy         = "TopologyPolicy"
 	CNRFieldNameNodeMetricStatus       = "NodeMetricStatus"
+	CNRFieldNameAnnotations            = "Annotations"
 )
 
 var (

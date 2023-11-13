@@ -22,6 +22,7 @@ import (
 
 	admissionv1beta1 "k8s.io/api/admission/v1beta1"
 	core "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/klog/v2"
 
 	"github.com/kubewharf/katalyst-api/pkg/consts"
@@ -63,7 +64,7 @@ func (na *WebhookNodeAllocatableMutator) MutateNode(node *core.Node, admissionRe
 
 	CPUOvercommitRatioValue, ok := node.Annotations[consts.NodeAnnotationCPUOvercommitRatioKey]
 	if ok {
-		CPUOvercommitRatio, err := overcommitRatioValidate(CPUOvercommitRatioValue)
+		CPUOvercommitRatio, err := overcommitRatioValidate(CPUOvercommitRatioValue, node.Annotations[consts.NodeAnnotationRealtimeCPUOvercommitRatioKey])
 		if err != nil {
 			klog.Errorf("node %s %s validate fail, value: %s, err: %v", node.Name, consts.NodeAnnotationCPUOvercommitRatioKey, CPUOvercommitRatioValue, err)
 		} else {
@@ -72,11 +73,33 @@ func (na *WebhookNodeAllocatableMutator) MutateNode(node *core.Node, admissionRe
 				capacity := node.Status.Capacity.Cpu()
 				newAllocatable := native.MultiplyResourceQuantity(core.ResourceCPU, *allocatable, CPUOvercommitRatio)
 				newCapacity := native.MultiplyResourceQuantity(core.ResourceCPU, *capacity, CPUOvercommitRatio)
+
 				klog.V(6).Infof(
 					"node %s %s capacity: %v, allocatable: %v, newCapacity: %v, newAllocatable: %v",
 					node.Name, core.ResourceCPU,
 					capacity.String(), newCapacity.String(),
 					allocatable.String(), newAllocatable.String())
+
+				overcommitAllocatable, ok := node.Annotations[consts.NodeAnnotationOvercommitAllocatableCPUKey]
+				if ok {
+					quantity, err := resource.ParseQuantity(overcommitAllocatable)
+					if err != nil {
+						klog.Error(err)
+					} else {
+						newAllocatable = quantity
+						klog.V(6).Infof("node %s cpu allocatable by annotation: %v", node.Name, newAllocatable.String())
+					}
+				}
+				overcommitCapacity, ok := node.Annotations[consts.NodeAnnotationOvercommitCapacityCPUKey]
+				if ok {
+					quantity, err := resource.ParseQuantity(overcommitCapacity)
+					if err != nil {
+						klog.Error(err)
+					} else {
+						newCapacity = quantity
+						klog.V(6).Infof("node %s cpu capacity by annotation: %v", node.Name, newCapacity.String())
+					}
+				}
 				node.Status.Allocatable[core.ResourceCPU] = newAllocatable
 				node.Status.Capacity[core.ResourceCPU] = newCapacity
 			}
@@ -85,7 +108,7 @@ func (na *WebhookNodeAllocatableMutator) MutateNode(node *core.Node, admissionRe
 
 	memoryOvercommitRatioValue, ok := node.Annotations[consts.NodeAnnotationMemoryOvercommitRatioKey]
 	if ok {
-		memoryOvercommitRatio, err := overcommitRatioValidate(memoryOvercommitRatioValue)
+		memoryOvercommitRatio, err := overcommitRatioValidate(memoryOvercommitRatioValue, node.Annotations[consts.NodeAnnotationRealtimeMemoryOvercommitRatioKey])
 		if err != nil {
 			klog.Errorf("node %s %s validate fail, value: %s, err: %v", node.Name, consts.NodeAnnotationMemoryOvercommitRatioKey, memoryOvercommitRatioValue, err)
 		} else {
@@ -111,7 +134,7 @@ func (na *WebhookNodeAllocatableMutator) Name() string {
 	return nodeAllocatableMutatorName
 }
 
-func overcommitRatioValidate(overcommitRatioAnnotation string) (float64, error) {
+func overcommitRatioValidate(overcommitRatioAnnotation string, recommendOvercommitRatioAnnotation string) (float64, error) {
 	overcommitRatio, err := strconv.ParseFloat(overcommitRatioAnnotation, 64)
 	if err != nil {
 		return 1, err
@@ -120,6 +143,20 @@ func overcommitRatioValidate(overcommitRatioAnnotation string) (float64, error) 
 	if overcommitRatio < 1.0 {
 		err = fmt.Errorf("overcommitRatio should be greater than 1")
 		return 1, err
+	}
+
+	if recommendOvercommitRatioAnnotation == "" {
+		return overcommitRatio, nil
+	}
+
+	recommendOvercommitRatio, err := strconv.ParseFloat(recommendOvercommitRatioAnnotation, 64)
+	if err != nil {
+		klog.Error(err)
+		return overcommitRatio, nil
+	}
+
+	if recommendOvercommitRatio < overcommitRatio {
+		return recommendOvercommitRatio, nil
 	}
 
 	return overcommitRatio, nil

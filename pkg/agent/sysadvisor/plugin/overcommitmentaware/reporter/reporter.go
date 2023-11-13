@@ -20,18 +20,24 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"sync"
 
+	"github.com/pkg/errors"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/klog/v2"
+	kubeletconfigv1beta1 "k8s.io/kubelet/config/v1beta1"
+	"k8s.io/kubernetes/pkg/features"
 
 	"github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-api/pkg/plugins/registration"
 	"github.com/kubewharf/katalyst-api/pkg/plugins/skeleton"
 	"github.com/kubewharf/katalyst-api/pkg/protocol/reporterplugin/v1alpha1"
 	"github.com/kubewharf/katalyst-core/pkg/config"
+	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util"
+	"github.com/kubewharf/katalyst-core/pkg/util/native"
 )
 
 const (
@@ -55,8 +61,9 @@ func NewOvercommitRatioReporter(
 	emitter metrics.MetricEmitter,
 	conf *config.Configuration,
 	manager OvercommitManager,
+	metaServer *metaserver.MetaServer,
 ) (OvercommitRatioReporter, error) {
-	plugin, err := newOvercommitRatioReporterPlugin(emitter, conf, manager)
+	plugin, err := newOvercommitRatioReporterPlugin(emitter, conf, manager, metaServer)
 	if err != nil {
 		return nil, fmt.Errorf("[overcommit-reporter] create reporter failed: %v", err)
 	}
@@ -80,7 +87,8 @@ func (o *overcommitRatioReporterImpl) Run(ctx context.Context) {
 type OvercommitRatioReporterPlugin struct {
 	sync.Mutex
 
-	manager OvercommitManager
+	manager    OvercommitManager
+	metaServer *metaserver.MetaServer
 
 	ctx     context.Context
 	cancel  context.CancelFunc
@@ -91,10 +99,12 @@ func newOvercommitRatioReporterPlugin(
 	emitter metrics.MetricEmitter,
 	conf *config.Configuration,
 	overcommitManager OvercommitManager,
+	metaserver *metaserver.MetaServer,
 ) (skeleton.GenericPlugin, error) {
 
 	reporter := &OvercommitRatioReporterPlugin{
-		manager: overcommitManager,
+		manager:    overcommitManager,
+		metaServer: metaserver,
 	}
 
 	return skeleton.NewRegistrationPluginWrapper(reporter, []string{conf.PluginRegistrationDir},
@@ -146,6 +156,10 @@ func (o *OvercommitRatioReporterPlugin) Stop() error {
 // Since the metrics collected by Manager are already an average within a time period,
 // we expect a faster response to node load fluctuations to avoid excessive overcommit of online resources.
 func (o *OvercommitRatioReporterPlugin) GetReportContent(_ context.Context, _ *v1alpha1.Empty) (*v1alpha1.GetReportContentResponse, error) {
+	response := &v1alpha1.GetReportContentResponse{
+		Content: []*v1alpha1.ReportContent{},
+	}
+
 	overcommitRatioMap, err := o.manager.GetOvercommitRatio()
 	if err != nil {
 		klog.Errorf("OvercommitRatioReporterPlugin GetOvercommitMent fail: %v", err)
@@ -154,16 +168,20 @@ func (o *OvercommitRatioReporterPlugin) GetReportContent(_ context.Context, _ *v
 	klog.V(6).Infof("reporter get overcommit ratio: %v", overcommitRatioMap)
 
 	// overcommit data to CNR data
-	reportToCNR, err := o.overcommitRatioToCNRAnnotation(overcommitRatioMap)
+	overcommitRatioContent, err := o.overcommitRatioToCNRAnnotation(overcommitRatioMap)
 	if err != nil {
 		return nil, err
 	}
+	response.Content = append(response.Content, overcommitRatioContent)
 
-	return &v1alpha1.GetReportContentResponse{
-		Content: []*v1alpha1.ReportContent{
-			reportToCNR,
-		},
-	}, nil
+	// get topologyProvider and guaranteed cpus
+	topologyProviderContent, err := o.getTopologyProviderReportContent(o.ctx)
+	if err != nil {
+		return nil, err
+	}
+	response.Content = append(response.Content, topologyProviderContent)
+
+	return response, nil
 }
 
 func (o *OvercommitRatioReporterPlugin) ListAndWatchReportContent(_ *v1alpha1.Empty, server v1alpha1.ReporterPlugin_ListAndWatchReportContentServer) error {
@@ -210,4 +228,91 @@ func (o *OvercommitRatioReporterPlugin) overcommitRatioToCNRAnnotation(overcommi
 			},
 		},
 	}, nil
+}
+
+func (o *OvercommitRatioReporterPlugin) getTopologyProviderReportContent(ctx context.Context) (*v1alpha1.ReportContent, error) {
+	annotations, err := o.getTopologyProvider(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("get topology provider from adapter failed: %v", err)
+	}
+
+	guaranteedCPUs := "0"
+	if annotations[consts.KCNRAnnotationCPUManager] != string(consts.CPUManagerPolicyNone) {
+		guaranteedCPUs, err = o.getGuaranteedCPUs(ctx)
+		if err != nil {
+			return nil, err
+		}
+	}
+	annotations[consts.KCNRAnnotationGuaranteedCPUs] = guaranteedCPUs
+
+	value, err := json.Marshal(&annotations)
+	if err != nil {
+		return nil, errors.Wrap(err, "marshal topology provider failed")
+	}
+
+	return &v1alpha1.ReportContent{
+		GroupVersionKind: &util.CNRGroupVersionKind,
+		Field: []*v1alpha1.ReportField{
+			{
+				FieldType: v1alpha1.FieldType_Metadata,
+				FieldName: util.CNRFieldNameAnnotations,
+				Value:     value,
+			},
+		},
+	}, nil
+}
+
+func (o *OvercommitRatioReporterPlugin) getTopologyProvider(ctx context.Context) (map[string]string, error) {
+	klConfig, err := o.metaServer.GetKubeletConfig(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("get kubelet config fail: %v", err)
+	}
+
+	return generateProviderPolicies(klConfig), nil
+}
+
+func (o *OvercommitRatioReporterPlugin) getGuaranteedCPUs(ctx context.Context) (string, error) {
+	podList, err := o.metaServer.GetPodList(ctx, func(pod *v1.Pod) bool {
+		return true
+	})
+
+	if err != nil {
+		return "", errors.Wrap(err, "get pod list from metaserver failed")
+	}
+
+	cpus := 0
+	for _, pod := range podList {
+		cpus += native.PodGuaranteedCPUs(pod)
+	}
+
+	return strconv.Itoa(cpus), nil
+}
+
+func generateProviderPolicies(kubeletConfig *kubeletconfigv1beta1.KubeletConfiguration) map[string]string {
+	klog.V(5).Infof("generateProviderPolicies featureGates: %v, cpuManagerPolicy: %v, memoryManagerPolicy: %v",
+		kubeletConfig.FeatureGates, features.CPUManager, features.MemoryManager)
+
+	featureGates := kubeletConfig.FeatureGates
+
+	res := map[string]string{
+		consts.KCNRAnnotationCPUManager:    string(consts.CPUManagerOff),
+		consts.KCNRAnnotationMemoryManager: string(consts.MemoryManagerOff),
+	}
+
+	on, ok := featureGates[string(features.CPUManager)]
+	// default true
+	if (ok && on) || (!ok) {
+		if kubeletConfig.CPUManagerPolicy != "" {
+			res[consts.KCNRAnnotationCPUManager] = kubeletConfig.CPUManagerPolicy
+		}
+	}
+
+	on, ok = featureGates[string(features.MemoryManager)]
+	if (ok && on) || (!ok) {
+		if kubeletConfig.MemoryManagerPolicy != "" {
+			res[consts.KCNRAnnotationMemoryManager] = kubeletConfig.MemoryManagerPolicy
+		}
+	}
+
+	return res
 }

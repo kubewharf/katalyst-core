@@ -19,6 +19,7 @@ package native
 import (
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/klog/v2"
+	"k8s.io/kubernetes/pkg/apis/core/v1/helper/qos"
 )
 
 // PodResource key: namespace/name, value: pod requested ResourceList
@@ -69,4 +70,43 @@ func CalculateResource(pod *v1.Pod) v1.ResourceList {
 		}
 	}
 	return resources
+}
+
+func PodGuaranteedCPUs(pod *v1.Pod) int {
+	// The maximum of requested CPUs by init containers.
+	requestedByInitContainers := 0
+	for _, container := range pod.Spec.InitContainers {
+		if _, ok := container.Resources.Requests[v1.ResourceCPU]; !ok {
+			continue
+		}
+		requestedCPU := guaranteedCPUs(pod, &container)
+		if requestedCPU > requestedByInitContainers {
+			requestedByInitContainers = requestedCPU
+		}
+	}
+	// The sum of requested CPUs by app containers.
+	requestedByAppContainers := 0
+	for _, container := range pod.Spec.Containers {
+		if _, ok := container.Resources.Requests[v1.ResourceCPU]; !ok {
+			continue
+		}
+		requestedByAppContainers += guaranteedCPUs(pod, &container)
+	}
+
+	if requestedByInitContainers > requestedByAppContainers {
+		return requestedByInitContainers
+	}
+	return requestedByAppContainers
+}
+
+func guaranteedCPUs(pod *v1.Pod, container *v1.Container) int {
+	if qos.GetPodQOS(pod) != v1.PodQOSGuaranteed {
+		return 0
+	}
+	cpuQuantity := container.Resources.Requests[v1.ResourceCPU]
+	if cpuQuantity.Value()*1000 != cpuQuantity.MilliValue() {
+		return 0
+	}
+
+	return int(cpuQuantity.Value())
 }
