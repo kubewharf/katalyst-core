@@ -300,7 +300,7 @@ func (l *LocalMemoryMetricStore) ListMetricMeta(_ context.Context, withObject bo
 func (l *LocalMemoryMetricStore) gc() {
 	begin := time.Now()
 	defer func() {
-		klog.V(6).Infof("[LocalMemoryMetricStore] gc costs %s", time.Since(begin).String())
+		klog.Infof("[LocalMemoryMetricStore] gc costs %s", time.Since(begin).String())
 	}()
 
 	expiredTime := begin.Add(-1 * l.genericConf.OutOfDataPeriod)
@@ -310,7 +310,7 @@ func (l *LocalMemoryMetricStore) gc() {
 func (l *LocalMemoryMetricStore) purge() {
 	begin := time.Now()
 	defer func() {
-		klog.V(6).Infof("[LocalMemoryMetricStore] purge costs %s", time.Since(begin).String())
+		klog.Infof("[LocalMemoryMetricStore] purge costs %s", time.Since(begin).String())
 	}()
 
 	l.cache.Purge()

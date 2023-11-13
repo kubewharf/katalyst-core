@@ -742,7 +742,7 @@ func testProvider(t *testing.T, p MetricProvider, s store.MetricStore, ctx conte
 	t.Log("#### 2.1: ListAllMetrics")
 
 	metricInfo = p.ListAllMetrics()
-	assert.Equal(t, 2, len(metricInfo))
+	assert.Equal(t, 3, len(metricInfo))
 	assert.ElementsMatch(t, []provider.CustomMetricInfo{
 		{
 			GroupResource: podGR,
@@ -753,6 +753,11 @@ func testProvider(t *testing.T, p MetricProvider, s store.MetricStore, ctx conte
 			GroupResource: podGR,
 			Namespaced:    true,
 			Metric:        "full_metric_with_multiple_data",
+		},
+		{
+			GroupResource: nodeGR,
+			Namespaced:    false,
+			Metric:        "full_metric_with_node",
 		},
 	}, metricInfo)
 
@@ -815,13 +820,16 @@ func testProvider(t *testing.T, p MetricProvider, s store.MetricStore, ctx conte
 	t.Log("#### 2.4: ListAllExternalMetrics")
 
 	externalInfo = p.ListAllExternalMetrics()
-	assert.Equal(t, 2, len(externalInfo))
+	assert.Equal(t, 3, len(externalInfo))
 	assert.ElementsMatch(t, []provider.ExternalMetricInfo{
 		{
 			Metric: "none_namespace_metric",
 		},
 		{
 			Metric: "none_object_metric",
+		},
+		{
+			Metric: "none_namespace_metric_all_timeout",
 		},
 	}, externalInfo)
 
