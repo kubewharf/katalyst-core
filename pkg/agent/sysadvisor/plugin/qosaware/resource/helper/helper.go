@@ -24,6 +24,7 @@ import (
 
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/spd"
+	"github.com/kubewharf/katalyst-core/pkg/util/general"
 )
 
 // PodEnableReclaim checks whether the pod can be reclaimed,
@@ -32,6 +33,7 @@ import (
 func PodEnableReclaim(ctx context.Context, metaServer *metaserver.MetaServer,
 	podUID string, nodeEnableReclaim bool) (bool, error) {
 	if !nodeEnableReclaim {
+		general.Infof("node reclaim disabled")
 		return false, nil
 	}
 
@@ -52,6 +54,7 @@ func PodEnableReclaim(ctx context.Context, metaServer *metaserver.MetaServer,
 		return true, nil
 	} else if pLevel == spd.PerformanceLevelPoor {
 		// if performance level is poor, it can not be reclaimed
+		general.InfoS("performance level is poor, reclaim disabled", "podUID", podUID)
 		return false, nil
 	}
 
@@ -61,6 +64,7 @@ func PodEnableReclaim(ctx context.Context, metaServer *metaserver.MetaServer,
 		return false, err
 	} else if baseline {
 		// if pod is baseline, it can not be reclaimed
+		general.InfoS("pod is regarded as baseline, reclaim disabled", "podUID", podUID)
 		return false, nil
 	}
 
