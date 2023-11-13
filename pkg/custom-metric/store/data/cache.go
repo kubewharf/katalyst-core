@@ -306,14 +306,11 @@ func (c *CachedMetric) gcWithTimestamp(expiredTimestamp int64) {
 }
 
 func (c *CachedMetric) Purge() {
-	c.Lock()
-	defer c.Unlock()
+	c.RLock()
+	defer c.RUnlock()
 
-	for metricMeta, store := range c.metricMap {
+	for _, store := range c.metricMap {
 		store.Purge()
-		if store.Len() == 0 {
-			delete(c.metricMap, metricMeta)
-		}
 	}
 }
 
