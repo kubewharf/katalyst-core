@@ -234,9 +234,8 @@ func (cra *cpuResourceAdvisor) getRegionReservedForAllocate(r region.QoSRegion) 
 	return res
 }
 
-func (cra *cpuResourceAdvisor) setRegionEntries() {
+func (cra *cpuResourceAdvisor) updateRegionEntries() {
 	entries := make(types.RegionEntries)
-
 	for regionName, r := range cra.regionMap {
 		regionInfo := &types.RegionInfo{
 			RegionName:    r.Name(),
@@ -244,46 +243,33 @@ func (cra *cpuResourceAdvisor) setRegionEntries() {
 			OwnerPoolName: r.OwnerPoolName(),
 			BindingNumas:  r.GetBindingNumas(),
 		}
+
+		if r.Type() == types.QoSRegionTypeShare || r.Type() == types.QoSRegionTypeDedicatedNumaExclusive {
+			headroom, err := r.GetHeadroom()
+			if err != nil {
+				general.ErrorS(err, "failed to get region headroom", "regionName", r.Name())
+				continue
+			}
+			regionInfo.Headroom = headroom
+			regionInfo.HeadroomPolicyTopPriority, regionInfo.HeadroomPolicyInUse = r.GetHeadRoomPolicy()
+
+			controlKnobMap, err := r.GetProvision()
+			if err != nil {
+				general.ErrorS(err, "failed to get region provision", "regionName", r.Name())
+				continue
+			}
+			regionInfo.ControlKnobMap = controlKnobMap
+			regionInfo.ProvisionPolicyTopPriority, regionInfo.ProvisionPolicyInUse = r.GetProvisionPolicy()
+		}
+
 		entries[regionName] = regionInfo
+
+		general.InfoS("region info", "HeadroomPolicyTopPriority", regionInfo.HeadroomPolicyTopPriority,
+			"HeadroomPolicyInUse", regionInfo.HeadroomPolicyInUse, "ProvisionPolicyTopPriority", regionInfo.ProvisionPolicyTopPriority,
+			"ProvisionPolicyInUse", regionInfo.ProvisionPolicyInUse, "regionName", r.Name())
 	}
 
 	_ = cra.metaCache.SetRegionEntries(entries)
-}
-
-func (cra *cpuResourceAdvisor) updateRegionProvision() {
-	for regionName, r := range cra.regionMap {
-		regionInfo, ok := cra.metaCache.GetRegionInfo(regionName)
-		if !ok {
-			continue
-		}
-
-		controlKnobMap, err := r.GetProvision()
-		if err != nil {
-			continue
-		}
-		regionInfo.ControlKnobMap = controlKnobMap
-		regionInfo.ProvisionPolicyTopPriority, regionInfo.ProvisionPolicyInUse = r.GetProvisionPolicy()
-
-		_ = cra.metaCache.SetRegionInfo(regionName, regionInfo)
-	}
-}
-
-func (cra *cpuResourceAdvisor) updateRegionHeadroom() {
-	for regionName, r := range cra.regionMap {
-		regionInfo, ok := cra.metaCache.GetRegionInfo(regionName)
-		if !ok {
-			continue
-		}
-
-		headroom, err := r.GetHeadroom()
-		if err != nil {
-			continue
-		}
-		regionInfo.Headroom = headroom
-		regionInfo.HeadroomPolicyTopPriority, regionInfo.HeadroomPolicyInUse = r.GetHeadRoomPolicy()
-
-		_ = cra.metaCache.SetRegionInfo(regionName, regionInfo)
-	}
 }
 
 func (cra *cpuResourceAdvisor) updateRegionStatus(boundUpper bool) {

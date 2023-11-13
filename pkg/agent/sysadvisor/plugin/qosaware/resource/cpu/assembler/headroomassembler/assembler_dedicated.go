@@ -17,6 +17,8 @@ limitations under the License.
 package headroomassembler
 
 import (
+	"fmt"
+
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/klog/v2"
@@ -75,11 +77,11 @@ func (ha *HeadroomAssemblerDedicated) GetHeadroom() (resource.Quantity, error) {
 	// sum up dedicated region headroom
 	for _, r := range *ha.regionMap {
 		if r.Type() == types.QoSRegionTypeDedicatedNumaExclusive {
-			headroom, err := r.GetHeadroom()
-			if err != nil {
-				return resource.Quantity{}, err
+			regionInfo, ok := ha.metaReader.GetRegionInfo(r.Name())
+			if !ok {
+				return resource.Quantity{}, fmt.Errorf("failed to get regionInfo for %v", r.Name())
 			}
-			headroomTotal += headroom
+			headroomTotal += regionInfo.Headroom
 			exclusiveNUMAs = exclusiveNUMAs.Union(r.GetBindingNumas())
 		}
 		emptyNUMAs = emptyNUMAs.Difference(r.GetBindingNumas())

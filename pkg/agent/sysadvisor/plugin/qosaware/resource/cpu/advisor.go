@@ -240,7 +240,6 @@ func (cra *cpuResourceAdvisor) updateWithIsolationGuardian(tryIsolation bool) bo
 	}
 
 	cra.gcRegionMap()
-	cra.setRegionEntries()
 	cra.updateAdvisorEssentials()
 	if tryIsolation && isolationExists && !cra.checkIsolationSafety() {
 		return false
@@ -257,11 +256,10 @@ func (cra *cpuResourceAdvisor) updateWithIsolationGuardian(tryIsolation bool) bo
 		})
 
 		r.TryUpdateProvision()
-		cra.updateRegionProvision()
-
 		r.TryUpdateHeadroom()
-		cra.updateRegionHeadroom()
 	}
+	cra.updateRegionEntries()
+
 	cra.advisorUpdated = true
 
 	klog.Infof("[qosaware-cpu] region map: %v", general.ToString(cra.regionMap))
