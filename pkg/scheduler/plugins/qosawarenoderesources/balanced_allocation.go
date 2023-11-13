@@ -31,6 +31,7 @@ import (
 	"github.com/kubewharf/katalyst-api/pkg/apis/scheduling/config"
 	"github.com/kubewharf/katalyst-api/pkg/apis/scheduling/config/validation"
 	"github.com/kubewharf/katalyst-core/pkg/scheduler/cache"
+	"github.com/kubewharf/katalyst-core/pkg/scheduler/eventhandlers"
 	"github.com/kubewharf/katalyst-core/pkg/scheduler/util"
 )
 
@@ -96,6 +97,9 @@ func NewBalancedAllocation(baArgs runtime.Object, h framework.Handle) (framework
 	if err != nil {
 		return nil, err
 	}
+
+	eventhandlers.RegisterCommonPodHandler()
+	eventhandlers.RegisterCommonCNRHandler()
 
 	return &BalancedAllocation{
 		handle: h,

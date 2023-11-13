@@ -25,6 +25,7 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/labels"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/apimachinery/pkg/util/wait"
@@ -32,6 +33,7 @@ import (
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog/v2"
+	"k8s.io/kubernetes/pkg/kubelet/cm/cpumanager"
 
 	configv1alpha1 "github.com/kubewharf/katalyst-api/pkg/apis/overcommit/v1alpha1"
 	nodev1alpha1 "github.com/kubewharf/katalyst-api/pkg/client/listers/node/v1alpha1"
@@ -43,6 +45,8 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/config/generic"
 	"github.com/kubewharf/katalyst-core/pkg/controller/overcommit/node/matcher"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
+	"github.com/kubewharf/katalyst-core/pkg/util/native"
+	overcommitutil "github.com/kubewharf/katalyst-core/pkg/util/overcommit"
 )
 
 const nodeOvercommitControllerName = "noc"
@@ -115,6 +119,7 @@ func NewNodeOvercommitController(
 		syncedFunc: []cache.InformerSynced{
 			nodeInformer.Informer().HasSynced,
 			nodeOvercommitInformer.Informer().HasSynced,
+			cnrInformer.Informer().HasSynced,
 		},
 		matcher:         &matcher.DummyMatcher{},
 		reconcilePeriod: overcommitConf.Node.ConfigReconcilePeriod,
@@ -156,6 +161,7 @@ func (nc *NodeOvercommitController) Run() {
 	defer func() {
 		nc.nocSyncQueue.ShutDown()
 		nc.nodeSyncQueue.ShutDown()
+		nc.cnrSyncQueue.ShutDown()
 		klog.Infof("Shutting down %s controller", nodeOvercommitControllerName)
 	}()
 
@@ -424,70 +430,20 @@ func (nc *NodeOvercommitController) patchNodeOvercommitConfigStatus(configName s
 }
 
 func (nc *NodeOvercommitController) setNodeOvercommitAnnotations(nodeName string, config *configv1alpha1.NodeOvercommitConfig) error {
-	if config == nil {
-		config = nc.matcher.GetConfig(nodeName)
-	}
-	if config == nil {
-		return nc.setNodeOvercommitAnnotationsWithConfig(nodeName, config)
-	}
-
-	cnr, err := nc.cnrLister.Get(nodeName)
-	if err != nil {
-		if errors.IsNotFound(err) {
-			klog.V(6).Infof("node %v without cnr", nodeName)
-		} else {
-			klog.Errorf("get node %s cnr fail: %v", nodeName, err)
-		}
-		return nc.setNodeOvercommitAnnotationsWithConfig(nodeName, config)
-	}
-
-	if len(cnr.Annotations) == 0 {
-		return nc.setNodeOvercommitAnnotationsWithConfig(nodeName, config)
-	}
-
-	_, cpuOk := cnr.Annotations[consts.NodeAnnotationCPUOvercommitRatioKey]
-	_, memOk := cnr.Annotations[consts.NodeAnnotationMemoryOvercommitRatioKey]
-	if !cpuOk && !memOk {
-		return nc.setNodeOvercommitAnnotationsWithConfig(nodeName, config)
-	}
-
-	nocCopy := config.DeepCopy()
-	for resourceName, annotationKey := range resourceAnnotationKey {
-		c, ok := config.Spec.ResourceOvercommitRatio[resourceName]
-		if !ok {
-			continue
-		}
-		cnrOvercommitRatioAnnotation, ok := cnr.Annotations[annotationKey]
-		if !ok {
-			continue
-		}
-
-		setOvercommitRatio, err := strconv.ParseFloat(c, 64)
-		if err != nil {
-			klog.Errorf("unexpected overcommitRatio: %s", c)
-			return err
-		}
-		cnrOvercommitRatio, err := strconv.ParseFloat(cnrOvercommitRatioAnnotation, 64)
-		if err != nil {
-			klog.Errorf("unexpected overcommitRatio: %s", cnrOvercommitRatioAnnotation)
-			continue
-		}
-
-		klog.V(5).Infof("[noc] syncCNR, resourceName: %v, setOvercommitRatio: %v, cnrOvercommitRatio: %v", resourceName, setOvercommitRatio, cnrOvercommitRatio)
-		if cnrOvercommitRatio >= setOvercommitRatio {
-			continue
-		}
-		nocCopy.Spec.ResourceOvercommitRatio[resourceName] = cnrOvercommitRatioAnnotation
-	}
-
-	return nc.setNodeOvercommitAnnotationsWithConfig(nodeName, nocCopy)
-}
-
-func (nc *NodeOvercommitController) setNodeOvercommitAnnotationsWithConfig(nodeName string, config *configv1alpha1.NodeOvercommitConfig) error {
+	// get node from node index
 	node, err := nc.nodeLister.Get(nodeName)
 	if err != nil {
 		klog.Errorf("get node %s fail: %v", nodeName, err)
 		return err
+	}
+
+	// get noc if nil
+	if config == nil {
+		config = nc.matcher.GetConfig(nodeName)
+	}
+	nodeOvercommitConfig := emptyOvercommitConfig()
+	if config != nil {
+		nodeOvercommitConfig = config
 	}
 
 	nodeCopy := node.DeepCopy()
@@ -496,12 +452,6 @@ func (nc *NodeOvercommitController) setNodeOvercommitAnnotationsWithConfig(nodeN
 		nodeAnnotations = make(map[string]string)
 	}
 
-	var (
-		nodeOvercommitConfig = emptyOvercommitConfig()
-	)
-	if config != nil {
-		nodeOvercommitConfig = config
-	}
 	for resourceName, annotationKey := range resourceAnnotationKey {
 		c, ok := nodeOvercommitConfig.Spec.ResourceOvercommitRatio[resourceName]
 		if !ok {
@@ -515,11 +465,33 @@ func (nc *NodeOvercommitController) setNodeOvercommitAnnotationsWithConfig(nodeN
 			nodeAnnotations[annotationKey] = c
 		}
 	}
+
+	nc.nodeRealtimeOvercommitRatio(nodeAnnotations, node)
+
+	cpuAllocatable, cpuCapacity := nc.nodeOvercommitResource(node, validCPUOvercommitRatio(nodeAnnotations), corev1.ResourceCPU, consts.NodeAnnotationOriginalAllocatableCPUKey, consts.NodeAnnotationOriginalCapacityCPUKey)
+	klog.V(5).Infof("node %s CPU allocatable: %v, CPU capacity: %v with bindcpu", node.Name, cpuAllocatable, cpuCapacity)
+	if cpuAllocatable == "" {
+		delete(nodeAnnotations, consts.NodeAnnotationOvercommitAllocatableCPUKey)
+		delete(nodeAnnotations, consts.NodeAnnotationOvercommitCapacityCPUKey)
+	} else {
+		nodeAnnotations[consts.NodeAnnotationOvercommitAllocatableCPUKey] = cpuAllocatable
+		nodeAnnotations[consts.NodeAnnotationOvercommitCapacityCPUKey] = cpuCapacity
+	}
+
+	memAllocatable, memCapacity := nc.nodeOvercommitResource(node, validMemoryOvercommitRatio(nodeAnnotations), corev1.ResourceMemory, consts.NodeAnnotationOriginalAllocatableMemoryKey, consts.NodeAnnotationOriginalCapacityMemoryKey)
+	klog.V(5).Infof("node %s memory allocatable: %v, memory capacity: %v", node.Name, memAllocatable, memCapacity)
+	if memAllocatable == "" {
+		delete(nodeAnnotations, consts.NodeAnnotationOvercommitAllocatableMemoryKey)
+		delete(nodeAnnotations, consts.NodeAnnotationOvercommitCapacityMemoryKey)
+	} else {
+		nodeAnnotations[consts.NodeAnnotationOvercommitAllocatableMemoryKey] = memAllocatable
+		nodeAnnotations[consts.NodeAnnotationOvercommitCapacityMemoryKey] = memCapacity
+	}
+
 	nodeCopy.Annotations = nodeAnnotations
 	if !reflect.DeepEqual(nodeAnnotations, node.Annotations) {
 		return nc.nodeUpdater.PatchNode(nc.ctx, node, nodeCopy)
 	}
-
 	return nil
 }
 
@@ -529,4 +501,136 @@ func emptyOvercommitConfig() *configv1alpha1.NodeOvercommitConfig {
 			ResourceOvercommitRatio: map[corev1.ResourceName]string{},
 		},
 	}
+}
+
+func (nc *NodeOvercommitController) nodeRealtimeOvercommitRatio(nodeAnnotation map[string]string, node *corev1.Node) {
+	kcnr, err := nc.cnrLister.Get(node.Name)
+	if err != nil {
+		klog.Error(err)
+		return
+	}
+
+	if len(kcnr.Annotations) == 0 {
+		delete(nodeAnnotation, consts.NodeAnnotationRealtimeCPUOvercommitRatioKey)
+		delete(nodeAnnotation, consts.NodeAnnotationRealtimeMemoryOvercommitRatioKey)
+		return
+	}
+
+	realtimeCPU, ok := kcnr.Annotations[consts.NodeAnnotationCPUOvercommitRatioKey]
+	if ok {
+		nodeAnnotation[consts.NodeAnnotationRealtimeCPUOvercommitRatioKey] = realtimeCPU
+	} else {
+		delete(nodeAnnotation, consts.NodeAnnotationRealtimeCPUOvercommitRatioKey)
+	}
+
+	realtimeMem, ok := kcnr.Annotations[consts.NodeAnnotationMemoryOvercommitRatioKey]
+	if ok {
+		nodeAnnotation[consts.NodeAnnotationRealtimeMemoryOvercommitRatioKey] = realtimeMem
+	} else {
+		delete(nodeAnnotation, consts.NodeAnnotationRealtimeMemoryOvercommitRatioKey)
+	}
+}
+
+func (nc *NodeOvercommitController) nodeOvercommitResource(
+	node *corev1.Node,
+	overcommitRatio float64,
+	resourceName corev1.ResourceName,
+	originalAllocatableKey, originalCapacityKey string) (string, string) {
+	var guaranteedResource int
+
+	if overcommitRatio <= 1 {
+		klog.V(5).Infof("node %v cpu overcommit ratio less than 1: %v", node.Name, overcommitRatio)
+		overcommitRatio = 1.0
+	}
+
+	// node original allocatable and capacity should be always exists if overcommit webhook is running
+	// node allocatable can not be calculated without original allocatable, just return empty string.
+	nodeAllocatableAnnotation, ok := node.Annotations[originalAllocatableKey]
+	if !ok {
+		klog.V(5).Infof("node %s annotation %s missing", node.Name, originalAllocatableKey)
+		return "", ""
+	}
+	nodeCapacityAnnotation, ok := node.Annotations[originalCapacityKey]
+	if !ok {
+		klog.V(5).Infof("node %s annotation %s missing", node.Name, originalCapacityKey)
+		return "", ""
+	}
+	nodeAllocatable, err := resource.ParseQuantity(nodeAllocatableAnnotation)
+	if err != nil {
+		klog.Error(err)
+		return "", ""
+	}
+	nodeCapacity, err := resource.ParseQuantity(nodeCapacityAnnotation)
+	if err != nil {
+		klog.Error(err)
+		return "", ""
+	}
+
+	if resourceName == corev1.ResourceCPU {
+		guaranteedCPU, err := nc.getGuaranteedCPU(node.Name)
+		if err != nil {
+			klog.Error(err)
+		} else {
+			guaranteedResource = guaranteedCPU
+		}
+	}
+
+	guaranteedQuantity := resource.NewQuantity(int64(guaranteedResource), resource.DecimalSI)
+	nodeAllocatable.Sub(*guaranteedQuantity)
+	nodeAllocatable = native.MultiplyMilliQuantity(nodeAllocatable, overcommitRatio)
+	nodeAllocatable.Add(*guaranteedQuantity)
+	nodeCapacity.Sub(*guaranteedQuantity)
+	nodeCapacity = native.MultiplyMilliQuantity(nodeCapacity, overcommitRatio)
+	nodeCapacity.Add(*guaranteedQuantity)
+
+	klog.V(5).Infof("node %s overcommitRatio: %v, guaranteedResource: %v, final allocatable: %v, capacity: %v",
+		node.Name, overcommitRatio, guaranteedResource, nodeAllocatable.String(), nodeCapacity.String())
+	return nodeAllocatable.String(), nodeCapacity.String()
+}
+
+func (nc *NodeOvercommitController) getGuaranteedCPU(nodeName string) (int, error) {
+	kcnr, err := nc.cnrLister.Get(nodeName)
+	if err != nil {
+		klog.Error(err)
+		return 0, err
+	}
+
+	if kcnr.Annotations == nil {
+		klog.V(5).Infof("node %s with nil annotation", nodeName)
+		return 0, nil
+	}
+
+	if kcnr.Annotations[consts.KCNRAnnotationCPUManager] != string(cpumanager.PolicyStatic) {
+		klog.V(5).Infof("node %s not support cpu manager", kcnr.Name)
+		return 0, nil
+	}
+
+	cpusAnnotation, ok := kcnr.Annotations[consts.KCNRAnnotationGuaranteedCPUs]
+	if !ok {
+		klog.V(5).Infof("node %s guaranteed cpus missing", kcnr.Name)
+		return 0, nil
+	}
+	guaranteedCPUs, err := strconv.Atoi(cpusAnnotation)
+	if err != nil {
+		klog.Error(err)
+		return 0, err
+	}
+
+	return guaranteedCPUs, nil
+}
+
+func validCPUOvercommitRatio(annotation map[string]string) float64 {
+	res, err := overcommitutil.OvercommitRatioValidate(annotation, consts.NodeAnnotationCPUOvercommitRatioKey, consts.NodeAnnotationRealtimeCPUOvercommitRatioKey)
+	if err != nil {
+		klog.Error(err)
+	}
+	return res
+}
+
+func validMemoryOvercommitRatio(annotation map[string]string) float64 {
+	res, err := overcommitutil.OvercommitRatioValidate(annotation, consts.NodeAnnotationMemoryOvercommitRatioKey, consts.NodeAnnotationRealtimeMemoryOvercommitRatioKey)
+	if err != nil {
+		klog.Error(err)
+	}
+	return res
 }

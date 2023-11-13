@@ -299,8 +299,9 @@ func (ra *RealtimeOvercommitmentAdvisor) resourceMetricsToOvercommitRatio(resour
 		return 1.0
 	}
 
-	allocatable := resourceAllocatable.Value()
-	request := resourceRequest.Value()
+	allocatable := resourceAllocatable.MilliValue()
+	request := resourceRequest.MilliValue()
+	usage = usage * 1000
 
 	if request == 0 || allocatable == 0 {
 		klog.Warningf("unexpected node resource, resourceName: %v, request: %v, allocatable: %v", resourceName, request, allocatable)

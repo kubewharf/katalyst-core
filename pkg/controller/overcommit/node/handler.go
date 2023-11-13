@@ -44,6 +44,37 @@ const (
 	configEvent eventType = "config"
 )
 
+func (nc *NodeOvercommitController) addCNR(obj interface{}) {
+	cnr, ok := obj.(*nodev1alpha1.CustomNodeResource)
+	if !ok {
+		klog.Errorf("cannot convert obj to *CustomNodeResource: %v", obj)
+		return
+	}
+
+	klog.V(4).Infof("[noc] notice addition of CNR %s", cnr.Name)
+	nc.enqueueCNR(cnr)
+}
+
+func (nc *NodeOvercommitController) updateCNR(old, new interface{}) {
+	oldCNR, ok := old.(*nodev1alpha1.CustomNodeResource)
+	if !ok {
+		klog.Errorf("cannot convert obj to CustomNodeResource: %v", old)
+		return
+	}
+
+	newCNR, ok := new.(*nodev1alpha1.CustomNodeResource)
+	if !ok {
+		klog.Errorf("cannot convert obj to CustomNodeResource: %v", new)
+		return
+	}
+
+	if reflect.DeepEqual(newCNR.Annotations, oldCNR.Annotations) {
+		return
+	}
+
+	nc.enqueueCNR(newCNR)
+}
+
 func (nc *NodeOvercommitController) addNodeOvercommitConfig(obj interface{}) {
 	noc, ok := obj.(*v1alpha1.NodeOvercommitConfig)
 	if !ok {
@@ -114,49 +145,6 @@ func (nc *NodeOvercommitController) updateNode(old, new interface{}) {
 
 	klog.V(4).Infof("[noc] notice update of Node %s", newNode.Name)
 	nc.enqueueNode(newNode)
-}
-
-func (nc *NodeOvercommitController) addCNR(obj interface{}) {
-	cnr, ok := obj.(*nodev1alpha1.CustomNodeResource)
-	if !ok {
-		klog.Errorf("cannot convert obj to *CustomNodeResource: %v", obj)
-		return
-	}
-
-	if len(cnr.Annotations) == 0 {
-		klog.V(6).Infof("cnr without annotation, skip")
-		return
-	}
-	_, cpuOk := cnr.Annotations[consts.NodeAnnotationCPUOvercommitRatioKey]
-	_, memOk := cnr.Annotations[consts.NodeAnnotationMemoryOvercommitRatioKey]
-	if !cpuOk && !memOk {
-		klog.V(6).Infof("cnr without overcommit ratio, skip")
-		return
-	}
-
-	klog.V(4).Infof("[noc] notice addition of CNR %s", cnr.Name)
-	nc.enqueueCNR(cnr)
-}
-
-func (nc *NodeOvercommitController) updateCNR(old, new interface{}) {
-	oldCNR, ok := old.(*nodev1alpha1.CustomNodeResource)
-	if !ok {
-		klog.Errorf("cannot convert obj to CustomNodeResource: %v", old)
-		return
-	}
-
-	newCNR, ok := new.(*nodev1alpha1.CustomNodeResource)
-	if !ok {
-		klog.Errorf("cannot convert obj to CustomNodeResource: %v", new)
-		return
-	}
-
-	if reflect.DeepEqual(newCNR.Annotations, oldCNR.Annotations) {
-		return
-	}
-
-	nc.enqueueCNR(newCNR)
-	klog.V(4).Infof("[noc] notice update of CNR %s", newCNR.Name)
 }
 
 func (nc *NodeOvercommitController) enqueueNodeOvercommitConfig(noc *v1alpha1.NodeOvercommitConfig, eventType eventType) {

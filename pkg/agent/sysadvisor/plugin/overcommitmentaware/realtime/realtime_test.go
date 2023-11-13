@@ -376,7 +376,10 @@ func TestUpdate(t *testing.T) {
 	conf := generateTestConfiguration(t, checkpointDir, statefileDir, "testNode")
 
 	for _, tc := range testCases {
+		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
 			ms := generateTestMetaServer(t, conf, tc.pods, tc.containerMetrics, tc.node)
 			r := NewRealtimeOvercommitmentAdvisor(config.NewConfiguration(), ms, metrics.DummyMetrics{})
 			err := r.update()
