@@ -66,7 +66,26 @@ func TestPolicyNUMAAware(t *testing.T) {
 					ReservedForAllocate: 4 << 30,
 				},
 				setFakeMetric: func(store *metric.FakeMetricsFetcher) {
+					store.SetNodeMetric(pkgconsts.MetricMemTotalSystem, utilmetric.MetricData{Value: 500 << 30, Time: &now})
+					store.SetNodeMetric(pkgconsts.MetricMemScaleFactorSystem, utilmetric.MetricData{Value: 500, Time: &now})
 					store.SetNumaMetric(0, pkgconsts.MetricMemFreeNuma, utilmetric.MetricData{Value: 100 << 30, Time: &now})
+				},
+			},
+			wantErr: true,
+		},
+		{
+			name: "node metrics missing",
+			fields: fields{
+				podList:    []*v1.Pod{},
+				containers: []*types.ContainerInfo{},
+				essentials: types.ResourceEssentials{
+					EnableReclaim:       true,
+					ResourceUpperBound:  100 << 30,
+					ReservedForAllocate: 4 << 30,
+				},
+				setFakeMetric: func(store *metric.FakeMetricsFetcher) {
+					store.SetNumaMetric(0, pkgconsts.MetricMemFreeNuma, utilmetric.MetricData{Value: 100 << 30, Time: &now})
+					store.SetNumaMetric(1, pkgconsts.MetricMemFreeNuma, utilmetric.MetricData{Value: 100 << 30, Time: &now})
 				},
 			},
 			wantErr: true,
@@ -82,12 +101,14 @@ func TestPolicyNUMAAware(t *testing.T) {
 					ReservedForAllocate: 4 << 30,
 				},
 				setFakeMetric: func(store *metric.FakeMetricsFetcher) {
+					store.SetNodeMetric(pkgconsts.MetricMemTotalSystem, utilmetric.MetricData{Value: 500 << 30, Time: &now})
+					store.SetNodeMetric(pkgconsts.MetricMemScaleFactorSystem, utilmetric.MetricData{Value: 500, Time: &now})
 					store.SetNumaMetric(0, pkgconsts.MetricMemFreeNuma, utilmetric.MetricData{Value: 100 << 30, Time: &now})
 					store.SetNumaMetric(1, pkgconsts.MetricMemFreeNuma, utilmetric.MetricData{Value: 100 << 30, Time: &now})
 				},
 			},
 			wantErr: false,
-			want:    resource.MustParse("196Gi"),
+			want:    resource.MustParse("146Gi"),
 		},
 		{
 			name: "normal: reclaimed_cores containers only",
@@ -105,12 +126,14 @@ func TestPolicyNUMAAware(t *testing.T) {
 					ReservedForAllocate: 4 << 30,
 				},
 				setFakeMetric: func(store *metric.FakeMetricsFetcher) {
+					store.SetNodeMetric(pkgconsts.MetricMemTotalSystem, utilmetric.MetricData{Value: 500 << 30, Time: &now})
+					store.SetNodeMetric(pkgconsts.MetricMemScaleFactorSystem, utilmetric.MetricData{Value: 500, Time: &now})
 					store.SetNumaMetric(0, pkgconsts.MetricMemFreeNuma, utilmetric.MetricData{Value: 100 << 30, Time: &now})
 					store.SetNumaMetric(1, pkgconsts.MetricMemFreeNuma, utilmetric.MetricData{Value: 100 << 30, Time: &now})
 				},
 			},
 			wantErr: false,
-			want:    resource.MustParse("216Gi"),
+			want:    resource.MustParse("166Gi"),
 		},
 		{
 			name: "normal: reclaimed_cores containers with numa-exclusive containers",
@@ -136,12 +159,14 @@ func TestPolicyNUMAAware(t *testing.T) {
 					ReservedForAllocate: 4 << 30,
 				},
 				setFakeMetric: func(store *metric.FakeMetricsFetcher) {
+					store.SetNodeMetric(pkgconsts.MetricMemTotalSystem, utilmetric.MetricData{Value: 500 << 30, Time: &now})
+					store.SetNodeMetric(pkgconsts.MetricMemScaleFactorSystem, utilmetric.MetricData{Value: 500, Time: &now})
 					store.SetNumaMetric(0, pkgconsts.MetricMemFreeNuma, utilmetric.MetricData{Value: 100 << 30, Time: &now})
 					store.SetNumaMetric(1, pkgconsts.MetricMemFreeNuma, utilmetric.MetricData{Value: 100 << 30, Time: &now})
 				},
 			},
 			wantErr: false,
-			want:    resource.MustParse("116Gi"),
+			want:    resource.MustParse("66Gi"),
 		},
 	}
 	for _, tt := range tests {

@@ -125,11 +125,24 @@ func (p *PolicyNUMAAware) Update() (err error) {
 		reclaimableMemory += container.MemoryRequest
 	}
 
+	memoryTotal, err := p.metaServer.GetNodeMetric(consts.MetricMemTotalSystem)
+	if err != nil {
+		general.InfoS("Can not get system memory total")
+		return err
+	}
+	scaleFactor, err := p.metaServer.GetNodeMetric(consts.MetricMemScaleFactorSystem)
+	if err != nil {
+		general.InfoS("Can not get system watermark scale factor")
+		return err
+	}
+	// calculate system factor  with double scale_factor to make kswapd less happened
+	systemFactor := memoryTotal.Value * 2 * scaleFactor.Value / 10000
+
 	general.InfoS("total memory reclaimable",
 		"reclaimableMemory", general.FormatMemoryQuantity(reclaimableMemory),
 		"ReservedForAllocate", general.FormatMemoryQuantity(p.essentials.ReservedForAllocate),
 		"ResourceUpperBound", general.FormatMemoryQuantity(p.essentials.ResourceUpperBound))
-	p.memoryHeadroom = general.Clamp(reclaimableMemory-p.essentials.ReservedForAllocate, 0, p.essentials.ResourceUpperBound)
+	p.memoryHeadroom = general.Clamp(reclaimableMemory-p.essentials.ReservedForAllocate-systemFactor, 0, p.essentials.ResourceUpperBound)
 
 	return nil
 }
