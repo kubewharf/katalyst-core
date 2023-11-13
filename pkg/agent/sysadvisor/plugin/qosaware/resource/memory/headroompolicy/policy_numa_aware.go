@@ -112,37 +112,41 @@ func (p *PolicyNUMAAware) Update() (err error) {
 		return err
 	}
 
+	availNUMATotal := float64(0)
 	for _, numaID := range availNUMAs.ToSliceInt() {
 		data, err = p.metaServer.GetNumaMetric(numaID, consts.MetricMemFreeNuma)
 		if err != nil {
 			return err
 		}
 		reclaimableMemory += data.Value
-		general.InfoS("numa memory free", "numaID", numaID, "numaFree", general.FormatMemoryQuantity(data.Value))
+		general.InfoS("reclaimable numa memory free", "numaID", numaID, "numaFree", general.FormatMemoryQuantity(data.Value))
+
+		data, err = p.metaServer.GetNumaMetric(numaID, consts.MetricMemTotalNuma)
+		if err != nil {
+			return err
+		}
+		availNUMATotal += data.Value
+		general.InfoS("reclaimable numa memory total", "numaID", numaID, "numaTotal", general.FormatMemoryQuantity(data.Value))
+
 	}
 
 	for _, container := range reclaimedCoresContainers {
 		reclaimableMemory += container.MemoryRequest
 	}
 
-	memoryTotal, err := p.metaServer.GetNodeMetric(consts.MetricMemTotalSystem)
-	if err != nil {
-		general.InfoS("Can not get system memory total")
-		return err
-	}
-	scaleFactor, err := p.metaServer.GetNodeMetric(consts.MetricMemScaleFactorSystem)
+	watermarkScaleFactor, err := p.metaServer.GetNodeMetric(consts.MetricMemScaleFactorSystem)
 	if err != nil {
 		general.InfoS("Can not get system watermark scale factor")
 		return err
 	}
 	// calculate system factor  with double scale_factor to make kswapd less happened
-	systemFactor := memoryTotal.Value * 2 * scaleFactor.Value / 10000
+	systemWatermarkReserved := availNUMATotal * 2 * watermarkScaleFactor.Value / 10000
 
 	general.InfoS("total memory reclaimable",
 		"reclaimableMemory", general.FormatMemoryQuantity(reclaimableMemory),
 		"ReservedForAllocate", general.FormatMemoryQuantity(p.essentials.ReservedForAllocate),
 		"ResourceUpperBound", general.FormatMemoryQuantity(p.essentials.ResourceUpperBound))
-	p.memoryHeadroom = general.Clamp(reclaimableMemory-p.essentials.ReservedForAllocate-systemFactor, 0, p.essentials.ResourceUpperBound)
+	p.memoryHeadroom = general.Clamp(reclaimableMemory-p.essentials.ReservedForAllocate-systemWatermarkReserved, 0, p.essentials.ResourceUpperBound)
 
 	return nil
 }

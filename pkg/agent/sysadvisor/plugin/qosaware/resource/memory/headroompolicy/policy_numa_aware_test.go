@@ -66,7 +66,6 @@ func TestPolicyNUMAAware(t *testing.T) {
 					ReservedForAllocate: 4 << 30,
 				},
 				setFakeMetric: func(store *metric.FakeMetricsFetcher) {
-					store.SetNodeMetric(pkgconsts.MetricMemTotalSystem, utilmetric.MetricData{Value: 500 << 30, Time: &now})
 					store.SetNodeMetric(pkgconsts.MetricMemScaleFactorSystem, utilmetric.MetricData{Value: 500, Time: &now})
 					store.SetNumaMetric(0, pkgconsts.MetricMemFreeNuma, utilmetric.MetricData{Value: 100 << 30, Time: &now})
 				},
@@ -84,6 +83,8 @@ func TestPolicyNUMAAware(t *testing.T) {
 					ReservedForAllocate: 4 << 30,
 				},
 				setFakeMetric: func(store *metric.FakeMetricsFetcher) {
+					store.SetNumaMetric(0, pkgconsts.MetricMemTotalNuma, utilmetric.MetricData{Value: 250 << 30, Time: &now})
+					store.SetNumaMetric(1, pkgconsts.MetricMemTotalNuma, utilmetric.MetricData{Value: 250 << 30, Time: &now})
 					store.SetNumaMetric(0, pkgconsts.MetricMemFreeNuma, utilmetric.MetricData{Value: 100 << 30, Time: &now})
 					store.SetNumaMetric(1, pkgconsts.MetricMemFreeNuma, utilmetric.MetricData{Value: 100 << 30, Time: &now})
 				},
@@ -101,8 +102,9 @@ func TestPolicyNUMAAware(t *testing.T) {
 					ReservedForAllocate: 4 << 30,
 				},
 				setFakeMetric: func(store *metric.FakeMetricsFetcher) {
-					store.SetNodeMetric(pkgconsts.MetricMemTotalSystem, utilmetric.MetricData{Value: 500 << 30, Time: &now})
 					store.SetNodeMetric(pkgconsts.MetricMemScaleFactorSystem, utilmetric.MetricData{Value: 500, Time: &now})
+					store.SetNumaMetric(0, pkgconsts.MetricMemTotalNuma, utilmetric.MetricData{Value: 250 << 30, Time: &now})
+					store.SetNumaMetric(1, pkgconsts.MetricMemTotalNuma, utilmetric.MetricData{Value: 250 << 30, Time: &now})
 					store.SetNumaMetric(0, pkgconsts.MetricMemFreeNuma, utilmetric.MetricData{Value: 100 << 30, Time: &now})
 					store.SetNumaMetric(1, pkgconsts.MetricMemFreeNuma, utilmetric.MetricData{Value: 100 << 30, Time: &now})
 				},
@@ -126,8 +128,9 @@ func TestPolicyNUMAAware(t *testing.T) {
 					ReservedForAllocate: 4 << 30,
 				},
 				setFakeMetric: func(store *metric.FakeMetricsFetcher) {
-					store.SetNodeMetric(pkgconsts.MetricMemTotalSystem, utilmetric.MetricData{Value: 500 << 30, Time: &now})
 					store.SetNodeMetric(pkgconsts.MetricMemScaleFactorSystem, utilmetric.MetricData{Value: 500, Time: &now})
+					store.SetNumaMetric(0, pkgconsts.MetricMemTotalNuma, utilmetric.MetricData{Value: 250 << 30, Time: &now})
+					store.SetNumaMetric(1, pkgconsts.MetricMemTotalNuma, utilmetric.MetricData{Value: 250 << 30, Time: &now})
 					store.SetNumaMetric(0, pkgconsts.MetricMemFreeNuma, utilmetric.MetricData{Value: 100 << 30, Time: &now})
 					store.SetNumaMetric(1, pkgconsts.MetricMemFreeNuma, utilmetric.MetricData{Value: 100 << 30, Time: &now})
 				},
@@ -159,14 +162,15 @@ func TestPolicyNUMAAware(t *testing.T) {
 					ReservedForAllocate: 4 << 30,
 				},
 				setFakeMetric: func(store *metric.FakeMetricsFetcher) {
-					store.SetNodeMetric(pkgconsts.MetricMemTotalSystem, utilmetric.MetricData{Value: 500 << 30, Time: &now})
 					store.SetNodeMetric(pkgconsts.MetricMemScaleFactorSystem, utilmetric.MetricData{Value: 500, Time: &now})
+					store.SetNumaMetric(0, pkgconsts.MetricMemTotalNuma, utilmetric.MetricData{Value: 250 << 30, Time: &now})
+					store.SetNumaMetric(1, pkgconsts.MetricMemTotalNuma, utilmetric.MetricData{Value: 250 << 30, Time: &now})
 					store.SetNumaMetric(0, pkgconsts.MetricMemFreeNuma, utilmetric.MetricData{Value: 100 << 30, Time: &now})
 					store.SetNumaMetric(1, pkgconsts.MetricMemFreeNuma, utilmetric.MetricData{Value: 100 << 30, Time: &now})
 				},
 			},
 			wantErr: false,
-			want:    resource.MustParse("66Gi"),
+			want:    resource.MustParse("91Gi"),
 		},
 	}
 	for _, tt := range tests {
