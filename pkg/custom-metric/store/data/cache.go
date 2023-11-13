@@ -30,11 +30,9 @@ import (
 )
 
 const (
-	metricsNameKCMASStoreDataSetCost = "kcmas_store_data_cost_set"
 	metricsNameKCMASStoreDataGetCost = "kcmas_store_data_cost_get"
 
-	metricsNameKCMASStoreDataLength    = "kcmas_store_data_length"
-	metricsNameKCMASStoreWindowSeconds = "kcmas_store_data_window_seconds"
+	metricsNameKCMASStoreDataLength = "kcmas_store_data_length"
 
 	bucketSize = 256
 )
@@ -83,12 +81,6 @@ func (c *CachedMetric) getObjectMetricStore(metricMeta types.MetricMetaImp) Obje
 
 func (c *CachedMetric) AddSeriesMetric(sList ...types.Metric) error {
 	start := time.Now()
-
-	defer func() {
-		go func() {
-			_ = c.emitter.StoreInt64(metricsNameKCMASStoreDataSetCost, time.Now().Sub(start).Microseconds(), metrics.MetricTypeNameRaw)
-		}()
-	}()
 
 	var needReAggregate []*internal.MetricImp
 	for _, s := range sList {
@@ -299,19 +291,18 @@ func (c *CachedMetric) gcWithTimestamp(expiredTimestamp int64) {
 	c.RLock()
 	defer c.RUnlock()
 
+	var dataLength = 0
+
 	for _, objectMetricStore := range c.metricMap {
 		objectMetricStore.Iterate(func(internalMetric *internal.MetricImp) {
 			internalMetric.GC(expiredTimestamp)
 			if internalMetric.Len() != 0 {
-				go func() {
-					_ = c.emitter.StoreInt64(metricsNameKCMASStoreDataLength, int64(internalMetric.Len()),
-						metrics.MetricTypeNameRaw, internalMetric.GenerateTags()...)
-					_ = c.emitter.StoreInt64(metricsNameKCMASStoreWindowSeconds, (internalMetric.GetLatestTimestamp()-
-						internalMetric.GetOldestTimestamp())/time.Second.Milliseconds(), metrics.MetricTypeNameRaw, internalMetric.GenerateTags()...)
-				}()
+				dataLength += internalMetric.Len()
 			}
 		})
 	}
+
+	_ = c.emitter.StoreInt64(metricsNameKCMASStoreDataLength, int64(dataLength), metrics.MetricTypeNameRaw)
 }
 
 func (c *CachedMetric) Purge() {
