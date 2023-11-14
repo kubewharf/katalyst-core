@@ -304,7 +304,7 @@ func (r *QoSRegionBase) GetHeadroom() (float64, error) {
 			klog.Errorf("[qosaware-cpu] get headroom by policy %v failed: %v", internal.name, err)
 			continue
 		}
-		r.emitter.StoreFloat64(metricRegionHeadroom, headroom, metrics.MetricTypeNameRaw,
+		_ = r.emitter.StoreFloat64(metricRegionHeadroom, headroom, metrics.MetricTypeNameRaw,
 			metrics.ConvertMapToTags(map[string]string{metricTagKeyRegionType: string(r.regionType), metricTagKeyRegionName: r.name})...)
 		r.headroomPolicyNameInUse = internal.name
 		return headroom, nil

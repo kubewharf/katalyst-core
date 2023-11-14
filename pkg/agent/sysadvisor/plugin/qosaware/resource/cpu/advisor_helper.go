@@ -58,27 +58,27 @@ func (cra *cpuResourceAdvisor) getRegionsByPodUID(podUID string) []region.QoSReg
 	return regions
 }
 
-func (cra *cpuResourceAdvisor) getIsolatedContainerRegions(ci *types.ContainerInfo) ([]region.QoSRegion, error) {
+func (cra *cpuResourceAdvisor) getContainerRegions(ci *types.ContainerInfo, regionType types.QoSRegionType) ([]region.QoSRegion, error) {
 	var regions []region.QoSRegion
-	for _, r := range cra.getRegionsByPodUID(ci.PodUID) {
-		if r.Type() == types.QoSRegionTypeIsolation {
+
+	// For non-newly allocated containers, they already had regionNames,
+	// we can directly get the regions by regionMap.
+	for _, r := range cra.getRegionsByRegionNames(ci.RegionNames) {
+		if r.Type() == regionType {
 			regions = append(regions, r)
 		}
 	}
-	return regions, nil
-}
-
-func (cra *cpuResourceAdvisor) getContainerRegions(ci *types.ContainerInfo) ([]region.QoSRegion, error) {
-	// For non-newly allocated containers, they already had regionNames,
-	// we can directly get the regions by regionMap.
-	regions := cra.getRegionsByRegionNames(ci.RegionNames)
 	if len(regions) > 0 {
 		return regions, nil
 	}
 
 	// The regionNames of newly allocated containers are empty, if other containers of the same pod have been assigned regions,
 	// we can get regions by pod UID, otherwise create new region.
-	regions = cra.getRegionsByPodUID(ci.PodUID)
+	for _, r := range cra.getRegionsByPodUID(ci.PodUID) {
+		if r.Type() == regionType {
+			regions = append(regions, r)
+		}
+	}
 	return regions, nil
 }
 

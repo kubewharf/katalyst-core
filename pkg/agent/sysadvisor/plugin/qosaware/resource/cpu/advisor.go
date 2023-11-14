@@ -414,7 +414,7 @@ func (cra *cpuResourceAdvisor) assignToRegions(ci *types.ContainerInfo) ([]regio
 		// assign isolated container
 		if ci.Isolated {
 			// if there already exists an isolation region for this pod, just reuse it
-			regions, err := cra.getIsolatedContainerRegions(ci)
+			regions, err := cra.getContainerRegions(ci, types.QoSRegionTypeIsolation)
 			if err != nil {
 				return nil, err
 			} else if len(regions) > 0 {
@@ -437,7 +437,7 @@ func (cra *cpuResourceAdvisor) assignToRegions(ci *types.ContainerInfo) ([]regio
 
 	} else if ci.IsNumaBinding() {
 		// assign dedicated cores numa exclusive containers. focus on container.
-		regions, err := cra.getContainerRegions(ci)
+		regions, err := cra.getContainerRegions(ci, types.QoSRegionTypeDedicatedNumaExclusive)
 		if err != nil {
 			return nil, err
 		} else if len(regions) > 0 {

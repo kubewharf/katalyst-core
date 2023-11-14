@@ -1034,7 +1034,7 @@ func TestGetIsolatedContainerRegions(t *testing.T) {
 	}
 
 	f := func(c *types.ContainerInfo) []string {
-		rs, err := advisor.getIsolatedContainerRegions(c)
+		rs, err := advisor.getContainerRegions(c, types.QoSRegionTypeIsolation)
 		assert.NoError(t, err)
 		var res []string
 		for _, r := range rs {
