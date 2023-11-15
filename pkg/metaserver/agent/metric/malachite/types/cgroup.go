@@ -104,6 +104,7 @@ type MemoryCgDataV1 struct {
 	MemoryLimitInBytes     uint64        `json:"memory_limit_in_bytes"`
 	MemoryUsageInBytes     uint64        `json:"memory_usage_in_bytes"`
 	KernMemoryUsageInBytes uint64        `json:"kern_memory_usage_in_bytes"`
+	KernTCPMemLimitInBytes uint64        `json:"kern_tcp_memory_limit_in_bytes"`
 	Cache                  uint64        `json:"cache"`
 	Rss                    uint64        `json:"rss"`
 	Shmem                  uint64        `json:"shmem"`

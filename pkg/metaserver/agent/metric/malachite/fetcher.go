@@ -816,6 +816,8 @@ func (m *MalachiteMetricsFetcher) processContainerMemoryData(podUID, containerNa
 
 		m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricMemLimitContainer,
 			utilmetric.MetricData{Value: float64(mem.MemoryLimitInBytes), Time: &updateTime})
+		m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricMemTCPLimitContainer,
+			utilmetric.MetricData{Value: float64(mem.KernTCPMemLimitInBytes), Time: &updateTime})
 		m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricMemUsageContainer,
 			utilmetric.MetricData{Value: float64(mem.MemoryUsageInBytes), Time: &updateTime})
 		m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricMemUsageUserContainer,
