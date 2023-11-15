@@ -18,8 +18,6 @@ package topology
 
 import (
 	"context"
-	"github.com/jaypipes/ghw/pkg/pci"
-	"github.com/jaypipes/ghw/pkg/topology"
 	"net"
 	"os"
 	"path"
@@ -772,120 +770,21 @@ func Test_podResourcesServerTopologyAdapterImpl_GetTopologyZones_ReportRDMATopol
 					PodResources: []*podresv1.PodResources{
 						{
 							Namespace: "default",
-							Name:      "pod-1",
-							Containers: []*podresv1.ContainerResources{
-								{
-									Name: "container-1",
-									Devices: []*podresv1.ContainerDevices{
-										{
-											ResourceName: "vke.volcengine.com/rdma",
-											DeviceIds:    []string{"rdma-0", "rdma-1"},
-											Topology: &podresv1.TopologyInfo{
-												Nodes: []*podresv1.NUMANode{
-													{ID: 0},
-													{ID: 1},
-												},
-											},
-										},
-									},
-									Resources: []*podresv1.TopologyAwareResource{
-										{
-											ResourceName: "cpu",
-											OriginalTopologyAwareQuantityList: []*podresv1.TopologyAwareQuantity{
-												{
-													ResourceValue: 12,
-													Node:          0,
-												},
-												{
-													ResourceValue: 15,
-													Node:          1,
-												},
-											},
-										},
-										{
-											ResourceName: "memory",
-											OriginalTopologyAwareQuantityList: []*podresv1.TopologyAwareQuantity{
-												{
-													ResourceValue: generateFloat64ResourceValue("12G"),
-													Node:          0,
-												},
-												{
-													ResourceValue: generateFloat64ResourceValue("15G"),
-													Node:          1,
-												},
-											},
-										},
-									},
-								},
-							},
-						},
-						{
-							Namespace: "default",
 							Name:      "pod-2",
 							Containers: []*podresv1.ContainerResources{
 								{
-									Name: "container-1",
-									Resources: []*podresv1.TopologyAwareResource{
+									Name: "container-2",
+									Devices: []*podresv1.ContainerDevices{
 										{
-											ResourceName: "cpu",
-											OriginalTopologyAwareQuantityList: []*podresv1.TopologyAwareQuantity{
-												{
-													ResourceValue: 24,
-													Node:          0,
-												},
-												{
-													ResourceValue: 24,
-													Node:          1,
-												},
+											ResourceName: "resource.katalyst.kubewharf.io/rdma",
+											DeviceIds: []string{
+												"eth0",
 											},
-										},
-										{
-											ResourceName: "memory",
-											OriginalTopologyAwareQuantityList: []*podresv1.TopologyAwareQuantity{
-												{
-													ResourceValue: generateFloat64ResourceValue("32G"),
-													Node:          0,
-												},
-												{
-													ResourceValue: generateFloat64ResourceValue("32G"),
-													Node:          1,
-												},
-											},
-										},
-									},
-								},
-							},
-						},
-						{
-							Namespace: "default",
-							Name:      "pod-3",
-							Containers: []*podresv1.ContainerResources{
-								{
-									Name: "container-1",
-									Resources: []*podresv1.TopologyAwareResource{
-										{
-											ResourceName: "cpu",
-											OriginalTopologyAwareQuantityList: []*podresv1.TopologyAwareQuantity{
-												{
-													ResourceValue: 24,
-													Node:          0,
-												},
-												{
-													ResourceValue: 24,
-													Node:          1,
-												},
-											},
-										},
-										{
-											ResourceName: "memory",
-											OriginalTopologyAwareQuantityList: []*podresv1.TopologyAwareQuantity{
-												{
-													ResourceValue: generateFloat64ResourceValue("32G"),
-													Node:          0,
-												},
-												{
-													ResourceValue: generateFloat64ResourceValue("32G"),
-													Node:          1,
+											Topology: &podresv1.TopologyInfo{
+												Nodes: []*podresv1.NUMANode{
+													{
+														ID: 0,
+													},
 												},
 											},
 										},
@@ -898,9 +797,9 @@ func Test_podResourcesServerTopologyAdapterImpl_GetTopologyZones_ReportRDMATopol
 				allocatableResources: &podresv1.AllocatableResourcesResponse{
 					Devices: []*podresv1.ContainerDevices{
 						{
-							ResourceName: "gpu",
+							ResourceName: "resource.katalyst.kubewharf.io/rdma",
 							DeviceIds: []string{
-								"0",
+								"eth0",
 							},
 							Topology: &podresv1.TopologyInfo{
 								Nodes: []*podresv1.NUMANode{
@@ -909,13 +808,13 @@ func Test_podResourcesServerTopologyAdapterImpl_GetTopologyZones_ReportRDMATopol
 							},
 						},
 						{
-							ResourceName: "gpu",
+							ResourceName: "resource.katalyst.kubewharf.io/rdma",
 							DeviceIds: []string{
-								"1",
+								"eth1",
 							},
 							Topology: &podresv1.TopologyInfo{
 								Nodes: []*podresv1.NUMANode{
-									{ID: 0},
+									{ID: 1},
 								},
 							},
 						},
@@ -984,39 +883,21 @@ func Test_podResourcesServerTopologyAdapterImpl_GetTopologyZones_ReportRDMATopol
 							Name: "0",
 							Resources: nodev1alpha1.Resources{
 								Capacity: &v1.ResourceList{
-									"gpu":    resource.MustParse("2"),
-									"cpu":    resource.MustParse("24"),
-									"memory": resource.MustParse("32G"),
+									"cpu":                                 resource.MustParse("24"),
+									"memory":                              resource.MustParse("32G"),
+									"resource.katalyst.kubewharf.io/rdma": resource.MustParse("1"),
 								},
 								Allocatable: &v1.ResourceList{
-									"gpu":    resource.MustParse("2"),
-									"cpu":    resource.MustParse("24"),
-									"memory": resource.MustParse("32G"),
+									"cpu":                                 resource.MustParse("24"),
+									"memory":                              resource.MustParse("32G"),
+									"resource.katalyst.kubewharf.io/rdma": resource.MustParse("1"),
 								},
 							},
 							Allocations: []*nodev1alpha1.Allocation{
 								{
-									Consumer: "default/pod-1/pod-1-uid",
-									Requests: &v1.ResourceList{
-										"gpu":    resource.MustParse("1"),
-										"cpu":    resource.MustParse("12"),
-										"memory": resource.MustParse("12G"),
-									},
-								},
-								{
 									Consumer: "default/pod-2/pod-2-uid",
 									Requests: &v1.ResourceList{
-										"gpu":    resource.MustParse("1"),
-										"cpu":    resource.MustParse("24"),
-										"memory": resource.MustParse("32G"),
-									},
-								},
-								{
-									Consumer: "default/pod-3/pod-3-uid",
-									Requests: &v1.ResourceList{
-										"gpu":    resource.MustParse("1"),
-										"cpu":    resource.MustParse("24"),
-										"memory": resource.MustParse("32G"),
+										"resource.katalyst.kubewharf.io/rdma": resource.MustParse("1"),
 									},
 								},
 							},
@@ -1024,19 +905,11 @@ func Test_podResourcesServerTopologyAdapterImpl_GetTopologyZones_ReportRDMATopol
 								{
 									Type: nodev1alpha1.TopologyTypeNIC,
 									Name: "eth0",
-									Resources: nodev1alpha1.Resources{
-										Capacity: &v1.ResourceList{
-											"nic": resource.MustParse("10G"),
-										},
-										Allocatable: &v1.ResourceList{
-											"nic": resource.MustParse("10G"),
-										},
-									},
 									Allocations: []*nodev1alpha1.Allocation{
 										{
 											Consumer: "default/pod-2/pod-2-uid",
 											Requests: &v1.ResourceList{
-												"nic": resource.MustParse("10G"),
+												"resource.katalyst.kubewharf.io/rdma": resource.MustParse("1"),
 											},
 										},
 									},
@@ -1054,51 +927,20 @@ func Test_podResourcesServerTopologyAdapterImpl_GetTopologyZones_ReportRDMATopol
 							Name: "1",
 							Resources: nodev1alpha1.Resources{
 								Capacity: &v1.ResourceList{
-									"cpu":    resource.MustParse("24"),
-									"memory": resource.MustParse("32G"),
+									"cpu":                                 resource.MustParse("24"),
+									"memory":                              resource.MustParse("32G"),
+									"resource.katalyst.kubewharf.io/rdma": resource.MustParse("1"),
 								},
 								Allocatable: &v1.ResourceList{
-									"cpu":    resource.MustParse("24"),
-									"memory": resource.MustParse("32G"),
-								},
-							},
-							Allocations: []*nodev1alpha1.Allocation{
-								{
-									Consumer: "default/pod-1/pod-1-uid",
-									Requests: &v1.ResourceList{
-										"cpu":    resource.MustParse("15"),
-										"memory": resource.MustParse("15G"),
-									},
-								},
-								{
-									Consumer: "default/pod-2/pod-2-uid",
-									Requests: &v1.ResourceList{
-										"gpu":    resource.MustParse("1"),
-										"cpu":    resource.MustParse("24"),
-										"memory": resource.MustParse("32G"),
-									},
-								},
-								{
-									Consumer: "default/pod-3/pod-3-uid",
-									Requests: &v1.ResourceList{
-										"gpu":    resource.MustParse("1"),
-										"cpu":    resource.MustParse("24"),
-										"memory": resource.MustParse("32G"),
-									},
+									"cpu":                                 resource.MustParse("24"),
+									"memory":                              resource.MustParse("32G"),
+									"resource.katalyst.kubewharf.io/rdma": resource.MustParse("1"),
 								},
 							},
 							Children: []*nodev1alpha1.TopologyZone{
 								{
 									Type: nodev1alpha1.TopologyTypeNIC,
 									Name: "eth1",
-									Resources: nodev1alpha1.Resources{
-										Capacity: &v1.ResourceList{
-											"nic": resource.MustParse("10G"),
-										},
-										Allocatable: &v1.ResourceList{
-											"nic": resource.MustParse("10G"),
-										},
-									},
 								},
 							},
 						},
@@ -1109,22 +951,7 @@ func Test_podResourcesServerTopologyAdapterImpl_GetTopologyZones_ReportRDMATopol
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			pciInfo := &pci.Info{}
-			pciInfo.Devices = []*pci.Device{
-				{
-					Address: "rdma-0",
-					Node: &topology.Node{
-						ID: 0,
-					},
-				},
-				{
-					Address: "rdma-1",
-					Node: &topology.Node{
-						ID: 1,
-					},
-				},
-			}
-			p := &topologyAdapterImpl{
+			p := topologyAdapterImpl{
 				client: &fakePodResourcesListerClient{
 					ListPodResourcesResponse:     tt.fields.listPodResources,
 					AllocatableResourcesResponse: tt.fields.allocatableResources,
@@ -1134,9 +961,10 @@ func Test_podResourcesServerTopologyAdapterImpl_GetTopologyZones_ReportRDMATopol
 						PodFetcher: &pod.PodFetcherStub{PodList: tt.fields.podList},
 					},
 				},
-				numaSocketZoneNodeMap:    tt.fields.numaSocketZoneNodeMap,
-				pciInfo:                  pciInfo,
-				enableReportRDMATopology: true,
+				numaSocketZoneNodeMap: tt.fields.numaSocketZoneNodeMap,
+				resourceNameToZoneNameMap: map[string]string{
+					"resource.katalyst.kubewharf.io/rdma": "NIC",
+				},
 			}
 			got, err := p.GetTopologyZones(context.TODO())
 			if (err != nil) != tt.wantErr {
@@ -1890,8 +1718,8 @@ func Test_podResourcesServerTopologyAdapterImpl_Run(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.TODO())
 	notifier := make(chan struct{}, 1)
 	p, _ := NewPodResourcesServerTopologyAdapter(testMetaServer,
-		endpoints, kubeletResourcePluginPath,
-		nil, getNumaInfo, nil, podresources.GetV1Client, false)
+		endpoints, kubeletResourcePluginPath, nil,
+		nil, getNumaInfo, nil, podresources.GetV1Client)
 	err = p.Run(ctx, func() {})
 	assert.NoError(t, err)
 

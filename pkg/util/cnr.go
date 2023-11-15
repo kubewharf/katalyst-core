@@ -42,8 +42,6 @@ const (
 	CNRFieldNameTopologyZone           = "TopologyZone"
 	CNRFieldNameResources              = "Resources"
 	CNRFieldNameTopologyPolicy         = "TopologyPolicy"
-
-	ResourceRDMA = "vke.volcengine.com/rdma"
 )
 
 var (
@@ -376,21 +374,12 @@ func GenerateSocketZoneNode(socketID int) ZoneNode {
 	}
 }
 
-// GenerateNICZoneNode generates nic zone node by socket id, which must be unique
-func GenerateNICZoneNode(deviceId string) ZoneNode {
+// GenerateDeviceZoneNode generates device zone node through device id, which must be unique
+func GenerateDeviceZoneNode(deviceId, zoneName string) ZoneNode {
 	return ZoneNode{
 		Meta: ZoneMeta{
-			Type: nodev1alpha1.TopologyTypeNIC,
+			Type: nodev1alpha1.TopologyType(zoneName),
 			Name: deviceId,
 		},
 	}
-}
-
-func IsRDMA(resourceName string) bool {
-	return ResourceRDMA == resourceName
-}
-
-// ParseDeviceID returns device ID parsed from the string as 64bit integer
-func ParseDeviceID(deviceID string) (int64, error) {
-	return strconv.ParseInt(deviceID, 16, 64)
 }
