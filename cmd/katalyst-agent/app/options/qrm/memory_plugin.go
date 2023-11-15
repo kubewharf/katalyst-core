@@ -37,6 +37,8 @@ type SockMemOptions struct {
 	EnableSettingSockMem bool
 	// SetGlobalTCPMemRatio limits global max tcp memory usage.
 	SetGlobalTCPMemRatio int
+	// SetCgroupTCPMemLimitRatio limit cgroup max tcp memory usage.
+	SetCgroupTCPMemRatio int
 }
 
 func NewMemoryOptions() *MemoryOptions {
@@ -48,7 +50,8 @@ func NewMemoryOptions() *MemoryOptions {
 		EnableMemoryAdvisor:        false,
 		SockMemOptions: SockMemOptions{
 			EnableSettingSockMem: false,
-			SetGlobalTCPMemRatio: 20, // default: 20% * {host total memory}
+			SetGlobalTCPMemRatio: 20,  // default: 20% * {host total memory}
+			SetCgroupTCPMemRatio: 100, // default: 100% * {cgroup memory}
 		},
 	}
 }
@@ -72,6 +75,8 @@ func (o *MemoryOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 		o.EnableSettingSockMem, "if set true, we will limit tcpmem usage in cgroup and host level")
 	fs.IntVar(&o.SetGlobalTCPMemRatio, "qrm-memory-global-tcpmem-ratio",
 		o.SetGlobalTCPMemRatio, "limit global max tcp memory usage")
+	fs.IntVar(&o.SetCgroupTCPMemRatio, "qrm-memory-cgroup-tcpmem-ratio",
+		o.SetCgroupTCPMemRatio, "limit cgroup max tcp memory usage")
 }
 
 func (o *MemoryOptions) ApplyTo(conf *qrmconfig.MemoryQRMPluginConfig) error {
@@ -83,5 +88,6 @@ func (o *MemoryOptions) ApplyTo(conf *qrmconfig.MemoryQRMPluginConfig) error {
 	conf.ExtraControlKnobConfigFile = o.ExtraControlKnobConfigFile
 	conf.EnableSettingSockMem = o.EnableSettingSockMem
 	conf.SetGlobalTCPMemRatio = o.SetGlobalTCPMemRatio
+	conf.SetCgroupTCPMemRatio = o.SetCgroupTCPMemRatio
 	return nil
 }

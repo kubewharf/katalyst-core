@@ -20,16 +20,15 @@ const (
 	EnableSetSockMemPeriodicalHandlerName = "SetSockMem"
 
 	// Constants for global tcpmem ratio
-	globalTCPMemRatioMin = 20 // min ratio for host tcp mem: 20%
-	globalTCPMemRatioMax = 80 // max ratio for host tcp mem: 80%
-	hostTCPMemFile       = "/proc/sys/net/ipv4/tcp_mem"
+	globalTCPMemRatioMin float64 = 20.0 // min ratio for host tcp mem: 20%
+	globalTCPMemRatioMax float64 = 80.0 // max ratio for host tcp mem: 80%
+	hostTCPMemFile               = "/proc/sys/net/ipv4/tcp_mem"
 
 	// Constants for cgroupv1 tcpmem statistics
-	kernSockMemAccoutingOff = 9223372036854771712 // max value
-	kernSockMemAccoutingOn  = 9223372036854767616
+	kernSockMemAccoutingOn float64 = 9223372036854767616.0
 
 	// Constants for cgroupv1 tcpmem ratio
-	cgroupTCPMemMin2G    = 2147483648 // static min value for pod's sockmem: 2G
-	cgroupTCPMemRatioMin = 20         // min ratio for pod's sockmem: 20%
-	cgroupTCPMemRatioMax = 200        // max ratio for pod's sockmem: 200%
+	cgroupTCPMemMin2G    float64 = 2147483648.0 // static min value for pod's sockmem: 2G
+	cgroupTCPMemRatioMin float64 = 20.0         // min ratio for pod's sockmem: 20%
+	cgroupTCPMemRatioMax float64 = 200.0        // max ratio for pod's sockmem: 200%
 )

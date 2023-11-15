@@ -39,6 +39,8 @@ type SockMemQRMPluginConfig struct {
 	EnableSettingSockMem bool
 	// SetGlobalTCPMemRatio limits host max global tcp memory usage.
 	SetGlobalTCPMemRatio int
+	// SetCgroupTCPMemRatio limit cgroup max tcp memory usage.
+	SetCgroupTCPMemRatio int
 }
 
 func NewMemoryQRMPluginConfig() *MemoryQRMPluginConfig {
