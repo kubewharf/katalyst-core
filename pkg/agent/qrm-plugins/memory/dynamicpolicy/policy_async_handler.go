@@ -27,6 +27,7 @@ import (
 	"github.com/kubewharf/katalyst-api/pkg/consts"
 	apiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/memory/dynamicpolicy/sockmem"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/memory/dynamicpolicy/state"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
@@ -480,4 +481,44 @@ func (p *DynamicPolicy) setMemoryMigrate() {
 		}
 	}
 	p.migrateMemoryLock.Unlock()
+}
+
+/*
+ * setSockMemLimit is the unified solution for tcpmem limitation.
+ * it includes 3 parts:
+ * 1, set the limit value for host net.ipv4.tcp_mem.
+ * 2, do nothing for cgroupv2.
+ * 3, set pod tcp_mem accounting for cgroupv1.
+ */
+func (p *DynamicPolicy) setSockMemLimit() {
+	general.Infof("called")
+	/*
+	 * Step1, set the [limit] value for host net.ipv4.tcp_mem.
+	 *
+	 * Description of net.ipv4.tcp_mem:
+	 * It includes 3 parts: min, pressure, limit.
+	 * The format is like the following:
+	 * net.ipv4.tcp_mem = [min] [pressure] [limit]
+	 *
+	 * Each parts means:
+	 * [min]: represents the minimum number of pages allowed in the queue.
+	 * [pressure]: represents the threshold at which the system considers memory
+	 *   to be under pressure due to TCP socket usage. When the memory usage reaches
+	 *   this value, the system may start taking actions like cleaning up or reclaiming memory.
+	 * [limit]: indicates the maximum number of pages allowed in the queue.
+	 */
+	sockmem.SetHostTCPMem(p.state.GetMachineInfo())
+
+	// Step2, do nothing for cg2.
+	if common.CheckCgroup2UnifiedMode() {
+		general.Infof("skip setSockMemLimit in cg2 env")
+		return
+	}
+
+	// Step3, set tcp_mem accounting for pods under cgroupv1.
+	if p.metaServer == nil {
+		general.Errorf("nil metaServer")
+		return
+	}
+	// to-do
 }

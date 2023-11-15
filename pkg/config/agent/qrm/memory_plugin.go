@@ -29,6 +29,16 @@ type MemoryQRMPluginConfig struct {
 	EnableMemoryAdvisor bool
 	// ExtraControlKnobConfigFile: the absolute path of extra control knob config file
 	ExtraControlKnobConfigFile string
+
+	// SockMemQRMPluginConfig: the configuration for sockmem limitation in cgroup and host level
+	SockMemQRMPluginConfig
+}
+
+type SockMemQRMPluginConfig struct {
+	// EnableSettingSockMemLimit is used to limit tcpmem usage in cgroup and host level
+	EnableSettingSockMem bool
+	// SetHostTCPMemLimit limit host max tcp memory usage.
+	SetHostTCPMemLimitRatio int
 }
 
 func NewMemoryQRMPluginConfig() *MemoryQRMPluginConfig {
