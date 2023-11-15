@@ -120,6 +120,7 @@ const (
 // container memory metrics
 const (
 	MetricMemLimitContainer     = "mem.limit.container"
+	MetricMemTCPLimitContainer  = "mem.tcp.limit.container"
 	MetricMemUsageContainer     = "mem.usage.container"
 	MetricMemUsageUserContainer = "mem.usage.user.container"
 	MetricMemUsageSysContainer  = "mem.usage.sys.container"
