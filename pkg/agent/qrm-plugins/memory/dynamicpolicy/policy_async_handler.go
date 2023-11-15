@@ -30,11 +30,14 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/memory/dynamicpolicy/sockmem"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/memory/dynamicpolicy/state"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util"
+	coreconsts "github.com/kubewharf/katalyst-core/pkg/consts"
+	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric/helper"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/cgroup/common"
 	cgroupmgr "github.com/kubewharf/katalyst-core/pkg/util/cgroup/manager"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
+	"github.com/kubewharf/katalyst-core/pkg/util/native"
 )
 
 // setExtraControlKnobByConfigForAllocationInfo sets control knob entry for container,
@@ -507,7 +510,7 @@ func (p *DynamicPolicy) setSockMemLimit() {
 	 *   this value, the system may start taking actions like cleaning up or reclaiming memory.
 	 * [limit]: indicates the maximum number of pages allowed in the queue.
 	 */
-	sockmem.SetHostTCPMem(p.state.GetMachineInfo())
+	_ = sockmem.SetHostTCPMem(p.state.GetMachineInfo().MemoryCapacity)
 
 	// Step2, do nothing for cg2.
 	if common.CheckCgroup2UnifiedMode() {
@@ -520,5 +523,36 @@ func (p *DynamicPolicy) setSockMemLimit() {
 		general.Errorf("nil metaServer")
 		return
 	}
-	// to-do
+	podList, err := p.metaServer.GetPodList(context.Background(), nil)
+	if err != nil {
+		general.Errorf("get pod list failed, err: %v", err)
+		return
+	}
+
+	p.Lock()
+	defer p.Unlock()
+
+	for _, pod := range podList {
+		if pod == nil {
+			general.Errorf("get nil pod from metaServer")
+			continue
+		}
+		for _, containerStatus := range pod.Status.ContainerStatuses {
+			podUID, containerID := string(pod.UID), native.TrimContainerIDPrefix(containerStatus.ContainerID)
+
+			memLimit, found := helper.GetPodMetric(p.metaServer.MetricsFetcher, p.emitter, pod, coreconsts.MetricMemLimitContainer, -1)
+			if !found {
+				general.Infof("memory limit not found:%v..\n", podUID)
+				continue
+			}
+
+			memTCPLimit, found := helper.GetPodMetric(p.metaServer.MetricsFetcher, p.emitter, pod, coreconsts.MetricMemTCPLimitContainer, -1)
+			if !found {
+				general.Infof("memory tcp.limit not found:%v..\n", podUID)
+				continue
+			}
+
+			_ = sockmem.SetCg1TCPMem(podUID, containerID, int64(memLimit), int64(memTCPLimit))
+		}
+	}
 }

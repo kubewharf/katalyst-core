@@ -2,7 +2,7 @@
 // +build linux
 
 /*
-Copyright 2023 The Katalyst Authors.
+Copyright 2022 The Katalyst Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -26,9 +26,11 @@ import (
 	"strings"
 	"syscall"
 
-	info "github.com/google/cadvisor/info/v1"
 	"golang.org/x/sys/unix"
-	"k8s.io/klog/v2"
+
+	cgroupcm "github.com/kubewharf/katalyst-core/pkg/util/cgroup/common"
+	cgroupmgr "github.com/kubewharf/katalyst-core/pkg/util/cgroup/manager"
+	"github.com/kubewharf/katalyst-core/pkg/util/general"
 )
 
 type SockMemConfig struct {
@@ -50,8 +52,17 @@ func UpdateHostTCPMemRatio(ratio int) {
 	sockMemConfig.hostTCPMemRatio = ratio
 }
 
-func alignToPageSize(number int) int {
-	pageSize := int(syscall.Getpagesize())
+func UpdateCgroupTCPMemRatio(ratio int) {
+	if ratio < cgroupTCPMemRatioMin {
+		ratio = cgroupTCPMemRatioMin
+	} else if ratio > cgroupTCPMemRatioMax {
+		ratio = cgroupTCPMemRatioMax
+	}
+	sockMemConfig.cgroupTCPMemRatio = ratio
+}
+
+func alignToPageSize(number int64) int64 {
+	pageSize := int64(syscall.Getpagesize())
 	alignedNumber := (number + pageSize - 1) &^ (pageSize - 1)
 	return alignedNumber
 }
@@ -90,8 +101,13 @@ func setHostTCPMemFile(TCPMemFile string, tcpMem []uint64) error {
 		return fmt.Errorf("tcpMem array must have exactly three elements")
 	}
 
+	_, err := os.Stat(TCPMemFile)
+	if err != nil {
+		return err
+	}
+
 	content := fmt.Sprintf("%d\t%d\t%d\n", tcpMem[0], tcpMem[1], tcpMem[2])
-	err := os.WriteFile(TCPMemFile, []byte(content), 0644)
+	err = os.WriteFile(TCPMemFile, []byte(content), 0644)
 	if err != nil {
 		return fmt.Errorf("failed to write to %s, err %v", TCPMemFile, err)
 	}
@@ -99,22 +115,43 @@ func setHostTCPMemFile(TCPMemFile string, tcpMem []uint64) error {
 	return nil
 }
 
-func SetHostTCPMem(machineInfo *info.MachineInfo) {
+func SetHostTCPMem(memTotal uint64) error {
 	tcpMemRatio := sockMemConfig.hostTCPMemRatio
 	tcpMem, err := getHostTCPMemFile(hostTCPMemFile)
 	if err != nil {
 		fmt.Println("Error:", err)
-		return
+		return err
 	}
 
 	pageSize := uint64(unix.Getpagesize())
-	memTotal := machineInfo.MemoryCapacity
-
 	newUpperLimit := memTotal / pageSize / 100 * uint64(tcpMemRatio)
-
 	if (newUpperLimit != tcpMem[2]) && (newUpperLimit > tcpMem[1]) {
-		klog.Infof("write to host tcp_mem, newLimit=%d, oldLimit=%d", newUpperLimit, tcpMem[2])
+		general.Infof("write to host tcp_mem, newLimit=%d, oldLimit=%d", newUpperLimit, tcpMem[2])
 		tcpMem[2] = newUpperLimit
 		setHostTCPMemFile(hostTCPMemFile, tcpMem)
 	}
+	return nil
+}
+
+func SetCg1TCPMem(podUID, containerID string, memLimit, memTCPLimit int64) error {
+	newMemTCPLimit := memLimit / 100 * int64(sockMemConfig.cgroupTCPMemRatio)
+	newMemTCPLimit = alignToPageSize(newMemTCPLimit)
+	if newMemTCPLimit < cgroupTCPMemMin2G {
+		newMemTCPLimit = cgroupTCPMemMin2G
+	} else if newMemTCPLimit >= kernSockMemOff {
+		newMemTCPLimit = kernSockMemEnabled
+	}
+
+	cgroupPath, err := cgroupcm.GetContainerRelativeCgroupPath(podUID, containerID)
+	if err != nil {
+		return err
+	}
+
+	if newMemTCPLimit != memTCPLimit {
+		_ = cgroupmgr.ApplyMemoryWithRelativePath(cgroupPath, &cgroupcm.MemoryData{
+			TCPMemLimitInBytes: newMemTCPLimit,
+		})
+		general.Infof("Apply TCPMemLimitInBytes: %v, old value=%d, new value=%d", cgroupPath, memTCPLimit, newMemTCPLimit)
+	}
+	return nil
 }

@@ -213,6 +213,7 @@ func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration
 		memoryadvisor.ControlKnobHandlerWithChecker(policyImplement.handleAdvisorDropCache))
 
 	sockmem.UpdateHostTCPMemRatio(conf.SetHostTCPMemLimitRatio)
+	sockmem.UpdateCgroupTCPMemRatio(conf.SetCgroupTCPMemLimitRatio)
 
 	return true, &agent.PluginWrapper{GenericPlugin: pluginWrapper}, nil
 }

@@ -39,6 +39,8 @@ type SockMemQRMPluginConfig struct {
 	EnableSettingSockMem bool
 	// SetHostTCPMemLimit limit host max tcp memory usage.
 	SetHostTCPMemLimitRatio int
+	// SetCgroupTCPMemLimit limit cgroup max tcp memory usage.
+	SetCgroupTCPMemLimitRatio int
 }
 
 func NewMemoryQRMPluginConfig() *MemoryQRMPluginConfig {
