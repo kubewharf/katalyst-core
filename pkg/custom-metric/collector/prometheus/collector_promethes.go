@@ -56,7 +56,6 @@ const (
 	metricNamePromCollectorScrapeReqCount  = "kcmas_collector_scrape_req_cnt"
 	metricNamePromCollectorScrapeItemCount = "kcmas_collector_scrape_item_cnt"
 	metricNamePromCollectorScrapeLatency   = "kcmas_collector_scrape_latency"
-	metricNamePromCollectorScrapeOutOfDate = "kcmas_collector_scrape_out_of_date"
 
 	metricNamePromCollectorStoreReqCount  = "kcmas_collector_store_req_cnt"
 	metricNamePromCollectorStoreItemCount = "kcmas_collector_store_item_cnt"
