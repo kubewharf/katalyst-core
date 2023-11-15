@@ -17,10 +17,29 @@ limitations under the License.
 package memory
 
 import (
+	"fmt"
+	"time"
+
+	utilerrors "k8s.io/apimachinery/pkg/util/errors"
+
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/agent/qrm"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/memory/dynamicpolicy"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/memory/handlers/sockmem"
+	"github.com/kubewharf/katalyst-core/pkg/agent/utilcomponent/periodicalhandler"
 )
 
 func init() {
 	qrm.RegisterMemoryPolicyInitializer(dynamicpolicy.MemoryResourcePluginPolicyNameDynamic, dynamicpolicy.NewDynamicPolicy)
+}
+
+// register qrm memory-handlers registered in adapter
+func init() {
+	var errList []error
+	errList = append(errList, periodicalhandler.RegisterPeriodicalHandler(qrm.QRMMemoryPluginPeriodicalHandlerGroupName,
+		sockmem.EnableSetSockMemPeriodicalHandlerName, sockmem.SetSockMemLimit, 60*time.Second))
+
+	aggregatedErr := utilerrors.NewAggregate(errList)
+	if aggregatedErr != nil {
+		panic(fmt.Errorf("initialize adapter memory qrm plugin failed with error: %v", aggregatedErr.Error()))
+	}
 }
