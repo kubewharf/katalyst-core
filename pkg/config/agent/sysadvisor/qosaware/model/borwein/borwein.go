@@ -40,7 +40,7 @@ func NewBorweinConfiguration() *BorweinConfiguration {
 				Version:                "default",
 			},
 		},
-		NodeFeatureNames:      []string{}, // todo: fill it with adaption table
-		ContainerFeatureNames: []string{}, // todo: fill it with adaption table
+		NodeFeatureNames:      []string{"cpu_total", "specification", "vendor", "iobusy_online", "iobusy_offline", "mem_total", "mem_free", "mem_used", "mem_shm", "mem_available", "mem_buffers", "mem_page_cache", "mem_slab_reclaimable", "mem_dirty_page_cache", "mem_writeback_page_cache", "vm_watermark_scale_factor", "vm_stat_pgsteal_kswapd"},                                                                                                                                                                                                                                                                                                                                                                                                                                                    // todo: fill it with adaption table
+		ContainerFeatureNames: []string{"psm", "paas_cluster", "physical_cluster", "deploy", "qos_level", "idc", "timestamp", "cpu_limit", "cpu_request", "cpu_usage", "cpu_user_usage", "cpu_sys_usage", "cfs_quota_us", "cfs_period_us", "cpu_shares", "cpu_nr_throttled", "cpu_nr_periods", "cpu_throttled_time", "cpu_load", "cpu_cpi", "cpu_instructions", "cpu_cycles", "cpu_l3_cache_miss", "memory_request", "mem_limit", "mem_usage", "mem_kern_usage", "mem_rss", "mem_cache", "mem_shmem", "mem_dirty", "mem_kswapd_steal", "mem_writeback", "mem_pgfault", "mem_pgmajfault", "mem_allocstall", "mem_oom_cnt", "mem_read_bandwidth", "mem_write_bandwidth", "vfs_read_iops", "vfs_write_iops", "vfs_read_bps", "vfs_write_bps", "net_send_bps", "net_recv_bps", "net_send_pps", "net_recv_pps"}, // todo: fill it with adaption table
 	}
 }

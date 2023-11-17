@@ -52,12 +52,11 @@ func (c *MalachiteClient) GetCgroupStats(cgroupPath string) (*types.MalachiteCgr
 			return nil, fmt.Errorf("failed to Unmarshal cgroup v1 info, err %s", err)
 		}
 		cgV1 := &types.MalachiteCgroupV1Info{
-			Memory:    &subsysV1.Memory.V1.MemoryV1Data,
-			Blkio:     &subsysV1.Blkio.V1.BlkIOData,
-			Cpu:       &subsysV1.Cpuacct.V1.CPUData,
-			CpuSet:    &subsysV1.Cpuset.V1.CPUSetData,
-			PerfEvent: &subsysV1.PerfEvent.PerfEventData,
-			NetCls:    &subsysV1.NetCls.NetData,
+			Memory: &subsysV1.Memory.V1.MemoryV1Data,
+			Blkio:  &subsysV1.Blkio.V1.BlkIOData,
+			Cpu:    &subsysV1.Cpuacct.V1.CPUData,
+			CpuSet: &subsysV1.Cpuset.V1.CPUSetData,
+			NetCls: &subsysV1.NetCls.NetData,
 		}
 		cgroupInfo.V1 = cgV1
 	} else if cgroupInfo.CgroupType == "V2" {
@@ -66,12 +65,11 @@ func (c *MalachiteClient) GetCgroupStats(cgroupPath string) (*types.MalachiteCgr
 			return nil, fmt.Errorf("failed to Unmarshal cgroup v2 info, err %s", err)
 		}
 		cgV2 := &types.MalachiteCgroupV2Info{
-			Memory:    &subsysV2.Memory.V2.MemoryData,
-			Blkio:     &subsysV2.Blkio.V2.BlkIOData,
-			Cpu:       &subsysV2.Cpuacct.V2.CPUData,
-			CpuSet:    &subsysV2.Cpuset.V2.CPUSetData,
-			PerfEvent: &subsysV2.PerfEvent.PerfEventData,
-			NetCls:    &subsysV2.NetCls.NetData,
+			Memory: &subsysV2.Memory.V2.MemoryData,
+			Blkio:  &subsysV2.Blkio.V2.BlkIOData,
+			Cpu:    &subsysV2.Cpuacct.V2.CPUData,
+			CpuSet: &subsysV2.Cpuset.V2.CPUSetData,
+			NetCls: &subsysV2.NetCls.NetData,
 		}
 		cgroupInfo.V2 = cgV2
 	} else {

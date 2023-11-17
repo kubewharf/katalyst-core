@@ -33,12 +33,12 @@ var subSystemGroupsV2Data []byte
 
 var (
 	subSystemGroupsV1 = &types.SubSystemGroupsV1{
-		Memory: types.MemoryCg{
+		Memory: types.MemoryCgV1{
 			V1: struct {
 				MemoryV1Data types.MemoryCgDataV1 `json:"V1"`
 			}(struct{ MemoryV1Data types.MemoryCgDataV1 }{MemoryV1Data: types.MemoryCgDataV1{}}),
 		},
-		Blkio: types.BlkioCg{
+		Blkio: types.BlkioCgV1{
 			V1: struct {
 				BlkIOData types.BlkIOCgDataV1 `json:"V1"`
 			}(struct{ BlkIOData types.BlkIOCgDataV1 }{BlkIOData: types.BlkIOCgDataV1{}}),
@@ -46,15 +46,12 @@ var (
 		NetCls: types.NetClsCg{
 			NetData: types.NetClsCgData{},
 		},
-		PerfEvent: types.PerfEventCg{
-			PerfEventData: types.PerfEventData{},
-		},
-		Cpuset: types.CpusetCg{
+		Cpuset: types.CpusetCgV1{
 			V1: struct {
 				CPUSetData types.CPUSetCgDataV1 `json:"V1"`
 			}(struct{ CPUSetData types.CPUSetCgDataV1 }{CPUSetData: types.CPUSetCgDataV1{}}),
 		},
-		Cpuacct: types.CpuacctCg{
+		Cpuacct: types.CpuacctCgV1{
 			V1: struct {
 				CPUData types.CPUCgDataV1 `json:"V1"`
 			}(struct{ CPUData types.CPUCgDataV1 }{CPUData: types.CPUCgDataV1{}}),
@@ -74,9 +71,6 @@ var (
 		},
 		NetCls: types.NetClsCg{
 			NetData: types.NetClsCgData{},
-		},
-		PerfEvent: types.PerfEventCg{
-			PerfEventData: types.PerfEventData{},
 		},
 		Cpuset: types.CpusetCgV2{
 			V2: struct {
