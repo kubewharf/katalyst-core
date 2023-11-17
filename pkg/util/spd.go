@@ -32,7 +32,6 @@ import (
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/klog/v2"
 
-	apis "github.com/kubewharf/katalyst-api/pkg/apis/autoscaling/v1alpha1"
 	apiworkload "github.com/kubewharf/katalyst-api/pkg/apis/workload/v1alpha1"
 	workloadlister "github.com/kubewharf/katalyst-api/pkg/client/listers/workload/v1alpha1"
 	apiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
@@ -95,13 +94,12 @@ func GetSPDForWorkload(workload *unstructured.Unstructured, spdIndexer cache.Ind
 		return nil, fmt.Errorf("workload not enable spd")
 	}
 
-	if spdName, ok := workload.GetAnnotations()[apiconsts.WorkloadAnnotationSPDNameKey]; ok {
-		spd, err := spdLister.ServiceProfileDescriptors(workload.GetNamespace()).Get(spdName)
-		if err == nil && checkTargetRefMatch(spd.Spec.TargetRef, workload) {
-			return spd, nil
-		}
-		return nil, apierrors.NewNotFound(apis.Resource(apiworkload.ResourceNameServiceProfileDescriptors), "matched target refer spd")
+	spdName := workload.GetName()
+	spd, err := spdLister.ServiceProfileDescriptors(workload.GetNamespace()).Get(spdName)
+	if err == nil && checkTargetRefMatch(spd.Spec.TargetRef, workload) {
+		return spd, nil
 	}
+	klog.InfoS("no matched spd found with same name", "workload", workload.GetName())
 
 	if spdIndexer != nil {
 		if spd, err := getSPDFroWorkloadWithIndex(workload, spdIndexer); err == nil {
