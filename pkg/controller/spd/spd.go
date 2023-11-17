@@ -370,7 +370,7 @@ func (sc *SPDController) syncWorkload(key string) error {
 			klog.Errorf("[spd] clear pod list annotations for workload %s/%s failed: %v", namespace, name, err)
 			return err
 		}
-		return sc.cleanWorkloadSPDAnnotation(workload, *gvr)
+		return nil
 	}
 
 	spd, err := sc.getOrCreateSPDForWorkload(workload)
@@ -383,7 +383,7 @@ func (sc *SPDController) syncWorkload(key string) error {
 		klog.Errorf("[spd] set pod list annotations for workload %s/%s failed: %v", namespace, name, err)
 		return err
 	}
-	return sc.setWorkloadSPDAnnotation(workload, *gvr, spd.Name)
+	return nil
 }
 
 func (sc *SPDController) addSPD(obj interface{}) {
@@ -507,9 +507,6 @@ func (sc *SPDController) cleanSPD() {
 				needDelete = true
 
 				klog.Warningf("[spd] clear un-wanted spd annotation %v for workload %v", spd.Name, workload.GetName())
-				if err := sc.cleanWorkloadSPDAnnotation(workload, gvr); err != nil {
-					klog.Errorf("[spd] clear un-wanted spd annotation %s for workload %v error: %v", spd.Name, workload.GetName(), err)
-				}
 			}
 		}
 
@@ -573,51 +570,6 @@ func (sc *SPDController) getOrCreateSPDForWorkload(workload *unstructured.Unstru
 	}
 
 	return spd, nil
-}
-
-// setWorkloadSPDAnnotation add spd name in workload annotations
-func (sc *SPDController) setWorkloadSPDAnnotation(workload *unstructured.Unstructured, gvr schema.GroupVersionResource, spdName string) error {
-	if workload.GetAnnotations()[apiconsts.WorkloadAnnotationSPDNameKey] == spdName {
-		return nil
-	}
-
-	workloadCopy := workload.DeepCopy()
-	annotations := workloadCopy.GetAnnotations()
-	if annotations == nil {
-		annotations = make(map[string]string)
-	}
-	annotations[apiconsts.WorkloadAnnotationSPDNameKey] = spdName
-	workloadCopy.SetAnnotations(annotations)
-
-	workloadGVR := metav1.GroupVersionResource{Version: gvr.Version, Group: gvr.Group, Resource: gvr.Resource}
-	_, err := sc.workloadControl.PatchUnstructured(sc.ctx, workloadGVR, workload, workloadCopy)
-	if err != nil {
-		return err
-	}
-
-	klog.Infof("[spd] successfully set annotations for workload %v to %v", workload.GetName(), spdName)
-	return nil
-}
-
-// cleanWorkloadSPDAnnotation removes spd name in workload annotations
-func (sc *SPDController) cleanWorkloadSPDAnnotation(workload *unstructured.Unstructured, gvr schema.GroupVersionResource) error {
-	if _, ok := workload.GetAnnotations()[apiconsts.WorkloadAnnotationSPDNameKey]; !ok {
-		return nil
-	}
-
-	workloadCopy := workload.DeepCopy()
-	annotations := workloadCopy.GetAnnotations()
-	delete(annotations, apiconsts.WorkloadAnnotationSPDNameKey)
-	workloadCopy.SetAnnotations(annotations)
-
-	workloadGVR := metav1.GroupVersionResource{Version: gvr.Version, Group: gvr.Group, Resource: gvr.Resource}
-	_, err := sc.workloadControl.PatchUnstructured(sc.ctx, workloadGVR, workload, workloadCopy)
-	if err != nil {
-		return err
-	}
-
-	klog.Infof("[spd] successfully clear annotations for workload %v", workload.GetName())
-	return nil
 }
 
 func (sc *SPDController) setPodListSPDAnnotation(podList []*core.Pod, spdName string) error {
@@ -689,13 +641,13 @@ func (sc *SPDController) cleanPodListSPDAnnotation(podList []*core.Pod) error {
 
 // cleanPodSPDAnnotation removes pod name in workload annotations
 func (sc *SPDController) cleanPodSPDAnnotation(pod *core.Pod) error {
-	if _, ok := pod.GetAnnotations()[apiconsts.WorkloadAnnotationSPDNameKey]; !ok {
+	if _, ok := pod.GetAnnotations()[apiconsts.PodAnnotationSPDNameKey]; !ok {
 		return nil
 	}
 
 	podCopy := pod.DeepCopy()
 	annotations := podCopy.GetAnnotations()
-	delete(annotations, apiconsts.WorkloadAnnotationSPDNameKey)
+	delete(annotations, apiconsts.PodAnnotationSPDNameKey)
 	podCopy.SetAnnotations(annotations)
 
 	err := sc.podUpdater.PatchPod(sc.ctx, pod, podCopy)

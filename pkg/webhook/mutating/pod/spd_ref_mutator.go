@@ -72,7 +72,7 @@ func (s *WebhookPodSPDReferenceMutator) MutatePod(pod *core.Pod, namespace strin
 	if pod.Annotations == nil {
 		pod.Annotations = make(map[string]string)
 	}
-	pod.Annotations[apiconsts.WorkloadAnnotationSPDNameKey] = spd.Name
+	pod.Annotations[apiconsts.PodAnnotationSPDNameKey] = spd.Name
 	return true, nil
 
 }
