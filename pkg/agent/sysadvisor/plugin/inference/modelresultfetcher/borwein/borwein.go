@@ -22,6 +22,8 @@ import (
 	"sync"
 	"time"
 
+	"k8s.io/klog/v2"
+
 	//nolint
 	"github.com/golang/protobuf/proto"
 	"k8s.io/apimachinery/pkg/util/wait"
@@ -238,6 +240,7 @@ func (bmrf *BorweinModelResultFetcher) getInferenceRequestForPods(requestContain
 
 		nodeFeatureValues = append(nodeFeatureValues, nodeFeatureValue)
 	}
+	klog.Infof("extract node feature: names: %v, values: %v", bmrf.nodeFeatureNames, nodeFeatureValues)
 
 	for _, containerInfo := range requestContainers {
 		if containerInfo == nil {
@@ -273,6 +276,8 @@ func (bmrf *BorweinModelResultFetcher) getInferenceRequestForPods(requestContain
 
 			unionFeatureValues.Values = append(unionFeatureValues.Values, containerFeatureValue)
 		}
+
+		klog.Infof("request poduid(%s) container(%s), features: %v, values: %v", containerInfo.PodUID, containerInfo.ContainerName, bmrf.containerFeatureNames, unionFeatureValues.Values[len(bmrf.nodeFeatureNames):])
 
 		req.PodRequestEntries[containerInfo.PodUID].ContainerFeatureValues[containerInfo.ContainerName] = unionFeatureValues
 	}

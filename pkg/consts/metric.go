@@ -22,6 +22,12 @@ package consts
  - `ratio` represents percentage data, and will format in range [0,1], e.g. cpu ratio based on total requests
 */
 
+const (
+	// metric type
+	Rate  = ".rate"
+	Delta = ".delta"
+)
+
 // System compute metrics
 const (
 	MetricLoad1MinSystem  = "cpu.load.1min.system"
@@ -39,15 +45,18 @@ const (
 	MetricMemPageCacheSystem = "mem.pagecache.system"
 	MetricMemAvailableSystem = "mem.available.system"
 
-	MetricMemDirtySystem       = "mem.dirty.system"
-	MetricMemWritebackSystem   = "mem.writeback.system"
-	MetricMemKswapdstealSystem = "mem.kswapdsteal.system"
+	MetricMemDirtySystem            = "mem.dirty.system"
+	MetricMemWritebackSystem        = "mem.writeback.system"
+	MetricMemKswapdstealSystem      = "mem.kswapdsteal.system"
+	MetricMemKswapdstealDeltaSystem = "mem.kswapdsteal.delta.system"
 
 	MetricMemSwapTotalSystem       = "mem.swap.total.system"
 	MetricMemSwapFreeSystem        = "mem.swap.free.system"
 	MetricMemSlabReclaimableSystem = "mem.slab.reclaimable.system"
 
 	MetricMemScaleFactorSystem = "mem.scale.factor.system"
+
+	MetricMemUpdateTimeSystem = "mem.updatetime.system"
 )
 
 // System blkio metrics
@@ -94,12 +103,12 @@ const (
 	MetricCPUUsageUserContainer = "cpu.usage.user.container"
 	MetricCPUUsageSysContainer  = "cpu.usage.sys.container"
 
-	MetricCPUShareContainer           = "cpu.share.container"
-	MetricCPUQuotaContainer           = "cpu.quota.container"
-	MetricCPUPeriodContainer          = "cpu.period.container"
-	MetricCPUNrThrottledContainer     = "cpu.nr.throttled.container"
-	MetricCPUThrottledPeriodContainer = "cpu.throttled.period.container"
-	MetricCPUThrottledTimeContainer   = "cpu.throttled.time.container"
+	MetricCPUShareContainer         = "cpu.share.container"
+	MetricCPUQuotaContainer         = "cpu.quota.container"
+	MetricCPUPeriodContainer        = "cpu.period.container"
+	MetricCPUNrThrottledContainer   = "cpu.nr.throttled.container"
+	MetricCPUNrPeriodContainer      = "cpu.nr.period.container"
+	MetricCPUThrottledTimeContainer = "cpu.throttled.time.container"
 
 	MetricCPUNrRunnableContainer        = "cpu.nr.runnable.container"
 	MetricCPUNrUninterruptibleContainer = "cpu.nr.uninterruptible.container"
@@ -114,6 +123,10 @@ const (
 	MetricStoreAllInsContainer  = "cpu.store.allins.container"
 	MetricStoreInsContainer     = "cpu.store.ins.container"
 
+	MetricCPUNrThrottledRateContainer   = MetricCPUNrThrottledContainer + Rate
+	MetricCPUNRdPeriodRateContainer     = MetricCPUNrPeriodContainer + Rate
+	MetricCPUThrottledTimeRateContainer = MetricCPUThrottledTimeContainer + Rate
+
 	MetricCPUUpdateTimeContainer = "cpu.updatetime.container"
 )
 
@@ -123,7 +136,7 @@ const (
 	MetricMemTCPLimitContainer  = "mem.tcp.limit.container"
 	MetricMemUsageContainer     = "mem.usage.container"
 	MetricMemUsageUserContainer = "mem.usage.user.container"
-	MetricMemUsageSysContainer  = "mem.usage.sys.container"
+	MetricMemUsageKernContainer = "mem.usage.kern.container"
 	MetricMemRssContainer       = "mem.rss.container"
 	MetricMemCacheContainer     = "mem.cache.container"
 	MetricMemShmemContainer     = "mem.shmem.container"
@@ -140,6 +153,12 @@ const (
 
 	MetricMemBandwidthReadContainer  = "mem.bandwidth.read.container"
 	MetricMemBandwidthWriteContainer = "mem.bandwidth.write.container"
+
+	MetricMemPgfaultRateContainer    = MetricMemPgfaultContainer + Rate
+	MetricMemPgmajfaultRateContainer = MetricMemPgmajfaultContainer + Rate
+	MetricMemOomRateContainer        = MetricMemOomContainer + Rate
+
+	MetricMemUpdateTimeContainer = "mem.updatetime.container"
 )
 
 // container blkio metrics
@@ -154,10 +173,12 @@ const (
 
 // container net metrics
 const (
-	MetricNetTcpSendByteContainer = "net.tcp.send.byte.container"
-	MetricNetTcpSendPpsContainer  = "net.tcp.send.pps.container"
-	MetricNetTcpRecvByteContainer = "net.tcp.recv.byte.container"
-	MetricNetTcpRecvPpsContainer  = "net.tcp.recv.pps.container"
+	MetricNetTcpSendBPSContainer = "net.tcp.send.bps.container"
+	MetricNetTcpSendPpsContainer = "net.tcp.send.pps.container"
+	MetricNetTcpRecvBPSContainer = "net.tcp.recv.bps.container"
+	MetricNetTcpRecvPpsContainer = "net.tcp.recv.pps.container"
+
+	MetricNetworkUpdateTimeContainer = "net.updatetime.container"
 )
 
 // container perf metrics
@@ -168,6 +189,12 @@ const (
 	MetricCPUICacheMissContainer   = "cpu.icachemiss.container"
 	MetricCPUL2CacheMissContainer  = "cpu.l2cachemiss.container"
 	MetricCPUL3CacheMissContainer  = "cpu.l3cachemiss.container"
+
+	MetricCPUCyclesRateContainer       = "cpu.cycles.container" + Rate
+	MetricCPUInstructionsRateContainer = "cpu.instructions.container" + Rate
+	MetricCPUICacheMissRateContainer   = "cpu.icachemiss.container" + Rate
+	MetricCPUL2CacheMissRateContainer  = "cpu.l2cachemiss.container" + Rate
+	MetricCPUL3CacheMissRateContainer  = "cpu.l3cachemiss.container" + Rate
 )
 
 // container per numa metrics
