@@ -103,6 +103,8 @@ func (s *simpleObjectMetricStore) Purge() {
 }
 
 func (s *simpleObjectMetricStore) Len() int {
+	s.RLock()
+	defer s.RUnlock()
 	return len(s.objectMap)
 }
 
