@@ -29,6 +29,8 @@ type BorweinParameter struct {
 	Version                string  `json:"version"`
 }
 
+// BorweinInferenceResults is a descriptor for borwein inference results.
 // the first key is the pod UID
 // the second key is the container name
-type BorweinInferenceResults map[string]map[string]*borweininfsvc.InferenceResult
+// the value array holds the all inference result for a container.
+type BorweinInferenceResults map[string]map[string][]*borweininfsvc.InferenceResult

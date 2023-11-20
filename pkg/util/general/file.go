@@ -17,6 +17,7 @@ limitations under the License.
 package general
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io/ioutil"
@@ -254,4 +255,18 @@ func ReleaseUniqueLock(lock *Flock) {
 	lock.Unlock()
 	lock.Release()
 	klog.Infof("[GetUniqueLock] release lock successfully")
+}
+
+func LoadJsonConfig(configAbsPath string, configObject interface{}) error {
+	configBytes, err := ioutil.ReadFile(configAbsPath)
+	if err != nil {
+		return err
+	}
+
+	err = json.Unmarshal(configBytes, configObject)
+	if err != nil {
+		return err
+	}
+
+	return nil
 }

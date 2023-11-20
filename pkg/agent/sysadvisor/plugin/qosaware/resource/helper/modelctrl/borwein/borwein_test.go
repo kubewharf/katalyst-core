@@ -267,13 +267,20 @@ func Test_updateCPUSchedWaitIndicatorOffset(t *testing.T) {
 				borweinParameter:       conf.BorweinParameters[string(workloadv1alpha1.TargetIndicatorNameCPUSchedWait)],
 				metaReader:             mc,
 				inferenceResults: borweintypes.BorweinInferenceResults{
-					podUID: map[string]*borweininfsvc.InferenceResult{
+					podUID: map[string][]*borweininfsvc.InferenceResult{
 						containerName: {
-							IsDefault:                false,
-							ClassificationProb:       60,
-							RegressionPredict:        60,
-							ClassificationPercentile: 55,
-							RegressionPercentile:     55,
+							{
+								IsDefault:     false,
+								InferenceType: borweininfsvc.InferenceType_ClassificationOverload,
+								Output:        60,
+								Percentile:    55,
+							},
+							{
+								IsDefault:     false,
+								InferenceType: borweininfsvc.InferenceType_LatencyRegression,
+								Output:        60,
+								Percentile:    55,
+							},
 						},
 					},
 				},
@@ -291,13 +298,20 @@ func Test_updateCPUSchedWaitIndicatorOffset(t *testing.T) {
 				borweinParameter:       conf.BorweinParameters[string(workloadv1alpha1.TargetIndicatorNameCPUSchedWait)],
 				metaReader:             mc,
 				inferenceResults: borweintypes.BorweinInferenceResults{
-					podUID: map[string]*borweininfsvc.InferenceResult{
+					podUID: map[string][]*borweininfsvc.InferenceResult{
 						containerName: {
-							IsDefault:                false,
-							ClassificationProb:       55,
-							RegressionPredict:        55,
-							ClassificationPercentile: 60,
-							RegressionPercentile:     60,
+							{
+								IsDefault:     false,
+								InferenceType: borweininfsvc.InferenceType_ClassificationOverload,
+								Output:        55,
+								Percentile:    60,
+							},
+							{
+								IsDefault:     false,
+								InferenceType: borweininfsvc.InferenceType_LatencyRegression,
+								Output:        55,
+								Percentile:    60,
+							},
 						},
 					},
 				},
@@ -529,13 +543,20 @@ func TestBorweinController_getUpdatedIndicators(t *testing.T) {
 					string(workloadv1alpha1.TargetIndicatorNameCPUSchedWait): types.IndicatorValue{Current: 430, Target: 460},
 				},
 				inferenceResults: borweintypes.BorweinInferenceResults{
-					podUID: map[string]*borweininfsvc.InferenceResult{
+					podUID: map[string][]*borweininfsvc.InferenceResult{
 						containerName: {
-							IsDefault:                false,
-							ClassificationProb:       60,
-							RegressionPredict:        60,
-							ClassificationPercentile: 55,
-							RegressionPercentile:     55,
+							{
+								IsDefault:     false,
+								InferenceType: borweininfsvc.InferenceType_ClassificationOverload,
+								Output:        55,
+								Percentile:    60,
+							},
+							{
+								IsDefault:     false,
+								InferenceType: borweininfsvc.InferenceType_LatencyRegression,
+								Output:        55,
+								Percentile:    60,
+							},
 						},
 					},
 				},
@@ -661,13 +682,20 @@ func TestBorweinController_GetUpdatedIndicators(t *testing.T) {
 					string(workloadv1alpha1.TargetIndicatorNameCPUSchedWait): types.IndicatorValue{Current: 430, Target: 460},
 				},
 				inferenceResults: borweintypes.BorweinInferenceResults{
-					podUID: map[string]*borweininfsvc.InferenceResult{
+					podUID: map[string][]*borweininfsvc.InferenceResult{
 						containerName: {
-							IsDefault:                false,
-							ClassificationProb:       60,
-							RegressionPredict:        60,
-							ClassificationPercentile: 55,
-							RegressionPercentile:     55,
+							{
+								IsDefault:     false,
+								InferenceType: borweininfsvc.InferenceType_ClassificationOverload,
+								Output:        60,
+								Percentile:    55,
+							},
+							{
+								IsDefault:     false,
+								InferenceType: borweininfsvc.InferenceType_LatencyRegression,
+								Output:        60,
+								Percentile:    55,
+							},
 						},
 					},
 				},

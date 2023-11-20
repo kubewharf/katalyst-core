@@ -48,20 +48,30 @@ message InferenceResponse {
 }
 
 message ContainerResponseEntries {
-    map<string,InferenceResult> container_inference_results = 1; // keyed by container name
+    map<string,InferenceResults> container_inference_results = 1; // keyed by container name
+}
+
+message InferenceResults {
+    repeated InferenceResult inference_results = 1; // different kinds of inference results
+}
+
+enum InferenceType {
+    ClassificationOverload = 0;
+    ClassificationUnderload = 1;
+    LatencyRegression = 2;
 }
 
 message InferenceResult {
     // if use default model. default model should be trained using all service data for fallback.
     bool is_default  = 1;
-    // abnormal probability estimation by classification model. should be float between 0 and 1.
-    float classification_prob = 2;
-    // latency estimation by regression model. should be positive float.
-    float regression_predict = 3;
-    // threshold of classifcation_prob to judge abnormal. should be float between 0 and 1.
-    float classification_percentile = 4;
-    // threshold of regresion_predict to judge abnormal. should be float between 0 and 1.
-    float regression_percentile = 5;
+    InferenceType inference_type = 2;
+    // Inference output, values are varied by inference target.
+    // For classification, the output would be range from 0 to 1.
+    // For regression, the output would be the predicted value.
+    // It depends on the inference target.
+    float output = 3;
+    // threshold to judge overload or underload. should be float between 0 and 1.
+    float percentile = 4;
 }
 
 service InferenceService {
