@@ -20,7 +20,7 @@ type KubeletPluginConfiguration struct {
 	PodResourcesServerEndpoints []string
 	KubeletResourcePluginPaths  []string
 	EnableReportTopologyPolicy  bool
-	ResourceNameToZoneNameMap   map[string]string
+	ResourceNameToZoneTypeMap   map[string]string
 }
 
 func NewKubeletPluginConfiguration() *KubeletPluginConfiguration {
