@@ -56,13 +56,22 @@ func TestInferencePB(t *testing.T) {
 	resp := &InferenceResponse{
 		PodResponseEntries: map[string]*ContainerResponseEntries{
 			"pod1": {
-				ContainerInferenceResults: map[string]*InferenceResult{
-					"container1": {
-						IsDefault:                false,
-						ClassificationProb:       60,
-						RegressionPredict:        60,
-						ClassificationPercentile: 55,
-						RegressionPercentile:     55,
+				ContainerInferenceResults: map[string]*InferenceResults{
+					"container1": &InferenceResults{
+						InferenceResults: []*InferenceResult{
+							{
+								IsDefault:     false,
+								InferenceType: InferenceType_ClassificationOverload,
+								Output:        55,
+								Percentile:    60,
+							},
+							{
+								IsDefault:     false,
+								InferenceType: InferenceType_LatencyRegression,
+								Output:        55,
+								Percentile:    60,
+							},
+						},
 					},
 				},
 			},
@@ -118,13 +127,22 @@ func TestInferencePB(t *testing.T) {
 	featureValues.Reset()
 
 	containerResponseEntries := &ContainerResponseEntries{
-		ContainerInferenceResults: map[string]*InferenceResult{
-			"container1": {
-				IsDefault:                false,
-				ClassificationProb:       60,
-				RegressionPredict:        60,
-				ClassificationPercentile: 55,
-				RegressionPercentile:     55,
+		ContainerInferenceResults: map[string]*InferenceResults{
+			"container1": &InferenceResults{
+				InferenceResults: []*InferenceResult{
+					{
+						IsDefault:     false,
+						InferenceType: InferenceType_ClassificationOverload,
+						Output:        55,
+						Percentile:    60,
+					},
+					{
+						IsDefault:     false,
+						InferenceType: InferenceType_LatencyRegression,
+						Output:        55,
+						Percentile:    60,
+					},
+				},
 			},
 		},
 	}
@@ -141,29 +159,27 @@ func TestInferencePB(t *testing.T) {
 	require.NoError(t, err)
 	containerResponseEntries.Reset()
 
-	inferenceResult := &InferenceResult{
-		IsDefault:                false,
-		ClassificationProb:       60,
-		RegressionPredict:        60,
-		ClassificationPercentile: 55,
-		RegressionPercentile:     55,
+	inferenceResultClassification := &InferenceResult{
+		IsDefault:     false,
+		InferenceType: InferenceType_ClassificationOverload,
+		Output:        55,
+		Percentile:    60,
 	}
-	_ = inferenceResult.String()
-	inferenceResult.ProtoMessage()
-	inferenceResult.XXX_Size()
-	inferenceResult.XXX_Merge(inferenceResult)
-	inferenceResult.XXX_Unmarshal(nil)
-	inferenceResult.XXX_DiscardUnknown()
-	inferenceResult.GetIsDefault()
-	inferenceResult.GetClassificationProb()
-	inferenceResult.GetRegressionPercentile()
-	inferenceResult.GetRegressionPredict()
-	inferenceResult.GetClassificationPercentile()
-	bytes, err = inferenceResult.Marshal()
+	_ = inferenceResultClassification.String()
+	inferenceResultClassification.ProtoMessage()
+	inferenceResultClassification.XXX_Size()
+	inferenceResultClassification.XXX_Merge(inferenceResultClassification)
+	inferenceResultClassification.XXX_Unmarshal(nil)
+	inferenceResultClassification.XXX_DiscardUnknown()
+	inferenceResultClassification.GetIsDefault()
+	inferenceResultClassification.GetInferenceType()
+	inferenceResultClassification.GetOutput()
+	inferenceResultClassification.GetPercentile()
+	bytes, err = inferenceResultClassification.Marshal()
 	require.NoError(t, err)
-	err = inferenceResult.Unmarshal(bytes)
+	err = inferenceResultClassification.Unmarshal(bytes)
 	require.NoError(t, err)
-	inferenceResult.Reset()
+	inferenceResultClassification.Reset()
 }
 
 func TestInference(t *testing.T) {

@@ -22,13 +22,12 @@ import (
 	"sync"
 	"time"
 
+	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/klog/v2"
+	"k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 
 	//nolint
 	"github.com/golang/protobuf/proto"
-	"k8s.io/apimachinery/pkg/util/wait"
-	"k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
-
 	apiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/inference/modelresultfetcher"
@@ -40,6 +39,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/config/generic"
 	"github.com/kubewharf/katalyst-core/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
+	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	metricspool "github.com/kubewharf/katalyst-core/pkg/metrics/metrics-pool"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/process"
@@ -47,6 +47,8 @@ import (
 
 const (
 	BorweinModelResultFetcherName = "borwein_model_result_fetcher"
+
+	InferenceResponseRatio = "inference.response.ratio"
 )
 
 type BorweinModelResultFetcher struct {
@@ -56,6 +58,8 @@ type BorweinModelResultFetcher struct {
 	nodeFeatureNames              []string // handled by GetNodeFeature
 	containerFeatureNames         []string // handled by GetContainerFeature
 	inferenceServiceSocketAbsPath string
+
+	emitter metrics.MetricEmitter
 
 	infSvcClient borweininfsvc.InferenceServiceClient
 	clientLock   sync.RWMutex
@@ -154,7 +158,6 @@ func (bmrf *BorweinModelResultFetcher) FetchModelResult(ctx context.Context, met
 	}
 
 	req, err := bmrf.getInferenceRequestForPods(requestContainers, metaReader, metaWriter, metaServer)
-
 	if err != nil {
 		return fmt.Errorf("getInferenceRequestForPods failed with error: %v", err)
 	}
@@ -168,7 +171,6 @@ func (bmrf *BorweinModelResultFetcher) FetchModelResult(ctx context.Context, met
 	}
 
 	borweinInferenceResults, err := bmrf.parseInferenceRespForPods(requestContainers, resp)
-
 	if err != nil {
 		return fmt.Errorf("parseInferenceRespForPods failed with error: %v", err)
 	}
@@ -195,17 +197,32 @@ func (bmrf *BorweinModelResultFetcher) parseInferenceRespForPods(requestContaine
 			return nil, fmt.Errorf("invalid containerEntries for pod: %s", podUID)
 		}
 
-		results[podUID] = make(map[string]*borweininfsvc.InferenceResult)
+		results[podUID] = make(map[string][]*borweininfsvc.InferenceResult)
 
-		for containerName, result := range containerEntries.ContainerInferenceResults {
-			if result == nil {
+		for containerName, cResults := range containerEntries.ContainerInferenceResults {
+			if cResults == nil {
 				return nil, fmt.Errorf("invalid result for pod: %s, container: %s", podUID, containerName)
 			}
 
-			results[podUID][containerName] = proto.Clone(result).(*borweininfsvc.InferenceResult)
+			results[podUID][containerName] = make([]*borweininfsvc.InferenceResult, len(cResults.InferenceResults))
+
+			for idx, result := range cResults.InferenceResults {
+				if result == nil {
+					continue
+				}
+
+				results[podUID][containerName][idx] = proto.Clone(result).(*borweininfsvc.InferenceResult)
+			}
+			// TODO? should check inference results here?
 		}
 
 		respContainersCnt += len(results[podUID])
+	}
+
+	if len(requestContainers) > 0 {
+		_ = bmrf.emitter.StoreFloat64(InferenceResponseRatio, float64(respContainersCnt)/float64(len(requestContainers)), metrics.MetricTypeNameRaw)
+	} else {
+		_ = bmrf.emitter.StoreFloat64(InferenceResponseRatio, -1, metrics.MetricTypeNameRaw)
 	}
 
 	if respContainersCnt != len(requestContainers) {
@@ -218,6 +235,14 @@ func (bmrf *BorweinModelResultFetcher) parseInferenceRespForPods(requestContaine
 
 func (bmrf *BorweinModelResultFetcher) getInferenceRequestForPods(requestContainers []*types.ContainerInfo, metaReader metacache.MetaReader,
 	metaWriter metacache.MetaWriter, metaServer *metaserver.MetaServer) (*borweininfsvc.InferenceRequest, error) {
+	if getNodeFeatureValue == nil {
+		return nil, fmt.Errorf("nil getNodeFeatureValue")
+	}
+
+	if getContainerFeatureValue == nil {
+		return nil, fmt.Errorf("nil getContainerFeatureValue")
+	}
+
 	req := &borweininfsvc.InferenceRequest{
 		FeatureNames:      make([]string, 0, len(bmrf.nodeFeatureNames)+len(bmrf.containerFeatureNames)),
 		PodRequestEntries: make(map[string]*borweininfsvc.ContainerRequestEntries),
@@ -228,30 +253,18 @@ func (bmrf *BorweinModelResultFetcher) getInferenceRequestForPods(requestContain
 
 	nodeFeatureValues := make([]string, 0, len(bmrf.nodeFeatureNames))
 	for _, nodeFeatureName := range bmrf.nodeFeatureNames {
-		if getNodeFeatureValue == nil {
-			return nil, fmt.Errorf("nil getNodeFeatureValue")
-		}
-
 		nodeFeatureValue, err := getNodeFeatureValue(nodeFeatureName, metaServer, metaReader)
-
 		if err != nil {
 			return nil, fmt.Errorf("get node feature: %v failed with error: %v", nodeFeatureName, err)
 		}
 
 		nodeFeatureValues = append(nodeFeatureValues, nodeFeatureValue)
 	}
-	klog.Infof("extract node feature: names: %v, values: %v", bmrf.nodeFeatureNames, nodeFeatureValues)
 
 	for _, containerInfo := range requestContainers {
 		if containerInfo == nil {
 			general.Warningf("nil containerInfo")
 			continue
-		}
-
-		if req.PodRequestEntries[containerInfo.PodUID] == nil {
-			req.PodRequestEntries[containerInfo.PodUID] = &borweininfsvc.ContainerRequestEntries{
-				ContainerFeatureValues: make(map[string]*borweininfsvc.FeatureValues),
-			}
 		}
 
 		unionFeatureValues := &borweininfsvc.FeatureValues{
@@ -261,26 +274,28 @@ func (bmrf *BorweinModelResultFetcher) getInferenceRequestForPods(requestContain
 		unionFeatureValues.Values = append(unionFeatureValues.Values, nodeFeatureValues...)
 
 		for _, containerFeatureName := range bmrf.containerFeatureNames {
-			if getContainerFeatureValue == nil {
-				return nil, fmt.Errorf("nil getContainerFeatureValue")
-			}
-
 			containerFeatureValue, err := getContainerFeatureValue(containerInfo.PodUID,
 				containerInfo.ContainerName, containerFeatureName,
 				metaServer, metaReader)
-
+			// Let getContainerFeatureValue decide which feature is allowed to return default value.
 			if err != nil {
-				return nil, fmt.Errorf("getContainerFeatureValue for pod: %s/%s, container: %s failed",
-					containerInfo.PodNamespace, containerInfo.PodName, containerInfo.ContainerName)
+				return nil, fmt.Errorf("getContainerFeatureValue for pod: %s/%s, container: %s failed, err: %v",
+					containerInfo.PodNamespace, containerInfo.PodName, containerInfo.ContainerName, err)
 			}
 
 			unionFeatureValues.Values = append(unionFeatureValues.Values, containerFeatureValue)
 		}
 
-		klog.Infof("request poduid(%s) container(%s), features: %v, values: %v", containerInfo.PodUID, containerInfo.ContainerName, bmrf.containerFeatureNames, unionFeatureValues.Values[len(bmrf.nodeFeatureNames):])
+		if req.PodRequestEntries[containerInfo.PodUID] == nil {
+			req.PodRequestEntries[containerInfo.PodUID] = &borweininfsvc.ContainerRequestEntries{
+				ContainerFeatureValues: make(map[string]*borweininfsvc.FeatureValues),
+			}
+		}
 
 		req.PodRequestEntries[containerInfo.PodUID].ContainerFeatureValues[containerInfo.ContainerName] = unionFeatureValues
 	}
+
+	klog.Infof("the requested pod: %+v", req.PodRequestEntries)
 
 	return req, nil
 }
@@ -320,8 +335,11 @@ func NewBorweinModelResultFetcher(fetcherName string, conf *config.Configuration
 		return nil, fmt.Errorf("nil metaCache")
 	}
 
+	emitter := emitterPool.GetDefaultMetricsEmitter().WithTags(BorweinModelResultFetcherName)
+
 	bmrf := &BorweinModelResultFetcher{
 		name:                          fetcherName,
+		emitter:                       emitter,
 		qosConfig:                     conf.QoSConfiguration,
 		nodeFeatureNames:              conf.BorweinConfiguration.NodeFeatureNames,
 		containerFeatureNames:         conf.BorweinConfiguration.ContainerFeatureNames,

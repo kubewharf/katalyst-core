@@ -84,12 +84,22 @@ func updateCPUSchedWaitIndicatorOffset(podSet types.PodSet, currentIndicatorOffs
 				continue
 			}
 
-			filteredResults[podUID] = make(map[string]*borweininfsvc.InferenceResult)
+			filteredResults[podUID] = make(map[string][]*borweininfsvc.InferenceResult)
 
 			for _, containerName := range podSet[podUID].UnsortedList() {
-				result := cachedResult[podUID][containerName]
-				if result != nil {
-					filteredResults[podUID][containerName] = proto.Clone(result).(*borweininfsvc.InferenceResult)
+				results := cachedResult[podUID][containerName]
+				if len(results) == 0 {
+					continue
+				}
+
+				filteredResults[podUID][containerName] = make([]*borweininfsvc.InferenceResult, len(results))
+
+				for idx, result := range results {
+					if result == nil {
+						continue
+					}
+
+					filteredResults[podUID][containerName][idx] = proto.Clone(result).(*borweininfsvc.InferenceResult)
 				}
 			}
 
@@ -115,29 +125,36 @@ func updateCPUSchedWaitIndicatorOffset(podSet types.PodSet, currentIndicatorOffs
 		regressionNormalCnt, regressionAbnormalCnt int
 
 	for podUID, containerResults := range filteredResult {
-		for containerName, result := range containerResults {
-
-			if result == nil {
-				return 0, fmt.Errorf("nil result found for pod: %s, container: %s", podUID, containerName)
+		for containerName, results := range containerResults {
+			if len(results) == 0 {
+				return 0, fmt.Errorf("0 results found for pod: %s, container: %s", podUID, containerName)
 			}
 
-			if result.ClassificationProb > result.ClassificationPercentile {
-				classificationAbnormalCnt += 1
-			} else {
-				classificationNormalCnt += 1
-			}
-
-			// todo: emit metrics
-
-			// regression prediction by default model isn't trusted
-			if !result.IsDefault {
-				if result.RegressionPredict > result.RegressionPercentile {
-					regressionAbnormalCnt += 1
-				} else {
-					regressionNormalCnt += 1
+			for _, result := range results {
+				if result == nil {
+					continue
 				}
 
-				// todo: emit metrics
+				switch result.InferenceType {
+				case borweininfsvc.InferenceType_ClassificationOverload:
+					if result.Output >= result.Percentile {
+						classificationAbnormalCnt += 1
+					} else {
+						classificationNormalCnt += 1
+					}
+					// todo: emit metrics
+
+				case borweininfsvc.InferenceType_LatencyRegression:
+					// regression prediction by default model isn't trusted
+					if !result.IsDefault {
+						if result.Output > result.Percentile {
+							regressionAbnormalCnt += 1
+						} else {
+							regressionNormalCnt += 1
+						}
+						// todo: emit metrics
+					}
+				}
 			}
 		}
 	}

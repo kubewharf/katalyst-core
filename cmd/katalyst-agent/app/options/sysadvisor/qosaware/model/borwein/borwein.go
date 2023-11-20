@@ -20,25 +20,56 @@ import (
 	"github.com/spf13/pflag"
 
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/sysadvisor/qosaware/model/borwein"
+	"github.com/kubewharf/katalyst-core/pkg/util/general"
 )
 
 type BorweinOptions struct {
 	InferenceServiceSocketAbsPath string
+	FeatureDescriptionFilePath    string
+	NodeFeatureNames              []string
+	ContainerFeatureNames         []string
 }
 
 func NewBorweinOptions() *BorweinOptions {
-	return &BorweinOptions{}
+	return &BorweinOptions{
+		NodeFeatureNames:      []string{},
+		ContainerFeatureNames: []string{},
+	}
 }
 
 // AddFlags adds flags to the specified FlagSet.
 func (o *BorweinOptions) AddFlags(fs *pflag.FlagSet) {
 	fs.StringVar(&o.InferenceServiceSocketAbsPath, "borwein-inference-svc-socket-path", o.InferenceServiceSocketAbsPath,
 		"socket path which borwein inference server listens at")
+	fs.StringVar(&o.FeatureDescriptionFilePath, "feature-description-filepath", o.FeatureDescriptionFilePath,
+		"file path to feature descriptions, the option has lower priority to borwein-node-feature-names and borwein-container-feature-names")
+	fs.StringSliceVar(&o.NodeFeatureNames, "borwein-node-feature-names", o.NodeFeatureNames,
+		"borwein node feature name list")
+	fs.StringSliceVar(&o.ContainerFeatureNames, "borwein-container-feature-names", o.ContainerFeatureNames,
+		"borwein node feature name list")
 }
 
 // ApplyTo fills up config with options
 func (o *BorweinOptions) ApplyTo(c *borwein.BorweinConfiguration) error {
-	// todo: currently BorweinParameters, NodeFeatureNames, ContainerFeatureNames are defined statically without options
+	// todo: currently BorweinParameters are defined statically without options
+	FeatureJSONStruct := struct {
+		NodeFeatureNames      []string `json:"node_feature_names"`
+		ContainerFeatureNames []string `json:"container_feature_names"`
+	}{}
+
 	c.InferenceServiceSocketAbsPath = o.InferenceServiceSocketAbsPath
+	if len(o.NodeFeatureNames)+len(o.ContainerFeatureNames) > 0 {
+		c.NodeFeatureNames = o.NodeFeatureNames
+		c.ContainerFeatureNames = o.ContainerFeatureNames
+	} else if len(o.FeatureDescriptionFilePath) > 0 {
+		err := general.LoadJsonConfig(o.FeatureDescriptionFilePath, &FeatureJSONStruct)
+		if err != nil {
+			return err
+		}
+
+		c.NodeFeatureNames = FeatureJSONStruct.NodeFeatureNames
+		c.ContainerFeatureNames = FeatureJSONStruct.ContainerFeatureNames
+	}
+
 	return nil
 }
