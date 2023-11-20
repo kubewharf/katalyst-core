@@ -905,6 +905,14 @@ func Test_podResourcesServerTopologyAdapterImpl_GetTopologyZones_ReportRDMATopol
 								{
 									Type: nodev1alpha1.TopologyTypeNIC,
 									Name: "eth0",
+									Resources: nodev1alpha1.Resources{
+										Capacity: &v1.ResourceList{
+											"resource.katalyst.kubewharf.io/rdma": resource.MustParse("1"),
+										},
+										Allocatable: &v1.ResourceList{
+											"resource.katalyst.kubewharf.io/rdma": resource.MustParse("1"),
+										},
+									},
 									Allocations: []*nodev1alpha1.Allocation{
 										{
 											Consumer: "default/pod-2/pod-2-uid",
@@ -941,6 +949,14 @@ func Test_podResourcesServerTopologyAdapterImpl_GetTopologyZones_ReportRDMATopol
 								{
 									Type: nodev1alpha1.TopologyTypeNIC,
 									Name: "eth1",
+									Resources: nodev1alpha1.Resources{
+										Capacity: &v1.ResourceList{
+											"resource.katalyst.kubewharf.io/rdma": resource.MustParse("1"),
+										},
+										Allocatable: &v1.ResourceList{
+											"resource.katalyst.kubewharf.io/rdma": resource.MustParse("1"),
+										},
+									},
 								},
 							},
 						},
@@ -962,7 +978,7 @@ func Test_podResourcesServerTopologyAdapterImpl_GetTopologyZones_ReportRDMATopol
 					},
 				},
 				numaSocketZoneNodeMap: tt.fields.numaSocketZoneNodeMap,
-				resourceNameToZoneNameMap: map[string]string{
+				resourceNameToZoneTypeMap: map[string]string{
 					"resource.katalyst.kubewharf.io/rdma": "NIC",
 				},
 			}
