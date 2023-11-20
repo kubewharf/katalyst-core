@@ -27,7 +27,7 @@ type KubeletPluginOptions struct {
 	PodResourcesServerEndpoints []string
 	KubeletResourcePluginPaths  []string
 	EnableReportTopologyPolicy  bool
-	ResourceNameToZoneNameMap   map[string]string
+	ResourceNameToZoneTypeMap   map[string]string
 }
 
 func NewKubeletPluginOptions() *KubeletPluginOptions {
@@ -39,7 +39,7 @@ func NewKubeletPluginOptions() *KubeletPluginOptions {
 			pluginapi.ResourcePluginPath,
 		},
 		EnableReportTopologyPolicy: false,
-		ResourceNameToZoneNameMap:  make(map[string]string),
+		ResourceNameToZoneTypeMap:  make(map[string]string),
 	}
 }
 
@@ -52,14 +52,15 @@ func (o *KubeletPluginOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 		"the path of kubelet resource plugin")
 	fs.BoolVar(&o.EnableReportTopologyPolicy, "enable-report-topology-policy", o.EnableReportTopologyPolicy,
 		"whether to report topology policy")
-	fs.Var(cliflag.NewMapStringString(&o.ResourceNameToZoneNameMap), "resource-name-to-zone-name-map", "a map that stores the mapping relationship between resource names to zone names in KCNR (e.g. nvidia.com/gpu=GPU,...)")
+	fs.StringToStringVar(&o.ResourceNameToZoneTypeMap, "resource-name-to-zone-type-map", o.ResourceNameToZoneTypeMap,
+		"a map that stores the mapping relationship between resource names to zone types in KCNR (e.g. nvidia.com/gpu=GPU,...)")
 }
 
 func (o *KubeletPluginOptions) ApplyTo(c *reporter.KubeletPluginConfiguration) error {
 	c.PodResourcesServerEndpoints = o.PodResourcesServerEndpoints
 	c.KubeletResourcePluginPaths = o.KubeletResourcePluginPaths
 	c.EnableReportTopologyPolicy = o.EnableReportTopologyPolicy
-	c.ResourceNameToZoneNameMap = o.ResourceNameToZoneNameMap
+	c.ResourceNameToZoneTypeMap = o.ResourceNameToZoneTypeMap
 
 	return nil
 }
