@@ -552,16 +552,24 @@ func (sc *SPDController) getOrCreateSPDForWorkload(workload *unstructured.Unstru
 	spd, err := util.GetSPDForWorkload(workload, sc.spdIndexer, sc.spdLister)
 	if err != nil {
 		if errors.IsNotFound(err) {
-			spd := &apiworkload.ServiceProfileDescriptor{}
-			spd.SetOwnerReferences([]metav1.OwnerReference{ownerRef})
-			spd.SetNamespace(workload.GetNamespace())
-			spd.SetName(workload.GetName())
-			spd.Spec.TargetRef = v1alpha1.CrossVersionObjectReference{
-				Name:       ownerRef.Name,
-				Kind:       ownerRef.Kind,
-				APIVersion: ownerRef.APIVersion,
+			spd := &apiworkload.ServiceProfileDescriptor{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:            workload.GetName(),
+					Namespace:       workload.GetNamespace(),
+					OwnerReferences: []metav1.OwnerReference{ownerRef},
+					Labels:          workload.GetLabels(),
+				},
+				Spec: apiworkload.ServiceProfileDescriptorSpec{
+					TargetRef: v1alpha1.CrossVersionObjectReference{
+						Name:       ownerRef.Name,
+						Kind:       ownerRef.Kind,
+						APIVersion: ownerRef.APIVersion,
+					},
+				},
+				Status: apiworkload.ServiceProfileDescriptorStatus{
+					AggMetrics: []apiworkload.AggPodMetrics{},
+				},
 			}
-			spd.Status.AggMetrics = []apiworkload.AggPodMetrics{}
 
 			return sc.spdControl.CreateSPD(sc.ctx, spd, metav1.CreateOptions{})
 		}
