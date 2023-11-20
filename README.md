@@ -44,7 +44,7 @@ Katalyst provides several example yaml to demonstrate the common use cases. For 
 
 We currently have a tentative bi-weekly meeting to discuss proposals, review milestones, do Q&As and so forth.
 - Bi-weekly, Thursday at 19:30 UTC+8
-- [Meeting Link(Lark)](vc.feishu.cn/j/414822034)
+- [Meeting Link(Lark)](https://vc.feishu.cn/j/414822034)
 - [Meeting Agenda](https://bytedance.feishu.cn/docx/VXGfdiddUoemoQx54uacwSHonPd)
 
 ### Contact
