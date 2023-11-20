@@ -84,13 +84,13 @@ type topologyAdapterImpl struct {
 	// kubeletResourcePluginPaths is the path of kubelet resource plugin
 	kubeletResourcePluginPaths []string
 
-	// resourceNameToZoneNameMap is a map that stores the mapping relationship between resource names to zone names
-	resourceNameToZoneNameMap map[string]string
+	// resourceNameToZoneTypeMap is a map that stores the mapping relationship between resource names to zone types for device zones
+	resourceNameToZoneTypeMap map[string]string
 }
 
 // NewPodResourcesServerTopologyAdapter creates a topology adapter which uses pod resources server
 func NewPodResourcesServerTopologyAdapter(metaServer *metaserver.MetaServer, endpoints []string,
-	kubeletResourcePluginPaths []string, resourceNameToZoneNameMap map[string]string, skipDeviceNames sets.String,
+	kubeletResourcePluginPaths []string, resourceNameToZoneTypeMap map[string]string, skipDeviceNames sets.String,
 	numaInfoGetter NumaInfoGetter, podResourcesFilter PodResourcesFilter, getClientFunc podresources.GetClientFunc) (Adapter, error) {
 	numaInfo, err := numaInfoGetter()
 	if err != nil {
@@ -115,7 +115,7 @@ func NewPodResourcesServerTopologyAdapter(metaServer *metaserver.MetaServer, end
 		skipDeviceNames:            skipDeviceNames,
 		getClientFunc:              getClientFunc,
 		podResourcesFilter:         podResourcesFilter,
-		resourceNameToZoneNameMap:  resourceNameToZoneNameMap,
+		resourceNameToZoneTypeMap:  resourceNameToZoneTypeMap,
 	}, nil
 }
 
@@ -195,12 +195,6 @@ func (p *topologyAdapterImpl) GetTopologyZones(parentCtx context.Context) ([]*no
 	if err != nil {
 		return nil, errors.Wrap(err, "get device zone topology failed")
 	}
-
-	deviceZoneAllocations, err := p.getDeviceZoneAllocations(podList, podResourcesList)
-	if err != nil {
-		return nil, errors.Wrap(err, "get device zone allocations failed")
-	}
-	mergeZoneAllocations(zoneAllocations, deviceZoneAllocations)
 
 	return topologyZoneGenerator.GenerateTopologyZoneStatus(zoneAllocations, zoneResources, zoneAttributes), nil
 }
@@ -338,19 +332,15 @@ func (p *topologyAdapterImpl) addDeviceZoneNodes(generator *util.TopologyZoneGen
 		return fmt.Errorf("allocatable Resources is nil")
 	}
 	var errList []error
-	for targetResourceName, targetZoneName := range p.resourceNameToZoneNameMap {
-		for _, device := range allocatableResources.Devices {
-			if targetResourceName == device.ResourceName {
-				for _, deviceId := range device.DeviceIds {
-					deviceNode := util.GenerateDeviceZoneNode(deviceId, targetZoneName)
-					if len(device.Topology.Nodes) == 0 {
-						continue
-					}
-					numaZoneNode := util.GenerateNumaZoneNode(int(device.Topology.Nodes[0].ID))
+	for _, device := range allocatableResources.Devices {
+		if targetZoneType, ok := p.resourceNameToZoneTypeMap[device.ResourceName]; ok {
+			for _, deviceId := range device.DeviceIds {
+				deviceNode := util.GenerateDeviceZoneNode(deviceId, targetZoneType)
+				for _, numaNode := range device.Topology.Nodes {
+					numaZoneNode := util.GenerateNumaZoneNode(int(numaNode.ID))
 					err := generator.AddNode(&numaZoneNode, deviceNode)
 					if err != nil {
 						errList = append(errList, err)
-						continue
 					}
 				}
 			}
@@ -498,73 +488,6 @@ func (p *topologyAdapterImpl) getZoneAllocations(podList []*v1.Pod, podResources
 	return zoneAllocationsMap, nil
 }
 
-func (p *topologyAdapterImpl) getDeviceZoneAllocations(podList []*v1.Pod, podResourcesList []*podresv1.PodResources) (map[util.ZoneNode]util.ZoneAllocations, error) {
-	var (
-		err     error
-		errList []error
-	)
-
-	podMap := native.GetPodNamespaceNameKeyMap(podList)
-	zoneAllocationsMap := make(map[util.ZoneNode]util.ZoneAllocations)
-	for _, podResources := range podResourcesList {
-		if podResources == nil {
-			continue
-		}
-
-		podKey := native.GenerateNamespaceNameKey(podResources.Namespace, podResources.Name)
-		pod, ok := podMap[podKey]
-		if !ok {
-			errList = append(errList, fmt.Errorf("pod %s not found in metaserver", podKey))
-			continue
-		}
-
-		if native.PodIsTerminated(pod) {
-			continue
-		}
-
-		// the pod resource filter will filter out unwanted pods
-		if p.podResourcesFilter != nil {
-			podResources, err = p.podResourcesFilter(pod, podResources)
-			if err != nil {
-				errList = append(errList, err)
-				continue
-			}
-
-			// if podResources is nil, it means that the pod is filtered out
-			if podResources == nil {
-				continue
-			}
-		}
-
-		for _, c := range podResources.Containers {
-			for _, device := range c.Devices {
-				for targetResourceName, targetZoneName := range p.resourceNameToZoneNameMap {
-					if device.ResourceName == targetResourceName {
-						for _, deviceId := range device.DeviceIds {
-							deviceNode := util.GenerateDeviceZoneNode(deviceId, targetZoneName)
-							if _, ok := zoneAllocationsMap[deviceNode]; !ok {
-								zoneAllocationsMap[deviceNode] = []*nodev1alpha1.Allocation{
-									{Consumer: native.GenerateUniqObjectUIDKey(pod),
-										Requests: &v1.ResourceList{
-											v1.ResourceName(device.ResourceName): resource.MustParse("1"),
-										},
-									},
-								}
-							}
-						}
-					}
-				}
-			}
-		}
-	}
-
-	if len(errList) > 0 {
-		return nil, utilerrors.NewAggregate(errList)
-	}
-
-	return zoneAllocationsMap, nil
-}
-
 // getZoneAttributes gets a map of zone node to zone attributes, which is generated from the annotation of
 // topology aware quantity and socket and numa zone are not support attribute here
 func (p *topologyAdapterImpl) getZoneAttributes(allocatableResources *podresv1.AllocatableResourcesResponse) (map[util.ZoneNode]util.ZoneAttributes, error) {
@@ -688,6 +611,13 @@ func (p *topologyAdapterImpl) addContainerDevices(zoneResources map[util.ZoneNod
 
 			zoneNode := util.GenerateNumaZoneNode(int(node.ID))
 			zoneResources = addZoneQuantity(zoneResources, zoneNode, resourceName, oneQuantity)
+
+			if zoneType, ok := p.resourceNameToZoneTypeMap[device.ResourceName]; ok {
+				for _, deviceId := range device.DeviceIds {
+					deviceNode := util.GenerateDeviceZoneNode(deviceId, zoneType)
+					zoneResources = addZoneQuantity(zoneResources, deviceNode, resourceName, oneQuantity)
+				}
+			}
 		}
 	}
 
@@ -874,10 +804,4 @@ func filterAllocatedPodResourcesList(podResourcesList []*podresv1.PodResources) 
 	}
 
 	return allocatedPodResourcesList
-}
-
-func mergeZoneAllocations(zone1, zone2 map[util.ZoneNode]util.ZoneAllocations) {
-	for zoneNode, allocations := range zone2 {
-		zone1[zoneNode] = allocations
-	}
 }
