@@ -285,7 +285,6 @@ func TestIndicatorUpdater(t *testing.T) {
 			Namespace: "default",
 			Annotations: map[string]string{
 				consts.WorkloadAnnotationSPDEnableKey: consts.WorkloadAnnotationSPDEnabled,
-				consts.WorkloadAnnotationSPDNameKey:   "sts1",
 			},
 		},
 		Spec: appsv1.StatefulSetSpec{

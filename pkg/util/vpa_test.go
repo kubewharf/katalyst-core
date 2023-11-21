@@ -84,7 +84,6 @@ func TestFindSpdByVpa(t *testing.T) {
 						Namespace: "default",
 						Annotations: map[string]string{
 							apiconsts.WorkloadAnnotationSPDEnableKey: apiconsts.WorkloadAnnotationSPDEnabled,
-							apiconsts.WorkloadAnnotationSPDNameKey:   "spd1",
 						},
 					},
 				},
@@ -137,7 +136,6 @@ func TestFindSpdByVpa(t *testing.T) {
 						Namespace: "default",
 						Annotations: map[string]string{
 							apiconsts.WorkloadAnnotationSPDEnableKey: apiconsts.WorkloadAnnotationSPDEnabled,
-							apiconsts.WorkloadAnnotationSPDNameKey:   "spd1",
 						},
 					},
 				},

@@ -83,11 +83,9 @@ func TestSPDController_updateBaselinePercentile(t *testing.T) {
 						APIVersion: "apps/v1",
 					},
 					ObjectMeta: metav1.ObjectMeta{
-						Name:      "sts1",
-						Namespace: "default",
-						Annotations: map[string]string{
-							consts.WorkloadAnnotationSPDNameKey: "spd1",
-						},
+						Name:        "sts1",
+						Namespace:   "default",
+						Annotations: map[string]string{},
 					},
 					Spec: appsv1.StatefulSetSpec{
 						Selector: &metav1.LabelSelector{
@@ -143,11 +141,9 @@ func TestSPDController_updateBaselinePercentile(t *testing.T) {
 						APIVersion: "apps/v1",
 					},
 					ObjectMeta: metav1.ObjectMeta{
-						Name:      "sts1",
-						Namespace: "default",
-						Annotations: map[string]string{
-							consts.WorkloadAnnotationSPDNameKey: "spd1",
-						},
+						Name:        "sts1",
+						Namespace:   "default",
+						Annotations: map[string]string{},
 					},
 					Spec: appsv1.StatefulSetSpec{
 						Selector: &metav1.LabelSelector{
@@ -261,11 +257,9 @@ func TestSPDController_updateBaselinePercentile(t *testing.T) {
 						APIVersion: "apps/v1",
 					},
 					ObjectMeta: metav1.ObjectMeta{
-						Name:      "sts1",
-						Namespace: "default",
-						Annotations: map[string]string{
-							consts.WorkloadAnnotationSPDNameKey: "spd1",
-						},
+						Name:        "sts1",
+						Namespace:   "default",
+						Annotations: map[string]string{},
 					},
 					Spec: appsv1.StatefulSetSpec{
 						Selector: &metav1.LabelSelector{
@@ -382,11 +376,9 @@ func TestSPDController_updateBaselinePercentile(t *testing.T) {
 						APIVersion: "apps/v1",
 					},
 					ObjectMeta: metav1.ObjectMeta{
-						Name:      "sts1",
-						Namespace: "default",
-						Annotations: map[string]string{
-							consts.WorkloadAnnotationSPDNameKey: "spd1",
-						},
+						Name:        "sts1",
+						Namespace:   "default",
+						Annotations: map[string]string{},
 					},
 					Spec: appsv1.StatefulSetSpec{
 						Selector: &metav1.LabelSelector{
@@ -503,11 +495,9 @@ func TestSPDController_updateBaselinePercentile(t *testing.T) {
 						APIVersion: "apps/v1",
 					},
 					ObjectMeta: metav1.ObjectMeta{
-						Name:      "sts1",
-						Namespace: "default",
-						Annotations: map[string]string{
-							consts.WorkloadAnnotationSPDNameKey: "spd1",
-						},
+						Name:        "sts1",
+						Namespace:   "default",
+						Annotations: map[string]string{},
 					},
 					Spec: appsv1.StatefulSetSpec{
 						Selector: &metav1.LabelSelector{
