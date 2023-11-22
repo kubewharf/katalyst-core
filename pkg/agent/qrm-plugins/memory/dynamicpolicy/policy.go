@@ -257,7 +257,9 @@ func (p *DynamicPolicy) Start() (err error) {
 		}
 	}
 
-	periodicalhandler.ReadyToStartHandlersByGroup(qrm.QRMMemoryPluginPeriodicalHandlerGroupName)
+	go wait.Until(func() {
+		periodicalhandler.ReadyToStartHandlersByGroup(qrm.QRMMemoryPluginPeriodicalHandlerGroupName)
+	}, 5*time.Second, p.stopCh)
 
 	if !p.enableMemoryAdvisor {
 		general.Infof("start dynamic policy memory plugin without memory advisor")
