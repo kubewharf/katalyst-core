@@ -19,7 +19,6 @@ package malachite
 // for those metrics need extra calculation logic,
 // we will put them in a separate file here
 import (
-	"math"
 	"time"
 
 	"github.com/kubewharf/katalyst-core/pkg/consts"
@@ -73,15 +72,16 @@ func (m *MalachiteMetricsFetcher) processContainerMemBandwidth(podUID, container
 	// write bandwidth
 	m.setContainerRateMetric(podUID, containerName, consts.MetricMemBandwidthWriteContainer,
 		func() float64 {
-			if (curStoreAllIns - lastStoreAllIns) == 0 {
+			storeAllInsInc := uint64CounterDelta(lastStoreAllIns, curStoreAllIns)
+			if storeAllInsInc == 0 {
 				return 0
 			}
 
 			storeInsInc := uint64CounterDelta(lastStoreIns, curStoreIns)
 			imcWritesInc := uint64CounterDelta(lastIMCWrites, curIMCWrites)
-			storeAllInsInc := uint64CounterDelta(lastStoreAllIns, curStoreAllIns)
+
 			// write megabyte
-			return float64(storeInsInc) * float64(imcWritesInc) * 64 / float64(storeAllInsInc) / (1024 * 1024)
+			return float64(storeInsInc) / float64(storeAllInsInc) / (1024 * 1024) * float64(imcWritesInc) * 64
 		},
 		int64(lastUpdateTimeInSec), int64(curUpdateTimeInSec))
 }
@@ -115,5 +115,7 @@ func uint64CounterDelta(previous, current uint64) uint64 {
 		return current - previous
 	}
 
-	return math.MaxUint64 - previous + current
+	// Return 0 when previous > current, because we may not be able to make sure
+	// the upper bound for each counter.
+	return 0
 }
