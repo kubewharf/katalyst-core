@@ -290,7 +290,9 @@ func (p *DynamicPolicy) Start() (err error) {
 		go p.cpuPressureEviction.Run(ctx)
 	}
 
-	periodicalhandler.ReadyToStartHandlersByGroup(qrm.QRMCPUPluginPeriodicalHandlerGroupName)
+	go wait.Until(func() {
+		periodicalhandler.ReadyToStartHandlersByGroup(qrm.QRMCPUPluginPeriodicalHandlerGroupName)
+	}, 5*time.Second, p.stopCh)
 
 	// pre-check necessary dirs if sys-advisor is enabled
 	if !p.enableCPUAdvisor {
