@@ -30,7 +30,7 @@ import (
 	maputil "k8s.io/kubernetes/pkg/util/maps"
 	"k8s.io/utils/clock"
 
-	apiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
+	"github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-api/pkg/plugins/skeleton"
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/agent"
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/agent/qrm"
@@ -199,16 +199,16 @@ func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration
 
 	// register allocation behaviors for pods with different QoS level
 	policyImplement.allocationHandlers = map[string]util.AllocationHandler{
-		apiconsts.PodAnnotationQoSLevelSharedCores:    policyImplement.sharedCoresAllocationHandler,
-		apiconsts.PodAnnotationQoSLevelDedicatedCores: policyImplement.dedicatedCoresAllocationHandler,
-		apiconsts.PodAnnotationQoSLevelReclaimedCores: policyImplement.reclaimedCoresAllocationHandler,
+		consts.PodAnnotationQoSLevelSharedCores:    policyImplement.sharedCoresAllocationHandler,
+		consts.PodAnnotationQoSLevelDedicatedCores: policyImplement.dedicatedCoresAllocationHandler,
+		consts.PodAnnotationQoSLevelReclaimedCores: policyImplement.reclaimedCoresAllocationHandler,
 	}
 
 	// register hint providers for pods with different QoS level
 	policyImplement.hintHandlers = map[string]util.HintHandler{
-		apiconsts.PodAnnotationQoSLevelSharedCores:    policyImplement.sharedCoresHintHandler,
-		apiconsts.PodAnnotationQoSLevelDedicatedCores: policyImplement.dedicatedCoresHintHandler,
-		apiconsts.PodAnnotationQoSLevelReclaimedCores: policyImplement.reclaimedCoresHintHandler,
+		consts.PodAnnotationQoSLevelSharedCores:    policyImplement.sharedCoresHintHandler,
+		consts.PodAnnotationQoSLevelDedicatedCores: policyImplement.dedicatedCoresHintHandler,
+		consts.PodAnnotationQoSLevelReclaimedCores: policyImplement.reclaimedCoresHintHandler,
 	}
 
 	state.SetContainerRequestedCores(policyImplement.getContainerRequestedCores)
@@ -738,6 +738,7 @@ func (p *DynamicPolicy) Allocate(ctx context.Context,
 		}
 
 		p.Unlock()
+		return
 	}()
 
 	allocationInfo := p.state.GetAllocationInfo(req.PodUid, req.ContainerName)

@@ -738,6 +738,7 @@ func (p *DynamicPolicy) Allocate(ctx context.Context,
 		}
 
 		p.Unlock()
+		return
 	}()
 
 	allocationInfo := p.state.GetAllocationInfo(v1.ResourceMemory, req.PodUid, req.ContainerName)

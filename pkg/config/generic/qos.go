@@ -74,7 +74,7 @@ type QoSConfiguration struct {
 
 	// NUMAInterPodAffinityLabelsSeletor is used to match specified labels about numa
 	// level inter-pod affinity & antiaffinity
-	NUMAInterPodAffinityLabelsSeletor map[string]string
+	NUMAInterPodAffinityLabelsSeletor []string
 }
 
 // NewQoSConfiguration creates a new qos configuration.
@@ -160,13 +160,40 @@ func (c *QoSConfiguration) FilterQoSMap(annotations map[string]string) map[strin
 	}
 
 	// labels set for numa level inter-pod affinity
-	for key := range c.NUMAInterPodAffinityLabelsSeletor {
+	for _, key := range c.NUMAInterPodAffinityLabelsSeletor {
 		if val, ok := annotations[key]; ok {
 			filteredAnnotations[key] = val
 		}
 	}
 
 	return filteredAnnotations
+}
+
+func (c *QoSConfiguration) FilterAffinityLabels(labels map[string]string) map[string]string {
+	filteredLabels := make(map[string]string)
+	for _, key := range c.NUMAInterPodAffinityLabelsSeletor {
+		if val, ok := labels[key]; ok {
+			filteredLabels[key] = val
+		}
+	}
+
+	return filteredLabels
+}
+
+func (c *QoSConfiguration) HasAffinityLabels(labels map[string]string) bool {
+	c.RLock()
+	defer c.RUnlock()
+
+	if len(c.NUMAInterPodAffinityLabelsSeletor) <= 0 {
+		return false
+	}
+
+	for _, key := range c.NUMAInterPodAffinityLabelsSeletor {
+		if _, ok := labels[key]; ok {
+			return true
+		}
+	}
+	return false
 }
 
 func (c *QoSConfiguration) SetExpandQoSLevelSelector(qosLevel string, selectorMap map[string]string) {
@@ -343,11 +370,11 @@ func (c *QoSConfiguration) SetEnhancementDefaultValues(enhancementDefaultValues 
 }
 
 // SetNUMAInterPodAffinityLabelsSelector set labels for NUMA-level inter-pod affinity
-func (c *QoSConfiguration) SetNUMAInterPodAffinityLabelsSelector(affinityLabels map[string]string) {
+func (c *QoSConfiguration) SetNUMAInterPodAffinityLabelsSelector(affinityLabels []string) {
 	c.Lock()
 	defer c.Unlock()
 
-	c.NUMAInterPodAffinityLabelsSeletor = general.MergeMap(c.NUMAInterPodAffinityLabelsSeletor, affinityLabels)
+	c.NUMAInterPodAffinityLabelsSeletor = append(c.NUMAInterPodAffinityLabelsSeletor, affinityLabels...)
 }
 
 // checkQosMatched is a unified helper function to judge whether annotation

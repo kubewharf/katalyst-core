@@ -81,6 +81,19 @@ func ParseUniqGVRNameKey(key string) (gvr string, namespace string, name string,
 	return names[0], names[1], names[2], nil
 }
 
+// ParseNamespaceNameUIDKey parse the given key into namespace/name/uid
+func ParseNamespaceNameUIDKey(key string) (string, string, string, error) {
+	if key == "" {
+		return "", "", "", fmt.Errorf("key %s split error", key)
+	}
+	names := strings.Split(key, "/")
+	if len(names) != 3 {
+		return "", "", "", fmt.Errorf("key %s split error", key)
+	}
+
+	return names[0], names[1], names[2], nil
+}
+
 // GenerateDynamicResourceByGVR generates dynamic resource by given gvr, the format is such as `resource.version.group`,
 // which can be input of ParseResourceArg
 func GenerateDynamicResourceByGVR(gvr schema.GroupVersionResource) string {

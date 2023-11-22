@@ -121,16 +121,6 @@ func (o *QoSOptions) applyToEnhancementDefaultValues(c *generic.QoSConfiguration
 }
 
 func (o *QoSOptions) applyToNUMAInterPodAffinityLabels(c *generic.QoSConfiguration, NUMAInterPodAffinityLabels []string) error {
-	labelsMap := make(map[string]string)
-	for _, s := range NUMAInterPodAffinityLabels {
-		sList := strings.Split(strings.TrimSpace(s), "=")
-		if len(sList) != 2 {
-			return fmt.Errorf("qosEnhancement with invalid value: %v", s)
-		}
-
-		labelsMap[strings.TrimSpace(sList[0])] = strings.TrimSpace(sList[1])
-	}
-
-	c.SetNUMAInterPodAffinityLabelsSelector(labelsMap)
+	c.SetNUMAInterPodAffinityLabelsSelector(NUMAInterPodAffinityLabels)
 	return nil
 }

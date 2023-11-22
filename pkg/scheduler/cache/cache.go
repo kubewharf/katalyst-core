@@ -115,3 +115,78 @@ func (cache *extendedCache) GetNodeInfo(name string) (*NodeInfo, error) {
 
 	return nodeInfo, nil
 }
+
+func (cache *extendedCache) ReserveNodeResource(nodeName string, pod *v1.Pod) {
+	cache.mu.Lock()
+	defer cache.mu.Unlock()
+
+	nodeInfo, ok := cache.nodes[nodeName]
+	if !ok {
+		nodeInfo = NewNodeInfo()
+	}
+
+	nodeInfo.AddAssumedPod(pod)
+	cache.nodes[nodeName] = nodeInfo
+}
+
+func (cache *extendedCache) UnreserveNodeResource(nodeName string, pod *v1.Pod) {
+	cache.mu.Lock()
+	defer cache.mu.Unlock()
+
+	nodeInfo, ok := cache.nodes[nodeName]
+	if !ok {
+		klog.Warningf("UnreserveNodeResource fail, node %v not exist in extendedCache", nodeName)
+		return
+	}
+
+	nodeInfo.DeleteAssumedPod(pod)
+}
+
+// GetNodeResourceTopology assumedPodResource will be added to nodeResourceTopology
+func (cache *extendedCache) GetNodeResourceTopology(nodeName string, filterFn podFilter) *ResourceTopology {
+	cache.mu.RLock()
+	defer cache.mu.RUnlock()
+
+	nodeInfo, ok := cache.nodes[nodeName]
+	if !ok {
+		return nil
+	}
+	return nodeInfo.GetResourceTopologyCopy(filterFn)
+}
+
+func (cache *extendedCache) GetAssumedPodAffinityInfo(nodeName string) AssumedPodAffinityInfo {
+	cache.mu.RLock()
+	defer cache.mu.RUnlock()
+
+	nodeInfo, ok := cache.nodes[nodeName]
+	if !ok {
+		return nil
+	}
+	return nodeInfo.GetAssumedPodAffinityInfo()
+}
+
+func (cache *extendedCache) ReservePodAffinity(nodeName string, pod *v1.Pod) {
+	cache.mu.Lock()
+	defer cache.mu.Unlock()
+
+	nodeInfo, ok := cache.nodes[nodeName]
+	if !ok {
+		nodeInfo = NewNodeInfo()
+	}
+
+	nodeInfo.AddAssumedPodAffinity(pod)
+	cache.nodes[nodeName] = nodeInfo
+}
+
+func (cache *extendedCache) UnreservePodAffinity(nodeName string, pod *v1.Pod) {
+	cache.mu.Lock()
+	defer cache.mu.Unlock()
+
+	nodeInfo, ok := cache.nodes[nodeName]
+	if !ok {
+		klog.Warningf("UnreserveNodeResource fail, node %v not exist in extendedCache", nodeName)
+		return
+	}
+
+	nodeInfo.DeleteAssumedPodAffinity(pod)
+}

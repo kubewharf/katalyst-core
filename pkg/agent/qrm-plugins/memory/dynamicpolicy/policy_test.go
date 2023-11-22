@@ -1267,15 +1267,15 @@ func TestGetInterPodAffinityTopologyHints(t *testing.T) {
 	antiAffinityValue := "antiAffinityValue"
 
 	// Imformation of existing pods
-	// | Pod | NUMA Node |    Lables    | Affinity Seletor |  Zone  |
-	// --------------------------------------------------------------
-	// |  0  |    0      | AntiAffinity |       None       |  NUMA  |
-	// --------------------------------------------------------------
-	// |  1  |    1      | AntiAffinity |   AntiAffinity   |  NUMA  |
-	// --------------------------------------------------------------
-	// |  2  |    2      |   Affinity   |       None       |  NUMA  |
-	// --------------------------------------------------------------
-	// |  3  |    3      |     None     |   AntiAffinity   | Socket |
+	// | Pod | NUMA Node |    Lables    | Affinity Seletor |  Zone  |  Exclusive  |
+	// ----------------------------------------------------------------------------
+	// |  0  |    0      | AntiAffinity |       None       |  NUMA  |     true    |
+	// ----------------------------------------------------------------------------
+	// |  1  |    1      | AntiAffinity |   AntiAffinity   |  NUMA  |    false    |
+	// ----------------------------------------------------------------------------
+	// |  2  |    2      |   Affinity   |       None       |  NUMA  |    false    |
+	// ----------------------------------------------------------------------------
+	// |  3  |    3      |     None     |   AntiAffinity   | Socket |    false    |
 	allocationList := []*state.AllocationInfo{
 		{
 			PodUid:         string(uuid.NewUUID()),
@@ -1289,8 +1289,9 @@ func TestGetInterPodAffinityTopologyHints(t *testing.T) {
 				antiAffinityKey:                 antiAffinityValue,
 			},
 			Annotations: map[string]string{
-				consts.PodAnnotationQoSLevelKey:          consts.PodAnnotationQoSLevelDedicatedCores,
-				consts.PodAnnotationMemoryEnhancementKey: `{"numa_binding": "true", "numa_exclusive": "false"}`,
+				consts.PodAnnotationQoSLevelKey:                    consts.PodAnnotationQoSLevelDedicatedCores,
+				consts.PodAnnotationMemoryEnhancementNumaBinding:   "true",
+				consts.PodAnnotationMemoryEnhancementNumaExclusive: "true",
 			},
 		},
 		{
@@ -1306,7 +1307,8 @@ func TestGetInterPodAffinityTopologyHints(t *testing.T) {
 			},
 			Annotations: map[string]string{
 				consts.PodAnnotationQoSLevelKey:                       consts.PodAnnotationQoSLevelDedicatedCores,
-				consts.PodAnnotationMemoryEnhancementKey:              `{"numa_binding": "true", "numa_exclusive": "false"}`,
+				consts.PodAnnotationMemoryEnhancementNumaBinding:      "true",
+				consts.PodAnnotationMemoryEnhancementNumaExclusive:    "false",
 				consts.PodAnnotationMicroTopologyInterPodAntiAffinity: `{"required": [{"matchLabels": {"antiAffinityKey": "antiAffinityValue"}, "zone":"numa"}]}`,
 			},
 		},
@@ -1322,8 +1324,9 @@ func TestGetInterPodAffinityTopologyHints(t *testing.T) {
 				affinityKey:                     affinityValue,
 			},
 			Annotations: map[string]string{
-				consts.PodAnnotationQoSLevelKey:          consts.PodAnnotationQoSLevelDedicatedCores,
-				consts.PodAnnotationMemoryEnhancementKey: `{"numa_binding": "true", "numa_exclusive": "false"}`,
+				consts.PodAnnotationQoSLevelKey:                    consts.PodAnnotationQoSLevelDedicatedCores,
+				consts.PodAnnotationMemoryEnhancementNumaBinding:   "true",
+				consts.PodAnnotationMemoryEnhancementNumaExclusive: "false",
 			},
 		},
 		{
@@ -1338,7 +1341,8 @@ func TestGetInterPodAffinityTopologyHints(t *testing.T) {
 			},
 			Annotations: map[string]string{
 				consts.PodAnnotationQoSLevelKey:                       consts.PodAnnotationQoSLevelDedicatedCores,
-				consts.PodAnnotationMemoryEnhancementKey:              `{"numa_binding": "true", "numa_exclusive": "false"}`,
+				consts.PodAnnotationMemoryEnhancementNumaBinding:      "true",
+				consts.PodAnnotationMemoryEnhancementNumaExclusive:    "false",
 				consts.PodAnnotationMicroTopologyInterPodAntiAffinity: `{"required": [{"matchLabels": {"antiAffinityKey": "antiAffinityValue"}, "zone":"socket"}]}`,
 			},
 		},
@@ -1560,27 +1564,8 @@ func TestGetInterPodAffinityTopologyHints(t *testing.T) {
 					consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelDedicatedCores,
 				},
 			},
-			expectedResp: &pluginapi.ResourceHintsResponse{
-				PodNamespace:   testName,
-				PodName:        testName,
-				ContainerName:  testName,
-				ContainerType:  pluginapi.ContainerType_MAIN,
-				ContainerIndex: 0,
-				ResourceName:   string(v1.ResourceMemory),
-				ResourceHints: map[string]*pluginapi.ListOfTopologyHints{
-					string(v1.ResourceMemory): nil,
-				},
-				Labels: map[string]string{
-					consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelDedicatedCores,
-				},
-				Annotations: map[string]string{
-					consts.PodAnnotationQoSLevelKey:                    consts.PodAnnotationQoSLevelDedicatedCores,
-					consts.PodAnnotationMemoryEnhancementNumaBinding:   consts.PodAnnotationMemoryEnhancementNumaExclusiveEnable,
-					consts.PodAnnotationMemoryEnhancementNumaExclusive: consts.PodAnnotationMemoryEnhancementNumaExclusiveEnable,
-					consts.PodAnnotationMicroTopologyInterPodAffinity:  `{"required": [{"matchLabels": {"affinityKey": "affinityValue"}, "zone":"numa"}]}`,
-				},
-			},
-			expectErr: true,
+			expectedResp: nil,
+			expectErr:    true,
 		},
 		{
 			description: "antiAffinity labels & antiAffinity seletor",
@@ -1713,14 +1698,7 @@ func TestGetInterPodAffinityTopologyHints(t *testing.T) {
 				ContainerIndex: 0,
 				ResourceName:   string(v1.ResourceMemory),
 				ResourceHints: map[string]*pluginapi.ListOfTopologyHints{
-					string(v1.ResourceMemory): {
-						Hints: []*pluginapi.TopologyHint{
-							{
-								Nodes:     []uint64{0},
-								Preferred: true,
-							},
-						},
-					},
+					string(v1.ResourceMemory): {},
 				},
 				Labels: map[string]string{
 					consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelDedicatedCores,
@@ -1870,10 +1848,6 @@ func TestGetInterPodAffinityTopologyHints(t *testing.T) {
 				ResourceHints: map[string]*pluginapi.ListOfTopologyHints{
 					string(v1.ResourceMemory): {
 						Hints: []*pluginapi.TopologyHint{
-							{
-								Nodes:     []uint64{0},
-								Preferred: true,
-							},
 							{
 								Nodes:     []uint64{1},
 								Preferred: true,
@@ -2169,7 +2143,7 @@ func TestGetInterPodAffinityTopologyHints(t *testing.T) {
 		dynamicPolicy, err := getTestDynamicPolicyWithInitialization(cpuTopology, machineInfo, tmpDir)
 		as.Nil(err)
 
-		dynamicPolicy.qosConfig.SetNUMAInterPodAffinityLabelsSelector(map[string]string{affinityKey: affinityValue, antiAffinityKey: antiAffinityValue})
+		dynamicPolicy.qosConfig.SetNUMAInterPodAffinityLabelsSelector([]string{affinityKey, antiAffinityKey})
 
 		machineState := dynamicPolicy.state.GetMachineState()
 		for i, alloInfo := range allocationList {
@@ -2187,8 +2161,12 @@ func TestGetInterPodAffinityTopologyHints(t *testing.T) {
 		resp, err := dynamicPolicy.GetTopologyHints(context.Background(), tc.req)
 		as.Equalf((err != nil) == tc.expectErr, true, "failed in test case %s, err:%v", tc.description, err)
 
-		tc.expectedResp.PodUid = tc.req.PodUid
-		as.Equalf(tc.expectedResp, resp, "failed in test case: %s", tc.description)
+		if err != nil {
+			as.Nil(resp)
+		} else {
+			tc.expectedResp.PodUid = tc.req.PodUid
+			as.Equalf(tc.expectedResp, resp, "failed in test case: %s", tc.description)
+		}
 
 		os.RemoveAll(tmpDir)
 	}
