@@ -17,6 +17,7 @@ limitations under the License.
 package options
 
 import (
+	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/options/orm"
 	"k8s.io/apimachinery/pkg/util/errors"
 	cliflag "k8s.io/component-base/cli/flag"
 
@@ -54,6 +55,8 @@ type Options struct {
 
 	genericQRMPluginOptions *qrm.GenericQRMPluginOptions
 	qrmPluginsOptions       *qrm.QRMPluginsOptions
+
+	ormOptions *orm.GenericORMPluginOptions
 }
 
 // NewOptions creates a new Options with a default config.
@@ -74,6 +77,7 @@ func NewOptions() *Options {
 		sysadvisorPluginsOptions: sysadvisor.NewSysAdvisorPluginsOptions(),
 		genericQRMPluginOptions:  qrm.NewGenericQRMPluginOptions(),
 		qrmPluginsOptions:        qrm.NewQRMPluginsOptions(),
+		ormOptions:               orm.NewGenericORMPluginOptions(),
 	}
 }
 
@@ -93,6 +97,7 @@ func (o *Options) AddFlags(fss *cliflag.NamedFlagSets) {
 	o.sysadvisorPluginsOptions.AddFlags(fss)
 	o.genericQRMPluginOptions.AddFlags(fss)
 	o.qrmPluginsOptions.AddFlags(fss)
+	o.ormOptions.AddFlags(fss)
 }
 
 // ApplyTo fills up config with options
@@ -113,6 +118,7 @@ func (o *Options) ApplyTo(c *config.Configuration) error {
 	errList = append(errList, o.sysadvisorPluginsOptions.ApplyTo(c.SysAdvisorPluginsConfiguration))
 	errList = append(errList, o.genericQRMPluginOptions.ApplyTo(c.GenericQRMPluginConfiguration))
 	errList = append(errList, o.qrmPluginsOptions.ApplyTo(c.QRMPluginsConfiguration))
+	errList = append(errList, o.ormOptions.ApplyTo(c.GenericORMConfiguration))
 
 	return errors.NewAggregate(errList)
 }
