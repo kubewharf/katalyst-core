@@ -1,3 +1,5 @@
+//go:build !linux
+
 /*
 Copyright 2022 The Katalyst Authors.
 
@@ -14,26 +16,16 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package controller
+package sockmem
 
-import "time"
+import (
+	coreconfig "github.com/kubewharf/katalyst-core/pkg/config"
+	dynamicconfig "github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic"
+	"github.com/kubewharf/katalyst-core/pkg/metaserver"
+	"github.com/kubewharf/katalyst-core/pkg/metrics"
+)
 
-type SPDConfig struct {
-	// ReSyncPeriod controls the resync period to generate spd
-	ReSyncPeriod time.Duration
-
-	// SPDWorkloadGVResources define those SPD concerned GVRs
-	SPDWorkloadGVResources []string
-	// SPDPodLabelIndexerKeys are used
-	SPDPodLabelIndexerKeys []string
-
-	IndicatorPlugins []string
-
-	BaselinePercent map[string]int64
-}
-
-func NewSPDConfig() *SPDConfig {
-	return &SPDConfig{
-		BaselinePercent: map[string]int64{},
-	}
+func SetSockMemLimit(conf *coreconfig.Configuration,
+	_ interface{}, _ *dynamicconfig.DynamicAgentConfiguration,
+	emitter metrics.MetricEmitter, metaServer *metaserver.MetaServer) {
 }

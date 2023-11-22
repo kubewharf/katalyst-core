@@ -34,11 +34,13 @@ const (
 // IndicatorUpdater is used by IndicatorPlugin as a unified implementation
 // to trigger indicator updating logic.
 type IndicatorUpdater interface {
-	// AddBusinessIndicatorSpec + AddSystemIndicatorSpec + AddBusinessIndicatorStatus
+	// UpdateBusinessIndicatorSpec + UpdateSystemIndicatorSpec + UpdateBusinessIndicatorStatus
 	// for indicator add functions, IndicatorUpdater will try to merge them in local stores.
-	AddBusinessIndicatorSpec(_ types.NamespacedName, _ []apiworkload.ServiceBusinessIndicatorSpec)
-	AddSystemIndicatorSpec(_ types.NamespacedName, _ []apiworkload.ServiceSystemIndicatorSpec)
-	AddBusinessIndicatorStatus(_ types.NamespacedName, _ []apiworkload.ServiceBusinessIndicatorStatus)
+	UpdateBusinessIndicatorSpec(_ types.NamespacedName, _ []apiworkload.ServiceBusinessIndicatorSpec)
+	UpdateSystemIndicatorSpec(_ types.NamespacedName, _ []apiworkload.ServiceSystemIndicatorSpec)
+	UpdateBusinessIndicatorStatus(_ types.NamespacedName, _ []apiworkload.ServiceBusinessIndicatorStatus)
+
+	UpdateBaselinePercent(_ types.NamespacedName, _ int32)
 }
 
 // IndicatorGetter is used by spd controller as indicator notifier to trigger
@@ -78,7 +80,7 @@ func NewIndicatorManager() *IndicatorManager {
 	}
 }
 
-func (u *IndicatorManager) AddBusinessIndicatorSpec(nn types.NamespacedName, indicators []apiworkload.ServiceBusinessIndicatorSpec) {
+func (u *IndicatorManager) UpdateBusinessIndicatorSpec(nn types.NamespacedName, indicators []apiworkload.ServiceBusinessIndicatorSpec) {
 	u.specMtx.Lock()
 	defer u.specMtx.Unlock()
 
@@ -96,7 +98,7 @@ func (u *IndicatorManager) AddBusinessIndicatorSpec(nn types.NamespacedName, ind
 	}
 }
 
-func (u *IndicatorManager) AddSystemIndicatorSpec(nn types.NamespacedName, indicators []apiworkload.ServiceSystemIndicatorSpec) {
+func (u *IndicatorManager) UpdateSystemIndicatorSpec(nn types.NamespacedName, indicators []apiworkload.ServiceSystemIndicatorSpec) {
 	u.specMtx.Lock()
 	defer u.specMtx.Unlock()
 
@@ -114,7 +116,7 @@ func (u *IndicatorManager) AddSystemIndicatorSpec(nn types.NamespacedName, indic
 	}
 }
 
-func (u *IndicatorManager) AddBusinessIndicatorStatus(nn types.NamespacedName, indicators []apiworkload.ServiceBusinessIndicatorStatus) {
+func (u *IndicatorManager) UpdateBusinessIndicatorStatus(nn types.NamespacedName, indicators []apiworkload.ServiceBusinessIndicatorStatus) {
 	u.statusMtx.Lock()
 	defer u.statusMtx.Unlock()
 
@@ -129,6 +131,22 @@ func (u *IndicatorManager) AddBusinessIndicatorStatus(nn types.NamespacedName, i
 
 	if insert {
 		u.statusQueue <- nn
+	}
+}
+
+func (u *IndicatorManager) UpdateBaselinePercent(nn types.NamespacedName, baselinePercent int32) {
+	u.specMtx.Lock()
+	defer u.specMtx.Unlock()
+
+	spec, ok := u.specMap[nn]
+	if !ok {
+		spec = initServiceProfileDescriptorSpec()
+		u.specMap[nn] = spec
+	}
+
+	if spec.BaselinePercent == nil || *spec.BaselinePercent != baselinePercent {
+		spec.BaselinePercent = &baselinePercent
+		u.specQueue <- nn
 	}
 }
 

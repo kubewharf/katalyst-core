@@ -67,7 +67,7 @@ func IsBaselinePod(pod *v1.Pod, spd *v1alpha1.ServiceProfileDescriptor) (bool, b
 	}
 
 	// if spd baseline ratio not config means baseline is disabled
-	if spd.Spec.BaselineRatio == nil {
+	if spd.Spec.BaselinePercent == nil {
 		return false, false, nil
 	}
 

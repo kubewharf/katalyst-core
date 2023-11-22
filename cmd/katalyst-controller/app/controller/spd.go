@@ -44,6 +44,7 @@ func StartSPDController(ctx context.Context, controlCtx *katalyst.GenericContext
 		conf.GenericConfiguration,
 		conf.GenericControllerConfiguration,
 		conf.ControllersConfiguration.SPDConfig,
+		conf.QoSConfiguration,
 		extraConf)
 	if err != nil {
 		klog.Errorf("failed to new spd controller")
