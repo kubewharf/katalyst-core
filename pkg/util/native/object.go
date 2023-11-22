@@ -32,7 +32,10 @@ import (
 	"github.com/kubewharf/katalyst-api/pkg/consts"
 )
 
-var objectFieldsForLabelSelector = []string{"spec", "selector"}
+var (
+	objectFieldsForLabelSelector       = []string{"spec", "selector"}
+	objectFieldsForTemplateAnnotations = []string{"spec", "template", "metadata", "annotations"}
+)
 
 // GenerateUniqObjectUIDKey generate a uniq key (including UID) for the given object.
 func GenerateUniqObjectUIDKey(obj metav1.Object) string {
@@ -154,6 +157,23 @@ func GetUnstructuredSelector(object *unstructured.Unstructured) (labels.Selector
 	_ = runtime.DefaultUnstructuredConverter.FromUnstructured(val.(map[string]interface{}), selector)
 
 	return metav1.LabelSelectorAsSelector(selector)
+}
+
+// GetUnstructuredTemplateAnnotations parse a unstructured object and return its template's annotations (for workload like deployments, statefulsets)
+func GetUnstructuredTemplateAnnotations(object *unstructured.Unstructured) (map[string]string, error) {
+	val, ok, err := unstructured.NestedFieldCopy(object.UnstructuredContent(), objectFieldsForTemplateAnnotations...)
+	if err != nil {
+		return nil, err
+	} else if !ok || val == nil {
+		return nil, fmt.Errorf("%v doesn't exist", objectFieldsForTemplateAnnotations)
+	}
+
+	annotations := make(map[string]string)
+	if err := runtime.DefaultUnstructuredConverter.FromUnstructured(val.(map[string]interface{}), &annotations); err != nil {
+		return nil, err
+	}
+
+	return annotations, nil
 }
 
 // VisitUnstructuredAncestors is to walk through all the ancestors of the given object,

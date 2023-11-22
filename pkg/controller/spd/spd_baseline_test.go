@@ -106,7 +106,7 @@ func TestSPDController_updateBaselinePercentile(t *testing.T) {
 							Name:       "sts1",
 							APIVersion: stsGVK.GroupVersion().String(),
 						},
-						BaselineRatio: pointer.Float32(0.5),
+						BaselinePercent: pointer.Int32(50),
 					},
 					Status: apiworkload.ServiceProfileDescriptorStatus{},
 				},
@@ -125,7 +125,7 @@ func TestSPDController_updateBaselinePercentile(t *testing.T) {
 						Name:       "sts1",
 						APIVersion: stsGVK.GroupVersion().String(),
 					},
-					BaselineRatio: pointer.Float32(0.5),
+					BaselinePercent: pointer.Int32(50),
 				},
 				Status: apiworkload.ServiceProfileDescriptorStatus{},
 			},
@@ -164,7 +164,7 @@ func TestSPDController_updateBaselinePercentile(t *testing.T) {
 							Name:       "sts1",
 							APIVersion: stsGVK.GroupVersion().String(),
 						},
-						BaselineRatio: pointer.Float32(0.5),
+						BaselinePercent: pointer.Int32(50),
 					},
 					Status: apiworkload.ServiceProfileDescriptorStatus{},
 				},
@@ -180,14 +180,14 @@ func TestSPDController_updateBaselinePercentile(t *testing.T) {
 						Name:       "sts1",
 						APIVersion: stsGVK.GroupVersion().String(),
 					},
-					BaselineRatio: pointer.Float32(0.5),
+					BaselinePercent: pointer.Int32(50),
 				},
 				Status: apiworkload.ServiceProfileDescriptorStatus{},
 			},
 			wantErr: assert.NoError,
 		},
 		{
-			name: "three pod for 50% baseline ratio",
+			name: "three pod for 50% baseline percent",
 			fields: fields{
 				podList: []runtime.Object{
 					&v1.Pod{
@@ -280,7 +280,7 @@ func TestSPDController_updateBaselinePercentile(t *testing.T) {
 							Name:       "sts1",
 							APIVersion: stsGVK.GroupVersion().String(),
 						},
-						BaselineRatio: pointer.Float32(0.5),
+						BaselinePercent: pointer.Int32(50),
 					},
 					Status: apiworkload.ServiceProfileDescriptorStatus{},
 				},
@@ -299,14 +299,14 @@ func TestSPDController_updateBaselinePercentile(t *testing.T) {
 						Name:       "sts1",
 						APIVersion: stsGVK.GroupVersion().String(),
 					},
-					BaselineRatio: pointer.Float32(0.5),
+					BaselinePercent: pointer.Int32(50),
 				},
 				Status: apiworkload.ServiceProfileDescriptorStatus{},
 			},
 			wantErr: assert.NoError,
 		},
 		{
-			name: "three pod for 100% baseline ratio",
+			name: "three pod for 100% baseline percent",
 			fields: fields{
 				podList: []runtime.Object{
 					&v1.Pod{
@@ -399,7 +399,7 @@ func TestSPDController_updateBaselinePercentile(t *testing.T) {
 							Name:       "sts1",
 							APIVersion: stsGVK.GroupVersion().String(),
 						},
-						BaselineRatio: pointer.Float32(1),
+						BaselinePercent: pointer.Int32(100),
 					},
 					Status: apiworkload.ServiceProfileDescriptorStatus{},
 				},
@@ -418,14 +418,14 @@ func TestSPDController_updateBaselinePercentile(t *testing.T) {
 						Name:       "sts1",
 						APIVersion: stsGVK.GroupVersion().String(),
 					},
-					BaselineRatio: pointer.Float32(1),
+					BaselinePercent: pointer.Int32(100),
 				},
 				Status: apiworkload.ServiceProfileDescriptorStatus{},
 			},
 			wantErr: assert.NoError,
 		},
 		{
-			name: "three pod for 0% baseline ratio",
+			name: "three pod for 0% baseline percent",
 			fields: fields{
 				podList: []runtime.Object{
 					&v1.Pod{
@@ -518,7 +518,7 @@ func TestSPDController_updateBaselinePercentile(t *testing.T) {
 							Name:       "sts1",
 							APIVersion: stsGVK.GroupVersion().String(),
 						},
-						BaselineRatio: pointer.Float32(0),
+						BaselinePercent: pointer.Int32(0),
 					},
 					Status: apiworkload.ServiceProfileDescriptorStatus{},
 				},
@@ -537,7 +537,7 @@ func TestSPDController_updateBaselinePercentile(t *testing.T) {
 						Name:       "sts1",
 						APIVersion: stsGVK.GroupVersion().String(),
 					},
-					BaselineRatio: pointer.Float32(0),
+					BaselinePercent: pointer.Int32(0),
 				},
 				Status: apiworkload.ServiceProfileDescriptorStatus{},
 			},
@@ -559,7 +559,7 @@ func TestSPDController_updateBaselinePercentile(t *testing.T) {
 				[]runtime.Object{tt.fields.spd}, []runtime.Object{tt.fields.workload})
 			assert.NoError(t, err)
 
-			spdController, err := NewSPDController(ctx, controlCtx, genericConfig, controllerConf, spdConfig, struct{}{})
+			spdController, err := NewSPDController(ctx, controlCtx, genericConfig, controllerConf, spdConfig, nil, struct{}{})
 			assert.NoError(t, err)
 
 			controlCtx.StartInformer(ctx)

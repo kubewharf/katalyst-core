@@ -227,7 +227,7 @@ func TestIsBaselinePod(t *testing.T) {
 						},
 					},
 					Spec: v1alpha1.ServiceProfileDescriptorSpec{
-						BaselineRatio: pointer.Float32(0.1),
+						BaselinePercent: pointer.Int32(10),
 					},
 				},
 			},
@@ -251,7 +251,7 @@ func TestIsBaselinePod(t *testing.T) {
 						},
 					},
 					Spec: v1alpha1.ServiceProfileDescriptorSpec{
-						BaselineRatio: pointer.Float32(0.1),
+						BaselinePercent: pointer.Int32(10),
 					},
 				},
 			},

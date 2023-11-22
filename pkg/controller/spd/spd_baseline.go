@@ -36,15 +36,15 @@ func (sc *SPDController) updateBaselinePercentile(spd *v1alpha1.ServiceProfileDe
 		return nil
 	}
 
-	if spd.Spec.BaselineRatio == nil {
+	if spd.Spec.BaselinePercent == nil {
 		util.SetSPDBaselinePercentile(spd, nil)
 		return nil
-	} else if *spd.Spec.BaselineRatio == 1.0 {
+	} else if *spd.Spec.BaselinePercent >= 100 {
 		// if baseline ratio equals 100%, we set baselinePercentile to ""
 		// which means all pod is baseline
 		util.SetSPDBaselinePercentile(spd, &util.BaselineCoefficient{})
 		return nil
-	} else if *spd.Spec.BaselineRatio == 0 {
+	} else if *spd.Spec.BaselinePercent <= 0 {
 		// if baseline ratio equals 0%, we set baselinePercentile to "-1"
 		// which means the baseline coefficient of all pods no less than the threshold,
 		// and then without pod is baseline.
@@ -93,6 +93,6 @@ func (sc *SPDController) calculateBaselinePercentile(spd *v1alpha1.ServiceProfil
 	sort.SliceStable(bcList, func(i, j int) bool {
 		return bcList[i].Cmp(bcList[j]) < 0
 	})
-	baselineIndex := int(math.Floor(float64(len(bcList)-1) * float64(*spd.Spec.BaselineRatio)))
+	baselineIndex := int(math.Floor(float64(len(bcList)-1) * float64(*spd.Spec.BaselinePercent) / 100))
 	return bcList[baselineIndex], nil
 }

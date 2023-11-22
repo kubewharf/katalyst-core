@@ -36,6 +36,7 @@ import (
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog/v2"
+	"k8s.io/utils/pointer"
 
 	"github.com/kubewharf/katalyst-api/pkg/apis/autoscaling/v1alpha1"
 	apiworkload "github.com/kubewharf/katalyst-api/pkg/apis/workload/v1alpha1"
@@ -69,8 +70,9 @@ const (
 // efficiency, we can't assume that all function callers MUST use an
 // indexed informer to look up objects.
 type SPDController struct {
-	ctx  context.Context
-	conf *controller.SPDConfig
+	ctx       context.Context
+	conf      *controller.SPDConfig
+	qosConfig *generic.QoSConfiguration
 
 	podUpdater      control.PodUpdater
 	spdControl      control.ServiceProfileControl
@@ -99,7 +101,7 @@ type SPDController struct {
 
 func NewSPDController(ctx context.Context, controlCtx *katalystbase.GenericContext,
 	genericConf *generic.GenericConfiguration, _ *controller.GenericControllerConfiguration,
-	conf *controller.SPDConfig, extraConf interface{}) (*SPDController, error) {
+	conf *controller.SPDConfig, qosConfig *generic.QoSConfiguration, extraConf interface{}) (*SPDController, error) {
 	if conf == nil || controlCtx.Client == nil || genericConf == nil {
 		return nil, fmt.Errorf("client, conf and generalConf can't be nil")
 	}
@@ -110,6 +112,7 @@ func NewSPDController(ctx context.Context, controlCtx *katalystbase.GenericConte
 	spdController := &SPDController{
 		ctx:                 ctx,
 		conf:                conf,
+		qosConfig:           qosConfig,
 		podUpdater:          &control.DummyPodUpdater{},
 		spdControl:          &control.DummySPDControl{},
 		workloadControl:     &control.DummyUnstructuredControl{},
@@ -539,6 +542,28 @@ func (sc *SPDController) getWorkload(gvr schema.GroupVersionResource, namespace,
 	return workload, nil
 }
 
+// defaultBaselinePercent returns default baseline ratio based on the qos level of workload,
+// and if the configured data cannot be found, we will return 1.0,
+// which signifies that the resources of this workload cannot be reclaimed to reclaimed_cores.
+func (sc *SPDController) defaultBaselinePercent(workload *unstructured.Unstructured) *int32 {
+	annotations, err := native.GetUnstructuredTemplateAnnotations(workload)
+	if err != nil {
+		general.ErrorS(err, "failed to GetUnstructuredTemplateAnnotations")
+		return pointer.Int32(100)
+	}
+	qosLevel, err := sc.qosConfig.GetQoSLevel(annotations)
+	if err != nil {
+		general.ErrorS(err, "failed to GetQoSLevel")
+		return pointer.Int32(100)
+	}
+	baselinePercent, ok := sc.conf.BaselinePercent[qosLevel]
+	if !ok {
+		general.InfoS("failed to get default baseline percent", "qosLevel", qosLevel)
+		return pointer.Int32(100)
+	}
+	return pointer.Int32(int32(baselinePercent))
+}
+
 // getOrCreateSPDForWorkload get workload's spd or create one if the spd doesn't exist
 func (sc *SPDController) getOrCreateSPDForWorkload(workload *unstructured.Unstructured) (*apiworkload.ServiceProfileDescriptor, error) {
 	gvk := workload.GroupVersionKind()
@@ -565,6 +590,7 @@ func (sc *SPDController) getOrCreateSPDForWorkload(workload *unstructured.Unstru
 						Kind:       ownerRef.Kind,
 						APIVersion: ownerRef.APIVersion,
 					},
+					BaselinePercent: sc.defaultBaselinePercent(workload),
 				},
 				Status: apiworkload.ServiceProfileDescriptorStatus{
 					AggMetrics: []apiworkload.AggPodMetrics{},

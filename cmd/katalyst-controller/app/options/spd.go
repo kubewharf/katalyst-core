@@ -31,12 +31,14 @@ type SPDOptions struct {
 	SPDWorkloadGVResources []string
 	SPDPodLabelIndexerKeys []string
 	IndicatorPlugins       []string
+	BaselinePercent        map[string]int64
 }
 
 // NewSPDOptions creates a new Options with a default config.
 func NewSPDOptions() *SPDOptions {
 	return &SPDOptions{
-		ResyncPeriod: time.Second * 30,
+		ResyncPeriod:    time.Second * 30,
+		BaselinePercent: map[string]int64{},
 	}
 }
 
@@ -53,6 +55,8 @@ func (o *SPDOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 		"A list of pod label keys to be used as indexers for pod informer")
 	fs.StringSliceVar(&o.IndicatorPlugins, "spd-indicator-plugins", o.IndicatorPlugins,
 		"A list of indicator plugins to be used")
+	fs.StringToInt64Var(&o.BaselinePercent, "spd-qos-baseline-percent", o.BaselinePercent, ""+
+		"A map of qosLeve to default baseline percent[0,100]")
 }
 
 // ApplyTo fills up config with options
@@ -61,6 +65,7 @@ func (o *SPDOptions) ApplyTo(c *controller.SPDConfig) error {
 	c.SPDWorkloadGVResources = o.SPDWorkloadGVResources
 	c.SPDPodLabelIndexerKeys = o.SPDPodLabelIndexerKeys
 	c.IndicatorPlugins = o.IndicatorPlugins
+	c.BaselinePercent = o.BaselinePercent
 	return nil
 }
 
