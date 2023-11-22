@@ -20,6 +20,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/eviction"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/global"
+	"github.com/kubewharf/katalyst-core/pkg/config/agent/orm"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/qrm"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/reporter"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/sysadvisor"
@@ -54,6 +55,7 @@ type GenericAgentConfiguration struct {
 	*reporter.GenericReporterConfiguration
 	*sysadvisor.GenericSysAdvisorConfiguration
 	*qrm.GenericQRMPluginConfiguration
+	*orm.GenericORMConfiguration
 }
 
 type StaticAgentConfiguration struct {
@@ -73,6 +75,7 @@ func NewGenericAgentConfiguration() *GenericAgentConfiguration {
 		GenericReporterConfiguration:   reporter.NewGenericReporterConfiguration(),
 		GenericSysAdvisorConfiguration: sysadvisor.NewGenericSysAdvisorConfiguration(),
 		GenericQRMPluginConfiguration:  qrm.NewGenericQRMPluginConfiguration(),
+		GenericORMConfiguration:        orm.NewGenericORMConfiguration(),
 	}
 }
 
