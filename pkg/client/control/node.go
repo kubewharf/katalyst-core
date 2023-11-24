@@ -33,6 +33,7 @@ import (
 // NodeUpdater is used to update Node
 type NodeUpdater interface {
 	PatchNode(ctx context.Context, oldNode, newNode *core.Node) error
+	PatchNodeStatus(ctx context.Context, oldNode, newNode *core.Node) error
 	UpdateNode(ctx context.Context, node *core.Node, opts metav1.UpdateOptions) (*core.Node, error)
 }
 
@@ -43,6 +44,10 @@ func (d *DummyNodeUpdater) UpdateNode(_ context.Context, _ *core.Node, _ metav1.
 }
 
 func (d *DummyNodeUpdater) PatchNode(_ context.Context, _, _ *core.Node) error {
+	return nil
+}
+
+func (d *DummyNodeUpdater) PatchNodeStatus(_ context.Context, _, _ *core.Node) error {
 	return nil
 }
 
@@ -88,5 +93,32 @@ func (r *RealNodeUpdater) PatchNode(ctx context.Context, oldNode, newNode *core.
 	}
 
 	_, err = r.client.CoreV1().Nodes().Patch(ctx, oldNode.Name, types.StrategicMergePatchType, patchBytes, metav1.PatchOptions{})
+	return err
+}
+
+func (r *RealNodeUpdater) PatchNodeStatus(ctx context.Context, oldNode, newNode *core.Node) error {
+	if oldNode == nil || newNode == nil {
+		return fmt.Errorf("can't update a nil node")
+	}
+
+	oldData, err := json.Marshal(oldNode)
+	if err != nil {
+		return err
+	}
+
+	newData, err := json.Marshal(newNode)
+	if err != nil {
+		return err
+	}
+
+	patchBytes, err := strategicpatch.CreateTwoWayMergePatch(oldData, newData, &core.Node{})
+	if err != nil {
+		return fmt.Errorf("failed to create merge patch for node%q: %v", oldNode.Name, err)
+	}
+	if general.JsonPathEmpty(patchBytes) {
+		return nil
+	}
+
+	_, err = r.client.CoreV1().Nodes().Patch(ctx, oldNode.Name, types.StrategicMergePatchType, patchBytes, metav1.PatchOptions{}, "status")
 	return err
 }
