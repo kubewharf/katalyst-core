@@ -21,7 +21,6 @@ package sockmem
 
 import (
 	"context"
-	"fmt"
 
 	"golang.org/x/sys/unix"
 
@@ -52,7 +51,7 @@ func setHostTCPMem(memTotal uint64) error {
 	tcpMemRatio := sockMemConfig.globalTCPMemRatio
 	tcpMem, err := getHostTCPMemFile(hostTCPMemFile)
 	if err != nil {
-		fmt.Println("Error:", err)
+		general.Errorf("Error: %v", err)
 		return err
 	}
 
@@ -61,7 +60,9 @@ func setHostTCPMem(memTotal uint64) error {
 	if (newUpperLimit != tcpMem[2]) && (newUpperLimit > tcpMem[1]) {
 		general.Infof("write to host tcp_mem, ratio=%v, newLimit=%d, oldLimit=%d", tcpMemRatio, newUpperLimit, tcpMem[2])
 		tcpMem[2] = newUpperLimit
-		setHostTCPMemFile(hostTCPMemFile, tcpMem)
+		if err := setHostTCPMemFile(hostTCPMemFile, tcpMem); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -85,12 +86,12 @@ func setCg1TCPMem(podUID, containerID string, memLimit, memTCPLimit int64) error
 }
 
 /*
- * SetSockMemLimit is the unified solution for tcpmem limitation.
- * it includes 3 parts:
- * 1, set the global tcpmem limitation by changing net.ipv4.tcp_mem.
- * 2, do nothing under cgroupv2.
- * 3, set the cgroup tcpmem limitation under cgroupv1.
- */
+SetSockMemLimit is the unified solution for tcpmem limitation.
+* it includes 3 parts:
+* 1, set the global tcpmem limitation by changing net.ipv4.tcp_mem.
+* 2, do nothing under cgroupv2.
+* 3, set the cgroup tcpmem limitation under cgroupv1.
+*/
 func SetSockMemLimit(conf *coreconfig.Configuration,
 	_ interface{}, _ *dynamicconfig.DynamicAgentConfiguration,
 	emitter metrics.MetricEmitter, metaServer *metaserver.MetaServer) {

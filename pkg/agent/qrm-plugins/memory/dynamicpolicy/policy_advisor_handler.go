@@ -239,7 +239,6 @@ func handleAdvisorMemoryLimitInBytes(
 
 	calculatedLimitInBytes := calculationInfo.CalculationResult.Values[string(memoryadvisor.ControlKnobKeyMemoryLimitInBytes)]
 	calculatedLimitInBytesInt64, err := strconv.ParseInt(calculatedLimitInBytes, 10, 64)
-
 	if err != nil {
 		return fmt.Errorf("parse %s: %s failed with error: %v", memoryadvisor.ControlKnobKeyMemoryLimitInBytes, calculatedLimitInBytes, err)
 	}
@@ -248,7 +247,6 @@ func handleAdvisorMemoryLimitInBytes(
 		err = cgroupmgr.ApplyMemoryWithRelativePath(calculationInfo.CgroupPath, &cgroupcommon.MemoryData{
 			LimitInBytes: calculatedLimitInBytesInt64,
 		})
-
 		if err != nil {
 			return fmt.Errorf("apply %s: %d to cgroup: %s failed with error: %v",
 				memoryadvisor.ControlKnobKeyMemoryLimitInBytes, calculatedLimitInBytesInt64,
@@ -259,12 +257,10 @@ func handleAdvisorMemoryLimitInBytes(
 			metrics.MetricTypeNameRaw, metrics.ConvertMapToTags(map[string]string{
 				"cgroupPath": calculationInfo.CgroupPath,
 			})...)
-
 		return nil
 	}
 
 	allocationInfo := podResourceEntries[v1.ResourceMemory][entryName][subEntryName]
-
 	if allocationInfo == nil {
 		return fmt.Errorf("high level cgroup path and pod resource entry are both nil")
 	} else if allocationInfo.ExtraControlKnobInfo == nil {
@@ -299,14 +295,10 @@ func (p *DynamicPolicy) handleAdvisorDropCache(
 	dropCacheBool, err := strconv.ParseBool(dropCache)
 	if err != nil {
 		return fmt.Errorf("parse %s: %s failed with error: %v", memoryadvisor.ControlKnobKeyDropCache, dropCache, err)
-	}
-
-	if calculationInfo.CgroupPath != "" {
+	} else if calculationInfo.CgroupPath != "" {
 		return fmt.Errorf("dropping cache at high level cgroup path %s isn't supported",
 			memoryadvisor.ControlKnobKeyDropCache)
-	}
-
-	if !dropCacheBool {
+	} else if !dropCacheBool {
 		return nil
 	}
 
@@ -315,8 +307,7 @@ func (p *DynamicPolicy) handleAdvisorDropCache(
 		return fmt.Errorf("get container id of pod: %s container: %s failed with error: %v", entryName, subEntryName, err)
 	}
 
-	dropCacheWorkName := util.GetContainerAsyncWorkName(entryName, subEntryName,
-		memoryPluginAsyncWorkTopicDropCache)
+	dropCacheWorkName := util.GetContainerAsyncWorkName(entryName, subEntryName, memoryPluginAsyncWorkTopicDropCache)
 	// start a asynchronous work to drop cache for the container whose numaset changed and doesn't require numa_binding
 	err = p.asyncWorkers.AddWork(dropCacheWorkName,
 		&asyncworker.Work{

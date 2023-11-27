@@ -22,7 +22,7 @@ import (
 	"time"
 )
 
-// worStatus tracks worker is working or not
+// workStatus tracks worker is working or not
 // and containers context to cancel work
 type workStatus struct {
 	// ctx is the context that is associated with the current pod sync
@@ -38,7 +38,7 @@ type workStatus struct {
 	work *Work
 }
 
-// work contains details to handle by workers
+// Work contains details to handle by workers
 type Work struct {
 	// Fn is the function to handle the work,
 	// its first param must be of type context.Context,
