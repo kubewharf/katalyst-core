@@ -246,7 +246,6 @@ func (p *DynamicPolicy) dedicatedCoresWithNUMABindingAllocationSidecarHandler(_ 
 	p.state.SetAllocationInfo(v1.ResourceMemory, req.PodUid, req.ContainerName, allocationInfo)
 	podResourceEntries = p.state.GetPodResourceEntries()
 	resourcesState, err := state.GenerateMachineStateFromPodEntries(p.state.GetMachineInfo(), podResourceEntries, p.state.GetReservedMemory())
-
 	if err != nil {
 		general.Infof("pod: %s/%s, container: %s GenerateMachineStateFromPodEntries failed with error: %v",
 			req.PodNamespace, req.PodName, req.ContainerName, err)
@@ -429,7 +428,7 @@ func (p *DynamicPolicy) adjustAllocationEntries() error {
 	p.state.SetPodResourceEntries(podResourceEntries)
 	p.state.SetMachineState(resourcesMachineState)
 
-	// drop cache for containers whose numaset changed
+	// drop cache and migrate pages for containers whose numaset changed
 	for podUID, containers := range numaSetChangedContainers {
 		for containerName := range containers {
 			containerID, err := p.metaServer.GetContainerID(podUID, containerName)
@@ -518,7 +517,6 @@ func (p *DynamicPolicy) calculateMemoryAllocation(req *pluginapi.ResourceRequest
 	if leftQuantity > 0 {
 		general.Errorf("hint NUMA nodes: %s can't meet memory request: %d bytes, leftQuantity: %d bytes",
 			hintNumaNodes.String(), memoryReq, leftQuantity)
-
 		return fmt.Errorf("results can't meet memory request")
 	}
 
@@ -536,7 +534,6 @@ func calculateExclusiveMemory(req *pluginapi.ResourceRequest,
 		var curNumaNodeAllocated uint64 = 0
 
 		numaNodeState := machineState[numaNode]
-
 		if numaNodeState == nil {
 			return reqQuantity, fmt.Errorf("NUMA: %d has nil state", numaNode)
 		}
@@ -597,7 +594,6 @@ func calculateMemoryInNumaNodes(req *pluginapi.ResourceRequest,
 		var curNumaNodeAllocated uint64 = 0
 
 		numaNodeState := machineState[numaNode]
-
 		if numaNodeState == nil {
 			return reqQuantity, fmt.Errorf("NUMA: %d has nil state", numaNode)
 		}

@@ -215,7 +215,7 @@ func (ra *memoryResourceAdvisor) update() {
 	}
 
 	for _, plugin := range ra.plugins {
-		plugin.Reconcile(&memoryPressureStatus)
+		_ = plugin.Reconcile(&memoryPressureStatus)
 	}
 
 	ra.sendAdvices()
@@ -243,7 +243,6 @@ func (ra *memoryResourceAdvisor) detectNUMAPressure(numaID int) (*types.MemoryPr
 	}
 
 	targetReclaimed := resource.NewQuantity(0, resource.BinarySI)
-
 	pressureState := types.MemoryPressureNoRisk
 
 	criticalWatermark := general.MaxFloat64(float64(ra.conf.MinCriticalWatermark), 2*total*scaleFactor/scaleDenominator)
@@ -280,7 +279,6 @@ func (ra *memoryResourceAdvisor) detectNodePressureCondition() (*types.MemoryPre
 	}
 
 	criticalWatermark := general.MaxFloat64(float64(ra.conf.MinCriticalWatermark*int64(ra.metaServer.NumNUMANodes)), 2*total*scaleFactor/scaleDenominator)
-
 	targetReclaimed := resource.NewQuantity(0, resource.BinarySI)
 
 	pressureState := types.MemoryPressureNoRisk
