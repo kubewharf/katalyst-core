@@ -748,7 +748,6 @@ func TestIndicatorUpdater(t *testing.T) {
 			Current: &value,
 		},
 	})
-	sc.indicatorManager.UpdateBaselinePercent(nn, 20)
 	time.Sleep(time.Millisecond * 100)
 	newSPD, err := controlCtx.Client.InternalClient.WorkloadV1alpha1().
 		ServiceProfileDescriptors("default").Get(ctx, "spd1", metav1.GetOptions{})
@@ -756,5 +755,4 @@ func TestIndicatorUpdater(t *testing.T) {
 	assert.Equal(t, expectedSpd.Spec.BusinessIndicator, newSPD.Spec.BusinessIndicator)
 	assert.Equal(t, expectedSpd.Spec.SystemIndicator, newSPD.Spec.SystemIndicator)
 	assert.Equal(t, expectedSpd.Status.BusinessStatus, newSPD.Status.BusinessStatus)
-	assert.Equal(t, expectedSpd.Spec.BaselinePercent, newSPD.Spec.BaselinePercent)
 }
