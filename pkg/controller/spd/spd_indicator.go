@@ -200,7 +200,6 @@ func (sc *SPDController) mergeIndicatorSpec(spd *apiworkload.ServiceProfileDescr
 			spd.Spec.SystemIndicator = append(spd.Spec.SystemIndicator[:i], spd.Spec.SystemIndicator[i+1:]...)
 		}
 	}
-	spd.Spec.BaselinePercent = expected.BaselinePercent
 }
 
 func (sc *SPDController) mergeIndicatorStatus(spd *apiworkload.ServiceProfileDescriptor, expected apiworkload.ServiceProfileDescriptorStatus) {

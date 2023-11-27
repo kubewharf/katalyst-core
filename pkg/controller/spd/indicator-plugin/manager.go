@@ -39,8 +39,6 @@ type IndicatorUpdater interface {
 	UpdateBusinessIndicatorSpec(_ types.NamespacedName, _ []apiworkload.ServiceBusinessIndicatorSpec)
 	UpdateSystemIndicatorSpec(_ types.NamespacedName, _ []apiworkload.ServiceSystemIndicatorSpec)
 	UpdateBusinessIndicatorStatus(_ types.NamespacedName, _ []apiworkload.ServiceBusinessIndicatorStatus)
-
-	UpdateBaselinePercent(_ types.NamespacedName, _ int32)
 }
 
 // IndicatorGetter is used by spd controller as indicator notifier to trigger
@@ -131,22 +129,6 @@ func (u *IndicatorManager) UpdateBusinessIndicatorStatus(nn types.NamespacedName
 
 	if insert {
 		u.statusQueue <- nn
-	}
-}
-
-func (u *IndicatorManager) UpdateBaselinePercent(nn types.NamespacedName, baselinePercent int32) {
-	u.specMtx.Lock()
-	defer u.specMtx.Unlock()
-
-	spec, ok := u.specMap[nn]
-	if !ok {
-		spec = initServiceProfileDescriptorSpec()
-		u.specMap[nn] = spec
-	}
-
-	if spec.BaselinePercent == nil || *spec.BaselinePercent != baselinePercent {
-		spec.BaselinePercent = &baselinePercent
-		u.specQueue <- nn
 	}
 }
 
