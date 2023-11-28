@@ -28,6 +28,9 @@ type MemoryPressureState int
 // MemoryHeadroomPolicyName defines policy names for memory advisor headroom estimation
 type MemoryHeadroomPolicyName string
 
+// MemoryProvisionPolicyName defines policy names for memory advisor resource provision
+type MemoryProvisionPolicyName string
+
 const (
 	MemoryPressureNoRisk    MemoryPressureState = 0
 	MemoryPressureTuneMemCg MemoryPressureState = 1
@@ -36,6 +39,9 @@ const (
 	MemoryHeadroomPolicyNone      MemoryHeadroomPolicyName = "none"
 	MemoryHeadroomPolicyCanonical MemoryHeadroomPolicyName = "canonical"
 	MemoryHeadroomPolicyNUMAAware MemoryHeadroomPolicyName = "numa-aware"
+
+	MemoryProvisionPolicyNone      MemoryProvisionPolicyName = "none"
+	MemoryProvisionPolicyCanonical MemoryProvisionPolicyName = "canonical"
 )
 
 type MemoryPressureCondition struct {

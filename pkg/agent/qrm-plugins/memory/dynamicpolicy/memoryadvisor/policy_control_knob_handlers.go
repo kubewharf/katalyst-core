@@ -73,9 +73,6 @@ func ControlKnobHandlerWithChecker(handler MemoryControlKnobHandler) MemoryContr
 			return fmt.Errorf("handler got nil calculationInfo")
 		} else if calculationInfo.CalculationResult == nil {
 			return fmt.Errorf("handler got nil calculationInfo.CalculationResult")
-		} else if calculationInfo.CgroupPath == "" &&
-			podResourceEntries[v1.ResourceMemory][entryName][subEntryName] == nil {
-			return fmt.Errorf("calculationInfo indicates no target")
 		} else if emitter == nil {
 			return fmt.Errorf("handler got nil emitter")
 		} else if metaServer == nil {

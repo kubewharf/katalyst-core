@@ -16,14 +16,14 @@ limitations under the License.
 
 package plugins
 
-type MemoryAdvisorPluginsConfiguration struct {
-	*CacheReaperConfiguration
-	*MemoryProvisionerConfiguration
+import "github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
+
+type MemoryProvisionerConfiguration struct {
+	MemoryProvisionPolicy types.MemoryProvisionPolicyName
 }
 
-func NewMemoryAdvisorPluginsConfiguration() *MemoryAdvisorPluginsConfiguration {
-	return &MemoryAdvisorPluginsConfiguration{
-		CacheReaperConfiguration:       NewCacheReaperConfiguration(),
-		MemoryProvisionerConfiguration: NewMemoryProvisionerConfiguration(),
+func NewMemoryProvisionerConfiguration() *MemoryProvisionerConfiguration {
+	return &MemoryProvisionerConfiguration{
+		MemoryProvisionPolicy: types.MemoryProvisionPolicyCanonical,
 	}
 }

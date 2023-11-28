@@ -46,6 +46,54 @@ type CPUTopology struct {
 
 type MemoryDetails map[int]uint64
 
+// Equal returns true if the MemoryDetails map is equal to the supplied MemoryDetails
+func (d MemoryDetails) Equal(want MemoryDetails) bool {
+	if len(d) != len(want) {
+		return false
+	}
+
+	for k, v := range d {
+		if v != want[k] {
+			return false
+		}
+	}
+
+	return true
+}
+
+// Clone creates a new MemoryDetails instance with the same content.
+func (d MemoryDetails) Clone() MemoryDetails {
+	if d == nil {
+		return nil
+	}
+
+	clone := make(MemoryDetails)
+	for key, value := range d {
+		clone[key] = value
+	}
+
+	return clone
+}
+
+// FillNUMANodesWithZero takes a CPUSet containing NUMA node IDs and ensures that each ID is present in MemoryDetails.
+// If a NUMA node ID from the CPUSet is not present in the MemoryDetails map, it is added with a value of 0.
+// The method returns an updated MemoryDetails map with these changes.
+func (d MemoryDetails) FillNUMANodesWithZero(allNUMAs CPUSet) MemoryDetails {
+	// Clone the original MemoryDetails map
+	updatedDetails := d.Clone()
+
+	// Iterate through all NUMA IDs and ensure they are in the map
+	for numaID := range allNUMAs.ToSliceInt() {
+		if _, exists := updatedDetails[numaID]; !exists {
+			// Add the NUMA ID with a value of 0 if it doesn't exist in the map
+			updatedDetails[numaID] = 0
+		}
+	}
+
+	// Return the updated MemoryDetails map
+	return updatedDetails
+}
+
 type MemoryTopology struct {
 	MemoryDetails MemoryDetails
 }
