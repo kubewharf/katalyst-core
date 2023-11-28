@@ -42,7 +42,7 @@ type SockMemConfig struct {
 	cgroupTCPMemRatio float64
 }
 
-func setHostTCPMem(memTotal uint64, sockMemConfig *SockMemConfig) error {
+func setHostTCPMem(emitter metrics.MetricEmitter, memTotal uint64, sockMemConfig *SockMemConfig) error {
 	tcpMemRatio := sockMemConfig.globalTCPMemRatio
 	tcpMem, err := getHostTCPMemFile(hostTCPMemFile)
 	if err != nil {
@@ -55,17 +55,20 @@ func setHostTCPMem(memTotal uint64, sockMemConfig *SockMemConfig) error {
 	if (newUpperLimit != tcpMem[2]) && (newUpperLimit > tcpMem[1]) {
 		general.Infof("write to host tcp_mem, ratio=%v, newLimit=%d, oldLimit=%d", tcpMemRatio, newUpperLimit, tcpMem[2])
 		tcpMem[2] = newUpperLimit
+
 		if err := setHostTCPMemFile(hostTCPMemFile, tcpMem); err != nil {
 			return err
 		}
+		_ = emitter.StoreInt64(metricNameTCPMemoryHost, int64(newUpperLimit), metrics.MetricTypeNameRaw)
 	}
+
 	return nil
 }
 
-func setCg1TCPMem(podUID, containerID string, memLimit, memTCPLimit int64, sockMemConfig *SockMemConfig) error {
+func setCg1TCPMem(emitter metrics.MetricEmitter, podUID, containerID string, memLimit, memTCPLimit int64, sockMemConfig *SockMemConfig) error {
 	newMemTCPLimit := memLimit / 100 * int64(sockMemConfig.cgroupTCPMemRatio)
 	newMemTCPLimit = alignToPageSize(newMemTCPLimit)
-	newMemTCPLimit = int64(general.Clamp(float64(newMemTCPLimit), cgroupTCPMemMin2G, kernSockMemAccoutingOn))
+	newMemTCPLimit = int64(general.Clamp(float64(newMemTCPLimit), cgroupTCPMemMin2G, kernSockMemAccountingOn))
 
 	cgroupPath, err := cgroupcm.GetContainerRelativeCgroupPath(podUID, containerID)
 	if err != nil {
@@ -76,6 +79,11 @@ func setCg1TCPMem(podUID, containerID string, memLimit, memTCPLimit int64, sockM
 			TCPMemLimitInBytes: newMemTCPLimit,
 		})
 		general.Infof("Apply TCPMemLimitInBytes: %v, old value=%d, new value=%d", cgroupPath, memTCPLimit, newMemTCPLimit)
+		_ = emitter.StoreInt64(metricNameTCPMemoryCgroup, newMemTCPLimit, metrics.MetricTypeNameRaw,
+			metrics.ConvertMapToTags(map[string]string{
+				"podUID":      podUID,
+				"containerID": containerID,
+			})...)
 	}
 	return nil
 }
@@ -129,7 +137,7 @@ func SetSockMemLimit(conf *coreconfig.Configuration,
 	 */
 	// 0 means skip this feature.
 	if conf.SetGlobalTCPMemRatio != 0 {
-		_ = setHostTCPMem(metaServer.MemoryCapacity, &sockMemConfig)
+		_ = setHostTCPMem(emitter, metaServer.MemoryCapacity, &sockMemConfig)
 	}
 	// Step2, do nothing for cg2.
 	// In cg2, tcpmem is accounted together with other memory(anon, kernel, file...).
@@ -173,7 +181,7 @@ func SetSockMemLimit(conf *coreconfig.Configuration,
 				continue
 			}
 
-			_ = setCg1TCPMem(podUID, containerID, int64(memLimit), int64(memTCPLimit), &sockMemConfig)
+			_ = setCg1TCPMem(emitter, podUID, containerID, int64(memLimit), int64(memTCPLimit), &sockMemConfig)
 		}
 	}
 }

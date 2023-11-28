@@ -94,7 +94,7 @@ func (p *PolicyRama) Update() error {
 	}
 
 	period := p.conf.QoSAwarePluginConfiguration.SyncPeriod
-	p.emitter.StoreInt64(metricRamaDominantIndicator, int64(period.Seconds()), metrics.MetricTypeNameCount, []metrics.MetricTag{
+	_ = p.emitter.StoreInt64(metricRamaDominantIndicator, int64(period.Seconds()), metrics.MetricTypeNameCount, []metrics.MetricTag{
 		{Key: "metric_name", Val: dominantIndicator},
 	}...)
 

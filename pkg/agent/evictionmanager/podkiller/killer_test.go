@@ -55,17 +55,17 @@ func TestEvictionQueue(t *testing.T) {
 	deleteKiller, BuildErr := NewDeletionAPIKiller(nil, ctx.Client.KubeClient, &events.FakeRecorder{}, metrics.DummyMetrics{})
 	require.NoError(t, BuildErr)
 
-	err = deleteKiller.Evict(context.Background(), pods[0], 0, "test-api")
+	err = deleteKiller.Evict(context.Background(), pods[0], 0, "test-api", "test")
 	require.NoError(t, err)
 
-	err = deleteKiller.Evict(context.Background(), pods[0], 0, "test-api")
+	err = deleteKiller.Evict(context.Background(), pods[0], 0, "test-api", "test")
 	require.NoError(t, err)
 
-	err = deleteKiller.Evict(context.Background(), pods[1], 0, "test-api")
+	err = deleteKiller.Evict(context.Background(), pods[1], 0, "test-api", "test")
 	require.NoError(t, err)
 
 	err = evict(ctx.Client.KubeClient, &events.FakeRecorder{}, metrics.DummyMetrics{}, pods[2],
-		0, "test-api", func(_ *v1.Pod, gracePeriod int64) error {
+		0, "test-api", "test", func(_ *v1.Pod, gracePeriod int64) error {
 			return fmt.Errorf("test")
 		})
 	require.ErrorContains(t, err, "test")
@@ -168,7 +168,7 @@ func TestContainerKiller_Evict(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			fakeRuntimeService.Called = make([]string, 0)
-			evictErr := containerKiller.Evict(context.TODO(), tt.pod, 0, "test")
+			evictErr := containerKiller.Evict(context.TODO(), tt.pod, 0, "test", "test")
 			if tt.wantStopFailed {
 				require.Error(t, evictErr)
 			} else {

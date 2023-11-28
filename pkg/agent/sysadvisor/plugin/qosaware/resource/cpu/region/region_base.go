@@ -419,6 +419,8 @@ func (r *QoSRegionBase) initProvisionPolicy(conf *config.Configuration, extraCon
 				policy:              policy,
 				internalPolicyState: internalPolicyState{updateStatus: types.PolicyUpdateFailed},
 			})
+		} else {
+			general.ErrorS(fmt.Errorf("failed to find region policy"), "policyName", policyName, "region", r.regionType)
 		}
 	}
 }
@@ -428,7 +430,7 @@ func (r *QoSRegionBase) initHeadroomPolicy(conf *config.Configuration, extraConf
 	metaReader metacache.MetaReader, metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter) {
 	configuredHeadroomPolicy, ok := conf.CPUAdvisorConfiguration.HeadroomPolicies[r.regionType]
 	if !ok {
-		klog.Warningf("[qosaware-cpu] failed to find provision policies for region %v", r.regionType)
+		klog.Warningf("[qosaware-cpu] failed to find headroom policies for region %v", r.regionType)
 		return
 	}
 
@@ -443,7 +445,7 @@ func (r *QoSRegionBase) initHeadroomPolicy(conf *config.Configuration, extraConf
 				internalPolicyState: internalPolicyState{updateStatus: types.PolicyUpdateFailed},
 			})
 		} else {
-			general.InfoS("failed to find headroom policy", "policyName", policyName, "region", r.regionType)
+			general.ErrorS(fmt.Errorf("failed to find headroom policy"), "policyName", policyName, "region", r.regionType)
 		}
 	}
 }
