@@ -42,12 +42,7 @@ type SockMemConfig struct {
 	cgroupTCPMemRatio float64
 }
 
-var sockMemConfig = SockMemConfig{
-	globalTCPMemRatio: 20,  // default: 20% * {host total memory}
-	cgroupTCPMemRatio: 100, // default: 100% * {cgroup memory limit}
-}
-
-func setHostTCPMem(memTotal uint64) error {
+func setHostTCPMem(memTotal uint64, sockMemConfig *SockMemConfig) error {
 	tcpMemRatio := sockMemConfig.globalTCPMemRatio
 	tcpMem, err := getHostTCPMemFile(hostTCPMemFile)
 	if err != nil {
@@ -67,7 +62,7 @@ func setHostTCPMem(memTotal uint64) error {
 	return nil
 }
 
-func setCg1TCPMem(podUID, containerID string, memLimit, memTCPLimit int64) error {
+func setCg1TCPMem(podUID, containerID string, memLimit, memTCPLimit int64, sockMemConfig *SockMemConfig) error {
 	newMemTCPLimit := memLimit / 100 * int64(sockMemConfig.cgroupTCPMemRatio)
 	newMemTCPLimit = alignToPageSize(newMemTCPLimit)
 	newMemTCPLimit = int64(general.Clamp(float64(newMemTCPLimit), cgroupTCPMemMin2G, kernSockMemAccoutingOn))
@@ -114,6 +109,7 @@ func SetSockMemLimit(conf *coreconfig.Configuration,
 		return
 	}
 
+	sockMemConfig := SockMemConfig{}
 	sockMemConfig.globalTCPMemRatio = general.Clamp(float64(conf.SetGlobalTCPMemRatio), globalTCPMemRatioMin, globalTCPMemRatioMax)
 	sockMemConfig.cgroupTCPMemRatio = general.Clamp(float64(conf.SetCgroupTCPMemRatio), cgroupTCPMemRatioMin, cgroupTCPMemRatioMax)
 	/*
@@ -133,7 +129,7 @@ func SetSockMemLimit(conf *coreconfig.Configuration,
 	 */
 	// 0 means skip this feature.
 	if conf.SetGlobalTCPMemRatio != 0 {
-		_ = setHostTCPMem(metaServer.MemoryCapacity)
+		_ = setHostTCPMem(metaServer.MemoryCapacity, &sockMemConfig)
 	}
 	// Step2, do nothing for cg2.
 	// In cg2, tcpmem is accounted together with other memory(anon, kernel, file...).
@@ -177,7 +173,7 @@ func SetSockMemLimit(conf *coreconfig.Configuration,
 				continue
 			}
 
-			_ = setCg1TCPMem(podUID, containerID, int64(memLimit), int64(memTCPLimit))
+			_ = setCg1TCPMem(podUID, containerID, int64(memLimit), int64(memTCPLimit), &sockMemConfig)
 		}
 	}
 }
