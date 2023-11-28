@@ -597,14 +597,14 @@ func checkLabelSelectorOverlap(selector labels.Selector, otherSelector labels.Se
 	keyList []string,
 ) bool {
 	for _, key := range keyList {
-		equalLabelSet, inEqualLabelSet, _ := getMatchLabelSet(selector, key)
-		otherEqualLabelSet, otherInEqualLabelSet, _ := getMatchLabelSet(otherSelector, key)
-		if (equalLabelSet.Len() > 0 && otherEqualLabelSet.Len() > 0 && equalLabelSet.Intersection(otherEqualLabelSet).Len() > 0) ||
-			(equalLabelSet.Len() == 0 && otherEqualLabelSet.Len() == 0 && (inEqualLabelSet.Len() > 0 || otherInEqualLabelSet.Len() > 0)) ||
-			(inEqualLabelSet.Len() > 0 && !inEqualLabelSet.Intersection(otherEqualLabelSet).Equal(otherEqualLabelSet)) ||
-			(otherInEqualLabelSet.Len() > 0 && !otherInEqualLabelSet.Intersection(equalLabelSet).Equal(equalLabelSet)) ||
-			(equalLabelSet.Len() > 0 && otherEqualLabelSet.Len() == 0 && otherInEqualLabelSet.Len() == 0) ||
-			(otherEqualLabelSet.Len() > 0 && equalLabelSet.Len() == 0 && inEqualLabelSet.Len() == 0) {
+		equalValueSet, inEqualValueSet, _ := getMatchValueSet(selector, key)
+		otherEqualValueSet, otherInEqualValueSet, _ := getMatchValueSet(otherSelector, key)
+		if (equalValueSet.Len() > 0 && otherEqualValueSet.Len() > 0 && equalValueSet.Intersection(otherEqualValueSet).Len() > 0) ||
+			(equalValueSet.Len() == 0 && otherEqualValueSet.Len() == 0 && (inEqualValueSet.Len() > 0 || otherInEqualValueSet.Len() > 0)) ||
+			(inEqualValueSet.Len() > 0 && !inEqualValueSet.Intersection(otherEqualValueSet).Equal(otherEqualValueSet)) ||
+			(otherInEqualValueSet.Len() > 0 && !otherInEqualValueSet.Intersection(equalValueSet).Equal(equalValueSet)) ||
+			(equalValueSet.Len() > 0 && otherEqualValueSet.Len() == 0 && otherInEqualValueSet.Len() == 0) ||
+			(otherEqualValueSet.Len() > 0 && equalValueSet.Len() == 0 && inEqualValueSet.Len() == 0) {
 			continue
 		} else {
 			return false
@@ -614,26 +614,26 @@ func checkLabelSelectorOverlap(selector labels.Selector, otherSelector labels.Se
 	return true
 }
 
-func getMatchLabelSet(selector labels.Selector, key string) (sets.String, sets.String, error) {
+func getMatchValueSet(selector labels.Selector, key string) (sets.String, sets.String, error) {
 	reqs, selectable := selector.Requirements()
 	if !selectable {
 		return nil, nil, fmt.Errorf("labelSelector cannot selectable")
 	}
 
-	equalLabelSet := sets.String{}
-	inEqualLabelSet := sets.String{}
+	equalValueSet := sets.String{}
+	inEqualValueSet := sets.String{}
 	for _, r := range reqs {
 		if r.Key() != key {
 			continue
 		}
 		switch r.Operator() {
 		case selection.Equals, selection.DoubleEquals, selection.In:
-			equalLabelSet = equalLabelSet.Union(r.Values())
+			equalValueSet = equalValueSet.Union(r.Values())
 		case selection.NotEquals, selection.NotIn:
-			inEqualLabelSet = inEqualLabelSet.Union(r.Values())
+			inEqualValueSet = inEqualValueSet.Union(r.Values())
 		default:
 			return nil, nil, fmt.Errorf("labelSelector operator %s not supported", r.Operator())
 		}
 	}
-	return equalLabelSet, inEqualLabelSet, nil
+	return equalValueSet, inEqualValueSet, nil
 }
