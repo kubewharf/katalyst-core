@@ -266,7 +266,7 @@ func (mc *MetaCacheImp) GetFilteredInferenceResult(filterFunc func(result interf
 
 }
 
-// GetPodsInferenceResult gets specified model inference result
+// GetInferenceResult gets specified model inference result
 // notice it doesn't return a deep copied result
 func (mc *MetaCacheImp) GetInferenceResult(modelName string) (interface{}, error) {
 	return mc.GetFilteredInferenceResult(nil, modelName)
@@ -522,7 +522,7 @@ func (mc *MetaCacheImp) storeState() error {
 		if elapsed > storeStateWarningDuration {
 			klog.Errorf("[metacache] store state took too long time, duration %v", elapsed)
 		}
-		mc.emitter.StoreFloat64(metricMetaCacheStoreStateDuration, float64(elapsed/time.Millisecond), metrics.MetricTypeNameRaw)
+		_ = mc.emitter.StoreFloat64(metricMetaCacheStoreStateDuration, float64(elapsed/time.Millisecond), metrics.MetricTypeNameRaw)
 	}(startTime)
 
 	if err := mc.checkpointManager.CreateCheckpoint(mc.checkpointName, checkpoint); err != nil {

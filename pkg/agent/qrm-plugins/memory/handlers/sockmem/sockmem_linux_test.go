@@ -195,7 +195,7 @@ func TestGetLimitFromTCPMemFile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Error writing test data to temporary file: %v", err)
 	}
-	tmpFile.Close()
+	_ = tmpFile.Close()
 
 	tcpMem, err := getHostTCPMemFile(tmpFile.Name())
 	if err != nil {
@@ -246,7 +246,7 @@ func TestSetLimitToTCPMemFile(t *testing.T) {
 	tmpFile.Close()
 
 	tcpMem := []uint64{1, 2, 123456}
-	setHostTCPMemFile(tmpFile.Name(), tcpMem)
+	_ = setHostTCPMemFile(tmpFile.Name(), tcpMem)
 	data, err := os.ReadFile(tmpFile.Name())
 	if err != nil {
 		t.Fatalf("Error reading modified file: %v", err)
@@ -299,11 +299,11 @@ func TestSetCg1TCPMem(t *testing.T) {
 		cgroupTCPMemRatio: 100.0,
 	}
 
-	err := setCg1TCPMem(podUID, containerID, memLimit, memTCPLimit, &sockMemConfig)
+	err := setCg1TCPMem(metrics.DummyMetrics{}, podUID, containerID, memLimit, memTCPLimit, &sockMemConfig)
 	if err == nil {
 		t.Error("Expected an error, but got none")
 	}
-	err = setCg1TCPMem(podUID, containerID, 9223372036854771712, memTCPLimit, &sockMemConfig)
+	err = setCg1TCPMem(metrics.DummyMetrics{}, podUID, containerID, 9223372036854771712, memTCPLimit, &sockMemConfig)
 	if err == nil {
 		t.Error("Expected an error, but got none")
 	}

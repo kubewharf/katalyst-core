@@ -95,7 +95,7 @@ func (s *SynchronizedPodKiller) EvictPod(rp *rule.RuledEvictPod) error {
 		return fmt.Errorf("getGracefulDeletionPeriod for pod: %s/%s failed with error: %v", rp.Pod.Namespace, rp.Pod.Name, err)
 	}
 
-	err = s.killer.Evict(context.Background(), rp.Pod, gracePeriod, rp.Reason)
+	err = s.killer.Evict(context.Background(), rp.Pod, gracePeriod, rp.Reason, rp.EvictionPluginName)
 	if err != nil {
 		return fmt.Errorf("evict pod: %s/%s failed with error: %v", rp.Pod.Namespace, rp.Pod.Name, err)
 	}
@@ -145,12 +145,14 @@ type AsynchronizedPodKiller struct {
 type evictPodInfo struct {
 	Pod    *v1.Pod
 	Reason string
+	Plugin string
 }
 
 func getEvictPodInfo(rp *rule.RuledEvictPod) *evictPodInfo {
 	return &evictPodInfo{
 		Pod:    rp.Pod.DeepCopy(),
 		Reason: rp.Reason,
+		Plugin: rp.EvictionPluginName,
 	}
 }
 
@@ -296,13 +298,11 @@ func (a *AsynchronizedPodKiller) processNextItem() bool {
 
 func (a *AsynchronizedPodKiller) sync(key string) (retError error, requeue bool) {
 	namespace, name, gracePeriodSeconds, err := splitEvictionKey(key)
-
 	if err != nil {
 		return fmt.Errorf("[asynchronous] invalid resource key: %s got error: %v", key, err), false
 	}
 
 	podKey := podKeyFunc(namespace, name)
-
 	defer func() {
 		if !requeue {
 			a.Lock()
@@ -327,17 +327,17 @@ func (a *AsynchronizedPodKiller) sync(key string) (retError error, requeue bool)
 		return err, true
 	}
 
-	var reason string
+	var reason, plugin string
 	a.RLock()
 	if a.processingPods[podKey][gracePeriodSeconds] == nil {
 		a.RUnlock()
 		return fmt.Errorf("[asynchronous] evict pod can't be found by podKey: %s and gracePeriodSeconds: %d", podKey, gracePeriodSeconds), false
 	}
 	reason = a.processingPods[podKey][gracePeriodSeconds].Reason
+	plugin = a.processingPods[podKey][gracePeriodSeconds].Plugin
 	a.RUnlock()
 
-	err = a.killer.Evict(context.Background(), pod, gracePeriodSeconds, reason)
-
+	err = a.killer.Evict(context.Background(), pod, gracePeriodSeconds, reason, plugin)
 	if err != nil {
 		return err, true
 	} else {

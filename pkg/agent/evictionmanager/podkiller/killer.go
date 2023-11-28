@@ -54,14 +54,14 @@ type Killer interface {
 	Name() string
 
 	// Evict for given pods and corresponding graceful period seconds.
-	Evict(ctx context.Context, pod *v1.Pod, gracePeriodSeconds int64, reason string) error
+	Evict(ctx context.Context, pod *v1.Pod, gracePeriodSeconds int64, reason, plugin string) error
 }
 
 // DummyKiller is a stub implementation for Killer interface.
 type DummyKiller struct{}
 
-func (d DummyKiller) Name() string                                                { return consts.KillerNameFakeKiller }
-func (d DummyKiller) Evict(_ context.Context, _ *v1.Pod, _ int64, _ string) error { return nil }
+func (d DummyKiller) Name() string                                                   { return consts.KillerNameFakeKiller }
+func (d DummyKiller) Evict(_ context.Context, _ *v1.Pod, _ int64, _, _ string) error { return nil }
 
 var _ Killer = DummyKiller{}
 
@@ -84,7 +84,7 @@ func NewEvictionAPIKiller(_ *config.Configuration, client kubernetes.Interface, 
 
 func (e *EvictionAPIKiller) Name() string { return consts.KillerNameEvictionKiller }
 
-func (e *EvictionAPIKiller) Evict(_ context.Context, pod *v1.Pod, gracePeriodSeconds int64, reason string) error {
+func (e *EvictionAPIKiller) Evict(_ context.Context, pod *v1.Pod, gracePeriodSeconds int64, reason, plugin string) error {
 	const (
 		policyGroupVersion = "policy/v1beta1"
 		evictionKind       = "Eviction"
@@ -108,7 +108,7 @@ func (e *EvictionAPIKiller) Evict(_ context.Context, pod *v1.Pod, gracePeriodSec
 		return e.client.PolicyV1beta1().Evictions(eviction.Namespace).Evict(context.Background(), eviction)
 	}
 
-	return evict(e.client, e.recorder, e.emitter, pod, gracePeriodSeconds, reason, evictPod)
+	return evict(e.client, e.recorder, e.emitter, pod, gracePeriodSeconds, reason, plugin, evictPod)
 }
 
 // DeletionAPIKiller implements Killer interface it evict those
@@ -129,7 +129,7 @@ func NewDeletionAPIKiller(_ *config.Configuration, client kubernetes.Interface, 
 
 func (d *DeletionAPIKiller) Name() string { return consts.KillerNameDeletionKiller }
 
-func (d *DeletionAPIKiller) Evict(ctx context.Context, pod *v1.Pod, gracePeriodSeconds int64, reason string) error {
+func (d *DeletionAPIKiller) Evict(ctx context.Context, pod *v1.Pod, gracePeriodSeconds int64, reason, plugin string) error {
 	evictPod := func(pod *v1.Pod, gracePeriodOverride int64) error {
 		klog.Infof("[deletion-killer] send request for pod %v/%v", pod.Namespace, pod.Name)
 
@@ -137,7 +137,7 @@ func (d *DeletionAPIKiller) Evict(ctx context.Context, pod *v1.Pod, gracePeriodS
 		return d.client.CoreV1().Pods(pod.Namespace).Delete(ctx, pod.Name, deleteOptions)
 	}
 
-	return evict(d.client, d.recorder, d.emitter, pod, gracePeriodSeconds, reason, evictPod)
+	return evict(d.client, d.recorder, d.emitter, pod, gracePeriodSeconds, reason, plugin, evictPod)
 }
 
 // getWaitingPeriod get waiting period from graceful period.
@@ -218,7 +218,7 @@ func deleteWithRetry(pod *v1.Pod, gracePeriod int64, timeoutDuration time.Durati
 
 // evict all killer implementations will perform evict actions.
 func evict(client kubernetes.Interface, recorder events.EventRecorder, emitter metrics.MetricEmitter, pod *v1.Pod,
-	gracePeriodSeconds int64, reason string, evictPod func(_ *v1.Pod, gracePeriod int64) error) error {
+	gracePeriodSeconds int64, reason, plugin string, evictPod func(_ *v1.Pod, gracePeriod int64) error) error {
 	timeoutDuration := getWaitingPeriod(gracePeriodSeconds)
 	klog.Infof("[killer] evict pod %v/%v with graceful seconds %v", pod.Namespace, pod.Name, gracePeriodSeconds)
 
@@ -228,7 +228,8 @@ func evict(client kubernetes.Interface, recorder events.EventRecorder, emitter m
 		_ = emitter.StoreInt64(MetricsNameKillPod, 1, metrics.MetricTypeNameRaw,
 			metrics.MetricTag{Key: "state", Val: "failed"},
 			metrics.MetricTag{Key: "pod_ns", Val: pod.Namespace},
-			metrics.MetricTag{Key: "pod_name", Val: pod.Name})
+			metrics.MetricTag{Key: "pod_name", Val: pod.Name},
+			metrics.MetricTag{Key: "plugin_name", Val: plugin})
 
 		return fmt.Errorf("evict failed %v", err)
 	}
@@ -238,7 +239,8 @@ func evict(client kubernetes.Interface, recorder events.EventRecorder, emitter m
 	_ = emitter.StoreInt64(MetricsNameKillPod, 1, metrics.MetricTypeNameRaw,
 		metrics.MetricTag{Key: "state", Val: "succeeded"},
 		metrics.MetricTag{Key: "pod_ns", Val: pod.Namespace},
-		metrics.MetricTag{Key: "pod_name", Val: pod.Name})
+		metrics.MetricTag{Key: "pod_name", Val: pod.Name},
+		metrics.MetricTag{Key: "plugin_name", Val: plugin})
 	klog.Infof("[killer] successfully create eviction for pod %v/%v", pod.Namespace, pod.Name)
 
 	podArray := []*v1.Pod{pod}
@@ -280,7 +282,7 @@ func NewContainerKiller(conf *config.Configuration, _ kubernetes.Interface, reco
 
 func (c *ContainerKiller) Name() string { return consts.KillerNameContainerKiller }
 
-func (c *ContainerKiller) Evict(_ context.Context, pod *v1.Pod, gracePeriodSeconds int64, reason string) error {
+func (c *ContainerKiller) Evict(_ context.Context, pod *v1.Pod, gracePeriodSeconds int64, reason, plugin string) error {
 	if pod == nil {
 		return fmt.Errorf("pod is nil")
 	}
@@ -295,7 +297,8 @@ func (c *ContainerKiller) Evict(_ context.Context, pod *v1.Pod, gracePeriodSecon
 				metrics.MetricTag{Key: "state", Val: "failed"},
 				metrics.MetricTag{Key: "pod_ns", Val: pod.Namespace},
 				metrics.MetricTag{Key: "pod_name", Val: pod.Name},
-				metrics.MetricTag{Key: "container_name", Val: containerStatus.Name})
+				metrics.MetricTag{Key: "container_name", Val: containerStatus.Name},
+				metrics.MetricTag{Key: "plugin_name", Val: plugin})
 			klog.Infof("[killer] failed to kill container %v(containerID: %v) for pod %v/%v, error:%v", containerStatus.Name, containerID, pod.Namespace, pod.Name, err)
 			return fmt.Errorf("ContainerKiller stop container %v failed with error: %v", containerStatus.ContainerID, err)
 		}
@@ -305,7 +308,8 @@ func (c *ContainerKiller) Evict(_ context.Context, pod *v1.Pod, gracePeriodSecon
 			metrics.MetricTag{Key: "state", Val: "succeeded"},
 			metrics.MetricTag{Key: "pod_ns", Val: pod.Namespace},
 			metrics.MetricTag{Key: "pod_name", Val: pod.Name},
-			metrics.MetricTag{Key: "container_name", Val: containerStatus.Name})
+			metrics.MetricTag{Key: "container_name", Val: containerStatus.Name},
+			metrics.MetricTag{Key: "plugin_name", Val: plugin})
 		klog.Infof("[killer] successfully kill container %v/%v for pod %v/%v", containerStatus.Name, containerStatus.ContainerID, pod.Namespace, pod.Name)
 	}
 	// TODO: do we have to wait for container being completely killed?

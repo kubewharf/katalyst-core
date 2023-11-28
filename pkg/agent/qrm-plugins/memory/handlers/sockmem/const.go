@@ -16,19 +16,24 @@ limitations under the License.
 
 package sockmem
 
-const (
-	EnableSetSockMemPeriodicalHandlerName = "SetSockMem"
+const EnableSetSockMemPeriodicalHandlerName = "SetSockMem"
 
+const (
 	// Constants for global tcpmem ratio
 	globalTCPMemRatioMin float64 = 20.0 // min ratio for host tcp mem: 20%
 	globalTCPMemRatioMax float64 = 80.0 // max ratio for host tcp mem: 80%
 	hostTCPMemFile               = "/proc/sys/net/ipv4/tcp_mem"
 
 	// Constants for cgroupv1 tcpmem statistics
-	kernSockMemAccoutingOn float64 = 9223372036854767616.0
+	kernSockMemAccountingOn float64 = 9223372036854767616.0
 
 	// Constants for cgroupv1 tcpmem ratio
 	cgroupTCPMemMin2G    float64 = 2147483648.0 // static min value for pod's sockmem: 2G
 	cgroupTCPMemRatioMin float64 = 20.0         // min ratio for pod's sockmem: 20%
 	cgroupTCPMemRatioMax float64 = 200.0        // max ratio for pod's sockmem: 200%
+)
+
+const (
+	metricNameTCPMemoryHost   = "async_handler_tcp_memory_host"
+	metricNameTCPMemoryCgroup = "async_handler_tcp_memory_cgroup"
 )
