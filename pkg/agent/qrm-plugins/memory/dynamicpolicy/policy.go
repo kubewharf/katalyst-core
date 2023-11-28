@@ -32,6 +32,7 @@ import (
 
 	apiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-api/pkg/plugins/skeleton"
+
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/agent"
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/agent/qrm"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/advisorsvc"
@@ -228,6 +229,8 @@ func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration
 		memoryadvisor.ControlKnobHandlerWithChecker(handleAdvisorCPUSetMems))
 	memoryadvisor.RegisterControlKnobHandler(memoryadvisor.ControlKnobKeyDropCache,
 		memoryadvisor.ControlKnobHandlerWithChecker(policyImplement.handleAdvisorDropCache))
+	memoryadvisor.RegisterControlKnobHandler(memoryadvisor.ControlKnobReclaimedMemorySize,
+		memoryadvisor.ControlKnobHandlerWithChecker(policyImplement.handleAdvisorMemoryProvisions))
 
 	return true, &agent.PluginWrapper{GenericPlugin: pluginWrapper}, nil
 }

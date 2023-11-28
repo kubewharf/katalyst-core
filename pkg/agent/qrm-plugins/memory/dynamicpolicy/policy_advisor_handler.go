@@ -18,6 +18,7 @@ package dynamicpolicy
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net"
 	"os"
@@ -32,6 +33,7 @@ import (
 	maputil "k8s.io/kubernetes/pkg/util/maps"
 
 	apiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
+
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/advisorsvc"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/memory/dynamicpolicy/memoryadvisor"
@@ -177,9 +179,6 @@ func (p *DynamicPolicy) handleAdvisorResp(advisorResp *advisorsvc.ListAndWatchRe
 	for _, calculationInfo := range advisorResp.ExtraEntries {
 		if calculationInfo == nil {
 			general.Warningf("advisorResp.ExtraEntries has nil calculationInfo")
-			continue
-		} else if calculationInfo.CgroupPath == "" {
-			general.Warningf("advisorResp.ExtraEntries calculationInfo has empty CgroupPath")
 			continue
 		} else if calculationInfo.CalculationResult == nil {
 			general.Warningf("advisorResp.ExtraEntry with CgroupPath: %s has nil CalculationResult", calculationInfo.CgroupPath)
@@ -492,4 +491,26 @@ func (p *DynamicPolicy) ListContainers(context.Context, *advisorsvc.Empty) (*adv
 	}
 
 	return resp, nil
+}
+
+// handleAdvisorMemoryProvisions handles memory provisions from memory-advisor
+func (p *DynamicPolicy) handleAdvisorMemoryProvisions(_ *config.Configuration,
+	_ interface{},
+	_ *dynamicconfig.DynamicAgentConfiguration,
+	emitter metrics.MetricEmitter,
+	metaServer *metaserver.MetaServer,
+	entryName, subEntryName string,
+	calculationInfo *advisorsvc.CalculationInfo, podResourceEntries state.PodResourceEntries) error {
+	// unmarshal calculationInfo
+	memoryProvisions := &machine.MemoryDetails{}
+	value := calculationInfo.CalculationResult.Values[string(memoryadvisor.ControlKnobReclaimedMemorySize)]
+	err := json.Unmarshal([]byte(value), memoryProvisions)
+
+	if err != nil {
+		return fmt.Errorf("unmarshal %s: %s failed with error: %v",
+			memoryadvisor.ControlKnobReclaimedMemorySize, value, err)
+	}
+	// Todo: another logic to handle memory provisions
+	general.Infof("qrm: memoryProvisions: %v", memoryProvisions)
+	return nil
 }

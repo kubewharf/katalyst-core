@@ -17,12 +17,10 @@ limitations under the License.
 package headroompolicy
 
 import (
-	"context"
 	"fmt"
 	"math"
 
 	"k8s.io/apimachinery/pkg/api/resource"
-	"k8s.io/apimachinery/pkg/util/errors"
 
 	apiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
@@ -33,7 +31,6 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
-	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 	"github.com/kubewharf/katalyst-core/pkg/util/metric"
 )
 
@@ -76,40 +73,12 @@ func (p *PolicyNUMAAware) Update() (err error) {
 	}()
 
 	var (
-		errList           []error
 		reclaimableMemory float64
 		data              metric.MetricData
 	)
 	dynamicConfig := p.conf.GetDynamicConfiguration()
 
-	availNUMAs := p.metaServer.CPUDetails.NUMANodes()
-
-	reclaimedCoresContainers := make([]*types.ContainerInfo, 0)
-	p.metaReader.RangeContainer(func(podUID string, containerName string, containerInfo *types.ContainerInfo) bool {
-		if p.reclaimedContainersFilter(containerInfo) {
-			reclaimedCoresContainers = append(reclaimedCoresContainers, containerInfo)
-			return true
-		}
-
-		nodeReclaim := p.conf.GetDynamicConfiguration().EnableReclaim
-		reclaimEnable, err := helper.PodEnableReclaim(context.Background(), p.metaServer, podUID, nodeReclaim)
-		if err != nil {
-			errList = append(errList, err)
-			return true
-		}
-
-		if containerInfo.IsNumaExclusive() && !reclaimEnable {
-			memset := machine.GetCPUAssignmentNUMAs(containerInfo.TopologyAwareAssignments)
-			if memset.IsEmpty() {
-				errList = append(errList, fmt.Errorf("container(%v/%v) TopologyAwareAssignments is empty", containerInfo.PodName, containerName))
-				return true
-			}
-			availNUMAs = availNUMAs.Difference(memset)
-		}
-		return true
-	})
-
-	err = errors.NewAggregate(errList)
+	availNUMAs, reclaimedCoresContainers, err := helper.GetAvailableNUMAsAndReclaimedCores(p.conf, p.metaReader, p.metaServer)
 	if err != nil {
 		return err
 	}
@@ -118,6 +87,7 @@ func (p *PolicyNUMAAware) Update() (err error) {
 	for _, numaID := range availNUMAs.ToSliceInt() {
 		data, err = p.metaServer.GetNumaMetric(numaID, consts.MetricMemFreeNuma)
 		if err != nil {
+			general.Errorf("Can not get numa memory free, numaID: %v", numaID)
 			return err
 		}
 		reclaimableMemory += data.Value
@@ -132,11 +102,11 @@ func (p *PolicyNUMAAware) Update() (err error) {
 
 		data, err = p.metaServer.GetNumaMetric(numaID, consts.MetricMemTotalNuma)
 		if err != nil {
+			general.Errorf("Can not get numa memory total, numaID: %v", numaID)
 			return err
 		}
 		availNUMATotal += data.Value
 		general.InfoS("reclaimable numa memory total", "numaID", numaID, "numaTotal", general.FormatMemoryQuantity(data.Value))
-
 	}
 
 	for _, container := range reclaimedCoresContainers {

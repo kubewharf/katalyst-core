@@ -25,20 +25,24 @@ import (
 
 type MemoryAdvisorPluginsOptions struct {
 	*CacheReaperOptions
+	*MemoryProvisionerOptions
 }
 
 func NewMemoryAdvisorPluginsOptions() *MemoryAdvisorPluginsOptions {
 	return &MemoryAdvisorPluginsOptions{
-		CacheReaperOptions: NewCacheReaperOptions(),
+		CacheReaperOptions:       NewCacheReaperOptions(),
+		MemoryProvisionerOptions: NewMemoryProvisionerOptions(),
 	}
 }
 
 func (o *MemoryAdvisorPluginsOptions) AddFlags(fs *pflag.FlagSet) {
 	o.CacheReaperOptions.AddFlags(fs)
+	o.MemoryProvisionerOptions.AddFlags(fs)
 }
 
 func (o *MemoryAdvisorPluginsOptions) ApplyTo(c *plugins.MemoryAdvisorPluginsConfiguration) error {
 	var errList []error
 	errList = append(errList, o.CacheReaperOptions.ApplyTo(c.CacheReaperConfiguration))
+	errList = append(errList, o.MemoryProvisionerOptions.ApplyTo(c.MemoryProvisionerConfiguration))
 	return errors.NewAggregate(errList)
 }

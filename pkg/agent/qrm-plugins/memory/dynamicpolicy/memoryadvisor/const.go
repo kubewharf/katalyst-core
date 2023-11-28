@@ -22,4 +22,5 @@ const (
 	ControlKnobKeyMemoryLimitInBytes MemoryControlKnobName = "memory_limit_in_bytes"
 	ControlKnobKeyDropCache          MemoryControlKnobName = "drop_cache"
 	ControlKnobKeyCPUSetMems         MemoryControlKnobName = "cpuset_mems"
+	ControlKnobReclaimedMemorySize   MemoryControlKnobName = "reclaimed_memory_size"
 )
