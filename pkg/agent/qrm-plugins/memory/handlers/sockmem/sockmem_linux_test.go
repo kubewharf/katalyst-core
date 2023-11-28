@@ -294,11 +294,16 @@ func TestSetCg1TCPMem(t *testing.T) {
 	containerID := "container45"
 	memLimit := int64(1024)
 	memTCPLimit := int64(512)
-	err := setCg1TCPMem(podUID, containerID, memLimit, memTCPLimit)
+	sockMemConfig := SockMemConfig{
+		globalTCPMemRatio: 20.0,
+		cgroupTCPMemRatio: 100.0,
+	}
+
+	err := setCg1TCPMem(podUID, containerID, memLimit, memTCPLimit, &sockMemConfig)
 	if err == nil {
 		t.Error("Expected an error, but got none")
 	}
-	err = setCg1TCPMem(podUID, containerID, 9223372036854771712, memTCPLimit)
+	err = setCg1TCPMem(podUID, containerID, 9223372036854771712, memTCPLimit, &sockMemConfig)
 	if err == nil {
 		t.Error("Expected an error, but got none")
 	}
