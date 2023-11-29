@@ -29,6 +29,8 @@ import (
 	utilerrors "k8s.io/apimachinery/pkg/util/errors"
 	"k8s.io/kubernetes/pkg/kubelet/cm/topologymanager/bitmask"
 
+	"github.com/kubewharf/katalyst-core/pkg/metrics"
+	"github.com/kubewharf/katalyst-core/pkg/util/asyncworker"
 	"github.com/kubewharf/katalyst-core/pkg/util/cgroup/common"
 	cgroupmgr "github.com/kubewharf/katalyst-core/pkg/util/cgroup/manager"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
@@ -82,5 +84,12 @@ containerLoop:
 		}
 	}
 
-	return utilerrors.NewAggregate(errList)
+	err = utilerrors.NewAggregate(errList)
+	_ = asyncworker.EmitAsyncedMetrics(ctx, metrics.ConvertMapToTags(map[string]string{
+		"podUID":      podUID,
+		"containerID": containerId,
+		"succeeded":   fmt.Sprintf("%v", err == nil),
+	})...)
+
+	return err
 }

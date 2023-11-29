@@ -20,16 +20,19 @@ import (
 	"context"
 	"fmt"
 	"reflect"
+	"strings"
 	"time"
 
 	"k8s.io/apimachinery/pkg/util/wait"
 
+	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 )
 
-func NewAsyncWorkers(name string) *AsyncWorkers {
+func NewAsyncWorkers(name string, emitter metrics.MetricEmitter) *AsyncWorkers {
 	return &AsyncWorkers{
 		name:                name,
+		emitter:             emitter,
 		lastUndeliveredWork: make(map[string]*Work),
 		workStatuses:        make(map[string]*workStatus),
 	}
@@ -40,7 +43,6 @@ func (aws *AsyncWorkers) AddWork(workName string, work *Work) error {
 	defer aws.workLock.Unlock()
 
 	err := validateWork(work)
-
 	if err != nil {
 		return fmt.Errorf("validateWork for: %s failed with error: %v", workName, err)
 	}
@@ -52,7 +54,6 @@ func (aws *AsyncWorkers) AddWork(workName string, work *Work) error {
 		"deliveredAt", work.DeliveredAt)
 
 	status, ok := aws.workStatuses[workName]
-
 	if !ok || status == nil {
 		general.InfoS("create status for work",
 			"AsyncWorkers", aws.name, "workName", workName)
@@ -69,7 +70,6 @@ func (aws *AsyncWorkers) AddWork(workName string, work *Work) error {
 			"deliveredAt", work.DeliveredAt)
 
 		ctx := aws.contextForWork(workName, work)
-
 		go aws.handleWork(ctx, workName, work)
 
 		return nil
@@ -129,6 +129,7 @@ func (aws *AsyncWorkers) handleWork(ctx context.Context, workName string, work *
 
 	funcValue := reflect.ValueOf(work.Fn)
 
+	// filling up parameters for the passed functions
 	paramValues := make([]reflect.Value, 1, len(work.Params)+1)
 	paramValues[0] = reflect.ValueOf(ctx)
 	for _, param := range work.Params {
@@ -136,7 +137,6 @@ func (aws *AsyncWorkers) handleWork(ctx context.Context, workName string, work *
 	}
 
 	funcRets := funcValue.Call(paramValues)
-
 	if len(funcRets) != 1 {
 		handleErr = fmt.Errorf("work Fn returns invalid number: %d of return values", len(funcRets))
 	} else if funcRets[0].Interface() != nil {
@@ -177,17 +177,21 @@ func (aws *AsyncWorkers) completeWork(workName string, completedWork *Work, work
 // It should be called in function protected by aws.workLock.
 func (aws *AsyncWorkers) contextForWork(workName string, work *Work) context.Context {
 	if work == nil {
-		general.Fatalf("[AsyncWorkers: %s] contextForWork: %s got nil work",
-			aws.name, workName)
+		general.Fatalf("[AsyncWorkers: %s] contextForWork: %s got nil work", aws.name, workName)
 	}
 
 	status, ok := aws.workStatuses[workName]
 	if !ok || status == nil {
-		general.Fatalf("[AsyncWorkers: %s] contextForWork: %s got no status",
-			aws.name, workName)
+		general.Fatalf("[AsyncWorkers: %s] contextForWork: %s got no status", aws.name, workName)
 	}
 	if status.ctx == nil || status.ctx.Err() == context.Canceled {
-		status.ctx, status.cancelFn = context.WithCancel(context.Background())
+		ctx := context.Background()
+		if names := strings.Split(workName, WorkNameSeperator); len(names) > 0 {
+			ctx = context.WithValue(ctx, contextKeyMetricName, names[len(names)-1])
+			ctx = context.WithValue(ctx, contextKeyMetricEmitter, aws.emitter)
+		}
+		status.ctx, status.cancelFn = context.WithCancel(ctx)
+
 	}
 	status.working = true
 	status.work = work

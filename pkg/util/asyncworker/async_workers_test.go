@@ -23,6 +23,8 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/kubewharf/katalyst-core/pkg/metrics"
 )
 
 func TestAsyncWorkers(t *testing.T) {
@@ -30,13 +32,12 @@ func TestAsyncWorkers(t *testing.T) {
 
 	rt := require.New(t)
 
-	asw := NewAsyncWorkers("test")
+	asw := NewAsyncWorkers("test", metrics.DummyMetrics{})
 
 	result, a, b, c, d, e, f := 0, 1, 2, 3, 4, 5, 6
 
 	timeoutSeconds := 100 * time.Millisecond
 	fn := func(ctx context.Context, params ...interface{}) error {
-
 		if len(params) != 2 {
 			return fmt.Errorf("invalid params")
 		}
@@ -45,6 +46,7 @@ func TestAsyncWorkers(t *testing.T) {
 		p1Int := params[0].(int)
 		p2Int := params[1].(int)
 		result = p1Int + p2Int
+		_ = EmitAsyncedMetrics(ctx, metrics.MetricTag{})
 		return nil
 	}
 

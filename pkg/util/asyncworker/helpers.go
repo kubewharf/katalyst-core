@@ -17,8 +17,12 @@ limitations under the License.
 package asyncworker
 
 import (
+	"context"
 	"fmt"
 	"reflect"
+
+	"github.com/kubewharf/katalyst-core/pkg/metrics"
+	"github.com/kubewharf/katalyst-core/pkg/util/general"
 )
 
 func (s *workStatus) IsWorking() bool {
@@ -42,4 +46,49 @@ func validateWork(work *Work) (err error) {
 	}
 
 	return nil
+}
+
+// parseContextMetricEmitter parses and returns metrics.MetricEmitter object from given context
+// returns false if not found
+func parseContextMetricEmitter(ctx context.Context) (metrics.MetricEmitter, bool) {
+	v := ctx.Value(contextKeyMetricEmitter)
+	if v == nil {
+		return metrics.DummyMetrics{}, false
+	}
+
+	if emitter, ok := v.(metrics.MetricEmitter); ok {
+		return emitter, true
+	}
+	return metrics.DummyMetrics{}, false
+}
+
+// parseContextMetricName parses and returns metricName from given context
+// returns false if not found
+func parseContextMetricName(ctx context.Context) (string, bool) {
+	v := ctx.Value(contextKeyMetricName)
+	if v == nil {
+		return "", false
+	}
+
+	if name, ok := v.(string); ok {
+		return name, true
+	}
+	return "", false
+}
+
+// EmitAsyncedMetrics emit metrics through metricEmitter and metricName parsed from context
+func EmitAsyncedMetrics(ctx context.Context, tags ...metrics.MetricTag) error {
+	emitter, ok := parseContextMetricEmitter(ctx)
+	if !ok {
+		general.InfofV(4, "failed to get metrics-emitter")
+		return nil
+	}
+
+	name, ok := parseContextMetricName(ctx)
+	if !ok {
+		general.InfofV(4, "failed to get metrics-name")
+		return nil
+	}
+
+	return emitter.StoreInt64(name, 1, metrics.MetricTypeNameRaw, tags...)
 }
