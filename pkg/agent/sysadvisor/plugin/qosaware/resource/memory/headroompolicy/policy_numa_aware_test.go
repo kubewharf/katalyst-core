@@ -30,6 +30,7 @@ import (
 	"github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
+	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/adminqos/reclaimedresource/memoryheadroom"
 	pkgconsts "github.com/kubewharf/katalyst-core/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
@@ -44,10 +45,11 @@ func TestPolicyNUMAAware(t *testing.T) {
 	now := time.Now()
 
 	type fields struct {
-		podList       []*v1.Pod
-		containers    []*types.ContainerInfo
-		essentials    types.ResourceEssentials
-		setFakeMetric func(store *metric.FakeMetricsFetcher)
+		podList                     []*v1.Pod
+		containers                  []*types.ContainerInfo
+		memoryHeadroomConfiguration *memoryheadroom.MemoryHeadroomConfiguration
+		essentials                  types.ResourceEssentials
+		setFakeMetric               func(store *metric.FakeMetricsFetcher)
 	}
 	tests := []struct {
 		name    string
@@ -101,16 +103,23 @@ func TestPolicyNUMAAware(t *testing.T) {
 					ResourceUpperBound:  400 << 30,
 					ReservedForAllocate: 4 << 30,
 				},
+				memoryHeadroomConfiguration: &memoryheadroom.MemoryHeadroomConfiguration{
+					MemoryUtilBasedConfiguration: &memoryheadroom.MemoryUtilBasedConfiguration{
+						CacheBasedRatio: 0.5,
+					},
+				},
 				setFakeMetric: func(store *metric.FakeMetricsFetcher) {
 					store.SetNodeMetric(pkgconsts.MetricMemScaleFactorSystem, utilmetric.MetricData{Value: 500, Time: &now})
 					store.SetNumaMetric(0, pkgconsts.MetricMemTotalNuma, utilmetric.MetricData{Value: 250 << 30, Time: &now})
 					store.SetNumaMetric(1, pkgconsts.MetricMemTotalNuma, utilmetric.MetricData{Value: 250 << 30, Time: &now})
 					store.SetNumaMetric(0, pkgconsts.MetricMemFreeNuma, utilmetric.MetricData{Value: 100 << 30, Time: &now})
 					store.SetNumaMetric(1, pkgconsts.MetricMemFreeNuma, utilmetric.MetricData{Value: 100 << 30, Time: &now})
+					store.SetNumaMetric(0, pkgconsts.MetricMemInactiveFileNuma, utilmetric.MetricData{Value: 50 << 30, Time: &now})
+					store.SetNumaMetric(1, pkgconsts.MetricMemInactiveFileNuma, utilmetric.MetricData{Value: 50 << 30, Time: &now})
 				},
 			},
 			wantErr: false,
-			want:    resource.MustParse("146Gi"),
+			want:    resource.MustParse("221Gi"),
 		},
 		{
 			name: "normal: reclaimed_cores containers only",
@@ -121,6 +130,11 @@ func TestPolicyNUMAAware(t *testing.T) {
 						"pod1", "container1",
 						consts.PodAnnotationQoSLevelReclaimedCores, nil,
 						nil, 20<<30),
+				},
+				memoryHeadroomConfiguration: &memoryheadroom.MemoryHeadroomConfiguration{
+					MemoryUtilBasedConfiguration: &memoryheadroom.MemoryUtilBasedConfiguration{
+						CacheBasedRatio: 0.5,
+					},
 				},
 				essentials: types.ResourceEssentials{
 					EnableReclaim:       true,
@@ -133,10 +147,12 @@ func TestPolicyNUMAAware(t *testing.T) {
 					store.SetNumaMetric(1, pkgconsts.MetricMemTotalNuma, utilmetric.MetricData{Value: 250 << 30, Time: &now})
 					store.SetNumaMetric(0, pkgconsts.MetricMemFreeNuma, utilmetric.MetricData{Value: 100 << 30, Time: &now})
 					store.SetNumaMetric(1, pkgconsts.MetricMemFreeNuma, utilmetric.MetricData{Value: 100 << 30, Time: &now})
+					store.SetNumaMetric(0, pkgconsts.MetricMemInactiveFileNuma, utilmetric.MetricData{Value: 50 << 30, Time: &now})
+					store.SetNumaMetric(1, pkgconsts.MetricMemInactiveFileNuma, utilmetric.MetricData{Value: 50 << 30, Time: &now})
 				},
 			},
 			wantErr: false,
-			want:    resource.MustParse("166Gi"),
+			want:    resource.MustParse("241Gi"),
 		},
 		{
 			name: "normal: reclaimed_cores containers with numa-exclusive containers",
@@ -156,6 +172,11 @@ func TestPolicyNUMAAware(t *testing.T) {
 						types.TopologyAwareAssignment{
 							0: machine.NewCPUSet(0),
 						}, 30<<30)},
+				memoryHeadroomConfiguration: &memoryheadroom.MemoryHeadroomConfiguration{
+					MemoryUtilBasedConfiguration: &memoryheadroom.MemoryUtilBasedConfiguration{
+						CacheBasedRatio: 0.5,
+					},
+				},
 				essentials: types.ResourceEssentials{
 					EnableReclaim:       true,
 					ResourceUpperBound:  400 << 30,
@@ -167,10 +188,12 @@ func TestPolicyNUMAAware(t *testing.T) {
 					store.SetNumaMetric(1, pkgconsts.MetricMemTotalNuma, utilmetric.MetricData{Value: 250 << 30, Time: &now})
 					store.SetNumaMetric(0, pkgconsts.MetricMemFreeNuma, utilmetric.MetricData{Value: 100 << 30, Time: &now})
 					store.SetNumaMetric(1, pkgconsts.MetricMemFreeNuma, utilmetric.MetricData{Value: 100 << 30, Time: &now})
+					store.SetNumaMetric(0, pkgconsts.MetricMemInactiveFileNuma, utilmetric.MetricData{Value: 50 << 30, Time: &now})
+					store.SetNumaMetric(1, pkgconsts.MetricMemInactiveFileNuma, utilmetric.MetricData{Value: 50 << 30, Time: &now})
 				},
 			},
 			wantErr: false,
-			want:    resource.MustParse("91Gi"),
+			want:    resource.MustParse("128.5Gi"),
 		},
 	}
 	for _, tt := range tests {
@@ -184,6 +207,7 @@ func TestPolicyNUMAAware(t *testing.T) {
 			defer os.RemoveAll(sfDir)
 
 			conf := generateTestConfiguration(t, ckDir, sfDir)
+			conf.GetDynamicConfiguration().MemoryHeadroomConfiguration = tt.fields.memoryHeadroomConfiguration
 
 			metricsFetcher := metric.NewFakeMetricsFetcher(metrics.DummyMetrics{})
 			metaCache, err := metacache.NewMetaCacheImp(conf, metricspool.DummyMetricsEmitterPool{}, metricsFetcher)

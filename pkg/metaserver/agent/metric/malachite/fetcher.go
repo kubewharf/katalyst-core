@@ -500,6 +500,8 @@ func (m *MalachiteMetricsFetcher) processSystemNumaData(systemMemoryData *types.
 			utilmetric.MetricData{Value: float64(numa.MemAvailable << 10), Time: &updateTime})
 		m.metricStore.SetNumaMetric(numa.ID, consts.MetricMemFilepageNuma,
 			utilmetric.MetricData{Value: float64(numa.MemFilePages << 10), Time: &updateTime})
+		m.metricStore.SetNumaMetric(numa.ID, consts.MetricMemInactiveFileNuma,
+			utilmetric.MetricData{Value: float64(numa.MemInactiveFile << 10), Time: &updateTime})
 
 		m.metricStore.SetNumaMetric(numa.ID, consts.MetricMemBandwidthNuma,
 			utilmetric.MetricData{Value: numa.MemReadBandwidthMB/1024.0 + numa.MemWriteBandwidthMB/1024.0, Time: &updateTime})
