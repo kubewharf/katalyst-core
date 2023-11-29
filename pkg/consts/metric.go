@@ -63,12 +63,13 @@ const (
 
 // System numa metrics
 const (
-	MetricMemTotalNuma     = "mem.total.numa"
-	MetricMemUsedNuma      = "mem.used.numa"
-	MetricMemFreeNuma      = "mem.free.numa"
-	MetricMemShmemNuma     = "mem.shmem.numa"
-	MetricMemAvailableNuma = "mem.available.numa"
-	MetricMemFilepageNuma  = "mem.filepage.numa"
+	MetricMemTotalNuma        = "mem.total.numa"
+	MetricMemUsedNuma         = "mem.used.numa"
+	MetricMemFreeNuma         = "mem.free.numa"
+	MetricMemShmemNuma        = "mem.shmem.numa"
+	MetricMemAvailableNuma    = "mem.available.numa"
+	MetricMemFilepageNuma     = "mem.filepage.numa"
+	MetricMemInactiveFileNuma = "mem.inactivefile.numa"
 
 	MetricMemBandwidthNuma       = "mem.bandwidth.numa"
 	MetricMemBandwidthMaxNuma    = "mem.bandwidth.max.numa"

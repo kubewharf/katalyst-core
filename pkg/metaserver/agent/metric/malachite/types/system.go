@@ -158,6 +158,7 @@ type Numa struct {
 	MemShmem                uint64  `json:"mem_shmem"`
 	MemAvailable            uint64  `json:"mem_available"`
 	MemFilePages            uint64  `json:"mem_file_pages"`
+	MemInactiveFile         uint64  `json:"mem_inactive_file"`
 	MemMaxBandwidthMB       float64 `json:"mem_mx_bandwidth_mb"`
 	MemReadBandwidthMB      float64 `json:"mem_read_bandwidth_mb"`
 	MemReadLatency          float64 `json:"mem_read_latency"`

@@ -79,6 +79,7 @@ func (p *PolicyNUMAAware) Update() (err error) {
 		reclaimableMemory float64
 		data              metric.MetricData
 	)
+	dynamicConfig := p.conf.GetDynamicConfiguration()
 
 	availNUMAs := p.metaServer.CPUDetails.NUMANodes()
 
@@ -121,6 +122,13 @@ func (p *PolicyNUMAAware) Update() (err error) {
 		reclaimableMemory += data.Value
 		general.InfoS("reclaimable numa memory free", "numaID", numaID, "numaFree", general.FormatMemoryQuantity(data.Value))
 
+		data, err = p.metaServer.GetNumaMetric(numaID, consts.MetricMemInactiveFileNuma)
+		if err != nil {
+			return err
+		}
+		reclaimableMemory += data.Value * dynamicConfig.CacheBasedRatio
+		general.InfoS("reclaimable numa inactive file", "numaID", numaID, "numaInactiveFile", general.FormatMemoryQuantity(data.Value))
+
 		data, err = p.metaServer.GetNumaMetric(numaID, consts.MetricMemTotalNuma)
 		if err != nil {
 			return err
@@ -139,12 +147,13 @@ func (p *PolicyNUMAAware) Update() (err error) {
 		general.InfoS("Can not get system watermark scale factor")
 		return err
 	}
-	// calculate system factor  with double scale_factor to make kswapd less happened
-	systemWatermarkReserved := availNUMATotal * 2 * watermarkScaleFactor.Value / 10000
+	// reserve memory for watermark_scale_factor to make kswapd less happened
+	systemWatermarkReserved := availNUMATotal * watermarkScaleFactor.Value / 10000
 
 	general.InfoS("total memory reclaimable",
 		"reclaimableMemory", general.FormatMemoryQuantity(reclaimableMemory),
 		"ReservedForAllocate", general.FormatMemoryQuantity(p.essentials.ReservedForAllocate),
+		"ReservedForWatermark", general.FormatMemoryQuantity(systemWatermarkReserved),
 		"ResourceUpperBound", general.FormatMemoryQuantity(p.essentials.ResourceUpperBound))
 	p.memoryHeadroom = general.Clamp(reclaimableMemory-p.essentials.ReservedForAllocate-systemWatermarkReserved, 0, p.essentials.ResourceUpperBound)
 
