@@ -103,6 +103,14 @@ type ControlKnobValue struct {
 	Action ControlKnobAction
 }
 
+var (
+	InvalidControlKnob = map[ControlKnobName]ControlKnobValue{"": {}}
+)
+
+const (
+	InvalidHeadroom = -1
+)
+
 // ControlKnobAction defines control knob adjustment actions
 type ControlKnobAction string
 
