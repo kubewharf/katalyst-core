@@ -78,8 +78,8 @@ func (ha *HeadroomAssemblerDedicated) GetHeadroom() (resource.Quantity, error) {
 	for _, r := range *ha.regionMap {
 		if r.Type() == types.QoSRegionTypeDedicatedNumaExclusive {
 			regionInfo, ok := ha.metaReader.GetRegionInfo(r.Name())
-			if !ok {
-				return resource.Quantity{}, fmt.Errorf("failed to get regionInfo for %v", r.Name())
+			if !ok || regionInfo == nil || regionInfo.Headroom < 0 {
+				return resource.Quantity{}, fmt.Errorf("failed to get headroom for %v", r.Name())
 			}
 			headroomTotal += regionInfo.Headroom
 			exclusiveNUMAs = exclusiveNUMAs.Union(r.GetBindingNumas())

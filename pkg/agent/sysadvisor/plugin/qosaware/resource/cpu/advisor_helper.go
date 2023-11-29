@@ -248,15 +248,15 @@ func (cra *cpuResourceAdvisor) updateRegionEntries() {
 			headroom, err := r.GetHeadroom()
 			if err != nil {
 				general.ErrorS(err, "failed to get region headroom", "regionName", r.Name())
-				continue
+				headroom = types.InvalidHeadroom
 			}
 			regionInfo.Headroom = headroom
 			regionInfo.HeadroomPolicyTopPriority, regionInfo.HeadroomPolicyInUse = r.GetHeadRoomPolicy()
 
 			controlKnobMap, err := r.GetProvision()
 			if err != nil {
+				controlKnobMap = types.InvalidControlKnob
 				general.ErrorS(err, "failed to get region provision", "regionName", r.Name())
-				continue
 			}
 			regionInfo.ControlKnobMap = controlKnobMap
 			regionInfo.ProvisionPolicyTopPriority, regionInfo.ProvisionPolicyInUse = r.GetProvisionPolicy()

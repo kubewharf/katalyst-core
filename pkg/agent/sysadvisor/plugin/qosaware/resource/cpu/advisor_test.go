@@ -152,6 +152,7 @@ func TestAdvisorUpdate(t *testing.T) {
 		podProfiles                   map[k8stypes.UID]spd.DummyPodServiceProfile
 		wantInternalCalculationResult types.InternalCPUCalculationResult
 		wantHeadroom                  resource.Quantity
+		wantHeadroomErr               bool
 		metrics                       []metricItem
 	}{
 		{
@@ -443,6 +444,60 @@ func TestAdvisorUpdate(t *testing.T) {
 					},
 				},
 			},
+			// dedicated_cores headroom(9) + empty numa headroom(45)
+			wantHeadroom: *resource.NewQuantity(54, resource.DecimalSI),
+		},
+		{
+			name: "provision:single_dedicated_numa_exclusive with invalid headroom policy",
+			pools: map[string]*types.PoolInfo{
+				state.PoolNameReserve: {
+					PoolName: state.PoolNameReserve,
+					TopologyAwareAssignments: map[int]machine.CPUSet{
+						0: machine.MustParse("0"),
+						1: machine.MustParse("24"),
+					},
+				},
+				state.PoolNameReclaim: {
+					PoolName: state.PoolNameReclaim,
+					TopologyAwareAssignments: map[int]machine.CPUSet{
+						0: machine.MustParse("70-71"),
+						1: machine.MustParse("25-46"),
+					},
+				},
+			},
+			containers: []*types.ContainerInfo{
+				makeContainerInfo("uid1", "default", "pod1", "c1", consts.PodAnnotationQoSLevelDedicatedCores, state.PoolNameDedicated,
+					map[string]string{consts.PodAnnotationMemoryEnhancementNumaBinding: consts.PodAnnotationMemoryEnhancementNumaBindingEnable},
+					map[int]machine.CPUSet{
+						0: machine.MustParse("1-23,48-71"),
+					}, 36),
+			},
+			pods: []*v1.Pod{
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "pod1",
+						Namespace: "default",
+						UID:       "uid1",
+					},
+				},
+			},
+			nodeEnableReclaim: true,
+			headroomAssembler: types.CPUHeadroomAssemblerDedicated,
+			headroomPolicies: map[types.QoSRegionType][]types.CPUHeadroomPolicyName{
+				types.QoSRegionTypeDedicatedNumaExclusive: {types.CPUHeadroomPolicyNone},
+			},
+			wantInternalCalculationResult: types.InternalCPUCalculationResult{
+				PoolEntries: map[string]map[int]int{
+					state.PoolNameReserve: {
+						-1: 2,
+					},
+					state.PoolNameReclaim: {
+						0:  4,
+						-1: 47,
+					},
+				},
+			},
+			wantHeadroomErr: true,
 			// dedicated_cores headroom(9) + empty numa headroom(45)
 			wantHeadroom: *resource.NewQuantity(54, resource.DecimalSI),
 		},
@@ -982,9 +1037,13 @@ func TestAdvisorUpdate(t *testing.T) {
 			// check headroom
 			if !reflect.DeepEqual(tt.wantHeadroom, resource.Quantity{}) {
 				headroom, err := advisor.GetHeadroom()
-				assert.NoError(t, err)
-				if !reflect.DeepEqual(tt.wantHeadroom.MilliValue(), headroom.MilliValue()) {
-					t.Errorf("headroom\nexpected: %+v\nactual: %+v", tt.wantHeadroom, headroom)
+				if tt.wantHeadroomErr {
+					assert.Error(t, err)
+				} else {
+					assert.NoError(t, err)
+					if !reflect.DeepEqual(tt.wantHeadroom.MilliValue(), headroom.MilliValue()) {
+						t.Errorf("headroom\nexpected: %+v\nactual: %+v", tt.wantHeadroom, headroom)
+					}
 				}
 			}
 
