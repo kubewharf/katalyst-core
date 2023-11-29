@@ -25,6 +25,8 @@ import (
 
 	"k8s.io/klog/v2"
 
+	"github.com/kubewharf/katalyst-core/pkg/metrics"
+	"github.com/kubewharf/katalyst-core/pkg/util/asyncworker"
 	"github.com/kubewharf/katalyst-core/pkg/util/cgroup/common"
 )
 
@@ -261,7 +263,13 @@ func DropCacheWithTimeoutForContainer(ctx context.Context, podUID, containerId s
 		return fmt.Errorf("GetContainerAbsCgroupPath failed with error: %v", err)
 	}
 
-	return DropCacheWithTimeoutWithRelativePath(timeoutSecs, cpusetAbsCGPath)
+	err = DropCacheWithTimeoutWithRelativePath(timeoutSecs, cpusetAbsCGPath)
+	_ = asyncworker.EmitAsyncedMetrics(ctx, metrics.ConvertMapToTags(map[string]string{
+		"podUID":      podUID,
+		"containerID": containerId,
+		"succeeded":   fmt.Sprintf("%v", err == nil),
+	})...)
+	return err
 }
 
 func DropCacheWithTimeoutWithRelativePath(timeoutSecs int, absCgroupPath string) error {

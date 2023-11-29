@@ -177,7 +177,7 @@ func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration
 		extraStateFileAbsPath:      conf.ExtraStateFileAbsPath,
 		name:                       fmt.Sprintf("%s_%s", agentName, MemoryResourcePluginPolicyNameDynamic),
 		podDebugAnnoKeys:           conf.PodDebugAnnoKeys,
-		asyncWorkers:               asyncworker.NewAsyncWorkers(memoryPluginAsyncWorkersName),
+		asyncWorkers:               asyncworker.NewAsyncWorkers(memoryPluginAsyncWorkersName, wrappedEmitter),
 		enableSettingMemoryMigrate: conf.EnableSettingMemoryMigrate,
 		enableSettingSockMem:       conf.EnableSettingSockMem,
 		enableMemoryAdvisor:        conf.EnableMemoryAdvisor,

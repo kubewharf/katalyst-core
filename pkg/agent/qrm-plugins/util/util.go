@@ -32,6 +32,7 @@ import (
 
 	"github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/config/generic"
+	"github.com/kubewharf/katalyst-core/pkg/util/asyncworker"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
@@ -316,7 +317,7 @@ func GetHintsFromExtraStateFile(podName, resourceName, extraHintsStateFileAbsPat
 }
 
 func GetContainerAsyncWorkName(podUID, containerName, topic string) string {
-	return strings.Join([]string{podUID, containerName, topic}, "/")
+	return strings.Join([]string{podUID, containerName, topic}, asyncworker.WorkNameSeperator)
 }
 
 func GetKubeletReservedQuantity(resourceName string, klConfig *kubeletconfigv1beta1.KubeletConfiguration) (resource.Quantity, bool, error) {
