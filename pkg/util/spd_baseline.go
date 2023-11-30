@@ -17,46 +17,44 @@ limitations under the License.
 package util
 
 import (
+	"encoding/json"
 	"fmt"
-	"hash/crc32"
-	"strconv"
-	"strings"
 
 	v1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/util/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/kubewharf/katalyst-api/pkg/apis/workload/v1alpha1"
 	"github.com/kubewharf/katalyst-api/pkg/consts"
 )
 
-const (
-	baselineCoefficientSep = ","
-)
+type SPDBaselinePodMeta struct {
+	TimeStamp metav1.Time `json:"timeStamp"`
+	PodName   string      `json:"podName"`
+}
 
-type BaselineCoefficient []int64
+func (c SPDBaselinePodMeta) Cmp(c1 SPDBaselinePodMeta) int {
+	if c.TimeStamp.Time.Before(c1.TimeStamp.Time) {
+		return -1
+	}
+	if c.TimeStamp.Time.After(c1.TimeStamp.Time) {
+		return 1
+	}
 
-func (c BaselineCoefficient) Cmp(c1 BaselineCoefficient) int {
-	for i := 0; i < len(c); i++ {
-		if len(c1) <= i {
-			break
-		}
-
-		if c[i] < c1[i] {
-			return -1
-		} else if c[i] > c1[i] {
-			return 1
-		}
+	if c.PodName < c1.PodName {
+		return -1
+	}
+	if c.PodName > c1.PodName {
+		return 1
 	}
 	return 0
 }
 
-func (c BaselineCoefficient) String() string {
-	s := make([]string, 0, len(c))
-	for i := range c {
-		s = append(s, strconv.Itoa(int(c[i])))
+func (c SPDBaselinePodMeta) String() string {
+	d, err := json.Marshal(&c)
+	if err != nil {
+		return ""
 	}
-
-	return strings.Join(s, baselineCoefficientSep)
+	return string(d)
 }
 
 // IsBaselinePod check whether a pod is baseline pod and whether
@@ -66,17 +64,22 @@ func IsBaselinePod(pod *v1.Pod, spd *v1alpha1.ServiceProfileDescriptor) (bool, b
 		return false, false, fmt.Errorf("pod or spd is nil")
 	}
 
-	// if spd baseline ratio not config means baseline is disabled
+	// if spd baseline percent not config means baseline is disabled
 	if spd.Spec.BaselinePercent == nil {
 		return false, false, nil
 	}
+	if *spd.Spec.BaselinePercent >= consts.SPDBaselinePercentMax {
+		return false, true, nil
+	} else if *spd.Spec.BaselinePercent <= consts.SPDBaselinePercentMin {
+		return true, true, nil
+	}
 
-	bp, err := GetSPDBaselinePercentile(spd)
+	bp, err := GetSPDBaselineSentinel(spd)
 	if err != nil {
 		return false, false, err
 	}
 
-	bc := GetPodBaselineCoefficient(pod)
+	bc := GetPodMeta(pod)
 	if bc.Cmp(bp) <= 0 {
 		return true, true, nil
 	}
@@ -84,40 +87,34 @@ func IsBaselinePod(pod *v1.Pod, spd *v1alpha1.ServiceProfileDescriptor) (bool, b
 	return false, true, nil
 }
 
-// GetPodBaselineCoefficient get the baseline coefficient of this pod
-func GetPodBaselineCoefficient(pod *v1.Pod) BaselineCoefficient {
-	if pod == nil {
-		return nil
-	}
-
-	return BaselineCoefficient{
-		pod.CreationTimestamp.Unix(),
-		int64(crc32.ChecksumIEEE([]byte(pod.Name))),
+// GetPodMeta get the baseline coefficient of this pod
+func GetPodMeta(pod *v1.Pod) SPDBaselinePodMeta {
+	return SPDBaselinePodMeta{
+		TimeStamp: pod.CreationTimestamp,
+		PodName:   pod.Name,
 	}
 }
 
-// GetSPDBaselinePercentile get the baseline percentile of this spd
-func GetSPDBaselinePercentile(spd *v1alpha1.ServiceProfileDescriptor) (BaselineCoefficient, error) {
-	if spd == nil {
-		return nil, nil
-	}
-
-	s, ok := spd.Annotations[consts.SPDAnnotationBaselinePercentileKey]
+// GetSPDBaselineSentinel get the baseline sentinel pod of this spd
+func GetSPDBaselineSentinel(spd *v1alpha1.ServiceProfileDescriptor) (SPDBaselinePodMeta, error) {
+	s, ok := spd.Annotations[consts.SPDAnnotationBaselineSentinelKey]
 	if !ok {
-		return nil, fmt.Errorf("spd baseline percentile not found")
+		return SPDBaselinePodMeta{}, fmt.Errorf("spd baseline percentile not found")
 	}
+	bc := SPDBaselinePodMeta{}
+	err := json.Unmarshal([]byte(s), &bc)
 
-	return parseBaselineCoefficient(s)
+	return bc, err
 }
 
-// SetSPDBaselinePercentile set the baseline percentile of this spd, if percentile is nil means delete it
-func SetSPDBaselinePercentile(spd *v1alpha1.ServiceProfileDescriptor, percentile *BaselineCoefficient) {
+// SetSPDBaselineSentinel set the baseline percentile of this spd, if percentile is nil means delete it
+func SetSPDBaselineSentinel(spd *v1alpha1.ServiceProfileDescriptor, podMeta *SPDBaselinePodMeta) {
 	if spd == nil {
 		return
 	}
 
-	if percentile == nil {
-		delete(spd.Annotations, consts.SPDAnnotationBaselinePercentileKey)
+	if podMeta == nil {
+		delete(spd.Annotations, consts.SPDAnnotationBaselineSentinelKey)
 		return
 	}
 
@@ -125,25 +122,6 @@ func SetSPDBaselinePercentile(spd *v1alpha1.ServiceProfileDescriptor, percentile
 		spd.Annotations = make(map[string]string)
 	}
 
-	spd.Annotations[consts.SPDAnnotationBaselinePercentileKey] = percentile.String()
+	spd.Annotations[consts.SPDAnnotationBaselineSentinelKey] = podMeta.String()
 	return
-}
-
-func parseBaselineCoefficient(str string) (BaselineCoefficient, error) {
-	var errList []error
-	s := strings.Split(str, baselineCoefficientSep)
-	c := make([]int64, 0, len(s))
-	for i := range s {
-		v, err := strconv.Atoi(s[i])
-		if err != nil {
-			errList = append(errList, fmt.Errorf("index %d cannot parse: %v", i, err))
-			continue
-		}
-		c = append(c, int64(v))
-	}
-
-	if len(errList) > 0 {
-		return nil, errors.NewAggregate(errList)
-	}
-	return c, nil
 }

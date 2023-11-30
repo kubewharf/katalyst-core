@@ -191,7 +191,6 @@ func TestSPDController_Run(t *testing.T) {
 							Name:       "sts1",
 						},
 					},
-					Annotations: map[string]string{consts.SPDAnnotationBaselinePercentileKey: ""},
 				},
 				Spec: apiworkload.ServiceProfileDescriptorSpec{
 					TargetRef: apis.CrossVersionObjectReference{
@@ -201,8 +200,9 @@ func TestSPDController_Run(t *testing.T) {
 					},
 					BaselinePercent: pointer.Int32(100),
 				},
-				Status: apiworkload.ServiceProfileDescriptorStatus{},
-			},
+				Status: apiworkload.ServiceProfileDescriptorStatus{
+					AggMetrics: []apiworkload.AggPodMetrics{},
+				}},
 		},
 		{
 			name: "auto create spd(dedicated_cores)",
@@ -272,7 +272,6 @@ func TestSPDController_Run(t *testing.T) {
 							Name:       "sts1",
 						},
 					},
-					Annotations: map[string]string{consts.SPDAnnotationBaselinePercentileKey: ""},
 				},
 				Spec: apiworkload.ServiceProfileDescriptorSpec{
 					TargetRef: apis.CrossVersionObjectReference{
@@ -282,8 +281,9 @@ func TestSPDController_Run(t *testing.T) {
 					},
 					BaselinePercent: pointer.Int32(100),
 				},
-				Status: apiworkload.ServiceProfileDescriptorStatus{},
-			},
+				Status: apiworkload.ServiceProfileDescriptorStatus{
+					AggMetrics: []apiworkload.AggPodMetrics{},
+				}},
 		},
 		{
 			name: "auto create spd(shared_cores)",
@@ -353,7 +353,6 @@ func TestSPDController_Run(t *testing.T) {
 							Name:       "sts1",
 						},
 					},
-					Annotations: map[string]string{consts.SPDAnnotationBaselinePercentileKey: "-1"},
 				},
 				Spec: apiworkload.ServiceProfileDescriptorSpec{
 					TargetRef: apis.CrossVersionObjectReference{
@@ -363,7 +362,9 @@ func TestSPDController_Run(t *testing.T) {
 					},
 					BaselinePercent: pointer.Int32(0),
 				},
-				Status: apiworkload.ServiceProfileDescriptorStatus{},
+				Status: apiworkload.ServiceProfileDescriptorStatus{
+					AggMetrics: []apiworkload.AggPodMetrics{},
+				},
 			},
 		},
 	}

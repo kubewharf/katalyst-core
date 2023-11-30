@@ -36,6 +36,7 @@ import (
 	katalystbase "github.com/kubewharf/katalyst-core/cmd/base"
 	"github.com/kubewharf/katalyst-core/pkg/config/controller"
 	"github.com/kubewharf/katalyst-core/pkg/config/generic"
+	"github.com/kubewharf/katalyst-core/pkg/util"
 )
 
 func TestSPDController_updateBaselinePercentile(t *testing.T) {
@@ -116,7 +117,10 @@ func TestSPDController_updateBaselinePercentile(t *testing.T) {
 					Namespace: "default",
 					Name:      "spd1",
 					Annotations: map[string]string{
-						consts.SPDAnnotationBaselinePercentileKey: "1690848000,1505713412",
+						consts.SPDAnnotationBaselineSentinelKey: util.SPDBaselinePodMeta{
+							TimeStamp: metav1.NewTime(time.Date(2023, time.August, 1, 0, 0, 0, 0, time.UTC)),
+							PodName:   "pod1",
+						}.String(),
 					},
 				},
 				Spec: apiworkload.ServiceProfileDescriptorSpec{
@@ -173,6 +177,9 @@ func TestSPDController_updateBaselinePercentile(t *testing.T) {
 				ObjectMeta: metav1.ObjectMeta{
 					Namespace: "default",
 					Name:      "spd1",
+					Annotations: map[string]string{
+						consts.SPDAnnotationBaselineSentinelKey: util.SPDBaselinePodMeta{}.String(),
+					},
 				},
 				Spec: apiworkload.ServiceProfileDescriptorSpec{
 					TargetRef: apis.CrossVersionObjectReference{
@@ -290,7 +297,7 @@ func TestSPDController_updateBaselinePercentile(t *testing.T) {
 					Namespace: "default",
 					Name:      "spd1",
 					Annotations: map[string]string{
-						consts.SPDAnnotationBaselinePercentileKey: "1690848001,3233156286",
+						consts.SPDAnnotationBaselineSentinelKey: "{\"timeStamp\":\"2023-08-01T00:00:01Z\",\"podName\":\"pod2\"}",
 					},
 				},
 				Spec: apiworkload.ServiceProfileDescriptorSpec{
@@ -408,9 +415,6 @@ func TestSPDController_updateBaselinePercentile(t *testing.T) {
 				ObjectMeta: metav1.ObjectMeta{
 					Namespace: "default",
 					Name:      "spd1",
-					Annotations: map[string]string{
-						consts.SPDAnnotationBaselinePercentileKey: "",
-					},
 				},
 				Spec: apiworkload.ServiceProfileDescriptorSpec{
 					TargetRef: apis.CrossVersionObjectReference{
@@ -527,9 +531,6 @@ func TestSPDController_updateBaselinePercentile(t *testing.T) {
 				ObjectMeta: metav1.ObjectMeta{
 					Namespace: "default",
 					Name:      "spd1",
-					Annotations: map[string]string{
-						consts.SPDAnnotationBaselinePercentileKey: "-1",
-					},
 				},
 				Spec: apiworkload.ServiceProfileDescriptorSpec{
 					TargetRef: apis.CrossVersionObjectReference{
@@ -568,7 +569,7 @@ func TestSPDController_updateBaselinePercentile(t *testing.T) {
 			assert.True(t, synced)
 			time.Sleep(1 * time.Second)
 
-			tt.wantErr(t, spdController.updateBaselinePercentile(tt.fields.spd), fmt.Sprintf("updateBaselinePercentile(%v)", tt.fields.spd))
+			tt.wantErr(t, spdController.updateBaselineSentinel(tt.fields.spd), fmt.Sprintf("updateBaselineSentinel(%v)", tt.fields.spd))
 			assert.Equal(t, tt.wantSPD, tt.fields.spd)
 		})
 	}
