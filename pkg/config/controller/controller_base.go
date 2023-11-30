@@ -48,6 +48,7 @@ type ControllersConfiguration struct {
 	*LifeCycleConfig
 	*MonitorConfig
 	*OvercommitConfig
+	*TideConfig
 }
 
 func NewGenericControllerConfiguration() *GenericControllerConfiguration {
@@ -62,5 +63,6 @@ func NewControllersConfiguration() *ControllersConfiguration {
 		LifeCycleConfig:  NewLifeCycleConfig(),
 		MonitorConfig:    NewMonitorConfig(),
 		OvercommitConfig: NewOvercommitConfig(),
+		TideConfig:       NewTideConfig(),
 	}
 }
