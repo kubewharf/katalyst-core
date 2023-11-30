@@ -30,9 +30,9 @@ import (
 )
 
 const (
-	metricsNameKCMASStoreDataGetCost = "kcmas_store_data_cost_get"
-
-	metricsNameKCMASStoreDataLength = "kcmas_store_data_length"
+	metricsNameKCMASStoreDataGetCost     = "kcmas_store_data_cost_get"
+	metricsNameKCMASStoreDataLength      = "kcmas_store_data_length"
+	metricNameKCMASStoreQueryNotHitIndex = "kcmas_store_query_not_hit_index"
 
 	bucketSize = 256
 )
@@ -196,7 +196,7 @@ func (c *CachedMetric) ListAllMetricNames() []string {
 	return res
 }
 
-func (c *CachedMetric) GetMetric(namespace, metricName string, objName string, objectMetaList []types.ObjectMetaImp, gr *schema.GroupResource, latest bool) ([]types.Metric, bool, error) {
+func (c *CachedMetric) GetMetric(namespace, metricName string, objName string, objectMetaList []types.ObjectMetaImp, usingObjectMetaList bool, gr *schema.GroupResource, latest bool) ([]types.Metric, bool, error) {
 	start := time.Now()
 	originMetricName, aggName := types.ParseAggregator(metricName)
 
@@ -237,19 +237,23 @@ func (c *CachedMetric) GetMetric(namespace, metricName string, objName string, o
 
 	objectMetricStore := c.getObjectMetricStore(metricMeta)
 	if objectMetricStore != nil {
-		if len(objectMetaList) != 0 {
-			// get by object list selected by caller
-			for _, objectMeta := range objectMetaList {
-				internalMetric, err := objectMetricStore.GetInternalMetricImp(objectMeta)
-				if err != nil {
-					return nil, false, err
+		if usingObjectMetaList {
+			if len(objectMetaList) > 0 {
+				// get by object list selected by caller
+				for _, objectMeta := range objectMetaList {
+					internalMetric, err := objectMetricStore.GetInternalMetricImp(objectMeta)
+					if err != nil {
+						return nil, false, err
+					}
+					if internalMetric == nil {
+						continue
+					}
+					handleInternalMetric(internalMetric)
 				}
-				if internalMetric == nil {
-					continue
-				}
-				handleInternalMetric(internalMetric)
 			}
 		} else {
+			_ = c.emitter.StoreInt64(metricNameKCMASStoreQueryNotHitIndex, 1, metrics.MetricTypeNameRaw,
+				metrics.MetricTag{Key: "metric_name", Val: metricName})
 			objectMetricStore.Iterate(func(internalMetric *internal.MetricImp) {
 				handleInternalMetric(internalMetric)
 			})
