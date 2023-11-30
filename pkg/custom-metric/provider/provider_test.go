@@ -138,7 +138,7 @@ func TestWithLocalStore(t *testing.T) {
 				}),
 			},
 		},
-		IndexLabelKey: "name",
+		IndexLabelKeys: []string{"name"},
 	}
 
 	s, err := local.NewLocalMemoryMetricStore(ctx, baseCtx, genericConf, storeConf)
@@ -188,7 +188,7 @@ func testWithRemoteStoreWithIndex(t *testing.T, index []int) {
 		StoreServerReplicaTotal: len(index),
 		GCPeriod:                time.Second,
 		PurgePeriod:             time.Second,
-		IndexLabelKey:           "name",
+		IndexLabelKeys:          []string{"name"},
 	}
 
 	lp1 := generateStorePodMeta("ns-1", "pod-1", "full_metric_with_conflict_time", 11)

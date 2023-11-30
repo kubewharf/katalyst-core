@@ -29,10 +29,10 @@ import (
 
 // StoreOptions holds the configurations for katalyst metrics stores.
 type StoreOptions struct {
-	StoreName     string
-	GCInterval    time.Duration
-	PurgeInterval time.Duration
-	IndexLabelKey string
+	StoreName      string
+	GCInterval     time.Duration
+	PurgeInterval  time.Duration
+	IndexLabelKeys []string
 
 	StoreServerShardCount   int
 	StoreServerReplicaTotal int
@@ -46,10 +46,10 @@ type StoreOptions struct {
 // NewStoreOptions creates a new StoreOptions with a default config.
 func NewStoreOptions() *StoreOptions {
 	return &StoreOptions{
-		StoreName:     local.MetricStoreNameLocalMemory,
-		GCInterval:    10 * time.Second,
-		PurgeInterval: 600 * time.Second,
-		IndexLabelKey: "app",
+		StoreName:      local.MetricStoreNameLocalMemory,
+		GCInterval:     10 * time.Second,
+		PurgeInterval:  600 * time.Second,
+		IndexLabelKeys: []string{"app"},
 
 		StoreServerShardCount:   1,
 		StoreServerReplicaTotal: 3,
@@ -68,8 +68,8 @@ func (o *StoreOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 		"the interval between the store collect out of date metric")
 	fs.DurationVar(&o.PurgeInterval, "store-purge-interval", o.PurgeInterval,
 		"the interval between the store purge the useless meta info")
-	fs.StringVar(&o.IndexLabelKey, "store-object-index-label-key", o.IndexLabelKey,
-		"the label name which will be used as the index key")
+	fs.StringSliceVar(&o.IndexLabelKeys, "store-object-index-label-key", o.IndexLabelKeys,
+		"the label names which will be used as the index key")
 
 	fs.IntVar(&o.StoreServerShardCount, "store-server-shard", o.StoreServerShardCount,
 		"the amount of sharding this store implementation splits, only valid in store-server mode")
@@ -91,7 +91,7 @@ func (o *StoreOptions) ApplyTo(c *metric.StoreConfiguration) error {
 	c.StoreName = o.StoreName
 	c.GCPeriod = o.GCInterval
 	c.PurgePeriod = o.PurgeInterval
-	c.IndexLabelKey = o.IndexLabelKey
+	c.IndexLabelKeys = o.IndexLabelKeys
 
 	c.StoreServerShardCount = o.StoreServerShardCount
 	c.StoreServerReplicaTotal = o.StoreServerReplicaTotal

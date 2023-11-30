@@ -80,7 +80,7 @@ type LocalMemoryMetricStore struct {
 	validMetricObject map[string]schema.GroupVersionResource
 	objectLister      map[string]cache.GenericLister
 	objectInformer    map[string]cache.SharedIndexInformer
-	indexLabelKey     string
+	indexLabelKeys    []string
 
 	syncedFunc  []cache.InformerSynced
 	syncSuccess bool
@@ -105,7 +105,7 @@ func NewLocalMemoryMetricStore(ctx context.Context, baseCtx *katalystbase.Generi
 		validMetricObject: data.GetSupportedMetricObject(),
 		objectLister:      make(map[string]cache.GenericLister),
 		objectInformer:    make(map[string]cache.SharedIndexInformer),
-		indexLabelKey:     storeConf.IndexLabelKey,
+		indexLabelKeys:    storeConf.IndexLabelKeys,
 		emitter:           baseCtx.EmitterPool.GetDefaultMetricsEmitter().WithTags("local_store"),
 	}
 
@@ -113,10 +113,15 @@ func NewLocalMemoryMetricStore(ctx context.Context, baseCtx *katalystbase.Generi
 		wf := baseCtx.MetaInformerFactory.ForResource(gvrSchema)
 		l.objectLister[r] = wf.Lister()
 		l.objectInformer[r] = wf.Informer()
-		if _, ok := wf.Informer().GetIndexer().GetIndexers()[storeConf.IndexLabelKey]; !ok {
-			if err := wf.Informer().AddIndexers(cache.Indexers{storeConf.IndexLabelKey: getLabelIndexFunc(storeConf.IndexLabelKey)}); err != nil {
-				klog.Errorf("create label indexer failed, indexName: %v, indexKey: %v, err: %v", storeConf.IndexLabelKey, storeConf.IndexLabelKey, err)
-				return nil, err
+		if len(storeConf.IndexLabelKeys) > 0 {
+			for i := range storeConf.IndexLabelKeys {
+				key := storeConf.IndexLabelKeys[i]
+				if _, ok := wf.Informer().GetIndexer().GetIndexers()[key]; !ok {
+					if err := wf.Informer().AddIndexers(cache.Indexers{key: getLabelIndexFunc(key)}); err != nil {
+						klog.Errorf("create label indexer failed, indexName: %v, indexKey: %v, err: %v", storeConf.IndexLabelKeys, storeConf.IndexLabelKeys, err)
+						return nil, err
+					}
+				}
 			}
 		}
 		l.syncedFunc = append(l.syncedFunc, wf.Informer().HasSynced)
@@ -186,28 +191,34 @@ func (l *LocalMemoryMetricStore) getObjectMetaByIndex(gr *schema.GroupResource, 
 			break
 		}
 
-		if requirement.Key() == l.indexLabelKey {
-			switch requirement.Operator() {
-			case selection.Equals, selection.DoubleEquals, selection.In:
-				hitIndex = true
-				for indexValue := range requirement.Values() {
-					objects, err := l.objectInformer[gr.String()].GetIndexer().ByIndex(l.indexLabelKey, indexValue)
-					if err != nil {
-						return false, matchedObjectMeta, fmt.Errorf("get object by index failed,err:%v", err)
-					}
-					for i := range objects {
-						obj := objects[i]
-						metadata, ok := obj.(*v1.PartialObjectMetadata)
-						if !ok {
-							return false, matchedObjectMeta, fmt.Errorf("%#v failed to transform into PartialObjectMetadata", obj)
+		for i := range l.indexLabelKeys {
+			key := l.indexLabelKeys[i]
+			if requirement.Key() == key {
+				switch requirement.Operator() {
+				case selection.Equals, selection.DoubleEquals, selection.In:
+					hitIndex = true
+					for indexValue := range requirement.Values() {
+						objects, err := l.objectInformer[gr.String()].GetIndexer().ByIndex(key, indexValue)
+						if err != nil {
+							return false, matchedObjectMeta, fmt.Errorf("get object by index failed,err:%v", err)
 						}
+						for i := range objects {
+							obj := objects[i]
+							metadata, ok := obj.(*v1.PartialObjectMetadata)
+							if !ok {
+								return false, matchedObjectMeta, fmt.Errorf("%#v failed to transform into PartialObjectMetadata", obj)
+							}
 
-						matchedObjectMeta = append(matchedObjectMeta, types.ObjectMetaImp{
-							ObjectNamespace: metadata.Namespace,
-							ObjectName:      metadata.Name,
-						})
+							matchedObjectMeta = append(matchedObjectMeta, types.ObjectMetaImp{
+								ObjectNamespace: metadata.Namespace,
+								ObjectName:      metadata.Name,
+							})
+						}
 					}
 				}
+			}
+			if hitIndex {
+				return hitIndex, matchedObjectMeta, nil
 			}
 		}
 	}
@@ -233,7 +244,7 @@ func (l *LocalMemoryMetricStore) GetMetric(_ context.Context, namespace, metricN
 	// always try to get by metric-name if nominated, otherwise list all internal metrics
 	if metricName != "" && metricName != "*" {
 		if objName != "" && objName != "*" {
-			metricList, _, err = l.cache.GetMetric(namespace, metricName, objName, nil, gr, latest)
+			metricList, _, err = l.cache.GetMetric(namespace, metricName, objName, nil, false, gr, latest)
 		} else {
 			hitIndex, matchedObjectMeta, err = l.getObjectMetaByIndex(gr, objSelector)
 			if err != nil {
@@ -241,9 +252,9 @@ func (l *LocalMemoryMetricStore) GetMetric(_ context.Context, namespace, metricN
 			}
 
 			if hitIndex {
-				metricList, _, err = l.cache.GetMetric(namespace, metricName, objName, matchedObjectMeta, gr, latest)
+				metricList, _, err = l.cache.GetMetric(namespace, metricName, objName, matchedObjectMeta, true, gr, latest)
 			} else {
-				metricList, _, err = l.cache.GetMetric(namespace, metricName, objName, nil, gr, latest)
+				metricList, _, err = l.cache.GetMetric(namespace, metricName, objName, nil, false, gr, latest)
 			}
 		}
 	} else {

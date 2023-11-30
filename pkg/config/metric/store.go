@@ -23,10 +23,10 @@ import (
 )
 
 type StoreConfiguration struct {
-	StoreName     string
-	GCPeriod      time.Duration
-	PurgePeriod   time.Duration
-	IndexLabelKey string
+	StoreName      string
+	GCPeriod       time.Duration
+	PurgePeriod    time.Duration
+	IndexLabelKeys []string
 
 	StoreServerShardCount   int
 	StoreServerReplicaTotal int
