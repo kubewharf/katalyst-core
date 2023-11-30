@@ -45,7 +45,7 @@ func (sc *SPDController) updateBaselinePercentile(spd *v1alpha1.ServiceProfileDe
 		util.SetSPDBaselinePercentile(spd, &util.BaselineCoefficient{})
 		return nil
 	} else if *spd.Spec.BaselinePercent <= 0 {
-		// if baseline ratio equals 0%, we set baselinePercentile to "-1"
+		// if baseline ratio is less or equal than 0%, we set baselinePercentile to "-1"
 		// which means the baseline coefficient of all pods no less than the threshold,
 		// and then without pod is baseline.
 		util.SetSPDBaselinePercentile(spd, &util.BaselineCoefficient{-1})

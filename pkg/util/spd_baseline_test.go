@@ -181,6 +181,34 @@ func TestGetSPDBaselinePercentile(t *testing.T) {
 				2,
 			},
 		},
+		{
+			name: "100% baseline",
+			args: args{
+				spd: &v1alpha1.ServiceProfileDescriptor{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "test-spd",
+						Annotations: map[string]string{
+							consts.SPDAnnotationBaselinePercentileKey: "",
+						},
+					},
+				},
+			},
+			want: BaselineCoefficient{},
+		},
+		{
+			name: "0% baseline",
+			args: args{
+				spd: &v1alpha1.ServiceProfileDescriptor{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "test-spd",
+						Annotations: map[string]string{
+							consts.SPDAnnotationBaselinePercentileKey: "-1",
+						},
+					},
+				},
+			},
+			want: BaselineCoefficient{-1},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

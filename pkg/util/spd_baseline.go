@@ -131,6 +131,10 @@ func SetSPDBaselinePercentile(spd *v1alpha1.ServiceProfileDescriptor, percentile
 
 func parseBaselineCoefficient(str string) (BaselineCoefficient, error) {
 	var errList []error
+	if len(str) == 0 {
+		return BaselineCoefficient{}, nil
+	}
+
 	s := strings.Split(str, baselineCoefficientSep)
 	c := make([]int64, 0, len(s))
 	for i := range s {
