@@ -274,6 +274,13 @@ func (cra *cpuResourceAdvisor) updateRegionEntries() {
 
 func (cra *cpuResourceAdvisor) updateRegionStatus(boundUpper bool) {
 	for regionName, r := range cra.regionMap {
+		if boundUpper {
+			boundType := types.BoundUpper
+			r.UpdateStatus(&boundType)
+		} else {
+			r.UpdateStatus(nil)
+		}
+
 		regionInfo, ok := cra.metaCache.GetRegionInfo(regionName)
 		if !ok {
 			continue
@@ -281,12 +288,6 @@ func (cra *cpuResourceAdvisor) updateRegionStatus(boundUpper bool) {
 
 		status := r.GetStatus()
 		regionInfo.RegionStatus = status
-
-		// set bound upper
-		if boundUpper {
-			regionInfo.RegionStatus.BoundType = types.BoundUpper
-		}
-
 		_ = cra.metaCache.SetRegionInfo(regionName, regionInfo)
 	}
 }

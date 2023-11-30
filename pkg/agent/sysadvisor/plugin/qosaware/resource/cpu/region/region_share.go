@@ -71,8 +71,6 @@ func (r *QoSRegionShare) TryUpdateProvision() {
 		r.ControlEssentials.Indicators = indicators
 	}
 
-	r.updateStatus()
-
 	for _, internal := range r.provisionPolicies {
 		internal.updateStatus = types.PolicyUpdateFailed
 

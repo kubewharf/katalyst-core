@@ -544,11 +544,22 @@ func (r *QoSRegionBase) getPodIndicatorTarget(ctx context.Context, podUID string
 	return &indicatorTarget, nil
 }
 
-// updateStatus updates region status based on resource and control essentials
-func (r *QoSRegionBase) updateStatus() {
+// UpdateStatus updates region status based on resource and control essentials
+func (r *QoSRegionBase) UpdateStatus(overrideBoundType *types.BoundType) {
 	// reset entries
 	r.regionStatus.OvershootStatus = make(map[string]types.OvershootType)
-	r.regionStatus.BoundType = types.BoundUnknown
+
+	// todo BoundType logic is kind of mess, need to refine this in the future
+	boundType := types.BoundUnknown
+	if overrideBoundType != nil {
+		boundType = *overrideBoundType
+	} else if v, ok := r.ControlEssentials.ControlKnobs[types.ControlKnobNonReclaimedCPUSize]; ok {
+		if v.Value <= r.ResourceEssentials.ResourceLowerBound {
+			boundType = types.BoundLower
+		} else {
+			boundType = types.BoundNone
+		}
+	}
 
 	for indicatorName := range r.indicatorCurrentGetters {
 		r.regionStatus.OvershootStatus[indicatorName] = types.OvershootUnknown
@@ -557,6 +568,9 @@ func (r *QoSRegionBase) updateStatus() {
 	// fill in overshoot entry
 	for indicatorName, indicator := range r.ControlEssentials.Indicators {
 		if indicator.Current > indicator.Target {
+			if overrideBoundType == nil {
+				boundType = types.BoundUpper
+			}
 			r.regionStatus.OvershootStatus[indicatorName] = types.OvershootTrue
 		} else {
 			r.regionStatus.OvershootStatus[indicatorName] = types.OvershootFalse
@@ -564,13 +578,8 @@ func (r *QoSRegionBase) updateStatus() {
 	}
 
 	// fill in bound entry
-	if v, ok := r.ControlEssentials.ControlKnobs[types.ControlKnobNonReclaimedCPUSize]; ok {
-		if v.Value <= r.ResourceEssentials.ResourceLowerBound {
-			r.regionStatus.BoundType = types.BoundLower
-		} else {
-			r.regionStatus.BoundType = types.BoundNone
-		}
-	}
+	r.regionStatus.BoundType = boundType
+
 }
 
 func (r *QoSRegionBase) EnableReclaim() bool {
