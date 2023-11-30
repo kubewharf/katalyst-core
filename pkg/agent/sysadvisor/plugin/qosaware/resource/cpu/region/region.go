@@ -54,6 +54,8 @@ type QoSRegion interface {
 	TryUpdateProvision()
 	// TryUpdateHeadroom runs an episode of headroom estimation
 	TryUpdateHeadroom()
+	// UpdateStatus are triggered outside to update status for this region
+	UpdateStatus(boundType *types.BoundType)
 
 	// GetProvision returns the latest updated control knob value
 	GetProvision() (types.ControlKnob, error)

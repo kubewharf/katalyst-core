@@ -40,7 +40,8 @@ func regulatePoolSizes(poolSizes map[string]int, available int, enableReclaim bo
 	boundUpper := false
 
 	// set bound upper if reaching max available resource
-	if targetSum >= available {
+	// todo this boundUpper value only works for enableReclaim (and kind of mess), need to refine this in the future
+	if targetSum >= available && enableReclaim {
 		boundUpper = true
 	}
 
