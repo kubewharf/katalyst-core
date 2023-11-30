@@ -53,6 +53,7 @@ func init() {
 	controllerInitializers.Store(controller.LifeCycleControllerName, ControllerStarter{Starter: controller.StartLifeCycleController})
 	controllerInitializers.Store(controller.MonitorControllerName, ControllerStarter{Starter: controller.StartMonitorController})
 	controllerInitializers.Store(controller.OvercommitControllerName, ControllerStarter{Starter: controller.StartOvercommitController})
+	controllerInitializers.Store(controller.TideControllerName, ControllerStarter{Starter: controller.StartTideController})
 }
 
 // RegisterControllerInitializer is used to register user-defined controllers

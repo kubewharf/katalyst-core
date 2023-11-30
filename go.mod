@@ -7,14 +7,14 @@ require (
 	github.com/cespare/xxhash v1.1.0
 	github.com/cilium/ebpf v0.7.0
 	github.com/containerd/cgroups v1.0.1
-	github.com/evanphx/json-patch v4.12.0+incompatible
-	github.com/fsnotify/fsnotify v1.5.1
+	github.com/evanphx/json-patch v5.6.0+incompatible
+	github.com/fsnotify/fsnotify v1.5.4
 	github.com/gogo/protobuf v1.3.2
 	github.com/golang/protobuf v1.5.2
-	github.com/google/cadvisor v0.44.1
+	github.com/google/cadvisor v0.44.2
 	github.com/kubewharf/katalyst-api v0.3.4-0.20231204022248-bfefbbd96f52
 	github.com/montanaflynn/stats v0.7.1
-	github.com/opencontainers/runc v1.1.1
+	github.com/opencontainers/runc v1.1.6
 	github.com/pkg/errors v0.9.1
 	github.com/prometheus/client_golang v1.12.1
 	github.com/prometheus/client_model v0.2.0
@@ -34,21 +34,23 @@ require (
 	golang.org/x/sys v0.7.0
 	golang.org/x/time v0.0.0-20220210224613-90d013bbcef8
 	google.golang.org/grpc v1.51.0
-	k8s.io/api v0.24.6
-	k8s.io/apimachinery v0.24.6
-	k8s.io/apiserver v0.24.6
-	k8s.io/client-go v0.24.6
-	k8s.io/component-base v0.24.6
-	k8s.io/component-helpers v0.24.6
+	k8s.io/api v0.24.16
+	k8s.io/apimachinery v0.24.16
+	k8s.io/apiserver v0.24.16
+	k8s.io/autoscaler/cluster-autoscaler v0.0.0-20231010095923-8a61add71154
+	k8s.io/client-go v0.24.16
+	k8s.io/component-base v0.24.16
+	k8s.io/component-helpers v0.24.16
 	k8s.io/cri-api v0.24.6
 	k8s.io/klog/v2 v2.80.1
 	k8s.io/kube-aggregator v0.24.6
 	k8s.io/kubelet v0.24.6
-	k8s.io/kubernetes v1.24.6
+	k8s.io/kubernetes v1.24.16
 	k8s.io/metrics v0.24.6
 	k8s.io/utils v0.0.0-20221108210102-8e77b1f39fe2
 	sigs.k8s.io/controller-runtime v0.11.2
 	sigs.k8s.io/custom-metrics-apiserver v1.24.0
+	sigs.k8s.io/descheduler v0.24.0
 )
 
 require (
@@ -79,7 +81,7 @@ require (
 	github.com/google/gnostic v0.6.9 // indirect
 	github.com/google/go-cmp v0.5.8 // indirect
 	github.com/google/gofuzz v1.2.0 // indirect
-	github.com/google/uuid v1.1.2 // indirect
+	github.com/google/uuid v1.3.0 // indirect
 	github.com/grpc-ecosystem/go-grpc-prometheus v1.2.0 // indirect
 	github.com/grpc-ecosystem/grpc-gateway v1.16.0 // indirect
 	github.com/imdario/mergo v0.3.12 // indirect
@@ -115,7 +117,7 @@ require (
 	go.opentelemetry.io/proto/otlp v0.7.0 // indirect
 	go.uber.org/multierr v1.6.0 // indirect
 	go.uber.org/zap v1.19.1 // indirect
-	golang.org/x/crypto v0.0.0-20220315160706-3147a52a75dd // indirect
+	golang.org/x/crypto v0.0.0-20220926161630-eccd6366d1be // indirect
 	golang.org/x/net v0.9.0 // indirect
 	golang.org/x/oauth2 v0.0.0-20211104180415-d3ed0bb246c8 // indirect
 	golang.org/x/sync v0.1.0 // indirect
@@ -131,12 +133,12 @@ require (
 	gopkg.in/natefinch/lumberjack.v2 v2.0.0 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
-	k8s.io/cloud-provider v0.24.6 // indirect
-	k8s.io/csi-translation-lib v0.24.6 // indirect
+	k8s.io/cloud-provider v0.24.16 // indirect
+	k8s.io/csi-translation-lib v0.24.16 // indirect
 	k8s.io/kube-openapi v0.0.0-20220803162953-67bda5d908f1 // indirect
 	k8s.io/kube-scheduler v0.24.6 // indirect
-	k8s.io/mount-utils v0.24.6 // indirect
-	sigs.k8s.io/apiserver-network-proxy/konnectivity-client v0.0.33 // indirect
+	k8s.io/mount-utils v0.24.16 // indirect
+	sigs.k8s.io/apiserver-network-proxy/konnectivity-client v0.0.37 // indirect
 	sigs.k8s.io/json v0.0.0-20220713155537-f223a00ba0e2 // indirect
 	sigs.k8s.io/structured-merge-diff/v4 v4.2.3 // indirect
 	sigs.k8s.io/yaml v1.3.0 // indirect
