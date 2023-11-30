@@ -303,9 +303,9 @@ func CalculateSPDHash(spd *apiworkload.ServiceProfileDescriptor) (string, error)
 	}
 
 	spdCopy := &apiworkload.ServiceProfileDescriptor{}
-	if percentile, ok := spd.Annotations[apiconsts.SPDAnnotationBaselinePercentileKey]; ok {
+	if sentinel, ok := spd.Annotations[apiconsts.SPDAnnotationBaselineSentinelKey]; ok {
 		spd.Annotations = map[string]string{
-			apiconsts.SPDAnnotationBaselinePercentileKey: percentile,
+			apiconsts.SPDAnnotationBaselineSentinelKey: sentinel,
 		}
 	}
 	spdCopy.Spec = spd.Spec

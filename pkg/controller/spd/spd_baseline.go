@@ -26,69 +26,53 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 
 	"github.com/kubewharf/katalyst-api/pkg/apis/workload/v1alpha1"
+	"github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/util"
 	"github.com/kubewharf/katalyst-core/pkg/util/native"
 )
 
-// updateBaselinePercentile update baseline percentile annotation for spd
-func (sc *SPDController) updateBaselinePercentile(spd *v1alpha1.ServiceProfileDescriptor) error {
+// updateBaselineSentinel update baseline sentinel annotation for spd
+func (sc *SPDController) updateBaselineSentinel(spd *v1alpha1.ServiceProfileDescriptor) error {
 	if spd == nil {
 		return nil
 	}
 
-	if spd.Spec.BaselinePercent == nil {
-		util.SetSPDBaselinePercentile(spd, nil)
-		return nil
-	} else if *spd.Spec.BaselinePercent >= 100 {
-		// if baseline ratio equals 100%, we set baselinePercentile to ""
-		// which means all pod is baseline
-		util.SetSPDBaselinePercentile(spd, &util.BaselineCoefficient{})
-		return nil
-	} else if *spd.Spec.BaselinePercent <= 0 {
-		// if baseline ratio equals 0%, we set baselinePercentile to "-1"
-		// which means the baseline coefficient of all pods no less than the threshold,
-		// and then without pod is baseline.
-		util.SetSPDBaselinePercentile(spd, &util.BaselineCoefficient{-1})
+	if spd.Spec.BaselinePercent == nil || *spd.Spec.BaselinePercent >= consts.SPDBaselinePercentMax || *spd.Spec.BaselinePercent <= consts.SPDBaselinePercentMin {
 		return nil
 	}
 
-	percentile, err := sc.calculateBaselinePercentile(spd)
+	podMeta, err := sc.calculateBaselineSentinel(spd)
 	if err != nil {
 		return err
 	}
-
-	if percentile != nil {
-		util.SetSPDBaselinePercentile(spd, &percentile)
-	}
+	util.SetSPDBaselineSentinel(spd, &podMeta)
 	return nil
 }
 
-// calculateBaselinePercentile computes the baseline percentile for a list of pods
-// referenced by the SPD. The baseline percentile represents the threshold value for
-// the pod baseline coefficient. A pod is considered to be within the baseline if its
-// coefficient is less than this threshold value.
-func (sc *SPDController) calculateBaselinePercentile(spd *v1alpha1.ServiceProfileDescriptor) (util.BaselineCoefficient, error) {
+// calculateBaselineSentinel returns the sentinel one for a list of pods
+// referenced by the SPD. If one pod's createTime is less than the sentinel pod
+func (sc *SPDController) calculateBaselineSentinel(spd *v1alpha1.ServiceProfileDescriptor) (util.SPDBaselinePodMeta, error) {
 	gvr, _ := meta.UnsafeGuessKindToResource(schema.FromAPIVersionAndKind(spd.Spec.TargetRef.APIVersion, spd.Spec.TargetRef.Kind))
 	workloadLister, ok := sc.workloadLister[gvr]
 	if !ok {
-		return nil, fmt.Errorf("without workload lister for gvr %v", gvr)
+		return util.SPDBaselinePodMeta{}, fmt.Errorf("without workload lister for gvr %v", gvr)
 	}
 
 	podList, err := util.GetPodListForSPD(spd, sc.podIndexer, sc.conf.SPDPodLabelIndexerKeys, workloadLister, sc.podLister)
 	if err != nil {
-		return nil, err
+		return util.SPDBaselinePodMeta{}, err
 	}
 
 	podList = native.FilterPods(podList, func(pod *v1.Pod) (bool, error) {
 		return native.PodIsActive(pod), nil
 	})
 	if len(podList) == 0 {
-		return nil, nil
+		return util.SPDBaselinePodMeta{}, nil
 	}
 
-	bcList := make([]util.BaselineCoefficient, 0, len(podList))
+	bcList := make([]util.SPDBaselinePodMeta, 0, len(podList))
 	for _, p := range podList {
-		bcList = append(bcList, util.GetPodBaselineCoefficient(p))
+		bcList = append(bcList, util.GetPodMeta(p))
 	}
 	sort.SliceStable(bcList, func(i, j int) bool {
 		return bcList[i].Cmp(bcList[j]) < 0

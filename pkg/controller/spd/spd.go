@@ -467,7 +467,7 @@ func (sc *SPDController) syncSPD(key string) error {
 
 	// update baseline percentile
 	newSPD := spd.DeepCopy()
-	err = sc.updateBaselinePercentile(newSPD)
+	err = sc.updateBaselineSentinel(newSPD)
 	if err != nil {
 		return err
 	}
@@ -596,6 +596,7 @@ func (sc *SPDController) getOrCreateSPDForWorkload(workload *unstructured.Unstru
 					AggMetrics: []apiworkload.AggPodMetrics{},
 				},
 			}
+			sc.updateBaselineSentinel(spd)
 
 			return sc.spdControl.CreateSPD(sc.ctx, spd, metav1.CreateOptions{})
 		}
