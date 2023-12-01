@@ -54,10 +54,6 @@ func (n *MetricSyncerNode) advisorMetric(ctx context.Context) {
 					Key: fmt.Sprintf("%s%s", data.CustomMetricLabelSelectorPrefixKey, "region"),
 					Val: fmt.Sprintf("%v", regionName),
 				},
-				{
-					Key: fmt.Sprintf("%s%s", data.CustomMetricLabelSelectorPrefixKey, "bound"),
-					Val: fmt.Sprintf("%v", regionInfo.RegionStatus.BoundType),
-				},
 			}...)
 		for indicator, overshot := range regionInfo.RegionStatus.OvershootStatus {
 			regionTag = append(regionTag, metrics.MetricTag{
@@ -66,7 +62,12 @@ func (n *MetricSyncerNode) advisorMetric(ctx context.Context) {
 			})
 		}
 
-		_ = n.dataEmitter.StoreFloat64(apimetricnode.CustomMetricNodeAdvisorKnobStatus, 1, metrics.MetricTypeNameRaw, regionTag...)
+		if code, ok := types.BoundTypeCodeMap[regionInfo.RegionStatus.BoundType]; ok {
+			_ = n.dataEmitter.StoreFloat64(apimetricnode.CustomMetricNodeAdvisorKnobStatus, float64(code), metrics.MetricTypeNameRaw, regionTag...)
+		} else {
+			general.Errorf("region %v with invalid bound type %v", regionName, regionInfo.RegionStatus.BoundType)
+		}
+
 		return true
 	})
 

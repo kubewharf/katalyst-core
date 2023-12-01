@@ -18,6 +18,13 @@ package types
 
 import "time"
 
+var BoundTypeCodeMap = map[BoundType]int{
+	BoundUpper:   BoundUpperCode,
+	BoundLower:   BoundLowerCode,
+	BoundNone:    BoundNoneCode,
+	BoundUnknown: BoundUnknownCode,
+}
+
 const (
 	RegionNameSeparator = "-"
 )
