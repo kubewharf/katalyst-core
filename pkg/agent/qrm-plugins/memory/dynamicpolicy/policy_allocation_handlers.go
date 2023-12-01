@@ -437,6 +437,12 @@ func (p *DynamicPolicy) adjustAllocationEntries() error {
 				continue
 			}
 
+			container, err := p.metaServer.GetContainerSpec(podUID, containerName)
+			if err != nil || container == nil {
+				general.Errorf("get container spec for pod: %s, container: %s failed with error: %v", podUID, containerName, err)
+				continue
+			}
+
 			if !numaWithoutNUMABindingPods.IsEmpty() {
 				migratePagesWorkName := util.GetContainerAsyncWorkName(podUID, containerName,
 					memoryPluginAsyncWorkTopicMigratePage)
@@ -454,13 +460,22 @@ func (p *DynamicPolicy) adjustAllocationEntries() error {
 				}
 			}
 
+			memoryLimit := container.Resources.Limits[v1.ResourceMemory]
+			memoryReq := container.Resources.Requests[v1.ResourceMemory]
+			memoryLimitBytes := memoryLimit.Value()
+			memoryReqBytes := memoryReq.Value()
+
+			if memoryLimitBytes == 0 {
+				memoryLimitBytes = memoryReqBytes
+			}
+
 			dropCacheWorkName := util.GetContainerAsyncWorkName(podUID, containerName,
 				memoryPluginAsyncWorkTopicDropCache)
 			// start a asynchronous work to drop cache for the container whose numaset changed and doesn't require numa_binding
 			err = p.asyncWorkers.AddWork(dropCacheWorkName,
 				&asyncworker.Work{
 					Fn:          cgroupmgr.DropCacheWithTimeoutForContainer,
-					Params:      []interface{}{podUID, containerID, dropCacheTimeoutSeconds},
+					Params:      []interface{}{podUID, containerID, dropCacheTimeoutSeconds, memoryLimitBytes},
 					DeliveredAt: time.Now()})
 
 			if err != nil {

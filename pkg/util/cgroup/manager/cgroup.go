@@ -23,11 +23,10 @@ import (
 	"path/filepath"
 	"time"
 
-	"k8s.io/klog/v2"
-
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/asyncworker"
 	"github.com/kubewharf/katalyst-core/pkg/util/cgroup/common"
+	"github.com/kubewharf/katalyst-core/pkg/util/general"
 )
 
 func ApplyMemoryWithRelativePath(relCgroupPath string, data *common.MemoryData) error {
@@ -257,13 +256,13 @@ func GetCPUSetForContainer(podUID, containerId string) (*common.CPUSetStats, err
 	return GetCPUSetWithAbsolutePath(cpusetAbsCGPath)
 }
 
-func DropCacheWithTimeoutForContainer(ctx context.Context, podUID, containerId string, timeoutSecs int) error {
+func DropCacheWithTimeoutForContainer(ctx context.Context, podUID, containerId string, timeoutSecs int, nbytes int64) error {
 	cpusetAbsCGPath, err := common.GetContainerAbsCgroupPath(common.CgroupSubsysMemory, podUID, containerId)
 	if err != nil {
 		return fmt.Errorf("GetContainerAbsCgroupPath failed with error: %v", err)
 	}
 
-	err = DropCacheWithTimeoutWithRelativePath(timeoutSecs, cpusetAbsCGPath)
+	err = DropCacheWithTimeoutWithRelativePath(timeoutSecs, cpusetAbsCGPath, nbytes)
 	_ = asyncworker.EmitAsyncedMetrics(ctx, metrics.ConvertMapToTags(map[string]string{
 		"podUID":      podUID,
 		"containerID": containerId,
@@ -272,14 +271,26 @@ func DropCacheWithTimeoutForContainer(ctx context.Context, podUID, containerId s
 	return err
 }
 
-func DropCacheWithTimeoutWithRelativePath(timeoutSecs int, absCgroupPath string) error {
+func DropCacheWithTimeoutWithRelativePath(timeoutSecs int, absCgroupPath string, nbytes int64) error {
 	startTime := time.Now()
 
-	cmd := fmt.Sprintf("timeout %d echo 0 > %s", timeoutSecs, filepath.Join(absCgroupPath, "memory.force_empty"))
+	var cmd string
+	if common.CheckCgroup2UnifiedMode() {
+		if nbytes == 0 {
+			general.Infof("[DropCacheWithTimeoutWithRelativePath] skip drop cache on %s since nbytes is zero", absCgroupPath)
+			return nil
+		}
+		//cgv2
+		cmd = fmt.Sprintf("timeout %d echo %d > %s", timeoutSecs, nbytes, filepath.Join(absCgroupPath, "memory.reclaim"))
+	} else {
+		//cgv1
+		cmd = fmt.Sprintf("timeout %d echo 0 > %s", timeoutSecs, filepath.Join(absCgroupPath, "memory.force_empty"))
+	}
+
 	_, err := exec.Command("bash", "-c", cmd).Output()
 
 	delta := time.Since(startTime).Seconds()
-	klog.Infof("[DropCacheWithTimeoutWithRelativePath] it takes %v to drop cache of cgroup: %s", delta, absCgroupPath)
+	general.Infof("[DropCacheWithTimeoutWithRelativePath] it takes %v to do \"%s\" on cgroup: %s", delta, cmd, absCgroupPath)
 
 	// if this command timeout, a none-nil error will be returned,
 	// but we should return error iff error returns without timeout

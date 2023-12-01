@@ -39,6 +39,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	v1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -66,6 +67,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/pod"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/external"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
+	"github.com/kubewharf/katalyst-core/pkg/util/asyncworker"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 	"github.com/kubewharf/katalyst-core/pkg/util/qos"
 )
@@ -3234,6 +3236,184 @@ func TestPollOOMBPFInit(t *testing.T) {
 				t.Errorf("TestPollOOMBPFInit() failed: oomPriorityMap should be nil, but it's not")
 			} else if !tt.isWantNil && dynamicPolicy.oomPriorityMap == nil {
 				t.Errorf("TestPollOOMBPFInit() failed: oomPriorityMap should not be nil, but it is")
+			}
+		})
+	}
+}
+
+func TestDynamicPolicy_adjustAllocationEntries(t *testing.T) {
+	metaServer := makeMetaServer()
+	tmpDir, err := ioutil.TempDir("", "checkpoint-TestDynamicPolicy_adjustAllocationEntries")
+	assert.NoError(t, err)
+	defer os.RemoveAll(tmpDir)
+
+	cpuTopology, err := machine.GenerateDummyCPUTopology(16, 2, 4)
+	assert.NoError(t, err)
+
+	machineInfo, err := machine.GenerateDummyMachineInfo(4, 32)
+	assert.NoError(t, err)
+
+	metaServer.PodFetcher = &pod.PodFetcherStub{
+		PodList: []*v1.Pod{
+			{
+				ObjectMeta: metav1.ObjectMeta{
+					UID:  types.UID("test-pod-1-uid"),
+					Name: "test-pod-1",
+					Annotations: map[string]string{
+						consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
+					},
+					Labels: map[string]string{
+						consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
+					},
+				},
+				Spec: v1.PodSpec{
+					Containers: []v1.Container{
+						{
+							Name: "test-container-1",
+							Resources: v1.ResourceRequirements{
+								Limits: v1.ResourceList{
+									v1.ResourceMemory: resource.MustParse("1Gi"),
+								},
+								Requests: v1.ResourceList{
+									v1.ResourceMemory: resource.MustParse("1Gi"),
+								},
+							},
+						},
+					},
+				},
+				Status: v1.PodStatus{
+					ContainerStatuses: []v1.ContainerStatus{
+						{
+							Name:        "test-container-1",
+							ContainerID: "test-container-1-id",
+						},
+					},
+				},
+			},
+			{
+				ObjectMeta: metav1.ObjectMeta{
+					UID:  types.UID("test-pod-2-uid"),
+					Name: "test-pod-2",
+					Annotations: map[string]string{
+						consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelDedicatedCores,
+					},
+					Labels: map[string]string{
+						consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelDedicatedCores,
+					},
+				},
+				Spec: v1.PodSpec{
+					Containers: []v1.Container{
+						{
+							Name: "test-container-2",
+							Resources: v1.ResourceRequirements{
+								Limits: v1.ResourceList{
+									v1.ResourceMemory: resource.MustParse("1Gi"),
+								},
+								Requests: v1.ResourceList{
+									v1.ResourceMemory: resource.MustParse("1Gi"),
+								},
+							},
+						},
+					},
+				},
+				Status: v1.PodStatus{
+					ContainerStatuses: []v1.ContainerStatus{
+						{
+							Name:        "test-container-2",
+							ContainerID: "test-container-2-id",
+						},
+					},
+				},
+			},
+		},
+	}
+	podResourceEntries := state.PodResourceEntries{
+		v1.ResourceMemory: state.PodEntries{
+			"test-pod-2-uid": state.ContainerEntries{
+				"test-container-2": &state.AllocationInfo{
+					PodUid:               "test-pod-2-uid",
+					PodNamespace:         "test",
+					PodName:              "test-pod-2",
+					ContainerName:        "test-container-2",
+					ContainerType:        pluginapi.ContainerType_MAIN.String(),
+					ContainerIndex:       0,
+					QoSLevel:             consts.PodAnnotationQoSLevelDedicatedCores,
+					RampUp:               false,
+					AggregatedQuantity:   7516192768,
+					NumaAllocationResult: machine.NewCPUSet(0),
+					TopologyAwareAllocations: map[int]uint64{
+						0: 7516192768,
+					},
+					Annotations: map[string]string{
+						consts.PodAnnotationQoSLevelKey:                    consts.PodAnnotationQoSLevelDedicatedCores,
+						consts.PodAnnotationMemoryEnhancementNumaBinding:   consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
+						consts.PodAnnotationMemoryEnhancementNumaExclusive: consts.PodAnnotationMemoryEnhancementNumaExclusiveEnable,
+					},
+					Labels: map[string]string{
+						consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelDedicatedCores,
+					},
+				},
+			},
+			"test-pod-1-uid": state.ContainerEntries{
+				"test-container-1": &state.AllocationInfo{
+					PodUid:               "test-pod-1-uid",
+					PodNamespace:         "test",
+					PodName:              "test-pod-1",
+					ContainerName:        "test-container-1",
+					ContainerType:        pluginapi.ContainerType_MAIN.String(),
+					ContainerIndex:       0,
+					QoSLevel:             consts.PodAnnotationQoSLevelSharedCores,
+					RampUp:               false,
+					NumaAllocationResult: machine.NewCPUSet(0, 1, 2, 3),
+					Annotations: map[string]string{
+						consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
+					},
+					Labels: map[string]string{
+						consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
+					},
+				},
+			},
+		},
+	}
+	type fields struct {
+		emitter    metrics.MetricEmitter
+		metaServer *metaserver.MetaServer
+	}
+	tests := []struct {
+		name    string
+		fields  fields
+		wantErr bool
+	}{
+		{
+			name: "normal adjustment",
+			fields: fields{
+				emitter:    metrics.DummyMetrics{},
+				metaServer: metaServer,
+			},
+			wantErr: false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+
+			dynamicPolicy, err := getTestDynamicPolicyWithInitialization(cpuTopology, machineInfo, tmpDir)
+			assert.NoError(t, err)
+			dynamicPolicy.emitter = tt.fields.emitter
+			dynamicPolicy.metaServer = tt.fields.metaServer
+			dynamicPolicy.asyncWorkers = asyncworker.NewAsyncWorkers(memoryPluginAsyncWorkersName, dynamicPolicy.emitter)
+			dynamicPolicy.state.SetPodResourceEntries(podResourceEntries)
+			reservedMemory, err := getReservedMemory(fakeConf, dynamicPolicy.metaServer, machineInfo)
+			assert.NoError(t, err)
+
+			resourcesReservedMemory := map[v1.ResourceName]map[int]uint64{
+				v1.ResourceMemory: reservedMemory,
+			}
+			machineState, err := state.GenerateMachineStateFromPodEntries(machineInfo, podResourceEntries, resourcesReservedMemory)
+			assert.NoError(t, err)
+			dynamicPolicy.state.SetMachineState(machineState)
+
+			if err := dynamicPolicy.adjustAllocationEntries(); (err != nil) != tt.wantErr {
+				t.Errorf("DynamicPolicy.adjustAllocationEntries() error = %v, wantErr %v", err, tt.wantErr)
 			}
 		})
 	}
