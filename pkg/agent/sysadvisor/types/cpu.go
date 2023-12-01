@@ -137,16 +137,20 @@ type BoundType string
 
 const (
 	// BoundUpper indicates reaching resource upper bound, with highest priority
-	BoundUpper BoundType = "upper"
+	BoundUpper     BoundType = "upper"
+	BoundUpperCode int       = 0
 
 	// BoundLower indicates reaching resource lower bound
-	BoundLower BoundType = "lower"
+	BoundLower     BoundType = "lower"
+	BoundLowerCode int       = 1
 
 	// BoundNone indicates between resource upper and lower bound
-	BoundNone BoundType = "none"
+	BoundNone     BoundType = "none"
+	BoundNoneCode int       = 2
 
 	// BoundUnknown indicates unknown bound status
-	BoundUnknown BoundType = "unknown"
+	BoundUnknown     BoundType = "unknown"
+	BoundUnknownCode int       = 3
 )
 
 // RegionStatus holds stability accounting info of region
