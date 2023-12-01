@@ -487,8 +487,12 @@ func testProvider(t *testing.T, p MetricProvider, s store.MetricStore, ctx conte
 		Metric: custom_metrics.MetricIdentifier{
 			Name: "full_metric_with_conflict_time",
 			Selector: &metav1.LabelSelector{
-				MatchLabels: map[string]string{
-					"name": "full_metric_with_conflict_time",
+				MatchExpressions: []metav1.LabelSelectorRequirement{
+					{
+						Key:      "name",
+						Operator: "=",
+						Values:   []string{"full_metric_with_conflict_time"},
+					},
 				},
 			},
 		},

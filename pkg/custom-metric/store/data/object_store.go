@@ -33,7 +33,7 @@ const (
 )
 
 type ObjectMetricStore interface {
-	Add(objectMeta types.ObjectMetaImp, basicMeta types.BasicMetric) error
+	Add(objectMeta types.ObjectMetaImp) error
 	ObjectExists(objectMeta types.ObjectMetaImp) (bool, error)
 	GetInternalMetricImp(objectMeta types.ObjectMetaImp) (*internal.MetricImp, error)
 
@@ -56,12 +56,12 @@ func NewSimpleObjectMetricStore(metricMeta types.MetricMetaImp) ObjectMetricStor
 	}
 }
 
-func (s *simpleObjectMetricStore) Add(objectMeta types.ObjectMetaImp, basicMeta types.BasicMetric) error {
+func (s *simpleObjectMetricStore) Add(objectMeta types.ObjectMetaImp) error {
 	s.Lock()
 	defer s.Unlock()
 
 	if _, ok := s.objectMap[objectMeta]; !ok {
-		s.objectMap[objectMeta] = internal.NewInternalMetric(s.metricMeta, objectMeta, basicMeta)
+		s.objectMap[objectMeta] = internal.NewInternalMetric(s.metricMeta, objectMeta)
 	}
 
 	return nil
@@ -145,12 +145,12 @@ func (b *bucketObjectMetricStore) getIndex(objectMeta types.ObjectMetaImp) (int,
 	return int(h.Sum64() % uint64(b.bucketSize)), nil
 }
 
-func (b *bucketObjectMetricStore) Add(objectMeta types.ObjectMetaImp, basicMeta types.BasicMetric) error {
+func (b *bucketObjectMetricStore) Add(objectMeta types.ObjectMetaImp) error {
 	index, err := b.getIndex(objectMeta)
 	if err != nil {
 		return err
 	}
-	return b.buckets[index].Add(objectMeta, basicMeta)
+	return b.buckets[index].Add(objectMeta)
 }
 
 func (b *bucketObjectMetricStore) ObjectExists(objectMeta types.ObjectMetaImp) (bool, error) {

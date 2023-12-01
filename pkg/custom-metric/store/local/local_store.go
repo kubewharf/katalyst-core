@@ -244,7 +244,7 @@ func (l *LocalMemoryMetricStore) GetMetric(_ context.Context, namespace, metricN
 	// always try to get by metric-name if nominated, otherwise list all internal metrics
 	if metricName != "" && metricName != "*" {
 		if objName != "" && objName != "*" {
-			metricList, _, err = l.cache.GetMetric(namespace, metricName, objName, nil, false, gr, latest)
+			metricList, _, err = l.cache.GetMetric(namespace, metricName, objName, nil, false, gr, metricSelector, latest)
 		} else {
 			hitIndex, matchedObjectMeta, err = l.getObjectMetaByIndex(gr, objSelector)
 			if err != nil {
@@ -252,9 +252,9 @@ func (l *LocalMemoryMetricStore) GetMetric(_ context.Context, namespace, metricN
 			}
 
 			if hitIndex {
-				metricList, _, err = l.cache.GetMetric(namespace, metricName, objName, matchedObjectMeta, true, gr, latest)
+				metricList, _, err = l.cache.GetMetric(namespace, metricName, objName, matchedObjectMeta, true, gr, metricSelector, latest)
 			} else {
-				metricList, _, err = l.cache.GetMetric(namespace, metricName, objName, nil, false, gr, latest)
+				metricList, _, err = l.cache.GetMetric(namespace, metricName, objName, nil, false, gr, metricSelector, latest)
 			}
 		}
 	} else {
@@ -266,15 +266,6 @@ func (l *LocalMemoryMetricStore) GetMetric(_ context.Context, namespace, metricN
 	}
 
 	for _, metricItem := range metricList {
-		if metricSelector != nil {
-			if valid, err := l.checkInternalMetricMatchedWithMetricInfo(metricItem, namespace, metricSelector); err != nil {
-				klog.Errorf("check %+v metric selector %v err %v", metricItem.GetName(), metricSelector, err)
-			} else if !valid {
-				klog.V(6).Infof("%v invalid metricSelector", metricItem.String())
-				continue
-			}
-		}
-
 		if objName != "" {
 			if valid, err := l.checkInternalMetricMatchedWithObject(metricItem, gr, namespace, objName); err != nil {
 				klog.Errorf("check %+v object %v err %v", metricItem.GetName(), objName, err)
@@ -385,23 +376,6 @@ func (l *LocalMemoryMetricStore) parseMetricSeries(series *data.MetricSeries) (t
 		res.AddMetric(&types.SeriesItem{Value: m.Data, Timestamp: m.Timestamp})
 	}
 	return res, true
-}
-
-// checkInternalMetricMatchedWithMetricInfo checks if the internal matches with metric info
-// if not, return an error to represent the unmatched reasons
-func (l *LocalMemoryMetricStore) checkInternalMetricMatchedWithMetricInfo(internal types.Metric, namespace string,
-	metricSelector labels.Selector) (bool, error) {
-	if namespace != "" && namespace != "*" && namespace != internal.GetObjectNamespace() {
-		klog.V(5).Infof("%v namespace %v not match metric namespace %v", internal.GetName(), namespace, internal.GetObjectNamespace())
-		return false, nil
-	}
-
-	if !metricSelector.Matches(labels.Set(internal.GetLabels())) {
-		klog.V(5).Infof("%v metricSelector %v not match label %v", internal.GetName(), metricSelector, internal.GetLabels())
-		return false, nil
-	}
-
-	return true, nil
 }
 
 // checkInternalMetricMatchedWithObject checks if the internal matches with kubernetes object
