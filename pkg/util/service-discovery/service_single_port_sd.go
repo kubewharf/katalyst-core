@@ -90,10 +90,10 @@ func (s *serviceSinglePortSDManager) GetEndpoints() ([]string, error) {
 
 	var res []string
 	for i := range eps.Subsets {
-		if url, err := s.getValidAddresses(&eps.Subsets[i]); err != nil {
+		if urls, err := s.getValidAddresses(&eps.Subsets[i]); err != nil {
 			klog.Errorf("subsets %v get valid address err: %v", eps.Subsets[i].String(), err)
 		} else {
-			res = append(res, url)
+			res = append(res, urls...)
 		}
 	}
 	return res, nil
@@ -106,7 +106,8 @@ func (s *serviceSinglePortSDManager) Run() error {
 	return nil
 }
 
-func (s *serviceSinglePortSDManager) getValidAddresses(ss *v1.EndpointSubset) (string, error) {
+func (s *serviceSinglePortSDManager) getValidAddresses(ss *v1.EndpointSubset) ([]string, error) {
+	results := make([]string, 0)
 	for i := range ss.Ports {
 		if ss.Ports[i].Name == s.portName {
 			for _, address := range ss.Addresses {
@@ -115,12 +116,17 @@ func (s *serviceSinglePortSDManager) getValidAddresses(ss *v1.EndpointSubset) (s
 					if conn != nil {
 						_ = conn.Close()
 					}
-					return url, nil
+					results = append(results, url)
 				} else {
 					klog.Errorf("dial %v failed: %v", url, err)
 				}
 			}
 		}
 	}
-	return "", fmt.Errorf("invalid endpoint exits")
+
+	if len(results) == 0 {
+		return results, fmt.Errorf("no valid endpoint exists")
+	} else {
+		return results, nil
+	}
 }
