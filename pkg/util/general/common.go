@@ -90,6 +90,14 @@ func MinUInt64(a, b uint64) uint64 {
 	}
 }
 
+func MinInt64(a, b int64) int64 {
+	if a <= b {
+		return a
+	} else {
+		return b
+	}
+}
+
 func MinUInt32(a, b uint32) uint32 {
 	if a <= b {
 		return a
