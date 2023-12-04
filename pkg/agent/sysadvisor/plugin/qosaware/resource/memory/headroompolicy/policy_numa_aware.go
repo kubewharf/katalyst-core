@@ -19,6 +19,7 @@ package headroompolicy
 import (
 	"context"
 	"fmt"
+	"math"
 
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/util/errors"
@@ -155,7 +156,7 @@ func (p *PolicyNUMAAware) Update() (err error) {
 		"ReservedForAllocate", general.FormatMemoryQuantity(p.essentials.ReservedForAllocate),
 		"ReservedForWatermark", general.FormatMemoryQuantity(systemWatermarkReserved),
 		"ResourceUpperBound", general.FormatMemoryQuantity(p.essentials.ResourceUpperBound))
-	p.memoryHeadroom = general.Clamp(reclaimableMemory-p.essentials.ReservedForAllocate-systemWatermarkReserved, 0, p.essentials.ResourceUpperBound)
+	p.memoryHeadroom = math.Max(reclaimableMemory-p.essentials.ReservedForAllocate-systemWatermarkReserved, 0)
 
 	return nil
 }
