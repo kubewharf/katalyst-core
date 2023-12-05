@@ -37,6 +37,8 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/util/qos"
 )
 
+const EvictionNameSuppression = "cpu-pressure-suppression-plugin"
+
 type CPUPressureSuppression struct {
 	conf  *config.Configuration
 	state state.ReadonlyState
@@ -45,15 +47,21 @@ type CPUPressureSuppression struct {
 }
 
 func NewCPUPressureSuppressionEviction(_ metrics.MetricEmitter, _ *metaserver.MetaServer,
-	conf *config.Configuration, state state.ReadonlyState) CPUPressureForceEviction {
+	conf *config.Configuration, state state.ReadonlyState) (CPUPressureEviction, error) {
 	return &CPUPressureSuppression{
 		conf:  conf,
 		state: state,
-	}
+	}, nil
 }
 
 func (p *CPUPressureSuppression) Start(context.Context) error { return nil }
-func (p *CPUPressureSuppression) Name() string                { return "pressure-suppression" }
+func (p *CPUPressureSuppression) Name() string                { return EvictionNameSuppression }
+func (p *CPUPressureSuppression) ThresholdMet(ctx context.Context, empty *pluginapi.Empty) (*pluginapi.ThresholdMetResponse, error) {
+	return &pluginapi.ThresholdMetResponse{}, nil
+}
+func (p *CPUPressureSuppression) GetTopEvictionPods(ctx context.Context, request *pluginapi.GetTopEvictionPodsRequest) (*pluginapi.GetTopEvictionPodsResponse, error) {
+	return &pluginapi.GetTopEvictionPodsResponse{}, nil
+}
 
 func (p *CPUPressureSuppression) GetEvictPods(_ context.Context, request *pluginapi.GetEvictPodsRequest) (*pluginapi.GetEvictPodsResponse, error) {
 	if request == nil {
