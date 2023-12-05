@@ -57,13 +57,14 @@ func (p *CPUPressureSuppression) Name() string                { return "pressure
 
 func (p *CPUPressureSuppression) GetEvictPods(_ context.Context, request *pluginapi.GetEvictPodsRequest) (*pluginapi.GetEvictPodsResponse, error) {
 	if request == nil {
-		return nil, fmt.Errorf("GetTopEvictionPods got nil request")
+		return nil, fmt.Errorf("GetEvictPods got nil request")
 	}
 
 	dynamicConfig := p.conf.GetDynamicConfiguration()
 	if !dynamicConfig.EnableSuppressionEviction {
 		return &pluginapi.GetEvictPodsResponse{}, nil
 	}
+	general.InfoS("cpu suppression enabled")
 
 	// only reclaim pool support suppression tolerance eviction
 	entries := p.state.GetPodEntries()
@@ -75,6 +76,7 @@ func (p *CPUPressureSuppression) GetEvictPods(_ context.Context, request *plugin
 	// skip evict pods if pool size is zero
 	poolSize := poolCPUSet.Size()
 	if poolSize == 0 {
+		general.Errorf("reclaim pool set size is empty")
 		return &pluginapi.GetEvictPodsResponse{}, nil
 	}
 
@@ -94,6 +96,7 @@ func (p *CPUPressureSuppression) GetEvictPods(_ context.Context, request *plugin
 	for _, pod := range filteredPods {
 		totalCPURequest.Add(native.GetCPUQuantity(native.SumUpPodRequestResources(pod)))
 	}
+	general.Infof("total cpu request is %v, reclaim pool size is %v", totalCPURequest.String(), poolSize)
 
 	now := time.Now()
 	var evictPods []*v1alpha1.EvictPod
