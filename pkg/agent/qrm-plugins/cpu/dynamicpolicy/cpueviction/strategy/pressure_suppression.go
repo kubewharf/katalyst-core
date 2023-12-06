@@ -102,7 +102,7 @@ func (p *CPUPressureSuppression) GetEvictPods(_ context.Context, request *plugin
 	// sum all pod cpu request
 	totalCPURequest := resource.Quantity{}
 	for _, pod := range filteredPods {
-		totalCPURequest.Add(native.GetCPUQuantity(native.SumUpPodRequestResources(pod)))
+		totalCPURequest.Add(native.CPUQuantityGetter()(native.SumUpPodRequestResources(pod)))
 	}
 	general.Infof("total cpu request is %v, reclaim pool size is %v", totalCPURequest.String(), poolSize)
 
@@ -126,7 +126,7 @@ func (p *CPUPressureSuppression) GetEvictPods(_ context.Context, request *plugin
 					Reason: fmt.Sprintf("current pool suppression rate %.2f is over than the "+
 						"pod suppression tolerance rate %.2f", poolSuppressionRate, podToleranceRate),
 				})
-				totalCPURequest.Sub(native.GetCPUQuantity(native.SumUpPodRequestResources(pod)))
+				totalCPURequest.Sub(native.CPUQuantityGetter()(native.SumUpPodRequestResources(pod)))
 			}
 		} else {
 			p.lastToleranceTime.Delete(key)
