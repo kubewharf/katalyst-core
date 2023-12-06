@@ -56,10 +56,10 @@ func NewCPUPressureSuppressionEviction(_ metrics.MetricEmitter, _ *metaserver.Me
 
 func (p *CPUPressureSuppression) Start(context.Context) error { return nil }
 func (p *CPUPressureSuppression) Name() string                { return EvictionNameSuppression }
-func (p *CPUPressureSuppression) ThresholdMet(ctx context.Context, empty *pluginapi.Empty) (*pluginapi.ThresholdMetResponse, error) {
+func (p *CPUPressureSuppression) ThresholdMet(_ context.Context, _ *pluginapi.Empty) (*pluginapi.ThresholdMetResponse, error) {
 	return &pluginapi.ThresholdMetResponse{}, nil
 }
-func (p *CPUPressureSuppression) GetTopEvictionPods(ctx context.Context, request *pluginapi.GetTopEvictionPodsRequest) (*pluginapi.GetTopEvictionPodsResponse, error) {
+func (p *CPUPressureSuppression) GetTopEvictionPods(_ context.Context, _ *pluginapi.GetTopEvictionPodsRequest) (*pluginapi.GetTopEvictionPodsResponse, error) {
 	return &pluginapi.GetTopEvictionPodsResponse{}, nil
 }
 
@@ -97,6 +97,7 @@ func (p *CPUPressureSuppression) GetEvictPods(_ context.Context, request *plugin
 	general.NewMultiSorter(
 		general.ReverseCmpFunc(native.PodCPURequestCmpFunc),
 		general.ReverseCmpFunc(native.PodPriorityCmpFunc),
+		native.PodUniqKeyCmpFunc,
 	).Sort(native.NewPodSourceImpList(filteredPods))
 
 	// sum all pod cpu request
@@ -104,7 +105,7 @@ func (p *CPUPressureSuppression) GetEvictPods(_ context.Context, request *plugin
 	for _, pod := range filteredPods {
 		totalCPURequest.Add(native.CPUQuantityGetter()(native.SumUpPodRequestResources(pod)))
 	}
-	general.Infof("total cpu request is %v, reclaim pool size is %v", totalCPURequest.String(), poolSize)
+	general.Infof("total reclaim cpu request is %v, reclaim pool size is %v", totalCPURequest.String(), poolSize)
 
 	now := time.Now()
 	var evictPods []*v1alpha1.EvictPod

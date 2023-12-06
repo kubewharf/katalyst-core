@@ -137,6 +137,19 @@ func CmpInt32(a, b int32) int {
 	return -1
 }
 
+// CmpString compares strings, placing greater before smaller
+func CmpString(a, b string) int {
+	if a == b {
+		return 0
+	}
+
+	if a < b {
+		return 1
+	}
+
+	return -1
+}
+
 func ReverseCmpFunc(cmpFunc CmpFunc) CmpFunc {
 	return func(i1, i2 interface{}) int {
 		return -cmpFunc(i1, i2)
