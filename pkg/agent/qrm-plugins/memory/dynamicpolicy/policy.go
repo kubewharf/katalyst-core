@@ -850,7 +850,7 @@ func (p *DynamicPolicy) getContainerRequestedMemoryBytes(allocationInfo *state.A
 		return 0
 	}
 
-	memoryQuantity := native.GetMemoryQuantity(container.Resources.Requests)
+	memoryQuantity := native.MemoryQuantityGetter()(container.Resources.Requests)
 	requestBytes := general.Max(int(memoryQuantity.Value()), 0)
 
 	general.Infof("get memory request bytes: %d for pod: %s/%s container: %s from podWatcher",

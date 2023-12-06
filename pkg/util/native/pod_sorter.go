@@ -61,8 +61,8 @@ func PodCPURequestCmpFunc(i1, i2 interface{}) int {
 	p1Request := SumUpPodRequestResources(i1.(*v1.Pod))
 	p2Request := SumUpPodRequestResources(i2.(*v1.Pod))
 
-	p1CPUQuantity := GetCPUQuantity(p1Request)
-	p2CPUQuantity := GetCPUQuantity(p2Request)
+	p1CPUQuantity := CPUQuantityGetter()(p1Request)
+	p2CPUQuantity := CPUQuantityGetter()(p2Request)
 
 	return p1CPUQuantity.Cmp(p2CPUQuantity)
 }

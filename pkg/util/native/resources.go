@@ -21,6 +21,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -29,6 +30,72 @@ import (
 	"github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 )
+
+type QuantityGetter func(resourceList v1.ResourceList) resource.Quantity
+
+var (
+	quantityGetterMutex  = sync.RWMutex{}
+	cpuQuantityGetter    = DefaultCPUQuantityGetter
+	memoryQuantityGetter = DefaultMemoryQuantityGetter
+)
+
+func CPUQuantityGetter() QuantityGetter {
+	quantityGetterMutex.RLock()
+	defer quantityGetterMutex.RUnlock()
+
+	return cpuQuantityGetter
+}
+
+func SetCPUQuantityGetter(getter QuantityGetter) {
+	quantityGetterMutex.Lock()
+	defer quantityGetterMutex.Unlock()
+
+	cpuQuantityGetter = getter
+}
+
+func MemoryQuantityGetter() QuantityGetter {
+	quantityGetterMutex.RLock()
+	defer quantityGetterMutex.RUnlock()
+
+	return memoryQuantityGetter
+}
+
+func SetMemoryQuantityGetter(getter QuantityGetter) {
+	quantityGetterMutex.Lock()
+	defer quantityGetterMutex.Unlock()
+
+	memoryQuantityGetter = getter
+}
+
+// DefaultCPUQuantityGetter returns cpu quantity for resourceList. since we may have
+// different representations for cpu resource name, the prioritizes will be:
+// native cpu name -> reclaimed milli cpu name
+func DefaultCPUQuantityGetter(resourceList v1.ResourceList) resource.Quantity {
+	if quantity, ok := resourceList[v1.ResourceCPU]; ok {
+		return quantity
+	}
+
+	if quantity, ok := resourceList[consts.ReclaimedResourceMilliCPU]; ok {
+		return *resource.NewMilliQuantity(quantity.Value(), quantity.Format)
+	}
+
+	return resource.Quantity{}
+}
+
+// DefaultMemoryQuantityGetter returns memory quantity for resourceList. since we may have
+// different representations for memory resource name, the prioritizes will be:
+// native memory name -> reclaimed memory name
+func DefaultMemoryQuantityGetter(resourceList v1.ResourceList) resource.Quantity {
+	if quantity, ok := resourceList[v1.ResourceMemory]; ok {
+		return quantity
+	}
+
+	if quantity, ok := resourceList[consts.ReclaimedResourceMemory]; ok {
+		return quantity
+	}
+
+	return resource.Quantity{}
+}
 
 // ResourceThreshold is map of resource name to threshold of water level
 type ResourceThreshold map[v1.ResourceName]float64
@@ -93,36 +160,6 @@ func AddResources(a, b v1.ResourceList) v1.ResourceList {
 		res[resourceName] = quantity
 	}
 	return res
-}
-
-// GetCPUQuantity returns cpu quantity for resourceList. since we may have
-// different representations for cpu resource name, the prioritizes will be:
-// native cpu name -> reclaimed milli cpu name
-func GetCPUQuantity(resourceList v1.ResourceList) resource.Quantity {
-	if quantity, ok := resourceList[v1.ResourceCPU]; ok {
-		return quantity
-	}
-
-	if quantity, ok := resourceList[consts.ReclaimedResourceMilliCPU]; ok {
-		return *resource.NewMilliQuantity(quantity.Value(), quantity.Format)
-	}
-
-	return resource.Quantity{}
-}
-
-// GetMemoryQuantity returns memory quantity for resourceList. since we may have
-// different representations for memory resource name, the prioritizes will be:
-// native memory name -> reclaimed memory name
-func GetMemoryQuantity(resourceList v1.ResourceList) resource.Quantity {
-	if quantity, ok := resourceList[v1.ResourceMemory]; ok {
-		return quantity
-	}
-
-	if quantity, ok := resourceList[consts.ReclaimedResourceMemory]; ok {
-		return quantity
-	}
-
-	return resource.Quantity{}
 }
 
 // MergeResources merge multi ResourceList into one ResourceList, the resource of
