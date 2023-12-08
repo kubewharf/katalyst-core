@@ -435,6 +435,9 @@ func (na *NUMAInterPodAffinity) Filter(ctx context.Context, cycleState *framewor
 			numaList = append(numaList, numaID)
 		}
 	}
+	if len(numaList) == 0 {
+		return framework.NewStatus(framework.Unschedulable, ErrGetNodeResourceTopology)
+	}
 
 	podAffinity, err := affinityutil.UnmarshalAffinity(pod.Annotations)
 	if err != nil {

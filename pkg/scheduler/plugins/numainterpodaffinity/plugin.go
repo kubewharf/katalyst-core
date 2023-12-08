@@ -28,6 +28,7 @@ const (
 
 	ErrNUMAInterPodAffinityNotMatch = "node(s) didn't satisfy numa level inter pod affinity rules"
 	ErrGetPreFilterState            = "getPreFilterState failed"
+	ErrGetNodeResourceTopology      = "failed to get Node Resource Topology from cache"
 )
 
 type NUMAInterPodAffinity struct {

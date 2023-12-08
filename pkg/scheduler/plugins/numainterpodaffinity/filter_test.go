@@ -642,7 +642,3 @@ func TestFilter(t *testing.T) {
 		}
 	}
 }
-
-// func TestParallizer(t *testing.T) {
-
-// }
