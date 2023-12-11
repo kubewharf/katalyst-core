@@ -17,6 +17,8 @@ limitations under the License.
 package borwein
 
 import (
+	"fmt"
+
 	"github.com/spf13/pflag"
 
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/sysadvisor/qosaware/model/borwein"
@@ -64,7 +66,7 @@ func (o *BorweinOptions) ApplyTo(c *borwein.BorweinConfiguration) error {
 	} else if len(o.FeatureDescriptionFilePath) > 0 {
 		err := general.LoadJsonConfig(o.FeatureDescriptionFilePath, &FeatureJSONStruct)
 		if err != nil {
-			return err
+			return fmt.Errorf("failed to load borwein features, err: %v", err)
 		}
 
 		c.NodeFeatureNames = FeatureJSONStruct.NodeFeatureNames

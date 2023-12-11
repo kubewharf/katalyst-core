@@ -190,11 +190,11 @@ const (
 	MetricCPUL2CacheMissContainer  = "cpu.l2cachemiss.container"
 	MetricCPUL3CacheMissContainer  = "cpu.l3cachemiss.container"
 
-	MetricCPUCyclesRateContainer       = "cpu.cycles.container" + Rate
-	MetricCPUInstructionsRateContainer = "cpu.instructions.container" + Rate
-	MetricCPUICacheMissRateContainer   = "cpu.icachemiss.container" + Rate
-	MetricCPUL2CacheMissRateContainer  = "cpu.l2cachemiss.container" + Rate
-	MetricCPUL3CacheMissRateContainer  = "cpu.l3cachemiss.container" + Rate
+	MetricCPUCyclesRateContainer       = MetricCPUCyclesContainer + Rate
+	MetricCPUInstructionsRateContainer = MetricCPUInstructionsContainer + Rate
+	MetricCPUICacheMissRateContainer   = MetricCPUICacheMissContainer + Rate
+	MetricCPUL2CacheMissRateContainer  = MetricCPUL2CacheMissContainer + Rate
+	MetricCPUL3CacheMissRateContainer  = MetricCPUL3CacheMissContainer + Rate
 )
 
 // container per numa metrics

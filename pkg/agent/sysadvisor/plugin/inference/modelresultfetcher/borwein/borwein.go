@@ -23,7 +23,6 @@ import (
 	"time"
 
 	"k8s.io/apimachinery/pkg/util/wait"
-	"k8s.io/klog/v2"
 	"k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 
 	//nolint
@@ -294,8 +293,6 @@ func (bmrf *BorweinModelResultFetcher) getInferenceRequestForPods(requestContain
 
 		req.PodRequestEntries[containerInfo.PodUID].ContainerFeatureValues[containerInfo.ContainerName] = unionFeatureValues
 	}
-
-	klog.Infof("the requested pod: %+v", req.PodRequestEntries)
 
 	return req, nil
 }
