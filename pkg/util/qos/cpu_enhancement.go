@@ -25,6 +25,7 @@ import (
 
 	"github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/config/generic"
+	"github.com/kubewharf/katalyst-core/pkg/util/qos/helper"
 )
 
 // GetPodCPUSuppressionToleranceRate parses cpu suppression tolerance rate for the given pod,
@@ -36,7 +37,8 @@ func GetPodCPUSuppressionToleranceRate(qosConf *generic.QoSConfiguration, pod *v
 		return 0, fmt.Errorf("qos level %s not support cpu suppression", qosLevel)
 	}
 
-	cpuEnhancement := ParseKatalystQOSEnhancement(qosConf.GetQoSEnhancementsForPod(pod), consts.PodAnnotationCPUEnhancementKey)
+	cpuEnhancement := helper.ParseKatalystQOSEnhancement(qosConf.GetQoSEnhancementsForPod(pod), pod.Annotations,
+		consts.PodAnnotationCPUEnhancementKey)
 	suppressionToleranceRateStr, ok := cpuEnhancement[consts.PodAnnotationCPUEnhancementSuppressionToleranceRate]
 	if ok {
 		suppressionToleranceRate, err := strconv.ParseFloat(suppressionToleranceRateStr, 64)
