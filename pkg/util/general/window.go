@@ -36,6 +36,8 @@ type SmoothWindow interface {
 	// GetWindowedResources receives a sample and returns the result after smoothing,
 	// it can return nil if there are not enough samples in this window
 	GetWindowedResources(value resource.Quantity) *resource.Quantity
+
+	Empty() bool
 }
 
 type SmoothWindowOpts struct {
@@ -101,14 +103,77 @@ func (m *CappedSmoothWindow) GetWindowedResources(value resource.Quantity) *reso
 	return &ret
 }
 
-type averageWithTTLSmoothWindow struct {
-	sync.Mutex
+type TTLSmoothWindow struct {
+	sync.RWMutex
 	windowSize    int
 	ttl           time.Duration
 	usedMillValue bool
 
 	index   int
 	samples []*sample
+}
+
+func (w *TTLSmoothWindow) getValidSamples() []resource.Quantity {
+	w.RWMutex.RLock()
+	defer w.RWMutex.RUnlock()
+
+	timestamp := time.Now()
+
+	validSamples := make([]resource.Quantity, 0)
+	for _, s := range w.samples {
+		if s != nil && s.timestamp.Add(w.ttl).After(timestamp) {
+			validSamples = append(validSamples, s.value)
+		}
+	}
+	return validSamples
+}
+
+func (w *TTLSmoothWindow) pushSample(value resource.Quantity) {
+	w.RWMutex.Lock()
+	defer w.RWMutex.Unlock()
+
+	timestamp := time.Now()
+	w.samples[w.index] = &sample{
+		value:     value,
+		timestamp: timestamp,
+	}
+
+	w.index++
+	if w.index >= w.windowSize {
+		w.index = 0
+	}
+}
+
+func (w *TTLSmoothWindow) Empty() bool {
+	validSamples := w.getValidSamples()
+	return len(validSamples) == 0
+}
+
+func NewTTLSmoothWindow(windowSize int, ttl time.Duration, usedMillValue bool) *TTLSmoothWindow {
+	return &TTLSmoothWindow{
+		windowSize:    windowSize,
+		ttl:           ttl,
+		usedMillValue: usedMillValue,
+		index:         0,
+		samples:       make([]*sample, windowSize),
+	}
+}
+
+type averageWithTTLSmoothWindow struct {
+	*TTLSmoothWindow
+}
+
+func (w *averageWithTTLSmoothWindow) getValueByAvg(values []resource.Quantity) resource.Quantity {
+	count := 0
+	total := resource.Quantity{}
+
+	for _, value := range values {
+		count++
+		total.Add(value)
+	}
+
+	avg := total.AsApproximateFloat64() / float64(count)
+	return *resource.NewMilliQuantity(int64(avg*1000), resource.DecimalSI)
 }
 
 type sample struct {
@@ -136,60 +201,33 @@ func NewAggregatorSmoothWindow(opts SmoothWindowOpts) SmoothWindow {
 // whether calculate the result with milli-value.
 func NewAverageWithTTLSmoothWindow(windowSize int, ttl time.Duration, usedMillValue bool) SmoothWindow {
 	return &averageWithTTLSmoothWindow{
-		windowSize:    windowSize,
-		ttl:           ttl,
-		usedMillValue: usedMillValue,
-		index:         0,
-		samples:       make([]*sample, windowSize),
+		TTLSmoothWindow: NewTTLSmoothWindow(windowSize, ttl, usedMillValue),
 	}
 }
 
 // GetWindowedResources inserts a sample, and returns the smoothed result by average all the valid samples.
 func (w *averageWithTTLSmoothWindow) GetWindowedResources(value resource.Quantity) *resource.Quantity {
-	w.Mutex.Lock()
-	defer w.Mutex.Unlock()
-
-	timestamp := time.Now()
-	w.samples[w.index] = &sample{
-		value:     value,
-		timestamp: timestamp,
-	}
-
-	w.index++
-	if w.index >= w.windowSize {
-		w.index = 0
-	}
-
-	total := resource.Quantity{}
-	count := int64(0)
-	for _, s := range w.samples {
-		if s != nil && s.timestamp.Add(w.ttl).After(timestamp) {
-			total.Add(s.value)
-			count++
-		}
-	}
+	w.pushSample(value)
+	validSamples := w.getValidSamples()
 
 	// if count of valid sample is not enough just return nil
-	if count != int64(w.windowSize) {
+	if len(validSamples) != w.windowSize {
 		return nil
 	}
 
+	v := w.getValueByAvg(validSamples)
+
 	if w.usedMillValue {
-		return resource.NewMilliQuantity(total.MilliValue()/count, value.Format)
+		return resource.NewMilliQuantity(v.MilliValue(), value.Format)
 	}
 
-	return resource.NewQuantity(total.Value()/count, value.Format)
+	return resource.NewQuantity(v.Value(), value.Format)
 }
 
 type percentileWithTTLSmoothWindow struct {
-	sync.Mutex
-	windowSize    int
-	percentile    float64
-	ttl           time.Duration
-	usedMillValue bool
+	*TTLSmoothWindow
 
-	index   int
-	samples []*sample
+	percentile float64
 }
 
 // NewPercentileWithTTLSmoothWindow create a smooth window with ttl and window size, and the window size
@@ -197,37 +235,15 @@ type percentileWithTTLSmoothWindow struct {
 // whether calculate the result with milli-value.
 func NewPercentileWithTTLSmoothWindow(windowSize int, ttl time.Duration, percentile float64, usedMillValue bool) SmoothWindow {
 	return &percentileWithTTLSmoothWindow{
-		windowSize:    windowSize,
-		percentile:    percentile,
-		ttl:           ttl,
-		usedMillValue: usedMillValue,
-		index:         0,
-		samples:       make([]*sample, windowSize),
+		TTLSmoothWindow: NewTTLSmoothWindow(windowSize, ttl, usedMillValue),
+		percentile:      percentile,
 	}
 }
 
 // GetWindowedResources inserts a sample, and returns the smoothed result by average all the valid samples.
 func (w *percentileWithTTLSmoothWindow) GetWindowedResources(value resource.Quantity) *resource.Quantity {
-	w.Mutex.Lock()
-	defer w.Mutex.Unlock()
-
-	timestamp := time.Now()
-	w.samples[w.index] = &sample{
-		value:     value,
-		timestamp: timestamp,
-	}
-
-	w.index++
-	if w.index >= w.windowSize {
-		w.index = 0
-	}
-
-	validSamples := make([]resource.Quantity, 0)
-	for _, s := range w.samples {
-		if s != nil && s.timestamp.Add(w.ttl).After(timestamp) {
-			validSamples = append(validSamples, s.value)
-		}
-	}
+	w.pushSample(value)
+	validSamples := w.getValidSamples()
 
 	// if count of valid sample is not enough just return nil
 	if len(validSamples) != w.windowSize {

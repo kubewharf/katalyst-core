@@ -20,6 +20,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"k8s.io/apimachinery/pkg/api/resource"
 )
@@ -247,6 +248,73 @@ func TestPercentileWithTTLSmoothWindow(t *testing.T) {
 					require.Equal(t, tt.wantValues[i].MilliValue(), ret.MilliValue())
 				}
 			}
+		})
+	}
+}
+
+func TestWindowEmpty(t *testing.T) {
+	t.Parallel()
+
+	type args struct {
+		windowSize int
+		ttl        time.Duration
+		percentile float64
+		samples    []*sample
+	}
+	tests := []struct {
+		name string
+		args args
+		want bool
+	}{
+		{
+			name: "empty",
+			args: args{
+				windowSize: 10,
+				ttl:        111111 * time.Second,
+				percentile: 20,
+				samples:    []*sample{},
+			},
+			want: true,
+		},
+		{
+			name: "samples all expired",
+			args: args{
+				windowSize: 10,
+				ttl:        111111 * time.Second,
+				percentile: 20,
+				samples: []*sample{
+					{
+						resource.MustParse("1"),
+						time.Date(2000, 0, 0, 0, 0, 0, 0, time.UTC),
+					},
+				},
+			},
+			want: true,
+		},
+		{
+			name: "have valid sample",
+			args: args{
+				windowSize: 10,
+				ttl:        111111 * time.Second,
+				percentile: 20,
+				samples: []*sample{
+					{
+						resource.MustParse("1"),
+						time.Now(),
+					},
+				},
+			},
+			want: false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			w := NewPercentileWithTTLSmoothWindow(tt.args.windowSize, tt.args.ttl, tt.args.percentile, true)
+			window := w.(*percentileWithTTLSmoothWindow)
+			window.samples = tt.args.samples
+
+			assert.Equal(t, tt.want, window.Empty())
+			window.Empty()
 		})
 	}
 }
