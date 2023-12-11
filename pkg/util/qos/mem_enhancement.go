@@ -23,10 +23,14 @@ import (
 
 	apiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/config/generic"
+	"github.com/kubewharf/katalyst-core/pkg/util/qos/helper"
 )
 
 func ParseMemoryEnhancement(qosConf *generic.QoSConfiguration, pod *v1.Pod) map[string]string {
-	return ParseKatalystQOSEnhancement(qosConf.GetQoSEnhancementsForPod(pod), apiconsts.PodAnnotationMemoryEnhancementKey)
+	if pod == nil || qosConf == nil {
+		return nil
+	}
+	return helper.ParseKatalystQOSEnhancement(qosConf.GetQoSEnhancementsForPod(pod), pod.Annotations, apiconsts.PodAnnotationMemoryEnhancementKey)
 }
 
 // IsPodNumaBinding checks whether the pod needs numa-binding
