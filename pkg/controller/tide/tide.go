@@ -33,7 +33,6 @@ import (
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/autoscaler/cluster-autoscaler/simulator"
-	coreinformers "k8s.io/client-go/informers/core/v1"
 	corelisters "k8s.io/client-go/listers/core/v1"
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/util/workqueue"
@@ -43,10 +42,9 @@ import (
 	nodeutil "sigs.k8s.io/descheduler/pkg/descheduler/node"
 
 	apis "github.com/kubewharf/katalyst-api/pkg/apis/tide/v1alpha1"
-	informers "github.com/kubewharf/katalyst-api/pkg/client/informers/externalversions/tide/v1alpha1"
 	listers "github.com/kubewharf/katalyst-api/pkg/client/listers/tide/v1alpha1"
+	katalystbase "github.com/kubewharf/katalyst-core/cmd/base"
 	"github.com/kubewharf/katalyst-core/pkg/client"
-	"github.com/kubewharf/katalyst-core/pkg/client/control"
 	"github.com/kubewharf/katalyst-core/pkg/config/controller"
 	"github.com/kubewharf/katalyst-core/pkg/config/generic"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
@@ -77,10 +75,9 @@ type NodeUsage struct {
 type Tide struct {
 	ctx context.Context
 
-	client     *client.GenericClientSet
-	cnrControl control.CNRControl
+	client *client.GenericClientSet
 
-	checker *simulator.SchedulerBasedPredicateChecker
+	checker simulator.PredicateChecker
 
 	nodeListerSynced cache.InformerSynced
 	nodeLister       corelisters.NodeLister
@@ -97,54 +94,42 @@ type Tide struct {
 }
 
 func NewTide(ctx context.Context,
-	genericConf *generic.GenericConfiguration,
-	_ *controller.GenericControllerConfiguration,
-	client *client.GenericClientSet,
-	nodeInformer coreinformers.NodeInformer,
-	podInformer coreinformers.PodInformer,
-	tideInformer informers.TideNodePoolInformer,
-	metricsEmitter metrics.MetricEmitter) (*Tide, error) {
+	controlCtx *katalystbase.GenericContext,
+	_ *generic.GenericConfiguration,
+	_ *controller.GenericControllerConfiguration) (*Tide, error) {
 
 	tide := &Tide{
 		ctx:    ctx,
-		client: client,
+		client: controlCtx.Client,
 		syncQueue: workqueue.NewNamedRateLimitingQueue(workqueue.DefaultControllerRateLimiter(),
 			tideControllerName),
 	}
-	checker, err := simulator.NewSchedulerBasedPredicateChecker(client.KubeClient, ctx.Done())
+	checker, err := simulator.NewSchedulerBasedPredicateChecker(controlCtx.Client.KubeClient, ctx.Done())
 	if err != nil {
 		return nil, err
 	}
 	tide.checker = checker
 
-	nodeInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
+	controlCtx.KubeInformerFactory.Core().V1().Nodes().Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc:    tide.addNodeEventHandle,
 		UpdateFunc: tide.updateNodeEventHandle,
 	})
-	tide.nodeListerSynced = nodeInformer.Informer().HasSynced
-	tide.nodeLister = nodeInformer.Lister()
+	tide.nodeListerSynced = controlCtx.KubeInformerFactory.Core().V1().Nodes().Informer().HasSynced
+	tide.nodeLister = controlCtx.KubeInformerFactory.Core().V1().Nodes().Lister()
 
-	tide.podListerSynced = podInformer.Informer().HasSynced
-	tide.podLister = podInformer.Lister()
+	tide.podListerSynced = controlCtx.KubeInformerFactory.Core().V1().Pods().Informer().HasSynced
+	tide.podLister = controlCtx.KubeInformerFactory.Core().V1().Pods().Lister()
 
-	tideInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
+	controlCtx.InternalInformerFactory.Tide()
+	controlCtx.InternalInformerFactory.Tide().V1alpha1().TideNodePools().Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc:    tide.addTideNodePoolEventHandle,
 		UpdateFunc: tide.updateTideNodePoolEventHandle,
 		DeleteFunc: tide.deleteTideNodePoolEventHandle,
 	})
-	tide.tideLister = tideInformer.Lister()
-	tide.tideListerSynced = tideInformer.Informer().HasSynced
+	tide.tideLister = controlCtx.InternalInformerFactory.Tide().V1alpha1().TideNodePools().Lister()
+	tide.tideListerSynced = controlCtx.InternalInformerFactory.Tide().V1alpha1().TideNodePools().Informer().HasSynced
 
-	if metricsEmitter == nil {
-		tide.metricsEmitter = metrics.DummyMetrics{}
-	} else {
-		tide.metricsEmitter = metricsEmitter.WithTags(tideControllerName)
-	}
-
-	tide.cnrControl = control.DummyCNRControl{}
-	if !genericConf.DryRun {
-		tide.cnrControl = control.NewCNRControlImpl(client.InternalClient)
-	}
+	tide.metricsEmitter = controlCtx.EmitterPool.GetDefaultMetricsEmitter()
 
 	return tide, nil
 }
@@ -216,7 +201,7 @@ func (t *Tide) addTideNodePoolEventHandle(obj interface{}) {
 		klog.Errorf("cannot convert obj to *apis.TideNodePool: %v", obj)
 		return
 	}
-	klog.V(4).Infof("notice addition of cnr %s", c.Name)
+	klog.V(4).Infof("notice addition of tide node pool %s", c.Name)
 
 	t.enqueueWorkItem(obj)
 }
@@ -227,7 +212,7 @@ func (t *Tide) updateTideNodePoolEventHandle(_, new interface{}) {
 		klog.Errorf("cannot convert oldObj to *apis.TideNodePool: %v", c)
 		return
 	}
-	klog.V(4).Infof("notice addition of cnr %s", c.Name)
+	klog.V(4).Infof("notice addition of tide node pool %s", c.Name)
 
 	t.enqueueWorkItem(new)
 }
@@ -235,10 +220,10 @@ func (t *Tide) updateTideNodePoolEventHandle(_, new interface{}) {
 func (t *Tide) deleteTideNodePoolEventHandle(obj interface{}) {
 	c, ok := obj.(*apis.TideNodePool)
 	if !ok {
-		klog.Errorf("cannot convert oldObj to *apis.CNR: %v", c)
+		klog.Errorf("cannot convert oldObj to *apis.TideNodePool: %v", c)
 		return
 	}
-	klog.V(4).Infof("notice addition of cnr %s", c.Name)
+	klog.V(4).Infof("notice addition of tide node pool %s", c.Name)
 
 	t.enqueueWorkItem(obj)
 
@@ -360,7 +345,7 @@ func (t *Tide) Reconcile(ctx context.Context, tideNodePool *apis.TideNodePool) e
 			return err
 		}
 	}
-	// 处理回收流程
+	// process deletion
 	if !tideNodePool.DeletionTimestamp.IsZero() {
 		return t.reconcileDelete(ctx, tideNodePool)
 	}
@@ -426,9 +411,7 @@ func (t *Tide) Reconcile(ctx context.Context, tideNodePool *apis.TideNodePool) e
 			tideNodes = append(tideNodes, unknownNodes[i])
 		}
 	}
-	/*	if err := r.patchDeployments(ctx, tideNodePool); err != nil {
-		return ctrl.Result{}, err
-	}*/
+
 	if err := t.UpdateStatusByNodes(ctx, tideNodePool, reverseOnlineNodes, reverseOfflineNodes, tideNodes); err != nil {
 		return err
 	}
@@ -553,119 +536,96 @@ func (t *Tide) RunOnce(ctx context.Context, onlinePodChecker OnlinePodChecker, t
 	if err != nil {
 		return err
 	}
-	// 假设在线业务 pending，优先处理在线业务 pending 问题
+	// assuming that the online business is pending
+	// prioritizing the resolution of the online business pending issue is recommended
 	if len(pendingPods) != 0 {
 		offlineNodesInfos, err := getNodeUsageWithSelector(clusterSnapshot, []corev1.ResourceName{"cpu", "memory"}, tideNodePool.GetOfflineTideNodeSelector())
 		if err != nil {
 			return err
 		}
-		// 节点按照 使用率排序
-		sort.Slice(offlineNodesInfos, func(i, j int) bool {
-			ti := offlineNodesInfos[i].usage[corev1.ResourceMemory].Value() + offlineNodesInfos[i].usage[corev1.ResourceCPU].MilliValue() + offlineNodesInfos[i].usage[corev1.ResourcePods].Value()
-			tj := offlineNodesInfos[j].usage[corev1.ResourceMemory].Value() + offlineNodesInfos[j].usage[corev1.ResourceCPU].MilliValue() + offlineNodesInfos[j].usage[corev1.ResourcePods].Value()
-			// extended resources
-			for name := range offlineNodesInfos[i].usage {
-				if !nodeutil.IsBasicResource(name) {
-					ti = ti + offlineNodesInfos[i].usage[name].Value()
-					tj = tj + offlineNodesInfos[j].usage[name].Value()
-				}
-			}
-			return ti < tj
-		})
+		if len(offlineNodesInfos) <= 0 {
+			logger.Info("no offline node in tidal")
+			return nil
+		}
 		for _, pod := range pendingPods {
 			_, err := t.checker.FitsAnyNode(clusterSnapshot, pod)
-			if err != nil {
-				if len(offlineNodesInfos) > 0 {
-					offlineNodesInfo := offlineNodesInfos[0]
-					nodeInfo, err := clusterSnapshot.NodeInfos().Get(offlineNodesInfo.node.Name)
-					if err != nil {
-						return err
-					}
-					clusterSnapshot.RemoveNode(offlineNodesInfo.node.Name)
-					node := t.changeNodeToOnline(nodeInfo.Node(), tideNodePool)
-					clusterSnapshot.AddNode(node)
-					_, err = t.checker.FitsAnyNode(clusterSnapshot, pod)
-					if err != nil {
-						logger.Info("pod not fit offline node after release offline node, skip", "pod", types.NamespacedName{
-							Namespace: pod.Namespace,
-							Name:      pod.Name,
-						})
-						continue
-					}
-					if _, err := t.client.KubeClient.CoreV1().Nodes().Update(ctx, node, metav1.UpdateOptions{}); err != nil {
-						return fmt.Errorf("update node offline to online failed: %v", err)
-					} else {
-						logger.Info("release offline node to online node", "pod", types.NamespacedName{
-							Namespace: pod.Namespace,
-							Name:      pod.Name,
-						}, "node", node.Name)
-						return nil
-					}
-				} else {
-					logger.Info("no tide offline node to use", "pod", types.NamespacedName{
+			if err == nil {
+				logger.Info("pod can fit node", "pod", types.NamespacedName{
+					Namespace: pod.Namespace,
+					Name:      pod.Name,
+				})
+				continue
+			}
+			for j := range offlineNodesInfos {
+				offlineNodesInfo := offlineNodesInfos[j]
+				nodeInfo, err := clusterSnapshot.NodeInfos().Get(offlineNodesInfo.node.Name)
+				if err != nil {
+					return err
+				}
+				clusterSnapshot.RemoveNode(offlineNodesInfo.node.Name)
+				node := t.changeNodeToOnline(nodeInfo.Node(), tideNodePool)
+				clusterSnapshot.AddNode(node)
+				_, err = t.checker.FitsAnyNode(clusterSnapshot, pod)
+				if err != nil {
+					logger.Info("pod not fit offline node after release offline node, skip", "pod", types.NamespacedName{
 						Namespace: pod.Namespace,
 						Name:      pod.Name,
 					})
+					// rollback node to offline
+					clusterSnapshot.RemoveNode(offlineNodesInfo.node.Name)
+					node := t.changeNodeToOffline(nodeInfo.Node(), tideNodePool)
+					clusterSnapshot.AddNode(node)
+					continue
+				}
+				if _, err := t.client.KubeClient.CoreV1().Nodes().Update(ctx, node, metav1.UpdateOptions{}); err != nil {
+					return fmt.Errorf("update node offline to online failed: %v", err)
+				} else {
+					logger.Info("release offline node to online node", "pod", types.NamespacedName{
+						Namespace: pod.Namespace,
+						Name:      pod.Name,
+					}, "node", node.Name)
+					return nil
 				}
 			}
 		}
 		logger.Info("not need release offline node")
 	}
-	// TODO 加个阈值缩容规则 防止扩容和缩容反复拉扯
-	// 1. 选出使用量最低的在线节点
-	// 2. 预调度所有在线业务的pod (request从大到小), , 查看是否都能正常调度
-	// 3. 开始进行打污点触发调度
+	// 1. select the online node with the lowest usage
+	// 2. pre-schedule all online pods (request from largest to smallest) and check whether they can all be scheduled normally
+	// 3. start triggering scheduling by tainting
 	onlineNodesInfos, err := getNodeUsageWithSelector(clusterSnapshot, []corev1.ResourceName{"cpu", "memory"}, tideNodePool.GetOnlineTideNodeSelector())
 	if err != nil {
 		return err
 	}
-	// 节点按照 使用率排序
-	sort.Slice(onlineNodesInfos, func(i, j int) bool {
-		ti := onlineNodesInfos[i].usage[corev1.ResourceMemory].Value() + onlineNodesInfos[i].usage[corev1.ResourceCPU].MilliValue() + onlineNodesInfos[i].usage[corev1.ResourcePods].Value()
-		tj := onlineNodesInfos[j].usage[corev1.ResourceMemory].Value() + onlineNodesInfos[j].usage[corev1.ResourceCPU].MilliValue() + onlineNodesInfos[j].usage[corev1.ResourcePods].Value()
-		// extended resources
-		for name := range onlineNodesInfos[i].usage {
-			if !nodeutil.IsBasicResource(name) {
-				ti = ti + onlineNodesInfos[i].usage[name].Value()
-				tj = tj + onlineNodesInfos[j].usage[name].Value()
-			}
-		}
-		return ti < tj
-	})
-	// 没有出让就跳过
+	// skip if no online node
 	if len(onlineNodesInfos) <= 1 {
 		logger.Info("no online node in tidal")
 		return nil
 	}
-	if len(onlineNodesInfos) > 0 {
-		onlineNodesInfo := onlineNodesInfos[0]
-		podsInNode := onlineNodesInfo.allPods
-		nodeInfo, err := clusterSnapshot.NodeInfos().Get(onlineNodesInfo.node.Name)
-		if err != nil {
-			return err
-		}
-		clusterSnapshot.RemoveNode(onlineNodesInfo.node.Name)
-		for _, pod := range podsInNode {
-			if onlinePodChecker(pod) {
-				pod.Spec.NodeName = ""
-				nodeName, err := t.checker.FitsAnyNode(clusterSnapshot, pod)
-				if err != nil {
-					logger.Info("can not release online node to offline", "node", onlineNodesInfo.node.Name)
-					return nil
-				}
-				pod.Spec.NodeName = nodeName
-				clusterSnapshot.AddPod(pod, nodeName)
-			}
-		}
-		node := t.changeNodeToOffline(nodeInfo.Node(), tideNodePool)
-
-		if _, err := t.client.KubeClient.CoreV1().Nodes().Update(ctx, node, metav1.UpdateOptions{}); err != nil {
-			return err
-		}
-		logger.Info("release online node success", "node", node.Name)
-		return nil
+	onlineNodesInfo := onlineNodesInfos[0]
+	podsInNode := onlineNodesInfo.allPods
+	nodeInfo, err := clusterSnapshot.NodeInfos().Get(onlineNodesInfo.node.Name)
+	if err != nil {
+		return err
 	}
-	logger.Info("not need release online node")
+	clusterSnapshot.RemoveNode(onlineNodesInfo.node.Name)
+	for _, pod := range podsInNode {
+		if onlinePodChecker(pod) {
+			pod.Spec.NodeName = ""
+			nodeName, err := t.checker.FitsAnyNode(clusterSnapshot, pod)
+			if err != nil {
+				logger.Info("can not release online node to offline", "node", onlineNodesInfo.node.Name)
+				return nil
+			}
+			pod.Spec.NodeName = nodeName
+			clusterSnapshot.AddPod(pod, nodeName)
+		}
+	}
+	node := t.changeNodeToOffline(nodeInfo.Node(), tideNodePool)
+	if _, err := t.client.KubeClient.CoreV1().Nodes().Update(ctx, node, metav1.UpdateOptions{}); err != nil {
+		return err
+	}
+	logger.Info("release online node success", "node", node.Name)
 	return nil
 }
 
@@ -737,17 +697,27 @@ func getNodeUsageWithSelector(
 			allPods: pods,
 		})
 	}
-
+	// nodes are sorted by usage rate
+	sort.Slice(nodeUsageList, func(i, j int) bool {
+		ti := nodeUsageList[i].usage[corev1.ResourceMemory].Value() + nodeUsageList[i].usage[corev1.ResourceCPU].MilliValue() + nodeUsageList[i].usage[corev1.ResourcePods].Value()
+		tj := nodeUsageList[j].usage[corev1.ResourceMemory].Value() + nodeUsageList[j].usage[corev1.ResourceCPU].MilliValue() + nodeUsageList[j].usage[corev1.ResourcePods].Value()
+		// extended resources
+		for name := range nodeUsageList[i].usage {
+			if !nodeutil.IsBasicResource(name) {
+				ti = ti + nodeUsageList[i].usage[name].Value()
+				tj = tj + nodeUsageList[j].usage[name].Value()
+			}
+		}
+		return ti < tj
+	})
 	return nodeUsageList, nil
 }
 
-// clearUnexpectedCNR is used to clear unexpected cnr
-// for instance, orphaned cnr due to unexpected node deletion options or manually creation
 func (t *Tide) periodSync() {
 	targetSelector := labels.Everything()
 	tides, err := t.tideLister.List(targetSelector)
 	if err != nil {
-		klog.Errorf("failed to list all cnr")
+		klog.Errorf("failed to list all tide node pool")
 		return
 	}
 
