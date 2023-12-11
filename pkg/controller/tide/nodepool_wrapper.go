@@ -66,12 +66,17 @@ type NodePoolWrapper interface {
 	GetOnlineLabel() apis.LabelOption
 	GetOfflineLabel() apis.LabelOption
 	GetTideLabel() apis.LabelOption
+	GetNodeSelector() map[string]string
 
 	metav1.Object
 }
 
 type nodePoolWrapperImpl struct {
 	*apis.TideNodePool
+}
+
+func (n nodePoolWrapperImpl) GetNodeSelector() map[string]string {
+	return n.Spec.NodeConfigs.NodeSelector
 }
 
 func (n nodePoolWrapperImpl) GetOnlineReverseNodeSelector() labels.Selector {

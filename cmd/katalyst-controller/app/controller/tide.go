@@ -35,13 +35,9 @@ func StartTideController(ctx context.Context, controlCtx *katalystbase.GenericCo
 	// targetHandler is initialized once and shared by multiple controllers
 	tideController, err := tide.NewTide(
 		ctx,
+		controlCtx,
 		conf.GenericConfiguration,
 		conf.GenericControllerConfiguration,
-		controlCtx.Client,
-		controlCtx.KubeInformerFactory.Core().V1().Nodes(),
-		controlCtx.KubeInformerFactory.Core().V1().Pods(),
-		controlCtx.InternalInformerFactory.Tide().V1alpha1().TideNodePools(),
-		controlCtx.EmitterPool.GetDefaultMetricsEmitter(),
 	)
 	if err != nil {
 		klog.Errorf("failed to new kcc controller")
