@@ -55,14 +55,11 @@ func GetRegisteredEnhancementUpdateFunc(enhancementKey string) EnhancementUpdate
 func ParseKatalystQOSEnhancement(enhancements, podAnnotations map[string]string, enhancementKey string) (enhancementConfig map[string]string) {
 	defer func() {
 		updatedEnhancementConfig := enhancementConfig
-
 		enhancementUpdateFunc := GetRegisteredEnhancementUpdateFunc(enhancementKey)
 		if enhancementUpdateFunc != nil {
 			updatedEnhancementConfig = enhancementUpdateFunc(enhancementConfig, podAnnotations)
-
 			general.Infof("update enhancementConfig from %+v to %+v", enhancementConfig, updatedEnhancementConfig)
 		}
-
 		enhancementConfig = updatedEnhancementConfig
 	}()
 
@@ -77,6 +74,5 @@ func ParseKatalystQOSEnhancement(enhancements, podAnnotations map[string]string,
 		general.Errorf("parse enhancement %s failed: %v", enhancementKey, err)
 		return nil
 	}
-
 	return enhancementConfig
 }
