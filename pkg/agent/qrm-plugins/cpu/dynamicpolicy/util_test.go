@@ -26,6 +26,8 @@ import (
 )
 
 func Test_updateAllocationInfoByReq(t *testing.T) {
+	t.Parallel()
+
 	type args struct {
 		req            *pluginapi.ResourceRequest
 		allocationInfo *state.AllocationInfo
