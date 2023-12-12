@@ -40,7 +40,7 @@ const (
 	// that NUMA's free memory falls below the watermark
 	DefaultNumaFreeBelowWatermarkTimesThreshold = 4
 	// DefaultSystemFreeMemoryThresholdMinimum is the minimum of free memory threshold.
-	DefaultSystemFreeMemoryThresholdMinimum = "10Gi"
+	DefaultSystemFreeMemoryThresholdMinimum = "0Gi"
 	// DefaultSystemKswapdRateThreshold is the default threshold for the rate of kswapd reclaiming rate
 	DefaultSystemKswapdRateThreshold = 2000
 	// DefaultSystemKswapdRateExceedTimesThreshold is the default threshold for the number of times
