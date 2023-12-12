@@ -52,25 +52,31 @@ func GetRegisteredEnhancementUpdateFunc(enhancementKey string) EnhancementUpdate
 
 // ParseKatalystQOSEnhancement parses enhancements from annotations by given key,
 // since enhancement values are stored as k-v, so we should unmarshal it into maps.
-func ParseKatalystQOSEnhancement(enhancements, podAnnotations map[string]string, enhancementKey string) map[string]string {
+func ParseKatalystQOSEnhancement(enhancements, podAnnotations map[string]string, enhancementKey string) (enhancementConfig map[string]string) {
+	defer func() {
+		updatedEnhancementConfig := enhancementConfig
+
+		enhancementUpdateFunc := GetRegisteredEnhancementUpdateFunc(enhancementKey)
+		if enhancementUpdateFunc != nil {
+			updatedEnhancementConfig = enhancementUpdateFunc(enhancementConfig, podAnnotations)
+
+			general.Infof("update enhancementConfig from %+v to %+v", enhancementConfig, updatedEnhancementConfig)
+		}
+
+		enhancementConfig = updatedEnhancementConfig
+	}()
+
 	enhancementValue, ok := enhancements[enhancementKey]
 	if !ok {
 		return nil
 	}
 
-	enhancementConfig := map[string]string{}
+	enhancementConfig = map[string]string{}
 	err := json.Unmarshal([]byte(enhancementValue), &enhancementConfig)
 	if err != nil {
 		general.Errorf("parse enhancement %s failed: %v", enhancementKey, err)
 		return nil
 	}
-	updatedEnhancementConfig := enhancementConfig
 
-	enhancementUpdateFunc := GetRegisteredEnhancementUpdateFunc(enhancementKey)
-	if enhancementUpdateFunc != nil {
-		updatedEnhancementConfig = enhancementUpdateFunc(enhancementConfig, podAnnotations)
-
-		general.Infof("update enhancementConfig from %+v to %+v", enhancementConfig, updatedEnhancementConfig)
-	}
-	return updatedEnhancementConfig
+	return enhancementConfig
 }

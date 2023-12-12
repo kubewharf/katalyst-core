@@ -112,15 +112,13 @@ func (c *QoSConfiguration) FilterQoSAndEnhancement(annotations map[string]string
 	defer c.RUnlock()
 
 	for _, enhancementKey := range validQosEnhancementKey.List() {
-		if wrappedEnhancements[enhancementKey] != "" {
-			enhancementKVs := helper.ParseKatalystQOSEnhancement(wrappedEnhancements, annotations, enhancementKey)
-			for key, val := range enhancementKVs {
-				if filteredAnnotations[key] != "" {
-					general.Warningf("get enhancements %s:%s from %s, but the kv already exists: %s:%s",
-						key, val, enhancementKey, key, filteredAnnotations[key])
-				}
-				filteredAnnotations[key] = val
+		enhancementKVs := helper.ParseKatalystQOSEnhancement(wrappedEnhancements, annotations, enhancementKey)
+		for key, val := range enhancementKVs {
+			if filteredAnnotations[key] != "" {
+				general.Warningf("get enhancements %s:%s from %s, but the kv already exists: %s:%s",
+					key, val, enhancementKey, key, filteredAnnotations[key])
 			}
+			filteredAnnotations[key] = val
 		}
 	}
 
