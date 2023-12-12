@@ -506,11 +506,13 @@ func TestGenerateCPUMachineStateByPodEntries(t *testing.T) {
 
 		as.Equalf(tc.expectedMachineState, machineState, "failed in test case: %s", tc.description)
 
-		os.RemoveAll(tmpDir)
+		_ = os.RemoveAll(tmpDir)
 	}
 }
 
 func TestGetSpecifiedPoolName(t *testing.T) {
+	t.Parallel()
+
 	type args struct {
 		qosLevel               string
 		cpusetEnhancementValue string

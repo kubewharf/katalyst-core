@@ -226,6 +226,7 @@ func GetPoolType(poolName string) string {
 	}
 }
 
+// GetSpecifiedPoolName todo: this function (along with pool-name consts) should be moved to generic qos conf
 func GetSpecifiedPoolName(qosLevel, cpusetEnhancementValue string) string {
 	switch qosLevel {
 	case apiconsts.PodAnnotationQoSLevelSharedCores:

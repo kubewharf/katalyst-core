@@ -365,14 +365,12 @@ func (c *QoSConfiguration) GetSpecifiedPoolNameForPod(pod *v1.Pod) (string, erro
 // GetSpecifiedPoolName returns the specified cpuset pool name for given enhancements and annotations;
 func (c *QoSConfiguration) GetSpecifiedPoolName(enhancements, annotations map[string]string) (string, error) {
 	qosLevel, err := c.GetQoSLevel(annotations)
-
 	if err != nil {
 		return "", fmt.Errorf("GetQoSLevel failed with error: %v", err)
 	}
 
 	enhancementKVs := helper.ParseKatalystQOSEnhancement(enhancements, annotations,
 		apiconsts.PodAnnotationCPUEnhancementKey)
-
 	return state.GetSpecifiedPoolName(qosLevel, enhancementKVs[apiconsts.PodAnnotationCPUEnhancementCPUSet]), nil
 }
 
