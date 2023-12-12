@@ -21,6 +21,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strconv"
+	"sync"
 
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/klog/v2"
@@ -215,6 +216,7 @@ func (na *NUMAInterPodAffinity) getExistingAntiAffinityCounts(ctx context.Contex
 	allNodesNUMAInfoList map[string]NUMAInfoList, nodesInfo []*framework.NodeInfo,
 	allNodesSocket2NumaList map[string]socket2numaList) allNodesNUMAAffinityCount {
 	topoMaps := make(allNodesNUMAAffinityCount)
+	var lk sync.Mutex
 
 	processNode := func(nodeIndex int) {
 		nodeName := nodesInfo[nodeIndex].Node().Name
@@ -224,7 +226,9 @@ func (na *NUMAInterPodAffinity) getExistingAntiAffinityCounts(ctx context.Contex
 			ExistingAntiAffinityCounts: make(affinityutil.TopologyAffinityCount),
 		}
 		affinityutil.GetExistingAntiAffinityCountsSerial(&state, allNodesSocket2NumaList[nodeName])
+		lk.Lock()
 		topoMaps[nodeName] = state.ExistingAntiAffinityCounts
+		lk.Unlock()
 	}
 	na.parallelizer.Until(ctx, len(nodesInfo), processNode)
 
@@ -235,6 +239,7 @@ func (na *NUMAInterPodAffinity) getAntiAffinityCounts(ctx context.Context, podAf
 	allNodesNUMAInfoList map[string]NUMAInfoList, nodesInfo []*framework.NodeInfo,
 	allNodesSocket2NumaList map[string]socket2numaList) allNodesNUMAAffinityCount {
 	topoMaps := make(allNodesNUMAAffinityCount)
+	var lk sync.Mutex
 
 	processNode := func(nodeIndex int) {
 		nodeName := nodesInfo[nodeIndex].Node().Name
@@ -244,7 +249,9 @@ func (na *NUMAInterPodAffinity) getAntiAffinityCounts(ctx context.Context, podAf
 			AntiAffinityCounts:   make(affinityutil.TopologyAffinityCount),
 		}
 		affinityutil.GetAntiAffinityCountsSerial(&state, allNodesSocket2NumaList[nodeName])
+		lk.Lock()
 		topoMaps[nodeName] = state.AntiAffinityCounts
+		lk.Unlock()
 	}
 	na.parallelizer.Until(ctx, len(nodesInfo), processNode)
 
@@ -255,6 +262,7 @@ func (na *NUMAInterPodAffinity) getAffinityCounts(ctx context.Context, podAffini
 	allNodesNUMAInfoList map[string]NUMAInfoList, nodesInfo []*framework.NodeInfo,
 	allNodesSocket2NumaList map[string]socket2numaList) allNodesNUMAAffinityCount {
 	topoMaps := make(allNodesNUMAAffinityCount)
+	var lk sync.Mutex
 
 	processNode := func(nodeIndex int) {
 		nodeName := nodesInfo[nodeIndex].Node().Name
@@ -264,7 +272,9 @@ func (na *NUMAInterPodAffinity) getAffinityCounts(ctx context.Context, podAffini
 			AffinityCounts:       make(affinityutil.TopologyAffinityCount),
 		}
 		affinityutil.GetAffinityCountsSerial(&state, allNodesSocket2NumaList[nodeName])
+		lk.Lock()
 		topoMaps[nodeName] = state.AffinityCounts
+		lk.Unlock()
 	}
 	na.parallelizer.Until(ctx, len(nodesInfo), processNode)
 
