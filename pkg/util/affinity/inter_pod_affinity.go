@@ -19,12 +19,12 @@ package affinity
 import (
 	"encoding/json"
 	"fmt"
-	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 	"sync"
 
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 
 	apiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
+	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
 // Inter-pod affinity annotations

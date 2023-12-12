@@ -1396,7 +1396,7 @@ func TestGetInterPodAffinityTopologyHints(t *testing.T) {
 			expectErr: false,
 		},
 		{
-			description: "affinity & numa_binding enabled  & numa_exclusive enabled",
+			description: "affinity & numa_binding enabled & numa_exclusive enabled",
 			req: &pluginapi.ResourceRequest{
 				PodUid:         string(uuid.NewUUID()),
 				PodNamespace:   testName,
@@ -1417,27 +1417,8 @@ func TestGetInterPodAffinityTopologyHints(t *testing.T) {
 					consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelDedicatedCores,
 				},
 			},
-			expectedResp: &pluginapi.ResourceHintsResponse{
-				PodNamespace:   testName,
-				PodName:        testName,
-				ContainerName:  testName,
-				ContainerType:  pluginapi.ContainerType_MAIN,
-				ContainerIndex: 0,
-				ResourceName:   string(v1.ResourceCPU),
-				ResourceHints: map[string]*pluginapi.ListOfTopologyHints{
-					string(v1.ResourceCPU): nil,
-				},
-				Labels: map[string]string{
-					consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelDedicatedCores,
-				},
-				Annotations: map[string]string{
-					consts.PodAnnotationQoSLevelKey:                    consts.PodAnnotationQoSLevelDedicatedCores,
-					consts.PodAnnotationMemoryEnhancementNumaBinding:   consts.PodAnnotationMemoryEnhancementNumaExclusiveEnable,
-					consts.PodAnnotationMemoryEnhancementNumaExclusive: consts.PodAnnotationMemoryEnhancementNumaExclusiveEnable,
-					consts.PodAnnotationMicroTopologyInterPodAffinity:  `{"required": [{"matchLabels": {"affinityKey": "affinityValue"}, "zone":"numa"}]}`,
-				},
-			},
-			expectErr: true,
+			expectedResp: nil,
+			expectErr:    true,
 		},
 		{
 			description: "antiAffinity labels & antiAffinity seletor",
@@ -2033,8 +2014,12 @@ func TestGetInterPodAffinityTopologyHints(t *testing.T) {
 		resp, err := dynamicPolicy.GetTopologyHints(context.Background(), tc.req)
 		as.Equalf((err != nil) == tc.expectErr, true, "failed in test case %s, err:%v", tc.description, err)
 
-		tc.expectedResp.PodUid = tc.req.PodUid
-		as.Equalf(tc.expectedResp, resp, "failed in test case: %s", tc.description)
+		if err != nil {
+			as.Nil(resp)
+		} else {
+			tc.expectedResp.PodUid = tc.req.PodUid
+			as.Equalf(tc.expectedResp, resp, "failed in test case: %s", tc.description)
+		}
 
 		os.RemoveAll(tmpDir)
 	}
