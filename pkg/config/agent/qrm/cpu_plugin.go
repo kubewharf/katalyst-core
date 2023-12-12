@@ -34,6 +34,8 @@ type CPUDynamicPolicyConfig struct {
 	// EnableCPUPressureEviction indicates whether to enable cpu-pressure eviction, such as cpu load eviction or cpu
 	// suppress eviction
 	EnableCPUPressureEviction bool
+	// LoadPressureEvictionSkipPools indicates the ignored pools when check load pressure.
+	LoadPressureEvictionSkipPools []string
 	// EnableSyncingCPUIdle is set to sync specific cgroup path with EnableCPUIdle
 	EnableSyncingCPUIdle bool
 	// EnableCPUIdle indicates whether enabling cpu idle
