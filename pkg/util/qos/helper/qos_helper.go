@@ -20,7 +20,8 @@ import (
 	"sync"
 )
 
-// QoSLevelUpdateFunc is used to update qos level according to pod annotations
+// QoSLevelUpdateFunc provides a mechanism for user-specified qos judgement
+// since we may need to set qos-level for some customized cases
 type QoSLevelUpdateFunc func(qosLevel string, podAnnotations map[string]string) string
 
 var qosLevelUpdater QoSLevelUpdateFunc

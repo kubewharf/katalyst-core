@@ -23,7 +23,8 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 )
 
-// EnhancementUpdateFunc is used to update enhancement kvs for specific enhancement key
+// EnhancementUpdateFunc provides a mechanism for user-specified enhancement kvs for specific key
+// since we may need to set qos-level for some customized cases
 type EnhancementUpdateFunc func(enhancementKVs, podAnnotations map[string]string) map[string]string
 
 var enhancementUpdaters sync.Map
@@ -43,11 +44,9 @@ func GetRegisteredEnhancementUpdateFuncs() map[string]EnhancementUpdateFunc {
 
 func GetRegisteredEnhancementUpdateFunc(enhancementKey string) EnhancementUpdateFunc {
 	value, ok := enhancementUpdaters.Load(enhancementKey)
-
 	if !ok {
 		return nil
 	}
-
 	return value.(EnhancementUpdateFunc)
 }
 
@@ -62,18 +61,16 @@ func ParseKatalystQOSEnhancement(enhancements, podAnnotations map[string]string,
 	enhancementConfig := map[string]string{}
 	err := json.Unmarshal([]byte(enhancementValue), &enhancementConfig)
 	if err != nil {
-		general.Errorf("GetPodQOSEnhancement parse enhancement %s failed: %v", enhancementKey, err)
+		general.Errorf("parse enhancement %s failed: %v", enhancementKey, err)
 		return nil
 	}
+	updatedEnhancementConfig := enhancementConfig
 
 	enhancementUpdateFunc := GetRegisteredEnhancementUpdateFunc(enhancementKey)
-
-	updatedEnhancementConfig := enhancementConfig
 	if enhancementUpdateFunc != nil {
 		updatedEnhancementConfig = enhancementUpdateFunc(enhancementConfig, podAnnotations)
 
 		general.Infof("update enhancementConfig from %+v to %+v", enhancementConfig, updatedEnhancementConfig)
 	}
-
 	return updatedEnhancementConfig
 }

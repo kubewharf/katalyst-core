@@ -105,19 +105,18 @@ func NewQoSConfiguration() *QoSConfiguration {
 // it works both for default katalyst QoS keys and expanded QoS keys.
 func (c *QoSConfiguration) FilterQoSAndEnhancement(annotations map[string]string) (map[string]string, error) {
 	filteredAnnotations := c.FilterQoSMap(annotations)
-	wrapperedEnhancements := c.GetQoSEnhancements(annotations)
+	wrappedEnhancements := c.GetQoSEnhancements(annotations)
 
 	c.RLock()
 	defer c.RUnlock()
 
 	for _, enhancementKey := range validQosEnhancementKey.List() {
-		if wrapperedEnhancements[enhancementKey] != "" {
-			enhancementKVs := helper.ParseKatalystQOSEnhancement(wrapperedEnhancements, annotations, enhancementKey)
-
+		if wrappedEnhancements[enhancementKey] != "" {
+			enhancementKVs := helper.ParseKatalystQOSEnhancement(wrappedEnhancements, annotations, enhancementKey)
 			for key, val := range enhancementKVs {
 				if filteredAnnotations[key] != "" {
-					general.Warningf("[FilterQoSAndEnhancement] get %s:%s from %s, "+
-						"but the kv already exists: %s:%s", key, val, enhancementKey, key, filteredAnnotations[key])
+					general.Warningf("get enhancements %s:%s from %s, but the kv already exists: %s:%s",
+						key, val, enhancementKey, key, filteredAnnotations[key])
 				}
 				filteredAnnotations[key] = val
 			}
@@ -126,8 +125,8 @@ func (c *QoSConfiguration) FilterQoSAndEnhancement(annotations map[string]string
 
 	for enhancementKey, defaultValue := range c.EnhancementDefaultValues {
 		if _, found := filteredAnnotations[enhancementKey]; !found {
-			general.Infof("[FilterQoSAndEnhancement] enhancementKey: %s isn't declared, "+
-				"set its value to defaultValue: %s", enhancementKey, defaultValue)
+			general.Infof("enhancementKey: %s isn't declared, set its value to defaultValue: %s",
+				enhancementKey, defaultValue)
 			filteredAnnotations[enhancementKey] = defaultValue
 		}
 	}
@@ -142,7 +141,6 @@ func (c *QoSConfiguration) FilterQoSMap(annotations map[string]string) map[strin
 	defer c.RUnlock()
 
 	filteredAnnotations := make(map[string]string)
-
 	for qos := range c.QoSClassAnnotationSelector {
 		for qosExpand := range c.QoSClassAnnotationSelector[qos] {
 			if val, ok := annotations[qosExpand]; ok {
@@ -150,7 +148,6 @@ func (c *QoSConfiguration) FilterQoSMap(annotations map[string]string) map[strin
 			}
 		}
 	}
-
 	return filteredAnnotations
 }
 
@@ -180,15 +177,13 @@ func (c *QoSConfiguration) GetQoSLevel(annotations map[string]string) (qosLevel 
 			return
 		}
 
+		// redirect qos-level according to user-specified qos judgement function
 		qosLevelUpdater := helper.GetQoSLevelUpdateFunc()
-
 		if qosLevelUpdater != nil {
 			updatedQoSLevel := qosLevelUpdater(qosLevel, annotations)
-
 			if updatedQoSLevel != qosLevel {
 				general.Infof("update qosLevel from %s to %s", qosLevel, updatedQoSLevel)
 			}
-
 			qosLevel = updatedQoSLevel
 		}
 	}()
@@ -212,7 +207,6 @@ func (c *QoSConfiguration) GetQoSLevel(annotations map[string]string) (qosLevel 
 	if isNotDefaultQoSLevel {
 		return "", fmt.Errorf("can't get valid qos level")
 	}
-
 	return defaultQoSLevel, nil
 }
 
