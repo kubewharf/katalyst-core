@@ -19,6 +19,7 @@ package qrm
 import (
 	cliflag "k8s.io/component-base/cli/flag"
 
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
 	qrmconfig "github.com/kubewharf/katalyst-core/pkg/config/agent/qrm"
 )
 
@@ -32,10 +33,11 @@ type CPUOptions struct {
 }
 
 type CPUDynamicPolicyOptions struct {
-	EnableCPUAdvisor          bool
-	EnableCPUPressureEviction bool
-	EnableSyncingCPUIdle      bool
-	EnableCPUIdle             bool
+	EnableCPUAdvisor              bool
+	EnableCPUPressureEviction     bool
+	LoadPressureEvictionSkipPools []string
+	EnableSyncingCPUIdle          bool
+	EnableCPUIdle                 bool
 }
 
 type CPUNativePolicyOptions struct {
@@ -53,6 +55,11 @@ func NewCPUOptions() *CPUOptions {
 			EnableCPUPressureEviction: false,
 			EnableSyncingCPUIdle:      false,
 			EnableCPUIdle:             false,
+			LoadPressureEvictionSkipPools: []string{
+				state.PoolNameReclaim,
+				state.PoolNameDedicated,
+				state.PoolNameFallback,
+				state.PoolNameReserve},
 		},
 		CPUNativePolicyOptions: CPUNativePolicyOptions{
 			EnableFullPhysicalCPUsOnly: false,
@@ -74,6 +81,8 @@ func (o *CPUOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 		o.SkipCPUStateCorruption, "if set true, we will skip cpu state corruption")
 	fs.BoolVar(&o.EnableCPUPressureEviction, "enable-cpu-pressure-eviction", o.EnableCPUPressureEviction,
 		"if set true, it can enable cpu-related eviction, such as cpu pressure eviction and cpu suppression eviction")
+	fs.StringSliceVar(&o.LoadPressureEvictionSkipPools, "load-pressure-eviction-skip-pools", o.LoadPressureEvictionSkipPools,
+		"the pool in this list will be ignored when check load pressure")
 	fs.BoolVar(&o.EnableSyncingCPUIdle, "enable-syncing-cpu-idle",
 		o.EnableSyncingCPUIdle, "if set true, we will sync specific cgroup paths with value specified by --enable-cpu-idle option")
 	fs.BoolVar(&o.EnableCPUIdle, "enable-cpu-idle", o.EnableCPUIdle,
@@ -93,6 +102,7 @@ func (o *CPUOptions) ApplyTo(conf *qrmconfig.CPUQRMPluginConfig) error {
 	conf.ReservedCPUCores = o.ReservedCPUCores
 	conf.SkipCPUStateCorruption = o.SkipCPUStateCorruption
 	conf.EnableCPUPressureEviction = o.EnableCPUPressureEviction
+	conf.LoadPressureEvictionSkipPools = o.LoadPressureEvictionSkipPools
 	conf.EnableSyncingCPUIdle = o.EnableSyncingCPUIdle
 	conf.EnableCPUIdle = o.EnableCPUIdle
 	conf.EnableFullPhysicalCPUsOnly = o.EnableFullPhysicalCPUsOnly

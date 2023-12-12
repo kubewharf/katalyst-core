@@ -86,6 +86,12 @@ func makeConf(metricRingSize int, gracePeriod int64, loadUpperBoundRatio,
 		v1.ResourceCPU: resource.MustParse(reservedForReclaim),
 	}
 	conf.ReservedCPUCores = reservedForSystem
+	conf.LoadPressureEvictionSkipPools = []string{
+		qrmstate.PoolNameReclaim,
+		qrmstate.PoolNameDedicated,
+		qrmstate.PoolNameFallback,
+		qrmstate.PoolNameReserve,
+	}
 	return conf
 }
 
