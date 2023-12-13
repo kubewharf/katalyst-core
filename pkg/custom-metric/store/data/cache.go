@@ -21,6 +21,7 @@ import (
 	"sync"
 	"time"
 
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 
 	"github.com/kubewharf/katalyst-core/pkg/custom-metric/store/data/internal"
@@ -103,7 +104,7 @@ func (c *CachedMetric) AddSeriesMetric(sList ...types.Metric) error {
 			return err
 		}
 		if !exists {
-			err := objectMetricStore.Add(d.ObjectMetaImp, d.BasicMetric)
+			err := objectMetricStore.Add(d.ObjectMetaImp)
 			if err != nil {
 				return err
 			}
@@ -151,7 +152,7 @@ func (c *CachedMetric) AddAggregatedMetric(aList ...types.Metric) error {
 			return err
 		}
 		if !exists {
-			err := objectMetricStore.Add(d.ObjectMetaImp, d.BasicMetric)
+			err := objectMetricStore.Add(d.ObjectMetaImp)
 			if err != nil {
 				return err
 			}
@@ -196,7 +197,7 @@ func (c *CachedMetric) ListAllMetricNames() []string {
 	return res
 }
 
-func (c *CachedMetric) GetMetric(namespace, metricName string, objName string, objectMetaList []types.ObjectMetaImp, usingObjectMetaList bool, gr *schema.GroupResource, latest bool) ([]types.Metric, bool, error) {
+func (c *CachedMetric) GetMetric(namespace, metricName string, objName string, objectMetaList []types.ObjectMetaImp, usingObjectMetaList bool, gr *schema.GroupResource, metricSelector labels.Selector, latest bool) ([]types.Metric, bool, error) {
 	start := time.Now()
 	originMetricName, aggName := types.ParseAggregator(metricName)
 
@@ -222,16 +223,18 @@ func (c *CachedMetric) GetMetric(namespace, metricName string, objName string, o
 			return
 		}
 
-		var metricItem types.Metric
-		var exist bool
 		if aggName == "" {
-			metricItem, exist = internalMetric.GetSeriesItems(latest)
+			metricItems, exist := internalMetric.GetSeriesItems(metricSelector, latest)
+			if exist && len(metricItems) > 0 {
+				for i := range metricItems {
+					res = append(res, metricItems[i])
+				}
+			}
 		} else {
-			metricItem, exist = internalMetric.GetAggregatedItems(aggName)
-		}
-
-		if exist && metricItem.Len() > 0 {
-			res = append(res, metricItem)
+			metricItem, exist := internalMetric.GetAggregatedItems(metricSelector, aggName)
+			if exist && metricItem.Len() > 0 {
+				res = append(res, metricItem)
+			}
 		}
 	}
 
@@ -278,9 +281,13 @@ func (c *CachedMetric) GetAllMetricsInNamespace(namespace string) []types.Metric
 				return
 			}
 
-			metricItem, exist := internalMetric.GetSeriesItems(false)
-			if exist && metricItem.Len() > 0 {
-				res = append(res, metricItem.DeepCopy())
+			metricItems, exist := internalMetric.GetSeriesItems(nil, false)
+			if exist && len(metricItems) > 0 {
+				for i := range metricItems {
+					if metricItems[i].Len() > 0 {
+						res = append(res, metricItems[i].DeepCopy())
+					}
+				}
 			}
 		})
 	}
@@ -338,8 +345,10 @@ func MergeInternalMetricList(metricName string, metricLists ...[]types.Metric) [
 		}
 		for _, objectMetricStore := range c.metricMap {
 			objectMetricStore.Iterate(func(internalMetric *internal.MetricImp) {
-				if metricItem, exist := internalMetric.GetSeriesItems(false); exist && metricItem.Len() > 0 {
-					res = append(res, metricItem)
+				if metricItems, exist := internalMetric.GetSeriesItems(nil, false); exist && len(metricItems) > 0 {
+					for i := range metricItems {
+						res = append(res, metricItems[i])
+					}
 				}
 			})
 		}
@@ -349,7 +358,7 @@ func MergeInternalMetricList(metricName string, metricLists ...[]types.Metric) [
 		}
 		for _, objectMetricStore := range c.metricMap {
 			objectMetricStore.Iterate(func(internalMetric *internal.MetricImp) {
-				if metricItem, exist := internalMetric.GetAggregatedItems(aggName); exist && metricItem.Len() > 0 {
+				if metricItem, exist := internalMetric.GetAggregatedItems(nil, aggName); exist && metricItem.Len() > 0 {
 					res = append(res, metricItem)
 				}
 			})

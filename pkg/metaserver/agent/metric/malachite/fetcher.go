@@ -393,6 +393,14 @@ func (m *MalachiteMetricsFetcher) processSystemMemoryData(systemMemoryData *type
 	updateTime := time.Unix(systemMemoryData.UpdateTime, 0)
 
 	mem := systemMemoryData.System
+
+	// updating on previous status
+	// TODO delta func
+	prevMemKswapdStealMetric, _ := m.metricStore.GetNodeMetric(consts.MetricMemKswapdstealSystem)
+	m.metricStore.SetNodeMetric(consts.MetricMemKswapdstealDeltaSystem,
+		utilmetric.MetricData{Value: float64(mem.VmstatPgstealKswapd) - prevMemKswapdStealMetric.Value, Time: &updateTime})
+
+	// updating current status
 	m.metricStore.SetNodeMetric(consts.MetricMemTotalSystem,
 		utilmetric.MetricData{Value: float64(mem.MemTotal << 10), Time: &updateTime})
 	m.metricStore.SetNodeMetric(consts.MetricMemUsedSystem,
@@ -424,6 +432,10 @@ func (m *MalachiteMetricsFetcher) processSystemMemoryData(systemMemoryData *type
 
 	m.metricStore.SetNodeMetric(consts.MetricMemScaleFactorSystem,
 		utilmetric.MetricData{Value: float64(mem.VMWatermarkScaleFactor), Time: &updateTime})
+
+	// timestamp
+	m.metricStore.SetNodeMetric(consts.MetricMemUpdateTimeSystem,
+		utilmetric.MetricData{Value: float64(systemMemoryData.UpdateTime), Time: &updateTime})
 }
 
 func (m *MalachiteMetricsFetcher) processSystemIOData(systemIOData *types.SystemDiskIoData) {
@@ -600,8 +612,8 @@ func (m *MalachiteMetricsFetcher) processCgroupMemoryData(cgroupPath string, cgS
 		m.metricStore.SetCgroupMetric(cgroupPath, consts.MetricMemAllocstallCgroup, utilmetric.MetricData{Time: &updateTime, Value: float64(mem.TotalAllocstall)})
 		m.metricStore.SetCgroupMetric(cgroupPath, consts.MetricMemKswapdstealCgroup, utilmetric.MetricData{Time: &updateTime, Value: float64(mem.KswapdSteal)})
 
-		m.metricStore.SetCgroupMetric(cgroupPath, consts.MetricMemOomCgroup, utilmetric.MetricData{Time: &updateTime, Value: float64(mem.OomCnt)})
-		m.metricStore.SetCgroupMetric(cgroupPath, consts.MetricMemScaleFactorCgroup, utilmetric.MetricData{Time: &updateTime, Value: general.UIntPointerToFloat64(mem.WatermarkScaleFactor)})
+		m.metricStore.SetCgroupMetric(cgroupPath, consts.MetricMemOomCgroup, utilmetric.MetricData{Time: &updateTime, Value: float64(mem.BpfMemStat.OomCnt)})
+		//m.metricStore.SetCgroupMetric(cgroupPath, consts.MetricMemScaleFactorCgroup, utilmetric.MetricData{Time: &updateTime, Value: general.UIntPointerToFloat64(mem.WatermarkScaleFactor)})
 	} else if cgStats.CgroupType == "V2" {
 		mem := cgStats.V2.Memory
 		updateTime := time.Unix(cgStats.V2.Memory.UpdateTime, 0)
@@ -613,8 +625,8 @@ func (m *MalachiteMetricsFetcher) processCgroupMemoryData(cgroupPath string, cgS
 		m.metricStore.SetCgroupMetric(cgroupPath, consts.MetricMemPgfaultCgroup, utilmetric.MetricData{Value: float64(mem.MemStats.Pgfault), Time: &updateTime})
 		m.metricStore.SetCgroupMetric(cgroupPath, consts.MetricMemPgmajfaultCgroup, utilmetric.MetricData{Value: float64(mem.MemStats.Pgmajfault), Time: &updateTime})
 
-		m.metricStore.SetCgroupMetric(cgroupPath, consts.MetricMemOomCgroup, utilmetric.MetricData{Value: float64(mem.OomCnt), Time: &updateTime})
-		m.metricStore.SetCgroupMetric(cgroupPath, consts.MetricMemScaleFactorCgroup, utilmetric.MetricData{Value: general.UInt64PointerToFloat64(mem.WatermarkScaleFactor), Time: &updateTime})
+		m.metricStore.SetCgroupMetric(cgroupPath, consts.MetricMemOomCgroup, utilmetric.MetricData{Value: float64(mem.BpfMemStat.OomCnt), Time: &updateTime})
+		//m.metricStore.SetCgroupMetric(cgroupPath, consts.MetricMemScaleFactorCgroup, utilmetric.MetricData{Value: general.UInt64PointerToFloat64(mem.WatermarkScaleFactor), Time: &updateTime})
 	}
 }
 
@@ -653,10 +665,10 @@ func (m *MalachiteMetricsFetcher) processCgroupNetData(cgroupPath string, cgStat
 	if net == nil {
 		return
 	}
-	m.metricStore.SetCgroupMetric(cgroupPath, consts.MetricNetTcpSendByteCgroup, utilmetric.MetricData{Time: &updateTime, Value: float64(net.BpfNetData.NetTxBytes - net.OldBpfNetData.NetTxBytes)})
-	m.metricStore.SetCgroupMetric(cgroupPath, consts.MetricNetTcpSendPpsCgroup, utilmetric.MetricData{Time: &updateTime, Value: float64(net.BpfNetData.NetTx - net.OldBpfNetData.NetTx)})
-	m.metricStore.SetCgroupMetric(cgroupPath, consts.MetricNetTcpRecvByteCgroup, utilmetric.MetricData{Time: &updateTime, Value: float64(net.BpfNetData.NetRxBytes - net.OldBpfNetData.NetRxBytes)})
-	m.metricStore.SetCgroupMetric(cgroupPath, consts.MetricNetTcpRecvPpsCgroup, utilmetric.MetricData{Time: &updateTime, Value: float64(net.BpfNetData.NetRx - net.OldBpfNetData.NetRx)})
+	m.metricStore.SetCgroupMetric(cgroupPath, consts.MetricNetTcpSendByteCgroup, utilmetric.MetricData{Time: &updateTime, Value: float64(net.BpfNetData.NetTCPTxBytes - net.OldBpfNetData.NetTCPTxBytes)})
+	m.metricStore.SetCgroupMetric(cgroupPath, consts.MetricNetTcpSendPpsCgroup, utilmetric.MetricData{Time: &updateTime, Value: float64(net.BpfNetData.NetTCPTx - net.OldBpfNetData.NetTCPTx)})
+	m.metricStore.SetCgroupMetric(cgroupPath, consts.MetricNetTcpRecvByteCgroup, utilmetric.MetricData{Time: &updateTime, Value: float64(net.BpfNetData.NetTCPRxBytes - net.OldBpfNetData.NetTCPRxBytes)})
+	m.metricStore.SetCgroupMetric(cgroupPath, consts.MetricNetTcpRecvPpsCgroup, utilmetric.MetricData{Time: &updateTime, Value: float64(net.BpfNetData.NetTCPRx - net.OldBpfNetData.NetTCPRx)})
 }
 
 func (m *MalachiteMetricsFetcher) processCgroupPerNumaMemoryData(cgroupPath string, cgStats *types.MalachiteCgroupInfo) {
@@ -692,6 +704,7 @@ func (m *MalachiteMetricsFetcher) processContainerCPUData(podUID, containerName 
 	)
 
 	m.processContainerMemBandwidth(podUID, containerName, cgStats, metricLastUpdateTime.Value)
+	m.processContainerCPURelevantRate(podUID, containerName, cgStats, metricLastUpdateTime.Value)
 
 	if cgStats.CgroupType == "V1" {
 		cpu := cgStats.V1.Cpu
@@ -707,7 +720,6 @@ func (m *MalachiteMetricsFetcher) processContainerCPUData(podUID, containerName 
 			utilmetric.MetricData{Value: cpu.CPUUserUsageRatio, Time: &updateTime})
 		m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricCPUUsageSysContainer,
 			utilmetric.MetricData{Value: cpu.CPUSysUsageRatio, Time: &updateTime})
-
 		m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricCPUShareContainer,
 			utilmetric.MetricData{Value: float64(cpu.CPUShares), Time: &updateTime})
 		m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricCPUQuotaContainer,
@@ -716,11 +728,10 @@ func (m *MalachiteMetricsFetcher) processContainerCPUData(podUID, containerName 
 			utilmetric.MetricData{Value: float64(cpu.CfsPeriodUs), Time: &updateTime})
 		m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricCPUNrThrottledContainer,
 			utilmetric.MetricData{Value: float64(cpu.CPUNrThrottled), Time: &updateTime})
-		m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricCPUThrottledPeriodContainer,
+		m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricCPUNrPeriodContainer,
 			utilmetric.MetricData{Value: float64(cpu.CPUNrPeriods), Time: &updateTime})
 		m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricCPUThrottledTimeContainer,
 			utilmetric.MetricData{Value: float64(cpu.CPUThrottledTime), Time: &updateTime})
-
 		m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricCPUNrRunnableContainer,
 			utilmetric.MetricData{Value: float64(cpu.TaskNrRunning), Time: &updateTime})
 		m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricCPUNrUninterruptibleContainer,
@@ -736,19 +747,21 @@ func (m *MalachiteMetricsFetcher) processContainerCPUData(podUID, containerName 
 			utilmetric.MetricData{Value: cpu.Load.Fifteen, Time: &updateTime})
 
 		m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricOCRReadDRAMsContainer,
-			utilmetric.MetricData{Value: float64(cpu.OCRReadDRAMs), Time: &updateTime})
+			utilmetric.MetricData{Value: float64(cpu.OcrReadDrams), Time: &updateTime})
 		m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricIMCWriteContainer,
-			utilmetric.MetricData{Value: float64(cpu.IMCWrites), Time: &updateTime})
+			utilmetric.MetricData{Value: float64(cpu.ImcWrites), Time: &updateTime})
 		m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricStoreAllInsContainer,
-			utilmetric.MetricData{Value: float64(cpu.StoreAllInstructions), Time: &updateTime})
+			utilmetric.MetricData{Value: float64(cpu.StoreAllIns), Time: &updateTime})
 		m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricStoreInsContainer,
-			utilmetric.MetricData{Value: float64(cpu.StoreInstructions), Time: &updateTime})
+			utilmetric.MetricData{Value: float64(cpu.StoreIns), Time: &updateTime})
 		m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricCPUUpdateTimeContainer,
 			utilmetric.MetricData{Value: float64(cpu.UpdateTime), Time: &updateTime})
 		m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricCPUCyclesContainer,
 			utilmetric.MetricData{Value: float64(cpu.Cycles), Time: &updateTime})
 		m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricCPUInstructionsContainer,
 			utilmetric.MetricData{Value: float64(cpu.Instructions), Time: &updateTime})
+		m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricCPUL3CacheMissContainer,
+			utilmetric.MetricData{Value: float64(cpu.L3Misses), Time: &updateTime})
 
 		if cyclesOld.Value > 0 && instructionsOld.Value > 0 {
 			instructionDiff := float64(cpu.Instructions) - instructionsOld.Value
@@ -786,19 +799,21 @@ func (m *MalachiteMetricsFetcher) processContainerCPUData(podUID, containerName 
 			utilmetric.MetricData{Value: cpu.Load.Fifteen, Time: &updateTime})
 
 		m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricOCRReadDRAMsContainer,
-			utilmetric.MetricData{Value: float64(cpu.OCRReadDRAMs), Time: &updateTime})
+			utilmetric.MetricData{Value: float64(cpu.OcrReadDrams), Time: &updateTime})
 		m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricIMCWriteContainer,
-			utilmetric.MetricData{Value: float64(cpu.IMCWrites), Time: &updateTime})
+			utilmetric.MetricData{Value: float64(cpu.ImcWrites), Time: &updateTime})
 		m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricStoreAllInsContainer,
-			utilmetric.MetricData{Value: float64(cpu.StoreAllInstructions), Time: &updateTime})
+			utilmetric.MetricData{Value: float64(cpu.StoreAllIns), Time: &updateTime})
 		m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricStoreInsContainer,
-			utilmetric.MetricData{Value: float64(cpu.StoreInstructions), Time: &updateTime})
+			utilmetric.MetricData{Value: float64(cpu.StoreIns), Time: &updateTime})
 		m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricCPUUpdateTimeContainer,
 			utilmetric.MetricData{Value: float64(cpu.UpdateTime), Time: &updateTime})
 		m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricCPUCyclesContainer,
 			utilmetric.MetricData{Value: float64(cpu.Cycles), Time: &updateTime})
 		m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricCPUInstructionsContainer,
 			utilmetric.MetricData{Value: float64(cpu.Instructions), Time: &updateTime})
+		m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricCPUL3CacheMissContainer,
+			utilmetric.MetricData{Value: float64(cpu.L3Misses), Time: &updateTime})
 
 		if cyclesOld.Value > 0 && instructionsOld.Value > 0 {
 			instructionDiff := float64(cpu.Instructions) - instructionsOld.Value
@@ -812,6 +827,10 @@ func (m *MalachiteMetricsFetcher) processContainerCPUData(podUID, containerName 
 }
 
 func (m *MalachiteMetricsFetcher) processContainerMemoryData(podUID, containerName string, cgStats *types.MalachiteCgroupInfo) {
+	lastUpdateTimeMetric, _ := m.metricStore.GetContainerMetric(podUID, containerName, consts.MetricMemUpdateTimeContainer)
+
+	m.processContainerMemRelevantRate(podUID, containerName, cgStats, lastUpdateTimeMetric.Value)
+
 	if cgStats.CgroupType == "V1" {
 		mem := cgStats.V1.Memory
 		updateTime := time.Unix(cgStats.V1.Memory.UpdateTime, 0)
@@ -819,12 +838,12 @@ func (m *MalachiteMetricsFetcher) processContainerMemoryData(podUID, containerNa
 		m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricMemLimitContainer,
 			utilmetric.MetricData{Value: float64(mem.MemoryLimitInBytes), Time: &updateTime})
 		m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricMemTCPLimitContainer,
-			utilmetric.MetricData{Value: float64(mem.KernTCPMemLimitInBytes), Time: &updateTime})
+			utilmetric.MetricData{Value: float64(mem.KernMemoryTcpLimitInBytes), Time: &updateTime})
 		m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricMemUsageContainer,
 			utilmetric.MetricData{Value: float64(mem.MemoryUsageInBytes), Time: &updateTime})
 		m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricMemUsageUserContainer,
 			utilmetric.MetricData{Value: float64(mem.MemoryLimitInBytes - mem.KernMemoryUsageInBytes), Time: &updateTime})
-		m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricMemUsageSysContainer,
+		m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricMemUsageKernContainer,
 			utilmetric.MetricData{Value: float64(mem.KernMemoryUsageInBytes), Time: &updateTime})
 		m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricMemRssContainer,
 			utilmetric.MetricData{Value: float64(mem.TotalRss), Time: &updateTime})
@@ -834,28 +853,32 @@ func (m *MalachiteMetricsFetcher) processContainerMemoryData(podUID, containerNa
 			utilmetric.MetricData{Value: float64(mem.TotalShmem), Time: &updateTime})
 
 		m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricMemDirtyContainer,
-			utilmetric.MetricData{Value: float64(mem.TotalDirty), Time: &updateTime})
+			utilmetric.MetricData{Value: float64(mem.Dirty), Time: &updateTime})
 		m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricMemWritebackContainer,
-			utilmetric.MetricData{Value: float64(mem.TotalWriteback), Time: &updateTime})
+			utilmetric.MetricData{Value: float64(mem.Writeback), Time: &updateTime})
 		m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricMemPgfaultContainer,
-			utilmetric.MetricData{Value: float64(mem.TotalPgfault), Time: &updateTime})
+			utilmetric.MetricData{Value: float64(mem.Pgfault), Time: &updateTime})
 		m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricMemPgmajfaultContainer,
-			utilmetric.MetricData{Value: float64(mem.TotalPgmajfault), Time: &updateTime})
+			utilmetric.MetricData{Value: float64(mem.Pgmajfault), Time: &updateTime})
 		m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricMemAllocstallContainer,
 			utilmetric.MetricData{Value: float64(mem.TotalAllocstall), Time: &updateTime})
 		m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricMemKswapdstealContainer,
 			utilmetric.MetricData{Value: float64(mem.KswapdSteal), Time: &updateTime})
 
 		m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricMemOomContainer,
-			utilmetric.MetricData{Value: float64(mem.OomCnt), Time: &updateTime})
-		m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricMemScaleFactorContainer,
-			utilmetric.MetricData{Value: general.UIntPointerToFloat64(mem.WatermarkScaleFactor), Time: &updateTime})
+			utilmetric.MetricData{Value: float64(mem.BpfMemStat.OomCnt), Time: &updateTime})
+		//m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricMemScaleFactorContainer,
+		//	utilmetric.MetricData{Value: general.UIntPointerToFloat64(mem.WatermarkScaleFactor), Time: &updateTime})
+		m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricMemUpdateTimeContainer,
+			utilmetric.MetricData{Value: float64(mem.UpdateTime), Time: &updateTime})
 	} else if cgStats.CgroupType == "V2" {
 		mem := cgStats.V2.Memory
 		updateTime := time.Unix(cgStats.V2.Memory.UpdateTime, 0)
 
 		m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricMemUsageContainer,
 			utilmetric.MetricData{Value: float64(mem.MemoryUsageInBytes), Time: &updateTime})
+		m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricMemUsageKernContainer,
+			utilmetric.MetricData{Value: float64(mem.MemStats.Kernel), Time: &updateTime})
 		m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricMemRssContainer,
 			utilmetric.MetricData{Value: float64(mem.MemStats.Anon), Time: &updateTime})
 		m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricMemCacheContainer,
@@ -868,10 +891,16 @@ func (m *MalachiteMetricsFetcher) processContainerMemoryData(podUID, containerNa
 		m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricMemPgmajfaultContainer,
 			utilmetric.MetricData{Value: float64(mem.MemStats.Pgmajfault), Time: &updateTime})
 
+		m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricMemDirtyContainer,
+			utilmetric.MetricData{Value: float64(mem.MemStats.FileDirty), Time: &updateTime})
 		m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricMemOomContainer,
-			utilmetric.MetricData{Value: float64(mem.OomCnt), Time: &updateTime})
-		m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricMemScaleFactorContainer,
-			utilmetric.MetricData{Value: general.UInt64PointerToFloat64(mem.WatermarkScaleFactor), Time: &updateTime})
+			utilmetric.MetricData{Value: float64(mem.BpfMemStat.OomCnt), Time: &updateTime})
+		m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricMemWritebackContainer,
+			utilmetric.MetricData{Value: float64(mem.MemStats.FileWriteback), Time: &updateTime})
+		//m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricMemScaleFactorContainer,
+		//	utilmetric.MetricData{Value: general.UInt64PointerToFloat64(mem.WatermarkScaleFactor), Time: &updateTime})
+		m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricMemUpdateTimeContainer,
+			utilmetric.MetricData{Value: float64(mem.UpdateTime), Time: &updateTime})
 	}
 }
 
@@ -884,10 +913,14 @@ func (m *MalachiteMetricsFetcher) processContainerBlkIOData(podUID, containerNam
 		updateTimestampInSec := updateTime.Unix()
 
 		m.setContainerRateMetric(podUID, containerName, consts.MetricBlkioReadIopsContainer,
-			func() float64 { return float64(uint64CounterDelta(io.OldBpfFsData.FsRead, io.BpfFsData.FsRead)) },
+			func() float64 {
+				return float64(uint64CounterDelta(io.OldBpfFsData.FsRead, io.BpfFsData.FsRead))
+			},
 			int64(lastUpdateTime.Value), updateTimestampInSec)
 		m.setContainerRateMetric(podUID, containerName, consts.MetricBlkioWriteIopsContainer,
-			func() float64 { return float64(uint64CounterDelta(io.OldBpfFsData.FsWrite, io.BpfFsData.FsWrite)) },
+			func() float64 {
+				return float64(uint64CounterDelta(io.OldBpfFsData.FsWrite, io.BpfFsData.FsWrite))
+			},
 			int64(lastUpdateTime.Value), updateTimestampInSec)
 		m.setContainerRateMetric(podUID, containerName, consts.MetricBlkioReadBpsContainer,
 			func() float64 {
@@ -944,38 +977,25 @@ func (m *MalachiteMetricsFetcher) processContainerNetData(podUID, containerName 
 		return
 	}
 
-	m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricNetTcpSendByteContainer,
-		utilmetric.MetricData{Value: float64(net.BpfNetData.NetTxBytes - net.OldBpfNetData.NetTxBytes), Time: &updateTime})
-	m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricNetTcpSendPpsContainer,
-		utilmetric.MetricData{Value: float64(net.BpfNetData.NetTx - net.OldBpfNetData.NetTx), Time: &updateTime})
-	m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricNetTcpRecvByteContainer,
-		utilmetric.MetricData{Value: float64(net.BpfNetData.NetRxBytes - net.OldBpfNetData.NetRxBytes), Time: &updateTime})
-	m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricNetTcpRecvPpsContainer,
-		utilmetric.MetricData{Value: float64(net.BpfNetData.NetRx - net.OldBpfNetData.NetRx), Time: &updateTime})
+	lastUpdateTimeMetric, _ := m.metricStore.GetContainerMetric(podUID, containerName, consts.MetricNetworkUpdateTimeContainer)
+
+	m.setContainerRateMetric(podUID, containerName, consts.MetricNetTcpSendBPSContainer, func() float64 {
+		return float64(uint64CounterDelta(net.OldBpfNetData.NetTCPRxBytes, net.BpfNetData.NetTCPRxBytes))
+	}, int64(lastUpdateTimeMetric.Value), updateTime.Unix())
+	m.setContainerRateMetric(podUID, containerName, consts.MetricNetTcpRecvBPSContainer, func() float64 {
+		return float64(uint64CounterDelta(net.OldBpfNetData.NetTCPRxBytes, net.BpfNetData.NetTCPRxBytes))
+	}, int64(lastUpdateTimeMetric.Value), updateTime.Unix())
+	m.setContainerRateMetric(podUID, containerName, consts.MetricNetTcpSendPpsContainer, func() float64 {
+		return float64(uint64CounterDelta(net.OldBpfNetData.NetTCPTx, net.BpfNetData.NetTCPTx))
+	}, int64(lastUpdateTimeMetric.Value), updateTime.Unix())
+	m.setContainerRateMetric(podUID, containerName, consts.MetricNetTcpRecvPpsContainer, func() float64 {
+		return float64(uint64CounterDelta(net.OldBpfNetData.NetTCPRx, net.BpfNetData.NetTCPRx))
+	}, int64(lastUpdateTimeMetric.Value), updateTime.Unix())
 }
 
+// Currently, these valid perf event data are provided through types.MalachiteCgroupInfo.V1/V2.CPU by malachite.
+// Keep an empty func here in case of that malachite provides more detailed perf event someday.
 func (m *MalachiteMetricsFetcher) processContainerPerfData(podUID, containerName string, cgStats *types.MalachiteCgroupInfo) {
-	var perf *types.PerfEventData
-	var updateTime time.Time
-	if cgStats.CgroupType == "V1" {
-		perf = cgStats.V1.PerfEvent
-		updateTime = time.Unix(cgStats.V1.PerfEvent.UpdateTime, 0)
-	} else if cgStats.CgroupType == "V2" {
-		perf = cgStats.V2.PerfEvent
-		updateTime = time.Unix(cgStats.V2.PerfEvent.UpdateTime, 0)
-	}
-
-	if perf == nil {
-		return
-	}
-
-	// cpu cycles and instructions are collected from container's cgroup data, and cpi is derived from them
-	m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricCPUICacheMissContainer,
-		utilmetric.MetricData{Value: perf.IcacheMiss, Time: &updateTime})
-	m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricCPUL2CacheMissContainer,
-		utilmetric.MetricData{Value: perf.L2CacheMiss, Time: &updateTime})
-	m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricCPUL3CacheMissContainer,
-		utilmetric.MetricData{Value: perf.L3CacheMiss, Time: &updateTime})
 }
 
 func (m *MalachiteMetricsFetcher) processContainerPerNumaMemoryData(podUID, containerName string, cgStats *types.MalachiteCgroupInfo) {

@@ -21,12 +21,16 @@ import (
 
 	v1 "k8s.io/api/core/v1"
 
-	"github.com/kubewharf/katalyst-api/pkg/consts"
+	apiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/config/generic"
+	"github.com/kubewharf/katalyst-core/pkg/util/qos/helper"
 )
 
 func ParseMemoryEnhancement(qosConf *generic.QoSConfiguration, pod *v1.Pod) map[string]string {
-	return ParseKatalystQOSEnhancement(qosConf.GetQoSEnhancementsForPod(pod), consts.PodAnnotationMemoryEnhancementKey)
+	if pod == nil || qosConf == nil {
+		return nil
+	}
+	return helper.ParseKatalystQOSEnhancement(qosConf.GetQoSEnhancementsForPod(pod), pod.Annotations, apiconsts.PodAnnotationMemoryEnhancementKey)
 }
 
 // IsPodNumaBinding checks whether the pod needs numa-binding
@@ -52,26 +56,25 @@ func IsPodNumaExclusive(qosConf *generic.QoSConfiguration, pod *v1.Pod) bool {
 }
 
 func AnnotationsIndicateNUMABinding(annotations map[string]string) bool {
-	return annotations[consts.PodAnnotationMemoryEnhancementNumaBinding] ==
-		consts.PodAnnotationMemoryEnhancementNumaBindingEnable
+	return annotations[apiconsts.PodAnnotationMemoryEnhancementNumaBinding] ==
+		apiconsts.PodAnnotationMemoryEnhancementNumaBindingEnable
 }
 
 func AnnotationsIndicateNUMAExclusive(annotations map[string]string) bool {
 	return AnnotationsIndicateNUMABinding(annotations) &&
-		annotations[consts.PodAnnotationMemoryEnhancementNumaExclusive] ==
-			consts.PodAnnotationMemoryEnhancementNumaExclusiveEnable
+		annotations[apiconsts.PodAnnotationMemoryEnhancementNumaExclusive] ==
+			apiconsts.PodAnnotationMemoryEnhancementNumaExclusiveEnable
 }
 
 // GetRSSOverUseEvictThreshold parse the user specified threshold and checks if it's valid
 func GetRSSOverUseEvictThreshold(qosConf *generic.QoSConfiguration, pod *v1.Pod) (threshold *float64, invalid bool) {
 	memoryEnhancement := ParseMemoryEnhancement(qosConf, pod)
-	thresholdStr, ok := memoryEnhancement[consts.PodAnnotationMemoryEnhancementRssOverUseThreshold]
+	thresholdStr, ok := memoryEnhancement[apiconsts.PodAnnotationMemoryEnhancementRssOverUseThreshold]
 	if !ok {
 		return
 	}
 
 	parsedThreshold, parseErr := strconv.ParseFloat(thresholdStr, 64)
-
 	if parseErr != nil {
 		invalid = true
 		return
@@ -88,4 +91,22 @@ func GetRSSOverUseEvictThreshold(qosConf *generic.QoSConfiguration, pod *v1.Pod)
 
 func isValidRatioThreshold(threshold float64) bool {
 	return threshold > 0
+}
+
+// GetOOMPriority parse the user specified oom priority from memory enhancement annotation
+func GetOOMPriority(qosConf *generic.QoSConfiguration, pod *v1.Pod) (priority *int, invalid bool) {
+	memoryEnhancement := ParseMemoryEnhancement(qosConf, pod)
+	oomPriorityStr, ok := memoryEnhancement[apiconsts.PodAnnotationMemoryEnhancementOOMPriority]
+	if !ok {
+		return
+	}
+
+	parsedOOMPriority, parseErr := strconv.Atoi(oomPriorityStr)
+	if parseErr != nil {
+		invalid = true
+		return
+	}
+
+	priority = &parsedOOMPriority
+	return
 }

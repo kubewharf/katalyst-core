@@ -24,7 +24,9 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/klog/v2"
 
+	apiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/consts"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/cpuadvisor"
 	advisorapi "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/cpuadvisor"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
@@ -221,5 +223,22 @@ func GetPoolType(poolName string) string {
 		return poolName
 	default:
 		return PoolNameShare
+	}
+}
+
+// GetSpecifiedPoolName todo: this function (along with pool-name consts) should be moved to generic qos conf
+func GetSpecifiedPoolName(qosLevel, cpusetEnhancementValue string) string {
+	switch qosLevel {
+	case apiconsts.PodAnnotationQoSLevelSharedCores:
+		if cpusetEnhancementValue != cpuadvisor.EmptyOwnerPoolName {
+			return cpusetEnhancementValue
+		}
+		return PoolNameShare
+	case apiconsts.PodAnnotationQoSLevelReclaimedCores:
+		return PoolNameReclaim
+	case apiconsts.PodAnnotationQoSLevelDedicatedCores:
+		return PoolNameDedicated
+	default:
+		return cpuadvisor.EmptyOwnerPoolName
 	}
 }

@@ -506,6 +506,57 @@ func TestGenerateCPUMachineStateByPodEntries(t *testing.T) {
 
 		as.Equalf(tc.expectedMachineState, machineState, "failed in test case: %s", tc.description)
 
-		os.RemoveAll(tmpDir)
+		_ = os.RemoveAll(tmpDir)
+	}
+}
+
+func TestGetSpecifiedPoolName(t *testing.T) {
+	t.Parallel()
+
+	type args struct {
+		qosLevel               string
+		cpusetEnhancementValue string
+	}
+	tests := []struct {
+		name string
+		args args
+		want string
+	}{
+		{
+			name: "shared_cores with empty cpusetEnhancementValue",
+			args: args{
+				qosLevel: consts.PodAnnotationQoSLevelSharedCores,
+			},
+			want: PoolNameShare,
+		},
+		{
+			name: "shared_cores with non-empty cpusetEnhancementValue",
+			args: args{
+				qosLevel:               consts.PodAnnotationQoSLevelSharedCores,
+				cpusetEnhancementValue: "offline",
+			},
+			want: "offline",
+		},
+		{
+			name: "dedicated_cores with empty cpusetEnhancementValue",
+			args: args{
+				qosLevel: consts.PodAnnotationQoSLevelDedicatedCores,
+			},
+			want: PoolNameDedicated,
+		},
+		{
+			name: "reclaimed_cores with empty cpusetEnhancementValue",
+			args: args{
+				qosLevel: consts.PodAnnotationQoSLevelReclaimedCores,
+			},
+			want: PoolNameReclaim,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := GetSpecifiedPoolName(tt.args.qosLevel, tt.args.cpusetEnhancementValue); got != tt.want {
+				t.Errorf("GetSpecifiedPoolName() = %v, want %v", got, tt.want)
+			}
+		})
 	}
 }

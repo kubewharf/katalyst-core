@@ -67,8 +67,7 @@ func TestNewCPUPressureSuppressionEviction(t *testing.T) {
 	stateImpl, err := makeState(cpuTopology)
 	as.Nil(err)
 
-	plugin := NewCPUPressureSuppressionEviction(metrics.DummyMetrics{}, metaServer, conf, stateImpl)
-	as.Nil(err)
+	plugin, _ := NewCPUPressureSuppressionEviction(metrics.DummyMetrics{}, metaServer, conf, stateImpl)
 	as.NotNil(plugin)
 }
 
@@ -84,7 +83,7 @@ func TestCPUPressureSuppression_GetEvictPods(t *testing.T) {
 	stateImpl, err := makeState(cpuTopology)
 	as.Nil(err)
 
-	plugin := NewCPUPressureSuppressionEviction(metrics.DummyMetrics{}, metaServer, conf, stateImpl)
+	plugin, _ := NewCPUPressureSuppressionEviction(metrics.DummyMetrics{}, metaServer, conf, stateImpl)
 	as.NotNil(plugin)
 
 	pod1UID := string(uuid.NewUUID())

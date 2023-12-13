@@ -17,16 +17,16 @@ limitations under the License.
 package generic
 
 import (
-	"encoding/json"
 	"fmt"
 	"sync"
 
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
-	"k8s.io/klog/v2"
 
 	apiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
+	"github.com/kubewharf/katalyst-core/pkg/util/qos/helper"
 )
 
 // defaultQoSLevel willed b e use as default QoS Level if nothing in annotation
@@ -106,39 +106,26 @@ func NewQoSConfiguration() *QoSConfiguration {
 // it works both for default katalyst QoS keys and expanded QoS keys.
 func (c *QoSConfiguration) FilterQoSAndEnhancement(annotations map[string]string) (map[string]string, error) {
 	filteredAnnotations := c.FilterQoSMap(annotations)
+	wrappedEnhancements := c.GetQoSEnhancements(annotations)
 
 	c.RLock()
 	defer c.RUnlock()
 
-	validEnhancementKeyList := validQosEnhancementKey.List()
-	for enhancementExpandKey := range c.QoSEnhancementAnnotationSelector {
-		validEnhancementKeyList = append(validEnhancementKeyList, enhancementExpandKey)
-	}
-
-	for _, enhancementKey := range validEnhancementKeyList {
-		if annotations[enhancementKey] != "" {
-			enhancementKVs := make(map[string]string)
-
-			err := json.Unmarshal([]byte(annotations[enhancementKey]), &enhancementKVs)
-			if err != nil {
-				return nil, fmt.Errorf("unmarshal %s: %s failed with error: %v",
-					enhancementKey, annotations[enhancementKey], err)
+	for _, enhancementKey := range validQosEnhancementKey.List() {
+		enhancementKVs := helper.ParseKatalystQOSEnhancement(wrappedEnhancements, annotations, enhancementKey)
+		for key, val := range enhancementKVs {
+			if filteredAnnotations[key] != "" {
+				general.Warningf("get enhancements %s:%s from %s, but the kv already exists: %s:%s",
+					key, val, enhancementKey, key, filteredAnnotations[key])
 			}
-
-			for key, val := range enhancementKVs {
-				if filteredAnnotations[key] != "" {
-					klog.Warningf("[FilterQoSAndEnhancement] get %s:%s from %s, "+
-						"but the kv already exists: %s:%s", key, val, enhancementKey, key, filteredAnnotations[key])
-				}
-				filteredAnnotations[key] = val
-			}
+			filteredAnnotations[key] = val
 		}
 	}
 
 	for enhancementKey, defaultValue := range c.EnhancementDefaultValues {
 		if _, found := filteredAnnotations[enhancementKey]; !found {
-			klog.Infof("[FilterQoSAndEnhancement] enhancementKey: %s isn't declared, "+
-				"set its value to defaultValue: %s", enhancementKey, defaultValue)
+			general.Infof("enhancementKey: %s isn't declared, set its value to defaultValue: %s",
+				enhancementKey, defaultValue)
 			filteredAnnotations[enhancementKey] = defaultValue
 		}
 	}
@@ -153,7 +140,6 @@ func (c *QoSConfiguration) FilterQoSMap(annotations map[string]string) map[strin
 	defer c.RUnlock()
 
 	filteredAnnotations := make(map[string]string)
-
 	for qos := range c.QoSClassAnnotationSelector {
 		for qosExpand := range c.QoSClassAnnotationSelector[qos] {
 			if val, ok := annotations[qosExpand]; ok {
@@ -161,7 +147,6 @@ func (c *QoSConfiguration) FilterQoSMap(annotations map[string]string) map[strin
 			}
 		}
 	}
-
 	return filteredAnnotations
 }
 
@@ -185,13 +170,29 @@ func (c *QoSConfiguration) GetQoSLevelForPod(pod *v1.Pod) (string, error) {
 // GetQoSLevel returns the standard katalyst QoS Level for given annotations;
 // - returns error if there is conflict in qos level annotations or can't get valid qos level.
 // - returns defaultQoSLevel if nothing matches and isNotDefaultQoSLevel is false.
-func (c *QoSConfiguration) GetQoSLevel(annotations map[string]string) (string, error) {
+func (c *QoSConfiguration) GetQoSLevel(annotations map[string]string) (qosLevel string, retErr error) {
+	defer func() {
+		if retErr != nil {
+			return
+		}
+
+		// redirect qos-level according to user-specified qos judgement function
+		qosLevelUpdater := helper.GetQoSLevelUpdateFunc()
+		if qosLevelUpdater != nil {
+			updatedQoSLevel := qosLevelUpdater(qosLevel, annotations)
+			if updatedQoSLevel != qosLevel {
+				general.Infof("update qosLevel from %s to %s", qosLevel, updatedQoSLevel)
+			}
+			qosLevel = updatedQoSLevel
+		}
+	}()
+
 	isNotDefaultQoSLevel := false
 	for qos := range c.QoSClassAnnotationSelector {
 		identified, matched, err := c.checkQosMatched(annotations, qos)
 
 		if err != nil {
-			klog.Errorf("check qos level %v for annotation failed: %v", qos, err)
+			general.Errorf("check qos level %v for annotation failed: %v", qos, err)
 			return "", err
 		} else if identified {
 			if matched {
@@ -205,7 +206,6 @@ func (c *QoSConfiguration) GetQoSLevel(annotations map[string]string) (string, e
 	if isNotDefaultQoSLevel {
 		return "", fmt.Errorf("can't get valid qos level")
 	}
-
 	return defaultQoSLevel, nil
 }
 
@@ -351,6 +351,25 @@ func (c *QoSConfiguration) checkQosMatched(annotations map[string]string, qosVal
 	}
 
 	return true, false, nil
+}
+
+func (c *QoSConfiguration) GetSpecifiedPoolNameForPod(pod *v1.Pod) (string, error) {
+	if pod == nil {
+		return "", fmt.Errorf("nil pod")
+	}
+	return c.GetSpecifiedPoolName(c.GetQoSEnhancementsForPod(pod), pod.Annotations)
+}
+
+// GetSpecifiedPoolName returns the specified cpuset pool name for given enhancements and annotations;
+func (c *QoSConfiguration) GetSpecifiedPoolName(enhancements, annotations map[string]string) (string, error) {
+	qosLevel, err := c.GetQoSLevel(annotations)
+	if err != nil {
+		return "", fmt.Errorf("GetQoSLevel failed with error: %v", err)
+	}
+
+	enhancementKVs := helper.ParseKatalystQOSEnhancement(enhancements, annotations,
+		apiconsts.PodAnnotationCPUEnhancementKey)
+	return state.GetSpecifiedPoolName(qosLevel, enhancementKVs[apiconsts.PodAnnotationCPUEnhancementCPUSet]), nil
 }
 
 // checkKeyValueMatched checks whether the given key-value pair exists in the map

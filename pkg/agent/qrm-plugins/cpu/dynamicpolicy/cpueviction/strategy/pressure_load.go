@@ -43,6 +43,8 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/util/native"
 )
 
+const EvictionNameLoad = "cpu-pressure-load-plugin"
+
 const evictionConditionCPUPressure = "CPUPressure"
 
 const (
@@ -98,7 +100,7 @@ type CPUPressureLoadEviction struct {
 }
 
 func NewCPUPressureLoadEviction(emitter metrics.MetricEmitter, metaServer *metaserver.MetaServer,
-	conf *config.Configuration, state state.ReadonlyState) (CPUPressureThresholdEviction, error) {
+	conf *config.Configuration, state state.ReadonlyState) (CPUPressureEviction, error) {
 	plugin := &CPUPressureLoadEviction{
 		state:          state,
 		emitter:        emitter,
@@ -129,7 +131,10 @@ func (p *CPUPressureLoadEviction) Start(ctx context.Context) (err error) {
 	return
 }
 
-func (p *CPUPressureLoadEviction) Name() string { return "pressure-load" }
+func (p *CPUPressureLoadEviction) Name() string { return EvictionNameLoad }
+func (p *CPUPressureLoadEviction) GetEvictPods(_ context.Context, _ *pluginapi.GetEvictPodsRequest) (*pluginapi.GetEvictPodsResponse, error) {
+	return &pluginapi.GetEvictPodsResponse{}, nil
+}
 
 func (p *CPUPressureLoadEviction) ThresholdMet(_ context.Context,
 	_ *pluginapi.Empty) (*pluginapi.ThresholdMetResponse, error) {

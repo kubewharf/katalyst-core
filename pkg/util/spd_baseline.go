@@ -69,9 +69,9 @@ func IsBaselinePod(pod *v1.Pod, spd *v1alpha1.ServiceProfileDescriptor) (bool, b
 		return false, false, nil
 	}
 	if *spd.Spec.BaselinePercent >= consts.SPDBaselinePercentMax {
-		return false, true, nil
-	} else if *spd.Spec.BaselinePercent <= consts.SPDBaselinePercentMin {
 		return true, true, nil
+	} else if *spd.Spec.BaselinePercent <= consts.SPDBaselinePercentMin {
+		return false, true, nil
 	}
 
 	bp, err := GetSPDBaselineSentinel(spd)

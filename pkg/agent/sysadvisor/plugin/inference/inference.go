@@ -119,7 +119,9 @@ func (infp *InferencePlugin) fetchModelResult(ctx context.Context) {
 		go func(modelName string, fetcher modelresultfetcher.ModelResultFetcher) {
 			defer wg.Done()
 			err := fetcher.FetchModelResult(ctx, infp.metaReader, infp.metaWriter, infp.metaServer)
-			general.Errorf("FetchModelResult for model: %s failed with error: %v", modelName, err)
+			if err != nil {
+				general.Errorf("FetchModelResult for model: %s failed with error: %v", modelName, err)
+			}
 		}(modelName, fetcher)
 	}
 

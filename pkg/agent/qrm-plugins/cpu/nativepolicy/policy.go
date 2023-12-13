@@ -642,7 +642,7 @@ func (p *NativePolicy) getContainerRequestedCores(allocationInfo *state.Allocati
 			return 0
 		}
 
-		cpuQuantity := native.GetCPUQuantity(container.Resources.Requests)
+		cpuQuantity := native.CPUQuantityGetter()(container.Resources.Requests)
 		allocationInfo.RequestQuantity = general.Max(int(cpuQuantity.Value()), 0)
 		general.Infof("get cpu request quantity: %d for pod: %s/%s container: %s from podWatcher",
 			allocationInfo.RequestQuantity, allocationInfo.PodNamespace, allocationInfo.PodName, allocationInfo.ContainerName)

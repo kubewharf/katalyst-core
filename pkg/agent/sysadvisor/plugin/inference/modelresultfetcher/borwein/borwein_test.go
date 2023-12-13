@@ -264,9 +264,13 @@ func TestBorweinModelResultFetcher_FetchModelResult(t *testing.T) {
 	infSvcClient.SetFakeResp(&borweininfsvc.InferenceResponse{
 		PodResponseEntries: map[string]*borweininfsvc.ContainerResponseEntries{
 			podUID: {
-				ContainerInferenceResults: map[string]*borweininfsvc.InferenceResult{
+				ContainerInferenceResults: map[string]*borweininfsvc.InferenceResults{
 					containerName: {
-						IsDefault: true,
+						InferenceResults: []*borweininfsvc.InferenceResult{
+							{
+								IsDefault: true,
+							},
+						},
 					},
 				},
 			},
@@ -319,6 +323,7 @@ func TestBorweinModelResultFetcher_FetchModelResult(t *testing.T) {
 				nodeFeatureNames:      tt.fields.nodeFeatureNames,
 				containerFeatureNames: tt.fields.containerFeatureNames,
 				infSvcClient:          tt.fields.infSvcClient,
+				emitter:               metrics.DummyMetrics{},
 			}
 			if err := bmrf.FetchModelResult(tt.args.ctx, tt.args.metaReader, tt.args.metaWriter, tt.args.metaServer); (err != nil) != tt.wantErr {
 				t.Errorf("BorweinModelResultFetcher.FetchModelResult() error = %v, wantErr %v", err, tt.wantErr)
@@ -395,9 +400,13 @@ func TestBorweinModelResultFetcher_parseInferenceRespForPods(t *testing.T) {
 	infSvcClient.SetFakeResp(&borweininfsvc.InferenceResponse{
 		PodResponseEntries: map[string]*borweininfsvc.ContainerResponseEntries{
 			podUID: {
-				ContainerInferenceResults: map[string]*borweininfsvc.InferenceResult{
+				ContainerInferenceResults: map[string]*borweininfsvc.InferenceResults{
 					containerName: {
-						IsDefault: true,
+						InferenceResults: []*borweininfsvc.InferenceResult{
+							{
+								IsDefault: true,
+							},
+						},
 					},
 				},
 			},
@@ -436,9 +445,13 @@ func TestBorweinModelResultFetcher_parseInferenceRespForPods(t *testing.T) {
 				resp: &borweininfsvc.InferenceResponse{
 					PodResponseEntries: map[string]*borweininfsvc.ContainerResponseEntries{
 						podUID: {
-							ContainerInferenceResults: map[string]*borweininfsvc.InferenceResult{
+							ContainerInferenceResults: map[string]*borweininfsvc.InferenceResults{
 								containerName: {
-									IsDefault: true,
+									InferenceResults: []*borweininfsvc.InferenceResult{
+										{
+											IsDefault: true,
+										},
+									},
 								},
 							},
 						},
@@ -446,9 +459,11 @@ func TestBorweinModelResultFetcher_parseInferenceRespForPods(t *testing.T) {
 				},
 			},
 			want: borweintypes.BorweinInferenceResults{
-				podUID: map[string]*borweininfsvc.InferenceResult{
+				podUID: map[string][]*borweininfsvc.InferenceResult{
 					containerName: {
-						IsDefault: true,
+						{
+							IsDefault: true,
+						},
 					},
 				},
 			},
@@ -462,6 +477,7 @@ func TestBorweinModelResultFetcher_parseInferenceRespForPods(t *testing.T) {
 				nodeFeatureNames:      tt.fields.nodeFeatureNames,
 				containerFeatureNames: tt.fields.containerFeatureNames,
 				infSvcClient:          tt.fields.infSvcClient,
+				emitter:               metrics.DummyMetrics{},
 			}
 			got, err := bmrf.parseInferenceRespForPods(tt.args.containers, tt.args.resp)
 			if (err != nil) != tt.wantErr {
@@ -543,9 +559,13 @@ func TestBorweinModelResultFetcher_getInferenceRequestForPods(t *testing.T) {
 	infSvcClient.SetFakeResp(&borweininfsvc.InferenceResponse{
 		PodResponseEntries: map[string]*borweininfsvc.ContainerResponseEntries{
 			podUID: {
-				ContainerInferenceResults: map[string]*borweininfsvc.InferenceResult{
+				ContainerInferenceResults: map[string]*borweininfsvc.InferenceResults{
 					containerName: {
-						IsDefault: true,
+						InferenceResults: []*borweininfsvc.InferenceResult{
+							{
+								IsDefault: true,
+							},
+						},
 					},
 				},
 			},
@@ -609,6 +629,7 @@ func TestBorweinModelResultFetcher_getInferenceRequestForPods(t *testing.T) {
 				nodeFeatureNames:      tt.fields.nodeFeatureNames,
 				containerFeatureNames: tt.fields.containerFeatureNames,
 				infSvcClient:          tt.fields.infSvcClient,
+				emitter:               metrics.DummyMetrics{},
 			}
 			got, err := bmrf.getInferenceRequestForPods(tt.args.containers, tt.args.metaReader, tt.args.metaWriter, tt.args.metaServer)
 			if (err != nil) != tt.wantErr {
@@ -686,9 +707,13 @@ func TestNewBorweinModelResultFetcher(t *testing.T) {
 	infSvcClient.SetFakeResp(&borweininfsvc.InferenceResponse{
 		PodResponseEntries: map[string]*borweininfsvc.ContainerResponseEntries{
 			podUID: {
-				ContainerInferenceResults: map[string]*borweininfsvc.InferenceResult{
+				ContainerInferenceResults: map[string]*borweininfsvc.InferenceResults{
 					containerName: {
-						IsDefault: true,
+						InferenceResults: []*borweininfsvc.InferenceResult{
+							{
+								IsDefault: true,
+							},
+						},
 					},
 				},
 			},

@@ -17,6 +17,9 @@ limitations under the License.
 package types
 
 import (
+	"sort"
+	"strings"
+
 	"k8s.io/apimachinery/pkg/api/resource"
 
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
@@ -65,6 +68,27 @@ type BasicMetric struct {
 func (m *BasicMetric) GetLabels() map[string]string { return m.Labels }
 func (m *BasicMetric) DeepCopy() BasicMetric {
 	return BasicMetric{Labels: general.DeepCopyMap(m.Labels)}
+}
+func (m *BasicMetric) String() string {
+	if len(m.Labels) == 0 {
+		return ""
+	}
+
+	keySlice := make([]string, 0, len(m.Labels))
+	for k := range m.Labels {
+		key := k
+		keySlice = append(keySlice, key)
+	}
+	sort.Strings(keySlice)
+	builder := strings.Builder{}
+	for i := range keySlice {
+		builder.WriteString(keySlice[i])
+		builder.WriteString("=")
+		builder.WriteString(m.Labels[keySlice[i]])
+		builder.WriteString(",")
+	}
+
+	return builder.String()
 }
 
 // PackMetricMetaList merges MetricMetaImp lists and removes duplicates

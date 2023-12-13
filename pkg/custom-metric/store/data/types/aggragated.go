@@ -32,6 +32,7 @@ var validAggregatorSuffixList = []string{
 	metric.AggregateFunctionMin,
 	metric.AggregateFunctionP99,
 	metric.AggregateFunctionP90,
+	metric.AggregateFunctionLatest,
 }
 
 type AggregatedIdentity struct {

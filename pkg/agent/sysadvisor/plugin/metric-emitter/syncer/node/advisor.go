@@ -54,6 +54,14 @@ func (n *MetricSyncerNode) advisorMetric(ctx context.Context) {
 					Key: fmt.Sprintf("%s%s", data.CustomMetricLabelSelectorPrefixKey, "region"),
 					Val: fmt.Sprintf("%v", regionName),
 				},
+				{
+					Key: fmt.Sprintf("%s%s", data.CustomMetricLabelSelectorPrefixKey, "region_type"),
+					Val: fmt.Sprintf("%v", regionInfo.RegionType),
+				},
+				{
+					Key: fmt.Sprintf("%s%s", data.CustomMetricLabelSelectorPrefixKey, "owner_pool"),
+					Val: fmt.Sprintf("%v", regionInfo.OwnerPoolName),
+				},
 			}...)
 		for indicator, overshot := range regionInfo.RegionStatus.OvershootStatus {
 			regionTag = append(regionTag, metrics.MetricTag{

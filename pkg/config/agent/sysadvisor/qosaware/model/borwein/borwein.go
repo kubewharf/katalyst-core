@@ -40,7 +40,7 @@ func NewBorweinConfiguration() *BorweinConfiguration {
 				Version:                "default",
 			},
 		},
-		NodeFeatureNames:      []string{}, // todo: fill it with adaption table
-		ContainerFeatureNames: []string{}, // todo: fill it with adaption table
+		NodeFeatureNames:      []string{},
+		ContainerFeatureNames: []string{},
 	}
 }

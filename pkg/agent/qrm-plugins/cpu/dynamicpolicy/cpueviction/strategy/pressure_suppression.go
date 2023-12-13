@@ -37,6 +37,8 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/util/qos"
 )
 
+const EvictionNameSuppression = "cpu-pressure-suppression-plugin"
+
 type CPUPressureSuppression struct {
 	conf  *config.Configuration
 	state state.ReadonlyState
@@ -45,25 +47,32 @@ type CPUPressureSuppression struct {
 }
 
 func NewCPUPressureSuppressionEviction(_ metrics.MetricEmitter, _ *metaserver.MetaServer,
-	conf *config.Configuration, state state.ReadonlyState) CPUPressureForceEviction {
+	conf *config.Configuration, state state.ReadonlyState) (CPUPressureEviction, error) {
 	return &CPUPressureSuppression{
 		conf:  conf,
 		state: state,
-	}
+	}, nil
 }
 
 func (p *CPUPressureSuppression) Start(context.Context) error { return nil }
-func (p *CPUPressureSuppression) Name() string                { return "pressure-suppression" }
+func (p *CPUPressureSuppression) Name() string                { return EvictionNameSuppression }
+func (p *CPUPressureSuppression) ThresholdMet(_ context.Context, _ *pluginapi.Empty) (*pluginapi.ThresholdMetResponse, error) {
+	return &pluginapi.ThresholdMetResponse{}, nil
+}
+func (p *CPUPressureSuppression) GetTopEvictionPods(_ context.Context, _ *pluginapi.GetTopEvictionPodsRequest) (*pluginapi.GetTopEvictionPodsResponse, error) {
+	return &pluginapi.GetTopEvictionPodsResponse{}, nil
+}
 
 func (p *CPUPressureSuppression) GetEvictPods(_ context.Context, request *pluginapi.GetEvictPodsRequest) (*pluginapi.GetEvictPodsResponse, error) {
 	if request == nil {
-		return nil, fmt.Errorf("GetTopEvictionPods got nil request")
+		return nil, fmt.Errorf("GetEvictPods got nil request")
 	}
 
 	dynamicConfig := p.conf.GetDynamicConfiguration()
 	if !dynamicConfig.EnableSuppressionEviction {
 		return &pluginapi.GetEvictPodsResponse{}, nil
 	}
+	general.InfoS("cpu suppression enabled")
 
 	// only reclaim pool support suppression tolerance eviction
 	entries := p.state.GetPodEntries()
@@ -75,6 +84,7 @@ func (p *CPUPressureSuppression) GetEvictPods(_ context.Context, request *plugin
 	// skip evict pods if pool size is zero
 	poolSize := poolCPUSet.Size()
 	if poolSize == 0 {
+		general.Errorf("reclaim pool set size is empty")
 		return &pluginapi.GetEvictPodsResponse{}, nil
 	}
 
@@ -87,13 +97,15 @@ func (p *CPUPressureSuppression) GetEvictPods(_ context.Context, request *plugin
 	general.NewMultiSorter(
 		general.ReverseCmpFunc(native.PodCPURequestCmpFunc),
 		general.ReverseCmpFunc(native.PodPriorityCmpFunc),
+		native.PodUniqKeyCmpFunc,
 	).Sort(native.NewPodSourceImpList(filteredPods))
 
 	// sum all pod cpu request
 	totalCPURequest := resource.Quantity{}
 	for _, pod := range filteredPods {
-		totalCPURequest.Add(native.GetCPUQuantity(native.SumUpPodRequestResources(pod)))
+		totalCPURequest.Add(native.CPUQuantityGetter()(native.SumUpPodRequestResources(pod)))
 	}
+	general.Infof("total reclaim cpu request is %v, reclaim pool size is %v", totalCPURequest.String(), poolSize)
 
 	now := time.Now()
 	var evictPods []*v1alpha1.EvictPod
@@ -115,7 +127,7 @@ func (p *CPUPressureSuppression) GetEvictPods(_ context.Context, request *plugin
 					Reason: fmt.Sprintf("current pool suppression rate %.2f is over than the "+
 						"pod suppression tolerance rate %.2f", poolSuppressionRate, podToleranceRate),
 				})
-				totalCPURequest.Sub(native.GetCPUQuantity(native.SumUpPodRequestResources(pod)))
+				totalCPURequest.Sub(native.CPUQuantityGetter()(native.SumUpPodRequestResources(pod)))
 			}
 		} else {
 			p.lastToleranceTime.Delete(key)

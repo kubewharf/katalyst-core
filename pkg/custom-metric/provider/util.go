@@ -20,6 +20,7 @@ import (
 	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/klog/v2"
 	"k8s.io/metrics/pkg/apis/custom_metrics"
 	"k8s.io/metrics/pkg/apis/external_metrics"
@@ -48,16 +49,16 @@ func findMetricValueLatest(metricName string, metricValueList []custom_metrics.M
  those packing functions are helpers to pack out standard Item structs
 */
 
-func PackMetricValueList(metricItem types.Metric) []custom_metrics.MetricValue {
+func PackMetricValueList(metricItem types.Metric, metricSelector labels.Selector) []custom_metrics.MetricValue {
 	var res []custom_metrics.MetricValue
 	for _, item := range metricItem.GetItemList() {
-		res = append(res, *PackMetricValue(metricItem, item))
+		res = append(res, *PackMetricValue(metricItem, item, metricSelector))
 	}
 	return res
 }
 
-func PackMetricValue(m types.Metric, item types.Item) *custom_metrics.MetricValue {
-	return &custom_metrics.MetricValue{
+func PackMetricValue(m types.Metric, item types.Item, metricSelector labels.Selector) *custom_metrics.MetricValue {
+	result := &custom_metrics.MetricValue{
 		DescribedObject: custom_metrics.ObjectReference{
 			Kind:      m.GetObjectKind(),
 			Namespace: m.GetObjectNamespace(),
@@ -73,6 +74,28 @@ func PackMetricValue(m types.Metric, item types.Item) *custom_metrics.MetricValu
 		WindowSeconds: item.GetWindowSeconds(),
 		Value:         item.GetQuantity(),
 	}
+	// if user specifies the metric selector, return itself.
+	if !metricSelector.Empty() {
+		result.Metric.Selector = convertMetricLabelSelector(metricSelector)
+	}
+
+	return result
+}
+
+func convertMetricLabelSelector(metricSelector labels.Selector) *metav1.LabelSelector {
+	requirements, _ := metricSelector.Requirements()
+	selector := &metav1.LabelSelector{
+		MatchExpressions: make([]metav1.LabelSelectorRequirement, 0),
+	}
+
+	for i := range requirements {
+		selector.MatchExpressions = append(selector.MatchExpressions, metav1.LabelSelectorRequirement{
+			Key:      requirements[i].Key(),
+			Operator: metav1.LabelSelectorOperator(requirements[i].Operator()),
+			Values:   requirements[i].Values().List(),
+		})
+	}
+	return selector
 }
 
 func PackExternalMetricValueList(metricItem types.Metric) []external_metrics.ExternalMetricValue {

@@ -161,20 +161,7 @@ func (ai *AllocationInfo) GetSpecifiedPoolName() string {
 		return cpuadvisor.EmptyOwnerPoolName
 	}
 
-	switch ai.QoSLevel {
-	case consts.PodAnnotationQoSLevelSharedCores:
-		specifiedPoolName := ai.Annotations[consts.PodAnnotationCPUEnhancementCPUSet]
-		if specifiedPoolName != cpuadvisor.EmptyOwnerPoolName {
-			return specifiedPoolName
-		}
-		return PoolNameShare
-	case consts.PodAnnotationQoSLevelReclaimedCores:
-		return PoolNameReclaim
-	case consts.PodAnnotationQoSLevelDedicatedCores:
-		return PoolNameDedicated
-	default:
-		return cpuadvisor.EmptyOwnerPoolName
-	}
+	return GetSpecifiedPoolName(ai.QoSLevel, ai.Annotations[consts.PodAnnotationCPUEnhancementCPUSet])
 }
 
 // CheckMainContainer returns true if the AllocationInfo is for main container

@@ -65,6 +65,12 @@ func (p *DynamicPolicy) sharedCoresAllocationHandler(_ context.Context,
 
 	needSet := true
 	allocationInfo := p.state.GetAllocationInfo(req.PodUid, req.ContainerName)
+	err = updateAllocationInfoByReq(req, allocationInfo)
+	if err != nil {
+		general.Errorf("pod: %s/%s, container: %s updateAllocationInfoByReq failed with error: %v",
+			req.PodNamespace, req.PodName, req.ContainerName, err)
+		return nil, fmt.Errorf("updateAllocationInfoByReq failed with error: %v", err)
+	}
 
 	if allocationInfo == nil {
 		general.Infof("pod: %s/%s, container: %s is met firstly, do ramp up with pooled cpus: %s",
@@ -168,6 +174,13 @@ func (p *DynamicPolicy) reclaimedCoresAllocationHandler(_ context.Context,
 	}
 
 	allocationInfo := p.state.GetAllocationInfo(req.PodUid, req.ContainerName)
+	err = updateAllocationInfoByReq(req, allocationInfo)
+	if err != nil {
+		general.Errorf("pod: %s/%s, container: %s updateAllocationInfoByReq failed with error: %v",
+			req.PodNamespace, req.PodName, req.ContainerName, err)
+		return nil, fmt.Errorf("updateAllocationInfoByReq failed with error: %v", err)
+	}
+
 	reclaimedAllocationInfo := p.state.GetAllocationInfo(state.PoolNameReclaim, advisorapi.FakedContainerName)
 	if reclaimedAllocationInfo == nil {
 		general.Errorf("allocation for pod: %s/%s, container: %s is failed, because pool: %s is not ready",
@@ -206,6 +219,7 @@ func (p *DynamicPolicy) reclaimedCoresAllocationHandler(_ context.Context,
 		}
 	}
 
+	allocationInfo.OwnerPoolName = state.PoolNameReclaim
 	allocationInfo.AllocationResult = reclaimedAllocationInfo.AllocationResult.Clone()
 	allocationInfo.OriginalAllocationResult = reclaimedAllocationInfo.OriginalAllocationResult.Clone()
 	allocationInfo.TopologyAwareAssignments = machine.DeepcopyCPUAssignment(reclaimedAllocationInfo.TopologyAwareAssignments)

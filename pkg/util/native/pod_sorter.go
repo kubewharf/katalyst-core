@@ -61,11 +61,20 @@ func PodCPURequestCmpFunc(i1, i2 interface{}) int {
 	p1Request := SumUpPodRequestResources(i1.(*v1.Pod))
 	p2Request := SumUpPodRequestResources(i2.(*v1.Pod))
 
-	p1CPUQuantity := GetCPUQuantity(p1Request)
-	p2CPUQuantity := GetCPUQuantity(p2Request)
+	p1CPUQuantity := CPUQuantityGetter()(p1Request)
+	p2CPUQuantity := CPUQuantityGetter()(p2Request)
 
 	return p1CPUQuantity.Cmp(p2CPUQuantity)
 }
 
+// PodUniqKeyCmpFunc sorts uniq key of pod with greater comparison
+func PodUniqKeyCmpFunc(i1, i2 interface{}) int {
+	p1UniqKey := GenerateUniqObjectNameKey(i1.(*v1.Pod))
+	p2UniqKey := GenerateUniqObjectNameKey(i2.(*v1.Pod))
+
+	return general.CmpString(p1UniqKey, p2UniqKey)
+}
+
 var _ general.CmpFunc = PodPriorityCmpFunc
 var _ general.CmpFunc = PodCPURequestCmpFunc
+var _ general.CmpFunc = PodUniqKeyCmpFunc

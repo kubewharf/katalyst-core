@@ -48,17 +48,19 @@ func (m *MalachiteMetricsFetcher) processContainerMemBandwidth(podUID, container
 	)
 
 	if cgStats.CgroupType == "V1" {
-		curOCRReadDRAMs = cgStats.V1.Cpu.OCRReadDRAMs
-		curIMCWrites = cgStats.V1.Cpu.IMCWrites
-		curStoreAllIns = cgStats.V1.Cpu.StoreAllInstructions
-		curStoreIns = cgStats.V1.Cpu.StoreInstructions
+		curOCRReadDRAMs = cgStats.V1.Cpu.OcrReadDrams
+		curIMCWrites = cgStats.V1.Cpu.ImcWrites
+		curStoreAllIns = cgStats.V1.Cpu.StoreAllIns
+		curStoreIns = cgStats.V1.Cpu.StoreIns
 		curUpdateTimeInSec = float64(cgStats.V1.Cpu.UpdateTime)
 	} else if cgStats.CgroupType == "V2" {
-		curOCRReadDRAMs = cgStats.V2.Cpu.OCRReadDRAMs
-		curIMCWrites = cgStats.V2.Cpu.IMCWrites
-		curStoreAllIns = cgStats.V2.Cpu.StoreAllInstructions
-		curStoreIns = cgStats.V2.Cpu.StoreInstructions
+		curOCRReadDRAMs = cgStats.V2.Cpu.OcrReadDrams
+		curIMCWrites = cgStats.V2.Cpu.ImcWrites
+		curStoreAllIns = cgStats.V2.Cpu.StoreAllIns
+		curStoreIns = cgStats.V2.Cpu.StoreIns
 		curUpdateTimeInSec = float64(cgStats.V2.Cpu.UpdateTime)
+	} else {
+		return
 	}
 
 	// read bandwidth
@@ -84,6 +86,108 @@ func (m *MalachiteMetricsFetcher) processContainerMemBandwidth(podUID, container
 			return float64(storeInsInc) / float64(storeAllInsInc) / (1024 * 1024) * float64(imcWritesInc) * 64
 		},
 		int64(lastUpdateTimeInSec), int64(curUpdateTimeInSec))
+}
+
+// processContainerCPURelevantRate is used to calculate some container cpu-relevant rates.
+// this would be executed before setting the latest values into metricStore.
+func (m *MalachiteMetricsFetcher) processContainerCPURelevantRate(podUID, containerName string, cgStats *types.MalachiteCgroupInfo, lastUpdateTimeInSec float64) {
+	lastMetricValueFn := func(metricName string) float64 {
+		lastMetric, _ := m.metricStore.GetContainerMetric(podUID, containerName, metricName)
+		return lastMetric.Value
+	}
+
+	var (
+		lastCPUIns       = uint64(lastMetricValueFn(consts.MetricCPUInstructionsContainer))
+		lastCPUCycles    = uint64(lastMetricValueFn(consts.MetricCPUCyclesContainer))
+		lastCPUNRTht     = uint64(lastMetricValueFn(consts.MetricCPUNrThrottledContainer))
+		lastCPUNRPeriod  = uint64(lastMetricValueFn(consts.MetricCPUPeriodContainer))
+		lastThrottleTime = uint64(lastMetricValueFn(consts.MetricCPUThrottledTimeContainer))
+		lastL3CacheMiss  = uint64(lastMetricValueFn(consts.MetricCPUL3CacheMissContainer))
+
+		curCPUIns, curCPUCycles, curCPUNRTht, curCPUNRPeriod, curCPUThrottleTime, curL3CacheMiss uint64
+
+		curUpdateTime int64
+	)
+
+	if cgStats.CgroupType == "V1" {
+		curCPUIns = cgStats.V1.Cpu.Instructions
+		curCPUCycles = cgStats.V1.Cpu.Cycles
+		curCPUNRTht = cgStats.V1.Cpu.CPUNrThrottled
+		curCPUNRPeriod = cgStats.V1.Cpu.CPUNrPeriods
+		curCPUThrottleTime = cgStats.V1.Cpu.CPUThrottledTime
+		curL3CacheMiss = cgStats.V1.Cpu.L3Misses
+		curUpdateTime = cgStats.V1.Cpu.UpdateTime
+	} else if cgStats.CgroupType == "V2" {
+		curCPUIns = cgStats.V2.Cpu.Instructions
+		curCPUCycles = cgStats.V2.Cpu.Cycles
+		curCPUNRTht = cgStats.V2.Cpu.CPUStats.NrThrottled
+		curCPUNRPeriod = cgStats.V2.Cpu.CPUStats.NrPeriods
+		curCPUThrottleTime = cgStats.V2.Cpu.CPUStats.ThrottledUsec
+		curL3CacheMiss = cgStats.V2.Cpu.L3Misses
+		curUpdateTime = cgStats.V2.Cpu.UpdateTime
+	} else {
+		return
+	}
+
+	m.setContainerRateMetric(podUID, containerName, consts.MetricCPUInstructionsRateContainer, func() float64 {
+		return float64(uint64CounterDelta(lastCPUIns, curCPUIns))
+	}, int64(lastUpdateTimeInSec), curUpdateTime)
+	m.setContainerRateMetric(podUID, containerName, consts.MetricCPUCyclesRateContainer, func() float64 {
+		return float64(uint64CounterDelta(lastCPUCycles, curCPUCycles))
+	}, int64(lastUpdateTimeInSec), curUpdateTime)
+	m.setContainerRateMetric(podUID, containerName, consts.MetricCPUNrThrottledRateContainer, func() float64 {
+		return float64(uint64CounterDelta(lastCPUNRTht, curCPUNRTht))
+	}, int64(lastUpdateTimeInSec), curUpdateTime)
+	m.setContainerRateMetric(podUID, containerName, consts.MetricCPUNRdPeriodRateContainer, func() float64 {
+		return float64(uint64CounterDelta(lastCPUNRPeriod, curCPUNRPeriod))
+	}, int64(lastUpdateTimeInSec), curUpdateTime)
+	m.setContainerRateMetric(podUID, containerName, consts.MetricCPUThrottledTimeRateContainer, func() float64 {
+		return float64(uint64CounterDelta(lastThrottleTime, curCPUThrottleTime))
+	}, int64(lastUpdateTimeInSec), curUpdateTime)
+	m.setContainerRateMetric(podUID, containerName, consts.MetricCPUL3CacheMissRateContainer, func() float64 {
+		return float64(uint64CounterDelta(lastL3CacheMiss, curL3CacheMiss))
+	}, int64(lastUpdateTimeInSec), curUpdateTime)
+}
+
+func (m *MalachiteMetricsFetcher) processContainerMemRelevantRate(podUID, containerName string, cgStats *types.MalachiteCgroupInfo, lastUpdateTimeInSec float64) {
+	lastMetricValueFn := func(metricName string) float64 {
+		lastMetric, _ := m.metricStore.GetContainerMetric(podUID, containerName, metricName)
+		return lastMetric.Value
+	}
+
+	var (
+		lastPGFault    = uint64(lastMetricValueFn(consts.MetricMemPgfaultContainer))
+		lastPGMajFault = uint64(lastMetricValueFn(consts.MetricMemPgmajfaultContainer))
+		lastOOMCnt     = uint64(lastMetricValueFn(consts.MetricMemOomContainer))
+
+		curPGFault, curPGMajFault, curOOMCnt uint64
+
+		curUpdateTime int64
+	)
+
+	if cgStats.CgroupType == "V1" {
+		curPGFault = cgStats.V1.Memory.Pgfault
+		curPGMajFault = cgStats.V1.Memory.Pgmajfault
+		curOOMCnt = cgStats.V1.Memory.BpfMemStat.OomCnt
+		curUpdateTime = cgStats.V1.Memory.UpdateTime
+	} else if cgStats.CgroupType == "V2" {
+		curPGFault = cgStats.V2.Memory.MemStats.Pgmajfault
+		curPGMajFault = cgStats.V2.Memory.MemStats.Pgmajfault
+		curOOMCnt = cgStats.V2.Memory.BpfMemStat.OomCnt
+		curUpdateTime = cgStats.V2.Memory.UpdateTime
+	} else {
+		return
+	}
+
+	m.setContainerRateMetric(podUID, containerName, consts.MetricMemPgfaultRateContainer, func() float64 {
+		return float64(uint64CounterDelta(lastPGFault, curPGFault))
+	}, int64(lastUpdateTimeInSec), curUpdateTime)
+	m.setContainerRateMetric(podUID, containerName, consts.MetricMemPgmajfaultRateContainer, func() float64 {
+		return float64(uint64CounterDelta(lastPGMajFault, curPGMajFault))
+	}, int64(lastUpdateTimeInSec), curUpdateTime)
+	m.setContainerRateMetric(podUID, containerName, consts.MetricMemOomRateContainer, func() float64 {
+		return float64(uint64CounterDelta(lastOOMCnt, curOOMCnt))
+	}, int64(lastUpdateTimeInSec), curUpdateTime)
 }
 
 // setContainerRateMetric is used to set rate metric in container level.

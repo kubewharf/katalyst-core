@@ -58,23 +58,21 @@ func Test_noneExistMetricsFetcher(t *testing.T) {
 	fakeCgroupInfoV1 := &types.MalachiteCgroupInfo{
 		CgroupType: "V1",
 		V1: &types.MalachiteCgroupV1Info{
-			Memory:    &types.MemoryCgDataV1{},
-			Blkio:     &types.BlkIOCgDataV1{},
-			NetCls:    &types.NetClsCgData{},
-			PerfEvent: &types.PerfEventData{},
-			CpuSet:    &types.CPUSetCgDataV1{},
-			Cpu:       &types.CPUCgDataV1{},
+			Memory: &types.MemoryCgDataV1{},
+			Blkio:  &types.BlkIOCgDataV1{},
+			NetCls: &types.NetClsCgData{},
+			CpuSet: &types.CPUSetCgDataV1{},
+			Cpu:    &types.CPUCgDataV1{},
 		},
 	}
 	fakeCgroupInfoV2 := &types.MalachiteCgroupInfo{
 		CgroupType: "V2",
 		V2: &types.MalachiteCgroupV2Info{
-			Memory:    &types.MemoryCgDataV2{},
-			Blkio:     &types.BlkIOCgDataV2{},
-			NetCls:    &types.NetClsCgData{},
-			PerfEvent: &types.PerfEventData{},
-			CpuSet:    &types.CPUSetCgDataV2{},
-			Cpu:       &types.CPUCgDataV2{},
+			Memory: &types.MemoryCgDataV2{},
+			Blkio:  &types.BlkIOCgDataV2{},
+			NetCls: &types.NetClsCgData{},
+			CpuSet: &types.CPUSetCgDataV2{},
+			Cpu:    &types.CPUCgDataV2{},
 		},
 	}
 
