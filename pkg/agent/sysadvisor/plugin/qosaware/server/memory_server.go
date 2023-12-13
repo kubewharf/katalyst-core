@@ -30,6 +30,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
 	"github.com/kubewharf/katalyst-core/pkg/config"
+	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 )
@@ -47,9 +48,9 @@ type memoryServer struct {
 }
 
 func NewMemoryServer(recvCh chan types.InternalMemoryCalculationResult, sendCh chan types.TriggerInfo, conf *config.Configuration,
-	metaCache metacache.MetaCache, emitter metrics.MetricEmitter) (*memoryServer, error) {
+	metaCache metacache.MetaCache, metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter) (*memoryServer, error) {
 	ms := &memoryServer{}
-	ms.baseServer = newBaseServer(memoryServerName, conf, recvCh, sendCh, metaCache, emitter, ms)
+	ms.baseServer = newBaseServer(memoryServerName, conf, recvCh, sendCh, metaCache, metaServer, emitter, ms)
 	ms.advisorSocketPath = conf.MemoryAdvisorSocketAbsPath
 	ms.pluginSocketPath = conf.MemoryPluginSocketAbsPath
 	ms.resourceRequestName = "MemoryRequest"

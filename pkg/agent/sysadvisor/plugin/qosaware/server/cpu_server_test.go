@@ -28,6 +28,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
+	v1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
 
 	"github.com/kubewharf/katalyst-api/pkg/consts"
@@ -38,7 +40,10 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
 	"github.com/kubewharf/katalyst-core/pkg/config"
+	"github.com/kubewharf/katalyst-core/pkg/metaserver"
+	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric"
+	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/pod"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	metricspool "github.com/kubewharf/katalyst-core/pkg/metrics/metrics-pool"
 )
@@ -62,7 +67,7 @@ func generateTestConfiguration(t *testing.T) *config.Configuration {
 	return conf
 }
 
-func newTestCPUServer(t *testing.T) *cpuServer {
+func newTestCPUServer(t *testing.T, podList []*v1.Pod) *cpuServer {
 	recvCh := make(chan types.InternalCPUCalculationResult)
 	sendCh := make(chan types.TriggerInfo)
 	conf := generateTestConfiguration(t)
@@ -72,7 +77,15 @@ func newTestCPUServer(t *testing.T) *cpuServer {
 	require.NoError(t, err)
 	require.NotNil(t, metaCache)
 
-	cpuServer, err := NewCPUServer(recvCh, sendCh, conf, metaCache, metrics.DummyMetrics{})
+	metaServer := &metaserver.MetaServer{
+		MetaAgent: &agent.MetaAgent{
+			PodFetcher: &pod.PodFetcherStub{
+				PodList: podList,
+			},
+		},
+	}
+
+	cpuServer, err := NewCPUServer(recvCh, sendCh, conf, metaCache, metaServer, metrics.DummyMetrics{})
 	require.NoError(t, err)
 	require.NotNil(t, cpuServer)
 
@@ -84,7 +97,7 @@ func newTestCPUServer(t *testing.T) *cpuServer {
 func TestCPUServerStartAndStop(t *testing.T) {
 	t.Parallel()
 
-	cs := newTestCPUServer(t)
+	cs := newTestCPUServer(t, []*v1.Pod{})
 
 	err := cs.Start()
 	assert.NoError(t, err)
@@ -136,7 +149,7 @@ func TestCPUServerAddContainer(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			cs := newTestCPUServer(t)
+			cs := newTestCPUServer(t, []*v1.Pod{})
 			got, err := cs.AddContainer(context.Background(), tt.request)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("AddContainer() error = %v, wantErr %v", err, tt.wantErr)
@@ -175,7 +188,7 @@ func TestCPUServerRemovePod(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			cs := newTestCPUServer(t)
+			cs := newTestCPUServer(t, []*v1.Pod{})
 			got, err := cs.RemovePod(context.Background(), tt.request)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("RemovePod() error = %v, wantErr %v", err, tt.wantErr)
@@ -232,6 +245,7 @@ func TestCPUServerListAndWatch(t *testing.T) {
 
 	type ContainerInfo struct {
 		request        *advisorsvc.ContainerMetadata
+		podInfo        *v1.Pod
 		allocationInfo *cpuadvisor.AllocationInfo
 		isolated       bool
 		regions        sets.String
@@ -261,6 +275,23 @@ func TestCPUServerListAndWatch(t *testing.T) {
 						PodUid:        "pod1",
 						ContainerName: "c1",
 						QosLevel:      consts.PodAnnotationQoSLevelSharedCores,
+					},
+					podInfo: &v1.Pod{
+						ObjectMeta: metav1.ObjectMeta{
+							Namespace: "default",
+							Name:      "pod1",
+							UID:       "pod1",
+							Annotations: map[string]string{
+								consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
+							},
+						},
+						Spec: v1.PodSpec{
+							Containers: []v1.Container{
+								{
+									Name: "c1",
+								},
+							},
+						},
 					},
 					allocationInfo: &cpuadvisor.AllocationInfo{
 						OwnerPoolName: state.PoolNameShare,
@@ -351,6 +382,24 @@ func TestCPUServerListAndWatch(t *testing.T) {
 							consts.PodAnnotationMemoryEnhancementNumaBinding: consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
 						},
 						QosLevel: consts.PodAnnotationQoSLevelDedicatedCores,
+					},
+					podInfo: &v1.Pod{
+						ObjectMeta: metav1.ObjectMeta{
+							Namespace: "default",
+							Name:      "pod1",
+							UID:       "pod1",
+							Annotations: map[string]string{
+								consts.PodAnnotationQoSLevelKey:          consts.PodAnnotationQoSLevelDedicatedCores,
+								consts.PodAnnotationMemoryEnhancementKey: "{\"numa_exclusive\":true}",
+							},
+						},
+						Spec: v1.PodSpec{
+							Containers: []v1.Container{
+								{
+									Name: "c1",
+								},
+							},
+						},
 					},
 					allocationInfo: &cpuadvisor.AllocationInfo{
 						OwnerPoolName: state.PoolNameDedicated,
@@ -464,6 +513,24 @@ func TestCPUServerListAndWatch(t *testing.T) {
 						},
 						QosLevel: consts.PodAnnotationQoSLevelDedicatedCores,
 					},
+					podInfo: &v1.Pod{
+						ObjectMeta: metav1.ObjectMeta{
+							Namespace: "default",
+							Name:      "pod1",
+							UID:       "pod1",
+							Annotations: map[string]string{
+								consts.PodAnnotationQoSLevelKey:          consts.PodAnnotationQoSLevelDedicatedCores,
+								consts.PodAnnotationMemoryEnhancementKey: "{\"numa_exclusive\":true}",
+							},
+						},
+						Spec: v1.PodSpec{
+							Containers: []v1.Container{
+								{
+									Name: "c2",
+								},
+							},
+						},
+					},
 					allocationInfo: &cpuadvisor.AllocationInfo{
 						OwnerPoolName: state.PoolNameDedicated,
 						TopologyAwareAssignments: map[uint64]string{
@@ -480,6 +547,24 @@ func TestCPUServerListAndWatch(t *testing.T) {
 							consts.PodAnnotationMemoryEnhancementNumaBinding: consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
 						},
 						QosLevel: consts.PodAnnotationQoSLevelDedicatedCores,
+					},
+					podInfo: &v1.Pod{
+						ObjectMeta: metav1.ObjectMeta{
+							Namespace: "default",
+							Name:      "pod1",
+							UID:       "pod1",
+							Annotations: map[string]string{
+								consts.PodAnnotationQoSLevelKey:          consts.PodAnnotationQoSLevelDedicatedCores,
+								consts.PodAnnotationMemoryEnhancementKey: "{\"numa_exclusive\":true}",
+							},
+						},
+						Spec: v1.PodSpec{
+							Containers: []v1.Container{
+								{
+									Name: "c2",
+								},
+							},
+						},
 					},
 					allocationInfo: &cpuadvisor.AllocationInfo{
 						OwnerPoolName: state.PoolNameDedicated,
@@ -670,6 +755,24 @@ func TestCPUServerListAndWatch(t *testing.T) {
 						},
 						QosLevel: consts.PodAnnotationQoSLevelDedicatedCores,
 					},
+					podInfo: &v1.Pod{
+						ObjectMeta: metav1.ObjectMeta{
+							Namespace: "default",
+							Name:      "pod1",
+							UID:       "pod1",
+							Annotations: map[string]string{
+								consts.PodAnnotationQoSLevelKey:          consts.PodAnnotationQoSLevelDedicatedCores,
+								consts.PodAnnotationMemoryEnhancementKey: "{\"numa_exclusive\":true}",
+							},
+						},
+						Spec: v1.PodSpec{
+							Containers: []v1.Container{
+								{
+									Name: "c1",
+								},
+							},
+						},
+					},
 					allocationInfo: &cpuadvisor.AllocationInfo{
 						OwnerPoolName: state.PoolNameDedicated,
 						TopologyAwareAssignments: map[uint64]string{
@@ -687,6 +790,24 @@ func TestCPUServerListAndWatch(t *testing.T) {
 						},
 						QosLevel: consts.PodAnnotationQoSLevelDedicatedCores,
 					},
+					podInfo: &v1.Pod{
+						ObjectMeta: metav1.ObjectMeta{
+							Namespace: "default",
+							Name:      "pod1",
+							UID:       "pod1",
+							Annotations: map[string]string{
+								consts.PodAnnotationQoSLevelKey:          consts.PodAnnotationQoSLevelDedicatedCores,
+								consts.PodAnnotationMemoryEnhancementKey: "{\"numa_exclusive\":true}",
+							},
+						},
+						Spec: v1.PodSpec{
+							Containers: []v1.Container{
+								{
+									Name: "c2",
+								},
+							},
+						},
+					},
 					allocationInfo: &cpuadvisor.AllocationInfo{
 						OwnerPoolName: state.PoolNameDedicated,
 						TopologyAwareAssignments: map[uint64]string{
@@ -703,6 +824,24 @@ func TestCPUServerListAndWatch(t *testing.T) {
 							consts.PodAnnotationMemoryEnhancementNumaBinding: consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
 						},
 						QosLevel: consts.PodAnnotationQoSLevelDedicatedCores,
+					},
+					podInfo: &v1.Pod{
+						ObjectMeta: metav1.ObjectMeta{
+							Namespace: "default",
+							Name:      "pod1",
+							UID:       "pod1",
+							Annotations: map[string]string{
+								consts.PodAnnotationQoSLevelKey:          consts.PodAnnotationQoSLevelDedicatedCores,
+								consts.PodAnnotationMemoryEnhancementKey: "{\"numa_exclusive\":true}",
+							},
+						},
+						Spec: v1.PodSpec{
+							Containers: []v1.Container{
+								{
+									Name: "c3",
+								},
+							},
+						},
 					},
 					allocationInfo: &cpuadvisor.AllocationInfo{
 						OwnerPoolName: state.PoolNameDedicated,
@@ -981,11 +1120,11 @@ func TestCPUServerListAndWatch(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			cs := newTestCPUServer(t)
+			cs := newTestCPUServer(t, []*v1.Pod{})
 			s := &mockCPUServerService_ListAndWatchServer{ResultsChan: make(chan *cpuadvisor.ListAndWatchResponse)}
 			for _, info := range tt.infos {
 				assert.NoError(t, cs.addContainer(info.request))
-				assert.NoError(t, cs.updateContainerInfo(info.request.PodUid, info.request.ContainerName, info.allocationInfo))
+				assert.NoError(t, cs.updateContainerInfo(info.request.PodUid, info.request.ContainerName, info.podInfo, info.allocationInfo))
 
 				nodeInfo, _ := cs.metaCache.GetContainerInfo(info.request.PodUid, info.request.ContainerName)
 				nodeInfo.Isolated = info.isolated

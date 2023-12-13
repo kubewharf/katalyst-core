@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"google.golang.org/grpc"
+	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/klog/v2"
@@ -33,6 +34,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
 	"github.com/kubewharf/katalyst-core/pkg/config"
+	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
@@ -49,9 +51,9 @@ type cpuServer struct {
 }
 
 func NewCPUServer(recvCh chan types.InternalCPUCalculationResult, sendCh chan types.TriggerInfo, conf *config.Configuration,
-	metaCache metacache.MetaCache, emitter metrics.MetricEmitter) (*cpuServer, error) {
+	metaCache metacache.MetaCache, metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter) (*cpuServer, error) {
 	cs := &cpuServer{}
-	cs.baseServer = newBaseServer(cpuServerName, conf, recvCh, sendCh, metaCache, emitter, cs)
+	cs.baseServer = newBaseServer(cpuServerName, conf, recvCh, sendCh, metaCache, metaServer, emitter, cs)
 	cs.advisorSocketPath = conf.CPUAdvisorSocketAbsPath
 	cs.pluginSocketPath = conf.CPUPluginSocketAbsPath
 	cs.resourceRequestName = "CPURequest"
@@ -106,7 +108,7 @@ func (cs *cpuServer) ListAndWatch(_ *advisorsvc.Empty, server cpuadvisor.CPUAdvi
 			// Assemble pod entries
 			f := func(podUID string, containerName string, ci *types.ContainerInfo) bool {
 				if err := cs.assemblePodEntries(calculationEntriesMap, blockID2Blocks, podUID, ci); err != nil {
-					klog.Errorf("[qosaware-server-cpu] assemblePodEntries err: %v", err)
+					klog.Errorf("[qosaware-server-cpu] assemblePodEntries for pod %s/%s uid %s err: %v", ci.PodNamespace, ci.PodName, ci.PodUID, err)
 				}
 				return true
 			}
@@ -125,8 +127,9 @@ func (cs *cpuServer) ListAndWatch(_ *advisorsvc.Empty, server cpuadvisor.CPUAdvi
 }
 
 func (cs *cpuServer) getCheckpoint() {
+	ctx := context.Background()
 	// get checkpoint
-	resp, err := cs.cpuPluginClient.GetCheckpoint(context.Background(), &cpuadvisor.GetCheckpointRequest{})
+	resp, err := cs.cpuPluginClient.GetCheckpoint(ctx, &cpuadvisor.GetCheckpointRequest{})
 	if err != nil {
 		klog.Errorf("[qosaware-server-cpu] get checkpoint failed: %v", err)
 		_ = cs.emitter.StoreInt64(cs.genMetricsName(metricServerLWGetCheckpointFailed), int64(cs.period.Seconds()), metrics.MetricTypeNameCount)
@@ -156,8 +159,14 @@ func (cs *cpuServer) getCheckpoint() {
 	for entryName, entry := range resp.Entries {
 		if _, ok := entry.Entries[cpuadvisor.FakedContainerName]; !ok {
 			podUID := entryName
+			pod, err := cs.metaServer.GetPod(ctx, podUID)
+			if err != nil {
+				klog.Errorf("[qosaware-server-cpu] get pod info with error: %v", err)
+				continue
+			}
+
 			for containerName, info := range entry.Entries {
-				if err := cs.updateContainerInfo(podUID, containerName, info); err != nil {
+				if err := cs.updateContainerInfo(podUID, containerName, pod, info); err != nil {
 					klog.Errorf("[qosaware-server-cpu] update container info with error: %v", err)
 				}
 			}
@@ -227,7 +236,7 @@ func (cs *cpuServer) updatePoolInfo(poolName string, info *cpuadvisor.Allocation
 	return cs.metaCache.SetPoolInfo(poolName, pi)
 }
 
-func (cs *cpuServer) updateContainerInfo(podUID string, containerName string, info *cpuadvisor.AllocationInfo) error {
+func (cs *cpuServer) updateContainerInfo(podUID string, containerName string, pod *v1.Pod, info *cpuadvisor.AllocationInfo) error {
 	ci, ok := cs.metaCache.GetContainerInfo(podUID, containerName)
 	if !ok {
 		return fmt.Errorf("container %v/%v not exist", podUID, containerName)
@@ -236,12 +245,27 @@ func (cs *cpuServer) updateContainerInfo(podUID string, containerName string, in
 	ci.RampUp = info.RampUp
 	ci.TopologyAwareAssignments = machine.TransformCPUAssignmentFormat(info.TopologyAwareAssignments)
 	ci.OriginalTopologyAwareAssignments = machine.TransformCPUAssignmentFormat(info.OriginalTopologyAwareAssignments)
-
-	// only reset pool-name according to QRM during starting process
-	if len(ci.OriginOwnerPoolName) == 0 {
-		ci.OriginOwnerPoolName = info.OwnerPoolName
-	}
 	ci.OwnerPoolName = info.OwnerPoolName
+
+	// get qos level name according to the qos conf
+	qosLevel, err := cs.qosConf.GetQoSLevelForPod(pod)
+	if err != nil {
+		return fmt.Errorf("container %v/%v get qos level failed", podUID, containerName)
+	}
+	if ci.QoSLevel != qosLevel {
+		general.Infof("qos level has change from %s to %s", ci.QoSLevel, qosLevel)
+		ci.QoSLevel = qosLevel
+	}
+
+	// get origin owner pool name according to the qos conf
+	originOwnerPoolName, err := cs.qosConf.GetSpecifiedPoolNameForPod(pod)
+	if err != nil {
+		return fmt.Errorf("container %v/%v get origin owner pool name failed", podUID, containerName)
+	}
+	if ci.OriginOwnerPoolName != originOwnerPoolName {
+		general.Infof("OriginOwnerPoolName has change from %s to %s", ci.OriginOwnerPoolName, originOwnerPoolName)
+		ci.OriginOwnerPoolName = originOwnerPoolName
+	}
 
 	// fill in topology aware assignment for containers with owner pool
 	if ci.QoSLevel != consts.PodAnnotationQoSLevelDedicatedCores {
@@ -291,7 +315,7 @@ func (cs *cpuServer) assemblePodEntries(calculationEntriesMap map[string]*cpuadv
 		}
 	}
 	// if isolation is locking out, pass original owner pool instead of owner pool
-	if !ci.Isolated && qrmstate.IsIsolationPool(ci.OwnerPoolName) {
+	if !ci.Isolated && ci.OwnerPoolName != ci.OriginOwnerPoolName {
 		calculationInfo.OwnerPoolName = ci.OriginOwnerPoolName
 	}
 

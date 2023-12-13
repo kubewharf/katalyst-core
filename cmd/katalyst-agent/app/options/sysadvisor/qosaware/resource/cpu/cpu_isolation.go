@@ -48,8 +48,15 @@ type CPUIsolationOptions struct {
 	IsolationLockInThreshold   int
 	IsolationLockOutPeriodSecs int
 
-	IsolationDisabled      bool
-	IsolationDisabledPools []string
+	// IsolationDisabled is used to disable all isolation.
+	// IsolationDisabledPools indicates the pools where pods will not be isolated.
+	// IsolationForceEnablePools indicates the pools where pods must be isolated, even if the pool
+	// is listed in IsolationDisabledPools.
+	// IsolationNonExclusivePools indicates the pools where pods will not be exclusively isolated.
+	IsolationDisabled          bool
+	IsolationDisabledPools     []string
+	IsolationForceEnablePools  []string
+	IsolationNonExclusivePools []string
 }
 
 // NewCPUIsolationOptions creates a new Options with a default config
@@ -67,8 +74,10 @@ func NewCPUIsolationOptions() *CPUIsolationOptions {
 		IsolationLockInThreshold:   3,
 		IsolationLockOutPeriodSecs: 120,
 
-		IsolationDisabled:      true,
-		IsolationDisabledPools: []string{},
+		IsolationDisabled:          true,
+		IsolationDisabledPools:     []string{},
+		IsolationForceEnablePools:  []string{},
+		IsolationNonExclusivePools: []string{},
 	}
 }
 
@@ -101,7 +110,11 @@ func (o *CPUIsolationOptions) AddFlags(fs *pflag.FlagSet) {
 	fs.BoolVar(&o.IsolationDisabled, "isolation-disable", o.IsolationDisabled,
 		"if set as true, disable the isolation logic")
 	fs.StringArrayVar(&o.IsolationDisabledPools, "isolation-disable-pools", o.IsolationDisabledPools,
-		"if set as true, disable the isolation logic for the given pool")
+		"disable the isolation logic for the given pool")
+	fs.StringArrayVar(&o.IsolationForceEnablePools, "isolation-force-enable-pools", o.IsolationForceEnablePools,
+		"isolation force enable for get given pool")
+	fs.StringArrayVar(&o.IsolationNonExclusivePools, "isolation-non-exclusive-pools", o.IsolationNonExclusivePools,
+		"isolation is non-exclusive for get given pool")
 }
 
 // ApplyTo fills up config with options
@@ -142,6 +155,8 @@ func (o *CPUIsolationOptions) ApplyTo(c *cpu.CPUIsolationConfiguration) error {
 
 	c.IsolationDisabled = o.IsolationDisabled
 	c.IsolationDisabledPools = sets.NewString(o.IsolationDisabledPools...)
+	c.IsolationForceEnablePools = sets.NewString(o.IsolationForceEnablePools...)
+	c.IsolationNonExclusivePools = sets.NewString(o.IsolationNonExclusivePools...)
 
 	return nil
 }

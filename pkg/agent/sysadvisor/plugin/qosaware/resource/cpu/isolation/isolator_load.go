@@ -101,6 +101,7 @@ func (l *LoadIsolator) GetIsolatedPods() []string {
 
 		existed.Insert(containerMeta(ci))
 		if l.checkContainerIsolated(ci, isolationResources) {
+			general.Infof("add container %s from pod %s/%s to isolation", ci.ContainerName, ci.PodNamespace, ci.PodName)
 			uidSets.Insert(ci.PodUID)
 		}
 	}

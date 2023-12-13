@@ -33,6 +33,8 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
 	"github.com/kubewharf/katalyst-core/pkg/config"
+	"github.com/kubewharf/katalyst-core/pkg/config/generic"
+	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 )
@@ -63,23 +65,28 @@ type baseServer struct {
 	resourceRequestName string
 	resourceLimitName   string
 
-	metaCache metacache.MetaCache
-	emitter   metrics.MetricEmitter
+	qosConf *generic.QoSConfiguration
+
+	metaCache  metacache.MetaCache
+	metaServer *metaserver.MetaServer
+	emitter    metrics.MetricEmitter
 
 	grpcServer     *grpc.Server
 	resourceServer subQRMServer
 }
 
 func newBaseServer(name string, conf *config.Configuration, recvCh interface{}, sendCh chan types.TriggerInfo,
-	metaCache metacache.MetaCache, emitter metrics.MetricEmitter, resourceServer subQRMServer) *baseServer {
+	metaCache metacache.MetaCache, metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter, resourceServer subQRMServer) *baseServer {
 	return &baseServer{
 		name:           name,
 		period:         conf.QoSAwarePluginConfiguration.SyncPeriod,
+		qosConf:        conf.QoSConfiguration,
 		recvCh:         recvCh,
 		sendCh:         sendCh,
 		lwCalledChan:   make(chan struct{}),
 		stopCh:         make(chan struct{}),
 		metaCache:      metaCache,
+		metaServer:     metaServer,
 		emitter:        emitter,
 		resourceServer: resourceServer,
 	}

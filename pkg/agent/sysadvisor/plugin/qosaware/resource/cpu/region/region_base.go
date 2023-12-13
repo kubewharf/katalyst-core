@@ -274,8 +274,8 @@ func (r *QoSRegionBase) GetProvision() (types.ControlKnob, error) {
 		r.provisionPolicyNameInUse = internal.name
 
 		if r.provisionPolicyNameInUse != oldProvisionPolicyNameInUse {
-			klog.Infof("[qosaware-cpu] region: %s provision policy switch from %s to %s",
-				r.Name, oldProvisionPolicyNameInUse, r.provisionPolicyNameInUse)
+			klog.Infof("[qosaware-cpu] region: %v provision policy switch from %v to %v",
+				r.Name(), oldProvisionPolicyNameInUse, r.provisionPolicyNameInUse)
 			if r.enableBorweinModel {
 				r.borweinController.ResetIndicatorOffsets()
 			}

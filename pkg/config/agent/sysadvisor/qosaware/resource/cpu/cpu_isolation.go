@@ -43,8 +43,10 @@ type CPUIsolationConfiguration struct {
 	IsolationLockInThreshold   int
 	IsolationLockOutPeriodSecs int
 
-	IsolationDisabled      bool
-	IsolationDisabledPools sets.String
+	IsolationDisabled          bool
+	IsolationDisabledPools     sets.String
+	IsolationForceEnablePools  sets.String
+	IsolationNonExclusivePools sets.String
 }
 
 // NewCPUIsolationConfiguration creates new resource advisor configurations

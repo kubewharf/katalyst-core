@@ -29,6 +29,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
 
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/options"
@@ -36,7 +37,10 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
 	"github.com/kubewharf/katalyst-core/pkg/config"
+	"github.com/kubewharf/katalyst-core/pkg/metaserver"
+	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric"
+	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/pod"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	metricspool "github.com/kubewharf/katalyst-core/pkg/metrics/metrics-pool"
 )
@@ -68,7 +72,7 @@ func generateTestMemoryAdvisorConfiguration(t *testing.T) *config.Configuration 
 	return conf
 }
 
-func newTestMemoryServer(t *testing.T) *memoryServer {
+func newTestMemoryServer(t *testing.T, podList []*v1.Pod) *memoryServer {
 	recvCh := make(chan types.InternalMemoryCalculationResult)
 	sendCh := make(chan types.TriggerInfo)
 	conf := generateTestMemoryAdvisorConfiguration(t)
@@ -78,7 +82,15 @@ func newTestMemoryServer(t *testing.T) *memoryServer {
 	require.NoError(t, err)
 	require.NotNil(t, metaCache)
 
-	memoryServer, err := NewMemoryServer(recvCh, sendCh, conf, metaCache, metrics.DummyMetrics{})
+	metaServer := &metaserver.MetaServer{
+		MetaAgent: &agent.MetaAgent{
+			PodFetcher: &pod.PodFetcherStub{
+				PodList: podList,
+			},
+		},
+	}
+
+	memoryServer, err := NewMemoryServer(recvCh, sendCh, conf, metaCache, metaServer, metrics.DummyMetrics{})
 	require.NoError(t, err)
 	require.NotNil(t, memoryServer)
 
@@ -139,7 +151,7 @@ func TestListContainers(t *testing.T) {
 			mockQRMServiceServer := &MockQRMServiceServer{containers: tt.containers, listErr: tt.listErr}
 			advisorsvc.RegisterQRMServiceServer(serv, mockQRMServiceServer)
 
-			ms := newTestMemoryServer(t)
+			ms := newTestMemoryServer(t, []*v1.Pod{})
 
 			lis, err := net.Listen("unix", ms.pluginSocketPath)
 			assert.NoError(t, err)
@@ -163,7 +175,7 @@ func TestListContainers(t *testing.T) {
 func TestMemoryServerStartAndStop(t *testing.T) {
 	t.Parallel()
 
-	cs := newTestMemoryServer(t)
+	cs := newTestMemoryServer(t, []*v1.Pod{})
 
 	err := cs.Start()
 	assert.NoError(t, err)
@@ -275,7 +287,7 @@ func TestMemoryServerListAndWatch(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			cs := newTestMemoryServer(t)
+			cs := newTestMemoryServer(t, []*v1.Pod{})
 			s := &mockMemoryServerService_ListAndWatchServer{ResultsChan: make(chan *advisorsvc.ListAndWatchResponse)}
 			for _, info := range tt.infos {
 				assert.NoError(t, cs.addContainer(info.request))
