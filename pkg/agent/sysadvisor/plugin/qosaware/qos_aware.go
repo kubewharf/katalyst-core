@@ -66,7 +66,7 @@ func NewQoSAwarePlugin(pluginName string, conf *config.Configuration, extraConf 
 		return nil, err
 	}
 
-	qrmServer, err := server.NewQRMServer(resourceAdvisor, conf, metaCache, emitter)
+	qrmServer, err := server.NewQRMServer(resourceAdvisor, conf, metaCache, metaServer, emitter)
 	if err != nil {
 		return nil, err
 	}

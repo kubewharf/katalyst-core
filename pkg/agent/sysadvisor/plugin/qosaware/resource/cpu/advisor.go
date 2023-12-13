@@ -374,7 +374,7 @@ func (cra *cpuResourceAdvisor) assignContainersToRegions() error {
 		if ci.OwnerPoolName == state.PoolNameDedicated {
 			// dedicated pool should not exist in metaCache.poolEntries
 			return true
-		} else if ci.Isolated {
+		} else if ci.Isolated || cra.conf.IsolationForceEnablePools.Has(ci.OriginOwnerPoolName) {
 			// isolated pool should not exist in metaCache.poolEntries
 			return true
 		} else {
@@ -412,16 +412,35 @@ func (cra *cpuResourceAdvisor) assignToRegions(ci *types.ContainerInfo) ([]regio
 		}
 
 		// assign isolated container
-		if ci.Isolated {
-			// if there already exists an isolation region for this pod, just reuse it
-			regions, err := cra.getContainerRegions(ci, types.QoSRegionTypeIsolation)
-			if err != nil {
-				return nil, err
-			} else if len(regions) > 0 {
-				return regions, nil
+		if ci.Isolated || cra.conf.IsolationForceEnablePools.Has(ci.OriginOwnerPoolName) {
+			regionName := ""
+			if cra.conf.IsolationNonExclusivePools.Has(ci.OriginOwnerPoolName) {
+				// use origin owner pool name as region name, because all the container in this pool
+				// share only one region which is non-exclusive
+				regionName = ci.OriginOwnerPoolName
+
+				// if there already exists a non-exclusive isolation region for this pod, just reuse it
+				regions := cra.getPoolRegions(regionName)
+				if len(regions) > 0 {
+					return regions, nil
+				}
+
+				// if there already exists a region with same name as this region, just reuse it
+				regions = cra.getRegionsByRegionNames(sets.NewString(regionName))
+				if len(regions) > 0 {
+					return regions, nil
+				}
+			} else {
+				// if there already exists an isolation region for this pod, just reuse it
+				regions, err := cra.getContainerRegions(ci, types.QoSRegionTypeIsolation)
+				if err != nil {
+					return nil, err
+				} else if len(regions) > 0 {
+					return regions, nil
+				}
 			}
 
-			r := region.NewQoSRegionIsolation(ci, cra.conf, cra.extraConf, cra.metaCache, cra.metaServer, cra.emitter)
+			r := region.NewQoSRegionIsolation(ci, regionName, cra.conf, cra.extraConf, cra.metaCache, cra.metaServer, cra.emitter)
 			return []region.QoSRegion{r}, nil
 		}
 

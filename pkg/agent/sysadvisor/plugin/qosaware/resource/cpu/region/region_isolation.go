@@ -27,19 +27,22 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 )
 
-var isolationRegionDefaultOwnerPoolName = "isolation-default"
+const isolationRegionDefaultOwnerPoolName = "isolation-default"
 
 type QoSRegionIsolation struct {
 	*QoSRegionBase
 }
 
 // NewQoSRegionIsolation returns a region instance for isolated pods
-func NewQoSRegionIsolation(ci *types.ContainerInfo, conf *config.Configuration, extraConf interface{},
+func NewQoSRegionIsolation(ci *types.ContainerInfo, customRegionName string, conf *config.Configuration, extraConf interface{},
 	metaReader metacache.MetaReader, metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter) QoSRegion {
 
-	regionName := getRegionNameFromMetaCache(ci, cpuadvisor.FakedNUMAID, metaReader)
+	regionName := customRegionName
 	if regionName == "" {
-		regionName = string(types.QoSRegionTypeIsolation) + types.RegionNameSeparator + ci.PodName + types.RegionNameSeparator + string(uuid.NewUUID())
+		regionName = getRegionNameFromMetaCache(ci, cpuadvisor.FakedNUMAID, metaReader)
+		if regionName == "" {
+			regionName = string(types.QoSRegionTypeIsolation) + types.RegionNameSeparator + ci.PodName + types.RegionNameSeparator + string(uuid.NewUUID())
+		}
 	}
 
 	r := &QoSRegionIsolation{
