@@ -118,19 +118,22 @@ func (c *QoSConfiguration) FilterQoSAndEnhancement(annotations map[string]string
 	defer c.RUnlock()
 
 	for _, enhancementKey := range validQosEnhancementKey.List() {
-		if enhancementKey != apiconsts.PodAnnotationMicroTopologyInterPodAffinity &&
-			enhancementKey != apiconsts.PodAnnotationMicroTopologyInterPodAntiAffinity {
-			enhancementKVs := helper.ParseKatalystQOSEnhancement(wrappedEnhancements, annotations, enhancementKey)
-			for key, val := range enhancementKVs {
-				if filteredAnnotations[key] != "" {
-					general.Warningf("get enhancements %s:%s from %s, but the kv already exists: %s:%s",
-						key, val, enhancementKey, key, filteredAnnotations[key])
+		if wrappedEnhancements[enhancementKey] != "" {
+			if enhancementKey != apiconsts.PodAnnotationMicroTopologyInterPodAffinity &&
+				enhancementKey != apiconsts.PodAnnotationMicroTopologyInterPodAntiAffinity {
+				enhancementKVs := helper.ParseKatalystQOSEnhancement(wrappedEnhancements, annotations, enhancementKey)
+				for key, val := range enhancementKVs {
+					if filteredAnnotations[key] != "" {
+						general.Warningf("get enhancements %s:%s from %s, but the kv already exists: %s:%s",
+							key, val, enhancementKey, key, filteredAnnotations[key])
+					}
+					filteredAnnotations[key] = val
 				}
-				filteredAnnotations[key] = val
+			} else {
+				filteredAnnotations[enhancementKey] = wrappedEnhancements[enhancementKey]
 			}
-		} else {
-			filteredAnnotations[enhancementKey] = wrappedEnhancements[enhancementKey]
 		}
+
 	}
 
 	for enhancementKey, defaultValue := range c.EnhancementDefaultValues {
