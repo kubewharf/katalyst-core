@@ -153,9 +153,9 @@ func generateRemovePodRequest() *pluginapi.RemovePodRequest {
 func generateGetResourceAllocationInfoResponse() *pluginapi.GetResourcesAllocationResponse {
 	return &pluginapi.GetResourcesAllocationResponse{
 		PodResources: map[string]*pluginapi.ContainerResources{
-			"mock_pod": &pluginapi.ContainerResources{
+			"mock_pod": {
 				ContainerResources: map[string]*pluginapi.ResourceAllocation{
-					"mock_container": &pluginapi.ResourceAllocation{
+					"mock_container": {
 						ResourceAllocation: map[string]*pluginapi.ResourceAllocationInfo{
 							"mock_res": generateResourceAllocationInfo(),
 						},

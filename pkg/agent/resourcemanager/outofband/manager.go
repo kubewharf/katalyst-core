@@ -226,9 +226,6 @@ func (m *ManagerImpl) process() {
 		case <-m.ctx.Done():
 			klog.Infof("[ORM] ctx done, exit")
 			return
-
-		default:
-
 		}
 	}
 }
@@ -446,7 +443,7 @@ func (m *ManagerImpl) UpdatePodResources(
 	pod *v1.Pod, container *v1.Container, resource string) {
 	for accResourceName, allocationInfo := range resourceAllocation {
 		if allocationInfo == nil {
-			klog.Warningf("[ORM] allocation request for resources %s - accompanying resource: %s for pod: %s/%s, container: %s got nil allocation infomation",
+			klog.Warningf("[ORM] allocation request for resources %s - accompanying resource: %s for pod: %s/%s, container: %s got nil allocation information",
 				resource, accResourceName, pod.Namespace, pod.Name, container.Name)
 			continue
 		}

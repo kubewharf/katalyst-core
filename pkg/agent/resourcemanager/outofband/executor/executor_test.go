@@ -74,11 +74,11 @@ func TestImpl_UpdateContainerResources(t *testing.T) {
 		&v1.Container{
 			Name: "testContainer",
 		}, map[string]*v1alpha1.ResourceAllocationInfo{
-			"cpu": &v1alpha1.ResourceAllocationInfo{
+			"cpu": {
 				OciPropertyName:  "CpusetCpus",
 				AllocationResult: "0-3",
 			},
-			"memory": &v1alpha1.ResourceAllocationInfo{
+			"memory": {
 				OciPropertyName:  "CpusetMems",
 				AllocationResult: "0,1",
 			},

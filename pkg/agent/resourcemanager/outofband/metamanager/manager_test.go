@@ -65,19 +65,19 @@ func TestReconcile(t *testing.T) {
 
 	metaServer.PodFetcher = &pod.PodFetcherStub{
 		PodList: []*v1.Pod{
-			&v1.Pod{
+			{
 				ObjectMeta: v12.ObjectMeta{
 					Name: "pod0",
 					UID:  "pod0",
 				},
 			},
-			&v1.Pod{
+			{
 				ObjectMeta: v12.ObjectMeta{
 					Name: "pod1",
 					UID:  "pod1",
 				},
 			},
-			&v1.Pod{
+			{
 				ObjectMeta: v12.ObjectMeta{
 					Name: "pod2",
 					UID:  "pod2",
