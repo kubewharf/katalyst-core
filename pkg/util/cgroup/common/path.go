@@ -133,7 +133,7 @@ func GetKubernetesAnyExistRelativeCgroupPath(suffix string) (string, error) {
 
 // GetPodAbsCgroupPath returns absolute cgroup path for pod level
 func GetPodAbsCgroupPath(subsys, podUID string) (string, error) {
-	return GetKubernetesAnyExistAbsCgroupPath(subsys, podUID)
+	return GetKubernetesAnyExistAbsCgroupPath(subsys, fmt.Sprintf("%s%s", PodCgroupPathPrefix, podUID))
 }
 
 // GetContainerAbsCgroupPath returns absolute cgroup path for container level

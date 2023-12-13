@@ -19,9 +19,9 @@ package orm
 import (
 	"time"
 
-	ormconfig "github.com/kubewharf/katalyst-core/pkg/config/agent/orm"
-
 	cliflag "k8s.io/component-base/cli/flag"
+
+	ormconfig "github.com/kubewharf/katalyst-core/pkg/config/agent/orm"
 )
 
 type GenericORMPluginOptions struct {

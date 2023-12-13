@@ -20,6 +20,7 @@ import (
 	"reflect"
 	"sync"
 
+	//nolint
 	"github.com/golang/protobuf/proto"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/klog/v2"

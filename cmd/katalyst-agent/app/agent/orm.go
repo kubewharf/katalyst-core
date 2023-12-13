@@ -20,7 +20,6 @@ import (
 	"fmt"
 
 	"k8s.io/klog/v2"
-
 	plugincache "k8s.io/kubernetes/pkg/kubelet/pluginmanager/cache"
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/resourcemanager/outofband"

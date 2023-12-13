@@ -17,7 +17,6 @@ limitations under the License.
 package options
 
 import (
-	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/options/orm"
 	"k8s.io/apimachinery/pkg/util/errors"
 	cliflag "k8s.io/component-base/cli/flag"
 
@@ -25,6 +24,7 @@ import (
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/options/dynamic"
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/options/eviction"
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/options/global"
+	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/options/orm"
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/options/qrm"
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/options/reporter"
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/options/sysadvisor"
