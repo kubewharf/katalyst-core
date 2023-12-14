@@ -116,7 +116,6 @@ func (u *IndicatorManager) UpdateSystemIndicatorSpec(nn types.NamespacedName, in
 
 func (u *IndicatorManager) UpdateBusinessIndicatorStatus(nn types.NamespacedName, indicators []apiworkload.ServiceBusinessIndicatorStatus) {
 	u.statusMtx.Lock()
-	defer u.statusMtx.Unlock()
 
 	insert := false
 	if _, ok := u.statusMap[nn]; !ok {
@@ -126,6 +125,8 @@ func (u *IndicatorManager) UpdateBusinessIndicatorStatus(nn types.NamespacedName
 	for _, indicator := range indicators {
 		util.InsertSPDBusinessIndicatorStatus(u.statusMap[nn], &indicator)
 	}
+
+	u.statusMtx.Unlock()
 
 	if insert {
 		u.statusQueue <- nn
