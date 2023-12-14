@@ -22,8 +22,9 @@ import (
 )
 
 type PolicyRamaConfiguration struct {
-	PIDParameters map[string]types.FirstOrderPIDParams
-	EnableBorwein bool
+	PIDParameters                   map[string]types.FirstOrderPIDParams
+	EnableBorwein                   bool
+	EnableBorweinModelResultFetcher bool
 }
 
 func NewPolicyRamaConfiguration() *PolicyRamaConfiguration {

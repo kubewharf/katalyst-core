@@ -23,7 +23,8 @@ import (
 )
 
 type PolicyRamaOptions struct {
-	EnableBorwein bool
+	EnableBorwein                   bool
+	EnableBorweinModelResultFetcher bool
 }
 
 func NewPolicyRamaOptions() *PolicyRamaOptions {
@@ -34,10 +35,13 @@ func NewPolicyRamaOptions() *PolicyRamaOptions {
 func (o *PolicyRamaOptions) AddFlags(fs *pflag.FlagSet) {
 	fs.BoolVar(&o.EnableBorwein, "enable-borwein-in-rama", o.EnableBorwein,
 		"if set as true, enable borwein model to adjust target indicator offset in rama policy")
+	fs.BoolVar(&o.EnableBorweinModelResultFetcher, "enable-borwein-model-result-fetcher", o.EnableBorweinModelResultFetcher,
+		"if set as true, enable borwein model result fetcher to call borwein-inference-server and get results")
 }
 
 // ApplyTo fills up config with options
 func (o *PolicyRamaOptions) ApplyTo(c *provisionconfig.PolicyRamaConfiguration) error {
 	c.EnableBorwein = o.EnableBorwein
+	c.EnableBorweinModelResultFetcher = o.EnableBorweinModelResultFetcher
 	return nil
 }
