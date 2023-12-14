@@ -1092,8 +1092,8 @@ func (p *DynamicPolicy) shouldSharedCoresRampUp(podUID string) bool {
 	} else if pod == nil {
 		general.Infof("can't get pod: %s from metaServer, try to ramp up it", podUID)
 		return true
-	} else if native.PodIsActive(pod) {
-		general.Infof("pod: %s/%s is active, not try to ramp up it", pod.Namespace, pod.Name)
+	} else if !native.PodIsPending(pod) {
+		general.Infof("pod: %s/%s isn't pending(not admit firstly), not try to ramp up it", pod.Namespace, pod.Name)
 		return false
 	} else {
 		general.Infof("pod: %s/%s isn't active, try to ramp up it", pod.Namespace, pod.Name)

@@ -263,3 +263,48 @@ func TestParseHostPortForPod(t *testing.T) {
 		})
 	}
 }
+func TestPodIsPending(t *testing.T) {
+	type args struct {
+		pod *v1.Pod
+	}
+	tests := []struct {
+		name string
+		args args
+		want bool
+	}{
+		{
+			name: "pod is pending",
+			args: args{
+				pod: &v1.Pod{
+					Status: v1.PodStatus{
+						Phase: v1.PodPending,
+					},
+				},
+			},
+			want: true,
+		},
+		{
+			name: "pod isn't pending",
+			args: args{
+				pod: &v1.Pod{
+					Status: v1.PodStatus{
+						Phase: v1.PodRunning,
+					},
+				},
+			},
+			want: false,
+		},
+		{
+			name: "nil pod",
+			args: args{},
+			want: false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := PodIsPending(tt.args.pod); got != tt.want {
+				t.Errorf("PodIsPending() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}

@@ -173,6 +173,14 @@ func PodIsActive(pod *v1.Pod) bool {
 	return !PodIsTerminated(pod)
 }
 
+// PodIsPending returns whether the pod is pending.
+func PodIsPending(pod *v1.Pod) bool {
+	if pod == nil {
+		return false
+	}
+	return pod.Status.Phase == v1.PodPending
+}
+
 // FilterOutSkipEvictionPods return pods should be candidates to evict
 // including native critical pods and user-defined filtered pods
 func FilterOutSkipEvictionPods(pods []*v1.Pod, filterOutAnnotations, filterOutLabels sets.String) []*v1.Pod {
