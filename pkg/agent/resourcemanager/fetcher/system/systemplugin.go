@@ -45,6 +45,7 @@ const (
 	ResourceNameNBW v1.ResourceName = "nbw"
 
 	PropertyNameCIS      = "cis"
+	PropertyNameNUMA     = "numa"
 	PropertyNameTopology = "topology"
 )
 
@@ -122,6 +123,7 @@ func (p *systemPlugin) getResourceProperties() ([]*v1alpha1.ReportContent, error
 
 	// append all properties to one property list
 	properties = append(properties,
+		p.getNUMACount(),
 		p.getNetworkBandwidth(),
 		p.getCPUCount(),
 		p.getMemoryCapacity(),
@@ -146,6 +148,14 @@ func (p *systemPlugin) getResourceProperties() ([]*v1alpha1.ReportContent, error
 			},
 		},
 	}, nil
+}
+
+// getNUMACount get numa count of this machine.
+func (p *systemPlugin) getNUMACount() *nodev1alpha1.Property {
+	return &nodev1alpha1.Property{
+		PropertyName:     PropertyNameNUMA,
+		PropertyQuantity: resource.NewQuantity(int64(p.metaServer.CPUTopology.NumNUMANodes), resource.DecimalSI),
+	}
 }
 
 // getNetworkBandwidth get max network bandwidth of all the interfaces in this machine.
