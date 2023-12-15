@@ -47,7 +47,11 @@ import (
 const (
 	BorweinModelResultFetcherName = "borwein_model_result_fetcher"
 
-	InferenceResponseRatio = "inference.response.ratio"
+	metricInferenceResponseRatio       = "borwein_inference_response_ratio"
+	metricGetInferenceRequestFailed    = "borwein_get_inference_request_failed"
+	metricInferenceFailed              = "borwein_inference_failed"
+	metricParseInferenceResponseFailed = "borwein_parse_inference_response_failed"
+	metricSetInferenceResultFailed     = "borwein_set_inference_result_failed"
 )
 
 type BorweinModelResultFetcher struct {
@@ -158,6 +162,7 @@ func (bmrf *BorweinModelResultFetcher) FetchModelResult(ctx context.Context, met
 
 	req, err := bmrf.getInferenceRequestForPods(requestContainers, metaReader, metaWriter, metaServer)
 	if err != nil {
+		_ = bmrf.emitter.StoreInt64(metricGetInferenceRequestFailed, 1, metrics.MetricTypeNameRaw)
 		return fmt.Errorf("getInferenceRequestForPods failed with error: %v", err)
 	}
 
@@ -166,16 +171,19 @@ func (bmrf *BorweinModelResultFetcher) FetchModelResult(ctx context.Context, met
 	bmrf.clientLock.RUnlock()
 
 	if err != nil {
+		_ = bmrf.emitter.StoreInt64(metricInferenceFailed, 1, metrics.MetricTypeNameRaw)
 		return fmt.Errorf("Inference failed with error: %v", err)
 	}
 
 	borweinInferenceResults, err := bmrf.parseInferenceRespForPods(requestContainers, resp)
 	if err != nil {
+		_ = bmrf.emitter.StoreInt64(metricParseInferenceResponseFailed, 1, metrics.MetricTypeNameRaw)
 		return fmt.Errorf("parseInferenceRespForPods failed with error: %v", err)
 	}
 
 	err = metaWriter.SetInferenceResult(borweinconsts.ModelNameBorwein, borweinInferenceResults)
 	if err != nil {
+		_ = bmrf.emitter.StoreInt64(metricSetInferenceResultFailed, 1, metrics.MetricTypeNameRaw)
 		return fmt.Errorf("SetInferenceResult failed with error: %v", err)
 	}
 	return nil
@@ -219,9 +227,9 @@ func (bmrf *BorweinModelResultFetcher) parseInferenceRespForPods(requestContaine
 	}
 
 	if len(requestContainers) > 0 {
-		_ = bmrf.emitter.StoreFloat64(InferenceResponseRatio, float64(respContainersCnt)/float64(len(requestContainers)), metrics.MetricTypeNameRaw)
+		_ = bmrf.emitter.StoreFloat64(metricInferenceResponseRatio, float64(respContainersCnt)/float64(len(requestContainers)), metrics.MetricTypeNameRaw)
 	} else {
-		_ = bmrf.emitter.StoreFloat64(InferenceResponseRatio, -1, metrics.MetricTypeNameRaw)
+		_ = bmrf.emitter.StoreFloat64(metricInferenceResponseRatio, -1, metrics.MetricTypeNameRaw)
 	}
 
 	if respContainersCnt != len(requestContainers) {
