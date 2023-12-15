@@ -80,7 +80,6 @@ func NewIndicatorManager() *IndicatorManager {
 
 func (u *IndicatorManager) UpdateBusinessIndicatorSpec(nn types.NamespacedName, indicators []apiworkload.ServiceBusinessIndicatorSpec) {
 	u.specMtx.Lock()
-	defer u.specMtx.Unlock()
 
 	insert := false
 	if _, ok := u.specMap[nn]; !ok {
@@ -90,6 +89,7 @@ func (u *IndicatorManager) UpdateBusinessIndicatorSpec(nn types.NamespacedName, 
 	for _, indicator := range indicators {
 		util.InsertSPDBusinessIndicatorSpec(u.specMap[nn], &indicator)
 	}
+	u.specMtx.Unlock()
 
 	if insert {
 		u.specQueue <- nn
@@ -98,7 +98,6 @@ func (u *IndicatorManager) UpdateBusinessIndicatorSpec(nn types.NamespacedName, 
 
 func (u *IndicatorManager) UpdateSystemIndicatorSpec(nn types.NamespacedName, indicators []apiworkload.ServiceSystemIndicatorSpec) {
 	u.specMtx.Lock()
-	defer u.specMtx.Unlock()
 
 	insert := false
 	if _, ok := u.specMap[nn]; !ok {
@@ -108,6 +107,7 @@ func (u *IndicatorManager) UpdateSystemIndicatorSpec(nn types.NamespacedName, in
 	for _, indicator := range indicators {
 		util.InsertSPDSystemIndicatorSpec(u.specMap[nn], &indicator)
 	}
+	u.specMtx.Unlock()
 
 	if insert {
 		u.specQueue <- nn
