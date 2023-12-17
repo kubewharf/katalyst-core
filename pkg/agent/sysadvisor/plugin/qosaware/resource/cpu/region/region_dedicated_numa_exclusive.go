@@ -108,7 +108,11 @@ func (r *QoSRegionDedicatedNumaExclusive) TryUpdateProvision() {
 		r.ControlEssentials.Indicators = indicators
 	}
 
-	for _, internal := range r.provisionPolicies {
+	referenceControlKnobs := make(map[types.CPUProvisionPolicyName]types.ControlKnob)
+	for _, internal := range r.provisionPoliciesInUpdatePriority {
+		// set reference control knobs to essentials
+		r.ControlEssentials.ReferenceControlKnobs = referenceControlKnobs
+
 		internal.updateStatus = types.PolicyUpdateFailed
 
 		// set essentials for policy and regulator
@@ -122,6 +126,13 @@ func (r *QoSRegionDedicatedNumaExclusive) TryUpdateProvision() {
 			continue
 		}
 		internal.updateStatus = types.PolicyUpdateSucceeded
+
+		controlKnob, err := internal.policy.GetControlKnobAdjusted()
+		if err != nil {
+			klog.Errorf("[qosaware-cpu] get policy %v control knob failed: %v", internal.name, err)
+			continue
+		}
+		referenceControlKnobs[internal.name] = controlKnob
 	}
 }
 

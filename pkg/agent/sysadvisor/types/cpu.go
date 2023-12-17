@@ -199,9 +199,10 @@ type InternalCPUCalculationResult struct {
 
 // ControlEssentials defines essential metrics for cpu advisor feedback control
 type ControlEssentials struct {
-	ControlKnobs   ControlKnob
-	Indicators     Indicator
-	ReclaimOverlap bool
+	ControlKnobs          ControlKnob
+	ReferenceControlKnobs map[CPUProvisionPolicyName]ControlKnob
+	Indicators            Indicator
+	ReclaimOverlap        bool
 }
 
 // Indicator holds system metrics related to service stability keyed by metric name

@@ -57,7 +57,7 @@ func (r *QoSRegionIsolation) TryUpdateProvision() {
 
 	// no need to update provision for isolation region
 	// todo should we run regulator processes for isolation region?
-	for _, internal := range r.provisionPolicies {
+	for _, internal := range r.provisionPoliciesInUpdatePriority {
 		internal.updateStatus = types.PolicyUpdateSucceeded
 
 		// set essentials for policy

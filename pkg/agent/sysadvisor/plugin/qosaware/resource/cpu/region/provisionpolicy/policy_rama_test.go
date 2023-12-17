@@ -156,12 +156,15 @@ func TestPolicyRama(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name               string
-		regionInfo         types.RegionInfo
-		podSet             types.PodSet
-		resourceEssentials types.ResourceEssentials
-		controlEssentials  types.ControlEssentials
-		wantResult         types.ControlKnob
+		name                             string
+		regionInfo                       types.RegionInfo
+		podSet                           types.PodSet
+		resourceEssentials               types.ResourceEssentials
+		controlEssentials                types.ControlEssentials
+		restrictedRefPolicyName          types.CPUProvisionPolicyName
+		restrictedByRefPolicyMaxGap      float64
+		restrictedByRefPolicyMaxGapRatio float64
+		wantResult                       types.ControlKnob
 	}{
 		{
 			name: "share_ramp_up",
@@ -327,6 +330,152 @@ func TestPolicyRama(t *testing.T) {
 				},
 			},
 		},
+		{
+			name: "share_below_based_control_knob",
+			podSet: types.PodSet{
+				"pod0": sets.String{
+					"container0": struct{}{},
+				},
+			},
+			regionInfo: types.RegionInfo{
+				RegionName:   "share-xxx",
+				RegionType:   types.QoSRegionTypeShare,
+				BindingNumas: machine.NewCPUSet(0),
+			},
+			resourceEssentials: types.ResourceEssentials{
+				EnableReclaim:       true,
+				ResourceUpperBound:  90,
+				ResourceLowerBound:  4,
+				ReservedForAllocate: 0,
+			},
+			controlEssentials: types.ControlEssentials{
+				ControlKnobs: types.ControlKnob{
+					types.ControlKnobNonReclaimedCPUSize: {
+						Value:  40,
+						Action: types.ControlKnobActionNone,
+					},
+				},
+				ReferenceControlKnobs: map[types.CPUProvisionPolicyName]types.ControlKnob{
+					types.CPUProvisionPolicyCanonical: {
+						types.ControlKnobNonReclaimedCPUSize: {
+							Value:  60,
+							Action: types.ControlKnobActionNone,
+						},
+					},
+				},
+				Indicators: types.Indicator{
+					consts.MetricCPUSchedwait: {
+						Current: 4,
+						Target:  400,
+					},
+				},
+				ReclaimOverlap: false,
+			},
+			restrictedRefPolicyName:          types.CPUProvisionPolicyCanonical,
+			restrictedByRefPolicyMaxGap:      20,
+			restrictedByRefPolicyMaxGapRatio: 0.3,
+			wantResult: types.ControlKnob{
+				types.ControlKnobNonReclaimedCPUSize: {
+					Value:  40,
+					Action: types.ControlKnobActionNone,
+				},
+			},
+		},
+		{
+			name: "share_above_based_control_knob",
+			podSet: types.PodSet{
+				"pod0": sets.String{
+					"container0": struct{}{},
+				},
+			},
+			regionInfo: types.RegionInfo{
+				RegionName:   "share-xxx",
+				RegionType:   types.QoSRegionTypeShare,
+				BindingNumas: machine.NewCPUSet(0),
+			},
+			resourceEssentials: types.ResourceEssentials{
+				EnableReclaim:       true,
+				ResourceUpperBound:  90,
+				ResourceLowerBound:  4,
+				ReservedForAllocate: 0,
+			},
+			controlEssentials: types.ControlEssentials{
+				ControlKnobs: types.ControlKnob{
+					types.ControlKnobNonReclaimedCPUSize: {
+						Value:  45,
+						Action: types.ControlKnobActionNone,
+					},
+				},
+				ReferenceControlKnobs: map[types.CPUProvisionPolicyName]types.ControlKnob{
+					types.CPUProvisionPolicyCanonical: {
+						types.ControlKnobNonReclaimedCPUSize: {
+							Value:  10,
+							Action: types.ControlKnobActionNone,
+						},
+					},
+				},
+				Indicators: types.Indicator{
+					consts.MetricCPUSchedwait: {
+						Current: 4,
+						Target:  400,
+					},
+				},
+				ReclaimOverlap: false,
+			},
+			restrictedRefPolicyName:          types.CPUProvisionPolicyCanonical,
+			restrictedByRefPolicyMaxGap:      20,
+			restrictedByRefPolicyMaxGapRatio: 0.3,
+			wantResult: types.ControlKnob{
+				types.ControlKnobNonReclaimedCPUSize: {
+					Value:  43,
+					Action: types.ControlKnobActionNone,
+				},
+			},
+		},
+		{
+			name: "dedicated_reclaim_overlap",
+			podSet: types.PodSet{
+				"pod0": sets.String{
+					"container0": struct{}{},
+				},
+			},
+			regionInfo: types.RegionInfo{
+				RegionName:   "dedicated-numa-exclusive-xxx",
+				RegionType:   types.QoSRegionTypeDedicatedNumaExclusive,
+				BindingNumas: machine.NewCPUSet(0),
+			},
+			resourceEssentials: types.ResourceEssentials{
+				EnableReclaim:       true,
+				ResourceUpperBound:  90,
+				ResourceLowerBound:  4,
+				ReservedForAllocate: 0,
+			},
+			controlEssentials: types.ControlEssentials{
+				ControlKnobs: types.ControlKnob{
+					types.ControlKnobNonReclaimedCPUSize: {
+						Value:  40,
+						Action: types.ControlKnobActionNone,
+					},
+				},
+				Indicators: types.Indicator{
+					consts.MetricCPUCPIContainer: {
+						Current: 2.0,
+						Target:  1.0,
+					},
+					consts.MetricMemBandwidthNuma: {
+						Current: 4,
+						Target:  40,
+					},
+				},
+				ReclaimOverlap: true,
+			},
+			wantResult: types.ControlKnob{
+				types.ControlKnobNonReclaimedCPUSize: {
+					Value:  50,
+					Action: types.ControlKnobActionNone,
+				},
+			},
+		},
 	}
 
 	checkpointDir, err := os.MkdirTemp("", "checkpoint")
@@ -353,6 +502,9 @@ func TestPolicyRama(t *testing.T) {
 				assert.Nil(t, err)
 			}
 		}
+		policy.conf.PolicyRama.RestrictedByRefPolicyName = tt.restrictedRefPolicyName
+		policy.conf.PolicyRama.RestrictedByRefPolicyMaxGap = tt.restrictedByRefPolicyMaxGap
+		policy.conf.PolicyRama.RestrictedByRefPolicyMaxGapRatio = tt.restrictedByRefPolicyMaxGapRatio
 		policy.metaServer.MetaAgent.SetPodFetcher(constructPodFetcherRama(podNames))
 
 		t.Run(tt.name, func(t *testing.T) {

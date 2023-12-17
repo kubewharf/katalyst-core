@@ -19,6 +19,7 @@ package provisionpolicy
 import (
 	"fmt"
 	"math"
+	"strconv"
 
 	"k8s.io/apimachinery/pkg/util/errors"
 	"k8s.io/klog/v2"
@@ -35,7 +36,8 @@ import (
 )
 
 const (
-	metricRamaDominantIndicator = "rama_dominant_indicator"
+	metricRamaDominantIndicator       = "rama_dominant_indicator"
+	metricRamaRestrictRefPolicyResult = "rama_restrict_ref_policy_result"
 )
 
 type PolicyRama struct {
@@ -67,7 +69,7 @@ func (p *PolicyRama) Update() error {
 	// pass the current value to regulator to avoid slow start from zero after restart
 	p.regulator.SetLatestCPURequirement(int(cpuSize))
 
-	cpuAdjustedRaw := math.Inf(-1)
+	cpuSizeRaw := math.Inf(-1)
 	dominantIndicator := "unknown"
 
 	// run pid control for each indicator
@@ -87,8 +89,8 @@ func (p *PolicyRama) Update() error {
 		controller.SetEssentials(p.ResourceEssentials)
 		cpuAdjusted := controller.Adjust(cpuSize, indicator.Target, indicator.Current)
 
-		if cpuAdjusted > cpuAdjustedRaw {
-			cpuAdjustedRaw = cpuAdjusted
+		if cpuAdjusted > cpuSizeRaw {
+			cpuSizeRaw = cpuAdjusted
 			dominantIndicator = metricName
 		}
 	}
@@ -105,32 +107,92 @@ func (p *PolicyRama) Update() error {
 		}
 	}
 
-	cpuAdjustedRestricted := cpuAdjustedRaw
-
-	// restrict cpu size adjusted
-	if p.ControlEssentials.ReclaimOverlap {
-		reclaimedUsage, reclaimedCnt := p.getReclaimStatus()
-		klog.Infof("[qosaware-cpu-rama] reclaim usage %.2f #container %v", reclaimedUsage, reclaimedCnt)
-
-		reason := ""
-		if reclaimedCnt <= 0 {
-			// do not reclaim if no reclaimed containers
-			cpuAdjustedRestricted = p.ResourceUpperBound
-			reason = "no reclaimed container"
-		} else {
-			// do not overlap more if reclaim usage is below threshold
-			threshold := p.ResourceUpperBound - reclaimedUsage - types.ReclaimUsageMarginForOverlap
-			cpuAdjustedRestricted = math.Max(cpuAdjustedRestricted, threshold)
-			reason = "low reclaim usage"
-		}
-		if cpuAdjustedRestricted != cpuAdjustedRaw {
-			klog.Infof("[qosaware-cpu-rama] restrict cpu adjusted from %.2f to %.2f, reason: %v", cpuAdjustedRaw, cpuAdjustedRestricted, reason)
-		}
+	// restrict cpu size by reference control knob
+	cpuSizeRestricted, err := p.restrictCPUSizeByReferenceControlKnob(cpuSizeRaw)
+	if err != nil {
+		return err
 	}
 
-	p.regulator.Regulate(cpuAdjustedRestricted)
+	// restrict cpu size by reclaimed usage
+	cpuSizeRestricted, err = p.restrictCPUSizeByReclaimedUsage(cpuSizeRestricted)
+	if err != nil {
+		return err
+	}
+
+	p.regulator.Regulate(cpuSizeRestricted)
 
 	return nil
+}
+
+// restrictCPUSizeByReferenceControlKnob is to restrict cpu size by reference control knob
+func (p *PolicyRama) restrictCPUSizeByReferenceControlKnob(cpuSizeRaw float64) (float64, error) {
+	if p.conf.PolicyRama.RestrictedByRefPolicyName == "" {
+		return cpuSizeRaw, nil
+	}
+
+	controlKnob, ok := p.ControlEssentials.ReferenceControlKnobs[p.conf.PolicyRama.RestrictedByRefPolicyName]
+	if !ok {
+		return 0, fmt.Errorf("get control knob of restrict reference policy %v failed", p.conf.PolicyRama.RestrictedByRefPolicyName)
+	}
+
+	nonReclaimedCPUSize, ok := controlKnob[types.ControlKnobNonReclaimedCPUSize]
+	if !ok {
+		return 0, fmt.Errorf("get control knob non-reclaimed-cpu-size controlKnobValue failed")
+	}
+
+	min := math.Min(nonReclaimedCPUSize.Value-p.conf.PolicyRama.RestrictedByRefPolicyMaxGap, nonReclaimedCPUSize.Value*(1-p.conf.PolicyRama.RestrictedByRefPolicyMaxGapRatio))
+	max := math.Max(nonReclaimedCPUSize.Value+p.conf.PolicyRama.RestrictedByRefPolicyMaxGap, nonReclaimedCPUSize.Value*(1+p.conf.PolicyRama.RestrictedByRefPolicyMaxGapRatio))
+	klog.Infof("[qosaware-cpu-rama] reference non-reclaimed cpu size %v, min: %v, max: %v", nonReclaimedCPUSize.Value, min, max)
+
+	cpuSizeRestricted := cpuSizeRaw
+
+	reason := ""
+	if cpuSizeRaw > max {
+		cpuSizeRestricted = max
+		reason = "above reference control knob non-reclaimed cpu size"
+	} else if cpuSizeRaw < min {
+		cpuSizeRestricted = min
+		reason = "below reference control knob non-reclaimed cpu size"
+	}
+
+	if cpuSizeRestricted != cpuSizeRaw {
+		klog.Infof("[qosaware-cpu-rama] restrict cpu size from %.2f to %.2f, reason: %v", cpuSizeRaw, cpuSizeRestricted, reason)
+	}
+
+	_ = p.emitter.StoreFloat64(metricRamaRestrictRefPolicyResult, nonReclaimedCPUSize.Value, metrics.MetricTypeNameRaw, []metrics.MetricTag{
+		{Key: "reference", Val: string(p.conf.PolicyRama.RestrictedByRefPolicyName)},
+		{Key: "restricted", Val: strconv.FormatBool(cpuSizeRestricted != cpuSizeRaw)},
+	}...)
+
+	return cpuSizeRestricted, nil
+}
+
+func (p *PolicyRama) restrictCPUSizeByReclaimedUsage(cpuSizedRaw float64) (float64, error) {
+	if !p.ControlEssentials.ReclaimOverlap {
+		return cpuSizedRaw, nil
+	}
+
+	reclaimedUsage, reclaimedCnt := p.getReclaimStatus()
+	klog.Infof("[qosaware-cpu-rama] reclaim usage %.2f #container %v", reclaimedUsage, reclaimedCnt)
+
+	cpuSizeRestricted := cpuSizedRaw
+
+	reason := ""
+	if reclaimedCnt <= 0 {
+		// do not reclaim if no reclaimed containers
+		cpuSizeRestricted = p.ResourceUpperBound
+		reason = "no reclaimed container"
+	} else {
+		// do not overlap more if reclaim usage is below threshold
+		threshold := p.ResourceUpperBound - reclaimedUsage - types.ReclaimUsageMarginForOverlap
+		cpuSizeRestricted = math.Max(cpuSizeRestricted, threshold)
+		reason = "low reclaim usage"
+	}
+	if cpuSizeRestricted != cpuSizedRaw {
+		klog.Infof("[qosaware-cpu-rama] restrict cpu size from %.2f to %.2f, reason: %v", cpuSizedRaw, cpuSizeRestricted, reason)
+	}
+
+	return cpuSizeRestricted, nil
 }
 
 func (p *PolicyRama) sanityCheck() error {

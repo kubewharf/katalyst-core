@@ -22,6 +22,10 @@ import (
 )
 
 type PolicyRamaConfiguration struct {
+	RestrictedByRefPolicyName        types.CPUProvisionPolicyName
+	RestrictedByRefPolicyMaxGap      float64
+	RestrictedByRefPolicyMaxGapRatio float64
+
 	PIDParameters                   map[string]types.FirstOrderPIDParams
 	EnableBorwein                   bool
 	EnableBorweinModelResultFetcher bool

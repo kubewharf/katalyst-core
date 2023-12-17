@@ -27,12 +27,18 @@ type IndicatorTargetConfiguration struct {
 }
 
 type CPUProvisionPolicyConfiguration struct {
+	PolicyUpdatePriority               []types.CPUProvisionPolicyName
 	RegionIndicatorTargetConfiguration map[types.QoSRegionType][]IndicatorTargetConfiguration
-	PolicyRama                         *PolicyRamaConfiguration
+
+	PolicyRama *PolicyRamaConfiguration
 }
 
 func NewCPUProvisionPolicyConfiguration() *CPUProvisionPolicyConfiguration {
 	return &CPUProvisionPolicyConfiguration{
+		PolicyUpdatePriority: []types.CPUProvisionPolicyName{
+			types.CPUProvisionPolicyCanonical,
+			types.CPUProvisionPolicyRama,
+		},
 		RegionIndicatorTargetConfiguration: map[types.QoSRegionType][]IndicatorTargetConfiguration{
 			types.QoSRegionTypeShare: {
 				{

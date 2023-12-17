@@ -71,7 +71,11 @@ func (r *QoSRegionShare) TryUpdateProvision() {
 		r.ControlEssentials.Indicators = indicators
 	}
 
-	for _, internal := range r.provisionPolicies {
+	referenceControlKnobs := make(map[types.CPUProvisionPolicyName]types.ControlKnob)
+	for _, internal := range r.provisionPoliciesInUpdatePriority {
+		// set reference control knob to essentials
+		r.ControlEssentials.ReferenceControlKnobs = referenceControlKnobs
+
 		internal.updateStatus = types.PolicyUpdateFailed
 
 		// set essentials for policy and regulator
@@ -83,7 +87,14 @@ func (r *QoSRegionShare) TryUpdateProvision() {
 			klog.Errorf("[qosaware-cpu] update policy %v failed: %v", internal.name, err)
 			continue
 		}
+
 		internal.updateStatus = types.PolicyUpdateSucceeded
+		controlKnob, err := internal.policy.GetControlKnobAdjusted()
+		if err != nil {
+			klog.Errorf("[qosaware-cpu] get policy %v control knob failed: %v", internal.name, err)
+			continue
+		}
+		referenceControlKnobs[internal.name] = controlKnob
 	}
 }
 

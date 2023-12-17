@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"sort"
 	"sync"
 
 	"k8s.io/apimachinery/pkg/api/errors"
@@ -89,8 +90,9 @@ type QoSRegionBase struct {
 	// provisionPolicies for comparing and merging different provision policy results,
 	// the former has higher priority; provisionPolicyNameInUse indicates the provision
 	// policy in-use currently
-	provisionPolicies        []*internalProvisionPolicy
-	provisionPolicyNameInUse types.CPUProvisionPolicyName
+	provisionPolicies                 []*internalProvisionPolicy
+	provisionPoliciesInUpdatePriority []*internalProvisionPolicy
+	provisionPolicyNameInUse          types.CPUProvisionPolicyName
 
 	// headroomPolicies for comparing and merging different headroom policy results,
 	// the former has higher priority; headroomPolicyNameInUse indicates the headroom
@@ -414,15 +416,29 @@ func (r *QoSRegionBase) initProvisionPolicy(conf *config.Configuration, extraCon
 		if initializer, ok := initializers[policyName]; ok {
 			policy := initializer(r.name, r.regionType, r.ownerPoolName, conf, extraConf, metaReader, metaServer, emitter)
 			policy.SetBindingNumas(r.bindingNumas)
-			r.provisionPolicies = append(r.provisionPolicies, &internalProvisionPolicy{
+			internalPolicy := &internalProvisionPolicy{
 				name:                policyName,
 				policy:              policy,
 				internalPolicyState: internalPolicyState{updateStatus: types.PolicyUpdateFailed},
-			})
+			}
+			r.provisionPolicies = append(r.provisionPolicies, internalPolicy)
+			r.provisionPoliciesInUpdatePriority = append(r.provisionPoliciesInUpdatePriority, internalPolicy)
 		} else {
 			general.ErrorS(fmt.Errorf("failed to find region policy"), "policyName", policyName, "region", r.regionType)
 		}
 	}
+
+	// sort update policies by its order, the smaller one will be updated first
+	updateOrder := make(map[types.CPUProvisionPolicyName]int)
+	for index, policyName := range conf.CPUAdvisorConfiguration.PolicyUpdatePriority {
+		updateOrder[policyName] = index
+	}
+	sort.SliceStable(r.provisionPoliciesInUpdatePriority, func(i, j int) bool {
+		if r.provisionPoliciesInUpdatePriority[i] == nil || r.provisionPoliciesInUpdatePriority[j] == nil {
+			return false
+		}
+		return updateOrder[r.provisionPoliciesInUpdatePriority[i].name] < updateOrder[r.provisionPoliciesInUpdatePriority[j].name]
+	})
 }
 
 // initHeadroomPolicy initializes headroom by adding additional policies into default ones
