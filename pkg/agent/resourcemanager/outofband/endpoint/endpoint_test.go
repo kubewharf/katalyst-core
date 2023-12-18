@@ -30,14 +30,18 @@ var (
 )
 
 func TestNewEndpoint(t *testing.T) {
-	socket := path.Join("/tmp", eSocketName)
+	t.Parallel()
+
+	socket := path.Join("/tmp", "TestNewEndpoint"+eSocketName)
 
 	p, e := eSetup(t, socket, "mock")
 	defer eCleanup(t, p, e)
 }
 
 func TestAllocate(t *testing.T) {
-	socket := path.Join("/tmp", eSocketName)
+	t.Parallel()
+
+	socket := path.Join("/tmp", "TestAllocate"+eSocketName)
 	p, e := eSetup(t, socket, "mock")
 	defer eCleanup(t, p, e)
 
@@ -54,12 +58,16 @@ func TestAllocate(t *testing.T) {
 }
 
 func TestNewStoppedEndpointImpl(t *testing.T) {
+	t.Parallel()
+
 	ei := NewStoppedEndpointImpl("cpu")
 	require.NotNil(t, ei)
 }
 
 func TestRemovePod(t *testing.T) {
-	socket := path.Join("/tmp", eSocketName)
+	t.Parallel()
+
+	socket := path.Join("/tmp", "TestRemovePod"+eSocketName)
 	p, e := eSetup(t, socket, "mock")
 	defer eCleanup(t, p, e)
 
@@ -70,7 +78,9 @@ func TestRemovePod(t *testing.T) {
 }
 
 func TestGetResourceAllocation(t *testing.T) {
-	socket := path.Join("/tmp", eSocketName)
+	t.Parallel()
+
+	socket := path.Join("/tmp", "TestGetResourceAllocation"+eSocketName)
 	p, e := eSetup(t, socket, "mock")
 	defer eCleanup(t, p, e)
 
@@ -85,7 +95,9 @@ func TestGetResourceAllocation(t *testing.T) {
 }
 
 func TestClient(t *testing.T) {
-	socket := path.Join("/tmp", eSocketName)
+	t.Parallel()
+
+	socket := path.Join("/tmp", "TestClient"+eSocketName)
 	p, e := eSetup(t, socket, "mock")
 	defer eCleanup(t, p, e)
 
