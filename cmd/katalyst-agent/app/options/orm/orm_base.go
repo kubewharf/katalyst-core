@@ -43,7 +43,11 @@ func (o *GenericORMPluginOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 
 	fs.DurationVar(&o.ORMRconcilePeriod, "orm-reconcile-period",
 		o.ORMRconcilePeriod, "orm resource reconcile period")
-	fs.Var(cliflag.NewMapStringString(&o.ORMResourceNamesMap), "orm-resource-names-map", "A set of ResourceName=ResourceQuantity (e.g. best-effort-cpu=cpu,best-effort-memory=memory,...) pairs that map resource name \"best-effort-cpu\" to resource name \"cpu\" during QoS Resource Manager allocation period.")
+	fs.Var(cliflag.NewMapStringString(&o.ORMResourceNamesMap), "orm-resource-names-map",
+		"A set of ResourceName=ResourceQuantity pairs that map resource name during QoS Resource Manager allocation period. "+
+			"e.g. 'resource.katalyst.kubewharf.io/reclaimed_millicpu=cpu,resource.katalyst.kubewharf.io/reclaimed_memory=memory' "+
+			"should be set for that reclaimed_cores pods with resources [resource.katalyst.kubewharf.io/reclaimed_millicpu] and [resource.katalyst.kubewharf.io/reclaimed_memory]"+
+			"will also be allocated by [cpu] and [memory] QRM plugins")
 	fs.IntVar(&o.ORMPodNotifyChanLen, "orm-pod-notify-chan-len",
 		o.ORMPodNotifyChanLen, "length of pod addition and movement notifying channel")
 }

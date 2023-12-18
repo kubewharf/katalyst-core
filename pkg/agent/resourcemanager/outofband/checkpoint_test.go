@@ -28,6 +28,8 @@ import (
 )
 
 func TestCheckpoint(t *testing.T) {
+	t.Parallel()
+
 	checkpointManager, err := checkpointmanager.NewCheckpointManager("/tmp")
 	assert.NoError(t, err)
 
