@@ -18,7 +18,6 @@ package plugin
 
 import (
 	"strconv"
-	"sync"
 
 	"go.uber.org/atomic"
 
@@ -34,16 +33,15 @@ import (
 
 const (
 	MemoryGuard = "memory-guard"
-	minReserved = 1 << 30 // 1GiB
 )
 
 type memoryGuard struct {
-	mutex                         sync.RWMutex
 	metaReader                    metacache.MetaReader
 	metaServer                    *metaserver.MetaServer
 	emitter                       metrics.MetricEmitter
 	reclaimRelativeRootCgroupPath string
 	reclaimMemoryLimit            *atomic.Int64
+	minCriticalWatermark          int64
 }
 
 func NewMemoryGuard(conf *config.Configuration, extraConfig interface{}, metaReader metacache.MetaReader, metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter) MemoryAdvisorPlugin {
@@ -53,6 +51,7 @@ func NewMemoryGuard(conf *config.Configuration, extraConfig interface{}, metaRea
 		emitter:                       emitter,
 		reclaimRelativeRootCgroupPath: conf.ReclaimRelativeRootCgroupPath,
 		reclaimMemoryLimit:            atomic.NewInt64(-1),
+		minCriticalWatermark:          conf.MinCriticalWatermark,
 	}
 }
 
@@ -82,7 +81,8 @@ func (mg *memoryGuard) Reconcile(status *types.MemoryPressureStatus) error {
 		return err
 	}
 
-	buffer := memoryFree.Value + memoryCache.Value + memoryBuffer.Value - memoryTotal.Value*scaleFactor.Value/10000
+	criticalWatermark := general.MaxFloat64(float64(mg.minCriticalWatermark*int64(mg.metaServer.NumNUMANodes)), memoryTotal.Value*scaleFactor.Value/10000)
+	buffer := memoryFree.Value + memoryCache.Value + memoryBuffer.Value - criticalWatermark
 	if buffer < 0 {
 		buffer = 0
 	}
@@ -97,7 +97,7 @@ func (mg *memoryGuard) Reconcile(status *types.MemoryPressureStatus) error {
 		return err
 	}
 
-	reclaimMemoryLimit := general.MaxFloat64(reclaimGroupUsed.Value+minReserved, reclaimGroupRss.Value+buffer)
+	reclaimMemoryLimit := general.MaxFloat64(reclaimGroupUsed.Value, reclaimGroupRss.Value+buffer)
 
 	general.InfoS("memory details",
 		"system total", general.FormatMemoryQuantity(memoryTotal.Value),
@@ -105,6 +105,7 @@ func (mg *memoryGuard) Reconcile(status *types.MemoryPressureStatus) error {
 		"system cache", general.FormatMemoryQuantity(memoryCache.Value),
 		"system buffer", general.FormatMemoryQuantity(memoryBuffer.Value),
 		"system scaleFactor", general.FormatMemoryQuantity(scaleFactor.Value),
+		"criticalWatermark", general.FormatMemoryQuantity(criticalWatermark),
 		"buffer", general.FormatMemoryQuantity(buffer),
 		"reclaim cgroup rss", general.FormatMemoryQuantity(reclaimGroupRss.Value),
 		"reclaim cgroup used", general.FormatMemoryQuantity(reclaimGroupUsed.Value),
