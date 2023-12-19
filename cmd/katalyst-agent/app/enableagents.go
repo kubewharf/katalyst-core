@@ -47,8 +47,7 @@ func init() {
 	agentInitializers.Store(agent.ReporterManagerAgent, AgentStarter{Init: agent.InitReporterManager})
 	agentInitializers.Store(agent.EvictionManagerAgent, AgentStarter{Init: agent.InitEvictionManager})
 	agentInitializers.Store(agent.QoSSysAdvisor, AgentStarter{Init: agent.InitSysAdvisor})
-	agentInitializers.Store(phconsts.PeriodicalHandlerManagerName,
-		AgentStarter{Init: periodicalhandler.NewPeriodicalHandlerManager})
+	agentInitializers.Store(phconsts.PeriodicalHandlerManagerName, AgentStarter{Init: periodicalhandler.NewPeriodicalHandlerManager})
 
 	// qrm plugins are registered at top level of agent
 	agentInitializers.Store(qrm.QRMPluginNameCPU, AgentStarter{Init: qrm.InitQRMCPUPlugins})
