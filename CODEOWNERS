@@ -1,0 +1,78 @@
+### pls reference the following link for detailed info
+### https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
+
+### default owners for everything in the repo unless a later match takes precedence.
+* @waynepeking348
+
+### owners for community
+/build/ @pendoragon @caohe
+/docs/ @pendoragon @caohe
+/examples/ @pendoragon @caohe
+
+### owners for command lines
+/cmd/katalyst-controller/ @luomingmeng @caohe
+/cmd/katalyst-metric/ @zzzzhhb @luomingmeng
+/cmd/katalyst-scheduler/ @caohe
+/cmd/katalyst-webhook/ @caohe @luomingmeng
+
+/cmd/katalyst-agent/app/agent/qrm/ @csfldf
+/cmd/katalyst-agent/app/options/eviction @zzzzhhb
+/cmd/katalyst-agent/app/options/qrm @csfldf
+/cmd/katalyst-agent/app/options/reporter @luomingmeng
+/cmd/katalyst-agent/app/options/sysadvisor @sun-yuliang @luomingmeng
+
+### owners for configurations
+/pkg/config/controller/ @luomingmeng @caohe
+/pkg/config/metric/ @zzzzhhb @luomingmeng
+/pkg/config/webhook/ @caohe @luomingmeng
+
+/pkg/config/agent/qrm/ @csfldf
+/pkg/config/agent/eviction/ @zzzzhhb
+/pkg/config/agent/reporter/ @luomingmeng
+/pkg/config/agent/sysadvisor/ @sun-yuliang @luomingmeng
+
+### owners for controllers
+/pkg/controller/kcc/ @luomingmeng
+/pkg/controller/lifecycle/ @luomingmeng @csfldf @zzzzhhb
+/pkg/controller/monitor/ @luomingmeng @csfldf
+/pkg/controller/overcommit/ @caohe
+/pkg/controller/spd/ @luomingmeng @cheney-lin
+/pkg/controller/vap/ @luomingmeng
+
+### owners for metaserver
+/pkg/metaserver/spd/ @luomingmeng @cheney-lin
+/pkg/metaserver/config/ @luomingmeng
+/pkg/metaserver/external/ @csfldf @caohe
+/pkg/metaserver/agent/cnc/ @luomingmeng
+/pkg/metaserver/agent/cnr/ @luomingmeng
+/pkg/metaserver/agent/kubeletconfig/ @caohe @csfldf
+/pkg/metaserver/agent/node/ @csfldf @luomingmeng
+/pkg/metaserver/agent/pod/ @csfldf @luomingmeng
+
+### owners for agent
+/pkg/agent/evictionmanager/ @zzzzhhb
+/pkg/agent/qrm-plugins/ @csfldf
+/pkg/agent/resourcemanager/ @luomingmeng
+/pkg/agent/sysadvisor/ @sun-yuliang @luomingmeng
+/pkg/agent/utilcomponent/ @csfldf
+
+### owners for util
+/pkg/util/ @csfldf @luomingmeng
+/pkg/util/asyncworker/ @csfldf
+/pkg/util/cgroup/ @csfldf
+/pkg/util/credential/ @zzzzhhb
+/pkg/util/eviction/ @zzzzhhb
+/pkg/util/external/ @csfldf
+/pkg/util/service-discovery/ @luomingmeng
+
+### owners for scheduler
+/pkg/scheduler/ @caohe
+
+### owners for webhook
+/pkg/webhook/ @caohe @luomingmeng
+
+### owners for custom-metric
+/pkg/custom-metric/ @zzzzhhb
+
+### owners for metrics-emitter
+/pkg/metrics/ @csfldf @luomingmeng @zzzzhhb
