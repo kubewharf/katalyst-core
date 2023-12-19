@@ -120,6 +120,7 @@ func TestNativeGetNodeFeatureValue(t *testing.T) {
 			wantErr: true,
 		},
 	}
+	nowTimestamp := time.Now().Unix()
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			clientSet := generateTestGenericClientSet([]runtime.Object{&v1.Node{
@@ -129,7 +130,7 @@ func TestNativeGetNodeFeatureValue(t *testing.T) {
 			}}, nil)
 			metaServer := generateTestMetaServer(clientSet)
 			metaServer.NodeFetcher = node.NewRemoteNodeFetcher(nodeName, clientSet.KubeClient.CoreV1().Nodes())
-			got, err := nativeGetNodeFeatureValue(tt.args.featureName, metaServer, nil)
+			got, err := nativeGetNodeFeatureValue(nowTimestamp, tt.args.featureName, metaServer, nil)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("NativeGetNodeFeatureValue() error = %v, wantErr %v", err, tt.wantErr)
 				return
@@ -187,10 +188,10 @@ func TestNativeGetContainerFeatureValue(t *testing.T) {
 			wantErr: true,
 		},
 	}
+	nowTimestamp := time.Now().Unix()
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-
-			got, err := nativeGetContainerFeatureValue(tt.args.podUID, tt.args.containerName,
+			got, err := nativeGetContainerFeatureValue(nowTimestamp, tt.args.podUID, tt.args.containerName,
 				tt.args.featureName, metaServer,
 				&metacache.MetaCacheImp{MetricsReader: metaServer.MetricsFetcher})
 			if (err != nil) != tt.wantErr {
