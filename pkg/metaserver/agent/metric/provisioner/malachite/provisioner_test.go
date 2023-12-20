@@ -47,7 +47,27 @@ func Test_noneExistMetricsProvisioner(t *testing.T) {
 	}
 	fakeSystemIO := &malachitetypes.SystemDiskIoData{
 		DiskIo: []malachitetypes.DiskIo{
-			{},
+			{
+				PrimaryDeviceID:   8,
+				SecondaryDeviceID: 16,
+				DeviceName:        "sdb",
+				DiskType:          "HDD",
+				WBTValue:          1234,
+			},
+			{
+				PrimaryDeviceID:   8,
+				SecondaryDeviceID: 24,
+				DeviceName:        "sdc",
+				DiskType:          "SSD",
+				WBTValue:          2234,
+			},
+			{
+				PrimaryDeviceID:   8,
+				SecondaryDeviceID: 32,
+				DeviceName:        "nvme01",
+				DiskType:          "NVME",
+				WBTValue:          3234,
+			},
 		},
 	}
 	fakeCgroupInfoV1 := &malachitetypes.MalachiteCgroupInfo{

@@ -68,6 +68,9 @@ const (
 	MetricIOReadOpsSystem  = "io.read.ops.system"
 	MetricIOWriteOpsSystem = "io.write.ops.system"
 	MetricIOBusyRateSystem = "io.busy.rate.system"
+
+	MetricIODiskType     = "io.disk.type"
+	MetricIODiskWBTValue = "io.disk.wbt"
 )
 
 // System rootfs metrics
