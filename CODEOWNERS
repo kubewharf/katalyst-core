@@ -45,6 +45,7 @@
 /pkg/metaserver/external/ @csfldf @caohe
 /pkg/metaserver/agent/cnc/ @luomingmeng
 /pkg/metaserver/agent/cnr/ @luomingmeng
+/pkg/metaserver/agent/metric/ @nightmeng
 /pkg/metaserver/agent/kubeletconfig/ @caohe @csfldf
 /pkg/metaserver/agent/node/ @csfldf @luomingmeng
 /pkg/metaserver/agent/pod/ @csfldf @luomingmeng
@@ -63,6 +64,7 @@
 /pkg/util/credential/ @zzzzhhb
 /pkg/util/eviction/ @zzzzhhb
 /pkg/util/external/ @csfldf
+/pkg/util/metric/ @nightmeng
 /pkg/util/service-discovery/ @luomingmeng
 
 ### owners for scheduler
