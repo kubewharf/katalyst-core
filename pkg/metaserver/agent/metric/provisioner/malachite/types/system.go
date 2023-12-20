@@ -28,6 +28,8 @@ type DiskIo struct {
 	IoRead            uint64 `json:"io_read"`
 	IoWrite           uint64 `json:"io_write"`
 	IoBusy            uint64 `json:"io_busy"`
+	DiskType          string `json:"disk_type"`
+	WBTValue          int64  `json:"wbt_lat_usec"`
 }
 
 type SystemDiskIoData struct {
