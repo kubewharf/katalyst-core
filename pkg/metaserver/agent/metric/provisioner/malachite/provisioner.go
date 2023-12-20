@@ -300,6 +300,19 @@ func (m *MalachiteMetricsProvisioner) processSystemIOData(systemIOData *malachit
 			utilmetric.MetricData{Value: float64(device.IoWrite), Time: &updateTime})
 		m.metricStore.SetDeviceMetric(device.DeviceName, consts.MetricIOBusySystem,
 			utilmetric.MetricData{Value: float64(device.IoBusy), Time: &updateTime})
+
+		diskType := consts.DiskTypeUnknown
+		if device.DiskType == "HDD" {
+			diskType = consts.DiskTypeHDD
+		} else if device.DiskType == "SSD" {
+			diskType = consts.DiskTypeSSD
+		} else if device.DiskType == "NVME" {
+			diskType = consts.DiskTypeNVME
+		}
+		m.metricStore.SetDeviceMetric(device.DeviceName, consts.MetricIODiskType,
+			utilmetric.MetricData{Value: float64(diskType), Time: &updateTime})
+		m.metricStore.SetDeviceMetric(device.DeviceName, consts.MetricIODiskWBTValue,
+			utilmetric.MetricData{Value: float64(device.WBTValue), Time: &updateTime})
 	}
 }
 
