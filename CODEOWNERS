@@ -12,7 +12,7 @@
 ### owners for command lines
 /cmd/katalyst-controller/ @luomingmeng @caohe
 /cmd/katalyst-metric/ @zzzzhhb @luomingmeng
-/cmd/katalyst-scheduler/ @caohe
+/cmd/katalyst-scheduler/ @caohe @WangZzzhe
 /cmd/katalyst-webhook/ @caohe @luomingmeng
 
 /cmd/katalyst-agent/app/agent/qrm/ @csfldf
@@ -35,7 +35,7 @@
 /pkg/controller/kcc/ @luomingmeng
 /pkg/controller/lifecycle/ @luomingmeng @csfldf @zzzzhhb
 /pkg/controller/monitor/ @luomingmeng @csfldf
-/pkg/controller/overcommit/ @caohe
+/pkg/controller/overcommit/ @caohe @WangZzzhe
 /pkg/controller/spd/ @luomingmeng @cheney-lin
 /pkg/controller/vap/ @luomingmeng
 
@@ -68,7 +68,7 @@
 /pkg/util/service-discovery/ @luomingmeng
 
 ### owners for scheduler
-/pkg/scheduler/ @caohe
+/pkg/scheduler/ @caohe @WangZzzhe
 
 ### owners for webhook
 /pkg/webhook/ @caohe @luomingmeng
