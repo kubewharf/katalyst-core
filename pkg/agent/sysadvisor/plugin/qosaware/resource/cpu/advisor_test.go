@@ -62,6 +62,7 @@ func generateTestConfiguration(t *testing.T, checkpointDir, stateFileDir string)
 
 	conf.GenericSysAdvisorConfiguration.StateFileDirectory = stateFileDir
 	conf.MetaServerConfiguration.CheckpointManagerDir = checkpointDir
+	conf.CPUShareConfiguration.RestrictRefPolicy = nil
 
 	return conf
 }

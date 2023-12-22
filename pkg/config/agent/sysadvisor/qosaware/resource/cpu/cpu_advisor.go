@@ -31,6 +31,7 @@ type CPUAdvisorConfiguration struct {
 
 	*headroom.CPUHeadroomPolicyConfiguration
 	*provision.CPUProvisionPolicyConfiguration
+	*CPUShareConfiguration
 	*CPUIsolationConfiguration
 }
 
@@ -43,6 +44,7 @@ func NewCPUAdvisorConfiguration() *CPUAdvisorConfiguration {
 		HeadroomAssembler:               types.CPUHeadroomAssemblerCommon,
 		CPUHeadroomPolicyConfiguration:  headroom.NewCPUHeadroomPolicyConfiguration(),
 		CPUProvisionPolicyConfiguration: provision.NewCPUProvisionPolicyConfiguration(),
+		CPUShareConfiguration:           NewCPUShareConfiguration(),
 		CPUIsolationConfiguration:       NewCPUIsolationConfiguration(),
 	}
 }

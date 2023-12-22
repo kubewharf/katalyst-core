@@ -64,9 +64,6 @@ func (p *PolicyRama) Update() error {
 
 	cpuSize := p.ControlKnobs[types.ControlKnobNonReclaimedCPUSize].Value
 
-	// pass the current value to regulator to avoid slow start from zero after restart
-	p.regulator.SetLatestCPURequirement(int(cpuSize))
-
 	cpuAdjustedRaw := math.Inf(-1)
 	dominantIndicator := "unknown"
 
@@ -128,7 +125,12 @@ func (p *PolicyRama) Update() error {
 		}
 	}
 
-	p.regulator.Regulate(cpuAdjustedRestricted)
+	p.controlKnobAdjusted = types.ControlKnob{
+		types.ControlKnobNonReclaimedCPUSize: types.ControlKnobValue{
+			Value:  cpuAdjustedRestricted,
+			Action: types.ControlKnobActionNone,
+		},
+	}
 
 	return nil
 }

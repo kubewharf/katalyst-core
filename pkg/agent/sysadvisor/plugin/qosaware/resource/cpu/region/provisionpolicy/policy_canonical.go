@@ -52,17 +52,17 @@ func (p *PolicyCanonical) Update() error {
 		return err
 	}
 
-	cpuRequirement := p.ControlKnobs[types.ControlKnobNonReclaimedCPUSize].Value
-
-	// pass the current value to regulator to avoid slow start from zero after restart
-	p.regulator.SetLatestCPURequirement(int(cpuRequirement))
-
 	cpuEstimation, err := p.estimateCPUUsage()
 	if err != nil {
 		return err
 	}
-	p.regulator.Regulate(cpuEstimation)
 
+	p.controlKnobAdjusted = types.ControlKnob{
+		types.ControlKnobNonReclaimedCPUSize: types.ControlKnobValue{
+			Value:  cpuEstimation,
+			Action: types.ControlKnobActionNone,
+		},
+	}
 	return nil
 }
 
