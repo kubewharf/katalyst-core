@@ -26,8 +26,8 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	k8types "k8s.io/apimachinery/pkg/types"
-	"k8s.io/apimachinery/pkg/util/sets"
 
+	apiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
 	katalyst_base "github.com/kubewharf/katalyst-core/cmd/base"
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/options"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
@@ -41,11 +41,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	metricspool "github.com/kubewharf/katalyst-core/pkg/metrics/metrics-pool"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
-)
-
-var (
-	metaCacheRama  *metacache.MetaCacheImp
-	metaServerRama *metaserver.MetaServer
+	metricutil "github.com/kubewharf/katalyst-core/pkg/util/metric"
 )
 
 func generateRamaTestConfiguration(t *testing.T, checkpointDir, stateFileDir, checkpointManagerDir string) *config.Configuration {
@@ -113,24 +109,25 @@ func generateRamaTestConfiguration(t *testing.T, checkpointDir, stateFileDir, ch
 	return conf
 }
 
-func newTestPolicyRama(t *testing.T, checkpointDir string, stateFileDir string, checkpointManagerDir string, regionInfo types.RegionInfo, podSet types.PodSet) ProvisionPolicy {
+func newTestPolicyRama(t *testing.T, checkpointDir string, stateFileDir string,
+	checkpointManagerDir string, regionInfo types.RegionInfo, metricFetcher metric.MetricsFetcher, podSet types.PodSet) ProvisionPolicy {
 	conf := generateRamaTestConfiguration(t, checkpointDir, stateFileDir, checkpointManagerDir)
 
-	metaCacheTmp, err := metacache.NewMetaCacheImp(conf, metricspool.DummyMetricsEmitterPool{}, metric.NewFakeMetricsFetcher(metrics.DummyMetrics{}))
-	metaCacheRama = metaCacheTmp
+	metaCacheTmp, err := metacache.NewMetaCacheImp(conf, metricspool.DummyMetricsEmitterPool{}, metricFetcher)
 	require.NoError(t, err)
-	require.NotNil(t, metaCacheRama)
+	require.NotNil(t, metaCacheTmp)
 
 	genericCtx, err := katalyst_base.GenerateFakeGenericContext([]runtime.Object{})
 	require.NoError(t, err)
 
 	metaServerTmp, err := metaserver.NewMetaServer(genericCtx.Client, metrics.DummyMetrics{}, conf)
-	metaServerRama = metaServerTmp
 	assert.NoError(t, err)
-	require.NotNil(t, metaServerRama)
+	require.NotNil(t, metaServerTmp)
 
-	p := NewPolicyRama(regionInfo.RegionName, regionInfo.RegionType, regionInfo.OwnerPoolName, conf, nil, metaCacheRama, metaServerRama, metrics.DummyMetrics{})
-	metaCacheRama.SetRegionInfo(regionInfo.RegionName, &regionInfo)
+	p := NewPolicyRama(regionInfo.RegionName, regionInfo.RegionType, regionInfo.OwnerPoolName,
+		conf, nil, metaCacheTmp, metaServerTmp, metrics.DummyMetrics{})
+	err = metaCacheTmp.SetRegionInfo(regionInfo.RegionName, &regionInfo)
+	assert.NoError(t, err)
 
 	p.SetBindingNumas(regionInfo.BindingNumas)
 	p.SetPodSet(podSet)
@@ -156,18 +153,35 @@ func TestPolicyRama(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name               string
-		regionInfo         types.RegionInfo
-		podSet             types.PodSet
-		resourceEssentials types.ResourceEssentials
-		controlEssentials  types.ControlEssentials
-		wantResult         types.ControlKnob
+		name                string
+		regionInfo          types.RegionInfo
+		containerInfo       map[string]map[string]types.ContainerInfo
+		containerMetricData map[string]map[string]map[string]metricutil.MetricData
+		resourceEssentials  types.ResourceEssentials
+		controlEssentials   types.ControlEssentials
+		wantResult          types.ControlKnob
 	}{
 		{
 			name: "share_ramp_up",
-			podSet: types.PodSet{
-				"pod0": sets.String{
-					"container0": struct{}{},
+			containerInfo: map[string]map[string]types.ContainerInfo{
+				"pod0": {
+					"container0": types.ContainerInfo{
+						PodUID:        "pod0",
+						PodName:       "pod0",
+						ContainerName: "container0",
+						QoSLevel:      apiconsts.PodAnnotationQoSLevelSharedCores,
+						CPURequest:    4.0,
+						RampUp:        true,
+					},
+				},
+			},
+			containerMetricData: map[string]map[string]map[string]metricutil.MetricData{
+				"pod0": {
+					"container0": {
+						consts.MetricCPUUsageContainer: metricutil.MetricData{
+							Value: 2,
+						},
+					},
 				},
 			},
 			regionInfo: types.RegionInfo{
@@ -198,22 +212,37 @@ func TestPolicyRama(t *testing.T) {
 			},
 			wantResult: types.ControlKnob{
 				types.ControlKnobNonReclaimedCPUSize: {
-					Value:  48,
+					Value:  46.93147180559946,
 					Action: types.ControlKnobActionNone,
 				},
 			},
 		},
 		{
 			name: "share_ramp_down",
-			podSet: types.PodSet{
-				"pod0": sets.String{
-					"container0": struct{}{},
+			containerInfo: map[string]map[string]types.ContainerInfo{
+				"pod0": {
+					"container0": types.ContainerInfo{
+						PodUID:        "pod0",
+						PodName:       "pod0",
+						ContainerName: "container0",
+						QoSLevel:      apiconsts.PodAnnotationQoSLevelSharedCores,
+						CPURequest:    4.0,
+						RampUp:        false,
+					},
+				},
+			},
+			containerMetricData: map[string]map[string]map[string]metricutil.MetricData{
+				"pod0": {
+					"container0": {
+						consts.MetricCPUUsageContainer: metricutil.MetricData{
+							Value: 2,
+						},
+					},
 				},
 			},
 			regionInfo: types.RegionInfo{
-				RegionName:   "share-xxx",
-				RegionType:   types.QoSRegionTypeShare,
-				BindingNumas: machine.NewCPUSet(0),
+				RegionName: "share-xxx",
+				RegionType: types.QoSRegionTypeShare,
 			},
 			resourceEssentials: types.ResourceEssentials{
 				EnableReclaim:       true,
@@ -245,15 +274,30 @@ func TestPolicyRama(t *testing.T) {
 		},
 		{
 			name: "share_deadband",
-			podSet: types.PodSet{
-				"pod0": sets.String{
-					"container0": struct{}{},
+			containerInfo: map[string]map[string]types.ContainerInfo{
+				"pod0": {
+					"container0": types.ContainerInfo{
+						PodUID:        "pod0",
+						PodName:       "pod0",
+						ContainerName: "container0",
+						QoSLevel:      apiconsts.PodAnnotationQoSLevelSharedCores,
+						CPURequest:    4.0,
+						RampUp:        false,
+					},
+				},
+			},
+			containerMetricData: map[string]map[string]map[string]metricutil.MetricData{
+				"pod0": {
+					"container0": {
+						consts.MetricCPUUsageContainer: metricutil.MetricData{
+							Value: 2,
+						},
+					},
 				},
 			},
 			regionInfo: types.RegionInfo{
-				RegionName:   "share-xxx",
-				RegionType:   types.QoSRegionTypeShare,
-				BindingNumas: machine.NewCPUSet(0),
+				RegionName: "share-xxx",
+				RegionType: types.QoSRegionTypeShare,
 			},
 			resourceEssentials: types.ResourceEssentials{
 				EnableReclaim:       true,
@@ -285,9 +329,19 @@ func TestPolicyRama(t *testing.T) {
 		},
 		{
 			name: "dedicated_numa_exclusive",
-			podSet: types.PodSet{
-				"pod0": sets.String{
-					"container0": struct{}{},
+			containerInfo: map[string]map[string]types.ContainerInfo{
+				"pod0": {
+					"container0": types.ContainerInfo{
+						PodUID:        "pod0",
+						PodName:       "pod0",
+						ContainerName: "container0",
+						QoSLevel:      apiconsts.PodAnnotationQoSLevelDedicatedCores,
+						CPURequest:    4.0,
+						RampUp:        false,
+						TopologyAwareAssignments: map[int]machine.CPUSet{
+							0: machine.NewCPUSet(0, 1, 2, 3),
+						},
+					},
 				},
 			},
 			regionInfo: types.RegionInfo{
@@ -318,44 +372,61 @@ func TestPolicyRama(t *testing.T) {
 						Target:  40,
 					},
 				},
-				ReclaimOverlap: false,
+				ReclaimOverlap: true,
 			},
 			wantResult: types.ControlKnob{
 				types.ControlKnobNonReclaimedCPUSize: {
-					Value:  48,
+					Value:  90,
 					Action: types.ControlKnobActionNone,
 				},
 			},
 		},
 	}
 
-	checkpointDir, err := os.MkdirTemp("", "checkpoint")
-	require.NoError(t, err)
-	defer func() { _ = os.RemoveAll(checkpointDir) }()
-
-	stateFileDir, err := os.MkdirTemp("", "statefile")
-	require.NoError(t, err)
-	defer func() { _ = os.RemoveAll(stateFileDir) }()
-
-	checkpointManagerDir, err := os.MkdirTemp("", "checkpointmanager")
-	require.NoError(t, err)
-	defer func() { _ = os.RemoveAll(checkpointManagerDir) }()
-
 	for _, tt := range tests {
-		policy := newTestPolicyRama(t, checkpointDir, stateFileDir, checkpointManagerDir, tt.regionInfo, tt.podSet).(*PolicyRama)
-		assert.NotNil(t, policy)
-
-		podNames := []string{}
-		for podName, containerSet := range tt.podSet {
-			podNames = append(podNames, podName)
-			for containerName := range containerSet {
-				err = metaCacheRama.AddContainer(podName, containerName, &types.ContainerInfo{})
-				assert.Nil(t, err)
-			}
-		}
-		policy.metaServer.MetaAgent.SetPodFetcher(constructPodFetcherRama(podNames))
-
 		t.Run(tt.name, func(t *testing.T) {
+			checkpointDir, err := os.MkdirTemp("", "checkpoint")
+			require.NoError(t, err)
+			defer func() { _ = os.RemoveAll(checkpointDir) }()
+
+			stateFileDir, err := os.MkdirTemp("", "statefile")
+			require.NoError(t, err)
+			defer func() { _ = os.RemoveAll(stateFileDir) }()
+
+			checkpointManagerDir, err := os.MkdirTemp("", "checkpointmanager")
+			require.NoError(t, err)
+			defer func() { _ = os.RemoveAll(checkpointManagerDir) }()
+
+			podSet := make(types.PodSet)
+			for podUID, info := range tt.containerInfo {
+				for containerName := range info {
+					podSet.Insert(podUID, containerName)
+				}
+			}
+
+			metricFetcher := metric.NewFakeMetricsFetcher(metrics.DummyMetrics{})
+			for podUID, m := range tt.containerMetricData {
+				for containerName, c := range m {
+					for name, d := range c {
+						metricFetcher.(*metric.FakeMetricsFetcher).SetContainerMetric(podUID, containerName, name, d)
+					}
+				}
+			}
+
+			policy := newTestPolicyRama(t, checkpointDir, stateFileDir,
+				checkpointManagerDir, tt.regionInfo, metricFetcher, podSet).(*PolicyRama)
+			assert.NotNil(t, policy)
+
+			podNames := []string{}
+			for podName, containerSet := range tt.containerInfo {
+				podNames = append(podNames, podName)
+				for containerName, info := range containerSet {
+					err = policy.metaReader.(*metacache.MetaCacheImp).AddContainer(podName, containerName, &info)
+					assert.Nil(t, err)
+				}
+			}
+			policy.metaServer.MetaAgent.SetPodFetcher(constructPodFetcherRama(podNames))
+
 			policy.SetEssentials(tt.resourceEssentials, tt.controlEssentials)
 			policy.Update()
 			controlKnobUpdated, err := policy.GetControlKnobAdjusted()

@@ -25,6 +25,49 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
 )
 
+// Regulator gets raw requirement data from policy and generates real requirement
+// for a certain region with fine-grained strategies to be robust
+type Regulator interface {
+	// SetEssentials updates some essential parameters to restrict requirement
+	SetEssentials(essentials types.ResourceEssentials)
+
+	// SetLatestRequirement overwrites the latest regulated requirement
+	SetLatestRequirement(latestRequirement int)
+
+	// Regulate runs an episode of regulation to restrict raw requirement and store the result
+	// as the latest requirement value
+	Regulate(requirement float64)
+
+	// GetRequirement returns the latest regulated requirement
+	GetRequirement() int
+}
+
+// DummyRegulator always get requirement without regulate
+type DummyRegulator struct {
+	latestRequirement int
+}
+
+func NewDummyRegulator() Regulator {
+	return &DummyRegulator{}
+}
+
+var _ Regulator = &DummyRegulator{}
+
+func (d *DummyRegulator) SetEssentials(_ types.ResourceEssentials) {
+}
+
+func (d *DummyRegulator) SetLatestRequirement(latestRequirement int) {
+	d.latestRequirement = latestRequirement
+}
+
+func (d *DummyRegulator) Regulate(requirement float64) {
+	d.SetLatestRequirement(int(requirement))
+}
+
+func (d *DummyRegulator) GetRequirement() int {
+	return d.latestRequirement
+}
+
 // CPURegulator gets raw cpu requirement data from policy and generates real cpu requirement
 // for a certain region with fine-grained strategies to be robust
 type CPURegulator struct {
@@ -47,7 +90,7 @@ type CPURegulator struct {
 }
 
 // NewCPURegulator returns a cpu regulator instance with immutable parameters
-func NewCPURegulator() *CPURegulator {
+func NewCPURegulator() Regulator {
 	c := &CPURegulator{
 		maxRampUpStep:      types.MaxRampUpStep,
 		maxRampDownStep:    types.MaxRampDownStep,
@@ -62,8 +105,8 @@ func (c *CPURegulator) SetEssentials(essentials types.ResourceEssentials) {
 	c.ResourceEssentials = essentials
 }
 
-// SetLatestCPURequirement overwrites the latest regulated cpu requirement
-func (c *CPURegulator) SetLatestCPURequirement(latestCPURequirement int) {
+// SetLatestRequirement overwrites the latest regulated cpu requirement
+func (c *CPURegulator) SetLatestRequirement(latestCPURequirement int) {
 	c.latestCPURequirement = latestCPURequirement
 }
 
@@ -84,8 +127,8 @@ func (c *CPURegulator) Regulate(cpuRequirement float64) {
 	}
 }
 
-// GetCPURequirement returns the latest regulated cpu requirement
-func (c *CPURegulator) GetCPURequirement() int {
+// GetRequirement returns the latest regulated cpu requirement
+func (c *CPURegulator) GetRequirement() int {
 	return c.latestCPURequirement
 }
 

@@ -96,6 +96,17 @@ func (r *QoSRegionDedicatedNumaExclusive) TryUpdateProvision() {
 	r.Lock()
 	defer r.Unlock()
 
+	// update each provision policy
+	r.updateProvisionPolicy()
+
+	// get raw provision control knob
+	rawControlKnobs := r.getProvisionControlKnob()
+
+	// regulate control knobs
+	r.regulateProvisionControlKnob(rawControlKnobs, &r.ControlKnobs)
+}
+
+func (r *QoSRegionDedicatedNumaExclusive) updateProvisionPolicy() {
 	r.ControlEssentials = types.ControlEssentials{
 		ControlKnobs:   r.getControlKnobs(),
 		ReclaimOverlap: true,

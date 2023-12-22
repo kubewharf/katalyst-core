@@ -17,6 +17,8 @@ limitations under the License.
 package region
 
 import (
+	"math"
+
 	"k8s.io/apimachinery/pkg/util/uuid"
 	"k8s.io/klog/v2"
 
@@ -29,6 +31,13 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/metric"
+)
+
+const (
+	metricCPUProvisionControlKnobRestricted = "cpu_provision_control_knob_restricted"
+
+	metricTagKeyRefPolicyName    = "ref_policy_name"
+	metricTagKeyRestrictedReason = "restricted_reason"
 )
 
 type QoSRegionShare struct {
@@ -59,6 +68,20 @@ func (r *QoSRegionShare) TryUpdateProvision() {
 	r.Lock()
 	defer r.Unlock()
 
+	// update each provision policy
+	r.updateProvisionPolicy()
+
+	// get raw provision control knob
+	rawControlKnobs := r.getProvisionControlKnob()
+
+	// restrict control knobs by reference policy
+	restrictedControlKnobs := r.restrictProvisionControlKnob(rawControlKnobs)
+
+	// regulate control knobs
+	r.regulateProvisionControlKnob(restrictedControlKnobs, &r.ControlKnobs)
+}
+
+func (r *QoSRegionShare) updateProvisionPolicy() {
 	r.ControlEssentials = types.ControlEssentials{
 		ControlKnobs:   r.getControlKnobs(),
 		ReclaimOverlap: false,
@@ -71,6 +94,7 @@ func (r *QoSRegionShare) TryUpdateProvision() {
 		r.ControlEssentials.Indicators = indicators
 	}
 
+	// update internal policy
 	for _, internal := range r.provisionPolicies {
 		internal.updateStatus = types.PolicyUpdateFailed
 
@@ -85,6 +109,68 @@ func (r *QoSRegionShare) TryUpdateProvision() {
 		}
 		internal.updateStatus = types.PolicyUpdateSucceeded
 	}
+}
+
+// restrictProvisionControlKnob is to restrict provision control knob by reference policy
+func (r *QoSRegionShare) restrictProvisionControlKnob(originControlKnob map[types.CPUProvisionPolicyName]types.ControlKnob) map[types.CPUProvisionPolicyName]types.ControlKnob {
+	restrictedControlKnob := make(map[types.CPUProvisionPolicyName]types.ControlKnob)
+	for policyName, controlKnob := range originControlKnob {
+		restrictedControlKnob[policyName] = controlKnob.Clone()
+		refPolicyName, ok := r.conf.RestrictRefPolicy[policyName]
+		if !ok {
+			continue
+		}
+
+		refControlKnob, ok := originControlKnob[refPolicyName]
+		if !ok {
+			klog.Errorf("get control knob from reference policy %v for policy %v failed", refPolicyName, policyName)
+			continue
+		}
+
+		for controlKnobName, rawKnobValue := range controlKnob {
+			refKnobValue, ok := refControlKnob[controlKnobName]
+			if !ok {
+				continue
+			}
+
+			min, max := refKnobValue.Value, refKnobValue.Value
+			if maxGap, ok := r.conf.RestrictControlKnobMaxGap[controlKnobName]; ok {
+				min = math.Min(min, refKnobValue.Value-maxGap)
+				max = math.Max(max, refKnobValue.Value+maxGap)
+			}
+
+			if maxGapRatio, ok := r.conf.RestrictControlKnobMaxGapRatio[controlKnobName]; ok {
+				min = math.Min(min, refKnobValue.Value*(1-maxGapRatio))
+				max = math.Max(max, refKnobValue.Value*(1+maxGapRatio))
+			}
+
+			restrictedKnobValue := rawKnobValue
+
+			reason := "none"
+			if rawKnobValue.Value > max {
+				restrictedKnobValue.Value = max
+				reason = "above"
+			} else if rawKnobValue.Value < min {
+				restrictedKnobValue.Value = min
+				reason = "below"
+			}
+
+			if restrictedKnobValue != rawKnobValue {
+				klog.Infof("[qosaware-cpu] restrict control knob %v for policy %v by policy %v from %.2f to %.2f, reason: %v",
+					controlKnobName, policyName, refPolicyName, rawKnobValue.Value, restrictedKnobValue.Value, reason)
+			}
+
+			restrictedControlKnob[policyName][controlKnobName] = restrictedKnobValue
+			_ = r.emitter.StoreInt64(metricCPUProvisionControlKnobRestricted, int64(r.conf.QoSAwarePluginConfiguration.SyncPeriod.Seconds()), metrics.MetricTypeNameCount, []metrics.MetricTag{
+				{Key: metricTagKeyPolicyName, Val: string(policyName)},
+				{Key: metricTagKeyRefPolicyName, Val: string(refPolicyName)},
+				{Key: metricTagKeyControlKnobName, Val: string(controlKnobName)},
+				{Key: metricTagKeyRestrictedReason, Val: reason},
+			}...)
+		}
+	}
+
+	return restrictedControlKnob
 }
 
 func (r *QoSRegionShare) getControlKnobs() types.ControlKnob {

@@ -20,7 +20,6 @@ import (
 	"fmt"
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
-	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource/cpu/region/regulator"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
@@ -31,13 +30,13 @@ type PolicyBase struct {
 	types.ResourceEssentials
 	types.ControlEssentials
 
-	regionName    string
-	regionType    types.QoSRegionType
-	ownerPoolName string
-	podSet        types.PodSet
-	bindingNumas  machine.CPUSet
+	regionName          string
+	regionType          types.QoSRegionType
+	ownerPoolName       string
+	podSet              types.PodSet
+	bindingNumas        machine.CPUSet
+	controlKnobAdjusted types.ControlKnob
 
-	regulator  *regulator.CPURegulator
 	metaReader metacache.MetaReader
 	metaServer *metaserver.MetaServer
 	emitter    metrics.MetricEmitter
@@ -49,7 +48,6 @@ func NewPolicyBase(regionName string, regionType types.QoSRegionType, ownerPoolN
 		regionName:    regionName,
 		regionType:    regionType,
 		ownerPoolName: ownerPoolName,
-		regulator:     regulator.NewCPURegulator(),
 		metaReader:    metaReader,
 		metaServer:    metaServer,
 		emitter:       emitter,
@@ -60,7 +58,6 @@ func NewPolicyBase(regionName string, regionType types.QoSRegionType, ownerPoolN
 func (p *PolicyBase) SetEssentials(resourceEssentials types.ResourceEssentials, controlEssentials types.ControlEssentials) {
 	p.ResourceEssentials = resourceEssentials
 	p.ControlEssentials = controlEssentials
-	p.regulator.SetEssentials(resourceEssentials)
 }
 
 func (p *PolicyBase) SetPodSet(podSet types.PodSet) {
@@ -74,12 +71,7 @@ func (p *PolicyBase) SetBindingNumas(numas machine.CPUSet) {
 func (p *PolicyBase) GetControlKnobAdjusted() (types.ControlKnob, error) {
 	switch p.regionType {
 	case types.QoSRegionTypeShare, types.QoSRegionTypeDedicatedNumaExclusive:
-		return map[types.ControlKnobName]types.ControlKnobValue{
-			types.ControlKnobNonReclaimedCPUSize: {
-				Value:  float64(p.regulator.GetCPURequirement()),
-				Action: types.ControlKnobActionNone,
-			},
-		}, nil
+		return p.controlKnobAdjusted.Clone(), nil
 
 	case types.QoSRegionTypeIsolation:
 		return map[types.ControlKnobName]types.ControlKnobValue{

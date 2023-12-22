@@ -36,8 +36,9 @@ type CPUAdvisorOptions struct {
 	CPUHeadroomAssembler       string
 
 	*headroom.CPUHeadroomPolicyOptions
-	*CPUIsolationOptions
 	*provision.CPUProvisionPolicyOptions
+	*CPUShareOptions
+	*CPUIsolationOptions
 }
 
 // NewCPUAdvisorOptions creates a new Options with a default config
@@ -56,8 +57,9 @@ func NewCPUAdvisorOptions() *CPUAdvisorOptions {
 		CPUProvisionAssembler:     string(types.CPUProvisionAssemblerCommon),
 		CPUHeadroomAssembler:      string(types.CPUHeadroomAssemblerCommon),
 		CPUHeadroomPolicyOptions:  headroom.NewCPUHeadroomPolicyOptions(),
-		CPUIsolationOptions:       NewCPUIsolationOptions(),
 		CPUProvisionPolicyOptions: provision.NewCPUProvisionPolicyOptions(),
+		CPUShareOptions:           NewCPUShareOptions(),
+		CPUIsolationOptions:       NewCPUIsolationOptions(),
 	}
 }
 
@@ -75,8 +77,9 @@ func (o *CPUAdvisorOptions) AddFlags(fs *pflag.FlagSet) {
 		"cpu headroom assembler for cpu advisor to generate node headroom from region headroom or node level policy")
 
 	o.CPUHeadroomPolicyOptions.AddFlags(fs)
-	o.CPUIsolationOptions.AddFlags(fs)
 	o.CPUProvisionPolicyOptions.AddFlags(fs)
+	o.CPUShareOptions.AddFlags(fs)
+	o.CPUIsolationOptions.AddFlags(fs)
 }
 
 // ApplyTo fills up config with options
@@ -102,7 +105,8 @@ func (o *CPUAdvisorOptions) ApplyTo(c *cpu.CPUAdvisorConfiguration) error {
 
 	var errList []error
 	errList = append(errList, o.CPUHeadroomPolicyOptions.ApplyTo(c.CPUHeadroomPolicyConfiguration))
-	errList = append(errList, o.CPUIsolationOptions.ApplyTo(c.CPUIsolationConfiguration))
 	errList = append(errList, o.CPUProvisionPolicyOptions.ApplyTo(c.CPUProvisionPolicyConfiguration))
+	errList = append(errList, o.CPUShareOptions.ApplyTo(c.CPUShareConfiguration))
+	errList = append(errList, o.CPUIsolationOptions.ApplyTo(c.CPUIsolationConfiguration))
 	return errors.NewAggregate(errList)
 }

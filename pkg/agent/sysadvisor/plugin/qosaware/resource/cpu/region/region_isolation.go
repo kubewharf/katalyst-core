@@ -55,6 +55,17 @@ func (r *QoSRegionIsolation) TryUpdateProvision() {
 	r.Lock()
 	defer r.Unlock()
 
+	// update each provision policy
+	r.updateProvisionPolicy()
+
+	// get raw provision control knob
+	rawControlKnobs := r.getProvisionControlKnob()
+
+	// regulate control knobs without last control knob
+	r.regulateProvisionControlKnob(rawControlKnobs, nil)
+}
+
+func (r *QoSRegionIsolation) updateProvisionPolicy() {
 	// no need to update provision for isolation region
 	// todo should we run regulator processes for isolation region?
 	for _, internal := range r.provisionPolicies {

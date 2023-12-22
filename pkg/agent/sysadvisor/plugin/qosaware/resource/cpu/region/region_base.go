@@ -29,6 +29,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource/cpu/region/headroompolicy"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource/cpu/region/provisionpolicy"
+	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource/cpu/region/regulator"
 	borweinctrl "github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource/helper/modelctrl/borwein"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
 	"github.com/kubewharf/katalyst-core/pkg/config"
@@ -39,13 +40,17 @@ import (
 )
 
 const (
-	metricCPUGetHeadroomFailed  = "get_cpu_headroom_failed"
-	metricCPUGetProvisionFailed = "get_cpu_provision_failed"
-	metricRegionHeadroom        = "region_headroom"
+	metricCPUGetHeadroomFailed             = "get_cpu_headroom_failed"
+	metricCPUGetProvisionFailed            = "get_cpu_provision_failed"
+	metricRegionHeadroom                   = "region_headroom"
+	metricCPUProvisionControlKnobRaw       = "cpu_provision_control_knob_raw"
+	metricCPUProvisionControlKnobRegulated = "cpu_provision_control_knob_regulated"
 
-	metricTagKeyPolicyName = "policy_name"
-	metricTagKeyRegionType = "region_type"
-	metricTagKeyRegionName = "region_name"
+	metricTagKeyPolicyName        = "policy_name"
+	metricTagKeyRegionType        = "region_type"
+	metricTagKeyRegionName        = "region_name"
+	metricTagKeyControlKnobName   = "control_knob_name"
+	metricTagKeyControlKnobAction = "control_knob_action"
 )
 
 type internalPolicyState struct {
@@ -63,6 +68,77 @@ type internalHeadroomPolicy struct {
 	name   types.CPUHeadroomPolicyName
 	policy headroompolicy.HeadroomPolicy
 	internalPolicyState
+}
+
+type provisionPolicyResult struct {
+	essentials                 types.ResourceEssentials
+	controlKnobValueRegulators map[types.ControlKnobName]regulator.Regulator
+}
+
+func newProvisionPolicyResult(essentials types.ResourceEssentials) *provisionPolicyResult {
+	return &provisionPolicyResult{
+		essentials:                 essentials,
+		controlKnobValueRegulators: make(map[types.ControlKnobName]regulator.Regulator),
+	}
+}
+
+// setEssentials is to set essentials for each control knob
+func (r *provisionPolicyResult) setEssentials(essentials types.ResourceEssentials) {
+	r.essentials = essentials
+	for _, reg := range r.controlKnobValueRegulators {
+		reg.SetEssentials(essentials)
+	}
+}
+
+// regulateControlKnob is to regulate control knob with current and last one
+// todo: current only regulate control knob value, it will also regulate action in the future
+func (r *provisionPolicyResult) regulateControlKnob(currentControlKnob types.ControlKnob, lastControlKnob *types.ControlKnob) {
+	if lastControlKnob != nil {
+		for name, knob := range *lastControlKnob {
+			reg, ok := r.controlKnobValueRegulators[name]
+			if !ok || reg == nil {
+				reg = r.newRegulator(name)
+				reg.SetEssentials(r.essentials)
+			}
+
+			reg.SetLatestRequirement(int(knob.Value))
+			r.controlKnobValueRegulators[name] = reg
+		}
+	}
+
+	for name, knob := range currentControlKnob {
+		reg, ok := r.controlKnobValueRegulators[name]
+		if !ok || reg == nil {
+			reg = r.newRegulator(name)
+			reg.SetEssentials(r.essentials)
+		}
+
+		reg.Regulate(knob.Value)
+		r.controlKnobValueRegulators[name] = reg
+	}
+}
+
+// newRegulator new regulator according to the control knob name
+func (r *provisionPolicyResult) newRegulator(name types.ControlKnobName) regulator.Regulator {
+	switch name {
+	// only non-reclaimed cpu size need regulate now
+	case types.ControlKnobNonReclaimedCPUSize:
+		return regulator.NewCPURegulator()
+	default:
+		return regulator.NewDummyRegulator()
+	}
+}
+
+// getControlKnob is to get final control knob from regulators
+func (r *provisionPolicyResult) getControlKnob() types.ControlKnob {
+	controlKnob := make(types.ControlKnob)
+	for name, r := range r.controlKnobValueRegulators {
+		controlKnob[name] = types.ControlKnobValue{
+			Value:  float64(r.GetRequirement()),
+			Action: types.ControlKnobActionNone,
+		}
+	}
+	return controlKnob
 }
 
 type QoSRegionBase struct {
@@ -91,6 +167,7 @@ type QoSRegionBase struct {
 	// policy in-use currently
 	provisionPolicies        []*internalProvisionPolicy
 	provisionPolicyNameInUse types.CPUProvisionPolicyName
+	provisionPolicyResults   map[types.CPUProvisionPolicyName]*provisionPolicyResult
 
 	// headroomPolicies for comparing and merging different headroom policy results,
 	// the former has higher priority; headroomPolicyNameInUse indicates the headroom
@@ -130,6 +207,8 @@ func NewQoSRegionBase(name string, ownerPoolName string, regionType types.QoSReg
 		provisionPolicyNameInUse: types.CPUProvisionPolicyNone,
 		headroomPolicyNameInUse:  types.CPUHeadroomPolicyNone,
 
+		provisionPolicyResults: make(map[types.CPUProvisionPolicyName]*provisionPolicyResult),
+
 		metaReader: metaReader,
 		metaServer: metaServer,
 		emitter:    emitter,
@@ -157,6 +236,9 @@ func NewQoSRegionBase(name string, ownerPoolName string, regionType types.QoSReg
 func (r *QoSRegionBase) Name() string {
 	return r.name
 }
+
+// TryUpdateProvision is implemented in specific region
+func (r *QoSRegionBase) TryUpdateProvision() {}
 
 func (r *QoSRegionBase) Type() types.QoSRegionType {
 	return r.regionType
@@ -266,9 +348,10 @@ func (r *QoSRegionBase) GetProvision() (types.ControlKnob, error) {
 				metrics.MetricTag{Key: metricTagKeyPolicyName, Val: string(internal.name)})
 			continue
 		}
-		controlKnobAdjusted, err := internal.policy.GetControlKnobAdjusted()
-		if err != nil {
-			klog.Errorf("[qosaware-cpu] get control knob by policy %v failed: %v", internal.name, err)
+
+		result, ok := r.provisionPolicyResults[internal.name]
+		if !ok {
+			klog.Errorf("[qosaware-cpu] get control knob by policy %v failed", internal.name)
 			continue
 		}
 		r.provisionPolicyNameInUse = internal.name
@@ -281,7 +364,7 @@ func (r *QoSRegionBase) GetProvision() (types.ControlKnob, error) {
 			}
 		}
 
-		return controlKnobAdjusted, nil
+		return result.getControlKnob(), nil
 	}
 
 	return types.ControlKnob{}, fmt.Errorf("failed to get legal provision")
@@ -446,6 +529,90 @@ func (r *QoSRegionBase) initHeadroomPolicy(conf *config.Configuration, extraConf
 			})
 		} else {
 			general.ErrorS(fmt.Errorf("failed to find headroom policy"), "policyName", policyName, "region", r.regionType)
+		}
+	}
+}
+
+// getProvisionControlKnob get current adjusted control knobs for each policy
+func (r *QoSRegionBase) getProvisionControlKnob() map[types.CPUProvisionPolicyName]types.ControlKnob {
+	provisionControlKnob := make(map[types.CPUProvisionPolicyName]types.ControlKnob)
+	for _, internal := range r.provisionPolicies {
+		if internal.updateStatus != types.PolicyUpdateSucceeded {
+			continue
+		}
+
+		controlKnob, err := internal.policy.GetControlKnobAdjusted()
+		if err != nil {
+			klog.Errorf("[qosaware-cpu] get control knob by policy %v failed: %v", internal.name, err)
+			continue
+		}
+
+		provisionControlKnob[internal.name] = controlKnob
+
+		for name, value := range controlKnob {
+			_ = r.emitter.StoreFloat64(metricCPUProvisionControlKnobRaw, value.Value, metrics.MetricTypeNameRaw, []metrics.MetricTag{
+				{Key: metricTagKeyRegionType, Val: string(r.regionType)},
+				{Key: metricTagKeyRegionName, Val: r.name},
+				{Key: metricTagKeyPolicyName, Val: string(internal.name)},
+				{Key: metricTagKeyControlKnobName, Val: string(name)},
+				{Key: metricTagKeyControlKnobAction, Val: string(value.Action)},
+			}...)
+			klog.Infof("[qosaware-cpu] get raw control knob by policy: %v, knob: %v, action: %v, value: %v",
+				internal.name, name, value.Action, value.Value)
+		}
+	}
+
+	return provisionControlKnob
+}
+
+// regulateProvisionControlKnob regulate provision control knob for each provision policy
+func (r *QoSRegionBase) regulateProvisionControlKnob(originControlKnob map[types.CPUProvisionPolicyName]types.ControlKnob,
+	lastControlKnob *types.ControlKnob) {
+	provisionPolicyResults := make(map[types.CPUProvisionPolicyName]*provisionPolicyResult)
+	firstValidPolicy := types.CPUProvisionPolicyNone
+	for _, internal := range r.provisionPolicies {
+		if internal.updateStatus != types.PolicyUpdateSucceeded {
+			continue
+		}
+
+		controlKnob, ok := originControlKnob[internal.name]
+		if !ok {
+			continue
+		}
+
+		if firstValidPolicy == types.CPUProvisionPolicyNone {
+			firstValidPolicy = internal.name
+		}
+
+		policyResult, ok := r.provisionPolicyResults[internal.name]
+		if !ok || policyResult == nil {
+			policyResult = newProvisionPolicyResult(r.ResourceEssentials)
+			policyResult.regulateControlKnob(controlKnob, lastControlKnob)
+		} else {
+			policyResult.setEssentials(r.ResourceEssentials)
+			// only set regulator last cpu requirement for first valid policy
+			if internal.name == firstValidPolicy {
+				policyResult.regulateControlKnob(controlKnob, lastControlKnob)
+			} else {
+				policyResult.regulateControlKnob(controlKnob, nil)
+			}
+		}
+
+		provisionPolicyResults[internal.name] = policyResult
+	}
+
+	r.provisionPolicyResults = provisionPolicyResults
+	for policy, result := range r.provisionPolicyResults {
+		for knob, value := range result.getControlKnob() {
+			_ = r.emitter.StoreFloat64(metricCPUProvisionControlKnobRegulated, value.Value, metrics.MetricTypeNameRaw, []metrics.MetricTag{
+				{Key: metricTagKeyRegionType, Val: string(r.regionType)},
+				{Key: metricTagKeyRegionName, Val: r.name},
+				{Key: metricTagKeyPolicyName, Val: string(policy)},
+				{Key: metricTagKeyControlKnobName, Val: string(knob)},
+				{Key: metricTagKeyControlKnobAction, Val: string(value.Action)},
+			}...)
+			klog.Infof("[qosaware-cpu] get regulated control knob by policy: %v, knob: %v, action: %v, value: %v",
+				policy, knob, value.Action, value.Value)
 		}
 	}
 }
