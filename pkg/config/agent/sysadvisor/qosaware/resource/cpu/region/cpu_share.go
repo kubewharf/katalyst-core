@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package cpu
+package region
 
 import "github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
 
