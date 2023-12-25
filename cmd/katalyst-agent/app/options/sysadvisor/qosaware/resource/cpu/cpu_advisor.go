@@ -24,6 +24,7 @@ import (
 
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/options/sysadvisor/qosaware/resource/cpu/headroom"
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/options/sysadvisor/qosaware/resource/cpu/provision"
+	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/options/sysadvisor/qosaware/resource/cpu/region"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/sysadvisor/qosaware/resource/cpu"
 )
@@ -37,7 +38,7 @@ type CPUAdvisorOptions struct {
 
 	*headroom.CPUHeadroomPolicyOptions
 	*provision.CPUProvisionPolicyOptions
-	*CPUShareOptions
+	*region.CPURegionOptions
 	*CPUIsolationOptions
 }
 
@@ -58,7 +59,7 @@ func NewCPUAdvisorOptions() *CPUAdvisorOptions {
 		CPUHeadroomAssembler:      string(types.CPUHeadroomAssemblerCommon),
 		CPUHeadroomPolicyOptions:  headroom.NewCPUHeadroomPolicyOptions(),
 		CPUProvisionPolicyOptions: provision.NewCPUProvisionPolicyOptions(),
-		CPUShareOptions:           NewCPUShareOptions(),
+		CPURegionOptions:          region.NewCPURegionOptions(),
 		CPUIsolationOptions:       NewCPUIsolationOptions(),
 	}
 }
@@ -78,7 +79,7 @@ func (o *CPUAdvisorOptions) AddFlags(fs *pflag.FlagSet) {
 
 	o.CPUHeadroomPolicyOptions.AddFlags(fs)
 	o.CPUProvisionPolicyOptions.AddFlags(fs)
-	o.CPUShareOptions.AddFlags(fs)
+	o.CPURegionOptions.AddFlags(fs)
 	o.CPUIsolationOptions.AddFlags(fs)
 }
 
@@ -106,7 +107,7 @@ func (o *CPUAdvisorOptions) ApplyTo(c *cpu.CPUAdvisorConfiguration) error {
 	var errList []error
 	errList = append(errList, o.CPUHeadroomPolicyOptions.ApplyTo(c.CPUHeadroomPolicyConfiguration))
 	errList = append(errList, o.CPUProvisionPolicyOptions.ApplyTo(c.CPUProvisionPolicyConfiguration))
-	errList = append(errList, o.CPUShareOptions.ApplyTo(c.CPUShareConfiguration))
+	errList = append(errList, o.CPURegionOptions.ApplyTo(c.CPURegionConfiguration))
 	errList = append(errList, o.CPUIsolationOptions.ApplyTo(c.CPUIsolationConfiguration))
 	return errors.NewAggregate(errList)
 }

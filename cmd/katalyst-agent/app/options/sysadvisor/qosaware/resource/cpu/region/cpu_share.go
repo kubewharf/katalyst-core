@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package cpu
+package region
 
 import (
 	"strconv"
@@ -22,7 +22,7 @@ import (
 	"github.com/spf13/pflag"
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
-	"github.com/kubewharf/katalyst-core/pkg/config/agent/sysadvisor/qosaware/resource/cpu"
+	"github.com/kubewharf/katalyst-core/pkg/config/agent/sysadvisor/qosaware/resource/cpu/region"
 )
 
 type CPUShareOptions struct {
@@ -57,7 +57,7 @@ func (o *CPUShareOptions) AddFlags(fs *pflag.FlagSet) {
 }
 
 // ApplyTo fills up config with options
-func (o *CPUShareOptions) ApplyTo(c *cpu.CPUShareConfiguration) error {
+func (o *CPUShareOptions) ApplyTo(c *region.CPUShareConfiguration) error {
 	restrictRefPolicy := make(map[types.CPUProvisionPolicyName]types.CPUProvisionPolicyName)
 	for k, v := range o.RestrictRefPolicy {
 		restrictRefPolicy[types.CPUProvisionPolicyName(k)] = types.CPUProvisionPolicyName(v)
