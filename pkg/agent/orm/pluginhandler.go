@@ -168,7 +168,7 @@ func (m *ManagerImpl) Register(ctx context.Context, r *pluginapi.RegisterRequest
 func (m *ManagerImpl) addEndpoint(r *pluginapi.RegisterRequest, success chan<- bool) {
 	new, err := endpoint2.NewEndpointImpl(filepath.Join(m.socketdir, r.Endpoint), r.ResourceName)
 	if err != nil {
-		klog.Errorf("[qosresourcemanager] Failed to dial resource plugin with request %v: %v", r, err)
+		klog.Errorf("[ORM] Failed to dial resource plugin with request %v: %v", r, err)
 		success <- false
 		return
 	}
