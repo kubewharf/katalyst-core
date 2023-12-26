@@ -42,8 +42,8 @@ import (
 )
 
 var (
-	metaCacheNumaExclusice  *metacache.MetaCacheImp
-	metaServerNumaExclusice *metaserver.MetaServer
+	metaCacheNumaExclusive  *metacache.MetaCacheImp
+	metaServerNumaExclusive *metaserver.MetaServer
 )
 
 func generateNumaExclusiveTestConfiguration(t *testing.T, checkpointDir, stateFileDir, checkpointManagerDir string) *config.Configuration {
@@ -64,20 +64,20 @@ func newTestPolicyNumaExclusive(t *testing.T, checkpointDir string, stateFileDir
 	conf := generateNumaExclusiveTestConfiguration(t, checkpointDir, stateFileDir, checkpointManagerDir)
 
 	metaCacheTmp, err := metacache.NewMetaCacheImp(conf, metricspool.DummyMetricsEmitterPool{}, metric.NewFakeMetricsFetcher(metrics.DummyMetrics{}))
-	metaCacheNumaExclusice = metaCacheTmp
+	metaCacheNumaExclusive = metaCacheTmp
 	require.NoError(t, err)
-	require.NotNil(t, metaCacheNumaExclusice)
+	require.NotNil(t, metaCacheNumaExclusive)
 
 	genericCtx, err := katalyst_base.GenerateFakeGenericContext([]runtime.Object{})
 	require.NoError(t, err)
 
 	metaServerTmp, err := metaserver.NewMetaServer(genericCtx.Client, metrics.DummyMetrics{}, conf)
-	metaServerNumaExclusice = metaServerTmp
+	metaServerNumaExclusive = metaServerTmp
 	assert.NoError(t, err)
-	assert.NotNil(t, metaServerNumaExclusice)
+	assert.NotNil(t, metaServerNumaExclusive)
 
-	p := NewPolicyNUMAExclusive(regionInfo.RegionName, regionInfo.RegionType, regionInfo.OwnerPoolName, conf, nil, metaCacheNumaExclusice, metaServerNumaExclusice, metrics.DummyMetrics{})
-	metaCacheNumaExclusice.SetRegionInfo(regionInfo.RegionName, &regionInfo)
+	p := NewPolicyNUMAExclusive(regionInfo.RegionName, regionInfo.RegionType, regionInfo.OwnerPoolName, conf, nil, metaCacheNumaExclusive, metaServerNumaExclusive, metrics.DummyMetrics{})
+	metaCacheNumaExclusive.SetRegionInfo(regionInfo.RegionName, &regionInfo)
 
 	p.SetBindingNumas(regionInfo.BindingNumas)
 	p.SetPodSet(podSet)
@@ -258,7 +258,7 @@ func TestPolicyNumaExclusive(t *testing.T) {
 		for podName, containerSet := range tt.podSet {
 			podNames = append(podNames, podName)
 			for containerName := range containerSet {
-				err = metaCacheNumaExclusice.AddContainer(podName, containerName, &types.ContainerInfo{})
+				err = metaCacheNumaExclusive.AddContainer(podName, containerName, &types.ContainerInfo{})
 				assert.Nil(t, err)
 			}
 		}

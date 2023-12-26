@@ -357,7 +357,7 @@ func TestPolicyRama(t *testing.T) {
 
 		t.Run(tt.name, func(t *testing.T) {
 			policy.SetEssentials(tt.resourceEssentials, tt.controlEssentials)
-			policy.Update()
+			_ = policy.Update()
 			controlKnobUpdated, err := policy.GetControlKnobAdjusted()
 
 			assert.NoError(t, err)

@@ -179,7 +179,11 @@ func TestAdvisorUpdate(t *testing.T) {
 					state.PoolNameReclaim: {-1: 94},
 				},
 			},
-			wantHeadroom: resource.Quantity{},
+			headroomPolicies: map[types.QoSRegionType][]types.CPUHeadroomPolicyName{
+				types.QoSRegionTypeDedicatedNumaExclusive: {types.CPUHeadroomPolicyNone},
+			},
+			wantHeadroom:    resource.Quantity{},
+			wantHeadroomErr: false,
 		},
 		{
 			name: "provision:single_small_share_pool",
@@ -484,7 +488,7 @@ func TestAdvisorUpdate(t *testing.T) {
 			nodeEnableReclaim: true,
 			headroomAssembler: types.CPUHeadroomAssemblerDedicated,
 			headroomPolicies: map[types.QoSRegionType][]types.CPUHeadroomPolicyName{
-				types.QoSRegionTypeDedicatedNumaExclusive: {types.CPUHeadroomPolicyNone},
+				types.QoSRegionTypeDedicatedNumaExclusive: {types.CPUHeadroomPolicyNonReclaim},
 			},
 			wantInternalCalculationResult: types.InternalCPUCalculationResult{
 				PoolEntries: map[string]map[int]int{
