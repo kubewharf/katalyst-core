@@ -372,7 +372,7 @@ func TestPolicyCanonical(t *testing.T) {
 			policy.metaServer.MetaAgent.SetPodFetcher(constructPodFetcherCanonical(podNames))
 
 			policy.SetEssentials(tt.resourceEssentials, tt.controlEssentials)
-			policy.Update()
+			_ = policy.Update()
 			controlKnobUpdated, err := policy.GetControlKnobAdjusted()
 
 			assert.NoError(t, err)

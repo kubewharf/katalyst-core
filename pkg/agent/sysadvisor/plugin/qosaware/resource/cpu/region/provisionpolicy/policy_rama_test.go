@@ -428,7 +428,7 @@ func TestPolicyRama(t *testing.T) {
 			policy.metaServer.MetaAgent.SetPodFetcher(constructPodFetcherRama(podNames))
 
 			policy.SetEssentials(tt.resourceEssentials, tt.controlEssentials)
-			policy.Update()
+			_ = policy.Update()
 			controlKnobUpdated, err := policy.GetControlKnobAdjusted()
 
 			assert.NoError(t, err)
