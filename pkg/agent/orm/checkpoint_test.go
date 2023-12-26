@@ -30,21 +30,21 @@ import (
 func TestCheckpoint(t *testing.T) {
 	t.Parallel()
 
-	checkpointManager, err := checkpointmanager.NewCheckpointManager("/tmp")
+	checkpointManager, err := checkpointmanager.NewCheckpointManager("/tmp/checkpoint/")
 	assert.NoError(t, err)
 
 	m := &ManagerImpl{
-		socketdir:         "/tmp",
+		socketdir:         "/tmp/checkpoint",
 		endpoints:         make(map[string]endpoint.EndpointInfo),
 		podResources:      newPodResourcesChk(),
 		checkpointManager: checkpointManager,
 	}
 	defer func() {
-		_ = os.Remove("/tmp/kubelet_qrm_checkpoint")
+		_ = os.Remove("/tmp/checkpoint/kubelet_qrm_checkpoint")
 	}()
 
 	file := m.checkpointFile()
-	assert.Equal(t, file, "/tmp/kubelet_qrm_checkpoint")
+	assert.Equal(t, file, "/tmp/checkpoint/kubelet_qrm_checkpoint")
 
 	allocationInfo := generateResourceAllocationInfo()
 	m.podResources.insert("testPod", "testContainer", "cpu", allocationInfo)

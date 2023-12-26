@@ -25,16 +25,20 @@ import (
 )
 
 type GenericORMPluginOptions struct {
-	ORMRconcilePeriod   time.Duration
-	ORMResourceNamesMap map[string]string
-	ORMPodNotifyChanLen int
+	ORMRconcilePeriod     time.Duration
+	ORMResourceNamesMap   map[string]string
+	ORMPodNotifyChanLen   int
+	TopologyPolicyName    string
+	NumericAlignResources []string
 }
 
 func NewGenericORMPluginOptions() *GenericORMPluginOptions {
 	return &GenericORMPluginOptions{
-		ORMRconcilePeriod:   time.Second * 5,
-		ORMResourceNamesMap: map[string]string{},
-		ORMPodNotifyChanLen: 10,
+		ORMRconcilePeriod:     time.Second * 5,
+		ORMResourceNamesMap:   map[string]string{},
+		ORMPodNotifyChanLen:   10,
+		TopologyPolicyName:    "none",
+		NumericAlignResources: []string{"cpu", "memory"},
 	}
 }
 
@@ -50,12 +54,18 @@ func (o *GenericORMPluginOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 			"will also be allocated by [cpu] and [memory] QRM plugins")
 	fs.IntVar(&o.ORMPodNotifyChanLen, "orm-pod-notify-chan-len",
 		o.ORMPodNotifyChanLen, "length of pod addition and movement notifying channel")
+	fs.StringVar(&o.TopologyPolicyName, "topology-policy-name",
+		o.TopologyPolicyName, "topology merge policy name used by ORM")
+	fs.StringSliceVar(&o.NumericAlignResources, "numeric-align-resources", o.NumericAlignResources,
+		"resources which should be aligned in numeric topology policy")
 }
 
 func (o *GenericORMPluginOptions) ApplyTo(conf *ormconfig.GenericORMConfiguration) error {
 	conf.ORMRconcilePeriod = o.ORMRconcilePeriod
 	conf.ORMResourceNamesMap = o.ORMResourceNamesMap
 	conf.ORMPodNotifyChanLen = o.ORMPodNotifyChanLen
+	conf.TopologyPolicyName = o.TopologyPolicyName
+	conf.NumericAlignResources = o.NumericAlignResources
 
 	return nil
 }

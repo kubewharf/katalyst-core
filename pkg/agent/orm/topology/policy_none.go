@@ -14,24 +14,28 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package orm
+package topology
 
-import "time"
+type nonePolicy struct{}
 
-type GenericORMConfiguration struct {
-	ORMRconcilePeriod     time.Duration
-	ORMResourceNamesMap   map[string]string
-	ORMPodNotifyChanLen   int
-	TopologyPolicyName    string
-	NumericAlignResources []string
+var _ Policy = &nonePolicy{}
+
+// PolicyNone policy name.
+const PolicyNone string = "none"
+
+// NewNonePolicy returns none policy.
+func NewNonePolicy() Policy {
+	return &nonePolicy{}
 }
 
-func NewGenericORMConfiguration() *GenericORMConfiguration {
-	return &GenericORMConfiguration{
-		ORMRconcilePeriod:     time.Second * 5,
-		ORMResourceNamesMap:   map[string]string{},
-		ORMPodNotifyChanLen:   10,
-		TopologyPolicyName:    "none",
-		NumericAlignResources: []string{"cpu", "memory"},
-	}
+func (p *nonePolicy) Name() string {
+	return PolicyNone
+}
+
+func (p *nonePolicy) canAdmitPodResult(hint *TopologyHint) bool {
+	return true
+}
+
+func (p *nonePolicy) Merge(providersHints []map[string][]TopologyHint) (map[string]TopologyHint, bool) {
+	return map[string]TopologyHint{}, p.canAdmitPodResult(nil)
 }

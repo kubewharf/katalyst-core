@@ -24,6 +24,7 @@ import (
 	"testing"
 	"time"
 
+	cadvisorapi "github.com/google/cadvisor/info/v1"
 	"github.com/stretchr/testify/assert"
 	"google.golang.org/grpc"
 	v1 "k8s.io/api/core/v1"
@@ -39,6 +40,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/orm/endpoint"
 	"github.com/kubewharf/katalyst-core/pkg/agent/orm/executor"
 	"github.com/kubewharf/katalyst-core/pkg/agent/orm/metamanager"
+	"github.com/kubewharf/katalyst-core/pkg/agent/orm/topology"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/config/generic"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
@@ -109,7 +111,13 @@ func TestProcess(t *testing.T) {
 		qosConfig:         generic.NewQoSConfiguration(),
 	}
 	defer func() { _ = os.Remove("/tmp/process/kubelet_qrm_checkpoint") }()
-
+	topologyManager, _ := topology.NewManager([]cadvisorapi.Node{
+		{
+			Id: 0,
+		},
+	}, "restricted", nil)
+	topologyManager.AddHintProvider(m)
+	m.topologyManager = topologyManager
 	err = registerEndpointByRes(m, testResources)
 	assert.NoError(t, err)
 
@@ -188,7 +196,13 @@ func TestReconcile(t *testing.T) {
 		qosConfig:         generic.NewQoSConfiguration(),
 	}
 	defer func() { _ = os.Remove("/tmp/reconcile/kubelet_qrm_checkpoint") }()
-
+	topologyManager, _ := topology.NewManager([]cadvisorapi.Node{
+		{
+			Id: 0,
+		},
+	}, "none", nil)
+	topologyManager.AddHintProvider(m)
+	m.topologyManager = topologyManager
 	err = registerEndpointByPods(m, pods)
 	assert.NoError(t, err)
 
@@ -366,6 +380,14 @@ func TestRun(t *testing.T) {
 	metaManager := metamanager.NewManager(metrics.DummyMetrics{}, m.podResources.pods, metaServer)
 	m.metaManager = metaManager
 
+	topologyManager, _ := topology.NewManager([]cadvisorapi.Node{
+		{
+			Id: 0,
+		},
+	}, "none", nil)
+	topologyManager.AddHintProvider(m)
+	m.topologyManager = topologyManager
+
 	err = registerEndpointByPods(m, pods)
 	assert.NoError(t, err)
 
@@ -469,6 +491,12 @@ func registerEndpointByRes(manager *ManagerImpl, testRes []TestResource) error {
 					resp.AllocationResult.ResourceAllocation[curResourceName].OciPropertyName = OciPropertyName
 					return resp, nil
 				},
+				topologyHints: []*pluginapi.TopologyHint{
+					{
+						Nodes:     []uint64{0},
+						Preferred: true,
+					},
+				},
 			})
 		} else if res.resourceName == "domain3.com/resource3" {
 			manager.registerEndpoint(curResourceName, &pluginapi.ResourcePluginOptions{
@@ -478,6 +506,12 @@ func registerEndpointByRes(manager *ManagerImpl, testRes []TestResource) error {
 			}, &MockEndpoint{
 				allocateFunc: func(req *pluginapi.ResourceRequest) (*pluginapi.ResourceAllocationResponse, error) {
 					return nil, fmt.Errorf("mock error")
+				},
+				topologyHints: []*pluginapi.TopologyHint{
+					{
+						Nodes:     []uint64{0},
+						Preferred: true,
+					},
 				},
 			})
 		}
@@ -528,6 +562,12 @@ func registerEndpointByPods(manager *ManagerImpl, pods []*v1.Pod) error {
 			allocateFunc: func(resourceRequest *pluginapi.ResourceRequest) (*pluginapi.ResourceAllocationResponse, error) {
 				return &pluginapi.ResourceAllocationResponse{}, nil
 			},
+			topologyHints: []*pluginapi.TopologyHint{
+				{
+					Nodes:     []uint64{0},
+					Preferred: true,
+				},
+			},
 		})
 	}
 
@@ -539,6 +579,7 @@ type MockEndpoint struct {
 	allocateFunc  func(resourceRequest *pluginapi.ResourceRequest) (*pluginapi.ResourceAllocationResponse, error)
 	resourceAlloc func(ctx context.Context, request *pluginapi.GetResourcesAllocationRequest) (*pluginapi.GetResourcesAllocationResponse, error)
 	stopTime      time.Time
+	topologyHints []*pluginapi.TopologyHint
 }
 
 func (m *MockEndpoint) Stop() {
@@ -554,6 +595,27 @@ func (m *MockEndpoint) Allocate(ctx context.Context, resourceRequest *pluginapi.
 		return m.allocateFunc(resourceRequest)
 	}
 	return nil, nil
+}
+
+func (m *MockEndpoint) GetTopologyHints(c context.Context, resourceRequest *pluginapi.ResourceRequest) (*pluginapi.ResourceHintsResponse, error) {
+	return &pluginapi.ResourceHintsResponse{
+		PodUid:         resourceRequest.PodUid,
+		PodNamespace:   resourceRequest.PodNamespace,
+		PodName:        resourceRequest.PodName,
+		ContainerName:  resourceRequest.ContainerName,
+		ContainerIndex: resourceRequest.ContainerIndex,
+		ContainerType:  resourceRequest.ContainerType,
+		PodRole:        resourceRequest.PodRole,
+		PodType:        resourceRequest.PodType,
+		ResourceName:   resourceRequest.ResourceName,
+		Labels:         resourceRequest.Labels,
+		Annotations:    resourceRequest.Annotations,
+		ResourceHints: map[string]*pluginapi.ListOfTopologyHints{
+			resourceRequest.ResourceName: {
+				Hints: m.topologyHints,
+			},
+		},
+	}, nil
 }
 
 func (m *MockEndpoint) IsStopped() bool {

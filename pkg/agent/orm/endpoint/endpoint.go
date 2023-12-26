@@ -36,6 +36,7 @@ import (
 type Endpoint interface {
 	Stop()
 	Allocate(c context.Context, resourceRequest *pluginapi.ResourceRequest) (*pluginapi.ResourceAllocationResponse, error)
+	GetTopologyHints(c context.Context, resourceRequest *pluginapi.ResourceRequest) (*pluginapi.ResourceHintsResponse, error)
 	GetResourceAllocation(c context.Context, request *pluginapi.GetResourcesAllocationRequest) (*pluginapi.GetResourcesAllocationResponse, error)
 	RemovePod(c context.Context, removePodRequest *pluginapi.RemovePodRequest) (*pluginapi.RemovePodResponse, error)
 	IsStopped() bool
@@ -64,7 +65,7 @@ type EndpointImpl struct {
 func NewEndpointImpl(socketPath, resourceName string) (*EndpointImpl, error) {
 	client, c, err := dial(socketPath)
 	if err != nil {
-		klog.Errorf("[qosresourcemanager] Can't create new endpoint with path %s err %v", socketPath, err)
+		klog.Errorf("[ORM] Can't create new endpoint with path %s err %v", socketPath, err)
 		return nil, err
 	}
 
@@ -148,6 +149,16 @@ func (e *EndpointImpl) RemovePod(c context.Context, removePodRequest *pluginapi.
 
 func (e *EndpointImpl) GetResourcePluginOptions(ctx context.Context, in *pluginapi.Empty, opts ...grpc.CallOption) (*pluginapi.ResourcePluginOptions, error) {
 	return e.client.GetResourcePluginOptions(ctx, in, opts...)
+}
+
+func (e *EndpointImpl) GetTopologyHints(c context.Context, resourceRequest *pluginapi.ResourceRequest) (*pluginapi.ResourceHintsResponse, error) {
+	if e.IsStopped() {
+		return nil, fmt.Errorf(errEndpointStopped, e)
+	}
+	ctx, cancel := context.WithTimeout(c, pluginapi.KubeletResourcePluginGetTopologyHintsRPCTimeoutInSecs*time.Second)
+	defer cancel()
+
+	return e.client.GetTopologyHints(ctx, resourceRequest)
 }
 
 // dial establishes the gRPC communication with the registered resource plugin. https://godoc.org/google.golang.org/grpc#Dial

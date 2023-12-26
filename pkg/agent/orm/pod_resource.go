@@ -168,6 +168,23 @@ func (pres *podResourcesChk) containerAllResources(podUID, contName string) Reso
 	return pres.resources[podUID][contName].DeepCopy()
 }
 
+func (pres *podResourcesChk) containerResource(podUID, contName, resource string) *pluginapi.ResourceAllocationInfo {
+	pres.RLock()
+	defer pres.RUnlock()
+
+	if _, podExists := pres.resources[podUID]; !podExists {
+		return nil
+	}
+	if _, contExists := pres.resources[podUID][contName]; !contExists {
+		return nil
+	}
+	resourceAllocationInfo, resourceExists := pres.resources[podUID][contName][resource]
+	if !resourceExists || resourceAllocationInfo == nil {
+		return nil
+	}
+	return proto.Clone(resourceAllocationInfo).(*pluginapi.ResourceAllocationInfo)
+}
+
 // Turns podResourcesChk to checkpointData.
 func (pres *podResourcesChk) toCheckpointData() []checkpoint.PodResourcesEntry {
 	pres.RLock()
