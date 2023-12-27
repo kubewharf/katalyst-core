@@ -121,11 +121,11 @@ func New(args runtime.Object, h framework.Handle) (framework.Plugin, error) {
 func (tm *TopologyMatch) EventsToRegister() []framework.ClusterEvent {
 	// To register a custom event, follow the naming convention at:
 	// https://git.k8s.io/kubernetes/pkg/scheduler/eventhandlers.go#L403-L410
-	nrtGVK := fmt.Sprintf("customnoderesources.v1alpha1.%v", v1alpha1.GroupName)
+	cnrGVK := fmt.Sprintf("customnoderesources.v1alpha1.%v", v1alpha1.GroupName)
 	return []framework.ClusterEvent{
 		{Resource: framework.Pod, ActionType: framework.Delete},
 		{Resource: framework.Node, ActionType: framework.Add | framework.UpdateNodeAllocatable},
-		{Resource: framework.GVK(nrtGVK), ActionType: framework.Add | framework.Update},
+		{Resource: framework.GVK(cnrGVK), ActionType: framework.Add | framework.Update},
 	}
 }
 

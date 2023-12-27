@@ -31,8 +31,8 @@ type ResourceTopology struct {
 
 type podFilter func(consumer string) bool
 
-func (rt *ResourceTopology) Update(nrt *v1alpha1.CustomNodeResource) {
-	cp := nrt.DeepCopy()
+func (rt *ResourceTopology) Update(cnr *v1alpha1.CustomNodeResource) {
+	cp := cnr.DeepCopy()
 
 	rt.TopologyZone = cp.Status.TopologyZone
 
