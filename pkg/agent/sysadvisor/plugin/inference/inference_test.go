@@ -124,7 +124,7 @@ func TestInferencePlugin_Run(t *testing.T) {
 				period:               tt.fields.period,
 				modelsResultFetchers: tt.fields.modelsResultFetchers,
 				metaServer:           tt.fields.metaServer,
-				emitter:              tt.fields.emitter,
+				metricEmitter:        tt.fields.emitter,
 				metaReader:           tt.fields.metaReader,
 				metaWriter:           tt.fields.metaWriter,
 			}
@@ -171,7 +171,7 @@ func TestInferencePlugin_Name(t *testing.T) {
 				period:               tt.fields.period,
 				modelsResultFetchers: tt.fields.modelsResultFetchers,
 				metaServer:           tt.fields.metaServer,
-				emitter:              tt.fields.emitter,
+				metricEmitter:        tt.fields.emitter,
 				metaReader:           tt.fields.metaReader,
 				metaWriter:           tt.fields.metaWriter,
 			}
@@ -219,7 +219,7 @@ func TestInferencePlugin_Init(t *testing.T) {
 				period:               tt.fields.period,
 				modelsResultFetchers: tt.fields.modelsResultFetchers,
 				metaServer:           tt.fields.metaServer,
-				emitter:              tt.fields.emitter,
+				metricEmitter:        tt.fields.emitter,
 				metaReader:           tt.fields.metaReader,
 				metaWriter:           tt.fields.metaWriter,
 			}
@@ -269,7 +269,7 @@ func TestInferencePlugin_fetchModelResult(t *testing.T) {
 				period:               tt.fields.period,
 				modelsResultFetchers: tt.fields.modelsResultFetchers,
 				metaServer:           tt.fields.metaServer,
-				emitter:              tt.fields.emitter,
+				metricEmitter:        tt.fields.emitter,
 				metaReader:           tt.fields.metaReader,
 				metaWriter:           tt.fields.metaWriter,
 			}

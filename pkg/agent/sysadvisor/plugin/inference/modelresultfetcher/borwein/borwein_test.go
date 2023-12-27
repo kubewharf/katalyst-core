@@ -27,7 +27,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -36,6 +35,8 @@ import (
 	dynamicfake "k8s.io/client-go/dynamic/fake"
 	"k8s.io/client-go/kubernetes/fake"
 	"k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
+
+	"github.com/stretchr/testify/require"
 
 	internalfake "github.com/kubewharf/katalyst-api/pkg/client/clientset/versioned/fake"
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/options"
@@ -429,7 +430,7 @@ func TestBorweinModelResultFetcher_parseInferenceRespForPods(t *testing.T) {
 		name    string
 		fields  fields
 		args    args
-		want    borweintypes.BorweinInferenceResults
+		want    *borweintypes.BorweinInferenceResults
 		wantErr bool
 	}{
 		{
@@ -459,11 +460,13 @@ func TestBorweinModelResultFetcher_parseInferenceRespForPods(t *testing.T) {
 					},
 				},
 			},
-			want: borweintypes.BorweinInferenceResults{
-				podUID: map[string][]*borweininfsvc.InferenceResult{
-					containerName: {
-						{
-							IsDefault: true,
+			want: &borweintypes.BorweinInferenceResults{
+				Results: map[string]map[string][]*borweininfsvc.InferenceResult{
+					podUID: {
+						containerName: {
+							{
+								IsDefault: true,
+							},
 						},
 					},
 				},
@@ -485,6 +488,7 @@ func TestBorweinModelResultFetcher_parseInferenceRespForPods(t *testing.T) {
 				t.Errorf("BorweinModelResultFetcher.parseInferenceRespForPods() error = %v, wantErr %v", err, tt.wantErr)
 				return
 			}
+			got.Timestamp = 0
 			if !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("BorweinModelResultFetcher.parseInferenceRespForPods() = %v, want %v", got, tt.want)
 			}

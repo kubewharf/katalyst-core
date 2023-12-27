@@ -29,6 +29,8 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/inference/modelresultfetcher"
 	borweinfetcher "github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/inference/modelresultfetcher/borwein"
 	"github.com/kubewharf/katalyst-core/pkg/config"
+	metricemitter "github.com/kubewharf/katalyst-core/pkg/config/agent/sysadvisor/metric-emitter"
+	"github.com/kubewharf/katalyst-core/pkg/config/generic"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	metricspool "github.com/kubewharf/katalyst-core/pkg/metrics/metrics-pool"
@@ -47,8 +49,11 @@ type InferencePlugin struct {
 	period               time.Duration
 	modelsResultFetchers map[string]modelresultfetcher.ModelResultFetcher
 
-	metaServer *metaserver.MetaServer
-	emitter    metrics.MetricEmitter
+	metaServer    *metaserver.MetaServer
+	metricEmitter metrics.MetricEmitter
+
+	emitterConf *metricemitter.MetricEmitterPluginConfiguration
+	qosConf     *generic.QoSConfiguration
 
 	metaReader metacache.MetaReader
 	metaWriter metacache.MetaWriter
@@ -57,7 +62,6 @@ type InferencePlugin struct {
 func NewInferencePlugin(pluginName string, conf *config.Configuration, extraConf interface{},
 	emitterPool metricspool.MetricsEmitterPool, metaServer *metaserver.MetaServer,
 	metaCache metacache.MetaCache) (plugin.SysAdvisorPlugin, error) {
-
 	if conf == nil || conf.InferencePluginConfiguration == nil {
 		return nil, fmt.Errorf("nil conf")
 	} else if metaServer == nil {
@@ -68,14 +72,16 @@ func NewInferencePlugin(pluginName string, conf *config.Configuration, extraConf
 		return nil, fmt.Errorf("nil emitterPool")
 	}
 
-	emitter := emitterPool.GetDefaultMetricsEmitter().WithTags("advisor-inference")
+	metricEmitter := emitterPool.GetDefaultMetricsEmitter().WithTags("advisor-inference")
 
 	inferencePlugin := InferencePlugin{
 		name:                 pluginName,
 		period:               conf.InferencePluginConfiguration.SyncPeriod,
 		modelsResultFetchers: make(map[string]modelresultfetcher.ModelResultFetcher),
 		metaServer:           metaServer,
-		emitter:              emitter,
+		metricEmitter:        metricEmitter,
+		emitterConf:          conf.AgentConfiguration.MetricEmitterPluginConfiguration,
+		qosConf:              conf.GenericConfiguration.QoSConfiguration,
 		metaReader:           metaCache,
 		metaWriter:           metaCache,
 	}

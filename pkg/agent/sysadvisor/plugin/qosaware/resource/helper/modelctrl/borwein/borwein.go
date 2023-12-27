@@ -79,38 +79,36 @@ func updateCPUSchedWaitIndicatorOffset(podSet types.PodSet, currentIndicatorOffs
 
 	filteredObj, err := metaReader.GetFilteredInferenceResult(func(input interface{}) (interface{}, error) {
 		cachedResult, ok := input.(borweintypes.BorweinInferenceResults)
-
 		if !ok {
 			return nil, fmt.Errorf("invalid input")
 		}
 
-		filteredResults := make(borweintypes.BorweinInferenceResults)
+		filteredResults := borweintypes.NewBorweinInferenceResults()
 
-		for podUID := range cachedResult {
+		for podUID := range cachedResult.Results {
 			if podSet[podUID].Len() == 0 {
 				continue
 			}
 
-			filteredResults[podUID] = make(map[string][]*borweininfsvc.InferenceResult)
-
 			for _, containerName := range podSet[podUID].UnsortedList() {
-				results := cachedResult[podUID][containerName]
+				results := cachedResult.Results[podUID][containerName]
 				if len(results) == 0 {
 					continue
 				}
 
-				filteredResults[podUID][containerName] = make([]*borweininfsvc.InferenceResult, len(results))
-
+				inferenceResults := make([]*borweininfsvc.InferenceResult, len(results))
 				for idx, result := range results {
 					if result == nil {
 						continue
 					}
 
-					filteredResults[podUID][containerName][idx] = proto.Clone(result).(*borweininfsvc.InferenceResult)
+					inferenceResults[idx] = proto.Clone(result).(*borweininfsvc.InferenceResult)
 				}
+
+				filteredResults.SetInferenceResults(podUID, containerName, inferenceResults...)
 			}
 
-			if len(filteredResults[podUID]) == 0 {
+			if len(filteredResults.Results[podUID]) == 0 {
 				return nil, fmt.Errorf("there is no result for pod: %s", podUID)
 			}
 		}
@@ -122,8 +120,7 @@ func updateCPUSchedWaitIndicatorOffset(podSet types.PodSet, currentIndicatorOffs
 		return 0, fmt.Errorf("GetFilteredInferenceResult failed with error: %v", err)
 	}
 
-	filteredResult, ok := filteredObj.(borweintypes.BorweinInferenceResults)
-
+	filteredResult, ok := filteredObj.(*borweintypes.BorweinInferenceResults)
 	if !ok {
 		return 0, fmt.Errorf("GetFilteredInferenceResult return invalid result")
 	}
@@ -131,40 +128,32 @@ func updateCPUSchedWaitIndicatorOffset(podSet types.PodSet, currentIndicatorOffs
 	var classificationNormalCnt, classificationAbnormalCnt,
 		regressionNormalCnt, regressionAbnormalCnt int
 
-	for podUID, containerResults := range filteredResult {
-		for containerName, results := range containerResults {
-			if len(results) == 0 {
-				return 0, fmt.Errorf("0 results found for pod: %s, container: %s", podUID, containerName)
+	filteredResult.RangeInferenceResults(func(podUID, containerName string, result *borweininfsvc.InferenceResult) {
+		if result == nil {
+			return
+		}
+
+		switch result.InferenceType {
+		case borweininfsvc.InferenceType_ClassificationOverload:
+			if result.Output >= result.Percentile {
+				classificationAbnormalCnt += 1
+			} else {
+				classificationNormalCnt += 1
 			}
+			// todo: emit metrics
 
-			for _, result := range results {
-				if result == nil {
-					continue
+		case borweininfsvc.InferenceType_LatencyRegression:
+			// regression prediction by default model isn't trusted
+			if !result.IsDefault {
+				if result.Output > result.Percentile {
+					regressionAbnormalCnt += 1
+				} else {
+					regressionNormalCnt += 1
 				}
-
-				switch result.InferenceType {
-				case borweininfsvc.InferenceType_ClassificationOverload:
-					if result.Output >= result.Percentile {
-						classificationAbnormalCnt += 1
-					} else {
-						classificationNormalCnt += 1
-					}
-					// todo: emit metrics
-
-				case borweininfsvc.InferenceType_LatencyRegression:
-					// regression prediction by default model isn't trusted
-					if !result.IsDefault {
-						if result.Output > result.Percentile {
-							regressionAbnormalCnt += 1
-						} else {
-							regressionNormalCnt += 1
-						}
-						// todo: emit metrics
-					}
-				}
+				// todo: emit metrics
 			}
 		}
-	}
+	})
 
 	classificationCnt := classificationNormalCnt + classificationAbnormalCnt
 	regressionCnt := regressionNormalCnt + regressionAbnormalCnt
