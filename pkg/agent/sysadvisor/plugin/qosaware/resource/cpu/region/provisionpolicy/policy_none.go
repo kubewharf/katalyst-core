@@ -38,5 +38,5 @@ func (p *PolicyNone) SetPodSet(types.PodSet)                                    
 func (p *PolicyNone) SetBindingNumas(machine.CPUSet)                                  {}
 func (p *PolicyNone) Update() error                                                   { return nil }
 func (p *PolicyNone) GetControlKnobAdjusted() (types.ControlKnob, error) {
-	return types.ControlKnob{}, nil
+	return types.InvalidControlKnob, nil
 }
