@@ -187,17 +187,20 @@ func (bmrf *BorweinModelResultFetcher) FetchModelResult(ctx context.Context, met
 		_ = bmrf.emitter.StoreInt64(metricSetInferenceResultFailed, 1, metrics.MetricTypeNameRaw)
 		return fmt.Errorf("SetInferenceResult failed with error: %v", err)
 	}
+
 	return nil
 }
 
 func (bmrf *BorweinModelResultFetcher) parseInferenceRespForPods(requestContainers []*types.ContainerInfo,
-	resp *borweininfsvc.InferenceResponse) (borweintypes.BorweinInferenceResults, error) {
+	resp *borweininfsvc.InferenceResponse) (*borweintypes.BorweinInferenceResults, error) {
 
 	if resp == nil || resp.PodResponseEntries == nil {
 		return nil, fmt.Errorf("nil resp")
 	}
 
-	results := make(borweintypes.BorweinInferenceResults)
+	results := borweintypes.NewBorweinInferenceResults()
+	// Typically the time diff between "call inference" and "get results" could be ignored.
+	results.Timestamp = time.Now().UnixMilli()
 	respContainersCnt := 0
 
 	for podUID, containerEntries := range resp.PodResponseEntries {
@@ -205,44 +208,38 @@ func (bmrf *BorweinModelResultFetcher) parseInferenceRespForPods(requestContaine
 			return nil, fmt.Errorf("invalid containerEntries for pod: %s", podUID)
 		}
 
-		results[podUID] = make(map[string][]*borweininfsvc.InferenceResult)
-
 		for containerName, cResults := range containerEntries.ContainerInferenceResults {
 			if cResults == nil {
 				return nil, fmt.Errorf("invalid result for pod: %s, container: %s", podUID, containerName)
 			}
 
-			results[podUID][containerName] = make([]*borweininfsvc.InferenceResult, len(cResults.InferenceResults))
-
+			inferenceResults := make([]*borweininfsvc.InferenceResult, len(cResults.InferenceResults))
 			for idx, result := range cResults.InferenceResults {
 				if result == nil {
 					continue
 				}
 
-				results[podUID][containerName][idx] = proto.Clone(result).(*borweininfsvc.InferenceResult)
+				inferenceResults[idx] = proto.Clone(result).(*borweininfsvc.InferenceResult)
 			}
-			// TODO? should check inference results here?
+
+			results.SetInferenceResults(podUID, containerName, inferenceResults...)
 		}
 
-		respContainersCnt += len(results[podUID])
+		respContainersCnt += len(results.Results[podUID])
 	}
 
 	overloadCnt := 0.0
-	for _, podContainerResults := range results {
-		for _, containerResults := range podContainerResults {
-			for _, containerResult := range containerResults {
-				switch containerResult.InferenceType {
-				case borweininfsvc.InferenceType_ClassificationOverload:
-					if containerResult.IsDefault {
-						continue
-					}
-					if containerResult.Output > containerResult.Percentile {
-						overloadCnt += 1.0
-					}
-				}
+	results.RangeInferenceResults(func(_, _ string, result *borweininfsvc.InferenceResult) {
+		switch result.InferenceType {
+		case borweininfsvc.InferenceType_ClassificationOverload:
+			if result.IsDefault {
+				return
+			}
+			if result.Output > result.Percentile {
+				overloadCnt += 1.0
 			}
 		}
-	}
+	})
 
 	if len(requestContainers) > 0 {
 		_ = bmrf.emitter.StoreFloat64(metricInferenceResponseRatio, float64(respContainersCnt)/float64(len(requestContainers)), metrics.MetricTypeNameRaw)

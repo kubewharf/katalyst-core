@@ -30,7 +30,40 @@ type BorweinParameter struct {
 }
 
 // BorweinInferenceResults is a descriptor for borwein inference results.
-// the first key is the pod UID
-// the second key is the container name
-// the value array holds the all inference result for a container.
-type BorweinInferenceResults map[string]map[string][]*borweininfsvc.InferenceResult
+type BorweinInferenceResults struct {
+	Timestamp int64 // milli second
+	// the first key is the pod UID
+	// the second key is the container name
+	// the value array holds the all inference result for a container.
+	Results map[string]map[string][]*borweininfsvc.InferenceResult
+}
+
+func NewBorweinInferenceResults() *BorweinInferenceResults {
+	return &BorweinInferenceResults{
+		Timestamp: 0,
+		Results:   map[string]map[string][]*borweininfsvc.InferenceResult{},
+	}
+}
+
+func (bir *BorweinInferenceResults) SetInferenceResults(podUID string, containerName string, results ...*borweininfsvc.InferenceResult) {
+	podContainerResults, ok := bir.Results[podUID]
+	if !ok {
+		podContainerResults = make(map[string][]*borweininfsvc.InferenceResult)
+		bir.Results[podUID] = podContainerResults
+	}
+
+	podContainerResults[containerName] = make([]*borweininfsvc.InferenceResult, len(results))
+	for idx, r := range results {
+		podContainerResults[containerName][idx] = r
+	}
+}
+
+func (bir *BorweinInferenceResults) RangeInferenceResults(fn func(podUID, containerName string, result *borweininfsvc.InferenceResult)) {
+	for podUID, podContainerResults := range bir.Results {
+		for containerName, containerResults := range podContainerResults {
+			for _, result := range containerResults {
+				fn(podUID, containerName, result)
+			}
+		}
+	}
+}

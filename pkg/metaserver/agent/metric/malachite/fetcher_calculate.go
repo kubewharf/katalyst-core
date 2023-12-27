@@ -114,7 +114,7 @@ func (m *MalachiteMetricsFetcher) processContainerCPURelevantRate(podUID, contai
 		curCPUCycles = cgStats.V1.Cpu.Cycles
 		curCPUNRTht = cgStats.V1.Cpu.CPUNrThrottled
 		curCPUNRPeriod = cgStats.V1.Cpu.CPUNrPeriods
-		curCPUThrottleTime = cgStats.V1.Cpu.CPUThrottledTime
+		curCPUThrottleTime = cgStats.V1.Cpu.CPUThrottledTime / 1000
 		if cgStats.V1.Cpu.L3Misses > 0 {
 			curL3CacheMiss = cgStats.V1.Cpu.L3Misses
 		} else if cgStats.V1.Cpu.OcrReadDrams > 0 {

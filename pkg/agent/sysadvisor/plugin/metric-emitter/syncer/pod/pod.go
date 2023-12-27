@@ -44,6 +44,8 @@ import (
 
 const (
 	podMetricLabelSelectorNodeName = "node_name"
+
+	podModelInferenceResultBorwein = "pod_borwein_inference_result"
 )
 
 // podRawMetricNameMapping maps the raw metricName (collected from agent.MetricsFetcher)
@@ -116,6 +118,7 @@ func (p *MetricSyncerPod) Name() string {
 
 func (p *MetricSyncerPod) Run(ctx context.Context) {
 	p.ctx = ctx
+	go wait.Until(p.modelMetric, p.emitterConf.PodSyncPeriod, ctx.Done())
 	go wait.Until(p.syncChanel, p.emitterConf.PodSyncPeriod, ctx.Done())
 }
 
