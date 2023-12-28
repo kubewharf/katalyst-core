@@ -52,6 +52,7 @@ const (
 	metricInferenceFailed              = "borwein_inference_failed"
 	metricParseInferenceResponseFailed = "borwein_parse_inference_response_failed"
 	metricSetInferenceResultFailed     = "borwein_set_inference_result_failed"
+	metricOverloadContainerRatio       = "borwein_overload_container_ratio"
 )
 
 type BorweinModelResultFetcher struct {
@@ -226,8 +227,26 @@ func (bmrf *BorweinModelResultFetcher) parseInferenceRespForPods(requestContaine
 		respContainersCnt += len(results[podUID])
 	}
 
+	overloadCnt := 0.0
+	for _, podContainerResults := range results {
+		for _, containerResults := range podContainerResults {
+			for _, containerResult := range containerResults {
+				switch containerResult.InferenceType {
+				case borweininfsvc.InferenceType_ClassificationOverload:
+					if containerResult.IsDefault {
+						continue
+					}
+					if containerResult.Output > containerResult.Percentile {
+						overloadCnt += 1.0
+					}
+				}
+			}
+		}
+	}
+
 	if len(requestContainers) > 0 {
 		_ = bmrf.emitter.StoreFloat64(metricInferenceResponseRatio, float64(respContainersCnt)/float64(len(requestContainers)), metrics.MetricTypeNameRaw)
+		_ = bmrf.emitter.StoreFloat64(metricOverloadContainerRatio, overloadCnt/float64(len(requestContainers)), metrics.MetricTypeNameRaw)
 	} else {
 		_ = bmrf.emitter.StoreFloat64(metricInferenceResponseRatio, -1, metrics.MetricTypeNameRaw)
 	}
