@@ -178,7 +178,7 @@ func TestNewBorweinController(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := NewBorweinController(tt.args.regionName, tt.args.regionType, tt.args.ownerPoolName, tt.args.conf, tt.args.metaReader)
+			got := NewBorweinController(tt.args.regionName, tt.args.regionType, tt.args.ownerPoolName, tt.args.conf, tt.args.metaReader, metrics.DummyMetrics{})
 			require.True(t, reflect.DeepEqual(got.regionName, tt.want.regionName))
 			require.True(t, reflect.DeepEqual(got.regionType, tt.want.regionType))
 			require.True(t, reflect.DeepEqual(got.conf, tt.want.conf))
@@ -719,6 +719,7 @@ func TestBorweinController_GetUpdatedIndicators(t *testing.T) {
 				indicatorOffsets:        tt.fields.indicatorOffsets,
 				metaReader:              tt.fields.metaReader,
 				indicatorOffsetUpdaters: tt.fields.indicatorOffsetUpdaters,
+				emitter:                 metrics.DummyMetrics{},
 			}
 			if got := bc.GetUpdatedIndicators(tt.args.indicators, tt.args.podSet); !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("BorweinController.GetUpdatedIndicators() = %v, want %v", got, tt.want)
