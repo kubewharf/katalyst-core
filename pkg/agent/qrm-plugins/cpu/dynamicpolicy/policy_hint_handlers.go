@@ -29,6 +29,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
 	cpuutil "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/util"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util"
+	affinityutil "github.com/kubewharf/katalyst-core/pkg/util/affinity"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 	qosutil "github.com/kubewharf/katalyst-core/pkg/util/qos"
@@ -128,6 +129,14 @@ func (p *DynamicPolicy) dedicatedCoresWithNUMABindingHintHandler(_ context.Conte
 		}
 	}
 
+	// filter hints by mircotopology affinity and anti-affinity
+	if len(hints) > 0 {
+		hints, err = p.filterHintsByAffinityAndAntiAffinity(req, hints)
+		if err != nil {
+			return nil, fmt.Errorf("filterHintsByAffinityAndAntiAffinity failed with error: %v", err)
+		}
+	}
+
 	return util.PackResourceHintsResponse(req, string(v1.ResourceCPU), hints)
 }
 
@@ -223,4 +232,93 @@ func (p *DynamicPolicy) calculateHints(reqInt int, machineState state.NUMANodeMa
 	})
 
 	return hints, nil
+}
+
+func (p *DynamicPolicy) filterHintsByAffinityAndAntiAffinity(
+	req *pluginapi.ResourceRequest,
+	hints map[string]*pluginapi.ListOfTopologyHints,
+) (map[string]*pluginapi.ListOfTopologyHints, error) {
+	// 1. check if req need affinity filter
+	podAffinity, err := affinityutil.UnmarshalAffinity(req.Annotations)
+	if err != nil {
+		return nil, err
+	}
+	if podAffinity.Affinity == nil && podAffinity.AntiAffinity == nil && !p.qosConfig.HasAffinityLabels(req.Labels) {
+		return hints, nil
+	}
+	// There is no need to do numa level inter-pod affinity selction if exclusive = true
+	if req.Annotations[apiconsts.PodAnnotationMemoryEnhancementNumaExclusive] ==
+		apiconsts.PodAnnotationMemoryEnhancementNumaExclusiveEnable {
+		if podAffinity.Affinity != nil {
+			return nil, fmt.Errorf("can not find required affinity numa nodes while exclusive is enabled")
+		}
+		return hints, nil
+	}
+
+	// 2. get numaInfo from state
+	numaAffinityInfoList, err := p.getNumaNodesAffinityInfo()
+	if err != nil {
+		return nil, err
+	}
+
+	// 3. filter hints
+	state, err := affinityutil.GetPodAffinityInfo(req, podAffinity, numaAffinityInfoList, p.machineInfo.CPUTopology)
+	if err != nil {
+		return nil, err
+	}
+	if state == nil {
+		return hints, nil
+	}
+
+	hints = affinityutil.PodAffinityFilter(state, hints)
+	return hints, nil
+}
+
+// Get affinityInfo of all numa nodes
+func (p *DynamicPolicy) getNumaNodesAffinityInfo() ([]affinityutil.NumaInfo, error) {
+	numaResourceMap := p.state.GetMachineState()
+	var numaNodesInfo []affinityutil.NumaInfo
+
+	for i := 0; i < p.machineInfo.CPUTopology.NumNUMANodes; i++ {
+		var numaNodeInfo affinityutil.NumaInfo
+		numaNodeInfo.NumaID = i
+		numaNodeInfo.Labels = make(map[string][]string)
+		cpuSet := p.machineInfo.CPUTopology.CPUDetails.SocketsInNUMANodes(i)
+		if cpuSet.Size() == 0 {
+			return nil, fmt.Errorf("failed to find the associated socket ID for the specified numanode: %d, cpuDetails: %v", i, p.machineInfo.CPUTopology.CPUDetails)
+		}
+		numaNodeInfo.SocketID = cpuSet.ToSliceInt()[0]
+
+		numaState := numaResourceMap[i]
+		for _, containerEntries := range numaState.PodEntries {
+			for _, allocationInfo := range containerEntries {
+				if allocationInfo.Annotations[apiconsts.PodAnnotationQoSLevelKey] != apiconsts.PodAnnotationQoSLevelDedicatedCores {
+					continue
+				}
+				labels := p.qosConfig.FilterAffinityLabels(allocationInfo.Labels)
+				numaNodeInfo.Labels = affinityutil.MergeNumaInfoMap(labels, numaNodeInfo.Labels)
+				if allocationInfo.Annotations[apiconsts.PodAnnotationMemoryEnhancementNumaExclusive] == apiconsts.PodAnnotationMemoryEnhancementNumaExclusiveEnable {
+					numaNodeInfo.Exclusive = true
+				} else {
+					numaNodeInfo.Exclusive = false
+				}
+
+				if affinityutil.IsPodAntiAffinity(allocationInfo.Annotations) {
+					podAffinity, err := affinityutil.UnmarshalAffinity(allocationInfo.Annotations)
+					if err != nil {
+						return nil, fmt.Errorf("unmarshalAffinity failed")
+					}
+					if podAffinity.AntiAffinity.Required != nil {
+						numaNodeInfo.AntiAffinityRequiredSelectors = append(numaNodeInfo.AntiAffinityRequiredSelectors,
+							podAffinity.AntiAffinity.Required...)
+					}
+				}
+				break
+			}
+		}
+
+		numaNodesInfo = append(numaNodesInfo, numaNodeInfo)
+	}
+
+	return numaNodesInfo, nil
 }

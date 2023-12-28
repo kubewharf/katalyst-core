@@ -546,8 +546,6 @@ github.com/kr/pty v1.1.1/go.mod h1:pFQYn66WHrOpPYNljwOMqo10TkYh1fy3cYio2l3bCsQ=
 github.com/kr/text v0.1.0/go.mod h1:4Jbv+DJW3UT/LiOwJeYQe1efqtUx/iVham/4vfdArNI=
 github.com/kr/text v0.2.0 h1:5Nx0Ya0ZqY2ygV366QzturHI13Jq95ApcVaJBhpS+AY=
 github.com/kr/text v0.2.0/go.mod h1:eLer722TekiGuMkidMxC/pM04lWEeraHUUmBw8l2grE=
-github.com/kubewharf/katalyst-api v0.3.4-0.20231204022248-bfefbbd96f52 h1:JYc0V7rZNRAKlALQ6AUdc3GdYbXoEFz9ZSoeOrHupcI=
-github.com/kubewharf/katalyst-api v0.3.4-0.20231204022248-bfefbbd96f52/go.mod h1:iVILS5UL5PRtkUPH2Iu1K/gFGTPMNItnth5fmQ80VGE=
 github.com/kubewharf/kubelet v1.24.6-kubewharf.7 h1:zex5NjgWh3b+fk8sey5Hp/hOVoSKdqf4mJu8MeE8T4k=
 github.com/kubewharf/kubelet v1.24.6-kubewharf.7/go.mod h1:MxbSZUx3wXztFneeelwWWlX7NAAStJ6expqq7gY2J3c=
 github.com/kyoh86/exportloopref v0.1.7/go.mod h1:h1rDl2Kdj97+Kwh4gdz3ujE7XHmH51Q0lUiZ1z4NLj8=
@@ -876,6 +874,8 @@ github.com/xiang90/probing v0.0.0-20190116061207-43a291ad63a2 h1:eY9dn8+vbi4tKz5
 github.com/xiang90/probing v0.0.0-20190116061207-43a291ad63a2/go.mod h1:UETIi67q53MR2AWcXfiuqkDkRtnGDLqkBTpCHuJHxtU=
 github.com/xlab/treeprint v0.0.0-20181112141820-a009c3971eca/go.mod h1:ce1O1j6UtZfjr22oyGxGLbauSBp2YVXpARAosm7dHBg=
 github.com/xordataexchange/crypt v0.0.3-0.20170626215501-b2862e3d0a77/go.mod h1:aYKd//L2LvnjZzWKhF00oedf4jCCReLcmhLdhm1A27Q=
+github.com/yanxiaoqi932/katalyst-api v0.0.0-20231212044026-ca9186031c67 h1:JyYoD4GK5W73aJuAzw2/gsUzPdDCCWSwvjqLBolJ3+E=
+github.com/yanxiaoqi932/katalyst-api v0.0.0-20231212044026-ca9186031c67/go.mod h1:iVILS5UL5PRtkUPH2Iu1K/gFGTPMNItnth5fmQ80VGE=
 github.com/yuin/goldmark v1.1.25/go.mod h1:3hX8gzYuyVAZsxl0MRgGTJEmQBFcNTphYh9decYSb74=
 github.com/yuin/goldmark v1.1.27/go.mod h1:3hX8gzYuyVAZsxl0MRgGTJEmQBFcNTphYh9decYSb74=
 github.com/yuin/goldmark v1.1.32/go.mod h1:3hX8gzYuyVAZsxl0MRgGTJEmQBFcNTphYh9decYSb74=

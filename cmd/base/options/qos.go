@@ -34,6 +34,7 @@ type QoSOptions struct {
 
 	PodAnnotationQoSEnhancements []string
 	EnhancementDefaultValues     map[string]string
+	NUMAInterPodAffinityLabels   []string
 }
 
 func NewQoSOptions() *QoSOptions {
@@ -57,6 +58,8 @@ func (o *QoSOptions) AddFlags(fs *pflag.FlagSet) {
 		o.PodAnnotationQoSEnhancements, "qos enhancement mappers for katalyst")
 	fs.StringToStringVar(&o.EnhancementDefaultValues, "qos-enhancement-default-values",
 		o.EnhancementDefaultValues, "qos enhancement default values for corresponding keys")
+	fs.StringSliceVar(&o.NUMAInterPodAffinityLabels, "qos-inter-pod-affinity-labels",
+		o.NUMAInterPodAffinityLabels, "qos numa-level inter-pod affinity labels")
 }
 
 func (o *QoSOptions) ApplyTo(c *generic.QoSConfiguration) error {
@@ -77,6 +80,9 @@ func (o *QoSOptions) ApplyTo(c *generic.QoSConfiguration) error {
 	}
 
 	o.applyToEnhancementDefaultValues(c, o.EnhancementDefaultValues)
+
+	o.applyToNUMAInterPodAffinityLabels(c, o.NUMAInterPodAffinityLabels)
+
 	return nil
 }
 
@@ -112,4 +118,9 @@ func (o *QoSOptions) applyToExpandQoSEnhancement(c *generic.QoSConfiguration, po
 
 func (o *QoSOptions) applyToEnhancementDefaultValues(c *generic.QoSConfiguration, enhancementDefaultValues map[string]string) {
 	c.SetEnhancementDefaultValues(enhancementDefaultValues)
+}
+
+func (o *QoSOptions) applyToNUMAInterPodAffinityLabels(c *generic.QoSConfiguration, NUMAInterPodAffinityLabels []string) error {
+	c.SetNUMAInterPodAffinityLabelsSelector(NUMAInterPodAffinityLabels)
+	return nil
 }

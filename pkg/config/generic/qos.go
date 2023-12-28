@@ -39,6 +39,8 @@ var validQosEnhancementKey = sets.NewString(
 	apiconsts.PodAnnotationCPUEnhancementKey,
 	apiconsts.PodAnnotationMemoryEnhancementKey,
 	apiconsts.PodAnnotationNetworkEnhancementKey,
+	apiconsts.PodAnnotationMicroTopologyInterPodAffinity,
+	apiconsts.PodAnnotationMicroTopologyInterPodAntiAffinity,
 )
 
 // QoSConfiguration stores the qos configurations needed by core katalyst components.
@@ -69,6 +71,10 @@ type QoSConfiguration struct {
 	// the key here is specific enhancement key such as "numa_binding", "numa_exclusive"
 	// the value is the default value of the key
 	EnhancementDefaultValues map[string]string
+
+	// NUMAInterPodAffinityLabelsSeletor is used to match specified labels about numa
+	// level inter-pod affinity & antiaffinity
+	NUMAInterPodAffinityLabelsSeletor []string
 }
 
 // NewQoSConfiguration creates a new qos configuration.
@@ -112,14 +118,22 @@ func (c *QoSConfiguration) FilterQoSAndEnhancement(annotations map[string]string
 	defer c.RUnlock()
 
 	for _, enhancementKey := range validQosEnhancementKey.List() {
-		enhancementKVs := helper.ParseKatalystQOSEnhancement(wrappedEnhancements, annotations, enhancementKey)
-		for key, val := range enhancementKVs {
-			if filteredAnnotations[key] != "" {
-				general.Warningf("get enhancements %s:%s from %s, but the kv already exists: %s:%s",
-					key, val, enhancementKey, key, filteredAnnotations[key])
+		if wrappedEnhancements[enhancementKey] != "" {
+			if enhancementKey != apiconsts.PodAnnotationMicroTopologyInterPodAffinity &&
+				enhancementKey != apiconsts.PodAnnotationMicroTopologyInterPodAntiAffinity {
+				enhancementKVs := helper.ParseKatalystQOSEnhancement(wrappedEnhancements, annotations, enhancementKey)
+				for key, val := range enhancementKVs {
+					if filteredAnnotations[key] != "" {
+						general.Warningf("get enhancements %s:%s from %s, but the kv already exists: %s:%s",
+							key, val, enhancementKey, key, filteredAnnotations[key])
+					}
+					filteredAnnotations[key] = val
+				}
+			} else {
+				filteredAnnotations[enhancementKey] = wrappedEnhancements[enhancementKey]
 			}
-			filteredAnnotations[key] = val
 		}
+
 	}
 
 	for enhancementKey, defaultValue := range c.EnhancementDefaultValues {
@@ -147,7 +161,42 @@ func (c *QoSConfiguration) FilterQoSMap(annotations map[string]string) map[strin
 			}
 		}
 	}
+
+	// labels set for numa level inter-pod affinity
+	for _, key := range c.NUMAInterPodAffinityLabelsSeletor {
+		if val, ok := annotations[key]; ok {
+			filteredAnnotations[key] = val
+		}
+	}
+
 	return filteredAnnotations
+}
+
+func (c *QoSConfiguration) FilterAffinityLabels(labels map[string]string) map[string]string {
+	filteredLabels := make(map[string]string)
+	for _, key := range c.NUMAInterPodAffinityLabelsSeletor {
+		if val, ok := labels[key]; ok {
+			filteredLabels[key] = val
+		}
+	}
+
+	return filteredLabels
+}
+
+func (c *QoSConfiguration) HasAffinityLabels(labels map[string]string) bool {
+	c.RLock()
+	defer c.RUnlock()
+
+	if len(c.NUMAInterPodAffinityLabelsSeletor) <= 0 {
+		return false
+	}
+
+	for _, key := range c.NUMAInterPodAffinityLabelsSeletor {
+		if _, ok := labels[key]; ok {
+			return true
+		}
+	}
+	return false
 }
 
 func (c *QoSConfiguration) SetExpandQoSLevelSelector(qosLevel string, selectorMap map[string]string) {
@@ -321,6 +370,14 @@ func (c *QoSConfiguration) SetEnhancementDefaultValues(enhancementDefaultValues 
 	c.Lock()
 	defer c.Unlock()
 	c.EnhancementDefaultValues = general.MergeMap(c.EnhancementDefaultValues, enhancementDefaultValues)
+}
+
+// SetNUMAInterPodAffinityLabelsSelector set labels for NUMA-level inter-pod affinity
+func (c *QoSConfiguration) SetNUMAInterPodAffinityLabelsSelector(affinityLabels []string) {
+	c.Lock()
+	defer c.Unlock()
+
+	c.NUMAInterPodAffinityLabelsSeletor = append(c.NUMAInterPodAffinityLabelsSeletor, affinityLabels...)
 }
 
 // checkQosMatched is a unified helper function to judge whether annotation
