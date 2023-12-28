@@ -30,7 +30,12 @@ import (
 	borweintypes "github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/inference/models/borwein/types"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
 	"github.com/kubewharf/katalyst-core/pkg/config"
+	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
+)
+
+const (
+	metricBorweinIndicatorOffset = "borwein_indicator_offset"
 )
 
 type IndicatorOffsetUpdater func(podSet types.PodSet, currentIndicatorOffset float64,
@@ -44,11 +49,12 @@ type BorweinController struct {
 	borweinParameters       map[string]*borweintypes.BorweinParameter
 	indicatorOffsets        map[string]float64
 	metaReader              metacache.MetaReader
+	emitter                 metrics.MetricEmitter
 	indicatorOffsetUpdaters map[string]IndicatorOffsetUpdater
 }
 
 func NewBorweinController(regionName string, regionType types.QoSRegionType, ownerPoolName string,
-	conf *config.Configuration, metaReader metacache.MetaReader) *BorweinController {
+	conf *config.Configuration, metaReader metacache.MetaReader, emitter metrics.MetricEmitter) *BorweinController {
 
 	bc := &BorweinController{
 		regionName:              regionName,
@@ -58,6 +64,7 @@ func NewBorweinController(regionName string, regionType types.QoSRegionType, own
 		indicatorOffsets:        make(map[string]float64),
 		metaReader:              metaReader,
 		indicatorOffsetUpdaters: make(map[string]IndicatorOffsetUpdater),
+		emitter:                 emitter,
 	}
 
 	bc.indicatorOffsets[string(v1alpha1.TargetIndicatorNameCPUSchedWait)] = 0
@@ -225,6 +232,10 @@ func (bc *BorweinController) updateIndicatorOffsets(podSet types.PodSet) {
 		bc.indicatorOffsets[indicatorName] = updatedIndicatorOffset
 		general.Infof("update indicator: %s offset from: %.2f to %2.f",
 			indicatorName, currentIndicatorOffset, updatedIndicatorOffset)
+		bc.emitter.StoreFloat64(metricBorweinIndicatorOffset, bc.indicatorOffsets[indicatorName],
+			metrics.MetricTypeNameRaw, metrics.ConvertMapToTags(map[string]string{
+				"indicator_name": indicatorName,
+			})...)
 	}
 }
 

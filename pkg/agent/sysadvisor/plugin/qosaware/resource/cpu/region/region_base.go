@@ -224,7 +224,7 @@ func NewQoSRegionBase(name string, ownerPoolName string, regionType types.QoSReg
 	// if there are more code positions depending on it,
 	// we should consider provide a dummy borwein controller to avoid redundant judgement.
 	if r.enableBorweinModel {
-		r.borweinController = borweinctrl.NewBorweinController(name, regionType, ownerPoolName, conf, metaReader)
+		r.borweinController = borweinctrl.NewBorweinController(name, regionType, ownerPoolName, conf, metaReader, emitter)
 	}
 	r.enableReclaim = r.EnableReclaim
 
