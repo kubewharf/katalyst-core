@@ -98,7 +98,7 @@ func (m *MalachiteMetricsFetcher) RegisterNotifier(scope metric.MetricsScope, re
 	defer m.Unlock()
 
 	randBytes := make([]byte, 30)
-	rand.Read(randBytes)
+	_, _ = rand.Read(randBytes)
 	key := string(randBytes)
 
 	m.registeredNotifier[scope][key] = metric.NotifiedData{

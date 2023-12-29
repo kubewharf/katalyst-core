@@ -44,7 +44,7 @@ func generateTestConfiguration(t *testing.T) *config.Configuration {
 	return testConfiguration
 }
 
-func Test_podAddAndRemoved(t *testing.T) {
+func TestPodAddAndRemoved(t *testing.T) {
 	t.Parallel()
 
 	conf := generateTestConfiguration(t)
@@ -64,6 +64,9 @@ func Test_podAddAndRemoved(t *testing.T) {
 								{
 									Name: "c-1",
 								},
+								{
+									Name: "c-2",
+								},
 							},
 						},
 					},
@@ -75,12 +78,19 @@ func Test_podAddAndRemoved(t *testing.T) {
 						Spec: v1.PodSpec{
 							Containers: []v1.Container{
 								{
+									Name: "c-1",
+								},
+								{
 									Name: "c-2",
 								},
 							},
 						},
 						Status: v1.PodStatus{
 							ContainerStatuses: []v1.ContainerStatus{
+								{
+									Name:  "c-1",
+									Ready: true,
+								},
 								{
 									Name:  "c-2",
 									Ready: true,
@@ -99,6 +109,7 @@ func Test_podAddAndRemoved(t *testing.T) {
 	s := si.(*MetricSyncerPod)
 	s.ctx = context.Background()
 
+	t.Logf("run with non-empty pod fetcher")
 	s.syncChanel()
 	assert.Equal(t, len(s.rawNotifier), 1)
 
@@ -111,8 +122,8 @@ func Test_podAddAndRemoved(t *testing.T) {
 		},
 	}
 	s.metaServer = metaEmpty
-	t.Logf("reset pod fecther with empty")
 
+	t.Logf("reset pod fecther with empty")
 	s.syncChanel()
 	assert.Equal(t, len(s.rawNotifier), 0)
 }
