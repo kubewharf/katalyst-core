@@ -40,6 +40,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 	utilmetric "github.com/kubewharf/katalyst-core/pkg/util/metric"
+	"github.com/kubewharf/katalyst-core/pkg/util/syntax"
 )
 
 const (
@@ -55,6 +56,7 @@ func NewMalachiteMetricsFetcher(emitter metrics.MetricEmitter, fetcher pod.PodFe
 	return &MalachiteMetricsFetcher{
 		malachiteClient: client.NewMalachiteClient(fetcher),
 		metricStore:     utilmetric.NewMetricStore(),
+		RWMutex:         syntax.NewRWMutex(emitter),
 		emitter:         emitter,
 		conf:            conf,
 		registeredNotifier: map[metric.MetricsScope]map[string]metric.NotifiedData{
@@ -72,7 +74,7 @@ type MalachiteMetricsFetcher struct {
 	malachiteClient *client.MalachiteClient
 	conf            *config.Configuration
 
-	sync.RWMutex
+	*syntax.RWMutex
 	registeredMetric   []func(store *utilmetric.MetricStore)
 	registeredNotifier map[metric.MetricsScope]map[string]metric.NotifiedData
 
