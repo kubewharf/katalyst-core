@@ -96,6 +96,8 @@ func (n *MetricSyncerNode) Name() string {
 
 func (n *MetricSyncerNode) Run(ctx context.Context) {
 	rChan := make(chan metric.NotifiedResponse, 20)
+	go n.receiveRawNode(ctx, rChan)
+	go wait.Until(func() { n.advisorMetric(ctx) }, time.Second*3, ctx.Done())
 
 	// there is no need to deRegister for node-related metric
 	for rawMetricName := range n.metricMapping {
@@ -104,11 +106,6 @@ func (n *MetricSyncerNode) Run(ctx context.Context) {
 			MetricName: rawMetricName,
 		}, rChan)
 	}
-
-	go n.receiveRawNode(ctx, rChan)
-	go wait.Until(func() {
-		n.advisorMetric(ctx)
-	}, time.Second*3, ctx.Done())
 }
 
 // receiveRawNode receives notified response from raw data source

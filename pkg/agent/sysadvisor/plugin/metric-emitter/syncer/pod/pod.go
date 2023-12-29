@@ -136,8 +136,10 @@ func (p *MetricSyncerPod) syncChanel() {
 			continue
 		}
 
-		var keys []string
 		rChan := make(chan metric.NotifiedResponse, 20)
+		go p.receiveRawPod(p.ctx, podList[i], rChan)
+
+		var keys []string
 		for rawMetricName := range p.metricMapping {
 			for _, container := range podList[i].Spec.Containers {
 				key := p.metaServer.MetricsFetcher.RegisterNotifier(metric.MetricsScopeContainer, metric.NotifiedRequest{
@@ -156,9 +158,9 @@ func (p *MetricSyncerPod) syncChanel() {
 			rChan: rChan,
 			keys:  keys,
 		}
-		go p.receiveRawPod(p.ctx, podList[i], rChan)
 	}
 
+	// clear all the channels and goroutines that we don't need anymore (for deleted pods)
 	for uid, pChanel := range p.rawNotifier {
 		if podUIDSet.Has(uid) {
 			continue
