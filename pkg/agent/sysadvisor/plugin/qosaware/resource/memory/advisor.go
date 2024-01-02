@@ -35,6 +35,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
+	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric/helper"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
@@ -240,7 +241,7 @@ func (ra *memoryResourceAdvisor) detectNUMAPressureConditions() (map[int]*types.
 
 func (ra *memoryResourceAdvisor) detectNUMAPressure(numaID int) (*types.MemoryPressureCondition, error) {
 	free, total, scaleFactor, err := helper.GetWatermarkMetrics(ra.metaServer.MetricsFetcher, ra.emitter, numaID)
-	if err != nil {
+	if err != nil && metric.IsMetricDataExpired(err) {
 		general.Errorf("failed to getWatermarkMetrics for numa %d, err: %v", numaID, err)
 		return nil, err
 	}
@@ -276,7 +277,7 @@ func (ra *memoryResourceAdvisor) detectNUMAPressure(numaID int) (*types.MemoryPr
 
 func (ra *memoryResourceAdvisor) detectNodePressureCondition() (*types.MemoryPressureCondition, error) {
 	free, total, scaleFactor, err := helper.GetWatermarkMetrics(ra.metaServer.MetricsFetcher, ra.emitter, nonExistNumaID)
-	if err != nil {
+	if err != nil && !metric.IsMetricDataExpired(err) {
 		general.Errorf("failed to getWatermarkMetrics for system, err: %v", err)
 		return nil, err
 	}

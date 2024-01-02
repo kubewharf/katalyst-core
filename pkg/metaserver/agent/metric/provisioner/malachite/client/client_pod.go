@@ -22,7 +22,7 @@ import (
 
 	v1 "k8s.io/api/core/v1"
 
-	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric/malachite/types"
+	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric/provisioner/malachite/types"
 	cgroupcm "github.com/kubewharf/katalyst-core/pkg/util/cgroup/common"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/native"

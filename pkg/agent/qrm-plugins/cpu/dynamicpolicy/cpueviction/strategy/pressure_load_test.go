@@ -43,6 +43,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric"
+	metrictypes "github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric/types"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 	utilmetric "github.com/kubewharf/katalyst-core/pkg/util/metric"
@@ -58,7 +59,7 @@ const (
 	defaultReservedForSystem                        = 0
 )
 
-func makeMetaServer(metricsFetcher metric.MetricsFetcher, cpuTopology *machine.CPUTopology) *metaserver.MetaServer {
+func makeMetaServer(metricsFetcher metrictypes.MetricsFetcher, cpuTopology *machine.CPUTopology) *metaserver.MetaServer {
 	metaServer := &metaserver.MetaServer{
 		MetaAgent: &agent.MetaAgent{},
 	}

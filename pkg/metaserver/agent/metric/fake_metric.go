@@ -36,25 +36,28 @@ import (
 
 	v1 "k8s.io/api/core/v1"
 
+	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric/types"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 	"github.com/kubewharf/katalyst-core/pkg/util/metric"
 )
 
 // NewFakeMetricsFetcher returns a fake MetricsFetcher.
-func NewFakeMetricsFetcher(emitter metrics.MetricEmitter) MetricsFetcher {
+func NewFakeMetricsFetcher(emitter metrics.MetricEmitter) types.MetricsFetcher {
 	return &FakeMetricsFetcher{
-		metricStore: metric.NewMetricStore(),
-		emitter:     emitter,
-		hasSynced:   true,
+		metricStore:           metric.NewMetricStore(),
+		emitter:               emitter,
+		hasSynced:             true,
+		checkMetricDataExpire: checkMetricDataExpireFunc(minimumMetricInsurancePeriod),
 	}
 }
 
 type FakeMetricsFetcher struct {
 	sync.RWMutex
-	metricStore      *metric.MetricStore
-	emitter          metrics.MetricEmitter
-	registeredMetric []func(store *metric.MetricStore)
+	metricStore           *metric.MetricStore
+	emitter               metrics.MetricEmitter
+	registeredMetric      []func(store *metric.MetricStore)
+	checkMetricDataExpire CheckMetricDataExpireFunc
 
 	hasSynced bool
 }
@@ -75,11 +78,11 @@ func (f *FakeMetricsFetcher) HasSynced() bool {
 	return f.hasSynced
 }
 
-func (f *FakeMetricsFetcher) RegisterNotifier(scope MetricsScope, req NotifiedRequest, response chan NotifiedResponse) string {
+func (f *FakeMetricsFetcher) RegisterNotifier(scope types.MetricsScope, req types.NotifiedRequest, response chan types.NotifiedResponse) string {
 	return ""
 }
 
-func (f *FakeMetricsFetcher) DeRegisterNotifier(scope MetricsScope, key string) {}
+func (f *FakeMetricsFetcher) DeRegisterNotifier(scope types.MetricsScope, key string) {}
 
 func (f *FakeMetricsFetcher) RegisterExternalMetric(fu func(store *metric.MetricStore)) {
 	f.Lock()
@@ -88,27 +91,31 @@ func (f *FakeMetricsFetcher) RegisterExternalMetric(fu func(store *metric.Metric
 }
 
 func (f *FakeMetricsFetcher) GetNodeMetric(metricName string) (metric.MetricData, error) {
-	return f.metricStore.GetNodeMetric(metricName)
+	return f.checkMetricDataExpire(f.metricStore.GetNodeMetric(metricName))
 }
 
 func (f *FakeMetricsFetcher) GetNumaMetric(numaID int, metricName string) (metric.MetricData, error) {
-	return f.metricStore.GetNumaMetric(numaID, metricName)
+	return f.checkMetricDataExpire(f.metricStore.GetNumaMetric(numaID, metricName))
 }
 
 func (f *FakeMetricsFetcher) GetDeviceMetric(deviceName string, metricName string) (metric.MetricData, error) {
-	return f.metricStore.GetDeviceMetric(deviceName, metricName)
+	return f.checkMetricDataExpire(f.metricStore.GetDeviceMetric(deviceName, metricName))
 }
 
 func (f *FakeMetricsFetcher) GetCPUMetric(coreID int, metricName string) (metric.MetricData, error) {
-	return f.metricStore.GetCPUMetric(coreID, metricName)
+	return f.checkMetricDataExpire(f.metricStore.GetCPUMetric(coreID, metricName))
 }
 
 func (f *FakeMetricsFetcher) GetContainerMetric(podUID, containerName, metricName string) (metric.MetricData, error) {
-	return f.metricStore.GetContainerMetric(podUID, containerName, metricName)
+	return f.checkMetricDataExpire(f.metricStore.GetContainerMetric(podUID, containerName, metricName))
 }
 
 func (f *FakeMetricsFetcher) GetContainerNumaMetric(podUID, containerName, numaNode, metricName string) (metric.MetricData, error) {
-	return f.metricStore.GetContainerNumaMetric(podUID, containerName, numaNode, metricName)
+	return f.checkMetricDataExpire(f.metricStore.GetContainerNumaMetric(podUID, containerName, numaNode, metricName))
+}
+
+func (f *FakeMetricsFetcher) GetPodVolumeMetric(podUID, volumeName, metricName string) (metric.MetricData, error) {
+	return f.checkMetricDataExpire(f.metricStore.GetPodVolumeMetric(podUID, volumeName, metricName))
 }
 
 func (f *FakeMetricsFetcher) SetNodeMetric(metricName string, data metric.MetricData) {
@@ -160,5 +167,5 @@ func (f *FakeMetricsFetcher) SetCgroupNumaMetric(cgroupPath, numaNode, metricNam
 }
 
 func (f *FakeMetricsFetcher) GetCgroupNumaMetric(cgroupPath, numaNode, metricName string) (metric.MetricData, error) {
-	return f.metricStore.GetCgroupNumaMetric(cgroupPath, numaNode, metricName)
+	return f.checkMetricDataExpire(f.metricStore.GetCgroupNumaMetric(cgroupPath, numaNode, metricName))
 }

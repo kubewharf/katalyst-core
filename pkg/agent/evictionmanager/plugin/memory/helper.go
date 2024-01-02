@@ -138,8 +138,10 @@ func (e *EvictionHelper) getEvictionCmpFuncs(rankingMetrics []string, numaID int
 				// prioritize evicting the pod whose priority is lower
 				return general.ReverseCmpFunc(native.PodPriorityCmpFunc)(p1, p2)
 			default:
-				p1Metric, p1Found := helper.GetPodMetric(e.metaServer.MetricsFetcher, e.emitter, p1, currentMetric, numaID)
-				p2Metric, p2Found := helper.GetPodMetric(e.metaServer.MetricsFetcher, e.emitter, p2, currentMetric, numaID)
+				p1Metric, p1Err := helper.GetPodMetric(e.metaServer.MetricsFetcher, e.emitter, p1, currentMetric, numaID)
+				p2Metric, p2Err := helper.GetPodMetric(e.metaServer.MetricsFetcher, e.emitter, p2, currentMetric, numaID)
+				p1Found := p1Err == nil
+				p2Found := p2Err == nil
 				if !p1Found || !p2Found {
 					_ = e.emitter.StoreInt64(metricsNameFetchMetricError, 1, metrics.MetricTypeNameCount,
 						metrics.ConvertMapToTags(map[string]string{

@@ -64,8 +64,8 @@ func NewCacheReaper(conf *config.Configuration, extraConfig interface{}, metaRea
 func (cp *cacheReaper) selectContainers(containers []*types.ContainerInfo, cacheToReap resource.Quantity, numaID int, metricName string) []*types.ContainerInfo {
 	general.NewMultiSorter(func(s1, s2 interface{}) int {
 		c1, c2 := s1.(*types.ContainerInfo), s2.(*types.ContainerInfo)
-		c1Metric, c1Err := helper.GetContainerMetric(cp.metaServer.MetricsFetcher, cp.emitter, c1.PodUID, c1.ContainerName, metricName, numaID)
-		c2Metric, c2Err := helper.GetContainerMetric(cp.metaServer.MetricsFetcher, cp.emitter, c2.PodUID, c2.ContainerName, metricName, numaID)
+		c1Metric, c1Err := helper.IgnoreMetricValueExpired(helper.GetContainerMetric(cp.metaServer.MetricsFetcher, cp.emitter, c1.PodUID, c1.ContainerName, metricName, numaID))
+		c2Metric, c2Err := helper.IgnoreMetricValueExpired(helper.GetContainerMetric(cp.metaServer.MetricsFetcher, cp.emitter, c2.PodUID, c2.ContainerName, metricName, numaID))
 		if c1Err != nil || c2Err != nil {
 			return general.CmpError(c1Err, c2Err)
 		}
@@ -78,7 +78,7 @@ func (cp *cacheReaper) selectContainers(containers []*types.ContainerInfo, cache
 	sum := resource.NewQuantity(0, resource.BinarySI)
 
 	for _, ci := range containers {
-		metric, err := helper.GetContainerMetric(cp.metaServer.MetricsFetcher, cp.emitter, ci.PodUID, ci.ContainerName, metricName, numaID)
+		metric, err := helper.IgnoreMetricValueExpired(helper.GetContainerMetric(cp.metaServer.MetricsFetcher, cp.emitter, ci.PodUID, ci.ContainerName, metricName, numaID))
 		if err != nil {
 			general.Errorf("failed to get metric %v for pod %v/%v container %v on numa %v err %v", metricName, ci.PodNamespace, ci.PodName, ci.ContainerName, numaID, err)
 			continue

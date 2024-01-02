@@ -232,9 +232,9 @@ func (n *NumaMemoryPressurePlugin) getCandidates(pods []*v1.Pod, numaID int, min
 		pod := pods[i]
 		totalMem, totalMemErr := helper.GetNumaMetric(n.metaServer.MetricsFetcher, n.emitter,
 			consts.MetricMemTotalNuma, numaID)
-		usedMem, usedMemFound := helper.GetPodMetric(n.metaServer.MetricsFetcher, n.emitter, pod,
+		usedMem, usedMemErr := helper.GetPodMetric(n.metaServer.MetricsFetcher, n.emitter, pod,
 			consts.MetricsMemTotalPerNumaContainer, numaID)
-		if totalMemErr != nil || !usedMemFound {
+		if totalMemErr != nil || usedMemErr != nil {
 			result = append(result, pod)
 			continue
 		}

@@ -19,12 +19,12 @@ package helper
 import (
 	"strconv"
 
-	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric"
+	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric/types"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 )
 
-func GetContainerMetric(metricsFetcher metric.MetricsFetcher, emitter metrics.MetricEmitter, podUID, containerName, metricName string, numaID int) (float64, error) {
+func GetContainerMetric(metricsFetcher types.MetricsFetcher, emitter metrics.MetricEmitter, podUID, containerName, metricName string, numaID int) (float64, error) {
 	if numaID >= 0 {
 		data, err := metricsFetcher.GetContainerNumaMetric(podUID, containerName, strconv.Itoa(numaID), metricName)
 		if err != nil {

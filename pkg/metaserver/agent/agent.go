@@ -34,7 +34,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/cnr"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/kubeletconfig"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric"
-	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric/malachite"
+	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric/types"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/node"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/pod"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
@@ -56,7 +56,7 @@ type MetaAgent struct {
 	// actually, those fetchers call be set by self-defined implementations
 	pod.PodFetcher
 	node.NodeFetcher
-	metric.MetricsFetcher
+	types.MetricsFetcher
 	cnr.CNRFetcher
 	cnc.CNCFetcher
 	kubeletconfig.KubeletConfigFetcher
@@ -93,7 +93,7 @@ func NewMetaAgent(conf *config.Configuration, clientSet *client.GenericClientSet
 	}
 
 	if conf.EnableMetricsFetcher {
-		metaAgent.MetricsFetcher = malachite.NewMalachiteMetricsFetcher(emitter, metaAgent, conf)
+		metaAgent.MetricsFetcher = metric.NewMetricsFetcher(emitter, metaAgent, conf)
 	} else {
 		metaAgent.MetricsFetcher = metric.NewFakeMetricsFetcher(emitter)
 	}
@@ -121,7 +121,7 @@ func (a *MetaAgent) SetNodeFetcher(n node.NodeFetcher) {
 	})
 }
 
-func (a *MetaAgent) SetMetricFetcher(m metric.MetricsFetcher) {
+func (a *MetaAgent) SetMetricFetcher(m types.MetricsFetcher) {
 	a.setComponentImplementation(func() {
 		a.MetricsFetcher = m
 	})

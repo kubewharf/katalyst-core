@@ -24,7 +24,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
-	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric/malachite/types"
+	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric/provisioner/malachite/types"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/pod"
 )
 

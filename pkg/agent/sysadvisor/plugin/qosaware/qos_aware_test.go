@@ -35,6 +35,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric"
+	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric/types"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	metricspool "github.com/kubewharf/katalyst-core/pkg/metrics/metrics-pool"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
@@ -75,7 +76,7 @@ func generateTestMetaServer(t *testing.T, conf *config.Configuration) *metaserve
 	return metaServer
 }
 
-func generateTestMetaCache(t *testing.T, conf *config.Configuration, metricsReader metric.MetricsReader) *metacache.MetaCacheImp {
+func generateTestMetaCache(t *testing.T, conf *config.Configuration, metricsReader types.MetricsReader) *metacache.MetaCacheImp {
 	metaCache, err := metacache.NewMetaCacheImp(conf, metricspool.DummyMetricsEmitterPool{}, metricsReader)
 	require.NoError(t, err)
 	require.NotNil(t, metaCache)

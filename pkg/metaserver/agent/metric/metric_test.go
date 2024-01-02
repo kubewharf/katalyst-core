@@ -14,123 +14,31 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package malachite
+package metric
 
 import (
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	metric2 "github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric"
-	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric/malachite/types"
+	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/options"
+	"github.com/kubewharf/katalyst-core/pkg/config"
+	metrictypes "github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric/types"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/pod"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 	"github.com/kubewharf/katalyst-core/pkg/util/metric"
 )
 
-func Test_noneExistMetricsFetcher(t *testing.T) {
-	t.Parallel()
-
-	var err error
-	implement := NewMalachiteMetricsFetcher(metrics.DummyMetrics{}, &pod.PodFetcherStub{}, nil)
-
-	fakeSystemCompute := &types.SystemComputeData{
-		CPU: []types.CPU{
-			{
-				Name: "CPU1111",
-			},
-		},
-	}
-	fakeSystemMemory := &types.SystemMemoryData{
-		Numa: []types.Numa{
-			{},
-		},
-	}
-	fakeSystemIO := &types.SystemDiskIoData{
-		DiskIo: []types.DiskIo{
-			{},
-		},
-	}
-	fakeCgroupInfoV1 := &types.MalachiteCgroupInfo{
-		CgroupType: "V1",
-		V1: &types.MalachiteCgroupV1Info{
-			Memory: &types.MemoryCgDataV1{},
-			Blkio:  &types.BlkIOCgDataV1{},
-			NetCls: &types.NetClsCgData{},
-			CpuSet: &types.CPUSetCgDataV1{},
-			Cpu:    &types.CPUCgDataV1{},
-		},
-	}
-	fakeCgroupInfoV2 := &types.MalachiteCgroupInfo{
-		CgroupType: "V2",
-		V2: &types.MalachiteCgroupV2Info{
-			Memory: &types.MemoryCgDataV2{},
-			Blkio:  &types.BlkIOCgDataV2{},
-			NetCls: &types.NetClsCgData{},
-			CpuSet: &types.CPUSetCgDataV2{},
-			Cpu:    &types.CPUCgDataV2{},
-		},
-	}
-
-	implement.(*MalachiteMetricsFetcher).processSystemComputeData(fakeSystemCompute)
-	implement.(*MalachiteMetricsFetcher).processSystemMemoryData(fakeSystemMemory)
-	implement.(*MalachiteMetricsFetcher).processSystemIOData(fakeSystemIO)
-	implement.(*MalachiteMetricsFetcher).processSystemNumaData(fakeSystemMemory)
-	implement.(*MalachiteMetricsFetcher).processSystemCPUComputeData(fakeSystemCompute)
-
-	implement.(*MalachiteMetricsFetcher).processContainerCPUData("pod-not-exist", "container-not-exist", fakeCgroupInfoV1)
-	implement.(*MalachiteMetricsFetcher).processContainerMemoryData("pod-not-exist", "container-not-exist", fakeCgroupInfoV1)
-	implement.(*MalachiteMetricsFetcher).processContainerBlkIOData("pod-not-exist", "container-not-exist", fakeCgroupInfoV1)
-	implement.(*MalachiteMetricsFetcher).processContainerNetData("pod-not-exist", "container-not-exist", fakeCgroupInfoV1)
-	implement.(*MalachiteMetricsFetcher).processContainerPerfData("pod-not-exist", "container-not-exist", fakeCgroupInfoV1)
-	implement.(*MalachiteMetricsFetcher).processContainerPerNumaMemoryData("pod-not-exist", "container-not-exist", fakeCgroupInfoV1)
-
-	implement.(*MalachiteMetricsFetcher).processContainerCPUData("pod-not-exist", "container-not-exist", fakeCgroupInfoV2)
-	implement.(*MalachiteMetricsFetcher).processContainerMemoryData("pod-not-exist", "container-not-exist", fakeCgroupInfoV2)
-	implement.(*MalachiteMetricsFetcher).processContainerBlkIOData("pod-not-exist", "container-not-exist", fakeCgroupInfoV2)
-	implement.(*MalachiteMetricsFetcher).processContainerNetData("pod-not-exist", "container-not-exist", fakeCgroupInfoV2)
-	implement.(*MalachiteMetricsFetcher).processContainerPerfData("pod-not-exist", "container-not-exist", fakeCgroupInfoV2)
-	implement.(*MalachiteMetricsFetcher).processContainerPerNumaMemoryData("pod-not-exist", "container-not-exist", fakeCgroupInfoV2)
-
-	_, err = implement.GetNodeMetric("test-not-exist")
-	if err == nil {
-		t.Errorf("GetNode() error = %v, wantErr not nil", err)
-		return
-	}
-
-	_, err = implement.GetNumaMetric(1, "test-not-exist")
-	if err == nil {
-		t.Errorf("GetNode() error = %v, wantErr not nil", err)
-		return
-	}
-
-	_, err = implement.GetDeviceMetric("device-not-exist", "test-not-exist")
-	if err == nil {
-		t.Errorf("GetNode() error = %v, wantErr not nil", err)
-		return
-	}
-
-	_, err = implement.GetCPUMetric(1, "test-not-exist")
-	if err == nil {
-		t.Errorf("GetNode() error = %v, wantErr not nil", err)
-		return
-	}
-
-	_, err = implement.GetContainerMetric("pod-not-exist", "container-not-exist", "test-not-exist")
-	if err == nil {
-		t.Errorf("GetNode() error = %v, wantErr not nil", err)
-		return
-	}
-
-	_, err = implement.GetContainerNumaMetric("pod-not-exist", "container-not-exist", "", "test-not-exist")
-	if err == nil {
-		t.Errorf("GetContainerNuma() error = %v, wantErr not nil", err)
-		return
-	}
+func generateTestConfiguration(t *testing.T) *config.Configuration {
+	testConfiguration, err := options.NewOptions().Config()
+	require.NoError(t, err)
+	require.NotNil(t, testConfiguration)
+	return testConfiguration
 }
 
 func Test_notifySystem(t *testing.T) {
@@ -138,37 +46,38 @@ func Test_notifySystem(t *testing.T) {
 
 	now := time.Now()
 
-	f := NewMalachiteMetricsFetcher(metrics.DummyMetrics{}, &pod.PodFetcherStub{}, nil)
+	conf := generateTestConfiguration(t)
+	f := NewMetricsFetcher(metrics.DummyMetrics{}, &pod.PodFetcherStub{}, conf)
 
-	rChan := make(chan metric2.NotifiedResponse, 20)
-	f.RegisterNotifier(metric2.MetricsScopeNode, metric2.NotifiedRequest{
+	rChan := make(chan metrictypes.NotifiedResponse, 20)
+	f.RegisterNotifier(metrictypes.MetricsScopeNode, metrictypes.NotifiedRequest{
 		MetricName: "test-node-metric",
 	}, rChan)
-	f.RegisterNotifier(metric2.MetricsScopeNuma, metric2.NotifiedRequest{
+	f.RegisterNotifier(metrictypes.MetricsScopeNuma, metrictypes.NotifiedRequest{
 		MetricName: "test-numa-metric",
 		NumaID:     1,
 	}, rChan)
-	f.RegisterNotifier(metric2.MetricsScopeCPU, metric2.NotifiedRequest{
+	f.RegisterNotifier(metrictypes.MetricsScopeCPU, metrictypes.NotifiedRequest{
 		MetricName: "test-cpu-metric",
 		CoreID:     2,
 	}, rChan)
-	f.RegisterNotifier(metric2.MetricsScopeDevice, metric2.NotifiedRequest{
+	f.RegisterNotifier(metrictypes.MetricsScopeDevice, metrictypes.NotifiedRequest{
 		MetricName: "test-device-metric",
 		DeviceID:   "test-device",
 	}, rChan)
-	f.RegisterNotifier(metric2.MetricsScopeContainer, metric2.NotifiedRequest{
+	f.RegisterNotifier(metrictypes.MetricsScopeContainer, metrictypes.NotifiedRequest{
 		MetricName:    "test-container-metric",
 		PodUID:        "test-pod",
 		ContainerName: "test-container",
 	}, rChan)
-	f.RegisterNotifier(metric2.MetricsScopeContainer, metric2.NotifiedRequest{
+	f.RegisterNotifier(metrictypes.MetricsScopeContainer, metrictypes.NotifiedRequest{
 		MetricName:    "test-container-numa-metric",
 		PodUID:        "test-pod",
 		ContainerName: "test-container",
 		NumaNode:      "3",
 	}, rChan)
 
-	m := f.(*MalachiteMetricsFetcher)
+	m := f.(*MetricsFetcherImpl)
 	m.metricStore.SetNodeMetric("test-node-metric", metric.MetricData{Value: 34, Time: &now})
 	m.metricStore.SetNumaMetric(1, "test-numa-metric", metric.MetricData{Value: 56, Time: &now})
 	m.metricStore.SetCPUMetric(2, "test-cpu-metric", metric.MetricData{Value: 78, Time: &now})
@@ -206,7 +115,8 @@ func TestStore_Aggregate(t *testing.T) {
 
 	now := time.Now()
 
-	f := NewMalachiteMetricsFetcher(metrics.DummyMetrics{}, &pod.PodFetcherStub{}, nil).(*MalachiteMetricsFetcher)
+	conf := generateTestConfiguration(t)
+	f := NewMetricsFetcher(metrics.DummyMetrics{}, &pod.PodFetcherStub{}, conf).(*MetricsFetcherImpl)
 
 	pod1 := &v1.Pod{
 		ObjectMeta: metav1.ObjectMeta{

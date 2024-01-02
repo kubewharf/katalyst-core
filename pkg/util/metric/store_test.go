@@ -21,6 +21,8 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
+
+	"github.com/kubewharf/katalyst-core/pkg/consts"
 )
 
 func TestStore_SetAndGetNodeMetric(t *testing.T) {
@@ -92,4 +94,17 @@ func TestStore_ContainerMetric(t *testing.T) {
 	assert.Error(t, err)
 	value, _ = store.GetContainerMetric("pod2", "container1", "test-metric-name")
 	assert.Equal(t, MetricData{Value: 1.0, Time: &now}, value)
+}
+
+func TestStore_SetAndGetPodVolumeMetric(t *testing.T) {
+	t.Parallel()
+
+	now := time.Now()
+	store := NewMetricStore()
+	store.SetPodVolumeMetric("podUID", "volumeName", consts.MetricsPodVolumeAvailable, MetricData{Value: 1.0, Time: &now})
+	value, err := store.GetPodVolumeMetric("podUID", "volumeName", consts.MetricsPodVolumeAvailable)
+	assert.NoError(t, err)
+	assert.Equal(t, MetricData{Value: 1.0, Time: &now}, value)
+	_, err = store.GetPodVolumeMetric("podUID", "volumeName", consts.MetricsPodVolumeInodesUsed)
+	assert.Error(t, err)
 }
