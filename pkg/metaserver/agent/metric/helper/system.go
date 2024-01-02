@@ -21,7 +21,7 @@ import (
 	"strconv"
 
 	"github.com/kubewharf/katalyst-core/pkg/consts"
-	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric"
+	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric/types"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	metricutil "github.com/kubewharf/katalyst-core/pkg/util/metric"
@@ -29,7 +29,7 @@ import (
 
 // GetWatermarkMetrics returns system-water mark related metrics (config)
 // if numa node is specified, return config in this numa; otherwise return system-level config
-func GetWatermarkMetrics(metricsFetcher metric.MetricsFetcher, emitter metrics.MetricEmitter, numaID int) (free, total, scaleFactor float64, err error) {
+func GetWatermarkMetrics(metricsFetcher types.MetricsFetcher, emitter metrics.MetricEmitter, numaID int) (free, total, scaleFactor float64, err error) {
 	if numaID >= 0 {
 		free, err = GetNumaMetric(metricsFetcher, emitter, consts.MetricMemFreeNuma, numaID)
 		if err != nil {
@@ -58,7 +58,7 @@ func GetWatermarkMetrics(metricsFetcher metric.MetricsFetcher, emitter metrics.M
 	return free, total, scaleFactor, nil
 }
 
-func GetNodeMetricWithTime(metricsFetcher metric.MetricsFetcher, emitter metrics.MetricEmitter, metricName string) (metricutil.MetricData, error) {
+func GetNodeMetricWithTime(metricsFetcher types.MetricsFetcher, emitter metrics.MetricEmitter, metricName string) (metricutil.MetricData, error) {
 	metricData, err := metricsFetcher.GetNodeMetric(metricName)
 	if err != nil {
 		return metricutil.MetricData{}, fmt.Errorf(errMsgGetSystemMetrics, metricName, err)
@@ -70,7 +70,7 @@ func GetNodeMetricWithTime(metricsFetcher metric.MetricsFetcher, emitter metrics
 	return metricData, nil
 }
 
-func GetNodeMetric(metricsFetcher metric.MetricsFetcher, emitter metrics.MetricEmitter, metricName string) (float64, error) {
+func GetNodeMetric(metricsFetcher types.MetricsFetcher, emitter metrics.MetricEmitter, metricName string) (float64, error) {
 	metricWithTime, err := GetNodeMetricWithTime(metricsFetcher, emitter, metricName)
 	if err != nil {
 		return 0, err
@@ -78,7 +78,7 @@ func GetNodeMetric(metricsFetcher metric.MetricsFetcher, emitter metrics.MetricE
 	return metricWithTime.Value, err
 }
 
-func GetNumaMetricWithTime(metricsFetcher metric.MetricsFetcher, emitter metrics.MetricEmitter, metricName string, numaID int) (metricutil.MetricData, error) {
+func GetNumaMetricWithTime(metricsFetcher types.MetricsFetcher, emitter metrics.MetricEmitter, metricName string, numaID int) (metricutil.MetricData, error) {
 	metricData, err := metricsFetcher.GetNumaMetric(numaID, metricName)
 	if err != nil {
 		general.Errorf(errMsgGetNumaMetrics, metricName, numaID, err)
@@ -92,7 +92,7 @@ func GetNumaMetricWithTime(metricsFetcher metric.MetricsFetcher, emitter metrics
 	return metricData, nil
 }
 
-func GetNumaMetric(metricsFetcher metric.MetricsFetcher, emitter metrics.MetricEmitter, metricName string, numaID int) (float64, error) {
+func GetNumaMetric(metricsFetcher types.MetricsFetcher, emitter metrics.MetricEmitter, metricName string, numaID int) (float64, error) {
 	metricWithTime, err := GetNumaMetricWithTime(metricsFetcher, emitter, metricName, numaID)
 	if err != nil {
 		return 0, err

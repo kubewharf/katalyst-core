@@ -47,6 +47,8 @@ const (
 	defaultKubeletConfigURI             = "/configz"
 	defaultAPIAuthTokenFile             = "/var/run/secrets/kubernetes.io/serviceaccount/token"
 	defaultKubeletPodsEndpoint          = "/pods"
+	defaultKubeletSummaryEndpoint       = "/stats/summary"
+	defaultMetricInsurancePeriod        = 120 * time.Second
 )
 
 const (
@@ -76,6 +78,7 @@ type MetaServerOptions struct {
 	KubeletConfigEndpoint        string
 	APIAuthTokenFile             string
 	KubeletPodsEndpoint          string
+	KubeletSummaryEndpoint       string
 
 	RemoteRuntimeEndpoint     string
 	RuntimePodCacheSyncPeriod time.Duration
@@ -84,6 +87,8 @@ type MetaServerOptions struct {
 
 	EnableMetricsFetcher bool
 	EnableCNCFetcher     bool
+
+	MetricInsurancePeriod time.Duration
 }
 
 func NewMetaServerOptions() *MetaServerOptions {
@@ -108,7 +113,9 @@ func NewMetaServerOptions() *MetaServerOptions {
 		EnableCNCFetcher:               defaultEnableCNCFetcher,
 		KubeletConfigEndpoint:          defaultKubeletConfigURI,
 		KubeletPodsEndpoint:            defaultKubeletPodsEndpoint,
+		KubeletSummaryEndpoint:         defaultKubeletSummaryEndpoint,
 		APIAuthTokenFile:               defaultAPIAuthTokenFile,
+		MetricInsurancePeriod:          defaultMetricInsurancePeriod,
 	}
 }
 
@@ -156,8 +163,12 @@ func (o *MetaServerOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 		"The URI of kubelet config endpoint")
 	fs.StringVar(&o.KubeletPodsEndpoint, "kubelet-pods-endpoint", o.KubeletPodsEndpoint,
 		"The URI of kubelet pods endpoint")
+	fs.StringVar(&o.KubeletSummaryEndpoint, "kubelet-summary-endpoint", o.KubeletSummaryEndpoint,
+		"The URI of kubelet summary endpoint")
 	fs.StringVar(&o.APIAuthTokenFile, "api-auth-token-file", o.APIAuthTokenFile,
 		"The path of the API auth token file")
+	fs.DurationVar(&o.MetricInsurancePeriod, "metric-insurance-period", o.MetricInsurancePeriod,
+		"The meta server return metric data and MetricDataExpired if the update time of metric data is earlier than this period.")
 }
 
 // ApplyTo fills up config with options
@@ -182,7 +193,9 @@ func (o *MetaServerOptions) ApplyTo(c *global.MetaServerConfiguration) error {
 	c.EnableCNCFetcher = o.EnableCNCFetcher
 	c.KubeletConfigEndpoint = o.KubeletConfigEndpoint
 	c.KubeletPodsEndpoint = o.KubeletPodsEndpoint
+	c.KubeletSummaryEndpoint = o.KubeletSummaryEndpoint
 	c.APIAuthTokenFile = o.APIAuthTokenFile
+	c.MetricInsurancePeriod = o.MetricInsurancePeriod
 
 	return nil
 }

@@ -169,14 +169,14 @@ func SetSockMemLimit(conf *coreconfig.Configuration,
 		for _, containerStatus := range pod.Status.ContainerStatuses {
 			podUID, containerID := string(pod.UID), native.TrimContainerIDPrefix(containerStatus.ContainerID)
 
-			memLimit, found := helper.GetPodMetric(metaServer.MetricsFetcher, emitter, pod, coreconsts.MetricMemLimitContainer, -1)
-			if !found {
+			memLimit, err := helper.IgnoreMetricValueExpired(helper.GetPodMetric(metaServer.MetricsFetcher, emitter, pod, coreconsts.MetricMemLimitContainer, -1))
+			if err != nil {
 				general.Infof("memory limit not found:%v..\n", podUID)
 				continue
 			}
 
-			memTCPLimit, found := helper.GetPodMetric(metaServer.MetricsFetcher, emitter, pod, coreconsts.MetricMemTCPLimitContainer, -1)
-			if !found {
+			memTCPLimit, err := helper.IgnoreMetricValueExpired(helper.GetPodMetric(metaServer.MetricsFetcher, emitter, pod, coreconsts.MetricMemTCPLimitContainer, -1))
+			if err != nil {
 				general.Infof("memory tcp.limit not found:%v..\n", podUID)
 				continue
 			}

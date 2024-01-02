@@ -39,6 +39,7 @@ type MetaServerConfiguration struct {
 	KubeletPodCacheSyncBurstBulk int
 	KubeletConfigEndpoint        string
 	KubeletPodsEndpoint          string
+	KubeletSummaryEndpoint       string
 	APIAuthTokenFile             string
 
 	RemoteRuntimeEndpoint     string
@@ -48,6 +49,8 @@ type MetaServerConfiguration struct {
 
 	EnableMetricsFetcher bool
 	EnableCNCFetcher     bool
+
+	MetricInsurancePeriod time.Duration
 }
 
 func NewMetaServerConfiguration() *MetaServerConfiguration {

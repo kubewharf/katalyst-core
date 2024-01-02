@@ -21,11 +21,13 @@ const (
 	metricsNameSystemMetric    = "system_metric_raw"
 	metricsNameContainerMetric = "container_metric_raw"
 	metricsNamePodMetric       = "pod_metric_raw"
+	metricsNamePodVolumeMetric = "pod_volume_metric_raw"
 
 	metricsTagKeyNumaID        = "numa_id"
 	metricsTagKeyMetricName    = "metric_name"
 	metricsTagKeyPodUID        = "pod_uid"
 	metricsTagKeyContainerName = "container_name"
+	metricsTagKeyPodVolumeName = "pod_volume_name"
 )
 
 const (
@@ -33,4 +35,5 @@ const (
 	errMsgGetNumaMetrics            = "failed to get numa metric, metric name: %s, numa id: %d, err: %v"
 	errMsgGetContainerNumaMetrics   = "failed to get container numa metric, metric name: %s, pod uid: %s, container name: %s, numa id: %d, err: %v"
 	errMsgGetContainerSystemMetrics = "failed to get container system metric, metric name: %s, pod uid: %s, container name: %s, err: %v"
+	errMsgGetPodVolumeMetrics       = "failed to get pod volume metric, pod uid: %s, volume name: %s, metric name: %s, err: %v"
 )

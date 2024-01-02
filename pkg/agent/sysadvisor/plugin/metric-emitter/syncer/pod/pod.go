@@ -35,7 +35,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/custom-metric/store/data"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
-	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric"
+	metrictypes "github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric/types"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	metricspool "github.com/kubewharf/katalyst-core/pkg/metrics/metrics-pool"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
@@ -61,7 +61,7 @@ var podRawMetricNameMapping = map[string]string{
 
 type podRawChanel struct {
 	keys  []string
-	rChan chan metric.NotifiedResponse
+	rChan chan metrictypes.NotifiedResponse
 }
 
 // podCachedMetricNameMapping maps the cached metricName (processed by plugin.SysAdvisorPlugin)
@@ -139,13 +139,13 @@ func (p *MetricSyncerPod) syncChanel() {
 			continue
 		}
 
-		rChan := make(chan metric.NotifiedResponse, 20)
+		rChan := make(chan metrictypes.NotifiedResponse, 20)
 		go p.receiveRawPod(p.ctx, podList[i], rChan)
 
 		var keys []string
 		for rawMetricName := range p.metricMapping {
 			for _, container := range podList[i].Spec.Containers {
-				key := p.metaServer.MetricsFetcher.RegisterNotifier(metric.MetricsScopeContainer, metric.NotifiedRequest{
+				key := p.metaServer.MetricsFetcher.RegisterNotifier(metrictypes.MetricsScopeContainer, metrictypes.NotifiedRequest{
 					PodUID:        uid,
 					ContainerName: container.Name,
 					MetricName:    rawMetricName,
@@ -171,7 +171,7 @@ func (p *MetricSyncerPod) syncChanel() {
 
 		for _, key := range pChanel.keys {
 			klog.Infof("deregister, key %v", key)
-			p.metaServer.MetricsFetcher.DeRegisterNotifier(metric.MetricsScopeContainer, key)
+			p.metaServer.MetricsFetcher.DeRegisterNotifier(metrictypes.MetricsScopeContainer, key)
 		}
 		close(pChanel.rChan)
 
@@ -180,7 +180,7 @@ func (p *MetricSyncerPod) syncChanel() {
 }
 
 // receiveRawPod receives notified response from raw data source
-func (p *MetricSyncerPod) receiveRawPod(ctx context.Context, pod *v1.Pod, rChan chan metric.NotifiedResponse) {
+func (p *MetricSyncerPod) receiveRawPod(ctx context.Context, pod *v1.Pod, rChan chan metrictypes.NotifiedResponse) {
 	name, tags := pod.Name, p.generateMetricTag(pod)
 
 	for {

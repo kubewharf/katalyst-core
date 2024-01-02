@@ -42,6 +42,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric"
+	metrictypes "github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric/types"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/pod"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/spd"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
@@ -71,7 +72,7 @@ func generateTestConfiguration(t *testing.T, checkpointDir, stateFileDir string)
 }
 
 func generateTestMetaServer(t *testing.T, podList []*v1.Pod,
-	metricsFetcher metric.MetricsFetcher) *metaserver.MetaServer {
+	metricsFetcher metrictypes.MetricsFetcher) *metaserver.MetaServer {
 	// numa node0 cpu(s): 0-23,48-71
 	// numa node1 cpu(s): 24-47,72-95
 	cpuTopology, err := machine.GenerateDummyCPUTopology(96, 2, 2)

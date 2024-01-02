@@ -45,6 +45,7 @@ type MetricStore struct {
 	cpuMetricMap              map[int]map[string]MetricData                          // map[cpuID]map[metricName]data
 	podContainerMetricMap     map[string]map[string]map[string]MetricData            // map[podUID]map[containerName]map[metricName]data
 	podContainerNumaMetricMap map[string]map[string]map[string]map[string]MetricData // map[podUID]map[containerName]map[numaNode]map[metricName]data
+	podVolumeMetricMap        map[string]map[string]map[string]MetricData            // map[podUID]map[volumeName]map[metricName]data
 	cgroupMetricMap           map[string]map[string]MetricData                       // map[cgroupPath]map[metricName]value
 	cgroupNumaMetricMap       map[string]map[string]map[string]MetricData            // map[cgroupPath]map[numaNode]map[metricName]value
 }
@@ -57,6 +58,7 @@ func NewMetricStore() *MetricStore {
 		cpuMetricMap:              make(map[int]map[string]MetricData),
 		podContainerMetricMap:     make(map[string]map[string]map[string]MetricData),
 		podContainerNumaMetricMap: make(map[string]map[string]map[string]map[string]MetricData),
+		podVolumeMetricMap:        make(map[string]map[string]map[string]MetricData),
 		cgroupMetricMap:           make(map[string]map[string]MetricData),
 		cgroupNumaMetricMap:       make(map[string]map[string]map[string]MetricData),
 	}
@@ -124,6 +126,21 @@ func (c *MetricStore) SetContainerNumaMetric(podUID, containerName, numaNode, me
 		c.podContainerNumaMetricMap[podUID][containerName][numaNode] = make(map[string]MetricData)
 	}
 	c.podContainerNumaMetricMap[podUID][containerName][numaNode][metricName] = data
+}
+
+func (c *MetricStore) SetPodVolumeMetric(podUID, volumeName, metricName string, data MetricData) {
+	c.mutex.Lock()
+	defer c.mutex.Unlock()
+
+	if _, ok := c.podVolumeMetricMap[podUID]; !ok {
+		c.podVolumeMetricMap[podUID] = make(map[string]map[string]MetricData)
+	}
+
+	if _, ok := c.podVolumeMetricMap[podUID][volumeName]; !ok {
+		c.podVolumeMetricMap[podUID][volumeName] = make(map[string]MetricData)
+	}
+
+	c.podVolumeMetricMap[podUID][volumeName][metricName] = data
 }
 
 func (c *MetricStore) GetNodeMetric(metricName string) (MetricData, error) {
@@ -201,6 +218,22 @@ func (c *MetricStore) GetContainerNumaMetric(podUID, containerName, numaNode, me
 				} else {
 					return MetricData{}, errors.New("[MetricStore] load value failed")
 				}
+			}
+		}
+	}
+	return MetricData{}, errors.New("[MetricStore] empty map")
+}
+
+func (c *MetricStore) GetPodVolumeMetric(podUID, volumeName, metricName string) (MetricData, error) {
+	c.mutex.RLock()
+	defer c.mutex.RUnlock()
+
+	if c.podVolumeMetricMap[podUID] != nil {
+		if c.podVolumeMetricMap[podUID][volumeName] != nil {
+			if data, ok := c.podVolumeMetricMap[podUID][volumeName][metricName]; ok {
+				return data, nil
+			} else {
+				return MetricData{}, errors.New("[MetricStore] load value failed")
 			}
 		}
 	}

@@ -18,29 +18,24 @@ package malachite
 
 import (
 	"context"
-	"crypto/rand"
-	"fmt"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 
-	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/klog/v2"
 
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/consts"
-	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric"
-	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric/malachite/client"
-	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric/malachite/types"
+	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric/provisioner/malachite/client"
+	malachitetypes "github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric/provisioner/malachite/types"
+	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric/types"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/pod"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/cgroup/common"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
-	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 	utilmetric "github.com/kubewharf/katalyst-core/pkg/util/metric"
-	"github.com/kubewharf/katalyst-core/pkg/util/syntax"
 )
 
 const (
@@ -54,32 +49,26 @@ const (
 	pageShift = 12
 )
 
-// NewMalachiteMetricsFetcher returns the default implementation of MetricsFetcher.
-func NewMalachiteMetricsFetcher(emitter metrics.MetricEmitter, fetcher pod.PodFetcher, conf *config.Configuration) metric.MetricsFetcher {
-	return &MalachiteMetricsFetcher{
-		malachiteClient: client.NewMalachiteClient(fetcher),
-		metricStore:     utilmetric.NewMetricStore(),
-		RWMutex:         syntax.NewRWMutex(emitter),
-		emitter:         emitter,
-		conf:            conf,
-		registeredNotifier: map[metric.MetricsScope]map[string]metric.NotifiedData{
-			metric.MetricsScopeNode:      make(map[string]metric.NotifiedData),
-			metric.MetricsScopeNuma:      make(map[string]metric.NotifiedData),
-			metric.MetricsScopeCPU:       make(map[string]metric.NotifiedData),
-			metric.MetricsScopeDevice:    make(map[string]metric.NotifiedData),
-			metric.MetricsScopeContainer: make(map[string]metric.NotifiedData),
-		},
+// NewMalachiteMetricsProvisioner returns the default implementation of MetricsFetcher.
+func NewMalachiteMetricsProvisioner(metricStore *utilmetric.MetricStore, emitter metrics.MetricEmitter, fetcher pod.PodFetcher, conf *config.Configuration,
+	metricsNotifierManager types.MetricsNotifierManager, externalMetricManager types.ExternalMetricManager) types.MetricsProvisioner {
+	return &MalachiteMetricsProvisioner{
+		malachiteClient:        client.NewMalachiteClient(fetcher),
+		metricStore:            metricStore,
+		emitter:                emitter,
+		conf:                   conf,
+		metricsNotifierManager: metricsNotifierManager,
+		externalMetricManager:  externalMetricManager,
 	}
 }
 
-type MalachiteMetricsFetcher struct {
+type MalachiteMetricsProvisioner struct {
 	metricStore     *utilmetric.MetricStore
 	malachiteClient *client.MalachiteClient
 	conf            *config.Configuration
 
-	*syntax.RWMutex
-	registeredMetric   []func(store *utilmetric.MetricStore)
-	registeredNotifier map[metric.MetricsScope]map[string]metric.NotifiedData
+	metricsNotifierManager types.MetricsNotifierManager
+	externalMetricManager  types.ExternalMetricManager
 
 	startOnce sync.Once
 	emitter   metrics.MetricEmitter
@@ -87,96 +76,17 @@ type MalachiteMetricsFetcher struct {
 	synced bool
 }
 
-func (m *MalachiteMetricsFetcher) Run(ctx context.Context) {
+func (m *MalachiteMetricsProvisioner) Run(ctx context.Context) {
 	m.startOnce.Do(func() {
 		go wait.Until(func() { m.sample(ctx) }, time.Second*5, ctx.Done())
 	})
 }
 
-func (m *MalachiteMetricsFetcher) RegisterNotifier(scope metric.MetricsScope, req metric.NotifiedRequest,
-	response chan metric.NotifiedResponse) string {
-	if _, ok := m.registeredNotifier[scope]; !ok {
-		return ""
-	}
-
-	m.Lock()
-	defer m.Unlock()
-
-	randBytes := make([]byte, 30)
-	_, _ = rand.Read(randBytes)
-	key := string(randBytes)
-
-	m.registeredNotifier[scope][key] = metric.NotifiedData{
-		Scope:    scope,
-		Req:      req,
-		Response: response,
-	}
-	return key
-}
-
-func (m *MalachiteMetricsFetcher) DeRegisterNotifier(scope metric.MetricsScope, key string) {
-	m.Lock()
-	defer m.Unlock()
-
-	delete(m.registeredNotifier[scope], key)
-}
-
-func (m *MalachiteMetricsFetcher) RegisterExternalMetric(f func(store *utilmetric.MetricStore)) {
-	m.Lock()
-	defer m.Unlock()
-	m.registeredMetric = append(m.registeredMetric, f)
-}
-
-func (m *MalachiteMetricsFetcher) GetNodeMetric(metricName string) (utilmetric.MetricData, error) {
-	return m.metricStore.GetNodeMetric(metricName)
-}
-
-func (m *MalachiteMetricsFetcher) GetNumaMetric(numaID int, metricName string) (utilmetric.MetricData, error) {
-	return m.metricStore.GetNumaMetric(numaID, metricName)
-}
-
-func (m *MalachiteMetricsFetcher) GetDeviceMetric(deviceName string, metricName string) (utilmetric.MetricData, error) {
-	return m.metricStore.GetDeviceMetric(deviceName, metricName)
-}
-
-func (m *MalachiteMetricsFetcher) GetCPUMetric(coreID int, metricName string) (utilmetric.MetricData, error) {
-	return m.metricStore.GetCPUMetric(coreID, metricName)
-}
-
-func (m *MalachiteMetricsFetcher) GetContainerMetric(podUID, containerName, metricName string) (utilmetric.MetricData, error) {
-	return m.metricStore.GetContainerMetric(podUID, containerName, metricName)
-}
-
-func (m *MalachiteMetricsFetcher) GetContainerNumaMetric(podUID, containerName, numaNode, metricName string) (utilmetric.MetricData, error) {
-	return m.metricStore.GetContainerNumaMetric(podUID, containerName, numaNode, metricName)
-}
-
-func (m *MalachiteMetricsFetcher) GetCgroupMetric(cgroupPath, metricName string) (utilmetric.MetricData, error) {
-	return m.metricStore.GetCgroupMetric(cgroupPath, metricName)
-}
-
-func (m *MalachiteMetricsFetcher) GetCgroupNumaMetric(cgroupPath, numaNode, metricName string) (utilmetric.MetricData, error) {
-	return m.metricStore.GetCgroupNumaMetric(cgroupPath, numaNode, metricName)
-}
-func (m *MalachiteMetricsFetcher) AggregatePodNumaMetric(podList []*v1.Pod, numaNode, metricName string,
-	agg utilmetric.Aggregator, filter utilmetric.ContainerMetricFilter) utilmetric.MetricData {
-	return m.metricStore.AggregatePodNumaMetric(podList, numaNode, metricName, agg, filter)
-}
-
-func (m *MalachiteMetricsFetcher) AggregatePodMetric(podList []*v1.Pod, metricName string,
-	agg utilmetric.Aggregator, filter utilmetric.ContainerMetricFilter) utilmetric.MetricData {
-	return m.metricStore.AggregatePodMetric(podList, metricName, agg, filter)
-}
-
-func (m *MalachiteMetricsFetcher) AggregateCoreMetric(cpuset machine.CPUSet, metricName string, agg utilmetric.Aggregator) utilmetric.MetricData {
-	return m.metricStore.AggregateCoreMetric(cpuset, metricName, agg)
-}
-
-func (m *MalachiteMetricsFetcher) HasSynced() bool {
+func (m *MalachiteMetricsProvisioner) HasSynced() bool {
 	return m.synced
 }
 
-func (m *MalachiteMetricsFetcher) sample(ctx context.Context) {
+func (m *MalachiteMetricsProvisioner) sample(ctx context.Context) {
 	klog.V(4).Infof("[malachite] heartbeat")
 
 	if !m.checkMalachiteHealthy() {
@@ -190,21 +100,20 @@ func (m *MalachiteMetricsFetcher) sample(ctx context.Context) {
 	// Update top level cgroup of kubepods
 	m.updateCgroupData()
 
-	// after sampling, we should call the registered function to get external metric
-	m.RLock()
-	for _, f := range m.registeredMetric {
-		f(m.metricStore)
+	if m.externalMetricManager != nil {
+		// after sampling, we should call the registered function to get external metric
+		m.externalMetricManager.Sample()
 	}
-	m.RUnlock()
 
-	m.notifySystem()
-	m.notifyPods()
+	if m.metricsNotifierManager != nil {
+		m.metricsNotifierManager.Notify()
+	}
 
 	m.synced = true
 }
 
 // checkMalachiteHealthy is to check whether malachite is healthy
-func (m *MalachiteMetricsFetcher) checkMalachiteHealthy() bool {
+func (m *MalachiteMetricsProvisioner) checkMalachiteHealthy() bool {
 	_, err := m.malachiteClient.GetSystemComputeStats()
 	if err != nil {
 		klog.Errorf("[malachite] malachite is unhealthy: %v", err)
@@ -216,7 +125,7 @@ func (m *MalachiteMetricsFetcher) checkMalachiteHealthy() bool {
 }
 
 // Get raw system stats by malachite sdk and set to metricStore
-func (m *MalachiteMetricsFetcher) updateSystemStats() {
+func (m *MalachiteMetricsProvisioner) updateSystemStats() {
 	systemComputeData, err := m.malachiteClient.GetSystemComputeStats()
 	if err != nil {
 		klog.Errorf("[malachite] get system compute stats failed, err %v", err)
@@ -247,7 +156,7 @@ func (m *MalachiteMetricsFetcher) updateSystemStats() {
 	}
 }
 
-func (m *MalachiteMetricsFetcher) updateCgroupData() {
+func (m *MalachiteMetricsProvisioner) updateCgroupData() {
 	cgroupPaths := []string{m.conf.ReclaimRelativeRootCgroupPath, common.CgroupFsRootPathBurstable, common.CgroupFsRootPathBestEffort}
 	for _, path := range cgroupPaths {
 		stats, err := m.malachiteClient.GetCgroupStats(path)
@@ -264,7 +173,7 @@ func (m *MalachiteMetricsFetcher) updateCgroupData() {
 }
 
 // Get raw cgroup data by malachite sdk and set container metrics to metricStore, GC not existed pod metrics
-func (m *MalachiteMetricsFetcher) updatePodsCgroupData(ctx context.Context) {
+func (m *MalachiteMetricsProvisioner) updatePodsCgroupData(ctx context.Context) {
 	podsContainersStats, err := m.malachiteClient.GetAllPodContainersStats(ctx)
 	if err != nil {
 		klog.Errorf("[malachite] GetAllPodsContainersStats failed, error %v", err)
@@ -286,101 +195,7 @@ func (m *MalachiteMetricsFetcher) updatePodsCgroupData(ctx context.Context) {
 	m.metricStore.GCPodsMetric(podUIDSet)
 }
 
-// notifySystem notifies system-related data
-func (m *MalachiteMetricsFetcher) notifySystem() {
-	now := time.Now()
-	m.RLock()
-	defer m.RUnlock()
-
-	for _, reg := range m.registeredNotifier[metric.MetricsScopeNode] {
-		v, err := m.metricStore.GetNodeMetric(reg.Req.MetricName)
-		if err != nil {
-			continue
-		} else if v.Time == nil {
-			v.Time = &now
-		}
-		reg.Response <- metric.NotifiedResponse{
-			Req:        reg.Req,
-			MetricData: v,
-		}
-	}
-
-	for _, reg := range m.registeredNotifier[metric.MetricsScopeDevice] {
-		v, err := m.metricStore.GetDeviceMetric(reg.Req.DeviceID, reg.Req.MetricName)
-		if err != nil {
-			continue
-		} else if v.Time == nil {
-			v.Time = &now
-		}
-		reg.Response <- metric.NotifiedResponse{
-			Req:        reg.Req,
-			MetricData: v,
-		}
-	}
-
-	for _, reg := range m.registeredNotifier[metric.MetricsScopeNuma] {
-		v, err := m.metricStore.GetNumaMetric(reg.Req.NumaID, reg.Req.MetricName)
-		if err != nil {
-			continue
-		} else if v.Time == nil {
-			v.Time = &now
-		}
-		reg.Response <- metric.NotifiedResponse{
-			Req:        reg.Req,
-			MetricData: v,
-		}
-	}
-
-	for _, reg := range m.registeredNotifier[metric.MetricsScopeCPU] {
-		v, err := m.metricStore.GetCPUMetric(reg.Req.CoreID, reg.Req.MetricName)
-		if err != nil {
-			continue
-		} else if v.Time == nil {
-			v.Time = &now
-		}
-		reg.Response <- metric.NotifiedResponse{
-			Req:        reg.Req,
-			MetricData: v,
-		}
-	}
-}
-
-// notifySystem notifies pod-related data
-func (m *MalachiteMetricsFetcher) notifyPods() {
-	now := time.Now()
-	m.RLock()
-	defer m.RUnlock()
-
-	for _, reg := range m.registeredNotifier[metric.MetricsScopeContainer] {
-		v, err := m.metricStore.GetContainerMetric(reg.Req.PodUID, reg.Req.ContainerName, reg.Req.MetricName)
-		if err != nil {
-			continue
-		} else if v.Time == nil {
-			v.Time = &now
-		}
-		reg.Response <- metric.NotifiedResponse{
-			Req:        reg.Req,
-			MetricData: v,
-		}
-
-		if reg.Req.NumaID == 0 {
-			continue
-		}
-
-		v, err = m.metricStore.GetContainerNumaMetric(reg.Req.PodUID, reg.Req.ContainerName, fmt.Sprintf("%v", reg.Req.NumaID), reg.Req.MetricName)
-		if err != nil {
-			continue
-		} else if v.Time == nil {
-			v.Time = &now
-		}
-		reg.Response <- metric.NotifiedResponse{
-			Req:        reg.Req,
-			MetricData: v,
-		}
-	}
-}
-
-func (m *MalachiteMetricsFetcher) processSystemComputeData(systemComputeData *types.SystemComputeData) {
+func (m *MalachiteMetricsProvisioner) processSystemComputeData(systemComputeData *malachitetypes.SystemComputeData) {
 	// todo, currently we only get a unified data for the whole system compute data
 	updateTime := time.Unix(systemComputeData.UpdateTime, 0)
 
@@ -393,7 +208,7 @@ func (m *MalachiteMetricsFetcher) processSystemComputeData(systemComputeData *ty
 		utilmetric.MetricData{Value: load.Fifteen, Time: &updateTime})
 }
 
-func (m *MalachiteMetricsFetcher) processSystemMemoryData(systemMemoryData *types.SystemMemoryData) {
+func (m *MalachiteMetricsProvisioner) processSystemMemoryData(systemMemoryData *malachitetypes.SystemMemoryData) {
 	// todo, currently we only get a unified data for the whole system memory data
 	updateTime := time.Unix(systemMemoryData.UpdateTime, 0)
 
@@ -443,7 +258,7 @@ func (m *MalachiteMetricsFetcher) processSystemMemoryData(systemMemoryData *type
 		utilmetric.MetricData{Value: float64(systemMemoryData.UpdateTime), Time: &updateTime})
 }
 
-func (m *MalachiteMetricsFetcher) processSystemIOData(systemIOData *types.SystemDiskIoData) {
+func (m *MalachiteMetricsProvisioner) processSystemIOData(systemIOData *malachitetypes.SystemDiskIoData) {
 	// todo, currently we only get a unified data for the whole system io data
 	updateTime := time.Unix(systemIOData.UpdateTime, 0)
 
@@ -488,7 +303,7 @@ func (m *MalachiteMetricsFetcher) processSystemIOData(systemIOData *types.System
 	}
 }
 
-func (m *MalachiteMetricsFetcher) processSystemNumaData(systemMemoryData *types.SystemMemoryData) {
+func (m *MalachiteMetricsProvisioner) processSystemNumaData(systemMemoryData *malachitetypes.SystemMemoryData) {
 	// todo, currently we only get a unified data for the whole system memory data
 	updateTime := time.Unix(systemMemoryData.UpdateTime, 0)
 
@@ -526,7 +341,7 @@ func (m *MalachiteMetricsFetcher) processSystemNumaData(systemMemoryData *types.
 	}
 }
 
-func (m *MalachiteMetricsFetcher) processSystemCPUComputeData(systemComputeData *types.SystemComputeData) {
+func (m *MalachiteMetricsProvisioner) processSystemCPUComputeData(systemComputeData *malachitetypes.SystemComputeData) {
 	// todo, currently we only get a unified data for the whole system compute data
 	updateTime := time.Unix(systemComputeData.UpdateTime, 0)
 
@@ -550,7 +365,7 @@ func (m *MalachiteMetricsFetcher) processSystemCPUComputeData(systemComputeData 
 		utilmetric.MetricData{Value: systemComputeData.GlobalCPU.CPUUsage / 100.0, Time: &updateTime})
 }
 
-func (m *MalachiteMetricsFetcher) processCgroupCPUData(cgroupPath string, cgStats *types.MalachiteCgroupInfo) {
+func (m *MalachiteMetricsProvisioner) processCgroupCPUData(cgroupPath string, cgStats *malachitetypes.MalachiteCgroupInfo) {
 	if cgStats.CgroupType == "V1" {
 		cpu := cgStats.V1.Cpu
 		updateTime := time.Unix(cgStats.V1.Cpu.UpdateTime, 0)
@@ -597,7 +412,7 @@ func (m *MalachiteMetricsFetcher) processCgroupCPUData(cgroupPath string, cgStat
 	}
 }
 
-func (m *MalachiteMetricsFetcher) processCgroupMemoryData(cgroupPath string, cgStats *types.MalachiteCgroupInfo) {
+func (m *MalachiteMetricsProvisioner) processCgroupMemoryData(cgroupPath string, cgStats *malachitetypes.MalachiteCgroupInfo) {
 	if cgStats.CgroupType == "V1" {
 		mem := cgStats.V1.Memory
 		updateTime := time.Unix(cgStats.V1.Memory.UpdateTime, 0)
@@ -635,7 +450,7 @@ func (m *MalachiteMetricsFetcher) processCgroupMemoryData(cgroupPath string, cgS
 	}
 }
 
-func (m *MalachiteMetricsFetcher) processCgroupBlkIOData(cgroupPath string, cgStats *types.MalachiteCgroupInfo) {
+func (m *MalachiteMetricsProvisioner) processCgroupBlkIOData(cgroupPath string, cgStats *malachitetypes.MalachiteCgroupInfo) {
 
 	if cgStats.CgroupType == "V1" {
 		updateTime := time.Unix(cgStats.V1.Blkio.UpdateTime, 0)
@@ -656,10 +471,10 @@ func (m *MalachiteMetricsFetcher) processCgroupBlkIOData(cgroupPath string, cgSt
 	}
 }
 
-func (m *MalachiteMetricsFetcher) processCgroupNetData(cgroupPath string, cgStats *types.MalachiteCgroupInfo) {
+func (m *MalachiteMetricsProvisioner) processCgroupNetData(cgroupPath string, cgStats *malachitetypes.MalachiteCgroupInfo) {
 	updateTime := time.Now()
 
-	var net *types.NetClsCgData
+	var net *malachitetypes.NetClsCgData
 	if cgStats.CgroupType == "V1" {
 		net = cgStats.V1.NetCls
 		updateTime = time.Unix(cgStats.V1.Blkio.UpdateTime, 0)
@@ -676,7 +491,7 @@ func (m *MalachiteMetricsFetcher) processCgroupNetData(cgroupPath string, cgStat
 	m.metricStore.SetCgroupMetric(cgroupPath, consts.MetricNetTcpRecvPpsCgroup, utilmetric.MetricData{Time: &updateTime, Value: float64(net.BpfNetData.NetTCPRx - net.OldBpfNetData.NetTCPRx)})
 }
 
-func (m *MalachiteMetricsFetcher) processCgroupPerNumaMemoryData(cgroupPath string, cgStats *types.MalachiteCgroupInfo) {
+func (m *MalachiteMetricsProvisioner) processCgroupPerNumaMemoryData(cgroupPath string, cgStats *malachitetypes.MalachiteCgroupInfo) {
 	if cgStats.CgroupType == "V1" {
 		numaStats := cgStats.V1.Memory.NumaStats
 		updateTime := time.Unix(cgStats.V1.Memory.UpdateTime, 0)
@@ -701,11 +516,11 @@ func (m *MalachiteMetricsFetcher) processCgroupPerNumaMemoryData(cgroupPath stri
 	}
 }
 
-func (m *MalachiteMetricsFetcher) processContainerCPUData(podUID, containerName string, cgStats *types.MalachiteCgroupInfo) {
+func (m *MalachiteMetricsProvisioner) processContainerCPUData(podUID, containerName string, cgStats *malachitetypes.MalachiteCgroupInfo) {
 	var (
 		metricLastUpdateTime, _ = m.metricStore.GetContainerMetric(podUID, containerName, consts.MetricCPUUpdateTimeContainer)
-		cyclesOld, _            = m.GetContainerMetric(podUID, containerName, consts.MetricCPUCyclesContainer)
-		instructionsOld, _      = m.GetContainerMetric(podUID, containerName, consts.MetricCPUInstructionsContainer)
+		cyclesOld, _            = m.metricStore.GetContainerMetric(podUID, containerName, consts.MetricCPUCyclesContainer)
+		instructionsOld, _      = m.metricStore.GetContainerMetric(podUID, containerName, consts.MetricCPUInstructionsContainer)
 	)
 
 	m.processContainerMemBandwidth(podUID, containerName, cgStats, metricLastUpdateTime.Value)
@@ -848,7 +663,7 @@ func (m *MalachiteMetricsFetcher) processContainerCPUData(podUID, containerName 
 	}
 }
 
-func (m *MalachiteMetricsFetcher) processContainerMemoryData(podUID, containerName string, cgStats *types.MalachiteCgroupInfo) {
+func (m *MalachiteMetricsProvisioner) processContainerMemoryData(podUID, containerName string, cgStats *malachitetypes.MalachiteCgroupInfo) {
 	lastUpdateTimeMetric, _ := m.metricStore.GetContainerMetric(podUID, containerName, consts.MetricMemUpdateTimeContainer)
 
 	m.processContainerMemRelevantRate(podUID, containerName, cgStats, lastUpdateTimeMetric.Value)
@@ -926,7 +741,7 @@ func (m *MalachiteMetricsFetcher) processContainerMemoryData(podUID, containerNa
 	}
 }
 
-func (m *MalachiteMetricsFetcher) processContainerBlkIOData(podUID, containerName string, cgStats *types.MalachiteCgroupInfo) {
+func (m *MalachiteMetricsProvisioner) processContainerBlkIOData(podUID, containerName string, cgStats *malachitetypes.MalachiteCgroupInfo) {
 	lastUpdateTime, _ := m.metricStore.GetContainerMetric(podUID, containerName, consts.MetricBlkioUpdateTimeContainer)
 
 	if cgStats.CgroupType == "V1" {
@@ -984,8 +799,8 @@ func (m *MalachiteMetricsFetcher) processContainerBlkIOData(podUID, containerNam
 	}
 }
 
-func (m *MalachiteMetricsFetcher) processContainerNetData(podUID, containerName string, cgStats *types.MalachiteCgroupInfo) {
-	var net *types.NetClsCgData
+func (m *MalachiteMetricsProvisioner) processContainerNetData(podUID, containerName string, cgStats *malachitetypes.MalachiteCgroupInfo) {
+	var net *malachitetypes.NetClsCgData
 	var updateTime time.Time
 	if cgStats.CgroupType == "V1" {
 		net = cgStats.V1.NetCls
@@ -1026,10 +841,10 @@ func (m *MalachiteMetricsFetcher) processContainerNetData(podUID, containerName 
 
 // Currently, these valid perf event data are provided through types.MalachiteCgroupInfo.V1/V2.CPU by malachite.
 // Keep an empty func here in case of that malachite provides more detailed perf event someday.
-func (m *MalachiteMetricsFetcher) processContainerPerfData(podUID, containerName string, cgStats *types.MalachiteCgroupInfo) {
+func (m *MalachiteMetricsProvisioner) processContainerPerfData(podUID, containerName string, cgStats *malachitetypes.MalachiteCgroupInfo) {
 }
 
-func (m *MalachiteMetricsFetcher) processContainerPerNumaMemoryData(podUID, containerName string, cgStats *types.MalachiteCgroupInfo) {
+func (m *MalachiteMetricsProvisioner) processContainerPerNumaMemoryData(podUID, containerName string, cgStats *malachitetypes.MalachiteCgroupInfo) {
 	if cgStats.CgroupType == "V1" {
 		numaStats := cgStats.V1.Memory.NumaStats
 		updateTime := time.Unix(cgStats.V1.Memory.UpdateTime, 0)

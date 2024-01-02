@@ -12,7 +12,7 @@ require (
 	github.com/gogo/protobuf v1.3.2
 	github.com/golang/protobuf v1.5.2
 	github.com/google/cadvisor v0.44.2
-	github.com/kubewharf/katalyst-api v0.3.4-0.20231204022248-bfefbbd96f52
+	github.com/kubewharf/katalyst-api v0.3.4-0.20240104024830-9aef1a11c5d7
 	github.com/montanaflynn/stats v0.7.1
 	github.com/opencontainers/runc v1.1.6
 	github.com/opencontainers/selinux v1.10.0
@@ -146,7 +146,6 @@ require (
 )
 
 replace (
-	github.com/kubewharf/katalyst-api => github.com/kubewharf/katalyst-api v0.3.4-0.20231227064317-59eb6f3f6ae0
 	k8s.io/api => k8s.io/api v0.24.6
 	k8s.io/apiextensions-apiserver => k8s.io/apiextensions-apiserver v0.24.6
 	k8s.io/apimachinery => k8s.io/apimachinery v0.24.6

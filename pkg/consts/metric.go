@@ -70,6 +70,16 @@ const (
 	MetricIOBusyRateSystem = "io.busy.rate.system"
 )
 
+// System rootfs metrics
+const (
+	MetricsSystemRootfsAvailable  = "available.rootfs.system"
+	MetricsSystemRootfsCapacity   = "capacity.rootfs.system"
+	MetricsSystemRootfsUsed       = "used.rootfs.system"
+	MetricsSystemRootfsInodes     = "inodes.rootfs.system"
+	MetricsSystemRootfsInodesFree = "free.inodes.rootfs.system"
+	MetricsSystemRootfsInodesUsed = "used.inodes.rootfs.system"
+)
+
 // System numa metrics
 const (
 	MetricMemTotalNuma        = "mem.total.numa"
@@ -210,6 +220,25 @@ const (
 	MetricsMemAnonPerNumaContainer  = "mem.anon.numa.container"
 )
 
+// container rootfs metrics
+const (
+	MetricsContainerRootfsAvailable  = "available.rootfs.container"
+	MetricsContainerRootfsCapacity   = "capacity.rootfs.container"
+	MetricsContainerRootfsUsed       = "used.rootfs.container"
+	MetricsContainerRootfsInodes     = "inodes.rootfs.container"
+	MetricsContainerRootfsInodesFree = "free.inodes.rootfs.container"
+	MetricsContainerRootfsInodesUsed = "used.inodes.rootfs.container"
+)
+
+// container logs metrics
+const (
+	MetricsLogsAvailable  = "available.logs.container"
+	MetricsLogsCapacity   = "capacity.logs.container"
+	MetricsLogsInodes     = "inodes.logs.container"
+	MetricsLogsInodesFree = "free.inodes.logs.container"
+	MetricsLogsInodesUsed = "used.inodes.logs.container"
+)
+
 // Cgroup cpu metrics
 const (
 	MetricCPULimitCgroup     = "cpu.limit.cgroup"
@@ -277,4 +306,14 @@ const (
 	MetricsMemTotalPerNumaCgroup = "mem.total.numa.cgroup"
 	MetricsMemFilePerNumaCgroup  = "mem.file.numa.cgroup"
 	MetricsMemAnonPerNumaCgroup  = "mem.anon.numa.cgroup"
+)
+
+// Pod volume metrics
+const (
+	MetricsPodVolumeAvailable  = "available.volume.pod.container"
+	MetricsPodVolumeCapacity   = "capacity.volume.pod.container"
+	MetricsPodVolumeUsed       = "used.volume.pod.container"
+	MetricsPodVolumeInodes     = "inodes.volume.pod.container"
+	MetricsPodVolumeInodesFree = "free.inodes.volume.pod.container"
+	MetricsPodVolumeInodesUsed = "used.inodes.volume.pod.container"
 )
