@@ -39,6 +39,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/memory/dynamicpolicy/memoryadvisor"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/memory/dynamicpolicy/state"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util"
+	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	dynamicconfig "github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
@@ -514,5 +515,54 @@ func (p *DynamicPolicy) handleAdvisorMemoryProvisions(_ *config.Configuration,
 	}
 	// Todo: another logic to handle memory provisions
 	general.Infof("qrm: memoryProvisions: %v", memoryProvisions)
+	return nil
+}
+
+func (p *DynamicPolicy) handleNumaMemoryBalance(_ *config.Configuration,
+	_ interface{},
+	_ *dynamicconfig.DynamicAgentConfiguration,
+	emitter metrics.MetricEmitter,
+	metaServer *metaserver.MetaServer,
+	entryName, subEntryName string,
+	calculationInfo *advisorsvc.CalculationInfo, podResourceEntries state.PodResourceEntries) error {
+	advice := &types.NumaMemoryBalanceAdvice{}
+	value := calculationInfo.CalculationResult.Values[string(memoryadvisor.ControlKnobKeyBalanceNumaMemory)]
+	err := json.Unmarshal([]byte(value), advice)
+
+	if err != nil {
+		return fmt.Errorf("unmarshal %s: %s failed with error: %v",
+			memoryadvisor.ControlKnobKeyBalanceNumaMemory, value, err)
+	}
+
+	containerID, err := p.metaServer.GetContainerID(entryName, subEntryName)
+	if err != nil {
+		general.Errorf("get container id of pod: %s container: %s failed with error: %v", entryName, subEntryName, err)
+		return err
+	}
+
+	sourceNumaSet := machine.NewCPUSet(advice.SourceNuma)
+	destNumaSet := machine.NewCPUSet(advice.DestNumas...)
+
+	migratePagesWorkName := util.GetContainerAsyncWorkName(entryName, subEntryName,
+		memoryPluginAsyncWorkTopicMigratePage)
+	// start a asynchronous work to migrate pages for containers
+	err = p.asyncWorkers.AddWork(migratePagesWorkName,
+		&asyncworker.Work{
+			Fn: MigratePagesForContainer,
+			Params: []interface{}{entryName, containerID,
+				p.topology.NumNUMANodes, sourceNumaSet,
+				destNumaSet},
+			DeliveredAt: time.Now()})
+
+	if err != nil {
+		general.Errorf("add work: %s pod: %s container: %s failed with error: %v", migratePagesWorkName, entryName, subEntryName, err)
+	}
+
+	_ = emitter.StoreInt64(util.MetricNameMemoryNumaMemoryBalance, 1,
+		metrics.MetricTypeNameRaw, metrics.ConvertMapToTags(map[string]string{
+			"entryName":    entryName,
+			"subEntryName": subEntryName,
+		})...)
+
 	return nil
 }

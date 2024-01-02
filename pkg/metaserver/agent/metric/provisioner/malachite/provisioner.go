@@ -351,6 +351,8 @@ func (m *MalachiteMetricsProvisioner) processSystemNumaData(systemMemoryData *ma
 			utilmetric.MetricData{Value: numa.MemReadLatency, Time: &updateTime})
 		m.metricStore.SetNumaMetric(numa.ID, consts.MetricMemLatencyWriteNuma,
 			utilmetric.MetricData{Value: numa.MemWriteLatency, Time: &updateTime})
+		m.metricStore.SetNumaMetric(numa.ID, consts.MetricMemAMDL3MissLatencyNuma,
+			utilmetric.MetricData{Value: numa.AMDL3MissLatencyMax, Time: &updateTime})
 	}
 }
 

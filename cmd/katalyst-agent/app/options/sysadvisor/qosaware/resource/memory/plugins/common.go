@@ -26,23 +26,27 @@ import (
 type MemoryAdvisorPluginsOptions struct {
 	*CacheReaperOptions
 	*MemoryProvisionerOptions
+	*NumaBalancerOptions
 }
 
 func NewMemoryAdvisorPluginsOptions() *MemoryAdvisorPluginsOptions {
 	return &MemoryAdvisorPluginsOptions{
 		CacheReaperOptions:       NewCacheReaperOptions(),
 		MemoryProvisionerOptions: NewMemoryProvisionerOptions(),
+		NumaBalancerOptions:      NewNumaBalancerOptions(),
 	}
 }
 
 func (o *MemoryAdvisorPluginsOptions) AddFlags(fs *pflag.FlagSet) {
 	o.CacheReaperOptions.AddFlags(fs)
 	o.MemoryProvisionerOptions.AddFlags(fs)
+	o.NumaBalancerOptions.AddFlags(fs)
 }
 
 func (o *MemoryAdvisorPluginsOptions) ApplyTo(c *plugins.MemoryAdvisorPluginsConfiguration) error {
 	var errList []error
 	errList = append(errList, o.CacheReaperOptions.ApplyTo(c.CacheReaperConfiguration))
 	errList = append(errList, o.MemoryProvisionerOptions.ApplyTo(c.MemoryProvisionerConfiguration))
+	errList = append(errList, o.NumaBalancerOptions.ApplyTo(c.NumaBalancerConfiguration))
 	return errors.NewAggregate(errList)
 }

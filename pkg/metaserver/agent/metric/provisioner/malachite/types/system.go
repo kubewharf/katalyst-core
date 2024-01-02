@@ -167,6 +167,7 @@ type Numa struct {
 	MemTheoryMaxBandwidthMB float64 `json:"mem_theory_mx_bandwidth_mb"`
 	MemWriteBandwidthMB     float64 `json:"mem_write_bandwidth_mb"`
 	MemWriteLatency         float64 `json:"mem_write_latency"`
+	AMDL3MissLatencyMax     float64 `json:"amd_l3_miss_latency_max"`
 }
 
 type Some struct {

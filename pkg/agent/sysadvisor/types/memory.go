@@ -70,3 +70,8 @@ type InternalMemoryCalculationResult struct {
 	ExtraEntries     []ExtraMemoryAdvices
 	TimeStamp        time.Time
 }
+
+type NumaMemoryBalanceAdvice struct {
+	SourceNuma int   `json:"sourceNuma"`
+	DestNumas  []int `json:"destNumas"`
+}

@@ -19,11 +19,13 @@ package plugins
 type MemoryAdvisorPluginsConfiguration struct {
 	*CacheReaperConfiguration
 	*MemoryProvisionerConfiguration
+	*NumaBalancerConfiguration
 }
 
 func NewMemoryAdvisorPluginsConfiguration() *MemoryAdvisorPluginsConfiguration {
 	return &MemoryAdvisorPluginsConfiguration{
 		CacheReaperConfiguration:       NewCacheReaperConfiguration(),
 		MemoryProvisionerConfiguration: NewMemoryProvisionerConfiguration(),
+		NumaBalancerConfiguration:      NewNumaBalancerConfiguration(),
 	}
 }
