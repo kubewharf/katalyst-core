@@ -100,7 +100,7 @@ func (m *MalachiteMetricsFetcher) processContainerCPURelevantRate(podUID, contai
 		lastCPUIns       = uint64(lastMetricValueFn(consts.MetricCPUInstructionsContainer))
 		lastCPUCycles    = uint64(lastMetricValueFn(consts.MetricCPUCyclesContainer))
 		lastCPUNRTht     = uint64(lastMetricValueFn(consts.MetricCPUNrThrottledContainer))
-		lastCPUNRPeriod  = uint64(lastMetricValueFn(consts.MetricCPUPeriodContainer))
+		lastCPUNRPeriod  = uint64(lastMetricValueFn(consts.MetricCPUNrPeriodContainer))
 		lastThrottleTime = uint64(lastMetricValueFn(consts.MetricCPUThrottledTimeContainer))
 		lastL3CacheMiss  = uint64(lastMetricValueFn(consts.MetricCPUL3CacheMissContainer))
 
@@ -115,7 +115,11 @@ func (m *MalachiteMetricsFetcher) processContainerCPURelevantRate(podUID, contai
 		curCPUNRTht = cgStats.V1.Cpu.CPUNrThrottled
 		curCPUNRPeriod = cgStats.V1.Cpu.CPUNrPeriods
 		curCPUThrottleTime = cgStats.V1.Cpu.CPUThrottledTime
-		curL3CacheMiss = cgStats.V1.Cpu.L3Misses
+		if cgStats.V1.Cpu.L3Misses > 0 {
+			curL3CacheMiss = cgStats.V1.Cpu.L3Misses
+		} else if cgStats.V1.Cpu.OcrReadDrams > 0 {
+			curL3CacheMiss = cgStats.V1.Cpu.OcrReadDrams
+		}
 		curUpdateTime = cgStats.V1.Cpu.UpdateTime
 	} else if cgStats.CgroupType == "V2" {
 		curCPUIns = cgStats.V2.Cpu.Instructions
@@ -123,12 +127,15 @@ func (m *MalachiteMetricsFetcher) processContainerCPURelevantRate(podUID, contai
 		curCPUNRTht = cgStats.V2.Cpu.CPUStats.NrThrottled
 		curCPUNRPeriod = cgStats.V2.Cpu.CPUStats.NrPeriods
 		curCPUThrottleTime = cgStats.V2.Cpu.CPUStats.ThrottledUsec
-		curL3CacheMiss = cgStats.V2.Cpu.L3Misses
+		if cgStats.V2.Cpu.L3Misses > 0 {
+			curL3CacheMiss = cgStats.V2.Cpu.L3Misses
+		} else if cgStats.V2.Cpu.OcrReadDrams > 0 {
+			curL3CacheMiss = cgStats.V2.Cpu.OcrReadDrams
+		}
 		curUpdateTime = cgStats.V2.Cpu.UpdateTime
 	} else {
 		return
 	}
-
 	m.setContainerRateMetric(podUID, containerName, consts.MetricCPUInstructionsRateContainer, func() float64 {
 		return float64(uint64CounterDelta(lastCPUIns, curCPUIns))
 	}, int64(lastUpdateTimeInSec), curUpdateTime)
@@ -138,7 +145,7 @@ func (m *MalachiteMetricsFetcher) processContainerCPURelevantRate(podUID, contai
 	m.setContainerRateMetric(podUID, containerName, consts.MetricCPUNrThrottledRateContainer, func() float64 {
 		return float64(uint64CounterDelta(lastCPUNRTht, curCPUNRTht))
 	}, int64(lastUpdateTimeInSec), curUpdateTime)
-	m.setContainerRateMetric(podUID, containerName, consts.MetricCPUNRdPeriodRateContainer, func() float64 {
+	m.setContainerRateMetric(podUID, containerName, consts.MetricCPUNrPeriodRateContainer, func() float64 {
 		return float64(uint64CounterDelta(lastCPUNRPeriod, curCPUNRPeriod))
 	}, int64(lastUpdateTimeInSec), curUpdateTime)
 	m.setContainerRateMetric(podUID, containerName, consts.MetricCPUThrottledTimeRateContainer, func() float64 {
@@ -188,6 +195,65 @@ func (m *MalachiteMetricsFetcher) processContainerMemRelevantRate(podUID, contai
 	m.setContainerRateMetric(podUID, containerName, consts.MetricMemOomRateContainer, func() float64 {
 		return float64(uint64CounterDelta(lastOOMCnt, curOOMCnt))
 	}, int64(lastUpdateTimeInSec), curUpdateTime)
+}
+
+func (m *MalachiteMetricsFetcher) processContainerNetRelevantRate(podUID, containerName string, cgStats *types.MalachiteCgroupInfo, lastUpdateTimeInSec float64) {
+	lastMetricValueFn := func(metricName string) float64 {
+		lastMetric, _ := m.metricStore.GetContainerMetric(podUID, containerName, metricName)
+		return lastMetric.Value
+	}
+
+	var (
+		lastNetTCPRx      = uint64(lastMetricValueFn(consts.MetricNetTcpRecvPacketsContainer))
+		lastNetTCPTx      = uint64(lastMetricValueFn(consts.MetricNetTcpSendPacketsContainer))
+		lastNetTCPRxBytes = uint64(lastMetricValueFn(consts.MetricNetTcpRecvBytesContainer))
+		lastNetTCPTxBytes = uint64(lastMetricValueFn(consts.MetricNetTcpSendBytesContainer))
+
+		netData *types.NetClsCgData
+	)
+
+	if cgStats.V1 != nil {
+		netData = cgStats.V1.NetCls
+	} else if cgStats.V2 != nil {
+		netData = cgStats.V2.NetCls
+	} else {
+		return
+	}
+
+	curUpdateTime := netData.UpdateTime
+	_curUpdateTime := time.Unix(curUpdateTime, 0)
+	updateTimeDiff := float64(curUpdateTime) - lastUpdateTimeInSec
+	if updateTimeDiff > 0 {
+		m.setContainerRateMetric(podUID, containerName, consts.MetricNetTcpSendBPSContainer, func() float64 {
+			return float64(uint64CounterDelta(lastNetTCPTxBytes, netData.BpfNetData.NetTCPTxBytes))
+		}, int64(lastUpdateTimeInSec), curUpdateTime)
+		m.setContainerRateMetric(podUID, containerName, consts.MetricNetTcpRecvBPSContainer, func() float64 {
+			return float64(uint64CounterDelta(lastNetTCPRxBytes, netData.BpfNetData.NetTCPRxBytes))
+		}, int64(lastUpdateTimeInSec), curUpdateTime)
+		m.setContainerRateMetric(podUID, containerName, consts.MetricNetTcpSendPpsContainer, func() float64 {
+			return float64(uint64CounterDelta(lastNetTCPTx, netData.BpfNetData.NetTCPTx))
+		}, int64(lastUpdateTimeInSec), curUpdateTime)
+		m.setContainerRateMetric(podUID, containerName, consts.MetricNetTcpRecvPpsContainer, func() float64 {
+			return float64(uint64CounterDelta(lastNetTCPRx, netData.BpfNetData.NetTCPRx))
+		}, int64(lastUpdateTimeInSec), curUpdateTime)
+	} else {
+		m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricNetTcpSendBPSContainer, metric.MetricData{
+			Value: float64(uint64CounterDelta(netData.OldBpfNetData.NetTCPTxBytes, netData.BpfNetData.NetTCPTxBytes)) / defaultMetricUpdateInterval,
+			Time:  &_curUpdateTime,
+		})
+		m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricNetTcpRecvBPSContainer, metric.MetricData{
+			Value: float64(uint64CounterDelta(netData.OldBpfNetData.NetTCPRxBytes, netData.BpfNetData.NetTCPRxBytes)) / defaultMetricUpdateInterval,
+			Time:  &_curUpdateTime,
+		})
+		m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricNetTcpSendPpsContainer, metric.MetricData{
+			Value: float64(uint64CounterDelta(netData.OldBpfNetData.NetTCPTx, netData.BpfNetData.NetTCPTx)) / defaultMetricUpdateInterval,
+			Time:  &_curUpdateTime,
+		})
+		m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricNetTcpRecvPpsContainer, metric.MetricData{
+			Value: float64(uint64CounterDelta(netData.OldBpfNetData.NetTCPRx, netData.BpfNetData.NetTCPRx)) / defaultMetricUpdateInterval,
+			Time:  &_curUpdateTime,
+		})
+	}
 }
 
 // setContainerRateMetric is used to set rate metric in container level.

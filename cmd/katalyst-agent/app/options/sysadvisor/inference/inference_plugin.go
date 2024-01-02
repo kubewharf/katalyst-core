@@ -25,6 +25,9 @@ import (
 )
 
 const (
+	// System Metrics Collector samples a time per 10s
+	// So it may produce two same inference result within per 10s.
+	// TODO So it's better to retrieve inference results and use them per 10s.
 	defaultInferenceSyncPeriod = 5 * time.Second
 )
 

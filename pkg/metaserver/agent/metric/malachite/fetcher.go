@@ -48,6 +48,9 @@ const (
 	metricsNameMalachiteGetSystemStatusFailed = "malachite_get_system_status_failed"
 	metricsNameMalachiteGetPodStatusFailed    = "malachite_get_pod_status_failed"
 
+	// Typically, katalyst's metric component does sampling per 10s.
+	defaultMetricUpdateInterval = 10.0
+
 	pageShift = 12
 )
 
@@ -733,7 +736,7 @@ func (m *MalachiteMetricsFetcher) processContainerCPUData(podUID, containerName 
 		m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricCPUNrPeriodContainer,
 			utilmetric.MetricData{Value: float64(cpu.CPUNrPeriods), Time: &updateTime})
 		m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricCPUThrottledTimeContainer,
-			utilmetric.MetricData{Value: float64(cpu.CPUThrottledTime), Time: &updateTime})
+			utilmetric.MetricData{Value: float64(cpu.CPUThrottledTime / 1000), Time: &updateTime})
 		m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricCPUNrRunnableContainer,
 			utilmetric.MetricData{Value: float64(cpu.TaskNrRunning), Time: &updateTime})
 		m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricCPUNrUninterruptibleContainer,
@@ -762,8 +765,14 @@ func (m *MalachiteMetricsFetcher) processContainerCPUData(podUID, containerName 
 			utilmetric.MetricData{Value: float64(cpu.Cycles), Time: &updateTime})
 		m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricCPUInstructionsContainer,
 			utilmetric.MetricData{Value: float64(cpu.Instructions), Time: &updateTime})
-		m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricCPUL3CacheMissContainer,
-			utilmetric.MetricData{Value: float64(cpu.L3Misses), Time: &updateTime})
+		// L3Misses is similar to OcrReadDrams
+		if cpu.L3Misses > 0 {
+			m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricCPUL3CacheMissContainer,
+				utilmetric.MetricData{Value: float64(cpu.L3Misses), Time: &updateTime})
+		} else if cpu.OcrReadDrams > 0 {
+			m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricCPUL3CacheMissContainer,
+				utilmetric.MetricData{Value: float64(cpu.OcrReadDrams), Time: &updateTime})
+		}
 
 		if cyclesOld.Value > 0 && instructionsOld.Value > 0 {
 			instructionDiff := float64(cpu.Instructions) - instructionsOld.Value
@@ -792,6 +801,12 @@ func (m *MalachiteMetricsFetcher) processContainerCPUData(podUID, containerName 
 			utilmetric.MetricData{Value: float64(cpu.TaskNrUninterruptible), Time: &updateTime})
 		m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricCPUNrIOWaitContainer,
 			utilmetric.MetricData{Value: float64(cpu.TaskNrIoWait), Time: &updateTime})
+		m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricCPUThrottledTimeContainer,
+			utilmetric.MetricData{Value: float64(cpu.CPUStats.ThrottledUsec), Time: &updateTime})
+		m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricCPUNrThrottledContainer,
+			utilmetric.MetricData{Value: float64(cpu.CPUStats.NrThrottled), Time: &updateTime})
+		m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricCPUNrPeriodContainer,
+			utilmetric.MetricData{Value: float64(cpu.CPUStats.NrPeriods), Time: &updateTime})
 
 		m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricLoad1MinContainer,
 			utilmetric.MetricData{Value: cpu.Load.One, Time: &updateTime})
@@ -814,9 +829,14 @@ func (m *MalachiteMetricsFetcher) processContainerCPUData(podUID, containerName 
 			utilmetric.MetricData{Value: float64(cpu.Cycles), Time: &updateTime})
 		m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricCPUInstructionsContainer,
 			utilmetric.MetricData{Value: float64(cpu.Instructions), Time: &updateTime})
-		m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricCPUL3CacheMissContainer,
-			utilmetric.MetricData{Value: float64(cpu.L3Misses), Time: &updateTime})
-
+		// L3Misses is similar to OcrReadDrams
+		if cpu.L3Misses > 0 {
+			m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricCPUL3CacheMissContainer,
+				utilmetric.MetricData{Value: float64(cpu.L3Misses), Time: &updateTime})
+		} else if cpu.OcrReadDrams > 0 {
+			m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricCPUL3CacheMissContainer,
+				utilmetric.MetricData{Value: float64(cpu.OcrReadDrams), Time: &updateTime})
+		}
 		if cyclesOld.Value > 0 && instructionsOld.Value > 0 {
 			instructionDiff := float64(cpu.Instructions) - instructionsOld.Value
 			if instructionDiff > 0 {
@@ -974,25 +994,34 @@ func (m *MalachiteMetricsFetcher) processContainerNetData(podUID, containerName 
 		net = cgStats.V2.NetCls
 		updateTime = time.Unix(cgStats.V2.NetCls.UpdateTime, 0)
 	}
-
 	if net == nil {
 		return
 	}
 
 	lastUpdateTimeMetric, _ := m.metricStore.GetContainerMetric(podUID, containerName, consts.MetricNetworkUpdateTimeContainer)
+	m.processContainerNetRelevantRate(podUID, containerName, cgStats, lastUpdateTimeMetric.Value)
 
-	m.setContainerRateMetric(podUID, containerName, consts.MetricNetTcpSendBPSContainer, func() float64 {
-		return float64(uint64CounterDelta(net.OldBpfNetData.NetTCPRxBytes, net.BpfNetData.NetTCPRxBytes))
-	}, int64(lastUpdateTimeMetric.Value), updateTime.Unix())
-	m.setContainerRateMetric(podUID, containerName, consts.MetricNetTcpRecvBPSContainer, func() float64 {
-		return float64(uint64CounterDelta(net.OldBpfNetData.NetTCPRxBytes, net.BpfNetData.NetTCPRxBytes))
-	}, int64(lastUpdateTimeMetric.Value), updateTime.Unix())
-	m.setContainerRateMetric(podUID, containerName, consts.MetricNetTcpSendPpsContainer, func() float64 {
-		return float64(uint64CounterDelta(net.OldBpfNetData.NetTCPTx, net.BpfNetData.NetTCPTx))
-	}, int64(lastUpdateTimeMetric.Value), updateTime.Unix())
-	m.setContainerRateMetric(podUID, containerName, consts.MetricNetTcpRecvPpsContainer, func() float64 {
-		return float64(uint64CounterDelta(net.OldBpfNetData.NetTCPRx, net.BpfNetData.NetTCPRx))
-	}, int64(lastUpdateTimeMetric.Value), updateTime.Unix())
+	m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricNetTcpRecvPacketsContainer, utilmetric.MetricData{
+		Value: float64(net.BpfNetData.NetTCPRx),
+		Time:  &updateTime,
+	})
+	m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricNetTcpSendPacketsContainer, utilmetric.MetricData{
+		Value: float64(net.BpfNetData.NetTCPTx),
+		Time:  &updateTime,
+	})
+	m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricNetTcpRecvBytesContainer, utilmetric.MetricData{
+		Value: float64(net.BpfNetData.NetTCPRxBytes),
+		Time:  &updateTime,
+	})
+	m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricNetTcpSendBytesContainer, utilmetric.MetricData{
+		Value: float64(net.BpfNetData.NetTCPTxBytes),
+		Time:  &updateTime,
+	})
+
+	m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricNetworkUpdateTimeContainer, utilmetric.MetricData{
+		Value: float64(updateTime.Unix()),
+		Time:  &updateTime,
+	})
 }
 
 // Currently, these valid perf event data are provided through types.MalachiteCgroupInfo.V1/V2.CPU by malachite.
