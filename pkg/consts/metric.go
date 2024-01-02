@@ -125,7 +125,7 @@ const (
 	MetricStoreInsContainer     = "cpu.store.ins.container"
 
 	MetricCPUNrThrottledRateContainer   = MetricCPUNrThrottledContainer + Rate
-	MetricCPUNRdPeriodRateContainer     = MetricCPUNrPeriodContainer + Rate
+	MetricCPUNrPeriodRateContainer      = MetricCPUNrPeriodContainer + Rate
 	MetricCPUThrottledTimeRateContainer = MetricCPUThrottledTimeContainer + Rate
 
 	MetricCPUUpdateTimeContainer = "cpu.updatetime.container"
@@ -174,6 +174,11 @@ const (
 
 // container net metrics
 const (
+	MetricNetTcpSendBytesContainer   = "net.tcp.send.bytes.container"
+	MetricNetTcpSendPacketsContainer = "net.tcp.send.packets.container"
+	MetricNetTcpRecvBytesContainer   = "net.tcp.recv.bytes.container"
+	MetricNetTcpRecvPacketsContainer = "net.tcp.recv.packets.container"
+
 	MetricNetTcpSendBPSContainer = "net.tcp.send.bps.container"
 	MetricNetTcpSendPpsContainer = "net.tcp.send.pps.container"
 	MetricNetTcpRecvBPSContainer = "net.tcp.recv.bps.container"
