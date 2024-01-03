@@ -306,7 +306,3 @@ func MultiplyQuantity(quantity resource.Quantity, y float64) resource.Quantity {
 	value = int64(float64(value) * y)
 	return *resource.NewQuantity(value, quantity.Format)
 }
-
-func ParseQuantityToFloat64(quantity resource.Quantity) float64 {
-	return float64(quantity.MilliValue()) / 1000.0
-}
