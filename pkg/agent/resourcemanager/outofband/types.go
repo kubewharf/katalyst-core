@@ -29,7 +29,7 @@ const (
 	errBadSocket = "bad socketPath, must be an absolute path:"
 
 	// errUnsupportedVersion is the error raised when the resource plugin uses an API version not
-	// supported by the Kubelet registry
+	// supported by the ORM registry
 	errUnsupportedVersion = "requested API version %q is not supported by ORM. Supported version is %q"
 
 	// errListenSocket is the error raised when the registry could not listen on the socket
