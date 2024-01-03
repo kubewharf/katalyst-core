@@ -39,6 +39,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/resourcemanager/outofband/executor"
 	"github.com/kubewharf/katalyst-core/pkg/agent/resourcemanager/outofband/metamanager"
 	"github.com/kubewharf/katalyst-core/pkg/config"
+	"github.com/kubewharf/katalyst-core/pkg/config/generic"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	cgroupmgr "github.com/kubewharf/katalyst-core/pkg/util/cgroup/manager"
@@ -67,7 +68,8 @@ type ManagerImpl struct {
 	podResources      *podResourcesChk
 	checkpointManager checkpointmanager.CheckpointManager
 
-	emitter metrics.MetricEmitter
+	emitter   metrics.MetricEmitter
+	qosConfig *generic.QoSConfiguration
 
 	reconcilePeriod  time.Duration
 	resourceNamesMap map[string]string
@@ -100,6 +102,7 @@ func NewManager(socketPath string, emitter metrics.MetricEmitter, metaServer *me
 		podAddChan:    make(chan string, config.ORMPodNotifyChanLen),
 		podDeleteChan: make(chan string, config.ORMPodNotifyChanLen),
 		emitter:       emitter,
+		qosConfig:     config.QoSConfiguration,
 	}
 
 	m.resourceExecutor = executor.NewExecutor(cgroupmgr.GetManager())
@@ -276,7 +279,13 @@ func (m *ManagerImpl) processDeletePod(podUID string) error {
 func (m *ManagerImpl) addContainer(pod *v1.Pod, container *v1.Container) error {
 	klog.V(5).Infof("[ORM] addContainer, pod: %v, container: %v", pod.Name, container.Name)
 
-	if native.CheckDaemonPod(pod) && !isPodKatalystQoSLevelSystemCores(pod) {
+	systemCores, err := isPodKatalystQoSLevelSystemCores(m.qosConfig, pod)
+	if err != nil {
+		klog.Errorf("[ORM] check pod %s qos level fail: %v", pod.Name, err)
+		return err
+	}
+
+	if native.CheckDaemonPod(pod) && !systemCores {
 		klog.Infof("[ORM] skip pod: %s/%s, container: %s resource allocation",
 			pod.Namespace, pod.Name, container.Name)
 		return nil
@@ -309,13 +318,13 @@ func (m *ManagerImpl) addContainer(pod *v1.Pod, container *v1.Container) error {
 			ContainerName:  container.Name,
 			ContainerType:  containerType,
 			ContainerIndex: containerIndex,
-			// customize for tce, PodRole and PodType should be identified by more general annotations
+			// PodRole and PodType should be identified by more general annotations
 			PodRole: pod.Labels[pluginapi.PodRoleLabelKey],
 			PodType: pod.Annotations[pluginapi.PodTypeAnnotationKey],
 			// use mapped resource name in "ResourceName" to indicates which endpoint to request
 			ResourceName: resource,
 			// use original requested resource name in "ResourceRequests" in order to make plugin identity real requested resource name
-			ResourceRequests: map[string]float64{resource: native.ParseQuantityToFloat64(v)},
+			ResourceRequests: map[string]float64{resource: v.AsApproximateFloat64()},
 			Labels:           maputil.CopySS(pod.Labels),
 			Annotations:      maputil.CopySS(pod.Annotations),
 			// hint is not used in ORM but it can not be nil
@@ -390,7 +399,13 @@ func (m *ManagerImpl) reconcile() {
 	for _, pod := range activePods {
 		if pod == nil {
 			continue
-		} else if native.CheckDaemonPod(pod) && !isPodKatalystQoSLevelSystemCores(pod) {
+		}
+		systemCores, err := isPodKatalystQoSLevelSystemCores(m.qosConfig, pod)
+		if err != nil {
+			klog.Errorf("[ORM] check pod %s qos level fail: %v", pod.Name, err)
+		}
+
+		if native.CheckDaemonPod(pod) && !systemCores {
 			continue
 		}
 		for _, container := range pod.Spec.Containers {
@@ -555,13 +570,11 @@ func isSkippedContainer(pod *v1.Pod, container *v1.Container) bool {
 	return containerType == pluginapi.ContainerType_INIT
 }
 
-func isPodKatalystQoSLevelSystemCores(pod *v1.Pod) bool {
-	if pod == nil {
-		return false
-	}
-	if pod.Annotations == nil {
-		return false
+func isPodKatalystQoSLevelSystemCores(qosConfig *generic.QoSConfiguration, pod *v1.Pod) (bool, error) {
+	qosLevel, err := qosConfig.GetQoSLevelForPod(pod)
+	if err != nil {
+		return false, err
 	}
 
-	return pod.Annotations[pluginapi.KatalystQoSLevelAnnotationKey] == pluginapi.KatalystQoSLevelSystemCores
+	return qosLevel == pluginapi.KatalystQoSLevelSystemCores, nil
 }

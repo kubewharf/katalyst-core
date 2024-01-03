@@ -30,7 +30,7 @@ const (
 
 	// errUnsupportedVersion is the error raised when the resource plugin uses an API version not
 	// supported by the Kubelet registry
-	errUnsupportedVersion = "requested API version %q is not supported by kubelet. Supported version is %q"
+	errUnsupportedVersion = "requested API version %q is not supported by ORM. Supported version is %q"
 
 	// errListenSocket is the error raised when the registry could not listen on the socket
 	errListenSocket = "failed to listen to socket while starting resource plugin registry, with error"
