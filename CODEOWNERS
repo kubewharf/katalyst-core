@@ -55,6 +55,8 @@
 /pkg/agent/qrm-plugins/ @csfldf
 /pkg/agent/resourcemanager/ @luomingmeng
 /pkg/agent/sysadvisor/ @sun-yuliang @luomingmeng
+/pkg/agent/sysadvisor/plugin/inference @sun-yuliang @csfldf
+/pkg/agent/sysadvisor/plugin/metric-emitter @zzzzhhb
 /pkg/agent/utilcomponent/ @csfldf
 
 ### owners for util
