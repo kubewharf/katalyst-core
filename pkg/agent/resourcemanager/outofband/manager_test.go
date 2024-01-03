@@ -40,6 +40,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/resourcemanager/outofband/executor"
 	"github.com/kubewharf/katalyst-core/pkg/agent/resourcemanager/outofband/metamanager"
 	"github.com/kubewharf/katalyst-core/pkg/config"
+	"github.com/kubewharf/katalyst-core/pkg/config/generic"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/pod"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
@@ -88,7 +89,7 @@ func TestProcess(t *testing.T) {
 	assert.NoError(t, err)
 	metamanager := metamanager.NewManager(metrics.DummyMetrics{}, nil, metaServer)
 
-	checkpointManager, err := checkpointmanager.NewCheckpointManager("/tmp")
+	checkpointManager, err := checkpointmanager.NewCheckpointManager("/tmp/process")
 	assert.NoError(t, err)
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -97,7 +98,7 @@ func TestProcess(t *testing.T) {
 	m := &ManagerImpl{
 		ctx:               ctx,
 		endpoints:         map[string]endpoint.EndpointInfo{},
-		socketdir:         "/tmp",
+		socketdir:         "/tmp/process",
 		metaManager:       metamanager,
 		resourceNamesMap:  map[string]string{},
 		podResources:      newPodResourcesChk(),
@@ -105,8 +106,9 @@ func TestProcess(t *testing.T) {
 		checkpointManager: checkpointManager,
 		podAddChan:        make(chan string, 1),
 		podDeleteChan:     make(chan string, 1),
+		qosConfig:         generic.NewQoSConfiguration(),
 	}
-	defer func() { _ = os.Remove("/tmp/kubelet_qrm_checkpoint") }()
+	defer func() { _ = os.Remove("/tmp/process/kubelet_qrm_checkpoint") }()
 
 	err = registerEndpointByRes(m, testResources)
 	assert.NoError(t, err)
@@ -168,12 +170,12 @@ func TestReconcile(t *testing.T) {
 	assert.NoError(t, err)
 	metamanager := metamanager.NewManager(metrics.DummyMetrics{}, nil, metaServer)
 
-	checkpointManager, err := checkpointmanager.NewCheckpointManager("/tmp")
+	checkpointManager, err := checkpointmanager.NewCheckpointManager("/tmp/reconcile")
 	assert.NoError(t, err)
 
 	m := &ManagerImpl{
 		endpoints:   map[string]endpoint.EndpointInfo{},
-		socketdir:   "/tmp",
+		socketdir:   "/tmp/reconcile",
 		metaManager: metamanager,
 		resourceNamesMap: map[string]string{
 			"domain1.com/resource1": "domain1.com/resource1",
@@ -183,8 +185,9 @@ func TestReconcile(t *testing.T) {
 		checkpointManager: checkpointManager,
 		podAddChan:        make(chan string, 1),
 		podDeleteChan:     make(chan string, 1),
+		qosConfig:         generic.NewQoSConfiguration(),
 	}
-	defer func() { _ = os.Remove("/tmp/kubelet_qrm_checkpoint") }()
+	defer func() { _ = os.Remove("/tmp/reconcile/kubelet_qrm_checkpoint") }()
 
 	err = registerEndpointByPods(m, pods)
 	assert.NoError(t, err)
@@ -340,13 +343,13 @@ func TestRun(t *testing.T) {
 	metaServer, err := generateTestMetaServer(conf, pods)
 	assert.NoError(t, err)
 
-	checkpointManager, err := checkpointmanager.NewCheckpointManager("/tmp")
+	checkpointManager, err := checkpointmanager.NewCheckpointManager("/tmp/run")
 	assert.NoError(t, err)
 
 	m := &ManagerImpl{
 		reconcilePeriod: 2 * time.Second,
 		endpoints:       map[string]endpoint.EndpointInfo{},
-		socketdir:       "/tmp",
+		socketdir:       "/tmp/run",
 		socketname:      "tmp.sock",
 		resourceNamesMap: map[string]string{
 			"domain1.com/resource1": "domain1.com/resource1",
@@ -356,9 +359,10 @@ func TestRun(t *testing.T) {
 		checkpointManager: checkpointManager,
 		podAddChan:        make(chan string, 1),
 		podDeleteChan:     make(chan string, 1),
+		qosConfig:         generic.NewQoSConfiguration(),
 	}
-	defer func() { _ = os.Remove("/tmp/kubelet_qrm_checkpoint") }()
-	defer func() { _ = os.Remove("/tmp/tmp.sock") }()
+	defer func() { _ = os.Remove("/tmp/run/kubelet_qrm_checkpoint") }()
+	defer func() { _ = os.Remove("/tmp/run/tmp.sock") }()
 	metaManager := metamanager.NewManager(metrics.DummyMetrics{}, m.podResources.pods, metaServer)
 	m.metaManager = metaManager
 
