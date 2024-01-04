@@ -77,7 +77,7 @@ func StartLifeCycleController(ctx context.Context, controlCtx *katalystbase.Gene
 			conf.ControllersConfiguration.LifeCycleConfig,
 			controlCtx.Client,
 			controlCtx.KubeInformerFactory.Core().V1().Nodes(),
-			controlCtx.KubeInformerFactory.Core().V1().Pods(),
+			controlCtx.GetPodInformer(),
 			controlCtx.InternalInformerFactory.Node().V1alpha1().CustomNodeResources(),
 			controlCtx.EmitterPool.GetDefaultMetricsEmitter(),
 		)

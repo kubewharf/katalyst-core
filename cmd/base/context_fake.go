@@ -151,6 +151,28 @@ func increaseObjectResourceVersion(tracker coretesting.ObjectTracker, gvr schema
 }
 
 // versionedUpdateReactor is reactor for versioned update
+func versionedCreateReactor(tracker coretesting.ObjectTracker,
+	action coretesting.CreateActionImpl) (bool, runtime.Object, error) {
+	obj := action.GetObject()
+	accessor, err := meta.Accessor(obj)
+	if err != nil {
+		return true, nil, err
+	}
+
+	// if resource version is empty just fallback to default logic
+	if accessor.GetResourceVersion() == "" {
+		return false, nil, nil
+	}
+
+	if err = tracker.Create(action.GetResource(), obj, action.GetNamespace()); err != nil {
+		return false, nil, nil
+	}
+
+	obj, err = tracker.Get(action.GetResource(), action.GetNamespace(), accessor.GetName())
+	return true, obj, err
+}
+
+// versionedUpdateReactor is reactor for versioned update
 func versionedUpdateReactor(tracker coretesting.ObjectTracker,
 	action coretesting.UpdateActionImpl) (bool, runtime.Object, error) {
 	obj := action.GetObject()
@@ -207,6 +229,8 @@ func prependVersionedUpdateAndPatchReactor(fakeClient coretesting.FakeClient) {
 	fakeClient.PrependReactor("*", "*", func(action coretesting.Action) (handled bool, ret runtime.Object, err error) {
 		tracker := fakeClient.Tracker()
 		switch action := action.(type) {
+		case coretesting.CreateActionImpl:
+			return versionedCreateReactor(tracker, action)
 		case coretesting.UpdateActionImpl:
 			return versionedUpdateReactor(tracker, action)
 		case coretesting.PatchActionImpl:

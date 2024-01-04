@@ -20,13 +20,16 @@ import (
 	"context"
 	"net/http"
 	"net/http/pprof"
+	"reflect"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/dynamic/dynamicinformer"
 	"k8s.io/client-go/informers"
+	coreinformers "k8s.io/client-go/informers/core/v1"
 	"k8s.io/client-go/metadata/metadatainformer"
 	"k8s.io/client-go/tools/events"
 	"k8s.io/klog/v2"
@@ -261,6 +264,14 @@ func (c *GenericContext) StartInformer(ctx context.Context) {
 	if c.AggregatorInformerFactory != nil {
 		c.AggregatorInformerFactory.Start(ctx.Done())
 	}
+}
+
+func (c *GenericContext) GetPodInformer() coreinformers.PodInformer {
+	informerType := reflect.TypeOf(&corev1.Pod{})
+	if f, ok := native.GetInformerNewFunc(informerType); ok {
+		return native.NewPodInformer(c.KubeInformerFactory.InformerFor(&corev1.Pod{}, f))
+	}
+	return c.KubeInformerFactory.Core().V1().Pods()
 }
 
 // serveHealthZHTTP is used to provide health check for current running components.

@@ -106,7 +106,7 @@ func NewSPDController(ctx context.Context, controlCtx *katalystbase.GenericConte
 		return nil, fmt.Errorf("client, conf and generalConf can't be nil")
 	}
 
-	podInformer := controlCtx.KubeInformerFactory.Core().V1().Pods()
+	podInformer := controlCtx.GetPodInformer()
 	spdInformer := controlCtx.InternalInformerFactory.Workload().V1alpha1().ServiceProfileDescriptors()
 
 	spdController := &SPDController{

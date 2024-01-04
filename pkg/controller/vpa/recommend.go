@@ -102,7 +102,7 @@ func NewResourceRecommendController(ctx context.Context, controlCtx *katalystbas
 		return nil, fmt.Errorf("controlCtx is invalid")
 	}
 
-	podInformer := controlCtx.KubeInformerFactory.Core().V1().Pods()
+	podInformer := controlCtx.GetPodInformer()
 	spdInformer := controlCtx.InternalInformerFactory.Workload().V1alpha1().ServiceProfileDescriptors()
 	vpaInformer := controlCtx.InternalInformerFactory.Autoscaling().V1alpha1().KatalystVerticalPodAutoscalers()
 	vpaRecInformer := controlCtx.InternalInformerFactory.Autoscaling().V1alpha1().VerticalPodAutoscalerRecommendations()

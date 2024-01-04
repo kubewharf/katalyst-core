@@ -44,7 +44,7 @@ func StartMonitorController(ctx context.Context, controlCtx *katalystbase.Generi
 			conf.CNRMonitorConfig,
 			controlCtx.Client,
 			controlCtx.KubeInformerFactory.Core().V1().Nodes(),
-			controlCtx.KubeInformerFactory.Core().V1().Pods(),
+			controlCtx.GetPodInformer(),
 			controlCtx.InternalInformerFactory.Node().V1alpha1().CustomNodeResources(),
 			controlCtx.EmitterPool.GetDefaultMetricsEmitter(),
 		)

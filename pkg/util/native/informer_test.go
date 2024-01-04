@@ -17,48 +17,100 @@ limitations under the License.
 package native
 
 import (
+	"context"
+	"reflect"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 	core "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/runtime"
+	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
+	"k8s.io/apimachinery/pkg/watch"
+	"k8s.io/client-go/informers"
+	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/kubernetes/fake"
+	"k8s.io/client-go/tools/cache"
 )
 
-func TestPodTransformer(t *testing.T) {
+func TestNewPodInformer(t *testing.T) {
 	t.Parallel()
 
 	as := require.New(t)
-
-	WithPodTransformer(func(src, dest *core.Pod) {
-		dest.Spec.NodeName = src.Spec.NodeName
+	informerType := reflect.TypeOf(&core.Pod{})
+	SetInformerNewFunc(informerType, func(client kubernetes.Interface, _ time.Duration) cache.SharedIndexInformer {
+		return cache.NewSharedIndexInformer(
+			&cache.ListWatch{
+				ListFunc: func(options metav1.ListOptions) (runtime.Object, error) {
+					options.LabelSelector = "aa=bb"
+					return client.CoreV1().Pods("").List(context.TODO(), options)
+				},
+				WatchFunc: func(options metav1.ListOptions) (watch.Interface, error) {
+					options.LabelSelector = "aa=bb"
+					return client.CoreV1().Pods("").Watch(context.TODO(), options)
+				},
+			},
+			&core.Pod{},
+			time.Hour*24,
+			cache.Indexers{},
+		)
 	})
 
-	transform, ok := GetPodTransformer()
-	as.Equal(true, ok)
+	podType := reflect.TypeOf(&core.Node{})
+	_, ok := GetInformerNewFunc(podType)
+	as.False(ok)
 
-	p := &core.Pod{
+	f, ok := GetInformerNewFunc(informerType)
+	as.True(ok)
+
+	scheme := runtime.NewScheme()
+	utilruntime.Must(core.AddToScheme(scheme))
+
+	// get pod list by clientset
+	pod1 := &core.Pod{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: "test-pod-1",
-			Annotations: map[string]string{
-				"t-anno-key": "ann",
-			},
 			Labels: map[string]string{
-				"t-label-key": "label",
+				"aa": "bb",
 			},
-		},
-		Spec: core.PodSpec{
-			NodeName: "t-node",
-			Containers: []core.Container{
-				{},
-			},
-		},
-		Status: core.PodStatus{
-			Phase: core.PodPending,
 		},
 	}
-	p1, err := transform(p)
+	pod2 := &core.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "test-pod-2",
+			Labels: map[string]string{
+				"aa": "cc",
+			},
+		},
+	}
+	kubeClient := fake.NewSimpleClientset()
+	_, _ = kubeClient.CoreV1().Pods("").Create(context.TODO(), pod1, metav1.CreateOptions{})
+	_, _ = kubeClient.CoreV1().Pods("").Create(context.TODO(), pod2, metav1.CreateOptions{})
+
+	podItems, err := kubeClient.CoreV1().Pods("").List(context.TODO(), metav1.ListOptions{})
 	as.NoError(err)
-	as.Equal(core.PodStatus{}, p1.(*core.Pod).Status)
-	as.Equal(core.PodSpec{NodeName: "t-node"}, p1.(*core.Pod).Spec)
-	as.Equal(p.ObjectMeta, p1.(*core.Pod).ObjectMeta)
+	as.Equal(2, len(podItems.Items))
+
+	// get pod list by shared-informer
+	factoryRaw := informers.NewSharedInformerFactoryWithOptions(kubeClient, time.Hour*24)
+	_ = factoryRaw.Core().V1().Pods().Informer()
+	factoryRaw.Start(context.TODO().Done())
+
+	cache.WaitForCacheSync(context.TODO().Done(), factoryRaw.Core().V1().Pods().Informer().HasSynced)
+	pods, err := factoryRaw.Core().V1().Pods().Lister().List(labels.Everything())
+	as.NoError(err)
+	as.Equal(2, len(pods))
+
+	// get pod list by wrapped shared-informer
+	factoryWrapped := informers.NewSharedInformerFactoryWithOptions(kubeClient, time.Hour*24)
+	pf := NewPodInformer(factoryWrapped.InformerFor(&core.Pod{}, f))
+	factoryWrapped.Start(context.TODO().Done())
+
+	cache.WaitForCacheSync(context.TODO().Done(), factoryWrapped.Core().V1().Pods().Informer().HasSynced)
+	pods, err = pf.Lister().List(labels.Everything())
+	as.NoError(err)
+	as.Equal(1, len(pods))
+	as.Equal("test-pod-1", pods[0].Name)
 }

@@ -104,7 +104,7 @@ type VPAController struct {
 func NewVPAController(ctx context.Context, controlCtx *katalyst_base.GenericContext,
 	genericConf *generic.GenericConfiguration, _ *controller.GenericControllerConfiguration,
 	vpaConf *controller.VPAConfig) (*VPAController, error) {
-	podInformer := controlCtx.KubeInformerFactory.Core().V1().Pods()
+	podInformer := controlCtx.GetPodInformer()
 	vpaInformer := controlCtx.InternalInformerFactory.Autoscaling().V1alpha1().KatalystVerticalPodAutoscalers()
 	vpaRecInformer := controlCtx.InternalInformerFactory.Autoscaling().V1alpha1().VerticalPodAutoscalerRecommendations()
 

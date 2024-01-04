@@ -72,7 +72,7 @@ type vpaStatusController struct {
 func newVPAStatusController(ctx context.Context, controlCtx *katalyst_base.GenericContext,
 	conf *controller.VPAConfig, workloadLister map[schema.GroupVersionKind]cache.GenericLister,
 	vpaUpdater control.VPAUpdater) *vpaStatusController {
-	podInformer := controlCtx.KubeInformerFactory.Core().V1().Pods()
+	podInformer := controlCtx.GetPodInformer()
 	vpaInformer := controlCtx.InternalInformerFactory.Autoscaling().V1alpha1().KatalystVerticalPodAutoscalers()
 
 	c := &vpaStatusController{
