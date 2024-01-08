@@ -308,8 +308,8 @@ func TestTide_Reconcile(t1 *testing.T) {
 			if err != nil {
 				t1.Error(err)
 			}
-			assert.Equal(t1, len(tideNodePool.Status.ReverseNodes.OnlineNodes), tt.wantReverseOnlineNodeCount)
-			assert.Equal(t1, len(tideNodePool.Status.ReverseNodes.OfflineNodes), tt.wantReverseOfflineNodeCount)
+			assert.Equal(t1, len(tideNodePool.Status.ReserveNodes.OnlineNodes), tt.wantReverseOnlineNodeCount)
+			assert.Equal(t1, len(tideNodePool.Status.ReserveNodes.OfflineNodes), tt.wantReverseOfflineNodeCount)
 			assert.Equal(t1, len(tideNodePool.Status.TideNodes.Nodes), tt.wantReverseTideNodeCount)
 		})
 	}

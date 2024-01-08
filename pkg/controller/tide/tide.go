@@ -447,8 +447,8 @@ func (t *Tide) UpdateStatusByNodes(ctx context.Context, tideNodePool *apis.TideN
 	sortNodeName(onlineNodeNames)
 	sortNodeName(offlineNodeNames)
 	sortNodeName(tideNodeNames)
-	newTideNodePool.Status.ReverseNodes.OnlineNodes = onlineNodeNames
-	newTideNodePool.Status.ReverseNodes.OfflineNodes = offlineNodeNames
+	newTideNodePool.Status.ReserveNodes.OnlineNodes = onlineNodeNames
+	newTideNodePool.Status.ReserveNodes.OfflineNodes = offlineNodeNames
 	newTideNodePool.Status.TideNodes.Nodes = tideNodeNames
 	if reflect.DeepEqual(newTideNodePool.Status, tideNodePool.Status) {
 		return nil

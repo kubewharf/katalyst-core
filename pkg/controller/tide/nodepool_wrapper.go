@@ -163,25 +163,25 @@ func (n nodePoolWrapperImpl) SetNodeToTideOnline(node *corev1.Node) {
 }
 
 func (n nodePoolWrapperImpl) GetEvictOnlinePodTaint() apis.TaintOption {
-	if n.Spec.EvictStrategy.WaterFlow.EvictOnlinePodTaint == nil {
+	if n.Spec.EvictStrategy.Watermark.EvictOnlinePodTaint == nil {
 		return apis.TaintOption{
 			Key:    TaintEvictOnlinePodKey,
 			Value:  "true",
 			Effect: string(corev1.TaintEffectNoExecute),
 		}
 	}
-	return *n.Spec.EvictStrategy.WaterFlow.EvictOnlinePodTaint
+	return *n.Spec.EvictStrategy.Watermark.EvictOnlinePodTaint
 }
 
 func (n nodePoolWrapperImpl) GetEvictOfflinePodTaint() apis.TaintOption {
-	if n.Spec.EvictStrategy.WaterFlow.EvictOfflinePodTaint == nil {
+	if n.Spec.EvictStrategy.Watermark.EvictOfflinePodTaint == nil {
 		return apis.TaintOption{
 			Key:    TaintEvictOfflinePodKey,
 			Value:  "true",
 			Effect: string(corev1.TaintEffectNoExecute),
 		}
 	}
-	return *n.Spec.EvictStrategy.WaterFlow.EvictOfflinePodTaint
+	return *n.Spec.EvictStrategy.Watermark.EvictOfflinePodTaint
 }
 
 func (n nodePoolWrapperImpl) GetOnlineLabel() apis.LabelOption {
