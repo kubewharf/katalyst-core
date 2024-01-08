@@ -36,6 +36,7 @@
 /pkg/controller/lifecycle/ @luomingmeng @csfldf @zzzzhhb
 /pkg/controller/monitor/ @luomingmeng @csfldf
 /pkg/controller/overcommit/ @caohe @WangZzzhe
+/pkg/controller/tide/ @caohe @WangZzzhe
 /pkg/controller/spd/ @luomingmeng @cheney-lin
 /pkg/controller/vap/ @luomingmeng
 
