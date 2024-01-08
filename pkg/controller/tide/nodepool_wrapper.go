@@ -39,7 +39,7 @@ var (
 	LabelOnlineNodeValue  = "online"
 	LabelOfflineNodeValue = "offline"
 	LabelTideNode         = labelPrefix + "/" + "tide"
-	LabelReverseNode      = labelPrefix + "/" + "reverse"
+	LabelReserveNode      = labelPrefix + "/" + "reserve"
 
 	TaintEvictOnlinePodKey  = labelPrefix + "/" + "online-not-used"
 	TaintEvictOfflinePodKey = labelPrefix + "/" + "offline-not-used"
@@ -49,15 +49,15 @@ var (
 )
 
 type NodePoolWrapper interface {
-	GetOnlineReverseNodeSelector() labels.Selector
-	GetOfflineReverseNodeSelector() labels.Selector
+	GetOnlineReserveNodeSelector() labels.Selector
+	GetOfflineReserveNodeSelector() labels.Selector
 	GetOnlineTideNodeSelector() labels.Selector
 	GetOfflineTideNodeSelector() labels.Selector
 	GetTideNodeSelector() labels.Selector
 	GetNodePoolSelector() *labels.Requirement
 
-	SetNodeToOnlineReverse(node *corev1.Node)
-	SetNodeToOfflineReverse(node *corev1.Node)
+	SetNodeToOnlineReserve(node *corev1.Node)
+	SetNodeToOfflineReserve(node *corev1.Node)
 	SetNodeToTide(node *corev1.Node)
 	SetNodeToTideOnline(node *corev1.Node)
 
@@ -79,19 +79,19 @@ func (n nodePoolWrapperImpl) GetNodeSelector() map[string]string {
 	return n.Spec.NodeConfigs.NodeSelector
 }
 
-func (n nodePoolWrapperImpl) GetOnlineReverseNodeSelector() labels.Selector {
+func (n nodePoolWrapperImpl) GetOnlineReserveNodeSelector() labels.Selector {
 	return labels.SelectorFromSet(map[string]string{
 		n.GetOnlineLabel().Key: n.GetOnlineLabel().Value,
 		LabelNodePoolKey:       n.GetName(),
-		LabelReverseNode:       "true",
+		LabelReserveNode:       "true",
 	})
 }
 
-func (n nodePoolWrapperImpl) GetOfflineReverseNodeSelector() labels.Selector {
+func (n nodePoolWrapperImpl) GetOfflineReserveNodeSelector() labels.Selector {
 	return labels.SelectorFromSet(map[string]string{
 		n.GetOfflineLabel().Key: n.GetOfflineLabel().Value,
 		LabelNodePoolKey:        n.GetName(),
-		LabelReverseNode:        "true",
+		LabelReserveNode:        "true",
 	})
 }
 
@@ -123,23 +123,23 @@ func (n nodePoolWrapperImpl) GetNodePoolSelector() *labels.Requirement {
 	return nodePoolSelector
 }
 
-func (n nodePoolWrapperImpl) SetNodeToOnlineReverse(node *corev1.Node) {
+func (n nodePoolWrapperImpl) SetNodeToOnlineReserve(node *corev1.Node) {
 	if node.Labels == nil {
 		node.Labels = make(map[string]string)
 	}
 	node.Labels[LabelNodePoolKey] = n.GetName()
 	node.Labels[n.GetOnlineLabel().Key] = n.GetOnlineLabel().Value
-	node.Labels[LabelReverseNode] = "true"
+	node.Labels[LabelReserveNode] = "true"
 	delete(node.Labels, n.GetTideLabel().Key)
 }
 
-func (n nodePoolWrapperImpl) SetNodeToOfflineReverse(node *corev1.Node) {
+func (n nodePoolWrapperImpl) SetNodeToOfflineReserve(node *corev1.Node) {
 	if node.Labels == nil {
 		node.Labels = make(map[string]string)
 	}
 	node.Labels[LabelNodePoolKey] = n.GetName()
 	node.Labels[n.GetOfflineLabel().Key] = n.GetOfflineLabel().Value
-	node.Labels[LabelReverseNode] = "true"
+	node.Labels[LabelReserveNode] = "true"
 	delete(node.Labels, n.GetTideLabel().Key)
 }
 
@@ -148,7 +148,7 @@ func (n nodePoolWrapperImpl) SetNodeToTide(node *corev1.Node) {
 		node.Labels = make(map[string]string)
 	}
 	node.Labels[LabelNodePoolKey] = n.GetName()
-	node.Labels[LabelReverseNode] = "false"
+	node.Labels[LabelReserveNode] = "false"
 	node.Labels[n.GetTideLabel().Key] = n.GetTideLabel().Value
 }
 
@@ -156,7 +156,7 @@ func (n nodePoolWrapperImpl) SetNodeToTideOnline(node *corev1.Node) {
 	if node.Labels == nil {
 		node.Labels = make(map[string]string)
 	}
-	node.Labels[LabelReverseNode] = "false"
+	node.Labels[LabelReserveNode] = "false"
 	node.Labels[LabelNodePoolKey] = n.GetName()
 	node.Labels[n.GetOnlineLabel().Key] = n.GetOnlineLabel().Value
 	node.Labels[n.GetTideLabel().Key] = n.GetTideLabel().Value
