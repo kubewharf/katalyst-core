@@ -325,7 +325,7 @@ func (t *Tide) cleanNode(ctx context.Context, node *corev1.Node, pool *apis.Tide
 	delete(node.Labels, nodePoolWrapper.GetOnlineLabel().Key)
 	delete(node.Labels, nodePoolWrapper.GetOfflineLabel().Key)
 	delete(node.Labels, nodePoolWrapper.GetTideLabel().Key)
-	delete(node.Labels, LabelReverseNode)
+	delete(node.Labels, LabelReserveNode)
 	delete(node.Labels, LabelNodeTypeKey)
 	delete(node.Labels, LabelNodePoolKey)
 	_, err := t.client.KubeClient.CoreV1().Nodes().Update(ctx, node, metav1.UpdateOptions{})
@@ -354,32 +354,32 @@ func (t *Tide) Reconcile(ctx context.Context, tideNodePool *apis.TideNodePool) e
 		klog.Errorf("fail to list nodes: %v", err)
 		return err
 	}
-	onlineNodesExpectCount, err := intstr.GetScaledValueFromIntOrPercent(tideNodePool.Spec.NodeConfigs.Reverse.Online, len(nodes), true)
+	onlineNodesExpectCount, err := intstr.GetScaledValueFromIntOrPercent(tideNodePool.Spec.NodeConfigs.Reserve.Online, len(nodes), true)
 	if err != nil {
 		klog.Errorf("fail to get online nodes number: %v", err)
 		return err
 	}
-	offlineNodesExpectCount, err := intstr.GetScaledValueFromIntOrPercent(tideNodePool.Spec.NodeConfigs.Reverse.Offline, len(nodes), false)
+	offlineNodesExpectCount, err := intstr.GetScaledValueFromIntOrPercent(tideNodePool.Spec.NodeConfigs.Reserve.Offline, len(nodes), false)
 	if err != nil {
 		klog.Errorf("fail to get offline nodes number: %v", err)
 		return err
 	}
 	nodePoolWrapper := NewNodePoolWrapper(tideNodePool)
-	reverseOnlineNodes, reverseOfflineNodes, tideNodes, unknownNodes := classifyNodes(nodes, NewNodePoolWrapper(tideNodePool))
-	onlineNodeCount, offlineNodeCount := len(reverseOnlineNodes), len(reverseOfflineNodes)
-	for i := 0; i < len(reverseOnlineNodes) && onlineNodeCount > onlineNodesExpectCount; i++ {
-		nodePoolWrapper.SetNodeToTide(reverseOnlineNodes[i])
-		if _, err := t.client.KubeClient.CoreV1().Nodes().Update(ctx, reverseOnlineNodes[i], metav1.UpdateOptions{}); err != nil {
-			klog.Errorf("fail to convert online reverse nodes to tide: %v", err)
+	reserveOnlineNodes, reserveOfflineNodes, tideNodes, unknownNodes := classifyNodes(nodes, NewNodePoolWrapper(tideNodePool))
+	onlineNodeCount, offlineNodeCount := len(reserveOnlineNodes), len(reserveOfflineNodes)
+	for i := 0; i < len(reserveOnlineNodes) && onlineNodeCount > onlineNodesExpectCount; i++ {
+		nodePoolWrapper.SetNodeToTide(reserveOnlineNodes[i])
+		if _, err := t.client.KubeClient.CoreV1().Nodes().Update(ctx, reserveOnlineNodes[i], metav1.UpdateOptions{}); err != nil {
+			klog.Errorf("fail to convert online reserve nodes to tide: %v", err)
 			return err
 		}
 		onlineNodeCount--
 	}
 
-	for i := 0; i < len(reverseOfflineNodes) && offlineNodeCount > offlineNodesExpectCount; i++ {
-		nodePoolWrapper.SetNodeToTide(reverseOfflineNodes[i])
-		if _, err := t.client.KubeClient.CoreV1().Nodes().Update(ctx, reverseOfflineNodes[i], metav1.UpdateOptions{}); err != nil {
-			klog.Errorf("fail to convert offline reverse nodes to tide: %v", err)
+	for i := 0; i < len(reserveOfflineNodes) && offlineNodeCount > offlineNodesExpectCount; i++ {
+		nodePoolWrapper.SetNodeToTide(reserveOfflineNodes[i])
+		if _, err := t.client.KubeClient.CoreV1().Nodes().Update(ctx, reserveOfflineNodes[i], metav1.UpdateOptions{}); err != nil {
+			klog.Errorf("fail to convert offline reserve nodes to tide: %v", err)
 			return err
 		}
 		offlineNodeCount--
@@ -387,32 +387,32 @@ func (t *Tide) Reconcile(ctx context.Context, tideNodePool *apis.TideNodePool) e
 
 	for i := range unknownNodes {
 		if onlineNodeCount < onlineNodesExpectCount {
-			nodePoolWrapper.SetNodeToOnlineReverse(unknownNodes[i])
+			nodePoolWrapper.SetNodeToOnlineReserve(unknownNodes[i])
 			if _, err := t.client.KubeClient.CoreV1().Nodes().Update(ctx, unknownNodes[i], metav1.UpdateOptions{}); err != nil {
-				klog.Errorf("fail to convert new nodes to reverse: %v", err)
+				klog.Errorf("fail to convert new nodes to reserve: %v", err)
 				return err
 			}
-			reverseOnlineNodes = append(reverseOnlineNodes, unknownNodes[i])
+			reserveOnlineNodes = append(reserveOnlineNodes, unknownNodes[i])
 			onlineNodeCount++
 		} else if offlineNodeCount < offlineNodesExpectCount {
-			nodePoolWrapper.SetNodeToOfflineReverse(unknownNodes[i])
+			nodePoolWrapper.SetNodeToOfflineReserve(unknownNodes[i])
 			if _, err := t.client.KubeClient.CoreV1().Nodes().Update(ctx, unknownNodes[i], metav1.UpdateOptions{}); err != nil {
-				klog.Errorf("fail to convert new nodes to reverse: %v", err)
+				klog.Errorf("fail to convert new nodes to reserve: %v", err)
 				return err
 			}
-			reverseOfflineNodes = append(reverseOfflineNodes, unknownNodes[i])
+			reserveOfflineNodes = append(reserveOfflineNodes, unknownNodes[i])
 			offlineNodeCount++
 		} else {
 			nodePoolWrapper.SetNodeToTideOnline(unknownNodes[i])
 			if _, err := t.client.KubeClient.CoreV1().Nodes().Update(ctx, unknownNodes[i], metav1.UpdateOptions{}); err != nil {
-				klog.Errorf("fail to convert offline reverse nodes to tide: %v", err)
+				klog.Errorf("fail to convert offline reserve nodes to tide: %v", err)
 				return err
 			}
 			tideNodes = append(tideNodes, unknownNodes[i])
 		}
 	}
 
-	if err := t.UpdateStatusByNodes(ctx, tideNodePool, reverseOnlineNodes, reverseOfflineNodes, tideNodes); err != nil {
+	if err := t.UpdateStatusByNodes(ctx, tideNodePool, reserveOnlineNodes, reserveOfflineNodes, tideNodes); err != nil {
 		return err
 	}
 	onlineLabelSet := labels.SelectorFromSet(map[string]string{LabelPodTypeKey: LabelOnlinePodValue})
@@ -429,15 +429,15 @@ func (t *Tide) Reconcile(ctx context.Context, tideNodePool *apis.TideNodePool) e
 	return nil
 }
 
-func (t *Tide) UpdateStatusByNodes(ctx context.Context, tideNodePool *apis.TideNodePool, reverseOnlineNodes, reverseOfflineNodes, tideNodes []*corev1.Node) error {
+func (t *Tide) UpdateStatusByNodes(ctx context.Context, tideNodePool *apis.TideNodePool, reserveOnlineNodes, reserveOfflineNodes, tideNodes []*corev1.Node) error {
 	newTideNodePool := tideNodePool.DeepCopy()
 
 	var onlineNodeNames, offlineNodeNames, tideNodeNames []string
-	for i := range reverseOnlineNodes {
-		onlineNodeNames = append(onlineNodeNames, reverseOnlineNodes[i].Name)
+	for i := range reserveOnlineNodes {
+		onlineNodeNames = append(onlineNodeNames, reserveOnlineNodes[i].Name)
 	}
-	for i := range reverseOfflineNodes {
-		offlineNodeNames = append(offlineNodeNames, reverseOfflineNodes[i].Name)
+	for i := range reserveOfflineNodes {
+		offlineNodeNames = append(offlineNodeNames, reserveOfflineNodes[i].Name)
 	}
 
 	for i := range tideNodes {
@@ -464,17 +464,17 @@ func sortNodeName(data []string) {
 }
 
 func classifyNodes(nodes []*corev1.Node, tideNodePool NodePoolWrapper) (
-	reverseOnlineNodes []*corev1.Node,
-	reverseOfflineNodes []*corev1.Node,
+	reserveOnlineNodes []*corev1.Node,
+	reserveOfflineNodes []*corev1.Node,
 	tideNodes []*corev1.Node,
 	unknownNodes []*corev1.Node) {
 	for i, node := range nodes {
 		nodeLabels := labels.Set(node.GetLabels())
 		switch {
-		case tideNodePool.GetOnlineReverseNodeSelector().Matches(nodeLabels):
-			reverseOnlineNodes = append(reverseOnlineNodes, nodes[i].DeepCopy())
-		case tideNodePool.GetOfflineReverseNodeSelector().Matches(nodeLabels):
-			reverseOfflineNodes = append(reverseOfflineNodes, nodes[i].DeepCopy())
+		case tideNodePool.GetOnlineReserveNodeSelector().Matches(nodeLabels):
+			reserveOnlineNodes = append(reserveOnlineNodes, nodes[i].DeepCopy())
+		case tideNodePool.GetOfflineReserveNodeSelector().Matches(nodeLabels):
+			reserveOfflineNodes = append(reserveOfflineNodes, nodes[i].DeepCopy())
 		case tideNodePool.GetTideNodeSelector().Matches(nodeLabels):
 			tideNodes = append(tideNodes, nodes[i].DeepCopy())
 		case !tideNodePool.GetNodePoolSelector().Matches(nodeLabels):

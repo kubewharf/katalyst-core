@@ -241,7 +241,7 @@ func buildOnlinePod(nodePool NodePoolWrapper, name string, cpu int64, mem int64)
 }
 
 func TestTide_Reconcile(t1 *testing.T) {
-	nodeReverse := intstr.FromString("30%")
+	nodeReserve := intstr.FromString("30%")
 	nodePool := &v1alpha12.TideNodePool{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: "np1",
@@ -249,9 +249,9 @@ func TestTide_Reconcile(t1 *testing.T) {
 		Spec: v1alpha12.TideNodePoolSpec{
 			NodeConfigs: v1alpha12.NodeConfigs{
 				NodeSelector: map[string]string{"test": "test"},
-				Reverse: v1alpha12.ReverseOptions{
-					Online:  &nodeReverse,
-					Offline: &nodeReverse,
+				Reserve: v1alpha12.ReserveOptions{
+					Online:  &nodeReserve,
+					Offline: &nodeReserve,
 				},
 			},
 		},
@@ -266,9 +266,9 @@ func TestTide_Reconcile(t1 *testing.T) {
 		name string
 		args args
 
-		wantReverseOnlineNodeCount  int
-		wantReverseOfflineNodeCount int
-		wantReverseTideNodeCount    int
+		wantReserveOnlineNodeCount  int
+		wantReserveOfflineNodeCount int
+		wantReserveTideNodeCount    int
 	}{
 		{
 			name: "normal",
@@ -283,9 +283,9 @@ func TestTide_Reconcile(t1 *testing.T) {
 				podList:      nil,
 				tideNodePool: nodePool,
 			},
-			wantReverseOnlineNodeCount:  2,
-			wantReverseOfflineNodeCount: 1,
-			wantReverseTideNodeCount:    1,
+			wantReserveOnlineNodeCount:  2,
+			wantReserveOfflineNodeCount: 1,
+			wantReserveTideNodeCount:    1,
 		},
 	}
 	for _, tt := range tests {
@@ -308,9 +308,9 @@ func TestTide_Reconcile(t1 *testing.T) {
 			if err != nil {
 				t1.Error(err)
 			}
-			assert.Equal(t1, len(tideNodePool.Status.ReserveNodes.OnlineNodes), tt.wantReverseOnlineNodeCount)
-			assert.Equal(t1, len(tideNodePool.Status.ReserveNodes.OfflineNodes), tt.wantReverseOfflineNodeCount)
-			assert.Equal(t1, len(tideNodePool.Status.TideNodes.Nodes), tt.wantReverseTideNodeCount)
+			assert.Equal(t1, len(tideNodePool.Status.ReserveNodes.OnlineNodes), tt.wantReserveOnlineNodeCount)
+			assert.Equal(t1, len(tideNodePool.Status.ReserveNodes.OfflineNodes), tt.wantReserveOfflineNodeCount)
+			assert.Equal(t1, len(tideNodePool.Status.TideNodes.Nodes), tt.wantReserveTideNodeCount)
 		})
 	}
 }
