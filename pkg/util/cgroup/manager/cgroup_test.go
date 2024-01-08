@@ -70,6 +70,10 @@ func testManager(t *testing.T, version string) {
 	assert.NotNil(t, err)
 	err = ApplyUnifiedDataForContainer("fake-pod", "fake-container", common.CgroupSubsysMemory, "memory.high", "max")
 	assert.NotNil(t, err)
+	err = ApplyIOLatencyWithRelativePath("/test", "default", 10000)
+	assert.NotNil(t, err)
+	err = ApplyIOLatencyWithRelativePath("/test", "default", 0)
+	assert.NotNil(t, err)
 
 	_, _ = GetMemoryWithRelativePath("/")
 	_, _ = GetMemoryWithAbsolutePath("/")

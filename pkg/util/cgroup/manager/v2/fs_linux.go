@@ -219,6 +219,34 @@ func (m *manager) ApplyIOWeight(absCgroupPath string, devID string, weight uint6
 	return nil
 }
 
+func (m *manager) ApplyIOLatency(absCgroupPath string, devID string, latency uint64) error {
+	var dataContent string
+	if latency == 0 {
+		dataContent = fmt.Sprintf("%s target=max", devID)
+	} else {
+		dataContent = fmt.Sprintf("%s target=%d", devID, latency)
+	}
+
+	curLatency, found, err := m.GetDeviceIOLatency(absCgroupPath, devID)
+
+	if err != nil {
+		return fmt.Errorf("try GetDeviceIOLatency before ApplyIOLatency failed with error: %v", err)
+	}
+
+	if found && curLatency == latency {
+		return nil
+	}
+
+	if err, applied, oldData := common.WriteFileIfChange(absCgroupPath, "io.latency", dataContent); err != nil {
+		return err
+	} else if applied {
+		klog.Infof("[CgroupV2] apply io.latency for device: %s successfully,"+
+			"cgroupPath: %s, new: %s, old: %s\n", devID, absCgroupPath, dataContent, oldData)
+	}
+
+	return nil
+}
+
 func (m *manager) ApplyUnifiedData(absCgroupPath, cgroupFileName, data string) error {
 	if err, applied, oldData := common.WriteFileIfChange(absCgroupPath, cgroupFileName, data); err != nil {
 		return err
@@ -391,6 +419,47 @@ func (m *manager) GetDeviceIOWeight(absCgroupPath string, devID string) (uint64,
 
 	weight, err := strconv.ParseUint(strings.TrimRight(devWeight, "\n"), 10, 64)
 	return weight, true, err
+}
+
+func (m *manager) GetDeviceIOLatency(absCgroupPath string, devID string) (uint64, bool, error) {
+	ioLatencyFile := path.Join(absCgroupPath, "io.latency")
+	contents, err := ioutil.ReadFile(ioLatencyFile)
+	if err != nil {
+		return 0, false, fmt.Errorf("failed to ReadFile %s, err %v", ioLatencyFile, err)
+	}
+
+	rawStr := strings.TrimRight(string(contents), "\n")
+	latencyStrList := strings.Split(rawStr, "\n")
+
+	var devLatency string
+	for _, line := range latencyStrList {
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+
+		fields := strings.Fields(line)
+		if len(fields) != 2 {
+			log.Printf("invalid latency line %s in %s", line, ioLatencyFile)
+			continue
+		}
+
+		if fields[0] == devID {
+			devLatency = fields[1]
+			break
+		}
+	}
+
+	if devLatency == "" {
+		return 0, false, nil
+	}
+
+	targetStr := strings.TrimPrefix(devLatency, "target=")
+	latency, err := strconv.ParseUint(targetStr, 10, 64)
+	if err != nil {
+		return 0, false, fmt.Errorf("failed to parse latency value: %v", err)
+	}
+
+	return latency, true, err
 }
 
 func (m *manager) GetIOStat(absCgroupPath string) (map[string]map[string]string, error) {

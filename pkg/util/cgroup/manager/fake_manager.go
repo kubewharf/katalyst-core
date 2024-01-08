@@ -48,6 +48,10 @@ func (f *FakeCgroupManager) ApplyIOWeight(absCgroupPath string, devID string, we
 	return nil
 }
 
+func (f *FakeCgroupManager) ApplyIOLatency(absCgroupPath string, devID string, latency uint64) error {
+	return nil
+}
+
 func (f *FakeCgroupManager) ApplyUnifiedData(absCgroupPath, cgroupFileName, data string) error {
 	return nil
 }

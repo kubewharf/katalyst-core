@@ -199,6 +199,10 @@ func (m *manager) ApplyIOWeight(absCgroupPath string, devID string, weight uint6
 	return errors.New("cgroups v1 does not support io.weight")
 }
 
+func (m *manager) ApplyIOLatency(absCgroupPath string, devID string, latency uint64) error {
+	return errors.New("cgroups v1 does not support io.latency")
+}
+
 func (m *manager) ApplyUnifiedData(absCgroupPath, cgroupFileName, data string) error {
 	if err, applied, oldData := common.WriteFileIfChange(absCgroupPath, cgroupFileName, data); err != nil {
 		return err

@@ -60,8 +60,12 @@ func (m *unsupportedManager) ApplyIOWeight(absCgroupPath string, devID string, w
 	return fmt.Errorf("unsupported manager v2")
 }
 
+func (m *unsupportedManager) ApplyIOLatency(absCgroupPath string, devID string, latency uint64) error {
+	return fmt.Errorf("unsupported manager v2")
+}
+
 func (m *unsupportedManager) ApplyUnifiedData(absCgroupPath, cgroupFileName, data string) error {
-	return fmt.Errorf("unsupported manager v1")
+	return fmt.Errorf("unsupported manager v2")
 }
 
 func (m *unsupportedManager) GetMemory(_ string) (*common.MemoryStats, error) {

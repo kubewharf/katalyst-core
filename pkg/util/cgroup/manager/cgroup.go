@@ -151,6 +151,15 @@ func ApplyIOWeightWithAbsolutePath(absCgroupPath string, devID string, weight ui
 	return GetManager().ApplyIOWeight(absCgroupPath, devID, weight)
 }
 
+func ApplyIOLatencyWithRelativePath(relCgroupPath string, devID string, latency uint64) error {
+	absCgroupPath := common.GetAbsCgroupPath(common.CgroupSubsysIO, relCgroupPath)
+	return ApplyIOLatencyWithAbsolutePath(absCgroupPath, devID, latency)
+}
+
+func ApplyIOLatencyWithAbsolutePath(absCgroupPath string, devID string, latency uint64) error {
+	return GetManager().ApplyIOLatency(absCgroupPath, devID, latency)
+}
+
 func ApplyUnifiedDataWithAbsolutePath(absCgroupPath, cgroupFileName, data string) error {
 	return GetManager().ApplyUnifiedData(absCgroupPath, cgroupFileName, data)
 }

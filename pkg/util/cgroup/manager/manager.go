@@ -41,6 +41,7 @@ type Manager interface {
 	ApplyIOCostQoS(absCgroupPath string, devID string, data *common.IOCostQoSData) error
 	ApplyIOCostModel(absCgroupPath string, devID string, data *common.IOCostModelData) error
 	ApplyIOWeight(absCgroupPath string, devID string, weight uint64) error
+	ApplyIOLatency(absCgroupPath string, devID string, latency uint64) error
 	ApplyUnifiedData(absCgroupPath, cgroupFileName, data string) error
 
 	GetMemory(absCgroupPath string) (*common.MemoryStats, error)

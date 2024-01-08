@@ -315,6 +315,41 @@ func Test_manager_ApplyIOWeight(t *testing.T) {
 	}
 }
 
+func Test_manager_ApplyIOLatency(t *testing.T) {
+	t.Parallel()
+
+	type args struct {
+		absCgroupPath string
+		devID         string
+		latency       uint64
+	}
+	tests := []struct {
+		name    string
+		m       *manager
+		args    args
+		wantErr bool
+	}{
+		{
+			name: "test apply io latency",
+			m:    NewManager(),
+			args: args{
+				absCgroupPath: "test-fake-path",
+				devID:         "8:16",
+				latency:       100000,
+			},
+			wantErr: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := &manager{}
+			if err := m.ApplyIOLatency(tt.args.absCgroupPath, tt.args.devID, tt.args.latency); (err != nil) != tt.wantErr {
+				t.Errorf("manager.ApplyIOLatency() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
+}
+
 func Test_manager_ApplyUnifiedData(t *testing.T) {
 	t.Parallel()
 
