@@ -41,7 +41,7 @@ func NewKubeletSummaryClient(conf *config.Configuration) *KubeletSummaryClient {
 func (c *KubeletSummaryClient) Summary(ctx context.Context) (*statsapi.Summary, error) {
 	summary := &statsapi.Summary{}
 	if c.conf.EnableKubeletSecurePort {
-		if err := native.GetAndUnmarshalForHttps(ctx, c.conf.KubeletSecurePort, c.conf.NodeAddress, c.conf.KubeletPodsEndpoint, c.conf.APIAuthTokenFile, summary); err != nil {
+		if err := native.GetAndUnmarshalForHttps(ctx, c.conf.KubeletSecurePort, c.conf.NodeAddress, c.conf.KubeletSummaryEndpoint, c.conf.APIAuthTokenFile, summary); err != nil {
 			return nil, fmt.Errorf("failed to get kubelet config for summary api, error: %v", err)
 		}
 	} else {
