@@ -150,7 +150,16 @@ func (pa *ProvisionAssemblerCommon) AssembleProvision() (types.InternalCPUCalcul
 		calculationResult.SetPoolEntry(poolName, cpuadvisor.FakedNUMAID, poolSize)
 	}
 
-	reclaimPoolSizeOfNonBindingNumas := shareAndIsolatedPoolAvailable - general.SumUpMapValues(shareAndIsolatePoolSizes) + pa.getNumasReservedForReclaim(*pa.nonBindingNumas)
+	var reclaimPoolSizeOfNonBindingNumas int
+
+	// fill in reclaim pool entries of non binding numas
+	if nodeEnableReclaim {
+		// generate based on share pool requirement on non binding numas
+		reclaimPoolSizeOfNonBindingNumas = shareAndIsolatedPoolAvailable - general.SumUpMapValues(shareAndIsolatePoolSizes) + pa.getNumasReservedForReclaim(*pa.nonBindingNumas)
+	} else {
+		// generate by reserved value on non binding numas
+		reclaimPoolSizeOfNonBindingNumas = pa.getNumasReservedForReclaim(*pa.nonBindingNumas)
+	}
 	calculationResult.SetPoolEntry(state.PoolNameReclaim, cpuadvisor.FakedNUMAID, reclaimPoolSizeOfNonBindingNumas)
 
 	return calculationResult, boundUpper, nil
