@@ -26,6 +26,7 @@
 /pkg/config/metric/ @zzzzhhb @luomingmeng
 /pkg/config/webhook/ @caohe @luomingmeng
 
+/pkg/config/agent/orm/ @caohe @WangZzzhe
 /pkg/config/agent/qrm/ @csfldf
 /pkg/config/agent/eviction/ @zzzzhhb
 /pkg/config/agent/reporter/ @luomingmeng
@@ -52,6 +53,7 @@
 /pkg/metaserver/agent/pod/ @csfldf @luomingmeng
 
 ### owners for agent
+/pkg/agent/orm/ @caohe @WangZzzhe
 /pkg/agent/evictionmanager/ @zzzzhhb
 /pkg/agent/qrm-plugins/ @csfldf
 /pkg/agent/resourcemanager/ @luomingmeng
