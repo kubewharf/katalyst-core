@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package outofband
+package orm
 
 import (
 	"context"
@@ -35,9 +35,9 @@ import (
 	"k8s.io/kubernetes/pkg/kubelet/checkpointmanager"
 	maputil "k8s.io/kubernetes/pkg/util/maps"
 
-	"github.com/kubewharf/katalyst-core/pkg/agent/resourcemanager/outofband/endpoint"
-	"github.com/kubewharf/katalyst-core/pkg/agent/resourcemanager/outofband/executor"
-	"github.com/kubewharf/katalyst-core/pkg/agent/resourcemanager/outofband/metamanager"
+	"github.com/kubewharf/katalyst-core/pkg/agent/orm/endpoint"
+	"github.com/kubewharf/katalyst-core/pkg/agent/orm/executor"
+	"github.com/kubewharf/katalyst-core/pkg/agent/orm/metamanager"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/config/generic"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
