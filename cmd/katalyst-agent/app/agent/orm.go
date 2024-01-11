@@ -22,7 +22,7 @@ import (
 	"k8s.io/klog/v2"
 	plugincache "k8s.io/kubernetes/pkg/kubelet/pluginmanager/cache"
 
-	"github.com/kubewharf/katalyst-core/pkg/agent/resourcemanager/outofband"
+	"github.com/kubewharf/katalyst-core/pkg/agent/orm"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 )
 
@@ -31,7 +31,7 @@ const (
 )
 
 func InitORM(agentCtx *GenericContext, conf *config.Configuration, _ interface{}, _ string) (bool, Component, error) {
-	m, err := outofband.NewManager(conf.PluginRegistrationDir+"/kubelet.sock", agentCtx.EmitterPool.GetDefaultMetricsEmitter(), agentCtx.MetaServer, conf)
+	m, err := orm.NewManager(conf.PluginRegistrationDir+"/kubelet.sock", agentCtx.EmitterPool.GetDefaultMetricsEmitter(), agentCtx.MetaServer, conf)
 	if err != nil {
 		return false, ComponentStub{}, fmt.Errorf("failed to init ORM: %v", err)
 	}

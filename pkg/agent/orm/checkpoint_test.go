@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package outofband
+package orm
 
 import (
 	"os"
@@ -24,7 +24,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/kubernetes/pkg/kubelet/checkpointmanager"
 
-	"github.com/kubewharf/katalyst-core/pkg/agent/resourcemanager/outofband/endpoint"
+	"github.com/kubewharf/katalyst-core/pkg/agent/orm/endpoint"
 )
 
 func TestCheckpoint(t *testing.T) {

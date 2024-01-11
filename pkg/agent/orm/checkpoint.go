@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package outofband
+package orm
 
 import (
 	"fmt"
@@ -23,8 +23,8 @@ import (
 	"k8s.io/klog/v2"
 	"k8s.io/kubernetes/pkg/kubelet/checkpointmanager/errors"
 
-	"github.com/kubewharf/katalyst-core/pkg/agent/resourcemanager/outofband/checkpoint"
-	"github.com/kubewharf/katalyst-core/pkg/agent/resourcemanager/outofband/endpoint"
+	"github.com/kubewharf/katalyst-core/pkg/agent/orm/checkpoint"
+	"github.com/kubewharf/katalyst-core/pkg/agent/orm/endpoint"
 	"github.com/kubewharf/katalyst-core/pkg/consts"
 )
 

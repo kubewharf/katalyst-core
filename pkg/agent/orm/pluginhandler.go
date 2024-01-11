@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package outofband
+package orm
 
 import (
 	"context"
@@ -26,7 +26,7 @@ import (
 	"k8s.io/klog/v2"
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 
-	endpoint2 "github.com/kubewharf/katalyst-core/pkg/agent/resourcemanager/outofband/endpoint"
+	endpoint2 "github.com/kubewharf/katalyst-core/pkg/agent/orm/endpoint"
 )
 
 func (m *ManagerImpl) removeContents(dir string) error {
