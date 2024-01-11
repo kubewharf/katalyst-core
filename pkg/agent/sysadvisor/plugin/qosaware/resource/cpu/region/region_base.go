@@ -388,7 +388,8 @@ func (r *QoSRegionBase) GetHeadroom() (float64, error) {
 			continue
 		}
 		_ = r.emitter.StoreFloat64(metricRegionHeadroom, headroom, metrics.MetricTypeNameRaw,
-			metrics.ConvertMapToTags(map[string]string{metricTagKeyRegionType: string(r.regionType), metricTagKeyRegionName: r.name})...)
+			metrics.ConvertMapToTags(map[string]string{metricTagKeyRegionType: string(r.regionType),
+				metricTagKeyRegionName: r.name, metricTagKeyPolicyName: string(internal.name)})...)
 		r.headroomPolicyNameInUse = internal.name
 		return headroom, nil
 	}

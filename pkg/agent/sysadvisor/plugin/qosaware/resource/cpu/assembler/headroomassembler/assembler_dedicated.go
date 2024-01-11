@@ -83,6 +83,8 @@ func (ha *HeadroomAssemblerDedicated) GetHeadroom() (resource.Quantity, error) {
 			}
 			headroomTotal += regionInfo.Headroom
 			exclusiveNUMAs = exclusiveNUMAs.Union(r.GetBindingNumas())
+
+			klog.InfoS("dedicated NUMA headroom", "headroom", regionInfo.Headroom, "NUMAs", r.GetBindingNumas().String())
 		}
 		emptyNUMAs = emptyNUMAs.Difference(r.GetBindingNumas())
 	}
@@ -92,7 +94,10 @@ func (ha *HeadroomAssemblerDedicated) GetHeadroom() (resource.Quantity, error) {
 	if ok && reclaimPoolInfo != nil {
 		reclaimPoolNUMAs := machine.GetCPUAssignmentNUMAs(reclaimPoolInfo.TopologyAwareAssignments)
 		for _, numaID := range reclaimPoolNUMAs.Difference(exclusiveNUMAs).Difference(emptyNUMAs).ToSliceInt() {
-			headroomTotal += float64(reclaimPoolInfo.TopologyAwareAssignments[numaID].Size())
+			headroom := float64(reclaimPoolInfo.TopologyAwareAssignments[numaID].Size())
+			headroomTotal += headroom
+
+			klog.InfoS("reclaim pool headroom", "headroom", headroom, "numaID", numaID)
 		}
 	}
 
@@ -101,7 +106,10 @@ func (ha *HeadroomAssemblerDedicated) GetHeadroom() (resource.Quantity, error) {
 		available, _ := (*ha.numaAvailable)[numaID]
 		reservedForAllocate := float64(reserved.Value()*int64(emptyNUMAs.Size())) / float64(ha.metaServer.NumNUMANodes)
 		reservedForReclaim, _ := (*ha.reservedForReclaim)[numaID]
-		headroomTotal += float64(available) - reservedForAllocate + float64(reservedForReclaim)
+		headroom := float64(available) - reservedForAllocate + float64(reservedForReclaim)
+		headroomTotal += headroom
+
+		klog.InfoS("empty NUMA headroom", "headroom", headroom)
 	}
 
 	klog.Infof("[qosaware-cpu] total headroom assembled %.2f", headroomTotal)
