@@ -383,6 +383,8 @@ func handleAdvisorCPUSetMems(
 
 	if calculationInfo.CgroupPath != "" {
 		return fmt.Errorf("setting high level cgroup path cpuset.mems isn't supported")
+	} else if allocationInfo == nil {
+		return fmt.Errorf("setting cpuset.mems for nil allocationInfo: %s/%s", entryName, subEntryName)
 	} else if allocationInfo.QoSLevel != apiconsts.PodAnnotationQoSLevelReclaimedCores {
 		// cpuset.mems for numa_binding dedicated_cores isn't changed now
 		// cpuset.mems for shared_cores is auto-adjusted in memory plugin
