@@ -193,7 +193,7 @@ func TestPolicyNUMAAware(t *testing.T) {
 				},
 			},
 			wantErr: false,
-			want:    resource.MustParse("128.5Gi"),
+			want:    resource.MustParse("130.5Gi"),
 		},
 	}
 	for _, tt := range tests {
@@ -237,9 +237,7 @@ func TestPolicyNUMAAware(t *testing.T) {
 				t.Errorf("GetHeadroom() error = %v, wantErr %v", err, tt.wantErr)
 				return
 			}
-			if got.MilliValue() != tt.want.MilliValue() {
-				t.Errorf("GetHeadroom() got = %v, want %v", got, tt.want)
-			}
+			assert.Equal(t, tt.want.MilliValue(), got.MilliValue())
 		})
 	}
 }

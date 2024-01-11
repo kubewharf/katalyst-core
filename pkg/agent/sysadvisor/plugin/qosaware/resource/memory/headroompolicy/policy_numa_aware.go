@@ -73,8 +73,10 @@ func (p *PolicyNUMAAware) Update() (err error) {
 	}()
 
 	var (
-		reclaimableMemory float64
-		data              metric.MetricData
+		reclaimableMemory   float64 = 0
+		availNUMATotal      float64 = 0
+		reservedForAllocate float64 = 0
+		data                metric.MetricData
 	)
 	dynamicConfig := p.conf.GetDynamicConfiguration()
 
@@ -83,30 +85,38 @@ func (p *PolicyNUMAAware) Update() (err error) {
 		return err
 	}
 
-	availNUMATotal := float64(0)
 	for _, numaID := range availNUMAs.ToSliceInt() {
 		data, err = p.metaServer.GetNumaMetric(numaID, consts.MetricMemFreeNuma)
 		if err != nil {
 			general.Errorf("Can not get numa memory free, numaID: %v", numaID)
 			return err
 		}
-		reclaimableMemory += data.Value
-		general.InfoS("reclaimable numa memory free", "numaID", numaID, "numaFree", general.FormatMemoryQuantity(data.Value))
+		free := data.Value
 
 		data, err = p.metaServer.GetNumaMetric(numaID, consts.MetricMemInactiveFileNuma)
 		if err != nil {
 			return err
 		}
-		reclaimableMemory += data.Value * dynamicConfig.CacheBasedRatio
-		general.InfoS("reclaimable numa inactive file", "numaID", numaID, "numaInactiveFile", general.FormatMemoryQuantity(data.Value))
+		inactiveFile := data.Value
 
 		data, err = p.metaServer.GetNumaMetric(numaID, consts.MetricMemTotalNuma)
 		if err != nil {
-			general.Errorf("Can not get numa memory total, numaID: %v", numaID)
+			general.ErrorS(err, "Can not get numa memory total", "numaID", numaID)
 			return err
 		}
-		availNUMATotal += data.Value
-		general.InfoS("reclaimable numa memory total", "numaID", numaID, "numaTotal", general.FormatMemoryQuantity(data.Value))
+		total := data.Value
+		availNUMATotal += total
+		reservedForAllocate += p.essentials.ReservedForAllocate / float64(p.metaServer.NumNUMANodes)
+
+		numaReclaimable := free + inactiveFile*dynamicConfig.CacheBasedRatio
+
+		general.InfoS("NUMA memory info", "numaID", numaID,
+			"total", general.FormatMemoryQuantity(total), "free", general.FormatMemoryQuantity(free),
+			"inactiveFile", general.FormatMemoryQuantity(inactiveFile), "CacheBasedRatio", dynamicConfig.CacheBasedRatio,
+			"numaReclaimable", general.FormatMemoryQuantity(numaReclaimable),
+		)
+
+		reclaimableMemory += numaReclaimable
 	}
 
 	for _, container := range reclaimedCoresContainers {
@@ -118,15 +128,16 @@ func (p *PolicyNUMAAware) Update() (err error) {
 		general.InfoS("Can not get system watermark scale factor")
 		return err
 	}
+
 	// reserve memory for watermark_scale_factor to make kswapd less happened
 	systemWatermarkReserved := availNUMATotal * watermarkScaleFactor.Value / 10000
 
 	general.InfoS("total memory reclaimable",
 		"reclaimableMemory", general.FormatMemoryQuantity(reclaimableMemory),
-		"ReservedForAllocate", general.FormatMemoryQuantity(p.essentials.ReservedForAllocate),
-		"ReservedForWatermark", general.FormatMemoryQuantity(systemWatermarkReserved),
-		"ResourceUpperBound", general.FormatMemoryQuantity(p.essentials.ResourceUpperBound))
-	p.memoryHeadroom = math.Max(reclaimableMemory-p.essentials.ReservedForAllocate-systemWatermarkReserved, 0)
+		"ResourceUpperBound", general.FormatMemoryQuantity(p.essentials.ResourceUpperBound),
+		"systemWatermarkReserved", general.FormatMemoryQuantity(systemWatermarkReserved),
+		"reservedForAllocate", general.FormatMemoryQuantity(reservedForAllocate))
+	p.memoryHeadroom = math.Max(reclaimableMemory-systemWatermarkReserved-reservedForAllocate, 0)
 
 	return nil
 }
