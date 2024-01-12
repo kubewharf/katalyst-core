@@ -230,6 +230,8 @@ func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration
 		memoryadvisor.ControlKnobHandlerWithChecker(policyImplement.handleAdvisorDropCache))
 	memoryadvisor.RegisterControlKnobHandler(memoryadvisor.ControlKnobReclaimedMemorySize,
 		memoryadvisor.ControlKnobHandlerWithChecker(policyImplement.handleAdvisorMemoryProvisions))
+	memoryadvisor.RegisterControlKnobHandler(memoryadvisor.ControlKnobKeyBalanceNumaMemory,
+		memoryadvisor.ControlKnobHandlerWithChecker(policyImplement.handleNumaMemoryBalance))
 
 	return true, &agent.PluginWrapper{GenericPlugin: pluginWrapper}, nil
 }
