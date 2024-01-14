@@ -962,7 +962,7 @@ func (p *StaticPolicy) getNetClassID(podAnnotations map[string]string, podLevelN
 		return classID, nil
 	}
 
-	qosLevel, err := p.qosConfig.GetQoSLevel(podAnnotations)
+	qosLevel, err := p.qosConfig.GetQoSLevel(nil, podAnnotations)
 	if err != nil {
 		return 0, err
 	}

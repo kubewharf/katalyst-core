@@ -106,7 +106,7 @@ func (o *QoSOptions) applyToExpandQoSEnhancement(c *generic.QoSConfiguration, po
 		enhancementMap[strings.TrimSpace(sList[0])] = strings.TrimSpace(sList[1])
 	}
 
-	c.SetExpandQoSEnhancementSelector(enhancementMap)
+	c.SetExpandQoSEnhancementKey(enhancementMap)
 	return nil
 }
 

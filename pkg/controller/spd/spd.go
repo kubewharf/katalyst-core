@@ -551,7 +551,7 @@ func (sc *SPDController) defaultBaselinePercent(workload *unstructured.Unstructu
 		general.ErrorS(err, "failed to GetUnstructuredTemplateAnnotations")
 		return pointer.Int32(100)
 	}
-	qosLevel, err := sc.qosConfig.GetQoSLevel(annotations)
+	qosLevel, err := sc.qosConfig.GetQoSLevel(nil, annotations)
 	if err != nil {
 		general.ErrorS(err, "failed to GetQoSLevel")
 		return pointer.Int32(100)

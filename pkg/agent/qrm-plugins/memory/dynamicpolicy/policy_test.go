@@ -823,7 +823,7 @@ func TestAllocate(t *testing.T) {
 		as.Nil(err)
 
 		if tc.enhancementDefaultValues != nil {
-			dynamicPolicy.qosConfig.EnhancementDefaultValues = tc.enhancementDefaultValues
+			dynamicPolicy.qosConfig.QoSEnhancementDefaultValues = tc.enhancementDefaultValues
 		}
 
 		dynamicPolicy.enableMemoryAdvisor = true
@@ -1238,7 +1238,7 @@ func TestGetTopologyHints(t *testing.T) {
 		as.Nil(err)
 
 		if tc.enhancementDefaultValues != nil {
-			dynamicPolicy.qosConfig.EnhancementDefaultValues = tc.enhancementDefaultValues
+			dynamicPolicy.qosConfig.QoSEnhancementDefaultValues = tc.enhancementDefaultValues
 		}
 
 		resp, err := dynamicPolicy.GetTopologyHints(context.Background(), tc.req)

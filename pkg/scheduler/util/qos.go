@@ -20,12 +20,10 @@ import (
 	"encoding/json"
 	"sync"
 
+	v1 "k8s.io/api/core/v1"
 	"k8s.io/klog/v2"
 
 	"github.com/kubewharf/katalyst-api/pkg/consts"
-
-	v1 "k8s.io/api/core/v1"
-
 	"github.com/kubewharf/katalyst-core/pkg/config/generic"
 )
 

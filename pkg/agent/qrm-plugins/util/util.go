@@ -80,7 +80,7 @@ func GetKatalystQoSLevelFromResourceReq(qosConf *generic.QoSConfiguration, req *
 	}
 
 	var getErr error
-	qosLevel, getErr = qosConf.GetQoSLevel(req.Annotations)
+	qosLevel, getErr = qosConf.GetQoSLevel(nil, req.Annotations)
 	if getErr != nil {
 		err = fmt.Errorf("resource type mismatches: %v", getErr)
 		return
@@ -91,12 +91,7 @@ func GetKatalystQoSLevelFromResourceReq(qosConf *generic.QoSConfiguration, req *
 		req.Annotations = make(map[string]string)
 	}
 	req.Annotations[apiconsts.PodAnnotationQoSLevelKey] = qosLevel
-	parsedAnnotations, err := qosConf.FilterQoSAndEnhancement(req.Annotations)
-	if err != nil {
-		err = fmt.Errorf("ParseKatalystAnnotations failed with error: %v", err)
-		return
-	}
-	req.Annotations = parsedAnnotations
+	req.Annotations = qosConf.FilterQoSAndEnhancementMap(req.Annotations)
 
 	if req.Labels == nil {
 		req.Labels = make(map[string]string)
