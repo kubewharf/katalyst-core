@@ -27,6 +27,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -35,8 +36,6 @@ import (
 	dynamicfake "k8s.io/client-go/dynamic/fake"
 	"k8s.io/client-go/kubernetes/fake"
 	"k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
-
-	"github.com/stretchr/testify/require"
 
 	internalfake "github.com/kubewharf/katalyst-api/pkg/client/clientset/versioned/fake"
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/options"

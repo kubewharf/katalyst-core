@@ -25,20 +25,18 @@ import (
 
 	"github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/config/generic"
-	"github.com/kubewharf/katalyst-core/pkg/util/qos/helper"
 )
 
 // GetPodCPUSuppressionToleranceRate parses cpu suppression tolerance rate for the given pod,
 // and cpu suppression is only supported for reclaim pods. if the given is not nominated with
 // cpu suppression, return max to indicate that it can be suppressed for any degree.
 func GetPodCPUSuppressionToleranceRate(qosConf *generic.QoSConfiguration, pod *v1.Pod) (float64, error) {
-	qosLevel, _ := qosConf.GetQoSLevelForPod(pod)
+	qosLevel, _ := qosConf.GetQoSLevel(pod, map[string]string{})
 	if qosLevel != consts.PodAnnotationQoSLevelReclaimedCores {
 		return 0, fmt.Errorf("qos level %s not support cpu suppression", qosLevel)
 	}
 
-	cpuEnhancement := helper.ParseKatalystQOSEnhancement(qosConf.GetQoSEnhancementsForPod(pod), pod.Annotations,
-		consts.PodAnnotationCPUEnhancementKey)
+	cpuEnhancement := qosConf.GetQoSEnhancementKVs(pod, map[string]string{}, consts.PodAnnotationCPUEnhancementKey)
 	suppressionToleranceRateStr, ok := cpuEnhancement[consts.PodAnnotationCPUEnhancementSuppressionToleranceRate]
 	if ok {
 		suppressionToleranceRate, err := strconv.ParseFloat(suppressionToleranceRateStr, 64)
