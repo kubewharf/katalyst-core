@@ -38,7 +38,7 @@ func (p *NativePolicy) dedicatedCoresHintHandler(ctx context.Context,
 		return nil, fmt.Errorf("HintHandler got nil req")
 	}
 
-	reqInt, err := util.GetQuantityFromResourceReq(req)
+	reqInt, _, err := util.GetQuantityFromResourceReq(req)
 	if err != nil {
 		return nil, fmt.Errorf("getReqQuantityFromResourceReq failed with error: %v", err)
 	}

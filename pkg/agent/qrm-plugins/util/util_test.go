@@ -82,7 +82,7 @@ func TestGetQuantityFromResourceReq(t *testing.T) {
 	}
 
 	for _, tc := range testCases {
-		res, err := GetQuantityFromResourceReq(tc.req)
+		res, _, err := GetQuantityFromResourceReq(tc.req)
 		if tc.err != nil {
 			as.NotNil(err)
 		} else {

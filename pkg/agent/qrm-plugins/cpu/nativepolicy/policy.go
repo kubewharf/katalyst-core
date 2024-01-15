@@ -230,7 +230,7 @@ func (p *NativePolicy) GetTopologyHints(ctx context.Context,
 	// we should do it before GetKatalystQoSLevelFromResourceReq.
 	isDebugPod := util.IsDebugPod(req.Annotations, p.podDebugAnnoKeys)
 
-	reqInt, err := util.GetQuantityFromResourceReq(req)
+	reqInt, _, err := util.GetQuantityFromResourceReq(req)
 	if err != nil {
 		return nil, fmt.Errorf("getReqQuantityFromResourceReq failed with error: %v", err)
 	}
@@ -286,7 +286,7 @@ func (p *NativePolicy) Allocate(ctx context.Context,
 	// we should do it before GetKatalystQoSLevelFromResourceReq.
 	isDebugPod := util.IsDebugPod(req.Annotations, p.podDebugAnnoKeys)
 
-	reqInt, err := util.GetQuantityFromResourceReq(req)
+	reqInt, _, err := util.GetQuantityFromResourceReq(req)
 	if err != nil {
 		return nil, fmt.Errorf("getReqQuantityFromResourceReq failed with error: %v", err)
 	}
@@ -624,7 +624,7 @@ func (p *NativePolicy) removeContainer(podUID, containerName string) error {
 }
 
 // getContainerRequestedCores parses and returns request cores for the given container
-func (p *NativePolicy) getContainerRequestedCores(allocationInfo *state.AllocationInfo) int {
+func (p *NativePolicy) getContainerRequestedCores(allocationInfo *state.AllocationInfo) float64 {
 	if allocationInfo == nil {
 		general.Errorf("got nil allocationInfo")
 		return 0
@@ -643,8 +643,8 @@ func (p *NativePolicy) getContainerRequestedCores(allocationInfo *state.Allocati
 		}
 
 		cpuQuantity := native.CPUQuantityGetter()(container.Resources.Requests)
-		allocationInfo.RequestQuantity = general.Max(int(cpuQuantity.Value()), 0)
-		general.Infof("get cpu request quantity: %d for pod: %s/%s container: %s from podWatcher",
+		allocationInfo.RequestQuantity = general.MaxFloat64(float64(cpuQuantity.MilliValue())/1000, 0)
+		general.Infof("get cpu request quantity: %.3f for pod: %s/%s container: %s from podWatcher",
 			allocationInfo.RequestQuantity, allocationInfo.PodNamespace, allocationInfo.PodName, allocationInfo.ContainerName)
 	}
 	return allocationInfo.RequestQuantity

@@ -61,7 +61,7 @@ func (p *NativePolicy) dedicatedCoresAllocationHandler(_ context.Context,
 		return nil, fmt.Errorf("dedicatedCoresAllocationHandler got nil req")
 	}
 
-	reqInt, err := util.GetQuantityFromResourceReq(req)
+	reqInt, reqFloat64, err := util.GetQuantityFromResourceReq(req)
 	if err != nil {
 		return nil, fmt.Errorf("getReqQuantityFromResourceReq failed with error: %v", err)
 	}
@@ -129,7 +129,7 @@ func (p *NativePolicy) dedicatedCoresAllocationHandler(_ context.Context,
 		InitTimestamp:                    time.Now().Format(util.QRMTimeFormat),
 		Labels:                           general.DeepCopyMap(req.Labels),
 		Annotations:                      general.DeepCopyMap(req.Annotations),
-		RequestQuantity:                  reqInt,
+		RequestQuantity:                  reqFloat64,
 	}
 
 	// update pod entries directly.
@@ -160,7 +160,7 @@ func (p *NativePolicy) sharedPoolAllocationHandler(ctx context.Context,
 		return nil, fmt.Errorf("dedicatedCoresAllocationHandler got nil req")
 	}
 
-	reqInt, err := util.GetQuantityFromResourceReq(req)
+	reqInt, reqFloat64, err := util.GetQuantityFromResourceReq(req)
 	if err != nil {
 		return nil, fmt.Errorf("getReqQuantityFromResourceReq failed with error: %v", err)
 	}
@@ -204,7 +204,7 @@ func (p *NativePolicy) sharedPoolAllocationHandler(ctx context.Context,
 		InitTimestamp:                    time.Now().Format(util.QRMTimeFormat),
 		Labels:                           general.DeepCopyMap(req.Labels),
 		Annotations:                      general.DeepCopyMap(req.Annotations),
-		RequestQuantity:                  reqInt,
+		RequestQuantity:                  reqFloat64,
 	}
 
 	// update pod entries directly.

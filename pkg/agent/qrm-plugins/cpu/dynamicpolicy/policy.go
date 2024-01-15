@@ -583,7 +583,7 @@ func (p *DynamicPolicy) GetTopologyHints(ctx context.Context,
 		return nil, err
 	}
 
-	reqInt, err := util.GetQuantityFromResourceReq(req)
+	reqInt, reqFloat64, err := util.GetQuantityFromResourceReq(req)
 	if err != nil {
 		return nil, fmt.Errorf("getReqQuantityFromResourceReq failed with error: %v", err)
 	}
@@ -596,7 +596,8 @@ func (p *DynamicPolicy) GetTopologyHints(ctx context.Context,
 		"podRole", req.PodRole,
 		"containerType", req.ContainerType,
 		"qosLevel", qosLevel,
-		"numCPUs", reqInt,
+		"numCPUsInt", reqInt,
+		"numCPUsFloat64", reqFloat64,
 		"isDebugPod", isDebugPod)
 
 	if req.ContainerType == pluginapi.ContainerType_INIT || isDebugPod {
@@ -654,7 +655,7 @@ func (p *DynamicPolicy) Allocate(ctx context.Context,
 		return nil, err
 	}
 
-	reqInt, err := util.GetQuantityFromResourceReq(req)
+	reqInt, reqFloat64, err := util.GetQuantityFromResourceReq(req)
 	if err != nil {
 		return nil, fmt.Errorf("getReqQuantityFromResourceReq failed with error: %v", err)
 	}
@@ -667,7 +668,8 @@ func (p *DynamicPolicy) Allocate(ctx context.Context,
 		"podRole", req.PodRole,
 		"containerType", req.ContainerType,
 		"qosLevel", qosLevel,
-		"numCPUs", reqInt,
+		"numCPUsInt", reqInt,
+		"numCPUsFloat64", reqFloat64,
 		"isDebugPod", isDebugPod)
 
 	if req.ContainerType == pluginapi.ContainerType_INIT {
@@ -1021,7 +1023,7 @@ func (p *DynamicPolicy) initReclaimPool() error {
 }
 
 // getContainerRequestedCores parses and returns request cores for the given container
-func (p *DynamicPolicy) getContainerRequestedCores(allocationInfo *state.AllocationInfo) int {
+func (p *DynamicPolicy) getContainerRequestedCores(allocationInfo *state.AllocationInfo) float64 {
 	if allocationInfo == nil {
 		general.Errorf("got nil allocationInfo")
 		return 0
@@ -1040,8 +1042,8 @@ func (p *DynamicPolicy) getContainerRequestedCores(allocationInfo *state.Allocat
 		}
 
 		cpuQuantity := native.CPUQuantityGetter()(container.Resources.Requests)
-		allocationInfo.RequestQuantity = general.Max(int(cpuQuantity.Value()), 0)
-		general.Infof("get cpu request quantity: %d for pod: %s/%s container: %s from podWatcher",
+		allocationInfo.RequestQuantity = general.MaxFloat64(float64(cpuQuantity.MilliValue())/1000.0, 0)
+		general.Infof("get cpu request quantity: %.3f for pod: %s/%s container: %s from podWatcher",
 			allocationInfo.RequestQuantity, allocationInfo.PodNamespace, allocationInfo.PodName, allocationInfo.ContainerName)
 	}
 	return allocationInfo.RequestQuantity

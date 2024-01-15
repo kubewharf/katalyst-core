@@ -40,25 +40,25 @@ import (
 // GetQuantityFromResourceReq parses resources quantity into value,
 // since pods with reclaimed_cores and un-reclaimed_cores have different
 // representations, we may to adapt to both cases.
-func GetQuantityFromResourceReq(req *pluginapi.ResourceRequest) (int, error) {
+func GetQuantityFromResourceReq(req *pluginapi.ResourceRequest) (int, float64, error) {
 	if len(req.ResourceRequests) != 1 {
-		return 0, fmt.Errorf("invalid req.ResourceRequests length: %d", len(req.ResourceRequests))
+		return 0, 0, fmt.Errorf("invalid req.ResourceRequests length: %d", len(req.ResourceRequests))
 	}
 
 	for key := range req.ResourceRequests {
 		switch key {
 		case string(v1.ResourceCPU):
-			return general.Max(int(math.Ceil(req.ResourceRequests[key])), 0), nil
+			return general.Max(int(math.Ceil(req.ResourceRequests[key])), 0), req.ResourceRequests[key], nil
 		case string(apiconsts.ReclaimedResourceMilliCPU):
-			return general.Max(int(math.Ceil(req.ResourceRequests[key]/1000.0)), 0), nil
+			return general.Max(int(math.Ceil(req.ResourceRequests[key]/1000.0)), 0), req.ResourceRequests[key] / 1000.0, nil
 		case string(v1.ResourceMemory), string(apiconsts.ReclaimedResourceMemory), string(apiconsts.ResourceNetBandwidth):
-			return general.Max(int(math.Ceil(req.ResourceRequests[key])), 0), nil
+			return general.Max(int(math.Ceil(req.ResourceRequests[key])), 0), req.ResourceRequests[key], nil
 		default:
-			return 0, fmt.Errorf("invalid request resource name: %s", key)
+			return 0, 0, fmt.Errorf("invalid request resource name: %s", key)
 		}
 	}
 
-	return 0, fmt.Errorf("unexpected end")
+	return 0, 0, fmt.Errorf("unexpected end")
 }
 
 // IsDebugPod returns true if the pod annotations show up any configurable debug key
