@@ -277,6 +277,11 @@ func (m *ManagerImpl) GetTopologyHints(pod *v1.Pod, container *v1.Container) map
 	return resourceHints
 }
 
+func (m *ManagerImpl) GetPodTopologyHints(pod *v1.Pod) map[string][]topology.TopologyHint {
+	// [TODO]: implement pod scope get topologyHints for provider and resource plugins.
+	return nil
+}
+
 func (m *ManagerImpl) Allocate(pod *v1.Pod, container *v1.Container) error {
 	if pod == nil || container == nil {
 		return fmt.Errorf("Allocate got nil pod: %v or container: %v", pod, container)
