@@ -76,7 +76,7 @@ func (p *DynamicPolicy) dedicatedCoresWithNUMABindingHintHandler(_ context.Conte
 			})
 	}
 
-	reqInt, err := util.GetQuantityFromResourceReq(req)
+	reqInt, _, err := util.GetQuantityFromResourceReq(req)
 	if err != nil {
 		return nil, fmt.Errorf("getReqQuantityFromResourceReq failed with error: %v", err)
 	}

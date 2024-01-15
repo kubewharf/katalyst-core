@@ -18,6 +18,7 @@ package state
 
 import (
 	"fmt"
+	"math"
 	"strings"
 	"sync"
 
@@ -28,6 +29,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/consts"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/cpuadvisor"
 	advisorapi "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/cpuadvisor"
+	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
@@ -60,15 +62,15 @@ var (
 )
 
 var containerRequestedCoresLock sync.RWMutex
-var containerRequestedCores func(allocationInfo *AllocationInfo) int
+var containerRequestedCores func(allocationInfo *AllocationInfo) float64
 
-func GetContainerRequestedCores() func(allocationInfo *AllocationInfo) int {
+func GetContainerRequestedCores() func(allocationInfo *AllocationInfo) float64 {
 	containerRequestedCoresLock.RLock()
 	defer containerRequestedCoresLock.RUnlock()
 	return containerRequestedCores
 }
 
-func SetContainerRequestedCores(f func(allocationInfo *AllocationInfo) int) {
+func SetContainerRequestedCores(f func(allocationInfo *AllocationInfo) float64) {
 	containerRequestedCoresLock.Lock()
 	defer containerRequestedCoresLock.Unlock()
 	containerRequestedCores = f
@@ -101,7 +103,7 @@ func GetIsolatedQuantityMapFromPodEntries(podEntries PodEntries, ignoreAllocatio
 			// and we will try to isolate those containers, so we will treat them as containers to be isolated.
 			var quantity int
 			if allocationInfo.OwnerPoolName != PoolNameDedicated {
-				quantity = GetContainerRequestedCores()(allocationInfo)
+				quantity = int(math.Ceil(GetContainerRequestedCores()(allocationInfo)))
 			} else {
 				quantity = allocationInfo.AllocationResult.Size()
 			}
@@ -124,6 +126,7 @@ func GetIsolatedQuantityMapFromPodEntries(podEntries PodEntries, ignoreAllocatio
 // and the map is formatted as pool -> quantity
 func GetSharedQuantityMapFromPodEntries(podEntries PodEntries, ignoreAllocationInfos []*AllocationInfo) map[string]int {
 	ret := make(map[string]int)
+	preciseQuantityMap := make(map[string]float64)
 	for _, entries := range podEntries {
 		if entries.IsPoolEntry() {
 			continue
@@ -146,9 +149,15 @@ func GetSharedQuantityMapFromPodEntries(podEntries PodEntries, ignoreAllocationI
 			}
 
 			if poolName := allocationInfo.GetOwnerPoolName(); poolName != advisorapi.EmptyOwnerPoolName {
-				ret[poolName] += GetContainerRequestedCores()(allocationInfo)
+				preciseQuantityMap[poolName] += GetContainerRequestedCores()(allocationInfo)
 			}
 		}
+	}
+
+	for poolName, preciseQuantity := range preciseQuantityMap {
+		ret[poolName] = int(math.Ceil(preciseQuantity))
+		general.Infof("ceil pool: %s precise quantity: %.3f to %d",
+			poolName, preciseQuantity, ret[poolName])
 	}
 	return ret
 }

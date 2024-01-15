@@ -60,7 +60,7 @@ type AllocationInfo struct {
 	Labels          map[string]string `json:"labels"`
 	Annotations     map[string]string `json:"annotations"`
 	QoSLevel        string            `json:"qosLevel"`
-	RequestQuantity int               `json:"request_quantity,omitempty"`
+	RequestQuantity float64           `json:"request_quantity,omitempty"`
 }
 
 type ContainerEntries map[string]*AllocationInfo // Keyed by containerName.

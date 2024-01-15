@@ -19,6 +19,8 @@ package dynamicpolicy
 import (
 	"context"
 	"fmt"
+	"math"
+	"sort"
 	"time"
 
 	v1 "k8s.io/api/core/v1"
@@ -43,7 +45,7 @@ func (p *DynamicPolicy) sharedCoresAllocationHandler(_ context.Context,
 		return nil, fmt.Errorf("sharedCoresAllocationHandler got nil request")
 	}
 
-	reqInt, err := util.GetQuantityFromResourceReq(req)
+	_, reqFloat64, err := util.GetQuantityFromResourceReq(req)
 	if err != nil {
 		return nil, fmt.Errorf("getReqQuantityFromResourceReq failed with error: %v", err)
 	}
@@ -97,7 +99,7 @@ func (p *DynamicPolicy) sharedCoresAllocationHandler(_ context.Context,
 			Labels:                           general.DeepCopyMap(req.Labels),
 			Annotations:                      general.DeepCopyMap(req.Annotations),
 			QoSLevel:                         apiconsts.PodAnnotationQoSLevelSharedCores,
-			RequestQuantity:                  reqInt,
+			RequestQuantity:                  reqFloat64,
 		}
 
 		if !shouldRampUp {
@@ -168,7 +170,7 @@ func (p *DynamicPolicy) reclaimedCoresAllocationHandler(_ context.Context,
 		return nil, fmt.Errorf("reclaimedCoresAllocationHandler got nil request")
 	}
 
-	reqInt, err := util.GetQuantityFromResourceReq(req)
+	_, reqFloat64, err := util.GetQuantityFromResourceReq(req)
 	if err != nil {
 		return nil, fmt.Errorf("getReqQuantityFromResourceReq failed with error: %v", err)
 	}
@@ -215,7 +217,7 @@ func (p *DynamicPolicy) reclaimedCoresAllocationHandler(_ context.Context,
 			Labels:          general.DeepCopyMap(req.Labels),
 			Annotations:     general.DeepCopyMap(req.Annotations),
 			QoSLevel:        apiconsts.PodAnnotationQoSLevelReclaimedCores,
-			RequestQuantity: reqInt,
+			RequestQuantity: reqFloat64,
 		}
 	}
 
@@ -292,7 +294,7 @@ func (p *DynamicPolicy) dedicatedCoresWithNUMABindingAllocationHandler(ctx conte
 		}
 	}
 
-	reqInt, err := util.GetQuantityFromResourceReq(req)
+	reqInt, reqFloat64, err := util.GetQuantityFromResourceReq(req)
 	if err != nil {
 		return nil, fmt.Errorf("getReqQuantityFromResourceReq failed with error: %v", err)
 	}
@@ -303,7 +305,8 @@ func (p *DynamicPolicy) dedicatedCoresWithNUMABindingAllocationHandler(ctx conte
 			"podNamespace", req.PodNamespace,
 			"podName", req.PodName,
 			"containerName", req.ContainerName,
-			"numCPUs", reqInt)
+			"numCPUsInt", reqInt,
+			"numCPUsFloat64", reqFloat64)
 		return nil, err
 	}
 
@@ -311,7 +314,8 @@ func (p *DynamicPolicy) dedicatedCoresWithNUMABindingAllocationHandler(ctx conte
 		"podNamespace", req.PodNamespace,
 		"podName", req.PodName,
 		"containerName", req.ContainerName,
-		"numCPUs", reqInt,
+		"numCPUsInt", reqInt,
+		"numCPUsFloat64", reqFloat64,
 		"result", result.String())
 
 	topologyAwareAssignments, err := machine.GetNumaAwareAssignments(p.machineInfo.CPUTopology, result)
@@ -320,7 +324,8 @@ func (p *DynamicPolicy) dedicatedCoresWithNUMABindingAllocationHandler(ctx conte
 			"podNamespace", req.PodNamespace,
 			"podName", req.PodName,
 			"containerName", req.ContainerName,
-			"numCPUs", reqInt,
+			"numCPUsInt", reqInt,
+			"numCPUsFloat64", reqFloat64,
 			"result cpuset", result.String())
 		return nil, err
 	}
@@ -344,7 +349,7 @@ func (p *DynamicPolicy) dedicatedCoresWithNUMABindingAllocationHandler(ctx conte
 		QoSLevel:                         apiconsts.PodAnnotationQoSLevelDedicatedCores,
 		Labels:                           general.DeepCopyMap(req.Labels),
 		Annotations:                      general.DeepCopyMap(req.Annotations),
-		RequestQuantity:                  reqInt,
+		RequestQuantity:                  reqFloat64,
 	}
 
 	// update pod entries directly.
@@ -379,7 +384,7 @@ func (p *DynamicPolicy) dedicatedCoresWithNUMABindingAllocationHandler(ctx conte
 // dedicatedCoresWithNUMABindingAllocationSidecarHandler currently we set cpuset of sidecar to the cpuset of its main container
 func (p *DynamicPolicy) dedicatedCoresWithNUMABindingAllocationSidecarHandler(_ context.Context,
 	req *pluginapi.ResourceRequest) (*pluginapi.ResourceAllocationResponse, error) {
-	reqInt, err := util.GetQuantityFromResourceReq(req)
+	_, reqFloat64, err := util.GetQuantityFromResourceReq(req)
 	if err != nil {
 		return nil, fmt.Errorf("getReqQuantityFromResourceReq failed with error: %v", err)
 	}
@@ -417,7 +422,7 @@ func (p *DynamicPolicy) dedicatedCoresWithNUMABindingAllocationSidecarHandler(_ 
 		QoSLevel:                         apiconsts.PodAnnotationQoSLevelDedicatedCores,
 		Labels:                           general.DeepCopyMap(req.Labels),
 		Annotations:                      general.DeepCopyMap(req.Annotations),
-		RequestQuantity:                  reqInt,
+		RequestQuantity:                  reqFloat64,
 	}
 
 	// update pod entries directly.
@@ -517,6 +522,7 @@ func (p *DynamicPolicy) putAllocationsAndAdjustAllocationEntries(allocationInfos
 		poolsQuantityMap = state.GetSharedQuantityMapFromPodEntries(entries, allocationInfos)
 	}
 
+	incrQuantityMap := make(map[string]float64)
 	for _, allocationInfo := range allocationInfos {
 		if allocationInfo == nil {
 			return fmt.Errorf("found nil allocationInfo in input parameter")
@@ -533,10 +539,16 @@ func (p *DynamicPolicy) putAllocationsAndAdjustAllocationEntries(allocationInfos
 		}
 
 		if incrByReq {
-			reqInt := state.GetContainerRequestedCores()(allocationInfo)
-			poolsQuantityMap[poolName] += reqInt
+			requestQuantity := state.GetContainerRequestedCores()(allocationInfo)
+			incrQuantityMap[poolName] += requestQuantity
+			general.Infof("put allocation with request quantity: %.3f", requestQuantity)
 		}
+	}
 
+	for poolName, incrQuantity := range incrQuantityMap {
+		incrInt := int(math.Ceil(incrQuantity))
+		poolsQuantityMap[poolName] += incrInt
+		general.Infof("increase pool: %s by %d", poolName, incrInt)
 	}
 
 	isolatedQuantityMap := state.GetIsolatedQuantityMapFromPodEntries(entries, allocationInfos)
@@ -759,10 +771,9 @@ func (p *DynamicPolicy) applyPoolsAndIsolatedInfo(poolsCPUSet map[string]machine
 				continue
 			}
 
-			reqInt := state.GetContainerRequestedCores()(allocationInfo)
 			if newPodEntries[podUID][containerName] != nil {
 				// adapt to old checkpoint without RequestQuantity property
-				newPodEntries[podUID][containerName].RequestQuantity = reqInt
+				newPodEntries[podUID][containerName].RequestQuantity = state.GetContainerRequestedCores()(allocationInfo)
 				general.Infof("pod: %s/%s, container: %s, qosLevel: %s is isolated, ignore original allocationInfo",
 					allocationInfo.PodNamespace, allocationInfo.PodName, allocationInfo.ContainerName, allocationInfo.QoSLevel)
 				continue
@@ -911,20 +922,37 @@ func (p *DynamicPolicy) generatePoolsAndIsolation(poolsQuantityMap map[string]in
 		proportionalPoolsQuantityMap := make(map[string]int)
 
 		for poolName, poolQuantity := range poolsQuantityMap {
-			proportionalSize := general.Max(getProportionalSize(poolQuantity, poolsTotalQuantity, availableSize), 1)
+			proportionalSize := general.Max(getProportionalSize(poolQuantity, poolsTotalQuantity, availableSize, true /*ceil*/), 1)
 			proportionalPoolsQuantityMap[poolName] = proportionalSize
 			totalProportionalPoolsQuantity += proportionalSize
 		}
+
+		poolNames := make([]string, 0, len(proportionalPoolsQuantityMap))
+
+		for poolName := range proportionalPoolsQuantityMap {
+			poolNames = append(poolNames, poolName)
+		}
+
+		sort.Slice(poolNames, func(x, y int) bool {
+			// sort in descending order
+			return proportionalPoolsQuantityMap[poolNames[x]] > proportionalPoolsQuantityMap[poolNames[y]]
+		})
 
 		// corner case: after divide, the total count goes to be bigger than available total
 		for totalProportionalPoolsQuantity > availableSize {
 			curTotalProportionalPoolsQuantity := totalProportionalPoolsQuantity
 
-			for poolName, quantity := range proportionalPoolsQuantityMap {
+			for _, poolName := range poolNames {
+				quantity := proportionalPoolsQuantityMap[poolName]
+
 				if quantity > 1 && totalProportionalPoolsQuantity > 0 {
 					quantity--
 					totalProportionalPoolsQuantity--
 					proportionalPoolsQuantityMap[poolName] = quantity
+
+					if totalProportionalPoolsQuantity == availableSize {
+						break
+					}
 				}
 			}
 
@@ -934,7 +962,8 @@ func (p *DynamicPolicy) generatePoolsAndIsolation(poolsQuantityMap map[string]in
 			}
 		}
 
-		general.Infof("poolsQuantityMap: %v, proportionalPoolsQuantityMap: %v", poolsQuantityMap, proportionalPoolsQuantityMap)
+		general.Infof("poolsQuantityMap: %v, proportionalPoolsQuantityMap: %v, availableSize: %d",
+			poolsQuantityMap, proportionalPoolsQuantityMap, availableSize)
 
 		// availableSize can't satisfy every pool has at least one cpu,
 		// we make all pools equals to availableCPUs in this case.
@@ -1004,7 +1033,7 @@ func (p *DynamicPolicy) apportionReclaimedPool(poolsCPUSet map[string]machine.CP
 		if state.ResidentPools.Has(poolName) {
 			continue
 		}
-		proportionalSize := general.Max(getProportionalSize(poolCPUs.Size(), totalSize, availableSize), 1)
+		proportionalSize := general.Max(getProportionalSize(poolCPUs.Size(), totalSize, availableSize, false /*ceil*/), 1)
 
 		var err error
 		var cpuset machine.CPUSet

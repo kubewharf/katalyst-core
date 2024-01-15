@@ -18,6 +18,7 @@ package dynamicpolicy
 
 import (
 	"fmt"
+	"math"
 
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 
@@ -28,8 +29,12 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
-func getProportionalSize(oldPoolSize, oldTotalSize, newTotalSize int) int {
-	return int(float64(newTotalSize) * (float64(oldPoolSize) / float64(oldTotalSize)))
+func getProportionalSize(oldPoolSize, oldTotalSize, newTotalSize int, ceil bool) int {
+	if ceil {
+		return int(math.Ceil(float64(newTotalSize) * (float64(oldPoolSize) / float64(oldTotalSize))))
+	} else {
+		return int(float64(newTotalSize) * (float64(oldPoolSize) / float64(oldTotalSize)))
+	}
 }
 
 func generateMachineStateFromPodEntries(topology *machine.CPUTopology, podEntries state.PodEntries) (state.NUMANodeMap, error) {

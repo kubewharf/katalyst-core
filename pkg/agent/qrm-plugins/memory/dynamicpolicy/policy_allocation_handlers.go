@@ -76,7 +76,7 @@ func (p *DynamicPolicy) dedicatedCoresWithNUMABindingAllocationHandler(ctx conte
 		return p.dedicatedCoresWithNUMABindingAllocationSidecarHandler(ctx, req)
 	}
 
-	reqInt, err := util.GetQuantityFromResourceReq(req)
+	reqInt, _, err := util.GetQuantityFromResourceReq(req)
 	if err != nil {
 		return nil, fmt.Errorf("GetQuantityFromResourceReq failed with error: %v", err)
 	}
@@ -501,7 +501,7 @@ func (p *DynamicPolicy) calculateMemoryAllocation(req *pluginapi.ResourceRequest
 		return fmt.Errorf("NUMA not exclusive binding container has request larger than 1 NUMA")
 	}
 
-	memoryReq, err := util.GetQuantityFromResourceReq(req)
+	memoryReq, _, err := util.GetQuantityFromResourceReq(req)
 
 	if err != nil {
 		return fmt.Errorf("GetQuantityFromResourceReq failed with error: %v", err)

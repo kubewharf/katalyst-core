@@ -254,7 +254,7 @@ func (p *StaticPolicy) GetTopologyHints(_ context.Context,
 		return nil, err
 	}
 
-	reqInt, err := util.GetQuantityFromResourceReq(req)
+	reqInt, _, err := util.GetQuantityFromResourceReq(req)
 	if err != nil {
 		return nil, fmt.Errorf("getReqQuantityFromResourceReq failed with error: %v", err)
 	}
@@ -480,7 +480,7 @@ func (p *StaticPolicy) Allocate(_ context.Context,
 		return nil, err
 	}
 
-	reqInt, err := util.GetQuantityFromResourceReq(req)
+	reqInt, _, err := util.GetQuantityFromResourceReq(req)
 	if err != nil {
 		return nil, fmt.Errorf("getReqQuantityFromResourceReq failed with error: %v", err)
 	}
@@ -744,7 +744,7 @@ func (p *StaticPolicy) filterAvailableNICsByBandwidth(nics []machine.InterfaceIn
 		return nil
 	}
 
-	reqInt, err := util.GetQuantityFromResourceReq(req)
+	reqInt, _, err := util.GetQuantityFromResourceReq(req)
 	if err != nil {
 		general.Errorf("getReqQuantityFromResourceReq failed with error: %v", err)
 		return nil
