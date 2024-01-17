@@ -44,7 +44,8 @@ const (
 	MetricNameMemoryHandleAdvisorCPUSetMems           = "memory_handle_advisor_cpuset_mems"
 	MetricNameMemoryOOMPriorityDeleteFailed           = "memory_oom_priority_delete_failed"
 	MetricNameMemoryOOMPriorityUpdateFailed           = "memory_oom_priority_update_failed"
-	MetricNameMemoryNumaMemoryBalance                 = "memory_handle_numa_memory_balance"
+	MetricNameMemoryNumaBalance                       = "memory_handle_numa_balance"
+	MetricNameMemoryNumaBalanceCost                   = "memory_numa_balance_cost"
 )
 
 // those are OCI property names to be used by QRM plugins

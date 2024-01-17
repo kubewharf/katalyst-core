@@ -1151,16 +1151,11 @@ func TestUpdate(t *testing.T) {
 			},
 			wantHeadroom: *resource.NewQuantity(980<<30, resource.DecimalSI),
 			wantAdviceResult: types.InternalMemoryCalculationResult{
-				ContainerEntries: []types.ContainerMemoryAdvices{
+				ExtraEntries: []types.ExtraMemoryAdvices{
 					{
-						PodUID:        "uid3",
-						ContainerName: "c3",
-						Values:        map[string]string{string(memoryadvisor.ControlKnobKeyBalanceNumaMemory): "{\"sourceNuma\":0,\"destNumas\":[1]}"},
-					},
-					{
-						PodUID:        "uid4",
-						ContainerName: "c4",
-						Values:        map[string]string{string(memoryadvisor.ControlKnobKeyBalanceNumaMemory): "{\"sourceNuma\":0,\"destNumas\":[1]}"},
+						Values: map[string]string{
+							string(memoryadvisor.ControlKnobKeyBalanceNumaMemory): "{\"poolBalanceInfo\":{\"share\":{\"balanceInfo\":[{\"destNuma\":1,\"sourceNuma\":0,\"migrateContainers\":[{\"podUID\":\"uid4\",\"containerName\":\"c4\"},{\"podUID\":\"uid3\",\"containerName\":\"c3\"}]}],\"totalRSS\":3221225472,\"threshold\":0.7}}}",
+						},
 					},
 				},
 			},
@@ -1286,28 +1281,28 @@ func TestUpdate(t *testing.T) {
 			containerNUMAMetrics: []containerNUMAMetric{
 				{
 					metricName:    coreconsts.MetricsMemAnonPerNumaContainer,
-					metricValue:   metricutil.MetricData{Value: 2 << 30},
+					metricValue:   metricutil.MetricData{Value: 2 << 10},
 					podUID:        "uid1",
 					containerName: "c1",
 					numdID:        0,
 				},
 				{
 					metricName:    coreconsts.MetricsMemAnonPerNumaContainer,
-					metricValue:   metricutil.MetricData{Value: 1 << 30},
+					metricValue:   metricutil.MetricData{Value: 1 << 10},
 					podUID:        "uid2",
 					containerName: "c2",
 					numdID:        0,
 				},
 				{
 					metricName:    coreconsts.MetricsMemAnonPerNumaContainer,
-					metricValue:   metricutil.MetricData{Value: 2 << 30},
+					metricValue:   metricutil.MetricData{Value: 2 << 10},
 					podUID:        "uid3",
 					containerName: "c3",
 					numdID:        0,
 				},
 				{
 					metricName:    coreconsts.MetricsMemAnonPerNumaContainer,
-					metricValue:   metricutil.MetricData{Value: 512 << 20},
+					metricValue:   metricutil.MetricData{Value: 512 << 10},
 					podUID:        "uid4",
 					containerName: "c4",
 					numdID:        0,
@@ -1441,16 +1436,11 @@ func TestUpdate(t *testing.T) {
 			},
 			wantHeadroom: *resource.NewQuantity(980<<30, resource.DecimalSI),
 			wantAdviceResult: types.InternalMemoryCalculationResult{
-				ContainerEntries: []types.ContainerMemoryAdvices{
+				ExtraEntries: []types.ExtraMemoryAdvices{
 					{
-						PodUID:        "uid2",
-						ContainerName: "c2",
-						Values:        map[string]string{string(memoryadvisor.ControlKnobKeyBalanceNumaMemory): "{\"sourceNuma\":0,\"destNumas\":[2]}"},
-					},
-					{
-						PodUID:        "uid1",
-						ContainerName: "c1",
-						Values:        map[string]string{string(memoryadvisor.ControlKnobKeyBalanceNumaMemory): "{\"sourceNuma\":0,\"destNumas\":[2]}"},
+						Values: map[string]string{
+							string(memoryadvisor.ControlKnobKeyBalanceNumaMemory): "{\"poolBalanceInfo\":{\"share\":{\"balanceInfo\":[{\"destNuma\":2,\"sourceNuma\":0,\"migrateContainers\":[{\"podUID\":\"uid2\",\"containerName\":\"c2\"},{\"podUID\":\"uid1\",\"containerName\":\"c1\"}]}],\"totalRSS\":3221225472,\"threshold\":0.7}}}",
+						},
 					},
 				},
 			},
@@ -1605,16 +1595,11 @@ func TestUpdate(t *testing.T) {
 			},
 			wantHeadroom: *resource.NewQuantity(980<<30, resource.DecimalSI),
 			wantAdviceResult: types.InternalMemoryCalculationResult{
-				ContainerEntries: []types.ContainerMemoryAdvices{
+				ExtraEntries: []types.ExtraMemoryAdvices{
 					{
-						PodUID:        "uid3",
-						ContainerName: "c3",
-						Values:        map[string]string{string(memoryadvisor.ControlKnobKeyBalanceNumaMemory): "{\"sourceNuma\":0,\"destNumas\":[1]}"},
-					},
-					{
-						PodUID:        "uid4",
-						ContainerName: "c4",
-						Values:        map[string]string{string(memoryadvisor.ControlKnobKeyBalanceNumaMemory): "{\"sourceNuma\":0,\"destNumas\":[1]}"},
+						Values: map[string]string{
+							string(memoryadvisor.ControlKnobKeyBalanceNumaMemory): "{\"poolBalanceInfo\":{\"share\":{\"balanceInfo\":[{\"destNuma\":1,\"sourceNuma\":0,\"migrateContainers\":[{\"podUID\":\"uid4\",\"containerName\":\"c4\"},{\"podUID\":\"uid3\",\"containerName\":\"c3\"}]}],\"totalRSS\":3221225472,\"threshold\":0.7}}}",
+						},
 					},
 				},
 			},
@@ -1742,11 +1727,11 @@ func TestUpdate(t *testing.T) {
 			},
 			wantHeadroom: *resource.NewQuantity(980<<30, resource.DecimalSI),
 			wantAdviceResult: types.InternalMemoryCalculationResult{
-				ContainerEntries: []types.ContainerMemoryAdvices{
+				ExtraEntries: []types.ExtraMemoryAdvices{
 					{
-						PodUID:        "uid1",
-						ContainerName: "c1",
-						Values:        map[string]string{string(memoryadvisor.ControlKnobKeyBalanceNumaMemory): "{\"sourceNuma\":2,\"destNumas\":[1]}"},
+						Values: map[string]string{
+							string(memoryadvisor.ControlKnobKeyBalanceNumaMemory): "{\"poolBalanceInfo\":{\"share\":{\"balanceInfo\":[{\"destNuma\":1,\"sourceNuma\":2,\"migrateContainers\":[{\"podUID\":\"uid1\",\"containerName\":\"c1\"}]}],\"totalRSS\":2147483648,\"threshold\":0.7}}}",
+						},
 					},
 				},
 			},
@@ -1874,11 +1859,11 @@ func TestUpdate(t *testing.T) {
 			},
 			wantHeadroom: *resource.NewQuantity(980<<30, resource.DecimalSI),
 			wantAdviceResult: types.InternalMemoryCalculationResult{
-				ContainerEntries: []types.ContainerMemoryAdvices{
+				ExtraEntries: []types.ExtraMemoryAdvices{
 					{
-						PodUID:        "uid1",
-						ContainerName: "c1",
-						Values:        map[string]string{string(memoryadvisor.ControlKnobKeyBalanceNumaMemory): "{\"sourceNuma\":2,\"destNumas\":[0]}"},
+						Values: map[string]string{
+							string(memoryadvisor.ControlKnobKeyBalanceNumaMemory): "{\"poolBalanceInfo\":{\"share\":{\"balanceInfo\":[{\"destNuma\":0,\"sourceNuma\":2,\"migrateContainers\":[{\"podUID\":\"uid1\",\"containerName\":\"c1\"}]}],\"totalRSS\":2147483648,\"threshold\":0.7}}}",
+						},
 					},
 				},
 			},

@@ -71,7 +71,26 @@ type InternalMemoryCalculationResult struct {
 	TimeStamp        time.Time
 }
 
+type NumaMemoryBalanceContainerInfo struct {
+	PodUID        string `json:"podUID"`
+	ContainerName string `json:"containerName"`
+}
+
+type NumaMemoryMigrationInfo struct {
+	DestNuma          int                              `json:"destNuma"`
+	SourceNuma        int                              `json:"sourceNuma"`
+	MigrateContainers []NumaMemoryBalanceContainerInfo `json:"migrateContainers"`
+}
+
+type NumaMemoryBalancePoolAdvice struct {
+	// It should be organized by the execution priority since the migration cost is different between the different
+	// NUMA pairs. The closer two NUMAs is,the smaller cost of page migration is.
+	BalanceInfo []NumaMemoryMigrationInfo `json:"balanceInfo"`
+	TotalRSS    float64                   `json:"totalRSS"`
+	// if the successful migrated memory ratio is over this threshold, this turn can be considered successful.
+	Threshold float64 `json:"threshold"`
+}
+
 type NumaMemoryBalanceAdvice struct {
-	SourceNuma int   `json:"sourceNuma"`
-	DestNumas  []int `json:"destNumas"`
+	PoolBalanceInfo map[string]NumaMemoryBalancePoolAdvice `json:"poolBalanceInfo"`
 }

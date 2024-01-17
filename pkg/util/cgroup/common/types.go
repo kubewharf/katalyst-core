@@ -178,6 +178,12 @@ type MemoryMetrics struct {
 	MemSWUsage uint64
 }
 
+// MemoryNumaMetrics get per-numa level memory cgroup metrics
+type MemoryNumaMetrics struct {
+	Anon uint64
+	File uint64
+}
+
 // PidMetrics get pid cgroup metrics
 type PidMetrics struct {
 	Current uint64
