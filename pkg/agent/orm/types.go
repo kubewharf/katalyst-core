@@ -17,8 +17,11 @@ limitations under the License.
 package orm
 
 const (
-	MetricAddPodTimeout    = "ORM_add_pod_timeout"
-	MetricDeletePodTImeout = "ORM_delete_pod_timeout"
+	MetricAddPodTimeout                            = "ORM_add_pod_timeout"
+	MetricDeletePodTImeout                         = "ORM_delete_pod_timeout"
+	MetricGetTopologyAwareResourcesFail            = "ORM_get_topology_aware_resource_fail"
+	MetricGetTopologyAwareAllocatableResourcesFail = "ORM_get_topology_aware_allocatable_resource_fail"
+	MetricUpdateAllocatedResourcesFail             = "ORM_update_allocatabled_resources_fail"
 
 	MainContainerNameAnnotationKey = "kubernetes.io/main-container-name"
 

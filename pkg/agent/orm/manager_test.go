@@ -652,3 +652,11 @@ func (m *MockEndpoint) GetResourcePluginOptions(ctx context.Context, in *plugina
 		NeedReconcile: true,
 	}, nil
 }
+
+func (m *MockEndpoint) GetTopologyAwareResources(c context.Context, request *pluginapi.GetTopologyAwareResourcesRequest) (*pluginapi.GetTopologyAwareResourcesResponse, error) {
+	return nil, nil
+}
+
+func (m *MockEndpoint) GetTopologyAwareAllocatableResources(c context.Context, request *pluginapi.GetTopologyAwareAllocatableResourcesRequest) (*pluginapi.GetTopologyAwareAllocatableResourcesResponse, error) {
+	return nil, nil
+}
