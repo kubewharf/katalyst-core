@@ -23,7 +23,6 @@ import (
 
 	v1 "k8s.io/api/core/v1"
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
-	"k8s.io/kubernetes/pkg/kubelet/cm/topologymanager/bitmask"
 
 	nativepolicyutil "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/nativepolicy/util"
 	cpuutil "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/util"
@@ -112,8 +111,9 @@ func (p *NativePolicy) generateCPUTopologyHints(availableCPUs machine.CPUSet, re
 		},
 	}
 
+	numaNodes := p.machineInfo.CPUDetails.NUMANodes().ToSliceInt()
 	// Iterate through all combinations of numa nodes bitmask and build hints from them.
-	bitmask.IterateBitMasks(p.machineInfo.CPUDetails.NUMANodes().ToSliceInt(), func(mask bitmask.BitMask) {
+	machine.IterateBitMasks(numaNodes, len(numaNodes), func(mask machine.BitMask) {
 		// First, update minAffinitySize for the current request size.
 		cpusInMask := p.machineInfo.CPUDetails.CPUsInNUMANodes(mask.GetBits()...).Size()
 		if cpusInMask >= request && mask.Count() < minAffinitySize {

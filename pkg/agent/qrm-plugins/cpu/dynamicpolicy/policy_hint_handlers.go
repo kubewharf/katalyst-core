@@ -24,7 +24,6 @@ import (
 
 	v1 "k8s.io/api/core/v1"
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
-	"k8s.io/kubernetes/pkg/kubelet/cm/topologymanager/bitmask"
 
 	apiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
 	cpuconsts "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/consts"
@@ -170,26 +169,52 @@ func (p *DynamicPolicy) calculateHints(reqInt int, machineState state.NUMANodeMa
 		return nil, fmt.Errorf("GetNUMANodesCountToFitCPUReq failed with error: %v", err)
 	}
 
+	numaBinding := qosutil.AnnotationsIndicateNUMABinding(reqAnnotations)
+	numaExclusive := qosutil.AnnotationsIndicateNUMAExclusive(reqAnnotations)
+
 	// because it's hard to control memory allocation accurately,
 	// we only support numa_binding but not exclusive container with request smaller than 1 NUMA
-	if qosutil.AnnotationsIndicateNUMABinding(reqAnnotations) &&
-		!qosutil.AnnotationsIndicateNUMAExclusive(reqAnnotations) &&
-		minNUMAsCountNeeded > 1 {
+	if numaBinding && !numaExclusive && minNUMAsCountNeeded > 1 {
 		return nil, fmt.Errorf("NUMA not exclusive binding container has request larger than 1 NUMA")
 	}
 
-	numaPerSocket, err := p.machineInfo.NUMAsPerSocket()
+	numasPerSocket, err := p.machineInfo.NUMAsPerSocket()
 	if err != nil {
 		return nil, fmt.Errorf("NUMAsPerSocket failed with error: %v", err)
 	}
 
-	bitmask.IterateBitMasks(numaNodes, func(mask bitmask.BitMask) {
+	numaToAvailableCPUCount := make(map[int]int, len(numaNodes))
+
+	for _, nodeID := range numaNodes {
+		if machineState[nodeID] == nil {
+			general.Warningf("NUMA: %d has nil state", nodeID)
+			numaToAvailableCPUCount[nodeID] = 0
+			continue
+		}
+
+		if numaExclusive && machineState[nodeID].AllocatedCPUSet.Size() > 0 {
+			numaToAvailableCPUCount[nodeID] = 0
+			general.Warningf("numa_exclusive container skip NUMA: %d allocated: %d",
+				nodeID, machineState[nodeID].AllocatedCPUSet.Size())
+		} else {
+			numaToAvailableCPUCount[nodeID] = machineState[nodeID].GetAvailableCPUSet(p.reservedCPUs).Size()
+		}
+	}
+
+	general.Infof("calculate hints with req: %d, numaToAvailableCPUCount: %+v",
+		reqInt, numaToAvailableCPUCount)
+
+	numaBound := len(numaNodes)
+	if numaBound > machine.LargeNUMAsPoint {
+		// [TODO]: to discuss refine minNUMAsCountNeeded+1
+		numaBound = minNUMAsCountNeeded + 1
+	}
+
+	machine.IterateBitMasks(numaNodes, numaBound, func(mask machine.BitMask) {
 		maskCount := mask.Count()
 		if maskCount < minNUMAsCountNeeded {
 			return
-		} else if qosutil.AnnotationsIndicateNUMABinding(reqAnnotations) &&
-			!qosutil.AnnotationsIndicateNUMAExclusive(reqAnnotations) &&
-			maskCount > 1 {
+		} else if numaBinding && !numaExclusive && maskCount > 1 {
 			// because it's hard to control memory allocation accurately,
 			// we only support numa_binding but not exclusive container with request smaller than 1 NUMA
 			return
@@ -198,33 +223,19 @@ func (p *DynamicPolicy) calculateHints(reqInt int, machineState state.NUMANodeMa
 		maskBits := mask.GetBits()
 		numaCountNeeded := mask.Count()
 
-		allAvailableCPUsInMask := machine.NewCPUSet()
+		allAvailableCPUsCountInMask := 0
 		for _, nodeID := range maskBits {
-			if machineState[nodeID] == nil {
-				general.Warningf("NUMA: %d has nil state", nodeID)
-				return
-			} else if qosutil.AnnotationsIndicateNUMAExclusive(reqAnnotations) && machineState[nodeID].AllocatedCPUSet.Size() > 0 {
-				general.Warningf("numa_exclusive container skip mask: %s with NUMA: %d allocated: %d",
-					mask.String(), nodeID, machineState[nodeID].AllocatedCPUSet.Size())
-				return
-			}
-
-			allAvailableCPUsInMask = allAvailableCPUsInMask.Union(machineState[nodeID].GetAvailableCPUSet(p.reservedCPUs))
+			allAvailableCPUsCountInMask += numaToAvailableCPUCount[nodeID]
 		}
 
-		if allAvailableCPUsInMask.Size() < reqInt {
-			general.InfofV(4, "available cpuset: %s of size: %d excluding NUMA binding pods which is smaller than request: %d",
-				allAvailableCPUsInMask.String(), allAvailableCPUsInMask.Size(), reqInt)
+		if allAvailableCPUsCountInMask < reqInt {
 			return
 		}
 
 		crossSockets, err := machine.CheckNUMACrossSockets(maskBits, p.machineInfo.CPUTopology)
 		if err != nil {
-			general.Errorf("CheckNUMACrossSockets failed with error: %v", err)
 			return
-		} else if numaCountNeeded <= numaPerSocket && crossSockets {
-			general.InfofV(4, "needed: %d; min-needed: %d; NUMAs: %v cross sockets with numaPerSocket: %d",
-				numaCountNeeded, minNUMAsCountNeeded, maskBits, numaPerSocket)
+		} else if numaCountNeeded <= numasPerSocket && crossSockets {
 			return
 		}
 
