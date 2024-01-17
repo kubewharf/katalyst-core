@@ -38,3 +38,9 @@ const (
 	// errListenSocket is the error raised when the registry could not listen on the socket
 	errListenSocket = "failed to listen to socket while starting resource plugin registry, with error"
 )
+
+const (
+	kubeletDevicesProvider = "kubelet"
+
+	NoneDevicesProvider = ""
+)
