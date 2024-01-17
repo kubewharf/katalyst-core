@@ -23,7 +23,6 @@ import (
 	"github.com/stretchr/testify/require"
 	v1 "k8s.io/api/core/v1"
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
-	"k8s.io/kubernetes/pkg/kubelet/cm/topologymanager/bitmask"
 
 	"github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
@@ -171,17 +170,17 @@ func TestMaskToUInt64Array(t *testing.T) {
 
 	as := require.New(t)
 
-	nonEmptyMask, err := bitmask.NewBitMask(0, 1, 2, 3)
+	nonEmptyMask, err := machine.NewBitMask(0, 1, 2, 3)
 	as.Nil(err)
 
 	testCases := []struct {
 		description   string
-		mask          bitmask.BitMask
+		mask          machine.BitMask
 		expectedArray []uint64
 	}{
 		{
 			description:   "empty mask",
-			mask:          bitmask.NewEmptyBitMask(),
+			mask:          machine.NewEmptyBitMask(),
 			expectedArray: []uint64{},
 		},
 		{

@@ -18,8 +18,10 @@ package machine
 
 import (
 	"fmt"
+)
 
-	"k8s.io/kubernetes/pkg/kubelet/cm/topologymanager/bitmask"
+const (
+	LargeNUMAsPoint = 16
 )
 
 // TransformCPUAssignmentFormat transforms cpu assignment string format to cpuset format
@@ -94,7 +96,7 @@ func GetCPUAssignmentNUMAs(assignment map[int]CPUSet) CPUSet {
 }
 
 // MaskToUInt64Array transforms bit mask to uint slices
-func MaskToUInt64Array(mask bitmask.BitMask) []uint64 {
+func MaskToUInt64Array(mask BitMask) []uint64 {
 	maskBits := mask.GetBits()
 
 	maskBitsUint64 := make([]uint64, 0, len(maskBits))
