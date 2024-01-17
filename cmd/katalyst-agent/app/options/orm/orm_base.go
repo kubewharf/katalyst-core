@@ -30,6 +30,7 @@ type GenericORMPluginOptions struct {
 	ORMPodNotifyChanLen   int
 	TopologyPolicyName    string
 	NumericAlignResources []string
+	ORMPodResourcesSocket string
 }
 
 func NewGenericORMPluginOptions() *GenericORMPluginOptions {
@@ -39,6 +40,7 @@ func NewGenericORMPluginOptions() *GenericORMPluginOptions {
 		ORMPodNotifyChanLen:   10,
 		TopologyPolicyName:    "none",
 		NumericAlignResources: []string{"cpu", "memory"},
+		ORMPodResourcesSocket: "unix:/var/lib/katalyst/pod-resources/kubelet.sock",
 	}
 }
 
@@ -58,6 +60,8 @@ func (o *GenericORMPluginOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 		o.TopologyPolicyName, "topology merge policy name used by ORM")
 	fs.StringSliceVar(&o.NumericAlignResources, "numeric-align-resources", o.NumericAlignResources,
 		"resources which should be aligned in numeric topology policy")
+	fs.StringVar(&o.ORMPodResourcesSocket, "orm-pod-resources-socket", o.ORMPodResourcesSocket,
+		"socket of ORM pod resource api, default 'unix:/var/lib/katalyst/pod-resources/kubelet.sock'")
 }
 
 func (o *GenericORMPluginOptions) ApplyTo(conf *ormconfig.GenericORMConfiguration) error {

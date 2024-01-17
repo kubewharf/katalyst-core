@@ -24,6 +24,7 @@ type GenericORMConfiguration struct {
 	ORMPodNotifyChanLen   int
 	TopologyPolicyName    string
 	NumericAlignResources []string
+	ORMPodResourcesSocket string
 }
 
 func NewGenericORMConfiguration() *GenericORMConfiguration {
@@ -33,5 +34,6 @@ func NewGenericORMConfiguration() *GenericORMConfiguration {
 		ORMPodNotifyChanLen:   10,
 		TopologyPolicyName:    "none",
 		NumericAlignResources: []string{"cpu", "memory"},
+		ORMPodResourcesSocket: "unix:/var/lib/katalyst/pod-resources/kubelet.sock",
 	}
 }

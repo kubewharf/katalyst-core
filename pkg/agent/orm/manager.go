@@ -26,6 +26,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/kubewharf/katalyst-core/pkg/agent/orm/server"
+
 	"github.com/opencontainers/selinux/go-selinux"
 	"google.golang.org/grpc"
 	v1 "k8s.io/api/core/v1"
@@ -76,8 +78,9 @@ type ManagerImpl struct {
 	emitter   metrics.MetricEmitter
 	qosConfig *generic.QoSConfiguration
 
-	reconcilePeriod  time.Duration
-	resourceNamesMap map[string]string
+	reconcilePeriod   time.Duration
+	resourceNamesMap  map[string]string
+	podResourceSocket string
 }
 
 func NewManager(socketPath string, emitter metrics.MetricEmitter, metaServer *metaserver.MetaServer, config *config.Configuration) (*ManagerImpl, error) {
@@ -104,10 +107,11 @@ func NewManager(socketPath string, emitter metrics.MetricEmitter, metaServer *me
 		resourceNamesMap: config.ORMResourceNamesMap,
 		reconcilePeriod:  config.ORMRconcilePeriod,
 
-		podAddChan:    make(chan string, config.ORMPodNotifyChanLen),
-		podDeleteChan: make(chan string, config.ORMPodNotifyChanLen),
-		emitter:       emitter,
-		qosConfig:     config.QoSConfiguration,
+		podAddChan:        make(chan string, config.ORMPodNotifyChanLen),
+		podDeleteChan:     make(chan string, config.ORMPodNotifyChanLen),
+		emitter:           emitter,
+		qosConfig:         config.QoSConfiguration,
+		podResourceSocket: config.ORMPodResourcesSocket,
 	}
 
 	m.resourceExecutor = executor.NewExecutor(cgroupmgr.GetManager())
@@ -186,6 +190,8 @@ func (m *ManagerImpl) Run(ctx context.Context) {
 	m.metaManager.RegistPodDeletedFunc(m.onPodDelete)
 
 	m.metaManager.Run(ctx, m.reconcilePeriod)
+
+	server.ListenAndServePodResources(m.podResourceSocket, m.metaManager, m, m.emitter)
 }
 
 func (m *ManagerImpl) GetHandlerType() string {
