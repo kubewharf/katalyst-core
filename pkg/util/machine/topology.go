@@ -38,11 +38,12 @@ type CPUDetails map[int]CPUInfo
 // Socket - socket, cadvisor - Socket
 // NUMA Node - NUMA cell, cadvisor - Node
 type CPUTopology struct {
-	NumCPUs      int
-	NumCores     int
-	NumSockets   int
-	NumNUMANodes int
-	CPUDetails   CPUDetails
+	NumCPUs              int
+	NumCores             int
+	NumSockets           int
+	NumNUMANodes         int
+	NUMANodeIDToSocketID map[int]int
+	CPUDetails           CPUDetails
 }
 
 type MemoryDetails map[int]uint64
@@ -190,6 +191,7 @@ func GenerateDummyCPUTopology(cpuNum, socketNum, numaNum int) (*CPUTopology, err
 	cpuTopology.NumCores = cpuNum / 2
 	cpuTopology.NumSockets = socketNum
 	cpuTopology.NumNUMANodes = numaNum
+	cpuTopology.NUMANodeIDToSocketID = make(map[int]int, numaNum)
 
 	numaPerSocket := numaNum / socketNum
 	cpusPerNUMA := cpuNum / numaNum
@@ -208,6 +210,8 @@ func GenerateDummyCPUTopology(cpuNum, socketNum, numaNum int) (*CPUTopology, err
 					SocketID:   i,
 					CoreID:     k,
 				}
+
+				cpuTopology.NUMANodeIDToSocketID[j] = i
 			}
 		}
 	}
@@ -420,6 +424,7 @@ func Discover(machineInfo *info.MachineInfo) (*CPUTopology, *MemoryTopology, err
 	}
 
 	CPUDetails := CPUDetails{}
+	numaNodeIDToSocketID := make(map[int]int, len(machineInfo.Topology))
 	numPhysicalCores := 0
 
 	memoryTopology := MemoryTopology{MemoryDetails: map[int]uint64{}}
@@ -436,6 +441,8 @@ func Discover(machineInfo *info.MachineInfo) (*CPUTopology, *MemoryTopology, err
 						SocketID:   core.SocketID,
 						NUMANodeID: node.Id,
 					}
+
+					numaNodeIDToSocketID[node.Id] = core.SocketID
 				}
 			} else {
 				klog.ErrorS(nil, "Could not get unique coreID for socket",
@@ -446,11 +453,12 @@ func Discover(machineInfo *info.MachineInfo) (*CPUTopology, *MemoryTopology, err
 	}
 
 	return &CPUTopology{
-		NumCPUs:      machineInfo.NumCores,
-		NumSockets:   machineInfo.NumSockets,
-		NumCores:     numPhysicalCores,
-		NumNUMANodes: CPUDetails.NUMANodes().Size(),
-		CPUDetails:   CPUDetails,
+		NumCPUs:              machineInfo.NumCores,
+		NumSockets:           machineInfo.NumSockets,
+		NumCores:             numPhysicalCores,
+		NumNUMANodes:         CPUDetails.NUMANodes().Size(),
+		NUMANodeIDToSocketID: numaNodeIDToSocketID,
+		CPUDetails:           CPUDetails,
 	}, &memoryTopology, nil
 }
 
@@ -504,7 +512,23 @@ func CheckNUMACrossSockets(numaNodes []int, cpuTopology *CPUTopology) (bool, err
 	if len(numaNodes) <= 1 {
 		return false, nil
 	}
-	return cpuTopology.CPUDetails.SocketsInNUMANodes(numaNodes...).Size() > 1, nil
+
+	visSocketID := -1
+	for _, numaNode := range numaNodes {
+		socketID, found := cpuTopology.NUMANodeIDToSocketID[numaNode]
+
+		if !found {
+			return false, fmt.Errorf("no corresponding SocketID for NUMA: %d", numaNode)
+		}
+
+		if visSocketID != -1 && socketID != visSocketID {
+			return true, nil
+		}
+
+		visSocketID = socketID
+	}
+
+	return false, nil
 }
 
 type NumaDistanceInfo struct {
