@@ -47,6 +47,9 @@ type Stub struct {
 	//handling get allocation request
 	allocFunc2 stubAllocFunc2
 
+	getTopologyAwareAllocatableResourcesFunc stubGetTopologyAwareAllocatableResourcesFunc
+	getTopologyAwareResourcesFunc            stubGetTopologyAwareResourcesFunc
+
 	registrationStatus chan watcherapi.RegistrationStatus // for testing
 	endpoint           string                             // for testing
 }
@@ -56,6 +59,10 @@ type stubAllocFunc1 func(r *pluginapi.ResourceRequest) (*pluginapi.ResourceAlloc
 
 // stubAllocFYnc2 is the function called when a get allocation request is received form Kubelet
 type stubAllocFunc2 func(r *pluginapi.GetResourcesAllocationRequest) (*pluginapi.GetResourcesAllocationResponse, error)
+
+type stubGetTopologyAwareAllocatableResourcesFunc func(r *pluginapi.GetTopologyAwareAllocatableResourcesRequest) (*pluginapi.GetTopologyAwareAllocatableResourcesResponse, error)
+
+type stubGetTopologyAwareResourcesFunc func(r *pluginapi.GetTopologyAwareResourcesRequest) (*pluginapi.GetTopologyAwareResourcesResponse, error)
 
 func defaultAllocFunc(r *pluginapi.ResourceRequest) (*pluginapi.ResourceAllocationResponse, error) {
 	var response pluginapi.ResourceAllocationResponse
@@ -87,6 +94,14 @@ func (m *Stub) SetAllocFunc(f stubAllocFunc1) {
 }
 func (m *Stub) SetGetAllocFunc(f stubAllocFunc2) {
 	m.allocFunc2 = f
+}
+
+func (m *Stub) SetGetTopologyAwareAllocatableResourcesFunc(f stubGetTopologyAwareAllocatableResourcesFunc) {
+	m.getTopologyAwareAllocatableResourcesFunc = f
+}
+
+func (m *Stub) SetGetTopologyAwareResourcesFunc(f stubGetTopologyAwareResourcesFunc) {
+	m.getTopologyAwareResourcesFunc = f
 }
 
 // Start starts the gRPC server of the resource plugin. Can only
@@ -238,13 +253,13 @@ func (m *Stub) GetResourcesAllocation(ctx context.Context, r *pluginapi.GetResou
 // GetTopologyAwareResources returns allocation results of corresponding resources as topology aware format
 func (m *Stub) GetTopologyAwareResources(ctx context.Context, r *pluginapi.GetTopologyAwareResourcesRequest) (*pluginapi.GetTopologyAwareResourcesResponse, error) {
 	log.Printf("GetTopologyAwareResources, %+v", r)
-	return &pluginapi.GetTopologyAwareResourcesResponse{}, nil
+	return m.getTopologyAwareResourcesFunc(r)
 }
 
 // GetTopologyAwareResources returns corresponding allocatable resources as topology aware format
 func (m *Stub) GetTopologyAwareAllocatableResources(ctx context.Context, r *pluginapi.GetTopologyAwareAllocatableResourcesRequest) (*pluginapi.GetTopologyAwareAllocatableResourcesResponse, error) {
 	log.Printf("GetTopologyAwareAllocatableResources, %+v", r)
-	return &pluginapi.GetTopologyAwareAllocatableResourcesResponse{}, nil
+	return m.getTopologyAwareAllocatableResourcesFunc(r)
 }
 
 // GetTopologyHints returns hints of corresponding resources

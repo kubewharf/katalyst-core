@@ -32,11 +32,11 @@ import (
 	"github.com/kubewharf/katalyst-api/pkg/protocol/reporterplugin/v1alpha1"
 	"github.com/kubewharf/katalyst-core/pkg/agent/resourcemanager/fetcher/kubelet/topology"
 	"github.com/kubewharf/katalyst-core/pkg/agent/resourcemanager/fetcher/plugin"
-	"github.com/kubewharf/katalyst-core/pkg/agent/resourcemanager/fetcher/util/kubelet/podresources"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util"
+	"github.com/kubewharf/katalyst-core/pkg/util/kubelet/podresources"
 	"github.com/kubewharf/katalyst-core/pkg/util/process"
 )
 

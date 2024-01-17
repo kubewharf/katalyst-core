@@ -378,9 +378,9 @@ func TestRun(t *testing.T) {
 		podAddChan:        make(chan string, 1),
 		podDeleteChan:     make(chan string, 1),
 		qosConfig:         generic.NewQoSConfiguration(),
+		podResourceSocket: "unix:/tmp/run/podresource.sock",
 	}
-	defer func() { _ = os.Remove("/tmp/run/kubelet_qrm_checkpoint") }()
-	defer func() { _ = os.Remove("/tmp/run/tmp.sock") }()
+	defer func() { _ = os.RemoveAll("/tmp/run") }()
 	metaManager := metamanager.NewManager(metrics.DummyMetrics{}, m.podResources.pods, metaServer)
 	m.metaManager = metaManager
 
@@ -580,10 +580,12 @@ func registerEndpointByPods(manager *ManagerImpl, pods []*v1.Pod) error {
 
 /* ------------------  mock endpoint for test  ----------------------- */
 type MockEndpoint struct {
-	allocateFunc  func(resourceRequest *pluginapi.ResourceRequest) (*pluginapi.ResourceAllocationResponse, error)
-	resourceAlloc func(ctx context.Context, request *pluginapi.GetResourcesAllocationRequest) (*pluginapi.GetResourcesAllocationResponse, error)
-	stopTime      time.Time
-	topologyHints []*pluginapi.TopologyHint
+	allocateFunc                             func(resourceRequest *pluginapi.ResourceRequest) (*pluginapi.ResourceAllocationResponse, error)
+	resourceAlloc                            func(ctx context.Context, request *pluginapi.GetResourcesAllocationRequest) (*pluginapi.GetResourcesAllocationResponse, error)
+	getTopologyAwareResourcesFunc            func(c context.Context, request *pluginapi.GetTopologyAwareResourcesRequest) (*pluginapi.GetTopologyAwareResourcesResponse, error)
+	getTopologyAwareAllocatableResourcesFunc func(c context.Context, request *pluginapi.GetTopologyAwareAllocatableResourcesRequest) (*pluginapi.GetTopologyAwareAllocatableResourcesResponse, error)
+	stopTime                                 time.Time
+	topologyHints                            []*pluginapi.TopologyHint
 }
 
 func (m *MockEndpoint) Stop() {
@@ -654,9 +656,15 @@ func (m *MockEndpoint) GetResourcePluginOptions(ctx context.Context, in *plugina
 }
 
 func (m *MockEndpoint) GetTopologyAwareResources(c context.Context, request *pluginapi.GetTopologyAwareResourcesRequest) (*pluginapi.GetTopologyAwareResourcesResponse, error) {
+	if m.getTopologyAwareResourcesFunc != nil {
+		return m.getTopologyAwareResourcesFunc(c, request)
+	}
 	return nil, nil
 }
 
 func (m *MockEndpoint) GetTopologyAwareAllocatableResources(c context.Context, request *pluginapi.GetTopologyAwareAllocatableResourcesRequest) (*pluginapi.GetTopologyAwareAllocatableResourcesResponse, error) {
+	if m.getTopologyAwareAllocatableResourcesFunc != nil {
+		return m.getTopologyAwareAllocatableResourcesFunc(c, request)
+	}
 	return nil, nil
 }

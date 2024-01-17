@@ -26,21 +26,23 @@ import (
 	"sync"
 	"time"
 
-	"github.com/kubewharf/katalyst-core/pkg/agent/orm/server"
-
 	"github.com/opencontainers/selinux/go-selinux"
+	"k8s.io/klog/v2"
+
 	"google.golang.org/grpc"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/wait"
-	"k8s.io/klog/v2"
 	"k8s.io/kubelet/pkg/apis/pluginregistration/v1"
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 	"k8s.io/kubernetes/pkg/kubelet/checkpointmanager"
 	maputil "k8s.io/kubernetes/pkg/util/maps"
 
+	"github.com/kubewharf/katalyst-core/pkg/agent/orm/deviceprovider/kubelet"
 	"github.com/kubewharf/katalyst-core/pkg/agent/orm/endpoint"
 	"github.com/kubewharf/katalyst-core/pkg/agent/orm/executor"
 	"github.com/kubewharf/katalyst-core/pkg/agent/orm/metamanager"
+	"github.com/kubewharf/katalyst-core/pkg/agent/orm/server"
+	"github.com/kubewharf/katalyst-core/pkg/agent/orm/server/podresources"
 	"github.com/kubewharf/katalyst-core/pkg/agent/orm/topology"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/config/generic"
@@ -48,6 +50,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/bitmask"
 	cgroupmgr "github.com/kubewharf/katalyst-core/pkg/util/cgroup/manager"
+	podresourcesutil "github.com/kubewharf/katalyst-core/pkg/util/kubelet/podresources"
 	"github.com/kubewharf/katalyst-core/pkg/util/native"
 )
 
@@ -81,6 +84,8 @@ type ManagerImpl struct {
 	reconcilePeriod   time.Duration
 	resourceNamesMap  map[string]string
 	podResourceSocket string
+
+	devicesProvider podresources.DevicesProvider
 }
 
 func NewManager(socketPath string, emitter metrics.MetricEmitter, metaServer *metaserver.MetaServer, config *config.Configuration) (*ManagerImpl, error) {
@@ -126,6 +131,8 @@ func NewManager(socketPath string, emitter metrics.MetricEmitter, metaServer *me
 	}
 	topologyManager.AddHintProvider(m)
 	m.topologyManager = topologyManager
+
+	m.initDeviceProvider(config)
 
 	if err := m.removeContents(m.socketdir); err != nil {
 		err = fmt.Errorf("[ORM] Fail to clean up stale contents under %s: %v", m.socketdir, err)
@@ -175,6 +182,7 @@ func (m *ManagerImpl) Run(ctx context.Context) {
 			if err := recover(); err != nil {
 				klog.Fatalf("[ORM] Start recover from err: %v", err)
 			}
+			s.Close()
 		}()
 		m.server.Serve(s)
 	}()
@@ -191,7 +199,7 @@ func (m *ManagerImpl) Run(ctx context.Context) {
 
 	m.metaManager.Run(ctx, m.reconcilePeriod)
 
-	server.ListenAndServePodResources(m.podResourceSocket, m.metaManager, m, m.emitter)
+	go server.ListenAndServePodResources(m.podResourceSocket, m.metaManager, m, m.devicesProvider, m.emitter)
 }
 
 func (m *ManagerImpl) GetHandlerType() string {
@@ -300,6 +308,21 @@ func (m *ManagerImpl) Allocate(pod *v1.Pod, container *v1.Container) error {
 
 	err = m.syncContainer(pod, container)
 	return err
+}
+
+func (m *ManagerImpl) initDeviceProvider(config *config.Configuration) {
+	switch config.ORMDevicesProvider {
+	case kubeletDevicesProvider:
+		p, err := kubelet.NewProvider(config.ORMKubeletPodResourcesEndpoints, podresourcesutil.GetV1Client)
+		if err != nil {
+			klog.Fatalf("new kubelet devices provider fail: %v", err)
+		}
+		m.devicesProvider = p
+	case NoneDevicesProvider:
+		m.devicesProvider = &podresources.DevicesProviderStub{}
+	default:
+		klog.Fatalf("Unknown ORMDevicesProvider: %s", config.ORMDevicesProvider)
+	}
 }
 
 func (m *ManagerImpl) onPodAdd(podUID string) {
