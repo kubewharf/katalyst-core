@@ -61,8 +61,11 @@ func NewReclaimedResourcesEvictionPlugin(_ *client.GenericClientSet, _ events.Ev
 		}
 	}
 
-	gracePeriodGetter := func() int64 {
-		return conf.GetDynamicConfiguration().ReclaimedResourcesEvictionConfiguration.GracePeriod
+	deletionGracePeriodGetter := func() int64 {
+		return conf.GetDynamicConfiguration().ReclaimedResourcesEvictionConfiguration.DeletionGracePeriod
+	}
+	thresholdMetToleranceDurationGetter := func() int64 {
+		return conf.GetDynamicConfiguration().ThresholdMetToleranceDuration
 	}
 
 	p := NewResourcesEvictionPlugin(
@@ -71,7 +74,8 @@ func NewReclaimedResourcesEvictionPlugin(_ *client.GenericClientSet, _ events.Ev
 		emitter,
 		reclaimedResourcesGetter,
 		reclaimedThresholdGetter,
-		gracePeriodGetter,
+		deletionGracePeriodGetter,
+		thresholdMetToleranceDurationGetter,
 		conf.SkipZeroQuantityResourceNames,
 		conf.CheckReclaimedQoSForPod,
 	)

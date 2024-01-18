@@ -51,9 +51,10 @@ type ResourcesEvictionPlugin struct {
 	emitter metrics.MetricEmitter
 
 	// thresholdGetter is used to get the threshold of resources.
-	thresholdGetter   ThresholdGetter
-	resourcesGetter   ResourcesGetter
-	gracePeriodGetter GracePeriodGetter
+	thresholdGetter                     ThresholdGetter
+	resourcesGetter                     ResourcesGetter
+	deletionGracePeriodGetter           GracePeriodGetter
+	thresholdMetToleranceDurationGetter GracePeriodGetter
 
 	skipZeroQuantityResourceNames sets.String
 	podFilter                     func(pod *v1.Pod) (bool, error)
@@ -65,18 +66,20 @@ type ResourcesEvictionPlugin struct {
 
 func NewResourcesEvictionPlugin(pluginName string, metaServer *metaserver.MetaServer,
 	emitter metrics.MetricEmitter, resourcesGetter ResourcesGetter, thresholdGetter ThresholdGetter,
-	gracePeriodGetter GracePeriodGetter, skipZeroQuantityResourceNames sets.String,
+	deletionGracePeriodGetter GracePeriodGetter, thresholdMetToleranceDurationGetter GracePeriodGetter,
+	skipZeroQuantityResourceNames sets.String,
 	podFilter func(pod *v1.Pod) (bool, error)) *ResourcesEvictionPlugin {
 	// use the given threshold to override the default configurations
 	plugin := &ResourcesEvictionPlugin{
-		pluginName:                    pluginName,
-		emitter:                       emitter,
-		metaServer:                    metaServer,
-		resourcesGetter:               resourcesGetter,
-		thresholdGetter:               thresholdGetter,
-		gracePeriodGetter:             gracePeriodGetter,
-		skipZeroQuantityResourceNames: skipZeroQuantityResourceNames,
-		podFilter:                     podFilter,
+		pluginName:                          pluginName,
+		emitter:                             emitter,
+		metaServer:                          metaServer,
+		resourcesGetter:                     resourcesGetter,
+		thresholdGetter:                     thresholdGetter,
+		deletionGracePeriodGetter:           deletionGracePeriodGetter,
+		thresholdMetToleranceDurationGetter: thresholdMetToleranceDurationGetter,
+		skipZeroQuantityResourceNames:       skipZeroQuantityResourceNames,
+		podFilter:                           podFilter,
 	}
 	return plugin
 }
@@ -190,12 +193,12 @@ func (b *ResourcesEvictionPlugin) ThresholdMet(ctx context.Context) (*pluginapi.
 				resourceName, total, used, *thresholdRate, thresholdValue)
 
 			return &pluginapi.ThresholdMetResponse{
-				ThresholdValue:    thresholdValue,
-				ObservedValue:     used,
-				ThresholdOperator: pluginapi.ThresholdOperator_GREATER_THAN,
-				MetType:           pluginapi.ThresholdMetType_HARD_MET,
-				EvictionScope:     string(resourceName),
-				// not setting grace period for threshold, make it be handled immediately
+				ThresholdValue:     thresholdValue,
+				ObservedValue:      used,
+				ThresholdOperator:  pluginapi.ThresholdOperator_GREATER_THAN,
+				MetType:            pluginapi.ThresholdMetType_HARD_MET,
+				EvictionScope:      string(resourceName),
+				GracePeriodSeconds: b.thresholdMetToleranceDurationGetter(),
 			}, nil
 		}
 	}
@@ -233,7 +236,7 @@ func (b *ResourcesEvictionPlugin) GetTopEvictionPods(_ context.Context, request 
 	retLen := general.MinUInt64(request.TopN, uint64(len(activeFilteredPods)))
 
 	var deletionOptions *pluginapi.DeletionOptions
-	if gracePeriod := b.gracePeriodGetter(); gracePeriod > 0 {
+	if gracePeriod := b.deletionGracePeriodGetter(); gracePeriod > 0 {
 		deletionOptions = &pluginapi.DeletionOptions{
 			GracePeriodSeconds: gracePeriod,
 		}
