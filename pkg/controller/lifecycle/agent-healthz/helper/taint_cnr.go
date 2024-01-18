@@ -172,7 +172,7 @@ func (t *CNRTaintHelper) TryUNTaintCNR(name string) error {
 	}
 
 	if equality.Semantic.DeepEqual(cnr, newCNR) {
-		general.Infof("taint already disappears, not need to update")
+		klog.V(5).Infof("taint already disappears, not need to update")
 		return nil
 	}
 
