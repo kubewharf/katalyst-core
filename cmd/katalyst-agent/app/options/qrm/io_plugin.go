@@ -24,11 +24,26 @@ import (
 
 type IOOptions struct {
 	PolicyName string
+
+	WritebackThrottlingOption // option for writeback throttling, it determin the recycling speed of dirty memory.
+	// TO-DO
+	//DirtyThrottlingOption // option for dirty throttling, it determin the global watermark of dirty memory.
+}
+
+type WritebackThrottlingOption struct {
+	EnableSettingWBT bool
+	WBTValueHDD      int
+	WBTValueSSD      int
 }
 
 func NewIOOptions() *IOOptions {
 	return &IOOptions{
 		PolicyName: "static",
+		WritebackThrottlingOption: WritebackThrottlingOption{
+			EnableSettingWBT: false,
+			WBTValueHDD:      75000,
+			WBTValueSSD:      2000,
+		},
 	}
 }
 
@@ -37,9 +52,18 @@ func (o *IOOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 
 	fs.StringVar(&o.PolicyName, "io-resource-plugin-policy",
 		o.PolicyName, "The policy io resource plugin should use")
+	fs.BoolVar(&o.EnableSettingWBT, "enable-disk-wbt",
+		o.EnableSettingWBT, "if set it to true, disk wbt related control operations will be executed")
+	fs.IntVar(&o.WBTValueHDD, "disk-wbt-hdd",
+		o.WBTValueHDD, "writeback throttling value for HDD")
+	fs.IntVar(&o.WBTValueSSD, "disk-wbt-ssd",
+		o.WBTValueSSD, "writeback throttling value for SSD")
 }
 
 func (o *IOOptions) ApplyTo(conf *qrmconfig.IOQRMPluginConfig) error {
 	conf.PolicyName = o.PolicyName
+	conf.EnableSettingWBT = o.EnableSettingWBT
+	conf.WBTValueHDD = o.WBTValueHDD
+	conf.WBTValueSSD = o.WBTValueSSD
 	return nil
 }

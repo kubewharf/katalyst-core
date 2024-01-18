@@ -1,3 +1,6 @@
+//go:build linux
+// +build linux
+
 /*
 Copyright 2022 The Katalyst Authors.
 
@@ -14,21 +17,15 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package qrm
+package dirtymem
 
-type IOQRMPluginConfig struct {
-	// PolicyName is used to switch between several strategies
-	PolicyName string
+const EnableSetDirtyMemPeriodicalHandlerName = "SetDirtyMem"
 
-	WritebackThrottlingOption
-}
+const (
+	sysDiskPrefix = "/sys/block"
+	wbtSuffix     = "queue/wbt_lat_usec"
+)
 
-type WritebackThrottlingOption struct {
-	EnableSettingWBT bool
-	WBTValueHDD      int
-	WBTValueSSD      int
-}
-
-func NewIOQRMPluginConfig() *IOQRMPluginConfig {
-	return &IOQRMPluginConfig{}
-}
+const (
+	metricNameDiskWBT = "async_handler_disk_wbt"
+)
