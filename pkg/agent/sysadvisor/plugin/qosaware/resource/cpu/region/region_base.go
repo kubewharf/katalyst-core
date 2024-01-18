@@ -22,6 +22,7 @@ import (
 	"math"
 	"sync"
 
+	"go.uber.org/atomic"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/klog/v2"
 
@@ -187,6 +188,9 @@ type QoSRegionBase struct {
 
 	// enableReclaim returns true if the resources of region can be reclaimed to supply for reclaimed_cores
 	enableReclaim func() bool
+
+	// throttled: true if unable to reach the ResourceUpperBound due to competition for resources with other regions.
+	throttled atomic.Bool
 }
 
 // NewQoSRegionBase returns a base qos region instance with common region methods
@@ -215,6 +219,7 @@ func NewQoSRegionBase(name string, ownerPoolName string, regionType types.QoSReg
 		emitter:    emitter,
 
 		enableBorweinModel: conf.PolicyRama.EnableBorwein,
+		throttled:          *atomic.NewBool(false),
 	}
 
 	r.initHeadroomPolicy(conf, extraConf, metaReader, metaServer, emitter)
@@ -290,6 +295,10 @@ func (r *QoSRegionBase) SetEssentials(essentials types.ResourceEssentials) {
 	defer r.Unlock()
 
 	r.ResourceEssentials = essentials
+}
+
+func (r *QoSRegionBase) SetThrottled(throttled bool) {
+	r.throttled.Store(throttled)
 }
 
 func (r *QoSRegionBase) AddContainer(ci *types.ContainerInfo) error {
@@ -715,43 +724,59 @@ func (r *QoSRegionBase) getPodIndicatorTarget(ctx context.Context, podUID string
 }
 
 // UpdateStatus updates region status based on resource and control essentials
-func (r *QoSRegionBase) UpdateStatus(overrideBoundType *types.BoundType) {
-	// reset entries
-	r.regionStatus.OvershootStatus = make(map[string]types.OvershootType)
+func (r *QoSRegionBase) UpdateStatus() {
+	overshoot := r.updateOvershootStatus()
+	r.updateBoundType(overshoot)
+}
 
+func (r *QoSRegionBase) updateBoundType(overshoot bool) {
 	// todo BoundType logic is kind of mess, need to refine this in the future
 	boundType := types.BoundUnknown
-	if overrideBoundType != nil {
-		boundType = *overrideBoundType
+	resourceUpperBoundHit := false
+	if r.IsThrottled() {
+		boundType = types.BoundUpper
 	} else if v, ok := r.ControlEssentials.ControlKnobs[types.ControlKnobNonReclaimedCPUSize]; ok {
 		if v.Value <= r.ResourceEssentials.ResourceLowerBound {
 			boundType = types.BoundLower
 		} else {
 			boundType = types.BoundNone
+			if v.Value >= r.ResourceEssentials.ResourceUpperBound || !r.enableReclaim() {
+				resourceUpperBoundHit = true
+			}
 		}
 	}
+	if overshoot && resourceUpperBoundHit {
+		boundType = types.BoundUpper
+	}
+	// fill in bound entry
+	r.regionStatus.BoundType = boundType
+}
+
+func (r *QoSRegionBase) updateOvershootStatus() bool {
+	// reset entries
+	r.regionStatus.OvershootStatus = make(map[string]types.OvershootType)
 
 	for indicatorName := range r.indicatorCurrentGetters {
 		r.regionStatus.OvershootStatus[indicatorName] = types.OvershootUnknown
 	}
+	overshoot := false
 
 	// fill in overshoot entry
 	for indicatorName, indicator := range r.ControlEssentials.Indicators {
 		if indicator.Current > indicator.Target {
-			if overrideBoundType == nil {
-				boundType = types.BoundUpper
-			}
+			overshoot = true
 			r.regionStatus.OvershootStatus[indicatorName] = types.OvershootTrue
 		} else {
 			r.regionStatus.OvershootStatus[indicatorName] = types.OvershootFalse
 		}
 	}
-
-	// fill in bound entry
-	r.regionStatus.BoundType = boundType
-
+	return overshoot
 }
 
 func (r *QoSRegionBase) EnableReclaim() bool {
 	return r.ResourceEssentials.EnableReclaim
+}
+
+func (r *QoSRegionBase) IsThrottled() bool {
+	return r.throttled.Load()
 }

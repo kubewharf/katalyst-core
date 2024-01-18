@@ -273,15 +273,9 @@ func (cra *cpuResourceAdvisor) updateRegionEntries() {
 	_ = cra.metaCache.SetRegionEntries(entries)
 }
 
-func (cra *cpuResourceAdvisor) updateRegionStatus(boundUpper bool) {
+func (cra *cpuResourceAdvisor) updateRegionStatus() {
 	for regionName, r := range cra.regionMap {
-		if boundUpper {
-			boundType := types.BoundUpper
-			r.UpdateStatus(&boundType)
-		} else {
-			r.UpdateStatus(nil)
-		}
-
+		r.UpdateStatus()
 		regionInfo, ok := cra.metaCache.GetRegionInfo(regionName)
 		if !ok {
 			continue

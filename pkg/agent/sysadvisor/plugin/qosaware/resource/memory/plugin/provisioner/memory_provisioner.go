@@ -19,6 +19,7 @@ package provisioner
 import (
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"sync"
 
 	v1 "k8s.io/api/core/v1"
@@ -41,6 +42,9 @@ func init() {
 
 const (
 	MemoryProvisioner = "memory-provisioner"
+
+	metricMemoryNUMAProvision = "memory_numa_provision"
+	metricTagKeyNUMAID        = "numa_id"
 )
 
 type memoryProvisioner struct {
@@ -114,6 +118,11 @@ func (m *memoryProvisioner) GetAdvices() types.InternalMemoryCalculationResult {
 	if err != nil {
 		general.Errorf("marshal memory provisioner failed: %v", err)
 		return result
+	}
+
+	for numaID, v := range provision {
+		m.emitter.StoreInt64(metricMemoryNUMAProvision, int64(v), metrics.MetricTypeNameRaw,
+			metrics.ConvertMapToTags(map[string]string{metricTagKeyNUMAID: strconv.Itoa(numaID)})...)
 	}
 
 	entry := types.ExtraMemoryAdvices{

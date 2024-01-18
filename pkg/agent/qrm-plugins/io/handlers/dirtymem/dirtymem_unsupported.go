@@ -1,3 +1,6 @@
+//go:build !linux
+// +build !linux
+
 /*
 Copyright 2022 The Katalyst Authors.
 
@@ -16,13 +19,16 @@ limitations under the License.
 
 package dirtymem
 
-const EnableSetDirtyMemPeriodicalHandlerName = "SetDirtyMem"
-
-const (
-	sysDiskPrefix = "/sys/block"
-	wbtSuffix     = "queue/wbt_lat_usec"
+import (
+	coreconfig "github.com/kubewharf/katalyst-core/pkg/config"
+	dynamicconfig "github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic"
+	"github.com/kubewharf/katalyst-core/pkg/metaserver"
+	"github.com/kubewharf/katalyst-core/pkg/metrics"
 )
 
-const (
-	metricNameDiskWBT = "async_handler_disk_wbt"
-)
+func SetDirtyMem(conf *coreconfig.Configuration,
+	_ interface{},
+	_ *dynamicconfig.DynamicAgentConfiguration,
+	emitter metrics.MetricEmitter,
+	metaServer *metaserver.MetaServer) {
+}
