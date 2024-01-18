@@ -28,6 +28,7 @@ import (
 	"github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/agent"
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/agent/qrm"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/io/handlers/dirtymem"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util"
 	"github.com/kubewharf/katalyst-core/pkg/agent/utilcomponent/periodicalhandler"
 	"github.com/kubewharf/katalyst-core/pkg/config"
@@ -51,10 +52,12 @@ type StaticPolicy struct {
 	emitter    metrics.MetricEmitter
 	metaServer *metaserver.MetaServer
 	agentCtx   *agent.GenericContext
+
+	enableSettingWBT bool
 }
 
 // NewStaticPolicy returns a static io policy
-func NewStaticPolicy(agentCtx *agent.GenericContext, _ *config.Configuration,
+func NewStaticPolicy(agentCtx *agent.GenericContext, conf *config.Configuration,
 	_ interface{}, agentName string) (bool, agent.Component, error) {
 	wrappedEmitter := agentCtx.EmitterPool.GetDefaultMetricsEmitter().WithTags(agentName, metrics.MetricTag{
 		Key: util.QRMPluginPolicyTagName,
@@ -62,11 +65,12 @@ func NewStaticPolicy(agentCtx *agent.GenericContext, _ *config.Configuration,
 	})
 
 	policyImplement := &StaticPolicy{
-		emitter:    wrappedEmitter,
-		metaServer: agentCtx.MetaServer,
-		agentCtx:   agentCtx,
-		stopCh:     make(chan struct{}),
-		name:       fmt.Sprintf("%s_%s", agentName, IOResourcePluginPolicyNameStatic),
+		emitter:          wrappedEmitter,
+		metaServer:       agentCtx.MetaServer,
+		agentCtx:         agentCtx,
+		stopCh:           make(chan struct{}),
+		name:             fmt.Sprintf("%s_%s", agentName, IOResourcePluginPolicyNameStatic),
+		enableSettingWBT: conf.EnableSettingWBT,
 	}
 
 	// todo: currently there is no resource needed to be topology-aware and synchronously allocated in this plugin,
@@ -102,8 +106,18 @@ func (p *StaticPolicy) Start() (err error) {
 		_ = p.emitter.StoreInt64(util.MetricNameHeartBeat, 1, metrics.MetricTypeNameRaw)
 	}, time.Second*30, p.stopCh)
 
-	periodicalhandler.ReadyToStartHandlersByGroup(qrm.QRMIOPluginPeriodicalHandlerGroupName)
+	if p.enableSettingWBT {
+		general.Infof("setWBT enabled")
+		err := periodicalhandler.RegisterPeriodicalHandler(qrm.QRMMemoryPluginPeriodicalHandlerGroupName,
+			dirtymem.EnableSetDirtyMemPeriodicalHandlerName, dirtymem.SetDirtyMem, 300*time.Second)
+		if err != nil {
+			general.Infof("setSockMem failed, err=%v", err)
+		}
+	}
 
+	go wait.Until(func() {
+		periodicalhandler.ReadyToStartHandlersByGroup(qrm.QRMIOPluginPeriodicalHandlerGroupName)
+	}, 5*time.Second, p.stopCh)
 	return nil
 }
 
