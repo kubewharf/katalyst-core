@@ -25,8 +25,9 @@ import (
 )
 
 type ReclaimedResourcesEvictionOptions struct {
-	EvictionThreshold native.ResourceThreshold
-	GracePeriod       int64
+	EvictionThreshold             native.ResourceThreshold
+	GracePeriod                   int64
+	ThresholdMetToleranceDuration int64
 }
 
 func NewReclaimedResourcesEvictionOptions() *ReclaimedResourcesEvictionOptions {
@@ -35,7 +36,8 @@ func NewReclaimedResourcesEvictionOptions() *ReclaimedResourcesEvictionOptions {
 			consts.ReclaimedResourceMilliCPU: 5.0,
 			consts.ReclaimedResourceMemory:   5.0,
 		},
-		GracePeriod: 60,
+		GracePeriod:                   60,
+		ThresholdMetToleranceDuration: 0,
 	}
 }
 
@@ -46,10 +48,13 @@ func (o *ReclaimedResourcesEvictionOptions) AddFlags(fss *cliflag.NamedFlagSets)
 		"the threshold rate for best effort resources")
 	fs.Int64Var(&o.GracePeriod, "eviction-reclaimed-resources-grace-period", o.GracePeriod,
 		"the graceful eviction period (in seconds) for reclaimed pods")
+	fs.Int64Var(&o.ThresholdMetToleranceDuration, "eviction-reclaimed-resources-threshold-met-tolerance-duration",
+		o.ThresholdMetToleranceDuration, "the tolerance duration before eviction.")
 }
 
 func (o *ReclaimedResourcesEvictionOptions) ApplyTo(c *eviction.ReclaimedResourcesEvictionConfiguration) error {
 	c.EvictionThreshold = o.EvictionThreshold
-	c.GracePeriod = o.GracePeriod
+	c.DeletionGracePeriod = o.GracePeriod
+	c.ThresholdMetToleranceDuration = o.ThresholdMetToleranceDuration
 	return nil
 }

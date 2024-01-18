@@ -22,8 +22,9 @@ import (
 )
 
 type ReclaimedResourcesEvictionConfiguration struct {
-	EvictionThreshold native.ResourceThreshold
-	GracePeriod       int64
+	EvictionThreshold             native.ResourceThreshold
+	DeletionGracePeriod           int64
+	ThresholdMetToleranceDuration int64
 }
 
 func NewReclaimedResourcesEvictionConfiguration() *ReclaimedResourcesEvictionConfiguration {
@@ -41,7 +42,11 @@ func (c *ReclaimedResourcesEvictionConfiguration) ApplyConfiguration(conf *crd.D
 		}
 
 		if config.GracePeriod != nil {
-			c.GracePeriod = *config.GracePeriod
+			c.DeletionGracePeriod = *config.GracePeriod
+		}
+
+		if config.ThresholdMetToleranceDuration != nil {
+			c.ThresholdMetToleranceDuration = *config.ThresholdMetToleranceDuration
 		}
 	}
 }
