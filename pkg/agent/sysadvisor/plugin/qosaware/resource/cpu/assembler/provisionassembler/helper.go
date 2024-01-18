@@ -37,12 +37,12 @@ func getNumasAvailableResource(numaAvailable map[int]int, numas machine.CPUSet) 
 // any case and not return error. return true if reach resource upper bound.
 func regulatePoolSizes(poolSizes map[string]int, available int, enableReclaim bool) bool {
 	targetSum := general.SumUpMapValues(poolSizes)
-	boundUpper := false
+	throttled := false
 
 	// set bound upper if reaching max available resource
 	// todo this boundUpper value only works for enableReclaim (and kind of mess), need to refine this in the future
 	if targetSum >= available && enableReclaim {
-		boundUpper = true
+		throttled = true
 	}
 
 	// use all available resource for pools when reclaim is disabled
@@ -58,7 +58,7 @@ func regulatePoolSizes(poolSizes map[string]int, available int, enableReclaim bo
 		}
 	}
 
-	return boundUpper
+	return throttled
 }
 
 func normalizePoolSizes(poolSizes map[string]int, targetSum int) error {

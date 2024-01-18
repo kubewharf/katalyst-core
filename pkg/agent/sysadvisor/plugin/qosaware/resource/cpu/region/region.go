@@ -47,6 +47,9 @@ type QoSRegion interface {
 	SetBindingNumas(machine.CPUSet)
 	// SetEssentials updates essential region values for policy update
 	SetEssentials(essentials types.ResourceEssentials)
+
+	SetThrottled(throttled bool)
+
 	// AddContainer stores a container keyed by pod uid and container name to region
 	AddContainer(ci *types.ContainerInfo) error
 
@@ -55,12 +58,14 @@ type QoSRegion interface {
 	// TryUpdateHeadroom runs an episode of headroom estimation
 	TryUpdateHeadroom()
 	// UpdateStatus are triggered outside to update status for this region
-	UpdateStatus(boundType *types.BoundType)
+	UpdateStatus()
 
 	// GetProvision returns the latest updated control knob value
 	GetProvision() (types.ControlKnob, error)
 	// GetHeadroom returns the latest updated cpu headroom estimation
 	GetHeadroom() (float64, error)
+
+	IsThrottled() bool
 
 	// GetProvisionPolicy returns provision policy for this region,
 	// the first is policy with top priority, while the second is the policy that is in-use currently

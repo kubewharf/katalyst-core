@@ -64,7 +64,7 @@ func NewProvisionAssemblerCommon(conf *config.Configuration, _ interface{}, regi
 	}
 }
 
-func (pa *ProvisionAssemblerCommon) AssembleProvision() (types.InternalCPUCalculationResult, bool, error) {
+func (pa *ProvisionAssemblerCommon) AssembleProvision() (types.InternalCPUCalculationResult, error) {
 	nodeEnableReclaim := pa.conf.GetDynamicConfiguration().EnableReclaim
 
 	calculationResult := types.InternalCPUCalculationResult{
@@ -86,7 +86,7 @@ func (pa *ProvisionAssemblerCommon) AssembleProvision() (types.InternalCPUCalcul
 	for _, r := range *pa.regionMap {
 		controlKnob, err := r.GetProvision()
 		if err != nil {
-			return types.InternalCPUCalculationResult{}, false, err
+			return types.InternalCPUCalculationResult{}, err
 		}
 
 		switch r.Type() {
@@ -109,13 +109,13 @@ func (pa *ProvisionAssemblerCommon) AssembleProvision() (types.InternalCPUCalcul
 
 			podSet := r.GetPods()
 			if podSet.Pods() != 1 {
-				return types.InternalCPUCalculationResult{}, false, fmt.Errorf("more than one pod are assgined to numa exclusive region: %v", podSet)
+				return types.InternalCPUCalculationResult{}, fmt.Errorf("more than one pod are assgined to numa exclusive region: %v", podSet)
 			}
 			podUID, _, _ := podSet.PopAny()
 
 			enableReclaim, err := helper.PodEnableReclaim(context.Background(), pa.metaServer, podUID, nodeEnableReclaim)
 			if err != nil {
-				return types.InternalCPUCalculationResult{}, false, err
+				return types.InternalCPUCalculationResult{}, err
 			}
 
 			// fill in reclaim pool entry for dedicated numa exclusive regions
@@ -138,7 +138,12 @@ func (pa *ProvisionAssemblerCommon) AssembleProvision() (types.InternalCPUCalcul
 	if shares+isolationUppers > shareAndIsolatedPoolAvailable {
 		shareAndIsolatePoolSizes = general.MergeMapInt(sharePoolSizes, isolationLowerSizes)
 	}
-	boundUpper := regulatePoolSizes(shareAndIsolatePoolSizes, shareAndIsolatedPoolAvailable, nodeEnableReclaim)
+	poolThrottled := regulatePoolSizes(shareAndIsolatePoolSizes, shareAndIsolatedPoolAvailable, nodeEnableReclaim)
+	for _, r := range *pa.regionMap {
+		if r.Type() == types.QoSRegionTypeShare {
+			r.SetThrottled(poolThrottled)
+		}
+	}
 
 	klog.InfoS("pool sizes", "share size", sharePoolSizes,
 		"isolate upper-size", isolationUpperSizes, "isolate lower-size", isolationLowerSizes,
@@ -162,7 +167,7 @@ func (pa *ProvisionAssemblerCommon) AssembleProvision() (types.InternalCPUCalcul
 	}
 	calculationResult.SetPoolEntry(state.PoolNameReclaim, cpuadvisor.FakedNUMAID, reclaimPoolSizeOfNonBindingNumas)
 
-	return calculationResult, boundUpper, nil
+	return calculationResult, nil
 }
 
 func (pa *ProvisionAssemblerCommon) getNumasReservedForReclaim(numas machine.CPUSet) int {
