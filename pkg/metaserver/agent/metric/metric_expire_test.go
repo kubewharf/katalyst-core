@@ -46,4 +46,21 @@ func TestMetricExpire(t *testing.T) {
 	expectErr := errors.New("test")
 	_, err = checkMetricDataExpire(metricData, expectErr)
 	assert.Equal(t, expectErr, err)
+
+	unixTime := time.Unix(0, 0)
+	metricData.Time = &unixTime
+	checkMetricDataExpire = checkMetricDataExpireFunc(66 * time.Second)
+	_, err = checkMetricDataExpire(metricData, nil)
+	assert.NoError(t, err)
+
+	emptyTime := time.Time{}
+	metricData.Time = &emptyTime
+	checkMetricDataExpire = checkMetricDataExpireFunc(66 * time.Second)
+	_, err = checkMetricDataExpire(metricData, nil)
+	assert.NoError(t, err)
+
+	metricData.Time = nil
+	checkMetricDataExpire = checkMetricDataExpireFunc(66 * time.Second)
+	_, err = checkMetricDataExpire(metricData, nil)
+	assert.NoError(t, err)
 }
