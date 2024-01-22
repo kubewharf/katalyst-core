@@ -363,6 +363,7 @@ func (m *EvictionManger) ValidatePlugin(pluginName string, endpoint string, vers
 	if err != nil {
 		return fmt.Errorf(" failed to dial resource plugin with socketPath %s: %v", endpoint, err)
 	}
+	defer e.Stop()
 
 	// try to push authentication process as far as we can even in non-strict mode, it helps to identify who
 	// registers this plugin
