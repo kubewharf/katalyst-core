@@ -32,7 +32,7 @@ var (
 )
 
 func IsMetricDataExpired(err error) bool {
-	return err == errMetricDataExpired
+	return errors.Is(err, errMetricDataExpired)
 }
 
 type CheckMetricDataExpireFunc func(utilmetric.MetricData, error) (utilmetric.MetricData, error)
@@ -53,7 +53,7 @@ func checkMetricDataExpireFunc(metricsInsurancePeriod time.Duration) CheckMetric
 			return metricData, err
 		}
 
-		if metricData.Time == nil || metricData.Time.IsZero() {
+		if metricData.Time == nil || metricData.Time.IsZero() || metricData.Time.Unix() == 0 {
 			return metricData, nil
 		}
 
