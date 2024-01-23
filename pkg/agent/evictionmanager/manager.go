@@ -45,6 +45,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/evictionmanager/rule"
 	"github.com/kubewharf/katalyst-core/pkg/client"
 	pkgconfig "github.com/kubewharf/katalyst-core/pkg/config"
+	"github.com/kubewharf/katalyst-core/pkg/config/generic"
 	"github.com/kubewharf/katalyst-core/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
@@ -348,7 +349,7 @@ func (m *EvictionManger) doEvict(softEvictPods, forceEvictPods map[string]*rule.
 	general.Infof(" evict %d pods in evictionmanager", len(rpList))
 	_ = m.emitter.StoreInt64(MetricsNameVictimPodCNT, int64(len(rpList)), metrics.MetricTypeNameRaw,
 		metrics.MetricTag{Key: "type", Val: "total"})
-	metricPodsToEvict(m.emitter, rpList)
+	metricPodsToEvict(m.emitter, rpList, m.conf.GenericConfiguration.QoSConfiguration)
 }
 
 // ValidatePlugin validates a plugin if the version is correct and the name has the format of an extended resource
@@ -608,7 +609,7 @@ func logConfirmedThresholdMet(thresholds map[string]*pluginapi.ThresholdMetRespo
 	}
 }
 
-func metricPodsToEvict(emitter metrics.MetricEmitter, rpList rule.RuledEvictPodList) {
+func metricPodsToEvict(emitter metrics.MetricEmitter, rpList rule.RuledEvictPodList, qosConfig *generic.QoSConfiguration) {
 	if emitter == nil {
 		general.Errorf(" metricPodsToEvict got nil emitter")
 		return
@@ -616,11 +617,19 @@ func metricPodsToEvict(emitter metrics.MetricEmitter, rpList rule.RuledEvictPodL
 
 	for _, rp := range rpList {
 		if rp != nil && rp.EvictionPluginName != "" {
-			_ = emitter.StoreInt64(MetricsNameVictimPodCNT, 1, metrics.MetricTypeNameRaw,
-				metrics.MetricTag{Key: "name", Val: rp.EvictionPluginName},
-				metrics.MetricTag{Key: "type", Val: "plugin"},
-				metrics.MetricTag{Key: "victim_ns", Val: rp.Pod.Namespace},
-				metrics.MetricTag{Key: "victim_name", Val: rp.Pod.Name})
+			metricTags := []metrics.MetricTag{
+				{Key: "name", Val: rp.EvictionPluginName},
+				{Key: "type", Val: "plugin"},
+				{Key: "victim_ns", Val: rp.Pod.Namespace},
+				{Key: "victim_name", Val: rp.Pod.Name},
+			}
+			if qosConfig != nil {
+				qosLevel, err := qosConfig.GetQoSLevelForPod(rp.Pod)
+				if err == nil {
+					metricTags = append(metricTags, metrics.MetricTag{Key: "qos", Val: qosLevel})
+				}
+			}
+			_ = emitter.StoreInt64(MetricsNameVictimPodCNT, 1, metrics.MetricTypeNameRaw, metricTags...)
 		}
 	}
 }
