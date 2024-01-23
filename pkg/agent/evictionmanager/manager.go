@@ -354,19 +354,25 @@ func (m *EvictionManger) doEvict(softEvictPods, forceEvictPods map[string]*rule.
 // ValidatePlugin validates a plugin if the version is correct and the name has the format of an extended resource
 func (m *EvictionManger) ValidatePlugin(pluginName string, endpoint string, versions []string) error {
 	general.Infof(" got plugin %s at endpoint %s with versions %v", pluginName, endpoint, versions)
+	var ep *endpointpkg.RemoteEndpointImpl = nil
+	defer func() {
+		if ep != nil && !ep.IsStopped() {
+			ep.Stop()
+		}
+	}()
 
 	if !m.isVersionCompatibleWithPlugin(versions) {
 		return fmt.Errorf("manager version, %s, is not among plugin supported versions %v", pluginapi.Version, versions)
 	}
 
-	e, err := endpointpkg.NewRemoteEndpointImpl(endpoint, pluginName)
-	if err != nil {
-		return fmt.Errorf(" failed to dial resource plugin with socketPath %s: %v", endpoint, err)
+	ep, dialErr := endpointpkg.NewRemoteEndpointImpl(endpoint, pluginName)
+	if dialErr != nil {
+		return fmt.Errorf(" failed to dial resource plugin with socketPath %s: %v", endpoint, dialErr)
 	}
 
 	// try to push authentication process as far as we can even in non-strict mode, it helps to identify who
 	// registers this plugin
-	tokenResp, tokenErr := e.GetToken(context.TODO())
+	tokenResp, tokenErr := ep.GetToken(context.TODO())
 	if tokenErr != nil {
 		m.emitPluginValidateResult(pluginName, m.conf.StrictAuthentication, false, ValidateFailedReasonGetTokenFailed, UserUnknown)
 		if m.conf.StrictAuthentication {
@@ -392,7 +398,7 @@ func (m *EvictionManger) ValidatePlugin(pluginName string, endpoint string, vers
 	if verifyErr != nil {
 		m.emitPluginValidateResult(pluginName, m.conf.StrictAuthentication, false, ValidateFailedReasonNoPermission, authInfo.SubjectName())
 		if m.conf.StrictAuthentication {
-			return err
+			return verifyErr
 		}
 		return nil
 	}
