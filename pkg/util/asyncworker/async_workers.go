@@ -116,6 +116,17 @@ func (aws *AsyncWorkers) handleWork(ctx context.Context, workName string, work *
 	defer func() {
 		if r := recover(); r != nil {
 			handleErr = fmt.Errorf("recover from %v", r)
+
+			metricErr := EmitCustomizedAsyncedMetrics(ctx,
+				metricNameAsyncWorkPanic, 1,
+				metrics.ConvertMapToTags(map[string]string{
+					"workName": workName,
+				})...)
+
+			if metricErr != nil {
+				general.Errorf("emit metric(%s:%d) failed with err: %v",
+					metricNameAsyncWorkDurationMs, 1, metricErr)
+			}
 		}
 
 		aws.completeWork(workName, work, handleErr)
@@ -136,7 +147,10 @@ func (aws *AsyncWorkers) handleWork(ctx context.Context, workName string, work *
 		paramValues = append(paramValues, reflect.ValueOf(param))
 	}
 
+	startTime := time.Now()
 	funcRets := funcValue.Call(paramValues)
+	workDurationMs := time.Since(startTime).Milliseconds()
+
 	if len(funcRets) != 1 {
 		handleErr = fmt.Errorf("work Fn returns invalid number: %d of return values", len(funcRets))
 	} else if funcRets[0].Interface() != nil {
@@ -146,6 +160,17 @@ func (aws *AsyncWorkers) handleWork(ctx context.Context, workName string, work *
 		if !ok {
 			handleErr = fmt.Errorf("work Fn returns return value: %v of invalid type", funcRets[0].Interface())
 		}
+	}
+
+	metricErr := EmitCustomizedAsyncedMetrics(ctx,
+		metricNameAsyncWorkDurationMs, workDurationMs,
+		metrics.ConvertMapToTags(map[string]string{
+			"workName": workName,
+		})...)
+
+	if metricErr != nil {
+		general.Errorf("emit metric(%s:%d) failed with err: %v",
+			metricNameAsyncWorkDurationMs, workDurationMs, metricErr)
 	}
 }
 

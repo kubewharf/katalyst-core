@@ -80,15 +80,34 @@ func parseContextMetricName(ctx context.Context) (string, bool) {
 func EmitAsyncedMetrics(ctx context.Context, tags ...metrics.MetricTag) error {
 	emitter, ok := parseContextMetricEmitter(ctx)
 	if !ok {
-		general.InfofV(4, "failed to get metrics-emitter")
+		general.Errorf("failed to get metrics-emitter")
 		return nil
 	}
 
 	name, ok := parseContextMetricName(ctx)
 	if !ok {
-		general.InfofV(4, "failed to get metrics-name")
+		general.Errorf("failed to get metrics-name")
 		return nil
 	}
 
 	return emitter.StoreInt64(name, 1, metrics.MetricTypeNameRaw, tags...)
+}
+
+// EmitAsyncedMetrics emit metrics through metricEmitter parsed from context and provided metricName & metricValue & tags
+func EmitCustomizedAsyncedMetrics(ctx context.Context, metricName string, metricValue int64, tags ...metrics.MetricTag) error {
+	emitter, ok := parseContextMetricEmitter(ctx)
+	if !ok {
+		general.Errorf("failed to get metrics-emitter")
+		return nil
+	}
+
+	briefWorkName, ok := parseContextMetricName(ctx)
+	if ok {
+		tags = append(tags, metrics.MetricTag{
+			Key: "briefWorkName",
+			Val: briefWorkName,
+		})
+	}
+
+	return emitter.StoreInt64(metricName, metricValue, metrics.MetricTypeNameRaw, tags...)
 }
