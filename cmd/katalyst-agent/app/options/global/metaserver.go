@@ -48,7 +48,7 @@ const (
 	defaultAPIAuthTokenFile             = "/var/run/secrets/kubernetes.io/serviceaccount/token"
 	defaultKubeletPodsEndpoint          = "/pods"
 	defaultKubeletSummaryEndpoint       = "/stats/summary"
-	defaultMetricInsurancePeriod        = 120 * time.Second
+	defaultMetricInsurancePeriod        = 0 * time.Second
 )
 
 const (
