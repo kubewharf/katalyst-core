@@ -37,6 +37,7 @@ require (
 	golang.org/x/time v0.0.0-20220210224613-90d013bbcef8
 	gonum.org/v1/gonum v0.6.2
 	google.golang.org/grpc v1.51.0
+	gotest.tools/v3 v3.0.3
 	k8s.io/api v0.24.16
 	k8s.io/apimachinery v0.24.16
 	k8s.io/apiserver v0.24.16
