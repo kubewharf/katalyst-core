@@ -259,3 +259,20 @@ func (aws *AsyncWorkers) cleanupWorkStatus() {
 		}
 	}
 }
+
+func (aws *AsyncWorkers) WorkExists(workName string) bool {
+	aws.workLock.Lock()
+	defer aws.workLock.Unlock()
+
+	_, hasRunningWork := aws.workStatuses[workName]
+	if hasRunningWork {
+		return true
+	}
+
+	_, hasUndeliveredWork := aws.lastUndeliveredWork[workName]
+	if hasUndeliveredWork {
+		return true
+	}
+
+	return false
+}

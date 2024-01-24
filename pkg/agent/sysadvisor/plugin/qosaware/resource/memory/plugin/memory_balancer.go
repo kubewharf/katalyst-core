@@ -27,7 +27,6 @@ import (
 
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/errors"
-	"k8s.io/apimachinery/pkg/util/uuid"
 	"k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 
 	"github.com/kubewharf/katalyst-api/pkg/plugins/registration"
@@ -50,19 +49,13 @@ const (
 	NumaMemoryBalancer               = "numa_memory_balancer"
 	EvictionPluginNameMemoryBalancer = "numa_memory_balancer"
 
-	EvictReason = "the memory node %v in pool %v is under bandwidth pressure"
+	EvictReason = "the memory node %v is under bandwidth pressure"
 
 	MetricNumaMemoryBalance = "numa_memory_balance"
 )
 
 var supportedPools = []string{
 	state.PoolNameShare,
-}
-
-var unsupportedPools = []string{
-	state.PoolNameDedicated,
-	state.PoolNameReserve,
-	state.PoolNameReclaim,
 }
 
 type BalanceStatus string
@@ -103,8 +96,9 @@ type NumaInfo struct {
 }
 
 type PodSort struct {
-	Pod       *v1.Pod
-	SortValue float64
+	Pod          *v1.Pod
+	DestNumaList []int
+	SortValue    float64
 }
 
 type NumaLatencyInfo struct {
@@ -119,6 +113,7 @@ type BalancePod struct {
 	UID             string   `json:"UID"`
 	Containers      []string `json:"containers"`
 	RSSOnSourceNuma float64  `json:"RSSOnSourceNuma"`
+	DestNumas       []int    `json:"destNumas"`
 }
 
 type EvictPod struct {
@@ -174,12 +169,10 @@ func (m *memoryBalancerWrapper) GetAdvices() types.InternalMemoryCalculationResu
 	return m.memoryBalancer.GetAdvices()
 }
 
-type PoolBalanceInfo struct {
+type BalanceInfo struct {
 	EvictPods                    []EvictPod         `json:"evictPods"`
 	BalancePods                  []BalancePod       `json:"balancePods"`
-	BalanceReclaimedPods         []BalancePod       `json:"balanceReclaimedPods"`
 	DestNumas                    []NumaInfo         `json:"destNumas"`
-	ReclaimedDestNumas           []NumaInfo         `json:"reclaimedDestNumas"`
 	NeedBalance                  bool               `json:"needBalance"`
 	BandwidthPressure            bool               `json:"bandwidthPressure"`
 	BalanceLevel                 BalanceLevel       `json:"balanceLevel"`
@@ -191,12 +184,7 @@ type PoolBalanceInfo struct {
 	SourceNuma                   *NumaLatencyInfo   `json:"sourceNuma"`
 	Status                       BalanceStatus      `json:"status"`
 	FailedReason                 string             `json:"failedReason"`
-}
-
-type BalanceInfo struct {
-	pool2BalanceInfo map[string]*PoolBalanceInfo
-	sessionID        string
-	balanceTime      time.Time
+	DetectTime                   time.Time          `json:"detectTime"`
 }
 
 type memoryBalancer struct {
@@ -241,59 +229,53 @@ func (m *memoryBalancer) GetEvictPods(_ context.Context, request *pluginapi.GetE
 
 	//TODO check if the pod is in the request
 	evictPods := make([]*pluginapi.EvictPod, 0)
-	for poolName, poolBalanceInfo := range m.balanceInfo.pool2BalanceInfo {
-		pods := poolBalanceInfo.EvictPods
-		for i := range pods {
-			for _, activePod := range request.ActivePods {
-				if pods[i].UID == string(activePod.UID) {
-					evictPods = append(evictPods, &pluginapi.EvictPod{
-						Pod:                activePod,
-						Reason:             fmt.Sprintf(EvictReason, poolBalanceInfo.SourceNuma.NumaID, poolName),
-						ForceEvict:         true,
-						EvictionPluginName: EvictionPluginNameMemoryBalancer,
-					})
-				}
+	pods := m.balanceInfo.EvictPods
+	for i := range m.balanceInfo.EvictPods {
+		for _, activePod := range request.ActivePods {
+			if pods[i].UID == string(activePod.UID) {
+				evictPods = append(evictPods, &pluginapi.EvictPod{
+					Pod:                activePod,
+					Reason:             fmt.Sprintf(EvictReason, m.balanceInfo.SourceNuma.NumaID),
+					ForceEvict:         true,
+					EvictionPluginName: EvictionPluginNameMemoryBalancer,
+				})
 			}
 		}
 	}
+
 	// TODO clear evictPods to avoid evict same pod repeatedly
 	return &pluginapi.GetEvictPodsResponse{EvictPods: evictPods}, nil
 }
 
 func (m *memoryBalancer) Reconcile(_ *types.MemoryPressureStatus) error {
-	sessionID := uuid.NewUUID()
-	balanceInfoMap := make(map[string]*PoolBalanceInfo)
-	for _, poolName := range supportedPools {
-		balanceInfo, err := m.getBalanceInfo(poolName)
-		if err != nil {
-			general.Errorf("failed to get balance info,err:%v", err)
-			continue
-		}
-		balanceInfoStr, _ := json.Marshal(balanceInfo)
-		general.Infof("get BalanceInfo for pool %v, info: %v", poolName, string(balanceInfoStr))
-		balanceInfoMap[poolName] = balanceInfo
-		_ = m.emitter.StoreInt64(MetricNumaMemoryBalance, 1, metrics.MetricTypeNameCount,
-			metrics.MetricTag{Key: "need_balance", Val: strconv.FormatBool(balanceInfo.NeedBalance)},
-			metrics.MetricTag{Key: "balance_level", Val: string(balanceInfo.BalanceLevel)},
-			metrics.MetricTag{Key: "bandwidth_pressure", Val: strconv.FormatBool(balanceInfo.BandwidthPressure)},
-			metrics.MetricTag{Key: "status", Val: string(balanceInfo.Status)},
-			metrics.MetricTag{Key: "bandwidth_level", Val: string(balanceInfo.MaxLatencyNumaBandwidthLevel)},
-			metrics.MetricTag{Key: "failed_reason", Val: balanceInfo.FailedReason},
-		)
+	balanceInfo, err := m.getBalanceInfo()
+	if err != nil {
+		general.Errorf("failed to get balance info,err:%v", err)
+		return err
 	}
+	balanceInfoStr, _ := json.Marshal(balanceInfo)
+	general.Infof("get BalanceInfo info: %v", string(balanceInfoStr))
+	_ = m.emitter.StoreInt64(MetricNumaMemoryBalance, 1, metrics.MetricTypeNameCount,
+		metrics.MetricTag{Key: "need_balance", Val: strconv.FormatBool(balanceInfo.NeedBalance)},
+		metrics.MetricTag{Key: "balance_level", Val: string(balanceInfo.BalanceLevel)},
+		metrics.MetricTag{Key: "bandwidth_pressure", Val: strconv.FormatBool(balanceInfo.BandwidthPressure)},
+		metrics.MetricTag{Key: "status", Val: string(balanceInfo.Status)},
+		metrics.MetricTag{Key: "bandwidth_level", Val: string(balanceInfo.MaxLatencyNumaBandwidthLevel)},
+		metrics.MetricTag{Key: "failed_reason", Val: balanceInfo.FailedReason},
+	)
 
-	m.setBalanceInfo(balanceInfoMap, string(sessionID))
+	m.setBalanceInfo(balanceInfo)
 	return nil
 }
 
-func (m *memoryBalancer) getBalanceInfo(poolName string) (balanceInfo *PoolBalanceInfo, err error) {
-	balanceInfo = &PoolBalanceInfo{
-		EvictPods:            make([]EvictPod, 0),
-		BalancePods:          make([]BalancePod, 0),
-		BalanceReclaimedPods: make([]BalancePod, 0),
-		NeedBalance:          false,
-		RawNumaLatencyInfo:   make([]*NumaLatencyInfo, 0),
-		Status:               BalanceStatusPreparing,
+func (m *memoryBalancer) getBalanceInfo() (balanceInfo *BalanceInfo, err error) {
+	balanceInfo = &BalanceInfo{
+		EvictPods:          make([]EvictPod, 0),
+		BalancePods:        make([]BalancePod, 0),
+		NeedBalance:        false,
+		RawNumaLatencyInfo: make([]*NumaLatencyInfo, 0),
+		Status:             BalanceStatusPreparing,
+		DetectTime:         time.Now(),
 	}
 
 	defer func() {
@@ -303,26 +285,19 @@ func (m *memoryBalancer) getBalanceInfo(poolName string) (balanceInfo *PoolBalan
 		}
 	}()
 
-	for _, unsupportedPool := range unsupportedPools {
-		if poolName == unsupportedPool {
-			err = fmt.Errorf("unsupported pool %v", poolName)
-			return
-		}
-	}
+	//poolInfo, found := m.metaReader.GetPoolInfo(poolName)
+	//if !found {
+	//	err = fmt.Errorf("failed to find pool info for %v", poolName)
+	//	return
+	//}
+	//
+	//poolNumaList := m.getPoolNumaIDs(poolInfo)
+	//if len(poolNumaList) == 0 {
+	//	err = fmt.Errorf("pool %v has no numa", poolName)
+	//	return
+	//}
 
-	poolInfo, found := m.metaReader.GetPoolInfo(poolName)
-	if !found {
-		err = fmt.Errorf("failed to find pool info for %v", poolName)
-		return
-	}
-
-	poolNumaList := m.getPoolNumaIDs(poolInfo)
-	if len(poolNumaList) == 0 {
-		err = fmt.Errorf("pool %v has no numa", poolName)
-		return
-	}
-
-	for _, numaID := range poolNumaList {
+	for numaID := 0; numaID < m.metaServer.CPUTopology.NumNUMANodes; numaID++ {
 		info, getLatencyErr := m.getNumaLatencyInfo(numaID)
 		if getLatencyErr != nil {
 			err = getLatencyErr
@@ -375,29 +350,25 @@ func (m *memoryBalancer) getBalanceInfo(poolName string) (balanceInfo *PoolBalan
 		return
 	}
 
-	reclaimedPods, poolPods, getPodErr := m.getCandidatePods(poolName)
-	if getPodErr != nil {
-		err = getPodErr
+	balanceInfo.DestNumas = m.getDestNumaList(orderedDestNumaList, balanceInfo.SourceNuma, balanceInfo.BalanceLevel, balanceInfo.BandwidthPressure)
+	balanceInfo.BalancePods, balanceInfo.TotalRSS, err = m.getBalancePods(supportedPools, balanceInfo.SourceNuma, balanceInfo.DestNumas)
+	if err != nil {
 		return
 	}
 
-	canBalancePoolPod := false
-	canBalanceReclaimedPod := false
-	balanceInfo.DestNumas, balanceInfo.ReclaimedDestNumas = m.getDestNumaList(orderedDestNumaList, balanceInfo.SourceNuma, balanceInfo.BalanceLevel, balanceInfo.BandwidthPressure)
-	balanceInfo.BalancePods, balanceInfo.BalanceReclaimedPods, balanceInfo.TotalRSS = m.getBalancePodsByRSS(poolPods, reclaimedPods, balanceInfo.SourceNuma)
-
-	canBalancePoolPod = len(balanceInfo.DestNumas) > 0 && len(balanceInfo.BalancePods) > 0
-	canBalanceReclaimedPod = len(balanceInfo.BalanceReclaimedPods) > 0 && len(balanceInfo.ReclaimedDestNumas) > 0
-	general.Infof("destNumas:%+v, destReclaimedNumas:%+v, balancePods:%+v, balanceReclaimedPods:%+v, totalRSS: %+v",
-		balanceInfo.DestNumas, balanceInfo.ReclaimedDestNumas, balanceInfo.BalancePods, balanceInfo.BalanceReclaimedPods, balanceInfo.TotalRSS)
+	canBalancePod := len(balanceInfo.DestNumas) > 0 && len(balanceInfo.BalancePods) > 0
+	general.Infof("destNumas:%+v, balancePods:%+v, totalRSS: %+v", balanceInfo.DestNumas, balanceInfo.BalancePods, balanceInfo.TotalRSS)
 
 	// if there are no pods can be balanced and balanceLevel is forceBalance, try to evict them
-	if balanceInfo.BalanceLevel == ForceBalance && !canBalanceReclaimedPod && !canBalancePoolPod {
+	if balanceInfo.BalanceLevel == ForceBalance && !canBalancePod {
 		general.Infof("can't found pods can be balanced, try to find pod to evict")
-		balanceInfo.EvictPods = m.getEvictPods(reclaimedPods, balanceInfo.SourceNuma)
+		balanceInfo.EvictPods, err = m.getEvictPods(balanceInfo.SourceNuma)
+		if err != nil {
+			return
+		}
 	}
 
-	if !canBalancePoolPod && !canBalanceReclaimedPod && len(balanceInfo.EvictPods) == 0 {
+	if !canBalancePod && len(balanceInfo.EvictPods) == 0 {
 		balanceInfo.Status = BalanceStatusPrepareFailed
 		balanceInfo.FailedReason = "there is latency pressure but no pod can be balanced or evicted"
 	}
@@ -406,36 +377,29 @@ func (m *memoryBalancer) getBalanceInfo(poolName string) (balanceInfo *PoolBalan
 	return
 }
 
-func (m *memoryBalancer) getEvictPods(podList []*v1.Pod, sourceNuma *NumaLatencyInfo) []EvictPod {
-	podToBeEvicted := m.getPodHasMaxRssOnSpecifiedNuma(sourceNuma.NumaID, podList)
+func (m *memoryBalancer) getEvictPods(sourceNuma *NumaLatencyInfo) ([]EvictPod, error) {
+	reclaimedPods, err := m.getPodsInPool(state.PoolNameReclaim)
+	if err != nil {
+		return nil, err
+	}
+
+	podToBeEvicted := m.getPodHasMaxRssOnSpecifiedNuma(sourceNuma.NumaID, reclaimedPods)
 
 	result := make([]EvictPod, 0)
 	if podToBeEvicted != nil {
 		result = m.packEvictPods([]*v1.Pod{podToBeEvicted})
 	}
 
-	return result
+	return result, nil
 }
 
 func (m *memoryBalancer) getDestNumaList(orderedDestNumaList []NumaInfo, sourceNuma *NumaLatencyInfo,
-	balanceLevel BalanceLevel, bandwidthPressure bool) (poolPodDestNumaList []NumaInfo, reclaimedPodDestNumaList []NumaInfo) {
+	balanceLevel BalanceLevel, bandwidthPressure bool) (poolPodDestNumaList []NumaInfo) {
 	// orderedDestNumaList is the destination numa list for non-reclaimed cores pod
 	poolPodDestNumaList = m.getNumaListFilteredByLatencyGapRatio(
 		orderedDestNumaList, sourceNuma, balanceLevel, bandwidthPressure)
 	poolPodDestNumaList = m.getNumaListFilteredPingPongBalance(
 		poolPodDestNumaList, sourceNuma)
-
-	reclaimedPodDestNumaList = make([]NumaInfo, 0)
-	// get destination pod for reclaimed cores pod in case reclaimed pool has different numa set with non-reclaimed pool
-	reclaimedPoolInfo, found := m.metaReader.GetPoolInfo(state.PoolNameReclaim)
-	if found {
-		reclaimedNumaSet := machine.NewCPUSet(m.getPoolNumaIDs(reclaimedPoolInfo)...)
-		for i, item := range poolPodDestNumaList {
-			if reclaimedNumaSet.Contains(item.NumaID) {
-				reclaimedPodDestNumaList = append(reclaimedPodDestNumaList, poolPodDestNumaList[i])
-			}
-		}
-	}
 
 	return
 }
@@ -592,40 +556,61 @@ func (m *memoryBalancer) getNumaLatencyInfo(numaID int) (*NumaLatencyInfo, error
 	}, nil
 }
 
-func (m *memoryBalancer) getBalancePodsByRSS(poolPods []*v1.Pod, reclaimedPods []*v1.Pod, srcNuma *NumaLatencyInfo) (targetPoolPods []BalancePod, targetReclaimedPods []BalancePod, totalRSS float64) {
-	poolPodSortList := make([]PodSort, 0, len(poolPods))
-	reclaimedPodSortList := make([]PodSort, 0, len(reclaimedPods))
-
-	for i := range reclaimedPods {
-		pod := reclaimedPods[i]
-		anon, err := helper.GetPodMetric(m.metaServer.MetricsFetcher, m.emitter, pod, consts.MetricsMemAnonPerNumaContainer, srcNuma.NumaID)
-		if err != nil {
-			general.Errorf("failed to find metric %v for pod %v/%v", consts.MetricsMemAnonPerNumaContainer, pod.Namespace, pod.Name)
-			continue
-		}
-
-		if int64(anon) > m.conf.BalancedReclaimedPodSourceNumaRSSMin && int64(anon) < m.conf.BalancedReclaimedPodSourceNumaRSSMax {
-			reclaimedPodSortList = append(reclaimedPodSortList, PodSort{
-				Pod:       pod,
-				SortValue: anon,
-			})
-		}
+func (m *memoryBalancer) getBalancePodsForPool(poolName string, srcNuma *NumaLatencyInfo, destNumas []NumaInfo) ([]PodSort, error) {
+	result := make([]PodSort, 0)
+	destNumaSet := machine.NewCPUSet(m.getNumaIDs(destNumas)...)
+	poolInfo, found := m.metaReader.GetPoolInfo(poolName)
+	if !found {
+		general.Infof("pool %v not found in meta cache,skip it", poolName)
+		return result, nil
 	}
 
-	for i := range poolPods {
-		pod := poolPods[i]
-		anon, err := helper.GetPodMetric(m.metaServer.MetricsFetcher, m.emitter, pod, consts.MetricsMemAnonPerNumaContainer, srcNuma.NumaID)
+	pods, err := m.getPodsInPool(poolName)
+	if err != nil {
+		return result, err
+	}
+
+	poolNumaSet := machine.NewCPUSet(m.getPoolNumaIDs(poolInfo)...)
+	general.Infof("get balanced pod for pool %v, pool numas:%v, destNumas: %v", poolName, poolNumaSet, destNumaSet)
+
+	if destNumaSet.Intersection(poolNumaSet).Size() > 0 {
+		for i := range pods {
+			pod := pods[i]
+			anon, err := helper.GetPodMetric(m.metaServer.MetricsFetcher, m.emitter, pod, consts.MetricsMemAnonPerNumaContainer, srcNuma.NumaID)
+			if err != nil {
+				general.Errorf("failed to find metric %v for pod %v/%v", consts.MetricsMemAnonPerNumaContainer, pod.Namespace, pod.Name)
+				continue
+			}
+
+			if int64(anon) > m.conf.BalancedReclaimedPodSourceNumaRSSMin && int64(anon) < m.conf.BalancedReclaimedPodSourceNumaRSSMax {
+				result = append(result, PodSort{
+					Pod:          pod,
+					DestNumaList: poolNumaSet.ToSliceInt(),
+					SortValue:    anon,
+				})
+			}
+		}
+	} else {
+		general.Infof("pool %v has no intersection with dest numas, skip it", poolName)
+	}
+	return result, nil
+}
+
+func (m *memoryBalancer) getBalancePods(supportPools []string, srcNuma *NumaLatencyInfo, destNumas []NumaInfo) ([]BalancePod, float64, error) {
+	var totalRSS float64 = 0
+	poolPodSortList := make([]PodSort, 0)
+	reclaimedPodSortList, err := m.getBalancePodsForPool(state.PoolNameReclaim, srcNuma, destNumas)
+	if err != nil {
+		return nil, totalRSS, err
+	}
+
+	for _, poolName := range supportPools {
+		podSortList, err := m.getBalancePodsForPool(poolName, srcNuma, destNumas)
 		if err != nil {
-			general.Errorf("failed to find metric %v for pod %v/%v", consts.MetricsMemAnonPerNumaContainer, pod.Namespace, pod.Name)
-			continue
+			return nil, totalRSS, err
 		}
 
-		if int64(anon) > m.conf.BalancedPodSourceNumaRSSMin && int64(anon) < m.conf.BalancedPodSourceNumaRSSMax {
-			poolPodSortList = append(poolPodSortList, PodSort{
-				Pod:       pod,
-				SortValue: anon,
-			})
-		}
+		poolPodSortList = append(poolPodSortList, podSortList...)
 	}
 
 	if len(poolPodSortList) > 1 {
@@ -641,20 +626,20 @@ func (m *memoryBalancer) getBalancePodsByRSS(poolPods []*v1.Pod, reclaimedPods [
 		})
 	}
 
-	targetPoolPods = make([]BalancePod, 0)
-	targetReclaimedPods = make([]BalancePod, 0)
+	targetPods := make([]BalancePod, 0)
 
 	for _, sortPod := range reclaimedPodSortList {
 		if totalRSS+sortPod.SortValue > float64(m.conf.BalancedReclaimedPodsSourceNumaTotalRSSMax) {
 			break
 		}
 
-		targetReclaimedPods = append(targetReclaimedPods, m.packBalancePods(sortPod.Pod, sortPod.SortValue))
+		targetPods = append(targetPods, m.packBalancePods(sortPod.Pod, sortPod.DestNumaList, sortPod.SortValue))
 		totalRSS += sortPod.SortValue
 	}
 
 	if totalRSS >= float64(m.conf.BalancedReclaimedPodsSingleRoundTotalRssThreshold) {
-		return
+		general.Infof("balance reclaimed pod total rss is greater than threshold %v", float64(m.conf.BalancedReclaimedPodsSingleRoundTotalRssThreshold))
+		return targetPods, totalRSS, nil
 	}
 
 	for _, sortPod := range poolPodSortList {
@@ -662,11 +647,11 @@ func (m *memoryBalancer) getBalancePodsByRSS(poolPods []*v1.Pod, reclaimedPods [
 			break
 		}
 
-		targetPoolPods = append(targetPoolPods, m.packBalancePods(sortPod.Pod, sortPod.SortValue))
+		targetPods = append(targetPods, m.packBalancePods(sortPod.Pod, sortPod.DestNumaList, sortPod.SortValue))
 		totalRSS += sortPod.SortValue
 	}
 
-	return
+	return targetPods, totalRSS, nil
 }
 
 func (m *memoryBalancer) packEvictPods(pods []*v1.Pod) []EvictPod {
@@ -678,14 +663,14 @@ func (m *memoryBalancer) packEvictPods(pods []*v1.Pod) []EvictPod {
 	return result
 }
 
-func (m *memoryBalancer) packBalancePods(pod *v1.Pod, RSSOnSourceNuma float64) BalancePod {
+func (m *memoryBalancer) packBalancePods(pod *v1.Pod, destNumas []int, RSSOnSourceNuma float64) BalancePod {
 	containers := make([]string, 0, len(pod.Spec.Containers))
 	for i := range pod.Spec.Containers {
 		containers = append(containers, pod.Spec.Containers[i].Name)
 	}
 
 	return BalancePod{Namespace: pod.Namespace,
-		Name: pod.Name, UID: string(pod.UID), Containers: containers, RSSOnSourceNuma: RSSOnSourceNuma}
+		Name: pod.Name, UID: string(pod.UID), Containers: containers, RSSOnSourceNuma: RSSOnSourceNuma, DestNumas: destNumas}
 }
 
 func (m *memoryBalancer) getNumaIDs(numaInfos []NumaInfo) []int {
@@ -697,15 +682,11 @@ func (m *memoryBalancer) getNumaIDs(numaInfos []NumaInfo) []int {
 	return numaIDs
 }
 
-func (m *memoryBalancer) setBalanceInfo(balanceMap map[string]*PoolBalanceInfo, currentSessionID string) {
+func (m *memoryBalancer) setBalanceInfo(balanceInfo *BalanceInfo) {
 	defer m.mutex.Unlock()
 	m.mutex.Lock()
 
-	m.balanceInfo = &BalanceInfo{
-		pool2BalanceInfo: balanceMap,
-		sessionID:        currentSessionID,
-		balanceTime:      time.Now(),
-	}
+	m.balanceInfo = balanceInfo
 }
 
 func (m *memoryBalancer) getPodsInPool(poolName string) ([]*v1.Pod, error) {
@@ -805,19 +786,17 @@ func (m *memoryBalancer) isPingPongBalance(srcNuma int, dstNuma int) bool {
 		return false
 	}
 
-	if time.Since(m.lastBalanceInfo.balanceTime).Minutes() > PingPongDetectThresholdInMinutes {
+	if time.Since(m.lastBalanceInfo.DetectTime).Minutes() > PingPongDetectThresholdInMinutes {
 		return false
 	}
 
-	for _, poolBalanceInfo := range m.lastBalanceInfo.pool2BalanceInfo {
-		if dstNuma != poolBalanceInfo.SourceNuma.NumaID {
-			continue
-		}
+	if dstNuma != m.lastBalanceInfo.SourceNuma.NumaID {
+		return false
+	}
 
-		for i := range poolBalanceInfo.DestNumas {
-			if srcNuma == poolBalanceInfo.DestNumas[i].NumaID {
-				return true
-			}
+	for i := range m.lastBalanceInfo.DestNumas {
+		if srcNuma == m.lastBalanceInfo.DestNumas[i].NumaID {
+			return true
 		}
 	}
 
@@ -877,75 +856,41 @@ func (m *memoryBalancer) GetAdvices() (result types.InternalMemoryCalculationRes
 		return
 	}
 
-	needBalance := false
+	if !m.balanceInfo.NeedBalance || m.balanceInfo.Status != BalanceStatusPrepareSuccess ||
+		len(m.balanceInfo.BalancePods) == 0 || len(m.balanceInfo.DestNumas) == 0 {
+		return
+	}
+
 	advice := types.NumaMemoryBalanceAdvice{
-		PoolBalanceInfo: make(map[string]types.NumaMemoryBalancePoolAdvice),
-	}
-	for poolName, poolBalanceInfo := range m.balanceInfo.pool2BalanceInfo {
-		if !poolBalanceInfo.NeedBalance || poolBalanceInfo.Status != BalanceStatusPrepareSuccess ||
-			(len(poolBalanceInfo.BalancePods) == 0 && len(poolBalanceInfo.BalanceReclaimedPods) == 0) {
-			continue
-		}
-
-		poolAdvice := types.NumaMemoryBalancePoolAdvice{
-			BalanceInfo: make([]types.NumaMemoryMigrationInfo, 0),
-			TotalRSS:    poolBalanceInfo.TotalRSS,
-			Threshold:   MigratePagesThreshold,
-		}
-
-		needBalance = true
-		reclaimedDestNumaSet := machine.NewCPUSet()
-		for _, reclaimedDestNuma := range poolBalanceInfo.ReclaimedDestNumas {
-			reclaimedDestNumaSet.Add(reclaimedDestNuma.NumaID)
-		}
-
-		// The dest numa order matters.
-		for _, destNuma := range poolBalanceInfo.DestNumas {
-			migrationInfo := types.NumaMemoryMigrationInfo{
-				DestNuma:          destNuma.NumaID,
-				SourceNuma:        poolBalanceInfo.SourceNuma.NumaID,
-				MigrateContainers: make([]types.NumaMemoryBalanceContainerInfo, 0),
-			}
-
-			if reclaimedDestNumaSet.Contains(destNuma.NumaID) {
-				for _, balanceReclaimedPod := range poolBalanceInfo.BalanceReclaimedPods {
-					for _, container := range balanceReclaimedPod.Containers {
-						migrationInfo.MigrateContainers = append(migrationInfo.MigrateContainers, types.NumaMemoryBalanceContainerInfo{
-							PodUID:        balanceReclaimedPod.UID,
-							ContainerName: container,
-						})
-					}
-				}
-			}
-
-			for _, balancePod := range poolBalanceInfo.BalancePods {
-				for _, container := range balancePod.Containers {
-					migrationInfo.MigrateContainers = append(migrationInfo.MigrateContainers, types.NumaMemoryBalanceContainerInfo{
-						PodUID:        balancePod.UID,
-						ContainerName: container,
-					})
-				}
-			}
-			poolAdvice.BalanceInfo = append(poolAdvice.BalanceInfo, migrationInfo)
-		}
-
-		advice.PoolBalanceInfo[poolName] = poolAdvice
+		SourceNuma:        m.balanceInfo.SourceNuma.NumaID,
+		DestNumaList:      m.getNumaIDs(m.balanceInfo.DestNumas),
+		TotalRSS:          m.balanceInfo.TotalRSS,
+		Threshold:         MigratePagesThreshold,
+		MigrateContainers: make([]types.NumaMemoryBalanceContainerInfo, 0),
 	}
 
-	if len(advice.PoolBalanceInfo) > 0 {
-		adviceStr, err := json.Marshal(advice)
-		if err != nil {
-			general.Errorf("marshal numa memory balance advice failed: %v", err)
-			return
+	for _, balancePod := range m.balanceInfo.BalancePods {
+		for _, container := range balancePod.Containers {
+			advice.MigrateContainers = append(advice.MigrateContainers, types.NumaMemoryBalanceContainerInfo{
+				PodUID:        balancePod.UID,
+				ContainerName: container,
+				DestNumaList:  balancePod.DestNumas,
+			})
 		}
-		result.ExtraEntries = append(result.ExtraEntries, types.ExtraMemoryAdvices{
-			Values: map[string]string{
-				string(memoryadvisor.ControlKnobKeyBalanceNumaMemory): string(adviceStr),
-			},
-		})
 	}
 
-	if needBalance {
+	adviceStr, err := json.Marshal(advice)
+	if err != nil {
+		general.Errorf("marshal numa memory balance advice failed: %v", err)
+		return
+	}
+	result.ExtraEntries = append(result.ExtraEntries, types.ExtraMemoryAdvices{
+		Values: map[string]string{
+			string(memoryadvisor.ControlKnobKeyBalanceNumaMemory): string(adviceStr),
+		},
+	})
+
+	if m.balanceInfo.NeedBalance {
 		m.lastBalanceInfo = m.balanceInfo
 	}
 	// avoid duplicate execution

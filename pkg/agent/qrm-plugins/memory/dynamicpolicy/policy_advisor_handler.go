@@ -534,33 +534,24 @@ func (p *DynamicPolicy) handleNumaMemoryBalance(_ *config.Configuration,
 			memoryadvisor.ControlKnobKeyBalanceNumaMemory, value, err)
 	}
 
-	//containerID, err := p.metaServer.GetContainerID(entryName, subEntryName)
-	//if err != nil {
-	//	general.Errorf("get container id of pod: %s container: %s failed with error: %v", entryName, subEntryName, err)
-	//	return err
-	//}
-	//
-	//sourceNumaSet := machine.NewCPUSet(advice.SourceNuma)
-	//destNumaSet := machine.NewCPUSet(advice.DestNumas...)
-
-	for poolName, poolAdvice := range advice.PoolBalanceInfo {
-		migratePagesWorkName := fmt.Sprintf("%v-%s", memoryadvisor.ControlKnobKeyBalanceNumaMemory, poolName)
-		// start a asynchronous work to migrate pages for containers
-		err = p.asyncWorkers.AddWork(migratePagesWorkName,
-			&asyncworker.Work{
-				Fn:          p.doNumaMemoryBalance,
-				Params:      []interface{}{poolName, poolAdvice},
-				DeliveredAt: time.Now()})
-
-		if err != nil {
-			general.Errorf("add work: %s for pool %s failed with error: %v", migratePagesWorkName, poolName, err)
-		}
-
-		_ = emitter.StoreInt64(util.MetricNameMemoryNumaBalance, 1,
-			metrics.MetricTypeNameRaw, metrics.ConvertMapToTags(map[string]string{
-				"poolName": poolName,
-			})...)
+	migratePagesWorkName := fmt.Sprintf("%v", memoryadvisor.ControlKnobKeyBalanceNumaMemory)
+	if p.asyncWorkers.WorkExists(migratePagesWorkName) {
+		general.Infof("work %v already exists, skip this turn", migratePagesWorkName)
+		return nil
 	}
+
+	// start an asynchronous work to migrate pages for containers
+	err = p.asyncWorkers.AddWork(migratePagesWorkName,
+		&asyncworker.Work{
+			Fn:          p.doNumaMemoryBalance,
+			Params:      []interface{}{advice},
+			DeliveredAt: time.Now()})
+
+	if err != nil {
+		general.Errorf("add work: %s failed with error: %v", migratePagesWorkName, err)
+	}
+
+	_ = emitter.StoreInt64(util.MetricNameMemoryNumaBalance, 1, metrics.MetricTypeNameRaw)
 
 	return nil
 }
@@ -572,14 +563,12 @@ type containerMigrateStat struct {
 	rssAfter    uint64
 }
 
-func (p *DynamicPolicy) doNumaMemoryBalance(poolName string, poolAdvice types.NumaMemoryBalancePoolAdvice) error {
+func (p *DynamicPolicy) doNumaMemoryBalance(advice types.NumaMemoryBalanceAdvice) error {
 	startTime := time.Now()
 	defer func() {
 		cost := time.Now().Sub(startTime)
 		general.Infof("numa memory balance cost %v", cost)
-		_ = p.emitter.StoreInt64(util.MetricNameMemoryNumaBalanceCost, cost.Milliseconds(), metrics.MetricTypeNameRaw,
-			metrics.MetricTag{Key: "pool_name", Val: poolName},
-		)
+		_ = p.emitter.StoreInt64(util.MetricNameMemoryNumaBalanceCost, cost.Milliseconds(), metrics.MetricTypeNameRaw)
 	}()
 
 	keyFunc := func(podUID, containerName string) string {
@@ -600,55 +589,59 @@ func (p *DynamicPolicy) doNumaMemoryBalance(poolName string, poolAdvice types.Nu
 	}
 
 	containerStats := make(map[string]containerMigrateStat)
-	for _, migrationInfo := range poolAdvice.BalanceInfo {
-		for _, containerInfo := range migrationInfo.MigrateContainers {
-			containerID, err := p.metaServer.GetContainerID(containerInfo.PodUID, containerInfo.ContainerName)
-			if err != nil {
-				general.Errorf("get container id of pod: %s container: %s failed with error: %v", containerInfo.PodUID, containerInfo.ContainerName, err)
-				continue
-			}
+	for _, containerInfo := range advice.MigrateContainers {
+		containerID, err := p.metaServer.GetContainerID(containerInfo.PodUID, containerInfo.ContainerName)
+		if err != nil {
+			general.Errorf("get container id of pod: %s container: %s failed with error: %v", containerInfo.PodUID, containerInfo.ContainerName, err)
+			continue
+		}
 
-			memoryAbsCGPath, err := cgroupcommon.GetContainerAbsCgroupPath(cgroupcommon.CgroupSubsysMemory, containerInfo.PodUID, containerID)
-			if err != nil {
-				general.Errorf("GetContainerAbsCgroupPath of pod: %s container: %s failed with error: %v", containerInfo.PodUID, containerInfo.ContainerName, err)
-				continue
-			}
+		memoryAbsCGPath, err := cgroupcommon.GetContainerAbsCgroupPath(cgroupcommon.CgroupSubsysMemory, containerInfo.PodUID, containerID)
+		if err != nil {
+			general.Errorf("GetContainerAbsCgroupPath of pod: %s container: %s failed with error: %v", containerInfo.PodUID, containerInfo.ContainerName, err)
+			continue
+		}
 
-			key := keyFunc(containerInfo.PodUID, containerInfo.ContainerName)
-			containerStats[key] = containerMigrateStat{
-				containerID: containerID,
-				cgroupPath:  memoryAbsCGPath,
-			}
+		key := keyFunc(containerInfo.PodUID, containerInfo.ContainerName)
+		containerStats[key] = containerMigrateStat{
+			containerID: containerID,
+			cgroupPath:  memoryAbsCGPath,
 		}
 	}
 
+	var migrateSuccess bool
 	var rssDecreased uint64
-	for _, migrationInfo := range poolAdvice.BalanceInfo {
-		for _, containerInfo := range migrationInfo.MigrateContainers {
+	for _, destNuma := range advice.DestNumaList {
+		for _, containerInfo := range advice.MigrateContainers {
 			containerKey := keyFunc(containerInfo.PodUID, containerInfo.ContainerName)
 			if _, ok := containerStats[containerKey]; !ok {
 				continue
 			}
 
 			stats := containerStats[containerKey]
-			rssBefore, err := getAnonOnNumaFunc(stats.cgroupPath, migrationInfo.SourceNuma)
+			rssBefore, err := getAnonOnNumaFunc(stats.cgroupPath, advice.SourceNuma)
 			if err != nil {
 				general.Errorf("getAnonOnNumaFunc failed for container[%v/%v] numa [%v],err: %v",
-					containerInfo.PodUID, containerInfo.ContainerName, migrationInfo.SourceNuma, err)
+					containerInfo.PodUID, containerInfo.ContainerName, advice.SourceNuma, err)
 			}
 			stats.rssBefore = rssBefore
 
-			err = MigratePagesForContainer(context.TODO(), containerInfo.PodUID, stats.containerID, p.topology.NumNUMANodes,
-				machine.NewCPUSet(migrationInfo.SourceNuma), machine.NewCPUSet(migrationInfo.DestNuma))
-			if err != nil {
-				general.Errorf("MigratePagesForContainer failed for container[%v/%v] source_numa [%v],dest_numa [%v],err: %v",
-					containerInfo.PodUID, containerInfo.ContainerName, migrationInfo.SourceNuma, migrationInfo.DestNuma, err)
+			containerNumaSet := machine.NewCPUSet(containerInfo.DestNumaList...)
+			if containerNumaSet.Contains(destNuma) {
+				err = MigratePagesForContainer(context.TODO(), containerInfo.PodUID, stats.containerID, p.topology.NumNUMANodes,
+					machine.NewCPUSet(advice.SourceNuma), machine.NewCPUSet(destNuma))
+				if err != nil {
+					general.Errorf("MigratePagesForContainer failed for container[%v/%v] source_numa [%v],dest_numa [%v],err: %v",
+						containerInfo.PodUID, containerInfo.ContainerName, advice.SourceNuma, destNuma, err)
+				}
+			} else {
+				general.Infof("skip migrate container %v/%v memory from %v to %v", containerInfo.PodUID, containerInfo.ContainerName, advice.SourceNuma, advice.DestNumaList)
 			}
 
-			rssAfter, err := getAnonOnNumaFunc(stats.cgroupPath, migrationInfo.SourceNuma)
+			rssAfter, err := getAnonOnNumaFunc(stats.cgroupPath, advice.SourceNuma)
 			if err != nil {
 				general.Errorf("getAnonOnNumaFunc failed for container[%v/%v] numa [%v],err: %v",
-					containerInfo.PodUID, containerInfo.ContainerName, migrationInfo.SourceNuma, err)
+					containerInfo.PodUID, containerInfo.ContainerName, advice.SourceNuma, err)
 			}
 			stats.rssAfter = rssAfter
 
@@ -667,13 +660,17 @@ func (p *DynamicPolicy) doNumaMemoryBalance(poolName string, poolAdvice types.Nu
 			totalRSSAfter += stat.rssAfter
 			totalRSSBefore += stat.rssBefore
 		}
-		general.Infof("numa memory balance migration for pool %v succeed, advice total rss: %v, threshold: %v, sourceNuma:%v, targetNuma:%v, total rss before:%v, total rss after: %v",
-			poolName, poolAdvice.TotalRSS, poolAdvice.Threshold, migrationInfo.SourceNuma, migrationInfo.DestNuma, totalRSSBefore, totalRSSAfter)
+		general.Infof("numa memory balance migration succeed, advice total rss: %v, threshold: %v, sourceNuma:%v, targetNuma:%v, total rss before:%v, total rss after: %v",
+			advice.TotalRSS, advice.Threshold, advice.SourceNuma, destNuma, totalRSSBefore, totalRSSAfter)
 
-		if float64(totalRSSAfter)/poolAdvice.TotalRSS < (1-poolAdvice.Threshold) || float64(rssDecreased)/poolAdvice.TotalRSS >= poolAdvice.Threshold {
+		if float64(totalRSSAfter)/advice.TotalRSS < (1-advice.Threshold) || float64(rssDecreased)/advice.TotalRSS >= advice.Threshold {
+			migrateSuccess = true
 			break
 		}
 	}
+
+	_ = p.emitter.StoreInt64(util.MetricNameMemoryNumaBalanceResult, 1, metrics.MetricTypeNameCount,
+		metrics.MetricTag{Key: "success", Val: strconv.FormatBool(migrateSuccess)})
 
 	return nil
 }
