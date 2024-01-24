@@ -35,6 +35,10 @@ type contextKey string
 const (
 	contextKeyMetricEmitter contextKey = "metric_emitter"
 	contextKeyMetricName    contextKey = "metric_name"
+
+	// metrics for asyncworker
+	metricNameAsyncWorkDurationMs = "async_work_duration_ms"
+	metricNameAsyncWorkPanic      = "async_work_panic"
 )
 
 // workStatus tracks worker is working or not
