@@ -339,7 +339,7 @@ func (c *QoSConfiguration) GetSpecifiedPoolName(pod *v1.Pod, expandedAnnotations
 // GetQoSEnhancementKVs parses enhancements from annotations by given key,
 // since enhancement values are stored as k-v, so we should unmarshal it into maps.
 func (c *QoSConfiguration) GetQoSEnhancementKVs(pod *v1.Pod, expandedAnnotations map[string]string, enhancementKey string) (flattenedEnhancements map[string]string) {
-	annotations := MergeAnnotations(pod, expandedAnnotations)
+	annotations := c.getQoSEnhancements(MergeAnnotations(pod, expandedAnnotations))
 
 	defer func() {
 		overrideFlattenedEnhancements, ok := getQoSEnhancementExpander().Override(flattenedEnhancements, pod, annotations)
