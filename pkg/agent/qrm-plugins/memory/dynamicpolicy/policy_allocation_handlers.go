@@ -445,13 +445,13 @@ func (p *DynamicPolicy) adjustAllocationEntries() error {
 
 			if !numaWithoutNUMABindingPods.IsEmpty() {
 				migratePagesWorkName := util.GetContainerAsyncWorkName(podUID, containerName,
-					memoryPluginAsyncWorkTopicMigratePage)
+					memoryPluginAsyncWorkTopicMovePage)
 				// start a asynchronous work to migrate pages for containers whose numaset changed and doesn't require numa_binding
 				err = p.asyncWorkers.AddWork(migratePagesWorkName,
 					&asyncworker.Work{
-						Fn: MigratePagesForContainer,
+						Fn: MovePagesForContainer,
 						Params: []interface{}{podUID, containerID,
-							p.topology.NumNUMANodes, p.topology.CPUDetails.NUMANodes(),
+							p.topology.CPUDetails.NUMANodes(),
 							numaWithoutNUMABindingPods.Clone()},
 						DeliveredAt: time.Now()}, asyncworker.DuplicateWorkPolicyOverride)
 
