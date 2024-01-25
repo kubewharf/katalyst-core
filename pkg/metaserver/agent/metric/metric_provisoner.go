@@ -19,6 +19,8 @@ package metric
 import (
 	"sync"
 
+	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric/provisioner/rodan"
+
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/global"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric/provisioner/cgroup"
@@ -34,6 +36,7 @@ func init() {
 	RegisterProvisioners(metaserver.MetricProvisionerMalachite, malachite.NewMalachiteMetricsProvisioner)
 	RegisterProvisioners(metaserver.MetricProvisionerKubelet, kubelet.NewKubeletSummaryProvisioner)
 	RegisterProvisioners(metaserver.MetricProvisionerCgroup, cgroup.NewCGroupMetricsProvisioner)
+	RegisterProvisioners(metaserver.MetricProvisionerRodan, rodan.NewRodanMetricsProvisioner)
 }
 
 type ProvisionerInitFunc func(baseConf *global.BaseConfiguration,

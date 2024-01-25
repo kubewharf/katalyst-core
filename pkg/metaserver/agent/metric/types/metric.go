@@ -28,6 +28,12 @@ import (
 type MetricsScope string
 
 const (
+	ProvisionerMalachite = "malachite"
+	ProvisionerKubelet   = "kubelet"
+	ProvisionerRodan     = "rodan"
+)
+
+const (
 	MetricsScopeNode      MetricsScope = "node"
 	MetricsScopeNuma      MetricsScope = "numa"
 	MetricsScopeCPU       MetricsScope = "cpu"
