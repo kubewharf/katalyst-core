@@ -46,6 +46,8 @@ type NumaBalancerOptions struct {
 	BalancedReclaimedPodsSourceNumaTotalRSSMax int64
 
 	BalancedReclaimedPodsSingleRoundTotalRSSThreshold int64
+
+	SupportedPools []string
 }
 
 func NewNumaBalancerOptions() *NumaBalancerOptions {
@@ -76,6 +78,8 @@ func NewNumaBalancerOptions() *NumaBalancerOptions {
 		BalancedReclaimedPodsSourceNumaTotalRSSMax: 15 * 1024 * 1024 * 1024,
 
 		BalancedReclaimedPodsSingleRoundTotalRSSThreshold: 3 * 1024 * 1024 * 1024,
+
+		SupportedPools: []string{},
 	}
 }
 
@@ -108,6 +112,8 @@ func (o *NumaBalancerOptions) AddFlags(fs *pflag.FlagSet) {
 		"the rss upper limit on source numa of all reclaimed pods whose memory will be migrated to relief the source numa memory bandwidth pressure")
 	fs.Int64Var(&o.BalancedReclaimedPodsSingleRoundTotalRSSThreshold, "balanced-reclaimed-pod-single-round-total-rss-threshold", o.BalancedReclaimedPodsSingleRoundTotalRSSThreshold,
 		"if the migrated amount of rss from reclaimed pods is over this threshold, no non-reclaimed pod's memory will be migrated")
+	fs.StringSliceVar(&o.SupportedPools, "numa-balance-supported-pools", o.SupportedPools,
+		"the pool list support numa memory balance, only pods in these pools will be balanced.")
 }
 
 func (o *NumaBalancerOptions) ApplyTo(c *plugins.NumaBalancerConfiguration) error {
@@ -145,6 +151,7 @@ func (o *NumaBalancerOptions) ApplyTo(c *plugins.NumaBalancerConfiguration) erro
 	c.BalancedPodsSourceNumaTotalRSSMax = o.BalancedPodsSourceNumaTotalRSSMax
 	c.BalancedReclaimedPodsSourceNumaTotalRSSMax = o.BalancedReclaimedPodsSourceNumaTotalRSSMax
 	c.BalancedReclaimedPodsSingleRoundTotalRssThreshold = o.BalancedReclaimedPodsSingleRoundTotalRSSThreshold
+	c.SupportedPools = o.SupportedPools
 
 	return nil
 }

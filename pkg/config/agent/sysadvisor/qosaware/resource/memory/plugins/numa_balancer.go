@@ -38,6 +38,8 @@ type NumaBalancerConfiguration struct {
 	BalancedReclaimedPodsSourceNumaTotalRSSMax int64
 
 	BalancedReclaimedPodsSingleRoundTotalRssThreshold int64
+
+	SupportedPools []string
 }
 
 func NewNumaBalancerConfiguration() *NumaBalancerConfiguration {
