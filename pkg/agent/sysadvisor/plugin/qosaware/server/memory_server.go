@@ -143,6 +143,9 @@ func (ms *memoryServer) ListAndWatch(_ *advisorsvc.Empty, server advisorsvc.Advi
 
 	for {
 		select {
+		case <-server.Context().Done():
+			klog.Infof("[qosaware-server-memory] lw stream server exited")
+			return nil
 		case <-ms.stopCh:
 			klog.Infof("[qosaware-server-memory] lw stopped because %v stopped", ms.name)
 			return nil

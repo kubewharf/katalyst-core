@@ -211,6 +211,10 @@ func (_m *mockCPUServerService_ListAndWatchServer) Send(res *cpuadvisor.ListAndW
 	return nil
 }
 
+func (_m *mockCPUServerService_ListAndWatchServer) Context() context.Context {
+	return context.TODO()
+}
+
 func DeepCopyResponse(response *cpuadvisor.ListAndWatchResponse) (*cpuadvisor.ListAndWatchResponse, error) {
 	data, err := json.Marshal(response)
 	if err != nil {

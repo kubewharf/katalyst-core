@@ -55,6 +55,10 @@ func (_m *mockMemoryServerService_ListAndWatchServer) Send(res *advisorsvc.ListA
 	return nil
 }
 
+func (_m *mockMemoryServerService_ListAndWatchServer) Context() context.Context {
+	return context.TODO()
+}
+
 func generateTestMemoryAdvisorConfiguration(t *testing.T) *config.Configuration {
 	conf, err := options.NewOptions().Config()
 	require.NoError(t, err)
