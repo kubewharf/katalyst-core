@@ -18,6 +18,7 @@ package policy
 
 import (
 	"fmt"
+	"strconv"
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource/helper"
 	"github.com/kubewharf/katalyst-core/pkg/consts"
@@ -29,6 +30,11 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
+)
+
+const (
+	metricMemoryNUMAProvision = "memory_numa_provision"
+	metricTagKeyNUMAID        = "numa_id"
 )
 
 type PolicyCanonical struct {
@@ -120,7 +126,11 @@ func (p *PolicyCanonical) Update() error {
 	systemWatermarkReservedAvg := uint64(int(systemWatermarkReserved) / nums)
 
 	for numaID := range memoryProvisions {
-		memoryProvisions[numaID] = uint64(general.Clamp(float64(memoryProvisions[numaID]-reservedAvg-systemWatermarkReservedAvg), .0, float64(memoryTotals[numaID])))
+		provison := uint64(general.Clamp(float64(memoryProvisions[numaID]-reservedAvg-systemWatermarkReservedAvg), .0, float64(memoryTotals[numaID])))
+		memoryProvisions[numaID] = provison
+
+		p.emitter.StoreInt64(metricMemoryNUMAProvision, int64(provison), metrics.MetricTypeNameRaw,
+			metrics.ConvertMapToTags(map[string]string{metricTagKeyNUMAID: strconv.Itoa(numaID)})...)
 	}
 
 	// set other numa nodes to 0

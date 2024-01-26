@@ -49,6 +49,7 @@ const (
 	metricTagKeyPolicyName        = "policy_name"
 	metricTagKeyRegionType        = "region_type"
 	metricTagKeyRegionName        = "region_name"
+	metricTagKeyRegionNUMAs       = "region_numas"
 	metricTagKeyControlKnobName   = "control_knob_name"
 	metricTagKeyControlKnobAction = "control_knob_action"
 )
@@ -389,7 +390,8 @@ func (r *QoSRegionBase) GetHeadroom() (float64, error) {
 		}
 		_ = r.emitter.StoreFloat64(metricRegionHeadroom, headroom, metrics.MetricTypeNameRaw,
 			metrics.ConvertMapToTags(map[string]string{metricTagKeyRegionType: string(r.regionType),
-				metricTagKeyRegionName: r.name, metricTagKeyPolicyName: string(internal.name)})...)
+				metricTagKeyRegionName: r.name, metricTagKeyPolicyName: string(internal.name),
+				metricTagKeyRegionNUMAs: r.bindingNumas.String()})...)
 		r.headroomPolicyNameInUse = internal.name
 		return headroom, nil
 	}
