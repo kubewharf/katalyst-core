@@ -85,6 +85,9 @@ func (cs *cpuServer) ListAndWatch(_ *advisorsvc.Empty, server cpuadvisor.CPUAdvi
 
 	for {
 		select {
+		case <-server.Context().Done():
+			klog.Infof("[qosaware-server-cpu] lw stream server exited")
+			return nil
 		case <-cs.stopCh:
 			klog.Infof("[qosaware-server-cpu] lw stopped because cpu server stopped")
 			return nil
