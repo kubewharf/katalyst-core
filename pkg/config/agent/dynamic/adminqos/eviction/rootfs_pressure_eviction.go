@@ -51,7 +51,7 @@ func (c *RootfsPressureEvictionConfiguration) ApplyTo(conf *crd.DynamicConfigCRD
 			c.EnableRootfsPressureEviction = *config.EnableRootfsPressureEviction
 		}
 		if config.MinimumFreeThreshold != "" {
-			thresholdValue, err := parseThresholdValue(config.MinimumFreeThreshold)
+			thresholdValue, err := ParseThresholdValue(config.MinimumFreeThreshold)
 			if err == nil {
 				c.MinimumFreeThreshold = thresholdValue
 			} else {
@@ -59,7 +59,7 @@ func (c *RootfsPressureEvictionConfiguration) ApplyTo(conf *crd.DynamicConfigCRD
 			}
 		}
 		if config.MinimumInodesFreeThreshold != "" {
-			thresholdValue, err := parseThresholdValue(config.MinimumInodesFreeThreshold)
+			thresholdValue, err := ParseThresholdValue(config.MinimumInodesFreeThreshold)
 			if err == nil {
 				c.MinimumInodesFreeThreshold = thresholdValue
 			} else {
@@ -67,7 +67,7 @@ func (c *RootfsPressureEvictionConfiguration) ApplyTo(conf *crd.DynamicConfigCRD
 			}
 		}
 		if config.PodMinimumUsedThreshold != "" {
-			thresholdValue, err := parseThresholdValue(config.PodMinimumUsedThreshold)
+			thresholdValue, err := ParseThresholdValue(config.PodMinimumUsedThreshold)
 			if err == nil {
 				c.PodMinimumUsedThreshold = thresholdValue
 			} else {
@@ -75,7 +75,7 @@ func (c *RootfsPressureEvictionConfiguration) ApplyTo(conf *crd.DynamicConfigCRD
 			}
 		}
 		if config.PodMinimumInodesUsedThreshold != "" {
-			thresholdValue, err := parseThresholdValue(config.PodMinimumInodesUsedThreshold)
+			thresholdValue, err := ParseThresholdValue(config.PodMinimumInodesUsedThreshold)
 			if err == nil {
 				c.PodMinimumInodesUsedThreshold = thresholdValue
 			} else {
@@ -83,7 +83,7 @@ func (c *RootfsPressureEvictionConfiguration) ApplyTo(conf *crd.DynamicConfigCRD
 			}
 		}
 		if config.ReclaimedQoSPodUsedPriorityThreshold != "" {
-			thresholdValue, err := parseThresholdValue(config.ReclaimedQoSPodUsedPriorityThreshold)
+			thresholdValue, err := ParseThresholdValue(config.ReclaimedQoSPodUsedPriorityThreshold)
 			if err == nil {
 				c.ReclaimedQoSPodUsedPriorityThreshold = thresholdValue
 			} else {
@@ -91,7 +91,7 @@ func (c *RootfsPressureEvictionConfiguration) ApplyTo(conf *crd.DynamicConfigCRD
 			}
 		}
 		if config.ReclaimedQoSPodInodesUsedPriorityThreshold != "" {
-			thresholdValue, err := parseThresholdValue(config.ReclaimedQoSPodInodesUsedPriorityThreshold)
+			thresholdValue, err := ParseThresholdValue(config.ReclaimedQoSPodInodesUsedPriorityThreshold)
 			if err == nil {
 				c.ReclaimedQoSPodInodesUsedPriorityThreshold = thresholdValue
 			} else {
@@ -104,7 +104,7 @@ func (c *RootfsPressureEvictionConfiguration) ApplyTo(conf *crd.DynamicConfigCRD
 	}
 }
 
-func parseThresholdValue(val string) (*evictionapi.ThresholdValue, error) {
+func ParseThresholdValue(val string) (*evictionapi.ThresholdValue, error) {
 	if strings.HasSuffix(val, "%") {
 		// ignore 0% and 100%
 		if val == "0%" || val == "100%" {
