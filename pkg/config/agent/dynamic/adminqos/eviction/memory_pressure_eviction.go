@@ -33,6 +33,8 @@ const (
 	DefaultEnableNumaLevelEviction = true
 	// DefaultEnableSystemLevelEviction is the default value of whether enable system-level eviction
 	DefaultEnableSystemLevelEviction = true
+	// DefaultEnableEnhancedNumaLevelEviction is the default value of whether enable enhanced numa memory pressure eviction
+	DefaultEnableEnhancedNumaLevelEviction = true
 	// DefaultNumaVictimMinimumUtilizationThreshold is the victim's minimum memory usage on a NUMA node, if a pod
 	// uses less memory on a NUMA node than this threshold,it won't be evicted by this NUMA's memory pressure.
 	DefaultNumaVictimMinimumUtilizationThreshold = 0.001
@@ -66,6 +68,7 @@ var (
 type MemoryPressureEvictionConfiguration struct {
 	EnableNumaLevelEviction                 bool
 	EnableSystemLevelEviction               bool
+	EnableEnhancedNumaLevelEviction         bool
 	NumaVictimMinimumUtilizationThreshold   float64
 	NumaFreeBelowWatermarkTimesThreshold    int
 	SystemFreeMemoryThresholdMinimum        int64
