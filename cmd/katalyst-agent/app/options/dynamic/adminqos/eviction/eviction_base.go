@@ -32,6 +32,7 @@ type EvictionOptions struct {
 	*MemoryPressureEvictionOptions
 	*ReclaimedResourcesEvictionOptions
 	*SystemLoadPressureEvictionOptions
+	*RootfsPressureEvictionOptions
 }
 
 func NewEvictionOptions() *EvictionOptions {
@@ -40,6 +41,7 @@ func NewEvictionOptions() *EvictionOptions {
 		MemoryPressureEvictionOptions:     NewMemoryPressureEvictionOptions(),
 		ReclaimedResourcesEvictionOptions: NewReclaimedResourcesEvictionOptions(),
 		SystemLoadPressureEvictionOptions: NewSystemLoadPressureEvictionOptions(),
+		RootfsPressureEvictionOptions:     NewRootfsPressureEvictionOptions(),
 	}
 }
 
@@ -52,6 +54,7 @@ func (o *EvictionOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 	o.MemoryPressureEvictionOptions.AddFlags(fss)
 	o.ReclaimedResourcesEvictionOptions.AddFlags(fss)
 	o.SystemLoadPressureEvictionOptions.AddFlags(fss)
+	o.RootfsPressureEvictionOptions.AddFlags(fss)
 }
 
 func (o *EvictionOptions) ApplyTo(c *eviction.EvictionConfiguration) error {
@@ -61,5 +64,6 @@ func (o *EvictionOptions) ApplyTo(c *eviction.EvictionConfiguration) error {
 	errList = append(errList, o.MemoryPressureEvictionOptions.ApplyTo(c.MemoryPressureEvictionConfiguration))
 	errList = append(errList, o.ReclaimedResourcesEvictionOptions.ApplyTo(c.ReclaimedResourcesEvictionConfiguration))
 	errList = append(errList, o.SystemLoadPressureEvictionOptions.ApplyTo(c.SystemLoadEvictionPluginConfiguration))
+	errList = append(errList, o.RootfsPressureEvictionOptions.ApplyTo(c.RootfsPressureEvictionConfiguration))
 	return errors.NewAggregate(errList)
 }
