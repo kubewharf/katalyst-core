@@ -21,7 +21,10 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/klog/v2"
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
+
+	"github.com/kubewharf/katalyst-core/pkg/agent/orm/checkpoint"
 )
 
 func TestPodResources(t *testing.T) {
@@ -72,6 +75,82 @@ func TestPodResources(t *testing.T) {
 	containerAllResources = podResource.containerAllResources("testPod", "testContainer")
 	assert.NotNil(t, containerAllResources)
 	assert.Equal(t, len(containerAllResources), 0)
+}
+
+func TestCheckpointMarshal(t *testing.T) {
+	/* ----  use allocationInfo.Marshal  ----- */
+	podResources := newPodResourcesChk()
+	podResources.resources = map[string]ContainerResources{
+		"testPodUid": map[string]ResourceAllocation{
+			"testContainer": map[string]*pluginapi.ResourceAllocationInfo{
+				"memory": {
+					OciPropertyName:   "CpusetMems",
+					IsNodeResource:    true,
+					IsScalarResource:  true,
+					AllocatedQuantity: 400000000, // more than 1000
+					AllocationResult:  "0",
+				},
+			},
+		},
+	}
+
+	var entries []checkpoint.PodResourcesEntry
+	for podUID, containerResources := range podResources.resources {
+		for conName, resourcesAllocation := range containerResources {
+			for resourceName, allocationInfo := range resourcesAllocation {
+				// use allocationInfo.Marshal()
+				allocRespBytes, err := allocationInfo.Marshal()
+				if err != nil {
+					klog.Errorf("Can't marshal allocationInfo for %v %v %v: %v", podUID, conName, resourceName, err)
+					continue
+				}
+				entries = append(entries, checkpoint.PodResourcesEntry{
+					PodUID:         podUID,
+					ContainerName:  conName,
+					ResourceName:   resourceName,
+					AllocationInfo: string(allocRespBytes)})
+			}
+		}
+	}
+	data := checkpoint.New(entries)
+	value, err := data.MarshalCheckpoint()
+	assert.NoError(t, err)
+
+	resEntries := make([]checkpoint.PodResourcesEntry, 0)
+	cp := checkpoint.New(resEntries)
+	err = cp.UnmarshalCheckpoint(value)
+	assert.NoError(t, err)
+	// we just marshal and unmarshal the data, checksum should be the same.
+	err = cp.VerifyChecksum()
+	assert.Error(t, err) // here we got an error, actually we can not get checkpoint data from file.
+
+	/* ----  use json.Marshal  ----- */
+	podResources = newPodResourcesChk()
+	podResources.resources = map[string]ContainerResources{
+		"testPodUid": map[string]ResourceAllocation{
+			"testContainer": map[string]*pluginapi.ResourceAllocationInfo{
+				"memory": {
+					OciPropertyName:   "CpusetMems",
+					IsNodeResource:    true,
+					IsScalarResource:  true,
+					AllocatedQuantity: 400000000, // more than 1000
+					AllocationResult:  "0",
+				},
+			},
+		},
+	}
+
+	data = checkpoint.New(podResources.toCheckpointData()) // the only difference is than we use json.Marshal
+	value, err = data.MarshalCheckpoint()
+	assert.NoError(t, err)
+
+	resEntries = make([]checkpoint.PodResourcesEntry, 0)
+	cp = checkpoint.New(resEntries)
+	err = cp.UnmarshalCheckpoint(value)
+	assert.NoError(t, err)
+	// we just marshal and unmarshal the data, checksum should be the same.
+	err = cp.VerifyChecksum()
+	assert.NoError(t, err)
 }
 
 func generateResourceAllocationInfo() *pluginapi.ResourceAllocationInfo {

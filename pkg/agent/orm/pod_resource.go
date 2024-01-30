@@ -17,6 +17,7 @@ limitations under the License.
 package orm
 
 import (
+	"encoding/json"
 	"reflect"
 	"sync"
 
@@ -194,7 +195,7 @@ func (pres *podResourcesChk) toCheckpointData() []checkpoint.PodResourcesEntry {
 	for podUID, containerResources := range pres.resources {
 		for conName, resourcesAllocation := range containerResources {
 			for resourceName, allocationInfo := range resourcesAllocation {
-				allocRespBytes, err := allocationInfo.Marshal()
+				allocRespBytes, err := json.Marshal(allocationInfo)
 				if err != nil {
 					klog.Errorf("Can't marshal allocationInfo for %v %v %v: %v", podUID, conName, resourceName, err)
 					continue
@@ -216,7 +217,7 @@ func (pres *podResourcesChk) fromCheckpointData(data []checkpoint.PodResourcesEn
 		klog.V(2).Infof("Get checkpoint entry: %s %s %s %s\n",
 			entry.PodUID, entry.ContainerName, entry.ResourceName, entry.AllocationInfo)
 		allocationInfo := &pluginapi.ResourceAllocationInfo{}
-		err := allocationInfo.Unmarshal([]byte(entry.AllocationInfo))
+		err := json.Unmarshal([]byte(entry.AllocationInfo), allocationInfo)
 		if err != nil {
 			klog.Errorf("Can't unmarshal allocationInfo for %s %s %s %s: %v",
 				entry.PodUID, entry.ContainerName, entry.ResourceName, entry.AllocationInfo, err)
