@@ -40,6 +40,8 @@ type CPUDynamicPolicyConfig struct {
 	EnableSyncingCPUIdle bool
 	// EnableCPUIdle indicates whether enabling cpu idle
 	EnableCPUIdle bool
+	// CPUNUMAHintPreferPolicy decides hint preference calculation strategy
+	CPUNUMAHintPreferPolicy string
 }
 
 type CPUNativePolicyConfig struct {

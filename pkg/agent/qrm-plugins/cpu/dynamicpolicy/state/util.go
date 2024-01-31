@@ -27,6 +27,7 @@ import (
 
 	apiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/consts"
+	cpuconsts "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/consts"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/cpuadvisor"
 	advisorapi "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/cpuadvisor"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
@@ -124,9 +125,9 @@ func GetIsolatedQuantityMapFromPodEntries(podEntries PodEntries, ignoreAllocatio
 
 // GetSharedQuantityMapFromPodEntries returns a map to indicates quantity info for each shared pool,
 // and the map is formatted as pool -> quantity
-func GetSharedQuantityMapFromPodEntries(podEntries PodEntries, ignoreAllocationInfos []*AllocationInfo) map[string]int {
-	ret := make(map[string]int)
-	preciseQuantityMap := make(map[string]float64)
+func GetSharedQuantityMapFromPodEntries(podEntries PodEntries, ignoreAllocationInfos []*AllocationInfo) (map[string]map[int]int, error) {
+	poolsQuantityMap := make(map[string]map[int]int)
+	allocationInfosToCount := make([]*AllocationInfo, 0, len(podEntries))
 	for _, entries := range podEntries {
 		if entries.IsPoolEntry() {
 			continue
@@ -138,7 +139,7 @@ func GetSharedQuantityMapFromPodEntries(podEntries PodEntries, ignoreAllocationI
 			// if there is no more cores to allocate, we will put dedicated_cores without numa_binding to pool rather than isolation.
 			// calling this function means we will start to adjust allocation, and we will try to isolate those containers,
 			// so we will treat them as containers to be isolated.
-			if allocationInfo == nil || !CheckShared(allocationInfo) {
+			if allocationInfo == nil || !CheckShared(allocationInfo) || !allocationInfo.CheckMainContainer() {
 				continue
 			}
 
@@ -148,18 +149,17 @@ func GetSharedQuantityMapFromPodEntries(podEntries PodEntries, ignoreAllocationI
 				}
 			}
 
-			if poolName := allocationInfo.GetOwnerPoolName(); poolName != advisorapi.EmptyOwnerPoolName {
-				preciseQuantityMap[poolName] += GetContainerRequestedCores()(allocationInfo)
-			}
+			allocationInfosToCount = append(allocationInfosToCount, allocationInfo)
 		}
 	}
 
-	for poolName, preciseQuantity := range preciseQuantityMap {
-		ret[poolName] = int(math.Ceil(preciseQuantity))
-		general.Infof("ceil pool: %s precise quantity: %.3f to %d",
-			poolName, preciseQuantity, ret[poolName])
+	err := CountAllocationInfosToPoolsQuantityMap(allocationInfosToCount, poolsQuantityMap)
+
+	if err != nil {
+		return nil, fmt.Errorf("CountAllocationInfosToPoolsQuantityMap faild with error: %v", err)
 	}
-	return ret
+
+	return poolsQuantityMap, nil
 }
 
 // GenerateMachineStateFromPodEntries returns NUMANodeMap for given resource based on
@@ -176,39 +176,46 @@ func GenerateMachineStateFromPodEntries(topology *machine.CPUTopology, podEntrie
 		allocatedCPUsInNumaNode := machine.NewCPUSet()
 
 		for podUID, containerEntries := range podEntries {
+			if containerEntries.IsPoolEntry() {
+				continue
+			}
 			for containerName, allocationInfo := range containerEntries {
-				if containerName != advisorapi.FakedContainerName && allocationInfo != nil {
-
-					// the container hasn't cpuset assignment in the current NUMA node
-					if allocationInfo.OriginalTopologyAwareAssignments[int(numaNode)].Size() == 0 &&
-						allocationInfo.TopologyAwareAssignments[int(numaNode)].Size() == 0 {
-						continue
-					}
-
-					switch policyName {
-					case consts.CPUResourcePluginPolicyNameDynamic:
-						// only modify allocated and default properties in NUMA node state if the policy is dynamic and the QoS class is dedicated_cores with NUMA binding
-						if CheckDedicatedNUMABinding(allocationInfo) {
-							allocatedCPUsInNumaNode = allocatedCPUsInNumaNode.Union(allocationInfo.OriginalTopologyAwareAssignments[int(numaNode)])
-						}
-					case consts.CPUResourcePluginPolicyNameNative:
-						// only modify allocated and default properties in NUMA node state if the policy is native and the QoS class is Guaranteed
-						if CheckDedicatedPool(allocationInfo) {
-							allocatedCPUsInNumaNode = allocatedCPUsInNumaNode.Union(allocationInfo.OriginalTopologyAwareAssignments[int(numaNode)])
-						}
-					}
-
-					topologyAwareAssignments, _ := machine.GetNumaAwareAssignments(topology, allocationInfo.AllocationResult.Intersection(numaNodeAllCPUs))
-					originalTopologyAwareAssignments, _ := machine.GetNumaAwareAssignments(topology, allocationInfo.OriginalAllocationResult.Intersection(numaNodeAllCPUs))
-
-					numaNodeAllocationInfo := allocationInfo.Clone()
-					numaNodeAllocationInfo.AllocationResult = allocationInfo.AllocationResult.Intersection(numaNodeAllCPUs)
-					numaNodeAllocationInfo.OriginalAllocationResult = allocationInfo.OriginalAllocationResult.Intersection(numaNodeAllCPUs)
-					numaNodeAllocationInfo.TopologyAwareAssignments = topologyAwareAssignments
-					numaNodeAllocationInfo.OriginalTopologyAwareAssignments = originalTopologyAwareAssignments
-
-					numaNodeState.SetAllocationInfo(podUID, containerName, numaNodeAllocationInfo)
+				if allocationInfo == nil {
+					general.Warningf("nil allocationInfo in podEntries")
+					continue
 				}
+
+				// the container hasn't cpuset assignment in the current NUMA node
+				if allocationInfo.OriginalTopologyAwareAssignments[int(numaNode)].Size() == 0 &&
+					allocationInfo.TopologyAwareAssignments[int(numaNode)].Size() == 0 {
+					continue
+				}
+
+				switch policyName {
+				case consts.CPUResourcePluginPolicyNameDynamic:
+					// only modify allocated and default properties in NUMA node state if the policy is dynamic and the entry indicates numa_binding.
+					// shared_cores with numa_binding also contributes to numaNodeState.AllocatedCPUSet,
+					// it's convenient that we can skip NUMA with AllocatedCPUSet > 0 when allocating CPUs for dedicated_cores with numa_binding.
+					if CheckNUMABinding(allocationInfo) {
+						allocatedCPUsInNumaNode = allocatedCPUsInNumaNode.Union(allocationInfo.OriginalTopologyAwareAssignments[int(numaNode)])
+					}
+				case consts.CPUResourcePluginPolicyNameNative:
+					// only modify allocated and default properties in NUMA node state if the policy is native and the QoS class is Guaranteed
+					if CheckDedicatedPool(allocationInfo) {
+						allocatedCPUsInNumaNode = allocatedCPUsInNumaNode.Union(allocationInfo.OriginalTopologyAwareAssignments[int(numaNode)])
+					}
+				}
+
+				topologyAwareAssignments, _ := machine.GetNumaAwareAssignments(topology, allocationInfo.AllocationResult.Intersection(numaNodeAllCPUs))
+				originalTopologyAwareAssignments, _ := machine.GetNumaAwareAssignments(topology, allocationInfo.OriginalAllocationResult.Intersection(numaNodeAllCPUs))
+
+				numaNodeAllocationInfo := allocationInfo.Clone()
+				numaNodeAllocationInfo.AllocationResult = allocationInfo.AllocationResult.Intersection(numaNodeAllCPUs)
+				numaNodeAllocationInfo.OriginalAllocationResult = allocationInfo.OriginalAllocationResult.Intersection(numaNodeAllCPUs)
+				numaNodeAllocationInfo.TopologyAwareAssignments = topologyAwareAssignments
+				numaNodeAllocationInfo.OriginalTopologyAwareAssignments = originalTopologyAwareAssignments
+
+				numaNodeState.SetAllocationInfo(podUID, containerName, numaNodeAllocationInfo)
 			}
 		}
 
@@ -250,4 +257,136 @@ func GetSpecifiedPoolName(qosLevel, cpusetEnhancementValue string) string {
 	default:
 		return cpuadvisor.EmptyOwnerPoolName
 	}
+}
+
+func GetNUMAPoolName(candidateSpecifiedPoolName string, targetNUMANode uint64) string {
+	return fmt.Sprintf("%s-NUMA%d", candidateSpecifiedPoolName, targetNUMANode)
+}
+
+func GetCPUIncrRatio(allocationInfo *AllocationInfo) float64 {
+	if CheckSharedNUMABinding(allocationInfo) {
+		// multiply incrRatio for numa_binding shared_cores to allow it burst
+		return cpuconsts.CPUIncrRatioSharedCoresNUMABinding
+	}
+
+	return cpuconsts.CPUIncrRatioDefault
+}
+
+func GetSharedBindingNUMAsFromQuantityMap(poolsQuantityMap map[string]map[int]int) sets.Int {
+	res := sets.NewInt()
+
+	for _, quantityMap := range poolsQuantityMap {
+		for numaID, quantity := range quantityMap {
+			if numaID != advisorapi.FakedNUMAID && quantity > 0 {
+				res.Insert(numaID)
+			}
+		}
+	}
+
+	return res
+}
+
+func CountAllocationInfosToPoolsQuantityMap(allocationInfos []*AllocationInfo,
+	poolsQuantityMap map[string]map[int]int) error {
+
+	if poolsQuantityMap == nil {
+		return fmt.Errorf("nil poolsQuantityMap in CountAllocationInfosToPoolsQuantityMap")
+	}
+
+	precisePoolsQuantityMap := make(map[string]map[int]float64)
+
+	for _, allocationInfo := range allocationInfos {
+		if allocationInfo == nil {
+			return fmt.Errorf("CountAllocationInfosToPoolsQuantityMap got nil allocationInfo")
+		}
+
+		reqFloat64 := GetContainerRequestedCores()(allocationInfo) * GetCPUIncrRatio(allocationInfo)
+
+		var targetNUMAID int
+		var poolName string
+
+		if CheckSharedNUMABinding(allocationInfo) {
+			var numaSet machine.CPUSet
+			poolName = allocationInfo.GetOwnerPoolName()
+
+			if poolName == advisorapi.EmptyOwnerPoolName {
+				var pErr error
+				poolName, pErr = allocationInfo.GetSpecifiedNUMABindingPoolName()
+				if pErr != nil {
+					return fmt.Errorf("GetSpecifiedNUMABindingPoolName for %s/%s/%s failed with error: %v",
+						allocationInfo.PodNamespace, allocationInfo.PodName, allocationInfo.ContainerName, pErr)
+				}
+
+				numaSet, pErr = machine.Parse(allocationInfo.Annotations[cpuconsts.CPUStateAnnotationKeyNUMAHint])
+				if pErr != nil {
+					return fmt.Errorf("parse numaHintStr: %s failed with error: %v",
+						allocationInfo.Annotations[cpuconsts.CPUStateAnnotationKeyNUMAHint], pErr)
+				}
+
+				general.Infof(" %s/%s/%s count to specified NUMA binding pool name: %s, numaSet: %s",
+					allocationInfo.PodNamespace, allocationInfo.PodName, allocationInfo.ContainerName, poolName, numaSet.String())
+			} else {
+				// already in a valid pool (numa aware pool or isolation pool)
+				numaSet = allocationInfo.GetAllocationResultNUMASet()
+
+				general.Infof(" %s/%s/%s count to non-empty owner pool name: %s, numaSet: %s",
+					allocationInfo.PodNamespace, allocationInfo.PodName, allocationInfo.ContainerName, poolName, numaSet.String())
+			}
+
+			if numaSet.Size() != 1 {
+				return fmt.Errorf("numaHintStr: %s indicates invalid numaSet size for numa_binding shared_cores",
+					allocationInfo.Annotations[cpuconsts.CPUStateAnnotationKeyNUMAHint])
+			}
+
+			targetNUMAID = numaSet.ToSliceNoSortInt()[0]
+
+			if targetNUMAID < 0 {
+				return fmt.Errorf("numaHintStr: %s indicates invalid numaSet numa_binding shared_cores",
+					allocationInfo.Annotations[cpuconsts.CPUStateAnnotationKeyNUMAHint])
+			}
+		} else {
+			targetNUMAID = advisorapi.FakedNUMAID
+			poolName = allocationInfo.GetPoolName()
+		}
+
+		if poolName == advisorapi.EmptyOwnerPoolName {
+			return fmt.Errorf("get poolName failed for %s/%s/%s",
+				allocationInfo.PodNamespace, allocationInfo.PodName, allocationInfo.ContainerName)
+		}
+
+		curLen := len(precisePoolsQuantityMap[poolName])
+		if curLen > 1 {
+			return fmt.Errorf("pool %s cross NUMA: %+v", poolName, precisePoolsQuantityMap[poolName])
+		} else if curLen == 1 {
+			for numaID := range precisePoolsQuantityMap[poolName] {
+				if numaID != targetNUMAID {
+					return fmt.Errorf("pool %s cross NUMA: %d, %d", poolName, numaID, targetNUMAID)
+				}
+			}
+		} else {
+			precisePoolsQuantityMap[poolName] = make(map[int]float64)
+		}
+
+		// no need to compare pools quantity in specific NUMA with NUMA all CPUs,
+		// we will do it in generatePoolsAndIsolation
+		precisePoolsQuantityMap[poolName][targetNUMAID] += reqFloat64
+	}
+
+	for poolName, preciseQuantityMap := range precisePoolsQuantityMap {
+		for numaID, preciseQuantity := range preciseQuantityMap {
+			if poolsQuantityMap[poolName] == nil {
+				poolsQuantityMap[poolName] = make(map[int]int)
+			}
+
+			poolsQuantityMap[poolName][numaID] += int(math.Ceil(preciseQuantity))
+
+			// return err will abort the procedure,
+			// so there is no need to revert modifications made in parameter poolsQuantityMap
+			if len(poolsQuantityMap[poolName]) > 1 {
+				return fmt.Errorf("pool %s cross NUMA: %+v", poolName, poolsQuantityMap[poolName])
+			}
+		}
+	}
+
+	return nil
 }

@@ -19,6 +19,7 @@ package dynamicpolicy
 import (
 	"context"
 	"fmt"
+	"math"
 	"sort"
 
 	v1 "k8s.io/api/core/v1"
@@ -26,6 +27,7 @@ import (
 	"k8s.io/kubernetes/pkg/kubelet/cm/topologymanager/bitmask"
 
 	apiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
+	cpuconsts "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/consts"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
 	cpuutil "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/util"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util"
@@ -34,16 +36,20 @@ import (
 	qosutil "github.com/kubewharf/katalyst-core/pkg/util/qos"
 )
 
-func (p *DynamicPolicy) sharedCoresHintHandler(_ context.Context,
+func (p *DynamicPolicy) sharedCoresHintHandler(ctx context.Context,
 	req *pluginapi.ResourceRequest) (*pluginapi.ResourceHintsResponse, error) {
 	if req == nil {
 		return nil, fmt.Errorf("got nil request")
 	}
 
-	return util.PackResourceHintsResponse(req, string(v1.ResourceCPU),
-		map[string]*pluginapi.ListOfTopologyHints{
-			string(v1.ResourceCPU): nil, // indicates that there is no numa preference
-		})
+	if !qosutil.AnnotationsIndicateNUMABinding(req.Annotations) {
+		return util.PackResourceHintsResponse(req, string(v1.ResourceCPU),
+			map[string]*pluginapi.ListOfTopologyHints{
+				string(v1.ResourceCPU): nil, // indicates that there is no numa preference
+			})
+	}
+
+	return p.sharedCoresWithNUMABindingHintHandler(ctx, req)
 }
 
 func (p *DynamicPolicy) reclaimedCoresHintHandler(ctx context.Context,
@@ -221,6 +227,125 @@ func (p *DynamicPolicy) calculateHints(reqInt int, machineState state.NUMANodeMa
 			Preferred: len(maskBits) == minNUMAsCountNeeded,
 		})
 	})
+
+	return hints, nil
+}
+
+func (p *DynamicPolicy) sharedCoresWithNUMABindingHintHandler(_ context.Context,
+	req *pluginapi.ResourceRequest) (*pluginapi.ResourceHintsResponse, error) {
+	// currently, we set cpuset of sidecar to the cpuset of its main container,
+	// so there is no numa preference here.
+	if req.ContainerType == pluginapi.ContainerType_SIDECAR {
+		return util.PackResourceHintsResponse(req, string(v1.ResourceCPU),
+			map[string]*pluginapi.ListOfTopologyHints{
+				string(v1.ResourceCPU): nil, // indicates that there is no numa preference
+			})
+	}
+
+	reqInt, _, err := util.GetQuantityFromResourceReq(req)
+	if err != nil {
+		return nil, fmt.Errorf("getReqQuantityFromResourceReq failed with error: %v", err)
+	}
+
+	machineState := p.state.GetMachineState()
+	var hints map[string]*pluginapi.ListOfTopologyHints
+
+	allocationInfo := p.state.GetAllocationInfo(req.PodUid, req.ContainerName)
+	if allocationInfo != nil {
+		hints = cpuutil.RegenerateHints(allocationInfo, reqInt)
+
+		// regenerateHints failed. need to clear container record and re-calculate.
+		if hints == nil {
+			podEntries := p.state.GetPodEntries()
+			delete(podEntries[req.PodUid], req.ContainerName)
+			if len(podEntries[req.PodUid]) == 0 {
+				delete(podEntries, req.PodUid)
+			}
+
+			var err error
+			// [TODO]: generateMachineStateFromPodEntries adapts to shared_cores with numa_binding
+			machineState, err = generateMachineStateFromPodEntries(p.machineInfo.CPUTopology, podEntries)
+			if err != nil {
+				general.Errorf("pod: %s/%s, container: %s GenerateMachineStateFromPodEntries failed with error: %v",
+					req.PodNamespace, req.PodName, req.ContainerName, err)
+				return nil, fmt.Errorf("GenerateMachineStateFromPodEntries failed with error: %v", err)
+			}
+		}
+	}
+
+	if hints == nil {
+		var calculateErr error
+		hints, calculateErr = p.calculateHintsForNUMABindingSharedCores(reqInt, machineState, req.Annotations)
+		if calculateErr != nil {
+			return nil, fmt.Errorf("calculateHintsForNUMABindingSharedCores failed with error: %v", calculateErr)
+		}
+	}
+
+	return util.PackResourceHintsResponse(req, string(v1.ResourceCPU), hints)
+}
+
+func (p *DynamicPolicy) calculateHintsForNUMABindingSharedCores(reqInt int, machineState state.NUMANodeMap,
+	reqAnnotations map[string]string) (map[string]*pluginapi.ListOfTopologyHints, error) {
+
+	numaNodes := machineState.GetFilteredNUMASetWithAnnotations(
+		state.CheckNUMABindingSharedCoresAntiAffinity, reqAnnotations).ToSliceInt()
+
+	hints := map[string]*pluginapi.ListOfTopologyHints{
+		string(v1.ResourceCPU): {
+			Hints: []*pluginapi.TopologyHint{},
+		},
+	}
+
+	minNUMAsCountNeeded, _, err := util.GetNUMANodesCountToFitCPUReq(reqInt, p.machineInfo.CPUTopology)
+	if err != nil {
+		return nil, fmt.Errorf("GetNUMANodesCountToFitCPUReq failed with error: %v", err)
+	}
+
+	// if a numa_binding shared_cores has request larger than 1 NUMA,
+	// its performance may degrade to be like normal shared_cores
+	if minNUMAsCountNeeded > 1 {
+		return nil, fmt.Errorf("numa_binding shared_cores container has request larger than 1 NUMA")
+	}
+
+	preferIndexes, maxLeft, minLeft := []int{}, -1, math.MaxInt
+
+	for _, nodeID := range numaNodes {
+		availableCPUQuantity := machineState[nodeID].GetAvailableCPUQuantity(p.reservedCPUs)
+
+		if availableCPUQuantity < reqInt {
+			general.Warningf("numa_binding shared_cores container skip NUMA: %d available: %d",
+				nodeID, availableCPUQuantity)
+			continue
+		}
+
+		hints[string(v1.ResourceCPU)].Hints = append(hints[string(v1.ResourceCPU)].Hints, &pluginapi.TopologyHint{
+			Nodes: []uint64{uint64(nodeID)},
+		})
+
+		curLeft := availableCPUQuantity - reqInt
+
+		if p.cpuNUMAHintPreferPolicy == cpuconsts.CPUNUMAHintPreferPolicyPacking {
+			if curLeft < minLeft {
+				minLeft = curLeft
+				preferIndexes = []int{len(hints[string(v1.ResourceCPU)].Hints) - 1}
+			} else if curLeft == minLeft {
+				preferIndexes = append(preferIndexes, len(hints[string(v1.ResourceCPU)].Hints)-1)
+			}
+		} else {
+			if curLeft > maxLeft {
+				maxLeft = curLeft
+				preferIndexes = []int{len(hints[string(v1.ResourceCPU)].Hints) - 1}
+			} else if curLeft == maxLeft {
+				preferIndexes = append(preferIndexes, len(hints[string(v1.ResourceCPU)].Hints)-1)
+			}
+		}
+	}
+
+	if len(preferIndexes) >= 0 {
+		for _, preferIndex := range preferIndexes {
+			hints[string(v1.ResourceCPU)].Hints[preferIndex].Preferred = true
+		}
+	}
 
 	return hints, nil
 }

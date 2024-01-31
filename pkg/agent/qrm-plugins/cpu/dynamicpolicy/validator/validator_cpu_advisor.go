@@ -48,7 +48,7 @@ func (c *CPUAdvisorValidator) Validate(resp *advisorapi.ListAndWatchResponse) er
 
 	var errList []error
 	for _, validator := range []cpuAdvisorValidationFunc{
-		c.validateDedicatedEntries,
+		c.validateEntries,
 		c.validateStaticPools,
 		c.validateBlocks,
 	} {
@@ -57,9 +57,10 @@ func (c *CPUAdvisorValidator) Validate(resp *advisorapi.ListAndWatchResponse) er
 	return errors.NewAggregate(errList)
 }
 
-func (c *CPUAdvisorValidator) validateDedicatedEntries(resp *advisorapi.ListAndWatchResponse) error {
+func (c *CPUAdvisorValidator) validateEntries(resp *advisorapi.ListAndWatchResponse) error {
 	entries := c.state.GetPodEntries()
 
+	// validate dedicated_cores entries
 	dedicatedAllocationInfos := entries.GetFilteredPodEntries(state.CheckDedicated)
 	dedicatedCalculationInfos := resp.FilterCalculationInfo(state.PoolNameDedicated)
 	if len(dedicatedAllocationInfos) != len(dedicatedCalculationInfos) {
@@ -109,6 +110,23 @@ func (c *CPUAdvisorValidator) validateDedicatedEntries(resp *advisorapi.ListAndW
 					return fmt.Errorf("pod: %s container: %s calculation result: %d and allocation result: %d mismatch",
 						podUID, containerName, calculationQuantity, allocationInfo.AllocationResult.Size())
 				}
+			}
+		}
+	}
+
+	// validate shared_cores with numa_binding entries
+	sharedNUMABindingAllocationInfos := entries.GetFilteredPodEntries(state.CheckSharedNUMABinding)
+
+	for podUID, containerEntries := range sharedNUMABindingAllocationInfos {
+		for containerName := range containerEntries {
+			calculationInfo, ok := resp.GetCalculationInfo(podUID, containerName)
+
+			if !ok {
+				return fmt.Errorf("missing CalculationInfo for pod: %s container: %s", podUID, containerName)
+			}
+
+			if calculationInfo.OwnerPoolName == advisorapi.EmptyOwnerPoolName {
+				return fmt.Errorf("shared_cores with numa_biding pod: %s container: %s has empty pool name", podUID, containerName)
 			}
 		}
 	}
