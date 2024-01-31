@@ -191,6 +191,9 @@ type QoSRegionBase struct {
 
 	// throttled: true if unable to reach the ResourceUpperBound due to competition for resources with other regions.
 	throttled atomic.Bool
+
+	// idle: true if containers in the region is not running as usual, maybe there is no incoming business traffic
+	idle atomic.Bool
 }
 
 // NewQoSRegionBase returns a base qos region instance with common region methods
@@ -220,6 +223,7 @@ func NewQoSRegionBase(name string, ownerPoolName string, regionType types.QoSReg
 
 		enableBorweinModel: conf.PolicyRama.EnableBorwein,
 		throttled:          *atomic.NewBool(false),
+		idle:               *atomic.NewBool(false),
 	}
 
 	r.initHeadroomPolicy(conf, extraConf, metaReader, metaServer, emitter)
@@ -763,7 +767,7 @@ func (r *QoSRegionBase) updateOvershootStatus() bool {
 
 	// fill in overshoot entry
 	for indicatorName, indicator := range r.ControlEssentials.Indicators {
-		if indicator.Current > indicator.Target {
+		if indicator.Current > indicator.Target && !r.IsIdle() {
 			overshoot = true
 			r.regionStatus.OvershootStatus[indicatorName] = types.OvershootTrue
 		} else {
@@ -779,4 +783,8 @@ func (r *QoSRegionBase) EnableReclaim() bool {
 
 func (r *QoSRegionBase) IsThrottled() bool {
 	return r.throttled.Load()
+}
+
+func (r *QoSRegionBase) IsIdle() bool {
+	return r.idle.Load()
 }
