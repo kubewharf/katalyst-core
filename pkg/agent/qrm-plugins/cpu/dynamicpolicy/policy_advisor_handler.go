@@ -30,6 +30,7 @@ import (
 	maputil "k8s.io/kubernetes/pkg/util/maps"
 
 	"github.com/kubewharf/katalyst-api/pkg/consts"
+	apiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/advisorsvc"
 	cpuconsts "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/consts"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/calculator"
@@ -156,7 +157,7 @@ func (p *DynamicPolicy) GetCheckpoint(_ context.Context,
 
 			// not set topology-aware assignments for shared_cores and reclaimed_cores,
 			// since their topology-aware assignments are same to the pools they are in.
-			if !state.CheckShared(allocationInfo) && !state.CheckReclaimed(allocationInfo) {
+			if (!state.CheckShared(allocationInfo) && !state.CheckReclaimed(allocationInfo)) || containerEntries.IsPoolEntry() {
 				chkEntries[uid].Entries[entryName].TopologyAwareAssignments = machine.ParseCPUAssignmentFormat(allocationInfo.TopologyAwareAssignments)
 				chkEntries[uid].Entries[entryName].OriginalTopologyAwareAssignments = machine.ParseCPUAssignmentFormat(allocationInfo.OriginalTopologyAwareAssignments)
 			}
@@ -458,8 +459,10 @@ func (p *DynamicPolicy) applyBlocks(blockCPUSet advisorapi.BlockCPUSet, resp *ad
 					OriginalTopologyAwareAssignments: machine.DeepcopyCPUAssignment(topologyAwareAssignments),
 				}
 			} else {
-				general.Infof("entry: %s, subEntryName: %s cpuset allocation result transform from %s to %s",
-					entryName, subEntryName, allocationInfo.AllocationResult.String(), entryCPUSet.String())
+				general.Infof("entry: %s, subEntryName: %s cpuset allocation result transform from %s(size: %d) to %s(size: %d)",
+					entryName, subEntryName,
+					allocationInfo.AllocationResult.String(), allocationInfo.AllocationResult.Size(),
+					entryCPUSet.String(), entryCPUSet.Size())
 
 				allocationInfo.OwnerPoolName = calculationInfo.OwnerPoolName
 				allocationInfo.AllocationResult = entryCPUSet.Clone()
@@ -491,13 +494,6 @@ func (p *DynamicPolicy) applyBlocks(blockCPUSet advisorapi.BlockCPUSet, resp *ad
 				general.Infof("try to apply pool %s: %s", allocationInfo.OwnerPoolName, allocationInfo.AllocationResult.String())
 			}
 		}
-	}
-
-	rampUpCPUs := p.machineInfo.CPUDetails.CPUs().Difference(p.reservedCPUs).Difference(dedicatedCPUSet)
-	rampUpCPUsTopologyAwareAssignments, err := machine.GetNumaAwareAssignments(p.machineInfo.CPUTopology, rampUpCPUs)
-	if err != nil {
-		return fmt.Errorf("unable to calculate topologyAwareAssignments for rampUpCPUs, result cpuset: %s, error: %v",
-			rampUpCPUs.String(), err)
 	}
 
 	// if there is no block for state.PoolNameReclaim pool,
@@ -537,6 +533,24 @@ func (p *DynamicPolicy) applyBlocks(blockCPUSet advisorapi.BlockCPUSet, resp *ad
 		general.Infof("detected reclaimPoolCPUSet: %s", newEntries[state.PoolNameReclaim][state.FakedContainerName].AllocationResult.String())
 	}
 
+	// calculate rampUpCPUs
+	sharedBindingNUMAs, err := resp.GetSharedBindingNUMAs()
+	if err != nil {
+		return fmt.Errorf("GetSharedBindingNUMAs failed with error: %v", err)
+	}
+	sharedBindingNUMACPUs := p.machineInfo.CPUDetails.CPUsInNUMANodes(sharedBindingNUMAs.UnsortedList()...)
+	// rampUpCPUs include reclaim pool
+	rampUpCPUs := p.machineInfo.CPUDetails.CPUs().
+		Difference(p.reservedCPUs).
+		Difference(dedicatedCPUSet).
+		Difference(sharedBindingNUMACPUs).
+		Union(newEntries[state.PoolNameReclaim][state.FakedContainerName].AllocationResult)
+	rampUpCPUsTopologyAwareAssignments, err := machine.GetNumaAwareAssignments(p.machineInfo.CPUTopology, rampUpCPUs)
+	if err != nil {
+		return fmt.Errorf("unable to calculate topologyAwareAssignments for rampUpCPUs, result cpuset: %s, error: %v",
+			rampUpCPUs.String(), err)
+	}
+
 	// deal with blocks of reclaimed_cores and share_cores
 	for podUID, containerEntries := range curEntries {
 		if containerEntries.IsPoolEntry() {
@@ -568,7 +582,7 @@ func (p *DynamicPolicy) applyBlocks(blockCPUSet advisorapi.BlockCPUSet, resp *ad
 				general.Errorf(errMsg)
 				return fmt.Errorf(errMsg)
 			case consts.PodAnnotationQoSLevelSharedCores, consts.PodAnnotationQoSLevelReclaimedCores:
-				ownerPoolName := allocationInfo.GetPoolName()
+				ownerPoolName := allocationInfo.GetOwnerPoolName()
 				if calculationInfo, ok := resp.GetCalculationInfo(podUID, containerName); ok {
 					general.Infof("cpu advisor put pod: %s/%s, container: %s from %s to %s",
 						allocationInfo.PodNamespace, allocationInfo.PodName, allocationInfo.ContainerName, ownerPoolName, calculationInfo.OwnerPoolName)
@@ -599,12 +613,27 @@ func (p *DynamicPolicy) applyBlocks(blockCPUSet advisorapi.BlockCPUSet, resp *ad
 						ownerPoolName, allocationInfo.PodNamespace, allocationInfo.PodName, allocationInfo.ContainerName, allocationInfo.QoSLevel)
 
 					general.Errorf(errMsg)
+
+					_ = p.emitter.StoreInt64(util.MetricNameOrphanContainer, 1, metrics.MetricTypeNameCount,
+						metrics.MetricTag{Key: "podNamespace", Val: allocationInfo.PodNamespace},
+						metrics.MetricTag{Key: "podName", Val: allocationInfo.PodName},
+						metrics.MetricTag{Key: "containerName", Val: allocationInfo.ContainerName},
+						metrics.MetricTag{Key: "poolName", Val: ownerPoolName})
 					return fmt.Errorf(errMsg)
 				} else {
 					poolEntry := newEntries[ownerPoolName][state.FakedContainerName]
 
 					general.Infof("put pod: %s/%s container: %s to pool: %s, set its allocation result from %s to %s",
 						allocationInfo.PodNamespace, allocationInfo.PodName, allocationInfo.ContainerName, ownerPoolName, allocationInfo.AllocationResult.String(), poolEntry.AllocationResult.String())
+
+					if state.CheckSharedNUMABinding(allocationInfo) {
+						poolEntry.QoSLevel = apiconsts.PodAnnotationQoSLevelSharedCores
+						// set SharedNUMABinding declarations to pool entry containing SharedNUMABinding containers,
+						// in order to differentiate them from normal share pools during GetFilteredPoolsCPUSetMap.
+						poolEntry.Annotations = general.MergeMap(poolEntry.Annotations, map[string]string{
+							apiconsts.PodAnnotationMemoryEnhancementNumaBinding: apiconsts.PodAnnotationMemoryEnhancementNumaBindingEnable,
+						})
+					}
 
 					newEntries[podUID][containerName].OwnerPoolName = ownerPoolName
 					newEntries[podUID][containerName].AllocationResult = poolEntry.AllocationResult.Clone()

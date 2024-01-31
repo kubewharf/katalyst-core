@@ -128,6 +128,7 @@ type DynamicPolicy struct {
 	dynamicConfig                 *dynamicconfig.DynamicAgentConfiguration
 	podDebugAnnoKeys              []string
 	transitionPeriod              time.Duration
+	cpuNUMAHintPreferPolicy       string
 }
 
 func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration,
@@ -190,6 +191,7 @@ func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration
 		cpuAdvisorSocketAbsPath:       conf.CPUAdvisorSocketAbsPath,
 		cpuPluginSocketAbsPath:        conf.CPUPluginSocketAbsPath,
 		enableCPUAdvisor:              conf.CPUQRMPluginConfig.EnableCPUAdvisor,
+		cpuNUMAHintPreferPolicy:       conf.CPUQRMPluginConfig.CPUNUMAHintPreferPolicy,
 		reservedCPUs:                  reservedCPUs,
 		extraStateFileAbsPath:         conf.ExtraStateFileAbsPath,
 		enableSyncingCPUIdle:          conf.CPUQRMPluginConfig.EnableSyncingCPUIdle,
@@ -418,7 +420,10 @@ func (p *DynamicPolicy) GetResourcesAllocation(_ context.Context,
 
 	// pooledCPUs is the total available cpu cores minus those that are reserved
 	pooledCPUs := machineState.GetFilteredAvailableCPUSet(p.reservedCPUs,
-		state.CheckDedicated, state.CheckDedicatedNUMABinding)
+		func(ai *state.AllocationInfo) bool {
+			return state.CheckDedicated(ai) || state.CheckNUMABinding(ai)
+		},
+		state.CheckDedicatedNUMABinding)
 	pooledCPUsTopologyAwareAssignments, err := machine.GetNumaAwareAssignments(p.machineInfo.CPUTopology, pooledCPUs)
 	if err != nil {
 		return nil, fmt.Errorf("GetNumaAwareAssignments err: %v", err)
@@ -444,7 +449,7 @@ func (p *DynamicPolicy) GetResourcesAllocation(_ context.Context,
 
 			initTs, tsErr := time.Parse(util.QRMTimeFormat, allocationInfo.InitTimestamp)
 			if tsErr != nil {
-				if state.CheckShared(allocationInfo) {
+				if state.CheckShared(allocationInfo) && !state.CheckNUMABinding(allocationInfo) {
 					general.Errorf("pod: %s/%s, container: %s init timestamp parsed failed with error: %v, re-ramp-up it",
 						allocationInfo.PodNamespace, allocationInfo.PodName, allocationInfo.ContainerName, tsErr)
 
@@ -1004,7 +1009,10 @@ func (p *DynamicPolicy) initReclaimPool() error {
 
 		machineState := p.state.GetMachineState()
 		availableCPUs := machineState.GetFilteredAvailableCPUSet(p.reservedCPUs,
-			state.CheckDedicated, state.CheckDedicatedNUMABinding).Difference(noneResidentCPUs)
+			func(ai *state.AllocationInfo) bool {
+				return state.CheckDedicated(ai) || state.CheckNUMABinding(ai)
+			},
+			state.CheckDedicatedNUMABinding).Difference(noneResidentCPUs)
 
 		var initReclaimedCPUSetSize int
 		if availableCPUs.Size() >= reservedReclaimedCPUsSize {

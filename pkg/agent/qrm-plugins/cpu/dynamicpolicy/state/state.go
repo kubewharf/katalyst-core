@@ -19,12 +19,15 @@ package state
 import (
 	"encoding/json"
 	"fmt"
+	"math"
 
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/klog/v2"
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 
 	"github.com/kubewharf/katalyst-api/pkg/consts"
+	apiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
+	cpuconsts "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/consts"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
@@ -165,45 +168,160 @@ func (ai *AllocationInfo) GetSpecifiedPoolName() string {
 	return GetSpecifiedPoolName(ai.QoSLevel, ai.Annotations[consts.PodAnnotationCPUEnhancementCPUSet])
 }
 
+// GetSpecifiedNUMABindingPoolName get numa_binding pool name
+// for numa_binding shared_cores according to enhancements and NUMA hint
+func (ai *AllocationInfo) GetSpecifiedNUMABindingPoolName() (string, error) {
+	if !CheckSharedNUMABinding(ai) {
+		return EmptyOwnerPoolName, fmt.Errorf("GetSpecifiedNUMABindingPoolName only for numa_binding shared_cores")
+	}
+
+	numaSet, pErr := machine.Parse(ai.Annotations[cpuconsts.CPUStateAnnotationKeyNUMAHint])
+	if pErr != nil {
+		return EmptyOwnerPoolName, fmt.Errorf("parse numaHintStr: %s failed with error: %v",
+			ai.Annotations[cpuconsts.CPUStateAnnotationKeyNUMAHint], pErr)
+	} else if numaSet.Size() != 1 {
+		return EmptyOwnerPoolName, fmt.Errorf("parse numaHintStr: %s with invalid size", numaSet.String())
+	}
+
+	specifiedPoolName := ai.GetSpecifiedPoolName()
+
+	if specifiedPoolName == EmptyOwnerPoolName {
+		return EmptyOwnerPoolName, fmt.Errorf("empty specifiedPoolName")
+	}
+
+	return GetNUMAPoolName(specifiedPoolName, numaSet.ToSliceNoSortUInt64()[0]), nil
+}
+
 // CheckMainContainer returns true if the AllocationInfo is for main container
 func (ai *AllocationInfo) CheckMainContainer() bool {
+	if ai == nil {
+		return false
+	}
+
 	return ai.ContainerType == pluginapi.ContainerType_MAIN.String()
+}
+
+// GetAllocationResultNUMASet returns numaSet parsed from TopologyAwareAssignments
+func (ai *AllocationInfo) GetAllocationResultNUMASet() machine.CPUSet {
+	if ai == nil {
+		return machine.NewCPUSet()
+	}
+
+	numaSet := machine.NewCPUSet()
+	for numaNode, cset := range ai.TopologyAwareAssignments {
+		if numaNode < 0 {
+			general.Errorf("%s/%s/%s TopologyAwareAssignments got negtive NUMA: %d",
+				ai.PodNamespace, ai.PodName, ai.ContainerName, numaNode)
+			continue
+		}
+		if cset.Size() > 0 {
+			numaSet.Add(numaNode)
+		}
+	}
+
+	return numaSet
 }
 
 // CheckSideCar returns true if the AllocationInfo is for side-car container
 func (ai *AllocationInfo) CheckSideCar() bool {
+	if ai == nil {
+		return false
+	}
+
 	return ai.ContainerType == pluginapi.ContainerType_SIDECAR.String()
 }
 
 // CheckDedicated returns true if the AllocationInfo is for pod with dedicated-qos
 func CheckDedicated(ai *AllocationInfo) bool {
+	if ai == nil {
+		return false
+	}
+
 	return ai.QoSLevel == consts.PodAnnotationQoSLevelDedicatedCores
 }
 
 // CheckShared returns true if the AllocationInfo is for pod with shared-qos
 func CheckShared(ai *AllocationInfo) bool {
+	if ai == nil {
+		return false
+	}
+
 	return ai.QoSLevel == consts.PodAnnotationQoSLevelSharedCores
 }
 
 // CheckReclaimed returns true if the AllocationInfo is for pod with reclaimed-qos
 func CheckReclaimed(ai *AllocationInfo) bool {
+	if ai == nil {
+		return false
+	}
+
 	return ai.QoSLevel == consts.PodAnnotationQoSLevelReclaimedCores
 }
 
 // CheckNUMABinding returns true if the AllocationInfo is for pod with numa-binding enhancement
 func CheckNUMABinding(ai *AllocationInfo) bool {
+	if ai == nil {
+		return false
+	}
+
 	return ai.Annotations[consts.PodAnnotationMemoryEnhancementNumaBinding] == consts.PodAnnotationMemoryEnhancementNumaBindingEnable
 }
 
 // CheckDedicatedNUMABinding returns true if the AllocationInfo is for pod with
 // dedicated-qos and numa-binding enhancement
 func CheckDedicatedNUMABinding(ai *AllocationInfo) bool {
+	if ai == nil {
+		return false
+	}
+
 	return CheckDedicated(ai) && CheckNUMABinding(ai)
+}
+
+// CheckSharedNUMABinding returns true if the AllocationInfo is for pod with
+// shared-qos and numa-binding enhancement
+func CheckSharedNUMABinding(ai *AllocationInfo) bool {
+	if ai == nil {
+		return false
+	}
+
+	return CheckShared(ai) && CheckNUMABinding(ai)
 }
 
 // CheckDedicatedPool returns true if the AllocationInfo is for a container in the dedicated pool
 func CheckDedicatedPool(ai *AllocationInfo) bool {
+	if ai == nil {
+		return false
+	}
+
 	return ai.OwnerPoolName == PoolNameDedicated
+}
+
+// CheckNUMABindingSharedCoresAntiAffinity returns true
+// if the AllocationInfo isn't compatible for the annotations of a numa binding shared cores candidate
+func CheckNUMABindingSharedCoresAntiAffinity(ai *AllocationInfo, annotations map[string]string) bool {
+	if ai == nil {
+		return false
+	} else if len(annotations) == 0 {
+		return false
+	}
+
+	if CheckDedicatedNUMABinding(ai) {
+		return true
+	}
+
+	if CheckSharedNUMABinding(ai) {
+		// considering isolation, use specified pool instead of actual pool name here
+		candidateSpecifiedPoolName := GetSpecifiedPoolName(apiconsts.PodAnnotationQoSLevelSharedCores,
+			annotations[apiconsts.PodAnnotationCPUEnhancementCPUSet])
+		aiSpecifiedPoolName := ai.GetSpecifiedPoolName()
+
+		// shared_cores with numa binding doesn't support two share type pools with same specified name existing at same NUMA
+		if candidateSpecifiedPoolName != aiSpecifiedPoolName {
+			return true
+		}
+	}
+
+	return false
 }
 
 // IsPoolEntry returns true if this entry is for a pool;
@@ -305,19 +423,51 @@ func (pe PodEntries) GetFilteredPoolsCPUSet(ignorePools sets.String) machine.CPU
 }
 
 // GetFilteredPoolsCPUSetMap returns a mapping of pools for all of them (except for those skipped ones)
-func (pe PodEntries) GetFilteredPoolsCPUSetMap(ignorePools sets.String) map[string]machine.CPUSet {
-	ret := make(map[string]machine.CPUSet)
+func (pe PodEntries) GetFilteredPoolsCPUSetMap(ignorePools sets.String) (map[string]map[int]machine.CPUSet, error) {
+	ret := make(map[string]map[int]machine.CPUSet)
 	if pe == nil {
-		return ret
+		return ret, nil
 	}
 
 	for poolName, entries := range pe {
 		allocationInfo := entries.GetPoolEntry()
 		if allocationInfo != nil && !ignorePools.Has(poolName) {
-			ret[poolName] = allocationInfo.AllocationResult.Clone()
+			cset := allocationInfo.AllocationResult.Clone()
+
+			// pool entry containing SharedNUMABinding containers also has SharedNUMABinding declarations,
+			// it's also applicable to isolation pools for SharedNUMABinding containers.
+			// it helps us to differentiate them from normal share pools when getting targetNUMAID for the pool.
+			if CheckSharedNUMABinding(allocationInfo) {
+				// pool for numa_binding shared_cores containers
+
+				numaSet := allocationInfo.GetAllocationResultNUMASet()
+				numaSetSize := numaSet.Size()
+
+				if numaSetSize == 0 {
+					return nil, fmt.Errorf("empty numaSet for pool: %s, cset: %s", poolName, cset.String())
+				} else if numaSetSize == 1 {
+					ret[poolName] = make(map[int]machine.CPUSet)
+					targetNUMAID := numaSet.ToSliceInt()[0]
+
+					if targetNUMAID < 0 {
+						return nil, fmt.Errorf("pool: %s has invalid NUMA: %d",
+							poolName, targetNUMAID)
+					}
+
+					ret[poolName][targetNUMAID] = cset
+				} else {
+					return nil, fmt.Errorf("pool: %s for numa_binding shared_cores cross NUMAs: %s cset: %s",
+						poolName, numaSet.String(), cset.String())
+				}
+			} else {
+				// pool for shared_cores without numa_binding containers
+				ret[poolName] = make(map[int]machine.CPUSet)
+				ret[poolName][FakedNUMAID] = cset
+			}
 		}
 	}
-	return ret
+
+	return ret, nil
 }
 
 // GetFilteredPodEntries filter out PodEntries according to the given filter logic
@@ -359,6 +509,38 @@ func (ns *NUMANodeState) GetAvailableCPUSet(reservedCPUs machine.CPUSet) machine
 	return ns.DefaultCPUSet.Difference(reservedCPUs)
 }
 
+// GetAvailableCPUQuantity calculates available quantity by allocatable - sum(requested)
+// It's used when allocating CPUs for shared_cores with numa_binding containers,
+// since pool size may be adjusted, and DefaultCPUSet & AllocatedCPUSet are calculated by pool size,
+// we should use allocationInfo.RequestQuantity to calculate available cpu quantity for candidate shared_cores with numa_binding container.
+func (ns *NUMANodeState) GetAvailableCPUQuantity(reservedCPUs machine.CPUSet) int {
+	if ns == nil {
+		return 0
+	}
+
+	allocatableQuantity := ns.GetFilteredDefaultCPUSet(nil, nil).Difference(reservedCPUs).Size()
+	var preciseAllocatedQuantity float64 = 0
+
+	for _, containerEntries := range ns.PodEntries {
+		if containerEntries.IsPoolEntry() {
+			continue
+		}
+
+		for _, allocationInfo := range containerEntries {
+			// sidecar doesn't contribute to allocated quantity currently
+			if allocationInfo == nil ||
+				!CheckSharedNUMABinding(allocationInfo) {
+				continue
+			}
+
+			preciseAllocatedQuantity += allocationInfo.RequestQuantity
+		}
+	}
+
+	allocatedQuantity := int(math.Ceil(preciseAllocatedQuantity))
+	return general.Max(allocatableQuantity-allocatedQuantity, 0)
+}
+
 // GetFilteredDefaultCPUSet returns default cpuset in this numa, along with the filter functions
 func (ns *NUMANodeState) GetFilteredDefaultCPUSet(excludeEntry, excludeWholeNUMA func(ai *AllocationInfo) bool) machine.CPUSet {
 	if ns == nil {
@@ -384,6 +566,23 @@ func (ns *NUMANodeState) ExistMatchedAllocationInfo(f func(ai *AllocationInfo) b
 	for _, containerEntries := range ns.PodEntries {
 		for _, allocationInfo := range containerEntries {
 			if f(allocationInfo) {
+				return true
+			}
+		}
+	}
+
+	return false
+}
+
+// ExistMatchedAllocationInfo returns true if the stated predicate (with annotations of candidate)
+// holds true for some pods of this numa else it returns false.
+func (ns *NUMANodeState) ExistMatchedAllocationInfoWithAnnotations(
+	f func(ai *AllocationInfo, annotations map[string]string) bool,
+	annotations map[string]string) bool {
+
+	for _, containerEntries := range ns.PodEntries {
+		for _, allocationInfo := range containerEntries {
+			if f(allocationInfo, annotations) {
 				return true
 			}
 		}
@@ -442,6 +641,21 @@ func (nm NUMANodeMap) GetFilteredNUMASet(excludeNUMAPredicate func(ai *Allocatio
 	res := machine.NewCPUSet()
 	for numaID, numaNodeState := range nm {
 		if numaNodeState.ExistMatchedAllocationInfo(excludeNUMAPredicate) {
+			continue
+		}
+		res.Add(numaID)
+	}
+	return res
+}
+
+// GetFilteredNUMASetWithAnnotations return numa set except the numa
+// which are excluded by the predicate accepting AllocationInfo in the target NUMA and input annotations of candidate.
+func (nm NUMANodeMap) GetFilteredNUMASetWithAnnotations(
+	excludeNUMAPredicate func(ai *AllocationInfo, annotations map[string]string) bool,
+	annotations map[string]string) machine.CPUSet {
+	res := machine.NewCPUSet()
+	for numaID, numaNodeState := range nm {
+		if numaNodeState.ExistMatchedAllocationInfoWithAnnotations(excludeNUMAPredicate, annotations) {
 			continue
 		}
 		res.Add(numaID)
