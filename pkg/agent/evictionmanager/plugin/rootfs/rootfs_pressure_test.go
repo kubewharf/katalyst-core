@@ -465,15 +465,87 @@ func TestPodRootfsPressureEvictionPlugin_GetTopEvictionPodsUsedMetProtection(t *
 	assert.NoError(t, err)
 	assert.Equal(t, pluginapi.ThresholdMetType_HARD_MET, res.MetType)
 
+	req := makeGetTopNRequest()
+
 	fakeFetcher.SetContainerMetric("podUID1", "containerName", consts.MetricsContainerRootfsUsed, utilmetric.MetricData{Value: 800})
 	fakeFetcher.SetContainerMetric("podUID1", "containerName", consts.MetricsContainerRootfsInodesUsed, utilmetric.MetricData{Value: 799})
 	fakeFetcher.SetContainerMetric("podUID2", "containerName", consts.MetricsContainerRootfsUsed, utilmetric.MetricData{Value: 799})
 	fakeFetcher.SetContainerMetric("podUID2", "containerName", consts.MetricsContainerRootfsInodesUsed, utilmetric.MetricData{Value: 800})
-
-	req := makeGetTopNRequest()
 	resTop, err := rootfsPlugin.GetTopEvictionPods(context.TODO(), req)
 	assert.NoError(t, err)
 	assert.Equal(t, 0, len(resTop.TargetPods))
+
+	fakeFetcher.SetContainerMetric("podUID1", "containerName", consts.MetricsContainerRootfsUsed, utilmetric.MetricData{Value: 1000})
+	fakeFetcher.SetContainerMetric("podUID1", "containerName", consts.MetricsContainerRootfsInodesUsed, utilmetric.MetricData{Value: 1000})
+	fakeFetcher.SetContainerMetric("podUID2", "containerName", consts.MetricsContainerRootfsUsed, utilmetric.MetricData{Value: 800})
+	fakeFetcher.SetContainerMetric("podUID2", "containerName", consts.MetricsContainerRootfsInodesUsed, utilmetric.MetricData{Value: 800})
+	resTop, err = rootfsPlugin.GetTopEvictionPods(context.TODO(), req)
+	assert.NoError(t, err)
+	assert.Equal(t, 1, len(resTop.TargetPods))
+	assert.Equal(t, types.UID("podUID1"), resTop.TargetPods[0].UID)
+
+	tc = &testConf{
+		minimumFreeThreshold:       &evictionapi.ThresholdValue{Percentage: 0.3},
+		minimumInodesFreeThreshold: &evictionapi.ThresholdValue{Percentage: 0.1},
+		podMinimumUsedThreshold:    &evictionapi.ThresholdValue{Percentage: 0.1},
+	}
+	rootfsPlugin = createRootfsPressureEvictionPlugin(tc, emitter, fakeFetcher)
+	res, err = rootfsPlugin.ThresholdMet(context.TODO())
+	assert.NoError(t, err)
+	assert.Equal(t, pluginapi.ThresholdMetType_HARD_MET, res.MetType)
+
+	fakeFetcher.SetContainerMetric("podUID1", "containerName", consts.MetricsContainerRootfsUsed, utilmetric.MetricData{Value: 800})
+	fakeFetcher.SetContainerMetric("podUID1", "containerName", consts.MetricsContainerRootfsInodesUsed, utilmetric.MetricData{Value: 799})
+	fakeFetcher.SetContainerMetric("podUID2", "containerName", consts.MetricsContainerRootfsUsed, utilmetric.MetricData{Value: 799})
+	fakeFetcher.SetContainerMetric("podUID2", "containerName", consts.MetricsContainerRootfsInodesUsed, utilmetric.MetricData{Value: 800})
+	resTop, err = rootfsPlugin.GetTopEvictionPods(context.TODO(), req)
+	assert.NoError(t, err)
+	assert.Equal(t, 0, len(resTop.TargetPods))
+
+	fakeFetcher.SetContainerMetric("podUID1", "containerName", consts.MetricsContainerRootfsUsed, utilmetric.MetricData{Value: 1100})
+	fakeFetcher.SetContainerMetric("podUID1", "containerName", consts.MetricsContainerRootfsInodesUsed, utilmetric.MetricData{Value: 799})
+	fakeFetcher.SetContainerMetric("podUID2", "containerName", consts.MetricsContainerRootfsUsed, utilmetric.MetricData{Value: 799})
+	fakeFetcher.SetContainerMetric("podUID2", "containerName", consts.MetricsContainerRootfsInodesUsed, utilmetric.MetricData{Value: 1100})
+	resTop, err = rootfsPlugin.GetTopEvictionPods(context.TODO(), req)
+	assert.NoError(t, err)
+	assert.Equal(t, 1, len(resTop.TargetPods))
+	assert.Equal(t, types.UID("podUID1"), resTop.TargetPods[0].UID)
+
+	fakeFetcher.SetContainerMetric("podUID1", "containerName", consts.MetricsContainerRootfsUsed, utilmetric.MetricData{Value: 1100})
+	fakeFetcher.SetContainerMetric("podUID1", "containerName", consts.MetricsContainerRootfsInodesUsed, utilmetric.MetricData{Value: 799})
+	fakeFetcher.SetContainerMetric("podUID2", "containerName", consts.MetricsContainerRootfsUsed, utilmetric.MetricData{Value: 1200})
+	fakeFetcher.SetContainerMetric("podUID2", "containerName", consts.MetricsContainerRootfsInodesUsed, utilmetric.MetricData{Value: 1100})
+	resTop, err = rootfsPlugin.GetTopEvictionPods(context.TODO(), req)
+	assert.NoError(t, err)
+	assert.Equal(t, 1, len(resTop.TargetPods))
+	assert.Equal(t, types.UID("podUID2"), resTop.TargetPods[0].UID)
+
+	tc = &testConf{
+		minimumFreeThreshold:       &evictionapi.ThresholdValue{Percentage: 0.3},
+		minimumInodesFreeThreshold: &evictionapi.ThresholdValue{Percentage: 0.1},
+	}
+	rootfsPlugin = createRootfsPressureEvictionPlugin(tc, emitter, fakeFetcher)
+	res, err = rootfsPlugin.ThresholdMet(context.TODO())
+	assert.NoError(t, err)
+	assert.Equal(t, pluginapi.ThresholdMetType_HARD_MET, res.MetType)
+
+	fakeFetcher.SetContainerMetric("podUID1", "containerName", consts.MetricsContainerRootfsUsed, utilmetric.MetricData{Value: 2})
+	fakeFetcher.SetContainerMetric("podUID1", "containerName", consts.MetricsContainerRootfsInodesUsed, utilmetric.MetricData{Value: 799})
+	fakeFetcher.SetContainerMetric("podUID2", "containerName", consts.MetricsContainerRootfsUsed, utilmetric.MetricData{Value: 1})
+	fakeFetcher.SetContainerMetric("podUID2", "containerName", consts.MetricsContainerRootfsInodesUsed, utilmetric.MetricData{Value: 800})
+	resTop, err = rootfsPlugin.GetTopEvictionPods(context.TODO(), req)
+	assert.NoError(t, err)
+	assert.Equal(t, 1, len(resTop.TargetPods))
+	assert.Equal(t, types.UID("podUID1"), resTop.TargetPods[0].UID)
+
+	fakeFetcher.SetContainerMetric("podUID1", "containerName", consts.MetricsContainerRootfsUsed, utilmetric.MetricData{Value: 1})
+	fakeFetcher.SetContainerMetric("podUID1", "containerName", consts.MetricsContainerRootfsInodesUsed, utilmetric.MetricData{Value: 799})
+	fakeFetcher.SetContainerMetric("podUID2", "containerName", consts.MetricsContainerRootfsUsed, utilmetric.MetricData{Value: 2})
+	fakeFetcher.SetContainerMetric("podUID2", "containerName", consts.MetricsContainerRootfsInodesUsed, utilmetric.MetricData{Value: 800})
+	resTop, err = rootfsPlugin.GetTopEvictionPods(context.TODO(), req)
+	assert.NoError(t, err)
+	assert.Equal(t, 1, len(resTop.TargetPods))
+	assert.Equal(t, types.UID("podUID2"), resTop.TargetPods[0].UID)
 }
 
 func TestPodRootfsPressureEvictionPlugin_GetTopEvictionPodsInodesMetProtection(t *testing.T) {
@@ -494,7 +566,6 @@ func TestPodRootfsPressureEvictionPlugin_GetTopEvictionPodsInodesMetProtection(t
 		podMinimumInodesUsedThreshold: &evictionapi.ThresholdValue{Quantity: resource.NewQuantity(900, resource.DecimalSI)},
 	}
 	rootfsPlugin := createRootfsPressureEvictionPlugin(tc, emitter, fakeFetcher)
-
 	res, err := rootfsPlugin.ThresholdMet(context.TODO())
 	assert.NoError(t, err)
 	assert.Equal(t, pluginapi.ThresholdMetType_HARD_MET, res.MetType)
@@ -503,11 +574,82 @@ func TestPodRootfsPressureEvictionPlugin_GetTopEvictionPodsInodesMetProtection(t
 	fakeFetcher.SetContainerMetric("podUID1", "containerName", consts.MetricsContainerRootfsInodesUsed, utilmetric.MetricData{Value: 800})
 	fakeFetcher.SetContainerMetric("podUID2", "containerName", consts.MetricsContainerRootfsUsed, utilmetric.MetricData{Value: 800})
 	fakeFetcher.SetContainerMetric("podUID2", "containerName", consts.MetricsContainerRootfsInodesUsed, utilmetric.MetricData{Value: 799})
-
 	req := makeGetTopNRequest()
 	resTop, err := rootfsPlugin.GetTopEvictionPods(context.TODO(), req)
 	assert.NoError(t, err)
 	assert.Equal(t, 0, len(resTop.TargetPods))
+
+	fakeFetcher.SetContainerMetric("podUID1", "containerName", consts.MetricsContainerRootfsUsed, utilmetric.MetricData{Value: 800})
+	fakeFetcher.SetContainerMetric("podUID1", "containerName", consts.MetricsContainerRootfsInodesUsed, utilmetric.MetricData{Value: 1000})
+	fakeFetcher.SetContainerMetric("podUID2", "containerName", consts.MetricsContainerRootfsUsed, utilmetric.MetricData{Value: 1000})
+	fakeFetcher.SetContainerMetric("podUID2", "containerName", consts.MetricsContainerRootfsInodesUsed, utilmetric.MetricData{Value: 800})
+	resTop, err = rootfsPlugin.GetTopEvictionPods(context.TODO(), req)
+	assert.NoError(t, err)
+	assert.Equal(t, 1, len(resTop.TargetPods))
+	assert.Equal(t, types.UID("podUID1"), resTop.TargetPods[0].UID)
+
+	tc = &testConf{
+		minimumFreeThreshold:          &evictionapi.ThresholdValue{Percentage: 0.1},
+		minimumInodesFreeThreshold:    &evictionapi.ThresholdValue{Percentage: 0.3},
+		podMinimumInodesUsedThreshold: &evictionapi.ThresholdValue{Percentage: 0.1},
+	}
+	rootfsPlugin = createRootfsPressureEvictionPlugin(tc, emitter, fakeFetcher)
+	res, err = rootfsPlugin.ThresholdMet(context.TODO())
+	assert.NoError(t, err)
+	assert.Equal(t, pluginapi.ThresholdMetType_HARD_MET, res.MetType)
+
+	fakeFetcher.SetContainerMetric("podUID1", "containerName", consts.MetricsContainerRootfsUsed, utilmetric.MetricData{Value: 799})
+	fakeFetcher.SetContainerMetric("podUID1", "containerName", consts.MetricsContainerRootfsInodesUsed, utilmetric.MetricData{Value: 800})
+	fakeFetcher.SetContainerMetric("podUID2", "containerName", consts.MetricsContainerRootfsUsed, utilmetric.MetricData{Value: 800})
+	fakeFetcher.SetContainerMetric("podUID2", "containerName", consts.MetricsContainerRootfsInodesUsed, utilmetric.MetricData{Value: 799})
+	resTop, err = rootfsPlugin.GetTopEvictionPods(context.TODO(), req)
+	assert.NoError(t, err)
+	assert.Equal(t, 0, len(resTop.TargetPods))
+
+	fakeFetcher.SetContainerMetric("podUID1", "containerName", consts.MetricsContainerRootfsUsed, utilmetric.MetricData{Value: 799})
+	fakeFetcher.SetContainerMetric("podUID1", "containerName", consts.MetricsContainerRootfsInodesUsed, utilmetric.MetricData{Value: 1100})
+	fakeFetcher.SetContainerMetric("podUID2", "containerName", consts.MetricsContainerRootfsUsed, utilmetric.MetricData{Value: 800})
+	fakeFetcher.SetContainerMetric("podUID2", "containerName", consts.MetricsContainerRootfsInodesUsed, utilmetric.MetricData{Value: 799})
+	resTop, err = rootfsPlugin.GetTopEvictionPods(context.TODO(), req)
+	assert.NoError(t, err)
+	assert.Equal(t, 1, len(resTop.TargetPods))
+	assert.Equal(t, types.UID("podUID1"), resTop.TargetPods[0].UID)
+
+	fakeFetcher.SetContainerMetric("podUID1", "containerName", consts.MetricsContainerRootfsUsed, utilmetric.MetricData{Value: 799})
+	fakeFetcher.SetContainerMetric("podUID1", "containerName", consts.MetricsContainerRootfsInodesUsed, utilmetric.MetricData{Value: 1100})
+	fakeFetcher.SetContainerMetric("podUID2", "containerName", consts.MetricsContainerRootfsUsed, utilmetric.MetricData{Value: 800})
+	fakeFetcher.SetContainerMetric("podUID2", "containerName", consts.MetricsContainerRootfsInodesUsed, utilmetric.MetricData{Value: 1200})
+	resTop, err = rootfsPlugin.GetTopEvictionPods(context.TODO(), req)
+	assert.NoError(t, err)
+	assert.Equal(t, 1, len(resTop.TargetPods))
+	assert.Equal(t, types.UID("podUID2"), resTop.TargetPods[0].UID)
+
+	tc = &testConf{
+		minimumFreeThreshold:       &evictionapi.ThresholdValue{Percentage: 0.1},
+		minimumInodesFreeThreshold: &evictionapi.ThresholdValue{Percentage: 0.3},
+	}
+	rootfsPlugin = createRootfsPressureEvictionPlugin(tc, emitter, fakeFetcher)
+	res, err = rootfsPlugin.ThresholdMet(context.TODO())
+	assert.NoError(t, err)
+	assert.Equal(t, pluginapi.ThresholdMetType_HARD_MET, res.MetType)
+
+	fakeFetcher.SetContainerMetric("podUID1", "containerName", consts.MetricsContainerRootfsUsed, utilmetric.MetricData{Value: 799})
+	fakeFetcher.SetContainerMetric("podUID1", "containerName", consts.MetricsContainerRootfsInodesUsed, utilmetric.MetricData{Value: 2})
+	fakeFetcher.SetContainerMetric("podUID2", "containerName", consts.MetricsContainerRootfsUsed, utilmetric.MetricData{Value: 800})
+	fakeFetcher.SetContainerMetric("podUID2", "containerName", consts.MetricsContainerRootfsInodesUsed, utilmetric.MetricData{Value: 1})
+	resTop, err = rootfsPlugin.GetTopEvictionPods(context.TODO(), req)
+	assert.NoError(t, err)
+	assert.Equal(t, 1, len(resTop.TargetPods))
+	assert.Equal(t, types.UID("podUID1"), resTop.TargetPods[0].UID)
+
+	fakeFetcher.SetContainerMetric("podUID1", "containerName", consts.MetricsContainerRootfsUsed, utilmetric.MetricData{Value: 799})
+	fakeFetcher.SetContainerMetric("podUID1", "containerName", consts.MetricsContainerRootfsInodesUsed, utilmetric.MetricData{Value: 2})
+	fakeFetcher.SetContainerMetric("podUID2", "containerName", consts.MetricsContainerRootfsUsed, utilmetric.MetricData{Value: 800})
+	fakeFetcher.SetContainerMetric("podUID2", "containerName", consts.MetricsContainerRootfsInodesUsed, utilmetric.MetricData{Value: 3})
+	resTop, err = rootfsPlugin.GetTopEvictionPods(context.TODO(), req)
+	assert.NoError(t, err)
+	assert.Equal(t, 1, len(resTop.TargetPods))
+	assert.Equal(t, types.UID("podUID2"), resTop.TargetPods[0].UID)
 }
 
 func TestPodRootfsPressureEvictionPlugin_GetTopEvictionPodsMetReclaimedPriority(t *testing.T) {
@@ -533,27 +675,293 @@ func TestPodRootfsPressureEvictionPlugin_GetTopEvictionPodsMetReclaimedPriority(
 	assert.NoError(t, err)
 	assert.Equal(t, pluginapi.ThresholdMetType_HARD_MET, res.MetType)
 
+	req := makeGetTopNRequest()
+	req.ActivePods[0].Annotations = map[string]string{}
+	req.ActivePods[1].Annotations = map[string]string{"katalyst.kubewharf.io/qos_level": "reclaimed_cores"}
 	fakeFetcher.SetContainerMetric("podUID1", "containerName", consts.MetricsContainerRootfsUsed, utilmetric.MetricData{Value: 800})
 	fakeFetcher.SetContainerMetric("podUID1", "containerName", consts.MetricsContainerRootfsInodesUsed, utilmetric.MetricData{Value: 800})
 	fakeFetcher.SetContainerMetric("podUID2", "containerName", consts.MetricsContainerRootfsUsed, utilmetric.MetricData{Value: 799})
 	fakeFetcher.SetContainerMetric("podUID2", "containerName", consts.MetricsContainerRootfsInodesUsed, utilmetric.MetricData{Value: 799})
-
-	req := makeGetTopNRequest()
-	req.ActivePods[0].Annotations = map[string]string{}
-	req.ActivePods[1].Annotations = map[string]string{"katalyst.kubewharf.io/qos_level": "reclaimed_cores"}
 	resTop, err := rootfsPlugin.GetTopEvictionPods(context.TODO(), req)
 	assert.NoError(t, err)
 	assert.Equal(t, 1, len(resTop.TargetPods))
 	assert.Equal(t, types.UID("podUID2"), resTop.TargetPods[0].UID)
 
+	req.ActivePods[0].Annotations = map[string]string{}
+	req.ActivePods[1].Annotations = map[string]string{"katalyst.kubewharf.io/qos_level": "reclaimed_cores"}
+	fakeFetcher.SetContainerMetric("podUID1", "containerName", consts.MetricsContainerRootfsUsed, utilmetric.MetricData{Value: 800})
+	fakeFetcher.SetContainerMetric("podUID1", "containerName", consts.MetricsContainerRootfsInodesUsed, utilmetric.MetricData{Value: 800})
+	fakeFetcher.SetContainerMetric("podUID2", "containerName", consts.MetricsContainerRootfsUsed, utilmetric.MetricData{Value: 400})
+	fakeFetcher.SetContainerMetric("podUID2", "containerName", consts.MetricsContainerRootfsInodesUsed, utilmetric.MetricData{Value: 400})
+	resTop, err = rootfsPlugin.GetTopEvictionPods(context.TODO(), req)
+	assert.NoError(t, err)
+	assert.Equal(t, 1, len(resTop.TargetPods))
+	assert.Equal(t, types.UID("podUID1"), resTop.TargetPods[0].UID)
+
 	req.ActivePods[0].Annotations = map[string]string{"katalyst.kubewharf.io/qos_level": "reclaimed_cores"}
 	req.ActivePods[1].Annotations = map[string]string{}
+	fakeFetcher.SetContainerMetric("podUID1", "containerName", consts.MetricsContainerRootfsUsed, utilmetric.MetricData{Value: 800})
+	fakeFetcher.SetContainerMetric("podUID1", "containerName", consts.MetricsContainerRootfsInodesUsed, utilmetric.MetricData{Value: 800})
 	fakeFetcher.SetContainerMetric("podUID2", "containerName", consts.MetricsContainerRootfsUsed, utilmetric.MetricData{Value: 801})
 	fakeFetcher.SetContainerMetric("podUID2", "containerName", consts.MetricsContainerRootfsInodesUsed, utilmetric.MetricData{Value: 801})
 	resTop, err = rootfsPlugin.GetTopEvictionPods(context.TODO(), req)
 	assert.NoError(t, err)
 	assert.Equal(t, 1, len(resTop.TargetPods))
 	assert.Equal(t, types.UID("podUID1"), resTop.TargetPods[0].UID)
+
+	req.ActivePods[0].Annotations = map[string]string{"katalyst.kubewharf.io/qos_level": "reclaimed_cores"}
+	req.ActivePods[1].Annotations = map[string]string{}
+	fakeFetcher.SetContainerMetric("podUID1", "containerName", consts.MetricsContainerRootfsUsed, utilmetric.MetricData{Value: 400})
+	fakeFetcher.SetContainerMetric("podUID1", "containerName", consts.MetricsContainerRootfsInodesUsed, utilmetric.MetricData{Value: 400})
+	fakeFetcher.SetContainerMetric("podUID2", "containerName", consts.MetricsContainerRootfsUsed, utilmetric.MetricData{Value: 801})
+	fakeFetcher.SetContainerMetric("podUID2", "containerName", consts.MetricsContainerRootfsInodesUsed, utilmetric.MetricData{Value: 801})
+	resTop, err = rootfsPlugin.GetTopEvictionPods(context.TODO(), req)
+	assert.NoError(t, err)
+	assert.Equal(t, 1, len(resTop.TargetPods))
+	assert.Equal(t, types.UID("podUID2"), resTop.TargetPods[0].UID)
+
+	tc = &testConf{
+		minimumFreeThreshold:                 &evictionapi.ThresholdValue{Percentage: 0.3},
+		minimumInodesFreeThreshold:           &evictionapi.ThresholdValue{Percentage: 0.3},
+		reclaimedQoSPodUsedPriorityThreshold: &evictionapi.ThresholdValue{Percentage: 0.1},
+	}
+	rootfsPlugin = createRootfsPressureEvictionPlugin(tc, emitter, fakeFetcher)
+
+	res, err = rootfsPlugin.ThresholdMet(context.TODO())
+	assert.NoError(t, err)
+	assert.Equal(t, pluginapi.ThresholdMetType_HARD_MET, res.MetType)
+
+	req.ActivePods[0].Annotations = map[string]string{}
+	req.ActivePods[1].Annotations = map[string]string{"katalyst.kubewharf.io/qos_level": "reclaimed_cores"}
+	fakeFetcher.SetContainerMetric("podUID1", "containerName", consts.MetricsContainerRootfsUsed, utilmetric.MetricData{Value: 1200})
+	fakeFetcher.SetContainerMetric("podUID1", "containerName", consts.MetricsContainerRootfsInodesUsed, utilmetric.MetricData{Value: 1200})
+	fakeFetcher.SetContainerMetric("podUID2", "containerName", consts.MetricsContainerRootfsUsed, utilmetric.MetricData{Value: 1100})
+	fakeFetcher.SetContainerMetric("podUID2", "containerName", consts.MetricsContainerRootfsInodesUsed, utilmetric.MetricData{Value: 1100})
+	resTop, err = rootfsPlugin.GetTopEvictionPods(context.TODO(), req)
+	assert.NoError(t, err)
+	assert.Equal(t, 1, len(resTop.TargetPods))
+	assert.Equal(t, types.UID("podUID2"), resTop.TargetPods[0].UID)
+
+	req.ActivePods[0].Annotations = map[string]string{}
+	req.ActivePods[1].Annotations = map[string]string{"katalyst.kubewharf.io/qos_level": "reclaimed_cores"}
+	fakeFetcher.SetContainerMetric("podUID1", "containerName", consts.MetricsContainerRootfsUsed, utilmetric.MetricData{Value: 1200})
+	fakeFetcher.SetContainerMetric("podUID1", "containerName", consts.MetricsContainerRootfsInodesUsed, utilmetric.MetricData{Value: 1200})
+	fakeFetcher.SetContainerMetric("podUID2", "containerName", consts.MetricsContainerRootfsUsed, utilmetric.MetricData{Value: 900})
+	fakeFetcher.SetContainerMetric("podUID2", "containerName", consts.MetricsContainerRootfsInodesUsed, utilmetric.MetricData{Value: 900})
+	resTop, err = rootfsPlugin.GetTopEvictionPods(context.TODO(), req)
+	assert.NoError(t, err)
+	assert.Equal(t, 1, len(resTop.TargetPods))
+	assert.Equal(t, types.UID("podUID1"), resTop.TargetPods[0].UID)
+
+	req.ActivePods[0].Annotations = map[string]string{"katalyst.kubewharf.io/qos_level": "reclaimed_cores"}
+	req.ActivePods[1].Annotations = map[string]string{}
+	fakeFetcher.SetContainerMetric("podUID1", "containerName", consts.MetricsContainerRootfsUsed, utilmetric.MetricData{Value: 1200})
+	fakeFetcher.SetContainerMetric("podUID1", "containerName", consts.MetricsContainerRootfsInodesUsed, utilmetric.MetricData{Value: 1200})
+	fakeFetcher.SetContainerMetric("podUID2", "containerName", consts.MetricsContainerRootfsUsed, utilmetric.MetricData{Value: 1300})
+	fakeFetcher.SetContainerMetric("podUID2", "containerName", consts.MetricsContainerRootfsInodesUsed, utilmetric.MetricData{Value: 1300})
+	resTop, err = rootfsPlugin.GetTopEvictionPods(context.TODO(), req)
+	assert.NoError(t, err)
+	assert.Equal(t, 1, len(resTop.TargetPods))
+	assert.Equal(t, types.UID("podUID1"), resTop.TargetPods[0].UID)
+
+	req.ActivePods[0].Annotations = map[string]string{"katalyst.kubewharf.io/qos_level": "reclaimed_cores"}
+	req.ActivePods[1].Annotations = map[string]string{}
+	fakeFetcher.SetContainerMetric("podUID1", "containerName", consts.MetricsContainerRootfsUsed, utilmetric.MetricData{Value: 900})
+	fakeFetcher.SetContainerMetric("podUID1", "containerName", consts.MetricsContainerRootfsInodesUsed, utilmetric.MetricData{Value: 900})
+	fakeFetcher.SetContainerMetric("podUID2", "containerName", consts.MetricsContainerRootfsUsed, utilmetric.MetricData{Value: 1300})
+	fakeFetcher.SetContainerMetric("podUID2", "containerName", consts.MetricsContainerRootfsInodesUsed, utilmetric.MetricData{Value: 1300})
+	resTop, err = rootfsPlugin.GetTopEvictionPods(context.TODO(), req)
+	assert.NoError(t, err)
+	assert.Equal(t, 1, len(resTop.TargetPods))
+	assert.Equal(t, types.UID("podUID2"), resTop.TargetPods[0].UID)
+
+	tc = &testConf{
+		minimumFreeThreshold:       &evictionapi.ThresholdValue{Percentage: 0.3},
+		minimumInodesFreeThreshold: &evictionapi.ThresholdValue{Percentage: 0.3},
+	}
+	rootfsPlugin = createRootfsPressureEvictionPlugin(tc, emitter, fakeFetcher)
+
+	res, err = rootfsPlugin.ThresholdMet(context.TODO())
+	assert.NoError(t, err)
+	assert.Equal(t, pluginapi.ThresholdMetType_HARD_MET, res.MetType)
+
+	req.ActivePods[0].Annotations = map[string]string{}
+	req.ActivePods[1].Annotations = map[string]string{"katalyst.kubewharf.io/qos_level": "reclaimed_cores"}
+	fakeFetcher.SetContainerMetric("podUID1", "containerName", consts.MetricsContainerRootfsUsed, utilmetric.MetricData{Value: 1200})
+	fakeFetcher.SetContainerMetric("podUID1", "containerName", consts.MetricsContainerRootfsInodesUsed, utilmetric.MetricData{Value: 1200})
+	fakeFetcher.SetContainerMetric("podUID2", "containerName", consts.MetricsContainerRootfsUsed, utilmetric.MetricData{Value: 1100})
+	fakeFetcher.SetContainerMetric("podUID2", "containerName", consts.MetricsContainerRootfsInodesUsed, utilmetric.MetricData{Value: 1100})
+	resTop, err = rootfsPlugin.GetTopEvictionPods(context.TODO(), req)
+	assert.NoError(t, err)
+	assert.Equal(t, 1, len(resTop.TargetPods))
+	assert.Equal(t, types.UID("podUID1"), resTop.TargetPods[0].UID)
+
+	req.ActivePods[0].Annotations = map[string]string{"katalyst.kubewharf.io/qos_level": "reclaimed_cores"}
+	req.ActivePods[1].Annotations = map[string]string{}
+	fakeFetcher.SetContainerMetric("podUID1", "containerName", consts.MetricsContainerRootfsUsed, utilmetric.MetricData{Value: 1200})
+	fakeFetcher.SetContainerMetric("podUID1", "containerName", consts.MetricsContainerRootfsInodesUsed, utilmetric.MetricData{Value: 1200})
+	fakeFetcher.SetContainerMetric("podUID2", "containerName", consts.MetricsContainerRootfsUsed, utilmetric.MetricData{Value: 1300})
+	fakeFetcher.SetContainerMetric("podUID2", "containerName", consts.MetricsContainerRootfsInodesUsed, utilmetric.MetricData{Value: 1300})
+	resTop, err = rootfsPlugin.GetTopEvictionPods(context.TODO(), req)
+	assert.NoError(t, err)
+	assert.Equal(t, 1, len(resTop.TargetPods))
+	assert.Equal(t, types.UID("podUID2"), resTop.TargetPods[0].UID)
+}
+
+func TestPodRootfsPressureEvictionPlugin_GetTopEvictionPodsInodesMetReclaimedPriority(t *testing.T) {
+	emitter := metrics.DummyMetrics{}
+	fakeFetcher := metric.NewFakeMetricsFetcher(emitter).(*metric.FakeMetricsFetcher)
+	// create metric data without time.
+	fakeFetcher.SetNodeMetric(consts.MetricsSystemRootfsAvailable, utilmetric.MetricData{Value: 2000})
+	fakeFetcher.SetNodeMetric(consts.MetricsSystemRootfsUsed, utilmetric.MetricData{Value: 8000})
+	fakeFetcher.SetNodeMetric(consts.MetricsSystemRootfsCapacity, utilmetric.MetricData{Value: 10000})
+
+	fakeFetcher.SetNodeMetric(consts.MetricsSystemRootfsInodesFree, utilmetric.MetricData{Value: 2000})
+	fakeFetcher.SetNodeMetric(consts.MetricsSystemRootfsInodesUsed, utilmetric.MetricData{Value: 8000})
+	fakeFetcher.SetNodeMetric(consts.MetricsSystemRootfsInodes, utilmetric.MetricData{Value: 10000})
+
+	tc := &testConf{
+		minimumFreeThreshold:                       &evictionapi.ThresholdValue{Percentage: 0.1},
+		minimumInodesFreeThreshold:                 &evictionapi.ThresholdValue{Percentage: 0.3},
+		reclaimedQosPodInodesUsedPriorityThreshold: &evictionapi.ThresholdValue{Quantity: resource.NewQuantity(500, resource.DecimalSI)},
+	}
+	rootfsPlugin := createRootfsPressureEvictionPlugin(tc, emitter, fakeFetcher)
+
+	res, err := rootfsPlugin.ThresholdMet(context.TODO())
+	assert.NoError(t, err)
+	assert.Equal(t, pluginapi.ThresholdMetType_HARD_MET, res.MetType)
+
+	req := makeGetTopNRequest()
+	req.ActivePods[0].Annotations = map[string]string{}
+	req.ActivePods[1].Annotations = map[string]string{"katalyst.kubewharf.io/qos_level": "reclaimed_cores"}
+	fakeFetcher.SetContainerMetric("podUID1", "containerName", consts.MetricsContainerRootfsUsed, utilmetric.MetricData{Value: 800})
+	fakeFetcher.SetContainerMetric("podUID1", "containerName", consts.MetricsContainerRootfsInodesUsed, utilmetric.MetricData{Value: 800})
+	fakeFetcher.SetContainerMetric("podUID2", "containerName", consts.MetricsContainerRootfsUsed, utilmetric.MetricData{Value: 900})
+	fakeFetcher.SetContainerMetric("podUID2", "containerName", consts.MetricsContainerRootfsInodesUsed, utilmetric.MetricData{Value: 700})
+	resTop, err := rootfsPlugin.GetTopEvictionPods(context.TODO(), req)
+	assert.NoError(t, err)
+	assert.Equal(t, 1, len(resTop.TargetPods))
+	assert.Equal(t, types.UID("podUID2"), resTop.TargetPods[0].UID)
+
+	req.ActivePods[0].Annotations = map[string]string{}
+	req.ActivePods[1].Annotations = map[string]string{"katalyst.kubewharf.io/qos_level": "reclaimed_cores"}
+	fakeFetcher.SetContainerMetric("podUID1", "containerName", consts.MetricsContainerRootfsUsed, utilmetric.MetricData{Value: 300})
+	fakeFetcher.SetContainerMetric("podUID1", "containerName", consts.MetricsContainerRootfsInodesUsed, utilmetric.MetricData{Value: 800})
+	fakeFetcher.SetContainerMetric("podUID2", "containerName", consts.MetricsContainerRootfsUsed, utilmetric.MetricData{Value: 500})
+	fakeFetcher.SetContainerMetric("podUID2", "containerName", consts.MetricsContainerRootfsInodesUsed, utilmetric.MetricData{Value: 400})
+	resTop, err = rootfsPlugin.GetTopEvictionPods(context.TODO(), req)
+	assert.NoError(t, err)
+	assert.Equal(t, 1, len(resTop.TargetPods))
+	assert.Equal(t, types.UID("podUID1"), resTop.TargetPods[0].UID)
+
+	req.ActivePods[0].Annotations = map[string]string{"katalyst.kubewharf.io/qos_level": "reclaimed_cores"}
+	req.ActivePods[1].Annotations = map[string]string{}
+	fakeFetcher.SetContainerMetric("podUID1", "containerName", consts.MetricsContainerRootfsUsed, utilmetric.MetricData{Value: 800})
+	fakeFetcher.SetContainerMetric("podUID1", "containerName", consts.MetricsContainerRootfsInodesUsed, utilmetric.MetricData{Value: 800})
+	fakeFetcher.SetContainerMetric("podUID2", "containerName", consts.MetricsContainerRootfsUsed, utilmetric.MetricData{Value: 900})
+	fakeFetcher.SetContainerMetric("podUID2", "containerName", consts.MetricsContainerRootfsInodesUsed, utilmetric.MetricData{Value: 900})
+	resTop, err = rootfsPlugin.GetTopEvictionPods(context.TODO(), req)
+	assert.NoError(t, err)
+	assert.Equal(t, 1, len(resTop.TargetPods))
+	assert.Equal(t, types.UID("podUID1"), resTop.TargetPods[0].UID)
+
+	req.ActivePods[0].Annotations = map[string]string{"katalyst.kubewharf.io/qos_level": "reclaimed_cores"}
+	req.ActivePods[1].Annotations = map[string]string{}
+	fakeFetcher.SetContainerMetric("podUID1", "containerName", consts.MetricsContainerRootfsUsed, utilmetric.MetricData{Value: 900})
+	fakeFetcher.SetContainerMetric("podUID1", "containerName", consts.MetricsContainerRootfsInodesUsed, utilmetric.MetricData{Value: 400})
+	fakeFetcher.SetContainerMetric("podUID2", "containerName", consts.MetricsContainerRootfsUsed, utilmetric.MetricData{Value: 400})
+	fakeFetcher.SetContainerMetric("podUID2", "containerName", consts.MetricsContainerRootfsInodesUsed, utilmetric.MetricData{Value: 900})
+	resTop, err = rootfsPlugin.GetTopEvictionPods(context.TODO(), req)
+	assert.NoError(t, err)
+	assert.Equal(t, 1, len(resTop.TargetPods))
+	assert.Equal(t, types.UID("podUID2"), resTop.TargetPods[0].UID)
+
+	tc = &testConf{
+		minimumFreeThreshold:                       &evictionapi.ThresholdValue{Percentage: 0.1},
+		minimumInodesFreeThreshold:                 &evictionapi.ThresholdValue{Percentage: 0.3},
+		reclaimedQosPodInodesUsedPriorityThreshold: &evictionapi.ThresholdValue{Percentage: 0.1},
+	}
+	rootfsPlugin = createRootfsPressureEvictionPlugin(tc, emitter, fakeFetcher)
+
+	res, err = rootfsPlugin.ThresholdMet(context.TODO())
+	assert.NoError(t, err)
+	assert.Equal(t, pluginapi.ThresholdMetType_HARD_MET, res.MetType)
+
+	req.ActivePods[0].Annotations = map[string]string{}
+	req.ActivePods[1].Annotations = map[string]string{"katalyst.kubewharf.io/qos_level": "reclaimed_cores"}
+	fakeFetcher.SetContainerMetric("podUID1", "containerName", consts.MetricsContainerRootfsUsed, utilmetric.MetricData{Value: 800})
+	fakeFetcher.SetContainerMetric("podUID1", "containerName", consts.MetricsContainerRootfsInodesUsed, utilmetric.MetricData{Value: 1200})
+	fakeFetcher.SetContainerMetric("podUID2", "containerName", consts.MetricsContainerRootfsUsed, utilmetric.MetricData{Value: 900})
+	fakeFetcher.SetContainerMetric("podUID2", "containerName", consts.MetricsContainerRootfsInodesUsed, utilmetric.MetricData{Value: 1100})
+	resTop, err = rootfsPlugin.GetTopEvictionPods(context.TODO(), req)
+	assert.NoError(t, err)
+	assert.Equal(t, 1, len(resTop.TargetPods))
+	assert.Equal(t, types.UID("podUID2"), resTop.TargetPods[0].UID)
+
+	req.ActivePods[0].Annotations = map[string]string{}
+	req.ActivePods[1].Annotations = map[string]string{"katalyst.kubewharf.io/qos_level": "reclaimed_cores"}
+	fakeFetcher.SetContainerMetric("podUID1", "containerName", consts.MetricsContainerRootfsUsed, utilmetric.MetricData{Value: 800})
+	fakeFetcher.SetContainerMetric("podUID1", "containerName", consts.MetricsContainerRootfsInodesUsed, utilmetric.MetricData{Value: 1200})
+	fakeFetcher.SetContainerMetric("podUID2", "containerName", consts.MetricsContainerRootfsUsed, utilmetric.MetricData{Value: 900})
+	fakeFetcher.SetContainerMetric("podUID2", "containerName", consts.MetricsContainerRootfsInodesUsed, utilmetric.MetricData{Value: 900})
+	resTop, err = rootfsPlugin.GetTopEvictionPods(context.TODO(), req)
+	assert.NoError(t, err)
+	assert.Equal(t, 1, len(resTop.TargetPods))
+	assert.Equal(t, types.UID("podUID1"), resTop.TargetPods[0].UID)
+
+	req.ActivePods[0].Annotations = map[string]string{"katalyst.kubewharf.io/qos_level": "reclaimed_cores"}
+	req.ActivePods[1].Annotations = map[string]string{}
+	fakeFetcher.SetContainerMetric("podUID1", "containerName", consts.MetricsContainerRootfsUsed, utilmetric.MetricData{Value: 1500})
+	fakeFetcher.SetContainerMetric("podUID1", "containerName", consts.MetricsContainerRootfsInodesUsed, utilmetric.MetricData{Value: 1200})
+	fakeFetcher.SetContainerMetric("podUID2", "containerName", consts.MetricsContainerRootfsUsed, utilmetric.MetricData{Value: 1300})
+	fakeFetcher.SetContainerMetric("podUID2", "containerName", consts.MetricsContainerRootfsInodesUsed, utilmetric.MetricData{Value: 1300})
+	resTop, err = rootfsPlugin.GetTopEvictionPods(context.TODO(), req)
+	assert.NoError(t, err)
+	assert.Equal(t, 1, len(resTop.TargetPods))
+	assert.Equal(t, types.UID("podUID1"), resTop.TargetPods[0].UID)
+
+	req.ActivePods[0].Annotations = map[string]string{"katalyst.kubewharf.io/qos_level": "reclaimed_cores"}
+	req.ActivePods[1].Annotations = map[string]string{}
+	fakeFetcher.SetContainerMetric("podUID1", "containerName", consts.MetricsContainerRootfsUsed, utilmetric.MetricData{Value: 1500})
+	fakeFetcher.SetContainerMetric("podUID1", "containerName", consts.MetricsContainerRootfsInodesUsed, utilmetric.MetricData{Value: 900})
+	fakeFetcher.SetContainerMetric("podUID2", "containerName", consts.MetricsContainerRootfsUsed, utilmetric.MetricData{Value: 1300})
+	fakeFetcher.SetContainerMetric("podUID2", "containerName", consts.MetricsContainerRootfsInodesUsed, utilmetric.MetricData{Value: 1300})
+	resTop, err = rootfsPlugin.GetTopEvictionPods(context.TODO(), req)
+	assert.NoError(t, err)
+	assert.Equal(t, 1, len(resTop.TargetPods))
+	assert.Equal(t, types.UID("podUID2"), resTop.TargetPods[0].UID)
+
+	tc = &testConf{
+		minimumFreeThreshold:       &evictionapi.ThresholdValue{Percentage: 0.1},
+		minimumInodesFreeThreshold: &evictionapi.ThresholdValue{Percentage: 0.3},
+	}
+	rootfsPlugin = createRootfsPressureEvictionPlugin(tc, emitter, fakeFetcher)
+
+	res, err = rootfsPlugin.ThresholdMet(context.TODO())
+	assert.NoError(t, err)
+	assert.Equal(t, pluginapi.ThresholdMetType_HARD_MET, res.MetType)
+
+	req.ActivePods[0].Annotations = map[string]string{}
+	req.ActivePods[1].Annotations = map[string]string{"katalyst.kubewharf.io/qos_level": "reclaimed_cores"}
+	fakeFetcher.SetContainerMetric("podUID1", "containerName", consts.MetricsContainerRootfsUsed, utilmetric.MetricData{Value: 1000})
+	fakeFetcher.SetContainerMetric("podUID1", "containerName", consts.MetricsContainerRootfsInodesUsed, utilmetric.MetricData{Value: 2})
+	fakeFetcher.SetContainerMetric("podUID2", "containerName", consts.MetricsContainerRootfsUsed, utilmetric.MetricData{Value: 1100})
+	fakeFetcher.SetContainerMetric("podUID2", "containerName", consts.MetricsContainerRootfsInodesUsed, utilmetric.MetricData{Value: 1})
+	resTop, err = rootfsPlugin.GetTopEvictionPods(context.TODO(), req)
+	assert.NoError(t, err)
+	assert.Equal(t, 1, len(resTop.TargetPods))
+	assert.Equal(t, types.UID("podUID1"), resTop.TargetPods[0].UID)
+
+	req.ActivePods[0].Annotations = map[string]string{"katalyst.kubewharf.io/qos_level": "reclaimed_cores"}
+	req.ActivePods[1].Annotations = map[string]string{}
+	fakeFetcher.SetContainerMetric("podUID1", "containerName", consts.MetricsContainerRootfsUsed, utilmetric.MetricData{Value: 1200})
+	fakeFetcher.SetContainerMetric("podUID1", "containerName", consts.MetricsContainerRootfsInodesUsed, utilmetric.MetricData{Value: 1})
+	fakeFetcher.SetContainerMetric("podUID2", "containerName", consts.MetricsContainerRootfsUsed, utilmetric.MetricData{Value: 1000})
+	fakeFetcher.SetContainerMetric("podUID2", "containerName", consts.MetricsContainerRootfsInodesUsed, utilmetric.MetricData{Value: 2})
+	resTop, err = rootfsPlugin.GetTopEvictionPods(context.TODO(), req)
+	assert.NoError(t, err)
+	assert.Equal(t, 1, len(resTop.TargetPods))
+	assert.Equal(t, types.UID("podUID2"), resTop.TargetPods[0].UID)
 }
 
 func TestPodRootfsPressureEvictionPlugin_GetTopEvictionPodsMetExpire(t *testing.T) {

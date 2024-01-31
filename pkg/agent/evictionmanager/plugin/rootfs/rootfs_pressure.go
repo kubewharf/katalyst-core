@@ -284,12 +284,10 @@ func (r *PodRootfsPressureEvictionPlugin) podMinimumUsageProtectionMet(usage int
 	if minUsedThreshold == nil {
 		return false
 	}
-	if minUsedThreshold.Quantity != nil && usage < minUsedThreshold.Quantity.Value() {
-		return true
-	} else if percentage < float64(minUsedThreshold.Percentage) {
-		return true
+	if minUsedThreshold.Quantity != nil {
+		return usage < minUsedThreshold.Quantity.Value()
 	} else {
-		return false
+		return percentage < float64(minUsedThreshold.Percentage)
 	}
 }
 
@@ -305,12 +303,10 @@ func (r *PodRootfsPressureEvictionPlugin) reclaimedPodPriorityEvictionMet(pod *v
 	if !isReclaimedPod {
 		return false
 	}
-	if reclaimedPodPriorityUsedThreshold.Quantity != nil && used > reclaimedPodPriorityUsedThreshold.Quantity.Value() {
-		return true
-	} else if percentage > float64(reclaimedPodPriorityUsedThreshold.Percentage) {
-		return true
+	if reclaimedPodPriorityUsedThreshold.Quantity != nil {
+		return used > reclaimedPodPriorityUsedThreshold.Quantity.Value()
 	} else {
-		return false
+		return percentage > float64(reclaimedPodPriorityUsedThreshold.Percentage)
 	}
 }
 
