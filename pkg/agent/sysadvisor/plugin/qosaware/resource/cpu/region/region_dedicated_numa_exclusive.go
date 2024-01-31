@@ -66,7 +66,7 @@ func NewQoSRegionDedicatedNumaExclusive(ci *types.ContainerInfo, conf *config.Co
 	r.indicatorCurrentGetters = map[string]types.IndicatorCurrentGetter{
 		string(workloadapis.ServiceSystemIndicatorNameCPI): r.getPodCPICurrent,
 	}
-	r.enableReclaim = r.EnableReclaim
+	r.enableReclaim = r.EnableReclaimFunc
 
 	return r
 }
@@ -81,7 +81,7 @@ func (r *QoSRegionDedicatedNumaExclusive) getPodUID() (string, error) {
 	return "", fmt.Errorf("should never get here")
 }
 
-func (r *QoSRegionDedicatedNumaExclusive) EnableReclaim() bool {
+func (r *QoSRegionDedicatedNumaExclusive) EnableReclaimFunc() bool {
 	podUID, err := r.getPodUID()
 	if err != nil {
 		general.ErrorS(err, "getPodUID failed")

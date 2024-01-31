@@ -348,6 +348,10 @@ func Clamp(value, min, max float64) float64 {
 	return math.Max(math.Min(value, max), min)
 }
 
+func ClampInt(value, min, max int) int {
+	return Max(Min(value, max), min)
+}
+
 // FormatMemoryQuantity aligned to Gi Mi Ki
 func FormatMemoryQuantity(q float64) string {
 	value := int64(q)

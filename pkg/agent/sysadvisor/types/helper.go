@@ -246,6 +246,21 @@ func (ps PodSet) Pods() int {
 	return count
 }
 
+func (ps PodSet) String() string {
+	var str string
+	for podUID, containers := range ps {
+		for containerName := range containers {
+			s := podUID + "/" + containerName
+			if str == "" {
+				str = s
+			} else {
+				str += ";" + s
+			}
+		}
+	}
+	return str
+}
+
 func (r *InternalCPUCalculationResult) GetPoolEntry(poolName string, numaID int) (int, bool) {
 	v1, ok := r.PoolEntries[poolName]
 	if ok {
@@ -256,11 +271,12 @@ func (r *InternalCPUCalculationResult) GetPoolEntry(poolName string, numaID int)
 }
 
 func (r *InternalCPUCalculationResult) SetPoolEntry(poolName string, numaID int, poolSize int) {
-	if poolSize <= 0 && !state.StaticPools.Has(poolName) {
-		return
-	}
 	if r.PoolEntries[poolName] == nil {
 		r.PoolEntries[poolName] = make(map[int]int)
+	}
+	if poolSize <= 0 && !state.StaticPools.Has(poolName) {
+		delete(r.PoolEntries[poolName], numaID)
+		return
 	}
 	r.PoolEntries[poolName][numaID] = poolSize
 }

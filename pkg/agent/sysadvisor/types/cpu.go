@@ -51,8 +51,9 @@ const (
 type CPUProvisionAssemblerName string
 
 const (
-	CPUProvisionAssemblerNone   CPUProvisionAssemblerName = "none"
-	CPUProvisionAssemblerCommon CPUProvisionAssemblerName = "common"
+	CPUProvisionAssemblerNone                   CPUProvisionAssemblerName = "none"
+	CPUProvisionAssemblerCommon                 CPUProvisionAssemblerName = "common"
+	CPUProvisionAssemblerRegionMutualPerception CPUProvisionAssemblerName = "region_mutual_perception"
 )
 
 // CPUHeadroomAssemblerName defines assemblers for cpu advisor to generate node
