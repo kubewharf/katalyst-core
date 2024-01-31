@@ -99,7 +99,7 @@ func GetRegionBasicMetricTags(r QoSRegion) []metrics.MetricTag {
 	}
 
 	for k, v := range r.GetStatus().OvershootStatus {
-		tags = append(tags, metrics.MetricTag{Key: k, Val: string(v)})
+		tags = append(tags, metrics.MetricTag{Key: k + "_overshoot", Val: string(v)})
 	}
 
 	return tags

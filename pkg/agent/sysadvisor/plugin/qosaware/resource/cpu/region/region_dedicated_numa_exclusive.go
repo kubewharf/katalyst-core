@@ -37,6 +37,10 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
+const (
+	idleThreshold = 1
+)
+
 // todo:
 // 1. support numa mem bandwidth as indicator
 // 2. get service indicator target from spd
@@ -96,6 +100,8 @@ func (r *QoSRegionDedicatedNumaExclusive) TryUpdateProvision() {
 	r.Lock()
 	defer r.Unlock()
 
+	r.updateIdleStatus()
+
 	// update each provision policy
 	r.updateProvisionPolicy()
 
@@ -134,6 +140,37 @@ func (r *QoSRegionDedicatedNumaExclusive) updateProvisionPolicy() {
 		}
 		internal.updateStatus = types.PolicyUpdateSucceeded
 	}
+}
+
+func (r *QoSRegionDedicatedNumaExclusive) updateIdleStatus() {
+	idle := true
+	for podUID, containers := range r.podSet {
+		for containerName := range containers {
+			v, err := r.metaReader.GetContainerMetric(podUID, containerName, consts.MetricCPUUsageContainer)
+			if err != nil {
+				general.ErrorS(err, "failed to get metric", "podUID", podUID, "containerName", containerName, "metricName", consts.MetricCPUUsageContainer)
+				continue
+			}
+			if v.Value >= idleThreshold {
+				idle = false
+				goto out
+			}
+			v, err = r.metaReader.GetContainerMetric(podUID, containerName, consts.MetricLoad1MinContainer)
+			if err != nil {
+				general.ErrorS(err, "failed to get metric", "podUID", podUID, "containerName", containerName, "metricName", consts.MetricLoad1MinContainer)
+				continue
+			}
+			if v.Value >= idleThreshold {
+				idle = false
+				goto out
+			}
+		}
+	}
+	if idle {
+		general.InfoS("region is idle", "regionName", r.name)
+	}
+out:
+	r.idle.Store(idle)
 }
 
 func (r *QoSRegionDedicatedNumaExclusive) getControlKnobs() types.ControlKnob {
