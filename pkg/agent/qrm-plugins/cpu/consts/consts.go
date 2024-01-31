@@ -33,3 +33,26 @@ const (
 	SyncCPUIdle                = CPUPluginDynamicPolicyName + "_sync_cpu_idle"
 	CommunicateWithAdvisor     = CPUPluginDynamicPolicyName + "_communicate_with_advisor"
 )
+
+const (
+	// CPUStateAnnotationKeyNUMAHint is the key stored in allocationInfo.Annotations
+	// to indicate NUMA hint for the entry
+	CPUStateAnnotationKeyNUMAHint = "numa_hint"
+)
+
+const (
+	// CPUIncrRatioSharedCoresNUMABinding will be multiplied to the shared_cores with numa_biding entry request
+	// and be used to increment pool size
+	CPUIncrRatioSharedCoresNUMABinding = 2.0
+
+	// CPUIncrRatioDefault is the default value be multiplied to the entry request
+	// and be used to increment pool size
+	CPUIncrRatioDefault = 1.0
+)
+
+const (
+	// packing: refers to the strategy of putting as many containers as possible onto a single NUMA node in order to utilize the resources efficiently and reduce fragmentation.
+	CPUNUMAHintPreferPolicyPacking = "packing"
+	// spreading: tries to distributing containers across multiple nodes. Aiming to balance the load by avoiding overloading individual nodes.
+	CPUNUMAHintPreferPolicySpreading = "spreading"
+)

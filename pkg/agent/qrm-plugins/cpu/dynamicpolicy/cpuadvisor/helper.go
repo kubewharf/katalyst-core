@@ -21,6 +21,8 @@ import (
 	"sort"
 	"strings"
 
+	"k8s.io/apimachinery/pkg/util/sets"
+
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
@@ -30,6 +32,57 @@ type BlockCPUSet map[string]machine.CPUSet
 
 func NewBlockCPUSet() BlockCPUSet {
 	return make(BlockCPUSet)
+}
+
+func (ci *CalculationInfo) IsSharedNUMABindingPool() bool {
+	if ci == nil {
+		return false
+	}
+
+	return len(ci.CalculationResultsByNumas) == 1 && ci.CalculationResultsByNumas[state.FakedNUMAID] == nil
+}
+
+func (ce *CalculationEntries) IsPoolEntry() bool {
+	if ce == nil {
+		return false
+	}
+
+	return len(ce.Entries) == 1 && ce.Entries[state.FakedContainerName] != nil
+}
+
+func (ce *CalculationEntries) IsSharedNUMABindingPoolEntry() bool {
+	if !ce.IsPoolEntry() {
+		return false
+	}
+
+	return len(ce.Entries[state.FakedContainerName].CalculationResultsByNumas) == 1 &&
+		ce.Entries[state.FakedContainerName].CalculationResultsByNumas[state.FakedNUMAID] == nil
+}
+
+func (lwr *ListAndWatchResponse) GetSharedBindingNUMAs() (sets.Int, error) {
+	if lwr == nil {
+		return sets.NewInt(), fmt.Errorf("got nil ListAndWatchResponse")
+	}
+
+	sharedBindingNUMAs := sets.NewInt()
+
+	for _, entry := range lwr.Entries {
+
+		if !entry.IsSharedNUMABindingPoolEntry() {
+			continue
+		}
+
+		for _, calculationInfo := range entry.Entries {
+			for numaIdInt64 := range calculationInfo.CalculationResultsByNumas {
+				if numaIdInt64 < 0 {
+					return sets.NewInt(), fmt.Errorf("SharedNUMABindingPoolEntry has invalid numaID: %v", numaIdInt64)
+				}
+				sharedBindingNUMAs.Insert(int(numaIdInt64))
+			}
+		}
+	}
+
+	return sharedBindingNUMAs, nil
 }
 
 // GetBlocks parses ListAndWatchResponse and returns map[int][]*Block,
@@ -61,7 +114,7 @@ func (lwr *ListAndWatchResponse) GetBlocks() (map[int][]*Block, error) {
 
 				numaIdInt, err := general.CovertInt64ToInt(numaIdInt64)
 				if err != nil {
-					return nil, fmt.Errorf("parse nuam id: %d failed with error: %v entry: %s, subEntry: %s",
+					return nil, fmt.Errorf("parse numa id: %d failed with error: %v entry: %s, subEntry: %s",
 						numaIdInt64, err, entryName, subEntryName)
 				}
 

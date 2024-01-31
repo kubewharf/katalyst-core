@@ -19,6 +19,7 @@ package qrm
 import (
 	cliflag "k8s.io/component-base/cli/flag"
 
+	cpuconsts "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/consts"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
 	qrmconfig "github.com/kubewharf/katalyst-core/pkg/config/agent/qrm"
 )
@@ -38,6 +39,7 @@ type CPUDynamicPolicyOptions struct {
 	LoadPressureEvictionSkipPools []string
 	EnableSyncingCPUIdle          bool
 	EnableCPUIdle                 bool
+	CPUNUMAHintPreferPolicy       string
 }
 
 type CPUNativePolicyOptions struct {
@@ -55,6 +57,7 @@ func NewCPUOptions() *CPUOptions {
 			EnableCPUPressureEviction: false,
 			EnableSyncingCPUIdle:      false,
 			EnableCPUIdle:             false,
+			CPUNUMAHintPreferPolicy:   cpuconsts.CPUNUMAHintPreferPolicySpreading,
 			LoadPressureEvictionSkipPools: []string{
 				state.PoolNameReclaim,
 				state.PoolNameDedicated,
@@ -89,6 +92,8 @@ func (o *CPUOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 	fs.BoolVar(&o.EnableCPUIdle, "enable-cpu-idle", o.EnableCPUIdle,
 		"if set true, we will enable cpu idle for "+
 			"specific cgroup paths and it requires --enable-syncing-cpu-idle=true to make effect")
+	fs.StringVar(&o.CPUNUMAHintPreferPolicy, "cpu-numa-hint-prefer-policy", o.CPUNUMAHintPreferPolicy,
+		"it decides hint preference calculation strategy")
 	fs.StringVar(&o.CPUAllocationOption, "cpu-allocation-option",
 		o.CPUAllocationOption, "The allocation option of cpu (packed/distributed). The default value is packed."+
 			"in cases where more than one NUMA node is required to satisfy the allocation.")
@@ -108,5 +113,6 @@ func (o *CPUOptions) ApplyTo(conf *qrmconfig.CPUQRMPluginConfig) error {
 	conf.EnableCPUIdle = o.EnableCPUIdle
 	conf.EnableFullPhysicalCPUsOnly = o.EnableFullPhysicalCPUsOnly
 	conf.CPUAllocationOption = o.CPUAllocationOption
+	conf.CPUNUMAHintPreferPolicy = o.CPUNUMAHintPreferPolicy
 	return nil
 }
