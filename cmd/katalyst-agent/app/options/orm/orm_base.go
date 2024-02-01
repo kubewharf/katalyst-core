@@ -40,7 +40,7 @@ func NewGenericORMPluginOptions() *GenericORMPluginOptions {
 		ORMRconcilePeriod:               time.Second * 5,
 		ORMResourceNamesMap:             map[string]string{},
 		ORMPodNotifyChanLen:             10,
-		TopologyPolicyName:              "none",
+		TopologyPolicyName:              "",
 		NumericAlignResources:           []string{"cpu", "memory"},
 		ORMPodResourcesSocket:           "unix:/var/lib/katalyst/pod-resources/kubelet.sock",
 		ORMDevicesProvider:              "",

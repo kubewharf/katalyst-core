@@ -17,6 +17,10 @@ limitations under the License.
 package orm
 
 const (
+	ORMAgentName = "katalyst-agent-orm"
+)
+
+const (
 	MetricAddPodTimeout                            = "ORM_add_pod_timeout"
 	MetricDeletePodTImeout                         = "ORM_delete_pod_timeout"
 	MetricGetTopologyAwareResourcesFail            = "ORM_get_topology_aware_resource_fail"

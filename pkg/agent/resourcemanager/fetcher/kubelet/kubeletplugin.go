@@ -23,13 +23,15 @@ import (
 	"sync"
 	"time"
 
+	info "github.com/google/cadvisor/info/v1"
 	"github.com/pkg/errors"
 	"go.uber.org/atomic"
 	"k8s.io/klog/v2"
+	apiconfig "k8s.io/kubernetes/pkg/kubelet/apis/config"
 
-	info "github.com/google/cadvisor/info/v1"
-
+	nodev1alpha1 "github.com/kubewharf/katalyst-api/pkg/apis/node/v1alpha1"
 	"github.com/kubewharf/katalyst-api/pkg/protocol/reporterplugin/v1alpha1"
+	"github.com/kubewharf/katalyst-api/pkg/utils"
 	"github.com/kubewharf/katalyst-core/pkg/agent/resourcemanager/fetcher/kubelet/topology"
 	"github.com/kubewharf/katalyst-core/pkg/agent/resourcemanager/fetcher/plugin"
 	"github.com/kubewharf/katalyst-core/pkg/config"
@@ -237,9 +239,19 @@ func (p *kubeletPlugin) getNumaInfo() ([]info.Node, error) {
 }
 
 func (p *kubeletPlugin) getTopologyPolicyReportContent(ctx context.Context) (*v1alpha1.ReportContent, error) {
-	topologyPolicy, err := p.topologyStatusAdapter.GetTopologyPolicy(ctx)
-	if err != nil {
-		return nil, errors.Wrap(err, "get topology policy from adapter failed")
+	var (
+		topologyPolicy nodev1alpha1.TopologyPolicy
+		err            error
+	)
+
+	if p.reportOrmTopologyPolicy() {
+		// report orm topology policy only if orm is explicitly enabled in the configuration.
+		topologyPolicy = utils.GenerateTopologyPolicy(p.conf.TopologyPolicyName, apiconfig.ContainerTopologyManagerScope)
+	} else {
+		topologyPolicy, err = p.topologyStatusAdapter.GetTopologyPolicy(ctx)
+		if err != nil {
+			return nil, errors.Wrap(err, "get topology policy from adapter failed")
+		}
 	}
 
 	valueTopologyPolicy, err := json.Marshal(&topologyPolicy)
@@ -257,4 +269,12 @@ func (p *kubeletPlugin) getTopologyPolicyReportContent(ctx context.Context) (*v1
 			},
 		},
 	}, nil
+}
+
+func (p *kubeletPlugin) reportOrmTopologyPolicy() bool {
+	if p.conf.TopologyPolicyName == "" {
+		return false
+	}
+
+	return true
 }
