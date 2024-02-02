@@ -158,7 +158,7 @@ func (m *memoryBalancerWrapper) Reconcile(status *types.MemoryPressureStatus) er
 		if err != nil {
 			general.Errorf("start memory balancer eviction plugin failed,err:%v", err)
 		} else {
-			general.Infof("")
+			general.Infof("start memory balancer eviction plugin")
 			m.started = true
 		}
 	}
@@ -229,6 +229,10 @@ func (m *memoryBalancer) GetEvictPods(_ context.Context, request *pluginapi.GetE
 	m.mutex.Lock()
 
 	evictPods := make([]*pluginapi.EvictPod, 0)
+	if m.balanceInfo == nil {
+		return &pluginapi.GetEvictPodsResponse{}, nil
+	}
+
 	pods := m.balanceInfo.EvictPods
 	for i := range m.balanceInfo.EvictPods {
 		for _, activePod := range request.ActivePods {
