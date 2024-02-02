@@ -38,7 +38,10 @@ import (
 
 const healthzNameLockingFileAcquired = "LockingFileReady"
 
-const metricsNameLockingFailed = "get_lock_failed"
+const (
+	metricsNameLockingFailed = "get_lock_failed"
+	metricsNameAgentStarted  = "agent_started"
+)
 
 // Run starts common and uniformed agent components here, and starts other
 // specific components in other separate repos (with common components as
@@ -79,6 +82,7 @@ func Run(conf *config.Configuration, clientSet *client.GenericClientSet, generic
 func startAgent(ctx context.Context, genericCtx *agent.GenericContext,
 	conf *config.Configuration, agents map[string]AgentStarter) error {
 	componentMap := make(map[string]agent.Component)
+	monitorAgentStart(genericCtx)
 	for agentName, starter := range agents {
 		if !genericCtx.IsEnabled(agentName, conf.Agents) {
 			klog.Warningf("%q is disabled", agentName)
@@ -135,6 +139,10 @@ func startAgent(ctx context.Context, genericCtx *agent.GenericContext,
 
 	wg.Wait()
 	return nil
+}
+
+func monitorAgentStart(genericCtx *agent.GenericContext) {
+	_ = genericCtx.EmitterPool.GetDefaultMetricsEmitter().StoreInt64(metricsNameAgentStarted, 1, metrics.MetricTypeNameCount)
 }
 
 // acquireLock makes sure only one process can handle socket files;
