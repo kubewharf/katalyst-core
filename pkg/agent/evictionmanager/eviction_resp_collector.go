@@ -95,10 +95,7 @@ func (e *evictionRespCollector) collectEvictPods(dryRunPlugins []string, pluginN
 			e.getLogPrefix(dryRun), pluginName, evictPod.Pod.Namespace, evictPod.Pod.Name, evictPod.Reason, evictPod.ForceEvict)
 
 		if dryRun {
-			_ = e.emitter.StoreInt64(MetricsNameDryRunVictimPodCNT, 1, metrics.MetricTypeNameRaw,
-				metrics.MetricTag{Key: "name", Val: pluginName},
-				metrics.MetricTag{Key: "victim_ns", Val: evictPod.Pod.Namespace},
-				metrics.MetricTag{Key: "victim_name", Val: evictPod.Pod.Name})
+			metricsPodToEvict(e.emitter, e.conf.GenericConfiguration.QoSConfiguration, pluginName, evictPod.Pod, dryRun)
 		} else {
 			evictPods = append(evictPods, resp.EvictPods[i])
 		}
@@ -174,10 +171,7 @@ func (e *evictionRespCollector) collectTopEvictionPods(dryRunPlugins []string, p
 		general.Infof("%v plugin %v request to evict topN pod %v/%v, reason: met threshold in scope [%v]",
 			e.getLogPrefix(dryRun), pluginName, pod.Namespace, pod.Name, threshold.EvictionScope)
 		if dryRun {
-			_ = e.emitter.StoreInt64(MetricsNameDryRunVictimPodCNT, 1, metrics.MetricTypeNameRaw,
-				metrics.MetricTag{Key: "name", Val: pluginName},
-				metrics.MetricTag{Key: "victim_ns", Val: pod.Namespace},
-				metrics.MetricTag{Key: "victim_name", Val: pod.Name})
+			metricsPodToEvict(e.emitter, e.conf.GenericConfiguration.QoSConfiguration, pluginName, pod, dryRun)
 		} else {
 			targetPods = append(targetPods, resp.TargetPods[i])
 		}

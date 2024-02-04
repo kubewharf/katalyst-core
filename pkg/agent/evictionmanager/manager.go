@@ -617,19 +617,28 @@ func metricPodsToEvict(emitter metrics.MetricEmitter, rpList rule.RuledEvictPodL
 
 	for _, rp := range rpList {
 		if rp != nil && rp.EvictionPluginName != "" {
-			metricTags := []metrics.MetricTag{
-				{Key: "name", Val: rp.EvictionPluginName},
-				{Key: "type", Val: "plugin"},
-				{Key: "victim_ns", Val: rp.Pod.Namespace},
-				{Key: "victim_name", Val: rp.Pod.Name},
-			}
-			if qosConfig != nil {
-				qosLevel, err := qosConfig.GetQoSLevelForPod(rp.Pod)
-				if err == nil {
-					metricTags = append(metricTags, metrics.MetricTag{Key: "qos", Val: qosLevel})
-				}
-			}
-			_ = emitter.StoreInt64(MetricsNameVictimPodCNT, 1, metrics.MetricTypeNameRaw, metricTags...)
+			metricsPodToEvict(emitter, qosConfig, rp.EvictionPluginName, rp.Pod, false)
 		}
 	}
+}
+
+func metricsPodToEvict(emitter metrics.MetricEmitter, qosConfig *generic.QoSConfiguration, pluginName string, pod *v1.Pod, dryRun bool) {
+	podQosLevel := "unknown"
+	if qosConfig != nil {
+		qosLevel, err := qosConfig.GetQoSLevelForPod(pod)
+		if err == nil {
+			podQosLevel = qosLevel
+		}
+	}
+	metricKey := MetricsNameVictimPodCNT
+	if dryRun {
+		metricKey = MetricsNameDryRunVictimPodCNT
+	}
+	_ = emitter.StoreInt64(metricKey, 1, metrics.MetricTypeNameRaw,
+		metrics.MetricTag{Key: "name", Val: pluginName},
+		metrics.MetricTag{Key: "type", Val: "plugin"},
+		metrics.MetricTag{Key: "victim_ns", Val: pod.Namespace},
+		metrics.MetricTag{Key: "victim_name", Val: pod.Name},
+		metrics.MetricTag{Key: "qos", Val: podQosLevel},
+	)
 }
