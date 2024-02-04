@@ -54,10 +54,6 @@ const (
 	MetricNumaMemoryBalance = "numa_memory_balance"
 )
 
-var supportedPools = []string{
-	state.PoolNameShare,
-}
-
 type BalanceStatus string
 
 const (
@@ -348,7 +344,7 @@ func (m *memoryBalancer) getBalanceInfo() (balanceInfo *BalanceInfo, err error) 
 
 	balanceInfo.DestNumas = m.getDestNumaList(orderedDestNumaList, balanceInfo.SourceNuma, balanceInfo.BalanceLevel, balanceInfo.BandwidthPressure)
 	if len(balanceInfo.DestNumas) > 0 {
-		balanceInfo.BalancePods, balanceInfo.TotalRSS, err = m.getBalancePods(supportedPools, balanceInfo.SourceNuma, balanceInfo.DestNumas)
+		balanceInfo.BalancePods, balanceInfo.TotalRSS, err = m.getBalancePods(m.conf.SupportedPools, balanceInfo.SourceNuma, balanceInfo.DestNumas)
 		if err != nil {
 			return
 		}
