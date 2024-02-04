@@ -27,6 +27,7 @@ import (
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/tools/events"
 	evictionapi "k8s.io/kubernetes/pkg/kubelet/eviction/api"
+	"k8s.io/kubernetes/pkg/kubelet/util/format"
 	volumeutils "k8s.io/kubernetes/pkg/volume/util"
 
 	pluginapi "github.com/kubewharf/katalyst-api/pkg/protocol/evictionplugin/v1alpha1"
@@ -49,9 +50,6 @@ const (
 	EvictionScopeSystemRootfs           = "SystemRootfs"
 	evictionConditionSystemRootfs       = "SystemRootfs"
 	metricsNameReclaimPriorityCount     = "rootfs_reclaimed_pod_usage_priority_count"
-
-	metricsTagKeyUsed       = "metric_used"
-	metricsTagKeyPercentage = "metric_percentage"
 )
 
 type PodRootfsPressureEvictionPlugin struct {
@@ -258,6 +256,7 @@ func (r *PodRootfsPressureEvictionPlugin) GetEvictPods(_ context.Context, reques
 
 type podUsageItem struct {
 	usage    int64
+	capacity int64
 	priority bool
 	pod      *v1.Pod
 }
@@ -326,16 +325,10 @@ func (r *PodRootfsPressureEvictionPlugin) getTopNPods(pods []*v1.Pod, n uint64, 
 		} else {
 			percentage := float64(used) / float64(capacity)
 			usageItem.usage = used
+			usageItem.capacity = capacity
 			usageItem.priority = r.reclaimedPodPriorityEvictionMet(pods[i], used, percentage, reclaimedPodPriorityUsedThreshold)
 
-			if usageItem.priority {
-				general.Warningf("ReclaimedPodPriority: %s (used: %d, percentage: %04f)", pods[i].UID, used, percentage)
-				_ = r.emitter.StoreInt64(metricsNameReclaimPriorityCount, 1, metrics.MetricTypeNameCount,
-					metrics.ConvertMapToTags(map[string]string{
-						metricsTagKeyUsed:       fmt.Sprintf("%d", used),
-						metricsTagKeyPercentage: fmt.Sprintf("%04f", percentage),
-					})...)
-			} else {
+			if !usageItem.priority {
 				if r.podMinimumUsageProtectionMet(used, percentage, minUsedThreshold) {
 					continue
 				}
@@ -351,6 +344,17 @@ func (r *PodRootfsPressureEvictionPlugin) getTopNPods(pods []*v1.Pod, n uint64, 
 
 	var results []*v1.Pod
 	for _, item := range usageItemList {
+		general.Infof("Rootfs Eviction Request(Pod: %s, Used: %d, Capacity: %d, Priority: %v)", format.Pod(item.pod), item.usage, item.capacity, item.priority)
+		if item.priority {
+			_ = r.emitter.StoreInt64(metricsNameReclaimPriorityCount, 1, metrics.MetricTypeNameCount,
+				metrics.ConvertMapToTags(map[string]string{
+					"uid":       string(item.pod.UID),
+					"namespace": item.pod.Namespace,
+					"name":      item.pod.Name,
+					"used":      fmt.Sprintf("%d", item.usage),
+					"capacity":  fmt.Sprintf("%d", item.capacity),
+				})...)
+		}
 		results = append(results, item.pod)
 	}
 	return results, nil
