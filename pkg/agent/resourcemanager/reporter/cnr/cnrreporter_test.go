@@ -20,6 +20,7 @@ import (
 	"context"
 	"encoding/json"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -30,6 +31,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 
 	nodev1alpha1 "github.com/kubewharf/katalyst-api/pkg/apis/node/v1alpha1"
+	apiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-api/pkg/protocol/reporterplugin/v1alpha1"
 	katalyst_base "github.com/kubewharf/katalyst-core/cmd/base"
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/options"
@@ -48,6 +50,11 @@ import (
 const (
 	nodeName = "test-node"
 )
+
+func mustParse(str string) *resource.Quantity {
+	q := resource.MustParse(str)
+	return &q
+}
 
 func generateTestMetaServer(clientSet *client.GenericClientSet, conf *config.Configuration) *metaserver.MetaServer {
 	return &metaserver.MetaServer{
@@ -241,6 +248,122 @@ func Test_parseReportFieldToCNR(t *testing.T) {
 				},
 			},
 		},
+		{
+			name: "set node metric",
+			args: args{
+				cnr: &nodev1alpha1.CustomNodeResource{
+					ObjectMeta: metav1.ObjectMeta{
+						Labels: map[string]string{
+							"cc": "dd",
+						},
+					},
+				},
+				reportField: v1alpha1.ReportField{
+					FieldType: v1alpha1.FieldType_Status,
+					FieldName: "NodeMetricStatus",
+					Value: []byte(`
+					{
+					    "updateTime":"2024-02-08T08:14:20Z",
+					    "nodeMetric":{
+					        "numaUsage":[
+					            {
+					                "numaId":0,
+					                "usage":{
+					                    "memory":"1Gi"
+					                }
+					            },
+					            {
+					                "numaId":1,
+					                "usage":{
+					                    "memory":"1Gi"
+					                }
+					            }
+					        ],
+					        "genericUsage":{
+					            "cpu":"10",
+					            "memory":"2Gi"
+					        }
+					    },
+					    "groupMetric":[
+					        {
+					            "QoSLevel":"reclaimed_cores",
+					            "genericUsage":{
+					                "cpu":"0",
+					                "memory":"0"
+					            }
+					        },
+					        {
+					            "QoSLevel":"shared_cores",
+					            "genericUsage":{
+					                "cpu":"10",
+					                "memory":"1Gi"
+					            },
+					            "podList":[
+					                "platform/pod1",
+									"platform/pod2"
+					            ]
+					        }
+					    ]
+					}
+					`),
+				},
+			},
+			want: &nodev1alpha1.CustomNodeResource{
+				ObjectMeta: metav1.ObjectMeta{
+					Labels: map[string]string{
+						"cc": "dd",
+					},
+				},
+				Status: nodev1alpha1.CustomNodeResourceStatus{
+					NodeMetricStatus: &nodev1alpha1.NodeMetricStatus{
+						UpdateTime: metav1.NewTime(time.Date(2024, time.February, 8, 8, 14, 20, 0, time.UTC)),
+						NodeMetric: &nodev1alpha1.NodeMetricInfo{
+							ResourceUsage: nodev1alpha1.ResourceUsage{
+								NUMAUsage: []nodev1alpha1.NUMAMetricInfo{
+									{
+										NUMAId: 0,
+										Usage: &nodev1alpha1.ResourceMetric{
+											Memory: mustParse("1Gi"),
+										},
+									},
+									{
+										NUMAId: 1,
+										Usage: &nodev1alpha1.ResourceMetric{
+											Memory: mustParse("1Gi"),
+										},
+									},
+								},
+								GenericUsage: &nodev1alpha1.ResourceMetric{
+									CPU:    mustParse("10"),
+									Memory: mustParse("2Gi"),
+								},
+							},
+						},
+						GroupMetric: []nodev1alpha1.GroupMetricInfo{
+							{
+								QoSLevel: apiconsts.PodAnnotationQoSLevelReclaimedCores,
+								ResourceUsage: nodev1alpha1.ResourceUsage{
+									GenericUsage: &nodev1alpha1.ResourceMetric{
+										CPU:    mustParse("0"),
+										Memory: mustParse("0"),
+									},
+								},
+							},
+							{
+								QoSLevel: apiconsts.PodAnnotationQoSLevelSharedCores,
+								ResourceUsage: nodev1alpha1.ResourceUsage{
+									GenericUsage: &nodev1alpha1.ResourceMetric{
+										CPU:    mustParse("10"),
+										Memory: mustParse("1Gi"),
+									},
+								},
+								PodList: []string{"platform/pod1", "platform/pod2"},
+							},
+						},
+					},
+				},
+			},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -346,6 +469,37 @@ func Test_initializeCNRFields(t *testing.T) {
 			},
 			wantErr: false,
 		},
+		{
+			name: "test-for-node-status",
+			args: args{
+				cnr: &nodev1alpha1.CustomNodeResource{
+					ObjectMeta: metav1.ObjectMeta{
+						Annotations: map[string]string{
+							"cc": "dd",
+						},
+					},
+					Status: nodev1alpha1.CustomNodeResourceStatus{
+						NodeMetricStatus: &nodev1alpha1.NodeMetricStatus{
+							UpdateTime:  metav1.Time{},
+							NodeMetric:  nil,
+							GroupMetric: nil,
+						},
+					},
+				},
+				field: v1alpha1.ReportField{
+					FieldType: v1alpha1.FieldType_Status,
+					FieldName: "NodeMetricStatus",
+				},
+			},
+			wantCNR: &nodev1alpha1.CustomNodeResource{
+				ObjectMeta: metav1.ObjectMeta{
+					Annotations: map[string]string{
+						"cc": "dd",
+					},
+				},
+			},
+			wantErr: false,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -353,9 +507,7 @@ func Test_initializeCNRFields(t *testing.T) {
 				t.Errorf("initializeFieldToCNR() error = %v, wantErr %v", err, tt.wantErr)
 			}
 
-			if !apiequality.Semantic.DeepEqual(tt.args.cnr, tt.wantCNR) {
-				t.Errorf("initializeFieldToCNR() got = %v, want %v", tt.args.cnr, tt.wantCNR)
-			}
+			assert.Equal(t, tt.wantCNR, tt.args.cnr)
 		})
 	}
 }

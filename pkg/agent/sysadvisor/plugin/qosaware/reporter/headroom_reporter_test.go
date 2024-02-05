@@ -20,6 +20,7 @@ import (
 	"context"
 	"io/ioutil"
 	"os"
+	"sync"
 	"testing"
 	"time"
 
@@ -46,33 +47,50 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/cnr"
+	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/node"
+	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/pod"
 	dynamicconfig "github.com/kubewharf/katalyst-core/pkg/metaserver/config"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
+	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
-func tmpSocketDir() (socketDir string, err error) {
-	socketDir, err = ioutil.TempDir("", "")
+func tmpDirs() (regDir, ckDir, statDir string, err error) {
+	regDir, err = ioutil.TempDir("", "reg")
 	if err != nil {
 		return
 	}
-	_ = os.MkdirAll(socketDir, 0755)
+	_ = os.MkdirAll(regDir, 0755)
+	ckDir, err = ioutil.TempDir("", "ck")
+	if err != nil {
+		return
+	}
+	_ = os.MkdirAll(ckDir, 0755)
+	statDir, err = ioutil.TempDir("", "stat")
+	if err != nil {
+		return
+	}
+	_ = os.MkdirAll(statDir, 0755)
 	return
 }
 
-func generateTestConfiguration(t *testing.T, dir string) *config.Configuration {
+func generateTestConfiguration(t *testing.T, regDir, ckDir, stateFileDir string) *config.Configuration {
 	testConfiguration, err := options.NewOptions().Config()
 	require.NoError(t, err)
 	require.NotNil(t, testConfiguration)
 
 	testConfiguration.GetDynamicConfiguration().EnableReclaim = true
 
-	testConfiguration.PluginRegistrationDir = dir
-	testConfiguration.CheckpointManagerDir = dir
+	testConfiguration.PluginRegistrationDir = regDir
+	testConfiguration.CheckpointManagerDir = ckDir
+	testConfiguration.GenericSysAdvisorConfiguration.StateFileDirectory = stateFileDir
 	testConfiguration.GenericReporterConfiguration.InnerPlugins = nil
 	testConfiguration.HeadroomReporterSyncPeriod = 30 * time.Millisecond
 	testConfiguration.HeadroomReporterSlidingWindowTime = 180 * time.Millisecond
 	testConfiguration.CollectInterval = 30 * time.Millisecond
+	testConfiguration.NodeName = "test-node"
+	testConfiguration.NodeMetricReporterConfiguration.SyncPeriod = time.Millisecond * 100
+	testConfiguration.NodeMetricReporterConfiguration.MetricSlidingWindowTime = time.Second
 	return testConfiguration
 }
 
@@ -84,11 +102,17 @@ func generateTestGenericClientSet(kubeObjects, internalObjects []runtime.Object)
 	}
 }
 
-func generateTestMetaServer(clientSet *client.GenericClientSet, conf *config.Configuration) *metaserver.MetaServer {
+func generateTestMetaServer(clientSet *client.GenericClientSet, conf *config.Configuration, podList ...*v1.Pod) *metaserver.MetaServer {
+	cpuTopology, _ := machine.GenerateDummyCPUTopology(16, 1, 2)
 	return &metaserver.MetaServer{
 		MetaAgent: &agent.MetaAgent{
-			NodeFetcher: node.NewRemoteNodeFetcher(conf.NodeName, clientSet.KubeClient.CoreV1().Nodes()),
-			CNRFetcher:  cnr.NewCachedCNRFetcher(conf.NodeName, conf.CNRCacheTTL, clientSet.InternalClient.NodeV1alpha1().CustomNodeResources()),
+			NodeFetcher:    node.NewRemoteNodeFetcher(conf.NodeName, clientSet.KubeClient.CoreV1().Nodes()),
+			CNRFetcher:     cnr.NewCachedCNRFetcher(conf.NodeName, conf.CNRCacheTTL, clientSet.InternalClient.NodeV1alpha1().CustomNodeResources()),
+			PodFetcher:     &pod.PodFetcherStub{PodList: podList},
+			MetricsFetcher: metric.NewFakeMetricsFetcher(metrics.DummyMetrics{}),
+			KatalystMachineInfo: &machine.KatalystMachineInfo{
+				CPUTopology: cpuTopology,
+			},
 		},
 		ConfigurationManager: &dynamicconfig.DummyConfigurationManager{},
 	}
@@ -115,11 +139,15 @@ func setupReporterManager(t *testing.T, ctx context.Context, socketDir string, c
 func TestNewReclaimedResourcedReporter(t *testing.T) {
 	t.Parallel()
 
-	socketDir, err := tmpSocketDir()
+	regDir, ckDir, statDir, err := tmpDirs()
 	require.NoError(t, err)
-	defer os.RemoveAll(socketDir)
+	defer func() {
+		os.RemoveAll(regDir)
+		os.RemoveAll(ckDir)
+		os.RemoveAll(statDir)
+	}()
 
-	conf := generateTestConfiguration(t, socketDir)
+	conf := generateTestConfiguration(t, regDir, ckDir, statDir)
 	clientSet := generateTestGenericClientSet(nil, nil)
 	metaServer := generateTestMetaServer(clientSet, conf)
 
@@ -130,19 +158,29 @@ func TestNewReclaimedResourcedReporter(t *testing.T) {
 	require.NotNil(t, headroomReporter)
 
 	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	go headroomReporter.Run(ctx)
+	wg := sync.WaitGroup{}
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		headroomReporter.Run(ctx)
+	}()
 	time.Sleep(1 * time.Second)
+	cancel()
+	wg.Wait()
 }
 
 func TestReclaimedResourcedReporterWithManager(t *testing.T) {
 	t.Parallel()
 
-	socketDir, err := tmpSocketDir()
+	regDir, ckDir, statDir, err := tmpDirs()
 	require.NoError(t, err)
-	defer os.RemoveAll(socketDir)
+	defer func() {
+		os.RemoveAll(regDir)
+		os.RemoveAll(ckDir)
+		os.RemoveAll(statDir)
+	}()
 
-	conf := generateTestConfiguration(t, socketDir)
+	conf := generateTestConfiguration(t, regDir, ckDir, statDir)
 	clientSet := generateTestGenericClientSet(nil, nil)
 	metaServer := generateTestMetaServer(clientSet, conf)
 
@@ -153,7 +191,7 @@ func TestReclaimedResourcedReporterWithManager(t *testing.T) {
 	_ = genericPlugin.Start()
 	defer func() { _ = genericPlugin.Stop() }()
 
-	setupReporterManager(t, context.Background(), socketDir, conf)
+	setupReporterManager(t, context.Background(), regDir, conf)
 
 	advisorStub.SetHeadroom(v1.ResourceCPU, resource.MustParse("10"))
 	advisorStub.SetHeadroom(v1.ResourceMemory, resource.MustParse("10Gi"))

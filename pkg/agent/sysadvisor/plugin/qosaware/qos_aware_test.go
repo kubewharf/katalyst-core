@@ -36,6 +36,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric/types"
+	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/pod"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	metricspool "github.com/kubewharf/katalyst-core/pkg/metrics/metrics-pool"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
@@ -71,6 +72,7 @@ func generateTestMetaServer(t *testing.T, conf *config.Configuration) *metaserve
 			MachineInfo: &info.MachineInfo{},
 		},
 		MetricsFetcher: metric.NewFakeMetricsFetcher(metrics.DummyMetrics{}),
+		PodFetcher:     &pod.PodFetcherStub{},
 	}
 
 	return metaServer
