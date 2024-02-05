@@ -78,6 +78,7 @@ func (cache *extendedCache) RemovePod(pod *v1.Pod) error {
 		klog.ErrorS(nil, "Node not found when trying to remove pod", "node", klog.KRef("", pod.Spec.NodeName), "pod", klog.KObj(pod))
 	} else {
 		n.RemovePod(key, pod)
+		n.DeleteAssumedPod(pod)
 	}
 
 	return nil
