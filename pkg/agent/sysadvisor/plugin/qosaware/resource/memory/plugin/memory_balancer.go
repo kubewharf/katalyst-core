@@ -565,7 +565,8 @@ func (m *memoryBalancer) getBalancePodsForPool(poolName string, srcNuma *NumaLat
 	}
 
 	poolNumaSet := machine.NewCPUSet(m.getPoolNumaIDs(poolInfo)...)
-	general.Infof("get balanced pod for pool %v, pool numas:%v, destNumas: %v", poolName, poolNumaSet, destNumaSet)
+	general.Infof("get balanced pod for pool %v, pool numas:%v, destNumas: %v, leftBoundary: %v, rightBoundary: %v",
+		poolName, poolNumaSet, destNumaSet, general.FormatMemoryQuantity(float64(leftBoundary)), general.FormatMemoryQuantity(float64(rightBoundary)))
 
 	if destNumaSet.Intersection(poolNumaSet).Size() > 0 {
 		for i := range pods {
@@ -576,7 +577,7 @@ func (m *memoryBalancer) getBalancePodsForPool(poolName string, srcNuma *NumaLat
 				continue
 			}
 
-			//TODO
+			general.Infof("pod %v/%v has anon %v on numa %v", pod.Namespace, pod.Name, general.FormatMemoryQuantity(anon), srcNuma.NumaID)
 			if int64(anon) > leftBoundary && int64(anon) < rightBoundary {
 				result = append(result, PodSort{
 					Pod:          pod,
