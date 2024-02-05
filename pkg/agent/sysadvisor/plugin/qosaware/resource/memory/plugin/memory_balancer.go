@@ -260,7 +260,7 @@ func (m *memoryBalancer) Reconcile(_ *types.MemoryPressureStatus) error {
 	}
 	balanceInfoStr, _ := json.Marshal(balanceInfo)
 	general.Infof("get BalanceInfo info: %v", string(balanceInfoStr))
-	_ = m.emitter.StoreInt64(MetricNumaMemoryBalance, 1, metrics.MetricTypeNameCount,
+	_ = m.emitter.StoreInt64(MetricNumaMemoryBalance, 1, metrics.MetricTypeNameRaw,
 		metrics.MetricTag{Key: "need_balance", Val: strconv.FormatBool(balanceInfo.NeedBalance)},
 		metrics.MetricTag{Key: "balance_level", Val: string(balanceInfo.BalanceLevel)},
 		metrics.MetricTag{Key: "bandwidth_pressure", Val: strconv.FormatBool(balanceInfo.BandwidthPressure)},

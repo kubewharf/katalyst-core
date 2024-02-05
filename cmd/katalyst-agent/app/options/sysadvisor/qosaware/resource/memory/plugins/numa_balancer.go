@@ -54,8 +54,8 @@ type NumaBalancerOptions struct {
 func NewNumaBalancerOptions() *NumaBalancerOptions {
 	return &NumaBalancerOptions{
 		ReadLatencyMetricName:            map[string]string{util.DefaultConfigKey: consts.MetricMemLatencyReadNuma, util.CPUVendorAMD: consts.MetricMemAMDL3MissLatencyNuma},
-		GraceBalanceReadLatencyThreshold: map[string]int64{util.DefaultConfigKey: 100, util.CPUVendorAMD: 700},
-		ForceBalanceReadLatencyThreshold: map[string]int64{util.DefaultConfigKey: 120, util.CPUVendorAMD: 900},
+		GraceBalanceReadLatencyThreshold: map[string]int64{util.DefaultConfigKey: 70, util.CPUVendorAMD: 500},
+		ForceBalanceReadLatencyThreshold: map[string]int64{util.DefaultConfigKey: 80, util.CPUVendorAMD: 600},
 
 		// when the gap between the max latency and the min latency of conditional nodes greater than this threshold,
 		// then trigger grace balance,
