@@ -48,6 +48,15 @@ func IsDedicatedPod(pod *v1.Pod) bool {
 	return ok
 }
 
+func IsSharedPod(pod *v1.Pod) bool {
+	ok, _ := qosConfig.CheckSharedQoSForPod(pod)
+	return ok
+}
+
+func GetQosLevelForPod(pod *v1.Pod) (string, error) {
+	return qosConfig.GetQoSLevelForPod(pod)
+}
+
 func IsNumaBinding(pod *v1.Pod) bool {
 	if pod == nil {
 		return false

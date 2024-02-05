@@ -31,6 +31,7 @@ import (
 	"github.com/kubewharf/katalyst-api/pkg/apis/node/v1alpha1"
 	"github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/scheduler/util"
+	"github.com/kubewharf/katalyst-core/pkg/util/native"
 )
 
 func (tm *TopologyMatch) dedicatedCoresWithNUMABindingSingleNUMANodeContainerLevelHandler(pod *v1.Pod, zones []*v1alpha1.TopologyZone, nodeInfo *framework.NodeInfo) *framework.Status {
@@ -55,6 +56,23 @@ func (tm *TopologyMatch) dedicatedCoresWithNUMAExclusiveNumericContainerLevelHan
 	klog.V(5).Infof("dedicated with NUMAExclusive numeric container handler for pod %s/%s, node %s", pod.Namespace, pod.Name, nodeInfo.Node().Name)
 
 	return numericContainerLevelHandler(pod, zones, nodeInfo, tm.resourcePolicy, tm.alignedResources)
+}
+
+func (tm *TopologyMatch) sharedCoresHandler(pod *v1.Pod, zones []*v1alpha1.TopologyZone, nodeInfo *framework.NodeInfo) *framework.Status {
+	klog.V(5).Infof("shared handler for pod %s/%s, node %s", pod.Namespace, pod.Name, nodeInfo.Node().Name)
+
+	// skip
+	if native.CheckDaemonPod(pod) {
+		return nil
+	}
+
+	nodeList := TopologyZonesToNUMANodeList(zones)
+	err := resourcesAvailableForSharedPods(nodeList, pod, nodeInfo)
+	if err != nil {
+		return framework.NewStatus(framework.Unschedulable, err.Error())
+	}
+
+	return nil
 }
 
 func numericContainerLevelHandler(pod *v1.Pod, zones []*v1alpha1.TopologyZone, nodeInfo *framework.NodeInfo, policy consts.ResourcePluginPolicyName, alignedResource sets.String) *framework.Status {
@@ -88,6 +106,17 @@ func numericContainerLevelHandler(pod *v1.Pod, zones []*v1alpha1.TopologyZone, n
 			klog.Errorf("subtractFromNUMAs fail, container: %s, node: %s, err: %v", container.Name, nodeInfo.Node().Name, err)
 			return framework.NewStatus(framework.Error, "subtract resource fail")
 		}
+	}
+
+	// check if nonDedicated NUMA resource satisfied for shared pods.
+	NUMANodes := NUMANodeList{}
+	for _, NUMANode := range NUMANodeMap {
+		NUMANodes = append(NUMANodes, NUMANode)
+	}
+
+	err := resourcesAvailableForSharedPods(NUMANodes, nil, nodeInfo)
+	if err != nil {
+		return framework.NewStatus(framework.Unschedulable, err.Error())
 	}
 
 	return nil

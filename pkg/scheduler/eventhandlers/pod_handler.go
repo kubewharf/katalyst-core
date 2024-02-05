@@ -27,7 +27,6 @@ import (
 
 	"github.com/kubewharf/katalyst-api/pkg/client/informers/externalversions"
 	schedulercache "github.com/kubewharf/katalyst-core/pkg/scheduler/cache"
-	"github.com/kubewharf/katalyst-core/pkg/scheduler/util"
 	"github.com/kubewharf/katalyst-core/pkg/util/native"
 )
 
@@ -47,12 +46,12 @@ func AddPodEventHandler(informerFactory informers.SharedInformerFactory, _ exter
 			FilterFunc: func(obj interface{}) bool {
 				switch t := obj.(type) {
 				case *v1.Pod:
-					return util.IsReclaimedPod(t) && native.IsAssignedPod(t)
+					return native.IsAssignedPod(t)
 				case cache.DeletedFinalStateUnknown:
-					if pod, ok := t.Obj.(*v1.Pod); ok {
+					if _, ok := t.Obj.(*v1.Pod); ok {
 						// The carried object may be stale, so we don't use it to check if
 						// it's assigned or not. Attempting to cleanup anyways.
-						return util.IsReclaimedPod(pod)
+						return true
 					}
 					utilruntime.HandleError(fmt.Errorf("unable to convert object %T to *v1.Pod", obj))
 					return false

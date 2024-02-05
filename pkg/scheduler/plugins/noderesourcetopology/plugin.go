@@ -57,6 +57,7 @@ type NUMANode struct {
 	Allocatable v1.ResourceList
 	Available   v1.ResourceList
 	Costs       map[int]int
+	Allocated   bool
 }
 
 type NUMANodeList []NUMANode
@@ -146,7 +147,7 @@ func (tm *TopologyMatch) topologyMatchSupport(pod *v1.Pod) bool {
 
 	if tm.resourcePolicy == consts.ResourcePluginPolicyNameDynamic {
 		// dynamic policy, only dedicated_cores with numaBinding supported
-		if util.IsDedicatedPod(pod) && util.IsNumaBinding(pod) {
+		if util.IsSharedPod(pod) || (util.IsDedicatedPod(pod) && util.IsNumaBinding(pod)) {
 			return true
 		}
 	}
@@ -211,13 +212,14 @@ func TopologyZonesToNUMANodeList(zones []*v1alpha1.TopologyZone) NUMANodeList {
 				klog.Error(err)
 				continue
 			}
-			capacity, allocatable, available := extractAvailableResources(child)
+			capacity, allocatable, available, allocated := extractAvailableResources(child)
 			nodes = append(nodes, NUMANode{
 				SocketID:    topologyZone.Name,
 				NUMAID:      numaID,
 				Capacity:    capacity,
 				Allocatable: allocatable,
 				Available:   available,
+				Allocated:   allocated,
 			})
 		}
 	}
@@ -241,13 +243,14 @@ func TopologyZonesToNUMANodeMap(zones []*v1alpha1.TopologyZone) map[int]NUMANode
 				klog.Error(err)
 				continue
 			}
-			capacity, allocatable, available := extractAvailableResources(child)
+			capacity, allocatable, available, allocated := extractAvailableResources(child)
 			numaNodeMap[numaID] = NUMANode{
 				SocketID:    topologyZone.Name,
 				NUMAID:      numaID,
 				Capacity:    capacity,
 				Allocatable: allocatable,
 				Available:   available,
+				Allocated:   allocated,
 			}
 		}
 	}
@@ -268,7 +271,7 @@ func getID(name string) (int, error) {
 	return numaID, nil
 }
 
-func extractAvailableResources(zone *v1alpha1.TopologyZone) (capacity, allocatable, available v1.ResourceList) {
+func extractAvailableResources(zone *v1alpha1.TopologyZone) (capacity, allocatable, available v1.ResourceList, allocated bool) {
 	used := make(v1.ResourceList)
 	for _, alloc := range zone.Allocations {
 		for resName, quantity := range *alloc.Requests {
@@ -280,8 +283,9 @@ func extractAvailableResources(zone *v1alpha1.TopologyZone) (capacity, allocatab
 				used[resName] = value
 			}
 		}
+		allocated = true
 	}
-	return zone.Resources.Capacity.DeepCopy(), zone.Resources.Allocatable.DeepCopy(), quotav1.SubtractWithNonNegativeResult(*zone.Resources.Allocatable, used)
+	return zone.Resources.Capacity.DeepCopy(), zone.Resources.Allocatable.DeepCopy(), quotav1.SubtractWithNonNegativeResult(*zone.Resources.Allocatable, used), allocated
 }
 
 func minNumaNodeCount(resourceName v1.ResourceName, quantity resource.Quantity, numaNodeMap map[int]NUMANode) int {
