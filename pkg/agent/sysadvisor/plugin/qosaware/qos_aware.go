@@ -18,6 +18,7 @@ package qosaware
 
 import (
 	"context"
+	"sync"
 	"time"
 
 	"k8s.io/apimachinery/pkg/util/wait"
@@ -27,6 +28,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/reporter"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/server"
+	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/crd"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
@@ -48,9 +50,9 @@ type QoSAwarePlugin struct {
 	name   string
 	period time.Duration
 
-	resourceAdvisor  resource.ResourceAdvisor
-	qrmServer        server.QRMServer
-	headroomReporter reporter.HeadroomReporter
+	resourceAdvisor resource.ResourceAdvisor
+	qrmServer       server.QRMServer
+	reporters       []reporter.Reporter
 
 	metaCache metacache.MetaCache
 	emitter   metrics.MetricEmitter
@@ -71,9 +73,22 @@ func NewQoSAwarePlugin(pluginName string, conf *config.Configuration, extraConf 
 		return nil, err
 	}
 
-	headroomReporter, err := reporter.NewHeadroomReporter(emitter, metaServer, conf, resourceAdvisor)
-	if err != nil {
-		return nil, err
+	reporters := make([]reporter.Reporter, 0)
+	for _, reporterName := range conf.Reporters {
+		switch reporterName {
+		case types.HeadroomReporter:
+			headroomReporter, err := reporter.NewHeadroomReporter(emitter, metaServer, conf, resourceAdvisor)
+			if err != nil {
+				return nil, err
+			}
+			reporters = append(reporters, headroomReporter)
+		case types.NodeMetricReporter:
+			nodeMetricsReporter, err := reporter.NewNodeMetricsReporter(emitter, metaServer, metaCache, conf)
+			if err != nil {
+				return nil, err
+			}
+			reporters = append(reporters, nodeMetricsReporter)
+		}
 	}
 
 	// add dynamic config watcher
@@ -86,9 +101,9 @@ func NewQoSAwarePlugin(pluginName string, conf *config.Configuration, extraConf 
 		name:   pluginName,
 		period: conf.SysAdvisorPluginsConfiguration.QoSAwarePluginConfiguration.SyncPeriod,
 
-		resourceAdvisor:  resourceAdvisor,
-		headroomReporter: headroomReporter,
-		qrmServer:        qrmServer,
+		resourceAdvisor: resourceAdvisor,
+		reporters:       reporters,
+		qrmServer:       qrmServer,
 
 		metaCache: metaCache,
 		emitter:   emitter,
@@ -104,8 +119,17 @@ func (qap *QoSAwarePlugin) Run(ctx context.Context) {
 	go qap.qrmServer.Run(ctx)
 	go qap.resourceAdvisor.Run(ctx)
 
-	// Headroom reporter must run synchronously to be stopped gracefully
-	qap.headroomReporter.Run(ctx)
+	// reporters must run synchronously to be stopped gracefully
+	wg := sync.WaitGroup{}
+	for _, reporter := range qap.reporters {
+		wg.Add(1)
+		runnable := reporter
+		go func() {
+			defer wg.Done()
+			runnable.Run(ctx)
+		}()
+	}
+	wg.Wait()
 }
 
 // Name returns the name of qos aware plugin

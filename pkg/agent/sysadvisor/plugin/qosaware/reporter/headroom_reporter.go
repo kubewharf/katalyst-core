@@ -49,18 +49,13 @@ const (
 	headroomReporterPluginName = "headroom-reporter-plugin"
 )
 
-// HeadroomReporter is used to report resource headroom quantity
-type HeadroomReporter interface {
-	Run(ctx context.Context)
-}
-
 type headroomReporterImpl struct {
 	skeleton.GenericPlugin
 }
 
 // NewHeadroomReporter returns a wrapper of headroom reporter plugins as headroom reporter
 func NewHeadroomReporter(emitter metrics.MetricEmitter, metaServer *metaserver.MetaServer,
-	conf *config.Configuration, headroomAdvisor hmadvisor.ResourceAdvisor) (HeadroomReporter, error) {
+	conf *config.Configuration, headroomAdvisor hmadvisor.ResourceAdvisor) (Reporter, error) {
 	plugin, err := newHeadroomReporterPlugin(emitter, metaServer, conf, headroomAdvisor)
 	if err != nil {
 		return nil, fmt.Errorf("[headroom-reporter] create headroom reporter failed: %s", err)

@@ -485,7 +485,7 @@ func getCNRField(cnr *nodev1alpha1.CustomNodeResource, reportField v1alpha1.Repo
 	// find origin value by field name
 	field := el.FieldByName(reportField.FieldName)
 	if !field.IsValid() {
-		return reflect.Value{}, fmt.Errorf("%s is invald", reportField.FieldName)
+		return reflect.Value{}, fmt.Errorf("field %s is invalid", reportField.FieldName)
 	}
 
 	return field, nil

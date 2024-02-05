@@ -31,16 +31,16 @@ type QoSAwarePluginConfiguration struct {
 
 	*resource.ResourceAdvisorConfiguration
 	*server.QRMServerConfiguration
-	*reporter.HeadroomReporterConfiguration
+	*reporter.ReporterConfiguration
 	*model.ModelConfiguration
 }
 
 // NewQoSAwarePluginConfiguration creates a new qos aware plugin configuration.
 func NewQoSAwarePluginConfiguration() *QoSAwarePluginConfiguration {
 	return &QoSAwarePluginConfiguration{
-		ResourceAdvisorConfiguration:  resource.NewResourceAdvisorConfiguration(),
-		QRMServerConfiguration:        server.NewQRMServerConfiguration(),
-		HeadroomReporterConfiguration: reporter.NewHeadroomReporterConfiguration(),
-		ModelConfiguration:            model.NewModelConfiguration(),
+		ResourceAdvisorConfiguration: resource.NewResourceAdvisorConfiguration(),
+		QRMServerConfiguration:       server.NewQRMServerConfiguration(),
+		ReporterConfiguration:        reporter.NewReporterConfiguration(),
+		ModelConfiguration:           model.NewModelConfiguration(),
 	}
 }

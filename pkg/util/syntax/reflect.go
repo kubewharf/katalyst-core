@@ -134,12 +134,19 @@ func SimpleMergeTwoValues(src reflect.Value, dst reflect.Value) error {
 		SetMapValue(src, dst)
 	case reflect.Struct:
 		var errList []error
+		allFieldsCanSet := true
 		for i := 0; i < src.NumField(); i++ {
+			if !dst.Field(i).CanSet() {
+				allFieldsCanSet = false
+				break
+			}
 			if err := SimpleMergeTwoValues(src.Field(i), dst.Field(i)); err != nil {
 				errList = append(errList, err)
 			}
 		}
-
+		if !allFieldsCanSet {
+			dst.Set(src)
+		}
 		if len(errList) > 0 {
 			return fmt.Errorf("failed to merge struct: %v", errList)
 		}
@@ -152,8 +159,7 @@ func SimpleMergeTwoValues(src reflect.Value, dst reflect.Value) error {
 
 		// initialize the origin value if it is nil
 		if dst.IsNil() {
-			v := reflect.New(dst.Type().Elem())
-			dst.Set(v)
+			dst.Set(reflect.New(dst.Type().Elem()))
 		}
 		dst = dst.Elem()
 

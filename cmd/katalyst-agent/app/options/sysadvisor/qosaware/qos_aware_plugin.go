@@ -39,18 +39,18 @@ type QoSAwarePluginOptions struct {
 
 	*resource.ResourceAdvisorOptions
 	*server.QRMServerOptions
-	*reporter.HeadroomReporterOptions
+	*reporter.ReporterOptions
 	*model.ModelOptions
 }
 
 // NewQoSAwarePluginOptions creates a new Options with a default config.
 func NewQoSAwarePluginOptions() *QoSAwarePluginOptions {
 	return &QoSAwarePluginOptions{
-		SyncPeriod:              defaultQoSAwareSyncPeriod,
-		ResourceAdvisorOptions:  resource.NewResourceAdvisorOptions(),
-		QRMServerOptions:        server.NewQRMServerOptions(),
-		HeadroomReporterOptions: reporter.NewHeadroomReporterOptions(),
-		ModelOptions:            model.NewModelOptions(),
+		SyncPeriod:             defaultQoSAwareSyncPeriod,
+		ResourceAdvisorOptions: resource.NewResourceAdvisorOptions(),
+		QRMServerOptions:       server.NewQRMServerOptions(),
+		ReporterOptions:        reporter.NewReporterOptions(),
+		ModelOptions:           model.NewModelOptions(),
 	}
 }
 
@@ -62,7 +62,7 @@ func (o *QoSAwarePluginOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 
 	o.ResourceAdvisorOptions.AddFlags(fs)
 	o.QRMServerOptions.AddFlags(fs)
-	o.HeadroomReporterOptions.AddFlags(fs)
+	o.ReporterOptions.AddFlags(fs)
 	o.ModelOptions.AddFlags(fs)
 }
 
@@ -73,7 +73,7 @@ func (o *QoSAwarePluginOptions) ApplyTo(c *qosaware.QoSAwarePluginConfiguration)
 	var errList []error
 	errList = append(errList, o.ResourceAdvisorOptions.ApplyTo(c.ResourceAdvisorConfiguration))
 	errList = append(errList, o.QRMServerOptions.ApplyTo(c.QRMServerConfiguration))
-	errList = append(errList, o.HeadroomReporterOptions.ApplyTo(c.HeadroomReporterConfiguration))
+	errList = append(errList, o.ReporterOptions.ApplyTo(c.ReporterConfiguration))
 	errList = append(errList, o.ModelOptions.ApplyTo(c.ModelConfiguration))
 
 	return errors.NewAggregate(errList)
