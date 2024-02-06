@@ -544,7 +544,7 @@ func (p *DynamicPolicy) handleNumaMemoryBalance(_ *config.Configuration,
 	err = p.asyncWorkers.AddWork(migratePagesWorkName,
 		&asyncworker.Work{
 			Fn:          p.doNumaMemoryBalance,
-			Params:      []interface{}{advice},
+			Params:      []interface{}{*advice},
 			DeliveredAt: time.Now()})
 
 	if err != nil {
@@ -563,7 +563,7 @@ type containerMigrateStat struct {
 	rssAfter    uint64
 }
 
-func (p *DynamicPolicy) doNumaMemoryBalance(advice types.NumaMemoryBalanceAdvice) error {
+func (p *DynamicPolicy) doNumaMemoryBalance(ctx context.Context, advice types.NumaMemoryBalanceAdvice) error {
 	startTime := time.Now()
 	defer func() {
 		cost := time.Now().Sub(startTime)
@@ -669,8 +669,9 @@ func (p *DynamicPolicy) doNumaMemoryBalance(advice types.NumaMemoryBalanceAdvice
 		}
 	}
 
-	_ = p.emitter.StoreInt64(util.MetricNameMemoryNumaBalanceResult, 1, metrics.MetricTypeNameCount,
+	_ = p.emitter.StoreInt64(util.MetricNameMemoryNumaBalanceResult, 1, metrics.MetricTypeNameRaw,
 		metrics.MetricTag{Key: "success", Val: strconv.FormatBool(migrateSuccess)})
 
+	_ = asyncworker.EmitAsyncedMetrics(ctx)
 	return nil
 }
