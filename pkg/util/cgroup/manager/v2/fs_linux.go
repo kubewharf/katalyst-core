@@ -268,6 +268,7 @@ func (m *manager) GetMemory(absCgroupPath string) (*common.MemoryStats, error) {
 
 func (m *manager) GetNumaMemory(absCgroupPath string) (map[int]*common.MemoryNumaMetrics, error) {
 	numaStat, err := common.ParseCgroupNumaValue(absCgroupPath, "memory.numa_stat")
+	general.Infof("get cgroup %+v numa stat %+v", absCgroupPath, numaStat)
 	if err != nil {
 		return nil, err
 	}
@@ -283,10 +284,12 @@ func (m *manager) GetNumaMemory(absCgroupPath string) (map[int]*common.MemoryNum
 				result[numaID].Anon = value
 			}
 		}
+	} else {
+		general.Warningf("no anon in numa stat,cgroup path:%v", absCgroupPath)
 	}
 
-	if anonStat, ok := numaStat["file"]; ok {
-		for numaID, value := range anonStat {
+	if fileStat, ok := numaStat["file"]; ok {
+		for numaID, value := range fileStat {
 			if _, ok := result[numaID]; !ok {
 				result[numaID] = &common.MemoryNumaMetrics{
 					File: value,
@@ -295,6 +298,8 @@ func (m *manager) GetNumaMemory(absCgroupPath string) (map[int]*common.MemoryNum
 				result[numaID].File = value
 			}
 		}
+	} else {
+		general.Warningf("no file in numa stat,cgroup path:%v", absCgroupPath)
 	}
 
 	return result, nil

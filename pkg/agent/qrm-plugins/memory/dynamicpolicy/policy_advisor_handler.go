@@ -577,6 +577,8 @@ func (p *DynamicPolicy) doNumaMemoryBalance(ctx context.Context, advice types.Nu
 
 	getAnonOnNumaFunc := func(absCGPath string, numaID int) (uint64, error) {
 		numaMemory, err := cgroupmgr.GetManager().GetNumaMemory(absCGPath)
+		numaMemoryJson, _ := json.Marshal(numaMemory)
+		general.Infof("get cgroup %v numa stat:%+v", absCGPath, string(numaMemoryJson))
 		if err != nil {
 			return 0, err
 		}
@@ -588,7 +590,7 @@ func (p *DynamicPolicy) doNumaMemoryBalance(ctx context.Context, advice types.Nu
 		return numaMemory[numaID].Anon, nil
 	}
 
-	containerStats := make(map[string]containerMigrateStat)
+	containerStats := make(map[string]*containerMigrateStat)
 	for _, containerInfo := range advice.MigrateContainers {
 		containerID, err := p.metaServer.GetContainerID(containerInfo.PodUID, containerInfo.ContainerName)
 		if err != nil {
@@ -603,7 +605,7 @@ func (p *DynamicPolicy) doNumaMemoryBalance(ctx context.Context, advice types.Nu
 		}
 
 		key := keyFunc(containerInfo.PodUID, containerInfo.ContainerName)
-		containerStats[key] = containerMigrateStat{
+		containerStats[key] = &containerMigrateStat{
 			containerID: containerID,
 			cgroupPath:  memoryAbsCGPath,
 		}
@@ -628,7 +630,7 @@ func (p *DynamicPolicy) doNumaMemoryBalance(ctx context.Context, advice types.Nu
 
 			containerNumaSet := machine.NewCPUSet(containerInfo.DestNumaList...)
 			if containerNumaSet.Contains(destNuma) {
-				err = MigratePagesForContainer(context.TODO(), containerInfo.PodUID, stats.containerID, p.topology.NumNUMANodes,
+				err = MigratePagesForContainer(ctx, containerInfo.PodUID, stats.containerID, p.topology.NumNUMANodes,
 					machine.NewCPUSet(advice.SourceNuma), machine.NewCPUSet(destNuma))
 				if err != nil {
 					general.Errorf("MigratePagesForContainer failed for container[%v/%v] source_numa [%v],dest_numa [%v],err: %v",
@@ -656,6 +658,8 @@ func (p *DynamicPolicy) doNumaMemoryBalance(ctx context.Context, advice types.Nu
 
 		var totalRSSAfter uint64
 		var totalRSSBefore uint64
+		containerStatJson, _ := json.Marshal(containerStats)
+		general.Infof("containerStats: %+v", string(containerStatJson))
 		for _, stat := range containerStats {
 			totalRSSAfter += stat.rssAfter
 			totalRSSBefore += stat.rssBefore
