@@ -264,6 +264,10 @@ func (p *DynamicPolicy) Start() (err error) {
 	go wait.Until(p.checkMemorySet, memsetCheckPeriod, p.stopCh)
 	go wait.Until(p.applyExternalCgroupParams, applyCgroupPeriod, p.stopCh)
 	go wait.Until(p.setExtraControlKnobByConfigs, setExtraControlKnobsPeriod, p.stopCh)
+	err = p.asyncWorkers.Start(p.stopCh)
+	if err != nil {
+		general.Errorf("start async worker failed, err: %v", err)
+	}
 
 	if p.enableSettingMemoryMigrate {
 		general.Infof("setMemoryMigrate enabled")
