@@ -20,7 +20,11 @@ import (
 	"fmt"
 	"sort"
 
+	v1 "k8s.io/api/core/v1"
+
 	nodev1alpha1 "github.com/kubewharf/katalyst-api/pkg/apis/node/v1alpha1"
+	"github.com/kubewharf/katalyst-core/pkg/config/generic"
+	"github.com/kubewharf/katalyst-core/pkg/util/qos"
 )
 
 // ZoneMeta is a struct that contains the type and name of a zone.
@@ -163,4 +167,39 @@ func generateTopologyZoneStatus(
 	})
 
 	return result
+}
+
+// ValidateSharedCoresWithNumaBindingPod is to check whether zone requests of shared_cores with numa_binding pod is valid
+func ValidateSharedCoresWithNumaBindingPod(qosConf *generic.QoSConfiguration, pod *v1.Pod, zoneRequests map[ZoneNode]*v1.ResourceList) (bool, error) {
+	sharedQoS, err := qosConf.CheckSharedQoS(pod, map[string]string{})
+	if err != nil {
+		return false, err
+	}
+
+	if !sharedQoS || !qos.IsPodNumaBinding(qosConf, pod) {
+		return false, nil
+	}
+
+	var bindingNumaNode *ZoneNode
+	for zoneNode, resourceList := range zoneRequests {
+		if zoneNode.Meta.Type != nodev1alpha1.TopologyTypeNuma {
+			continue
+		}
+
+		if resourceList != nil &&
+			(!resourceList.Cpu().IsZero() || !resourceList.Memory().IsZero()) {
+			// check whether cpu or memory are bound to more than one numa node
+			if bindingNumaNode != nil {
+				return false, fmt.Errorf("shared_cores with numa binding pod cpu or memory " +
+					"not support binding more than one numa node")
+			}
+			bindingNumaNode = &zoneNode
+		}
+	}
+
+	if bindingNumaNode == nil {
+		return false, fmt.Errorf("shared_cores with numa binding pod without binding numa")
+	}
+
+	return true, nil
 }

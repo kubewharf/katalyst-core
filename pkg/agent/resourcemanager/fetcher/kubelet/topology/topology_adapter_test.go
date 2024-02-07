@@ -48,7 +48,6 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/kubeletconfig"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/pod"
 	"github.com/kubewharf/katalyst-core/pkg/util"
-	"github.com/kubewharf/katalyst-core/pkg/util/qos"
 )
 
 type fakePodResourcesServer struct {
@@ -87,26 +86,41 @@ func (f *fakePodResourcesListerClient) GetAllocatableResources(_ context.Context
 	return f.AllocatableResourcesResponse, nil
 }
 
-func generateTestPod(namespace, name, uid string, isBindNumaQoS bool) *v1.Pod {
+func generateTestPod(namespace, name, uid string, qosLevel string, isBindNumaQoS bool,
+	resourceRequirements map[string]v1.ResourceRequirements) *v1.Pod {
 	p := &v1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      name,
 			Namespace: namespace,
 			UID:       types.UID(uid),
 			Annotations: map[string]string{
-				consts.PodAnnotationQoSLevelKey:          consts.PodAnnotationQoSLevelDedicatedCores,
-				consts.PodAnnotationMemoryEnhancementKey: `{"numa_binding": "true"}`,
+				consts.PodAnnotationQoSLevelKey: qosLevel,
 			},
 		},
 	}
 
 	if isBindNumaQoS {
 		p.Annotations = map[string]string{
-			consts.PodAnnotationQoSLevelKey:          consts.PodAnnotationQoSLevelDedicatedCores,
+			consts.PodAnnotationQoSLevelKey:          qosLevel,
 			consts.PodAnnotationMemoryEnhancementKey: `{"numa_binding": "true"}`,
 		}
 	}
+
+	for containerName, resourceRequirements := range resourceRequirements {
+		p.Spec.Containers = append(p.Spec.Containers, v1.Container{
+			Name:      containerName,
+			Resources: resourceRequirements,
+		})
+	}
 	return p
+}
+
+func generateTestDedicatedCoresPod(namespace, name, uid string, isBindNumaQoS bool) *v1.Pod {
+	return generateTestPod(namespace, name, uid, consts.PodAnnotationQoSLevelDedicatedCores, isBindNumaQoS, nil)
+}
+
+func generateTestSharedCoresPod(namespace, name, uid string, isBindNumaQoS bool, resourceRequirements map[string]v1.ResourceRequirements) *v1.Pod {
+	return generateTestPod(namespace, name, uid, consts.PodAnnotationQoSLevelSharedCores, isBindNumaQoS, resourceRequirements)
 }
 
 func generateFloat64ResourceValue(value string) float64 {
@@ -152,9 +166,9 @@ func Test_getZoneAllocationsByPodResources(t *testing.T) {
 			name: "test-1",
 			args: args{
 				podList: []*v1.Pod{
-					generateTestPod("default", "pod-1", "pod-1-uid", true),
-					generateTestPod("default", "pod-2", "pod-2-uid", true),
-					generateTestPod("default", "pod-3", "pod-3-uid", false),
+					generateTestDedicatedCoresPod("default", "pod-1", "pod-1-uid", true),
+					generateTestDedicatedCoresPod("default", "pod-2", "pod-2-uid", true),
+					generateTestDedicatedCoresPod("default", "pod-3", "pod-3-uid", true),
 				},
 				numaSocketZoneNodeMap: map[util.ZoneNode]util.ZoneNode{
 					util.GenerateNumaZoneNode(0): util.GenerateSocketZoneNode(0),
@@ -390,19 +404,269 @@ func Test_getZoneAllocationsByPodResources(t *testing.T) {
 				},
 			},
 		},
+		{
+			name: "test for shared core with numa binding",
+			args: args{
+				podList: []*v1.Pod{
+					generateTestSharedCoresPod("default", "pod-1", "pod-1-uid", true,
+						map[string]v1.ResourceRequirements{
+							"container-1": {
+								Requests: v1.ResourceList{
+									v1.ResourceCPU:    resource.MustParse("10"),
+									v1.ResourceMemory: resource.MustParse("10G"),
+									"gpu":             resource.MustParse("2"),
+								},
+							},
+						}),
+					generateTestDedicatedCoresPod("default", "pod-2", "pod-2-uid", true),
+					generateTestSharedCoresPod("default", "pod-3", "pod-3-uid", false,
+						map[string]v1.ResourceRequirements{
+							"container-1": {
+								Requests: v1.ResourceList{
+									v1.ResourceCPU:    resource.MustParse("10"),
+									v1.ResourceMemory: resource.MustParse("10G"),
+									"gpu":             resource.MustParse("2"),
+								},
+							},
+						}),
+				},
+				numaSocketZoneNodeMap: map[util.ZoneNode]util.ZoneNode{
+					util.GenerateNumaZoneNode(0): util.GenerateSocketZoneNode(0),
+					util.GenerateNumaZoneNode(1): util.GenerateSocketZoneNode(1),
+				},
+				podResourcesList: []*podresv1.PodResources{
+					{
+						Namespace: "default",
+						Name:      "pod-1",
+						Containers: []*podresv1.ContainerResources{
+							{
+								Name: "container-1",
+								Devices: []*podresv1.ContainerDevices{
+									{
+										ResourceName: "gpu",
+										Topology: &podresv1.TopologyInfo{
+											Nodes: []*podresv1.NUMANode{
+												{ID: 0},
+											},
+										},
+									},
+									{
+										ResourceName: "gpu",
+										Topology: &podresv1.TopologyInfo{
+											Nodes: []*podresv1.NUMANode{
+												{ID: 1},
+											},
+										},
+									},
+								},
+								Resources: []*podresv1.TopologyAwareResource{
+									{
+										ResourceName: "cpu",
+										OriginalTopologyAwareQuantityList: []*podresv1.TopologyAwareQuantity{
+											{
+												ResourceValue: 24,
+												Node:          0,
+											},
+										},
+									},
+									{
+										ResourceName: "memory",
+										OriginalTopologyAwareQuantityList: []*podresv1.TopologyAwareQuantity{
+											{
+												ResourceValue: generateFloat64ResourceValue("10G"),
+												Node:          0,
+											},
+										},
+									},
+								},
+							},
+						},
+					},
+					{
+						Namespace: "default",
+						Name:      "pod-2",
+						Containers: []*podresv1.ContainerResources{
+							{
+								Name: "container-1",
+								Devices: []*podresv1.ContainerDevices{
+									{
+										ResourceName: "gpu",
+										Topology: &podresv1.TopologyInfo{
+											Nodes: []*podresv1.NUMANode{
+												{ID: 0},
+											},
+										},
+									},
+									{
+										ResourceName: "gpu",
+										Topology: &podresv1.TopologyInfo{
+											Nodes: []*podresv1.NUMANode{
+												{ID: 1},
+											},
+										},
+									},
+									{
+										ResourceName: "disk",
+									},
+								},
+								Resources: []*podresv1.TopologyAwareResource{
+									{
+										ResourceName: "cpu",
+										OriginalTopologyAwareQuantityList: []*podresv1.TopologyAwareQuantity{
+											{
+												ResourceValue: 24,
+												Node:          0,
+											},
+											{
+												ResourceValue: 24,
+												Node:          1,
+											},
+										},
+									},
+									{
+										ResourceName: "memory",
+										OriginalTopologyAwareQuantityList: []*podresv1.TopologyAwareQuantity{
+											{
+												ResourceValue: generateFloat64ResourceValue("32G"),
+												Node:          0,
+											},
+											{
+												ResourceValue: generateFloat64ResourceValue("32G"),
+												Node:          1,
+											},
+										},
+									},
+								},
+							},
+						},
+					},
+					{
+						Namespace: "default",
+						Name:      "pod-3",
+						Containers: []*podresv1.ContainerResources{
+							{
+								Name: "container-1",
+								Devices: []*podresv1.ContainerDevices{
+									{
+										ResourceName: "gpu",
+										Topology: &podresv1.TopologyInfo{
+											Nodes: []*podresv1.NUMANode{
+												{ID: 0},
+											},
+										},
+									},
+									{
+										ResourceName: "gpu",
+										Topology: &podresv1.TopologyInfo{
+											Nodes: []*podresv1.NUMANode{
+												{ID: 1},
+											},
+										},
+									},
+									{
+										ResourceName: "disk",
+									},
+								},
+								Resources: []*podresv1.TopologyAwareResource{
+									{
+										ResourceName: "cpu",
+										OriginalTopologyAwareQuantityList: []*podresv1.TopologyAwareQuantity{
+											{
+												ResourceValue: 24,
+												Node:          0,
+											},
+											{
+												ResourceValue: 24,
+												Node:          1,
+											},
+										},
+									},
+									{
+										ResourceName: "memory",
+										OriginalTopologyAwareQuantityList: []*podresv1.TopologyAwareQuantity{
+											{
+												ResourceValue: generateFloat64ResourceValue("32G"),
+												Node:          0,
+											},
+											{
+												ResourceValue: generateFloat64ResourceValue("32G"),
+												Node:          1,
+											},
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+			want: map[util.ZoneNode]util.ZoneAllocations{
+				{
+					Meta: util.ZoneMeta{
+						Type: nodev1alpha1.TopologyTypeNuma,
+						Name: "0",
+					},
+				}: {
+					{
+						Consumer: "default/pod-1/pod-1-uid",
+						Requests: &v1.ResourceList{
+							"gpu":    resource.MustParse("1"),
+							"cpu":    resource.MustParse("10"),
+							"memory": resource.MustParse("10G"),
+						},
+					},
+					{
+						Consumer: "default/pod-2/pod-2-uid",
+						Requests: &v1.ResourceList{
+							"gpu":    resource.MustParse("1"),
+							"cpu":    resource.MustParse("24"),
+							"memory": resource.MustParse("32G"),
+						},
+					},
+					{
+						Consumer: "default/pod-3/pod-3-uid",
+						Requests: &v1.ResourceList{
+							"gpu": resource.MustParse("1"),
+						},
+					},
+				},
+				{
+					Meta: util.ZoneMeta{
+						Type: nodev1alpha1.TopologyTypeNuma,
+						Name: "1",
+					},
+				}: {
+					{
+						Consumer: "default/pod-1/pod-1-uid",
+						Requests: &v1.ResourceList{
+							"gpu": resource.MustParse("1"),
+						},
+					},
+					{
+						Consumer: "default/pod-2/pod-2-uid",
+						Requests: &v1.ResourceList{
+							"gpu":    resource.MustParse("1"),
+							"cpu":    resource.MustParse("24"),
+							"memory": resource.MustParse("32G"),
+						},
+					},
+					{
+						Consumer: "default/pod-3/pod-3-uid",
+						Requests: &v1.ResourceList{
+							"gpu": resource.MustParse("1"),
+						},
+					},
+				},
+			},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			qosConf := generic.NewQoSConfiguration()
-			podResourcesFilter := func(pod *v1.Pod, podResources *podresv1.PodResources) (*podresv1.PodResources, error) {
-				if !qos.IsPodNumaBinding(qosConf, pod) {
-					return nil, nil
-				}
-				return podResources, nil
-			}
 			p := &topologyAdapterImpl{
 				numaSocketZoneNodeMap: tt.args.numaSocketZoneNodeMap,
-				podResourcesFilter:    podResourcesFilter,
+				qosConf:               qosConf,
+				podResourcesFilter:    GenericPodResourcesFilter(qosConf),
 			}
 			got, err := p.getZoneAllocations(tt.args.podList, tt.args.podResourcesList)
 			if (err != nil) != tt.wantErr {
@@ -762,9 +1026,9 @@ func Test_podResourcesServerTopologyAdapterImpl_GetTopologyZones_ReportRDMATopol
 			name: "test normal",
 			fields: fields{
 				podList: []*v1.Pod{
-					generateTestPod("default", "pod-1", "pod-1-uid", true),
-					generateTestPod("default", "pod-2", "pod-2-uid", true),
-					generateTestPod("default", "pod-3", "pod-3-uid", false),
+					generateTestDedicatedCoresPod("default", "pod-1", "pod-1-uid", true),
+					generateTestDedicatedCoresPod("default", "pod-2", "pod-2-uid", true),
+					generateTestDedicatedCoresPod("default", "pod-3", "pod-3-uid", true),
 				},
 				listPodResources: &podresv1.ListPodResourcesResponse{
 					PodResources: []*podresv1.PodResources{
@@ -977,6 +1241,7 @@ func Test_podResourcesServerTopologyAdapterImpl_GetTopologyZones_ReportRDMATopol
 						PodFetcher: &pod.PodFetcherStub{PodList: tt.fields.podList},
 					},
 				},
+				qosConf:               generic.NewQoSConfiguration(),
 				numaSocketZoneNodeMap: tt.fields.numaSocketZoneNodeMap,
 				resourceNameToZoneTypeMap: map[string]string{
 					"resource.katalyst.kubewharf.io/rdma": "NIC",
@@ -1011,9 +1276,9 @@ func Test_podResourcesServerTopologyAdapterImpl_GetTopologyZones(t *testing.T) {
 			name: "test normal",
 			fields: fields{
 				podList: []*v1.Pod{
-					generateTestPod("default", "pod-1", "pod-1-uid", true),
-					generateTestPod("default", "pod-2", "pod-2-uid", true),
-					generateTestPod("default", "pod-3", "pod-3-uid", false),
+					generateTestDedicatedCoresPod("default", "pod-1", "pod-1-uid", true),
+					generateTestDedicatedCoresPod("default", "pod-2", "pod-2-uid", true),
+					generateTestDedicatedCoresPod("default", "pod-3", "pod-3-uid", true),
 				},
 				listPodResources: &podresv1.ListPodResourcesResponse{
 					PodResources: []*podresv1.PodResources{
@@ -1444,9 +1709,9 @@ func Test_podResourcesServerTopologyAdapterImpl_GetTopologyZones(t *testing.T) {
 			name: "test validation failed",
 			fields: fields{
 				podList: []*v1.Pod{
-					generateTestPod("default", "pod-1", "pod-1-uid", true),
-					generateTestPod("default", "pod-2", "pod-2-uid", true),
-					generateTestPod("default", "pod-3", "pod-3-uid", false),
+					generateTestDedicatedCoresPod("default", "pod-1", "pod-1-uid", true),
+					generateTestDedicatedCoresPod("default", "pod-2", "pod-2-uid", true),
+					generateTestDedicatedCoresPod("default", "pod-3", "pod-3-uid", true),
 				},
 				listPodResources: &podresv1.ListPodResourcesResponse{
 					PodResources: []*podresv1.PodResources{
@@ -1653,9 +1918,9 @@ func Test_podResourcesServerTopologyAdapterImpl_GetTopologyZones(t *testing.T) {
 			name: "pod resources empty",
 			fields: fields{
 				podList: []*v1.Pod{
-					generateTestPod("default", "pod-1", "pod-1-uid", true),
-					generateTestPod("default", "pod-2", "pod-2-uid", true),
-					generateTestPod("default", "pod-3", "pod-3-uid", false),
+					generateTestDedicatedCoresPod("default", "pod-1", "pod-1-uid", true),
+					generateTestDedicatedCoresPod("default", "pod-2", "pod-2-uid", true),
+					generateTestDedicatedCoresPod("default", "pod-3", "pod-3-uid", true),
 				},
 				listPodResources: &podresv1.ListPodResourcesResponse{
 					PodResources: []*podresv1.PodResources{},
@@ -1790,6 +2055,7 @@ func Test_podResourcesServerTopologyAdapterImpl_GetTopologyZones(t *testing.T) {
 						PodFetcher: &pod.PodFetcherStub{PodList: tt.fields.podList},
 					},
 				},
+				qosConf:               generic.NewQoSConfiguration(),
 				numaSocketZoneNodeMap: tt.fields.numaSocketZoneNodeMap,
 			}
 			got, err := p.GetTopologyZones(context.TODO())
@@ -1860,7 +2126,7 @@ func Test_podResourcesServerTopologyAdapterImpl_Run(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.TODO())
 	notifier := make(chan struct{}, 1)
-	p, _ := NewPodResourcesServerTopologyAdapter(testMetaServer,
+	p, _ := NewPodResourcesServerTopologyAdapter(testMetaServer, generic.NewQoSConfiguration(),
 		endpoints, kubeletResourcePluginPath, nil,
 		nil, getNumaInfo, nil, podresources.GetV1Client)
 	err = p.Run(ctx, func() {})
