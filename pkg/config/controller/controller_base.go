@@ -49,6 +49,7 @@ type ControllersConfiguration struct {
 	*MonitorConfig
 	*OvercommitConfig
 	*TideConfig
+	*ResourceRecommenderConfig
 }
 
 func NewGenericControllerConfiguration() *GenericControllerConfiguration {
@@ -57,12 +58,13 @@ func NewGenericControllerConfiguration() *GenericControllerConfiguration {
 
 func NewControllersConfiguration() *ControllersConfiguration {
 	return &ControllersConfiguration{
-		VPAConfig:        NewVPAConfig(),
-		KCCConfig:        NewKCCConfig(),
-		SPDConfig:        NewSPDConfig(),
-		LifeCycleConfig:  NewLifeCycleConfig(),
-		MonitorConfig:    NewMonitorConfig(),
-		OvercommitConfig: NewOvercommitConfig(),
-		TideConfig:       NewTideConfig(),
+		VPAConfig:                 NewVPAConfig(),
+		KCCConfig:                 NewKCCConfig(),
+		SPDConfig:                 NewSPDConfig(),
+		LifeCycleConfig:           NewLifeCycleConfig(),
+		MonitorConfig:             NewMonitorConfig(),
+		OvercommitConfig:          NewOvercommitConfig(),
+		TideConfig:                NewTideConfig(),
+		ResourceRecommenderConfig: NewResourceRecommenderConfig(),
 	}
 }
