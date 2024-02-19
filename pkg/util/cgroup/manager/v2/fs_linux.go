@@ -57,6 +57,22 @@ func (m *manager) ApplyMemory(absCgroupPath string, data *common.MemoryData) err
 		}
 	}
 
+	if data.SoftLimitInBytes > 0 {
+		if err, applied, oldData := common.WriteFileIfChange(absCgroupPath, "memory.low", numToStr(data.SoftLimitInBytes)); err != nil {
+			return err
+		} else if applied {
+			klog.Infof("[CgroupV2] apply memory low successfully, cgroupPath: %s, data: %v, old data: %v\n", absCgroupPath, data.SoftLimitInBytes, oldData)
+		}
+	}
+
+	if data.MinInBytes > 0 {
+		if err, applied, oldData := common.WriteFileIfChange(absCgroupPath, "memory.min", numToStr(data.MinInBytes)); err != nil {
+			return err
+		} else if applied {
+			klog.Infof("[CgroupV2] apply memory min successfully, cgroupPath: %s, data: %v, old data: %v\n", absCgroupPath, data.MinInBytes, oldData)
+		}
+	}
+
 	if data.WmarkRatio != 0 {
 		newRatio := fmt.Sprintf("%d", data.WmarkRatio)
 		if err, applied, oldData := common.WriteFileIfChange(absCgroupPath, "memory.wmark_ratio", newRatio); err != nil {

@@ -52,6 +52,14 @@ func (m *manager) ApplyMemory(absCgroupPath string, data *common.MemoryData) err
 		}
 	}
 
+	if data.SoftLimitInBytes > 0 {
+		if err, applied, oldData := common.WriteFileIfChange(absCgroupPath, "memory.soft_limit_in_bytes", strconv.FormatInt(data.SoftLimitInBytes, 10)); err != nil {
+			return err
+		} else if applied {
+			klog.Infof("[CgroupV1] apply memory soft_limit_in_bytes successfully, cgroupPath: %s, data: %v, old data: %v\n", absCgroupPath, data.SoftLimitInBytes, oldData)
+		}
+	}
+
 	if data.TCPMemLimitInBytes > 0 {
 		if err, applied, oldData := common.WriteFileIfChange(absCgroupPath, "memory.kmem.tcp.limit_in_bytes", strconv.FormatInt(data.TCPMemLimitInBytes, 10)); err != nil {
 			return err
