@@ -32,7 +32,7 @@ func Test_noneExistMetricsProvisioner(t *testing.T) {
 	store := utilmetric.NewMetricStore()
 
 	var err error
-	implement := NewMalachiteMetricsProvisioner(&global.BaseConfiguration{}, store, metrics.DummyMetrics{}, &pod.PodFetcherStub{}, nil, nil)
+	implement := NewMalachiteMetricsProvisioner(&global.BaseConfiguration{}, metrics.DummyMetrics{}, &pod.PodFetcherStub{}, store)
 
 	fakeSystemCompute := &malachitetypes.SystemComputeData{
 		CPU: []malachitetypes.CPU{

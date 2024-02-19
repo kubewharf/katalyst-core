@@ -19,9 +19,7 @@ package kubelet
 import (
 	"context"
 	"sync"
-	"time"
 
-	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/klog/v2"
 	statsapi "k8s.io/kubelet/pkg/apis/stats/v1alpha1"
 
@@ -29,6 +27,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric/provisioner/kubelet/client"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric/types"
+	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/pod"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	utilmetric "github.com/kubewharf/katalyst-core/pkg/util/metric"
 )
@@ -37,14 +36,12 @@ const (
 	metricsNamKubeletSummaryUnHealthy = "kubelet_summary_unhealthy"
 )
 
-func NewKubeletSummaryProvisioner(baseConf *global.BaseConfiguration, metricStore *utilmetric.MetricStore,
-	emitter metrics.MetricEmitter, metricsNotifierManager types.MetricsNotifierManager, externalMetricManager types.ExternalMetricManager) types.MetricsProvisioner {
+func NewKubeletSummaryProvisioner(baseConf *global.BaseConfiguration,
+	emitter metrics.MetricEmitter, _ pod.PodFetcher, metricStore *utilmetric.MetricStore) types.MetricsProvisioner {
 	return &KubeletSummaryProvisioner{
-		metricStore:            metricStore,
-		emitter:                emitter,
-		client:                 client.NewKubeletSummaryClient(baseConf),
-		metricsNotifierManager: metricsNotifierManager,
-		externalMetricManager:  externalMetricManager,
+		metricStore: metricStore,
+		emitter:     emitter,
+		client:      client.NewKubeletSummaryClient(baseConf),
 	}
 }
 
@@ -55,19 +52,10 @@ type KubeletSummaryProvisioner struct {
 
 	startOnce sync.Once
 	hasSynced bool
-
-	metricsNotifierManager types.MetricsNotifierManager
-	externalMetricManager  types.ExternalMetricManager
 }
 
 func (p *KubeletSummaryProvisioner) Run(ctx context.Context) {
-	p.startOnce.Do(func() {
-		go wait.Until(func() { p.sample(ctx) }, time.Second*5, ctx.Done())
-	})
-}
-
-func (p *KubeletSummaryProvisioner) HasSynced() bool {
-	return p.hasSynced
+	p.sample(ctx)
 }
 
 func (p *KubeletSummaryProvisioner) sample(ctx context.Context) {
@@ -89,15 +77,6 @@ func (p *KubeletSummaryProvisioner) sample(ctx context.Context) {
 			p.processContainerRootfsStats(podStats.PodRef.UID, &containerStats)
 			p.processContainerLogsStats(podStats.PodRef.UID, &containerStats)
 		}
-
-		// /etc/hosts
-	}
-
-	p.externalMetricManager.Sample()
-	p.metricsNotifierManager.Notify()
-
-	if !p.hasSynced {
-		p.hasSynced = true
 	}
 }
 

@@ -30,7 +30,7 @@ import (
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 )
 
-// endpoint maps to a single registered resource plugin. It is responsible
+// Endpoint maps to a single registered resource plugin. It is responsible
 // for managing gRPC communications with the resource plugin and caching
 // resource states reported by the resource plugin.
 type Endpoint interface {
@@ -82,7 +82,7 @@ func (e *EndpointImpl) Client() pluginapi.ResourcePluginClient {
 	return e.client
 }
 
-// newStoppedEndpointImpl creates a new endpoint for the given resourceName with stopTime set.
+// NewStoppedEndpointImpl creates a new endpoint for the given resourceName with stopTime set.
 // This is to be used during Kubelet restart, before the actual resource plugin re-registers.
 func NewStoppedEndpointImpl(resourceName string) *EndpointImpl {
 	return &EndpointImpl{

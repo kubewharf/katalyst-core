@@ -62,7 +62,7 @@ type FakeMetricsFetcher struct {
 	hasSynced bool
 }
 
-func (f *FakeMetricsFetcher) Run(ctx context.Context) {
+func (f *FakeMetricsFetcher) Run(_ context.Context) {
 	f.RLock()
 	defer f.RUnlock()
 	for _, fu := range f.registeredMetric {
@@ -78,11 +78,11 @@ func (f *FakeMetricsFetcher) HasSynced() bool {
 	return f.hasSynced
 }
 
-func (f *FakeMetricsFetcher) RegisterNotifier(scope types.MetricsScope, req types.NotifiedRequest, response chan types.NotifiedResponse) string {
+func (f *FakeMetricsFetcher) RegisterNotifier(_ types.MetricsScope, _ types.NotifiedRequest, _ chan types.NotifiedResponse) string {
 	return ""
 }
 
-func (f *FakeMetricsFetcher) DeRegisterNotifier(scope types.MetricsScope, key string) {}
+func (f *FakeMetricsFetcher) DeRegisterNotifier(_ types.MetricsScope, _ string) {}
 
 func (f *FakeMetricsFetcher) RegisterExternalMetric(fu func(store *metric.MetricStore)) {
 	f.Lock()

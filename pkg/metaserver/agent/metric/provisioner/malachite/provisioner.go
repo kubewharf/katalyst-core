@@ -20,10 +20,8 @@ import (
 	"context"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
-	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/klog/v2"
 
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/global"
@@ -51,15 +49,12 @@ const (
 
 // NewMalachiteMetricsProvisioner returns the default implementation of MetricsFetcher.
 func NewMalachiteMetricsProvisioner(baseConf *global.BaseConfiguration,
-	metricStore *utilmetric.MetricStore, emitter metrics.MetricEmitter, fetcher pod.PodFetcher,
-	metricsNotifierManager types.MetricsNotifierManager, externalMetricManager types.ExternalMetricManager) types.MetricsProvisioner {
+	emitter metrics.MetricEmitter, fetcher pod.PodFetcher, metricStore *utilmetric.MetricStore) types.MetricsProvisioner {
 	return &MalachiteMetricsProvisioner{
-		malachiteClient:        client.NewMalachiteClient(fetcher),
-		metricStore:            metricStore,
-		emitter:                emitter,
-		baseConf:               baseConf,
-		metricsNotifierManager: metricsNotifierManager,
-		externalMetricManager:  externalMetricManager,
+		malachiteClient: client.NewMalachiteClient(fetcher),
+		metricStore:     metricStore,
+		emitter:         emitter,
+		baseConf:        baseConf,
 	}
 }
 
@@ -67,24 +62,11 @@ type MalachiteMetricsProvisioner struct {
 	metricStore     *utilmetric.MetricStore
 	malachiteClient *client.MalachiteClient
 	baseConf        *global.BaseConfiguration
-
-	metricsNotifierManager types.MetricsNotifierManager
-	externalMetricManager  types.ExternalMetricManager
-
-	startOnce sync.Once
-	emitter   metrics.MetricEmitter
-
-	synced bool
+	emitter         metrics.MetricEmitter
 }
 
 func (m *MalachiteMetricsProvisioner) Run(ctx context.Context) {
-	m.startOnce.Do(func() {
-		go wait.Until(func() { m.sample(ctx) }, time.Second*5, ctx.Done())
-	})
-}
-
-func (m *MalachiteMetricsProvisioner) HasSynced() bool {
-	return m.synced
+	m.sample(ctx)
 }
 
 func (m *MalachiteMetricsProvisioner) sample(ctx context.Context) {
@@ -100,17 +82,6 @@ func (m *MalachiteMetricsProvisioner) sample(ctx context.Context) {
 	m.updatePodsCgroupData(ctx)
 	// Update top level cgroup of kubepods
 	m.updateCgroupData()
-
-	if m.externalMetricManager != nil {
-		// after sampling, we should call the registered function to get external metric
-		m.externalMetricManager.Sample()
-	}
-
-	if m.metricsNotifierManager != nil {
-		m.metricsNotifierManager.Notify()
-	}
-
-	m.synced = true
 }
 
 // checkMalachiteHealthy is to check whether malachite is healthy

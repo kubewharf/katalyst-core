@@ -20,14 +20,14 @@ import (
 	"context"
 	"fmt"
 	"math/rand"
+	"sync"
 	"time"
 
 	v1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/util/wait"
 
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/global"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/metaserver"
-	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric/provisioner/kubelet"
-	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric/provisioner/malachite"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric/types"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/pod"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
@@ -211,25 +211,37 @@ func (m *ExternalMetricManagerImpl) Sample() {
 }
 
 type MetricsFetcherImpl struct {
+	startOnce sync.Once
+	hasSynced bool
+
 	metricStore            *utilmetric.MetricStore
 	metricsNotifierManager types.MetricsNotifierManager
 	externalMetricManager  types.ExternalMetricManager
-	provisioners           []types.MetricsProvisioner
 	checkMetricDataExpire  CheckMetricDataExpireFunc
+
+	// provisioners are ordered with priority,
+	// and we should always depend on the former (and fallback to latter if it missed)
+	provisioners []types.MetricsProvisioner
 }
 
 func NewMetricsFetcher(baseConf *global.BaseConfiguration, metricConf *metaserver.MetricConfiguration, emitter metrics.MetricEmitter, podFetcher pod.PodFetcher) types.MetricsFetcher {
 	metricStore := utilmetric.NewMetricStore()
 	metricsNotifierManager := NewMetricsNotifierManager(metricStore, emitter)
 	externalMetricManager := NewExternalMetricManager(metricStore, emitter)
-	malachiteProvisioner := malachite.NewMalachiteMetricsProvisioner(baseConf, metricStore, emitter, podFetcher, metricsNotifierManager, externalMetricManager)
-	kubeletProvisioner := kubelet.NewKubeletSummaryProvisioner(baseConf, metricStore, emitter, metricsNotifierManager, externalMetricManager)
+
+	registeredProvisioners := getProvisioners()
+	var enabledProvisioners []types.MetricsProvisioner
+	for _, name := range metricConf.MetricProvisions {
+		if f, ok := registeredProvisioners[name]; ok {
+			enabledProvisioners = append(enabledProvisioners, f(baseConf, emitter, podFetcher, metricStore))
+		}
+	}
 
 	return &MetricsFetcherImpl{
 		metricStore:            metricStore,
 		metricsNotifierManager: metricsNotifierManager,
 		externalMetricManager:  externalMetricManager,
-		provisioners:           []types.MetricsProvisioner{malachiteProvisioner, kubeletProvisioner},
+		provisioners:           enabledProvisioners,
 		checkMetricDataExpire:  checkMetricDataExpireFunc(metricConf.MetricInsurancePeriod),
 	}
 }
@@ -297,16 +309,39 @@ func (f *MetricsFetcherImpl) RegisterExternalMetric(externalMetricFunc func(stor
 }
 
 func (f *MetricsFetcherImpl) Run(ctx context.Context) {
-	for _, provisioner := range f.provisioners {
-		provisioner.Run(ctx)
+	f.startOnce.Do(func() {
+		go wait.Until(func() { f.sample(ctx) }, time.Second*5, ctx.Done())
+	})
+}
+
+func (f *MetricsFetcherImpl) sample(ctx context.Context) {
+	wg := sync.WaitGroup{}
+	for name := range f.provisioners {
+		p := f.provisioners[name]
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			p.Run(ctx)
+		}()
+	}
+	wg.Wait()
+
+	// we should handle notifier and externalMetric only once
+	// rather than do it in each provisioner
+	if f.externalMetricManager != nil {
+		// after sampling, we should call the registered function to get external metric
+		f.externalMetricManager.Sample()
+	}
+
+	if f.metricsNotifierManager != nil {
+		f.metricsNotifierManager.Notify()
+	}
+
+	if !f.hasSynced {
+		f.hasSynced = true
 	}
 }
 
 func (f *MetricsFetcherImpl) HasSynced() bool {
-	for _, provisioner := range f.provisioners {
-		if !provisioner.HasSynced() {
-			return false
-		}
-	}
-	return true
+	return f.hasSynced
 }

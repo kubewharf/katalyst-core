@@ -74,6 +74,7 @@ type MetaServerOptions struct {
 
 	// configurations for metric-fetcher
 	MetricInsurancePeriod time.Duration
+	MetricProvisions      []string
 
 	// configurations for pod-cache
 	KubeletPodCacheSyncPeriod    time.Duration
@@ -102,6 +103,7 @@ func NewMetaServerOptions() *MetaServerOptions {
 		ServiceProfileCacheTTL: defaultServiceProfileCacheTTL,
 
 		MetricInsurancePeriod: defaultMetricInsurancePeriod,
+		MetricProvisions:      []string{metaserver.MetricProvisionerMalachite, metaserver.MetricProvisionerKubelet},
 
 		KubeletPodCacheSyncPeriod:    defaultKubeletPodCacheSyncPeriod,
 		KubeletPodCacheSyncMaxRate:   defaultKubeletPodCacheSyncMaxRate,
@@ -139,6 +141,8 @@ func (o *MetaServerOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 
 	fs.DurationVar(&o.MetricInsurancePeriod, "metric-insurance-period", o.MetricInsurancePeriod,
 		"The meta server return metric data and MetricDataExpired if the update time of metric data is earlier than this period.")
+	fs.StringSliceVar(&o.MetricProvisions, "metric-provisioners", o.MetricProvisions,
+		"The provisioners that should be enabled by default")
 
 	fs.DurationVar(&o.KubeletPodCacheSyncPeriod, "kubelet-pod-cache-sync-period", o.KubeletPodCacheSyncPeriod,
 		"The period of meta server to sync pod from kubelet 10255 port")
@@ -170,6 +174,7 @@ func (o *MetaServerOptions) ApplyTo(c *metaserver.MetaServerConfiguration) error
 	c.ServiceProfileCacheTTL = o.ServiceProfileCacheTTL
 
 	c.MetricInsurancePeriod = o.MetricInsurancePeriod
+	c.MetricProvisions = o.MetricProvisions
 
 	c.KubeletPodCacheSyncPeriod = o.KubeletPodCacheSyncPeriod
 	c.KubeletPodCacheSyncMaxRate = rate.Limit(o.KubeletPodCacheSyncMaxRate)
