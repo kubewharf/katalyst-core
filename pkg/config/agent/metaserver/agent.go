@@ -22,8 +22,15 @@ import (
 	"golang.org/x/time/rate"
 )
 
+const (
+	MetricProvisionerMalachite = "malachite"
+	MetricProvisionerCgroup    = "cgroup"
+	MetricProvisionerKubelet   = "kubelet"
+)
+
 type MetricConfiguration struct {
 	MetricInsurancePeriod time.Duration
+	MetricProvisions      []string
 }
 
 type PodConfiguration struct {

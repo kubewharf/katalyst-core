@@ -92,8 +92,10 @@ type MetricsReader interface {
 }
 
 type MetricsProvisioner interface {
+	// Run should be a synchronized logic to make sure different provisions
+	// keep the same pace to avoid the summarized metrics to be be generated
+	// based on difference timestamp.
 	Run(ctx context.Context)
-	HasSynced() bool
 }
 
 type MetricsNotifierManager interface {
