@@ -261,7 +261,7 @@ func Test_serviceProfilingManager_ServiceBusinessPerformanceLevel(t *testing.T) 
 			})
 			require.NoError(t, err)
 
-			cncFetcher := cnc.NewCachedCNCFetcher(conf.NodeName, conf.CustomNodeConfigCacheTTL, genericCtx.Client.InternalClient.ConfigV1alpha1().CustomNodeConfigs())
+			cncFetcher := cnc.NewCachedCNCFetcher(conf.BaseConfiguration, conf.CNCConfiguration, genericCtx.Client.InternalClient.ConfigV1alpha1().CustomNodeConfigs())
 			s, err := NewSPDFetcher(genericCtx.Client, metrics.DummyMetrics{}, cncFetcher, conf)
 			require.NoError(t, err)
 			require.NotNil(t, s)
@@ -398,7 +398,7 @@ func Test_serviceProfilingManager_ServiceSystemPerformanceTarget(t *testing.T) {
 			})
 			require.NoError(t, err)
 
-			cncFetcher := cnc.NewCachedCNCFetcher(conf.NodeName, conf.CustomNodeConfigCacheTTL, genericCtx.Client.InternalClient.ConfigV1alpha1().CustomNodeConfigs())
+			cncFetcher := cnc.NewCachedCNCFetcher(conf.BaseConfiguration, conf.CNCConfiguration, genericCtx.Client.InternalClient.ConfigV1alpha1().CustomNodeConfigs())
 			s, err := NewSPDFetcher(genericCtx.Client, metrics.DummyMetrics{}, cncFetcher, conf)
 			require.NoError(t, err)
 			require.NotNil(t, s)

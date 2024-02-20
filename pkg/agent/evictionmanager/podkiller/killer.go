@@ -268,7 +268,7 @@ type ContainerKiller struct {
 }
 
 func NewContainerKiller(conf *config.Configuration, _ kubernetes.Interface, recorder events.EventRecorder, emitter metrics.MetricEmitter) (Killer, error) {
-	remoteRuntimeService, err := remote.NewRemoteRuntimeService(conf.RemoteRuntimeEndpoint, 2*time.Minute)
+	remoteRuntimeService, err := remote.NewRemoteRuntimeService(conf.RuntimeEndpoint, 2*time.Minute)
 	if err != nil {
 		return nil, err
 	}

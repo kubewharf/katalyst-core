@@ -22,7 +22,7 @@ import (
 
 	kubeletconfigv1beta1 "k8s.io/kubelet/config/v1beta1"
 
-	"github.com/kubewharf/katalyst-core/pkg/config"
+	"github.com/kubewharf/katalyst-core/pkg/config/agent/global"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/native"
 )
@@ -34,22 +34,22 @@ type KubeletConfigFetcher interface {
 }
 
 // NewKubeletConfigFetcher returns a KubeletConfigFetcher
-func NewKubeletConfigFetcher(conf *config.Configuration, emitter metrics.MetricEmitter) KubeletConfigFetcher {
+func NewKubeletConfigFetcher(baseConf *global.BaseConfiguration, emitter metrics.MetricEmitter) KubeletConfigFetcher {
 	return &kubeletConfigFetcherImpl{
-		emitter: emitter,
-		conf:    conf,
+		emitter:  emitter,
+		baseConf: baseConf,
 	}
 }
 
 // kubeletConfigFetcherImpl use kubelet 10255 pods interface to get pod directly without cache.
 type kubeletConfigFetcherImpl struct {
-	emitter metrics.MetricEmitter
-	conf    *config.Configuration
+	emitter  metrics.MetricEmitter
+	baseConf *global.BaseConfiguration
 }
 
 // GetKubeletConfig gets kubelet config from kubelet 10250/configz api
 func (k *kubeletConfigFetcherImpl) GetKubeletConfig(ctx context.Context) (*kubeletconfigv1beta1.KubeletConfiguration, error) {
-	if !k.conf.EnableKubeletSecurePort {
+	if !k.baseConf.KubeletSecurePortEnabled {
 		return nil, fmt.Errorf("it is not enabled to get contents from kubelet secure port")
 	}
 
@@ -58,7 +58,8 @@ func (k *kubeletConfigFetcherImpl) GetKubeletConfig(ctx context.Context) (*kubel
 	}
 	configz := configzWrapper{}
 
-	if err := native.GetAndUnmarshalForHttps(ctx, k.conf.KubeletSecurePort, k.conf.NodeAddress, k.conf.KubeletConfigEndpoint, k.conf.APIAuthTokenFile, &configz); err != nil {
+	if err := native.GetAndUnmarshalForHttps(ctx, k.baseConf.KubeletSecurePort, k.baseConf.NodeAddress,
+		k.baseConf.KubeletConfigEndpoint, k.baseConf.APIAuthTokenFile, &configz); err != nil {
 		return nil, fmt.Errorf("failed to get kubelet config, error: %v", err)
 	}
 

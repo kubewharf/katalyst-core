@@ -36,8 +36,8 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/node"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/pod"
-	dynamicconfig "github.com/kubewharf/katalyst-core/pkg/metaserver/config"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/external"
+	dynamicconfig "github.com/kubewharf/katalyst-core/pkg/metaserver/kcc"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/spd"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 )
@@ -52,11 +52,14 @@ func generateTestConfiguration(t *testing.T) *config.Configuration {
 func generateTestMetaServer(clientSet *client.GenericClientSet, conf *config.Configuration) *MetaServer {
 	return &MetaServer{
 		MetaAgent: &agent.MetaAgent{
-			PodFetcher:     &pod.PodFetcherStub{},
-			NodeFetcher:    node.NewRemoteNodeFetcher(conf.NodeName, clientSet.KubeClient.CoreV1().Nodes()),
-			CNRFetcher:     cnr.NewCachedCNRFetcher(conf.NodeName, conf.CNRCacheTTL, clientSet.InternalClient.NodeV1alpha1().CustomNodeResources()),
-			MetricsFetcher: metric.NewMetricsFetcher(metrics.DummyMetrics{}, &pod.PodFetcherStub{}, conf),
-			Conf:           conf,
+			PodFetcher: &pod.PodFetcherStub{},
+			NodeFetcher: node.NewRemoteNodeFetcher(conf.BaseConfiguration, conf.NodeConfiguration,
+				clientSet.KubeClient.CoreV1().Nodes()),
+			CNRFetcher: cnr.NewCachedCNRFetcher(conf.BaseConfiguration, conf.CNRConfiguration,
+				clientSet.InternalClient.NodeV1alpha1().CustomNodeResources()),
+			MetricsFetcher: metric.NewMetricsFetcher(conf.BaseConfiguration, conf.MetricConfiguration,
+				metrics.DummyMetrics{}, &pod.PodFetcherStub{}),
+			AgentConf: conf.MetaServerConfiguration.AgentConfiguration,
 		},
 		ConfigurationManager:    &dynamicconfig.DummyConfigurationManager{},
 		ServiceProfilingManager: &spd.DummyServiceProfilingManager{},

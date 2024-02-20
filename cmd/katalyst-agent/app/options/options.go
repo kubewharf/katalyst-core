@@ -24,6 +24,7 @@ import (
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/options/dynamic"
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/options/eviction"
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/options/global"
+	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/options/metaserver"
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/options/orm"
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/options/qrm"
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/options/reporter"
@@ -40,7 +41,7 @@ type Options struct {
 	// those are options used by all the katalyst agents
 	*global.BaseOptions
 	*global.PluginManagerOptions
-	*global.MetaServerOptions
+	*metaserver.MetaServerOptions
 	*global.QRMAdvisorOptions
 
 	// the below are options used by all each individual katalyst module/plugin
@@ -65,7 +66,7 @@ func NewOptions() *Options {
 		GenericOptions:       options.NewGenericOptions(),
 		DynamicOptions:       dynamic.NewDynamicOptions(),
 		BaseOptions:          global.NewBaseOptions(),
-		MetaServerOptions:    global.NewMetaServerOptions(),
+		MetaServerOptions:    metaserver.NewMetaServerOptions(),
 		PluginManagerOptions: global.NewPluginManagerOptions(),
 		QRMAdvisorOptions:    global.NewQRMAdvisorOptions(),
 

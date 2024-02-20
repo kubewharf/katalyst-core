@@ -22,10 +22,12 @@ import (
 
 	v1 "k8s.io/api/core/v1"
 
-	"github.com/kubewharf/katalyst-core/pkg/config"
+	"github.com/kubewharf/katalyst-core/pkg/config/agent/global"
 	"github.com/kubewharf/katalyst-core/pkg/util/native"
 	"github.com/kubewharf/katalyst-core/pkg/util/process"
 )
+
+const podsApi = "http://localhost:%v/%v"
 
 // KubeletPodFetcher is used to get K8S kubelet pod information.
 type KubeletPodFetcher interface {
@@ -36,7 +38,7 @@ type KubeletPodFetcher interface {
 
 // kubeletPodFetcherImpl use kubelet 10255 pods interface to get pod directly without cache.
 type kubeletPodFetcherImpl struct {
-	conf *config.Configuration
+	baseConf *global.BaseConfiguration
 }
 
 // GetPodList get pods from kubelet 10255/pods api, and the returned slice does not
@@ -44,13 +46,14 @@ type kubeletPodFetcherImpl struct {
 func (k *kubeletPodFetcherImpl) GetPodList(ctx context.Context, podFilter func(*v1.Pod) bool) ([]*v1.Pod, error) {
 	var podList v1.PodList
 
-	if k.conf.EnableKubeletSecurePort {
-		if err := native.GetAndUnmarshalForHttps(ctx, k.conf.KubeletSecurePort, k.conf.NodeAddress, k.conf.KubeletPodsEndpoint, k.conf.APIAuthTokenFile, &podList); err != nil {
+	if k.baseConf.KubeletSecurePortEnabled {
+		if err := native.GetAndUnmarshalForHttps(ctx, k.baseConf.KubeletSecurePort, k.baseConf.NodeAddress,
+			k.baseConf.KubeletPodsEndpoint, k.baseConf.APIAuthTokenFile, &podList); err != nil {
 			return []*v1.Pod{}, fmt.Errorf("failed to get kubelet config, error: %v", err)
 		}
 	} else {
-		const podsApi = "http://localhost:10255/pods"
-		if err := process.GetAndUnmarshal(podsApi, &podList); err != nil {
+		url := fmt.Sprintf(podsApi, k.baseConf.KubeletReadOnlyPort, k.baseConf.KubeletPodsEndpoint)
+		if err := process.GetAndUnmarshal(url, &podList); err != nil {
 			return []*v1.Pod{}, fmt.Errorf("failed to get pod list, error: %v", err)
 		}
 	}
@@ -70,8 +73,8 @@ func (k *kubeletPodFetcherImpl) GetPodList(ctx context.Context, podFilter func(*
 	return pods, nil
 }
 
-func NewKubeletPodFetcher(conf *config.Configuration) KubeletPodFetcher {
+func NewKubeletPodFetcher(baseConf *global.BaseConfiguration) KubeletPodFetcher {
 	return &kubeletPodFetcherImpl{
-		conf: conf,
+		baseConf: baseConf,
 	}
 }

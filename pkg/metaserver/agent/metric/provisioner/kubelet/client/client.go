@@ -22,31 +22,33 @@ import (
 
 	statsapi "k8s.io/kubelet/pkg/apis/stats/v1alpha1"
 
-	"github.com/kubewharf/katalyst-core/pkg/config"
+	"github.com/kubewharf/katalyst-core/pkg/config/agent/global"
 	"github.com/kubewharf/katalyst-core/pkg/util/native"
 	"github.com/kubewharf/katalyst-core/pkg/util/process"
 )
 
+const summaryApi = "http://localhost:%v/%v"
+
 type KubeletSummaryClient struct {
-	conf *config.Configuration
+	baseConf *global.BaseConfiguration
 }
 
-// http://127.0.0.1:10255
-func NewKubeletSummaryClient(conf *config.Configuration) *KubeletSummaryClient {
+func NewKubeletSummaryClient(baseConf *global.BaseConfiguration) *KubeletSummaryClient {
 	return &KubeletSummaryClient{
-		conf: conf,
+		baseConf: baseConf,
 	}
 }
 
 func (c *KubeletSummaryClient) Summary(ctx context.Context) (*statsapi.Summary, error) {
 	summary := &statsapi.Summary{}
-	if c.conf.EnableKubeletSecurePort {
-		if err := native.GetAndUnmarshalForHttps(ctx, c.conf.KubeletSecurePort, c.conf.NodeAddress, c.conf.KubeletSummaryEndpoint, c.conf.APIAuthTokenFile, summary); err != nil {
+	if c.baseConf.KubeletSecurePortEnabled {
+		if err := native.GetAndUnmarshalForHttps(ctx, c.baseConf.KubeletSecurePort, c.baseConf.NodeAddress,
+			c.baseConf.KubeletSummaryEndpoint, c.baseConf.APIAuthTokenFile, summary); err != nil {
 			return nil, fmt.Errorf("failed to get kubelet config for summary api, error: %v", err)
 		}
 	} else {
-		const podsApi = "http://localhost:10255/stats/summary"
-		if err := process.GetAndUnmarshal(podsApi, summary); err != nil {
+		url := fmt.Sprintf(summaryApi, c.baseConf.KubeletReadOnlyPort, c.baseConf.KubeletPodsEndpoint)
+		if err := process.GetAndUnmarshal(url, summary); err != nil {
 			return nil, fmt.Errorf("failed to get summary, error: %v", err)
 		}
 	}

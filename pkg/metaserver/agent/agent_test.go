@@ -37,6 +37,8 @@ import (
 	v1alpha1client "github.com/kubewharf/katalyst-api/pkg/client/clientset/versioned/typed/node/v1alpha1"
 	katalyst_base "github.com/kubewharf/katalyst-core/cmd/base"
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/options"
+	"github.com/kubewharf/katalyst-core/pkg/config/agent/global"
+	metaconfig "github.com/kubewharf/katalyst-core/pkg/config/agent/metaserver"
 	cnrmeta "github.com/kubewharf/katalyst-core/pkg/metaserver/agent/cnr"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/kubeletconfig"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric"
@@ -102,10 +104,10 @@ func TestFetcher(t *testing.T) {
 
 	// before start, we can set component implementations for metaServer
 	agent.SetPodFetcher(constructPodFetcher([]string{"test-pod-1", "test-pod-2"}))
-	agent.SetNodeFetcher(node.NewRemoteNodeFetcher("test-node-1", constructNodeInterface("test-node-1")))
-	agent.SetCNRFetcher(cnrmeta.NewCachedCNRFetcher("test-cnr-1", conf.CNRCacheTTL, constructCNRInterface("test-cnr-1")))
+	agent.SetNodeFetcher(node.NewRemoteNodeFetcher(&global.BaseConfiguration{NodeName: "test-node-1"}, &metaconfig.NodeConfiguration{}, constructNodeInterface("test-node-1")))
+	agent.SetCNRFetcher(cnrmeta.NewCachedCNRFetcher(&global.BaseConfiguration{NodeName: "test-cnr-1"}, conf.CNRConfiguration, constructCNRInterface("test-cnr-1")))
 	agent.SetMetricFetcher(metric.NewFakeMetricsFetcher(metrics.DummyMetrics{}))
-	agent.SetKubeletConfigFetcher(kubeletconfig.NewKubeletConfigFetcher(conf, metrics.DummyMetrics{}))
+	agent.SetKubeletConfigFetcher(kubeletconfig.NewKubeletConfigFetcher(conf.BaseConfiguration, metrics.DummyMetrics{}))
 
 	podObjList, err := agent.GetPodList(ctx, func(*v1.Pod) bool { return true })
 	assert.NoError(t, err)
@@ -132,11 +134,11 @@ func TestFetcher(t *testing.T) {
 
 	// before start, we can set component implementations for metaServer
 	agent.SetPodFetcher(constructPodFetcher([]string{"test-pod-3", "test-pod-4", "test-pod-5"}))
-	agent.SetNodeFetcher(node.NewRemoteNodeFetcher("test-node-2", constructNodeInterface("test-node-2")))
-	agent.SetCNRFetcher(cnrmeta.NewCachedCNRFetcher("test-cnr-2", conf.CNRCacheTTL, constructCNRInterface("test-cnr-2")))
+	agent.SetNodeFetcher(node.NewRemoteNodeFetcher(&global.BaseConfiguration{NodeName: "test-node-2"}, &metaconfig.NodeConfiguration{}, constructNodeInterface("test-node-2")))
+	agent.SetCNRFetcher(cnrmeta.NewCachedCNRFetcher(&global.BaseConfiguration{NodeName: "test-cnr-2"}, conf.CNRConfiguration, constructCNRInterface("test-cnr-2")))
 
-	conf.EnableKubeletSecurePort = true
-	agent.SetKubeletConfigFetcher(kubeletconfig.NewKubeletConfigFetcher(conf, metrics.DummyMetrics{}))
+	conf.KubeletSecurePortEnabled = true
+	agent.SetKubeletConfigFetcher(kubeletconfig.NewKubeletConfigFetcher(conf.BaseConfiguration, metrics.DummyMetrics{}))
 
 	_ = agent.CNRFetcher.RegisterNotifier("test-cnr-2", cnrmeta.CNRNotifierStub{})
 	assert.NoError(t, err)
@@ -178,8 +180,8 @@ func TestFetcher(t *testing.T) {
 	time.Sleep(time.Second)
 
 	agent.SetPodFetcher(constructPodFetcher([]string{"test-pod-6"}))
-	agent.SetNodeFetcher(node.NewRemoteNodeFetcher("test-node-3", constructNodeInterface("test-node-3")))
-	agent.SetCNRFetcher(cnrmeta.NewCachedCNRFetcher("test-cnr-3", conf.CNRCacheTTL, constructCNRInterface("test-cnr-3")))
+	agent.SetNodeFetcher(node.NewRemoteNodeFetcher(&global.BaseConfiguration{NodeName: "test-node-3"}, &metaconfig.NodeConfiguration{}, constructNodeInterface("test-node-3")))
+	agent.SetCNRFetcher(cnrmeta.NewCachedCNRFetcher(&global.BaseConfiguration{NodeName: "test-cnr-3"}, conf.CNRConfiguration, constructCNRInterface("test-cnr-3")))
 	agent.SetObjectFetcher(gvr, s)
 
 	podObjList, err = agent.GetPodList(ctx, func(*v1.Pod) bool { return true })

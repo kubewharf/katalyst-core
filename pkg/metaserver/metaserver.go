@@ -28,8 +28,8 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/client"
 	pkgconfig "github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent"
-	"github.com/kubewharf/katalyst-core/pkg/metaserver/config"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/external"
+	"github.com/kubewharf/katalyst-core/pkg/metaserver/kcc"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/spd"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 )
@@ -41,7 +41,7 @@ type MetaServer struct {
 	sync.Mutex
 
 	*agent.MetaAgent
-	config.ConfigurationManager
+	kcc.ConfigurationManager
 	spd.ServiceProfilingManager
 	external.ExternalManager
 }
@@ -59,15 +59,15 @@ func NewMetaServer(clientSet *client.GenericClientSet, emitter metrics.MetricEmi
 		return nil, fmt.Errorf("initializes meta server checkpoint dir failed: %s", err)
 	}
 
-	var configurationManager config.ConfigurationManager
+	var configurationManager kcc.ConfigurationManager
 	if !conf.ConfigDisableDynamic {
-		configurationManager, err = config.NewDynamicConfigManager(clientSet, emitter,
+		configurationManager, err = kcc.NewDynamicConfigManager(clientSet, emitter,
 			metaAgent.CNCFetcher, conf)
 		if err != nil {
 			return nil, err
 		}
 	} else {
-		configurationManager = &config.DummyConfigurationManager{}
+		configurationManager = &kcc.DummyConfigurationManager{}
 	}
 
 	spdFetcher, err := spd.NewSPDFetcher(clientSet, emitter, metaAgent.CNCFetcher, conf)

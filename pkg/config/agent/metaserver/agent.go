@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package global
+package metaserver
 
 import (
 	"time"
@@ -22,37 +22,45 @@ import (
 	"golang.org/x/time/rate"
 )
 
-type MetaServerConfiguration struct {
-	CNRCacheTTL                    time.Duration
-	CustomNodeConfigCacheTTL       time.Duration
-	ServiceProfileCacheTTL         time.Duration
-	ConfigCacheTTL                 time.Duration
-	ConfigSkipFailedInitialization bool
-	ConfigDisableDynamic           bool
-	ConfigCheckpointGraceTime      time.Duration
-
-	KubeletReadOnlyPort          int
-	KubeletSecurePort            int
-	EnableKubeletSecurePort      bool
-	KubeletPodCacheSyncPeriod    time.Duration
-	KubeletPodCacheSyncMaxRate   rate.Limit
-	KubeletPodCacheSyncBurstBulk int
-	KubeletConfigEndpoint        string
-	KubeletPodsEndpoint          string
-	KubeletSummaryEndpoint       string
-	APIAuthTokenFile             string
-
-	RemoteRuntimeEndpoint     string
-	RuntimePodCacheSyncPeriod time.Duration
-
-	CheckpointManagerDir string
-
-	EnableMetricsFetcher bool
-	EnableCNCFetcher     bool
-
+type MetricConfiguration struct {
 	MetricInsurancePeriod time.Duration
 }
 
-func NewMetaServerConfiguration() *MetaServerConfiguration {
-	return &MetaServerConfiguration{}
+type PodConfiguration struct {
+	KubeletPodCacheSyncPeriod    time.Duration
+	KubeletPodCacheSyncMaxRate   rate.Limit
+	KubeletPodCacheSyncBurstBulk int
+
+	RuntimePodCacheSyncPeriod time.Duration
+}
+
+type NodeConfiguration struct{}
+
+type CNRConfiguration struct {
+	CNRCacheTTL time.Duration
+}
+
+type CNCConfiguration struct {
+	CustomNodeConfigCacheTTL time.Duration
+}
+
+type AgentConfiguration struct {
+	*MetricConfiguration
+	*PodConfiguration
+	*NodeConfiguration
+	*CNRConfiguration
+	*CNCConfiguration
+
+	EnableMetricsFetcher bool
+	EnableCNCFetcher     bool
+}
+
+func NewAgentConfiguration() *AgentConfiguration {
+	return &AgentConfiguration{
+		MetricConfiguration: &MetricConfiguration{},
+		PodConfiguration:    &PodConfiguration{},
+		NodeConfiguration:   &NodeConfiguration{},
+		CNRConfiguration:    &CNRConfiguration{},
+		CNCConfiguration:    &CNCConfiguration{},
+	}
 }

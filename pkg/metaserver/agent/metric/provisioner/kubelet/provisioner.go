@@ -25,7 +25,7 @@ import (
 	"k8s.io/klog/v2"
 	statsapi "k8s.io/kubelet/pkg/apis/stats/v1alpha1"
 
-	"github.com/kubewharf/katalyst-core/pkg/config"
+	"github.com/kubewharf/katalyst-core/pkg/config/agent/global"
 	"github.com/kubewharf/katalyst-core/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric/provisioner/kubelet/client"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric/types"
@@ -37,25 +37,25 @@ const (
 	metricsNamKubeletSummaryUnHealthy = "kubelet_summary_unhealthy"
 )
 
-func NewKubeletSummaryProvisioner(metricStore *utilmetric.MetricStore, emitter metrics.MetricEmitter, conf *config.Configuration,
-	metricsNotifierManager types.MetricsNotifierManager, externalMetricManager types.ExternalMetricManager) types.MetricsProvisioner {
+func NewKubeletSummaryProvisioner(baseConf *global.BaseConfiguration, metricStore *utilmetric.MetricStore,
+	emitter metrics.MetricEmitter, metricsNotifierManager types.MetricsNotifierManager, externalMetricManager types.ExternalMetricManager) types.MetricsProvisioner {
 	return &KubeletSummaryProvisioner{
 		metricStore:            metricStore,
 		emitter:                emitter,
-		conf:                   conf,
-		client:                 client.NewKubeletSummaryClient(conf),
+		client:                 client.NewKubeletSummaryClient(baseConf),
 		metricsNotifierManager: metricsNotifierManager,
 		externalMetricManager:  externalMetricManager,
 	}
 }
 
 type KubeletSummaryProvisioner struct {
-	metricStore            *utilmetric.MetricStore
-	emitter                metrics.MetricEmitter
-	conf                   *config.Configuration
-	client                 *client.KubeletSummaryClient
-	startOnce              sync.Once
-	hasSynced              bool
+	metricStore *utilmetric.MetricStore
+	emitter     metrics.MetricEmitter
+	client      *client.KubeletSummaryClient
+
+	startOnce sync.Once
+	hasSynced bool
+
 	metricsNotifierManager types.MetricsNotifierManager
 	externalMetricManager  types.ExternalMetricManager
 }
@@ -74,7 +74,7 @@ func (p *KubeletSummaryProvisioner) sample(ctx context.Context) {
 	summary, err := p.client.Summary(ctx)
 	if err != nil {
 		klog.Errorf("failed to update stats/summary from kubelet: %q", err)
-		p.emitter.StoreInt64(metricsNamKubeletSummaryUnHealthy, 1, metrics.MetricTypeNameRaw)
+		_ = p.emitter.StoreInt64(metricsNamKubeletSummaryUnHealthy, 1, metrics.MetricTypeNameRaw)
 		return
 	}
 

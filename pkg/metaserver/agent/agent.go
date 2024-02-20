@@ -30,6 +30,7 @@ import (
 
 	"github.com/kubewharf/katalyst-core/pkg/client"
 	"github.com/kubewharf/katalyst-core/pkg/config"
+	"github.com/kubewharf/katalyst-core/pkg/config/agent/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/cnc"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/cnr"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/kubeletconfig"
@@ -67,12 +68,12 @@ type MetaAgent struct {
 	// machine info is fetched from once and stored in meta-server
 	*machine.KatalystMachineInfo
 
-	Conf *config.Configuration
+	AgentConf *metaserver.AgentConfiguration
 }
 
 // NewMetaAgent returns the instance of MetaAgent.
 func NewMetaAgent(conf *config.Configuration, clientSet *client.GenericClientSet, emitter metrics.MetricEmitter) (*MetaAgent, error) {
-	podFetcher, err := pod.NewPodFetcher(conf, emitter)
+	podFetcher, err := pod.NewPodFetcher(conf.BaseConfiguration, conf.MetaServerConfiguration.PodConfiguration, emitter)
 	if err != nil {
 		return nil, err
 	}
@@ -83,27 +84,28 @@ func NewMetaAgent(conf *config.Configuration, clientSet *client.GenericClientSet
 	}
 
 	metaAgent := &MetaAgent{
-		start:                false,
-		PodFetcher:           podFetcher,
-		NodeFetcher:          node.NewRemoteNodeFetcher(conf.NodeName, clientSet.KubeClient.CoreV1().Nodes()),
-		CNRFetcher:           cnr.NewCachedCNRFetcher(conf.NodeName, conf.CNRCacheTTL, clientSet.InternalClient.NodeV1alpha1().CustomNodeResources()),
-		KubeletConfigFetcher: kubeletconfig.NewKubeletConfigFetcher(conf, emitter),
-		KatalystMachineInfo:  machineInfo,
-		Conf:                 conf,
+		start:               false,
+		AgentConf:           conf.MetaServerConfiguration.AgentConfiguration,
+		PodFetcher:          podFetcher,
+		KatalystMachineInfo: machineInfo,
+		NodeFetcher: node.NewRemoteNodeFetcher(conf.BaseConfiguration,
+			conf.MetaServerConfiguration.NodeConfiguration, clientSet.KubeClient.CoreV1().Nodes()),
+		CNRFetcher: cnr.NewCachedCNRFetcher(conf.BaseConfiguration,
+			conf.MetaServerConfiguration.CNRConfiguration, clientSet.InternalClient.NodeV1alpha1().CustomNodeResources()),
+		KubeletConfigFetcher: kubeletconfig.NewKubeletConfigFetcher(conf.BaseConfiguration, emitter),
 	}
 
 	if conf.EnableMetricsFetcher {
-		metaAgent.MetricsFetcher = metric.NewMetricsFetcher(emitter, metaAgent, conf)
+		metaAgent.MetricsFetcher = metric.NewMetricsFetcher(conf.BaseConfiguration, conf.MetaServerConfiguration.MetricConfiguration, emitter, metaAgent)
 	} else {
 		metaAgent.MetricsFetcher = metric.NewFakeMetricsFetcher(emitter)
 	}
 
 	if conf.EnableCNCFetcher {
-		metaAgent.CNCFetcher = cnc.NewCachedCNCFetcher(conf.NodeName, conf.CustomNodeConfigCacheTTL,
-			clientSet.InternalClient.ConfigV1alpha1().CustomNodeConfigs())
+		metaAgent.CNCFetcher = cnc.NewCachedCNCFetcher(conf.BaseConfiguration,
+			conf.MetaServerConfiguration.CNCConfiguration, clientSet.InternalClient.ConfigV1alpha1().CustomNodeConfigs())
 	} else {
-		metaAgent.CNCFetcher = cnc.NewFakeCNCFetcher(conf.NodeName, conf.CustomNodeConfigCacheTTL,
-			clientSet.InternalClient.ConfigV1alpha1().CustomNodeConfigs())
+		metaAgent.CNCFetcher = cnc.NewFakeCNCFetcher()
 	}
 
 	return metaAgent, nil
@@ -169,7 +171,7 @@ func (a *MetaAgent) Run(ctx context.Context) {
 	go a.PodFetcher.Run(ctx)
 	go a.NodeFetcher.Run(ctx)
 
-	if a.Conf.EnableMetricsFetcher {
+	if a.AgentConf.EnableMetricsFetcher {
 		go a.MetricsFetcher.Run(ctx)
 	}
 

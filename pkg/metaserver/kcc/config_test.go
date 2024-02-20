@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package config
+package kcc
 
 import (
 	"context"
@@ -32,6 +32,8 @@ import (
 	internalfake "github.com/kubewharf/katalyst-api/pkg/client/clientset/versioned/fake"
 	"github.com/kubewharf/katalyst-core/pkg/client"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/crd"
+	"github.com/kubewharf/katalyst-core/pkg/config/agent/global"
+	metaconfig "github.com/kubewharf/katalyst-core/pkg/config/agent/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/cnc"
 )
 
@@ -87,7 +89,9 @@ func constructKatalystCustomConfigLoader() ConfigurationLoader {
 	}
 
 	clientSet := generateTestGenericClientSet(c, aqc)
-	cncFetcher := cnc.NewCachedCNCFetcher(nodeName, 1*time.Second,
+	cncFetcher := cnc.NewCachedCNCFetcher(
+		&global.BaseConfiguration{NodeName: nodeName},
+		&metaconfig.CNCConfiguration{CustomNodeConfigCacheTTL: 1 * time.Second},
 		clientSet.InternalClient.ConfigV1alpha1().CustomNodeConfigs())
 
 	return NewKatalystCustomConfigLoader(clientSet, 1*time.Second, cncFetcher)

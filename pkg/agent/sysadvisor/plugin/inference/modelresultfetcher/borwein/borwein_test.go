@@ -19,6 +19,7 @@ package borwein
 import (
 	"context"
 	"fmt"
+
 	"io/ioutil"
 	"net"
 	"os"
@@ -47,6 +48,8 @@ import (
 	advisortypes "github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
 	"github.com/kubewharf/katalyst-core/pkg/client"
 	"github.com/kubewharf/katalyst-core/pkg/config"
+	"github.com/kubewharf/katalyst-core/pkg/config/agent/global"
+	metaconfig "github.com/kubewharf/katalyst-core/pkg/config/agent/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/config/generic"
 	"github.com/kubewharf/katalyst-core/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
@@ -54,7 +57,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/node"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/pod"
-	dynamicconfig "github.com/kubewharf/katalyst-core/pkg/metaserver/config"
+	dynamicconfig "github.com/kubewharf/katalyst-core/pkg/metaserver/kcc"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	metricspool "github.com/kubewharf/katalyst-core/pkg/metrics/metrics-pool"
 	metricutil "github.com/kubewharf/katalyst-core/pkg/util/metric"
@@ -129,7 +132,7 @@ func TestNativeGetNodeFeatureValue(t *testing.T) {
 				},
 			}}, nil)
 			metaServer := generateTestMetaServer(clientSet)
-			metaServer.NodeFetcher = node.NewRemoteNodeFetcher(nodeName, clientSet.KubeClient.CoreV1().Nodes())
+			metaServer.NodeFetcher = node.NewRemoteNodeFetcher(&global.BaseConfiguration{NodeName: nodeName}, &metaconfig.NodeConfiguration{}, clientSet.KubeClient.CoreV1().Nodes())
 			got, err := nativeGetNodeFeatureValue(nowTimestamp, tt.args.featureName, metaServer, nil)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("NativeGetNodeFeatureValue() error = %v, wantErr %v", err, tt.wantErr)
@@ -230,7 +233,7 @@ func TestBorweinModelResultFetcher_FetchModelResult(t *testing.T) {
 		},
 	}}, nil)
 	metaServer := generateTestMetaServer(clientSet)
-	metaServer.NodeFetcher = node.NewRemoteNodeFetcher(nodeName, clientSet.KubeClient.CoreV1().Nodes())
+	metaServer.NodeFetcher = node.NewRemoteNodeFetcher(&global.BaseConfiguration{NodeName: nodeName}, &metaconfig.NodeConfiguration{}, clientSet.KubeClient.CoreV1().Nodes())
 	metaServer.MetricsFetcher.RegisterExternalMetric(func(store *metricutil.MetricStore) {
 		store.SetContainerMetric(podUID, containerName, consts.MetricCPUUsageContainer, metricutil.MetricData{
 			Value: fakeCPUUsage,
@@ -358,7 +361,7 @@ func TestBorweinModelResultFetcher_parseInferenceRespForPods(t *testing.T) {
 		},
 	}}, nil)
 	metaServer := generateTestMetaServer(clientSet)
-	metaServer.NodeFetcher = node.NewRemoteNodeFetcher(nodeName, clientSet.KubeClient.CoreV1().Nodes())
+	metaServer.NodeFetcher = node.NewRemoteNodeFetcher(&global.BaseConfiguration{NodeName: nodeName}, &metaconfig.NodeConfiguration{}, clientSet.KubeClient.CoreV1().Nodes())
 	metaServer.MetricsFetcher.RegisterExternalMetric(func(store *metricutil.MetricStore) {
 		store.SetContainerMetric(podUID, containerName, consts.MetricCPUUsageContainer, metricutil.MetricData{
 			Value: fakeCPUUsage,
@@ -520,7 +523,7 @@ func TestBorweinModelResultFetcher_getInferenceRequestForPods(t *testing.T) {
 		},
 	}}, nil)
 	metaServer := generateTestMetaServer(clientSet)
-	metaServer.NodeFetcher = node.NewRemoteNodeFetcher(nodeName, clientSet.KubeClient.CoreV1().Nodes())
+	metaServer.NodeFetcher = node.NewRemoteNodeFetcher(&global.BaseConfiguration{NodeName: nodeName}, &metaconfig.NodeConfiguration{}, clientSet.KubeClient.CoreV1().Nodes())
 	metaServer.MetricsFetcher.RegisterExternalMetric(func(store *metricutil.MetricStore) {
 		store.SetContainerMetric(podUID, containerName, consts.MetricCPUUsageContainer, metricutil.MetricData{
 			Value: fakeCPUUsage,
@@ -675,7 +678,7 @@ func TestNewBorweinModelResultFetcher(t *testing.T) {
 		},
 	}}, nil)
 	metaServer := generateTestMetaServer(clientSet)
-	metaServer.NodeFetcher = node.NewRemoteNodeFetcher(nodeName, clientSet.KubeClient.CoreV1().Nodes())
+	metaServer.NodeFetcher = node.NewRemoteNodeFetcher(&global.BaseConfiguration{NodeName: nodeName}, &metaconfig.NodeConfiguration{}, clientSet.KubeClient.CoreV1().Nodes())
 	metaServer.MetricsFetcher.RegisterExternalMetric(func(store *metricutil.MetricStore) {
 		store.SetContainerMetric(podUID, containerName, consts.MetricCPUUsageContainer, metricutil.MetricData{
 			Value: fakeCPUUsage,

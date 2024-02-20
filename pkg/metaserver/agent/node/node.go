@@ -22,6 +22,9 @@ import (
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	corev1 "k8s.io/client-go/kubernetes/typed/core/v1"
+
+	"github.com/kubewharf/katalyst-core/pkg/config/agent/global"
+	"github.com/kubewharf/katalyst-core/pkg/config/agent/metaserver"
 )
 
 // NodeFetcher is used to get K8S Node information.
@@ -33,20 +36,22 @@ type NodeFetcher interface {
 	GetNode(ctx context.Context) (*v1.Node, error)
 }
 
-func NewRemoteNodeFetcher(nodeName string, client corev1.NodeInterface) NodeFetcher {
+func NewRemoteNodeFetcher(baseConf *global.BaseConfiguration, nodeConf *metaserver.NodeConfiguration, client corev1.NodeInterface) NodeFetcher {
 	return &remoteNodeFetcherImpl{
-		nodeName: nodeName,
+		baseConf: baseConf,
+		nodeConf: nodeConf,
 		client:   client,
 	}
 }
 
 type remoteNodeFetcherImpl struct {
-	nodeName string
+	baseConf *global.BaseConfiguration
+	nodeConf *metaserver.NodeConfiguration
 	client   corev1.NodeInterface
 }
 
 func (r *remoteNodeFetcherImpl) Run(_ context.Context) {}
 
 func (r *remoteNodeFetcherImpl) GetNode(ctx context.Context) (*v1.Node, error) {
-	return r.client.Get(ctx, r.nodeName, metav1.GetOptions{ResourceVersion: "0"})
+	return r.client.Get(ctx, r.baseConf.NodeName, metav1.GetOptions{ResourceVersion: "0"})
 }

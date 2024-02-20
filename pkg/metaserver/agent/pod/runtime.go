@@ -27,7 +27,7 @@ import (
 	"k8s.io/kubernetes/pkg/kubelet/cri/remote"
 	"k8s.io/kubernetes/pkg/kubelet/types"
 
-	"github.com/kubewharf/katalyst-core/pkg/config"
+	"github.com/kubewharf/katalyst-core/pkg/config/agent/global"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 )
 
@@ -63,8 +63,8 @@ type runtimePodFetcherImpl struct {
 	runtimeService cri.RuntimeService
 }
 
-func NewRuntimePodFetcher(conf *config.Configuration) (RuntimePodFetcher, error) {
-	runtimeService, err := remote.NewRemoteRuntimeService(conf.RemoteRuntimeEndpoint, 2*time.Minute)
+func NewRuntimePodFetcher(baseConf *global.BaseConfiguration) (RuntimePodFetcher, error) {
+	runtimeService, err := remote.NewRemoteRuntimeService(baseConf.RuntimeEndpoint, 2*time.Minute)
 	if err != nil {
 		return nil, fmt.Errorf("create remote runtime service failed %s", err)
 	}
