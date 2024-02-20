@@ -24,7 +24,8 @@ import (
 
 	v1 "k8s.io/api/core/v1"
 
-	"github.com/kubewharf/katalyst-core/pkg/config"
+	"github.com/kubewharf/katalyst-core/pkg/config/agent/global"
+	"github.com/kubewharf/katalyst-core/pkg/config/agent/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric/provisioner/kubelet"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric/provisioner/malachite"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric/types"
@@ -217,19 +218,19 @@ type MetricsFetcherImpl struct {
 	checkMetricDataExpire  CheckMetricDataExpireFunc
 }
 
-func NewMetricsFetcher(emitter metrics.MetricEmitter, podFetcher pod.PodFetcher, conf *config.Configuration) types.MetricsFetcher {
+func NewMetricsFetcher(baseConf *global.BaseConfiguration, metricConf *metaserver.MetricConfiguration, emitter metrics.MetricEmitter, podFetcher pod.PodFetcher) types.MetricsFetcher {
 	metricStore := utilmetric.NewMetricStore()
 	metricsNotifierManager := NewMetricsNotifierManager(metricStore, emitter)
 	externalMetricManager := NewExternalMetricManager(metricStore, emitter)
-	malachiteProvisioner := malachite.NewMalachiteMetricsProvisioner(metricStore, emitter, podFetcher, conf, metricsNotifierManager, externalMetricManager)
-	kubeletProvisioner := kubelet.NewKubeletSummaryProvisioner(metricStore, emitter, conf, metricsNotifierManager, externalMetricManager)
+	malachiteProvisioner := malachite.NewMalachiteMetricsProvisioner(baseConf, metricStore, emitter, podFetcher, metricsNotifierManager, externalMetricManager)
+	kubeletProvisioner := kubelet.NewKubeletSummaryProvisioner(baseConf, metricStore, emitter, metricsNotifierManager, externalMetricManager)
 
 	return &MetricsFetcherImpl{
 		metricStore:            metricStore,
 		metricsNotifierManager: metricsNotifierManager,
 		externalMetricManager:  externalMetricManager,
 		provisioners:           []types.MetricsProvisioner{malachiteProvisioner, kubeletProvisioner},
-		checkMetricDataExpire:  checkMetricDataExpireFunc(conf.GenericAgentConfiguration.MetricInsurancePeriod),
+		checkMetricDataExpire:  checkMetricDataExpireFunc(metricConf.MetricInsurancePeriod),
 	}
 }
 

@@ -20,6 +20,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/eviction"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/global"
+	"github.com/kubewharf/katalyst-core/pkg/config/agent/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/orm"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/qrm"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/reporter"
@@ -48,9 +49,9 @@ type GenericAgentConfiguration struct {
 	// be shared by all agent components.
 	*global.BaseConfiguration
 	*global.PluginManagerConfiguration
-	*global.MetaServerConfiguration
 	*global.QRMAdvisorConfiguration
 
+	*metaserver.MetaServerConfiguration
 	*eviction.GenericEvictionConfiguration
 	*reporter.GenericReporterConfiguration
 	*sysadvisor.GenericSysAdvisorConfiguration
@@ -69,7 +70,7 @@ func NewGenericAgentConfiguration() *GenericAgentConfiguration {
 	return &GenericAgentConfiguration{
 		BaseConfiguration:              global.NewBaseConfiguration(),
 		PluginManagerConfiguration:     global.NewPluginManagerConfiguration(),
-		MetaServerConfiguration:        global.NewMetaServerConfiguration(),
+		MetaServerConfiguration:        metaserver.NewMetaServerConfiguration(),
 		QRMAdvisorConfiguration:        global.NewQRMAdvisorConfiguration(),
 		GenericEvictionConfiguration:   eviction.NewGenericEvictionConfiguration(),
 		GenericReporterConfiguration:   reporter.NewGenericReporterConfiguration(),

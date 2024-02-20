@@ -28,7 +28,8 @@ import (
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/klog/v2"
 
-	"github.com/kubewharf/katalyst-core/pkg/config"
+	"github.com/kubewharf/katalyst-core/pkg/config/agent/global"
+	"github.com/kubewharf/katalyst-core/pkg/config/agent/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/cgroup/common"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
@@ -73,22 +74,25 @@ type podFetcherImpl struct {
 
 	emitter metrics.MetricEmitter
 
-	conf            *config.Configuration
+	baseConf        *global.BaseConfiguration
+	podConf         *metaserver.PodConfiguration
 	cgroupRootPaths []string
 }
 
-func NewPodFetcher(conf *config.Configuration, emitter metrics.MetricEmitter) (PodFetcher, error) {
-	runtimePodFetcher, err := NewRuntimePodFetcher(conf)
+func NewPodFetcher(baseConf *global.BaseConfiguration, podConf *metaserver.PodConfiguration,
+	emitter metrics.MetricEmitter) (PodFetcher, error) {
+	runtimePodFetcher, err := NewRuntimePodFetcher(baseConf)
 	if err != nil {
 		klog.Errorf("init runtime pod fetcher failed: %v", err)
 		runtimePodFetcher = nil
 	}
 
 	return &podFetcherImpl{
-		kubeletPodFetcher: NewKubeletPodFetcher(conf),
+		kubeletPodFetcher: NewKubeletPodFetcher(baseConf),
 		runtimePodFetcher: runtimePodFetcher,
 		emitter:           emitter,
-		conf:              conf,
+		baseConf:          baseConf,
+		podConf:           podConf,
 		cgroupRootPaths:   common.GetKubernetesCgroupRootPathWithSubSys(common.DefaultSelectedSubsys),
 	}, nil
 }
@@ -146,8 +150,8 @@ func (w *podFetcherImpl) Run(ctx context.Context) {
 		klog.Fatalf("register file event watcher failed: %s", err)
 	}
 
-	timer := time.NewTimer(w.conf.KubeletPodCacheSyncPeriod)
-	rateLimiter := rate.NewLimiter(w.conf.KubeletPodCacheSyncMaxRate, w.conf.KubeletPodCacheSyncBurstBulk)
+	timer := time.NewTimer(w.podConf.KubeletPodCacheSyncPeriod)
+	rateLimiter := rate.NewLimiter(w.podConf.KubeletPodCacheSyncMaxRate, w.podConf.KubeletPodCacheSyncBurstBulk)
 
 	go func() {
 		for {
@@ -155,11 +159,11 @@ func (w *podFetcherImpl) Run(ctx context.Context) {
 			case <-watcherCh:
 				if rateLimiter.Allow() {
 					w.syncKubeletPod(ctx)
-					timer.Reset(w.conf.KubeletPodCacheSyncPeriod)
+					timer.Reset(w.podConf.KubeletPodCacheSyncPeriod)
 				}
 			case <-timer.C:
 				w.syncKubeletPod(ctx)
-				timer.Reset(w.conf.KubeletPodCacheSyncPeriod)
+				timer.Reset(w.podConf.KubeletPodCacheSyncPeriod)
 			case <-ctx.Done():
 				klog.Infof("file event watcher stopped")
 				klog.Infof("stop timer channel when ctx.Done() has been received")
@@ -169,7 +173,7 @@ func (w *podFetcherImpl) Run(ctx context.Context) {
 		}
 	}()
 
-	go wait.UntilWithContext(ctx, w.syncRuntimePod, w.conf.RuntimePodCacheSyncPeriod)
+	go wait.UntilWithContext(ctx, w.syncRuntimePod, w.podConf.RuntimePodCacheSyncPeriod)
 	go wait.Until(w.checkPodCache, 30*time.Second, ctx.Done())
 	<-ctx.Done()
 }

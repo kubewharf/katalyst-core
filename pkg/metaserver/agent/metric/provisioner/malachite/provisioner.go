@@ -26,7 +26,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/klog/v2"
 
-	"github.com/kubewharf/katalyst-core/pkg/config"
+	"github.com/kubewharf/katalyst-core/pkg/config/agent/global"
 	"github.com/kubewharf/katalyst-core/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric/provisioner/malachite/client"
 	malachitetypes "github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric/provisioner/malachite/types"
@@ -50,13 +50,14 @@ const (
 )
 
 // NewMalachiteMetricsProvisioner returns the default implementation of MetricsFetcher.
-func NewMalachiteMetricsProvisioner(metricStore *utilmetric.MetricStore, emitter metrics.MetricEmitter, fetcher pod.PodFetcher, conf *config.Configuration,
+func NewMalachiteMetricsProvisioner(baseConf *global.BaseConfiguration,
+	metricStore *utilmetric.MetricStore, emitter metrics.MetricEmitter, fetcher pod.PodFetcher,
 	metricsNotifierManager types.MetricsNotifierManager, externalMetricManager types.ExternalMetricManager) types.MetricsProvisioner {
 	return &MalachiteMetricsProvisioner{
 		malachiteClient:        client.NewMalachiteClient(fetcher),
 		metricStore:            metricStore,
 		emitter:                emitter,
-		conf:                   conf,
+		baseConf:               baseConf,
 		metricsNotifierManager: metricsNotifierManager,
 		externalMetricManager:  externalMetricManager,
 	}
@@ -65,7 +66,7 @@ func NewMalachiteMetricsProvisioner(metricStore *utilmetric.MetricStore, emitter
 type MalachiteMetricsProvisioner struct {
 	metricStore     *utilmetric.MetricStore
 	malachiteClient *client.MalachiteClient
-	conf            *config.Configuration
+	baseConf        *global.BaseConfiguration
 
 	metricsNotifierManager types.MetricsNotifierManager
 	externalMetricManager  types.ExternalMetricManager
@@ -157,7 +158,7 @@ func (m *MalachiteMetricsProvisioner) updateSystemStats() {
 }
 
 func (m *MalachiteMetricsProvisioner) updateCgroupData() {
-	cgroupPaths := []string{m.conf.ReclaimRelativeRootCgroupPath, common.CgroupFsRootPathBurstable, common.CgroupFsRootPathBestEffort}
+	cgroupPaths := []string{m.baseConf.ReclaimRelativeRootCgroupPath, common.CgroupFsRootPathBurstable, common.CgroupFsRootPathBestEffort}
 	for _, path := range cgroupPaths {
 		stats, err := m.malachiteClient.GetCgroupStats(path)
 		if err != nil {

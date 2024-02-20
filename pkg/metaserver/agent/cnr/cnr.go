@@ -28,6 +28,8 @@ import (
 
 	nodev1alpha1 "github.com/kubewharf/katalyst-api/pkg/apis/node/v1alpha1"
 	"github.com/kubewharf/katalyst-api/pkg/client/clientset/versioned/typed/node/v1alpha1"
+	"github.com/kubewharf/katalyst-core/pkg/config/agent/global"
+	"github.com/kubewharf/katalyst-core/pkg/config/agent/metaserver"
 )
 
 // CNRFetcher is used to get CNR information.
@@ -54,19 +56,19 @@ type CNRNotifier interface {
 type cachedCNRFetcher struct {
 	sync.Mutex
 
-	nodeName string
+	baseConf *global.BaseConfiguration
+	cnrConf  *metaserver.CNRConfiguration
 	client   v1alpha1.CustomNodeResourceInterface
 
 	cnr          *nodev1alpha1.CustomNodeResource
 	lastSyncTime time.Time
-	ttl          time.Duration
 	notifiers    map[string]CNRNotifier
 }
 
-func NewCachedCNRFetcher(nodeName string, ttl time.Duration, client v1alpha1.CustomNodeResourceInterface) CNRFetcher {
+func NewCachedCNRFetcher(baseConf *global.BaseConfiguration, cnrConf *metaserver.CNRConfiguration, client v1alpha1.CustomNodeResourceInterface) CNRFetcher {
 	return &cachedCNRFetcher{
-		nodeName:  nodeName,
-		ttl:       ttl,
+		baseConf:  baseConf,
+		cnrConf:   cnrConf,
 		client:    client,
 		notifiers: make(map[string]CNRNotifier),
 	}
@@ -79,7 +81,7 @@ func (c *cachedCNRFetcher) GetCNR(ctx context.Context) (*nodev1alpha1.CustomNode
 	defer c.Unlock()
 
 	now := time.Now()
-	if c.lastSyncTime.Add(c.ttl).Before(now) {
+	if c.lastSyncTime.Add(c.cnrConf.CNRCacheTTL).Before(now) {
 		c.syncCNR(ctx)
 		c.lastSyncTime = now
 	}
@@ -93,7 +95,7 @@ func (c *cachedCNRFetcher) GetCNR(ctx context.Context) (*nodev1alpha1.CustomNode
 
 func (c *cachedCNRFetcher) syncCNR(ctx context.Context) {
 	klog.Infof("[cnr] sync cnr from remote")
-	cnr, err := c.client.Get(ctx, c.nodeName, v1.GetOptions{ResourceVersion: "0"})
+	cnr, err := c.client.Get(ctx, c.baseConf.NodeName, v1.GetOptions{ResourceVersion: "0"})
 	if err != nil {
 		klog.Errorf("syncCNR failed: %v", err)
 		return

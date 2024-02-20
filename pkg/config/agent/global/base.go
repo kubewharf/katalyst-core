@@ -32,7 +32,13 @@ type BaseConfiguration struct {
 	// if LockWaitingEnabled set as true, will not panic and report agent as healthy instead
 	LockWaitingEnabled bool
 
+	// ReclaimRelativeRootCgroupPath is configurable since we may need to
+	// specify a customized path for reclaimed-cores to enrich qos-management ways
+	ReclaimRelativeRootCgroupPath string
+
 	*MachineInfoConfiguration
+	*KubeletConfiguration
+	*RuntimeConfiguration
 }
 
 type MachineInfoConfiguration struct {
@@ -41,8 +47,26 @@ type MachineInfoConfiguration struct {
 	NetNSDirAbsPath string
 }
 
+type KubeletConfiguration struct {
+	KubeletReadOnlyPort      int
+	KubeletSecurePort        int
+	KubeletSecurePortEnabled bool
+
+	KubeletConfigEndpoint  string
+	KubeletPodsEndpoint    string
+	KubeletSummaryEndpoint string
+
+	APIAuthTokenFile string
+}
+
+type RuntimeConfiguration struct {
+	RuntimeEndpoint string
+}
+
 func NewBaseConfiguration() *BaseConfiguration {
 	return &BaseConfiguration{
 		MachineInfoConfiguration: &MachineInfoConfiguration{},
+		KubeletConfiguration:     &KubeletConfiguration{},
+		RuntimeConfiguration:     &RuntimeConfiguration{},
 	}
 }

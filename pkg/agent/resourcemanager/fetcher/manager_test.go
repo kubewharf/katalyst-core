@@ -38,7 +38,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/resourcemanager/reporter"
 	katalystconfig "github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent"
-	"github.com/kubewharf/katalyst-core/pkg/config/agent/global"
+	"github.com/kubewharf/katalyst-core/pkg/config/agent/metaserver"
 	reporterconfig "github.com/kubewharf/katalyst-core/pkg/config/agent/reporter"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
@@ -71,7 +71,7 @@ func generateTestConfiguration(dir string) *katalystconfig.Configuration {
 	return &katalystconfig.Configuration{
 		AgentConfiguration: &agent.AgentConfiguration{
 			GenericAgentConfiguration: &agent.GenericAgentConfiguration{
-				MetaServerConfiguration: &global.MetaServerConfiguration{CheckpointManagerDir: dir},
+				MetaServerConfiguration: &metaserver.MetaServerConfiguration{CheckpointManagerDir: dir},
 				GenericReporterConfiguration: &reporterconfig.GenericReporterConfiguration{
 					CollectInterval: 5 * time.Second,
 				},

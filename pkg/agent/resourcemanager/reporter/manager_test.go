@@ -72,8 +72,10 @@ func generateTestGenericClientSet(objects ...runtime.Object) *client.GenericClie
 func generateTestMetaServer(clientSet *client.GenericClientSet, conf *config.Configuration) *metaserver.MetaServer {
 	return &metaserver.MetaServer{
 		MetaAgent: &agent.MetaAgent{
-			NodeFetcher: node.NewRemoteNodeFetcher(conf.NodeName, clientSet.KubeClient.CoreV1().Nodes()),
-			CNRFetcher:  cnr.NewCachedCNRFetcher(conf.NodeName, conf.CNRCacheTTL, clientSet.InternalClient.NodeV1alpha1().CustomNodeResources()),
+			NodeFetcher: node.NewRemoteNodeFetcher(conf.BaseConfiguration, conf.NodeConfiguration,
+				clientSet.KubeClient.CoreV1().Nodes()),
+			CNRFetcher: cnr.NewCachedCNRFetcher(conf.BaseConfiguration, conf.CNRConfiguration,
+				clientSet.InternalClient.NodeV1alpha1().CustomNodeResources()),
 		},
 	}
 }

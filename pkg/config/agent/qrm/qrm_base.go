@@ -17,12 +17,11 @@ limitations under the License.
 package qrm
 
 type GenericQRMPluginConfiguration struct {
-	StateFileDirectory            string
-	QRMPluginSocketDirs           []string
-	ExtraStateFileAbsPath         string
-	ReclaimRelativeRootCgroupPath string
-	PodDebugAnnoKeys              []string
-	UseKubeletReservedConfig      bool
+	StateFileDirectory       string
+	QRMPluginSocketDirs      []string
+	ExtraStateFileAbsPath    string
+	PodDebugAnnoKeys         []string
+	UseKubeletReservedConfig bool
 }
 
 type QRMPluginsConfiguration struct {

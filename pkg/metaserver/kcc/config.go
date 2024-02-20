@@ -16,7 +16,7 @@ limitations under the License.
 
 // Package config is the package that gets centralized configurations periodically
 // and dynamically for a given node.
-package config // import "github.com/kubewharf/katalyst-core/pkg/metaserver/config"
+package kcc // import "github.com/kubewharf/katalyst-core/pkg/metaserver/config"
 
 import (
 	"context"

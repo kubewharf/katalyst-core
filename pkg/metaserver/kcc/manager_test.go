@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package config
+package kcc
 
 import (
 	"context"
@@ -128,7 +128,7 @@ func generateTestEvictionConfiguration(evictionThreshold map[v1.ResourceName]flo
 func constructTestDynamicConfigManager(t *testing.T, nodeName, dir string, evictionConfiguration *v1alpha1.AdminQoSConfiguration) *DynamicConfigManager {
 	clientSet := generateTestGenericClientSet(generateTestCNC(nodeName), evictionConfiguration)
 	conf := generateTestConfiguration(t, nodeName, dir)
-	cncFetcher := cnc.NewCachedCNCFetcher(conf.NodeName, conf.ConfigCacheTTL,
+	cncFetcher := cnc.NewCachedCNCFetcher(conf.BaseConfiguration, conf.CNCConfiguration,
 		clientSet.InternalClient.ConfigV1alpha1().CustomNodeConfigs())
 
 	err := os.MkdirAll(dir, os.FileMode(0755))
@@ -163,7 +163,7 @@ func TestNewDynamicConfigManager(t *testing.T) {
 	})
 	clientSet := generateTestGenericClientSet(generateTestCNC(nodeName), evictionConfiguration)
 	conf := generateTestConfiguration(t, nodeName, "/tmp/metaserver1/TestNewDynamicConfigManager")
-	cncFetcher := cnc.NewCachedCNCFetcher(conf.NodeName, conf.ConfigCacheTTL,
+	cncFetcher := cnc.NewCachedCNCFetcher(conf.BaseConfiguration, conf.CNCConfiguration,
 		clientSet.InternalClient.ConfigV1alpha1().CustomNodeConfigs())
 	defer os.RemoveAll(conf.CheckpointManagerDir)
 

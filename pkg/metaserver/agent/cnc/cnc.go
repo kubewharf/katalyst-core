@@ -27,6 +27,8 @@ import (
 
 	"github.com/kubewharf/katalyst-api/pkg/apis/config/v1alpha1"
 	configv1alpha1 "github.com/kubewharf/katalyst-api/pkg/client/clientset/versioned/typed/config/v1alpha1"
+	"github.com/kubewharf/katalyst-core/pkg/config/agent/global"
+	"github.com/kubewharf/katalyst-core/pkg/config/agent/metaserver"
 )
 
 type CNCFetcher interface {
@@ -39,16 +41,16 @@ type cachedCNCFetcher struct {
 	cnc          *v1alpha1.CustomNodeConfig
 	lastSyncTime time.Time
 
-	nodeName   string
-	client     configv1alpha1.CustomNodeConfigInterface
-	syncPeriod time.Duration
+	baseConf *global.BaseConfiguration
+	cncConf  *metaserver.CNCConfiguration
+	client   configv1alpha1.CustomNodeConfigInterface
 }
 
-func NewCachedCNCFetcher(nodeName string, syncPeriod time.Duration, client configv1alpha1.CustomNodeConfigInterface) CNCFetcher {
+func NewCachedCNCFetcher(baseConf *global.BaseConfiguration, cncConf *metaserver.CNCConfiguration, client configv1alpha1.CustomNodeConfigInterface) CNCFetcher {
 	return &cachedCNCFetcher{
-		nodeName:   nodeName,
-		syncPeriod: syncPeriod,
-		client:     client,
+		baseConf: baseConf,
+		cncConf:  cncConf,
+		client:   client,
 	}
 }
 
@@ -57,7 +59,7 @@ func (c *cachedCNCFetcher) GetCNC(ctx context.Context) (*v1alpha1.CustomNodeConf
 	defer c.Unlock()
 
 	now := time.Now()
-	if c.lastSyncTime.Add(c.syncPeriod).Before(now) {
+	if c.lastSyncTime.Add(c.cncConf.CustomNodeConfigCacheTTL).Before(now) {
 		c.syncCNC(ctx)
 		c.lastSyncTime = now
 	}
@@ -71,7 +73,7 @@ func (c *cachedCNCFetcher) GetCNC(ctx context.Context) (*v1alpha1.CustomNodeConf
 
 func (c *cachedCNCFetcher) syncCNC(ctx context.Context) {
 	klog.Info("[cnc] sync cnc from remote")
-	cnc, err := c.client.Get(ctx, c.nodeName, v1.GetOptions{ResourceVersion: "0"})
+	cnc, err := c.client.Get(ctx, c.baseConf.NodeName, v1.GetOptions{ResourceVersion: "0"})
 	if err != nil {
 		klog.Errorf("syncCNC failed: %v", err)
 		return

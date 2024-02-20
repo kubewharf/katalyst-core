@@ -23,20 +23,18 @@ import (
 )
 
 type GenericQRMPluginOptions struct {
-	QRMPluginSocketDirs           []string
-	StateFileDirectory            string
-	ExtraStateFileAbsPath         string
-	ReclaimRelativeRootCgroupPath string
-	PodDebugAnnoKeys              []string
-	UseKubeletReservedConfig      bool
+	QRMPluginSocketDirs      []string
+	StateFileDirectory       string
+	ExtraStateFileAbsPath    string
+	PodDebugAnnoKeys         []string
+	UseKubeletReservedConfig bool
 }
 
 func NewGenericQRMPluginOptions() *GenericQRMPluginOptions {
 	return &GenericQRMPluginOptions{
-		QRMPluginSocketDirs:           []string{"/var/lib/kubelet/plugins_registry"},
-		StateFileDirectory:            "/var/lib/katalyst/qrm_advisor",
-		ReclaimRelativeRootCgroupPath: "/kubepods/besteffort",
-		PodDebugAnnoKeys:              []string{},
+		QRMPluginSocketDirs: []string{"/var/lib/kubelet/plugins_registry"},
+		StateFileDirectory:  "/var/lib/katalyst/qrm_advisor",
+		PodDebugAnnoKeys:    []string{},
 	}
 }
 
@@ -47,9 +45,6 @@ func (o *GenericQRMPluginOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 		o.QRMPluginSocketDirs, "socket file directories that qrm plugins communicate witch other components")
 	fs.StringVar(&o.StateFileDirectory, "qrm-state-dir", o.StateFileDirectory, "Directory that qrm plugins are using")
 	fs.StringVar(&o.ExtraStateFileAbsPath, "qrm-extra-state-file", o.ExtraStateFileAbsPath, "The absolute path to an extra state file to specify cpuset.mems for specific pods")
-	fs.StringVar(&o.ReclaimRelativeRootCgroupPath,
-		"reclaim-relative-root-cgroup-path", o.ReclaimRelativeRootCgroupPath,
-		"top level cgroup path for reclaimed_cores qos level")
 	fs.StringSliceVar(&o.PodDebugAnnoKeys, "qrm-pod-debug-anno-keys",
 		o.PodDebugAnnoKeys, "pod annotations keys to identify the pod is a debug pod, and qrm plugins will apply specific strategy to it")
 	fs.BoolVar(&o.UseKubeletReservedConfig, "use-kubelet-reserved-config",
@@ -60,7 +55,6 @@ func (o *GenericQRMPluginOptions) ApplyTo(conf *qrmconfig.GenericQRMPluginConfig
 	conf.QRMPluginSocketDirs = o.QRMPluginSocketDirs
 	conf.StateFileDirectory = o.StateFileDirectory
 	conf.ExtraStateFileAbsPath = o.ExtraStateFileAbsPath
-	conf.ReclaimRelativeRootCgroupPath = o.ReclaimRelativeRootCgroupPath
 	conf.PodDebugAnnoKeys = o.PodDebugAnnoKeys
 	conf.UseKubeletReservedConfig = o.UseKubeletReservedConfig
 	return nil

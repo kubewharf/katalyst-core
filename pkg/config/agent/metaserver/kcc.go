@@ -14,21 +14,17 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package cnc
+package metaserver
 
-import (
-	"context"
-	"fmt"
+import "time"
 
-	"github.com/kubewharf/katalyst-api/pkg/apis/config/v1alpha1"
-)
-
-type fakeCNCFetcher struct{}
-
-func NewFakeCNCFetcher() CNCFetcher {
-	return &fakeCNCFetcher{}
+type KCCConfiguration struct {
+	ConfigCacheTTL                 time.Duration
+	ConfigCheckpointGraceTime      time.Duration
+	ConfigSkipFailedInitialization bool
+	ConfigDisableDynamic           bool
 }
 
-func (c *fakeCNCFetcher) GetCNC(_ context.Context) (*v1alpha1.CustomNodeConfig, error) {
-	return nil, fmt.Errorf("cnc fetcher is not enabled")
+func NewKCCConfiguration() *KCCConfiguration {
+	return &KCCConfiguration{}
 }

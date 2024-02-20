@@ -47,7 +47,7 @@ func Test_notifySystem(t *testing.T) {
 	now := time.Now()
 
 	conf := generateTestConfiguration(t)
-	f := NewMetricsFetcher(metrics.DummyMetrics{}, &pod.PodFetcherStub{}, conf)
+	f := NewMetricsFetcher(conf.BaseConfiguration, conf.MetricConfiguration, metrics.DummyMetrics{}, &pod.PodFetcherStub{})
 
 	rChan := make(chan metrictypes.NotifiedResponse, 20)
 	f.RegisterNotifier(metrictypes.MetricsScopeNode, metrictypes.NotifiedRequest{
@@ -116,7 +116,7 @@ func TestStore_Aggregate(t *testing.T) {
 	now := time.Now()
 
 	conf := generateTestConfiguration(t)
-	f := NewMetricsFetcher(metrics.DummyMetrics{}, &pod.PodFetcherStub{}, conf).(*MetricsFetcherImpl)
+	f := NewMetricsFetcher(conf.BaseConfiguration, conf.MetricConfiguration, metrics.DummyMetrics{}, &pod.PodFetcherStub{}).(*MetricsFetcherImpl)
 
 	pod1 := &v1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
