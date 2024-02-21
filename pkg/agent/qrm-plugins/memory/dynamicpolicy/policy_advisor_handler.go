@@ -313,7 +313,7 @@ func (p *DynamicPolicy) handleAdvisorDropCache(
 		&asyncworker.Work{
 			Fn:          cgroupmgr.DropCacheWithTimeoutForContainer,
 			Params:      []interface{}{entryName, containerID, dropCacheTimeoutSeconds},
-			DeliveredAt: time.Now()})
+			DeliveredAt: time.Now()}, asyncworker.DuplicateWorkPolicyOverride)
 
 	if err != nil {
 		return fmt.Errorf("add work: %s pod: %s container: %s failed with error: %v", dropCacheWorkName, entryName, subEntryName, err)
@@ -535,17 +535,13 @@ func (p *DynamicPolicy) handleNumaMemoryBalance(_ *config.Configuration,
 	}
 
 	migratePagesWorkName := fmt.Sprintf("%v", memoryadvisor.ControlKnobKeyBalanceNumaMemory)
-	if p.asyncWorkers.WorkExists(migratePagesWorkName) {
-		general.Infof("work %v already exists, skip this turn", migratePagesWorkName)
-		return nil
-	}
 
 	// start an asynchronous work to migrate pages for containers
 	err = p.asyncWorkers.AddWork(migratePagesWorkName,
 		&asyncworker.Work{
 			Fn:          p.doNumaMemoryBalance,
 			Params:      []interface{}{*advice},
-			DeliveredAt: time.Now()})
+			DeliveredAt: time.Now()}, asyncworker.DuplicateWorkPolicyDiscard)
 
 	if err != nil {
 		general.Errorf("add work: %s failed with error: %v", migratePagesWorkName, err)
@@ -568,7 +564,6 @@ func (p *DynamicPolicy) doNumaMemoryBalance(ctx context.Context, advice types.Nu
 	defer func() {
 		cost := time.Now().Sub(startTime)
 		general.Infof("numa memory balance cost %v", cost)
-		_ = p.emitter.StoreInt64(util.MetricNameMemoryNumaBalanceCost, cost.Milliseconds(), metrics.MetricTypeNameRaw)
 	}()
 
 	keyFunc := func(podUID, containerName string) string {
@@ -676,6 +671,5 @@ func (p *DynamicPolicy) doNumaMemoryBalance(ctx context.Context, advice types.Nu
 	_ = p.emitter.StoreInt64(util.MetricNameMemoryNumaBalanceResult, 1, metrics.MetricTypeNameRaw,
 		metrics.MetricTag{Key: "success", Val: strconv.FormatBool(migrateSuccess)})
 
-	_ = asyncworker.EmitAsyncedMetrics(ctx)
 	return nil
 }

@@ -30,6 +30,13 @@ import (
 // - 'c' is a general identifier for actions
 const WorkNameSeperator = "/"
 
+type DuplicateWorkPolicy string
+
+const (
+	DuplicateWorkPolicyOverride = "override"
+	DuplicateWorkPolicyDiscard  = "discard"
+)
+
 type contextKey string
 
 const (

@@ -453,7 +453,7 @@ func (p *DynamicPolicy) adjustAllocationEntries() error {
 						Params: []interface{}{podUID, containerID,
 							p.topology.NumNUMANodes, p.topology.CPUDetails.NUMANodes(),
 							numaWithoutNUMABindingPods.Clone()},
-						DeliveredAt: time.Now()})
+						DeliveredAt: time.Now()}, asyncworker.DuplicateWorkPolicyOverride)
 
 				if err != nil {
 					general.Errorf("add work: %s pod: %s container: %s failed with error: %v", migratePagesWorkName, podUID, containerName, err)
@@ -476,7 +476,7 @@ func (p *DynamicPolicy) adjustAllocationEntries() error {
 				&asyncworker.Work{
 					Fn:          cgroupmgr.DropCacheWithTimeoutForContainer,
 					Params:      []interface{}{podUID, containerID, dropCacheTimeoutSeconds, memoryLimitBytes},
-					DeliveredAt: time.Now()})
+					DeliveredAt: time.Now()}, asyncworker.DuplicateWorkPolicyOverride)
 
 			if err != nil {
 				general.Errorf("add work: %s pod: %s container: %s failed with error: %v", dropCacheWorkName, podUID, containerName, err)

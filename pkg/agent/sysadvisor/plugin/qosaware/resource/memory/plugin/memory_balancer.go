@@ -254,10 +254,6 @@ func (m *memoryBalancer) Reconcile(_ *types.MemoryPressureStatus) error {
 	}
 
 	balanceInfo, err := m.getBalanceInfo()
-	if err != nil {
-		general.Errorf("failed to get balance info,err:%v", err)
-		return err
-	}
 	balanceInfoStr, _ := json.Marshal(balanceInfo)
 	general.Infof("get BalanceInfo info: %v", string(balanceInfoStr))
 	_ = m.emitter.StoreInt64(MetricNumaMemoryBalance, 1, metrics.MetricTypeNameRaw,
@@ -268,6 +264,10 @@ func (m *memoryBalancer) Reconcile(_ *types.MemoryPressureStatus) error {
 		metrics.MetricTag{Key: "bandwidth_level", Val: string(balanceInfo.MaxLatencyNumaBandwidthLevel)},
 		metrics.MetricTag{Key: "failed_reason", Val: balanceInfo.FailedReason},
 	)
+	if err != nil {
+		general.Errorf("failed to get balance info,err:%v", err)
+		return err
+	}
 
 	m.setBalanceInfo(balanceInfo)
 	return nil

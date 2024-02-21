@@ -38,7 +38,7 @@ func NewAsyncWorkers(name string, emitter metrics.MetricEmitter) *AsyncWorkers {
 	}
 }
 
-func (aws *AsyncWorkers) AddWork(workName string, work *Work) error {
+func (aws *AsyncWorkers) AddWork(workName string, work *Work, policy DuplicateWorkPolicy) error {
 	aws.workLock.Lock()
 	defer aws.workLock.Unlock()
 
@@ -59,6 +59,9 @@ func (aws *AsyncWorkers) AddWork(workName string, work *Work) error {
 			"AsyncWorkers", aws.name, "workName", workName)
 		status = &workStatus{}
 		aws.workStatuses[workName] = status
+	} else if policy == DuplicateWorkPolicyDiscard {
+		general.InfoS("work %v already exists, discard new work", workName)
+		return nil
 	}
 
 	// dispatch a request to the pod work if none are running
