@@ -405,13 +405,14 @@ func CheckVPAStatusLegal(vpa *apis.KatalystVerticalPodAutoscaler, pods []*core.P
 			resourceNames := []core.ResourceName{core.ResourceCPU, core.ResourceMemory}
 			for _, resourceName := range resourceNames {
 				// check if resource are not negative
-				if native.IsResourceGreaterThan(zeroQuantity, container.Resources.Requests[resourceName]) {
+				limit := container.Resources.Limits[resourceName]
+				request := container.Resources.Requests[resourceName]
+				if native.IsResourceGreaterThan(zeroQuantity, request) {
 					return false, fmt.Sprintf("resource %s request value is negative", resourceName), nil
-				} else if native.IsResourceGreaterThan(zeroQuantity, container.Resources.Limits[resourceName]) {
+				} else if native.IsResourceGreaterThan(zeroQuantity, limit) {
 					return false, fmt.Sprintf("resource %s limit value is negative", resourceName), nil
 				}
-
-				if native.IsResourceGreaterThan(container.Resources.Requests[resourceName], container.Resources.Limits[resourceName]) {
+				if !limit.IsZero() && native.IsResourceGreaterThan(request, limit) {
 					return false, fmt.Sprintf("resource %s request greater than limit", resourceName), nil
 				}
 			}
