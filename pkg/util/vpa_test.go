@@ -457,6 +457,90 @@ func TestIsVPAStatusLegal(t *testing.T) {
 			},
 		},
 	}
+	vpa2 := &apis.KatalystVerticalPodAutoscaler{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "vpa2",
+			Namespace: "default",
+			UID:       "vpauid2",
+		},
+		Status: apis.KatalystVerticalPodAutoscalerStatus{
+			PodResources: nil,
+			ContainerResources: []apis.ContainerResources{
+				{
+					ContainerName: pointer.String("c1"),
+					Requests: &apis.ContainerResourceList{
+						Target: map[v1.ResourceName]resource.Quantity{
+							v1.ResourceCPU:    *resource.NewQuantity(2, resource.DecimalSI),
+							v1.ResourceMemory: *resource.NewQuantity(2*int64(units.GiB), resource.BinarySI),
+						},
+					},
+				},
+			},
+		},
+	}
+	vpa3 := &apis.KatalystVerticalPodAutoscaler{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "vpa2",
+			Namespace: "default",
+			UID:       "vpauid2",
+		},
+		Status: apis.KatalystVerticalPodAutoscalerStatus{
+			PodResources: nil,
+			ContainerResources: []apis.ContainerResources{
+				{
+					ContainerName: pointer.String("c1"),
+					Requests: &apis.ContainerResourceList{
+						Target: map[v1.ResourceName]resource.Quantity{
+							v1.ResourceCPU:    *resource.NewQuantity(-2, resource.DecimalSI),
+							v1.ResourceMemory: *resource.NewQuantity(2*int64(units.GiB), resource.BinarySI),
+						},
+					},
+				},
+			},
+		},
+	}
+	vpa4 := &apis.KatalystVerticalPodAutoscaler{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "vpa2",
+			Namespace: "default",
+			UID:       "vpauid2",
+		},
+		Status: apis.KatalystVerticalPodAutoscalerStatus{
+			PodResources: nil,
+			ContainerResources: []apis.ContainerResources{
+				{
+					ContainerName: pointer.String("c1"),
+					Limits: &apis.ContainerResourceList{
+						Target: map[v1.ResourceName]resource.Quantity{
+							v1.ResourceCPU:    *resource.NewQuantity(1, resource.DecimalSI),
+							v1.ResourceMemory: *resource.NewQuantity(-2*int64(units.GiB), resource.BinarySI),
+						},
+					},
+				},
+			},
+		},
+	}
+	vpa5 := &apis.KatalystVerticalPodAutoscaler{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "vpa2",
+			Namespace: "default",
+			UID:       "vpauid2",
+		},
+		Status: apis.KatalystVerticalPodAutoscalerStatus{
+			PodResources: nil,
+			ContainerResources: []apis.ContainerResources{
+				{
+					ContainerName: pointer.String("c1"),
+					Requests: &apis.ContainerResourceList{
+						Target: map[v1.ResourceName]resource.Quantity{
+							v1.ResourceCPU:    *resource.NewQuantity(10, resource.DecimalSI),
+							v1.ResourceMemory: *resource.NewQuantity(2*int64(units.GiB), resource.BinarySI),
+						},
+					},
+				},
+			},
+		},
+	}
 	pod1 := &v1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "pod1",
@@ -532,6 +616,25 @@ func TestIsVPAStatusLegal(t *testing.T) {
 			QOSClass: v1.PodQOSBurstable,
 		},
 	}
+	pod4 := &v1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "pod4",
+			Namespace: "default",
+		},
+		Spec: v1.PodSpec{
+			Containers: []v1.Container{
+				{
+					Name: "c1",
+					Resources: v1.ResourceRequirements{
+						Requests: map[v1.ResourceName]resource.Quantity{
+							v1.ResourceCPU:    *resource.NewQuantity(3, resource.DecimalSI),
+							v1.ResourceMemory: *resource.NewQuantity(3*int64(units.GiB), resource.BinarySI),
+						},
+					},
+				},
+			},
+		},
+	}
 
 	for _, tc := range []struct {
 		name  string
@@ -571,6 +674,41 @@ func TestIsVPAStatusLegal(t *testing.T) {
 				pod3,
 			},
 			legal: true,
+		},
+		{
+			name: "legal: Limit not set",
+			vpa:  vpa2,
+			pods: []*v1.Pod{
+				pod4,
+			},
+			legal: true,
+		},
+		{
+			name: "legal: request less than 0",
+			vpa:  vpa3,
+			pods: []*v1.Pod{
+				pod1,
+			},
+			legal: false,
+			msg:   "resource cpu request value is negative",
+		},
+		{
+			name: "legal: limit less than 0",
+			vpa:  vpa4,
+			pods: []*v1.Pod{
+				pod1,
+			},
+			legal: false,
+			msg:   "resource memory limit value is negative",
+		},
+		{
+			name: "legal: request less than limit",
+			vpa:  vpa5,
+			pods: []*v1.Pod{
+				pod1,
+			},
+			legal: false,
+			msg:   "resource cpu request greater than limit",
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
