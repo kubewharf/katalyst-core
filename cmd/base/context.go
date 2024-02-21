@@ -266,13 +266,13 @@ func (c *GenericContext) StartInformer(ctx context.Context) {
 // serveHealthZHTTP is used to provide health check for current running components.
 func (c *GenericContext) serveHealthZHTTP(mux *http.ServeMux) {
 	mux.HandleFunc(healthZPath, func(w http.ResponseWriter, r *http.Request) {
-		ok, reason := c.healthChecker.CheckHealthy()
+		ok, content := c.healthChecker.CheckHealthy()
 		if ok {
 			w.WriteHeader(200)
-			_, _ = w.Write([]byte("ok"))
+			_, _ = w.Write([]byte(content))
 		} else {
 			w.WriteHeader(500)
-			_, _ = w.Write([]byte(reason))
+			_, _ = w.Write([]byte(content))
 		}
 	})
 }

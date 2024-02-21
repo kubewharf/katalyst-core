@@ -24,11 +24,13 @@ import (
 	"time"
 
 	v1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/util/errors"
 	"k8s.io/apimachinery/pkg/util/sets"
 
 	"github.com/kubewharf/katalyst-api/pkg/consts"
 	apiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
+	memconsts "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/memory/consts"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/memory/dynamicpolicy/oom"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/memory/dynamicpolicy/state"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util"
@@ -95,8 +97,19 @@ func setExtraControlKnobByConfigForAllocationInfo(allocationInfo *state.Allocati
 	}
 }
 
-func (p *DynamicPolicy) setExtraControlKnobByConfigs() {
+func (p *DynamicPolicy) setExtraControlKnobByConfigs(_ *coreconfig.Configuration,
+	_ interface{},
+	_ *dynamicconfig.DynamicAgentConfiguration,
+	_ metrics.MetricEmitter,
+	_ *metaserver.MetaServer) {
 	general.Infof("called")
+	var (
+		err     error
+		podList []*v1.Pod
+	)
+	defer func() {
+		_ = general.UpdateHealthzStateByError(memconsts.SetExtraControlKnob, err)
+	}()
 
 	if p.metaServer == nil {
 		general.Errorf("nil metaServer")
@@ -106,7 +119,7 @@ func (p *DynamicPolicy) setExtraControlKnobByConfigs() {
 		return
 	}
 
-	podList, err := p.metaServer.GetPodList(context.Background(), nil)
+	podList, err = p.metaServer.GetPodList(context.Background(), nil)
 	if err != nil {
 		general.Errorf("get pod list failed, err: %v", err)
 		return
@@ -139,7 +152,8 @@ func (p *DynamicPolicy) setExtraControlKnobByConfigs() {
 		}
 	}
 
-	resourcesMachineState, err := state.GenerateMachineStateFromPodEntries(p.state.GetMachineInfo(), podResourceEntries, p.state.GetReservedMemory())
+	var resourcesMachineState state.NUMANodeResourcesMap
+	resourcesMachineState, err = state.GenerateMachineStateFromPodEntries(p.state.GetMachineInfo(), podResourceEntries, p.state.GetReservedMemory())
 	if err != nil {
 		general.Errorf("GenerateMachineStateFromPodEntries failed with error: %v", err)
 		return
@@ -149,8 +163,17 @@ func (p *DynamicPolicy) setExtraControlKnobByConfigs() {
 	p.state.SetMachineState(resourcesMachineState)
 }
 
-func (p *DynamicPolicy) applyExternalCgroupParams() {
+func (p *DynamicPolicy) applyExternalCgroupParams(_ *coreconfig.Configuration,
+	_ interface{},
+	_ *dynamicconfig.DynamicAgentConfiguration,
+	_ metrics.MetricEmitter,
+	_ *metaserver.MetaServer) {
 	general.Infof("called")
+
+	var err error
+	defer func() {
+		_ = general.UpdateHealthzStateByError(memconsts.ApplyExternalCGParams, err)
+	}()
 
 	podEntries := p.state.GetPodResourceEntries()[v1.ResourceMemory]
 
@@ -160,7 +183,8 @@ func (p *DynamicPolicy) applyExternalCgroupParams() {
 				continue
 			}
 
-			containerID, err := p.metaServer.GetContainerID(podUID, containerName)
+			var containerID string
+			containerID, err = p.metaServer.GetContainerID(podUID, containerName)
 			if err != nil {
 				general.Errorf("get container id of pod: %s/%s container: %s failed with error: %v",
 					allocationInfo.PodNamespace, allocationInfo.PodName,
@@ -196,7 +220,7 @@ func (p *DynamicPolicy) applyExternalCgroupParams() {
 					"cgroupSubsysName", entry.CgroupSubsysName,
 					"cgroupIfaceName", cgroupIfaceName)
 
-				err := cgroupmgr.ApplyUnifiedDataForContainer(podUID, containerID, entry.CgroupSubsysName, cgroupIfaceName, entry.ControlKnobValue)
+				err = cgroupmgr.ApplyUnifiedDataForContainer(podUID, containerID, entry.CgroupSubsysName, cgroupIfaceName, entry.ControlKnobValue)
 
 				if err != nil {
 					general.ErrorS(err, "ApplyUnifiedDataForContainer failed",
@@ -214,8 +238,29 @@ func (p *DynamicPolicy) applyExternalCgroupParams() {
 }
 
 // checkMemorySet emit errors if the memory allocation falls into unexpected results
-func (p *DynamicPolicy) checkMemorySet() {
+func (p *DynamicPolicy) checkMemorySet(_ *coreconfig.Configuration,
+	_ interface{},
+	_ *dynamicconfig.DynamicAgentConfiguration,
+	_ metrics.MetricEmitter,
+	_ *metaserver.MetaServer) {
 	general.Infof("called")
+	var (
+		err              error
+		invalidMemSet    = false
+		memorySetOverlap = false
+	)
+
+	defer func() {
+		if err != nil {
+			_ = general.UpdateHealthzStateByError(memconsts.CheckMemSet, err)
+		} else if invalidMemSet {
+			_ = general.UpdateHealthzState(memconsts.CheckMemSet, general.HealthzCheckStateNotReady, "invalid mem set exists")
+		} else if memorySetOverlap {
+			_ = general.UpdateHealthzState(memconsts.CheckMemSet, general.HealthzCheckStateNotReady, "mem set overlap")
+		} else {
+			_ = general.UpdateHealthzState(memconsts.CheckMemSet, general.HealthzCheckStateReady, "")
+		}
+	}()
 
 	podEntries := p.state.GetPodResourceEntries()[v1.ResourceMemory]
 	actualMemorySets := make(map[string]map[string]machine.CPUSet)
@@ -240,13 +285,17 @@ func (p *DynamicPolicy) checkMemorySet() {
 				"containerName": allocationInfo.ContainerName,
 			})
 
-			containerID, err := p.metaServer.GetContainerID(podUID, containerName)
+			var (
+				containerID string
+				cpusetStats *common.CPUSetStats
+			)
+			containerID, err = p.metaServer.GetContainerID(podUID, containerName)
 			if err != nil {
 				general.Errorf("get container id of pod: %s container: %s failed with error: %v", podUID, containerName, err)
 				continue
 			}
 
-			cpusetStats, err := cgroupmgr.GetCPUSetForContainer(podUID, containerID)
+			cpusetStats, err = cgroupmgr.GetCPUSetForContainer(podUID, containerID)
 			if err != nil {
 				general.Errorf("GetMemorySet of pod: %s container: name(%s), id(%s) failed with error: %v",
 					podUID, containerName, containerID, err)
@@ -269,6 +318,7 @@ func (p *DynamicPolicy) checkMemorySet() {
 			}
 
 			if !actualMemorySets[podUID][containerName].Equals(allocationInfo.NumaAllocationResult) {
+				invalidMemSet = true
 				general.Errorf("pod: %s/%s, container: %s, memset invalid",
 					allocationInfo.PodNamespace, allocationInfo.PodName, allocationInfo.ContainerName)
 				_ = p.emitter.StoreInt64(util.MetricNameMemSetInvalid, 1, metrics.MetricTypeNameRaw, tags...)
@@ -280,7 +330,6 @@ func (p *DynamicPolicy) checkMemorySet() {
 	unionDedicatedActualMemorySet := machine.NewCPUSet()
 	unionSharedActualMemorySet := machine.NewCPUSet()
 
-	var memorySetOverlap bool
 	for podUID, containerEntries := range actualMemorySets {
 		for containerName, cset := range containerEntries {
 			allocationInfo := podEntries[podUID][containerName]
@@ -333,12 +382,24 @@ func (p *DynamicPolicy) checkMemorySet() {
 }
 
 // clearResidualState is used to clean residual pods in local state
-func (p *DynamicPolicy) clearResidualState() {
+func (p *DynamicPolicy) clearResidualState(_ *coreconfig.Configuration,
+	_ interface{},
+	_ *dynamicconfig.DynamicAgentConfiguration,
+	_ metrics.MetricEmitter,
+	_ *metaserver.MetaServer) {
 	general.Infof("called")
+	var (
+		err     error
+		podList []*v1.Pod
+	)
 	residualSet := make(map[string]bool)
 
+	defer func() {
+		_ = general.UpdateHealthzStateByError(memconsts.ClearResidualState, err)
+	}()
+
 	ctx := context.Background()
-	podList, err := p.metaServer.GetPodList(ctx, nil)
+	podList, err = p.metaServer.GetPodList(ctx, nil)
 	if err != nil {
 		general.Infof("get pod list failed: %v", err)
 		return
@@ -418,6 +479,7 @@ func (p *DynamicPolicy) clearResidualState() {
 func (p *DynamicPolicy) setMemoryMigrate() {
 	general.Infof("called")
 	p.RLock()
+	// TODO update healthz check
 
 	podResourceEntries := p.state.GetPodResourceEntries()
 	podEntries := podResourceEntries[v1.ResourceMemory]
@@ -581,6 +643,15 @@ func (p *DynamicPolicy) clearResidualOOMPriority(conf *coreconfig.Configuration,
 func (p *DynamicPolicy) syncOOMPriority(conf *coreconfig.Configuration,
 	_ interface{}, _ *dynamicconfig.DynamicAgentConfiguration,
 	emitter metrics.MetricEmitter, metaServer *metaserver.MetaServer) {
+	var (
+		updateBPFMapErr []error
+		err             error
+	)
+
+	defer func() {
+		_ = general.UpdateHealthzStateByError(memconsts.OOMPriority, errors.NewAggregate(append(updateBPFMapErr, err)))
+	}()
+
 	if p.oomPriorityMap == nil {
 		general.Infof("oom priority bpf has not been initialized yet")
 		return
@@ -593,7 +664,8 @@ func (p *DynamicPolicy) syncOOMPriority(conf *coreconfig.Configuration,
 	}
 
 	ctx := context.Background()
-	podList, err := metaServer.GetPodList(ctx, native.PodIsActive)
+	var podList []*v1.Pod
+	podList, err = metaServer.GetPodList(ctx, native.PodIsActive)
 	if err != nil {
 		general.Infof("get pod list failed: %v", err)
 		return
@@ -665,6 +737,7 @@ func (p *DynamicPolicy) syncOOMPriority(conf *coreconfig.Configuration,
 			err := p.oomPriorityMap.Put(cgID, int64(oomPriority))
 			if err != nil {
 				general.Errorf("update oom pinned map failed: %v", err)
+				updateBPFMapErr = append(updateBPFMapErr, err)
 				_ = emitter.StoreInt64(util.MetricNameMemoryOOMPriorityUpdateFailed, 1,
 					metrics.MetricTypeNameRaw, metrics.ConvertMapToTags(map[string]string{
 						"cg_id": strconv.FormatUint(cgID, 10),
@@ -702,7 +775,8 @@ func (p *DynamicPolicy) syncOOMPriority(conf *coreconfig.Configuration,
 		}
 	}
 
-	resourcesMachineState, err := state.GenerateMachineStateFromPodEntries(p.state.GetMachineInfo(), podResourceEntries, p.state.GetReservedMemory())
+	var resourcesMachineState state.NUMANodeResourcesMap
+	resourcesMachineState, err = state.GenerateMachineStateFromPodEntries(p.state.GetMachineInfo(), podResourceEntries, p.state.GetReservedMemory())
 	if err != nil {
 		general.Errorf("GenerateMachineStateFromPodEntries failed with error: %v", err)
 		return

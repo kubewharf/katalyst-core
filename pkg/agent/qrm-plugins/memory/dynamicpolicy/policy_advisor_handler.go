@@ -33,9 +33,9 @@ import (
 	maputil "k8s.io/kubernetes/pkg/util/maps"
 
 	apiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
-
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/advisorsvc"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
+	memconsts "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/memory/consts"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/memory/dynamicpolicy/memoryadvisor"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/memory/dynamicpolicy/state"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util"
@@ -105,6 +105,7 @@ func (p *DynamicPolicy) lwMemoryAdvisorServer(stopCh <-chan struct{}) error {
 		if err != nil {
 			general.Errorf("handle ListAndWatch response of MemoryAdvisorServer failed with error: %v", err)
 		}
+		_ = general.UpdateHealthzStateByError(memconsts.CommunicateWithAdvisor, err)
 	}
 }
 
@@ -290,6 +291,12 @@ func (p *DynamicPolicy) handleAdvisorDropCache(
 	metaServer *metaserver.MetaServer,
 	entryName, subEntryName string,
 	calculationInfo *advisorsvc.CalculationInfo, podResourceEntries state.PodResourceEntries) error {
+	var (
+		err error
+	)
+	defer func() {
+		_ = general.UpdateHealthzStateByError(memconsts.DropCache, err)
+	}()
 
 	dropCache := calculationInfo.CalculationResult.Values[string(memoryadvisor.ControlKnobKeyDropCache)]
 	dropCacheBool, err := strconv.ParseBool(dropCache)

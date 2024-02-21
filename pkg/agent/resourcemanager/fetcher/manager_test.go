@@ -197,10 +197,10 @@ func TestHealthz(t *testing.T) {
 		t.Fatalf("timeout while waiting for manager update")
 	}
 
-	results := general.CheckHealthz()
+	results := general.GetRegisterReadinessCheckResult()
 	for name, response := range results {
-		if reporterFetcherRules.Has(string(name)) {
-			require.Equal(t, response.State, general.HealthzCheckStateReady)
+		if healthzNameReporterFetcherReady == string(name) {
+			require.True(t, response.Ready)
 		}
 	}
 

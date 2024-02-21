@@ -52,6 +52,7 @@ import (
 	appagent "github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/agent"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/advisorsvc"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
+	memconsts "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/memory/consts"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/memory/dynamicpolicy/memoryadvisor"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/memory/dynamicpolicy/oom"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/memory/dynamicpolicy/state"
@@ -118,7 +119,7 @@ func getTestDynamicPolicyWithInitialization(topology *machine.CPUTopology, machi
 	})
 
 	stateImpl, err := state.NewCheckpointState(stateFileDirectory, memoryPluginStateFileName,
-		MemoryResourcePluginPolicyNameDynamic, topology, machineInfo, resourcesReservedMemory, false)
+		memconsts.MemoryResourcePluginPolicyNameDynamic, topology, machineInfo, resourcesReservedMemory, false)
 	if err != nil {
 		return nil, fmt.Errorf("NewCheckpointState failed with error: %v", err)
 	}
@@ -199,7 +200,7 @@ func TestCheckMemorySet(t *testing.T) {
 			PodFetcher: &pod.PodFetcherStub{},
 		},
 	}
-	dynamicPolicy.checkMemorySet()
+	dynamicPolicy.checkMemorySet(nil, nil, nil, nil, nil)
 }
 
 func TestClearResidualState(t *testing.T) {
@@ -224,7 +225,7 @@ func TestClearResidualState(t *testing.T) {
 			PodFetcher: &pod.PodFetcherStub{},
 		},
 	}
-	dynamicPolicy.clearResidualState()
+	dynamicPolicy.clearResidualState(nil, nil, nil, nil, nil)
 }
 
 func TestSetMemoryMigrate(t *testing.T) {
@@ -2491,7 +2492,7 @@ func TestSetExtraControlKnobByConfigs(t *testing.T) {
 	dynamicPolicy.state.SetPodResourceEntries(podResourceEntries)
 	dynamicPolicy.state.SetMachineState(resourcesMachineState)
 
-	dynamicPolicy.setExtraControlKnobByConfigs()
+	dynamicPolicy.setExtraControlKnobByConfigs(nil, nil, nil, nil, nil)
 
 	expectedAllocationInfo := &state.AllocationInfo{
 		PodUid:               pod1UID,
@@ -2576,7 +2577,7 @@ func TestNewAndStartDynamicPolicy(t *testing.T) {
 			StaticAgentConfiguration: &configagent.StaticAgentConfiguration{
 				QRMPluginsConfiguration: &qrmconfig.QRMPluginsConfiguration{
 					MemoryQRMPluginConfig: &qrmconfig.MemoryQRMPluginConfig{
-						PolicyName:                 MemoryResourcePluginPolicyNameDynamic,
+						PolicyName:                 memconsts.MemoryResourcePluginPolicyNameDynamic,
 						ReservedMemoryGB:           4,
 						SkipMemoryStateCorruption:  true,
 						EnableSettingMemoryMigrate: false,

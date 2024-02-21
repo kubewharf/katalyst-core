@@ -18,5 +18,4 @@ package oom
 
 const (
 	ClearResidualOOMPriorityPeriodicalHandlerName = "clearResidualOOMPriority"
-	SyncOOMPriorityPriorityPeriodicalHandlerName  = "syncOOMPriority"
 )

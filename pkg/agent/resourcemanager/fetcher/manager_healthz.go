@@ -17,6 +17,7 @@ limitations under the License.
 package fetcher
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"time"
@@ -48,10 +49,7 @@ func (m *ReporterPluginManager) healthzSyncLoop() {
 //
 // during starting period, the results may last unhealthy for a while, and
 // the caller functions should handle this situation.
-func (m *ReporterPluginManager) healthz() (general.HealthzCheckResponse, error) {
-	response := general.HealthzCheckResponse{
-		State: general.HealthzCheckStateReady,
-	}
+func (m *ReporterPluginManager) healthz(_ context.Context) {
 
 	now := time.Now()
 	var unHealthy []string
@@ -63,9 +61,9 @@ func (m *ReporterPluginManager) healthz() (general.HealthzCheckResponse, error) 
 	}
 
 	if len(unHealthy) != 0 {
-		response.State = general.HealthzCheckStateNotReady
-		response.Message = fmt.Sprintf("the following checks timeout: %s", strings.Join(unHealthy, ","))
+		_ = general.UpdateHealthzState(healthzNameReporterFetcherReady, general.HealthzCheckStateNotReady,
+			fmt.Sprintf("the following checks timeout: %s", strings.Join(unHealthy, ",")))
+	} else {
+		_ = general.UpdateHealthzState(healthzNameReporterFetcherReady, general.HealthzCheckStateReady, "")
 	}
-
-	return response, nil
 }

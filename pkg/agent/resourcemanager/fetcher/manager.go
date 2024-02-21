@@ -52,6 +52,8 @@ const reporterManagerCheckpoint = "reporter_manager_checkpoint"
 
 const healthzNameReporterFetcherReady = "ReporterFetcherReady"
 
+const healthzGracePeriodMultiplier = 3
+
 // ReporterPluginManager is used to manage in-tree or out-tree reporter plugin registrations and
 // get report content from these plugins to aggregate them into the Reporter Manager
 type ReporterPluginManager struct {
@@ -217,7 +219,9 @@ func (m *ReporterPluginManager) Run(ctx context.Context) {
 	klog.Infof("reporter plugin manager started")
 	m.reporter.Run(ctx)
 
-	general.RegisterHealthzCheckRules(healthzNameReporterFetcherReady, m.healthz)
+	general.RegisterHeartbeatCheck(healthzNameReporterFetcherReady, m.reconcilePeriod*healthzGracePeriodMultiplier,
+		general.HealthzCheckStateReady, m.reconcilePeriod*healthzGracePeriodMultiplier)
+	go wait.UntilWithContext(ctx, m.healthz, m.reconcilePeriod)
 }
 
 func (m *ReporterPluginManager) isVersionCompatibleWithPlugin(versions []string) bool {
