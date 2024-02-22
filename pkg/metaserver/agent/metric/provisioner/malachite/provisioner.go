@@ -879,11 +879,11 @@ func (m *MalachiteMetricsProvisioner) processContainerPerNumaMemoryData(podUID, 
 			numaID := strings.TrimPrefix(numa, "N")
 			total := data.Anon + data.File + data.Unevictable
 			m.metricStore.SetContainerNumaMetric(podUID, containerName, numaID, consts.MetricsMemTotalPerNumaContainer,
-				utilmetric.MetricData{Value: float64(total << pageShift), Time: &updateTime})
+				utilmetric.MetricData{Value: float64(total), Time: &updateTime})
 			m.metricStore.SetContainerNumaMetric(podUID, containerName, numaID, consts.MetricsMemFilePerNumaContainer,
-				utilmetric.MetricData{Value: float64(data.File << pageShift), Time: &updateTime})
+				utilmetric.MetricData{Value: float64(data.File), Time: &updateTime})
 			m.metricStore.SetContainerNumaMetric(podUID, containerName, numaID, consts.MetricsMemAnonPerNumaContainer,
-				utilmetric.MetricData{Value: float64(data.Anon << pageShift), Time: &updateTime})
+				utilmetric.MetricData{Value: float64(data.Anon), Time: &updateTime})
 		}
 	}
 }
