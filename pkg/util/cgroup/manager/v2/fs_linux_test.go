@@ -61,12 +61,34 @@ func Test_manager_ApplyMemory(t *testing.T) {
 		wantErr bool
 	}{
 		{
-			name: "test apply memory",
+			name: "test apply memory with LimitInBytes",
 			m:    NewManager(),
 			args: args{
 				absCgroupPath: "test-fake-path",
 				data: &common.MemoryData{
 					LimitInBytes: 1234,
+				},
+			},
+			wantErr: true,
+		},
+		{
+			name: "test apply memory with SoftLimitInBytes",
+			m:    NewManager(),
+			args: args{
+				absCgroupPath: "test-fake-path",
+				data: &common.MemoryData{
+					SoftLimitInBytes: 2234,
+				},
+			},
+			wantErr: true,
+		},
+		{
+			name: "test apply memory with MinInBytes",
+			m:    NewManager(),
+			args: args{
+				absCgroupPath: "test-fake-path",
+				data: &common.MemoryData{
+					MinInBytes: 3234,
 				},
 			},
 			wantErr: true,
