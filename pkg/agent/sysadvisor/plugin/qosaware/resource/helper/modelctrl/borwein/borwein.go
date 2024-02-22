@@ -67,8 +67,8 @@ func NewBorweinController(regionName string, regionType types.QoSRegionType, own
 		emitter:                 emitter,
 	}
 
-	bc.indicatorOffsets[string(v1alpha1.TargetIndicatorNameCPUSchedWait)] = 0
-	bc.indicatorOffsetUpdaters[string(v1alpha1.TargetIndicatorNameCPUSchedWait)] = updateCPUSchedWaitIndicatorOffset
+	bc.indicatorOffsets[string(v1alpha1.ServiceSystemIndicatorNameCPUSchedWait)] = 0
+	bc.indicatorOffsetUpdaters[string(v1alpha1.ServiceSystemIndicatorNameCPUSchedWait)] = updateCPUSchedWaitIndicatorOffset
 	bc.borweinParameters = conf.BorweinConfiguration.BorweinParameters
 
 	return bc

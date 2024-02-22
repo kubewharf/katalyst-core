@@ -168,11 +168,11 @@ func TestNewBorweinController(t *testing.T) {
 				conf:              conf,
 				borweinParameters: conf.BorweinConfiguration.BorweinParameters,
 				indicatorOffsets: map[string]float64{
-					string(workloadv1alpha1.TargetIndicatorNameCPUSchedWait): 0,
+					string(workloadv1alpha1.ServiceSystemIndicatorNameCPUSchedWait): 0,
 				},
 				metaReader: mc,
 				indicatorOffsetUpdaters: map[string]IndicatorOffsetUpdater{
-					string(workloadv1alpha1.TargetIndicatorNameCPUSchedWait): updateCPUSchedWaitIndicatorOffset,
+					string(workloadv1alpha1.ServiceSystemIndicatorNameCPUSchedWait): updateCPUSchedWaitIndicatorOffset,
 				},
 			},
 		},
@@ -265,7 +265,7 @@ func Test_updateCPUSchedWaitIndicatorOffset(t *testing.T) {
 					podUID: sets.NewString(containerName),
 				},
 				currentIndicatorOffset: 50,
-				borweinParameter:       conf.BorweinParameters[string(workloadv1alpha1.TargetIndicatorNameCPUSchedWait)],
+				borweinParameter:       conf.BorweinParameters[string(workloadv1alpha1.ServiceSystemIndicatorNameCPUSchedWait)],
 				metaReader:             mc,
 				inferenceResults: borweintypes.BorweinInferenceResults{
 					Timestamp: 0,
@@ -299,7 +299,7 @@ func Test_updateCPUSchedWaitIndicatorOffset(t *testing.T) {
 					podUID: sets.NewString(containerName),
 				},
 				currentIndicatorOffset: 50,
-				borweinParameter:       conf.BorweinParameters[string(workloadv1alpha1.TargetIndicatorNameCPUSchedWait)],
+				borweinParameter:       conf.BorweinParameters[string(workloadv1alpha1.ServiceSystemIndicatorNameCPUSchedWait)],
 				metaReader:             mc,
 				inferenceResults: borweintypes.BorweinInferenceResults{
 					Timestamp: 0,
@@ -424,11 +424,11 @@ func TestBorweinController_updateIndicatorOffsets(t *testing.T) {
 				conf:              conf,
 				borweinParameters: conf.BorweinConfiguration.BorweinParameters,
 				indicatorOffsets: map[string]float64{
-					string(workloadv1alpha1.TargetIndicatorNameCPUSchedWait): 0,
+					string(workloadv1alpha1.ServiceSystemIndicatorNameCPUSchedWait): 0,
 				},
 				metaReader: mc,
 				indicatorOffsetUpdaters: map[string]IndicatorOffsetUpdater{
-					string(workloadv1alpha1.TargetIndicatorNameCPUSchedWait): updateCPUSchedWaitIndicatorOffset,
+					string(workloadv1alpha1.ServiceSystemIndicatorNameCPUSchedWait): updateCPUSchedWaitIndicatorOffset,
 				},
 			},
 			args: args{
@@ -538,16 +538,16 @@ func TestBorweinController_getUpdatedIndicators(t *testing.T) {
 				conf:              conf,
 				borweinParameters: conf.BorweinConfiguration.BorweinParameters,
 				indicatorOffsets: map[string]float64{
-					string(workloadv1alpha1.TargetIndicatorNameCPUSchedWait): -10,
+					string(workloadv1alpha1.ServiceSystemIndicatorNameCPUSchedWait): -10,
 				},
 				metaReader: mc,
 				indicatorOffsetUpdaters: map[string]IndicatorOffsetUpdater{
-					string(workloadv1alpha1.TargetIndicatorNameCPUSchedWait): updateCPUSchedWaitIndicatorOffset,
+					string(workloadv1alpha1.ServiceSystemIndicatorNameCPUSchedWait): updateCPUSchedWaitIndicatorOffset,
 				},
 			},
 			args: args{
 				indicators: types.Indicator{
-					string(workloadv1alpha1.TargetIndicatorNameCPUSchedWait): types.IndicatorValue{Current: 430, Target: 460},
+					string(workloadv1alpha1.ServiceSystemIndicatorNameCPUSchedWait): types.IndicatorValue{Current: 430, Target: 460},
 				},
 				inferenceResults: borweintypes.BorweinInferenceResults{
 					Timestamp: 0,
@@ -572,7 +572,7 @@ func TestBorweinController_getUpdatedIndicators(t *testing.T) {
 				},
 			},
 			want: types.Indicator{
-				string(workloadv1alpha1.TargetIndicatorNameCPUSchedWait): types.IndicatorValue{Current: 430, Target: 450},
+				string(workloadv1alpha1.ServiceSystemIndicatorNameCPUSchedWait): types.IndicatorValue{Current: 430, Target: 450},
 			},
 		},
 	}
@@ -680,16 +680,16 @@ func TestBorweinController_GetUpdatedIndicators(t *testing.T) {
 				conf:              conf,
 				borweinParameters: conf.BorweinConfiguration.BorweinParameters,
 				indicatorOffsets: map[string]float64{
-					string(workloadv1alpha1.TargetIndicatorNameCPUSchedWait): 0,
+					string(workloadv1alpha1.ServiceSystemIndicatorNameCPUSchedWait): 0,
 				},
 				metaReader: mc,
 				indicatorOffsetUpdaters: map[string]IndicatorOffsetUpdater{
-					string(workloadv1alpha1.TargetIndicatorNameCPUSchedWait): updateCPUSchedWaitIndicatorOffset,
+					string(workloadv1alpha1.ServiceSystemIndicatorNameCPUSchedWait): updateCPUSchedWaitIndicatorOffset,
 				},
 			},
 			args: args{
 				indicators: types.Indicator{
-					string(workloadv1alpha1.TargetIndicatorNameCPUSchedWait): types.IndicatorValue{Current: 430, Target: 460},
+					string(workloadv1alpha1.ServiceSystemIndicatorNameCPUSchedWait): types.IndicatorValue{Current: 430, Target: 460},
 				},
 				inferenceResults: borweintypes.BorweinInferenceResults{
 					Timestamp: 0,
@@ -717,7 +717,7 @@ func TestBorweinController_GetUpdatedIndicators(t *testing.T) {
 				},
 			},
 			want: types.Indicator{
-				string(workloadv1alpha1.TargetIndicatorNameCPUSchedWait): types.IndicatorValue{Current: 430, Target: 450},
+				string(workloadv1alpha1.ServiceSystemIndicatorNameCPUSchedWait): types.IndicatorValue{Current: 430, Target: 450},
 			},
 		},
 	}
@@ -759,11 +759,11 @@ func TestBorweinController_ResetIndicatorOffsets(t *testing.T) {
 			name: "test with non-nil indicatorOffsets",
 			fields: fields{
 				indicatorOffsets: map[string]float64{
-					string(workloadv1alpha1.TargetIndicatorNameCPUSchedWait): 460,
+					string(workloadv1alpha1.ServiceSystemIndicatorNameCPUSchedWait): 460,
 				},
 			},
 			results: map[string]float64{
-				string(workloadv1alpha1.TargetIndicatorNameCPUSchedWait): 0,
+				string(workloadv1alpha1.ServiceSystemIndicatorNameCPUSchedWait): 0,
 			},
 		},
 	}

@@ -58,8 +58,8 @@ func NewQoSRegionShare(ci *types.ContainerInfo, conf *config.Configuration, extr
 	}
 
 	r.indicatorCurrentGetters = map[string]types.IndicatorCurrentGetter{
-		string(v1alpha1.TargetIndicatorNameCPUSchedWait):  r.getPoolCPUSchedWait,
-		string(v1alpha1.TargetIndicatorNameCPUUsageRatio): r.getPoolCPUUsageRatio,
+		string(v1alpha1.ServiceSystemIndicatorNameCPUSchedWait):  r.getPoolCPUSchedWait,
+		string(v1alpha1.ServiceSystemIndicatorNameCPUUsageRatio): r.getPoolCPUUsageRatio,
 	}
 	return r
 }
