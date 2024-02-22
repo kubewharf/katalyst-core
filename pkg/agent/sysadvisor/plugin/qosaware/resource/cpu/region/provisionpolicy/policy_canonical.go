@@ -74,11 +74,11 @@ func (p *PolicyCanonical) sanityCheck() error {
 
 	// 1. check control knob legality
 	isLegal = true
-	if p.ControlKnobs == nil || len(p.ControlKnobs) <= 0 {
+	if p.ControlKnobs == nil {
 		isLegal = false
 	} else {
 		v, ok := p.ControlKnobs[types.ControlKnobNonReclaimedCPUSize]
-		if !ok || v.Value <= 0 {
+		if ok && v.Value <= 0 {
 			isLegal = false
 		}
 	}
@@ -107,7 +107,7 @@ func (p *PolicyCanonical) estimateCPUUsage() (float64, error) {
 			}
 
 			var containerEstimation float64 = 0
-			if ci.IsNumaBinding() && !enableReclaim {
+			if ci.IsDedicatedNumaBinding() && !enableReclaim {
 				if ci.ContainerType == v1alpha1.ContainerType_MAIN {
 					bindingNumas := machine.GetCPUAssignmentNUMAs(ci.TopologyAwareAssignments)
 					for range bindingNumas.ToSliceInt() {

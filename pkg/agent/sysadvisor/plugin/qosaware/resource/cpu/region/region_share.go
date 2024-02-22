@@ -30,6 +30,7 @@ import (
 	pkgconsts "github.com/kubewharf/katalyst-core/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
+	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 	"github.com/kubewharf/katalyst-core/pkg/util/metric"
 )
 
@@ -45,7 +46,7 @@ type QoSRegionShare struct {
 }
 
 // NewQoSRegionShare returns a region instance for shared pool
-func NewQoSRegionShare(ci *types.ContainerInfo, conf *config.Configuration, extraConf interface{},
+func NewQoSRegionShare(ci *types.ContainerInfo, conf *config.Configuration, extraConf interface{}, numaID int,
 	metaReader metacache.MetaReader, metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter) QoSRegion {
 
 	regionName := getRegionNameFromMetaCache(ci, cpuadvisor.FakedNUMAID, metaReader)
@@ -53,10 +54,14 @@ func NewQoSRegionShare(ci *types.ContainerInfo, conf *config.Configuration, extr
 		regionName = string(types.QoSRegionTypeShare) + types.RegionNameSeparator + string(uuid.NewUUID())
 	}
 
+	isNumaBinding := numaID != cpuadvisor.FakedNUMAID
 	r := &QoSRegionShare{
-		QoSRegionBase: NewQoSRegionBase(regionName, ci.OriginOwnerPoolName, types.QoSRegionTypeShare, conf, extraConf, metaReader, metaServer, emitter),
+		QoSRegionBase: NewQoSRegionBase(regionName, ci.OriginOwnerPoolName, types.QoSRegionTypeShare, conf, extraConf, isNumaBinding, metaReader, metaServer, emitter),
 	}
 
+	if isNumaBinding {
+		r.bindingNumas = machine.NewCPUSet(numaID)
+	}
 	r.indicatorCurrentGetters = map[string]types.IndicatorCurrentGetter{
 		string(v1alpha1.TargetIndicatorNameCPUSchedWait):  r.getPoolCPUSchedWait,
 		string(v1alpha1.TargetIndicatorNameCPUUsageRatio): r.getPoolCPUUsageRatio,
@@ -100,6 +105,7 @@ func (r *QoSRegionShare) updateProvisionPolicy() {
 
 		// set essentials for policy and regulator
 		internal.policy.SetPodSet(r.podSet)
+		internal.policy.SetBindingNumas(r.bindingNumas)
 		internal.policy.SetEssentials(r.ResourceEssentials, r.ControlEssentials)
 
 		// run an episode of policy update
@@ -176,8 +182,8 @@ func (r *QoSRegionShare) restrictProvisionControlKnob(originControlKnob map[type
 func (r *QoSRegionShare) getControlKnobs() types.ControlKnob {
 	poolSize, ok := r.metaReader.GetPoolSize(r.ownerPoolName)
 	if !ok {
-		klog.Errorf("[qosaware-cpu] pool %v not exist", r.ownerPoolName)
-		return nil
+		klog.Warningf("[qosaware-cpu] pool %v not exist", r.ownerPoolName)
+		return types.ControlKnob{}
 	}
 	if poolSize <= 0 {
 		klog.Errorf("[qosaware-cpu] pool %v of non positive size", r.ownerPoolName)

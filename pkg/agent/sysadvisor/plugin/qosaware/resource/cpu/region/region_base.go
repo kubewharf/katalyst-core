@@ -194,10 +194,12 @@ type QoSRegionBase struct {
 
 	// idle: true if containers in the region is not running as usual, maybe there is no incoming business traffic
 	idle atomic.Bool
+
+	isNumaBinding bool
 }
 
 // NewQoSRegionBase returns a base qos region instance with common region methods
-func NewQoSRegionBase(name string, ownerPoolName string, regionType types.QoSRegionType, conf *config.Configuration, extraConf interface{},
+func NewQoSRegionBase(name string, ownerPoolName string, regionType types.QoSRegionType, conf *config.Configuration, extraConf interface{}, isNumaBinding bool,
 	metaReader metacache.MetaReader, metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter) *QoSRegionBase {
 	r := &QoSRegionBase{
 		conf:          conf,
@@ -224,6 +226,8 @@ func NewQoSRegionBase(name string, ownerPoolName string, regionType types.QoSReg
 		enableBorweinModel: conf.PolicyRama.EnableBorwein,
 		throttled:          *atomic.NewBool(false),
 		idle:               *atomic.NewBool(false),
+
+		isNumaBinding: isNumaBinding,
 	}
 
 	r.initHeadroomPolicy(conf, extraConf, metaReader, metaServer, emitter)
@@ -303,6 +307,10 @@ func (r *QoSRegionBase) SetEssentials(essentials types.ResourceEssentials) {
 
 func (r *QoSRegionBase) SetThrottled(throttled bool) {
 	r.throttled.Store(throttled)
+}
+
+func (r *QoSRegionBase) IsNumaBinding() bool {
+	return r.isNumaBinding
 }
 
 func (r *QoSRegionBase) AddContainer(ci *types.ContainerInfo) error {
@@ -483,7 +491,7 @@ func getRegionNameFromMetaCache(ci *types.ContainerInfo, numaID int, metaReader 
 				}
 			}
 		}
-	} else if ci.IsNumaBinding() {
+	} else if ci.IsDedicatedNumaBinding() {
 		for regionName := range ci.RegionNames {
 			regionInfo, ok := metaReader.GetRegionInfo(regionName)
 			if ok && regionInfo.RegionType == types.QoSRegionTypeDedicatedNumaExclusive {

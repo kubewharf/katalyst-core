@@ -323,7 +323,7 @@ func (cs *cpuServer) assemblePodEntries(calculationEntriesMap map[string]*cpuadv
 	}
 
 	// currently, only pods in "dedicated_nums with numa binding" has topology aware allocations
-	if ci.IsNumaBinding() {
+	if ci.IsDedicatedNumaBinding() {
 		calculationResultsByNumas := make(map[int64]*cpuadvisor.NumaCalculationResult)
 
 		for numaID, cpuset := range ci.TopologyAwareAssignments {
