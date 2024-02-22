@@ -95,7 +95,7 @@ type SPDController struct {
 	indicatorManager         *indicator_plugin.IndicatorManager
 	indicatorPlugins         map[string]indicator_plugin.IndicatorPlugin
 	indicatorsSpecBusiness   map[apiworkload.ServiceBusinessIndicatorName]interface{}
-	indicatorsSpecSystem     map[apiworkload.TargetIndicatorName]interface{}
+	indicatorsSpecSystem     map[apiworkload.ServiceSystemIndicatorName]interface{}
 	indicatorsStatusBusiness map[apiworkload.ServiceBusinessIndicatorName]interface{}
 }
 
@@ -246,7 +246,7 @@ func (sc *SPDController) initializeIndicatorPlugins(controlCtx *katalystbase.Gen
 	sc.indicatorManager = indicator_plugin.NewIndicatorManager()
 	sc.indicatorPlugins = make(map[string]indicator_plugin.IndicatorPlugin)
 	sc.indicatorsSpecBusiness = make(map[apiworkload.ServiceBusinessIndicatorName]interface{})
-	sc.indicatorsSpecSystem = make(map[apiworkload.TargetIndicatorName]interface{})
+	sc.indicatorsSpecSystem = make(map[apiworkload.ServiceSystemIndicatorName]interface{})
 	sc.indicatorsStatusBusiness = make(map[apiworkload.ServiceBusinessIndicatorName]interface{})
 
 	initializers := indicator_plugin.GetPluginInitializers()

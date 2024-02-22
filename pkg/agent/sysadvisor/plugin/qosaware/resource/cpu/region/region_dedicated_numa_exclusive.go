@@ -64,7 +64,7 @@ func NewQoSRegionDedicatedNumaExclusive(ci *types.ContainerInfo, conf *config.Co
 	}
 	r.bindingNumas = machine.NewCPUSet(numaID)
 	r.indicatorCurrentGetters = map[string]types.IndicatorCurrentGetter{
-		string(workloadapis.TargetIndicatorNameCPI): r.getPodCPICurrent,
+		string(workloadapis.ServiceSystemIndicatorNameCPI): r.getPodCPICurrent,
 	}
 	r.enableReclaim = r.EnableReclaim
 

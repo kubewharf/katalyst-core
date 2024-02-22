@@ -31,7 +31,7 @@ type BorweinConfiguration struct {
 func NewBorweinConfiguration() *BorweinConfiguration {
 	return &BorweinConfiguration{
 		BorweinParameters: map[string]*borweintypes.BorweinParameter{
-			string(v1alpha1.TargetIndicatorNameCPUSchedWait): {
+			string(v1alpha1.ServiceSystemIndicatorNameCPUSchedWait): {
 				AbnormalRatioThreshold: 0.12,
 				OffsetMax:              250,
 				OffsetMin:              -50,

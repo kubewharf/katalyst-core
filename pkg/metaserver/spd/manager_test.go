@@ -319,7 +319,7 @@ func Test_serviceProfilingManager_ServiceSystemPerformanceTarget(t *testing.T) {
 					Spec: workloadapis.ServiceProfileDescriptorSpec{
 						SystemIndicator: []workloadapis.ServiceSystemIndicatorSpec{
 							{
-								Name: workloadapis.TargetIndicatorNameCPUSchedWait,
+								Name: workloadapis.ServiceSystemIndicatorNameCPUSchedWait,
 								Indicators: []workloadapis.Indicator{
 									{
 										IndicatorLevel: workloadapis.IndicatorLevelLowerBound,
@@ -332,7 +332,7 @@ func Test_serviceProfilingManager_ServiceSystemPerformanceTarget(t *testing.T) {
 								},
 							},
 							{
-								Name: workloadapis.TargetIndicatorNameCPI,
+								Name: workloadapis.ServiceSystemIndicatorNameCPI,
 								Indicators: []workloadapis.Indicator{
 									{
 										IndicatorLevel: workloadapis.IndicatorLevelLowerBound,
@@ -374,11 +374,11 @@ func Test_serviceProfilingManager_ServiceSystemPerformanceTarget(t *testing.T) {
 				},
 			},
 			want: IndicatorTarget{
-				string(workloadapis.TargetIndicatorNameCPUSchedWait): {
+				string(workloadapis.ServiceSystemIndicatorNameCPUSchedWait): {
 					UpperBound: pointer.Float64(100),
 					LowerBound: pointer.Float64(10),
 				},
-				string(workloadapis.TargetIndicatorNameCPI): {
+				string(workloadapis.ServiceSystemIndicatorNameCPI): {
 					UpperBound: pointer.Float64(2.4),
 					LowerBound: pointer.Float64(1.4),
 				},

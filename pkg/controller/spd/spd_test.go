@@ -614,7 +614,7 @@ func TestIndicatorUpdater(t *testing.T) {
 	}
 
 	d1 := indicator_plugin.DummyIndicatorPlugin{
-		SystemSpecNames: []apiworkload.TargetIndicatorName{
+		SystemSpecNames: []apiworkload.ServiceSystemIndicatorName{
 			"system-1",
 		},
 		BusinessSpecNames: []apiworkload.ServiceBusinessIndicatorName{
@@ -626,7 +626,7 @@ func TestIndicatorUpdater(t *testing.T) {
 		},
 	}
 	d2 := indicator_plugin.DummyIndicatorPlugin{
-		SystemSpecNames: []apiworkload.TargetIndicatorName{
+		SystemSpecNames: []apiworkload.ServiceSystemIndicatorName{
 			"system-2",
 			"system-3",
 		},
