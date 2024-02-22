@@ -19,7 +19,7 @@
 /cmd/katalyst-agent/app/options/eviction @zzzzhhb
 /cmd/katalyst-agent/app/options/qrm @csfldf
 /cmd/katalyst-agent/app/options/reporter @luomingmeng
-/cmd/katalyst-agent/app/options/sysadvisor @sun-yuliang @luomingmeng
+/cmd/katalyst-agent/app/options/sysadvisor @sun-yuliang @nightmeng @luomingmeng
 
 ### owners for configurations
 /pkg/config/controller/ @luomingmeng @caohe
@@ -30,7 +30,7 @@
 /pkg/config/agent/qrm/ @csfldf
 /pkg/config/agent/eviction/ @zzzzhhb
 /pkg/config/agent/reporter/ @luomingmeng
-/pkg/config/agent/sysadvisor/ @sun-yuliang @luomingmeng
+/pkg/config/agent/sysadvisor/ @sun-yuliang @nightmeng @luomingmeng
 
 ### owners for controllers
 /pkg/controller/kcc/ @luomingmeng
@@ -57,8 +57,8 @@
 /pkg/agent/evictionmanager/ @zzzzhhb
 /pkg/agent/qrm-plugins/ @csfldf
 /pkg/agent/resourcemanager/ @luomingmeng
-/pkg/agent/sysadvisor/ @sun-yuliang @luomingmeng
-/pkg/agent/sysadvisor/plugin/inference @sun-yuliang @csfldf
+/pkg/agent/sysadvisor/ @sun-yuliang @nightmeng @luomingmeng
+/pkg/agent/sysadvisor/plugin/inference @sun-yuliang @csfldf @nightmeng
 /pkg/agent/sysadvisor/plugin/metric-emitter @zzzzhhb
 /pkg/agent/utilcomponent/ @csfldf
 
