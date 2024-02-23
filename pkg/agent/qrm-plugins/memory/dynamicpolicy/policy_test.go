@@ -3418,3 +3418,34 @@ func TestDynamicPolicy_adjustAllocationEntries(t *testing.T) {
 		})
 	}
 }
+
+func TestGetSoftMemLimitInBytes(t *testing.T) {
+	t.Parallel()
+	// Test case where memRatio is 50% of memLimit
+	result := getSoftMemLimitInBytes(1024*1024*1024, 50)
+	expected := uint64(536870912) // 50% of 1GB
+	assert.Equal(t, expected, result, "Test case 1 failed")
+
+	// Test case where memRatio is 75% of memLimit
+	result = getSoftMemLimitInBytes(1024*1024*1024, 75)
+	expected = uint64(805306368) // 75% of 1GB
+	assert.Equal(t, expected, result, "Test case 2 failed")
+
+	// Test case where memRatio is 25% of memLimit
+	result = getSoftMemLimitInBytes(512*1024*1024, 25)
+	expected = uint64(134217728) // 25% of 512MB
+	assert.Equal(t, expected, result, "Test case 3 failed")
+
+	// Test case where memRatio is 0% (minimum value)
+	result = getSoftMemLimitInBytes(1024*1024*1024, 0)
+	expected = uint64(134217728) // 0% should be clamped to the minimum value
+	assert.Equal(t, expected, result, "Test case 4 failed")
+}
+
+func TestGetUserSpecifiedMemorySoftLimitInBytes(t *testing.T) {
+	t.Parallel()
+
+	result := getUserSpecifiedMemorySoftLimitInBytes("fake", "fake", "15")
+	expected := "0"
+	assert.Equal(t, expected, result, "Test getUserSpecifiedMemorySoftLimitInBytes failed")
+}

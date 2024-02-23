@@ -72,7 +72,6 @@ func setExtraControlKnobByConfigForAllocationInfo(allocationInfo *state.Allocati
 	}
 
 	for controlKnobName, configEntry := range extraControlKnobConfigs {
-
 		if _, found := allocationInfo.ExtraControlKnobInfo[controlKnobName]; found {
 			continue
 		}
@@ -149,6 +148,47 @@ func (p *DynamicPolicy) setExtraControlKnobByConfigs() {
 	p.state.SetMachineState(resourcesMachineState)
 }
 
+func convertMemRatioToBytes(memLimit, memRatio uint64) uint64 {
+	limitInBytes := memLimit / 100 * memRatio
+	// Any value related to cgroup memory limitation should be aligned with the page size.
+	limitInBytes = general.AlignToPageSize(limitInBytes)
+
+	return limitInBytes
+}
+
+func getSoftMemLimitInBytes(memLimit, memRatio uint64) uint64 {
+	// Step1, convert ratio into bytes
+	result := convertMemRatioToBytes(memLimit, memRatio)
+	// Step2, performing specific operations within the memory.low
+	// Notice: we limited memory.low between {128M, 2G}
+	result = uint64(general.Clamp(float64(result), float64(cgroupMemoryLimit128M), float64(cgroupMemoryLimit2G)))
+
+	return result
+}
+
+func getUserSpecifiedMemorySoftLimitInBytes(podUID, containerID, controlKnobValue string) string {
+	relCgroupPath, err := common.GetContainerRelativeCgroupPath(podUID, containerID)
+	if err != nil {
+		general.Warningf("getUserSpecifiedMemorySoftLimitInBytes failed with err: %v", err)
+		return "0"
+	}
+
+	memStat, err := cgroupmgr.GetMemoryWithRelativePath(relCgroupPath)
+	if err != nil {
+		general.Warningf("getUserSpecifiedMemorySoftLimitInBytes failed with err: %v", err)
+		return "0"
+	}
+
+	softLimitRatio, err := strconv.Atoi(controlKnobValue)
+	if err != nil {
+		general.Warningf("getUserSpecifiedMemorySoftLimitInBytes failed with err: %v", err)
+		return "0"
+	}
+
+	softLimitInBytes := getSoftMemLimitInBytes(memStat.Limit, uint64(softLimitRatio))
+	return strconv.FormatUint(softLimitInBytes, 10)
+}
+
 func (p *DynamicPolicy) applyExternalCgroupParams() {
 	general.Infof("called")
 
@@ -187,6 +227,12 @@ func (p *DynamicPolicy) applyExternalCgroupParams() {
 					continue
 				}
 
+				// Notice: for some memory cgroup configurations, we need to convert the ratio configuration into bytes.
+				// Such as: memory.low, memory.min.
+				if controlKnobName == controlKnobKeyMemorySoftLimitInRatio {
+					entry.ControlKnobValue = getUserSpecifiedMemorySoftLimitInBytes(podUID, containerID, entry.ControlKnobValue)
+				}
+
 				general.InfoS("ApplyUnifiedDataForContainer",
 					"podNamespace", allocationInfo.PodNamespace,
 					"podName", allocationInfo.PodName,
@@ -197,7 +243,6 @@ func (p *DynamicPolicy) applyExternalCgroupParams() {
 					"cgroupIfaceName", cgroupIfaceName)
 
 				err := cgroupmgr.ApplyUnifiedDataForContainer(podUID, containerID, entry.CgroupSubsysName, cgroupIfaceName, entry.ControlKnobValue)
-
 				if err != nil {
 					general.ErrorS(err, "ApplyUnifiedDataForContainer failed",
 						"podNamespace", allocationInfo.PodNamespace,
