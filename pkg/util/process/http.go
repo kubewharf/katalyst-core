@@ -314,6 +314,10 @@ func GetAndUnmarshal(url string, v interface{}) error {
 		return err
 	}
 
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("invalid response status code %d, url: %s", resp.StatusCode, url)
+	}
+
 	err = json.Unmarshal(body, v)
 	if err != nil {
 		return err

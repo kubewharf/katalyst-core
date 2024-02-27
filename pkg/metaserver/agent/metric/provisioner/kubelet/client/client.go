@@ -47,7 +47,7 @@ func (c *KubeletSummaryClient) Summary(ctx context.Context) (*statsapi.Summary, 
 			return nil, fmt.Errorf("failed to get kubelet config for summary api, error: %v", err)
 		}
 	} else {
-		url := fmt.Sprintf(summaryApi, c.baseConf.KubeletReadOnlyPort, c.baseConf.KubeletPodsEndpoint)
+		url := fmt.Sprintf(summaryApi, c.baseConf.KubeletReadOnlyPort, c.baseConf.KubeletSummaryEndpoint)
 		if err := process.GetAndUnmarshal(url, summary); err != nil {
 			return nil, fmt.Errorf("failed to get summary, error: %v", err)
 		}
