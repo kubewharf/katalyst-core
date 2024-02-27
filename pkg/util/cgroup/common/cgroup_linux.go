@@ -76,6 +76,52 @@ func GetCgroupParamInt(cgroupPath, cgroupFile string) (int64, error) {
 	return res, nil
 }
 
+// ParseCgroupNumaValue parse cgroup numa stat files like memory.numa_stat, the format is like "anon N0=1686843392 N1=1069957120 N2=316747776 N3=163962880"
+func ParseCgroupNumaValue(cgroupPath, cgroupFile string) (map[string]map[int]uint64, error) {
+	fileName := filepath.Join(cgroupPath, cgroupFile)
+	content, err := ioutil.ReadFile(fileName)
+	if err != nil {
+		return nil, err
+	}
+
+	result := make(map[string]map[int]uint64)
+	lines := strings.Split(string(content), "\n")
+	for _, line := range lines {
+		cols := strings.Fields(line)
+		if len(cols) <= 1 {
+			continue
+		}
+
+		key := cols[0]
+		numaInfo := make(map[int]uint64)
+		for _, pair := range cols[1:] {
+			parts := strings.Split(pair, "=")
+			if len(parts) != 2 {
+				return nil, fmt.Errorf("failed to parse line [%v]", line)
+			}
+
+			if !strings.HasPrefix(parts[0], "N") {
+				return nil, fmt.Errorf("failed to parse line [%v]", line)
+			}
+
+			numaID, err := strconv.Atoi(strings.TrimPrefix(parts[0], "N"))
+			if err != nil {
+				return nil, fmt.Errorf("failed to parse line [%v]", line)
+			}
+			val, err := strconv.ParseUint(parts[1], 10, 64)
+			if err != nil {
+				return nil, fmt.Errorf("failed to parse line [%v]", line)
+			}
+			numaInfo[numaID] = val
+		}
+		if len(numaInfo) > 0 {
+			result[key] = numaInfo
+		}
+	}
+
+	return result, nil
+}
+
 // WriteFileIfChange writes data to the cgroup joined by dir and
 // file if new data is not equal to the old data and return the old data.
 func WriteFileIfChange(dir, file, data string) (error, bool, string) {

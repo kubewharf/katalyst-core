@@ -23,4 +23,5 @@ const (
 	ControlKnobKeyDropCache          MemoryControlKnobName = "drop_cache"
 	ControlKnobKeyCPUSetMems         MemoryControlKnobName = "cpuset_mems"
 	ControlKnobReclaimedMemorySize   MemoryControlKnobName = "reclaimed_memory_size"
+	ControlKnobKeyBalanceNumaMemory  MemoryControlKnobName = "balance_numa_memory"
 )

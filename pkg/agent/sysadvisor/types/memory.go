@@ -70,3 +70,18 @@ type InternalMemoryCalculationResult struct {
 	ExtraEntries     []ExtraMemoryAdvices
 	TimeStamp        time.Time
 }
+
+type NumaMemoryBalanceContainerInfo struct {
+	PodUID        string `json:"podUID"`
+	ContainerName string `json:"containerName"`
+	DestNumaList  []int  `json:"destNumaList"`
+}
+
+type NumaMemoryBalanceAdvice struct {
+	DestNumaList      []int                            `json:"destNumaList"`
+	SourceNuma        int                              `json:"sourceNuma"`
+	MigrateContainers []NumaMemoryBalanceContainerInfo `json:"migrateContainers"`
+	TotalRSS          float64                          `json:"totalRSS"`
+	// if the successful migrated memory ratio is over this threshold, this turn can be considered successful.
+	Threshold float64 `json:"threshold"`
+}

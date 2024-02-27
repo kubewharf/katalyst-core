@@ -99,8 +99,9 @@ const (
 	MetricMemBandwidthReadNuma   = "mem.bandwidth.read.numa"
 	MetricMemBandwidthWriteNuma  = "mem.bandwidth.write.numa"
 
-	MetricMemLatencyReadNuma  = "mem.latency.read.numa"
-	MetricMemLatencyWriteNuma = "mem.latency.write.numa"
+	MetricMemLatencyReadNuma      = "mem.latency.read.numa"
+	MetricMemLatencyWriteNuma     = "mem.latency.write.numa"
+	MetricMemAMDL3MissLatencyNuma = "mem.latency.amd.l3.miss"
 )
 
 // System cpu compute metrics

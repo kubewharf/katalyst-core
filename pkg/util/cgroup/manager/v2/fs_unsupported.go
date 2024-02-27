@@ -68,6 +68,10 @@ func (m *unsupportedManager) GetMemory(_ string) (*common.MemoryStats, error) {
 	return nil, fmt.Errorf("unsupported manager v2")
 }
 
+func (m *unsupportedManager) GetNumaMemory(absCgroupPath string) (map[int]*common.MemoryNumaMetrics, error) {
+	return nil, fmt.Errorf("unsupported manager v2")
+}
+
 func (m *unsupportedManager) GetCPU(_ string) (*common.CPUStats, error) {
 	return nil, fmt.Errorf("unsupported manager v2")
 }

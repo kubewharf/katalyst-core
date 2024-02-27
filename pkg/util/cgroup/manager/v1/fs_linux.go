@@ -26,6 +26,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"syscall"
 
 	"github.com/containerd/cgroups"
 	libcgroups "github.com/opencontainers/runc/libcontainer/cgroups"
@@ -237,6 +238,42 @@ func (m *manager) GetMemory(absCgroupPath string) (*common.MemoryStats, error) {
 	memoryStats.Usage = usage
 
 	return memoryStats, nil
+}
+
+func (m *manager) GetNumaMemory(absCgroupPath string) (map[int]*common.MemoryNumaMetrics, error) {
+	numaStat, err := common.ParseCgroupNumaValue(absCgroupPath, "memory.numa_stat")
+	if err != nil {
+		return nil, err
+	}
+
+	pageSize := uint64(syscall.Getpagesize())
+
+	result := make(map[int]*common.MemoryNumaMetrics)
+	if anonStat, ok := numaStat["anon"]; ok {
+		for numaID, value := range anonStat {
+			if _, ok := result[numaID]; !ok {
+				result[numaID] = &common.MemoryNumaMetrics{
+					Anon: value * pageSize,
+				}
+			} else {
+				result[numaID].Anon = value * pageSize
+			}
+		}
+	}
+
+	if anonStat, ok := numaStat["file"]; ok {
+		for numaID, value := range anonStat {
+			if _, ok := result[numaID]; !ok {
+				result[numaID] = &common.MemoryNumaMetrics{
+					File: value * pageSize,
+				}
+			} else {
+				result[numaID].File = value * pageSize
+			}
+		}
+	}
+
+	return result, nil
 }
 
 func (m *manager) GetCPU(absCgroupPath string) (*common.CPUStats, error) {

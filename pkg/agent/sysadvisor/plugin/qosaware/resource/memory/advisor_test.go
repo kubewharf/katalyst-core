@@ -96,6 +96,8 @@ func generateTestConfiguration(t *testing.T, checkpointDir, stateFileDir string)
 
 	conf.GenericSysAdvisorConfiguration.StateFileDirectory = stateFileDir
 	conf.MetaServerConfiguration.CheckpointManagerDir = checkpointDir
+	conf.GraceBalanceReadLatencyThreshold = 100
+	conf.ForceBalanceReadLatencyThreshold = 120
 	conf.GetDynamicConfiguration().ReservedResourceForAllocate[v1.ResourceMemory] = resource.MustParse(fmt.Sprintf("%d", 4<<30))
 
 	return conf
@@ -123,13 +125,17 @@ func newTestMemoryAdvisor(t *testing.T, pods []*v1.Pod, checkpointDir, stateFile
 	memoryTopology, err := machine.GenerateDummyMemoryTopology(4, 500<<30)
 	require.NoError(t, err)
 
+	extraTopology, err := machine.GenerateDummyExtraTopology(4)
+	require.NoError(t, err)
+
 	metaServer.MetaAgent = &agent.MetaAgent{
 		KatalystMachineInfo: &machine.KatalystMachineInfo{
 			MachineInfo: &info.MachineInfo{
 				MemoryCapacity: 1000 << 30,
 			},
-			CPUTopology:    cpuTopology,
-			MemoryTopology: memoryTopology,
+			CPUTopology:       cpuTopology,
+			MemoryTopology:    memoryTopology,
+			ExtraTopologyInfo: extraTopology,
 		},
 		PodFetcher: &pod.PodFetcherStub{
 			PodList: pods,
@@ -176,6 +182,65 @@ type cgroupMetric struct {
 	metricName  string
 	metricValue metricutil.MetricData
 	cgroupPath  string
+}
+
+var defaultPodList = []*v1.Pod{
+	{
+		ObjectMeta: metav1.ObjectMeta{
+			UID:       "uid1",
+			Name:      "pod1",
+			Namespace: "default",
+		},
+		Spec: v1.PodSpec{
+			Containers: []v1.Container{
+				{
+					Name: "c1",
+				},
+			},
+		},
+	},
+	{
+		ObjectMeta: metav1.ObjectMeta{
+			UID:       "uid2",
+			Name:      "pod2",
+			Namespace: "default",
+		},
+		Spec: v1.PodSpec{
+			Containers: []v1.Container{
+				{
+					Name: "c2",
+				},
+			},
+		},
+	},
+	{
+		ObjectMeta: metav1.ObjectMeta{
+			UID:       "uid3",
+			Name:      "pod3",
+			Namespace: "default",
+		},
+		Spec: v1.PodSpec{
+			Containers: []v1.Container{
+				{
+					Name: "c3",
+				},
+			},
+		},
+	},
+	{
+		ObjectMeta: metav1.ObjectMeta{
+			UID:       "uid4",
+			Name:      "pod4",
+			Namespace: "default",
+		},
+		Spec: v1.PodSpec{
+			Containers: []v1.Container{
+				{
+					Name: "c4",
+				},
+			},
+		},
+	},
 }
 
 var defaultNodeMetrics = []nodeMetric{
@@ -934,6 +999,875 @@ func TestUpdate(t *testing.T) {
 						PodUID:        "uid3",
 						ContainerName: "c3",
 						Values:        map[string]string{string(memoryadvisor.ControlKnobKeyCPUSetMems): "1-3"},
+					},
+				},
+			},
+		},
+		{
+			name: "numa memory balance(grace balance)",
+			pools: map[string]*types.PoolInfo{
+				state.PoolNameReserve: {
+					PoolName: state.PoolNameReserve,
+					TopologyAwareAssignments: map[int]machine.CPUSet{
+						0: machine.MustParse("0"),
+						1: machine.MustParse("0"),
+						2: machine.MustParse("0"),
+						3: machine.MustParse("0"),
+					},
+					OriginalTopologyAwareAssignments: map[int]machine.CPUSet{
+						0: machine.MustParse("0"),
+						1: machine.MustParse("0"),
+						2: machine.MustParse("0"),
+						3: machine.MustParse("0"),
+					},
+				},
+				state.PoolNameShare: {
+					PoolName: state.PoolNameShare,
+					TopologyAwareAssignments: map[int]machine.CPUSet{
+						0: machine.MustParse("1"),
+						1: machine.MustParse("24"),
+					},
+					OriginalTopologyAwareAssignments: map[int]machine.CPUSet{
+						0: machine.MustParse("1"),
+						1: machine.MustParse("24"),
+					},
+				},
+				state.PoolNameReclaim: {
+					PoolName: state.PoolNameReclaim,
+					TopologyAwareAssignments: map[int]machine.CPUSet{
+						0: machine.MustParse("2"),
+						1: machine.MustParse("25"),
+						2: machine.MustParse("48"),
+						3: machine.MustParse("72"),
+					},
+					OriginalTopologyAwareAssignments: map[int]machine.CPUSet{
+						0: machine.MustParse("2"),
+						1: machine.MustParse("25"),
+						2: machine.MustParse("48"),
+						3: machine.MustParse("72"),
+					},
+				},
+			},
+			reclaimedEnable: true,
+			needRecvAdvices: true,
+			containers: []*types.ContainerInfo{
+				makeContainerInfo("uid1", "default", "pod1", "c1", consts.PodAnnotationQoSLevelSharedCores, nil,
+					map[int]machine.CPUSet{
+						0: machine.MustParse("1"),
+						1: machine.MustParse("24"),
+					}, 200<<30),
+				makeContainerInfo("uid2", "default", "pod2", "c2", consts.PodAnnotationQoSLevelSharedCores, nil,
+					map[int]machine.CPUSet{
+						0: machine.MustParse("1"),
+						1: machine.MustParse("24"),
+					}, 200<<30),
+				makeContainerInfo("uid3", "default", "pod3", "c3", consts.PodAnnotationQoSLevelReclaimedCores, nil,
+					map[int]machine.CPUSet{
+						0: machine.MustParse("2"),
+						1: machine.MustParse("25"),
+						2: machine.MustParse("48"),
+						3: machine.MustParse("72"),
+					}, 200<<30),
+				makeContainerInfo("uid4", "default", "pod4", "c4", consts.PodAnnotationQoSLevelReclaimedCores, nil,
+					map[int]machine.CPUSet{
+						0: machine.MustParse("2"),
+						1: machine.MustParse("25"),
+						2: machine.MustParse("48"),
+						3: machine.MustParse("72"),
+					}, 200<<30),
+			},
+			pods:        defaultPodList,
+			plugins:     []types.MemoryAdvisorPluginName{memadvisorplugin.NumaMemoryBalancer},
+			nodeMetrics: defaultNodeMetrics,
+			numaMetrics: []numaMetric{
+				{
+					numaID:      0,
+					metricName:  coreconsts.MetricMemLatencyReadNuma,
+					metricValue: metricutil.MetricData{Value: 110},
+				},
+				{
+					numaID:      1,
+					metricName:  coreconsts.MetricMemLatencyReadNuma,
+					metricValue: metricutil.MetricData{Value: 50},
+				},
+				{
+					numaID:      2,
+					metricName:  coreconsts.MetricMemLatencyReadNuma,
+					metricValue: metricutil.MetricData{Value: 20},
+				},
+				{
+					numaID:      3,
+					metricName:  coreconsts.MetricMemLatencyReadNuma,
+					metricValue: metricutil.MetricData{Value: 10},
+				},
+				{
+					numaID:      0,
+					metricName:  coreconsts.MetricMemBandwidthNuma,
+					metricValue: metricutil.MetricData{Value: 1000},
+				},
+				{
+					numaID:      1,
+					metricName:  coreconsts.MetricMemBandwidthNuma,
+					metricValue: metricutil.MetricData{Value: 300},
+				},
+				{
+					numaID:      2,
+					metricName:  coreconsts.MetricMemBandwidthNuma,
+					metricValue: metricutil.MetricData{Value: 200},
+				},
+				{
+					numaID:      3,
+					metricName:  coreconsts.MetricMemBandwidthNuma,
+					metricValue: metricutil.MetricData{Value: 100},
+				},
+			},
+			containerNUMAMetrics: []containerNUMAMetric{
+				{
+					metricName:    coreconsts.MetricsMemAnonPerNumaContainer,
+					metricValue:   metricutil.MetricData{Value: 2 << 30},
+					podUID:        "uid1",
+					containerName: "c1",
+					numdID:        0,
+				},
+				{
+					metricName:    coreconsts.MetricsMemAnonPerNumaContainer,
+					metricValue:   metricutil.MetricData{Value: 1 << 30},
+					podUID:        "uid2",
+					containerName: "c2",
+					numdID:        0,
+				},
+				{
+					metricName:    coreconsts.MetricsMemAnonPerNumaContainer,
+					metricValue:   metricutil.MetricData{Value: 2 << 30},
+					podUID:        "uid3",
+					containerName: "c3",
+					numdID:        0,
+				},
+				{
+					metricName:    coreconsts.MetricsMemAnonPerNumaContainer,
+					metricValue:   metricutil.MetricData{Value: 1 << 30},
+					podUID:        "uid4",
+					containerName: "c4",
+					numdID:        0,
+				},
+			},
+			wantHeadroom: *resource.NewQuantity(980<<30, resource.DecimalSI),
+			wantAdviceResult: types.InternalMemoryCalculationResult{
+				ExtraEntries: []types.ExtraMemoryAdvices{
+					{
+						Values: map[string]string{
+							string(memoryadvisor.ControlKnobKeyBalanceNumaMemory): "{\"destNumaList\":[1],\"sourceNuma\":0,\"migrateContainers\":[{\"podUID\":\"uid4\",\"containerName\":\"c4\",\"destNumaList\":[0,1,2,3]},{\"podUID\":\"uid3\",\"containerName\":\"c3\",\"destNumaList\":[0,1,2,3]}],\"totalRSS\":3221225472,\"threshold\":0.7}",
+						},
+					},
+				},
+			},
+		},
+		{
+			name: "numa memory balance(force balance,evict)",
+			pools: map[string]*types.PoolInfo{
+				state.PoolNameReserve: {
+					PoolName: state.PoolNameReserve,
+					TopologyAwareAssignments: map[int]machine.CPUSet{
+						0: machine.MustParse("0"),
+						1: machine.MustParse("0"),
+						2: machine.MustParse("0"),
+						3: machine.MustParse("0"),
+					},
+					OriginalTopologyAwareAssignments: map[int]machine.CPUSet{
+						0: machine.MustParse("0"),
+						1: machine.MustParse("0"),
+						2: machine.MustParse("0"),
+						3: machine.MustParse("0"),
+					},
+				},
+				state.PoolNameShare: {
+					PoolName: state.PoolNameShare,
+					TopologyAwareAssignments: map[int]machine.CPUSet{
+						0: machine.MustParse("1"),
+						1: machine.MustParse("24"),
+					},
+					OriginalTopologyAwareAssignments: map[int]machine.CPUSet{
+						0: machine.MustParse("1"),
+						1: machine.MustParse("24"),
+					},
+				},
+				state.PoolNameReclaim: {
+					PoolName: state.PoolNameReclaim,
+					TopologyAwareAssignments: map[int]machine.CPUSet{
+						0: machine.MustParse("2"),
+						1: machine.MustParse("25"),
+						2: machine.MustParse("48"),
+						3: machine.MustParse("72"),
+					},
+					OriginalTopologyAwareAssignments: map[int]machine.CPUSet{
+						0: machine.MustParse("2"),
+						1: machine.MustParse("25"),
+						2: machine.MustParse("48"),
+						3: machine.MustParse("72"),
+					},
+				},
+			},
+			reclaimedEnable: true,
+			needRecvAdvices: true,
+			containers: []*types.ContainerInfo{
+				makeContainerInfo("uid1", "default", "pod1", "c1", consts.PodAnnotationQoSLevelSharedCores, nil,
+					map[int]machine.CPUSet{
+						0: machine.MustParse("1"),
+						1: machine.MustParse("24"),
+					}, 200<<30),
+				makeContainerInfo("uid2", "default", "pod2", "c2", consts.PodAnnotationQoSLevelSharedCores, nil,
+					map[int]machine.CPUSet{
+						0: machine.MustParse("1"),
+						1: machine.MustParse("24"),
+					}, 200<<30),
+				makeContainerInfo("uid3", "default", "pod3", "c3", consts.PodAnnotationQoSLevelReclaimedCores, nil,
+					map[int]machine.CPUSet{
+						0: machine.MustParse("2"),
+						1: machine.MustParse("25"),
+						2: machine.MustParse("48"),
+						3: machine.MustParse("72"),
+					}, 200<<30),
+				makeContainerInfo("uid4", "default", "pod4", "c4", consts.PodAnnotationQoSLevelReclaimedCores, nil,
+					map[int]machine.CPUSet{
+						0: machine.MustParse("2"),
+						1: machine.MustParse("25"),
+						2: machine.MustParse("48"),
+						3: machine.MustParse("72"),
+					}, 200<<30),
+			},
+			pods:        defaultPodList,
+			plugins:     []types.MemoryAdvisorPluginName{memadvisorplugin.NumaMemoryBalancer},
+			nodeMetrics: defaultNodeMetrics,
+			numaMetrics: []numaMetric{
+				{
+					numaID:      0,
+					metricName:  coreconsts.MetricMemLatencyReadNuma,
+					metricValue: metricutil.MetricData{Value: 121},
+				},
+				{
+					numaID:      1,
+					metricName:  coreconsts.MetricMemLatencyReadNuma,
+					metricValue: metricutil.MetricData{Value: 105},
+				},
+				{
+					numaID:      2,
+					metricName:  coreconsts.MetricMemLatencyReadNuma,
+					metricValue: metricutil.MetricData{Value: 20},
+				},
+				{
+					numaID:      3,
+					metricName:  coreconsts.MetricMemLatencyReadNuma,
+					metricValue: metricutil.MetricData{Value: 10},
+				},
+				{
+					numaID:      0,
+					metricName:  coreconsts.MetricMemBandwidthNuma,
+					metricValue: metricutil.MetricData{Value: 1000},
+				},
+				{
+					numaID:      1,
+					metricName:  coreconsts.MetricMemBandwidthNuma,
+					metricValue: metricutil.MetricData{Value: 300},
+				},
+				{
+					numaID:      2,
+					metricName:  coreconsts.MetricMemBandwidthNuma,
+					metricValue: metricutil.MetricData{Value: 200},
+				},
+				{
+					numaID:      3,
+					metricName:  coreconsts.MetricMemBandwidthNuma,
+					metricValue: metricutil.MetricData{Value: 100},
+				},
+			},
+			containerNUMAMetrics: []containerNUMAMetric{
+				{
+					metricName:    coreconsts.MetricsMemAnonPerNumaContainer,
+					metricValue:   metricutil.MetricData{Value: 2 << 10},
+					podUID:        "uid1",
+					containerName: "c1",
+					numdID:        0,
+				},
+				{
+					metricName:    coreconsts.MetricsMemAnonPerNumaContainer,
+					metricValue:   metricutil.MetricData{Value: 1 << 10},
+					podUID:        "uid2",
+					containerName: "c2",
+					numdID:        0,
+				},
+				{
+					metricName:    coreconsts.MetricsMemAnonPerNumaContainer,
+					metricValue:   metricutil.MetricData{Value: 2 << 10},
+					podUID:        "uid3",
+					containerName: "c3",
+					numdID:        0,
+				},
+				{
+					metricName:    coreconsts.MetricsMemAnonPerNumaContainer,
+					metricValue:   metricutil.MetricData{Value: 512 << 10},
+					podUID:        "uid4",
+					containerName: "c4",
+					numdID:        0,
+				},
+			},
+			wantHeadroom: *resource.NewQuantity(980<<30, resource.DecimalSI),
+			wantAdviceResult: types.InternalMemoryCalculationResult{
+				ContainerEntries: []types.ContainerMemoryAdvices{},
+			},
+		},
+		{
+			name: "numa memory balance(force balance,no reclaimed pod)",
+			pools: map[string]*types.PoolInfo{
+				state.PoolNameReserve: {
+					PoolName: state.PoolNameReserve,
+					TopologyAwareAssignments: map[int]machine.CPUSet{
+						0: machine.MustParse("0"),
+						1: machine.MustParse("0"),
+						2: machine.MustParse("0"),
+						3: machine.MustParse("0"),
+					},
+					OriginalTopologyAwareAssignments: map[int]machine.CPUSet{
+						0: machine.MustParse("0"),
+						1: machine.MustParse("0"),
+						2: machine.MustParse("0"),
+						3: machine.MustParse("0"),
+					},
+				},
+				state.PoolNameShare: {
+					PoolName: state.PoolNameShare,
+					TopologyAwareAssignments: map[int]machine.CPUSet{
+						0: machine.MustParse("1"),
+						1: machine.MustParse("24"),
+						2: machine.MustParse("48"),
+					},
+					OriginalTopologyAwareAssignments: map[int]machine.CPUSet{
+						0: machine.MustParse("1"),
+						1: machine.MustParse("24"),
+						2: machine.MustParse("48"),
+					},
+				},
+			},
+			reclaimedEnable: true,
+			needRecvAdvices: true,
+			containers: []*types.ContainerInfo{
+				makeContainerInfo("uid1", "default", "pod1", "c1", consts.PodAnnotationQoSLevelSharedCores, nil,
+					map[int]machine.CPUSet{
+						0: machine.MustParse("1"),
+						1: machine.MustParse("24"),
+					}, 200<<30),
+				makeContainerInfo("uid2", "default", "pod2", "c2", consts.PodAnnotationQoSLevelSharedCores, nil,
+					map[int]machine.CPUSet{
+						0: machine.MustParse("1"),
+						1: machine.MustParse("24"),
+					}, 200<<30),
+			},
+			pods:        defaultPodList,
+			plugins:     []types.MemoryAdvisorPluginName{memadvisorplugin.NumaMemoryBalancer},
+			nodeMetrics: defaultNodeMetrics,
+			numaMetrics: []numaMetric{
+				{
+					numaID:      0,
+					metricName:  coreconsts.MetricMemLatencyReadNuma,
+					metricValue: metricutil.MetricData{Value: 121},
+				},
+				{
+					numaID:      1,
+					metricName:  coreconsts.MetricMemLatencyReadNuma,
+					metricValue: metricutil.MetricData{Value: 110},
+				},
+				{
+					numaID:      2,
+					metricName:  coreconsts.MetricMemLatencyReadNuma,
+					metricValue: metricutil.MetricData{Value: 20},
+				},
+				{
+					numaID:      3,
+					metricName:  coreconsts.MetricMemLatencyReadNuma,
+					metricValue: metricutil.MetricData{Value: 10},
+				},
+				{
+					numaID:      0,
+					metricName:  coreconsts.MetricMemBandwidthNuma,
+					metricValue: metricutil.MetricData{Value: 1000},
+				},
+				{
+					numaID:      1,
+					metricName:  coreconsts.MetricMemBandwidthNuma,
+					metricValue: metricutil.MetricData{Value: 300},
+				},
+				{
+					numaID:      2,
+					metricName:  coreconsts.MetricMemBandwidthNuma,
+					metricValue: metricutil.MetricData{Value: 200},
+				},
+				{
+					numaID:      3,
+					metricName:  coreconsts.MetricMemBandwidthNuma,
+					metricValue: metricutil.MetricData{Value: 100},
+				},
+			},
+			containerNUMAMetrics: []containerNUMAMetric{
+				{
+					metricName:    coreconsts.MetricsMemAnonPerNumaContainer,
+					metricValue:   metricutil.MetricData{Value: 2 << 30},
+					podUID:        "uid1",
+					containerName: "c1",
+					numdID:        0,
+				},
+				{
+					metricName:    coreconsts.MetricsMemAnonPerNumaContainer,
+					metricValue:   metricutil.MetricData{Value: 1 << 30},
+					podUID:        "uid2",
+					containerName: "c2",
+					numdID:        0,
+				},
+				{
+					metricName:    coreconsts.MetricsMemAnonPerNumaContainer,
+					metricValue:   metricutil.MetricData{Value: 2 << 30},
+					podUID:        "uid3",
+					containerName: "c3",
+					numdID:        0,
+				},
+				{
+					metricName:    coreconsts.MetricsMemAnonPerNumaContainer,
+					metricValue:   metricutil.MetricData{Value: 512 << 20},
+					podUID:        "uid4",
+					containerName: "c4",
+					numdID:        0,
+				},
+			},
+			wantHeadroom: *resource.NewQuantity(980<<30, resource.DecimalSI),
+			wantAdviceResult: types.InternalMemoryCalculationResult{
+				ExtraEntries: []types.ExtraMemoryAdvices{
+					{
+						Values: map[string]string{
+							string(memoryadvisor.ControlKnobKeyBalanceNumaMemory): "{\"destNumaList\":[3,2],\"sourceNuma\":0,\"migrateContainers\":[{\"podUID\":\"uid2\",\"containerName\":\"c2\",\"destNumaList\":[0,1,2]},{\"podUID\":\"uid1\",\"containerName\":\"c1\",\"destNumaList\":[0,1,2]}],\"totalRSS\":3221225472,\"threshold\":0.7}",
+						},
+					},
+				},
+			},
+		},
+		{
+			name: "numa memory balance(grace balance,latency gap)",
+			pools: map[string]*types.PoolInfo{
+				state.PoolNameReserve: {
+					PoolName: state.PoolNameReserve,
+					TopologyAwareAssignments: map[int]machine.CPUSet{
+						0: machine.MustParse("0"),
+						1: machine.MustParse("0"),
+						2: machine.MustParse("0"),
+						3: machine.MustParse("0"),
+					},
+					OriginalTopologyAwareAssignments: map[int]machine.CPUSet{
+						0: machine.MustParse("0"),
+						1: machine.MustParse("0"),
+						2: machine.MustParse("0"),
+						3: machine.MustParse("0"),
+					},
+				},
+				state.PoolNameShare: {
+					PoolName: state.PoolNameShare,
+					TopologyAwareAssignments: map[int]machine.CPUSet{
+						0: machine.MustParse("1"),
+						1: machine.MustParse("24"),
+					},
+					OriginalTopologyAwareAssignments: map[int]machine.CPUSet{
+						0: machine.MustParse("1"),
+						1: machine.MustParse("24"),
+					},
+				},
+				state.PoolNameReclaim: {
+					PoolName: state.PoolNameReclaim,
+					TopologyAwareAssignments: map[int]machine.CPUSet{
+						0: machine.MustParse("2"),
+						1: machine.MustParse("25"),
+						2: machine.MustParse("48"),
+						3: machine.MustParse("72"),
+					},
+					OriginalTopologyAwareAssignments: map[int]machine.CPUSet{
+						0: machine.MustParse("2"),
+						1: machine.MustParse("25"),
+						2: machine.MustParse("48"),
+						3: machine.MustParse("72"),
+					},
+				},
+			},
+			reclaimedEnable: true,
+			needRecvAdvices: true,
+			containers: []*types.ContainerInfo{
+				makeContainerInfo("uid1", "default", "pod1", "c1", consts.PodAnnotationQoSLevelSharedCores, nil,
+					map[int]machine.CPUSet{
+						0: machine.MustParse("1"),
+						1: machine.MustParse("24"),
+					}, 200<<30),
+				makeContainerInfo("uid2", "default", "pod2", "c2", consts.PodAnnotationQoSLevelSharedCores, nil,
+					map[int]machine.CPUSet{
+						0: machine.MustParse("1"),
+						1: machine.MustParse("24"),
+					}, 200<<30),
+				makeContainerInfo("uid3", "default", "pod3", "c3", consts.PodAnnotationQoSLevelReclaimedCores, nil,
+					map[int]machine.CPUSet{
+						0: machine.MustParse("2"),
+						1: machine.MustParse("25"),
+						2: machine.MustParse("48"),
+						3: machine.MustParse("72"),
+					}, 200<<30),
+				makeContainerInfo("uid4", "default", "pod4", "c4", consts.PodAnnotationQoSLevelReclaimedCores, nil,
+					map[int]machine.CPUSet{
+						0: machine.MustParse("2"),
+						1: machine.MustParse("25"),
+						2: machine.MustParse("48"),
+						3: machine.MustParse("72"),
+					}, 200<<30),
+			},
+			pods:        defaultPodList,
+			plugins:     []types.MemoryAdvisorPluginName{memadvisorplugin.NumaMemoryBalancer},
+			nodeMetrics: defaultNodeMetrics,
+			numaMetrics: []numaMetric{
+				{
+					numaID:      0,
+					metricName:  coreconsts.MetricMemLatencyReadNuma,
+					metricValue: metricutil.MetricData{Value: 90},
+				},
+				{
+					numaID:      1,
+					metricName:  coreconsts.MetricMemLatencyReadNuma,
+					metricValue: metricutil.MetricData{Value: 40},
+				},
+				{
+					numaID:      2,
+					metricName:  coreconsts.MetricMemLatencyReadNuma,
+					metricValue: metricutil.MetricData{Value: 20},
+				},
+				{
+					numaID:      3,
+					metricName:  coreconsts.MetricMemLatencyReadNuma,
+					metricValue: metricutil.MetricData{Value: 10},
+				},
+				{
+					numaID:      0,
+					metricName:  coreconsts.MetricMemBandwidthNuma,
+					metricValue: metricutil.MetricData{Value: 1000},
+				},
+				{
+					numaID:      1,
+					metricName:  coreconsts.MetricMemBandwidthNuma,
+					metricValue: metricutil.MetricData{Value: 300},
+				},
+				{
+					numaID:      2,
+					metricName:  coreconsts.MetricMemBandwidthNuma,
+					metricValue: metricutil.MetricData{Value: 200},
+				},
+				{
+					numaID:      3,
+					metricName:  coreconsts.MetricMemBandwidthNuma,
+					metricValue: metricutil.MetricData{Value: 100},
+				},
+			},
+			containerNUMAMetrics: []containerNUMAMetric{
+				{
+					metricName:    coreconsts.MetricsMemAnonPerNumaContainer,
+					metricValue:   metricutil.MetricData{Value: 2 << 30},
+					podUID:        "uid1",
+					containerName: "c1",
+					numdID:        0,
+				},
+				{
+					metricName:    coreconsts.MetricsMemAnonPerNumaContainer,
+					metricValue:   metricutil.MetricData{Value: 1 << 30},
+					podUID:        "uid2",
+					containerName: "c2",
+					numdID:        0,
+				},
+				{
+					metricName:    coreconsts.MetricsMemAnonPerNumaContainer,
+					metricValue:   metricutil.MetricData{Value: 2 << 30},
+					podUID:        "uid3",
+					containerName: "c3",
+					numdID:        0,
+				},
+				{
+					metricName:    coreconsts.MetricsMemAnonPerNumaContainer,
+					metricValue:   metricutil.MetricData{Value: 1 << 30},
+					podUID:        "uid4",
+					containerName: "c4",
+					numdID:        0,
+				},
+			},
+			wantHeadroom: *resource.NewQuantity(980<<30, resource.DecimalSI),
+			wantAdviceResult: types.InternalMemoryCalculationResult{
+				ExtraEntries: []types.ExtraMemoryAdvices{
+					{
+						Values: map[string]string{
+							string(memoryadvisor.ControlKnobKeyBalanceNumaMemory): "{\"destNumaList\":[1],\"sourceNuma\":0,\"migrateContainers\":[{\"podUID\":\"uid4\",\"containerName\":\"c4\",\"destNumaList\":[0,1,2,3]},{\"podUID\":\"uid3\",\"containerName\":\"c3\",\"destNumaList\":[0,1,2,3]}],\"totalRSS\":3221225472,\"threshold\":0.7}",
+						},
+					},
+				},
+			},
+		},
+		{
+			name: "numa memory balance(force balance,bandwidth level medium)",
+			pools: map[string]*types.PoolInfo{
+				state.PoolNameReserve: {
+					PoolName: state.PoolNameReserve,
+					TopologyAwareAssignments: map[int]machine.CPUSet{
+						0: machine.MustParse("0"),
+						1: machine.MustParse("0"),
+						2: machine.MustParse("0"),
+						3: machine.MustParse("0"),
+					},
+					OriginalTopologyAwareAssignments: map[int]machine.CPUSet{
+						0: machine.MustParse("0"),
+						1: machine.MustParse("0"),
+						2: machine.MustParse("0"),
+						3: machine.MustParse("0"),
+					},
+				},
+				state.PoolNameShare: {
+					PoolName: state.PoolNameShare,
+					TopologyAwareAssignments: map[int]machine.CPUSet{
+						0: machine.MustParse("1"),
+						1: machine.MustParse("24"),
+						2: machine.MustParse("48"),
+					},
+					OriginalTopologyAwareAssignments: map[int]machine.CPUSet{
+						0: machine.MustParse("1"),
+						1: machine.MustParse("24"),
+						2: machine.MustParse("48"),
+					},
+				},
+			},
+			reclaimedEnable: true,
+			needRecvAdvices: true,
+			containers: []*types.ContainerInfo{
+				makeContainerInfo("uid1", "default", "pod1", "c1", consts.PodAnnotationQoSLevelSharedCores, nil,
+					map[int]machine.CPUSet{
+						0: machine.MustParse("1"),
+						1: machine.MustParse("24"),
+						2: machine.MustParse("48"),
+					}, 200<<30),
+				makeContainerInfo("uid2", "default", "pod2", "c2", consts.PodAnnotationQoSLevelSharedCores, nil,
+					map[int]machine.CPUSet{
+						0: machine.MustParse("1"),
+						1: machine.MustParse("24"),
+						2: machine.MustParse("48"),
+					}, 200<<30),
+			},
+			pods:        defaultPodList,
+			plugins:     []types.MemoryAdvisorPluginName{memadvisorplugin.NumaMemoryBalancer},
+			nodeMetrics: defaultNodeMetrics,
+			numaMetrics: []numaMetric{
+				{
+					numaID:      0,
+					metricName:  coreconsts.MetricMemLatencyReadNuma,
+					metricValue: metricutil.MetricData{Value: 130},
+				},
+				{
+					numaID:      1,
+					metricName:  coreconsts.MetricMemLatencyReadNuma,
+					metricValue: metricutil.MetricData{Value: 40},
+				},
+				{
+					numaID:      2,
+					metricName:  coreconsts.MetricMemLatencyReadNuma,
+					metricValue: metricutil.MetricData{Value: 20},
+				},
+				{
+					numaID:      3,
+					metricName:  coreconsts.MetricMemLatencyReadNuma,
+					metricValue: metricutil.MetricData{Value: 10},
+				},
+				{
+					numaID:      0,
+					metricName:  coreconsts.MetricMemBandwidthNuma,
+					metricValue: metricutil.MetricData{Value: 600},
+				},
+				{
+					numaID:      1,
+					metricName:  coreconsts.MetricMemBandwidthNuma,
+					metricValue: metricutil.MetricData{Value: 100},
+				},
+				{
+					numaID:      2,
+					metricName:  coreconsts.MetricMemBandwidthNuma,
+					metricValue: metricutil.MetricData{Value: 1000},
+				},
+				{
+					numaID:      3,
+					metricName:  coreconsts.MetricMemBandwidthNuma,
+					metricValue: metricutil.MetricData{Value: 300},
+				},
+			},
+			containerNUMAMetrics: []containerNUMAMetric{
+				{
+					metricName:    coreconsts.MetricsMemAnonPerNumaContainer,
+					metricValue:   metricutil.MetricData{Value: 2 << 30},
+					podUID:        "uid1",
+					containerName: "c1",
+					numdID:        0,
+				},
+				{
+					metricName:    coreconsts.MetricsMemAnonPerNumaContainer,
+					metricValue:   metricutil.MetricData{Value: 1 << 30},
+					podUID:        "uid2",
+					containerName: "c2",
+					numdID:        0,
+				},
+				{
+					metricName:    coreconsts.MetricsMemAnonPerNumaContainer,
+					metricValue:   metricutil.MetricData{Value: 2 << 30},
+					podUID:        "uid1",
+					containerName: "c1",
+					numdID:        2,
+				},
+				{
+					metricName:    coreconsts.MetricsMemAnonPerNumaContainer,
+					metricValue:   metricutil.MetricData{Value: 1 << 30},
+					podUID:        "uid4",
+					containerName: "c4",
+					numdID:        2,
+				},
+			},
+			wantHeadroom: *resource.NewQuantity(980<<30, resource.DecimalSI),
+			wantAdviceResult: types.InternalMemoryCalculationResult{
+				ExtraEntries: []types.ExtraMemoryAdvices{
+					{
+						Values: map[string]string{
+							string(memoryadvisor.ControlKnobKeyBalanceNumaMemory): "{\"destNumaList\":[1],\"sourceNuma\":2,\"migrateContainers\":[{\"podUID\":\"uid1\",\"containerName\":\"c1\",\"destNumaList\":[0,1,2]}],\"totalRSS\":2147483648,\"threshold\":0.7}",
+						},
+					},
+				},
+			},
+		},
+		{
+			name: "numa memory balance(force balance,bandwidth level low)",
+			pools: map[string]*types.PoolInfo{
+				state.PoolNameReserve: {
+					PoolName: state.PoolNameReserve,
+					TopologyAwareAssignments: map[int]machine.CPUSet{
+						0: machine.MustParse("0"),
+						1: machine.MustParse("0"),
+						2: machine.MustParse("0"),
+						3: machine.MustParse("0"),
+					},
+					OriginalTopologyAwareAssignments: map[int]machine.CPUSet{
+						0: machine.MustParse("0"),
+						1: machine.MustParse("0"),
+						2: machine.MustParse("0"),
+						3: machine.MustParse("0"),
+					},
+				},
+				state.PoolNameShare: {
+					PoolName: state.PoolNameShare,
+					TopologyAwareAssignments: map[int]machine.CPUSet{
+						0: machine.MustParse("1"),
+						1: machine.MustParse("24"),
+						2: machine.MustParse("48"),
+					},
+					OriginalTopologyAwareAssignments: map[int]machine.CPUSet{
+						0: machine.MustParse("1"),
+						1: machine.MustParse("24"),
+						2: machine.MustParse("48"),
+					},
+				},
+			},
+			reclaimedEnable: true,
+			needRecvAdvices: true,
+			containers: []*types.ContainerInfo{
+				makeContainerInfo("uid1", "default", "pod1", "c1", consts.PodAnnotationQoSLevelSharedCores, nil,
+					map[int]machine.CPUSet{
+						0: machine.MustParse("1"),
+						1: machine.MustParse("24"),
+					}, 200<<30),
+				makeContainerInfo("uid2", "default", "pod2", "c2", consts.PodAnnotationQoSLevelSharedCores, nil,
+					map[int]machine.CPUSet{
+						0: machine.MustParse("1"),
+						1: machine.MustParse("24"),
+					}, 200<<30),
+			},
+			pods:        defaultPodList,
+			plugins:     []types.MemoryAdvisorPluginName{memadvisorplugin.NumaMemoryBalancer},
+			nodeMetrics: defaultNodeMetrics,
+			numaMetrics: []numaMetric{
+				{
+					numaID:      0,
+					metricName:  coreconsts.MetricMemLatencyReadNuma,
+					metricValue: metricutil.MetricData{Value: 130},
+				},
+				{
+					numaID:      1,
+					metricName:  coreconsts.MetricMemLatencyReadNuma,
+					metricValue: metricutil.MetricData{Value: 40},
+				},
+				{
+					numaID:      2,
+					metricName:  coreconsts.MetricMemLatencyReadNuma,
+					metricValue: metricutil.MetricData{Value: 20},
+				},
+				{
+					numaID:      3,
+					metricName:  coreconsts.MetricMemLatencyReadNuma,
+					metricValue: metricutil.MetricData{Value: 10},
+				},
+				{
+					numaID:      0,
+					metricName:  coreconsts.MetricMemBandwidthNuma,
+					metricValue: metricutil.MetricData{Value: 300},
+				},
+				{
+					numaID:      1,
+					metricName:  coreconsts.MetricMemBandwidthNuma,
+					metricValue: metricutil.MetricData{Value: 300},
+				},
+				{
+					numaID:      2,
+					metricName:  coreconsts.MetricMemBandwidthNuma,
+					metricValue: metricutil.MetricData{Value: 1000},
+				},
+				{
+					numaID:      3,
+					metricName:  coreconsts.MetricMemBandwidthNuma,
+					metricValue: metricutil.MetricData{Value: 100},
+				},
+			},
+			containerNUMAMetrics: []containerNUMAMetric{
+				{
+					metricName:    coreconsts.MetricsMemAnonPerNumaContainer,
+					metricValue:   metricutil.MetricData{Value: 2 << 30},
+					podUID:        "uid1",
+					containerName: "c1",
+					numdID:        0,
+				},
+				{
+					metricName:    coreconsts.MetricsMemAnonPerNumaContainer,
+					metricValue:   metricutil.MetricData{Value: 1 << 30},
+					podUID:        "uid2",
+					containerName: "c2",
+					numdID:        0,
+				},
+				{
+					metricName:    coreconsts.MetricsMemAnonPerNumaContainer,
+					metricValue:   metricutil.MetricData{Value: 2 << 30},
+					podUID:        "uid1",
+					containerName: "c1",
+					numdID:        2,
+				},
+				{
+					metricName:    coreconsts.MetricsMemAnonPerNumaContainer,
+					metricValue:   metricutil.MetricData{Value: 1 << 30},
+					podUID:        "uid4",
+					containerName: "c4",
+					numdID:        2,
+				},
+			},
+			wantHeadroom: *resource.NewQuantity(980<<30, resource.DecimalSI),
+			wantAdviceResult: types.InternalMemoryCalculationResult{
+				ExtraEntries: []types.ExtraMemoryAdvices{
+					{
+						Values: map[string]string{
+							string(memoryadvisor.ControlKnobKeyBalanceNumaMemory): "{\"destNumaList\":[0],\"sourceNuma\":2,\"migrateContainers\":[{\"podUID\":\"uid1\",\"containerName\":\"c1\",\"destNumaList\":[0,1,2]}],\"totalRSS\":2147483648,\"threshold\":0.7}",
+						},
 					},
 				},
 			},

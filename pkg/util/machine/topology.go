@@ -222,6 +222,40 @@ func GenerateDummyMemoryTopology(numaNum int, memoryCapacity uint64) (*MemoryTop
 	return memoryTopology, nil
 }
 
+func GenerateDummyExtraTopology(numaNum int) (*ExtraTopologyInfo, error) {
+	var (
+		socketNum                 = 2
+		distanceNumaInSameSocket  = 11
+		distanceNumaInOtherSocket = 21
+	)
+
+	extraTopology := &ExtraTopologyInfo{
+		NumaDistanceMap: make(map[int][]NumaDistanceInfo),
+	}
+
+	for i := 0; i < numaNum; i++ {
+		numaDistanceInfos := make([]NumaDistanceInfo, 0)
+		for j := 0; j < numaNum; j++ {
+			if i == j {
+				continue
+			} else if i/socketNum == j/socketNum {
+				numaDistanceInfos = append(numaDistanceInfos, NumaDistanceInfo{
+					Distance: distanceNumaInSameSocket,
+					NumaID:   j,
+				})
+			} else {
+				numaDistanceInfos = append(numaDistanceInfos, NumaDistanceInfo{
+					Distance: distanceNumaInOtherSocket,
+					NumaID:   j,
+				})
+			}
+		}
+
+		extraTopology.NumaDistanceMap[i] = numaDistanceInfos
+	}
+	return extraTopology, nil
+}
+
 // CPUInfo contains the NUMA, socket, and core IDs associated with a CPU.
 type CPUInfo struct {
 	NUMANodeID int
@@ -466,4 +500,13 @@ func CheckNUMACrossSockets(numaNodes []int, cpuTopology *CPUTopology) (bool, err
 		return false, nil
 	}
 	return cpuTopology.CPUDetails.SocketsInNUMANodes(numaNodes...).Size() > 1, nil
+}
+
+type NumaDistanceInfo struct {
+	NumaID   int
+	Distance int
+}
+
+type ExtraTopologyInfo struct {
+	NumaDistanceMap map[int][]NumaDistanceInfo
 }

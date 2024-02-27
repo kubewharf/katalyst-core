@@ -39,6 +39,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/memory/dynamicpolicy/memoryadvisor"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/memory/dynamicpolicy/state"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util"
+	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	dynamicconfig "github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
@@ -312,7 +313,7 @@ func (p *DynamicPolicy) handleAdvisorDropCache(
 		&asyncworker.Work{
 			Fn:          cgroupmgr.DropCacheWithTimeoutForContainer,
 			Params:      []interface{}{entryName, containerID, dropCacheTimeoutSeconds},
-			DeliveredAt: time.Now()})
+			DeliveredAt: time.Now()}, asyncworker.DuplicateWorkPolicyOverride)
 
 	if err != nil {
 		return fmt.Errorf("add work: %s pod: %s container: %s failed with error: %v", dropCacheWorkName, entryName, subEntryName, err)
@@ -514,5 +515,161 @@ func (p *DynamicPolicy) handleAdvisorMemoryProvisions(_ *config.Configuration,
 	}
 	// Todo: another logic to handle memory provisions
 	general.Infof("qrm: memoryProvisions: %v", memoryProvisions)
+	return nil
+}
+
+func (p *DynamicPolicy) handleNumaMemoryBalance(_ *config.Configuration,
+	_ interface{},
+	_ *dynamicconfig.DynamicAgentConfiguration,
+	emitter metrics.MetricEmitter,
+	metaServer *metaserver.MetaServer,
+	entryName, subEntryName string,
+	calculationInfo *advisorsvc.CalculationInfo, podResourceEntries state.PodResourceEntries) error {
+	advice := &types.NumaMemoryBalanceAdvice{}
+	value := calculationInfo.CalculationResult.Values[string(memoryadvisor.ControlKnobKeyBalanceNumaMemory)]
+	err := json.Unmarshal([]byte(value), advice)
+
+	if err != nil {
+		return fmt.Errorf("unmarshal %s: %s failed with error: %v",
+			memoryadvisor.ControlKnobKeyBalanceNumaMemory, value, err)
+	}
+
+	migratePagesWorkName := fmt.Sprintf("%v", memoryadvisor.ControlKnobKeyBalanceNumaMemory)
+
+	// start an asynchronous work to migrate pages for containers
+	err = p.asyncWorkers.AddWork(migratePagesWorkName,
+		&asyncworker.Work{
+			Fn:          p.doNumaMemoryBalance,
+			Params:      []interface{}{*advice},
+			DeliveredAt: time.Now()}, asyncworker.DuplicateWorkPolicyDiscard)
+
+	if err != nil {
+		general.Errorf("add work: %s failed with error: %v", migratePagesWorkName, err)
+	}
+
+	_ = emitter.StoreInt64(util.MetricNameMemoryNumaBalance, 1, metrics.MetricTypeNameRaw)
+
+	return nil
+}
+
+type containerMigrateStat struct {
+	containerID string
+	cgroupPath  string
+	rssBefore   uint64
+	rssAfter    uint64
+}
+
+func (p *DynamicPolicy) doNumaMemoryBalance(ctx context.Context, advice types.NumaMemoryBalanceAdvice) error {
+	startTime := time.Now()
+	defer func() {
+		cost := time.Now().Sub(startTime)
+		general.Infof("numa memory balance cost %v", cost)
+	}()
+
+	keyFunc := func(podUID, containerName string) string {
+		return fmt.Sprintf("%s-%s", podUID, containerName)
+	}
+
+	getAnonOnNumaFunc := func(absCGPath string, numaID int) (uint64, error) {
+		numaMemory, err := cgroupmgr.GetManager().GetNumaMemory(absCGPath)
+		numaMemoryJson, _ := json.Marshal(numaMemory)
+		general.Infof("get cgroup %v numa stat:%+v", absCGPath, string(numaMemoryJson))
+		if err != nil {
+			return 0, err
+		}
+
+		if _, ok := numaMemory[numaID]; !ok {
+			return 0, fmt.Errorf("can't find numa memory for numa ID %v", numaID)
+		}
+
+		return numaMemory[numaID].Anon, nil
+	}
+
+	containerStats := make(map[string]*containerMigrateStat)
+	for _, containerInfo := range advice.MigrateContainers {
+		containerID, err := p.metaServer.GetContainerID(containerInfo.PodUID, containerInfo.ContainerName)
+		if err != nil {
+			general.Errorf("get container id of pod: %s container: %s failed with error: %v", containerInfo.PodUID, containerInfo.ContainerName, err)
+			continue
+		}
+
+		memoryAbsCGPath, err := cgroupcommon.GetContainerAbsCgroupPath(cgroupcommon.CgroupSubsysMemory, containerInfo.PodUID, containerID)
+		if err != nil {
+			general.Errorf("GetContainerAbsCgroupPath of pod: %s container: %s failed with error: %v", containerInfo.PodUID, containerInfo.ContainerName, err)
+			continue
+		}
+
+		key := keyFunc(containerInfo.PodUID, containerInfo.ContainerName)
+		containerStats[key] = &containerMigrateStat{
+			containerID: containerID,
+			cgroupPath:  memoryAbsCGPath,
+		}
+	}
+
+	var migrateSuccess bool
+	var rssDecreased uint64
+	for _, destNuma := range advice.DestNumaList {
+		for _, containerInfo := range advice.MigrateContainers {
+			containerKey := keyFunc(containerInfo.PodUID, containerInfo.ContainerName)
+			if _, ok := containerStats[containerKey]; !ok {
+				continue
+			}
+
+			stats := containerStats[containerKey]
+			rssBefore, err := getAnonOnNumaFunc(stats.cgroupPath, advice.SourceNuma)
+			if err != nil {
+				general.Errorf("getAnonOnNumaFunc failed for container[%v/%v] numa [%v],err: %v",
+					containerInfo.PodUID, containerInfo.ContainerName, advice.SourceNuma, err)
+			}
+			stats.rssBefore = rssBefore
+
+			containerNumaSet := machine.NewCPUSet(containerInfo.DestNumaList...)
+			if containerNumaSet.Contains(destNuma) {
+				err = MigratePagesForContainer(ctx, containerInfo.PodUID, stats.containerID, p.topology.NumNUMANodes,
+					machine.NewCPUSet(advice.SourceNuma), machine.NewCPUSet(destNuma))
+				if err != nil {
+					general.Errorf("MigratePagesForContainer failed for container[%v/%v] source_numa [%v],dest_numa [%v],err: %v",
+						containerInfo.PodUID, containerInfo.ContainerName, advice.SourceNuma, destNuma, err)
+				}
+			} else {
+				general.Infof("skip migrate container %v/%v memory from %v to %v", containerInfo.PodUID, containerInfo.ContainerName, advice.SourceNuma, advice.DestNumaList)
+			}
+
+			rssAfter, err := getAnonOnNumaFunc(stats.cgroupPath, advice.SourceNuma)
+			if err != nil {
+				general.Errorf("getAnonOnNumaFunc failed for container[%v/%v] numa [%v],err: %v",
+					containerInfo.PodUID, containerInfo.ContainerName, advice.SourceNuma, err)
+			}
+			stats.rssAfter = rssAfter
+
+			if rssAfter > rssBefore {
+				general.Infof("rssAfter: %d greater than rssBefore: %d", rssAfter, rssBefore)
+				rssAfter = rssBefore
+			}
+
+			rssDiff := rssBefore - rssAfter
+			rssDecreased += rssDiff
+		}
+
+		var totalRSSAfter uint64
+		var totalRSSBefore uint64
+		containerStatJson, _ := json.Marshal(containerStats)
+		general.Infof("containerStats: %+v", string(containerStatJson))
+		for _, stat := range containerStats {
+			totalRSSAfter += stat.rssAfter
+			totalRSSBefore += stat.rssBefore
+		}
+		general.Infof("numa memory balance migration succeed, advice total rss: %v, threshold: %v, sourceNuma:%v, targetNuma:%v, total rss before:%v, total rss after: %v",
+			advice.TotalRSS, advice.Threshold, advice.SourceNuma, destNuma, totalRSSBefore, totalRSSAfter)
+
+		if float64(totalRSSAfter)/advice.TotalRSS < (1-advice.Threshold) || float64(rssDecreased)/advice.TotalRSS >= advice.Threshold {
+			migrateSuccess = true
+			break
+		}
+	}
+
+	_ = p.emitter.StoreInt64(util.MetricNameMemoryNumaBalanceResult, 1, metrics.MetricTypeNameRaw,
+		metrics.MetricTag{Key: "success", Val: strconv.FormatBool(migrateSuccess)})
+
 	return nil
 }

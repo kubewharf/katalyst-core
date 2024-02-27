@@ -39,4 +39,8 @@ type KatalystMachineInfo struct {
 	// ExtraNetworkInfo is extra network info not in MachineInfo,
 	// such as numa node of each interface
 	*ExtraNetworkInfo
+
+	// ExtraTopologyInfo is extra topology info not in MachineInfo,
+	// such as numa node distance between each other
+	*ExtraTopologyInfo
 }

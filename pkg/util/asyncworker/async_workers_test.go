@@ -34,7 +34,7 @@ func TestAsyncWorkers(t *testing.T) {
 
 	asw := NewAsyncWorkers("test", metrics.DummyMetrics{})
 
-	result, a, b, c, d, e, f := 0, 1, 2, 3, 4, 5, 6
+	result, a, b, c, d, e, f, g, h := 0, 1, 2, 3, 4, 5, 6, 7, 8
 
 	timeoutSeconds := 100 * time.Millisecond
 	fn := func(ctx context.Context, params ...interface{}) error {
@@ -58,7 +58,7 @@ func TestAsyncWorkers(t *testing.T) {
 		DeliveredAt: work1DeliveredAt,
 	}
 
-	err := asw.AddWork(work1Name, work1)
+	err := asw.AddWork(work1Name, work1, DuplicateWorkPolicyOverride)
 	rt.Nil(err)
 	asw.workLock.Lock()
 	rt.NotNil(asw.workStatuses[work1Name])
@@ -87,7 +87,7 @@ func TestAsyncWorkers(t *testing.T) {
 		DeliveredAt: work2DeliveredAt,
 	}
 
-	err = asw.AddWork(work2Name, work2)
+	err = asw.AddWork(work2Name, work2, DuplicateWorkPolicyOverride)
 	rt.Nil(err)
 	asw.workLock.Lock()
 	rt.NotNil(asw.workStatuses[work2Name])
@@ -101,10 +101,23 @@ func TestAsyncWorkers(t *testing.T) {
 		DeliveredAt: work3DeliveredAt,
 	}
 
-	err = asw.AddWork(work2Name, work3)
+	err = asw.AddWork(work2Name, work3, DuplicateWorkPolicyOverride)
 	rt.Nil(err)
 	asw.workLock.Lock()
 	rt.NotNil(asw.lastUndeliveredWork[work2Name])
+	asw.workLock.Unlock()
+
+	work4DeliveredAt := time.Now()
+	work4 := &Work{
+		Fn:          fn,
+		Params:      []interface{}{g, h},
+		DeliveredAt: work4DeliveredAt,
+	}
+
+	err = asw.AddWork(work2Name, work4, DuplicateWorkPolicyDiscard)
+	rt.Nil(err)
+	asw.workLock.Lock()
+	rt.Equal(work3, asw.lastUndeliveredWork[work2Name])
 	asw.workLock.Unlock()
 
 	asw.workLock.Lock()
