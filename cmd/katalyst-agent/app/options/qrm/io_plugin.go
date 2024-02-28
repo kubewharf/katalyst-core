@@ -28,8 +28,8 @@ type IOOptions struct {
 	WritebackThrottlingOption // option for writeback throttling, it determin the recycling speed of dirty memory.
 	// TO-DO
 	//DirtyThrottlingOption // option for dirty throttling, it determin the global watermark of dirty memory.
-
 	IOCostOption
+	IOWeightOption
 }
 
 type WritebackThrottlingOption struct {
@@ -44,6 +44,11 @@ type IOCostOption struct {
 	IOCostModelConfigFile string
 }
 
+type IOWeightOption struct {
+	EnableSettingIOWeight      bool
+	IOWeightQoSLevelConfigFile string
+}
+
 func NewIOOptions() *IOOptions {
 	return &IOOptions{
 		PolicyName: "static",
@@ -56,6 +61,10 @@ func NewIOOptions() *IOOptions {
 			EnableSettingIOCost:   false,
 			IOCostQoSConfigFile:   "",
 			IOCostModelConfigFile: "",
+		},
+		IOWeightOption: IOWeightOption{
+			EnableSettingIOWeight:      false,
+			IOWeightQoSLevelConfigFile: "",
 		},
 	}
 }
@@ -77,6 +86,10 @@ func (o *IOOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 		o.IOCostQoSConfigFile, "the absolute path of io.cost.qos qos config file")
 	fs.StringVar(&o.IOCostModelConfigFile, "io-cost-model-config-file",
 		o.IOCostModelConfigFile, "the absolute path of io.cost.model qos config file")
+	fs.BoolVar(&o.EnableSettingIOWeight, "enable-io-weight",
+		o.EnableSettingIOWeight, "if set it to true, io.weight related control operations will be executed")
+	fs.StringVar(&o.IOWeightQoSLevelConfigFile, "io-weight-qos-config-file",
+		o.IOWeightQoSLevelConfigFile, "the absolute path of io.weight qos config file")
 }
 
 func (o *IOOptions) ApplyTo(conf *qrmconfig.IOQRMPluginConfig) error {
@@ -87,5 +100,7 @@ func (o *IOOptions) ApplyTo(conf *qrmconfig.IOQRMPluginConfig) error {
 	conf.EnableSettingIOCost = o.EnableSettingIOCost
 	conf.IOCostQoSConfigFile = o.IOCostQoSConfigFile
 	conf.IOCostModelConfigFile = o.IOCostModelConfigFile
+	conf.EnableSettingIOWeight = o.EnableSettingIOWeight
+	conf.IOWeightQoSLevelConfigFile = o.IOWeightQoSLevelConfigFile
 	return nil
 }

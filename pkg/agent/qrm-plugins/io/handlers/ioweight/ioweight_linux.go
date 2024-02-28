@@ -1,0 +1,114 @@
+//go:build linux
+// +build linux
+
+/*
+Copyright 2022 The Katalyst Authors.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
+package ioweight
+
+import (
+	"context"
+
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
+	coreconfig "github.com/kubewharf/katalyst-core/pkg/config"
+	dynamicconfig "github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic"
+	"github.com/kubewharf/katalyst-core/pkg/metaserver"
+	"github.com/kubewharf/katalyst-core/pkg/metrics"
+	"github.com/kubewharf/katalyst-core/pkg/util/cgroup/common"
+	cgroupmgr "github.com/kubewharf/katalyst-core/pkg/util/cgroup/manager"
+	"github.com/kubewharf/katalyst-core/pkg/util/general"
+	"github.com/kubewharf/katalyst-core/pkg/util/native"
+)
+
+func applyIOWeightQoSLevelConfig(conf *coreconfig.Configuration,
+	emitter metrics.MetricEmitter, metaServer *metaserver.MetaServer) {
+	if conf.IOWeightQoSLevelConfigFile == "" {
+		general.Infof("no IOWeightQoSLevelConfigFile found")
+		return
+	}
+
+	var extraControlKnobConfigs commonstate.ExtraControlKnobConfigs
+	if err := general.LoadJsonConfig(conf.IOWeightQoSLevelConfigFile, &extraControlKnobConfigs); err != nil {
+		general.Errorf("IOWeightQoSLevelConfigFile load failed:%v", err)
+		return
+	}
+	ctx := context.Background()
+	podList, err := metaServer.GetPodList(ctx, native.PodIsActive)
+	if err != nil {
+		general.Infof("get pod list failed: %v", err)
+		return
+	}
+
+	for _, pod := range podList {
+		if pod == nil {
+			general.Warningf("get nil pod from metaServer")
+			continue
+		}
+		qosConfig := conf.QoSConfiguration
+		qosLevel, err := qosConfig.GetQoSLevelForPod(pod)
+		if err != nil {
+			general.Warningf("GetQoSLevelForPod failed:%v", err)
+			continue
+		}
+		qosLevelDefaultValue, ok := extraControlKnobConfigs[controlKnobKeyIOWeight].QoSLevelToDefaultValue[qosLevel]
+		if !ok {
+			general.Warningf("no QoSLevelToDefaultValue in extraControlKnobConfigs")
+			continue
+		}
+
+		for _, containerStatus := range pod.Status.ContainerStatuses {
+			podUID, containerID := string(pod.UID), native.TrimContainerIDPrefix(containerStatus.ContainerID)
+			err := cgroupmgr.ApplyUnifiedDataForContainer(podUID, containerID, extraControlKnobConfigs[controlKnobKeyIOWeight].CgroupSubsysName, cgroupIOWeightName, qosLevelDefaultValue)
+			if err != nil {
+				general.Warningf("ApplyUnifiedDataForContainer failed:%v", err)
+				continue
+			}
+		}
+	}
+}
+
+func IOWeightTaskFunc(conf *coreconfig.Configuration,
+	_ interface{}, _ *dynamicconfig.DynamicAgentConfiguration,
+	emitter metrics.MetricEmitter, metaServer *metaserver.MetaServer) {
+	general.Infof("called")
+
+	if conf == nil {
+		general.Errorf("nil extraConf")
+		return
+	} else if emitter == nil {
+		general.Errorf("nil emitter")
+		return
+	} else if metaServer == nil {
+		general.Errorf("nil metaServer")
+		return
+	}
+
+	// SettingIOWeight featuregate.
+	if !conf.EnableSettingIOWeight {
+		general.Infof("EnableSettingIOWeight disabled")
+		return
+	}
+
+	if !common.CheckCgroup2UnifiedMode() {
+		general.Infof("skip IOWeightTaskFunc in cg1 env")
+		return
+	}
+
+	// checking qos-level io.weight configuration.
+	if len(conf.IOWeightQoSLevelConfigFile) > 0 {
+		applyIOWeightQoSLevelConfig(conf, emitter, metaServer)
+	}
+}
