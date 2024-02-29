@@ -68,6 +68,8 @@ type MemoryData struct {
 	// cgroup memory that can never be reclaimed by kswapd.
 	MinInBytes int64
 	WmarkRatio int32
+	// SwapMaxInBytes < 0 means disable cgroup-level swap
+	SwapMaxInBytes int64
 }
 
 // CPUData set cgroup cpu data
