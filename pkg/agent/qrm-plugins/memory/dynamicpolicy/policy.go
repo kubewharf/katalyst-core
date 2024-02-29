@@ -58,10 +58,11 @@ import (
 const (
 	MemoryResourcePluginPolicyNameDynamic = string(apiconsts.ResourcePluginPolicyNameDynamic)
 
-	memoryPluginStateFileName           = "memory_plugin_state"
-	memoryPluginAsyncWorkersName        = "qrm_memory_plugin_async_workers"
-	memoryPluginAsyncWorkTopicDropCache = "qrm_memory_plugin_drop_cache"
-	memoryPluginAsyncWorkTopicMovePage  = "qrm_memory_plugin_move_page"
+	memoryPluginStateFileName                  = "memory_plugin_state"
+	memoryPluginAsyncWorkersName               = "qrm_memory_plugin_async_workers"
+	memoryPluginAsyncWorkTopicDropCache        = "qrm_memory_plugin_drop_cache"
+	memoryPluginAsyncWorkTopicMovePage         = "qrm_memory_plugin_move_page"
+	memoryPluginAsyncWorkTopicMemoryOffloading = "qrm_memory_plugin_mem_offload"
 
 	dropCacheTimeoutSeconds = 30
 )
@@ -238,6 +239,8 @@ func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration
 		memoryadvisor.ControlKnobHandlerWithChecker(policyImplement.handleAdvisorMemoryProvisions))
 	memoryadvisor.RegisterControlKnobHandler(memoryadvisor.ControlKnobKeyBalanceNumaMemory,
 		memoryadvisor.ControlKnobHandlerWithChecker(policyImplement.handleNumaMemoryBalance))
+	memoryadvisor.RegisterControlKnobHandler(memoryadvisor.ControlKnowKeyMemoryOffloading,
+		memoryadvisor.ControlKnobHandlerWithChecker(policyImplement.handleAdvisorMemoryOffloading))
 
 	return true, &agent.PluginWrapper{GenericPlugin: pluginWrapper}, nil
 }

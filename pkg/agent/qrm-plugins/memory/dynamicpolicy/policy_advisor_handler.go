@@ -42,9 +42,11 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	dynamicconfig "github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic"
+	"github.com/kubewharf/katalyst-core/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/asyncworker"
+	"github.com/kubewharf/katalyst-core/pkg/util/cgroup/common"
 	cgroupcommon "github.com/kubewharf/katalyst-core/pkg/util/cgroup/common"
 	cgroupmgr "github.com/kubewharf/katalyst-core/pkg/util/cgroup/manager"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
@@ -682,6 +684,70 @@ func (p *DynamicPolicy) doNumaMemoryBalance(ctx context.Context, advice types.Nu
 
 	_ = p.emitter.StoreInt64(util.MetricNameMemoryNumaBalanceResult, 1, metrics.MetricTypeNameRaw,
 		metrics.MetricTag{Key: "success", Val: strconv.FormatBool(migrateSuccess)})
+	return nil
+}
 
+// handleAdvisorMemoryOffloading handles memory offloading from memory-advisor
+func (p *DynamicPolicy) handleAdvisorMemoryOffloading(_ *config.Configuration,
+	_ interface{},
+	_ *dynamicconfig.DynamicAgentConfiguration,
+	emitter metrics.MetricEmitter,
+	metaServer *metaserver.MetaServer,
+	entryName, subEntryName string,
+	calculationInfo *advisorsvc.CalculationInfo, podResourceEntries state.PodResourceEntries) error {
+
+	var absCGPath string
+	var memoryOffloadingWorkName string
+	memoryOffloadingSizeInBytes := calculationInfo.CalculationResult.Values[string(memoryadvisor.ControlKnowKeyMemoryOffloading)]
+	memoryOffloadingSizeInBytesInt64, err := strconv.ParseInt(memoryOffloadingSizeInBytes, 10, 64)
+	if err != nil {
+		return fmt.Errorf("parse %s: %s failed with error: %v", memoryadvisor.ControlKnowKeyMemoryOffloading, memoryOffloadingSizeInBytes, err)
+	}
+
+	if calculationInfo.CgroupPath == "" {
+		memoryOffloadingWorkName = util.GetContainerAsyncWorkName(entryName, subEntryName, memoryPluginAsyncWorkTopicMemoryOffloading)
+		containerID, err := metaServer.GetContainerID(entryName, subEntryName)
+		if err != nil {
+			return fmt.Errorf("GetContainerID failed with error: %v", err)
+		}
+		absCGPath, err = common.GetContainerAbsCgroupPath(common.CgroupSubsysMemory, entryName, containerID)
+		if err != nil {
+			return fmt.Errorf("GetContainerAbsCgroupPath failed with error: %v", err)
+		}
+	} else {
+		memoryOffloadingWorkName = util.GetCgroupAsyncWorkName(calculationInfo.CgroupPath, memoryPluginAsyncWorkTopicMemoryOffloading)
+		absCGPath = common.GetAbsCgroupPath(common.CgroupSubsysMemory, calculationInfo.CgroupPath)
+	}
+
+	// set swap max before trigger memory offloading
+	swapMax := calculationInfo.CalculationResult.Values[string(memoryadvisor.ControlKnobKeySwapMax)]
+	if swapMax == consts.ControlKnobON {
+		err := cgroupmgr.SetSwapMaxWithAbsolutePathRecursive(absCGPath)
+		if err != nil {
+			general.Infof("Failed to set swap max, err: %v", err)
+		}
+	} else {
+		err := cgroupmgr.DisableSwapMaxWithAbsolutePathRecursive(absCGPath)
+		if err != nil {
+			general.Infof("Failed to disable swap, err: %v", err)
+		}
+	}
+
+	// start a asynchronous work to execute memory offloading
+	err = p.asyncWorkers.AddWork(memoryOffloadingWorkName,
+		&asyncworker.Work{
+			Fn:          cgroupmgr.MemoryOffloadingWithAbsolutePath,
+			Params:      []interface{}{absCGPath, memoryOffloadingSizeInBytesInt64},
+			DeliveredAt: time.Now()}, asyncworker.DuplicateWorkPolicyOverride)
+	if err != nil {
+		return fmt.Errorf("add work: %s pod: %s container: %s cgroup: %s failed with error: %v", memoryOffloadingWorkName, entryName, subEntryName, absCGPath, err)
+	}
+
+	_ = emitter.StoreInt64(util.MetricNameMemoryHandleAdvisorMemoryLimit, memoryOffloadingSizeInBytesInt64,
+		metrics.MetricTypeNameRaw, metrics.ConvertMapToTags(map[string]string{
+			"entryName":    entryName,
+			"subEntryName": subEntryName,
+			"cgroupPath":   calculationInfo.CgroupPath,
+		})...)
 	return nil
 }
