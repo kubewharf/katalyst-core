@@ -35,6 +35,7 @@ import (
 	k8stypes "k8s.io/apimachinery/pkg/types"
 	"k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 
+	workloadapis "github.com/kubewharf/katalyst-api/pkg/apis/workload/v1alpha1"
 	"github.com/kubewharf/katalyst-api/pkg/consts"
 	katalyst_base "github.com/kubewharf/katalyst-core/cmd/base"
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/options"
@@ -44,6 +45,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	metric_consts "github.com/kubewharf/katalyst-core/pkg/consts"
+	pkgconsts "github.com/kubewharf/katalyst-core/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric"
@@ -68,7 +70,7 @@ func generateTestConfiguration(t *testing.T, checkpointDir, stateFileDir string)
 }
 
 func newTestCPUResourceAdvisor(t *testing.T, pods []*v1.Pod, conf *config.Configuration, mf *metric.FakeMetricsFetcher, profiles map[k8stypes.UID]spd.DummyPodServiceProfile) (*cpuResourceAdvisor, metacache.MetaCache) {
-	metaCache, err := metacache.NewMetaCacheImp(conf, metricspool.DummyMetricsEmitterPool{}, metric.NewFakeMetricsFetcher(metrics.DummyMetrics{}))
+	metaCache, err := metacache.NewMetaCacheImp(conf, metricspool.DummyMetricsEmitterPool{}, mf)
 	require.NoError(t, err)
 
 	// numa node0 cpu(s): 0-23,48-71
@@ -135,10 +137,16 @@ func makeContainerInfo(podUID, namespace, podName, containerName, qoSLevel, owne
 func TestAdvisorUpdate(t *testing.T) {
 	t.Parallel()
 
-	type metricItem struct {
+	type containerMetricItem struct {
 		pod       string
 		container string
 		value     float64
+	}
+
+	type numaMetricItem struct {
+		numaID int
+		name   string
+		value  float64
 	}
 
 	tests := []struct {
@@ -154,7 +162,8 @@ func TestAdvisorUpdate(t *testing.T) {
 		wantInternalCalculationResult types.InternalCPUCalculationResult
 		wantHeadroom                  resource.Quantity
 		wantHeadroomErr               bool
-		metrics                       []metricItem
+		containerMetrics              []containerMetricItem
+		numaMetricItems               []numaMetricItem
 	}{
 		{
 			name:                          "missing_reserve_pool",
@@ -826,7 +835,7 @@ func TestAdvisorUpdate(t *testing.T) {
 				},
 			},
 			wantHeadroom: resource.Quantity{},
-			metrics: []metricItem{
+			containerMetrics: []containerMetricItem{
 				{
 					pod:       "uid1",
 					container: "c1",
@@ -841,6 +850,38 @@ func TestAdvisorUpdate(t *testing.T) {
 					pod:       "uid3",
 					container: "c3",
 					value:     4,
+				},
+			},
+			numaMetricItems: []numaMetricItem{
+				{
+					numaID: 0,
+					name:   pkgconsts.MetricMemLatencyReadNuma,
+					value:  80,
+				},
+				{
+					numaID: 1,
+					name:   pkgconsts.MetricMemLatencyReadNuma,
+					value:  80,
+				},
+				{
+					numaID: 0,
+					name:   pkgconsts.MetricMemLatencyWriteNuma,
+					value:  200,
+				},
+				{
+					numaID: 1,
+					name:   pkgconsts.MetricMemLatencyWriteNuma,
+					value:  200,
+				},
+				{
+					numaID: 0,
+					name:   pkgconsts.MetricMemAMDL3MissLatencyNuma,
+					value:  400,
+				},
+				{
+					numaID: 1,
+					name:   pkgconsts.MetricMemAMDL3MissLatencyNuma,
+					value:  400,
 				},
 			},
 		},
@@ -924,7 +965,7 @@ func TestAdvisorUpdate(t *testing.T) {
 				},
 			},
 			wantHeadroom: resource.Quantity{},
-			metrics: []metricItem{
+			containerMetrics: []containerMetricItem{
 				{
 					pod:       "uid1",
 					container: "c1",
@@ -973,16 +1014,50 @@ func TestAdvisorUpdate(t *testing.T) {
 			conf.IsolatedMaxResourceRatio = 0.3
 			conf.IsolationLockInThreshold = 1
 			conf.IsolationLockOutPeriodSecs = 30
+			conf.RegionIndicatorTargetConfiguration = map[types.QoSRegionType][]types.IndicatorTargetConfiguration{
+				types.QoSRegionTypeShare: {
+					{
+						Name:   string(workloadapis.ServiceSystemIndicatorNameCPUSchedWait),
+						Target: 460,
+					},
+					{
+						Name:   string(workloadapis.ServiceSystemIndicatorNameCPUUsageRatio),
+						Target: 0.8,
+					},
+					{
+						Name:   string(workloadapis.ServiceSystemIndicatorNameMemoryAccessReadLatency),
+						Target: 80,
+					},
+					{
+						Name:   string(workloadapis.ServiceSystemIndicatorNameMemoryAccessWriteLatency),
+						Target: 200,
+					},
+					{
+						Name:   string(workloadapis.ServiceSystemIndicatorNameMemoryL3MissLatency),
+						Target: 400,
+					},
+				},
+				types.QoSRegionTypeDedicatedNumaExclusive: {
+					{
+						Name:   string(workloadapis.ServiceSystemIndicatorNameCPI),
+						Target: 1.4,
+					},
+				},
+			}
 
 			advisor, metaCache := newTestCPUResourceAdvisor(t, tt.pods, conf, mf, tt.podProfiles)
 			advisor.startTime = time.Now().Add(-types.StartUpPeriod)
 			advisor.conf.GetDynamicConfiguration().EnableReclaim = tt.nodeEnableReclaim
 
-			if len(tt.metrics) > 0 {
+			if len(tt.containerMetrics) > 0 {
 				advisor.conf.IsolationDisabled = false
-				for _, m := range tt.metrics {
+				for _, m := range tt.containerMetrics {
 					mf.SetContainerMetric(m.pod, m.container, metric_consts.MetricCPUNrRunnableContainer, utilmetric.MetricData{Value: m.value, Time: &now})
 				}
+			}
+
+			for _, metric := range tt.numaMetricItems {
+				mf.SetNumaMetric(metric.numaID, metric.name, utilmetric.MetricData{Value: metric.value, Time: &now})
 			}
 
 			recvChInterface, sendChInterface := advisor.GetChannels()

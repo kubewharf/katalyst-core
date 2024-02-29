@@ -15,7 +15,7 @@ require (
 	github.com/google/cadvisor v0.44.2
 	github.com/google/uuid v1.3.0
 	github.com/klauspost/cpuid/v2 v2.2.6
-	github.com/kubewharf/katalyst-api v0.4.1-0.20240315044944-45cdd48ceedc
+	github.com/kubewharf/katalyst-api v0.4.1-0.20240318070445-339cc970486a
 	github.com/montanaflynn/stats v0.7.1
 	github.com/opencontainers/runc v1.1.6
 	github.com/opencontainers/selinux v1.10.0

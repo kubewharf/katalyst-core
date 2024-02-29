@@ -54,7 +54,7 @@ func generateRamaTestConfiguration(t *testing.T, checkpointDir, stateFileDir, ch
 	conf.MetaServerConfiguration.CheckpointManagerDir = checkpointDir
 	conf.CheckpointManagerDir = checkpointManagerDir
 
-	conf.RegionIndicatorTargetConfiguration = map[types.QoSRegionType][]provisionconf.IndicatorTargetConfiguration{
+	conf.RegionIndicatorTargetConfiguration = map[types.QoSRegionType][]types.IndicatorTargetConfiguration{
 		types.QoSRegionTypeShare: {
 			{
 				Name: consts.MetricCPUSchedwait,

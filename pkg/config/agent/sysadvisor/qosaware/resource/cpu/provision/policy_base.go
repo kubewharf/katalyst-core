@@ -21,19 +21,14 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
 )
 
-type IndicatorTargetConfiguration struct {
-	Name   string
-	Target float64
-}
-
 type CPUProvisionPolicyConfiguration struct {
-	RegionIndicatorTargetConfiguration map[types.QoSRegionType][]IndicatorTargetConfiguration
+	RegionIndicatorTargetConfiguration map[types.QoSRegionType][]types.IndicatorTargetConfiguration
 	PolicyRama                         *PolicyRamaConfiguration
 }
 
 func NewCPUProvisionPolicyConfiguration() *CPUProvisionPolicyConfiguration {
 	return &CPUProvisionPolicyConfiguration{
-		RegionIndicatorTargetConfiguration: map[types.QoSRegionType][]IndicatorTargetConfiguration{
+		RegionIndicatorTargetConfiguration: map[types.QoSRegionType][]types.IndicatorTargetConfiguration{
 			types.QoSRegionTypeShare: {
 				{
 					Name:   string(v1alpha1.ServiceSystemIndicatorNameCPUSchedWait),
