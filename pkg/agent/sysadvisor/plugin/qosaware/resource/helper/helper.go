@@ -20,6 +20,10 @@ import (
 	"context"
 	"fmt"
 
+	katalystapiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
+
+	v1 "k8s.io/api/core/v1"
+
 	"k8s.io/apimachinery/pkg/api/errors"
 
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
@@ -81,4 +85,23 @@ func PodPerformanceScore(ctx context.Context, metaServer *metaserver.MetaServer,
 	}
 
 	return metaServer.ServiceBusinessPerformanceScore(ctx, pod)
+}
+
+func PodIsDaemonSet(pod *v1.Pod) bool {
+	if pod != nil && pod.OwnerReferences != nil {
+		for _, ownerReference := range pod.OwnerReferences {
+			if ownerReference.Kind == "DaemonSet" {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func IsValidQosLevel(qoslevel string) bool {
+	if qoslevel == string(katalystapiconsts.QoSLevelReclaimedCores) || qoslevel == string(katalystapiconsts.QoSLevelSharedCores) ||
+		qoslevel == string(katalystapiconsts.QoSLevelDedicatedCores) || qoslevel == string(katalystapiconsts.QoSLevelSystemCores) {
+		return true
+	}
+	return false
 }

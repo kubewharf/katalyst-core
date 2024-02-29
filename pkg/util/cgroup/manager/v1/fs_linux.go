@@ -77,7 +77,6 @@ func (m *manager) ApplyMemory(absCgroupPath string, data *common.MemoryData) err
 			klog.Infof("[CgroupV1] apply memory wmark successfully, cgroupPath: %s, data: %v, old data: %v\n", absCgroupPath, data.WmarkRatio, oldData)
 		}
 	}
-
 	return nil
 }
 

@@ -362,3 +362,19 @@ func FormatMemoryQuantity(q float64) string {
 
 	return fmt.Sprintf("%v[%v]", q, quantity.String())
 }
+
+// DedupStringSlice return deduplicated string slice from original
+func DedupStringSlice(input []string) []string {
+	encountered := map[string]bool{}
+	result := []string{}
+
+	for _, v := range input {
+		if encountered[v] == true {
+			continue
+		} else {
+			encountered[v] = true
+			result = append(result, v)
+		}
+	}
+	return result
+}
