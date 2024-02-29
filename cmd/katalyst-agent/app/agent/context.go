@@ -20,12 +20,15 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"time"
 
+	"go.uber.org/atomic"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/tools/record"
 	"k8s.io/klog/v2"
 	"k8s.io/kubernetes/pkg/kubelet/config"
 	"k8s.io/kubernetes/pkg/kubelet/pluginmanager"
+	"k8s.io/kubernetes/pkg/kubelet/pluginmanager/cache"
 
 	"github.com/kubewharf/katalyst-api/pkg/plugins/skeleton"
 	katalystbase "github.com/kubewharf/katalyst-core/cmd/base"
@@ -109,6 +112,33 @@ func (c *GenericContext) Run(ctx context.Context) {
 	<-ctx.Done()
 }
 
+// customizedPluginManager requires that handlers must be added before
+// it really runs to avoid logging error logs too frequently
+type customizedPluginManager struct {
+	enabled atomic.Bool
+	pluginmanager.PluginManager
+}
+
+// Run successes iff at-least-one handler has been registered
+func (p *customizedPluginManager) Run(sourcesReady config.SourcesReady, stopCh <-chan struct{}) {
+	ticker := time.NewTicker(time.Second)
+	for ; true; <-ticker.C {
+		if p.enabled.Load() {
+			break
+		}
+		klog.V(5).Infof("skip starting plugin-manager without handlers added")
+	}
+	ticker.Stop()
+
+	klog.Infof("started plugin-manager since handlers have been enabled")
+	p.PluginManager.Run(sourcesReady, stopCh)
+}
+
+func (p *customizedPluginManager) AddHandler(pluginType string, pluginHandler cache.PluginHandler) {
+	p.enabled.Store(true)
+	p.PluginManager.AddHandler(pluginType, pluginHandler)
+}
+
 // newPluginManager initializes the registration logic for extendable plugins.
 // all plugin manager added to generic context must use the same socket and
 // default checkpoint path, and if some plugin needs to use a different socket path,
@@ -120,10 +150,11 @@ func newPluginManager(conf *katalystconfig.Configuration) (pluginmanager.PluginM
 		return nil, fmt.Errorf("initializes plugin registration dir failed: %s", err)
 	}
 
-	pluginMgr := pluginmanager.NewPluginManager(
-		conf.PluginRegistrationDir, /* sockDir */
-		&record.FakeRecorder{},
-	)
-
-	return pluginMgr, nil
+	return &customizedPluginManager{
+		enabled: *atomic.NewBool(false),
+		PluginManager: pluginmanager.NewPluginManager(
+			conf.PluginRegistrationDir, /* sockDir */
+			&record.FakeRecorder{},
+		),
+	}, nil
 }
