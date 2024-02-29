@@ -62,6 +62,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/global"
 	qrmconfig "github.com/kubewharf/katalyst-core/pkg/config/agent/qrm"
 	"github.com/kubewharf/katalyst-core/pkg/config/generic"
+	coreconsts "github.com/kubewharf/katalyst-core/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent"
 	metaserveragent "github.com/kubewharf/katalyst-core/pkg/metaserver/agent"
@@ -1706,6 +1707,7 @@ func TestHandleAdvisorResp(t *testing.T) {
 	pod1UID := string(uuid.NewUUID())
 	pod2UID := string(uuid.NewUUID())
 	pod3UID := string(uuid.NewUUID())
+	pod4UID := string(uuid.NewUUID())
 	testName := "test"
 
 	testCases := []struct {
@@ -1716,7 +1718,7 @@ func TestHandleAdvisorResp(t *testing.T) {
 		lwResp                     *advisorsvc.ListAndWatchResponse
 	}{
 		{
-			description: "one shared_cores container, one reclaimed_cores container, one dedicated_cores container",
+			description: "one shared_cores container, two reclaimed_cores container, one dedicated_cores container",
 			podResourceEntries: state.PodResourceEntries{
 				v1.ResourceMemory: state.PodEntries{
 					pod1UID: state.ContainerEntries{
@@ -1814,6 +1816,18 @@ func TestHandleAdvisorResp(t *testing.T) {
 								CalculationResult: &advisorsvc.CalculationResult{
 									Values: map[string]string{
 										string(memoryadvisor.ControlKnobKeyCPUSetMems): "2-3",
+									},
+								},
+							},
+						},
+					},
+					pod4UID: {
+						ContainerEntries: map[string]*advisorsvc.CalculationInfo{
+							testName: {
+								CalculationResult: &advisorsvc.CalculationResult{
+									Values: map[string]string{
+										string(memoryadvisor.ControlKnobKeySwapMax):          coreconsts.ControlKnobON,
+										string(memoryadvisor.ControlKnowKeyMemoryOffloading): "40960",
 									},
 								},
 							},
@@ -2120,6 +2134,8 @@ func TestHandleAdvisorResp(t *testing.T) {
 			memoryadvisor.ControlKnobHandlerWithChecker(handleAdvisorCPUSetMems))
 		memoryadvisor.RegisterControlKnobHandler(memoryadvisor.ControlKnobKeyDropCache,
 			memoryadvisor.ControlKnobHandlerWithChecker(dynamicPolicy.handleAdvisorDropCache))
+		memoryadvisor.RegisterControlKnobHandler(memoryadvisor.ControlKnowKeyMemoryOffloading,
+			memoryadvisor.ControlKnobHandlerWithChecker(dynamicPolicy.handleAdvisorMemoryOffloading))
 
 		machineState, err := state.GenerateMachineStateFromPodEntries(machineInfo, tc.podResourceEntries, resourcesReservedMemory)
 		as.Nil(err)

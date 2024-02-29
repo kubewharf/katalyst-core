@@ -36,6 +36,9 @@ type BaseConfiguration struct {
 	// specify a customized path for reclaimed-cores to enrich qos-management ways
 	ReclaimRelativeRootCgroupPath string
 
+	// GeneralRelativeCgroupPaths are paths of standalone services which not managed by kubernetes
+	GeneralRelativeCgroupPaths []string
+
 	*MachineInfoConfiguration
 	*KubeletConfiguration
 	*RuntimeConfiguration

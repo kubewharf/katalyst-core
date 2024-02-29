@@ -81,6 +81,18 @@ func (m *manager) ApplyMemory(absCgroupPath string, data *common.MemoryData) err
 		}
 	}
 
+	if data.SwapMaxInBytes != 0 {
+		// Do Not change swap max setting if SwapMaxInBytes equals to 0
+		var swapMax int64 = 0
+		if data.SwapMaxInBytes > 0 {
+			swapMax = data.SwapMaxInBytes
+		}
+		if err, applied, oldData := common.WriteFileIfChange(absCgroupPath, "memory.swap.max", fmt.Sprintf("%d", swapMax)); err != nil {
+			return err
+		} else if applied {
+			klog.Infof("[CgroupV2] apply memory swap max successfully, cgroupPath: %s, data: %v, old data: %v\n", absCgroupPath, swapMax, oldData)
+		}
+	}
 	return nil
 }
 
