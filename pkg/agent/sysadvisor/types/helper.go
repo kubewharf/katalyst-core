@@ -28,14 +28,21 @@ import (
 	qosutil "github.com/kubewharf/katalyst-core/pkg/util/qos"
 )
 
-// IsNumaBinding returns true if current container is for dedicated_cores with numa binding
 func (ci *ContainerInfo) IsNumaBinding() bool {
-	return ci.QoSLevel == consts.PodAnnotationQoSLevelDedicatedCores &&
-		qosutil.AnnotationsIndicateNUMABinding(ci.Annotations)
+	return qosutil.AnnotationsIndicateNUMABinding(ci.Annotations)
 }
 
 func (ci *ContainerInfo) IsNumaExclusive() bool {
-	return ci.IsNumaBinding() && qosutil.AnnotationsIndicateNUMAExclusive(ci.Annotations)
+	return qosutil.AnnotationsIndicateNUMAExclusive(ci.Annotations)
+}
+
+// IsDedicatedNumaBinding returns true if current container is for dedicated_cores with numa binding
+func (ci *ContainerInfo) IsDedicatedNumaBinding() bool {
+	return ci.QoSLevel == consts.PodAnnotationQoSLevelDedicatedCores && ci.IsNumaBinding()
+}
+
+func (ci *ContainerInfo) IsDedicatedNumaExclusive() bool {
+	return ci.IsDedicatedNumaBinding() && ci.IsNumaExclusive()
 }
 
 func (ci *ContainerInfo) Clone() *ContainerInfo {

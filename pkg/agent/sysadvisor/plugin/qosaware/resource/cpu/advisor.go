@@ -19,6 +19,7 @@ package cpu
 import (
 	"context"
 	"fmt"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/cpuadvisor"
 	"strconv"
 	"sync"
 	"time"
@@ -402,7 +403,31 @@ func (cra *cpuResourceAdvisor) assignToRegions(ci *types.ContainerInfo) ([]regio
 		return nil, fmt.Errorf("container info is nil")
 	}
 
-	if ci.QoSLevel == consts.PodAnnotationQoSLevelSharedCores {
+	switch ci.QoSLevel {
+	case consts.PodAnnotationQoSLevelSharedCores:
+		return cra.assignShareContainerToRegions(ci)
+	case consts.PodAnnotationQoSLevelDedicatedCores:
+		return cra.assignDedicatedContainerToRegions(ci)
+	default:
+		return nil, nil
+	}
+}
+
+func (cra *cpuResourceAdvisor) assignShareContainerToRegions(ci *types.ContainerInfo) ([]region.QoSRegion, error) {
+	numaID := cpuadvisor.FakedNUMAID
+	if ci.IsNumaBinding() {
+		if ci.OwnerPoolName == "" {
+			return nil, fmt.Errorf("empty owner pool name, %v/%v", ci.PodUID, ci.ContainerName)
+		}
+
+		if len(ci.TopologyAwareAssignments) > 0 {
+			return nil, fmt.Errorf("invalid share pool topology aware assignments")
+		}
+
+		for key := range ci.TopologyAwareAssignments {
+			numaID = key
+		}
+	} else {
 		// do not assign shared container to region when ramping up because its owner pool name is empty
 		if ci.RampUp {
 			return nil, nil
@@ -412,68 +437,67 @@ func (cra *cpuResourceAdvisor) assignToRegions(ci *types.ContainerInfo) ([]regio
 		if !ci.RampUp && ci.OwnerPoolName == "" {
 			return nil, fmt.Errorf("empty owner pool name, %v/%v", ci.PodUID, ci.ContainerName)
 		}
+	}
 
-		// assign isolated container
-		if ci.Isolated || cra.conf.IsolationForceEnablePools.Has(ci.OriginOwnerPoolName) {
-			regionName := ""
-			if cra.conf.IsolationNonExclusivePools.Has(ci.OriginOwnerPoolName) {
-				// use origin owner pool name as region name, because all the container in this pool
-				// share only one region which is non-exclusive
-				regionName = ci.OriginOwnerPoolName
+	// assign isolated container
+	if ci.Isolated || cra.conf.IsolationForceEnablePools.Has(ci.OriginOwnerPoolName) {
+		regionName := ""
+		if cra.conf.IsolationNonExclusivePools.Has(ci.OriginOwnerPoolName) {
+			// use origin owner pool name as region name, because all the container in this pool
+			// share only one region which is non-exclusive
+			regionName = ci.OriginOwnerPoolName
 
-				// if there already exists a non-exclusive isolation region for this pod, just reuse it
-				regions := cra.getPoolRegions(regionName)
-				if len(regions) > 0 {
-					return regions, nil
-				}
-
-				// if there already exists a region with same name as this region, just reuse it
-				regions = cra.getRegionsByRegionNames(sets.NewString(regionName))
-				if len(regions) > 0 {
-					return regions, nil
-				}
-			} else {
-				// if there already exists an isolation region for this pod, just reuse it
-				regions, err := cra.getContainerRegions(ci, types.QoSRegionTypeIsolation)
-				if err != nil {
-					return nil, err
-				} else if len(regions) > 0 {
-					return regions, nil
-				}
+			// if there already exists a non-exclusive isolation region for this pod, just reuse it
+			regions := cra.getPoolRegions(regionName)
+			if len(regions) > 0 {
+				return regions, nil
 			}
 
-			r := region.NewQoSRegionIsolation(ci, regionName, cra.conf, cra.extraConf, cra.metaCache, cra.metaServer, cra.emitter)
-			return []region.QoSRegion{r}, nil
+			// if there already exists a region with same name as this region, just reuse it
+			regions = cra.getRegionsByRegionNames(sets.NewString(regionName))
+			if len(regions) > 0 {
+				return regions, nil
+			}
+		} else {
+			// if there already exists an isolation region for this pod, just reuse it
+			regions, err := cra.getContainerRegions(ci, types.QoSRegionTypeIsolation)
+			if err != nil {
+				return nil, err
+			} else if len(regions) > 0 {
+				return regions, nil
+			}
 		}
 
-		// assign shared cores container. focus on pool.
-		regions := cra.getPoolRegions(ci.OriginOwnerPoolName)
-		if len(regions) > 0 {
-			return regions, nil
-		}
-
-		// create one region by owner pool name
-		r := region.NewQoSRegionShare(ci, cra.conf, cra.extraConf, cra.metaCache, cra.metaServer, cra.emitter)
+		r := region.NewQoSRegionIsolation(ci, regionName, cra.conf, cra.extraConf, numaID, cra.metaCache, cra.metaServer, cra.emitter)
 		return []region.QoSRegion{r}, nil
+	}
 
-	} else if ci.IsNumaBinding() {
-		// assign dedicated cores numa exclusive containers. focus on container.
-		regions, err := cra.getContainerRegions(ci, types.QoSRegionTypeDedicatedNumaExclusive)
-		if err != nil {
-			return nil, err
-		} else if len(regions) > 0 {
-			return regions, nil
-		}
-
-		// create regions by numa node
-		for numaID := range ci.TopologyAwareAssignments {
-			r := region.NewQoSRegionDedicatedNumaExclusive(ci, cra.conf, numaID, cra.extraConf, cra.metaCache, cra.metaServer, cra.emitter)
-			regions = append(regions, r)
-		}
+	// assign shared cores container. focus on pool.
+	regions := cra.getPoolRegions(ci.OriginOwnerPoolName)
+	if len(regions) > 0 {
 		return regions, nil
 	}
 
-	return nil, nil
+	// create one region by owner pool name
+	r := region.NewQoSRegionShare(ci, cra.conf, cra.extraConf, numaID, cra.metaCache, cra.metaServer, cra.emitter)
+	return []region.QoSRegion{r}, nil
+}
+
+func (cra *cpuResourceAdvisor) assignDedicatedContainerToRegions(ci *types.ContainerInfo) ([]region.QoSRegion, error) {
+	// assign dedicated cores numa exclusive containers. focus on container.
+	regions, err := cra.getContainerRegions(ci, types.QoSRegionTypeDedicatedNumaExclusive)
+	if err != nil {
+		return nil, err
+	} else if len(regions) > 0 {
+		return regions, nil
+	}
+
+	// create regions by numa node
+	for numaID := range ci.TopologyAwareAssignments {
+		r := region.NewQoSRegionDedicatedNumaExclusive(ci, cra.conf, numaID, cra.extraConf, cra.metaCache, cra.metaServer, cra.emitter)
+		regions = append(regions, r)
+	}
+	return regions, nil
 }
 
 // gcRegionMap deletes empty regions in region map
@@ -495,7 +519,11 @@ func (cra *cpuResourceAdvisor) updateAdvisorEssentials() {
 
 	// update non-binding numas
 	for _, r := range cra.regionMap {
-		if r.Type() == types.QoSRegionTypeDedicatedNumaExclusive {
+		if !r.IsNumaBinding() {
+			continue
+		}
+		// ignore isolation region
+		if r.Type() == types.QoSRegionTypeDedicatedNumaExclusive || r.Type() == types.QoSRegionTypeShare {
 			cra.nonBindingNumas = cra.nonBindingNumas.Difference(r.GetBindingNumas())
 		}
 	}
@@ -507,7 +535,7 @@ func (cra *cpuResourceAdvisor) updateAdvisorEssentials() {
 
 	for _, r := range cra.regionMap {
 		// set binding numas for non numa binding regions
-		if r.Type() == types.QoSRegionTypeShare {
+		if !r.IsNumaBinding() && r.Type() == types.QoSRegionTypeShare {
 			r.SetBindingNumas(cra.nonBindingNumas)
 		}
 
