@@ -122,7 +122,7 @@ func (p *StaticPolicy) Start() (err error) {
 	}
 	if p.enableSettingWBT {
 		general.Infof("setWBT enabled")
-		err := periodicalhandler.RegisterPeriodicalHandler(qrm.QRMMemoryPluginPeriodicalHandlerGroupName,
+		err := periodicalhandler.RegisterPeriodicalHandler(qrm.QRMIOPluginPeriodicalHandlerGroupName,
 			dirtymem.EnableSetDirtyMemPeriodicalHandlerName, dirtymem.SetDirtyMem, 300*time.Second)
 		if err != nil {
 			general.Infof("setSockMem failed, err=%v", err)

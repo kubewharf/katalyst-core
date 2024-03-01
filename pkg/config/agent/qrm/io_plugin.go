@@ -31,8 +31,9 @@ type WritebackThrottlingOption struct {
 }
 
 type IOWeightOption struct {
-	EnableSettingIOWeight      bool
-	IOWeightQoSLevelConfigFile string
+	EnableSettingIOWeight         bool
+	IOWeightQoSLevelConfigFile    string
+	IOWeightCgroupLevelConfigFile string
 }
 
 func NewIOQRMPluginConfig() *IOQRMPluginConfig {
