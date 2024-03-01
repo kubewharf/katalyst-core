@@ -591,6 +591,10 @@ func (r *QoSRegionBase) regulateProvisionControlKnob(originControlKnob map[types
 			continue
 		}
 
+		if originControlKnob == nil {
+			continue
+		}
+
 		controlKnob, ok := originControlKnob[internal.name]
 		if !ok {
 			continue
@@ -739,16 +743,19 @@ func (r *QoSRegionBase) updateBoundType(overshoot bool) {
 	resourceUpperBoundHit := false
 	if r.IsThrottled() {
 		boundType = types.BoundUpper
-	} else if v, ok := r.ControlEssentials.ControlKnobs[types.ControlKnobNonReclaimedCPUSize]; ok {
-		if v.Value <= r.ResourceEssentials.ResourceLowerBound {
-			boundType = types.BoundLower
-		} else {
-			boundType = types.BoundNone
-			if v.Value >= r.ResourceEssentials.ResourceUpperBound || !r.enableReclaim() {
-				resourceUpperBoundHit = true
+	} else if r.ControlEssentials.ControlKnobs != nil {
+		if v, ok := r.ControlEssentials.ControlKnobs[types.ControlKnobNonReclaimedCPUSize]; ok {
+			if v.Value <= r.ResourceEssentials.ResourceLowerBound {
+				boundType = types.BoundLower
+			} else {
+				boundType = types.BoundNone
+				if v.Value >= r.ResourceEssentials.ResourceUpperBound || !r.enableReclaim() {
+					resourceUpperBoundHit = true
+				}
 			}
 		}
 	}
+
 	if overshoot && resourceUpperBoundHit {
 		boundType = types.BoundUpper
 	}

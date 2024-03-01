@@ -109,7 +109,8 @@ func (cra *cpuResourceAdvisor) getPoolRegions(poolName string) []region.QoSRegio
 func (cra *cpuResourceAdvisor) setPoolRegions(poolName string, regions []region.QoSRegion) error {
 	pool, ok := cra.metaCache.GetPoolInfo(poolName)
 	if !ok {
-		return fmt.Errorf("failed to find pool %v", poolName)
+		klog.Warningf("pool %s doesn't exist, create a new pool by advisor", poolName)
+		return nil
 	}
 
 	pool.RegionNames = sets.NewString()
