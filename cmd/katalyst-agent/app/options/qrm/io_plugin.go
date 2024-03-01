@@ -45,8 +45,9 @@ type IOCostOption struct {
 }
 
 type IOWeightOption struct {
-	EnableSettingIOWeight      bool
-	IOWeightQoSLevelConfigFile string
+	EnableSettingIOWeight         bool
+	IOWeightQoSLevelConfigFile    string
+	IOWeightCgroupLevelConfigFile string
 }
 
 func NewIOOptions() *IOOptions {
@@ -63,8 +64,9 @@ func NewIOOptions() *IOOptions {
 			IOCostModelConfigFile: "",
 		},
 		IOWeightOption: IOWeightOption{
-			EnableSettingIOWeight:      false,
-			IOWeightQoSLevelConfigFile: "",
+			EnableSettingIOWeight:         false,
+			IOWeightQoSLevelConfigFile:    "",
+			IOWeightCgroupLevelConfigFile: "",
 		},
 	}
 }
@@ -90,6 +92,8 @@ func (o *IOOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 		o.EnableSettingIOWeight, "if set it to true, io.weight related control operations will be executed")
 	fs.StringVar(&o.IOWeightQoSLevelConfigFile, "io-weight-qos-config-file",
 		o.IOWeightQoSLevelConfigFile, "the absolute path of io.weight qos config file")
+	fs.StringVar(&o.IOWeightCgroupLevelConfigFile, "io-weight-cgroup-config-file",
+		o.IOWeightCgroupLevelConfigFile, "the absolute path of io.weight cgroup config file")
 }
 
 func (o *IOOptions) ApplyTo(conf *qrmconfig.IOQRMPluginConfig) error {
@@ -102,5 +106,6 @@ func (o *IOOptions) ApplyTo(conf *qrmconfig.IOQRMPluginConfig) error {
 	conf.IOCostModelConfigFile = o.IOCostModelConfigFile
 	conf.EnableSettingIOWeight = o.EnableSettingIOWeight
 	conf.IOWeightQoSLevelConfigFile = o.IOWeightQoSLevelConfigFile
+	conf.IOWeightCgroupLevelConfigFile = o.IOWeightCgroupLevelConfigFile
 	return nil
 }

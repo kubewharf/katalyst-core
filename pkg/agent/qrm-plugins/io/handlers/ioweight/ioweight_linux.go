@@ -21,6 +21,7 @@ package ioweight
 
 import (
 	"context"
+	"strconv"
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
 	coreconfig "github.com/kubewharf/katalyst-core/pkg/config"
@@ -32,6 +33,36 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/native"
 )
+
+func applyIOWeightCgroupLevelConfig(conf *coreconfig.Configuration, emitter metrics.MetricEmitter) {
+	if conf.IOWeightCgroupLevelConfigFile == "" {
+		general.Errorf("IOWeightCgroupLevelConfigFile isn't configured")
+		return
+	}
+
+	ioWightCgroupLevelConfigs := make(map[string]uint64)
+	err := general.LoadJsonConfig(conf.IOWeightCgroupLevelConfigFile, &ioWightCgroupLevelConfigs)
+	if err != nil {
+		general.Errorf("load IOWeightCgroupLevelConfig failed with error: %v", err)
+		return
+	}
+
+	for relativeCgPath, weight := range ioWightCgroupLevelConfigs {
+		err := cgroupmgr.ApplyIOWeightWithRelativePath(relativeCgPath, defaultDevID, weight)
+		if err != nil {
+			general.Errorf("ApplyIOWeightWithRelativePath for devID: %s in relativeCgPath: %s failed with error: %v",
+				defaultDevID, relativeCgPath, err)
+		} else {
+			general.Infof("ApplyIOWeightWithRelativePath for devID: %s, weight: %d in relativeCgPath: %s successfully",
+				defaultDevID, weight, relativeCgPath)
+			_ = emitter.StoreInt64(metricNameIOWeight, int64(weight), metrics.MetricTypeNameRaw,
+				metrics.ConvertMapToTags(map[string]string{
+					"cgPath": relativeCgPath,
+				})...)
+
+		}
+	}
+}
 
 func applyIOWeightQoSLevelConfig(conf *coreconfig.Configuration,
 	emitter metrics.MetricEmitter, metaServer *metaserver.MetaServer) {
@@ -57,6 +88,9 @@ func applyIOWeightQoSLevelConfig(conf *coreconfig.Configuration,
 			general.Warningf("get nil pod from metaServer")
 			continue
 		}
+		if conf.QoSConfiguration == nil {
+			continue
+		}
 		qosConfig := conf.QoSConfiguration
 		qosLevel, err := qosConfig.GetQoSLevelForPod(pod)
 		if err != nil {
@@ -65,10 +99,8 @@ func applyIOWeightQoSLevelConfig(conf *coreconfig.Configuration,
 		}
 		qosLevelDefaultValue, ok := extraControlKnobConfigs[controlKnobKeyIOWeight].QoSLevelToDefaultValue[qosLevel]
 		if !ok {
-			general.Warningf("no QoSLevelToDefaultValue in extraControlKnobConfigs")
 			continue
 		}
-
 		for _, containerStatus := range pod.Status.ContainerStatuses {
 			podUID, containerID := string(pod.UID), native.TrimContainerIDPrefix(containerStatus.ContainerID)
 			err := cgroupmgr.ApplyUnifiedDataForContainer(podUID, containerID, extraControlKnobConfigs[controlKnobKeyIOWeight].CgroupSubsysName, cgroupIOWeightName, qosLevelDefaultValue)
@@ -76,6 +108,18 @@ func applyIOWeightQoSLevelConfig(conf *coreconfig.Configuration,
 				general.Warningf("ApplyUnifiedDataForContainer failed:%v", err)
 				continue
 			}
+
+			ioWeightValue, err := strconv.ParseInt(qosLevelDefaultValue, 10, 64)
+			if err != nil {
+				general.Warningf("strconv.ParseInt failed, string=%v, err=%v", qosLevelDefaultValue, err)
+				continue
+			}
+
+			_ = emitter.StoreInt64(metricNameIOWeight, ioWeightValue, metrics.MetricTypeNameRaw,
+				metrics.ConvertMapToTags(map[string]string{
+					"podUID":      podUID,
+					"containerID": containerID,
+				})...)
 		}
 	}
 }
@@ -110,5 +154,10 @@ func IOWeightTaskFunc(conf *coreconfig.Configuration,
 	// checking qos-level io.weight configuration.
 	if len(conf.IOWeightQoSLevelConfigFile) > 0 {
 		applyIOWeightQoSLevelConfig(conf, emitter, metaServer)
+	}
+
+	// checking cgroup-level io.weight configuration.
+	if len(conf.IOWeightCgroupLevelConfigFile) > 0 {
+		applyIOWeightCgroupLevelConfig(conf, emitter)
 	}
 }

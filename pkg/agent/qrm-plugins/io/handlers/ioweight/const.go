@@ -23,4 +23,5 @@ const (
 
 	controlKnobKeyIOWeight = "io_weight"
 	cgroupIOWeightName     = "io.weight"
+	defaultDevID           = "default"
 )
