@@ -74,9 +74,7 @@ func (p *PolicyCanonical) sanityCheck() error {
 
 	// 1. check control knob legality
 	isLegal = true
-	if p.ControlKnobs == nil || len(p.ControlKnobs) <= 0 {
-		isLegal = false
-	} else {
+	if p.ControlKnobs != nil {
 		v, ok := p.ControlKnobs[types.ControlKnobNonReclaimedCPUSize]
 		if !ok || v.Value <= 0 {
 			isLegal = false

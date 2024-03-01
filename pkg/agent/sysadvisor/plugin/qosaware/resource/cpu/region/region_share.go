@@ -89,7 +89,7 @@ func (r *QoSRegionShare) updateProvisionPolicy() {
 
 	indicators, err := r.getIndicators()
 	if err != nil {
-		klog.Errorf("[qosaware-cpu] get indicators failed: %v", err)
+		klog.Warningf("[qosaware-cpu] failed to get indicators, ignore it: %v", err)
 	} else {
 		r.ControlEssentials.Indicators = indicators
 	}
@@ -176,7 +176,7 @@ func (r *QoSRegionShare) restrictProvisionControlKnob(originControlKnob map[type
 func (r *QoSRegionShare) getControlKnobs() types.ControlKnob {
 	poolSize, ok := r.metaReader.GetPoolSize(r.ownerPoolName)
 	if !ok {
-		klog.Errorf("[qosaware-cpu] pool %v not exist", r.ownerPoolName)
+		klog.Warningf("[qosaware-cpu] pool %v not exist", r.ownerPoolName)
 		return nil
 	}
 	if poolSize <= 0 {
@@ -195,7 +195,7 @@ func (r *QoSRegionShare) getControlKnobs() types.ControlKnob {
 func (r *QoSRegionShare) getPoolCPUSchedWait() (float64, error) {
 	poolInfo, ok := r.metaReader.GetPoolInfo(r.ownerPoolName)
 	if !ok {
-		klog.Errorf("[qosaware-cpu] pool %v not exist", r.ownerPoolName)
+		klog.Warningf("[qosaware-cpu] pool %v not exist", r.ownerPoolName)
 		return 0, nil
 	}
 
@@ -207,7 +207,7 @@ func (r *QoSRegionShare) getPoolCPUSchedWait() (float64, error) {
 func (r *QoSRegionShare) getPoolCPUUsageRatio() (float64, error) {
 	poolInfo, ok := r.metaReader.GetPoolInfo(r.ownerPoolName)
 	if !ok {
-		klog.Errorf("[qosaware-cpu] pool %v not exist", r.ownerPoolName)
+		klog.Warningf("[qosaware-cpu] pool %v not exist", r.ownerPoolName)
 		return 0, nil
 	}
 
