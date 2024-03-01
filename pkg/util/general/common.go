@@ -25,6 +25,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -346,6 +347,13 @@ func CovertUInt64ToInt(numUInt64 uint64) (int, error) {
 // Clamp returns value itself if min < value < max; min if value < min; max if value > max
 func Clamp(value, min, max float64) float64 {
 	return math.Max(math.Min(value, max), min)
+}
+
+// AlignToPageSize returns the value aligned with page size
+func AlignToPageSize(number uint64) uint64 {
+	pageSize := uint64(syscall.Getpagesize())
+	alignedNumber := (number + pageSize - 1) &^ (pageSize - 1)
+	return alignedNumber
 }
 
 // FormatMemoryQuantity aligned to Gi Mi Ki
