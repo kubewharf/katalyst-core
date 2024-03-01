@@ -33,6 +33,7 @@ type MemoryOptions struct {
 	OOMPriorityPinnedMapAbsPath string
 
 	SockMemOptions
+	MemProtectionOptions
 }
 
 type SockMemOptions struct {
@@ -41,6 +42,11 @@ type SockMemOptions struct {
 	SetGlobalTCPMemRatio int
 	// SetCgroupTCPMemLimitRatio limit cgroup max tcp memory usage.
 	SetCgroupTCPMemRatio int
+}
+
+type MemProtectionOptions struct {
+	EnableSettingMemProtection     bool
+	MemSoftLimitQoSLevelConfigFile string
 }
 
 func NewMemoryOptions() *MemoryOptions {
@@ -55,6 +61,10 @@ func NewMemoryOptions() *MemoryOptions {
 			EnableSettingSockMem: false,
 			SetGlobalTCPMemRatio: 20,  // default: 20% * {host total memory}
 			SetCgroupTCPMemRatio: 100, // default: 100% * {cgroup memory}
+		},
+		MemProtectionOptions: MemProtectionOptions{
+			EnableSettingMemProtection:     false,
+			MemSoftLimitQoSLevelConfigFile: "",
 		},
 	}
 }
@@ -84,6 +94,10 @@ func (o *MemoryOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 		o.SetGlobalTCPMemRatio, "limit global max tcp memory usage")
 	fs.IntVar(&o.SetCgroupTCPMemRatio, "qrm-memory-cgroup-tcpmem-ratio",
 		o.SetCgroupTCPMemRatio, "limit cgroup max tcp memory usage")
+	fs.BoolVar(&o.EnableSettingMemProtection, "enable-setting-mem-protection",
+		o.EnableSettingMemProtection, "if set true, we will do memory protection in qos level")
+	fs.StringVar(&o.MemSoftLimitQoSLevelConfigFile, "mem-softlimit-qos-config-file",
+		o.MemSoftLimitQoSLevelConfigFile, "the absolute path of mem.low qos level config file")
 }
 func (o *MemoryOptions) ApplyTo(conf *qrmconfig.MemoryQRMPluginConfig) error {
 	conf.PolicyName = o.PolicyName
@@ -97,5 +111,7 @@ func (o *MemoryOptions) ApplyTo(conf *qrmconfig.MemoryQRMPluginConfig) error {
 	conf.EnableSettingSockMem = o.EnableSettingSockMem
 	conf.SetGlobalTCPMemRatio = o.SetGlobalTCPMemRatio
 	conf.SetCgroupTCPMemRatio = o.SetCgroupTCPMemRatio
+	conf.EnableSettingMemProtection = o.EnableSettingMemProtection
+	conf.MemSoftLimitQoSLevelConfigFile = o.MemSoftLimitQoSLevelConfigFile
 	return nil
 }
