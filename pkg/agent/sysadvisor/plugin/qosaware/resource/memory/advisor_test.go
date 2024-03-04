@@ -175,12 +175,19 @@ type containerNUMAMetric struct {
 	metricValue   metricutil.MetricData
 	podUID        string
 	containerName string
-	numdID        int
+	numaID        int
 }
 
 type cgroupMetric struct {
 	metricName  string
 	metricValue metricutil.MetricData
+	cgroupPath  string
+}
+
+type cgroupNUMAMetric struct {
+	metricName  string
+	metricValue metricutil.MetricData
+	numaID      int
 	cgroupPath  string
 }
 
@@ -388,6 +395,33 @@ var cgroupMetrics = []cgroupMetric{
 	},
 }
 
+var cgroupNUMAMetrics = []cgroupNUMAMetric{
+	{
+		metricName:  coreconsts.MetricsMemTotalPerNumaCgroup,
+		numaID:      0,
+		cgroupPath:  "/kubepods/besteffort",
+		metricValue: metricutil.MetricData{Value: 6 << 30},
+	},
+	{
+		metricName:  coreconsts.MetricsMemTotalPerNumaCgroup,
+		numaID:      1,
+		cgroupPath:  "/kubepods/besteffort",
+		metricValue: metricutil.MetricData{Value: 6 << 30},
+	},
+	{
+		metricName:  coreconsts.MetricsMemTotalPerNumaCgroup,
+		numaID:      2,
+		cgroupPath:  "/kubepods/besteffort",
+		metricValue: metricutil.MetricData{Value: 6 << 30},
+	},
+	{
+		metricName:  coreconsts.MetricsMemTotalPerNumaCgroup,
+		numaID:      3,
+		cgroupPath:  "/kubepods/besteffort",
+		metricValue: metricutil.MetricData{Value: 6 << 30},
+	},
+}
+
 func TestUpdate(t *testing.T) {
 	t.Parallel()
 
@@ -405,6 +439,7 @@ func TestUpdate(t *testing.T) {
 		containerMetrics     []containerMetric
 		containerNUMAMetrics []containerNUMAMetric
 		cgroupMetrics        []cgroupMetric
+		cgroupNUMAMetrics    []cgroupNUMAMetric
 		metricsFetcherSynced *bool
 		wantAdviceResult     types.InternalMemoryCalculationResult
 	}{
@@ -648,42 +683,42 @@ func TestUpdate(t *testing.T) {
 					metricValue:   metricutil.MetricData{Value: 10 << 20},
 					podUID:        "uid1",
 					containerName: "c1",
-					numdID:        0,
+					numaID:        0,
 				},
 				{
 					metricName:    coreconsts.MetricsMemFilePerNumaContainer,
 					metricValue:   metricutil.MetricData{Value: 9 << 30},
 					podUID:        "uid2",
 					containerName: "c2",
-					numdID:        0,
+					numaID:        0,
 				},
 				{
 					metricName:    coreconsts.MetricsMemFilePerNumaContainer,
 					metricValue:   metricutil.MetricData{Value: 2 << 30},
 					podUID:        "uid3",
 					containerName: "c3",
-					numdID:        0,
+					numaID:        0,
 				},
 				{
 					metricName:    coreconsts.MetricsMemFilePerNumaContainer,
 					metricValue:   metricutil.MetricData{Value: 10 << 20},
 					podUID:        "uid1",
 					containerName: "c1",
-					numdID:        1,
+					numaID:        1,
 				},
 				{
 					metricName:    coreconsts.MetricsMemFilePerNumaContainer,
 					metricValue:   metricutil.MetricData{Value: 9 << 30},
 					podUID:        "uid2",
 					containerName: "c2",
-					numdID:        1,
+					numaID:        1,
 				},
 				{
 					metricName:    coreconsts.MetricsMemFilePerNumaContainer,
 					metricValue:   metricutil.MetricData{Value: 2 << 30},
 					podUID:        "uid3",
 					containerName: "c3",
-					numdID:        1,
+					numaID:        1,
 				},
 			},
 			wantAdviceResult: types.InternalMemoryCalculationResult{
@@ -702,7 +737,39 @@ func TestUpdate(t *testing.T) {
 			},
 		},
 		{
-			name: "set reclaimed group memory limit",
+			name: "set reclaimed group memory limit(succeeded)",
+			pools: map[string]*types.PoolInfo{
+				state.PoolNameReserve: {
+					PoolName: state.PoolNameReserve,
+					TopologyAwareAssignments: map[int]machine.CPUSet{
+						0: machine.MustParse("0"),
+						1: machine.MustParse("24"),
+					},
+					OriginalTopologyAwareAssignments: map[int]machine.CPUSet{
+						0: machine.MustParse("0"),
+						1: machine.MustParse("24"),
+					},
+				},
+			},
+			reclaimedEnable:   true,
+			needRecvAdvices:   true,
+			wantHeadroom:      *resource.NewQuantity(996<<30, resource.DecimalSI),
+			nodeMetrics:       defaultNodeMetrics,
+			numaMetrics:       defaultNumaMetrics,
+			cgroupMetrics:     cgroupMetrics,
+			cgroupNUMAMetrics: cgroupNUMAMetrics,
+			plugins:           []types.MemoryAdvisorPluginName{memadvisorplugin.MemoryGuard},
+			wantAdviceResult: types.InternalMemoryCalculationResult{
+				ExtraEntries: []types.ExtraMemoryAdvices{
+					{
+						CgroupPath: "/kubepods/besteffort",
+						Values:     map[string]string{string(memoryadvisor.ControlKnobKeyMemoryLimitInBytes): strconv.Itoa(240 << 30)},
+					},
+				},
+			},
+		},
+		{
+			name: "set reclaimed group memory limit(failed)",
 			pools: map[string]*types.PoolInfo{
 				state.PoolNameReserve: {
 					PoolName: state.PoolNameReserve,
@@ -721,15 +788,9 @@ func TestUpdate(t *testing.T) {
 			wantHeadroom:    *resource.NewQuantity(996<<30, resource.DecimalSI),
 			nodeMetrics:     defaultNodeMetrics,
 			numaMetrics:     defaultNumaMetrics,
-			cgroupMetrics:   cgroupMetrics,
 			plugins:         []types.MemoryAdvisorPluginName{memadvisorplugin.MemoryGuard},
 			wantAdviceResult: types.InternalMemoryCalculationResult{
-				ExtraEntries: []types.ExtraMemoryAdvices{
-					{
-						CgroupPath: "/kubepods/besteffort",
-						Values:     map[string]string{string(memoryadvisor.ControlKnobKeyMemoryLimitInBytes): strconv.Itoa(375 << 30)},
-					},
-				},
+				ExtraEntries: []types.ExtraMemoryAdvices{},
 			},
 		},
 		{
@@ -1127,28 +1188,28 @@ func TestUpdate(t *testing.T) {
 					metricValue:   metricutil.MetricData{Value: 2 << 30},
 					podUID:        "uid1",
 					containerName: "c1",
-					numdID:        0,
+					numaID:        0,
 				},
 				{
 					metricName:    coreconsts.MetricsMemAnonPerNumaContainer,
 					metricValue:   metricutil.MetricData{Value: 1 << 30},
 					podUID:        "uid2",
 					containerName: "c2",
-					numdID:        0,
+					numaID:        0,
 				},
 				{
 					metricName:    coreconsts.MetricsMemAnonPerNumaContainer,
 					metricValue:   metricutil.MetricData{Value: 2 << 30},
 					podUID:        "uid3",
 					containerName: "c3",
-					numdID:        0,
+					numaID:        0,
 				},
 				{
 					metricName:    coreconsts.MetricsMemAnonPerNumaContainer,
 					metricValue:   metricutil.MetricData{Value: 1 << 30},
 					podUID:        "uid4",
 					containerName: "c4",
-					numdID:        0,
+					numaID:        0,
 				},
 			},
 			wantHeadroom: *resource.NewQuantity(980<<30, resource.DecimalSI),
@@ -1286,28 +1347,28 @@ func TestUpdate(t *testing.T) {
 					metricValue:   metricutil.MetricData{Value: 2 << 10},
 					podUID:        "uid1",
 					containerName: "c1",
-					numdID:        0,
+					numaID:        0,
 				},
 				{
 					metricName:    coreconsts.MetricsMemAnonPerNumaContainer,
 					metricValue:   metricutil.MetricData{Value: 1 << 10},
 					podUID:        "uid2",
 					containerName: "c2",
-					numdID:        0,
+					numaID:        0,
 				},
 				{
 					metricName:    coreconsts.MetricsMemAnonPerNumaContainer,
 					metricValue:   metricutil.MetricData{Value: 2 << 10},
 					podUID:        "uid3",
 					containerName: "c3",
-					numdID:        0,
+					numaID:        0,
 				},
 				{
 					metricName:    coreconsts.MetricsMemAnonPerNumaContainer,
 					metricValue:   metricutil.MetricData{Value: 512 << 10},
 					podUID:        "uid4",
 					containerName: "c4",
-					numdID:        0,
+					numaID:        0,
 				},
 			},
 			wantHeadroom: *resource.NewQuantity(980<<30, resource.DecimalSI),
@@ -1412,28 +1473,28 @@ func TestUpdate(t *testing.T) {
 					metricValue:   metricutil.MetricData{Value: 2 << 30},
 					podUID:        "uid1",
 					containerName: "c1",
-					numdID:        0,
+					numaID:        0,
 				},
 				{
 					metricName:    coreconsts.MetricsMemAnonPerNumaContainer,
 					metricValue:   metricutil.MetricData{Value: 1 << 30},
 					podUID:        "uid2",
 					containerName: "c2",
-					numdID:        0,
+					numaID:        0,
 				},
 				{
 					metricName:    coreconsts.MetricsMemAnonPerNumaContainer,
 					metricValue:   metricutil.MetricData{Value: 2 << 30},
 					podUID:        "uid3",
 					containerName: "c3",
-					numdID:        0,
+					numaID:        0,
 				},
 				{
 					metricName:    coreconsts.MetricsMemAnonPerNumaContainer,
 					metricValue:   metricutil.MetricData{Value: 512 << 20},
 					podUID:        "uid4",
 					containerName: "c4",
-					numdID:        0,
+					numaID:        0,
 				},
 			},
 			wantHeadroom: *resource.NewQuantity(980<<30, resource.DecimalSI),
@@ -1571,28 +1632,28 @@ func TestUpdate(t *testing.T) {
 					metricValue:   metricutil.MetricData{Value: 2 << 30},
 					podUID:        "uid1",
 					containerName: "c1",
-					numdID:        0,
+					numaID:        0,
 				},
 				{
 					metricName:    coreconsts.MetricsMemAnonPerNumaContainer,
 					metricValue:   metricutil.MetricData{Value: 1 << 30},
 					podUID:        "uid2",
 					containerName: "c2",
-					numdID:        0,
+					numaID:        0,
 				},
 				{
 					metricName:    coreconsts.MetricsMemAnonPerNumaContainer,
 					metricValue:   metricutil.MetricData{Value: 2 << 30},
 					podUID:        "uid3",
 					containerName: "c3",
-					numdID:        0,
+					numaID:        0,
 				},
 				{
 					metricName:    coreconsts.MetricsMemAnonPerNumaContainer,
 					metricValue:   metricutil.MetricData{Value: 1 << 30},
 					podUID:        "uid4",
 					containerName: "c4",
-					numdID:        0,
+					numaID:        0,
 				},
 			},
 			wantHeadroom: *resource.NewQuantity(980<<30, resource.DecimalSI),
@@ -1705,28 +1766,28 @@ func TestUpdate(t *testing.T) {
 					metricValue:   metricutil.MetricData{Value: 2 << 30},
 					podUID:        "uid1",
 					containerName: "c1",
-					numdID:        0,
+					numaID:        0,
 				},
 				{
 					metricName:    coreconsts.MetricsMemAnonPerNumaContainer,
 					metricValue:   metricutil.MetricData{Value: 1 << 30},
 					podUID:        "uid2",
 					containerName: "c2",
-					numdID:        0,
+					numaID:        0,
 				},
 				{
 					metricName:    coreconsts.MetricsMemAnonPerNumaContainer,
 					metricValue:   metricutil.MetricData{Value: 2 << 30},
 					podUID:        "uid1",
 					containerName: "c1",
-					numdID:        2,
+					numaID:        2,
 				},
 				{
 					metricName:    coreconsts.MetricsMemAnonPerNumaContainer,
 					metricValue:   metricutil.MetricData{Value: 1 << 30},
 					podUID:        "uid4",
 					containerName: "c4",
-					numdID:        2,
+					numaID:        2,
 				},
 			},
 			wantHeadroom: *resource.NewQuantity(980<<30, resource.DecimalSI),
@@ -1837,28 +1898,28 @@ func TestUpdate(t *testing.T) {
 					metricValue:   metricutil.MetricData{Value: 2 << 30},
 					podUID:        "uid1",
 					containerName: "c1",
-					numdID:        0,
+					numaID:        0,
 				},
 				{
 					metricName:    coreconsts.MetricsMemAnonPerNumaContainer,
 					metricValue:   metricutil.MetricData{Value: 1 << 30},
 					podUID:        "uid2",
 					containerName: "c2",
-					numdID:        0,
+					numaID:        0,
 				},
 				{
 					metricName:    coreconsts.MetricsMemAnonPerNumaContainer,
 					metricValue:   metricutil.MetricData{Value: 2 << 30},
 					podUID:        "uid1",
 					containerName: "c1",
-					numdID:        2,
+					numaID:        2,
 				},
 				{
 					metricName:    coreconsts.MetricsMemAnonPerNumaContainer,
 					metricValue:   metricutil.MetricData{Value: 1 << 30},
 					podUID:        "uid4",
 					containerName: "c4",
-					numdID:        2,
+					numaID:        2,
 				},
 			},
 			wantHeadroom: *resource.NewQuantity(980<<30, resource.DecimalSI),
@@ -1899,10 +1960,13 @@ func TestUpdate(t *testing.T) {
 				metricsFetcher.SetContainerMetric(containerMetric.podUID, containerMetric.containerName, containerMetric.metricName, containerMetric.metricValue)
 			}
 			for _, containerNUMAMetric := range tt.containerNUMAMetrics {
-				metricsFetcher.SetContainerNumaMetric(containerNUMAMetric.podUID, containerNUMAMetric.containerName, strconv.Itoa(containerNUMAMetric.numdID), containerNUMAMetric.metricName, containerNUMAMetric.metricValue)
+				metricsFetcher.SetContainerNumaMetric(containerNUMAMetric.podUID, containerNUMAMetric.containerName, strconv.Itoa(containerNUMAMetric.numaID), containerNUMAMetric.metricName, containerNUMAMetric.metricValue)
 			}
 			for _, qosClassMetric := range tt.cgroupMetrics {
 				metricsFetcher.SetCgroupMetric(qosClassMetric.cgroupPath, qosClassMetric.metricName, qosClassMetric.metricValue)
+			}
+			for _, cgroupNUMAMetric := range tt.cgroupNUMAMetrics {
+				metricsFetcher.SetCgroupNumaMetric(cgroupNUMAMetric.cgroupPath, cgroupNUMAMetric.numaID, cgroupNUMAMetric.metricName, cgroupNUMAMetric.metricValue)
 			}
 			if tt.metricsFetcherSynced != nil {
 				metricsFetcher.SetSynced(*tt.metricsFetcherSynced)
