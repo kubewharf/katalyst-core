@@ -14,29 +14,23 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package qrm
+package iocost
 
-type IOQRMPluginConfig struct {
-	// PolicyName is used to switch between several strategies
-	PolicyName string
+const EnableSetIOCostPeriodicalHandlerName = "SetIOCost"
 
-	WritebackThrottlingOption
-	IOCostOption
-}
+type DevModel string
 
-type WritebackThrottlingOption struct {
-	EnableSettingWBT bool
-	WBTValueHDD      int
-	WBTValueSSD      int
-}
+const (
+	DevModelDefault      DevModel = "default"
+	DevModelVirtualdisk  DevModel = "virtualdisk"
+	DevModelNbd          DevModel = "nbd"
+	DevModelLoop         DevModel = "loop"
+	DevModelBcache       DevModel = "bcache"
+	DevModelDeviceMapper DevModel = "dm"
 
-type IOCostOption struct {
-	EnableSettingIOCost        bool
-	EnableSettingIOCostHDDOnly bool
-	IOCostQoSConfigFile        string
-	IOCostModelConfigFile      string
-}
+	IOStatMetricCostVrate = "cost.vrate"
 
-func NewIOQRMPluginConfig() *IOQRMPluginConfig {
-	return &IOQRMPluginConfig{}
-}
+	MetricNameIOCostVrate = "iocost_vrate"
+
+	queueRotationalFilePattern = "/sys/block/%s/queue/rotational"
+)
