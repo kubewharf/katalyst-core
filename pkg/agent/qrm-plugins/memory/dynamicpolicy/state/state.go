@@ -130,11 +130,10 @@ func (ai *AllocationInfo) Clone() *AllocationInfo {
 	return clone
 }
 
-// CheckNumaBinding returns true if the AllocationInfo is for pod with
-// dedicated-qos and numa-binding enhancement
+// CheckNumaBinding returns true if the AllocationInfo is for pod with numa-binding enhancement
 func (ai *AllocationInfo) CheckNumaBinding() bool {
-	return ai.QoSLevel == consts.PodAnnotationQoSLevelDedicatedCores &&
-		ai.Annotations[consts.PodAnnotationMemoryEnhancementNumaBinding] == consts.PodAnnotationMemoryEnhancementNumaBindingEnable
+	return ai.Annotations[consts.PodAnnotationMemoryEnhancementNumaBinding] ==
+		consts.PodAnnotationMemoryEnhancementNumaBindingEnable
 }
 
 // CheckMainContainer returns true if the AllocationInfo is for main container
