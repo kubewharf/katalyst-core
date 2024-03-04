@@ -45,6 +45,9 @@ const (
 	SystemdRootPathBurstable  = "/kubepods.slice/kubepods-burstable.slice"
 )
 
+// defaultSelectedSubsysList cgroupv1 most common subsystems
+var defaultSelectedSubsysList = []string{CgroupSubsysCPU, CgroupSubsysMemory, CgroupSubsysCPUSet}
+
 // CgroupType defines the cgroup type that kubernetes version uses,
 // and CgroupTypeCgroupfs will used as the default one.
 type CgroupType string
