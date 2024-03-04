@@ -23,7 +23,7 @@ import "github.com/kubewharf/katalyst-core/pkg/util/general"
 // 2. applied by QRM framework according to ociPropertyName
 //
 // there may be new types of control knobs,
-// we won't modified this struct to identify them,
+// we won't modify this struct to identify them,
 // and we will register custom per-control-knob executor to deal with them.
 type ControlKnobInfo struct {
 	ControlKnobValue string `json:"control_knob_value"`
