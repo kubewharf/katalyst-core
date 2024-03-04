@@ -95,6 +95,7 @@ type SPDController struct {
 	indicatorManager         *indicator_plugin.IndicatorManager
 	indicatorPlugins         map[string]indicator_plugin.IndicatorPlugin
 	indicatorsSpecBusiness   map[apiworkload.ServiceBusinessIndicatorName]interface{}
+	indicatorsSpecExtended   map[string]interface{}
 	indicatorsSpecSystem     map[apiworkload.ServiceSystemIndicatorName]interface{}
 	indicatorsStatusBusiness map[apiworkload.ServiceBusinessIndicatorName]interface{}
 }
@@ -247,6 +248,7 @@ func (sc *SPDController) initializeIndicatorPlugins(controlCtx *katalystbase.Gen
 	sc.indicatorPlugins = make(map[string]indicator_plugin.IndicatorPlugin)
 	sc.indicatorsSpecBusiness = make(map[apiworkload.ServiceBusinessIndicatorName]interface{})
 	sc.indicatorsSpecSystem = make(map[apiworkload.ServiceSystemIndicatorName]interface{})
+	sc.indicatorsSpecExtended = make(map[string]interface{})
 	sc.indicatorsStatusBusiness = make(map[apiworkload.ServiceBusinessIndicatorName]interface{})
 
 	initializers := indicator_plugin.GetPluginInitializers()
@@ -265,6 +267,9 @@ func (sc *SPDController) initializeIndicatorPlugins(controlCtx *katalystbase.Gen
 			}
 			for _, name := range plugin.GetSupportedSystemIndicatorSpec() {
 				sc.indicatorsSpecSystem[name] = struct{}{}
+			}
+			for _, name := range plugin.GetSupportedExtendedIndicatorSpec() {
+				sc.indicatorsSpecExtended[name] = struct{}{}
 			}
 			for _, name := range plugin.GetSupportedBusinessIndicatorStatus() {
 				sc.indicatorsStatusBusiness[name] = struct{}{}
@@ -596,7 +601,11 @@ func (sc *SPDController) getOrCreateSPDForWorkload(workload *unstructured.Unstru
 					AggMetrics: []apiworkload.AggPodMetrics{},
 				},
 			}
-			sc.updateBaselineSentinel(spd)
+
+			err := sc.updateBaselineSentinel(spd)
+			if err != nil {
+				return nil, err
+			}
 
 			return sc.spdControl.CreateSPD(sc.ctx, spd, metav1.CreateOptions{})
 		}

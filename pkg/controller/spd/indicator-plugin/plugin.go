@@ -41,6 +41,7 @@ type IndicatorPlugin interface {
 	// is not supported by any indicator plugin, the controller will clear in CR.
 	GetSupportedBusinessIndicatorSpec() []apiworkload.ServiceBusinessIndicatorName
 	GetSupportedSystemIndicatorSpec() []apiworkload.ServiceSystemIndicatorName
+	GetSupportedExtendedIndicatorSpec() []string
 	GetSupportedBusinessIndicatorStatus() []apiworkload.ServiceBusinessIndicatorName
 }
 
@@ -48,6 +49,7 @@ type DummyIndicatorPlugin struct {
 	SystemSpecNames     []apiworkload.ServiceSystemIndicatorName
 	BusinessSpecNames   []apiworkload.ServiceBusinessIndicatorName
 	BusinessStatusNames []apiworkload.ServiceBusinessIndicatorName
+	ExtendedSpecNames   []string
 }
 
 var _ IndicatorPlugin = DummyIndicatorPlugin{}
@@ -59,6 +61,9 @@ func (d DummyIndicatorPlugin) GetSupportedBusinessIndicatorSpec() []apiworkload.
 }
 func (d DummyIndicatorPlugin) GetSupportedSystemIndicatorSpec() []apiworkload.ServiceSystemIndicatorName {
 	return d.SystemSpecNames
+}
+func (d DummyIndicatorPlugin) GetSupportedExtendedIndicatorSpec() []string {
+	return d.ExtendedSpecNames
 }
 func (d DummyIndicatorPlugin) GetSupportedBusinessIndicatorStatus() []apiworkload.ServiceBusinessIndicatorName {
 	return d.BusinessStatusNames

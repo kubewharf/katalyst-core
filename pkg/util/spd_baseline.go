@@ -57,34 +57,47 @@ func (c SPDBaselinePodMeta) String() string {
 	return string(d)
 }
 
-// IsBaselinePod check whether a pod is baseline pod and whether
-// the spd baseline is enabled
-func IsBaselinePod(pod *v1.Pod, spd *v1alpha1.ServiceProfileDescriptor) (bool, bool, error) {
-	if pod == nil || spd == nil {
-		return false, false, fmt.Errorf("pod or spd is nil")
+// IsBaselinePod check whether a pod is baseline pod
+func IsBaselinePod(pod *v1.Pod, baselinePercent *int32, baselineSentinel *SPDBaselinePodMeta) (bool, error) {
+	if pod == nil {
+		return false, fmt.Errorf("pod is nil")
 	}
 
 	// if spd baseline percent not config means baseline is disabled
-	if spd.Spec.BaselinePercent == nil {
-		return false, false, nil
-	}
-	if *spd.Spec.BaselinePercent >= consts.SPDBaselinePercentMax {
-		return true, true, nil
-	} else if *spd.Spec.BaselinePercent <= consts.SPDBaselinePercentMin {
-		return false, true, nil
+	if baselinePercent == nil {
+		return false, nil
+	} else if *baselinePercent >= consts.SPDBaselinePercentMax {
+		return true, nil
+	} else if *baselinePercent <= consts.SPDBaselinePercentMin {
+		return false, nil
 	}
 
-	bp, err := GetSPDBaselineSentinel(spd)
+	if baselineSentinel == nil {
+		return false, fmt.Errorf("baseline percent is already set but baseline sentinel is nil")
+	}
+
+	pm := GetPodMeta(pod)
+	if pm.Cmp(*baselineSentinel) <= 0 {
+		return true, nil
+	}
+
+	return false, nil
+}
+
+// IsExtendedBaselinePod check whether a pod is baseline pod by extended indicator
+func IsExtendedBaselinePod(pod *v1.Pod, baselinePercent *int32, podMetaMap map[string]SPDBaselinePodMeta, name string) (bool, error) {
+	var baselineSentinel *SPDBaselinePodMeta
+	sentinel, ok := podMetaMap[name]
+	if ok {
+		baselineSentinel = &sentinel
+	}
+
+	isBaseline, err := IsBaselinePod(pod, baselinePercent, baselineSentinel)
 	if err != nil {
-		return false, false, err
+		return false, err
 	}
 
-	bc := GetPodMeta(pod)
-	if bc.Cmp(bp) <= 0 {
-		return true, true, nil
-	}
-
-	return false, true, nil
+	return isBaseline, nil
 }
 
 // GetPodMeta get the baseline coefficient of this pod
@@ -96,15 +109,19 @@ func GetPodMeta(pod *v1.Pod) SPDBaselinePodMeta {
 }
 
 // GetSPDBaselineSentinel get the baseline sentinel pod of this spd
-func GetSPDBaselineSentinel(spd *v1alpha1.ServiceProfileDescriptor) (SPDBaselinePodMeta, error) {
+func GetSPDBaselineSentinel(spd *v1alpha1.ServiceProfileDescriptor) (*SPDBaselinePodMeta, error) {
 	s, ok := spd.Annotations[consts.SPDAnnotationBaselineSentinelKey]
 	if !ok {
-		return SPDBaselinePodMeta{}, fmt.Errorf("spd baseline percentile not found")
+		return nil, nil
 	}
-	bc := SPDBaselinePodMeta{}
-	err := json.Unmarshal([]byte(s), &bc)
 
-	return bc, err
+	bs := SPDBaselinePodMeta{}
+	err := json.Unmarshal([]byte(s), &bs)
+	if err != nil {
+		return nil, err
+	}
+
+	return &bs, err
 }
 
 // SetSPDBaselineSentinel set the baseline percentile of this spd, if percentile is nil means delete it
@@ -123,5 +140,46 @@ func SetSPDBaselineSentinel(spd *v1alpha1.ServiceProfileDescriptor, podMeta *SPD
 	}
 
 	spd.Annotations[consts.SPDAnnotationBaselineSentinelKey] = podMeta.String()
+	return
+}
+
+// GetSPDExtendedBaselineSentinel get the extended baseline sentinel pod of this spd
+func GetSPDExtendedBaselineSentinel(spd *v1alpha1.ServiceProfileDescriptor) (map[string]SPDBaselinePodMeta, error) {
+	s, ok := spd.Annotations[consts.SPDAnnotationExtendedBaselineSentinelKey]
+	if !ok {
+		return nil, nil
+	}
+
+	bs := map[string]SPDBaselinePodMeta{}
+	err := json.Unmarshal([]byte(s), &bs)
+	if err != nil {
+		return nil, err
+	}
+
+	return bs, err
+}
+
+// SetSPDExtendedBaselineSentinel set the extended baseline sentinel of this spd, if percentile is nil means delete it
+func SetSPDExtendedBaselineSentinel(spd *v1alpha1.ServiceProfileDescriptor, podMetaMap map[string]SPDBaselinePodMeta) {
+	if spd == nil {
+		return
+	}
+
+	if podMetaMap == nil || len(podMetaMap) == 0 {
+		delete(spd.Annotations, consts.SPDAnnotationExtendedBaselineSentinelKey)
+		return
+	}
+
+	if spd.Annotations == nil {
+		spd.Annotations = make(map[string]string)
+	}
+
+	extendedBaselineSentinel, err := json.Marshal(podMetaMap)
+	if err != nil {
+		spd.Annotations[consts.SPDAnnotationExtendedBaselineSentinelKey] = ""
+	} else {
+		spd.Annotations[consts.SPDAnnotationExtendedBaselineSentinelKey] = string(extendedBaselineSentinel)
+	}
+
 	return
 }

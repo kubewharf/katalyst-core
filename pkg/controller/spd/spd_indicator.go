@@ -186,6 +186,9 @@ func (sc *SPDController) mergeIndicatorSpec(spd *apiworkload.ServiceProfileDescr
 	for _, indicator := range expected.SystemIndicator {
 		util.InsertSPDSystemIndicatorSpec(&spd.Spec, &indicator)
 	}
+	for _, indicator := range expected.ExtendedIndicator {
+		util.InsertSPDExtendedIndicatorSpec(&spd.Spec, &indicator)
+	}
 
 	for i := 0; i < len(spd.Spec.BusinessIndicator); i++ {
 		if _, ok := sc.indicatorsSpecBusiness[spd.Spec.BusinessIndicator[i].Name]; !ok {
@@ -198,6 +201,13 @@ func (sc *SPDController) mergeIndicatorSpec(spd *apiworkload.ServiceProfileDescr
 		if _, ok := sc.indicatorsSpecSystem[spd.Spec.SystemIndicator[i].Name]; !ok {
 			klog.Infof("skip spec system %v for spd %v", spd.Spec.SystemIndicator[i].Name, spd.Name)
 			spd.Spec.SystemIndicator = append(spd.Spec.SystemIndicator[:i], spd.Spec.SystemIndicator[i+1:]...)
+		}
+	}
+
+	for i := 0; i < len(spd.Spec.ExtendedIndicator); i++ {
+		if _, ok := sc.indicatorsSpecExtended[spd.Spec.ExtendedIndicator[i].Name]; !ok {
+			klog.Infof("skip spec extended %v for spd %v", spd.Spec.ExtendedIndicator[i].Name, spd.Name)
+			spd.Spec.ExtendedIndicator = append(spd.Spec.ExtendedIndicator[:i], spd.Spec.ExtendedIndicator[i+1:]...)
 		}
 	}
 }

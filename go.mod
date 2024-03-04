@@ -13,7 +13,7 @@ require (
 	github.com/golang/protobuf v1.5.2
 	github.com/google/cadvisor v0.44.2
 	github.com/klauspost/cpuid/v2 v2.2.6
-	github.com/kubewharf/katalyst-api v0.4.1-0.20240313101121-1cf6a8bac88a
+	github.com/kubewharf/katalyst-api v0.4.1-0.20240315044944-45cdd48ceedc
 	github.com/montanaflynn/stats v0.7.1
 	github.com/opencontainers/runc v1.1.6
 	github.com/opencontainers/selinux v1.10.0
