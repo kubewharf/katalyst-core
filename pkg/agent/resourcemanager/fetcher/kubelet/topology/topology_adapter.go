@@ -33,11 +33,13 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/klog/v2"
 	podresv1 "k8s.io/kubelet/pkg/apis/podresources/v1"
+	resourceutil "k8s.io/kubernetes/pkg/api/v1/resource"
 
 	nodev1alpha1 "github.com/kubewharf/katalyst-api/pkg/apis/node/v1alpha1"
 	apiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-api/pkg/utils"
 	"github.com/kubewharf/katalyst-core/pkg/agent/resourcemanager/fetcher/util/kubelet/podresources"
+	"github.com/kubewharf/katalyst-core/pkg/config/generic"
 	"github.com/kubewharf/katalyst-core/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	metaserverpod "github.com/kubewharf/katalyst-core/pkg/metaserver/agent/pod"
@@ -66,10 +68,13 @@ type topologyAdapterImpl struct {
 	client    podresv1.PodResourcesListerClient
 	endpoints []string
 
+	// qosConf is used to get pod qos configuration
+	qosConf *generic.QoSConfiguration
+
 	// metaServer is used to fetch pod list to calculate numa allocation
 	metaServer *metaserver.MetaServer
 
-	// numaZoneNodeMap map numa zone node => socket zone node
+	// numaSocketZoneNodeMap map numa zone node => socket zone node
 	numaSocketZoneNodeMap map[util.ZoneNode]util.ZoneNode
 
 	// skipDeviceNames name of devices which will be skipped in getting numa allocatable and allocation
@@ -89,7 +94,7 @@ type topologyAdapterImpl struct {
 }
 
 // NewPodResourcesServerTopologyAdapter creates a topology adapter which uses pod resources server
-func NewPodResourcesServerTopologyAdapter(metaServer *metaserver.MetaServer, endpoints []string,
+func NewPodResourcesServerTopologyAdapter(metaServer *metaserver.MetaServer, qosConf *generic.QoSConfiguration, endpoints []string,
 	kubeletResourcePluginPaths []string, resourceNameToZoneTypeMap map[string]string, skipDeviceNames sets.String,
 	numaInfoGetter NumaInfoGetter, podResourcesFilter PodResourcesFilter, getClientFunc podresources.GetClientFunc) (Adapter, error) {
 	numaInfo, err := numaInfoGetter()
@@ -110,6 +115,7 @@ func NewPodResourcesServerTopologyAdapter(metaServer *metaserver.MetaServer, end
 	return &topologyAdapterImpl{
 		endpoints:                  endpoints,
 		kubeletResourcePluginPaths: kubeletResourcePluginPaths,
+		qosConf:                    qosConf,
 		metaServer:                 metaServer,
 		numaSocketZoneNodeMap:      numaSocketZoneNodeMap,
 		skipDeviceNames:            skipDeviceNames,
@@ -468,6 +474,13 @@ func (p *topologyAdapterImpl) getZoneAllocations(podList []*v1.Pod, podResources
 			continue
 		}
 
+		// revise pod allocated according qos level
+		err = p.revisePodAllocated(pod, podAllocated)
+		if err != nil {
+			errList = append(errList, fmt.Errorf("pod %s revise pod allocated failed, %s", podKey, err))
+			continue
+		}
+
 		for zoneNode, resourceList := range podAllocated {
 			_, ok := zoneAllocationsMap[zoneNode]
 			if !ok {
@@ -486,6 +499,52 @@ func (p *topologyAdapterImpl) getZoneAllocations(podList []*v1.Pod, podResources
 	}
 
 	return zoneAllocationsMap, nil
+}
+
+// revisePodAllocated is to revise pod allocated according to its qos level
+func (p *topologyAdapterImpl) revisePodAllocated(pod *v1.Pod, podAllocated map[util.ZoneNode]*v1.ResourceList) error {
+	qosLevel, err := p.qosConf.GetQoSLevel(pod, map[string]string{})
+	if err != nil {
+		return err
+	}
+
+	switch qosLevel {
+	case apiconsts.PodAnnotationQoSLevelSharedCores:
+		// revise shared_cores pod allocated according to its numa binding
+		return p.reviseSharedCoresPodAllocated(pod, podAllocated)
+	default:
+		return nil
+	}
+}
+
+// reviseSharedCoresPodAllocated is to revise shared_cores pod allocated according to its numa binding
+func (p *topologyAdapterImpl) reviseSharedCoresPodAllocated(pod *v1.Pod, podAllocated map[util.ZoneNode]*v1.ResourceList) error {
+	ok, err := util.ValidateSharedCoresWithNumaBindingPod(p.qosConf, pod, podAllocated)
+	if !ok || err != nil {
+		return err
+	}
+
+	for zoneNode, resourceList := range podAllocated {
+		if zoneNode.Meta.Type != nodev1alpha1.TopologyTypeNuma {
+			continue
+		}
+
+		if resourceList != nil &&
+			(!resourceList.Cpu().IsZero() || !resourceList.Memory().IsZero()) {
+
+			// revise the allocated resources to the binding numa node
+			requests, _ := resourceutil.PodRequestsAndLimits(pod)
+			if requests != nil {
+				(*resourceList)[v1.ResourceCPU] = requests.Cpu().DeepCopy()
+				(*resourceList)[v1.ResourceMemory] = requests.Memory().DeepCopy()
+			}
+
+			// shared_cores with numa binding pod cpu and memory are only bound to one numa,
+			break
+		}
+	}
+
+	return nil
 }
 
 // getZoneAttributes gets a map of zone node to zone attributes, which is generated from the annotation of

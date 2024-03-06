@@ -34,11 +34,6 @@ func ParseMemoryEnhancement(qosConf *generic.QoSConfiguration, pod *v1.Pod) map[
 
 // IsPodNumaBinding checks whether the pod needs numa-binding
 func IsPodNumaBinding(qosConf *generic.QoSConfiguration, pod *v1.Pod) bool {
-	isDedicatedPod, err := qosConf.CheckDedicatedQoS(pod, map[string]string{})
-	if err != nil || !isDedicatedPod {
-		return false
-	}
-
 	memoryEnhancement := ParseMemoryEnhancement(qosConf, pod)
 	return AnnotationsIndicateNUMABinding(memoryEnhancement)
 }
@@ -47,6 +42,11 @@ func IsPodNumaBinding(qosConf *generic.QoSConfiguration, pod *v1.Pod) bool {
 func IsPodNumaExclusive(qosConf *generic.QoSConfiguration, pod *v1.Pod) bool {
 	isPodNumaBinding := IsPodNumaBinding(qosConf, pod)
 	if !isPodNumaBinding {
+		return false
+	}
+
+	isDedicatedPod, err := qosConf.CheckDedicatedQoS(pod, map[string]string{})
+	if err != nil || !isDedicatedPod {
 		return false
 	}
 
