@@ -31,6 +31,22 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 )
 
+func GetFullyDropCacheBytes(container *v1.Container) int64 {
+	if container == nil {
+		return 0
+	}
+
+	memoryLimit := container.Resources.Limits[v1.ResourceMemory]
+	memoryReq := container.Resources.Requests[v1.ResourceMemory]
+	fullyDropCacheBytes := memoryLimit.Value()
+
+	if fullyDropCacheBytes == 0 {
+		fullyDropCacheBytes = memoryReq.Value()
+	}
+
+	return fullyDropCacheBytes
+}
+
 // GetReservedMemory is used to spread total reserved memories into per-numa level.
 // this reserve resource calculation logic should be kept in qrm, if advisor wants
 // to get this info, it should depend on the returned checkpoint (through cpu-server)
