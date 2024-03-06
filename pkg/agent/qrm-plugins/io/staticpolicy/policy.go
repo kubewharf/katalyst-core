@@ -54,8 +54,7 @@ type StaticPolicy struct {
 	metaServer *metaserver.MetaServer
 	agentCtx   *agent.GenericContext
 
-	enableSettingWBT    bool
-	enableSettingIOCost bool
+	enableSettingWBT bool
 }
 
 // NewStaticPolicy returns a static io policy
@@ -67,13 +66,12 @@ func NewStaticPolicy(agentCtx *agent.GenericContext, conf *config.Configuration,
 	})
 
 	policyImplement := &StaticPolicy{
-		emitter:             wrappedEmitter,
-		metaServer:          agentCtx.MetaServer,
-		agentCtx:            agentCtx,
-		stopCh:              make(chan struct{}),
-		name:                fmt.Sprintf("%s_%s", agentName, IOResourcePluginPolicyNameStatic),
-		enableSettingWBT:    conf.EnableSettingWBT,
-		enableSettingIOCost: conf.EnableSettingIOCost,
+		emitter:          wrappedEmitter,
+		metaServer:       agentCtx.MetaServer,
+		agentCtx:         agentCtx,
+		stopCh:           make(chan struct{}),
+		name:             fmt.Sprintf("%s_%s", agentName, IOResourcePluginPolicyNameStatic),
+		enableSettingWBT: conf.EnableSettingWBT,
 	}
 
 	// todo: currently there is no resource needed to be topology-aware and synchronously allocated in this plugin,
@@ -118,13 +116,14 @@ func (p *StaticPolicy) Start() (err error) {
 		}
 	}
 
-	if p.enableSettingIOCost {
-		general.Infof("setIOCost enabled")
-		err := periodicalhandler.RegisterPeriodicalHandler(qrm.QRMIOPluginPeriodicalHandlerGroupName,
-			iocost.EnableSetIOCostPeriodicalHandlerName, iocost.SetIOCost, 300*time.Second)
-		if err != nil {
-			general.Infof("setIOCost failed, err=%v", err)
-		}
+	// Notice: iocost.SetIOCost will check the featuregate.
+	// If conf.EnableSettingIOCost was disabled,
+	// iocost.SetIOCost will disable all the io.cost related functions in host.
+	general.Infof("setIOCost handler started")
+	err = periodicalhandler.RegisterPeriodicalHandler(qrm.QRMIOPluginPeriodicalHandlerGroupName,
+		iocost.EnableSetIOCostPeriodicalHandlerName, iocost.SetIOCost, 300*time.Second)
+	if err != nil {
+		general.Infof("setIOCost failed, err=%v", err)
 	}
 
 	go wait.Until(func() {
