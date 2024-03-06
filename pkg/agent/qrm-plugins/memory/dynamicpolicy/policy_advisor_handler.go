@@ -307,12 +307,17 @@ func (p *DynamicPolicy) handleAdvisorDropCache(
 		return fmt.Errorf("get container id of pod: %s container: %s failed with error: %v", entryName, subEntryName, err)
 	}
 
+	container, err := p.metaServer.GetContainerSpec(entryName, subEntryName)
+	if err != nil || container == nil {
+		return fmt.Errorf("get container spec for pod: %s, container: %s failed with error: %v", entryName, subEntryName, err)
+	}
+
 	dropCacheWorkName := util.GetContainerAsyncWorkName(entryName, subEntryName, memoryPluginAsyncWorkTopicDropCache)
 	// start a asynchronous work to drop cache for the container whose numaset changed and doesn't require numa_binding
 	err = p.asyncWorkers.AddWork(dropCacheWorkName,
 		&asyncworker.Work{
 			Fn:          cgroupmgr.DropCacheWithTimeoutForContainer,
-			Params:      []interface{}{entryName, containerID, dropCacheTimeoutSeconds},
+			Params:      []interface{}{entryName, containerID, dropCacheTimeoutSeconds, GetFullyDropCacheBytes(container)},
 			DeliveredAt: time.Now()}, asyncworker.DuplicateWorkPolicyOverride)
 
 	if err != nil {

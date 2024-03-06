@@ -460,22 +460,13 @@ func (p *DynamicPolicy) adjustAllocationEntries() error {
 				}
 			}
 
-			memoryLimit := container.Resources.Limits[v1.ResourceMemory]
-			memoryReq := container.Resources.Requests[v1.ResourceMemory]
-			memoryLimitBytes := memoryLimit.Value()
-			memoryReqBytes := memoryReq.Value()
-
-			if memoryLimitBytes == 0 {
-				memoryLimitBytes = memoryReqBytes
-			}
-
 			dropCacheWorkName := util.GetContainerAsyncWorkName(podUID, containerName,
 				memoryPluginAsyncWorkTopicDropCache)
 			// start a asynchronous work to drop cache for the container whose numaset changed and doesn't require numa_binding
 			err = p.asyncWorkers.AddWork(dropCacheWorkName,
 				&asyncworker.Work{
 					Fn:          cgroupmgr.DropCacheWithTimeoutForContainer,
-					Params:      []interface{}{podUID, containerID, dropCacheTimeoutSeconds, memoryLimitBytes},
+					Params:      []interface{}{podUID, containerID, dropCacheTimeoutSeconds, GetFullyDropCacheBytes(container)},
 					DeliveredAt: time.Now()}, asyncworker.DuplicateWorkPolicyOverride)
 
 			if err != nil {
