@@ -22,6 +22,8 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/alecthomas/units"
+
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/tools/events"
 
@@ -141,9 +143,10 @@ func (m *EnhancedNumaMemoryPressurePlugin) detectNumaPressures() {
 			"free: %+v, total: %+v, scaleFactor: %+v, inactiveFile: %+v, numaKswapdStealDelta: %+v",
 			numaID, numaFree, numaTotal, scaleFactor, numaInactiveFile.Value, 0)
 
-		m.numaPressureStatMap[numaID] = numaFree + numaInactiveFile.Value - 2*numaTotal*scaleFactor/10000
+		threshhold := general.Clamp(float64(10*units.GiB), 2*numaTotal*scaleFactor/10000, float64((25 * units.GiB)))
+		m.numaPressureStatMap[numaID] = numaFree + numaInactiveFile.Value - threshhold
 		// TODO: use numa kswapd steal to detect numa pressure instead of system kswapd steal
-		if numaFree+numaInactiveFile.Value <= 2*numaTotal*scaleFactor/10000 && systemKswapdSteal.Value-m.systemKswapdStealLastCycle > 0 {
+		if m.numaPressureStatMap[numaID] <= 0 && systemKswapdSteal.Value-m.systemKswapdStealLastCycle > 0 {
 			m.isUnderNumaPressure = true
 			m.numaActionMap[numaID] = actionEviction
 			_ = m.emitter.StoreInt64(metricsNameThresholdMet, 1, metrics.MetricTypeNameCount,
