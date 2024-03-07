@@ -129,6 +129,9 @@ func (pa *ProvisionAssemblerCommon) AssembleProvision() (types.InternalCPUCalcul
 				reclaimed := available - nonReclaimRequirement + reservedForReclaim
 
 				calculationResult.SetPoolEntry(state.PoolNameReclaim, regionNuma, reclaimed)
+
+				klog.InfoS("assemble info", "regionName", r.Name(), "reclaimed", reclaimed,
+					"available", available, "nonReclaimRequirement", nonReclaimRequirement, "reservedForReclaim", reservedForReclaim)
 			}
 		}
 	}
