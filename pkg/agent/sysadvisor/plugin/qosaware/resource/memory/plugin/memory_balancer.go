@@ -27,6 +27,7 @@ import (
 
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/errors"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 
 	"github.com/kubewharf/katalyst-api/pkg/plugins/registration"
@@ -342,9 +343,21 @@ func (m *memoryBalancer) getBalanceInfo() (balanceInfo *BalanceInfo, err error) 
 		return
 	}
 
+	// try to evict pod
+	if balanceInfo.NeedBalance {
+		balanceInfo.EvictPods, err = m.getEvictPods(balanceInfo.SourceNuma)
+		if err != nil {
+			return
+		}
+	}
+
 	balanceInfo.DestNumas = m.getDestNumaList(orderedDestNumaList, balanceInfo.SourceNuma, balanceInfo.BalanceLevel, balanceInfo.BandwidthPressure)
 	if len(balanceInfo.DestNumas) > 0 {
-		balanceInfo.BalancePods, balanceInfo.TotalRSS, err = m.getBalancePods(m.conf.SupportedPools, balanceInfo.SourceNuma, balanceInfo.DestNumas)
+		evictPodsUIDSet := sets.NewString()
+		for _, pod := range balanceInfo.EvictPods {
+			evictPodsUIDSet.Insert(pod.UID)
+		}
+		balanceInfo.BalancePods, balanceInfo.TotalRSS, err = m.getBalancePods(m.conf.SupportedPools, balanceInfo.SourceNuma, balanceInfo.DestNumas, evictPodsUIDSet)
 		if err != nil {
 			return
 		}
@@ -352,15 +365,6 @@ func (m *memoryBalancer) getBalanceInfo() (balanceInfo *BalanceInfo, err error) 
 
 	canBalancePod := len(balanceInfo.DestNumas) > 0 && len(balanceInfo.BalancePods) > 0
 	general.Infof("destNumas:%+v, balancePods:%+v, totalRSS: %+v", balanceInfo.DestNumas, balanceInfo.BalancePods, balanceInfo.TotalRSS)
-
-	// if there are no pods can be balanced and balanceLevel is forceBalance, try to evict them
-	if balanceInfo.BalanceLevel == ForceBalance && !canBalancePod {
-		general.Infof("can't found pods can be balanced, try to find pod to evict")
-		balanceInfo.EvictPods, err = m.getEvictPods(balanceInfo.SourceNuma)
-		if err != nil {
-			return
-		}
-	}
 
 	if !canBalancePod && len(balanceInfo.EvictPods) == 0 {
 		balanceInfo.Status = BalanceStatusPrepareFailed
@@ -592,7 +596,7 @@ func (m *memoryBalancer) getBalancePodsForPool(poolName string, srcNuma *NumaLat
 	return result, nil
 }
 
-func (m *memoryBalancer) getBalancePods(supportPools []string, srcNuma *NumaLatencyInfo, destNumas []NumaInfo) ([]BalancePod, float64, error) {
+func (m *memoryBalancer) getBalancePods(supportPools []string, srcNuma *NumaLatencyInfo, destNumas []NumaInfo, skipPodsUIDSet sets.String) ([]BalancePod, float64, error) {
 	var totalRSS float64 = 0
 	poolPodSortList := make([]PodSort, 0)
 	reclaimedPodSortList, err := m.getBalancePodsForPool(state.PoolNameReclaim, srcNuma, destNumas, m.conf.BalancedReclaimedPodSourceNumaRSSMin, m.conf.BalancedReclaimedPodSourceNumaRSSMax)
@@ -625,6 +629,9 @@ func (m *memoryBalancer) getBalancePods(supportPools []string, srcNuma *NumaLate
 	targetPods := make([]BalancePod, 0)
 
 	for _, sortPod := range reclaimedPodSortList {
+		if skipPodsUIDSet.Has(string(sortPod.Pod.UID)) {
+			continue
+		}
 		if totalRSS+sortPod.SortValue > float64(m.conf.BalancedReclaimedPodsSourceNumaTotalRSSMax) {
 			break
 		}
@@ -639,6 +646,10 @@ func (m *memoryBalancer) getBalancePods(supportPools []string, srcNuma *NumaLate
 	}
 
 	for _, sortPod := range poolPodSortList {
+		if skipPodsUIDSet.Has(string(sortPod.Pod.UID)) {
+			continue
+		}
+
 		if totalRSS+sortPod.SortValue > float64(m.conf.BalancedPodsSourceNumaTotalRSSMax) {
 			break
 		}

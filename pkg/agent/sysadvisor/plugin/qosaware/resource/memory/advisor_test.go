@@ -1156,7 +1156,7 @@ func TestUpdate(t *testing.T) {
 				ExtraEntries: []types.ExtraMemoryAdvices{
 					{
 						Values: map[string]string{
-							string(memoryadvisor.ControlKnobKeyBalanceNumaMemory): "{\"destNumaList\":[1],\"sourceNuma\":0,\"migrateContainers\":[{\"podUID\":\"uid4\",\"containerName\":\"c4\",\"destNumaList\":[0,1,2,3]},{\"podUID\":\"uid3\",\"containerName\":\"c3\",\"destNumaList\":[0,1,2,3]}],\"totalRSS\":3221225472,\"threshold\":0.7}",
+							string(memoryadvisor.ControlKnobKeyBalanceNumaMemory): "{\"destNumaList\":[1],\"sourceNuma\":0,\"migrateContainers\":[{\"podUID\":\"uid4\",\"containerName\":\"c4\",\"destNumaList\":[0,1,2,3]},{\"podUID\":\"uid2\",\"containerName\":\"c2\",\"destNumaList\":[0,1]},{\"podUID\":\"uid1\",\"containerName\":\"c1\",\"destNumaList\":[0,1]}],\"totalRSS\":4294967296,\"threshold\":0.7}",
 						},
 					},
 				},
@@ -1600,7 +1600,7 @@ func TestUpdate(t *testing.T) {
 				ExtraEntries: []types.ExtraMemoryAdvices{
 					{
 						Values: map[string]string{
-							string(memoryadvisor.ControlKnobKeyBalanceNumaMemory): "{\"destNumaList\":[1],\"sourceNuma\":0,\"migrateContainers\":[{\"podUID\":\"uid4\",\"containerName\":\"c4\",\"destNumaList\":[0,1,2,3]},{\"podUID\":\"uid3\",\"containerName\":\"c3\",\"destNumaList\":[0,1,2,3]}],\"totalRSS\":3221225472,\"threshold\":0.7}",
+							string(memoryadvisor.ControlKnobKeyBalanceNumaMemory): "{\"destNumaList\":[1],\"sourceNuma\":0,\"migrateContainers\":[{\"podUID\":\"uid4\",\"containerName\":\"c4\",\"destNumaList\":[0,1,2,3]},{\"podUID\":\"uid2\",\"containerName\":\"c2\",\"destNumaList\":[0,1]},{\"podUID\":\"uid1\",\"containerName\":\"c1\",\"destNumaList\":[0,1]}],\"totalRSS\":4294967296,\"threshold\":0.7}",
 						},
 					},
 				},
