@@ -122,9 +122,11 @@ func GetKubernetesAnyExistRelativeCgroupPath(suffix string) (string, error) {
 
 	for _, cgPath := range k8sCgroupPathList.List() {
 		relativePath := path.Join(cgPath, suffix)
-		p := GetKubernetesAbsCgroupPath(DefaultSelectedSubsys, relativePath)
-		if general.IsPathExists(p) {
-			return relativePath, nil
+		for _, defaultSelectedSubsys := range defaultSelectedSubsysList {
+			p := GetKubernetesAbsCgroupPath(defaultSelectedSubsys, relativePath)
+			if general.IsPathExists(p) {
+				return relativePath, nil
+			}
 		}
 	}
 
