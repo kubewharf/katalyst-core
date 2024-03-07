@@ -403,24 +403,35 @@ func (p *nodeMetricsReporterPlugin) getGroupUsage(pods []*v1.Pod, qosLevel strin
 		}
 		cpu.Add(*podUsage.Cpu())
 		memory.Add(*podUsage.Memory())
+
+		klog.InfoS("pod usage", "pod", pod.Name, "cpu", podUsage.Cpu().AsApproximateFloat64(),
+			"memory", general.FormatMemoryQuantity(podUsage.Memory().AsApproximateFloat64()))
 	}
 
 	resourceMetric := &nodeapis.ResourceMetric{}
-	memory = p.getAggregatedMetric(memory, v1.ResourceMemory, "getGroupUsage", qosLevel, "memory")
-	if memory == nil {
+	aggMemory := p.getAggregatedMetric(memory, v1.ResourceMemory, "getGroupUsage", qosLevel, "memory")
+	if aggMemory == nil {
 		errList = append(errList, fmt.Errorf("failed to get enhough samples for group memory, qosLevel=%v", qosLevel))
 	} else {
-		resourceMetric.Memory = memory
+		resourceMetric.Memory = aggMemory
 	}
 
-	cpu = p.getAggregatedMetric(cpu, v1.ResourceCPU, "getGroupUsage", qosLevel, "cpu")
-	if cpu == nil {
+	aggCPU := p.getAggregatedMetric(cpu, v1.ResourceCPU, "getGroupUsage", qosLevel, "cpu")
+	if aggCPU == nil {
 		errList = append(errList, fmt.Errorf("failed to get enhough samples for group cpu, qosLevel=%v", qosLevel))
 	} else {
-		resourceMetric.CPU = cpu
+		resourceMetric.CPU = aggCPU
 	}
 
-	return resourceMetric, effectivePods, errors.NewAggregate(errList)
+	err := errors.NewAggregate(errList)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	klog.InfoS("group usage", "qosLevel", qosLevel, "memory", general.FormatMemoryQuantity(memory.AsApproximateFloat64()),
+		"aggMemory", general.FormatMemoryQuantity(aggMemory.AsApproximateFloat64()), "cpu", cpu.AsApproximateFloat64(), "aggCPU", aggCPU.AsApproximateFloat64())
+
+	return resourceMetric, effectivePods, nil
 }
 
 func (p *nodeMetricsReporterPlugin) getNodeMemoryUsage() (*resource.Quantity, error) {

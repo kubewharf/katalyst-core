@@ -573,8 +573,9 @@ func (r *QoSRegionBase) getProvisionControlKnob() map[types.CPUProvisionPolicyNa
 				{Key: metricTagKeyControlKnobName, Val: string(name)},
 				{Key: metricTagKeyControlKnobAction, Val: string(value.Action)},
 			}...)
-			klog.Infof("[qosaware-cpu] get raw control knob by policy: %v, knob: %v, action: %v, value: %v",
-				internal.name, name, value.Action, value.Value)
+
+			klog.InfoS("[qosaware-cpu] get raw control knob", "region", r.name, "policy", internal.name,
+				"knob", name, "action", value.Action, "value", value.Value)
 		}
 	}
 
@@ -631,8 +632,8 @@ func (r *QoSRegionBase) regulateProvisionControlKnob(originControlKnob map[types
 				{Key: metricTagKeyControlKnobName, Val: string(knob)},
 				{Key: metricTagKeyControlKnobAction, Val: string(value.Action)},
 			}...)
-			klog.Infof("[qosaware-cpu] get regulated control knob by policy: %v, knob: %v, action: %v, value: %v",
-				policy, knob, value.Action, value.Value)
+			klog.InfoS("[qosaware-cpu] get regulated control knob", "region", r.name, "policy", policy, "knob", knob,
+				"action", value.Action, "value", value.Value)
 		}
 	}
 }
