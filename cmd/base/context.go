@@ -205,7 +205,7 @@ func NewGenericContext(
 
 	// add profiling and health check http paths listening on generic endpoint
 	serveProfilingHTTP(mux)
-	c.serveHealthZHTTP(mux)
+	c.serveHealthZHTTP(mux, genericConf.EnableHealthzCheck)
 
 	return c, nil
 }
@@ -264,8 +264,14 @@ func (c *GenericContext) StartInformer(ctx context.Context) {
 }
 
 // serveHealthZHTTP is used to provide health check for current running components.
-func (c *GenericContext) serveHealthZHTTP(mux *http.ServeMux) {
+func (c *GenericContext) serveHealthZHTTP(mux *http.ServeMux, enableHealthzCheck bool) {
 	mux.HandleFunc(healthZPath, func(w http.ResponseWriter, r *http.Request) {
+		if !enableHealthzCheck {
+			w.WriteHeader(200)
+			_, _ = w.Write([]byte("healthz check is disabled"))
+			return
+		}
+
 		ok, content := c.healthChecker.CheckHealthy()
 		if ok {
 			w.WriteHeader(200)

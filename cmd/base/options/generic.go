@@ -31,7 +31,8 @@ import (
 
 // GenericOptions holds the configurations for multi components.
 type GenericOptions struct {
-	DryRun bool
+	DryRun             bool
+	EnableHealthzCheck bool
 
 	MasterURL  string
 	KubeConfig string
@@ -53,6 +54,7 @@ type GenericOptions struct {
 func NewGenericOptions() *GenericOptions {
 	return &GenericOptions{
 		DryRun:                    false,
+		EnableHealthzCheck:        false,
 		TransformedInformerForPod: false,
 		GenericEndpoint:           ":9316",
 		qosOptions:                NewQoSOptions(),
@@ -75,6 +77,7 @@ func (o *GenericOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 	})
 
 	fs.BoolVar(&o.DryRun, "dry-run", o.DryRun, "A bool to enable and disable dry-run.")
+	fs.BoolVar(&o.EnableHealthzCheck, "enable-healthz-check", o.EnableHealthzCheck, "A bool to enable and disable healthz check.")
 
 	fs.BoolVar(&o.TransformedInformerForPod, "transformed-informer-pod", o.TransformedInformerForPod,
 		"whether we should enable the ability of transformed informer for pods")
@@ -100,6 +103,7 @@ func (o *GenericOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 // ApplyTo fills up config with options
 func (o *GenericOptions) ApplyTo(c *generic.GenericConfiguration) error {
 	c.DryRun = o.DryRun
+	c.EnableHealthzCheck = o.EnableHealthzCheck
 
 	c.TransformedInformerForPod = o.TransformedInformerForPod
 
