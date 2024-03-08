@@ -26,6 +26,7 @@ import (
 
 type PolicyBase struct {
 	types.ResourceEssentials
+	types.RegionStatus
 
 	regionName    string
 	regionType    types.QoSRegionType
@@ -61,6 +62,7 @@ func (p *PolicyBase) SetBindingNumas(numas machine.CPUSet) {
 	p.bindingNumas = numas
 }
 
-func (p *PolicyBase) SetEssentials(essentials types.ResourceEssentials) {
+func (p *PolicyBase) SetEssentials(essentials types.ResourceEssentials, regionStatus types.RegionStatus) {
 	p.ResourceEssentials = essentials
+	p.RegionStatus = regionStatus
 }

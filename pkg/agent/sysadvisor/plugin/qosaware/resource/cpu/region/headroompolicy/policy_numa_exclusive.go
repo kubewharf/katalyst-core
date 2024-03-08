@@ -33,9 +33,15 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
+const (
+	upperBoundThreshold = 5
+)
+
 type PolicyNUMAExclusive struct {
 	*PolicyBase
-	headroom float64
+	headroom            float64
+	upperBoundCount     int
+	upperBoundThreshold int
 }
 
 // NOTE: NewPolicyNUMAExclusive can only for dedicated_cores with numa exclusive region
@@ -44,7 +50,8 @@ func NewPolicyNUMAExclusive(regionName string, regionType types.QoSRegionType, o
 	_ *config.Configuration, _ interface{}, metaReader metacache.MetaReader,
 	metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter) HeadroomPolicy {
 	p := &PolicyNUMAExclusive{
-		PolicyBase: NewPolicyBase(regionName, regionType, ownerPoolName, metaReader, metaServer, emitter),
+		PolicyBase:          NewPolicyBase(regionName, regionType, ownerPoolName, metaReader, metaServer, emitter),
+		upperBoundThreshold: upperBoundThreshold,
 	}
 	return p
 }
@@ -81,6 +88,18 @@ func (p *PolicyNUMAExclusive) Update() error {
 	}
 	if !enableReclaim {
 		p.headroom = 0
+		return nil
+	}
+
+	if p.RegionStatus.BoundType == types.BoundUpper {
+		p.upperBoundCount++
+	} else {
+		p.upperBoundCount = 0
+	}
+
+	if p.upperBoundCount > p.upperBoundThreshold {
+		p.headroom = 0
+		klog.InfoS("region is in status of upper bound, shrink headroom to 0", "regionName", p.regionName, "upperBoundCount", p.upperBoundCount)
 		return nil
 	}
 
