@@ -406,6 +406,12 @@ func Test_manager_GetMemory(t *testing.T) {
 			if !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("manager.GetMemory() = %v, want %v", got, tt.want)
 			}
+
+			_, _, err = GetMemoryStatsFromStatFile(tt.args.absCgroupPath)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("GetMemoryStatsFromStatFile() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
 		})
 	}
 }

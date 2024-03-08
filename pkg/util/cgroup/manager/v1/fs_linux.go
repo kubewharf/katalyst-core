@@ -22,6 +22,7 @@ package v1
 import (
 	"errors"
 	"fmt"
+	"io/ioutil"
 	"path"
 	"path/filepath"
 	"strconv"
@@ -219,6 +220,36 @@ func (m *manager) ApplyUnifiedData(absCgroupPath, cgroupFileName, data string) e
 	return nil
 }
 
+func GetMemoryStatsFromStatFile(absCgroupPath string) (uint64, uint64, error) {
+	statFile := filepath.Join(absCgroupPath, "memory.stat")
+	content, err := ioutil.ReadFile(statFile)
+	if err != nil {
+		return 0, 0, fmt.Errorf("failed to read %s: %v", statFile, err)
+	}
+
+	var cache, fileInactive uint64
+	lines := strings.Split(string(content), "\n")
+	for _, line := range lines {
+		fields := strings.Fields(line)
+		if len(fields) < 2 {
+			continue
+		}
+		key := fields[0]
+		value, err := strconv.ParseUint(fields[1], 10, 64)
+		if err != nil {
+			return 0, 0, fmt.Errorf("failed to parse value in %s: %v", statFile, err)
+		}
+		switch key {
+		case "cache":
+			cache = value
+		case "total_inactive_file":
+			fileInactive = value
+		}
+	}
+
+	return cache, fileInactive, nil
+}
+
 func (m *manager) GetMemory(absCgroupPath string) (*common.MemoryStats, error) {
 	memoryStats := &common.MemoryStats{}
 	moduleName := "memory"
@@ -236,6 +267,13 @@ func (m *manager) GetMemory(absCgroupPath string) (*common.MemoryStats, error) {
 		return nil, fmt.Errorf("failed to parse %s, %v", usageFile, err)
 	}
 	memoryStats.Usage = usage
+
+	cache, fileInactive, err := GetMemoryStatsFromStatFile(absCgroupPath)
+	if err != nil {
+		return nil, err
+	}
+	memoryStats.File = cache
+	memoryStats.FileInactive = fileInactive
 
 	return memoryStats, nil
 }
