@@ -365,16 +365,9 @@ func FormatMemoryQuantity(q float64) string {
 
 // DedupStringSlice return deduplicated string slice from original
 func DedupStringSlice(input []string) []string {
-	encountered := map[string]bool{}
-	result := []string{}
-
+	result := sets.NewString()
 	for _, v := range input {
-		if encountered[v] == true {
-			continue
-		} else {
-			encountered[v] = true
-			result = append(result, v)
-		}
+		result.Insert(v)
 	}
-	return result
+	return result.UnsortedList()
 }

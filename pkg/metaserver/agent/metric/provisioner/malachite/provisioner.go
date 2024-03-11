@@ -130,10 +130,11 @@ func (m *MalachiteMetricsProvisioner) updateSystemStats() {
 
 func (m *MalachiteMetricsProvisioner) updateCgroupData() {
 	cgroupPaths := []string{m.baseConf.ReclaimRelativeRootCgroupPath, common.CgroupFsRootPathBurstable, common.CgroupFsRootPathBestEffort}
-	for _, path := range general.DedupStringSlice(m.baseConf.GeneralRelativeCgroupPaths) {
+	for _, path := range m.baseConf.GeneralRelativeCgroupPaths {
 		cgroupPaths = append(cgroupPaths, path)
 	}
-	for _, path := range cgroupPaths {
+	dedupCgroupPaths := general.DedupStringSlice(cgroupPaths)
+	for _, path := range dedupCgroupPaths {
 		stats, err := m.malachiteClient.GetCgroupStats(path)
 		if err != nil {
 			general.Errorf("GetCgroupStats %v err %v", path, err)
