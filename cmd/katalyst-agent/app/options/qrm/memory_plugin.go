@@ -45,8 +45,9 @@ type SockMemOptions struct {
 }
 
 type MemProtectionOptions struct {
-	EnableSettingMemProtection     bool
-	MemSoftLimitQoSLevelConfigFile string
+	EnableSettingMemProtection        bool
+	MemSoftLimitQoSLevelConfigFile    string
+	MemSoftLimitCgroupLevelConfigFile string
 }
 
 func NewMemoryOptions() *MemoryOptions {
@@ -63,8 +64,9 @@ func NewMemoryOptions() *MemoryOptions {
 			SetCgroupTCPMemRatio: 100, // default: 100% * {cgroup memory}
 		},
 		MemProtectionOptions: MemProtectionOptions{
-			EnableSettingMemProtection:     false,
-			MemSoftLimitQoSLevelConfigFile: "",
+			EnableSettingMemProtection:        false,
+			MemSoftLimitQoSLevelConfigFile:    "",
+			MemSoftLimitCgroupLevelConfigFile: "",
 		},
 	}
 }
@@ -98,7 +100,10 @@ func (o *MemoryOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 		o.EnableSettingMemProtection, "if set true, we will do memory protection in qos level")
 	fs.StringVar(&o.MemSoftLimitQoSLevelConfigFile, "mem-softlimit-qos-config-file",
 		o.MemSoftLimitQoSLevelConfigFile, "the absolute path of mem.low qos level config file")
+	fs.StringVar(&o.MemSoftLimitCgroupLevelConfigFile, "mem-softlimit-cgroup-config-file",
+		o.MemSoftLimitCgroupLevelConfigFile, "the absolute path of mem.low cgroup level config file")
 }
+
 func (o *MemoryOptions) ApplyTo(conf *qrmconfig.MemoryQRMPluginConfig) error {
 	conf.PolicyName = o.PolicyName
 	conf.ReservedMemoryGB = o.ReservedMemoryGB
@@ -113,5 +118,6 @@ func (o *MemoryOptions) ApplyTo(conf *qrmconfig.MemoryQRMPluginConfig) error {
 	conf.SetCgroupTCPMemRatio = o.SetCgroupTCPMemRatio
 	conf.EnableSettingMemProtection = o.EnableSettingMemProtection
 	conf.MemSoftLimitQoSLevelConfigFile = o.MemSoftLimitQoSLevelConfigFile
+	conf.MemSoftLimitCgroupLevelConfigFile = o.MemSoftLimitCgroupLevelConfigFile
 	return nil
 }

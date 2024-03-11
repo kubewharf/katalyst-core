@@ -20,6 +20,7 @@ const EnableSetMemProtectionPeriodicalHandlerName = "SetCGMemProtection"
 
 const (
 	// Constants for cgroup memory statistics
+	cgroupMemory32M       = 33554432
 	cgroupMemory128M      = 134217728
 	cgroupMemoryUnlimited = 9223372036854771712
 

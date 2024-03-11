@@ -50,8 +50,9 @@ type SockMemQRMPluginConfig struct {
 }
 
 type MemProtectionOptions struct {
-	EnableSettingMemProtection     bool
-	MemSoftLimitQoSLevelConfigFile string
+	EnableSettingMemProtection        bool
+	MemSoftLimitQoSLevelConfigFile    string
+	MemSoftLimitCgroupLevelConfigFile string
 }
 
 func NewMemoryQRMPluginConfig() *MemoryQRMPluginConfig {
