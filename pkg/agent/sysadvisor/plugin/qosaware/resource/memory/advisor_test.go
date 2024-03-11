@@ -911,7 +911,7 @@ func TestUpdate(t *testing.T) {
 					PodUID:        "uid1",
 					ContainerName: "c1",
 					Values: map[string]string{
-						string(memoryadvisor.ControlKnobKeySwapMax):          "true",
+						string(memoryadvisor.ControlKnobKeySwapMax):          coreconsts.ControlKnobON,
 						string(memoryadvisor.ControlKnowKeyMemoryOffloading): "48318382"},
 				}},
 			},

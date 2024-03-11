@@ -442,9 +442,9 @@ func (tmo *transparentMemoryOffloading) GetAdvices() types.InternalMemoryCalcula
 		if tmoEngine.GetOffloadingTargetSize() <= 0 {
 			continue
 		}
-		enableSwap := "false"
+		enableSwap := consts.ControlKnobOFF
 		if tmoEngine.GetConf().EnableSwap {
-			enableSwap = "true"
+			enableSwap = consts.ControlKnobON
 		}
 		entry := types.ContainerMemoryAdvices{
 			PodUID:        tmoEngine.GetContainerInfo().PodUID,
@@ -460,9 +460,9 @@ func (tmo *transparentMemoryOffloading) GetAdvices() types.InternalMemoryCalcula
 		if tmoEngine.GetOffloadingTargetSize() <= 0 {
 			continue
 		}
-		enableSwap := "false"
+		enableSwap := consts.ControlKnobOFF
 		if tmoEngine.GetConf().EnableSwap {
-			enableSwap = "true"
+			enableSwap = consts.ControlKnobON
 		}
 		entry := types.ExtraMemoryAdvices{
 			CgroupPath: tmoEngine.GetCgpath(),

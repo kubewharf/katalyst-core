@@ -62,6 +62,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/global"
 	qrmconfig "github.com/kubewharf/katalyst-core/pkg/config/agent/qrm"
 	"github.com/kubewharf/katalyst-core/pkg/config/generic"
+	coreconsts "github.com/kubewharf/katalyst-core/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent"
 	metaserveragent "github.com/kubewharf/katalyst-core/pkg/metaserver/agent"
@@ -1825,7 +1826,7 @@ func TestHandleAdvisorResp(t *testing.T) {
 							testName: {
 								CalculationResult: &advisorsvc.CalculationResult{
 									Values: map[string]string{
-										string(memoryadvisor.ControlKnobKeySwapMax):          "true",
+										string(memoryadvisor.ControlKnobKeySwapMax):          coreconsts.ControlKnobON,
 										string(memoryadvisor.ControlKnowKeyMemoryOffloading): "40960",
 									},
 								},

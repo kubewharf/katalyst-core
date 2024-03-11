@@ -20,12 +20,10 @@ import (
 	"context"
 	"fmt"
 
-	katalystapiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
-
 	v1 "k8s.io/api/core/v1"
-
 	"k8s.io/apimachinery/pkg/api/errors"
 
+	"github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/spd"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
@@ -99,8 +97,8 @@ func PodIsDaemonSet(pod *v1.Pod) bool {
 }
 
 func IsValidQosLevel(qoslevel string) bool {
-	if qoslevel == string(katalystapiconsts.QoSLevelReclaimedCores) || qoslevel == string(katalystapiconsts.QoSLevelSharedCores) ||
-		qoslevel == string(katalystapiconsts.QoSLevelDedicatedCores) || qoslevel == string(katalystapiconsts.QoSLevelSystemCores) {
+	if qoslevel == string(consts.QoSLevelReclaimedCores) || qoslevel == string(consts.QoSLevelSharedCores) ||
+		qoslevel == string(consts.QoSLevelDedicatedCores) || qoslevel == string(consts.QoSLevelSystemCores) {
 		return true
 	}
 	return false
