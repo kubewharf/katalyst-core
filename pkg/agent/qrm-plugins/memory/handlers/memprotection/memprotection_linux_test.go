@@ -226,6 +226,36 @@ func TestMemProtection(t *testing.T) {
 		},
 	}, metrics.DummyMetrics{}, metaServer)
 
+	applyMemSoftLimitCgroupLevelConfig(&coreconfig.Configuration{
+		AgentConfiguration: &agent.AgentConfiguration{
+			StaticAgentConfiguration: &configagent.StaticAgentConfiguration{
+				QRMPluginsConfiguration: &qrm.QRMPluginsConfiguration{
+					MemoryQRMPluginConfig: &qrm.MemoryQRMPluginConfig{
+						MemProtectionOptions: qrm.MemProtectionOptions{
+							EnableSettingMemProtection:        true,
+							MemSoftLimitCgroupLevelConfigFile: "",
+						},
+					},
+				},
+			},
+		},
+	}, metrics.DummyMetrics{})
+
+	applyMemSoftLimitCgroupLevelConfig(&coreconfig.Configuration{
+		AgentConfiguration: &agent.AgentConfiguration{
+			StaticAgentConfiguration: &configagent.StaticAgentConfiguration{
+				QRMPluginsConfiguration: &qrm.QRMPluginsConfiguration{
+					MemoryQRMPluginConfig: &qrm.MemoryQRMPluginConfig{
+						MemProtectionOptions: qrm.MemProtectionOptions{
+							EnableSettingMemProtection:        true,
+							MemSoftLimitCgroupLevelConfigFile: "fake",
+						},
+					},
+				},
+			},
+		},
+	}, metrics.DummyMetrics{})
+
 	jsonContent := `{
 		"mem_softlimit": {
 			"control_knob_info": {
@@ -283,6 +313,46 @@ func TestMemProtection(t *testing.T) {
 		},
 	}, metrics.DummyMetrics{}, metaServer)
 
+	jsonContent2 := `{
+"fake1": 20,
+    "fake2": 20
+}`
+
+	// Create a temporary file
+	tempFile2, err := ioutil.TempFile("", "test2.json")
+	if err != nil {
+		fmt.Println("Error creating temporary file:", err)
+		return
+	}
+	defer os.Remove(tempFile2.Name()) // Defer removing the temporary file
+
+	// Write the JSON content to the temporary file
+	if _, err := tempFile2.WriteString(jsonContent2); err != nil {
+		fmt.Println("Error writing to temporary file:", err)
+		return
+	}
+
+	absPath2, err := filepath.Abs(tempFile2.Name())
+	if err != nil {
+		fmt.Println("Error obtaining absolute path:", err)
+		return
+	}
+
+	applyMemSoftLimitCgroupLevelConfig(&coreconfig.Configuration{
+		AgentConfiguration: &agent.AgentConfiguration{
+			StaticAgentConfiguration: &configagent.StaticAgentConfiguration{
+				QRMPluginsConfiguration: &qrm.QRMPluginsConfiguration{
+					MemoryQRMPluginConfig: &qrm.MemoryQRMPluginConfig{
+						MemProtectionOptions: qrm.MemProtectionOptions{
+							EnableSettingMemProtection:        true,
+							MemSoftLimitCgroupLevelConfigFile: absPath2,
+						},
+					},
+				},
+			},
+		},
+	}, metrics.DummyMetrics{})
+
 	checkpointDir, err := ioutil.TempDir("", "checkpoint-FetchModelResult")
 	require.NoError(t, err)
 	defer func() { _ = os.RemoveAll(checkpointDir) }()
@@ -332,24 +402,22 @@ func TestMemProtection(t *testing.T) {
 			QoSConfiguration: nil,
 		},
 	}, metrics.DummyMetrics{}, metaServerNil)
+
+	calculateMemSoftLimit("fake", 10)
 }
 
 func TestGetUserSpecifiedMemoryProtectionInBytes(t *testing.T) {
 	t.Parallel()
 
-	result := getUserSpecifiedMemoryProtectionInBytes(1073741824, 107374182, "10")
+	result := getUserSpecifiedMemoryProtectionInBytes(1073741824, 107374182, 10)
 	var expected uint64 = 107376640
 	assert.Equal(t, expected, result, "Test getUserSpecifiedMemProtectionInBytes failed")
 
-	result = getUserSpecifiedMemoryProtectionInBytes(1073741824, 107374182, "1a")
+	result = getUserSpecifiedMemoryProtectionInBytes(1073741824, 107374182, 123)
 	expected = 0
 	assert.Equal(t, expected, result, "Test getUserSpecifiedMemProtectionInBytes failed")
 
-	result = getUserSpecifiedMemoryProtectionInBytes(1073741824, 107374182, "123")
-	expected = 0
-	assert.Equal(t, expected, result, "Test getUserSpecifiedMemProtectionInBytes failed")
-
-	result = getUserSpecifiedMemoryProtectionInBytes(9223372036854771712, 1073741824, "10")
+	result = getUserSpecifiedMemoryProtectionInBytes(9223372036854771712, 1073741824, 10)
 	expected = 120799232
 	assert.Equal(t, expected, result, "Test getUserSpecifiedMemProtectionInBytes failed")
 }
@@ -358,7 +426,7 @@ func TestCalculatedBestSoftLimit(t *testing.T) {
 	t.Parallel()
 
 	result := calculatedBestSoftLimit(1073741824.0, 536870912.0, 536870912.0)
-	var expected uint64 = 671088640
+	var expected uint64 = 603979776
 	assert.Equal(t, expected, result, "Test alculatedBestSoftLimit failed")
 
 	result = calculatedBestSoftLimit(1073741824.0, 5368709120.0, 536870912.0)
