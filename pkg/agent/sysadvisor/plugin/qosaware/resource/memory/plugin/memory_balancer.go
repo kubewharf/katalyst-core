@@ -183,6 +183,8 @@ type BalanceInfo struct {
 	Status                       BalanceStatus      `json:"status"`
 	FailedReason                 string             `json:"failedReason"`
 	DetectTime                   time.Time          `json:"detectTime"`
+	BalanceExecuted              bool               `json:"balanceExecuted"`
+	EvictExecuted                bool               `json:"evictExecuted"`
 }
 
 type memoryBalancer struct {
@@ -226,7 +228,7 @@ func (m *memoryBalancer) GetEvictPods(_ context.Context, request *pluginapi.GetE
 	m.mutex.Lock()
 
 	evictPods := make([]*pluginapi.EvictPod, 0)
-	if m.balanceInfo == nil {
+	if m.balanceInfo == nil || m.balanceInfo.EvictExecuted {
 		return &pluginapi.GetEvictPodsResponse{}, nil
 	}
 
@@ -244,7 +246,7 @@ func (m *memoryBalancer) GetEvictPods(_ context.Context, request *pluginapi.GetE
 		}
 	}
 
-	m.balanceInfo.EvictPods = make([]EvictPod, 0)
+	m.balanceInfo.EvictExecuted = true
 	return &pluginapi.GetEvictPodsResponse{EvictPods: evictPods}, nil
 }
 
@@ -282,6 +284,8 @@ func (m *memoryBalancer) getBalanceInfo() (balanceInfo *BalanceInfo, err error) 
 		RawNumaLatencyInfo: make([]*NumaLatencyInfo, 0),
 		Status:             BalanceStatusPreparing,
 		DetectTime:         time.Now(),
+		EvictExecuted:      false,
+		BalanceExecuted:    false,
 	}
 
 	defer func() {
@@ -357,7 +361,7 @@ func (m *memoryBalancer) getBalanceInfo() (balanceInfo *BalanceInfo, err error) 
 		for _, pod := range balanceInfo.EvictPods {
 			evictPodsUIDSet.Insert(pod.UID)
 		}
-		balanceInfo.BalancePods, balanceInfo.TotalRSS, err = m.getBalancePods(m.conf.SupportedPools, balanceInfo.SourceNuma, balanceInfo.DestNumas, evictPodsUIDSet)
+		balanceInfo.BalancePods, balanceInfo.TotalRSS, err = m.getBalancePods(m.conf.SupportedPools, balanceInfo.SourceNuma, balanceInfo.DestNumas)
 		if err != nil {
 			return
 		}
@@ -596,7 +600,7 @@ func (m *memoryBalancer) getBalancePodsForPool(poolName string, srcNuma *NumaLat
 	return result, nil
 }
 
-func (m *memoryBalancer) getBalancePods(supportPools []string, srcNuma *NumaLatencyInfo, destNumas []NumaInfo, skipPodsUIDSet sets.String) ([]BalancePod, float64, error) {
+func (m *memoryBalancer) getBalancePods(supportPools []string, srcNuma *NumaLatencyInfo, destNumas []NumaInfo) ([]BalancePod, float64, error) {
 	var totalRSS float64 = 0
 	poolPodSortList := make([]PodSort, 0)
 	reclaimedPodSortList, err := m.getBalancePodsForPool(state.PoolNameReclaim, srcNuma, destNumas, m.conf.BalancedReclaimedPodSourceNumaRSSMin, m.conf.BalancedReclaimedPodSourceNumaRSSMax)
@@ -629,9 +633,6 @@ func (m *memoryBalancer) getBalancePods(supportPools []string, srcNuma *NumaLate
 	targetPods := make([]BalancePod, 0)
 
 	for _, sortPod := range reclaimedPodSortList {
-		if skipPodsUIDSet.Has(string(sortPod.Pod.UID)) {
-			continue
-		}
 		if totalRSS+sortPod.SortValue > float64(m.conf.BalancedReclaimedPodsSourceNumaTotalRSSMax) {
 			break
 		}
@@ -646,9 +647,6 @@ func (m *memoryBalancer) getBalancePods(supportPools []string, srcNuma *NumaLate
 	}
 
 	for _, sortPod := range poolPodSortList {
-		if skipPodsUIDSet.Has(string(sortPod.Pod.UID)) {
-			continue
-		}
 
 		if totalRSS+sortPod.SortValue > float64(m.conf.BalancedPodsSourceNumaTotalRSSMax) {
 			break
@@ -864,7 +862,7 @@ func (m *memoryBalancer) GetAdvices() (result types.InternalMemoryCalculationRes
 	}
 
 	if !m.balanceInfo.NeedBalance || m.balanceInfo.Status != BalanceStatusPrepareSuccess ||
-		len(m.balanceInfo.BalancePods) == 0 || len(m.balanceInfo.DestNumas) == 0 {
+		len(m.balanceInfo.BalancePods) == 0 || len(m.balanceInfo.DestNumas) == 0 || m.balanceInfo.BalanceExecuted {
 		return
 	}
 
@@ -901,7 +899,7 @@ func (m *memoryBalancer) GetAdvices() (result types.InternalMemoryCalculationRes
 		m.lastBalanceInfo = m.balanceInfo
 	}
 	// avoid duplicate execution
-	m.balanceInfo = nil
+	m.balanceInfo.BalanceExecuted = true
 
 	return
 }
