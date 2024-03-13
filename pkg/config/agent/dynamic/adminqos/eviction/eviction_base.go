@@ -30,15 +30,17 @@ type EvictionConfiguration struct {
 	*RootfsPressureEvictionConfiguration
 	*ReclaimedResourcesEvictionConfiguration
 	*SystemLoadEvictionPluginConfiguration
+	*CPUSystemPressureEvictionPluginConfiguration
 }
 
 func NewEvictionConfiguration() *EvictionConfiguration {
 	return &EvictionConfiguration{
-		CPUPressureEvictionConfiguration:        NewCPUPressureEvictionConfiguration(),
-		MemoryPressureEvictionConfiguration:     NewMemoryPressureEvictionPluginConfiguration(),
-		RootfsPressureEvictionConfiguration:     NewRootfsPressureEvictionPluginConfiguration(),
-		ReclaimedResourcesEvictionConfiguration: NewReclaimedResourcesEvictionConfiguration(),
-		SystemLoadEvictionPluginConfiguration:   NewSystemLoadEvictionPluginConfiguration(),
+		CPUPressureEvictionConfiguration:             NewCPUPressureEvictionConfiguration(),
+		MemoryPressureEvictionConfiguration:          NewMemoryPressureEvictionPluginConfiguration(),
+		RootfsPressureEvictionConfiguration:          NewRootfsPressureEvictionPluginConfiguration(),
+		ReclaimedResourcesEvictionConfiguration:      NewReclaimedResourcesEvictionConfiguration(),
+		SystemLoadEvictionPluginConfiguration:        NewSystemLoadEvictionPluginConfiguration(),
+		CPUSystemPressureEvictionPluginConfiguration: NewCPUSystemPressureEvictionPluginConfiguration(),
 	}
 }
 
@@ -53,4 +55,5 @@ func (c *EvictionConfiguration) ApplyConfiguration(conf *crd.DynamicConfigCRD) {
 	c.RootfsPressureEvictionConfiguration.ApplyTo(conf)
 	c.ReclaimedResourcesEvictionConfiguration.ApplyConfiguration(conf)
 	c.SystemLoadEvictionPluginConfiguration.ApplyConfiguration(conf)
+	c.CPUSystemPressureEvictionPluginConfiguration.ApplyConfiguration(conf)
 }
