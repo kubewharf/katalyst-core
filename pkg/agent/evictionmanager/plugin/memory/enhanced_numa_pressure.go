@@ -81,6 +81,7 @@ type EnhancedNumaMemoryPressurePlugin struct {
 	numaKswapdStealLastCycle   map[int]float64
 	systemKswapdStealLastCycle float64
 	isUnderNumaPressure        bool
+	lastEvictTime              time.Time
 }
 
 func (m *EnhancedNumaMemoryPressurePlugin) Start() {
@@ -162,6 +163,11 @@ func (m *EnhancedNumaMemoryPressurePlugin) detectNumaPressures() {
 }
 
 func (m *EnhancedNumaMemoryPressurePlugin) GetTopEvictionPods(_ context.Context, request *pluginapi.GetTopEvictionPodsRequest) (*pluginapi.GetTopEvictionPodsResponse, error) {
+	currTime := time.Now()
+	if currTime.Sub(m.lastEvictTime) < m.dynamicConfig.GetDynamicConfiguration().MemoryPressureEvictionInterval {
+		general.Infof("Skip EnhancedNumaMemoryPressurePlugin due to the short time interval")
+		return nil, nil
+	}
 	if request == nil {
 		return nil, fmt.Errorf("GetTopEvictionPods got nil request")
 	}
@@ -204,7 +210,9 @@ func (m *EnhancedNumaMemoryPressurePlugin) GetTopEvictionPods(_ context.Context,
 			GracePeriodSeconds: gracePeriod,
 		}
 	}
-
+	if len(targetPods) > 0 {
+		m.lastEvictTime = time.Now()
+	}
 	return resp, nil
 }
 
@@ -240,8 +248,6 @@ func (m *EnhancedNumaMemoryPressurePlugin) getTargets(podToEvictList []*v1.Pod, 
 				permutation := make([]*v1.Pod, len(podList))
 				copy(permutation, podList)
 				*result = append(*result, permutation)
-				general.Infof("permutation len %+v", len(permutation))
-
 			} else {
 				for i := start; i < len(podList); i++ {
 					swap(podList, start, i)
