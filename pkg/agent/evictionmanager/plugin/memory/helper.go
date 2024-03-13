@@ -138,6 +138,10 @@ func (e *EvictionHelper) getEvictionCmpFuncs(rankingMetrics []string, numaID int
 			case evictionconfig.FakeMetricPriority:
 				// prioritize evicting the pod whose priority is lower
 				return general.ReverseCmpFunc(native.PodPriorityCmpFunc)(p1, p2)
+			case evictionconfig.FakeMetricNativeQoSLevel:
+				return native.PodQoSCmpFunc(p1, p2)
+			case evictionconfig.FakeMetricOwnerLevel:
+				return native.PodOwnerCmpFunc(p1, p2)
 			default:
 				p1Metric, p1Err := helper.GetPodMetric(e.metaServer.MetricsFetcher, e.emitter, p1, currentMetric, numaID)
 				p2Metric, p2Err := helper.GetPodMetric(e.metaServer.MetricsFetcher, e.emitter, p2, currentMetric, numaID)

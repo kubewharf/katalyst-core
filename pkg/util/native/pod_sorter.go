@@ -18,8 +18,8 @@ package native
 
 import (
 	v1 "k8s.io/api/core/v1"
-
 	corev1helpers "k8s.io/component-helpers/scheduling/corev1"
+	"k8s.io/kubernetes/pkg/apis/core/v1/helper/qos"
 
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 )
@@ -75,8 +75,53 @@ func PodUniqKeyCmpFunc(i1, i2 interface{}) int {
 	return general.CmpString(p1UniqKey, p2UniqKey)
 }
 
+// PodQoSCmpFunc sorts QoS class of pod with less comparison
+func PodQoSCmpFunc(i1, i2 interface{}) int {
+	p1QoSClass := qos.GetPodQOS(i1.(*v1.Pod))
+	p2QoSClass := qos.GetPodQOS(i2.(*v1.Pod))
+
+	if p1QoSClass == p2QoSClass {
+		return 0
+	}
+
+	if p1QoSClass == v1.PodQOSGuaranteed {
+		return 1
+	}
+	if p1QoSClass == v1.PodQOSBurstable {
+		if p2QoSClass == v1.PodQOSGuaranteed {
+			return -1
+		}
+		return 1
+	}
+	return -1
+}
+
+func PodOwnerCmpFunc(i1, i2 interface{}) int {
+	getOwnerKind := func(pod *v1.Pod) string {
+		if len(pod.OwnerReferences) <= 0 {
+			return ""
+		}
+		return pod.OwnerReferences[0].Kind
+	}
+
+	p1Owner := getOwnerKind(i1.(*v1.Pod))
+	p2Owner := getOwnerKind(i2.(*v1.Pod))
+	if p1Owner == p2Owner {
+		return 0
+	}
+	if p1Owner == "DaemonSet" {
+		return 1
+	}
+	if p2Owner == "DaemonSet" {
+		return -1
+	}
+	return 0
+}
+
 var (
 	_ general.CmpFunc = PodPriorityCmpFunc
 	_ general.CmpFunc = PodCPURequestCmpFunc
 	_ general.CmpFunc = PodUniqKeyCmpFunc
+	_ general.CmpFunc = PodQoSCmpFunc
+	_ general.CmpFunc = PodOwnerCmpFunc
 )
