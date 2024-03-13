@@ -17,6 +17,8 @@ limitations under the License.
 package eviction
 
 import (
+	"time"
+
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/crd"
 	"github.com/kubewharf/katalyst-core/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/util"
@@ -35,6 +37,8 @@ const (
 	DefaultEnableSystemLevelEviction = true
 	// DefaultEnableEnhancedNumaLevelEviction is the default value of whether enable enhanced numa memory pressure eviction
 	DefaultEnableEnhancedNumaLevelEviction = true
+	// DefaultMemoryPressureEvictionInterval
+	DefaultMemoryPressureEvictionInterval = 30 * time.Second
 	// DefaultNumaVictimMinimumUtilizationThreshold is the victim's minimum memory usage on a NUMA node, if a pod
 	// uses less memory on a NUMA node than this threshold,it won't be evicted by this NUMA's memory pressure.
 	DefaultNumaVictimMinimumUtilizationThreshold = 0.001
@@ -69,6 +73,7 @@ type MemoryPressureEvictionConfiguration struct {
 	EnableNumaLevelEviction                 bool
 	EnableSystemLevelEviction               bool
 	EnableEnhancedNumaLevelEviction         bool
+	MemoryPressureEvictionInterval          time.Duration
 	NumaVictimMinimumUtilizationThreshold   float64
 	NumaFreeBelowWatermarkTimesThreshold    int
 	SystemFreeMemoryThresholdMinimum        int64
