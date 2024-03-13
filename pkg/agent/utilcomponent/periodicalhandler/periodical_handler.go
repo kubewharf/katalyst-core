@@ -116,6 +116,12 @@ func (phm *PeriodicalHandlerManager) Run(ctx context.Context) {
 var handlerCtxs = make(map[string]map[string]*HandlerCtx)
 var handlerMtx sync.Mutex
 
+func RegisterPeriodicalHandlerWithHealthz(handlerName string, initState general.HealthzCheckState, groupName string,
+	handler Handler, interval time.Duration, tolerationTimes int64) (err error) {
+	general.RegisterHeartbeatCheck(handlerName, time.Duration(tolerationTimes)*interval, initState, time.Duration(tolerationTimes)*interval)
+	return RegisterPeriodicalHandler(groupName, handlerName, handler, interval)
+}
+
 func RegisterPeriodicalHandler(groupName, handlerName string, handler Handler, interval time.Duration) (err error) {
 	if groupName == "" || handlerName == "" {
 		return fmt.Errorf("emptry groupName: %s or handlerName: %s", groupName, handlerName)

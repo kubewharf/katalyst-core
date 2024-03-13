@@ -2937,7 +2937,7 @@ func TestClearResidualState(t *testing.T) {
 	dynamicPolicy, err := getTestDynamicPolicyWithInitialization(cpuTopology, tmpDir)
 	as.Nil(err)
 
-	dynamicPolicy.clearResidualState()
+	dynamicPolicy.clearResidualState(nil, nil, nil, nil, nil)
 }
 
 func TestStart(t *testing.T) {
@@ -2993,7 +2993,7 @@ func TestCheckCPUSet(t *testing.T) {
 	dynamicPolicy, err := getTestDynamicPolicyWithInitialization(cpuTopology, tmpDir)
 	as.Nil(err)
 
-	dynamicPolicy.checkCPUSet()
+	dynamicPolicy.checkCPUSet(nil, nil, nil, nil, nil)
 }
 
 func TestSchedIdle(t *testing.T) {

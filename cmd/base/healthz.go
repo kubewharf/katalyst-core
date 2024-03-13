@@ -19,10 +19,8 @@ package katalyst_base
 import (
 	"context"
 	"encoding/json"
-	"time"
 
 	"go.uber.org/atomic"
-	"k8s.io/apimachinery/pkg/util/wait"
 
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 )
@@ -39,41 +37,22 @@ func NewHealthzChecker() *HealthzChecker {
 	}
 }
 
-func (h *HealthzChecker) Run(ctx context.Context) {
-	go wait.Until(h.check, time.Second*3, ctx.Done())
-}
+func (h *HealthzChecker) Run(_ context.Context) {}
 
 // CheckHealthy returns whether the component is healthy.
 func (h *HealthzChecker) CheckHealthy() (bool, string) {
-	if reason := h.unhealthyReason.Load(); reason != "" {
-		return false, reason
-	}
-
-	return true, ""
-}
-
-// Since readiness check in kubernetes supports to config with graceful seconds both for
-// failed-to-success and success-to-failed, so we don't need to record the detailed state,
-// state transition time, and state lasting period here.
-//
-// for more information about readiness check, please refer to
-// https://github.com/kubernetes/api/blob/9a776fe3a720323e4f706b3ebb462b3dd661634f/core/v1/types.go#L2565
-func (h *HealthzChecker) check() {
-	responses := general.CheckHealthz()
-
-	// every time we call healthz check functions, we will override the healthz map instead of
-	// replacing. If some checks must be ensured to exist, this strategy might not work.
-	unhealthyReasons := make(map[string]general.HealthzCheckResponse)
-	for name, resp := range responses {
-		if resp.State != general.HealthzCheckStateReady {
-			unhealthyReasons[string(name)] = resp
+	results := general.GetRegisterReadinessCheckResult()
+	healthy := true
+	for _, result := range results {
+		if !result.Ready {
+			healthy = false
 		}
 	}
 
-	if len(unhealthyReasons) > 0 {
-		reasons, _ := json.Marshal(unhealthyReasons)
-		h.unhealthyReason.Store(string(reasons))
-	} else {
-		h.unhealthyReason.Store("")
+	resultBytes, err := json.Marshal(results)
+	if err != nil {
+		general.Errorf("marshal healthz content failed,err:%v", err)
 	}
+
+	return healthy, string(resultBytes)
 }

@@ -36,6 +36,7 @@ import (
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/agent/qrm"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/advisorsvc"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
+	memconsts "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/memory/consts"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/memory/dynamicpolicy/memoryadvisor"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/memory/dynamicpolicy/oom"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/memory/dynamicpolicy/state"
@@ -74,6 +75,9 @@ const (
 	setExtraControlKnobsPeriod = 5 * time.Second
 	clearOOMPriorityPeriod     = 1 * time.Hour
 	syncOOMPriorityPeriod      = 5 * time.Second
+
+	healthCheckTolerationTimes = 3
+	dropCacheGracePeriod       = 60 * time.Second
 )
 
 var (
@@ -151,7 +155,7 @@ func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration
 		v1.ResourceMemory: reservedMemory,
 	}
 	stateImpl, err := state.NewCheckpointState(conf.GenericQRMPluginConfiguration.StateFileDirectory, memoryPluginStateFileName,
-		MemoryResourcePluginPolicyNameDynamic, agentCtx.CPUTopology, agentCtx.MachineInfo, resourcesReservedMemory, conf.SkipMemoryStateCorruption)
+		memconsts.MemoryResourcePluginPolicyNameDynamic, agentCtx.CPUTopology, agentCtx.MachineInfo, resourcesReservedMemory, conf.SkipMemoryStateCorruption)
 	if err != nil {
 		return false, agent.ComponentStub{}, fmt.Errorf("NewCheckpointState failed with error: %v", err)
 	}
@@ -172,7 +176,7 @@ func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration
 
 	wrappedEmitter := agentCtx.EmitterPool.GetDefaultMetricsEmitter().WithTags(agentName, metrics.MetricTag{
 		Key: util.QRMPluginPolicyTagName,
-		Val: MemoryResourcePluginPolicyNameDynamic,
+		Val: memconsts.MemoryResourcePluginPolicyNameDynamic,
 	})
 
 	policyImplement := &DynamicPolicy{
@@ -186,7 +190,7 @@ func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration
 		residualHitMap:             make(map[string]int64),
 		enhancementHandlers:        make(util.ResourceEnhancementHandlerMap),
 		extraStateFileAbsPath:      conf.ExtraStateFileAbsPath,
-		name:                       fmt.Sprintf("%s_%s", agentName, MemoryResourcePluginPolicyNameDynamic),
+		name:                       fmt.Sprintf("%s_%s", agentName, memconsts.MemoryResourcePluginPolicyNameDynamic),
 		podDebugAnnoKeys:           conf.PodDebugAnnoKeys,
 		asyncWorkers:               asyncworker.NewAsyncWorkers(memoryPluginAsyncWorkersName, wrappedEmitter),
 		enableSettingMemoryMigrate: conf.EnableSettingMemoryMigrate,
@@ -238,6 +242,10 @@ func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration
 	return true, &agent.PluginWrapper{GenericPlugin: pluginWrapper}, nil
 }
 
+func (p *DynamicPolicy) registerControlKnobHandlerCheckRules() {
+	general.RegisterReportCheck(memconsts.DropCache, dropCacheGracePeriod)
+}
+
 func (p *DynamicPolicy) Start() (err error) {
 	general.Infof("called")
 
@@ -259,13 +267,36 @@ func (p *DynamicPolicy) Start() (err error) {
 	}
 	p.stopCh = make(chan struct{})
 
+	p.registerControlKnobHandlerCheckRules()
 	go wait.Until(func() {
 		_ = p.emitter.StoreInt64(util.MetricNameHeartBeat, 1, metrics.MetricTypeNameRaw)
 	}, time.Second*30, p.stopCh)
-	go wait.Until(p.clearResidualState, stateCheckPeriod, p.stopCh)
-	go wait.Until(p.checkMemorySet, memsetCheckPeriod, p.stopCh)
-	go wait.Until(p.applyExternalCgroupParams, applyCgroupPeriod, p.stopCh)
-	go wait.Until(p.setExtraControlKnobByConfigs, setExtraControlKnobsPeriod, p.stopCh)
+
+	err = periodicalhandler.RegisterPeriodicalHandlerWithHealthz(memconsts.ClearResidualState,
+		general.HealthzCheckStateNotReady, qrm.QRMMemoryPluginPeriodicalHandlerGroupName,
+		p.clearResidualState, stateCheckPeriod, healthCheckTolerationTimes)
+	if err != nil {
+		general.Errorf("start %v failed, err: %v", memconsts.ClearResidualState, err)
+	}
+
+	err = periodicalhandler.RegisterPeriodicalHandlerWithHealthz(memconsts.CheckMemSet, general.HealthzCheckStateNotReady,
+		qrm.QRMMemoryPluginPeriodicalHandlerGroupName, p.checkMemorySet, memsetCheckPeriod, healthCheckTolerationTimes)
+	if err != nil {
+		general.Errorf("start %v failed, err: %v", memconsts.CheckMemSet, err)
+	}
+
+	err = periodicalhandler.RegisterPeriodicalHandlerWithHealthz(memconsts.ApplyExternalCGParams, general.HealthzCheckStateNotReady,
+		qrm.QRMMemoryPluginPeriodicalHandlerGroupName, p.applyExternalCgroupParams, applyCgroupPeriod, healthCheckTolerationTimes)
+	if err != nil {
+		general.Errorf("start %v failed, err: %v", memconsts.ApplyExternalCGParams, err)
+	}
+
+	err = periodicalhandler.RegisterPeriodicalHandlerWithHealthz(memconsts.SetExtraControlKnob, general.HealthzCheckStateNotReady,
+		qrm.QRMMemoryPluginPeriodicalHandlerGroupName, p.setExtraControlKnobByConfigs, setExtraControlKnobsPeriod, healthCheckTolerationTimes)
+	if err != nil {
+		general.Errorf("start %v failed, err: %v", memconsts.SetExtraControlKnob, err)
+	}
+
 	err = p.asyncWorkers.Start(p.stopCh)
 	if err != nil {
 		general.Errorf("start async worker failed, err: %v", err)
@@ -286,8 +317,8 @@ func (p *DynamicPolicy) Start() (err error) {
 			general.Infof("register clearResidualOOMPriority failed, err=%v", err)
 		}
 
-		err = periodicalhandler.RegisterPeriodicalHandler(qrm.QRMMemoryPluginPeriodicalHandlerGroupName,
-			oom.SyncOOMPriorityPriorityPeriodicalHandlerName, p.syncOOMPriority, syncOOMPriorityPeriod)
+		err = periodicalhandler.RegisterPeriodicalHandlerWithHealthz(memconsts.OOMPriority, general.HealthzCheckStateNotReady,
+			qrm.QRMMemoryPluginPeriodicalHandlerGroupName, p.syncOOMPriority, syncOOMPriorityPeriod, healthCheckTolerationTimes)
 		if err != nil {
 			general.Infof("register syncOOMPriority failed, err=%v", err)
 		}
@@ -295,8 +326,9 @@ func (p *DynamicPolicy) Start() (err error) {
 
 	if p.enableSettingSockMem {
 		general.Infof("setSockMem enabled")
-		err := periodicalhandler.RegisterPeriodicalHandler(qrm.QRMMemoryPluginPeriodicalHandlerGroupName,
-			sockmem.EnableSetSockMemPeriodicalHandlerName, sockmem.SetSockMemLimit, 60*time.Second)
+		err := periodicalhandler.RegisterPeriodicalHandlerWithHealthz(memconsts.SetSockMem,
+			general.HealthzCheckStateNotReady, qrm.QRMMemoryPluginPeriodicalHandlerGroupName,
+			sockmem.SetSockMemLimit, 60*time.Second, healthCheckTolerationTimes)
 		if err != nil {
 			general.Infof("setSockMem failed, err=%v", err)
 		}
@@ -348,6 +380,8 @@ func (p *DynamicPolicy) Start() (err error) {
 		}
 	}
 
+	general.RegisterHeartbeatCheck(memconsts.CommunicateWithAdvisor, 2*time.Minute, general.HealthzCheckStateNotReady,
+		2*time.Minute)
 	go wait.BackoffUntil(communicateWithMemoryAdvisorServer, wait.NewExponentialBackoffManager(800*time.Millisecond,
 		30*time.Second, 2*time.Minute, 2.0, 0, &clock.RealClock{}), true, p.stopCh)
 

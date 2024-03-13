@@ -18,9 +18,10 @@ package memory
 
 import (
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/agent/qrm"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/memory/consts"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/memory/dynamicpolicy"
 )
 
 func init() {
-	qrm.RegisterMemoryPolicyInitializer(dynamicpolicy.MemoryResourcePluginPolicyNameDynamic, dynamicpolicy.NewDynamicPolicy)
+	qrm.RegisterMemoryPolicyInitializer(consts.MemoryResourcePluginPolicyNameDynamic, dynamicpolicy.NewDynamicPolicy)
 }

@@ -66,6 +66,8 @@ const (
 	stateCheckPeriod  = 30 * time.Second
 	maxResidualTime   = 5 * time.Minute
 	syncCPUIdlePeriod = 30 * time.Second
+
+	healthCheckTolerationTimes = 3
 )
 
 var (
@@ -272,8 +274,18 @@ func (p *DynamicPolicy) Start() (err error) {
 	go wait.Until(func() {
 		_ = p.emitter.StoreInt64(util.MetricNameHeartBeat, 1, metrics.MetricTypeNameRaw)
 	}, time.Second*30, p.stopCh)
-	go wait.Until(p.clearResidualState, stateCheckPeriod, p.stopCh)
-	go wait.Until(p.checkCPUSet, cpusetCheckPeriod, p.stopCh)
+
+	err = periodicalhandler.RegisterPeriodicalHandlerWithHealthz(cpuconsts.ClearResidualState, general.HealthzCheckStateNotReady,
+		qrm.QRMCPUPluginPeriodicalHandlerGroupName, p.clearResidualState, stateCheckPeriod, healthCheckTolerationTimes)
+	if err != nil {
+		general.Errorf("start %v failed,err:%v", cpuconsts.ClearResidualState, err)
+	}
+
+	err = periodicalhandler.RegisterPeriodicalHandlerWithHealthz(cpuconsts.CheckCPUSet, general.HealthzCheckStateNotReady,
+		qrm.QRMCPUPluginPeriodicalHandlerGroupName, p.checkCPUSet, cpusetCheckPeriod, healthCheckTolerationTimes)
+	if err != nil {
+		general.Errorf("start %v failed,err:%v", cpuconsts.CheckCPUSet, err)
+	}
 
 	// start cpu-idle syncing if needed
 	if p.enableSyncingCPUIdle {
@@ -282,7 +294,12 @@ func (p *DynamicPolicy) Start() (err error) {
 		if p.reclaimRelativeRootCgroupPath == "" {
 			return fmt.Errorf("enable syncing cpu idle but not set reclaiemd relative root cgroup path in configuration")
 		}
-		go wait.Until(p.syncCPUIdle, syncCPUIdlePeriod, p.stopCh)
+
+		err = periodicalhandler.RegisterPeriodicalHandlerWithHealthz(cpuconsts.SyncCPUIdle, general.HealthzCheckStateNotReady,
+			qrm.QRMCPUPluginPeriodicalHandlerGroupName, p.syncCPUIdle, syncCPUIdlePeriod, healthCheckTolerationTimes)
+		if err != nil {
+			general.Errorf("start %v failed,err:%v", cpuconsts.SyncCPUIdle, err)
+		}
 	}
 
 	// start cpu-pressure eviction plugin if needed
@@ -340,6 +357,7 @@ func (p *DynamicPolicy) Start() (err error) {
 		}
 	}
 
+	general.RegisterHeartbeatCheck(cpuconsts.CommunicateWithAdvisor, 2*time.Minute, general.HealthzCheckStateNotReady, 2*time.Minute)
 	go wait.BackoffUntil(communicateWithCPUAdvisorServer, wait.NewExponentialBackoffManager(800*time.Millisecond,
 		30*time.Second, 2*time.Minute, 2.0, 0, &clock.RealClock{}), true, p.stopCh)
 

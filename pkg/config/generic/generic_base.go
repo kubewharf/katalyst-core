@@ -25,6 +25,8 @@ import (
 type GenericConfiguration struct {
 	DryRun bool
 
+	EnableHealthzCheck bool
+
 	// for some cases, we may need to enable the ability of transformed informer
 	TransformedInformerForPod bool
 

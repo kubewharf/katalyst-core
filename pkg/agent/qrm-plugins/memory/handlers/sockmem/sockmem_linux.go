@@ -23,7 +23,9 @@ import (
 	"context"
 
 	"golang.org/x/sys/unix"
+	"k8s.io/apimachinery/pkg/util/errors"
 
+	memconsts "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/memory/consts"
 	coreconfig "github.com/kubewharf/katalyst-core/pkg/config"
 	dynamicconfig "github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic"
 	coreconsts "github.com/kubewharf/katalyst-core/pkg/consts"
@@ -100,6 +102,13 @@ func SetSockMemLimit(conf *coreconfig.Configuration,
 	emitter metrics.MetricEmitter, metaServer *metaserver.MetaServer) {
 	general.Infof("called")
 
+	var (
+		errList []error
+	)
+	defer func() {
+		_ = general.UpdateHealthzStateByError(memconsts.SetSockMem, errors.NewAggregate(errList))
+	}()
+
 	if conf == nil {
 		general.Errorf("nil extraConf")
 		return
@@ -157,6 +166,7 @@ func SetSockMemLimit(conf *coreconfig.Configuration,
 
 	podList, err := metaServer.GetPodList(context.Background(), native.PodIsActive)
 	if err != nil {
+		errList = append(errList, err)
 		general.Errorf("get pod list failed, err: %v", err)
 		return
 	}
@@ -171,17 +181,22 @@ func SetSockMemLimit(conf *coreconfig.Configuration,
 
 			memLimit, err := helper.GetPodMetric(metaServer.MetricsFetcher, emitter, pod, coreconsts.MetricMemLimitContainer, -1)
 			if err != nil {
+				errList = append(errList, err)
 				general.Infof("memory limit not found:%v..\n", podUID)
 				continue
 			}
 
 			memTCPLimit, err := helper.GetPodMetric(metaServer.MetricsFetcher, emitter, pod, coreconsts.MetricMemTCPLimitContainer, -1)
 			if err != nil {
+				errList = append(errList, err)
 				general.Infof("memory tcp.limit not found:%v..\n", podUID)
 				continue
 			}
 
-			_ = setCg1TCPMem(emitter, podUID, containerID, int64(memLimit), int64(memTCPLimit), &sockMemConfig)
+			err = setCg1TCPMem(emitter, podUID, containerID, int64(memLimit), int64(memTCPLimit), &sockMemConfig)
+			if err != nil {
+				errList = append(errList, err)
+			}
 		}
 	}
 }

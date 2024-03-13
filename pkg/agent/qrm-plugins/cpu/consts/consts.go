@@ -16,7 +16,9 @@ limitations under the License.
 
 package consts
 
-import "github.com/kubewharf/katalyst-api/pkg/consts"
+import (
+	"github.com/kubewharf/katalyst-api/pkg/consts"
+)
 
 const (
 	// CPUResourcePluginPolicyNameDynamic is the name of the dynamic policy.
@@ -24,4 +26,10 @@ const (
 
 	// CPUResourcePluginPolicyNameNative is the name of the native policy.
 	CPUResourcePluginPolicyNameNative = string(consts.ResourcePluginPolicyNameNative)
+
+	CPUPluginDynamicPolicyName = "qrm_cpu_plugin_" + CPUResourcePluginPolicyNameDynamic
+	ClearResidualState         = CPUPluginDynamicPolicyName + "_clear_residual_state"
+	CheckCPUSet                = CPUPluginDynamicPolicyName + "_check_cpuset"
+	SyncCPUIdle                = CPUPluginDynamicPolicyName + "_sync_cpu_idle"
+	CommunicateWithAdvisor     = CPUPluginDynamicPolicyName + "_communicate_with_advisor"
 )

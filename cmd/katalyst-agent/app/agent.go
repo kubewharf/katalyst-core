@@ -22,7 +22,6 @@ import (
 	"sync"
 	"time"
 
-	"go.uber.org/atomic"
 	"k8s.io/klog/v2"
 
 	katalystbase "github.com/kubewharf/katalyst-core/cmd/base"
@@ -149,19 +148,11 @@ func monitorAgentStart(genericCtx *agent.GenericContext) {
 // any process that wants to enter main loop, should acquire file lock firstly.
 func acquireLock(genericCtx *agent.GenericContext, conf *config.Configuration) *general.Flock {
 	// register a not-ready state for lock-acquiring when we starts
-	state := atomic.NewString(string(general.HealthzCheckStateNotReady))
-	message := atomic.NewString("locking-file is failed to acquire")
-	general.RegisterHealthzCheckRules(healthzNameLockingFileAcquired, func() (general.HealthzCheckResponse, error) {
-		return general.HealthzCheckResponse{
-			State:   general.HealthzCheckState(state.Load()),
-			Message: message.Load(),
-		}, nil
-	})
+	general.RegisterHeartbeatCheck(healthzNameLockingFileAcquired, 0, general.HealthzCheckStateNotReady, 0)
 
 	// set a ready state for lock-acquiring when we acquire locking successfully
 	defer func() {
-		state.Store(string(general.HealthzCheckStateReady))
-		message.Store("")
+		_ = general.UpdateHealthzState(healthzNameLockingFileAcquired, general.HealthzCheckStateReady, "")
 	}()
 
 	for {

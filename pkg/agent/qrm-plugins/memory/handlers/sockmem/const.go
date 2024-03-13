@@ -16,8 +16,6 @@ limitations under the License.
 
 package sockmem
 
-const EnableSetSockMemPeriodicalHandlerName = "SetSockMem"
-
 const (
 	// Constants for global tcpmem ratio
 	globalTCPMemRatioMin float64 = 20.0 // min ratio for host tcp mem: 20%

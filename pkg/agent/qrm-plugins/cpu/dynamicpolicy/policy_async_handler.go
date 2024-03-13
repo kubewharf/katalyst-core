@@ -21,12 +21,17 @@ import (
 	"fmt"
 	"time"
 
+	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
 
 	"github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/advisorsvc"
+	cpuconsts "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/consts"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util"
+	coreconfig "github.com/kubewharf/katalyst-core/pkg/config"
+	dynamicconfig "github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic"
+	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	cgroupcm "github.com/kubewharf/katalyst-core/pkg/util/cgroup/common"
 	cgroupcmutils "github.com/kubewharf/katalyst-core/pkg/util/cgroup/manager"
@@ -35,8 +40,29 @@ import (
 )
 
 // checkCPUSet emit errors if the memory allocation falls into unexpected results
-func (p *DynamicPolicy) checkCPUSet() {
+func (p *DynamicPolicy) checkCPUSet(_ *coreconfig.Configuration,
+	_ interface{},
+	_ *dynamicconfig.DynamicAgentConfiguration,
+	_ metrics.MetricEmitter,
+	_ *metaserver.MetaServer) {
 	general.Infof("exec checkCPUSet")
+	var (
+		err           error
+		invalidCPUSet = false
+		cpuSetOverlap = false
+	)
+
+	defer func() {
+		if err != nil {
+			_ = general.UpdateHealthzStateByError(cpuconsts.CheckCPUSet, err)
+		} else if invalidCPUSet {
+			_ = general.UpdateHealthzState(cpuconsts.CheckCPUSet, general.HealthzCheckStateNotReady, "invalid cpuset exists")
+		} else if cpuSetOverlap {
+			_ = general.UpdateHealthzState(cpuconsts.CheckCPUSet, general.HealthzCheckStateNotReady, "cpuset overlap")
+		} else {
+			_ = general.UpdateHealthzState(cpuconsts.CheckCPUSet, general.HealthzCheckStateReady, "")
+		}
+	}()
 
 	podEntries := p.state.GetPodEntries()
 	actualCPUSets := make(map[string]map[string]machine.CPUSet)
@@ -59,14 +85,18 @@ func (p *DynamicPolicy) checkCPUSet() {
 				"podName":       allocationInfo.PodName,
 				"containerName": allocationInfo.ContainerName,
 			})
+			var (
+				containerId string
+				cpuSetStats *cgroupcm.CPUSetStats
+			)
 
-			containerId, err := p.metaServer.GetContainerID(podUID, containerName)
+			containerId, err = p.metaServer.GetContainerID(podUID, containerName)
 			if err != nil {
 				general.Errorf("get container id of pod: %s container: %s failed with error: %v", podUID, containerName, err)
 				continue
 			}
 
-			cpusetStats, err := cgroupcmutils.GetCPUSetForContainer(podUID, containerId)
+			cpuSetStats, err = cgroupcmutils.GetCPUSetForContainer(podUID, containerId)
 			if err != nil {
 				general.Errorf("GetCPUSet of pod: %s container: name(%s), id(%s) failed with error: %v",
 					podUID, containerName, containerId, err)
@@ -77,7 +107,7 @@ func (p *DynamicPolicy) checkCPUSet() {
 			if actualCPUSets[podUID] == nil {
 				actualCPUSets[podUID] = make(map[string]machine.CPUSet)
 			}
-			actualCPUSets[podUID][containerName] = machine.MustParse(cpusetStats.CPUs)
+			actualCPUSets[podUID][containerName] = machine.MustParse(cpuSetStats.CPUs)
 
 			general.Infof("pod: %s/%s, container: %s, state CPUSet: %s, actual CPUSet: %s",
 				allocationInfo.PodNamespace, allocationInfo.PodName, allocationInfo.ContainerName,
@@ -89,6 +119,7 @@ func (p *DynamicPolicy) checkCPUSet() {
 			}
 
 			if !actualCPUSets[podUID][containerName].Equals(allocationInfo.OriginalAllocationResult) {
+				invalidCPUSet = true
 				general.Errorf("pod: %s/%s, container: %s, cpuset invalid",
 					allocationInfo.PodNamespace, allocationInfo.PodName, allocationInfo.ContainerName)
 				_ = p.emitter.StoreInt64(util.MetricNameCPUSetInvalid, 1, metrics.MetricTypeNameRaw, tags...)
@@ -99,7 +130,6 @@ func (p *DynamicPolicy) checkCPUSet() {
 	unionDedicatedCPUSet := machine.NewCPUSet()
 	unionSharedCPUSet := machine.NewCPUSet()
 
-	var cpuSetOverlap bool
 	for podUID, containerEntries := range actualCPUSets {
 		for containerName, cset := range containerEntries {
 			allocationInfo := podEntries[podUID][containerName]
@@ -139,9 +169,21 @@ func (p *DynamicPolicy) checkCPUSet() {
 }
 
 // clearResidualState is used to clean residual pods in local state
-func (p *DynamicPolicy) clearResidualState() {
+func (p *DynamicPolicy) clearResidualState(_ *coreconfig.Configuration,
+	_ interface{},
+	_ *dynamicconfig.DynamicAgentConfiguration,
+	_ metrics.MetricEmitter,
+	_ *metaserver.MetaServer) {
 	general.Infof("exec clearResidualState")
+	var (
+		err     error
+		podList []*v1.Pod
+	)
 	residualSet := make(map[string]bool)
+
+	defer func() {
+		_ = general.UpdateHealthzStateByError(cpuconsts.ClearResidualState, err)
+	}()
 
 	if p.metaServer == nil {
 		general.Errorf("nil metaServer")
@@ -149,7 +191,7 @@ func (p *DynamicPolicy) clearResidualState() {
 	}
 
 	ctx := context.Background()
-	podList, err := p.metaServer.GetPodList(ctx, nil)
+	podList, err = p.metaServer.GetPodList(ctx, nil)
 	if err != nil {
 		general.Errorf("get pod list failed: %v", err)
 		return
@@ -211,7 +253,8 @@ func (p *DynamicPolicy) clearResidualState() {
 			delete(podEntries, podUID)
 		}
 
-		updatedMachineState, err := generateMachineStateFromPodEntries(p.machineInfo.CPUTopology, podEntries)
+		var updatedMachineState state.NUMANodeMap
+		updatedMachineState, err = generateMachineStateFromPodEntries(p.machineInfo.CPUTopology, podEntries)
 		if err != nil {
 			general.Errorf("GenerateMachineStateFromPodEntries failed with error: %v", err)
 			return
@@ -228,14 +271,23 @@ func (p *DynamicPolicy) clearResidualState() {
 }
 
 // syncCPUIdle is used to set cpu idle for reclaimed cores
-func (p *DynamicPolicy) syncCPUIdle() {
+func (p *DynamicPolicy) syncCPUIdle(_ *coreconfig.Configuration,
+	_ interface{},
+	_ *dynamicconfig.DynamicAgentConfiguration,
+	_ metrics.MetricEmitter,
+	_ *metaserver.MetaServer) {
 	general.Infof("exec syncCPUIdle")
+	var err error
+	defer func() {
+		_ = general.UpdateHealthzStateByError(cpuconsts.SyncCPUIdle, err)
+	}()
+
 	if !cgroupcm.IsCPUIdleSupported() {
 		general.Warningf("cpu idle isn't unsupported, skip syncing")
 		return
 	}
 
-	err := cgroupcmutils.ApplyCPUWithRelativePath(p.reclaimRelativeRootCgroupPath, &cgroupcm.CPUData{CpuIdlePtr: &p.enableCPUIdle})
+	err = cgroupcmutils.ApplyCPUWithRelativePath(p.reclaimRelativeRootCgroupPath, &cgroupcm.CPUData{CpuIdlePtr: &p.enableCPUIdle})
 	if err != nil {
 		general.Errorf("ApplyCPUWithRelativePath in %s with enableCPUIdle: %v in failed with error: %v",
 			p.reclaimRelativeRootCgroupPath, p.enableCPUIdle, err)
