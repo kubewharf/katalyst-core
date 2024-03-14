@@ -57,6 +57,13 @@ const (
 	refreshLatestCNRJitterFactor = 0.5
 )
 
+const (
+	metricsNameRefreshCNRCost            = "refresh_cnr_cost"
+	metricsNameUpdateCNRCost             = "update_cnr_cost"
+	metricsNameUpdateCNRSpecMetadataCost = "update_cnr_spec_metadata_cost"
+	metricsNameUpdateCNRStatusCost       = "update_cnr_status_cost"
+)
+
 // cnrReporterImpl is to report cnr content to remote
 type cnrReporterImpl struct {
 	cnrName string
@@ -120,6 +127,13 @@ func (c *cnrReporterImpl) Update(ctx context.Context, fields []*v1alpha1.ReportF
 	c.mux.Lock()
 	defer c.mux.Unlock()
 
+	begin := time.Now()
+	defer func() {
+		costs := time.Since(begin)
+		klog.V(4).Infof("finished update cnr (%v)", costs)
+		_ = c.emitter.StoreInt64(metricsNameUpdateCNRCost, costs.Microseconds(), metrics.MetricTypeNameRaw)
+	}()
+
 	if klog.V(4).Enabled() {
 		for _, f := range fields {
 			klog.Infof("field name %s/%s with value %s", f.FieldType, f.FieldName, string(f.Value))
@@ -167,6 +181,13 @@ func (c *cnrReporterImpl) UnregisterNotifier(name string) error {
 func (c *cnrReporterImpl) refreshLatestCNR(ctx context.Context) {
 	c.mux.Lock()
 	defer c.mux.Unlock()
+
+	begin := time.Now()
+	defer func() {
+		costs := time.Since(begin)
+		klog.Infof("finished refresh cnr (%v)", costs)
+		_ = c.emitter.StoreInt64(metricsNameRefreshCNRCost, costs.Microseconds(), metrics.MetricTypeNameRaw)
+	}()
 
 	cnr, err := c.client.NodeV1alpha1().CustomNodeResources().Get(ctx, c.cnrName, metav1.GetOptions{ResourceVersion: "0"})
 	if err == nil {
@@ -250,6 +271,13 @@ func (c *cnrReporterImpl) tryUpdateCNRSpecAndMetadata(ctx context.Context,
 	if cnrSpecHasChanged(&originCNR.Spec, &currentCNR.Spec) || cnrMetadataHasChanged(&originCNR.ObjectMeta, &currentCNR.ObjectMeta) {
 		klog.Infof("cnr spec or metadata changed, try to patch it")
 
+		begin := time.Now()
+		defer func() {
+			costs := time.Since(begin)
+			klog.Infof("finished update cnr spec and metadata (%v)", costs)
+			_ = c.emitter.StoreInt64(metricsNameUpdateCNRSpecMetadataCost, costs.Microseconds(), metrics.MetricTypeNameRaw)
+		}()
+
 		// patch cnr spec and metadata
 		cnr, err = c.updater.PatchCNRSpecAndMetadata(ctx, c.cnrName, originCNR, currentCNR)
 		if err != nil {
@@ -292,6 +320,13 @@ func (c *cnrReporterImpl) tryUpdateCNRStatus(ctx context.Context,
 
 	if cnrStatusHasChanged(&originCNR.Status, &currentCNR.Status) {
 		klog.Infof("cnr status changed, try to patch it")
+
+		begin := time.Now()
+		defer func() {
+			costs := time.Since(begin)
+			klog.Infof("finished update cnr status (%v)", costs)
+			_ = c.emitter.StoreInt64(metricsNameUpdateCNRStatusCost, costs.Microseconds(), metrics.MetricTypeNameRaw)
+		}()
 
 		// patch cnr status
 		cnr, err = c.updater.PatchCNRStatus(ctx, c.cnrName, originCNR, currentCNR)
