@@ -41,8 +41,8 @@ import (
 )
 
 type testConf struct {
-	minimumFreeThreshold                       *evictionapi.ThresholdValue
-	minimumInodesFreeThreshold                 *evictionapi.ThresholdValue
+	minimumImageFsFreeThreshold                *evictionapi.ThresholdValue
+	minimumImageFsInodesFreeThreshold          *evictionapi.ThresholdValue
 	podMinimumUsedThreshold                    *evictionapi.ThresholdValue
 	podMinimumInodesUsedThreshold              *evictionapi.ThresholdValue
 	reclaimedQoSPodUsedPriorityThreshold       *evictionapi.ThresholdValue
@@ -53,8 +53,8 @@ func makeConf(tc *testConf) *config.Configuration {
 	conf := config.NewConfiguration()
 	// conf.EvictionManagerSyncPeriod = evictionManagerSyncPeriod
 	conf.GetDynamicConfiguration().EnableRootfsPressureEviction = true
-	conf.GetDynamicConfiguration().MinimumFreeThreshold = tc.minimumFreeThreshold
-	conf.GetDynamicConfiguration().MinimumInodesFreeThreshold = tc.minimumInodesFreeThreshold
+	conf.GetDynamicConfiguration().MinimumImageFsFreeThreshold = tc.minimumImageFsFreeThreshold
+	conf.GetDynamicConfiguration().MinimumImageFsInodesFreeThreshold = tc.minimumImageFsInodesFreeThreshold
 	conf.GetDynamicConfiguration().PodMinimumUsedThreshold = tc.podMinimumUsedThreshold
 	conf.GetDynamicConfiguration().PodMinimumInodesUsedThreshold = tc.podMinimumInodesUsedThreshold
 	conf.GetDynamicConfiguration().ReclaimedQoSPodUsedPriorityThreshold = tc.reclaimedQoSPodUsedPriorityThreshold
@@ -87,8 +87,8 @@ func TestPodRootfsPressureEvictionPlugin_ThresholdMetNoMetricData(t *testing.T) 
 	emitter := metrics.DummyMetrics{}
 	fakeFetcher := metric.NewFakeMetricsFetcher(emitter).(*metric.FakeMetricsFetcher)
 	tc := &testConf{
-		minimumFreeThreshold:       &evictionapi.ThresholdValue{Percentage: 0.9},
-		minimumInodesFreeThreshold: &evictionapi.ThresholdValue{Percentage: 0.9},
+		minimumImageFsFreeThreshold:       &evictionapi.ThresholdValue{Percentage: 0.9},
+		minimumImageFsInodesFreeThreshold: &evictionapi.ThresholdValue{Percentage: 0.9},
 	}
 	rootfsPlugin := createRootfsPressureEvictionPlugin(tc, emitter, fakeFetcher)
 	res, err := rootfsPlugin.ThresholdMet(context.TODO())
@@ -100,17 +100,17 @@ func TestPodRootfsPressureEvictionPlugin_ThresholdMetNotMet(t *testing.T) {
 	emitter := metrics.DummyMetrics{}
 	fakeFetcher := metric.NewFakeMetricsFetcher(emitter).(*metric.FakeMetricsFetcher)
 	// create metric data without time.
-	fakeFetcher.SetNodeMetric(consts.MetricsSystemRootfsAvailable, utilmetric.MetricData{Value: 2000})
-	fakeFetcher.SetNodeMetric(consts.MetricsSystemRootfsUsed, utilmetric.MetricData{Value: 8000})
-	fakeFetcher.SetNodeMetric(consts.MetricsSystemRootfsCapacity, utilmetric.MetricData{Value: 10000})
+	fakeFetcher.SetNodeMetric(consts.MetricsImageFsAvailable, utilmetric.MetricData{Value: 2000})
+	fakeFetcher.SetNodeMetric(consts.MetricsImageFsUsed, utilmetric.MetricData{Value: 8000})
+	fakeFetcher.SetNodeMetric(consts.MetricsImageFsCapacity, utilmetric.MetricData{Value: 10000})
 
-	fakeFetcher.SetNodeMetric(consts.MetricsSystemRootfsInodesFree, utilmetric.MetricData{Value: 2000})
-	fakeFetcher.SetNodeMetric(consts.MetricsSystemRootfsInodesUsed, utilmetric.MetricData{Value: 8000})
-	fakeFetcher.SetNodeMetric(consts.MetricsSystemRootfsInodes, utilmetric.MetricData{Value: 10000})
+	fakeFetcher.SetNodeMetric(consts.MetricsImageFsInodesFree, utilmetric.MetricData{Value: 2000})
+	fakeFetcher.SetNodeMetric(consts.MetricsImageFsInodesUsed, utilmetric.MetricData{Value: 8000})
+	fakeFetcher.SetNodeMetric(consts.MetricsImageFsInodes, utilmetric.MetricData{Value: 10000})
 
 	tc := &testConf{
-		minimumFreeThreshold:       &evictionapi.ThresholdValue{Percentage: 0.1},
-		minimumInodesFreeThreshold: &evictionapi.ThresholdValue{Percentage: 0.1},
+		minimumImageFsFreeThreshold:       &evictionapi.ThresholdValue{Percentage: 0.1},
+		minimumImageFsInodesFreeThreshold: &evictionapi.ThresholdValue{Percentage: 0.1},
 	}
 	rootfsPlugin := createRootfsPressureEvictionPlugin(tc, emitter, fakeFetcher)
 
@@ -119,8 +119,8 @@ func TestPodRootfsPressureEvictionPlugin_ThresholdMetNotMet(t *testing.T) {
 	assert.Equal(t, pluginapi.ThresholdMetType_NOT_MET, res.MetType)
 
 	tc = &testConf{
-		minimumFreeThreshold:       &evictionapi.ThresholdValue{Quantity: resource.NewQuantity(1000, resource.DecimalSI)},
-		minimumInodesFreeThreshold: &evictionapi.ThresholdValue{Quantity: resource.NewQuantity(1000, resource.DecimalSI)},
+		minimumImageFsFreeThreshold:       &evictionapi.ThresholdValue{Quantity: resource.NewQuantity(1000, resource.DecimalSI)},
+		minimumImageFsInodesFreeThreshold: &evictionapi.ThresholdValue{Quantity: resource.NewQuantity(1000, resource.DecimalSI)},
 	}
 	rootfsPlugin = createRootfsPressureEvictionPlugin(tc, emitter, fakeFetcher)
 	res, err = rootfsPlugin.ThresholdMet(context.TODO())
@@ -132,17 +132,17 @@ func TestPodRootfsPressureEvictionPlugin_ThresholdMetUsedMet(t *testing.T) {
 	emitter := metrics.DummyMetrics{}
 	fakeFetcher := metric.NewFakeMetricsFetcher(emitter).(*metric.FakeMetricsFetcher)
 	// create metric data without time.
-	fakeFetcher.SetNodeMetric(consts.MetricsSystemRootfsAvailable, utilmetric.MetricData{Value: 2000})
-	fakeFetcher.SetNodeMetric(consts.MetricsSystemRootfsUsed, utilmetric.MetricData{Value: 8000})
-	fakeFetcher.SetNodeMetric(consts.MetricsSystemRootfsCapacity, utilmetric.MetricData{Value: 10000})
+	fakeFetcher.SetNodeMetric(consts.MetricsImageFsAvailable, utilmetric.MetricData{Value: 2000})
+	fakeFetcher.SetNodeMetric(consts.MetricsImageFsUsed, utilmetric.MetricData{Value: 8000})
+	fakeFetcher.SetNodeMetric(consts.MetricsImageFsCapacity, utilmetric.MetricData{Value: 10000})
 
-	fakeFetcher.SetNodeMetric(consts.MetricsSystemRootfsInodesFree, utilmetric.MetricData{Value: 2000})
-	fakeFetcher.SetNodeMetric(consts.MetricsSystemRootfsInodesUsed, utilmetric.MetricData{Value: 8000})
-	fakeFetcher.SetNodeMetric(consts.MetricsSystemRootfsInodes, utilmetric.MetricData{Value: 10000})
+	fakeFetcher.SetNodeMetric(consts.MetricsImageFsInodesFree, utilmetric.MetricData{Value: 2000})
+	fakeFetcher.SetNodeMetric(consts.MetricsImageFsInodesUsed, utilmetric.MetricData{Value: 8000})
+	fakeFetcher.SetNodeMetric(consts.MetricsImageFsInodes, utilmetric.MetricData{Value: 10000})
 
 	tc := &testConf{
-		minimumFreeThreshold:       &evictionapi.ThresholdValue{Percentage: 0.3},
-		minimumInodesFreeThreshold: &evictionapi.ThresholdValue{Percentage: 0.1},
+		minimumImageFsFreeThreshold:       &evictionapi.ThresholdValue{Percentage: 0.3},
+		minimumImageFsInodesFreeThreshold: &evictionapi.ThresholdValue{Percentage: 0.1},
 	}
 	rootfsPlugin := createRootfsPressureEvictionPlugin(tc, emitter, fakeFetcher)
 
@@ -151,8 +151,8 @@ func TestPodRootfsPressureEvictionPlugin_ThresholdMetUsedMet(t *testing.T) {
 	assert.Equal(t, pluginapi.ThresholdMetType_HARD_MET, res.MetType)
 
 	tc = &testConf{
-		minimumFreeThreshold:       &evictionapi.ThresholdValue{Quantity: resource.NewQuantity(3000, resource.DecimalSI)},
-		minimumInodesFreeThreshold: &evictionapi.ThresholdValue{Quantity: resource.NewQuantity(1000, resource.DecimalSI)},
+		minimumImageFsFreeThreshold:       &evictionapi.ThresholdValue{Quantity: resource.NewQuantity(3000, resource.DecimalSI)},
+		minimumImageFsInodesFreeThreshold: &evictionapi.ThresholdValue{Quantity: resource.NewQuantity(1000, resource.DecimalSI)},
 	}
 	rootfsPlugin = createRootfsPressureEvictionPlugin(tc, emitter, fakeFetcher)
 	res, err = rootfsPlugin.ThresholdMet(context.TODO())
@@ -164,17 +164,17 @@ func TestPodRootfsPressureEvictionPlugin_ThresholdMetInodesMet(t *testing.T) {
 	emitter := metrics.DummyMetrics{}
 	fakeFetcher := metric.NewFakeMetricsFetcher(emitter).(*metric.FakeMetricsFetcher)
 	// create metric data without time.
-	fakeFetcher.SetNodeMetric(consts.MetricsSystemRootfsAvailable, utilmetric.MetricData{Value: 2000})
-	fakeFetcher.SetNodeMetric(consts.MetricsSystemRootfsUsed, utilmetric.MetricData{Value: 8000})
-	fakeFetcher.SetNodeMetric(consts.MetricsSystemRootfsCapacity, utilmetric.MetricData{Value: 10000})
+	fakeFetcher.SetNodeMetric(consts.MetricsImageFsAvailable, utilmetric.MetricData{Value: 2000})
+	fakeFetcher.SetNodeMetric(consts.MetricsImageFsUsed, utilmetric.MetricData{Value: 8000})
+	fakeFetcher.SetNodeMetric(consts.MetricsImageFsCapacity, utilmetric.MetricData{Value: 10000})
 
-	fakeFetcher.SetNodeMetric(consts.MetricsSystemRootfsInodesFree, utilmetric.MetricData{Value: 2000})
-	fakeFetcher.SetNodeMetric(consts.MetricsSystemRootfsInodesUsed, utilmetric.MetricData{Value: 8000})
-	fakeFetcher.SetNodeMetric(consts.MetricsSystemRootfsInodes, utilmetric.MetricData{Value: 10000})
+	fakeFetcher.SetNodeMetric(consts.MetricsImageFsInodesFree, utilmetric.MetricData{Value: 2000})
+	fakeFetcher.SetNodeMetric(consts.MetricsImageFsInodesUsed, utilmetric.MetricData{Value: 8000})
+	fakeFetcher.SetNodeMetric(consts.MetricsImageFsInodes, utilmetric.MetricData{Value: 10000})
 
 	tc := &testConf{
-		minimumFreeThreshold:       &evictionapi.ThresholdValue{Percentage: 0.1},
-		minimumInodesFreeThreshold: &evictionapi.ThresholdValue{Percentage: 0.3},
+		minimumImageFsFreeThreshold:       &evictionapi.ThresholdValue{Percentage: 0.1},
+		minimumImageFsInodesFreeThreshold: &evictionapi.ThresholdValue{Percentage: 0.3},
 	}
 	rootfsPlugin := createRootfsPressureEvictionPlugin(tc, emitter, fakeFetcher)
 
@@ -183,8 +183,8 @@ func TestPodRootfsPressureEvictionPlugin_ThresholdMetInodesMet(t *testing.T) {
 	assert.Equal(t, pluginapi.ThresholdMetType_HARD_MET, res.MetType)
 
 	tc = &testConf{
-		minimumFreeThreshold:       &evictionapi.ThresholdValue{Quantity: resource.NewQuantity(1000, resource.DecimalSI)},
-		minimumInodesFreeThreshold: &evictionapi.ThresholdValue{Quantity: resource.NewQuantity(3000, resource.DecimalSI)},
+		minimumImageFsFreeThreshold:       &evictionapi.ThresholdValue{Quantity: resource.NewQuantity(1000, resource.DecimalSI)},
+		minimumImageFsInodesFreeThreshold: &evictionapi.ThresholdValue{Quantity: resource.NewQuantity(3000, resource.DecimalSI)},
 	}
 	rootfsPlugin = createRootfsPressureEvictionPlugin(tc, emitter, fakeFetcher)
 	res, err = rootfsPlugin.ThresholdMet(context.TODO())
@@ -196,17 +196,17 @@ func TestPodRootfsPressureEvictionPlugin_ThresholdMet(t *testing.T) {
 	emitter := metrics.DummyMetrics{}
 	fakeFetcher := metric.NewFakeMetricsFetcher(emitter).(*metric.FakeMetricsFetcher)
 	// create metric data without time.
-	fakeFetcher.SetNodeMetric(consts.MetricsSystemRootfsAvailable, utilmetric.MetricData{Value: 2000})
-	fakeFetcher.SetNodeMetric(consts.MetricsSystemRootfsUsed, utilmetric.MetricData{Value: 8000})
-	fakeFetcher.SetNodeMetric(consts.MetricsSystemRootfsCapacity, utilmetric.MetricData{Value: 10000})
+	fakeFetcher.SetNodeMetric(consts.MetricsImageFsAvailable, utilmetric.MetricData{Value: 2000})
+	fakeFetcher.SetNodeMetric(consts.MetricsImageFsUsed, utilmetric.MetricData{Value: 8000})
+	fakeFetcher.SetNodeMetric(consts.MetricsImageFsCapacity, utilmetric.MetricData{Value: 10000})
 
-	fakeFetcher.SetNodeMetric(consts.MetricsSystemRootfsInodesFree, utilmetric.MetricData{Value: 2000})
-	fakeFetcher.SetNodeMetric(consts.MetricsSystemRootfsInodesUsed, utilmetric.MetricData{Value: 8000})
-	fakeFetcher.SetNodeMetric(consts.MetricsSystemRootfsInodes, utilmetric.MetricData{Value: 10000})
+	fakeFetcher.SetNodeMetric(consts.MetricsImageFsInodesFree, utilmetric.MetricData{Value: 2000})
+	fakeFetcher.SetNodeMetric(consts.MetricsImageFsInodesUsed, utilmetric.MetricData{Value: 8000})
+	fakeFetcher.SetNodeMetric(consts.MetricsImageFsInodes, utilmetric.MetricData{Value: 10000})
 
 	tc := &testConf{
-		minimumFreeThreshold:       &evictionapi.ThresholdValue{Percentage: 0.3},
-		minimumInodesFreeThreshold: &evictionapi.ThresholdValue{Percentage: 0.3},
+		minimumImageFsFreeThreshold:       &evictionapi.ThresholdValue{Percentage: 0.3},
+		minimumImageFsInodesFreeThreshold: &evictionapi.ThresholdValue{Percentage: 0.3},
 	}
 	rootfsPlugin := createRootfsPressureEvictionPlugin(tc, emitter, fakeFetcher)
 
@@ -215,8 +215,8 @@ func TestPodRootfsPressureEvictionPlugin_ThresholdMet(t *testing.T) {
 	assert.Equal(t, pluginapi.ThresholdMetType_HARD_MET, res.MetType)
 
 	tc = &testConf{
-		minimumFreeThreshold:       &evictionapi.ThresholdValue{Quantity: resource.NewQuantity(3000, resource.DecimalSI)},
-		minimumInodesFreeThreshold: &evictionapi.ThresholdValue{Quantity: resource.NewQuantity(3000, resource.DecimalSI)},
+		minimumImageFsFreeThreshold:       &evictionapi.ThresholdValue{Quantity: resource.NewQuantity(3000, resource.DecimalSI)},
+		minimumImageFsInodesFreeThreshold: &evictionapi.ThresholdValue{Quantity: resource.NewQuantity(3000, resource.DecimalSI)},
 	}
 	rootfsPlugin = createRootfsPressureEvictionPlugin(tc, emitter, fakeFetcher)
 	res, err = rootfsPlugin.ThresholdMet(context.TODO())
@@ -230,17 +230,17 @@ func TestPodRootfsPressureEvictionPlugin_ThresholdMetMetricDataExpire(t *testing
 	emitter := metrics.DummyMetrics{}
 	fakeFetcher := metric.NewFakeMetricsFetcher(emitter).(*metric.FakeMetricsFetcher)
 	// create metric data without time.
-	fakeFetcher.SetNodeMetric(consts.MetricsSystemRootfsAvailable, utilmetric.MetricData{Value: 2000, Time: &metricTime})
-	fakeFetcher.SetNodeMetric(consts.MetricsSystemRootfsUsed, utilmetric.MetricData{Value: 8000, Time: &metricTime})
-	fakeFetcher.SetNodeMetric(consts.MetricsSystemRootfsCapacity, utilmetric.MetricData{Value: 10000, Time: &metricTime})
+	fakeFetcher.SetNodeMetric(consts.MetricsImageFsAvailable, utilmetric.MetricData{Value: 2000, Time: &metricTime})
+	fakeFetcher.SetNodeMetric(consts.MetricsImageFsUsed, utilmetric.MetricData{Value: 8000, Time: &metricTime})
+	fakeFetcher.SetNodeMetric(consts.MetricsImageFsCapacity, utilmetric.MetricData{Value: 10000, Time: &metricTime})
 
-	fakeFetcher.SetNodeMetric(consts.MetricsSystemRootfsInodesFree, utilmetric.MetricData{Value: 2000, Time: &metricTime})
-	fakeFetcher.SetNodeMetric(consts.MetricsSystemRootfsInodesUsed, utilmetric.MetricData{Value: 8000, Time: &metricTime})
-	fakeFetcher.SetNodeMetric(consts.MetricsSystemRootfsInodes, utilmetric.MetricData{Value: 10000, Time: &metricTime})
+	fakeFetcher.SetNodeMetric(consts.MetricsImageFsInodesFree, utilmetric.MetricData{Value: 2000, Time: &metricTime})
+	fakeFetcher.SetNodeMetric(consts.MetricsImageFsInodesUsed, utilmetric.MetricData{Value: 8000, Time: &metricTime})
+	fakeFetcher.SetNodeMetric(consts.MetricsImageFsInodes, utilmetric.MetricData{Value: 10000, Time: &metricTime})
 
 	tc := &testConf{
-		minimumFreeThreshold:       &evictionapi.ThresholdValue{Percentage: 0.7},
-		minimumInodesFreeThreshold: &evictionapi.ThresholdValue{Percentage: 0.7},
+		minimumImageFsFreeThreshold:       &evictionapi.ThresholdValue{Percentage: 0.7},
+		minimumImageFsInodesFreeThreshold: &evictionapi.ThresholdValue{Percentage: 0.7},
 	}
 	rootfsPlugin := createRootfsPressureEvictionPlugin(tc, emitter, fakeFetcher)
 
@@ -249,8 +249,8 @@ func TestPodRootfsPressureEvictionPlugin_ThresholdMetMetricDataExpire(t *testing
 	assert.Equal(t, pluginapi.ThresholdMetType_NOT_MET, res.MetType)
 
 	tc = &testConf{
-		minimumFreeThreshold:       &evictionapi.ThresholdValue{Quantity: resource.NewQuantity(7000, resource.DecimalSI)},
-		minimumInodesFreeThreshold: &evictionapi.ThresholdValue{Quantity: resource.NewQuantity(7000, resource.DecimalSI)},
+		minimumImageFsFreeThreshold:       &evictionapi.ThresholdValue{Quantity: resource.NewQuantity(7000, resource.DecimalSI)},
+		minimumImageFsInodesFreeThreshold: &evictionapi.ThresholdValue{Quantity: resource.NewQuantity(7000, resource.DecimalSI)},
 	}
 	rootfsPlugin = createRootfsPressureEvictionPlugin(tc, emitter, fakeFetcher)
 	res, err = rootfsPlugin.ThresholdMet(context.TODO())
@@ -290,17 +290,17 @@ func TestPodRootfsPressureEvictionPlugin_GetTopEvictionPodsNotMet(t *testing.T) 
 	emitter := metrics.DummyMetrics{}
 	fakeFetcher := metric.NewFakeMetricsFetcher(emitter).(*metric.FakeMetricsFetcher)
 	// create metric data without time.
-	fakeFetcher.SetNodeMetric(consts.MetricsSystemRootfsAvailable, utilmetric.MetricData{Value: 2000})
-	fakeFetcher.SetNodeMetric(consts.MetricsSystemRootfsUsed, utilmetric.MetricData{Value: 8000})
-	fakeFetcher.SetNodeMetric(consts.MetricsSystemRootfsCapacity, utilmetric.MetricData{Value: 10000})
+	fakeFetcher.SetNodeMetric(consts.MetricsImageFsAvailable, utilmetric.MetricData{Value: 2000})
+	fakeFetcher.SetNodeMetric(consts.MetricsImageFsUsed, utilmetric.MetricData{Value: 8000})
+	fakeFetcher.SetNodeMetric(consts.MetricsImageFsCapacity, utilmetric.MetricData{Value: 10000})
 
-	fakeFetcher.SetNodeMetric(consts.MetricsSystemRootfsInodesFree, utilmetric.MetricData{Value: 2000})
-	fakeFetcher.SetNodeMetric(consts.MetricsSystemRootfsInodesUsed, utilmetric.MetricData{Value: 8000})
-	fakeFetcher.SetNodeMetric(consts.MetricsSystemRootfsInodes, utilmetric.MetricData{Value: 10000})
+	fakeFetcher.SetNodeMetric(consts.MetricsImageFsInodesFree, utilmetric.MetricData{Value: 2000})
+	fakeFetcher.SetNodeMetric(consts.MetricsImageFsInodesUsed, utilmetric.MetricData{Value: 8000})
+	fakeFetcher.SetNodeMetric(consts.MetricsImageFsInodes, utilmetric.MetricData{Value: 10000})
 
 	tc := &testConf{
-		minimumFreeThreshold:       &evictionapi.ThresholdValue{Percentage: 0.1},
-		minimumInodesFreeThreshold: &evictionapi.ThresholdValue{Percentage: 0.1},
+		minimumImageFsFreeThreshold:       &evictionapi.ThresholdValue{Percentage: 0.1},
+		minimumImageFsInodesFreeThreshold: &evictionapi.ThresholdValue{Percentage: 0.1},
 	}
 	rootfsPlugin := createRootfsPressureEvictionPlugin(tc, emitter, fakeFetcher)
 
@@ -323,17 +323,17 @@ func TestPodRootfsPressureEvictionPlugin_GetTopEvictionPodsMet(t *testing.T) {
 	emitter := metrics.DummyMetrics{}
 	fakeFetcher := metric.NewFakeMetricsFetcher(emitter).(*metric.FakeMetricsFetcher)
 	// create metric data without time.
-	fakeFetcher.SetNodeMetric(consts.MetricsSystemRootfsAvailable, utilmetric.MetricData{Value: 2000})
-	fakeFetcher.SetNodeMetric(consts.MetricsSystemRootfsUsed, utilmetric.MetricData{Value: 8000})
-	fakeFetcher.SetNodeMetric(consts.MetricsSystemRootfsCapacity, utilmetric.MetricData{Value: 10000})
+	fakeFetcher.SetNodeMetric(consts.MetricsImageFsAvailable, utilmetric.MetricData{Value: 2000})
+	fakeFetcher.SetNodeMetric(consts.MetricsImageFsUsed, utilmetric.MetricData{Value: 8000})
+	fakeFetcher.SetNodeMetric(consts.MetricsImageFsCapacity, utilmetric.MetricData{Value: 10000})
 
-	fakeFetcher.SetNodeMetric(consts.MetricsSystemRootfsInodesFree, utilmetric.MetricData{Value: 2000})
-	fakeFetcher.SetNodeMetric(consts.MetricsSystemRootfsInodesUsed, utilmetric.MetricData{Value: 8000})
-	fakeFetcher.SetNodeMetric(consts.MetricsSystemRootfsInodes, utilmetric.MetricData{Value: 10000})
+	fakeFetcher.SetNodeMetric(consts.MetricsImageFsInodesFree, utilmetric.MetricData{Value: 2000})
+	fakeFetcher.SetNodeMetric(consts.MetricsImageFsInodesUsed, utilmetric.MetricData{Value: 8000})
+	fakeFetcher.SetNodeMetric(consts.MetricsImageFsInodes, utilmetric.MetricData{Value: 10000})
 
 	tc := &testConf{
-		minimumFreeThreshold:       &evictionapi.ThresholdValue{Percentage: 0.3},
-		minimumInodesFreeThreshold: &evictionapi.ThresholdValue{Percentage: 0.3},
+		minimumImageFsFreeThreshold:       &evictionapi.ThresholdValue{Percentage: 0.3},
+		minimumImageFsInodesFreeThreshold: &evictionapi.ThresholdValue{Percentage: 0.3},
 	}
 	rootfsPlugin := createRootfsPressureEvictionPlugin(tc, emitter, fakeFetcher)
 
@@ -364,17 +364,17 @@ func TestPodRootfsPressureEvictionPlugin_GetTopEvictionPodsUsedMet(t *testing.T)
 	emitter := metrics.DummyMetrics{}
 	fakeFetcher := metric.NewFakeMetricsFetcher(emitter).(*metric.FakeMetricsFetcher)
 	// create metric data without time.
-	fakeFetcher.SetNodeMetric(consts.MetricsSystemRootfsAvailable, utilmetric.MetricData{Value: 2000})
-	fakeFetcher.SetNodeMetric(consts.MetricsSystemRootfsUsed, utilmetric.MetricData{Value: 8000})
-	fakeFetcher.SetNodeMetric(consts.MetricsSystemRootfsCapacity, utilmetric.MetricData{Value: 10000})
+	fakeFetcher.SetNodeMetric(consts.MetricsImageFsAvailable, utilmetric.MetricData{Value: 2000})
+	fakeFetcher.SetNodeMetric(consts.MetricsImageFsUsed, utilmetric.MetricData{Value: 8000})
+	fakeFetcher.SetNodeMetric(consts.MetricsImageFsCapacity, utilmetric.MetricData{Value: 10000})
 
-	fakeFetcher.SetNodeMetric(consts.MetricsSystemRootfsInodesFree, utilmetric.MetricData{Value: 2000})
-	fakeFetcher.SetNodeMetric(consts.MetricsSystemRootfsInodesUsed, utilmetric.MetricData{Value: 8000})
-	fakeFetcher.SetNodeMetric(consts.MetricsSystemRootfsInodes, utilmetric.MetricData{Value: 10000})
+	fakeFetcher.SetNodeMetric(consts.MetricsImageFsInodesFree, utilmetric.MetricData{Value: 2000})
+	fakeFetcher.SetNodeMetric(consts.MetricsImageFsInodesUsed, utilmetric.MetricData{Value: 8000})
+	fakeFetcher.SetNodeMetric(consts.MetricsImageFsInodes, utilmetric.MetricData{Value: 10000})
 
 	tc := &testConf{
-		minimumFreeThreshold:       &evictionapi.ThresholdValue{Percentage: 0.3},
-		minimumInodesFreeThreshold: &evictionapi.ThresholdValue{Percentage: 0.1},
+		minimumImageFsFreeThreshold:       &evictionapi.ThresholdValue{Percentage: 0.3},
+		minimumImageFsInodesFreeThreshold: &evictionapi.ThresholdValue{Percentage: 0.1},
 	}
 	rootfsPlugin := createRootfsPressureEvictionPlugin(tc, emitter, fakeFetcher)
 
@@ -405,17 +405,17 @@ func TestPodRootfsPressureEvictionPlugin_GetTopEvictionPodsInodesMet(t *testing.
 	emitter := metrics.DummyMetrics{}
 	fakeFetcher := metric.NewFakeMetricsFetcher(emitter).(*metric.FakeMetricsFetcher)
 	// create metric data without time.
-	fakeFetcher.SetNodeMetric(consts.MetricsSystemRootfsAvailable, utilmetric.MetricData{Value: 2000})
-	fakeFetcher.SetNodeMetric(consts.MetricsSystemRootfsUsed, utilmetric.MetricData{Value: 8000})
-	fakeFetcher.SetNodeMetric(consts.MetricsSystemRootfsCapacity, utilmetric.MetricData{Value: 10000})
+	fakeFetcher.SetNodeMetric(consts.MetricsImageFsAvailable, utilmetric.MetricData{Value: 2000})
+	fakeFetcher.SetNodeMetric(consts.MetricsImageFsUsed, utilmetric.MetricData{Value: 8000})
+	fakeFetcher.SetNodeMetric(consts.MetricsImageFsCapacity, utilmetric.MetricData{Value: 10000})
 
-	fakeFetcher.SetNodeMetric(consts.MetricsSystemRootfsInodesFree, utilmetric.MetricData{Value: 2000})
-	fakeFetcher.SetNodeMetric(consts.MetricsSystemRootfsInodesUsed, utilmetric.MetricData{Value: 8000})
-	fakeFetcher.SetNodeMetric(consts.MetricsSystemRootfsInodes, utilmetric.MetricData{Value: 10000})
+	fakeFetcher.SetNodeMetric(consts.MetricsImageFsInodesFree, utilmetric.MetricData{Value: 2000})
+	fakeFetcher.SetNodeMetric(consts.MetricsImageFsInodesUsed, utilmetric.MetricData{Value: 8000})
+	fakeFetcher.SetNodeMetric(consts.MetricsImageFsInodes, utilmetric.MetricData{Value: 10000})
 
 	tc := &testConf{
-		minimumFreeThreshold:       &evictionapi.ThresholdValue{Percentage: 0.1},
-		minimumInodesFreeThreshold: &evictionapi.ThresholdValue{Percentage: 0.3},
+		minimumImageFsFreeThreshold:       &evictionapi.ThresholdValue{Percentage: 0.1},
+		minimumImageFsInodesFreeThreshold: &evictionapi.ThresholdValue{Percentage: 0.3},
 	}
 	rootfsPlugin := createRootfsPressureEvictionPlugin(tc, emitter, fakeFetcher)
 
@@ -446,18 +446,18 @@ func TestPodRootfsPressureEvictionPlugin_GetTopEvictionPodsUsedMetProtection(t *
 	emitter := metrics.DummyMetrics{}
 	fakeFetcher := metric.NewFakeMetricsFetcher(emitter).(*metric.FakeMetricsFetcher)
 	// create metric data without time.
-	fakeFetcher.SetNodeMetric(consts.MetricsSystemRootfsAvailable, utilmetric.MetricData{Value: 2000})
-	fakeFetcher.SetNodeMetric(consts.MetricsSystemRootfsUsed, utilmetric.MetricData{Value: 8000})
-	fakeFetcher.SetNodeMetric(consts.MetricsSystemRootfsCapacity, utilmetric.MetricData{Value: 10000})
+	fakeFetcher.SetNodeMetric(consts.MetricsImageFsAvailable, utilmetric.MetricData{Value: 2000})
+	fakeFetcher.SetNodeMetric(consts.MetricsImageFsUsed, utilmetric.MetricData{Value: 8000})
+	fakeFetcher.SetNodeMetric(consts.MetricsImageFsCapacity, utilmetric.MetricData{Value: 10000})
 
-	fakeFetcher.SetNodeMetric(consts.MetricsSystemRootfsInodesFree, utilmetric.MetricData{Value: 2000})
-	fakeFetcher.SetNodeMetric(consts.MetricsSystemRootfsInodesUsed, utilmetric.MetricData{Value: 8000})
-	fakeFetcher.SetNodeMetric(consts.MetricsSystemRootfsInodes, utilmetric.MetricData{Value: 10000})
+	fakeFetcher.SetNodeMetric(consts.MetricsImageFsInodesFree, utilmetric.MetricData{Value: 2000})
+	fakeFetcher.SetNodeMetric(consts.MetricsImageFsInodesUsed, utilmetric.MetricData{Value: 8000})
+	fakeFetcher.SetNodeMetric(consts.MetricsImageFsInodes, utilmetric.MetricData{Value: 10000})
 
 	tc := &testConf{
-		minimumFreeThreshold:       &evictionapi.ThresholdValue{Percentage: 0.3},
-		minimumInodesFreeThreshold: &evictionapi.ThresholdValue{Percentage: 0.1},
-		podMinimumUsedThreshold:    &evictionapi.ThresholdValue{Quantity: resource.NewQuantity(900, resource.DecimalSI)},
+		minimumImageFsFreeThreshold:       &evictionapi.ThresholdValue{Percentage: 0.3},
+		minimumImageFsInodesFreeThreshold: &evictionapi.ThresholdValue{Percentage: 0.1},
+		podMinimumUsedThreshold:           &evictionapi.ThresholdValue{Quantity: resource.NewQuantity(900, resource.DecimalSI)},
 	}
 	rootfsPlugin := createRootfsPressureEvictionPlugin(tc, emitter, fakeFetcher)
 
@@ -485,9 +485,9 @@ func TestPodRootfsPressureEvictionPlugin_GetTopEvictionPodsUsedMetProtection(t *
 	assert.Equal(t, types.UID("podUID1"), resTop.TargetPods[0].UID)
 
 	tc = &testConf{
-		minimumFreeThreshold:       &evictionapi.ThresholdValue{Percentage: 0.3},
-		minimumInodesFreeThreshold: &evictionapi.ThresholdValue{Percentage: 0.1},
-		podMinimumUsedThreshold:    &evictionapi.ThresholdValue{Percentage: 0.1},
+		minimumImageFsFreeThreshold:       &evictionapi.ThresholdValue{Percentage: 0.3},
+		minimumImageFsInodesFreeThreshold: &evictionapi.ThresholdValue{Percentage: 0.1},
+		podMinimumUsedThreshold:           &evictionapi.ThresholdValue{Percentage: 0.1},
 	}
 	rootfsPlugin = createRootfsPressureEvictionPlugin(tc, emitter, fakeFetcher)
 	res, err = rootfsPlugin.ThresholdMet(context.TODO())
@@ -521,8 +521,8 @@ func TestPodRootfsPressureEvictionPlugin_GetTopEvictionPodsUsedMetProtection(t *
 	assert.Equal(t, types.UID("podUID2"), resTop.TargetPods[0].UID)
 
 	tc = &testConf{
-		minimumFreeThreshold:       &evictionapi.ThresholdValue{Percentage: 0.3},
-		minimumInodesFreeThreshold: &evictionapi.ThresholdValue{Percentage: 0.1},
+		minimumImageFsFreeThreshold:       &evictionapi.ThresholdValue{Percentage: 0.3},
+		minimumImageFsInodesFreeThreshold: &evictionapi.ThresholdValue{Percentage: 0.1},
 	}
 	rootfsPlugin = createRootfsPressureEvictionPlugin(tc, emitter, fakeFetcher)
 	res, err = rootfsPlugin.ThresholdMet(context.TODO())
@@ -552,18 +552,18 @@ func TestPodRootfsPressureEvictionPlugin_GetTopEvictionPodsInodesMetProtection(t
 	emitter := metrics.DummyMetrics{}
 	fakeFetcher := metric.NewFakeMetricsFetcher(emitter).(*metric.FakeMetricsFetcher)
 	// create metric data without time.
-	fakeFetcher.SetNodeMetric(consts.MetricsSystemRootfsAvailable, utilmetric.MetricData{Value: 2000})
-	fakeFetcher.SetNodeMetric(consts.MetricsSystemRootfsUsed, utilmetric.MetricData{Value: 8000})
-	fakeFetcher.SetNodeMetric(consts.MetricsSystemRootfsCapacity, utilmetric.MetricData{Value: 10000})
+	fakeFetcher.SetNodeMetric(consts.MetricsImageFsAvailable, utilmetric.MetricData{Value: 2000})
+	fakeFetcher.SetNodeMetric(consts.MetricsImageFsUsed, utilmetric.MetricData{Value: 8000})
+	fakeFetcher.SetNodeMetric(consts.MetricsImageFsCapacity, utilmetric.MetricData{Value: 10000})
 
-	fakeFetcher.SetNodeMetric(consts.MetricsSystemRootfsInodesFree, utilmetric.MetricData{Value: 2000})
-	fakeFetcher.SetNodeMetric(consts.MetricsSystemRootfsInodesUsed, utilmetric.MetricData{Value: 8000})
-	fakeFetcher.SetNodeMetric(consts.MetricsSystemRootfsInodes, utilmetric.MetricData{Value: 10000})
+	fakeFetcher.SetNodeMetric(consts.MetricsImageFsInodesFree, utilmetric.MetricData{Value: 2000})
+	fakeFetcher.SetNodeMetric(consts.MetricsImageFsInodesUsed, utilmetric.MetricData{Value: 8000})
+	fakeFetcher.SetNodeMetric(consts.MetricsImageFsInodes, utilmetric.MetricData{Value: 10000})
 
 	tc := &testConf{
-		minimumFreeThreshold:          &evictionapi.ThresholdValue{Percentage: 0.1},
-		minimumInodesFreeThreshold:    &evictionapi.ThresholdValue{Percentage: 0.3},
-		podMinimumInodesUsedThreshold: &evictionapi.ThresholdValue{Quantity: resource.NewQuantity(900, resource.DecimalSI)},
+		minimumImageFsFreeThreshold:       &evictionapi.ThresholdValue{Percentage: 0.1},
+		minimumImageFsInodesFreeThreshold: &evictionapi.ThresholdValue{Percentage: 0.3},
+		podMinimumInodesUsedThreshold:     &evictionapi.ThresholdValue{Quantity: resource.NewQuantity(900, resource.DecimalSI)},
 	}
 	rootfsPlugin := createRootfsPressureEvictionPlugin(tc, emitter, fakeFetcher)
 	res, err := rootfsPlugin.ThresholdMet(context.TODO())
@@ -589,9 +589,9 @@ func TestPodRootfsPressureEvictionPlugin_GetTopEvictionPodsInodesMetProtection(t
 	assert.Equal(t, types.UID("podUID1"), resTop.TargetPods[0].UID)
 
 	tc = &testConf{
-		minimumFreeThreshold:          &evictionapi.ThresholdValue{Percentage: 0.1},
-		minimumInodesFreeThreshold:    &evictionapi.ThresholdValue{Percentage: 0.3},
-		podMinimumInodesUsedThreshold: &evictionapi.ThresholdValue{Percentage: 0.1},
+		minimumImageFsFreeThreshold:       &evictionapi.ThresholdValue{Percentage: 0.1},
+		minimumImageFsInodesFreeThreshold: &evictionapi.ThresholdValue{Percentage: 0.3},
+		podMinimumInodesUsedThreshold:     &evictionapi.ThresholdValue{Percentage: 0.1},
 	}
 	rootfsPlugin = createRootfsPressureEvictionPlugin(tc, emitter, fakeFetcher)
 	res, err = rootfsPlugin.ThresholdMet(context.TODO())
@@ -625,8 +625,8 @@ func TestPodRootfsPressureEvictionPlugin_GetTopEvictionPodsInodesMetProtection(t
 	assert.Equal(t, types.UID("podUID2"), resTop.TargetPods[0].UID)
 
 	tc = &testConf{
-		minimumFreeThreshold:       &evictionapi.ThresholdValue{Percentage: 0.1},
-		minimumInodesFreeThreshold: &evictionapi.ThresholdValue{Percentage: 0.3},
+		minimumImageFsFreeThreshold:       &evictionapi.ThresholdValue{Percentage: 0.1},
+		minimumImageFsInodesFreeThreshold: &evictionapi.ThresholdValue{Percentage: 0.3},
 	}
 	rootfsPlugin = createRootfsPressureEvictionPlugin(tc, emitter, fakeFetcher)
 	res, err = rootfsPlugin.ThresholdMet(context.TODO())
@@ -656,17 +656,17 @@ func TestPodRootfsPressureEvictionPlugin_GetTopEvictionPodsMetReclaimedPriority(
 	emitter := metrics.DummyMetrics{}
 	fakeFetcher := metric.NewFakeMetricsFetcher(emitter).(*metric.FakeMetricsFetcher)
 	// create metric data without time.
-	fakeFetcher.SetNodeMetric(consts.MetricsSystemRootfsAvailable, utilmetric.MetricData{Value: 2000})
-	fakeFetcher.SetNodeMetric(consts.MetricsSystemRootfsUsed, utilmetric.MetricData{Value: 8000})
-	fakeFetcher.SetNodeMetric(consts.MetricsSystemRootfsCapacity, utilmetric.MetricData{Value: 10000})
+	fakeFetcher.SetNodeMetric(consts.MetricsImageFsAvailable, utilmetric.MetricData{Value: 2000})
+	fakeFetcher.SetNodeMetric(consts.MetricsImageFsUsed, utilmetric.MetricData{Value: 8000})
+	fakeFetcher.SetNodeMetric(consts.MetricsImageFsCapacity, utilmetric.MetricData{Value: 10000})
 
-	fakeFetcher.SetNodeMetric(consts.MetricsSystemRootfsInodesFree, utilmetric.MetricData{Value: 2000})
-	fakeFetcher.SetNodeMetric(consts.MetricsSystemRootfsInodesUsed, utilmetric.MetricData{Value: 8000})
-	fakeFetcher.SetNodeMetric(consts.MetricsSystemRootfsInodes, utilmetric.MetricData{Value: 10000})
+	fakeFetcher.SetNodeMetric(consts.MetricsImageFsInodesFree, utilmetric.MetricData{Value: 2000})
+	fakeFetcher.SetNodeMetric(consts.MetricsImageFsInodesUsed, utilmetric.MetricData{Value: 8000})
+	fakeFetcher.SetNodeMetric(consts.MetricsImageFsInodes, utilmetric.MetricData{Value: 10000})
 
 	tc := &testConf{
-		minimumFreeThreshold:                 &evictionapi.ThresholdValue{Percentage: 0.3},
-		minimumInodesFreeThreshold:           &evictionapi.ThresholdValue{Percentage: 0.3},
+		minimumImageFsFreeThreshold:          &evictionapi.ThresholdValue{Percentage: 0.3},
+		minimumImageFsInodesFreeThreshold:    &evictionapi.ThresholdValue{Percentage: 0.3},
 		reclaimedQoSPodUsedPriorityThreshold: &evictionapi.ThresholdValue{Quantity: resource.NewQuantity(500, resource.DecimalSI)},
 	}
 	rootfsPlugin := createRootfsPressureEvictionPlugin(tc, emitter, fakeFetcher)
@@ -721,8 +721,8 @@ func TestPodRootfsPressureEvictionPlugin_GetTopEvictionPodsMetReclaimedPriority(
 	assert.Equal(t, types.UID("podUID2"), resTop.TargetPods[0].UID)
 
 	tc = &testConf{
-		minimumFreeThreshold:                 &evictionapi.ThresholdValue{Percentage: 0.3},
-		minimumInodesFreeThreshold:           &evictionapi.ThresholdValue{Percentage: 0.3},
+		minimumImageFsFreeThreshold:          &evictionapi.ThresholdValue{Percentage: 0.3},
+		minimumImageFsInodesFreeThreshold:    &evictionapi.ThresholdValue{Percentage: 0.3},
 		reclaimedQoSPodUsedPriorityThreshold: &evictionapi.ThresholdValue{Percentage: 0.1},
 	}
 	rootfsPlugin = createRootfsPressureEvictionPlugin(tc, emitter, fakeFetcher)
@@ -776,8 +776,8 @@ func TestPodRootfsPressureEvictionPlugin_GetTopEvictionPodsMetReclaimedPriority(
 	assert.Equal(t, types.UID("podUID2"), resTop.TargetPods[0].UID)
 
 	tc = &testConf{
-		minimumFreeThreshold:       &evictionapi.ThresholdValue{Percentage: 0.3},
-		minimumInodesFreeThreshold: &evictionapi.ThresholdValue{Percentage: 0.3},
+		minimumImageFsFreeThreshold:       &evictionapi.ThresholdValue{Percentage: 0.3},
+		minimumImageFsInodesFreeThreshold: &evictionapi.ThresholdValue{Percentage: 0.3},
 	}
 	rootfsPlugin = createRootfsPressureEvictionPlugin(tc, emitter, fakeFetcher)
 
@@ -812,17 +812,17 @@ func TestPodRootfsPressureEvictionPlugin_GetTopEvictionPodsInodesMetReclaimedPri
 	emitter := metrics.DummyMetrics{}
 	fakeFetcher := metric.NewFakeMetricsFetcher(emitter).(*metric.FakeMetricsFetcher)
 	// create metric data without time.
-	fakeFetcher.SetNodeMetric(consts.MetricsSystemRootfsAvailable, utilmetric.MetricData{Value: 2000})
-	fakeFetcher.SetNodeMetric(consts.MetricsSystemRootfsUsed, utilmetric.MetricData{Value: 8000})
-	fakeFetcher.SetNodeMetric(consts.MetricsSystemRootfsCapacity, utilmetric.MetricData{Value: 10000})
+	fakeFetcher.SetNodeMetric(consts.MetricsImageFsAvailable, utilmetric.MetricData{Value: 2000})
+	fakeFetcher.SetNodeMetric(consts.MetricsImageFsUsed, utilmetric.MetricData{Value: 8000})
+	fakeFetcher.SetNodeMetric(consts.MetricsImageFsCapacity, utilmetric.MetricData{Value: 10000})
 
-	fakeFetcher.SetNodeMetric(consts.MetricsSystemRootfsInodesFree, utilmetric.MetricData{Value: 2000})
-	fakeFetcher.SetNodeMetric(consts.MetricsSystemRootfsInodesUsed, utilmetric.MetricData{Value: 8000})
-	fakeFetcher.SetNodeMetric(consts.MetricsSystemRootfsInodes, utilmetric.MetricData{Value: 10000})
+	fakeFetcher.SetNodeMetric(consts.MetricsImageFsInodesFree, utilmetric.MetricData{Value: 2000})
+	fakeFetcher.SetNodeMetric(consts.MetricsImageFsInodesUsed, utilmetric.MetricData{Value: 8000})
+	fakeFetcher.SetNodeMetric(consts.MetricsImageFsInodes, utilmetric.MetricData{Value: 10000})
 
 	tc := &testConf{
-		minimumFreeThreshold:                       &evictionapi.ThresholdValue{Percentage: 0.1},
-		minimumInodesFreeThreshold:                 &evictionapi.ThresholdValue{Percentage: 0.3},
+		minimumImageFsFreeThreshold:                &evictionapi.ThresholdValue{Percentage: 0.1},
+		minimumImageFsInodesFreeThreshold:          &evictionapi.ThresholdValue{Percentage: 0.3},
 		reclaimedQosPodInodesUsedPriorityThreshold: &evictionapi.ThresholdValue{Quantity: resource.NewQuantity(500, resource.DecimalSI)},
 	}
 	rootfsPlugin := createRootfsPressureEvictionPlugin(tc, emitter, fakeFetcher)
@@ -877,8 +877,8 @@ func TestPodRootfsPressureEvictionPlugin_GetTopEvictionPodsInodesMetReclaimedPri
 	assert.Equal(t, types.UID("podUID2"), resTop.TargetPods[0].UID)
 
 	tc = &testConf{
-		minimumFreeThreshold:                       &evictionapi.ThresholdValue{Percentage: 0.1},
-		minimumInodesFreeThreshold:                 &evictionapi.ThresholdValue{Percentage: 0.3},
+		minimumImageFsFreeThreshold:                &evictionapi.ThresholdValue{Percentage: 0.1},
+		minimumImageFsInodesFreeThreshold:          &evictionapi.ThresholdValue{Percentage: 0.3},
 		reclaimedQosPodInodesUsedPriorityThreshold: &evictionapi.ThresholdValue{Percentage: 0.1},
 	}
 	rootfsPlugin = createRootfsPressureEvictionPlugin(tc, emitter, fakeFetcher)
@@ -932,8 +932,8 @@ func TestPodRootfsPressureEvictionPlugin_GetTopEvictionPodsInodesMetReclaimedPri
 	assert.Equal(t, types.UID("podUID2"), resTop.TargetPods[0].UID)
 
 	tc = &testConf{
-		minimumFreeThreshold:       &evictionapi.ThresholdValue{Percentage: 0.1},
-		minimumInodesFreeThreshold: &evictionapi.ThresholdValue{Percentage: 0.3},
+		minimumImageFsFreeThreshold:       &evictionapi.ThresholdValue{Percentage: 0.1},
+		minimumImageFsInodesFreeThreshold: &evictionapi.ThresholdValue{Percentage: 0.3},
 	}
 	rootfsPlugin = createRootfsPressureEvictionPlugin(tc, emitter, fakeFetcher)
 
@@ -970,17 +970,17 @@ func TestPodRootfsPressureEvictionPlugin_GetTopEvictionPodsMetExpire(t *testing.
 	emitter := metrics.DummyMetrics{}
 	fakeFetcher := metric.NewFakeMetricsFetcher(emitter).(*metric.FakeMetricsFetcher)
 	// create metric data without time.
-	fakeFetcher.SetNodeMetric(consts.MetricsSystemRootfsAvailable, utilmetric.MetricData{Value: 2000})
-	fakeFetcher.SetNodeMetric(consts.MetricsSystemRootfsUsed, utilmetric.MetricData{Value: 8000})
-	fakeFetcher.SetNodeMetric(consts.MetricsSystemRootfsCapacity, utilmetric.MetricData{Value: 10000})
+	fakeFetcher.SetNodeMetric(consts.MetricsImageFsAvailable, utilmetric.MetricData{Value: 2000})
+	fakeFetcher.SetNodeMetric(consts.MetricsImageFsUsed, utilmetric.MetricData{Value: 8000})
+	fakeFetcher.SetNodeMetric(consts.MetricsImageFsCapacity, utilmetric.MetricData{Value: 10000})
 
-	fakeFetcher.SetNodeMetric(consts.MetricsSystemRootfsInodesFree, utilmetric.MetricData{Value: 2000})
-	fakeFetcher.SetNodeMetric(consts.MetricsSystemRootfsInodesUsed, utilmetric.MetricData{Value: 8000})
-	fakeFetcher.SetNodeMetric(consts.MetricsSystemRootfsInodes, utilmetric.MetricData{Value: 10000})
+	fakeFetcher.SetNodeMetric(consts.MetricsImageFsInodesFree, utilmetric.MetricData{Value: 2000})
+	fakeFetcher.SetNodeMetric(consts.MetricsImageFsInodesUsed, utilmetric.MetricData{Value: 8000})
+	fakeFetcher.SetNodeMetric(consts.MetricsImageFsInodes, utilmetric.MetricData{Value: 10000})
 
 	tc := &testConf{
-		minimumFreeThreshold:       &evictionapi.ThresholdValue{Percentage: 0.3},
-		minimumInodesFreeThreshold: &evictionapi.ThresholdValue{Percentage: 0.3},
+		minimumImageFsFreeThreshold:       &evictionapi.ThresholdValue{Percentage: 0.3},
+		minimumImageFsInodesFreeThreshold: &evictionapi.ThresholdValue{Percentage: 0.3},
 	}
 	rootfsPlugin := createRootfsPressureEvictionPlugin(tc, emitter, fakeFetcher)
 

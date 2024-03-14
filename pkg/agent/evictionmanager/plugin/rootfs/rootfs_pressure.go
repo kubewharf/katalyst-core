@@ -28,7 +28,6 @@ import (
 	"k8s.io/client-go/tools/events"
 	evictionapi "k8s.io/kubernetes/pkg/kubelet/eviction/api"
 	"k8s.io/kubernetes/pkg/kubelet/util/format"
-	volumeutils "k8s.io/kubernetes/pkg/volume/util"
 
 	pluginapi "github.com/kubewharf/katalyst-api/pkg/protocol/evictionplugin/v1alpha1"
 	"github.com/kubewharf/katalyst-core/pkg/agent/evictionmanager/plugin"
@@ -123,72 +122,77 @@ func (r *PodRootfsPressureEvictionPlugin) ThresholdMet(_ context.Context) (*plug
 }
 
 func (r *PodRootfsPressureEvictionPlugin) minimumFreeThresholdMet(rootfsEvictionConfig *eviction.RootfsPressureEvictionConfiguration) bool {
-	if rootfsEvictionConfig.MinimumFreeThreshold == nil {
+	if rootfsEvictionConfig == nil || rootfsEvictionConfig.MinimumImageFsFreeThreshold == nil {
 		return false
 	}
 
-	if rootfsEvictionConfig.MinimumFreeThreshold.Quantity != nil {
+	imageFsFreeBytes, errAvailable := helper.GetNodeMetric(r.metaServer.MetricsFetcher, r.emitter, consts.MetricsImageFsAvailable)
+	if errAvailable != nil {
+		general.Warningf("Failed to get MetricsImageFsAvailable: %q", errAvailable)
+		return false
+	}
+	imageFsCapacityBytes, errCapacity := helper.GetNodeMetric(r.metaServer.MetricsFetcher, r.emitter, consts.MetricsImageFsCapacity)
+	if errCapacity != nil {
+		general.Warningf("Failed to get MetricsImageFsCapacity: %q", errCapacity)
+		return false
+	}
+
+	if rootfsEvictionConfig.MinimumImageFsDiskCapacityThreshold != nil && int64(imageFsCapacityBytes) < rootfsEvictionConfig.MinimumImageFsDiskCapacityThreshold.Value() {
+		general.Warningf("Ignore this node for MinimumImageFsDiskCapacityThreshold (size: %d, threshold: %d)", int64(imageFsCapacityBytes), rootfsEvictionConfig.MinimumImageFsDiskCapacityThreshold.Value())
+		return false
+	}
+
+	if rootfsEvictionConfig.MinimumImageFsFreeThreshold.Quantity != nil {
 		// free <  rootfsEvictionConfig.MinimumFreeInBytesThreshold -> met
-		systemFreeBytes, err := helper.GetNodeMetric(r.metaServer.MetricsFetcher, r.emitter, consts.MetricsSystemRootfsAvailable)
-		if err != nil {
-			general.Warningf("Failed to get MetricsSystemRootfsAvailable: %q", err)
-		} else {
-			if int64(systemFreeBytes) < rootfsEvictionConfig.MinimumFreeThreshold.Quantity.Value() {
-				general.Infof("ThresholdMet result, Reason: MinimumFreeInBytesThreshold (Available: %d, Threshold: %d)", int64(systemFreeBytes), rootfsEvictionConfig.MinimumFreeThreshold.Quantity.Value())
-				return true
-			}
+		if int64(imageFsFreeBytes) < rootfsEvictionConfig.MinimumImageFsFreeThreshold.Quantity.Value() {
+			general.Infof("ThresholdMet result, Reason: MinimumImageFsFreeInBytesThreshold (Available: %d, Threshold: %d)", int64(imageFsFreeBytes), rootfsEvictionConfig.MinimumImageFsFreeThreshold.Quantity.Value())
+			return true
 		}
 	} else {
 		// free/capacity < rootfsEvictionConfig.MinimumFreeRateThreshold -> met
-		systemFreeBytes, errAvailable := helper.GetNodeMetric(r.metaServer.MetricsFetcher, r.emitter, consts.MetricsSystemRootfsAvailable)
-		systemCapacityBytes, errCapacity := helper.GetNodeMetric(r.metaServer.MetricsFetcher, r.emitter, consts.MetricsSystemRootfsCapacity)
-		switch {
-		case errAvailable != nil:
-			general.Warningf("Failed to get MetricsSystemRootfsAvailable: %q", errAvailable)
-		case errCapacity != nil:
-			general.Warningf("Failed to get MetricsSystemRootfsCapacity: %q", errCapacity)
-		case systemFreeBytes > systemCapacityBytes || systemCapacityBytes == 0:
-			general.Warningf("Invalid system rootfs metrics: %d/%d", int64(systemFreeBytes), int64(systemCapacityBytes))
-		default:
-			rate := systemFreeBytes / systemCapacityBytes
-			if rate < float64(rootfsEvictionConfig.MinimumFreeThreshold.Percentage) {
-				general.Infof("ThresholdMet result, Reason: MinimumFreeRateThreshold (Rate: %04f, Threshold: %04f)", rate, rootfsEvictionConfig.MinimumFreeThreshold.Percentage)
-				return true
-			}
+		if imageFsFreeBytes > imageFsCapacityBytes || imageFsCapacityBytes == 0 {
+			general.Warningf("Invalid system rootfs metrics: %d/%d", int64(imageFsFreeBytes), int64(imageFsCapacityBytes))
+			return false
+		}
+		ratio := imageFsFreeBytes / imageFsCapacityBytes
+		if ratio < float64(rootfsEvictionConfig.MinimumImageFsFreeThreshold.Percentage) {
+			general.Infof("ThresholdMet result, Reason: MinimumImageFsFreeRateThreshold (Rate: %04f, Threshold: %04f)", ratio, rootfsEvictionConfig.MinimumImageFsFreeThreshold.Percentage)
+			return true
 		}
 	}
+
 	return false
 }
 
 func (r *PodRootfsPressureEvictionPlugin) minimumInodesFreeThresholdMet(rootfsEvictionConfig *eviction.RootfsPressureEvictionConfiguration) bool {
-	if rootfsEvictionConfig.MinimumInodesFreeThreshold == nil {
+	if rootfsEvictionConfig == nil || rootfsEvictionConfig.MinimumImageFsInodesFreeThreshold == nil {
 		return false
 	}
 
-	if rootfsEvictionConfig.MinimumInodesFreeThreshold.Quantity != nil {
-		systemInodesFree, err := helper.GetNodeMetric(r.metaServer.MetricsFetcher, r.emitter, consts.MetricsSystemRootfsInodesFree)
+	if rootfsEvictionConfig.MinimumImageFsInodesFreeThreshold.Quantity != nil {
+		systemInodesFree, err := helper.GetNodeMetric(r.metaServer.MetricsFetcher, r.emitter, consts.MetricsImageFsInodesFree)
 		if err != nil {
-			general.Warningf("Failed to get MetricsSystemRootfsInodesFree: %q", err)
+			general.Warningf("Failed to get MetricsImageFsInodesFree: %q", err)
 		} else {
-			if int64(systemInodesFree) < rootfsEvictionConfig.MinimumInodesFreeThreshold.Quantity.Value() {
-				general.Infof("ThresholdMet result, Reason: MinimumInodesFreeThreshold (Free: %d, Threshold: %d)", int64(systemInodesFree), rootfsEvictionConfig.MinimumInodesFreeThreshold.Quantity.Value())
+			if int64(systemInodesFree) < rootfsEvictionConfig.MinimumImageFsInodesFreeThreshold.Quantity.Value() {
+				general.Infof("ThresholdMet result, Reason: MinimumImageFsInodesFreeThreshold (Free: %d, Threshold: %d)", int64(systemInodesFree), rootfsEvictionConfig.MinimumImageFsInodesFreeThreshold.Quantity.Value())
 				return true
 			}
 		}
 	} else {
-		systemInodesFree, errInodesFree := helper.GetNodeMetric(r.metaServer.MetricsFetcher, r.emitter, consts.MetricsSystemRootfsInodesFree)
-		systemInodes, errInodes := helper.GetNodeMetric(r.metaServer.MetricsFetcher, r.emitter, consts.MetricsSystemRootfsInodes)
+		systemInodesFree, errInodesFree := helper.GetNodeMetric(r.metaServer.MetricsFetcher, r.emitter, consts.MetricsImageFsInodesFree)
+		systemInodes, errInodes := helper.GetNodeMetric(r.metaServer.MetricsFetcher, r.emitter, consts.MetricsImageFsInodes)
 		switch {
 		case errInodesFree != nil:
-			general.Warningf("Failed to get MetricsSystemRootfsInodesFree: %q", errInodesFree)
+			general.Warningf("Failed to get MetricsImageFsInodesFree: %q", errInodesFree)
 		case errInodes != nil:
-			general.Warningf("Failed to get MetricsSystemRootfsInodes: %q", errInodes)
+			general.Warningf("Failed to get MetricsImageFsInodes: %q", errInodes)
 		case systemInodesFree > systemInodes || systemInodes == 0:
 			general.Warningf("Invalid system rootfs inodes metric: %d/%d", int64(systemInodesFree), int64(systemInodes))
 		default:
 			rate := systemInodesFree / systemInodes
-			if rate < float64(rootfsEvictionConfig.MinimumInodesFreeThreshold.Percentage) {
-				general.Infof("ThresholdMet result, Reason: MinimumInodesFreeRateThreshold (Rate: %04f, Threshold: %04f)", rate, rootfsEvictionConfig.MinimumInodesFreeThreshold.Percentage)
+			if rate < float64(rootfsEvictionConfig.MinimumImageFsInodesFreeThreshold.Percentage) {
+				general.Infof("ThresholdMet result, Reason: MinimumImageFsInodesFreeRateThreshold (Rate: %04f, Threshold: %04f)", rate, rootfsEvictionConfig.MinimumImageFsInodesFreeThreshold.Percentage)
 				return true
 			}
 		}
@@ -361,29 +365,12 @@ func (r *PodRootfsPressureEvictionPlugin) getTopNPods(pods []*v1.Pod, n uint64, 
 }
 
 func (r *PodRootfsPressureEvictionPlugin) getPodRootfsUsed(pod *v1.Pod) (int64, int64, error) {
-	podUID := string(pod.UID)
-
-	var usage int64
-
-	for _, volume := range pod.Spec.Volumes {
-		if !volumeutils.IsLocalEphemeralVolume(volume) {
-			continue
-		}
-
-		volumeUsed, err := helper.GetVolumeMetric(r.metaServer.MetricsFetcher, r.emitter, podUID, volume.Name, consts.MetricsPodVolumeUsed)
-		if err != nil {
-			return 0, 0, err
-		}
-		usage += int64(volumeUsed)
-	}
-
 	podRootfsUsed, err := helper.GetPodMetric(r.metaServer.MetricsFetcher, r.emitter, pod, consts.MetricsContainerRootfsUsed, -1)
 	if err != nil {
 		return 0, 0, err
 	}
-	usage += int64(podRootfsUsed)
 
-	rootfsCapacity, err := helper.GetNodeMetric(r.metaServer.MetricsFetcher, r.emitter, consts.MetricsSystemRootfsCapacity)
+	rootfsCapacity, err := helper.GetNodeMetric(r.metaServer.MetricsFetcher, r.emitter, consts.MetricsImageFsCapacity)
 	if err != nil {
 		return 0, 0, err
 	}
@@ -392,35 +379,16 @@ func (r *PodRootfsPressureEvictionPlugin) getPodRootfsUsed(pod *v1.Pod) (int64, 
 		return 0, 0, errors.New("invalid rootfs capacity")
 	}
 
-	// TODO /etc/hosts
-
-	return usage, int64(rootfsCapacity), nil
+	return int64(podRootfsUsed), int64(rootfsCapacity), nil
 }
 
 func (r *PodRootfsPressureEvictionPlugin) getPodRootfsInodesUsed(pod *v1.Pod) (int64, int64, error) {
-	podUID := string(pod.UID)
-
-	var inodesUsage int64
-
-	for _, volume := range pod.Spec.Volumes {
-		if !volumeutils.IsLocalEphemeralVolume(volume) {
-			continue
-		}
-
-		volumeInodesUsed, err := helper.GetVolumeMetric(r.metaServer.MetricsFetcher, r.emitter, podUID, volume.Name, consts.MetricsPodVolumeInodesUsed)
-		if err != nil {
-			return 0, 0, err
-		}
-		inodesUsage += int64(volumeInodesUsed)
-	}
-
 	podRootfsInodesUsed, err := helper.GetPodMetric(r.metaServer.MetricsFetcher, r.emitter, pod, consts.MetricsContainerRootfsInodesUsed, -1)
 	if err != nil {
 		return 0, 0, err
 	}
-	inodesUsage += int64(podRootfsInodesUsed)
 
-	rootfsInodes, err := helper.GetNodeMetric(r.metaServer.MetricsFetcher, r.emitter, consts.MetricsSystemRootfsInodes)
+	rootfsInodes, err := helper.GetNodeMetric(r.metaServer.MetricsFetcher, r.emitter, consts.MetricsImageFsInodes)
 	if err != nil {
 		return 0, 0, err
 	}
@@ -428,7 +396,5 @@ func (r *PodRootfsPressureEvictionPlugin) getPodRootfsInodesUsed(pod *v1.Pod) (i
 		return 0, 0, errors.New("invalid rootfs inodes")
 	}
 
-	// TODO /etc/hosts
-
-	return inodesUsage, int64(rootfsInodes), nil
+	return int64(podRootfsInodesUsed), int64(rootfsInodes), nil
 }

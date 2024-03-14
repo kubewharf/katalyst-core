@@ -73,14 +73,24 @@ const (
 	MetricIODiskWBTValue = "io.disk.wbt"
 )
 
-// System rootfs metrics
+// Node filesystem metrics
 const (
-	MetricsSystemRootfsAvailable  = "available.rootfs.system"
-	MetricsSystemRootfsCapacity   = "capacity.rootfs.system"
-	MetricsSystemRootfsUsed       = "used.rootfs.system"
-	MetricsSystemRootfsInodes     = "inodes.rootfs.system"
-	MetricsSystemRootfsInodesFree = "free.inodes.rootfs.system"
-	MetricsSystemRootfsInodesUsed = "used.inodes.rootfs.system"
+	MetricsNodeFsAvailable  = "available.fs.node"
+	MetricsNodeFsCapacity   = "capacity.fs.node"
+	MetricsNodeFsUsed       = "used.fs.node"
+	MetricsNodeFsInodes     = "inodes.fs.node"
+	MetricsNodeFsInodesFree = "free.inodes.fs.node"
+	MetricsNodeFsInodesUsed = "used.inodes.fs.node"
+)
+
+// Image filesystem metrics
+const (
+	MetricsImageFsAvailable  = "available.rootfs.system"
+	MetricsImageFsCapacity   = "capacity.rootfs.system"
+	MetricsImageFsUsed       = "used.rootfs.system"
+	MetricsImageFsInodes     = "inodes.rootfs.system"
+	MetricsImageFsInodesFree = "free.inodes.rootfs.system"
+	MetricsImageFsInodesUsed = "used.inodes.rootfs.system"
 )
 
 // System numa metrics
