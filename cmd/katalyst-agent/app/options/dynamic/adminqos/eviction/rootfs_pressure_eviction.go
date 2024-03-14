@@ -18,6 +18,7 @@ package eviction
 
 import (
 	"github.com/pkg/errors"
+	"k8s.io/apimachinery/pkg/api/resource"
 	cliflag "k8s.io/component-base/cli/flag"
 
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/adminqos/eviction"
@@ -31,29 +32,32 @@ const (
 	defaultPodMinimumInodesUsedThreshold              = ""
 	defaultReclaimedQoSPodUsedPriorityThreshold       = ""
 	defaultReclaimedQoSPodInodesUsedPriorityThreshold = ""
+	defaultMinimumImageFsDiskSizeThreshold            = "10Gi"
 )
 
 type RootfsPressureEvictionOptions struct {
 	EnableRootfsPressureEviction               bool
-	MinimumFreeThreshold                       string
-	MinimumInodesFreeThreshold                 string
+	MinimumImageFsFreeThreshold                string
+	MinimumImageFsInodesFreeThreshold          string
 	PodMinimumUsedThreshold                    string
 	PodMinimumInodesUsedThreshold              string
 	ReclaimedQoSPodUsedPriorityThreshold       string
 	ReclaimedQoSPodInodesUsedPriorityThreshold string
+	MinimumImageFsDiskCapacityThreshold        string
 	GracePeriod                                int64
 }
 
 func NewRootfsPressureEvictionOptions() *RootfsPressureEvictionOptions {
 	return &RootfsPressureEvictionOptions{
 		EnableRootfsPressureEviction:               defaultEnableRootfsEviction,
-		MinimumFreeThreshold:                       defaultMinimumFreeThreshold,
-		MinimumInodesFreeThreshold:                 defaultMinimumInodesFreeThreshold,
+		MinimumImageFsFreeThreshold:                defaultMinimumFreeThreshold,
+		MinimumImageFsInodesFreeThreshold:          defaultMinimumInodesFreeThreshold,
 		PodMinimumUsedThreshold:                    defaultPodMinimumUsedThreshold,
 		PodMinimumInodesUsedThreshold:              defaultPodMinimumInodesUsedThreshold,
 		ReclaimedQoSPodUsedPriorityThreshold:       defaultReclaimedQoSPodUsedPriorityThreshold,
 		ReclaimedQoSPodInodesUsedPriorityThreshold: defaultReclaimedQoSPodInodesUsedPriorityThreshold,
-		GracePeriod: defaultGracePeriod,
+		MinimumImageFsDiskCapacityThreshold:        defaultMinimumImageFsDiskSizeThreshold,
+		GracePeriod:                                defaultGracePeriod,
 	}
 }
 
@@ -61,10 +65,10 @@ func (o *RootfsPressureEvictionOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 	fs := fss.FlagSet("eviction-rootfs-pressure")
 	fs.BoolVar(&o.EnableRootfsPressureEviction, "eviction-rootfs-enable", false,
 		"set true to enable rootfs pressure eviction")
-	fs.StringVar(&o.MinimumFreeThreshold, "eviction-rootfs-minimum-free", "",
-		"the minimum rootfs free threshold for nodes. once the rootfs free space of current node is lower than this threshold, the eviction manager will try to evict some pods. example 200G, 10%")
-	fs.StringVar(&o.MinimumInodesFreeThreshold, "eviction-rootfs-minimum-inodes-free", "",
-		"the minimum rootfs inodes free for nodes. once the rootfs free inodes of current node is lower than this threshold, the eviction manager will try to evict some pods. example 20000, 10%")
+	fs.StringVar(&o.MinimumImageFsFreeThreshold, "eviction-rootfs-minimum-image-fs-free", "",
+		"the minimum image rootfs free threshold for nodes. once the rootfs free space of current node is lower than this threshold, the eviction manager will try to evict some pods. example 200G, 10%")
+	fs.StringVar(&o.MinimumImageFsInodesFreeThreshold, "eviction-rootfs-minimum-image-fs-inodes-free", "",
+		"the minimum image rootfs inodes free for nodes. once the rootfs free inodes of current node is lower than this threshold, the eviction manager will try to evict some pods. example 20000, 10%")
 	fs.StringVar(&o.PodMinimumUsedThreshold, "eviction-rootfs-pod-minimum-used", "",
 		"the minimum rootfs used for pod. the eviction manager will ignore this pod if its rootfs used in bytes is lower than this threshold. example 500M, 1%")
 	fs.StringVar(&o.PodMinimumInodesUsedThreshold, "eviction-rootfs-pod-minimum-inodes-used", "",
@@ -73,25 +77,27 @@ func (o *RootfsPressureEvictionOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 		"the rootfs used priority threshold for reclaimed qos pod. the eviction manager will prioritize the eviction of offline pods that reach this threshold. example 800M, 2%")
 	fs.StringVar(&o.ReclaimedQoSPodInodesUsedPriorityThreshold, "eviction-rootfs-reclaimed-qos-pod-inodes-used-priority", "",
 		"the rootfs inodes used priority threshold for reclaimed qos pod. the eviction manager will prioritize the eviction of reclaimed pods that reach this threshold. example 3000, 2%")
+	fs.StringVar(&o.MinimumImageFsDiskCapacityThreshold, "eviction-rootfs-minimum-image-fs-disk-capacity", "",
+		"the minimum image fs disk capacity for nodes. the eviction manager will ignore those nodes whose image fs disk capacity is less than this threshold")
 	fs.Int64Var(&o.GracePeriod, "eviction-rootfs-grace-period", 0,
 		"the grace period of pod deletion")
 }
 
 func (o *RootfsPressureEvictionOptions) ApplyTo(c *eviction.RootfsPressureEvictionConfiguration) error {
 	c.EnableRootfsPressureEviction = o.EnableRootfsPressureEviction
-	if o.MinimumFreeThreshold != "" {
-		value, err := eviction.ParseThresholdValue(o.MinimumFreeThreshold)
+	if o.MinimumImageFsFreeThreshold != "" {
+		value, err := eviction.ParseThresholdValue(o.MinimumImageFsFreeThreshold)
 		if err != nil {
 			return errors.Wrapf(err, "failed to parse option: 'eviction-rootfs-minimum-free'")
 		}
-		c.MinimumFreeThreshold = value
+		c.MinimumImageFsFreeThreshold = value
 	}
-	if o.MinimumInodesFreeThreshold != "" {
-		value, err := eviction.ParseThresholdValue(o.MinimumInodesFreeThreshold)
+	if o.MinimumImageFsInodesFreeThreshold != "" {
+		value, err := eviction.ParseThresholdValue(o.MinimumImageFsInodesFreeThreshold)
 		if err != nil {
 			return errors.Wrapf(err, "failed to parse option: 'eviction-rootfs-minimm-inodes-free'")
 		}
-		c.MinimumInodesFreeThreshold = value
+		c.MinimumImageFsInodesFreeThreshold = value
 	}
 	if o.PodMinimumUsedThreshold != "" {
 		value, err := eviction.ParseThresholdValue(o.PodMinimumUsedThreshold)
@@ -120,6 +126,13 @@ func (o *RootfsPressureEvictionOptions) ApplyTo(c *eviction.RootfsPressureEvicti
 			return errors.Wrapf(err, "failed to parse option: 'eviction-rootfs-reclaimed-qos-pod-inodes-used-priority'")
 		}
 		c.ReclaimedQoSPodInodesUsedPriorityThreshold = value
+	}
+	if o.MinimumImageFsDiskCapacityThreshold != "" {
+		value, err := resource.ParseQuantity(o.MinimumImageFsDiskCapacityThreshold)
+		if err != nil {
+			return errors.Wrapf(err, "failed to parse option: 'eviction-rootfs-image-fs-disk-minimum-capacity'")
+		}
+		c.MinimumImageFsDiskCapacityThreshold = &value
 	}
 	c.GracePeriod = o.GracePeriod
 	return nil
