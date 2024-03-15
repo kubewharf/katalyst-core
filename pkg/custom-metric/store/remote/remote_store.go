@@ -304,6 +304,10 @@ func (r *RemoteMemoryMetricStore) ListMetricMeta(ctx context.Context, withObject
 func (r *RemoteMemoryMetricStore) sendRequests(cancel func(),
 	reqs []*http.Request, readyCnt int, tags []metrics.MetricTag,
 	requestWrapF func(req *http.Request), responseWrapF func(body io.ReadCloser) error) error {
+	if len(reqs) == 0 {
+		return nil
+	}
+
 	var failChan = make(chan error, len(reqs))
 	var successChan = make(chan struct{}, len(reqs))
 
