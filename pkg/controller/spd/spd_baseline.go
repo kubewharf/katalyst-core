@@ -37,46 +37,80 @@ func (sc *SPDController) updateBaselineSentinel(spd *v1alpha1.ServiceProfileDesc
 		return nil
 	}
 
-	if spd.Spec.BaselinePercent == nil || *spd.Spec.BaselinePercent >= consts.SPDBaselinePercentMax || *spd.Spec.BaselinePercent <= consts.SPDBaselinePercentMin {
+	// delete baseline sentinel annotation if baseline percent or extended indicator not set
+	if spd.Spec.BaselinePercent == nil && len(spd.Spec.ExtendedIndicator) == 0 {
+		util.SetSPDBaselineSentinel(spd, nil)
+		util.SetSPDExtendedBaselineSentinel(spd, nil)
 		return nil
 	}
 
-	podMeta, err := sc.calculateBaselineSentinel(spd)
+	podMetaList, err := sc.getSPDPodMetaList(spd)
 	if err != nil {
 		return err
 	}
-	util.SetSPDBaselineSentinel(spd, &podMeta)
+
+	// calculate baseline sentinel
+	baselineSentinel := calculateBaselineSentinel(podMetaList, spd.Spec.BaselinePercent)
+
+	// calculate extended baseline sentinel for each extended indicator
+	extendedBaselineSentinel := make(map[string]util.SPDBaselinePodMeta)
+	for _, indicator := range spd.Spec.ExtendedIndicator {
+		sentinel := calculateBaselineSentinel(podMetaList, indicator.BaselinePercent)
+		if sentinel == nil {
+			continue
+		}
+
+		extendedBaselineSentinel[indicator.Name] = *sentinel
+	}
+
+	util.SetSPDBaselineSentinel(spd, baselineSentinel)
+	util.SetSPDExtendedBaselineSentinel(spd, extendedBaselineSentinel)
 	return nil
 }
 
-// calculateBaselineSentinel returns the sentinel one for a list of pods
-// referenced by the SPD. If one pod's createTime is less than the sentinel pod
-func (sc *SPDController) calculateBaselineSentinel(spd *v1alpha1.ServiceProfileDescriptor) (util.SPDBaselinePodMeta, error) {
+// getSPDPodMetaList get spd pod meta list in order
+func (sc *SPDController) getSPDPodMetaList(spd *v1alpha1.ServiceProfileDescriptor) ([]util.SPDBaselinePodMeta, error) {
 	gvr, _ := meta.UnsafeGuessKindToResource(schema.FromAPIVersionAndKind(spd.Spec.TargetRef.APIVersion, spd.Spec.TargetRef.Kind))
 	workloadLister, ok := sc.workloadLister[gvr]
 	if !ok {
-		return util.SPDBaselinePodMeta{}, fmt.Errorf("without workload lister for gvr %v", gvr)
+		return nil, fmt.Errorf("without workload lister for gvr %v", gvr)
 	}
 
 	podList, err := util.GetPodListForSPD(spd, sc.podIndexer, sc.conf.SPDPodLabelIndexerKeys, workloadLister, sc.podLister)
 	if err != nil {
-		return util.SPDBaselinePodMeta{}, err
+		return nil, err
 	}
 
 	podList = native.FilterPods(podList, func(pod *v1.Pod) (bool, error) {
 		return native.PodIsActive(pod), nil
 	})
 	if len(podList) == 0 {
-		return util.SPDBaselinePodMeta{}, nil
+		return nil, nil
 	}
 
-	bcList := make([]util.SPDBaselinePodMeta, 0, len(podList))
+	podMetaList := make([]util.SPDBaselinePodMeta, 0, len(podList))
 	for _, p := range podList {
-		bcList = append(bcList, util.GetPodMeta(p))
+		podMetaList = append(podMetaList, util.GetPodMeta(p))
 	}
-	sort.SliceStable(bcList, func(i, j int) bool {
-		return bcList[i].Cmp(bcList[j]) < 0
+	sort.SliceStable(podMetaList, func(i, j int) bool {
+		return podMetaList[i].Cmp(podMetaList[j]) < 0
 	})
-	baselineIndex := int(math.Floor(float64(len(bcList)-1) * float64(*spd.Spec.BaselinePercent) / 100))
-	return bcList[baselineIndex], nil
+
+	return podMetaList, nil
+}
+
+// calculateBaselineSentinel returns the sentinel one for a list of pods
+// referenced by the SPD. If one pod's createTime is less than the sentinel pod
+func calculateBaselineSentinel(podMetaList []util.SPDBaselinePodMeta, baselinePercent *int32) *util.SPDBaselinePodMeta {
+	if baselinePercent == nil || *baselinePercent >= consts.SPDBaselinePercentMax ||
+		*baselinePercent <= consts.SPDBaselinePercentMin {
+		return nil
+	}
+
+	if len(podMetaList) == 0 {
+		return nil
+	}
+
+	baselineIndex := int(math.Floor(float64(len(podMetaList)-1) * float64(*baselinePercent) / 100))
+	return &podMetaList[baselineIndex]
 }

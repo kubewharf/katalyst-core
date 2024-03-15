@@ -182,15 +182,15 @@ func TestIsBaselinePod(t *testing.T) {
 	t.Parallel()
 
 	type args struct {
-		pod *v1.Pod
-		spd *v1alpha1.ServiceProfileDescriptor
+		pod              *v1.Pod
+		baselinePercent  *int32
+		baselineSentinel *SPDBaselinePodMeta
 	}
 	tests := []struct {
-		name                string
-		args                args
-		wantIsBaselinePod   bool
-		wantBaselineEnabled bool
-		wantErr             bool
+		name              string
+		args              args
+		wantIsBaselinePod bool
+		wantErr           bool
 	}{
 		{
 			name: "baseline pod",
@@ -201,23 +201,13 @@ func TestIsBaselinePod(t *testing.T) {
 						CreationTimestamp: metav1.NewTime(time.Date(2023, time.August, 1, 0, 0, 0, 0, time.UTC)),
 					},
 				},
-				spd: &v1alpha1.ServiceProfileDescriptor{
-					ObjectMeta: metav1.ObjectMeta{
-						Name: "test-spd",
-						Annotations: map[string]string{
-							consts.SPDAnnotationBaselineSentinelKey: SPDBaselinePodMeta{
-								TimeStamp: metav1.NewTime(time.Date(2023, time.August, 1, 0, 0, 0, 0, time.UTC)),
-								PodName:   "test-pod",
-							}.String(),
-						},
-					},
-					Spec: v1alpha1.ServiceProfileDescriptorSpec{
-						BaselinePercent: pointer.Int32(10),
-					},
+				baselinePercent: pointer.Int32(10),
+				baselineSentinel: &SPDBaselinePodMeta{
+					TimeStamp: metav1.NewTime(time.Date(2023, time.August, 1, 0, 0, 0, 0, time.UTC)),
+					PodName:   "test-pod",
 				},
 			},
-			wantIsBaselinePod:   true,
-			wantBaselineEnabled: true,
+			wantIsBaselinePod: true,
 		},
 		{
 			name: "not baseline pod",
@@ -228,23 +218,13 @@ func TestIsBaselinePod(t *testing.T) {
 						CreationTimestamp: metav1.NewTime(time.Date(2023, time.August, 2, 0, 0, 0, 0, time.UTC)),
 					},
 				},
-				spd: &v1alpha1.ServiceProfileDescriptor{
-					ObjectMeta: metav1.ObjectMeta{
-						Name: "test-spd",
-						Annotations: map[string]string{
-							consts.SPDAnnotationBaselineSentinelKey: SPDBaselinePodMeta{
-								TimeStamp: metav1.Time{},
-								PodName:   "",
-							}.String(),
-						},
-					},
-					Spec: v1alpha1.ServiceProfileDescriptorSpec{
-						BaselinePercent: pointer.Int32(10),
-					},
+				baselinePercent: pointer.Int32(10),
+				baselineSentinel: &SPDBaselinePodMeta{
+					TimeStamp: metav1.Time{},
+					PodName:   "",
 				},
 			},
-			wantIsBaselinePod:   false,
-			wantBaselineEnabled: true,
+			wantIsBaselinePod: false,
 		},
 		{
 			name: "baseline disabled",
@@ -255,14 +235,10 @@ func TestIsBaselinePod(t *testing.T) {
 						CreationTimestamp: metav1.NewTime(time.Date(2023, time.August, 2, 0, 0, 0, 0, time.UTC)),
 					},
 				},
-				spd: &v1alpha1.ServiceProfileDescriptor{
-					ObjectMeta: metav1.ObjectMeta{
-						Name: "test-spd",
-					},
-				},
+				baselinePercent:  nil,
+				baselineSentinel: nil,
 			},
-			wantIsBaselinePod:   false,
-			wantBaselineEnabled: false,
+			wantIsBaselinePod: false,
 		},
 		{
 			name: "baseline 100%",
@@ -273,17 +249,10 @@ func TestIsBaselinePod(t *testing.T) {
 						CreationTimestamp: metav1.NewTime(time.Date(2023, time.August, 2, 0, 0, 0, 0, time.UTC)),
 					},
 				},
-				spd: &v1alpha1.ServiceProfileDescriptor{
-					ObjectMeta: metav1.ObjectMeta{
-						Name: "test-spd",
-					},
-					Spec: v1alpha1.ServiceProfileDescriptorSpec{
-						BaselinePercent: pointer.Int32(100),
-					},
-				},
+				baselinePercent:  pointer.Int32(100),
+				baselineSentinel: nil,
 			},
-			wantIsBaselinePod:   true,
-			wantBaselineEnabled: true,
+			wantIsBaselinePod: true,
 		},
 		{
 			name: "baseline 0%",
@@ -294,31 +263,21 @@ func TestIsBaselinePod(t *testing.T) {
 						CreationTimestamp: metav1.NewTime(time.Date(2023, time.August, 2, 0, 0, 0, 0, time.UTC)),
 					},
 				},
-				spd: &v1alpha1.ServiceProfileDescriptor{
-					ObjectMeta: metav1.ObjectMeta{
-						Name: "test-spd",
-					},
-					Spec: v1alpha1.ServiceProfileDescriptorSpec{
-						BaselinePercent: pointer.Int32(0),
-					},
-				},
+				baselinePercent:  pointer.Int32(0),
+				baselineSentinel: nil,
 			},
-			wantIsBaselinePod:   false,
-			wantBaselineEnabled: true,
+			wantIsBaselinePod: false,
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, got1, err := IsBaselinePod(tt.args.pod, tt.args.spd)
+			got, err := IsBaselinePod(tt.args.pod, tt.args.baselinePercent, tt.args.baselineSentinel)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("IsBaselinePod() error = %v, wantErr %v", err, tt.wantErr)
 				return
 			}
 			if got != tt.wantIsBaselinePod {
 				t.Errorf("IsBaselinePod() got = %v, want %v", got, tt.wantIsBaselinePod)
-			}
-			if got1 != tt.wantBaselineEnabled {
-				t.Errorf("IsBaselinePod() got1 = %v, want %v", got1, tt.wantBaselineEnabled)
 			}
 		})
 	}

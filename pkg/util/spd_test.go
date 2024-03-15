@@ -17,6 +17,7 @@ limitations under the License.
 package util
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -29,6 +30,7 @@ import (
 	"k8s.io/client-go/dynamic/dynamicinformer"
 	dynamicfake "k8s.io/client-go/dynamic/fake"
 	"k8s.io/client-go/tools/cache"
+	"k8s.io/utils/pointer"
 
 	apis "github.com/kubewharf/katalyst-api/pkg/apis/autoscaling/v1alpha1"
 	apiworkload "github.com/kubewharf/katalyst-api/pkg/apis/workload/v1alpha1"
@@ -170,4 +172,150 @@ func TestGetSPDForPod(t *testing.T) {
 	s, err = GetSPDForPod(pod2, spdInformer.Informer().GetIndexer(), workloadInformers, spdInformer.Lister())
 	assert.Nil(t, s)
 	assert.Error(t, err)
+}
+
+func TestGetExtendedIndicatorSpec(t *testing.T) {
+	type args struct {
+		baselinePercent *int32
+		indicators      interface{}
+	}
+	tests := []struct {
+		name    string
+		args    args
+		want    *apiworkload.ServiceExtendedIndicatorSpec
+		wantErr assert.ErrorAssertionFunc
+	}{
+		{
+			name: "nil indicators",
+			args: args{
+				baselinePercent: nil,
+				indicators:      nil,
+			},
+			want:    nil,
+			wantErr: assert.Error,
+		},
+		{
+			name: "test extended indicator spec",
+			args: args{
+				baselinePercent: nil,
+				indicators: &apiworkload.TestExtendedIndicators{
+					Indicators: &apiworkload.TestIndicators{},
+				},
+			},
+			want: &apiworkload.ServiceExtendedIndicatorSpec{
+				Name:            "TestExtended",
+				BaselinePercent: nil,
+				Indicators: runtime.RawExtension{
+					Object: &apiworkload.TestExtendedIndicators{
+						Indicators: &apiworkload.TestIndicators{},
+					},
+				},
+			},
+			wantErr: assert.NoError,
+		},
+		{
+			name: "test not pointer",
+			args: args{
+				baselinePercent: nil,
+				indicators:      apiworkload.TestExtendedIndicators{},
+			},
+			want:    nil,
+			wantErr: assert.Error,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := GetExtendedIndicatorSpec(tt.args.baselinePercent, tt.args.indicators)
+			if !tt.wantErr(t, err, fmt.Sprintf("GetExtendedIndicatorSpec(%v, %v)", tt.args.baselinePercent, tt.args.indicators)) {
+				return
+			}
+			assert.Equalf(t, tt.want, got, "GetExtendedIndicatorSpec(%v, %v)", tt.args.baselinePercent, tt.args.indicators)
+		})
+	}
+}
+
+func TestCalculateSPDHash(t *testing.T) {
+	type args struct {
+		spd *apiworkload.ServiceProfileDescriptor
+	}
+	tests := []struct {
+		name    string
+		args    args
+		want    string
+		wantErr assert.ErrorAssertionFunc
+	}{
+		{
+			name: "nil spd",
+			args: args{
+				spd: nil,
+			},
+			want:    "",
+			wantErr: assert.Error,
+		},
+		{
+			name: "test calculate spd hash",
+			args: args{
+				spd: &apiworkload.ServiceProfileDescriptor{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "spd1",
+						Namespace: "default",
+					},
+					Spec: apiworkload.ServiceProfileDescriptorSpec{
+						BusinessIndicator: []apiworkload.ServiceBusinessIndicatorSpec{
+							{
+								Name: "indicator1",
+							},
+						},
+					},
+				},
+			},
+			want:    "aad83840e233",
+			wantErr: assert.NoError,
+		},
+		{
+			name: "test calculate spd hash with baseline",
+			args: args{
+				spd: &apiworkload.ServiceProfileDescriptor{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "spd1",
+						Namespace: "default",
+						Annotations: map[string]string{
+							apiconsts.SPDAnnotationBaselineSentinelKey:         "{\"timeStamp\":\"1970-01-20T13:40:48Z\",\"podName\":\"test-spd\"}",
+							apiconsts.SPDAnnotationExtendedBaselineSentinelKey: "{\"TestExtended\":{\"timeStamp\":\"2023-08-01T00:00:01Z\",\"podName\":\"pod1\"}}",
+						},
+					},
+					Spec: apiworkload.ServiceProfileDescriptorSpec{
+						BaselinePercent: pointer.Int32(80),
+						BusinessIndicator: []apiworkload.ServiceBusinessIndicatorSpec{
+							{
+								Name: "indicator1",
+							},
+						},
+						ExtendedIndicator: []apiworkload.ServiceExtendedIndicatorSpec{
+							{
+								Name:            "TestExtended",
+								BaselinePercent: pointer.Int32(20),
+								Indicators: runtime.RawExtension{
+									Object: &apiworkload.TestExtendedIndicators{
+										Indicators: &apiworkload.TestIndicators{},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+			want:    "3c853b718b3e",
+			wantErr: assert.NoError,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := CalculateSPDHash(tt.args.spd)
+			if !tt.wantErr(t, err, fmt.Sprintf("CalculateSPDHash(%v)", tt.args.spd)) {
+				return
+			}
+			assert.Equalf(t, tt.want, got, "CalculateSPDHash(%v)", tt.args.spd)
+		})
+	}
 }

@@ -177,9 +177,6 @@ func TestSPDController_updateBaselinePercentile(t *testing.T) {
 				ObjectMeta: metav1.ObjectMeta{
 					Namespace: "default",
 					Name:      "spd1",
-					Annotations: map[string]string{
-						consts.SPDAnnotationBaselineSentinelKey: util.SPDBaselinePodMeta{}.String(),
-					},
 				},
 				Spec: apiworkload.ServiceProfileDescriptorSpec{
 					TargetRef: apis.CrossVersionObjectReference{
@@ -288,6 +285,15 @@ func TestSPDController_updateBaselinePercentile(t *testing.T) {
 							APIVersion: stsGVK.GroupVersion().String(),
 						},
 						BaselinePercent: pointer.Int32(50),
+						ExtendedIndicator: []apiworkload.ServiceExtendedIndicatorSpec{
+							{
+								Name:            "TestExtended",
+								BaselinePercent: pointer.Int32(50),
+								Indicators: runtime.RawExtension{
+									Object: &apiworkload.TestExtendedIndicators{},
+								},
+							},
+						},
 					},
 					Status: apiworkload.ServiceProfileDescriptorStatus{},
 				},
@@ -297,7 +303,8 @@ func TestSPDController_updateBaselinePercentile(t *testing.T) {
 					Namespace: "default",
 					Name:      "spd1",
 					Annotations: map[string]string{
-						consts.SPDAnnotationBaselineSentinelKey: "{\"timeStamp\":\"2023-08-01T00:00:01Z\",\"podName\":\"pod2\"}",
+						consts.SPDAnnotationBaselineSentinelKey:         "{\"timeStamp\":\"2023-08-01T00:00:01Z\",\"podName\":\"pod2\"}",
+						consts.SPDAnnotationExtendedBaselineSentinelKey: "{\"TestExtended\":{\"timeStamp\":\"2023-08-01T00:00:01Z\",\"podName\":\"pod2\"}}",
 					},
 				},
 				Spec: apiworkload.ServiceProfileDescriptorSpec{
@@ -307,6 +314,15 @@ func TestSPDController_updateBaselinePercentile(t *testing.T) {
 						APIVersion: stsGVK.GroupVersion().String(),
 					},
 					BaselinePercent: pointer.Int32(50),
+					ExtendedIndicator: []apiworkload.ServiceExtendedIndicatorSpec{
+						{
+							Name:            "TestExtended",
+							BaselinePercent: pointer.Int32(50),
+							Indicators: runtime.RawExtension{
+								Object: &apiworkload.TestExtendedIndicators{},
+							},
+						},
+					},
 				},
 				Status: apiworkload.ServiceProfileDescriptorStatus{},
 			},

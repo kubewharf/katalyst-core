@@ -19,6 +19,8 @@ package util
 import (
 	"encoding/json"
 	"fmt"
+	"reflect"
+	"strings"
 
 	"github.com/pkg/errors"
 	core "k8s.io/api/core/v1"
@@ -252,6 +254,26 @@ func InsertSPDSystemIndicatorSpec(spec *apiworkload.ServiceProfileDescriptorSpec
 	spec.SystemIndicator = append(spec.SystemIndicator, *serviceSystemIndicatorSpec)
 }
 
+func InsertSPDExtendedIndicatorSpec(spec *apiworkload.ServiceProfileDescriptorSpec,
+	serviceExtendedIndicatorSpec *apiworkload.ServiceExtendedIndicatorSpec) {
+	if spec == nil || serviceExtendedIndicatorSpec == nil {
+		return
+	}
+
+	if spec.ExtendedIndicator == nil {
+		spec.ExtendedIndicator = []apiworkload.ServiceExtendedIndicatorSpec{}
+	}
+
+	for i := range spec.ExtendedIndicator {
+		if spec.ExtendedIndicator[i].Name == serviceExtendedIndicatorSpec.Name {
+			spec.ExtendedIndicator[i].BaselinePercent = serviceExtendedIndicatorSpec.BaselinePercent
+			spec.ExtendedIndicator[i].Indicators = serviceExtendedIndicatorSpec.Indicators
+			return
+		}
+	}
+	spec.ExtendedIndicator = append(spec.ExtendedIndicator, *serviceExtendedIndicatorSpec)
+}
+
 func InsertSPDBusinessIndicatorStatus(status *apiworkload.ServiceProfileDescriptorStatus,
 	serviceBusinessIndicatorStatus *apiworkload.ServiceBusinessIndicatorStatus) {
 	if status == nil || serviceBusinessIndicatorStatus == nil {
@@ -303,11 +325,16 @@ func CalculateSPDHash(spd *apiworkload.ServiceProfileDescriptor) (string, error)
 	}
 
 	spdCopy := &apiworkload.ServiceProfileDescriptor{}
+	spdCopy.Annotations = make(map[string]string)
+
 	if sentinel, ok := spd.Annotations[apiconsts.SPDAnnotationBaselineSentinelKey]; ok {
-		spd.Annotations = map[string]string{
-			apiconsts.SPDAnnotationBaselineSentinelKey: sentinel,
-		}
+		spdCopy.Annotations[apiconsts.SPDAnnotationBaselineSentinelKey] = sentinel
 	}
+
+	if sentinel, ok := spd.Annotations[apiconsts.SPDAnnotationExtendedBaselineSentinelKey]; ok {
+		spdCopy.Annotations[apiconsts.SPDAnnotationExtendedBaselineSentinelKey] = sentinel
+	}
+
 	spdCopy.Spec = spd.Spec
 	spdCopy.Status = spd.Status
 	data, err := json.Marshal(spdCopy)
@@ -330,4 +357,47 @@ func GetPodSPDName(pod *core.Pod) (string, error) {
 	}
 
 	return spdName, nil
+}
+
+// GetExtendedIndicatorSpec get extended indicator spec by baseline percent and indicators.
+// The indicators must be a pointer to a struct that has a suffix "Indicators" in its name
+// and the indicators must be an implement of runtime.Object and use AddKnownTypes add to scheme
+// with the same group and version as the spd
+func GetExtendedIndicatorSpec(baselinePercent *int32, indicators interface{}) (*apiworkload.ServiceExtendedIndicatorSpec, error) {
+	name, o, err := GetExtendedIndicator(indicators)
+	if err != nil {
+		return nil, err
+	}
+
+	return &apiworkload.ServiceExtendedIndicatorSpec{
+		Name:            name,
+		BaselinePercent: baselinePercent,
+		Indicators: runtime.RawExtension{
+			Object: o,
+		},
+	}, nil
+}
+
+// GetExtendedIndicator get extended indicator name and object
+func GetExtendedIndicator(indicators interface{}) (string, runtime.Object, error) {
+	if indicators == nil {
+		return "", nil, fmt.Errorf("extended indicators is nil")
+	}
+
+	t := reflect.TypeOf(indicators)
+	if t.Kind() != reflect.Ptr {
+		return "", nil, fmt.Errorf("extended indicators must be pointers to structs")
+	}
+
+	o, ok := indicators.(runtime.Object)
+	if !ok {
+		return "", nil, fmt.Errorf("extended indicators must be an implement of runtime.Object")
+	}
+
+	name := t.Elem().Name()
+	if !strings.HasSuffix(name, apiworkload.ExtendedIndicatorSuffix) {
+		return "", nil, fmt.Errorf("extended indicators must have suffix 'Indicators'")
+	}
+
+	return strings.TrimSuffix(name, apiworkload.ExtendedIndicatorSuffix), o, nil
 }

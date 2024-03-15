@@ -422,3 +422,321 @@ func Test_serviceProfilingManager_ServiceSystemPerformanceTarget(t *testing.T) {
 		})
 	}
 }
+
+func Test_serviceProfilingManager_ServiceExtendedIndicator(t *testing.T) {
+	t.Parallel()
+
+	type fields struct {
+		nodeName string
+		spd      *workloadapis.ServiceProfileDescriptor
+		cnc      *v1alpha1.CustomNodeConfig
+	}
+	type args struct {
+		pod *v1.Pod
+	}
+	tests := []struct {
+		name       string
+		fields     fields
+		args       args
+		want       *workloadapis.TestExtendedIndicators
+		isBaseline bool
+		wantErr    bool
+	}{
+		{
+			name: "without baseline",
+			fields: fields{
+				nodeName: "node-1",
+				spd: &workloadapis.ServiceProfileDescriptor{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "spd-1",
+						Namespace: "default",
+						Annotations: map[string]string{
+							pkgconsts.ServiceProfileDescriptorAnnotationKeyConfigHash: "3c7e3ff3f218",
+						},
+					},
+					Spec: workloadapis.ServiceProfileDescriptorSpec{
+						ExtendedIndicator: []workloadapis.ServiceExtendedIndicatorSpec{
+							{
+								Name: "TestExtended",
+								Indicators: runtime.RawExtension{
+									Object: &workloadapis.TestExtendedIndicators{
+										Indicators: &workloadapis.TestIndicators{},
+									},
+								},
+							},
+						},
+					},
+				},
+				cnc: &v1alpha1.CustomNodeConfig{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "node-1",
+					},
+					Status: v1alpha1.CustomNodeConfigStatus{
+						ServiceProfileConfigList: []v1alpha1.TargetConfig{
+							{
+								ConfigName:      "spd-1",
+								ConfigNamespace: "default",
+								Hash:            "3c7e3ff3f218",
+							},
+						},
+					},
+				},
+			},
+			args: args{
+				pod: &v1.Pod{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "pod-1",
+						Namespace: "default",
+						Annotations: map[string]string{
+							consts.PodAnnotationSPDNameKey: "spd-1",
+						},
+					},
+				},
+			},
+			want: &workloadapis.TestExtendedIndicators{
+				Indicators: &workloadapis.TestIndicators{},
+			},
+		},
+		{
+			name: "with baseline",
+			fields: fields{
+				nodeName: "node-1",
+				spd: &workloadapis.ServiceProfileDescriptor{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "spd-1",
+						Namespace: "default",
+						Annotations: map[string]string{
+							pkgconsts.ServiceProfileDescriptorAnnotationKeyConfigHash: "3c7e3ff3f218",
+							consts.SPDAnnotationExtendedBaselineSentinelKey:           "{\"TestExtended\":{\"timeStamp\":\"2023-08-01T00:00:01Z\",\"podName\":\"pod1\"}}",
+						},
+					},
+					Spec: workloadapis.ServiceProfileDescriptorSpec{
+						ExtendedIndicator: []workloadapis.ServiceExtendedIndicatorSpec{
+							{
+								Name:            "TestExtended",
+								BaselinePercent: pointer.Int32(10),
+								Indicators: runtime.RawExtension{
+									Object: &workloadapis.TestExtendedIndicators{
+										Indicators: &workloadapis.TestIndicators{},
+									},
+								},
+							},
+						},
+					},
+				},
+				cnc: &v1alpha1.CustomNodeConfig{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "node-1",
+					},
+					Status: v1alpha1.CustomNodeConfigStatus{
+						ServiceProfileConfigList: []v1alpha1.TargetConfig{
+							{
+								ConfigName:      "spd-1",
+								ConfigNamespace: "default",
+								Hash:            "3c7e3ff3f218",
+							},
+						},
+					},
+				},
+			},
+			args: args{
+				pod: &v1.Pod{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "pod-1",
+						Namespace: "default",
+						Annotations: map[string]string{
+							consts.PodAnnotationSPDNameKey: "spd-1",
+						},
+					},
+				},
+			},
+			want: &workloadapis.TestExtendedIndicators{
+				Indicators: &workloadapis.TestIndicators{},
+			},
+			isBaseline: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir, err := ioutil.TempDir("", "checkpoint-Test_serviceProfilingManager_ServiceExtendedIndicator")
+			require.NoError(t, err)
+			defer os.RemoveAll(dir)
+
+			conf := generateTestConfiguration(t, tt.fields.nodeName, dir)
+			genericCtx, err := katalyst_base.GenerateFakeGenericContext(nil, []runtime.Object{
+				tt.fields.spd,
+				tt.fields.cnc,
+			})
+			require.NoError(t, err)
+
+			cncFetcher := cnc.NewCachedCNCFetcher(conf.BaseConfiguration, conf.CNCConfiguration, genericCtx.Client.InternalClient.ConfigV1alpha1().CustomNodeConfigs())
+			s, err := NewSPDFetcher(genericCtx.Client, metrics.DummyMetrics{}, cncFetcher, conf)
+			require.NoError(t, err)
+			require.NotNil(t, s)
+
+			m := NewServiceProfilingManager(s)
+			require.NoError(t, err)
+
+			// first get spd add pod spd key to cache
+			_, _ = s.GetSPD(context.Background(), tt.args.pod)
+			go m.Run(context.Background())
+			time.Sleep(1 * time.Second)
+
+			got := &workloadapis.TestExtendedIndicators{}
+			isBaseline, err := m.ServiceExtendedIndicator(context.Background(), tt.args.pod, got)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("ServiceExtendedIndicator() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if !apiequality.Semantic.DeepEqual(got, tt.want) {
+				t.Errorf("ServiceExtendedIndicator() got = %v, want %v", got, tt.want)
+			}
+			if isBaseline != tt.isBaseline {
+				t.Errorf("ServiceExtendedIndicator() isBaseline = %v, want %v", isBaseline, tt.isBaseline)
+			}
+		})
+	}
+}
+
+func Test_serviceProfilingManager_ServiceBaseline(t *testing.T) {
+	t.Parallel()
+
+	type fields struct {
+		nodeName string
+		spd      *workloadapis.ServiceProfileDescriptor
+		cnc      *v1alpha1.CustomNodeConfig
+	}
+	type args struct {
+		pod *v1.Pod
+	}
+	tests := []struct {
+		name       string
+		fields     fields
+		args       args
+		isBaseline bool
+		wantErr    bool
+	}{
+		{
+			name: "without baseline",
+			fields: fields{
+				nodeName: "node-1",
+				spd: &workloadapis.ServiceProfileDescriptor{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "spd-1",
+						Namespace: "default",
+						Annotations: map[string]string{
+							pkgconsts.ServiceProfileDescriptorAnnotationKeyConfigHash: "3c7e3ff3f218",
+						},
+					},
+					Spec: workloadapis.ServiceProfileDescriptorSpec{},
+				},
+				cnc: &v1alpha1.CustomNodeConfig{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "node-1",
+					},
+					Status: v1alpha1.CustomNodeConfigStatus{
+						ServiceProfileConfigList: []v1alpha1.TargetConfig{
+							{
+								ConfigName:      "spd-1",
+								ConfigNamespace: "default",
+								Hash:            "3c7e3ff3f218",
+							},
+						},
+					},
+				},
+			},
+			args: args{
+				pod: &v1.Pod{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "pod-1",
+						Namespace: "default",
+						Annotations: map[string]string{
+							consts.PodAnnotationSPDNameKey: "spd-1",
+						},
+					},
+				},
+			},
+		},
+		{
+			name: "with baseline",
+			fields: fields{
+				nodeName: "node-1",
+				spd: &workloadapis.ServiceProfileDescriptor{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "spd-1",
+						Namespace: "default",
+						Annotations: map[string]string{
+							pkgconsts.ServiceProfileDescriptorAnnotationKeyConfigHash: "3c7e3ff3f218",
+							consts.SPDAnnotationBaselineSentinelKey:                   "{\"timeStamp\":\"2023-08-01T00:00:01Z\",\"podName\":\"pod1\"}",
+						},
+					},
+					Spec: workloadapis.ServiceProfileDescriptorSpec{
+						BaselinePercent: pointer.Int32(10),
+					},
+				},
+				cnc: &v1alpha1.CustomNodeConfig{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "node-1",
+					},
+					Status: v1alpha1.CustomNodeConfigStatus{
+						ServiceProfileConfigList: []v1alpha1.TargetConfig{
+							{
+								ConfigName:      "spd-1",
+								ConfigNamespace: "default",
+								Hash:            "3c7e3ff3f218",
+							},
+						},
+					},
+				},
+			},
+			args: args{
+				pod: &v1.Pod{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "pod-1",
+						Namespace: "default",
+						Annotations: map[string]string{
+							consts.PodAnnotationSPDNameKey: "spd-1",
+						},
+					},
+				},
+			},
+			isBaseline: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir, err := ioutil.TempDir("", "checkpoint-Test_serviceProfilingManager_ServiceBaseline")
+			require.NoError(t, err)
+			defer os.RemoveAll(dir)
+
+			conf := generateTestConfiguration(t, tt.fields.nodeName, dir)
+			genericCtx, err := katalyst_base.GenerateFakeGenericContext(nil, []runtime.Object{
+				tt.fields.spd,
+				tt.fields.cnc,
+			})
+			require.NoError(t, err)
+
+			cncFetcher := cnc.NewCachedCNCFetcher(conf.BaseConfiguration, conf.CNCConfiguration, genericCtx.Client.InternalClient.ConfigV1alpha1().CustomNodeConfigs())
+			s, err := NewSPDFetcher(genericCtx.Client, metrics.DummyMetrics{}, cncFetcher, conf)
+			require.NoError(t, err)
+			require.NotNil(t, s)
+
+			m := NewServiceProfilingManager(s)
+			require.NoError(t, err)
+
+			// first get spd add pod spd key to cache
+			_, _ = s.GetSPD(context.Background(), tt.args.pod)
+			go m.Run(context.Background())
+			time.Sleep(1 * time.Second)
+
+			isBaseline, err := m.ServiceBaseline(context.Background(), tt.args.pod)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("ServiceBaseline() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if isBaseline != tt.isBaseline {
+				t.Errorf("ServiceBaseline() isBaseline = %v, want %v", isBaseline, tt.isBaseline)
+			}
+		})
+	}
+}

@@ -34,8 +34,9 @@ const (
 // IndicatorUpdater is used by IndicatorPlugin as a unified implementation
 // to trigger indicator updating logic.
 type IndicatorUpdater interface {
-	// UpdateBusinessIndicatorSpec + UpdateSystemIndicatorSpec + UpdateBusinessIndicatorStatus
+	// UpdateExtendedIndicatorSpec + UpdateBusinessIndicatorSpec + UpdateSystemIndicatorSpec + UpdateBusinessIndicatorStatus
 	// for indicator add functions, IndicatorUpdater will try to merge them in local stores.
+	UpdateExtendedIndicatorSpec(_ types.NamespacedName, _ []apiworkload.ServiceExtendedIndicatorSpec)
 	UpdateBusinessIndicatorSpec(_ types.NamespacedName, _ []apiworkload.ServiceBusinessIndicatorSpec)
 	UpdateSystemIndicatorSpec(_ types.NamespacedName, _ []apiworkload.ServiceSystemIndicatorSpec)
 	UpdateBusinessIndicatorStatus(_ types.NamespacedName, _ []apiworkload.ServiceBusinessIndicatorStatus)
@@ -75,6 +76,24 @@ func NewIndicatorManager() *IndicatorManager {
 
 		statusQueue: make(chan types.NamespacedName, indicatorStatusQueueLen),
 		statusMap:   make(map[types.NamespacedName]*apiworkload.ServiceProfileDescriptorStatus),
+	}
+}
+
+func (u *IndicatorManager) UpdateExtendedIndicatorSpec(nn types.NamespacedName, indicators []apiworkload.ServiceExtendedIndicatorSpec) {
+	u.specMtx.Lock()
+
+	insert := false
+	if _, ok := u.specMap[nn]; !ok {
+		insert = true
+		u.specMap[nn] = initServiceProfileDescriptorSpec()
+	}
+	for _, indicator := range indicators {
+		util.InsertSPDExtendedIndicatorSpec(u.specMap[nn], &indicator)
+	}
+	u.specMtx.Unlock()
+
+	if insert {
+		u.specQueue <- nn
 	}
 }
 
@@ -173,6 +192,7 @@ func (u *IndicatorManager) GetIndicatorStatus(nn types.NamespacedName) *apiworkl
 
 func initServiceProfileDescriptorSpec() *apiworkload.ServiceProfileDescriptorSpec {
 	return &apiworkload.ServiceProfileDescriptorSpec{
+		ExtendedIndicator: []apiworkload.ServiceExtendedIndicatorSpec{},
 		BusinessIndicator: []apiworkload.ServiceBusinessIndicatorSpec{},
 		SystemIndicator:   []apiworkload.ServiceSystemIndicatorSpec{},
 	}

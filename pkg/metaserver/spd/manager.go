@@ -19,11 +19,15 @@ package spd
 import (
 	"context"
 	"fmt"
+	"reflect"
+	"strings"
 
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 
+	workloadapis "github.com/kubewharf/katalyst-api/pkg/apis/workload/v1alpha1"
 	"github.com/kubewharf/katalyst-core/pkg/util"
 )
 
@@ -57,6 +61,9 @@ type ServiceProfilingManager interface {
 	// ServiceBaseline returns whether this pod is baseline
 	ServiceBaseline(ctx context.Context, pod *v1.Pod) (bool, error)
 
+	// ServiceExtendedIndicator load the extended indicators and return whether the pod is baseline for the extended indicators
+	ServiceExtendedIndicator(ctx context.Context, pod *v1.Pod, indicators interface{}) (bool, error)
+
 	// Run starts the service profiling manager
 	Run(ctx context.Context)
 }
@@ -70,7 +77,11 @@ type DummyServiceProfilingManager struct {
 	podProfiles map[types.UID]DummyPodServiceProfile
 }
 
-func (d *DummyServiceProfilingManager) ServiceBaseline(ctx context.Context, pod *v1.Pod) (bool, error) {
+func (d *DummyServiceProfilingManager) ServiceExtendedIndicator(_ context.Context, _ *v1.Pod, _ interface{}) (bool, error) {
+	return false, nil
+}
+
+func (d *DummyServiceProfilingManager) ServiceBaseline(_ context.Context, _ *v1.Pod) (bool, error) {
 	return false, nil
 }
 
@@ -106,6 +117,50 @@ type serviceProfilingManager struct {
 	fetcher SPDFetcher
 }
 
+func (m *serviceProfilingManager) ServiceExtendedIndicator(ctx context.Context, pod *v1.Pod, indicators interface{}) (bool, error) {
+	spd, err := m.fetcher.GetSPD(ctx, pod)
+	if err != nil {
+		return false, err
+	}
+
+	extendedBaselineSentinel, err := util.GetSPDExtendedBaselineSentinel(spd)
+	if err != nil {
+		return false, err
+	}
+
+	name, o, err := util.GetExtendedIndicator(indicators)
+	if err != nil {
+		return false, err
+	}
+
+	for _, indicator := range spd.Spec.ExtendedIndicator {
+		if indicator.Name != name {
+			continue
+		}
+
+		object := indicator.Indicators.Object
+		if object == nil {
+			return false, fmt.Errorf("%s inidators object is nil", name)
+		}
+
+		t := reflect.TypeOf(indicators)
+		if t.Kind() != reflect.Ptr {
+			return false, fmt.Errorf("indicators must be pointers to structs")
+		}
+
+		v := reflect.ValueOf(object)
+		if !v.CanConvert(t) {
+			return false, fmt.Errorf("%s indicators object cannot convert to %v", name, t.Name())
+		}
+
+		reflect.ValueOf(indicators).Elem().Set(v.Convert(t).Elem())
+		return util.IsExtendedBaselinePod(pod, indicator.BaselinePercent, extendedBaselineSentinel, name)
+	}
+
+	return false, errors.NewNotFound(schema.GroupResource{Group: workloadapis.GroupName,
+		Resource: strings.ToLower(o.GetObjectKind().GroupVersionKind().Kind)}, name)
+}
+
 func (m *serviceProfilingManager) ServiceBaseline(ctx context.Context, pod *v1.Pod) (bool, error) {
 	spd, err := m.fetcher.GetSPD(ctx, pod)
 	if err != nil && !errors.IsNotFound(err) {
@@ -114,16 +169,17 @@ func (m *serviceProfilingManager) ServiceBaseline(ctx context.Context, pod *v1.P
 		return false, nil
 	}
 
-	baselinePod, enable, err := util.IsBaselinePod(pod, spd)
+	baselineSentinel, err := util.GetSPDBaselineSentinel(spd)
 	if err != nil {
 		return false, err
 	}
 
-	if enable {
-		return baselinePod, nil
+	isBaseline, err := util.IsBaselinePod(pod, spd.Spec.BaselinePercent, baselineSentinel)
+	if err != nil {
+		return false, err
 	}
 
-	return false, nil
+	return isBaseline, nil
 }
 
 func NewServiceProfilingManager(fetcher SPDFetcher) ServiceProfilingManager {

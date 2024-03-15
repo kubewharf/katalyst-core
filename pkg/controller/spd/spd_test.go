@@ -535,6 +535,16 @@ func TestIndicatorUpdater(t *testing.T) {
 				APIVersion: stsGVK.GroupVersion().String(),
 			},
 			BaselinePercent: pointer.Int32(20),
+			ExtendedIndicator: []apiworkload.ServiceExtendedIndicatorSpec{
+				{
+					Name: "TestExtended",
+					Indicators: runtime.RawExtension{
+						Object: &apiworkload.TestExtendedIndicators{
+							Indicators: &apiworkload.TestIndicators{},
+						},
+					},
+				},
+			},
 			BusinessIndicator: []apiworkload.ServiceBusinessIndicatorSpec{
 				{
 					Name: "business-1",
@@ -614,6 +624,9 @@ func TestIndicatorUpdater(t *testing.T) {
 	}
 
 	d1 := indicator_plugin.DummyIndicatorPlugin{
+		ExtendedSpecNames: []string{
+			"TestExtended",
+		},
 		SystemSpecNames: []apiworkload.ServiceSystemIndicatorName{
 			"system-1",
 		},
@@ -670,6 +683,17 @@ func TestIndicatorUpdater(t *testing.T) {
 	go sc.Run()
 	synced := cache.WaitForCacheSync(ctx.Done(), sc.syncedFunc...)
 	assert.True(t, synced)
+
+	sc.indicatorManager.UpdateExtendedIndicatorSpec(nn, []apiworkload.ServiceExtendedIndicatorSpec{
+		{
+			Name: "TestExtended",
+			Indicators: runtime.RawExtension{
+				Object: &apiworkload.TestExtendedIndicators{
+					Indicators: &apiworkload.TestIndicators{},
+				},
+			},
+		},
+	})
 
 	sc.indicatorManager.UpdateBusinessIndicatorSpec(nn, []apiworkload.ServiceBusinessIndicatorSpec{
 		{
@@ -753,6 +777,7 @@ func TestIndicatorUpdater(t *testing.T) {
 	newSPD, err := controlCtx.Client.InternalClient.WorkloadV1alpha1().
 		ServiceProfileDescriptors("default").Get(ctx, "spd1", metav1.GetOptions{})
 	assert.NoError(t, err)
+	assert.Equal(t, expectedSpd.Spec.ExtendedIndicator, newSPD.Spec.ExtendedIndicator)
 	assert.Equal(t, expectedSpd.Spec.BusinessIndicator, newSPD.Spec.BusinessIndicator)
 	assert.Equal(t, expectedSpd.Spec.SystemIndicator, newSPD.Spec.SystemIndicator)
 	assert.Equal(t, expectedSpd.Status.BusinessStatus, newSPD.Status.BusinessStatus)
