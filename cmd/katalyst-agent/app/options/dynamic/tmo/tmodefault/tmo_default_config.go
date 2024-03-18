@@ -31,7 +31,7 @@ type DefaultOptions struct {
 	DefaultTMOInterval                                 time.Duration
 	DefaultTMOPolicyName                               string
 	DefaultTMOMaxProbe                                 float64
-	DefaultTMOPSIPolicyPsiAvg60Threshold               float64
+	DefaultTMOPSIPolicyPSIAvg60Threshold               float64
 	DefaultTMORefaultPolicyReclaimAccuracyTarget       float64
 	DefaultTMORefaultPolicyReclaimScanEfficiencyTarget float64
 }
@@ -43,7 +43,7 @@ func NewDefaultOptions() *DefaultOptions {
 		DefaultTMOInterval:                                 tmodynamicconf.DefaultTMOInterval,
 		DefaultTMOPolicyName:                               string(tmodynamicconf.DefaultTMOPolicyName),
 		DefaultTMOMaxProbe:                                 tmodynamicconf.DefaultTMOMaxProbe,
-		DefaultTMOPSIPolicyPsiAvg60Threshold:               tmodynamicconf.DefaultTMOPSIPolicyPsiAvg60Threshold,
+		DefaultTMOPSIPolicyPSIAvg60Threshold:               tmodynamicconf.DefaultTMOPSIPolicyPSIAvg60Threshold,
 		DefaultTMORefaultPolicyReclaimAccuracyTarget:       tmodynamicconf.DefaultTMORefaultPolicyReclaimAccuracyTarget,
 		DefaultTMORefaultPolicyReclaimScanEfficiencyTarget: tmodynamicconf.DefaultTMORefaultPolicyReclaimScanEfficiencyTarget,
 	}
@@ -62,7 +62,7 @@ func (o *DefaultOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 		"default policy used to calculate memory offloading size")
 	fs.Float64Var(&o.DefaultTMOMaxProbe, "default-max-probe", o.DefaultTMOMaxProbe,
 		"default maximum ratio of memory usage could be offloaded in one cycle")
-	fs.Float64Var(&o.DefaultTMOPSIPolicyPsiAvg60Threshold, "default-psi-policy-psi-avg60-threshold", o.DefaultTMOPSIPolicyPsiAvg60Threshold,
+	fs.Float64Var(&o.DefaultTMOPSIPolicyPSIAvg60Threshold, "default-psi-policy-psi-avg60-threshold", o.DefaultTMOPSIPolicyPSIAvg60Threshold,
 		"indicates the default threshold of memory pressure. If observed pressure exceeds this threshold, memory offloading will be paused.")
 	fs.Float64Var(&o.DefaultTMORefaultPolicyReclaimAccuracyTarget, "default-refault-policy-reclaim-accuracy-target", o.DefaultTMORefaultPolicyReclaimAccuracyTarget,
 		"indicates the default desired level of precision or accuracy in offloaded pages")
@@ -76,7 +76,7 @@ func (o *DefaultOptions) ApplyTo(c *tmodynamicconf.TMODefaultConfigurations) err
 	c.DefaultTMOInterval = o.DefaultTMOInterval
 	c.DefaultTMOPolicyName = v1alpha1.TMOPolicyName(o.DefaultTMOPolicyName)
 	c.DefaultTMOMaxProbe = o.DefaultTMOMaxProbe
-	c.DefaultTMOPSIPolicyPsiAvg60Threshold = o.DefaultTMOPSIPolicyPsiAvg60Threshold
+	c.DefaultTMOPSIPolicyPSIAvg60Threshold = o.DefaultTMOPSIPolicyPSIAvg60Threshold
 	c.DefaultTMORefaultPolicyReclaimAccuracyTarget = o.DefaultTMORefaultPolicyReclaimAccuracyTarget
 	c.DefaultTMORefaultPolicyReclaimScanEfficiencyTarget = o.DefaultTMORefaultPolicyReclaimScanEfficiencyTarget
 	return nil

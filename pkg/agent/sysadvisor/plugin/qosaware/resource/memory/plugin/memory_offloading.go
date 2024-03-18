@@ -24,29 +24,24 @@ import (
 	"sync"
 	"time"
 
-	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource/helper"
-
-	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/tmo"
-	"github.com/kubewharf/katalyst-core/pkg/consts"
+	"github.com/pkg/errors"
 
 	"github.com/kubewharf/katalyst-api/pkg/apis/config/v1alpha1"
 	katalystapiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
-
-	"github.com/pkg/errors"
-
-	"github.com/kubewharf/katalyst-core/pkg/util/general"
-
-	"github.com/kubewharf/katalyst-core/pkg/util/cgroup/common"
-
-	"github.com/kubewharf/katalyst-core/pkg/util/native"
-
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/memory/dynamicpolicy/memoryadvisor"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
+	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource/helper"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
 	"github.com/kubewharf/katalyst-core/pkg/config"
+	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/tmo"
+	tmoconf "github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/tmo"
+	"github.com/kubewharf/katalyst-core/pkg/consts"
 	katalystcoreconsts "github.com/kubewharf/katalyst-core/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
+	"github.com/kubewharf/katalyst-core/pkg/util/cgroup/common"
+	"github.com/kubewharf/katalyst-core/pkg/util/general"
+	"github.com/kubewharf/katalyst-core/pkg/util/native"
 )
 
 const (
@@ -82,16 +77,16 @@ type TmoStats struct {
 type TmoPolicyFn func(
 	lastStats TmoStats,
 	currStats TmoStats,
-	conf *tmo.TMOConfigDetail) (error, float64)
+	conf *tmoconf.TMOConfigDetail) (error, float64)
 
-func psiPolicyFunc(lastStats TmoStats, currStats TmoStats, conf *tmo.TMOConfigDetail) (error, float64) {
+func psiPolicyFunc(lastStats TmoStats, currStats TmoStats, conf *tmoconf.TMOConfigDetail) (error, float64) {
 	if conf.PSIPolicyConf == nil {
 		return errors.New("psi policy requires psi policy configuration"), 0
 	}
 	return nil, math.Max(0, 1-(currStats.memPsiAvg60)/(conf.PSIPolicyConf.PsiAvg60Threshold)) * conf.PSIPolicyConf.MaxProbe * currStats.memUsage
 }
 
-func refaultPolicyFunc(lastStats TmoStats, currStats TmoStats, conf *tmo.TMOConfigDetail) (error, float64) {
+func refaultPolicyFunc(lastStats TmoStats, currStats TmoStats, conf *tmoconf.TMOConfigDetail) (error, float64) {
 	if conf.RefaultPolicyConf == nil {
 		return errors.New("refault policy requires refault policy configurations"), 0
 	}
@@ -373,7 +368,16 @@ func (tmo *transparentMemoryOffloading) Reconcile(status *types.MemoryPressureSt
 					tmo.containerTmoEngines[podContainerName].LoadConf(tmoConfigDetail)
 				}
 			}
-			// TODO: load SPD conf if exists
+			// load SPD conf if exists
+			tmoIndicator := &v1alpha1.TransparentMemoryOffloadingIndicators{}
+			isBaseline, err := tmo.metaServer.ServiceProfilingManager.ServiceExtendedIndicator(context.Background(), pod, tmoIndicator)
+			if err == nil && !isBaseline {
+				general.Infof("Load Service Level TMO config for podContainerName %s", podContainerName)
+				tmoConfigDetail := tmo.containerTmoEngines[podContainerName].GetConf()
+				if tmoIndicator.ConfigDetail != nil {
+					tmoconf.ApplyTMOConfigDetail(tmoConfigDetail, *tmoIndicator.ConfigDetail)
+				}
+			}
 
 			// disable TMO if the Pod is numa exclusive and is not reclaimable
 			enableReclaim, _ := helper.PodEnableReclaim(context.Background(), tmo.metaServer, containerInfo.PodUID, true)

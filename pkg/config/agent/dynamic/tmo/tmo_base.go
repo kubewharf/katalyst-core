@@ -30,7 +30,7 @@ const (
 	DefaultTMOInterval                                 time.Duration          = 30 * time.Second
 	DefaultTMOPolicyName                               v1alpha1.TMOPolicyName = v1alpha1.TMOPolicyNamePSI
 	DefaultTMOMaxProbe                                 float64                = 0.005
-	DefaultTMOPSIPolicyPsiAvg60Threshold               float64                = 0.1
+	DefaultTMOPSIPolicyPSIAvg60Threshold               float64                = 0.1
 	DefaultTMORefaultPolicyReclaimAccuracyTarget       float64                = 0.9
 	DefaultTMORefaultPolicyReclaimScanEfficiencyTarget float64                = 0.6
 )
@@ -55,7 +55,7 @@ type TMODefaultConfigurations struct {
 	DefaultTMOInterval                                 time.Duration
 	DefaultTMOPolicyName                               v1alpha1.TMOPolicyName
 	DefaultTMOMaxProbe                                 float64
-	DefaultTMOPSIPolicyPsiAvg60Threshold               float64
+	DefaultTMOPSIPolicyPSIAvg60Threshold               float64
 	DefaultTMORefaultPolicyReclaimAccuracyTarget       float64
 	DefaultTMORefaultPolicyReclaimScanEfficiencyTarget float64
 }
@@ -67,7 +67,7 @@ func NewTMODefaultConfigurations() *TMODefaultConfigurations {
 		DefaultTMOInterval:                                 DefaultTMOInterval,
 		DefaultTMOPolicyName:                               DefaultTMOPolicyName,
 		DefaultTMOMaxProbe:                                 DefaultTMOMaxProbe,
-		DefaultTMOPSIPolicyPsiAvg60Threshold:               DefaultTMOPSIPolicyPsiAvg60Threshold,
+		DefaultTMOPSIPolicyPSIAvg60Threshold:               DefaultTMOPSIPolicyPSIAvg60Threshold,
 		DefaultTMORefaultPolicyReclaimAccuracyTarget:       DefaultTMORefaultPolicyReclaimAccuracyTarget,
 		DefaultTMORefaultPolicyReclaimScanEfficiencyTarget: DefaultTMORefaultPolicyReclaimScanEfficiencyTarget,
 	}
@@ -90,7 +90,7 @@ func NewTMOConfigDetail(defaultConfigs *TMODefaultConfigurations) *TMOConfigDeta
 		PolicyName: defaultConfigs.DefaultTMOPolicyName,
 		PSIPolicyConf: &PSIPolicyConf{
 			MaxProbe:          defaultConfigs.DefaultTMOMaxProbe,
-			PsiAvg60Threshold: defaultConfigs.DefaultTMOPSIPolicyPsiAvg60Threshold,
+			PsiAvg60Threshold: defaultConfigs.DefaultTMOPSIPolicyPSIAvg60Threshold,
 		},
 		RefaultPolicyConf: &RefaultPolicyConf{
 			MaxProbe:                    defaultConfigs.DefaultTMOMaxProbe,
@@ -111,45 +111,46 @@ type RefaultPolicyConf struct {
 	ReclaimScanEfficiencyTarget float64
 }
 
-func (c *TransparentMemoryOffloadingConfiguration) ApplyConfiguration(conf *crd.DynamicConfigCRD) {
-	applyConfigDetail := func(tmoConfigDetail *TMOConfigDetail, tmoConfigDetailDynamic v1alpha1.TMOConfigDetail) {
-		if tmoConfigDetailDynamic.EnableTMO != nil {
-			tmoConfigDetail.EnableTMO = *tmoConfigDetailDynamic.EnableTMO
+func ApplyTMOConfigDetail(tmoConfigDetail *TMOConfigDetail, tmoConfigDetailDynamic v1alpha1.TMOConfigDetail) {
+	if tmoConfigDetailDynamic.EnableTMO != nil {
+		tmoConfigDetail.EnableTMO = *tmoConfigDetailDynamic.EnableTMO
+	}
+	if tmoConfigDetailDynamic.EnableSwap != nil {
+		tmoConfigDetail.EnableSwap = *tmoConfigDetailDynamic.EnableSwap
+	}
+	if tmoConfigDetailDynamic.Interval != nil {
+		tmoConfigDetail.Interval = tmoConfigDetailDynamic.Interval.Duration
+	}
+	if tmoConfigDetailDynamic.PolicyName != nil {
+		tmoConfigDetail.PolicyName = *tmoConfigDetailDynamic.PolicyName
+	}
+	if psiPolicyConfDynamic := tmoConfigDetailDynamic.PSIPolicyConf; psiPolicyConfDynamic != nil {
+		if psiPolicyConfDynamic.MaxProbe != nil {
+			tmoConfigDetail.PSIPolicyConf.MaxProbe = *psiPolicyConfDynamic.MaxProbe
 		}
-		if tmoConfigDetailDynamic.EnableSwap != nil {
-			tmoConfigDetail.EnableSwap = *tmoConfigDetailDynamic.EnableSwap
-		}
-		if tmoConfigDetailDynamic.Interval != nil {
-			tmoConfigDetail.Interval = tmoConfigDetailDynamic.Interval.Duration
-		}
-		if tmoConfigDetailDynamic.PolicyName != nil {
-			tmoConfigDetail.PolicyName = *tmoConfigDetailDynamic.PolicyName
-		}
-		if psiPolicyConfDynamic := tmoConfigDetailDynamic.PSIPolicyConf; psiPolicyConfDynamic != nil {
-			if psiPolicyConfDynamic.MaxProbe != nil {
-				tmoConfigDetail.PSIPolicyConf.MaxProbe = *psiPolicyConfDynamic.MaxProbe
-			}
-			if psiPolicyConfDynamic.PsiAvg60Threshold != nil {
-				tmoConfigDetail.PSIPolicyConf.PsiAvg60Threshold = *psiPolicyConfDynamic.PsiAvg60Threshold
-			}
-		}
-		if refaultPolicyConfDynamic := tmoConfigDetailDynamic.RefaultPolicConf; refaultPolicyConfDynamic != nil {
-			if refaultPolicyConfDynamic.MaxProbe != nil {
-				tmoConfigDetail.RefaultPolicyConf.MaxProbe = *refaultPolicyConfDynamic.MaxProbe
-			}
-			if refaultPolicyConfDynamic.ReclaimScanEfficiencyTarget != nil {
-				tmoConfigDetail.RefaultPolicyConf.ReclaimAccuracyTarget = *refaultPolicyConfDynamic.ReclaimAccuracyTarget
-			}
-			if refaultPolicyConfDynamic.ReclaimScanEfficiencyTarget != nil {
-				tmoConfigDetail.RefaultPolicyConf.ReclaimScanEfficiencyTarget = *refaultPolicyConfDynamic.ReclaimScanEfficiencyTarget
-			}
+		if psiPolicyConfDynamic.PSIAvg60Threshold != nil {
+			tmoConfigDetail.PSIPolicyConf.PsiAvg60Threshold = *psiPolicyConfDynamic.PSIAvg60Threshold
 		}
 	}
+	if refaultPolicyConfDynamic := tmoConfigDetailDynamic.RefaultPolicConf; refaultPolicyConfDynamic != nil {
+		if refaultPolicyConfDynamic.MaxProbe != nil {
+			tmoConfigDetail.RefaultPolicyConf.MaxProbe = *refaultPolicyConfDynamic.MaxProbe
+		}
+		if refaultPolicyConfDynamic.ReclaimScanEfficiencyTarget != nil {
+			tmoConfigDetail.RefaultPolicyConf.ReclaimAccuracyTarget = *refaultPolicyConfDynamic.ReclaimAccuracyTarget
+		}
+		if refaultPolicyConfDynamic.ReclaimScanEfficiencyTarget != nil {
+			tmoConfigDetail.RefaultPolicyConf.ReclaimScanEfficiencyTarget = *refaultPolicyConfDynamic.ReclaimScanEfficiencyTarget
+		}
+	}
+}
+
+func (c *TransparentMemoryOffloadingConfiguration) ApplyConfiguration(conf *crd.DynamicConfigCRD) {
 	if tmoConf := conf.TransparentMemoryOffloadingConfiguration; tmoConf != nil {
 		if tmoConf.Spec.Config.QoSLevelConfig != nil {
 			for _, qosLevelConfig := range tmoConf.Spec.Config.QoSLevelConfig {
 				tmoConfigDetail := NewTMOConfigDetail(c.DefaultConfigurations)
-				applyConfigDetail(tmoConfigDetail, qosLevelConfig.ConfigDetail)
+				ApplyTMOConfigDetail(tmoConfigDetail, qosLevelConfig.ConfigDetail)
 				c.QoSLevelConfigs[qosLevelConfig.QoSLevel] = tmoConfigDetail
 
 			}
@@ -157,7 +158,7 @@ func (c *TransparentMemoryOffloadingConfiguration) ApplyConfiguration(conf *crd.
 		if tmoConf.Spec.Config.CgroupConfig != nil {
 			for _, cgroupConfig := range tmoConf.Spec.Config.CgroupConfig {
 				tmoConfigDetail := NewTMOConfigDetail(c.DefaultConfigurations)
-				applyConfigDetail(tmoConfigDetail, cgroupConfig.ConfigDetail)
+				ApplyTMOConfigDetail(tmoConfigDetail, cgroupConfig.ConfigDetail)
 				c.CgroupConfigs[cgroupConfig.CgroupPath] = tmoConfigDetail
 			}
 		}
