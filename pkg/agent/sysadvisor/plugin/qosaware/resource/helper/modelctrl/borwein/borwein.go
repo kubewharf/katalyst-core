@@ -78,8 +78,8 @@ func updateCPUSchedWaitIndicatorOffset(podSet types.PodSet, currentIndicatorOffs
 	borweinParameter *borweintypes.BorweinParameter, metaReader metacache.MetaReader) (float64, error) {
 
 	filteredObj, err := metaReader.GetFilteredInferenceResult(func(input interface{}) (interface{}, error) {
-		cachedResult, ok := input.(borweintypes.BorweinInferenceResults)
-		if !ok {
+		cachedResult, ok := input.(*borweintypes.BorweinInferenceResults)
+		if !ok || cachedResult == nil {
 			return nil, fmt.Errorf("invalid input")
 		}
 
