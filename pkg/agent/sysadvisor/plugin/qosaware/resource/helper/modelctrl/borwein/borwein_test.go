@@ -251,7 +251,7 @@ func Test_updateCPUSchedWaitIndicatorOffset(t *testing.T) {
 		currentIndicatorOffset float64
 		borweinParameter       *borweintypes.BorweinParameter
 		metaReader             metacache.MetaReader
-		inferenceResults       borweintypes.BorweinInferenceResults
+		inferenceResults       *borweintypes.BorweinInferenceResults
 	}
 	tests := []struct {
 		name    string
@@ -268,7 +268,7 @@ func Test_updateCPUSchedWaitIndicatorOffset(t *testing.T) {
 				currentIndicatorOffset: 50,
 				borweinParameter:       conf.BorweinParameters[string(workloadv1alpha1.ServiceSystemIndicatorNameCPUSchedWait)],
 				metaReader:             mc,
-				inferenceResults: borweintypes.BorweinInferenceResults{
+				inferenceResults: &borweintypes.BorweinInferenceResults{
 					Timestamp: 0,
 					Results: map[string]map[string][]*borweininfsvc.InferenceResult{
 						podUID: {
@@ -302,7 +302,7 @@ func Test_updateCPUSchedWaitIndicatorOffset(t *testing.T) {
 				currentIndicatorOffset: 50,
 				borweinParameter:       conf.BorweinParameters[string(workloadv1alpha1.ServiceSystemIndicatorNameCPUSchedWait)],
 				metaReader:             mc,
-				inferenceResults: borweintypes.BorweinInferenceResults{
+				inferenceResults: &borweintypes.BorweinInferenceResults{
 					Timestamp: 0,
 					Results: map[string]map[string][]*borweininfsvc.InferenceResult{
 						podUID: {
@@ -523,7 +523,7 @@ func TestBorweinController_getUpdatedIndicators(t *testing.T) {
 	}
 	type args struct {
 		indicators       types.Indicator
-		inferenceResults borweintypes.BorweinInferenceResults
+		inferenceResults *borweintypes.BorweinInferenceResults
 	}
 	tests := []struct {
 		name   string
@@ -550,7 +550,7 @@ func TestBorweinController_getUpdatedIndicators(t *testing.T) {
 				indicators: types.Indicator{
 					string(workloadv1alpha1.ServiceSystemIndicatorNameCPUSchedWait): types.IndicatorValue{Current: 430, Target: 460},
 				},
-				inferenceResults: borweintypes.BorweinInferenceResults{
+				inferenceResults: &borweintypes.BorweinInferenceResults{
 					Timestamp: 0,
 					Results: map[string]map[string][]*borweininfsvc.InferenceResult{
 						podUID: {
@@ -665,7 +665,7 @@ func TestBorweinController_GetUpdatedIndicators(t *testing.T) {
 	type args struct {
 		indicators       types.Indicator
 		podSet           types.PodSet
-		inferenceResults borweintypes.BorweinInferenceResults
+		inferenceResults *borweintypes.BorweinInferenceResults
 	}
 	tests := []struct {
 		name   string
@@ -692,7 +692,7 @@ func TestBorweinController_GetUpdatedIndicators(t *testing.T) {
 				indicators: types.Indicator{
 					string(workloadv1alpha1.ServiceSystemIndicatorNameCPUSchedWait): types.IndicatorValue{Current: 430, Target: 460},
 				},
-				inferenceResults: borweintypes.BorweinInferenceResults{
+				inferenceResults: &borweintypes.BorweinInferenceResults{
 					Timestamp: 0,
 					Results: map[string]map[string][]*borweininfsvc.InferenceResult{
 						podUID: {
