@@ -39,6 +39,7 @@ func NewDynamicOptions() *DynamicOptions {
 
 func (o *DynamicOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 	o.AdminQoSOptions.AddFlags(fss)
+	o.TransparentMemoryOffloadingOptions.AddFlags(fss)
 }
 
 func (o *DynamicOptions) ApplyTo(c *dynamic.Configuration) error {
