@@ -338,7 +338,7 @@ func (r *QoSRegionBase) TryUpdateHeadroom() {
 		// set essentials for policy
 		internal.policy.SetPodSet(r.podSet)
 		internal.policy.SetBindingNumas(r.bindingNumas)
-		internal.policy.SetEssentials(r.ResourceEssentials)
+		internal.policy.SetEssentials(r.ResourceEssentials, r.regionStatus.Clone())
 
 		// run an episode of policy and calculator update
 		if err := internal.policy.Update(); err != nil {
@@ -452,7 +452,7 @@ func (r *QoSRegionBase) GetStatus() types.RegionStatus {
 	r.Lock()
 	defer r.Unlock()
 
-	return r.regionStatus
+	return r.regionStatus.Clone()
 }
 
 func (r *QoSRegionBase) GetControlEssentials() types.ControlEssentials {

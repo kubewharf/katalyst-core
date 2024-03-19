@@ -107,6 +107,7 @@ func TestPolicyNumaExclusive(t *testing.T) {
 		regionInfo         types.RegionInfo
 		podSet             types.PodSet
 		resourceEssentials types.ResourceEssentials
+		regionStatus       types.RegionStatus
 		controlEssentials  types.ControlEssentials
 		wantResult         float64
 	}{
@@ -236,6 +237,31 @@ func TestPolicyNumaExclusive(t *testing.T) {
 			},
 			wantResult: 100,
 		},
+		{
+			name: "region status upperBound",
+			podSet: types.PodSet{
+				"pod0": sets.String{
+					"container0": struct{}{},
+				},
+			},
+			regionInfo: types.RegionInfo{
+				RegionName:   "dedicated-numa-exclusive-xxx",
+				RegionType:   types.QoSRegionTypeDedicatedNumaExclusive,
+				BindingNumas: machine.NewCPUSet(0),
+			},
+			resourceEssentials: types.ResourceEssentials{
+				EnableReclaim:       true,
+				ResourceUpperBound:  90,
+				ResourceLowerBound:  4,
+				ReservedForAllocate: 0,
+				ReservedForReclaim:  10,
+			},
+			regionStatus: types.RegionStatus{
+				OvershootStatus: nil,
+				BoundType:       types.BoundUpper,
+			},
+			wantResult: 0,
+		},
 	}
 
 	checkpointDir, err := os.MkdirTemp("", "checkpoint")
@@ -253,6 +279,7 @@ func TestPolicyNumaExclusive(t *testing.T) {
 	for _, tt := range tests {
 		policy := newTestPolicyNumaExclusive(t, checkpointDir, stateFileDir, checkpointManagerDir, tt.regionInfo, tt.podSet).(*PolicyNUMAExclusive)
 		assert.NotNil(t, policy)
+		policy.upperBoundThreshold = 0
 
 		podNames := []string{}
 		for podName, containerSet := range tt.podSet {
@@ -265,7 +292,7 @@ func TestPolicyNumaExclusive(t *testing.T) {
 		policy.metaServer.MetaAgent.SetPodFetcher(constructPodFetcherNumaExclusive(podNames))
 
 		t.Run(tt.name, func(t *testing.T) {
-			policy.SetEssentials(tt.resourceEssentials)
+			policy.SetEssentials(tt.resourceEssentials, tt.regionStatus)
 			err := policy.Update()
 			assert.NoError(t, err)
 

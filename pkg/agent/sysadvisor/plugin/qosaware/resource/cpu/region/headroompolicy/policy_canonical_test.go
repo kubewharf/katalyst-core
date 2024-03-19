@@ -265,7 +265,7 @@ func TestPolicyCanonical(t *testing.T) {
 		policy.metaServer.MetaAgent.SetPodFetcher(constructPodFetcherCanonical(podNames))
 
 		t.Run(tt.name, func(t *testing.T) {
-			policy.SetEssentials(tt.resourceEssentials)
+			policy.SetEssentials(tt.resourceEssentials, types.RegionStatus{})
 			err := policy.Update()
 			assert.NoError(t, err)
 
