@@ -18,10 +18,16 @@ package metacache
 
 import (
 	"fmt"
+	"os"
 	"reflect"
 	"testing"
+	"time"
+
+	"github.com/stretchr/testify/require"
+	"k8s.io/kubernetes/pkg/kubelet/checkpointmanager"
 
 	borweinconsts "github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/inference/models/borwein/consts"
+	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 )
 
@@ -238,4 +244,45 @@ func TestMetaCacheImp_SetInferenceResult(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestRangeAndDeleteContainerWithSafeTime(t *testing.T) {
+	testDir := "/tmp/mc-test-range-delete"
+	checkpointManager, err := checkpointmanager.NewCheckpointManager(testDir)
+	require.NoError(t, err, "failed to create checkpoint manager")
+	defer func() {
+		os.RemoveAll(testDir)
+	}()
+
+	mc := &MetaCacheImp{
+		podEntries:               map[string]types.ContainerEntries{},
+		containerCreateTimestamp: map[string]int{},
+		checkpointManager:        checkpointManager,
+		emitter:                  metrics.DummyMetrics{},
+		checkpointName:           "test-mc-range-delete",
+	}
+	ci := &types.ContainerInfo{
+		PodUID:        "pod1",
+		ContainerName: "c1",
+	}
+	require.NoError(t, mc.AddContainer("pod1", "c1", ci), "failed to add container")
+
+	require.NoError(t, mc.RangeAndDeleteContainer(func(containerInfo *types.ContainerInfo) bool {
+		return true
+	}, 0), "failed to range and delete container without safe time")
+	require.Equal(t, 0, len(mc.podEntries), "failed to delete container without safe time")
+	require.Equal(t, 0, len(mc.containerCreateTimestamp), "failed to delete container create timestamp without safe time")
+
+	require.NoError(t, mc.AddContainer("pod1", "c1", ci), "failed to add container")
+	require.NoError(t, mc.RangeAndDeleteContainer(func(containerInfo *types.ContainerInfo) bool {
+		return true
+	}, 1), "failed to skip range and delete container with safe time")
+	require.Equal(t, 1, len(mc.podEntries), "failed to protect container with safe time")
+	require.Equal(t, 1, len(mc.containerCreateTimestamp), "failed to protect container create timestamp with safe time")
+
+	require.NoError(t, mc.RangeAndDeleteContainer(func(containerInfo *types.ContainerInfo) bool {
+		return true
+	}, time.Now().Nanosecond()), "failed to skip range and delete container with safe time")
+	require.Equal(t, 0, len(mc.podEntries), "failed to delete container before safe time")
+	require.Equal(t, 0, len(mc.containerCreateTimestamp), "failed to delete container create timestamp before safe time")
 }

@@ -130,6 +130,8 @@ func (cs *cpuServer) ListAndWatch(_ *advisorsvc.Empty, server cpuadvisor.CPUAdvi
 }
 
 func (cs *cpuServer) getCheckpoint() {
+	safeTime := time.Now().Nanosecond()
+
 	ctx := context.Background()
 	// get checkpoint
 	resp, err := cs.cpuPluginClient.GetCheckpoint(ctx, &cpuadvisor.GetCheckpointRequest{})
@@ -186,7 +188,7 @@ func (cs *cpuServer) getCheckpoint() {
 			return true
 		}
 		return false
-	})
+	}, safeTime)
 
 	// complement living containers' original owner pools for pool gc
 	// todo: deprecate original owner pool and generate owner pool by realtime container status
@@ -306,6 +308,15 @@ func (cs *cpuServer) assemblePoolEntries(advisorResp *types.InternalCPUCalculati
 // todo this logic should be refined to make sure we will assemble entries from	internalCalculationInfo rather than walking through containerInfo
 func (cs *cpuServer) assemblePodEntries(calculationEntriesMap map[string]*cpuadvisor.CalculationEntries,
 	bs blockSet, podUID string, ci *types.ContainerInfo) error {
+	if ci.OwnerPoolName == "" {
+		klog.Warningf("container %s/%s pool name is empty", ci.PodUID, ci.ContainerName)
+		return nil
+	}
+	if _, ok := calculationEntriesMap[ci.OwnerPoolName]; !ok {
+		klog.Warningf("container %s/%s refer a non-existed pool: %s", ci.PodUID, ci.ContainerName, ci.OwnerPoolName)
+		return nil
+	}
+
 	calculationInfo := &cpuadvisor.CalculationInfo{
 		OwnerPoolName:             ci.OwnerPoolName,
 		CalculationResultsByNumas: nil,
