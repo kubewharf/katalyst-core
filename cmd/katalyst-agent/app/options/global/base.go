@@ -17,6 +17,7 @@ limitations under the License.
 package global
 
 import (
+	"k8s.io/apimachinery/pkg/api/resource"
 	cliflag "k8s.io/component-base/cli/flag"
 
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/global"
@@ -64,8 +65,10 @@ type BaseOptions struct {
 	RuntimeEndpoint string
 
 	// configurations for machine-info
-	MachineNetMultipleNS   bool
-	MachineNetNSDirAbsPath string
+	MachineNetMultipleNS                             bool
+	MachineNetNSDirAbsPath                           string
+	MachineSiblingNumaMemoryBandwidthCapacity        resource.QuantityValue
+	MachineSiblingNumaMemoryBandwidthAllocatableRate float64
 }
 
 func NewBaseOptions() *BaseOptions {
@@ -87,7 +90,8 @@ func NewBaseOptions() *BaseOptions {
 
 		RuntimeEndpoint: defaultRemoteRuntimeEndpoint,
 
-		MachineNetMultipleNS: false,
+		MachineNetMultipleNS:                             false,
+		MachineSiblingNumaMemoryBandwidthAllocatableRate: 1.0,
 	}
 }
 
@@ -132,6 +136,11 @@ func (o *BaseOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 		"if set as true, we should collect network interfaces from multiple ns")
 	fs.StringVar(&o.MachineNetNSDirAbsPath, "machine-net-ns-dir", o.MachineNetNSDirAbsPath,
 		"if set as true, we should collect network interfaces from multiple ns")
+
+	fs.Var(&o.MachineSiblingNumaMemoryBandwidthCapacity, "machine-sibling-numa-memory-bandwidth-capacity",
+		"if set the sibling numa memory bandwidth capacity, the per memory bandwidth capacity and allocatable will be reported to numa zone of cnr")
+	fs.Float64Var(&o.MachineSiblingNumaMemoryBandwidthAllocatableRate, "machine-sibling-numa-memory-bandwidth-allocatable-rate", o.MachineSiblingNumaMemoryBandwidthAllocatableRate,
+		"the rate between sibling numa memory bandwidth allocatable to its capacity")
 }
 
 // ApplyTo fills up config with options
@@ -146,6 +155,8 @@ func (o *BaseOptions) ApplyTo(c *global.BaseConfiguration) error {
 
 	c.NetMultipleNS = o.MachineNetMultipleNS
 	c.NetNSDirAbsPath = o.MachineNetNSDirAbsPath
+	c.SiblingNumaMemoryBandwidthCapacity = o.MachineSiblingNumaMemoryBandwidthCapacity.Quantity.Value()
+	c.SiblingNumaMemoryBandwidthAllocatableRate = o.MachineSiblingNumaMemoryBandwidthAllocatableRate
 
 	c.KubeletReadOnlyPort = o.KubeletReadOnlyPort
 	c.KubeletSecurePortEnabled = o.KubeletSecurePortEnabled

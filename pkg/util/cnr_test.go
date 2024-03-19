@@ -767,6 +767,657 @@ func TestMergeTopologyZone(t *testing.T) {
 				},
 			},
 		},
+		{
+			name: "merge two topology zone with siblings",
+			args: args{
+				src: []*nodeapis.TopologyZone{
+					{
+						Type: nodeapis.TopologyTypeSocket,
+						Name: "0",
+						Children: []*nodeapis.TopologyZone{
+							{
+								Type: nodeapis.TopologyTypeNuma,
+								Name: "0",
+								Resources: nodeapis.Resources{
+									Capacity: &v1.ResourceList{
+										"gpu":    resource.MustParse("2"),
+										"cpu":    resource.MustParse("24"),
+										"memory": resource.MustParse("32G"),
+									},
+									Allocatable: &v1.ResourceList{
+										"gpu":    resource.MustParse("2"),
+										"cpu":    resource.MustParse("24"),
+										"memory": resource.MustParse("32G"),
+									},
+								},
+								Allocations: []*nodeapis.Allocation{
+									{
+										Consumer: "default/pod-1/pod-1-uid",
+										Requests: &v1.ResourceList{
+											"gpu":    resource.MustParse("1"),
+											"cpu":    resource.MustParse("12"),
+											"memory": resource.MustParse("12G"),
+										},
+									},
+									{
+										Consumer: "default/pod-2/pod-2-uid",
+										Requests: &v1.ResourceList{
+											"gpu":    resource.MustParse("1"),
+											"cpu":    resource.MustParse("24"),
+											"memory": resource.MustParse("32G"),
+										},
+									},
+									{
+										Consumer: "default/pod-3/pod-3-uid",
+										Requests: &v1.ResourceList{
+											"gpu":    resource.MustParse("1"),
+											"cpu":    resource.MustParse("24"),
+											"memory": resource.MustParse("32G"),
+										},
+									},
+								},
+								Children: []*nodeapis.TopologyZone{
+									{
+										Type: nodeapis.TopologyTypeNIC,
+										Name: "eth0",
+										Resources: nodeapis.Resources{
+											Capacity: &v1.ResourceList{
+												"nic": resource.MustParse("10G"),
+											},
+											Allocatable: &v1.ResourceList{
+												"nic": resource.MustParse("10G"),
+											},
+										},
+										Allocations: []*nodeapis.Allocation{
+											{
+												Consumer: "default/pod-2/pod-2-uid",
+												Requests: &v1.ResourceList{
+													"nic": resource.MustParse("10G"),
+												},
+											},
+										},
+									},
+								},
+								Siblings: []nodeapis.Sibling{
+									{
+										Type: nodeapis.TopologyTypeNuma,
+										Name: "1",
+									},
+								},
+							},
+							{
+								Type: nodeapis.TopologyTypeNuma,
+								Name: "1",
+								Resources: nodeapis.Resources{
+									Capacity: &v1.ResourceList{
+										"gpu":    resource.MustParse("2"),
+										"cpu":    resource.MustParse("24"),
+										"memory": resource.MustParse("32G"),
+									},
+									Allocatable: &v1.ResourceList{
+										"gpu":    resource.MustParse("2"),
+										"cpu":    resource.MustParse("24"),
+										"memory": resource.MustParse("32G"),
+									},
+								},
+								Allocations: []*nodeapis.Allocation{
+									{
+										Consumer: "default/pod-1/pod-1-uid",
+										Requests: &v1.ResourceList{
+											"gpu":    resource.MustParse("1"),
+											"cpu":    resource.MustParse("12"),
+											"memory": resource.MustParse("12G"),
+										},
+									},
+									{
+										Consumer: "default/pod-2/pod-2-uid",
+										Requests: &v1.ResourceList{
+											"gpu":    resource.MustParse("1"),
+											"cpu":    resource.MustParse("24"),
+											"memory": resource.MustParse("32G"),
+										},
+									},
+									{
+										Consumer: "default/pod-3/pod-3-uid",
+										Requests: &v1.ResourceList{
+											"gpu":    resource.MustParse("1"),
+											"cpu":    resource.MustParse("24"),
+											"memory": resource.MustParse("32G"),
+										},
+									},
+								},
+								Children: []*nodeapis.TopologyZone{
+									{
+										Type: nodeapis.TopologyTypeNIC,
+										Name: "eth0",
+										Resources: nodeapis.Resources{
+											Capacity: &v1.ResourceList{
+												"nic": resource.MustParse("10G"),
+											},
+											Allocatable: &v1.ResourceList{
+												"nic": resource.MustParse("10G"),
+											},
+										},
+										Allocations: []*nodeapis.Allocation{
+											{
+												Consumer: "default/pod-2/pod-2-uid",
+												Requests: &v1.ResourceList{
+													"nic": resource.MustParse("10G"),
+												},
+											},
+										},
+									},
+								},
+								Siblings: []nodeapis.Sibling{
+									{
+										Type: nodeapis.TopologyTypeNuma,
+										Name: "0",
+									},
+								},
+							},
+						},
+					},
+					{
+						Type: nodeapis.TopologyTypeSocket,
+						Name: "1",
+						Children: []*nodeapis.TopologyZone{
+							{
+								Type: nodeapis.TopologyTypeNuma,
+								Name: "2",
+								Resources: nodeapis.Resources{
+									Capacity: &v1.ResourceList{
+										"cpu":    resource.MustParse("24"),
+										"memory": resource.MustParse("32G"),
+									},
+									Allocatable: &v1.ResourceList{
+										"cpu":    resource.MustParse("24"),
+										"memory": resource.MustParse("32G"),
+									},
+								},
+								Allocations: []*nodeapis.Allocation{
+									{
+										Consumer: "default/pod-1/pod-1-uid",
+										Requests: &v1.ResourceList{
+											"cpu":    resource.MustParse("15"),
+											"memory": resource.MustParse("15G"),
+										},
+									},
+									{
+										Consumer: "default/pod-2/pod-2-uid",
+										Requests: &v1.ResourceList{
+											"gpu":    resource.MustParse("1"),
+											"cpu":    resource.MustParse("24"),
+											"memory": resource.MustParse("32G"),
+										},
+									},
+									{
+										Consumer: "default/pod-3/pod-3-uid",
+										Requests: &v1.ResourceList{
+											"gpu":    resource.MustParse("1"),
+											"cpu":    resource.MustParse("24"),
+											"memory": resource.MustParse("32G"),
+										},
+									},
+								},
+								Children: []*nodeapis.TopologyZone{
+									{
+										Type: nodeapis.TopologyTypeNIC,
+										Name: "eth1",
+										Resources: nodeapis.Resources{
+											Capacity: &v1.ResourceList{
+												"nic": resource.MustParse("10G"),
+											},
+											Allocatable: &v1.ResourceList{
+												"nic": resource.MustParse("10G"),
+											},
+										},
+									},
+								},
+								Siblings: []nodeapis.Sibling{
+									{
+										Type: nodeapis.TopologyTypeNuma,
+										Name: "3",
+									},
+								},
+							},
+							{
+								Type: nodeapis.TopologyTypeNuma,
+								Name: "3",
+								Resources: nodeapis.Resources{
+									Capacity: &v1.ResourceList{
+										"cpu":    resource.MustParse("24"),
+										"memory": resource.MustParse("32G"),
+									},
+									Allocatable: &v1.ResourceList{
+										"cpu":    resource.MustParse("24"),
+										"memory": resource.MustParse("32G"),
+									},
+								},
+								Allocations: []*nodeapis.Allocation{
+									{
+										Consumer: "default/pod-1/pod-1-uid",
+										Requests: &v1.ResourceList{
+											"cpu":    resource.MustParse("15"),
+											"memory": resource.MustParse("15G"),
+										},
+									},
+									{
+										Consumer: "default/pod-2/pod-2-uid",
+										Requests: &v1.ResourceList{
+											"gpu":    resource.MustParse("1"),
+											"cpu":    resource.MustParse("24"),
+											"memory": resource.MustParse("32G"),
+										},
+									},
+									{
+										Consumer: "default/pod-3/pod-3-uid",
+										Requests: &v1.ResourceList{
+											"gpu":    resource.MustParse("1"),
+											"cpu":    resource.MustParse("24"),
+											"memory": resource.MustParse("32G"),
+										},
+									},
+								},
+								Children: []*nodeapis.TopologyZone{
+									{
+										Type: nodeapis.TopologyTypeNIC,
+										Name: "eth1",
+										Resources: nodeapis.Resources{
+											Capacity: &v1.ResourceList{
+												"nic": resource.MustParse("10G"),
+											},
+											Allocatable: &v1.ResourceList{
+												"nic": resource.MustParse("10G"),
+											},
+										},
+									},
+								},
+								Siblings: []nodeapis.Sibling{
+									{
+										Type: nodeapis.TopologyTypeNuma,
+										Name: "2",
+									},
+								},
+							},
+						},
+					},
+				},
+				dst: []*nodeapis.TopologyZone{
+					{
+						Type: nodeapis.TopologyTypeSocket,
+						Name: "0",
+						Children: []*nodeapis.TopologyZone{
+							{
+								Type: nodeapis.TopologyTypeNuma,
+								Name: "0",
+								Siblings: []nodeapis.Sibling{
+									{
+										Type: nodeapis.TopologyTypeNuma,
+										Name: "1",
+										Attributes: []nodeapis.Attribute{
+											{
+												Name:  "aa",
+												Value: "bb",
+											},
+										},
+									},
+								},
+							},
+							{
+								Type: nodeapis.TopologyTypeNuma,
+								Name: "1",
+								Siblings: []nodeapis.Sibling{
+									{
+										Type: nodeapis.TopologyTypeNuma,
+										Name: "0",
+										Attributes: []nodeapis.Attribute{
+											{
+												Name:  "aa",
+												Value: "bb",
+											},
+										},
+									},
+								},
+							},
+						},
+					},
+					{
+						Type: nodeapis.TopologyTypeSocket,
+						Name: "1",
+						Children: []*nodeapis.TopologyZone{
+							{
+								Type: nodeapis.TopologyTypeNuma,
+								Name: "2",
+								Siblings: []nodeapis.Sibling{
+									{
+										Type: nodeapis.TopologyTypeNuma,
+										Name: "3",
+										Attributes: []nodeapis.Attribute{
+											{
+												Name:  "aa",
+												Value: "bb",
+											},
+										},
+									},
+								},
+							},
+							{
+								Type: nodeapis.TopologyTypeNuma,
+								Name: "3",
+								Siblings: []nodeapis.Sibling{
+									{
+										Type: nodeapis.TopologyTypeNuma,
+										Name: "2",
+										Attributes: []nodeapis.Attribute{
+											{
+												Name:  "aa",
+												Value: "bb",
+											},
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+			want: []*nodeapis.TopologyZone{
+				{
+					Type: nodeapis.TopologyTypeSocket,
+					Name: "0",
+					Children: []*nodeapis.TopologyZone{
+						{
+							Type: nodeapis.TopologyTypeNuma,
+							Name: "0",
+							Resources: nodeapis.Resources{
+								Capacity: &v1.ResourceList{
+									"gpu":    resource.MustParse("2"),
+									"cpu":    resource.MustParse("24"),
+									"memory": resource.MustParse("32G"),
+								},
+								Allocatable: &v1.ResourceList{
+									"gpu":    resource.MustParse("2"),
+									"cpu":    resource.MustParse("24"),
+									"memory": resource.MustParse("32G"),
+								},
+							},
+							Allocations: []*nodeapis.Allocation{
+								{
+									Consumer: "default/pod-1/pod-1-uid",
+									Requests: &v1.ResourceList{
+										"gpu":    resource.MustParse("1"),
+										"cpu":    resource.MustParse("12"),
+										"memory": resource.MustParse("12G"),
+									},
+								},
+								{
+									Consumer: "default/pod-2/pod-2-uid",
+									Requests: &v1.ResourceList{
+										"gpu":    resource.MustParse("1"),
+										"cpu":    resource.MustParse("24"),
+										"memory": resource.MustParse("32G"),
+									},
+								},
+								{
+									Consumer: "default/pod-3/pod-3-uid",
+									Requests: &v1.ResourceList{
+										"gpu":    resource.MustParse("1"),
+										"cpu":    resource.MustParse("24"),
+										"memory": resource.MustParse("32G"),
+									},
+								},
+							},
+							Children: []*nodeapis.TopologyZone{
+								{
+									Type: nodeapis.TopologyTypeNIC,
+									Name: "eth0",
+									Resources: nodeapis.Resources{
+										Capacity: &v1.ResourceList{
+											"nic": resource.MustParse("10G"),
+										},
+										Allocatable: &v1.ResourceList{
+											"nic": resource.MustParse("10G"),
+										},
+									},
+									Allocations: []*nodeapis.Allocation{
+										{
+											Consumer: "default/pod-2/pod-2-uid",
+											Requests: &v1.ResourceList{
+												"nic": resource.MustParse("10G"),
+											},
+										},
+									},
+								},
+							},
+							Siblings: []nodeapis.Sibling{
+								{
+									Type: nodeapis.TopologyTypeNuma,
+									Name: "1",
+									Attributes: []nodeapis.Attribute{
+										{
+											Name:  "aa",
+											Value: "bb",
+										},
+									},
+								},
+							},
+						},
+						{
+							Type: nodeapis.TopologyTypeNuma,
+							Name: "1",
+							Resources: nodeapis.Resources{
+								Capacity: &v1.ResourceList{
+									"gpu":    resource.MustParse("2"),
+									"cpu":    resource.MustParse("24"),
+									"memory": resource.MustParse("32G"),
+								},
+								Allocatable: &v1.ResourceList{
+									"gpu":    resource.MustParse("2"),
+									"cpu":    resource.MustParse("24"),
+									"memory": resource.MustParse("32G"),
+								},
+							},
+							Allocations: []*nodeapis.Allocation{
+								{
+									Consumer: "default/pod-1/pod-1-uid",
+									Requests: &v1.ResourceList{
+										"gpu":    resource.MustParse("1"),
+										"cpu":    resource.MustParse("12"),
+										"memory": resource.MustParse("12G"),
+									},
+								},
+								{
+									Consumer: "default/pod-2/pod-2-uid",
+									Requests: &v1.ResourceList{
+										"gpu":    resource.MustParse("1"),
+										"cpu":    resource.MustParse("24"),
+										"memory": resource.MustParse("32G"),
+									},
+								},
+								{
+									Consumer: "default/pod-3/pod-3-uid",
+									Requests: &v1.ResourceList{
+										"gpu":    resource.MustParse("1"),
+										"cpu":    resource.MustParse("24"),
+										"memory": resource.MustParse("32G"),
+									},
+								},
+							},
+							Children: []*nodeapis.TopologyZone{
+								{
+									Type: nodeapis.TopologyTypeNIC,
+									Name: "eth0",
+									Resources: nodeapis.Resources{
+										Capacity: &v1.ResourceList{
+											"nic": resource.MustParse("10G"),
+										},
+										Allocatable: &v1.ResourceList{
+											"nic": resource.MustParse("10G"),
+										},
+									},
+									Allocations: []*nodeapis.Allocation{
+										{
+											Consumer: "default/pod-2/pod-2-uid",
+											Requests: &v1.ResourceList{
+												"nic": resource.MustParse("10G"),
+											},
+										},
+									},
+								},
+							},
+							Siblings: []nodeapis.Sibling{
+								{
+									Type: nodeapis.TopologyTypeNuma,
+									Name: "0",
+									Attributes: []nodeapis.Attribute{
+										{
+											Name:  "aa",
+											Value: "bb",
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+				{
+					Type: nodeapis.TopologyTypeSocket,
+					Name: "1",
+					Children: []*nodeapis.TopologyZone{
+						{
+							Type: nodeapis.TopologyTypeNuma,
+							Name: "2",
+							Resources: nodeapis.Resources{
+								Capacity: &v1.ResourceList{
+									"cpu":    resource.MustParse("24"),
+									"memory": resource.MustParse("32G"),
+								},
+								Allocatable: &v1.ResourceList{
+									"cpu":    resource.MustParse("24"),
+									"memory": resource.MustParse("32G"),
+								},
+							},
+							Allocations: []*nodeapis.Allocation{
+								{
+									Consumer: "default/pod-1/pod-1-uid",
+									Requests: &v1.ResourceList{
+										"cpu":    resource.MustParse("15"),
+										"memory": resource.MustParse("15G"),
+									},
+								},
+								{
+									Consumer: "default/pod-2/pod-2-uid",
+									Requests: &v1.ResourceList{
+										"gpu":    resource.MustParse("1"),
+										"cpu":    resource.MustParse("24"),
+										"memory": resource.MustParse("32G"),
+									},
+								},
+								{
+									Consumer: "default/pod-3/pod-3-uid",
+									Requests: &v1.ResourceList{
+										"gpu":    resource.MustParse("1"),
+										"cpu":    resource.MustParse("24"),
+										"memory": resource.MustParse("32G"),
+									},
+								},
+							},
+							Children: []*nodeapis.TopologyZone{
+								{
+									Type: nodeapis.TopologyTypeNIC,
+									Name: "eth1",
+									Resources: nodeapis.Resources{
+										Capacity: &v1.ResourceList{
+											"nic": resource.MustParse("10G"),
+										},
+										Allocatable: &v1.ResourceList{
+											"nic": resource.MustParse("10G"),
+										},
+									},
+								},
+							},
+							Siblings: []nodeapis.Sibling{
+								{
+									Type: nodeapis.TopologyTypeNuma,
+									Name: "3",
+									Attributes: []nodeapis.Attribute{
+										{
+											Name:  "aa",
+											Value: "bb",
+										},
+									},
+								},
+							},
+						},
+						{
+							Type: nodeapis.TopologyTypeNuma,
+							Name: "3",
+							Resources: nodeapis.Resources{
+								Capacity: &v1.ResourceList{
+									"cpu":    resource.MustParse("24"),
+									"memory": resource.MustParse("32G"),
+								},
+								Allocatable: &v1.ResourceList{
+									"cpu":    resource.MustParse("24"),
+									"memory": resource.MustParse("32G"),
+								},
+							},
+							Allocations: []*nodeapis.Allocation{
+								{
+									Consumer: "default/pod-1/pod-1-uid",
+									Requests: &v1.ResourceList{
+										"cpu":    resource.MustParse("15"),
+										"memory": resource.MustParse("15G"),
+									},
+								},
+								{
+									Consumer: "default/pod-2/pod-2-uid",
+									Requests: &v1.ResourceList{
+										"gpu":    resource.MustParse("1"),
+										"cpu":    resource.MustParse("24"),
+										"memory": resource.MustParse("32G"),
+									},
+								},
+								{
+									Consumer: "default/pod-3/pod-3-uid",
+									Requests: &v1.ResourceList{
+										"gpu":    resource.MustParse("1"),
+										"cpu":    resource.MustParse("24"),
+										"memory": resource.MustParse("32G"),
+									},
+								},
+							},
+							Children: []*nodeapis.TopologyZone{
+								{
+									Type: nodeapis.TopologyTypeNIC,
+									Name: "eth1",
+									Resources: nodeapis.Resources{
+										Capacity: &v1.ResourceList{
+											"nic": resource.MustParse("10G"),
+										},
+										Allocatable: &v1.ResourceList{
+											"nic": resource.MustParse("10G"),
+										},
+									},
+								},
+							},
+							Siblings: []nodeapis.Sibling{
+								{
+									Type: nodeapis.TopologyTypeNuma,
+									Name: "2",
+									Attributes: []nodeapis.Attribute{
+										{
+											Name:  "aa",
+											Value: "bb",
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
