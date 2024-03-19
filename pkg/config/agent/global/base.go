@@ -45,6 +45,12 @@ type MachineInfoConfiguration struct {
 	// if NetMultipleNS set as true, we should collect network interfaces from multiple ns
 	NetMultipleNS   bool
 	NetNSDirAbsPath string
+
+	// SiblingNumaMemoryBandwidthCapacity is the max capacity of memory bandwidth can share
+	// among sibling NUMAs, and SiblingNumaMemoryBandwidthAllocatableRate is the rate of
+	// the allocatable to the capacity
+	SiblingNumaMemoryBandwidthCapacity        int64
+	SiblingNumaMemoryBandwidthAllocatableRate float64
 }
 
 type KubeletConfiguration struct {

@@ -21,6 +21,7 @@ import (
 
 	info "github.com/google/cadvisor/info/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/klog/v2"
 )
 
@@ -230,7 +231,10 @@ func GenerateDummyExtraTopology(numaNum int) (*ExtraTopologyInfo, error) {
 	)
 
 	extraTopology := &ExtraTopologyInfo{
-		NumaDistanceMap: make(map[int][]NumaDistanceInfo),
+		NumaDistanceMap:              make(map[int][]NumaDistanceInfo),
+		SiblingNumaMap:               make(map[int]sets.Int),
+		SiblingNumaMBWAllocatableMap: make(map[int]int64),
+		SiblingNumaMBWCapacityMap:    make(map[int]int64),
 	}
 
 	for i := 0; i < numaNum; i++ {
@@ -252,6 +256,7 @@ func GenerateDummyExtraTopology(numaNum int) (*ExtraTopologyInfo, error) {
 		}
 
 		extraTopology.NumaDistanceMap[i] = numaDistanceInfos
+		extraTopology.SiblingNumaMap[i] = make(sets.Int)
 	}
 	return extraTopology, nil
 }
@@ -508,5 +513,8 @@ type NumaDistanceInfo struct {
 }
 
 type ExtraTopologyInfo struct {
-	NumaDistanceMap map[int][]NumaDistanceInfo
+	NumaDistanceMap              map[int][]NumaDistanceInfo
+	SiblingNumaMap               map[int]sets.Int
+	SiblingNumaMBWAllocatableMap map[int]int64
+	SiblingNumaMBWCapacityMap    map[int]int64
 }

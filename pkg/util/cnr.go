@@ -249,6 +249,55 @@ func MergeAllocations(dst, src []*apis.Allocation) []*apis.Allocation {
 	return allocations
 }
 
+// MergeSiblings merges two siblings, returns the merged result.
+// If the attributes of the same sibling exists in both dst and src,
+// the one in dst will be kept.
+func MergeSiblings(dst, src []apis.Sibling) []apis.Sibling {
+	if dst == nil && src == nil {
+		return nil
+	}
+
+	siblingMap := make(map[ZoneNode]*apis.Sibling, len(dst))
+	for _, sibling := range dst {
+		node := ZoneNode{
+			Meta: ZoneMeta{
+				Type: sibling.Type,
+				Name: sibling.Name,
+			},
+		}
+		siblingMap[node] = sibling.DeepCopy()
+	}
+
+	for _, sibling := range src {
+		node := ZoneNode{
+			Meta: ZoneMeta{
+				Type: sibling.Type,
+				Name: sibling.Name,
+			},
+		}
+		if _, ok := siblingMap[node]; !ok {
+			siblingMap[node] = sibling.DeepCopy()
+			continue
+		}
+
+		siblingMap[node].Attributes = MergeAttributes(siblingMap[node].Attributes, sibling.Attributes)
+	}
+
+	siblings := make([]apis.Sibling, 0, len(siblingMap))
+	for _, sibling := range siblingMap {
+		siblings = append(siblings, *sibling)
+	}
+
+	sort.SliceStable(siblings, func(i, j int) bool {
+		if siblings[i].Type == siblings[j].Type {
+			return siblings[i].Name < siblings[j].Name
+		}
+		return siblings[i].Type < siblings[j].Type
+	})
+
+	return siblings
+}
+
 // MergeTopologyZone merges two topology zones recursively, returns the merged result.
 // If the same zone exists in both dst and src, the one in dst will be kept.
 func MergeTopologyZone(dst, src []*apis.TopologyZone) []*apis.TopologyZone {
@@ -294,6 +343,7 @@ func MergeTopologyZone(dst, src []*apis.TopologyZone) []*apis.TopologyZone {
 		zoneMap[node].Resources = MergeResources(zoneMap[node].Resources, zone.Resources)
 		zoneMap[node].Attributes = MergeAttributes(zoneMap[node].Attributes, zone.Attributes)
 		zoneMap[node].Allocations = MergeAllocations(zoneMap[node].Allocations, zone.Allocations)
+		zoneMap[node].Siblings = MergeSiblings(zoneMap[node].Siblings, zone.Siblings)
 		zoneMap[node].Children = MergeTopologyZone(zoneMap[node].Children, zone.Children)
 	}
 

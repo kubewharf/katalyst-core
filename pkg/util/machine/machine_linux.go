@@ -53,7 +53,7 @@ func GetKatalystMachineInfo(conf *global.MachineInfoConfiguration) (*KatalystMac
 		return nil, err
 	}
 
-	extraTopologyInfo, err := GetExtraTopologyInfo()
+	extraTopologyInfo, err := GetExtraTopologyInfo(conf)
 	if err != nil {
 		return nil, err
 	}
