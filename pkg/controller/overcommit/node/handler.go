@@ -18,12 +18,14 @@ package node
 
 import (
 	"fmt"
+	"reflect"
 
 	v1 "k8s.io/api/core/v1"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/klog/v2"
 
+	nodev1alpha1 "github.com/kubewharf/katalyst-api/pkg/apis/node/v1alpha1"
 	"github.com/kubewharf/katalyst-api/pkg/apis/overcommit/v1alpha1"
 	"github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/util/native"
@@ -41,6 +43,37 @@ const (
 	nodeEvent   eventType = "node"
 	configEvent eventType = "config"
 )
+
+func (nc *NodeOvercommitController) addCNR(obj interface{}) {
+	cnr, ok := obj.(*nodev1alpha1.CustomNodeResource)
+	if !ok {
+		klog.Errorf("cannot convert obj to *CustomNodeResource: %v", obj)
+		return
+	}
+
+	klog.V(4).Infof("[noc] notice addition of CNR %s", cnr.Name)
+	nc.enqueueCNR(cnr)
+}
+
+func (nc *NodeOvercommitController) updateCNR(old, new interface{}) {
+	oldCNR, ok := old.(*nodev1alpha1.CustomNodeResource)
+	if !ok {
+		klog.Errorf("cannot convert obj to CustomNodeResource: %v", old)
+		return
+	}
+
+	newCNR, ok := new.(*nodev1alpha1.CustomNodeResource)
+	if !ok {
+		klog.Errorf("cannot convert obj to CustomNodeResource: %v", new)
+		return
+	}
+
+	if reflect.DeepEqual(newCNR.Annotations, oldCNR.Annotations) {
+		return
+	}
+
+	nc.enqueueCNR(newCNR)
+}
 
 func (nc *NodeOvercommitController) addNodeOvercommitConfig(obj interface{}) {
 	noc, ok := obj.(*v1alpha1.NodeOvercommitConfig)
@@ -148,4 +181,19 @@ func (nc *NodeOvercommitController) enqueueNode(node *v1.Node) {
 		nodeKey:   key,
 		eventType: nodeEvent,
 	})
+}
+
+func (nc *NodeOvercommitController) enqueueCNR(cnr *nodev1alpha1.CustomNodeResource) {
+	if cnr == nil {
+		klog.Warning("[noc] trying to enqueue a nil cnr")
+		return
+	}
+
+	key, err := cache.DeletionHandlingMetaNamespaceKeyFunc(cnr)
+	if err != nil {
+		utilruntime.HandleError(fmt.Errorf("couldn't get key for object %#v: %v", cnr, err))
+		return
+	}
+
+	nc.cnrSyncQueue.Add(key)
 }
