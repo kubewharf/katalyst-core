@@ -42,6 +42,7 @@ type MetricStore struct {
 	nodeMetricMap             map[string]MetricData                                  // map[metricName]data
 	numaMetricMap             map[int]map[string]MetricData                          // map[numaID]map[metricName]data
 	deviceMetricMap           map[string]map[string]MetricData                       // map[deviceName]map[metricName]data
+	networkMetricMap          map[string]map[string]MetricData                       // map[networkName]map[metricName]data
 	cpuMetricMap              map[int]map[string]MetricData                          // map[cpuID]map[metricName]data
 	podContainerMetricMap     map[string]map[string]map[string]MetricData            // map[podUID]map[containerName]map[metricName]data
 	podContainerNumaMetricMap map[string]map[string]map[string]map[string]MetricData // map[podUID]map[containerName]map[numaNode]map[metricName]data
@@ -55,6 +56,7 @@ func NewMetricStore() *MetricStore {
 		nodeMetricMap:             make(map[string]MetricData),
 		numaMetricMap:             make(map[int]map[string]MetricData),
 		deviceMetricMap:           make(map[string]map[string]MetricData),
+		networkMetricMap:          make(map[string]map[string]MetricData),
 		cpuMetricMap:              make(map[int]map[string]MetricData),
 		podContainerMetricMap:     make(map[string]map[string]map[string]MetricData),
 		podContainerNumaMetricMap: make(map[string]map[string]map[string]map[string]MetricData),
@@ -86,6 +88,15 @@ func (c *MetricStore) SetDeviceMetric(deviceName string, metricName string, data
 		c.deviceMetricMap[deviceName] = make(map[string]MetricData)
 	}
 	c.deviceMetricMap[deviceName][metricName] = data
+}
+
+func (c *MetricStore) SetNetworkMetric(networkName string, metricName string, data MetricData) {
+	c.mutex.Lock()
+	defer c.mutex.Unlock()
+	if _, ok := c.networkMetricMap[networkName]; !ok {
+		c.networkMetricMap[networkName] = make(map[string]MetricData)
+	}
+	c.networkMetricMap[networkName][metricName] = data
 }
 
 func (c *MetricStore) SetCPUMetric(cpuID int, metricName string, data MetricData) {
@@ -171,6 +182,19 @@ func (c *MetricStore) GetDeviceMetric(deviceName string, metricName string) (Met
 	defer c.mutex.RUnlock()
 	if c.deviceMetricMap[deviceName] != nil {
 		if data, ok := c.deviceMetricMap[deviceName][metricName]; ok {
+			return data, nil
+		} else {
+			return MetricData{}, errors.New("[MetricStore] load value failed")
+		}
+	}
+	return MetricData{}, errors.New("[MetricStore] empty map")
+}
+
+func (c *MetricStore) GetNetworkMetric(networkName string, metricName string) (MetricData, error) {
+	c.mutex.RLock()
+	defer c.mutex.RUnlock()
+	if c.networkMetricMap[networkName] != nil {
+		if data, ok := c.networkMetricMap[networkName][metricName]; ok {
 			return data, nil
 		} else {
 			return MetricData{}, errors.New("[MetricStore] load value failed")
