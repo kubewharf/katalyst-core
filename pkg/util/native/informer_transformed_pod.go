@@ -29,12 +29,11 @@ type PodTransformerFunc func(src, dest *corev1.Pod)
 var podTransformers []PodTransformerFunc
 var podTransformerMtx sync.RWMutex
 
-func WithPodTransformer(f PodTransformerFunc) {
+func SetPodTransformer(f PodTransformerFunc) {
 	podTransformerMtx.Lock()
 	defer podTransformerMtx.Unlock()
 	podTransformers = append(podTransformers, f)
 }
-
 func GetPodTransformer() (cache.TransformFunc, bool) {
 	podTransformerMtx.RLock()
 	defer podTransformerMtx.RUnlock()

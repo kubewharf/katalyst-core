@@ -199,7 +199,7 @@ func NewSPDController(ctx context.Context, controlCtx *katalystbase.GenericConte
 		return nil, err
 	}
 
-	native.WithPodTransformer(podTransformerFunc)
+	native.SetPodTransformer(podTransformerFunc)
 	return spdController, nil
 }
 

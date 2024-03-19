@@ -162,7 +162,7 @@ func NewHealthzController(ctx context.Context,
 			ec.nodeSelector, podIndexer, ec.nodeLister, ec.cnrLister, ec.healthzHelper)
 	}
 
-	native.WithPodTransformer(podTransformerFunc)
+	native.SetPodTransformer(podTransformerFunc)
 	return ec, nil
 }
 

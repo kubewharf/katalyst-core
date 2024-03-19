@@ -29,7 +29,7 @@ func TestPodTransformer(t *testing.T) {
 
 	as := require.New(t)
 
-	WithPodTransformer(func(src, dest *core.Pod) {
+	SetPodTransformer(func(src, dest *core.Pod) {
 		dest.Spec.NodeName = src.Spec.NodeName
 	})
 
