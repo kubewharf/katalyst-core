@@ -371,7 +371,10 @@ func (tmo *transparentMemoryOffloading) Reconcile(status *types.MemoryPressureSt
 			// load SPD conf if exists
 			tmoIndicator := &v1alpha1.TransparentMemoryOffloadingIndicators{}
 			isBaseline, err := tmo.metaServer.ServiceProfilingManager.ServiceExtendedIndicator(context.Background(), pod, tmoIndicator)
-			if err == nil && !isBaseline {
+			if err != nil {
+				general.Infof("Error occured when load check baseline and load TransparentMemoryOffloadingIndicators, err : %v", err)
+			}
+			if !isBaseline {
 				general.Infof("Load Service Level TMO config for podContainerName %s", podContainerName)
 				tmoConfigDetail := tmo.containerTmoEngines[podContainerName].GetConf()
 				if tmoIndicator.ConfigDetail != nil {
