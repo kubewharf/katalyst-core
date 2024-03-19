@@ -71,6 +71,14 @@ func Test_noneExistMetricsProvisioner(t *testing.T) {
 			},
 		},
 	}
+	fakeSystemNet := &malachitetypes.SystemNetworkData{
+		TCP: malachitetypes.TCP{},
+		NetworkCard: []malachitetypes.NetworkCard{
+			{
+				Name: "eth0",
+			},
+		},
+	}
 	fakeCgroupInfoV1 := &malachitetypes.MalachiteCgroupInfo{
 		CgroupType: "V1",
 		V1: &malachitetypes.MalachiteCgroupV1Info{
@@ -97,6 +105,7 @@ func Test_noneExistMetricsProvisioner(t *testing.T) {
 	implement.(*MalachiteMetricsProvisioner).processSystemIOData(fakeSystemIO)
 	implement.(*MalachiteMetricsProvisioner).processSystemNumaData(fakeSystemMemory)
 	implement.(*MalachiteMetricsProvisioner).processSystemCPUComputeData(fakeSystemCompute)
+	implement.(*MalachiteMetricsProvisioner).processSystemNetData(fakeSystemNet)
 
 	implement.(*MalachiteMetricsProvisioner).processContainerCPUData("pod-not-exist", "container-not-exist", fakeCgroupInfoV1)
 	implement.(*MalachiteMetricsProvisioner).processContainerMemoryData("pod-not-exist", "container-not-exist", fakeCgroupInfoV1)
@@ -106,11 +115,19 @@ func Test_noneExistMetricsProvisioner(t *testing.T) {
 	implement.(*MalachiteMetricsProvisioner).processContainerPerNumaMemoryData("pod-not-exist", "container-not-exist", fakeCgroupInfoV1)
 
 	implement.(*MalachiteMetricsProvisioner).processContainerCPUData("pod-not-exist", "container-not-exist", fakeCgroupInfoV2)
+	implement.(*MalachiteMetricsProvisioner).processContainerCPUData("pod-not-exist", "container-not-exist", nil)
 	implement.(*MalachiteMetricsProvisioner).processContainerMemoryData("pod-not-exist", "container-not-exist", fakeCgroupInfoV2)
+	implement.(*MalachiteMetricsProvisioner).processContainerMemoryData("pod-not-exist", "container-not-exist", nil)
 	implement.(*MalachiteMetricsProvisioner).processContainerBlkIOData("pod-not-exist", "container-not-exist", fakeCgroupInfoV2)
+	implement.(*MalachiteMetricsProvisioner).processContainerBlkIOData("pod-not-exist", "container-not-exist", nil)
 	implement.(*MalachiteMetricsProvisioner).processContainerNetData("pod-not-exist", "container-not-exist", fakeCgroupInfoV2)
+	implement.(*MalachiteMetricsProvisioner).processContainerNetData("pod-not-exist", "container-not-exist", nil)
 	implement.(*MalachiteMetricsProvisioner).processContainerPerfData("pod-not-exist", "container-not-exist", fakeCgroupInfoV2)
+	implement.(*MalachiteMetricsProvisioner).processContainerPerfData("pod-not-exist", "container-not-exist", nil)
 	implement.(*MalachiteMetricsProvisioner).processContainerPerNumaMemoryData("pod-not-exist", "container-not-exist", fakeCgroupInfoV2)
+	implement.(*MalachiteMetricsProvisioner).processContainerPerNumaMemoryData("pod-not-exist", "container-not-exist", nil)
+	implement.(*MalachiteMetricsProvisioner).processContainerPerNumaMemoryData("pod-not-exist", "container-not-exist",
+		&malachitetypes.MalachiteCgroupInfo{CgroupType: "V2"})
 
 	_, err = store.GetNodeMetric("test-not-exist")
 	if err == nil {

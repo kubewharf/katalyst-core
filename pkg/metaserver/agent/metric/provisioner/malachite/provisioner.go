@@ -126,6 +126,15 @@ func (m *MalachiteMetricsProvisioner) updateSystemStats() {
 	} else {
 		m.processSystemIOData(systemIOData)
 	}
+
+	systemNetData, err := m.malachiteClient.GetSystemNetStats()
+	if err != nil {
+		klog.Errorf("[malachite] get system net stats failed, err %v", err)
+		_ = m.emitter.StoreInt64(metricsNameMalachiteGetSystemStatusFailed, 1, metrics.MetricTypeNameCount,
+			metrics.MetricTag{Key: "kind", Val: "net"})
+	} else {
+		m.processSystemNetData(systemNetData)
+	}
 }
 
 func (m *MalachiteMetricsProvisioner) updateCgroupData() {
@@ -168,6 +177,9 @@ func (m *MalachiteMetricsProvisioner) updatePodsCgroupData(ctx context.Context) 
 }
 
 func (m *MalachiteMetricsProvisioner) processSystemComputeData(systemComputeData *malachitetypes.SystemComputeData) {
+	if systemComputeData == nil {
+		return
+	}
 	// todo, currently we only get a unified data for the whole system compute data
 	updateTime := time.Unix(systemComputeData.UpdateTime, 0)
 
@@ -181,6 +193,9 @@ func (m *MalachiteMetricsProvisioner) processSystemComputeData(systemComputeData
 }
 
 func (m *MalachiteMetricsProvisioner) processSystemMemoryData(systemMemoryData *malachitetypes.SystemMemoryData) {
+	if systemMemoryData == nil {
+		return
+	}
 	// todo, currently we only get a unified data for the whole system memory data
 	updateTime := time.Unix(systemMemoryData.UpdateTime, 0)
 
@@ -231,6 +246,9 @@ func (m *MalachiteMetricsProvisioner) processSystemMemoryData(systemMemoryData *
 }
 
 func (m *MalachiteMetricsProvisioner) processSystemIOData(systemIOData *malachitetypes.SystemDiskIoData) {
+	if systemIOData == nil {
+		return
+	}
 	// todo, currently we only get a unified data for the whole system io data
 	updateTime := time.Unix(systemIOData.UpdateTime, 0)
 
@@ -285,6 +303,75 @@ func (m *MalachiteMetricsProvisioner) processSystemIOData(systemIOData *malachit
 			utilmetric.MetricData{Value: float64(diskType), Time: &updateTime})
 		m.metricStore.SetDeviceMetric(device.DeviceName, consts.MetricIODiskWBTValue,
 			utilmetric.MetricData{Value: float64(device.WBTValue), Time: &updateTime})
+	}
+}
+
+func (m *MalachiteMetricsProvisioner) processSystemNetData(systemNetData *malachitetypes.SystemNetworkData) {
+	if systemNetData == nil {
+		return
+	}
+	// todo, currently we only get a unified data for the whole system io data
+	updateTime := time.Unix(systemNetData.UpdateTime, 0)
+
+	m.metricStore.SetNodeMetric(consts.MetricNetTcpDelayedAcks,
+		utilmetric.MetricData{Value: float64(systemNetData.TCP.TCPDelayAcks), Time: &updateTime})
+	m.metricStore.SetNodeMetric(consts.MetricNetTcpOverflows,
+		utilmetric.MetricData{Value: float64(systemNetData.TCP.TCPListenOverflows), Time: &updateTime})
+	m.metricStore.SetNodeMetric(consts.MetricNetTcpDrops,
+		utilmetric.MetricData{Value: float64(systemNetData.TCP.TCPListenDrops), Time: &updateTime})
+	m.metricStore.SetNodeMetric(consts.MetricNetTcpAbort,
+		utilmetric.MetricData{Value: float64(systemNetData.TCP.TCPAbortOnMemory), Time: &updateTime})
+	m.metricStore.SetNodeMetric(consts.MetricNetTcpDrop,
+		utilmetric.MetricData{Value: float64(systemNetData.TCP.TCPReqQFullDrop), Time: &updateTime})
+	m.metricStore.SetNodeMetric(consts.MetricNetTcpRetran,
+		utilmetric.MetricData{Value: systemNetData.TCP.TCPRetran, Time: &updateTime})
+	m.metricStore.SetNodeMetric(consts.MetricNetTcpRetranSegs,
+		utilmetric.MetricData{Value: float64(systemNetData.TCP.TCPRetransSegs), Time: &updateTime})
+	m.metricStore.SetNodeMetric(consts.MetricNetTcpRecvPackets,
+		utilmetric.MetricData{Value: float64(systemNetData.TCP.TCPOutSegs), Time: &updateTime})
+	m.metricStore.SetNodeMetric(consts.MetricNetTcpCloseWait,
+		utilmetric.MetricData{Value: float64(systemNetData.TCP.TCPCloseWait), Time: &updateTime})
+
+	for _, device := range systemNetData.NetworkCard {
+		// for now, we will only consider standard network interface
+		// todo, may need to use configurations in the future to filter
+		if !strings.HasPrefix(device.Name, "eth") {
+			continue
+		}
+
+		m.metricStore.SetNetworkMetric(device.Name, consts.MetricNetReceiveBytes,
+			utilmetric.MetricData{Value: float64(device.ReceiveBytes), Time: &updateTime})
+		m.metricStore.SetNetworkMetric(device.Name, consts.MetricNetReceivePackets,
+			utilmetric.MetricData{Value: float64(device.ReceivePackets), Time: &updateTime})
+		m.metricStore.SetNetworkMetric(device.Name, consts.MetricNetReceiveErrs,
+			utilmetric.MetricData{Value: float64(device.ReceiveErrs), Time: &updateTime})
+		m.metricStore.SetNetworkMetric(device.Name, consts.MetricNetReceiveDrops,
+			utilmetric.MetricData{Value: float64(device.ReceiveDrop), Time: &updateTime})
+		m.metricStore.SetNetworkMetric(device.Name, consts.MetricNetReceiveFIFO,
+			utilmetric.MetricData{Value: float64(device.ReceiveFifo), Time: &updateTime})
+		m.metricStore.SetNetworkMetric(device.Name, consts.MetricNetReceiveFrame,
+			utilmetric.MetricData{Value: float64(device.ReceiveFrame), Time: &updateTime})
+		m.metricStore.SetNetworkMetric(device.Name, consts.MetricNetReceiveCompressed,
+			utilmetric.MetricData{Value: float64(device.ReceiveCompressed), Time: &updateTime})
+		m.metricStore.SetNetworkMetric(device.Name, consts.MetricNetTransmitMulticast,
+			utilmetric.MetricData{Value: float64(device.ReceiveMulticast), Time: &updateTime})
+		m.metricStore.SetNetworkMetric(device.Name, consts.MetricNetTransmitBytes,
+			utilmetric.MetricData{Value: float64(device.TransmitBytes), Time: &updateTime})
+		m.metricStore.SetNetworkMetric(device.Name, consts.MetricNetTransmitPackets,
+			utilmetric.MetricData{Value: float64(device.TransmitPackets), Time: &updateTime})
+		m.metricStore.SetNetworkMetric(device.Name, consts.MetricNetTransmitErrs,
+			utilmetric.MetricData{Value: float64(device.TransmitErrs), Time: &updateTime})
+		m.metricStore.SetNetworkMetric(device.Name, consts.MetricNetTransmitDrops,
+			utilmetric.MetricData{Value: float64(device.TransmitDrop), Time: &updateTime})
+		m.metricStore.SetNetworkMetric(device.Name, consts.MetricNetTransmitFIFO,
+			utilmetric.MetricData{Value: float64(device.TransmitFifo), Time: &updateTime})
+		m.metricStore.SetNetworkMetric(device.Name, consts.MetricNetTransmitColls,
+			utilmetric.MetricData{Value: float64(device.TransmitColls), Time: &updateTime})
+		m.metricStore.SetNetworkMetric(device.Name, consts.MetricNetTransmitCarrier,
+			utilmetric.MetricData{Value: float64(device.TransmitCarrier), Time: &updateTime})
+		m.metricStore.SetNetworkMetric(device.Name, consts.MetricNetTransmitCompressed,
+			utilmetric.MetricData{Value: float64(device.TransmitCompressed), Time: &updateTime})
+
 	}
 }
 
@@ -353,7 +440,11 @@ func (m *MalachiteMetricsProvisioner) processSystemCPUComputeData(systemComputeD
 }
 
 func (m *MalachiteMetricsProvisioner) processCgroupCPUData(cgroupPath string, cgStats *malachitetypes.MalachiteCgroupInfo) {
-	if cgStats.CgroupType == "V1" {
+	if cgStats == nil {
+		return
+	}
+
+	if cgStats.CgroupType == "V1" && cgStats.V1 != nil {
 		cpu := cgStats.V1.Cpu
 		updateTime := time.Unix(cgStats.V1.Cpu.UpdateTime, 0)
 
@@ -379,7 +470,7 @@ func (m *MalachiteMetricsProvisioner) processCgroupCPUData(cgroupPath string, cg
 		m.metricStore.SetCgroupMetric(cgroupPath, consts.MetricLoad5MinCgroup, utilmetric.MetricData{Value: cpu.Load.Five, Time: &updateTime})
 		m.metricStore.SetCgroupMetric(cgroupPath, consts.MetricLoad15MinCgroup, utilmetric.MetricData{Value: cpu.Load.Fifteen, Time: &updateTime})
 
-	} else if cgStats.CgroupType == "V2" {
+	} else if cgStats.CgroupType == "V2" && cgStats.V2 != nil {
 		cpu := cgStats.V2.Cpu
 		updateTime := time.Unix(cgStats.V2.Cpu.UpdateTime, 0)
 
@@ -400,7 +491,11 @@ func (m *MalachiteMetricsProvisioner) processCgroupCPUData(cgroupPath string, cg
 }
 
 func (m *MalachiteMetricsProvisioner) processCgroupMemoryData(cgroupPath string, cgStats *malachitetypes.MalachiteCgroupInfo) {
-	if cgStats.CgroupType == "V1" {
+	if cgStats == nil {
+		return
+	}
+
+	if cgStats.CgroupType == "V1" && cgStats.V1 != nil {
 		mem := cgStats.V1.Memory
 		updateTime := time.Unix(cgStats.V1.Memory.UpdateTime, 0)
 
@@ -421,7 +516,7 @@ func (m *MalachiteMetricsProvisioner) processCgroupMemoryData(cgroupPath string,
 
 		m.metricStore.SetCgroupMetric(cgroupPath, consts.MetricMemOomCgroup, utilmetric.MetricData{Time: &updateTime, Value: float64(mem.BpfMemStat.OomCnt)})
 		//m.metricStore.SetCgroupMetric(cgroupPath, consts.MetricMemScaleFactorCgroup, utilmetric.MetricData{Time: &updateTime, Value: general.UIntPointerToFloat64(mem.WatermarkScaleFactor)})
-	} else if cgStats.CgroupType == "V2" {
+	} else if cgStats.CgroupType == "V2" && cgStats.V2 != nil {
 		mem := cgStats.V2.Memory
 		updateTime := time.Unix(cgStats.V2.Memory.UpdateTime, 0)
 		m.metricStore.SetCgroupMetric(cgroupPath, consts.MetricMemUsageCgroup, utilmetric.MetricData{Value: float64(mem.MemoryUsageInBytes), Time: &updateTime})
@@ -438,8 +533,11 @@ func (m *MalachiteMetricsProvisioner) processCgroupMemoryData(cgroupPath string,
 }
 
 func (m *MalachiteMetricsProvisioner) processCgroupBlkIOData(cgroupPath string, cgStats *malachitetypes.MalachiteCgroupInfo) {
+	if cgStats == nil {
+		return
+	}
 
-	if cgStats.CgroupType == "V1" {
+	if cgStats.CgroupType == "V1" && cgStats.V1 != nil {
 		updateTime := time.Unix(cgStats.V1.Blkio.UpdateTime, 0)
 
 		io := cgStats.V1.Blkio
@@ -447,7 +545,7 @@ func (m *MalachiteMetricsProvisioner) processCgroupBlkIOData(cgroupPath string, 
 		m.metricStore.SetCgroupMetric(cgroupPath, consts.MetricBlkioWriteIopsCgroup, utilmetric.MetricData{Time: &updateTime, Value: float64(io.BpfFsData.FsWrite - io.OldBpfFsData.FsWrite)})
 		m.metricStore.SetCgroupMetric(cgroupPath, consts.MetricBlkioReadBpsCgroup, utilmetric.MetricData{Time: &updateTime, Value: float64(io.BpfFsData.FsReadBytes - io.OldBpfFsData.FsReadBytes)})
 		m.metricStore.SetCgroupMetric(cgroupPath, consts.MetricBlkioWriteBpsCgroup, utilmetric.MetricData{Time: &updateTime, Value: float64(io.BpfFsData.FsWriteBytes - io.OldBpfFsData.FsWriteBytes)})
-	} else if cgStats.CgroupType == "V2" {
+	} else if cgStats.CgroupType == "V2" && cgStats.V2 != nil {
 		io := cgStats.V2.Blkio
 		updateTime := time.Unix(cgStats.V2.Blkio.UpdateTime, 0)
 
@@ -459,15 +557,18 @@ func (m *MalachiteMetricsProvisioner) processCgroupBlkIOData(cgroupPath string, 
 }
 
 func (m *MalachiteMetricsProvisioner) processCgroupNetData(cgroupPath string, cgStats *malachitetypes.MalachiteCgroupInfo) {
+	if cgStats == nil {
+		return
+	}
 	updateTime := time.Now()
 
 	var net *malachitetypes.NetClsCgData
-	if cgStats.CgroupType == "V1" {
+	if cgStats.CgroupType == "V1" && cgStats.V1 != nil {
 		net = cgStats.V1.NetCls
-		updateTime = time.Unix(cgStats.V1.Blkio.UpdateTime, 0)
-	} else if cgStats.CgroupType == "V2" {
+		updateTime = time.Unix(cgStats.V1.NetCls.UpdateTime, 0)
+	} else if cgStats.CgroupType == "V2" && cgStats.V2 != nil {
 		net = cgStats.V2.NetCls
-		updateTime = time.Unix(cgStats.V2.Blkio.UpdateTime, 0)
+		updateTime = time.Unix(cgStats.V2.NetCls.UpdateTime, 0)
 	}
 	if net == nil {
 		return
@@ -479,7 +580,11 @@ func (m *MalachiteMetricsProvisioner) processCgroupNetData(cgroupPath string, cg
 }
 
 func (m *MalachiteMetricsProvisioner) processCgroupPerNumaMemoryData(cgroupPath string, cgStats *malachitetypes.MalachiteCgroupInfo) {
-	if cgStats.CgroupType == "V1" {
+	if cgStats == nil {
+		return
+	}
+
+	if cgStats.CgroupType == "V1" && cgStats.V1 != nil {
 		numaStats := cgStats.V1.Memory.NumaStats
 		updateTime := time.Unix(cgStats.V1.Memory.UpdateTime, 0)
 
@@ -489,7 +594,7 @@ func (m *MalachiteMetricsProvisioner) processCgroupPerNumaMemoryData(cgroupPath 
 			m.metricStore.SetCgroupNumaMetric(cgroupPath, numaID, consts.MetricsMemFilePerNumaCgroup, utilmetric.MetricData{Time: &updateTime, Value: float64(data.HierarchicalFile << pageShift)})
 			m.metricStore.SetCgroupNumaMetric(cgroupPath, numaID, consts.MetricsMemAnonPerNumaCgroup, utilmetric.MetricData{Time: &updateTime, Value: float64(data.HierarchicalAnon << pageShift)})
 		}
-	} else if cgStats.CgroupType == "V2" {
+	} else if cgStats.CgroupType == "V2" && cgStats.V2 != nil {
 		numaStats := cgStats.V2.Memory.MemNumaStats
 		updateTime := time.Unix(cgStats.V2.Memory.UpdateTime, 0)
 
@@ -504,6 +609,10 @@ func (m *MalachiteMetricsProvisioner) processCgroupPerNumaMemoryData(cgroupPath 
 }
 
 func (m *MalachiteMetricsProvisioner) processContainerCPUData(podUID, containerName string, cgStats *malachitetypes.MalachiteCgroupInfo) {
+	if cgStats == nil {
+		return
+	}
+
 	var (
 		metricLastUpdateTime, _ = m.metricStore.GetContainerMetric(podUID, containerName, consts.MetricCPUUpdateTimeContainer)
 		cyclesOld, _            = m.metricStore.GetContainerMetric(podUID, containerName, consts.MetricCPUCyclesContainer)
@@ -513,7 +622,7 @@ func (m *MalachiteMetricsProvisioner) processContainerCPUData(podUID, containerN
 	m.processContainerMemBandwidth(podUID, containerName, cgStats, metricLastUpdateTime.Value)
 	m.processContainerCPURelevantRate(podUID, containerName, cgStats, metricLastUpdateTime.Value)
 
-	if cgStats.CgroupType == "V1" {
+	if cgStats.CgroupType == "V1" && cgStats.V1 != nil {
 		cpu := cgStats.V1.Cpu
 		updateTime := time.Unix(cgStats.V1.Cpu.UpdateTime, 0)
 
@@ -584,7 +693,7 @@ func (m *MalachiteMetricsProvisioner) processContainerCPUData(podUID, containerN
 					utilmetric.MetricData{Value: cpi, Time: &updateTime})
 			}
 		}
-	} else if cgStats.CgroupType == "V2" {
+	} else if cgStats.CgroupType == "V2" && cgStats.V2 != nil {
 		cpu := cgStats.V2.Cpu
 		updateTime := time.Unix(cgStats.V2.Cpu.UpdateTime, 0)
 
@@ -651,11 +760,15 @@ func (m *MalachiteMetricsProvisioner) processContainerCPUData(podUID, containerN
 }
 
 func (m *MalachiteMetricsProvisioner) processContainerMemoryData(podUID, containerName string, cgStats *malachitetypes.MalachiteCgroupInfo) {
+	if cgStats == nil {
+		return
+	}
+
 	lastUpdateTimeMetric, _ := m.metricStore.GetContainerMetric(podUID, containerName, consts.MetricMemUpdateTimeContainer)
 
 	m.processContainerMemRelevantRate(podUID, containerName, cgStats, lastUpdateTimeMetric.Value)
 
-	if cgStats.CgroupType == "V1" {
+	if cgStats.CgroupType == "V1" && cgStats.V1 != nil {
 		mem := cgStats.V1.Memory
 		updateTime := time.Unix(cgStats.V1.Memory.UpdateTime, 0)
 
@@ -695,7 +808,7 @@ func (m *MalachiteMetricsProvisioner) processContainerMemoryData(podUID, contain
 		//	utilmetric.MetricData{Value: general.UIntPointerToFloat64(mem.WatermarkScaleFactor), Time: &updateTime})
 		m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricMemUpdateTimeContainer,
 			utilmetric.MetricData{Value: float64(mem.UpdateTime), Time: &updateTime})
-	} else if cgStats.CgroupType == "V2" {
+	} else if cgStats.CgroupType == "V2" && cgStats.V2 != nil {
 		mem := cgStats.V2.Memory
 		updateTime := time.Unix(cgStats.V2.Memory.UpdateTime, 0)
 
@@ -729,9 +842,13 @@ func (m *MalachiteMetricsProvisioner) processContainerMemoryData(podUID, contain
 }
 
 func (m *MalachiteMetricsProvisioner) processContainerBlkIOData(podUID, containerName string, cgStats *malachitetypes.MalachiteCgroupInfo) {
+	if cgStats == nil {
+		return
+	}
+
 	lastUpdateTime, _ := m.metricStore.GetContainerMetric(podUID, containerName, consts.MetricBlkioUpdateTimeContainer)
 
-	if cgStats.CgroupType == "V1" {
+	if cgStats.CgroupType == "V1" && cgStats.V1 != nil {
 		io := cgStats.V1.Blkio
 		updateTime := time.Unix(io.UpdateTime, 0)
 		updateTimestampInSec := updateTime.Unix()
@@ -759,7 +876,7 @@ func (m *MalachiteMetricsProvisioner) processContainerBlkIOData(podUID, containe
 
 		m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricBlkioUpdateTimeContainer,
 			utilmetric.MetricData{Value: float64(updateTimestampInSec), Time: &updateTime})
-	} else if cgStats.CgroupType == "V2" {
+	} else if cgStats.CgroupType == "V2" && cgStats.V2 != nil {
 		io := cgStats.V2.Blkio
 		updateTime := time.Unix(io.UpdateTime, 0)
 		updateTimestampInSec := updateTime.Unix()
@@ -787,12 +904,16 @@ func (m *MalachiteMetricsProvisioner) processContainerBlkIOData(podUID, containe
 }
 
 func (m *MalachiteMetricsProvisioner) processContainerNetData(podUID, containerName string, cgStats *malachitetypes.MalachiteCgroupInfo) {
+	if cgStats == nil {
+		return
+	}
+
 	var net *malachitetypes.NetClsCgData
 	var updateTime time.Time
-	if cgStats.CgroupType == "V1" {
+	if cgStats.CgroupType == "V1" && cgStats.V1 != nil {
 		net = cgStats.V1.NetCls
 		updateTime = time.Unix(cgStats.V1.NetCls.UpdateTime, 0)
-	} else if cgStats.CgroupType == "V2" {
+	} else if cgStats.CgroupType == "V2" && cgStats.V2 != nil {
 		net = cgStats.V2.NetCls
 		updateTime = time.Unix(cgStats.V2.NetCls.UpdateTime, 0)
 	}
@@ -832,7 +953,11 @@ func (m *MalachiteMetricsProvisioner) processContainerPerfData(podUID, container
 }
 
 func (m *MalachiteMetricsProvisioner) processContainerPerNumaMemoryData(podUID, containerName string, cgStats *malachitetypes.MalachiteCgroupInfo) {
-	if cgStats.CgroupType == "V1" {
+	if cgStats == nil {
+		return
+	}
+
+	if cgStats.CgroupType == "V1" && cgStats.V1 != nil {
 		numaStats := cgStats.V1.Memory.NumaStats
 		updateTime := time.Unix(cgStats.V1.Memory.UpdateTime, 0)
 
@@ -845,7 +970,7 @@ func (m *MalachiteMetricsProvisioner) processContainerPerNumaMemoryData(podUID, 
 			m.metricStore.SetContainerNumaMetric(podUID, containerName, numaID, consts.MetricsMemAnonPerNumaContainer,
 				utilmetric.MetricData{Value: float64(data.Anon << pageShift), Time: &updateTime})
 		}
-	} else if cgStats.CgroupType == "V2" {
+	} else if cgStats.CgroupType == "V2" && cgStats.V2 != nil {
 		numaStats := cgStats.V2.Memory.MemNumaStats
 		updateTime := time.Unix(cgStats.V2.Memory.UpdateTime, 0)
 

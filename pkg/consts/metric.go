@@ -22,8 +22,8 @@ package consts
  - `ratio` represents percentage data, and will format in range [0,1], e.g. cpu ratio based on total requests
 */
 
+// metric type
 const (
-	// metric type
 	Rate  = ".rate"
 	Delta = ".delta"
 )
@@ -71,6 +71,39 @@ const (
 
 	MetricIODiskType     = "io.disk.type"
 	MetricIODiskWBTValue = "io.disk.wbt"
+)
+
+// System tcp metrics
+const (
+	MetricNetTcpDelayedAcks = "net.tcp.delay_acks"
+	MetricNetTcpOverflows   = "net.tcp.listen_overflows"
+	MetricNetTcpDrops       = "net.tcp.listen_drops"
+	MetricNetTcpAbort       = "net.tcp.abort_on_memory"
+	MetricNetTcpDrop        = "net.tcp.req_q_full_drop"
+	MetricNetTcpRetran      = "net.tcp.retran"
+	MetricNetTcpRetranSegs  = "net.tcp.retrans_segs"
+	MetricNetTcpRecvPackets = "net.tcp.out_segs"
+	MetricNetTcpCloseWait   = "net.tcp.close_wait"
+)
+
+// System network metrics
+const (
+	MetricNetReceiveBytes       = "net.tcp.receive_bytes"
+	MetricNetReceivePackets     = "net.tcp.receive_packets"
+	MetricNetReceiveErrs        = "net.tcp.receive_errs"
+	MetricNetReceiveDrops       = "net.tcp.receive_drop"
+	MetricNetReceiveFIFO        = "net.tcp.receive_fifo"
+	MetricNetReceiveFrame       = "net.tcp.receive_frame"
+	MetricNetReceiveCompressed  = "net.tcp.receive_compressed"
+	MetricNetTransmitMulticast  = "net.tcp.receive_multicast"
+	MetricNetTransmitBytes      = "net.tcp.transmit_bytes"
+	MetricNetTransmitPackets    = "net.tcp.transmit_packets"
+	MetricNetTransmitErrs       = "net.tcp.transmit_errs"
+	MetricNetTransmitDrops      = "net.tcp.transmit_drop"
+	MetricNetTransmitFIFO       = "net.tcp.transmit_fifo"
+	MetricNetTransmitColls      = "net.tcp.transmit_colls"
+	MetricNetTransmitCarrier    = "net.tcp.transmit_carrier"
+	MetricNetTransmitCompressed = "net.tcp.transmit_compressed"
 )
 
 // Node filesystem metrics
