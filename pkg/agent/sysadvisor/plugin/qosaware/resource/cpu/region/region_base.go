@@ -236,7 +236,7 @@ func NewQoSRegionBase(name string, ownerPoolName string, regionType types.QoSReg
 	if r.enableBorweinModel {
 		r.borweinController = borweinctrl.NewBorweinController(name, regionType, ownerPoolName, conf, metaReader, emitter)
 	}
-	r.enableReclaim = r.EnableReclaim
+	r.enableReclaim = r.EnableReclaimFunc
 
 	klog.Infof("[qosaware-cpu] created region [%v/%v/%v]", r.Name(), r.Type(), r.OwnerPoolName())
 
@@ -785,7 +785,7 @@ func (r *QoSRegionBase) updateOvershootStatus() bool {
 	return overshoot
 }
 
-func (r *QoSRegionBase) EnableReclaim() bool {
+func (r *QoSRegionBase) EnableReclaimFunc() bool {
 	return r.ResourceEssentials.EnableReclaim
 }
 
@@ -795,4 +795,8 @@ func (r *QoSRegionBase) IsThrottled() bool {
 
 func (r *QoSRegionBase) IsIdle() bool {
 	return r.idle.Load()
+}
+
+func (r *QoSRegionBase) EnableReclaim() bool {
+	return r.enableReclaim()
 }
