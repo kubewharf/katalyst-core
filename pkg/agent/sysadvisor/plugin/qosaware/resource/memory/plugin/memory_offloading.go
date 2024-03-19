@@ -397,6 +397,12 @@ func (tmo *transparentMemoryOffloading) Reconcile(status *types.MemoryPressureSt
 					tmo.containerTmoEngines[podContainerName].GetConf().EnableTMO = false
 				}
 			}
+			// TODO: remove this log after testing
+			general.Infof("TMO configs for podContainerName: %v, enableTMO: %v, enableSwap: %v, interval: %v, policy: %v", podContainerName,
+				tmo.containerTmoEngines[podContainerName].GetConf().EnableTMO,
+				tmo.containerTmoEngines[podContainerName].GetConf().EnableSwap,
+				tmo.containerTmoEngines[podContainerName].GetConf().Interval,
+				tmo.containerTmoEngines[podContainerName].GetConf().PolicyName)
 		}
 	}
 
