@@ -41,15 +41,16 @@ import (
 
 // Metric names for resource server
 const (
-	metricServerStartCalled              = "start_called"
-	metricServerStopCalled               = "stop_called"
-	metricServerAddContainerCalled       = "add_container_called"
-	metricServerRemovePodCalled          = "remove_pod_called"
-	metricServerLWCalled                 = "lw_called"
-	metricServerLWGetCheckpointFailed    = "lw_get_checkpoint_failed"
-	metricServerLWGetCheckpointSucceeded = "lw_get_checkpoint_succeeded"
-	metricServerLWSendResponseFailed     = "lw_send_response_failed"
-	metricServerLWSendResponseSucceeded  = "lw_send_response_succeeded"
+	metricServerStartCalled                     = "start_called"
+	metricServerStopCalled                      = "stop_called"
+	metricServerAddContainerCalled              = "add_container_called"
+	metricServerRemovePodCalled                 = "remove_pod_called"
+	metricServerLWCalled                        = "lw_called"
+	metricServerLWGetCheckpointFailed           = "lw_get_checkpoint_failed"
+	metricServerLWGetCheckpointSucceeded        = "lw_get_checkpoint_succeeded"
+	metricServerLWSendResponseFailed            = "lw_send_response_failed"
+	metricServerLWSendResponseSucceeded         = "lw_send_response_succeeded"
+	metricServerCheckpointUpdateContainerFailed = "checkpoint_update_container_failed"
 )
 
 type baseServer struct {

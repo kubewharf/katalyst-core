@@ -173,6 +173,9 @@ func (cs *cpuServer) getCheckpoint() {
 			for containerName, info := range entry.Entries {
 				if err := cs.updateContainerInfo(podUID, containerName, pod, info); err != nil {
 					klog.Errorf("[qosaware-server-cpu] update container info with error: %v", err)
+					_ = cs.emitter.StoreInt64(cs.genMetricsName(metricServerCheckpointUpdateContainerFailed), 1, metrics.MetricTypeNameCount,
+						metrics.MetricTag{Key: "podUID", Val: podUID},
+						metrics.MetricTag{Key: "containerName", Val: containerName})
 				}
 			}
 		}
@@ -308,15 +311,6 @@ func (cs *cpuServer) assemblePoolEntries(advisorResp *types.InternalCPUCalculati
 // todo this logic should be refined to make sure we will assemble entries from	internalCalculationInfo rather than walking through containerInfo
 func (cs *cpuServer) assemblePodEntries(calculationEntriesMap map[string]*cpuadvisor.CalculationEntries,
 	bs blockSet, podUID string, ci *types.ContainerInfo) error {
-	if ci.OwnerPoolName == "" {
-		klog.Warningf("container %s/%s pool name is empty", ci.PodUID, ci.ContainerName)
-		return nil
-	}
-	if _, ok := calculationEntriesMap[ci.OwnerPoolName]; !ok {
-		klog.Warningf("container %s/%s refer a non-existed pool: %s", ci.PodUID, ci.ContainerName, ci.OwnerPoolName)
-		return nil
-	}
-
 	calculationInfo := &cpuadvisor.CalculationInfo{
 		OwnerPoolName:             ci.OwnerPoolName,
 		CalculationResultsByNumas: nil,
@@ -331,6 +325,15 @@ func (cs *cpuServer) assemblePodEntries(calculationEntriesMap map[string]*cpuadv
 	// if isolation is locking out, pass original owner pool instead of owner pool
 	if !ci.Isolated && ci.OwnerPoolName != ci.OriginOwnerPoolName {
 		calculationInfo.OwnerPoolName = ci.OriginOwnerPoolName
+	}
+
+	if calculationInfo.OwnerPoolName == "" {
+		klog.Warningf("container %s/%s pool name is empty", ci.PodUID, ci.ContainerName)
+		return nil
+	}
+	if _, ok := calculationEntriesMap[calculationInfo.OwnerPoolName]; !ok {
+		klog.Warningf("container %s/%s refer a non-existed pool: %s", ci.PodUID, ci.ContainerName, ci.OwnerPoolName)
+		return nil
 	}
 
 	// currently, only pods in "dedicated_nums with numa binding" has topology aware allocations
