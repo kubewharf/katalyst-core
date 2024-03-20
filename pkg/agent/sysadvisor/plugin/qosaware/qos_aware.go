@@ -91,8 +91,14 @@ func NewQoSAwarePlugin(pluginName string, conf *config.Configuration, extraConf 
 		}
 	}
 
-	// add dynamic config watcher
+	// add AdminQos dynamic config watcher
 	err = metaServer.ConfigurationManager.AddConfigWatcher(crd.AdminQoSConfigurationGVR)
+	if err != nil {
+		return nil, err
+	}
+
+	// add TransparentMemoryOffloading dynamic config watcher
+	err = metaServer.ConfigurationManager.AddConfigWatcher(crd.TransparentMemoryOffloadingConfigurationGVR)
 	if err != nil {
 		return nil, err
 	}

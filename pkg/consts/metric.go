@@ -183,7 +183,13 @@ const (
 	MetricMemPgmajfaultRateContainer = MetricMemPgmajfaultContainer + Rate
 	MetricMemOomRateContainer        = MetricMemOomContainer + Rate
 
-	MetricMemUpdateTimeContainer = "mem.updatetime.container"
+	MetricMemUpdateTimeContainer        = "mem.updatetime.container"
+	MetricMemPgstealContainer           = "mem.pgsteal.container"
+	MetricMemPgscanContainer            = "mem.pgscan.container"
+	MetricMemWorkingsetRefaultContainer = "mem.workingsetrefault.container"
+	MetricMemPsiAvg60Container          = "mem.psiavg60.container"
+	MetricMemInactiveAnonContainer      = "mem.inactiveanon.container"
+	MetricMemInactiveFileContainer      = "mem.inactivefile.container"
 )
 
 // container blkio metrics
@@ -295,8 +301,14 @@ const (
 	MetricMemAllocstallCgroup  = "mem.allocstall.cgroup"
 	MetricMemKswapdstealCgroup = "mem.kswapdstall.cgroup"
 
-	MetricMemOomCgroup         = "mem.oom.cgroup"
-	MetricMemScaleFactorCgroup = "mem.scalefactor.cgroup"
+	MetricMemOomCgroup               = "mem.oom.cgroup"
+	MetricMemScaleFactorCgroup       = "mem.scalefactor.cgroup"
+	MetricMemPgstealCgroup           = "mem.pgsteal.cgroup"
+	MetricMemPgscanCgroup            = "mem.pgscan.cgroup"
+	MetricMemWorkingsetRefaultCgroup = "mem.workingsetrefault.cgroup"
+	MetricMemPsiAvg60Cgroup          = "mem.psiavg60.cgroup"
+	MetricMemInactiveAnonCgroup      = "mem.inactiveanon.cgroup"
+	MetricMemInactiveFileCgroup      = "mem.inactivefile.cgroup"
 )
 
 // Cgroup blkio metrics

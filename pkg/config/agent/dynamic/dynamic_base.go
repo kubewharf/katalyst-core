@@ -19,6 +19,8 @@ package dynamic
 import (
 	"sync"
 
+	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/tmo"
+
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/adminqos"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/auth"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/crd"
@@ -52,16 +54,19 @@ func (c *DynamicAgentConfiguration) SetDynamicConfiguration(conf *Configuration)
 type Configuration struct {
 	*adminqos.AdminQoSConfiguration
 	*auth.AuthConfiguration
+	*tmo.TransparentMemoryOffloadingConfiguration
 }
 
 func NewConfiguration() *Configuration {
 	return &Configuration{
-		AdminQoSConfiguration: adminqos.NewAdminQoSConfiguration(),
-		AuthConfiguration:     auth.NewAuthConfiguration(),
+		AdminQoSConfiguration:                    adminqos.NewAdminQoSConfiguration(),
+		AuthConfiguration:                        auth.NewAuthConfiguration(),
+		TransparentMemoryOffloadingConfiguration: tmo.NewTransparentMemoryOffloadingConfiguration(),
 	}
 }
 
 func (c *Configuration) ApplyConfiguration(conf *crd.DynamicConfigCRD) {
 	c.AdminQoSConfiguration.ApplyConfiguration(conf)
 	c.AuthConfiguration.ApplyConfiguration(conf)
+	c.TransparentMemoryOffloadingConfiguration.ApplyConfiguration(conf)
 }
