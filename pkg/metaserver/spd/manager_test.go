@@ -18,6 +18,7 @@ package spd
 
 import (
 	"context"
+	"encoding/json"
 	"io/ioutil"
 	"os"
 	"testing"
@@ -519,6 +520,71 @@ func Test_serviceProfilingManager_ServiceExtendedIndicator(t *testing.T) {
 									Object: &workloadapis.TestExtendedIndicators{
 										Indicators: &workloadapis.TestIndicators{},
 									},
+								},
+							},
+						},
+					},
+				},
+				cnc: &v1alpha1.CustomNodeConfig{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "node-1",
+					},
+					Status: v1alpha1.CustomNodeConfigStatus{
+						ServiceProfileConfigList: []v1alpha1.TargetConfig{
+							{
+								ConfigName:      "spd-1",
+								ConfigNamespace: "default",
+								Hash:            "3c7e3ff3f218",
+							},
+						},
+					},
+				},
+			},
+			args: args{
+				pod: &v1.Pod{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "pod-1",
+						Namespace: "default",
+						Annotations: map[string]string{
+							consts.PodAnnotationSPDNameKey: "spd-1",
+						},
+					},
+				},
+			},
+			want: &workloadapis.TestExtendedIndicators{
+				Indicators: &workloadapis.TestIndicators{},
+			},
+			isBaseline: true,
+		},
+		{
+			name: "use raw data",
+			fields: fields{
+				nodeName: "node-1",
+				spd: &workloadapis.ServiceProfileDescriptor{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "spd-1",
+						Namespace: "default",
+						Annotations: map[string]string{
+							pkgconsts.ServiceProfileDescriptorAnnotationKeyConfigHash: "3c7e3ff3f218",
+							consts.SPDAnnotationExtendedBaselineSentinelKey:           "{\"TestExtended\":{\"timeStamp\":\"2023-08-01T00:00:01Z\",\"podName\":\"pod1\"}}",
+						},
+					},
+					Spec: workloadapis.ServiceProfileDescriptorSpec{
+						ExtendedIndicator: []workloadapis.ServiceExtendedIndicatorSpec{
+							{
+								Name:            "TestExtended",
+								BaselinePercent: pointer.Int32(10),
+								Indicators: runtime.RawExtension{
+									Raw: func(object runtime.Object) []byte {
+										marshal, err := json.Marshal(object)
+										if err != nil {
+											return nil
+										}
+										return marshal
+									}(
+										&workloadapis.TestExtendedIndicators{
+											Indicators: &workloadapis.TestIndicators{}},
+									),
 								},
 							},
 						},

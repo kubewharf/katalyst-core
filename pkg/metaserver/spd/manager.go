@@ -24,10 +24,12 @@ import (
 
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 
 	workloadapis "github.com/kubewharf/katalyst-api/pkg/apis/workload/v1alpha1"
+	"github.com/kubewharf/katalyst-api/pkg/client/clientset/versioned/scheme"
 	"github.com/kubewharf/katalyst-core/pkg/util"
 )
 
@@ -139,21 +141,36 @@ func (m *serviceProfilingManager) ServiceExtendedIndicator(ctx context.Context, 
 		}
 
 		object := indicator.Indicators.Object
-		if object == nil {
+		raw := indicator.Indicators.Raw
+		if object == nil && raw == nil {
 			return false, fmt.Errorf("%s inidators object is nil", name)
 		}
 
-		t := reflect.TypeOf(indicators)
-		if t.Kind() != reflect.Ptr {
-			return false, fmt.Errorf("indicators must be pointers to structs")
+		if object != nil {
+			t := reflect.TypeOf(indicators)
+			if t.Kind() != reflect.Ptr {
+				return false, fmt.Errorf("indicators must be pointers to structs")
+			}
+
+			v := reflect.ValueOf(object)
+			if !v.CanConvert(t) {
+				return false, fmt.Errorf("%s indicators object cannot convert to %v", name, t.Name())
+			}
+
+			reflect.ValueOf(indicators).Elem().Set(v.Convert(t).Elem())
+		} else {
+			object, ok := indicators.(runtime.Object)
+			if !ok {
+				return false, fmt.Errorf("%s indicators object cannot convert to runtime.Object", name)
+			}
+
+			deserializer := scheme.Codecs.UniversalDeserializer()
+			_, _, err := deserializer.Decode(raw, nil, object)
+			if err != nil {
+				return false, err
+			}
 		}
 
-		v := reflect.ValueOf(object)
-		if !v.CanConvert(t) {
-			return false, fmt.Errorf("%s indicators object cannot convert to %v", name, t.Name())
-		}
-
-		reflect.ValueOf(indicators).Elem().Set(v.Convert(t).Elem())
 		return util.IsExtendedBaselinePod(pod, indicator.BaselinePercent, extendedBaselineSentinel, name)
 	}
 
