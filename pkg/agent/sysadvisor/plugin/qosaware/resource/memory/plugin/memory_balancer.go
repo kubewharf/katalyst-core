@@ -303,7 +303,7 @@ func (m *memoryBalancer) getBalanceInfo() (balanceInfo *BalanceInfo, err error) 
 		}
 		balanceInfo.RawNumaLatencyInfo = append(balanceInfo.RawNumaLatencyInfo, info)
 
-		if balanceInfo.MaxLatencyNuma == nil || balanceInfo.MaxBandwidthNuma.ReadLatency < info.ReadLatency {
+		if balanceInfo.MaxLatencyNuma == nil || balanceInfo.MaxLatencyNuma.ReadLatency < info.ReadLatency {
 			balanceInfo.MaxLatencyNuma = info
 		}
 
