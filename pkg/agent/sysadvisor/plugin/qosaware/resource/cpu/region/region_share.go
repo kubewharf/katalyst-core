@@ -58,8 +58,11 @@ func NewQoSRegionShare(ci *types.ContainerInfo, conf *config.Configuration, extr
 	}
 
 	r.indicatorCurrentGetters = map[string]types.IndicatorCurrentGetter{
-		string(v1alpha1.ServiceSystemIndicatorNameCPUSchedWait):  r.getPoolCPUSchedWait,
-		string(v1alpha1.ServiceSystemIndicatorNameCPUUsageRatio): r.getPoolCPUUsageRatio,
+		string(v1alpha1.ServiceSystemIndicatorNameCPUSchedWait):             r.getPoolCPUSchedWait,
+		string(v1alpha1.ServiceSystemIndicatorNameCPUUsageRatio):            r.getPoolCPUUsageRatio,
+		string(v1alpha1.ServiceSystemIndicatorNameMemoryAccessReadLatency):  r.getMemoryAccessReadLatency,
+		string(v1alpha1.ServiceSystemIndicatorNameMemoryAccessWriteLatency): r.getMemoryAccessWriteLatency,
+		string(v1alpha1.ServiceSystemIndicatorNameMemoryL3MissLatency):      r.getMemoryL3MissLatency,
 	}
 	return r
 }
@@ -120,13 +123,11 @@ func (r *QoSRegionShare) restrictProvisionControlKnob(originControlKnob map[type
 		if !ok {
 			continue
 		}
-
 		refControlKnob, ok := originControlKnob[refPolicyName]
 		if !ok {
 			klog.Errorf("get control knob from reference policy %v for policy %v failed", refPolicyName, policyName)
 			continue
 		}
-
 		for controlKnobName, rawKnobValue := range controlKnob {
 			refKnobValue, ok := refControlKnob[controlKnobName]
 			if !ok {
@@ -154,12 +155,10 @@ func (r *QoSRegionShare) restrictProvisionControlKnob(originControlKnob map[type
 				restrictedKnobValue.Value = min
 				reason = "below"
 			}
-
 			if restrictedKnobValue != rawKnobValue {
 				klog.Infof("[qosaware-cpu] restrict control knob %v for policy %v by policy %v from %.2f to %.2f, reason: %v",
 					controlKnobName, policyName, refPolicyName, rawKnobValue.Value, restrictedKnobValue.Value, reason)
 			}
-
 			restrictedControlKnob[policyName][controlKnobName] = restrictedKnobValue
 			_ = r.emitter.StoreInt64(metricCPUProvisionControlKnobRestricted, int64(r.conf.QoSAwarePluginConfiguration.SyncPeriod.Seconds()), metrics.MetricTypeNameCount, []metrics.MetricTag{
 				{Key: metricTagKeyPolicyName, Val: string(policyName)},
@@ -169,7 +168,6 @@ func (r *QoSRegionShare) restrictProvisionControlKnob(originControlKnob map[type
 			}...)
 		}
 	}
-
 	return restrictedControlKnob
 }
 

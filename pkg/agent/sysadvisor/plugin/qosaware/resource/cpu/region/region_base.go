@@ -34,6 +34,7 @@ import (
 	borweinctrl "github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource/helper/modelctrl/borwein"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
 	"github.com/kubewharf/katalyst-core/pkg/config"
+	pkgconsts "github.com/kubewharf/katalyst-core/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
@@ -652,6 +653,7 @@ func (r *QoSRegionBase) getIndicators() (types.Indicator, error) {
 		defaultTarget := indicator.Target
 		indicatorCurrentGetter, ok := r.indicatorCurrentGetters[indicatorName]
 		if !ok {
+			general.InfoS("failed to find indicatorCurrentGetter", "indicatorName", indicatorName)
 			continue
 		}
 
@@ -679,19 +681,18 @@ func (r *QoSRegionBase) getIndicators() (types.Indicator, error) {
 		}
 
 		if indicatorValue.Target <= 0 || indicatorValue.Current <= 0 {
-			return nil, fmt.Errorf("%v with invalid indicator value %v", indicatorName, indicatorValue)
+			klog.ErrorS(nil, "invalid indicator", "indicatorName", indicatorName, "indicatorValue", indicatorValue)
+			continue
 		}
 
 		indicators[indicatorName] = indicatorValue
 	}
-
 	if r.enableBorweinModel && r.provisionPolicyNameInUse == types.CPUProvisionPolicyRama {
 		general.Infof("try to update indicators by borwein model")
 		return r.borweinController.GetUpdatedIndicators(indicators, r.podSet), nil
 	} else {
 		return indicators, nil
 	}
-
 }
 
 // getPodIndicatorTarget gets pod indicator target by given pod uid and indicator name,
@@ -795,4 +796,46 @@ func (r *QoSRegionBase) IsThrottled() bool {
 
 func (r *QoSRegionBase) IsIdle() bool {
 	return r.idle.Load()
+}
+
+// available for Intel
+func (r *QoSRegionBase) getMemoryAccessWriteLatency() (float64, error) {
+	latency := 0.0
+	for _, numaID := range r.bindingNumas.ToSliceInt() {
+		data, err := r.metaReader.GetNumaMetric(numaID, pkgconsts.MetricMemLatencyWriteNuma)
+		if err != nil {
+			return 0, err
+		}
+		latency = general.MaxFloat64(latency, data.Value)
+	}
+
+	return latency, nil
+}
+
+// available for Intel
+func (r *QoSRegionBase) getMemoryAccessReadLatency() (float64, error) {
+	latency := 0.0
+	for _, numaID := range r.bindingNumas.ToSliceInt() {
+		data, err := r.metaReader.GetNumaMetric(numaID, pkgconsts.MetricMemLatencyReadNuma)
+		if err != nil {
+			return 0, err
+		}
+		latency = math.Max(latency, data.Value)
+	}
+
+	return latency, nil
+}
+
+// available for AMD
+func (r *QoSRegionBase) getMemoryL3MissLatency() (float64, error) {
+	latency := 0.0
+	for _, numaID := range r.bindingNumas.ToSliceInt() {
+		data, err := r.metaReader.GetNumaMetric(numaID, pkgconsts.MetricMemAMDL3MissLatencyNuma)
+		if err != nil {
+			return 0, err
+		}
+		latency = math.Max(latency, data.Value)
+	}
+
+	return latency, nil
 }

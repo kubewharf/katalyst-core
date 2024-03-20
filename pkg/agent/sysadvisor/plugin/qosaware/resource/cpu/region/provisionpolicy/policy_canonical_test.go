@@ -54,7 +54,7 @@ func generateCanonicalTestConfiguration(t *testing.T, checkpointDir, stateFileDi
 	conf.MetaServerConfiguration.CheckpointManagerDir = checkpointDir
 	conf.CheckpointManagerDir = checkpointManagerDir
 
-	conf.RegionIndicatorTargetConfiguration = map[types.QoSRegionType][]provisionconf.IndicatorTargetConfiguration{
+	conf.RegionIndicatorTargetConfiguration = map[types.QoSRegionType][]types.IndicatorTargetConfiguration{
 		types.QoSRegionTypeShare: {
 			{
 				Name: consts.MetricCPUSchedwait,

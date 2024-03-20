@@ -216,6 +216,11 @@ type IndicatorValue struct {
 // IndicatorCurrentGetter get pod indicator current value by podUID
 type IndicatorCurrentGetter func() (float64, error)
 
+type IndicatorTargetConfiguration struct {
+	Name   string
+	Target float64
+}
+
 // FirstOrderPIDParams holds parameters for pid controller in rama policy
 type FirstOrderPIDParams struct {
 	Kpp                  float64
