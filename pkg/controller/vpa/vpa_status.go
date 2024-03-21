@@ -324,22 +324,21 @@ func (vs *vpaStatusController) syncVPA(key string) error {
 // setRecommendationAppliedCondition set vpa recommendation applied condition by checking all pods whether
 // are updated to the expected resources in their annotations
 func (vs *vpaStatusController) setRecommendationAppliedCondition(vpa *apis.KatalystVerticalPodAutoscaler, pods []*v1.Pod) error {
-	allPodSpecUpdated := func() bool {
-		for _, pod := range pods {
-			if !katalystutil.CheckPodSpecUpdated(pod) {
-				return false
-			}
+	failedCount := 0
+	for _, pod := range pods {
+		if !katalystutil.CheckPodSpecUpdated(pod) {
+			failedCount += 1
 		}
-		return true
-	}()
+	}
 
-	if allPodSpecUpdated {
+	if failedCount == 0 {
 		err := util.SetVPAConditions(vpa, apis.RecommendationApplied, v1.ConditionTrue, util.VPAConditionReasonPodSpecUpdated, "")
 		if err != nil {
 			return err
 		}
 	} else {
-		err := util.SetVPAConditions(vpa, apis.RecommendationApplied, v1.ConditionFalse, util.VPAConditionReasonPodSpecNoUpdate, "")
+		msg := fmt.Sprintf("failed to update %d pods, total %d pods", failedCount, len(pods))
+		err := util.SetVPAConditions(vpa, apis.RecommendationApplied, v1.ConditionFalse, util.VPAConditionReasonPodSpecNoUpdate, msg)
 		if err != nil {
 			return err
 		}

@@ -337,9 +337,43 @@ func GetVPAResourceStatusWithCurrent(vpa *apis.KatalystVerticalPodAutoscaler, po
 		return nil, nil, err
 	}
 
+	updateContainerResourcesCurrent := func(targetResourceNames map[consts.ContainerName][]core.ResourceName,
+		containerName consts.ContainerName,
+		target core.ResourceList, current *core.ResourceList,
+		specResource core.ResourceList,
+	) {
+		// if pod apply strategy is 'Pod', we not need update container current,
+		// because each pod has different recommendation.
+		if vpa.Spec.UpdatePolicy.PodApplyStrategy == apis.PodApplyStrategyStrategyPod {
+			*current = nil
+			return
+		}
+
+		_, ok := targetResourceNames[containerName]
+		if !ok {
+			*current = target.DeepCopy()
+			resourceNames := make([]core.ResourceName, 0, len(target))
+			for resourceName := range target {
+				resourceNames = append(resourceNames, resourceName)
+			}
+			sort.SliceStable(resourceNames, func(i, j int) bool {
+				return string(resourceNames[i]) < string(resourceNames[j])
+			})
+			targetResourceNames[containerName] = resourceNames
+		}
+
+		specCurrent := cropResourcesWithBounds(specResource, nil, nil, targetResourceNames[containerName])
+		if !native.ResourcesEqual(target, specCurrent) &&
+			(native.ResourcesEqual(target, *current) ||
+				!native.ResourcesLess(*current, specCurrent, targetResourceNames[containerName])) {
+			*current = specCurrent
+		}
+	}
+
 	for containerName := range containerResources {
 		// get container resource current requests
 		if containerResources[containerName].Requests != nil {
+			targetResourceNames := make(map[consts.ContainerName][]core.ResourceName)
 			func(pods []*core.Pod) {
 				for _, pod := range pods {
 					for _, container := range pod.Spec.Containers {
@@ -347,11 +381,8 @@ func GetVPAResourceStatusWithCurrent(vpa *apis.KatalystVerticalPodAutoscaler, po
 							continue
 						}
 
-						containerResources[containerName].Requests.Current = container.Resources.Requests
-						// if some container current requests doesn't equal to target, return it immediately
-						if !native.ResourcesEqual(containerResources[containerName].Requests.Target, container.Resources.Requests) {
-							return
-						}
+						updateContainerResourcesCurrent(targetResourceNames, containerName, containerResources[containerName].Requests.Target,
+							&containerResources[containerName].Requests.Current, container.Resources.Requests)
 					}
 				}
 			}(pods)
@@ -359,6 +390,7 @@ func GetVPAResourceStatusWithCurrent(vpa *apis.KatalystVerticalPodAutoscaler, po
 
 		// get container resource current limits
 		if containerResources[containerName].Limits != nil {
+			targetResourceNames := make(map[consts.ContainerName][]core.ResourceName)
 			func(pods []*core.Pod) {
 				for _, pod := range pods {
 					for _, container := range pod.Spec.Containers {
@@ -366,15 +398,21 @@ func GetVPAResourceStatusWithCurrent(vpa *apis.KatalystVerticalPodAutoscaler, po
 							continue
 						}
 
-						containerResources[containerName].Limits.Current = container.Resources.Limits
-						// if some container current limits doesn't equal to target, return it immediately
-						if !native.ResourcesEqual(containerResources[containerName].Limits.Target, container.Resources.Limits) {
-							return
-						}
+						updateContainerResourcesCurrent(targetResourceNames, containerName, containerResources[containerName].Limits.Target,
+							&containerResources[containerName].Limits.Current, container.Resources.Limits)
 					}
 				}
 			}(pods)
 		}
+	}
+
+	getPodContainerResourcesCurrent := func(target core.ResourceList, specResource core.ResourceList) core.ResourceList {
+		resourceNames := make([]core.ResourceName, 0, len(target))
+		for resourceName := range target {
+			resourceNames = append(resourceNames, resourceName)
+		}
+
+		return cropResourcesWithBounds(specResource, nil, nil, resourceNames)
 	}
 
 	for podContainerName := range podResources {
@@ -396,7 +434,7 @@ func GetVPAResourceStatusWithCurrent(vpa *apis.KatalystVerticalPodAutoscaler, po
 							continue
 						}
 
-						podResources[podContainerName].Requests.Current = container.Resources.Requests
+						podResources[podContainerName].Requests.Current = getPodContainerResourcesCurrent(podResources[podContainerName].Requests.Target, container.Resources.Requests)
 						return
 					}
 				}
@@ -415,7 +453,8 @@ func GetVPAResourceStatusWithCurrent(vpa *apis.KatalystVerticalPodAutoscaler, po
 						if container.Name != containerName {
 							continue
 						}
-						podResources[podContainerName].Limits.Current = container.Resources.Limits
+
+						podResources[podContainerName].Limits.Current = getPodContainerResourcesCurrent(podResources[podContainerName].Limits.Target, container.Resources.Limits)
 						return
 					}
 				}

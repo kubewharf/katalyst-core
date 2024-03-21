@@ -422,10 +422,7 @@ func testGetVPAResourceStatusWithCurrentAndIndexer(t *testing.T, podIndexers cac
 				{
 					ContainerName: pointer.String("c1"),
 					Limits: &apis.ContainerResourceList{
-						Current: v1.ResourceList{
-							v1.ResourceMemory: resource.MustParse("4Gi"),
-							v1.ResourceCPU:    resource.MustParse("4"),
-						},
+						Current:        v1.ResourceList{},
 						Target:         v1.ResourceList{},
 						UncappedTarget: v1.ResourceList{},
 						LowerBound: v1.ResourceList{
