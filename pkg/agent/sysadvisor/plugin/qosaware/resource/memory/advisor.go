@@ -136,7 +136,7 @@ func (ra *memoryResourceAdvisor) Run(ctx context.Context) {
 	<-ra.recvCh
 	general.InfoS("list containers successfully")
 
-	go wait.Until(ra.update, period, ctx.Done())
+	go wait.Until(ra.doUpdate, period, ctx.Done())
 }
 
 func (ra *memoryResourceAdvisor) GetChannels() (interface{}, interface{}) {
@@ -161,7 +161,7 @@ func (ra *memoryResourceAdvisor) GetHeadroom() (resource.Quantity, error) {
 	return resource.Quantity{}, fmt.Errorf("failed to get valid headroom")
 }
 
-func (ra *memoryResourceAdvisor) sendAdvices() {
+func (ra *memoryResourceAdvisor) sendAdvices() error {
 	// send to server
 	result := types.InternalMemoryCalculationResult{TimeStamp: time.Now()}
 	for _, plugin := range ra.plugins {
@@ -173,18 +173,26 @@ func (ra *memoryResourceAdvisor) sendAdvices() {
 	select {
 	case ra.sendChan <- result:
 		general.Infof("notify memory server: %+v", result)
+		return nil
 	default:
 		general.Errorf("channel is full")
+		return fmt.Errorf("memory advice channel is full")
 	}
 }
 
-func (ra *memoryResourceAdvisor) update() {
+func (ra *memoryResourceAdvisor) doUpdate() {
+	if err := ra.update(); err != nil {
+		general.Warningf("failed to update memory advice: %q", err)
+	}
+}
+
+func (ra *memoryResourceAdvisor) update() error {
 	ra.mutex.Lock()
 	defer ra.mutex.Unlock()
 
 	if !ra.metaReader.HasSynced() {
 		general.InfoS("metaReader has not synced, skip updating")
-		return
+		return fmt.Errorf("meta reader has not synced")
 	}
 
 	reservedForAllocate := ra.conf.GetDynamicConfiguration().
@@ -206,12 +214,12 @@ func (ra *memoryResourceAdvisor) update() {
 	nodeCondition, err := ra.detectNodePressureCondition()
 	if err != nil {
 		general.Errorf("detect node memory pressure err %v", err)
-		return
+		return fmt.Errorf("failed to detect node memory pressure: %q", err)
 	}
 	NUMAConditions, err := ra.detectNUMAPressureConditions()
 	if err != nil {
 		general.Errorf("detect NUMA pressures err %v", err)
-		return
+		return fmt.Errorf("failed to delete NUMA pressure: %q", err)
 	}
 
 	memoryPressureStatus := types.MemoryPressureStatus{
@@ -223,7 +231,7 @@ func (ra *memoryResourceAdvisor) update() {
 		_ = plugin.Reconcile(&memoryPressureStatus)
 	}
 
-	ra.sendAdvices()
+	return ra.sendAdvices()
 }
 
 func (ra *memoryResourceAdvisor) detectNUMAPressureConditions() (map[int]*types.MemoryPressureCondition, error) {
