@@ -54,6 +54,11 @@ const healthzNameReporterFetcherReady = "ReporterFetcherReady"
 
 const healthzGracePeriodMultiplier = 3
 
+const (
+	metricsNameGetContentCost  = "reporter_get_content_cost"
+	metricsNameGenericSyncCost = "reporter_generic_sync_cost"
+)
+
 // ReporterPluginManager is used to manage in-tree or out-tree reporter plugin registrations and
 // get report content from these plugins to aggregate them into the Reporter Manager
 type ReporterPluginManager struct {
@@ -287,6 +292,7 @@ func (m *ReporterPluginManager) runEndpoint(pluginName string, e plugin.Endpoint
 // the ListWatch function will store report content in Endpoint and send to manager,
 // and the manager can read it from Endpoint cache to obtain content changes initiative
 func (m *ReporterPluginManager) genericCallback(pluginName string, _ *v1alpha1.GetReportContentResponse) {
+	klog.Infof("genericCallback")
 	// get report content from each healthy Endpoint from cache, the lastly response
 	// from this plugin has been already stored to its Endpoint cache before this callback called
 	reportResponses := m.getReportContent(true)
@@ -310,6 +316,14 @@ func (m *ReporterPluginManager) pushContents(ctx context.Context, reportResponse
 
 // genericSync periodically calls the Get function to obtain content changes
 func (m *ReporterPluginManager) genericSync(ctx context.Context) {
+	klog.Infof("genericSync")
+	begin := time.Now()
+	defer func() {
+		costs := time.Since(begin)
+		klog.InfoS("finished genericSync", "costs", costs)
+		_ = m.emitter.StoreInt64(metricsNameGenericSyncCost, costs.Microseconds(), metrics.MetricTypeNameRaw)
+	}()
+
 	// clear unhealthy plugin periodically
 	m.clearUnhealthyPlugin()
 
@@ -348,8 +362,14 @@ func (m *ReporterPluginManager) clearUnhealthyPlugin() {
 func (m *ReporterPluginManager) getReportContent(cacheFirst bool) map[string]*v1alpha1.GetReportContentResponse {
 	reportResponses := make(map[string]*v1alpha1.GetReportContentResponse)
 
+	begin := time.Now()
 	m.mutex.Lock()
-	defer m.mutex.Unlock()
+	defer func() {
+		m.mutex.Unlock()
+		costs := time.Since(begin)
+		klog.InfoS("finished getReportContent cnr", "costs", costs)
+		_ = m.emitter.StoreInt64(metricsNameGetContentCost, costs.Microseconds(), metrics.MetricTypeNameRaw)
+	}()
 
 	// get report content from each Endpoint
 	for pluginName, e := range m.endpoints {
@@ -368,7 +388,10 @@ func (m *ReporterPluginManager) getReportContent(cacheFirst bool) map[string]*v1
 		}
 
 		ctx := metadata.NewOutgoingContext(context.Background(), metadata.New(nil))
+		epBegin := time.Now()
 		resp, err = e.GetReportContent(ctx)
+		epCosts := time.Since(epBegin)
+		klog.InfoS("GetReportContent", "costs", epCosts, "pluginName", pluginName)
 		if err != nil {
 			s, _ := status.FromError(err)
 			_ = m.emitter.StoreInt64("reporter_plugin_get_content_failed", 1, metrics.MetricTypeNameCount, []metrics.MetricTag{

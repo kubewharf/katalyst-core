@@ -124,13 +124,18 @@ func (c *cnrReporterImpl) GetCNR(ctx context.Context) (*nodev1alpha1.CustomNodeR
 
 // Update is to update remote cnr according to reported fields
 func (c *cnrReporterImpl) Update(ctx context.Context, fields []*v1alpha1.ReportField) error {
+	beginWithLock := time.Now()
 	c.mux.Lock()
-	defer c.mux.Unlock()
+	beginWithoutLock := time.Now()
 
-	begin := time.Now()
 	defer func() {
-		costs := time.Since(begin)
-		klog.V(4).Infof("finished update cnr (%v)", costs)
+		costs := time.Since(beginWithoutLock)
+		klog.InfoS("finished update cnr without lock", "costs", costs)
+
+		c.mux.Unlock()
+
+		costs = time.Since(beginWithLock)
+		klog.InfoS("finished update cnr with lock", "costs", costs)
 		_ = c.emitter.StoreInt64(metricsNameUpdateCNRCost, costs.Microseconds(), metrics.MetricTypeNameRaw)
 	}()
 
