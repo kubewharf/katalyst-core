@@ -32,6 +32,7 @@ const (
 	MetricNameRealStateInvalid = "real_state_invalid"
 	MetricNameCPUSetInvalid    = "cpuset_invalid"
 	MetricNameCPUSetOverlap    = "cpuset_overlap"
+	MetricNameOrphanContainer  = "orphan_container"
 
 	// metrics for memory plugin
 	MetricNameMemSetInvalid                           = "memset_invalid"
