@@ -40,7 +40,13 @@ func (p *DynamicPolicy) sharedCoresAllocationHandler(ctx context.Context,
 		return nil, fmt.Errorf("sharedCoresAllocationHandler got nil request")
 	}
 
-	return p.allocateNUMAsWithoutNUMABindingPods(ctx, req, apiconsts.PodAnnotationQoSLevelSharedCores)
+	switch req.Annotations[apiconsts.PodAnnotationMemoryEnhancementNumaBinding] {
+	case apiconsts.PodAnnotationMemoryEnhancementNumaBindingEnable:
+		return p.numaBindingAllocationHandler(ctx, req, apiconsts.PodAnnotationQoSLevelSharedCores)
+	default:
+		return p.allocateNUMAsWithoutNUMABindingPods(ctx, req, apiconsts.PodAnnotationQoSLevelSharedCores)
+	}
+
 }
 
 func (p *DynamicPolicy) reclaimedCoresAllocationHandler(ctx context.Context,
@@ -64,16 +70,16 @@ func (p *DynamicPolicy) dedicatedCoresAllocationHandler(ctx context.Context,
 
 	switch req.Annotations[apiconsts.PodAnnotationMemoryEnhancementNumaBinding] {
 	case apiconsts.PodAnnotationMemoryEnhancementNumaBindingEnable:
-		return p.dedicatedCoresWithNUMABindingAllocationHandler(ctx, req)
+		return p.numaBindingAllocationHandler(ctx, req, apiconsts.PodAnnotationQoSLevelDedicatedCores)
 	default:
 		return p.dedicatedCoresWithoutNUMABindingAllocationHandler(ctx, req)
 	}
 }
 
-func (p *DynamicPolicy) dedicatedCoresWithNUMABindingAllocationHandler(ctx context.Context,
-	req *pluginapi.ResourceRequest) (*pluginapi.ResourceAllocationResponse, error) {
+func (p *DynamicPolicy) numaBindingAllocationHandler(ctx context.Context,
+	req *pluginapi.ResourceRequest, qosLevel string) (*pluginapi.ResourceAllocationResponse, error) {
 	if req.ContainerType == pluginapi.ContainerType_SIDECAR {
-		return p.dedicatedCoresWithNUMABindingAllocationSidecarHandler(ctx, req)
+		return p.numaBindingAllocationSidecarHandler(ctx, req, qosLevel)
 	}
 
 	reqInt, _, err := util.GetQuantityFromResourceReq(req)
@@ -170,7 +176,7 @@ func (p *DynamicPolicy) dedicatedCoresWithNUMABindingAllocationHandler(ctx conte
 		TopologyAwareAllocations: topologyAwareAllocations,
 		Labels:                   general.DeepCopyMap(req.Labels),
 		Annotations:              general.DeepCopyMap(req.Annotations),
-		QoSLevel:                 apiconsts.PodAnnotationQoSLevelDedicatedCores,
+		QoSLevel:                 qosLevel,
 	}
 	p.state.SetAllocationInfo(v1.ResourceMemory, req.PodUid, req.ContainerName, allocationInfo)
 
@@ -203,10 +209,10 @@ func (p *DynamicPolicy) dedicatedCoresWithoutNUMABindingAllocationHandler(_ cont
 	return nil, fmt.Errorf("not support dedicated_cores without NUMA binding")
 }
 
-// dedicatedCoresWithNUMABindingAllocationSidecarHandler allocates for sidecar
+// numaBindingAllocationSidecarHandler allocates for sidecar
 // currently, we set cpuset of sidecar to the cpuset of its main container
-func (p *DynamicPolicy) dedicatedCoresWithNUMABindingAllocationSidecarHandler(_ context.Context,
-	req *pluginapi.ResourceRequest) (*pluginapi.ResourceAllocationResponse, error) {
+func (p *DynamicPolicy) numaBindingAllocationSidecarHandler(_ context.Context,
+	req *pluginapi.ResourceRequest, qosLevel string) (*pluginapi.ResourceAllocationResponse, error) {
 	podResourceEntries := p.state.GetPodResourceEntries()
 
 	podEntries := podResourceEntries[v1.ResourceMemory]
@@ -238,7 +244,7 @@ func (p *DynamicPolicy) dedicatedCoresWithNUMABindingAllocationSidecarHandler(_ 
 		TopologyAwareAllocations: nil,                                                      // not count sidecar quantity
 		Labels:                   general.DeepCopyMap(req.Labels),
 		Annotations:              general.DeepCopyMap(req.Annotations),
-		QoSLevel:                 apiconsts.PodAnnotationQoSLevelDedicatedCores,
+		QoSLevel:                 qosLevel,
 	}
 
 	// update pod entries directly. if one of subsequent steps is failed,

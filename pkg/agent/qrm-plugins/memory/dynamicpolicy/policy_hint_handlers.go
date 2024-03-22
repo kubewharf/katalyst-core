@@ -23,7 +23,6 @@ import (
 
 	v1 "k8s.io/api/core/v1"
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
-	"k8s.io/kubernetes/pkg/kubelet/cm/topologymanager/bitmask"
 
 	apiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/memory/dynamicpolicy/state"
@@ -33,16 +32,20 @@ import (
 	qosutil "github.com/kubewharf/katalyst-core/pkg/util/qos"
 )
 
-func (p *DynamicPolicy) sharedCoresHintHandler(_ context.Context,
+func (p *DynamicPolicy) sharedCoresHintHandler(ctx context.Context,
 	req *pluginapi.ResourceRequest) (*pluginapi.ResourceHintsResponse, error) {
 	if req == nil {
 		return nil, fmt.Errorf("got nil request")
 	}
 
-	return util.PackResourceHintsResponse(req, string(v1.ResourceMemory),
-		map[string]*pluginapi.ListOfTopologyHints{
-			string(v1.ResourceMemory): nil, // indicates that there is no numa preference
-		})
+	if !qosutil.AnnotationsIndicateNUMABinding(req.Annotations) {
+		return util.PackResourceHintsResponse(req, string(v1.ResourceMemory),
+			map[string]*pluginapi.ListOfTopologyHints{
+				string(v1.ResourceMemory): nil, // indicates that there is no numa preference
+			})
+	}
+
+	return p.numaBindingHintHandler(ctx, req)
 }
 
 func (p *DynamicPolicy) reclaimedCoresHintHandler(ctx context.Context,
@@ -58,13 +61,13 @@ func (p *DynamicPolicy) dedicatedCoresHintHandler(ctx context.Context,
 
 	switch req.Annotations[apiconsts.PodAnnotationMemoryEnhancementNumaBinding] {
 	case apiconsts.PodAnnotationMemoryEnhancementNumaBindingEnable:
-		return p.dedicatedCoresWithNUMABindingHintHandler(ctx, req)
+		return p.numaBindingHintHandler(ctx, req)
 	default:
 		return p.dedicatedCoresWithoutNUMABindingHintHandler(ctx, req)
 	}
 }
 
-func (p *DynamicPolicy) dedicatedCoresWithNUMABindingHintHandler(_ context.Context,
+func (p *DynamicPolicy) numaBindingHintHandler(_ context.Context,
 	req *pluginapi.ResourceRequest) (*pluginapi.ResourceHintsResponse, error) {
 	// currently, we set cpuset of sidecar to the cpuset of its main container,
 	// so there is no numa preference here.
@@ -172,11 +175,12 @@ func (p *DynamicPolicy) calculateHints(reqInt uint64, resourcesMachineState stat
 		return nil, fmt.Errorf("GetNUMANodesCountToFitMemoryReq failed with error: %v", err)
 	}
 
+	numaBinding := qosutil.AnnotationsIndicateNUMABinding(reqAnnotations)
+	numaExclusive := qosutil.AnnotationsIndicateNUMAExclusive(reqAnnotations)
+
 	// because it's hard to control memory allocation accurately,
 	// we only support numa_binding but not exclusive container with request smaller than 1 NUMA
-	if qosutil.AnnotationsIndicateNUMABinding(reqAnnotations) &&
-		!qosutil.AnnotationsIndicateNUMAExclusive(reqAnnotations) &&
-		minNUMAsCountNeeded > 1 {
+	if numaBinding && !numaExclusive && minNUMAsCountNeeded > 1 {
 		return nil, fmt.Errorf("NUMA not exclusive binding container has request larger than 1 NUMA")
 	}
 
@@ -185,13 +189,38 @@ func (p *DynamicPolicy) calculateHints(reqInt uint64, resourcesMachineState stat
 		return nil, fmt.Errorf("NUMAsPerSocket failed with error: %v", err)
 	}
 
-	bitmask.IterateBitMasks(numaNodes, func(mask bitmask.BitMask) {
+	numaToFreeMemoryBytes := make(map[int]uint64, len(numaNodes))
+
+	for _, nodeID := range numaNodes {
+		if machineState[nodeID] == nil {
+			general.Warningf("NUMA: %d has nil state", nodeID)
+			numaToFreeMemoryBytes[nodeID] = 0
+			continue
+		}
+
+		if numaExclusive && machineState[nodeID].Allocated > 0 {
+			numaToFreeMemoryBytes[nodeID] = 0
+			general.Warningf("numa_exclusive container skip NUMA: %d allocated: %d",
+				nodeID, machineState[nodeID].Allocated)
+		} else {
+			numaToFreeMemoryBytes[nodeID] = machineState[nodeID].Free
+		}
+	}
+
+	general.Infof("calculate hints with req: %d, numaToFreeMemoryBytes: %+v",
+		reqInt, numaToFreeMemoryBytes)
+
+	numaBound := len(numaNodes)
+	if numaBound > machine.LargeNUMAsPoint {
+		// [TODO]: to discuss refine minNUMAsCountNeeded+1
+		numaBound = minNUMAsCountNeeded + 1
+	}
+
+	machine.IterateBitMasks(numaNodes, numaBound, func(mask machine.BitMask) {
 		maskCount := mask.Count()
 		if maskCount < minNUMAsCountNeeded {
 			return
-		} else if qosutil.AnnotationsIndicateNUMABinding(reqAnnotations) &&
-			!qosutil.AnnotationsIndicateNUMAExclusive(reqAnnotations) &&
-			maskCount > 1 {
+		} else if numaBinding && !numaExclusive && maskCount > 1 {
 			// because it's hard to control memory allocation accurately,
 			// we only support numa_binding but not exclusive container with request smaller than 1 NUMA
 			return
@@ -202,30 +231,17 @@ func (p *DynamicPolicy) calculateHints(reqInt uint64, resourcesMachineState stat
 
 		var freeBytesInMask uint64 = 0
 		for _, nodeID := range maskBits {
-			if machineState[nodeID] == nil {
-				general.Warningf("NUMA: %d has nil state", nodeID)
-				return
-			} else if qosutil.AnnotationsIndicateNUMAExclusive(reqAnnotations) && machineState[nodeID].Allocated > 0 {
-				general.Warningf("numa_exclusive container skip mask: %s with NUMA: %d allocated: %d",
-					mask.String(), nodeID, machineState[nodeID].Allocated)
-				return
-			}
-
-			freeBytesInMask += machineState[nodeID].Free
+			freeBytesInMask += numaToFreeMemoryBytes[nodeID]
 		}
 
 		if freeBytesInMask < reqInt {
-			general.InfofV(4, "free bytes: %d in mask are smaller than request bytes: %d", freeBytesInMask, reqInt)
 			return
 		}
 
 		crossSockets, err := machine.CheckNUMACrossSockets(maskBits, p.topology)
 		if err != nil {
-			general.Errorf("CheckNUMACrossSockets failed with error: %v", err)
 			return
 		} else if numaCountNeeded <= numaPerSocket && crossSockets {
-			general.InfofV(4, "needed: %d; min-needed: %d; NUMAs: %v cross sockets with numaPerSocket: %d",
-				numaCountNeeded, minNUMAsCountNeeded, maskBits, numaPerSocket)
 			return
 		}
 

@@ -20,7 +20,6 @@ import (
 	"context"
 	"fmt"
 	"math"
-	"sort"
 
 	v1 "k8s.io/api/core/v1"
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
@@ -82,6 +81,11 @@ func GetCoresReservedForSystem(conf *config.Configuration, metaServer *metaserve
 // and regenerateHints will assemble hints based on already-existed AllocationInfo,
 // without any calculation logics at all
 func RegenerateHints(allocationInfo *state.AllocationInfo, reqInt int) map[string]*pluginapi.ListOfTopologyHints {
+	if allocationInfo == nil {
+		general.Errorf("RegenerateHints got nil allocationInfo")
+		return nil
+	}
+
 	hints := map[string]*pluginapi.ListOfTopologyHints{}
 
 	if allocationInfo.OriginalAllocationResult.Size() < reqInt {
@@ -94,16 +98,7 @@ func RegenerateHints(allocationInfo *state.AllocationInfo, reqInt int) map[strin
 		return nil
 	}
 
-	allocatedNumaNodes := make([]uint64, 0, len(allocationInfo.TopologyAwareAssignments))
-	for numaNode, cset := range allocationInfo.TopologyAwareAssignments {
-		if cset.Size() > 0 {
-			allocatedNumaNodes = append(allocatedNumaNodes, uint64(numaNode))
-		}
-	}
-
-	sort.Slice(allocatedNumaNodes, func(i, j int) bool {
-		return allocatedNumaNodes[i] < allocatedNumaNodes[j]
-	})
+	allocatedNumaNodes := allocationInfo.GetAllocationResultNUMASet().ToSliceUInt64()
 
 	general.InfoS("regenerating machineInfo hints, cpus was already allocated to pod",
 		"podNamespace", allocationInfo.PodNamespace,

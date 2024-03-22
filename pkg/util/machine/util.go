@@ -18,8 +18,10 @@ package machine
 
 import (
 	"fmt"
+)
 
-	"k8s.io/kubernetes/pkg/kubelet/cm/topologymanager/bitmask"
+const (
+	LargeNUMAsPoint = 16
 )
 
 // TransformCPUAssignmentFormat transforms cpu assignment string format to cpuset format
@@ -55,11 +57,16 @@ func CountCPUAssignmentCPUs(assignment map[int]CPUSet) int {
 
 // ParseCPUAssignmentQuantityMap is used to generate cpu resource counting map
 // based on the given CPUSet map
-func ParseCPUAssignmentQuantityMap(csetMap map[string]CPUSet) map[string]int {
-	ret := make(map[string]int)
+func ParseCPUAssignmentQuantityMap(csetMap map[string]map[int]CPUSet) map[string]map[int]int {
+	ret := make(map[string]map[int]int)
 
-	for name, cset := range csetMap {
-		ret[name] = cset.Size()
+	for name, numaToCset := range csetMap {
+		ret[name] = make(map[int]int)
+
+		for numaID, cset := range numaToCset {
+			ret[name][numaID] = cset.Size()
+
+		}
 	}
 
 	return ret
@@ -90,7 +97,7 @@ func GetCPUAssignmentNUMAs(assignment map[int]CPUSet) CPUSet {
 }
 
 // MaskToUInt64Array transforms bit mask to uint slices
-func MaskToUInt64Array(mask bitmask.BitMask) []uint64 {
+func MaskToUInt64Array(mask BitMask) []uint64 {
 	maskBits := mask.GetBits()
 
 	maskBitsUint64 := make([]uint64, 0, len(maskBits))
