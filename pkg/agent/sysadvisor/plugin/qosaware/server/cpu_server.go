@@ -130,6 +130,8 @@ func (cs *cpuServer) ListAndWatch(_ *advisorsvc.Empty, server cpuadvisor.CPUAdvi
 }
 
 func (cs *cpuServer) getCheckpoint() {
+	safeTime := time.Now().Nanosecond()
+
 	ctx := context.Background()
 	// get checkpoint
 	resp, err := cs.cpuPluginClient.GetCheckpoint(ctx, &cpuadvisor.GetCheckpointRequest{})
@@ -171,6 +173,9 @@ func (cs *cpuServer) getCheckpoint() {
 			for containerName, info := range entry.Entries {
 				if err := cs.updateContainerInfo(podUID, containerName, pod, info); err != nil {
 					klog.Errorf("[qosaware-server-cpu] update container info with error: %v", err)
+					_ = cs.emitter.StoreInt64(cs.genMetricsName(metricServerCheckpointUpdateContainerFailed), 1, metrics.MetricTypeNameCount,
+						metrics.MetricTag{Key: "podUID", Val: podUID},
+						metrics.MetricTag{Key: "containerName", Val: containerName})
 				}
 			}
 		}
@@ -186,7 +191,7 @@ func (cs *cpuServer) getCheckpoint() {
 			return true
 		}
 		return false
-	})
+	}, safeTime)
 
 	// complement living containers' original owner pools for pool gc
 	// todo: deprecate original owner pool and generate owner pool by realtime container status
@@ -320,6 +325,15 @@ func (cs *cpuServer) assemblePodEntries(calculationEntriesMap map[string]*cpuadv
 	// if isolation is locking out, pass original owner pool instead of owner pool
 	if !ci.Isolated && ci.OwnerPoolName != ci.OriginOwnerPoolName {
 		calculationInfo.OwnerPoolName = ci.OriginOwnerPoolName
+	}
+
+	if calculationInfo.OwnerPoolName == "" {
+		klog.Warningf("container %s/%s pool name is empty", ci.PodUID, ci.ContainerName)
+		return nil
+	}
+	if _, ok := calculationEntriesMap[calculationInfo.OwnerPoolName]; !ok {
+		klog.Warningf("container %s/%s refer a non-existed pool: %s", ci.PodUID, ci.ContainerName, ci.OwnerPoolName)
+		return nil
 	}
 
 	// currently, only pods in "dedicated_nums with numa binding" has topology aware allocations

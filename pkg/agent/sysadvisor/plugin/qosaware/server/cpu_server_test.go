@@ -376,6 +376,9 @@ func TestCPUServerListAndWatch(t *testing.T) {
 						0: 4,
 						1: 8,
 					},
+					state.PoolNameDedicated: {
+						0: 20,
+					},
 				}},
 			infos: []*ContainerInfo{
 				{
@@ -454,6 +457,22 @@ func TestCPUServerListAndWatch(t *testing.T) {
 							},
 						},
 					},
+					state.PoolNameDedicated: {
+						Entries: map[string]*cpuadvisor.CalculationInfo{
+							"": {
+								OwnerPoolName: state.PoolNameDedicated,
+								CalculationResultsByNumas: map[int64]*cpuadvisor.NumaCalculationResult{
+									0: {
+										Blocks: []*cpuadvisor.Block{
+											{
+												Result: 20,
+											},
+										},
+									},
+								},
+							},
+						},
+					},
 					"pod1": {
 						Entries: map[string]*cpuadvisor.CalculationInfo{
 							"c1": {
@@ -505,6 +524,9 @@ func TestCPUServerListAndWatch(t *testing.T) {
 					state.PoolNameReclaim: {
 						0: 4,
 						1: 8,
+					},
+					state.PoolNameDedicated: {
+						0: 20,
 					},
 				}},
 			infos: []*ContainerInfo{
@@ -622,6 +644,22 @@ func TestCPUServerListAndWatch(t *testing.T) {
 														OverlapType:                cpuadvisor.OverlapType_OverlapWithPod,
 													},
 												},
+											},
+										},
+									},
+								},
+							},
+						},
+					},
+					state.PoolNameDedicated: {
+						Entries: map[string]*cpuadvisor.CalculationInfo{
+							"": {
+								OwnerPoolName: state.PoolNameDedicated,
+								CalculationResultsByNumas: map[int64]*cpuadvisor.NumaCalculationResult{
+									0: {
+										Blocks: []*cpuadvisor.Block{
+											{
+												Result: 20,
 											},
 										},
 									},
@@ -747,6 +785,9 @@ func TestCPUServerListAndWatch(t *testing.T) {
 					state.PoolNameReclaim: {
 						0: 4,
 						1: 8,
+					},
+					state.PoolNameDedicated: {
+						0: 20,
 					},
 				}},
 			infos: []*ContainerInfo{
@@ -909,6 +950,22 @@ func TestCPUServerListAndWatch(t *testing.T) {
 														OverlapType:                cpuadvisor.OverlapType_OverlapWithPod,
 													},
 												},
+											},
+										},
+									},
+								},
+							},
+						},
+					},
+					state.PoolNameDedicated: {
+						Entries: map[string]*cpuadvisor.CalculationInfo{
+							"": {
+								OwnerPoolName: state.PoolNameDedicated,
+								CalculationResultsByNumas: map[int64]*cpuadvisor.NumaCalculationResult{
+									0: {
+										Blocks: []*cpuadvisor.Block{
+											{
+												Result: 20,
 											},
 										},
 									},
@@ -1156,4 +1213,18 @@ func TestCPUServerListAndWatch(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestAssemblePodEntries(t *testing.T) {
+	cs := cpuServer{}
+	calcResult := map[string]*cpuadvisor.CalculationEntries{}
+	require.NoError(t, cs.assemblePodEntries(calcResult, blockSet{}, "11", &types.ContainerInfo{
+		OwnerPoolName: "",
+	}), "failed to assemble container with empty pool name")
+	require.Equal(t, 0, len(calcResult), "empty pool container is added into calc results")
+
+	require.NoError(t, cs.assemblePodEntries(calcResult, blockSet{}, "11", &types.ContainerInfo{
+		OwnerPoolName: "non-exist",
+	}), "failed to assemble container with non-exist pool name")
+	require.Equal(t, 0, len(calcResult), "non-exist pool container is added into calc results")
 }
