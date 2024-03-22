@@ -49,6 +49,9 @@ type GenericEvictionOptions struct {
 
 	// StrictAuthentication means whether to authenticate plugins strictly
 	StrictAuthentication bool
+
+	// PodMetricLabels defines the pod labels to be added into metric selector list.
+	PodMetricLabels []string
 }
 
 // NewGenericEvictionOptions creates a new Options with a default config.
@@ -93,6 +96,9 @@ func (o *GenericEvictionOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 	fs.BoolVar(&o.StrictAuthentication, "strict-authentication", o.StrictAuthentication,
 		"whether to authenticate plugins strictly, the out-of-tree plugins must use valid and authorized token "+
 			"to register if it set to true")
+
+	fs.StringSliceVar(&o.PodMetricLabels, "eviction-pod-metric-labels", o.PodMetricLabels,
+		"The pod labels to be added into metric selector list")
 }
 
 // ApplyTo fills up config with options
@@ -105,6 +111,7 @@ func (o *GenericEvictionOptions) ApplyTo(c *evictionconfig.GenericEvictionConfig
 	c.EvictionBurst = o.EvictionBurst
 	c.PodKiller = o.PodKiller
 	c.StrictAuthentication = o.StrictAuthentication
+	c.PodMetricLabels.Insert(o.PodMetricLabels...)
 	return nil
 }
 
