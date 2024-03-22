@@ -48,6 +48,9 @@ type GenericEvictionConfiguration struct {
 
 	// StrictAuthentication means whether to authenticate plugins strictly
 	StrictAuthentication bool
+
+	// PodMetricLabels defines the pod labels to be added in metric selector lists
+	PodMetricLabels sets.String
 }
 
 type EvictionConfiguration struct {
@@ -60,6 +63,7 @@ func NewGenericEvictionConfiguration() *GenericEvictionConfiguration {
 	return &GenericEvictionConfiguration{
 		EvictionSkippedAnnotationKeys: sets.NewString(),
 		EvictionSkippedLabelKeys:      sets.NewString(),
+		PodMetricLabels:               sets.NewString(),
 	}
 }
 

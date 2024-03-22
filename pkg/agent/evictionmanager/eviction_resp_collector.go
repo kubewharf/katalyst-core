@@ -95,7 +95,7 @@ func (e *evictionRespCollector) collectEvictPods(dryRunPlugins []string, pluginN
 			e.getLogPrefix(dryRun), pluginName, evictPod.Pod.Namespace, evictPod.Pod.Name, evictPod.Reason, evictPod.ForceEvict)
 
 		if dryRun {
-			metricsPodToEvict(e.emitter, e.conf.GenericConfiguration.QoSConfiguration, pluginName, evictPod.Pod, dryRun)
+			metricsPodToEvict(e.emitter, e.conf.GenericConfiguration.QoSConfiguration, pluginName, evictPod.Pod, dryRun, e.conf.GenericEvictionConfiguration.PodMetricLabels)
 		} else {
 			evictPods = append(evictPods, resp.EvictPods[i])
 		}
@@ -171,7 +171,7 @@ func (e *evictionRespCollector) collectTopEvictionPods(dryRunPlugins []string, p
 		general.Infof("%v plugin %v request to evict topN pod %v/%v, reason: met threshold in scope [%v]",
 			e.getLogPrefix(dryRun), pluginName, pod.Namespace, pod.Name, threshold.EvictionScope)
 		if dryRun {
-			metricsPodToEvict(e.emitter, e.conf.GenericConfiguration.QoSConfiguration, pluginName, pod, dryRun)
+			metricsPodToEvict(e.emitter, e.conf.GenericConfiguration.QoSConfiguration, pluginName, pod, dryRun, e.conf.GenericEvictionConfiguration.PodMetricLabels)
 		} else {
 			targetPods = append(targetPods, resp.TargetPods[i])
 		}
