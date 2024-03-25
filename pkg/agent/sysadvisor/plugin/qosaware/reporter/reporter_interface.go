@@ -18,7 +18,10 @@ package reporter
 
 import (
 	"context"
+	"time"
 )
+
+const healthCheckTolerationDuration = 15 * time.Second
 
 // Reporter is used to report resource
 type Reporter interface {

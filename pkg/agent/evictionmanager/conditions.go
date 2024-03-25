@@ -30,6 +30,7 @@ import (
 
 	pluginapi "github.com/kubewharf/katalyst-api/pkg/protocol/evictionplugin/v1alpha1"
 	"github.com/kubewharf/katalyst-core/pkg/consts"
+	"github.com/kubewharf/katalyst-core/pkg/util/general"
 )
 
 var (
@@ -89,6 +90,10 @@ func (m *EvictionManger) getNodeTaintsFromConditions() []v1.Taint {
 }
 
 func (m *EvictionManger) reportConditionsAsNodeTaints(ctx context.Context) {
+	var err error
+	defer func() {
+		_ = general.UpdateHealthzStateByError(reportTaintHealthCheckName, err)
+	}()
 	node, err := m.metaGetter.GetNode(ctx)
 
 	if err != nil {
@@ -111,6 +116,7 @@ func (m *EvictionManger) reportConditionsAsNodeTaints(ctx context.Context) {
 
 	if !controllerutil.SwapNodeControllerTaint(ctx, m.genericClient.KubeClient, taintsToAdd, taintsToDel, node) {
 		klog.Errorf("failed to swap taints")
+		err = fmt.Errorf("failed to swap taints")
 	}
 
 	return

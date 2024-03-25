@@ -302,7 +302,7 @@ func TestEvictionManger_collectEvictionResult(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			mgr.conf.GetDynamicConfiguration().DryRun = tt.dryrun
 
-			collector := mgr.collectEvictionResult(pods)
+			collector, _ := mgr.collectEvictionResult(pods)
 			gotForceEvictPods := sets.String{}
 			gotSoftEvictPods := sets.String{}
 			gotConditions := sets.String{}
