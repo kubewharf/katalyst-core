@@ -181,43 +181,43 @@ func (tmoEngine *tmoEngineInstance) GetConf() *tmo.TMOConfigDetail {
 
 func (tmoEngine *tmoEngineInstance) getStats() (TmoStats, error) {
 	tmoStats := &TmoStats{}
-	var err error = nil
-	getCgroupMetrics := func(metaserver *metaserver.MetaServer, absPath string) {
+	var err error
+	getCgroupMetrics := func(metaserver *metaserver.MetaServer, absPath string) error {
 		relativePath, err := filepath.Rel(common.CgroupFSMountPoint, absPath)
 		if err != nil {
-			return
+			return err
 		}
 		psiAvg60, err := metaserver.GetCgroupMetric(relativePath, consts.MetricMemPsiAvg60Cgroup)
 		if err != nil {
-			return
+			return err
 		}
 		pgsteal, err := metaserver.GetCgroupMetric(relativePath, consts.MetricMemPgstealCgroup)
 		if err != nil {
-			return
+			return err
 		}
 		pgscan, err := metaserver.GetCgroupMetric(relativePath, consts.MetricMemPgscanCgroup)
 		if err != nil {
-			return
+			return err
 		}
 		refault, err := metaserver.GetCgroupMetric(relativePath, consts.MetricMemWorkingsetRefaultCgroup)
 		if err != nil {
-			return
+			return err
 		}
 		refaultActivate, err := metaserver.GetCgroupMetric(relativePath, consts.MetricMemWorkingsetActivateCgroup)
 		if err != nil {
-			return
+			return err
 		}
 		memUsage, err := metaserver.GetCgroupMetric(relativePath, consts.MetricMemUsageCgroup)
 		if err != nil {
-			return
+			return err
 		}
 		memInactiveAnon, err := metaserver.GetCgroupMetric(relativePath, consts.MetricMemInactiveAnonCgroup)
 		if err != nil {
-			return
+			return err
 		}
 		memInactiveFile, err := metaserver.GetCgroupMetric(relativePath, consts.MetricMemInactiveFileCgroup)
 		if err != nil {
-			return
+			return err
 		}
 		tmoStats.memUsage = memUsage.Value
 		tmoStats.memInactive = memInactiveFile.Value + memInactiveAnon.Value
@@ -228,39 +228,40 @@ func (tmoEngine *tmoEngineInstance) getStats() (TmoStats, error) {
 		tmoStats.refaultActivate = refaultActivate.Value
 		tmoStats.lastOffloadingTargetSize = tmoEngine.offloadingTargetSize
 		general.Infof("Memory Usage of Cgroup %s, memUsage: %v", tmoEngine.cgpath, memUsage.Value)
+		return nil
 	}
-	getContainerMetrics := func(metaserver *metaserver.MetaServer, podUID string, containerName string) {
+	getContainerMetrics := func(metaserver *metaserver.MetaServer, podUID string, containerName string) error {
 		psiAvg60, err := metaserver.GetContainerMetric(podUID, containerName, consts.MetricMemPsiAvg60Container)
 		if err != nil {
-			return
+			return err
 		}
 		pgsteal, err := metaserver.GetContainerMetric(podUID, containerName, consts.MetricMemPgstealContainer)
 		if err != nil {
-			return
+			return err
 		}
 		pgscan, err := metaserver.GetContainerMetric(podUID, containerName, consts.MetricMemPgscanContainer)
 		if err != nil {
-			return
+			return err
 		}
 		refault, err := metaserver.GetContainerMetric(podUID, containerName, consts.MetricMemWorkingsetRefaultContainer)
 		if err != nil {
-			return
+			return err
 		}
 		refaultActivate, err := metaserver.GetContainerMetric(podUID, containerName, consts.MetricMemWorkingsetActivateContainer)
 		if err != nil {
-			return
+			return err
 		}
 		memUsage, err := metaserver.GetContainerMetric(podUID, containerName, consts.MetricMemUsageContainer)
 		if err != nil {
-			return
+			return err
 		}
 		memInactiveAnon, err := metaserver.GetContainerMetric(podUID, containerName, consts.MetricMemInactiveAnonContainer)
 		if err != nil {
-			return
+			return err
 		}
 		memInactiveFile, err := metaserver.GetContainerMetric(podUID, containerName, consts.MetricMemInactiveFileContainer)
 		if err != nil {
-			return
+			return err
 		}
 		tmoStats.memUsage = memUsage.Value
 		tmoStats.memInactive = memInactiveFile.Value + memInactiveAnon.Value
@@ -271,12 +272,13 @@ func (tmoEngine *tmoEngineInstance) getStats() (TmoStats, error) {
 		tmoStats.refaultActivate = refaultActivate.Value
 		tmoStats.lastOffloadingTargetSize = tmoEngine.offloadingTargetSize
 		general.Infof("Memory Usage of Pod %v, Container %v, memUsage: %v", podUID, containerName, memUsage.Value)
+		return nil
 	}
 
 	if tmoEngine.containerInfo == nil {
-		getCgroupMetrics(tmoEngine.metaServer, tmoEngine.cgpath)
+		err = getCgroupMetrics(tmoEngine.metaServer, tmoEngine.cgpath)
 	} else {
-		getContainerMetrics(tmoEngine.metaServer, tmoEngine.containerInfo.PodUID, tmoEngine.containerInfo.ContainerName)
+		err = getContainerMetrics(tmoEngine.metaServer, tmoEngine.containerInfo.PodUID, tmoEngine.containerInfo.ContainerName)
 	}
 	return *tmoStats, err
 }
@@ -452,13 +454,15 @@ func (tmo *transparentMemoryOffloading) Reconcile(status *types.MemoryPressureSt
 	}
 
 	// calculate memory offloading size for each container
-	for _, tmoEngine := range tmo.containerTmoEngines {
+	for podContainerName, tmoEngine := range tmo.containerTmoEngines {
 		tmoEngine.CalculateOffloadingTargetSize()
+		general.Infof("Calculate target offloading size for podContainer: %v, result: %v", podContainerName, tmoEngine.GetOffloadingTargetSize())
 	}
 
 	// calculate memory offloading size for each cgroups
-	for _, tmoEngine := range tmo.cgpathTmoEngines {
+	for cgpath, tmoEngine := range tmo.cgpathTmoEngines {
 		tmoEngine.CalculateOffloadingTargetSize()
+		general.Infof("Calculate target offloading size for cgroup: %v, result: %v", cgpath, tmoEngine.GetOffloadingTargetSize())
 	}
 	return nil
 }
