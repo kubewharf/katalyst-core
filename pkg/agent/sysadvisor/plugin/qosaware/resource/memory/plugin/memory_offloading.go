@@ -227,6 +227,7 @@ func (tmoEngine *tmoEngineInstance) getStats() (TmoStats, error) {
 		tmoStats.refault = refault.Value
 		tmoStats.refaultActivate = refaultActivate.Value
 		tmoStats.lastOffloadingTargetSize = tmoEngine.offloadingTargetSize
+		general.Infof("Memory Usage of Cgroup %s, memUsage: %v", tmoEngine.cgpath, memUsage.Value)
 	}
 	getContainerMetrics := func(metaserver *metaserver.MetaServer, podUID string, containerName string) {
 		psiAvg60, err := metaserver.GetContainerMetric(podUID, containerName, consts.MetricMemPsiAvg60Container)
@@ -269,6 +270,7 @@ func (tmoEngine *tmoEngineInstance) getStats() (TmoStats, error) {
 		tmoStats.refault = refault.Value
 		tmoStats.refaultActivate = refaultActivate.Value
 		tmoStats.lastOffloadingTargetSize = tmoEngine.offloadingTargetSize
+		general.Infof("Memory Usage of Pod %v, Container %v, memUsage: %v", podUID, containerName, memUsage.Value)
 	}
 
 	if tmoEngine.containerInfo == nil {
@@ -430,6 +432,8 @@ func (tmo *transparentMemoryOffloading) Reconcile(status *types.MemoryPressureSt
 			tmo.cgpathTmoEngines[cgpath] = NewTmoEngineInstance(cgpath, tmo.metaServer, tmo.emitter, tmo.conf.GetDynamicConfiguration().TransparentMemoryOffloadingConfiguration)
 		}
 		tmo.cgpathTmoEngines[cgpath].LoadConf(tmoConfigDetail)
+		general.Infof("TMO configs for cgroup: %v, enableTMO: %v, enableSwap: %v, interval: %v, policy: %v", cgpath,
+			tmoConfigDetail.EnableTMO, tmoConfigDetail.EnableSwap, tmoConfigDetail.Interval, tmoConfigDetail.PolicyName)
 	}
 
 	// delete tmo engines for not existed containers
