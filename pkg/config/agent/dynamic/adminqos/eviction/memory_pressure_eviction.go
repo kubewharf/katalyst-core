@@ -24,8 +24,10 @@ import (
 
 // Fake metrics are not fetched from meta-server
 const (
-	FakeMetricQoSLevel = "qos.pod"
-	FakeMetricPriority = "priority.pod"
+	FakeMetricQoSLevel       = "qos.pod"
+	FakeMetricPriority       = "priority.pod"
+	FakeMetricNativeQoSLevel = "native.qos.pod"
+	FakeMetricOwnerLevel     = "owner.pod"
 )
 
 const (
