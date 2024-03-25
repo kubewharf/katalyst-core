@@ -51,3 +51,15 @@ func DeepCopyIntMap(origin map[string]int) map[string]int {
 	}
 	return res
 }
+
+func DeepCopyIntToIntMap(origin map[int]int) map[int]int {
+	if origin == nil {
+		return nil
+	}
+
+	res := make(map[int]int, len(origin))
+	for key, val := range origin {
+		res[key] = val
+	}
+	return res
+}

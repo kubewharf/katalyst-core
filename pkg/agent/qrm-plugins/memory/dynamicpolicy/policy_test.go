@@ -3704,7 +3704,3 @@ func BenchmarkGetTopologyHints(b *testing.B) {
 		_ = os.RemoveAll(tmpDir)
 	}
 }
-
-func TestDummy(t *testing.T) {
-	fmt.Println("test")
-}

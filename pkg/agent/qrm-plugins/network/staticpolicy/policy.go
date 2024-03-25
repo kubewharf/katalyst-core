@@ -85,6 +85,9 @@ type StaticPolicy struct {
 	netInterfaceNameResourceAllocationAnnotationKey string
 	netClassIDResourceAllocationAnnotationKey       string
 	netBandwidthResourceAllocationAnnotationKey     string
+
+	podAnnotationKeptKeys []string
+	podLabelKeptKeys      []string
 }
 
 // NewStaticPolicy returns a static network policy
@@ -133,6 +136,8 @@ func NewStaticPolicy(agentCtx *agent.GenericContext, conf *config.Configuration,
 		stopCh:                make(chan struct{}),
 		name:                  fmt.Sprintf("%s_%s", agentName, NetworkResourcePluginPolicyNameStatic),
 		qosLevelToNetClassMap: make(map[string]uint32),
+		podAnnotationKeptKeys: conf.PodAnnotationKeptKeys,
+		podLabelKeptKeys:      conf.PodLabelKeptKeys,
 	}
 
 	if common.CheckCgroup2UnifiedMode() {
@@ -250,7 +255,7 @@ func (p *StaticPolicy) GetTopologyHints(_ context.Context,
 		return nil, fmt.Errorf("GetTopologyHints got nil req")
 	}
 
-	qosLevel, err := util.GetKatalystQoSLevelFromResourceReq(p.qosConfig, req)
+	qosLevel, err := util.GetKatalystQoSLevelFromResourceReq(p.qosConfig, req, p.podAnnotationKeptKeys, p.podLabelKeptKeys)
 	if err != nil {
 		err = fmt.Errorf("GetKatalystQoSLevelFromResourceReq for pod: %s/%s, container: %s failed with error: %v",
 			req.PodNamespace, req.PodName, req.ContainerName, err)
@@ -485,7 +490,7 @@ func (p *StaticPolicy) Allocate(_ context.Context,
 	// we copy original pod annotations here to use them later
 	podAnnotations := maputil.CopySS(req.Annotations)
 
-	qosLevel, err := util.GetKatalystQoSLevelFromResourceReq(p.qosConfig, req)
+	qosLevel, err := util.GetKatalystQoSLevelFromResourceReq(p.qosConfig, req, p.podAnnotationKeptKeys, p.podLabelKeptKeys)
 	if err != nil {
 		err = fmt.Errorf("GetKatalystQoSLevelFromResourceReq for pod: %s/%s, container: %s failed with error: %v",
 			req.PodNamespace, req.PodName, req.ContainerName, err)

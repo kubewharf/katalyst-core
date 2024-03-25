@@ -28,11 +28,13 @@ const (
 	MetricNameAdvisorUnhealthy        = "advisor_unhealthy"
 
 	// metrics for cpu plugin
-	MetricNamePoolSize         = "pool_size"
-	MetricNameRealStateInvalid = "real_state_invalid"
-	MetricNameCPUSetInvalid    = "cpuset_invalid"
-	MetricNameCPUSetOverlap    = "cpuset_overlap"
-	MetricNameOrphanContainer  = "orphan_container"
+	MetricNamePoolSize                    = "pool_size"
+	MetricNameRealStateInvalid            = "real_state_invalid"
+	MetricNameCPUSetInvalid               = "cpuset_invalid"
+	MetricNameCPUSetOverlap               = "cpuset_overlap"
+	MetricNameOrphanContainer             = "orphan_container"
+	MetricNameGetMemBWPreferenceFailed    = "get_mem_bw_preference_failed"
+	MetricNameGetNUMAAllocatedMemBWFailed = "get_numa_allocated_mem_bw_failed"
 
 	// metrics for memory plugin
 	MetricNameMemSetInvalid                           = "memset_invalid"

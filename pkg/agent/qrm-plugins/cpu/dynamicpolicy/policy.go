@@ -127,6 +127,8 @@ type DynamicPolicy struct {
 	qosConfig                     *generic.QoSConfiguration
 	dynamicConfig                 *dynamicconfig.DynamicAgentConfiguration
 	podDebugAnnoKeys              []string
+	podAnnotationKeptKeys         []string
+	podLabelKeptKeys              []string
 	transitionPeriod              time.Duration
 	cpuNUMAHintPreferPolicy       string
 	cpuNUMAHintPreferLowThreshold float64
@@ -200,6 +202,8 @@ func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration
 		enableCPUIdle:                 conf.CPUQRMPluginConfig.EnableCPUIdle,
 		reclaimRelativeRootCgroupPath: conf.ReclaimRelativeRootCgroupPath,
 		podDebugAnnoKeys:              conf.PodDebugAnnoKeys,
+		podAnnotationKeptKeys:         conf.PodAnnotationKeptKeys,
+		podLabelKeptKeys:              conf.PodLabelKeptKeys,
 		transitionPeriod:              30 * time.Second,
 	}
 
@@ -612,7 +616,7 @@ func (p *DynamicPolicy) GetTopologyHints(ctx context.Context,
 	// we should do it before GetKatalystQoSLevelFromResourceReq.
 	isDebugPod := util.IsDebugPod(req.Annotations, p.podDebugAnnoKeys)
 
-	qosLevel, err := util.GetKatalystQoSLevelFromResourceReq(p.qosConfig, req)
+	qosLevel, err := util.GetKatalystQoSLevelFromResourceReq(p.qosConfig, req, p.podAnnotationKeptKeys, p.podLabelKeptKeys)
 	if err != nil {
 		err = fmt.Errorf("GetKatalystQoSLevelFromResourceReq for pod: %s/%s, container: %s failed with error: %v",
 			req.PodNamespace, req.PodName, req.ContainerName, err)
@@ -687,7 +691,7 @@ func (p *DynamicPolicy) Allocate(ctx context.Context,
 	// we should do it before GetKatalystQoSLevelFromResourceReq.
 	isDebugPod := util.IsDebugPod(req.Annotations, p.podDebugAnnoKeys)
 
-	qosLevel, err := util.GetKatalystQoSLevelFromResourceReq(p.qosConfig, req)
+	qosLevel, err := util.GetKatalystQoSLevelFromResourceReq(p.qosConfig, req, p.podAnnotationKeptKeys, p.podLabelKeptKeys)
 	if err != nil {
 		err = fmt.Errorf("GetKatalystQoSLevelFromResourceReq for pod: %s/%s, container: %s failed with error: %v",
 			req.PodNamespace, req.PodName, req.ContainerName, err)
