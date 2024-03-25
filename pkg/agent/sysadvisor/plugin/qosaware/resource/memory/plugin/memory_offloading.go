@@ -49,7 +49,6 @@ const (
 )
 
 const (
-	CorrectionTerm           = 0.1
 	InactiveProbe            = 0.1
 	OffloadingSizeScaleCoeff = 1.05
 )
@@ -94,8 +93,12 @@ func refaultPolicyFunc(lastStats TmoStats, currStats TmoStats, conf *tmoconf.TMO
 	pgscanDelta := currStats.pgscan - lastStats.pgscan
 	pgstealDelta := currStats.pgsteal - lastStats.pgsteal
 	refaultDelta := currStats.refaultActivate - lastStats.refaultActivate
-	reclaimAccuracyRatio := 1 - refaultDelta/(pgstealDelta+CorrectionTerm)
-	reclaimScanEfficiencyRatio := (pgstealDelta + CorrectionTerm) / (pgscanDelta + CorrectionTerm)
+	reclaimAccuracyRatio := 1.0
+	reclaimScanEfficiencyRatio := 1.0
+	if pgstealDelta > 0 && pgscanDelta > 0 {
+		reclaimAccuracyRatio = 1 - refaultDelta/pgstealDelta
+		reclaimScanEfficiencyRatio = pgstealDelta / pgscanDelta
+	}
 
 	if reclaimAccuracyRatio < conf.RefaultPolicyConf.ReclaimAccuracyTarget || reclaimScanEfficiencyRatio < conf.RefaultPolicyConf.ReclaimScanEfficiencyTarget {
 		// Decrease offloading size if detecting the reclaim accuracy or scan efficiency is below the targets
@@ -422,6 +425,7 @@ func (tmo *transparentMemoryOffloading) Reconcile(status *types.MemoryPressureSt
 
 	// update tmo config for specified cgroup paths
 	for cgpath, tmoConfigDetail := range tmo.conf.GetDynamicConfiguration().TransparentMemoryOffloadingConfiguration.CgroupConfigs {
+		general.Infof("Load Cgroup TMO config for specific cgroup path %v", cgpath)
 		if _, exist := tmo.cgpathTmoEngines[cgpath]; !exist {
 			tmo.cgpathTmoEngines[cgpath] = NewTmoEngineInstance(cgpath, tmo.metaServer, tmo.emitter, tmo.conf.GetDynamicConfiguration().TransparentMemoryOffloadingConfiguration)
 		}
