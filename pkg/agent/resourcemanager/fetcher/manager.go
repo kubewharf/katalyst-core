@@ -55,8 +55,9 @@ const healthzNameReporterFetcherReady = "ReporterFetcherReady"
 const healthzGracePeriodMultiplier = 3
 
 const (
-	metricsNameGetContentCost  = "reporter_get_content_cost"
-	metricsNameGenericSyncCost = "reporter_generic_sync_cost"
+	metricsNameGetContentCost       = "reporter_get_content_cost"
+	metricsNameGetContentPluginCost = "reporter_get_content_plugin_cost"
+	metricsNameGenericSyncCost      = "reporter_generic_sync_cost"
 )
 
 // ReporterPluginManager is used to manage in-tree or out-tree reporter plugin registrations and
@@ -392,6 +393,7 @@ func (m *ReporterPluginManager) getReportContent(cacheFirst bool) map[string]*v1
 		resp, err = e.GetReportContent(ctx)
 		epCosts := time.Since(epBegin)
 		klog.InfoS("GetReportContent", "costs", epCosts, "pluginName", pluginName)
+		_ = m.emitter.StoreInt64(metricsNameGetContentPluginCost, epCosts.Microseconds(), metrics.MetricTypeNameRaw, []metrics.MetricTag{{Key: "plugin", Val: pluginName}}...)
 		if err != nil {
 			s, _ := status.FromError(err)
 			_ = m.emitter.StoreInt64("reporter_plugin_get_content_failed", 1, metrics.MetricTypeNameCount, []metrics.MetricTag{
