@@ -22,6 +22,7 @@ type DevModel string
 
 const (
 	DevModelDefault      DevModel = "default"
+	DevModelDefaultHDD   DevModel = "default_hdd"
 	DevModelVirtualdisk  DevModel = "virtualdisk"
 	DevModelNbd          DevModel = "nbd"
 	DevModelLoop         DevModel = "loop"
@@ -33,4 +34,12 @@ const (
 	MetricNameIOCostVrate = "iocost_vrate"
 
 	queueRotationalFilePattern = "/sys/block/%s/queue/rotational"
+)
+
+type DeviceType int
+
+const (
+	HDD DeviceType = iota
+	SSD
+	Unknown
 )

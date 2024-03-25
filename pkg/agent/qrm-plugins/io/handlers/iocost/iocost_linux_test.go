@@ -132,8 +132,7 @@ func TestSetIOCost(t *testing.T) {
 				QRMPluginsConfiguration: &qrm.QRMPluginsConfiguration{
 					IOQRMPluginConfig: &qrm.IOQRMPluginConfig{
 						IOCostOption: qrm.IOCostOption{
-							EnableSettingIOCost:        true,
-							EnableSettingIOCostHDDOnly: true,
+							EnableSettingIOCost: true,
 						},
 					},
 				},
@@ -176,8 +175,7 @@ func Test_disableIOCost(t *testing.T) {
 							QRMPluginsConfiguration: &qrm.QRMPluginsConfiguration{
 								IOQRMPluginConfig: &qrm.IOQRMPluginConfig{
 									IOCostOption: qrm.IOCostOption{
-										EnableSettingIOCost:        true,
-										EnableSettingIOCostHDDOnly: true,
+										EnableSettingIOCost: true,
 									},
 								},
 							},
@@ -281,10 +279,9 @@ func Test_applyIOCostConfig(t *testing.T) {
 							QRMPluginsConfiguration: &qrm.QRMPluginsConfiguration{
 								IOQRMPluginConfig: &qrm.IOQRMPluginConfig{
 									IOCostOption: qrm.IOCostOption{
-										EnableSettingIOCost:        true,
-										EnableSettingIOCostHDDOnly: true,
-										IOCostModelConfigFile:      "/tmp/fakeFile1",
-										IOCostQoSConfigFile:        "/tmp/fakeFile2",
+										EnableSettingIOCost:   true,
+										IOCostModelConfigFile: "/tmp/fakeFile1",
+										IOCostQoSConfigFile:   "/tmp/fakeFile2",
 									},
 								},
 							},
@@ -303,10 +300,9 @@ func Test_applyIOCostConfig(t *testing.T) {
 							QRMPluginsConfiguration: &qrm.QRMPluginsConfiguration{
 								IOQRMPluginConfig: &qrm.IOQRMPluginConfig{
 									IOCostOption: qrm.IOCostOption{
-										EnableSettingIOCost:        true,
-										EnableSettingIOCostHDDOnly: true,
-										IOCostModelConfigFile:      "/tmp/fakeFile1",
-										IOCostQoSConfigFile:        absPath,
+										EnableSettingIOCost:   true,
+										IOCostModelConfigFile: "/tmp/fakeFile1",
+										IOCostQoSConfigFile:   absPath,
 									},
 								},
 							},
@@ -379,28 +375,4 @@ func Test_applyIOCostModel(t *testing.T) {
 			applyIOCostModel(tt.args.ioCostModelConfigs, tt.args.devsIDToModel)
 		})
 	}
-}
-
-func TestApplyIOCostQoSWithAbsolutePathIsHDDTrue(t *testing.T) {
-	t.Parallel()
-	devsIDToModel := map[string]DevModel{
-		"test": "default",
-	}
-	applyIOCostQoSWithDefault(nil, devsIDToModel, false)
-	applyIOCostQoSWithDefault(nil, devsIDToModel, true)
-	ioCostQoSData := common.IOCostQoSData{}
-	err := applyIOCostQoSWithAbsolutePath("absPath", "devID", &ioCostQoSData, true)
-	assert.Error(t, err)
-	err = applyIOCostQoSWithAbsolutePath("absPath", "devID", &ioCostQoSData, false)
-	assert.Error(t, err)
-	err = applyIOCostQoSWithAbsolutePath("absPath", "8:1", &ioCostQoSData, true)
-	assert.Error(t, err)
-	err = applyIOCostQoSWithAbsolutePath("absPath", "254:0", &ioCostQoSData, true)
-	assert.Error(t, err)
-	err = applyIOCostQoSWithAbsolutePath("absPath", "254:16", &ioCostQoSData, true)
-	assert.Error(t, err)
-	err = applyIOCostQoSWithAbsolutePath("absPath", "11:0", &ioCostQoSData, true)
-	assert.Error(t, err)
-	err = applyIOCostQoSWithAbsolutePath("absPath", "259:0", &ioCostQoSData, true)
-	assert.Error(t, err)
 }

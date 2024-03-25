@@ -96,35 +96,30 @@ func TestLoadJsonConfig(t *testing.T) {
 	}
 }
 
-func Test_getContainerdRootDir(t *testing.T) {
-	tests := []struct {
-		name string
-	}{
-		{name: "test getContainerdRootDir"},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			getContainerdRootDir()
-		})
-	}
+func TestGetDeviceNameFromID(t *testing.T) {
+	targetDevID := "1234"
+	_, found, err := getDeviceNameFromID(targetDevID)
+
+	assert.NoError(t, err)
+	assert.False(t, found)
 }
 
-func TestIsHDD(t *testing.T) {
+func TestGetDeviceType(t *testing.T) {
 	testCases := []struct {
 		deviceName     string
-		expectedHDD    bool
+		expectedType   DeviceType
 		expectedErr    error
 		fileContents   string
 		rotationalFile string
 	}{
 		// Test case where device name starts with "sd" and rotational is 1
-		{"sda", true, nil, "1\n", ""},
+		{"sda", HDD, nil, "1\n", ""},
 		// Test case where device name starts with "sd" and rotational is 0
-		{"sdb", false, nil, "0\n", ""},
+		{"sdb", SSD, nil, "0\n", ""},
 		// Test case where device name doesn't start with "sd"
-		{"nvme0n1", false, fmt.Errorf("not scsi disk"), "", ""},
+		{"nvme0n1", Unknown, fmt.Errorf("not scsi disk"), "", ""},
 		// Test case where rotational file is not found
-		{"sdc", false, nil, "", "nonexistentfile"},
+		{"sdc", Unknown, nil, "", "nonexistentfile"},
 	}
 
 	for _, tc := range testCases {
@@ -140,24 +135,16 @@ func TestIsHDD(t *testing.T) {
 		}
 		tempFile.Close()
 
-		actualHDD, actualErr := isHDD(tc.deviceName, tempFile.Name())
-		if actualHDD != tc.expectedHDD {
-			t.Errorf("Test case failed for deviceName=%s. Got HDD=%t, Err=%v. Expected HDD=%t, Err=%v",
-				tc.deviceName, actualHDD, actualErr, tc.expectedHDD, tc.expectedErr)
+		deviceType, actualErr := getDeviceType(tc.deviceName, tempFile.Name())
+		if deviceType != tc.expectedType {
+			t.Errorf("Test case failed for deviceName=%s. Got HDD=%v, Err=%v. Expected HDD=%v, Err=%v",
+				tc.deviceName, deviceType, actualErr, tc.expectedType, tc.expectedErr)
 		} else if actualErr == nil {
-			_, err := isHDD(tc.deviceName, "notExit")
+			_, err := getDeviceType(tc.deviceName, "notExit")
 			assert.NoError(t, err)
-			_, err = isHDD(tc.deviceName, "/tmp/")
+			_, err = getDeviceType(tc.deviceName, "/tmp/")
 			assert.Error(t, err)
 		}
 	}
 
-}
-
-func TestGetDeviceNameFromID(t *testing.T) {
-	targetDevID := "1234"
-	_, found, err := getDeviceNameFromID(targetDevID)
-
-	assert.NoError(t, err)
-	assert.False(t, found)
 }

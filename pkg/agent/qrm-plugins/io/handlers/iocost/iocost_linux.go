@@ -139,57 +139,55 @@ func disableIOCost(conf *config.Configuration) {
 			continue
 		}
 
-		err = applyIOCostQoSWithAbsolutePath(ioCgroupRootPath, devID, disabledIOCostQoSData, false)
+		err = manager.ApplyIOCostQoSWithAbsolutePath(ioCgroupRootPath, devID, disabledIOCostQoSData)
 		if err != nil {
-			general.Errorf("applyIOCostQoSWithAbsolutePath for devID: %s, failed with error: %v", devID, err)
+			general.Errorf("ApplyIOCostQoSWithAbsolutePath for devID: %s, failed with error: %v", devID, err)
 		} else {
 			general.Infof("disable ioCostQoS for devID: %s successfully", devID)
 		}
 	}
 }
 
-func applyIOCostQoSWithAbsolutePath(
-	absCgroupPath string, devID string,
-	data *common.IOCostQoSData, hddOnly bool) error {
-	if hddOnly {
-		devName, found, err := getDeviceNameFromID(devID)
-		if err != nil {
-			return fmt.Errorf("getDeviceNameFromID: %s failed with error: %v", devID, err)
-		} else if !found {
-			return fmt.Errorf("no device name found for device id: %s", devID)
-		}
-
-		rotationalFile := filepath.Clean(fmt.Sprintf(queueRotationalFilePattern, devName))
-		hdd, err := isHDD(devName, rotationalFile)
-		if err != nil {
-			return err
-		}
-		if !hdd {
-			return fmt.Errorf("skip none-HDD")
-		}
-	}
-	return manager.ApplyIOCostQoSWithAbsolutePath(absCgroupPath, devID, data)
-}
-
 func applyIOCostQoSWithDefault(
 	ioCostQoSConfigs map[DevModel]*common.IOCostQoSData,
 	devsIDToModel map[string]DevModel,
-	hddOnly bool,
 ) {
-	if !hddOnly {
-		// TO-DO: for now, only HDD supported
-		return
-	}
-
 	for devID := range devsIDToModel {
-		expectedQoSData := ioCostQoSConfigs[DevModelDefault]
+
+		// checking device type: isHDD?
+		devName, found, err := getDeviceNameFromID(devID)
+		if err != nil {
+			general.Errorf("getDeviceNameFromID: %s failed with error: %v", devID, err)
+			continue
+		} else if !found {
+			general.Errorf("no device name found for device id: %s", devID)
+			continue
+		}
+
+		rotationalFile := filepath.Clean(fmt.Sprintf(queueRotationalFilePattern, devName))
+		deviceType, err := getDeviceType(devName, rotationalFile)
+		if err != nil {
+			general.Errorf("checking device %v failed, error:%v", devName, err)
+			continue
+		}
+
+		var defaultConfig DevModel
+		switch deviceType {
+		case HDD:
+			defaultConfig = DevModelDefaultHDD
+		case Unknown:
+			general.Warningf("for now, only HDD were supported, device:%v.", devName)
+			continue
+		}
+
+		expectedQoSData := ioCostQoSConfigs[defaultConfig]
 		if expectedQoSData == nil {
 			general.Errorf("there is no default io cost QoS Data for devID: %s", devID)
 			continue
 		}
-		err := applyIOCostQoSWithAbsolutePath(ioCgroupRootPath, devID, expectedQoSData, hddOnly)
+		err = manager.ApplyIOCostQoSWithAbsolutePath(ioCgroupRootPath, devID, expectedQoSData)
 		if err != nil {
-			general.Errorf("applyIOCostQoSWithAbsolutePath for devID: %s, failed with error: %v",
+			general.Errorf("ApplyIOCostQoSWithAbsolutePath for devID: %s, failed with error: %v",
 				devID, err)
 		}
 	}
@@ -243,7 +241,7 @@ func applyIOCostConfig(conf *config.Configuration, emitter metrics.MetricEmitter
 		return
 	}
 
-	applyIOCostQoSWithDefault(ioCostQoSConfigs, devsIDToModel, conf.EnableSettingIOCostHDDOnly)
+	applyIOCostQoSWithDefault(ioCostQoSConfigs, devsIDToModel)
 	applyIOCostModel(ioCostModelConfigs, devsIDToModel)
 }
 
@@ -266,7 +264,7 @@ func SetIOCost(conf *coreconfig.Configuration,
 	}
 
 	// EnableSettingIOCost featuregate.
-	if !conf.EnableSettingIOCost || !conf.EnableSettingIOCostHDDOnly {
+	if !conf.EnableSettingIOCost {
 		general.Infof("SetIOCost disabled.")
 		// If EnableSettingIOCost was disabled, we should never enable io.cost.
 		initializeOnce.Do(func() {

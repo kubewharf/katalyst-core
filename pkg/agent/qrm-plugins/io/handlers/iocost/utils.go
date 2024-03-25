@@ -26,10 +26,6 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 )
 
-const (
-	containerdConfigFile = "/root/tce/containerd/conf/containerd.toml"
-)
-
 func getDevicesIdToModel(deviceNames []string) (map[string]DevModel, error) {
 	devsIDToModel := make(map[string]DevModel, len(deviceNames))
 	for _, devName := range deviceNames {
@@ -107,43 +103,14 @@ func getDeviceNameFromID(targetDevID string) (string, bool, error) {
 	return "", false, nil
 }
 
-func getContainerdRootDir() (string, error) {
-	lines, err := general.ReadFileIntoLines(containerdConfigFile)
-	if err != nil {
-		return "", fmt.Errorf("failed to ReadLines %s, err %v", containerdConfigFile, err)
-	}
-
-	var rootDir string
-	for _, line := range lines {
-		cols := strings.Split(line, "=")
-		if len(cols) != 2 {
-			continue
-		}
-
-		if strings.TrimSpace(cols[0]) == "root" {
-			rootDir = strings.TrimSpace(cols[1])
-			rootDir = strings.TrimPrefix(rootDir, "\"")
-			rootDir = strings.TrimSuffix(rootDir, "\"")
-			rootDir = strings.TrimSpace(rootDir)
-			break
-		}
-	}
-
-	if rootDir == "" {
-		return "", fmt.Errorf("failed to find root config in %s", containerdConfigFile)
-	}
-
-	return rootDir, nil
-}
-
-func isHDD(deviceName, rotationalFilePath string) (bool, error) {
+func getDeviceType(deviceName, rotationalFilePath string) (DeviceType, error) {
 	/* Check if the device name starts with "sd"
 	 * sd means scsi devices.
 	 * Currently, only HDD/SSD could be scsi device.
 	 */
 	// Step1, the device should be scsi device.
 	if !strings.HasPrefix(deviceName, "sd") {
-		return false, fmt.Errorf("not scsi disk")
+		return Unknown, fmt.Errorf("not scsi disk")
 	}
 
 	// Step2, if it is scsi device, then check rotational
@@ -152,12 +119,19 @@ func isHDD(deviceName, rotationalFilePath string) (bool, error) {
 	contents, err := ioutil.ReadFile(cleanedRotationalFilePath)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return false, nil
+			return Unknown, nil
 		}
-		return false, err
+		return Unknown, err
 	}
 
-	// Parse rotational status (1 means rotational, 0 means non-rotational)
 	rotational := strings.TrimSpace(string(contents))
-	return rotational == "1", nil
+	switch rotational {
+	case "1":
+		return HDD, nil
+	case "0":
+		return SSD, nil
+	default:
+		return Unknown, fmt.Errorf("unknown rotational status")
+	}
+
 }
