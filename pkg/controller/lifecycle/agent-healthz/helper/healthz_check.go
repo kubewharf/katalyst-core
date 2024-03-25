@@ -34,6 +34,7 @@ import (
 	listers "github.com/kubewharf/katalyst-api/pkg/client/listers/node/v1alpha1"
 	"github.com/kubewharf/katalyst-core/pkg/config/controller"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
+	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/native"
 )
 
@@ -47,14 +48,18 @@ const (
 )
 
 const (
-	metricsNameAgentNotReady      = "agent_not_ready"
-	metricsNameAgentNotFound      = "agent_not_found"
-	metricsNameAgentReadyTotal    = "agent_ready_total"
-	metricsNameAgentNotReadyTotal = "agent_not_ready_total"
-	metricsNameAgentNotFoundTotal = "agent_not_found_total"
+	metricsNameAgentNotReady         = "agent_not_ready"
+	metricsNameAgentNotFound         = "agent_not_found"
+	metricsNameAgentReadyTotal       = "agent_ready_total"
+	metricsNameAgentNotReadyTotal    = "agent_not_ready_total"
+	metricsNameAgentNotFoundTotal    = "agent_not_found_total"
+	metricsNameAgentStatusTransition = "agent_ready_status_transition"
+	metricsNameAgentStatusSyncCost   = "agent_ready_sync_cost"
 
 	metricsTagKeyAgentName = "agentName"
 	metricsTagKeyNodeName  = "nodeName"
+	metricsTagKeyOldStatus = "old_status"
+	metricsTagKeyNewStatus = "new_status"
 )
 
 type healthData struct {
@@ -66,6 +71,7 @@ type healthData struct {
 type heartBeatMap struct {
 	lock        sync.RWMutex
 	nodeHealths map[string]map[string]*healthData // map from node->pod->data
+	emitter     metrics.MetricEmitter
 }
 
 func newHeartBeatMap() *heartBeatMap {
@@ -92,9 +98,18 @@ func (c *heartBeatMap) setHeartBeatInfo(node, agent string, status agentStatus, 
 	}
 
 	if status != c.nodeHealths[node][agent].status {
+		c.metricAgentStatusTransition(agent, c.nodeHealths[node][agent].status, status)
 		c.nodeHealths[node][agent].probeTimestamp = timestamp
 		c.nodeHealths[node][agent].status = status
 	}
+}
+
+func (c *heartBeatMap) metricAgentStatusTransition(agent string, oldStatus agentStatus, newStatus agentStatus) {
+	_ = c.emitter.StoreInt64(metricsNameAgentStatusTransition, 1, metrics.MetricTypeNameCount,
+		metrics.MetricTag{Key: metricsTagKeyOldStatus, Val: string(oldStatus)},
+		metrics.MetricTag{Key: metricsTagKeyNewStatus, Val: string(newStatus)},
+		metrics.MetricTag{Key: metricsTagKeyAgentName, Val: agent},
+	)
 }
 
 func (c *heartBeatMap) getHeartBeatInfo(node, agent string) (healthData, bool) {
@@ -195,6 +210,13 @@ func (h *HealthzHelper) syncHeartBeatMap() {
 		klog.Errorf("List nodes error: %v", err)
 		return
 	}
+
+	startTime := time.Now()
+	defer func() {
+		cost := time.Now().Sub(startTime)
+		general.Infof("sync heartbeat cost:[%v]", cost)
+		_ = h.emitter.StoreInt64(metricsNameAgentStatusSyncCost, cost.Milliseconds(), metrics.MetricTypeNameRaw)
+	}()
 
 	totalReadyNode := make(map[string]int64)
 	totalNotReadyNode := make(map[string]int64)
