@@ -29,9 +29,9 @@ const (
 	DefaultEnableSwap                                  bool                   = false
 	DefaultTMOInterval                                 time.Duration          = 30 * time.Second
 	DefaultTMOPolicyName                               v1alpha1.TMOPolicyName = v1alpha1.TMOPolicyNamePSI
-	DefaultTMOMaxProbe                                 float64                = 0.005
+	DefaultTMOMaxProbe                                 float64                = 0.01
 	DefaultTMOPSIPolicyPSIAvg60Threshold               float64                = 0.1
-	DefaultTMORefaultPolicyReclaimAccuracyTarget       float64                = 0.9
+	DefaultTMORefaultPolicyReclaimAccuracyTarget       float64                = 0.99
 	DefaultTMORefaultPolicyReclaimScanEfficiencyTarget float64                = 0.6
 )
 

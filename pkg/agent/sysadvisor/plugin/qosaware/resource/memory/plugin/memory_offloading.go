@@ -71,6 +71,7 @@ type TmoStats struct {
 	pgscan                   float64
 	pgsteal                  float64
 	refault                  float64
+	refaultActivate          float64
 	lastOffloadingTargetSize float64
 }
 
@@ -92,7 +93,7 @@ func refaultPolicyFunc(lastStats TmoStats, currStats TmoStats, conf *tmoconf.TMO
 	}
 	pgscanDelta := currStats.pgscan - lastStats.pgscan
 	pgstealDelta := currStats.pgsteal - lastStats.pgsteal
-	refaultDelta := currStats.refault - lastStats.refault
+	refaultDelta := currStats.refaultActivate - lastStats.refaultActivate
 	reclaimAccuracyRatio := 1 - refaultDelta/(pgstealDelta+CorrectionTerm)
 	reclaimScanEfficiencyRatio := (pgstealDelta + CorrectionTerm) / (pgscanDelta + CorrectionTerm)
 
@@ -199,6 +200,10 @@ func (tmoEngine *tmoEngineInstance) getStats() (TmoStats, error) {
 		if err != nil {
 			return
 		}
+		refaultActivate, err := metaserver.GetCgroupMetric(relativePath, consts.MetricMemWorkingsetActivateCgroup)
+		if err != nil {
+			return
+		}
 		memUsage, err := metaserver.GetCgroupMetric(relativePath, consts.MetricMemUsageCgroup)
 		if err != nil {
 			return
@@ -217,6 +222,7 @@ func (tmoEngine *tmoEngineInstance) getStats() (TmoStats, error) {
 		tmoStats.pgsteal = pgsteal.Value
 		tmoStats.pgscan = pgscan.Value
 		tmoStats.refault = refault.Value
+		tmoStats.refaultActivate = refaultActivate.Value
 		tmoStats.lastOffloadingTargetSize = tmoEngine.offloadingTargetSize
 	}
 	getContainerMetrics := func(metaserver *metaserver.MetaServer, podUID string, containerName string) {
@@ -233,6 +239,10 @@ func (tmoEngine *tmoEngineInstance) getStats() (TmoStats, error) {
 			return
 		}
 		refault, err := metaserver.GetContainerMetric(podUID, containerName, consts.MetricMemWorkingsetRefaultContainer)
+		if err != nil {
+			return
+		}
+		refaultActivate, err := metaserver.GetContainerMetric(podUID, containerName, consts.MetricMemWorkingsetActivateContainer)
 		if err != nil {
 			return
 		}
@@ -254,6 +264,7 @@ func (tmoEngine *tmoEngineInstance) getStats() (TmoStats, error) {
 		tmoStats.pgsteal = pgsteal.Value
 		tmoStats.pgscan = pgscan.Value
 		tmoStats.refault = refault.Value
+		tmoStats.refaultActivate = refaultActivate.Value
 		tmoStats.lastOffloadingTargetSize = tmoEngine.offloadingTargetSize
 	}
 

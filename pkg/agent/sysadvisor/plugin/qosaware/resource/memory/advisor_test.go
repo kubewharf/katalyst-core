@@ -863,6 +863,12 @@ func TestUpdate(t *testing.T) {
 					containerName: "c1",
 				},
 				{
+					metricName:    coreconsts.MetricMemWorkingsetActivateContainer,
+					metricValue:   metricutil.MetricData{Value: 1000},
+					podUID:        "uid1",
+					containerName: "c1",
+				},
+				{
 					metricName:    coreconsts.MetricMemPsiAvg60Container,
 					metricValue:   metricutil.MetricData{Value: 0.01},
 					podUID:        "uid2",
@@ -904,6 +910,12 @@ func TestUpdate(t *testing.T) {
 					podUID:        "uid2",
 					containerName: "c2",
 				},
+				{
+					metricName:    coreconsts.MetricMemWorkingsetActivateContainer,
+					metricValue:   metricutil.MetricData{Value: 1000},
+					podUID:        "uid2",
+					containerName: "c2",
+				},
 			},
 			plugins: []types.MemoryAdvisorPluginName{memadvisorplugin.TransparentMemoryOffloading},
 			wantAdviceResult: types.InternalMemoryCalculationResult{
@@ -912,7 +924,7 @@ func TestUpdate(t *testing.T) {
 					ContainerName: "c1",
 					Values: map[string]string{
 						string(memoryadvisor.ControlKnobKeySwapMax):          coreconsts.ControlKnobON,
-						string(memoryadvisor.ControlKnowKeyMemoryOffloading): "48318382"},
+						string(memoryadvisor.ControlKnowKeyMemoryOffloading): "96636764"},
 				}},
 			},
 		},
