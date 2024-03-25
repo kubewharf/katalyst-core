@@ -199,7 +199,7 @@ func TestHealthz(t *testing.T) {
 
 	results := general.GetRegisterReadinessCheckResult()
 	for name, response := range results {
-		if healthzNameReporterFetcherReady == string(name) {
+		if reporterFetcherHealthCheckName == string(name) {
 			require.True(t, response.Ready)
 		}
 	}

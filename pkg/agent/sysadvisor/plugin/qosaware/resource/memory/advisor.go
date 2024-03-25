@@ -25,6 +25,7 @@ import (
 
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
+	"k8s.io/apimachinery/pkg/util/errors"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/klog/v2"
 
@@ -68,6 +69,9 @@ const (
 
 	// multiply the scale by the criticalWaterMark to get the safe watermark
 	criticalWaterMarkScaleFactor = 2
+
+	memoryHealthCheckName         = "memory_advisor_update"
+	healthCheckTolerationDuration = 15 * time.Second
 )
 
 // memoryResourceAdvisor updates memory headroom for reclaimed resource
@@ -131,7 +135,7 @@ func NewMemoryResourceAdvisor(conf *config.Configuration, extraConf interface{},
 
 func (ra *memoryResourceAdvisor) Run(ctx context.Context) {
 	period := ra.conf.SysAdvisorPluginsConfiguration.QoSAwarePluginConfiguration.SyncPeriod
-
+	general.RegisterHeartbeatCheck(memoryHealthCheckName, healthCheckTolerationDuration, general.HealthzCheckStateNotReady, healthCheckTolerationDuration)
 	general.InfoS("wait to list containers")
 	<-ra.recvCh
 	general.InfoS("list containers successfully")
@@ -181,7 +185,12 @@ func (ra *memoryResourceAdvisor) sendAdvices() error {
 }
 
 func (ra *memoryResourceAdvisor) doUpdate() {
-	if err := ra.update(); err != nil {
+	err := ra.update()
+	defer func() {
+		_ = general.UpdateHealthzStateByError(memoryHealthCheckName, err)
+	}()
+
+	if err != nil {
 		general.Warningf("failed to update memory advice: %q", err)
 	}
 }
@@ -227,11 +236,15 @@ func (ra *memoryResourceAdvisor) update() error {
 		NUMAConditions: NUMAConditions,
 	}
 
+	var errs []error
 	for _, plugin := range ra.plugins {
-		_ = plugin.Reconcile(&memoryPressureStatus)
+		rErr := plugin.Reconcile(&memoryPressureStatus)
+		errs = append(errs, rErr)
 	}
 
-	return ra.sendAdvices()
+	adviceErr := ra.sendAdvices()
+	errs = append(errs, adviceErr)
+	return errors.NewAggregate(errs)
 }
 
 func (ra *memoryResourceAdvisor) detectNUMAPressureConditions() (map[int]*types.MemoryPressureCondition, error) {
