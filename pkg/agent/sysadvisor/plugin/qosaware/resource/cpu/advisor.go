@@ -58,6 +58,9 @@ const (
 	metricRegionIndicatorTargetPrefix  = "region_indicator_target_"
 	metricRegionIndicatorCurrentPrefix = "region_indicator_current_"
 	metricRegionIndicatorErrorPrefix   = "region_indicator_error_"
+
+	cpuAdvisorHealthCheckName     = "cpu_advisor_update"
+	healthCheckTolerationDuration = 15 * time.Second
 )
 
 var (
@@ -152,6 +155,7 @@ func NewCPUResourceAdvisor(conf *config.Configuration, extraConf interface{}, me
 }
 
 func (cra *cpuResourceAdvisor) Run(ctx context.Context) {
+	general.RegisterHeartbeatCheck(cpuAdvisorHealthCheckName, healthCheckTolerationDuration, general.HealthzCheckStateNotReady, healthCheckTolerationDuration)
 	for {
 		select {
 		case v := <-cra.recvCh:
@@ -206,10 +210,13 @@ func (cra *cpuResourceAdvisor) GetHeadroom() (resource.Quantity, error) {
 
 // update works in a monolithic way to maintain lifecycle and triggers update actions for all regions;
 // todo: re-consider whether it's efficient or we should make start individual goroutine for each region
-func (cra *cpuResourceAdvisor) update() error {
+func (cra *cpuResourceAdvisor) update() (err error) {
 	cra.mutex.Lock()
 	defer cra.mutex.Unlock()
-	if err := cra.updateWithIsolationGuardian(true); err != nil {
+	defer func() {
+		_ = general.UpdateHealthzStateByError(cpuAdvisorHealthCheckName, err)
+	}()
+	if err = cra.updateWithIsolationGuardian(true); err != nil {
 		if err == errIsolationSafetyCheckFailed {
 			klog.Warningf("[qosaware-cpu] failed to updateWithIsolationGuardian(true): %q", err)
 			return cra.updateWithIsolationGuardian(false)

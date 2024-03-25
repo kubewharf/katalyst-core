@@ -152,6 +152,7 @@ func (p *nodeMetricsReporterPlugin) Name() string {
 
 func (p *nodeMetricsReporterPlugin) Start() (err error) {
 	p.stop = make(chan struct{})
+	general.RegisterHeartbeatCheck(nodeMetricsReporterPluginName, healthCheckTolerationDuration, general.HealthzCheckStateNotReady, healthCheckTolerationDuration)
 	go wait.Until(p.updateNodeMetrics, p.syncPeriod, p.stop)
 	return
 }
@@ -166,6 +167,9 @@ func (p *nodeMetricsReporterPlugin) Stop() error {
 func (p *nodeMetricsReporterPlugin) GetReportContent(_ context.Context, _ *v1alpha1.Empty) (*v1alpha1.GetReportContentResponse, error) {
 	general.InfoS("called")
 	reportToCNR, err := p.getReportNodeMetricsForCNR()
+	defer func() {
+		_ = general.UpdateHealthzStateByError(nodeMetricsReporterPluginName, err)
+	}()
 	if err != nil {
 		return nil, err
 	}
