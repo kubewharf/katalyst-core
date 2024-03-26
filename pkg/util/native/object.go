@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"strings"
 
+	v1 "k8s.io/api/core/v1"
 	apiequality "k8s.io/apimachinery/pkg/api/equality"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -35,6 +36,7 @@ import (
 var (
 	objectFieldsForLabelSelector       = []string{"spec", "selector"}
 	objectFieldsForTemplateAnnotations = []string{"spec", "template", "metadata", "annotations"}
+	objectFieldsForPodTemplate         = []string{"spec", "template"}
 )
 
 // GenerateUniqObjectUIDKey generate a uniq key (including UID) for the given object.
@@ -187,6 +189,22 @@ func GetUnstructuredTemplateAnnotations(object *unstructured.Unstructured) (map[
 	}
 
 	return annotations, nil
+}
+
+func GetUnstructuredPodTemplateSpec(object *unstructured.Unstructured) (*v1.PodTemplateSpec, error) {
+	val, ok, err := unstructured.NestedFieldCopy(object.UnstructuredContent(), objectFieldsForPodTemplate...)
+	if err != nil {
+		return nil, err
+	} else if !ok || val == nil {
+		return nil, fmt.Errorf("%v doesn't exist", objectFieldsForPodTemplate)
+	}
+
+	podTemplateSpec := &v1.PodTemplateSpec{}
+	if err := runtime.DefaultUnstructuredConverter.FromUnstructured(val.(map[string]interface{}), podTemplateSpec); err != nil {
+		return nil, err
+	}
+
+	return podTemplateSpec, nil
 }
 
 // VisitUnstructuredAncestors is to walk through all the ancestors of the given object,
