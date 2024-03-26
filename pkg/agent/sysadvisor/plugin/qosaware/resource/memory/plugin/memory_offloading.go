@@ -187,6 +187,9 @@ func (tmoEngine *tmoEngineInstance) getStats() (TmoStats, error) {
 		if err != nil {
 			return err
 		}
+		// make sure the relative path with prefix '/' has already been added to GeneralRelativeCgroupPaths,
+		// otherwise the MalachiteMetricsProvisioner will not fetch and store the metrics for these cgroup paths.
+		relativePath = "/" + relativePath
 		psiAvg60, err := metaserver.GetCgroupMetric(relativePath, consts.MetricMemPsiAvg60Cgroup)
 		if err != nil {
 			return err
@@ -296,7 +299,19 @@ func (tmoEngine *tmoEngineInstance) GetCgpath() string {
 }
 
 func (tmoEngine *tmoEngineInstance) LoadConf(detail *tmo.TMOConfigDetail) {
-	tmoEngine.conf = detail
+	tmoEngine.conf.EnableTMO = detail.EnableTMO
+	tmoEngine.conf.EnableSwap = detail.EnableSwap
+	tmoEngine.conf.Interval = detail.Interval
+	tmoEngine.conf.PolicyName = detail.PolicyName
+	if psiPolicyConfDynamic := detail.PSIPolicyConf; psiPolicyConfDynamic != nil {
+		tmoEngine.conf.PSIPolicyConf.MaxProbe = psiPolicyConfDynamic.MaxProbe
+		tmoEngine.conf.PSIPolicyConf.PsiAvg60Threshold = psiPolicyConfDynamic.PsiAvg60Threshold
+	}
+	if refaultPolicyConfDynamic := detail.RefaultPolicyConf; refaultPolicyConfDynamic != nil {
+		tmoEngine.conf.RefaultPolicyConf.MaxProbe = refaultPolicyConfDynamic.MaxProbe
+		tmoEngine.conf.RefaultPolicyConf.ReclaimAccuracyTarget = refaultPolicyConfDynamic.ReclaimAccuracyTarget
+		tmoEngine.conf.RefaultPolicyConf.ReclaimScanEfficiencyTarget = refaultPolicyConfDynamic.ReclaimScanEfficiencyTarget
+	}
 }
 
 func (tmoEngine *tmoEngineInstance) CalculateOffloadingTargetSize() {
@@ -382,8 +397,13 @@ func (tmo *transparentMemoryOffloading) Reconcile(status *types.MemoryPressureSt
 			// load QoSLevelConfig
 			if helper.IsValidQosLevel(containerInfo.QoSLevel) {
 				if tmoConfigDetail, exist := tmo.conf.GetDynamicConfiguration().QoSLevelConfigs[katalystapiconsts.QoSLevel(containerInfo.QoSLevel)]; exist {
-					general.Infof("Load QosLevel %s TMO config for podContainerName %s", containerInfo.QoSLevel, podContainerName)
 					tmo.containerTmoEngines[podContainerName].LoadConf(tmoConfigDetail)
+					general.Infof("Load QosLevel %s TMO config for podContainerName %s, enableTMO: %v, enableSwap: %v, interval: %v, policy: %v",
+						containerInfo.QoSLevel, podContainerName,
+						tmo.containerTmoEngines[podContainerName].GetConf().EnableTMO,
+						tmo.containerTmoEngines[podContainerName].GetConf().EnableSwap,
+						tmo.containerTmoEngines[podContainerName].GetConf().Interval,
+						tmo.containerTmoEngines[podContainerName].GetConf().PolicyName)
 				}
 			}
 			// load SPD conf if exists
@@ -391,12 +411,16 @@ func (tmo *transparentMemoryOffloading) Reconcile(status *types.MemoryPressureSt
 			isBaseline, err := tmo.metaServer.ServiceProfilingManager.ServiceExtendedIndicator(context.Background(), pod, tmoIndicator)
 			if err != nil {
 				general.Infof("Error occured when load check baseline and load TransparentMemoryOffloadingIndicators, err : %v", err)
-			}
-			if !isBaseline {
-				general.Infof("Load Service Level TMO config for podContainerName %s", podContainerName)
+			} else if !isBaseline {
 				tmoConfigDetail := tmo.containerTmoEngines[podContainerName].GetConf()
 				if tmoIndicator.ConfigDetail != nil {
 					tmoconf.ApplyTMOConfigDetail(tmoConfigDetail, *tmoIndicator.ConfigDetail)
+					general.Infof("Load Service Level TMO config for podContainerName %s, enableTMO: %v, enableSwap: %v, interval: %v, policy: %v",
+						podContainerName,
+						tmo.containerTmoEngines[podContainerName].GetConf().EnableTMO,
+						tmo.containerTmoEngines[podContainerName].GetConf().EnableSwap,
+						tmo.containerTmoEngines[podContainerName].GetConf().Interval,
+						tmo.containerTmoEngines[podContainerName].GetConf().PolicyName)
 				}
 			}
 
@@ -404,6 +428,7 @@ func (tmo *transparentMemoryOffloading) Reconcile(status *types.MemoryPressureSt
 			enableReclaim, _ := helper.PodEnableReclaim(context.Background(), tmo.metaServer, containerInfo.PodUID, true)
 			if containerInfo.IsNumaExclusive() && !enableReclaim {
 				tmo.containerTmoEngines[podContainerName].GetConf().EnableTMO = false
+				general.Infof("container with podContainerName: %s is required to disable TMO since it is not reclaimable", podContainerName)
 			}
 
 			// disable TMO if the container is in TMO block list
@@ -414,12 +439,12 @@ func (tmo *transparentMemoryOffloading) Reconcile(status *types.MemoryPressureSt
 			})
 			for tmoBlockFnName, tmoBlockFn := range funcs {
 				if tmoBlockFn(containerInfo, tmo.extraConf) {
-					general.Infof("container with podContainerName: %s is required to disable TMO by TMOBlockFn: %s", podContainerName, tmoBlockFnName)
 					tmo.containerTmoEngines[podContainerName].GetConf().EnableTMO = false
+					general.Infof("container with podContainerName: %s is required to disable TMO by TMOBlockFn: %s", podContainerName, tmoBlockFnName)
 				}
 			}
-			// TODO: remove this log after testing
-			general.Infof("TMO configs for podContainerName: %v, enableTMO: %v, enableSwap: %v, interval: %v, policy: %v", podContainerName,
+
+			general.Infof("Final TMO configs for podContainerName: %v, enableTMO: %v, enableSwap: %v, interval: %v, policy: %v", podContainerName,
 				tmo.containerTmoEngines[podContainerName].GetConf().EnableTMO,
 				tmo.containerTmoEngines[podContainerName].GetConf().EnableSwap,
 				tmo.containerTmoEngines[podContainerName].GetConf().Interval,
@@ -492,7 +517,7 @@ func (tmo *transparentMemoryOffloading) GetAdvices() types.InternalMemoryCalcula
 		result.ContainerEntries = append(result.ContainerEntries, entry)
 	}
 
-	for _, tmoEngine := range tmo.cgpathTmoEngines {
+	for cgpath, tmoEngine := range tmo.cgpathTmoEngines {
 		if tmoEngine.GetOffloadingTargetSize() <= 0 {
 			continue
 		}
@@ -500,8 +525,13 @@ func (tmo *transparentMemoryOffloading) GetAdvices() types.InternalMemoryCalcula
 		if tmoEngine.GetConf().EnableSwap {
 			enableSwap = consts.ControlKnobON
 		}
+		relativePath, err := filepath.Rel(common.CgroupFSMountPoint, cgpath)
+		if err != nil {
+			continue
+		}
+		relativePath = "/" + relativePath
 		entry := types.ExtraMemoryAdvices{
-			CgroupPath: tmoEngine.GetCgpath(),
+			CgroupPath: relativePath,
 			Values: map[string]string{
 				string(memoryadvisor.ControlKnobKeySwapMax):          enableSwap,
 				string(memoryadvisor.ControlKnowKeyMemoryOffloading): strconv.FormatInt(int64(tmoEngine.GetOffloadingTargetSize()), 10)},
