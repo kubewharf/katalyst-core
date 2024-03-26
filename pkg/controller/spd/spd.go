@@ -548,15 +548,21 @@ func (sc *SPDController) getWorkload(gvr schema.GroupVersionResource, namespace,
 }
 
 // defaultBaselinePercent returns default baseline ratio based on the qos level of workload,
-// and if the configured data cannot be found, we will return 1.0,
+// and if the configured data cannot be found, we will return 100,
 // which signifies that the resources of this workload cannot be reclaimed to reclaimed_cores.
 func (sc *SPDController) defaultBaselinePercent(workload *unstructured.Unstructured) *int32 {
-	annotations, err := native.GetUnstructuredTemplateAnnotations(workload)
+	podTemplateSpec, err := native.GetUnstructuredPodTemplateSpec(workload)
 	if err != nil {
-		general.ErrorS(err, "failed to GetUnstructuredTemplateAnnotations")
+		general.ErrorS(err, "failed to GetUnstructuredPodTemplate")
 		return pointer.Int32(100)
 	}
-	qosLevel, err := sc.qosConfig.GetQoSLevel(nil, annotations)
+
+	pod := &core.Pod{
+		ObjectMeta: podTemplateSpec.ObjectMeta,
+		Spec:       podTemplateSpec.Spec,
+	}
+
+	qosLevel, err := sc.qosConfig.GetQoSLevel(pod, podTemplateSpec.Annotations)
 	if err != nil {
 		general.ErrorS(err, "failed to GetQoSLevel")
 		return pointer.Int32(100)

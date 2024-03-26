@@ -156,6 +156,14 @@ func TestSPDController_Run(t *testing.T) {
 								"workload": "sts1",
 							},
 						},
+						Template: v1.PodTemplateSpec{
+							ObjectMeta: metav1.ObjectMeta{
+								Annotations: map[string]string{
+									"katalyst.kubewharf.io/qos_level": "dedicated_cores",
+								},
+							},
+							Spec: v1.PodSpec{},
+						},
 					},
 				},
 				spd: nil,
@@ -177,6 +185,14 @@ func TestSPDController_Run(t *testing.T) {
 						MatchLabels: map[string]string{
 							"workload": "sts1",
 						},
+					},
+					Template: v1.PodTemplateSpec{
+						ObjectMeta: metav1.ObjectMeta{
+							Annotations: map[string]string{
+								"katalyst.kubewharf.io/qos_level": "dedicated_cores",
+							},
+						},
+						Spec: v1.PodSpec{},
 					},
 				},
 			},
