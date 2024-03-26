@@ -376,9 +376,6 @@ func TestCPUServerListAndWatch(t *testing.T) {
 						0: 4,
 						1: 8,
 					},
-					state.PoolNameDedicated: {
-						0: 20,
-					},
 				}},
 			infos: []*ContainerInfo{
 				{
@@ -457,22 +454,6 @@ func TestCPUServerListAndWatch(t *testing.T) {
 							},
 						},
 					},
-					state.PoolNameDedicated: {
-						Entries: map[string]*cpuadvisor.CalculationInfo{
-							"": {
-								OwnerPoolName: state.PoolNameDedicated,
-								CalculationResultsByNumas: map[int64]*cpuadvisor.NumaCalculationResult{
-									0: {
-										Blocks: []*cpuadvisor.Block{
-											{
-												Result: 20,
-											},
-										},
-									},
-								},
-							},
-						},
-					},
 					"pod1": {
 						Entries: map[string]*cpuadvisor.CalculationInfo{
 							"c1": {
@@ -524,9 +505,6 @@ func TestCPUServerListAndWatch(t *testing.T) {
 					state.PoolNameReclaim: {
 						0: 4,
 						1: 8,
-					},
-					state.PoolNameDedicated: {
-						0: 20,
 					},
 				}},
 			infos: []*ContainerInfo{
@@ -644,22 +622,6 @@ func TestCPUServerListAndWatch(t *testing.T) {
 														OverlapType:                cpuadvisor.OverlapType_OverlapWithPod,
 													},
 												},
-											},
-										},
-									},
-								},
-							},
-						},
-					},
-					state.PoolNameDedicated: {
-						Entries: map[string]*cpuadvisor.CalculationInfo{
-							"": {
-								OwnerPoolName: state.PoolNameDedicated,
-								CalculationResultsByNumas: map[int64]*cpuadvisor.NumaCalculationResult{
-									0: {
-										Blocks: []*cpuadvisor.Block{
-											{
-												Result: 20,
 											},
 										},
 									},
@@ -785,9 +747,6 @@ func TestCPUServerListAndWatch(t *testing.T) {
 					state.PoolNameReclaim: {
 						0: 4,
 						1: 8,
-					},
-					state.PoolNameDedicated: {
-						0: 20,
 					},
 				}},
 			infos: []*ContainerInfo{
@@ -950,22 +909,6 @@ func TestCPUServerListAndWatch(t *testing.T) {
 														OverlapType:                cpuadvisor.OverlapType_OverlapWithPod,
 													},
 												},
-											},
-										},
-									},
-								},
-							},
-						},
-					},
-					state.PoolNameDedicated: {
-						Entries: map[string]*cpuadvisor.CalculationInfo{
-							"": {
-								OwnerPoolName: state.PoolNameDedicated,
-								CalculationResultsByNumas: map[int64]*cpuadvisor.NumaCalculationResult{
-									0: {
-										Blocks: []*cpuadvisor.Block{
-											{
-												Result: 20,
 											},
 										},
 									},
@@ -1220,11 +1163,76 @@ func TestAssemblePodEntries(t *testing.T) {
 	calcResult := map[string]*cpuadvisor.CalculationEntries{}
 	require.NoError(t, cs.assemblePodEntries(calcResult, blockSet{}, "11", &types.ContainerInfo{
 		OwnerPoolName: "",
+		QoSLevel:      consts.PodAnnotationQoSLevelSharedCores,
 	}), "failed to assemble container with empty pool name")
 	require.Equal(t, 0, len(calcResult), "empty pool container is added into calc results")
 
+	calcResult = map[string]*cpuadvisor.CalculationEntries{}
 	require.NoError(t, cs.assemblePodEntries(calcResult, blockSet{}, "11", &types.ContainerInfo{
-		OwnerPoolName: "non-exist",
+		OwnerPoolName: "",
+		QoSLevel:      consts.PodAnnotationQoSLevelReclaimedCores,
+	}), "failed to assemble container with empty pool name")
+	require.Equal(t, 0, len(calcResult), "empty pool container is added into calc results")
+
+	calcResult = map[string]*cpuadvisor.CalculationEntries{}
+	require.NoError(t, cs.assemblePodEntries(calcResult, blockSet{}, "11", &types.ContainerInfo{
+		OwnerPoolName: "",
+		QoSLevel:      consts.PodAnnotationQoSLevelDedicatedCores,
+	}), "failed to assemble container with empty pool name")
+	require.Equal(t, 1, len(calcResult), "dedicated pool container is ignored")
+
+	calcResult = map[string]*cpuadvisor.CalculationEntries{}
+	require.NoError(t, cs.assemblePodEntries(calcResult, blockSet{}, "11", &types.ContainerInfo{
+		OwnerPoolName: "",
+		QoSLevel:      consts.PodAnnotationQoSLevelSystemCores,
+	}), "failed to assemble container with empty pool name")
+	require.Equal(t, 1, len(calcResult), "dedicated pool container is ignored")
+
+	calcResult = map[string]*cpuadvisor.CalculationEntries{}
+	require.NoError(t, cs.assemblePodEntries(calcResult, blockSet{}, "11", &types.ContainerInfo{
+		OwnerPoolName:       "non-exist",
+		OriginOwnerPoolName: "non-exist",
+		QoSLevel:            consts.PodAnnotationQoSLevelSharedCores,
 	}), "failed to assemble container with non-exist pool name")
-	require.Equal(t, 0, len(calcResult), "non-exist pool container is added into calc results")
+	require.Equal(t, 0, len(calcResult), "non-exist share pool container is added into calc results")
+
+	calcResult = map[string]*cpuadvisor.CalculationEntries{}
+	require.NoError(t, cs.assemblePodEntries(calcResult, blockSet{}, "11", &types.ContainerInfo{
+		OwnerPoolName:       "non-exist",
+		OriginOwnerPoolName: "non-exist",
+		QoSLevel:            consts.PodAnnotationQoSLevelReclaimedCores,
+	}), "failed to assemble container with non-exist pool name")
+	require.Equal(t, 0, len(calcResult), "non-exist reclaiemd cores pool container is added into calc results")
+
+	calcResult = map[string]*cpuadvisor.CalculationEntries{}
+	require.NoError(t, cs.assemblePodEntries(calcResult, blockSet{}, "11", &types.ContainerInfo{
+		OwnerPoolName:       "non-exist",
+		OriginOwnerPoolName: "non-exist",
+		QoSLevel:            consts.PodAnnotationQoSLevelDedicatedCores,
+	}), "failed to assemble container with non-exist pool name")
+	require.Equal(t, 1, len(calcResult), "non-exist dedicate cores pool container is ignored")
+
+	calcResult = map[string]*cpuadvisor.CalculationEntries{}
+	require.NoError(t, cs.assemblePodEntries(calcResult, blockSet{}, "11", &types.ContainerInfo{
+		OwnerPoolName:       "non-exist",
+		OriginOwnerPoolName: "non-exist",
+		QoSLevel:            consts.PodAnnotationQoSLevelSystemCores,
+	}), "failed to assemble container with non-exist pool name")
+	require.Equal(t, 1, len(calcResult), "non-exist system cores pool container is ignored")
+
+	calcResult = map[string]*cpuadvisor.CalculationEntries{"share": {}}
+	require.NoError(t, cs.assemblePodEntries(calcResult, blockSet{}, "11", &types.ContainerInfo{
+		OwnerPoolName:       "share",
+		OriginOwnerPoolName: "share",
+		QoSLevel:            consts.PodAnnotationQoSLevelSharedCores,
+	}), "failed to assemble share container with exist pool name")
+	require.Equal(t, 2, len(calcResult), "share pool container is ignored")
+
+	calcResult = map[string]*cpuadvisor.CalculationEntries{"reclaimed": {}}
+	require.NoError(t, cs.assemblePodEntries(calcResult, blockSet{}, "11", &types.ContainerInfo{
+		OwnerPoolName:       "reclaimed",
+		OriginOwnerPoolName: "reclaimed",
+		QoSLevel:            consts.PodAnnotationQoSLevelReclaimedCores,
+	}), "failed to assemble reclaimed container with exist pool name")
+	require.Equal(t, 2, len(calcResult), "reclaimed pool container is ignored")
 }

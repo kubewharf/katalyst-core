@@ -327,13 +327,15 @@ func (cs *cpuServer) assemblePodEntries(calculationEntriesMap map[string]*cpuadv
 		calculationInfo.OwnerPoolName = ci.OriginOwnerPoolName
 	}
 
-	if calculationInfo.OwnerPoolName == "" {
-		klog.Warningf("container %s/%s pool name is empty", ci.PodUID, ci.ContainerName)
-		return nil
-	}
-	if _, ok := calculationEntriesMap[calculationInfo.OwnerPoolName]; !ok {
-		klog.Warningf("container %s/%s refer a non-existed pool: %s", ci.PodUID, ci.ContainerName, ci.OwnerPoolName)
-		return nil
+	if ci.QoSLevel == consts.PodAnnotationQoSLevelSharedCores || ci.QoSLevel == consts.PodAnnotationQoSLevelReclaimedCores {
+		if calculationInfo.OwnerPoolName == "" {
+			klog.Warningf("container %s/%s pool name is empty", ci.PodUID, ci.ContainerName)
+			return nil
+		}
+		if _, ok := calculationEntriesMap[calculationInfo.OwnerPoolName]; !ok {
+			klog.Warningf("container %s/%s refer a non-existed pool: %s", ci.PodUID, ci.ContainerName, ci.OwnerPoolName)
+			return nil
+		}
 	}
 
 	// currently, only pods in "dedicated_nums with numa binding" has topology aware allocations
