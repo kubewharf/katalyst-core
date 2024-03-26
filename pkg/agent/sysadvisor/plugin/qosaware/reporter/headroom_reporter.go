@@ -38,6 +38,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util"
+	"github.com/kubewharf/katalyst-core/pkg/util/general"
 )
 
 func init() {
@@ -127,6 +128,7 @@ func (r *headroomReporterPlugin) Name() string {
 
 func (r *headroomReporterPlugin) Start() (err error) {
 	r.Lock()
+	general.RegisterHeartbeatCheck(headroomReporterPluginName, healthCheckTolerationDuration, general.HealthzCheckStateReady, healthCheckTolerationDuration)
 	defer func() {
 		if err == nil {
 			r.started = true
@@ -163,6 +165,10 @@ func (r *headroomReporterPlugin) Stop() error {
 }
 
 func (r *headroomReporterPlugin) GetReportContent(_ context.Context, _ *v1alpha1.Empty) (*v1alpha1.GetReportContentResponse, error) {
+	var err error
+	defer func() {
+		_ = general.UpdateHealthzStateByError(headroomReporterPluginName, err)
+	}()
 	res, err := r.getReclaimedResource()
 	if err != nil {
 		return nil, err

@@ -30,6 +30,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	metricspool "github.com/kubewharf/katalyst-core/pkg/metrics/metrics-pool"
+	"github.com/kubewharf/katalyst-core/pkg/util/general"
 )
 
 const (
@@ -75,6 +76,7 @@ func (mcp *MetaCachePlugin) Init() error {
 
 // Run starts the metacache plugin
 func (mcp *MetaCachePlugin) Run(ctx context.Context) {
+	general.RegisterHeartbeatCheck(mcp.name, 3*mcp.period, general.HealthzCheckStateNotReady, 3*mcp.period)
 	go wait.UntilWithContext(ctx, mcp.periodicWork, mcp.period)
 }
 
@@ -84,6 +86,10 @@ func (mcp *MetaCachePlugin) periodicWork(_ context.Context) {
 	// Fill missing container metadata from metaserver
 	f := func(podUID string, containerName string, ci *types.ContainerInfo) bool {
 		spec, err := mcp.metaServer.GetContainerSpec(podUID, containerName)
+		defer func() {
+			_ = general.UpdateHealthzStateByError(mcp.name, err)
+		}()
+
 		if err != nil {
 			klog.Errorf("[metacache] get container spec failed: %v, %v/%v", err, podUID, containerName)
 			return true
