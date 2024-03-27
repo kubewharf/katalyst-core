@@ -19,10 +19,12 @@ package util
 import (
 	"fmt"
 
-	"github.com/kubewharf/katalyst-core/pkg/consts"
-
 	v1 "k8s.io/api/core/v1"
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
+	"k8s.io/kubernetes/pkg/scheduler/framework"
+	"k8s.io/kubernetes/pkg/scheduler/util"
+
+	"github.com/kubewharf/katalyst-core/pkg/consts"
 )
 
 func IsRequestFullCPU(pod *v1.Pod) bool {
@@ -68,6 +70,28 @@ func GetPodEffectiveRequest(pod *v1.Pod) v1.ResourceList {
 	}
 
 	return resources
+}
+
+func CalculateEffectiveResource(pod *v1.Pod) (res framework.Resource, non0CPU int64, non0Mem int64) {
+	resPtr := &res
+	for _, c := range pod.Spec.Containers {
+		resPtr.Add(c.Resources.Requests)
+		non0CPUReq, non0MemReq := util.GetNonzeroRequests(&c.Resources.Requests)
+		non0CPU += non0CPUReq
+		non0Mem += non0MemReq
+	}
+
+	for _, ic := range pod.Spec.InitContainers {
+		resPtr.SetMaxResource(ic.Resources.Requests)
+		non0CPUReq, non0MemReq := util.GetNonzeroRequests(&ic.Resources.Requests)
+		if non0CPU < non0CPUReq {
+			non0CPU = non0CPUReq
+		}
+		if non0Mem < non0MemReq {
+			non0Mem = non0MemReq
+		}
+	}
+	return
 }
 
 func GetContainerTypeAndIndex(pod *v1.Pod, container *v1.Container) (containerType pluginapi.ContainerType, containerIndex uint64, err error) {

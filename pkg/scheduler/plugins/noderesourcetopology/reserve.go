@@ -25,14 +25,28 @@ import (
 	"k8s.io/kubernetes/pkg/scheduler/framework"
 
 	"github.com/kubewharf/katalyst-api/pkg/apis/node/v1alpha1"
+	"github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/scheduler/cache"
 	"github.com/kubewharf/katalyst-core/pkg/scheduler/util"
+	"github.com/kubewharf/katalyst-core/pkg/util/native"
 )
 
 func (tm *TopologyMatch) Reserve(ctx context.Context, state *framework.CycleState, pod *corev1.Pod, nodeName string) *framework.Status {
 	if tm.topologyMatchSupport(pod) {
 		podCopy := pod.DeepCopy()
-		if util.IsNumaBinding(pod) && util.IsExclusive(pod) {
+
+		if tm.resourcePolicy == consts.ResourcePluginPolicyNameDynamic && util.IsSharedPod(pod) && !native.CheckDaemonPod(pod) {
+			// add shared request to cache for shared pods
+			// pod.spec.nodeName is not set when reserve
+			podCopy.Spec.NodeName = nodeName
+			err := cache.GetCache().AddPod(podCopy)
+			if err != nil {
+				klog.Errorf("topologyMatch reserve fail, pod: %v, err: %v", pod.Name, err)
+				return framework.AsStatus(err)
+			}
+			return framework.NewStatus(framework.Success, "")
+		}
+		if util.IsExclusive(pod) {
 			// get node NUMA capacity
 			rt := cache.GetCache().GetNodeResourceTopology(nodeName, nil)
 			var numaCapacity *corev1.ResourceList
@@ -64,6 +78,16 @@ func (tm *TopologyMatch) Reserve(ctx context.Context, state *framework.CycleStat
 
 func (tm *TopologyMatch) Unreserve(ctx context.Context, state *framework.CycleState, pod *corev1.Pod, nodeName string) {
 	if tm.topologyMatchSupport(pod) {
+		if tm.resourcePolicy == consts.ResourcePluginPolicyNameDynamic && util.IsSharedPod(pod) {
+			podCopy := pod.DeepCopy()
+			podCopy.Spec.NodeName = nodeName
+			err := cache.GetCache().RemovePod(podCopy)
+			if err != nil {
+				klog.Errorf("topologyMatch Unreserve fail, pod: %v, err: %v", pod.Name, err)
+				return
+			}
+		}
+
 		cache.GetCache().UnreserveNodeResource(nodeName, pod)
 	}
 }
