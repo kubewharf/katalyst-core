@@ -21,12 +21,19 @@ type IOQRMPluginConfig struct {
 	PolicyName string
 
 	WritebackThrottlingOption
+	IOCostOption
 }
 
 type WritebackThrottlingOption struct {
 	EnableSettingWBT bool
 	WBTValueHDD      int
 	WBTValueSSD      int
+}
+
+type IOCostOption struct {
+	EnableSettingIOCost   bool
+	IOCostQoSConfigFile   string
+	IOCostModelConfigFile string
 }
 
 func NewIOQRMPluginConfig() *IOQRMPluginConfig {
