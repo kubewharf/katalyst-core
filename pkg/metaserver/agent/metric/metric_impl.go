@@ -228,7 +228,6 @@ func NewMetricsFetcher(baseConf *global.BaseConfiguration, metricConf *metaserve
 	metricStore := utilmetric.NewMetricStore()
 	metricsNotifierManager := NewMetricsNotifierManager(metricStore, emitter)
 	externalMetricManager := NewExternalMetricManager(metricStore, emitter)
-
 	registeredProvisioners := getProvisioners()
 	var enabledProvisioners []types.MetricsProvisioner
 	for _, name := range metricConf.MetricProvisions {
