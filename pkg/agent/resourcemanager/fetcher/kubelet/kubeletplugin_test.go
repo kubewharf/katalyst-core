@@ -25,6 +25,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/kubewharf/katalyst-core/pkg/agent/orm"
+
 	info "github.com/google/cadvisor/info/v1"
 	"github.com/stretchr/testify/assert"
 	"google.golang.org/grpc"
@@ -340,4 +342,30 @@ func TestGetTopologyStatusContent(t *testing.T) {
 	kubePlugin.topologyStatusAdapter = topology.DummyAdapter{}
 	_, err = kubePlugin.getReportContent(context.TODO())
 	assert.NoError(t, err)
+}
+
+func TestOrmEnabled(t *testing.T) {
+	t.Parallel()
+
+	dir, err := tmpSocketDir()
+	assert.NoError(t, err)
+	defer os.RemoveAll(dir)
+
+	conf := generateTestConfiguration(t, dir)
+	conf.Agents = []string{orm.ORMAgentName}
+
+	meta := generateTestMetaServer()
+
+	callback := func(name string, resp *v1alpha1.GetReportContentResponse) {
+		klog.Infof("Callback called with name: %s, resp: %#v", name, resp)
+	}
+
+	plugin, err := NewKubeletReporterPlugin(metrics.DummyMetrics{}, meta, conf, callback)
+	assert.NoError(t, err)
+	kubePlugin := plugin.(*kubeletPlugin)
+
+	assert.True(t, kubePlugin.ormEnabled())
+
+	conf.Agents = []string{"*"}
+	assert.False(t, kubePlugin.ormEnabled())
 }
