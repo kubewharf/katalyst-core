@@ -469,19 +469,24 @@ func (p *DynamicPolicy) GetResourcesAllocation(_ context.Context,
 			if podResources[podUID].ContainerResources == nil {
 				podResources[podUID].ContainerResources = make(map[string]*pluginapi.ResourceAllocation)
 			}
+
+			allCPUs := p.machineInfo.CPUDetails.CPUs()
+
 			podResources[podUID].ContainerResources[containerName] = &pluginapi.ResourceAllocation{
 				ResourceAllocation: map[string]*pluginapi.ResourceAllocationInfo{
 					string(v1.ResourceCPU): {
 						OciPropertyName:   util.OCIPropertyNameCPUSetCPUs,
 						IsNodeResource:    false,
 						IsScalarResource:  true,
-						AllocatedQuantity: float64(allocationInfo.AllocationResult.Size()),
-						AllocationResult:  allocationInfo.AllocationResult.String(),
+						AllocatedQuantity: float64(allCPUs.Size()),
+						AllocationResult:  allCPUs.String(),
 					},
 				},
 			}
 		}
 	}
+
+	p.emitter.StoreInt64("hack_cpu_binding", 1, metrics.MetricTypeNameRaw)
 
 	if len(allocationInfosJustFinishRampUp) > 0 {
 		if err = p.putAllocationsAndAdjustAllocationEntries(allocationInfosJustFinishRampUp, true); err != nil {
