@@ -306,3 +306,41 @@ func MultiplyQuantity(quantity resource.Quantity, y float64) resource.Quantity {
 	value = int64(float64(value) * y)
 	return *resource.NewQuantity(value, quantity.Format)
 }
+
+// AggregateSumQuantities get the sum of quantities
+func AggregateSumQuantities(quantities []resource.Quantity) *resource.Quantity {
+	var res *resource.Quantity
+	for _, quantity := range quantities {
+		if res == nil {
+			sum := quantity.DeepCopy()
+			res = &sum
+		} else {
+			res.Add(quantity)
+		}
+	}
+	return res
+}
+
+// AggregateAvgQuantities get the average of the quantities
+func AggregateAvgQuantities(quantities []resource.Quantity) *resource.Quantity {
+	sum := AggregateSumQuantities(quantities)
+	var res *resource.Quantity
+	if sum != nil {
+		r := sum.Value() / int64(len(quantities))
+		res = resource.NewQuantity(r, sum.Format)
+	}
+
+	return res
+}
+
+// AggregateMaxQuantities get the maximum of the quantities
+func AggregateMaxQuantities(quantities []resource.Quantity) *resource.Quantity {
+	var res *resource.Quantity
+	for _, quantity := range quantities {
+		if res == nil || res.Cmp(quantity) < 0 {
+			maxQuantity := quantity.DeepCopy()
+			res = &maxQuantity
+		}
+	}
+	return res
+}

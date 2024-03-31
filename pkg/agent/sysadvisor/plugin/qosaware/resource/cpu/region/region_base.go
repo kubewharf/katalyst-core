@@ -705,7 +705,7 @@ func (r *QoSRegionBase) getPodIndicatorTarget(ctx context.Context, podUID string
 	}
 
 	indicatorTarget := defaultTarget
-	servicePerformanceTarget, err := r.metaServer.ServiceSystemPerformanceTarget(ctx, pod)
+	servicePerformanceTarget, err := r.metaServer.ServiceSystemPerformanceTarget(ctx, pod.ObjectMeta)
 	if err != nil && !errors.IsNotFound(err) {
 		return nil, err
 	} else if err != nil {

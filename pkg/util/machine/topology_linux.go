@@ -48,8 +48,8 @@ func GetExtraTopologyInfo(conf *global.MachineInfoConfiguration) (*ExtraTopology
 
 	numaDistanceArray := make(map[int][]NumaDistanceInfo)
 	siblingNumaMap := make(map[int]sets.Int)
-	siblingNumaMBWAllocatableMap := make(map[int]int64)
-	siblingNumaMBWCapacityMap := make(map[int]int64)
+	siblingNumaAvgMBWAllocatableMap := make(map[int]int64)
+	siblingNumaAvgMBWCapacityMap := make(map[int]int64)
 	for _, fi := range fInfos {
 		if !fi.IsDir() {
 			continue
@@ -72,9 +72,10 @@ func GetExtraTopologyInfo(conf *global.MachineInfoConfiguration) (*ExtraTopology
 		distances := strings.Fields(s)
 		var (
 			distanceArray    []NumaDistanceInfo
-			siblingSet       sets.Int
 			selfNumaDistance int
 		)
+
+		siblingSet := sets.NewInt()
 		for id, distanceStr := range distances {
 			distance, err := strconv.Atoi(distanceStr)
 			if err != nil {
@@ -99,14 +100,14 @@ func GetExtraTopologyInfo(conf *global.MachineInfoConfiguration) (*ExtraTopology
 		}
 		numaDistanceArray[nodeID] = distanceArray
 		siblingNumaMap[nodeID] = siblingSet
-		siblingNumaMBWAllocatableMap[nodeID] = siblingNumaMBWAllocatable
-		siblingNumaMBWCapacityMap[nodeID] = siblingNumaMBWCapacity
+		siblingNumaAvgMBWAllocatableMap[nodeID] = siblingNumaMBWAllocatable / int64(len(siblingSet)+1)
+		siblingNumaAvgMBWCapacityMap[nodeID] = siblingNumaMBWCapacity / int64(len(siblingSet)+1)
 	}
 
 	return &ExtraTopologyInfo{
-		NumaDistanceMap:              numaDistanceArray,
-		SiblingNumaMap:               siblingNumaMap,
-		SiblingNumaMBWCapacityMap:    siblingNumaMBWCapacityMap,
-		SiblingNumaMBWAllocatableMap: siblingNumaMBWAllocatableMap,
+		NumaDistanceMap:                 numaDistanceArray,
+		SiblingNumaMap:                  siblingNumaMap,
+		SiblingNumaAvgMBWCapacityMap:    siblingNumaAvgMBWCapacityMap,
+		SiblingNumaAvgMBWAllocatableMap: siblingNumaAvgMBWAllocatableMap,
 	}, nil
 }

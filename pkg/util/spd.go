@@ -25,6 +25,7 @@ import (
 	"github.com/pkg/errors"
 	core "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/labels"
@@ -346,12 +347,8 @@ func CalculateSPDHash(spd *apiworkload.ServiceProfileDescriptor) (string, error)
 }
 
 // GetPodSPDName gets spd name from pod annotation
-func GetPodSPDName(pod *core.Pod) (string, error) {
-	if pod == nil {
-		return "", fmt.Errorf("pod is nil")
-	}
-
-	spdName, ok := pod.GetAnnotations()[apiconsts.PodAnnotationSPDNameKey]
+func GetPodSPDName(podMeta metav1.ObjectMeta) (string, error) {
+	spdName, ok := podMeta.GetAnnotations()[apiconsts.PodAnnotationSPDNameKey]
 	if !ok {
 		return "", fmt.Errorf("pod without spd annotation")
 	}
@@ -400,4 +397,17 @@ func GetExtendedIndicator(indicators interface{}) (string, runtime.Object, error
 	}
 
 	return strings.TrimSuffix(name, apiworkload.ExtendedIndicatorSuffix), o, nil
+}
+
+func AggregateMetrics(metrics []resource.Quantity, aggregator apiworkload.Aggregator) (*resource.Quantity, error) {
+	switch aggregator {
+	case apiworkload.Avg:
+		return native.AggregateAvgQuantities(metrics), nil
+	case apiworkload.Max:
+		return native.AggregateMaxQuantities(metrics), nil
+	case apiworkload.Sum:
+		return native.AggregateSumQuantities(metrics), nil
+	default:
+		return nil, fmt.Errorf("not support aggregator %v", aggregator)
+	}
 }

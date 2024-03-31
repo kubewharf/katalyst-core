@@ -202,11 +202,11 @@ func Test_spdManager_GetSPD(t *testing.T) {
 
 			ctx := context.TODO()
 
-			_, _ = s.GetSPD(ctx, tt.args.pod)
+			_, _ = s.GetSPD(ctx, tt.args.pod.ObjectMeta)
 			go s.Run(ctx)
 			time.Sleep(1 * time.Second)
 
-			got, err := s.GetSPD(ctx, tt.args.pod)
+			got, err := s.GetSPD(ctx, tt.args.pod.ObjectMeta)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("GetSPD() error = %v, wantErr %v", err, tt.wantErr)
 				return
@@ -214,7 +214,7 @@ func Test_spdManager_GetSPD(t *testing.T) {
 			require.Equal(t, tt.want, got)
 
 			// second GetSPD from local cache
-			got, err = s.GetSPD(ctx, tt.args.pod)
+			got, err = s.GetSPD(ctx, tt.args.pod.ObjectMeta)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("GetSPD() error = %v, wantErr %v", err, tt.wantErr)
 				return

@@ -23,7 +23,6 @@ import (
 	"time"
 
 	"go.uber.org/atomic"
-	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/wait"
@@ -56,14 +55,26 @@ const (
 	metricsNameDeleteCache              = "spd_manager_delete_cache"
 )
 
-type GetPodSPDNameFunc func(pod *v1.Pod) (string, error)
+type GetPodSPDNameFunc func(_ metav1.ObjectMeta) (string, error)
 
 type SPDFetcher interface {
 	// GetSPD get spd for given pod
-	GetSPD(ctx context.Context, pod *v1.Pod) (*workloadapis.ServiceProfileDescriptor, error)
+	GetSPD(ctx context.Context, podMeta metav1.ObjectMeta) (*workloadapis.ServiceProfileDescriptor, error)
 
 	// Run async loop to clear unused spd
 	Run(ctx context.Context)
+}
+
+type DummySPDFetcher struct {
+	SPD *workloadapis.ServiceProfileDescriptor
+}
+
+func (d DummySPDFetcher) GetSPD(_ context.Context, _ metav1.ObjectMeta) (*workloadapis.ServiceProfileDescriptor, error) {
+	return d.SPD, nil
+}
+
+func (d DummySPDFetcher) Run(_ context.Context) {
+	return
 }
 
 type spdFetcher struct {
@@ -102,14 +113,14 @@ func NewSPDFetcher(clientSet *client.GenericClientSet, emitter metrics.MetricEmi
 	return m, nil
 }
 
-func (s *spdFetcher) GetSPD(ctx context.Context, pod *v1.Pod) (*workloadapis.ServiceProfileDescriptor, error) {
-	spdName, err := s.getPodSPDNameFunc(pod)
+func (s *spdFetcher) GetSPD(ctx context.Context, podMeta metav1.ObjectMeta) (*workloadapis.ServiceProfileDescriptor, error) {
+	spdName, err := s.getPodSPDNameFunc(podMeta)
 	if err != nil {
-		general.Warningf("get spd for pod (%v/%v) err %v", pod.Namespace, pod.Name, err)
-		return nil, errors.NewNotFound(workloadapis.Resource(workloadapis.ResourceNameServiceProfileDescriptors), fmt.Sprintf("for pod(%v/%v)", pod.Namespace, pod.Name))
+		general.Warningf("get spd for pod (%v/%v) err %v", podMeta.Namespace, podMeta.Name, err)
+		return nil, errors.NewNotFound(workloadapis.Resource(workloadapis.ResourceNameServiceProfileDescriptors), fmt.Sprintf("for pod(%v/%v)", podMeta.Namespace, podMeta.Name))
 	}
 
-	return s.getSPDByNamespaceName(ctx, pod.GetNamespace(), spdName)
+	return s.getSPDByNamespaceName(ctx, podMeta.GetNamespace(), spdName)
 }
 
 // SetGetPodSPDNameFunc set get spd name function to override default getPodSPDNameFunc before started
