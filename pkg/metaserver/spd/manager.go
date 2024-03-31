@@ -24,6 +24,8 @@ import (
 
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/resource"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
@@ -51,20 +53,28 @@ type IndicatorTarget map[string]util.IndicatorTarget
 
 type ServiceProfilingManager interface {
 	// ServiceBusinessPerformanceLevel returns the service business performance level for the given pod
-	ServiceBusinessPerformanceLevel(ctx context.Context, pod *v1.Pod) (PerformanceLevel, error)
+	ServiceBusinessPerformanceLevel(ctx context.Context, podMeta metav1.ObjectMeta) (PerformanceLevel, error)
 
 	// ServiceBusinessPerformanceScore returns the service business performance score for the given pod
 	// The score is in range [MinPerformanceScore, MaxPerformanceScore]
-	ServiceBusinessPerformanceScore(ctx context.Context, pod *v1.Pod) (float64, error)
+	ServiceBusinessPerformanceScore(ctx context.Context, podMeta metav1.ObjectMeta) (float64, error)
 
 	// ServiceSystemPerformanceTarget returns the system performance target for the given pod
-	ServiceSystemPerformanceTarget(ctx context.Context, pod *v1.Pod) (IndicatorTarget, error)
+	ServiceSystemPerformanceTarget(ctx context.Context, podMeta metav1.ObjectMeta) (IndicatorTarget, error)
 
 	// ServiceBaseline returns whether this pod is baseline
-	ServiceBaseline(ctx context.Context, pod *v1.Pod) (bool, error)
+	ServiceBaseline(ctx context.Context, podMeta metav1.ObjectMeta) (bool, error)
 
 	// ServiceExtendedIndicator load the extended indicators and return whether the pod is baseline for the extended indicators
-	ServiceExtendedIndicator(ctx context.Context, pod *v1.Pod, indicators interface{}) (bool, error)
+	ServiceExtendedIndicator(ctx context.Context, podMeta metav1.ObjectMeta, indicators interface{}) (bool, error)
+
+	// ServiceAggregateMetrics retrieves aggregated metrics from profiling data using different aggregators,
+	// each designed for a specific level of aggregation:
+	// - podAggregator: Aggregates metrics across different pods.
+	// - containerAggregator: Aggregates metrics across different containers.
+	// - metricsAggregator: Aggregates metrics across different time windows.
+	ServiceAggregateMetrics(ctx context.Context, podMeta metav1.ObjectMeta, name v1.ResourceName, milliValue bool,
+		podAggregator, containerAggregator, metricsAggregator workloadapis.Aggregator) (*resource.Quantity, error)
 
 	// Run starts the service profiling manager
 	Run(ctx context.Context)
@@ -73,17 +83,27 @@ type ServiceProfilingManager interface {
 type DummyPodServiceProfile struct {
 	PerformanceLevel PerformanceLevel
 	Score            float64
+	AggregatedMetric *resource.Quantity
 }
 
 type DummyServiceProfilingManager struct {
 	podProfiles map[types.UID]DummyPodServiceProfile
 }
 
-func (d *DummyServiceProfilingManager) ServiceExtendedIndicator(_ context.Context, _ *v1.Pod, _ interface{}) (bool, error) {
+func (d *DummyServiceProfilingManager) ServiceAggregateMetrics(_ context.Context, podMeta metav1.ObjectMeta, _ v1.ResourceName,
+	_ bool, _, _, _ workloadapis.Aggregator) (*resource.Quantity, error) {
+	profile, ok := d.podProfiles[podMeta.UID]
+	if !ok {
+		return &resource.Quantity{}, nil
+	}
+	return profile.AggregatedMetric, nil
+}
+
+func (d *DummyServiceProfilingManager) ServiceExtendedIndicator(_ context.Context, _ metav1.ObjectMeta, _ interface{}) (bool, error) {
 	return false, nil
 }
 
-func (d *DummyServiceProfilingManager) ServiceBaseline(_ context.Context, _ *v1.Pod) (bool, error) {
+func (d *DummyServiceProfilingManager) ServiceBaseline(_ context.Context, _ metav1.ObjectMeta) (bool, error) {
 	return false, nil
 }
 
@@ -91,23 +111,23 @@ func NewDummyServiceProfilingManager(podProfiles map[types.UID]DummyPodServicePr
 	return &DummyServiceProfilingManager{podProfiles: podProfiles}
 }
 
-func (d *DummyServiceProfilingManager) ServiceBusinessPerformanceLevel(_ context.Context, pod *v1.Pod) (PerformanceLevel, error) {
-	profile, ok := d.podProfiles[pod.UID]
+func (d *DummyServiceProfilingManager) ServiceBusinessPerformanceLevel(_ context.Context, podMeta metav1.ObjectMeta) (PerformanceLevel, error) {
+	profile, ok := d.podProfiles[podMeta.UID]
 	if !ok {
 		return PerformanceLevelPerfect, nil
 	}
 	return profile.PerformanceLevel, nil
 }
 
-func (d *DummyServiceProfilingManager) ServiceBusinessPerformanceScore(_ context.Context, pod *v1.Pod) (float64, error) {
-	profile, ok := d.podProfiles[pod.UID]
+func (d *DummyServiceProfilingManager) ServiceBusinessPerformanceScore(_ context.Context, podMeta metav1.ObjectMeta) (float64, error) {
+	profile, ok := d.podProfiles[podMeta.UID]
 	if !ok {
 		return 100, nil
 	}
 	return profile.Score, nil
 }
 
-func (d *DummyServiceProfilingManager) ServiceSystemPerformanceTarget(_ context.Context, _ *v1.Pod) (IndicatorTarget, error) {
+func (d *DummyServiceProfilingManager) ServiceSystemPerformanceTarget(_ context.Context, _ metav1.ObjectMeta) (IndicatorTarget, error) {
 	return IndicatorTarget{}, nil
 }
 
@@ -119,8 +139,60 @@ type serviceProfilingManager struct {
 	fetcher SPDFetcher
 }
 
-func (m *serviceProfilingManager) ServiceExtendedIndicator(ctx context.Context, pod *v1.Pod, indicators interface{}) (bool, error) {
-	spd, err := m.fetcher.GetSPD(ctx, pod)
+// ServiceAggregateMetrics get service aggregate metrics by given resource name and aggregators
+func (m *serviceProfilingManager) ServiceAggregateMetrics(ctx context.Context, podMeta metav1.ObjectMeta, name v1.ResourceName, milliValue bool,
+	podAggregator, containerAggregator, metricsAggregator workloadapis.Aggregator) (*resource.Quantity, error) {
+	spd, err := m.fetcher.GetSPD(ctx, podMeta)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, metrics := range spd.Status.AggMetrics {
+		if metrics.Aggregator != podAggregator {
+			continue
+		}
+
+		aggregatedContainerMetrics := make([]resource.Quantity, 0, len(metrics.Items))
+		for _, podMetrics := range metrics.Items {
+			containerMetrics := make([]resource.Quantity, 0, len(podMetrics.Containers))
+			for _, containerRawMetrics := range podMetrics.Containers {
+				if metric, ok := containerRawMetrics.Usage[name]; ok {
+					if milliValue {
+						metric = *resource.NewQuantity(metric.MilliValue(), metric.Format)
+					}
+					containerMetrics = append(containerMetrics, metric)
+				}
+			}
+
+			metric, err := util.AggregateMetrics(containerMetrics, containerAggregator)
+			if err != nil {
+				return nil, err
+			}
+
+			if metric != nil {
+				aggregatedContainerMetrics = append(aggregatedContainerMetrics, *metric)
+			}
+		}
+
+		metric, err := util.AggregateMetrics(aggregatedContainerMetrics, metricsAggregator)
+		if err != nil {
+			return nil, err
+		}
+
+		if metric != nil {
+			if milliValue {
+				metric = resource.NewMilliQuantity(metric.Value(), metric.Format)
+			}
+			return metric, nil
+		}
+	}
+
+	return nil, errors.NewNotFound(workloadapis.Resource(workloadapis.ResourceNameServiceProfileDescriptors),
+		fmt.Sprintf("%v for pod(%v/%v)", name, podMeta.Namespace, podMeta.Name))
+}
+
+func (m *serviceProfilingManager) ServiceExtendedIndicator(ctx context.Context, podMeta metav1.ObjectMeta, indicators interface{}) (bool, error) {
+	spd, err := m.fetcher.GetSPD(ctx, podMeta)
 	if err != nil {
 		return false, err
 	}
@@ -171,15 +243,15 @@ func (m *serviceProfilingManager) ServiceExtendedIndicator(ctx context.Context, 
 			}
 		}
 
-		return util.IsExtendedBaselinePod(pod, indicator.BaselinePercent, extendedBaselineSentinel, name)
+		return util.IsExtendedBaselinePod(podMeta, indicator.BaselinePercent, extendedBaselineSentinel, name)
 	}
 
 	return false, errors.NewNotFound(schema.GroupResource{Group: workloadapis.GroupName,
 		Resource: strings.ToLower(o.GetObjectKind().GroupVersionKind().Kind)}, name)
 }
 
-func (m *serviceProfilingManager) ServiceBaseline(ctx context.Context, pod *v1.Pod) (bool, error) {
-	spd, err := m.fetcher.GetSPD(ctx, pod)
+func (m *serviceProfilingManager) ServiceBaseline(ctx context.Context, podMeta metav1.ObjectMeta) (bool, error) {
+	spd, err := m.fetcher.GetSPD(ctx, podMeta)
 	if err != nil && !errors.IsNotFound(err) {
 		return false, err
 	} else if err != nil {
@@ -191,7 +263,7 @@ func (m *serviceProfilingManager) ServiceBaseline(ctx context.Context, pod *v1.P
 		return false, err
 	}
 
-	isBaseline, err := util.IsBaselinePod(pod, spd.Spec.BaselinePercent, baselineSentinel)
+	isBaseline, err := util.IsBaselinePod(podMeta, spd.Spec.BaselinePercent, baselineSentinel)
 	if err != nil {
 		return false, err
 	}
@@ -205,15 +277,15 @@ func NewServiceProfilingManager(fetcher SPDFetcher) ServiceProfilingManager {
 	}
 }
 
-func (m *serviceProfilingManager) ServiceBusinessPerformanceScore(_ context.Context, _ *v1.Pod) (float64, error) {
-	// todo: implement service business performance score using spd to calculate
+func (m *serviceProfilingManager) ServiceBusinessPerformanceScore(_ context.Context, _ metav1.ObjectMeta) (float64, error) {
+	// todo: implement service business performance score using SPD to calculate
 	return MaxPerformanceScore, nil
 }
 
-// ServiceBusinessPerformanceLevel gets the service business performance level by spd, and use the poorest business indicator
+// ServiceBusinessPerformanceLevel gets the service business performance level by SPD, and use the poorest business indicator
 // performance level as the service business performance level.
-func (m *serviceProfilingManager) ServiceBusinessPerformanceLevel(ctx context.Context, pod *v1.Pod) (PerformanceLevel, error) {
-	spd, err := m.fetcher.GetSPD(ctx, pod)
+func (m *serviceProfilingManager) ServiceBusinessPerformanceLevel(ctx context.Context, podMeta metav1.ObjectMeta) (PerformanceLevel, error) {
+	spd, err := m.fetcher.GetSPD(ctx, podMeta)
 	if err != nil {
 		return PerformanceLevelUnknown, err
 	}
@@ -263,8 +335,8 @@ func (m *serviceProfilingManager) ServiceBusinessPerformanceLevel(ctx context.Co
 
 // ServiceSystemPerformanceTarget gets the service system performance target by spd and return the indicator name
 // and its upper and lower bounds
-func (m *serviceProfilingManager) ServiceSystemPerformanceTarget(ctx context.Context, pod *v1.Pod) (IndicatorTarget, error) {
-	spd, err := m.fetcher.GetSPD(ctx, pod)
+func (m *serviceProfilingManager) ServiceSystemPerformanceTarget(ctx context.Context, podMeta metav1.ObjectMeta) (IndicatorTarget, error) {
+	spd, err := m.fetcher.GetSPD(ctx, podMeta)
 	if err != nil {
 		return nil, err
 	}

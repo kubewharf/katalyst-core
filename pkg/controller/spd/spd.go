@@ -737,7 +737,7 @@ func (sc *SPDController) updatePod(_ interface{}, newObj interface{}) {
 }
 
 func (sc *SPDController) enqueuePod(pod *core.Pod) {
-	name, err := util.GetPodSPDName(pod)
+	name, err := util.GetPodSPDName(pod.ObjectMeta)
 	if err != nil {
 		return
 	}

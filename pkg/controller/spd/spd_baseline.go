@@ -90,7 +90,7 @@ func (sc *SPDController) getSPDPodMetaList(spd *v1alpha1.ServiceProfileDescripto
 
 	podMetaList := make([]util.SPDBaselinePodMeta, 0, len(podList))
 	for _, p := range podList {
-		podMetaList = append(podMetaList, util.GetPodMeta(p))
+		podMetaList = append(podMetaList, util.GetSPDBaselinePodMeta(p.ObjectMeta))
 	}
 	sort.SliceStable(podMetaList, func(i, j int) bool {
 		return podMetaList[i].Cmp(podMetaList[j]) < 0

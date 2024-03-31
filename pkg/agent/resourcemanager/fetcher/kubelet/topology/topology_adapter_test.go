@@ -32,6 +32,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/sets"
 	kubeletconfigv1beta1 "k8s.io/kubelet/config/v1beta1"
 	podresv1 "k8s.io/kubelet/pkg/apis/podresources/v1"
 	"k8s.io/kubernetes/pkg/kubelet/apis/config"
@@ -47,7 +48,9 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/kubeletconfig"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/pod"
+	"github.com/kubewharf/katalyst-core/pkg/metaserver/spd"
 	"github.com/kubewharf/katalyst-core/pkg/util"
+	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
 type fakePodResourcesServer struct {
@@ -141,11 +144,36 @@ func tmpSocketDir() (socketDir string, err error) {
 }
 
 func generateTestMetaServer(podList ...*v1.Pod) *metaserver.MetaServer {
-	return &metaserver.MetaServer{
+	m := &metaserver.MetaServer{
 		MetaAgent: &agent.MetaAgent{
-			PodFetcher: &pod.PodFetcherStub{PodList: podList},
+			PodFetcher:          &pod.PodFetcherStub{PodList: podList},
+			KatalystMachineInfo: &machine.KatalystMachineInfo{},
 		},
 	}
+
+	m.ExtraTopologyInfo, _ = machine.GenerateDummyExtraTopology(2)
+	return m
+}
+
+func withServiceProfilingManager(server *metaserver.MetaServer, manager spd.ServiceProfilingManager) *metaserver.MetaServer {
+	if server == nil {
+		server = &metaserver.MetaServer{}
+	}
+
+	if manager != nil {
+		server.ServiceProfilingManager = manager
+	}
+	return server
+}
+
+func withExtraTopologyInfo(server *metaserver.MetaServer, topologyInfo *machine.ExtraTopologyInfo) *metaserver.MetaServer {
+	if server == nil {
+		server = &metaserver.MetaServer{}
+	}
+	if topologyInfo != nil {
+		server.ExtraTopologyInfo = topologyInfo
+	}
+	return server
 }
 
 func Test_getZoneAllocationsByPodResources(t *testing.T) {
@@ -155,6 +183,8 @@ func Test_getZoneAllocationsByPodResources(t *testing.T) {
 		podList               []*v1.Pod
 		numaSocketZoneNodeMap map[util.ZoneNode]util.ZoneNode
 		podResourcesList      []*podresv1.PodResources
+		manager               spd.ServiceProfilingManager
+		extraTopologyInfo     *machine.ExtraTopologyInfo
 	}
 	tests := []struct {
 		name    string
@@ -166,9 +196,15 @@ func Test_getZoneAllocationsByPodResources(t *testing.T) {
 			name: "test-1",
 			args: args{
 				podList: []*v1.Pod{
-					generateTestDedicatedCoresPod("default", "pod-1", "pod-1-uid", true),
-					generateTestDedicatedCoresPod("default", "pod-2", "pod-2-uid", true),
-					generateTestDedicatedCoresPod("default", "pod-3", "pod-3-uid", true),
+					generateTestPod("default", "pod-1", "pod-1-uid", consts.PodAnnotationQoSLevelDedicatedCores, true, map[string]v1.ResourceRequirements{
+						"container-1": {},
+					}),
+					generateTestPod("default", "pod-2", "pod-2-uid", consts.PodAnnotationQoSLevelDedicatedCores, true, map[string]v1.ResourceRequirements{
+						"container-1": {},
+					}),
+					generateTestPod("default", "pod-3", "pod-3-uid", consts.PodAnnotationQoSLevelDedicatedCores, true, map[string]v1.ResourceRequirements{
+						"container-1": {},
+					}),
 				},
 				numaSocketZoneNodeMap: map[util.ZoneNode]util.ZoneNode{
 					util.GenerateNumaZoneNode(0): util.GenerateSocketZoneNode(0),
@@ -339,6 +375,9 @@ func Test_getZoneAllocationsByPodResources(t *testing.T) {
 						},
 					},
 				},
+				manager: spd.NewDummyServiceProfilingManager(
+					map[types.UID]spd.DummyPodServiceProfile{},
+				),
 			},
 			want: map[util.ZoneNode]util.ZoneAllocations{
 				{
@@ -418,7 +457,9 @@ func Test_getZoneAllocationsByPodResources(t *testing.T) {
 								},
 							},
 						}),
-					generateTestDedicatedCoresPod("default", "pod-2", "pod-2-uid", true),
+					generateTestPod("default", "pod-2", "pod-2-uid", consts.PodAnnotationQoSLevelDedicatedCores, true, map[string]v1.ResourceRequirements{
+						"container-1": {},
+					}),
 					generateTestSharedCoresPod("default", "pod-3", "pod-3-uid", false,
 						map[string]v1.ResourceRequirements{
 							"container-1": {
@@ -599,6 +640,9 @@ func Test_getZoneAllocationsByPodResources(t *testing.T) {
 						},
 					},
 				},
+				manager: spd.NewDummyServiceProfilingManager(
+					map[types.UID]spd.DummyPodServiceProfile{},
+				),
 			},
 			want: map[util.ZoneNode]util.ZoneAllocations{
 				{
@@ -659,6 +703,568 @@ func Test_getZoneAllocationsByPodResources(t *testing.T) {
 				},
 			},
 		},
+		{
+			name: "test for numa memory bandwidth",
+			args: args{
+				podList: []*v1.Pod{
+					generateTestPod("default", "pod-1", "pod-1-uid", consts.PodAnnotationQoSLevelDedicatedCores, true, map[string]v1.ResourceRequirements{
+						"container-1": {
+							Requests: v1.ResourceList{
+								v1.ResourceCPU: resource.MustParse("10"),
+							},
+						},
+					}),
+					generateTestPod("default", "pod-2", "pod-2-uid", consts.PodAnnotationQoSLevelDedicatedCores, true, map[string]v1.ResourceRequirements{
+						"container-1": {
+							Requests: v1.ResourceList{
+								v1.ResourceCPU: resource.MustParse("10"),
+							},
+						},
+					}),
+					generateTestPod("default", "pod-3", "pod-3-uid", consts.PodAnnotationQoSLevelDedicatedCores, true, map[string]v1.ResourceRequirements{
+						"container-1": {
+							Requests: v1.ResourceList{
+								v1.ResourceCPU: resource.MustParse("10"),
+							},
+						},
+					}),
+				},
+				numaSocketZoneNodeMap: map[util.ZoneNode]util.ZoneNode{
+					util.GenerateNumaZoneNode(0): util.GenerateSocketZoneNode(0),
+					util.GenerateNumaZoneNode(1): util.GenerateSocketZoneNode(1),
+				},
+				podResourcesList: []*podresv1.PodResources{
+					{
+						Namespace: "default",
+						Name:      "pod-1",
+						Containers: []*podresv1.ContainerResources{
+							{
+								Name: "container-1",
+								Devices: []*podresv1.ContainerDevices{
+									{
+										ResourceName: "gpu",
+										Topology: &podresv1.TopologyInfo{
+											Nodes: []*podresv1.NUMANode{
+												{ID: 0},
+											},
+										},
+									},
+								},
+								Resources: []*podresv1.TopologyAwareResource{
+									{
+										ResourceName: "cpu",
+										OriginalTopologyAwareQuantityList: []*podresv1.TopologyAwareQuantity{
+											{
+												ResourceValue: 12,
+												Node:          0,
+											},
+											{
+												ResourceValue: 15,
+												Node:          1,
+											},
+										},
+									},
+									{
+										ResourceName: "memory",
+										OriginalTopologyAwareQuantityList: []*podresv1.TopologyAwareQuantity{
+											{
+												ResourceValue: generateFloat64ResourceValue("12G"),
+												Node:          0,
+											},
+											{
+												ResourceValue: generateFloat64ResourceValue("15G"),
+												Node:          1,
+											},
+										},
+									},
+								},
+							},
+						},
+					},
+					{
+						Namespace: "default",
+						Name:      "pod-2",
+						Containers: []*podresv1.ContainerResources{
+							{
+								Name: "container-1",
+								Devices: []*podresv1.ContainerDevices{
+									{
+										ResourceName: "gpu",
+										Topology: &podresv1.TopologyInfo{
+											Nodes: []*podresv1.NUMANode{
+												{ID: 0},
+											},
+										},
+									},
+									{
+										ResourceName: "gpu",
+										Topology: &podresv1.TopologyInfo{
+											Nodes: []*podresv1.NUMANode{
+												{ID: 1},
+											},
+										},
+									},
+									{
+										ResourceName: "disk",
+									},
+								},
+								Resources: []*podresv1.TopologyAwareResource{
+									{
+										ResourceName: "cpu",
+										OriginalTopologyAwareQuantityList: []*podresv1.TopologyAwareQuantity{
+											{
+												ResourceValue: 24,
+												Node:          0,
+											},
+											{
+												ResourceValue: 24,
+												Node:          1,
+											},
+										},
+									},
+									{
+										ResourceName: "memory",
+										OriginalTopologyAwareQuantityList: []*podresv1.TopologyAwareQuantity{
+											{
+												ResourceValue: generateFloat64ResourceValue("32G"),
+												Node:          0,
+											},
+											{
+												ResourceValue: generateFloat64ResourceValue("32G"),
+												Node:          1,
+											},
+										},
+									},
+								},
+							},
+						},
+					},
+					{
+						Namespace: "default",
+						Name:      "pod-3",
+						Containers: []*podresv1.ContainerResources{
+							{
+								Name: "container-1",
+								Devices: []*podresv1.ContainerDevices{
+									{
+										ResourceName: "gpu",
+										Topology: &podresv1.TopologyInfo{
+											Nodes: []*podresv1.NUMANode{
+												{ID: 0},
+											},
+										},
+									},
+									{
+										ResourceName: "gpu",
+										Topology: &podresv1.TopologyInfo{
+											Nodes: []*podresv1.NUMANode{
+												{ID: 1},
+											},
+										},
+									},
+									{
+										ResourceName: "disk",
+									},
+								},
+								Resources: []*podresv1.TopologyAwareResource{
+									{
+										ResourceName: "cpu",
+										OriginalTopologyAwareQuantityList: []*podresv1.TopologyAwareQuantity{
+											{
+												ResourceValue: 24,
+												Node:          0,
+											},
+											{
+												ResourceValue: 24,
+												Node:          1,
+											},
+										},
+									},
+									{
+										ResourceName: "memory",
+										OriginalTopologyAwareQuantityList: []*podresv1.TopologyAwareQuantity{
+											{
+												ResourceValue: generateFloat64ResourceValue("32G"),
+												Node:          0,
+											},
+											{
+												ResourceValue: generateFloat64ResourceValue("32G"),
+												Node:          1,
+											},
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+				manager: spd.NewDummyServiceProfilingManager(
+					map[types.UID]spd.DummyPodServiceProfile{
+						"pod-1-uid": {
+							AggregatedMetric: resource.NewQuantity(10, resource.BinarySI),
+						},
+						"pod-2-uid": {
+							AggregatedMetric: resource.NewQuantity(10, resource.BinarySI),
+						},
+						"pod-3-uid": {
+							AggregatedMetric: resource.NewQuantity(10, resource.BinarySI),
+						},
+					},
+				),
+				extraTopologyInfo: &machine.ExtraTopologyInfo{
+					SiblingNumaAvgMBWAllocatableMap: map[int]int64{
+						0: 8,
+						1: 8,
+					},
+					SiblingNumaAvgMBWCapacityMap: map[int]int64{
+						0: 10,
+						1: 10,
+					},
+				},
+			},
+			want: map[util.ZoneNode]util.ZoneAllocations{
+				{
+					Meta: util.ZoneMeta{
+						Type: nodev1alpha1.TopologyTypeNuma,
+						Name: "0",
+					},
+				}: {
+					{
+						Consumer: "default/pod-1/pod-1-uid",
+						Requests: &v1.ResourceList{
+							"gpu":                          resource.MustParse("1"),
+							"cpu":                          resource.MustParse("12"),
+							"memory":                       resource.MustParse("12G"),
+							consts.ResourceMemoryBandwidth: resource.MustParse("50"),
+						},
+					},
+					{
+						Consumer: "default/pod-2/pod-2-uid",
+						Requests: &v1.ResourceList{
+							"gpu":                          resource.MustParse("1"),
+							"cpu":                          resource.MustParse("24"),
+							"memory":                       resource.MustParse("32G"),
+							consts.ResourceMemoryBandwidth: resource.MustParse("50"),
+						},
+					},
+					{
+						Consumer: "default/pod-3/pod-3-uid",
+						Requests: &v1.ResourceList{
+							"gpu":                          resource.MustParse("1"),
+							"cpu":                          resource.MustParse("24"),
+							"memory":                       resource.MustParse("32G"),
+							consts.ResourceMemoryBandwidth: resource.MustParse("50"),
+						},
+					},
+				},
+				{
+					Meta: util.ZoneMeta{
+						Type: nodev1alpha1.TopologyTypeNuma,
+						Name: "1",
+					},
+				}: {
+					{
+						Consumer: "default/pod-1/pod-1-uid",
+						Requests: &v1.ResourceList{
+							"cpu":                          resource.MustParse("15"),
+							"memory":                       resource.MustParse("15G"),
+							consts.ResourceMemoryBandwidth: resource.MustParse("50"),
+						},
+					},
+					{
+						Consumer: "default/pod-2/pod-2-uid",
+						Requests: &v1.ResourceList{
+							"gpu":                          resource.MustParse("1"),
+							"cpu":                          resource.MustParse("24"),
+							"memory":                       resource.MustParse("32G"),
+							consts.ResourceMemoryBandwidth: resource.MustParse("50"),
+						},
+					},
+					{
+						Consumer: "default/pod-3/pod-3-uid",
+						Requests: &v1.ResourceList{
+							"gpu":                          resource.MustParse("1"),
+							"cpu":                          resource.MustParse("24"),
+							"memory":                       resource.MustParse("32G"),
+							consts.ResourceMemoryBandwidth: resource.MustParse("50"),
+						},
+					},
+				},
+			},
+		},
+		{
+			name: "test for numa memory bandwidth without capacity",
+			args: args{
+				podList: []*v1.Pod{
+					generateTestPod("default", "pod-1", "pod-1-uid", consts.PodAnnotationQoSLevelDedicatedCores, true, map[string]v1.ResourceRequirements{
+						"container-1": {
+							Requests: v1.ResourceList{
+								v1.ResourceCPU: resource.MustParse("10"),
+							},
+						},
+					}),
+					generateTestPod("default", "pod-2", "pod-2-uid", consts.PodAnnotationQoSLevelDedicatedCores, true, map[string]v1.ResourceRequirements{
+						"container-1": {
+							Requests: v1.ResourceList{
+								v1.ResourceCPU: resource.MustParse("10"),
+							},
+						},
+					}),
+					generateTestPod("default", "pod-3", "pod-3-uid", consts.PodAnnotationQoSLevelDedicatedCores, true, map[string]v1.ResourceRequirements{
+						"container-1": {
+							Requests: v1.ResourceList{
+								v1.ResourceCPU: resource.MustParse("10"),
+							},
+						},
+					}),
+				},
+				numaSocketZoneNodeMap: map[util.ZoneNode]util.ZoneNode{
+					util.GenerateNumaZoneNode(0): util.GenerateSocketZoneNode(0),
+					util.GenerateNumaZoneNode(1): util.GenerateSocketZoneNode(1),
+				},
+				podResourcesList: []*podresv1.PodResources{
+					{
+						Namespace: "default",
+						Name:      "pod-1",
+						Containers: []*podresv1.ContainerResources{
+							{
+								Name: "container-1",
+								Devices: []*podresv1.ContainerDevices{
+									{
+										ResourceName: "gpu",
+										Topology: &podresv1.TopologyInfo{
+											Nodes: []*podresv1.NUMANode{
+												{ID: 0},
+											},
+										},
+									},
+								},
+								Resources: []*podresv1.TopologyAwareResource{
+									{
+										ResourceName: "cpu",
+										OriginalTopologyAwareQuantityList: []*podresv1.TopologyAwareQuantity{
+											{
+												ResourceValue: 12,
+												Node:          0,
+											},
+											{
+												ResourceValue: 15,
+												Node:          1,
+											},
+										},
+									},
+									{
+										ResourceName: "memory",
+										OriginalTopologyAwareQuantityList: []*podresv1.TopologyAwareQuantity{
+											{
+												ResourceValue: generateFloat64ResourceValue("12G"),
+												Node:          0,
+											},
+											{
+												ResourceValue: generateFloat64ResourceValue("15G"),
+												Node:          1,
+											},
+										},
+									},
+								},
+							},
+						},
+					},
+					{
+						Namespace: "default",
+						Name:      "pod-2",
+						Containers: []*podresv1.ContainerResources{
+							{
+								Name: "container-1",
+								Devices: []*podresv1.ContainerDevices{
+									{
+										ResourceName: "gpu",
+										Topology: &podresv1.TopologyInfo{
+											Nodes: []*podresv1.NUMANode{
+												{ID: 0},
+											},
+										},
+									},
+									{
+										ResourceName: "gpu",
+										Topology: &podresv1.TopologyInfo{
+											Nodes: []*podresv1.NUMANode{
+												{ID: 1},
+											},
+										},
+									},
+									{
+										ResourceName: "disk",
+									},
+								},
+								Resources: []*podresv1.TopologyAwareResource{
+									{
+										ResourceName: "cpu",
+										OriginalTopologyAwareQuantityList: []*podresv1.TopologyAwareQuantity{
+											{
+												ResourceValue: 24,
+												Node:          0,
+											},
+											{
+												ResourceValue: 24,
+												Node:          1,
+											},
+										},
+									},
+									{
+										ResourceName: "memory",
+										OriginalTopologyAwareQuantityList: []*podresv1.TopologyAwareQuantity{
+											{
+												ResourceValue: generateFloat64ResourceValue("32G"),
+												Node:          0,
+											},
+											{
+												ResourceValue: generateFloat64ResourceValue("32G"),
+												Node:          1,
+											},
+										},
+									},
+								},
+							},
+						},
+					},
+					{
+						Namespace: "default",
+						Name:      "pod-3",
+						Containers: []*podresv1.ContainerResources{
+							{
+								Name: "container-1",
+								Devices: []*podresv1.ContainerDevices{
+									{
+										ResourceName: "gpu",
+										Topology: &podresv1.TopologyInfo{
+											Nodes: []*podresv1.NUMANode{
+												{ID: 0},
+											},
+										},
+									},
+									{
+										ResourceName: "gpu",
+										Topology: &podresv1.TopologyInfo{
+											Nodes: []*podresv1.NUMANode{
+												{ID: 1},
+											},
+										},
+									},
+									{
+										ResourceName: "disk",
+									},
+								},
+								Resources: []*podresv1.TopologyAwareResource{
+									{
+										ResourceName: "cpu",
+										OriginalTopologyAwareQuantityList: []*podresv1.TopologyAwareQuantity{
+											{
+												ResourceValue: 24,
+												Node:          0,
+											},
+											{
+												ResourceValue: 24,
+												Node:          1,
+											},
+										},
+									},
+									{
+										ResourceName: "memory",
+										OriginalTopologyAwareQuantityList: []*podresv1.TopologyAwareQuantity{
+											{
+												ResourceValue: generateFloat64ResourceValue("32G"),
+												Node:          0,
+											},
+											{
+												ResourceValue: generateFloat64ResourceValue("32G"),
+												Node:          1,
+											},
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+				manager: spd.NewDummyServiceProfilingManager(
+					map[types.UID]spd.DummyPodServiceProfile{
+						"pod-1-uid": {
+							AggregatedMetric: resource.NewQuantity(10, resource.BinarySI),
+						},
+						"pod-2-uid": {
+							AggregatedMetric: resource.NewQuantity(10, resource.BinarySI),
+						},
+						"pod-3-uid": {
+							AggregatedMetric: resource.NewQuantity(10, resource.BinarySI),
+						},
+					},
+				),
+			},
+			want: map[util.ZoneNode]util.ZoneAllocations{
+				{
+					Meta: util.ZoneMeta{
+						Type: nodev1alpha1.TopologyTypeNuma,
+						Name: "0",
+					},
+				}: {
+					{
+						Consumer: "default/pod-1/pod-1-uid",
+						Requests: &v1.ResourceList{
+							"gpu":    resource.MustParse("1"),
+							"cpu":    resource.MustParse("12"),
+							"memory": resource.MustParse("12G"),
+						},
+					},
+					{
+						Consumer: "default/pod-2/pod-2-uid",
+						Requests: &v1.ResourceList{
+							"gpu":    resource.MustParse("1"),
+							"cpu":    resource.MustParse("24"),
+							"memory": resource.MustParse("32G"),
+						},
+					},
+					{
+						Consumer: "default/pod-3/pod-3-uid",
+						Requests: &v1.ResourceList{
+							"gpu":    resource.MustParse("1"),
+							"cpu":    resource.MustParse("24"),
+							"memory": resource.MustParse("32G"),
+						},
+					},
+				},
+				{
+					Meta: util.ZoneMeta{
+						Type: nodev1alpha1.TopologyTypeNuma,
+						Name: "1",
+					},
+				}: {
+					{
+						Consumer: "default/pod-1/pod-1-uid",
+						Requests: &v1.ResourceList{
+							"cpu":    resource.MustParse("15"),
+							"memory": resource.MustParse("15G"),
+						},
+					},
+					{
+						Consumer: "default/pod-2/pod-2-uid",
+						Requests: &v1.ResourceList{
+							"gpu":    resource.MustParse("1"),
+							"cpu":    resource.MustParse("24"),
+							"memory": resource.MustParse("32G"),
+						},
+					},
+					{
+						Consumer: "default/pod-3/pod-3-uid",
+						Requests: &v1.ResourceList{
+							"gpu":    resource.MustParse("1"),
+							"cpu":    resource.MustParse("24"),
+							"memory": resource.MustParse("32G"),
+						},
+					},
+				},
+			},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -667,6 +1273,8 @@ func Test_getZoneAllocationsByPodResources(t *testing.T) {
 				numaSocketZoneNodeMap: tt.args.numaSocketZoneNodeMap,
 				qosConf:               qosConf,
 				podResourcesFilter:    GenericPodResourcesFilter(qosConf),
+				metaServer: withExtraTopologyInfo(withServiceProfilingManager(generateTestMetaServer(tt.args.podList...),
+					tt.args.manager), tt.args.extraTopologyInfo),
 			}
 			got, err := p.getZoneAllocations(tt.args.podList, tt.args.podResourcesList)
 			if (err != nil) != tt.wantErr {
@@ -686,6 +1294,7 @@ func Test_getZoneResourcesByAllocatableResources(t *testing.T) {
 	type args struct {
 		allocatableResources  *podresv1.AllocatableResourcesResponse
 		numaSocketZoneNodeMap map[util.ZoneNode]util.ZoneNode
+		metaServer            *metaserver.MetaServer
 	}
 	tests := []struct {
 		name              string
@@ -809,6 +1418,7 @@ func Test_getZoneResourcesByAllocatableResources(t *testing.T) {
 					util.GenerateNumaZoneNode(0): util.GenerateSocketZoneNode(0),
 					util.GenerateNumaZoneNode(1): util.GenerateSocketZoneNode(1),
 				},
+				metaServer: generateTestMetaServer(),
 			},
 			wantZoneResources: map[util.ZoneNode]nodev1alpha1.Resources{
 				{
@@ -952,6 +1562,7 @@ func Test_getZoneResourcesByAllocatableResources(t *testing.T) {
 					util.GenerateNumaZoneNode(0): util.GenerateSocketZoneNode(0),
 					util.GenerateNumaZoneNode(1): util.GenerateSocketZoneNode(1),
 				},
+				metaServer: generateTestMetaServer(),
 			},
 			wantZoneResources: map[util.ZoneNode]nodev1alpha1.Resources{
 				{
@@ -988,10 +1599,223 @@ func Test_getZoneResourcesByAllocatableResources(t *testing.T) {
 				},
 			},
 		},
+		{
+			name: "test for numa memory bandwidth",
+			args: args{
+				allocatableResources: &podresv1.AllocatableResourcesResponse{
+					Devices: []*podresv1.ContainerDevices{
+						{
+							ResourceName: "gpu",
+							DeviceIds: []string{
+								"0",
+							},
+							Topology: &podresv1.TopologyInfo{
+								Nodes: []*podresv1.NUMANode{
+									{ID: 0},
+								},
+							},
+						},
+						{
+							ResourceName: "gpu",
+							DeviceIds: []string{
+								"1",
+							},
+							Topology: &podresv1.TopologyInfo{
+								Nodes: []*podresv1.NUMANode{
+									{ID: 0},
+								},
+							},
+						},
+					},
+					Resources: []*podresv1.AllocatableTopologyAwareResource{
+						{
+							ResourceName: "cpu",
+							TopologyAwareCapacityQuantityList: []*podresv1.TopologyAwareQuantity{
+								{
+									ResourceValue: 24,
+									Node:          0,
+								},
+								{
+									ResourceValue: 24,
+									Node:          1,
+								},
+								{
+									ResourceValue: 24,
+									Node:          2,
+								},
+								{
+									ResourceValue: 24,
+									Node:          3,
+								},
+							},
+							TopologyAwareAllocatableQuantityList: []*podresv1.TopologyAwareQuantity{
+								{
+									ResourceValue: 22,
+									Node:          0,
+								},
+								{
+									ResourceValue: 22,
+									Node:          1,
+								},
+								{
+									ResourceValue: 22,
+									Node:          2,
+								},
+								{
+									ResourceValue: 22,
+									Node:          3,
+								},
+							},
+						},
+						{
+							ResourceName: "memory",
+							TopologyAwareCapacityQuantityList: []*podresv1.TopologyAwareQuantity{
+								{
+									ResourceValue: generateFloat64ResourceValue("32G"),
+									Node:          0,
+								},
+								{
+									ResourceValue: generateFloat64ResourceValue("32G"),
+									Node:          1,
+								},
+								{
+									ResourceValue: generateFloat64ResourceValue("32G"),
+									Node:          2,
+								},
+								{
+									ResourceValue: generateFloat64ResourceValue("32G"),
+									Node:          3,
+								},
+							},
+							TopologyAwareAllocatableQuantityList: []*podresv1.TopologyAwareQuantity{
+								{
+									ResourceValue: generateFloat64ResourceValue("30G"),
+									Node:          0,
+								},
+								{
+									ResourceValue: generateFloat64ResourceValue("30G"),
+									Node:          1,
+								},
+								{
+									ResourceValue: generateFloat64ResourceValue("30G"),
+									Node:          2,
+								},
+								{
+									ResourceValue: generateFloat64ResourceValue("30G"),
+									Node:          3,
+								},
+							},
+						},
+					},
+				},
+				numaSocketZoneNodeMap: map[util.ZoneNode]util.ZoneNode{
+					util.GenerateNumaZoneNode(0): util.GenerateSocketZoneNode(0),
+					util.GenerateNumaZoneNode(1): util.GenerateSocketZoneNode(0),
+					util.GenerateNumaZoneNode(2): util.GenerateSocketZoneNode(1),
+					util.GenerateNumaZoneNode(3): util.GenerateSocketZoneNode(1),
+				},
+				metaServer: func() *metaserver.MetaServer {
+					m := generateTestMetaServer()
+					m.ExtraTopologyInfo, _ = machine.GenerateDummyExtraTopology(4)
+					m.SiblingNumaMap = map[int]sets.Int{
+						0: sets.NewInt(1),
+						1: sets.NewInt(0),
+						2: sets.NewInt(3),
+						3: sets.NewInt(2),
+					}
+					m.SiblingNumaAvgMBWAllocatableMap = map[int]int64{
+						0: 8,
+						1: 8,
+						2: 8,
+						3: 8,
+					}
+					m.SiblingNumaAvgMBWCapacityMap = map[int]int64{
+						0: 10,
+						1: 10,
+						2: 10,
+						3: 10,
+					}
+					return m
+				}(),
+			},
+			wantZoneResources: map[util.ZoneNode]nodev1alpha1.Resources{
+				{
+					Meta: util.ZoneMeta{
+						Type: nodev1alpha1.TopologyTypeNuma,
+						Name: "0",
+					},
+				}: {
+					Capacity: &v1.ResourceList{
+						"gpu":                          resource.MustParse("2"),
+						"cpu":                          resource.MustParse("24"),
+						"memory":                       resource.MustParse("32G"),
+						consts.ResourceMemoryBandwidth: resource.MustParse("10"),
+					},
+					Allocatable: &v1.ResourceList{
+						"gpu":                          resource.MustParse("2"),
+						"cpu":                          resource.MustParse("22"),
+						"memory":                       resource.MustParse("30G"),
+						consts.ResourceMemoryBandwidth: resource.MustParse("8"),
+					},
+				},
+				{
+					Meta: util.ZoneMeta{
+						Type: nodev1alpha1.TopologyTypeNuma,
+						Name: "1",
+					},
+				}: {
+					Capacity: &v1.ResourceList{
+						"cpu":                          resource.MustParse("24"),
+						"memory":                       resource.MustParse("32G"),
+						consts.ResourceMemoryBandwidth: resource.MustParse("10"),
+					},
+					Allocatable: &v1.ResourceList{
+						"cpu":                          resource.MustParse("22"),
+						"memory":                       resource.MustParse("30G"),
+						consts.ResourceMemoryBandwidth: resource.MustParse("8"),
+					},
+				},
+				{
+					Meta: util.ZoneMeta{
+						Type: nodev1alpha1.TopologyTypeNuma,
+						Name: "2",
+					},
+				}: {
+					Capacity: &v1.ResourceList{
+						"cpu":                          resource.MustParse("24"),
+						"memory":                       resource.MustParse("32G"),
+						consts.ResourceMemoryBandwidth: resource.MustParse("10"),
+					},
+					Allocatable: &v1.ResourceList{
+						"cpu":                          resource.MustParse("22"),
+						"memory":                       resource.MustParse("30G"),
+						consts.ResourceMemoryBandwidth: resource.MustParse("8"),
+					},
+				},
+				{
+					Meta: util.ZoneMeta{
+						Type: nodev1alpha1.TopologyTypeNuma,
+						Name: "3",
+					},
+				}: {
+					Capacity: &v1.ResourceList{
+						"cpu":                          resource.MustParse("24"),
+						"memory":                       resource.MustParse("32G"),
+						consts.ResourceMemoryBandwidth: resource.MustParse("10"),
+					},
+					Allocatable: &v1.ResourceList{
+						"cpu":                          resource.MustParse("22"),
+						"memory":                       resource.MustParse("30G"),
+						consts.ResourceMemoryBandwidth: resource.MustParse("8"),
+					},
+				},
+			},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			p := &topologyAdapterImpl{
+				metaServer:            tt.args.metaServer,
 				numaSocketZoneNodeMap: tt.args.numaSocketZoneNodeMap,
 			}
 			zoneResourcesMap, err := p.getZoneResources(tt.args.allocatableResources)
@@ -1026,9 +1850,15 @@ func Test_podResourcesServerTopologyAdapterImpl_GetTopologyZones_ReportRDMATopol
 			name: "test normal",
 			fields: fields{
 				podList: []*v1.Pod{
-					generateTestDedicatedCoresPod("default", "pod-1", "pod-1-uid", true),
-					generateTestDedicatedCoresPod("default", "pod-2", "pod-2-uid", true),
-					generateTestDedicatedCoresPod("default", "pod-3", "pod-3-uid", true),
+					generateTestPod("default", "pod-1", "pod-1-uid", consts.PodAnnotationQoSLevelDedicatedCores, true, map[string]v1.ResourceRequirements{
+						"container-1": {},
+					}),
+					generateTestPod("default", "pod-2", "pod-2-uid", consts.PodAnnotationQoSLevelDedicatedCores, true, map[string]v1.ResourceRequirements{
+						"container-1": {},
+					}),
+					generateTestPod("default", "pod-3", "pod-3-uid", consts.PodAnnotationQoSLevelDedicatedCores, true, map[string]v1.ResourceRequirements{
+						"container-1": {},
+					}),
 				},
 				listPodResources: &podresv1.ListPodResourcesResponse{
 					PodResources: []*podresv1.PodResources{
@@ -1037,7 +1867,7 @@ func Test_podResourcesServerTopologyAdapterImpl_GetTopologyZones_ReportRDMATopol
 							Name:      "pod-2",
 							Containers: []*podresv1.ContainerResources{
 								{
-									Name: "container-2",
+									Name: "container-1",
 									Devices: []*podresv1.ContainerDevices{
 										{
 											ResourceName: "resource.katalyst.kubewharf.io/rdma",
@@ -1236,11 +2066,7 @@ func Test_podResourcesServerTopologyAdapterImpl_GetTopologyZones_ReportRDMATopol
 					ListPodResourcesResponse:     tt.fields.listPodResources,
 					AllocatableResourcesResponse: tt.fields.allocatableResources,
 				},
-				metaServer: &metaserver.MetaServer{
-					MetaAgent: &agent.MetaAgent{
-						PodFetcher: &pod.PodFetcherStub{PodList: tt.fields.podList},
-					},
-				},
+				metaServer:            generateTestMetaServer(tt.fields.podList...),
 				qosConf:               generic.NewQoSConfiguration(),
 				numaSocketZoneNodeMap: tt.fields.numaSocketZoneNodeMap,
 				resourceNameToZoneTypeMap: map[string]string{
@@ -1276,9 +2102,15 @@ func Test_podResourcesServerTopologyAdapterImpl_GetTopologyZones(t *testing.T) {
 			name: "test normal",
 			fields: fields{
 				podList: []*v1.Pod{
-					generateTestDedicatedCoresPod("default", "pod-1", "pod-1-uid", true),
-					generateTestDedicatedCoresPod("default", "pod-2", "pod-2-uid", true),
-					generateTestDedicatedCoresPod("default", "pod-3", "pod-3-uid", true),
+					generateTestPod("default", "pod-1", "pod-1-uid", consts.PodAnnotationQoSLevelDedicatedCores, true, map[string]v1.ResourceRequirements{
+						"container-1": {},
+					}),
+					generateTestPod("default", "pod-2", "pod-2-uid", consts.PodAnnotationQoSLevelDedicatedCores, true, map[string]v1.ResourceRequirements{
+						"container-1": {},
+					}),
+					generateTestPod("default", "pod-3", "pod-3-uid", consts.PodAnnotationQoSLevelDedicatedCores, true, map[string]v1.ResourceRequirements{
+						"container-1": {},
+					}),
 				},
 				listPodResources: &podresv1.ListPodResourcesResponse{
 					PodResources: []*podresv1.PodResources{
@@ -2050,11 +2882,7 @@ func Test_podResourcesServerTopologyAdapterImpl_GetTopologyZones(t *testing.T) {
 					ListPodResourcesResponse:     tt.fields.listPodResources,
 					AllocatableResourcesResponse: tt.fields.allocatableResources,
 				},
-				metaServer: &metaserver.MetaServer{
-					MetaAgent: &agent.MetaAgent{
-						PodFetcher: &pod.PodFetcherStub{PodList: tt.fields.podList},
-					},
-				},
+				metaServer:            generateTestMetaServer(tt.fields.podList...),
 				qosConf:               generic.NewQoSConfiguration(),
 				numaSocketZoneNodeMap: tt.fields.numaSocketZoneNodeMap,
 			}

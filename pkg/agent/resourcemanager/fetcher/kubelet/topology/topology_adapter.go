@@ -20,6 +20,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"sync"
 	"time"
 
@@ -29,6 +30,7 @@ import (
 	"google.golang.org/grpc"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	utilerrors "k8s.io/apimachinery/pkg/util/errors"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/klog/v2"
@@ -43,6 +45,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	metaserverpod "github.com/kubewharf/katalyst-core/pkg/metaserver/agent/pod"
+	"github.com/kubewharf/katalyst-core/pkg/metaserver/spd"
 	"github.com/kubewharf/katalyst-core/pkg/util"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/native"
@@ -182,7 +185,13 @@ func (p *topologyAdapterImpl) GetTopologyZones(parentCtx context.Context) ([]*no
 	// get zone attributes by allocatable resources
 	zoneAttributes, err := p.getZoneAttributes(allocatableResources)
 	if err != nil {
-		return nil, errors.Wrap(err, "get zone Attributes failed")
+		return nil, errors.Wrap(err, "get zone attributes failed")
+	}
+
+	// get zone siblings by SiblingNumaMap
+	zoneSiblings, err := p.getZoneSiblings()
+	if err != nil {
+		return nil, errors.Wrap(err, "get zone siblings failed")
 	}
 
 	// initialize a topology zone generator by numa socket zone node map
@@ -202,7 +211,7 @@ func (p *topologyAdapterImpl) GetTopologyZones(parentCtx context.Context) ([]*no
 		return nil, errors.Wrap(err, "get device zone topology failed")
 	}
 
-	return topologyZoneGenerator.GenerateTopologyZoneStatus(zoneAllocations, zoneResources, zoneAttributes), nil
+	return topologyZoneGenerator.GenerateTopologyZoneStatus(zoneAllocations, zoneResources, zoneAttributes, zoneSiblings), nil
 }
 
 // GetTopologyPolicy return newest topology policy status
@@ -407,6 +416,16 @@ func (p *topologyAdapterImpl) getZoneResources(allocatableResources *podresv1.Al
 		}
 	}
 
+	zoneCapacity, err = p.addNumaMemoryBandwidthResources(zoneCapacity, p.metaServer.SiblingNumaAvgMBWCapacityMap)
+	if err != nil {
+		errList = append(errList, err)
+	}
+
+	zoneAllocatable, err = p.addNumaMemoryBandwidthResources(zoneAllocatable, p.metaServer.SiblingNumaAvgMBWAllocatableMap)
+	if err != nil {
+		errList = append(errList, err)
+	}
+
 	if len(errList) > 0 {
 		return nil, utilerrors.NewAggregate(errList)
 	}
@@ -468,7 +487,7 @@ func (p *topologyAdapterImpl) getZoneAllocations(podList []*v1.Pod, podResources
 		}
 
 		// aggregates resources in each zone used by all containers of the pod
-		podAllocated, err := p.aggregateContainerAllocated(podResources.Containers)
+		podAllocated, err := p.aggregateContainerAllocated(pod.ObjectMeta, podResources.Containers)
 		if err != nil {
 			errList = append(errList, fmt.Errorf("pod %s aggregate container allocated failed, %s", podKey, err))
 			continue
@@ -599,7 +618,7 @@ func (p *topologyAdapterImpl) getZoneAttributes(allocatableResources *podresv1.A
 
 // aggregateContainerAllocated aggregates resources in each zone used by all containers of a pod and returns a map of zone node to
 // container allocated resources.
-func (p *topologyAdapterImpl) aggregateContainerAllocated(containers []*podresv1.ContainerResources) (map[util.ZoneNode]*v1.ResourceList, error) {
+func (p *topologyAdapterImpl) aggregateContainerAllocated(podMeta metav1.ObjectMeta, containers []*podresv1.ContainerResources) (map[util.ZoneNode]*v1.ResourceList, error) {
 	var errList []error
 
 	podAllocated := make(map[util.ZoneNode]*v1.ResourceList)
@@ -620,6 +639,14 @@ func (p *topologyAdapterImpl) aggregateContainerAllocated(containers []*podresv1
 		containerAllocated, err = p.addContainerResources(containerAllocated, containerResources.Resources)
 		if err != nil {
 			errList = append(errList, fmt.Errorf("get container %s resources allocated failed: %s",
+				containerResources.Name, err))
+			continue
+		}
+
+		// add container memory bandwidth according to its allocated numa resources
+		containerAllocated, err = p.addContainerMemoryBandwidth(containerAllocated, podMeta, containerResources.Name)
+		if err != nil {
+			errList = append(errList, fmt.Errorf("get container %s memory bandwidth failed: %s",
 				containerResources.Name, err))
 			continue
 		}
@@ -834,6 +861,86 @@ func (p *topologyAdapterImpl) generateZoneNode(quantity podresv1.TopologyAwareQu
 			return zoneNode, nil, fmt.Errorf("quantity %v unsupport topology level: %s", quantity, quantity.TopologyLevel)
 		}
 	}
+}
+
+func (p *topologyAdapterImpl) getZoneSiblings() (map[util.ZoneNode]util.ZoneSiblings, error) {
+	zoneSiblings := make(map[util.ZoneNode]util.ZoneSiblings)
+	for id, siblings := range p.metaServer.SiblingNumaMap {
+		zoneNode := util.GenerateNumaZoneNode(id)
+		zoneSiblings[zoneNode] = make(util.ZoneSiblings, 0)
+		for sibling := range siblings {
+			zoneSiblings[zoneNode] = append(zoneSiblings[zoneNode], nodev1alpha1.Sibling{
+				Type: nodev1alpha1.TopologyTypeNuma,
+				Name: strconv.Itoa(sibling),
+			})
+		}
+	}
+
+	return zoneSiblings, nil
+}
+
+// addContainerMemoryBandwidth add container memory bandwidth according to numa cpu allocated and cpu request
+func (p *topologyAdapterImpl) addContainerMemoryBandwidth(zoneAllocated map[util.ZoneNode]*v1.ResourceList, podMeta metav1.ObjectMeta, name string) (map[util.ZoneNode]*v1.ResourceList, error) {
+	spec, err := p.metaServer.GetContainerSpec(string(podMeta.UID), name)
+	if err != nil {
+		return nil, err
+	}
+
+	cpuRequest := native.CPUQuantityGetter()(spec.Resources.Requests)
+	if cpuRequest.IsZero() {
+		return zoneAllocated, nil
+	}
+
+	numaAllocated := make(map[util.ZoneNode]*v1.ResourceList)
+	for zoneNode, allocated := range zoneAllocated {
+		// only consider numa which is allocated cpu and memory bandwidth capacity greater than zero
+		if zoneNode.Meta.Type == nodev1alpha1.TopologyTypeNuma && allocated != nil &&
+			(*allocated).Cpu().CmpInt64(0) > 0 {
+			numaID, err := util.GetZoneID(zoneNode)
+			if err != nil {
+				return nil, err
+			}
+
+			// if the numa avg mbw capacity is zero, we will not consider its mbw allocation
+			if p.metaServer.SiblingNumaAvgMBWCapacityMap[numaID] > 0 {
+				numaAllocated[zoneNode] = allocated
+			}
+		}
+	}
+
+	// only numa allocated container need consider memory bandwidth
+	if len(numaAllocated) > 0 {
+		memoryBandwidthRequest, err := spd.GetContainerMemoryBandwidthRequest(p.metaServer, podMeta, int(cpuRequest.Value()))
+		if err != nil {
+			return nil, err
+		}
+
+		if memoryBandwidthRequest > 0 {
+			memoryBandwidthRequestPerNuma := memoryBandwidthRequest / len(numaAllocated)
+			for _, allocated := range numaAllocated {
+				(*allocated)[apiconsts.ResourceMemoryBandwidth] = *resource.NewQuantity(int64(memoryBandwidthRequestPerNuma), resource.BinarySI)
+			}
+		}
+	}
+
+	return zoneAllocated, nil
+}
+
+// addNumaMemoryBandwidthResources add numa memory bandwidth by numa to memory bandwidth map
+func (p *topologyAdapterImpl) addNumaMemoryBandwidthResources(zoneResources map[util.ZoneNode]*v1.ResourceList, memoryBandwidthMap map[int]int64) (map[util.ZoneNode]*v1.ResourceList, error) {
+	for id, memoryBandwidth := range memoryBandwidthMap {
+		if memoryBandwidth <= 0 {
+			continue
+		}
+
+		numaZoneNode := util.GenerateNumaZoneNode(id)
+		res, ok := zoneResources[numaZoneNode]
+		if !ok || res == nil {
+			zoneResources[numaZoneNode] = &v1.ResourceList{}
+		}
+		(*zoneResources[numaZoneNode])[apiconsts.ResourceMemoryBandwidth] = *resource.NewQuantity(memoryBandwidth, resource.BinarySI)
+	}
+	return zoneResources, nil
 }
 
 // filterAllocatedPodResourcesList is to filter pods that have allocated devices or Resources

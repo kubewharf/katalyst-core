@@ -17,6 +17,7 @@ limitations under the License.
 package util
 
 import (
+	"fmt"
 	"sort"
 	"strconv"
 
@@ -433,4 +434,14 @@ func GenerateDeviceZoneNode(deviceId, zoneType string) ZoneNode {
 			Name: deviceId,
 		},
 	}
+}
+
+// GetZoneID extracts the integer ID from a ZoneNode's Meta.Name field.
+// It returns an error if the conversion from string to int fails.
+func GetZoneID(node ZoneNode) (int, error) {
+	id, err := strconv.Atoi(node.Meta.Name)
+	if err != nil {
+		return 0, fmt.Errorf("failed to get id for zone %v: %v", node, err)
+	}
+	return id, nil
 }

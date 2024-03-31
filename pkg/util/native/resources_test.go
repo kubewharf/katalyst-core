@@ -199,3 +199,37 @@ func TestMultiplyResourceQuantity(t *testing.T) {
 		})
 	}
 }
+
+func TestAggregateAvgQuantities(t *testing.T) {
+	type args struct {
+		quantities []resource.Quantity
+	}
+	tests := []struct {
+		name string
+		args args
+		want *resource.Quantity
+	}{
+		{
+			name: "default",
+			args: args{
+				quantities: []resource.Quantity{
+					resource.MustParse("10"),
+					resource.MustParse("20"),
+				},
+			},
+			want: resource.NewQuantity(15, resource.DecimalSI),
+		},
+		{
+			name: "empty",
+			args: args{
+				quantities: []resource.Quantity{},
+			},
+			want: nil,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equalf(t, tt.want, AggregateAvgQuantities(tt.args.quantities), "AggregateAvgQuantities(%v)", tt.args.quantities)
+		})
+	}
+}

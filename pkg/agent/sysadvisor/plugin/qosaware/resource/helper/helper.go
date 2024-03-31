@@ -47,7 +47,7 @@ func PodEnableReclaim(ctx context.Context, metaServer *metaserver.MetaServer,
 	}
 
 	// get current service performance level of the pod
-	pLevel, err := metaServer.ServiceBusinessPerformanceLevel(ctx, pod)
+	pLevel, err := metaServer.ServiceBusinessPerformanceLevel(ctx, pod.ObjectMeta)
 	if err != nil && !errors.IsNotFound(err) {
 		return false, err
 	} else if err != nil {
@@ -59,7 +59,7 @@ func PodEnableReclaim(ctx context.Context, metaServer *metaserver.MetaServer,
 	}
 
 	// check whether current pod is service baseline
-	baseline, err := metaServer.ServiceBaseline(ctx, pod)
+	baseline, err := metaServer.ServiceBaseline(ctx, pod.ObjectMeta)
 	if err != nil {
 		return false, err
 	} else if baseline {
@@ -80,5 +80,5 @@ func PodPerformanceScore(ctx context.Context, metaServer *metaserver.MetaServer,
 		return 0, err
 	}
 
-	return metaServer.ServiceBusinessPerformanceScore(ctx, pod)
+	return metaServer.ServiceBusinessPerformanceScore(ctx, pod.ObjectMeta)
 }

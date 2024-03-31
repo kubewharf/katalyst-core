@@ -44,6 +44,9 @@ type ZoneAttributes []nodev1alpha1.Attribute
 // ZoneAllocations is list of allocations
 type ZoneAllocations []*nodev1alpha1.Allocation
 
+// ZoneSiblings is list of siblings
+type ZoneSiblings []nodev1alpha1.Sibling
+
 // ZoneTopology is a tree diagram of a zone
 type ZoneTopology struct {
 	Children map[ZoneNode]*ZoneTopology
@@ -113,8 +116,9 @@ func (z *TopologyZoneGenerator) GenerateTopologyZoneStatus(
 	allocationsMap map[ZoneNode]ZoneAllocations,
 	resourcesMap map[ZoneNode]nodev1alpha1.Resources,
 	attributesMap map[ZoneNode]ZoneAttributes,
+	siblingsMap map[ZoneNode]ZoneSiblings,
 ) []*nodev1alpha1.TopologyZone {
-	return generateTopologyZoneStatus(z.rootZoneTopology, allocationsMap, resourcesMap, attributesMap)
+	return generateTopologyZoneStatus(z.rootZoneTopology, allocationsMap, resourcesMap, attributesMap, siblingsMap)
 }
 
 // generateTopologyZoneStatus generates topology zone status
@@ -123,6 +127,7 @@ func generateTopologyZoneStatus(
 	allocationsMap map[ZoneNode]ZoneAllocations,
 	resourcesMap map[ZoneNode]nodev1alpha1.Resources,
 	attributesMap map[ZoneNode]ZoneAttributes,
+	siblingsMap map[ZoneNode]ZoneSiblings,
 ) []*nodev1alpha1.TopologyZone {
 	if zoneTopology == nil {
 		return nil
@@ -149,8 +154,12 @@ func generateTopologyZoneStatus(
 			topologyZone.Allocations = MergeAllocations(topologyZone.Allocations, allocations)
 		}
 
+		if siblings, ok := siblingsMap[zone]; ok {
+			topologyZone.Siblings = MergeSiblings(topologyZone.Siblings, siblings)
+		}
+
 		if topology != nil {
-			zoneChildren := generateTopologyZoneStatus(topology, allocationsMap, resourcesMap, attributesMap)
+			zoneChildren := generateTopologyZoneStatus(topology, allocationsMap, resourcesMap, attributesMap, siblingsMap)
 			if len(zoneChildren) > 0 {
 				topologyZone.Children = zoneChildren
 			}
