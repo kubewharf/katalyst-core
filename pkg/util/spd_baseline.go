@@ -20,7 +20,6 @@ import (
 	"encoding/json"
 	"fmt"
 
-	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/kubewharf/katalyst-api/pkg/apis/workload/v1alpha1"
@@ -58,11 +57,7 @@ func (c SPDBaselinePodMeta) String() string {
 }
 
 // IsBaselinePod check whether a pod is baseline pod
-func IsBaselinePod(pod *v1.Pod, baselinePercent *int32, baselineSentinel *SPDBaselinePodMeta) (bool, error) {
-	if pod == nil {
-		return false, fmt.Errorf("pod is nil")
-	}
-
+func IsBaselinePod(podMeta metav1.ObjectMeta, baselinePercent *int32, baselineSentinel *SPDBaselinePodMeta) (bool, error) {
 	// if spd baseline percent not config means baseline is disabled
 	if baselinePercent == nil {
 		return false, nil
@@ -76,7 +71,7 @@ func IsBaselinePod(pod *v1.Pod, baselinePercent *int32, baselineSentinel *SPDBas
 		return false, fmt.Errorf("baseline percent is already set but baseline sentinel is nil")
 	}
 
-	pm := GetPodMeta(pod)
+	pm := GetSPDBaselinePodMeta(podMeta)
 	if pm.Cmp(*baselineSentinel) <= 0 {
 		return true, nil
 	}
@@ -85,14 +80,14 @@ func IsBaselinePod(pod *v1.Pod, baselinePercent *int32, baselineSentinel *SPDBas
 }
 
 // IsExtendedBaselinePod check whether a pod is baseline pod by extended indicator
-func IsExtendedBaselinePod(pod *v1.Pod, baselinePercent *int32, podMetaMap map[string]SPDBaselinePodMeta, name string) (bool, error) {
+func IsExtendedBaselinePod(podMeta metav1.ObjectMeta, baselinePercent *int32, podMetaMap map[string]SPDBaselinePodMeta, name string) (bool, error) {
 	var baselineSentinel *SPDBaselinePodMeta
 	sentinel, ok := podMetaMap[name]
 	if ok {
 		baselineSentinel = &sentinel
 	}
 
-	isBaseline, err := IsBaselinePod(pod, baselinePercent, baselineSentinel)
+	isBaseline, err := IsBaselinePod(podMeta, baselinePercent, baselineSentinel)
 	if err != nil {
 		return false, err
 	}
@@ -100,11 +95,11 @@ func IsExtendedBaselinePod(pod *v1.Pod, baselinePercent *int32, podMetaMap map[s
 	return isBaseline, nil
 }
 
-// GetPodMeta get the baseline coefficient of this pod
-func GetPodMeta(pod *v1.Pod) SPDBaselinePodMeta {
+// GetSPDBaselinePodMeta get the baseline coefficient of this pod
+func GetSPDBaselinePodMeta(podMeta metav1.ObjectMeta) SPDBaselinePodMeta {
 	return SPDBaselinePodMeta{
-		TimeStamp: pod.CreationTimestamp,
-		PodName:   pod.Name,
+		TimeStamp: podMeta.CreationTimestamp,
+		PodName:   podMeta.Name,
 	}
 }
 

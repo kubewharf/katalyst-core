@@ -231,10 +231,10 @@ func GenerateDummyExtraTopology(numaNum int) (*ExtraTopologyInfo, error) {
 	)
 
 	extraTopology := &ExtraTopologyInfo{
-		NumaDistanceMap:              make(map[int][]NumaDistanceInfo),
-		SiblingNumaMap:               make(map[int]sets.Int),
-		SiblingNumaMBWAllocatableMap: make(map[int]int64),
-		SiblingNumaMBWCapacityMap:    make(map[int]int64),
+		NumaDistanceMap:                 make(map[int][]NumaDistanceInfo),
+		SiblingNumaMap:                  make(map[int]sets.Int),
+		SiblingNumaAvgMBWAllocatableMap: make(map[int]int64),
+		SiblingNumaAvgMBWCapacityMap:    make(map[int]int64),
 	}
 
 	for i := 0; i < numaNum; i++ {
@@ -513,8 +513,13 @@ type NumaDistanceInfo struct {
 }
 
 type ExtraTopologyInfo struct {
-	NumaDistanceMap              map[int][]NumaDistanceInfo
-	SiblingNumaMap               map[int]sets.Int
-	SiblingNumaMBWAllocatableMap map[int]int64
-	SiblingNumaMBWCapacityMap    map[int]int64
+	NumaDistanceMap map[int][]NumaDistanceInfo
+	SiblingNumaMap  map[int]sets.Int
+
+	// SiblingNumaAvgMBWAllocatableMap maps NUMA IDs to the allocatable memory bandwidth,
+	// averaged across each NUMA node and its siblings.
+	// SiblingNumaAvgMBWCapacityMap maps NUMA IDs to the capacity memory bandwidth,
+	// averaged similarly.
+	SiblingNumaAvgMBWAllocatableMap map[int]int64
+	SiblingNumaAvgMBWCapacityMap    map[int]int64
 }

@@ -130,7 +130,7 @@ func TestGetPodBaselineCoefficient(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.want, GetPodMeta(tt.args.pod))
+			assert.Equal(t, tt.want, GetSPDBaselinePodMeta(tt.args.pod.ObjectMeta))
 		})
 	}
 }
@@ -271,7 +271,7 @@ func TestIsBaselinePod(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := IsBaselinePod(tt.args.pod, tt.args.baselinePercent, tt.args.baselineSentinel)
+			got, err := IsBaselinePod(tt.args.pod.ObjectMeta, tt.args.baselinePercent, tt.args.baselineSentinel)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("IsBaselinePod() error = %v, wantErr %v", err, tt.wantErr)
 				return
