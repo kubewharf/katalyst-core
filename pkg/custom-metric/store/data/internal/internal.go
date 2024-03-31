@@ -24,6 +24,7 @@ import (
 
 	"github.com/montanaflynn/stats"
 	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/util/sets"
 
 	apimetric "github.com/kubewharf/katalyst-api/pkg/metric"
 	"github.com/kubewharf/katalyst-core/pkg/custom-metric/store/data/types"
@@ -31,11 +32,12 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 )
 
-var aggregateFuncMap map[string]aggregateFunc = map[string]aggregateFunc{
+var aggregateFuncMap = map[string]aggregateFunc{
 	apimetric.AggregateFunctionMax:    maxAgg,
 	apimetric.AggregateFunctionMin:    minAgg,
 	apimetric.AggregateFunctionAvg:    avgAgg,
 	apimetric.AggregateFunctionP99:    p99Agg,
+	apimetric.AggregateFunctionP95:    p95Agg,
 	apimetric.AggregateFunctionP90:    p90Agg,
 	apimetric.AggregateFunctionLatest: latestAgg,
 }
@@ -124,16 +126,33 @@ func p90Agg(items []*types.SeriesItem) (float64, error) {
 		statsData = append(statsData, items[i].Value)
 	}
 
-	if p90, err := statsData.Percentile(99); err != nil {
+	if p90, err := statsData.Percentile(90); err != nil {
 		return -1, fmt.Errorf("failed to get stats p90: %v", err)
 	} else {
 		return p90, nil
 	}
 }
 
+func p95Agg(items []*types.SeriesItem) (float64, error) {
+	if len(items) == 0 {
+		return -1, fmt.Errorf("empty sequence for p95 aggregate")
+	}
+
+	var statsData stats.Float64Data
+	for i := range items {
+		statsData = append(statsData, items[i].Value)
+	}
+
+	if p95, err := statsData.Percentile(95); err != nil {
+		return -1, fmt.Errorf("failed to get stats p95: %v", err)
+	} else {
+		return p95, nil
+	}
+}
+
 func latestAgg(items []*types.SeriesItem) (float64, error) {
 	if len(items) == 0 {
-		return -1, fmt.Errorf("empty sequence for p90 aggregate")
+		return -1, fmt.Errorf("empty sequence for latest aggregate")
 	}
 
 	latestItem := items[0]
@@ -257,68 +276,128 @@ func (a *MetricImp) GetSeriesItems(metricSelector labels.Selector, latest bool) 
 	return result, true
 }
 
-func (a *MetricImp) aggregateMatchedMetric(metricSelector labels.Selector, aggFunc aggregateFunc) (*types.AggregatedMetric, error) {
-	var (
-		aggregatedValue float64
-		identity        types.AggregatedIdentity
-		err             error
-		matchedItems    = make([]*types.SeriesItem, 0)
-	)
+// parseMetricSelector will parse the metricSelector and return the groupByTags and selector.
+func (a *MetricImp) parseMetricSelector(metricSelector labels.Selector) (groupLabelKeys sets.String, selector labels.Selector) {
+	if metricSelector == nil {
+		return sets.NewString(), labels.Everything()
+	}
 
-	for k := range a.labeledMetricStore {
-		ms := a.labeledMetricStore[k]
-		if metricSelector.Matches(labels.Set(ms.Labels)) {
-			matchedItems = append(matchedItems, ms.seriesMetric.Values...)
+	requirements, selectable := metricSelector.Requirements()
+	if !selectable {
+		return sets.NewString(), metricSelector
+	}
+
+	selector = labels.Everything()
+	for i := range requirements {
+		if requirements[i].Key() == apimetric.MetricSelectorKeyGroupBy {
+			groupLabelKeys = requirements[i].Values()
+		} else {
+			selector = selector.Add(requirements[i])
 		}
 	}
 
-	if aggregatedValue, err = aggFunc(matchedItems); err != nil {
-		general.Errorf("aggregate for %v/%v metric %v with metric selector %v failed, err:%v",
-			a.GetObjectNamespace(), a.GetObjectName(), a.MetricMetaImp.Name, metricSelector, err)
-		return nil, err
-	}
-
-	if identity, err = buildAggregatedIdentity(matchedItems); err != nil {
-		general.Errorf("get aggregated identity for %v/%v metric %v with metric selector %v failed, err:%v",
-			a.GetObjectNamespace(), a.GetObjectName(), a.MetricMetaImp.Name, metricSelector, err)
-		return nil, err
-	}
-
-	return types.NewAggregatedInternalMetric(aggregatedValue, identity), nil
+	return groupLabelKeys, selector
 }
 
-func (a *MetricImp) GetAggregatedItems(metricSelector labels.Selector, agg string) (types.Metric, bool) {
+func (a *MetricImp) GetAggregatedItems(metricSelector labels.Selector, agg string) ([]types.Metric, bool) {
 	a.RLock()
 	defer a.RUnlock()
 
-	var v *types.AggregatedMetric
-	if metricSelector == nil {
-		var ok bool
-		v, ok = a.aggregatedMetric[agg]
+	groupLabelKeys, selector := a.parseMetricSelector(metricSelector)
+	// just retrieve the pre-aggregated value if there is no filter or group by demands.
+	if (selector == nil || selector.Empty()) && groupLabelKeys.Len() == 0 {
+		v, ok := a.aggregatedMetric[agg]
 		if !ok {
 			return nil, false
 		}
-	} else {
-		// realtime aggregate for items selected by metricSelector
-		aggFunc, ok := aggregateFuncMap[agg]
-		if !ok {
-			general.Errorf("unsupported aggregate function:%v", agg)
-			return nil, false
-		}
-
-		aggregatedMetric, err := a.aggregateMatchedMetric(metricSelector, aggFunc)
-		if err != nil {
-			general.Errorf("aggregate metric failed, err:%v", err)
-			return nil, false
-		}
-		v = aggregatedMetric
+		res := v.DeepCopy().(*types.AggregatedMetric)
+		res.MetricMetaImp = types.AggregatorMetricMetaImp(a.MetricMetaImp, agg)
+		res.ObjectMetaImp = a.ObjectMetaImp.DeepCopy()
+		// don't set metric labels for aggregated metric
+		return []types.Metric{res}, true
 	}
 
-	res := v.DeepCopy().(*types.AggregatedMetric)
-	res.MetricMetaImp = types.AggregatorMetricMetaImp(a.MetricMetaImp, agg)
-	res.ObjectMetaImp = a.ObjectMetaImp.DeepCopy()
-	// don't set metric labels for aggregated metric
-	return res, true
+	// realtime aggregate for items selected by selector and group by label keys.
+	aggFunc, ok := aggregateFuncMap[agg]
+	if !ok {
+		general.Errorf("unsupported aggregate function:%v", agg)
+		return nil, false
+	}
+
+	// filter metrics
+	matchedMetrics := make([]*labeledMetricImp, 0)
+	for k := range a.labeledMetricStore {
+		ms := a.labeledMetricStore[k]
+		if selector.Matches(labels.Set(ms.Labels)) {
+			matchedMetrics = append(matchedMetrics, ms)
+		}
+	}
+
+	// group metrics
+	groupMap := make(map[string][]*types.SeriesItem)
+	if groupLabelKeys.Len() == 0 {
+		for i := range matchedMetrics {
+			groupMap[""] = append(groupMap[""], matchedMetrics[i].seriesMetric.Values...)
+		}
+	} else {
+		groupMap = groupMetrics(matchedMetrics, groupLabelKeys)
+	}
+
+	var results []types.Metric
+	for labelGroup, seriesMetric := range groupMap {
+		var (
+			aggregatedValue float64
+			identity        types.AggregatedIdentity
+			metricLabel     labels.Set
+			err             error
+		)
+		if aggregatedValue, err = aggFunc(seriesMetric); err != nil {
+			general.Errorf("aggregate for %v/%v metric %v with metric selector %v failed, err:%v",
+				a.GetObjectNamespace(), a.GetObjectName(), a.MetricMetaImp.Name, metricSelector, err)
+			return nil, false
+		}
+
+		if identity, err = buildAggregatedIdentity(seriesMetric); err != nil {
+			general.Errorf("get aggregated identity for %v/%v metric %v with metric selector %v failed, err:%v",
+				a.GetObjectNamespace(), a.GetObjectName(), a.MetricMetaImp.Name, metricSelector, err)
+			return nil, false
+		}
+
+		metricLabel, err = labels.ConvertSelectorToLabelsMap(labelGroup)
+		if err != nil {
+			general.Errorf("get aggregated identity for %v/%v metric %v with metric selector %v failed, err:%v",
+				a.GetObjectNamespace(), a.GetObjectName(), a.MetricMetaImp.Name, metricSelector, err)
+			return nil, false
+		}
+
+		m := types.NewAggregatedInternalMetric(aggregatedValue, identity)
+		m.MetricMetaImp = types.AggregatorMetricMetaImp(a.MetricMetaImp, agg)
+		m.ObjectMetaImp = a.ObjectMetaImp.DeepCopy()
+		m.Labels = metricLabel
+		results = append(results, m)
+	}
+
+	return results, true
+}
+
+func groupMetrics(metrics []*labeledMetricImp, groupLabelKeys sets.String) map[string][]*types.SeriesItem {
+	// group the metrics by label combinations which are in groupLabelKeys.
+	results := make(map[string][]*types.SeriesItem)
+	for i := range metrics {
+		groupLabels := labels.Set{}
+		for k, v := range metrics[i].Labels {
+			if groupLabelKeys.Has(k) {
+				groupLabels[k] = v
+			}
+		}
+		// drop the metrics which doesn't contain any group label.
+		if len(groupLabels) == 0 {
+			continue
+		}
+		results[groupLabels.String()] = append(results[groupLabels.String()], metrics[i].seriesMetric.Values...)
+	}
+
+	return results
 }
 
 func (a *MetricImp) AddSeriesMetric(is *types.SeriesMetric) []*types.SeriesItem {

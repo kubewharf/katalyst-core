@@ -18,6 +18,7 @@ package data
 
 import (
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -130,42 +131,6 @@ func (c *CachedMetric) AddSeriesMetric(sList ...types.Metric) error {
 	return nil
 }
 
-func (c *CachedMetric) AddAggregatedMetric(aList ...types.Metric) error {
-	for _, a := range aList {
-		d, ok := a.(*types.AggregatedMetric)
-		if !ok || d == nil || len(d.GetItemList()) != 1 || d.GetName() == "" {
-			continue
-		}
-
-		baseMetricMetaImp := d.GetBaseMetricMetaImp()
-		objectMetricStore := c.getObjectMetricStore(baseMetricMetaImp)
-		if objectMetricStore == nil {
-			var err error
-			objectMetricStore, err = c.addNewObjectMetricStore(baseMetricMetaImp)
-			if err != nil {
-				return err
-			}
-		}
-
-		exists, err := objectMetricStore.ObjectExists(d.ObjectMetaImp)
-		if err != nil {
-			return err
-		}
-		if !exists {
-			err := objectMetricStore.Add(d.ObjectMetaImp)
-			if err != nil {
-				return err
-			}
-		}
-		internalMetric, getErr := objectMetricStore.GetInternalMetricImp(d.ObjectMetaImp)
-		if getErr != nil {
-			return getErr
-		}
-		internalMetric.MergeAggregatedMetric(d)
-	}
-	return nil
-}
-
 // ListAllMetricMeta returns all metric meta with a flattened slice
 func (c *CachedMetric) ListAllMetricMeta(withObject bool) []types.MetricMeta {
 	c.RLock()
@@ -232,8 +197,8 @@ func (c *CachedMetric) GetMetric(namespace, metricName string, objName string, o
 			}
 		} else {
 			metricItem, exist := internalMetric.GetAggregatedItems(metricSelector, aggName)
-			if exist && metricItem.Len() > 0 {
-				res = append(res, metricItem)
+			if exist && len(metricItem) > 0 {
+				res = append(res, metricItem...)
 			}
 		}
 	}
@@ -353,17 +318,49 @@ func MergeInternalMetricList(metricName string, metricLists ...[]types.Metric) [
 			})
 		}
 	} else {
+		merger := newAggregatedMetricMerger()
 		for _, metricList := range metricLists {
-			_ = c.AddAggregatedMetric(metricList...)
+			merger.addMetrics(metricList...)
 		}
-		for _, objectMetricStore := range c.metricMap {
-			objectMetricStore.Iterate(func(internalMetric *internal.MetricImp) {
-				if metricItem, exist := internalMetric.GetAggregatedItems(nil, aggName); exist && metricItem.Len() > 0 {
-					res = append(res, metricItem)
-				}
-			})
-		}
+		res = merger.getMergedMetrics()
 	}
 
+	return res
+}
+
+// AggregatedMetricMerger is used to merge aggregated metric
+type aggregatedMetricMerger struct {
+	metrics map[string]*types.AggregatedMetric
+}
+
+func newAggregatedMetricMerger() *aggregatedMetricMerger {
+	return &aggregatedMetricMerger{
+		metrics: make(map[string]*types.AggregatedMetric),
+	}
+}
+
+func (a *aggregatedMetricMerger) getMetricKey(metric *types.AggregatedMetric) string {
+	return strings.Join([]string{metric.GetObjectNamespace(), metric.GetName(), metric.GetObjectKind(), metric.GetObjectName(), metric.BasicMetric.String()}, ":")
+}
+
+func (a *aggregatedMetricMerger) addMetrics(metrics ...types.Metric) {
+	for i := range metrics {
+		aggMetric := metrics[i].(*types.AggregatedMetric)
+		key := a.getMetricKey(aggMetric)
+		if oldMetric, ok := a.metrics[key]; ok {
+			if aggMetric.AggregatedIdentity.Timestamp > oldMetric.AggregatedIdentity.Timestamp {
+				a.metrics[key] = aggMetric
+			}
+		} else {
+			a.metrics[key] = aggMetric
+		}
+	}
+}
+
+func (a *aggregatedMetricMerger) getMergedMetrics() []types.Metric {
+	var res []types.Metric
+	for _, metric := range a.metrics {
+		res = append(res, metric)
+	}
 	return res
 }

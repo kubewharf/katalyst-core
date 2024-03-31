@@ -570,6 +570,7 @@ func TestCache(t *testing.T) {
 
 	matchedAgg.Name = "m-3" + metric.AggregateFunctionAvg
 	matchedAgg.Value = 11
+	matchedAgg.Labels = map[string]string{}
 	metricList, exist, err = c.GetMetric("n-3", "m-3"+metric.AggregateFunctionAvg, "pod-5", nil, false, &schema.GroupResource{Resource: "pod"}, selector, false)
 	assert.NoError(t, err)
 	assert.Equal(t, true, exist)
