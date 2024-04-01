@@ -31,6 +31,11 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 )
 
+type aggregatingSeriesItem struct {
+	*types.SeriesItem
+	Labels map[string]string
+}
+
 var aggregateFuncMap map[string]aggregateFunc = map[string]aggregateFunc{
 	apimetric.AggregateFunctionMax:    maxAgg,
 	apimetric.AggregateFunctionMin:    minAgg,
@@ -40,9 +45,9 @@ var aggregateFuncMap map[string]aggregateFunc = map[string]aggregateFunc{
 	apimetric.AggregateFunctionLatest: latestAgg,
 }
 
-type aggregateFunc func(items []*types.SeriesItem) (float64, error)
+type aggregateFunc func(items []*aggregatingSeriesItem) (*aggregatingSeriesItem, error)
 
-func buildAggregatedIdentity(items []*types.SeriesItem) (types.AggregatedIdentity, error) {
+func buildAggregatedIdentity(items []*aggregatingSeriesItem) (types.AggregatedIdentity, error) {
 
 	var latestTime = items[0].Timestamp
 	var oldestTime = items[0].Timestamp
@@ -61,45 +66,55 @@ func buildAggregatedIdentity(items []*types.SeriesItem) (types.AggregatedIdentit
 	return identity, nil
 }
 
-func maxAgg(items []*types.SeriesItem) (float64, error) {
+func maxAgg(items []*aggregatingSeriesItem) (*aggregatingSeriesItem, error) {
 	if len(items) == 0 {
-		return -1, fmt.Errorf("empty sequence for max aggregate")
+		return nil, fmt.Errorf("empty sequence for max aggregate")
 	}
-	max := items[0].Value
+	maxItem := items[0]
 	for i := range items {
-		max = general.MaxFloat64(max, items[i].Value)
+		if items[i].Value > maxItem.Value {
+			maxItem = items[i]
+		}
 	}
 
-	return max, nil
+	return maxItem, nil
 }
 
-func minAgg(items []*types.SeriesItem) (float64, error) {
+func minAgg(items []*aggregatingSeriesItem) (*aggregatingSeriesItem, error) {
 	if len(items) == 0 {
-		return -1, fmt.Errorf("empty sequence for min aggregate")
+		return nil, fmt.Errorf("empty sequence for min aggregate")
 	}
-	max := items[0].Value
+	minItem := items[0]
 	for i := range items {
-		max = general.MinFloat64(max, items[i].Value)
+		if items[i].Value < minItem.Value {
+			minItem = items[i]
+		}
 	}
 
-	return max, nil
+	return minItem, nil
 }
 
-func avgAgg(items []*types.SeriesItem) (float64, error) {
+func avgAgg(items []*aggregatingSeriesItem) (*aggregatingSeriesItem, error) {
 	if len(items) == 0 {
-		return -1, fmt.Errorf("empty sequence for avg aggregate")
+		return nil, fmt.Errorf("empty sequence for avg aggregate")
 	}
 	var sum float64 = 0
 	for i := range items {
 		sum += items[i].Value
 	}
 
-	return sum / float64(len(items)), nil
+	return &aggregatingSeriesItem{
+		SeriesItem: &types.SeriesItem{
+			Value:     sum / float64(len(items)),
+			Timestamp: 0,
+		},
+		Labels: make(map[string]string),
+	}, nil
 }
 
-func p99Agg(items []*types.SeriesItem) (float64, error) {
+func p99Agg(items []*aggregatingSeriesItem) (*aggregatingSeriesItem, error) {
 	if len(items) == 0 {
-		return -1, fmt.Errorf("empty sequence for p99 aggregate")
+		return nil, fmt.Errorf("empty sequence for p99 aggregate")
 	}
 
 	var statsData stats.Float64Data
@@ -108,15 +123,21 @@ func p99Agg(items []*types.SeriesItem) (float64, error) {
 	}
 
 	if p99, err := statsData.Percentile(99); err != nil {
-		return -1, fmt.Errorf("failed to get stats p99: %v", err)
+		return nil, fmt.Errorf("failed to get stats p99: %v", err)
 	} else {
-		return p99, nil
+		return &aggregatingSeriesItem{
+			SeriesItem: &types.SeriesItem{
+				Value:     p99,
+				Timestamp: 0,
+			},
+			Labels: make(map[string]string),
+		}, nil
 	}
 }
 
-func p90Agg(items []*types.SeriesItem) (float64, error) {
+func p90Agg(items []*aggregatingSeriesItem) (*aggregatingSeriesItem, error) {
 	if len(items) == 0 {
-		return -1, fmt.Errorf("empty sequence for p90 aggregate")
+		return nil, fmt.Errorf("empty sequence for p90 aggregate")
 	}
 
 	var statsData stats.Float64Data
@@ -125,15 +146,21 @@ func p90Agg(items []*types.SeriesItem) (float64, error) {
 	}
 
 	if p90, err := statsData.Percentile(99); err != nil {
-		return -1, fmt.Errorf("failed to get stats p90: %v", err)
+		return nil, fmt.Errorf("failed to get stats p90: %v", err)
 	} else {
-		return p90, nil
+		return &aggregatingSeriesItem{
+			SeriesItem: &types.SeriesItem{
+				Value:     p90,
+				Timestamp: 0,
+			},
+			Labels: make(map[string]string),
+		}, nil
 	}
 }
 
-func latestAgg(items []*types.SeriesItem) (float64, error) {
+func latestAgg(items []*aggregatingSeriesItem) (*aggregatingSeriesItem, error) {
 	if len(items) == 0 {
-		return -1, fmt.Errorf("empty sequence for p90 aggregate")
+		return nil, fmt.Errorf("empty sequence for latest aggregate")
 	}
 
 	latestItem := items[0]
@@ -143,7 +170,7 @@ func latestAgg(items []*types.SeriesItem) (float64, error) {
 		}
 	}
 
-	return latestItem.Value, nil
+	return latestItem, nil
 }
 
 // labeledMetricImp is used as an internal version of metricItem for only one combination of labels.
@@ -259,20 +286,25 @@ func (a *MetricImp) GetSeriesItems(metricSelector labels.Selector, latest bool) 
 
 func (a *MetricImp) aggregateMatchedMetric(metricSelector labels.Selector, aggFunc aggregateFunc) (*types.AggregatedMetric, error) {
 	var (
-		aggregatedValue float64
-		identity        types.AggregatedIdentity
-		err             error
-		matchedItems    = make([]*types.SeriesItem, 0)
+		aggregatedItem *aggregatingSeriesItem
+		identity       types.AggregatedIdentity
+		err            error
+		matchedItems   = make([]*aggregatingSeriesItem, 0)
 	)
 
 	for k := range a.labeledMetricStore {
 		ms := a.labeledMetricStore[k]
 		if metricSelector.Matches(labels.Set(ms.Labels)) {
-			matchedItems = append(matchedItems, ms.seriesMetric.Values...)
+			for _, item := range ms.seriesMetric.Values {
+				matchedItems = append(matchedItems, &aggregatingSeriesItem{
+					SeriesItem: item,
+					Labels:     ms.Labels,
+				})
+			}
 		}
 	}
 
-	if aggregatedValue, err = aggFunc(matchedItems); err != nil {
+	if aggregatedItem, err = aggFunc(matchedItems); err != nil {
 		general.Errorf("aggregate for %v/%v metric %v with metric selector %v failed, err:%v",
 			a.GetObjectNamespace(), a.GetObjectName(), a.MetricMetaImp.Name, metricSelector, err)
 		return nil, err
@@ -284,7 +316,7 @@ func (a *MetricImp) aggregateMatchedMetric(metricSelector labels.Selector, aggFu
 		return nil, err
 	}
 
-	return types.NewAggregatedInternalMetric(aggregatedValue, identity), nil
+	return types.NewAggregatedInternalMetric(aggregatedItem.Value, identity, aggregatedItem.Labels), nil
 }
 
 func (a *MetricImp) GetAggregatedItems(metricSelector labels.Selector, agg string) (types.Metric, bool) {
@@ -381,9 +413,14 @@ func (a *MetricImp) aggregate() {
 		return
 	}
 
-	allItems := make([]*types.SeriesItem, 0)
+	allItems := make([]*aggregatingSeriesItem, 0)
 	for _, ms := range a.labeledMetricStore {
-		allItems = append(allItems, ms.seriesMetric.Values...)
+		for _, v := range ms.seriesMetric.Values {
+			allItems = append(allItems, &aggregatingSeriesItem{
+				SeriesItem: v,
+				Labels:     ms.Labels,
+			})
+		}
 	}
 
 	var err error
@@ -395,6 +432,7 @@ func (a *MetricImp) aggregate() {
 	var latestTime = allItems[0].Timestamp
 	var oldestTime = allItems[0].Timestamp
 	var latestItem = allItems[0]
+	var emptyLabels = map[string]string{}
 
 	if identity, err = buildAggregatedIdentity(allItems); err != nil {
 		general.Errorf("failed to get aggregated identity,err:%v", err)
@@ -414,21 +452,21 @@ func (a *MetricImp) aggregate() {
 		}
 	}
 
-	a.aggregatedMetric[apimetric.AggregateFunctionMax] = types.NewAggregatedInternalMetric(max, identity)
-	a.aggregatedMetric[apimetric.AggregateFunctionMin] = types.NewAggregatedInternalMetric(min, identity)
-	a.aggregatedMetric[apimetric.AggregateFunctionAvg] = types.NewAggregatedInternalMetric(sum/float64(len(allItems)), identity)
-	a.aggregatedMetric[apimetric.AggregateFunctionLatest] = types.NewAggregatedInternalMetric(latestItem.Value, identity)
+	a.aggregatedMetric[apimetric.AggregateFunctionMax] = types.NewAggregatedInternalMetric(max, identity, emptyLabels)
+	a.aggregatedMetric[apimetric.AggregateFunctionMin] = types.NewAggregatedInternalMetric(min, identity, emptyLabels)
+	a.aggregatedMetric[apimetric.AggregateFunctionAvg] = types.NewAggregatedInternalMetric(sum/float64(len(allItems)), identity, emptyLabels)
+	a.aggregatedMetric[apimetric.AggregateFunctionLatest] = types.NewAggregatedInternalMetric(latestItem.Value, identity, emptyLabels)
 
 	if p99, err := statsData.Percentile(99); err != nil {
 		general.Errorf("failed to get stats p99: %v", err)
 	} else {
-		a.aggregatedMetric[apimetric.AggregateFunctionP99] = types.NewAggregatedInternalMetric(p99, identity)
+		a.aggregatedMetric[apimetric.AggregateFunctionP99] = types.NewAggregatedInternalMetric(p99, identity, emptyLabels)
 	}
 
 	if p90, err := statsData.Percentile(90); err != nil {
 		general.Errorf("failed to get stats p90: %v", err)
 	} else {
-		a.aggregatedMetric[apimetric.AggregateFunctionP90] = types.NewAggregatedInternalMetric(p90, identity)
+		a.aggregatedMetric[apimetric.AggregateFunctionP90] = types.NewAggregatedInternalMetric(p90, identity, emptyLabels)
 	}
 }
 

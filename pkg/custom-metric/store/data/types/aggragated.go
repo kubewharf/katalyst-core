@@ -77,10 +77,11 @@ type AggregatedMetric struct {
 
 var _ Metric = &AggregatedMetric{}
 
-func NewAggregatedInternalMetric(value float64, identity AggregatedIdentity) *AggregatedMetric {
+func NewAggregatedInternalMetric(value float64, identity AggregatedIdentity, labels map[string]string) *AggregatedMetric {
 	return &AggregatedMetric{
 		Value:              value,
 		AggregatedIdentity: identity,
+		BasicMetric:        BasicMetric{Labels: labels},
 	}
 }
 

@@ -80,6 +80,10 @@ func (p *MetricSyncerPod) modelMetric() {
 							Key: fmt.Sprintf("%s%s", data.CustomMetricLabelSelectorPrefixKey, "valid_break_line"),
 							Val: fmt.Sprintf("%v", validBreakLine),
 						},
+						metrics.MetricTag{
+							Key: fmt.Sprintf("%s%s", data.CustomMetricLabelSelectorPrefixKey, "model_version"),
+							Val: fmt.Sprintf("%v", result.ModelVersion),
+						},
 					)...)
 			})
 
