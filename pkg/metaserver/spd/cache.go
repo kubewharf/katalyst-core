@@ -103,7 +103,15 @@ func (s *Cache) GetNextFetchRemoteTime(key string) time.Time {
 		if info.penaltyForFetchingRemoteTime > 0 {
 			return info.lastFetchRemoteTime.Add(info.penaltyForFetchingRemoteTime)
 		}
-		return info.lastFetchRemoteTime.Add(wait.Jitter(s.cacheTTL, s.jitterFactor))
+
+		nextFetchRemoteTime := info.lastFetchRemoteTime.Add(wait.Jitter(s.cacheTTL, s.jitterFactor))
+		// If no one tries to get this spd for a long time, a penalty from lastGetTime to lastFetchRemoteTime will be added,
+		// which will linearly increase the period of accessing the remote, thereby reducing the frequency of accessing the api-server
+		if info.lastFetchRemoteTime.After(info.lastGetTime) {
+			nextFetchRemoteTime = nextFetchRemoteTime.Add(info.lastFetchRemoteTime.Sub(info.lastGetTime))
+		}
+
+		return nextFetchRemoteTime
 	}
 
 	return time.Time{}
@@ -173,13 +181,16 @@ func (s *Cache) DeleteSPD(key string) error {
 }
 
 // GetSPD gets target spd by namespace/name key
-func (s *Cache) GetSPD(key string) *workloadapis.ServiceProfileDescriptor {
+func (s *Cache) GetSPD(key string, updateLastGetTime bool) *workloadapis.ServiceProfileDescriptor {
 	s.Lock()
 	defer s.Unlock()
 
 	s.initSPDInfoWithoutLock(key)
-	// update last get spd time
-	s.spdInfo[key].lastGetTime = time.Now()
+
+	if updateLastGetTime {
+		// update last get spd time
+		s.spdInfo[key].lastGetTime = time.Now()
+	}
 
 	info, ok := s.spdInfo[key]
 	if ok && info != nil {
