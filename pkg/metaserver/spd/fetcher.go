@@ -52,6 +52,8 @@ const (
 	metricsNameGetCNCTargetConfigFailed = "spd_manager_get_cnc_target_failed"
 	metricsNameUpdateCacheFailed        = "spd_manager_update_cache_failed"
 	metricsNameCacheNotFound            = "spd_manager_cache_not_found"
+	metricsNameUpdateCacheSuccess       = "spd_manager_update_cache_success"
+	metricsNameDeleteCache              = "spd_manager_delete_cache"
 )
 
 type GetPodSPDNameFunc func(pod *v1.Pod) (string, error)
@@ -138,7 +140,7 @@ func (s *spdFetcher) getSPDByNamespaceName(_ context.Context, namespace, name st
 	}
 
 	// get current spd from cache
-	currentSPD := s.spdCache.GetSPD(key)
+	currentSPD := s.spdCache.GetSPD(key, true)
 	if currentSPD != nil {
 		return currentSPD, nil
 	}
@@ -178,7 +180,7 @@ func (s *spdFetcher) sync(ctx context.Context) {
 		}
 
 		// first get spd origin spd from local cache
-		originSPD := s.spdCache.GetSPD(key)
+		originSPD := s.spdCache.GetSPD(key, false)
 
 		// get spd current target config from cnc to limit rate of get remote spd by comparing local spd
 		// hash with cnc target config hash, if cnc target config not found it will get remote spd directly
@@ -221,12 +223,18 @@ func (s *spdFetcher) updateSPDCacheIfNeed(ctx context.Context, originSPD *worklo
 			s.spdCache.SetLastFetchRemoteTime(key, now)
 		}
 
+		baseTag := []metrics.MetricTag{
+			{Key: "spdNamespace", Val: targetConfig.ConfigNamespace},
+			{Key: "spdName", Val: targetConfig.ConfigName},
+		}
+
 		klog.Infof("[spd-manager] spd %s targetConfig hash is changed from %s to %s", key, util.GetSPDHash(originSPD), targetConfig.Hash)
 		spd, err := s.client.InternalClient.WorkloadV1alpha1().ServiceProfileDescriptors(targetConfig.ConfigNamespace).
 			Get(ctx, targetConfig.ConfigName, metav1.GetOptions{ResourceVersion: "0"})
 		if err != nil && !errors.IsNotFound(err) {
 			return fmt.Errorf("get spd %s from remote failed: %v", key, err)
 		} else if err != nil {
+			_ = s.emitter.StoreInt64(metricsNameDeleteCache, 1, metrics.MetricTypeNameCount, baseTag...)
 			err = s.spdCache.DeleteSPD(key)
 			if err != nil {
 				return fmt.Errorf("delete spd %s from cache failed: %v", key, err)
@@ -235,6 +243,8 @@ func (s *spdFetcher) updateSPDCacheIfNeed(ctx context.Context, originSPD *worklo
 			klog.Infof("[spd-manager] spd %s cache has been deleted", key)
 			return nil
 		}
+
+		_ = s.emitter.StoreInt64(metricsNameUpdateCacheSuccess, 1, metrics.MetricTypeNameCount, baseTag...)
 
 		err = s.spdCache.SetSPD(key, spd)
 		if err != nil {
