@@ -31,6 +31,7 @@ var validAggregatorSuffixList = []string{
 	metric.AggregateFunctionMax,
 	metric.AggregateFunctionMin,
 	metric.AggregateFunctionP99,
+	metric.AggregateFunctionP95,
 	metric.AggregateFunctionP90,
 	metric.AggregateFunctionLatest,
 }

@@ -75,7 +75,7 @@ func PackMetricValue(m types.Metric, item types.Item, metricSelector labels.Sele
 		Value:         item.GetQuantity(),
 	}
 	// if user specifies the metric selector, return itself.
-	if !metricSelector.Empty() {
+	if len(m.GetLabels()) == 0 && !metricSelector.Empty() {
 		result.Metric.Selector = convertMetricLabelSelector(metricSelector)
 	}
 

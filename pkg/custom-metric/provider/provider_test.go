@@ -121,13 +121,14 @@ func TestWithLocalStore(t *testing.T) {
 
 	p1 := generateStorePodMeta("ns-1", "pod-1", "full_metric_with_conflict_time", 11)
 	p2 := generateStorePodMeta("ns-2", "pod-2", "full_metric_with_multiple_data", 11)
+	p3 := generateStorePodMeta("ns-3", "pod-3", "full_metric_with_multiple_label", 33)
 	n1 := generateStoreNodeMeta("node-1", "full_metric_with_node")
 
-	baseCtx, err := katalystbase.GenerateFakeGenericContext(nil, nil, nil, []runtime.Object{p1, p2, n1})
+	baseCtx, err := katalystbase.GenerateFakeGenericContext(nil, nil, nil, []runtime.Object{p1, p2, p3, n1})
 	assert.NoError(t, err)
 
 	genericConf := &metricconf.GenericMetricConfiguration{
-		OutOfDataPeriod: time.Second * 20,
+		OutOfDataPeriod: time.Second * 10,
 	}
 	storeConf := &metricconf.StoreConfiguration{
 		ServiceDiscoveryConf: &generic.ServiceDiscoveryConf{
@@ -138,6 +139,8 @@ func TestWithLocalStore(t *testing.T) {
 				}),
 			},
 		},
+		PurgePeriod:    time.Second * 3,
+		GCPeriod:       time.Second * 3,
 		IndexLabelKeys: []string{"name"},
 	}
 
@@ -174,7 +177,7 @@ func testWithRemoteStoreWithIndex(t *testing.T, index []int) {
 	ctx := context.Background()
 
 	genericConf := &metricconf.GenericMetricConfiguration{
-		OutOfDataPeriod: time.Second * 20,
+		OutOfDataPeriod: time.Second * 10,
 	}
 	storeConf := &metricconf.StoreConfiguration{
 		ServiceDiscoveryConf: &generic.ServiceDiscoveryConf{
@@ -186,13 +189,14 @@ func testWithRemoteStoreWithIndex(t *testing.T, index []int) {
 			},
 		},
 		StoreServerReplicaTotal: len(index),
-		GCPeriod:                time.Second,
-		PurgePeriod:             time.Second,
+		GCPeriod:                time.Second * 3,
+		PurgePeriod:             time.Second * 3,
 		IndexLabelKeys:          []string{"name"},
 	}
 
 	lp1 := generateStorePodMeta("ns-1", "pod-1", "full_metric_with_conflict_time", 11)
 	lp2 := generateStorePodMeta("ns-2", "pod-2", "full_metric_with_multiple_data", 22)
+	lp3 := generateStorePodMeta("ns-3", "pod-3", "full_metric_with_multiple_label", 33)
 	ln1 := generateStoreNodeMeta("node-1", "full_metric_with_node")
 
 	var podList []runtime.Object
@@ -207,7 +211,7 @@ func testWithRemoteStoreWithIndex(t *testing.T, index []int) {
 		port, err := strconv.Atoi(strings.TrimSpace(urlList[2]))
 		assert.NoError(t, err)
 
-		baseCtx, err := katalystbase.GenerateFakeGenericContext(nil, nil, nil, []runtime.Object{lp1, lp2, ln1})
+		baseCtx, err := katalystbase.GenerateFakeGenericContext(nil, nil, nil, []runtime.Object{lp1, lp2, lp3, ln1})
 		assert.NoError(t, err)
 		baseCtx.Handler = mux
 
@@ -391,6 +395,52 @@ func testProvider(t *testing.T, p MetricProvider, s store.MetricStore, ctx conte
 			},
 		},
 		{
+			Name: "full_metric_with_multiple_label",
+			Labels: map[string]string{
+				"selector_container": "container1",
+				fmt.Sprintf("%v", data.CustomMetricLabelKeyNamespace):  "ns-3",
+				fmt.Sprintf("%v", data.CustomMetricLabelKeyObject):     "pods",
+				fmt.Sprintf("%v", data.CustomMetricLabelKeyObjectName): "pod-3",
+			},
+			Series: []*data.MetricData{
+				{
+					Data:      0,
+					Timestamp: now.UnixMilli(),
+				},
+				{
+					Data:      50,
+					Timestamp: now.UnixMilli() - genericConf.OutOfDataPeriod.Milliseconds() - time.Second.Milliseconds()*2,
+				},
+				{
+					Data:      100,
+					Timestamp: now.UnixMilli() - genericConf.OutOfDataPeriod.Milliseconds() - time.Second.Milliseconds()*4,
+				},
+			},
+		},
+		{
+			Name: "full_metric_with_multiple_label",
+			Labels: map[string]string{
+				"selector_container": "container2",
+				fmt.Sprintf("%v", data.CustomMetricLabelKeyNamespace):  "ns-3",
+				fmt.Sprintf("%v", data.CustomMetricLabelKeyObject):     "pods",
+				fmt.Sprintf("%v", data.CustomMetricLabelKeyObjectName): "pod-3",
+			},
+			Series: []*data.MetricData{
+				{
+					Data:      100,
+					Timestamp: now.UnixMilli(),
+				},
+				{
+					Data:      150,
+					Timestamp: now.UnixMilli() - genericConf.OutOfDataPeriod.Milliseconds() - time.Second.Milliseconds()*2,
+				},
+				{
+					Data:      200,
+					Timestamp: now.UnixMilli() - genericConf.OutOfDataPeriod.Milliseconds() - time.Second.Milliseconds()*4,
+				},
+			},
+		},
+		{
 			Name: "full_metric_with_node",
 			Labels: map[string]string{
 				"selector_name": "full_metric_with_node",
@@ -419,7 +469,7 @@ func testProvider(t *testing.T, p MetricProvider, s store.MetricStore, ctx conte
 	t.Log("#### 1.1: ListAllMetrics")
 
 	metricInfo = p.ListAllMetrics()
-	assert.Equal(t, 3, len(metricInfo))
+	assert.Equal(t, 4, len(metricInfo))
 	assert.ElementsMatch(t, []provider.CustomMetricInfo{
 		{
 			GroupResource: podGR,
@@ -430,6 +480,11 @@ func testProvider(t *testing.T, p MetricProvider, s store.MetricStore, ctx conte
 			GroupResource: podGR,
 			Namespaced:    true,
 			Metric:        "full_metric_with_multiple_data",
+		},
+		{
+			GroupResource: podGR,
+			Namespaced:    true,
+			Metric:        "full_metric_with_multiple_label",
 		},
 		{
 			GroupResource: nodeGR,
@@ -487,12 +542,8 @@ func testProvider(t *testing.T, p MetricProvider, s store.MetricStore, ctx conte
 		Metric: custom_metrics.MetricIdentifier{
 			Name: "full_metric_with_conflict_time",
 			Selector: &metav1.LabelSelector{
-				MatchExpressions: []metav1.LabelSelectorRequirement{
-					{
-						Key:      "name",
-						Operator: "=",
-						Values:   []string{"full_metric_with_conflict_time"},
-					},
+				MatchLabels: map[string]string{
+					"name": "full_metric_with_conflict_time",
 				},
 			},
 		},
@@ -740,13 +791,83 @@ func testProvider(t *testing.T, p MetricProvider, s store.MetricStore, ctx conte
 		},
 	}, batchExternal.Items)
 
+	t.Log("#### 1.6.1 GetAggregatedMetric pod-3")
+	metric, err := p.GetMetricBySelector(ctx, "ns-3", labels.Everything(),
+		provider.CustomMetricInfo{GroupResource: podGR, Metric: "full_metric_with_multiple_label_agg_avg"},
+		labels.Everything())
+	assert.NoError(t, err)
+	assert.Equal(t, 1, len(metric.Items))
+	windowSeconds := int64(14)
+	assert.ElementsMatch(t, []custom_metrics.MetricValue{
+		{
+			DescribedObject: custom_metrics.ObjectReference{
+				Namespace: "ns-3",
+				Name:      "pod-3",
+				Kind:      "pods",
+			},
+			Metric: custom_metrics.MetricIdentifier{
+				Name:     "full_metric_with_multiple_label_agg_avg",
+				Selector: &metav1.LabelSelector{},
+			},
+			Timestamp:     metav1.NewTime(time.UnixMilli(now.UnixMilli())),
+			Value:         resource.MustParse("100"),
+			WindowSeconds: &windowSeconds,
+		},
+	}, metric.Items)
+
+	t.Log("#### 1.6.2 GetGroupedAggregatedMetric pod-3")
+	metric, err = p.GetMetricBySelector(ctx, "ns-3", labels.Everything(),
+		provider.CustomMetricInfo{GroupResource: podGR, Metric: "full_metric_with_multiple_label_agg_avg"},
+		labels.SelectorFromSet(labels.Set{"groupBy": "container"}))
+	assert.NoError(t, err)
+	assert.Equal(t, 2, len(metric.Items))
+	windowSeconds = int64(14)
+	assert.ElementsMatch(t, []custom_metrics.MetricValue{
+		{
+			DescribedObject: custom_metrics.ObjectReference{
+				Namespace: "ns-3",
+				Name:      "pod-3",
+				Kind:      "pods",
+			},
+			Metric: custom_metrics.MetricIdentifier{
+				Name: "full_metric_with_multiple_label_agg_avg",
+				Selector: &metav1.LabelSelector{
+					MatchLabels: map[string]string{
+						"container": "container1",
+					},
+				},
+			},
+			Timestamp:     metav1.NewTime(time.UnixMilli(now.UnixMilli())),
+			Value:         resource.MustParse("50"),
+			WindowSeconds: &windowSeconds,
+		},
+		{
+			DescribedObject: custom_metrics.ObjectReference{
+				Namespace: "ns-3",
+				Name:      "pod-3",
+				Kind:      "pods",
+			},
+			Metric: custom_metrics.MetricIdentifier{
+				Name: "full_metric_with_multiple_label_agg_avg",
+				Selector: &metav1.LabelSelector{
+					MatchLabels: map[string]string{
+						"container": "container2",
+					},
+				},
+			},
+			Timestamp:     metav1.NewTime(time.UnixMilli(now.UnixMilli())),
+			Value:         resource.MustParse("150"),
+			WindowSeconds: &windowSeconds,
+		},
+	}, metric.Items)
+
 	// sleep a while to trigger gc
-	time.Sleep(time.Second * 25)
+	time.Sleep(time.Second * 20)
 
 	t.Log("#### 2.1: ListAllMetrics")
 
 	metricInfo = p.ListAllMetrics()
-	assert.Equal(t, 3, len(metricInfo))
+	assert.Equal(t, 4, len(metricInfo))
 	assert.ElementsMatch(t, []provider.CustomMetricInfo{
 		{
 			GroupResource: podGR,
@@ -757,6 +878,11 @@ func testProvider(t *testing.T, p MetricProvider, s store.MetricStore, ctx conte
 			GroupResource: podGR,
 			Namespaced:    true,
 			Metric:        "full_metric_with_multiple_data",
+		},
+		{
+			GroupResource: podGR,
+			Namespaced:    true,
+			Metric:        "full_metric_with_multiple_label",
 		},
 		{
 			GroupResource: nodeGR,
