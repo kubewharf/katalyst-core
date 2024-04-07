@@ -101,6 +101,7 @@ type BpfNetData struct {
 type BpfMemData struct {
 	OomCnt               uint64 `json:"mem_oom_cnt"`
 	MemReclaimCnt        uint64 `json:"mem_reclaim_cnt"`
+	MemReclaimSettingSum uint64 `json:"mem_reclaim_setting_sum"`
 	MemReclaimTime       uint64 `json:"mem_reclaim_time"`
 	MemCompactCnt        uint64 `json:"mem_compact_cnt"`
 	MemCompactFailCnt    uint64 `json:"mem_compact_fail_cnt"`

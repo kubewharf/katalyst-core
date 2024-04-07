@@ -21,25 +21,30 @@ import (
 	cliflag "k8s.io/component-base/cli/flag"
 
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/options/dynamic/adminqos"
+	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/options/dynamic/tmo"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic"
 )
 
 type DynamicOptions struct {
 	*adminqos.AdminQoSOptions
+	*tmo.TransparentMemoryOffloadingOptions
 }
 
 func NewDynamicOptions() *DynamicOptions {
 	return &DynamicOptions{
-		AdminQoSOptions: adminqos.NewAdminQoSOptions(),
+		AdminQoSOptions:                    adminqos.NewAdminQoSOptions(),
+		TransparentMemoryOffloadingOptions: tmo.NewTransparentMemoryOffloadingOptions(),
 	}
 }
 
 func (o *DynamicOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 	o.AdminQoSOptions.AddFlags(fss)
+	o.TransparentMemoryOffloadingOptions.AddFlags(fss)
 }
 
 func (o *DynamicOptions) ApplyTo(c *dynamic.Configuration) error {
 	var errList []error
 	errList = append(errList, o.AdminQoSOptions.ApplyTo(c.AdminQoSConfiguration))
+	errList = append(errList, o.TransparentMemoryOffloadingOptions.ApplyTo(c.TransparentMemoryOffloadingConfiguration))
 	return errors.NewAggregate(errList)
 }
