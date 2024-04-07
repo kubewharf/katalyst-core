@@ -41,45 +41,40 @@ var (
 	ioCgroupRootPath = cgcommon.GetCgroupRootPath(cgcommon.CgroupSubsysIO)
 )
 
-func applyIOCostModel(ioCostModelConfigs map[DevModel]*common.IOCostModelData, devsIDToModel map[string]DevModel) {
+func applyIOCostModelWithDefault(ioCostModelConfigs map[DevModel]*common.IOCostModelData, devsIDToModel map[string]DevModel) {
 	curDevIDToIOCostModelData, err := manager.GetIOCostModelWithAbsolutePath(ioCgroupRootPath)
 	if err != nil {
 		general.Errorf("GetIOCostModelWithAbsolutePath failed with error: %v", err)
 		return
 	}
 
-	for devID, devModel := range devsIDToModel {
+	for devID := range devsIDToModel {
 		var expectedModelData, curModelData *common.IOCostModelData
 
-		if ioCostModelConfigs[devModel] != nil {
-			expectedModelData = ioCostModelConfigs[devModel]
-		} else {
-			expectedModelData = ioCostModelConfigs[DevModelDefault]
-		}
-
+		expectedModelData = ioCostModelConfigs[DevModelDefault]
 		if expectedModelData == nil {
-			general.Errorf("there is no expected io cost Model Data for devID: %s, devModel: %s", devID, devModel)
+			general.Errorf("there is no expected io cost Model Data for devID: %s", devID)
 			continue
 		}
 
 		curModelData = curDevIDToIOCostModelData[devID]
 		if curModelData == nil {
-			general.Errorf("there is no current io cost Model Data for devID: %s, devModel: %s", devID, devModel)
+			general.Errorf("there is no current io cost Model Data for devID: %s", devID)
 			continue
 		}
 
 		if (*curModelData) != (*expectedModelData) {
 			err = manager.ApplyIOCostModelWithAbsolutePath(ioCgroupRootPath, devID, expectedModelData)
 			if err != nil {
-				general.Errorf("ApplyIOCostModelWithAbsolutePath for devID: %s, devModel: %s, failed with error: %v",
-					devID, devModel, err)
+				general.Errorf("ApplyIOCostModelWithAbsolutePath for devID: %s, failed with error: %v",
+					devID, err)
 			} else {
-				general.Errorf("ApplyIOCostModelWithAbsolutePath for devID: %s, devModel: %s successfully",
-					devID, devModel)
+				general.Infof("ApplyIOCostModelWithAbsolutePath for devID: %s successfully:%v ",
+					devID, expectedModelData)
 			}
 		} else {
-			general.Infof("modelData isn't changed, skip ApplyIOCostModelWithAbsolutePath for devID: %s, devModel: %s ",
-				devID, devModel)
+			general.Infof("modelData isn't changed, skip ApplyIOCostModelWithAbsolutePath for devID: %s, modelData=%v ",
+				devID, expectedModelData)
 		}
 	}
 }
@@ -242,7 +237,7 @@ func applyIOCostConfig(conf *config.Configuration, emitter metrics.MetricEmitter
 	}
 
 	applyIOCostQoSWithDefault(ioCostQoSConfigs, devsIDToModel)
-	applyIOCostModel(ioCostModelConfigs, devsIDToModel)
+	applyIOCostModelWithDefault(ioCostModelConfigs, devsIDToModel)
 }
 
 func SetIOCost(conf *coreconfig.Configuration,

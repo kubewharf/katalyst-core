@@ -372,7 +372,22 @@ func Test_applyIOCostModel(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			applyIOCostModel(tt.args.ioCostModelConfigs, tt.args.devsIDToModel)
+			applyIOCostModelWithDefault(tt.args.ioCostModelConfigs, tt.args.devsIDToModel)
 		})
 	}
+}
+
+func TestApplyIOCostQoSWithDefault(t *testing.T) {
+	// Mocking the necessary dependencies
+	ioCostQoSConfigs := make(map[DevModel]*common.IOCostQoSData)
+	ioCostQoSConfigs[DevModelDefaultHDD] = &common.IOCostQoSData{Enable: 1}
+	ioCostQoSConfigs[DevModelDefault] = &common.IOCostQoSData{Enable: 1}
+
+	devsIDToModel := map[string]DevModel{
+		"devID1": DevModelDefaultHDD,
+		"devID2": DevModelDefaultHDD,
+	}
+
+	// Call the function under test
+	applyIOCostQoSWithDefault(ioCostQoSConfigs, devsIDToModel)
 }
