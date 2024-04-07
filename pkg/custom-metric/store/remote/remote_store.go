@@ -337,7 +337,7 @@ func (r *RemoteMemoryMetricStore) sendRequests(cancel func(),
 			success++
 		}
 
-		if success >= readyCnt || success+fail >= len(reqs) {
+		if success+fail >= len(reqs) {
 			// always try to cancel all requests before quiting
 			cancel()
 			klog.Infof("break sending requests, success %v, fail %v, total %v", success, fail, len(reqs))
