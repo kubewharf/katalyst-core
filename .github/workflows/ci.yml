@@ -90,7 +90,7 @@ jobs:
         with:
           flags: unittest
           file: coverage.txt
-          fail_ci_if_error: true
+          fail_ci_if_error: false
           verbose: true
 
   license:
