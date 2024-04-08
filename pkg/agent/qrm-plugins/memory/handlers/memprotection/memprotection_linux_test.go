@@ -224,7 +224,7 @@ func TestMemProtection(t *testing.T) {
 				},
 			},
 		},
-	}, metrics.DummyMetrics{}, metaServer)
+	}, metrics.DummyMetrics{}, metaServer, true)
 
 	applyMemSoftLimitCgroupLevelConfig(&coreconfig.Configuration{
 		AgentConfiguration: &agent.AgentConfiguration{
@@ -239,7 +239,7 @@ func TestMemProtection(t *testing.T) {
 				},
 			},
 		},
-	}, metrics.DummyMetrics{})
+	}, metrics.DummyMetrics{}, true)
 
 	applyMemSoftLimitCgroupLevelConfig(&coreconfig.Configuration{
 		AgentConfiguration: &agent.AgentConfiguration{
@@ -254,7 +254,7 @@ func TestMemProtection(t *testing.T) {
 				},
 			},
 		},
-	}, metrics.DummyMetrics{})
+	}, metrics.DummyMetrics{}, true)
 
 	jsonContent := `{
 		"mem_softlimit": {
@@ -311,7 +311,7 @@ func TestMemProtection(t *testing.T) {
 		GenericConfiguration: &generic.GenericConfiguration{
 			QoSConfiguration: nil,
 		},
-	}, metrics.DummyMetrics{}, metaServer)
+	}, metrics.DummyMetrics{}, metaServer, true)
 
 	jsonContent2 := `{
 "fake1": 20,
@@ -351,7 +351,7 @@ func TestMemProtection(t *testing.T) {
 				},
 			},
 		},
-	}, metrics.DummyMetrics{})
+	}, metrics.DummyMetrics{}, true)
 
 	checkpointDir, err := ioutil.TempDir("", "checkpoint-FetchModelResult")
 	require.NoError(t, err)
@@ -379,7 +379,7 @@ func TestMemProtection(t *testing.T) {
 		GenericConfiguration: &generic.GenericConfiguration{
 			QoSConfiguration: conf.QoSConfiguration,
 		},
-	}, metrics.DummyMetrics{}, metaServer)
+	}, metrics.DummyMetrics{}, metaServer, true)
 
 	metaServerNil, err := makeMetaServer()
 	assert.NoError(t, err)
@@ -401,7 +401,7 @@ func TestMemProtection(t *testing.T) {
 		GenericConfiguration: &generic.GenericConfiguration{
 			QoSConfiguration: nil,
 		},
-	}, metrics.DummyMetrics{}, metaServerNil)
+	}, metrics.DummyMetrics{}, metaServerNil, true)
 
 	calculateMemSoftLimit("fake", 10)
 }

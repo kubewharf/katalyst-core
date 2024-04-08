@@ -339,11 +339,13 @@ func (p *DynamicPolicy) Start() (err error) {
 
 	if p.enableSettingMemProtection {
 		general.Infof("setMemProtection enabled")
-		err := periodicalhandler.RegisterPeriodicalHandler(qrm.QRMMemoryPluginPeriodicalHandlerGroupName,
-			memprotection.EnableSetMemProtectionPeriodicalHandlerName, memprotection.MemProtectionTaskFunc, 60*time.Second)
-		if err != nil {
-			general.Infof("setSockMem failed, err=%v", err)
-		}
+	} else {
+		general.Infof("setMemProtection disabled, try to disable memory protection related configurations")
+	}
+	err = periodicalhandler.RegisterPeriodicalHandler(qrm.QRMMemoryPluginPeriodicalHandlerGroupName,
+		memprotection.EnableSetMemProtectionPeriodicalHandlerName, memprotection.MemProtectionTaskFunc, 60*time.Second)
+	if err != nil {
+		general.Infof("setSockMem failed, err=%v", err)
 	}
 
 	go wait.Until(func() {
