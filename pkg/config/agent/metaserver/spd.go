@@ -19,7 +19,8 @@ package metaserver
 import "time"
 
 type SPDConfiguration struct {
-	ServiceProfileCacheTTL time.Duration
+	ServiceProfileSkipCorruptionError bool
+	ServiceProfileCacheTTL            time.Duration
 }
 
 func NewSPDConfiguration() *SPDConfiguration {

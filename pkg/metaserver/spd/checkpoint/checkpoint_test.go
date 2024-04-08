@@ -81,7 +81,7 @@ func TestWriteLoadDeleteSPDs(t *testing.T) {
 	}
 
 	// verify the correct written files are loaded from disk
-	spdList, err := LoadSPDs(cpm)
+	spdList, err := LoadSPDs(cpm, false)
 	if err != nil {
 		t.Errorf("failed to Load spds: %v", err)
 	}

@@ -38,7 +38,10 @@ const (
 	defaultConfigCheckpointGraceTime      = 2 * time.Hour
 )
 
-const defaultServiceProfileCacheTTL = 1 * time.Minute
+const (
+	defaultServiceProfileSkipCorruptionError = true
+	defaultServiceProfileCacheTTL            = 1 * time.Minute
+)
 
 const defaultMetricInsurancePeriod = 0 * time.Second
 
@@ -70,7 +73,8 @@ type MetaServerOptions struct {
 	ConfigCheckpointGraceTime      time.Duration
 
 	// configurations for spd
-	ServiceProfileCacheTTL time.Duration
+	ServiceProfileSkipCorruptionError bool
+	ServiceProfileCacheTTL            time.Duration
 
 	// configurations for metric-fetcher
 	MetricInsurancePeriod time.Duration
@@ -100,7 +104,8 @@ func NewMetaServerOptions() *MetaServerOptions {
 		ConfigSkipFailedInitialization: defaultConfigSkipFailedInitialization,
 		ConfigCheckpointGraceTime:      defaultConfigCheckpointGraceTime,
 
-		ServiceProfileCacheTTL: defaultServiceProfileCacheTTL,
+		ServiceProfileSkipCorruptionError: defaultServiceProfileSkipCorruptionError,
+		ServiceProfileCacheTTL:            defaultServiceProfileCacheTTL,
 
 		MetricInsurancePeriod: defaultMetricInsurancePeriod,
 		MetricProvisions:      []string{metaserver.MetricProvisionerMalachite, metaserver.MetricProvisionerKubelet},
@@ -136,6 +141,8 @@ func (o *MetaServerOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 	fs.DurationVar(&o.ConfigCheckpointGraceTime, "config-checkpoint-grace-time", o.ConfigCheckpointGraceTime,
 		"The grace time of meta server config checkpoint")
 
+	fs.BoolVar(&o.ServiceProfileSkipCorruptionError, "service-profile-skip-corruption-error", o.ServiceProfileSkipCorruptionError,
+		"Whether to skip corruption error when loading spd checkpoint")
 	fs.DurationVar(&o.ServiceProfileCacheTTL, "service-profile-cache-ttl", o.ServiceProfileCacheTTL,
 		"The ttl of service profile manager cache remote spd")
 
@@ -171,6 +178,7 @@ func (o *MetaServerOptions) ApplyTo(c *metaserver.MetaServerConfiguration) error
 	c.ConfigSkipFailedInitialization = o.ConfigSkipFailedInitialization
 	c.ConfigCheckpointGraceTime = o.ConfigCheckpointGraceTime
 
+	c.ServiceProfileSkipCorruptionError = o.ServiceProfileSkipCorruptionError
 	c.ServiceProfileCacheTTL = o.ServiceProfileCacheTTL
 
 	c.MetricInsurancePeriod = o.MetricInsurancePeriod

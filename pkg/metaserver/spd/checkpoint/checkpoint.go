@@ -18,13 +18,14 @@ package checkpoint
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 
 	"k8s.io/klog/v2"
-
 	"k8s.io/kubernetes/pkg/kubelet/checkpointmanager"
 	"k8s.io/kubernetes/pkg/kubelet/checkpointmanager/checksum"
+	cpmerrors "k8s.io/kubernetes/pkg/kubelet/checkpointmanager/errors"
 
 	"github.com/kubewharf/katalyst-api/pkg/apis/workload/v1alpha1"
 )
@@ -79,7 +80,7 @@ func getSPDKey(spd *v1alpha1.ServiceProfileDescriptor) string {
 }
 
 // LoadSPDs Loads All Checkpoints from disk
-func LoadSPDs(cpm checkpointmanager.CheckpointManager) ([]*v1alpha1.ServiceProfileDescriptor, error) {
+func LoadSPDs(cpm checkpointmanager.CheckpointManager, skipCorruptionError bool) ([]*v1alpha1.ServiceProfileDescriptor, error) {
 	spd := make([]*v1alpha1.ServiceProfileDescriptor, 0)
 
 	checkpointKeys, err := cpm.ListCheckpoints()
@@ -95,8 +96,15 @@ func LoadSPDs(cpm checkpointmanager.CheckpointManager) ([]*v1alpha1.ServiceProfi
 		checkpoint := NewServiceProfileCheckpoint(nil)
 		err := cpm.GetCheckpoint(key, checkpoint)
 		if err != nil {
-			klog.Errorf("Failed to retrieve checkpoint for spd %q: %v", key, err)
-			continue
+			klog.Errorf("Failed to retrieve checkpoint for spd %q, error: %v", key, err)
+			if !errors.Is(err, cpmerrors.ErrCorruptCheckpoint) {
+				continue
+			} else {
+				if !skipCorruptionError {
+					continue
+				}
+				klog.Warningf("Skip corruption error for spd %q", key)
+			}
 		}
 		spd = append(spd, checkpoint.GetSPD())
 	}

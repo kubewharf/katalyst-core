@@ -55,33 +55,35 @@ type spdInfo struct {
 type Cache struct {
 	sync.RWMutex
 
-	expiredTime   time.Duration
-	cacheTTL      time.Duration
-	jitterFactor  float64
-	maxRetryCount int64
+	skipCorruptionError bool
+	expiredTime         time.Duration
+	cacheTTL            time.Duration
+	jitterFactor        float64
+	maxRetryCount       int64
 
 	manager checkpointmanager.CheckpointManager
 	spdInfo map[string]*spdInfo
 }
 
-func NewSPDCache(manager checkpointmanager.CheckpointManager, cacheTTL, expiredTime time.Duration,
-	maxRetryCount int64, jitterFactor float64) *Cache {
+func NewSPDCache(manager checkpointmanager.CheckpointManager, skipCorruptionError bool,
+	cacheTTL, expiredTime time.Duration, maxRetryCount int64, jitterFactor float64) (*Cache, error) {
 	cache := &Cache{
-		spdInfo:       map[string]*spdInfo{},
-		manager:       manager,
-		expiredTime:   expiredTime,
-		cacheTTL:      cacheTTL,
-		jitterFactor:  jitterFactor,
-		maxRetryCount: maxRetryCount,
+		spdInfo:             map[string]*spdInfo{},
+		manager:             manager,
+		skipCorruptionError: skipCorruptionError,
+		expiredTime:         expiredTime,
+		cacheTTL:            cacheTTL,
+		jitterFactor:        jitterFactor,
+		maxRetryCount:       maxRetryCount,
 	}
 
 	err := cache.restore()
 	if err != nil {
-		klog.Errorf("restore spd from local disk failed")
-		return nil
+		klog.Errorf("restore spd from local disk failed, %v", err)
+		return nil, err
 	}
 
-	return cache
+	return cache, nil
 }
 
 // SetLastFetchRemoteTime set last fetch remote spd timestamp
@@ -210,13 +212,16 @@ func (s *Cache) restore() error {
 	s.Lock()
 	defer s.Unlock()
 
-	spdList, err := checkpoint.LoadSPDs(s.manager)
+	spdList, err := checkpoint.LoadSPDs(s.manager, s.skipCorruptionError)
 	if err != nil {
 		return fmt.Errorf("restore spd failed: %v", err)
 	}
 
 	now := time.Now()
 	for _, spd := range spdList {
+		if spd == nil {
+			continue
+		}
 		key := native.GenerateUniqObjectNameKey(spd)
 		s.initSPDInfoWithoutLock(key)
 		s.spdInfo[key].spd = spd

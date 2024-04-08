@@ -108,7 +108,11 @@ func NewSPDFetcher(clientSet *client.GenericClientSet, emitter metrics.MetricEmi
 	}
 
 	m.getPodSPDNameFunc = util.GetPodSPDName
-	m.spdCache = NewSPDCache(checkpointManager, conf.ServiceProfileCacheTTL, defaultClearUnusedSPDPeriod, defaultMaxRetryCount, defaultJitterFactor)
+	m.spdCache, err = NewSPDCache(checkpointManager, conf.ServiceProfileSkipCorruptionError, conf.ServiceProfileCacheTTL,
+		defaultClearUnusedSPDPeriod, defaultMaxRetryCount, defaultJitterFactor)
+	if err != nil {
+		return nil, err
+	}
 
 	return m, nil
 }
