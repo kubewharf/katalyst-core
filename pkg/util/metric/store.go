@@ -48,7 +48,7 @@ type MetricStore struct {
 	podContainerNumaMetricMap map[string]map[string]map[string]map[string]MetricData // map[podUID]map[containerName]map[numaNode]map[metricName]data
 	podVolumeMetricMap        map[string]map[string]map[string]MetricData            // map[podUID]map[volumeName]map[metricName]data
 	cgroupMetricMap           map[string]map[string]MetricData                       // map[cgroupPath]map[metricName]value
-	cgroupNumaMetricMap       map[string]map[int]map[string]MetricData               // map[cgroupPath]map[numaNode]map[metricName]value
+	cgroupNumaMetricMap       map[string]map[string]map[string]MetricData            // map[cgroupPath]map[numaNode]map[metricName]value
 }
 
 func NewMetricStore() *MetricStore {
@@ -62,7 +62,7 @@ func NewMetricStore() *MetricStore {
 		podContainerNumaMetricMap: make(map[string]map[string]map[string]map[string]MetricData),
 		podVolumeMetricMap:        make(map[string]map[string]map[string]MetricData),
 		cgroupMetricMap:           make(map[string]map[string]MetricData),
-		cgroupNumaMetricMap:       make(map[string]map[int]map[string]MetricData),
+		cgroupNumaMetricMap:       make(map[string]map[string]map[string]MetricData),
 	}
 }
 
@@ -301,13 +301,13 @@ func (c *MetricStore) GetCgroupMetric(cgroupPath, metricName string) (MetricData
 	return data, nil
 }
 
-func (c *MetricStore) SetCgroupNumaMetric(cgroupPath string, numaNode int, metricName string, data MetricData) {
+func (c *MetricStore) SetCgroupNumaMetric(cgroupPath, numaNode, metricName string, data MetricData) {
 	c.mutex.Lock()
 	defer c.mutex.Unlock()
 
 	numaMetrics, ok := c.cgroupNumaMetricMap[cgroupPath]
 	if !ok {
-		numaMetrics = make(map[int]map[string]MetricData)
+		numaMetrics = make(map[string]map[string]MetricData)
 		c.cgroupNumaMetricMap[cgroupPath] = numaMetrics
 	}
 	metrics, ok := numaMetrics[numaNode]
@@ -318,7 +318,7 @@ func (c *MetricStore) SetCgroupNumaMetric(cgroupPath string, numaNode int, metri
 	metrics[metricName] = data
 }
 
-func (c *MetricStore) GetCgroupNumaMetric(cgroupPath string, numaNode int, metricName string) (MetricData, error) {
+func (c *MetricStore) GetCgroupNumaMetric(cgroupPath, numaNode, metricName string) (MetricData, error) {
 	c.mutex.RLock()
 	defer c.mutex.RUnlock()
 	numaMetrics, ok := c.cgroupNumaMetricMap[cgroupPath]
