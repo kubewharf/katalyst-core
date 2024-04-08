@@ -39,6 +39,8 @@ const (
 	memoryServerName                 string = "memory-server"
 	durationToWaitAddContainer              = time.Second * 30
 	durationToWaitListAndWatchCalled        = time.Second * 5
+
+	memoryServerHealthCheckName = "memory-server-lw"
 )
 
 type memoryServer struct {
@@ -134,6 +136,7 @@ func (ms *memoryServer) listContainers() error {
 
 func (ms *memoryServer) ListAndWatch(_ *advisorsvc.Empty, server advisorsvc.AdvisorService_ListAndWatchServer) error {
 	_ = ms.emitter.StoreInt64(ms.genMetricsName(metricServerLWCalled), int64(ms.period.Seconds()), metrics.MetricTypeNameCount)
+	general.RegisterHeartbeatCheck(memoryServerHealthCheckName, healthCheckTolerationDuration, general.HealthzCheckStateNotReady, healthCheckTolerationDuration)
 
 	recvCh, ok := ms.recvCh.(chan types.InternalMemoryCalculationResult)
 	if !ok {
@@ -163,10 +166,12 @@ func (ms *memoryServer) ListAndWatch(_ *advisorsvc.Empty, server advisorsvc.Advi
 				if err := server.Send(resp); err != nil {
 					klog.Warningf("[qosaware-server-memory] send response failed: %v", err)
 					_ = ms.emitter.StoreInt64(ms.genMetricsName(metricServerLWSendResponseFailed), int64(ms.period.Seconds()), metrics.MetricTypeNameCount)
+					_ = general.UpdateHealthzStateByError(memoryServerHealthCheckName, err)
 					return err
 				}
 
 				klog.Infof("[qosaware-server-memory] send calculation result: %v", general.ToString(resp))
+				_ = general.UpdateHealthzStateByError(memoryServerHealthCheckName, nil)
 				_ = ms.emitter.StoreInt64(ms.genMetricsName(metricServerLWSendResponseSucceeded), int64(ms.period.Seconds()), metrics.MetricTypeNameCount)
 			}
 		}

@@ -20,8 +20,10 @@ import (
 	"context"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
+	"k8s.io/apimachinery/pkg/util/errors"
 	"k8s.io/klog/v2"
 
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/global"
@@ -45,6 +47,9 @@ const (
 	defaultMetricUpdateInterval = 10.0
 
 	pageShift = 12
+
+	malachiteProvisionerHealthCheckName = "malachite_provisioner_sample"
+	malachiteProvisionTolerationTime    = 15 * time.Second
 )
 
 // NewMalachiteMetricsProvisioner returns the default implementation of MetricsFetcher.
@@ -63,9 +68,14 @@ type MalachiteMetricsProvisioner struct {
 	malachiteClient *client.MalachiteClient
 	baseConf        *global.BaseConfiguration
 	emitter         metrics.MetricEmitter
+	startOnce       sync.Once
 }
 
 func (m *MalachiteMetricsProvisioner) Run(ctx context.Context) {
+	m.startOnce.Do(func() {
+		general.RegisterHeartbeatCheck(malachiteProvisionerHealthCheckName, malachiteProvisionTolerationTime,
+			general.HealthzCheckStateNotReady, malachiteProvisionTolerationTime)
+	})
 	m.sample(ctx)
 }
 
@@ -73,15 +83,24 @@ func (m *MalachiteMetricsProvisioner) sample(ctx context.Context) {
 	klog.V(4).Infof("[malachite] heartbeat")
 
 	if !m.checkMalachiteHealthy() {
+		_ = general.UpdateHealthzState(malachiteProvisionerHealthCheckName, general.HealthzCheckStateNotReady, "malachite is not healthy")
 		return
 	}
+	errList := make([]error, 0)
 
 	// Update system data
-	m.updateSystemStats()
+	if err := m.updateSystemStats(); err != nil {
+		errList = append(errList, err)
+	}
 	// Update pod data
-	m.updatePodsCgroupData(ctx)
+	if err := m.updatePodsCgroupData(ctx); err != nil {
+		errList = append(errList, err)
+	}
 	// Update top level cgroup of kubepods
-	m.updateCgroupData()
+	if err := m.updateCgroupData(); err != nil {
+		errList = append(errList, err)
+	}
+	_ = general.UpdateHealthzStateByError(malachiteProvisionerHealthCheckName, errors.NewAggregate(errList))
 }
 
 // checkMalachiteHealthy is to check whether malachite is healthy
@@ -97,9 +116,11 @@ func (m *MalachiteMetricsProvisioner) checkMalachiteHealthy() bool {
 }
 
 // Get raw system stats by malachite sdk and set to metricStore
-func (m *MalachiteMetricsProvisioner) updateSystemStats() {
+func (m *MalachiteMetricsProvisioner) updateSystemStats() error {
+	errList := make([]error, 0)
 	systemComputeData, err := m.malachiteClient.GetSystemComputeStats()
 	if err != nil {
+		errList = append(errList, err)
 		klog.Errorf("[malachite] get system compute stats failed, err %v", err)
 		_ = m.emitter.StoreInt64(metricsNameMalachiteGetSystemStatusFailed, 1, metrics.MetricTypeNameCount,
 			metrics.MetricTag{Key: "kind", Val: "compute"})
@@ -110,6 +131,7 @@ func (m *MalachiteMetricsProvisioner) updateSystemStats() {
 
 	systemMemoryData, err := m.malachiteClient.GetSystemMemoryStats()
 	if err != nil {
+		errList = append(errList, err)
 		klog.Errorf("[malachite] get system memory stats failed, err %v", err)
 		_ = m.emitter.StoreInt64(metricsNameMalachiteGetSystemStatusFailed, 1, metrics.MetricTypeNameCount,
 			metrics.MetricTag{Key: "kind", Val: "memory"})
@@ -120,6 +142,7 @@ func (m *MalachiteMetricsProvisioner) updateSystemStats() {
 
 	systemIOData, err := m.malachiteClient.GetSystemIOStats()
 	if err != nil {
+		errList = append(errList, err)
 		klog.Errorf("[malachite] get system io stats failed, err %v", err)
 		_ = m.emitter.StoreInt64(metricsNameMalachiteGetSystemStatusFailed, 1, metrics.MetricTypeNameCount,
 			metrics.MetricTag{Key: "kind", Val: "io"})
@@ -129,19 +152,24 @@ func (m *MalachiteMetricsProvisioner) updateSystemStats() {
 
 	systemNetData, err := m.malachiteClient.GetSystemNetStats()
 	if err != nil {
+		errList = append(errList, err)
 		klog.Errorf("[malachite] get system net stats failed, err %v", err)
 		_ = m.emitter.StoreInt64(metricsNameMalachiteGetSystemStatusFailed, 1, metrics.MetricTypeNameCount,
 			metrics.MetricTag{Key: "kind", Val: "net"})
 	} else {
 		m.processSystemNetData(systemNetData)
 	}
+
+	return errors.NewAggregate(errList)
 }
 
-func (m *MalachiteMetricsProvisioner) updateCgroupData() {
+func (m *MalachiteMetricsProvisioner) updateCgroupData() error {
 	cgroupPaths := []string{m.baseConf.ReclaimRelativeRootCgroupPath, common.CgroupFsRootPathBurstable, common.CgroupFsRootPathBestEffort}
+	errList := make([]error, 0)
 	for _, path := range cgroupPaths {
 		stats, err := m.malachiteClient.GetCgroupStats(path)
 		if err != nil {
+			errList = append(errList, err)
 			general.Errorf("GetCgroupStats %v err %v", path, err)
 			continue
 		}
@@ -151,10 +179,12 @@ func (m *MalachiteMetricsProvisioner) updateCgroupData() {
 		m.processCgroupNetData(path, stats)
 		m.processCgroupPerNumaMemoryData(path, stats)
 	}
+
+	return errors.NewAggregate(errList)
 }
 
 // Get raw cgroup data by malachite sdk and set container metrics to metricStore, GC not existed pod metrics
-func (m *MalachiteMetricsProvisioner) updatePodsCgroupData(ctx context.Context) {
+func (m *MalachiteMetricsProvisioner) updatePodsCgroupData(ctx context.Context) error {
 	podsContainersStats, err := m.malachiteClient.GetAllPodContainersStats(ctx)
 	if err != nil {
 		klog.Errorf("[malachite] GetAllPodsContainersStats failed, error %v", err)
@@ -174,6 +204,7 @@ func (m *MalachiteMetricsProvisioner) updatePodsCgroupData(ctx context.Context) 
 		}
 	}
 	m.metricStore.GCPodsMetric(podUIDSet)
+	return err
 }
 
 func (m *MalachiteMetricsProvisioner) processSystemComputeData(systemComputeData *malachitetypes.SystemComputeData) {
