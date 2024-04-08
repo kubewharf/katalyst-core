@@ -42,6 +42,8 @@ import (
 
 const (
 	cpuServerName string = "cpu-server"
+
+	cpuServerHealthCheckName = "cpu-server-lw"
 )
 
 type cpuServer struct {
@@ -68,6 +70,7 @@ func (cs *cpuServer) RegisterAdvisorServer() {
 
 func (cs *cpuServer) ListAndWatch(_ *advisorsvc.Empty, server cpuadvisor.CPUAdvisor_ListAndWatchServer) error {
 	_ = cs.emitter.StoreInt64(cs.genMetricsName(metricServerLWCalled), int64(cs.period.Seconds()), metrics.MetricTypeNameCount)
+	general.RegisterHeartbeatCheck(cpuServerHealthCheckName, healthCheckTolerationDuration, general.HealthzCheckStateNotReady, healthCheckTolerationDuration)
 
 	if !cs.getCheckpointCalled {
 		if err := cs.startToGetCheckpointFromCPUPlugin(); err != nil {
@@ -121,9 +124,11 @@ func (cs *cpuServer) ListAndWatch(_ *advisorsvc.Empty, server cpuadvisor.CPUAdvi
 			if err := server.Send(&cpuadvisor.ListAndWatchResponse{Entries: calculationEntriesMap}); err != nil {
 				klog.Errorf("[qosaware-server-cpu] send response failed: %v", err)
 				_ = cs.emitter.StoreInt64(cs.genMetricsName(metricServerLWSendResponseFailed), int64(cs.period.Seconds()), metrics.MetricTypeNameCount)
+				_ = general.UpdateHealthzStateByError(cpuServerHealthCheckName, err)
 				return err
 			}
 			klog.Infof("[qosaware-server-cpu] send calculation result: %v", general.ToString(calculationEntriesMap))
+			_ = general.UpdateHealthzStateByError(cpuServerHealthCheckName, nil)
 			_ = cs.emitter.StoreInt64(cs.genMetricsName(metricServerLWSendResponseSucceeded), int64(cs.period.Seconds()), metrics.MetricTypeNameCount)
 		}
 	}

@@ -46,6 +46,8 @@ const (
 	EvictionPluginNameSystemMemoryPressure = "system-memory-pressure-eviction-plugin"
 	EvictionScopeSystemMemory              = "SystemMemory"
 	evictionConditionMemoryPressure        = "MemoryPressure"
+	systemMemoryPressureHealthCheck        = "system_memory_pressure_eviction_detect"
+	syncTolerationTurns                    = 3
 )
 
 func NewSystemPressureEvictionPlugin(_ *client.GenericClientSet, _ events.EventRecorder,
@@ -99,6 +101,8 @@ func (s *SystemPressureEvictionPlugin) Name() string {
 }
 
 func (s *SystemPressureEvictionPlugin) Start() {
+	general.RegisterHeartbeatCheck(systemMemoryPressureHealthCheck, syncTolerationTurns*s.syncPeriod,
+		general.HealthzCheckStateNotReady, syncTolerationTurns*s.syncPeriod)
 	go wait.UntilWithContext(context.TODO(), s.detectSystemPressures, s.syncPeriod)
 }
 
@@ -137,12 +141,16 @@ func (s *SystemPressureEvictionPlugin) ThresholdMet(_ context.Context) (*plugina
 func (s *SystemPressureEvictionPlugin) detectSystemPressures(_ context.Context) {
 	s.Lock()
 	defer s.Unlock()
+	var err error
+	defer func() {
+		_ = general.UpdateHealthzStateByError(systemMemoryPressureHealthCheck, err)
+	}()
 
 	s.isUnderSystemPressure = false
 	s.systemAction = actionNoop
 
-	s.detectSystemWatermarkPressure()
-	s.detectSystemKswapdStealPressure()
+	err = s.detectSystemWatermarkPressure()
+	err = s.detectSystemKswapdStealPressure()
 
 	switch s.systemAction {
 	case actionReclaimedEviction:
@@ -162,7 +170,7 @@ func (s *SystemPressureEvictionPlugin) detectSystemPressures(_ context.Context) 
 	}
 }
 
-func (s *SystemPressureEvictionPlugin) detectSystemWatermarkPressure() {
+func (s *SystemPressureEvictionPlugin) detectSystemWatermarkPressure() error {
 	free, total, scaleFactor, err := helper.GetWatermarkMetrics(s.metaServer.MetricsFetcher, s.emitter, nonExistNumaID)
 	if err != nil {
 		_ = s.emitter.StoreInt64(metricsNameFetchMetricError, 1, metrics.MetricTypeNameCount,
@@ -170,7 +178,7 @@ func (s *SystemPressureEvictionPlugin) detectSystemWatermarkPressure() {
 				metricsTagKeyNumaID: strconv.Itoa(nonExistNumaID),
 			})...)
 		general.Errorf("failed to getWatermarkMetrics for system, err: %v", err)
-		return
+		return err
 	}
 
 	thresholdMinimum := float64(s.dynamicConfig.GetDynamicConfiguration().SystemFreeMemoryThresholdMinimum)
@@ -184,9 +192,10 @@ func (s *SystemPressureEvictionPlugin) detectSystemWatermarkPressure() {
 		s.isUnderSystemPressure = true
 		s.systemAction = actionReclaimedEviction
 	}
+	return nil
 }
 
-func (s *SystemPressureEvictionPlugin) detectSystemKswapdStealPressure() {
+func (s *SystemPressureEvictionPlugin) detectSystemKswapdStealPressure() error {
 	kswapdSteal, err := helper.GetNodeMetricWithTime(s.metaServer.MetricsFetcher, s.emitter, consts.MetricMemKswapdstealSystem)
 	if err != nil {
 		s.kswapdStealPreviousCycle = kswapdStealPreviousCycleMissing
@@ -196,12 +205,12 @@ func (s *SystemPressureEvictionPlugin) detectSystemKswapdStealPressure() {
 				metricsTagKeyNumaID: strconv.Itoa(nonExistNumaID),
 			})...)
 		general.Errorf("failed to getSystemKswapdStealMetrics, err: %v", err)
-		return
+		return err
 	}
 
 	if kswapdSteal.Time.Equal(s.kswapdStealPreviousCycleTime) {
 		general.Warningf("getSystemKswapdStealMetrics get same result as last round,skip current round")
-		return
+		return nil
 	}
 
 	dynamicConfig := s.dynamicConfig.GetDynamicConfiguration()
@@ -229,7 +238,7 @@ func (s *SystemPressureEvictionPlugin) detectSystemKswapdStealPressure() {
 	s.kswapdStealPreviousCycleTime = *(kswapdSteal.Time)
 	if kswapdStealPreviousCycle == kswapdStealPreviousCycleMissing {
 		general.Warningf("kswapd steal of the previous cycle is missing")
-		return
+		return nil
 	}
 
 	if (kswapdSteal.Value-kswapdStealPreviousCycle)/(kswapdSteal.Time.Sub(kswapdStealPreviousCycleTime)).Seconds() >= float64(dynamicConfig.SystemKswapdRateThreshold) {
@@ -249,6 +258,7 @@ func (s *SystemPressureEvictionPlugin) detectSystemKswapdStealPressure() {
 			s.systemAction = actionEviction
 		}
 	}
+	return nil
 }
 
 func (s *SystemPressureEvictionPlugin) GetTopEvictionPods(_ context.Context, request *pluginapi.GetTopEvictionPodsRequest) (*pluginapi.GetTopEvictionPodsResponse, error) {

@@ -29,6 +29,7 @@ import (
 	//nolint
 	"github.com/golang/protobuf/proto"
 	v1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/util/errors"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/tools/events"
@@ -72,6 +73,11 @@ const (
 	UserUnknown = "unknown"
 
 	MetricsPodLabelPrefix = "pod"
+
+	evictionManagerHealthCheckName = "eviction_manager_sync"
+	reportTaintHealthCheckName     = "eviction_manager_report_taint"
+	syncTolerationTurns            = 3
+	reportTaintToleration          = 15 * time.Second
 )
 
 // LatestCNRGetter returns the latest CNR resources.
@@ -207,7 +213,10 @@ func (m *EvictionManger) getEvictionPlugins(genericClient *client.GenericClientS
 func (m *EvictionManger) Run(ctx context.Context) {
 	general.Infof(" run with podKiller %v", m.podKiller.Name())
 	defer general.Infof(" started")
-
+	general.RegisterHeartbeatCheck(evictionManagerHealthCheckName, syncTolerationTurns*m.conf.EvictionManagerSyncPeriod,
+		general.HealthzCheckStateNotReady, syncTolerationTurns*m.conf.EvictionManagerSyncPeriod)
+	general.RegisterHeartbeatCheck(reportTaintHealthCheckName, reportTaintToleration,
+		general.HealthzCheckStateNotReady, reportTaintToleration)
 	m.podKiller.Start(ctx)
 	for _, endpoint := range m.endpoints {
 		endpoint.Start()
@@ -220,6 +229,11 @@ func (m *EvictionManger) Run(ctx context.Context) {
 }
 
 func (m *EvictionManger) sync(ctx context.Context) {
+	var err error
+	defer func() {
+		_ = general.UpdateHealthzStateByError(evictionManagerHealthCheckName, err)
+	}()
+
 	activePods, err := m.metaGetter.GetPodList(ctx, native.PodIsActive)
 	if err != nil {
 		general.Errorf("failed to list pods from metaServer: %v", err)
@@ -233,14 +247,25 @@ func (m *EvictionManger) sync(ctx context.Context) {
 	general.Infof(" currently, there are %v candidate pods", len(pods))
 	_ = m.emitter.StoreInt64(MetricsNameCandidatePodCNT, int64(len(pods)), metrics.MetricTypeNameRaw)
 
-	collector := m.collectEvictionResult(pods)
+	errList := make([]error, 0)
+	collector, collectErr := m.collectEvictionResult(pods)
+	if collectErr != nil {
+		errList = append(errList, collectErr)
+	}
 
-	m.doEvict(collector.getSoftEvictPods(), collector.getForceEvictPods())
+	evictErr := m.doEvict(collector.getSoftEvictPods(), collector.getForceEvictPods())
+	if evictErr != nil {
+		errList = append(errList, evictErr)
+	}
+	if len(errList) > 0 {
+		err = errors.NewAggregate(errList)
+	}
 }
 
-func (m *EvictionManger) collectEvictionResult(pods []*v1.Pod) *evictionRespCollector {
+func (m *EvictionManger) collectEvictionResult(pods []*v1.Pod) (*evictionRespCollector, error) {
 	dynamicConfig := m.conf.GetDynamicConfiguration()
 	collector := newEvictionRespCollector(dynamicConfig.DryRun, m.conf, m.emitter)
+	var errList []error
 
 	m.endpointLock.RLock()
 	for pluginName, ep := range m.endpoints {
@@ -252,6 +277,7 @@ func (m *EvictionManger) collectEvictionResult(pods []*v1.Pod) *evictionRespColl
 		})
 		if err != nil {
 			general.Errorf(" calling GetEvictPods of plugin: %s failed with error: %v", pluginName, err)
+			errList = append(errList, err)
 		} else if getEvictResp == nil {
 			general.Errorf(" calling GetEvictPods of plugin: %s and getting nil resp", pluginName)
 		} else {
@@ -262,6 +288,7 @@ func (m *EvictionManger) collectEvictionResult(pods []*v1.Pod) *evictionRespColl
 		metResp, err := ep.ThresholdMet(context.Background())
 		if err != nil {
 			general.Errorf(" calling ThresholdMet of plugin: %s failed with error: %v", pluginName, err)
+			errList = append(errList, err)
 			continue
 		} else if metResp == nil {
 			general.Errorf(" calling ThresholdMet of plugin: %s and getting nil resp", pluginName)
@@ -310,6 +337,7 @@ func (m *EvictionManger) collectEvictionResult(pods []*v1.Pod) *evictionRespColl
 		m.endpointLock.RUnlock()
 		if err != nil {
 			general.Errorf(" calling GetTopEvictionPods of plugin: %s failed with error: %v", pluginName, err)
+			errList = append(errList, err)
 			continue
 		} else if resp == nil {
 			general.Errorf(" calling GetTopEvictionPods of plugin: %s and getting nil resp", pluginName)
@@ -322,10 +350,10 @@ func (m *EvictionManger) collectEvictionResult(pods []*v1.Pod) *evictionRespColl
 		collector.collectTopEvictionPods(dynamicConfig.DryRun, pluginName, threshold, resp)
 	}
 
-	return collector
+	return collector, errors.NewAggregate(errList)
 }
 
-func (m *EvictionManger) doEvict(softEvictPods, forceEvictPods map[string]*rule.RuledEvictPod) {
+func (m *EvictionManger) doEvict(softEvictPods, forceEvictPods map[string]*rule.RuledEvictPod) error {
 	softEvictPods = filterOutCandidatePodsWithForcePods(softEvictPods, forceEvictPods)
 	bestSuitedCandidate := m.getEvictPodFromCandidates(softEvictPods)
 	if bestSuitedCandidate != nil && bestSuitedCandidate.Pod != nil {
@@ -346,13 +374,14 @@ func (m *EvictionManger) doEvict(softEvictPods, forceEvictPods map[string]*rule.
 	err := m.killWithRules(rpList)
 	if err != nil {
 		general.Errorf(" got err: %v in EvictPods", err)
-		return
+		return err
 	}
 
 	general.Infof(" evict %d pods in evictionmanager", len(rpList))
 	_ = m.emitter.StoreInt64(MetricsNameVictimPodCNT, int64(len(rpList)), metrics.MetricTypeNameRaw,
 		metrics.MetricTag{Key: "type", Val: "total"})
 	metricPodsToEvict(m.emitter, rpList, m.conf.GenericConfiguration.QoSConfiguration, m.conf.GenericEvictionConfiguration.PodMetricLabels)
+	return nil
 }
 
 // ValidatePlugin validates a plugin if the version is correct and the name has the format of an extended resource

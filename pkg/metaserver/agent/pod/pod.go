@@ -48,6 +48,10 @@ type ContextKey string
 const (
 	BypassCacheKey  ContextKey = "bypass_cache"
 	BypassCacheTrue ContextKey = "true"
+
+	podFetcherKubeletHealthCheckName = "pod_fetcher_kubelet"
+	podFetcherRuntimeHealthCheckName = "pod_fetcher_runtime"
+	tolerationTurns                  = 3
 )
 
 type PodFetcher interface {
@@ -145,6 +149,11 @@ func (w *podFetcherImpl) Run(ctx context.Context) {
 		Op:       fsnotify.Create,
 	}
 
+	general.RegisterHeartbeatCheck(podFetcherKubeletHealthCheckName, tolerationTurns*w.podConf.KubeletPodCacheSyncPeriod,
+		general.HealthzCheckStateNotReady, tolerationTurns*w.podConf.KubeletPodCacheSyncPeriod)
+	general.RegisterHeartbeatCheck(podFetcherRuntimeHealthCheckName, tolerationTurns*w.podConf.RuntimePodCacheSyncPeriod,
+		general.HealthzCheckStateNotReady, tolerationTurns*w.podConf.RuntimePodCacheSyncPeriod)
+
 	watcherCh, err := general.RegisterFileEventWatcher(ctx.Done(), watcherInfo)
 	if err != nil {
 		klog.Fatalf("register file event watcher failed: %s", err)
@@ -236,6 +245,7 @@ func (w *podFetcherImpl) syncRuntimePod(_ context.Context) {
 	}
 
 	runtimePods, err := w.runtimePodFetcher.GetPods(false)
+	_ = general.UpdateHealthzStateByError(podFetcherRuntimeHealthCheckName, err)
 	if err != nil {
 		klog.Errorf("sync runtime pod failed: %s", err)
 		_ = w.emitter.StoreInt64(metricsNamePodCacheSync, 1, metrics.MetricTypeNameCount,
@@ -266,6 +276,7 @@ func (w *podFetcherImpl) syncRuntimePod(_ context.Context) {
 // syncKubeletPod sync local kubelet pod cache from kubelet pod fetcher.
 func (w *podFetcherImpl) syncKubeletPod(ctx context.Context) {
 	kubeletPods, err := w.kubeletPodFetcher.GetPodList(ctx, nil)
+	_ = general.UpdateHealthzStateByError(podFetcherKubeletHealthCheckName, err)
 	if err != nil {
 		klog.Errorf("sync kubelet pod failed: %s", err)
 		_ = w.emitter.StoreInt64(metricsNamePodCacheSync, 1, metrics.MetricTypeNameCount,

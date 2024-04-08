@@ -51,6 +51,8 @@ const (
 	metricServerLWSendResponseFailed            = "lw_send_response_failed"
 	metricServerLWSendResponseSucceeded         = "lw_send_response_succeeded"
 	metricServerCheckpointUpdateContainerFailed = "checkpoint_update_container_failed"
+
+	healthCheckTolerationDuration = 15 * time.Second
 )
 
 type baseServer struct {
