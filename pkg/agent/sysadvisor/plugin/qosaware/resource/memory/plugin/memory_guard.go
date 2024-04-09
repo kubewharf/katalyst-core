@@ -38,6 +38,8 @@ const (
 
 	reconcileStatusSucceeded = "succeeded"
 	reconcileStatusFailed    = "failed"
+
+	reclaimMemoryUnlimited = -1
 )
 
 type memoryGuard struct {
@@ -65,6 +67,14 @@ func NewMemoryGuard(conf *config.Configuration, extraConfig interface{}, metaRea
 }
 
 func (mg *memoryGuard) Reconcile(status *types.MemoryPressureStatus) error {
+	dynamicConfig := mg.conf.GetDynamicConfiguration()
+	if !dynamicConfig.MemoryGuardConfiguration.Enable {
+		mg.reclaimMemoryLimit.Store(int64(reclaimMemoryUnlimited))
+		mg.reconcileStatus.Store(reconcileStatusSucceeded)
+		general.InfoS("memory guard is disabled")
+		return nil
+	}
+
 	mg.reconcileStatus.Store(reconcileStatusFailed)
 	reclaimMemoryLimit := .0
 	availNUMAs, _, err := helper.GetAvailableNUMAsAndReclaimedCores(mg.conf, mg.metaReader, mg.metaServer)
