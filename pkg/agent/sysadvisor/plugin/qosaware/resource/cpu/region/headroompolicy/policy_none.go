@@ -33,8 +33,8 @@ func NewPolicyNone(_ string, _ types.QoSRegionType, _ string,
 	return &PolicyNone{}
 }
 
-func (p *PolicyNone) SetPodSet(types.PodSet)                 {}
-func (p *PolicyNone) SetBindingNumas(machine.CPUSet)         {}
-func (p *PolicyNone) SetEssentials(types.ResourceEssentials) {}
-func (p *PolicyNone) Update() error                          { return nil }
-func (p *PolicyNone) GetHeadroom() (float64, error)          { return types.InvalidHeadroom, nil }
+func (p *PolicyNone) SetPodSet(types.PodSet)                                     {}
+func (p *PolicyNone) SetBindingNumas(machine.CPUSet)                             {}
+func (p *PolicyNone) SetEssentials(types.ResourceEssentials, types.RegionStatus) {}
+func (p *PolicyNone) Update() error                                              { return nil }
+func (p *PolicyNone) GetHeadroom() (float64, error)                              { return types.InvalidHeadroom, nil }

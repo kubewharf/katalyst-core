@@ -36,7 +36,7 @@ type HeadroomPolicy interface {
 	// SetBindingNumas overwrites the numa ids this policy interested in
 	SetBindingNumas(machine.CPUSet)
 	// SetEssentials updates essential values for policy update
-	SetEssentials(essentials types.ResourceEssentials)
+	SetEssentials(essentials types.ResourceEssentials, regionStatus types.RegionStatus)
 
 	// Update triggers an episode of headroom update
 	Update() error
