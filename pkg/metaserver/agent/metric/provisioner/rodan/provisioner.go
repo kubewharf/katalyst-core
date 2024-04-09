@@ -21,12 +21,12 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/kubewharf/katalyst-core/pkg/config/agent/global"
-
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/klog/v2"
 
+	"github.com/kubewharf/katalyst-core/pkg/config/agent/global"
+	"github.com/kubewharf/katalyst-core/pkg/config/agent/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric/provisioner/rodan/client"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric/provisioner/rodan/types"
@@ -56,13 +56,14 @@ type RodanMetricsProvisioner struct {
 // NewRodanMetricsProvisioner returns the fetcher that fetch metrics by Inspector client
 func NewRodanMetricsProvisioner(
 	_ *global.BaseConfiguration,
+	metricConf *metaserver.MetricConfiguration,
 	emitter metrics.MetricEmitter,
 	fetcher pod.PodFetcher,
 	metricStore *utilmetric.MetricStore) metrictypes.MetricsProvisioner {
 	return &RodanMetricsProvisioner{
 		metricStore: metricStore,
 		podFetcher:  fetcher,
-		client:      client.NewRodanClient(fetcher, nil),
+		client:      client.NewRodanClient(fetcher, nil, metricConf.RodanServerPort),
 		emitter:     emitter,
 		synced:      false,
 	}

@@ -24,6 +24,7 @@ import (
 	statsapi "k8s.io/kubelet/pkg/apis/stats/v1alpha1"
 
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/global"
+	"github.com/kubewharf/katalyst-core/pkg/config/agent/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric/provisioner/kubelet/client"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric/types"
@@ -36,7 +37,7 @@ const (
 	metricsNamKubeletSummaryUnHealthy = "kubelet_summary_unhealthy"
 )
 
-func NewKubeletSummaryProvisioner(baseConf *global.BaseConfiguration,
+func NewKubeletSummaryProvisioner(baseConf *global.BaseConfiguration, _ *metaserver.MetricConfiguration,
 	emitter metrics.MetricEmitter, _ pod.PodFetcher, metricStore *utilmetric.MetricStore) types.MetricsProvisioner {
 	return &KubeletSummaryProvisioner{
 		metricStore: metricStore,

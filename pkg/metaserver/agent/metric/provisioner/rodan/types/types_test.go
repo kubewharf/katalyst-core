@@ -70,7 +70,9 @@ func TestParseNumastatKey(t *testing.T) {
 	}
 
 	for _, tc := range testCase {
+		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			numa, metric, err := ParseNumastatKey(tc.key)
 			if tc.expectErr {
 				assert.NotNil(t, err)
@@ -116,7 +118,9 @@ func TestParseCorestatKey(t *testing.T) {
 	}
 
 	for _, tc := range testCase {
+		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			numa, metric, err := ParseCorestatKey(tc.key)
 			if tc.expectErr {
 				assert.NotNil(t, err)

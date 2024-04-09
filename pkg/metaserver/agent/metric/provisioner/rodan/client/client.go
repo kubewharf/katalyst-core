@@ -33,10 +33,10 @@ type RodanClient struct {
 	metricFunc MetricFunc
 }
 
-func NewRodanClient(fetcher pod.PodFetcher, metricFunc MetricFunc) *RodanClient {
+func NewRodanClient(fetcher pod.PodFetcher, metricFunc MetricFunc, port int) *RodanClient {
 	urls := make(map[string]string)
 	for path := range types.MetricsMap {
-		urls[path] = fmt.Sprintf("http://localhost:%d%s", types.RodanServerPort, path)
+		urls[path] = fmt.Sprintf("http://localhost:%d%s", port, path)
 	}
 
 	if metricFunc == nil {

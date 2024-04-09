@@ -38,7 +38,7 @@ func init() {
 	RegisterProvisioners(metaserver.MetricProvisionerRodan, rodan.NewRodanMetricsProvisioner)
 }
 
-type ProvisionerInitFunc func(baseConf *global.BaseConfiguration,
+type ProvisionerInitFunc func(baseConf *global.BaseConfiguration, metricConf *metaserver.MetricConfiguration,
 	emitter metrics.MetricEmitter, fetcher pod.PodFetcher, metricStore *utilmetric.MetricStore) types.MetricsProvisioner
 
 // provisioners stores the initializing function for each-provisioner

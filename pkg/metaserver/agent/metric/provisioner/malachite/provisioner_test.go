@@ -20,6 +20,7 @@ import (
 	"testing"
 
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/global"
+	"github.com/kubewharf/katalyst-core/pkg/config/agent/metaserver"
 	malachitetypes "github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric/provisioner/malachite/types"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/pod"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
@@ -32,7 +33,7 @@ func Test_noneExistMetricsProvisioner(t *testing.T) {
 	store := utilmetric.NewMetricStore()
 
 	var err error
-	implement := NewMalachiteMetricsProvisioner(&global.BaseConfiguration{}, metrics.DummyMetrics{}, &pod.PodFetcherStub{}, store)
+	implement := NewMalachiteMetricsProvisioner(&global.BaseConfiguration{}, &metaserver.MetricConfiguration{}, metrics.DummyMetrics{}, &pod.PodFetcherStub{}, store)
 
 	fakeSystemCompute := &malachitetypes.SystemComputeData{
 		CPU: []malachitetypes.CPU{

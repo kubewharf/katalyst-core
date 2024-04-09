@@ -33,6 +33,7 @@ import (
 )
 
 func TestSample(t *testing.T) {
+	t.Parallel()
 	testPod := &v1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
 			UID:  "2126079c-8e0a-4cfe-9a0b-583199c14027",
@@ -62,7 +63,7 @@ func TestSample(t *testing.T) {
 	f := &RodanMetricsProvisioner{
 		metricStore: utilmetric.NewMetricStore(),
 		podFetcher:  podFetcher,
-		client:      client.NewRodanClient(podFetcher, makeTestMetricClient()),
+		client:      client.NewRodanClient(podFetcher, makeTestMetricClient(), 9102),
 		emitter:     metrics.DummyMetrics{},
 		synced:      false,
 	}
@@ -198,10 +199,4 @@ func (f *FakePodFetcher) GetPod(ctx context.Context, podUID string) (*v1.Pod, er
 
 func (f *FakePodFetcher) GetPodList(ctx context.Context, podFilter func(*v1.Pod) bool) ([]*v1.Pod, error) {
 	return f.GetPodListFunc(ctx, podFilter)
-}
-
-func TestT(t *testing.T) {
-	a := 32614152
-	a = a << 10
-	fmt.Println(a)
 }

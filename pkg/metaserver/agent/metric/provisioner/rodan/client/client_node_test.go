@@ -26,9 +26,10 @@ import (
 )
 
 func TestGetNodeMemoryStats(t *testing.T) {
+	t.Parallel()
 	ic := NewRodanClient(&FakePodFetcher{}, func(url string, params map[string]string) ([]byte, error) {
 		return []byte(`{"data":[{"key":"memory_swaptotal","val":0},{"key":"memory_sreclaimable","val":573520},{"key":"memory_shmem","val":1643536},{"key":"memory_writeback","val":0},{"key":"memory_memavailable","val":19710408},{"key":"memory_pgsteal_kswapd","val":7067178},{"key":"memory_cached","val":16703864},{"key":"memory_memtotal","val":32614152},{"key":"memory_swapfree","val":0},{"key":"memory_buffers","val":360688},{"key":"memory_memfree","val":14053836},{"key":"memory_dirty","val":1124}]}`), nil
-	})
+	}, 9102)
 
 	res, err := ic.GetNodeMemoryStats()
 	require.NoError(t, err)
@@ -36,9 +37,10 @@ func TestGetNodeMemoryStats(t *testing.T) {
 }
 
 func TestGetNUMAMemoryStats(t *testing.T) {
+	t.Parallel()
 	ic := NewRodanClient(&FakePodFetcher{}, func(url string, params map[string]string) ([]byte, error) {
 		return []byte(`{"data":[{"key":"numastat_node0_memfree","val":14549598208},{"key":"numastat_node0_memtotal","val":33396891648}]}`), nil
-	})
+	}, 9102)
 
 	res, err := ic.GetNUMAMemoryStats()
 	require.NoError(t, err)
@@ -48,9 +50,10 @@ func TestGetNUMAMemoryStats(t *testing.T) {
 }
 
 func TestGetNodeCgroupMemoryStats(t *testing.T) {
+	t.Parallel()
 	ic := NewRodanClient(&FakePodFetcher{}, func(url string, params map[string]string) ([]byte, error) {
 		return []byte(`{"data":[{"key":"qosgroupmem_besteffort_memory_rss","val":112414720},{"key":"qosgroupmem_besteffort_memory_usage","val":1244418048},{"key":"qosgroupmem_burstable_memory_rss","val":183828480},{"key":"qosgroupmem_burstable_memory_usage","val":377950208}]}`), nil
-	})
+	}, 9102)
 
 	res, err := ic.GetNodeCgroupMemoryStats()
 	require.NoError(t, err)
@@ -58,9 +61,10 @@ func TestGetNodeCgroupMemoryStats(t *testing.T) {
 }
 
 func TestGetCoreCPUStats(t *testing.T) {
+	t.Parallel()
 	ic := NewRodanClient(&FakePodFetcher{}, func(url string, params map[string]string) ([]byte, error) {
 		return []byte(`{"data":[{"key":"percorecpu_cpu5_sched_wait","val":0},{"key":"percorecpu_cpu0_usage","val":19},{"key":"percorecpu_cpu3_sched_wait","val":0},{"key":"percorecpu_cpu7_usage","val":53},{"key":"percorecpu_cpu0_sched_wait","val":0},{"key":"percorecpu_cpu6_usage","val":31},{"key":"percorecpu_cpu7_sched_wait","val":0},{"key":"percorecpu_cpu2_usage","val":23},{"key":"percorecpu_cpu1_usage","val":28},{"key":"percorecpu_cpu6_sched_wait","val":0},{"key":"percorecpu_cpu3_usage","val":78},{"key":"percorecpu_cpu4_sched_wait","val":0},{"key":"percorecpu_cpu2_sched_wait","val":0},{"key":"percorecpu_cpu1_sched_wait","val":0},{"key":"percorecpu_cpu5_usage","val":64},{"key":"percorecpu_cpu4_usage","val":32}]}`), nil
-	})
+	}, 9102)
 
 	res, err := ic.GetCoreCPUStats()
 	require.NoError(t, err)
@@ -70,9 +74,10 @@ func TestGetCoreCPUStats(t *testing.T) {
 }
 
 func TestGetNodeSysctl(t *testing.T) {
+	t.Parallel()
 	ic := NewRodanClient(&FakePodFetcher{}, func(url string, params map[string]string) ([]byte, error) {
 		return []byte(`{"data":[{"key":"sysctl_vm_watermark_scale_factor","val":1000},{"key":"sysctl_tcp_mem_pressure","val":507145},{"key":"sysctl_tcp_mem_extreme","val":760716},{"key":"sysctl_tcp_mem_original","val":380358}]}`), nil
-	})
+	}, 9102)
 
 	res, err := ic.GetNodeSysctl()
 	require.NoError(t, err)

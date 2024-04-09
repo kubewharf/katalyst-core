@@ -56,6 +56,8 @@ const defaultCustomNodeResourceCacheTTL = 15 * time.Second
 
 const defaultCustomNodeConfigCacheTTL = 15 * time.Second
 
+const defaultRodanServerPort = 9102
+
 // MetaServerOptions holds all the configurations for metaserver.
 // we will not try to separate this structure into several individual
 // structures since it will not be used directly by other components; instead,
@@ -79,6 +81,7 @@ type MetaServerOptions struct {
 	// configurations for metric-fetcher
 	MetricInsurancePeriod time.Duration
 	MetricProvisions      []string
+	RodanServerPort       int
 
 	// configurations for pod-cache
 	KubeletPodCacheSyncPeriod    time.Duration
@@ -109,6 +112,7 @@ func NewMetaServerOptions() *MetaServerOptions {
 
 		MetricInsurancePeriod: defaultMetricInsurancePeriod,
 		MetricProvisions:      []string{metaserver.MetricProvisionerMalachite, metaserver.MetricProvisionerKubelet},
+		RodanServerPort:       defaultRodanServerPort,
 
 		KubeletPodCacheSyncPeriod:    defaultKubeletPodCacheSyncPeriod,
 		KubeletPodCacheSyncMaxRate:   defaultKubeletPodCacheSyncMaxRate,
@@ -150,6 +154,8 @@ func (o *MetaServerOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 		"The meta server return metric data and MetricDataExpired if the update time of metric data is earlier than this period.")
 	fs.StringSliceVar(&o.MetricProvisions, "metric-provisioners", o.MetricProvisions,
 		"The provisioners that should be enabled by default")
+	fs.IntVar(&o.RodanServerPort, "rodan-server-port", o.RodanServerPort,
+		"The rodan metric provisioner server port")
 
 	fs.DurationVar(&o.KubeletPodCacheSyncPeriod, "kubelet-pod-cache-sync-period", o.KubeletPodCacheSyncPeriod,
 		"The period of meta server to sync pod from kubelet 10255 port")
@@ -183,6 +189,7 @@ func (o *MetaServerOptions) ApplyTo(c *metaserver.MetaServerConfiguration) error
 
 	c.MetricInsurancePeriod = o.MetricInsurancePeriod
 	c.MetricProvisions = o.MetricProvisions
+	c.RodanServerPort = o.RodanServerPort
 
 	c.KubeletPodCacheSyncPeriod = o.KubeletPodCacheSyncPeriod
 	c.KubeletPodCacheSyncMaxRate = rate.Limit(o.KubeletPodCacheSyncMaxRate)

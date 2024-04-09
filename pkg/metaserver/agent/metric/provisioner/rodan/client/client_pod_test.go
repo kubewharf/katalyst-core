@@ -26,6 +26,7 @@ import (
 )
 
 func TestGetPodContainerCPUStats(t *testing.T) {
+	t.Parallel()
 	testPod := &v1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
 			UID:  "2126079c-8e0a-4cfe-9a0b-583199c14027",
@@ -47,7 +48,7 @@ func TestGetPodContainerCPUStats(t *testing.T) {
 		},
 	}, func(url string, params map[string]string) ([]byte, error) {
 		return []byte(`{"data":{"da2f6c58a278f9966c2951f3297ed2ac6b8c73cc92460e68f6865bc0448137f0":[{"key":"cgcpu_usage","val":99},{"key":"cgcpu_sysusage","val":0},{"key":"cgcpu_user_nsecs","val":2777495188589},{"key":"cgcpu_sys_nsecs","val":337561580},{"key":"cgcpu_userusage","val":99},{"key":"cgcpu_nsecs","val":2777832750169}]}}`), nil
-	})
+	}, 9102)
 
 	res, err := ic.GetPodContainerCPUStats(context.Background(), "2126079c-8e0a-4cfe-9a0b-583199c14027")
 	require.NoError(t, err)
@@ -55,6 +56,7 @@ func TestGetPodContainerCPUStats(t *testing.T) {
 }
 
 func TestGetPodContainerCgroupMemStats(t *testing.T) {
+	t.Parallel()
 	testPod := &v1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
 			UID:  "2126079c-8e0a-4cfe-9a0b-583199c14027",
@@ -76,7 +78,7 @@ func TestGetPodContainerCgroupMemStats(t *testing.T) {
 		},
 	}, func(url string, params map[string]string) ([]byte, error) {
 		return []byte(`{"data":{"da2f6c58a278f9966c2951f3297ed2ac6b8c73cc92460e68f6865bc0448137f0":[{"key":"cgmem_total_shmem","val":0},{"key":"cgmem_total_rss","val":0},{"key":"cgmem_total_cache","val":0},{"key":"cgmem_total_dirty","val":0}]}}`), nil
-	})
+	}, 9102)
 
 	res, err := ic.GetPodContainerCgroupMemStats(context.Background(), "2126079c-8e0a-4cfe-9a0b-583199c14027")
 	require.NoError(t, err)
@@ -84,6 +86,7 @@ func TestGetPodContainerCgroupMemStats(t *testing.T) {
 }
 
 func TestGetPodContainerLoadStats(t *testing.T) {
+	t.Parallel()
 	testPod := &v1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
 			UID:  "2126079c-8e0a-4cfe-9a0b-583199c14027",
@@ -105,7 +108,7 @@ func TestGetPodContainerLoadStats(t *testing.T) {
 		},
 	}, func(url string, params map[string]string) ([]byte, error) {
 		return []byte(`{"data":{"da2f6c58a278f9966c2951f3297ed2ac6b8c73cc92460e68f6865bc0448137f0":[{"key":"loadavg_loadavg15","val":48},{"key":"loadavg_loadavg5","val":48},{"key":"loadavg_nrrunning","val":48},{"key":"loadavg_loadavg1","val":48},{"key":"loadavg_nriowait","val":48},{"key":"loadavg_nrsleeping","val":48},{"key":"loadavg_nruninterruptible","val":48}]}}`), nil
-	})
+	}, 9102)
 
 	res, err := ic.GetPodContainerLoadStats(context.Background(), "2126079c-8e0a-4cfe-9a0b-583199c14027")
 	require.NoError(t, err)
@@ -113,6 +116,7 @@ func TestGetPodContainerLoadStats(t *testing.T) {
 }
 
 func TestGetPodContainerCghardwareStats(t *testing.T) {
+	t.Parallel()
 	testPod := &v1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
 			UID:  "2126079c-8e0a-4cfe-9a0b-583199c14027",
@@ -134,7 +138,7 @@ func TestGetPodContainerCghardwareStats(t *testing.T) {
 		},
 	}, func(url string, params map[string]string) ([]byte, error) {
 		return []byte(`{"data":{"da2f6c58a278f9966c2951f3297ed2ac6b8c73cc92460e68f6865bc0448137f0":[{"key":"cghardware_cycles","val":0},{"key":"cghardware_instructions","val":0}]}}`), nil
-	})
+	}, 9102)
 
 	res, err := ic.GetPodContainerCghardwareStats(context.Background(), "2126079c-8e0a-4cfe-9a0b-583199c14027")
 	require.NoError(t, err)
@@ -142,6 +146,7 @@ func TestGetPodContainerCghardwareStats(t *testing.T) {
 }
 
 func TestGetPodContainerCgNumaStats(t *testing.T) {
+	t.Parallel()
 	testPod := &v1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
 			UID:  "2126079c-8e0a-4cfe-9a0b-583199c14027",
@@ -163,7 +168,7 @@ func TestGetPodContainerCgNumaStats(t *testing.T) {
 		},
 	}, func(url string, params map[string]string) ([]byte, error) {
 		return []byte(`{"data":{"da2f6c58a278f9966c2951f3297ed2ac6b8c73cc92460e68f6865bc0448137f0":[{"key":"cgnumastat_filepage","val":5},{"key":"cgnumastat_node0_filepage","val":5}]}}`), nil
-	})
+	}, 9102)
 
 	res, err := ic.GetPodContainerCgNumaStats(context.Background(), "2126079c-8e0a-4cfe-9a0b-583199c14027")
 	require.NoError(t, err)
@@ -173,6 +178,7 @@ func TestGetPodContainerCgNumaStats(t *testing.T) {
 }
 
 func TestGetMetrics(t *testing.T) {
+	t.Parallel()
 	testPod := &v1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
 			UID:  "2126079c-8e0a-4cfe-9a0b-583199c14027",
@@ -192,7 +198,7 @@ func TestGetMetrics(t *testing.T) {
 		GetPodFunc: func(ctx context.Context, podUID string) (*v1.Pod, error) {
 			return testPod, nil
 		},
-	}, nil)
+	}, nil, 9102)
 
 	res, err := ic.GetPodContainerCgNumaStats(context.Background(), "2126079c-8e0a-4cfe-9a0b-583199c14027")
 	require.Error(t, err)
