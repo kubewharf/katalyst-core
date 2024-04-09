@@ -29,6 +29,7 @@ import (
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/agent"
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/agent/qrm"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/io/handlers/dirtymem"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/io/handlers/iocost"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util"
 	"github.com/kubewharf/katalyst-core/pkg/agent/utilcomponent/periodicalhandler"
 	"github.com/kubewharf/katalyst-core/pkg/config"
@@ -113,6 +114,16 @@ func (p *StaticPolicy) Start() (err error) {
 		if err != nil {
 			general.Infof("setSockMem failed, err=%v", err)
 		}
+	}
+
+	// Notice: iocost.SetIOCost will check the featuregate.
+	// If conf.EnableSettingIOCost was disabled,
+	// iocost.SetIOCost will disable all the io.cost related functions in host.
+	general.Infof("setIOCost handler started")
+	err = periodicalhandler.RegisterPeriodicalHandler(qrm.QRMIOPluginPeriodicalHandlerGroupName,
+		iocost.EnableSetIOCostPeriodicalHandlerName, iocost.SetIOCost, 300*time.Second)
+	if err != nil {
+		general.Infof("setIOCost failed, err=%v", err)
 	}
 
 	go wait.Until(func() {
