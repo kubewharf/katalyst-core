@@ -313,7 +313,9 @@ func (m *memoryBalancer) getBalanceInfo() (balanceInfo *BalanceInfo, err error) 
 	}
 
 	if balanceInfo.MaxLatencyNuma.ReadLatency == 0 || balanceInfo.MaxBandwidthNuma.ReadWriteBandwidth == 0 {
-		err = fmt.Errorf("all numas read latency or bandwidth are 0")
+		// TODO: this exception always happens in VM node since malachite can't provide related metric for VM node,
+		// maybe we should disable this whole feature when running in VM node.
+		general.Errorf("all numas read latency or bandwidth are 0")
 		return
 	}
 
