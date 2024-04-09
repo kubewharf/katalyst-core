@@ -30,9 +30,11 @@ import (
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/agent/qrm"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/io/handlers/dirtymem"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/io/handlers/iocost"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/io/handlers/ioweight"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util"
 	"github.com/kubewharf/katalyst-core/pkg/agent/utilcomponent/periodicalhandler"
 	"github.com/kubewharf/katalyst-core/pkg/config"
+	"github.com/kubewharf/katalyst-core/pkg/config/generic"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
@@ -47,14 +49,17 @@ const (
 type StaticPolicy struct {
 	sync.Mutex
 
-	name       string
-	stopCh     chan struct{}
-	started    bool
+	name      string
+	stopCh    chan struct{}
+	started   bool
+	qosConfig *generic.QoSConfiguration
+
 	emitter    metrics.MetricEmitter
 	metaServer *metaserver.MetaServer
 	agentCtx   *agent.GenericContext
 
-	enableSettingWBT bool
+	enableSettingWBT      bool
+	enableSettingIOWeight bool
 }
 
 // NewStaticPolicy returns a static io policy
@@ -66,12 +71,14 @@ func NewStaticPolicy(agentCtx *agent.GenericContext, conf *config.Configuration,
 	})
 
 	policyImplement := &StaticPolicy{
-		emitter:          wrappedEmitter,
-		metaServer:       agentCtx.MetaServer,
-		agentCtx:         agentCtx,
-		stopCh:           make(chan struct{}),
-		name:             fmt.Sprintf("%s_%s", agentName, IOResourcePluginPolicyNameStatic),
-		enableSettingWBT: conf.EnableSettingWBT,
+		emitter:               wrappedEmitter,
+		metaServer:            agentCtx.MetaServer,
+		agentCtx:              agentCtx,
+		stopCh:                make(chan struct{}),
+		name:                  fmt.Sprintf("%s_%s", agentName, IOResourcePluginPolicyNameStatic),
+		qosConfig:             conf.QoSConfiguration,
+		enableSettingWBT:      conf.EnableSettingWBT,
+		enableSettingIOWeight: conf.EnableSettingIOWeight,
 	}
 
 	// todo: currently there is no resource needed to be topology-aware and synchronously allocated in this plugin,
@@ -107,9 +114,16 @@ func (p *StaticPolicy) Start() (err error) {
 		_ = p.emitter.StoreInt64(util.MetricNameHeartBeat, 1, metrics.MetricTypeNameRaw)
 	}, time.Second*30, p.stopCh)
 
+	if p.enableSettingIOWeight {
+		err = periodicalhandler.RegisterPeriodicalHandler(qrm.QRMIOPluginPeriodicalHandlerGroupName,
+			ioweight.EnableSetIOWeightPeriodicalHandlerName, ioweight.IOWeightTaskFunc, 30*time.Second)
+		if err != nil {
+			general.Infof("register syncIOWeight failed, err=%v", err)
+		}
+	}
 	if p.enableSettingWBT {
 		general.Infof("setWBT enabled")
-		err := periodicalhandler.RegisterPeriodicalHandler(qrm.QRMMemoryPluginPeriodicalHandlerGroupName,
+		err := periodicalhandler.RegisterPeriodicalHandler(qrm.QRMIOPluginPeriodicalHandlerGroupName,
 			dirtymem.EnableSetDirtyMemPeriodicalHandlerName, dirtymem.SetDirtyMem, 300*time.Second)
 		if err != nil {
 			general.Infof("setSockMem failed, err=%v", err)
