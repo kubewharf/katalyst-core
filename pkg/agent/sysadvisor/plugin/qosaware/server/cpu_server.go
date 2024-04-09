@@ -130,7 +130,7 @@ func (cs *cpuServer) ListAndWatch(_ *advisorsvc.Empty, server cpuadvisor.CPUAdvi
 }
 
 func (cs *cpuServer) getCheckpoint() {
-	safeTime := time.Now().Nanosecond()
+	safeTime := time.Now().UnixNano()
 
 	ctx := context.Background()
 	// get checkpoint
@@ -147,6 +147,18 @@ func (cs *cpuServer) getCheckpoint() {
 	klog.Infof("[qosaware-server-cpu] get checkpoint: %v", general.ToString(resp.Entries))
 	_ = cs.emitter.StoreInt64(cs.genMetricsName(metricServerLWGetCheckpointSucceeded), int64(cs.period.Seconds()), metrics.MetricTypeNameCount)
 
+	cs.syncCheckpoint(ctx, resp, safeTime)
+
+	// trigger advisor update
+	select {
+	case cs.sendCh <- types.TriggerInfo{TimeStamp: time.Now()}:
+		klog.Infof("[qosaware-server-cpu] trigger advisor update")
+	default:
+		klog.Infof("[qosaware-server-cpu] channel is full")
+	}
+}
+
+func (cs *cpuServer) syncCheckpoint(ctx context.Context, resp *cpuadvisor.GetCheckpointResponse, safeTime int64) {
 	livingPoolNameSet := sets.NewString()
 
 	// parse pool entries first, which are needed for parsing container entries
@@ -202,14 +214,6 @@ func (cs *cpuServer) getCheckpoint() {
 
 	// gc pool entries
 	_ = cs.metaCache.GCPoolEntries(livingPoolNameSet)
-
-	// trigger advisor update
-	select {
-	case cs.sendCh <- types.TriggerInfo{TimeStamp: time.Now()}:
-		klog.Infof("[qosaware-server-cpu] trigger advisor update")
-	default:
-		klog.Infof("[qosaware-server-cpu] channel is full")
-	}
 }
 
 func (cs *cpuServer) startToGetCheckpointFromCPUPlugin() error {

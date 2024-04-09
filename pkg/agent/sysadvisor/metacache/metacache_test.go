@@ -256,7 +256,7 @@ func TestRangeAndDeleteContainerWithSafeTime(t *testing.T) {
 
 	mc := &MetaCacheImp{
 		podEntries:               map[string]types.ContainerEntries{},
-		containerCreateTimestamp: map[string]int{},
+		containerCreateTimestamp: map[string]int64{},
 		checkpointManager:        checkpointManager,
 		emitter:                  metrics.DummyMetrics{},
 		checkpointName:           "test-mc-range-delete",
@@ -282,7 +282,7 @@ func TestRangeAndDeleteContainerWithSafeTime(t *testing.T) {
 
 	require.NoError(t, mc.RangeAndDeleteContainer(func(containerInfo *types.ContainerInfo) bool {
 		return true
-	}, time.Now().Nanosecond()), "failed to skip range and delete container with safe time")
+	}, time.Now().UnixNano()), "failed to skip range and delete container with safe time")
 	require.Equal(t, 0, len(mc.podEntries), "failed to delete container before safe time")
 	require.Equal(t, 0, len(mc.containerCreateTimestamp), "failed to delete container create timestamp before safe time")
 }

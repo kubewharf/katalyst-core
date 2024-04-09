@@ -19,6 +19,7 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io/ioutil"
 	"reflect"
 	"sort"
@@ -30,6 +31,7 @@ import (
 	"google.golang.org/grpc"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/rand"
 	"k8s.io/apimachinery/pkg/util/sets"
 
 	"github.com/kubewharf/katalyst-api/pkg/consts"
@@ -53,7 +55,7 @@ func generateTestConfiguration(t *testing.T) *config.Configuration {
 	require.NoError(t, err)
 	require.NotNil(t, conf)
 
-	tmpStateDir, err := ioutil.TempDir("", "sys-advisor-test")
+	tmpStateDir, err := ioutil.TempDir("", fmt.Sprintf("sys-advisor-test.%s", rand.String(5)))
 	require.NoError(t, err)
 	tmpCPUAdvisorSocketDir, err := ioutil.TempDir("", "sys-advisor-test")
 	require.NoError(t, err)
@@ -1159,6 +1161,8 @@ func TestCPUServerListAndWatch(t *testing.T) {
 }
 
 func TestAssemblePodEntries(t *testing.T) {
+	t.Parallel()
+
 	cs := cpuServer{}
 	calcResult := map[string]*cpuadvisor.CalculationEntries{}
 	require.NoError(t, cs.assemblePodEntries(calcResult, blockSet{}, "11", &types.ContainerInfo{
@@ -1235,4 +1239,166 @@ func TestAssemblePodEntries(t *testing.T) {
 		QoSLevel:            consts.PodAnnotationQoSLevelReclaimedCores,
 	}), "failed to assemble reclaimed container with exist pool name")
 	require.Equal(t, 2, len(calcResult), "reclaimed pool container is ignored")
+}
+
+func TestConcurrencyGetCheckpointAndAddContainer(t *testing.T) {
+	t.Parallel()
+
+	safeTime := time.Now().UnixNano()
+
+	checkPointData := `{
+    "734c8ee6-b40d-434d-bba0-5493cef2be78": {
+        "entries": {
+            "dp-47caf4db19": {
+                "owner_pool_name": "dedicated",
+                "topology_aware_assignments": {
+                    "3": "48-63,112-127"
+                },
+                "original_topology_aware_assignments": {
+                    "3": "48-63,112-127"
+                }
+            }
+        }
+    },
+    "90a60749-93a7-4863-b222-8f874fb6df0a": {
+        "entries": {
+            "dp-ec8e2a601a": {
+                "owner_pool_name": "dedicated",
+                "topology_aware_assignments": {
+                    "2": "32-47,96-111"
+                },
+                "original_topology_aware_assignments": {
+                    "2": "32-47,96-111"
+                }
+            }
+        }
+    },
+    "bafacfa0-72fd-47c8-a6c1-0f81a63b622a": {
+        "entries": {
+            "dp-0c35a803ab": {
+                "owner_pool_name": "dedicated",
+                "topology_aware_assignments": {
+                    "0": "1-15,64-79",
+                    "1": "17-31,80-95"
+                },
+                "original_topology_aware_assignments": {
+                    "0": "1-15,64-79",
+                    "1": "17-31,80-95"
+                }
+            }
+        }
+    },
+    "reclaim": {
+        "entries": {
+            "": {
+                "owner_pool_name": "reclaim",
+                "topology_aware_assignments": {
+                    "0": "1,65",
+                    "1": "17,81",
+                    "3": "48"
+                },
+                "original_topology_aware_assignments": {
+                    "0": "1,65",
+                    "1": "17,81",
+                    "3": "48"
+                }
+            }
+        }
+    },
+    "reserve": {
+        "entries": {
+            "": {
+                "owner_pool_name": "reserve",
+                "topology_aware_assignments": {
+                    "0": "0",
+                    "1": "16"
+                },
+                "original_topology_aware_assignments": {
+                    "0": "0",
+                    "1": "16"
+                }
+            }
+        }
+    }
+}
+`
+	resp := &cpuadvisor.GetCheckpointResponse{
+		Entries: map[string]*cpuadvisor.AllocationEntries{},
+	}
+	require.NoError(t, json.Unmarshal([]byte(checkPointData), &resp.Entries), "failed to parse checkpoint data")
+
+	cpuServer := newTestCPUServer(t, []*v1.Pod{})
+	cpuServer.syncCheckpoint(context.Background(), resp, safeTime)
+
+	containerMetaData := &advisorsvc.ContainerMetadata{
+		PodUid:          "testUID",
+		PodNamespace:    "testPodNamespace",
+		PodName:         "testPodName",
+		ContainerName:   "testContainerName",
+		ContainerType:   1,
+		ContainerIndex:  0,
+		Labels:          map[string]string{"key": "label"},
+		Annotations:     map[string]string{"key": "label"},
+		QosLevel:        consts.PodAnnotationQoSLevelSharedCores,
+		RequestQuantity: 1,
+	}
+	cpuServer.AddContainer(context.Background(), containerMetaData)
+	_, ok := cpuServer.metaCache.GetContainerInfo("testUID", "testContainerName")
+	require.Equal(t, true, ok, "failed to add container")
+
+	cpuServer.syncCheckpoint(context.Background(), resp, safeTime)
+	_, ok = cpuServer.metaCache.GetContainerInfo("testUID", "testContainerName")
+	require.Equal(t, true, ok, "container is removed after syncCheckpoint")
+
+	cpuServer.syncCheckpoint(context.Background(), resp, time.Now().UnixNano())
+	_, ok = cpuServer.metaCache.GetContainerInfo("testUID", "testContainerName")
+	require.Equal(t, false, ok, "container is not removed after syncCheckpoint")
+
+	newCtx, cancel := context.WithCancel(context.Background())
+	go func(ctx context.Context) {
+		for {
+			select {
+			case <-newCtx.Done():
+			default:
+				cpuServer.syncCheckpoint(context.Background(), resp, safeTime)
+				time.Sleep(time.Millisecond * 10)
+			}
+		}
+	}(newCtx)
+	go func(ctx context.Context) {
+		var containerMetaDatas []*advisorsvc.ContainerMetadata
+		for i := 0; i < 100; i++ {
+			containerMetaData := &advisorsvc.ContainerMetadata{
+				PodUid:          fmt.Sprintf("testUID-%d", i),
+				PodNamespace:    "testPodNamespace",
+				PodName:         "testPodName",
+				ContainerName:   "testContainerName",
+				ContainerType:   1,
+				ContainerIndex:  0,
+				Labels:          map[string]string{"key": "label"},
+				Annotations:     map[string]string{"key": "label"},
+				QosLevel:        consts.PodAnnotationQoSLevelSharedCores,
+				RequestQuantity: 1,
+			}
+
+			containerMetaDatas = append(containerMetaDatas, containerMetaData)
+		}
+
+		for {
+			select {
+			case <-newCtx.Done():
+			default:
+				for i := 0; i < 10; i++ {
+					cpuServer.AddContainer(ctx, containerMetaDatas[i])
+				}
+				time.Sleep(2 * time.Second)
+				for i := 0; i < 10; i++ {
+					cpuServer.metaCache.DeleteContainer(containerMetaDatas[i].PodUid, containerMetaDatas[i].ContainerName)
+				}
+			}
+		}
+	}(newCtx)
+
+	time.Sleep(10 * time.Second)
+	cancel()
 }
