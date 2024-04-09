@@ -199,6 +199,10 @@ func (m *manager) ApplyIOCostModel(absCgroupPath string, devID string, data *com
 	}
 
 	dataContent := data.String()
+	if data.CtrlMode == common.IOCostCtrlModeAuto {
+		dataContent = "ctrl=auto"
+	}
+
 	if err, applied, oldData := common.WriteFileIfChange(absCgroupPath, "io.cost.model", fmt.Sprintf("%s %s", devID, dataContent)); err != nil {
 		return err
 	} else if applied {
