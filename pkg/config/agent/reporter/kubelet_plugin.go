@@ -21,6 +21,7 @@ type KubeletPluginConfiguration struct {
 	KubeletResourcePluginPaths  []string
 	EnableReportTopologyPolicy  bool
 	ResourceNameToZoneTypeMap   map[string]string
+	NeedValidationResources     []string
 }
 
 func NewKubeletPluginConfiguration() *KubeletPluginConfiguration {

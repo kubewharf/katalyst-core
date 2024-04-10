@@ -1663,7 +1663,8 @@ func Test_podResourcesServerTopologyAdapterImpl_GetTopologyZones(t *testing.T) {
 						PodFetcher: &pod.PodFetcherStub{PodList: tt.fields.podList},
 					},
 				},
-				numaSocketZoneNodeMap: tt.fields.numaSocketZoneNodeMap,
+				numaSocketZoneNodeMap:   tt.fields.numaSocketZoneNodeMap,
+				needValidationResources: []string{"cpu", "memory"},
 			}
 			got, err := p.GetTopologyZones(context.TODO())
 			if (err != nil) != tt.wantErr {
@@ -1735,7 +1736,7 @@ func Test_podResourcesServerTopologyAdapterImpl_Run(t *testing.T) {
 	notifier := make(chan struct{}, 1)
 	p, _ := NewPodResourcesServerTopologyAdapter(testMetaServer,
 		endpoints, kubeletResourcePluginPath, nil,
-		nil, getNumaInfo, nil, podresources.GetV1Client)
+		nil, getNumaInfo, nil, podresources.GetV1Client, []string{"cpu", "memory"})
 	err = p.Run(ctx, func() {})
 	assert.NoError(t, err)
 
