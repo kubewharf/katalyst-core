@@ -123,18 +123,8 @@ func NewHealthzController(ctx context.Context,
 
 	ec.podListerSynced = podInformer.Informer().HasSynced
 	podIndexer := podInformer.Informer().GetIndexer()
-	if err := podInformer.Informer().AddIndexers(cache.Indexers{
-		helper.NodeNameKeyIndex: func(obj interface{}) ([]string, error) {
-			pod, ok := obj.(*corev1.Pod)
-			if !ok {
-				return []string{}, nil
-			}
-			if len(pod.Spec.NodeName) == 0 {
-				return []string{}, nil
-			}
-			return []string{pod.Spec.NodeName}, nil
-		},
-	}); err != nil {
+
+	if err := native.AddNodeNameIndexerForPod(podInformer); err != nil {
 		return nil, err
 	}
 

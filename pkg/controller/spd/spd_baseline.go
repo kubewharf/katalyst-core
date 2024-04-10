@@ -17,13 +17,10 @@ limitations under the License.
 package spd
 
 import (
-	"fmt"
 	"math"
 	"sort"
 
-	v1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/meta"
-	"k8s.io/apimachinery/pkg/runtime/schema"
+	core "k8s.io/api/core/v1"
 
 	"github.com/kubewharf/katalyst-api/pkg/apis/workload/v1alpha1"
 	"github.com/kubewharf/katalyst-api/pkg/consts"
@@ -70,18 +67,12 @@ func (sc *SPDController) updateBaselineSentinel(spd *v1alpha1.ServiceProfileDesc
 
 // getSPDPodMetaList get spd pod meta list in order
 func (sc *SPDController) getSPDPodMetaList(spd *v1alpha1.ServiceProfileDescriptor) ([]util.SPDBaselinePodMeta, error) {
-	gvr, _ := meta.UnsafeGuessKindToResource(schema.FromAPIVersionAndKind(spd.Spec.TargetRef.APIVersion, spd.Spec.TargetRef.Kind))
-	workloadLister, ok := sc.workloadLister[gvr]
-	if !ok {
-		return nil, fmt.Errorf("without workload lister for gvr %v", gvr)
-	}
-
-	podList, err := util.GetPodListForSPD(spd, sc.podIndexer, sc.conf.SPDPodLabelIndexerKeys, workloadLister, sc.podLister)
+	podList, err := util.GetPodListForSPD(spd, sc.podIndexer, sc.conf.SPDPodLabelIndexerKeys, sc.workloadLister, sc.podLister)
 	if err != nil {
 		return nil, err
 	}
 
-	podList = native.FilterPods(podList, func(pod *v1.Pod) (bool, error) {
+	podList = native.FilterPods(podList, func(pod *core.Pod) (bool, error) {
 		return native.PodIsActive(pod), nil
 	})
 	if len(podList) == 0 {

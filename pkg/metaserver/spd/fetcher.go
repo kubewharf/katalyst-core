@@ -44,7 +44,7 @@ import (
 const (
 	defaultClearUnusedSPDPeriod = 12 * time.Hour
 	defaultMaxRetryCount        = 3
-	defaultJitterFactor         = 0.5
+	defaultJitterFactor         = 1
 )
 
 const (
@@ -142,7 +142,7 @@ func (s *spdFetcher) Run(ctx context.Context) {
 		return
 	}
 
-	s.spdCache.Run(ctx)
+	go s.spdCache.Run(ctx)
 	go wait.UntilWithContext(ctx, s.sync, 30*time.Second)
 	<-ctx.Done()
 }
@@ -201,7 +201,7 @@ func (s *spdFetcher) sync(ctx context.Context) {
 		// hash with cnc target config hash, if cnc target config not found it will get remote spd directly
 		targetConfig, err := s.getSPDTargetConfig(ctx, namespace, name)
 		if err != nil {
-			klog.Errorf("[spd-manager] get spd targetConfig config failed: %v, use local cache instead", err)
+			klog.Warningf("[spd-manager] get spd targetConfig config failed: %v, use local cache instead", err)
 			targetConfig = &configapis.TargetConfig{
 				ConfigNamespace: namespace,
 				ConfigName:      name,
@@ -230,7 +230,9 @@ func (s *spdFetcher) updateSPDCacheIfNeed(ctx context.Context, originSPD *worklo
 	now := time.Now()
 	if originSPD == nil || util.GetSPDHash(originSPD) != targetConfig.Hash {
 		key := native.GenerateNamespaceNameKey(targetConfig.ConfigNamespace, targetConfig.ConfigName)
-		if nextFetchRemoteTime := s.spdCache.GetNextFetchRemoteTime(key); nextFetchRemoteTime.After(time.Now()) {
+		// Skip the backoff delay if the configuration hash of the CNC target changes, ensuring the
+		// local SPD cache is always updated with the latest configuration.
+		if nextFetchRemoteTime := s.spdCache.GetNextFetchRemoteTime(key, now, targetConfig.Hash != ""); nextFetchRemoteTime.After(time.Now()) {
 			return nil
 		} else {
 			// first update the timestamp of the last attempt to fetch the remote spd to

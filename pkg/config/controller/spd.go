@@ -27,6 +27,9 @@ type SPDConfig struct {
 	// SPDPodLabelIndexerKeys are used
 	SPDPodLabelIndexerKeys []string
 
+	// EnableCNCCache is to sync spd cnc target config
+	EnableCNCCache bool
+
 	IndicatorPlugins []string
 
 	BaselinePercent map[string]int64

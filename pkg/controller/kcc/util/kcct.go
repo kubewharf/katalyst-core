@@ -144,23 +144,6 @@ func FindMatchedKCCTargetConfigForNode(cnc *apisv1alpha1.CustomNodeConfig, targe
 	return kccTargetList[0], nil
 }
 
-// ClearUnNeededConfigForNode delete those un-needed configurations from CNC status
-func ClearUnNeededConfigForNode(cnc *apisv1alpha1.CustomNodeConfig, needToDelete func(metav1.GroupVersionResource) bool) {
-	if cnc == nil {
-		return
-	}
-
-	katalystCustomConfigList := make([]apisv1alpha1.TargetConfig, 0, len(cnc.Status.KatalystCustomConfigList))
-	for _, config := range cnc.Status.KatalystCustomConfigList {
-		if needToDelete(config.ConfigType) {
-			continue
-		}
-		katalystCustomConfigList = append(katalystCustomConfigList, config)
-	}
-
-	cnc.Status.KatalystCustomConfigList = katalystCustomConfigList
-}
-
 // filterAvailableKCCTargetConfigs returns those available configurations from kcc target list
 func filterAvailableKCCTargetConfigs(kccTargetList []*unstructured.Unstructured) ([]*unstructured.Unstructured, error) {
 	availableKCCTargetList := make([]*unstructured.Unstructured, 0, len(kccTargetList))

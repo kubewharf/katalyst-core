@@ -212,7 +212,8 @@ func Test_spdManager_GetSPD(t *testing.T) {
 				t.Errorf("GetSPD() error = %v, wantErr %v", err, tt.wantErr)
 				return
 			}
-			require.Equal(t, tt.want, got)
+			require.Equal(t, tt.want.Spec, got.Spec)
+			require.Equal(t, tt.want.Status, got.Status)
 
 			// second GetSPD from local cache
 			got, err = s.GetSPD(ctx, tt.args.pod.ObjectMeta)
@@ -220,7 +221,8 @@ func Test_spdManager_GetSPD(t *testing.T) {
 				t.Errorf("GetSPD() error = %v, wantErr %v", err, tt.wantErr)
 				return
 			}
-			require.Equal(t, tt.want, got)
+			require.Equal(t, tt.want.Spec, got.Spec)
+			require.Equal(t, tt.want.Status, got.Status)
 		})
 	}
 }

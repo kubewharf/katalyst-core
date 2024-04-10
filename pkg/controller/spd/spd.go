@@ -77,12 +77,14 @@ type SPDController struct {
 	podUpdater      control.PodUpdater
 	spdControl      control.ServiceProfileControl
 	workloadControl control.UnstructuredControl
+	cncControl      control.CNCControl
 
 	spdIndexer cache.Indexer
 	podIndexer cache.Indexer
 
 	podLister           corelisters.PodLister
 	spdLister           apiListers.ServiceProfileDescriptorLister
+	workloadGVKLister   map[schema.GroupVersionKind]cache.GenericLister
 	workloadLister      map[schema.GroupVersionResource]cache.GenericLister
 	spdWorkloadInformer map[schema.GroupVersionResource]native.DynamicInformer
 
@@ -91,6 +93,8 @@ type SPDController struct {
 	workloadSyncQueue workqueue.RateLimitingInterface
 
 	metricsEmitter metrics.MetricEmitter
+
+	cncCacheController *cncCacheController
 
 	indicatorManager         *indicator_plugin.IndicatorManager
 	indicatorPlugins         map[string]indicator_plugin.IndicatorPlugin
@@ -109,6 +113,7 @@ func NewSPDController(ctx context.Context, controlCtx *katalystbase.GenericConte
 
 	podInformer := controlCtx.KubeInformerFactory.Core().V1().Pods()
 	spdInformer := controlCtx.InternalInformerFactory.Workload().V1alpha1().ServiceProfileDescriptors()
+	cncInformer := controlCtx.InternalInformerFactory.Config().V1alpha1().CustomNodeConfigs()
 
 	spdController := &SPDController{
 		ctx:                 ctx,
@@ -120,6 +125,7 @@ func NewSPDController(ctx context.Context, controlCtx *katalystbase.GenericConte
 		spdQueue:            workqueue.NewNamedRateLimitingQueue(workqueue.DefaultControllerRateLimiter(), "spd"),
 		workloadSyncQueue:   workqueue.NewNamedRateLimitingQueue(workqueue.DefaultControllerRateLimiter(), "workload"),
 		metricsEmitter:      controlCtx.EmitterPool.GetDefaultMetricsEmitter().WithTags(spdControllerName),
+		workloadGVKLister:   make(map[schema.GroupVersionKind]cache.GenericLister),
 		workloadLister:      make(map[schema.GroupVersionResource]cache.GenericLister),
 		spdWorkloadInformer: make(map[schema.GroupVersionResource]native.DynamicInformer),
 	}
@@ -132,6 +138,7 @@ func NewSPDController(ctx context.Context, controlCtx *katalystbase.GenericConte
 
 	workloadInformers := controlCtx.DynamicResourcesManager.GetDynamicInformers()
 	for _, wf := range workloadInformers {
+		spdController.workloadGVKLister[wf.GVK] = wf.Informer.Lister()
 		spdController.workloadLister[wf.GVR] = wf.Informer.Lister()
 		spdController.syncedFunc = append(spdController.syncedFunc, wf.Informer.Informer().HasSynced)
 	}
@@ -193,6 +200,15 @@ func NewSPDController(ctx context.Context, controlCtx *katalystbase.GenericConte
 		spdController.podUpdater = control.NewRealPodUpdater(controlCtx.Client.KubeClient)
 		spdController.spdControl = control.NewSPDControlImp(controlCtx.Client.InternalClient)
 		spdController.workloadControl = control.NewRealUnstructuredControl(controlCtx.Client.DynamicClient)
+		spdController.cncControl = control.NewRealCNCControl(controlCtx.Client.InternalClient)
+	}
+
+	var err error
+	spdController.cncCacheController, err = newCNCCacheController(ctx, podInformer,
+		cncInformer, spdInformer, spdController.workloadGVKLister, spdController.workloadLister,
+		spdController.cncControl, spdController.metricsEmitter, conf)
+	if err != nil {
+		return nil, err
 	}
 
 	if err := spdController.initializeIndicatorPlugins(controlCtx, extraConf); err != nil {
@@ -223,6 +239,7 @@ func (sc *SPDController) Run() {
 	}
 	go wait.Until(sc.cleanSPD, time.Minute*5, sc.ctx.Done())
 
+	go sc.cncCacheController.Run()
 	for _, plugin := range sc.indicatorPlugins {
 		go plugin.Run()
 	}
@@ -472,7 +489,7 @@ func (sc *SPDController) syncSPD(key string) error {
 
 	// update baseline percentile
 	newSPD := spd.DeepCopy()
-	err = sc.updateBaselineSentinel(newSPD)
+	err = sc.updateSPDAnnotations(newSPD)
 	if err != nil {
 		return err
 	}
@@ -608,7 +625,7 @@ func (sc *SPDController) getOrCreateSPDForWorkload(workload *unstructured.Unstru
 				},
 			}
 
-			err := sc.updateBaselineSentinel(spd)
+			err := sc.updateSPDAnnotations(spd)
 			if err != nil {
 				return nil, err
 			}
@@ -747,6 +764,30 @@ func (sc *SPDController) enqueuePod(pod *core.Pod) {
 		return
 	}
 	sc.enqueueSPD(spd)
+}
+
+func (sc *SPDController) updateSPDAnnotations(spd *apiworkload.ServiceProfileDescriptor) error {
+	err := sc.updateBaselineSentinel(spd)
+	if err != nil {
+		return err
+	}
+
+	err = sc.updateHash(spd)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (sc *SPDController) updateHash(spd *apiworkload.ServiceProfileDescriptor) error {
+	hash, err := util.CalculateSPDHash(spd)
+	if err != nil {
+		return err
+	}
+
+	util.SetSPDHash(spd, hash)
+	return nil
 }
 
 func podTransformerFunc(src, dest *core.Pod) {

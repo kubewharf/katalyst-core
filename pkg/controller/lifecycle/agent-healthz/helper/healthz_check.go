@@ -202,7 +202,7 @@ func (h *HealthzHelper) syncHeartBeatMap() {
 	currentNodes := sets.String{}
 	for _, node := range nodes {
 		baseTags := []metrics.MetricTag{{Key: metricsTagKeyNodeName, Val: node.Name}}
-		pods, err := GetPodsAssignedToNode(node.Name, h.podIndexer)
+		pods, err := native.GetPodsAssignedToNode(node.Name, h.podIndexer)
 		if err != nil {
 			utilruntime.HandleError(fmt.Errorf("unable to list pods from node %q: %v", node.Name, err))
 			continue
