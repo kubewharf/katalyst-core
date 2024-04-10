@@ -21,7 +21,7 @@ import (
 	"time"
 )
 
-const healthCheckTolerationDuration = 15 * time.Second
+const healthCheckTolerationDuration = 5 * time.Minute
 
 // Reporter is used to report resource
 type Reporter interface {
