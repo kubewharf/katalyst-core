@@ -24,12 +24,15 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	v1 "k8s.io/client-go/informers/core/v1"
 	corelisters "k8s.io/client-go/listers/core/v1"
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/klog/v2"
 )
 
 type PodLabelIndexer string
+
+const nodeNameKeyIndex = "spec.nodeName"
 
 // IndexFunc is used to construct informer index for labels in pod
 func (p PodLabelIndexer) IndexFunc(obj interface{}) ([]string, error) {
@@ -104,4 +107,41 @@ func GetPodListForWorkload(workloadObj runtime.Object, podIndexer cache.Indexer,
 		return nil, err
 	}
 	return pods, nil
+}
+
+// GetPodsAssignedToNode returns pods that belong to this node by indexer
+func GetPodsAssignedToNode(nodeName string, podIndexer cache.Indexer) ([]*core.Pod, error) {
+	objs, err := podIndexer.ByIndex(nodeNameKeyIndex, nodeName)
+	if err != nil {
+		return nil, err
+	}
+
+	pods := make([]*core.Pod, 0, len(objs))
+	for _, obj := range objs {
+		pod, ok := obj.(*core.Pod)
+		if !ok {
+			continue
+		}
+		pods = append(pods, pod)
+	}
+	return pods, nil
+}
+
+// AddNodeNameIndexerForPod add node name index for pod informer
+func AddNodeNameIndexerForPod(podInformer v1.PodInformer) error {
+	if _, ok := podInformer.Informer().GetIndexer().GetIndexers()[nodeNameKeyIndex]; !ok {
+		return podInformer.Informer().AddIndexers(cache.Indexers{
+			nodeNameKeyIndex: func(obj interface{}) ([]string, error) {
+				pod, ok := obj.(*core.Pod)
+				if !ok {
+					return []string{}, nil
+				}
+				if len(pod.Spec.NodeName) == 0 {
+					return []string{}, nil
+				}
+				return []string{pod.Spec.NodeName}, nil
+			},
+		})
+	}
+	return nil
 }

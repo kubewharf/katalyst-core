@@ -21,10 +21,12 @@ import (
 	"fmt"
 	"reflect"
 	"strings"
+	"time"
 
 	"github.com/pkg/errors"
 	core "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -174,7 +176,13 @@ func GetSPDForPod(pod *core.Pod, spdIndexer cache.Indexer, workloadListerMap map
 // GetPodListForSPD is used to get pods that should be managed by the given spd,
 // we'll always get through workload
 func GetPodListForSPD(spd *apiworkload.ServiceProfileDescriptor, podIndexer cache.Indexer, podLabelIndexKeyList []string,
-	workloadLister cache.GenericLister, podLister corelisters.PodLister) ([]*core.Pod, error) {
+	workloadListerMap map[schema.GroupVersionResource]cache.GenericLister, podLister corelisters.PodLister) ([]*core.Pod, error) {
+	gvr, _ := meta.UnsafeGuessKindToResource(schema.FromAPIVersionAndKind(spd.Spec.TargetRef.APIVersion, spd.Spec.TargetRef.Kind))
+	workloadLister, ok := workloadListerMap[gvr]
+	if !ok {
+		return nil, fmt.Errorf("without workload lister for gvr %v", gvr)
+	}
+
 	workloadObj, err := GetWorkloadForSPD(spd, workloadLister)
 	if err != nil {
 		return nil, err
@@ -344,6 +352,37 @@ func CalculateSPDHash(spd *apiworkload.ServiceProfileDescriptor) (string, error)
 	}
 
 	return general.GenerateHash(data, spdConfigHashLength), nil
+}
+
+func SetLastFetchTime(spd *apiworkload.ServiceProfileDescriptor, t time.Time) {
+	if spd == nil {
+		return
+	}
+
+	if spd.Annotations == nil {
+		spd.Annotations = map[string]string{}
+	}
+
+	spd.Annotations[consts.ServiceProfileDescriptorAnnotationKeyLastFetchTime] = t.Format(time.RFC3339)
+}
+
+func GetLastFetchTime(spd *apiworkload.ServiceProfileDescriptor) time.Time {
+	if spd == nil {
+		return time.Time{}
+	}
+
+	t, ok := spd.Annotations[consts.ServiceProfileDescriptorAnnotationKeyLastFetchTime]
+	if !ok {
+		return time.Time{}
+	}
+
+	lastFetchTime, err := time.Parse(time.RFC3339, t)
+	if err != nil {
+		klog.Errorf("get spd %v last fetch time failed, %v", native.GenerateUniqObjectNameKey(spd), err)
+		return time.Time{}
+	}
+
+	return lastFetchTime
 }
 
 // GetPodSPDName gets spd name from pod annotation

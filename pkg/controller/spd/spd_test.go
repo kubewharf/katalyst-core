@@ -18,6 +18,7 @@ package spd
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 	"time"
 
@@ -33,11 +34,11 @@ import (
 
 	apis "github.com/kubewharf/katalyst-api/pkg/apis/autoscaling/v1alpha1"
 	apiworkload "github.com/kubewharf/katalyst-api/pkg/apis/workload/v1alpha1"
-	"github.com/kubewharf/katalyst-api/pkg/consts"
 	apiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
 	katalystbase "github.com/kubewharf/katalyst-core/cmd/base"
 	"github.com/kubewharf/katalyst-core/pkg/config/controller"
 	"github.com/kubewharf/katalyst-core/pkg/config/generic"
+	"github.com/kubewharf/katalyst-core/pkg/consts"
 	indicator_plugin "github.com/kubewharf/katalyst-core/pkg/controller/spd/indicator-plugin"
 	"github.com/kubewharf/katalyst-core/pkg/util/native"
 )
@@ -76,7 +77,7 @@ func TestSPDController_Run(t *testing.T) {
 							},
 						},
 						Annotations: map[string]string{
-							consts.PodAnnotationSPDNameKey: "spd1",
+							apiconsts.PodAnnotationSPDNameKey: "spd1",
 						},
 						Labels: map[string]string{
 							"workload": "sts1",
@@ -147,7 +148,7 @@ func TestSPDController_Run(t *testing.T) {
 						Name:      "sts1",
 						Namespace: "default",
 						Annotations: map[string]string{
-							consts.WorkloadAnnotationSPDEnableKey: consts.WorkloadAnnotationSPDEnabled,
+							apiconsts.WorkloadAnnotationSPDEnableKey: apiconsts.WorkloadAnnotationSPDEnabled,
 						},
 					},
 					Spec: appsv1.StatefulSetSpec{
@@ -177,7 +178,7 @@ func TestSPDController_Run(t *testing.T) {
 					Name:      "sts1",
 					Namespace: "default",
 					Annotations: map[string]string{
-						consts.WorkloadAnnotationSPDEnableKey: consts.WorkloadAnnotationSPDEnabled,
+						apiconsts.WorkloadAnnotationSPDEnableKey: apiconsts.WorkloadAnnotationSPDEnabled,
 					},
 				},
 				Spec: appsv1.StatefulSetSpec{
@@ -200,6 +201,9 @@ func TestSPDController_Run(t *testing.T) {
 				ObjectMeta: metav1.ObjectMeta{
 					Namespace: "default",
 					Name:      "sts1",
+					Annotations: map[string]string{
+						consts.ServiceProfileDescriptorAnnotationKeyConfigHash: "51131be1b092",
+					},
 					OwnerReferences: []metav1.OwnerReference{
 						{
 							APIVersion: "apps/v1",
@@ -232,7 +236,7 @@ func TestSPDController_Run(t *testing.T) {
 						Name:      "sts1",
 						Namespace: "default",
 						Annotations: map[string]string{
-							consts.WorkloadAnnotationSPDEnableKey: consts.WorkloadAnnotationSPDEnabled,
+							apiconsts.WorkloadAnnotationSPDEnableKey: apiconsts.WorkloadAnnotationSPDEnabled,
 						},
 					},
 					Spec: appsv1.StatefulSetSpec{
@@ -260,7 +264,7 @@ func TestSPDController_Run(t *testing.T) {
 					Name:      "sts1",
 					Namespace: "default",
 					Annotations: map[string]string{
-						consts.WorkloadAnnotationSPDEnableKey: consts.WorkloadAnnotationSPDEnabled,
+						apiconsts.WorkloadAnnotationSPDEnableKey: apiconsts.WorkloadAnnotationSPDEnabled,
 					},
 				},
 				Spec: appsv1.StatefulSetSpec{
@@ -281,6 +285,9 @@ func TestSPDController_Run(t *testing.T) {
 				ObjectMeta: metav1.ObjectMeta{
 					Namespace: "default",
 					Name:      "sts1",
+					Annotations: map[string]string{
+						consts.ServiceProfileDescriptorAnnotationKeyConfigHash: "51131be1b092",
+					},
 					OwnerReferences: []metav1.OwnerReference{
 						{
 							APIVersion: "apps/v1",
@@ -313,7 +320,7 @@ func TestSPDController_Run(t *testing.T) {
 						Name:      "sts1",
 						Namespace: "default",
 						Annotations: map[string]string{
-							consts.WorkloadAnnotationSPDEnableKey: consts.WorkloadAnnotationSPDEnabled,
+							apiconsts.WorkloadAnnotationSPDEnableKey: apiconsts.WorkloadAnnotationSPDEnabled,
 						},
 					},
 					Spec: appsv1.StatefulSetSpec{
@@ -341,7 +348,7 @@ func TestSPDController_Run(t *testing.T) {
 					Name:      "sts1",
 					Namespace: "default",
 					Annotations: map[string]string{
-						consts.WorkloadAnnotationSPDEnableKey: consts.WorkloadAnnotationSPDEnabled,
+						apiconsts.WorkloadAnnotationSPDEnableKey: apiconsts.WorkloadAnnotationSPDEnabled,
 					},
 				},
 				Spec: appsv1.StatefulSetSpec{
@@ -362,6 +369,9 @@ func TestSPDController_Run(t *testing.T) {
 				ObjectMeta: metav1.ObjectMeta{
 					Namespace: "default",
 					Name:      "sts1",
+					Annotations: map[string]string{
+						consts.ServiceProfileDescriptorAnnotationKeyConfigHash: "a62e4c90e3ed",
+					},
 					OwnerReferences: []metav1.OwnerReference{
 						{
 							APIVersion: "apps/v1",
@@ -471,7 +481,7 @@ func TestIndicatorUpdater(t *testing.T) {
 			Name:      "sts1",
 			Namespace: "default",
 			Annotations: map[string]string{
-				consts.WorkloadAnnotationSPDEnableKey: consts.WorkloadAnnotationSPDEnabled,
+				apiconsts.WorkloadAnnotationSPDEnableKey: apiconsts.WorkloadAnnotationSPDEnabled,
 			},
 		},
 		Spec: appsv1.StatefulSetSpec{
@@ -487,7 +497,7 @@ func TestIndicatorUpdater(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{
 			Namespace:       "default",
 			Name:            "spd1",
-			ResourceVersion: "0",
+			ResourceVersion: "1",
 		},
 		Spec: apiworkload.ServiceProfileDescriptorSpec{
 			TargetRef: apis.CrossVersionObjectReference{
@@ -557,9 +567,12 @@ func TestIndicatorUpdater(t *testing.T) {
 				{
 					Name: "TestExtended",
 					Indicators: runtime.RawExtension{
-						Object: &apiworkload.TestExtendedIndicators{
-							Indicators: &apiworkload.TestIndicators{},
-						},
+						Raw: func() []byte {
+							data, _ := json.Marshal(&apiworkload.TestExtendedIndicators{
+								Indicators: &apiworkload.TestIndicators{},
+							})
+							return data
+						}(),
 					},
 				},
 			},

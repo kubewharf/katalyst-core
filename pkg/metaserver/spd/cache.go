@@ -96,7 +96,7 @@ func (s *Cache) SetLastFetchRemoteTime(key string, t time.Time) {
 }
 
 // GetNextFetchRemoteTime get next fetch remote spd timestamp
-func (s *Cache) GetNextFetchRemoteTime(key string) time.Time {
+func (s *Cache) GetNextFetchRemoteTime(key string, now time.Time, skipBackoff bool) time.Time {
 	s.RLock()
 	defer s.RUnlock()
 
@@ -106,10 +106,16 @@ func (s *Cache) GetNextFetchRemoteTime(key string) time.Time {
 			return info.lastFetchRemoteTime.Add(info.penaltyForFetchingRemoteTime)
 		}
 
-		nextFetchRemoteTime := info.lastFetchRemoteTime.Add(wait.Jitter(s.cacheTTL, s.jitterFactor))
+		nextFetchRemoteTime := info.lastFetchRemoteTime
+		// to avoid burst remote request when lastFetchRemoteTime is too old, add some random
+		if !info.lastFetchRemoteTime.IsZero() && info.lastFetchRemoteTime.Add(time.Duration((1+s.jitterFactor)*float64(s.cacheTTL))).Before(now) {
+			nextFetchRemoteTime = now.Add(-wait.Jitter(s.cacheTTL, s.jitterFactor))
+		}
+
+		nextFetchRemoteTime = nextFetchRemoteTime.Add(wait.Jitter(s.cacheTTL, s.jitterFactor))
 		// If no one tries to get this spd for a long time, a penalty from lastGetTime to lastFetchRemoteTime will be added,
 		// which will linearly increase the period of accessing the remote, thereby reducing the frequency of accessing the api-server
-		if info.lastFetchRemoteTime.After(info.lastGetTime) {
+		if !skipBackoff && info.lastFetchRemoteTime.After(info.lastGetTime) {
 			nextFetchRemoteTime = nextFetchRemoteTime.Add(info.lastFetchRemoteTime.Sub(info.lastGetTime))
 		}
 
@@ -147,6 +153,7 @@ func (s *Cache) SetSPD(key string, spd *workloadapis.ServiceProfileDescriptor) e
 	}
 
 	s.initSPDInfoWithoutLock(key)
+	util.SetLastFetchTime(spd, s.spdInfo[key].lastFetchRemoteTime)
 	err := checkpoint.WriteSPD(s.manager, spd)
 	if err != nil {
 		return err
@@ -204,7 +211,10 @@ func (s *Cache) GetSPD(key string, updateLastGetTime bool) *workloadapis.Service
 
 // Run to clear local unused spd
 func (s *Cache) Run(ctx context.Context) {
-	go wait.UntilWithContext(ctx, s.clearUnusedSPDs, s.expiredTime)
+	// sleep with cacheTTL to wait the last get time update
+	// for each spd
+	time.Sleep(s.cacheTTL)
+	wait.UntilWithContext(ctx, s.clearUnusedSPDs, s.expiredTime)
 }
 
 // restore all spd from disk at startup
@@ -217,7 +227,6 @@ func (s *Cache) restore() error {
 		return fmt.Errorf("restore spd failed: %v", err)
 	}
 
-	now := time.Now()
 	for _, spd := range spdList {
 		if spd == nil {
 			continue
@@ -225,7 +234,8 @@ func (s *Cache) restore() error {
 		key := native.GenerateUniqObjectNameKey(spd)
 		s.initSPDInfoWithoutLock(key)
 		s.spdInfo[key].spd = spd
-		s.spdInfo[key].lastGetTime = now
+		s.spdInfo[key].lastFetchRemoteTime = util.GetLastFetchTime(spd)
+		klog.Infof("restore spd cache %s: %+v", key, s.spdInfo[key])
 	}
 
 	return nil
@@ -245,6 +255,7 @@ func (s *Cache) clearUnusedSPDs(_ context.Context) {
 				continue
 			}
 			delete(s.spdInfo, key)
+			klog.Infof("clear spd cache %s", key)
 		}
 	}
 }

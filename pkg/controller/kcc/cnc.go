@@ -33,7 +33,7 @@ import (
 	"k8s.io/klog/v2"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
-	apisv1alpha1 "github.com/kubewharf/katalyst-api/pkg/apis/config/v1alpha1"
+	configapi "github.com/kubewharf/katalyst-api/pkg/apis/config/v1alpha1"
 	configinformers "github.com/kubewharf/katalyst-api/pkg/client/informers/externalversions/config/v1alpha1"
 	"github.com/kubewharf/katalyst-api/pkg/client/listers/config/v1alpha1"
 	kcclient "github.com/kubewharf/katalyst-core/pkg/client"
@@ -44,6 +44,7 @@ import (
 	kcctarget "github.com/kubewharf/katalyst-core/pkg/controller/kcc/target"
 	"github.com/kubewharf/katalyst-core/pkg/controller/kcc/util"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
+	katalystutil "github.com/kubewharf/katalyst-core/pkg/util"
 	"github.com/kubewharf/katalyst-core/pkg/util/native"
 )
 
@@ -219,7 +220,7 @@ func (c *CustomNodeConfigController) enqueueAllRelatedCNCForTargetConfig(target 
 }
 
 func (c *CustomNodeConfigController) addCustomNodeConfigEventHandle(obj interface{}) {
-	t, ok := obj.(*apisv1alpha1.CustomNodeConfig)
+	t, ok := obj.(*configapi.CustomNodeConfig)
 	if !ok {
 		klog.Errorf("[cnc] cannot convert obj to *CustomNodeConfig: %v", obj)
 		return
@@ -230,7 +231,7 @@ func (c *CustomNodeConfigController) addCustomNodeConfigEventHandle(obj interfac
 }
 
 func (c *CustomNodeConfigController) updateCustomNodeConfigEventHandle(_, new interface{}) {
-	newCNC, ok := new.(*apisv1alpha1.CustomNodeConfig)
+	newCNC, ok := new.(*configapi.CustomNodeConfig)
 	if !ok {
 		klog.Errorf("[cnc] cannot convert obj to *CustomNodeConfig: %v", new)
 		return
@@ -240,7 +241,7 @@ func (c *CustomNodeConfigController) updateCustomNodeConfigEventHandle(_, new in
 	c.enqueueCustomNodeConfig(newCNC)
 }
 
-func (c *CustomNodeConfigController) enqueueCustomNodeConfig(cnc *apisv1alpha1.CustomNodeConfig) {
+func (c *CustomNodeConfigController) enqueueCustomNodeConfig(cnc *configapi.CustomNodeConfig) {
 	if cnc == nil {
 		klog.Warning("[cnc] trying to enqueue a nil cnc")
 		return
@@ -304,7 +305,8 @@ func (c *CustomNodeConfigController) syncCustomNodeConfig(key string) error {
 	return nil
 }
 
-func (c *CustomNodeConfigController) patchCNC(cnc *apisv1alpha1.CustomNodeConfig, setFunc func(*apisv1alpha1.CustomNodeConfig)) (*apisv1alpha1.CustomNodeConfig, error) {
+func (c *CustomNodeConfigController) patchCNC(cnc *configapi.CustomNodeConfig,
+	setFunc func(*configapi.CustomNodeConfig)) (*configapi.CustomNodeConfig, error) {
 	cncCopy := cnc.DeepCopy()
 	setFunc(cncCopy)
 	if apiequality.Semantic.DeepEqual(cnc, cncCopy) {
@@ -314,7 +316,7 @@ func (c *CustomNodeConfigController) patchCNC(cnc *apisv1alpha1.CustomNodeConfig
 	return c.cncControl.PatchCNCStatus(c.ctx, cnc.Name, cnc, cncCopy)
 }
 
-func (c *CustomNodeConfigController) updateCustomNodeConfig(cnc *apisv1alpha1.CustomNodeConfig) {
+func (c *CustomNodeConfigController) updateCustomNodeConfig(cnc *configapi.CustomNodeConfig) {
 	c.targetHandler.RangeGVRTargetAccessor(func(gvr metav1.GroupVersionResource, targetAccessor kcctarget.KatalystCustomConfigTargetAccessor) bool {
 		matchedTarget, err := util.FindMatchedKCCTargetConfigForNode(cnc, targetAccessor)
 		if err != nil {
@@ -341,16 +343,16 @@ func (c *CustomNodeConfigController) clearUnusedConfig() {
 		return true
 	})
 
-	needToDeleteFunc := func(gvr metav1.GroupVersionResource) bool {
-		if _, ok := configGVRSet[gvr.String()]; !ok {
+	needToDeleteFunc := func(config configapi.TargetConfig) bool {
+		if _, ok := configGVRSet[config.ConfigType.String()]; !ok {
 			return true
 		}
 		return false
 	}
 
 	// func for clear cnc config if gvr config not exists
-	setFunc := func(cnc *apisv1alpha1.CustomNodeConfig) {
-		util.ClearUnNeededConfigForNode(cnc, needToDeleteFunc)
+	setFunc := func(cnc *configapi.CustomNodeConfig) {
+		cnc.Status.KatalystCustomConfigList = katalystutil.RemoveUnusedTargetConfig(cnc.Status.KatalystCustomConfigList, needToDeleteFunc)
 	}
 
 	clearCNCConfigs := func(i int) {

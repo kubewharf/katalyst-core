@@ -34,6 +34,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/controller/lifecycle/agent-healthz/helper"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util"
+	"github.com/kubewharf/katalyst-core/pkg/util/native"
 )
 
 const AgentHandlerGeneric = "generic"
@@ -129,7 +130,7 @@ func (g *GenericAgentHandler) GetCNRTaintInfo(nodeName string) (*helper.CNRTaint
 // getNodeReclaimedPods returns reclaimed pods contained in the given node,
 // only those nodes with reclaimed pods should be triggered with eviction/taint logic for generic agents
 func (g *GenericAgentHandler) getNodeReclaimedPods(node *corev1.Node) (names []string) {
-	pods, err := helper.GetPodsAssignedToNode(node.Name, g.podIndexer)
+	pods, err := native.GetPodsAssignedToNode(node.Name, g.podIndexer)
 	if err != nil {
 		utilruntime.HandleError(fmt.Errorf("unable to list pods from node %q: %v", node.Name, err))
 		return

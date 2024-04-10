@@ -14,29 +14,25 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package helper
+package util
 
 import (
-	corev1 "k8s.io/api/core/v1"
-	"k8s.io/client-go/tools/cache"
+	configapi "github.com/kubewharf/katalyst-api/pkg/apis/config/v1alpha1"
 )
 
-const NodeNameKeyIndex = "spec.nodeName"
-
-// GetPodsAssignedToNode returns pods that belong to this node by indexer
-func GetPodsAssignedToNode(nodeName string, podIndexer cache.Indexer) ([]*corev1.Pod, error) {
-	objs, err := podIndexer.ByIndex(NodeNameKeyIndex, nodeName)
-	if err != nil {
-		return nil, err
+// RemoveUnusedTargetConfig delete those unused configurations from CNC status
+func RemoveUnusedTargetConfig(configList []configapi.TargetConfig, needToDelete func(config configapi.TargetConfig) bool) []configapi.TargetConfig {
+	if len(configList) == 0 {
+		return configList
 	}
 
-	pods := make([]*corev1.Pod, 0, len(objs))
-	for _, obj := range objs {
-		pod, ok := obj.(*corev1.Pod)
-		if !ok {
+	resultConfigList := make([]configapi.TargetConfig, 0, len(configList))
+	for _, config := range configList {
+		if needToDelete(config) {
 			continue
 		}
-		pods = append(pods, pod)
+		resultConfigList = append(resultConfigList, config)
 	}
-	return pods, nil
+
+	return resultConfigList
 }

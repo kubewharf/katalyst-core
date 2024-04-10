@@ -30,6 +30,7 @@ type SPDOptions struct {
 	ResyncPeriod           time.Duration
 	SPDWorkloadGVResources []string
 	SPDPodLabelIndexerKeys []string
+	EnableCNCCache         bool
 	IndicatorPlugins       []string
 	BaselinePercent        map[string]int64
 }
@@ -38,6 +39,7 @@ type SPDOptions struct {
 func NewSPDOptions() *SPDOptions {
 	return &SPDOptions{
 		ResyncPeriod:    time.Second * 30,
+		EnableCNCCache:  true,
 		BaselinePercent: map[string]int64{},
 	}
 }
@@ -53,6 +55,8 @@ func (o *SPDOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 		"SPDWorkloadGVResources should be in the format of `resource.version.group.com` like 'deployments.v1.apps'.")
 	fs.StringSliceVar(&o.SPDPodLabelIndexerKeys, "spd-pod-label-indexers", o.SPDPodLabelIndexerKeys, ""+
 		"A list of pod label keys to be used as indexers for pod informer")
+	fs.BoolVar(&o.EnableCNCCache, "spd-enable-cnc-cache", o.EnableCNCCache, ""+
+		"Whether enable cnc cache to reduce agent api-server remote request")
 	fs.StringSliceVar(&o.IndicatorPlugins, "spd-indicator-plugins", o.IndicatorPlugins,
 		"A list of indicator plugins to be used")
 	fs.StringToInt64Var(&o.BaselinePercent, "spd-qos-baseline-percent", o.BaselinePercent, ""+
@@ -64,6 +68,7 @@ func (o *SPDOptions) ApplyTo(c *controller.SPDConfig) error {
 	c.ReSyncPeriod = o.ResyncPeriod
 	c.SPDWorkloadGVResources = o.SPDWorkloadGVResources
 	c.SPDPodLabelIndexerKeys = o.SPDPodLabelIndexerKeys
+	c.EnableCNCCache = o.EnableCNCCache
 	c.IndicatorPlugins = o.IndicatorPlugins
 	c.BaselinePercent = o.BaselinePercent
 	return nil
