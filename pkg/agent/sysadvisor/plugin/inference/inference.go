@@ -104,9 +104,6 @@ func NewInferencePlugin(pluginName string, conf *config.Configuration, extraConf
 }
 
 func (infp *InferencePlugin) Run(ctx context.Context) {
-	if len(infp.modelsResultFetchers) > 0 {
-		general.RegisterHeartbeatCheck(borweinfetcher.BorweinModelResultFetcherName, 3*infp.period, general.HealthzCheckStateNotReady, 3*infp.period)
-	}
 	wait.UntilWithContext(ctx, infp.fetchModelResult, infp.period)
 }
 
@@ -128,9 +125,6 @@ func (infp *InferencePlugin) fetchModelResult(ctx context.Context) {
 		go func(modelName string, fetcher modelresultfetcher.ModelResultFetcher) {
 			defer wg.Done()
 			err := fetcher.FetchModelResult(ctx, infp.metaReader, infp.metaWriter, infp.metaServer)
-			defer func() {
-				_ = general.UpdateHealthzStateByError(borweinfetcher.BorweinModelResultFetcherName, err)
-			}()
 			if err != nil {
 				general.Errorf("FetchModelResult for model: %s failed with error: %v", modelName, err)
 			}
