@@ -96,7 +96,7 @@ type MetaWriter interface {
 	DeleteContainer(podUID string, containerName string) error
 	// RangeAndDeleteContainer applies a function to every podUID, containerName, containerInfo set.
 	// If f returns true, the containerInfo will be deleted.
-	RangeAndDeleteContainer(f func(containerInfo *types.ContainerInfo) bool, safeTime int) error
+	RangeAndDeleteContainer(f func(containerInfo *types.ContainerInfo) bool, safeTime int64) error
 	// RemovePod deletes a PodInfo keyed by pod uid. Repeatedly remove will be ignored.
 	RemovePod(podUID string) error
 	// ClearContainers remove all containers
@@ -149,7 +149,7 @@ type MetaCacheImp struct {
 	modelToResult map[string]interface{}
 	modelMutex    sync.RWMutex
 
-	containerCreateTimestamp map[string]int
+	containerCreateTimestamp map[string]int64
 }
 
 var _ MetaCache = &MetaCacheImp{}
@@ -172,7 +172,7 @@ func NewMetaCacheImp(conf *config.Configuration, emitterPool metricspool.Metrics
 		checkpointName:           stateFileName,
 		emitter:                  emitter,
 		modelToResult:            make(map[string]interface{}),
-		containerCreateTimestamp: make(map[string]int),
+		containerCreateTimestamp: make(map[string]int64),
 	}
 
 	// Restore from checkpoint before any function call to metacache api
@@ -301,7 +301,7 @@ func (mc *MetaCacheImp) AddContainer(podUID string, containerName string, contai
 		}
 	}
 
-	mc.setContainerCreateTimestamp(podUID, containerName, time.Now().Nanosecond())
+	mc.setContainerCreateTimestamp(podUID, containerName, time.Now().UnixNano())
 	if mc.setContainerInfo(podUID, containerName, containerInfo) {
 		return mc.storeState()
 	}
@@ -368,7 +368,7 @@ func (mc *MetaCacheImp) ClearContainers() error {
 	defer mc.podMutex.Unlock()
 
 	if len(mc.containerCreateTimestamp) != 0 {
-		mc.containerCreateTimestamp = map[string]int{}
+		mc.containerCreateTimestamp = map[string]int64{}
 	}
 	if len(mc.podEntries) != 0 {
 		mc.podEntries = map[string]types.ContainerEntries{}
@@ -378,7 +378,7 @@ func (mc *MetaCacheImp) ClearContainers() error {
 	return nil
 }
 
-func (mc *MetaCacheImp) RangeAndDeleteContainer(f func(containerInfo *types.ContainerInfo) bool, safeTime int) error {
+func (mc *MetaCacheImp) RangeAndDeleteContainer(f func(containerInfo *types.ContainerInfo) bool, safeTime int64) error {
 	mc.podMutex.Lock()
 	defer mc.podMutex.Unlock()
 
@@ -392,6 +392,8 @@ func (mc *MetaCacheImp) RangeAndDeleteContainer(f func(containerInfo *types.Cont
 				}
 			}
 			if f(containerInfo) {
+				klog.Warningf("RangeAndDeleteContainer delete container %s/%s with safe time (%d) and create time (%d)",
+					containerInfo.PodUID, containerInfo.ContainerName, safeTime, mc.getContainerCreateTimestamp(containerInfo.PodUID, containerInfo.ContainerName))
 				if mc.deleteContainer(containerInfo.PodUID, containerInfo.ContainerName) {
 					needStoreState = true
 				}
@@ -569,11 +571,11 @@ func (mc *MetaCacheImp) restoreState() error {
 	return nil
 }
 
-func (mc *MetaCacheImp) setContainerCreateTimestamp(podUID, containerName string, timestamp int) {
+func (mc *MetaCacheImp) setContainerCreateTimestamp(podUID, containerName string, timestamp int64) {
 	mc.containerCreateTimestamp[fmt.Sprintf("%s/%s", podUID, containerName)] = timestamp
 }
 
-func (mc *MetaCacheImp) getContainerCreateTimestamp(podUID, containerName string) int {
+func (mc *MetaCacheImp) getContainerCreateTimestamp(podUID, containerName string) int64 {
 	return mc.containerCreateTimestamp[fmt.Sprintf("%s/%s", podUID, containerName)]
 }
 
