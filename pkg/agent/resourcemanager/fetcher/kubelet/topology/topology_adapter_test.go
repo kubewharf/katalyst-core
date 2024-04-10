@@ -2956,7 +2956,7 @@ func Test_podResourcesServerTopologyAdapterImpl_Run(t *testing.T) {
 	notifier := make(chan struct{}, 1)
 	p, _ := NewPodResourcesServerTopologyAdapter(testMetaServer, generic.NewQoSConfiguration(),
 		endpoints, kubeletResourcePluginPath, nil,
-		nil, getNumaInfo, nil, podresources.GetV1Client)
+		nil, getNumaInfo, nil, podresources.GetV1Client, []string{"cpu", "memory"})
 	err = p.Run(ctx, func() {})
 	assert.NoError(t, err)
 
