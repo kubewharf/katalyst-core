@@ -41,7 +41,6 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/metaserver"
 	reporterconfig "github.com/kubewharf/katalyst-core/pkg/config/agent/reporter"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
-	"github.com/kubewharf/katalyst-core/pkg/util/general"
 )
 
 const (
@@ -195,13 +194,6 @@ func TestHealthz(t *testing.T) {
 	case <-ch:
 	case <-time.After(6 * time.Second):
 		t.Fatalf("timeout while waiting for manager update")
-	}
-
-	results := general.GetRegisterReadinessCheckResult()
-	for name, response := range results {
-		if reporterFetcherHealthCheckName == string(name) {
-			require.True(t, response.Ready)
-		}
 	}
 
 	_ = p.Stop()

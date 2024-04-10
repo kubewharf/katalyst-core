@@ -50,10 +50,6 @@ import (
 
 const reporterManagerCheckpoint = "reporter_manager_checkpoint"
 
-const reporterFetcherHealthCheckName = "reporter_fetcher_sync"
-
-const healthzGracePeriodMultiplier = 3
-
 const (
 	metricsNameGetContentCost       = "reporter_get_content_cost"
 	metricsNameGetContentPluginCost = "reporter_get_content_plugin_cost"
@@ -220,8 +216,6 @@ func (m *ReporterPluginManager) DeRegisterPlugin(pluginName string) {
 
 // Run start the reporter plugin manager
 func (m *ReporterPluginManager) Run(ctx context.Context) {
-	general.RegisterHeartbeatCheck(reporterFetcherHealthCheckName, m.reconcilePeriod*healthzGracePeriodMultiplier,
-		general.HealthzCheckStateReady, m.reconcilePeriod*healthzGracePeriodMultiplier)
 	go wait.UntilWithContext(ctx, m.syncFunc, m.reconcilePeriod)
 
 	klog.Infof("reporter plugin manager started")
@@ -316,10 +310,6 @@ func (m *ReporterPluginManager) pushContents(ctx context.Context, reportResponse
 // genericSync periodically calls the Get function to obtain content changes
 func (m *ReporterPluginManager) genericSync(ctx context.Context) {
 	klog.Infof("genericSync")
-	errList := make([]error, 0)
-	defer func() {
-		_ = general.UpdateHealthzStateByError(reporterFetcherHealthCheckName, errors.NewAggregate(errList))
-	}()
 
 	begin := time.Now()
 	defer func() {
@@ -332,16 +322,12 @@ func (m *ReporterPluginManager) genericSync(ctx context.Context) {
 	m.clearUnhealthyPlugin()
 
 	// get report content from each healthy Endpoint directly
-	reportResponses, err := m.getReportContent(false)
-	if err != nil {
-		errList = append(errList, err)
-	}
+	reportResponses, _ := m.getReportContent(false)
 
 	pushErr := m.pushContents(ctx, reportResponses)
 	if pushErr != nil {
 		_ = m.emitter.StoreInt64("reporter_plugin_sync_push_failed", 1, metrics.MetricTypeNameCount)
-		klog.Errorf("report plugin failed with error: %v", err)
-		errList = append(errList, pushErr)
+		klog.Errorf("report plugin failed with error: %v", pushErr)
 	}
 }
 
