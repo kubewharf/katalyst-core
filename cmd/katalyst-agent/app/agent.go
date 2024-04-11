@@ -123,6 +123,11 @@ func startAgent(ctx context.Context, genericCtx *agent.GenericContext,
 		return fmt.Errorf("add authconfiguration watcher failed")
 	}
 
+	err = genericCtx.MetaServer.AddConfigWatcher(crd.HyperParameterConfigurationGVR)
+	if err != nil {
+		return fmt.Errorf("add hyperparameterconfiguration watcher failed")
+	}
+
 	// start all component and make sure them can be stopped completely
 	for agentName, component := range componentMap {
 		wg.Add(1)

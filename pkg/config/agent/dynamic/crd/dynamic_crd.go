@@ -32,8 +32,9 @@ const (
 // of CRD. KCC components are responsible to identify those CRs and
 // trigger notification.
 type DynamicConfigCRD struct {
-	AdminQoSConfiguration *v1alpha1.AdminQoSConfiguration
-	AuthConfiguration     *v1alpha1.AuthConfiguration
+	AdminQoSConfiguration       *v1alpha1.AdminQoSConfiguration
+	AuthConfiguration           *v1alpha1.AuthConfiguration
+	HyperParameterConfiguration *v1alpha1.HyperParameterConfiguration
 }
 
 var (
@@ -41,4 +42,6 @@ var (
 	AdminQoSConfigurationGVR = metav1.GroupVersionResource(v1alpha1.SchemeGroupVersion.WithResource(v1alpha1.ResourceNameAdminQoSConfigurations))
 	// AuthConfigurationGVR is the group version resource for AuthConfiguration
 	AuthConfigurationGVR = metav1.GroupVersionResource(v1alpha1.SchemeGroupVersion.WithResource(v1alpha1.ResourceNameAuthConfigurations))
+	// HyperParameterConfigurationGVR is the group version resource for HyperParameterConfiguration
+	HyperParameterConfigurationGVR = metav1.GroupVersionResource(v1alpha1.SchemeGroupVersion.WithResource(v1alpha1.ResourceNameHyperParameterConfigurations))
 )

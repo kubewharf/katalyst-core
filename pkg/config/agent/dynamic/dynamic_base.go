@@ -22,6 +22,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/adminqos"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/auth"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/crd"
+	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/hpc"
 )
 
 type DynamicAgentConfiguration struct {
@@ -52,16 +53,19 @@ func (c *DynamicAgentConfiguration) SetDynamicConfiguration(conf *Configuration)
 type Configuration struct {
 	*adminqos.AdminQoSConfiguration
 	*auth.AuthConfiguration
+	*hpc.HyperParameterConfiguration
 }
 
 func NewConfiguration() *Configuration {
 	return &Configuration{
-		AdminQoSConfiguration: adminqos.NewAdminQoSConfiguration(),
-		AuthConfiguration:     auth.NewAuthConfiguration(),
+		AdminQoSConfiguration:       adminqos.NewAdminQoSConfiguration(),
+		AuthConfiguration:           auth.NewAuthConfiguration(),
+		HyperParameterConfiguration: hpc.NewHyperParameterConfiguration(),
 	}
 }
 
 func (c *Configuration) ApplyConfiguration(conf *crd.DynamicConfigCRD) {
 	c.AdminQoSConfiguration.ApplyConfiguration(conf)
 	c.AuthConfiguration.ApplyConfiguration(conf)
+	c.HyperParameterConfiguration.ApplyConfiguration(conf)
 }

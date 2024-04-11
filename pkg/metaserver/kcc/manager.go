@@ -221,7 +221,9 @@ func (c *DynamicConfigManager) tryUpdateConfig(ctx context.Context, skipError bo
 func (c *DynamicConfigManager) updateConfig(ctx context.Context) error {
 	dynamicConfigCRD, success, err := c.updateDynamicConfig(c.resourceGVRMap, katalystConfigGVRToGVKMap,
 		func(gvr metav1.GroupVersionResource, conf interface{}) error {
-			return c.configLoader.LoadConfig(ctx, gvr, conf)
+			err := c.configLoader.LoadConfig(ctx, gvr, conf)
+			klog.Infof("success to load dynamic config: %+v", conf)
+			return err
 		},
 	)
 	if !success {
