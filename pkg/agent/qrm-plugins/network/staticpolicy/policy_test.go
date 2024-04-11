@@ -1351,6 +1351,7 @@ func TestGetTopologyAwareResources(t *testing.T) {
 				Annotations: map[string]string{
 					// testEth0NSName is empty, so remove the prefix
 					consts.ResourceAnnotationKeyResourceIdentifier: testEth0Name,
+					consts.ResourceAnnotationKeyNICNetNSName:       "",
 				},
 			},
 		},
@@ -1435,6 +1436,7 @@ func TestGetTopologyAwareAllocatableResources(t *testing.T) {
 					Annotations: map[string]string{
 						// testEth0NSName is empty, so remove the prefix
 						consts.ResourceAnnotationKeyResourceIdentifier: testEth0Name,
+						consts.ResourceAnnotationKeyNICNetNSName:       "",
 					},
 				},
 				{
@@ -1445,6 +1447,7 @@ func TestGetTopologyAwareAllocatableResources(t *testing.T) {
 					TopologyLevel: pluginapi.TopologyLevel_SOCKET,
 					Annotations: map[string]string{
 						consts.ResourceAnnotationKeyResourceIdentifier: fmt.Sprintf("%s-%s", testEth2NSName, testEth2Name),
+						consts.ResourceAnnotationKeyNICNetNSName:       testEth2NSName,
 					},
 				},
 			},
@@ -1458,6 +1461,7 @@ func TestGetTopologyAwareAllocatableResources(t *testing.T) {
 					Annotations: map[string]string{
 						// testEth0NSName is empty, so remove the prefix
 						consts.ResourceAnnotationKeyResourceIdentifier: testEth0Name,
+						consts.ResourceAnnotationKeyNICNetNSName:       "",
 					},
 				},
 				{
@@ -1468,6 +1472,7 @@ func TestGetTopologyAwareAllocatableResources(t *testing.T) {
 					TopologyLevel: pluginapi.TopologyLevel_SOCKET,
 					Annotations: map[string]string{
 						consts.ResourceAnnotationKeyResourceIdentifier: fmt.Sprintf("%s-%s", testEth2NSName, testEth2Name),
+						consts.ResourceAnnotationKeyNICNetNSName:       testEth2NSName,
 					},
 				},
 			},

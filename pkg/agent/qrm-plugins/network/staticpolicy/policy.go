@@ -350,6 +350,7 @@ func (p *StaticPolicy) GetTopologyAwareResources(_ context.Context,
 			TopologyLevel: pluginapi.TopologyLevel_SOCKET,
 			Annotations: map[string]string{
 				apiconsts.ResourceAnnotationKeyResourceIdentifier: getResourceIdentifier(nic.NSName, allocationInfo.IfName),
+				apiconsts.ResourceAnnotationKeyNICNetNSName:       nic.NSName,
 			},
 		},
 	}
@@ -421,6 +422,7 @@ func (p *StaticPolicy) GetTopologyAwareAllocatableResources(_ context.Context,
 			TopologyLevel: pluginapi.TopologyLevel_SOCKET,
 			Annotations: map[string]string{
 				apiconsts.ResourceAnnotationKeyResourceIdentifier: resourceIdentifier,
+				apiconsts.ResourceAnnotationKeyNICNetNSName:       iface.NSName,
 			},
 		})
 		topologyAwareCapacityQuantityList = append(topologyAwareCapacityQuantityList, &pluginapi.TopologyAwareQuantity{
@@ -431,6 +433,7 @@ func (p *StaticPolicy) GetTopologyAwareAllocatableResources(_ context.Context,
 			TopologyLevel: pluginapi.TopologyLevel_SOCKET,
 			Annotations: map[string]string{
 				apiconsts.ResourceAnnotationKeyResourceIdentifier: resourceIdentifier,
+				apiconsts.ResourceAnnotationKeyNICNetNSName:       iface.NSName,
 			},
 		})
 		aggregatedAllocatableQuantity += general.MinUInt32(nicState.EgressState.Allocatable, nicState.IngressState.Allocatable)
