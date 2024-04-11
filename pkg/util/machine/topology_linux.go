@@ -25,8 +25,6 @@ import (
 	"strconv"
 	"strings"
 
-	"k8s.io/apimachinery/pkg/util/sets"
-
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/global"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 )
@@ -41,15 +39,7 @@ func GetExtraTopologyInfo(conf *global.MachineInfoConfiguration) (*ExtraTopology
 		return nil, fmt.Errorf("faield to ReadDir /sys/devices/system/node, err %s", err)
 	}
 
-	// calculate the sibling NUMA allocatable memory bandwidth by the capacity multiplying the allocatable rate.
-	// Now, all the NUMAs have the same memory bandwidth capacity and allocatable
-	siblingNumaMBWCapacity := conf.SiblingNumaMemoryBandwidthCapacity
-	siblingNumaMBWAllocatable := int64(float64(siblingNumaMBWCapacity) * conf.SiblingNumaMemoryBandwidthAllocatableRate)
-
 	numaDistanceArray := make(map[int][]NumaDistanceInfo)
-	siblingNumaMap := make(map[int]sets.Int)
-	siblingNumaAvgMBWAllocatableMap := make(map[int]int64)
-	siblingNumaAvgMBWCapacityMap := make(map[int]int64)
 	for _, fi := range fInfos {
 		if !fi.IsDir() {
 			continue
@@ -70,44 +60,22 @@ func GetExtraTopologyInfo(conf *global.MachineInfoConfiguration) (*ExtraTopology
 		}
 		s := strings.TrimSpace(strings.TrimRight(string(b), "\n"))
 		distances := strings.Fields(s)
-		var (
-			distanceArray    []NumaDistanceInfo
-			selfNumaDistance int
-		)
-
-		siblingSet := sets.NewInt()
+		var distanceArray []NumaDistanceInfo
 		for id, distanceStr := range distances {
 			distance, err := strconv.Atoi(distanceStr)
 			if err != nil {
 				return nil, err
 			}
-
-			if id == nodeID {
-				selfNumaDistance = distance
-				continue
-			}
-
 			distanceArray = append(distanceArray, NumaDistanceInfo{
 				NumaID:   id,
 				Distance: distance,
 			})
-
-			// the distance between two different NUMAs is equal to the distance between
-			// it and itself are siblings each other
-			if distance == selfNumaDistance {
-				siblingSet.Insert(id)
-			}
 		}
 		numaDistanceArray[nodeID] = distanceArray
-		siblingNumaMap[nodeID] = siblingSet
-		siblingNumaAvgMBWAllocatableMap[nodeID] = siblingNumaMBWAllocatable / int64(len(siblingSet)+1)
-		siblingNumaAvgMBWCapacityMap[nodeID] = siblingNumaMBWCapacity / int64(len(siblingSet)+1)
 	}
 
 	return &ExtraTopologyInfo{
-		NumaDistanceMap:                 numaDistanceArray,
-		SiblingNumaMap:                  siblingNumaMap,
-		SiblingNumaAvgMBWCapacityMap:    siblingNumaAvgMBWCapacityMap,
-		SiblingNumaAvgMBWAllocatableMap: siblingNumaAvgMBWAllocatableMap,
+		NumaDistanceMap: numaDistanceArray,
+		SiblingNumaInfo: GetSiblingNumaInfo(conf, numaDistanceArray),
 	}, nil
 }
