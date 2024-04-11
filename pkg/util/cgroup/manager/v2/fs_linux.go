@@ -48,7 +48,7 @@ func NewManager() *manager {
 }
 
 func (m *manager) ApplyMemory(absCgroupPath string, data *common.MemoryData) error {
-	if data.LimitInBytes > 0 {
+	if data.LimitInBytes != 0 {
 		if err, applied, oldData := common.WriteFileIfChange(absCgroupPath, "memory.max", numToStr(data.LimitInBytes)); err != nil {
 			return err
 		} else if applied {
