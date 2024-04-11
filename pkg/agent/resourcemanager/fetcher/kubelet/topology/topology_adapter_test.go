@@ -912,13 +912,15 @@ func Test_getZoneAllocationsByPodResources(t *testing.T) {
 					},
 				),
 				extraTopologyInfo: &machine.ExtraTopologyInfo{
-					SiblingNumaAvgMBWAllocatableMap: map[int]int64{
-						0: 8,
-						1: 8,
-					},
-					SiblingNumaAvgMBWCapacityMap: map[int]int64{
-						0: 10,
-						1: 10,
+					SiblingNumaInfo: &machine.SiblingNumaInfo{
+						SiblingNumaAvgMBWAllocatableMap: map[int]int64{
+							0: 8,
+							1: 8,
+						},
+						SiblingNumaAvgMBWCapacityMap: map[int]int64{
+							0: 10,
+							1: 10,
+						},
 					},
 				},
 			},
