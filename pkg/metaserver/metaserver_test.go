@@ -84,7 +84,7 @@ func TestMetaServer_Run(t *testing.T) {
 
 	go meta.Run(context.Background())
 
-	time.Sleep(3 * time.Millisecond)
+	time.Sleep(10 * time.Millisecond)
 
 	meta.Lock()
 	assert.True(t, meta.start)

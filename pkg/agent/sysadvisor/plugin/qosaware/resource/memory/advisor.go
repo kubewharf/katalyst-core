@@ -135,9 +135,9 @@ func NewMemoryResourceAdvisor(conf *config.Configuration, extraConf interface{},
 
 func (ra *memoryResourceAdvisor) Run(ctx context.Context) {
 	period := ra.conf.SysAdvisorPluginsConfiguration.QoSAwarePluginConfiguration.SyncPeriod
-	general.RegisterHeartbeatCheck(memoryHealthCheckName, healthCheckTolerationDuration, general.HealthzCheckStateNotReady, healthCheckTolerationDuration)
 	general.InfoS("wait to list containers")
 	<-ra.recvCh
+	general.RegisterHeartbeatCheck(memoryHealthCheckName, healthCheckTolerationDuration, general.HealthzCheckStateNotReady, healthCheckTolerationDuration)
 	general.InfoS("list containers successfully")
 
 	go wait.Until(ra.doUpdate, period, ctx.Done())

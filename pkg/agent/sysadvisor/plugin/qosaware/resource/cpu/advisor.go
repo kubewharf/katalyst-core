@@ -60,7 +60,7 @@ const (
 	metricRegionIndicatorErrorPrefix   = "region_indicator_error_"
 
 	cpuAdvisorHealthCheckName     = "cpu_advisor_update"
-	healthCheckTolerationDuration = 15 * time.Second
+	healthCheckTolerationDuration = 30 * time.Second
 )
 
 var (
@@ -112,6 +112,7 @@ type cpuResourceAdvisor struct {
 	metaCache  metacache.MetaCache
 	metaServer *metaserver.MetaServer
 	emitter    metrics.MetricEmitter
+	doOnce     sync.Once
 }
 
 // NewCPUResourceAdvisor returns a cpuResourceAdvisor instance
@@ -155,10 +156,13 @@ func NewCPUResourceAdvisor(conf *config.Configuration, extraConf interface{}, me
 }
 
 func (cra *cpuResourceAdvisor) Run(ctx context.Context) {
-	general.RegisterHeartbeatCheck(cpuAdvisorHealthCheckName, healthCheckTolerationDuration, general.HealthzCheckStateNotReady, healthCheckTolerationDuration)
 	for {
 		select {
 		case v := <-cra.recvCh:
+			cra.doOnce.Do(func() {
+				general.RegisterReportCheck(cpuAdvisorHealthCheckName, healthCheckTolerationDuration)
+			})
+
 			lag := time.Since(v.TimeStamp)
 			klog.Infof("[qosaware-cpu] receive update trigger, checkpoint at %v", v.TimeStamp)
 			cra.emitter.StoreFloat64(metricCPUAdvisorUpdateLag, float64(lag/time.Millisecond), metrics.MetricTypeNameRaw)
@@ -168,7 +172,9 @@ func (cra *cpuResourceAdvisor) Run(ctx context.Context) {
 				klog.Errorf("[qosaware-cpu] skip update: checkpoint is outdated, lag %v", lag)
 				continue
 			}
-			if err := cra.update(); err != nil {
+			err := cra.update()
+			_ = general.UpdateHealthzStateByError(cpuAdvisorHealthCheckName, err)
+			if err != nil {
 				klog.Errorf("[qosaware-cpu] failed to do update: %q", err)
 				continue
 			}
@@ -213,9 +219,6 @@ func (cra *cpuResourceAdvisor) GetHeadroom() (resource.Quantity, error) {
 func (cra *cpuResourceAdvisor) update() (err error) {
 	cra.mutex.Lock()
 	defer cra.mutex.Unlock()
-	defer func() {
-		_ = general.UpdateHealthzStateByError(cpuAdvisorHealthCheckName, err)
-	}()
 	if err = cra.updateWithIsolationGuardian(true); err != nil {
 		if err == errIsolationSafetyCheckFailed {
 			klog.Warningf("[qosaware-cpu] failed to updateWithIsolationGuardian(true): %q", err)
