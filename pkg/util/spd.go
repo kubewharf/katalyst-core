@@ -125,15 +125,15 @@ func GetSPDForWorkload(workload *unstructured.Unstructured, spdIndexer cache.Ind
 	return nil, apierrors.NewNotFound(apiworkload.Resource(apiworkload.ResourceNameServiceProfileDescriptors), "spd for workload")
 }
 
-// GetSPDForPod is used to get spd that should manage the given vpa,
+// GetSPDForPod is used to get spd that should manage the given pod,
 // we'll try to find by annotation for pod, and then go through workload if not exist,
 // and we will find it recursively since we don't know in which level the owner will be.
 func GetSPDForPod(pod *core.Pod, spdIndexer cache.Indexer, workloadListerMap map[schema.GroupVersionKind]cache.GenericLister,
-	spdLister workloadlister.ServiceProfileDescriptorLister) (*apiworkload.ServiceProfileDescriptor, error) {
+	spdLister workloadlister.ServiceProfileDescriptorLister, checkSPDMatchWithPod bool) (*apiworkload.ServiceProfileDescriptor, error) {
 	// different with vpa, we will store spd name in pod name, so we will check whether it's still valid
 	if spdName, ok := pod.GetAnnotations()[apiconsts.PodAnnotationSPDNameKey]; ok {
 		spd, err := spdLister.ServiceProfileDescriptors(pod.GetNamespace()).Get(spdName)
-		if err == nil && CheckSPDMatchWithPod(pod, spd, workloadListerMap) {
+		if err == nil {
 			return spd, nil
 		}
 	}
@@ -160,16 +160,19 @@ func GetSPDForPod(pod *core.Pod, spdIndexer cache.Indexer, workloadListerMap map
 		}
 	}
 
-	spdList, err := spdLister.List(labels.Everything())
-	if err != nil {
-		return nil, err
-	}
+	if checkSPDMatchWithPod {
+		spdList, err := spdLister.List(labels.Everything())
+		if err != nil {
+			return nil, err
+		}
 
-	for _, spd := range spdList {
-		if CheckSPDMatchWithPod(pod, spd, workloadListerMap) {
-			return spd, nil
+		for _, spd := range spdList {
+			if CheckSPDMatchWithPod(pod, spd, workloadListerMap) {
+				return spd, nil
+			}
 		}
 	}
+
 	return nil, apierrors.NewNotFound(apiworkload.Resource(apiworkload.ResourceNameServiceProfileDescriptors), "spd for pod")
 }
 

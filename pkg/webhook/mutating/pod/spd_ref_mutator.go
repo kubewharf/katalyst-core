@@ -63,7 +63,7 @@ func (s *WebhookPodSPDReferenceMutator) MutatePod(pod *core.Pod, namespace strin
 	}
 
 	pod.Namespace = namespace
-	spd, err := katalystutil.GetSPDForPod(pod, s.spdIndexer, s.workloadLister, s.spdLister)
+	spd, err := katalystutil.GetSPDForPod(pod, s.spdIndexer, s.workloadLister, s.spdLister, true)
 	if err != nil || spd == nil {
 		klog.Warningf("didn't to find spd of pod %v/%v, err: %v", pod.Namespace, pod.Name, err)
 		return false, nil

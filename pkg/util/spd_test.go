@@ -143,7 +143,7 @@ func TestGetSPDForPod(t *testing.T) {
 	}
 	_ = spdInformer.Informer().GetStore().Add(spd)
 
-	s, err := GetSPDForPod(pod1, spdInformer.Informer().GetIndexer(), workloadInformers, spdInformer.Lister())
+	s, err := GetSPDForPod(pod1, spdInformer.Informer().GetIndexer(), workloadInformers, spdInformer.Lister(), true)
 	assert.NoError(t, err)
 	assert.Equal(t, spd, s)
 
@@ -151,7 +151,7 @@ func TestGetSPDForPod(t *testing.T) {
 		apiconsts.PodAnnotationSPDNameKey: spd.Name,
 	}
 
-	s, err = GetSPDForPod(pod1, spdInformer.Informer().GetIndexer(), workloadInformers, spdInformer.Lister())
+	s, err = GetSPDForPod(pod1, spdInformer.Informer().GetIndexer(), workloadInformers, spdInformer.Lister(), true)
 	assert.NoError(t, err)
 	assert.Equal(t, spd, s)
 
@@ -169,7 +169,7 @@ func TestGetSPDForPod(t *testing.T) {
 		},
 	}
 
-	s, err = GetSPDForPod(pod2, spdInformer.Informer().GetIndexer(), workloadInformers, spdInformer.Lister())
+	s, err = GetSPDForPod(pod2, spdInformer.Informer().GetIndexer(), workloadInformers, spdInformer.Lister(), true)
 	assert.Nil(t, s)
 	assert.Error(t, err)
 }

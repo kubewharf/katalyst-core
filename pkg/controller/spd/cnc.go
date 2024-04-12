@@ -403,7 +403,7 @@ func (c *cncCacheController) getSPDMapForCNC(cnc *configapis.CustomNodeConfig) (
 			continue
 		}
 
-		spd, err := util.GetSPDForPod(pod, c.spdIndexer, c.workloadGVKLister, c.spdLister)
+		spd, err := util.GetSPDForPod(pod, c.spdIndexer, c.workloadGVKLister, c.spdLister, false)
 		if err != nil && !errors.IsNotFound(err) {
 			return nil, err
 		}
