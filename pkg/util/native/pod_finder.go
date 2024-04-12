@@ -130,7 +130,7 @@ func GetPodsAssignedToNode(nodeName string, podIndexer cache.Indexer) ([]*core.P
 // AddNodeNameIndexerForPod add node name index for pod informer
 func AddNodeNameIndexerForPod(podInformer v1.PodInformer) error {
 	if _, ok := podInformer.Informer().GetIndexer().GetIndexers()[nodeNameKeyIndex]; !ok {
-		return podInformer.Informer().AddIndexers(cache.Indexers{
+		return podInformer.Informer().GetIndexer().AddIndexers(cache.Indexers{
 			nodeNameKeyIndex: func(obj interface{}) ([]string, error) {
 				pod, ok := obj.(*core.Pod)
 				if !ok {

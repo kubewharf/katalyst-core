@@ -161,7 +161,7 @@ func GetUnstructuredSelector(object *unstructured.Unstructured) (labels.Selector
 		return selector, nil
 	}
 
-	val, ok, err := unstructured.NestedFieldCopy(object.UnstructuredContent(), objectFieldsForLabelSelector...)
+	val, ok, err := unstructured.NestedFieldNoCopy(object.UnstructuredContent(), objectFieldsForLabelSelector...)
 	if err != nil {
 		return nil, err
 	} else if !ok || val == nil {
