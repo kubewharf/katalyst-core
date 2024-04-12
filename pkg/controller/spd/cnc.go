@@ -399,7 +399,11 @@ func (c *cncCacheController) getSPDMapForCNC(cnc *configapis.CustomNodeConfig) (
 
 	spdMap := make(map[string]*apiworkload.ServiceProfileDescriptor)
 	for _, pod := range podList {
-		spd, err := util.GetSPDForPod(pod, c.podIndexer, c.workloadGVKLister, c.spdLister)
+		if native.PodIsTerminated(pod) {
+			continue
+		}
+
+		spd, err := util.GetSPDForPod(pod, c.spdIndexer, c.workloadGVKLister, c.spdLister)
 		if err != nil && !errors.IsNotFound(err) {
 			return nil, err
 		}
