@@ -134,7 +134,9 @@ func TestNeedUpdateResources(t *testing.T) {
 			want: false,
 		},
 	} {
+		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			assert.Equal(t, tc.want, PodResourceDiff(tc.pod, tc.containerResourcesToUpdate))
 		})
 	}
@@ -193,7 +195,10 @@ func TestMultiplyResourceQuantity(t *testing.T) {
 		},
 	}
 	for _, c := range cases {
+		c := c
 		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+
 			quant := MultiplyResourceQuantity(c.resourceName, c.quant, c.factor)
 			assert.Equal(t, c.want, quant.Equal(c.res))
 		})
@@ -201,6 +206,8 @@ func TestMultiplyResourceQuantity(t *testing.T) {
 }
 
 func TestAggregateAvgQuantities(t *testing.T) {
+	t.Parallel()
+
 	type args struct {
 		quantities []resource.Quantity
 	}
@@ -228,7 +235,10 @@ func TestAggregateAvgQuantities(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			assert.Equalf(t, tt.want, AggregateAvgQuantities(tt.args.quantities), "AggregateAvgQuantities(%v)", tt.args.quantities)
 		})
 	}

@@ -1315,6 +1315,8 @@ func testPolicyMerge(policy Policy, tcases []policyMergeTestCase, t *testing.T) 
 }
 
 func TestMaxOfMinAffinityCounts(t *testing.T) {
+	t.Parallel()
+
 	tcases := []struct {
 		hints    [][]TopologyHint
 		expected int
@@ -1384,7 +1386,9 @@ func TestMaxOfMinAffinityCounts(t *testing.T) {
 	}
 
 	for _, tc := range tcases {
+		tc := tc
 		t.Run("", func(t *testing.T) {
+			t.Parallel()
 			result := maxOfMinAffinityCounts(tc.hints)
 			if result != tc.expected {
 				t.Errorf("Expected result to be %v, got %v", tc.expected, result)
@@ -1394,6 +1398,8 @@ func TestMaxOfMinAffinityCounts(t *testing.T) {
 }
 
 func TestCompareHints(t *testing.T) {
+	t.Parallel()
+
 	tcases := []struct {
 		description                   string
 		bestNonPreferredAffinityCount int
@@ -1579,7 +1585,10 @@ func TestCompareHints(t *testing.T) {
 	}
 
 	for _, tc := range tcases {
+		tc := tc
 		t.Run(tc.description, func(t *testing.T) {
+			t.Parallel()
+
 			result := compareHints(tc.bestNonPreferredAffinityCount, tc.current, tc.candidate)
 			if result != tc.current && result != tc.candidate {
 				t.Errorf("Expected result to be either 'current' or 'candidate' hint")

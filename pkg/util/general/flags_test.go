@@ -50,7 +50,10 @@ func TestResourceList_Set(t *testing.T) {
 	}
 	for _, tt := range tests {
 		r := ResourceList{}
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			err := r.Set(tt.args.value)
 			assert.Equalf(t, tt.wantErr, err != nil, "Set(%v) return err", tt.args.value)
 			assert.Equal(t, tt.wantResource, r)
@@ -84,7 +87,9 @@ func TestResourceList_String(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			assert.Equalf(t, tt.want, tt.r.String(), "String()")
 		})
 	}

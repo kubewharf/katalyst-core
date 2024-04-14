@@ -39,7 +39,10 @@ func TestNewManager(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			if got := NewManager(); !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("NewManager() = %v, want %v", got, tt.want)
 			}
@@ -95,7 +98,9 @@ func Test_manager_ApplyMemory(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			m := &manager{}
 			if err := m.ApplyMemory(tt.args.absCgroupPath, tt.args.data); (err != nil) != tt.wantErr {
 				t.Errorf("manager.ApplyMemory() error = %v, wantErr %v", err, tt.wantErr)
@@ -130,7 +135,10 @@ func Test_manager_ApplyCPU(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			m := &manager{}
 			if err := m.ApplyCPU(tt.args.absCgroupPath, tt.args.data); (err != nil) != tt.wantErr {
 				t.Errorf("manager.ApplyCPU() error = %v, wantErr %v", err, tt.wantErr)
@@ -165,7 +173,10 @@ func Test_manager_ApplyCPUSet(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			m := &manager{}
 			if err := m.ApplyCPUSet(tt.args.absCgroupPath, tt.args.data); (err != nil) != tt.wantErr {
 				t.Errorf("manager.ApplyCPUSet() error = %v, wantErr %v", err, tt.wantErr)
@@ -199,7 +210,10 @@ func Test_manager_ApplyNetCls(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			m := &manager{}
 			if err := m.ApplyNetCls(tt.args.in0, tt.args.in1); (err != nil) != tt.wantErr {
 				t.Errorf("manager.ApplyNetCls() error = %v, wantErr %v", err, tt.wantErr)
@@ -246,7 +260,10 @@ func Test_manager_ApplyIOCostQoS(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			m := &manager{}
 			if err := m.ApplyIOCostQoS(tt.args.absCgroupPath, tt.args.devID, tt.args.data); (err != nil) != tt.wantErr {
 				t.Errorf("manager.ApplyIOCostQoS() error = %v, wantErr %v", err, tt.wantErr)
@@ -293,7 +310,10 @@ func Test_manager_ApplyIOCostModel(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			m := &manager{}
 			if err := m.ApplyIOCostModel(tt.args.absCgroupPath, tt.args.devID, tt.args.data); (err != nil) != tt.wantErr {
 				t.Errorf("manager.ApplyIOCostModel() error = %v, wantErr %v", err, tt.wantErr)
@@ -328,7 +348,10 @@ func Test_manager_ApplyIOWeight(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			m := &manager{}
 			if err := m.ApplyIOWeight(tt.args.absCgroupPath, tt.args.devID, tt.args.weight); (err != nil) != tt.wantErr {
 				t.Errorf("manager.ApplyIOWeight() error = %v, wantErr %v", err, tt.wantErr)
@@ -363,7 +386,10 @@ func Test_manager_ApplyUnifiedData(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			m := &manager{}
 			if err := m.ApplyUnifiedData(tt.args.absCgroupPath, tt.args.cgroupFileName, tt.args.data); (err != nil) != tt.wantErr {
 				t.Errorf("manager.ApplyUnifiedData() error = %v, wantErr %v", err, tt.wantErr)
@@ -396,7 +422,10 @@ func Test_manager_GetMemory(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			m := &manager{}
 			got, err := m.GetMemory(tt.args.absCgroupPath)
 			if (err != nil) != tt.wantErr {
@@ -434,7 +463,10 @@ func Test_manager_GetCPUSet(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			m := &manager{}
 			got, err := m.GetCPUSet(tt.args.absCgroupPath)
 			if (err != nil) != tt.wantErr {
@@ -472,7 +504,10 @@ func Test_manager_GetCPU(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			m := &manager{}
 			got, err := m.GetCPU(tt.args.absCgroupPath)
 			if (err != nil) != tt.wantErr {
@@ -510,7 +545,10 @@ func Test_manager_GetIOCostQoS(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			m := &manager{}
 			got, err := m.GetIOCostQoS(tt.args.absCgroupPath)
 			if (err != nil) != tt.wantErr {
@@ -548,7 +586,10 @@ func Test_manager_GetIOCostModel(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			m := &manager{}
 			got, err := m.GetIOCostModel(tt.args.absCgroupPath)
 			if (err != nil) != tt.wantErr {
@@ -590,7 +631,10 @@ func Test_manager_GetDeviceIOWeight(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			m := &manager{}
 			got, got1, err := m.GetDeviceIOWeight(tt.args.absCgroupPath, tt.args.devID)
 			if (err != nil) != tt.wantErr {
@@ -631,7 +675,10 @@ func Test_manager_GetIOStat(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			m := &manager{}
 			got, err := m.GetIOStat(tt.args.absCgroupPath)
 			if (err != nil) != tt.wantErr {
@@ -670,7 +717,10 @@ func Test_manager_GetMetrics(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			m := &manager{}
 			got, err := m.GetMetrics(tt.args.relCgroupPath, tt.args.in1)
 			if (err != nil) != tt.wantErr {
@@ -708,7 +758,10 @@ func Test_manager_GetPids(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			m := &manager{}
 			got, err := m.GetPids(tt.args.absCgroupPath)
 			if (err != nil) != tt.wantErr {
@@ -746,7 +799,10 @@ func Test_manager_GetTasks(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			m := &manager{}
 			got, err := m.GetTasks(tt.args.absCgroupPath)
 			if (err != nil) != tt.wantErr {
@@ -780,7 +836,9 @@ func Test_numToStr(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			if gotRet := numToStr(tt.args.value); gotRet != tt.wantRet {
 				t.Errorf("numToStr() = %v, want %v", gotRet, tt.wantRet)
 			}
@@ -821,7 +879,10 @@ func Test_parseDeviceIOCostQoS(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			got, got1, err := parseDeviceIOCostQoS(tt.args.str)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("parseDeviceIOCostQoS() error = %v, wantErr %v", err, tt.wantErr)
@@ -870,7 +931,10 @@ func Test_parseDeviceIOCostModel(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			got, got1, err := parseDeviceIOCostModel(tt.args.str)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("parseDeviceIOCostModel() error = %v, wantErr %v", err, tt.wantErr)

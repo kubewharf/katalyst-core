@@ -107,7 +107,10 @@ func TestGetNumaNodeFreeMemMB(t *testing.T) {
 	}
 
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			tmpDir := t.TempDir()
 			var numas []int
 			for numa, pages := range tt.numaPages {
@@ -142,7 +145,10 @@ func TestGetNumaNodeFreeMemMB_VMStatFileNotFound(t *testing.T) {
 	}
 
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			tmpDir := t.TempDir()
 			_, err := getNumasFreeMemRatio(tmpDir, []int{0})
 			if (err != nil) != tt.wantErr {
@@ -191,7 +197,10 @@ func TestGetNumaNodeFreeMemMB_GetFreePagesFailed(t *testing.T) {
 	}
 
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			tmpDir := t.TempDir()
 			generateNodeVMStatFile(t, tmpDir, 0, tt.content)
 			_, err := getNumasFreeMemRatio(tmpDir, []int{0})
@@ -206,6 +215,8 @@ func TestGetNumaNodeFreeMemMB_GetFreePagesFailed(t *testing.T) {
 }
 
 func TestGetProcessPageStats(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name    string
 		pid     int
@@ -284,7 +295,10 @@ VmFlags: rd mr mw me dw sd
 	}
 
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			tmpDir := t.TempDir()
 			generatePidSmapsFile(t, tmpDir, tt.pid, tt.content)
 			got, err := getProcessPageStats(tmpDir, tt.pid)
@@ -302,6 +316,8 @@ VmFlags: rd mr mw me dw sd
 }
 
 func TestGetProcessPageStats_SmapsFileNotFound(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name    string
 		wantErr bool
@@ -315,7 +331,10 @@ func TestGetProcessPageStats_SmapsFileNotFound(t *testing.T) {
 	}
 
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			tmpDir := t.TempDir()
 			_, err := getProcessPageStats(tmpDir, 12345)
 			if (err != nil) != tt.wantErr {
@@ -382,7 +401,10 @@ Pss: 4 kB
 	}
 
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			tmpDir := t.TempDir()
 			generatePidSmapsFile(t, tmpDir, 12345, tt.content)
 			got, err := getProcessPageStats(tmpDir, 12345)
@@ -442,7 +464,10 @@ VmFlags: rd mr mw me dw sd
 	}
 
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			tmpDir := t.TempDir()
 			generatePidSmapsFile(t, tmpDir, tt.pid, tt.content)
 			err := MovePagesForProcess(context.Background(), tmpDir, tt.pid, tt.srcNumas, tt.destNumas)
@@ -460,6 +485,7 @@ VmFlags: rd mr mw me dw sd
 }
 
 func TestMovePagesForContainer(t *testing.T) {
+	t.Parallel()
 	err := MovePagesForContainer(context.Background(), "pod123", "container123", machine.NewCPUSet([]int{1, 2}...), machine.NewCPUSet([]int{1, 2}...))
 	assert.NilError(t, err)
 }

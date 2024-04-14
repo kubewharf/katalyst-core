@@ -141,7 +141,9 @@ func TestAddOrUpdateCNRTaint(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			got, got1, err := AddOrUpdateCNRTaint(tt.args.cnr, tt.args.taint)
 			if !tt.wantErr(t, err, fmt.Sprintf("AddOrUpdateCNRTaint(%v, %v)", tt.args.cnr, tt.args.taint)) {
 				return
@@ -202,7 +204,9 @@ func TestCNRTaintExists(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			assert.Equalf(t, tt.want, CNRTaintExists(tt.args.taints, tt.args.taintToFind), "CNRTaintExists(%v, %v)", tt.args.taints, tt.args.taintToFind)
 		})
 	}
@@ -287,7 +291,9 @@ func TestMergeAllocations(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			assert.Equalf(t, tt.want, MergeAllocations(tt.args.dst, tt.args.src), "MergeAllocations(%v, %v)", tt.args.dst, tt.args.src)
 		})
 	}
@@ -357,7 +363,9 @@ func TestMergeAttributes(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			assert.Equalf(t, tt.want, MergeAttributes(tt.args.dst, tt.args.src), "MergeAttributes(%v, %v)", tt.args.dst, tt.args.src)
 		})
 	}
@@ -404,7 +412,9 @@ func TestMergeResources(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			assert.Equalf(t, tt.want, MergeResources(tt.args.dst, tt.args.src), "MergeResources(%v, %v)", tt.args.dst, tt.args.src)
 		})
 	}
@@ -1420,7 +1430,9 @@ func TestMergeTopologyZone(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			expect := MergeTopologyZone(tt.args.dst, tt.args.src)
 			assert.Equalf(t, tt.want, expect, "MergeTopologyZone(%v, %v)", tt.args.dst, tt.args.src)
 		})

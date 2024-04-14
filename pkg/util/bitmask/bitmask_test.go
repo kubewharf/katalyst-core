@@ -22,6 +22,8 @@ import (
 )
 
 func TestNewEmptyiBitMask(t *testing.T) {
+	t.Parallel()
+
 	tcases := []struct {
 		name         string
 		expectedMask string
@@ -40,6 +42,8 @@ func TestNewEmptyiBitMask(t *testing.T) {
 }
 
 func TestNewBitMask(t *testing.T) {
+	t.Parallel()
+
 	tcases := []struct {
 		name         string
 		bits         []int
@@ -70,6 +74,8 @@ func TestNewBitMask(t *testing.T) {
 }
 
 func TestAdd(t *testing.T) {
+	t.Parallel()
+
 	tcases := []struct {
 		name         string
 		bits         []int
@@ -106,6 +112,8 @@ func TestAdd(t *testing.T) {
 }
 
 func TestRemove(t *testing.T) {
+	t.Parallel()
+
 	tcases := []struct {
 		name         string
 		bitsSet      []int
@@ -147,6 +155,8 @@ func TestRemove(t *testing.T) {
 }
 
 func TestAnd(t *testing.T) {
+	t.Parallel()
+
 	tcases := []struct {
 		name    string
 		masks   [][]int
@@ -198,6 +208,8 @@ func TestAnd(t *testing.T) {
 }
 
 func TestOr(t *testing.T) {
+	t.Parallel()
+
 	tcases := []struct {
 		name   string
 		masks  [][]int
@@ -248,6 +260,8 @@ func TestOr(t *testing.T) {
 }
 
 func TestClear(t *testing.T) {
+	t.Parallel()
+
 	tcases := []struct {
 		name        string
 		mask        []int
@@ -279,6 +293,8 @@ func TestClear(t *testing.T) {
 }
 
 func TestFill(t *testing.T) {
+	t.Parallel()
+
 	tcases := []struct {
 		name       string
 		mask       []int
@@ -310,6 +326,8 @@ func TestFill(t *testing.T) {
 }
 
 func TestIsEmpty(t *testing.T) {
+	t.Parallel()
+
 	tcases := []struct {
 		name          string
 		mask          []int
@@ -341,6 +359,8 @@ func TestIsEmpty(t *testing.T) {
 }
 
 func TestIsSet(t *testing.T) {
+	t.Parallel()
+
 	tcases := []struct {
 		name        string
 		mask        []int
@@ -382,6 +402,8 @@ func TestIsSet(t *testing.T) {
 }
 
 func TestAnySet(t *testing.T) {
+	t.Parallel()
+
 	tcases := []struct {
 		name        string
 		mask        []int
@@ -429,6 +451,8 @@ func TestAnySet(t *testing.T) {
 }
 
 func TestIsEqual(t *testing.T) {
+	t.Parallel()
+
 	tcases := []struct {
 		name          string
 		firstMask     []int
@@ -477,6 +501,8 @@ func TestIsEqual(t *testing.T) {
 }
 
 func TestCount(t *testing.T) {
+	t.Parallel()
+
 	tcases := []struct {
 		name          string
 		bits          []int
@@ -508,6 +534,8 @@ func TestCount(t *testing.T) {
 }
 
 func TestGetBits(t *testing.T) {
+	t.Parallel()
+
 	tcases := []struct {
 		name         string
 		bits         []int
@@ -539,6 +567,8 @@ func TestGetBits(t *testing.T) {
 }
 
 func TestIsNarrowerThan(t *testing.T) {
+	t.Parallel()
+
 	tcases := []struct {
 		name                  string
 		firstMask             []int
@@ -581,6 +611,8 @@ func TestIsNarrowerThan(t *testing.T) {
 }
 
 func TestIterateBitMasks(t *testing.T) {
+	t.Parallel()
+
 	tcases := []struct {
 		name    string
 		numbits int

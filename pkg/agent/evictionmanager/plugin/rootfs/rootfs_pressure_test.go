@@ -74,6 +74,7 @@ func createRootfsPressureEvictionPlugin(tc *testConf, emitter metrics.MetricEmit
 }
 
 func TestPodRootfsPressureEvictionPlugin_ThresholdMetNoMetricDataNoConf(t *testing.T) {
+	t.Parallel()
 	emitter := metrics.DummyMetrics{}
 	fakeFetcher := metric.NewFakeMetricsFetcher(emitter).(*metric.FakeMetricsFetcher)
 	tc := &testConf{}
@@ -84,6 +85,7 @@ func TestPodRootfsPressureEvictionPlugin_ThresholdMetNoMetricDataNoConf(t *testi
 }
 
 func TestPodRootfsPressureEvictionPlugin_ThresholdMetNoMetricData(t *testing.T) {
+	t.Parallel()
 	emitter := metrics.DummyMetrics{}
 	fakeFetcher := metric.NewFakeMetricsFetcher(emitter).(*metric.FakeMetricsFetcher)
 	tc := &testConf{
@@ -97,6 +99,7 @@ func TestPodRootfsPressureEvictionPlugin_ThresholdMetNoMetricData(t *testing.T) 
 }
 
 func TestPodRootfsPressureEvictionPlugin_ThresholdMetNotMet(t *testing.T) {
+	t.Parallel()
 	emitter := metrics.DummyMetrics{}
 	fakeFetcher := metric.NewFakeMetricsFetcher(emitter).(*metric.FakeMetricsFetcher)
 	// create metric data without time.
@@ -129,6 +132,7 @@ func TestPodRootfsPressureEvictionPlugin_ThresholdMetNotMet(t *testing.T) {
 }
 
 func TestPodRootfsPressureEvictionPlugin_ThresholdMetUsedMet(t *testing.T) {
+	t.Parallel()
 	emitter := metrics.DummyMetrics{}
 	fakeFetcher := metric.NewFakeMetricsFetcher(emitter).(*metric.FakeMetricsFetcher)
 	// create metric data without time.
@@ -161,6 +165,7 @@ func TestPodRootfsPressureEvictionPlugin_ThresholdMetUsedMet(t *testing.T) {
 }
 
 func TestPodRootfsPressureEvictionPlugin_ThresholdMetInodesMet(t *testing.T) {
+	t.Parallel()
 	emitter := metrics.DummyMetrics{}
 	fakeFetcher := metric.NewFakeMetricsFetcher(emitter).(*metric.FakeMetricsFetcher)
 	// create metric data without time.
@@ -193,6 +198,7 @@ func TestPodRootfsPressureEvictionPlugin_ThresholdMetInodesMet(t *testing.T) {
 }
 
 func TestPodRootfsPressureEvictionPlugin_ThresholdMet(t *testing.T) {
+	t.Parallel()
 	emitter := metrics.DummyMetrics{}
 	fakeFetcher := metric.NewFakeMetricsFetcher(emitter).(*metric.FakeMetricsFetcher)
 	// create metric data without time.
@@ -225,6 +231,7 @@ func TestPodRootfsPressureEvictionPlugin_ThresholdMet(t *testing.T) {
 }
 
 func TestPodRootfsPressureEvictionPlugin_ThresholdMetMetricDataExpire(t *testing.T) {
+	t.Parallel()
 	metricTime := time.Now().Add(-65 * time.Second)
 
 	emitter := metrics.DummyMetrics{}
@@ -287,6 +294,7 @@ func makeGetTopNRequest() *pluginapi.GetTopEvictionPodsRequest {
 }
 
 func TestPodRootfsPressureEvictionPlugin_GetTopEvictionPodsNotMet(t *testing.T) {
+	t.Parallel()
 	emitter := metrics.DummyMetrics{}
 	fakeFetcher := metric.NewFakeMetricsFetcher(emitter).(*metric.FakeMetricsFetcher)
 	// create metric data without time.
@@ -320,6 +328,7 @@ func TestPodRootfsPressureEvictionPlugin_GetTopEvictionPodsNotMet(t *testing.T) 
 }
 
 func TestPodRootfsPressureEvictionPlugin_GetTopEvictionPodsMet(t *testing.T) {
+	t.Parallel()
 	emitter := metrics.DummyMetrics{}
 	fakeFetcher := metric.NewFakeMetricsFetcher(emitter).(*metric.FakeMetricsFetcher)
 	// create metric data without time.
@@ -361,6 +370,7 @@ func TestPodRootfsPressureEvictionPlugin_GetTopEvictionPodsMet(t *testing.T) {
 }
 
 func TestPodRootfsPressureEvictionPlugin_GetTopEvictionPodsUsedMet(t *testing.T) {
+	t.Parallel()
 	emitter := metrics.DummyMetrics{}
 	fakeFetcher := metric.NewFakeMetricsFetcher(emitter).(*metric.FakeMetricsFetcher)
 	// create metric data without time.
@@ -402,6 +412,7 @@ func TestPodRootfsPressureEvictionPlugin_GetTopEvictionPodsUsedMet(t *testing.T)
 }
 
 func TestPodRootfsPressureEvictionPlugin_GetTopEvictionPodsInodesMet(t *testing.T) {
+	t.Parallel()
 	emitter := metrics.DummyMetrics{}
 	fakeFetcher := metric.NewFakeMetricsFetcher(emitter).(*metric.FakeMetricsFetcher)
 	// create metric data without time.
@@ -443,6 +454,7 @@ func TestPodRootfsPressureEvictionPlugin_GetTopEvictionPodsInodesMet(t *testing.
 }
 
 func TestPodRootfsPressureEvictionPlugin_GetTopEvictionPodsUsedMetProtection(t *testing.T) {
+	t.Parallel()
 	emitter := metrics.DummyMetrics{}
 	fakeFetcher := metric.NewFakeMetricsFetcher(emitter).(*metric.FakeMetricsFetcher)
 	// create metric data without time.
@@ -549,6 +561,7 @@ func TestPodRootfsPressureEvictionPlugin_GetTopEvictionPodsUsedMetProtection(t *
 }
 
 func TestPodRootfsPressureEvictionPlugin_GetTopEvictionPodsInodesMetProtection(t *testing.T) {
+	t.Parallel()
 	emitter := metrics.DummyMetrics{}
 	fakeFetcher := metric.NewFakeMetricsFetcher(emitter).(*metric.FakeMetricsFetcher)
 	// create metric data without time.
@@ -653,6 +666,7 @@ func TestPodRootfsPressureEvictionPlugin_GetTopEvictionPodsInodesMetProtection(t
 }
 
 func TestPodRootfsPressureEvictionPlugin_GetTopEvictionPodsMetReclaimedPriority(t *testing.T) {
+	t.Parallel()
 	emitter := metrics.DummyMetrics{}
 	fakeFetcher := metric.NewFakeMetricsFetcher(emitter).(*metric.FakeMetricsFetcher)
 	// create metric data without time.
@@ -809,6 +823,7 @@ func TestPodRootfsPressureEvictionPlugin_GetTopEvictionPodsMetReclaimedPriority(
 }
 
 func TestPodRootfsPressureEvictionPlugin_GetTopEvictionPodsInodesMetReclaimedPriority(t *testing.T) {
+	t.Parallel()
 	emitter := metrics.DummyMetrics{}
 	fakeFetcher := metric.NewFakeMetricsFetcher(emitter).(*metric.FakeMetricsFetcher)
 	// create metric data without time.
@@ -965,6 +980,7 @@ func TestPodRootfsPressureEvictionPlugin_GetTopEvictionPodsInodesMetReclaimedPri
 }
 
 func TestPodRootfsPressureEvictionPlugin_GetTopEvictionPodsMetExpire(t *testing.T) {
+	t.Parallel()
 	metricTime := time.Now().Add(-65 * time.Second)
 
 	emitter := metrics.DummyMetrics{}

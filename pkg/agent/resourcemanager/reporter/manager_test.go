@@ -145,7 +145,9 @@ func Test_aggregateReportFieldsByGVK(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			if got := aggregateReportFieldsByGVK(tt.args.reportResponses); !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("aggregateReportFieldsByGVK() = %v, want %v", got, tt.want)
 			}
@@ -201,7 +203,9 @@ func Test_managerImpl_PushContents(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			r := &managerImpl{
 				conf:      tt.fields.conf,
 				reporters: tt.fields.reporters,
@@ -237,7 +241,9 @@ func Test_managerImpl_Run(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			r := &managerImpl{
 				conf:      tt.fields.conf,
 				reporters: tt.fields.reporters,
@@ -300,7 +306,9 @@ func Test_managerImpl_convertReportFieldsIfNeeded(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			r := &managerImpl{
 				converters: tt.fields.converters,
 			}

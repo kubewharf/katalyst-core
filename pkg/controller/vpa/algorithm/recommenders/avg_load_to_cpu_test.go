@@ -103,7 +103,10 @@ func TestGetRecommendedPodResources(t *testing.T) {
 			},
 		},
 	} {
+		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
 			r := NewCPURecommender()
 			_, recommendedResources, err := r.GetRecommendedPodResources(tc.spd, []*corev1.Pod{})
 			assert.Equal(t, tc.want.recommendedResources, recommendedResources)

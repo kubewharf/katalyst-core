@@ -34,7 +34,6 @@ import (
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/klog/v2"
 
-	"github.com/kubewharf/katalyst-api/pkg/apis/config/v1alpha1"
 	apis "github.com/kubewharf/katalyst-api/pkg/apis/node/v1alpha1"
 	internalfake "github.com/kubewharf/katalyst-api/pkg/client/clientset/versioned/fake"
 	"github.com/kubewharf/katalyst-api/pkg/client/informers/externalversions"
@@ -44,8 +43,6 @@ import (
 )
 
 func generateTestKubeClientSet(objects []runtime.Object, internalObjects []runtime.Object) *client.GenericClientSet {
-	scheme := runtime.NewScheme()
-	utilruntime.Must(v1alpha1.AddToScheme(scheme))
 	return &client.GenericClientSet{
 		KubeClient:     fake.NewSimpleClientset(objects...),
 		InternalClient: internalfake.NewSimpleClientset(internalObjects...),
@@ -151,6 +148,8 @@ func TestHealthzController(t *testing.T) {
 }
 
 func Test_podTransformerFunc(t *testing.T) {
+	t.Parallel()
+
 	type args struct {
 		src  *corev1.Pod
 		dest *corev1.Pod
@@ -205,7 +204,9 @@ func Test_podTransformerFunc(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			podTransformerFunc(tt.args.src, tt.args.dest)
 			assert.Equal(t, tt.want, tt.args.dest)
 		})

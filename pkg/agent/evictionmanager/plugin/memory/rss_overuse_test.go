@@ -355,23 +355,21 @@ func TestRssOveruseEvictionPlugin_GetEvictPods(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			plugin.dynamicConfig.GetDynamicConfiguration().EnableRSSOveruseEviction = tt.enableRssOveruse
-			plugin.dynamicConfig.GetDynamicConfiguration().RSSOveruseRateThreshold = tt.defaultRssOveruseThreshold
-			plugin.evictionConfig.RSSOveruseEvictionFilter = tt.podFilter
+		plugin.dynamicConfig.GetDynamicConfiguration().EnableRSSOveruseEviction = tt.enableRssOveruse
+		plugin.dynamicConfig.GetDynamicConfiguration().RSSOveruseRateThreshold = tt.defaultRssOveruseThreshold
+		plugin.evictionConfig.RSSOveruseEvictionFilter = tt.podFilter
 
-			evictPods, err2 := plugin.GetEvictPods(context.TODO(), &pluginapi.GetEvictPodsRequest{
-				ActivePods: pods,
-			})
-			assert.NoError(t, err2)
-			assert.Nil(t, evictPods.Condition)
-
-			gotPods := sets.String{}
-			for i := range evictPods.EvictPods {
-				gotPods.Insert(evictPods.EvictPods[i].Pod.Name)
-			}
-
-			assert.Equal(t, tt.wantedResult, gotPods)
+		evictPods, err2 := plugin.GetEvictPods(context.TODO(), &pluginapi.GetEvictPodsRequest{
+			ActivePods: pods,
 		})
+		assert.NoError(t, err2)
+		assert.Nil(t, evictPods.Condition)
+
+		gotPods := sets.String{}
+		for i := range evictPods.EvictPods {
+			gotPods.Insert(evictPods.EvictPods[i].Pod.Name)
+		}
+
+		assert.Equal(t, tt.wantedResult, gotPods)
 	}
 }

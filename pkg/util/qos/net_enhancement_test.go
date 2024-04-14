@@ -59,7 +59,10 @@ func TestGetPodNetClassID(t *testing.T) {
 			expectClassID: 0,
 		},
 	} {
+		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
 			t.Logf("case: %v", tc.name)
 			gotExist, gotClassID, err := GetPodNetClassID(tc.pod.Annotations, consts.PodAnnotationNetClassKey)
 			assert.NoError(t, err)

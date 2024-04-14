@@ -36,6 +36,8 @@ import (
 )
 
 func TestTide_RunOnce(t1 *testing.T) {
+	t1.Parallel()
+
 	nodePool := &v1alpha12.TideNodePool{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: "np1",
@@ -88,7 +90,10 @@ func TestTide_RunOnce(t1 *testing.T) {
 		},
 	}
 	for _, tt := range tests {
+		tt := tt
 		t1.Run(tt.name, func(t1 *testing.T) {
+			t1.Parallel()
+
 			controlCtx, err := katalystbase.GenerateFakeGenericContext(append(tt.args.nodeList, tt.args.podList...))
 			if err != nil {
 				t1.Error(err)
@@ -241,6 +246,8 @@ func buildOnlinePod(nodePool NodePoolWrapper, name string, cpu int64, mem int64)
 }
 
 func TestTide_Reconcile(t1 *testing.T) {
+	t1.Parallel()
+
 	nodeReserve := intstr.FromString("30%")
 	nodePool := &v1alpha12.TideNodePool{
 		ObjectMeta: metav1.ObjectMeta{
@@ -289,7 +296,10 @@ func TestTide_Reconcile(t1 *testing.T) {
 		},
 	}
 	for _, tt := range tests {
+		tt := tt
 		t1.Run(tt.name, func(t1 *testing.T) {
+			t1.Parallel()
+
 			controlCtx, err := katalystbase.GenerateFakeGenericContext(append(tt.args.nodeList, tt.args.podList...), []runtime.Object{tt.args.tideNodePool})
 			if err != nil {
 				t1.Error(err)

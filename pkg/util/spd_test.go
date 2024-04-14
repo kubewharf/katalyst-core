@@ -175,6 +175,8 @@ func TestGetSPDForPod(t *testing.T) {
 }
 
 func TestGetExtendedIndicatorSpec(t *testing.T) {
+	t.Parallel()
+
 	type args struct {
 		baselinePercent *int32
 		indicators      interface{}
@@ -224,7 +226,9 @@ func TestGetExtendedIndicatorSpec(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			got, err := GetExtendedIndicatorSpec(tt.args.baselinePercent, tt.args.indicators)
 			if !tt.wantErr(t, err, fmt.Sprintf("GetExtendedIndicatorSpec(%v, %v)", tt.args.baselinePercent, tt.args.indicators)) {
 				return
@@ -235,6 +239,8 @@ func TestGetExtendedIndicatorSpec(t *testing.T) {
 }
 
 func TestCalculateSPDHash(t *testing.T) {
+	t.Parallel()
+
 	type args struct {
 		spd *apiworkload.ServiceProfileDescriptor
 	}
@@ -310,7 +316,9 @@ func TestCalculateSPDHash(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			got, err := CalculateSPDHash(tt.args.spd)
 			if !tt.wantErr(t, err, fmt.Sprintf("CalculateSPDHash(%v)", tt.args.spd)) {
 				return

@@ -57,7 +57,10 @@ func TestFilterPodAnnotations(t *testing.T) {
 			},
 		},
 	} {
+		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
 			t.Logf("case: %v", tc.name)
 			got := FilterPodAnnotations(tc.filterKeys, tc.pod)
 			assert.Equal(t, tc.expected, got)
@@ -100,7 +103,10 @@ func TestGetContainerID(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			got, err := GetContainerID(tt.args.pod, tt.args.name)
 			if !tt.wantErr(t, err, fmt.Sprintf("GetContainerID(%v, %v)", tt.args.pod, tt.args.name)) {
 				return
@@ -159,7 +165,10 @@ func TestGetContainerEnvs(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			assert.Equalf(t, tt.want, GetContainerEnvs(tt.args.pod, tt.args.containerName, tt.args.envs...), "GetContainerEnvs(%v, %v, %v)", tt.args.pod, tt.args.containerName, tt.args.envs)
 		})
 	}
@@ -203,7 +212,10 @@ func TestGetPodHostIPs(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			got, _ := GetPodHostIPs(tt.args.pod)
 			assert.Equalf(t, tt.want, got, "GetPodHostIP(%v)", tt.args.pod)
 		})
@@ -257,13 +269,18 @@ func TestParseHostPortForPod(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			got, _ := ParseHostPortForPod(tt.args.pod, "test")
 			assert.Equalf(t, tt.want, got, "GetPodHostIP(%v)", tt.args.pod)
 		})
 	}
 }
 func TestPodIsPending(t *testing.T) {
+	t.Parallel()
+
 	type args struct {
 		pod *v1.Pod
 	}
@@ -301,7 +318,10 @@ func TestPodIsPending(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			if got := PodIsPending(tt.args.pod); got != tt.want {
 				t.Errorf("PodIsPending() = %v, want %v", got, tt.want)
 			}

@@ -2784,7 +2784,10 @@ func TestDynamicPolicy_ListContainers(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			got, err := dynamicPolicy.ListContainers(tt.args.in0, tt.args.in1)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("DynamicPolicy.ListContainers() error = %v, wantErr %v", err, tt.wantErr)
@@ -2889,7 +2892,9 @@ func TestDynamicPolicy_hasLastLevelEnhancementKey(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			if got := dynamicPolicy.hasLastLevelEnhancementKey(tt.args.lastLevelEnhancementKey, tt.args.podUID); got != tt.want {
 				t.Errorf("DynamicPolicy.hasLastLevelEnhancementKey() = %v, want %v", got, tt.want)
 			}
@@ -3204,7 +3209,10 @@ func TestPollOOMBPFInit(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			tmpDir, err := ioutil.TempDir("", "checkpoint-TestPollOOMBPFInit")
 			as.Nil(err)
 			defer os.RemoveAll(tmpDir)
@@ -3243,6 +3251,8 @@ func TestPollOOMBPFInit(t *testing.T) {
 }
 
 func TestDynamicPolicy_adjustAllocationEntries(t *testing.T) {
+	t.Parallel()
+
 	metaServer := makeMetaServer()
 	tmpDir, err := ioutil.TempDir("", "checkpoint-TestDynamicPolicy_adjustAllocationEntries")
 	assert.NoError(t, err)
@@ -3395,7 +3405,9 @@ func TestDynamicPolicy_adjustAllocationEntries(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
 			dynamicPolicy, err := getTestDynamicPolicyWithInitialization(cpuTopology, machineInfo, tmpDir)
 			assert.NoError(t, err)

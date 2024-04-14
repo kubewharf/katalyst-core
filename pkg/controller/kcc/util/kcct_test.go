@@ -192,7 +192,10 @@ func Test_findMatchedTargetConfig(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			got, err := findMatchedKCCTargetConfigForNode(tt.args.cnc, tt.args.configList)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("findMatchedKCCTargetConfigForNode() error = %v, wantErr %v", err, tt.wantErr)
@@ -233,7 +236,9 @@ func TestUpdateKCCTGenericConditions(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			if got := UpdateKCCTGenericConditions(tt.args.status, tt.args.conditionType, tt.args.conditionStatus, tt.args.reason, tt.args.message); got != tt.want {
 				t.Errorf("UpdateKCCTGenericConditions() = %v, want %v", got, tt.want)
 			}

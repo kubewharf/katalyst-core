@@ -19,6 +19,7 @@ package spd
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io/ioutil"
 	"os"
 	"testing"
@@ -250,7 +251,10 @@ func Test_serviceProfilingManager_ServiceBusinessPerformanceLevel(t *testing.T) 
 		},
 	}
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			dir, err := ioutil.TempDir("", "checkpoint-Test_serviceProfilingManager_ServiceBusinessPerformanceLevel")
 			require.NoError(t, err)
 			defer os.RemoveAll(dir)
@@ -386,9 +390,13 @@ func Test_serviceProfilingManager_ServiceSystemPerformanceTarget(t *testing.T) {
 			},
 		},
 	}
-	for _, tt := range tests {
+	for i, tt := range tests {
+		i := i
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
-			dir, err := ioutil.TempDir("", "checkpoint-Test_serviceProfilingManager_ServiceSystemPerformanceTarget")
+			t.Parallel()
+
+			dir, err := ioutil.TempDir("", fmt.Sprintf("checkpoint-Test_serviceProfilingManager_ServiceSystemPerformanceTarget_%d", i))
 			require.NoError(t, err)
 			defer os.RemoveAll(dir)
 
@@ -623,7 +631,9 @@ func Test_serviceProfilingManager_ServiceExtendedIndicator(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			dir, err := ioutil.TempDir("", "checkpoint-Test_serviceProfilingManager_ServiceExtendedIndicator")
 			require.NoError(t, err)
 			defer os.RemoveAll(dir)
@@ -770,7 +780,10 @@ func Test_serviceProfilingManager_ServiceBaseline(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			dir, err := ioutil.TempDir("", "checkpoint-Test_serviceProfilingManager_ServiceBaseline")
 			require.NoError(t, err)
 			defer os.RemoveAll(dir)

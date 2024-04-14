@@ -103,7 +103,10 @@ func TestNewStaticPolicy(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			got, got1, err := NewStaticPolicy(tt.args.agentCtx, tt.args.conf, tt.args.in2, tt.args.agentName)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("NewStaticPolicy() error = %v, wantErr %v", err, tt.wantErr)
@@ -149,7 +152,10 @@ func TestStaticPolicy_Start(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			p := &StaticPolicy{
 				name:       tt.fields.name,
 				stopCh:     tt.fields.stopCh,
@@ -195,7 +201,10 @@ func TestStaticPolicy_Stop(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			p := &StaticPolicy{
 				name:       tt.fields.name,
 				stopCh:     tt.fields.stopCh,
@@ -241,7 +250,10 @@ func TestStaticPolicy_Name(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			p := &StaticPolicy{
 				name:       tt.fields.name,
 				stopCh:     tt.fields.stopCh,
@@ -287,7 +299,9 @@ func TestStaticPolicy_ResourceName(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			p := &StaticPolicy{
 				name:       tt.fields.name,
 				stopCh:     tt.fields.stopCh,
@@ -344,7 +358,10 @@ func TestStaticPolicy_GetTopologyHints(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			p := &StaticPolicy{
 				name:       tt.fields.name,
 				stopCh:     tt.fields.stopCh,
@@ -406,7 +423,10 @@ func TestStaticPolicy_RemovePod(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			p := &StaticPolicy{
 				name:       tt.fields.name,
 				stopCh:     tt.fields.stopCh,
@@ -468,7 +488,10 @@ func TestStaticPolicy_GetResourcesAllocation(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			p := &StaticPolicy{
 				name:       tt.fields.name,
 				stopCh:     tt.fields.stopCh,
@@ -530,7 +553,10 @@ func TestStaticPolicy_GetTopologyAwareResources(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			p := &StaticPolicy{
 				name:       tt.fields.name,
 				stopCh:     tt.fields.stopCh,
@@ -592,7 +618,10 @@ func TestStaticPolicy_GetTopologyAwareAllocatableResources(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			p := &StaticPolicy{
 				name:       tt.fields.name,
 				stopCh:     tt.fields.stopCh,
@@ -658,7 +687,10 @@ func TestStaticPolicy_GetResourcePluginOptions(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			p := &StaticPolicy{
 				name:       tt.fields.name,
 				stopCh:     tt.fields.stopCh,
@@ -728,7 +760,10 @@ func TestStaticPolicy_Allocate(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			p := &StaticPolicy{
 				name:       tt.fields.name,
 				stopCh:     tt.fields.stopCh,
@@ -790,7 +825,10 @@ func TestStaticPolicy_PreStartContainer(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			p := &StaticPolicy{
 				name:       tt.fields.name,
 				stopCh:     tt.fields.stopCh,

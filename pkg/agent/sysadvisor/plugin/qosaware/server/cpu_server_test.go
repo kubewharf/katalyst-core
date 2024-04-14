@@ -150,7 +150,10 @@ func TestCPUServerAddContainer(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			cs := newTestCPUServer(t, []*v1.Pod{})
 			got, err := cs.AddContainer(context.Background(), tt.request)
 			if (err != nil) != tt.wantErr {
@@ -189,7 +192,10 @@ func TestCPUServerRemovePod(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			cs := newTestCPUServer(t, []*v1.Pod{})
 			got, err := cs.RemovePod(context.Background(), tt.request)
 			if (err != nil) != tt.wantErr {
@@ -1125,7 +1131,10 @@ func TestCPUServerListAndWatch(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			cs := newTestCPUServer(t, []*v1.Pod{})
 			s := &mockCPUServerService_ListAndWatchServer{ResultsChan: make(chan *cpuadvisor.ListAndWatchResponse)}
 			for _, info := range tt.infos {

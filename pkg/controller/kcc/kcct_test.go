@@ -303,7 +303,10 @@ func TestKatalystCustomConfigTargetController_Run(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			genericContext, err := katalyst_base.GenerateFakeGenericContext(nil, tt.args.kccList, tt.args.kccTargetList)
 			assert.NoError(t, err)
 			conf := generateTestConfiguration(t)
@@ -420,7 +423,10 @@ func Test_validateLabelSelectorWithOthers(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			got, _, _, err := validateLabelSelectorOverlapped(tt.args.priorityAllowedKeyListMap, tt.args.targetResource, tt.args.otherResources)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("validateLabelSelectorOverlapped() error = %v, wantErr %v", err, tt.wantErr)
@@ -488,7 +494,10 @@ func Test_validateTargetResourceNodeNamesWithOthers(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			got, _, _, err := validateTargetResourceNodeNamesOverlapped(tt.args.targetResource, tt.args.otherResources)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("validateTargetResourceNodeNamesOverlapped() error = %v, wantErr %v", err, tt.wantErr)
@@ -537,7 +546,10 @@ func Test_validateTargetResourceGlobalWithOthers(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			got, _, _, err := validateTargetResourceGlobalOverlapped(tt.args.targetResource, tt.args.otherResources)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("validateTargetResourceGlobalOverlapped() error = %v, wantErr %v", err, tt.wantErr)
@@ -622,7 +634,10 @@ func Test_updateTargetResourceStatus(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			if updateTargetResourceStatus(tt.args.targetResource, tt.args.isValid, tt.args.msg, tt.args.reason); !tt.equalFunc(tt.args.targetResource, tt.wantResource) {
 				t.Errorf("updateTargetResourceStatus() = %v, want %v", tt.args.targetResource.GetGenericStatus(), tt.wantResource.GetGenericStatus())
 			}
@@ -726,7 +741,9 @@ func Test_checkLabelSelectorOverlap(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			assert.Equalf(t, tt.want, checkLabelSelectorOverlap(tt.args.selector, tt.args.otherSelector, tt.args.keyList), "checkLabelSelectorOverlap(%v, %v, %v)", tt.args.selector, tt.args.otherSelector, tt.args.keyList)
 		})
 	}

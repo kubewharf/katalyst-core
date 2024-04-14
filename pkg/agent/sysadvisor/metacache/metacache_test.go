@@ -126,7 +126,9 @@ func TestMetaCacheImp_GetFilteredInferenceResult(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			mc := &MetaCacheImp{
 				emitter:       tt.fields.emitter,
 				modelToResult: tt.fields.modelToResult,
@@ -175,7 +177,10 @@ func TestMetaCacheImp_GetInferenceResult(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			mc := &MetaCacheImp{
 				emitter:       tt.fields.emitter,
 				modelToResult: tt.fields.modelToResult,
@@ -224,7 +229,10 @@ func TestMetaCacheImp_SetInferenceResult(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			mc := &MetaCacheImp{
 				emitter:       tt.fields.emitter,
 				modelToResult: tt.fields.modelToResult,
@@ -247,6 +255,8 @@ func TestMetaCacheImp_SetInferenceResult(t *testing.T) {
 }
 
 func TestRangeAndDeleteContainerWithSafeTime(t *testing.T) {
+	t.Parallel()
+
 	testDir := "/tmp/mc-test-range-delete"
 	checkpointManager, err := checkpointmanager.NewCheckpointManager(testDir)
 	require.NoError(t, err, "failed to create checkpoint manager")

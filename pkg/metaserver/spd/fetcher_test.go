@@ -40,8 +40,6 @@ import (
 )
 
 func generateTestConfiguration(t *testing.T, nodeName string, checkpoint string) *pkgconfig.Configuration {
-	t.Parallel()
-
 	testConfiguration, err := options.NewOptions().Config()
 	require.NoError(t, err)
 	require.NotNil(t, testConfiguration)
@@ -183,7 +181,10 @@ func Test_spdManager_GetSPD(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			dir, err := ioutil.TempDir("", "checkpoint-Test_spdManager_GetSPD")
 			require.NoError(t, err)
 			defer os.RemoveAll(dir)

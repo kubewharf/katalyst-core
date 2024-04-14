@@ -98,6 +98,8 @@ func (r *nodeMetricsReporterImpl) Run(ctx context.Context) {
 
 type nodeMetricsReporterPlugin struct {
 	sync.RWMutex
+	started bool
+
 	metaServer *metaserver.MetaServer
 	metaReader metacache.MetaReader
 	emitter    metrics.MetricEmitter
@@ -151,6 +153,18 @@ func (p *nodeMetricsReporterPlugin) Name() string {
 }
 
 func (p *nodeMetricsReporterPlugin) Start() (err error) {
+	p.Lock()
+	defer func() {
+		if err == nil {
+			p.started = true
+		}
+		p.Unlock()
+	}()
+
+	if p.started {
+		return
+	}
+
 	p.stop = make(chan struct{})
 	general.RegisterHeartbeatCheck(nodeMetricsReporterPluginName, healthCheckTolerationDuration, general.HealthzCheckStateNotReady, healthCheckTolerationDuration)
 	go wait.Until(p.updateNodeMetrics, p.syncPeriod, p.stop)
@@ -158,6 +172,18 @@ func (p *nodeMetricsReporterPlugin) Start() (err error) {
 }
 
 func (p *nodeMetricsReporterPlugin) Stop() error {
+	p.Lock()
+	defer func() {
+		p.started = false
+		p.Unlock()
+	}()
+
+	// plugin.Stop may be called before plugin.Start or multiple times,
+	// we should ensure cancel function exist
+	if !p.started {
+		return nil
+	}
+
 	if p.stop != nil {
 		close(p.stop)
 	}

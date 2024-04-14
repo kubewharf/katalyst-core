@@ -125,7 +125,10 @@ func TestNativeGetNodeFeatureValue(t *testing.T) {
 	}
 	nowTimestamp := time.Now().Unix()
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			clientSet := generateTestGenericClientSet([]runtime.Object{&v1.Node{
 				ObjectMeta: metav1.ObjectMeta{
 					Name: nodeName,
@@ -193,7 +196,10 @@ func TestNativeGetContainerFeatureValue(t *testing.T) {
 	}
 	nowTimestamp := time.Now().Unix()
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			got, err := nativeGetContainerFeatureValue(nowTimestamp, tt.args.podUID, tt.args.containerName,
 				tt.args.featureName, metaServer,
 				&metacache.MetaCacheImp{MetricsReader: metaServer.MetricsFetcher})
@@ -320,7 +326,10 @@ func TestBorweinModelResultFetcher_FetchModelResult(t *testing.T) {
 	}
 
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			bmrf := &BorweinModelResultFetcher{
 				name:                  tt.fields.name,
 				qosConfig:             tt.fields.qosConfig,
@@ -476,7 +485,10 @@ func TestBorweinModelResultFetcher_parseInferenceRespForPods(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			bmrf := &BorweinModelResultFetcher{
 				name:                  tt.fields.name,
 				qosConfig:             tt.fields.qosConfig,
@@ -629,7 +641,10 @@ func TestBorweinModelResultFetcher_getInferenceRequestForPods(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			bmrf := &BorweinModelResultFetcher{
 				name:                  tt.fields.name,
 				qosConfig:             tt.fields.qosConfig,
@@ -652,6 +667,7 @@ func TestBorweinModelResultFetcher_getInferenceRequestForPods(t *testing.T) {
 
 func TestNewBorweinModelResultFetcher(t *testing.T) {
 	t.Parallel()
+
 	checkpointDir, err := ioutil.TempDir("", "checkpoint-NewBorweinModelResultFetcher")
 	require.NoError(t, err)
 	defer func() { _ = os.RemoveAll(checkpointDir) }()
@@ -809,38 +825,36 @@ func TestNewBorweinModelResultFetcher(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if tt.args.conf != nil {
-				tt.args.conf.PolicyRama.EnableBorweinModelResultFetcher = tt.args.enableBorweinModelResultFetcher
-			}
+		if tt.args.conf != nil {
+			tt.args.conf.PolicyRama.EnableBorweinModelResultFetcher = tt.args.enableBorweinModelResultFetcher
+		}
 
-			var svr *grpc.Server
-			if tt.args.inferenceServiceSocketAbsPath != "" {
-				svr, err = RunFakeInferenceSvr(tt.args.inferenceServiceSocketAbsPath)
-				require.NoError(t, err)
-				conf.BorweinConfiguration.InferenceServiceSocketAbsPath = tt.args.inferenceServiceSocketAbsPath
-			}
+		var svr *grpc.Server
+		if tt.args.inferenceServiceSocketAbsPath != "" {
+			svr, err = RunFakeInferenceSvr(tt.args.inferenceServiceSocketAbsPath)
+			require.NoError(t, err)
+			conf.BorweinConfiguration.InferenceServiceSocketAbsPath = tt.args.inferenceServiceSocketAbsPath
+		}
 
-			fetcher, err := NewBorweinModelResultFetcher(tt.args.fetcherName, tt.args.conf, tt.args.extraConf, tt.args.emitterPool, tt.args.metaServer, tt.args.metaCache)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("NewBorweinModelResultFetcher() error = %v, wantErr %v", err, tt.wantErr)
-				if svr != nil {
-					svr.Stop()
-				}
-				return
-			} else if !tt.args.enableBorweinModelResultFetcher {
-				require.Nil(t, fetcher)
-				if svr != nil {
-					svr.Stop()
-				}
-				return
-			}
-
+		fetcher, err := NewBorweinModelResultFetcher(tt.args.fetcherName, tt.args.conf, tt.args.extraConf, tt.args.emitterPool, tt.args.metaServer, tt.args.metaCache)
+		if (err != nil) != tt.wantErr {
+			t.Errorf("NewBorweinModelResultFetcher() error = %v, wantErr %v", err, tt.wantErr)
 			if svr != nil {
 				svr.Stop()
-				conf.BorweinConfiguration.InferenceServiceSocketAbsPath = ""
 			}
-		})
+			return
+		} else if !tt.args.enableBorweinModelResultFetcher {
+			require.Nil(t, fetcher)
+			if svr != nil {
+				svr.Stop()
+			}
+			return
+		}
+
+		if svr != nil {
+			svr.Stop()
+			conf.BorweinConfiguration.InferenceServiceSocketAbsPath = ""
+		}
 	}
 }
 

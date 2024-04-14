@@ -166,15 +166,13 @@ func TestContainerKiller_Evict(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			fakeRuntimeService.Called = make([]string, 0)
-			evictErr := containerKiller.Evict(context.TODO(), tt.pod, 0, "test", "test")
-			if tt.wantStopFailed {
-				require.Error(t, evictErr)
-			} else {
-				require.NoError(t, evictErr)
-				require.Equal(t, tt.wantKillContainerCount, len(fakeRuntimeService.GetCalls()))
-			}
-		})
+		fakeRuntimeService.Called = make([]string, 0)
+		evictErr := containerKiller.Evict(context.TODO(), tt.pod, 0, "test", "test")
+		if tt.wantStopFailed {
+			require.Error(t, evictErr)
+		} else {
+			require.NoError(t, evictErr)
+			require.Equal(t, tt.wantKillContainerCount, len(fakeRuntimeService.GetCalls()))
+		}
 	}
 }

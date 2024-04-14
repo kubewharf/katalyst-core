@@ -297,7 +297,10 @@ func TestKatalystCustomConfigController_Run(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			genericContext, err := katalyst_base.GenerateFakeGenericContext(nil, tt.args.kccList, tt.args.kccTargetList)
 			assert.NoError(t, err)
 			conf := generateTestConfiguration(t)
@@ -388,7 +391,10 @@ func Test_checkNodeLabelSelectorAllowedKeyList(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			got, got1 := checkNodeLabelSelectorAllowedKeyList(tt.args.kcc)
 			assert.Equalf(t, tt.want, got, "checkNodeLabelSelectorAllowedKeyList(%v)", tt.args.kcc)
 			assert.Equalf(t, tt.want1, got1, "checkNodeLabelSelectorAllowedKeyList(%v)", tt.args.kcc)

@@ -81,7 +81,10 @@ func TestRealNodeUpdater_PatchNodeStatus(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			baseCtx, err := katalystbase.GenerateFakeGenericContext([]runtime.Object{tt.fields.oldNode})
 			assert.NoError(t, err)
 			r := NewRealNodeUpdater(baseCtx.Client.KubeClient)
@@ -153,7 +156,10 @@ func TestRealNodeUpdater_PatchNode(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			baseCtx, err := katalystbase.GenerateFakeGenericContext([]runtime.Object{tt.fields.oldNode})
 			assert.NoError(t, err)
 			r := NewRealNodeUpdater(baseCtx.Client.KubeClient)
@@ -226,7 +232,10 @@ func TestRealNodeUpdater_UpdateNode(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			baseCtx, err := katalystbase.GenerateFakeGenericContext([]runtime.Object{tt.fields.oldNode})
 			assert.NoError(t, err)
 			r := NewRealNodeUpdater(baseCtx.Client.KubeClient)

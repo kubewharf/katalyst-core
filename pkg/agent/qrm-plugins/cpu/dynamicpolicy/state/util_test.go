@@ -553,7 +553,9 @@ func TestGetSpecifiedPoolName(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			if got := GetSpecifiedPoolName(tt.args.qosLevel, tt.args.cpusetEnhancementValue); got != tt.want {
 				t.Errorf("GetSpecifiedPoolName() = %v, want %v", got, tt.want)
 			}

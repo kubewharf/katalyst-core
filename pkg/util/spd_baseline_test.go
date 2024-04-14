@@ -71,7 +71,9 @@ func TestBaselineCoefficient_Cmp(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			if got := tt.c.Cmp(tt.args.c1); got != tt.want {
 				t.Errorf("Cmp() = %v, want %v", got, tt.want)
 			}
@@ -94,7 +96,9 @@ func TestBaselineCoefficient_String(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			if got := tt.c.String(); got != tt.want {
 				t.Errorf("String() = %v, want %v", got, tt.want)
 			}
@@ -103,6 +107,8 @@ func TestBaselineCoefficient_String(t *testing.T) {
 }
 
 func TestGetPodBaselineCoefficient(t *testing.T) {
+	t.Parallel()
+
 	type args struct {
 		pod *v1.Pod
 	}
@@ -129,7 +135,9 @@ func TestGetPodBaselineCoefficient(t *testing.T) {
 	}
 
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			assert.Equal(t, tt.want, GetSPDBaselinePodMeta(tt.args.pod.ObjectMeta))
 		})
 	}
@@ -166,7 +174,9 @@ func TestGetSPDBaselinePercentile(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			got, err := GetSPDBaselineSentinel(tt.args.spd)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("GetSPDBaselineSentinel() error = %v, wantErr %v", err, tt.wantErr)
@@ -270,7 +280,10 @@ func TestIsBaselinePod(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			got, err := IsBaselinePod(tt.args.pod.ObjectMeta, tt.args.baselinePercent, tt.args.baselineSentinel)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("IsBaselinePod() error = %v, wantErr %v", err, tt.wantErr)
@@ -339,7 +352,10 @@ func TestSetSPDBaselinePercentile(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			SetSPDBaselineSentinel(tt.args.spd, tt.args.c)
 			assert.Equal(t, tt.args.spd, tt.wantSPD)
 		})

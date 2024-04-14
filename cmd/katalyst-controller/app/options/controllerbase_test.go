@@ -25,6 +25,8 @@ import (
 )
 
 func TestWorkloadProfilingOptions(t *testing.T) {
+	t.Parallel()
+
 	workload := &v1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "pod",
@@ -200,7 +202,10 @@ func TestWorkloadProfilingOptions(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			f, ok, err := tt.options.getWorkloadEnableFunc()
 			assert.NoError(t, err)
 			if ok {

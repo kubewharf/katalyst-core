@@ -62,7 +62,10 @@ func TestPatchVPARec(t *testing.T) {
 			newVPARec: oldvparec1,
 		},
 	} {
+		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
 			internalClient := externalfake.NewSimpleClientset(tc.oldVPARec)
 			updater := NewRealVPARecommendationUpdater(internalClient)
 			err := updater.PatchVPARecommendation(context.TODO(), tc.oldVPARec, tc.newVPARec)
@@ -114,7 +117,10 @@ func TestPatchVPARecStatus(t *testing.T) {
 			newVPARec: oldvparec1,
 		},
 	} {
+		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
 			internalClient := externalfake.NewSimpleClientset(tc.oldVPARec)
 			updater := NewRealVPARecommendationUpdater(internalClient)
 			err := updater.PatchVPARecommendationStatus(context.TODO(), tc.oldVPARec, tc.newVPARec)

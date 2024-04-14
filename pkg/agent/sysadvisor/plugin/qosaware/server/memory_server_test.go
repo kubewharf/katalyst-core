@@ -149,7 +149,10 @@ func TestListContainers(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			serv := grpc.NewServer()
 
 			mockQRMServiceServer := &MockQRMServiceServer{containers: tt.containers, listErr: tt.listErr}
@@ -290,7 +293,10 @@ func TestMemoryServerListAndWatch(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			cs := newTestMemoryServer(t, []*v1.Pod{})
 			s := &mockMemoryServerService_ListAndWatchServer{ResultsChan: make(chan *advisorsvc.ListAndWatchResponse)}
 			for _, info := range tt.infos {

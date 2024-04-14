@@ -21,6 +21,8 @@ import (
 )
 
 func TestSliceContains(t *testing.T) {
+	t.Parallel()
+
 	type args struct {
 		list interface{}
 		elem interface{}
@@ -138,7 +140,9 @@ func TestSliceContains(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			if got := SliceContains(tt.args.list, tt.args.elem); got != tt.want {
 				t.Errorf("SliceContains() = %v, want %v", got, tt.want)
 			}

@@ -268,7 +268,9 @@ func TestIsSkippedContainer(t *testing.T) {
 	}
 
 	for _, tc := range testCases {
+		tc := tc
 		t.Run(tc.Name, func(t *testing.T) {
+			t.Parallel()
 			res := isSkippedContainer(tc.Pod, tc.Container)
 			assert.Equal(t, res, tc.Expected)
 		})
@@ -323,7 +325,9 @@ func TestGetMappedResourceName(t *testing.T) {
 	}
 
 	for _, tc := range testCases {
+		tc := tc
 		t.Run(tc.Name, func(t *testing.T) {
+			t.Parallel()
 			r, err := m.getMappedResourceName(tc.resourceName, tc.requests)
 			if tc.expectErr {
 				assert.NotNil(t, err)

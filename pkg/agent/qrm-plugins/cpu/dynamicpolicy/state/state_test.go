@@ -17,6 +17,7 @@ limitations under the License.
 package state
 
 import (
+	"fmt"
 	"io/ioutil"
 	"os"
 	"strings"
@@ -1424,7 +1425,7 @@ func TestNewCheckpointState(t *testing.T) {
 	}
 
 	// create temp dir
-	testingDir, err := ioutil.TempDir("", "dynamic_policy_state_test")
+	testingDir, err := ioutil.TempDir("", "TestNewCheckpointState")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1435,33 +1436,31 @@ func TestNewCheckpointState(t *testing.T) {
 	assert.NoError(t, err, "could not create testing checkpoint manager")
 
 	for _, tc := range testCases {
-		t.Run(tc.description, func(t *testing.T) {
-			// ensure there is no previous checkpoint
-			require.NoError(t, cpm.RemoveCheckpoint(cpuPluginStateFileName), "could not remove testing checkpoint")
+		// ensure there is no previous checkpoint
+		require.NoError(t, cpm.RemoveCheckpoint(cpuPluginStateFileName), "could not remove testing checkpoint")
 
-			// prepare checkpoint for testing
-			if strings.TrimSpace(tc.checkpointContent) != "" {
-				checkpoint := &testutil.MockCheckpoint{Content: tc.checkpointContent}
-				require.NoError(t, cpm.CreateCheckpoint(cpuPluginStateFileName, checkpoint), "could not create testing checkpoint")
+		// prepare checkpoint for testing
+		if strings.TrimSpace(tc.checkpointContent) != "" {
+			checkpoint := &testutil.MockCheckpoint{Content: tc.checkpointContent}
+			require.NoError(t, cpm.CreateCheckpoint(cpuPluginStateFileName, checkpoint), "could not create testing checkpoint")
+		}
+
+		restoredState, err := NewCheckpointState(testingDir, cpuPluginStateFileName, policyName, cpuTopology, false)
+		if strings.TrimSpace(tc.expectedError) != "" {
+			require.Error(t, err)
+			require.Contains(t, err.Error(), "could not restore state from checkpoint:")
+			require.Contains(t, err.Error(), tc.expectedError)
+
+			// test skip corruption
+			if strings.Contains(err.Error(), "checkpoint is corrupted") {
+				_, err = NewCheckpointState(testingDir, cpuPluginStateFileName, policyName, cpuTopology, true)
+				require.Nil(t, err)
 			}
-
-			restoredState, err := NewCheckpointState(testingDir, cpuPluginStateFileName, policyName, cpuTopology, false)
-			if strings.TrimSpace(tc.expectedError) != "" {
-				require.Error(t, err)
-				require.Contains(t, err.Error(), "could not restore state from checkpoint:")
-				require.Contains(t, err.Error(), tc.expectedError)
-
-				// test skip corruption
-				if strings.Contains(err.Error(), "checkpoint is corrupted") {
-					_, err = NewCheckpointState(testingDir, cpuPluginStateFileName, policyName, cpuTopology, true)
-					require.Nil(t, err)
-				}
-			} else {
-				require.NoError(t, err, "unexpected error while creating checkpointState")
-				// compare state after restoration with the one expected
-				assertStateEqual(t, restoredState, tc.expectedState)
-			}
-		})
+		} else {
+			require.NoError(t, err, "unexpected error while creating checkpointState")
+			// compare state after restoration with the one expected
+			assertStateEqual(t, restoredState, tc.expectedState)
+		}
 	}
 }
 
@@ -1471,7 +1470,6 @@ func TestClearState(t *testing.T) {
 	as := require.New(t)
 
 	testName := "test"
-
 	cpuTopology, err := machine.GenerateDummyCPUTopology(16, 2, 4)
 	as.Nil(err)
 
@@ -1931,15 +1929,18 @@ func TestClearState(t *testing.T) {
 		},
 	}
 
-	// create temp dir
-	testingDir, err := ioutil.TempDir("", "dynamic_policy_state_test")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer os.RemoveAll(testingDir)
-
-	for _, tc := range testCases {
+	for i, tc := range testCases {
+		i, tc := i, tc
 		t.Run(tc.description, func(t *testing.T) {
+			t.Parallel()
+
+			// create temp dir
+			testingDir, err := ioutil.TempDir("", fmt.Sprintf("dynamic_policy_state_test_%d", i))
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer os.RemoveAll(testingDir)
+
 			state1, err := NewCheckpointState(testingDir, cpuPluginStateFileName, policyName, tc.cpuTopology, false)
 			as.Nil(err)
 
@@ -2429,7 +2430,10 @@ func TestCheckpointStateHelpers(t *testing.T) {
 	defer os.RemoveAll(testingDir)
 
 	for _, tc := range testCases {
+		tc := tc
 		t.Run(tc.description, func(t *testing.T) {
+			t.Parallel()
+
 			state, err := NewCheckpointState(testingDir, cpuPluginStateFileName, policyName, tc.cpuTopology, false)
 			as.Nil(err)
 

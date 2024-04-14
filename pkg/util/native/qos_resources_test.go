@@ -120,7 +120,9 @@ func Test_CalculateQoSResource(t *testing.T) {
 			non0Mem: 1*1024*0124*1024 + DefaultReclaimedMemoryRequest*2,
 		},
 	} {
+		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			t.Logf("case: %v", tc.name)
 			res, non0CPU, non0Mem := CalculateQoSResource(tc.pod)
 			assert.Equal(t, tc.res, res)

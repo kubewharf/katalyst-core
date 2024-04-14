@@ -84,7 +84,9 @@ func TestRegulatePoolSizes(t *testing.T) {
 	}
 
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			regulatePoolSizes(tt.poolSizes, tt.available, tt.enableReclaim)
 			assert.Equal(t, tt.expectedPoolSizes, tt.poolSizes)
 		})

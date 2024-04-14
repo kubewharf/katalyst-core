@@ -116,7 +116,10 @@ func TestGetCoresReservedForSystem(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			got, err := GetCoresReservedForSystem(tt.args.conf, tt.args.metaServer, tt.args.machineInfo, tt.args.allCPUs)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("GetCoresReservedForSystem() error = %v, wantErr %v", err, tt.wantErr)
@@ -188,7 +191,9 @@ func TestRegenerateHints(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			if got := RegenerateHints(tt.args.allocationInfo, tt.args.reqInt); !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("RegenerateHints() = %v, want %v", got, tt.want)
 			}
@@ -301,7 +306,10 @@ func TestPackAllocationResponse(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			got, err := PackAllocationResponse(tt.args.allocationInfo, tt.args.resourceName, tt.args.ociPropertyName, tt.args.isNodeResource, tt.args.isScalarResource, tt.args.req)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("PackAllocationResponse() error = %v, wantErr %v", err, tt.wantErr)

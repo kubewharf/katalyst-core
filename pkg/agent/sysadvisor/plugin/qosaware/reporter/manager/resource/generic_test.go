@@ -70,7 +70,9 @@ func TestNewGenericHeadroomManager(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			NewGenericHeadroomManager(tt.args.name, tt.args.useMilliValue, tt.args.reportMillValue,
 				tt.args.syncPeriod, tt.args.headroomAdvisor, tt.args.emitter,
 				tt.args.slidingWindowOptions, tt.args.getReclaimOptionsFunc)

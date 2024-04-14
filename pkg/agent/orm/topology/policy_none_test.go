@@ -21,6 +21,8 @@ import (
 )
 
 func TestPolicyNoneName(t *testing.T) {
+	t.Parallel()
+
 	tcases := []struct {
 		name     string
 		expected string
@@ -39,6 +41,8 @@ func TestPolicyNoneName(t *testing.T) {
 }
 
 func TestPolicyNoneCanAdmitPodResult(t *testing.T) {
+	t.Parallel()
+
 	tcases := []struct {
 		name     string
 		hint     TopologyHint
@@ -67,6 +71,8 @@ func TestPolicyNoneCanAdmitPodResult(t *testing.T) {
 }
 
 func TestPolicyNoneMerge(t *testing.T) {
+	t.Parallel()
+
 	tcases := []struct {
 		name           string
 		providersHints []map[string][]TopologyHint

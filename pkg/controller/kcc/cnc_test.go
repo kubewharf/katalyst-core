@@ -114,7 +114,10 @@ func TestCustomNodeConfigController_Run(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			genericContext, err := katalyst_base.GenerateFakeGenericContext(nil, tt.args.cncAndKCCList, tt.args.kccTargetList)
 			assert.NoError(t, err)
 			conf := generateTestConfiguration(t)

@@ -47,6 +47,8 @@ var (
 )
 
 func TestGetVPAResourceStatusWithCurrent(t *testing.T) {
+	t.Parallel()
+
 	// test with no indexers
 	klog.Infof("================== test with no indexers ==================")
 	testGetVPAResourceStatusWithCurrentAndIndexer(t, nil, []string{})
@@ -475,6 +477,8 @@ func testGetVPAResourceStatusWithCurrentAndIndexer(t *testing.T, podIndexers cac
 }
 
 func TestGetVPAResourceStatusWithRecommendation(t *testing.T) {
+	t.Parallel()
+
 	type args struct {
 		vpa                   *apis.KatalystVerticalPodAutoscaler
 		recPodResources       []apis.RecommendedPodResources
@@ -634,7 +638,9 @@ func TestGetVPAResourceStatusWithRecommendation(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			got, got1, err := GetVPAResourceStatusWithRecommendation(tt.args.vpa, tt.args.recPodResources, tt.args.recContainerResources)
 			if !tt.wantErr(t, err, fmt.Sprintf("GetVPAResourceStatusWithRecommendation(%v, %v, %v)", tt.args.vpa, tt.args.recPodResources, tt.args.recContainerResources)) {
 				return
