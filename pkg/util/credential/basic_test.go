@@ -86,7 +86,10 @@ func Test_basicAuthCredential_Auth(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			hr := &http.Request{
 				Header: make(http.Header),
 			}
@@ -133,7 +136,10 @@ func Test_basicAuthCredential_AuthToken(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			got, err := cred.AuthToken(makeBasicToken(tt.username, tt.password))
 			if (err != nil) != tt.wantErr {
 				t.Errorf("Auth() error = %v, wantErr %v", err, tt.wantErr)

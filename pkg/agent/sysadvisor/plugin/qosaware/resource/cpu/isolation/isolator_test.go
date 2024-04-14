@@ -382,15 +382,13 @@ func TestLoadIsolator(t *testing.T) {
 			expects: []string{"uid2", "uid5", "uid6"},
 		},
 	} {
-		t.Run(tc.comment, func(t *testing.T) {
-			t.Logf("test cases: %v", tc.comment)
+		t.Logf("test cases: %v", tc.comment)
 
-			conf.CPUIsolationConfiguration = tc.conf
-			loader := NewLoadIsolator(conf, struct{}{}, metrics.DummyMetrics{}, metaCache, metaServer)
+		conf.CPUIsolationConfiguration = tc.conf
+		loader := NewLoadIsolator(conf, struct{}{}, metrics.DummyMetrics{}, metaCache, metaServer)
 
-			res := loader.GetIsolatedPods()
-			assert.EqualValues(t, tc.expects, res)
-		})
+		res := loader.GetIsolatedPods()
+		assert.EqualValues(t, tc.expects, res)
 	}
 
 	for i := range containers {
@@ -451,22 +449,20 @@ func TestLoadIsolator(t *testing.T) {
 			expects: []string{"uid5", "uid6", "uid7", "uid8"},
 		},
 	} {
-		t.Run(tc.comment, func(t *testing.T) {
-			t.Logf("test cases: %v", tc.comment)
+		t.Logf("test cases: %v", tc.comment)
 
-			conf.CPUIsolationConfiguration = tc.conf
-			loader := NewLoadIsolator(conf, struct{}{}, metrics.DummyMetrics{}, metaCache, metaServer)
+		conf.CPUIsolationConfiguration = tc.conf
+		loader := NewLoadIsolator(conf, struct{}{}, metrics.DummyMetrics{}, metaCache, metaServer)
 
-			now := time.Now()
-			for i := 0; i < 8; i++ {
-				loader.(*LoadIsolator).states.Store(fmt.Sprintf("uid%v", i), containerIsolationState{
-					lockedOutFirstObserved: &now,
-				})
-			}
-			time.Sleep(time.Millisecond * 10)
+		now := time.Now()
+		for i := 0; i < 8; i++ {
+			loader.(*LoadIsolator).states.Store(fmt.Sprintf("uid%v", i), containerIsolationState{
+				lockedOutFirstObserved: &now,
+			})
+		}
+		time.Sleep(time.Millisecond * 10)
 
-			res := loader.GetIsolatedPods()
-			assert.EqualValues(t, tc.expects, res)
-		})
+		res := loader.GetIsolatedPods()
+		assert.EqualValues(t, tc.expects, res)
 	}
 }

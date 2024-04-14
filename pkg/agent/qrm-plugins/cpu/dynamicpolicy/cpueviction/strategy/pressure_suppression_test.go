@@ -256,70 +256,68 @@ func TestCPUPressureSuppression_GetEvictPods(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			stateImpl, err := makeState(cpuTopology)
-			as.Nil(err)
+		stateImpl, err := makeState(cpuTopology)
+		as.Nil(err)
 
-			pods := make([]*v1.Pod, 0, len(tt.podEntries))
+		pods := make([]*v1.Pod, 0, len(tt.podEntries))
 
-			for entryName, entries := range tt.podEntries {
-				for subEntryName, entry := range entries {
-					stateImpl.SetAllocationInfo(entryName, subEntryName, entry)
+		for entryName, entries := range tt.podEntries {
+			for subEntryName, entry := range entries {
+				stateImpl.SetAllocationInfo(entryName, subEntryName, entry)
 
-					if entries.IsPoolEntry() {
-						continue
-					}
+				if entries.IsPoolEntry() {
+					continue
+				}
 
-					pod := &v1.Pod{
-						ObjectMeta: metav1.ObjectMeta{
-							UID:         types.UID(entry.PodUid),
-							Name:        entry.PodName,
-							Namespace:   entry.PodNamespace,
-							Annotations: maputil.CopySS(entry.Annotations),
-							Labels:      maputil.CopySS(entry.Labels),
-						},
-						Spec: v1.PodSpec{
-							Containers: []v1.Container{
-								{
-									Name: entry.ContainerName,
-									Resources: v1.ResourceRequirements{
-										Requests: v1.ResourceList{
-											apiconsts.ReclaimedResourceMilliCPU: *resource.NewQuantity(int64(entry.RequestQuantity*1000), resource.DecimalSI),
-										},
-										Limits: v1.ResourceList{
-											apiconsts.ReclaimedResourceMilliCPU: *resource.NewQuantity(int64(entry.RequestQuantity*1000), resource.DecimalSI),
-										},
+				pod := &v1.Pod{
+					ObjectMeta: metav1.ObjectMeta{
+						UID:         types.UID(entry.PodUid),
+						Name:        entry.PodName,
+						Namespace:   entry.PodNamespace,
+						Annotations: maputil.CopySS(entry.Annotations),
+						Labels:      maputil.CopySS(entry.Labels),
+					},
+					Spec: v1.PodSpec{
+						Containers: []v1.Container{
+							{
+								Name: entry.ContainerName,
+								Resources: v1.ResourceRequirements{
+									Requests: v1.ResourceList{
+										apiconsts.ReclaimedResourceMilliCPU: *resource.NewQuantity(int64(entry.RequestQuantity*1000), resource.DecimalSI),
+									},
+									Limits: v1.ResourceList{
+										apiconsts.ReclaimedResourceMilliCPU: *resource.NewQuantity(int64(entry.RequestQuantity*1000), resource.DecimalSI),
 									},
 								},
 							},
 						},
-					}
-
-					pods = append(pods, pod)
+					},
 				}
+
+				pods = append(pods, pod)
 			}
+		}
 
-			plugin.(*CPUPressureSuppression).state = stateImpl
+		plugin.(*CPUPressureSuppression).state = stateImpl
 
-			resp, err := plugin.GetEvictPods(context.TODO(), &evictionpluginapi.GetEvictPodsRequest{
-				ActivePods: pods,
-			})
-			assert.NoError(t, err)
-			assert.NotNil(t, resp)
-
-			time.Sleep(defaultCPUMinSuppressionToleranceDuration)
-
-			resp, err = plugin.GetEvictPods(context.TODO(), &evictionpluginapi.GetEvictPodsRequest{
-				ActivePods: pods,
-			})
-			assert.NoError(t, err)
-			assert.NotNil(t, resp)
-
-			evictPodUIDSet := sets.String{}
-			for _, pod := range resp.EvictPods {
-				evictPodUIDSet.Insert(string(pod.Pod.GetUID()))
-			}
-			assert.Equal(t, tt.wantEvictPodUIDSet, evictPodUIDSet)
+		resp, err := plugin.GetEvictPods(context.TODO(), &evictionpluginapi.GetEvictPodsRequest{
+			ActivePods: pods,
 		})
+		assert.NoError(t, err)
+		assert.NotNil(t, resp)
+
+		time.Sleep(defaultCPUMinSuppressionToleranceDuration)
+
+		resp, err = plugin.GetEvictPods(context.TODO(), &evictionpluginapi.GetEvictPodsRequest{
+			ActivePods: pods,
+		})
+		assert.NoError(t, err)
+		assert.NotNil(t, resp)
+
+		evictPodUIDSet := sets.String{}
+		for _, pod := range resp.EvictPods {
+			evictPodUIDSet.Insert(string(pod.Pod.GetUID()))
+		}
+		assert.Equal(t, tt.wantEvictPodUIDSet, evictPodUIDSet)
 	}
 }

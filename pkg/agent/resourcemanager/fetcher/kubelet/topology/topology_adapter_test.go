@@ -1267,7 +1267,10 @@ func Test_getZoneAllocationsByPodResources(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			qosConf := generic.NewQoSConfiguration()
 			p := &topologyAdapterImpl{
 				numaSocketZoneNodeMap: tt.args.numaSocketZoneNodeMap,
@@ -1813,7 +1816,10 @@ func Test_getZoneResourcesByAllocatableResources(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			p := &topologyAdapterImpl{
 				metaServer:            tt.args.metaServer,
 				numaSocketZoneNodeMap: tt.args.numaSocketZoneNodeMap,
@@ -2060,7 +2066,10 @@ func Test_podResourcesServerTopologyAdapterImpl_GetTopologyZones_ReportRDMATopol
 		},
 	}
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			p := topologyAdapterImpl{
 				client: &fakePodResourcesListerClient{
 					ListPodResourcesResponse:     tt.fields.listPodResources,
@@ -2875,7 +2884,9 @@ func Test_podResourcesServerTopologyAdapterImpl_GetTopologyZones(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
 			p := &topologyAdapterImpl{
 				client: &fakePodResourcesListerClient{

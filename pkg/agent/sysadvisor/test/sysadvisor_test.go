@@ -173,7 +173,10 @@ func TestPlugins(t *testing.T) {
 	metaServer.PodFetcher = &pod.PodFetcherStub{}
 
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			metaCache, err := metacache.NewMetaCacheImp(conf, metricspool.DummyMetricsEmitterPool{}, fakeMetricsFetcher)
 			assert.NoError(t, err)
 			assert.NotNil(t, metaCache)

@@ -62,7 +62,10 @@ func TestPatchVPA(t *testing.T) {
 			newVPA: oldvpa1,
 		},
 	} {
+		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
 			internalClient := externalfake.NewSimpleClientset(tc.oldVPA)
 			updater := NewRealVPAUpdater(internalClient)
 			_, err := updater.PatchVPA(context.TODO(), tc.oldVPA, tc.newVPA)
@@ -114,7 +117,10 @@ func TestPatchVPAStatus(t *testing.T) {
 			newVPA: oldvpa1,
 		},
 	} {
+		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
 			internalClient := externalfake.NewSimpleClientset(tc.oldVPA)
 			updater := NewRealVPAUpdater(internalClient)
 			_, err := updater.PatchVPAStatus(context.TODO(), tc.oldVPA, tc.newVPA)

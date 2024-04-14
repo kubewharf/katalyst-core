@@ -116,7 +116,10 @@ func TestGetRegionNameFromMetaCache(t *testing.T) {
 	}
 
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			conf, err := options.NewOptions().Config()
 			assert.NoError(t, err)
 			conf.GenericSysAdvisorConfiguration.StateFileDirectory = os.TempDir()

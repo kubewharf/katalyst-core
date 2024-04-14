@@ -365,47 +365,45 @@ func TestThresholdMet(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			now := time.Now()
+		now := time.Now()
 
-			stateImpl, err := makeState(cpuTopology)
-			as.Nil(err)
+		stateImpl, err := makeState(cpuTopology)
+		as.Nil(err)
 
-			fakeMetricsFetcher := metric.NewFakeMetricsFetcher(metrics.DummyMetrics{}).(*metric.FakeMetricsFetcher)
-			assert.NotNil(t, fakeMetricsFetcher)
+		fakeMetricsFetcher := metric.NewFakeMetricsFetcher(metrics.DummyMetrics{}).(*metric.FakeMetricsFetcher)
+		assert.NotNil(t, fakeMetricsFetcher)
 
-			for entryName, entries := range tt.podEntries {
-				for subEntryName, entry := range entries {
-					stateImpl.SetAllocationInfo(entryName, subEntryName, entry)
+		for entryName, entries := range tt.podEntries {
+			for subEntryName, entry := range entries {
+				stateImpl.SetAllocationInfo(entryName, subEntryName, entry)
 
-					if entries.IsPoolEntry() {
-						continue
-					}
-
-					curLoad, found := tt.loads[entryName][subEntryName]
-					as.True(found)
-					fakeMetricsFetcher.SetContainerMetric(entryName, subEntryName, consts.MetricLoad1MinContainer, utilmetric.MetricData{Value: curLoad, Time: &now})
+				if entries.IsPoolEntry() {
+					continue
 				}
+
+				curLoad, found := tt.loads[entryName][subEntryName]
+				as.True(found)
+				fakeMetricsFetcher.SetContainerMetric(entryName, subEntryName, consts.MetricLoad1MinContainer, utilmetric.MetricData{Value: curLoad, Time: &now})
 			}
+		}
 
-			plugin.(*CPUPressureLoadEviction).state = stateImpl
+		plugin.(*CPUPressureLoadEviction).state = stateImpl
 
-			plugin.(*CPUPressureLoadEviction).metaServer.MetricsFetcher = fakeMetricsFetcher
+		plugin.(*CPUPressureLoadEviction).metaServer.MetricsFetcher = fakeMetricsFetcher
 
-			plugin.(*CPUPressureLoadEviction).collectMetrics(context.Background())
+		plugin.(*CPUPressureLoadEviction).collectMetrics(context.Background())
 
-			metResp, err := plugin.ThresholdMet(context.Background(), &evictionpluginapi.Empty{})
-			as.Nil(err)
-			as.NotNil(t, metResp)
+		metResp, err := plugin.ThresholdMet(context.Background(), &evictionpluginapi.Empty{})
+		as.Nil(err)
+		as.NotNil(t, metResp)
 
-			as.Equal(tt.wantMetType, metResp.MetType)
-			as.Equal(tt.wantEvictionScope, metResp.EvictionScope)
-			if tt.wantCondition != nil && metResp.Condition != nil {
-				as.Equal(*(tt.wantCondition), *(metResp.Condition))
-			} else {
-				as.Equal(tt.wantCondition, metResp.Condition)
-			}
-		})
+		as.Equal(tt.wantMetType, metResp.MetType)
+		as.Equal(tt.wantEvictionScope, metResp.EvictionScope)
+		if tt.wantCondition != nil && metResp.Condition != nil {
+			as.Equal(*(tt.wantCondition), *(metResp.Condition))
+		} else {
+			as.Equal(tt.wantCondition, metResp.Condition)
+		}
 	}
 }
 
@@ -730,81 +728,79 @@ func TestGetTopEvictionPods(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			now := time.Now()
+		now := time.Now()
 
-			stateImpl, err := makeState(cpuTopology)
-			as.Nil(err)
+		stateImpl, err := makeState(cpuTopology)
+		as.Nil(err)
 
-			fakeMetricsFetcher := metric.NewFakeMetricsFetcher(metrics.DummyMetrics{}).(*metric.FakeMetricsFetcher)
-			assert.NotNil(t, fakeMetricsFetcher)
+		fakeMetricsFetcher := metric.NewFakeMetricsFetcher(metrics.DummyMetrics{}).(*metric.FakeMetricsFetcher)
+		assert.NotNil(t, fakeMetricsFetcher)
 
-			pods := make([]*v1.Pod, 0, len(tt.podEntries))
-			candidatePods := make([]*v1.Pod, 0, len(tt.podEntries))
+		pods := make([]*v1.Pod, 0, len(tt.podEntries))
+		candidatePods := make([]*v1.Pod, 0, len(tt.podEntries))
 
-			for entryName, entries := range tt.podEntries {
-				for subEntryName, entry := range entries {
-					stateImpl.SetAllocationInfo(entryName, subEntryName, entry)
+		for entryName, entries := range tt.podEntries {
+			for subEntryName, entry := range entries {
+				stateImpl.SetAllocationInfo(entryName, subEntryName, entry)
 
-					if entries.IsPoolEntry() {
-						continue
-					}
+				if entries.IsPoolEntry() {
+					continue
+				}
 
-					pod := &v1.Pod{
-						ObjectMeta: metav1.ObjectMeta{
-							UID:         types.UID(entry.PodUid),
-							Name:        entry.PodName,
-							Namespace:   entry.PodNamespace,
-							Annotations: maputil.CopySS(entry.Annotations),
-							Labels:      maputil.CopySS(entry.Labels),
-						},
-						Spec: v1.PodSpec{
-							Containers: []v1.Container{
-								{
-									Name: entry.ContainerName,
-								},
+				pod := &v1.Pod{
+					ObjectMeta: metav1.ObjectMeta{
+						UID:         types.UID(entry.PodUid),
+						Name:        entry.PodName,
+						Namespace:   entry.PodNamespace,
+						Annotations: maputil.CopySS(entry.Annotations),
+						Labels:      maputil.CopySS(entry.Labels),
+					},
+					Spec: v1.PodSpec{
+						Containers: []v1.Container{
+							{
+								Name: entry.ContainerName,
 							},
 						},
-					}
-
-					pods = append(pods, pod)
-
-					if tt.wantEvictPodUIDSet.Has(entry.PodUid) {
-						candidatePods = append(candidatePods, pod)
-					}
-
-					curLoad, found := tt.loads[entryName][subEntryName]
-					as.True(found)
-					fakeMetricsFetcher.SetContainerMetric(entryName, subEntryName, consts.MetricLoad1MinContainer, utilmetric.MetricData{Value: curLoad, Time: &now})
+					},
 				}
-			}
 
-			plugin.(*CPUPressureLoadEviction).state = stateImpl
+				pods = append(pods, pod)
 
-			plugin.(*CPUPressureLoadEviction).metaServer.MetricsFetcher = fakeMetricsFetcher
-
-			plugin.(*CPUPressureLoadEviction).collectMetrics(context.Background())
-
-			metResp, err := plugin.ThresholdMet(context.Background(), &evictionpluginapi.Empty{})
-			as.Nil(err)
-			as.NotNil(t, metResp)
-
-			resp, err := plugin.GetTopEvictionPods(context.TODO(), &evictionpluginapi.GetTopEvictionPodsRequest{
-				ActivePods:    pods,
-				TopN:          1,
-				EvictionScope: consts.MetricLoad1MinContainer,
-			})
-			assert.NoError(t, err)
-			assert.NotNil(t, resp)
-
-			if metResp.MetType == evictionpluginapi.ThresholdMetType_HARD_MET {
-				as.Equal(candidatePods, resp.TargetPods)
-				tt.wantResp = &evictionpluginapi.GetTopEvictionPodsResponse{
-					TargetPods: candidatePods,
+				if tt.wantEvictPodUIDSet.Has(entry.PodUid) {
+					candidatePods = append(candidatePods, pod)
 				}
+
+				curLoad, found := tt.loads[entryName][subEntryName]
+				as.True(found)
+				fakeMetricsFetcher.SetContainerMetric(entryName, subEntryName, consts.MetricLoad1MinContainer, utilmetric.MetricData{Value: curLoad, Time: &now})
 			}
-			as.Equal(tt.wantResp, resp)
+		}
+
+		plugin.(*CPUPressureLoadEviction).state = stateImpl
+
+		plugin.(*CPUPressureLoadEviction).metaServer.MetricsFetcher = fakeMetricsFetcher
+
+		plugin.(*CPUPressureLoadEviction).collectMetrics(context.Background())
+
+		metResp, err := plugin.ThresholdMet(context.Background(), &evictionpluginapi.Empty{})
+		as.Nil(err)
+		as.NotNil(t, metResp)
+
+		resp, err := plugin.GetTopEvictionPods(context.TODO(), &evictionpluginapi.GetTopEvictionPodsRequest{
+			ActivePods:    pods,
+			TopN:          1,
+			EvictionScope: consts.MetricLoad1MinContainer,
 		})
+		assert.NoError(t, err)
+		assert.NotNil(t, resp)
+
+		if metResp.MetType == evictionpluginapi.ThresholdMetType_HARD_MET {
+			as.Equal(candidatePods, resp.TargetPods)
+			tt.wantResp = &evictionpluginapi.GetTopEvictionPodsResponse{
+				TargetPods: candidatePods,
+			}
+		}
+		as.Equal(tt.wantResp, resp)
 	}
 }
 
@@ -1570,7 +1566,10 @@ func TestCPUPressureLoadEviction_collectMetrics(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			as := require.New(t)
 
 			cpuTopology, err := machine.GenerateDummyCPUTopology(16, 2, 4)

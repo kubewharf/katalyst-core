@@ -293,7 +293,10 @@ func TestGetAvailableNUMAsAndReclaimedCores(t *testing.T) {
 	}
 
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			conf, metaReader, metaServer := tt.setup()
 
 			gotNUMAs, gotContainers, err := GetAvailableNUMAsAndReclaimedCores(conf, metaReader, metaServer)

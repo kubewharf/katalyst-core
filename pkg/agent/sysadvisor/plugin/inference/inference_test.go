@@ -73,7 +73,9 @@ func TestNewInferencePlugin(t *testing.T) {
 		NewNilModelResultFetcher)
 
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			_, err := NewInferencePlugin(tt.args.pluginName, tt.args.conf, tt.args.extraConf, tt.args.emitterPool, tt.args.metaServer, tt.args.metaCache)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("NewInferencePlugin() error = %v, wantErr %v", err, tt.wantErr)
@@ -116,7 +118,10 @@ func TestInferencePlugin_Run(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			var cancel context.CancelFunc
 			tt.args.ctx, cancel = context.WithCancel(context.Background())
 			infp := &InferencePlugin{
@@ -165,7 +170,10 @@ func TestInferencePlugin_Name(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			infp := &InferencePlugin{
 				name:                 tt.fields.name,
 				period:               tt.fields.period,
@@ -213,7 +221,10 @@ func TestInferencePlugin_Init(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			infp := &InferencePlugin{
 				name:                 tt.fields.name,
 				period:               tt.fields.period,
@@ -263,7 +274,9 @@ func TestInferencePlugin_fetchModelResult(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			infp := &InferencePlugin{
 				name:                 tt.fields.name,
 				period:               tt.fields.period,

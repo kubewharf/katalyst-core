@@ -21,6 +21,7 @@ import (
 )
 
 func TestPolicyBestEffortCanAdmitPodResult(t *testing.T) {
+	t.Parallel()
 	tcases := []struct {
 		name     string
 		hint     TopologyHint
@@ -50,6 +51,8 @@ func TestPolicyBestEffortCanAdmitPodResult(t *testing.T) {
 }
 
 func TestPolicyBestEffortMerge(t *testing.T) {
+	t.Parallel()
+
 	numaNodes := []int{0, 1, 2, 3}
 	policy := NewBestEffortPolicy(numaNodes)
 

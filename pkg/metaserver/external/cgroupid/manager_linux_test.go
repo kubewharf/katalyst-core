@@ -72,7 +72,9 @@ func TestGetCgroupIDForContainer(t *testing.T) {
 	}
 
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			cgID, err := cgroupIDManager.GetCgroupIDForContainer(tt.podUID, tt.containerID)
 			assert.NoError(t, err)
 			assert.Equal(t, tt.want, cgID)
@@ -108,7 +110,10 @@ func TestListCgroupIDsForPod(t *testing.T) {
 	}
 
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			cgIDs, err := cgroupIDManager.ListCgroupIDsForPod(tt.podUID)
 			assert.NoError(t, err)
 			sort.Slice(tt.want, func(i, j int) bool { return tt.want[i] < tt.want[j] })
@@ -144,7 +149,10 @@ func TestGetAbsentContainers(t *testing.T) {
 	}
 
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			gotAbsentContainers := cgroupIDManager.getAbsentContainers(tt.podList)
 			assert.Equal(t, len(tt.want), len(gotAbsentContainers))
 			for wantPodUID, wantContainerSet := range tt.want {
@@ -188,7 +196,9 @@ func TestClearResidualPodsInCache(t *testing.T) {
 	}
 
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			for i := 0; time.Duration(i)*cgroupIDManager.reconcilePeriod < maxResidualTime; i++ {
 				cgroupIDManager.clearResidualPodsInCache(tt.podList)
 			}

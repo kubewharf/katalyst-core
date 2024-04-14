@@ -38,7 +38,9 @@ func Test_insecureCredential_Auth(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			i := &insecureCredential{}
 			got, err := i.Auth(&http.Request{})
 			assert.Equal(t, tt.want, got)
@@ -62,7 +64,9 @@ func Test_insecureCredential_AuthToken(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			i := &insecureCredential{}
 			got, err := i.AuthToken("")
 			assert.Equal(t, tt.want, got)

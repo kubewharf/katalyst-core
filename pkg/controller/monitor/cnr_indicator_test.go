@@ -310,7 +310,11 @@ func Test_checkNumaExclusiveAnomaly(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
+		tt := tt
+
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			genericCtx, err := katalyst_base.GenerateFakeGenericContext([]runtime.Object{tt.fields.pods[0], tt.fields.pods[1]}, []runtime.Object{tt.fields.cnr})
 			assert.NoError(t, err)
 
@@ -494,7 +498,10 @@ func Test_checkNumaAllocatableSumAnomaly(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			genericCtx, err := katalyst_base.GenerateFakeGenericContext([]runtime.Object{tt.fields.node}, []runtime.Object{tt.fields.cnr})
 			assert.NoError(t, err)
 
@@ -671,7 +678,10 @@ func Test_checkPodAllocationSumAnomaly(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			genericCtx, err := katalyst_base.GenerateFakeGenericContext([]runtime.Object{tt.fields.pods[0]}, []runtime.Object{tt.fields.cnr})
 			assert.NoError(t, err)
 

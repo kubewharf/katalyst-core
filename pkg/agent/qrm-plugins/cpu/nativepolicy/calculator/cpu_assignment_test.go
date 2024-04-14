@@ -570,6 +570,8 @@ var (
 )
 
 func TestCPUAccumulatorFreeSockets(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
 		description   string
 		topo          *machine.CPUTopology
@@ -657,7 +659,10 @@ func TestCPUAccumulatorFreeSockets(t *testing.T) {
 	}
 
 	for _, tc := range testCases {
+		tc := tc
 		t.Run(tc.description, func(t *testing.T) {
+			t.Parallel()
+
 			acc := newCPUAccumulator(tc.topo, tc.availableCPUs, 0)
 			result := acc.freeSockets()
 			sort.Ints(result)
@@ -670,6 +675,8 @@ func TestCPUAccumulatorFreeSockets(t *testing.T) {
 }
 
 func TestCPUAccumulatorFreeNUMANodes(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
 		description   string
 		topo          *machine.CPUTopology
@@ -757,7 +764,10 @@ func TestCPUAccumulatorFreeNUMANodes(t *testing.T) {
 	}
 
 	for _, tc := range testCases {
+		tc := tc
 		t.Run(tc.description, func(t *testing.T) {
+			t.Parallel()
+
 			acc := newCPUAccumulator(tc.topo, tc.availableCPUs, 0)
 			result := acc.freeNUMANodes()
 			if !reflect.DeepEqual(result, tc.expect) {
@@ -768,6 +778,8 @@ func TestCPUAccumulatorFreeNUMANodes(t *testing.T) {
 }
 
 func TestCPUAccumulatorFreeSocketsAndNUMANodes(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
 		description     string
 		topo            *machine.CPUTopology
@@ -806,7 +818,10 @@ func TestCPUAccumulatorFreeSocketsAndNUMANodes(t *testing.T) {
 	}
 
 	for _, tc := range testCases {
+		tc := tc
 		t.Run(tc.description, func(t *testing.T) {
+			t.Parallel()
+
 			acc := newCPUAccumulator(tc.topo, tc.availableCPUs, 0)
 			resultNUMANodes := acc.freeNUMANodes()
 			if !reflect.DeepEqual(resultNUMANodes, tc.expectNUMANodes) {
@@ -821,6 +836,8 @@ func TestCPUAccumulatorFreeSocketsAndNUMANodes(t *testing.T) {
 }
 
 func TestCPUAccumulatorFreeCores(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
 		description   string
 		topo          *machine.CPUTopology
@@ -878,7 +895,10 @@ func TestCPUAccumulatorFreeCores(t *testing.T) {
 	}
 
 	for _, tc := range testCases {
+		tc := tc
 		t.Run(tc.description, func(t *testing.T) {
+			t.Parallel()
+
 			acc := newCPUAccumulator(tc.topo, tc.availableCPUs, 0)
 			result := acc.freeCores()
 			if !reflect.DeepEqual(result, tc.expect) {
@@ -889,6 +909,8 @@ func TestCPUAccumulatorFreeCores(t *testing.T) {
 }
 
 func TestCPUAccumulatorFreeCPUs(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
 		description   string
 		topo          *machine.CPUTopology
@@ -934,7 +956,10 @@ func TestCPUAccumulatorFreeCPUs(t *testing.T) {
 	}
 
 	for _, tc := range testCases {
+		tc := tc
 		t.Run(tc.description, func(t *testing.T) {
+			t.Parallel()
+
 			acc := newCPUAccumulator(tc.topo, tc.availableCPUs, 0)
 			result := acc.freeCPUs()
 			if !reflect.DeepEqual(result, tc.expect) {
@@ -945,6 +970,8 @@ func TestCPUAccumulatorFreeCPUs(t *testing.T) {
 }
 
 func TestCPUAccumulatorTake(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
 		description     string
 		topo            *machine.CPUTopology
@@ -1020,7 +1047,10 @@ func TestCPUAccumulatorTake(t *testing.T) {
 	}
 
 	for _, tc := range testCases {
+		tc := tc
 		t.Run(tc.description, func(t *testing.T) {
+			t.Parallel()
+
 			acc := newCPUAccumulator(tc.topo, tc.availableCPUs, tc.numCPUs)
 			totalTaken := 0
 			for _, cpus := range tc.takeCPUs {
@@ -1169,6 +1199,8 @@ func commonTakeByTopologyTestCases(t *testing.T) []takeByTopologyTestCase {
 }
 
 func TestTakeByTopologyNUMAPacked(t *testing.T) {
+	t.Parallel()
+
 	testCases := commonTakeByTopologyTestCases(t)
 	testCases = append(testCases, []takeByTopologyTestCase{
 		{
@@ -1198,7 +1230,10 @@ func TestTakeByTopologyNUMAPacked(t *testing.T) {
 	}...)
 
 	for _, tc := range testCases {
+		tc := tc
 		t.Run(tc.description, func(t *testing.T) {
+			t.Parallel()
+
 			result, err := TakeByTopologyNUMAPacked(tc.topo, tc.availableCPUs, tc.numCPUs)
 			if tc.expErr != "" && err.Error() != tc.expErr {
 				t.Errorf("expected error to be [%v] but it was [%v]", tc.expErr, err)
@@ -1306,6 +1341,8 @@ func commonTakeByTopologyExtendedTestCases(t *testing.T) []takeByTopologyExtende
 }
 
 func TestTakeByTopologyNUMADistributed(t *testing.T) {
+	t.Parallel()
+
 	testCases := commonTakeByTopologyExtendedTestCases(t)
 	testCases = append(testCases, []takeByTopologyExtendedTestCase{
 		{
@@ -1401,7 +1438,10 @@ func TestTakeByTopologyNUMADistributed(t *testing.T) {
 	}...)
 
 	for _, tc := range testCases {
+		tc := tc
 		t.Run(tc.description, func(t *testing.T) {
+			t.Parallel()
+
 			result, err := TakeByTopologyNUMADistributed(tc.topo, tc.availableCPUs, tc.numCPUs, tc.cpuGroupSize)
 			if err != nil {
 				if tc.expErr == "" {

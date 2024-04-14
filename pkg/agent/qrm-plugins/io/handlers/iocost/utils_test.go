@@ -31,6 +31,8 @@ import (
 )
 
 func TestGetDevicesIdToModel(t *testing.T) {
+	t.Parallel()
+
 	allDeviceNames, _ := getAllDeviceNames()
 
 	type args struct {
@@ -59,7 +61,9 @@ func TestGetDevicesIdToModel(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			_, err := getDevicesIdToModel(tt.args.deviceNames)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("getDevicesIdToModel() error = %v, wantErr %v", err, tt.wantErr)
@@ -70,6 +74,8 @@ func TestGetDevicesIdToModel(t *testing.T) {
 }
 
 func TestLoadJsonConfig(t *testing.T) {
+	t.Parallel()
+
 	type args struct {
 		configAbsPath string
 		configObject  interface{}
@@ -88,7 +94,9 @@ func TestLoadJsonConfig(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			if err := general.LoadJsonConfig(tt.args.configAbsPath, tt.args.configObject); (err != nil) != tt.wantErr {
 				t.Errorf("LoadJsonConfig() error = %v, wantErr %v", err, tt.wantErr)
 			}
@@ -97,6 +105,8 @@ func TestLoadJsonConfig(t *testing.T) {
 }
 
 func TestGetDeviceNameFromID(t *testing.T) {
+	t.Parallel()
+
 	targetDevID := "1234"
 	_, found, err := getDeviceNameFromID(targetDevID)
 
@@ -105,6 +115,8 @@ func TestGetDeviceNameFromID(t *testing.T) {
 }
 
 func TestGetDeviceType(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
 		deviceName     string
 		expectedType   DeviceType

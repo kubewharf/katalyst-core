@@ -273,26 +273,24 @@ func TestSystemPressureEvictionPlugin_ThresholdMet(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			now := start.Add(time.Duration(tt.round) * plugin.syncPeriod)
-			fakeMetricsFetcher.SetNodeMetric(consts.MetricMemFreeSystem, utilMetric.MetricData{Value: tt.systemFree, Time: &now})
-			fakeMetricsFetcher.SetNodeMetric(consts.MetricMemKswapdstealSystem, utilMetric.MetricData{Value: tt.systemKswapSteal, Time: &now})
+		now := start.Add(time.Duration(tt.round) * plugin.syncPeriod)
+		fakeMetricsFetcher.SetNodeMetric(consts.MetricMemFreeSystem, utilMetric.MetricData{Value: tt.systemFree, Time: &now})
+		fakeMetricsFetcher.SetNodeMetric(consts.MetricMemKswapdstealSystem, utilMetric.MetricData{Value: tt.systemKswapSteal, Time: &now})
 
-			plugin.detectSystemPressures(context.TODO())
-			metResp, err := plugin.ThresholdMet(context.TODO())
-			assert.NoError(t, err)
-			assert.NotNil(t, metResp)
-			assert.Equal(t, tt.wantMetType, metResp.MetType)
-			assert.Equal(t, tt.wantEvictionScope, metResp.EvictionScope)
-			if tt.wantCondition != nil && metResp.Condition != nil {
-				assert.Equal(t, *(tt.wantCondition), *(metResp.Condition))
-			} else {
-				assert.Equal(t, tt.wantCondition, metResp.Condition)
-			}
+		plugin.detectSystemPressures(context.TODO())
+		metResp, err := plugin.ThresholdMet(context.TODO())
+		assert.NoError(t, err)
+		assert.NotNil(t, metResp)
+		assert.Equal(t, tt.wantMetType, metResp.MetType)
+		assert.Equal(t, tt.wantEvictionScope, metResp.EvictionScope)
+		if tt.wantCondition != nil && metResp.Condition != nil {
+			assert.Equal(t, *(tt.wantCondition), *(metResp.Condition))
+		} else {
+			assert.Equal(t, tt.wantCondition, metResp.Condition)
+		}
 
-			assert.Equal(t, tt.wantIsUnderSystemPressure, plugin.isUnderSystemPressure)
-			assert.Equal(t, tt.wantSystemAction, plugin.systemAction)
-		})
+		assert.Equal(t, tt.wantIsUnderSystemPressure, plugin.isUnderSystemPressure)
+		assert.Equal(t, tt.wantSystemAction, plugin.systemAction)
 	}
 }
 
@@ -391,23 +389,21 @@ func TestSystemPressureEvictionPlugin_GetTopEvictionPods(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			plugin.isUnderSystemPressure = tt.isUnderSystemPressure
-			plugin.systemAction = tt.systemAction
-			plugin.lastEvictionTime = tt.lastEvictionTime
-			resp, err := plugin.GetTopEvictionPods(context.TODO(), &pluginapi.GetTopEvictionPodsRequest{
-				ActivePods:    bePods,
-				TopN:          1,
-				EvictionScope: EvictionScopeSystemMemory,
-			})
-			assert.NoError(t, err)
-			assert.NotNil(t, resp)
-
-			targetPodSet := sets.String{}
-			for _, pod := range resp.TargetPods {
-				targetPodSet.Insert(pod.Name)
-			}
-			assert.Equal(t, tt.wantEvictPodSet, targetPodSet)
+		plugin.isUnderSystemPressure = tt.isUnderSystemPressure
+		plugin.systemAction = tt.systemAction
+		plugin.lastEvictionTime = tt.lastEvictionTime
+		resp, err := plugin.GetTopEvictionPods(context.TODO(), &pluginapi.GetTopEvictionPodsRequest{
+			ActivePods:    bePods,
+			TopN:          1,
+			EvictionScope: EvictionScopeSystemMemory,
 		})
+		assert.NoError(t, err)
+		assert.NotNil(t, resp)
+
+		targetPodSet := sets.String{}
+		for _, pod := range resp.TargetPods {
+			targetPodSet.Insert(pod.Name)
+		}
+		assert.Equal(t, tt.wantEvictPodSet, targetPodSet)
 	}
 }

@@ -205,26 +205,24 @@ func TestNumaMemoryPressurePlugin_ThresholdMet(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			now := time.Now()
-			for numaID, numaFree := range tt.numaFree {
-				fakeMetricsFetcher.SetNumaMetric(numaID, consts.MetricMemFreeNuma, utilMetric.MetricData{Value: numaFree, Time: &now})
-			}
+		now := time.Now()
+		for numaID, numaFree := range tt.numaFree {
+			fakeMetricsFetcher.SetNumaMetric(numaID, consts.MetricMemFreeNuma, utilMetric.MetricData{Value: numaFree, Time: &now})
+		}
 
-			metResp, err := plugin.ThresholdMet(context.TODO())
-			assert.NoError(t, err)
-			assert.NotNil(t, metResp)
-			assert.Equal(t, tt.wantMetType, metResp.MetType)
-			assert.Equal(t, tt.wantEvictionScope, metResp.EvictionScope)
-			if tt.wantCondition != nil && metResp.Condition != nil {
-				assert.Equal(t, *(tt.wantCondition), *(metResp.Condition))
-			} else {
-				assert.Equal(t, tt.wantCondition, metResp.Condition)
-			}
+		metResp, err := plugin.ThresholdMet(context.TODO())
+		assert.NoError(t, err)
+		assert.NotNil(t, metResp)
+		assert.Equal(t, tt.wantMetType, metResp.MetType)
+		assert.Equal(t, tt.wantEvictionScope, metResp.EvictionScope)
+		if tt.wantCondition != nil && metResp.Condition != nil {
+			assert.Equal(t, *(tt.wantCondition), *(metResp.Condition))
+		} else {
+			assert.Equal(t, tt.wantCondition, metResp.Condition)
+		}
 
-			assert.Equal(t, tt.wantIsUnderNumaPressure, plugin.isUnderNumaPressure)
-			assert.Equal(t, tt.wantNumaAction, plugin.numaActionMap)
-		})
+		assert.Equal(t, tt.wantIsUnderNumaPressure, plugin.isUnderNumaPressure)
+		assert.Equal(t, tt.wantNumaAction, plugin.numaActionMap)
 	}
 }
 
@@ -369,22 +367,20 @@ func TestNumaMemoryPressurePlugin_GetTopEvictionPods(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			plugin.isUnderNumaPressure = tt.isUnderNumaPressure
-			plugin.numaActionMap = tt.numaAction
-			resp, err := plugin.GetTopEvictionPods(context.TODO(), &pluginapi.GetTopEvictionPodsRequest{
-				ActivePods:    bePods,
-				TopN:          1,
-				EvictionScope: EvictionScopeNumaMemory,
-			})
-			assert.NoError(t, err)
-			assert.NotNil(t, resp)
-
-			targetPodSet := sets.String{}
-			for _, pod := range resp.TargetPods {
-				targetPodSet.Insert(pod.Name)
-			}
-			assert.Equal(t, targetPodSet, tt.wantEvictPodSet)
+		plugin.isUnderNumaPressure = tt.isUnderNumaPressure
+		plugin.numaActionMap = tt.numaAction
+		resp, err := plugin.GetTopEvictionPods(context.TODO(), &pluginapi.GetTopEvictionPodsRequest{
+			ActivePods:    bePods,
+			TopN:          1,
+			EvictionScope: EvictionScopeNumaMemory,
 		})
+		assert.NoError(t, err)
+		assert.NotNil(t, resp)
+
+		targetPodSet := sets.String{}
+		for _, pod := range resp.TargetPods {
+			targetPodSet.Insert(pod.Name)
+		}
+		assert.Equal(t, targetPodSet, tt.wantEvictPodSet)
 	}
 }

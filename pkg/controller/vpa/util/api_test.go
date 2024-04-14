@@ -101,7 +101,10 @@ func TestUpdateVPAConditions(t *testing.T) {
 			newvpa:          newvpa2,
 		},
 	} {
+		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
 			vpa := tc.oldvpa.DeepCopy()
 			err := SetVPAConditions(vpa, tc.conditionType, tc.conditionStatus, "", "")
 			assert.NoError(t, err)
@@ -174,7 +177,10 @@ func TestUpdateAPIVPAConditions(t *testing.T) {
 			newvpa: newvpa11,
 		},
 	} {
+		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
 			InternalClient := externalfake.NewSimpleClientset()
 			vpaUpdater := control.NewRealVPAUpdater(InternalClient)
 			_, err := InternalClient.AutoscalingV1alpha1().KatalystVerticalPodAutoscalers(tc.oldvpa.Namespace).Create(context.TODO(), tc.oldvpa, metav1.CreateOptions{})
@@ -229,20 +235,23 @@ func TestUpdateVPARecConditions(t *testing.T) {
 	}{
 		{
 			name:            "force update time",
-			oldvparec:       oldvparec1,
+			oldvparec:       oldvparec1.DeepCopy(),
 			conditionType:   apis.RecommendationUpdatedToVPA,
 			forceUpdateTime: true,
-			newvparec:       newvparec1,
+			newvparec:       newvparec1.DeepCopy(),
 		},
 		{
 			name:            "not force update time",
-			oldvparec:       newvparec1,
+			oldvparec:       newvparec1.DeepCopy(),
 			conditionType:   apis.RecommendationUpdatedToVPA,
 			forceUpdateTime: false,
-			newvparec:       newvparec1,
+			newvparec:       newvparec1.DeepCopy(),
 		},
 	} {
+		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
 			vparec := tc.oldvparec.DeepCopy()
 			err := SetVPARecConditions(vparec, tc.conditionType, "", "", "")
 			assert.NoError(t, err)

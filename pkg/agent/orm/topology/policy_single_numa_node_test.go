@@ -22,6 +22,8 @@ import (
 )
 
 func TestPolicySingleNumaNodeCanAdmitPodResult(t *testing.T) {
+	t.Parallel()
+
 	tcases := []struct {
 		name     string
 		hint     TopologyHint
@@ -46,6 +48,8 @@ func TestPolicySingleNumaNodeCanAdmitPodResult(t *testing.T) {
 }
 
 func TestPolicySingleNumaNodeFilterHints(t *testing.T) {
+	t.Parallel()
+
 	tcases := []struct {
 		name              string
 		allResources      [][]TopologyHint
@@ -156,6 +160,8 @@ func TestPolicySingleNumaNodeFilterHints(t *testing.T) {
 }
 
 func TestPolicySingleNumaNodeMerge(t *testing.T) {
+	t.Parallel()
+
 	numaNodes := []int{0, 1, 2, 3}
 	policy := NewSingleNumaNodePolicy(numaNodes)
 

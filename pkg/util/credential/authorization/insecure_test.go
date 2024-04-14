@@ -39,7 +39,9 @@ func Test_insecureAccessControl_Verify(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			i := &insecureAccessControl{}
 			if err := i.Verify(tt.authInfo, tt.permission); (err != nil) != tt.wantErr {
 				t.Errorf("Verify() error = %v, wantErr %v", err, tt.wantErr)

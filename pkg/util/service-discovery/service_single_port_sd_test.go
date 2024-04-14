@@ -35,6 +35,8 @@ import (
 )
 
 func TestServiceSinglePortSDManage(t *testing.T) {
+	t.Parallel()
+
 	server1 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
 	server2 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
 	defer func() {

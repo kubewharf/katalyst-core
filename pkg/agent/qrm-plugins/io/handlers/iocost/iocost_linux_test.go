@@ -141,6 +141,8 @@ func TestSetIOCost(t *testing.T) {
 	}, nil, &dynamicconfig.DynamicAgentConfiguration{}, metrics.DummyMetrics{}, metaServer)
 }
 func Test_disableIOCost(t *testing.T) {
+	t.Parallel()
+
 	type args struct {
 		conf *config.Configuration
 	}
@@ -186,13 +188,17 @@ func Test_disableIOCost(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			disableIOCost(tt.args.conf)
 		})
 	}
 }
 
 func Test_applyIOCostConfig(t *testing.T) {
+	t.Parallel()
+
 	type args struct {
 		conf    *config.Configuration
 		emitter metrics.MetricEmitter
@@ -313,13 +319,17 @@ func Test_applyIOCostConfig(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			applyIOCostConfig(tt.args.conf, tt.args.emitter)
 		})
 	}
 }
 
 func Test_reportDevicesIOCostVrate(t *testing.T) {
+	t.Parallel()
+
 	type args struct {
 		emitter metrics.MetricEmitter
 	}
@@ -341,13 +351,17 @@ func Test_reportDevicesIOCostVrate(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			reportDevicesIOCostVrate(tt.args.emitter)
 		})
 	}
 }
 
 func Test_applyIOCostModel(t *testing.T) {
+	t.Parallel()
+
 	type args struct {
 		ioCostModelConfigs map[DevModel]*common.IOCostModelData
 		devsIDToModel      map[string]DevModel
@@ -371,13 +385,17 @@ func Test_applyIOCostModel(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			applyIOCostModelWithDefault(tt.args.ioCostModelConfigs, tt.args.devsIDToModel)
 		})
 	}
 }
 
 func TestApplyIOCostQoSWithDefault(t *testing.T) {
+	t.Parallel()
+
 	// Mocking the necessary dependencies
 	ioCostQoSConfigs := make(map[DevModel]*common.IOCostQoSData)
 	ioCostQoSConfigs[DevModelDefaultHDD] = &common.IOCostQoSData{Enable: 1}

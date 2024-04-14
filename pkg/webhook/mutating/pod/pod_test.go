@@ -242,7 +242,10 @@ func TestMutatePod(t *testing.T) {
 			},
 		},
 	} {
+		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
 			genericConf := &generic.GenericConfiguration{}
 			webhookGenericConf := webhookconfig.NewGenericWebhookConfiguration()
 			webhookGenericConf.DynamicGVResources = []string{

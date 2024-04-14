@@ -26,6 +26,8 @@ type struct1 struct {
 }
 
 func TestStructToString(t *testing.T) {
+	t.Parallel()
+
 	type args struct {
 		val interface{}
 	}
@@ -46,7 +48,9 @@ func TestStructToString(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			if got := StructToString(tt.args.val); got != tt.want {
 				t.Errorf("StructToString() = %v, want %v", got, tt.want)
 			}

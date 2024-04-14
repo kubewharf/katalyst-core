@@ -84,7 +84,10 @@ func TestCNRMonitor_Run(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			genericCtx, err := katalyst_base.GenerateFakeGenericContext([]runtime.Object{oldPod}, []runtime.Object{tt.fields.cnr})
 			assert.NoError(t, err)
 
@@ -201,7 +204,10 @@ func Test_gcPodTimeMap(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			genericCtx, err := katalyst_base.GenerateFakeGenericContext([]runtime.Object{tt.args.pod}, []runtime.Object{})
 			assert.NoError(t, err)
 

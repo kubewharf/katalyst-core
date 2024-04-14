@@ -27,6 +27,8 @@ import (
 )
 
 func TestMetricExpire(t *testing.T) {
+	t.Parallel()
+
 	updateTime := time.Now().Add(-65 * time.Second)
 	metricData := utilmetric.MetricData{
 		Time: &updateTime,

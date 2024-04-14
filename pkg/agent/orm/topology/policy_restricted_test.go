@@ -21,6 +21,8 @@ import (
 )
 
 func TestPolicyRestrictedName(t *testing.T) {
+	t.Parallel()
+
 	tcases := []struct {
 		name     string
 		expected string
@@ -39,6 +41,8 @@ func TestPolicyRestrictedName(t *testing.T) {
 }
 
 func TestPolicyRestrictedCanAdmitPodResult(t *testing.T) {
+	t.Parallel()
+
 	tcases := []struct {
 		name     string
 		hint     TopologyHint
@@ -68,6 +72,8 @@ func TestPolicyRestrictedCanAdmitPodResult(t *testing.T) {
 }
 
 func TestPolicyRestrictedMerge(t *testing.T) {
+	t.Parallel()
+
 	numaNodes := []int{0, 1, 2, 3}
 	policy := NewRestrictedPolicy(numaNodes)
 

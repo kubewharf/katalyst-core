@@ -264,7 +264,10 @@ func TestPolicyNumaExclusive(t *testing.T) {
 		}
 		policy.metaServer.MetaAgent.SetPodFetcher(constructPodFetcherNumaExclusive(podNames))
 
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			policy.SetEssentials(tt.resourceEssentials)
 			err := policy.Update()
 			assert.NoError(t, err)

@@ -23,35 +23,29 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/util/cgroup/common"
 )
 
-func Test_getDefaultAbsCgroupRootPaths(t *testing.T) {
-	name := "test for cgroupfs"
+func Test_getCgroupRootPaths(t *testing.T) {
+	t.Parallel()
+
 	want := []string{
 		"/sys/fs/cgroup/cpu/kubepods",
 		"/sys/fs/cgroup/cpu/kubepods/besteffort",
 		"/sys/fs/cgroup/cpu/kubepods/burstable",
 	}
 
-	t.Run(name, func(t *testing.T) {
-		if got := common.GetKubernetesCgroupRootPathWithSubSys("cpu"); !reflect.DeepEqual(got, want) {
-			t.Errorf("getAbsCgroupRootPaths() \n got = %v, \n want = %v\n", got, want)
-		}
-	})
-}
+	if got := common.GetKubernetesCgroupRootPathWithSubSys("cpu"); !reflect.DeepEqual(got, want) {
+		t.Errorf("getAbsCgroupRootPaths() \n got = %v, \n want = %v\n", got, want)
+	}
 
-func Test_getAdditionAbsCgroupRootPaths(t *testing.T) {
 	common.InitKubernetesCGroupPath(common.CgroupTypeSystemd, []string{"/kubepods/test.slice"})
 
-	name := "test for cgroupfs"
-	want := []string{
+	want = []string{
 		"/sys/fs/cgroup/cpu/kubepods.slice",
 		"/sys/fs/cgroup/cpu/kubepods.slice/kubepods-besteffort.slice",
 		"/sys/fs/cgroup/cpu/kubepods.slice/kubepods-burstable.slice",
 		"/sys/fs/cgroup/cpu/kubepods/test.slice",
 	}
 
-	t.Run(name, func(t *testing.T) {
-		if got := common.GetKubernetesCgroupRootPathWithSubSys("cpu"); !reflect.DeepEqual(got, want) {
-			t.Errorf("getAbsCgroupRootPaths() \n got = %v, \n want = %v\n", got, want)
-		}
-	})
+	if got := common.GetKubernetesCgroupRootPathWithSubSys("cpu"); !reflect.DeepEqual(got, want) {
+		t.Errorf("getAbsCgroupRootPaths() \n got = %v, \n want = %v\n", got, want)
+	}
 }

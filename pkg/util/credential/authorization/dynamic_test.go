@@ -94,7 +94,9 @@ func Test_dynamicConfAccessControl_Verify(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			if err := accessControl.Verify(tt.args.authInfo, tt.args.targetResource); (err != nil) != tt.wantErr {
 				t.Errorf("Verify() error = %v, wantErr %v", err, tt.wantErr)
 			}

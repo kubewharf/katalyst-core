@@ -318,7 +318,10 @@ func TestNodeMetricUpdate(t *testing.T) {
 	}
 
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			conf := generateTestConfiguration(t, regDir, ckDir, statDir)
 			clientSet := generateTestGenericClientSet(nil, nil)
 			metaServer := generateTestMetaServer(clientSet, conf, tt.args.pods...)

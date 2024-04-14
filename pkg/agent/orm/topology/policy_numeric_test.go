@@ -19,6 +19,8 @@ package topology
 import "testing"
 
 func TestPolicyNumericMerge(t *testing.T) {
+	t.Parallel()
+
 	policy := NewNumericPolicy(defaultAlignResourceNames)
 
 	tcases := []policyMergeTestCase{

@@ -156,7 +156,10 @@ func TestMatchConfigNameToNodes(t *testing.T) {
 	matcher := makeTestMatcher()
 
 	for _, tc := range testCases {
+		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
 			out, err := matcher.matchConfigNameToNodes(tc.configName)
 			assert.Nil(t, err)
 			assert.Equal(t, len(tc.result), len(out))
@@ -166,6 +169,7 @@ func TestMatchConfigNameToNodes(t *testing.T) {
 
 func TestMatchConfig(t *testing.T) {
 	t.Parallel()
+
 	nodeIndexer1 := testNodeIndexer()
 	nocIndexer1 := testNocIndexer()
 	matcher1 := makeMatcherByIndexer(nodeIndexer1, nocIndexer1)
@@ -240,7 +244,10 @@ func TestMatchConfig(t *testing.T) {
 	}
 
 	for _, tc := range testCases {
+		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
 			out, err := tc.matcher.MatchConfig(tc.configName)
 			assert.Nil(t, err)
 			sort.Strings(out)
@@ -410,7 +417,10 @@ func TestMatchNode(t *testing.T) {
 	}
 
 	for _, tc := range testCases {
+		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
 			if tc.configName == "" {
 				for _, c := range []string{"config1", "config2"} {
 					_, _ = tc.matcher.MatchConfig(c)
@@ -458,7 +468,10 @@ func TestDelNode(t *testing.T) {
 	}
 
 	for _, tc := range testCases {
+		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
 			tc.matcher.DelNode(tc.nodeName)
 			fmt.Printf("testCase: %v", tc)
 			assert.Equal(t, tc.result, len(tc.matcher.nodeToConfig))
@@ -495,7 +508,9 @@ func TestSort(t *testing.T) {
 	}
 
 	for _, tc := range testCases {
+		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			sort.Sort(tc.nocList)
 			assert.Equal(t, tc.result, tc.nocList[0].Name)
 		})

@@ -368,7 +368,9 @@ func Test_parseReportFieldToCNR(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			got, err := parseReportFieldToCNR(tt.args.cnr, tt.args.reportField, syntax.SimpleMergeTwoValues)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("parseReportFieldToCNR() error = %v, wantErr %v", err, tt.wantErr)
@@ -504,7 +506,9 @@ func Test_initializeCNRFields(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			if err := initializeFieldToCNR(tt.args.cnr, tt.args.field); (err != nil) != tt.wantErr {
 				t.Errorf("initializeFieldToCNR() error = %v, wantErr %v", err, tt.wantErr)
 			}
@@ -590,7 +594,10 @@ func Test_cnrReporterImpl_Update(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			r := generateTestReporter(t, tt.fields.defaultCNR)
 			err := r.(cnr.CNRFetcher).RegisterNotifier("test-notifier", cnr.CNRNotifierStub{})
 			require.NoError(t, err)

@@ -232,7 +232,10 @@ func TestDynamicConfigManager_getConfig(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			c := tt.fields.manager
 			defer os.RemoveAll(c.conf.CheckpointManagerDir)
 			err := c.updateConfig(tt.args.ctx)
@@ -352,7 +355,9 @@ func Test_applyDynamicConfig(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			applyDynamicConfig(tt.args.currentConfig, tt.args.dynamicConf)
 			got := tt.args.currentConfig
 			require.True(t, tt.want(got))
@@ -380,7 +385,9 @@ func Test_getGVRToKindMap(t *testing.T) {
 	}
 
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			if got := getGVRToGVKMap(); !checkGVRToGVKMap(tt.wantGVR, tt.wantGVK, got) {
 				t.Errorf("getGVRToGVKMap() = %v, wantGVR %v wantGVK %v", got, tt.wantGVR, tt.wantGVK)
 			}
@@ -463,7 +470,10 @@ func Test_updateDynamicConf(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			ec := generateTestEvictionConfiguration(map[v1.ResourceName]float64{
 				v1.ResourceCPU:    1.2,
 				v1.ResourceMemory: 1.3,

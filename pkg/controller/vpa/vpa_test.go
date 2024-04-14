@@ -338,7 +338,10 @@ func TestVPAControllerSyncVPA(t *testing.T) {
 			},
 		},
 	} {
+		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
 			fss := &cliflag.NamedFlagSets{}
 			vpaOptions := options.NewVPAOptions()
 			vpaOptions.AddFlags(fss)
@@ -501,7 +504,10 @@ func TestVPAControllerSyncPod(t *testing.T) {
 			newPod: newPod1,
 		},
 	} {
+		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
 			fss := &cliflag.NamedFlagSets{}
 			vpaOptions := options.NewVPAOptions()
 			vpaOptions.AddFlags(fss)
@@ -664,7 +670,10 @@ func TestVPAControllerSyncWorkload(t *testing.T) {
 			newPod: newPod1,
 		},
 	} {
+		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
 			fss := &cliflag.NamedFlagSets{}
 			vpaOptions := options.NewVPAOptions()
 			vpaOptions.AddFlags(fss)

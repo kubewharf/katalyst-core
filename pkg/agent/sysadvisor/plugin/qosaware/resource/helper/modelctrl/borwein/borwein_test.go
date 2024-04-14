@@ -179,7 +179,10 @@ func TestNewBorweinController(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			got := NewBorweinController(tt.args.regionName, tt.args.regionType, tt.args.ownerPoolName, tt.args.conf, tt.args.metaReader, metrics.DummyMetrics{})
 			require.True(t, reflect.DeepEqual(got.regionName, tt.want.regionName))
 			require.True(t, reflect.DeepEqual(got.regionType, tt.want.regionType))
@@ -329,7 +332,10 @@ func Test_updateCPUSchedWaitIndicatorOffset(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			mc.SetInferenceResult(borweinconsts.ModelNameBorwein, tt.args.inferenceResults)
 			got, err := updateCPUSchedWaitIndicatorOffset(tt.args.podSet, tt.args.currentIndicatorOffset, tt.args.borweinParameter, tt.args.metaReader)
 			if (err != nil) != tt.wantErr {
@@ -440,7 +446,10 @@ func TestBorweinController_updateIndicatorOffsets(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			bc := &BorweinController{
 				regionName:              tt.fields.regionName,
 				regionType:              tt.fields.regionType,
@@ -457,6 +466,7 @@ func TestBorweinController_updateIndicatorOffsets(t *testing.T) {
 
 func TestBorweinController_getUpdatedIndicators(t *testing.T) {
 	t.Parallel()
+
 	podUID := "test-pod-uid"
 	podName := "test-pod"
 	containerName := "test-container"
@@ -578,7 +588,10 @@ func TestBorweinController_getUpdatedIndicators(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			mc.SetInferenceResult(borweinconsts.ModelNameBorwein, tt.args.inferenceResults)
 			bc := &BorweinController{
 				regionName:              tt.fields.regionName,
@@ -598,6 +611,7 @@ func TestBorweinController_getUpdatedIndicators(t *testing.T) {
 
 func TestBorweinController_GetUpdatedIndicators(t *testing.T) {
 	t.Parallel()
+
 	podUID := "test-pod-uid"
 	podName := "test-pod"
 	containerName := "test-container"
@@ -723,7 +737,10 @@ func TestBorweinController_GetUpdatedIndicators(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			mc.SetInferenceResult(borweinconsts.ModelNameBorwein, tt.args.inferenceResults)
 			bc := &BorweinController{
 				regionName:              tt.fields.regionName,
@@ -769,7 +786,10 @@ func TestBorweinController_ResetIndicatorOffsets(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			bc := &BorweinController{
 				indicatorOffsets: tt.fields.indicatorOffsets,
 			}

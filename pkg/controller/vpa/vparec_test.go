@@ -302,7 +302,10 @@ func TestVPARecControllerSyncVPA(t *testing.T) {
 			},
 		},
 	} {
+		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
 			genericConfig := &generic.GenericConfiguration{}
 			controllerConf := &controller.GenericControllerConfiguration{
 				DynamicGVResources: []string{"statefulsets.v1.apps"},
@@ -491,7 +494,10 @@ func TestVPARecControllerSyncVPARec(t *testing.T) {
 			},
 		},
 	} {
+		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
 			genericConfig := &generic.GenericConfiguration{}
 			controllerConf := &controller.GenericControllerConfiguration{
 				DynamicGVResources: []string{"statefulsets.v1.apps"},

@@ -63,7 +63,9 @@ func Test_staticAccessControl_Verify(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			err := s.Verify(tt.args.authInfo, tt.args.targetResource)
 			assert.Equal(t, tt.wantErr, err != nil)
 		})

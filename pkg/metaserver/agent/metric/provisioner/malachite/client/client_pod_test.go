@@ -36,6 +36,8 @@ import (
 )
 
 func TestGetPodContainerStats(t *testing.T) {
+	t.Parallel()
+
 	cgroupData := map[string]*types.MalachiteCgroupResponse{
 		"podp-uid1/p1-c-uid1": {
 			Status: 0,

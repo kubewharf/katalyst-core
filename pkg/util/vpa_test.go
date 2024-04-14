@@ -150,7 +150,10 @@ func TestFindSpdByVpa(t *testing.T) {
 			},
 		},
 	} {
+		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
 			spds := make([]runtime.Object, 0, len(tc.spd))
 			for _, spd := range tc.spd {
 				spds = append(spds, spd)
@@ -345,7 +348,10 @@ func TestGetWorkloadByVPA(t *testing.T) {
 			gvk: rsGVK,
 		},
 	} {
+		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
 			fakeDynamicClient := dynamicfake.NewSimpleDynamicClient(runtime.NewScheme())
 			dynamicFactory := dynamicinformer.NewDynamicSharedInformerFactory(fakeDynamicClient, 0)
 			deployInformer := dynamicFactory.ForResource(deployGVR)
@@ -420,7 +426,9 @@ func TestCheckVPARecommendationMatchVPA(t *testing.T) {
 			want:   false,
 		},
 	} {
+		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			match := CheckVPARecommendationMatchVPA(tc.vparec, tc.vpa)
 			assert.Equal(t, tc.want, match)
 		})
@@ -711,7 +719,9 @@ func TestIsVPAStatusLegal(t *testing.T) {
 			msg:   "resource cpu request greater than limit",
 		},
 	} {
+		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			isLegal, msg, err := CheckVPAStatusLegal(tc.vpa, tc.pods)
 			assert.Equal(t, tc.legal, isLegal)
 			assert.NoError(t, err)

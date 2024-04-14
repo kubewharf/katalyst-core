@@ -93,7 +93,10 @@ func Test_prepareUnstructuredPatchBytes(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			got, err := prepareUnstructuredPatchBytes(tt.args.oldObj, tt.args.newObj)
 			if !tt.wantErr(t, err, fmt.Sprintf("prepareUnstructuredPatchBytes(%v, %v)", tt.args.oldObj, tt.args.newObj)) {
 				return
@@ -141,7 +144,10 @@ func Test_prepareUnstructuredStatusPatchBytes(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			got, err := prepareUnstructuredStatusPatchBytes(tt.args.oldObj, tt.args.newObj)
 			if !tt.wantErr(t, err, fmt.Sprintf("prepareUnstructuredStatusPatchBytes(%v, %v)", tt.args.oldObj, tt.args.newObj)) {
 				return

@@ -25,6 +25,8 @@ import (
 )
 
 func TestPodUniqKeyCmpFunc(t *testing.T) {
+	t.Parallel()
+
 	type args struct {
 		i1 *v1.Pod
 		i2 *v1.Pod
@@ -90,7 +92,9 @@ func TestPodUniqKeyCmpFunc(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			assert.Equalf(t, tt.want, PodUniqKeyCmpFunc(tt.args.i1, tt.args.i2), "PodUniqKeyCmpFunc(%v, %v)", tt.args.i1, tt.args.i2)
 		})
 	}

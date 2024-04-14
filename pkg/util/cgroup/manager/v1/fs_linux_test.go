@@ -39,7 +39,9 @@ func TestNewManager(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			if got := NewManager(); !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("NewManager() = %v, want %v", got, tt.want)
 			}
@@ -84,7 +86,10 @@ func Test_manager_ApplyMemory(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			m := &manager{}
 			if err := m.ApplyMemory(tt.args.absCgroupPath, tt.args.data); (err != nil) != tt.wantErr {
 				t.Errorf("manager.ApplyMemory() error = %v, wantErr %v", err, tt.wantErr)

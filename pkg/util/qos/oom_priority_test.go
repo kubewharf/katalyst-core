@@ -210,7 +210,9 @@ func TestAlignOOMPriority(t *testing.T) {
 	}
 
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			if got := AlignOOMPriority(tt.fields.qosLevel, tt.fields.userSpecifiedScore); got != tt.want {
 				t.Errorf("AlignOOMPriority() = %v, want %v", got, tt.want)
 			}

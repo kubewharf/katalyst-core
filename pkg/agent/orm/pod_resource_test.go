@@ -78,6 +78,7 @@ func TestPodResources(t *testing.T) {
 }
 
 func TestCheckpointMarshal(t *testing.T) {
+	t.Parallel()
 	/* ----  use allocationInfo.Marshal  ----- */
 	podResources := newPodResourcesChk()
 	podResources.resources = map[string]ContainerResources{

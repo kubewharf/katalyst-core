@@ -237,7 +237,6 @@ func makeEvictionManager(t *testing.T) *EvictionManger {
 func TestEvictionManger_collectEvictionResult(t *testing.T) {
 	t.Parallel()
 
-	mgr := makeEvictionManager(t)
 	tests := []struct {
 		name               string
 		dryrun             []string
@@ -299,7 +298,11 @@ func TestEvictionManger_collectEvictionResult(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			mgr := makeEvictionManager(t)
 			mgr.conf.GetDynamicConfiguration().DryRun = tt.dryrun
 
 			collector, _ := mgr.collectEvictionResult(pods)

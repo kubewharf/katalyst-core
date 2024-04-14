@@ -24,6 +24,8 @@ import (
 )
 
 func TestGetFullyDropCacheBytes(t *testing.T) {
+	t.Parallel()
+
 	type args struct {
 		container *v1.Container
 	}
@@ -70,7 +72,9 @@ func TestGetFullyDropCacheBytes(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			if got := GetFullyDropCacheBytes(tt.args.container); got != tt.want {
 				t.Errorf("GetFullyDropCacheBytes() = %v, want %v", got, tt.want)
 			}

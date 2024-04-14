@@ -55,6 +55,7 @@ func TestNewEndpoint(t *testing.T) {
 }
 
 func TestRun(t *testing.T) {
+	t.Parallel()
 	socket := path.Join("/tmp/TestRun")
 
 	content := []*v1alpha1.ReportContent{

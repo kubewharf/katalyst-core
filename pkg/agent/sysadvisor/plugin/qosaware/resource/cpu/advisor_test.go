@@ -991,7 +991,10 @@ func TestAdvisorUpdate(t *testing.T) {
 	}
 
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			now := time.Now()
 
 			ckDir, err := ioutil.TempDir("", "checkpoint-TestAdvisorUpdate")
