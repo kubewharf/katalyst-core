@@ -17,12 +17,14 @@ limitations under the License.
 package plugin
 
 import (
+	"math"
 	"strconv"
 
 	"go.uber.org/atomic"
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/memory/dynamicpolicy/memoryadvisor"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
+	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource/helper"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/consts"
@@ -33,6 +35,11 @@ import (
 
 const (
 	MemoryGuard = "memory-guard"
+
+	reconcileStatusSucceeded = "succeeded"
+	reconcileStatusFailed    = "failed"
+
+	reclaimMemoryUnlimited = -1
 )
 
 type memoryGuard struct {
@@ -41,7 +48,9 @@ type memoryGuard struct {
 	emitter                       metrics.MetricEmitter
 	reclaimRelativeRootCgroupPath string
 	reclaimMemoryLimit            *atomic.Int64
+	reconcileStatus               *atomic.String
 	minCriticalWatermark          int64
+	conf                          *config.Configuration
 }
 
 func NewMemoryGuard(conf *config.Configuration, extraConfig interface{}, metaReader metacache.MetaReader, metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter) MemoryAdvisorPlugin {
@@ -51,72 +60,72 @@ func NewMemoryGuard(conf *config.Configuration, extraConfig interface{}, metaRea
 		emitter:                       emitter,
 		reclaimRelativeRootCgroupPath: conf.ReclaimRelativeRootCgroupPath,
 		reclaimMemoryLimit:            atomic.NewInt64(-1),
+		reconcileStatus:               atomic.NewString(reconcileStatusFailed),
 		minCriticalWatermark:          conf.MinCriticalWatermark,
+		conf:                          conf,
 	}
 }
 
 func (mg *memoryGuard) Reconcile(status *types.MemoryPressureStatus) error {
-	memoryTotal, err := mg.metaServer.GetNodeMetric(consts.MetricMemTotalSystem)
+	dynamicConfig := mg.conf.GetDynamicConfiguration()
+	if !dynamicConfig.MemoryGuardConfiguration.Enable {
+		mg.reclaimMemoryLimit.Store(int64(reclaimMemoryUnlimited))
+		mg.reconcileStatus.Store(reconcileStatusSucceeded)
+		general.InfoS("memory guard is disabled")
+		return nil
+	}
+
+	mg.reconcileStatus.Store(reconcileStatusFailed)
+	reclaimMemoryLimit := .0
+	availNUMAs, _, err := helper.GetAvailableNUMAsAndReclaimedCores(mg.conf, mg.metaReader, mg.metaServer)
 	if err != nil {
 		return err
 	}
 
-	memoryFree, err := mg.metaReader.GetNodeMetric(consts.MetricMemFreeSystem)
+	watermarkScaleFactor, err := mg.metaServer.GetNodeMetric(consts.MetricMemScaleFactorSystem)
 	if err != nil {
+		general.ErrorS(err, "Can not get system watermark scale factor")
 		return err
 	}
 
-	memoryCache, err := mg.metaReader.GetNodeMetric(consts.MetricMemPageCacheSystem)
-	if err != nil {
-		return err
+	for _, numaID := range availNUMAs.ToSliceInt() {
+		reclaimedCoresUsed, err := mg.metaServer.GetCgroupNumaMetric(mg.reclaimRelativeRootCgroupPath, numaID, consts.MetricsMemTotalPerNumaCgroup)
+		if err != nil {
+			return err
+		}
+
+		numaTotal, err := mg.metaServer.GetNumaMetric(numaID, consts.MetricMemTotalNuma)
+		if err != nil {
+			return err
+		}
+		numaFree, err := mg.metaServer.GetNumaMetric(numaID, consts.MetricMemFreeNuma)
+		if err != nil {
+			return err
+		}
+
+		criticalWatermark := math.Max(float64(mg.minCriticalWatermark), numaTotal.Value*watermarkScaleFactor.Value/float64(10000))
+		reclaimMemoryLimit += reclaimedCoresUsed.Value +
+			math.Max(numaFree.Value-criticalWatermark, 0)
+
+		general.InfoS("NUMA memory info", "numaID", numaID,
+			"criticalWatermark", general.FormatMemoryQuantity(criticalWatermark),
+			"reclaimedCoresUsed", general.FormatMemoryQuantity(reclaimedCoresUsed.Value),
+			"numaTotal", general.FormatMemoryQuantity(numaTotal.Value),
+			"numaFree", general.FormatMemoryQuantity(numaFree.Value),
+			"reclaimMemoryLimit", general.FormatMemoryQuantity(reclaimMemoryLimit))
 	}
-
-	memoryBuffer, err := mg.metaReader.GetNodeMetric(consts.MetricMemBufferSystem)
-	if err != nil {
-		return err
-	}
-
-	scaleFactor, err := mg.metaReader.GetNodeMetric(consts.MetricMemScaleFactorSystem)
-	if err != nil {
-		return err
-	}
-
-	criticalWatermark := general.MaxFloat64(float64(mg.minCriticalWatermark*int64(mg.metaServer.NumNUMANodes)), memoryTotal.Value*scaleFactor.Value/10000)
-	buffer := memoryFree.Value + memoryCache.Value + memoryBuffer.Value - criticalWatermark
-	if buffer < 0 {
-		buffer = 0
-	}
-
-	reclaimGroupRss, err := mg.metaReader.GetCgroupMetric(mg.reclaimRelativeRootCgroupPath, consts.MetricMemRssCgroup)
-	if err != nil {
-		return err
-	}
-
-	reclaimGroupUsed, err := mg.metaReader.GetCgroupMetric(mg.reclaimRelativeRootCgroupPath, consts.MetricMemUsageCgroup)
-	if err != nil {
-		return err
-	}
-
-	reclaimMemoryLimit := general.MaxFloat64(reclaimGroupUsed.Value, reclaimGroupRss.Value+buffer)
-
-	general.InfoS("memory details",
-		"system total", general.FormatMemoryQuantity(memoryTotal.Value),
-		"system free", general.FormatMemoryQuantity(memoryFree.Value),
-		"system cache", general.FormatMemoryQuantity(memoryCache.Value),
-		"system buffer", general.FormatMemoryQuantity(memoryBuffer.Value),
-		"system scaleFactor", general.FormatMemoryQuantity(scaleFactor.Value),
-		"criticalWatermark", general.FormatMemoryQuantity(criticalWatermark),
-		"buffer", general.FormatMemoryQuantity(buffer),
-		"reclaim cgroup rss", general.FormatMemoryQuantity(reclaimGroupRss.Value),
-		"reclaim cgroup used", general.FormatMemoryQuantity(reclaimGroupUsed.Value),
-	)
 
 	mg.reclaimMemoryLimit.Store(int64(reclaimMemoryLimit))
+	mg.reconcileStatus.Store(reconcileStatusSucceeded)
 
 	return nil
 }
 
 func (mg *memoryGuard) GetAdvices() types.InternalMemoryCalculationResult {
+	if mg.reconcileStatus.Load() == reconcileStatusFailed {
+		general.Errorf("failed to get last reconcile result")
+		return types.InternalMemoryCalculationResult{}
+	}
 	result := types.InternalMemoryCalculationResult{
 		ExtraEntries: []types.ExtraMemoryAdvices{
 			{

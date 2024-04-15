@@ -162,10 +162,10 @@ func (f *FakeMetricsFetcher) GetCgroupMetric(cgroupPath, metricName string) (met
 	return f.metricStore.GetCgroupMetric(cgroupPath, metricName)
 }
 
-func (f *FakeMetricsFetcher) SetCgroupNumaMetric(cgroupPath, numaNode, metricName string, data metric.MetricData) {
+func (f *FakeMetricsFetcher) SetCgroupNumaMetric(cgroupPath string, numaNode int, metricName string, data metric.MetricData) {
 	f.metricStore.SetCgroupNumaMetric(cgroupPath, numaNode, metricName, data)
 }
 
-func (f *FakeMetricsFetcher) GetCgroupNumaMetric(cgroupPath, numaNode, metricName string) (metric.MetricData, error) {
+func (f *FakeMetricsFetcher) GetCgroupNumaMetric(cgroupPath string, numaNode int, metricName string) (metric.MetricData, error) {
 	return f.checkMetricDataExpire(f.metricStore.GetCgroupNumaMetric(cgroupPath, numaNode, metricName))
 }

@@ -620,7 +620,12 @@ func (m *MalachiteMetricsProvisioner) processCgroupPerNumaMemoryData(cgroupPath 
 		updateTime := time.Unix(cgStats.V1.Memory.UpdateTime, 0)
 
 		for _, data := range numaStats {
-			numaID := strings.TrimPrefix(data.NumaName, "N")
+			numaIDStr := strings.TrimPrefix(data.NumaName, "N")
+			numaID, err := strconv.Atoi(numaIDStr)
+			if err != nil {
+				klog.ErrorS(err, "failed to parse numa", "str", numaIDStr)
+				continue
+			}
 			m.metricStore.SetCgroupNumaMetric(cgroupPath, numaID, consts.MetricsMemTotalPerNumaCgroup, utilmetric.MetricData{Time: &updateTime, Value: float64(data.HierarchicalTotal << pageShift)})
 			m.metricStore.SetCgroupNumaMetric(cgroupPath, numaID, consts.MetricsMemFilePerNumaCgroup, utilmetric.MetricData{Time: &updateTime, Value: float64(data.HierarchicalFile << pageShift)})
 			m.metricStore.SetCgroupNumaMetric(cgroupPath, numaID, consts.MetricsMemAnonPerNumaCgroup, utilmetric.MetricData{Time: &updateTime, Value: float64(data.HierarchicalAnon << pageShift)})
@@ -630,7 +635,12 @@ func (m *MalachiteMetricsProvisioner) processCgroupPerNumaMemoryData(cgroupPath 
 		updateTime := time.Unix(cgStats.V2.Memory.UpdateTime, 0)
 
 		for numa, data := range numaStats {
-			numaID := strings.TrimPrefix(numa, "N")
+			numaIDStr := strings.TrimPrefix(numa, "N")
+			numaID, err := strconv.Atoi(numaIDStr)
+			if err != nil {
+				klog.ErrorS(err, "failed to parse numaIDStr", "str", numaIDStr)
+				continue
+			}
 			total := data.Anon + data.File + data.Unevictable
 			m.metricStore.SetCgroupNumaMetric(cgroupPath, numaID, consts.MetricsMemTotalPerNumaCgroup, utilmetric.MetricData{Time: &updateTime, Value: float64(total)})
 			m.metricStore.SetCgroupNumaMetric(cgroupPath, numaID, consts.MetricsMemFilePerNumaCgroup, utilmetric.MetricData{Time: &updateTime, Value: float64(data.File)})

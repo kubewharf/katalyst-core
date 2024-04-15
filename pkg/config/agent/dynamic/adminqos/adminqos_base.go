@@ -17,6 +17,7 @@ limitations under the License.
 package adminqos
 
 import (
+	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/adminqos/advisor"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/adminqos/eviction"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/adminqos/reclaimedresource"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/crd"
@@ -25,16 +26,19 @@ import (
 type AdminQoSConfiguration struct {
 	*reclaimedresource.ReclaimedResourceConfiguration
 	*eviction.EvictionConfiguration
+	*advisor.AdvisorConfiguration
 }
 
 func NewAdminQoSConfiguration() *AdminQoSConfiguration {
 	return &AdminQoSConfiguration{
 		ReclaimedResourceConfiguration: reclaimedresource.NewReclaimedResourceConfiguration(),
 		EvictionConfiguration:          eviction.NewEvictionConfiguration(),
+		AdvisorConfiguration:           advisor.NewAdvisorConfiguration(),
 	}
 }
 
 func (c *AdminQoSConfiguration) ApplyConfiguration(conf *crd.DynamicConfigCRD) {
 	c.ReclaimedResourceConfiguration.ApplyConfiguration(conf)
 	c.EvictionConfiguration.ApplyConfiguration(conf)
+	c.AdvisorConfiguration.ApplyConfiguration(conf)
 }
