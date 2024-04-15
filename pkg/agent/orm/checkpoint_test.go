@@ -46,7 +46,7 @@ func TestCheckpoint(t *testing.T) {
 	file := m.checkpointFile()
 	assert.Equal(t, file, "/tmp/checkpoint/kubelet_qrm_checkpoint")
 
-	allocationInfo := generateResourceAllocationInfo()
+	allocationInfo := generateCpuSetCpusAllocationInfo()
 	m.podResources.insert("testPod", "testContainer", "cpu", allocationInfo)
 
 	err = m.writeCheckpoint()

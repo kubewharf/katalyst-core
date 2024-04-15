@@ -19,7 +19,8 @@ package orm
 import "time"
 
 type GenericORMConfiguration struct {
-	ORMRconcilePeriod               time.Duration
+	ORMWorkMode                     string
+	ORMReconcilePeriod              time.Duration
 	ORMResourceNamesMap             map[string]string
 	ORMPodNotifyChanLen             int
 	TopologyPolicyName              string
@@ -27,11 +28,16 @@ type GenericORMConfiguration struct {
 	ORMPodResourcesSocket           string
 	ORMDevicesProvider              string
 	ORMKubeletPodResourcesEndpoints []string
+	ORMNRISocketPath                string
+	ORMNRIPluginName                string
+	ORMNRIPluginIndex               string
+	ORMNRIHandleEvents              string
 }
 
 func NewGenericORMConfiguration() *GenericORMConfiguration {
 	return &GenericORMConfiguration{
-		ORMRconcilePeriod:               time.Second * 5,
+		ORMWorkMode:                     "bypass",
+		ORMReconcilePeriod:              time.Second * 5,
 		ORMResourceNamesMap:             map[string]string{},
 		ORMPodNotifyChanLen:             10,
 		TopologyPolicyName:              "none",
@@ -39,5 +45,9 @@ func NewGenericORMConfiguration() *GenericORMConfiguration {
 		ORMPodResourcesSocket:           "unix:/var/lib/katalyst/pod-resources/kubelet.sock",
 		ORMDevicesProvider:              "",
 		ORMKubeletPodResourcesEndpoints: []string{"/var/lib/kubelet/pod-resources/kubelet.sock"},
+		ORMNRISocketPath:                "/var/run/nri/nri.sock",
+		ORMNRIPluginName:                "orm",
+		ORMNRIPluginIndex:               "00",
+		ORMNRIHandleEvents:              "RunPodSandbox,CreateContainer,UpdateContainer,RemovePodSandbox",
 	}
 }
