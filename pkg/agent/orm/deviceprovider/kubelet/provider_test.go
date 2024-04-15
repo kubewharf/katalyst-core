@@ -28,6 +28,8 @@ import (
 )
 
 func TestGetDevice(t *testing.T) {
+	t.Parallel()
+
 	mockProvider := &Provider{
 		client: &mockPodResourcesListerClient{
 			ListPodResourcesResponse: &v1.ListPodResourcesResponse{
@@ -63,6 +65,8 @@ func TestGetDevice(t *testing.T) {
 }
 
 func TestGetAllocatableDevices(t *testing.T) {
+	t.Parallel()
+
 	mockProvider := &Provider{
 		client: &mockPodResourcesListerClient{
 			AllocatableResourcesResponse: &v1.AllocatableResourcesResponse{
@@ -97,6 +101,8 @@ func TestGetAllocatableDevices(t *testing.T) {
 }
 
 func TestNewProvider(t *testing.T) {
+	t.Parallel()
+
 	p, err := NewProvider([]string{}, getMockClientFunc)
 	assert.NoError(t, err)
 	assert.NotNil(t, p)

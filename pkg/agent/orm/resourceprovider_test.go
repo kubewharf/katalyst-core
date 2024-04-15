@@ -173,7 +173,9 @@ func TestGetTopologyAwareResources(t *testing.T) {
 			expectedResp: nil,
 		},
 	} {
+		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			m.registerEndpoint("cpu", &pluginapi.ResourcePluginOptions{
 				PreStartRequired:      true,
 				WithTopologyAlignment: true,
@@ -296,7 +298,9 @@ func TestGetTopologyAwareAllocatableResources(t *testing.T) {
 			},
 		},
 	} {
+		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			m.registerEndpoint("cpu", &pluginapi.ResourcePluginOptions{
 				PreStartRequired:      true,
 				WithTopologyAlignment: true,

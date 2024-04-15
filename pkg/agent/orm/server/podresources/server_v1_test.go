@@ -176,7 +176,9 @@ func TestList(t *testing.T) {
 			},
 		},
 	} {
+		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			mockDevicesProvider := podresourcestest.NewMockDevicesProvider(mockCtrl)
 			mockResourcesProvider := podresourcestest.NewMockResourcesProvider(mockCtrl)
 			mockPodsProvider := podresourcestest.NewMockPodsProvider(mockCtrl)
@@ -351,7 +353,9 @@ func TestGetAllocatableResources(t *testing.T) {
 			},
 		},
 	} {
+		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			mockPodsProvider := podresourcestest.NewMockPodsProvider(mockCtrl)
 			mockDevicesProvider := podresourcestest.NewMockDevicesProvider(mockCtrl)
 			mockResourcesProvider := podresourcestest.NewMockResourcesProvider(mockCtrl)
