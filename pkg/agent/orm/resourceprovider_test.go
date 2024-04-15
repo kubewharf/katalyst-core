@@ -24,10 +24,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stretchr/testify/assert"
-	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
+	"github.com/stretchr/testify/assert"
+	v1 "k8s.io/api/core/v1"
 	v12 "k8s.io/kubelet/pkg/apis/podresources/v1"
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 	"k8s.io/kubernetes/pkg/kubelet/checkpointmanager"
@@ -52,17 +53,6 @@ func TestGetTopologyAwareResources(t *testing.T) {
 
 	checkpointManager, err := checkpointmanager.NewCheckpointManager("/tmp/GetTopologyAwareResources")
 	assert.NoError(t, err)
-
-	m := &ManagerImpl{
-		reconcilePeriod:   time.Minute,
-		endpoints:         map[string]endpoint.EndpointInfo{},
-		socketdir:         "/tmp/GetTopologyAwareResources",
-		socketname:        "tmp.sock",
-		checkpointManager: checkpointManager,
-		qosConfig:         generic.NewQoSConfiguration(),
-		metaManager:       metamanager,
-		emitter:           metrics.DummyMetrics{},
-	}
 
 	for _, tc := range []struct {
 		name         string
@@ -176,6 +166,18 @@ func TestGetTopologyAwareResources(t *testing.T) {
 		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
+
+			m := &ManagerImpl{
+				reconcilePeriod:   time.Minute,
+				endpoints:         map[string]endpoint.EndpointInfo{},
+				socketdir:         "/tmp/GetTopologyAwareResources",
+				socketname:        "tmp.sock",
+				checkpointManager: checkpointManager,
+				qosConfig:         generic.NewQoSConfiguration(),
+				metaManager:       metamanager,
+				emitter:           metrics.DummyMetrics{},
+			}
+
 			m.registerEndpoint("cpu", &pluginapi.ResourcePluginOptions{
 				PreStartRequired:      true,
 				WithTopologyAlignment: true,
