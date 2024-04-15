@@ -366,3 +366,24 @@ func TestIOWeightTaskFunc(t *testing.T) {
 		},
 	}, metrics.DummyMetrics{}, metaServerEmpty)
 }
+
+func TestApplyPodIOWeight(t *testing.T) {
+	t.Parallel()
+
+	pod := &v1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			UID:       "test-uid",
+			Namespace: "default",
+			Name:      "test-pod",
+		},
+	}
+
+	defaultDevID := "test-dev-id"
+	qosLevelDefaultValue := "500"
+
+	err := applyPodIOWeight(pod, defaultDevID, qosLevelDefaultValue)
+	assert.Error(t, err)
+
+	err = applyPodIOWeight(pod, defaultDevID, "test")
+	assert.Error(t, err)
+}
