@@ -29,6 +29,8 @@ const (
 	DevModelBcache       DevModel = "bcache"
 	DevModelDeviceMapper DevModel = "dm"
 
+	sysDiskPrefix = "/sys/block"
+
 	IOStatMetricCostVrate = "cost.vrate"
 
 	MetricNameIOCostVrate = "iocost_vrate"

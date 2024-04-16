@@ -34,12 +34,14 @@ type IOOptions struct {
 
 type WritebackThrottlingOption struct {
 	EnableSettingWBT bool
+	WBTStrictMode    bool
 	WBTValueHDD      int
 	WBTValueSSD      int
 }
 
 type IOCostOption struct {
 	EnableSettingIOCost   bool
+	IOCostStrictMode      bool
 	IOCostQoSConfigFile   string
 	IOCostModelConfigFile string
 }
@@ -55,11 +57,13 @@ func NewIOOptions() *IOOptions {
 		PolicyName: "static",
 		WritebackThrottlingOption: WritebackThrottlingOption{
 			EnableSettingWBT: false,
+			WBTStrictMode:    true,
 			WBTValueHDD:      75000,
 			WBTValueSSD:      2000,
 		},
 		IOCostOption: IOCostOption{
 			EnableSettingIOCost:   false,
+			IOCostStrictMode:      true,
 			IOCostQoSConfigFile:   "",
 			IOCostModelConfigFile: "",
 		},
@@ -78,12 +82,16 @@ func (o *IOOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 		o.PolicyName, "The policy io resource plugin should use")
 	fs.BoolVar(&o.EnableSettingWBT, "enable-disk-wbt",
 		o.EnableSettingWBT, "if set it to true, disk wbt related control operations will be executed")
+	fs.BoolVar(&o.WBTStrictMode, "enable-wbt-strict-mode",
+		o.WBTStrictMode, "if set it to true, disk wbt related control operations will be executed strictly")
 	fs.IntVar(&o.WBTValueHDD, "disk-wbt-hdd",
 		o.WBTValueHDD, "writeback throttling value for HDD")
 	fs.IntVar(&o.WBTValueSSD, "disk-wbt-ssd",
 		o.WBTValueSSD, "writeback throttling value for SSD")
 	fs.BoolVar(&o.EnableSettingIOCost, "enable-io-cost",
 		o.EnableSettingIOCost, "if set it to true, io.cost setting will be executed")
+	fs.BoolVar(&o.IOCostStrictMode, "enable-io-cost-strict-mode",
+		o.IOCostStrictMode, "if set it to true, io.cost strict mode setting will be executed")
 	fs.StringVar(&o.IOCostQoSConfigFile, "io-cost-qos-config-file",
 		o.IOCostQoSConfigFile, "the absolute path of io.cost.qos qos config file")
 	fs.StringVar(&o.IOCostModelConfigFile, "io-cost-model-config-file",
@@ -99,9 +107,11 @@ func (o *IOOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 func (o *IOOptions) ApplyTo(conf *qrmconfig.IOQRMPluginConfig) error {
 	conf.PolicyName = o.PolicyName
 	conf.EnableSettingWBT = o.EnableSettingWBT
+	conf.WBTStrictMode = o.WBTStrictMode
 	conf.WBTValueHDD = o.WBTValueHDD
 	conf.WBTValueSSD = o.WBTValueSSD
 	conf.EnableSettingIOCost = o.EnableSettingIOCost
+	conf.IOCostStrictMode = o.IOCostStrictMode
 	conf.IOCostQoSConfigFile = o.IOCostQoSConfigFile
 	conf.IOCostModelConfigFile = o.IOCostModelConfigFile
 	conf.EnableSettingIOWeight = o.EnableSettingIOWeight

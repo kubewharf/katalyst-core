@@ -27,12 +27,14 @@ type IOQRMPluginConfig struct {
 
 type WritebackThrottlingOption struct {
 	EnableSettingWBT bool
+	WBTStrictMode    bool
 	WBTValueHDD      int
 	WBTValueSSD      int
 }
 
 type IOCostOption struct {
 	EnableSettingIOCost   bool
+	IOCostStrictMode      bool
 	IOCostQoSConfigFile   string
 	IOCostModelConfigFile string
 }

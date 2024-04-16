@@ -21,6 +21,7 @@ package iocost
 
 import (
 	"fmt"
+	"io/ioutil"
 	"path/filepath"
 	"strconv"
 	"sync"
@@ -28,7 +29,9 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	coreconfig "github.com/kubewharf/katalyst-core/pkg/config"
 	dynamicconfig "github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic"
+	coreconsts "github.com/kubewharf/katalyst-core/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
+	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric/helper"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/cgroup/common"
 	cgcommon "github.com/kubewharf/katalyst-core/pkg/util/cgroup/common"
@@ -240,6 +243,33 @@ func applyIOCostConfig(conf *config.Configuration, emitter metrics.MetricEmitter
 	applyIOCostModelWithDefault(ioCostModelConfigs, devsIDToModel)
 }
 
+func checkWBTDisabled(targetDiskType float64, emitter metrics.MetricEmitter, metaServer *metaserver.MetaServer) (bool, error) {
+	dir, err := ioutil.ReadDir(sysDiskPrefix)
+	if err != nil {
+		general.Errorf("failed to readdir:%v, err:%v", sysDiskPrefix, err)
+		return false, err
+	}
+	for _, entry := range dir {
+		diskType, err := helper.GetDeviceMetric(metaServer.MetricsFetcher, emitter, coreconsts.MetricIODiskType, entry.Name())
+		if err != nil {
+			general.Errorf("faled to read MetricIODiskType, err:%v", err)
+			return false, err
+		}
+
+		if diskType == targetDiskType {
+			WBTValue, err := helper.GetDeviceMetric(metaServer.MetricsFetcher, emitter, coreconsts.MetricIODiskWBTValue, entry.Name())
+			if err != nil {
+				general.Errorf("faled to read MetricIODiskWBTValue, err:%v", err)
+				return false, err
+			}
+			if WBTValue != 0 {
+				return false, nil
+			}
+		}
+	}
+	return true, nil
+}
+
 func SetIOCost(conf *coreconfig.Configuration,
 	_ interface{},
 	_ *dynamicconfig.DynamicAgentConfiguration,
@@ -271,6 +301,15 @@ func SetIOCost(conf *coreconfig.Configuration,
 	if !cgcommon.CheckCgroup2UnifiedMode() {
 		general.Infof("not in cgv2 environment, skip IOAsyncTaskFunc")
 		return
+	}
+
+	// Strict mode: checking wbt file.
+	if conf.IOCostStrictMode {
+		disabled, err := checkWBTDisabled(coreconsts.DiskTypeHDD, emitter, metaServer)
+		if !disabled {
+			general.Infof("wbt for HDD disks should be disabled, err=%v", err)
+			return
+		}
 	}
 
 	initializeOnce.Do(func() {
