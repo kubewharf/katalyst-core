@@ -21,8 +21,14 @@ package manager
 
 import (
 	"context"
+	"fmt"
+	"io/ioutil"
+	"os"
+	"path/filepath"
 	"testing"
 
+	"bou.ke/monkey"
+	"github.com/opencontainers/runc/libcontainer/cgroups"
 	"github.com/stretchr/testify/assert"
 
 	"github.com/kubewharf/katalyst-core/pkg/util/cgroup/common"
@@ -93,4 +99,54 @@ func testNetCls(t *testing.T, version string) {
 
 	err = ApplyNetClsForContainer("fake-pod", "fake-container", &common.NetClsData{})
 	assert.Error(t, err)
+}
+
+func TestSwapMax(t *testing.T) {
+	t.Parallel()
+
+	defer monkey.UnpatchAll()
+	monkey.Patch(common.CheckCgroup2UnifiedMode, func() bool { return true })
+	monkey.Patch(GetManager, func() Manager { return v2.NewManager() })
+	monkey.Patch(cgroups.ReadFile, func(dir, file string) (string, error) {
+		f := filepath.Join(dir, file)
+		tmp, err := ioutil.ReadFile(f)
+		if err != nil {
+			return "", err
+		}
+		return string(tmp), nil
+	})
+	monkey.Patch(cgroups.WriteFile, func(dir, file, data string) error {
+		f := filepath.Join(dir, file)
+		return ioutil.WriteFile(f, []byte(data), 0700)
+	})
+
+	tmpDir, err := ioutil.TempDir("", "fake-cgroup")
+	assert.NoError(t, err)
+	defer os.RemoveAll(tmpDir)
+
+	sawpFile := filepath.Join(tmpDir, "memory.swap.max")
+	err = ioutil.WriteFile(sawpFile, []byte{}, 0700)
+	assert.NoError(t, err)
+
+	maxFile := filepath.Join(tmpDir, "memory.max")
+	err = ioutil.WriteFile(maxFile, []byte("12800"), 0700)
+	assert.NoError(t, err)
+
+	curFile := filepath.Join(tmpDir, "memory.current")
+	err = ioutil.WriteFile(curFile, []byte("12600"), 0700)
+	assert.NoError(t, err)
+
+	err = SetSwapMaxWithAbsolutePathRecursive(tmpDir)
+	assert.NoError(t, err)
+
+	s, err := ioutil.ReadFile(sawpFile)
+	assert.NoError(t, err)
+	assert.Equal(t, fmt.Sprintf("%v", 200), string(s))
+
+	err = DisableSwapMaxWithAbsolutePathRecursive(tmpDir)
+	assert.NoError(t, err)
+
+	s, err = ioutil.ReadFile(sawpFile)
+	assert.NoError(t, err)
+	assert.Equal(t, fmt.Sprintf("%v", 0), string(s))
 }

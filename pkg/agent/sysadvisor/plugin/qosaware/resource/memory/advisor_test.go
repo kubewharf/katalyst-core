@@ -977,8 +977,59 @@ func TestUpdate(t *testing.T) {
 					containerName: "c2",
 				},
 			},
+			cgroupMetrics: []cgroupMetric{
+				{
+					metricName:  coreconsts.MetricMemPsiAvg60Cgroup,
+					metricValue: metricutil.MetricData{Value: 0.01},
+					cgroupPath:  "/hdfs",
+				},
+				{
+					metricName:  coreconsts.MetricMemPgstealCgroup,
+					metricValue: metricutil.MetricData{Value: 0.01},
+					cgroupPath:  "/hdfs",
+				},
+				{
+					metricName:  coreconsts.MetricMemPgscanCgroup,
+					metricValue: metricutil.MetricData{Value: 0.01},
+					cgroupPath:  "/hdfs",
+				},
+				{
+					metricName:  coreconsts.MetricMemWorkingsetRefaultCgroup,
+					metricValue: metricutil.MetricData{Value: 0.01},
+					cgroupPath:  "/hdfs",
+				},
+				{
+					metricName:  coreconsts.MetricMemWorkingsetActivateCgroup,
+					metricValue: metricutil.MetricData{Value: 1 << 30},
+					cgroupPath:  "/hdfs",
+				},
+				{
+					metricName:  coreconsts.MetricMemUsageCgroup,
+					metricValue: metricutil.MetricData{Value: 4 << 30},
+					cgroupPath:  "/hdfs",
+				},
+				{
+					metricName:  coreconsts.MetricMemInactiveAnonCgroup,
+					metricValue: metricutil.MetricData{Value: 1 << 30},
+					cgroupPath:  "/hdfs",
+				},
+				{
+					metricName:  coreconsts.MetricMemInactiveFileCgroup,
+					metricValue: metricutil.MetricData{Value: 1 << 30},
+					cgroupPath:  "/hdfs",
+				},
+			},
 			plugins: []types.MemoryAdvisorPluginName{memadvisorplugin.TransparentMemoryOffloading},
 			wantAdviceResult: types.InternalMemoryCalculationResult{
+				ExtraEntries: []types.ExtraMemoryAdvices{
+					{
+						CgroupPath: "/hdfs",
+						Values: map[string]string{
+							string(memoryadvisor.ControlKnobKeySwapMax):          coreconsts.ControlKnobON,
+							string(memoryadvisor.ControlKnowKeyMemoryOffloading): "38654705",
+						},
+					},
+				},
 				ContainerEntries: []types.ContainerMemoryAdvices{{
 					PodUID:        "uid1",
 					ContainerName: "c1",
@@ -2173,6 +2224,12 @@ func TestUpdate(t *testing.T) {
 			transparentMemoryOffloadingConfiguration.QoSLevelConfigs[consts.QoSLevelReclaimedCores] = tmo.NewTMOConfigDetail(transparentMemoryOffloadingConfiguration.DefaultConfigurations)
 			transparentMemoryOffloadingConfiguration.QoSLevelConfigs[consts.QoSLevelReclaimedCores].EnableTMO = true
 			transparentMemoryOffloadingConfiguration.QoSLevelConfigs[consts.QoSLevelReclaimedCores].EnableSwap = true
+
+			// cgroup level
+			transparentMemoryOffloadingConfiguration.CgroupConfigs["/sys/fs/cgroup/hdfs"] = tmo.NewTMOConfigDetail(transparentMemoryOffloadingConfiguration.DefaultConfigurations)
+			transparentMemoryOffloadingConfiguration.CgroupConfigs["/sys/fs/cgroup/hdfs"].EnableTMO = true
+			transparentMemoryOffloadingConfiguration.CgroupConfigs["/sys/fs/cgroup/hdfs"].EnableSwap = true
+
 			advisor.conf.GetDynamicConfiguration().TransparentMemoryOffloadingConfiguration = transparentMemoryOffloadingConfiguration
 			_, advisorRecvChInterface := advisor.GetChannels()
 
