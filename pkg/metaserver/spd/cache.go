@@ -102,7 +102,7 @@ func (s *Cache) GetNextFetchRemoteTime(key string, now time.Time, skipBackoff bo
 
 	info, ok := s.spdInfo[key]
 	if ok && info != nil {
-		if info.penaltyForFetchingRemoteTime > 0 {
+		if !skipBackoff && info.penaltyForFetchingRemoteTime > 0 {
 			return info.lastFetchRemoteTime.Add(info.penaltyForFetchingRemoteTime)
 		}
 
