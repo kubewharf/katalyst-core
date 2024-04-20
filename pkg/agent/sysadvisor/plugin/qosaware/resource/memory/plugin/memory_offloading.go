@@ -64,14 +64,14 @@ var tmoPolicyFuncs sync.Map
 var tmoBlockFuncs sync.Map
 
 type TmoStats struct {
-	memUsage                 float64
-	memInactive              float64
-	memPsiAvg60              float64
-	pgscan                   float64
-	pgsteal                  float64
-	refault                  float64
-	refaultActivate          float64
-	lastOffloadingTargetSize float64
+	memUsage             float64
+	memInactive          float64
+	memPsiAvg60          float64
+	pgscan               float64
+	pgsteal              float64
+	refault              float64
+	refaultActivate      float64
+	offloadingTargetSize float64
 }
 
 type TmoPolicyFn func(
@@ -100,13 +100,20 @@ func refaultPolicyFunc(lastStats TmoStats, currStats TmoStats, conf *tmoconf.TMO
 		reclaimScanEfficiencyRatio = pgstealDelta / pgscanDelta
 	}
 
+	var result float64
 	if reclaimAccuracyRatio < conf.RefaultPolicyConf.ReclaimAccuracyTarget || reclaimScanEfficiencyRatio < conf.RefaultPolicyConf.ReclaimScanEfficiencyTarget {
 		// Decrease offloading size if detecting the reclaim accuracy or scan efficiency is below the targets
-		return nil, math.Max(0, currStats.lastOffloadingTargetSize*reclaimAccuracyRatio)
+		result = math.Max(0, lastStats.offloadingTargetSize*reclaimAccuracyRatio)
 	} else {
-		// Try to increase offloading size but make sure not exceed the max probe of memory usage and 10% of inactive memory
-		return nil, math.Min(math.Max(currStats.lastOffloadingTargetSize*OffloadingSizeScaleCoeff, currStats.memInactive*InactiveProbe), currStats.memUsage*conf.RefaultPolicyConf.MaxProbe)
+		// Try to increase offloading size but make sure not exceed the max probe of memory usage and 10% of inactive memory when the target size of last round is relatively small,
+		// which means reclaim accuracy and reclaim scan efficiency is low.
+		result = math.Min(math.Max(lastStats.offloadingTargetSize*OffloadingSizeScaleCoeff, currStats.memInactive*InactiveProbe), currStats.memUsage*conf.RefaultPolicyConf.MaxProbe)
 	}
+	general.InfoS("refault info", "reclaimAccuracyRatio", reclaimAccuracyRatio, "ReclaimAccuracyTarget", conf.RefaultPolicyConf.ReclaimAccuracyTarget,
+		"reclaimScanEfficiencyRatio", reclaimScanEfficiencyRatio, "ReclaimScanEfficiencyTarget", conf.RefaultPolicyConf.ReclaimScanEfficiencyTarget,
+		"refaultDelta", refaultDelta, "pgstealDelta", pgstealDelta, "pgscanDelta", pgscanDelta, "lastOffloadingTargetSize", general.FormatMemoryQuantity(lastStats.offloadingTargetSize),
+		"result", general.FormatMemoryQuantity(result))
+	return nil, result
 }
 
 type TMOBlockFn func(ci *types.ContainerInfo, conf interface{}) bool
@@ -229,7 +236,7 @@ func (tmoEngine *tmoEngineInstance) getStats() (TmoStats, error) {
 		tmoStats.pgscan = pgscan.Value
 		tmoStats.refault = refault.Value
 		tmoStats.refaultActivate = refaultActivate.Value
-		tmoStats.lastOffloadingTargetSize = tmoEngine.offloadingTargetSize
+		tmoStats.offloadingTargetSize = tmoEngine.offloadingTargetSize
 		general.Infof("Memory Usage of Cgroup %s, memUsage: %v", tmoEngine.cgpath, memUsage.Value)
 		return nil
 	}
@@ -273,7 +280,7 @@ func (tmoEngine *tmoEngineInstance) getStats() (TmoStats, error) {
 		tmoStats.pgscan = pgscan.Value
 		tmoStats.refault = refault.Value
 		tmoStats.refaultActivate = refaultActivate.Value
-		tmoStats.lastOffloadingTargetSize = tmoEngine.offloadingTargetSize
+		tmoStats.offloadingTargetSize = tmoEngine.offloadingTargetSize
 		general.Infof("Memory Usage of Pod %v, Container %v, memUsage: %v", podUID, containerName, memUsage.Value)
 		return nil
 	}
@@ -336,10 +343,11 @@ func (tmoEngine *tmoEngineInstance) CalculateOffloadingTargetSize() {
 		if policyFunc, ok := fn.(TmoPolicyFn); ok {
 			err, targetSize := policyFunc(tmoEngine.lastStats, currStats, tmoEngine.conf)
 			if err != nil {
-				general.Infof("Failed to calculate offloading memory size")
+				general.ErrorS(err, "Failed to calculate offloading memory size")
 				return
 			}
 			tmoEngine.offloadingTargetSize = targetSize
+			currStats.offloadingTargetSize = targetSize
 			tmoEngine.lastStats = currStats
 			tmoEngine.lastTime = currTime
 		}
@@ -481,13 +489,15 @@ func (tmo *transparentMemoryOffloading) Reconcile(status *types.MemoryPressureSt
 	// calculate memory offloading size for each container
 	for podContainerName, tmoEngine := range tmo.containerTmoEngines {
 		tmoEngine.CalculateOffloadingTargetSize()
-		general.Infof("Calculate target offloading size for podContainer: %v, result: %v", podContainerName, tmoEngine.GetOffloadingTargetSize())
+		general.InfoS("Calculate target offloading size", "podContainer", podContainerName,
+			"result", general.FormatMemoryQuantity(tmoEngine.GetOffloadingTargetSize()))
 	}
 
 	// calculate memory offloading size for each cgroups
 	for cgpath, tmoEngine := range tmo.cgpathTmoEngines {
 		tmoEngine.CalculateOffloadingTargetSize()
-		general.Infof("Calculate target offloading size for cgroup: %v, result: %v", cgpath, tmoEngine.GetOffloadingTargetSize())
+		general.InfoS("Calculate target offloading size", "groupPath", cgpath,
+			"result", general.FormatMemoryQuantity(tmoEngine.GetOffloadingTargetSize()))
 	}
 	return nil
 }

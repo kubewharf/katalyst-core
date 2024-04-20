@@ -23,6 +23,7 @@ import (
 	"context"
 	"fmt"
 	"io/ioutil"
+	"math"
 	"os"
 	"path/filepath"
 	"testing"
@@ -40,10 +41,12 @@ func TestManager(t *testing.T) {
 	t.Parallel()
 
 	_ = GetManager()
+
+	testV1Manager(t)
+	testV2Manager(t)
 }
 
-func TestV1Manager(t *testing.T) {
-	t.Parallel()
+func testV1Manager(t *testing.T) {
 
 	_ = v1.NewManager()
 
@@ -51,12 +54,12 @@ func TestV1Manager(t *testing.T) {
 	testNetCls(t, "v1")
 }
 
-func TestV2Manager(t *testing.T) {
-	t.Parallel()
+func testV2Manager(t *testing.T) {
 
 	_ = v2.NewManager()
 
 	testManager(t, "v2")
+	testSwapMax(t)
 }
 
 func testManager(t *testing.T, version string) {
@@ -101,9 +104,7 @@ func testNetCls(t *testing.T, version string) {
 	assert.Error(t, err)
 }
 
-func TestSwapMax(t *testing.T) {
-	t.Parallel()
-
+func testSwapMax(t *testing.T) {
 	defer monkey.UnpatchAll()
 	monkey.Patch(common.CheckCgroup2UnifiedMode, func() bool { return true })
 	monkey.Patch(GetManager, func() Manager { return v2.NewManager() })
@@ -120,12 +121,26 @@ func TestSwapMax(t *testing.T) {
 		return ioutil.WriteFile(f, []byte(data), 0700)
 	})
 
-	tmpDir, err := ioutil.TempDir("", "fake-cgroup")
+	rootDir := os.TempDir()
+	dir := filepath.Join(rootDir, "tmp")
+	err := os.Mkdir(dir, 0700)
 	assert.NoError(t, err)
-	defer os.RemoveAll(tmpDir)
+
+	tmpDir, err := ioutil.TempDir(dir, "fake-cgroup")
+	assert.NoError(t, err)
+	defer os.RemoveAll(dir)
+
+	monkey.Patch(common.GetCgroupRootPath, func(s string) string {
+		t.Logf("rootDir=%v", rootDir)
+		return rootDir
+	})
 
 	sawpFile := filepath.Join(tmpDir, "memory.swap.max")
 	err = ioutil.WriteFile(sawpFile, []byte{}, 0700)
+	assert.NoError(t, err)
+
+	sawpFile2 := filepath.Join(dir, "memory.swap.max")
+	err = ioutil.WriteFile(sawpFile2, []byte{}, 0700)
 	assert.NoError(t, err)
 
 	maxFile := filepath.Join(tmpDir, "memory.max")
@@ -142,6 +157,10 @@ func TestSwapMax(t *testing.T) {
 	s, err := ioutil.ReadFile(sawpFile)
 	assert.NoError(t, err)
 	assert.Equal(t, fmt.Sprintf("%v", 200), string(s))
+
+	s, err = ioutil.ReadFile(sawpFile2)
+	assert.NoError(t, err)
+	assert.Equal(t, fmt.Sprintf("%v", math.MaxInt64), string(s))
 
 	err = DisableSwapMaxWithAbsolutePathRecursive(tmpDir)
 	assert.NoError(t, err)

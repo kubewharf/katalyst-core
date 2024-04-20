@@ -316,7 +316,7 @@ func SetSwapMaxWithAbsolutePathToParentCgroupRecursive(absCgroupPath string) err
 	}
 
 	parentDir := filepath.Dir(absCgroupPath)
-	if parentDir != absCgroupPath {
+	if parentDir != absCgroupPath && parentDir != common.GetCgroupRootPath(common.CgroupSubsysMemory) {
 		err = SetSwapMaxWithAbsolutePathToParentCgroupRecursive(parentDir)
 		if err != nil {
 			return err
@@ -333,7 +333,9 @@ func SetSwapMaxWithAbsolutePathRecursive(absCgroupPath string) error {
 	general.Infof("[SetSwapMaxWithAbsolutePathRecursive] on cgroup: %s", absCgroupPath)
 
 	// set swap max to parent cgroups recursively
-	_ = SetSwapMaxWithAbsolutePathToParentCgroupRecursive(filepath.Dir(absCgroupPath))
+	if err := SetSwapMaxWithAbsolutePathToParentCgroupRecursive(filepath.Dir(absCgroupPath)); err != nil {
+		return err
+	}
 
 	// set swap max to sub cgroups recursively
 	err := filepath.Walk(absCgroupPath, func(path string, info fs.FileInfo, err error) error {
