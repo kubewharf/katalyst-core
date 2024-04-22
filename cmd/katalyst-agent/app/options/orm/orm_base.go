@@ -25,20 +25,26 @@ import (
 )
 
 type GenericORMPluginOptions struct {
-	ORMRconcilePeriod     time.Duration
-	ORMResourceNamesMap   map[string]string
-	ORMPodNotifyChanLen   int
-	TopologyPolicyName    string
-	NumericAlignResources []string
+	ORMRconcilePeriod               time.Duration
+	ORMResourceNamesMap             map[string]string
+	ORMPodNotifyChanLen             int
+	TopologyPolicyName              string
+	NumericAlignResources           []string
+	ORMPodResourcesSocket           string
+	ORMDevicesProvider              string
+	ORMKubeletPodResourcesEndpoints []string
 }
 
 func NewGenericORMPluginOptions() *GenericORMPluginOptions {
 	return &GenericORMPluginOptions{
-		ORMRconcilePeriod:     time.Second * 5,
-		ORMResourceNamesMap:   map[string]string{},
-		ORMPodNotifyChanLen:   10,
-		TopologyPolicyName:    "none",
-		NumericAlignResources: []string{"cpu", "memory"},
+		ORMRconcilePeriod:               time.Second * 5,
+		ORMResourceNamesMap:             map[string]string{},
+		ORMPodNotifyChanLen:             10,
+		TopologyPolicyName:              "",
+		NumericAlignResources:           []string{"cpu", "memory"},
+		ORMPodResourcesSocket:           "unix:/var/lib/katalyst/pod-resources/kubelet.sock",
+		ORMDevicesProvider:              "",
+		ORMKubeletPodResourcesEndpoints: []string{"/var/lib/kubelet/pod-resources/kubelet.sock"},
 	}
 }
 
@@ -58,6 +64,12 @@ func (o *GenericORMPluginOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 		o.TopologyPolicyName, "topology merge policy name used by ORM")
 	fs.StringSliceVar(&o.NumericAlignResources, "numeric-align-resources", o.NumericAlignResources,
 		"resources which should be aligned in numeric topology policy")
+	fs.StringVar(&o.ORMPodResourcesSocket, "orm-pod-resources-socket", o.ORMPodResourcesSocket,
+		"socket of ORM pod resource api, default 'unix:/var/lib/katalyst/pod-resources/kubelet.sock'")
+	fs.StringVar(&o.ORMDevicesProvider, "orm-devices-provider", o.ORMDevicesProvider,
+		"devices provider provides devices resources and allocatable for ORM podResources api")
+	fs.StringSliceVar(&o.ORMKubeletPodResourcesEndpoints, "orm-kubelet-pod-resources-endpoints", o.ORMKubeletPodResourcesEndpoints,
+		"kubelet podResources endpoints for ORM kubelet devices provider")
 }
 
 func (o *GenericORMPluginOptions) ApplyTo(conf *ormconfig.GenericORMConfiguration) error {
@@ -66,6 +78,9 @@ func (o *GenericORMPluginOptions) ApplyTo(conf *ormconfig.GenericORMConfiguratio
 	conf.ORMPodNotifyChanLen = o.ORMPodNotifyChanLen
 	conf.TopologyPolicyName = o.TopologyPolicyName
 	conf.NumericAlignResources = o.NumericAlignResources
+	conf.ORMPodResourcesSocket = o.ORMPodResourcesSocket
+	conf.ORMDevicesProvider = o.ORMDevicesProvider
+	conf.ORMKubeletPodResourcesEndpoints = o.ORMKubeletPodResourcesEndpoints
 
 	return nil
 }
