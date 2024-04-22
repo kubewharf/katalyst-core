@@ -284,6 +284,74 @@ func (p *DynamicPolicy) sharedCoresWithNUMABindingHintHandler(_ context.Context,
 	return util.PackResourceHintsResponse(req, string(v1.ResourceCPU), hints)
 }
 
+func (p *DynamicPolicy) populateHintsByPreferPolicy(numaNodes []int, preferPolicy string,
+	hints map[string]*pluginapi.ListOfTopologyHints, machineState state.NUMANodeMap, reqInt int) {
+
+	preferIndexes, maxLeft, minLeft := []int{}, -1, math.MaxInt
+
+	for _, nodeID := range numaNodes {
+		availableCPUQuantity := machineState[nodeID].GetAvailableCPUQuantity(p.reservedCPUs)
+
+		if availableCPUQuantity < reqInt {
+			general.Warningf("numa_binding shared_cores container skip NUMA: %d available: %d",
+				nodeID, availableCPUQuantity)
+			continue
+		}
+
+		hints[string(v1.ResourceCPU)].Hints = append(hints[string(v1.ResourceCPU)].Hints, &pluginapi.TopologyHint{
+			Nodes: []uint64{uint64(nodeID)},
+		})
+
+		curLeft := availableCPUQuantity - reqInt
+
+		general.Infof("NUMA: %d, left cpu quantity: %d", nodeID, curLeft)
+
+		if preferPolicy == cpuconsts.CPUNUMAHintPreferPolicyPacking {
+			if curLeft < minLeft {
+				minLeft = curLeft
+				preferIndexes = []int{len(hints[string(v1.ResourceCPU)].Hints) - 1}
+			} else if curLeft == minLeft {
+				preferIndexes = append(preferIndexes, len(hints[string(v1.ResourceCPU)].Hints)-1)
+			}
+		} else {
+			if curLeft > maxLeft {
+				maxLeft = curLeft
+				preferIndexes = []int{len(hints[string(v1.ResourceCPU)].Hints) - 1}
+			} else if curLeft == maxLeft {
+				preferIndexes = append(preferIndexes, len(hints[string(v1.ResourceCPU)].Hints)-1)
+			}
+		}
+	}
+
+	if len(preferIndexes) >= 0 {
+		for _, preferIndex := range preferIndexes {
+			hints[string(v1.ResourceCPU)].Hints[preferIndex].Preferred = true
+		}
+	}
+}
+
+func (p *DynamicPolicy) filterNUMANodesByHintPreferLowThreshold(reqInt int,
+	machineState state.NUMANodeMap, numaNodes []int) []int {
+
+	filteredNUMANodes := make([]int, 0, len(numaNodes))
+
+	for _, nodeID := range numaNodes {
+		availableCPUQuantity := machineState[nodeID].GetAvailableCPUQuantity(p.reservedCPUs)
+		allocatableCPUQuantity := machineState[nodeID].GetFilteredDefaultCPUSet(nil, nil).Difference(p.reservedCPUs).Size()
+
+		if allocatableCPUQuantity == 0 {
+			general.Warningf("numa: %d allocatable cpu quantity is zero", nodeID)
+			continue
+		}
+
+		if float64(availableCPUQuantity)/float64(allocatableCPUQuantity) >= p.cpuNUMAHintPreferLowThreshold {
+			filteredNUMANodes = append(filteredNUMANodes, nodeID)
+		}
+	}
+
+	return filteredNUMANodes
+}
+
 func (p *DynamicPolicy) calculateHintsForNUMABindingSharedCores(reqInt int, machineState state.NUMANodeMap,
 	reqAnnotations map[string]string) (map[string]*pluginapi.ListOfTopologyHints, error) {
 
@@ -306,45 +374,23 @@ func (p *DynamicPolicy) calculateHintsForNUMABindingSharedCores(reqInt int, mach
 	if minNUMAsCountNeeded > 1 {
 		return nil, fmt.Errorf("numa_binding shared_cores container has request larger than 1 NUMA")
 	}
+	switch p.cpuNUMAHintPreferPolicy {
+	case cpuconsts.CPUNUMAHintPreferPolicyPacking, cpuconsts.CPUNUMAHintPreferPolicySpreading:
+		general.Infof("apply %s policy on NUMAs: %+v", p.cpuNUMAHintPreferPolicy, numaNodes)
+		p.populateHintsByPreferPolicy(numaNodes, p.cpuNUMAHintPreferPolicy, hints, machineState, reqInt)
+	case cpuconsts.CPUNUMAHintPreferPolicyDynamicPacking:
+		compactNUMANodes := p.filterNUMANodesByHintPreferLowThreshold(reqInt, machineState, numaNodes)
 
-	preferIndexes, maxLeft, minLeft := []int{}, -1, math.MaxInt
-
-	for _, nodeID := range numaNodes {
-		availableCPUQuantity := machineState[nodeID].GetAvailableCPUQuantity(p.reservedCPUs)
-
-		if availableCPUQuantity < reqInt {
-			general.Warningf("numa_binding shared_cores container skip NUMA: %d available: %d",
-				nodeID, availableCPUQuantity)
-			continue
-		}
-
-		hints[string(v1.ResourceCPU)].Hints = append(hints[string(v1.ResourceCPU)].Hints, &pluginapi.TopologyHint{
-			Nodes: []uint64{uint64(nodeID)},
-		})
-
-		curLeft := availableCPUQuantity - reqInt
-
-		if p.cpuNUMAHintPreferPolicy == cpuconsts.CPUNUMAHintPreferPolicyPacking {
-			if curLeft < minLeft {
-				minLeft = curLeft
-				preferIndexes = []int{len(hints[string(v1.ResourceCPU)].Hints) - 1}
-			} else if curLeft == minLeft {
-				preferIndexes = append(preferIndexes, len(hints[string(v1.ResourceCPU)].Hints)-1)
-			}
+		if len(compactNUMANodes) > 0 {
+			general.Infof("dynamically apply packing policy on NUMAs: %+v", compactNUMANodes)
+			p.populateHintsByPreferPolicy(compactNUMANodes, cpuconsts.CPUNUMAHintPreferPolicyPacking, hints, machineState, reqInt)
 		} else {
-			if curLeft > maxLeft {
-				maxLeft = curLeft
-				preferIndexes = []int{len(hints[string(v1.ResourceCPU)].Hints) - 1}
-			} else if curLeft == maxLeft {
-				preferIndexes = append(preferIndexes, len(hints[string(v1.ResourceCPU)].Hints)-1)
-			}
+			general.Infof("empty compactNUMANodes, dynamically apply spreading policy on NUMAs: %+v", numaNodes)
+			p.populateHintsByPreferPolicy(numaNodes, cpuconsts.CPUNUMAHintPreferPolicySpreading, hints, machineState, reqInt)
 		}
-	}
-
-	if len(preferIndexes) >= 0 {
-		for _, preferIndex := range preferIndexes {
-			hints[string(v1.ResourceCPU)].Hints[preferIndex].Preferred = true
-		}
+	default:
+		general.Infof("unknown policy: %s, apply default spreading policy on NUMAs: %+v", p.cpuNUMAHintPreferPolicy, numaNodes)
+		p.populateHintsByPreferPolicy(numaNodes, cpuconsts.CPUNUMAHintPreferPolicySpreading, hints, machineState, reqInt)
 	}
 
 	return hints, nil

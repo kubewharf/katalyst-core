@@ -129,6 +129,7 @@ type DynamicPolicy struct {
 	podDebugAnnoKeys              []string
 	transitionPeriod              time.Duration
 	cpuNUMAHintPreferPolicy       string
+	cpuNUMAHintPreferLowThreshold float64
 }
 
 func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration,
@@ -192,6 +193,7 @@ func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration
 		cpuPluginSocketAbsPath:        conf.CPUPluginSocketAbsPath,
 		enableCPUAdvisor:              conf.CPUQRMPluginConfig.EnableCPUAdvisor,
 		cpuNUMAHintPreferPolicy:       conf.CPUQRMPluginConfig.CPUNUMAHintPreferPolicy,
+		cpuNUMAHintPreferLowThreshold: conf.CPUQRMPluginConfig.CPUNUMAHintPreferLowThreshold,
 		reservedCPUs:                  reservedCPUs,
 		extraStateFileAbsPath:         conf.ExtraStateFileAbsPath,
 		enableSyncingCPUIdle:          conf.CPUQRMPluginConfig.EnableSyncingCPUIdle,

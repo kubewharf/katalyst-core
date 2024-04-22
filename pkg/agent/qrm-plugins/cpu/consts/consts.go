@@ -55,4 +55,7 @@ const (
 	CPUNUMAHintPreferPolicyPacking = "packing"
 	// spreading: tries to distributing containers across multiple nodes. Aiming to balance the load by avoiding overloading individual nodes.
 	CPUNUMAHintPreferPolicySpreading = "spreading"
+	// dynamic_packing: refers to the strategy of putting as many containers as possible onto a single NUMA node until the node hits configurable threshold.
+	// if all nodes hit configurable threshold, use spreading policy instead.
+	CPUNUMAHintPreferPolicyDynamicPacking = "dynamic_packing"
 )
