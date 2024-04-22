@@ -40,6 +40,7 @@ type CPUDynamicPolicyOptions struct {
 	EnableSyncingCPUIdle          bool
 	EnableCPUIdle                 bool
 	CPUNUMAHintPreferPolicy       string
+	CPUNUMAHintPreferLowThreshold float64
 }
 
 type CPUNativePolicyOptions struct {
@@ -94,6 +95,8 @@ func (o *CPUOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 			"specific cgroup paths and it requires --enable-syncing-cpu-idle=true to make effect")
 	fs.StringVar(&o.CPUNUMAHintPreferPolicy, "cpu-numa-hint-prefer-policy", o.CPUNUMAHintPreferPolicy,
 		"it decides hint preference calculation strategy")
+	fs.Float64Var(&o.CPUNUMAHintPreferLowThreshold, "cpu-numa-hint-prefer-low-threshold", o.CPUNUMAHintPreferLowThreshold,
+		"it indicates threshold to apply CPUNUMAHintPreferPolicy dynamically, and it's working when CPUNUMAHintPreferPolicy is set to dynamic_packing")
 	fs.StringVar(&o.CPUAllocationOption, "cpu-allocation-option",
 		o.CPUAllocationOption, "The allocation option of cpu (packed/distributed). The default value is packed."+
 			"in cases where more than one NUMA node is required to satisfy the allocation.")
@@ -114,5 +117,6 @@ func (o *CPUOptions) ApplyTo(conf *qrmconfig.CPUQRMPluginConfig) error {
 	conf.EnableFullPhysicalCPUsOnly = o.EnableFullPhysicalCPUsOnly
 	conf.CPUAllocationOption = o.CPUAllocationOption
 	conf.CPUNUMAHintPreferPolicy = o.CPUNUMAHintPreferPolicy
+	conf.CPUNUMAHintPreferLowThreshold = o.CPUNUMAHintPreferLowThreshold
 	return nil
 }
