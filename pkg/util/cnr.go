@@ -202,7 +202,7 @@ func MergeAttributes(dst, src []apis.Attribute) []apis.Attribute {
 	}
 
 	sort.SliceStable(attrs, func(i, j int) bool {
-		return attrs[i].Name < attrs[j].Value
+		return attrs[i].Name < attrs[j].Name
 	})
 
 	return attrs
