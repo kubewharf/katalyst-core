@@ -17,6 +17,7 @@ limitations under the License.
 package reporter
 
 import (
+	v1 "k8s.io/api/core/v1"
 	cliflag "k8s.io/component-base/cli/flag"
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 
@@ -28,6 +29,7 @@ type KubeletPluginOptions struct {
 	KubeletResourcePluginPaths  []string
 	EnableReportTopologyPolicy  bool
 	ResourceNameToZoneTypeMap   map[string]string
+	NeedValidationResources     []string
 }
 
 func NewKubeletPluginOptions() *KubeletPluginOptions {
@@ -40,6 +42,10 @@ func NewKubeletPluginOptions() *KubeletPluginOptions {
 		},
 		EnableReportTopologyPolicy: false,
 		ResourceNameToZoneTypeMap:  make(map[string]string),
+		NeedValidationResources: []string{
+			string(v1.ResourceCPU),
+			string(v1.ResourceMemory),
+		},
 	}
 }
 
@@ -54,6 +60,8 @@ func (o *KubeletPluginOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 		"whether to report topology policy")
 	fs.StringToStringVar(&o.ResourceNameToZoneTypeMap, "resource-name-to-zone-type-map", o.ResourceNameToZoneTypeMap,
 		"a map that stores the mapping relationship between resource names to zone types in KCNR (e.g. nvidia.com/gpu=GPU,...)")
+	fs.StringSliceVar(&o.NeedValidationResources, "need-validation-resources", o.NeedValidationResources,
+		"resources need to be validated")
 }
 
 func (o *KubeletPluginOptions) ApplyTo(c *reporter.KubeletPluginConfiguration) error {
@@ -61,6 +69,7 @@ func (o *KubeletPluginOptions) ApplyTo(c *reporter.KubeletPluginConfiguration) e
 	c.KubeletResourcePluginPaths = o.KubeletResourcePluginPaths
 	c.EnableReportTopologyPolicy = o.EnableReportTopologyPolicy
 	c.ResourceNameToZoneTypeMap = o.ResourceNameToZoneTypeMap
+	c.NeedValidationResources = o.NeedValidationResources
 
 	return nil
 }

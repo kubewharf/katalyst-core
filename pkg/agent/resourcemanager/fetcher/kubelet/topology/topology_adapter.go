@@ -86,12 +86,16 @@ type topologyAdapterImpl struct {
 
 	// resourceNameToZoneTypeMap is a map that stores the mapping relationship between resource names to zone types for device zones
 	resourceNameToZoneTypeMap map[string]string
+
+	// needValidationResources is the resources needed to be validated
+	needValidationResources []string
 }
 
 // NewPodResourcesServerTopologyAdapter creates a topology adapter which uses pod resources server
 func NewPodResourcesServerTopologyAdapter(metaServer *metaserver.MetaServer, endpoints []string,
 	kubeletResourcePluginPaths []string, resourceNameToZoneTypeMap map[string]string, skipDeviceNames sets.String,
-	numaInfoGetter NumaInfoGetter, podResourcesFilter PodResourcesFilter, getClientFunc podresources.GetClientFunc) (Adapter, error) {
+	numaInfoGetter NumaInfoGetter, podResourcesFilter PodResourcesFilter, getClientFunc podresources.GetClientFunc,
+	needValidationResources []string) (Adapter, error) {
 	numaInfo, err := numaInfoGetter()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get numa info: %s", err)
@@ -116,6 +120,7 @@ func NewPodResourcesServerTopologyAdapter(metaServer *metaserver.MetaServer, end
 		getClientFunc:              getClientFunc,
 		podResourcesFilter:         podResourcesFilter,
 		resourceNameToZoneTypeMap:  resourceNameToZoneTypeMap,
+		needValidationResources:    needValidationResources,
 	}, nil
 }
 
@@ -149,7 +154,7 @@ func (p *topologyAdapterImpl) GetTopologyZones(parentCtx context.Context) ([]*no
 	}
 
 	// validate pod Resources server response to make sure report topology status is correct
-	if err = validatePodResourcesServerResponse(allocatableResources, listPodResourcesResponse); err != nil {
+	if err = p.validatePodResourcesServerResponse(allocatableResources, listPodResourcesResponse); err != nil {
 		return nil, errors.Wrap(err, "validate pod Resources server response failed")
 	}
 
@@ -266,14 +271,21 @@ func (p *topologyAdapterImpl) Run(ctx context.Context, handler func()) error {
 
 // validatePodResourcesServerResponse validate pod resources server response, if the resource is empty,
 // maybe the kubelet or qrm plugin is restarting
-func validatePodResourcesServerResponse(allocatableResourcesResponse *podresv1.AllocatableResourcesResponse,
-	listPodResourcesResponse *podresv1.ListPodResourcesResponse) error {
-	if allocatableResourcesResponse == nil {
-		return fmt.Errorf("allocatable Resources response is nil")
-	}
+func (p *topologyAdapterImpl) validatePodResourcesServerResponse(allocatableResourcesResponse *podresv1.
+	AllocatableResourcesResponse, listPodResourcesResponse *podresv1.ListPodResourcesResponse) error {
+	if len(p.needValidationResources) > 0 {
+		if allocatableResourcesResponse == nil {
+			return fmt.Errorf("allocatable resources response is nil")
+		}
 
-	if len(allocatableResourcesResponse.Resources) == 0 {
-		return fmt.Errorf("allocatable topology aware Resources is empty")
+		allocResSet := sets.NewString()
+		for _, res := range allocatableResourcesResponse.Resources {
+			allocResSet.Insert(res.ResourceName)
+		}
+
+		if !allocResSet.HasAll(p.needValidationResources...) {
+			return fmt.Errorf("allocatable resources response doen't contain all the resources that need to be validated")
+		}
 	}
 
 	if listPodResourcesResponse == nil {
