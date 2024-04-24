@@ -576,6 +576,14 @@ func (vc *VPAController) updatePodResources(vpa *apis.KatalystVerticalPodAutosca
 		return fmt.Errorf("[vpa] get container policy for vpa %s error: %v", vpa.Name, err)
 	}
 
+	// If the PodApplyStrategy is set to 'Pod', the update policy controller will only apply changes to pod-level resources.
+	// This approach ensures that when pod-level resources are not specified, they are not unintentionally overridden by the
+	// container-level resource definitions.Therefore, if the strategy is 'Pod', we clear the containerResources to prevent
+	// any container-specific resource updates.
+	if vpa.Spec.UpdatePolicy.PodApplyStrategy == apis.PodApplyStrategyStrategyPod {
+		containerResources = nil
+	}
+
 	var mtx sync.Mutex
 	var errList []error
 	updatePodAnnotations := func(i int) {
