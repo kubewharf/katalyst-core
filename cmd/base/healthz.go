@@ -19,25 +19,45 @@ package katalyst_base
 import (
 	"context"
 	"encoding/json"
+	"time"
 
 	"go.uber.org/atomic"
+	"k8s.io/apimachinery/pkg/util/wait"
 
+	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
+)
+
+const (
+	syncPeriod              = 30 * time.Second
+	MetricNameUnhealthyRule = "unhealthy_healthz_check_rule"
 )
 
 // HealthzChecker periodically checks the running states
 type HealthzChecker struct {
 	// if unhealthyReason is none-empty, it means some check failed
 	unhealthyReason *atomic.String
+	emitter         metrics.MetricEmitter
 }
 
-func NewHealthzChecker() *HealthzChecker {
+func NewHealthzChecker(emitter metrics.MetricEmitter) *HealthzChecker {
 	return &HealthzChecker{
 		unhealthyReason: atomic.NewString(""),
+		emitter:         emitter,
 	}
 }
 
-func (h *HealthzChecker) Run(_ context.Context) {}
+func (h *HealthzChecker) Run(ctx context.Context) {
+	go wait.Until(func() {
+		results := general.GetRegisterReadinessCheckResult()
+		for key, result := range results {
+			if !result.Ready {
+				_ = h.emitter.StoreInt64(MetricNameUnhealthyRule, 1, metrics.MetricTypeNameRaw,
+					metrics.MetricTag{Key: "rule", Val: string(key)})
+			}
+		}
+	}, syncPeriod, ctx.Done())
+}
 
 // CheckHealthy returns whether the component is healthy.
 func (h *HealthzChecker) CheckHealthy() (bool, string) {

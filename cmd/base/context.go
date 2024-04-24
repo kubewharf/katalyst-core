@@ -189,7 +189,7 @@ func NewGenericContext(
 			Handler: httpHandler.WithHandleChain(mux),
 			Addr:    genericConf.GenericEndpoint,
 		},
-		healthChecker:             NewHealthzChecker(),
+		healthChecker:             NewHealthzChecker(customMetricsEmitterPool.GetDefaultMetricsEmitter()),
 		DisabledByDefault:         disabledByDefault,
 		MetaInformerFactory:       metaInformerFactory,
 		KubeInformerFactory:       kubeInformerFactory,
@@ -266,14 +266,8 @@ func (c *GenericContext) StartInformer(ctx context.Context) {
 // serveHealthZHTTP is used to provide health check for current running components.
 func (c *GenericContext) serveHealthZHTTP(mux *http.ServeMux, enableHealthzCheck bool) {
 	mux.HandleFunc(healthZPath, func(w http.ResponseWriter, r *http.Request) {
-		if !enableHealthzCheck {
-			w.WriteHeader(200)
-			_, _ = w.Write([]byte("healthz check is disabled"))
-			return
-		}
-
 		ok, content := c.healthChecker.CheckHealthy()
-		if ok {
+		if ok || !enableHealthzCheck {
 			w.WriteHeader(200)
 			_, _ = w.Write([]byte(content))
 		} else {
