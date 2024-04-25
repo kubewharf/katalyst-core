@@ -74,7 +74,7 @@ type MetaReader interface {
 
 	// GetFilteredInferenceResult gets specified model inference result with filter function
 	GetFilteredInferenceResult(filterFunc func(result interface{}) (interface{}, error), modelName string) (interface{}, error)
-	// GetPodsInferenceResult gets specified model inference result
+	// GetInferenceResult gets specified model inference result
 	GetInferenceResult(modelName string) (interface{}, error)
 
 	metrictypes.MetricsReader
