@@ -52,7 +52,7 @@ type Matcher interface {
 	MatchNode(nodeName string) (*v1alpha1.NodeOvercommitConfig, error)
 	// ListNodeToConfig list nodes with matched configName
 	ListNodeToConfig() map[string]string
-	// GetConfigs get matched config by nodeName
+	// GetConfig get matched config by nodeName
 	GetConfig(nodeName string) *v1alpha1.NodeOvercommitConfig
 	// GetNodes get matched nodes by configName
 	GetNodes(configName string) []string

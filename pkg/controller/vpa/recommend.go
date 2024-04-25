@@ -365,7 +365,7 @@ func (rrc *ResourceRecommendController) cleanVPARec() {
 				klog.Errorf("[resource-rec] get vpa for vpaRec %s error: %v", vpaRec.Name, err)
 			}
 		} else {
-			// delete vpa-rec if the recommender field has already be erased
+			// delete vpa-rec if the recommender field has already erased
 			recommender := vpa.Spec.ResourcePolicy.AlgorithmPolicy.Recommender
 			if recommender == "" {
 				needDelete = true
@@ -381,7 +381,7 @@ func (rrc *ResourceRecommendController) cleanVPARec() {
 	}
 }
 
-// getOrCreateVpaRec is used to main the in-tree vpaRec objects if it dosn't exist
+// getOrCreateVpaRec is used to main the in-tree vpaRec objects if it doesn't exist
 func (rrc *ResourceRecommendController) getOrCreateVpaRec(vpa *apis.KatalystVerticalPodAutoscaler) (*apis.VerticalPodAutoscalerRecommendation, error) {
 	vpaRec, err := katalystutil.GetVPARecForVPA(vpa, rrc.vpaRecIndexer, rrc.vpaRecLister)
 	if err != nil {

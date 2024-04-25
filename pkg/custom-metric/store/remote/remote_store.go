@@ -22,7 +22,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"net/http"
 	"sync"
 	"time"
@@ -133,7 +132,7 @@ func (r *RemoteMemoryMetricStore) InsertMetric(seriesList []*data.MetricSeries) 
 	// insert will always try to write into all store instances instead of write-counts
 	err = r.sendRequests(cancel, requests, len(requests), r.tags,
 		func(req *http.Request) {
-			req.Body = ioutil.NopCloser(bytes.NewReader(contents))
+			req.Body = io.NopCloser(bytes.NewReader(contents))
 		},
 		func(_ io.ReadCloser) error {
 			responseLock.Lock()
