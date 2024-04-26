@@ -16,7 +16,9 @@ limitations under the License.
 
 package common
 
-import "fmt"
+import (
+	"fmt"
+)
 
 const (
 	// CgroupFSMountPoint default cgroup mount point

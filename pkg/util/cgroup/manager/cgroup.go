@@ -23,11 +23,14 @@ import (
 	"math"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"time"
 
+	"github.com/kubewharf/katalyst-core/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/asyncworker"
 	"github.com/kubewharf/katalyst-core/pkg/util/cgroup/common"
+	"github.com/kubewharf/katalyst-core/pkg/util/eventbus"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 )
 
@@ -273,7 +276,11 @@ func DropCacheWithTimeoutForContainer(ctx context.Context, podUID, containerId s
 }
 
 func DropCacheWithTimeoutAndAbsCGPath(timeoutSecs int, absCgroupPath string, nbytes int64) error {
-	startTime := time.Now()
+	var (
+		startTime  = time.Now()
+		data       int64
+		cgroupFile string
+	)
 
 	var cmd string
 	if common.CheckCgroup2UnifiedMode() {
@@ -282,16 +289,28 @@ func DropCacheWithTimeoutAndAbsCGPath(timeoutSecs int, absCgroupPath string, nby
 			return nil
 		}
 		// cgv2
-		cmd = fmt.Sprintf("timeout %d echo %d > %s", timeoutSecs, nbytes, filepath.Join(absCgroupPath, "memory.reclaim"))
+		cgroupFile = "memory.reclaim"
+		data = nbytes
 	} else {
 		// cgv1
-		cmd = fmt.Sprintf("timeout %d echo 0 > %s", timeoutSecs, filepath.Join(absCgroupPath, "memory.force_empty"))
+		cgroupFile = "memory.force_empty"
+		data = 0
 	}
+	cmd = fmt.Sprintf("timeout %d echo %d > %s", timeoutSecs, data, filepath.Join(absCgroupPath, cgroupFile))
 
 	_, err := exec.Command("bash", "-c", cmd).Output()
 
 	delta := time.Since(startTime).Seconds()
 	general.Infof("[DropCacheWithTimeoutAndAbsCGPath] it takes %v to do \"%s\" on cgroup: %s", delta, cmd, absCgroupPath)
+	_ = eventbus.GetDefaultEventBus().Publish(consts.TopicNameApplyCGroup, eventbus.RawCGroupEvent{
+		BaseEventImpl: eventbus.BaseEventImpl{
+			Time: startTime,
+		},
+		Cost:       time.Now().Sub(startTime),
+		CGroupPath: absCgroupPath,
+		CGroupFile: cgroupFile,
+		Data:       strconv.Itoa(int(data)),
+	})
 
 	// if this command timeout, a none-nil error will be returned,
 	// but we should return error iff error returns without timeout
@@ -318,27 +337,38 @@ func SetExtraCGMemLimitWithTimeoutAndAbsCGPath(timeoutSecs int, absCgroupPath st
 		return fmt.Errorf("invalid memory limit nbytes: %d", nbytes)
 	}
 
-	startTime := time.Now()
+	var (
+		startTime  = time.Now()
+		cgroupFile string
+	)
 
-	var interfacePath string
 	if common.CheckCgroup2UnifiedMode() {
 		if nbytes == 0 {
 			general.Infof("[SetExtraCGMemLimitWithTimeoutAndAbsCGPath] skip drop cache on %s since nbytes is zero", absCgroupPath)
 			return nil
 		}
 		// cgv2
-		interfacePath = filepath.Join(absCgroupPath, "memory.max")
+		cgroupFile = "memory.max"
 	} else {
 		// cgv1
-		interfacePath = filepath.Join(absCgroupPath, "memory.limit_in_bytes")
+		cgroupFile = "memory.limit_in_bytes"
 	}
 
-	cmd := fmt.Sprintf("timeout %d echo %d > %s", timeoutSecs, nbytes, interfacePath)
+	cmd := fmt.Sprintf("timeout %d echo %d > %s", timeoutSecs, nbytes, filepath.Join(absCgroupPath, cgroupFile))
 
 	_, err := exec.Command("bash", "-c", cmd).Output()
 
 	delta := time.Since(startTime).Seconds()
 	general.Infof("[SetExtraCGMemLimitWithTimeoutAndAbsCGPath] it takes %v to do \"%s\" on cgroup: %s", delta, cmd, absCgroupPath)
+	_ = eventbus.GetDefaultEventBus().Publish(consts.TopicNameApplyCGroup, eventbus.RawCGroupEvent{
+		BaseEventImpl: eventbus.BaseEventImpl{
+			Time: startTime,
+		},
+		Cost:       time.Now().Sub(startTime),
+		CGroupPath: absCgroupPath,
+		CGroupFile: cgroupFile,
+		Data:       strconv.Itoa(int(nbytes)),
+	})
 
 	// if this command timeout, a none-nil error will be returned,
 	// but we should return error iff error returns without timeout

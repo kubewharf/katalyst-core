@@ -46,7 +46,7 @@ func NewManager() *manager {
 
 func (m *manager) ApplyMemory(absCgroupPath string, data *common.MemoryData) error {
 	if data.LimitInBytes != 0 {
-		if err, applied, oldData := common.WriteFileIfChange(absCgroupPath, "memory.limit_in_bytes", strconv.FormatInt(data.LimitInBytes, 10)); err != nil {
+		if err, applied, oldData := common.InstrumentedWriteFileIfChange(absCgroupPath, "memory.limit_in_bytes", strconv.FormatInt(data.LimitInBytes, 10)); err != nil {
 			return err
 		} else if applied {
 			klog.Infof("[CgroupV1] apply memory limit_in_bytes successfully, cgroupPath: %s, data: %v, old data: %v\n", absCgroupPath, data.LimitInBytes, oldData)
@@ -54,7 +54,7 @@ func (m *manager) ApplyMemory(absCgroupPath string, data *common.MemoryData) err
 	}
 
 	if data.SoftLimitInBytes > 0 {
-		if err, applied, oldData := common.WriteFileIfChange(absCgroupPath, "memory.soft_limit_in_bytes", strconv.FormatInt(data.SoftLimitInBytes, 10)); err != nil {
+		if err, applied, oldData := common.InstrumentedWriteFileIfChange(absCgroupPath, "memory.soft_limit_in_bytes", strconv.FormatInt(data.SoftLimitInBytes, 10)); err != nil {
 			return err
 		} else if applied {
 			klog.Infof("[CgroupV1] apply memory soft_limit_in_bytes successfully, cgroupPath: %s, data: %v, old data: %v\n", absCgroupPath, data.SoftLimitInBytes, oldData)
@@ -62,7 +62,7 @@ func (m *manager) ApplyMemory(absCgroupPath string, data *common.MemoryData) err
 	}
 
 	if data.TCPMemLimitInBytes > 0 {
-		if err, applied, oldData := common.WriteFileIfChange(absCgroupPath, "memory.kmem.tcp.limit_in_bytes", strconv.FormatInt(data.TCPMemLimitInBytes, 10)); err != nil {
+		if err, applied, oldData := common.InstrumentedWriteFileIfChange(absCgroupPath, "memory.kmem.tcp.limit_in_bytes", strconv.FormatInt(data.TCPMemLimitInBytes, 10)); err != nil {
 			return err
 		} else if applied {
 			klog.Infof("[CgroupV1] apply memory kmem.tcp.limit_in_bytes successfully, cgroupPath: %s, data: %v, old data: %v\n", absCgroupPath, data.TCPMemLimitInBytes, oldData)
@@ -71,7 +71,7 @@ func (m *manager) ApplyMemory(absCgroupPath string, data *common.MemoryData) err
 
 	if data.WmarkRatio != 0 {
 		newRatio := fmt.Sprintf("%d", data.WmarkRatio)
-		if err, applied, oldData := common.WriteFileIfChange(absCgroupPath, "memory.wmark_ratio", newRatio); err != nil {
+		if err, applied, oldData := common.InstrumentedWriteFileIfChange(absCgroupPath, "memory.wmark_ratio", newRatio); err != nil {
 			return err
 		} else if applied {
 			klog.Infof("[CgroupV1] apply memory wmark successfully, cgroupPath: %s, data: %v, old data: %v\n", absCgroupPath, data.WmarkRatio, oldData)
@@ -84,7 +84,7 @@ func (m *manager) ApplyCPU(absCgroupPath string, data *common.CPUData) error {
 	lastErrors := []error{}
 	if data.Shares != 0 {
 		shares := data.Shares
-		if err, applied, oldData := common.WriteFileIfChange(absCgroupPath, "cpu.shares", strconv.FormatUint(shares, 10)); err != nil {
+		if err, applied, oldData := common.InstrumentedWriteFileIfChange(absCgroupPath, "cpu.shares", strconv.FormatUint(shares, 10)); err != nil {
 			lastErrors = append(lastErrors, err)
 		} else {
 			sharesRead, err := fscommon.GetCgroupParamUint(absCgroupPath, "cpu.shares")
@@ -104,7 +104,7 @@ func (m *manager) ApplyCPU(absCgroupPath string, data *common.CPUData) error {
 	}
 
 	if data.CpuPeriod != 0 {
-		if err, applied, oldData := common.WriteFileIfChange(absCgroupPath, "cpu.cfs_period_us", strconv.FormatUint(data.CpuPeriod, 10)); err != nil {
+		if err, applied, oldData := common.InstrumentedWriteFileIfChange(absCgroupPath, "cpu.cfs_period_us", strconv.FormatUint(data.CpuPeriod, 10)); err != nil {
 			lastErrors = append(lastErrors, err)
 		} else if applied {
 			klog.Infof("[CgroupV1] apply cpu cfs_period successfully, cgroupPath: %s, data: %v, old data: %v\n", absCgroupPath, data.CpuPeriod, oldData)
@@ -112,7 +112,7 @@ func (m *manager) ApplyCPU(absCgroupPath string, data *common.CPUData) error {
 	}
 
 	if data.CpuQuota != 0 {
-		if err, applied, oldData := common.WriteFileIfChange(absCgroupPath, "cpu.cfs_quota_us", strconv.FormatInt(data.CpuQuota, 10)); err != nil {
+		if err, applied, oldData := common.InstrumentedWriteFileIfChange(absCgroupPath, "cpu.cfs_quota_us", strconv.FormatInt(data.CpuQuota, 10)); err != nil {
 			lastErrors = append(lastErrors, err)
 		} else if applied {
 			klog.Infof("[CgroupV1] apply cpu cfs_quota successfully, cgroupPath: %s, data: %v, old data: %v\n", absCgroupPath, data.CpuQuota, oldData)
@@ -127,7 +127,7 @@ func (m *manager) ApplyCPU(absCgroupPath string, data *common.CPUData) error {
 			cpuIdleValue = 0
 		}
 
-		if err, applied, oldData := common.WriteFileIfChange(absCgroupPath, "cpu.idle", strconv.FormatInt(cpuIdleValue, 10)); err != nil {
+		if err, applied, oldData := common.InstrumentedWriteFileIfChange(absCgroupPath, "cpu.idle", strconv.FormatInt(cpuIdleValue, 10)); err != nil {
 			lastErrors = append(lastErrors, err)
 		} else if applied {
 			klog.Infof("[CgroupV1] apply cpu.idle successfully, cgroupPath: %s, data: %d, old data: %s\n", absCgroupPath, cpuIdleValue, oldData)
@@ -151,7 +151,7 @@ func (m *manager) ApplyCPU(absCgroupPath string, data *common.CPUData) error {
 
 func (m *manager) ApplyCPUSet(absCgroupPath string, data *common.CPUSetData) error {
 	if len(data.CPUs) != 0 {
-		if err, applied, oldData := common.WriteFileIfChange(absCgroupPath, "cpuset.cpus", data.CPUs); err != nil {
+		if err, applied, oldData := common.InstrumentedWriteFileIfChange(absCgroupPath, "cpuset.cpus", data.CPUs); err != nil {
 			return err
 		} else if applied {
 			klog.Infof("[CgroupV1] apply cpuset cpus successfully, cgroupPath: %s, data: %v, old data: %v\n",
@@ -160,7 +160,7 @@ func (m *manager) ApplyCPUSet(absCgroupPath string, data *common.CPUSetData) err
 	}
 
 	if len(data.Migrate) != 0 {
-		if err, applied, oldData := common.WriteFileIfChange(absCgroupPath, "cpuset.memory_migrate", "1"); err != nil {
+		if err, applied, oldData := common.InstrumentedWriteFileIfChange(absCgroupPath, "cpuset.memory_migrate", "1"); err != nil {
 			klog.Infof("[CgroupV1] apply cpuset memory migrate failed, cgroupPath: %s, data: %v, old data %v\n",
 				absCgroupPath, data.Migrate, oldData)
 		} else if applied {
@@ -170,7 +170,7 @@ func (m *manager) ApplyCPUSet(absCgroupPath string, data *common.CPUSetData) err
 	}
 
 	if len(data.Mems) != 0 {
-		if err, applied, oldData := common.WriteFileIfChange(absCgroupPath, "cpuset.mems", data.Mems); err != nil {
+		if err, applied, oldData := common.InstrumentedWriteFileIfChange(absCgroupPath, "cpuset.mems", data.Mems); err != nil {
 			return err
 		} else if applied {
 			klog.Infof("[CgroupV1] apply cpuset mems successfully, cgroupPath: %s, data: %v, old data: %v\n",
@@ -184,7 +184,7 @@ func (m *manager) ApplyCPUSet(absCgroupPath string, data *common.CPUSetData) err
 func (m *manager) ApplyNetCls(absCgroupPath string, data *common.NetClsData) error {
 	if data.ClassID != 0 {
 		classID := fmt.Sprintf("%d", data.ClassID)
-		if err, applied, oldData := common.WriteFileIfChange(absCgroupPath, "net_cls.classid", classID); err != nil {
+		if err, applied, oldData := common.InstrumentedWriteFileIfChange(absCgroupPath, "net_cls.classid", classID); err != nil {
 			return err
 		} else if applied {
 			klog.Infof("[CgroupV1] apply net cls successfully, cgroupPath: %s, data: %v, old data: %v\n", absCgroupPath, data.ClassID, oldData)
@@ -207,7 +207,7 @@ func (m *manager) ApplyIOWeight(absCgroupPath string, devID string, weight uint6
 }
 
 func (m *manager) ApplyUnifiedData(absCgroupPath, cgroupFileName, data string) error {
-	if err, applied, oldData := common.WriteFileIfChange(absCgroupPath, cgroupFileName, data); err != nil {
+	if err, applied, oldData := common.InstrumentedWriteFileIfChange(absCgroupPath, cgroupFileName, data); err != nil {
 		return err
 	} else if applied {
 		klog.Infof("[CgroupV2] apply unified data successfully,"+

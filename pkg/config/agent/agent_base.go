@@ -50,6 +50,7 @@ type GenericAgentConfiguration struct {
 	*global.BaseConfiguration
 	*global.PluginManagerConfiguration
 	*global.QRMAdvisorConfiguration
+	*global.AuditConfiguration
 
 	*metaserver.MetaServerConfiguration
 	*eviction.GenericEvictionConfiguration
@@ -70,6 +71,7 @@ func NewGenericAgentConfiguration() *GenericAgentConfiguration {
 	return &GenericAgentConfiguration{
 		BaseConfiguration:              global.NewBaseConfiguration(),
 		PluginManagerConfiguration:     global.NewPluginManagerConfiguration(),
+		AuditConfiguration:             global.NewAuditConfiguration(),
 		MetaServerConfiguration:        metaserver.NewMetaServerConfiguration(),
 		QRMAdvisorConfiguration:        global.NewQRMAdvisorConfiguration(),
 		GenericEvictionConfiguration:   eviction.NewGenericEvictionConfiguration(),

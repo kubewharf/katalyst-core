@@ -28,8 +28,12 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/opencontainers/runc/libcontainer/cgroups"
+
+	"github.com/kubewharf/katalyst-core/pkg/consts"
+	"github.com/kubewharf/katalyst-core/pkg/util/eventbus"
 )
 
 // CheckCgroup2UnifiedMode return whether it is in cgroupv2 env
@@ -122,9 +126,31 @@ func ParseCgroupNumaValue(cgroupPath, cgroupFile string) (map[string]map[int]uin
 	return result, nil
 }
 
-// WriteFileIfChange writes data to the cgroup joined by dir and
+// InstrumentedWriteFileIfChange wraps WriteFileIfChange with audit logic
+func InstrumentedWriteFileIfChange(dir, file, data string) (err error, applied bool, oldData string) {
+	startTime := time.Now()
+	defer func() {
+		if applied {
+			_ = eventbus.GetDefaultEventBus().Publish(consts.TopicNameApplyCGroup, eventbus.RawCGroupEvent{
+				BaseEventImpl: eventbus.BaseEventImpl{
+					Time: startTime,
+				},
+				Cost:       time.Now().Sub(startTime),
+				CGroupPath: dir,
+				CGroupFile: file,
+				Data:       data,
+				OldData:    oldData,
+			})
+		}
+	}()
+
+	err, applied, oldData = writeFileIfChange(dir, file, data)
+	return
+}
+
+// writeFileIfChange writes data to the cgroup joined by dir and
 // file if new data is not equal to the old data and return the old data.
-func WriteFileIfChange(dir, file, data string) (error, bool, string) {
+func writeFileIfChange(dir, file, data string) (error, bool, string) {
 	oldData, err := cgroups.ReadFile(dir, file)
 	if err != nil {
 		return err, false, ""
