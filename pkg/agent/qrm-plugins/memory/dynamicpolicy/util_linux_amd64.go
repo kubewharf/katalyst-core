@@ -33,10 +33,12 @@ import (
 	utilerrors "k8s.io/apimachinery/pkg/util/errors"
 	"k8s.io/kubernetes/pkg/kubelet/cm/topologymanager/bitmask"
 
+	"github.com/kubewharf/katalyst-core/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/asyncworker"
 	"github.com/kubewharf/katalyst-core/pkg/util/cgroup/common"
 	cgroupmgr "github.com/kubewharf/katalyst-core/pkg/util/cgroup/manager"
+	"github.com/kubewharf/katalyst-core/pkg/util/eventbus"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
@@ -104,6 +106,8 @@ func MigratePagesForContainer(ctx context.Context, podUID, containerId string,
 		return fmt.Errorf("convert destNUMAs: %s to mask failed with error: %v", destNUMAs.String(), err)
 	}
 
+	startTime := time.Now()
+	logs := make([]eventbus.SyscallLog, 0)
 	var errList []error
 containerLoop:
 	for _, containerPidStr := range containerPids {
@@ -113,6 +117,7 @@ containerLoop:
 				podUID, containerId, containerPidStr))
 		}
 
+		start := time.Now()
 		_, _, errNo := unix.Syscall6(unix.SYS_MIGRATE_PAGES,
 			uintptr(containerPid),
 			uintptr(numasCount+1),
@@ -122,13 +127,33 @@ containerLoop:
 			errList = append(errList, fmt.Errorf("pod: %s, container: %s, pid: %d, migrates pages from %s to %s failed with error: %v",
 				podUID, containerId, containerPid, sourceNUMAs.String(), destNUMAs.String(), errNo.Error()))
 		}
-
+		logs = append(logs, eventbus.SyscallLog{
+			Time: start,
+			KeyValue: map[string]string{
+				"pid":        containerPidStr,
+				"sourceNuma": sourceNUMAs.String(),
+				"destNuma":   destNUMAs.String(),
+				"cost":       fmt.Sprintf("%dms", time.Since(start).Milliseconds()),
+				"errNo":      fmt.Sprintf("%v", errNo),
+			},
+		})
 		select {
 		case <-ctx.Done():
 			break containerLoop
 		default:
 		}
 	}
+
+	_ = eventbus.GetDefaultEventBus().Publish(consts.TopicNameSyscall, eventbus.SyscallEvent{
+		BaseEventImpl: eventbus.BaseEventImpl{
+			Time: startTime,
+		},
+		Cost:        time.Now().Sub(startTime),
+		Syscall:     "SYS_MIGRATE_PAGES",
+		PodUID:      podUID,
+		ContainerID: containerId,
+		Logs:        logs,
+	})
 
 	err = utilerrors.NewAggregate(errList)
 	_ = asyncworker.EmitAsyncedMetrics(ctx, metrics.ConvertMapToTags(map[string]string{
@@ -160,6 +185,8 @@ func MovePagesForContainer(ctx context.Context, podUID, containerId string,
 		return fmt.Errorf("GetPidsWithAbsolutePath: %s failed with error: %v", memoryAbsCGPath, err)
 	}
 
+	startTime := time.Now()
+	logs := make([]eventbus.SyscallLog, 0)
 	var errList []error
 containerLoop:
 	for _, containerPidStr := range containerPids {
@@ -177,7 +204,7 @@ containerLoop:
 		}
 
 		start := time.Now()
-		if err := MovePagesForProcess(ctx, ProcDir, pid, sourceNUMAs.ToSliceInt(), destNUMAs.ToSliceInt()); err != nil {
+		if err = MovePagesForProcess(ctx, ProcDir, pid, sourceNUMAs.ToSliceInt(), destNUMAs.ToSliceInt()); err != nil {
 			errList = append(errList, fmt.Errorf("Move pages for pod: %s, container: %s, pid: %d failed: %v ",
 				podUID, containerId, pid, err))
 			continue
@@ -186,7 +213,28 @@ containerLoop:
 		timeCost := time.Since(start).Milliseconds()
 		general.Infof("MovePagesForProcess, cgroup: %s, pid: %d, source numas: %+v, dest numas: %+v, timecost: %dms",
 			memoryAbsCGPath, pid, sourceNUMAs, destNUMAs, timeCost)
+		logs = append(logs, eventbus.SyscallLog{
+			Time: start,
+			KeyValue: map[string]string{
+				"pid":        containerPidStr,
+				"sourceNuma": sourceNUMAs.String(),
+				"destNuma":   destNUMAs.String(),
+				"cost":       fmt.Sprintf("%dms", timeCost),
+				"err":        fmt.Sprintf("%v", err),
+			},
+		})
 	}
+
+	_ = eventbus.GetDefaultEventBus().Publish(consts.TopicNameSyscall, eventbus.SyscallEvent{
+		BaseEventImpl: eventbus.BaseEventImpl{
+			Time: startTime,
+		},
+		Cost:        time.Now().Sub(startTime),
+		Syscall:     "SYS_MOVE_PAGES",
+		PodUID:      podUID,
+		ContainerID: containerId,
+		Logs:        logs,
+	})
 
 	err = utilerrors.NewAggregate(errList)
 	_ = asyncworker.EmitAsyncedMetrics(ctx, metrics.ConvertMapToTags(map[string]string{

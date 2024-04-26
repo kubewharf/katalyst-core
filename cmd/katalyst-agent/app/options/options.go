@@ -41,6 +41,7 @@ type Options struct {
 	// those are options used by all the katalyst agents
 	*global.BaseOptions
 	*global.PluginManagerOptions
+	*global.AuditOptions
 	*metaserver.MetaServerOptions
 	*global.QRMAdvisorOptions
 
@@ -68,6 +69,7 @@ func NewOptions() *Options {
 		BaseOptions:          global.NewBaseOptions(),
 		MetaServerOptions:    metaserver.NewMetaServerOptions(),
 		PluginManagerOptions: global.NewPluginManagerOptions(),
+		AuditOptions:         global.NewAuditOptions(),
 		QRMAdvisorOptions:    global.NewQRMAdvisorOptions(),
 
 		genericEvictionOptions:   eviction.NewGenericEvictionOptions(),
@@ -88,6 +90,7 @@ func (o *Options) AddFlags(fss *cliflag.NamedFlagSets) {
 	o.DynamicOptions.AddFlags(fss)
 	o.MetaServerOptions.AddFlags(fss)
 	o.PluginManagerOptions.AddFlags(fss)
+	o.AuditOptions.AddFlags(fss)
 	o.BaseOptions.AddFlags(fss)
 	o.QRMAdvisorOptions.AddFlags(fss)
 	o.genericEvictionOptions.AddFlags(fss)
@@ -109,6 +112,7 @@ func (o *Options) ApplyTo(c *config.Configuration) error {
 	errList = append(errList, o.DynamicOptions.ApplyTo(c.GetDynamicConfiguration()))
 	errList = append(errList, o.BaseOptions.ApplyTo(c.BaseConfiguration))
 	errList = append(errList, o.PluginManagerOptions.ApplyTo(c.PluginManagerConfiguration))
+	errList = append(errList, o.AuditOptions.ApplyTo(c.AuditConfiguration))
 	errList = append(errList, o.MetaServerOptions.ApplyTo(c.MetaServerConfiguration))
 	errList = append(errList, o.QRMAdvisorOptions.ApplyTo(c.QRMAdvisorConfiguration))
 	errList = append(errList, o.genericEvictionOptions.ApplyTo(c.GenericEvictionConfiguration))

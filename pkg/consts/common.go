@@ -86,3 +86,9 @@ var (
 	EXP5  = 1.0 / math.Exp(5.0/300.0)
 	EXP15 = 1.0 / math.Exp(5.0/900.0)
 )
+
+// event bus topics
+const (
+	TopicNameApplyCGroup = "ApplyCGroup"
+	TopicNameSyscall     = "Syscall"
+)

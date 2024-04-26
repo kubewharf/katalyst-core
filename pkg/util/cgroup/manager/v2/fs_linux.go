@@ -49,7 +49,7 @@ func NewManager() *manager {
 
 func (m *manager) ApplyMemory(absCgroupPath string, data *common.MemoryData) error {
 	if data.LimitInBytes != 0 {
-		if err, applied, oldData := common.WriteFileIfChange(absCgroupPath, "memory.max", numToStr(data.LimitInBytes)); err != nil {
+		if err, applied, oldData := common.InstrumentedWriteFileIfChange(absCgroupPath, "memory.max", numToStr(data.LimitInBytes)); err != nil {
 			return err
 		} else if applied {
 			klog.Infof("[CgroupV2] apply memory max successfully, cgroupPath: %s, data: %v, old data: %v\n", absCgroupPath, data.LimitInBytes, oldData)
@@ -57,7 +57,7 @@ func (m *manager) ApplyMemory(absCgroupPath string, data *common.MemoryData) err
 	}
 
 	if data.SoftLimitInBytes > 0 {
-		if err, applied, oldData := common.WriteFileIfChange(absCgroupPath, "memory.low", numToStr(data.SoftLimitInBytes)); err != nil {
+		if err, applied, oldData := common.InstrumentedWriteFileIfChange(absCgroupPath, "memory.low", numToStr(data.SoftLimitInBytes)); err != nil {
 			return err
 		} else if applied {
 			klog.Infof("[CgroupV2] apply memory low successfully, cgroupPath: %s, data: %v, old data: %v\n", absCgroupPath, data.SoftLimitInBytes, oldData)
@@ -65,7 +65,7 @@ func (m *manager) ApplyMemory(absCgroupPath string, data *common.MemoryData) err
 	}
 
 	if data.MinInBytes > 0 {
-		if err, applied, oldData := common.WriteFileIfChange(absCgroupPath, "memory.min", numToStr(data.MinInBytes)); err != nil {
+		if err, applied, oldData := common.InstrumentedWriteFileIfChange(absCgroupPath, "memory.min", numToStr(data.MinInBytes)); err != nil {
 			return err
 		} else if applied {
 			klog.Infof("[CgroupV2] apply memory min successfully, cgroupPath: %s, data: %v, old data: %v\n", absCgroupPath, data.MinInBytes, oldData)
@@ -74,7 +74,7 @@ func (m *manager) ApplyMemory(absCgroupPath string, data *common.MemoryData) err
 
 	if data.WmarkRatio != 0 {
 		newRatio := fmt.Sprintf("%d", data.WmarkRatio)
-		if err, applied, oldData := common.WriteFileIfChange(absCgroupPath, "memory.wmark_ratio", newRatio); err != nil {
+		if err, applied, oldData := common.InstrumentedWriteFileIfChange(absCgroupPath, "memory.wmark_ratio", newRatio); err != nil {
 			return err
 		} else if applied {
 			klog.Infof("[CgroupV2] apply memory wmark successfully, cgroupPath: %s, data: %v, old data: %v\n", absCgroupPath, data.WmarkRatio, oldData)
@@ -87,7 +87,7 @@ func (m *manager) ApplyMemory(absCgroupPath string, data *common.MemoryData) err
 		if data.SwapMaxInBytes > 0 {
 			swapMax = data.SwapMaxInBytes
 		}
-		if err, applied, oldData := common.WriteFileIfChange(absCgroupPath, "memory.swap.max", fmt.Sprintf("%d", swapMax)); err != nil {
+		if err, applied, oldData := common.InstrumentedWriteFileIfChange(absCgroupPath, "memory.swap.max", fmt.Sprintf("%d", swapMax)); err != nil {
 			return err
 		} else if applied {
 			klog.Infof("[CgroupV2] apply memory swap max successfully, cgroupPath: %s, data: %v, old data: %v\n", absCgroupPath, swapMax, oldData)
@@ -100,7 +100,7 @@ func (m *manager) ApplyCPU(absCgroupPath string, data *common.CPUData) error {
 	lastErrors := []error{}
 	cpuWeight := libcgroups.ConvertCPUSharesToCgroupV2Value(data.Shares)
 	if cpuWeight != 0 {
-		if err, applied, oldData := common.WriteFileIfChange(absCgroupPath, "cpu.weight", strconv.FormatUint(cpuWeight, 10)); err != nil {
+		if err, applied, oldData := common.InstrumentedWriteFileIfChange(absCgroupPath, "cpu.weight", strconv.FormatUint(cpuWeight, 10)); err != nil {
 			lastErrors = append(lastErrors, err)
 		} else if applied {
 			klog.Infof("[CgroupV2] apply cpu weight successfully, cgroupPath: %s, data: %v, old data: %v\n", absCgroupPath, cpuWeight, oldData)
@@ -119,7 +119,7 @@ func (m *manager) ApplyCPU(absCgroupPath string, data *common.CPUData) error {
 
 		// refer to https://www.kernel.org/doc/html/latest/admin-guide/cgroup-v2.html
 		str += " " + strconv.FormatUint(period, 10)
-		if err, applied, oldData := common.WriteFileIfChange(absCgroupPath, "cpu.max", str); err != nil {
+		if err, applied, oldData := common.InstrumentedWriteFileIfChange(absCgroupPath, "cpu.max", str); err != nil {
 			lastErrors = append(lastErrors, err)
 		} else if applied {
 			klog.Infof("[CgroupV2] apply cpu max successfully, cgroupPath: %s, data: %v, old data: %v\n", absCgroupPath, str, oldData)
@@ -134,7 +134,7 @@ func (m *manager) ApplyCPU(absCgroupPath string, data *common.CPUData) error {
 			cpuIdleValue = 0
 		}
 
-		if err, applied, oldData := common.WriteFileIfChange(absCgroupPath, "cpu.idle", strconv.FormatInt(cpuIdleValue, 10)); err != nil {
+		if err, applied, oldData := common.InstrumentedWriteFileIfChange(absCgroupPath, "cpu.idle", strconv.FormatInt(cpuIdleValue, 10)); err != nil {
 			lastErrors = append(lastErrors, err)
 		} else if applied {
 			klog.Infof("[CgroupV2] apply cpu.idle successfully, cgroupPath: %s, data: %d, old data: %s\n", absCgroupPath, cpuIdleValue, oldData)
@@ -158,7 +158,7 @@ func (m *manager) ApplyCPU(absCgroupPath string, data *common.CPUData) error {
 
 func (m *manager) ApplyCPUSet(absCgroupPath string, data *common.CPUSetData) error {
 	if len(data.CPUs) != 0 {
-		if err, applied, oldData := common.WriteFileIfChange(absCgroupPath, "cpuset.cpus", data.CPUs); err != nil {
+		if err, applied, oldData := common.InstrumentedWriteFileIfChange(absCgroupPath, "cpuset.cpus", data.CPUs); err != nil {
 			return err
 		} else if applied {
 			klog.Infof("[CgroupV2] apply cpuset cpus successfully, cgroupPath: %s, data: %v, old data: %v\n", absCgroupPath, data.CPUs, oldData)
@@ -166,7 +166,7 @@ func (m *manager) ApplyCPUSet(absCgroupPath string, data *common.CPUSetData) err
 	}
 
 	if len(data.Migrate) != 0 {
-		if err, applied, oldData := common.WriteFileIfChange(absCgroupPath, "cpuset.memory_migrate", "1"); err != nil {
+		if err, applied, oldData := common.InstrumentedWriteFileIfChange(absCgroupPath, "cpuset.memory_migrate", "1"); err != nil {
 			klog.Infof("[CgroupV2] apply cpuset memory migrate failed, cgroupPath: %s, data: %v, old data %v\n", absCgroupPath, data.Migrate, oldData)
 		} else if applied {
 			klog.Infof("[CgroupV2] apply cpuset memory migrate successfully, cgroupPath: %s, data: %v, old data %v\n", absCgroupPath, data.Migrate, oldData)
@@ -174,7 +174,7 @@ func (m *manager) ApplyCPUSet(absCgroupPath string, data *common.CPUSetData) err
 	}
 
 	if len(data.Mems) != 0 {
-		if err, applied, oldData := common.WriteFileIfChange(absCgroupPath, "cpuset.mems", data.Mems); err != nil {
+		if err, applied, oldData := common.InstrumentedWriteFileIfChange(absCgroupPath, "cpuset.mems", data.Mems); err != nil {
 			return err
 		} else if applied {
 			klog.Infof("[CgroupV2] apply cpuset mems successfully, cgroupPath: %s, data: %v, old data: %v\n", absCgroupPath, data.Mems, oldData)
@@ -194,7 +194,7 @@ func (m *manager) ApplyIOCostQoS(absCgroupPath string, devID string, data *commo
 	}
 
 	dataContent := data.String()
-	if err, applied, oldData := common.WriteFileIfChange(absCgroupPath, "io.cost.qos", fmt.Sprintf("%s %s", devID, dataContent)); err != nil {
+	if err, applied, oldData := common.InstrumentedWriteFileIfChange(absCgroupPath, "io.cost.qos", fmt.Sprintf("%s %s", devID, dataContent)); err != nil {
 		return err
 	} else if applied {
 		klog.Infof("[CgroupV2] apply io.cost.qos data successfully,"+
@@ -214,7 +214,7 @@ func (m *manager) ApplyIOCostModel(absCgroupPath string, devID string, data *com
 		dataContent = "ctrl=auto"
 	}
 
-	if err, applied, oldData := common.WriteFileIfChange(absCgroupPath, "io.cost.model", fmt.Sprintf("%s %s", devID, dataContent)); err != nil {
+	if err, applied, oldData := common.InstrumentedWriteFileIfChange(absCgroupPath, "io.cost.model", fmt.Sprintf("%s %s", devID, dataContent)); err != nil {
 		return err
 	} else if applied {
 		klog.Infof("[CgroupV2] apply io.cost.model data successfully,"+
@@ -238,7 +238,7 @@ func (m *manager) ApplyIOWeight(absCgroupPath string, devID string, weight uint6
 		return nil
 	}
 
-	if err, applied, oldData := common.WriteFileIfChange(absCgroupPath, "io.weight", dataContent); err != nil {
+	if err, applied, oldData := common.InstrumentedWriteFileIfChange(absCgroupPath, "io.weight", dataContent); err != nil {
 		return err
 	} else if applied {
 		klog.Infof("[CgroupV2] apply io.weight for device: %s successfully,"+
@@ -249,7 +249,7 @@ func (m *manager) ApplyIOWeight(absCgroupPath string, devID string, weight uint6
 }
 
 func (m *manager) ApplyUnifiedData(absCgroupPath, cgroupFileName, data string) error {
-	if err, applied, oldData := common.WriteFileIfChange(absCgroupPath, cgroupFileName, data); err != nil {
+	if err, applied, oldData := common.InstrumentedWriteFileIfChange(absCgroupPath, cgroupFileName, data); err != nil {
 		return err
 	} else if applied {
 		klog.Infof("[CgroupV2] apply unified data successfully,"+
