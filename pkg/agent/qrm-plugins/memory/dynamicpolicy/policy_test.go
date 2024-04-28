@@ -147,6 +147,8 @@ func getTestDynamicPolicyWithInitialization(topology *machine.CPUTopology, machi
 		consts.PodAnnotationQoSLevelReclaimedCores: policyImplement.reclaimedCoresHintHandler,
 	}
 
+	policyImplement.asyncWorkers = asyncworker.NewAsyncWorkers(memoryPluginAsyncWorkersName, policyImplement.emitter)
+
 	return policyImplement, nil
 }
 
@@ -2129,7 +2131,7 @@ func TestHandleAdvisorResp(t *testing.T) {
 		}
 
 		memoryadvisor.RegisterControlKnobHandler(memoryadvisor.ControlKnobKeyMemoryLimitInBytes,
-			memoryadvisor.ControlKnobHandlerWithChecker(handleAdvisorMemoryLimitInBytes))
+			memoryadvisor.ControlKnobHandlerWithChecker(dynamicPolicy.handleAdvisorMemoryLimitInBytes))
 		memoryadvisor.RegisterControlKnobHandler(memoryadvisor.ControlKnobKeyCPUSetMems,
 			memoryadvisor.ControlKnobHandlerWithChecker(handleAdvisorCPUSetMems))
 		memoryadvisor.RegisterControlKnobHandler(memoryadvisor.ControlKnobKeyDropCache,

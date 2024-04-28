@@ -90,7 +90,7 @@ func testManager(t *testing.T, version string) {
 	_, _ = GetTasksWithAbsolutePath("/")
 
 	_ = DropCacheWithTimeoutForContainer(context.Background(), "fake-pod", "fake-container", 1, 0)
-	_ = DropCacheWithTimeoutWithRelativePath(1, "/test", 0)
+	_ = DropCacheWithTimeoutAndAbsCGPath(1, "/test", 0)
 }
 
 func testNetCls(t *testing.T, version string) {
