@@ -319,6 +319,10 @@ func GetCgroupAsyncWorkName(cgroup, topic string) string {
 	return strings.Join([]string{cgroup, topic}, asyncworker.WorkNameSeperator)
 }
 
+func GetAsyncWorkNameByPrefix(prefix, topic string) string {
+	return strings.Join([]string{prefix, topic}, asyncworker.WorkNameSeperator)
+}
+
 func GetKubeletReservedQuantity(resourceName string, klConfig *kubeletconfigv1beta1.KubeletConfiguration) (resource.Quantity, bool, error) {
 	if klConfig == nil {
 		return resource.MustParse("0"), false, fmt.Errorf("nil klConfig")

@@ -259,12 +259,12 @@ func GetCPUSetForContainer(podUID, containerId string) (*common.CPUSetStats, err
 }
 
 func DropCacheWithTimeoutForContainer(ctx context.Context, podUID, containerId string, timeoutSecs int, nbytes int64) error {
-	cpusetAbsCGPath, err := common.GetContainerAbsCgroupPath(common.CgroupSubsysMemory, podUID, containerId)
+	memoryAbsCGPath, err := common.GetContainerAbsCgroupPath(common.CgroupSubsysMemory, podUID, containerId)
 	if err != nil {
 		return fmt.Errorf("GetContainerAbsCgroupPath failed with error: %v", err)
 	}
 
-	err = DropCacheWithTimeoutWithRelativePath(timeoutSecs, cpusetAbsCGPath, nbytes)
+	err = DropCacheWithTimeoutAndAbsCGPath(timeoutSecs, memoryAbsCGPath, nbytes)
 	_ = asyncworker.EmitAsyncedMetrics(ctx, metrics.ConvertMapToTags(map[string]string{
 		"podUID":      podUID,
 		"containerID": containerId,
@@ -273,13 +273,13 @@ func DropCacheWithTimeoutForContainer(ctx context.Context, podUID, containerId s
 	return err
 }
 
-func DropCacheWithTimeoutWithRelativePath(timeoutSecs int, absCgroupPath string, nbytes int64) error {
+func DropCacheWithTimeoutAndAbsCGPath(timeoutSecs int, absCgroupPath string, nbytes int64) error {
 	startTime := time.Now()
 
 	var cmd string
 	if common.CheckCgroup2UnifiedMode() {
 		if nbytes == 0 {
-			general.Infof("[DropCacheWithTimeoutWithRelativePath] skip drop cache on %s since nbytes is zero", absCgroupPath)
+			general.Infof("[DropCacheWithTimeoutAndAbsCGPath] skip drop cache on %s since nbytes is zero", absCgroupPath)
 			return nil
 		}
 		//cgv2
@@ -292,7 +292,54 @@ func DropCacheWithTimeoutWithRelativePath(timeoutSecs int, absCgroupPath string,
 	_, err := exec.Command("bash", "-c", cmd).Output()
 
 	delta := time.Since(startTime).Seconds()
-	general.Infof("[DropCacheWithTimeoutWithRelativePath] it takes %v to do \"%s\" on cgroup: %s", delta, cmd, absCgroupPath)
+	general.Infof("[DropCacheWithTimeoutAndAbsCGPath] it takes %v to do \"%s\" on cgroup: %s", delta, cmd, absCgroupPath)
+
+	// if this command timeout, a none-nil error will be returned,
+	// but we should return error iff error returns without timeout
+	if err != nil && int(delta) < timeoutSecs {
+		return err
+	}
+
+	return nil
+}
+
+func SetExtraCGMemLimitWithTimeoutAndRelCGPath(ctx context.Context, relCgroupPath string, timeoutSecs int, nbytes int64) error {
+	memoryAbsCGPath := common.GetAbsCgroupPath(common.CgroupSubsysMemory, relCgroupPath)
+
+	err := SetExtraCGMemLimitWithTimeoutAndAbsCGPath(timeoutSecs, memoryAbsCGPath, nbytes)
+	_ = asyncworker.EmitAsyncedMetrics(ctx, metrics.ConvertMapToTags(map[string]string{
+		"relCgroupPath": relCgroupPath,
+		"succeeded":     fmt.Sprintf("%v", err == nil),
+	})...)
+	return err
+}
+
+func SetExtraCGMemLimitWithTimeoutAndAbsCGPath(timeoutSecs int, absCgroupPath string, nbytes int64) error {
+	if nbytes == 0 {
+		return fmt.Errorf("invalid memory limit nbytes: %d", nbytes)
+	}
+
+	startTime := time.Now()
+
+	var interfacePath string
+	if common.CheckCgroup2UnifiedMode() {
+		if nbytes == 0 {
+			general.Infof("[SetExtraCGMemLimitWithTimeoutAndAbsCGPath] skip drop cache on %s since nbytes is zero", absCgroupPath)
+			return nil
+		}
+		//cgv2
+		interfacePath = filepath.Join(absCgroupPath, "memory.max")
+	} else {
+		//cgv1
+		interfacePath = filepath.Join(absCgroupPath, "memory.limit_in_bytes")
+	}
+
+	cmd := fmt.Sprintf("timeout %d echo %d > %s", timeoutSecs, nbytes, interfacePath)
+
+	_, err := exec.Command("bash", "-c", cmd).Output()
+
+	delta := time.Since(startTime).Seconds()
+	general.Infof("[SetExtraCGMemLimitWithTimeoutAndAbsCGPath] it takes %v to do \"%s\" on cgroup: %s", delta, cmd, absCgroupPath)
 
 	// if this command timeout, a none-nil error will be returned,
 	// but we should return error iff error returns without timeout

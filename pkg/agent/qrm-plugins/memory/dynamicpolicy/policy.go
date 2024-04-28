@@ -58,13 +58,15 @@ import (
 const (
 	MemoryResourcePluginPolicyNameDynamic = string(apiconsts.ResourcePluginPolicyNameDynamic)
 
-	memoryPluginStateFileName                  = "memory_plugin_state"
-	memoryPluginAsyncWorkersName               = "qrm_memory_plugin_async_workers"
-	memoryPluginAsyncWorkTopicDropCache        = "qrm_memory_plugin_drop_cache"
-	memoryPluginAsyncWorkTopicMovePage         = "qrm_memory_plugin_move_page"
-	memoryPluginAsyncWorkTopicMemoryOffloading = "qrm_memory_plugin_mem_offload"
+	memoryPluginStateFileName                    = "memory_plugin_state"
+	memoryPluginAsyncWorkersName                 = "qrm_memory_plugin_async_workers"
+	memoryPluginAsyncWorkTopicDropCache          = "qrm_memory_plugin_drop_cache"
+	memoryPluginAsyncWorkTopicSetExtraCGMemLimit = "qrm_memory_plugin_set_extra_mem_limit"
+	memoryPluginAsyncWorkTopicMovePage           = "qrm_memory_plugin_move_page"
+	memoryPluginAsyncWorkTopicMemoryOffloading   = "qrm_memory_plugin_mem_offload"
 
-	dropCacheTimeoutSeconds = 30
+	dropCacheTimeoutSeconds          = 30
+	setExtraCGMemLimitTimeoutSeconds = 60
 )
 
 const (
@@ -230,7 +232,7 @@ func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration
 	}
 
 	memoryadvisor.RegisterControlKnobHandler(memoryadvisor.ControlKnobKeyMemoryLimitInBytes,
-		memoryadvisor.ControlKnobHandlerWithChecker(handleAdvisorMemoryLimitInBytes))
+		memoryadvisor.ControlKnobHandlerWithChecker(policyImplement.handleAdvisorMemoryLimitInBytes))
 	memoryadvisor.RegisterControlKnobHandler(memoryadvisor.ControlKnobKeyCPUSetMems,
 		memoryadvisor.ControlKnobHandlerWithChecker(handleAdvisorCPUSetMems))
 	memoryadvisor.RegisterControlKnobHandler(memoryadvisor.ControlKnobKeyDropCache,

@@ -231,7 +231,7 @@ func (p *DynamicPolicy) handleAdvisorResp(advisorResp *advisorsvc.ListAndWatchRe
 	return nil
 }
 
-func handleAdvisorMemoryLimitInBytes(
+func (p *DynamicPolicy) handleAdvisorMemoryLimitInBytes(
 	_ *config.Configuration,
 	_ interface{},
 	_ *dynamicconfig.DynamicAgentConfiguration,
@@ -247,13 +247,16 @@ func handleAdvisorMemoryLimitInBytes(
 	}
 
 	if calculationInfo.CgroupPath != "" {
-		err = cgroupmgr.ApplyMemoryWithRelativePath(calculationInfo.CgroupPath, &cgroupcommon.MemoryData{
-			LimitInBytes: calculatedLimitInBytesInt64,
-		})
+		setExtraCGMemLimitWorkName := util.GetAsyncWorkNameByPrefix(calculationInfo.CgroupPath, memoryPluginAsyncWorkTopicSetExtraCGMemLimit)
+		err = p.asyncWorkers.AddWork(setExtraCGMemLimitWorkName,
+			&asyncworker.Work{
+				Fn:          cgroupmgr.SetExtraCGMemLimitWithTimeoutAndRelCGPath,
+				Params:      []interface{}{calculationInfo.CgroupPath, setExtraCGMemLimitTimeoutSeconds, calculatedLimitInBytesInt64},
+				DeliveredAt: time.Now()}, asyncworker.DuplicateWorkPolicyDiscard)
+
 		if err != nil {
-			return fmt.Errorf("apply %s: %d to cgroup: %s failed with error: %v",
-				memoryadvisor.ControlKnobKeyMemoryLimitInBytes, calculatedLimitInBytesInt64,
-				calculationInfo.CgroupPath, err)
+			return fmt.Errorf("add work: %s pod: %s container: %s failed with error: %v",
+				setExtraCGMemLimitWorkName, entryName, subEntryName, err)
 		}
 
 		_ = emitter.StoreInt64(util.MetricNameMemoryHandleAdvisorMemoryLimit, calculatedLimitInBytesInt64,
