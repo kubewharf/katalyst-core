@@ -26,11 +26,17 @@ const (
 	MetricProvisionerMalachite = "malachite"
 	MetricProvisionerCgroup    = "cgroup"
 	MetricProvisionerKubelet   = "kubelet"
+	MetricProvisionerRodan     = "rodan"
 )
 
 type MetricConfiguration struct {
 	MetricInsurancePeriod time.Duration
 	MetricProvisions      []string
+	*RodanMetricConfiguration
+}
+
+type RodanMetricConfiguration struct {
+	RodanServerPort int
 }
 
 type PodConfiguration struct {
@@ -64,10 +70,12 @@ type AgentConfiguration struct {
 
 func NewAgentConfiguration() *AgentConfiguration {
 	return &AgentConfiguration{
-		MetricConfiguration: &MetricConfiguration{},
-		PodConfiguration:    &PodConfiguration{},
-		NodeConfiguration:   &NodeConfiguration{},
-		CNRConfiguration:    &CNRConfiguration{},
-		CNCConfiguration:    &CNCConfiguration{},
+		MetricConfiguration: &MetricConfiguration{
+			RodanMetricConfiguration: &RodanMetricConfiguration{},
+		},
+		PodConfiguration:  &PodConfiguration{},
+		NodeConfiguration: &NodeConfiguration{},
+		CNRConfiguration:  &CNRConfiguration{},
+		CNCConfiguration:  &CNCConfiguration{},
 	}
 }

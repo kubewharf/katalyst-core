@@ -233,7 +233,7 @@ func NewMetricsFetcher(baseConf *global.BaseConfiguration, metricConf *metaserve
 	var enabledProvisioners []types.MetricsProvisioner
 	for _, name := range metricConf.MetricProvisions {
 		if f, ok := registeredProvisioners[name]; ok {
-			enabledProvisioners = append(enabledProvisioners, f(baseConf, emitter, podFetcher, metricStore))
+			enabledProvisioners = append(enabledProvisioners, f(baseConf, metricConf, emitter, podFetcher, metricStore))
 		}
 	}
 
