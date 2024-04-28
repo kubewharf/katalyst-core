@@ -34,6 +34,7 @@ import (
 	apisconfig "github.com/kubewharf/katalyst-api/pkg/apis/scheduling/config"
 	"github.com/kubewharf/katalyst-api/pkg/apis/scheduling/config/validation"
 	"github.com/kubewharf/katalyst-api/pkg/consts"
+	"github.com/kubewharf/katalyst-core/pkg/scheduler/eventhandlers"
 	"github.com/kubewharf/katalyst-core/pkg/scheduler/util"
 	"github.com/kubewharf/katalyst-core/pkg/util/native"
 )
@@ -102,6 +103,9 @@ func New(args runtime.Object, h framework.Handle) (framework.Plugin, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	eventhandlers.RegisterCommonPodHandler()
+	eventhandlers.RegisterCommonCNRHandler()
 
 	return &TopologyMatch{
 		scoreStrategyType:   tcfg.ScoringStrategy.Type,

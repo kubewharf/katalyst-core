@@ -149,6 +149,54 @@ func TestMutateNode(t *testing.T) {
 			},
 		},
 	}
+	node6 := &v1.Node{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "node6",
+			Namespace: "default",
+			Annotations: map[string]string{
+				apiconsts.NodeAnnotationCPUOvercommitRatioKey:            "2",
+				apiconsts.NodeAnnotationMemoryOvercommitRatioKey:         "1.2",
+				apiconsts.NodeAnnotationRealtimeCPUOvercommitRatioKey:    "1",
+				apiconsts.NodeAnnotationRealtimeMemoryOvercommitRatioKey: "1",
+			},
+		},
+		Status: v1.NodeStatus{
+			Capacity: v1.ResourceList{
+				v1.ResourceCPU:    *resource.NewQuantity(48, resource.DecimalSI),
+				v1.ResourceMemory: resource.MustParse("192Gi"),
+			},
+			Allocatable: v1.ResourceList{
+				v1.ResourceCPU:    *resource.NewQuantity(44, resource.DecimalSI),
+				v1.ResourceMemory: resource.MustParse("186Gi"),
+			},
+		},
+	}
+	node7 := &v1.Node{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "node6",
+			Namespace: "default",
+			Annotations: map[string]string{
+				apiconsts.NodeAnnotationCPUOvercommitRatioKey:            "2",
+				apiconsts.NodeAnnotationMemoryOvercommitRatioKey:         "1.2",
+				apiconsts.NodeAnnotationRealtimeCPUOvercommitRatioKey:    "2",
+				apiconsts.NodeAnnotationRealtimeMemoryOvercommitRatioKey: "2",
+				apiconsts.NodeAnnotationOvercommitAllocatableCPUKey:      "80",
+				apiconsts.NodeAnnotationOvercommitCapacityCPUKey:         "80",
+				apiconsts.NodeAnnotationOvercommitAllocatableMemoryKey:   "372Gi",
+				apiconsts.NodeAnnotationOvercommitCapacityMemoryKey:      "384Gi",
+			},
+		},
+		Status: v1.NodeStatus{
+			Capacity: v1.ResourceList{
+				v1.ResourceCPU:    *resource.NewQuantity(48, resource.DecimalSI),
+				v1.ResourceMemory: resource.MustParse("192Gi"),
+			},
+			Allocatable: v1.ResourceList{
+				v1.ResourceCPU:    *resource.NewQuantity(44, resource.DecimalSI),
+				v1.ResourceMemory: resource.MustParse("186Gi"),
+			},
+		},
+	}
 
 	cases := []struct {
 		name     string
@@ -294,6 +342,50 @@ func TestMutateNode(t *testing.T) {
 				`{"op":"add","path":"/metadata/annotations/katalyst.kubewharf.io~1original_allocatable_memory","value":"186Gi"}`,
 				`{"op":"add","path":"/metadata/annotations/katalyst.kubewharf.io~1original_capacity_cpu","value":"48"}`,
 				`{"op":"add","path":"/metadata/annotations/katalyst.kubewharf.io~1original_capacity_memory","value":"192Gi"}`,
+			},
+			allow: true,
+		},
+		{
+			name: "node with lower recommend",
+			review: &admissionv1beta1.AdmissionReview{
+				Request: &admissionv1beta1.AdmissionRequest{
+					UID: "case7",
+					Object: runtime.RawExtension{
+						Raw: nodeToJson(node6),
+					},
+					Operation:   admissionv1beta1.Update,
+					SubResource: "status",
+				},
+			},
+			expPatch: []string{
+				`{"op":"add","path":"/metadata/annotations/katalyst.kubewharf.io~1original_allocatable_cpu","value":"44"}`,
+				`{"op":"add","path":"/metadata/annotations/katalyst.kubewharf.io~1original_allocatable_memory","value":"186Gi"}`,
+				`{"op":"add","path":"/metadata/annotations/katalyst.kubewharf.io~1original_capacity_cpu","value":"48"}`,
+				`{"op":"add","path":"/metadata/annotations/katalyst.kubewharf.io~1original_capacity_memory","value":"192Gi"}`,
+			},
+			allow: true,
+		},
+		{
+			name: "node with allocatable",
+			review: &admissionv1beta1.AdmissionReview{
+				Request: &admissionv1beta1.AdmissionRequest{
+					UID: "case8",
+					Object: runtime.RawExtension{
+						Raw: nodeToJson(node7),
+					},
+					Operation:   admissionv1beta1.Update,
+					SubResource: "status",
+				},
+			},
+			expPatch: []string{
+				`{"op":"add","path":"/metadata/annotations/katalyst.kubewharf.io~1original_allocatable_cpu","value":"44"}`,
+				`{"op":"add","path":"/metadata/annotations/katalyst.kubewharf.io~1original_allocatable_memory","value":"186Gi"}`,
+				`{"op":"add","path":"/metadata/annotations/katalyst.kubewharf.io~1original_capacity_cpu","value":"48"}`,
+				`{"op":"add","path":"/metadata/annotations/katalyst.kubewharf.io~1original_capacity_memory","value":"192Gi"}`,
+				`{"op":"replace","path":"/status/allocatable/cpu","value":"80"}`,
+				`{"op":"replace","path":"/status/capacity/cpu","value":"80"}`,
+				`{"op":"replace","path":"/status/allocatable/memory","value":"372Gi"}`,
+				`{"op":"replace","path":"/status/capacity/memory","value":"384Gi"}`,
 			},
 			allow: true,
 		},

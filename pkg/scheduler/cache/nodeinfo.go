@@ -175,6 +175,7 @@ func (n *NodeInfo) RemovePod(key string, pod *v1.Pod) {
 
 	n.QoSResourcesNonZeroRequested.ReclaimedMilliCPU -= podInfo.QoSResourcesNonZeroRequested.ReclaimedMilliCPU
 	n.QoSResourcesNonZeroRequested.ReclaimedMemory -= podInfo.QoSResourcesNonZeroRequested.ReclaimedMemory
+	delete(n.Pods, key)
 }
 
 func (n *NodeInfo) AddAssumedPod(pod *v1.Pod) {
