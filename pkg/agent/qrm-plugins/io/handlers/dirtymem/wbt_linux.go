@@ -68,8 +68,14 @@ func SetWBTLimit(conf *coreconfig.Configuration,
 				continue
 			}
 			wbtValue = conf.WBTValueSSD
+		} else if diskType == coreconsts.DiskTypeNVME {
+			// -1 means skip it.
+			if conf.WBTValueNVME == -1 {
+				continue
+			}
+			wbtValue = conf.WBTValueNVME
 		} else {
-			continue // currently, only SSD/HDD were supported.
+			continue // currently, only SSD/HDD/NVME were supported.
 		}
 
 		oldWBTValue, err := helper.GetDeviceMetric(metaServer.MetricsFetcher, emitter, coreconsts.MetricIODiskWBTValue, entry.Name())
