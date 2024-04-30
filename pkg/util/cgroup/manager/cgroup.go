@@ -19,6 +19,8 @@ package manager
 import (
 	"context"
 	"fmt"
+	"io/fs"
+	"math"
 	"os/exec"
 	"path/filepath"
 	"time"
@@ -299,4 +301,124 @@ func DropCacheWithTimeoutWithRelativePath(timeoutSecs int, absCgroupPath string,
 	}
 
 	return nil
+}
+
+func SetSwapMaxWithAbsolutePathToParentCgroupRecursive(absCgroupPath string) error {
+	if !common.CheckCgroup2UnifiedMode() {
+		general.Infof("[SetSwapMaxWithAbsolutePathToParentCgroupRecursive] is not supported on cgroupv1")
+		return nil
+	}
+	general.Infof("[SetSwapMaxWithAbsolutePathToParentCgroupRecursive] on cgroup: %s", absCgroupPath)
+	swapMaxData := &common.MemoryData{SwapMaxInBytes: math.MaxInt64}
+	err := GetManager().ApplyMemory(absCgroupPath, swapMaxData)
+	if err != nil {
+		return err
+	}
+
+	parentDir := filepath.Dir(absCgroupPath)
+	if parentDir != absCgroupPath && parentDir != common.GetCgroupRootPath(common.CgroupSubsysMemory) {
+		err = SetSwapMaxWithAbsolutePathToParentCgroupRecursive(parentDir)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+func SetSwapMaxWithAbsolutePathRecursive(absCgroupPath string) error {
+	if !common.CheckCgroup2UnifiedMode() {
+		general.Infof("[SetSwapMaxWithAbsolutePathRecursive] is not supported on cgroupv1")
+		return nil
+	}
+
+	general.Infof("[SetSwapMaxWithAbsolutePathRecursive] on cgroup: %s", absCgroupPath)
+
+	// set swap max to parent cgroups recursively
+	if err := SetSwapMaxWithAbsolutePathToParentCgroupRecursive(filepath.Dir(absCgroupPath)); err != nil {
+		return err
+	}
+
+	// set swap max to sub cgroups recursively
+	err := filepath.Walk(absCgroupPath, func(path string, info fs.FileInfo, err error) error {
+		if err != nil {
+			general.Infof("prevent panic by handling failure accessing a path: %s, err: %v", path, err)
+			return err
+		}
+		if info.IsDir() {
+			memStats, err := GetMemoryWithAbsolutePath(path)
+			if err != nil {
+				return filepath.SkipDir
+			}
+			var diff int64 = math.MaxInt64
+			if memStats.Limit-memStats.Usage < uint64(diff) {
+				diff = int64(memStats.Limit - memStats.Usage)
+			}
+			swapMaxData := &common.MemoryData{SwapMaxInBytes: diff}
+			err = GetManager().ApplyMemory(path, swapMaxData)
+			if err != nil {
+				return filepath.SkipDir
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		general.Infof("error walking the path: %s, err: %v", absCgroupPath, err)
+		return err
+	}
+	return nil
+}
+
+func DisableSwapMaxWithAbsolutePathRecursive(absCgroupPath string) error {
+	if !common.CheckCgroup2UnifiedMode() {
+		general.Infof("[DisableSwapMaxWithAbsolutePathRecursive] is not supported on cgroupv1")
+		return nil
+	}
+	general.Infof("[DisableSwapMaxWithAbsolutePathRecursive] on cgroup: %s", absCgroupPath)
+	// disable swap to sub cgroups recursively
+	err := filepath.Walk(absCgroupPath, func(path string, info fs.FileInfo, err error) error {
+		if err != nil {
+			general.Infof("prevent panic by handling failure accessing a path: %s, err: %v", path, err)
+			return err
+		}
+		if info.IsDir() {
+			swapMaxData := &common.MemoryData{SwapMaxInBytes: -1}
+			err = GetManager().ApplyMemory(path, swapMaxData)
+			if err != nil {
+				return filepath.SkipDir
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		general.Infof("error walking the path: %s, err: %v ", absCgroupPath, err)
+		return err
+	}
+	return nil
+}
+func MemoryOffloadingWithAbsolutePath(ctx context.Context, absCgroupPath string, nbytes int64) error {
+	startTime := time.Now()
+
+	var cmd string
+	if common.CheckCgroup2UnifiedMode() {
+		if nbytes <= 0 {
+			general.Infof("[MemoryOffloadingWithAbsolutePath] skip memory reclaim on %s since nbytes is not valid", absCgroupPath)
+			return nil
+		}
+		//cgv2
+		cmd = fmt.Sprintf("echo %d > %s", nbytes, filepath.Join(absCgroupPath, "memory.reclaim"))
+	} else {
+		//cgv1
+		general.Infof("[MemoryOffloadingWithAbsolutePath] is not supported on cgroupv1")
+		return nil
+	}
+
+	_, err := exec.Command("bash", "-c", cmd).Output()
+
+	_ = asyncworker.EmitAsyncedMetrics(ctx, metrics.ConvertMapToTags(map[string]string{
+		"absCGPath": absCgroupPath,
+		"succeeded": fmt.Sprintf("%v", err == nil),
+	})...)
+	delta := time.Since(startTime).Seconds()
+	general.Infof("[MemoryOffloadingWithAbsolutePath] it takes %v to do \"%s\" on cgroup: %s", delta, cmd, absCgroupPath)
+
+	return err
 }

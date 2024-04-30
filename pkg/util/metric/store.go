@@ -160,7 +160,7 @@ func (c *MetricStore) GetNodeMetric(metricName string) (MetricData, error) {
 	if data, ok := c.nodeMetricMap[metricName]; ok {
 		return data, nil
 	} else {
-		return MetricData{}, errors.New("[MetricStore] load value failed")
+		return MetricData{}, errors.New(fmt.Sprintf("[MetricStore] load value failed, metric=%v", metricName))
 	}
 }
 
@@ -171,10 +171,10 @@ func (c *MetricStore) GetNumaMetric(numaID int, metricName string) (MetricData, 
 		if data, ok := c.numaMetricMap[numaID][metricName]; ok {
 			return data, nil
 		} else {
-			return MetricData{}, errors.New("[MetricStore] load value failed")
+			return MetricData{}, errors.New(fmt.Sprintf("[MetricStore] load value failed, metric=%v, numaID=%v", metricName, numaID))
 		}
 	}
-	return MetricData{}, errors.New("[MetricStore] empty map")
+	return MetricData{}, errors.New(fmt.Sprintf("[MetricStore] empty map, metric=%v, numaID=%v", metricName, numaID))
 }
 
 func (c *MetricStore) GetDeviceMetric(deviceName string, metricName string) (MetricData, error) {
@@ -184,10 +184,10 @@ func (c *MetricStore) GetDeviceMetric(deviceName string, metricName string) (Met
 		if data, ok := c.deviceMetricMap[deviceName][metricName]; ok {
 			return data, nil
 		} else {
-			return MetricData{}, errors.New("[MetricStore] load value failed")
+			return MetricData{}, errors.New(fmt.Sprintf("[MetricStore] load value failed, metric=%v, deviceName=%v", metricName, deviceName))
 		}
 	}
-	return MetricData{}, errors.New("[MetricStore] empty map")
+	return MetricData{}, errors.New(fmt.Sprintf("[MetricStore] empty map, metric=%v, deviceName=%v", metricName, deviceName))
 }
 
 func (c *MetricStore) GetNetworkMetric(networkName string, metricName string) (MetricData, error) {
@@ -197,10 +197,10 @@ func (c *MetricStore) GetNetworkMetric(networkName string, metricName string) (M
 		if data, ok := c.networkMetricMap[networkName][metricName]; ok {
 			return data, nil
 		} else {
-			return MetricData{}, errors.New("[MetricStore] load value failed")
+			return MetricData{}, errors.New(fmt.Sprintf("[MetricStore] load value failed, metric=%v, networkName=%v", metricName, networkName))
 		}
 	}
-	return MetricData{}, errors.New("[MetricStore] empty map")
+	return MetricData{}, errors.New(fmt.Sprintf("[MetricStore] empty map, metric=%v, networkName=%v", metricName, networkName))
 }
 
 func (c *MetricStore) GetCPUMetric(coreID int, metricName string) (MetricData, error) {
@@ -210,10 +210,10 @@ func (c *MetricStore) GetCPUMetric(coreID int, metricName string) (MetricData, e
 		if data, ok := c.cpuMetricMap[coreID][metricName]; ok {
 			return data, nil
 		} else {
-			return MetricData{}, errors.New("[MetricStore] load value failed")
+			return MetricData{}, errors.New(fmt.Sprintf("[MetricStore] load value failed, metric=%v, coreID=%v", metricName, coreID))
 		}
 	}
-	return MetricData{}, errors.New("[MetricStore] empty map")
+	return MetricData{}, errors.New(fmt.Sprintf("[MetricStore] empty map, metric=%v, coreID=%v", metricName, coreID))
 }
 
 func (c *MetricStore) GetContainerMetric(podUID, containerName, metricName string) (MetricData, error) {
@@ -224,11 +224,11 @@ func (c *MetricStore) GetContainerMetric(podUID, containerName, metricName strin
 			if data, ok := c.podContainerMetricMap[podUID][containerName][metricName]; ok {
 				return data, nil
 			} else {
-				return MetricData{}, errors.New("[MetricStore] load value failed")
+				return MetricData{}, errors.New(fmt.Sprintf("[MetricStore] load value failed, metric=%v, podUID=%v, containerName=%v", metricName, podUID, containerName))
 			}
 		}
 	}
-	return MetricData{}, errors.New("[MetricStore] empty map")
+	return MetricData{}, errors.New(fmt.Sprintf("[MetricStore] empty map, metric=%v, podUID=%v, containerName=%v", metricName, podUID, containerName))
 }
 
 func (c *MetricStore) GetContainerNumaMetric(podUID, containerName, numaNode, metricName string) (MetricData, error) {
@@ -240,12 +240,12 @@ func (c *MetricStore) GetContainerNumaMetric(podUID, containerName, numaNode, me
 				if data, ok := c.podContainerNumaMetricMap[podUID][containerName][numaNode][metricName]; ok {
 					return data, nil
 				} else {
-					return MetricData{}, errors.New("[MetricStore] load value failed")
+					return MetricData{}, errors.New(fmt.Sprintf("[MetricStore] load value failed, metric=%v, podUID=%v, containerName=%v, numaNode=%v", metricName, podUID, containerName, numaNode))
 				}
 			}
 		}
 	}
-	return MetricData{}, errors.New("[MetricStore] empty map")
+	return MetricData{}, errors.New(fmt.Sprintf("[MetricStore] empty map, metric=%v, podUID=%v, containerName=%v, numaNode=%v", metricName, podUID, containerName, numaNode))
 }
 
 func (c *MetricStore) GetPodVolumeMetric(podUID, volumeName, metricName string) (MetricData, error) {
@@ -257,11 +257,11 @@ func (c *MetricStore) GetPodVolumeMetric(podUID, volumeName, metricName string) 
 			if data, ok := c.podVolumeMetricMap[podUID][volumeName][metricName]; ok {
 				return data, nil
 			} else {
-				return MetricData{}, errors.New("[MetricStore] load value failed")
+				return MetricData{}, errors.New(fmt.Sprintf("[MetricStore] load value failed, metric=%v, podUID=%v, volumeName=%v", metricName, podUID, volumeName))
 			}
 		}
 	}
-	return MetricData{}, errors.New("[MetricStore] empty map")
+	return MetricData{}, errors.New(fmt.Sprintf("[MetricStore] empty map, metric=%v, podUID=%v, volumeName=%v", metricName, podUID, volumeName))
 }
 
 func (c *MetricStore) GCPodsMetric(livingPodUIDSet map[string]bool) {

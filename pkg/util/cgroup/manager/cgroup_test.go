@@ -21,8 +21,15 @@ package manager
 
 import (
 	"context"
+	"fmt"
+	"io/ioutil"
+	"math"
+	"os"
+	"path/filepath"
 	"testing"
 
+	"bou.ke/monkey"
+	"github.com/opencontainers/runc/libcontainer/cgroups"
 	"github.com/stretchr/testify/assert"
 
 	"github.com/kubewharf/katalyst-core/pkg/util/cgroup/common"
@@ -34,10 +41,12 @@ func TestManager(t *testing.T) {
 	t.Parallel()
 
 	_ = GetManager()
+
+	testV1Manager(t)
+	testV2Manager(t)
 }
 
-func TestV1Manager(t *testing.T) {
-	t.Parallel()
+func testV1Manager(t *testing.T) {
 
 	_ = v1.NewManager()
 
@@ -45,12 +54,12 @@ func TestV1Manager(t *testing.T) {
 	testNetCls(t, "v1")
 }
 
-func TestV2Manager(t *testing.T) {
-	t.Parallel()
+func testV2Manager(t *testing.T) {
 
 	_ = v2.NewManager()
 
 	testManager(t, "v2")
+	testSwapMax(t)
 }
 
 func testManager(t *testing.T, version string) {
@@ -93,4 +102,70 @@ func testNetCls(t *testing.T, version string) {
 
 	err = ApplyNetClsForContainer("fake-pod", "fake-container", &common.NetClsData{})
 	assert.Error(t, err)
+}
+
+func testSwapMax(t *testing.T) {
+	defer monkey.UnpatchAll()
+	monkey.Patch(common.CheckCgroup2UnifiedMode, func() bool { return true })
+	monkey.Patch(GetManager, func() Manager { return v2.NewManager() })
+	monkey.Patch(cgroups.ReadFile, func(dir, file string) (string, error) {
+		f := filepath.Join(dir, file)
+		tmp, err := ioutil.ReadFile(f)
+		if err != nil {
+			return "", err
+		}
+		return string(tmp), nil
+	})
+	monkey.Patch(cgroups.WriteFile, func(dir, file, data string) error {
+		f := filepath.Join(dir, file)
+		return ioutil.WriteFile(f, []byte(data), 0700)
+	})
+
+	rootDir := os.TempDir()
+	dir := filepath.Join(rootDir, "tmp")
+	err := os.Mkdir(dir, 0700)
+	assert.NoError(t, err)
+
+	tmpDir, err := ioutil.TempDir(dir, "fake-cgroup")
+	assert.NoError(t, err)
+	defer os.RemoveAll(dir)
+
+	monkey.Patch(common.GetCgroupRootPath, func(s string) string {
+		t.Logf("rootDir=%v", rootDir)
+		return rootDir
+	})
+
+	sawpFile := filepath.Join(tmpDir, "memory.swap.max")
+	err = ioutil.WriteFile(sawpFile, []byte{}, 0700)
+	assert.NoError(t, err)
+
+	sawpFile2 := filepath.Join(dir, "memory.swap.max")
+	err = ioutil.WriteFile(sawpFile2, []byte{}, 0700)
+	assert.NoError(t, err)
+
+	maxFile := filepath.Join(tmpDir, "memory.max")
+	err = ioutil.WriteFile(maxFile, []byte("12800"), 0700)
+	assert.NoError(t, err)
+
+	curFile := filepath.Join(tmpDir, "memory.current")
+	err = ioutil.WriteFile(curFile, []byte("12600"), 0700)
+	assert.NoError(t, err)
+
+	err = SetSwapMaxWithAbsolutePathRecursive(tmpDir)
+	assert.NoError(t, err)
+
+	s, err := ioutil.ReadFile(sawpFile)
+	assert.NoError(t, err)
+	assert.Equal(t, fmt.Sprintf("%v", 200), string(s))
+
+	s, err = ioutil.ReadFile(sawpFile2)
+	assert.NoError(t, err)
+	assert.Equal(t, fmt.Sprintf("%v", math.MaxInt64), string(s))
+
+	err = DisableSwapMaxWithAbsolutePathRecursive(tmpDir)
+	assert.NoError(t, err)
+
+	s, err = ioutil.ReadFile(sawpFile)
+	assert.NoError(t, err)
+	assert.Equal(t, fmt.Sprintf("%v", 0), string(s))
 }
