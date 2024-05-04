@@ -17,17 +17,16 @@ limitations under the License.
 package spd
 
 import (
-	"time"
-
-	apiequality "k8s.io/apimachinery/pkg/api/equality"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/client-go/util/retry"
 	"k8s.io/klog/v2"
+	"time"
 
 	apiworkload "github.com/kubewharf/katalyst-api/pkg/apis/workload/v1alpha1"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util"
+	apiequality "k8s.io/apimachinery/pkg/api/equality"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/util/retry"
 )
 
 const (
@@ -37,6 +36,8 @@ const (
 	metricsNameSyncIndicatorStatusCost   = "sync_indicator_status_cost"
 	metricsNameIndicatorSpecChanLength   = "indicator_spec_chan_length"
 	metricsNameIndicatorStatusChanLength = "indicator_status_chan_length"
+	metricsNameCreateSPDByWorkloadCost   = "create_spd_by_workload_cost"
+	metricsNameSPDCreatedAfterPod        = "spd_created_after_pod"
 )
 
 func (sc *SPDController) syncIndicatorSpec() {

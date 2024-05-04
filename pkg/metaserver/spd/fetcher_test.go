@@ -46,6 +46,7 @@ func generateTestConfiguration(t *testing.T, nodeName string, checkpoint string)
 
 	testConfiguration.NodeName = nodeName
 	testConfiguration.CheckpointManagerDir = checkpoint
+	testConfiguration.GetFromRemote = true
 	return testConfiguration
 }
 

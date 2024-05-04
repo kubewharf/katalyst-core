@@ -19,10 +19,18 @@ package util
 import (
 	"encoding/json"
 	"fmt"
+	"k8s.io/klog/v2"
 	"reflect"
 	"strings"
 	"time"
 
+	apiworkload "github.com/kubewharf/katalyst-api/pkg/apis/workload/v1alpha1"
+	"github.com/kubewharf/katalyst-api/pkg/client/clientset/versioned/scheme"
+	workloadlister "github.com/kubewharf/katalyst-api/pkg/client/listers/workload/v1alpha1"
+	apiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
+	"github.com/kubewharf/katalyst-core/pkg/consts"
+	"github.com/kubewharf/katalyst-core/pkg/util/general"
+	"github.com/kubewharf/katalyst-core/pkg/util/native"
 	"github.com/pkg/errors"
 	core "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -35,15 +43,6 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	corelisters "k8s.io/client-go/listers/core/v1"
 	"k8s.io/client-go/tools/cache"
-	"k8s.io/klog/v2"
-
-	apiworkload "github.com/kubewharf/katalyst-api/pkg/apis/workload/v1alpha1"
-	"github.com/kubewharf/katalyst-api/pkg/client/clientset/versioned/scheme"
-	workloadlister "github.com/kubewharf/katalyst-api/pkg/client/listers/workload/v1alpha1"
-	apiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
-	"github.com/kubewharf/katalyst-core/pkg/consts"
-	"github.com/kubewharf/katalyst-core/pkg/util/general"
-	"github.com/kubewharf/katalyst-core/pkg/util/native"
 )
 
 const (
@@ -313,6 +312,7 @@ func InsertSPDBusinessIndicatorStatus(status *apiworkload.ServiceProfileDescript
 	status.BusinessStatus = append(status.BusinessStatus, *serviceBusinessIndicatorStatus)
 }
 
+// InsertSPDAggMetrics inserts aggMetrics into spd status.
 func InsertSPDAggMetricsStatus(status *apiworkload.ServiceProfileDescriptorStatus,
 	serviceAggPodMetrics *apiworkload.AggPodMetrics,
 ) {
