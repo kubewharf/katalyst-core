@@ -21,6 +21,7 @@ import "time"
 type SPDConfiguration struct {
 	ServiceProfileSkipCorruptionError bool
 	ServiceProfileCacheTTL            time.Duration
+	GetFromRemote                     bool
 }
 
 func NewSPDConfiguration() *SPDConfiguration {

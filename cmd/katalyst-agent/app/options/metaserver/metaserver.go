@@ -41,6 +41,7 @@ const (
 const (
 	defaultServiceProfileSkipCorruptionError = true
 	defaultServiceProfileCacheTTL            = 1 * time.Minute
+	defaultGetFromRemote                     = false
 )
 
 const defaultMetricInsurancePeriod = 0 * time.Second
@@ -75,6 +76,7 @@ type MetaServerOptions struct {
 	// configurations for spd
 	ServiceProfileSkipCorruptionError bool
 	ServiceProfileCacheTTL            time.Duration
+	GetFromRemote                     bool
 
 	// configurations for metric-fetcher
 	MetricInsurancePeriod time.Duration
@@ -106,6 +108,7 @@ func NewMetaServerOptions() *MetaServerOptions {
 
 		ServiceProfileSkipCorruptionError: defaultServiceProfileSkipCorruptionError,
 		ServiceProfileCacheTTL:            defaultServiceProfileCacheTTL,
+		GetFromRemote:                     defaultGetFromRemote,
 
 		MetricInsurancePeriod: defaultMetricInsurancePeriod,
 		MetricProvisions:      []string{metaserver.MetricProvisionerMalachite, metaserver.MetricProvisionerKubelet},
@@ -145,6 +148,7 @@ func (o *MetaServerOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 		"Whether to skip corruption error when loading spd checkpoint")
 	fs.DurationVar(&o.ServiceProfileCacheTTL, "service-profile-cache-ttl", o.ServiceProfileCacheTTL,
 		"The ttl of service profile manager cache remote spd")
+	fs.BoolVar(&o.GetFromRemote, "get-from-remote", o.GetFromRemote, "get spd from remote if not in cache")
 
 	fs.DurationVar(&o.MetricInsurancePeriod, "metric-insurance-period", o.MetricInsurancePeriod,
 		"The meta server return metric data and MetricDataExpired if the update time of metric data is earlier than this period.")
@@ -180,6 +184,7 @@ func (o *MetaServerOptions) ApplyTo(c *metaserver.MetaServerConfiguration) error
 
 	c.ServiceProfileSkipCorruptionError = o.ServiceProfileSkipCorruptionError
 	c.ServiceProfileCacheTTL = o.ServiceProfileCacheTTL
+	c.GetFromRemote = o.GetFromRemote
 
 	c.MetricInsurancePeriod = o.MetricInsurancePeriod
 	c.MetricProvisions = o.MetricProvisions
