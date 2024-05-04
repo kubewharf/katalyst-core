@@ -22,6 +22,7 @@ import (
 	"sync"
 	"time"
 
+	"go.uber.org/atomic"
 	core "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -91,6 +92,7 @@ type SPDController struct {
 	syncedFunc        []cache.InformerSynced
 	spdQueue          workqueue.RateLimitingInterface
 	workloadSyncQueue workqueue.RateLimitingInterface
+	spdSyncDone       *atomic.Bool
 
 	metricsEmitter metrics.MetricEmitter
 
@@ -128,6 +130,7 @@ func NewSPDController(ctx context.Context, controlCtx *katalystbase.GenericConte
 		workloadGVKLister:   make(map[schema.GroupVersionKind]cache.GenericLister),
 		workloadLister:      make(map[schema.GroupVersionResource]cache.GenericLister),
 		spdWorkloadInformer: make(map[schema.GroupVersionResource]native.DynamicInformer),
+		spdSyncDone:         atomic.NewBool(false),
 	}
 
 	spdController.podLister = podInformer.Lister()
@@ -304,6 +307,20 @@ func (sc *SPDController) addWorkload(workloadGVR string) func(obj interface{}) {
 			klog.Errorf("[spd] cannot convert obj to metav1.Object")
 			return
 		}
+
+		if sc.spdSyncDone.Load() {
+			wl, err := native.ToUnstructured(obj)
+			if err != nil {
+				klog.Errorf("[spd] cannot convert obj %s to unstructured: %v", obj, err)
+			}
+
+			_, err = sc.getOrCreateSPDForWorkload(wl)
+			if err != nil {
+				klog.Errorf("[spd] get or create spd for workload %s/%s failed: %v", workloadGVR, workload, err)
+				return
+			}
+		}
+
 		sc.enqueueWorkload(workloadGVR, workload)
 	}
 }
@@ -459,6 +476,9 @@ func (sc *SPDController) processNextSPD() bool {
 	err := sc.syncSPD(key.(string))
 	if err == nil {
 		sc.spdQueue.Forget(key)
+		if sc.spdQueue.Len() == 0 {
+			sc.spdSyncDone.Store(true)
+		}
 		return true
 	}
 
@@ -605,7 +625,7 @@ func (sc *SPDController) getOrCreateSPDForWorkload(workload *unstructured.Unstru
 	spd, err := util.GetSPDForWorkload(workload, sc.spdIndexer, sc.spdLister)
 	if err != nil {
 		if errors.IsNotFound(err) {
-			spd := &apiworkload.ServiceProfileDescriptor{
+			spd = &apiworkload.ServiceProfileDescriptor{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:            workload.GetName(),
 					Namespace:       workload.GetNamespace(),
@@ -625,12 +645,40 @@ func (sc *SPDController) getOrCreateSPDForWorkload(workload *unstructured.Unstru
 				},
 			}
 
-			err := sc.updateSPDAnnotations(spd)
+			err = sc.updateSPDAnnotations(spd)
 			if err != nil {
 				return nil, err
 			}
 
-			return sc.spdControl.CreateSPD(sc.ctx, spd, metav1.CreateOptions{})
+			spd, err = sc.spdControl.CreateSPD(sc.ctx, spd, metav1.CreateOptions{})
+			if err != nil {
+				return nil, fmt.Errorf("[spd] failed to create spd: %v", err)
+			}
+
+			if sc.spdSyncDone.Load() {
+				for _, plugin := range sc.indicatorPlugins {
+					aggMetrics, err := plugin.GetAggMetrics(workload)
+					if err != nil {
+						klog.Errorf("[spd] cannot get aggMetrics for workload %s: %v", workload, err)
+						continue
+					}
+					for _, aggPodMetric := range aggMetrics {
+						spd.Status.AggMetrics = append(spd.Status.AggMetrics, aggPodMetric)
+					}
+				}
+
+				err = sc.updateHash(spd)
+				if err != nil {
+					return nil, err
+				}
+
+				spd, err = sc.spdControl.UpdateSPDStatus(sc.ctx, spd, metav1.UpdateOptions{})
+				if err != nil {
+					klog.Errorf("[spd] cannot update aggMetrics for workload %s: %v", workload, err)
+				}
+			}
+
+			return spd, nil
 		}
 
 		return nil, err

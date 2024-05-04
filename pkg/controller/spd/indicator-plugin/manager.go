@@ -19,6 +19,7 @@ package indicator_plugin
 import (
 	"sync"
 
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/klog/v2"
 
@@ -40,6 +41,7 @@ type IndicatorUpdater interface {
 	UpdateBusinessIndicatorSpec(_ types.NamespacedName, _ []apiworkload.ServiceBusinessIndicatorSpec)
 	UpdateSystemIndicatorSpec(_ types.NamespacedName, _ []apiworkload.ServiceSystemIndicatorSpec)
 	UpdateBusinessIndicatorStatus(_ types.NamespacedName, _ []apiworkload.ServiceBusinessIndicatorStatus)
+	UpdateAggMetrics(_ *unstructured.Unstructured)
 }
 
 // IndicatorGetter is used by spd controller as indicator notifier to trigger
@@ -189,6 +191,8 @@ func (u *IndicatorManager) GetIndicatorStatus(nn types.NamespacedName) *apiworkl
 	}
 	return status
 }
+
+func (u *IndicatorManager) UpdateAggMetrics(_ *unstructured.Unstructured) {}
 
 func initServiceProfileDescriptorSpec() *apiworkload.ServiceProfileDescriptorSpec {
 	return &apiworkload.ServiceProfileDescriptorSpec{
