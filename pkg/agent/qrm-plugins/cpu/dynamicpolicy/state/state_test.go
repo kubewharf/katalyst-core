@@ -2543,6 +2543,7 @@ func TestGetSocketTopology(t *testing.T) {
 	}
 }
 func TestAllocationInfo_GetSpecifiedNUMABindingPoolName(t *testing.T) {
+	t.Parallel()
 	testName := "test"
 
 	type fields struct {
@@ -2704,7 +2705,9 @@ func TestAllocationInfo_GetSpecifiedNUMABindingPoolName(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			ai := &AllocationInfo{
 				PodUid:                           tt.fields.PodUid,
 				PodNamespace:                     tt.fields.PodNamespace,
@@ -2739,6 +2742,7 @@ func TestAllocationInfo_GetSpecifiedNUMABindingPoolName(t *testing.T) {
 }
 
 func TestCheckNUMABindingSharedCoresAntiAffinity(t *testing.T) {
+	t.Parallel()
 	testName := "test"
 	type args struct {
 		ai          *AllocationInfo
@@ -2866,7 +2870,9 @@ func TestCheckNUMABindingSharedCoresAntiAffinity(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			if got := CheckNUMABindingSharedCoresAntiAffinity(tt.args.ai, tt.args.annotations); got != tt.want {
 				t.Errorf("CheckNUMABindingSharedCoresAntiAffinity() = %v, want %v", got, tt.want)
 			}
@@ -2875,6 +2881,7 @@ func TestCheckNUMABindingSharedCoresAntiAffinity(t *testing.T) {
 }
 
 func TestPodEntries_GetFilteredPoolsCPUSetMap(t *testing.T) {
+	t.Parallel()
 	testName := "test"
 	type args struct {
 		ignorePools sets.String
@@ -3088,7 +3095,9 @@ func TestPodEntries_GetFilteredPoolsCPUSetMap(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			got, err := tt.pe.GetFilteredPoolsCPUSetMap(tt.args.ignorePools)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("PodEntries.GetFilteredPoolsCPUSetMap() error = %v, wantErr %v", err, tt.wantErr)
