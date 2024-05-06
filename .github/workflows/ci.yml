@@ -103,7 +103,7 @@ jobs:
         if: ${{ (env.NEED_TO_CHECK == 'true') || (github.event_name != 'pull_request') }}
         uses: codecov/codecov-action@v4
         env:
-          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+          CODECOV_TOKEN: 411bcf91-fb5f-444e-ad16-8380573a8c81
         with:
           flags: unittest
           file: coverage.txt
