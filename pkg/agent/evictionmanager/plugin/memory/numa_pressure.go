@@ -47,6 +47,20 @@ const (
 // NewNumaMemoryPressureEvictionPlugin returns a new MemoryPressureEvictionPlugin
 func NewNumaMemoryPressureEvictionPlugin(_ *client.GenericClientSet, _ events.EventRecorder,
 	metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter, conf *config.Configuration) plugin.EvictionPlugin {
+	if conf.GetDynamicConfiguration().EnableEnhancedNumaLevelEviction {
+		return &EnhancedNumaMemoryPressurePlugin{
+			pluginName:               EvictionPluginNameEnhancedNumaMemoryPressure,
+			emitter:                  emitter,
+			StopControl:              process.NewStopControl(time.Time{}),
+			metaServer:               metaServer,
+			dynamicConfig:            conf.DynamicAgentConfiguration,
+			reclaimedPodFilter:       conf.CheckReclaimedQoSForPod,
+			numaActionMap:            make(map[int]int),
+			numaPressureStatMap:      make(map[int]float64),
+			numaKswapdStealLastCycle: make(map[int]float64),
+			evictionHelper:           NewEvictionHelper(emitter, metaServer, conf),
+		}
+	}
 	return &NumaMemoryPressurePlugin{
 		pluginName:                     EvictionPluginNameNumaMemoryPressure,
 		emitter:                        emitter,
