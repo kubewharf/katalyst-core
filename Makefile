@@ -58,6 +58,9 @@ SysAdvisorCPUPluginPath = $(MakeFilePath)/pkg/agent/qrm-plugins/cpu/dynamicpolic
 .PHONY: generate-sys-advisor-cpu-plugin ## Generate protocol for cpu resource plugin with sys-advisor
 generate-sys-advisor-cpu-plugin:
 	if [ ! -d $(GOPATH)/src/github.com/kubewharf/kubelet ]; then git clone https://github.com/kubewharf/kubelet.git $(GOPATH)/src/github.com/kubewharf/kubelet; fi
+	mkdir -p $(GOPATH)/src/github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/advisorsvc && \
+	if [ -f $(GOPATH)/github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/advisorsvc/advisor_svc.proto ]; then mv $(GOPATH)/github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/advisorsvc/advisor_svc.proto /tmp/advisor_svc.proto.bak; fi && \
+	cp -f $(MakeFilePath)/pkg/agent/qrm-plugins/advisorsvc/advisor_svc.proto $(GOPATH)/src/github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/advisorsvc/ && \
 	targetTag=`cat $(MakeFilePath)/go.mod | grep kubewharf/kubelet | awk '{print $$4}'` && \
         cd $(GOPATH)/src/github.com/kubewharf/kubelet && \
 		git fetch --tags && \
@@ -66,7 +69,8 @@ generate-sys-advisor-cpu-plugin:
 		cd - && \
 		protoc -I=$(SysAdvisorCPUPluginPath) -I=$(GOPATH)/src/ -I=$(GOPATH)/pkg/mod/ --gogo_out=plugins=grpc,paths=source_relative:$(SysAdvisorCPUPluginPath) $(SysAdvisorCPUPluginPath)cpu.proto && \
 		cd - && \
-		git checkout $$originalBranch
+		git checkout $$originalBranch && \
+		if [ -f /tmp/advisor_svc.proto.bak ]; then mv -f /tmp/advisor_svc.proto.bak $(GOPATH)/src/github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/advisorsvc/advisor_svc.proto; fi
 	cat $(MakeFilePath)/hack/boilerplate.go.txt "$(SysAdvisorCPUPluginPath)cpu.pb.go" > tmpfile && mv tmpfile "$(SysAdvisorCPUPluginPath)cpu.pb.go"
 	if [ `uname` == "Linux" ]; then sedi=(-i); else sedi=(-i ""); fi && \
 		sed "$${sedi[@]}" s,github.com/kubewharf/kubelet,k8s.io/kubelet,g $(SysAdvisorCPUPluginPath)cpu.pb.go
