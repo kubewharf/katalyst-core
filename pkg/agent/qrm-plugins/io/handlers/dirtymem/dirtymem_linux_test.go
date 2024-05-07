@@ -59,5 +59,4 @@ func TestSetDirtyMem(t *testing.T) {
 			},
 		},
 	}, nil, &dynamicconfig.DynamicAgentConfiguration{}, metrics.DummyMetrics{}, nil)
-
 }

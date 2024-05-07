@@ -39,7 +39,8 @@ type PolicyCanonical struct {
 
 func NewPolicyCanonical(regionName string, regionType types.QoSRegionType, ownerPoolName string,
 	_ *config.Configuration, _ interface{}, metaReader metacache.MetaReader,
-	metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter) ProvisionPolicy {
+	metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter,
+) ProvisionPolicy {
 	p := &PolicyCanonical{
 		PolicyBase: NewPolicyBase(regionName, regionType, ownerPoolName, metaReader, metaServer, emitter),
 	}

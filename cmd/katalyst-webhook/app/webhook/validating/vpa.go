@@ -32,7 +32,8 @@ const (
 
 func StartVPAWebhook(ctx context.Context, webhookCtx *katalyst.GenericContext,
 	genericConf *generic.GenericConfiguration, webhookGenericConf *webhookconfig.GenericWebhookConfiguration,
-	webhookConf *webhookconfig.WebhooksConfiguration, name string) (*webhookconsts.WebhookWrapper, error) {
+	webhookConf *webhookconfig.WebhooksConfiguration, name string,
+) (*webhookconsts.WebhookWrapper, error) {
 	v, run, err := vpa.NewWebhookVPA(ctx, webhookCtx, genericConf, webhookGenericConf, webhookConf, webhookCtx.EmitterPool.GetDefaultMetricsEmitter())
 	if err != nil {
 		return nil, err

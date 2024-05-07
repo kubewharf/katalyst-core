@@ -66,7 +66,8 @@ type AdvisorAgent struct {
 
 // NewAdvisorAgent initializes the sysadvisor agent logic.
 func NewAdvisorAgent(conf *config.Configuration, extraConf interface{}, metaServer *metaserver.MetaServer,
-	emitPool metricspool.MetricsEmitterPool) (*AdvisorAgent, error) {
+	emitPool metricspool.MetricsEmitterPool,
+) (*AdvisorAgent, error) {
 	agent := &AdvisorAgent{
 		config:     conf,
 		extraConf:  extraConf,

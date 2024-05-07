@@ -43,7 +43,6 @@ type PromDatasource interface {
 
 // NewPrometheus return a prometheus data source
 func NewPrometheus(config *PromConfig) (PromDatasource, error) {
-
 	client, err := NewPrometheusClient(config)
 	if err != nil {
 		return nil, err

@@ -63,9 +63,7 @@ const (
 	healthCheckTolerationDuration = 30 * time.Second
 )
 
-var (
-	errIsolationSafetyCheckFailed = fmt.Errorf("isolation safety check failed")
-)
+var errIsolationSafetyCheckFailed = fmt.Errorf("isolation safety check failed")
 
 func init() {
 	provisionpolicy.RegisterInitializer(types.CPUProvisionPolicyNone, provisionpolicy.NewPolicyNone)
@@ -117,8 +115,8 @@ type cpuResourceAdvisor struct {
 
 // NewCPUResourceAdvisor returns a cpuResourceAdvisor instance
 func NewCPUResourceAdvisor(conf *config.Configuration, extraConf interface{}, metaCache metacache.MetaCache,
-	metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter) *cpuResourceAdvisor {
-
+	metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter,
+) *cpuResourceAdvisor {
 	cra := &cpuResourceAdvisor{
 		conf:      conf,
 		extraConf: extraConf,

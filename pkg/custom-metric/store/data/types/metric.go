@@ -67,6 +67,7 @@ func (m *BasicMetric) GetLabels() map[string]string { return m.Labels }
 func (m *BasicMetric) DeepCopy() BasicMetric {
 	return BasicMetric{Labels: general.DeepCopyMap(m.Labels)}
 }
+
 func (m *BasicMetric) String() string {
 	return labels.Set(m.Labels).String()
 }

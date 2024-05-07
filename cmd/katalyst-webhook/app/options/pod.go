@@ -25,8 +25,7 @@ import (
 )
 
 // PodOptions holds the configurations for Pod webhook.
-type PodOptions struct {
-}
+type PodOptions struct{}
 
 // NewPodOptions creates a new Options with a default config.
 func NewPodOptions() *PodOptions {

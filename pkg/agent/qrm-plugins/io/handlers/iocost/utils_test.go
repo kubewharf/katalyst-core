@@ -44,7 +44,6 @@ func TestGetDevicesIdToModel(t *testing.T) {
 		wantErr bool
 	}{
 		{
-
 			name: "test getDevicesIdToModel with allDeviceNames",
 			args: args{
 				deviceNames: allDeviceNames,
@@ -52,7 +51,6 @@ func TestGetDevicesIdToModel(t *testing.T) {
 			wantErr: false,
 		},
 		{
-
 			name: "test getDevicesIdToModel with fake device names",
 			args: args{
 				deviceNames: []string{"fake"},
@@ -158,5 +156,4 @@ func TestGetDeviceType(t *testing.T) {
 			assert.Error(t, err)
 		}
 	}
-
 }

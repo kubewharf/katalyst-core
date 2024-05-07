@@ -352,7 +352,6 @@ func (tmoEngine *tmoEngineInstance) CalculateOffloadingTargetSize() {
 			tmoEngine.lastTime = currTime
 		}
 	}
-
 }
 
 func NewTransparentMemoryOffloading(conf *config.Configuration, extraConfig interface{}, metaReader metacache.MetaReader, metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter) MemoryAdvisorPlugin {
@@ -522,7 +521,8 @@ func (tmo *transparentMemoryOffloading) GetAdvices() types.InternalMemoryCalcula
 			ContainerName: tmoEngine.GetContainerInfo().ContainerName,
 			Values: map[string]string{
 				string(memoryadvisor.ControlKnobKeySwapMax):          enableSwap,
-				string(memoryadvisor.ControlKnowKeyMemoryOffloading): strconv.FormatInt(int64(tmoEngine.GetOffloadingTargetSize()), 10)},
+				string(memoryadvisor.ControlKnowKeyMemoryOffloading): strconv.FormatInt(int64(tmoEngine.GetOffloadingTargetSize()), 10),
+			},
 		}
 		result.ContainerEntries = append(result.ContainerEntries, entry)
 	}
@@ -544,7 +544,8 @@ func (tmo *transparentMemoryOffloading) GetAdvices() types.InternalMemoryCalcula
 			CgroupPath: relativePath,
 			Values: map[string]string{
 				string(memoryadvisor.ControlKnobKeySwapMax):          enableSwap,
-				string(memoryadvisor.ControlKnowKeyMemoryOffloading): strconv.FormatInt(int64(tmoEngine.GetOffloadingTargetSize()), 10)},
+				string(memoryadvisor.ControlKnowKeyMemoryOffloading): strconv.FormatInt(int64(tmoEngine.GetOffloadingTargetSize()), 10),
+			},
 		}
 		result.ExtraEntries = append(result.ExtraEntries, entry)
 	}

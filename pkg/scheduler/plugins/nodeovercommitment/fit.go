@@ -77,7 +77,7 @@ func (n *NodeOvercommitment) Filter(ctx context.Context, cycleState *framework.C
 		return nil
 	}
 
-	var nodeName = nodeInfo.Node().GetName()
+	nodeName := nodeInfo.Node().GetName()
 	nodeCache, err := cache.GetCache().GetNode(nodeName)
 	if err != nil {
 		err := fmt.Errorf("GetNodeInfo %s from cache fail: %v", nodeName, err)
@@ -137,9 +137,7 @@ func (n *NodeOvercommitment) nodeOvercommitRatio(nodeInfo *framework.NodeInfo) (
 		return
 	}
 
-	var (
-		annotation = nodeInfo.Node().GetAnnotations()
-	)
+	annotation := nodeInfo.Node().GetAnnotations()
 	CPUOvercommitRatio, err = overcommitutil.OvercommitRatioValidate(annotation, consts.NodeAnnotationCPUOvercommitRatioKey, consts.NodeAnnotationRealtimeCPUOvercommitRatioKey)
 	if err != nil {
 		klog.Error(err)

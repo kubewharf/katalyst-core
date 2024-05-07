@@ -51,8 +51,10 @@ const (
 	LoggingPKGFull
 )
 
-var defaultLoggingPackage = LoggingPKGFull
-var defaultLoggingMtx sync.RWMutex
+var (
+	defaultLoggingPackage = LoggingPKGFull
+	defaultLoggingMtx     sync.RWMutex
+)
 
 // SetDefaultLoggingPackage should only be called by flags,
 // and should not be alerted dynamically.

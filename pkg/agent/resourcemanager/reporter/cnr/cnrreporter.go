@@ -88,7 +88,8 @@ type cnrReporterImpl struct {
 
 // NewCNRReporter create a cnr reporter
 func NewCNRReporter(genericClient *client.GenericClientSet, metaServer *metaserver.MetaServer,
-	emitter metrics.MetricEmitter, conf *config.Configuration) (reporter.Reporter, error) {
+	emitter metrics.MetricEmitter, conf *config.Configuration,
+) (reporter.Reporter, error) {
 	c := &cnrReporterImpl{
 		cnrName:                conf.NodeName,
 		refreshLatestCNRPeriod: conf.RefreshLatestCNRPeriod,
@@ -267,7 +268,8 @@ func (c *cnrReporterImpl) tryUpdateCNR(ctx context.Context, fields []*v1alpha1.R
 }
 
 func (c *cnrReporterImpl) tryUpdateCNRSpecAndMetadata(ctx context.Context,
-	originCNR, currentCNR *nodev1alpha1.CustomNodeResource) (*nodev1alpha1.CustomNodeResource, error) {
+	originCNR, currentCNR *nodev1alpha1.CustomNodeResource,
+) (*nodev1alpha1.CustomNodeResource, error) {
 	var (
 		cnr *nodev1alpha1.CustomNodeResource
 		err error
@@ -317,7 +319,8 @@ func (c *cnrReporterImpl) tryUpdateCNRSpecAndMetadata(ctx context.Context,
 }
 
 func (c *cnrReporterImpl) tryUpdateCNRStatus(ctx context.Context,
-	originCNR, currentCNR *nodev1alpha1.CustomNodeResource) (*nodev1alpha1.CustomNodeResource, error) {
+	originCNR, currentCNR *nodev1alpha1.CustomNodeResource,
+) (*nodev1alpha1.CustomNodeResource, error) {
 	var (
 		cnr *nodev1alpha1.CustomNodeResource
 		err error
@@ -405,7 +408,8 @@ func (c *cnrReporterImpl) createCNR(ctx context.Context, fields []*v1alpha1.Repo
 }
 
 func setCNR(cnr *nodev1alpha1.CustomNodeResource, fields []*v1alpha1.ReportField,
-	mergeFunc func(src reflect.Value, dst reflect.Value) error) error {
+	mergeFunc func(src reflect.Value, dst reflect.Value) error,
+) error {
 	var errList []error
 	initializedFields := sets.String{}
 	for _, f := range fields {

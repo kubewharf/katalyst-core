@@ -145,7 +145,7 @@ func (p *customizedPluginManager) AddHandler(pluginType string, pluginHandler ca
 // it should create the plugin manager itself.
 func newPluginManager(conf *katalystconfig.Configuration) (pluginmanager.PluginManager, error) {
 	// make sure plugin registration directory already exist
-	err := os.MkdirAll(conf.PluginRegistrationDir, os.FileMode(0755))
+	err := os.MkdirAll(conf.PluginRegistrationDir, os.FileMode(0o755))
 	if err != nil {
 		return nil, fmt.Errorf("initializes plugin registration dir failed: %s", err)
 	}

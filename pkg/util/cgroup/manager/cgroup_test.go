@@ -47,7 +47,6 @@ func TestManager(t *testing.T) {
 }
 
 func testV1Manager(t *testing.T) {
-
 	_ = v1.NewManager()
 
 	testManager(t, "v1")
@@ -55,7 +54,6 @@ func testV1Manager(t *testing.T) {
 }
 
 func testV2Manager(t *testing.T) {
-
 	_ = v2.NewManager()
 
 	testManager(t, "v2")
@@ -118,12 +116,12 @@ func testSwapMax(t *testing.T) {
 	})
 	monkey.Patch(cgroups.WriteFile, func(dir, file, data string) error {
 		f := filepath.Join(dir, file)
-		return ioutil.WriteFile(f, []byte(data), 0700)
+		return ioutil.WriteFile(f, []byte(data), 0o700)
 	})
 
 	rootDir := os.TempDir()
 	dir := filepath.Join(rootDir, "tmp")
-	err := os.Mkdir(dir, 0700)
+	err := os.Mkdir(dir, 0o700)
 	assert.NoError(t, err)
 
 	tmpDir, err := ioutil.TempDir(dir, "fake-cgroup")
@@ -136,19 +134,19 @@ func testSwapMax(t *testing.T) {
 	})
 
 	sawpFile := filepath.Join(tmpDir, "memory.swap.max")
-	err = ioutil.WriteFile(sawpFile, []byte{}, 0700)
+	err = ioutil.WriteFile(sawpFile, []byte{}, 0o700)
 	assert.NoError(t, err)
 
 	sawpFile2 := filepath.Join(dir, "memory.swap.max")
-	err = ioutil.WriteFile(sawpFile2, []byte{}, 0700)
+	err = ioutil.WriteFile(sawpFile2, []byte{}, 0o700)
 	assert.NoError(t, err)
 
 	maxFile := filepath.Join(tmpDir, "memory.max")
-	err = ioutil.WriteFile(maxFile, []byte("12800"), 0700)
+	err = ioutil.WriteFile(maxFile, []byte("12800"), 0o700)
 	assert.NoError(t, err)
 
 	curFile := filepath.Join(tmpDir, "memory.current")
-	err = ioutil.WriteFile(curFile, []byte("12600"), 0700)
+	err = ioutil.WriteFile(curFile, []byte("12600"), 0o700)
 	assert.NoError(t, err)
 
 	err = SetSwapMaxWithAbsolutePathRecursive(tmpDir)

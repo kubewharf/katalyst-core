@@ -38,7 +38,8 @@ const (
 )
 
 func NewKubeletSummaryProvisioner(baseConf *global.BaseConfiguration, _ *metaserver.MetricConfiguration,
-	emitter metrics.MetricEmitter, _ pod.PodFetcher, metricStore *utilmetric.MetricStore) types.MetricsProvisioner {
+	emitter metrics.MetricEmitter, _ pod.PodFetcher, metricStore *utilmetric.MetricStore,
+) types.MetricsProvisioner {
 	return &KubeletSummaryProvisioner{
 		metricStore: metricStore,
 		emitter:     emitter,

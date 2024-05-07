@@ -238,8 +238,8 @@ func (p *DynamicPolicy) handleAdvisorMemoryLimitInBytes(
 	emitter metrics.MetricEmitter,
 	metaServer *metaserver.MetaServer,
 	entryName, subEntryName string,
-	calculationInfo *advisorsvc.CalculationInfo, podResourceEntries state.PodResourceEntries) error {
-
+	calculationInfo *advisorsvc.CalculationInfo, podResourceEntries state.PodResourceEntries,
+) error {
 	calculatedLimitInBytes := calculationInfo.CalculationResult.Values[string(memoryadvisor.ControlKnobKeyMemoryLimitInBytes)]
 	calculatedLimitInBytesInt64, err := strconv.ParseInt(calculatedLimitInBytes, 10, 64)
 	if err != nil {
@@ -252,8 +252,8 @@ func (p *DynamicPolicy) handleAdvisorMemoryLimitInBytes(
 			&asyncworker.Work{
 				Fn:          cgroupmgr.SetExtraCGMemLimitWithTimeoutAndRelCGPath,
 				Params:      []interface{}{calculationInfo.CgroupPath, setExtraCGMemLimitTimeoutSeconds, calculatedLimitInBytesInt64},
-				DeliveredAt: time.Now()}, asyncworker.DuplicateWorkPolicyDiscard)
-
+				DeliveredAt: time.Now(),
+			}, asyncworker.DuplicateWorkPolicyDiscard)
 		if err != nil {
 			return fmt.Errorf("add work: %s pod: %s container: %s failed with error: %v",
 				setExtraCGMemLimitWorkName, entryName, subEntryName, err)
@@ -295,10 +295,9 @@ func (p *DynamicPolicy) handleAdvisorDropCache(
 	emitter metrics.MetricEmitter,
 	metaServer *metaserver.MetaServer,
 	entryName, subEntryName string,
-	calculationInfo *advisorsvc.CalculationInfo, podResourceEntries state.PodResourceEntries) error {
-	var (
-		err error
-	)
+	calculationInfo *advisorsvc.CalculationInfo, podResourceEntries state.PodResourceEntries,
+) error {
+	var err error
 	defer func() {
 		_ = general.UpdateHealthzStateByError(memconsts.DropCache, err)
 	}()
@@ -330,8 +329,8 @@ func (p *DynamicPolicy) handleAdvisorDropCache(
 		&asyncworker.Work{
 			Fn:          cgroupmgr.DropCacheWithTimeoutForContainer,
 			Params:      []interface{}{entryName, containerID, dropCacheTimeoutSeconds, GetFullyDropCacheBytes(container)},
-			DeliveredAt: time.Now()}, asyncworker.DuplicateWorkPolicyOverride)
-
+			DeliveredAt: time.Now(),
+		}, asyncworker.DuplicateWorkPolicyOverride)
 	if err != nil {
 		return fmt.Errorf("add work: %s pod: %s container: %s failed with error: %v", dropCacheWorkName, entryName, subEntryName, err)
 	}
@@ -389,8 +388,8 @@ func handleAdvisorCPUSetMems(
 	emitter metrics.MetricEmitter,
 	metaServer *metaserver.MetaServer,
 	entryName, subEntryName string,
-	calculationInfo *advisorsvc.CalculationInfo, podResourceEntries state.PodResourceEntries) error {
-
+	calculationInfo *advisorsvc.CalculationInfo, podResourceEntries state.PodResourceEntries,
+) error {
 	cpusetMemsStr := calculationInfo.CalculationResult.Values[string(memoryadvisor.ControlKnobKeyCPUSetMems)]
 	cpusetMems, err := machine.Parse(cpusetMemsStr)
 	if err != nil {
@@ -520,12 +519,12 @@ func (p *DynamicPolicy) handleAdvisorMemoryProvisions(_ *config.Configuration,
 	emitter metrics.MetricEmitter,
 	metaServer *metaserver.MetaServer,
 	entryName, subEntryName string,
-	calculationInfo *advisorsvc.CalculationInfo, podResourceEntries state.PodResourceEntries) error {
+	calculationInfo *advisorsvc.CalculationInfo, podResourceEntries state.PodResourceEntries,
+) error {
 	// unmarshal calculationInfo
 	memoryProvisions := &machine.MemoryDetails{}
 	value := calculationInfo.CalculationResult.Values[string(memoryadvisor.ControlKnobReclaimedMemorySize)]
 	err := json.Unmarshal([]byte(value), memoryProvisions)
-
 	if err != nil {
 		return fmt.Errorf("unmarshal %s: %s failed with error: %v",
 			memoryadvisor.ControlKnobReclaimedMemorySize, value, err)
@@ -541,11 +540,11 @@ func (p *DynamicPolicy) handleNumaMemoryBalance(_ *config.Configuration,
 	emitter metrics.MetricEmitter,
 	metaServer *metaserver.MetaServer,
 	entryName, subEntryName string,
-	calculationInfo *advisorsvc.CalculationInfo, podResourceEntries state.PodResourceEntries) error {
+	calculationInfo *advisorsvc.CalculationInfo, podResourceEntries state.PodResourceEntries,
+) error {
 	advice := &types.NumaMemoryBalanceAdvice{}
 	value := calculationInfo.CalculationResult.Values[string(memoryadvisor.ControlKnobKeyBalanceNumaMemory)]
 	err := json.Unmarshal([]byte(value), advice)
-
 	if err != nil {
 		return fmt.Errorf("unmarshal %s: %s failed with error: %v",
 			memoryadvisor.ControlKnobKeyBalanceNumaMemory, value, err)
@@ -558,8 +557,8 @@ func (p *DynamicPolicy) handleNumaMemoryBalance(_ *config.Configuration,
 		&asyncworker.Work{
 			Fn:          p.doNumaMemoryBalance,
 			Params:      []interface{}{*advice},
-			DeliveredAt: time.Now()}, asyncworker.DuplicateWorkPolicyDiscard)
-
+			DeliveredAt: time.Now(),
+		}, asyncworker.DuplicateWorkPolicyDiscard)
 	if err != nil {
 		general.Errorf("add work: %s failed with error: %v", migratePagesWorkName, err)
 	}
@@ -697,8 +696,8 @@ func (p *DynamicPolicy) handleAdvisorMemoryOffloading(_ *config.Configuration,
 	emitter metrics.MetricEmitter,
 	metaServer *metaserver.MetaServer,
 	entryName, subEntryName string,
-	calculationInfo *advisorsvc.CalculationInfo, podResourceEntries state.PodResourceEntries) error {
-
+	calculationInfo *advisorsvc.CalculationInfo, podResourceEntries state.PodResourceEntries,
+) error {
 	var absCGPath string
 	var memoryOffloadingWorkName string
 	memoryOffloadingSizeInBytes := calculationInfo.CalculationResult.Values[string(memoryadvisor.ControlKnowKeyMemoryOffloading)]
@@ -741,7 +740,8 @@ func (p *DynamicPolicy) handleAdvisorMemoryOffloading(_ *config.Configuration,
 		&asyncworker.Work{
 			Fn:          cgroupmgr.MemoryOffloadingWithAbsolutePath,
 			Params:      []interface{}{absCGPath, memoryOffloadingSizeInBytesInt64},
-			DeliveredAt: time.Now()}, asyncworker.DuplicateWorkPolicyOverride)
+			DeliveredAt: time.Now(),
+		}, asyncworker.DuplicateWorkPolicyOverride)
 	if err != nil {
 		return fmt.Errorf("add work: %s pod: %s container: %s cgroup: %s failed with error: %v", memoryOffloadingWorkName, entryName, subEntryName, absCGPath, err)
 	}

@@ -47,7 +47,8 @@ func RegisterSDManagerInitializers(name string, initFunc InitFunc) {
 
 // GetSDManager return an implementation for ServiceDiscoveryManager based on the given parameters
 func GetSDManager(ctx context.Context, agentCtx *katalystbase.GenericContext,
-	conf *generic.ServiceDiscoveryConf) (ServiceDiscoveryManager, error) {
+	conf *generic.ServiceDiscoveryConf,
+) (ServiceDiscoveryManager, error) {
 	name := conf.Name
 	if len(name) == 0 {
 		name = ServiceDiscoveryPodSinglePort

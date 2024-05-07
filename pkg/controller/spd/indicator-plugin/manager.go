@@ -66,8 +66,10 @@ type IndicatorManager struct {
 	statusMap   map[types.NamespacedName]*apiworkload.ServiceProfileDescriptorStatus
 }
 
-var _ IndicatorUpdater = &IndicatorManager{}
-var _ IndicatorGetter = &IndicatorManager{}
+var (
+	_ IndicatorUpdater = &IndicatorManager{}
+	_ IndicatorGetter  = &IndicatorManager{}
+)
 
 func NewIndicatorManager() *IndicatorManager {
 	return &IndicatorManager{

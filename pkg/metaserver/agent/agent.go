@@ -146,7 +146,8 @@ func (a *MetaAgent) SetObjectFetcher(gvr metav1.GroupVersionResource, f ObjectFe
 }
 
 func (a *MetaAgent) GetUnstructured(ctx context.Context, gvr metav1.GroupVersionResource,
-	namespace, name string) (*unstructured.Unstructured, error) {
+	namespace, name string,
+) (*unstructured.Unstructured, error) {
 	f, ok := a.ObjectFetchers.Load(gvr)
 	if !ok {
 		return nil, fmt.Errorf("gvr %v not exist", gvr)

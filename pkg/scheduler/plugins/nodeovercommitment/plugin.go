@@ -33,9 +33,11 @@ const (
 	preFilterStateKey = "PreFilter" + Name
 )
 
-var _ framework.PreFilterPlugin = &NodeOvercommitment{}
-var _ framework.FilterPlugin = &NodeOvercommitment{}
-var _ framework.ReservePlugin = &NodeOvercommitment{}
+var (
+	_ framework.PreFilterPlugin = &NodeOvercommitment{}
+	_ framework.FilterPlugin    = &NodeOvercommitment{}
+	_ framework.ReservePlugin   = &NodeOvercommitment{}
+)
 
 type NodeOvercommitment struct{}
 

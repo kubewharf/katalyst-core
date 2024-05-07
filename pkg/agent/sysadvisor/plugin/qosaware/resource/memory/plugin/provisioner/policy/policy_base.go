@@ -36,7 +36,8 @@ type PolicyBase struct {
 }
 
 func NewPolicyBase(conf *config.Configuration, extraConfig interface{},
-	metaReader metacache.MetaReader, metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter) *PolicyBase {
+	metaReader metacache.MetaReader, metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter,
+) *PolicyBase {
 	p := &PolicyBase{
 		conf:       conf,
 		metaReader: metaReader,

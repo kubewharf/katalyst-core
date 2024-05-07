@@ -31,7 +31,7 @@ import (
 
 func TestResourceRecommendConditionsMap_Set(t *testing.T) {
 	case1ConditionsMap := NewResourceRecommendConditionsMap()
-	var fakeTime1 = time.Date(2023, 1, 1, 0, 0, 0, 0, time.UTC)
+	fakeTime1 := time.Date(2023, 1, 1, 0, 0, 0, 0, time.UTC)
 	case1WantConditionsMap := ResourceRecommendConditionsMap{
 		v1alpha1.Validated: v1alpha1.ResourceRecommendCondition{
 			Type:               v1alpha1.Validated,
@@ -51,7 +51,7 @@ func TestResourceRecommendConditionsMap_Set(t *testing.T) {
 			Message:            "test msg1",
 		},
 	}
-	var fakeTime2 = time.Date(2023, 2, 2, 2, 0, 0, 0, time.UTC)
+	fakeTime2 := time.Date(2023, 2, 2, 2, 0, 0, 0, time.UTC)
 	case2WantConditionsMap := ResourceRecommendConditionsMap{
 		v1alpha1.Validated: v1alpha1.ResourceRecommendCondition{
 			Type:               v1alpha1.Validated,
@@ -71,7 +71,7 @@ func TestResourceRecommendConditionsMap_Set(t *testing.T) {
 			Message:            "test msg3",
 		},
 	}
-	var fakeTime3 = time.Date(2023, 3, 3, 3, 0, 0, 0, time.UTC)
+	fakeTime3 := time.Date(2023, 3, 3, 3, 0, 0, 0, time.UTC)
 	case3WantConditionsMap := ResourceRecommendConditionsMap{
 		v1alpha1.Validated: v1alpha1.ResourceRecommendCondition{
 			Type:               v1alpha1.Validated,
@@ -89,7 +89,7 @@ func TestResourceRecommendConditionsMap_Set(t *testing.T) {
 			LastTransitionTime: metav1.NewTime(time.Date(2023, 3, 3, 3, 0, 0, 0, time.UTC)),
 		},
 	}
-	var fakeTime4 = time.Date(2023, 4, 4, 4, 0, 0, 0, time.UTC)
+	fakeTime4 := time.Date(2023, 4, 4, 4, 0, 0, 0, time.UTC)
 	case4WantConditionsMap := ResourceRecommendConditionsMap{
 		v1alpha1.Validated: {
 			Type:               v1alpha1.Validated,

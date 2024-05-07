@@ -46,7 +46,8 @@ type PolicyRama struct {
 
 func NewPolicyRama(regionName string, regionType types.QoSRegionType, ownerPoolName string,
 	conf *config.Configuration, _ interface{}, metaReader metacache.MetaReader,
-	metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter) ProvisionPolicy {
+	metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter,
+) ProvisionPolicy {
 	p := &PolicyRama{
 		conf:        conf,
 		PolicyBase:  NewPolicyBase(regionName, regionType, ownerPoolName, metaReader, metaServer, emitter),

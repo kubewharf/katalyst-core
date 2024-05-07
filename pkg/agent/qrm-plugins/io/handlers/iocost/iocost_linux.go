@@ -199,7 +199,6 @@ func applyIOCostConfig(conf *config.Configuration, emitter metrics.MetricEmitter
 
 	ioCostQoSConfigs := make(map[DevModel]*common.IOCostQoSData)
 	err := general.LoadJsonConfig(conf.IOCostQoSConfigFile, &ioCostQoSConfigs)
-
 	if err != nil {
 		general.Errorf("load IOCostQoSConfigs failed with error: %v", err)
 		return
@@ -207,7 +206,6 @@ func applyIOCostConfig(conf *config.Configuration, emitter metrics.MetricEmitter
 
 	ioCostModelConfigs := make(map[DevModel]*common.IOCostModelData)
 	err = general.LoadJsonConfig(conf.IOCostModelConfigFile, &ioCostModelConfigs)
-
 	if err != nil {
 		general.Errorf("load IOCostModelConfigs failed with error: %v", err)
 		return
@@ -216,7 +214,6 @@ func applyIOCostConfig(conf *config.Configuration, emitter metrics.MetricEmitter
 	var targetDeviceNames []string
 
 	targetDeviceNames, err = getAllDeviceNames()
-
 	if err != nil {
 		general.Errorf("get targetDevices with error: %v", err)
 		return
@@ -230,7 +227,6 @@ func applyIOCostConfig(conf *config.Configuration, emitter metrics.MetricEmitter
 	}
 
 	devsIDToModel, err := getDevicesIdToModel(targetDeviceNames)
-
 	if err != nil {
 		general.Errorf("getDevicesIdToModel failed with error: %v", err)
 		return
@@ -244,7 +240,8 @@ func SetIOCost(conf *coreconfig.Configuration,
 	_ interface{},
 	_ *dynamicconfig.DynamicAgentConfiguration,
 	emitter metrics.MetricEmitter,
-	metaServer *metaserver.MetaServer) {
+	metaServer *metaserver.MetaServer,
+) {
 	general.Infof("called")
 
 	if conf == nil {

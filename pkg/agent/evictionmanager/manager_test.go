@@ -110,8 +110,7 @@ func makeMetaServer() *metaserver.MetaServer {
 	}
 }
 
-type pluginSkeleton struct {
-}
+type pluginSkeleton struct{}
 
 func (p *pluginSkeleton) Start() {
 }

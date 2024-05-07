@@ -32,7 +32,8 @@ const (
 
 func StartPodWebhook(ctx context.Context, webhookCtx *katalyst.GenericContext,
 	genericConf *generic.GenericConfiguration, webhookGenericConf *webhookconfig.GenericWebhookConfiguration,
-	webhookConf *webhookconfig.WebhooksConfiguration, name string) (*webhookconsts.WebhookWrapper, error) {
+	webhookConf *webhookconfig.WebhooksConfiguration, name string,
+) (*webhookconsts.WebhookWrapper, error) {
 	v, run, err := pod.NewWebhookPod(ctx, webhookCtx, genericConf, webhookGenericConf, webhookConf)
 	if err != nil {
 		return nil, err

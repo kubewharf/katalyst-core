@@ -68,7 +68,6 @@ func TestRecommend(t *testing.T) {
 		OomRecorder:   dummyOomRecorder{},
 	}
 	err := r.Recommend(recommendation1)
-
 	if err != nil {
 		t.Errorf("Unexpected error: %v", err)
 	}

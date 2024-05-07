@@ -46,8 +46,10 @@ var (
 	cgIDManager     *cgroupIDManagerImpl
 )
 
-type ContainerCache map[string]uint64   // Keyed by container id
-type PodCache map[string]ContainerCache // Keyed by pod UID
+type (
+	ContainerCache map[string]uint64         // Keyed by container id
+	PodCache       map[string]ContainerCache // Keyed by pod UID
+)
 
 type cgroupIDManagerImpl struct {
 	sync.RWMutex

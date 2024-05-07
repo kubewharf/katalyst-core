@@ -139,7 +139,6 @@ func (ra *RealtimeOvercommitmentAdvisor) Run(ctx context.Context) {
 }
 
 func (ra *RealtimeOvercommitmentAdvisor) update() error {
-
 	// list pod from metaServer
 	ctx, cancel := context.WithTimeout(context.Background(), ra.syncPodTimeout)
 	defer cancel()
@@ -164,9 +163,7 @@ func (ra *RealtimeOvercommitmentAdvisor) update() error {
 }
 
 func (ra *RealtimeOvercommitmentAdvisor) aggregateNodeMetrics(podList []*v1.Pod) map[v1.ResourceName]float64 {
-	var (
-		cpuUsage, memoryUsage float64
-	)
+	var cpuUsage, memoryUsage float64
 
 	if len(ra.cpuMetricsToGather) != 0 {
 		cpuUsage = ra.aggregateMetrics(podList, ra.cpuMetricsToGather)
@@ -312,9 +309,7 @@ func (ra *RealtimeOvercommitmentAdvisor) resourceMetricsToOvercommitRatio(resour
 	if existedPodLoad > 1 {
 		existedPodLoad = 1
 	}
-	var (
-		podExpectedLoad, nodeTargetLoad float64
-	)
+	var podExpectedLoad, nodeTargetLoad float64
 	switch resourceName {
 	case v1.ResourceCPU:
 		podExpectedLoad = ra.podEstimatedCPULoad
@@ -363,12 +358,10 @@ func sumUpPodsResources(podList []*v1.Pod) v1.ResourceList {
 }
 
 func (ra *RealtimeOvercommitmentAdvisor) GetOvercommitRatio() (map[v1.ResourceName]float64, error) {
-	var (
-		res = map[v1.ResourceName]float64{
-			v1.ResourceCPU:    1.0,
-			v1.ResourceMemory: 1.0,
-		}
-	)
+	res := map[v1.ResourceName]float64{
+		v1.ResourceCPU:    1.0,
+		v1.ResourceMemory: 1.0,
+	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second*2)
 	defer cancel()

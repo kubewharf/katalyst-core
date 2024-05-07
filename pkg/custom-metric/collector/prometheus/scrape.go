@@ -312,7 +312,6 @@ func calculateHash(name string, labels map[string]string, metric *dto.Metric) ui
 	}
 
 	return xxhash.Sum64(b)
-
 }
 
 // parseLabels returns labels in key-value formats

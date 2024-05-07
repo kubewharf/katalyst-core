@@ -52,7 +52,7 @@ func setupCredential(credentialPath string) error {
 		return err
 	}
 
-	usernameFile, err := os.OpenFile(path.Join(credentialPath, fileNameUsername), os.O_WRONLY|os.O_CREATE, 0755)
+	usernameFile, err := os.OpenFile(path.Join(credentialPath, fileNameUsername), os.O_WRONLY|os.O_CREATE, 0o755)
 	if err != nil {
 		return err
 	}
@@ -61,7 +61,7 @@ func setupCredential(credentialPath string) error {
 	_, _ = usernameWriter.WriteString(username)
 	_ = usernameWriter.Flush()
 
-	passwordFile, err := os.OpenFile(path.Join(credentialPath, fileNamePassword), os.O_WRONLY|os.O_CREATE, 0755)
+	passwordFile, err := os.OpenFile(path.Join(credentialPath, fileNamePassword), os.O_WRONLY|os.O_CREATE, 0o755)
 	if err != nil {
 		return err
 	}

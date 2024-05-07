@@ -37,11 +37,13 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/util/native"
 )
 
-var _ framework.PreFilterPlugin = &Fit{}
-var _ framework.FilterPlugin = &Fit{}
-var _ framework.EnqueueExtensions = &Fit{}
-var _ framework.ScorePlugin = &Fit{}
-var _ framework.ReservePlugin = &Fit{}
+var (
+	_ framework.PreFilterPlugin   = &Fit{}
+	_ framework.FilterPlugin      = &Fit{}
+	_ framework.EnqueueExtensions = &Fit{}
+	_ framework.ScorePlugin       = &Fit{}
+	_ framework.ReservePlugin     = &Fit{}
+)
 
 const (
 	// FitName is the name of the plugin used in the plugin registry and configurations.

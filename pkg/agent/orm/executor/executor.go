@@ -53,9 +53,7 @@ func (ei *Impl) UpdateContainerResources(pod *v1.Pod, container *v1.Container, r
 		return fmt.Errorf("empty resourceAllocation for pod: %v, container: %v", pod.Name, container.Name)
 	}
 
-	var (
-		CPUSetData = &common.CPUSetData{}
-	)
+	CPUSetData := &common.CPUSetData{}
 
 	for _, resourceAllocationInfo := range resourceAllocation {
 		switch resourceAllocationInfo.OciPropertyName {

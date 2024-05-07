@@ -25,9 +25,7 @@ import (
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 )
 
-var (
-	eSocketName = "mock.sock"
-)
+var eSocketName = "mock.sock"
 
 func TestNewEndpoint(t *testing.T) {
 	t.Parallel()
@@ -145,7 +143,7 @@ func generateResourceRequest() *pluginapi.ResourceRequest {
 		PodNamespace:  "mock_pod_ns",
 		PodName:       "mock_pod_name",
 		ContainerName: "mock_con_name",
-		//IsInitContainer: false,
+		// IsInitContainer: false,
 		PodRole:      "mock_role",
 		PodType:      "mock_type",
 		ResourceName: "mock_res",
@@ -165,7 +163,7 @@ func generateResourceResponse() *pluginapi.ResourceAllocationResponse {
 		PodNamespace:  "mock_pod_ns",
 		PodName:       "mock_pod_name",
 		ContainerName: "mock_con_name",
-		//IsInitContainer: false,
+		// IsInitContainer: false,
 		PodRole:      "mock_role",
 		PodType:      "mock_type",
 		ResourceName: "mock_res",

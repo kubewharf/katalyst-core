@@ -31,16 +31,19 @@ func NewCPUAdvisorClientStub() CPUAdvisorClient {
 }
 
 func (c *cpuAdvisorClientStub) AddContainer(_ context.Context, _ *advisorsvc.ContainerMetadata,
-	_ ...grpc.CallOption) (*advisorsvc.AddContainerResponse, error) {
+	_ ...grpc.CallOption,
+) (*advisorsvc.AddContainerResponse, error) {
 	return nil, nil
 }
 
 func (c *cpuAdvisorClientStub) RemovePod(_ context.Context, _ *advisorsvc.RemovePodRequest,
-	_ ...grpc.CallOption) (*advisorsvc.RemovePodResponse, error) {
+	_ ...grpc.CallOption,
+) (*advisorsvc.RemovePodResponse, error) {
 	return nil, nil
 }
 
 func (c *cpuAdvisorClientStub) ListAndWatch(_ context.Context, _ *advisorsvc.Empty,
-	_ ...grpc.CallOption) (CPUAdvisor_ListAndWatchClient, error) {
+	_ ...grpc.CallOption,
+) (CPUAdvisor_ListAndWatchClient, error) {
 	return nil, nil
 }

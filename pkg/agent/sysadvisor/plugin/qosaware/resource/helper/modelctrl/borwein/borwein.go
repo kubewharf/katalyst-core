@@ -54,8 +54,8 @@ type BorweinController struct {
 }
 
 func NewBorweinController(regionName string, regionType types.QoSRegionType, ownerPoolName string,
-	conf *config.Configuration, metaReader metacache.MetaReader, emitter metrics.MetricEmitter) *BorweinController {
-
+	conf *config.Configuration, metaReader metacache.MetaReader, emitter metrics.MetricEmitter,
+) *BorweinController {
 	bc := &BorweinController{
 		regionName:              regionName,
 		regionType:              regionType,
@@ -75,8 +75,8 @@ func NewBorweinController(regionName string, regionType types.QoSRegionType, own
 }
 
 func updateCPUSchedWaitIndicatorOffset(podSet types.PodSet, currentIndicatorOffset float64,
-	borweinParameter *borweintypes.BorweinParameter, metaReader metacache.MetaReader) (float64, error) {
-
+	borweinParameter *borweintypes.BorweinParameter, metaReader metacache.MetaReader,
+) (float64, error) {
 	filteredObj, err := metaReader.GetFilteredInferenceResult(func(input interface{}) (interface{}, error) {
 		cachedResult, ok := input.(*borweintypes.BorweinInferenceResults)
 		if !ok || cachedResult == nil {
@@ -115,7 +115,6 @@ func updateCPUSchedWaitIndicatorOffset(podSet types.PodSet, currentIndicatorOffs
 
 		return filteredResults, nil
 	}, borweinconsts.ModelNameBorwein)
-
 	if err != nil {
 		return 0, fmt.Errorf("GetFilteredInferenceResult failed with error: %v", err)
 	}
@@ -212,7 +211,6 @@ func (bc *BorweinController) updateIndicatorOffsets(podSet types.PodSet) {
 			currentIndicatorOffset,
 			bc.borweinParameters[indicatorName],
 			bc.metaReader)
-
 		if err != nil {
 			general.Errorf("update indicator: %s offset failed with error: %v", indicatorName, err)
 			continue

@@ -82,7 +82,8 @@ type smapsInfo struct {
 // sourceNUMAs to destNUMAs, and it may block process when migration. It is deprecated will be
 // removed in a future release.
 func MigratePagesForContainer(ctx context.Context, podUID, containerId string,
-	numasCount int, sourceNUMAs, destNUMAs machine.CPUSet) error {
+	numasCount int, sourceNUMAs, destNUMAs machine.CPUSet,
+) error {
 	memoryAbsCGPath, err := common.GetContainerAbsCgroupPath(common.CgroupSubsysMemory, podUID, containerId)
 	if err != nil {
 		return fmt.Errorf("GetContainerAbsCgroupPath failed with error: %v", err)
@@ -142,7 +143,8 @@ containerLoop:
 // MovePagesForContainer uses SYS_MOVE_PAGES syscall to migrate container process memory from
 // sourceNUMAs to destNUMAs, which has more fine-grained locks than migrate_page.
 func MovePagesForContainer(ctx context.Context, podUID, containerId string,
-	sourceNUMAs, destNUMAs machine.CPUSet) error {
+	sourceNUMAs, destNUMAs machine.CPUSet,
+) error {
 	sourceNUMAs = sourceNUMAs.Difference(destNUMAs)
 	if len(sourceNUMAs.ToSliceInt()) == 0 {
 		return nil

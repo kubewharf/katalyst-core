@@ -167,7 +167,8 @@ func GetTopologyAwareQuantityFromAssignmentsSize(assignments map[int]uint64) []*
 
 // PackResourceHintsResponse returns the standard QRM ResourceHintsResponse
 func PackResourceHintsResponse(req *pluginapi.ResourceRequest, resourceName string,
-	resourceHints map[string]*pluginapi.ListOfTopologyHints) (*pluginapi.ResourceHintsResponse, error) {
+	resourceHints map[string]*pluginapi.ListOfTopologyHints,
+) (*pluginapi.ResourceHintsResponse, error) {
 	if req == nil {
 		return nil, fmt.Errorf("PackResourceHintsResponse got nil request")
 	}
@@ -252,7 +253,8 @@ func GetNUMANodesCountToFitMemoryReq(memoryReq, bytesPerNUMA uint64, numaCount i
 }
 */
 func GetHintsFromExtraStateFile(podName, resourceName, extraHintsStateFileAbsPath string,
-	availableNUMAs machine.CPUSet) (map[string]*pluginapi.ListOfTopologyHints, error) {
+	availableNUMAs machine.CPUSet,
+) (map[string]*pluginapi.ListOfTopologyHints, error) {
 	if extraHintsStateFileAbsPath == "" {
 		return nil, nil
 	}

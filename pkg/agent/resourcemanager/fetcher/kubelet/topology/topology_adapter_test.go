@@ -90,7 +90,8 @@ func (f *fakePodResourcesListerClient) GetAllocatableResources(_ context.Context
 }
 
 func generateTestPod(namespace, name, uid string, qosLevel string, isBindNumaQoS bool,
-	resourceRequirements map[string]v1.ResourceRequirements) *v1.Pod {
+	resourceRequirements map[string]v1.ResourceRequirements,
+) *v1.Pod {
 	p := &v1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      name,
@@ -136,7 +137,7 @@ func tmpSocketDir() (socketDir string, err error) {
 	if err != nil {
 		return
 	}
-	err = os.MkdirAll(socketDir, 0755)
+	err = os.MkdirAll(socketDir, 0o755)
 	if err != nil {
 		return "", err
 	}

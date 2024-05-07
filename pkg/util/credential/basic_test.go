@@ -35,7 +35,6 @@ func makeBasicToken(user, password string) string {
 }
 
 func makeCred(t *testing.T) Credential {
-
 	conf := generic.NewAuthConfiguration()
 
 	configuration := dynamic.NewDynamicAgentConfiguration()

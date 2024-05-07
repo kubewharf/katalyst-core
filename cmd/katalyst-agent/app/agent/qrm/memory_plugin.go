@@ -34,8 +34,10 @@ var (
 	// memoryPolicyInitializers is used to store the initializing function for cpu resource plugin policies
 	memoryPolicyInitializers sync.Map
 
-	QRMMemoryPluginPeriodicalHandlerGroupName = strings.Join([]string{QRMPluginNameMemory,
-		phconsts.PeriodicalHandlersGroupNameSuffix}, phconsts.GroupNameSeparator)
+	QRMMemoryPluginPeriodicalHandlerGroupName = strings.Join([]string{
+		QRMPluginNameMemory,
+		phconsts.PeriodicalHandlersGroupNameSuffix,
+	}, phconsts.GroupNameSeparator)
 )
 
 // RegisterMemoryPolicyInitializer is used to register user-defined resource plugin init functions

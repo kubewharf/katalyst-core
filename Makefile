@@ -117,6 +117,10 @@ clean-bin: ## Remove all generated binaries
 fmt: ## Run go fmt against code.
 	go fmt ./...
 
+.PHONY: fmt-strict
+fmt-strict: ## Run go fmt against code.
+	gofumpt -l -w .
+
 .PHONY: vet
 vet: ## Run go vet against code.
 	go vet ./...

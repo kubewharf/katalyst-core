@@ -130,7 +130,6 @@ func (m *manager) ApplyCPU(absCgroupPath string, data *common.CPUData) error {
 		var cpuIdleValue int64
 		if *data.CpuIdlePtr {
 			cpuIdleValue = 1
-
 		} else {
 			cpuIdleValue = 0
 		}
@@ -229,7 +228,6 @@ func (m *manager) ApplyIOWeight(absCgroupPath string, devID string, weight uint6
 	dataContent := fmt.Sprintf("%s %d", devID, weight)
 
 	curWight, found, err := m.GetDeviceIOWeight(absCgroupPath, devID)
-
 	if err != nil {
 		return fmt.Errorf("try GetDeviceIOWeight before ApplyIOWeight failed with error: %v", err)
 	}
@@ -326,13 +324,11 @@ func (m *manager) GetCPUSet(absCgroupPath string) (*common.CPUSetStats, error) {
 
 	var err error
 	cpusetStats.CPUs, err = fscommon.GetCgroupParamString(absCgroupPath, "cpuset.cpus")
-
 	if err != nil {
 		return nil, fmt.Errorf("read cpuset.cpus failed with error: %v", err)
 	}
 
 	cpusetStats.Mems, err = fscommon.GetCgroupParamString(absCgroupPath, "cpuset.mems")
-
 	if err != nil {
 		return nil, fmt.Errorf("read cpuset.mems failed with error: %v", err)
 	}

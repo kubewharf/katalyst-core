@@ -130,26 +130,25 @@ func TestHistogramOptionsFactory(t *testing.T) {
 			}
 			if NumBuckets := got.NumBuckets(); NumBuckets != tt.want.BucketsNum {
 				t.Errorf("HistogramOptionsFactory() NumBuckets gotT = %v, want %v", NumBuckets, tt.want.BucketsNum)
-				//return
+				// return
 			}
 			if gotT := got.FindBucket(tt.want.BucketFind.value); gotT != tt.want.BucketFind.bucket {
 				t.Errorf("HistogramOptionsFactory() FindBucket gotT = %v, want %v", gotT, tt.want.BucketFind.bucket)
-				//return
+				// return
 			}
 			if gotT := got.GetBucketStart(tt.want.StartBucket.bucket); gotT != tt.want.StartBucket.value {
 				t.Errorf("HistogramOptionsFactory() GetBucketStart gotT = %v, want %v", gotT, tt.want.StartBucket.value)
-				//return
+				// return
 			}
 			if gotT := got.Epsilon(); gotT != tt.want.Epsilon {
 				t.Errorf("HistogramOptionsFactory() Epsilon gotT = %v, want %v", gotT, tt.want.Epsilon)
-				//return
+				// return
 			}
 		})
 	}
 }
 
 func TestGetDefaultTaskProcessInterval(t *testing.T) {
-
 	tests := []struct {
 		name    string
 		args    v1.ResourceName

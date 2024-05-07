@@ -125,12 +125,13 @@ func (r *ResourceRecommendController) Reconcile(ctx context.Context, req ctrl.Re
 	}
 
 	klog.InfoS("reconcile succeeded, requeue after "+DefaultRecommendInterval.String(), "req", req)
-	//reconcile succeeded, requeue after 24hours
+	// reconcile succeeded, requeue after 24hours
 	return ctrl.Result{RequeueAfter: DefaultRecommendInterval}, nil
 }
 
 func (r *ResourceRecommendController) doReconcile(ctx context.Context, namespacedName k8stypes.NamespacedName,
-	resourceRecommend *v1alpha1.ResourceRecommend) (err error) {
+	resourceRecommend *v1alpha1.ResourceRecommend,
+) (err error) {
 	recommendation := recommendationtypes.NewRecommendation(resourceRecommend)
 	defer func() {
 		if r := recover(); r != nil {
@@ -144,33 +145,33 @@ func (r *ResourceRecommendController) doReconcile(ctx context.Context, namespace
 		}
 	}()
 
-	//conduct validation
+	// conduct validation
 	validationError := recommendation.SetConfig(ctx, r.Client, resourceRecommend)
 	if validationError != nil {
 		klog.ErrorS(validationError, "Failed to get Recommendation", "resourceRecommend", namespacedName)
 		recommendation.Conditions.Set(*conditionstypes.ConvertCustomErrorToCondition(*validationError))
 		return validationError
 	}
-	//set the condition of the validation step to be true
+	// set the condition of the validation step to be true
 	recommendation.Conditions.Set(*conditionstypes.ValidationSucceededCondition())
 
-	//Initialization
+	// Initialization
 	if registerTaskErr := r.RegisterTasks(*recommendation); registerTaskErr != nil {
 		klog.ErrorS(registerTaskErr, "Failed to register process task", "resourceRecommend", namespacedName)
 		recommendation.Conditions.Set(*conditionstypes.ConvertCustomErrorToCondition(*registerTaskErr))
 		return registerTaskErr
 	}
-	//set the condition of the initialization step to be true
+	// set the condition of the initialization step to be true
 	recommendation.Conditions.Set(*conditionstypes.InitializationSucceededCondition())
 
-	//recommendation logic
+	// recommendation logic
 	defaultRecommender := r.RecommenderManager.NewRecommender(recommendation.AlgorithmPolicy.Algorithm)
 	if recommendationError := defaultRecommender.Recommend(recommendation); recommendationError != nil {
 		klog.ErrorS(recommendationError, "error when getting recommendation for resource", "resourceRecommend", namespacedName)
 		recommendation.Conditions.Set(*conditionstypes.ConvertCustomErrorToCondition(*recommendationError))
 		return recommendationError
 	}
-	//set the condition of the recommendation step to be true
+	// set the condition of the recommendation step to be true
 	recommendation.Conditions.Set(*conditionstypes.RecommendationReadyCondition())
 	return nil
 }
@@ -201,11 +202,12 @@ func (r *ResourceRecommendController) CancelTasks(namespacedName k8stypes.Namesp
 }
 
 func (r *ResourceRecommendController) UpdateRecommendationStatus(namespaceName k8stypes.NamespacedName,
-	recommendation *recommendationtypes.Recommendation) error {
+	recommendation *recommendationtypes.Recommendation,
+) error {
 	updateStatus := &v1alpha1.ResourceRecommend{
 		Status: recommendation.AsStatus(),
 	}
-	//record generation
+	// record generation
 	updateStatus.Status.ObservedGeneration = recommendation.ObservedGeneration
 
 	err := resourceutils.PatchUpdateResourceRecommend(r.Client, namespaceName, updateStatus)

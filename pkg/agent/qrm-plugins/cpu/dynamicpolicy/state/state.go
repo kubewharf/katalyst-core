@@ -63,8 +63,10 @@ type AllocationInfo struct {
 	RequestQuantity float64           `json:"request_quantity,omitempty"`
 }
 
-type ContainerEntries map[string]*AllocationInfo // Keyed by containerName.
-type PodEntries map[string]ContainerEntries      // Keyed by podUID.
+type (
+	ContainerEntries map[string]*AllocationInfo  // Keyed by containerName.
+	PodEntries       map[string]ContainerEntries // Keyed by podUID.
+)
 
 type NUMANodeState struct {
 	// equals to allocatable cpuset subtracting original allocation result of dedicated_cores with NUMA binding
@@ -431,7 +433,8 @@ func (nm NUMANodeMap) GetFilteredDefaultCPUSet(excludeEntry, excludeWholeNUMA fu
 
 // GetFilteredAvailableCPUSet returns available cpuset in this node, along with the filter functions
 func (nm NUMANodeMap) GetFilteredAvailableCPUSet(reservedCPUs machine.CPUSet,
-	excludeEntry, excludeWholeNUMA func(ai *AllocationInfo) bool) machine.CPUSet {
+	excludeEntry, excludeWholeNUMA func(ai *AllocationInfo) bool,
+) machine.CPUSet {
 	return nm.GetFilteredDefaultCPUSet(excludeEntry, excludeWholeNUMA).Difference(reservedCPUs)
 }
 

@@ -54,7 +54,7 @@ func NewMetaServer(clientSet *client.GenericClientSet, emitter metrics.MetricEmi
 	}
 
 	// make sure meta server checkpoint directory already exist
-	err = os.MkdirAll(conf.CheckpointManagerDir, os.FileMode(0755))
+	err = os.MkdirAll(conf.CheckpointManagerDir, os.FileMode(0o755))
 	if err != nil {
 		return nil, fmt.Errorf("initializes meta server checkpoint dir failed: %s", err)
 	}

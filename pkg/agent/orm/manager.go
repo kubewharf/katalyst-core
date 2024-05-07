@@ -154,7 +154,7 @@ func (m *ManagerImpl) Run(ctx context.Context) {
 		klog.Fatalf("[ORM] read checkpoint fail: %v", err)
 	}
 
-	if err = os.MkdirAll(m.socketdir, 0750); err != nil {
+	if err = os.MkdirAll(m.socketdir, 0o750); err != nil {
 		klog.Fatalf("[ORM] Mkdir socketdir %v fail: %v", m.socketdir, err)
 	}
 	if selinux.GetEnabled() {
@@ -397,7 +397,6 @@ func (m *ManagerImpl) processDeletePod(podUID string) error {
 		_, err := endpoint.E.RemovePod(m.ctx, &pluginapi.RemovePodRequest{
 			PodUid: podUID,
 		})
-
 		if err != nil {
 			allSuccess = false
 			klog.Errorf("[ORM] plugin %v remove pod %v fail: %v", resourceName, podUID, err)
@@ -619,7 +618,8 @@ func (m *ManagerImpl) reconcile() {
 
 func (m *ManagerImpl) UpdatePodResources(
 	resourceAllocation map[string]*pluginapi.ResourceAllocationInfo,
-	pod *v1.Pod, container *v1.Container, resource string) {
+	pod *v1.Pod, container *v1.Container, resource string,
+) {
 	for accResourceName, allocationInfo := range resourceAllocation {
 		if allocationInfo == nil {
 			klog.Warningf("[ORM] allocation request for resources %s - accompanying resource: %s for pod: %s/%s, container: %s got nil allocation information",
@@ -663,7 +663,6 @@ func (m *ManagerImpl) IsContainerRequestResource(container *v1.Container, resour
 
 	for k := range container.Resources.Requests {
 		requestedResourceName, err := m.getMappedResourceName(string(k), container.Resources.Requests)
-
 		if err != nil {
 			return false, err
 		}
@@ -725,7 +724,6 @@ func GetContainerTypeAndIndex(pod *v1.Pod, container *v1.Container) (containerTy
 
 func isSkippedContainer(pod *v1.Pod, container *v1.Container) bool {
 	containerType, _, err := GetContainerTypeAndIndex(pod, container)
-
 	if err != nil {
 		klog.Errorf("GetContainerTypeAndIndex failed with error: %v", err)
 		return false

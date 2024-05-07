@@ -34,8 +34,8 @@ import (
 )
 
 func TestRecommendation_AsStatus(t *testing.T) {
-	var fakeTime1 = time.Date(2023, 1, 1, 0, 0, 0, 0, time.UTC)
-	var fakeMetaTime1 = metav1.NewTime(fakeTime1)
+	fakeTime1 := time.Date(2023, 1, 1, 0, 0, 0, 0, time.UTC)
+	fakeMetaTime1 := metav1.NewTime(fakeTime1)
 	tests := []struct {
 		name           string
 		recommendation *Recommendation
@@ -127,7 +127,6 @@ func TestRecommendation_AsStatus(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-
 			defer monkey.UnpatchAll()
 
 			monkey.Patch(time.Now, func() time.Time { return fakeTime1 })
@@ -222,16 +221,19 @@ func TestRecommendation_SetConfig(t *testing.T) {
 			defer monkey.UnpatchAll()
 
 			monkey.Patch(ValidateAndExtractTargetRef, func(targetRefReq v1alpha1.CrossVersionObjectReference) (
-				v1alpha1.CrossVersionObjectReference, *errortypes.CustomError) {
+				v1alpha1.CrossVersionObjectReference, *errortypes.CustomError,
+			) {
 				return tt.args.targetRef, tt.args.customErr1
 			})
 			monkey.Patch(ValidateAndExtractAlgorithmPolicy, func(algorithmPolicyReq v1alpha1.AlgorithmPolicy) (
-				v1alpha1.AlgorithmPolicy, *errortypes.CustomError) {
+				v1alpha1.AlgorithmPolicy, *errortypes.CustomError,
+			) {
 				return tt.args.algorithmPolicy, tt.args.customErr2
 			})
 			monkey.Patch(ValidateAndExtractContainers, func(ctx context.Context, client k8sclient.Client, namespace string,
 				targetRef v1alpha1.CrossVersionObjectReference,
-				containerPolicies []v1alpha1.ContainerResourcePolicy) ([]Container, *errortypes.CustomError) {
+				containerPolicies []v1alpha1.ContainerResourcePolicy,
+			) ([]Container, *errortypes.CustomError) {
 				return tt.args.containers, tt.args.customErr3
 			})
 

@@ -75,8 +75,8 @@ type GenericHeadroomManager struct {
 func NewGenericHeadroomManager(name v1.ResourceName, useMilliValue, reportMilliValue bool,
 	syncPeriod time.Duration, headroomAdvisor hmadvisor.ResourceAdvisor,
 	emitter metrics.MetricEmitter, slidingWindowOptions GenericSlidingWindowOptions,
-	getReclaimOptions GetGenericReclaimOptionsFunc) *GenericHeadroomManager {
-
+	getReclaimOptions GetGenericReclaimOptionsFunc,
+) *GenericHeadroomManager {
 	// Sliding window size and ttl are calculated by SlidingWindowTime and syncPeriod,
 	// the valid lifetime of all samples is twice the duration of the sliding window.
 	slidingWindowSize := int(slidingWindowOptions.SlidingWindowTime / syncPeriod)
@@ -97,9 +97,11 @@ func NewGenericHeadroomManager(name v1.ResourceName, useMilliValue, reportMilliV
 		reportSlidingWindow: general.NewCappedSmoothWindow(
 			slidingWindowOptions.MinStep,
 			slidingWindowOptions.MaxStep,
-			general.NewAggregatorSmoothWindow(general.SmoothWindowOpts{WindowSize: slidingWindowSize,
-				TTL: slidingWindowTTL, UsedMillValue: useMilliValue, AggregateFunc: slidingWindowOptions.AggregateFunc,
-				AggregateArgs: slidingWindowOptions.AggregateArgs}),
+			general.NewAggregatorSmoothWindow(general.SmoothWindowOpts{
+				WindowSize: slidingWindowSize,
+				TTL:        slidingWindowTTL, UsedMillValue: useMilliValue, AggregateFunc: slidingWindowOptions.AggregateFunc,
+				AggregateArgs: slidingWindowOptions.AggregateArgs,
+			}),
 		),
 		emitter:           emitter,
 		getReclaimOptions: getReclaimOptions,

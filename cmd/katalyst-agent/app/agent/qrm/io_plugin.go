@@ -30,10 +30,10 @@ const (
 	QRMPluginNameIO = "qrm_io_plugin"
 )
 
-var (
-	QRMIOPluginPeriodicalHandlerGroupName = strings.Join([]string{QRMPluginNameIO,
-		phconsts.PeriodicalHandlersGroupNameSuffix}, phconsts.GroupNameSeparator)
-)
+var QRMIOPluginPeriodicalHandlerGroupName = strings.Join([]string{
+	QRMPluginNameIO,
+	phconsts.PeriodicalHandlersGroupNameSuffix,
+}, phconsts.GroupNameSeparator)
 
 // ioPolicyInitializers is used to store the initializing function for io resource plugin policies
 var ioPolicyInitializers sync.Map

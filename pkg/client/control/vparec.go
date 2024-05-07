@@ -157,7 +157,8 @@ func (r *RealVPARecommendationUpdater) PatchVPARecommendationStatus(ctx context.
 }
 
 func (r *RealVPARecommendationUpdater) CreateVPARecommendation(ctx context.Context, vpaRec *apis.VerticalPodAutoscalerRecommendation,
-	opts metav1.CreateOptions) (*apis.VerticalPodAutoscalerRecommendation, error) {
+	opts metav1.CreateOptions,
+) (*apis.VerticalPodAutoscalerRecommendation, error) {
 	return r.client.AutoscalingV1alpha1().VerticalPodAutoscalerRecommendations(vpaRec.Namespace).Create(ctx, vpaRec, opts)
 }
 

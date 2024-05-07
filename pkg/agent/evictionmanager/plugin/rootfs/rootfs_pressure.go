@@ -65,7 +65,8 @@ type PodRootfsPressureEvictionPlugin struct {
 }
 
 func NewPodRootfsPressureEvictionPlugin(_ *client.GenericClientSet, _ events.EventRecorder,
-	metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter, conf *config.Configuration) plugin.EvictionPlugin {
+	metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter, conf *config.Configuration,
+) plugin.EvictionPlugin {
 	return &PodRootfsPressureEvictionPlugin{
 		pluginName:    EvictionPluginNamePodRootfsPressure,
 		metaServer:    metaServer,
@@ -276,9 +277,11 @@ func (l podUsageList) Less(i, j int) bool {
 	}
 	return l[i].usage > l[j].usage
 }
+
 func (l podUsageList) Swap(i, j int) {
 	l[i], l[j] = l[j], l[i]
 }
+
 func (l podUsageList) Len() int {
 	return len(l)
 }

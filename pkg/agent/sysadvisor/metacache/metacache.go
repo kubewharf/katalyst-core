@@ -252,8 +252,8 @@ func (mc *MetaCacheImp) GetRegionInfo(regionName string) (*types.RegionInfo, boo
 // GetFilteredInferenceResult gets specified model inference result with filter function
 // whether it returns a deep copied result depends on the implementation of filterFunc
 func (mc *MetaCacheImp) GetFilteredInferenceResult(filterFunc func(result interface{}) (interface{}, error),
-	modelName string) (interface{}, error) {
-
+	modelName string,
+) (interface{}, error) {
 	mc.modelMutex.RLock()
 	defer mc.modelMutex.RUnlock()
 
@@ -266,7 +266,6 @@ func (mc *MetaCacheImp) GetFilteredInferenceResult(filterFunc func(result interf
 	} else {
 		return filterFunc(mc.modelToResult[modelName])
 	}
-
 }
 
 // GetInferenceResult gets specified model inference result

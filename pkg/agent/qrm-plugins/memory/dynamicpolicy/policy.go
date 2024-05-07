@@ -148,7 +148,8 @@ type DynamicPolicy struct {
 }
 
 func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration,
-	_ interface{}, agentName string) (bool, agent.Component, error) {
+	_ interface{}, agentName string,
+) (bool, agent.Component, error) {
 	reservedMemory, err := getReservedMemory(conf, agentCtx.MetaServer, agentCtx.MachineInfo)
 	if err != nil {
 		return false, agent.ComponentStub{}, fmt.Errorf("getReservedMemoryFromOptions failed with error: %v", err)
@@ -427,7 +428,8 @@ func (p *DynamicPolicy) ResourceName() string {
 
 // GetTopologyHints returns hints of corresponding resources
 func (p *DynamicPolicy) GetTopologyHints(ctx context.Context,
-	req *pluginapi.ResourceRequest) (*pluginapi.ResourceHintsResponse, error) {
+	req *pluginapi.ResourceRequest,
+) (*pluginapi.ResourceHintsResponse, error) {
 	if req == nil {
 		return nil, fmt.Errorf("GetTopologyHints got nil req")
 	}
@@ -485,7 +487,8 @@ func (p *DynamicPolicy) GetTopologyHints(ctx context.Context,
 }
 
 func (p *DynamicPolicy) RemovePod(ctx context.Context,
-	req *pluginapi.RemovePodRequest) (resp *pluginapi.RemovePodResponse, err error) {
+	req *pluginapi.RemovePodRequest,
+) (resp *pluginapi.RemovePodResponse, err error) {
 	if req == nil {
 		return nil, fmt.Errorf("RemovePod got nil req")
 	}
@@ -534,7 +537,8 @@ func (p *DynamicPolicy) RemovePod(ctx context.Context,
 
 // GetResourcesAllocation returns allocation results of corresponding resources
 func (p *DynamicPolicy) GetResourcesAllocation(_ context.Context,
-	req *pluginapi.GetResourcesAllocationRequest) (*pluginapi.GetResourcesAllocationResponse, error) {
+	req *pluginapi.GetResourcesAllocationRequest,
+) (*pluginapi.GetResourcesAllocationResponse, error) {
 	if req == nil {
 		return nil, fmt.Errorf("GetResourcesAllocation got nil req")
 	}
@@ -560,7 +564,6 @@ func (p *DynamicPolicy) GetResourcesAllocation(_ context.Context,
 
 			var err error
 			podResources[podUID].ContainerResources[containerName], err = allocationInfo.GetResourceAllocation()
-
 			if err != nil {
 				errMsg := "allocationInfo.GetResourceAllocation failed"
 				general.ErrorS(err, errMsg,
@@ -579,7 +582,8 @@ func (p *DynamicPolicy) GetResourcesAllocation(_ context.Context,
 
 // GetTopologyAwareResources returns allocation results of corresponding resources as topology aware format
 func (p *DynamicPolicy) GetTopologyAwareResources(_ context.Context,
-	req *pluginapi.GetTopologyAwareResourcesRequest) (*pluginapi.GetTopologyAwareResourcesResponse, error) {
+	req *pluginapi.GetTopologyAwareResourcesRequest,
+) (*pluginapi.GetTopologyAwareResourcesResponse, error) {
 	if req == nil {
 		return nil, fmt.Errorf("GetTopologyAwareResources got nil req")
 	}
@@ -631,7 +635,8 @@ func (p *DynamicPolicy) GetTopologyAwareResources(_ context.Context,
 
 // GetTopologyAwareAllocatableResources returns corresponding allocatable resources as topology aware format
 func (p *DynamicPolicy) GetTopologyAwareAllocatableResources(context.Context,
-	*pluginapi.GetTopologyAwareAllocatableResourcesRequest) (*pluginapi.GetTopologyAwareAllocatableResourcesResponse, error) {
+	*pluginapi.GetTopologyAwareAllocatableResourcesRequest,
+) (*pluginapi.GetTopologyAwareAllocatableResourcesResponse, error) {
 	p.RLock()
 	defer p.RUnlock()
 
@@ -676,17 +681,21 @@ func (p *DynamicPolicy) GetTopologyAwareAllocatableResources(context.Context,
 
 // GetResourcePluginOptions returns options to be communicated with Resource Manager
 func (p *DynamicPolicy) GetResourcePluginOptions(context.Context,
-	*pluginapi.Empty) (*pluginapi.ResourcePluginOptions, error) {
-	return &pluginapi.ResourcePluginOptions{PreStartRequired: false,
+	*pluginapi.Empty,
+) (*pluginapi.ResourcePluginOptions, error) {
+	return &pluginapi.ResourcePluginOptions{
+		PreStartRequired:      false,
 		WithTopologyAlignment: true,
-		NeedReconcile:         true}, nil
+		NeedReconcile:         true,
+	}, nil
 }
 
 // Allocate is called during pod admit so that the resource
 // plugin can allocate corresponding resource for the container
 // according to resource request
 func (p *DynamicPolicy) Allocate(ctx context.Context,
-	req *pluginapi.ResourceRequest) (resp *pluginapi.ResourceAllocationResponse, respErr error) {
+	req *pluginapi.ResourceRequest,
+) (resp *pluginapi.ResourceAllocationResponse, respErr error) {
 	if req == nil {
 		return nil, fmt.Errorf("Allocate got nil req")
 	}
@@ -775,7 +784,6 @@ func (p *DynamicPolicy) Allocate(ctx context.Context,
 				QosLevel:        qosLevel,
 				RequestQuantity: uint64(reqInt),
 			})
-
 			if err != nil {
 				resp = nil
 				respErr = fmt.Errorf("add container to qos aware server failed with error: %v", err)

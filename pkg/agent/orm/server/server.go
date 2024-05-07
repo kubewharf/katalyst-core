@@ -33,7 +33,8 @@ func ListenAndServePodResources(
 	podsProvider podresources.PodsProvider,
 	resourcesProvider podresources.ResourcesProvider,
 	devicesProvider podresources.DevicesProvider,
-	emitter metrics.MetricEmitter) {
+	emitter metrics.MetricEmitter,
+) {
 	klog.V(5).Infof("ListenAndServePodResources ...")
 	server := grpc.NewServer()
 	podresourcesapi.RegisterPodResourcesListerServer(server, podresources.NewV1PodResourcesServer(podsProvider, resourcesProvider, devicesProvider, emitter))

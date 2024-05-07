@@ -85,6 +85,7 @@ func (o *MemoryOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 	fs.IntVar(&o.SetCgroupTCPMemRatio, "qrm-memory-cgroup-tcpmem-ratio",
 		o.SetCgroupTCPMemRatio, "limit cgroup max tcp memory usage")
 }
+
 func (o *MemoryOptions) ApplyTo(conf *qrmconfig.MemoryQRMPluginConfig) error {
 	conf.PolicyName = o.PolicyName
 	conf.ReservedMemoryGB = o.ReservedMemoryGB

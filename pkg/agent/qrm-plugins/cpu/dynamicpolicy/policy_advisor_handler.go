@@ -106,7 +106,8 @@ func (p *DynamicPolicy) serveForAdvisor(stopCh <-chan struct{}) {
 
 // GetCheckpoint works with serveForAdvisor to provide ckp for cpu-advisor
 func (p *DynamicPolicy) GetCheckpoint(_ context.Context,
-	req *advisorapi.GetCheckpointRequest) (*advisorapi.GetCheckpointResponse, error) {
+	req *advisorapi.GetCheckpointRequest,
+) (*advisorapi.GetCheckpointResponse, error) {
 	if req == nil {
 		return nil, fmt.Errorf("GetCheckpoint got nil req")
 	}

@@ -78,27 +78,24 @@ const (
 	podDebugAnnoKey = "qrm.katalyst.kubewharf.io/debug_pod"
 )
 
-var (
-	fakeConf = &config.Configuration{
-		AgentConfiguration: &configagent.AgentConfiguration{
-			GenericAgentConfiguration: &configagent.GenericAgentConfiguration{
-				GenericQRMPluginConfiguration: &qrmconfig.GenericQRMPluginConfiguration{
-					UseKubeletReservedConfig: false,
-				},
+var fakeConf = &config.Configuration{
+	AgentConfiguration: &configagent.AgentConfiguration{
+		GenericAgentConfiguration: &configagent.GenericAgentConfiguration{
+			GenericQRMPluginConfiguration: &qrmconfig.GenericQRMPluginConfiguration{
+				UseKubeletReservedConfig: false,
 			},
-			StaticAgentConfiguration: &configagent.StaticAgentConfiguration{
-				QRMPluginsConfiguration: &qrmconfig.QRMPluginsConfiguration{
-					MemoryQRMPluginConfig: &qrmconfig.MemoryQRMPluginConfig{
-						ReservedMemoryGB: 4,
-					},
+		},
+		StaticAgentConfiguration: &configagent.StaticAgentConfiguration{
+			QRMPluginsConfiguration: &qrmconfig.QRMPluginsConfiguration{
+				MemoryQRMPluginConfig: &qrmconfig.MemoryQRMPluginConfig{
+					ReservedMemoryGB: 4,
 				},
 			},
 		},
-	}
-)
+	},
+}
 
 func getTestDynamicPolicyWithInitialization(topology *machine.CPUTopology, machineInfo *info.MachineInfo, stateFileDirectory string) (*DynamicPolicy, error) {
-
 	reservedMemory, err := getReservedMemory(fakeConf, &metaserver.MetaServer{}, machineInfo)
 	if err != nil {
 		return nil, err
@@ -2934,7 +2931,7 @@ func bpfTestInit() {
 func TempBPFFS(tb testing.TB) string {
 	tb.Helper()
 
-	if err := os.MkdirAll("/sys/fs/bpf", 0755); err != nil {
+	if err := os.MkdirAll("/sys/fs/bpf", 0o755); err != nil {
 		tb.Fatal("Failed to create /sys/fs/bpf directory:", err)
 	}
 

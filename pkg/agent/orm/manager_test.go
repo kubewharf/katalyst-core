@@ -253,7 +253,8 @@ func TestIsSkippedContainer(t *testing.T) {
 							Name: "testContainer",
 						},
 					},
-				}},
+				},
+			},
 			Container: &v1.Container{
 				Name: "testContainer",
 			},
@@ -525,7 +526,6 @@ func registerEndpointByRes(manager *ManagerImpl, testRes []TestResource) error {
 }
 
 func registerEndpointByPods(manager *ManagerImpl, pods []*v1.Pod) error {
-
 	for _, resource := range []string{"cpu", "memory"} {
 		resp := &pluginapi.GetResourcesAllocationResponse{
 			PodResources: map[string]*pluginapi.ContainerResources{},

@@ -219,7 +219,7 @@ func TestGetLimitFromTCPMemFile(t *testing.T) {
 
 	// case3, file with invalid data
 	testData = []byte("invalid_data\n")
-	err = ioutil.WriteFile(tmpFile.Name(), testData, 0644)
+	err = ioutil.WriteFile(tmpFile.Name(), testData, 0o644)
 	if err != nil {
 		t.Fatalf("Error writing invalid test data to temporary file: %v", err)
 	}

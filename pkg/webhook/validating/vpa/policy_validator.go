@@ -25,19 +25,16 @@ import (
 	katalystutil "github.com/kubewharf/katalyst-core/pkg/util/native"
 )
 
-var (
-	// todo: make this configurable to support other resource types
-	valuableControlledResourceMap = map[v1.ResourceName]bool{
-		v1.ResourceMemory: true,
-		v1.ResourceCPU:    true,
-	}
-)
+// todo: make this configurable to support other resource types
+var valuableControlledResourceMap = map[v1.ResourceName]bool{
+	v1.ResourceMemory: true,
+	v1.ResourceCPU:    true,
+}
 
 // WebhookVPAPolicyValidator validate:
 // 1. if controlled resource are valid in vpa by checking if resource name in valuableControlledResourceMap
 // 2. if MinAllowed <= MaxAllowed
-type WebhookVPAPolicyValidator struct {
-}
+type WebhookVPAPolicyValidator struct{}
 
 func NewWebhookVPAPolicyValidator() *WebhookVPAPolicyValidator {
 	return &WebhookVPAPolicyValidator{}

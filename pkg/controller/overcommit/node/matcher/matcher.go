@@ -279,9 +279,7 @@ func (i *MatcherImpl) matchConfigNameToNodes(configName string) ([]string, error
 }
 
 func (i *MatcherImpl) matchConfigToNodes(overcommitConfig *v1alpha1.NodeOvercommitConfig) ([]string, error) {
-	var (
-		nodeNames = make([]string, 0)
-	)
+	nodeNames := make([]string, 0)
 
 	val := overcommitConfig.Spec.NodeOvercommitSelectorVal
 	if val == "" {
@@ -305,9 +303,7 @@ func (i *MatcherImpl) matchConfigToNodes(overcommitConfig *v1alpha1.NodeOvercomm
 }
 
 func (i *MatcherImpl) configNodeUnion(configName string, nodeNames []string) sets.String {
-	var (
-		newNodes = sets.NewString(nodeNames...)
-	)
+	newNodes := sets.NewString(nodeNames...)
 
 	originalNodes, ok := i.configToNodes[configName]
 	if !ok {

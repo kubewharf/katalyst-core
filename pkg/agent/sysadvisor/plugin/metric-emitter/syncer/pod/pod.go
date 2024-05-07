@@ -86,7 +86,8 @@ type MetricSyncerPod struct {
 
 func NewMetricSyncerPod(conf *config.Configuration, _ interface{},
 	metricEmitter metrics.MetricEmitter, emitterPool metricspool.MetricsEmitterPool,
-	metaServer *metaserver.MetaServer, metaReader metacache.MetaReader) (syncer.CustomMetricSyncer, error) {
+	metaServer *metaserver.MetaServer, metaReader metacache.MetaReader,
+) (syncer.CustomMetricSyncer, error) {
 	klog.Infof("skip anno: %v, skip label: %v", conf.AgentConfiguration.PodSkipAnnotations, conf.AgentConfiguration.PodSkipLabels)
 	dataEmitter, err := emitterPool.GetMetricsEmitter(metricspool.PrometheusMetricOptions{
 		Path: metrics.PrometheusMetricPathNameCustomMetric,

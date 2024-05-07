@@ -106,7 +106,8 @@ type SPDController struct {
 
 func NewSPDController(ctx context.Context, controlCtx *katalystbase.GenericContext,
 	genericConf *generic.GenericConfiguration, _ *controller.GenericControllerConfiguration,
-	conf *controller.SPDConfig, qosConfig *generic.QoSConfiguration, extraConf interface{}) (*SPDController, error) {
+	conf *controller.SPDConfig, qosConfig *generic.QoSConfiguration, extraConf interface{},
+) (*SPDController, error) {
 	if conf == nil || controlCtx.Client == nil || genericConf == nil {
 		return nil, fmt.Errorf("client, conf and generalConf can't be nil")
 	}

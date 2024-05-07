@@ -371,7 +371,6 @@ func TestGetAllocatableResources(t *testing.T) {
 			assert.True(t, equalAllocatableResourcesResponse(tc.expectedAllocatableResourcesResponse, resp))
 		})
 	}
-
 }
 
 func equalListResponse(respA, respB *podresourcesapi.ListPodResourcesResponse) bool {

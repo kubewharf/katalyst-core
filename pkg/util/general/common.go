@@ -153,7 +153,6 @@ func ParseStringToUint64Pointer(s string) (*uint64, error) {
 		return nil, nil
 	} else {
 		v, err := strconv.ParseUint(s, 10, 64)
-
 		if err != nil {
 			return nil, err
 		}

@@ -31,7 +31,8 @@ import (
 )
 
 func StartCustomMetricStoreServer(ctx context.Context, baseCtx *katalystbase.GenericContext, conf *config.Configuration,
-	metricStore store.MetricStore) (func() error, func() error, error) {
+	metricStore store.MetricStore,
+) (func() error, func() error, error) {
 	if metricStore.Name() != local.MetricStoreNameLocalMemory {
 		return nil, nil, fmt.Errorf("only local memory store is supported to run as a server")
 	}

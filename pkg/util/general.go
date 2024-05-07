@@ -34,10 +34,12 @@ import (
 // WorkloadSPDEnabledFunc checks if the given workload is enabled with service profiling.
 type WorkloadSPDEnabledFunc func(metav1.Object) bool
 
-var workloadSPDEnabledLock sync.RWMutex
-var workloadSPDEnabled WorkloadSPDEnabledFunc = func(workload metav1.Object) bool {
-	return workload.GetAnnotations()[apiconsts.WorkloadAnnotationSPDEnableKey] == apiconsts.WorkloadAnnotationSPDEnabled
-}
+var (
+	workloadSPDEnabledLock sync.RWMutex
+	workloadSPDEnabled     WorkloadSPDEnabledFunc = func(workload metav1.Object) bool {
+		return workload.GetAnnotations()[apiconsts.WorkloadAnnotationSPDEnableKey] == apiconsts.WorkloadAnnotationSPDEnabled
+	}
+)
 
 // SetWorkloadEnableFunc provides a way to set the
 func SetWorkloadEnableFunc(f WorkloadSPDEnabledFunc) {

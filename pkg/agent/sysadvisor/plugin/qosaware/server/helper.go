@@ -73,7 +73,8 @@ type internalBlock struct {
 }
 
 func NewInnerBlock(block *cpuadvisor.Block, numaID int64, poolName string, containerInfo *types.ContainerInfo,
-	numaCalculationResult *cpuadvisor.NumaCalculationResult) *internalBlock {
+	numaCalculationResult *cpuadvisor.NumaCalculationResult,
+) *internalBlock {
 	ib := &internalBlock{
 		Block:                 block,
 		NumaID:                numaID,
@@ -197,7 +198,8 @@ func (bs blockSet) get(blockID string) []*internalBlock {
 
 // getNumaCalculationResult returns numa-level calculation results
 func getNumaCalculationResult(calculationEntriesMap map[string]*cpuadvisor.CalculationEntries,
-	entryName, containerName string, numa int64) (*cpuadvisor.NumaCalculationResult, bool) {
+	entryName, containerName string, numa int64,
+) (*cpuadvisor.NumaCalculationResult, bool) {
 	entries, ok := calculationEntriesMap[entryName]
 	if !ok {
 		return nil, false

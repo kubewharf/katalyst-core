@@ -45,9 +45,8 @@ var aggregateFuncMap = map[string]aggregateFunc{
 type aggregateFunc func(items []*types.SeriesItem) (float64, error)
 
 func buildAggregatedIdentity(items []*types.SeriesItem) (types.AggregatedIdentity, error) {
-
-	var latestTime = items[0].Timestamp
-	var oldestTime = items[0].Timestamp
+	latestTime := items[0].Timestamp
+	oldestTime := items[0].Timestamp
 
 	for i := range items {
 		latestTime = general.MaxInt64(latestTime, items[i].Timestamp)
@@ -469,11 +468,11 @@ func (a *MetricImp) aggregate() {
 	var identity types.AggregatedIdentity
 	var sum float64
 	var statsData stats.Float64Data
-	var max = allItems[0].Value
-	var min = allItems[0].Value
-	var latestTime = allItems[0].Timestamp
-	var oldestTime = allItems[0].Timestamp
-	var latestItem = allItems[0]
+	max := allItems[0].Value
+	min := allItems[0].Value
+	latestTime := allItems[0].Timestamp
+	oldestTime := allItems[0].Timestamp
+	latestItem := allItems[0]
 
 	if identity, err = buildAggregatedIdentity(allItems); err != nil {
 		general.Errorf("failed to get aggregated identity,err:%v", err)

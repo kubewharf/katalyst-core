@@ -152,8 +152,7 @@ func getBlocksLessFunc(blocksEntryNames map[string][][]string, blocks []*Block) 
 			return names
 		}
 
-		podNames1, poolNames1, podNames2, poolNames2 :=
-			getNames(entryNames1, true),
+		podNames1, poolNames1, podNames2, poolNames2 := getNames(entryNames1, true),
 			getNames(entryNames1, false),
 			getNames(entryNames2, true),
 			getNames(entryNames2, false)
@@ -197,7 +196,6 @@ func (lwr *ListAndWatchResponse) GeEntryNUMABlocks(entry, subEntry string, numa 
 	} else {
 		return results.Blocks, true
 	}
-
 }
 
 // GetCalculationInfo returns CalculationInfo according to the given [entry, subEntry]
@@ -287,7 +285,7 @@ func (ci *CalculationInfo) GetTotalQuantity() (int, error) {
 		return 0, err
 	}
 
-	var totalQuantity = 0
+	totalQuantity := 0
 	for _, quantity := range numaQuantities {
 		totalQuantity += quantity
 	}
@@ -317,5 +315,4 @@ func (ci *CalculationInfo) GetCPUSet(entry, subEntry string, b BlockCPUSet) (mac
 		}
 	}
 	return cpusets, nil
-
 }

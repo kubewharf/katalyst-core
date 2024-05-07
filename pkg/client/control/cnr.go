@@ -50,6 +50,7 @@ type DummyCNRControl struct{}
 func (d DummyCNRControl) CreateCNR(_ context.Context, _ *v1alpha1.CustomNodeResource) (*v1alpha1.CustomNodeResource, error) {
 	return nil, nil
 }
+
 func (d DummyCNRControl) DeleteCNR(_ context.Context, _ string) error {
 	return nil
 }
@@ -57,6 +58,7 @@ func (d DummyCNRControl) DeleteCNR(_ context.Context, _ string) error {
 func (d DummyCNRControl) PatchCNRSpecAndMetadata(_ context.Context, _ string, _, _ *v1alpha1.CustomNodeResource) (*v1alpha1.CustomNodeResource, error) {
 	return nil, nil
 }
+
 func (d DummyCNRControl) PatchCNRStatus(_ context.Context, _ string, _, _ *v1alpha1.CustomNodeResource) (*v1alpha1.CustomNodeResource, error) {
 	return nil, nil
 }

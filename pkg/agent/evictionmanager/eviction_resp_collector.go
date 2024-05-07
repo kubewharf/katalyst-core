@@ -159,7 +159,8 @@ func (e *evictionRespCollector) collectMetThreshold(dryRunPlugins []string, plug
 }
 
 func (e *evictionRespCollector) collectTopEvictionPods(dryRunPlugins []string, pluginName string,
-	threshold *pluginapi.ThresholdMetResponse, resp *pluginapi.GetTopEvictionPodsResponse) {
+	threshold *pluginapi.ThresholdMetResponse, resp *pluginapi.GetTopEvictionPodsResponse,
+) {
 	dryRun := e.isDryRun(dryRunPlugins, pluginName)
 
 	targetPods := make([]*v1.Pod, 0, len(resp.TargetPods))

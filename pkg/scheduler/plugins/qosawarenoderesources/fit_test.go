@@ -159,7 +159,7 @@ func Test_Fit(t *testing.T) {
 	state := framework.NewCycleState()
 	p1 := makeFitPod("p1", "p1", map[v1.ResourceName]resource.Quantity{
 		consts.ReclaimedResourceMilliCPU: *resource.NewQuantity(2000, resource.DecimalSI),
-		consts.ReclaimedResourceMemory:   *resource.NewQuantity(2*1024*0124*1024, resource.DecimalSI),
+		consts.ReclaimedResourceMemory:   *resource.NewQuantity(2*1024*0o124*1024, resource.DecimalSI),
 	}, "c1")
 
 	fit.PreFilter(context.Background(), state, p1)
@@ -168,7 +168,7 @@ func Test_Fit(t *testing.T) {
 	assert.Equal(t, data, &preFilterState{
 		QoSResource: native.QoSResource{
 			ReclaimedMilliCPU: int64(2000),
-			ReclaimedMemory:   int64(2 * 1024 * 0124 * 1024),
+			ReclaimedMemory:   int64(2 * 1024 * 0o124 * 1024),
 		},
 	})
 
@@ -187,7 +187,7 @@ func Test_Fit(t *testing.T) {
 	assert.Equal(t, node.QoSResourcesAllocatable.ReclaimedMilliCPU, int64(0))
 	assert.Equal(t, node.QoSResourcesAllocatable.ReclaimedMemory, int64(0))
 	assert.Equal(t, node.QoSResourcesRequested.ReclaimedMilliCPU, int64(2000))
-	assert.Equal(t, node.QoSResourcesRequested.ReclaimedMemory, int64(2*1024*0124*1024))
+	assert.Equal(t, node.QoSResourcesRequested.ReclaimedMemory, int64(2*1024*0o124*1024))
 
 	fit.Unreserve(context.Background(), nil, p1, "c1")
 	node, err = cache.GetCache().GetNodeInfo("c1")
@@ -196,7 +196,6 @@ func Test_Fit(t *testing.T) {
 	assert.Equal(t, node.QoSResourcesAllocatable.ReclaimedMemory, int64(0))
 	assert.Equal(t, node.QoSResourcesRequested.ReclaimedMilliCPU, int64(0))
 	assert.Equal(t, node.QoSResourcesRequested.ReclaimedMemory, int64(0))
-
 }
 
 func Test_Allocated(t *testing.T) {
@@ -208,20 +207,20 @@ func Test_Allocated(t *testing.T) {
 	state := framework.NewCycleState()
 	p1 := makeFitPod("p1", "p1", map[v1.ResourceName]resource.Quantity{
 		consts.ReclaimedResourceMilliCPU: *resource.NewQuantity(2000, resource.DecimalSI),
-		consts.ReclaimedResourceMemory:   *resource.NewQuantity(2*1024*0124*1024, resource.DecimalSI),
+		consts.ReclaimedResourceMemory:   *resource.NewQuantity(2*1024*0o124*1024, resource.DecimalSI),
 	}, "n1")
 	p2 := makeFitPod("p2", "p2", map[v1.ResourceName]resource.Quantity{
 		consts.ReclaimedResourceMilliCPU: *resource.NewQuantity(3000, resource.DecimalSI),
-		consts.ReclaimedResourceMemory:   *resource.NewQuantity(3*1024*0124*1024, resource.DecimalSI),
+		consts.ReclaimedResourceMemory:   *resource.NewQuantity(3*1024*0o124*1024, resource.DecimalSI),
 	}, "n1")
 	n1 := makeFitNode("n1", []*v1.Pod{p1, p2}, map[v1.ResourceName]resource.Quantity{
 		consts.ReclaimedResourceMilliCPU: *resource.NewQuantity(9000, resource.DecimalSI),
-		consts.ReclaimedResourceMemory:   *resource.NewQuantity(12*1024*0124*1024, resource.DecimalSI),
+		consts.ReclaimedResourceMemory:   *resource.NewQuantity(12*1024*0o124*1024, resource.DecimalSI),
 	})
 
 	p3 := makeFitPod("p3", "p3", map[v1.ResourceName]resource.Quantity{
 		consts.ReclaimedResourceMilliCPU: *resource.NewQuantity(3000, resource.DecimalSI),
-		consts.ReclaimedResourceMemory:   *resource.NewQuantity(3*1024*0124*1024, resource.DecimalSI),
+		consts.ReclaimedResourceMemory:   *resource.NewQuantity(3*1024*0o124*1024, resource.DecimalSI),
 	}, "")
 	fit.PreFilter(context.Background(), state, p3)
 
@@ -231,7 +230,7 @@ func Test_Allocated(t *testing.T) {
 
 	c1 := makeFitCNR("n1", map[v1.ResourceName]resource.Quantity{
 		consts.ReclaimedResourceMilliCPU: *resource.NewQuantity(9000, resource.DecimalSI),
-		consts.ReclaimedResourceMemory:   *resource.NewQuantity(12*1024*0124*1024, resource.DecimalSI),
+		consts.ReclaimedResourceMemory:   *resource.NewQuantity(12*1024*0o124*1024, resource.DecimalSI),
 	})
 	cache.GetCache().AddOrUpdateCNR(c1)
 	status = fit.Filter(context.Background(), state, p3, n1)
@@ -239,7 +238,7 @@ func Test_Allocated(t *testing.T) {
 
 	p4 := makeFitPod("p4", "p4", map[v1.ResourceName]resource.Quantity{
 		consts.ReclaimedResourceMilliCPU: *resource.NewQuantity(3000, resource.DecimalSI),
-		consts.ReclaimedResourceMemory:   *resource.NewQuantity(30*1024*0124*1024, resource.DecimalSI),
+		consts.ReclaimedResourceMemory:   *resource.NewQuantity(30*1024*0o124*1024, resource.DecimalSI),
 	}, "")
 	fit.PreFilter(context.Background(), state, p4)
 
@@ -254,25 +253,25 @@ func Test_FitScore(t *testing.T) {
 	state := framework.NewCycleState()
 	p1 := makeFitPod("p1", "p1", map[v1.ResourceName]resource.Quantity{
 		consts.ReclaimedResourceMilliCPU: *resource.NewQuantity(2000, resource.DecimalSI),
-		consts.ReclaimedResourceMemory:   *resource.NewQuantity(2*1024*0124*1024, resource.DecimalSI),
+		consts.ReclaimedResourceMemory:   *resource.NewQuantity(2*1024*0o124*1024, resource.DecimalSI),
 	}, "n1")
 	_ = cache.GetCache().AddPod(p1)
 
 	p2 := makeFitPod("p2", "p2", map[v1.ResourceName]resource.Quantity{
 		consts.ReclaimedResourceMilliCPU: *resource.NewQuantity(3000, resource.DecimalSI),
-		consts.ReclaimedResourceMemory:   *resource.NewQuantity(3*1024*0124*1024, resource.DecimalSI),
+		consts.ReclaimedResourceMemory:   *resource.NewQuantity(3*1024*0o124*1024, resource.DecimalSI),
 	}, "n1")
 	_ = cache.GetCache().AddPod(p2)
 
 	c1 := makeFitCNR("n1", map[v1.ResourceName]resource.Quantity{
 		consts.ReclaimedResourceMilliCPU: *resource.NewQuantity(9000, resource.DecimalSI),
-		consts.ReclaimedResourceMemory:   *resource.NewQuantity(12*1024*0124*1024, resource.DecimalSI),
+		consts.ReclaimedResourceMemory:   *resource.NewQuantity(12*1024*0o124*1024, resource.DecimalSI),
 	})
 	cache.GetCache().AddOrUpdateCNR(c1)
 
 	p3 := makeFitPod("p3", "p3", map[v1.ResourceName]resource.Quantity{
 		consts.ReclaimedResourceMilliCPU: *resource.NewQuantity(3000, resource.DecimalSI),
-		consts.ReclaimedResourceMemory:   *resource.NewQuantity(3*1024*0124*1024, resource.DecimalSI),
+		consts.ReclaimedResourceMemory:   *resource.NewQuantity(3*1024*0o124*1024, resource.DecimalSI),
 	}, "")
 
 	leastF, _ := makeFit(kubeschedulerconfig.LeastAllocated)

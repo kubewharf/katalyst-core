@@ -71,7 +71,8 @@ func GenerateMachineState(conf *qrm.QRMPluginsConfiguration, nics []machine.Inte
 // GenerateMachineStateFromPodEntries returns NICMap for bandwidth based on
 // machine info and reserved resources along with existed pod entries
 func GenerateMachineStateFromPodEntries(conf *qrm.QRMPluginsConfiguration, nics []machine.InterfaceInfo,
-	podEntries PodEntries, reservation map[string]uint32) (NICMap, error) {
+	podEntries PodEntries, reservation map[string]uint32,
+) (NICMap, error) {
 	machineState, err := GenerateMachineState(conf, nics, reservation)
 	if err != nil {
 		return nil, fmt.Errorf("GenerateMachineState failed with error: %v", err)

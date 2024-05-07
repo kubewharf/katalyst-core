@@ -130,9 +130,7 @@ func (nc *NodeOvercommitController) updateNode(old, new interface{}) {
 		klog.Errorf("cannot convert obj to *v1.Node: %v", new)
 		return
 	}
-	var (
-		oldLabel, newLabel string
-	)
+	var oldLabel, newLabel string
 	if len(oldNode.Labels) != 0 {
 		oldLabel = oldNode.Labels[consts.NodeOvercommitSelectorKey]
 	}

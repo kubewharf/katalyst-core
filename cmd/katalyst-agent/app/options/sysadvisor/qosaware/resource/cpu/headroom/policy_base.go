@@ -22,8 +22,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/sysadvisor/qosaware/resource/cpu/headroom"
 )
 
-type CPUHeadroomPolicyOptions struct {
-}
+type CPUHeadroomPolicyOptions struct{}
 
 func NewCPUHeadroomPolicyOptions() *CPUHeadroomPolicyOptions {
 	return &CPUHeadroomPolicyOptions{}
