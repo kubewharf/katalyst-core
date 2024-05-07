@@ -141,7 +141,8 @@ type HealthzHelper struct {
 // NewHealthzHelper todo add logic here
 func NewHealthzHelper(ctx context.Context, conf *controller.LifeCycleConfig, emitter metrics.MetricEmitter,
 	nodeSelector labels.Selector, agentSelectors map[string]labels.Selector, podIndexer cache.Indexer,
-	nodeLister corelisters.NodeLister, cnrLister listers.CustomNodeResourceLister) *HealthzHelper {
+	nodeLister corelisters.NodeLister, cnrLister listers.CustomNodeResourceLister,
+) *HealthzHelper {
 	return &HealthzHelper{
 		ctx:     ctx,
 		emitter: emitter,

@@ -106,7 +106,8 @@ func VPATargetReferenceIndex(obj interface{}) ([]string, error) {
 // GetPodListForVPA is used to get pods that should be managed by the given vpa,
 // we'll always get through workload
 func GetPodListForVPA(vpa *apis.KatalystVerticalPodAutoscaler, podIndexer cache.Indexer, podLabelIndexKeyList []string,
-	workloadLister cache.GenericLister, podLister corelisters.PodLister) ([]*core.Pod, error) {
+	workloadLister cache.GenericLister, podLister corelisters.PodLister,
+) ([]*core.Pod, error) {
 	workloadObj, err := GetWorkloadForVPA(vpa, workloadLister)
 	if err != nil {
 		return nil, err
@@ -119,7 +120,8 @@ func GetPodListForVPA(vpa *apis.KatalystVerticalPodAutoscaler, podIndexer cache.
 // we'll always get through workload, and we will find it recursively since
 // we don't know in which level the owner will be.
 func GetVPAForPod(pod *core.Pod, vpaIndexer cache.Indexer, workloadListerMap map[schema.GroupVersionKind]cache.GenericLister,
-	vpaLister autoscalelister.KatalystVerticalPodAutoscalerLister) (*apis.KatalystVerticalPodAutoscaler, error) {
+	vpaLister autoscalelister.KatalystVerticalPodAutoscalerLister,
+) (*apis.KatalystVerticalPodAutoscaler, error) {
 	for _, owner := range pod.GetOwnerReferences() {
 		gvk := schema.FromAPIVersionAndKind(owner.APIVersion, owner.Kind)
 		if _, ok := workloadListerMap[gvk]; ok {
@@ -152,7 +154,8 @@ func GetWorkloadForVPA(vpa *apis.KatalystVerticalPodAutoscaler, workloadLister c
 
 // GetVPAForWorkload is used to get vpa that should manage the given workload
 func GetVPAForWorkload(workload *unstructured.Unstructured, vpaIndexer cache.Indexer,
-	vpaLister autoscalelister.KatalystVerticalPodAutoscalerLister) (*apis.KatalystVerticalPodAutoscaler, error) {
+	vpaLister autoscalelister.KatalystVerticalPodAutoscalerLister,
+) (*apis.KatalystVerticalPodAutoscaler, error) {
 	if vpaName, ok := workload.GetAnnotations()[apiconsts.WorkloadAnnotationVPANameKey]; ok {
 		vpa, err := vpaLister.KatalystVerticalPodAutoscalers(workload.GetNamespace()).Get(vpaName)
 		if err == nil && checkTargetRefMatch(vpa.Spec.TargetRef, workload) {
@@ -183,7 +186,8 @@ func GetVPAForWorkload(workload *unstructured.Unstructured, vpaIndexer cache.Ind
 // GetSPDForVPA is used to get spd that matches with the workload belongs to the given vpa
 // the preference is indexer --> GetSPDForWorkload
 func GetSPDForVPA(vpa *apis.KatalystVerticalPodAutoscaler, spdIndexer cache.Indexer, workloadLister cache.GenericLister,
-	spdLister workloadlister.ServiceProfileDescriptorLister) (*workload.ServiceProfileDescriptor, error) {
+	spdLister workloadlister.ServiceProfileDescriptorLister,
+) (*workload.ServiceProfileDescriptor, error) {
 	workloadObj, err := GetWorkloadForVPA(vpa, workloadLister)
 	if err != nil {
 		return nil, err
@@ -265,7 +269,8 @@ func GenerateVPAPolicyMap(vpa *apis.KatalystVerticalPodAutoscaler) (map[string]a
 // GenerateVPAPodResizeResourceAnnotations returns mapping from containerName to resourceRequirements
 // by merging the given podResources and containerResources; and podResources is always superior to containerResources
 func GenerateVPAPodResizeResourceAnnotations(pod *core.Pod, podResources map[consts.PodContainerName]apis.ContainerResources,
-	containerResources map[consts.ContainerName]apis.ContainerResources) (map[string]core.ResourceRequirements, error) {
+	containerResources map[consts.ContainerName]apis.ContainerResources,
+) (map[string]core.ResourceRequirements, error) {
 	if pod == nil {
 		err := fmt.Errorf("a nil pod in pods list")
 		klog.Error(err.Error())

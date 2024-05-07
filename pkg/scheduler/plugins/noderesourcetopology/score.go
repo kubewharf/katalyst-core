@@ -158,7 +158,8 @@ func containerScopeScore(
 	scorerFn scoreStrategyFn,
 	resourceToWeightMap resourceToWeightMap,
 	numaScoreFunc NUMAScoreFunc,
-	alignedResource sets.String) (int64, *framework.Status) {
+	alignedResource sets.String,
+) (int64, *framework.Status) {
 	var (
 		containers  = append(pod.Spec.InitContainers, pod.Spec.Containers...)
 		contScore   = make([]float64, len(containers))
@@ -180,7 +181,8 @@ func podScopeScore(
 	pod *v1.Pod,
 	zones []*v1alpha1.TopologyZone,
 	scorerFn scoreStrategyFn,
-	resourceToWeightMap resourceToWeightMap) (int64, *framework.Status) {
+	resourceToWeightMap resourceToWeightMap,
+) (int64, *framework.Status) {
 	resources := util.GetPodEffectiveRequest(pod)
 
 	NUMANodeList := TopologyZonesToNUMANodeList(zones)

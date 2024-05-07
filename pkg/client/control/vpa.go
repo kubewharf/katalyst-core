@@ -47,22 +47,26 @@ type VPAUpdater interface {
 type DummyVPAUpdater struct{}
 
 func (d *DummyVPAUpdater) UpdateVPA(_ context.Context,
-	_ *apis.KatalystVerticalPodAutoscaler, _ metav1.UpdateOptions) (*apis.KatalystVerticalPodAutoscaler, error) {
+	_ *apis.KatalystVerticalPodAutoscaler, _ metav1.UpdateOptions,
+) (*apis.KatalystVerticalPodAutoscaler, error) {
 	return nil, nil
 }
 
 func (d *DummyVPAUpdater) UpdateVPAStatus(_ context.Context,
-	_ *apis.KatalystVerticalPodAutoscaler, _ metav1.UpdateOptions) (*apis.KatalystVerticalPodAutoscaler, error) {
+	_ *apis.KatalystVerticalPodAutoscaler, _ metav1.UpdateOptions,
+) (*apis.KatalystVerticalPodAutoscaler, error) {
 	return nil, nil
 }
 
 func (d *DummyVPAUpdater) PatchVPA(_ context.Context, _,
-	newVPA *apis.KatalystVerticalPodAutoscaler) (*apis.KatalystVerticalPodAutoscaler, error) {
+	newVPA *apis.KatalystVerticalPodAutoscaler,
+) (*apis.KatalystVerticalPodAutoscaler, error) {
 	return newVPA, nil
 }
 
 func (d *DummyVPAUpdater) PatchVPAStatus(_ context.Context, _,
-	newVPA *apis.KatalystVerticalPodAutoscaler) (*apis.KatalystVerticalPodAutoscaler, error) {
+	newVPA *apis.KatalystVerticalPodAutoscaler,
+) (*apis.KatalystVerticalPodAutoscaler, error) {
 	return newVPA, nil
 }
 
@@ -77,7 +81,8 @@ func NewRealVPAUpdater(client clientset.Interface) VPAUpdater {
 }
 
 func (r *RealVPAUpdater) UpdateVPA(ctx context.Context, vpa *apis.KatalystVerticalPodAutoscaler,
-	opts metav1.UpdateOptions) (*apis.KatalystVerticalPodAutoscaler, error) {
+	opts metav1.UpdateOptions,
+) (*apis.KatalystVerticalPodAutoscaler, error) {
 	if vpa == nil {
 		return nil, fmt.Errorf("can't update a nil vpa")
 	}
@@ -87,7 +92,8 @@ func (r *RealVPAUpdater) UpdateVPA(ctx context.Context, vpa *apis.KatalystVertic
 }
 
 func (r *RealVPAUpdater) UpdateVPAStatus(ctx context.Context, vpa *apis.KatalystVerticalPodAutoscaler,
-	opts metav1.UpdateOptions) (*apis.KatalystVerticalPodAutoscaler, error) {
+	opts metav1.UpdateOptions,
+) (*apis.KatalystVerticalPodAutoscaler, error) {
 	if vpa == nil {
 		return nil, fmt.Errorf("can't update a nil vpa's status")
 	}
@@ -97,7 +103,8 @@ func (r *RealVPAUpdater) UpdateVPAStatus(ctx context.Context, vpa *apis.Katalyst
 }
 
 func (r *RealVPAUpdater) PatchVPA(ctx context.Context, oldVPA,
-	newVPA *apis.KatalystVerticalPodAutoscaler) (*apis.KatalystVerticalPodAutoscaler, error) {
+	newVPA *apis.KatalystVerticalPodAutoscaler,
+) (*apis.KatalystVerticalPodAutoscaler, error) {
 	if oldVPA == nil || newVPA == nil {
 		return nil, fmt.Errorf("can't patch a nil vpa")
 	}
@@ -125,7 +132,8 @@ func (r *RealVPAUpdater) PatchVPA(ctx context.Context, oldVPA,
 }
 
 func (r *RealVPAUpdater) PatchVPAStatus(ctx context.Context, oldVPA,
-	newVPA *apis.KatalystVerticalPodAutoscaler) (*apis.KatalystVerticalPodAutoscaler, error) {
+	newVPA *apis.KatalystVerticalPodAutoscaler,
+) (*apis.KatalystVerticalPodAutoscaler, error) {
 	if oldVPA == nil || newVPA == nil {
 		return nil, fmt.Errorf("can't patch a nil vpa")
 	}

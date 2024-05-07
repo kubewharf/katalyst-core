@@ -249,7 +249,6 @@ func GetTasksWithAbsolutePath(absCgroupPath string) ([]string, error) {
 }
 
 func GetCPUSetForContainer(podUID, containerId string) (*common.CPUSetStats, error) {
-
 	cpusetAbsCGPath, err := common.GetContainerAbsCgroupPath(common.CgroupSubsysCPUSet, podUID, containerId)
 	if err != nil {
 		return nil, fmt.Errorf("GetContainerAbsCgroupPath failed with error: %v", err)
@@ -282,10 +281,10 @@ func DropCacheWithTimeoutAndAbsCGPath(timeoutSecs int, absCgroupPath string, nby
 			general.Infof("[DropCacheWithTimeoutAndAbsCGPath] skip drop cache on %s since nbytes is zero", absCgroupPath)
 			return nil
 		}
-		//cgv2
+		// cgv2
 		cmd = fmt.Sprintf("timeout %d echo %d > %s", timeoutSecs, nbytes, filepath.Join(absCgroupPath, "memory.reclaim"))
 	} else {
-		//cgv1
+		// cgv1
 		cmd = fmt.Sprintf("timeout %d echo 0 > %s", timeoutSecs, filepath.Join(absCgroupPath, "memory.force_empty"))
 	}
 
@@ -327,10 +326,10 @@ func SetExtraCGMemLimitWithTimeoutAndAbsCGPath(timeoutSecs int, absCgroupPath st
 			general.Infof("[SetExtraCGMemLimitWithTimeoutAndAbsCGPath] skip drop cache on %s since nbytes is zero", absCgroupPath)
 			return nil
 		}
-		//cgv2
+		// cgv2
 		interfacePath = filepath.Join(absCgroupPath, "memory.max")
 	} else {
-		//cgv1
+		// cgv1
 		interfacePath = filepath.Join(absCgroupPath, "memory.limit_in_bytes")
 	}
 
@@ -371,6 +370,7 @@ func SetSwapMaxWithAbsolutePathToParentCgroupRecursive(absCgroupPath string) err
 	}
 	return nil
 }
+
 func SetSwapMaxWithAbsolutePathRecursive(absCgroupPath string) error {
 	if !common.CheckCgroup2UnifiedMode() {
 		general.Infof("[SetSwapMaxWithAbsolutePathRecursive] is not supported on cgroupv1")
@@ -441,6 +441,7 @@ func DisableSwapMaxWithAbsolutePathRecursive(absCgroupPath string) error {
 	}
 	return nil
 }
+
 func MemoryOffloadingWithAbsolutePath(ctx context.Context, absCgroupPath string, nbytes int64) error {
 	startTime := time.Now()
 
@@ -450,10 +451,10 @@ func MemoryOffloadingWithAbsolutePath(ctx context.Context, absCgroupPath string,
 			general.Infof("[MemoryOffloadingWithAbsolutePath] skip memory reclaim on %s since nbytes is not valid", absCgroupPath)
 			return nil
 		}
-		//cgv2
+		// cgv2
 		cmd = fmt.Sprintf("echo %d > %s", nbytes, filepath.Join(absCgroupPath, "memory.reclaim"))
 	} else {
-		//cgv1
+		// cgv1
 		general.Infof("[MemoryOffloadingWithAbsolutePath] is not supported on cgroupv1")
 		return nil
 	}

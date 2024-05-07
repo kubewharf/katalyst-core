@@ -47,7 +47,8 @@ type HeadroomAssemblerDedicated struct {
 
 func NewHeadroomAssemblerDedicated(conf *config.Configuration, _ interface{}, regionMap *map[string]region.QoSRegion,
 	reservedForReclaim *map[int]int, numaAvailable *map[int]int, nonBindingNumas *machine.CPUSet,
-	metaReader metacache.MetaReader, metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter) HeadroomAssembler {
+	metaReader metacache.MetaReader, metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter,
+) HeadroomAssembler {
 	return &HeadroomAssemblerDedicated{
 		conf:               conf,
 		regionMap:          regionMap,

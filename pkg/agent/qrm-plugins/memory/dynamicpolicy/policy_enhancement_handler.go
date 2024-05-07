@@ -59,7 +59,6 @@ func (p *DynamicPolicy) PollOOMBPFInit(stopCh <-chan struct{}) {
 
 		return true, nil
 	}, stopCh)
-
 	if err != nil {
 		general.Errorf("polling to initialize oom priority bpf failed with error: %v", err)
 	}
@@ -68,7 +67,8 @@ func (p *DynamicPolicy) PollOOMBPFInit(stopCh <-chan struct{}) {
 }
 
 func (p *DynamicPolicy) clearOOMPriority(_ context.Context, emitter metrics.MetricEmitter,
-	metaServer *metaserver.MetaServer, req interface{}, _ interface{}) error {
+	metaServer *metaserver.MetaServer, req interface{}, _ interface{},
+) error {
 	realReq, ok := req.(*pluginapi.RemovePodRequest)
 	if !ok || realReq == nil {
 		general.Errorf("clearOOMPriority got invalid request")

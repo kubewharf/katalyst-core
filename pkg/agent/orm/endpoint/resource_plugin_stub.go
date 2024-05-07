@@ -44,7 +44,7 @@ type Stub struct {
 
 	// allocFunc1 is used for handling allocation request
 	allocFunc1 stubAllocFunc1
-	//handling get allocation request
+	// handling get allocation request
 	allocFunc2 stubAllocFunc2
 
 	getTopologyAwareAllocatableResourcesFunc stubGetTopologyAwareAllocatableResourcesFunc
@@ -69,6 +69,7 @@ func defaultAllocFunc(r *pluginapi.ResourceRequest) (*pluginapi.ResourceAllocati
 
 	return &response, nil
 }
+
 func defaultGetAllocFunc(r *pluginapi.GetResourcesAllocationRequest) (*pluginapi.GetResourcesAllocationResponse, error) {
 	var response pluginapi.GetResourcesAllocationResponse
 	return &response, nil
@@ -92,6 +93,7 @@ func NewResourcePluginStub(socket string, name string, preStartContainerFlag boo
 func (m *Stub) SetAllocFunc(f stubAllocFunc1) {
 	m.allocFunc1 = f
 }
+
 func (m *Stub) SetGetAllocFunc(f stubAllocFunc2) {
 	m.allocFunc2 = f
 }
@@ -164,7 +166,8 @@ func (m *Stub) GetInfo(ctx context.Context, req *watcherapi.InfoRequest) (*watch
 		Type:              watcherapi.ResourcePlugin,
 		Name:              m.resourceName,
 		Endpoint:          m.endpoint,
-		SupportedVersions: []string{pluginapi.Version}}, nil
+		SupportedVersions: []string{pluginapi.Version},
+	}, nil
 }
 
 // NotifyRegistrationStatus receives the registration notification from watcher

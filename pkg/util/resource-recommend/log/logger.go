@@ -26,9 +26,7 @@ import (
 // This log is only used in resource-recommend.
 // TODO: How to do the common log needs to be discussed again
 
-var (
-	fieldsKey = &[1]int{1}
-)
+var fieldsKey = &[1]int{1}
 
 const LinkIDKey = "linkId"
 

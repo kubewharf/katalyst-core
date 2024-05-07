@@ -84,7 +84,8 @@ func sortRecommendedContainerResources(recommendedContainerResources []apis.Reco
 // mergeResourceAndRecommendation merge RecommendedContainerResources into ContainerResources,
 // it works both for requests and limits
 func mergeResourceAndRecommendation(containerResource apis.ContainerResources,
-	containerRecommendation apis.RecommendedContainerResources) apis.ContainerResources {
+	containerRecommendation apis.RecommendedContainerResources,
+) apis.ContainerResources {
 	mergeFn := func(resource *apis.ContainerResourceList, recommendation *apis.RecommendedRequestResources) *apis.ContainerResourceList {
 		if recommendation == nil {
 			return resource
@@ -111,7 +112,8 @@ func mergeResourceAndRecommendation(containerResource apis.ContainerResources,
 // mergeResourceAndCurrent merge pod current resources into ContainerResources,
 // it works both for requests and limits
 func mergeResourceAndCurrent(containerResource apis.ContainerResources,
-	containerCurrent apis.ContainerResources) apis.ContainerResources {
+	containerCurrent apis.ContainerResources,
+) apis.ContainerResources {
 	mergeFn := func(resource *apis.ContainerResourceList, current *apis.ContainerResourceList) *apis.ContainerResourceList {
 		if current == nil {
 			return resource
@@ -133,7 +135,8 @@ func mergeResourceAndCurrent(containerResource apis.ContainerResources,
 
 // cropResources change containerResources with containerPolicies
 func cropResources(podResources map[consts.PodContainerName]apis.ContainerResources,
-	containerResources map[consts.ContainerName]apis.ContainerResources, containerPolicies map[string]apis.ContainerResourcePolicy) error {
+	containerResources map[consts.ContainerName]apis.ContainerResources, containerPolicies map[string]apis.ContainerResourcePolicy,
+) error {
 	for key, containerResource := range podResources {
 		_, containerName, err := native.ParsePodContainerName(key)
 		if err != nil {
@@ -192,7 +195,8 @@ func cropResourcesWithPolicies(resource apis.ContainerResources, policy apis.Con
 // cropResourcesWithBounds limit uncappedValue between lowBound and upBound and
 // filter out resources which aren't in controlledResource
 func cropResourcesWithBounds(uncappedValue core.ResourceList, lowBound core.ResourceList, upBound core.ResourceList,
-	controlledResource []core.ResourceName) core.ResourceList {
+	controlledResource []core.ResourceName,
+) core.ResourceList {
 	finalValue := make(core.ResourceList)
 
 	for _, resourceName := range controlledResource {
@@ -221,7 +225,8 @@ func cropResourcesWithBounds(uncappedValue core.ResourceList, lowBound core.Reso
 
 // GetVPAResourceStatusWithRecommendation updates resource recommendation results from vpaRec to vpa
 func GetVPAResourceStatusWithRecommendation(vpa *apis.KatalystVerticalPodAutoscaler, recPodResources []apis.RecommendedPodResources,
-	recContainerResources []apis.RecommendedContainerResources) ([]apis.PodResources, []apis.ContainerResources, error) {
+	recContainerResources []apis.RecommendedContainerResources,
+) ([]apis.PodResources, []apis.ContainerResources, error) {
 	containerPolicies, err := katalystutil.GenerateVPAPolicyMap(vpa)
 	if err != nil {
 		return nil, nil, err
@@ -458,7 +463,8 @@ func GetVPAResourceStatusWithCurrent(vpa *apis.KatalystVerticalPodAutoscaler, po
 
 // GetVPARecResourceStatus updates resource recommendation results from vpa status to vpaRec status
 func GetVPARecResourceStatus(vpaPodResources []apis.PodResources, vpaContainerResources []apis.ContainerResources) (
-	[]apis.RecommendedPodResources, []apis.RecommendedContainerResources, error) {
+	[]apis.RecommendedPodResources, []apis.RecommendedContainerResources, error,
+) {
 	recPodResources := make(map[consts.PodContainerName]apis.RecommendedContainerResources)
 	for _, podResource := range vpaPodResources {
 		if podResource.PodName == nil {

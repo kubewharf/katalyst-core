@@ -512,7 +512,8 @@ func CheckNUMACrossSockets(numaNodes []int, cpuTopology *CPUTopology) (bool, err
 }
 
 func GetSiblingNumaInfo(conf *global.MachineInfoConfiguration,
-	numaDistanceMap map[int][]NumaDistanceInfo) *SiblingNumaInfo {
+	numaDistanceMap map[int][]NumaDistanceInfo,
+) *SiblingNumaInfo {
 	siblingNumaMap := make(map[int]sets.Int)
 	siblingNumaAvgMBWAllocatableMap := make(map[int]int64)
 	siblingNumaAvgMBWCapacityMap := make(map[int]int64)

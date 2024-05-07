@@ -97,7 +97,8 @@ type ResourceRecommendController struct {
 
 func NewResourceRecommendController(ctx context.Context, controlCtx *katalystbase.GenericContext,
 	genericConf *generic.GenericConfiguration, _ *controller.GenericControllerConfiguration,
-	config *controller.VPAConfig) (*ResourceRecommendController, error) {
+	config *controller.VPAConfig,
+) (*ResourceRecommendController, error) {
 	if controlCtx == nil {
 		return nil, fmt.Errorf("controlCtx is invalid")
 	}

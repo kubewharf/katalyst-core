@@ -24,8 +24,8 @@ import (
 
 func OvercommitRatioValidate(
 	nodeAnnotation map[string]string,
-	setOvercommitKey, realtimeOvercommitKey string) (float64, error) {
-
+	setOvercommitKey, realtimeOvercommitKey string,
+) (float64, error) {
 	// overcommit is not allowed if overcommitRatio is not set by user
 	setOvercommitVal, ok := nodeAnnotation[setOvercommitKey]
 	if !ok {

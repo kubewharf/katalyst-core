@@ -47,17 +47,16 @@ import (
 	utilmetric "github.com/kubewharf/katalyst-core/pkg/util/metric"
 )
 
-var (
-	qosLevel2PoolName = map[string]string{
-		consts.PodAnnotationQoSLevelSharedCores:    qrmstate.PoolNameShare,
-		consts.PodAnnotationQoSLevelReclaimedCores: qrmstate.PoolNameReclaim,
-		consts.PodAnnotationQoSLevelSystemCores:    qrmstate.PoolNameReserve,
-		consts.PodAnnotationQoSLevelDedicatedCores: qrmstate.PoolNameDedicated,
-	}
-)
+var qosLevel2PoolName = map[string]string{
+	consts.PodAnnotationQoSLevelSharedCores:    qrmstate.PoolNameShare,
+	consts.PodAnnotationQoSLevelReclaimedCores: qrmstate.PoolNameReclaim,
+	consts.PodAnnotationQoSLevelSystemCores:    qrmstate.PoolNameReserve,
+	consts.PodAnnotationQoSLevelDedicatedCores: qrmstate.PoolNameDedicated,
+}
 
 func makeContainerInfo(podUID, namespace, podName, containerName, qoSLevel string, annotations map[string]string,
-	topologyAwareAssignments types.TopologyAwareAssignment, memoryRequest float64) *types.ContainerInfo {
+	topologyAwareAssignments types.TopologyAwareAssignment, memoryRequest float64,
+) *types.ContainerInfo {
 	return &types.ContainerInfo{
 		PodUID:                           podUID,
 		PodNamespace:                     namespace,
@@ -76,6 +75,7 @@ func makeContainerInfo(podUID, namespace, podName, containerName, qoSLevel strin
 		OriginalTopologyAwareAssignments: topologyAwareAssignments,
 	}
 }
+
 func generateTestConfiguration(t *testing.T, checkpointDir, stateFileDir string) *config.Configuration {
 	conf, err := options.NewOptions().Config()
 	require.NoError(t, err)
@@ -86,8 +86,10 @@ func generateTestConfiguration(t *testing.T, checkpointDir, stateFileDir string)
 
 	return conf
 }
+
 func generateTestMetaServer(t *testing.T, podList []*v1.Pod,
-	metricsFetcher metrictypes.MetricsFetcher) *metaserver.MetaServer {
+	metricsFetcher metrictypes.MetricsFetcher,
+) *metaserver.MetaServer {
 	// numa node0 cpu(s): 0-23,48-71
 	// numa node1 cpu(s): 24-47,72-95
 	cpuTopology, err := machine.GenerateDummyCPUTopology(96, 2, 2)
@@ -258,7 +260,8 @@ func TestPolicyCanonical(t *testing.T) {
 						},
 						types.TopologyAwareAssignment{
 							0: machine.NewCPUSet(0),
-						}, 30<<30)},
+						}, 30<<30),
+				},
 				essentials: types.ResourceEssentials{
 					EnableReclaim:       true,
 					ResourceUpperBound:  100 << 30,
@@ -301,7 +304,8 @@ func TestPolicyCanonical(t *testing.T) {
 						},
 						types.TopologyAwareAssignment{
 							1: machine.NewCPUSet(1),
-						}, 20<<30)},
+						}, 20<<30),
+				},
 				essentials: types.ResourceEssentials{
 					EnableReclaim:       true,
 					ResourceUpperBound:  100 << 30,

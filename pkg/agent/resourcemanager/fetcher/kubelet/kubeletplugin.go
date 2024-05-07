@@ -77,7 +77,8 @@ type kubeletPlugin struct {
 
 // NewKubeletReporterPlugin creates a kubelet reporter plugin
 func NewKubeletReporterPlugin(emitter metrics.MetricEmitter, metaServer *metaserver.MetaServer,
-	conf *config.Configuration, callback plugin.ListAndWatchCallback) (plugin.ReporterPlugin, error) {
+	conf *config.Configuration, callback plugin.ListAndWatchCallback,
+) (plugin.ReporterPlugin, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 	p := &kubeletPlugin{
 		emitter:     emitter,

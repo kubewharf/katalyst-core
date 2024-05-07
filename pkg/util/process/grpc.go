@@ -36,7 +36,6 @@ func Dial(unixSocketPath string, timeout time.Duration) (*grpc.ClientConn, error
 			return (&net.Dialer{}).DialContext(ctx, "unix", addr)
 		}),
 	)
-
 	if err != nil {
 		return nil, err
 	}

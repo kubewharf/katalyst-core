@@ -50,7 +50,8 @@ type Manager struct {
 func NewManager(
 	emitter metrics.MetricEmitter,
 	cachedPods CachedPodListFunc,
-	metaServer *metaserver.MetaServer) *Manager {
+	metaServer *metaserver.MetaServer,
+) *Manager {
 	m := &Manager{
 		emitter:            emitter,
 		MetaServer:         metaServer,
@@ -68,7 +69,6 @@ func (m *Manager) Run(ctx context.Context, reconcilePeriod time.Duration) {
 }
 
 func (m *Manager) reconcile() {
-
 	activePods, err := m.MetaServer.GetPodList(m.ctx, native.PodIsActive)
 	if err != nil {
 		klog.Errorf("metamanager reconcile GetPodList fail: %v", err)

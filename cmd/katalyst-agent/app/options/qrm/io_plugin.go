@@ -27,7 +27,7 @@ type IOOptions struct {
 
 	WritebackThrottlingOption // option for writeback throttling, it determin the recycling speed of dirty memory.
 	// TO-DO
-	//DirtyThrottlingOption // option for dirty throttling, it determin the global watermark of dirty memory.
+	// DirtyThrottlingOption // option for dirty throttling, it determin the global watermark of dirty memory.
 	IOCostOption
 	IOWeightOption
 }

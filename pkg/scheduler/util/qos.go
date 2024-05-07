@@ -27,8 +27,10 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/config/generic"
 )
 
-var qosConfig *generic.QoSConfiguration
-var qosConfigSetOnce sync.Once
+var (
+	qosConfig        *generic.QoSConfiguration
+	qosConfigSetOnce sync.Once
+)
 
 func SetQoSConfig(config *generic.QoSConfiguration) {
 	qosConfigSetOnce.Do(func() {

@@ -65,7 +65,7 @@ type CNRLifecycle struct {
 	cnrListerSynced  cache.InformerSynced
 	cnrLister        listers.CustomNodeResourceLister
 
-	//queue for node
+	// queue for node
 	syncQueue workqueue.RateLimitingInterface
 
 	// metricsEmitter for emit metrics
@@ -79,8 +79,8 @@ func NewCNRLifecycle(ctx context.Context,
 	client *client.GenericClientSet,
 	nodeInformer coreinformers.NodeInformer,
 	cnrInformer informers.CustomNodeResourceInformer,
-	metricsEmitter metrics.MetricEmitter) (*CNRLifecycle, error) {
-
+	metricsEmitter metrics.MetricEmitter,
+) (*CNRLifecycle, error) {
 	cnrLifecycle := &CNRLifecycle{
 		ctx:    ctx,
 		client: client,
@@ -201,7 +201,6 @@ func (cl *CNRLifecycle) deleteCNREventHandle(obj interface{}) {
 	klog.V(4).Infof("notice addition of cnr %s", c.Name)
 
 	cl.enqueueWorkItem(obj)
-
 }
 
 func (cl *CNRLifecycle) worker() {

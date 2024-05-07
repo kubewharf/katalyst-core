@@ -67,7 +67,8 @@ type MetricSyncerNode struct {
 
 func NewMetricSyncerNode(conf *config.Configuration, _ interface{},
 	metricEmitter metrics.MetricEmitter, emitterPool metricspool.MetricsEmitterPool,
-	metaServer *metaserver.MetaServer, metaReader metacache.MetaReader) (syncer.CustomMetricSyncer, error) {
+	metaServer *metaserver.MetaServer, metaReader metacache.MetaReader,
+) (syncer.CustomMetricSyncer, error) {
 	dataEmitter, err := emitterPool.GetMetricsEmitter(metricspool.PrometheusMetricOptions{
 		Path: metrics.PrometheusMetricPathNameCustomMetric,
 	})

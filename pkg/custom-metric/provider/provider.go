@@ -90,7 +90,8 @@ func NewMetricProviderImp(ctx context.Context, baseCtx *katalyst_base.GenericCon
 }
 
 func (m *MetricProviderImp) GetMetricByName(ctx context.Context, namespacedName apitypes.NamespacedName,
-	info provider.CustomMetricInfo, metricSelector labels.Selector) (*custom_metrics.MetricValue, error) {
+	info provider.CustomMetricInfo, metricSelector labels.Selector,
+) (*custom_metrics.MetricValue, error) {
 	klog.Infof("GetMetricByName: metric name %v, object %v, namespace %v, object name %v, metricSelector %v, context-test %v",
 		info.Metric, info.GroupResource, namespacedName.Namespace, namespacedName.Name, metricSelector, ctx.Value("context-test"))
 	var (
@@ -133,7 +134,8 @@ func (m *MetricProviderImp) GetMetricByName(ctx context.Context, namespacedName 
 }
 
 func (m *MetricProviderImp) GetMetricBySelector(ctx context.Context, namespace string, objSelector labels.Selector,
-	info provider.CustomMetricInfo, metricSelector labels.Selector) (*custom_metrics.MetricValueList, error) {
+	info provider.CustomMetricInfo, metricSelector labels.Selector,
+) (*custom_metrics.MetricValueList, error) {
 	klog.Infof("GetMetricBySelector: metric name %v, object %v, namespace %v, objSelector %v, metricSelector %v",
 		info.Metric, info.GroupResource, namespace, objSelector, metricSelector)
 	var (
@@ -212,7 +214,8 @@ func (m *MetricProviderImp) ListAllMetrics() []provider.CustomMetricInfo {
 }
 
 func (m *MetricProviderImp) GetExternalMetric(ctx context.Context, namespace string, metricSelector labels.Selector,
-	info provider.ExternalMetricInfo) (*external_metrics.ExternalMetricValueList, error) {
+	info provider.ExternalMetricInfo,
+) (*external_metrics.ExternalMetricValueList, error) {
 	klog.Infof("GetExternalMetric: metric name %v, namespace %v, metricSelector %v", info.Metric, namespace, metricSelector)
 	var (
 		metricList  []types.Metric

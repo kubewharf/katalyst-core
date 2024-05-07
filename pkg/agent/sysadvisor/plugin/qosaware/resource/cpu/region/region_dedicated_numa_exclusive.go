@@ -52,8 +52,8 @@ type QoSRegionDedicatedNumaExclusive struct {
 // NewQoSRegionDedicatedNumaExclusive returns a region instance for dedicated cores
 // with numa binding and numa exclusive container
 func NewQoSRegionDedicatedNumaExclusive(ci *types.ContainerInfo, conf *config.Configuration, numaID int,
-	extraConf interface{}, metaReader metacache.MetaReader, metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter) QoSRegion {
-
+	extraConf interface{}, metaReader metacache.MetaReader, metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter,
+) QoSRegion {
 	regionName := getRegionNameFromMetaCache(ci, numaID, metaReader)
 	if regionName == "" {
 		regionName = string(types.QoSRegionTypeDedicatedNumaExclusive) + types.RegionNameSeparator + string(uuid.NewUUID())

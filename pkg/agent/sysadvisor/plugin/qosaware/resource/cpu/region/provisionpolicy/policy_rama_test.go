@@ -111,7 +111,8 @@ func generateRamaTestConfiguration(t *testing.T, checkpointDir, stateFileDir, ch
 }
 
 func newTestPolicyRama(t *testing.T, checkpointDir string, stateFileDir string,
-	checkpointManagerDir string, regionInfo types.RegionInfo, metricFetcher metrictypes.MetricsFetcher, podSet types.PodSet) ProvisionPolicy {
+	checkpointManagerDir string, regionInfo types.RegionInfo, metricFetcher metrictypes.MetricsFetcher, podSet types.PodSet,
+) ProvisionPolicy {
 	conf := generateRamaTestConfiguration(t, checkpointDir, stateFileDir, checkpointManagerDir)
 
 	metaCacheTmp, err := metacache.NewMetaCacheImp(conf, metricspool.DummyMetricsEmitterPool{}, metricFetcher)

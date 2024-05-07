@@ -101,7 +101,6 @@ func newOvercommitRatioReporterPlugin(
 	overcommitManager OvercommitManager,
 	metaserver *metaserver.MetaServer,
 ) (skeleton.GenericPlugin, error) {
-
 	reporter := &OvercommitRatioReporterPlugin{
 		manager:    overcommitManager,
 		metaServer: metaserver,
@@ -275,7 +274,6 @@ func (o *OvercommitRatioReporterPlugin) getGuaranteedCPUs(ctx context.Context) (
 	podList, err := o.metaServer.GetPodList(ctx, func(pod *v1.Pod) bool {
 		return true
 	})
-
 	if err != nil {
 		return "", errors.Wrap(err, "get pod list from metaserver failed")
 	}

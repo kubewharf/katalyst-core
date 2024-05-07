@@ -88,16 +88,14 @@ func (o *CPUAdvisorOptions) ApplyTo(c *cpu.CPUAdvisorConfiguration) error {
 	for regionType, policies := range o.CPUProvisionPolicyPriority {
 		provisionPolicies := strings.Split(policies, "/")
 		for _, policyName := range provisionPolicies {
-			c.ProvisionPolicies[types.QoSRegionType(regionType)] =
-				append(c.ProvisionPolicies[types.QoSRegionType(regionType)], types.CPUProvisionPolicyName(policyName))
+			c.ProvisionPolicies[types.QoSRegionType(regionType)] = append(c.ProvisionPolicies[types.QoSRegionType(regionType)], types.CPUProvisionPolicyName(policyName))
 		}
 	}
 
 	for regionType, policies := range o.CPUHeadroomPolicyPriority {
 		headroomPolicies := strings.Split(policies, "/")
 		for _, policyName := range headroomPolicies {
-			c.HeadroomPolicies[types.QoSRegionType(regionType)] =
-				append(c.HeadroomPolicies[types.QoSRegionType(regionType)], types.CPUHeadroomPolicyName(policyName))
+			c.HeadroomPolicies[types.QoSRegionType(regionType)] = append(c.HeadroomPolicies[types.QoSRegionType(regionType)], types.CPUHeadroomPolicyName(policyName))
 		}
 	}
 

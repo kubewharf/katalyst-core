@@ -59,12 +59,15 @@ func (d DummyIndicatorPlugin) Name() string { return "dummy-indicator-plugin" }
 func (d DummyIndicatorPlugin) GetSupportedBusinessIndicatorSpec() []apiworkload.ServiceBusinessIndicatorName {
 	return d.BusinessSpecNames
 }
+
 func (d DummyIndicatorPlugin) GetSupportedSystemIndicatorSpec() []apiworkload.ServiceSystemIndicatorName {
 	return d.SystemSpecNames
 }
+
 func (d DummyIndicatorPlugin) GetSupportedExtendedIndicatorSpec() []string {
 	return d.ExtendedSpecNames
 }
+
 func (d DummyIndicatorPlugin) GetSupportedBusinessIndicatorStatus() []apiworkload.ServiceBusinessIndicatorName {
 	return d.BusinessStatusNames
 }

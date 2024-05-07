@@ -86,7 +86,6 @@ func NewNodeOvercommitController(
 	genericConf *generic.GenericConfiguration,
 	overcommitConf *controller.OvercommitConfig,
 ) (*NodeOvercommitController, error) {
-
 	nodeInformer := controlCtx.KubeInformerFactory.Core().V1().Nodes()
 	nodeOvercommitInformer := controlCtx.InternalInformerFactory.Overcommit().V1alpha1().NodeOvercommitConfigs()
 	err := nodeOvercommitInformer.Informer().AddIndexers(cache.Indexers{
@@ -535,7 +534,8 @@ func (nc *NodeOvercommitController) nodeOvercommitResource(
 	node *corev1.Node,
 	overcommitRatio float64,
 	resourceName corev1.ResourceName,
-	originalAllocatableKey, originalCapacityKey string) (string, string) {
+	originalAllocatableKey, originalCapacityKey string,
+) (string, string) {
 	var guaranteedResource int
 
 	if overcommitRatio <= 1 {

@@ -75,5 +75,4 @@ func TestCheckpoint(t *testing.T) {
 
 	err = cp.VerifyChecksum()
 	assert.NoError(t, err)
-
 }

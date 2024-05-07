@@ -148,7 +148,8 @@ func Run(opt *options.Options, genericOptions ...katalystbase.GenericOptions) er
 }
 
 func startControllers(ctx context.Context, controllerCtx *katalystbase.GenericContext,
-	conf *config.Configuration, controllers map[string]ControllerStarter) ([]string, error) {
+	conf *config.Configuration, controllers map[string]ControllerStarter,
+) ([]string, error) {
 	var enabledControllers []string
 
 	for controllerName, starter := range controllers {

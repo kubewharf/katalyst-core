@@ -70,19 +70,22 @@ func (p *customMetricsEmitterPool) Run(ctx context.Context) {
 }
 
 func (p *customMetricsEmitterPool) StoreInt64(key string, val int64,
-	emitType metrics.MetricTypeName, tags ...metrics.MetricTag) error {
+	emitType metrics.MetricTypeName, tags ...metrics.MetricTag,
+) error {
 	return p.customDefaultMetricEmitter.StoreInt64(key, val,
 		emitType, tags...)
 }
 
 func (p *customMetricsEmitterPool) StoreFloat64(key string, val float64,
-	emitType metrics.MetricTypeName, tags ...metrics.MetricTag) error {
+	emitType metrics.MetricTypeName, tags ...metrics.MetricTag,
+) error {
 	return p.customDefaultMetricEmitter.StoreFloat64(key, val,
 		emitType, tags...)
 }
 
 func (p *customMetricsEmitterPool) WithTags(unit string,
-	commonTags ...metrics.MetricTag) metrics.MetricEmitter {
+	commonTags ...metrics.MetricTag,
+) metrics.MetricEmitter {
 	return p.customDefaultMetricEmitter.WithTags(unit,
 		commonTags...)
 }

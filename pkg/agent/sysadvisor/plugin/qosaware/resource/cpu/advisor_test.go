@@ -104,7 +104,8 @@ func newTestCPUResourceAdvisor(t *testing.T, pods []*v1.Pod, conf *config.Config
 }
 
 func makeContainerInfo(podUID, namespace, podName, containerName, qoSLevel, ownerPoolName string, annotations map[string]string,
-	topologyAwareAssignments types.TopologyAwareAssignment, cpu ...float64) *types.ContainerInfo {
+	topologyAwareAssignments types.TopologyAwareAssignment, cpu ...float64,
+) *types.ContainerInfo {
 	req, limit := 0., 0.
 	if len(cpu) == 1 {
 		req, limit = cpu[0], cpu[0]

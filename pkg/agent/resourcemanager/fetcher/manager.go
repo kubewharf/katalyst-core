@@ -84,7 +84,8 @@ var innerReporterPluginsDisabledByDefault = sets.NewString()
 
 // NewReporterPluginManager creates a new reporter plugin manager.
 func NewReporterPluginManager(reporterMgr reporter.Manager, emitter metrics.MetricEmitter,
-	metaServer *metaserver.MetaServer, conf *config.Configuration) (*ReporterPluginManager, error) {
+	metaServer *metaserver.MetaServer, conf *config.Configuration,
+) (*ReporterPluginManager, error) {
 	manager := &ReporterPluginManager{
 		innerEndpoints:  sets.NewString(),
 		endpoints:       make(map[string]plugin.Endpoint),
@@ -128,10 +129,9 @@ func newReporterPluginInitializers() map[string]plugin.InitFunc {
 
 func (m *ReporterPluginManager) registerInnerReporterPlugins(emitter metrics.MetricEmitter,
 	metaServer *metaserver.MetaServer, conf *config.Configuration, callback plugin.ListAndWatchCallback,
-	innerReporterPluginInitializers map[string]plugin.InitFunc) error {
-	var (
-		errList []error
-	)
+	innerReporterPluginInitializers map[string]plugin.InitFunc,
+) error {
+	var errList []error
 
 	for pluginName, initFn := range innerReporterPluginInitializers {
 		if !general.IsNameEnabled(pluginName, innerReporterPluginsDisabledByDefault, conf.GenericReporterConfiguration.InnerPlugins) {

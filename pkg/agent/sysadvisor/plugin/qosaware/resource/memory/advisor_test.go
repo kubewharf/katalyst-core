@@ -60,17 +60,16 @@ import (
 	metricutil "github.com/kubewharf/katalyst-core/pkg/util/metric"
 )
 
-var (
-	qosLevel2PoolName = map[string]string{
-		consts.PodAnnotationQoSLevelSharedCores:    qrmstate.PoolNameShare,
-		consts.PodAnnotationQoSLevelReclaimedCores: qrmstate.PoolNameReclaim,
-		consts.PodAnnotationQoSLevelSystemCores:    qrmstate.PoolNameReserve,
-		consts.PodAnnotationQoSLevelDedicatedCores: qrmstate.PoolNameDedicated,
-	}
-)
+var qosLevel2PoolName = map[string]string{
+	consts.PodAnnotationQoSLevelSharedCores:    qrmstate.PoolNameShare,
+	consts.PodAnnotationQoSLevelReclaimedCores: qrmstate.PoolNameReclaim,
+	consts.PodAnnotationQoSLevelSystemCores:    qrmstate.PoolNameReserve,
+	consts.PodAnnotationQoSLevelDedicatedCores: qrmstate.PoolNameDedicated,
+}
 
 func makeContainerInfo(podUID, namespace, podName, containerName, qoSLevel string, annotations map[string]string,
-	topologyAwareAssignments types.TopologyAwareAssignment, memoryRequest float64) *types.ContainerInfo {
+	topologyAwareAssignments types.TopologyAwareAssignment, memoryRequest float64,
+) *types.ContainerInfo {
 	return &types.ContainerInfo{
 		PodUID:                           podUID,
 		PodNamespace:                     namespace,
@@ -1035,7 +1034,8 @@ func TestUpdate(t *testing.T) {
 					ContainerName: "c1",
 					Values: map[string]string{
 						string(memoryadvisor.ControlKnobKeySwapMax):          coreconsts.ControlKnobON,
-						string(memoryadvisor.ControlKnowKeyMemoryOffloading): "96636764"},
+						string(memoryadvisor.ControlKnowKeyMemoryOffloading): "96636764",
+					},
 				}},
 			},
 		},
@@ -1073,7 +1073,8 @@ func TestUpdate(t *testing.T) {
 					}, 200<<30),
 				makeContainerInfo("uid4", "default", "pod4", "c4", consts.PodAnnotationQoSLevelDedicatedCores, map[string]string{
 					consts.PodAnnotationMemoryEnhancementNumaBinding:   consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
-					consts.PodAnnotationMemoryEnhancementNumaExclusive: consts.PodAnnotationMemoryEnhancementNumaExclusiveEnable},
+					consts.PodAnnotationMemoryEnhancementNumaExclusive: consts.PodAnnotationMemoryEnhancementNumaExclusiveEnable,
+				},
 					map[int]machine.CPUSet{
 						0: machine.MustParse("1"),
 					}, 200<<30),
@@ -1136,7 +1137,8 @@ func TestUpdate(t *testing.T) {
 					}, 200<<30),
 				makeContainerInfo("uid4", "default", "pod4", "c4", consts.PodAnnotationQoSLevelDedicatedCores, map[string]string{
 					consts.PodAnnotationMemoryEnhancementNumaBinding:   consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
-					consts.PodAnnotationMemoryEnhancementNumaExclusive: consts.PodAnnotationMemoryEnhancementNumaExclusiveEnable},
+					consts.PodAnnotationMemoryEnhancementNumaExclusive: consts.PodAnnotationMemoryEnhancementNumaExclusiveEnable,
+				},
 					map[int]machine.CPUSet{
 						0: machine.MustParse("1"),
 					}, 200<<30),
@@ -1240,7 +1242,8 @@ func TestUpdate(t *testing.T) {
 					}, 200<<30),
 				makeContainerInfo("uid4", "default", "pod4", "c4", consts.PodAnnotationQoSLevelDedicatedCores, map[string]string{
 					consts.PodAnnotationMemoryEnhancementNumaBinding:   consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
-					consts.PodAnnotationMemoryEnhancementNumaExclusive: consts.PodAnnotationMemoryEnhancementNumaExclusiveEnable},
+					consts.PodAnnotationMemoryEnhancementNumaExclusive: consts.PodAnnotationMemoryEnhancementNumaExclusiveEnable,
+				},
 					map[int]machine.CPUSet{
 						0: machine.MustParse("1"),
 					}, 200<<30),

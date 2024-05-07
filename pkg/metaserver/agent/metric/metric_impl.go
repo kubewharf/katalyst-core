@@ -57,7 +57,8 @@ func NewMetricsNotifierManager(metricStore *utilmetric.MetricStore, emitter metr
 }
 
 func (m *MetricsNotifierManagerImpl) RegisterNotifier(scope types.MetricsScope, req types.NotifiedRequest,
-	response chan types.NotifiedResponse) string {
+	response chan types.NotifiedResponse,
+) string {
 	if _, ok := m.registeredNotifier[scope]; !ok {
 		return ""
 	}
@@ -283,12 +284,14 @@ func (f *MetricsFetcherImpl) GetCgroupNumaMetric(cgroupPath string, numaNode int
 }
 
 func (f *MetricsFetcherImpl) AggregatePodNumaMetric(podList []*v1.Pod, numaNode, metricName string,
-	agg utilmetric.Aggregator, filter utilmetric.ContainerMetricFilter) utilmetric.MetricData {
+	agg utilmetric.Aggregator, filter utilmetric.ContainerMetricFilter,
+) utilmetric.MetricData {
 	return f.metricStore.AggregatePodNumaMetric(podList, numaNode, metricName, agg, filter)
 }
 
 func (f *MetricsFetcherImpl) AggregatePodMetric(podList []*v1.Pod, metricName string,
-	agg utilmetric.Aggregator, filter utilmetric.ContainerMetricFilter) utilmetric.MetricData {
+	agg utilmetric.Aggregator, filter utilmetric.ContainerMetricFilter,
+) utilmetric.MetricData {
 	return f.metricStore.AggregatePodMetric(podList, metricName, agg, filter)
 }
 

@@ -196,10 +196,9 @@ type UtilBasedCapacityOptions struct {
 // EstimateUtilBasedCapacity capacity by taking into account the difference between the current
 // and target resource utilization of the workload pool
 func EstimateUtilBasedCapacity(options UtilBasedCapacityOptions, resourceSupply,
-	currentUtilization, lastCapacityResult float64) (float64, error) {
-	var (
-		oversold, result float64
-	)
+	currentUtilization, lastCapacityResult float64,
+) (float64, error) {
+	var oversold, result float64
 
 	defer func() {
 		general.Infof("resource supply %.2f, current utilization: %.2f (target: %.2f, max: %.2f), "+

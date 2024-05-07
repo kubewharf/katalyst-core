@@ -49,7 +49,8 @@ import (
 )
 
 func makeContainerInfo(podUID, namespace, podName, containerName, qoSLevel, ownerPoolName string,
-	annotations map[string]string, topologyAwareAssignments types.TopologyAwareAssignment, req, limit float64) *types.ContainerInfo {
+	annotations map[string]string, topologyAwareAssignments types.TopologyAwareAssignment, req, limit float64,
+) *types.ContainerInfo {
 	return &types.ContainerInfo{
 		PodUID:                           podUID,
 		PodNamespace:                     namespace,

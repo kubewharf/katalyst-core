@@ -221,14 +221,22 @@ var testCases = []testCase{
 			makeSelectorNoc("config-selector", "2", "2", "pool1"),
 		},
 		result: map[string]map[string]string{
-			"node1": {consts.NodeAnnotationCPUOvercommitRatioKey: "2", consts.NodeAnnotationMemoryOvercommitRatioKey: "2",
-				consts.NodeAnnotationRealtimeCPUOvercommitRatioKey: "1", consts.NodeAnnotationRealtimeMemoryOvercommitRatioKey: "1"},
-			"node2": {consts.NodeAnnotationCPUOvercommitRatioKey: "1", consts.NodeAnnotationMemoryOvercommitRatioKey: "1",
-				consts.NodeAnnotationRealtimeCPUOvercommitRatioKey: "1", consts.NodeAnnotationRealtimeMemoryOvercommitRatioKey: "1"},
-			"node3": {consts.NodeAnnotationCPUOvercommitRatioKey: "2", consts.NodeAnnotationMemoryOvercommitRatioKey: "2",
-				consts.NodeAnnotationRealtimeCPUOvercommitRatioKey: "3", consts.NodeAnnotationRealtimeMemoryOvercommitRatioKey: "3"},
-			"node4": {consts.NodeAnnotationCPUOvercommitRatioKey: "1", consts.NodeAnnotationMemoryOvercommitRatioKey: "1",
-				consts.NodeAnnotationRealtimeCPUOvercommitRatioKey: "2", consts.NodeAnnotationRealtimeMemoryOvercommitRatioKey: "2"},
+			"node1": {
+				consts.NodeAnnotationCPUOvercommitRatioKey: "2", consts.NodeAnnotationMemoryOvercommitRatioKey: "2",
+				consts.NodeAnnotationRealtimeCPUOvercommitRatioKey: "1", consts.NodeAnnotationRealtimeMemoryOvercommitRatioKey: "1",
+			},
+			"node2": {
+				consts.NodeAnnotationCPUOvercommitRatioKey: "1", consts.NodeAnnotationMemoryOvercommitRatioKey: "1",
+				consts.NodeAnnotationRealtimeCPUOvercommitRatioKey: "1", consts.NodeAnnotationRealtimeMemoryOvercommitRatioKey: "1",
+			},
+			"node3": {
+				consts.NodeAnnotationCPUOvercommitRatioKey: "2", consts.NodeAnnotationMemoryOvercommitRatioKey: "2",
+				consts.NodeAnnotationRealtimeCPUOvercommitRatioKey: "3", consts.NodeAnnotationRealtimeMemoryOvercommitRatioKey: "3",
+			},
+			"node4": {
+				consts.NodeAnnotationCPUOvercommitRatioKey: "1", consts.NodeAnnotationMemoryOvercommitRatioKey: "1",
+				consts.NodeAnnotationRealtimeCPUOvercommitRatioKey: "2", consts.NodeAnnotationRealtimeMemoryOvercommitRatioKey: "2",
+			},
 		},
 	},
 	{
@@ -239,14 +247,22 @@ var testCases = []testCase{
 		},
 		addCNR: defaultInitCNR,
 		result: map[string]map[string]string{
-			"node1": {consts.NodeAnnotationCPUOvercommitRatioKey: "2", consts.NodeAnnotationMemoryOvercommitRatioKey: "2",
-				consts.NodeAnnotationRealtimeCPUOvercommitRatioKey: "1", consts.NodeAnnotationRealtimeMemoryOvercommitRatioKey: "1"},
-			"node2": {consts.NodeAnnotationCPUOvercommitRatioKey: "1", consts.NodeAnnotationMemoryOvercommitRatioKey: "1",
-				consts.NodeAnnotationRealtimeCPUOvercommitRatioKey: "1", consts.NodeAnnotationRealtimeMemoryOvercommitRatioKey: "1"},
-			"node3": {consts.NodeAnnotationCPUOvercommitRatioKey: "2", consts.NodeAnnotationMemoryOvercommitRatioKey: "2",
-				consts.NodeAnnotationRealtimeCPUOvercommitRatioKey: "3", consts.NodeAnnotationRealtimeMemoryOvercommitRatioKey: "3"},
-			"node4": {consts.NodeAnnotationCPUOvercommitRatioKey: "1", consts.NodeAnnotationMemoryOvercommitRatioKey: "1",
-				consts.NodeAnnotationRealtimeCPUOvercommitRatioKey: "2", consts.NodeAnnotationRealtimeMemoryOvercommitRatioKey: "2"},
+			"node1": {
+				consts.NodeAnnotationCPUOvercommitRatioKey: "2", consts.NodeAnnotationMemoryOvercommitRatioKey: "2",
+				consts.NodeAnnotationRealtimeCPUOvercommitRatioKey: "1", consts.NodeAnnotationRealtimeMemoryOvercommitRatioKey: "1",
+			},
+			"node2": {
+				consts.NodeAnnotationCPUOvercommitRatioKey: "1", consts.NodeAnnotationMemoryOvercommitRatioKey: "1",
+				consts.NodeAnnotationRealtimeCPUOvercommitRatioKey: "1", consts.NodeAnnotationRealtimeMemoryOvercommitRatioKey: "1",
+			},
+			"node3": {
+				consts.NodeAnnotationCPUOvercommitRatioKey: "2", consts.NodeAnnotationMemoryOvercommitRatioKey: "2",
+				consts.NodeAnnotationRealtimeCPUOvercommitRatioKey: "3", consts.NodeAnnotationRealtimeMemoryOvercommitRatioKey: "3",
+			},
+			"node4": {
+				consts.NodeAnnotationCPUOvercommitRatioKey: "1", consts.NodeAnnotationMemoryOvercommitRatioKey: "1",
+				consts.NodeAnnotationRealtimeCPUOvercommitRatioKey: "2", consts.NodeAnnotationRealtimeMemoryOvercommitRatioKey: "2",
+			},
 		},
 	},
 	{
@@ -267,14 +283,22 @@ var testCases = []testCase{
 			}}},
 		},
 		result: map[string]map[string]string{
-			"node1": {consts.NodeAnnotationCPUOvercommitRatioKey: "2", consts.NodeAnnotationMemoryOvercommitRatioKey: "2",
-				consts.NodeAnnotationRealtimeCPUOvercommitRatioKey: "3", consts.NodeAnnotationRealtimeMemoryOvercommitRatioKey: "3"},
-			"node2": {consts.NodeAnnotationCPUOvercommitRatioKey: "1", consts.NodeAnnotationMemoryOvercommitRatioKey: "1",
-				consts.NodeAnnotationRealtimeCPUOvercommitRatioKey: "1", consts.NodeAnnotationRealtimeMemoryOvercommitRatioKey: "1"},
-			"node3": {consts.NodeAnnotationCPUOvercommitRatioKey: "2", consts.NodeAnnotationMemoryOvercommitRatioKey: "2",
-				consts.NodeAnnotationRealtimeCPUOvercommitRatioKey: "1.5", consts.NodeAnnotationRealtimeMemoryOvercommitRatioKey: "1.5"},
-			"node4": {consts.NodeAnnotationCPUOvercommitRatioKey: "1", consts.NodeAnnotationMemoryOvercommitRatioKey: "1",
-				consts.NodeAnnotationRealtimeCPUOvercommitRatioKey: "2", consts.NodeAnnotationRealtimeMemoryOvercommitRatioKey: "2"},
+			"node1": {
+				consts.NodeAnnotationCPUOvercommitRatioKey: "2", consts.NodeAnnotationMemoryOvercommitRatioKey: "2",
+				consts.NodeAnnotationRealtimeCPUOvercommitRatioKey: "3", consts.NodeAnnotationRealtimeMemoryOvercommitRatioKey: "3",
+			},
+			"node2": {
+				consts.NodeAnnotationCPUOvercommitRatioKey: "1", consts.NodeAnnotationMemoryOvercommitRatioKey: "1",
+				consts.NodeAnnotationRealtimeCPUOvercommitRatioKey: "1", consts.NodeAnnotationRealtimeMemoryOvercommitRatioKey: "1",
+			},
+			"node3": {
+				consts.NodeAnnotationCPUOvercommitRatioKey: "2", consts.NodeAnnotationMemoryOvercommitRatioKey: "2",
+				consts.NodeAnnotationRealtimeCPUOvercommitRatioKey: "1.5", consts.NodeAnnotationRealtimeMemoryOvercommitRatioKey: "1.5",
+			},
+			"node4": {
+				consts.NodeAnnotationCPUOvercommitRatioKey: "1", consts.NodeAnnotationMemoryOvercommitRatioKey: "1",
+				consts.NodeAnnotationRealtimeCPUOvercommitRatioKey: "2", consts.NodeAnnotationRealtimeMemoryOvercommitRatioKey: "2",
+			},
 		},
 	},
 }

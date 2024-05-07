@@ -73,7 +73,7 @@ func setHostTCPMemFile(TCPMemFile string, tcpMem []uint64) error {
 	}
 
 	content := fmt.Sprintf("%d\t%d\t%d\n", tcpMem[0], tcpMem[1], tcpMem[2])
-	err = os.WriteFile(TCPMemFile, []byte(content), 0644)
+	err = os.WriteFile(TCPMemFile, []byte(content), 0o644)
 	if err != nil {
 		return fmt.Errorf("failed to write to %s, err %v", TCPMemFile, err)
 	}

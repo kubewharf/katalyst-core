@@ -19,5 +19,7 @@ limitations under the License.
 // by other components or imported by other projects, then they should be defined here.
 package consts // import "github.com/kubewharf/katalyst-core/pkg/consts"
 
-type PodContainerName string
-type ContainerName string
+type (
+	PodContainerName string
+	ContainerName    string
+)

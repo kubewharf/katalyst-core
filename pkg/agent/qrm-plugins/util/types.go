@@ -28,8 +28,10 @@ import (
 
 // AllocationHandler and HintHandler are used as standard functions
 // for qrm plugins to acquire resource allocation/hint info
-type AllocationHandler func(context.Context, *pluginapi.ResourceRequest) (*pluginapi.ResourceAllocationResponse, error)
-type HintHandler func(context.Context, *pluginapi.ResourceRequest) (*pluginapi.ResourceHintsResponse, error)
+type (
+	AllocationHandler func(context.Context, *pluginapi.ResourceRequest) (*pluginapi.ResourceAllocationResponse, error)
+	HintHandler       func(context.Context, *pluginapi.ResourceRequest) (*pluginapi.ResourceHintsResponse, error)
+)
 
 // EnhancementHandler is used as standard function for qrm plugins
 // to do resource enhancement for the specific lifecycle phase of qrm
@@ -47,7 +49,8 @@ type ResourceEnhancementHandlerMap map[apiconsts.QRMPhase]map[string]Enhancement
 
 // Register registers a handler for the specified phase and last level enhancement key
 func (r ResourceEnhancementHandlerMap) Register(
-	phase apiconsts.QRMPhase, enhancementKey string, handler EnhancementHandler) {
+	phase apiconsts.QRMPhase, enhancementKey string, handler EnhancementHandler,
+) {
 	if _, ok := r[phase]; !ok {
 		r[phase] = make(map[string]EnhancementHandler)
 	}

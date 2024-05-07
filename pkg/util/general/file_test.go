@@ -34,7 +34,7 @@ func TestFileUtils(t *testing.T) {
 	assert.NotNil(t, err)
 
 	data := []byte("test-1\ntest-2")
-	err = ioutil.WriteFile(filename, data, 0777)
+	err = ioutil.WriteFile(filename, data, 0o777)
 	assert.NoError(t, err)
 	defer func() {
 		_ = os.Remove(filename)

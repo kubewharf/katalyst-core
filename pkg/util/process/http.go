@@ -63,9 +63,7 @@ const (
 	KeyAuthInfo contextKey = "auth"
 )
 
-var (
-	httpCleanupVisitorPeriod = time.Minute * 3
-)
+var httpCleanupVisitorPeriod = time.Minute * 3
 
 type visitor struct {
 	limiter  *rate.Limiter
@@ -87,7 +85,6 @@ type HTTPHandler struct {
 }
 
 func NewHTTPHandler(enabled []string, skipAuthURLPrefix []string, strictAuthentication bool, emitter metrics.MetricEmitter) *HTTPHandler {
-
 	return &HTTPHandler{
 		visitors: make(map[string]*visitor),
 		enabled:  sets.NewString(enabled...),
@@ -141,7 +138,6 @@ func (h *HTTPHandler) cleanupVisitor() {
 
 // withBasicAuth is used to verify the requests and bind authInfo to request.
 func (h *HTTPHandler) withCredential(f http.HandlerFunc) http.HandlerFunc {
-
 	skipAuth := func(r *http.Request) bool {
 		for _, prefix := range h.skipAuthURLPrefix {
 			if strings.HasPrefix(r.URL.Path, prefix) {

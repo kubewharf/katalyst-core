@@ -34,8 +34,10 @@ func (d dummyQoSLevelExpander) Override(qos string, _ *v1.Pod, _ map[string]stri
 	return qos, false
 }
 
-var qosLevelExpander QoSLevelExpander = dummyQoSLevelExpander{}
-var qosLevelExpanderLock sync.RWMutex
+var (
+	qosLevelExpander     QoSLevelExpander = dummyQoSLevelExpander{}
+	qosLevelExpanderLock sync.RWMutex
+)
 
 func SetQoSLevelExpander(e QoSLevelExpander) {
 	qosLevelExpanderLock.Lock()
@@ -61,8 +63,10 @@ func (d dummyQoSEnhancementExpander) Override(flattenedEnhancements map[string]s
 	return flattenedEnhancements, false
 }
 
-var qosEnhancementExpander QoSEnhancementExpander = dummyQoSEnhancementExpander{}
-var qosEnhancementExpanderLock sync.RWMutex
+var (
+	qosEnhancementExpander     QoSEnhancementExpander = dummyQoSEnhancementExpander{}
+	qosEnhancementExpanderLock sync.RWMutex
+)
 
 func SetQoSEnhancementExpander(e QoSEnhancementExpander) {
 	qosEnhancementExpanderLock.Lock()

@@ -48,5 +48,4 @@ func CreateMockUnstructured(matchLabels, unstructuredTemplateSpec map[string]int
 	unstructured.SetNestedMap(collectorObject.Object, matchLabels, "spec", "selector", "matchLabels")
 	unstructured.SetNestedMap(collectorObject.Object, unstructuredTemplateSpec, "spec", "template", "spec")
 	client.Create(context.TODO(), collectorObject)
-
 }

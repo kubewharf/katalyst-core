@@ -184,7 +184,8 @@ func TestMatchConfig(t *testing.T) {
 					v1.ResourceCPU:    "2",
 					v1.ResourceMemory: "1",
 				},
-			}})
+			},
+		})
 
 	nodeIndexer2 := testNodeIndexer()
 	nocIndexer2 := testNocIndexer()
@@ -272,7 +273,8 @@ func TestMatchNode(t *testing.T) {
 				v1.ResourceCPU:    "2",
 				v1.ResourceMemory: "1",
 			},
-		}})
+		},
+	})
 
 	nodeIndexer2 := testNodeIndexer()
 	nocIndexer2 := testNocIndexer()
@@ -296,7 +298,8 @@ func TestMatchNode(t *testing.T) {
 		&v1alpha1.NodeOvercommitConfig{
 			ObjectMeta: metav1.ObjectMeta{
 				Name: "config1",
-			}},
+			},
+		},
 	)
 
 	nodeIndexer5 := testNodeIndexer()

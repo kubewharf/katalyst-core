@@ -37,7 +37,8 @@ func NewV1PodResourcesServer(
 	podsProvider PodsProvider,
 	resourcesProvider ResourcesProvider,
 	devicesProvider DevicesProvider,
-	emitter metrics.MetricEmitter) v1.PodResourcesListerServer {
+	emitter metrics.MetricEmitter,
+) v1.PodResourcesListerServer {
 	return &v1PodResourcesServer{
 		podsProvider:      podsProvider,
 		resourcesProvider: resourcesProvider,
@@ -48,7 +49,6 @@ func NewV1PodResourcesServer(
 
 // List returns information about the resources assigned to pods on the node
 func (p *v1PodResourcesServer) List(ctx context.Context, req *v1.ListPodResourcesRequest) (*v1.ListPodResourcesResponse, error) {
-
 	pods := p.podsProvider.GetPods()
 	podResources := make([]*v1.PodResources, len(pods))
 

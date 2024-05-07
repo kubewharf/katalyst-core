@@ -35,14 +35,18 @@ func Test_dynamicConfAccessControl_Verify(t *testing.T) {
 	configuration := dynamic.NewDynamicAgentConfiguration()
 	dynamicConf := dynamic.NewConfiguration()
 	dynamicConf.AccessControlPolicies = []v1alpha1.AccessControlPolicy{
-		{Username: "user-1",
+		{
+			Username: "user-1",
 			PolicyRule: v1alpha1.PolicyRule{
 				Resources: []string{PermissionTypeAll},
-			}},
-		{Username: "user-2",
+			},
+		},
+		{
+			Username: "user-2",
 			PolicyRule: v1alpha1.PolicyRule{
 				Resources: []string{PermissionTypeHttpEndpoint},
-			}},
+			},
+		},
 	}
 	configuration.SetDynamicConfiguration(dynamicConf)
 

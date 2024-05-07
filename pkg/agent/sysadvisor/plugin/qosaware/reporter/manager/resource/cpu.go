@@ -33,7 +33,8 @@ type cpuHeadroomManagerImpl struct {
 }
 
 func NewCPUHeadroomManager(emitter metrics.MetricEmitter, _ *metaserver.MetaServer,
-	conf *config.Configuration, headroomAdvisor hmadvisor.ResourceAdvisor) (manager.HeadroomManager, error) {
+	conf *config.Configuration, headroomAdvisor hmadvisor.ResourceAdvisor,
+) (manager.HeadroomManager, error) {
 	gm := NewGenericHeadroomManager(
 		v1.ResourceCPU,
 		true,

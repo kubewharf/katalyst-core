@@ -142,8 +142,10 @@ func (r *PodOOMRecorder) updateOOMRecordConfigMap() error {
 		return err
 	}
 	oomConfigMap := &v1.ConfigMap{}
-	err = r.Client.Get(context.TODO(), types.NamespacedName{Namespace: ConfigMapOOMRecordNameSpace,
-		Name: ConfigMapOOMRecordName}, oomConfigMap)
+	err = r.Client.Get(context.TODO(), types.NamespacedName{
+		Namespace: ConfigMapOOMRecordNameSpace,
+		Name:      ConfigMapOOMRecordName,
+	}, oomConfigMap)
 	if err != nil {
 		if client.IgnoreNotFound(err) != nil {
 			return err
@@ -211,8 +213,10 @@ func (r *PodOOMRecorder) Run(stopCh <-chan struct{}) error {
 
 func (r *PodOOMRecorder) ListOOMRecordsFromConfigmap() ([]OOMRecord, error) {
 	oomConfigMap := &v1.ConfigMap{}
-	err := r.Client.Get(context.TODO(), types.NamespacedName{Namespace: ConfigMapOOMRecordNameSpace,
-		Name: ConfigMapOOMRecordName}, oomConfigMap)
+	err := r.Client.Get(context.TODO(), types.NamespacedName{
+		Namespace: ConfigMapOOMRecordNameSpace,
+		Name:      ConfigMapOOMRecordName,
+	}, oomConfigMap)
 	if err != nil {
 		return nil, client.IgnoreNotFound(err)
 	}

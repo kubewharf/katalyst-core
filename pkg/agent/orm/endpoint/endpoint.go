@@ -191,7 +191,6 @@ func dial(unixSocketPath string) (pluginapi.ResourcePluginClient, *grpc.ClientCo
 			return (&net.Dialer{}).DialContext(ctx, "unix", addr)
 		}),
 	)
-
 	if err != nil {
 		return nil, nil, fmt.Errorf(errFailedToDialResourcePlugin+" %v", err)
 	}

@@ -42,7 +42,8 @@ type HeadroomAssemblerCommon struct {
 
 func NewHeadroomAssemblerCommon(conf *config.Configuration, _ interface{}, _ *map[string]region.QoSRegion,
 	_ *map[int]int, _ *map[int]int, _ *machine.CPUSet, metaReader metacache.MetaReader,
-	metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter) HeadroomAssembler {
+	metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter,
+) HeadroomAssembler {
 	return &HeadroomAssemblerCommon{
 		conf:       conf,
 		metaReader: metaReader,

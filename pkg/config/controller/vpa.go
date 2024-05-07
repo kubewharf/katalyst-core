@@ -18,8 +18,7 @@ package controller
 
 import "time"
 
-type VPARecommendationConfig struct {
-}
+type VPARecommendationConfig struct{}
 
 type ResourceRecommendConfig struct {
 	// time interval of resync VPA

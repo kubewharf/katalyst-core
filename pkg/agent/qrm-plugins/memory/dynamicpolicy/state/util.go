@@ -83,7 +83,8 @@ func GenerateResourceState(machineInfo *info.MachineInfo, reserved map[v1.Resour
 // GenerateMachineStateFromPodEntries returns NUMANodeResourcesMap based on
 // machine info and reserved resources (along with existed pod entries)
 func GenerateMachineStateFromPodEntries(machineInfo *info.MachineInfo,
-	podResourceEntries PodResourceEntries, reserved map[v1.ResourceName]map[int]uint64) (NUMANodeResourcesMap, error) {
+	podResourceEntries PodResourceEntries, reserved map[v1.ResourceName]map[int]uint64,
+) (NUMANodeResourcesMap, error) {
 	if machineInfo == nil {
 		return nil, fmt.Errorf("GenerateMachineStateFromPodEntries got nil machineInfo")
 	}
@@ -104,7 +105,8 @@ func GenerateMachineStateFromPodEntries(machineInfo *info.MachineInfo,
 // GenerateResourceStateFromPodEntries returns NUMANodeMap for given resource based on
 // machine info and reserved resources along with existed pod entries
 func GenerateResourceStateFromPodEntries(machineInfo *info.MachineInfo,
-	podEntries PodEntries, reserved map[v1.ResourceName]map[int]uint64, resourceName v1.ResourceName) (NUMANodeMap, error) {
+	podEntries PodEntries, reserved map[v1.ResourceName]map[int]uint64, resourceName v1.ResourceName,
+) (NUMANodeMap, error) {
 	switch resourceName {
 	case v1.ResourceMemory:
 		return GenerateMemoryStateFromPodEntries(machineInfo, podEntries, reserved)
@@ -116,7 +118,8 @@ func GenerateResourceStateFromPodEntries(machineInfo *info.MachineInfo,
 // GenerateMemoryStateFromPodEntries returns NUMANodeMap for memory based on
 // machine info and reserved resources along with existed pod entries
 func GenerateMemoryStateFromPodEntries(machineInfo *info.MachineInfo,
-	podEntries PodEntries, reserved map[v1.ResourceName]map[int]uint64) (NUMANodeMap, error) {
+	podEntries PodEntries, reserved map[v1.ResourceName]map[int]uint64,
+) (NUMANodeMap, error) {
 	machineState, err := GenerateResourceState(machineInfo, reserved, v1.ResourceMemory)
 	if err != nil {
 		return nil, fmt.Errorf("GenerateResourceState failed with error: %v", err)

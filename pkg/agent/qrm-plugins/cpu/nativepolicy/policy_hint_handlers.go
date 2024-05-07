@@ -33,7 +33,8 @@ import (
 )
 
 func (p *NativePolicy) dedicatedCoresHintHandler(ctx context.Context,
-	req *pluginapi.ResourceRequest) (*pluginapi.ResourceHintsResponse, error) {
+	req *pluginapi.ResourceRequest,
+) (*pluginapi.ResourceHintsResponse, error) {
 	if req == nil {
 		return nil, fmt.Errorf("HintHandler got nil req")
 	}
@@ -87,7 +88,8 @@ func (p *NativePolicy) dedicatedCoresHintHandler(ctx context.Context,
 }
 
 func (p *NativePolicy) sharedPoolHintHandler(_ context.Context,
-	req *pluginapi.ResourceRequest) (*pluginapi.ResourceHintsResponse, error) {
+	req *pluginapi.ResourceRequest,
+) (*pluginapi.ResourceHintsResponse, error) {
 	return util.PackResourceHintsResponse(req, string(v1.ResourceCPU),
 		map[string]*pluginapi.ListOfTopologyHints{
 			string(v1.ResourceCPU): nil, // indicates that there is no numa preference

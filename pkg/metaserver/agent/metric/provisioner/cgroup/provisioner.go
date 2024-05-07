@@ -29,7 +29,8 @@ import (
 
 // NewCGroupMetricsProvisioner returns the default implementation of CGroup.
 func NewCGroupMetricsProvisioner(baseConf *global.BaseConfiguration, _ *metaserver.MetricConfiguration,
-	emitter metrics.MetricEmitter, _ pod.PodFetcher, metricStore *utilmetric.MetricStore) types.MetricsProvisioner {
+	emitter metrics.MetricEmitter, _ pod.PodFetcher, metricStore *utilmetric.MetricStore,
+) types.MetricsProvisioner {
 	return &CGroupMetricsProvisioner{
 		metricStore: metricStore,
 		emitter:     emitter,

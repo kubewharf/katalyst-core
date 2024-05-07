@@ -66,7 +66,8 @@ type Cache struct {
 }
 
 func NewSPDCache(manager checkpointmanager.CheckpointManager, skipCorruptionError bool,
-	cacheTTL, expiredTime time.Duration, maxRetryCount int64, jitterFactor float64) (*Cache, error) {
+	cacheTTL, expiredTime time.Duration, maxRetryCount int64, jitterFactor float64,
+) (*Cache, error) {
 	cache := &Cache{
 		spdInfo:             map[string]*spdInfo{},
 		manager:             manager,

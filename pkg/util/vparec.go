@@ -71,7 +71,8 @@ func getVPARecFroVPAWithIndex(vpa *apis.KatalystVerticalPodAutoscaler, vpaRecInd
 
 // GetVPAForVPARec is used to get vpa that should manage the given vpaRec
 func GetVPAForVPARec(vpaRec *apis.VerticalPodAutoscalerRecommendation,
-	vpaLister autoscalelister.KatalystVerticalPodAutoscalerLister) (*apis.KatalystVerticalPodAutoscaler, error) {
+	vpaLister autoscalelister.KatalystVerticalPodAutoscalerLister,
+) (*apis.KatalystVerticalPodAutoscaler, error) {
 	ownerReferences := vpaRec.GetOwnerReferences()
 	if len(ownerReferences) == 0 {
 		return nil, fmt.Errorf(" vpaRec %v has no owner", vpaRec.Name)
@@ -93,7 +94,8 @@ func GetVPAForVPARec(vpaRec *apis.VerticalPodAutoscalerRecommendation,
 
 // GetVPARecForVPA is used to get vpaRec that should be managed the given vpa
 func GetVPARecForVPA(vpa *apis.KatalystVerticalPodAutoscaler, vpaRecIndexer cache.Indexer,
-	recLister autoscalelister.VerticalPodAutoscalerRecommendationLister) (*apis.VerticalPodAutoscalerRecommendation, error) {
+	recLister autoscalelister.VerticalPodAutoscalerRecommendationLister,
+) (*apis.VerticalPodAutoscalerRecommendation, error) {
 	if recName, ok := vpa.GetAnnotations()[apiconsts.VPAAnnotationVPARecNameKey]; ok {
 		vpaRec, err := recLister.VerticalPodAutoscalerRecommendations(vpa.Namespace).Get(recName)
 		if err == nil && CheckVPARecommendationMatchVPA(vpaRec, vpa) {

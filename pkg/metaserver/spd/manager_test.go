@@ -591,7 +591,8 @@ func Test_serviceProfilingManager_ServiceExtendedIndicator(t *testing.T) {
 										return marshal
 									}(
 										&workloadapis.TestExtendedIndicators{
-											Indicators: &workloadapis.TestIndicators{}},
+											Indicators: &workloadapis.TestIndicators{},
+										},
 									),
 								},
 							},

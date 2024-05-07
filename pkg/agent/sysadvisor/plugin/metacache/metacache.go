@@ -50,7 +50,8 @@ type MetaCachePlugin struct {
 
 // NewMetaCachePlugin creates a metacache plugin with the specified config
 func NewMetaCachePlugin(pluginName string, conf *config.Configuration, _ interface{}, emitterPool metricspool.MetricsEmitterPool,
-	metaServer *metaserver.MetaServer, metaCache metacache.MetaCache) (plugin.SysAdvisorPlugin, error) {
+	metaServer *metaserver.MetaServer, metaCache metacache.MetaCache,
+) (plugin.SysAdvisorPlugin, error) {
 	emitter := emitterPool.GetDefaultMetricsEmitter().WithTags("advisor-metacache")
 
 	mcp := &MetaCachePlugin{
@@ -86,7 +87,6 @@ func (mcp *MetaCachePlugin) periodicWork(_ context.Context) {
 	// Fill missing container metadata from metaserver
 	f := func(podUID string, containerName string, ci *types.ContainerInfo) bool {
 		spec, err := mcp.metaServer.GetContainerSpec(podUID, containerName)
-
 		if err != nil {
 			klog.Errorf("[metacache] get container spec failed: %v, %v/%v", err, podUID, containerName)
 			return true

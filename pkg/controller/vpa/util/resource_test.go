@@ -471,7 +471,6 @@ func testGetVPAResourceStatusWithCurrentAndIndexer(t *testing.T, podIndexers cac
 			assert.NoError(t, err)
 			assert.Equal(t, tc.vpaPodResources, vpaPodResources)
 			assert.Equal(t, tc.vpaContainerResources, vpaContainerResources)
-
 		})
 	}
 }

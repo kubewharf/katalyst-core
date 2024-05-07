@@ -47,13 +47,11 @@ const (
 	CNRFieldNameAnnotations            = "Annotations"
 )
 
-var (
-	CNRGroupVersionKind = metav1.GroupVersionKind{
-		Group:   nodev1alpha1.SchemeGroupVersion.Group,
-		Kind:    CNRKind,
-		Version: nodev1alpha1.SchemeGroupVersion.Version,
-	}
-)
+var CNRGroupVersionKind = metav1.GroupVersionKind{
+	Group:   nodev1alpha1.SchemeGroupVersion.Group,
+	Kind:    CNRKind,
+	Version: nodev1alpha1.SchemeGroupVersion.Version,
+}
 
 // GetCNRCondition extracts the provided condition from the given status and returns that.
 // Returns nil and -1 if the condition is not present, and the index of the located condition.
@@ -235,8 +233,7 @@ func MergeAllocations(dst, src []*apis.Allocation) []*apis.Allocation {
 			continue
 		}
 
-		allocationMap[allocation.Consumer].Requests =
-			native.MergeResources(allocationMap[allocation.Consumer].Requests, allocation.Requests)
+		allocationMap[allocation.Consumer].Requests = native.MergeResources(allocationMap[allocation.Consumer].Requests, allocation.Requests)
 	}
 
 	allocations := make([]*apis.Allocation, 0, len(allocationMap))

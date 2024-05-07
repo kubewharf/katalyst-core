@@ -84,8 +84,8 @@ func newCNCCacheController(ctx context.Context,
 	workloadLister map[schema.GroupVersionResource]cache.GenericLister,
 	cncControl control.CNCControl,
 	metricsEmitter metrics.MetricEmitter,
-	conf *controller.SPDConfig) (*cncCacheController, error) {
-
+	conf *controller.SPDConfig,
+) (*cncCacheController, error) {
 	c := &cncCacheController{
 		ctx:               ctx,
 		conf:              conf,
@@ -431,7 +431,8 @@ func (c *cncCacheController) patchCNC(cnc *configapis.CustomNodeConfig, setFunc 
 }
 
 func applySPDTargetConfigToCNC(cnc *configapis.CustomNodeConfig,
-	spd *apiworkload.ServiceProfileDescriptor) {
+	spd *apiworkload.ServiceProfileDescriptor,
+) {
 	if cnc == nil || spd == nil {
 		return
 	}

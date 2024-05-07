@@ -55,7 +55,8 @@ const (
 
 // NewMalachiteMetricsProvisioner returns the default implementation of MetricsFetcher.
 func NewMalachiteMetricsProvisioner(baseConf *global.BaseConfiguration, _ *metaserver.MetricConfiguration,
-	emitter metrics.MetricEmitter, fetcher pod.PodFetcher, metricStore *utilmetric.MetricStore) types.MetricsProvisioner {
+	emitter metrics.MetricEmitter, fetcher pod.PodFetcher, metricStore *utilmetric.MetricStore,
+) types.MetricsProvisioner {
 	return &MalachiteMetricsProvisioner{
 		malachiteClient: client.NewMalachiteClient(fetcher),
 		metricStore:     metricStore,
@@ -551,7 +552,7 @@ func (m *MalachiteMetricsProvisioner) processCgroupMemoryData(cgroupPath string,
 		m.metricStore.SetCgroupMetric(cgroupPath, consts.MetricMemKswapdstealCgroup, utilmetric.MetricData{Time: &updateTime, Value: float64(mem.KswapdSteal)})
 
 		m.metricStore.SetCgroupMetric(cgroupPath, consts.MetricMemOomCgroup, utilmetric.MetricData{Time: &updateTime, Value: float64(mem.BpfMemStat.OomCnt)})
-		//m.metricStore.SetCgroupMetric(cgroupPath, consts.MetricMemScaleFactorCgroup, utilmetric.MetricData{Time: &updateTime, Value: general.UIntPointerToFloat64(mem.WatermarkScaleFactor)})
+		// m.metricStore.SetCgroupMetric(cgroupPath, consts.MetricMemScaleFactorCgroup, utilmetric.MetricData{Time: &updateTime, Value: general.UIntPointerToFloat64(mem.WatermarkScaleFactor)})
 	} else if cgStats.CgroupType == "V2" && cgStats.V2 != nil {
 		mem := cgStats.V2.Memory
 		updateTime := time.Unix(cgStats.V2.Memory.UpdateTime, 0)
@@ -564,7 +565,7 @@ func (m *MalachiteMetricsProvisioner) processCgroupMemoryData(cgroupPath string,
 		m.metricStore.SetCgroupMetric(cgroupPath, consts.MetricMemPgmajfaultCgroup, utilmetric.MetricData{Value: float64(mem.MemStats.Pgmajfault), Time: &updateTime})
 
 		m.metricStore.SetCgroupMetric(cgroupPath, consts.MetricMemOomCgroup, utilmetric.MetricData{Value: float64(mem.BpfMemStat.OomCnt), Time: &updateTime})
-		//m.metricStore.SetCgroupMetric(cgroupPath, consts.MetricMemScaleFactorCgroup, utilmetric.MetricData{Value: general.UInt64PointerToFloat64(mem.WatermarkScaleFactor), Time: &updateTime})
+		// m.metricStore.SetCgroupMetric(cgroupPath, consts.MetricMemScaleFactorCgroup, utilmetric.MetricData{Value: general.UInt64PointerToFloat64(mem.WatermarkScaleFactor), Time: &updateTime})
 		m.metricStore.SetCgroupMetric(cgroupPath, consts.MetricMemPgstealCgroup, utilmetric.MetricData{Value: float64(mem.MemStats.Pgsteal), Time: &updateTime})
 		m.metricStore.SetCgroupMetric(cgroupPath, consts.MetricMemPgscanCgroup, utilmetric.MetricData{Value: float64(mem.MemStats.Pgscan), Time: &updateTime})
 		m.metricStore.SetCgroupMetric(cgroupPath, consts.MetricMemWorkingsetRefaultCgroup, utilmetric.MetricData{Value: float64(mem.MemStats.WorkingsetRefault), Time: &updateTime})
@@ -857,7 +858,7 @@ func (m *MalachiteMetricsProvisioner) processContainerMemoryData(podUID, contain
 
 		m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricMemOomContainer,
 			utilmetric.MetricData{Value: float64(mem.BpfMemStat.OomCnt), Time: &updateTime})
-		//m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricMemScaleFactorContainer,
+		// m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricMemScaleFactorContainer,
 		//	utilmetric.MetricData{Value: general.UIntPointerToFloat64(mem.WatermarkScaleFactor), Time: &updateTime})
 		m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricMemUpdateTimeContainer,
 			utilmetric.MetricData{Value: float64(mem.UpdateTime), Time: &updateTime})
@@ -887,7 +888,7 @@ func (m *MalachiteMetricsProvisioner) processContainerMemoryData(podUID, contain
 			utilmetric.MetricData{Value: float64(mem.BpfMemStat.OomCnt), Time: &updateTime})
 		m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricMemWritebackContainer,
 			utilmetric.MetricData{Value: float64(mem.MemStats.FileWriteback), Time: &updateTime})
-		//m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricMemScaleFactorContainer,
+		// m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricMemScaleFactorContainer,
 		//	utilmetric.MetricData{Value: general.UInt64PointerToFloat64(mem.WatermarkScaleFactor), Time: &updateTime})
 		m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricMemUpdateTimeContainer,
 			utilmetric.MetricData{Value: float64(mem.UpdateTime), Time: &updateTime})

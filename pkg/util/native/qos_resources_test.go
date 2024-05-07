@@ -77,33 +77,33 @@ func Test_CalculateQoSResource(t *testing.T) {
 			name: "test with resource set",
 			pod: makeQoSResourcePod("pod-1", map[v1.ResourceName]resource.Quantity{
 				consts.ReclaimedResourceMilliCPU: *resource.NewQuantity(2000, resource.DecimalSI),
-				consts.ReclaimedResourceMemory:   *resource.NewQuantity(2*1024*0124*1024, resource.DecimalSI),
+				consts.ReclaimedResourceMemory:   *resource.NewQuantity(2*1024*0o124*1024, resource.DecimalSI),
 			}, map[v1.ResourceName]resource.Quantity{
 				consts.ReclaimedResourceMilliCPU: *resource.NewQuantity(3000, resource.DecimalSI),
-				consts.ReclaimedResourceMemory:   *resource.NewQuantity(3*1024*0124*1024, resource.DecimalSI),
+				consts.ReclaimedResourceMemory:   *resource.NewQuantity(3*1024*0o124*1024, resource.DecimalSI),
 			}, map[v1.ResourceName]resource.Quantity{
 				consts.ReclaimedResourceMilliCPU: *resource.NewQuantity(1000, resource.DecimalSI),
-				consts.ReclaimedResourceMemory:   *resource.NewQuantity(1*1024*0124*1024, resource.DecimalSI),
+				consts.ReclaimedResourceMemory:   *resource.NewQuantity(1*1024*0o124*1024, resource.DecimalSI),
 			}),
-			res:     QoSResource{5000, 5 * 1024 * 0124 * 1024},
+			res:     QoSResource{5000, 5 * 1024 * 0o124 * 1024},
 			non0CPU: 5000,
-			non0Mem: 5 * 1024 * 0124 * 1024,
+			non0Mem: 5 * 1024 * 0o124 * 1024,
 		},
 		{
 			name: "test with resource init",
 			pod: makeQoSResourcePod("pod-1", map[v1.ResourceName]resource.Quantity{
 				consts.ReclaimedResourceMilliCPU: *resource.NewQuantity(2000, resource.DecimalSI),
-				consts.ReclaimedResourceMemory:   *resource.NewQuantity(2*1024*0124*1024, resource.DecimalSI),
+				consts.ReclaimedResourceMemory:   *resource.NewQuantity(2*1024*0o124*1024, resource.DecimalSI),
 			}, map[v1.ResourceName]resource.Quantity{
 				consts.ReclaimedResourceMilliCPU: *resource.NewQuantity(5000, resource.DecimalSI),
-				consts.ReclaimedResourceMemory:   *resource.NewQuantity(5*1024*0124*1024, resource.DecimalSI),
+				consts.ReclaimedResourceMemory:   *resource.NewQuantity(5*1024*0o124*1024, resource.DecimalSI),
 			}, map[v1.ResourceName]resource.Quantity{
 				consts.ReclaimedResourceMilliCPU: *resource.NewQuantity(1000, resource.DecimalSI),
-				consts.ReclaimedResourceMemory:   *resource.NewQuantity(1*1024*0124*1024, resource.DecimalSI),
+				consts.ReclaimedResourceMemory:   *resource.NewQuantity(1*1024*0o124*1024, resource.DecimalSI),
 			}),
-			res:     QoSResource{6000, 6 * 1024 * 0124 * 1024},
+			res:     QoSResource{6000, 6 * 1024 * 0o124 * 1024},
 			non0CPU: 6000,
-			non0Mem: 6 * 1024 * 0124 * 1024,
+			non0Mem: 6 * 1024 * 0o124 * 1024,
 		},
 		{
 			name: "test with resource missing",
@@ -113,11 +113,11 @@ func Test_CalculateQoSResource(t *testing.T) {
 				consts.ReclaimedResourceMilliCPU: *resource.NewQuantity(3000, resource.DecimalSI),
 			}, map[v1.ResourceName]resource.Quantity{
 				consts.ReclaimedResourceMilliCPU: *resource.NewQuantity(1000, resource.DecimalSI),
-				consts.ReclaimedResourceMemory:   *resource.NewQuantity(1*1024*0124*1024, resource.DecimalSI),
+				consts.ReclaimedResourceMemory:   *resource.NewQuantity(1*1024*0o124*1024, resource.DecimalSI),
 			}),
-			res:     QoSResource{5000, 1 * 1024 * 0124 * 1024},
+			res:     QoSResource{5000, 1 * 1024 * 0o124 * 1024},
 			non0CPU: 5000,
-			non0Mem: 1*1024*0124*1024 + DefaultReclaimedMemoryRequest*2,
+			non0Mem: 1*1024*0o124*1024 + DefaultReclaimedMemoryRequest*2,
 		},
 	} {
 		tc := tc

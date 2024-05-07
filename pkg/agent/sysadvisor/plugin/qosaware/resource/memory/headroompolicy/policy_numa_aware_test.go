@@ -171,7 +171,8 @@ func TestPolicyNUMAAware(t *testing.T) {
 						},
 						types.TopologyAwareAssignment{
 							0: machine.NewCPUSet(0),
-						}, 30<<30)},
+						}, 30<<30),
+				},
 				memoryHeadroomConfiguration: &memoryheadroom.MemoryHeadroomConfiguration{
 					MemoryUtilBasedConfiguration: &memoryheadroom.MemoryUtilBasedConfiguration{
 						CacheBasedRatio: 0.5,

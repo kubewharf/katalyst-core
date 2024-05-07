@@ -47,7 +47,7 @@ const (
 )
 
 type Metric struct {
-	//to be extended when new datasource is added
+	// to be extended when new datasource is added
 	Namespace     string
 	Kind          string
 	APIVersion    string
@@ -76,7 +76,7 @@ func (m *Metric) SetSelector(selectors map[string]string) {
 }
 
 type Query struct {
-	//to be extended when new datasource is added
+	// to be extended when new datasource is added
 	Prometheus *PrometheusQuery
 }
 type PrometheusQuery struct {

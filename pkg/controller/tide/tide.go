@@ -86,7 +86,7 @@ type Tide struct {
 	tideListerSynced cache.InformerSynced
 	tideLister       listers.TideNodePoolLister
 
-	//queue for node
+	// queue for node
 	syncQueue workqueue.RateLimitingInterface
 
 	// metricsEmitter for emit metrics
@@ -96,8 +96,8 @@ type Tide struct {
 func NewTide(ctx context.Context,
 	controlCtx *katalystbase.GenericContext,
 	_ *generic.GenericConfiguration,
-	_ *controller.GenericControllerConfiguration) (*Tide, error) {
-
+	_ *controller.GenericControllerConfiguration,
+) (*Tide, error) {
 	tide := &Tide{
 		ctx:    ctx,
 		client: controlCtx.Client,
@@ -226,7 +226,6 @@ func (t *Tide) deleteTideNodePoolEventHandle(obj interface{}) {
 	klog.V(4).Infof("notice addition of tide node pool %s", c.Name)
 
 	t.enqueueWorkItem(obj)
-
 }
 
 func (t *Tide) worker() {
@@ -467,7 +466,8 @@ func classifyNodes(nodes []*corev1.Node, tideNodePool NodePoolWrapper) (
 	reserveOnlineNodes []*corev1.Node,
 	reserveOfflineNodes []*corev1.Node,
 	tideNodes []*corev1.Node,
-	unknownNodes []*corev1.Node) {
+	unknownNodes []*corev1.Node,
+) {
 	for i, node := range nodes {
 		nodeLabels := labels.Set(node.GetLabels())
 		switch {
@@ -509,7 +509,6 @@ func (t *Tide) GetNodePoolInfo(nodes []*corev1.Node, onlinePodChecker OnlinePodC
 		} else if checkPendingOnlinePod(pods[i], onlinePodChecker) {
 			pendingPods = append(pendingPods, pods[i])
 		}
-
 	}
 	return clusterSnapshot, pendingPods, nil
 }

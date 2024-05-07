@@ -44,7 +44,6 @@ type unsupportedExternalManagerImpl struct {
 
 // Run starts an unsupportedExternalManagerImpl
 func (m *unsupportedExternalManagerImpl) Run(_ context.Context) {
-
 }
 
 // InitExternalManager initializes an externalManagerImpl

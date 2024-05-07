@@ -34,7 +34,8 @@ type prometheusShadingCollector struct{}
 var _ collector.MetricCollector = &prometheusShadingCollector{}
 
 func NewPrometheusShadingCollector(ctx context.Context, baseCtx *katalystbase.GenericContext,
-	conf *metric.CollectorConfiguration, metricStore store.MetricStore) (collector.MetricCollector, error) {
+	conf *metric.CollectorConfiguration, metricStore store.MetricStore,
+) (collector.MetricCollector, error) {
 	return &prometheusShadingCollector{}, nil
 }
 

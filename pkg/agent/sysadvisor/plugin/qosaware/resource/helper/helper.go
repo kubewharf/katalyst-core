@@ -33,7 +33,8 @@ import (
 // if node does not enable reclaim, it will return false directly,
 // if node enable reclaim, it will check whether the pod is degraded or baseline.
 func PodEnableReclaim(ctx context.Context, metaServer *metaserver.MetaServer,
-	podUID string, nodeEnableReclaim bool) (bool, error) {
+	podUID string, nodeEnableReclaim bool,
+) (bool, error) {
 	if !nodeEnableReclaim {
 		general.Infof("node reclaim disabled")
 		return false, nil

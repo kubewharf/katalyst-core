@@ -28,8 +28,10 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/pod"
 )
 
-var subSystemGroupsV1Data []byte
-var subSystemGroupsV2Data []byte
+var (
+	subSystemGroupsV1Data []byte
+	subSystemGroupsV2Data []byte
+)
 
 var (
 	subSystemGroupsV1 = &types.SubSystemGroupsV1{

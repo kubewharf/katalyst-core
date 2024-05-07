@@ -39,7 +39,8 @@ type reclaimedResourcesPlugin struct {
 }
 
 func NewReclaimedResourcesEvictionPlugin(_ *client.GenericClientSet, _ events.EventRecorder,
-	metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter, conf *config.Configuration) plugin.EvictionPlugin {
+	metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter, conf *config.Configuration,
+) plugin.EvictionPlugin {
 	reclaimedResourcesGetter := func(ctx context.Context) (v1.ResourceList, error) {
 		cnr, err := metaServer.GetCNR(ctx)
 		if err != nil {

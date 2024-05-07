@@ -72,7 +72,8 @@ type RemoteMemoryMetricStore struct {
 var _ store.MetricStore = &RemoteMemoryMetricStore{}
 
 func NewRemoteMemoryMetricStore(ctx context.Context, baseCtx *katalystbase.GenericContext,
-	genericConf *metricconf.GenericMetricConfiguration, storeConf *metricconf.StoreConfiguration) (*RemoteMemoryMetricStore, error) {
+	genericConf *metricconf.GenericMetricConfiguration, storeConf *metricconf.StoreConfiguration,
+) (*RemoteMemoryMetricStore, error) {
 	client := process.NewDefaultHTTPClient()
 
 	if storeConf.StoreServerReplicaTotal <= 0 {
@@ -159,7 +160,8 @@ func (r *RemoteMemoryMetricStore) InsertMetric(seriesList []*data.MetricSeries) 
 }
 
 func (r *RemoteMemoryMetricStore) GetMetric(_ context.Context, namespace, metricName, objName string, gr *schema.GroupResource,
-	objSelector, metricSelector labels.Selector, latest bool) ([]types.Metric, error) {
+	objSelector, metricSelector labels.Selector, latest bool,
+) ([]types.Metric, error) {
 	start := time.Now()
 	tags := r.generateMetricsTags(metricName, objName)
 
@@ -302,13 +304,14 @@ func (r *RemoteMemoryMetricStore) ListMetricMeta(ctx context.Context, withObject
 // todo, currently we will not support any timeout configurations for http-requests
 func (r *RemoteMemoryMetricStore) sendRequests(cancel func(),
 	reqs []*http.Request, readyCnt int, tags []metrics.MetricTag,
-	requestWrapF func(req *http.Request), responseWrapF func(body io.ReadCloser) error) error {
+	requestWrapF func(req *http.Request), responseWrapF func(body io.ReadCloser) error,
+) error {
 	if len(reqs) == 0 {
 		return nil
 	}
 
-	var failChan = make(chan error, len(reqs))
-	var successChan = make(chan struct{}, len(reqs))
+	failChan := make(chan error, len(reqs))
+	successChan := make(chan struct{}, len(reqs))
 
 	wg := sync.WaitGroup{}
 	for i := range reqs {
@@ -357,7 +360,8 @@ func (r *RemoteMemoryMetricStore) sendRequests(cancel func(),
 // sendRequest works as a uniformed function to construct http requests, as
 // well as send this requests to the server side.
 func (r *RemoteMemoryMetricStore) sendRequest(req *http.Request, tags []metrics.MetricTag,
-	requestWrapFunc func(req *http.Request), responseWrapF func(body io.ReadCloser) error) error {
+	requestWrapFunc func(req *http.Request), responseWrapF func(body io.ReadCloser) error,
+) error {
 	start := time.Now()
 	defer func() {
 		finishCosts := time.Now().Sub(start).Microseconds()

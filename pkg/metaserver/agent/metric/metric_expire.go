@@ -27,9 +27,7 @@ const (
 	minimumMetricInsurancePeriod = 60 * time.Second
 )
 
-var (
-	errMetricDataExpired = errors.New("metric data expired")
-)
+var errMetricDataExpired = errors.New("metric data expired")
 
 func IsMetricDataExpired(err error) bool {
 	return errors.Is(err, errMetricDataExpired)
