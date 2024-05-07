@@ -110,7 +110,7 @@ func (p *kubeletPlugin) Name() string {
 func (p *kubeletPlugin) Run(success chan<- bool) {
 	err := p.topologyStatusAdapter.Run(p.ctx, p.topologyStatusChangeHandler)
 	if err != nil {
-		klog.Fatalf("run topology status adapter failed")
+		klog.Fatalf("run topology status adapter failed: %v", err)
 		return
 	}
 	success <- true
