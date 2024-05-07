@@ -147,8 +147,8 @@ func (e *EvictionHelper) getEvictionCmpFuncs(rankingMetrics []string, numaID int
 						metrics.ConvertMapToTags(map[string]string{
 							metricsTagKeyNumaID: strconv.Itoa(numaID),
 						})...)
-					// prioritize evicting the pod for which no stats were found
-					return general.CmpBool(!p1Found, !p2Found)
+					// prioritize evicting the pod for which stats were found
+					return general.CmpBool(p1Found, p2Found)
 				}
 
 				// prioritize evicting the pod whose metric value is greater
