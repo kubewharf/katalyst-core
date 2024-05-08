@@ -17,10 +17,21 @@ limitations under the License.
 package qrm
 
 import (
+	"time"
+
 	cliflag "k8s.io/component-base/cli/flag"
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
 	qrmconfig "github.com/kubewharf/katalyst-core/pkg/config/agent/qrm"
+)
+
+const (
+	defaultMBThreshold = 70 // default 70%
+	minMBThreshold     = 50 // min threshold is 50%
+
+	defaultMCScanInterval = time.Second * 1       // default 1000ms (1s)
+	minMCScanInterval     = time.Millisecond * 50 // min scan interval 50ms
+	maxMCScanInterval     = time.Second * 10      // max scan interval 10s
 )
 
 type CPUOptions struct {
@@ -38,6 +49,9 @@ type CPUDynamicPolicyOptions struct {
 	LoadPressureEvictionSkipPools []string
 	EnableSyncingCPUIdle          bool
 	EnableCPUIdle                 bool
+	EnableMBM                     bool
+	MBMThresholdPercentage        int
+	MBMScanInterval               time.Duration
 }
 
 type CPUNativePolicyOptions struct {
@@ -55,6 +69,9 @@ func NewCPUOptions() *CPUOptions {
 			EnableCPUPressureEviction: false,
 			EnableSyncingCPUIdle:      false,
 			EnableCPUIdle:             false,
+			EnableMBM:                 false,
+			MBMScanInterval:           defaultMCScanInterval,
+			MBMThresholdPercentage:    defaultMBThreshold,
 			LoadPressureEvictionSkipPools: []string{
 				state.PoolNameReclaim,
 				state.PoolNameDedicated,
@@ -88,6 +105,12 @@ func (o *CPUOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 	fs.BoolVar(&o.EnableCPUIdle, "enable-cpu-idle", o.EnableCPUIdle,
 		"if set true, we will enable cpu idle for "+
 			"specific cgroup paths and it requires --enable-syncing-cpu-idle=true to make effect")
+	fs.BoolVar(&o.EnableMBM, "enable-mbm", o.EnableMBM,
+		"if set true, we will enable MBM(memory bandwidth management for cpu cores sharing numa memory bus")
+	fs.DurationVar(&o.MBMScanInterval, "mbm-scan-interval", o.MBMScanInterval,
+		"scan interval; default 1s; min 50ms, max 10s")
+	fs.IntVar(&o.MBMThresholdPercentage, "mbm-mb-threshold", o.MBMThresholdPercentage,
+		"mem bandwidth threshold in percentage; default 70")
 	fs.StringVar(&o.CPUAllocationOption, "cpu-allocation-option",
 		o.CPUAllocationOption, "The allocation option of cpu (packed/distributed). The default value is packed."+
 			"in cases where more than one NUMA node is required to satisfy the allocation.")
@@ -105,7 +128,23 @@ func (o *CPUOptions) ApplyTo(conf *qrmconfig.CPUQRMPluginConfig) error {
 	conf.LoadPressureEvictionSkipPools = o.LoadPressureEvictionSkipPools
 	conf.EnableSyncingCPUIdle = o.EnableSyncingCPUIdle
 	conf.EnableCPUIdle = o.EnableCPUIdle
+	conf.EnableMBM = o.EnableMBM
 	conf.EnableFullPhysicalCPUsOnly = o.EnableFullPhysicalCPUsOnly
 	conf.CPUAllocationOption = o.CPUAllocationOption
+
+	// to ensure MBM settings within valid range
+	if o.MBMScanInterval > maxMCScanInterval {
+		conf.MBMScanInterval = maxMCScanInterval
+	} else if o.MBMScanInterval < minMCScanInterval {
+		conf.MBMScanInterval = minMCScanInterval
+	} else {
+		conf.MBMScanInterval = o.MBMScanInterval
+	}
+	if o.MBMThresholdPercentage < minMBThreshold {
+		conf.MBMThresholdPercentage = minMBThreshold
+	} else {
+		conf.MBMThresholdPercentage = o.MBMThresholdPercentage
+	}
+
 	return nil
 }

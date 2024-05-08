@@ -16,6 +16,8 @@ limitations under the License.
 
 package qrm
 
+import "time"
+
 type CPUQRMPluginConfig struct {
 	// PolicyName is used to switch between several strategies
 	PolicyName string
@@ -40,6 +42,12 @@ type CPUDynamicPolicyConfig struct {
 	EnableSyncingCPUIdle bool
 	// EnableCPUIdle indicates whether enabling cpu idle
 	EnableCPUIdle bool
+	// EnableMBM indicates whether enabling MBM (numa-related memory bandwidth management)
+	EnableMBM bool
+	// MBMThresholdPercentage is the threshold in percentage of memory bandwidth saturation
+	MBMThresholdPercentage int
+	// MBMScanInterval is the interval between memory bandwidth data scans
+	MBMScanInterval time.Duration
 }
 
 type CPUNativePolicyConfig struct {

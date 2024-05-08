@@ -114,6 +114,8 @@ type DynamicPolicy struct {
 	cpuPressureEviction       agent.Component
 	cpuPressureEvictionCancel context.CancelFunc
 
+	mbmController StoppableComponent
+
 	// those are parsed from configurations
 	// todo if we want to use dynamic configuration, we'd better not use self-defined conf
 	enableCPUAdvisor              bool
@@ -197,6 +199,10 @@ func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration
 		reclaimRelativeRootCgroupPath: conf.ReclaimRelativeRootCgroupPath,
 		podDebugAnnoKeys:              conf.PodDebugAnnoKeys,
 		transitionPeriod:              30 * time.Second,
+	}
+
+	if conf.EnableMBM {
+		policyImplement.mbmController = NewMBMController(conf.MBMThresholdPercentage, conf.MBMScanInterval)
 	}
 
 	// register allocation behaviors for pods with different QoS level
@@ -309,6 +315,10 @@ func (p *DynamicPolicy) Start() (err error) {
 		go p.cpuPressureEviction.Run(ctx)
 	}
 
+	if p.mbmController != nil {
+		p.mbmController.Run(context.Background())
+	}
+
 	go wait.Until(func() {
 		periodicalhandler.ReadyToStartHandlersByGroup(qrm.QRMCPUPluginPeriodicalHandlerGroupName)
 	}, 5*time.Second, p.stopCh)
@@ -385,6 +395,10 @@ func (p *DynamicPolicy) Stop() error {
 
 	if p.cpuPressureEvictionCancel != nil {
 		p.cpuPressureEvictionCancel()
+	}
+
+	if p.mbmController != nil {
+		p.mbmController.Stop()
 	}
 
 	periodicalhandler.StopHandlersByGroup(qrm.QRMCPUPluginPeriodicalHandlerGroupName)
