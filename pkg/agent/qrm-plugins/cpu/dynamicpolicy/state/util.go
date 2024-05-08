@@ -163,7 +163,6 @@ func GetSharedQuantityMapFromPodEntries(podEntries PodEntries, ignoreAllocationI
 	}
 
 	err := CountAllocationInfosToPoolsQuantityMap(allocationInfosToCount, poolsQuantityMap)
-
 	if err != nil {
 		return nil, fmt.Errorf("CountAllocationInfosToPoolsQuantityMap faild with error: %v", err)
 	}
@@ -296,8 +295,8 @@ func GetSharedBindingNUMAsFromQuantityMap(poolsQuantityMap map[string]map[int]in
 }
 
 func CountAllocationInfosToPoolsQuantityMap(allocationInfos []*AllocationInfo,
-	poolsQuantityMap map[string]map[int]int) error {
-
+	poolsQuantityMap map[string]map[int]int,
+) error {
 	if poolsQuantityMap == nil {
 		return fmt.Errorf("nil poolsQuantityMap in CountAllocationInfosToPoolsQuantityMap")
 	}
