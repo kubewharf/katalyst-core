@@ -96,13 +96,8 @@ func (wn *WebhookNode) Mutate(ctx context.Context, obj metav1.Object) (bool, err
 	klog.V(5).Info("webhookNode notice an obj to be mutated")
 
 	node, ok := obj.(*core.Node)
-	if !ok {
+	if !ok || node == nil {
 		err := fmt.Errorf("failed to convert obj to node: %v", obj)
-		klog.Error(err)
-		return false, err
-	}
-	if node == nil {
-		err := fmt.Errorf("node can't be nil")
 		klog.Error(err)
 		return false, err
 	}
