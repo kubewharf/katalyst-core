@@ -63,7 +63,6 @@ func ParseCPUAssignmentQuantityMap(csetMap map[string]map[int]CPUSet) map[string
 
 		for numaID, cset := range numaToCset {
 			ret[name][numaID] = cset.Size()
-
 		}
 	}
 

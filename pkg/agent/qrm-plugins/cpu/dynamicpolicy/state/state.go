@@ -578,8 +578,8 @@ func (ns *NUMANodeState) ExistMatchedAllocationInfo(f func(ai *AllocationInfo) b
 // holds true for some pods of this numa else it returns false.
 func (ns *NUMANodeState) ExistMatchedAllocationInfoWithAnnotations(
 	f func(ai *AllocationInfo, annotations map[string]string) bool,
-	annotations map[string]string) bool {
-
+	annotations map[string]string,
+) bool {
 	for _, containerEntries := range ns.PodEntries {
 		for _, allocationInfo := range containerEntries {
 			if f(allocationInfo, annotations) {
@@ -652,7 +652,8 @@ func (nm NUMANodeMap) GetFilteredNUMASet(excludeNUMAPredicate func(ai *Allocatio
 // which are excluded by the predicate accepting AllocationInfo in the target NUMA and input annotations of candidate.
 func (nm NUMANodeMap) GetFilteredNUMASetWithAnnotations(
 	excludeNUMAPredicate func(ai *AllocationInfo, annotations map[string]string) bool,
-	annotations map[string]string) machine.CPUSet {
+	annotations map[string]string,
+) machine.CPUSet {
 	res := machine.NewCPUSet()
 	for numaID, numaNodeState := range nm {
 		if numaNodeState.ExistMatchedAllocationInfoWithAnnotations(excludeNUMAPredicate, annotations) {

@@ -2542,6 +2542,7 @@ func TestGetSocketTopology(t *testing.T) {
 		as.Equalf(tc.expectedSocketTopology, actualSocketToplogy, "failed in test case: %s", tc.description)
 	}
 }
+
 func TestAllocationInfo_GetSpecifiedNUMABindingPoolName(t *testing.T) {
 	t.Parallel()
 	testName := "test"
