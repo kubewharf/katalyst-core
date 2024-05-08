@@ -17,32 +17,30 @@ limitations under the License.
 package advisor
 
 import (
-	"k8s.io/apimachinery/pkg/util/errors"
 	cliflag "k8s.io/component-base/cli/flag"
 
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/adminqos/advisor"
 )
 
-type AdvisorOptions struct {
-	*MemoryGuardOptions
-	*CPURegionOptions
+type CPURegionOptions struct {
+	AllowSharedCoresOverlapReclaimedCores bool
 }
 
-func NewAdvisorOptions() *AdvisorOptions {
-	return &AdvisorOptions{
-		MemoryGuardOptions: NewMemoryGuardOptions(),
-		CPURegionOptions:   NewCPURegionOptions(),
+func NewCPURegionOptions() *CPURegionOptions {
+	return &CPURegionOptions{
+		AllowSharedCoresOverlapReclaimedCores: false,
 	}
 }
 
-func (o *AdvisorOptions) AddFlags(fss *cliflag.NamedFlagSets) {
-	o.MemoryGuardOptions.AddFlags(fss)
-	o.CPURegionOptions.AddFlags(fss)
+// AddFlags parses the flags to CPURegionOptions
+func (o *CPURegionOptions) AddFlags(fss *cliflag.NamedFlagSets) {
+	fs := fss.FlagSet("cpu-region")
+	//
+	fs.BoolVar(&o.AllowSharedCoresOverlapReclaimedCores, "cpu-region-allow-shared-cores-overlap-reclaimed-cores", o.AllowSharedCoresOverlapReclaimedCores,
+		"set true to allow shared_cores overlap reclaimed_cores")
 }
 
-func (o *AdvisorOptions) ApplyTo(c *advisor.AdvisorConfiguration) error {
-	var errList []error
-	errList = append(errList, o.MemoryGuardOptions.ApplyTo(c.MemoryGuardConfiguration))
-	errList = append(errList, o.CPURegionOptions.ApplyTo(c.CPURegionConfiguration))
-	return errors.NewAggregate(errList)
+func (o *CPURegionOptions) ApplyTo(c *advisor.CPURegionConfiguration) error {
+	c.AllowSharedCoresOverlapReclaimedCores = o.AllowSharedCoresOverlapReclaimedCores
+	return nil
 }
