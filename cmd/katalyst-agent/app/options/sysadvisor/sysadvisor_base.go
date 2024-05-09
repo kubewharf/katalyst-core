@@ -27,6 +27,7 @@ import (
 	metricemitter "github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/options/sysadvisor/metric-emitter"
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/options/sysadvisor/overcommit"
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/options/sysadvisor/qosaware"
+	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/sysadvisor"
 )
 
@@ -39,7 +40,12 @@ type GenericSysAdvisorOptions struct {
 // NewGenericSysAdvisorOptions creates a new Options with a default config.
 func NewGenericSysAdvisorOptions() *GenericSysAdvisorOptions {
 	return &GenericSysAdvisorOptions{
-		SysAdvisorPlugins:  []string{"*"},
+		SysAdvisorPlugins: []string{
+			types.AdvisorPluginNameQoSAware,
+			types.AdvisorPluginNameMetaCache,
+			types.AdvisorPluginNameMetricEmitter,
+			types.AdvisorPluginNameInference,
+		},
 		StateFileDirectory: "/var/lib/katalyst/sys_advisor/",
 	}
 }
