@@ -43,8 +43,6 @@ const (
 	defaultServiceProfileCacheTTL            = 1 * time.Minute
 )
 
-const defaultMetricInsurancePeriod = 0 * time.Second
-
 const (
 	defaultKubeletPodCacheSyncPeriod    = 30 * time.Second
 	defaultKubeletPodCacheSyncMaxRate   = 5
@@ -56,12 +54,11 @@ const defaultCustomNodeResourceCacheTTL = 15 * time.Second
 
 const defaultCustomNodeConfigCacheTTL = 15 * time.Second
 
-const defaultRodanServerPort = 9102
-
 // MetaServerOptions holds all the configurations for metaserver.
 // we will not try to separate this structure into several individual
 // structures since it will not be used directly by other components; instead,
 // we will only separate them with blanks in a single structure.
+// todo separate this option-structure into individual structures
 type MetaServerOptions struct {
 	// generic configurations for metaserver
 	CheckpointManagerDir string
@@ -78,11 +75,6 @@ type MetaServerOptions struct {
 	ServiceProfileSkipCorruptionError bool
 	ServiceProfileCacheTTL            time.Duration
 
-	// configurations for metric-fetcher
-	MetricInsurancePeriod time.Duration
-	MetricProvisions      []string
-	RodanServerPort       int
-
 	// configurations for pod-cache
 	KubeletPodCacheSyncPeriod    time.Duration
 	KubeletPodCacheSyncMaxRate   int
@@ -94,6 +86,9 @@ type MetaServerOptions struct {
 
 	// configurations for cnc
 	CustomNodeConfigCacheTTL time.Duration
+
+	// configurations for metric-fetcher
+	*MetricFetcherOptions
 }
 
 func NewMetaServerOptions() *MetaServerOptions {
@@ -110,10 +105,6 @@ func NewMetaServerOptions() *MetaServerOptions {
 		ServiceProfileSkipCorruptionError: defaultServiceProfileSkipCorruptionError,
 		ServiceProfileCacheTTL:            defaultServiceProfileCacheTTL,
 
-		MetricInsurancePeriod: defaultMetricInsurancePeriod,
-		MetricProvisions:      []string{metaserver.MetricProvisionerMalachite, metaserver.MetricProvisionerKubelet},
-		RodanServerPort:       defaultRodanServerPort,
-
 		KubeletPodCacheSyncPeriod:    defaultKubeletPodCacheSyncPeriod,
 		KubeletPodCacheSyncMaxRate:   defaultKubeletPodCacheSyncMaxRate,
 		KubeletPodCacheSyncBurstBulk: defaultKubeletPodCacheSyncBurstBulk,
@@ -122,6 +113,8 @@ func NewMetaServerOptions() *MetaServerOptions {
 		CNRCacheTTL: defaultCustomNodeResourceCacheTTL,
 
 		CustomNodeConfigCacheTTL: defaultCustomNodeConfigCacheTTL,
+
+		MetricFetcherOptions: NewMetricFetcherOptions(),
 	}
 }
 
@@ -150,13 +143,6 @@ func (o *MetaServerOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 	fs.DurationVar(&o.ServiceProfileCacheTTL, "service-profile-cache-ttl", o.ServiceProfileCacheTTL,
 		"The ttl of service profile manager cache remote spd")
 
-	fs.DurationVar(&o.MetricInsurancePeriod, "metric-insurance-period", o.MetricInsurancePeriod,
-		"The meta server return metric data and MetricDataExpired if the update time of metric data is earlier than this period.")
-	fs.StringSliceVar(&o.MetricProvisions, "metric-provisioners", o.MetricProvisions,
-		"The provisioners that should be enabled by default")
-	fs.IntVar(&o.RodanServerPort, "rodan-server-port", o.RodanServerPort,
-		"The rodan metric provisioner server port")
-
 	fs.DurationVar(&o.KubeletPodCacheSyncPeriod, "kubelet-pod-cache-sync-period", o.KubeletPodCacheSyncPeriod,
 		"The period of meta server to sync pod from kubelet 10255 port")
 	fs.IntVar(&o.KubeletPodCacheSyncMaxRate, "kubelet-pod-cache-sync-max-rate", o.KubeletPodCacheSyncMaxRate,
@@ -171,6 +157,8 @@ func (o *MetaServerOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 
 	fs.DurationVar(&o.CustomNodeConfigCacheTTL, "custom-node-config-cache-ttl", o.CustomNodeConfigCacheTTL,
 		"The ttl of custom node config fetcher cache remote cnc")
+
+	o.MetricFetcherOptions.AddFlags(fss)
 }
 
 // ApplyTo fills up config with options
@@ -187,10 +175,6 @@ func (o *MetaServerOptions) ApplyTo(c *metaserver.MetaServerConfiguration) error
 	c.ServiceProfileSkipCorruptionError = o.ServiceProfileSkipCorruptionError
 	c.ServiceProfileCacheTTL = o.ServiceProfileCacheTTL
 
-	c.MetricInsurancePeriod = o.MetricInsurancePeriod
-	c.MetricProvisions = o.MetricProvisions
-	c.RodanServerPort = o.RodanServerPort
-
 	c.KubeletPodCacheSyncPeriod = o.KubeletPodCacheSyncPeriod
 	c.KubeletPodCacheSyncMaxRate = rate.Limit(o.KubeletPodCacheSyncMaxRate)
 	c.KubeletPodCacheSyncBurstBulk = o.KubeletPodCacheSyncBurstBulk
@@ -199,6 +183,10 @@ func (o *MetaServerOptions) ApplyTo(c *metaserver.MetaServerConfiguration) error
 	c.CNRCacheTTL = o.CNRCacheTTL
 
 	c.CustomNodeConfigCacheTTL = o.CustomNodeConfigCacheTTL
+
+	if err := o.MetricFetcherOptions.ApplyTo(c.MetricConfiguration); err != nil {
+		return err
+	}
 
 	return nil
 }

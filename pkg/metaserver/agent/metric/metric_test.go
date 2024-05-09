@@ -44,9 +44,9 @@ func generateTestConfiguration(t *testing.T) *config.Configuration {
 func Test_notifySystem(t *testing.T) {
 	t.Parallel()
 
-	now := time.Now()
-
+	totalNotification := 0
 	conf := generateTestConfiguration(t)
+	conf.DefaultInterval = time.Millisecond * 300
 	f := NewMetricsFetcher(conf.BaseConfiguration, conf.MetricConfiguration, metrics.DummyMetrics{}, &pod.PodFetcherStub{})
 
 	rChan := make(chan metrictypes.NotifiedResponse, 20)
@@ -70,14 +70,15 @@ func Test_notifySystem(t *testing.T) {
 		PodUID:        "test-pod",
 		ContainerName: "test-container",
 	}, rChan)
-	f.RegisterNotifier(metrictypes.MetricsScopeContainer, metrictypes.NotifiedRequest{
+	f.RegisterNotifier(metrictypes.MetricsScopeContainerNUMA, metrictypes.NotifiedRequest{
 		MetricName:    "test-container-numa-metric",
 		PodUID:        "test-pod",
 		ContainerName: "test-container",
 		NumaNode:      "3",
 	}, rChan)
-
 	m := f.(*MetricsFetcherImpl)
+
+	now := time.Now()
 	m.metricStore.SetNodeMetric("test-node-metric", metric.MetricData{Value: 34, Time: &now})
 	m.metricStore.SetNumaMetric(1, "test-numa-metric", metric.MetricData{Value: 56, Time: &now})
 	m.metricStore.SetCPUMetric(2, "test-cpu-metric", metric.MetricData{Value: 78, Time: &now})
@@ -85,29 +86,69 @@ func Test_notifySystem(t *testing.T) {
 	m.metricStore.SetContainerMetric("test-pod", "test-container", "test-container-metric", metric.MetricData{Value: 91, Time: &now})
 	m.metricStore.SetContainerNumaMetric("test-pod", "test-container", "3", "test-container-numa-metric", metric.MetricData{Value: 75, Time: &now})
 
-	go func() {
-		for {
-			select {
-			case response := <-rChan:
-				switch response.Req.MetricName {
-				case "test-node-metric":
-					assert.Equal(t, response.Value, 34)
-				case "test-numa-metric":
-					assert.Equal(t, response.Value, 56)
-				case "test-cpu-metric":
-					assert.Equal(t, response.Value, 78)
-				case "test-device-metric":
-					assert.Equal(t, response.Value, 91)
-				case "test-container-metric":
-					assert.Equal(t, response.Value, 91)
-				case "test-container-numa-metric":
-					assert.Equal(t, response.Value, 75)
-				}
-			}
-		}
-	}()
+	// force trigger multiple notifications in a row,
+	// and expect only one response for a single data
+	m.metricsNotifierManager.Notify()
+	m.metricsNotifierManager.Notify()
 
-	time.Sleep(time.Millisecond * 3)
+	for {
+		timeout := false
+		select {
+		case response := <-rChan:
+			totalNotification++
+			t.Log(response.Req.MetricName)
+			switch response.Req.MetricName {
+			case "test-node-metric":
+				assert.Equal(t, float64(34), response.Value)
+			case "test-numa-metric":
+				assert.Equal(t, float64(56), response.Value)
+			case "test-cpu-metric":
+				assert.Equal(t, float64(78), response.Value)
+			case "test-device-metric":
+				assert.Equal(t, float64(91), response.Value)
+			case "test-container-metric":
+				assert.Equal(t, float64(91), response.Value)
+			case "test-container-numa-metric":
+				assert.Equal(t, float64(75), response.Value)
+			}
+		case <-time.After(time.Millisecond * 300):
+			timeout = true
+		}
+		if timeout {
+			break
+		}
+	}
+	assert.Equal(t, 6, totalNotification)
+
+	cur := time.Now()
+	m.metricStore.SetNodeMetric("test-node-metric", metric.MetricData{Value: 12, Time: &cur})
+	m.metricStore.SetContainerNumaMetric("test-pod", "test-container", "3", "test-container-numa-metric", metric.MetricData{Value: 22, Time: &cur})
+
+	// force trigger multiple notifications again,
+	// and expect to get awareness only for changed-metrics
+	m.metricsNotifierManager.Notify()
+	m.metricsNotifierManager.Notify()
+
+	for {
+		timeout := false
+		select {
+		case response := <-rChan:
+			totalNotification++
+			t.Log(response.Req.MetricName)
+			switch response.Req.MetricName {
+			case "test-node-metric":
+				assert.Equal(t, float64(12), response.Value)
+			case "test-container-numa-metric":
+				assert.Equal(t, float64(22), response.Value)
+			}
+		case <-time.After(time.Millisecond * 300):
+			timeout = true
+		}
+		if timeout {
+			break
+		}
+	}
+	assert.Equal(t, 8, totalNotification)
 }
 
 func TestStore_Aggregate(t *testing.T) {

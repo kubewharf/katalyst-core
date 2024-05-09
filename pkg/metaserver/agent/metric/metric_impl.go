@@ -39,19 +39,20 @@ import (
 type MetricsNotifierManagerImpl struct {
 	*syntax.RWMutex
 	metricStore        *utilmetric.MetricStore
-	registeredNotifier map[types.MetricsScope]map[string]types.NotifiedData
+	registeredNotifier map[types.MetricsScope]map[string]*types.NotifiedData
 }
 
 func NewMetricsNotifierManager(metricStore *utilmetric.MetricStore, emitter metrics.MetricEmitter) types.MetricsNotifierManager {
 	return &MetricsNotifierManagerImpl{
 		metricStore: metricStore,
 		RWMutex:     syntax.NewRWMutex(emitter),
-		registeredNotifier: map[types.MetricsScope]map[string]types.NotifiedData{
-			types.MetricsScopeNode:      make(map[string]types.NotifiedData),
-			types.MetricsScopeNuma:      make(map[string]types.NotifiedData),
-			types.MetricsScopeCPU:       make(map[string]types.NotifiedData),
-			types.MetricsScopeDevice:    make(map[string]types.NotifiedData),
-			types.MetricsScopeContainer: make(map[string]types.NotifiedData),
+		registeredNotifier: map[types.MetricsScope]map[string]*types.NotifiedData{
+			types.MetricsScopeNode:          make(map[string]*types.NotifiedData),
+			types.MetricsScopeNuma:          make(map[string]*types.NotifiedData),
+			types.MetricsScopeCPU:           make(map[string]*types.NotifiedData),
+			types.MetricsScopeDevice:        make(map[string]*types.NotifiedData),
+			types.MetricsScopeContainer:     make(map[string]*types.NotifiedData),
+			types.MetricsScopeContainerNUMA: make(map[string]*types.NotifiedData),
 		},
 	}
 }
@@ -70,7 +71,7 @@ func (m *MetricsNotifierManagerImpl) RegisterNotifier(scope types.MetricsScope, 
 	rand.Read(randBytes)
 	key := string(randBytes)
 
-	m.registeredNotifier[scope][key] = types.NotifiedData{
+	m.registeredNotifier[scope][key] = &types.NotifiedData{
 		Scope:    scope,
 		Req:      req,
 		Response: response,
@@ -103,6 +104,13 @@ func (m *MetricsNotifierManagerImpl) notifySystem() {
 		} else if v.Time == nil {
 			v.Time = &now
 		}
+
+		if reg.LastNotify.Equal(*v.Time) {
+			continue
+		} else {
+			reg.LastNotify = *v.Time
+		}
+
 		reg.Response <- types.NotifiedResponse{
 			Req:        reg.Req,
 			MetricData: v,
@@ -116,32 +124,53 @@ func (m *MetricsNotifierManagerImpl) notifySystem() {
 		} else if v.Time == nil {
 			v.Time = &now
 		}
+
+		if reg.LastNotify.Equal(*v.Time) {
+			continue
+		} else {
+			reg.LastNotify = *v.Time
+		}
+
 		reg.Response <- types.NotifiedResponse{
 			Req:        reg.Req,
 			MetricData: v,
 		}
 	}
 
-	for _, reg := range m.registeredNotifier[types.MetricsScopeNuma] {
+	for n, reg := range m.registeredNotifier[types.MetricsScopeNuma] {
 		v, err := m.metricStore.GetNumaMetric(reg.Req.NumaID, reg.Req.MetricName)
 		if err != nil {
 			continue
 		} else if v.Time == nil {
 			v.Time = &now
 		}
+
+		if m.registeredNotifier[types.MetricsScopeNuma][n].LastNotify.Equal(*v.Time) {
+			continue
+		} else {
+			reg.LastNotify = *v.Time
+		}
+
 		reg.Response <- types.NotifiedResponse{
 			Req:        reg.Req,
 			MetricData: v,
 		}
 	}
 
-	for _, reg := range m.registeredNotifier[types.MetricsScopeCPU] {
+	for n, reg := range m.registeredNotifier[types.MetricsScopeCPU] {
 		v, err := m.metricStore.GetCPUMetric(reg.Req.CoreID, reg.Req.MetricName)
 		if err != nil {
 			continue
 		} else if v.Time == nil {
 			v.Time = &now
 		}
+
+		if reg.LastNotify.Equal(*v.Time) {
+			continue
+		} else {
+			m.registeredNotifier[types.MetricsScopeCPU][n].LastNotify = *v.Time
+		}
+
 		reg.Response <- types.NotifiedResponse{
 			Req:        reg.Req,
 			MetricData: v,
@@ -162,21 +191,37 @@ func (m *MetricsNotifierManagerImpl) notifyPods() {
 		} else if v.Time == nil {
 			v.Time = &now
 		}
+
+		if reg.LastNotify.Equal(*v.Time) {
+			continue
+		} else {
+			reg.LastNotify = *v.Time
+		}
+
 		reg.Response <- types.NotifiedResponse{
 			Req:        reg.Req,
 			MetricData: v,
 		}
+	}
 
-		if reg.Req.NumaID == 0 {
+	for _, reg := range m.registeredNotifier[types.MetricsScopeContainerNUMA] {
+		if reg.Req.NumaNode == "" {
 			continue
 		}
 
-		v, err = m.metricStore.GetContainerNumaMetric(reg.Req.PodUID, reg.Req.ContainerName, fmt.Sprintf("%v", reg.Req.NumaID), reg.Req.MetricName)
+		v, err := m.metricStore.GetContainerNumaMetric(reg.Req.PodUID, reg.Req.ContainerName, fmt.Sprintf("%v", reg.Req.NumaNode), reg.Req.MetricName)
 		if err != nil {
 			continue
 		} else if v.Time == nil {
 			v.Time = &now
 		}
+
+		if reg.LastNotify.Equal(*v.Time) {
+			continue
+		} else {
+			reg.LastNotify = *v.Time
+		}
+
 		reg.Response <- types.NotifiedResponse{
 			Req:        reg.Req,
 			MetricData: v,
@@ -220,9 +265,9 @@ type MetricsFetcherImpl struct {
 	externalMetricManager  types.ExternalMetricManager
 	checkMetricDataExpire  CheckMetricDataExpireFunc
 
-	// provisioners are ordered with priority,
-	// and we should always depend on the former (and fallback to latter if it missed)
-	provisioners []types.MetricsProvisioner
+	defaultInterval time.Duration
+	provisioners    map[string]types.MetricsProvisioner
+	intervals       map[string]time.Duration
 }
 
 func NewMetricsFetcher(baseConf *global.BaseConfiguration, metricConf *metaserver.MetricConfiguration, emitter metrics.MetricEmitter, podFetcher pod.PodFetcher) types.MetricsFetcher {
@@ -230,11 +275,16 @@ func NewMetricsFetcher(baseConf *global.BaseConfiguration, metricConf *metaserve
 	metricsNotifierManager := NewMetricsNotifierManager(metricStore, emitter)
 	externalMetricManager := NewExternalMetricManager(metricStore, emitter)
 
+	intervals := make(map[string]time.Duration)
+	provisioners := make(map[string]types.MetricsProvisioner)
 	registeredProvisioners := getProvisioners()
-	var enabledProvisioners []types.MetricsProvisioner
 	for _, name := range metricConf.MetricProvisions {
 		if f, ok := registeredProvisioners[name]; ok {
-			enabledProvisioners = append(enabledProvisioners, f(baseConf, metricConf, emitter, podFetcher, metricStore))
+			intervals[name] = metricConf.DefaultInterval
+			if interval, exist := metricConf.ProvisionerIntervals[name]; exist {
+				intervals[name] = interval
+			}
+			provisioners[name] = f(baseConf, metricConf, emitter, podFetcher, metricStore)
 		}
 	}
 
@@ -242,8 +292,11 @@ func NewMetricsFetcher(baseConf *global.BaseConfiguration, metricConf *metaserve
 		metricStore:            metricStore,
 		metricsNotifierManager: metricsNotifierManager,
 		externalMetricManager:  externalMetricManager,
-		provisioners:           enabledProvisioners,
 		checkMetricDataExpire:  checkMetricDataExpireFunc(metricConf.MetricInsurancePeriod),
+
+		defaultInterval: metricConf.DefaultInterval,
+		provisioners:    provisioners,
+		intervals:       intervals,
 	}
 }
 
@@ -312,12 +365,19 @@ func (f *MetricsFetcherImpl) RegisterExternalMetric(externalMetricFunc func(stor
 }
 
 func (f *MetricsFetcherImpl) Run(ctx context.Context) {
+	// make sure all provisioners have started at least once,
+	// and then allow each provisioner to collect metrics with
+	// its specified period.
+	// whenever any provisioner finishes its collecting process,
+	// notification will be triggered, and the consumer should
+	// handler duplication logic if necessary.
 	f.startOnce.Do(func() {
-		go wait.Until(func() { f.sample(ctx) }, time.Second*5, ctx.Done())
+		f.init(ctx)
+		f.run(ctx)
 	})
 }
 
-func (f *MetricsFetcherImpl) sample(ctx context.Context) {
+func (f *MetricsFetcherImpl) init(ctx context.Context) {
 	wg := sync.WaitGroup{}
 	for name := range f.provisioners {
 		p := f.provisioners[name]
@@ -329,10 +389,7 @@ func (f *MetricsFetcherImpl) sample(ctx context.Context) {
 	}
 	wg.Wait()
 
-	// we should handle notifier and externalMetric only once
-	// rather than do it in each provisioner
 	if f.externalMetricManager != nil {
-		// after sampling, we should call the registered function to get external metric
 		f.externalMetricManager.Sample()
 	}
 
@@ -342,6 +399,30 @@ func (f *MetricsFetcherImpl) sample(ctx context.Context) {
 
 	if !f.hasSynced {
 		f.hasSynced = true
+	}
+}
+
+func (f *MetricsFetcherImpl) run(ctx context.Context) {
+	// provisioner's implementation and its interval always exist,
+	// and it's ensured in init function
+	for name := range f.provisioners {
+		p := f.provisioners[name]
+		t := f.intervals[name]
+		go wait.Until(func() {
+			p.Run(ctx)
+			if f.metricsNotifierManager != nil {
+				f.metricsNotifierManager.Notify()
+			}
+		}, t, ctx.Done())
+	}
+
+	if f.externalMetricManager != nil {
+		go wait.Until(func() {
+			f.externalMetricManager.Sample()
+			if f.metricsNotifierManager != nil {
+				f.metricsNotifierManager.Notify()
+			}
+		}, f.defaultInterval, ctx.Done())
 	}
 }
 

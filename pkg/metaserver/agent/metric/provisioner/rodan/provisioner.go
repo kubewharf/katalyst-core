@@ -42,13 +42,10 @@ const (
 )
 
 type RodanMetricsProvisioner struct {
-	client *client.RodanClient
-
+	client      *client.RodanClient
 	metricStore *utilmetric.MetricStore
-
-	podFetcher pod.PodFetcher
-
-	emitter metrics.MetricEmitter
+	podFetcher  pod.PodFetcher
+	emitter     metrics.MetricEmitter
 
 	synced bool
 }
@@ -78,15 +75,10 @@ func (i *RodanMetricsProvisioner) Run(ctx context.Context) {
 
 func (i *RodanMetricsProvisioner) sample(ctx context.Context) {
 	i.updateNodeStats()
-
 	i.updateNUMAStats()
-
 	i.updateNodeCgroupStats()
-
 	i.updateNodeSysctlStats()
-
 	i.updateCoreStats()
-
 	i.updatePodStats(ctx)
 
 	i.synced = true
