@@ -53,6 +53,7 @@ const (
 	defaultMetricRingSize                           = 1
 	defaultCPUPressureEvictionPodGracePeriodSeconds = -1
 	defaultLoadUpperBoundRatio                      = 1.8
+	defaultLoadLowerBoundRatio                      = 1.0
 	defaultLoadThresholdMetPercentage               = 0.8
 	defaultReservedForAllocate                      = "4"
 	defaultReservedForReclaim                       = "4"
@@ -72,13 +73,14 @@ func makeMetaServer(metricsFetcher metrictypes.MetricsFetcher, cpuTopology *mach
 	return metaServer
 }
 
-func makeConf(metricRingSize int, gracePeriod int64, loadUpperBoundRatio,
+func makeConf(metricRingSize int, gracePeriod int64, loadUpperBoundRatio, loadLowerBoundRatio,
 	loadThresholdMetPercentage float64, reservedForReclaim, reservedForAllocate string, reservedForSystem int,
 ) *config.Configuration {
 	conf := config.NewConfiguration()
 	conf.GetDynamicConfiguration().EnableLoadEviction = true
 	conf.GetDynamicConfiguration().LoadMetricRingSize = metricRingSize
 	conf.GetDynamicConfiguration().LoadUpperBoundRatio = loadUpperBoundRatio
+	conf.GetDynamicConfiguration().LoadLowerBoundRatio = loadLowerBoundRatio
 	conf.GetDynamicConfiguration().LoadThresholdMetPercentage = loadThresholdMetPercentage
 	conf.GetDynamicConfiguration().CPUPressureEvictionConfiguration.GracePeriod = gracePeriod
 	conf.GetDynamicConfiguration().ReservedResourceForAllocate = v1.ResourceList{
@@ -113,7 +115,9 @@ func TestNewCPUPressureLoadEviction(t *testing.T) {
 	cpuTopology, err := machine.GenerateDummyCPUTopology(16, 2, 4)
 	as.Nil(err)
 	conf := makeConf(defaultMetricRingSize, int64(defaultCPUPressureEvictionPodGracePeriodSeconds),
-		defaultLoadUpperBoundRatio, defaultLoadThresholdMetPercentage, defaultReservedForReclaim, defaultReservedForAllocate, defaultReservedForSystem)
+		defaultLoadUpperBoundRatio, defaultLoadLowerBoundRatio,
+		defaultLoadThresholdMetPercentage, defaultReservedForReclaim,
+		defaultReservedForAllocate, defaultReservedForSystem)
 	metaServer := makeMetaServer(metric.NewFakeMetricsFetcher(metrics.DummyMetrics{}), cpuTopology)
 	stateImpl, err := makeState(cpuTopology)
 	as.Nil(err)
@@ -132,7 +136,9 @@ func TestThresholdMet(t *testing.T) {
 	cpuTopology, err := machine.GenerateDummyCPUTopology(16, 2, 4)
 	as.Nil(err)
 	conf := makeConf(defaultMetricRingSize, int64(defaultCPUPressureEvictionPodGracePeriodSeconds),
-		defaultLoadUpperBoundRatio, defaultLoadThresholdMetPercentage, defaultReservedForReclaim, defaultReservedForAllocate, defaultReservedForSystem)
+		defaultLoadUpperBoundRatio, defaultLoadLowerBoundRatio,
+		defaultLoadThresholdMetPercentage, defaultReservedForReclaim,
+		defaultReservedForAllocate, defaultReservedForSystem)
 	metaServer := makeMetaServer(metric.NewFakeMetricsFetcher(metrics.DummyMetrics{}), cpuTopology)
 	stateImpl, err := makeState(cpuTopology)
 	as.Nil(err)
@@ -398,8 +404,8 @@ func TestThresholdMet(t *testing.T) {
 		as.Nil(err)
 		as.NotNil(t, metResp)
 
-		as.Equal(tt.wantMetType, metResp.MetType)
-		as.Equal(tt.wantEvictionScope, metResp.EvictionScope)
+		as.Equalf(tt.wantMetType, metResp.MetType, "case: %s", tt.name)
+		as.Equalf(tt.wantEvictionScope, metResp.EvictionScope, "case: %s", tt.name)
 		if tt.wantCondition != nil && metResp.Condition != nil {
 			as.Equal(*(tt.wantCondition), *(metResp.Condition))
 		} else {
@@ -416,7 +422,9 @@ func TestGetTopEvictionPods(t *testing.T) {
 	cpuTopology, err := machine.GenerateDummyCPUTopology(16, 2, 4)
 	as.Nil(err)
 	conf := makeConf(defaultMetricRingSize, int64(defaultCPUPressureEvictionPodGracePeriodSeconds),
-		defaultLoadUpperBoundRatio, defaultLoadThresholdMetPercentage, defaultReservedForReclaim, defaultReservedForAllocate, defaultReservedForSystem)
+		defaultLoadUpperBoundRatio, defaultLoadLowerBoundRatio,
+		defaultLoadThresholdMetPercentage, defaultReservedForReclaim,
+		defaultReservedForAllocate, defaultReservedForSystem)
 	metaServer := makeMetaServer(metric.NewFakeMetricsFetcher(metrics.DummyMetrics{}), cpuTopology)
 	stateImpl, err := makeState(cpuTopology)
 	as.Nil(err)
@@ -1576,7 +1584,9 @@ func TestCPUPressureLoadEviction_collectMetrics(t *testing.T) {
 			cpuTopology, err := machine.GenerateDummyCPUTopology(16, 2, 4)
 			as.Nil(err)
 			conf := makeConf(defaultMetricRingSize, int64(defaultCPUPressureEvictionPodGracePeriodSeconds),
-				defaultLoadUpperBoundRatio, defaultLoadThresholdMetPercentage, tt.reservedCPUForReclaim, tt.reservedCPUForAllocate, tt.reservedCPUForSystem)
+				defaultLoadUpperBoundRatio, defaultLoadLowerBoundRatio,
+				defaultLoadThresholdMetPercentage, tt.reservedCPUForReclaim,
+				tt.reservedCPUForAllocate, tt.reservedCPUForSystem)
 			conf.GetDynamicConfiguration().EnableReclaim = tt.enableReclaim
 			stateImpl, err := makeState(cpuTopology)
 			as.Nil(err)

@@ -54,7 +54,8 @@ func (se SubEntries) IsPoolEntry() bool {
 type Entries map[string]SubEntries
 
 type PoolMetricCollectHandler func(dynamicConfig *dynamic.Configuration, poolsUnderPressure bool,
-	metricName string, metricValue float64, poolName string, poolSize int, collectTime int64)
+	metricName string, metricValue float64, poolName string,
+	poolSize int, collectTime int64, allowSharedCoresOverlapReclaimedCores bool)
 
 func (ring *MetricRing) Sum() float64 {
 	ring.RLock()

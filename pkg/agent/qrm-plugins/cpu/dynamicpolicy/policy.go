@@ -82,7 +82,7 @@ func GetReadonlyState() (state.ReadonlyState, error) {
 	defer readonlyStateLock.RUnlock()
 
 	if readonlyState == nil {
-		return nil, fmt.Errorf("readonlyState isn't setted")
+		return nil, fmt.Errorf("readonlyState isn't set")
 	}
 	return readonlyState, nil
 }
