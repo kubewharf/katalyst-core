@@ -325,6 +325,13 @@ func (p *CPUPressureLoadEviction) collectMetrics(_ context.Context) {
 		return
 	}
 
+	allowSharedCoresOverlapReclaimedCores, err := state.GetAllowSharedCoresOverlapReclaimedCores()
+
+	if err != nil {
+		general.Errorf("GetAllowSharedCoresOverlapReclaimedCores failed with error: %v", err)
+		return
+	}
+
 	pod2Pool := getPodPoolMapFunc(p.metaServer.MetaAgent, p.state)
 	p.clearExpiredMetricsHistory(pod2Pool)
 
@@ -388,7 +395,7 @@ func (p *CPUPressureLoadEviction) collectMetrics(_ context.Context) {
 					general.Warningf("metric: %s hasn't pool metric collecting handler, use default handler", metricName)
 					handler = p.collectPoolMetricDefault
 				}
-				handler(dynamicConfig, underPressure, metricName, poolsMetric[poolName][metricName], poolName, poolEntry.PoolSize, collectTime)
+				handler(dynamicConfig, underPressure, metricName, poolsMetric[poolName][metricName], poolName, poolEntry.PoolSize, collectTime, allowSharedCoresOverlapReclaimedCores)
 			}
 		}
 	}
@@ -440,20 +447,21 @@ func (p *CPUPressureLoadEviction) accumulateSharedPoolsLimit() int {
 // collectPoolLoad is specifically used for cpu-load in pool level,
 // and its upper-bound and lower-bound are calculated by pool size.
 func (p *CPUPressureLoadEviction) collectPoolLoad(dynamicConfig *dynamic.Configuration, pressureByPoolSize bool,
-	metricName string, metricValue float64, poolName string, poolSize int, collectTime int64,
-) {
+	metricName string, metricValue float64, poolName string,
+	poolSize int, collectTime int64, allowSharedCoresOverlapReclaimedCores bool) {
 	snapshot := &MetricSnapshot{
 		Info: MetricInfo{
 			Name:       metricName,
 			Value:      metricValue,
 			UpperBound: float64(poolSize) * dynamicConfig.LoadUpperBoundRatio,
-			LowerBound: float64(poolSize),
+			LowerBound: float64(poolSize) * dynamicConfig.LoadLowerBoundRatio,
 		},
 		Time: collectTime,
 	}
 
 	useAdvisedThreshold := p.checkPressureWithAdvisedThreshold()
-	if useAdvisedThreshold {
+
+	if useAdvisedThreshold && !allowSharedCoresOverlapReclaimedCores {
 		// it must not be triggered when it's healthy
 		lowerBound := metricValue + 1
 		upperBound := lowerBound * dynamicConfig.LoadUpperBoundRatio
@@ -483,7 +491,7 @@ func (p *CPUPressureLoadEviction) collectPoolLoad(dynamicConfig *dynamic.Configu
 // collectPoolMetricDefault is a common collect in pool level,
 // and its upper-bound and lower-bound are not defined.
 func (p *CPUPressureLoadEviction) collectPoolMetricDefault(dynamicConfig *dynamic.Configuration, _ bool,
-	metricName string, metricValue float64, poolName string, _ int, collectTime int64,
+	metricName string, metricValue float64, poolName string, _ int, collectTime int64, allowSharedCoresOverlapReclaimedCores bool,
 ) {
 	snapshot := &MetricSnapshot{
 		Info: MetricInfo{
