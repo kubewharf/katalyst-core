@@ -95,6 +95,7 @@ func TestCalculateEffectiveResource(t *testing.T) {
 	} {
 		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			res, non0CPU, non0Mem := CalculateEffectiveResource(tc.pod)
 
 			assert.Equal(t, tc.expectRes.MilliCPU, res.MilliCPU)

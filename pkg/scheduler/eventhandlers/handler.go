@@ -32,7 +32,7 @@ var eventHandlerMap sync.Map
 func RegisterEventHandler(name string, eventHandlerFunc AddEventHandlerFunc) {
 	_, ok := eventHandlerMap.Load(name)
 	if ok {
-		klog.Warningf("eventhandler %v has been registered")
+		klog.Warningf("eventhandler %v has been registered", name)
 		return
 	}
 

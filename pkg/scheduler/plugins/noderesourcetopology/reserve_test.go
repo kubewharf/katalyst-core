@@ -35,9 +35,9 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/scheduler/util"
 )
 
-func makeTestReserveNode() (*v1alpha1.CustomNodeResource, string) {
+func makeTestReserveNode(name string) (*v1alpha1.CustomNodeResource, string) {
 	return &v1alpha1.CustomNodeResource{
-		ObjectMeta: metav1.ObjectMeta{Name: "node-2numa-8c16g"},
+		ObjectMeta: metav1.ObjectMeta{Name: name},
 		Status: v1alpha1.CustomNodeResourceStatus{
 			TopologyPolicy: v1alpha1.TopologyPolicySingleNUMANodeContainerLevel,
 			TopologyZone: []*v1alpha1.TopologyZone{
@@ -81,7 +81,7 @@ func makeTestReserveNode() (*v1alpha1.CustomNodeResource, string) {
 				},
 			},
 		},
-	}, "node-2numa-8c16g"
+	}, name
 }
 
 func TestReserve(t *testing.T) {
@@ -155,7 +155,7 @@ func TestReserve(t *testing.T) {
 		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			cnr, nodeName := makeTestReserveNode()
+			cnr, nodeName := makeTestReserveNode(tc.name)
 			c.AddOrUpdateCNR(cnr)
 
 			f, err := runtime.NewFramework(nil, nil,
