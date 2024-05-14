@@ -25,10 +25,10 @@ import (
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 
-	qrmutil "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
+	utilkubeconfig "github.com/kubewharf/katalyst-core/pkg/util/kubelet/config"
 )
 
 func GetFullyDropCacheBytes(container *v1.Container) int64 {
@@ -68,7 +68,7 @@ func getReservedMemory(conf *config.Configuration, metaServer *metaserver.MetaSe
 			return nil, fmt.Errorf("failed to get kubelet config: %v", err)
 		}
 
-		reservedQuantity, found, err := qrmutil.GetKubeletReservedQuantity(string(v1.ResourceMemory), klConfig)
+		reservedQuantity, found, err := utilkubeconfig.GetReservedQuantity(klConfig, string(v1.ResourceMemory))
 		if err != nil {
 			return nil, fmt.Errorf("GetKubeletReservedQuantity failed with error: %v", err)
 		} else if found {
@@ -77,8 +77,8 @@ func getReservedMemory(conf *config.Configuration, metaServer *metaserver.MetaSe
 			general.Infof("get reservedMemoryGB: %.2f from kubelet config", reservedMemoryGB)
 		} else if !found {
 			reservedMemoryGB = float64(conf.ReservedMemoryGB)
-			general.Infof("reserved memory config isn't found in kubelet config, fallback to get reservedMemoryGB: %.2f from ReservedMemoryGB configuration",
-				reservedMemoryGB)
+			general.Infof("reserved memory config isn't found in kubelet config, "+
+				"fallback to get reservedMemoryGB: %.2f from ReservedMemoryGB configuration", reservedMemoryGB)
 		}
 	} else {
 		reservedMemoryGB = float64(conf.ReservedMemoryGB)

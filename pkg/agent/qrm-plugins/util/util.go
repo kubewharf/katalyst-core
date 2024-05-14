@@ -25,9 +25,7 @@ import (
 	"strings"
 
 	v1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/klog/v2"
-	kubeletconfigv1beta1 "k8s.io/kubelet/config/v1beta1"
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 
 	apiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
@@ -323,32 +321,4 @@ func GetCgroupAsyncWorkName(cgroup, topic string) string {
 
 func GetAsyncWorkNameByPrefix(prefix, topic string) string {
 	return strings.Join([]string{prefix, topic}, asyncworker.WorkNameSeperator)
-}
-
-func GetKubeletReservedQuantity(resourceName string, klConfig *kubeletconfigv1beta1.KubeletConfiguration) (resource.Quantity, bool, error) {
-	if klConfig == nil {
-		return resource.MustParse("0"), false, fmt.Errorf("nil klConfig")
-	}
-
-	reservedQuantity := resource.NewQuantity(0, resource.DecimalSI)
-	found := false
-
-	if klConfig.KubeReserved != nil {
-		kubeReserved, err := resource.ParseQuantity(klConfig.KubeReserved[resourceName])
-		if err != nil {
-			return resource.MustParse("0"), false, fmt.Errorf("getKubeletReservedQuantity failed because parse cpu quantity for kube-reserved failed with error: %v", err)
-		}
-		reservedQuantity.Add(kubeReserved)
-		found = true
-	}
-	if klConfig.SystemReserved != nil {
-		systemReserved, err := resource.ParseQuantity(klConfig.SystemReserved[resourceName])
-		if err != nil {
-			return resource.MustParse("0"), false, fmt.Errorf("getKubeletReservedQuantity parse cpu quantity for system-reserved failed with error: %v", err)
-		}
-		reservedQuantity.Add(systemReserved)
-		found = true
-	}
-
-	return *reservedQuantity, found, nil
 }

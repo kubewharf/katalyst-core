@@ -27,10 +27,10 @@ import (
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/calculator"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
-	qrmutil "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
+	utilkubeconfig "github.com/kubewharf/katalyst-core/pkg/util/kubelet/config"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
@@ -50,7 +50,7 @@ func GetCoresReservedForSystem(conf *config.Configuration, metaServer *metaserve
 			return machine.NewCPUSet(), fmt.Errorf("failed to get kubelet config: %v", err)
 		}
 
-		reservedQuantity, found, err := qrmutil.GetKubeletReservedQuantity(string(v1.ResourceCPU), klConfig)
+		reservedQuantity, found, err := utilkubeconfig.GetReservedQuantity(klConfig, string(v1.ResourceCPU))
 		if err != nil {
 			return machine.NewCPUSet(), fmt.Errorf("GetKubeletReservedQuantity failed with error: %v", err)
 		} else if found {

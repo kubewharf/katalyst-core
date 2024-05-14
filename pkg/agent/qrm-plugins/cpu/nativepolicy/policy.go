@@ -39,6 +39,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
+	utilkubeconfig "github.com/kubewharf/katalyst-core/pkg/util/kubelet/config"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 	"github.com/kubewharf/katalyst-core/pkg/util/native"
 )
@@ -667,12 +668,10 @@ func (p *NativePolicy) setReservedCPUs(allCPUs machine.CPUSet) error {
 		return fmt.Errorf("NewNativePolicy failed because get kubelet config failed with error: %v", err)
 	}
 
-	reservedQuantity, _, err := util.GetKubeletReservedQuantity(string(v1.ResourceCPU), klConfig)
+	reservedQuantity, _, err := utilkubeconfig.GetReservedQuantity(klConfig, string(v1.ResourceCPU))
 	if err != nil {
 		return fmt.Errorf("getKubeletReservedQuantity failed because get kubelet reserved quantity failed with error: %v", err)
-	}
-
-	if reservedQuantity.IsZero() {
+	} else if reservedQuantity.IsZero() {
 		// The native policy requires this to be nonzero. Zero CPU reservation
 		// would allow the shared pool to be completely exhausted. At that point
 		// either we would violate our guarantee of exclusivity or need to evict

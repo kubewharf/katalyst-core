@@ -29,12 +29,12 @@ import (
 	"k8s.io/klog/v2"
 
 	apiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
-	qrmutil "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
+	utilkubeconfig "github.com/kubewharf/katalyst-core/pkg/util/kubelet/config"
 	"github.com/kubewharf/katalyst-core/pkg/util/metric"
 	"github.com/kubewharf/katalyst-core/pkg/util/native"
 )
@@ -228,22 +228,19 @@ func (ra *RealtimeOvercommitmentAdvisor) syncAllocatableResource() error {
 		return err
 	}
 
-	// parse reserved resource
-	reservedCPU, found, err := qrmutil.GetKubeletReservedQuantity(string(v1.ResourceCPU), kconfig)
+	reservedCPU, found, err := utilkubeconfig.GetReservedQuantity(kconfig, string(v1.ResourceCPU))
 	if err != nil {
 		klog.Errorf("GetKubeletReservedQuantity fail: %v", err)
 		return err
-	}
-	if !found {
+	} else if !found {
 		reservedCPU = *resource.NewQuantity(0, resource.DecimalSI)
 	}
 
-	reservedMemory, found, err := qrmutil.GetKubeletReservedQuantity(string(v1.ResourceMemory), kconfig)
+	reservedMemory, found, err := utilkubeconfig.GetReservedQuantity(kconfig, string(v1.ResourceMemory))
 	if err != nil {
 		klog.Errorf("GetKubeletReservedQuantity fail: %v", err)
 		return err
-	}
-	if !found {
+	} else if !found {
 		reservedMemory = *resource.NewQuantity(0, resource.BinarySI)
 	}
 
