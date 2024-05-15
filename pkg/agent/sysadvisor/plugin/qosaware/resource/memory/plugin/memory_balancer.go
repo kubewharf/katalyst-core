@@ -340,9 +340,8 @@ func (m *memoryBalancer) getBalanceInfo() (balanceInfo *BalanceInfo, err error) 
 	}
 
 	balanceInfo.MaxLatencyNumaBandwidthLevel = m.getBandwidthLevel(balanceInfo.MaxLatencyNuma, balanceInfo.MaxBandwidthNuma)
-	balanceInfo.BandwidthPressure, balanceInfo.NeedBalance, balanceInfo.SourceNuma, orderedDestNumaList, err =
-		m.regulateByBandwidthLevel(balanceInfo.MaxLatencyNuma, balanceInfo.MaxBandwidthNuma, balanceInfo.RawNumaLatencyInfo,
-			balanceInfo.BalanceLevel, balanceInfo.MaxLatencyNumaBandwidthLevel, orderedDestNumaList)
+	balanceInfo.BandwidthPressure, balanceInfo.NeedBalance, balanceInfo.SourceNuma, orderedDestNumaList, err = m.regulateByBandwidthLevel(balanceInfo.MaxLatencyNuma, balanceInfo.MaxBandwidthNuma, balanceInfo.RawNumaLatencyInfo,
+		balanceInfo.BalanceLevel, balanceInfo.MaxLatencyNumaBandwidthLevel, orderedDestNumaList)
 
 	// double check, grace balance may be canceled because of maxLatencyNuma is not high bandwidth
 	if !balanceInfo.NeedBalance {
@@ -398,7 +397,8 @@ func (m *memoryBalancer) getEvictPods(sourceNuma *NumaLatencyInfo) ([]EvictPod, 
 }
 
 func (m *memoryBalancer) getDestNumaList(orderedDestNumaList []NumaInfo, sourceNuma *NumaLatencyInfo,
-	balanceLevel BalanceLevel, bandwidthPressure bool) (poolPodDestNumaList []NumaInfo) {
+	balanceLevel BalanceLevel, bandwidthPressure bool,
+) (poolPodDestNumaList []NumaInfo) {
 	// orderedDestNumaList is the destination numa list for non-reclaimed cores pod
 	poolPodDestNumaList = m.getNumaListFilteredByLatencyGapRatio(
 		orderedDestNumaList, sourceNuma, balanceLevel, bandwidthPressure)
@@ -426,8 +426,8 @@ func (m *memoryBalancer) getCandidatePods(poolName string) (reclaimedPods, poolP
 // regulateByBandwidthLevel adjust the strategy by the bandwidth pressure level
 func (m *memoryBalancer) regulateByBandwidthLevel(maxLatencyNuma, maxBandwidthNuma *NumaLatencyInfo, rawNumaLatencyInfos []*NumaLatencyInfo,
 	balanceLevel BalanceLevel, maxLatencyNumaBandwidthLevel BandwidthLevel, orderedDestNuma []NumaInfo) (
-	bandwidthPressure, needBalance bool, sourceNuma *NumaLatencyInfo, regulatedOrderedDestNuma []NumaInfo, err error) {
-
+	bandwidthPressure, needBalance bool, sourceNuma *NumaLatencyInfo, regulatedOrderedDestNuma []NumaInfo, err error,
+) {
 	regulatedOrderedDestNuma = orderedDestNuma
 	needBalance = true
 	if maxLatencyNumaBandwidthLevel == BandwidthLevelHigh {
@@ -676,8 +676,10 @@ func (m *memoryBalancer) packBalancePods(pod *v1.Pod, destNumas []int, RSSOnSour
 		containers = append(containers, pod.Spec.Containers[i].Name)
 	}
 
-	return BalancePod{Namespace: pod.Namespace,
-		Name: pod.Name, UID: string(pod.UID), Containers: containers, RSSOnSourceNuma: RSSOnSourceNuma, DestNumas: destNumas}
+	return BalancePod{
+		Namespace: pod.Namespace,
+		Name:      pod.Name, UID: string(pod.UID), Containers: containers, RSSOnSourceNuma: RSSOnSourceNuma, DestNumas: destNumas,
+	}
 }
 
 func (m *memoryBalancer) getNumaIDs(numaInfos []NumaInfo) []int {
@@ -811,7 +813,7 @@ func (m *memoryBalancer) isPingPongBalance(srcNuma int, dstNuma int) bool {
 }
 
 func (m *memoryBalancer) getNumaListOrderedByDistanceAndLatency(numaLatencies []*NumaLatencyInfo, numaDistanceList []machine.NumaDistanceInfo) []NumaInfo {
-	var numaInfoList = m.buildNumaInfoList(numaLatencies, numaDistanceList)
+	numaInfoList := m.buildNumaInfoList(numaLatencies, numaDistanceList)
 	sort.Slice(numaInfoList, func(i, j int) bool {
 		if numaInfoList[i].Distance != numaInfoList[j].Distance {
 			return numaInfoList[i].Distance < numaInfoList[j].Distance
@@ -822,7 +824,7 @@ func (m *memoryBalancer) getNumaListOrderedByDistanceAndLatency(numaLatencies []
 }
 
 func (m *memoryBalancer) getNumaListOrderedByBandwidth(numaLatencies []*NumaLatencyInfo, numaDistanceList []machine.NumaDistanceInfo) []NumaInfo {
-	var numaInfoList = m.buildNumaInfoList(numaLatencies, numaDistanceList)
+	numaInfoList := m.buildNumaInfoList(numaLatencies, numaDistanceList)
 	sort.Slice(numaInfoList, func(i, j int) bool {
 		return numaInfoList[i].ReadWriteBandwidth < numaInfoList[j].ReadWriteBandwidth
 	})

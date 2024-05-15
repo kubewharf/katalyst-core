@@ -32,8 +32,10 @@ import (
 	"k8s.io/kubernetes/pkg/kubelet/checkpointmanager/errors"
 )
 
-var _ State = &stateCheckpoint{}
-var generalLog general.Logger = general.LoggerWithPrefix("network_plugin", general.LoggingPKGFull)
+var (
+	_          State          = &stateCheckpoint{}
+	generalLog general.Logger = general.LoggerWithPrefix("network_plugin", general.LoggingPKGFull)
+)
 
 // stateCheckpoint is an in-memory implementation of State;
 // everytime we want to read or write states, those requests will always
@@ -51,8 +53,8 @@ type stateCheckpoint struct {
 
 func NewCheckpointState(conf *qrm.QRMPluginsConfiguration, stateDir, checkpointName, policyName string,
 	machineInfo *info.MachineInfo, nics []machine.InterfaceInfo, reservedBandwidth map[string]uint32,
-	skipStateCorruption bool) (State, error) {
-
+	skipStateCorruption bool,
+) (State, error) {
 	checkpointManager, err := checkpointmanager.NewCheckpointManager(stateDir)
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize checkpoint manager: %v", err)

@@ -32,7 +32,8 @@ const (
 )
 
 func StartSPDController(ctx context.Context, controlCtx *katalyst.GenericContext,
-	conf *config.Configuration, extraConf interface{}, _ string) (bool, error) {
+	conf *config.Configuration, extraConf interface{}, _ string,
+) (bool, error) {
 	if controlCtx == nil || conf == nil {
 		err := fmt.Errorf("controlCtx and controllerConf can't be nil")
 		klog.Error(err.Error())

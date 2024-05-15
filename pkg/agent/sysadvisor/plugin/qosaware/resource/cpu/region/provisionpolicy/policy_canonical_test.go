@@ -111,7 +111,8 @@ func generateCanonicalTestConfiguration(t *testing.T, checkpointDir, stateFileDi
 }
 
 func newTestPolicyCanonical(t *testing.T, checkpointDir string, stateFileDir string,
-	checkpointManagerDir string, regionInfo types.RegionInfo, metricFetcher metrictypes.MetricsFetcher, podSet types.PodSet) ProvisionPolicy {
+	checkpointManagerDir string, regionInfo types.RegionInfo, metricFetcher metrictypes.MetricsFetcher, podSet types.PodSet,
+) ProvisionPolicy {
 	conf := generateCanonicalTestConfiguration(t, checkpointDir, stateFileDir, checkpointManagerDir)
 
 	metaCacheTmp, err := metacache.NewMetaCacheImp(conf, metricspool.DummyMetricsEmitterPool{}, metricFetcher)

@@ -50,7 +50,7 @@ func init() {
 	memadvisorplugin.RegisterInitializer(memadvisorplugin.MemoryGuard, memadvisorplugin.NewMemoryGuard)
 	memadvisorplugin.RegisterInitializer(memadvisorplugin.MemsetBinder, memadvisorplugin.NewMemsetBinder)
 	memadvisorplugin.RegisterInitializer(memadvisorplugin.NumaMemoryBalancer, memadvisorplugin.NewMemoryBalancer)
-
+	memadvisorplugin.RegisterInitializer(memadvisorplugin.TransparentMemoryOffloading, memadvisorplugin.NewTransparentMemoryOffloading)
 	memadvisorplugin.RegisterInitializer(provisioner.MemoryProvisioner, provisioner.NewMemoryProvisioner)
 }
 
@@ -92,7 +92,8 @@ type memoryResourceAdvisor struct {
 
 // NewMemoryResourceAdvisor returns a memoryResourceAdvisor instance
 func NewMemoryResourceAdvisor(conf *config.Configuration, extraConf interface{}, metaCache metacache.MetaCache,
-	metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter) *memoryResourceAdvisor {
+	metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter,
+) *memoryResourceAdvisor {
 	ra := &memoryResourceAdvisor{
 		startTime: time.Now(),
 

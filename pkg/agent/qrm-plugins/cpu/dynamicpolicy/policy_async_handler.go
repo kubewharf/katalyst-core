@@ -44,7 +44,8 @@ func (p *DynamicPolicy) checkCPUSet(_ *coreconfig.Configuration,
 	_ interface{},
 	_ *dynamicconfig.DynamicAgentConfiguration,
 	_ metrics.MetricEmitter,
-	_ *metaserver.MetaServer) {
+	_ *metaserver.MetaServer,
+) {
 	general.Infof("exec checkCPUSet")
 	var (
 		err           error
@@ -173,7 +174,8 @@ func (p *DynamicPolicy) clearResidualState(_ *coreconfig.Configuration,
 	_ interface{},
 	_ *dynamicconfig.DynamicAgentConfiguration,
 	_ metrics.MetricEmitter,
-	_ *metaserver.MetaServer) {
+	_ *metaserver.MetaServer,
+) {
 	general.Infof("exec clearResidualState")
 	var (
 		err     error
@@ -275,7 +277,8 @@ func (p *DynamicPolicy) syncCPUIdle(_ *coreconfig.Configuration,
 	_ interface{},
 	_ *dynamicconfig.DynamicAgentConfiguration,
 	_ metrics.MetricEmitter,
-	_ *metaserver.MetaServer) {
+	_ *metaserver.MetaServer,
+) {
 	general.Infof("exec syncCPUIdle")
 	var err error
 	defer func() {

@@ -51,6 +51,7 @@ type BaseOptions struct {
 	AdditionalCgroupPaths []string
 
 	ReclaimRelativeRootCgroupPath string
+	GeneralRelativeCgroupPaths    []string
 
 	// configurations for kubelet
 	KubeletReadOnlyPort      int
@@ -113,6 +114,8 @@ func (o *BaseOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 
 	fs.StringVar(&o.ReclaimRelativeRootCgroupPath, "reclaim-relative-root-cgroup-path", o.ReclaimRelativeRootCgroupPath,
 		"top level cgroup path for reclaimed_cores qos level")
+	fs.StringSliceVar(&o.GeneralRelativeCgroupPaths, "general-relative-cgroup-paths", o.GeneralRelativeCgroupPaths,
+		"The cgroup paths of standalone services which not managed by kubernetes")
 
 	fs.IntVar(&o.KubeletReadOnlyPort, "kubelet-read-only-port", o.KubeletReadOnlyPort,
 		"The read-only port for the kubelet to serve")
@@ -152,6 +155,7 @@ func (o *BaseOptions) ApplyTo(c *global.BaseConfiguration) error {
 	c.LockWaitingEnabled = o.LockWaitingEnabled
 
 	c.ReclaimRelativeRootCgroupPath = o.ReclaimRelativeRootCgroupPath
+	c.GeneralRelativeCgroupPaths = o.GeneralRelativeCgroupPaths
 
 	c.NetMultipleNS = o.MachineNetMultipleNS
 	c.NetNSDirAbsPath = o.MachineNetNSDirAbsPath

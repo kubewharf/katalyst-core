@@ -42,9 +42,11 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	dynamicconfig "github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic"
+	"github.com/kubewharf/katalyst-core/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/asyncworker"
+	"github.com/kubewharf/katalyst-core/pkg/util/cgroup/common"
 	cgroupcommon "github.com/kubewharf/katalyst-core/pkg/util/cgroup/common"
 	cgroupmgr "github.com/kubewharf/katalyst-core/pkg/util/cgroup/manager"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
@@ -229,15 +231,15 @@ func (p *DynamicPolicy) handleAdvisorResp(advisorResp *advisorsvc.ListAndWatchRe
 	return nil
 }
 
-func handleAdvisorMemoryLimitInBytes(
+func (p *DynamicPolicy) handleAdvisorMemoryLimitInBytes(
 	_ *config.Configuration,
 	_ interface{},
 	_ *dynamicconfig.DynamicAgentConfiguration,
 	emitter metrics.MetricEmitter,
 	metaServer *metaserver.MetaServer,
 	entryName, subEntryName string,
-	calculationInfo *advisorsvc.CalculationInfo, podResourceEntries state.PodResourceEntries) error {
-
+	calculationInfo *advisorsvc.CalculationInfo, podResourceEntries state.PodResourceEntries,
+) error {
 	calculatedLimitInBytes := calculationInfo.CalculationResult.Values[string(memoryadvisor.ControlKnobKeyMemoryLimitInBytes)]
 	calculatedLimitInBytesInt64, err := strconv.ParseInt(calculatedLimitInBytes, 10, 64)
 	if err != nil {
@@ -245,13 +247,16 @@ func handleAdvisorMemoryLimitInBytes(
 	}
 
 	if calculationInfo.CgroupPath != "" {
-		err = cgroupmgr.ApplyMemoryWithRelativePath(calculationInfo.CgroupPath, &cgroupcommon.MemoryData{
-			LimitInBytes: calculatedLimitInBytesInt64,
-		})
+		setExtraCGMemLimitWorkName := util.GetAsyncWorkNameByPrefix(calculationInfo.CgroupPath, memoryPluginAsyncWorkTopicSetExtraCGMemLimit)
+		err = p.asyncWorkers.AddWork(setExtraCGMemLimitWorkName,
+			&asyncworker.Work{
+				Fn:          cgroupmgr.SetExtraCGMemLimitWithTimeoutAndRelCGPath,
+				Params:      []interface{}{calculationInfo.CgroupPath, setExtraCGMemLimitTimeoutSeconds, calculatedLimitInBytesInt64},
+				DeliveredAt: time.Now(),
+			}, asyncworker.DuplicateWorkPolicyDiscard)
 		if err != nil {
-			return fmt.Errorf("apply %s: %d to cgroup: %s failed with error: %v",
-				memoryadvisor.ControlKnobKeyMemoryLimitInBytes, calculatedLimitInBytesInt64,
-				calculationInfo.CgroupPath, err)
+			return fmt.Errorf("add work: %s pod: %s container: %s failed with error: %v",
+				setExtraCGMemLimitWorkName, entryName, subEntryName, err)
 		}
 
 		_ = emitter.StoreInt64(util.MetricNameMemoryHandleAdvisorMemoryLimit, calculatedLimitInBytesInt64,
@@ -290,10 +295,9 @@ func (p *DynamicPolicy) handleAdvisorDropCache(
 	emitter metrics.MetricEmitter,
 	metaServer *metaserver.MetaServer,
 	entryName, subEntryName string,
-	calculationInfo *advisorsvc.CalculationInfo, podResourceEntries state.PodResourceEntries) error {
-	var (
-		err error
-	)
+	calculationInfo *advisorsvc.CalculationInfo, podResourceEntries state.PodResourceEntries,
+) error {
+	var err error
 	defer func() {
 		_ = general.UpdateHealthzStateByError(memconsts.DropCache, err)
 	}()
@@ -325,8 +329,8 @@ func (p *DynamicPolicy) handleAdvisorDropCache(
 		&asyncworker.Work{
 			Fn:          cgroupmgr.DropCacheWithTimeoutForContainer,
 			Params:      []interface{}{entryName, containerID, dropCacheTimeoutSeconds, GetFullyDropCacheBytes(container)},
-			DeliveredAt: time.Now()}, asyncworker.DuplicateWorkPolicyOverride)
-
+			DeliveredAt: time.Now(),
+		}, asyncworker.DuplicateWorkPolicyOverride)
 	if err != nil {
 		return fmt.Errorf("add work: %s pod: %s container: %s failed with error: %v", dropCacheWorkName, entryName, subEntryName, err)
 	}
@@ -384,8 +388,8 @@ func handleAdvisorCPUSetMems(
 	emitter metrics.MetricEmitter,
 	metaServer *metaserver.MetaServer,
 	entryName, subEntryName string,
-	calculationInfo *advisorsvc.CalculationInfo, podResourceEntries state.PodResourceEntries) error {
-
+	calculationInfo *advisorsvc.CalculationInfo, podResourceEntries state.PodResourceEntries,
+) error {
 	cpusetMemsStr := calculationInfo.CalculationResult.Values[string(memoryadvisor.ControlKnobKeyCPUSetMems)]
 	cpusetMems, err := machine.Parse(cpusetMemsStr)
 	if err != nil {
@@ -515,12 +519,12 @@ func (p *DynamicPolicy) handleAdvisorMemoryProvisions(_ *config.Configuration,
 	emitter metrics.MetricEmitter,
 	metaServer *metaserver.MetaServer,
 	entryName, subEntryName string,
-	calculationInfo *advisorsvc.CalculationInfo, podResourceEntries state.PodResourceEntries) error {
+	calculationInfo *advisorsvc.CalculationInfo, podResourceEntries state.PodResourceEntries,
+) error {
 	// unmarshal calculationInfo
 	memoryProvisions := &machine.MemoryDetails{}
 	value := calculationInfo.CalculationResult.Values[string(memoryadvisor.ControlKnobReclaimedMemorySize)]
 	err := json.Unmarshal([]byte(value), memoryProvisions)
-
 	if err != nil {
 		return fmt.Errorf("unmarshal %s: %s failed with error: %v",
 			memoryadvisor.ControlKnobReclaimedMemorySize, value, err)
@@ -536,11 +540,11 @@ func (p *DynamicPolicy) handleNumaMemoryBalance(_ *config.Configuration,
 	emitter metrics.MetricEmitter,
 	metaServer *metaserver.MetaServer,
 	entryName, subEntryName string,
-	calculationInfo *advisorsvc.CalculationInfo, podResourceEntries state.PodResourceEntries) error {
+	calculationInfo *advisorsvc.CalculationInfo, podResourceEntries state.PodResourceEntries,
+) error {
 	advice := &types.NumaMemoryBalanceAdvice{}
 	value := calculationInfo.CalculationResult.Values[string(memoryadvisor.ControlKnobKeyBalanceNumaMemory)]
 	err := json.Unmarshal([]byte(value), advice)
-
 	if err != nil {
 		return fmt.Errorf("unmarshal %s: %s failed with error: %v",
 			memoryadvisor.ControlKnobKeyBalanceNumaMemory, value, err)
@@ -553,8 +557,8 @@ func (p *DynamicPolicy) handleNumaMemoryBalance(_ *config.Configuration,
 		&asyncworker.Work{
 			Fn:          p.doNumaMemoryBalance,
 			Params:      []interface{}{*advice},
-			DeliveredAt: time.Now()}, asyncworker.DuplicateWorkPolicyDiscard)
-
+			DeliveredAt: time.Now(),
+		}, asyncworker.DuplicateWorkPolicyDiscard)
 	if err != nil {
 		general.Errorf("add work: %s failed with error: %v", migratePagesWorkName, err)
 	}
@@ -682,6 +686,71 @@ func (p *DynamicPolicy) doNumaMemoryBalance(ctx context.Context, advice types.Nu
 
 	_ = p.emitter.StoreInt64(util.MetricNameMemoryNumaBalanceResult, 1, metrics.MetricTypeNameRaw,
 		metrics.MetricTag{Key: "success", Val: strconv.FormatBool(migrateSuccess)})
+	return nil
+}
 
+// handleAdvisorMemoryOffloading handles memory offloading from memory-advisor
+func (p *DynamicPolicy) handleAdvisorMemoryOffloading(_ *config.Configuration,
+	_ interface{},
+	_ *dynamicconfig.DynamicAgentConfiguration,
+	emitter metrics.MetricEmitter,
+	metaServer *metaserver.MetaServer,
+	entryName, subEntryName string,
+	calculationInfo *advisorsvc.CalculationInfo, podResourceEntries state.PodResourceEntries,
+) error {
+	var absCGPath string
+	var memoryOffloadingWorkName string
+	memoryOffloadingSizeInBytes := calculationInfo.CalculationResult.Values[string(memoryadvisor.ControlKnowKeyMemoryOffloading)]
+	memoryOffloadingSizeInBytesInt64, err := strconv.ParseInt(memoryOffloadingSizeInBytes, 10, 64)
+	if err != nil {
+		return fmt.Errorf("parse %s: %s failed with error: %v", memoryadvisor.ControlKnowKeyMemoryOffloading, memoryOffloadingSizeInBytes, err)
+	}
+
+	if calculationInfo.CgroupPath == "" {
+		memoryOffloadingWorkName = util.GetContainerAsyncWorkName(entryName, subEntryName, memoryPluginAsyncWorkTopicMemoryOffloading)
+		containerID, err := metaServer.GetContainerID(entryName, subEntryName)
+		if err != nil {
+			return fmt.Errorf("GetContainerID failed with error: %v", err)
+		}
+		absCGPath, err = common.GetContainerAbsCgroupPath(common.CgroupSubsysMemory, entryName, containerID)
+		if err != nil {
+			return fmt.Errorf("GetContainerAbsCgroupPath failed with error: %v", err)
+		}
+	} else {
+		memoryOffloadingWorkName = util.GetCgroupAsyncWorkName(calculationInfo.CgroupPath, memoryPluginAsyncWorkTopicMemoryOffloading)
+		absCGPath = common.GetAbsCgroupPath(common.CgroupSubsysMemory, calculationInfo.CgroupPath)
+	}
+
+	// set swap max before trigger memory offloading
+	swapMax := calculationInfo.CalculationResult.Values[string(memoryadvisor.ControlKnobKeySwapMax)]
+	if swapMax == consts.ControlKnobON {
+		err := cgroupmgr.SetSwapMaxWithAbsolutePathRecursive(absCGPath)
+		if err != nil {
+			general.Infof("Failed to set swap max, err: %v", err)
+		}
+	} else {
+		err := cgroupmgr.DisableSwapMaxWithAbsolutePathRecursive(absCGPath)
+		if err != nil {
+			general.Infof("Failed to disable swap, err: %v", err)
+		}
+	}
+
+	// start a asynchronous work to execute memory offloading
+	err = p.asyncWorkers.AddWork(memoryOffloadingWorkName,
+		&asyncworker.Work{
+			Fn:          cgroupmgr.MemoryOffloadingWithAbsolutePath,
+			Params:      []interface{}{absCGPath, memoryOffloadingSizeInBytesInt64},
+			DeliveredAt: time.Now(),
+		}, asyncworker.DuplicateWorkPolicyOverride)
+	if err != nil {
+		return fmt.Errorf("add work: %s pod: %s container: %s cgroup: %s failed with error: %v", memoryOffloadingWorkName, entryName, subEntryName, absCGPath, err)
+	}
+
+	_ = emitter.StoreInt64(util.MetricNameMemoryHandlerAdvisorMemoryOffload, memoryOffloadingSizeInBytesInt64,
+		metrics.MetricTypeNameRaw, metrics.ConvertMapToTags(map[string]string{
+			"entryName":    entryName,
+			"subEntryName": subEntryName,
+			"cgroupPath":   calculationInfo.CgroupPath,
+		})...)
 	return nil
 }

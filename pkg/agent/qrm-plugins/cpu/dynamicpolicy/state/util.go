@@ -61,8 +61,10 @@ var (
 	).Union(StaticPools)
 )
 
-var containerRequestedCoresLock sync.RWMutex
-var containerRequestedCores func(allocationInfo *AllocationInfo) float64
+var (
+	containerRequestedCoresLock sync.RWMutex
+	containerRequestedCores     func(allocationInfo *AllocationInfo) float64
+)
 
 func GetContainerRequestedCores() func(allocationInfo *AllocationInfo) float64 {
 	containerRequestedCoresLock.RLock()

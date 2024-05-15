@@ -280,7 +280,8 @@ func TestCPUServerListAndWatch(t *testing.T) {
 					state.PoolNameShare:                       {-1: 2},
 					state.PoolNameReclaim:                     {-1: 4},
 					state.PoolNamePrefixIsolation + "-test-1": {-1: 4},
-				}},
+				},
+			},
 			infos: []*ContainerInfo{
 				{
 					request: &advisorsvc.ContainerMetadata{
@@ -384,7 +385,8 @@ func TestCPUServerListAndWatch(t *testing.T) {
 						0: 4,
 						1: 8,
 					},
-				}},
+				},
+			},
 			infos: []*ContainerInfo{
 				{
 					request: &advisorsvc.ContainerMetadata{
@@ -514,7 +516,8 @@ func TestCPUServerListAndWatch(t *testing.T) {
 						0: 4,
 						1: 8,
 					},
-				}},
+				},
+			},
 			infos: []*ContainerInfo{
 				{
 					request: &advisorsvc.ContainerMetadata{
@@ -756,7 +759,8 @@ func TestCPUServerListAndWatch(t *testing.T) {
 						0: 4,
 						1: 8,
 					},
-				}},
+				},
+			},
 			infos: []*ContainerInfo{
 				{
 					request: &advisorsvc.ContainerMetadata{

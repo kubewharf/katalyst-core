@@ -131,7 +131,7 @@ func constructTestDynamicConfigManager(t *testing.T, nodeName, dir string, evict
 	cncFetcher := cnc.NewCachedCNCFetcher(conf.BaseConfiguration, conf.CNCConfiguration,
 		clientSet.InternalClient.ConfigV1alpha1().CustomNodeConfigs())
 
-	err := os.MkdirAll(dir, os.FileMode(0755))
+	err := os.MkdirAll(dir, os.FileMode(0o755))
 	require.NoError(t, err)
 
 	checkpointManager, err := checkpointmanager.NewCheckpointManager(conf.CheckpointManagerDir)
@@ -167,7 +167,7 @@ func TestNewDynamicConfigManager(t *testing.T) {
 		clientSet.InternalClient.ConfigV1alpha1().CustomNodeConfigs())
 	defer os.RemoveAll(conf.CheckpointManagerDir)
 
-	err := os.MkdirAll("/tmp/metaserver1/TestNewDynamicConfigManager", os.FileMode(0755))
+	err := os.MkdirAll("/tmp/metaserver1/TestNewDynamicConfigManager", os.FileMode(0o755))
 	require.NoError(t, err)
 
 	manager, err := NewDynamicConfigManager(clientSet, &metrics.DummyMetrics{}, cncFetcher, conf)
@@ -396,7 +396,8 @@ func Test_getGVRToKindMap(t *testing.T) {
 }
 
 func checkGVRToGVKMap(gvr schema.GroupVersionResource, wantGVK schema.GroupVersionKind,
-	m map[schema.GroupVersionResource]schema.GroupVersionKind) bool {
+	m map[schema.GroupVersionResource]schema.GroupVersionKind,
+) bool {
 	gvk, ok := m[gvr]
 	if ok && gvk == wantGVK {
 		return true

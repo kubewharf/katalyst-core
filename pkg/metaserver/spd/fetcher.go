@@ -94,7 +94,8 @@ type spdFetcher struct {
 
 // NewSPDFetcher creates a spd manager to implement SPDFetcher
 func NewSPDFetcher(clientSet *client.GenericClientSet, emitter metrics.MetricEmitter,
-	cncFetcher cnc.CNCFetcher, conf *pkgconfig.Configuration) (SPDFetcher, error) {
+	cncFetcher cnc.CNCFetcher, conf *pkgconfig.Configuration,
+) (SPDFetcher, error) {
 	checkpointManager, err := checkpointmanager.NewCheckpointManager(conf.CheckpointManagerDir)
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize checkpoint manager: %v", err)

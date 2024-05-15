@@ -68,6 +68,8 @@ type MemoryData struct {
 	// cgroup memory that can never be reclaimed by kswapd.
 	MinInBytes int64
 	WmarkRatio int32
+	// SwapMaxInBytes < 0 means disable cgroup-level swap
+	SwapMaxInBytes int64
 }
 
 // CPUData set cgroup cpu data
@@ -95,8 +97,10 @@ type NetClsData struct {
 	Attributes map[string]string
 }
 
-type IOCostCtrlMode string
-type IOCostModel string
+type (
+	IOCostCtrlMode string
+	IOCostModel    string
+)
 
 const (
 	IOCostCtrlModeAuto IOCostCtrlMode = "auto"
@@ -106,7 +110,7 @@ const (
 
 // IOCostQoSData is the io.cost.qos data supported in cgroupv2
 type IOCostQoSData struct {
-	Enable              uint32         `json:"enable"`                //Weight-based control enable
+	Enable              uint32         `json:"enable"`                // Weight-based control enable
 	CtrlMode            IOCostCtrlMode `json:"ctrl_mode"`             //"auto" or "user"
 	ReadLatencyPercent  float32        `json:"read_latency_percent"`  // read latency percentile [0, 100]
 	ReadLatencyUS       uint32         `json:"read_latency_us"`       // read latency threshold, unit microsecond
@@ -132,7 +136,7 @@ func (iocqd *IOCostQoSData) String() string {
 // IOCostModelData is the io.cost.model data supported in cgroupv2
 type IOCostModelData struct {
 	CtrlMode      IOCostCtrlMode `json:"ctrl_mode"`       //"auto" or "user"
-	Model         IOCostModel    `json:"model"`           //The cost model in use - "linear"
+	Model         IOCostModel    `json:"model"`           // The cost model in use - "linear"
 	ReadBPS       uint64         `json:"read_bps"`        // read bytes per second
 	ReadSeqIOPS   uint64         `json:"read_seq_iops"`   // sequential read IOPS
 	ReadRandIOPS  uint64         `json:"read_rand_iops"`  // random read IOPS

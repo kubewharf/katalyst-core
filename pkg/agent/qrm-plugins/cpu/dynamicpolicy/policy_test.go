@@ -351,7 +351,7 @@ func TestAllocate(t *testing.T) {
 							OciPropertyName:   util.OCIPropertyNameCPUSetCPUs,
 							IsNodeResource:    false,
 							IsScalarResource:  true,
-							AllocatedQuantity: 14, //ramp up
+							AllocatedQuantity: 14, // ramp up
 							AllocationResult:  machine.NewCPUSet(1, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15).String(),
 							ResourceHints: &pluginapi.ListOfTopologyHints{
 								Hints: []*pluginapi.TopologyHint{nil},
@@ -2905,7 +2905,6 @@ func entriesMatch(entries1, entries2 state.PodEntries) (bool, error) {
 						return false, nil
 					}
 				}
-
 			}
 		}
 	}
@@ -3012,7 +3011,7 @@ func TestSchedIdle(t *testing.T) {
 		absCgroupPath := common.GetAbsCgroupPath("cpu", "test")
 
 		fs := &utilfs.DefaultFs{}
-		err := fs.MkdirAll(absCgroupPath, 0755)
+		err := fs.MkdirAll(absCgroupPath, 0o755)
 
 		as.Nil(err)
 

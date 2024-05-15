@@ -212,7 +212,8 @@ func GetUnstructuredPodTemplateSpec(object *unstructured.Unstructured) (*v1.PodT
 // if the handleFunc returns true, it means that we should continue the walking process
 // for other ancestors, otherwise, we break the process and return.
 func VisitUnstructuredAncestors(object *unstructured.Unstructured, unstructuredMap map[schema.GroupVersionKind]cache.GenericLister,
-	handleFunc func(owner *unstructured.Unstructured) bool) bool {
+	handleFunc func(owner *unstructured.Unstructured) bool,
+) bool {
 	if !handleFunc(object) {
 		return false
 	}

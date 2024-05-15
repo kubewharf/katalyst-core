@@ -74,5 +74,4 @@ func (s *WebhookPodSPDReferenceMutator) MutatePod(pod *core.Pod, namespace strin
 	}
 	pod.Annotations[apiconsts.PodAnnotationSPDNameKey] = spd.Name
 	return true, nil
-
 }

@@ -32,7 +32,8 @@ const (
 )
 
 func StartKCCController(ctx context.Context, controlCtx *katalystbase.GenericContext,
-	conf *config.Configuration, _ interface{}, _ string) (bool, error) {
+	conf *config.Configuration, _ interface{}, _ string,
+) (bool, error) {
 	// targetHandler is initialized once and shared by multiple controllers
 	targetHandler := kcctarget.NewKatalystCustomConfigTargetHandler(
 		ctx,

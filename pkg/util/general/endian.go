@@ -21,10 +21,8 @@ import (
 	"unsafe"
 )
 
-var (
-	// NativeEndian is the native endian
-	NativeEndian binary.ByteOrder
-)
+// NativeEndian is the native endian
+var NativeEndian binary.ByteOrder
 
 func init() {
 	buf := [2]byte{}

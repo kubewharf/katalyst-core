@@ -47,7 +47,8 @@ type CPUPressureSuppression struct {
 }
 
 func NewCPUPressureSuppressionEviction(_ metrics.MetricEmitter, _ *metaserver.MetaServer,
-	conf *config.Configuration, state state.ReadonlyState) (CPUPressureEviction, error) {
+	conf *config.Configuration, state state.ReadonlyState,
+) (CPUPressureEviction, error) {
 	return &CPUPressureSuppression{
 		conf:  conf,
 		state: state,
@@ -59,6 +60,7 @@ func (p *CPUPressureSuppression) Name() string                { return EvictionN
 func (p *CPUPressureSuppression) ThresholdMet(_ context.Context, _ *pluginapi.Empty) (*pluginapi.ThresholdMetResponse, error) {
 	return &pluginapi.ThresholdMetResponse{}, nil
 }
+
 func (p *CPUPressureSuppression) GetTopEvictionPods(_ context.Context, _ *pluginapi.GetTopEvictionPodsRequest) (*pluginapi.GetTopEvictionPodsResponse, error) {
 	return &pluginapi.GetTopEvictionPodsResponse{}, nil
 }

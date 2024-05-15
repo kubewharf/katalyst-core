@@ -41,7 +41,6 @@ import (
 
 	nodev1alpha1 "github.com/kubewharf/katalyst-api/pkg/apis/node/v1alpha1"
 	"github.com/kubewharf/katalyst-api/pkg/consts"
-	"github.com/kubewharf/katalyst-core/pkg/agent/resourcemanager/fetcher/util/kubelet/podresources"
 	"github.com/kubewharf/katalyst-core/pkg/config/generic"
 	pkgconsts "github.com/kubewharf/katalyst-core/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
@@ -50,6 +49,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/pod"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/spd"
 	"github.com/kubewharf/katalyst-core/pkg/util"
+	"github.com/kubewharf/katalyst-core/pkg/util/kubelet/podresources"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
@@ -90,7 +90,8 @@ func (f *fakePodResourcesListerClient) GetAllocatableResources(_ context.Context
 }
 
 func generateTestPod(namespace, name, uid string, qosLevel string, isBindNumaQoS bool,
-	resourceRequirements map[string]v1.ResourceRequirements) *v1.Pod {
+	resourceRequirements map[string]v1.ResourceRequirements,
+) *v1.Pod {
 	p := &v1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      name,
@@ -136,7 +137,7 @@ func tmpSocketDir() (socketDir string, err error) {
 	if err != nil {
 		return
 	}
-	err = os.MkdirAll(socketDir, 0755)
+	err = os.MkdirAll(socketDir, 0o755)
 	if err != nil {
 		return "", err
 	}
@@ -912,13 +913,15 @@ func Test_getZoneAllocationsByPodResources(t *testing.T) {
 					},
 				),
 				extraTopologyInfo: &machine.ExtraTopologyInfo{
-					SiblingNumaAvgMBWAllocatableMap: map[int]int64{
-						0: 8,
-						1: 8,
-					},
-					SiblingNumaAvgMBWCapacityMap: map[int]int64{
-						0: 10,
-						1: 10,
+					SiblingNumaInfo: &machine.SiblingNumaInfo{
+						SiblingNumaAvgMBWAllocatableMap: map[int]int64{
+							0: 8,
+							1: 8,
+						},
+						SiblingNumaAvgMBWCapacityMap: map[int]int64{
+							0: 10,
+							1: 10,
+						},
 					},
 				},
 			},
@@ -2967,7 +2970,7 @@ func Test_podResourcesServerTopologyAdapterImpl_Run(t *testing.T) {
 	notifier := make(chan struct{}, 1)
 	p, _ := NewPodResourcesServerTopologyAdapter(testMetaServer, generic.NewQoSConfiguration(),
 		endpoints, kubeletResourcePluginPath, nil,
-		nil, getNumaInfo, nil, podresources.GetV1Client)
+		nil, getNumaInfo, nil, podresources.GetV1Client, []string{"cpu", "memory"})
 	err = p.Run(ctx, func() {})
 	assert.NoError(t, err)
 

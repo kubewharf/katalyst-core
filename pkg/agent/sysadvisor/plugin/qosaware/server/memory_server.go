@@ -50,7 +50,8 @@ type memoryServer struct {
 }
 
 func NewMemoryServer(recvCh chan types.InternalMemoryCalculationResult, sendCh chan types.TriggerInfo, conf *config.Configuration,
-	metaCache metacache.MetaCache, metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter) (*memoryServer, error) {
+	metaCache metacache.MetaCache, metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter,
+) (*memoryServer, error) {
 	ms := &memoryServer{}
 	ms.baseServer = newBaseServer(memoryServerName, conf, recvCh, sendCh, metaCache, metaServer, emitter, ms)
 	ms.advisorSocketPath = conf.MemoryAdvisorSocketAbsPath

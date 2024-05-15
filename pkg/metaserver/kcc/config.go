@@ -75,7 +75,8 @@ type katalystCustomConfigLoader struct {
 // defaultGVRList s the list of default gvr fetched from remote api-server, if
 // LoadConfig() fetches a new gvr, it will be automatically added to.
 func NewKatalystCustomConfigLoader(clientSet *client.GenericClientSet, ttl time.Duration,
-	cncFetcher cnc.CNCFetcher) ConfigurationLoader {
+	cncFetcher cnc.CNCFetcher,
+) ConfigurationLoader {
 	return &katalystCustomConfigLoader{
 		cncFetcher:          cncFetcher,
 		client:              clientSet,

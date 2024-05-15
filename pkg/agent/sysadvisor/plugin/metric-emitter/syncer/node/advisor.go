@@ -111,5 +111,4 @@ func (n *MetricSyncerNode) advisorMetric(ctx context.Context) {
 				},
 			}...)...)
 	}
-
 }

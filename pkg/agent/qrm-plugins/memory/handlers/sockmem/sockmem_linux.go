@@ -99,12 +99,11 @@ SetSockMemLimit is the unified solution for tcpmem limitation.
 */
 func SetSockMemLimit(conf *coreconfig.Configuration,
 	_ interface{}, _ *dynamicconfig.DynamicAgentConfiguration,
-	emitter metrics.MetricEmitter, metaServer *metaserver.MetaServer) {
+	emitter metrics.MetricEmitter, metaServer *metaserver.MetaServer,
+) {
 	general.Infof("called")
 
-	var (
-		errList []error
-	)
+	var errList []error
 	defer func() {
 		_ = general.UpdateHealthzStateByError(memconsts.SetSockMem, errors.NewAggregate(errList))
 	}()

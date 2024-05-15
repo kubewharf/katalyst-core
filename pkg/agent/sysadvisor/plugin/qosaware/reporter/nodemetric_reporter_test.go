@@ -171,7 +171,8 @@ func TestNodeMetricUpdate(t *testing.T) {
 										},
 										Requests: map[corev1.ResourceName]resource.Quantity{
 											corev1.ResourceCPU:    resource.MustParse("2"),
-											corev1.ResourceMemory: resource.MustParse("20Gi")},
+											corev1.ResourceMemory: resource.MustParse("20Gi"),
+										},
 									},
 								},
 							},
@@ -195,7 +196,8 @@ func TestNodeMetricUpdate(t *testing.T) {
 										},
 										Requests: map[corev1.ResourceName]resource.Quantity{
 											corev1.ResourceCPU:    resource.MustParse("2"),
-											corev1.ResourceMemory: resource.MustParse("20Gi")},
+											corev1.ResourceMemory: resource.MustParse("20Gi"),
+										},
 									},
 								},
 							},
@@ -219,7 +221,8 @@ func TestNodeMetricUpdate(t *testing.T) {
 										},
 										Requests: map[corev1.ResourceName]resource.Quantity{
 											corev1.ResourceCPU:    resource.MustParse("2"),
-											corev1.ResourceMemory: resource.MustParse("20Gi")},
+											corev1.ResourceMemory: resource.MustParse("20Gi"),
+										},
 									},
 								},
 							},

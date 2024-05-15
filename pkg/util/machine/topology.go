@@ -23,6 +23,8 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/klog/v2"
+
+	"github.com/kubewharf/katalyst-core/pkg/config/agent/global"
 )
 
 // NUMANodeInfo is a map from NUMANode ID to a list of
@@ -231,10 +233,12 @@ func GenerateDummyExtraTopology(numaNum int) (*ExtraTopologyInfo, error) {
 	)
 
 	extraTopology := &ExtraTopologyInfo{
-		NumaDistanceMap:                 make(map[int][]NumaDistanceInfo),
-		SiblingNumaMap:                  make(map[int]sets.Int),
-		SiblingNumaAvgMBWAllocatableMap: make(map[int]int64),
-		SiblingNumaAvgMBWCapacityMap:    make(map[int]int64),
+		NumaDistanceMap: make(map[int][]NumaDistanceInfo),
+		SiblingNumaInfo: &SiblingNumaInfo{
+			SiblingNumaMap:                  make(map[int]sets.Int),
+			SiblingNumaAvgMBWAllocatableMap: make(map[int]int64),
+			SiblingNumaAvgMBWCapacityMap:    make(map[int]int64),
+		},
 	}
 
 	for i := 0; i < numaNum; i++ {
@@ -507,6 +511,52 @@ func CheckNUMACrossSockets(numaNodes []int, cpuTopology *CPUTopology) (bool, err
 	return cpuTopology.CPUDetails.SocketsInNUMANodes(numaNodes...).Size() > 1, nil
 }
 
+func GetSiblingNumaInfo(conf *global.MachineInfoConfiguration,
+	numaDistanceMap map[int][]NumaDistanceInfo,
+) *SiblingNumaInfo {
+	siblingNumaMap := make(map[int]sets.Int)
+	siblingNumaAvgMBWAllocatableMap := make(map[int]int64)
+	siblingNumaAvgMBWCapacityMap := make(map[int]int64)
+
+	// calculate the sibling NUMA allocatable memory bandwidth by the capacity multiplying the allocatable rate.
+	// Now, all the NUMAs have the same memory bandwidth capacity and allocatable
+	siblingNumaMBWCapacity := conf.SiblingNumaMemoryBandwidthCapacity
+	siblingNumaMBWAllocatable := int64(float64(siblingNumaMBWCapacity) * conf.SiblingNumaMemoryBandwidthAllocatableRate)
+
+	for numaID, distanceMap := range numaDistanceMap {
+		var selfNumaDistance int
+		for _, distance := range distanceMap {
+			if distance.NumaID == numaID {
+				selfNumaDistance = distance.Distance
+				break
+			}
+		}
+
+		siblingSet := sets.NewInt()
+		for _, distance := range distanceMap {
+			if distance.NumaID == numaID {
+				continue
+			}
+
+			// the distance between two different NUMAs is equal to the distance between
+			// it and itself are siblings each other
+			if distance.Distance == selfNumaDistance {
+				siblingSet.Insert(distance.NumaID)
+			}
+		}
+
+		siblingNumaMap[numaID] = siblingSet
+		siblingNumaAvgMBWAllocatableMap[numaID] = siblingNumaMBWAllocatable / int64(len(siblingSet)+1)
+		siblingNumaAvgMBWCapacityMap[numaID] = siblingNumaMBWCapacity / int64(len(siblingSet)+1)
+	}
+
+	return &SiblingNumaInfo{
+		SiblingNumaMap:                  siblingNumaMap,
+		SiblingNumaAvgMBWCapacityMap:    siblingNumaAvgMBWCapacityMap,
+		SiblingNumaAvgMBWAllocatableMap: siblingNumaAvgMBWAllocatableMap,
+	}
+}
+
 type NumaDistanceInfo struct {
 	NumaID   int
 	Distance int
@@ -514,7 +564,11 @@ type NumaDistanceInfo struct {
 
 type ExtraTopologyInfo struct {
 	NumaDistanceMap map[int][]NumaDistanceInfo
-	SiblingNumaMap  map[int]sets.Int
+	*SiblingNumaInfo
+}
+
+type SiblingNumaInfo struct {
+	SiblingNumaMap map[int]sets.Int
 
 	// SiblingNumaAvgMBWAllocatableMap maps NUMA IDs to the allocatable memory bandwidth,
 	// averaged across each NUMA node and its siblings.

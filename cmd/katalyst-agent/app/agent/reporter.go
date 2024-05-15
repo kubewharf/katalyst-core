@@ -37,7 +37,8 @@ func init() {
 }
 
 func InitReporterManager(agentCtx *GenericContext, conf *config.Configuration,
-	_ interface{}, _ string) (bool, Component, error) {
+	_ interface{}, _ string,
+) (bool, Component, error) {
 	reporterMgr, err := reporter.NewReporterManager(agentCtx.Client, agentCtx.MetaServer,
 		agentCtx.EmitterPool.GetDefaultMetricsEmitter(), conf)
 	if err != nil {

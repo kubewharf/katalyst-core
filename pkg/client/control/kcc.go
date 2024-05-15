@@ -41,12 +41,14 @@ type KCCControl interface {
 type DummyKCCControl struct{}
 
 func (d DummyKCCControl) UpdateKCC(_ context.Context, kcc *v1alpha1.KatalystCustomConfig,
-	_ metav1.UpdateOptions) (*v1alpha1.KatalystCustomConfig, error) {
+	_ metav1.UpdateOptions,
+) (*v1alpha1.KatalystCustomConfig, error) {
 	return kcc, nil
 }
 
 func (d DummyKCCControl) UpdateKCCStatus(_ context.Context, kcc *v1alpha1.KatalystCustomConfig,
-	_ metav1.UpdateOptions) (*v1alpha1.KatalystCustomConfig, error) {
+	_ metav1.UpdateOptions,
+) (*v1alpha1.KatalystCustomConfig, error) {
 	return kcc, nil
 }
 
@@ -55,7 +57,8 @@ type RealKCCControl struct {
 }
 
 func (r *RealKCCControl) UpdateKCC(ctx context.Context, kcc *v1alpha1.KatalystCustomConfig,
-	opts metav1.UpdateOptions) (*v1alpha1.KatalystCustomConfig, error) {
+	opts metav1.UpdateOptions,
+) (*v1alpha1.KatalystCustomConfig, error) {
 	if kcc == nil {
 		return nil, fmt.Errorf("can't update a nil KCC")
 	}
@@ -64,7 +67,8 @@ func (r *RealKCCControl) UpdateKCC(ctx context.Context, kcc *v1alpha1.KatalystCu
 }
 
 func (r *RealKCCControl) UpdateKCCStatus(ctx context.Context, kcc *v1alpha1.KatalystCustomConfig,
-	opts metav1.UpdateOptions) (*v1alpha1.KatalystCustomConfig, error) {
+	opts metav1.UpdateOptions,
+) (*v1alpha1.KatalystCustomConfig, error) {
 	if kcc == nil {
 		return nil, fmt.Errorf("can't update a nil KCC's status")
 	}

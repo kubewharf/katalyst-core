@@ -32,9 +32,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/util/external/rdt"
 )
 
-var (
-	podFetcher = &pod.PodFetcherStub{}
-)
+var podFetcher = &pod.PodFetcherStub{}
 
 func TestSetNetworkManager(t *testing.T) {
 	t.Parallel()

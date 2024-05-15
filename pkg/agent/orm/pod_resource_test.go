@@ -109,7 +109,8 @@ func TestCheckpointMarshal(t *testing.T) {
 					PodUID:         podUID,
 					ContainerName:  conName,
 					ResourceName:   resourceName,
-					AllocationInfo: string(allocRespBytes)})
+					AllocationInfo: string(allocRespBytes),
+				})
 			}
 		}
 	}

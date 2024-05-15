@@ -30,8 +30,10 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
-type ReservationPolicy string
-type NICSelectionPoligy string
+type (
+	ReservationPolicy  string
+	NICSelectionPoligy string
+)
 
 const (
 	FirstNIC         ReservationPolicy = "first"

@@ -20,14 +20,17 @@ import "github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/crd"
 
 type AdvisorConfiguration struct {
 	*MemoryGuardConfiguration
+	*CPURegionConfiguration
 }
 
 func NewAdvisorConfiguration() *AdvisorConfiguration {
 	return &AdvisorConfiguration{
 		MemoryGuardConfiguration: NewMemoryGuardConfiguration(),
+		CPURegionConfiguration:   NewCPURegionConfiguration(),
 	}
 }
 
 func (c *AdvisorConfiguration) ApplyConfiguration(conf *crd.DynamicConfigCRD) {
 	c.MemoryGuardConfiguration.ApplyConfiguration(conf)
+	c.CPURegionConfiguration.ApplyConfiguration(conf)
 }

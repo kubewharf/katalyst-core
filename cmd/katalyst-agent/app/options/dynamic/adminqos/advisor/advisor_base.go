@@ -25,20 +25,24 @@ import (
 
 type AdvisorOptions struct {
 	*MemoryGuardOptions
+	*CPURegionOptions
 }
 
 func NewAdvisorOptions() *AdvisorOptions {
 	return &AdvisorOptions{
 		MemoryGuardOptions: NewMemoryGuardOptions(),
+		CPURegionOptions:   NewCPURegionOptions(),
 	}
 }
 
 func (o *AdvisorOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 	o.MemoryGuardOptions.AddFlags(fss)
+	o.CPURegionOptions.AddFlags(fss)
 }
 
 func (o *AdvisorOptions) ApplyTo(c *advisor.AdvisorConfiguration) error {
 	var errList []error
 	errList = append(errList, o.MemoryGuardOptions.ApplyTo(c.MemoryGuardConfiguration))
+	errList = append(errList, o.CPURegionOptions.ApplyTo(c.CPURegionConfiguration))
 	return errors.NewAggregate(errList)
 }

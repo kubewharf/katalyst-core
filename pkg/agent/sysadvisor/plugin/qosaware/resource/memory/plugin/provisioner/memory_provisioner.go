@@ -60,7 +60,8 @@ type memoryProvisioner struct {
 }
 
 func NewMemoryProvisioner(conf *config.Configuration, extraConfig interface{}, metaReader metacache.MetaReader,
-	metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter) plugin.MemoryAdvisorPlugin {
+	metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter,
+) plugin.MemoryAdvisorPlugin {
 	mp := &memoryProvisioner{
 		conf:             conf,
 		extraConfig:      extraConfig,

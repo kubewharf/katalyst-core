@@ -75,7 +75,8 @@ func (m metricAggregators) gc() {
 
 // NewNodeMetricsReporter returns a wrapper of node metrics reporter
 func NewNodeMetricsReporter(emitter metrics.MetricEmitter, metaServer *metaserver.MetaServer,
-	metaReader metacache.MetaReader, conf *config.Configuration) (Reporter, error) {
+	metaReader metacache.MetaReader, conf *config.Configuration,
+) (Reporter, error) {
 	plugin, err := newNodeMetricsReporterPlugin(emitter, metaServer, metaReader, conf)
 	if err != nil {
 		return nil, fmt.Errorf("[node-metrics-reporter] failed to create reporter, %v", err)
@@ -346,7 +347,8 @@ func (p *nodeMetricsReporterPlugin) getGroupMetricInfo() ([]nodeapis.GroupMetric
 		apiconsts.PodAnnotationQoSLevelDedicatedCores,
 		apiconsts.PodAnnotationQoSLevelSharedCores,
 		apiconsts.PodAnnotationQoSLevelReclaimedCores,
-		apiconsts.PodAnnotationQoSLevelSystemCores}
+		apiconsts.PodAnnotationQoSLevelSystemCores,
+	}
 
 	groupMetrics := make([]nodeapis.GroupMetricInfo, 0)
 

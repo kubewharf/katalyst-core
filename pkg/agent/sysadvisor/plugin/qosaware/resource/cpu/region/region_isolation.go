@@ -35,8 +35,8 @@ type QoSRegionIsolation struct {
 
 // NewQoSRegionIsolation returns a region instance for isolated pods
 func NewQoSRegionIsolation(ci *types.ContainerInfo, customRegionName string, conf *config.Configuration, extraConf interface{},
-	metaReader metacache.MetaReader, metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter) QoSRegion {
-
+	metaReader metacache.MetaReader, metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter,
+) QoSRegion {
 	regionName := customRegionName
 	if regionName == "" {
 		regionName = getRegionNameFromMetaCache(ci, cpuadvisor.FakedNUMAID, metaReader)

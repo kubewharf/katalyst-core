@@ -91,7 +91,8 @@ type LocalMemoryMetricStore struct {
 var _ store.MetricStore = &LocalMemoryMetricStore{}
 
 func NewLocalMemoryMetricStore(ctx context.Context, baseCtx *katalystbase.GenericContext,
-	genericConf *metricconf.GenericMetricConfiguration, storeConf *metricconf.StoreConfiguration) (store.MetricStore, error) {
+	genericConf *metricconf.GenericMetricConfiguration, storeConf *metricconf.StoreConfiguration,
+) (store.MetricStore, error) {
 	metricsEmitter := baseCtx.EmitterPool.GetDefaultMetricsEmitter()
 	if metricsEmitter == nil {
 		metricsEmitter = metrics.DummyMetrics{}
@@ -227,7 +228,8 @@ func (l *LocalMemoryMetricStore) getObjectMetaByIndex(gr *schema.GroupResource, 
 }
 
 func (l *LocalMemoryMetricStore) GetMetric(_ context.Context, namespace, metricName, objName string, gr *schema.GroupResource,
-	objSelector, metricSelector labels.Selector, latest bool) ([]types.Metric, error) {
+	objSelector, metricSelector labels.Selector, latest bool,
+) ([]types.Metric, error) {
 	begin := time.Now()
 	defer func() {
 		klog.V(5).Infof("[LocalMemoryMetricStore] GetMetric costs %s", time.Since(begin).String())
@@ -382,7 +384,8 @@ func (l *LocalMemoryMetricStore) parseMetricSeries(series *data.MetricSeries) (t
 // the kubernetes object should be obtained by namespace/name
 // if not, return an error to represent the unmatched reasons
 func (l *LocalMemoryMetricStore) checkInternalMetricMatchedWithObject(internal types.Metric,
-	gr *schema.GroupResource, namespace, name string) (bool, error) {
+	gr *schema.GroupResource, namespace, name string,
+) (bool, error) {
 	if gr != nil && gr.String() != internal.GetObjectKind() {
 		klog.V(5).Infof("gvr %+v not match with objects %v", gr, internal.GetObjectKind())
 		return false, nil
@@ -405,7 +408,8 @@ func (l *LocalMemoryMetricStore) checkInternalMetricMatchedWithObject(internal t
 // the kubernetes object should be obtained by label selector
 // if not, return an error to represent the unmatched reasons
 func (l *LocalMemoryMetricStore) checkInternalMetricMatchedWithObjectList(internal types.Metric,
-	gr *schema.GroupResource, namespace string, selector labels.Selector) (bool, error) {
+	gr *schema.GroupResource, namespace string, selector labels.Selector,
+) (bool, error) {
 	if gr != nil && gr.String() != internal.GetObjectKind() {
 		klog.V(5).Infof("gvr %+v not match with objects %v", gr, internal.GetObjectKind())
 		return false, nil

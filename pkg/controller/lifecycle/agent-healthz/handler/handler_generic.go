@@ -63,7 +63,8 @@ type GenericAgentHandler struct {
 func NewGenericAgentHandler(ctx context.Context, agent string, emitter metrics.MetricEmitter,
 	genericConf *generic.GenericConfiguration, _ *controller.LifeCycleConfig, nodeSelector labels.Selector,
 	podIndexer cache.Indexer, nodeLister corelisters.NodeLister, cnrLister listers.CustomNodeResourceLister,
-	checker *helper.HealthzHelper) AgentHandler {
+	checker *helper.HealthzHelper,
+) AgentHandler {
 	return &GenericAgentHandler{
 		ctx:     ctx,
 		agent:   agent,

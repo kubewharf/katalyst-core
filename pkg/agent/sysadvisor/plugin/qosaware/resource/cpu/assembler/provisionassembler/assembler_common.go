@@ -50,7 +50,8 @@ type ProvisionAssemblerCommon struct {
 
 func NewProvisionAssemblerCommon(conf *config.Configuration, _ interface{}, regionMap *map[string]region.QoSRegion,
 	reservedForReclaim *map[int]int, numaAvailable *map[int]int, nonBindingNumas *machine.CPUSet,
-	metaReader metacache.MetaReader, metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter) ProvisionAssembler {
+	metaReader metacache.MetaReader, metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter,
+) ProvisionAssembler {
 	return &ProvisionAssemblerCommon{
 		conf:               conf,
 		regionMap:          regionMap,

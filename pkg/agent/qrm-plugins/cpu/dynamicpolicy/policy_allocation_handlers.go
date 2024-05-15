@@ -40,7 +40,8 @@ import (
 )
 
 func (p *DynamicPolicy) sharedCoresAllocationHandler(_ context.Context,
-	req *pluginapi.ResourceRequest) (*pluginapi.ResourceAllocationResponse, error) {
+	req *pluginapi.ResourceRequest,
+) (*pluginapi.ResourceAllocationResponse, error) {
 	if req == nil {
 		return nil, fmt.Errorf("sharedCoresAllocationHandler got nil request")
 	}
@@ -113,7 +114,6 @@ func (p *DynamicPolicy) sharedCoresAllocationHandler(_ context.Context,
 			} else {
 				p.state.SetAllocationInfo(allocationInfo.PodUid, allocationInfo.ContainerName, allocationInfo)
 				err := p.doAndCheckPutAllocationInfo(allocationInfo, false)
-
 				if err != nil {
 					return nil, err
 				}
@@ -131,7 +131,6 @@ func (p *DynamicPolicy) sharedCoresAllocationHandler(_ context.Context,
 		allocationInfo.OriginalTopologyAwareAssignments = machine.DeepcopyCPUAssignment(pooledCPUsTopologyAwareAssignments)
 	} else {
 		err := p.doAndCheckPutAllocationInfo(allocationInfo, true)
-
 		if err != nil {
 			return nil, err
 		}
@@ -165,7 +164,8 @@ func (p *DynamicPolicy) sharedCoresAllocationHandler(_ context.Context,
 }
 
 func (p *DynamicPolicy) reclaimedCoresAllocationHandler(_ context.Context,
-	req *pluginapi.ResourceRequest) (*pluginapi.ResourceAllocationResponse, error) {
+	req *pluginapi.ResourceRequest,
+) (*pluginapi.ResourceAllocationResponse, error) {
 	if req == nil {
 		return nil, fmt.Errorf("reclaimedCoresAllocationHandler got nil request")
 	}
@@ -251,8 +251,8 @@ func (p *DynamicPolicy) reclaimedCoresAllocationHandler(_ context.Context,
 }
 
 func (p *DynamicPolicy) dedicatedCoresAllocationHandler(ctx context.Context,
-	req *pluginapi.ResourceRequest) (*pluginapi.ResourceAllocationResponse, error) {
-
+	req *pluginapi.ResourceRequest,
+) (*pluginapi.ResourceAllocationResponse, error) {
 	if req == nil {
 		return nil, fmt.Errorf("dedicatedCoresAllocationHandler got nil req")
 	}
@@ -266,13 +266,15 @@ func (p *DynamicPolicy) dedicatedCoresAllocationHandler(ctx context.Context,
 }
 
 func (p *DynamicPolicy) dedicatedCoresWithoutNUMABindingAllocationHandler(_ context.Context,
-	_ *pluginapi.ResourceRequest) (*pluginapi.ResourceAllocationResponse, error) {
+	_ *pluginapi.ResourceRequest,
+) (*pluginapi.ResourceAllocationResponse, error) {
 	// todo: support dedicated_cores without NUMA binding
 	return nil, fmt.Errorf("not support dedicated_cores without NUMA binding")
 }
 
 func (p *DynamicPolicy) dedicatedCoresWithNUMABindingAllocationHandler(ctx context.Context,
-	req *pluginapi.ResourceRequest) (*pluginapi.ResourceAllocationResponse, error) {
+	req *pluginapi.ResourceRequest,
+) (*pluginapi.ResourceAllocationResponse, error) {
 	if req.ContainerType == pluginapi.ContainerType_SIDECAR {
 		return p.dedicatedCoresWithNUMABindingAllocationSidecarHandler(ctx, req)
 	}
@@ -383,7 +385,8 @@ func (p *DynamicPolicy) dedicatedCoresWithNUMABindingAllocationHandler(ctx conte
 
 // dedicatedCoresWithNUMABindingAllocationSidecarHandler currently we set cpuset of sidecar to the cpuset of its main container
 func (p *DynamicPolicy) dedicatedCoresWithNUMABindingAllocationSidecarHandler(_ context.Context,
-	req *pluginapi.ResourceRequest) (*pluginapi.ResourceAllocationResponse, error) {
+	req *pluginapi.ResourceRequest,
+) (*pluginapi.ResourceAllocationResponse, error) {
 	_, reqFloat64, err := util.GetQuantityFromResourceReq(req)
 	if err != nil {
 		return nil, fmt.Errorf("getReqQuantityFromResourceReq failed with error: %v", err)
@@ -448,7 +451,8 @@ func (p *DynamicPolicy) dedicatedCoresWithNUMABindingAllocationSidecarHandler(_ 
 }
 
 func (p *DynamicPolicy) allocateNumaBindingCPUs(numCPUs int, hint *pluginapi.TopologyHint,
-	machineState state.NUMANodeMap, reqAnnotations map[string]string) (machine.CPUSet, error) {
+	machineState state.NUMANodeMap, reqAnnotations map[string]string,
+) (machine.CPUSet, error) {
 	if hint == nil {
 		return machine.NewCPUSet(), fmt.Errorf("hint is nil")
 	} else if len(hint.Nodes) == 0 {
@@ -474,7 +478,6 @@ func (p *DynamicPolicy) allocateNumaBindingCPUs(numCPUs int, hint *pluginapi.Top
 	} else {
 		var err error
 		alignedCPUs, err = calculator.TakeByTopology(p.machineInfo, alignedAvailableCPUs, numCPUs)
-
 		if err != nil {
 			general.ErrorS(err, "take cpu for NUMA not exclusive binding container failed",
 				"hints", hint.Nodes,
@@ -590,7 +593,8 @@ func (p *DynamicPolicy) adjustAllocationEntries() error {
 // 3. apply them to local state
 // 4. clean pools
 func (p *DynamicPolicy) adjustPoolsAndIsolatedEntries(poolsQuantityMap map[string]int,
-	isolatedQuantityMap map[string]map[string]int, entries state.PodEntries, machineState state.NUMANodeMap) error {
+	isolatedQuantityMap map[string]map[string]int, entries state.PodEntries, machineState state.NUMANodeMap,
+) error {
 	availableCPUs := machineState.GetFilteredAvailableCPUSet(p.reservedCPUs, nil, state.CheckDedicatedNUMABinding)
 
 	poolsCPUSet, isolatedCPUSet, err := p.generatePoolsAndIsolation(poolsQuantityMap, isolatedQuantityMap, availableCPUs)
@@ -663,7 +667,8 @@ func (p *DynamicPolicy) reclaimOverlapNUMABinding(poolsCPUSet map[string]machine
 // 2. construct entries for all pools
 // 3. construct entries for shared and reclaimed containers
 func (p *DynamicPolicy) applyPoolsAndIsolatedInfo(poolsCPUSet map[string]machine.CPUSet,
-	isolatedCPUSet map[string]map[string]machine.CPUSet, curEntries state.PodEntries, machineState state.NUMANodeMap) error {
+	isolatedCPUSet map[string]map[string]machine.CPUSet, curEntries state.PodEntries, machineState state.NUMANodeMap,
+) error {
 	newPodEntries := make(state.PodEntries)
 	unionDedicatedIsolatedCPUSet := machine.NewCPUSet()
 
@@ -858,7 +863,8 @@ func (p *DynamicPolicy) applyPoolsAndIsolatedInfo(poolsCPUSet map[string]machine
 // 3. apportion to other pools if reclaimed is disabled
 func (p *DynamicPolicy) generatePoolsAndIsolation(poolsQuantityMap map[string]int,
 	isolatedQuantityMap map[string]map[string]int, availableCPUs machine.CPUSet) (poolsCPUSet map[string]machine.CPUSet,
-	isolatedCPUSet map[string]map[string]machine.CPUSet, err error) {
+	isolatedCPUSet map[string]map[string]machine.CPUSet, err error,
+) {
 	// clear pool map with zero quantity
 	for poolName, quantity := range poolsQuantityMap {
 		if quantity == 0 {
@@ -1059,7 +1065,8 @@ func (p *DynamicPolicy) apportionReclaimedPool(poolsCPUSet map[string]machine.CP
 // and it will consider the total available cpuset during calculation.
 // the returned value includes cpuset pool map and remaining available cpuset.
 func (p *DynamicPolicy) takeCPUsForPools(poolsQuantityMap map[string]int,
-	availableCPUs machine.CPUSet) (map[string]machine.CPUSet, machine.CPUSet, error) {
+	availableCPUs machine.CPUSet,
+) (map[string]machine.CPUSet, machine.CPUSet, error) {
 	poolsCPUSet := make(map[string]machine.CPUSet)
 	clonedAvailableCPUs := availableCPUs.Clone()
 
@@ -1085,7 +1092,8 @@ func (p *DynamicPolicy) takeCPUsForPools(poolsQuantityMap map[string]int,
 // and it will consider the total available cpuset during calculation.
 // the returned value includes cpuset map for pod/container combinations and remaining available cpuset.
 func (p *DynamicPolicy) takeCPUsForContainers(containersQuantityMap map[string]map[string]int,
-	availableCPUs machine.CPUSet) (map[string]map[string]machine.CPUSet, machine.CPUSet, error) {
+	availableCPUs machine.CPUSet,
+) (map[string]map[string]machine.CPUSet, machine.CPUSet, error) {
 	containersCPUSet := make(map[string]map[string]machine.CPUSet)
 	clonedAvailableCPUs := availableCPUs.Clone()
 

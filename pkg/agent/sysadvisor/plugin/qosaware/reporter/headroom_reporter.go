@@ -55,7 +55,8 @@ type headroomReporterImpl struct {
 
 // NewHeadroomReporter returns a wrapper of headroom reporter plugins as headroom reporter
 func NewHeadroomReporter(emitter metrics.MetricEmitter, metaServer *metaserver.MetaServer,
-	conf *config.Configuration, headroomAdvisor hmadvisor.ResourceAdvisor) (Reporter, error) {
+	conf *config.Configuration, headroomAdvisor hmadvisor.ResourceAdvisor,
+) (Reporter, error) {
 	plugin, err := newHeadroomReporterPlugin(emitter, metaServer, conf, headroomAdvisor)
 	if err != nil {
 		return nil, fmt.Errorf("[headroom-reporter] create headroom reporter failed: %s", err)
@@ -91,7 +92,8 @@ type headroomReporterPlugin struct {
 }
 
 func newHeadroomReporterPlugin(emitter metrics.MetricEmitter, metaServer *metaserver.MetaServer,
-	conf *config.Configuration, headroomAdvisor hmadvisor.ResourceAdvisor) (skeleton.GenericPlugin, error) {
+	conf *config.Configuration, headroomAdvisor hmadvisor.ResourceAdvisor,
+) (skeleton.GenericPlugin, error) {
 	var (
 		err     error
 		errList []error

@@ -44,7 +44,6 @@ func NewCPUSet(cpus ...int) CPUSet {
 func NewCPUSetUint64(cpus ...uint64) (CPUSet, error) {
 	cs := CPUSet{true, make(map[int]struct{})}
 	err := cs.AddUint64(cpus...)
-
 	if err != nil {
 		return cs, err
 	}
@@ -72,7 +71,6 @@ func (s *CPUSet) UnmarshalJSON(b []byte) error {
 	}
 
 	cs, err := Parse(string(b))
-
 	if err != nil {
 		return err
 	}

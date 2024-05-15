@@ -25,8 +25,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/pod"
 )
 
-type unsupportedCgroupIDManager struct {
-}
+type unsupportedCgroupIDManager struct{}
 
 // NewCgroupIDManager returns a CgroupIDManager
 func NewCgroupIDManager(_ pod.PodFetcher) CgroupIDManager {

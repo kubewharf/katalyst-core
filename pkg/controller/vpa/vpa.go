@@ -103,7 +103,8 @@ type VPAController struct {
 
 func NewVPAController(ctx context.Context, controlCtx *katalyst_base.GenericContext,
 	genericConf *generic.GenericConfiguration, _ *controller.GenericControllerConfiguration,
-	vpaConf *controller.VPAConfig) (*VPAController, error) {
+	vpaConf *controller.VPAConfig,
+) (*VPAController, error) {
 	podInformer := controlCtx.KubeInformerFactory.Core().V1().Pods()
 	vpaInformer := controlCtx.InternalInformerFactory.Autoscaling().V1alpha1().KatalystVerticalPodAutoscalers()
 	vpaRecInformer := controlCtx.InternalInformerFactory.Autoscaling().V1alpha1().VerticalPodAutoscalerRecommendations()
@@ -444,7 +445,6 @@ func (vc *VPAController) syncPerformance(namespace, name string, times map[strin
 			_ = vc.metricsEmitter.StoreInt64(timeSet, costs, metrics.MetricTypeNameRaw, tags...)
 		}
 	}
-
 }
 
 // maintainVPAName is mainly responsible to main vpa annotation in workload

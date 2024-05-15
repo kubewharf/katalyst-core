@@ -153,7 +153,6 @@ func ParseStringToUint64Pointer(s string) (*uint64, error) {
 		return nil, nil
 	} else {
 		v, err := strconv.ParseUint(s, 10, 64)
-
 		if err != nil {
 			return nil, err
 		}
@@ -361,4 +360,13 @@ func FormatMemoryQuantity(q float64) string {
 	quantity := resource.NewQuantity(value, resource.BinarySI)
 
 	return fmt.Sprintf("%v[%v]", q, quantity.String())
+}
+
+// DedupStringSlice return deduplicated string slice from original
+func DedupStringSlice(input []string) []string {
+	result := sets.NewString()
+	for _, v := range input {
+		result.Insert(v)
+	}
+	return result.UnsortedList()
 }

@@ -34,7 +34,8 @@ import (
 )
 
 func (p *DynamicPolicy) sharedCoresHintHandler(_ context.Context,
-	req *pluginapi.ResourceRequest) (*pluginapi.ResourceHintsResponse, error) {
+	req *pluginapi.ResourceRequest,
+) (*pluginapi.ResourceHintsResponse, error) {
 	if req == nil {
 		return nil, fmt.Errorf("got nil request")
 	}
@@ -46,12 +47,14 @@ func (p *DynamicPolicy) sharedCoresHintHandler(_ context.Context,
 }
 
 func (p *DynamicPolicy) reclaimedCoresHintHandler(ctx context.Context,
-	req *pluginapi.ResourceRequest) (*pluginapi.ResourceHintsResponse, error) {
+	req *pluginapi.ResourceRequest,
+) (*pluginapi.ResourceHintsResponse, error) {
 	return p.sharedCoresHintHandler(ctx, req)
 }
 
 func (p *DynamicPolicy) dedicatedCoresHintHandler(ctx context.Context,
-	req *pluginapi.ResourceRequest) (*pluginapi.ResourceHintsResponse, error) {
+	req *pluginapi.ResourceRequest,
+) (*pluginapi.ResourceHintsResponse, error) {
 	if req == nil {
 		return nil, fmt.Errorf("dedicatedCoresHintHandler got nil req")
 	}
@@ -65,7 +68,8 @@ func (p *DynamicPolicy) dedicatedCoresHintHandler(ctx context.Context,
 }
 
 func (p *DynamicPolicy) dedicatedCoresWithNUMABindingHintHandler(_ context.Context,
-	req *pluginapi.ResourceRequest) (*pluginapi.ResourceHintsResponse, error) {
+	req *pluginapi.ResourceRequest,
+) (*pluginapi.ResourceHintsResponse, error) {
 	// currently, we set cpuset of sidecar to the cpuset of its main container,
 	// so there is no numa preference here.
 	if req.ContainerType == pluginapi.ContainerType_SIDECAR {
@@ -134,7 +138,8 @@ func (p *DynamicPolicy) dedicatedCoresWithNUMABindingHintHandler(_ context.Conte
 }
 
 func (p *DynamicPolicy) dedicatedCoresWithoutNUMABindingHintHandler(_ context.Context,
-	_ *pluginapi.ResourceRequest) (*pluginapi.ResourceHintsResponse, error) {
+	_ *pluginapi.ResourceRequest,
+) (*pluginapi.ResourceHintsResponse, error) {
 	// todo: support dedicated_cores without NUMA binding
 	return nil, fmt.Errorf("not support dedicated_cores without NUMA binding")
 }
@@ -142,8 +147,8 @@ func (p *DynamicPolicy) dedicatedCoresWithoutNUMABindingHintHandler(_ context.Co
 // calculateHints is a helper function to calculate the topology hints
 // with the given container requests.
 func (p *DynamicPolicy) calculateHints(reqInt uint64, resourcesMachineState state.NUMANodeResourcesMap,
-	reqAnnotations map[string]string) (map[string]*pluginapi.ListOfTopologyHints, error) {
-
+	reqAnnotations map[string]string,
+) (map[string]*pluginapi.ListOfTopologyHints, error) {
 	machineState := resourcesMachineState[v1.ResourceMemory]
 
 	if len(machineState) == 0 {

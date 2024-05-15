@@ -33,7 +33,8 @@ import (
 
 func NewNilModelResultFetcher(fetcherName string, conf *config.Configuration, extraConf interface{},
 	emitterPool metricspool.MetricsEmitterPool, metaServer *metaserver.MetaServer,
-	metaCache metacache.MetaCache) (modelresultfetcher.ModelResultFetcher, error) {
+	metaCache metacache.MetaCache,
+) (modelresultfetcher.ModelResultFetcher, error) {
 	return nil, nil
 }
 

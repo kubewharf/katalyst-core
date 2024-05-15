@@ -52,7 +52,8 @@ const (
 func NewPercentileRecommender(DataProcessor processor.Processor, OomRecorder oom.Recorder) *PercentileRecommender {
 	return &PercentileRecommender{
 		DataProcessor: DataProcessor,
-		OomRecorder:   OomRecorder}
+		OomRecorder:   OomRecorder,
+	}
 }
 
 func (r *PercentileRecommender) Recommend(recommendation *recommendationtype.Recommendation) *errortypes.CustomError {
@@ -120,7 +121,7 @@ func (r *PercentileRecommender) getCpuTargetPercentileEstimationWithUsageBuffer(
 		return nil, err
 	}
 	klog.InfoS("got cpu recommended value from processor", "cpuRecommendedValue", cpuRecommendedValue)
-	//scale cpu resource based on usageBuffer
+	// scale cpu resource based on usageBuffer
 	cpuRecommendedValue = cpuRecommendedValue * (1 + resourceBufferPercentage)
 	klog.InfoS("scaled cpu recommended value for container", "container", taskKey.ContainerName, "resourceBuffer", resourceBufferPercentage, "cpuRecommendedValue", cpuRecommendedValue)
 	cpuQuantity := resource.NewMilliQuantity(int64(cpuRecommendedValue*1000), resource.DecimalSI)
@@ -134,7 +135,7 @@ func (r *PercentileRecommender) getMemTargetPercentileEstimationWithUsageBuffer(
 		return nil, err
 	}
 	klog.InfoS("got mem recommended value from processor", "memRecommendedValue", memRecommendedValue)
-	//scale mem resource based on usageBuffer
+	// scale mem resource based on usageBuffer
 	memRecommendedValue = memRecommendedValue * (1 + resourceBufferPercentage)
 	klog.InfoS("scaled mem recommended value for container", "container", taskKey.ContainerName, "resourceBuffer", resourceBufferPercentage, "memRecommendedValue", memRecommendedValue)
 	memQuantity := r.getMemQuantity(memRecommendedValue)

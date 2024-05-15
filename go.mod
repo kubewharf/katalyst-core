@@ -11,11 +11,12 @@ require (
 	github.com/evanphx/json-patch v5.6.0+incompatible
 	github.com/fsnotify/fsnotify v1.5.4
 	github.com/gogo/protobuf v1.3.2
+	github.com/golang/mock v1.6.0
 	github.com/golang/protobuf v1.5.2
 	github.com/google/cadvisor v0.44.2
 	github.com/google/uuid v1.3.0
 	github.com/klauspost/cpuid/v2 v2.2.6
-	github.com/kubewharf/katalyst-api v0.4.1-0.20240416065828-9edab1e2f1f1
+	github.com/kubewharf/katalyst-api v0.5.1-0.20240508015926-0f4045cf6899
 	github.com/montanaflynn/stats v0.7.1
 	github.com/opencontainers/runc v1.1.6
 	github.com/opencontainers/selinux v1.10.0

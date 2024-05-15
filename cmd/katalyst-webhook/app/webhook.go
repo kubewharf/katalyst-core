@@ -122,7 +122,8 @@ func NewWebhookInitializers() map[string]InitFunc {
 func startWebhooks(ctx context.Context, webhookCtx *katalystbase.GenericContext, mux *http.ServeMux,
 	genericConf *generic.GenericConfiguration,
 	webhookGenericConf *webhookconfig.GenericWebhookConfiguration,
-	webhookConf *webhookconfig.WebhooksConfiguration, webhooks map[string]InitFunc) error {
+	webhookConf *webhookconfig.WebhooksConfiguration, webhooks map[string]InitFunc,
+) error {
 	wrappers := make([]*webhookconsts.WebhookWrapper, 0)
 	for webhookName, initFn := range webhooks {
 		if !webhookCtx.IsEnabled(webhookName, webhookGenericConf.Webhooks) {

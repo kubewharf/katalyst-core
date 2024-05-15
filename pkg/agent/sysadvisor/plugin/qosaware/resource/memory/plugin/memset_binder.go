@@ -64,9 +64,7 @@ func (mb *memsetBinder) reclaimedContainersFilter(ci *types.ContainerInfo) bool 
 }
 
 func (mb *memsetBinder) Reconcile(status *types.MemoryPressureStatus) error {
-	var (
-		errList []error
-	)
+	var errList []error
 
 	allNUMAs := mb.metaServer.CPUDetails.NUMANodes()
 

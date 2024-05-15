@@ -55,12 +55,15 @@ func (_ DummyEvictionPlugin) Name() string { return fakePluginName }
 func (_ DummyEvictionPlugin) ThresholdMet(_ context.Context) (*pluginapi.ThresholdMetResponse, error) {
 	return nil, nil
 }
+
 func (_ DummyEvictionPlugin) GetTopEvictionPods(_ context.Context, _ *pluginapi.GetTopEvictionPodsRequest) (*pluginapi.GetTopEvictionPodsResponse, error) {
 	return nil, nil
 }
+
 func (_ DummyEvictionPlugin) GetEvictPods(_ context.Context, _ *pluginapi.GetEvictPodsRequest) (*pluginapi.GetEvictPodsResponse, error) {
 	return nil, nil
 }
+
 func (_ DummyEvictionPlugin) Start() {
 	return
 }

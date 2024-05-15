@@ -218,7 +218,8 @@ func deleteWithRetry(pod *v1.Pod, gracePeriod int64, timeoutDuration time.Durati
 
 // evict all killer implementations will perform evict actions.
 func evict(client kubernetes.Interface, recorder events.EventRecorder, emitter metrics.MetricEmitter, pod *v1.Pod,
-	gracePeriodSeconds int64, reason, plugin string, evictPod func(_ *v1.Pod, gracePeriod int64) error) error {
+	gracePeriodSeconds int64, reason, plugin string, evictPod func(_ *v1.Pod, gracePeriod int64) error,
+) error {
 	timeoutDuration := getWaitingPeriod(gracePeriodSeconds)
 	klog.Infof("[killer] evict pod %v/%v with graceful seconds %v", pod.Namespace, pod.Name, gracePeriodSeconds)
 

@@ -70,22 +70,24 @@ func TestServiceSinglePortSDManage(t *testing.T) {
 				Addresses: []v1.EndpointAddress{{
 					IP: u1.Hostname(),
 				}},
-				Ports: []v1.EndpointPort{{
-					Name:     "port-t",
-					Port:     int32(port1),
-					Protocol: v1.ProtocolTCP,
-				},
+				Ports: []v1.EndpointPort{
+					{
+						Name:     "port-t",
+						Port:     int32(port1),
+						Protocol: v1.ProtocolTCP,
+					},
 				},
 			},
 			{
 				Addresses: []v1.EndpointAddress{{
 					IP: u2.Hostname(),
 				}},
-				Ports: []v1.EndpointPort{{
-					Name:     "port-t",
-					Port:     int32(port2),
-					Protocol: v1.ProtocolTCP,
-				},
+				Ports: []v1.EndpointPort{
+					{
+						Name:     "port-t",
+						Port:     int32(port2),
+						Protocol: v1.ProtocolTCP,
+					},
 				},
 			},
 		},
@@ -114,6 +116,7 @@ func TestServiceSinglePortSDManage(t *testing.T) {
 	assert.NoError(t, err)
 	assert.ElementsMatch(t, []string{
 		fmt.Sprintf("[%v]:%v", u1.Hostname(), port1),
-		fmt.Sprintf("[%v]:%v", u2.Hostname(), port2)},
+		fmt.Sprintf("[%v]:%v", u2.Hostname(), port2),
+	},
 		endpoints)
 }

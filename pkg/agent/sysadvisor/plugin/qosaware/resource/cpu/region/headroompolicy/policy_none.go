@@ -29,7 +29,8 @@ type PolicyNone struct{}
 
 func NewPolicyNone(_ string, _ types.QoSRegionType, _ string,
 	_ *config.Configuration, _ interface{}, _ metacache.MetaReader,
-	_ *metaserver.MetaServer, _ metrics.MetricEmitter) HeadroomPolicy {
+	_ *metaserver.MetaServer, _ metrics.MetricEmitter,
+) HeadroomPolicy {
 	return &PolicyNone{}
 }
 

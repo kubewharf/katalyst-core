@@ -58,20 +58,21 @@ func TestProcessor_Register(t *testing.T) {
 		},
 		{
 			name: "case1",
-			processConfig: &processortypes.ProcessConfig{ProcessKey: processortypes.ProcessKey{
-				ResourceRecommendNamespacedName: types.NamespacedName{
-					Namespace: "testRegisterNamespace1",
-					Name:      "testRegisterName1",
+			processConfig: &processortypes.ProcessConfig{
+				ProcessKey: processortypes.ProcessKey{
+					ResourceRecommendNamespacedName: types.NamespacedName{
+						Namespace: "testRegisterNamespace1",
+						Name:      "testRegisterName1",
+					},
+					Metric: &datasourcetypes.Metric{
+						Namespace:     "testRegister",
+						Kind:          "deployment",
+						APIVersion:    "v1",
+						WorkloadName:  "testRegister",
+						ContainerName: "testRegister",
+						Resource:      "cpu",
+					},
 				},
-				Metric: &datasourcetypes.Metric{
-					Namespace:     "testRegister",
-					Kind:          "deployment",
-					APIVersion:    "v1",
-					WorkloadName:  "testRegister",
-					ContainerName: "testRegister",
-					Resource:      "cpu",
-				},
-			},
 			},
 			wantCErr: nil,
 		},
@@ -100,7 +101,6 @@ func TestProcessor_Register(t *testing.T) {
 				t.Errorf("Register() failed, task not store")
 				return
 			}
-
 		})
 	}
 }

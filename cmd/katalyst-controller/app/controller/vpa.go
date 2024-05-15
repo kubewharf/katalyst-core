@@ -31,7 +31,8 @@ const (
 )
 
 func StartVPAController(ctx context.Context, controlCtx *katalyst.GenericContext,
-	conf *config.Configuration, _ interface{}, _ string) (bool, error) {
+	conf *config.Configuration, _ interface{}, _ string,
+) (bool, error) {
 	r, err := vpa.NewResourceRecommendController(ctx, controlCtx,
 		conf.GenericConfiguration,
 		conf.GenericControllerConfiguration,

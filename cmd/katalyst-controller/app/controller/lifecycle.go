@@ -32,7 +32,8 @@ const (
 )
 
 func StartLifeCycleController(ctx context.Context, controlCtx *katalystbase.GenericContext,
-	conf *config.Configuration, _ interface{}, _ string) (bool, error) {
+	conf *config.Configuration, _ interface{}, _ string,
+) (bool, error) {
 	var (
 		cnrLifecycle *lifecycle.CNRLifecycle
 		cncLifecycle *lifecycle.CNCLifecycle

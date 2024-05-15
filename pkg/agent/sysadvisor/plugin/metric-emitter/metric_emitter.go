@@ -47,7 +47,8 @@ type CustomMetricEmitter struct {
 }
 
 func NewCustomMetricEmitter(pluginName string, conf *config.Configuration, extraConf interface{}, emitterPool metricspool.MetricsEmitterPool,
-	metaServer *metaserver.MetaServer, metaCache metacache.MetaCache) (plugin.SysAdvisorPlugin, error) {
+	metaServer *metaserver.MetaServer, metaCache metacache.MetaCache,
+) (plugin.SysAdvisorPlugin, error) {
 	metricEmitter := emitterPool.GetDefaultMetricsEmitter().WithTags("custom-metric")
 
 	var syncers []syncer.CustomMetricSyncer

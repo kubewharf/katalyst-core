@@ -25,7 +25,9 @@ import (
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/options/sysadvisor/inference"
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/options/sysadvisor/metacache"
 	metricemitter "github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/options/sysadvisor/metric-emitter"
+	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/options/sysadvisor/overcommit"
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/options/sysadvisor/qosaware"
+	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/sysadvisor"
 )
 
@@ -38,7 +40,12 @@ type GenericSysAdvisorOptions struct {
 // NewGenericSysAdvisorOptions creates a new Options with a default config.
 func NewGenericSysAdvisorOptions() *GenericSysAdvisorOptions {
 	return &GenericSysAdvisorOptions{
-		SysAdvisorPlugins:  []string{"*"},
+		SysAdvisorPlugins: []string{
+			types.AdvisorPluginNameQoSAware,
+			types.AdvisorPluginNameMetaCache,
+			types.AdvisorPluginNameMetricEmitter,
+			types.AdvisorPluginNameInference,
+		},
 		StateFileDirectory: "/var/lib/katalyst/sys_advisor/",
 	}
 }
@@ -75,15 +82,17 @@ type SysAdvisorPluginsOptions struct {
 	*metacache.MetaCachePluginOptions
 	*metricemitter.MetricEmitterPluginOptions
 	*inference.InferencePluginOptions
+	*overcommit.OvercommitAwarePluginOptions
 }
 
 // NewSysAdvisorPluginsOptions creates a new Options with a default config.
 func NewSysAdvisorPluginsOptions() *SysAdvisorPluginsOptions {
 	return &SysAdvisorPluginsOptions{
-		QoSAwarePluginOptions:      qosaware.NewQoSAwarePluginOptions(),
-		MetaCachePluginOptions:     metacache.NewMetaCachePluginOptions(),
-		MetricEmitterPluginOptions: metricemitter.NewMetricEmitterPluginOptions(),
-		InferencePluginOptions:     inference.NewInferencePluginOptions(),
+		QoSAwarePluginOptions:        qosaware.NewQoSAwarePluginOptions(),
+		MetaCachePluginOptions:       metacache.NewMetaCachePluginOptions(),
+		MetricEmitterPluginOptions:   metricemitter.NewMetricEmitterPluginOptions(),
+		InferencePluginOptions:       inference.NewInferencePluginOptions(),
+		OvercommitAwarePluginOptions: overcommit.NewOvercommitAwarePluginOptions(),
 	}
 }
 
@@ -93,6 +102,7 @@ func (o *SysAdvisorPluginsOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 	o.MetaCachePluginOptions.AddFlags(fss)
 	o.MetricEmitterPluginOptions.AddFlags(fss)
 	o.InferencePluginOptions.AddFlags(fss)
+	o.OvercommitAwarePluginOptions.AddFlags(fss)
 }
 
 // ApplyTo fills up config with options
@@ -102,6 +112,7 @@ func (o *SysAdvisorPluginsOptions) ApplyTo(c *sysadvisor.SysAdvisorPluginsConfig
 	errList = append(errList, o.MetaCachePluginOptions.ApplyTo(c.MetaCachePluginConfiguration))
 	errList = append(errList, o.MetricEmitterPluginOptions.ApplyTo(c.MetricEmitterPluginConfiguration))
 	errList = append(errList, o.InferencePluginOptions.ApplyTo(c.InferencePluginConfiguration))
+	errList = append(errList, o.OvercommitAwarePluginOptions.ApplyTo(c.OvercommitAwarePluginConfiguration))
 	return errors.NewAggregate(errList)
 }
 

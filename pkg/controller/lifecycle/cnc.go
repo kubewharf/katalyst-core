@@ -65,7 +65,7 @@ type CNCLifecycle struct {
 	cncListerSynced  cache.InformerSynced
 	cncLister        configlisters.CustomNodeConfigLister
 
-	//queue for node
+	// queue for node
 	syncQueue workqueue.RateLimitingInterface
 
 	// metricsEmitter for emit metrics
@@ -79,8 +79,8 @@ func NewCNCLifecycle(ctx context.Context,
 	client *client.GenericClientSet,
 	nodeInformer coreinformers.NodeInformer,
 	cncInformer configinformers.CustomNodeConfigInformer,
-	metricsEmitter metrics.MetricEmitter) (*CNCLifecycle, error) {
-
+	metricsEmitter metrics.MetricEmitter,
+) (*CNCLifecycle, error) {
 	cncLifecycle := &CNCLifecycle{
 		ctx:    ctx,
 		client: client,

@@ -306,7 +306,8 @@ func (c *CustomNodeConfigController) syncCustomNodeConfig(key string) error {
 }
 
 func (c *CustomNodeConfigController) patchCNC(cnc *configapi.CustomNodeConfig,
-	setFunc func(*configapi.CustomNodeConfig)) (*configapi.CustomNodeConfig, error) {
+	setFunc func(*configapi.CustomNodeConfig),
+) (*configapi.CustomNodeConfig, error) {
 	cncCopy := cnc.DeepCopy()
 	setFunc(cncCopy)
 	if apiequality.Semantic.DeepEqual(cnc, cncCopy) {

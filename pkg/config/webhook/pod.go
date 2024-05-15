@@ -16,8 +16,7 @@ limitations under the License.
 
 package webhook
 
-type PodConfig struct {
-}
+type PodConfig struct{}
 
 func NewPodConfig() *PodConfig {
 	return &PodConfig{}

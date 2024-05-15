@@ -50,7 +50,8 @@ type serviceSinglePortSDManager struct {
 }
 
 func NewServiceSinglePortSDManager(ctx context.Context, agentCtx *katalystbase.GenericContext,
-	conf *generic.ServiceDiscoveryConf) (ServiceDiscoveryManager, error) {
+	conf *generic.ServiceDiscoveryConf,
+) (ServiceDiscoveryManager, error) {
 	klog.Infof("%v sd manager enabled with conf: %+v", ServiceDiscoveryServiceSinglePort, conf.ServiceSinglePortSDConf)
 	svcInformer := agentCtx.KubeInformerFactory.Core().V1().Services()
 	epInformer := agentCtx.KubeInformerFactory.Core().V1().Endpoints()

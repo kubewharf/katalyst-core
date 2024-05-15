@@ -34,14 +34,12 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
-var (
-	vmstatContentFormat = `
+var vmstatContentFormat = `
 nr_free_pages %d
 nr_zone_inactive_anon 166901
 nr_zone_active_anon 51417730
 nr_zone_inactive_file 55674772
 `
-)
 
 func TestGetNumaNodeFreeMemMB(t *testing.T) {
 	t.Parallel()
@@ -492,24 +490,24 @@ func TestMovePagesForContainer(t *testing.T) {
 
 func generateNodeVMStatFile(t *testing.T, dir string, nodeId int, content string) {
 	nodeDir := filepath.Join(dir, fmt.Sprintf("node%d", nodeId))
-	err := os.MkdirAll(nodeDir, 0777)
+	err := os.MkdirAll(nodeDir, 0o777)
 	require.NoError(t, err)
 
 	vmStatFile := filepath.Join(nodeDir, "vmstat")
 
-	err = os.WriteFile(vmStatFile, []byte(content), 0777)
+	err = os.WriteFile(vmStatFile, []byte(content), 0o777)
 	require.NoError(t, err)
 	return
 }
 
 func generatePidSmapsFile(t *testing.T, dir string, pid int, content string) {
 	nodeDir := filepath.Join(dir, fmt.Sprintf("%d", pid))
-	err := os.MkdirAll(nodeDir, 0777)
+	err := os.MkdirAll(nodeDir, 0o777)
 	require.NoError(t, err)
 
 	vmStatFile := filepath.Join(nodeDir, "smaps")
 
-	err = os.WriteFile(vmStatFile, []byte(content), 0777)
+	err = os.WriteFile(vmStatFile, []byte(content), 0o777)
 	require.NoError(t, err)
 	return
 }

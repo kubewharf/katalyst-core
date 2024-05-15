@@ -67,7 +67,8 @@ type resourceAdvisorWrapper struct {
 // NewResourceAdvisor returns a resource advisor wrapper instance, initializing all required
 // sub resource advisor according to config
 func NewResourceAdvisor(conf *config.Configuration, extraConf interface{}, metaCache metacache.MetaCache,
-	metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter) (ResourceAdvisor, error) {
+	metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter,
+) (ResourceAdvisor, error) {
 	resourceAdvisor := resourceAdvisorWrapper{
 		subAdvisorsToRun: make(map[types.QoSResourceName]SubResourceAdvisor),
 	}
@@ -86,7 +87,8 @@ func NewResourceAdvisor(conf *config.Configuration, extraConf interface{}, metaC
 
 // NewSubResourceAdvisor returns a corresponding advisor according to resource name
 func NewSubResourceAdvisor(resourceName types.QoSResourceName, conf *config.Configuration, extraConf interface{},
-	metaCache metacache.MetaCache, metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter) (SubResourceAdvisor, error) {
+	metaCache metacache.MetaCache, metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter,
+) (SubResourceAdvisor, error) {
 	switch resourceName {
 	case types.QoSResourceCPU:
 		return cpu.NewCPUResourceAdvisor(conf, extraConf, metaCache, metaServer, emitter), nil

@@ -23,8 +23,7 @@ import (
 )
 
 // VPAOptions holds the configurations for VPA webhook.
-type VPAOptions struct {
-}
+type VPAOptions struct{}
 
 // NewVPAOptions creates a new Options with a default config.
 func NewVPAOptions() *VPAOptions {
@@ -33,7 +32,6 @@ func NewVPAOptions() *VPAOptions {
 
 // AddFlags adds flags  to the specified FlagSet.
 func (o *VPAOptions) AddFlags(fss *cliflag.NamedFlagSets) {
-
 }
 
 // ApplyTo fills up config with options

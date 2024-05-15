@@ -94,7 +94,8 @@ func GetWorkloadForSPD(spd *apiworkload.ServiceProfileDescriptor, lister cache.G
 // GetSPDForWorkload is used to get spd that should manage the given workload
 // the preference is annotation ---> indexer --> lister
 func GetSPDForWorkload(workload *unstructured.Unstructured, spdIndexer cache.Indexer,
-	spdLister workloadlister.ServiceProfileDescriptorLister) (*apiworkload.ServiceProfileDescriptor, error) {
+	spdLister workloadlister.ServiceProfileDescriptorLister,
+) (*apiworkload.ServiceProfileDescriptor, error) {
 	if !WorkloadSPDEnabled(workload) {
 		return nil, fmt.Errorf("workload not enable spd")
 	}
@@ -129,7 +130,8 @@ func GetSPDForWorkload(workload *unstructured.Unstructured, spdIndexer cache.Ind
 // we'll try to find by annotation for pod, and then go through workload if not exist,
 // and we will find it recursively since we don't know in which level the owner will be.
 func GetSPDForPod(pod *core.Pod, spdIndexer cache.Indexer, workloadListerMap map[schema.GroupVersionKind]cache.GenericLister,
-	spdLister workloadlister.ServiceProfileDescriptorLister, checkSPDMatchWithPod bool) (*apiworkload.ServiceProfileDescriptor, error) {
+	spdLister workloadlister.ServiceProfileDescriptorLister, checkSPDMatchWithPod bool,
+) (*apiworkload.ServiceProfileDescriptor, error) {
 	// different with vpa, we will store spd name in pod name, so we will check whether it's still valid
 	if spdName, ok := pod.GetAnnotations()[apiconsts.PodAnnotationSPDNameKey]; ok {
 		spd, err := spdLister.ServiceProfileDescriptors(pod.GetNamespace()).Get(spdName)
@@ -179,7 +181,8 @@ func GetSPDForPod(pod *core.Pod, spdIndexer cache.Indexer, workloadListerMap map
 // GetPodListForSPD is used to get pods that should be managed by the given spd,
 // we'll always get through workload
 func GetPodListForSPD(spd *apiworkload.ServiceProfileDescriptor, podIndexer cache.Indexer, podLabelIndexKeyList []string,
-	workloadListerMap map[schema.GroupVersionResource]cache.GenericLister, podLister corelisters.PodLister) ([]*core.Pod, error) {
+	workloadListerMap map[schema.GroupVersionResource]cache.GenericLister, podLister corelisters.PodLister,
+) ([]*core.Pod, error) {
 	gvr, _ := meta.UnsafeGuessKindToResource(schema.FromAPIVersionAndKind(spd.Spec.TargetRef.APIVersion, spd.Spec.TargetRef.Kind))
 	workloadLister, ok := workloadListerMap[gvr]
 	if !ok {
@@ -229,7 +232,8 @@ func CheckSPDMatchWithPod(pod *core.Pod, spd *apiworkload.ServiceProfileDescript
 */
 
 func InsertSPDBusinessIndicatorSpec(spec *apiworkload.ServiceProfileDescriptorSpec,
-	serviceBusinessIndicatorSpec *apiworkload.ServiceBusinessIndicatorSpec) {
+	serviceBusinessIndicatorSpec *apiworkload.ServiceBusinessIndicatorSpec,
+) {
 	if spec == nil || serviceBusinessIndicatorSpec == nil {
 		return
 	}
@@ -248,7 +252,8 @@ func InsertSPDBusinessIndicatorSpec(spec *apiworkload.ServiceProfileDescriptorSp
 }
 
 func InsertSPDSystemIndicatorSpec(spec *apiworkload.ServiceProfileDescriptorSpec,
-	serviceSystemIndicatorSpec *apiworkload.ServiceSystemIndicatorSpec) {
+	serviceSystemIndicatorSpec *apiworkload.ServiceSystemIndicatorSpec,
+) {
 	if spec == nil || serviceSystemIndicatorSpec == nil {
 		return
 	}
@@ -267,7 +272,8 @@ func InsertSPDSystemIndicatorSpec(spec *apiworkload.ServiceProfileDescriptorSpec
 }
 
 func InsertSPDExtendedIndicatorSpec(spec *apiworkload.ServiceProfileDescriptorSpec,
-	serviceExtendedIndicatorSpec *apiworkload.ServiceExtendedIndicatorSpec) {
+	serviceExtendedIndicatorSpec *apiworkload.ServiceExtendedIndicatorSpec,
+) {
 	if spec == nil || serviceExtendedIndicatorSpec == nil {
 		return
 	}
@@ -287,7 +293,8 @@ func InsertSPDExtendedIndicatorSpec(spec *apiworkload.ServiceProfileDescriptorSp
 }
 
 func InsertSPDBusinessIndicatorStatus(status *apiworkload.ServiceProfileDescriptorStatus,
-	serviceBusinessIndicatorStatus *apiworkload.ServiceBusinessIndicatorStatus) {
+	serviceBusinessIndicatorStatus *apiworkload.ServiceBusinessIndicatorStatus,
+) {
 	if status == nil || serviceBusinessIndicatorStatus == nil {
 		return
 	}

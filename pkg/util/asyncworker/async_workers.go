@@ -59,7 +59,7 @@ func (aws *AsyncWorkers) AddWork(workName string, work *Work, policy DuplicateWo
 			"AsyncWorkers", aws.name, "workName", workName)
 		status = &workStatus{}
 		aws.workStatuses[workName] = status
-	} else if policy == DuplicateWorkPolicyDiscard {
+	} else if status.IsWorking() && policy == DuplicateWorkPolicyDiscard {
 		general.InfoS("work %v already exists, discard new work", workName)
 		return nil
 	}
@@ -267,8 +267,8 @@ func (aws *AsyncWorkers) WorkExists(workName string) bool {
 	aws.workLock.Lock()
 	defer aws.workLock.Unlock()
 
-	_, hasRunningWork := aws.workStatuses[workName]
-	if hasRunningWork {
+	status, hasRunningWork := aws.workStatuses[workName]
+	if hasRunningWork && status.IsWorking() {
 		return true
 	}
 

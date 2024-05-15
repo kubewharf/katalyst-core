@@ -45,7 +45,8 @@ type PolicyNUMAAware struct {
 }
 
 func NewPolicyNUMAAware(conf *config.Configuration, _ interface{}, metaReader metacache.MetaReader,
-	metaServer *metaserver.MetaServer, _ metrics.MetricEmitter) HeadroomPolicy {
+	metaServer *metaserver.MetaServer, _ metrics.MetricEmitter,
+) HeadroomPolicy {
 	p := PolicyNUMAAware{
 		PolicyBase:   NewPolicyBase(metaReader, metaServer),
 		updateStatus: types.PolicyUpdateFailed,

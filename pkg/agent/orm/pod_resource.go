@@ -30,9 +30,11 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/orm/checkpoint"
 )
 
-type ResourceAllocation map[string]*pluginapi.ResourceAllocationInfo // Keyed by resourceName.
-type ContainerResources map[string]ResourceAllocation                // Keyed by containerName.
-type PodResources map[string]ContainerResources                      // Keyed by podUID
+type (
+	ResourceAllocation map[string]*pluginapi.ResourceAllocationInfo // Keyed by resourceName.
+	ContainerResources map[string]ResourceAllocation                // Keyed by containerName.
+	PodResources       map[string]ContainerResources                // Keyed by podUID
+)
 
 type podResourcesChk struct {
 	sync.RWMutex
@@ -204,7 +206,8 @@ func (pres *podResourcesChk) toCheckpointData() []checkpoint.PodResourcesEntry {
 					PodUID:         podUID,
 					ContainerName:  conName,
 					ResourceName:   resourceName,
-					AllocationInfo: string(allocRespBytes)})
+					AllocationInfo: string(allocRespBytes),
+				})
 			}
 		}
 	}

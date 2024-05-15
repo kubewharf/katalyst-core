@@ -67,6 +67,7 @@ func (d DummyKatalystCustomConfigTargetAccessor) Enqueue(_ *unstructured.Unstruc
 func (d DummyKatalystCustomConfigTargetAccessor) List(_ labels.Selector) ([]*unstructured.Unstructured, error) {
 	return nil, nil
 }
+
 func (d DummyKatalystCustomConfigTargetAccessor) Get(_, _ string) (*unstructured.Unstructured, error) {
 	return nil, nil
 }

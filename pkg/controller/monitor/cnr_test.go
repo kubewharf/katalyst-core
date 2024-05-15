@@ -38,18 +38,16 @@ import (
 func TestCNRMonitor_Run(t *testing.T) {
 	t.Parallel()
 
-	var (
-		oldPod = &corev1.Pod{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      "pod1",
-				Namespace: "default",
-				UID:       "uid1",
-			},
-			Spec: corev1.PodSpec{
-				NodeName: "",
-			},
-		}
-	)
+	oldPod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "pod1",
+			Namespace: "default",
+			UID:       "uid1",
+		},
+		Spec: corev1.PodSpec{
+			NodeName: "",
+		},
+	}
 
 	type fields struct {
 		pod *corev1.Pod

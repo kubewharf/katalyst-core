@@ -82,7 +82,8 @@ type patchRecord struct {
 }
 
 func PatchUpdateResourceRecommend(client k8sclient.Client, namespaceName k8stypes.NamespacedName,
-	resourceRecommend *v1alpha1.ResourceRecommend) error {
+	resourceRecommend *v1alpha1.ResourceRecommend,
+) error {
 	obj := &v1alpha1.ResourceRecommend{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      namespaceName.Name,

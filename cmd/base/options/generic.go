@@ -61,8 +61,10 @@ func NewGenericOptions() *GenericOptions {
 		metricsOptions:            NewMetricsOptions(),
 		logsOptions:               NewLogsOptions(),
 		authOptions:               NewAuthOptions(),
-		GenericEndpointHandleChains: []string{process.HTTPChainCredential, process.HTTPChainRateLimiter,
-			process.HTTPChainMonitor},
+		GenericEndpointHandleChains: []string{
+			process.HTTPChainCredential, process.HTTPChainRateLimiter,
+			process.HTTPChainMonitor,
+		},
 	}
 }
 

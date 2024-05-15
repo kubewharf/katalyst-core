@@ -35,7 +35,8 @@ type DummyMetricQuery struct{}
 var _ MetricProvider = DummyMetricQuery{}
 
 func (d DummyMetricQuery) GetMetricByName(_ context.Context, _ types.NamespacedName,
-	_ provider.CustomMetricInfo, _ labels.Selector) (*custom_metrics.MetricValue, error) {
+	_ provider.CustomMetricInfo, _ labels.Selector,
+) (*custom_metrics.MetricValue, error) {
 	return &custom_metrics.MetricValue{
 		DescribedObject: custom_metrics.ObjectReference{
 			Kind:      "pod",
@@ -51,7 +52,8 @@ func (d DummyMetricQuery) GetMetricByName(_ context.Context, _ types.NamespacedN
 }
 
 func (d DummyMetricQuery) GetMetricBySelector(_ context.Context, _ string, _ labels.Selector,
-	_ provider.CustomMetricInfo, _ labels.Selector) (*custom_metrics.MetricValueList, error) {
+	_ provider.CustomMetricInfo, _ labels.Selector,
+) (*custom_metrics.MetricValueList, error) {
 	return &custom_metrics.MetricValueList{
 		Items: []custom_metrics.MetricValue{
 			{
@@ -81,7 +83,8 @@ func (d DummyMetricQuery) ListAllMetrics() []provider.CustomMetricInfo {
 }
 
 func (d DummyMetricQuery) GetExternalMetric(_ context.Context, _ string, _ labels.Selector,
-	_ provider.ExternalMetricInfo) (*external_metrics.ExternalMetricValueList, error) {
+	_ provider.ExternalMetricInfo,
+) (*external_metrics.ExternalMetricValueList, error) {
 	return &external_metrics.ExternalMetricValueList{
 		Items: []external_metrics.ExternalMetricValue{
 			{

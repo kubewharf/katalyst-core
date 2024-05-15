@@ -183,5 +183,4 @@ func (wp *WebhookPod) Mutate(ctx context.Context, obj metav1.Object) (bool, erro
 
 	klog.Infof("pod %s was mutated ", pod.Name)
 	return true, nil
-
 }

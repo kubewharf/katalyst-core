@@ -46,7 +46,7 @@ type KatalystCustomConfigTargetHandler struct {
 	syncedFunc []cache.InformerSynced
 
 	// map gvr to kcc key set; actually, it's invalid to hold more than one kcc for
-	//one individual gvr, and should be alerted
+	// one individual gvr, and should be alerted
 	gvrKatalystCustomConfigMap map[metav1.GroupVersionResource]sets.String
 	// katalystCustomConfigGVRMap map kcc key to gvr; since the gvc in kcc may be unexpected changed
 	// by cases, store in cache to make sure we can still find ite original mapping
@@ -59,7 +59,8 @@ type KatalystCustomConfigTargetHandler struct {
 }
 
 func NewKatalystCustomConfigTargetHandler(ctx context.Context, client *kcclient.GenericClientSet, kccConfig *controller.KCCConfig,
-	katalystCustomConfigInformer configinformers.KatalystCustomConfigInformer) *KatalystCustomConfigTargetHandler {
+	katalystCustomConfigInformer configinformers.KatalystCustomConfigInformer,
+) *KatalystCustomConfigTargetHandler {
 	k := &KatalystCustomConfigTargetHandler{
 		ctx:       ctx,
 		client:    client,

@@ -133,5 +133,4 @@ func getDeviceType(deviceName, rotationalFilePath string) (DeviceType, error) {
 	default:
 		return Unknown, fmt.Errorf("unknown rotational status")
 	}
-
 }

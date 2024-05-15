@@ -45,15 +45,13 @@ func NewHeadroomReporterConfiguration() *HeadroomReporterConfiguration {
 	}
 }
 
-type CPUHeadroomManagerConfiguration struct {
-}
+type CPUHeadroomManagerConfiguration struct{}
 
 func NewCPUHeadroomManagerConfiguration() *CPUHeadroomManagerConfiguration {
 	return &CPUHeadroomManagerConfiguration{}
 }
 
-type MemoryHeadroomManagerConfiguration struct {
-}
+type MemoryHeadroomManagerConfiguration struct{}
 
 func NewMemoryHeadroomManagerConfiguration() *MemoryHeadroomManagerConfiguration {
 	return &MemoryHeadroomManagerConfiguration{}

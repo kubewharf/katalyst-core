@@ -53,7 +53,8 @@ type cpuServer struct {
 }
 
 func NewCPUServer(recvCh chan types.InternalCPUCalculationResult, sendCh chan types.TriggerInfo, conf *config.Configuration,
-	metaCache metacache.MetaCache, metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter) (*cpuServer, error) {
+	metaCache metacache.MetaCache, metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter,
+) (*cpuServer, error) {
 	cs := &cpuServer{}
 	cs.baseServer = newBaseServer(cpuServerName, conf, recvCh, sendCh, metaCache, metaServer, emitter, cs)
 	cs.advisorSocketPath = conf.CPUAdvisorSocketAbsPath
@@ -319,7 +320,8 @@ func (cs *cpuServer) assemblePoolEntries(advisorResp *types.InternalCPUCalculati
 //
 // todo this logic should be refined to make sure we will assemble entries from	internalCalculationInfo rather than walking through containerInfo
 func (cs *cpuServer) assemblePodEntries(calculationEntriesMap map[string]*cpuadvisor.CalculationEntries,
-	bs blockSet, podUID string, ci *types.ContainerInfo) error {
+	bs blockSet, podUID string, ci *types.ContainerInfo,
+) error {
 	calculationInfo := &cpuadvisor.CalculationInfo{
 		OwnerPoolName:             ci.OwnerPoolName,
 		CalculationResultsByNumas: nil,

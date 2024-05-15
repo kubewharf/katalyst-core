@@ -32,7 +32,7 @@ func NewMemoryGuardOptions() *MemoryGuardOptions {
 	}
 }
 
-// AddFlags parses the flags to CPUPressureEvictionOptions
+// AddFlags parses the flags to MemoryGuardOptions
 func (o *MemoryGuardOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 	fs := fss.FlagSet("memory-guard")
 

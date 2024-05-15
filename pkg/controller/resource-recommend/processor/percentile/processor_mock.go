@@ -32,14 +32,17 @@ var mockNamespacedName1 = types.NamespacedName{
 	Namespace: "testNamespace1",
 	Name:      "testName1",
 }
+
 var mockNamespacedName2 = types.NamespacedName{
 	Namespace: "testNamespace2",
 	Name:      "testName2",
 }
+
 var notExistNamespacedName = types.NamespacedName{
 	Namespace: "notExistNamespace",
 	Name:      "notExistName",
 }
+
 var mockMetric1 = datasourcetypes.Metric{
 	Namespace:     "testNamespace1",
 	Kind:          "deployment",
@@ -48,6 +51,7 @@ var mockMetric1 = datasourcetypes.Metric{
 	ContainerName: "testContainer1",
 	Resource:      "cpu",
 }
+
 var emptyTaskMetric = datasourcetypes.Metric{
 	Namespace:     "testNamespace1",
 	Kind:          "deployment",
@@ -56,6 +60,7 @@ var emptyTaskMetric = datasourcetypes.Metric{
 	ContainerName: "testContainer1",
 	Resource:      "memory",
 }
+
 var notExistTaskIDMetric = datasourcetypes.Metric{
 	Namespace:     "testNamespace1",
 	Kind:          "deployment",
@@ -64,6 +69,7 @@ var notExistTaskIDMetric = datasourcetypes.Metric{
 	ContainerName: "testContainer123",
 	Resource:      "cpu",
 }
+
 var valueTypeIllegalMetric = datasourcetypes.Metric{
 	Namespace:     "testNamespace1",
 	Kind:          "deployment",
@@ -72,6 +78,7 @@ var valueTypeIllegalMetric = datasourcetypes.Metric{
 	ContainerName: "testContainer123",
 	Resource:      "memory",
 }
+
 var notExistMetric = datasourcetypes.Metric{
 	Namespace:     "testNamespace1",
 	Kind:          "deployment",
@@ -80,26 +87,35 @@ var notExistMetric = datasourcetypes.Metric{
 	ContainerName: "testContainer876",
 	Resource:      "memory",
 }
-var mockProcessKey1 = processortypes.ProcessKey{ResourceRecommendNamespacedName: mockNamespacedName1, Metric: &mockMetric1}
-var emptyTaskProcessorKey = processortypes.ProcessKey{ResourceRecommendNamespacedName: mockNamespacedName1, Metric: &emptyTaskMetric}
-var metricIsNilProcessorKey = processortypes.ProcessKey{ResourceRecommendNamespacedName: mockNamespacedName1, Metric: nil}
-var notExistNamespacedNameProcessorKey = processortypes.ProcessKey{ResourceRecommendNamespacedName: notExistNamespacedName, Metric: &notExistTaskIDMetric}
-var notExistMetricProcessorKey = processortypes.ProcessKey{ResourceRecommendNamespacedName: mockNamespacedName1, Metric: &notExistMetric}
-var notFoundTaskProcessorKey = processortypes.ProcessKey{ResourceRecommendNamespacedName: mockNamespacedName2, Metric: &notExistTaskIDMetric}
-var valueTypeIllegalProcessorKey = processortypes.ProcessKey{ResourceRecommendNamespacedName: mockNamespacedName2, Metric: &valueTypeIllegalMetric}
 
-var mockProcessConfig1 = processortypes.ProcessConfig{ProcessKey: mockProcessKey1}
-var emptyProcessConfig = processortypes.ProcessConfig{ProcessKey: emptyTaskProcessorKey}
-var valueTypeIllegalProcessConfig = processortypes.ProcessConfig{ProcessKey: valueTypeIllegalProcessorKey}
+var (
+	mockProcessKey1                    = processortypes.ProcessKey{ResourceRecommendNamespacedName: mockNamespacedName1, Metric: &mockMetric1}
+	emptyTaskProcessorKey              = processortypes.ProcessKey{ResourceRecommendNamespacedName: mockNamespacedName1, Metric: &emptyTaskMetric}
+	metricIsNilProcessorKey            = processortypes.ProcessKey{ResourceRecommendNamespacedName: mockNamespacedName1, Metric: nil}
+	notExistNamespacedNameProcessorKey = processortypes.ProcessKey{ResourceRecommendNamespacedName: notExistNamespacedName, Metric: &notExistTaskIDMetric}
+	notExistMetricProcessorKey         = processortypes.ProcessKey{ResourceRecommendNamespacedName: mockNamespacedName1, Metric: &notExistMetric}
+	notFoundTaskProcessorKey           = processortypes.ProcessKey{ResourceRecommendNamespacedName: mockNamespacedName2, Metric: &notExistTaskIDMetric}
+	valueTypeIllegalProcessorKey       = processortypes.ProcessKey{ResourceRecommendNamespacedName: mockNamespacedName2, Metric: &valueTypeIllegalMetric}
+)
 
-var mockTaskID1 = mockProcessConfig1.GenerateTaskID()
-var emptyTaskID = emptyProcessConfig.GenerateTaskID()
-var notExistTaskID = "NotExistTaskID"
-var valueTypeIllegalTaskID = valueTypeIllegalProcessConfig.GenerateTaskID()
+var (
+	mockProcessConfig1            = processortypes.ProcessConfig{ProcessKey: mockProcessKey1}
+	emptyProcessConfig            = processortypes.ProcessConfig{ProcessKey: emptyTaskProcessorKey}
+	valueTypeIllegalProcessConfig = processortypes.ProcessConfig{ProcessKey: valueTypeIllegalProcessorKey}
+)
 
-var mockTask1, _ = task.NewTask(mockMetric1, "")
-var mockTask195PercentileValue = 20.40693
-var emptyTask, _ = task.NewTask(emptyTaskMetric, "")
+var (
+	mockTaskID1            = mockProcessConfig1.GenerateTaskID()
+	emptyTaskID            = emptyProcessConfig.GenerateTaskID()
+	notExistTaskID         = "NotExistTaskID"
+	valueTypeIllegalTaskID = valueTypeIllegalProcessConfig.GenerateTaskID()
+)
+
+var (
+	mockTask1, _               = task.NewTask(mockMetric1, "")
+	mockTask195PercentileValue = 20.40693
+	emptyTask, _               = task.NewTask(emptyTaskMetric, "")
+)
 
 var mockAggregateTasks = sync.Map{}
 

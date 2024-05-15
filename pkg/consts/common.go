@@ -21,6 +21,11 @@ import (
 )
 
 const (
+	ControlKnobON  = "true"
+	ControlKnobOFF = "false"
+)
+
+const (
 	// OwnerReferenceIndex is the lookup name for the index function
 	OwnerReferenceIndex = "owner-reference-index"
 	// TargetReferenceIndex is the lookup name for the index function

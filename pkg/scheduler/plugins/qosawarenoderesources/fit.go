@@ -32,15 +32,18 @@ import (
 	"github.com/kubewharf/katalyst-api/pkg/apis/scheduling/config/validation"
 	"github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/scheduler/cache"
+	"github.com/kubewharf/katalyst-core/pkg/scheduler/eventhandlers"
 	"github.com/kubewharf/katalyst-core/pkg/scheduler/util"
 	"github.com/kubewharf/katalyst-core/pkg/util/native"
 )
 
-var _ framework.PreFilterPlugin = &Fit{}
-var _ framework.FilterPlugin = &Fit{}
-var _ framework.EnqueueExtensions = &Fit{}
-var _ framework.ScorePlugin = &Fit{}
-var _ framework.ReservePlugin = &Fit{}
+var (
+	_ framework.PreFilterPlugin   = &Fit{}
+	_ framework.FilterPlugin      = &Fit{}
+	_ framework.EnqueueExtensions = &Fit{}
+	_ framework.ScorePlugin       = &Fit{}
+	_ framework.ReservePlugin     = &Fit{}
+)
 
 const (
 	// FitName is the name of the plugin used in the plugin registry and configurations.
@@ -130,6 +133,9 @@ func NewFit(plArgs runtime.Object, h framework.Handle) (framework.Plugin, error)
 	if err != nil {
 		return nil, err
 	}
+
+	eventhandlers.RegisterCommonPodHandler()
+	eventhandlers.RegisterCommonCNRHandler()
 
 	return &Fit{
 		handle:                   h,

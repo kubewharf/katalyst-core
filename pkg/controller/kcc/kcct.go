@@ -438,7 +438,8 @@ func validateLabelSelectorMatchWithKCCDefinition(priorityAllowedKeyListMap map[i
 
 // validateLabelSelectorOverlapped make sures that labelSelector config cannot overlap with other labelSelector config
 func validateLabelSelectorOverlapped(priorityAllowedKeyListMap map[int32]sets.String, targetResource util.KCCTargetResource,
-	otherResources []util.KCCTargetResource) (bool, string, []util.KCCTargetResource, error) {
+	otherResources []util.KCCTargetResource,
+) (bool, string, []util.KCCTargetResource, error) {
 	labelSelector := targetResource.GetLabelSelector()
 	selector, err := labels.Parse(labelSelector)
 	if err != nil {
@@ -593,7 +594,8 @@ func updateTargetResourceStatus(targetResource util.KCCTargetResource, isValid b
 
 // checkLabelSelectorOverlap checks whether the labelSelector overlap with other labelSelector by the keyList
 func checkLabelSelectorOverlap(selector labels.Selector, otherSelector labels.Selector,
-	keyList []string) bool {
+	keyList []string,
+) bool {
 	for _, key := range keyList {
 		equalLabelSet, inEqualLabelSet, _ := getMatchLabelSet(selector, key)
 		otherEqualLabelSet, otherInEqualLabelSet, _ := getMatchLabelSet(otherSelector, key)
