@@ -21,7 +21,13 @@ import (
 	"time"
 
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/agent"
+	"github.com/kubewharf/katalyst-core/pkg/metaserver/external"
+	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
+)
+
+const (
+	MBM_Controller = "mbm_controller"
 )
 
 type StoppableComponent interface {
@@ -33,6 +39,8 @@ type StoppableComponent interface {
 // it only interacts with MetricsReader to get current reading of momory bandwidth usage (todo)
 // also, it enforces the MBM via ExternalManager (todo)
 type mbmController struct {
+	emitter                metrics.MetricEmitter
+	externalManager        external.ExternalManager
 	mbmThresholdPercentage int
 	mbmScanInterval        time.Duration
 	mbmControllerCancel    context.CancelFunc
@@ -56,8 +64,10 @@ func (m *mbmController) Stop() {
 	}
 }
 
-func NewMBMController(threshold int, scanInterval time.Duration) StoppableComponent {
+func NewMBMController(emitter metrics.MetricEmitter, externalManager external.ExternalManager, threshold int, scanInterval time.Duration) StoppableComponent {
 	return &mbmController{
+		emitter:                emitter.WithTags(MBM_Controller),
+		externalManager:        externalManager,
 		mbmThresholdPercentage: threshold,
 		mbmScanInterval:        scanInterval,
 	}

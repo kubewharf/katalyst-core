@@ -20,11 +20,14 @@ import (
 	"context"
 	"testing"
 	"time"
+
+	"github.com/kubewharf/katalyst-core/pkg/metaserver/external"
+	"github.com/kubewharf/katalyst-core/pkg/metrics"
 )
 
 func TestMBMController_Run_Stop(t *testing.T) {
 	t.Parallel()
-	mc := NewMBMController(80, time.Second*2)
+	mc := NewMBMController(&metrics.DummyMetrics{}, &external.DummyExternalManager{}, 80, time.Second*2)
 
 	controller, ok := mc.(*mbmController)
 	if !ok {
