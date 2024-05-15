@@ -131,7 +131,7 @@ func tmpSocketDir() (socketDir string, err error) {
 	if err != nil {
 		return
 	}
-	err = os.MkdirAll(socketDir, 0755)
+	err = os.MkdirAll(socketDir, 0o755)
 	if err != nil {
 		return "", err
 	}

@@ -144,7 +144,8 @@ func NewPodKillerInitializers() map[string]podkiller.InitFunc {
 }
 
 func NewEvictionManager(genericClient *client.GenericClientSet, recorder events.EventRecorder,
-	metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter, conf *pkgconfig.Configuration) (*EvictionManger, error) {
+	metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter, conf *pkgconfig.Configuration,
+) (*EvictionManger, error) {
 	queue := rule.NewFIFOEvictionQueue(conf.EvictionBurst)
 
 	podKillerInitializers := NewPodKillerInitializers()
@@ -196,7 +197,8 @@ func NewEvictionManager(genericClient *client.GenericClientSet, recorder events.
 }
 
 func (m *EvictionManger) getEvictionPlugins(genericClient *client.GenericClientSet, recorder events.EventRecorder, metaServer *metaserver.MetaServer,
-	emitter metrics.MetricEmitter, conf *pkgconfig.Configuration, innerEvictionPluginInitializers map[string]plugin.InitFunc) {
+	emitter metrics.MetricEmitter, conf *pkgconfig.Configuration, innerEvictionPluginInitializers map[string]plugin.InitFunc,
+) {
 	m.endpointLock.Lock()
 	for pluginName, initFn := range innerEvictionPluginInitializers {
 		if !general.IsNameEnabled(pluginName, InnerEvictionPluginsDisabledByDefault, conf.GenericEvictionConfiguration.InnerPlugins) {

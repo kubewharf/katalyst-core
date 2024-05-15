@@ -84,7 +84,7 @@ func (p *Processor) garbageCollect(ctx context.Context) error {
 		return err
 	}
 
-	//p.ClearingNoAttributionTask(resourceRecommendList)
+	// p.ClearingNoAttributionTask(resourceRecommendList)
 	klog.InfoS("percentile processor garbage collect list ResourceRecommend",
 		"ResourceRecommend Count", len(resourceRecommendList.Items))
 	// Convert the ResourceRecommend list to map for quick check whether it exists

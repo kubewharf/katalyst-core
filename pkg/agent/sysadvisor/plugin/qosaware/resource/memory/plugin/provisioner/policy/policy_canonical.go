@@ -145,7 +145,8 @@ func (p *PolicyCanonical) GetProvision() machine.MemoryDetails {
 }
 
 func NewPolicyCanonical(conf *config.Configuration, extraConfig interface{}, metaReader metacache.MetaReader,
-	metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter) ProvisionPolicy {
+	metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter,
+) ProvisionPolicy {
 	return &PolicyCanonical{
 		PolicyBase: NewPolicyBase(conf, extraConfig, metaReader, metaServer, emitter),
 	}

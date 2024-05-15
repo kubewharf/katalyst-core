@@ -46,8 +46,10 @@ type AllocationInfo struct {
 	Annotations map[string]string `json:"annotations"`
 }
 
-type ContainerEntries map[string]*AllocationInfo // Keyed by container name
-type PodEntries map[string]ContainerEntries      // Keyed by pod UID
+type (
+	ContainerEntries map[string]*AllocationInfo  // Keyed by container name
+	PodEntries       map[string]ContainerEntries // Keyed by pod UID
+)
 
 // NICState indicates the status of a NIC, including the capacity/reservation/allocation (in Mbps)
 type NICState struct {

@@ -28,7 +28,8 @@ import (
 )
 
 func StartCustomMetricServer(ctx context.Context, baseCtx *katalystbase.GenericContext, conf *config.Configuration,
-	metricStore store.MetricStore) (func() error, func() error, error) {
+	metricStore store.MetricStore,
+) (func() error, func() error, error) {
 	klog.Infoln("server is enabled")
 
 	providerImp := provider.NewMetricProviderImp(ctx, baseCtx, metricStore)

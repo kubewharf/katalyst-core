@@ -60,17 +60,17 @@ func tmpDirs() (regDir, ckDir, statDir string, err error) {
 	if err != nil {
 		return
 	}
-	_ = os.MkdirAll(regDir, 0755)
+	_ = os.MkdirAll(regDir, 0o755)
 	ckDir, err = ioutil.TempDir("", "ck")
 	if err != nil {
 		return
 	}
-	_ = os.MkdirAll(ckDir, 0755)
+	_ = os.MkdirAll(ckDir, 0o755)
 	statDir, err = ioutil.TempDir("", "stat")
 	if err != nil {
 		return
 	}
-	_ = os.MkdirAll(statDir, 0755)
+	_ = os.MkdirAll(statDir, 0o755)
 	return
 }
 

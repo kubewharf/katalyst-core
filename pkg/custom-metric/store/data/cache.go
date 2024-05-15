@@ -263,11 +263,12 @@ func (c *CachedMetric) GetAllMetricsInNamespace(namespace string) []types.Metric
 func (c *CachedMetric) GC(expiredTime time.Time) {
 	c.gcWithTimestamp(expiredTime.UnixMilli())
 }
+
 func (c *CachedMetric) gcWithTimestamp(expiredTimestamp int64) {
 	c.RLock()
 	defer c.RUnlock()
 
-	var dataLength = 0
+	dataLength := 0
 
 	for _, objectMetricStore := range c.metricMap {
 		objectMetricStore.Iterate(func(internalMetric *internal.MetricImp) {

@@ -61,8 +61,8 @@ type PeriodicalHandlerManager struct {
 }
 
 func NewPeriodicalHandlerManager(agentCtx *agent.GenericContext, coreConf *config.Configuration,
-	extraConf interface{}, agentName string) (bool, agent.Component, error) {
-
+	extraConf interface{}, agentName string,
+) (bool, agent.Component, error) {
 	wrappedEmitter := agentCtx.EmitterPool.GetDefaultMetricsEmitter().WithTags(agentName)
 
 	return true, &PeriodicalHandlerManager{
@@ -113,11 +113,14 @@ func (phm *PeriodicalHandlerManager) Run(ctx context.Context) {
 
 // the first key is the handlers group name
 // the second key is the handler name
-var handlerCtxs = make(map[string]map[string]*HandlerCtx)
-var handlerMtx sync.Mutex
+var (
+	handlerCtxs = make(map[string]map[string]*HandlerCtx)
+	handlerMtx  sync.Mutex
+)
 
 func RegisterPeriodicalHandlerWithHealthz(handlerName string, initState general.HealthzCheckState, groupName string,
-	handler Handler, interval time.Duration, tolerationTimes int64) (err error) {
+	handler Handler, interval time.Duration, tolerationTimes int64,
+) (err error) {
 	general.RegisterHeartbeatCheck(handlerName, time.Duration(tolerationTimes)*interval, initState, time.Duration(tolerationTimes)*interval)
 	return RegisterPeriodicalHandler(groupName, handlerName, handler, interval)
 }

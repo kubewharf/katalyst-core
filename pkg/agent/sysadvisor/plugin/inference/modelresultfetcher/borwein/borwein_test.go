@@ -19,7 +19,6 @@ package borwein
 import (
 	"context"
 	"fmt"
-
 	"io/ioutil"
 	"net"
 	"os"

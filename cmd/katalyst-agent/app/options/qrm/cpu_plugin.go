@@ -59,7 +59,8 @@ func NewCPUOptions() *CPUOptions {
 				state.PoolNameReclaim,
 				state.PoolNameDedicated,
 				state.PoolNameFallback,
-				state.PoolNameReserve},
+				state.PoolNameReserve,
+			},
 		},
 		CPUNativePolicyOptions: CPUNativePolicyOptions{
 			EnableFullPhysicalCPUsOnly: false,

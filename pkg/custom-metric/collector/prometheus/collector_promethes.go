@@ -99,7 +99,8 @@ type prometheusCollector struct {
 var _ collector.MetricCollector = &prometheusCollector{}
 
 func NewPrometheusCollector(ctx context.Context, baseCtx *katalystbase.GenericContext, genericConf *metric.GenericMetricConfiguration,
-	collectConf *metric.CollectorConfiguration, metricStore store.MetricStore) (collector.MetricCollector, error) {
+	collectConf *metric.CollectorConfiguration, metricStore store.MetricStore,
+) (collector.MetricCollector, error) {
 	client, err := newPrometheusClient()
 	if err != nil {
 		return nil, fmt.Errorf("creating HTTP client failed: %v", err)

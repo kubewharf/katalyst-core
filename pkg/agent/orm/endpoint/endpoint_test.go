@@ -25,9 +25,7 @@ import (
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 )
 
-var (
-	eSocketName = "mock.sock"
-)
+var eSocketName = "mock.sock"
 
 func TestNewEndpoint(t *testing.T) {
 	t.Parallel()
@@ -94,6 +92,40 @@ func TestGetResourceAllocation(t *testing.T) {
 	require.Equal(t, actual, resp)
 }
 
+func TestGetTopologyAwareAllocatableResources(t *testing.T) {
+	t.Parallel()
+
+	socket := path.Join("/tmp", "GetTopologyAwareAllocatableResources"+eSocketName)
+	p, e := eSetup(t, socket, "mock")
+	defer eCleanup(t, p, e)
+
+	resp := generateGetTopologyAwareAllocatableResources()
+	p.SetGetTopologyAwareAllocatableResourcesFunc(func(r *pluginapi.GetTopologyAwareAllocatableResourcesRequest) (*pluginapi.GetTopologyAwareAllocatableResourcesResponse, error) {
+		return resp, nil
+	})
+
+	actual, err := e.GetTopologyAwareAllocatableResources(context.TODO(), &pluginapi.GetTopologyAwareAllocatableResourcesRequest{})
+	require.NoError(t, err)
+	require.Equal(t, resp, actual)
+}
+
+func TestGetTopologyAwareResources(t *testing.T) {
+	t.Parallel()
+
+	socket := path.Join("/tmp", "GetTopologyAwareResources"+eSocketName)
+	p, e := eSetup(t, socket, "mock")
+	defer eCleanup(t, p, e)
+
+	resp := generateGetTopologyAwareResources()
+	p.SetGetTopologyAwareResourcesFunc(func(r *pluginapi.GetTopologyAwareResourcesRequest) (*pluginapi.GetTopologyAwareResourcesResponse, error) {
+		return resp, nil
+	})
+
+	actual, err := e.GetTopologyAwareResources(context.TODO(), &pluginapi.GetTopologyAwareResourcesRequest{})
+	require.NoError(t, err)
+	require.Equal(t, resp, actual)
+}
+
 func TestClient(t *testing.T) {
 	t.Parallel()
 
@@ -111,7 +143,7 @@ func generateResourceRequest() *pluginapi.ResourceRequest {
 		PodNamespace:  "mock_pod_ns",
 		PodName:       "mock_pod_name",
 		ContainerName: "mock_con_name",
-		//IsInitContainer: false,
+		// IsInitContainer: false,
 		PodRole:      "mock_role",
 		PodType:      "mock_type",
 		ResourceName: "mock_res",
@@ -131,7 +163,7 @@ func generateResourceResponse() *pluginapi.ResourceAllocationResponse {
 		PodNamespace:  "mock_pod_ns",
 		PodName:       "mock_pod_name",
 		ContainerName: "mock_con_name",
-		//IsInitContainer: false,
+		// IsInitContainer: false,
 		PodRole:      "mock_role",
 		PodType:      "mock_type",
 		ResourceName: "mock_res",
@@ -170,6 +202,83 @@ func generateGetResourceAllocationInfoResponse() *pluginapi.GetResourcesAllocati
 					"mock_container": {
 						ResourceAllocation: map[string]*pluginapi.ResourceAllocationInfo{
 							"mock_res": generateResourceAllocationInfo(),
+						},
+					},
+				},
+			},
+		},
+	}
+}
+
+func generateGetTopologyAwareAllocatableResources() *pluginapi.GetTopologyAwareAllocatableResourcesResponse {
+	return &pluginapi.GetTopologyAwareAllocatableResourcesResponse{
+		AllocatableResources: map[string]*pluginapi.AllocatableTopologyAwareResource{
+			"cpu": {
+				IsScalarResource:              true,
+				AggregatedAllocatableQuantity: 8,
+				AggregatedCapacityQuantity:    8,
+				TopologyAwareAllocatableQuantityList: []*pluginapi.TopologyAwareQuantity{
+					{
+						ResourceValue: 8,
+						Node:          0,
+						TopologyLevel: pluginapi.TopologyLevel_NUMA,
+					},
+				},
+				TopologyAwareCapacityQuantityList: []*pluginapi.TopologyAwareQuantity{
+					{
+						ResourceValue: 8,
+						Node:          0,
+						TopologyLevel: pluginapi.TopologyLevel_NUMA,
+					},
+				},
+			},
+			"memory": {
+				IsScalarResource:              true,
+				AggregatedAllocatableQuantity: 33395208192,
+				AggregatedCapacityQuantity:    33395208192,
+				TopologyAwareAllocatableQuantityList: []*pluginapi.TopologyAwareQuantity{
+					{
+						ResourceValue: 33395208192,
+						Node:          0,
+						TopologyLevel: pluginapi.TopologyLevel_NUMA,
+					},
+				},
+				TopologyAwareCapacityQuantityList: []*pluginapi.TopologyAwareQuantity{
+					{
+						ResourceValue: 33395208192,
+						Node:          0,
+						TopologyLevel: pluginapi.TopologyLevel_NUMA,
+					},
+				},
+			},
+		},
+	}
+}
+
+func generateGetTopologyAwareResources() *pluginapi.GetTopologyAwareResourcesResponse {
+	return &pluginapi.GetTopologyAwareResourcesResponse{
+		PodUid:       "pod-Uid",
+		PodName:      "pod-name",
+		PodNamespace: "pod-namespace",
+		ContainerTopologyAwareResources: &pluginapi.ContainerTopologyAwareResources{
+			ContainerName: "container-name",
+			AllocatedResources: map[string]*pluginapi.TopologyAwareResource{
+				"cpu": {
+					IsScalarResource:           true,
+					AggregatedQuantity:         4,
+					OriginalAggregatedQuantity: 4,
+					TopologyAwareQuantityList: []*pluginapi.TopologyAwareQuantity{
+						{
+							ResourceValue: 4,
+							Node:          0,
+							TopologyLevel: pluginapi.TopologyLevel_NUMA,
+						},
+					},
+					OriginalTopologyAwareQuantityList: []*pluginapi.TopologyAwareQuantity{
+						{
+							ResourceValue: 4,
+							Node:          0,
+							TopologyLevel: pluginapi.TopologyLevel_NUMA,
 						},
 					},
 				},

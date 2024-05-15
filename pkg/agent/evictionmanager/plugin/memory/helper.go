@@ -86,7 +86,8 @@ func NewEvictionHelper(emitter metrics.MetricEmitter, metaServer *metaserver.Met
 }
 
 func (e *EvictionHelper) selectTopNPodsToEvictByMetrics(activePods []*v1.Pod, topN uint64, numaID,
-	action int, rankingMetrics []string, podToEvictMap map[string]*v1.Pod) {
+	action int, rankingMetrics []string, podToEvictMap map[string]*v1.Pod,
+) {
 	filteredPods := e.filterPods(activePods, action)
 	if filteredPods != nil {
 		general.NewMultiSorter(e.getEvictionCmpFuncs(rankingMetrics, numaID)...).Sort(native.NewPodSourceImpList(filteredPods))
@@ -158,5 +159,4 @@ func (e *EvictionHelper) getEvictionCmpFuncs(rankingMetrics []string, numaID int
 	}
 
 	return cmpFuncs
-
 }

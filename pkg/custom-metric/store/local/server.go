@@ -53,8 +53,7 @@ const (
 	StoreGETParamLatest          = "latest"
 )
 
-type MemoryStoreData struct {
-}
+type MemoryStoreData struct{}
 
 // Serve todo: support to use gzip to reduce the transported data through http
 func (l *LocalMemoryMetricStore) Serve(mux *http.ServeMux) {

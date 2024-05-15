@@ -37,9 +37,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/cnc"
 )
 
-var (
-	testTargetGVR = crd.AdminQoSConfigurationGVR
-)
+var testTargetGVR = crd.AdminQoSConfigurationGVR
 
 func generateTestGenericClientSet(objects ...runtime.Object) *client.GenericClientSet {
 	scheme := runtime.NewScheme()

@@ -55,9 +55,11 @@ type AllocationInfo struct {
 	QoSLevel             string                                 `json:"qosLevel"`
 }
 
-type ContainerEntries map[string]*AllocationInfo       // Keyed by container name
-type PodEntries map[string]ContainerEntries            // Keyed by pod UID
-type PodResourceEntries map[v1.ResourceName]PodEntries // Keyed by resource name
+type (
+	ContainerEntries   map[string]*AllocationInfo     // Keyed by container name
+	PodEntries         map[string]ContainerEntries    // Keyed by pod UID
+	PodResourceEntries map[v1.ResourceName]PodEntries // Keyed by resource name
+)
 
 // NUMANodeState records the amount of memory per numa node (in bytes)
 type NUMANodeState struct {
@@ -69,8 +71,10 @@ type NUMANodeState struct {
 	PodEntries     PodEntries `json:"pod_entries"`
 }
 
-type NUMANodeMap map[int]*NUMANodeState                   // keyed by numa node id
-type NUMANodeResourcesMap map[v1.ResourceName]NUMANodeMap // keyed by resource name
+type (
+	NUMANodeMap          map[int]*NUMANodeState          // keyed by numa node id
+	NUMANodeResourcesMap map[v1.ResourceName]NUMANodeMap // keyed by resource name
+)
 
 func (ai *AllocationInfo) String() string {
 	if ai == nil {

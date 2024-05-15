@@ -28,8 +28,7 @@ func NewInsecureAccessControl(_ *generic.AuthConfiguration, _ *dynamic.DynamicAg
 	return &insecureAccessControl{}, nil
 }
 
-type insecureAccessControl struct {
-}
+type insecureAccessControl struct{}
 
 func (i *insecureAccessControl) Run(_ context.Context) {
 }

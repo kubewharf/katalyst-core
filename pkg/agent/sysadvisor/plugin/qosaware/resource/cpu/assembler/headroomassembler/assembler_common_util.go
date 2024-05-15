@@ -29,7 +29,8 @@ import (
 )
 
 func (ha *HeadroomAssemblerCommon) getUtilBasedHeadroom(dynamicConfig *dynamic.Configuration,
-	reclaimedMetrics *poolMetrics) (resource.Quantity, error) {
+	reclaimedMetrics *poolMetrics,
+) (resource.Quantity, error) {
 	if reclaimedMetrics == nil {
 		return resource.Quantity{}, fmt.Errorf("invalid reclaimed metrics")
 	}

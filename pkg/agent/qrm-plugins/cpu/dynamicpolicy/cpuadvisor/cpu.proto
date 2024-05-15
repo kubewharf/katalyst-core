@@ -19,7 +19,6 @@ syntax = 'proto3';
 package cpuadvisor;
 
 import "github.com/gogo/protobuf/gogoproto/gogo.proto";
-import "github.com/kubewharf/kubelet/pkg/apis/resourceplugin/v1alpha1/api.proto";
 import "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/advisorsvc/advisor_svc.proto";
 
 option (gogoproto.goproto_stringer_all) = false;
@@ -34,6 +33,7 @@ option go_package = "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cp
 
 message ListAndWatchResponse {
     map<string,CalculationEntries> entries = 1; // keyed by pool name or podUID
+    bool allow_shared_cores_overlap_reclaimed_cores= 2; // if set to true, cpuset of shared_cores may overlap with reclaimed_cores
 }
 
 message CalculationEntries {

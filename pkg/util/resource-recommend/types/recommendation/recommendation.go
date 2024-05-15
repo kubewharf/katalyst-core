@@ -43,7 +43,7 @@ const (
 
 const (
 	PercentileAlgorithmType = "percentile"
-	//DefaultAlgorithmType use percentile as the default algorithm
+	// DefaultAlgorithmType use percentile as the default algorithm
 	DefaultAlgorithmType = PercentileAlgorithmType
 )
 
@@ -97,8 +97,8 @@ func NewRecommendation(resourceRecommend *v1alpha1.ResourceRecommend) *Recommend
 }
 
 func (r *Recommendation) SetConfig(ctx context.Context, client k8sclient.Client,
-	resourceRecommend *v1alpha1.ResourceRecommend) *errortypes.CustomError {
-
+	resourceRecommend *v1alpha1.ResourceRecommend,
+) *errortypes.CustomError {
 	targetRef, customErr := ValidateAndExtractTargetRef(resourceRecommend.Spec.TargetRef)
 	if customErr != nil {
 		klog.Errorf("spec.targetRef validate error, "+

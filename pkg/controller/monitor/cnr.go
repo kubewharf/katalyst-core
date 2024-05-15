@@ -84,8 +84,8 @@ func NewCNRMonitorController(
 	nodeInformer coreinformers.NodeInformer,
 	podInformer coreinformers.PodInformer,
 	cnrInformer informers.CustomNodeResourceInformer,
-	metricsEmitter metrics.MetricEmitter) (*CNRMonitorController, error) {
-
+	metricsEmitter metrics.MetricEmitter,
+) (*CNRMonitorController, error) {
 	cnrMonitorController := &CNRMonitorController{
 		ctx:          ctx,
 		client:       client,

@@ -40,7 +40,6 @@ import (
 	nodev1alpha1 "github.com/kubewharf/katalyst-api/pkg/apis/node/v1alpha1"
 	apiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-api/pkg/utils"
-	"github.com/kubewharf/katalyst-core/pkg/agent/resourcemanager/fetcher/util/kubelet/podresources"
 	"github.com/kubewharf/katalyst-core/pkg/config/generic"
 	"github.com/kubewharf/katalyst-core/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
@@ -48,6 +47,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/spd"
 	"github.com/kubewharf/katalyst-core/pkg/util"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
+	"github.com/kubewharf/katalyst-core/pkg/util/kubelet/podresources"
 	"github.com/kubewharf/katalyst-core/pkg/util/native"
 )
 
@@ -62,9 +62,7 @@ type NumaInfoGetter func() ([]info.Node, error)
 // PodResourcesFilter is to filter pod resources which does need to be reported
 type PodResourcesFilter func(*v1.Pod, *podresv1.PodResources) (*podresv1.PodResources, error)
 
-var (
-	oneQuantity = *resource.NewQuantity(1, resource.DecimalSI)
-)
+var oneQuantity = *resource.NewQuantity(1, resource.DecimalSI)
 
 type topologyAdapterImpl struct {
 	mutex     sync.Mutex
@@ -94,12 +92,17 @@ type topologyAdapterImpl struct {
 
 	// resourceNameToZoneTypeMap is a map that stores the mapping relationship between resource names to zone types for device zones
 	resourceNameToZoneTypeMap map[string]string
+
+	// needValidationResources is the resources needed to be validated
+	needValidationResources []string
 }
 
 // NewPodResourcesServerTopologyAdapter creates a topology adapter which uses pod resources server
-func NewPodResourcesServerTopologyAdapter(metaServer *metaserver.MetaServer, qosConf *generic.QoSConfiguration, endpoints []string,
-	kubeletResourcePluginPaths []string, resourceNameToZoneTypeMap map[string]string, skipDeviceNames sets.String,
-	numaInfoGetter NumaInfoGetter, podResourcesFilter PodResourcesFilter, getClientFunc podresources.GetClientFunc) (Adapter, error) {
+func NewPodResourcesServerTopologyAdapter(metaServer *metaserver.MetaServer, qosConf *generic.QoSConfiguration,
+	endpoints []string, kubeletResourcePluginPaths []string, resourceNameToZoneTypeMap map[string]string,
+	skipDeviceNames sets.String, numaInfoGetter NumaInfoGetter, podResourcesFilter PodResourcesFilter,
+	getClientFunc podresources.GetClientFunc, needValidationResources []string,
+) (Adapter, error) {
 	numaInfo, err := numaInfoGetter()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get numa info: %s", err)
@@ -125,6 +128,7 @@ func NewPodResourcesServerTopologyAdapter(metaServer *metaserver.MetaServer, qos
 		getClientFunc:              getClientFunc,
 		podResourcesFilter:         podResourcesFilter,
 		resourceNameToZoneTypeMap:  resourceNameToZoneTypeMap,
+		needValidationResources:    needValidationResources,
 	}, nil
 }
 
@@ -158,7 +162,7 @@ func (p *topologyAdapterImpl) GetTopologyZones(parentCtx context.Context) ([]*no
 	}
 
 	// validate pod Resources server response to make sure report topology status is correct
-	if err = validatePodResourcesServerResponse(allocatableResources, listPodResourcesResponse); err != nil {
+	if err = p.validatePodResourcesServerResponse(allocatableResources, listPodResourcesResponse); err != nil {
 		return nil, errors.Wrap(err, "validate pod Resources server response failed")
 	}
 
@@ -286,14 +290,22 @@ func (p *topologyAdapterImpl) Run(ctx context.Context, handler func()) error {
 
 // validatePodResourcesServerResponse validate pod resources server response, if the resource is empty,
 // maybe the kubelet or qrm plugin is restarting
-func validatePodResourcesServerResponse(allocatableResourcesResponse *podresv1.AllocatableResourcesResponse,
-	listPodResourcesResponse *podresv1.ListPodResourcesResponse) error {
-	if allocatableResourcesResponse == nil {
-		return fmt.Errorf("allocatable Resources response is nil")
-	}
+func (p *topologyAdapterImpl) validatePodResourcesServerResponse(allocatableResourcesResponse *podresv1.
+	AllocatableResourcesResponse, listPodResourcesResponse *podresv1.ListPodResourcesResponse,
+) error {
+	if len(p.needValidationResources) > 0 {
+		if allocatableResourcesResponse == nil {
+			return fmt.Errorf("allocatable resources response is nil")
+		}
 
-	if len(allocatableResourcesResponse.Resources) == 0 {
-		return fmt.Errorf("allocatable topology aware Resources is empty")
+		allocResSet := sets.NewString()
+		for _, res := range allocatableResourcesResponse.Resources {
+			allocResSet.Insert(res.ResourceName)
+		}
+
+		if !allocResSet.HasAll(p.needValidationResources...) {
+			return fmt.Errorf("allocatable resources response doen't contain all the resources that need to be validated")
+		}
 	}
 
 	if listPodResourcesResponse == nil {
@@ -306,7 +318,8 @@ func validatePodResourcesServerResponse(allocatableResourcesResponse *podresv1.A
 // addNumaSocketChildrenZoneNodes add the child nodes of socket or numa zone nodes to the generator, the child nodes are
 // generated by generateZoneNode according to TopologyLevel, Type and Name in TopologyAwareAllocatableQuantityList
 func (p *topologyAdapterImpl) addNumaSocketChildrenZoneNodes(generator *util.TopologyZoneGenerator,
-	allocatableResources *podresv1.AllocatableResourcesResponse) error {
+	allocatableResources *podresv1.AllocatableResourcesResponse,
+) error {
 	if allocatableResources == nil {
 		return fmt.Errorf("allocatable Resources is nil")
 	}
@@ -342,7 +355,8 @@ func (p *topologyAdapterImpl) addNumaSocketChildrenZoneNodes(generator *util.Top
 // addDeviceZoneNodes add the device nodes which are children of numa zone nodes to the generator, the device nodes are
 // generated by generateZoneNode according to TopologyLevel, Type and Name in TopologyAwareAllocatableQuantityList
 func (p *topologyAdapterImpl) addDeviceZoneNodes(generator *util.TopologyZoneGenerator,
-	allocatableResources *podresv1.AllocatableResourcesResponse) error {
+	allocatableResources *podresv1.AllocatableResourcesResponse,
+) error {
 	if allocatableResources == nil {
 		return fmt.Errorf("allocatable Resources is nil")
 	}
@@ -673,7 +687,8 @@ func (p *topologyAdapterImpl) aggregateContainerAllocated(podMeta metav1.ObjectM
 // to filter out some devices that do not need to be reported to cnr. The device name is the resource name and
 // the quantity is the number of devices.
 func (p *topologyAdapterImpl) addContainerDevices(zoneResources map[util.ZoneNode]*v1.ResourceList,
-	containerDevices []*podresv1.ContainerDevices) (map[util.ZoneNode]*v1.ResourceList, error) {
+	containerDevices []*podresv1.ContainerDevices,
+) (map[util.ZoneNode]*v1.ResourceList, error) {
 	var errList []error
 
 	if zoneResources == nil {
@@ -717,7 +732,8 @@ func (p *topologyAdapterImpl) addContainerDevices(zoneResources map[util.ZoneNod
 // addContainerResources add all container resources into the zone resources map, get each resource of each zone node
 // and add them together to get the total resource of each zone node.
 func (p *topologyAdapterImpl) addContainerResources(zoneResources map[util.ZoneNode]*v1.ResourceList,
-	topoAwareResources []*podresv1.TopologyAwareResource) (map[util.ZoneNode]*v1.ResourceList, error) {
+	topoAwareResources []*podresv1.TopologyAwareResource,
+) (map[util.ZoneNode]*v1.ResourceList, error) {
 	var (
 		errList []error
 		err     error
@@ -751,7 +767,8 @@ func (p *topologyAdapterImpl) addContainerResources(zoneResources map[util.ZoneN
 // list of topology nodes, and each topology node has name, type, topology level, and annotations, and the resource value. The zone node
 // is determined by the topology node name, type, topology level,
 func (p *topologyAdapterImpl) addTopologyAwareQuantity(zoneResourceList map[util.ZoneNode]*v1.ResourceList, resourceName v1.ResourceName,
-	topoAwareQuantityList []*podresv1.TopologyAwareQuantity) (map[util.ZoneNode]*v1.ResourceList, error) {
+	topoAwareQuantityList []*podresv1.TopologyAwareQuantity,
+) (map[util.ZoneNode]*v1.ResourceList, error) {
 	var errList []error
 
 	if zoneResourceList == nil {
@@ -759,6 +776,7 @@ func (p *topologyAdapterImpl) addTopologyAwareQuantity(zoneResourceList map[util
 	}
 
 	for _, quantity := range topoAwareQuantityList {
+
 		if quantity == nil {
 			continue
 		}
@@ -790,7 +808,8 @@ func (p *topologyAdapterImpl) addTopologyAwareQuantity(zoneResourceList map[util
 // zone node is in the map, then get the resource list from the map, and add the resource quantity into the resource
 // list.
 func addZoneQuantity(zoneResourceList map[util.ZoneNode]*v1.ResourceList, zoneNode util.ZoneNode,
-	resourceName v1.ResourceName, value resource.Quantity) map[util.ZoneNode]*v1.ResourceList {
+	resourceName v1.ResourceName, value resource.Quantity,
+) map[util.ZoneNode]*v1.ResourceList {
 	if zoneResourceList == nil {
 		zoneResourceList = make(map[util.ZoneNode]*v1.ResourceList)
 	}

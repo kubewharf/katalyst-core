@@ -31,7 +31,8 @@ func SetDirtyMem(conf *coreconfig.Configuration,
 	_ interface{},
 	_ *dynamicconfig.DynamicAgentConfiguration,
 	emitter metrics.MetricEmitter,
-	metaServer *metaserver.MetaServer) {
+	metaServer *metaserver.MetaServer,
+) {
 	general.Infof("called")
 
 	if conf == nil {

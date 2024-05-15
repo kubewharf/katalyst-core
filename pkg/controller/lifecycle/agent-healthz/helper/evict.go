@@ -60,7 +60,8 @@ type EvictHelper struct {
 // NewEvictHelper todo add logic here
 func NewEvictHelper(ctx context.Context, emitter metrics.MetricEmitter,
 	podControl control.PodEjector, nodeLister corelisters.NodeLister, cnrLister listers.CustomNodeResourceLister,
-	queue *scheduler.RateLimitedTimedQueue, checker *HealthzHelper) *EvictHelper {
+	queue *scheduler.RateLimitedTimedQueue, checker *HealthzHelper,
+) *EvictHelper {
 	return &EvictHelper{
 		ctx:        ctx,
 		emitter:    emitter,
@@ -92,7 +93,7 @@ func (e *EvictHelper) doEviction() {
 			return false, 50 * time.Millisecond
 		}
 
-		//second confirm that we should evict reclaimed pods
+		// second confirm that we should evict reclaimed pods
 		keys := sets.NewString()
 		item := value.UID.(*EvictItem)
 		for agent, names := range item.PodKeys {

@@ -140,6 +140,7 @@ func TestSetIOCost(t *testing.T) {
 		},
 	}, nil, &dynamicconfig.DynamicAgentConfiguration{}, metrics.DummyMetrics{}, metaServer)
 }
+
 func Test_disableIOCost(t *testing.T) {
 	t.Parallel()
 
@@ -272,7 +273,8 @@ func Test_applyIOCostConfig(t *testing.T) {
 									},
 								},
 							},
-						}},
+						},
+					},
 				},
 			},
 		},

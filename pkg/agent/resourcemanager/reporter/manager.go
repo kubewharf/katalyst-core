@@ -55,7 +55,8 @@ type managerImpl struct {
 
 // NewReporterManager is to create a reporter manager
 func NewReporterManager(genericClient *client.GenericClientSet, metaServer *metaserver.MetaServer,
-	emitter metrics.MetricEmitter, conf *config.Configuration) (Manager, error) {
+	emitter metrics.MetricEmitter, conf *config.Configuration,
+) (Manager, error) {
 	r := &managerImpl{
 		reporters:  make(map[v1.GroupVersionKind]Reporter),
 		converters: make(map[v1.GroupVersionKind]Converter),
@@ -118,7 +119,8 @@ func (r *managerImpl) Run(ctx context.Context) {
 }
 
 func (r *managerImpl) getReporter(genericClient *client.GenericClientSet, metaServer *metaserver.MetaServer,
-	emitter metrics.MetricEmitter, conf *config.Configuration, initializers map[v1.GroupVersionKind]InitFunc) error {
+	emitter metrics.MetricEmitter, conf *config.Configuration, initializers map[v1.GroupVersionKind]InitFunc,
+) error {
 	var errList []error
 	for gvk, f := range initializers {
 		reporter, err := f(genericClient, metaServer, emitter, conf)
@@ -137,7 +139,8 @@ func (r *managerImpl) getReporter(genericClient *client.GenericClientSet, metaSe
 }
 
 func (r *managerImpl) getConverter(genericClient *client.GenericClientSet, server *metaserver.MetaServer,
-	emitter metrics.MetricEmitter, conf *config.Configuration, initializers map[v1.GroupVersionKind]ConverterInitFunc) error {
+	emitter metrics.MetricEmitter, conf *config.Configuration, initializers map[v1.GroupVersionKind]ConverterInitFunc,
+) error {
 	var errList []error
 	for gvk, f := range initializers {
 		converter, err := f(genericClient, server, emitter, conf)
@@ -158,7 +161,8 @@ func (r *managerImpl) getConverter(genericClient *client.GenericClientSet, serve
 // convertReportFieldsIfNeeded converts all plugin's report fields to other gvk or other fields through
 // converter registered by RegisterConverterInitializer
 func (r *managerImpl) convertReportFieldsIfNeeded(ctx context.Context,
-	reportFieldsByGVK map[v1.GroupVersionKind][]*v1alpha1.ReportField) (map[v1.GroupVersionKind][]*v1alpha1.ReportField, error) {
+	reportFieldsByGVK map[v1.GroupVersionKind][]*v1alpha1.ReportField,
+) (map[v1.GroupVersionKind][]*v1alpha1.ReportField, error) {
 	var errList []error
 	convertedFieldsByGVK := make(map[v1.GroupVersionKind][]*v1alpha1.ReportField)
 	for gvk, fields := range reportFieldsByGVK {

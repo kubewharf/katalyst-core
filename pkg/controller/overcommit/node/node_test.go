@@ -19,6 +19,7 @@ package node
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"testing"
 	"time"
 
@@ -28,6 +29,8 @@ import (
 	"k8s.io/client-go/tools/cache"
 	cliflag "k8s.io/component-base/cli/flag"
 
+	nodev1alpha1 "github.com/kubewharf/katalyst-api/pkg/apis/node/v1alpha1"
+	v1alpha12 "github.com/kubewharf/katalyst-api/pkg/apis/node/v1alpha1"
 	"github.com/kubewharf/katalyst-api/pkg/apis/overcommit/v1alpha1"
 	"github.com/kubewharf/katalyst-api/pkg/consts"
 	katalyst_base "github.com/kubewharf/katalyst-core/cmd/base"
@@ -62,6 +65,9 @@ func makeNode(name string, labels map[string]string) *corev1.Node {
 		ObjectMeta: metav1.ObjectMeta{
 			Name:   name,
 			Labels: labels,
+			Annotations: map[string]string{
+				"katalyst.kubewharf.io/overcommit_allocatable_cpu": "8",
+			},
 		},
 	}
 }
@@ -70,10 +76,13 @@ type testCase struct {
 	name          string
 	initNodes     []*corev1.Node
 	initConfigs   []*v1alpha1.NodeOvercommitConfig
+	initCNR       []*nodev1alpha1.CustomNodeResource
 	updateNodes   []*corev1.Node
 	updateConfigs []*v1alpha1.NodeOvercommitConfig
+	updateCNR     []*nodev1alpha1.CustomNodeResource
 	addNodes      []*corev1.Node
 	addConfigs    []*v1alpha1.NodeOvercommitConfig
+	addCNR        []*nodev1alpha1.CustomNodeResource
 	deleteNodes   []string
 	deleteConfigs []string
 	result        map[string]map[string]string
@@ -85,6 +94,24 @@ var defaultInitNodes = func() []*corev1.Node {
 		makeNode("node2", map[string]string{consts.NodeOvercommitSelectorKey: "pool2"}),
 		makeNode("node3", map[string]string{consts.NodeOvercommitSelectorKey: "pool1"}),
 		makeNode("node4", map[string]string{consts.NodeOvercommitSelectorKey: "pool3"}),
+	}
+}()
+
+var defaultInitCNR = func() []*nodev1alpha1.CustomNodeResource {
+	return []*nodev1alpha1.CustomNodeResource{
+		{ObjectMeta: metav1.ObjectMeta{Name: "node1", Annotations: map[string]string{
+			consts.NodeAnnotationCPUOvercommitRatioKey:    "1",
+			consts.NodeAnnotationMemoryOvercommitRatioKey: "1",
+		}}}, {ObjectMeta: metav1.ObjectMeta{Name: "node2", Annotations: map[string]string{
+			consts.NodeAnnotationCPUOvercommitRatioKey:    "1",
+			consts.NodeAnnotationMemoryOvercommitRatioKey: "1",
+		}}}, {ObjectMeta: metav1.ObjectMeta{Name: "node3", Annotations: map[string]string{
+			consts.NodeAnnotationCPUOvercommitRatioKey:    "3",
+			consts.NodeAnnotationMemoryOvercommitRatioKey: "3",
+		}}}, {ObjectMeta: metav1.ObjectMeta{Name: "node4", Annotations: map[string]string{
+			consts.NodeAnnotationCPUOvercommitRatioKey:    "2",
+			consts.NodeAnnotationMemoryOvercommitRatioKey: "2",
+		}}},
 	}
 }()
 
@@ -186,6 +213,94 @@ var testCases = []testCase{
 			"node4": {consts.NodeAnnotationCPUOvercommitRatioKey: "1", consts.NodeAnnotationMemoryOvercommitRatioKey: "1"},
 		},
 	},
+	{
+		name:      "init: node and cnr, add config",
+		initNodes: defaultInitNodes,
+		initCNR:   defaultInitCNR,
+		addConfigs: []*v1alpha1.NodeOvercommitConfig{
+			makeSelectorNoc("config-selector", "2", "2", "pool1"),
+		},
+		result: map[string]map[string]string{
+			"node1": {
+				consts.NodeAnnotationCPUOvercommitRatioKey: "2", consts.NodeAnnotationMemoryOvercommitRatioKey: "2",
+				consts.NodeAnnotationRealtimeCPUOvercommitRatioKey: "1", consts.NodeAnnotationRealtimeMemoryOvercommitRatioKey: "1",
+			},
+			"node2": {
+				consts.NodeAnnotationCPUOvercommitRatioKey: "1", consts.NodeAnnotationMemoryOvercommitRatioKey: "1",
+				consts.NodeAnnotationRealtimeCPUOvercommitRatioKey: "1", consts.NodeAnnotationRealtimeMemoryOvercommitRatioKey: "1",
+			},
+			"node3": {
+				consts.NodeAnnotationCPUOvercommitRatioKey: "2", consts.NodeAnnotationMemoryOvercommitRatioKey: "2",
+				consts.NodeAnnotationRealtimeCPUOvercommitRatioKey: "3", consts.NodeAnnotationRealtimeMemoryOvercommitRatioKey: "3",
+			},
+			"node4": {
+				consts.NodeAnnotationCPUOvercommitRatioKey: "1", consts.NodeAnnotationMemoryOvercommitRatioKey: "1",
+				consts.NodeAnnotationRealtimeCPUOvercommitRatioKey: "2", consts.NodeAnnotationRealtimeMemoryOvercommitRatioKey: "2",
+			},
+		},
+	},
+	{
+		name:      "add CNR",
+		initNodes: defaultInitNodes,
+		initConfigs: []*v1alpha1.NodeOvercommitConfig{
+			makeSelectorNoc("config-selector", "2", "2", "pool1"),
+		},
+		addCNR: defaultInitCNR,
+		result: map[string]map[string]string{
+			"node1": {
+				consts.NodeAnnotationCPUOvercommitRatioKey: "2", consts.NodeAnnotationMemoryOvercommitRatioKey: "2",
+				consts.NodeAnnotationRealtimeCPUOvercommitRatioKey: "1", consts.NodeAnnotationRealtimeMemoryOvercommitRatioKey: "1",
+			},
+			"node2": {
+				consts.NodeAnnotationCPUOvercommitRatioKey: "1", consts.NodeAnnotationMemoryOvercommitRatioKey: "1",
+				consts.NodeAnnotationRealtimeCPUOvercommitRatioKey: "1", consts.NodeAnnotationRealtimeMemoryOvercommitRatioKey: "1",
+			},
+			"node3": {
+				consts.NodeAnnotationCPUOvercommitRatioKey: "2", consts.NodeAnnotationMemoryOvercommitRatioKey: "2",
+				consts.NodeAnnotationRealtimeCPUOvercommitRatioKey: "3", consts.NodeAnnotationRealtimeMemoryOvercommitRatioKey: "3",
+			},
+			"node4": {
+				consts.NodeAnnotationCPUOvercommitRatioKey: "1", consts.NodeAnnotationMemoryOvercommitRatioKey: "1",
+				consts.NodeAnnotationRealtimeCPUOvercommitRatioKey: "2", consts.NodeAnnotationRealtimeMemoryOvercommitRatioKey: "2",
+			},
+		},
+	},
+	{
+		name:      "update CNR",
+		initNodes: defaultInitNodes,
+		initCNR:   defaultInitCNR,
+		initConfigs: []*v1alpha1.NodeOvercommitConfig{
+			makeSelectorNoc("config-selector", "2", "2", "pool1"),
+		},
+		updateCNR: []*nodev1alpha1.CustomNodeResource{
+			{ObjectMeta: metav1.ObjectMeta{Name: "node3", Annotations: map[string]string{
+				consts.NodeAnnotationCPUOvercommitRatioKey:    "1.5",
+				consts.NodeAnnotationMemoryOvercommitRatioKey: "1.5",
+			}}},
+			{ObjectMeta: metav1.ObjectMeta{Name: "node1", Annotations: map[string]string{
+				consts.NodeAnnotationCPUOvercommitRatioKey:    "3",
+				consts.NodeAnnotationMemoryOvercommitRatioKey: "3",
+			}}},
+		},
+		result: map[string]map[string]string{
+			"node1": {
+				consts.NodeAnnotationCPUOvercommitRatioKey: "2", consts.NodeAnnotationMemoryOvercommitRatioKey: "2",
+				consts.NodeAnnotationRealtimeCPUOvercommitRatioKey: "3", consts.NodeAnnotationRealtimeMemoryOvercommitRatioKey: "3",
+			},
+			"node2": {
+				consts.NodeAnnotationCPUOvercommitRatioKey: "1", consts.NodeAnnotationMemoryOvercommitRatioKey: "1",
+				consts.NodeAnnotationRealtimeCPUOvercommitRatioKey: "1", consts.NodeAnnotationRealtimeMemoryOvercommitRatioKey: "1",
+			},
+			"node3": {
+				consts.NodeAnnotationCPUOvercommitRatioKey: "2", consts.NodeAnnotationMemoryOvercommitRatioKey: "2",
+				consts.NodeAnnotationRealtimeCPUOvercommitRatioKey: "1.5", consts.NodeAnnotationRealtimeMemoryOvercommitRatioKey: "1.5",
+			},
+			"node4": {
+				consts.NodeAnnotationCPUOvercommitRatioKey: "1", consts.NodeAnnotationMemoryOvercommitRatioKey: "1",
+				consts.NodeAnnotationRealtimeCPUOvercommitRatioKey: "2", consts.NodeAnnotationRealtimeMemoryOvercommitRatioKey: "2",
+			},
+		},
+	},
 }
 
 func TestReconcile(t *testing.T) {
@@ -218,6 +333,10 @@ func TestReconcile(t *testing.T) {
 				_, err = controlCtx.Client.KubeClient.CoreV1().Nodes().Create(ctx, node, metav1.CreateOptions{})
 				assert.NoError(t, err)
 			}
+			for _, cnr := range tc.initCNR {
+				_, err = controlCtx.Client.InternalClient.NodeV1alpha1().CustomNodeResources().Create(ctx, cnr, metav1.CreateOptions{})
+				assert.NoError(t, err)
+			}
 			for _, config := range tc.initConfigs {
 				_, err = controlCtx.Client.InternalClient.OvercommitV1alpha1().NodeOvercommitConfigs().Create(ctx, config, metav1.CreateOptions{})
 				assert.NoError(t, err)
@@ -236,6 +355,10 @@ func TestReconcile(t *testing.T) {
 				_, err = controlCtx.Client.KubeClient.CoreV1().Nodes().Create(ctx, node, metav1.CreateOptions{})
 				assert.NoError(t, err)
 			}
+			for _, cnr := range tc.addCNR {
+				_, err = controlCtx.Client.InternalClient.NodeV1alpha1().CustomNodeResources().Create(ctx, cnr, metav1.CreateOptions{})
+				assert.NoError(t, err)
+			}
 			for _, config := range tc.addConfigs {
 				_, err = controlCtx.Client.InternalClient.OvercommitV1alpha1().NodeOvercommitConfigs().Create(ctx, config, metav1.CreateOptions{})
 				assert.NoError(t, err)
@@ -246,6 +369,10 @@ func TestReconcile(t *testing.T) {
 			}
 			for _, config := range tc.updateConfigs {
 				_, err = controlCtx.Client.InternalClient.OvercommitV1alpha1().NodeOvercommitConfigs().Update(ctx, config, metav1.UpdateOptions{})
+				assert.NoError(t, err)
+			}
+			for _, cnr := range tc.updateCNR {
+				_, err = controlCtx.Client.InternalClient.NodeV1alpha1().CustomNodeResources().Update(ctx, cnr, metav1.UpdateOptions{})
 				assert.NoError(t, err)
 			}
 			for _, node := range tc.deleteNodes {
@@ -297,6 +424,10 @@ func TestRun(t *testing.T) {
 				_, err = controlCtx.Client.KubeClient.CoreV1().Nodes().Create(ctx, node, metav1.CreateOptions{})
 				assert.NoError(t, err)
 			}
+			for _, cnr := range tc.initCNR {
+				_, err = controlCtx.Client.InternalClient.NodeV1alpha1().CustomNodeResources().Create(ctx, cnr, metav1.CreateOptions{})
+				assert.NoError(t, err)
+			}
 			for _, config := range tc.initConfigs {
 				_, err = controlCtx.Client.InternalClient.OvercommitV1alpha1().NodeOvercommitConfigs().Create(ctx, config, metav1.CreateOptions{})
 				assert.NoError(t, err)
@@ -306,6 +437,11 @@ func TestRun(t *testing.T) {
 
 			go nocController.Run()
 			time.Sleep(1 * time.Second)
+
+			ret, err := nocController.nodeLister.Get("node1")
+			assert.NoError(t, err)
+			fmt.Println(ret)
+
 			for _, node := range tc.addNodes {
 				_, err = controlCtx.Client.KubeClient.CoreV1().Nodes().Create(ctx, node, metav1.CreateOptions{})
 				assert.NoError(t, err)
@@ -314,12 +450,20 @@ func TestRun(t *testing.T) {
 				_, err = controlCtx.Client.InternalClient.OvercommitV1alpha1().NodeOvercommitConfigs().Create(ctx, config, metav1.CreateOptions{})
 				assert.NoError(t, err)
 			}
+			for _, cnr := range tc.addCNR {
+				_, err = controlCtx.Client.InternalClient.NodeV1alpha1().CustomNodeResources().Create(ctx, cnr, metav1.CreateOptions{})
+				assert.NoError(t, err)
+			}
 			for _, node := range tc.updateNodes {
 				_, err = controlCtx.Client.KubeClient.CoreV1().Nodes().Update(ctx, node, metav1.UpdateOptions{})
 				assert.NoError(t, err)
 			}
 			for _, config := range tc.updateConfigs {
 				_, err = controlCtx.Client.InternalClient.OvercommitV1alpha1().NodeOvercommitConfigs().Update(ctx, config, metav1.UpdateOptions{})
+				assert.NoError(t, err)
+			}
+			for _, cnr := range tc.updateCNR {
+				_, err = controlCtx.Client.InternalClient.NodeV1alpha1().CustomNodeResources().Update(ctx, cnr, metav1.UpdateOptions{})
 				assert.NoError(t, err)
 			}
 			for _, node := range tc.deleteNodes {
@@ -332,7 +476,6 @@ func TestRun(t *testing.T) {
 			}
 
 			time.Sleep(2 * time.Second)
-
 			for nodeName, annotations := range tc.result {
 				for k, v := range annotations {
 					node, err := nocController.nodeLister.Get(nodeName)
@@ -345,6 +488,267 @@ func TestRun(t *testing.T) {
 					assert.Equal(t, v, node.Annotations[k], fmt.Sprintf("node: %v, k: %v, v: %v, actual: %v", nodeName, k, v, node.Annotations[k]))
 				}
 			}
+		})
+	}
+}
+
+func TestNodeOvercommitResource(t *testing.T) {
+	t.Parallel()
+	testCases := []struct {
+		name          string
+		cpuOvercommit string
+		memOvercommit string
+		kcnr          *v1alpha12.CustomNodeResource
+		node          *corev1.Node
+		expectRes     string
+		expectMemRes  string
+	}{
+		{
+			name:          "cpu overcommit less than 1",
+			cpuOvercommit: "1",
+			memOvercommit: "1",
+			kcnr: &v1alpha12.CustomNodeResource{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "testNode1",
+					Annotations: map[string]string{
+						"katalyst.kubewharf.io/overcommit_cpu_manager":    "none",
+						"katalyst.kubewharf.io/overcommit_memory_manager": "None",
+						"katalyst.kubewharf.io/guaranteed_cpus":           "4",
+					},
+				},
+			},
+			node: &corev1.Node{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "testNode1",
+					Annotations: map[string]string{
+						"katalyst.kubewharf.io/original_allocatable_cpu":    "15600m",
+						"katalyst.kubewharf.io/original_capacity_cpu":       "16000m",
+						"katalyst.kubewharf.io/original_allocatable_memory": "29258114498560m",
+						"katalyst.kubewharf.io/original_capacity_memory":    "32612508Ki",
+					},
+				},
+			},
+			expectRes:    "15600m",
+			expectMemRes: "29258114498560m",
+		},
+		{
+			name:          "kcnr without annotation",
+			cpuOvercommit: "1",
+			memOvercommit: "1",
+			kcnr: &v1alpha12.CustomNodeResource{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "testNode1",
+				},
+			},
+			node: &corev1.Node{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "testNode1",
+					Annotations: map[string]string{
+						"katalyst.kubewharf.io/original_allocatable_cpu":    "15600m",
+						"katalyst.kubewharf.io/original_capacity_cpu":       "16000m",
+						"katalyst.kubewharf.io/original_allocatable_memory": "29258114498560m",
+						"katalyst.kubewharf.io/original_capacity_memory":    "32612508Ki",
+					},
+				},
+			},
+			expectRes:    "15600m",
+			expectMemRes: "29258114498560m",
+		},
+		{
+			name:          "wrong overcommit",
+			cpuOvercommit: "xx",
+			memOvercommit: "xx",
+			kcnr: &v1alpha12.CustomNodeResource{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "testNode1",
+					Annotations: map[string]string{
+						"katalyst.kubewharf.io/overcommit_cpu_manager":    "none",
+						"katalyst.kubewharf.io/overcommit_memory_manager": "None",
+						"katalyst.kubewharf.io/guaranteed_cpus":           "4",
+					},
+				},
+			},
+			node: &corev1.Node{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "testNode1",
+					Annotations: map[string]string{
+						"katalyst.kubewharf.io/original_allocatable_cpu":    "15600m",
+						"katalyst.kubewharf.io/original_capacity_cpu":       "16000m",
+						"katalyst.kubewharf.io/original_allocatable_memory": "29258114498560m",
+						"katalyst.kubewharf.io/original_capacity_memory":    "32612508Ki",
+					},
+				},
+			},
+			expectRes:    "15600m",
+			expectMemRes: "29258114498560m",
+		},
+		{
+			name:          "cpu manager off",
+			cpuOvercommit: "1.2",
+			memOvercommit: "1.2",
+			kcnr: &v1alpha12.CustomNodeResource{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "testNode1",
+					Annotations: map[string]string{
+						"katalyst.kubewharf.io/overcommit_cpu_manager":    "none",
+						"katalyst.kubewharf.io/overcommit_memory_manager": "None",
+						"katalyst.kubewharf.io/guaranteed_cpus":           "4",
+					},
+				},
+			},
+			node: &corev1.Node{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "testNode1",
+					Annotations: map[string]string{
+						"katalyst.kubewharf.io/original_allocatable_cpu":    "15600m",
+						"katalyst.kubewharf.io/original_capacity_cpu":       "16000m",
+						"katalyst.kubewharf.io/original_allocatable_memory": "29258114498560m",
+						"katalyst.kubewharf.io/original_capacity_memory":    "32612508Ki",
+					},
+				},
+			},
+			expectRes:    "18720m",
+			expectMemRes: "35109737398272m",
+		},
+		{
+			name:          "guaranteed cpu none",
+			cpuOvercommit: "1.2",
+			memOvercommit: "1.2",
+			kcnr: &v1alpha12.CustomNodeResource{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "testNode1",
+					Annotations: map[string]string{
+						"katalyst.kubewharf.io/overcommit_cpu_manager":    "static",
+						"katalyst.kubewharf.io/overcommit_memory_manager": "None",
+					},
+				},
+			},
+			node: &corev1.Node{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "testNode1",
+					Annotations: map[string]string{
+						"katalyst.kubewharf.io/original_allocatable_cpu":    "15600m",
+						"katalyst.kubewharf.io/original_capacity_cpu":       "16000m",
+						"katalyst.kubewharf.io/original_allocatable_memory": "29258114498560m",
+						"katalyst.kubewharf.io/original_capacity_memory":    "32612508Ki",
+					},
+				},
+			},
+			expectRes:    "18720m",
+			expectMemRes: "35109737398272m",
+		},
+		{
+			name:          "wrong guaranteed cpu",
+			cpuOvercommit: "1.2",
+			memOvercommit: "1",
+			kcnr: &v1alpha12.CustomNodeResource{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "testNode1",
+					Annotations: map[string]string{
+						"katalyst.kubewharf.io/overcommit_cpu_manager":    "static",
+						"katalyst.kubewharf.io/overcommit_memory_manager": "None",
+						"katalyst.kubewharf.io/guaranteed_cpus":           "xx",
+					},
+				},
+			},
+			node: &corev1.Node{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "testNode1",
+					Annotations: map[string]string{
+						"katalyst.kubewharf.io/original_allocatable_cpu":    "15600m",
+						"katalyst.kubewharf.io/original_capacity_cpu":       "16000m",
+						"katalyst.kubewharf.io/original_allocatable_memory": "29258114498560m",
+						"katalyst.kubewharf.io/original_capacity_memory":    "32612508Ki",
+					},
+				},
+			},
+			expectRes:    "18720m",
+			expectMemRes: "29258114498560m",
+		},
+		{
+			name:          "origin allocatable missing",
+			cpuOvercommit: "1.2",
+			kcnr: &v1alpha12.CustomNodeResource{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "testNode1",
+					Annotations: map[string]string{
+						"katalyst.kubewharf.io/overcommit_cpu_manager":    "static",
+						"katalyst.kubewharf.io/overcommit_memory_manager": "None",
+						"katalyst.kubewharf.io/guaranteed_cpus":           "4",
+					},
+				},
+			},
+			node: &corev1.Node{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "testNode1",
+					Annotations: map[string]string{
+						"katalyst.kubewharf.io/original_capacity_cpu":       "16000m",
+						"katalyst.kubewharf.io/original_allocatable_memory": "29258114498560m",
+					},
+				},
+			},
+			expectRes:    "",
+			expectMemRes: "",
+		},
+		{
+			name:          "origin capacity missing",
+			cpuOvercommit: "1.2",
+			kcnr: &v1alpha12.CustomNodeResource{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "testNode1",
+					Annotations: map[string]string{
+						"katalyst.kubewharf.io/overcommit_cpu_manager":    "static",
+						"katalyst.kubewharf.io/overcommit_memory_manager": "None",
+						"katalyst.kubewharf.io/guaranteed_cpus":           "4",
+					},
+				},
+			},
+			node: &corev1.Node{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "testNode1",
+					Annotations: map[string]string{
+						"katalyst.kubewharf.io/original_allocatable_cpu": "15600m",
+					},
+				},
+			},
+			expectRes:    "",
+			expectMemRes: "",
+		},
+	}
+
+	for _, tc := range testCases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			gc, err := katalyst_base.GenerateFakeGenericContext()
+			assert.NoError(t, err)
+			_, err = gc.Client.InternalClient.NodeV1alpha1().CustomNodeResources().Create(context.TODO(), tc.kcnr, metav1.CreateOptions{})
+			assert.NoError(t, err)
+
+			fss := &cliflag.NamedFlagSets{}
+			nocOptions := options.NewOvercommitOptions()
+			nocOptions.AddFlags(fss)
+			nocConf := controller.NewOvercommitConfig()
+			_ = nocOptions.ApplyTo(nocConf)
+
+			genericConf := &generic.GenericConfiguration{}
+
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			nocController, err := NewNodeOvercommitController(ctx, gc, genericConf, nocConf)
+			assert.NoError(t, err)
+			gc.StartInformer(nocController.ctx)
+
+			go nocController.Run()
+			time.Sleep(500 * time.Millisecond)
+
+			cpuOvercommitValue, _ := strconv.ParseFloat(tc.cpuOvercommit, 64)
+			allocatable, _ := nocController.nodeOvercommitResource(tc.node, cpuOvercommitValue, corev1.ResourceCPU, consts.NodeAnnotationOriginalAllocatableCPUKey, consts.NodeAnnotationOriginalCapacityCPUKey)
+			assert.Equal(t, tc.expectRes, allocatable)
+
+			memOvercommitValue, _ := strconv.ParseFloat(tc.memOvercommit, 64)
+			allocatable, _ = nocController.nodeOvercommitResource(tc.node, memOvercommitValue, corev1.ResourceMemory, consts.NodeAnnotationOriginalAllocatableMemoryKey, consts.NodeAnnotationOriginalCapacityMemoryKey)
+			assert.Equal(t, tc.expectMemRes, allocatable)
 		})
 	}
 }

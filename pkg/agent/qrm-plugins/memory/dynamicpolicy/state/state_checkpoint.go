@@ -49,8 +49,8 @@ type stateCheckpoint struct {
 
 func NewCheckpointState(stateDir, checkpointName, policyName string,
 	topology *machine.CPUTopology, machineInfo *info.MachineInfo,
-	reservedMemory map[v1.ResourceName]map[int]uint64, skipStateCorruption bool) (State, error) {
-
+	reservedMemory map[v1.ResourceName]map[int]uint64, skipStateCorruption bool,
+) (State, error) {
 	checkpointManager, err := checkpointmanager.NewCheckpointManager(stateDir)
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize checkpoint manager: %v", err)
@@ -104,7 +104,6 @@ func (sc *stateCheckpoint) restoreState(machineInfo *info.MachineInfo, reservedM
 	}
 
 	generatedResourcesMachineState, err := GenerateMachineStateFromPodEntries(machineInfo, checkpoint.PodResourceEntries, reservedMemory)
-
 	if err != nil {
 		return fmt.Errorf("GenerateMachineStateFromPodEntries failed with error: %v", err)
 	}
@@ -117,7 +116,6 @@ func (sc *stateCheckpoint) restoreState(machineInfo *info.MachineInfo, reservedM
 			"generatedResourcesMachineState: %s; checkpointMachineState: %s",
 			generatedResourcesMachineState.String(), checkpoint.MachineState.String())
 		err = sc.storeState()
-
 		if err != nil {
 			return fmt.Errorf("storeState when machine state changed failed with error: %v", err)
 		}
@@ -126,7 +124,6 @@ func (sc *stateCheckpoint) restoreState(machineInfo *info.MachineInfo, reservedM
 	if foundAndSkippedStateCorruption {
 		klog.Infof("[memory_plugin] found and skipped state corruption, we shoud store to rectify the checksum")
 		err = sc.storeState()
-
 		if err != nil {
 			return fmt.Errorf("storeState failed with error: %v", err)
 		}

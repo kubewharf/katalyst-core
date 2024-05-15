@@ -76,7 +76,7 @@ func Test_CalculateQoSResource(t *testing.T) {
 	t.Log("####1: add pod with not-exist cnr")
 	p1 := makeCachedPod("p1", "p1", map[v1.ResourceName]resource.Quantity{
 		consts.ReclaimedResourceMilliCPU: *resource.NewQuantity(2000, resource.DecimalSI),
-		consts.ReclaimedResourceMemory:   *resource.NewQuantity(2*1024*0124*1024, resource.DecimalSI),
+		consts.ReclaimedResourceMemory:   *resource.NewQuantity(2*1024*0o124*1024, resource.DecimalSI),
 	}, "c1")
 	addPodToCache(p1)
 
@@ -85,12 +85,12 @@ func Test_CalculateQoSResource(t *testing.T) {
 	assert.Equal(t, node.QoSResourcesAllocatable.ReclaimedMilliCPU, int64(0))
 	assert.Equal(t, node.QoSResourcesAllocatable.ReclaimedMemory, int64(0))
 	assert.Equal(t, node.QoSResourcesRequested.ReclaimedMilliCPU, int64(2000))
-	assert.Equal(t, node.QoSResourcesRequested.ReclaimedMemory, int64(2*1024*0124*1024))
+	assert.Equal(t, node.QoSResourcesRequested.ReclaimedMemory, int64(2*1024*0o124*1024))
 
 	t.Log("### 2: update pod")
 	p1 = makeCachedPod("p1", "p1", map[v1.ResourceName]resource.Quantity{
 		consts.ReclaimedResourceMilliCPU: *resource.NewQuantity(3000, resource.DecimalSI),
-		consts.ReclaimedResourceMemory:   *resource.NewQuantity(3*1024*0124*1024, resource.DecimalSI),
+		consts.ReclaimedResourceMemory:   *resource.NewQuantity(3*1024*0o124*1024, resource.DecimalSI),
 	}, "c1")
 	updatePodInCache(p1, p1)
 
@@ -99,12 +99,12 @@ func Test_CalculateQoSResource(t *testing.T) {
 	assert.Equal(t, node.QoSResourcesAllocatable.ReclaimedMilliCPU, int64(0))
 	assert.Equal(t, node.QoSResourcesAllocatable.ReclaimedMemory, int64(0))
 	assert.Equal(t, node.QoSResourcesRequested.ReclaimedMilliCPU, int64(3000))
-	assert.Equal(t, node.QoSResourcesRequested.ReclaimedMemory, int64(3*1024*0124*1024))
+	assert.Equal(t, node.QoSResourcesRequested.ReclaimedMemory, int64(3*1024*0o124*1024))
 
 	t.Log("### 3: add new pod")
 	p2 := makeCachedPod("p2", "p2", map[v1.ResourceName]resource.Quantity{
 		consts.ReclaimedResourceMilliCPU: *resource.NewQuantity(2000, resource.DecimalSI),
-		consts.ReclaimedResourceMemory:   *resource.NewQuantity(2*1024*0124*1024, resource.DecimalSI),
+		consts.ReclaimedResourceMemory:   *resource.NewQuantity(2*1024*0o124*1024, resource.DecimalSI),
 	}, "c1")
 	addPodToCache(p2)
 
@@ -113,21 +113,21 @@ func Test_CalculateQoSResource(t *testing.T) {
 	assert.Equal(t, node.QoSResourcesAllocatable.ReclaimedMilliCPU, int64(0))
 	assert.Equal(t, node.QoSResourcesAllocatable.ReclaimedMemory, int64(0))
 	assert.Equal(t, node.QoSResourcesRequested.ReclaimedMilliCPU, int64(5000))
-	assert.Equal(t, node.QoSResourcesRequested.ReclaimedMemory, int64(5*1024*0124*1024))
+	assert.Equal(t, node.QoSResourcesRequested.ReclaimedMemory, int64(5*1024*0o124*1024))
 
 	t.Log("### 4: add cnr")
 	c1 := makeCachedCNR("c1", map[v1.ResourceName]resource.Quantity{
 		consts.ReclaimedResourceMilliCPU: *resource.NewQuantity(8000, resource.DecimalSI),
-		consts.ReclaimedResourceMemory:   *resource.NewQuantity(8*1024*0124*1024, resource.DecimalSI),
+		consts.ReclaimedResourceMemory:   *resource.NewQuantity(8*1024*0o124*1024, resource.DecimalSI),
 	})
 	addCNRToCache(c1)
 
 	node, err = cache.GetNodeInfo("c1")
 	assert.Nil(t, err)
 	assert.Equal(t, node.QoSResourcesAllocatable.ReclaimedMilliCPU, int64(8000))
-	assert.Equal(t, node.QoSResourcesAllocatable.ReclaimedMemory, int64(8*1024*0124*1024))
+	assert.Equal(t, node.QoSResourcesAllocatable.ReclaimedMemory, int64(8*1024*0o124*1024))
 	assert.Equal(t, node.QoSResourcesRequested.ReclaimedMilliCPU, int64(5000))
-	assert.Equal(t, node.QoSResourcesRequested.ReclaimedMemory, int64(5*1024*0124*1024))
+	assert.Equal(t, node.QoSResourcesRequested.ReclaimedMemory, int64(5*1024*0o124*1024))
 
 	t.Log("### 5: remove pod")
 	deletePodFromCache(p1)
@@ -135,23 +135,23 @@ func Test_CalculateQoSResource(t *testing.T) {
 	node, err = cache.GetNodeInfo("c1")
 	assert.Nil(t, err)
 	assert.Equal(t, node.QoSResourcesAllocatable.ReclaimedMilliCPU, int64(8000))
-	assert.Equal(t, node.QoSResourcesAllocatable.ReclaimedMemory, int64(8*1024*0124*1024))
+	assert.Equal(t, node.QoSResourcesAllocatable.ReclaimedMemory, int64(8*1024*0o124*1024))
 	assert.Equal(t, node.QoSResourcesRequested.ReclaimedMilliCPU, int64(2000))
-	assert.Equal(t, node.QoSResourcesRequested.ReclaimedMemory, int64(2*1024*0124*1024))
+	assert.Equal(t, node.QoSResourcesRequested.ReclaimedMemory, int64(2*1024*0o124*1024))
 
 	t.Log("### 6: update cnr")
 	c1 = makeCachedCNR("c1", map[v1.ResourceName]resource.Quantity{
 		consts.ReclaimedResourceMilliCPU: *resource.NewQuantity(9000, resource.DecimalSI),
-		consts.ReclaimedResourceMemory:   *resource.NewQuantity(9*1024*0124*1024, resource.DecimalSI),
+		consts.ReclaimedResourceMemory:   *resource.NewQuantity(9*1024*0o124*1024, resource.DecimalSI),
 	})
 	updateNodeInCache(c1, c1)
 
 	node, err = cache.GetNodeInfo("c1")
 	assert.Nil(t, err)
 	assert.Equal(t, node.QoSResourcesAllocatable.ReclaimedMilliCPU, int64(9000))
-	assert.Equal(t, node.QoSResourcesAllocatable.ReclaimedMemory, int64(9*1024*0124*1024))
+	assert.Equal(t, node.QoSResourcesAllocatable.ReclaimedMemory, int64(9*1024*0o124*1024))
 	assert.Equal(t, node.QoSResourcesRequested.ReclaimedMilliCPU, int64(2000))
-	assert.Equal(t, node.QoSResourcesRequested.ReclaimedMemory, int64(2*1024*0124*1024))
+	assert.Equal(t, node.QoSResourcesRequested.ReclaimedMemory, int64(2*1024*0o124*1024))
 
 	t.Log("### 7: delete cnr")
 	deleteCNRFromCache(c1)

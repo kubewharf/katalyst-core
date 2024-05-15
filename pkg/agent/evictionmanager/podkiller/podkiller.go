@@ -116,7 +116,6 @@ func (s *SynchronizedPodKiller) EvictPods(rpList rule.RuledEvictPodList) error {
 			errList = append(errList, err)
 		}
 		mtx.Unlock()
-
 	}
 	workqueue.ParallelizeUntil(context.Background(), 3, len(rpList), syncNodeUtilizationAndAdjust)
 
@@ -361,7 +360,6 @@ func splitEvictionKey(key string) (string, string, int64, error) {
 	}
 
 	gracePeriodSeconds, err := strconv.ParseInt(parts[2], 10, 64)
-
 	if err != nil {
 		return "", "", 0, fmt.Errorf("unexpected gracePeriodSeconds: %s", parts[2])
 	}

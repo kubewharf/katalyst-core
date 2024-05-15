@@ -51,7 +51,8 @@ const (
 )
 
 func NewSystemPressureEvictionPlugin(_ *client.GenericClientSet, _ events.EventRecorder,
-	metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter, conf *config.Configuration) plugin.EvictionPlugin {
+	metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter, conf *config.Configuration,
+) plugin.EvictionPlugin {
 	p := &SystemPressureEvictionPlugin{
 		pluginName:                EvictionPluginNameSystemMemoryPressure,
 		emitter:                   emitter,
@@ -116,7 +117,7 @@ func (s *SystemPressureEvictionPlugin) ThresholdMet(_ context.Context) (*plugina
 		return resp, nil
 	}
 
-	//TODO maybe we should set timeout for this lock operation in case it blocks the entire sync loop
+	// TODO maybe we should set timeout for this lock operation in case it blocks the entire sync loop
 	s.Lock()
 	defer s.Unlock()
 

@@ -27,7 +27,7 @@ import (
 )
 
 const (
-	ORMAgent = "katalyst-agent-orm"
+	ORMAgent = orm.ORMAgentName
 )
 
 func InitORM(agentCtx *GenericContext, conf *config.Configuration, _ interface{}, _ string) (bool, Component, error) {

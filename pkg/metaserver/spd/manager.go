@@ -91,7 +91,8 @@ type DummyServiceProfilingManager struct {
 }
 
 func (d *DummyServiceProfilingManager) ServiceAggregateMetrics(_ context.Context, podMeta metav1.ObjectMeta, _ v1.ResourceName,
-	_ bool, _, _, _ workloadapis.Aggregator) (*resource.Quantity, error) {
+	_ bool, _, _, _ workloadapis.Aggregator,
+) (*resource.Quantity, error) {
 	profile, ok := d.podProfiles[podMeta.UID]
 	if !ok {
 		return &resource.Quantity{}, nil
@@ -141,7 +142,8 @@ type serviceProfilingManager struct {
 
 // ServiceAggregateMetrics get service aggregate metrics by given resource name and aggregators
 func (m *serviceProfilingManager) ServiceAggregateMetrics(ctx context.Context, podMeta metav1.ObjectMeta, name v1.ResourceName, milliValue bool,
-	podAggregator, containerAggregator, metricsAggregator workloadapis.Aggregator) (*resource.Quantity, error) {
+	podAggregator, containerAggregator, metricsAggregator workloadapis.Aggregator,
+) (*resource.Quantity, error) {
 	spd, err := m.fetcher.GetSPD(ctx, podMeta)
 	if err != nil {
 		return nil, err
@@ -246,8 +248,10 @@ func (m *serviceProfilingManager) ServiceExtendedIndicator(ctx context.Context, 
 		return util.IsExtendedBaselinePod(podMeta, indicator.BaselinePercent, extendedBaselineSentinel, name)
 	}
 
-	return false, errors.NewNotFound(schema.GroupResource{Group: workloadapis.GroupName,
-		Resource: strings.ToLower(o.GetObjectKind().GroupVersionKind().Kind)}, name)
+	return false, errors.NewNotFound(schema.GroupResource{
+		Group:    workloadapis.GroupName,
+		Resource: strings.ToLower(o.GetObjectKind().GroupVersionKind().Kind),
+	}, name)
 }
 
 func (m *serviceProfilingManager) ServiceBaseline(ctx context.Context, podMeta metav1.ObjectMeta) (bool, error) {

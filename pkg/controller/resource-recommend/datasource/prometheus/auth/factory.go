@@ -70,8 +70,8 @@ func GetRegisteredRoundTripperFactoryInitializers() map[AuthType]RoundTripperFac
 }
 
 func GetRoundTripper(c *ClientAuth, next http.RoundTripper,
-	initializers map[AuthType]RoundTripperFactoryInitFunc) (http.RoundTripper, error) {
-
+	initializers map[AuthType]RoundTripperFactoryInitFunc,
+) (http.RoundTripper, error) {
 	initFunc := initializers[AuthType(c.Type)]
 	roundTripperFactory, err := initFunc(next)
 	if err != nil {

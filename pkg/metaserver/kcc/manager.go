@@ -127,7 +127,8 @@ type DynamicConfigManager struct {
 
 // NewDynamicConfigManager new a dynamic config manager use katalyst custom config sdk.
 func NewDynamicConfigManager(clientSet *client.GenericClientSet, emitter metrics.MetricEmitter,
-	cncFetcher cnc.CNCFetcher, conf *pkgconfig.Configuration) (ConfigurationManager, error) {
+	cncFetcher cnc.CNCFetcher, conf *pkgconfig.Configuration,
+) (ConfigurationManager, error) {
 	configLoader := NewKatalystCustomConfigLoader(clientSet, conf.ConfigCacheTTL, cncFetcher)
 
 	checkpointManager, err := checkpointmanager.NewCheckpointManager(conf.CheckpointManagerDir)
@@ -155,7 +156,6 @@ func (c *DynamicConfigManager) AddConfigWatcher(gvrs ...metav1.GroupVersionResou
 		if oldGVR, ok := c.resourceGVRMap[gvr.Resource]; ok && gvr != oldGVR {
 			return fmt.Errorf("resource %s already reggistered by gvrs %s which is different with %s",
 				gvr.Resource, oldGVR.String(), gvr.String())
-
 		}
 
 		c.resourceGVRMap[gvr.Resource] = gvr
@@ -276,7 +276,8 @@ func (c *DynamicConfigManager) readCheckpoint() (ConfigManagerCheckpoint, error)
 
 func (c *DynamicConfigManager) updateDynamicConfig(resourceGVRMap map[string]metav1.GroupVersionResource,
 	gvrToKind map[schema.GroupVersionResource]schema.GroupVersionKind,
-	loader func(gvr metav1.GroupVersionResource, conf interface{}) error) (*crd.DynamicConfigCRD, bool, error) {
+	loader func(gvr metav1.GroupVersionResource, conf interface{}) error,
+) (*crd.DynamicConfigCRD, bool, error) {
 	dynamicConfiguration := &crd.DynamicConfigCRD{}
 	success := false
 
@@ -351,7 +352,8 @@ func getGVRToGVKMap() map[schema.GroupVersionResource]schema.GroupVersionKind {
 }
 
 func applyDynamicConfig(config *dynamic.Configuration,
-	dynamicConfigCRD *crd.DynamicConfigCRD) {
+	dynamicConfigCRD *crd.DynamicConfigCRD,
+) {
 	config.ApplyConfiguration(dynamicConfigCRD)
 }
 

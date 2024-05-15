@@ -30,7 +30,8 @@ func init() { RegisterSDManagerInitializers(ServiceDiscoveryDummy, NewDummyServi
 type DummyServiceDiscoveryManager struct{}
 
 func NewDummyServiceDiscoveryManager(_ context.Context, _ *katalystbase.GenericContext,
-	_ *generic.ServiceDiscoveryConf) (ServiceDiscoveryManager, error) {
+	_ *generic.ServiceDiscoveryConf,
+) (ServiceDiscoveryManager, error) {
 	return DummyServiceDiscoveryManager{}, nil
 }
 

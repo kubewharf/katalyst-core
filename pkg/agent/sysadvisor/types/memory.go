@@ -22,8 +22,10 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 )
 
-type MemoryAdvisorPluginName string
-type MemoryPressureState int
+type (
+	MemoryAdvisorPluginName string
+	MemoryPressureState     int
+)
 
 // MemoryHeadroomPolicyName defines policy names for memory advisor headroom estimation
 type MemoryHeadroomPolicyName string

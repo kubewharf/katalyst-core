@@ -57,9 +57,11 @@ type DummyMetrics struct{}
 func (d DummyMetrics) StoreInt64(_ string, _ int64, _ MetricTypeName, _ ...MetricTag) error {
 	return nil
 }
+
 func (d DummyMetrics) StoreFloat64(_ string, _ float64, _ MetricTypeName, _ ...MetricTag) error {
 	return nil
 }
+
 func (d DummyMetrics) WithTags(unit string, commonTags ...MetricTag) MetricEmitter {
 	newMetricTagWrapper := &MetricTagWrapper{MetricEmitter: d}
 	return newMetricTagWrapper.WithTags(unit, commonTags...)

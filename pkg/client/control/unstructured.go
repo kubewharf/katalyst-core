@@ -66,37 +66,44 @@ type UnstructuredControl interface {
 type DummyUnstructuredControl struct{}
 
 func (d DummyUnstructuredControl) CreateUnstructured(_ context.Context, _ metav1.GroupVersionResource,
-	obj *unstructured.Unstructured, _ metav1.CreateOptions) (*unstructured.Unstructured, error) {
+	obj *unstructured.Unstructured, _ metav1.CreateOptions,
+) (*unstructured.Unstructured, error) {
 	return obj, nil
 }
 
 func (d DummyUnstructuredControl) GetUnstructured(_ context.Context, _ metav1.GroupVersionResource,
-	_, _ string, _ metav1.GetOptions) (*unstructured.Unstructured, error) {
+	_, _ string, _ metav1.GetOptions,
+) (*unstructured.Unstructured, error) {
 	return nil, nil
 }
 
 func (d DummyUnstructuredControl) UpdateUnstructured(_ context.Context, _ metav1.GroupVersionResource,
-	obj *unstructured.Unstructured, _ metav1.UpdateOptions) (*unstructured.Unstructured, error) {
+	obj *unstructured.Unstructured, _ metav1.UpdateOptions,
+) (*unstructured.Unstructured, error) {
 	return obj, nil
 }
 
 func (d DummyUnstructuredControl) PatchUnstructured(_ context.Context, _ metav1.GroupVersionResource,
-	_, newObj *unstructured.Unstructured) (*unstructured.Unstructured, error) {
+	_, newObj *unstructured.Unstructured,
+) (*unstructured.Unstructured, error) {
 	return newObj, nil
 }
 
 func (d DummyUnstructuredControl) UpdateUnstructuredStatus(_ context.Context, _ metav1.GroupVersionResource,
-	obj *unstructured.Unstructured, _ metav1.UpdateOptions) (*unstructured.Unstructured, error) {
+	obj *unstructured.Unstructured, _ metav1.UpdateOptions,
+) (*unstructured.Unstructured, error) {
 	return obj, nil
 }
 
 func (d DummyUnstructuredControl) PatchUnstructuredStatus(_ context.Context, _ metav1.GroupVersionResource,
-	_, newObj *unstructured.Unstructured) (*unstructured.Unstructured, error) {
+	_, newObj *unstructured.Unstructured,
+) (*unstructured.Unstructured, error) {
 	return newObj, nil
 }
 
 func (d DummyUnstructuredControl) DeleteUnstructured(_ context.Context, _ metav1.GroupVersionResource,
-	_ *unstructured.Unstructured, _ metav1.DeleteOptions) error {
+	_ *unstructured.Unstructured, _ metav1.DeleteOptions,
+) error {
 	return nil
 }
 
@@ -105,7 +112,8 @@ type RealUnstructuredControl struct {
 }
 
 func (r *RealUnstructuredControl) CreateUnstructured(ctx context.Context, gvr metav1.GroupVersionResource,
-	obj *unstructured.Unstructured, opts metav1.CreateOptions) (*unstructured.Unstructured, error) {
+	obj *unstructured.Unstructured, opts metav1.CreateOptions,
+) (*unstructured.Unstructured, error) {
 	schemaGVR := schema.GroupVersionResource(gvr)
 
 	if obj.GetNamespace() != "" {
@@ -116,7 +124,8 @@ func (r *RealUnstructuredControl) CreateUnstructured(ctx context.Context, gvr me
 }
 
 func (r *RealUnstructuredControl) GetUnstructured(ctx context.Context, gvr metav1.GroupVersionResource,
-	namespace, name string, opts metav1.GetOptions) (*unstructured.Unstructured, error) {
+	namespace, name string, opts metav1.GetOptions,
+) (*unstructured.Unstructured, error) {
 	schemaGVR := schema.GroupVersionResource(gvr)
 
 	if namespace != "" {
@@ -127,7 +136,8 @@ func (r *RealUnstructuredControl) GetUnstructured(ctx context.Context, gvr metav
 }
 
 func (r *RealUnstructuredControl) UpdateUnstructured(ctx context.Context, gvr metav1.GroupVersionResource,
-	obj *unstructured.Unstructured, opts metav1.UpdateOptions) (*unstructured.Unstructured, error) {
+	obj *unstructured.Unstructured, opts metav1.UpdateOptions,
+) (*unstructured.Unstructured, error) {
 	if obj == nil {
 		return nil, fmt.Errorf("can't update a nil Unstructured obj")
 	}
@@ -141,7 +151,8 @@ func (r *RealUnstructuredControl) UpdateUnstructured(ctx context.Context, gvr me
 }
 
 func (r *RealUnstructuredControl) PatchUnstructured(ctx context.Context, gvr metav1.GroupVersionResource,
-	oldObj, newObj *unstructured.Unstructured) (*unstructured.Unstructured, error) {
+	oldObj, newObj *unstructured.Unstructured,
+) (*unstructured.Unstructured, error) {
 	patchBytes, err := prepareUnstructuredPatchBytes(oldObj, newObj)
 	if err != nil {
 		return nil, err
@@ -156,7 +167,8 @@ func (r *RealUnstructuredControl) PatchUnstructured(ctx context.Context, gvr met
 }
 
 func (r *RealUnstructuredControl) UpdateUnstructuredStatus(ctx context.Context, gvr metav1.GroupVersionResource,
-	obj *unstructured.Unstructured, opts metav1.UpdateOptions) (*unstructured.Unstructured, error) {
+	obj *unstructured.Unstructured, opts metav1.UpdateOptions,
+) (*unstructured.Unstructured, error) {
 	if obj == nil {
 		return nil, fmt.Errorf("can't update a nil Unstructured obj's status")
 	}
@@ -170,7 +182,8 @@ func (r *RealUnstructuredControl) UpdateUnstructuredStatus(ctx context.Context, 
 }
 
 func (r *RealUnstructuredControl) PatchUnstructuredStatus(ctx context.Context, gvr metav1.GroupVersionResource,
-	oldObj, newObj *unstructured.Unstructured) (*unstructured.Unstructured, error) {
+	oldObj, newObj *unstructured.Unstructured,
+) (*unstructured.Unstructured, error) {
 	patchBytes, err := prepareUnstructuredStatusPatchBytes(oldObj, newObj)
 	if err != nil {
 		return nil, err

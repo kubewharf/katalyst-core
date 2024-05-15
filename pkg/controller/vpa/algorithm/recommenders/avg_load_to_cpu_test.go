@@ -95,7 +95,8 @@ func TestGetRecommendedPodResources(t *testing.T) {
 						ContainerName: pointer.String("c1"),
 						Requests: &apis.RecommendedRequestResources{
 							Resources: map[v1.ResourceName]resource.Quantity{
-								v1.ResourceCPU: *resource.NewMilliQuantity(20000, resource.DecimalSI)},
+								v1.ResourceCPU: *resource.NewMilliQuantity(20000, resource.DecimalSI),
+							},
 						},
 					},
 				},
@@ -113,5 +114,4 @@ func TestGetRecommendedPodResources(t *testing.T) {
 			assert.IsType(t, tc.want.err, err)
 		})
 	}
-
 }

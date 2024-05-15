@@ -70,7 +70,8 @@ type LoadIsolator struct {
 }
 
 func NewLoadIsolator(conf *config.Configuration, _ interface{}, emitter metrics.MetricEmitter,
-	metaCache metacache.MetaReader, metaServer *metaserver.MetaServer) Isolator {
+	metaCache metacache.MetaReader, metaServer *metaserver.MetaServer,
+) Isolator {
 	return &LoadIsolator{
 		conf: conf.CPUIsolationConfiguration,
 

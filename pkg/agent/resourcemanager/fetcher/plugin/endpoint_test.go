@@ -30,13 +30,11 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 )
 
-var (
-	testGroupVersionKind = v1.GroupVersionKind{
-		Group:   "test-group",
-		Kind:    "test-kind",
-		Version: "test-version",
-	}
-)
+var testGroupVersionKind = v1.GroupVersionKind{
+	Group:   "test-group",
+	Kind:    "test-kind",
+	Version: "test-version",
+}
 
 func TestNewEndpoint(t *testing.T) {
 	t.Parallel()

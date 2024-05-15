@@ -60,7 +60,8 @@ type QoSAwarePlugin struct {
 
 // NewQoSAwarePlugin creates a qos aware plugin with the specified config
 func NewQoSAwarePlugin(pluginName string, conf *config.Configuration, extraConf interface{}, emitterPool metricspool.MetricsEmitterPool,
-	metaServer *metaserver.MetaServer, metaCache metacache.MetaCache) (plugin.SysAdvisorPlugin, error) {
+	metaServer *metaserver.MetaServer, metaCache metacache.MetaCache,
+) (plugin.SysAdvisorPlugin, error) {
 	emitter := emitterPool.GetDefaultMetricsEmitter().WithTags("advisor-qosaware")
 
 	resourceAdvisor, err := resource.NewResourceAdvisor(conf, extraConf, metaCache, metaServer, emitter)
@@ -91,8 +92,14 @@ func NewQoSAwarePlugin(pluginName string, conf *config.Configuration, extraConf 
 		}
 	}
 
-	// add dynamic config watcher
+	// add AdminQos dynamic config watcher
 	err = metaServer.ConfigurationManager.AddConfigWatcher(crd.AdminQoSConfigurationGVR)
+	if err != nil {
+		return nil, err
+	}
+
+	// add TransparentMemoryOffloading dynamic config watcher
+	err = metaServer.ConfigurationManager.AddConfigWatcher(crd.TransparentMemoryOffloadingConfigurationGVR)
 	if err != nil {
 		return nil, err
 	}

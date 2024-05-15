@@ -72,7 +72,8 @@ type CNRTaintHelper struct {
 // NewTaintHelper todo add logic here
 func NewTaintHelper(ctx context.Context, emitter metrics.MetricEmitter, cnrControl control.CNRControl,
 	nodeLister corelisters.NodeLister, cnrLister listers.CustomNodeResourceLister,
-	queue *scheduler.RateLimitedTimedQueue, checker *HealthzHelper) *CNRTaintHelper {
+	queue *scheduler.RateLimitedTimedQueue, checker *HealthzHelper,
+) *CNRTaintHelper {
 	return &CNRTaintHelper{
 		ctx:        ctx,
 		emitter:    emitter,

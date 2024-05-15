@@ -47,7 +47,8 @@ const (
 )
 
 func makeSuppressionEvictionConf(cpuMaxSuppressionToleranceRate float64,
-	cpuMinSuppressionToleranceDuration time.Duration) *config.Configuration {
+	cpuMinSuppressionToleranceDuration time.Duration,
+) *config.Configuration {
 	conf := config.NewConfiguration()
 	conf.GetDynamicConfiguration().EnableSuppressionEviction = true
 	conf.GetDynamicConfiguration().MaxSuppressionToleranceRate = cpuMaxSuppressionToleranceRate

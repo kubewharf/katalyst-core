@@ -77,7 +77,6 @@ func (m *manager) ApplyMemory(absCgroupPath string, data *common.MemoryData) err
 			klog.Infof("[CgroupV1] apply memory wmark successfully, cgroupPath: %s, data: %v, old data: %v\n", absCgroupPath, data.WmarkRatio, oldData)
 		}
 	}
-
 	return nil
 }
 
@@ -124,7 +123,6 @@ func (m *manager) ApplyCPU(absCgroupPath string, data *common.CPUData) error {
 		var cpuIdleValue int64
 		if *data.CpuIdlePtr {
 			cpuIdleValue = 1
-
 		} else {
 			cpuIdleValue = 0
 		}
@@ -299,13 +297,11 @@ func (m *manager) GetCPUSet(absCgroupPath string) (*common.CPUSetStats, error) {
 
 	var err error
 	cpusetStats.CPUs, err = fscommon.GetCgroupParamString(absCgroupPath, "cpuset.cpus")
-
 	if err != nil {
 		return nil, fmt.Errorf("read cpuset.cpus failed with error: %v", err)
 	}
 
 	cpusetStats.Mems, err = fscommon.GetCgroupParamString(absCgroupPath, "cpuset.mems")
-
 	if err != nil {
 		return nil, fmt.Errorf("read cpuset.mems failed with error: %v", err)
 	}

@@ -56,7 +56,8 @@ func (e SMTAlignmentError) Type() string {
 }
 
 func (p *NativePolicy) dedicatedCoresAllocationHandler(_ context.Context,
-	req *pluginapi.ResourceRequest) (*pluginapi.ResourceAllocationResponse, error) {
+	req *pluginapi.ResourceRequest,
+) (*pluginapi.ResourceAllocationResponse, error) {
 	if req == nil {
 		return nil, fmt.Errorf("dedicatedCoresAllocationHandler got nil req")
 	}
@@ -155,7 +156,8 @@ func (p *NativePolicy) dedicatedCoresAllocationHandler(_ context.Context,
 }
 
 func (p *NativePolicy) sharedPoolAllocationHandler(ctx context.Context,
-	req *pluginapi.ResourceRequest) (*pluginapi.ResourceAllocationResponse, error) {
+	req *pluginapi.ResourceRequest,
+) (*pluginapi.ResourceAllocationResponse, error) {
 	if req == nil {
 		return nil, fmt.Errorf("dedicatedCoresAllocationHandler got nil req")
 	}

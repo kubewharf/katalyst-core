@@ -79,7 +79,8 @@ func Run(conf *config.Configuration, clientSet *client.GenericClientSet, generic
 
 // startAgent is used to initialize and start each component in katalyst-agent
 func startAgent(ctx context.Context, genericCtx *agent.GenericContext,
-	conf *config.Configuration, agents map[string]AgentStarter) error {
+	conf *config.Configuration, agents map[string]AgentStarter,
+) error {
 	componentMap := make(map[string]agent.Component)
 	monitorAgentStart(genericCtx)
 	for agentName, starter := range agents {

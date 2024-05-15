@@ -50,7 +50,8 @@ type resourceToValueMap map[v1.ResourceName]int64
 
 // score will use `scorer` function to calculate the score.
 func (r *resourceAllocationScorer) score(
-	pod *v1.Pod, extendedNodeInfo *cache.NodeInfo, nodeName string) (int64, *framework.Status) {
+	pod *v1.Pod, extendedNodeInfo *cache.NodeInfo, nodeName string,
+) (int64, *framework.Status) {
 	if r.resourceToWeightMap == nil {
 		return 0, framework.NewStatus(framework.Error, "resources not found")
 	}

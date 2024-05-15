@@ -16,8 +16,7 @@ limitations under the License.
 
 package controller
 
-type TideConfig struct {
-}
+type TideConfig struct{}
 
 func NewTideConfig() *TideConfig {
 	return &TideConfig{}

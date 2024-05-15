@@ -84,7 +84,8 @@ type podFetcherImpl struct {
 }
 
 func NewPodFetcher(baseConf *global.BaseConfiguration, podConf *metaserver.PodConfiguration,
-	emitter metrics.MetricEmitter) (PodFetcher, error) {
+	emitter metrics.MetricEmitter,
+) (PodFetcher, error) {
 	runtimePodFetcher, err := NewRuntimePodFetcher(baseConf)
 	if err != nil {
 		klog.Errorf("init runtime pod fetcher failed: %v", err)

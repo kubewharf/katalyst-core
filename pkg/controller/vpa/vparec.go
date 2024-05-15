@@ -441,7 +441,8 @@ func (rec *VerticalPodAutoScaleRecommendationController) clearVPAAnnotations(vpa
 
 // updateVPAStatus is used to set status for vpa
 func (rec *VerticalPodAutoScaleRecommendationController) updateVPAStatus(vpa *apis.KatalystVerticalPodAutoscaler,
-	vpaPodResources []apis.PodResources, vpaContainerResources []apis.ContainerResources) error {
+	vpaPodResources []apis.PodResources, vpaContainerResources []apis.ContainerResources,
+) error {
 	vpaNew := vpa.DeepCopy()
 	vpaNew.Status.PodResources = vpaPodResources
 	vpaNew.Status.ContainerResources = vpaContainerResources
@@ -459,7 +460,8 @@ func (rec *VerticalPodAutoScaleRecommendationController) updateVPAStatus(vpa *ap
 
 // updateVPAStatus is used to set status for vpaRec
 func (rec *VerticalPodAutoScaleRecommendationController) updateVPARecStatus(vpaRec *apis.VerticalPodAutoscalerRecommendation,
-	recPodResources []apis.RecommendedPodResources, recContainerResources []apis.RecommendedContainerResources) error {
+	recPodResources []apis.RecommendedPodResources, recContainerResources []apis.RecommendedContainerResources,
+) error {
 	vpaRecNew := vpaRec.DeepCopy()
 	vpaRecNew.Status.PodRecommendations = recPodResources
 	vpaRecNew.Status.ContainerRecommendations = recContainerResources

@@ -73,7 +73,8 @@ func makeMetaServer(metricsFetcher metrictypes.MetricsFetcher, cpuTopology *mach
 }
 
 func makeConf(metricRingSize int, gracePeriod int64, loadUpperBoundRatio,
-	loadThresholdMetPercentage float64, reservedForReclaim, reservedForAllocate string, reservedForSystem int) *config.Configuration {
+	loadThresholdMetPercentage float64, reservedForReclaim, reservedForAllocate string, reservedForSystem int,
+) *config.Configuration {
 	conf := config.NewConfiguration()
 	conf.GetDynamicConfiguration().EnableLoadEviction = true
 	conf.GetDynamicConfiguration().LoadMetricRingSize = metricRingSize

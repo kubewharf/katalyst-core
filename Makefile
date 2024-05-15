@@ -54,19 +54,22 @@ generate:
 .PHONY: generate-pb
 generate-pb: generate-sys-advisor-cpu-plugin generate-advisor-svc generate-borwein-inference-svc
 
+TempRepoDir := $(shell mktemp -d)
 SysAdvisorCPUPluginPath = $(MakeFilePath)/pkg/agent/qrm-plugins/cpu/dynamicpolicy/cpuadvisor/
 .PHONY: generate-sys-advisor-cpu-plugin ## Generate protocol for cpu resource plugin with sys-advisor
 generate-sys-advisor-cpu-plugin:
-	if [ ! -d $(GOPATH)/src/github.com/kubewharf/kubelet ]; then git clone https://github.com/kubewharf/kubelet.git $(GOPATH)/src/github.com/kubewharf/kubelet; fi
+	mkdir -p $(TempRepoDir)/github.com/kubewharf && \
+	mkdir -p $(TempRepoDir)/github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/advisorsvc && \
+	mkdir -p $(TempRepoDir)/github.com/gogo && \
+	git clone https://github.com/kubewharf/kubelet.git $(TempRepoDir)/github.com/kubewharf/kubelet && \
+	git clone https://github.com/gogo/protobuf.git $(TempRepoDir)/github.com/gogo/protobuf && \
+	cp -f $(MakeFilePath)/pkg/agent/qrm-plugins/advisorsvc/advisor_svc.proto $(TempRepoDir)/github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/advisorsvc/ && \
 	targetTag=`cat $(MakeFilePath)/go.mod | grep kubewharf/kubelet | awk '{print $$4}'` && \
-        cd $(GOPATH)/src/github.com/kubewharf/kubelet && \
+        cd $(TempRepoDir)/github.com/kubewharf/kubelet && \
 		git fetch --tags && \
-		originalBranch=`git symbolic-ref --short -q HEAD` && \
 		git checkout $$targetTag && \
 		cd - && \
-		protoc -I=$(SysAdvisorCPUPluginPath) -I=$(GOPATH)/src/ -I=$(GOPATH)/pkg/mod/ --gogo_out=plugins=grpc,paths=source_relative:$(SysAdvisorCPUPluginPath) $(SysAdvisorCPUPluginPath)cpu.proto && \
-		cd - && \
-		git checkout $$originalBranch
+		protoc -I=$(SysAdvisorCPUPluginPath) -I=$(TempRepoDir) --gogo_out=plugins=grpc,paths=source_relative:$(SysAdvisorCPUPluginPath) $(SysAdvisorCPUPluginPath)cpu.proto && \
 	cat $(MakeFilePath)/hack/boilerplate.go.txt "$(SysAdvisorCPUPluginPath)cpu.pb.go" > tmpfile && mv tmpfile "$(SysAdvisorCPUPluginPath)cpu.pb.go"
 	if [ `uname` == "Linux" ]; then sedi=(-i); else sedi=(-i ""); fi && \
 		sed "$${sedi[@]}" s,github.com/kubewharf/kubelet,k8s.io/kubelet,g $(SysAdvisorCPUPluginPath)cpu.pb.go
@@ -74,16 +77,12 @@ generate-sys-advisor-cpu-plugin:
 AdvisorSvcPath = $(MakeFilePath)/pkg/agent/qrm-plugins/advisorsvc/
 .PHONY: generate-advisor-svc ## Generate protocol for general qrm-plugin with sys-advisor
 generate-advisor-svc:
-	if [ ! -d $(GOPATH)/src/github.com/kubewharf/kubelet ]; then git clone https://github.com/kubewharf/kubelet.git $(GOPATH)/src/github.com/kubewharf/kubelet; fi
 	targetTag=`cat $(MakeFilePath)/go.mod | grep kubewharf/kubelet | awk '{print $$4}'` && \
         cd $(GOPATH)/src/github.com/kubewharf/kubelet && \
 		git fetch --tags && \
-		originalBranch=`git symbolic-ref --short -q HEAD` && \
 		git checkout $$targetTag && \
 		cd - && \
-		protoc -I=$(AdvisorSvcPath) -I=$(GOPATH)/src/ -I=$(GOPATH)/pkg/mod/ --gogo_out=plugins=grpc,paths=source_relative:$(AdvisorSvcPath) $(AdvisorSvcPath)advisor_svc.proto && \
-		cd - && \
-		git checkout $$originalBranch
+		protoc -I=$(AdvisorSvcPath) -I=$(TempRepoDir) --gogo_out=plugins=grpc,paths=source_relative:$(AdvisorSvcPath) $(AdvisorSvcPath)advisor_svc.proto && \
 	cat $(MakeFilePath)/hack/boilerplate.go.txt "$(AdvisorSvcPath)advisor_svc.pb.go" > tmpfile && mv tmpfile "$(AdvisorSvcPath)advisor_svc.pb.go"
 	if [ `uname` == "Linux" ]; then sedi=(-i); else sedi=(-i ""); fi && \
 		sed "$${sedi[@]}" s,github.com/kubewharf/kubelet,k8s.io/kubelet,g $(AdvisorSvcPath)advisor_svc.pb.go
@@ -91,7 +90,7 @@ generate-advisor-svc:
 BorweinInferenceSvcPath = $(MakeFilePath)/pkg/agent/sysadvisor/plugin/inference/models/borwein/inferencesvc/
 .PHONY: generate-borwein-inference-svc ## Generate protocol for borwein inference service
 generate-borwein-inference-svc:
-	protoc -I=$(BorweinInferenceSvcPath) -I=$(GOPATH)/src/ -I=$(GOPATH)/pkg/mod/ --gogo_out=plugins=grpc,paths=source_relative:$(BorweinInferenceSvcPath) $(BorweinInferenceSvcPath)inference_svc.proto && \
+	protoc -I=$(BorweinInferenceSvcPath) -I=$(TempRepoDir) --gogo_out=plugins=grpc,paths=source_relative:$(BorweinInferenceSvcPath) $(BorweinInferenceSvcPath)inference_svc.proto && \
 	cat $(MakeFilePath)/hack/boilerplate.go.txt "$(BorweinInferenceSvcPath)inference_svc.pb.go" > tmpfile && mv tmpfile "$(BorweinInferenceSvcPath)inference_svc.pb.go"
 
 
@@ -112,6 +111,10 @@ clean-bin: ## Remove all generated binaries
 .PHONY: fmt
 fmt: ## Run go fmt against code.
 	go fmt ./...
+
+.PHONY: fmt-strict
+fmt-strict: ## Run go fmt against code.
+	gofumpt -l -w .
 
 .PHONY: vet
 vet: ## Run go vet against code.

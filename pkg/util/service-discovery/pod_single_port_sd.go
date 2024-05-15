@@ -59,7 +59,8 @@ type podSinglePortSDManager struct {
 }
 
 func NewPodSinglePortSDManager(ctx context.Context, agentCtx *katalystbase.GenericContext,
-	conf *generic.ServiceDiscoveryConf) (ServiceDiscoveryManager, error) {
+	conf *generic.ServiceDiscoveryConf,
+) (ServiceDiscoveryManager, error) {
 	klog.Infof("%v sd manager enabled with pod selector: %v", ServiceDiscoveryPodSinglePort, conf.PodLister.String())
 	podFactory := informers.NewSharedInformerFactoryWithOptions(agentCtx.Client.KubeClient, defaultPodReSyncPeriod,
 		informers.WithTweakListOptions(func(options *metav1.ListOptions) {

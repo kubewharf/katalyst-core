@@ -58,7 +58,8 @@ func GetRelatedCNCForTargetConfig(customNodeConfigLister v1alpha1.CustomNodeConf
 
 // ApplyKCCTargetConfigToCNC sets the hash value for the given configurations in CNC
 func ApplyKCCTargetConfigToCNC(cnc *apisv1alpha1.CustomNodeConfig,
-	gvr metav1.GroupVersionResource, kccTarget *unstructured.Unstructured) {
+	gvr metav1.GroupVersionResource, kccTarget *unstructured.Unstructured,
+) {
 	// only allow one kccTarget for same gvr of a cnc
 	if cnc == nil || kccTarget == nil {
 		return
@@ -209,7 +210,8 @@ func findMatchedKCCTargetConfigForNode(cnc *apisv1alpha1.CustomNodeConfig, kccTa
 
 // UpdateKCCTGenericConditions is used to update conditions for kcc
 func UpdateKCCTGenericConditions(status *apisv1alpha1.GenericConfigStatus, conditionType apisv1alpha1.ConfigConditionType,
-	conditionStatus v1.ConditionStatus, reason, message string) bool {
+	conditionStatus v1.ConditionStatus, reason, message string,
+) bool {
 	var (
 		updated bool
 		found   bool
@@ -254,11 +256,10 @@ func UpdateKCCTGenericConditions(status *apisv1alpha1.GenericConfigStatus, condi
 // EnsureKCCTargetFinalizer is used to add finalizer in kcc target
 // any component (that depends on kcc target) should add a specific finalizer in the target CR
 func EnsureKCCTargetFinalizer(ctx context.Context, unstructuredControl control.UnstructuredControl, finalizerName string,
-	gvr metav1.GroupVersionResource, target *unstructured.Unstructured) (*unstructured.Unstructured, error) {
+	gvr metav1.GroupVersionResource, target *unstructured.Unstructured,
+) (*unstructured.Unstructured, error) {
 	err := retry.RetryOnConflict(retry.DefaultBackoff, func() error {
-		var (
-			err, getErr error
-		)
+		var err, getErr error
 		if controllerutil.ContainsFinalizer(target, finalizerName) {
 			return nil
 		}
@@ -285,11 +286,10 @@ func EnsureKCCTargetFinalizer(ctx context.Context, unstructuredControl control.U
 // RemoveKCCTargetFinalizer is used to remove finalizer in kcc target
 // any component (that depends on kcc target) should make sure its dependency has been relieved before remove
 func RemoveKCCTargetFinalizer(ctx context.Context, unstructuredControl control.UnstructuredControl, finalizerName string,
-	gvr metav1.GroupVersionResource, target *unstructured.Unstructured) error {
+	gvr metav1.GroupVersionResource, target *unstructured.Unstructured,
+) error {
 	err := retry.RetryOnConflict(retry.DefaultBackoff, func() error {
-		var (
-			err, getErr error
-		)
+		var err, getErr error
 
 		if !controllerutil.ContainsFinalizer(target, finalizerName) {
 			return nil

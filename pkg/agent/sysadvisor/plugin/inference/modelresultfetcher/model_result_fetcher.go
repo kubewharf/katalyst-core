@@ -39,13 +39,15 @@ var _ ModelResultFetcher = DummyModelResultFetcher{}
 type DummyModelResultFetcher struct{}
 
 func (d DummyModelResultFetcher) FetchModelResult(ctx context.Context, metaReader metacache.MetaReader,
-	metaWriter metacache.MetaWriter, metaServer *metaserver.MetaServer) error {
+	metaWriter metacache.MetaWriter, metaServer *metaserver.MetaServer,
+) error {
 	return nil
 }
 
 func NewDummyModelResultFetcher(fetcherName string, conf *config.Configuration, extraConf interface{},
 	emitterPool metricspool.MetricsEmitterPool, metaServer *metaserver.MetaServer,
-	metaCache metacache.MetaCache) (ModelResultFetcher, error) {
+	metaCache metacache.MetaCache,
+) (ModelResultFetcher, error) {
 	return DummyModelResultFetcher{}, nil
 }
 

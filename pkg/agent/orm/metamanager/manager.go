@@ -50,7 +50,8 @@ type Manager struct {
 func NewManager(
 	emitter metrics.MetricEmitter,
 	cachedPods CachedPodListFunc,
-	metaServer *metaserver.MetaServer) *Manager {
+	metaServer *metaserver.MetaServer,
+) *Manager {
 	m := &Manager{
 		emitter:            emitter,
 		MetaServer:         metaServer,
@@ -68,7 +69,6 @@ func (m *Manager) Run(ctx context.Context, reconcilePeriod time.Duration) {
 }
 
 func (m *Manager) reconcile() {
-
 	activePods, err := m.MetaServer.GetPodList(m.ctx, native.PodIsActive)
 	if err != nil {
 		klog.Errorf("metamanager reconcile GetPodList fail: %v", err)
@@ -87,6 +87,33 @@ func (m *Manager) reconcile() {
 	if len(podsTobeRemoved) > 0 {
 		m.notifyDeletePods(podsTobeRemoved)
 	}
+}
+
+// ReconcilePods returns a list of new pods and pod should be deleted
+func (m *Manager) ReconcilePods() ([]string, map[string]struct{}, error) {
+	activePods, err := m.MetaServer.GetPodList(m.ctx, native.PodIsActive)
+	if err != nil {
+		klog.Errorf("metamanager reconcile GetPodList fail: %v", err)
+		_ = m.emitter.StoreInt64(MetricReconcileFail, 1, metrics.MetricTypeNameRaw)
+		return nil, nil, err
+	}
+
+	// reconcile new pods
+	podsToBeAdded := m.reconcileNewPods(activePods)
+
+	// reconcile pod terminated and had been deleted
+	podsTobeRemoved := m.reconcileRemovePods(activePods)
+	return podsToBeAdded, podsTobeRemoved, nil
+}
+
+func (m *Manager) GetPods() []*v1.Pod {
+	activePods, err := m.MetaServer.GetPodList(m.ctx, native.PodIsActive)
+	if err != nil {
+		klog.Errorf("GetPodList fail: %v", err)
+		return []*v1.Pod{}
+	}
+
+	return activePods
 }
 
 func (m *Manager) RegistPodAddedFunc(podAddedFunc PodAddedFunc) {

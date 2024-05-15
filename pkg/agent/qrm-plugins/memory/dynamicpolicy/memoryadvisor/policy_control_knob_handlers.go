@@ -67,8 +67,8 @@ func ControlKnobHandlerWithChecker(handler MemoryControlKnobHandler) MemoryContr
 		metaServer *metaserver.MetaServer,
 		entryName, subEntryName string,
 		calculationInfo *advisorsvc.CalculationInfo,
-		podResourceEntries state.PodResourceEntries) error {
-
+		podResourceEntries state.PodResourceEntries,
+	) error {
 		if calculationInfo == nil {
 			return fmt.Errorf("handler got nil calculationInfo")
 		} else if calculationInfo.CalculationResult == nil {

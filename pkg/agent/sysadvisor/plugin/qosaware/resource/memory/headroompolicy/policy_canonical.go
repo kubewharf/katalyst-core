@@ -47,7 +47,8 @@ type PolicyCanonical struct {
 }
 
 func NewPolicyCanonical(conf *config.Configuration, _ interface{}, metaReader metacache.MetaReader,
-	metaServer *metaserver.MetaServer, _ metrics.MetricEmitter) HeadroomPolicy {
+	metaServer *metaserver.MetaServer, _ metrics.MetricEmitter,
+) HeadroomPolicy {
 	p := PolicyCanonical{
 		PolicyBase:   NewPolicyBase(metaReader, metaServer),
 		updateStatus: types.PolicyUpdateFailed,
@@ -74,7 +75,7 @@ func (p *PolicyCanonical) estimateNonReclaimedQoSMemoryRequirement() (float64, e
 			return true
 		}
 
-		var containerEstimation = float64(0)
+		containerEstimation := float64(0)
 		defer func() {
 			containerCnt += 1
 			memoryEstimation += containerEstimation

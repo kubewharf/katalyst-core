@@ -24,4 +24,6 @@ const (
 	ControlKnobKeyCPUSetMems         MemoryControlKnobName = "cpuset_mems"
 	ControlKnobReclaimedMemorySize   MemoryControlKnobName = "reclaimed_memory_size"
 	ControlKnobKeyBalanceNumaMemory  MemoryControlKnobName = "balance_numa_memory"
+	ControlKnobKeySwapMax            MemoryControlKnobName = "swap_max"
+	ControlKnowKeyMemoryOffloading   MemoryControlKnobName = "memory_offloading"
 )

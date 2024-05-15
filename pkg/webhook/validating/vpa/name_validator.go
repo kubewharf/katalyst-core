@@ -25,8 +25,7 @@ import (
 )
 
 // WebhookVPAPodNameContainerNameValidator validate if pod name and container name in vpa are not empty
-type WebhookVPAPodNameContainerNameValidator struct {
-}
+type WebhookVPAPodNameContainerNameValidator struct{}
 
 func NewWebhookVPAPodNameContainerNameValidator() *WebhookVPAPodNameContainerNameValidator {
 	return &WebhookVPAPodNameContainerNameValidator{}

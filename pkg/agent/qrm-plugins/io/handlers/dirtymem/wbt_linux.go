@@ -33,7 +33,8 @@ import (
 )
 
 func SetWBTLimit(conf *coreconfig.Configuration,
-	emitter metrics.MetricEmitter, metaServer *metaserver.MetaServer) {
+	emitter metrics.MetricEmitter, metaServer *metaserver.MetaServer,
+) {
 	general.Infof("called")
 	if conf == nil {
 		general.Errorf("nil Conf")
@@ -68,8 +69,14 @@ func SetWBTLimit(conf *coreconfig.Configuration,
 				continue
 			}
 			wbtValue = conf.WBTValueSSD
+		} else if diskType == coreconsts.DiskTypeNVME {
+			// -1 means skip it.
+			if conf.WBTValueNVME == -1 {
+				continue
+			}
+			wbtValue = conf.WBTValueNVME
 		} else {
-			continue // currently, only SSD/HDD were supported.
+			continue // currently, only SSD/HDD/NVME were supported.
 		}
 
 		oldWBTValue, err := helper.GetDeviceMetric(metaServer.MetricsFetcher, emitter, coreconsts.MetricIODiskWBTValue, entry.Name())
@@ -83,7 +90,7 @@ func SetWBTLimit(conf *coreconfig.Configuration,
 
 		wbtFilePath := sysDiskPrefix + "/" + entry.Name() + "/" + wbtSuffix
 		general.Infof("Apply WBT, device=%v, old value=%v, new value=%v", entry.Name(), oldWBTValue, wbtValue)
-		err = os.WriteFile(wbtFilePath, []byte(fmt.Sprintf("%d", wbtValue)), 0644)
+		err = os.WriteFile(wbtFilePath, []byte(fmt.Sprintf("%d", wbtValue)), 0o644)
 		if err != nil {
 			general.Errorf("failed to write new wbt:%v to :%v, err:%v", wbtValue, entry.Name(), err)
 			continue

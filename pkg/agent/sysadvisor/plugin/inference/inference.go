@@ -44,7 +44,7 @@ func init() {
 
 type InferencePlugin struct {
 	name string
-	//conf config.Configuration
+	// conf config.Configuration
 
 	period               time.Duration
 	modelsResultFetchers map[string]modelresultfetcher.ModelResultFetcher
@@ -61,7 +61,8 @@ type InferencePlugin struct {
 
 func NewInferencePlugin(pluginName string, conf *config.Configuration, extraConf interface{},
 	emitterPool metricspool.MetricsEmitterPool, metaServer *metaserver.MetaServer,
-	metaCache metacache.MetaCache) (plugin.SysAdvisorPlugin, error) {
+	metaCache metacache.MetaCache,
+) (plugin.SysAdvisorPlugin, error) {
 	if conf == nil || conf.InferencePluginConfiguration == nil {
 		return nil, fmt.Errorf("nil conf")
 	} else if metaServer == nil {

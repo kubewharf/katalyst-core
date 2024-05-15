@@ -46,7 +46,8 @@ const (
 
 // NewNumaMemoryPressureEvictionPlugin returns a new MemoryPressureEvictionPlugin
 func NewNumaMemoryPressureEvictionPlugin(_ *client.GenericClientSet, _ events.EventRecorder,
-	metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter, conf *config.Configuration) plugin.EvictionPlugin {
+	metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter, conf *config.Configuration,
+) plugin.EvictionPlugin {
 	return &NumaMemoryPressurePlugin{
 		pluginName:                     EvictionPluginNameNumaMemoryPressure,
 		emitter:                        emitter,

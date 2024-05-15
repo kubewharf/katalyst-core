@@ -20,8 +20,10 @@ import (
 	"context"
 	"fmt"
 
+	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 
+	"github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/spd"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
@@ -31,7 +33,8 @@ import (
 // if node does not enable reclaim, it will return false directly,
 // if node enable reclaim, it will check whether the pod is degraded or baseline.
 func PodEnableReclaim(ctx context.Context, metaServer *metaserver.MetaServer,
-	podUID string, nodeEnableReclaim bool) (bool, error) {
+	podUID string, nodeEnableReclaim bool,
+) (bool, error) {
 	if !nodeEnableReclaim {
 		general.Infof("node reclaim disabled")
 		return false, nil
@@ -81,4 +84,23 @@ func PodPerformanceScore(ctx context.Context, metaServer *metaserver.MetaServer,
 	}
 
 	return metaServer.ServiceBusinessPerformanceScore(ctx, pod.ObjectMeta)
+}
+
+func PodIsDaemonSet(pod *v1.Pod) bool {
+	if pod != nil && pod.OwnerReferences != nil {
+		for _, ownerReference := range pod.OwnerReferences {
+			if ownerReference.Kind == "DaemonSet" {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func IsValidQosLevel(qoslevel string) bool {
+	if qoslevel == string(consts.QoSLevelReclaimedCores) || qoslevel == string(consts.QoSLevelSharedCores) ||
+		qoslevel == string(consts.QoSLevelDedicatedCores) || qoslevel == string(consts.QoSLevelSystemCores) {
+		return true
+	}
+	return false
 }

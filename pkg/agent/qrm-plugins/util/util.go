@@ -167,7 +167,8 @@ func GetTopologyAwareQuantityFromAssignmentsSize(assignments map[int]uint64) []*
 
 // PackResourceHintsResponse returns the standard QRM ResourceHintsResponse
 func PackResourceHintsResponse(req *pluginapi.ResourceRequest, resourceName string,
-	resourceHints map[string]*pluginapi.ListOfTopologyHints) (*pluginapi.ResourceHintsResponse, error) {
+	resourceHints map[string]*pluginapi.ListOfTopologyHints,
+) (*pluginapi.ResourceHintsResponse, error) {
 	if req == nil {
 		return nil, fmt.Errorf("PackResourceHintsResponse got nil request")
 	}
@@ -252,7 +253,8 @@ func GetNUMANodesCountToFitMemoryReq(memoryReq, bytesPerNUMA uint64, numaCount i
 }
 */
 func GetHintsFromExtraStateFile(podName, resourceName, extraHintsStateFileAbsPath string,
-	availableNUMAs machine.CPUSet) (map[string]*pluginapi.ListOfTopologyHints, error) {
+	availableNUMAs machine.CPUSet,
+) (map[string]*pluginapi.ListOfTopologyHints, error) {
 	if extraHintsStateFileAbsPath == "" {
 		return nil, nil
 	}
@@ -313,6 +315,14 @@ func GetHintsFromExtraStateFile(podName, resourceName, extraHintsStateFileAbsPat
 
 func GetContainerAsyncWorkName(podUID, containerName, topic string) string {
 	return strings.Join([]string{podUID, containerName, topic}, asyncworker.WorkNameSeperator)
+}
+
+func GetCgroupAsyncWorkName(cgroup, topic string) string {
+	return strings.Join([]string{cgroup, topic}, asyncworker.WorkNameSeperator)
+}
+
+func GetAsyncWorkNameByPrefix(prefix, topic string) string {
+	return strings.Join([]string{prefix, topic}, asyncworker.WorkNameSeperator)
 }
 
 func GetKubeletReservedQuantity(resourceName string, klConfig *kubeletconfigv1beta1.KubeletConfiguration) (resource.Quantity, bool, error) {

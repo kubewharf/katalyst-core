@@ -50,8 +50,10 @@ func (_ DummyReporterPlugin) Run(success chan<- bool) {}
 func (_ DummyReporterPlugin) GetReportContent(c context.Context) (*v1alpha1.GetReportContentResponse, error) {
 	return nil, nil
 }
+
 func (_ DummyReporterPlugin) ListAndWatchReportContentCallback(s string, response *v1alpha1.GetReportContentResponse) {
 }
+
 func (_ DummyReporterPlugin) GetCache() *v1alpha1.GetReportContentResponse {
 	return nil
 }

@@ -31,7 +31,8 @@ const (
 )
 
 func StartTideController(ctx context.Context, controlCtx *katalystbase.GenericContext,
-	conf *config.Configuration, _ interface{}, _ string) (bool, error) {
+	conf *config.Configuration, _ interface{}, _ string,
+) (bool, error) {
 	// targetHandler is initialized once and shared by multiple controllers
 	tideController, err := tide.NewTide(
 		ctx,

@@ -29,7 +29,8 @@ import (
 )
 
 func ValidateAndExtractTargetRef(targetRefReq v1alpha1.CrossVersionObjectReference) (
-	v1alpha1.CrossVersionObjectReference, *errortypes.CustomError) {
+	v1alpha1.CrossVersionObjectReference, *errortypes.CustomError,
+) {
 	convertedTargetRef := v1alpha1.CrossVersionObjectReference{}
 	if targetRefReq.Name == "" {
 		return convertedTargetRef, errortypes.WorkloadNameIsEmptyError()
@@ -44,7 +45,8 @@ func ValidateAndExtractTargetRef(targetRefReq v1alpha1.CrossVersionObjectReferen
 }
 
 func ValidateAndExtractAlgorithmPolicy(algorithmPolicyReq v1alpha1.AlgorithmPolicy) (
-	v1alpha1.AlgorithmPolicy, *errortypes.CustomError) {
+	v1alpha1.AlgorithmPolicy, *errortypes.CustomError,
+) {
 	algorithmPolicy := v1alpha1.AlgorithmPolicy{
 		Recommender: DefaultRecommenderType,
 	}
@@ -65,7 +67,8 @@ func ValidateAndExtractAlgorithmPolicy(algorithmPolicyReq v1alpha1.AlgorithmPoli
 func ValidateAndExtractContainers(ctx context.Context, client k8sclient.Client, namespace string,
 	targetRef v1alpha1.CrossVersionObjectReference,
 	containerPolicies []v1alpha1.ContainerResourcePolicy) (
-	[]Container, *errortypes.CustomError) {
+	[]Container, *errortypes.CustomError,
+) {
 	if len(containerPolicies) == 0 {
 		return nil, errortypes.ContainerPoliciesNotFoundError()
 	}
@@ -94,7 +97,8 @@ func ValidateAndExtractContainers(ctx context.Context, client k8sclient.Client, 
 }
 
 func validateAndExtractContainers(containerPolicies []v1alpha1.ContainerResourcePolicy,
-	existContainerList []string) ([]Container, *errortypes.CustomError) {
+	existContainerList []string,
+) ([]Container, *errortypes.CustomError) {
 	resourcePoliciesMap := make(map[string]v1alpha1.ContainerResourcePolicy)
 
 	for _, resourcePolicy := range containerPolicies {
