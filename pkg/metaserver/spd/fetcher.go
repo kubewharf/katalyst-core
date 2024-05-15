@@ -247,7 +247,8 @@ func (s *spdFetcher) sync(ctx context.Context) {
 // updateSPDCacheIfNeed checks if the previous spd has changed, and
 // re-get from APIServer if the previous is out-of date.
 func (s *spdFetcher) updateSPDCacheIfNeed(ctx context.Context, originSPD *workloadapis.ServiceProfileDescriptor,
-	targetConfig *configapis.TargetConfig, needToGetFromRemote bool) error {
+	targetConfig *configapis.TargetConfig, needToGetFromRemote bool,
+) error {
 	if originSPD == nil && targetConfig == nil {
 		return nil
 	}
