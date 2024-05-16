@@ -52,6 +52,7 @@ type BaseOptions struct {
 
 	ReclaimRelativeRootCgroupPath string
 	GeneralRelativeCgroupPaths    []string
+	OptionalRelativeCgroupPaths   []string
 
 	// configurations for kubelet
 	KubeletReadOnlyPort      int
@@ -114,7 +115,9 @@ func (o *BaseOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 
 	fs.StringVar(&o.ReclaimRelativeRootCgroupPath, "reclaim-relative-root-cgroup-path", o.ReclaimRelativeRootCgroupPath,
 		"top level cgroup path for reclaimed_cores qos level")
-	fs.StringSliceVar(&o.GeneralRelativeCgroupPaths, "general-relative-cgroup-paths", o.GeneralRelativeCgroupPaths,
+	fs.StringSliceVar(&o.GeneralRelativeCgroupPaths, "malachite-general-relative-cgroup-paths", o.GeneralRelativeCgroupPaths,
+		"The cgroup paths of standalone services which not managed by kubernetes, errors will occur if these paths not existed")
+	fs.StringSliceVar(&o.OptionalRelativeCgroupPaths, "malachite-optional-relative-cgroup-paths", o.OptionalRelativeCgroupPaths,
 		"The cgroup paths of standalone services which not managed by kubernetes")
 
 	fs.IntVar(&o.KubeletReadOnlyPort, "kubelet-read-only-port", o.KubeletReadOnlyPort,
@@ -156,6 +159,7 @@ func (o *BaseOptions) ApplyTo(c *global.BaseConfiguration) error {
 
 	c.ReclaimRelativeRootCgroupPath = o.ReclaimRelativeRootCgroupPath
 	c.GeneralRelativeCgroupPaths = o.GeneralRelativeCgroupPaths
+	c.OptionalRelativeCgroupPaths = o.OptionalRelativeCgroupPaths
 
 	c.NetMultipleNS = o.MachineNetMultipleNS
 	c.NetNSDirAbsPath = o.MachineNetNSDirAbsPath
