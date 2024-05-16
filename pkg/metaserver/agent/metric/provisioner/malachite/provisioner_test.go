@@ -44,7 +44,11 @@ func Test_noneExistMetricsProvisioner(t *testing.T) {
 			GeneralRelativeCgroupPaths:  []string{"d1", "d2"},
 			OptionalRelativeCgroupPaths: []string{"d3", "d4"},
 		},
-	}, &metaserver.MetricConfiguration{}, metrics.DummyMetrics{}, &pod.PodFetcherStub{}, store)
+	}, &metaserver.MetricConfiguration{
+		MalachiteMetricConfiguration: &metaserver.MalachiteMetricConfiguration{
+			MalachiteServerPort: 9002,
+		},
+	}, metrics.DummyMetrics{}, &pod.PodFetcherStub{}, store)
 
 	fakeSystemCompute := &malachitetypes.SystemComputeData{
 		CPU: []malachitetypes.CPU{

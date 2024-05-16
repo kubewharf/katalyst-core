@@ -24,8 +24,6 @@ import (
 )
 
 const (
-	malachiteServicePort = 9002
-
 	CgroupResource     = "cgroup/groups"
 	CgroupPathParamKey = "cgroup_user_path"
 
@@ -53,7 +51,7 @@ type MalachiteClient struct {
 	fetcher pod.PodFetcher
 }
 
-func NewMalachiteClient(fetcher pod.PodFetcher) *MalachiteClient {
+func NewMalachiteClient(fetcher pod.PodFetcher, malachiteServerPort int) *MalachiteClient {
 	urls := make(map[string]string)
 	for _, path := range []string{
 		CgroupResource,
@@ -62,7 +60,7 @@ func NewMalachiteClient(fetcher pod.PodFetcher) *MalachiteClient {
 		SystemComputeResource,
 		SystemMemoryResource,
 	} {
-		urls[path] = fmt.Sprintf("http://localhost:%d/api/v1/%s", malachiteServicePort, path)
+		urls[path] = fmt.Sprintf("http://localhost:%d/api/v1/%s", malachiteServerPort, path)
 	}
 
 	return &MalachiteClient{

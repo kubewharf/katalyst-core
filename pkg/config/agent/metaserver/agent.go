@@ -42,7 +42,9 @@ type MetricConfiguration struct {
 	*RodanMetricConfiguration
 }
 
-type MalachiteMetricConfiguration struct{}
+type MalachiteMetricConfiguration struct {
+	MalachiteServerPort int
+}
 
 type CgroupMetricConfiguration struct{}
 

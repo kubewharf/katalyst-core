@@ -132,7 +132,7 @@ func TestGetCgroupStats(t *testing.T) {
 	}))
 	defer server.Close()
 
-	malachiteClient := NewMalachiteClient(&pod.PodFetcherStub{})
+	malachiteClient := NewMalachiteClient(&pod.PodFetcherStub{}, 9002)
 	malachiteClient.SetURL(map[string]string{
 		CgroupResource: server.URL,
 	})
