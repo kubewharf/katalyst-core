@@ -165,14 +165,28 @@ func (m *MalachiteMetricsProvisioner) updateSystemStats() error {
 	return errors.NewAggregate(errList)
 }
 
-func (m *MalachiteMetricsProvisioner) updateCgroupData() error {
+func (m *MalachiteMetricsProvisioner) getCgroupPaths() []string {
 	cgroupPaths := []string{m.baseConf.ReclaimRelativeRootCgroupPath, common.CgroupFsRootPathBurstable, common.CgroupFsRootPathBestEffort}
-	errList := make([]error, 0)
+	for _, path := range m.baseConf.OptionalRelativeCgroupPaths {
+		absPath := common.GetAbsCgroupPath(common.DefaultSelectedSubsys, path)
+		if !general.IsPathExists(absPath) {
+			general.Infof("cgroup path %v not existed, ignore it", path)
+			continue
+		}
+		cgroupPaths = append(cgroupPaths, path)
+	}
 	for _, path := range m.baseConf.GeneralRelativeCgroupPaths {
 		cgroupPaths = append(cgroupPaths, path)
 	}
+
 	dedupCgroupPaths := general.DedupStringSlice(cgroupPaths)
-	for _, path := range dedupCgroupPaths {
+	return dedupCgroupPaths
+}
+
+func (m *MalachiteMetricsProvisioner) updateCgroupData() error {
+	cgroupPaths := m.getCgroupPaths()
+	errList := make([]error, 0)
+	for _, path := range cgroupPaths {
 		stats, err := m.malachiteClient.GetCgroupStats(path)
 		if err != nil {
 			errList = append(errList, err)

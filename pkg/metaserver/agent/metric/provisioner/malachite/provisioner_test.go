@@ -19,11 +19,16 @@ package malachite
 import (
 	"testing"
 
+	"bou.ke/monkey"
+	"github.com/stretchr/testify/assert"
+
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/global"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/metaserver"
 	malachitetypes "github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric/provisioner/malachite/types"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/pod"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
+	"github.com/kubewharf/katalyst-core/pkg/util/cgroup/common"
+	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	utilmetric "github.com/kubewharf/katalyst-core/pkg/util/metric"
 )
 
@@ -33,7 +38,13 @@ func Test_noneExistMetricsProvisioner(t *testing.T) {
 	store := utilmetric.NewMetricStore()
 
 	var err error
-	implement := NewMalachiteMetricsProvisioner(&global.BaseConfiguration{}, &metaserver.MetricConfiguration{}, metrics.DummyMetrics{}, &pod.PodFetcherStub{}, store)
+	implement := NewMalachiteMetricsProvisioner(&global.BaseConfiguration{
+		ReclaimRelativeRootCgroupPath: "test",
+		MalachiteConfiguration: &global.MalachiteConfiguration{
+			GeneralRelativeCgroupPaths:  []string{"d1", "d2"},
+			OptionalRelativeCgroupPaths: []string{"d3", "d4"},
+		},
+	}, &metaserver.MetricConfiguration{}, metrics.DummyMetrics{}, &pod.PodFetcherStub{}, store)
 
 	fakeSystemCompute := &malachitetypes.SystemComputeData{
 		CPU: []malachitetypes.CPU{
@@ -165,4 +176,16 @@ func Test_noneExistMetricsProvisioner(t *testing.T) {
 		t.Errorf("GetContainerNuma() error = %v, wantErr not nil", err)
 		return
 	}
+
+	monkey.Patch(general.IsPathExists, func(path string) bool {
+		if path == "/sys/fs/cgroup/d3" {
+			return true
+		}
+		return false
+	})
+	monkey.Patch(common.CheckCgroup2UnifiedMode, func() bool { return true })
+	defer monkey.UnpatchAll()
+
+	paths := implement.(*MalachiteMetricsProvisioner).getCgroupPaths()
+	assert.ElementsMatch(t, paths, []string{"d1", "d2", "d3", "/kubepods/burstable", "/kubepods/besteffort", "test"})
 }

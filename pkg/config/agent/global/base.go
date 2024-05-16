@@ -36,12 +36,10 @@ type BaseConfiguration struct {
 	// specify a customized path for reclaimed-cores to enrich qos-management ways
 	ReclaimRelativeRootCgroupPath string
 
-	// GeneralRelativeCgroupPaths are paths of standalone services which not managed by kubernetes
-	GeneralRelativeCgroupPaths []string
-
 	*MachineInfoConfiguration
 	*KubeletConfiguration
 	*RuntimeConfiguration
+	*MalachiteConfiguration
 }
 
 type MachineInfoConfiguration struct {
@@ -72,10 +70,18 @@ type RuntimeConfiguration struct {
 	RuntimeEndpoint string
 }
 
+type MalachiteConfiguration struct {
+	// GeneralRelativeCgroupPaths and OptionalRelativeCgroupPaths are both paths of standalone services which not managed by kubernetes.
+	// If the former paths not existed, errors will occur, whereas the latter will not.
+	GeneralRelativeCgroupPaths  []string
+	OptionalRelativeCgroupPaths []string
+}
+
 func NewBaseConfiguration() *BaseConfiguration {
 	return &BaseConfiguration{
 		MachineInfoConfiguration: &MachineInfoConfiguration{},
 		KubeletConfiguration:     &KubeletConfiguration{},
 		RuntimeConfiguration:     &RuntimeConfiguration{},
+		MalachiteConfiguration:   &MalachiteConfiguration{},
 	}
 }
