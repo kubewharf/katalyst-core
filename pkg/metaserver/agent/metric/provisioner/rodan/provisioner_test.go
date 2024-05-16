@@ -68,7 +68,7 @@ func TestSample(t *testing.T) {
 		synced:      false,
 	}
 
-	f.sample(context.Background())
+	f.Run(context.Background())
 
 	data, err := f.metricStore.GetNodeMetric(consts.MetricMemTotalSystem)
 	require.NoError(t, err)
