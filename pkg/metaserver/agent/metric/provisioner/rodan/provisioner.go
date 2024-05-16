@@ -22,7 +22,6 @@ import (
 	"time"
 
 	v1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/klog/v2"
 
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/global"
@@ -68,9 +67,7 @@ func NewRodanMetricsProvisioner(
 }
 
 func (i *RodanMetricsProvisioner) Run(ctx context.Context) {
-	go wait.Until(func() {
-		i.sample(ctx)
-	}, 5*time.Second, ctx.Done())
+	i.sample(ctx)
 }
 
 func (i *RodanMetricsProvisioner) sample(ctx context.Context) {
