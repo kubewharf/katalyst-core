@@ -26,7 +26,7 @@ import (
 
 	prometheusapi "github.com/prometheus/client_golang/api"
 
-	"github.com/kubewharf/katalyst-core/pkg/controller/resource-recommend/datasource/prometheus/auth"
+	"github.com/kubewharf/katalyst-core/pkg/util/datasource/prometheus/auth"
 )
 
 // PromConfig represents the config of prometheus
@@ -73,9 +73,13 @@ func NewPrometheusClient(config *PromConfig) (prometheusapi.Client, error) {
 		TLSClientConfig:     tlsConfig,
 	}
 
-	t, err := auth.GetRoundTripper(&config.Auth, rt, auth.GetRegisteredRoundTripperFactoryInitializers())
-	if err != nil {
-		return nil, err
+	t := rt
+	if config.Auth.Type != "" {
+		var err error
+		t, err = auth.GetRoundTripper(&config.Auth, rt, auth.GetRegisteredRoundTripperFactoryInitializers())
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	pc := prometheusapi.Config{

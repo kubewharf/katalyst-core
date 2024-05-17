@@ -167,7 +167,7 @@ func (sc *SPDController) syncStatus(nn types.NamespacedName) {
 			Key: "status", Val: "success",
 		})
 
-		klog.V(4).Infof("[syncIndicatorStatus] successfully updated spd status %s to %+v", nn.String(), spdCopy.Status)
+		klog.V(4).Infof("[syncIndicatorStatus] successfully updated spd status %s", nn.String())
 		return nil
 	})
 	if err != nil {
@@ -221,6 +221,17 @@ func (sc *SPDController) mergeIndicatorStatus(spd *apiworkload.ServiceProfileDes
 		if _, ok := sc.indicatorsStatusBusiness[spd.Status.BusinessStatus[i].Name]; !ok {
 			klog.Infof("skip status business %v for spd %v", spd.Status.BusinessStatus[i].Name, spd.Name)
 			spd.Status.BusinessStatus = append(spd.Status.BusinessStatus[:i], spd.Status.BusinessStatus[i+1:]...)
+		}
+	}
+
+	for _, aggMetrics := range expected.AggMetrics {
+		util.InsertSPDAggMetricsStatus(&spd.Status, &aggMetrics)
+	}
+
+	for i := 0; i < len(spd.Status.AggMetrics); i++ {
+		if _, ok := sc.indicatorsStatusAggMetrics[spd.Status.AggMetrics[i].Scope]; !ok {
+			klog.Infof("skip status metrics %v for spd %v", spd.Status.AggMetrics[i].Scope, spd.Name)
+			spd.Status.AggMetrics = append(spd.Status.AggMetrics[:i], spd.Status.AggMetrics[i+1:]...)
 		}
 	}
 }

@@ -16,7 +16,11 @@ limitations under the License.
 
 package controller
 
-import "time"
+import (
+	"time"
+
+	"github.com/kubewharf/katalyst-core/pkg/util/datasource/prometheus"
+)
 
 type SPDConfig struct {
 	// ReSyncPeriod controls the resync period to generate spd
@@ -33,10 +37,33 @@ type SPDConfig struct {
 	IndicatorPlugins []string
 
 	BaselinePercent map[string]int64
+
+	*ResourcePortraitIndicatorPluginConfig
+}
+
+// ResourcePortraitIndicatorPluginConfig holds the configurations for resource portrait indicator plugin data.
+type ResourcePortraitIndicatorPluginConfig struct {
+	// available datasource: prom
+	DataSource string
+	// DataSourcePromConfig is the prometheus datasource config
+	DataSourcePromConfig prometheus.PromConfig
+	// ReSyncPeriod controls the resync period to refresh spd
+	ReSyncPeriod time.Duration
+	// AlgorithmServingAddress is the algorithm serving address
+	AlgorithmServingAddress string
+	// AlgorithmConfigMapName is the configmap name used by resource portrait plugin
+	AlgorithmConfigMapName string
+	// AlgorithmConfigMapNamespace is the configmap namespace used by resource portrait plugin
+	AlgorithmConfigMapNamespace string
+	// EnableAutomaticResyncGlobalConfiguration is used to enable automatic synchronization of global configuration.
+	// If this switch is enabled, the plug-in will refresh itself configuration in SPD with the configuration in the
+	// global ConfigMap. If this switch is disable, users can customize the configuration in SPD.
+	EnableAutomaticResyncGlobalConfiguration bool
 }
 
 func NewSPDConfig() *SPDConfig {
 	return &SPDConfig{
-		BaselinePercent: map[string]int64{},
+		BaselinePercent:                       map[string]int64{},
+		ResourcePortraitIndicatorPluginConfig: &ResourcePortraitIndicatorPluginConfig{},
 	}
 }

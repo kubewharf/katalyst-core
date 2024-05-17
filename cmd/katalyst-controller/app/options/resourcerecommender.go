@@ -22,7 +22,7 @@ import (
 	cliflag "k8s.io/component-base/cli/flag"
 
 	"github.com/kubewharf/katalyst-core/pkg/config/controller"
-	"github.com/kubewharf/katalyst-core/pkg/controller/resource-recommend/datasource/prometheus"
+	"github.com/kubewharf/katalyst-core/pkg/util/datasource/prometheus"
 )
 
 type ResourceRecommenderOptions struct {

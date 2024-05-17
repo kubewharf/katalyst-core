@@ -38,6 +38,7 @@ import (
 	"k8s.io/klog/v2"
 
 	apiworkload "github.com/kubewharf/katalyst-api/pkg/apis/workload/v1alpha1"
+	"github.com/kubewharf/katalyst-api/pkg/client/clientset/versioned/scheme"
 	workloadlister "github.com/kubewharf/katalyst-api/pkg/client/listers/workload/v1alpha1"
 	apiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/consts"
@@ -312,6 +313,26 @@ func InsertSPDBusinessIndicatorStatus(status *apiworkload.ServiceProfileDescript
 	status.BusinessStatus = append(status.BusinessStatus, *serviceBusinessIndicatorStatus)
 }
 
+func InsertSPDAggMetricsStatus(status *apiworkload.ServiceProfileDescriptorStatus,
+	serviceAggPodMetrics *apiworkload.AggPodMetrics,
+) {
+	if status == nil || serviceAggPodMetrics == nil {
+		return
+	}
+
+	if status.AggMetrics == nil {
+		status.AggMetrics = []apiworkload.AggPodMetrics{}
+	}
+
+	for i := range status.AggMetrics {
+		if status.AggMetrics[i].Scope == serviceAggPodMetrics.Scope && status.AggMetrics[i].Aggregator == serviceAggPodMetrics.Aggregator {
+			status.AggMetrics[i].Items = serviceAggPodMetrics.Items
+			return
+		}
+	}
+	status.AggMetrics = append(status.AggMetrics, *serviceAggPodMetrics)
+}
+
 /*
  helper functions to get the spd hash and the pod's spd name
 */
@@ -446,6 +467,56 @@ func GetExtendedIndicator(indicators interface{}) (string, runtime.Object, error
 	}
 
 	return strings.TrimSuffix(name, apiworkload.ExtendedIndicatorSuffix), o, nil
+}
+
+func GetSPDExtendedIndicators(spd *apiworkload.ServiceProfileDescriptor, indicators interface{}) (*int32, error) {
+	name, o, err := GetExtendedIndicator(indicators)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, indicator := range spd.Spec.ExtendedIndicator {
+		if indicator.Name != name {
+			continue
+		}
+
+		object := indicator.Indicators.Object
+		raw := indicator.Indicators.Raw
+		if object == nil && raw == nil {
+			return nil, fmt.Errorf("%s indicators object is nil", name)
+		}
+
+		if object != nil {
+			t := reflect.TypeOf(indicators)
+			if t.Kind() != reflect.Ptr {
+				return nil, fmt.Errorf("indicators must be pointers to structs")
+			}
+
+			v := reflect.ValueOf(object)
+			if !v.CanConvert(t) {
+				return nil, fmt.Errorf("%s indicators object cannot convert to %v", name, t.Name())
+			}
+
+			reflect.ValueOf(indicators).Elem().Set(v.Convert(t).Elem())
+		} else {
+			object, ok := indicators.(runtime.Object)
+			if !ok {
+				return nil, fmt.Errorf("%s indicators object cannot convert to runtime.Object", name)
+			}
+
+			deserializer := scheme.Codecs.UniversalDeserializer()
+			_, _, err := deserializer.Decode(raw, nil, object)
+			if err != nil {
+				return nil, err
+			}
+		}
+
+		return indicator.BaselinePercent, nil
+	}
+	return nil, apierrors.NewNotFound(schema.GroupResource{
+		Group:    apiworkload.GroupName,
+		Resource: strings.ToLower(o.GetObjectKind().GroupVersionKind().Kind),
+	}, name)
 }
 
 func AggregateMetrics(metrics []resource.Quantity, aggregator apiworkload.Aggregator) (*resource.Quantity, error) {

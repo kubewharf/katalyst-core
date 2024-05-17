@@ -28,12 +28,13 @@ import (
 	"github.com/prometheus/common/model"
 	corev1 "k8s.io/api/core/v1"
 
+	datasourceprometheus "github.com/kubewharf/katalyst-core/pkg/util/datasource/prometheus"
 	datasourcetypes "github.com/kubewharf/katalyst-core/pkg/util/resource-recommend/types/datasource"
 )
 
 func Test_prometheus_ConvertMetricToQuery(t *testing.T) {
 	p := &prometheus{
-		config: &PromConfig{},
+		config: &datasourceprometheus.PromConfig{},
 	}
 	tests := []struct {
 		name          string
@@ -104,7 +105,7 @@ func Test_prometheus_ConvertMetricToQuery(t *testing.T) {
 func Test_prometheus_QueryTimeSeries(t *testing.T) {
 	type fields struct {
 		promAPIClient v1.API
-		config        *PromConfig
+		config        *datasourceprometheus.PromConfig
 	}
 	type args struct {
 		query *datasourcetypes.Query
@@ -122,7 +123,7 @@ func Test_prometheus_QueryTimeSeries(t *testing.T) {
 		{
 			name: "Successful query time series",
 			fields: fields{
-				promAPIClient: &mockPromAPIClient{
+				promAPIClient: &datasourceprometheus.MockPromAPIClient{
 					QueryRangeFunc: func(ctx context.Context, query string, r promapiv1.Range) (model.Value, promapiv1.Warnings, error) {
 						matrix := model.Matrix{
 							&model.SampleStream{
@@ -145,7 +146,7 @@ func Test_prometheus_QueryTimeSeries(t *testing.T) {
 						return matrix, nil, nil
 					},
 				},
-				config: &PromConfig{
+				config: &datasourceprometheus.PromConfig{
 					Timeout: time.Second * 5,
 				},
 			},
@@ -180,12 +181,12 @@ func Test_prometheus_QueryTimeSeries(t *testing.T) {
 		{
 			name: "Query time series error",
 			fields: fields{
-				promAPIClient: &mockPromAPIClient{
+				promAPIClient: &datasourceprometheus.MockPromAPIClient{
 					QueryRangeFunc: func(ctx context.Context, query string, r promapiv1.Range) (model.Value, promapiv1.Warnings, error) {
 						return nil, nil, fmt.Errorf("query error")
 					},
 				},
-				config: &PromConfig{
+				config: &datasourceprometheus.PromConfig{
 					Timeout: time.Second * 5,
 				},
 			},
@@ -224,7 +225,7 @@ func Test_prometheus_QueryTimeSeries(t *testing.T) {
 func Test_prometheus_convertPromResultsToTimeSeries(t *testing.T) {
 	type fields struct {
 		promAPIClient v1.API
-		config        *PromConfig
+		config        *datasourceprometheus.PromConfig
 	}
 	type args struct {
 		value model.Value
@@ -346,7 +347,7 @@ func Test_prometheus_convertPromResultsToTimeSeries(t *testing.T) {
 func Test_prometheus_queryRangeSync(t *testing.T) {
 	type fields struct {
 		promAPIClient v1.API
-		config        *PromConfig
+		config        *datasourceprometheus.PromConfig
 	}
 	type args struct {
 		ctx   context.Context
@@ -365,7 +366,7 @@ func Test_prometheus_queryRangeSync(t *testing.T) {
 		{
 			name: "Successful query range",
 			fields: fields{
-				promAPIClient: &mockPromAPIClient{
+				promAPIClient: &datasourceprometheus.MockPromAPIClient{
 					QueryRangeFunc: func(ctx context.Context, query string, r promapiv1.Range) (model.Value, promapiv1.Warnings, error) {
 						matrix := model.Matrix{
 							&model.SampleStream{
@@ -418,7 +419,7 @@ func Test_prometheus_queryRangeSync(t *testing.T) {
 		{
 			name: "Error in query range",
 			fields: fields{
-				promAPIClient: &mockPromAPIClient{
+				promAPIClient: &datasourceprometheus.MockPromAPIClient{
 					QueryRangeFunc: func(ctx context.Context, query string, r promapiv1.Range) (model.Value, promapiv1.Warnings, error) {
 						return nil, nil, fmt.Errorf("query error")
 					},

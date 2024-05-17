@@ -47,7 +47,8 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/config/controller"
 	"github.com/kubewharf/katalyst-core/pkg/config/generic"
 	"github.com/kubewharf/katalyst-core/pkg/consts"
-	indicator_plugin "github.com/kubewharf/katalyst-core/pkg/controller/spd/indicator-plugin"
+	indicatorplugin "github.com/kubewharf/katalyst-core/pkg/controller/spd/indicator-plugin"
+	_ "github.com/kubewharf/katalyst-core/pkg/controller/spd/indicator-plugin/plugins"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
@@ -96,12 +97,13 @@ type SPDController struct {
 
 	cncCacheController *cncCacheController
 
-	indicatorManager         *indicator_plugin.IndicatorManager
-	indicatorPlugins         map[string]indicator_plugin.IndicatorPlugin
-	indicatorsSpecBusiness   map[apiworkload.ServiceBusinessIndicatorName]interface{}
-	indicatorsSpecExtended   map[string]interface{}
-	indicatorsSpecSystem     map[apiworkload.ServiceSystemIndicatorName]interface{}
-	indicatorsStatusBusiness map[apiworkload.ServiceBusinessIndicatorName]interface{}
+	indicatorManager           *indicatorplugin.IndicatorManager
+	indicatorPlugins           map[string]indicatorplugin.IndicatorPlugin
+	indicatorsSpecBusiness     map[apiworkload.ServiceBusinessIndicatorName]interface{}
+	indicatorsSpecExtended     map[string]interface{}
+	indicatorsSpecSystem       map[apiworkload.ServiceSystemIndicatorName]interface{}
+	indicatorsStatusBusiness   map[apiworkload.ServiceBusinessIndicatorName]interface{}
+	indicatorsStatusAggMetrics map[string]interface{}
 }
 
 func NewSPDController(ctx context.Context, controlCtx *katalystbase.GenericContext,
@@ -254,7 +256,7 @@ func (sc *SPDController) Run() {
 	<-sc.ctx.Done()
 }
 
-func (sc *SPDController) GetIndicatorPlugins() (plugins []indicator_plugin.IndicatorPlugin) {
+func (sc *SPDController) GetIndicatorPlugins() (plugins []indicatorplugin.IndicatorPlugin) {
 	for _, p := range sc.indicatorPlugins {
 		plugins = append(plugins, p)
 	}
@@ -262,14 +264,15 @@ func (sc *SPDController) GetIndicatorPlugins() (plugins []indicator_plugin.Indic
 }
 
 func (sc *SPDController) initializeIndicatorPlugins(controlCtx *katalystbase.GenericContext, extraConf interface{}) error {
-	sc.indicatorManager = indicator_plugin.NewIndicatorManager()
-	sc.indicatorPlugins = make(map[string]indicator_plugin.IndicatorPlugin)
+	sc.indicatorManager = indicatorplugin.NewIndicatorManager()
+	sc.indicatorPlugins = make(map[string]indicatorplugin.IndicatorPlugin)
 	sc.indicatorsSpecBusiness = make(map[apiworkload.ServiceBusinessIndicatorName]interface{})
 	sc.indicatorsSpecSystem = make(map[apiworkload.ServiceSystemIndicatorName]interface{})
 	sc.indicatorsSpecExtended = make(map[string]interface{})
 	sc.indicatorsStatusBusiness = make(map[apiworkload.ServiceBusinessIndicatorName]interface{})
+	sc.indicatorsStatusAggMetrics = make(map[string]interface{})
 
-	initializers := indicator_plugin.GetPluginInitializers()
+	initializers := indicatorplugin.GetPluginInitializers()
 	for _, pluginName := range sc.conf.IndicatorPlugins {
 		if initFunc, ok := initializers[pluginName]; ok {
 			plugin, err := initFunc(sc.ctx, sc.conf, extraConf, sc.spdWorkloadInformer,
@@ -291,6 +294,9 @@ func (sc *SPDController) initializeIndicatorPlugins(controlCtx *katalystbase.Gen
 			}
 			for _, name := range plugin.GetSupportedBusinessIndicatorStatus() {
 				sc.indicatorsStatusBusiness[name] = struct{}{}
+			}
+			for _, name := range plugin.GetSupportedAggMetricsStatus() {
+				sc.indicatorsStatusAggMetrics[name] = struct{}{}
 			}
 		}
 	}
