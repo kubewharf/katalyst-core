@@ -27,7 +27,8 @@ import (
 
 	"github.com/kubewharf/katalyst-core/pkg/config/controller"
 	"github.com/kubewharf/katalyst-core/pkg/controller/resource-recommend/datasource"
-	"github.com/kubewharf/katalyst-core/pkg/controller/resource-recommend/datasource/prometheus"
+	resourcerecommendprometheus "github.com/kubewharf/katalyst-core/pkg/controller/resource-recommend/datasource/prometheus"
+	"github.com/kubewharf/katalyst-core/pkg/util/datasource/prometheus"
 	datasourcetypes "github.com/kubewharf/katalyst-core/pkg/util/resource-recommend/types/datasource"
 )
 
@@ -76,7 +77,9 @@ func Test_initDataSources(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			defer monkey.UnpatchAll()
 
-			monkey.Patch(prometheus.NewPrometheus, func(config *prometheus.PromConfig) (prometheus.PromDatasource, error) { return &mockDatasource, nil })
+			monkey.Patch(resourcerecommendprometheus.NewPrometheus, func(config *prometheus.PromConfig) (resourcerecommendprometheus.PromDatasource, error) {
+				return &mockDatasource, nil
+			})
 
 			if got := initDataSources(tt.args.opts); !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("initDataSources() = %v, want %v", got, tt.want)

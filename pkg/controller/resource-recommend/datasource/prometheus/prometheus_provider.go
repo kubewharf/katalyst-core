@@ -27,13 +27,14 @@ import (
 	"k8s.io/klog/v2"
 
 	"github.com/kubewharf/katalyst-core/pkg/controller/resource-recommend/datasource"
+	datasourceprometheus "github.com/kubewharf/katalyst-core/pkg/util/datasource/prometheus"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	datasourcetypes "github.com/kubewharf/katalyst-core/pkg/util/resource-recommend/types/datasource"
 )
 
 type prometheus struct {
 	promAPIClient promapiv1.API
-	config        *PromConfig
+	config        *datasourceprometheus.PromConfig
 }
 
 type PromDatasource interface {
@@ -42,8 +43,8 @@ type PromDatasource interface {
 }
 
 // NewPrometheus return a prometheus data source
-func NewPrometheus(config *PromConfig) (PromDatasource, error) {
-	client, err := NewPrometheusClient(config)
+func NewPrometheus(config *datasourceprometheus.PromConfig) (PromDatasource, error) {
+	client, err := datasourceprometheus.NewPrometheusClient(config)
 	if err != nil {
 		return nil, err
 	}

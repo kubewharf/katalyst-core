@@ -43,13 +43,15 @@ type IndicatorPlugin interface {
 	GetSupportedSystemIndicatorSpec() []apiworkload.ServiceSystemIndicatorName
 	GetSupportedExtendedIndicatorSpec() []string
 	GetSupportedBusinessIndicatorStatus() []apiworkload.ServiceBusinessIndicatorName
+	GetSupportedAggMetricsStatus() []string
 }
 
 type DummyIndicatorPlugin struct {
-	SystemSpecNames     []apiworkload.ServiceSystemIndicatorName
-	BusinessSpecNames   []apiworkload.ServiceBusinessIndicatorName
-	BusinessStatusNames []apiworkload.ServiceBusinessIndicatorName
-	ExtendedSpecNames   []string
+	SystemSpecNames       []apiworkload.ServiceSystemIndicatorName
+	BusinessSpecNames     []apiworkload.ServiceBusinessIndicatorName
+	BusinessStatusNames   []apiworkload.ServiceBusinessIndicatorName
+	ExtendedSpecNames     []string
+	AggMetricsStatusNames []string
 }
 
 var _ IndicatorPlugin = DummyIndicatorPlugin{}
@@ -70,6 +72,10 @@ func (d DummyIndicatorPlugin) GetSupportedExtendedIndicatorSpec() []string {
 
 func (d DummyIndicatorPlugin) GetSupportedBusinessIndicatorStatus() []apiworkload.ServiceBusinessIndicatorName {
 	return d.BusinessStatusNames
+}
+
+func (d DummyIndicatorPlugin) GetSupportedAggMetricsStatus() []string {
+	return nil
 }
 
 // pluginInitializers is used to store the initializing function for each plugin
