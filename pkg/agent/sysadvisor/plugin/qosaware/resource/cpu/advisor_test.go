@@ -989,6 +989,126 @@ func TestAdvisorUpdate(t *testing.T) {
 				},
 			},
 		},
+		{
+			name:      "provision:ignore_share_cores_without_request",
+			preUpdate: true,
+			pools: map[string]*types.PoolInfo{
+				state.PoolNameReserve: {
+					PoolName: state.PoolNameReserve,
+					TopologyAwareAssignments: map[int]machine.CPUSet{
+						0: machine.MustParse("0"),
+						1: machine.MustParse("24"),
+					},
+				},
+				state.PoolNameShare: {
+					PoolName: state.PoolNameShare,
+					TopologyAwareAssignments: map[int]machine.CPUSet{
+						0: machine.MustParse("1-23,48-71"),
+						1: machine.MustParse("25-47,72-95"),
+					},
+				},
+			},
+			containers: []*types.ContainerInfo{
+				makeContainerInfo("uid1", "default", "pod1", "c1", consts.PodAnnotationQoSLevelSharedCores, state.PoolNameShare, nil,
+					map[int]machine.CPUSet{
+						0: machine.MustParse("1-22,48-70"),
+						1: machine.MustParse("25-46,72-94"),
+					}, 8),
+				makeContainerInfo("uid2", "default", "pod2", "c2", consts.PodAnnotationQoSLevelSharedCores, state.PoolNameShare, nil,
+					map[int]machine.CPUSet{
+						0: machine.MustParse("1-22,48-70"),
+						1: machine.MustParse("25-46,72-94"),
+					}, 20),
+				makeContainerInfo("uid3", "default", "pod3", "c3", consts.PodAnnotationQoSLevelSharedCores, state.PoolNameShare, nil,
+					map[int]machine.CPUSet{
+						0: machine.MustParse("1-22,48-70"),
+						1: machine.MustParse("25-46,72-94"),
+					}, 30),
+				makeContainerInfo("uid4", "default", "pod4", "c4", consts.PodAnnotationQoSLevelSharedCores, state.PoolNameShare, nil,
+					map[int]machine.CPUSet{
+						0: machine.MustParse("1-22,48-70"),
+						1: machine.MustParse("25-46,72-94"),
+					}, 2, 8),
+				makeContainerInfo("uid5", "default", "pod5", "c5", consts.PodAnnotationQoSLevelSharedCores, "", nil,
+					map[int]machine.CPUSet{
+						0: machine.MustParse("1-22,48-70"),
+						1: machine.MustParse("25-46,72-94"),
+					}),
+			},
+			pods: []*v1.Pod{
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "pod1",
+						Namespace: "default",
+						UID:       "uid1",
+					},
+				},
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "pod2",
+						Namespace: "default",
+						UID:       "uid2",
+					},
+				},
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "pod3",
+						Namespace: "default",
+						UID:       "uid3",
+					},
+				},
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "pod4",
+						Namespace: "default",
+						UID:       "uid4",
+					},
+				},
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "pod4",
+						Namespace: "default",
+						UID:       "uid4",
+					},
+				},
+			},
+			nodeEnableReclaim: true,
+			wantInternalCalculationResult: types.InternalCPUCalculationResult{
+				PoolEntries: map[string]map[int]int{
+					state.PoolNameReserve: {-1: 2},
+					state.PoolNameShare:   {-1: 90},
+					state.PoolNameReclaim: {-1: 4},
+				},
+			},
+			wantHeadroom: resource.Quantity{},
+			containerMetrics: []containerMetricItem{
+				{
+					pod:       "uid1",
+					container: "c1",
+					value:     50,
+				},
+				{
+					pod:       "uid2",
+					container: "c2",
+					value:     8,
+				},
+				{
+					pod:       "uid3",
+					container: "c3",
+					value:     4,
+				},
+				{
+					pod:       "uid4",
+					container: "c4",
+					value:     70,
+				},
+				{
+					pod:       "uid5",
+					container: "c5",
+					value:     7,
+				},
+			},
+		},
 	}
 
 	for _, tt := range tests {

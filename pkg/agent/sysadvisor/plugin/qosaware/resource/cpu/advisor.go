@@ -19,6 +19,7 @@ package cpu
 import (
 	"context"
 	"fmt"
+	"math"
 	"strconv"
 	"sync"
 	"time"
@@ -426,6 +427,11 @@ func (cra *cpuResourceAdvisor) assignToRegions(ci *types.ContainerInfo) ([]regio
 	if ci.QoSLevel == consts.PodAnnotationQoSLevelSharedCores {
 		// do not assign shared container to region when ramping up because its owner pool name is empty
 		if ci.RampUp {
+			return nil, nil
+		}
+
+		// ignore the share pods without requests info
+		if ci.OwnerPoolName == "" && math.Abs(ci.CPURequest) < 1e9 {
 			return nil, nil
 		}
 
