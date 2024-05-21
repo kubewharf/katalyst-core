@@ -608,7 +608,7 @@ func TestNodeOvercommitResource(t *testing.T) {
 				},
 			},
 			expectRes:    "18720m",
-			expectMemRes: "35109737398272m",
+			expectMemRes: "35109737398",
 		},
 		{
 			name:          "guaranteed cpu none",
@@ -635,7 +635,7 @@ func TestNodeOvercommitResource(t *testing.T) {
 				},
 			},
 			expectRes:    "18720m",
-			expectMemRes: "35109737398272m",
+			expectMemRes: "35109737398",
 		},
 		{
 			name:          "wrong guaranteed cpu",
@@ -713,6 +713,30 @@ func TestNodeOvercommitResource(t *testing.T) {
 			},
 			expectRes:    "",
 			expectMemRes: "",
+		},
+		{
+			name:          "large memory allocatable",
+			cpuOvercommit: "1.2",
+			memOvercommit: "2",
+			kcnr: &v1alpha12.CustomNodeResource{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:        "testNode1",
+					Annotations: map[string]string{},
+				},
+			},
+			node: &corev1.Node{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "testNode1",
+					Annotations: map[string]string{
+						"katalyst.kubewharf.io/original_allocatable_cpu":    "15600m",
+						"katalyst.kubewharf.io/original_capacity_cpu":       "16000m",
+						"katalyst.kubewharf.io/original_allocatable_memory": "1Ei",
+						"katalyst.kubewharf.io/original_capacity_memory":    "1Ei",
+					},
+				},
+			},
+			expectRes:    "18720m",
+			expectMemRes: "2Ei",
 		},
 	}
 

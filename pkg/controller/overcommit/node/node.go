@@ -555,6 +555,7 @@ func (nc *NodeOvercommitController) nodeOvercommitResource(
 		klog.V(5).Infof("node %s annotation %s missing", node.Name, originalCapacityKey)
 		return "", ""
 	}
+
 	nodeAllocatable, err := resource.ParseQuantity(nodeAllocatableAnnotation)
 	if err != nil {
 		klog.Error(err)
@@ -577,10 +578,13 @@ func (nc *NodeOvercommitController) nodeOvercommitResource(
 
 	guaranteedQuantity := resource.NewQuantity(int64(guaranteedResource), resource.DecimalSI)
 	nodeAllocatable.Sub(*guaranteedQuantity)
-	nodeAllocatable = native.MultiplyMilliQuantity(nodeAllocatable, overcommitRatio)
+	// Using quantity.Value may lead to a loss of precision, but it can cover larger values than MilliValue.
+	// memory is converted to int64 using quantity.Value in the cache of kube-scheduler,
+	// adopt the same approach here.
+	nodeAllocatable = native.MultiplyResourceQuantity(resourceName, nodeAllocatable, overcommitRatio)
 	nodeAllocatable.Add(*guaranteedQuantity)
 	nodeCapacity.Sub(*guaranteedQuantity)
-	nodeCapacity = native.MultiplyMilliQuantity(nodeCapacity, overcommitRatio)
+	nodeCapacity = native.MultiplyResourceQuantity(resourceName, nodeCapacity, overcommitRatio)
 	nodeCapacity.Add(*guaranteedQuantity)
 
 	klog.V(5).Infof("node %s overcommitRatio: %v, guaranteedResource: %v, final allocatable: %v, capacity: %v",
