@@ -53,15 +53,11 @@ func GetCoresReservedForSystem(conf *config.Configuration, metaServer *metaserve
 		reservedQuantity, found, err := utilkubeconfig.GetReservedQuantity(klConfig, string(v1.ResourceCPU))
 		if err != nil {
 			return machine.NewCPUSet(), fmt.Errorf("GetKubeletReservedQuantity failed with error: %v", err)
-		} else if found {
+		} else {
 			reservedQuantityFloat := float64(reservedQuantity.MilliValue()) / 1000
 			reservedQuantityInt = int(math.Ceil(reservedQuantityFloat))
 
-			general.Infof("get reservedQuantityInt: %d from kubelet config", reservedQuantityInt)
-		} else if !found {
-			reservedQuantityInt = conf.ReservedCPUCores
-			general.Infof("reserved cpu config isn't found in kubelet config, fallback to get reservedQuantityInt: %d from ReservedCPUCores configuration",
-				reservedQuantityInt)
+			general.Infof("get reservedQuantityInt: %d from kubelet config, found: %v", reservedQuantityInt, found)
 		}
 	} else {
 		reservedQuantityInt = conf.ReservedCPUCores

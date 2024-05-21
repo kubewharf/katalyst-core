@@ -71,14 +71,10 @@ func getReservedMemory(conf *config.Configuration, metaServer *metaserver.MetaSe
 		reservedQuantity, found, err := utilkubeconfig.GetReservedQuantity(klConfig, string(v1.ResourceMemory))
 		if err != nil {
 			return nil, fmt.Errorf("GetKubeletReservedQuantity failed with error: %v", err)
-		} else if found {
+		} else {
 			unitGB := resource.MustParse("1Gi")
 			reservedMemoryGB = float64(reservedQuantity.Value()) / float64(unitGB.Value())
-			general.Infof("get reservedMemoryGB: %.2f from kubelet config", reservedMemoryGB)
-		} else if !found {
-			reservedMemoryGB = float64(conf.ReservedMemoryGB)
-			general.Infof("reserved memory config isn't found in kubelet config, "+
-				"fallback to get reservedMemoryGB: %.2f from ReservedMemoryGB configuration", reservedMemoryGB)
+			general.Infof("get reservedMemoryGB: %.2f from kubelet config, found: %v", reservedMemoryGB, found)
 		}
 	} else {
 		reservedMemoryGB = float64(conf.ReservedMemoryGB)

@@ -49,8 +49,8 @@ func GetReservedQuantity(kubeletConfig *kubeletconfigv1beta1.KubeletConfiguratio
 	found := false
 	reservedQuantity := resource.NewQuantity(0, resource.DecimalSI)
 
-	if kubeletConfig.KubeReserved != nil {
-		kubeReserved, err := resource.ParseQuantity(kubeletConfig.KubeReserved[resourceName])
+	if kubeReservedStr, ok := kubeletConfig.KubeReserved[resourceName]; ok {
+		kubeReserved, err := resource.ParseQuantity(kubeReservedStr)
 		if err != nil {
 			return resource.MustParse("0"), false,
 				fmt.Errorf("failed because parse cpu quantity for kube-reserved failed with error: %v", err)
@@ -58,8 +58,8 @@ func GetReservedQuantity(kubeletConfig *kubeletconfigv1beta1.KubeletConfiguratio
 		reservedQuantity.Add(kubeReserved)
 		found = true
 	}
-	if kubeletConfig.SystemReserved != nil {
-		systemReserved, err := resource.ParseQuantity(kubeletConfig.SystemReserved[resourceName])
+	if systemReservedStr, ok := kubeletConfig.SystemReserved[resourceName]; ok {
+		systemReserved, err := resource.ParseQuantity(systemReservedStr)
 		if err != nil {
 			return resource.MustParse("0"), false,
 				fmt.Errorf("parse cpu quantity for system-reserved failed with error: %v", err)
