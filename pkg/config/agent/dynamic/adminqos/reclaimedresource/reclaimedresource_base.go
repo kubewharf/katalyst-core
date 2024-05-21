@@ -18,10 +18,12 @@ package reclaimedresource
 
 import (
 	v1 "k8s.io/api/core/v1"
+	"k8s.io/klog/v2"
 
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/adminqos/reclaimedresource/cpuheadroom"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/adminqos/reclaimedresource/memoryheadroom"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/crd"
+	"github.com/kubewharf/katalyst-core/pkg/util/native"
 )
 
 type ReclaimedResourceConfiguration struct {
@@ -30,6 +32,7 @@ type ReclaimedResourceConfiguration struct {
 	MinReclaimedResourceForReport   v1.ResourceList
 	ReservedResourceForAllocate     v1.ResourceList
 	MinReclaimedResourceForAllocate v1.ResourceList
+	MaxNodeUtilizationPercent       map[v1.ResourceName]int64
 
 	*cpuheadroom.CPUHeadroomConfiguration
 	*memoryheadroom.MemoryHeadroomConfiguration
@@ -72,8 +75,50 @@ func (c *ReclaimedResourceConfiguration) ApplyConfiguration(conf *crd.DynamicCon
 				c.MinReclaimedResourceForAllocate[resourceName] = value
 			}
 		}
+
+		if config.MaxNodeUtilizationPercent != nil {
+			for resourceName, value := range config.MaxNodeUtilizationPercent {
+				c.MaxNodeUtilizationPercent[resourceName] = value
+			}
+		}
 	}
 
 	c.CPUHeadroomConfiguration.ApplyConfiguration(conf)
 	c.MemoryHeadroomConfiguration.ApplyConfiguration(conf)
+}
+
+func (c *ReclaimedResourceConfiguration) GetReservedResourceForAllocate(nodeResourceList v1.ResourceList) v1.ResourceList {
+	if len(c.MaxNodeUtilizationPercent) == 0 {
+		return c.ReservedResourceForAllocate
+	}
+
+	res := v1.ResourceList{}
+	for resource, quantity := range c.ReservedResourceForAllocate {
+		nodeAllocatable, ok := nodeResourceList[resource]
+		if !ok {
+			res[resource] = quantity
+			continue
+		}
+
+		maxUtil, ok := c.MaxNodeUtilizationPercent[resource]
+		if !ok {
+			res[resource] = quantity
+			continue
+		}
+		if maxUtil <= 0 || maxUtil > 100 {
+			klog.Warningf("unsupported MaxNodeUtilizationPercent, resourceName: %v, value: %v", resource, maxUtil)
+			res[resource] = quantity
+			continue
+		}
+
+		nodeAllocatableCopy := nodeAllocatable.DeepCopy()
+		nodeAllocatableCopy.Sub(native.MultiplyResourceQuantity(resource, nodeAllocatableCopy, float64(maxUtil)/100.0))
+		res[resource] = nodeAllocatableCopy
+
+		klog.V(6).Infof("GetReservedResourceForAllocate resource: %v, nodeResource: %v, "+
+			"MaxNodeUtilizationPercent: %v, ReservedResourceForAllocate: %v, res: %v",
+			resource, nodeAllocatable.String(), maxUtil, quantity.String(), nodeAllocatableCopy.String())
+	}
+
+	return res
 }
