@@ -77,7 +77,9 @@ func (ha *HeadroomAssemblerCommon) GetHeadroom() (resource.Quantity, error) {
 		return *resource.NewQuantity(0, resource.DecimalSI), nil
 	}
 
-	reserved := ha.conf.GetDynamicConfiguration().ReservedResourceForAllocate[v1.ResourceCPU]
+	reserved := ha.conf.GetDynamicConfiguration().GetReservedResourceForAllocate(v1.ResourceList{
+		v1.ResourceCPU: *resource.NewQuantity(int64(ha.metaServer.NumCPUs), resource.DecimalSI),
+	})[v1.ResourceCPU]
 	headroomTotal := 0.0
 	emptyNUMAs := ha.metaServer.CPUDetails.NUMANodes()
 	exclusiveNUMAs := machine.NewCPUSet()

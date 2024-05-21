@@ -25,6 +25,7 @@ import (
 	"time"
 
 	v1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/wait"
 
@@ -626,5 +627,8 @@ func (p *CPUPressureLoadEviction) checkPressureWithAdvisedThreshold() bool {
 	// for now, we consider ReservedResourceForAllocate as downgrading or manual intervention configuration,
 	// when it's set to a value greater than zero, fall back to static threshold
 	dynamicConfiguration := p.dynamicConf.GetDynamicConfiguration()
-	return dynamicConfiguration.EnableReclaim && dynamicConfiguration.ReservedResourceForAllocate.Cpu().Value() == 0
+	reservedResourceForAllocate := dynamicConfiguration.GetReservedResourceForAllocate(v1.ResourceList{
+		v1.ResourceCPU: *resource.NewQuantity(int64(p.metaServer.NumCPUs), resource.DecimalSI),
+	})
+	return dynamicConfiguration.EnableReclaim && reservedResourceForAllocate.Cpu().Value() == 0
 }
