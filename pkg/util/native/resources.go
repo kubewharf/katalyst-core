@@ -283,6 +283,9 @@ func MultiplyMilliQuantity(quantity resource.Quantity, y float64) resource.Quant
 	if 0 == y {
 		return *resource.NewMilliQuantity(0, quantity.Format)
 	}
+	if 1 == y {
+		return quantity
+	}
 
 	milliValue := quantity.MilliValue()
 	if 0 == milliValue {
@@ -297,6 +300,9 @@ func MultiplyMilliQuantity(quantity resource.Quantity, y float64) resource.Quant
 func MultiplyQuantity(quantity resource.Quantity, y float64) resource.Quantity {
 	if 0 == y {
 		return *resource.NewQuantity(0, quantity.Format)
+	}
+	if 1 == y {
+		return quantity
 	}
 
 	value := quantity.Value()
