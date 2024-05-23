@@ -104,7 +104,7 @@ func (r *provisionPolicyResult) regulateControlKnob(currentControlKnob types.Con
 				reg.SetEssentials(r.essentials)
 			}
 
-			reg.SetLatestRequirement(int(knob.Value))
+			reg.SetLatestControlKnobValue(knob)
 			r.controlKnobValueRegulators[name] = reg
 		}
 	}
@@ -116,7 +116,7 @@ func (r *provisionPolicyResult) regulateControlKnob(currentControlKnob types.Con
 			reg.SetEssentials(r.essentials)
 		}
 
-		reg.Regulate(knob.Value)
+		reg.Regulate(knob)
 		r.controlKnobValueRegulators[name] = reg
 	}
 }
@@ -125,7 +125,7 @@ func (r *provisionPolicyResult) regulateControlKnob(currentControlKnob types.Con
 func (r *provisionPolicyResult) newRegulator(name types.ControlKnobName) regulator.Regulator {
 	switch name {
 	// only non-reclaimed cpu size need regulate now
-	case types.ControlKnobNonReclaimedCPUSize:
+	case types.ControlKnobNonReclaimedCPURequirement:
 		return regulator.NewCPURegulator()
 	default:
 		return regulator.NewDummyRegulator()
@@ -139,6 +139,7 @@ func (r *provisionPolicyResult) getControlKnob() types.ControlKnob {
 		controlKnob[name] = types.ControlKnobValue{
 			Value:  float64(r.GetRequirement()),
 			Action: types.ControlKnobActionNone,
+			Reason: r.GetReason(),
 		}
 	}
 	return controlKnob
@@ -384,11 +385,10 @@ func (r *QoSRegionBase) GetProvision() (types.ControlKnob, error) {
 				r.borweinController.ResetIndicatorOffsets()
 			}
 		}
-
 		return result.getControlKnob(), nil
 	}
 
-	return types.ControlKnob{}, fmt.Errorf("failed to get legal provision")
+	return nil, fmt.Errorf("failed to get legal provision")
 }
 
 func (r *QoSRegionBase) GetHeadroom() (float64, error) {
@@ -461,7 +461,7 @@ func (r *QoSRegionBase) GetStatus() types.RegionStatus {
 	r.Lock()
 	defer r.Unlock()
 
-	return r.regionStatus
+	return r.regionStatus.Clone()
 }
 
 func (r *QoSRegionBase) GetControlEssentials() types.ControlEssentials {
@@ -586,7 +586,7 @@ func (r *QoSRegionBase) getProvisionControlKnob() map[types.CPUProvisionPolicyNa
 			}...)
 
 			klog.InfoS("[qosaware-cpu] get raw control knob", "region", r.name, "policy", internal.name,
-				"knob", name, "action", value.Action, "value", value.Value)
+				"knob", name, "action", value.Action, "value", value.Value, "reason", value.Reason)
 		}
 	}
 
@@ -645,7 +645,7 @@ func (r *QoSRegionBase) regulateProvisionControlKnob(originControlKnob map[types
 				{Key: metricTagKeyControlKnobAction, Val: string(value.Action)},
 			}...)
 			klog.InfoS("[qosaware-cpu] get regulated control knob", "region", r.name, "policy", policy, "knob", knob,
-				"action", value.Action, "value", value.Value)
+				"action", value.Action, "value", value.Value, "reason", value.Reason)
 		}
 	}
 }
@@ -657,6 +657,8 @@ func (r *QoSRegionBase) getIndicators() (types.Indicator, error) {
 	if !ok {
 		return nil, fmt.Errorf("get %v indicators failed", r.regionType)
 	}
+
+	general.Infof("indicatorTargetConfig: %v, region %v", indicatorTargetConfig, r.name)
 
 	indicators := make(types.Indicator)
 	for _, indicator := range indicatorTargetConfig {
@@ -756,9 +758,10 @@ func (r *QoSRegionBase) updateBoundType(overshoot bool) {
 	boundType := types.BoundUnknown
 	resourceUpperBoundHit := false
 	if r.IsThrottled() {
+		general.Infof("region %v is throttled", r.name)
 		boundType = types.BoundUpper
 	} else if r.ControlEssentials.ControlKnobs != nil {
-		if v, ok := r.ControlEssentials.ControlKnobs[types.ControlKnobNonReclaimedCPUSize]; ok {
+		if v, ok := r.ControlEssentials.ControlKnobs[types.ControlKnobNonReclaimedCPURequirement]; ok {
 			if v.Value <= r.ResourceEssentials.ResourceLowerBound {
 				boundType = types.BoundLower
 			} else {
@@ -771,6 +774,7 @@ func (r *QoSRegionBase) updateBoundType(overshoot bool) {
 	}
 
 	if overshoot && resourceUpperBoundHit {
+		general.Infof("region %v is overshoot and resourceUpperBoundHit", r.name)
 		boundType = types.BoundUpper
 	}
 	// fill in bound entry

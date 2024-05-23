@@ -87,20 +87,21 @@ type ControlKnob map[ControlKnobName]ControlKnobValue
 type ControlKnobName string
 
 const (
-	// ControlKnobNonReclaimedCPUSize refers to cpu requirement of non-reclaimed workloads
-	ControlKnobNonReclaimedCPUSize ControlKnobName = "non-reclaimed-cpu-size"
+	// ControlKnobNonReclaimedCPURequirement refers to cpu requirement of non-reclaimed workloads, like shared_cores and dedicated_cores
+	ControlKnobNonReclaimedCPURequirement ControlKnobName = "non-reclaimed-cpu-requirement"
 
-	// ControlKnobNonReclaimedCPUSizeUpper refers to the upper cpu size, for isolated pods now
-	ControlKnobNonReclaimedCPUSizeUpper ControlKnobName = "non-reclaimed-cpu-size-upper"
+	// ControlKnobNonReclaimedCPURequirementUpper refers to the upper cpu size, for isolated pods now
+	ControlKnobNonReclaimedCPURequirementUpper ControlKnobName = "non-reclaimed-cpu-requirement-upper"
 
-	// ControlKnobNonReclaimedCPUSizeLower refers to the lower cpu size, for isolated pods now
-	ControlKnobNonReclaimedCPUSizeLower ControlKnobName = "non-reclaimed-cpu-size-lower"
+	// ControlKnobNonReclaimedCPURequirementLower refers to the lower cpu size, for isolated pods now
+	ControlKnobNonReclaimedCPURequirementLower ControlKnobName = "non-reclaimed-cpu-requirement-lower"
 )
 
 // ControlKnobValue holds control knob value and action
 type ControlKnobValue struct {
 	Value  float64
 	Action ControlKnobAction
+	Reason string
 }
 
 var InvalidControlKnob = map[ControlKnobName]ControlKnobValue{"": {}}
@@ -178,6 +179,7 @@ type RegionInfo struct {
 	OwnerPoolName string         `json:"owner_pool_name"`
 	BindingNumas  machine.CPUSet `json:"binding_numas"`
 	RegionStatus  RegionStatus   `json:"region_status"`
+	Pods          PodSet         `json:"pods"`
 
 	ControlKnobMap             ControlKnob            `json:"control_knob_map"`
 	ProvisionPolicyTopPriority CPUProvisionPolicyName `json:"provision_policy_top_priority"`
@@ -191,8 +193,10 @@ type RegionInfo struct {
 // InternalCPUCalculationResult conveys minimal information to cpu server for composing
 // calculation result
 type InternalCPUCalculationResult struct {
-	PoolEntries map[string]map[int]int // map[poolName][numaId]cpuSize
-	TimeStamp   time.Time
+	PoolEntries                           map[string]map[int]int            // map[poolName][numaId]cpuSize
+	PoolOverlapInfo                       map[string]map[int]map[string]int // map[poolName][numaId][targetOverlapPoolName]int
+	TimeStamp                             time.Time
+	AllowSharedCoresOverlapReclaimedCores bool
 }
 
 // ControlEssentials defines essential metrics for cpu advisor feedback control

@@ -76,16 +76,16 @@ type ControlKnobConstrains struct {
 func NewControlKnobConstrains() *ControlKnobConstrains {
 	return &ControlKnobConstrains{
 		RestrictControlKnobMaxUpperGap: map[string]string{
-			string(types.ControlKnobNonReclaimedCPUSize): "20",
+			string(types.ControlKnobNonReclaimedCPURequirement): "20",
 		},
 		RestrictControlKnobMaxLowerGap: map[string]string{
-			string(types.ControlKnobNonReclaimedCPUSize): "20",
+			string(types.ControlKnobNonReclaimedCPURequirement): "20",
 		},
 		RestrictControlKnobMaxUpperGapRatio: map[string]string{
-			string(types.ControlKnobNonReclaimedCPUSize): "0.3",
+			string(types.ControlKnobNonReclaimedCPURequirement): "0.3",
 		},
 		RestrictControlKnobMaxLowerGapRatio: map[string]string{
-			string(types.ControlKnobNonReclaimedCPUSize): "0.3",
+			string(types.ControlKnobNonReclaimedCPURequirement): "0.3",
 		},
 	}
 }

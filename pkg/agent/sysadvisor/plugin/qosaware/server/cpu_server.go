@@ -123,13 +123,17 @@ func (cs *cpuServer) ListAndWatch(_ *advisorsvc.Empty, server cpuadvisor.CPUAdvi
 			cs.metaCache.RangeContainer(f)
 
 			// Send result
-			if err := server.Send(&cpuadvisor.ListAndWatchResponse{Entries: calculationEntriesMap}); err != nil {
+			resp := &cpuadvisor.ListAndWatchResponse{
+				Entries:                               calculationEntriesMap,
+				AllowSharedCoresOverlapReclaimedCores: advisorResp.AllowSharedCoresOverlapReclaimedCores,
+			}
+			if err := server.Send(resp); err != nil {
 				klog.Errorf("[qosaware-server-cpu] send response failed: %v", err)
 				_ = cs.emitter.StoreInt64(cs.genMetricsName(metricServerLWSendResponseFailed), int64(cs.period.Seconds()), metrics.MetricTypeNameCount)
 				_ = general.UpdateHealthzStateByError(cpuServerHealthCheckName, err)
 				return err
 			}
-			klog.Infof("[qosaware-server-cpu] send calculation result: %v", general.ToString(calculationEntriesMap))
+			klog.Infof("[qosaware-server-cpu] send listWatch resp: %v", general.ToString(resp))
 			_ = general.UpdateHealthzStateByError(cpuServerHealthCheckName, nil)
 			_ = cs.emitter.StoreInt64(cs.genMetricsName(metricServerLWSendResponseSucceeded), int64(cs.period.Seconds()), metrics.MetricTypeNameCount)
 		}
@@ -297,6 +301,10 @@ func (cs *cpuServer) updateContainerInfo(podUID string, containerName string, po
 // - for each [pool, numa] set, there exists a new Block (and corresponding internalBlock)
 func (cs *cpuServer) assemblePoolEntries(advisorResp *types.InternalCPUCalculationResult, calculationEntriesMap map[string]*cpuadvisor.CalculationEntries, bs blockSet) {
 	for poolName, entries := range advisorResp.PoolEntries {
+		// join reclaim pool lastly
+		if poolName == qrmstate.PoolNameReclaim && advisorResp.AllowSharedCoresOverlapReclaimedCores {
+			continue
+		}
 		poolEntry := NewPoolCalculationEntries(poolName)
 		for numaID, size := range entries {
 			block := NewBlock(uint64(size), "")
@@ -308,6 +316,38 @@ func (cs *cpuServer) assemblePoolEntries(advisorResp *types.InternalCPUCalculati
 			poolEntry.Entries[state.FakedContainerName].CalculationResultsByNumas[int64(numaID)] = numaCalculationResult
 		}
 		calculationEntriesMap[poolName] = poolEntry
+	}
+
+	if reclaimEntries, ok := advisorResp.PoolEntries[qrmstate.PoolNameReclaim]; ok && advisorResp.AllowSharedCoresOverlapReclaimedCores {
+		poolEntry := NewPoolCalculationEntries(qrmstate.PoolNameReclaim)
+		for numaID, reclaimSize := range reclaimEntries {
+
+			overlapSize := advisorResp.GetPoolOverlapInfo(qrmstate.PoolNameReclaim, numaID)
+			if len(overlapSize) == 0 {
+				// If share pool not exists，join reclaim pool directly
+				block := NewBlock(uint64(reclaimSize), "")
+				numaCalculationResult := &cpuadvisor.NumaCalculationResult{Blocks: []*cpuadvisor.Block{block}}
+
+				innerBlock := NewInnerBlock(block, int64(numaID), qrmstate.PoolNameReclaim, nil, numaCalculationResult)
+				innerBlock.join(block.BlockId, bs)
+
+				poolEntry.Entries[state.FakedContainerName].CalculationResultsByNumas[int64(numaID)] = numaCalculationResult
+			} else {
+				numaCalculationResult := &cpuadvisor.NumaCalculationResult{Blocks: []*cpuadvisor.Block{}}
+				for sharedPoolName, reclaimedSize := range overlapSize {
+					block := NewBlock(uint64(reclaimedSize), "")
+
+					sharedPoolCalculationResults, ok := getNumaCalculationResult(calculationEntriesMap, sharedPoolName, state.FakedContainerName, int64(numaID))
+					if ok && len(sharedPoolCalculationResults.Blocks) == 1 {
+						innerBlock := NewInnerBlock(block, int64(numaID), qrmstate.PoolNameReclaim, nil, numaCalculationResult)
+						numaCalculationResult.Blocks = append(numaCalculationResult.Blocks, block)
+						innerBlock.join(sharedPoolCalculationResults.Blocks[0].BlockId, bs)
+					}
+					poolEntry.Entries[state.FakedContainerName].CalculationResultsByNumas[int64(numaID)] = numaCalculationResult
+				}
+			}
+		}
+		calculationEntriesMap[qrmstate.PoolNameReclaim] = poolEntry
 	}
 }
 

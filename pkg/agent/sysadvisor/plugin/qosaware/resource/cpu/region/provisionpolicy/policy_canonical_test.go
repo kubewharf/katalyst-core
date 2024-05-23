@@ -198,7 +198,7 @@ func TestPolicyCanonical(t *testing.T) {
 			},
 			controlEssentials: types.ControlEssentials{
 				ControlKnobs: types.ControlKnob{
-					types.ControlKnobNonReclaimedCPUSize: {
+					types.ControlKnobNonReclaimedCPURequirement: {
 						Value:  40,
 						Action: types.ControlKnobActionNone,
 					},
@@ -212,7 +212,7 @@ func TestPolicyCanonical(t *testing.T) {
 				ReclaimOverlap: false,
 			},
 			wantResult: types.ControlKnob{
-				types.ControlKnobNonReclaimedCPUSize: {
+				types.ControlKnobNonReclaimedCPURequirement: {
 					Value:  4,
 					Action: types.ControlKnobActionNone,
 				},
@@ -253,7 +253,7 @@ func TestPolicyCanonical(t *testing.T) {
 			},
 			controlEssentials: types.ControlEssentials{
 				ControlKnobs: types.ControlKnob{
-					types.ControlKnobNonReclaimedCPUSize: {
+					types.ControlKnobNonReclaimedCPURequirement: {
 						Value:  40,
 						Action: types.ControlKnobActionNone,
 					},
@@ -267,7 +267,7 @@ func TestPolicyCanonical(t *testing.T) {
 				ReclaimOverlap: false,
 			},
 			wantResult: types.ControlKnob{
-				types.ControlKnobNonReclaimedCPUSize: {
+				types.ControlKnobNonReclaimedCPURequirement: {
 					Value:  2.5,
 					Action: types.ControlKnobActionNone,
 				},
@@ -303,7 +303,7 @@ func TestPolicyCanonical(t *testing.T) {
 			},
 			controlEssentials: types.ControlEssentials{
 				ControlKnobs: types.ControlKnob{
-					types.ControlKnobNonReclaimedCPUSize: {
+					types.ControlKnobNonReclaimedCPURequirement: {
 						Value:  40,
 						Action: types.ControlKnobActionNone,
 					},
@@ -321,7 +321,7 @@ func TestPolicyCanonical(t *testing.T) {
 				ReclaimOverlap: false,
 			},
 			wantResult: types.ControlKnob{
-				types.ControlKnobNonReclaimedCPUSize: {
+				types.ControlKnobNonReclaimedCPURequirement: {
 					Value:  4,
 					Action: types.ControlKnobActionNone,
 				},

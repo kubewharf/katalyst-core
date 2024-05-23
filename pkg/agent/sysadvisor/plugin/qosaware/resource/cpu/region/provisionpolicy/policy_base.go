@@ -76,11 +76,11 @@ func (p *PolicyBase) GetControlKnobAdjusted() (types.ControlKnob, error) {
 
 	case types.QoSRegionTypeIsolation:
 		return map[types.ControlKnobName]types.ControlKnobValue{
-			types.ControlKnobNonReclaimedCPUSizeUpper: {
+			types.ControlKnobNonReclaimedCPURequirementUpper: {
 				Value:  p.ResourceUpperBound,
 				Action: types.ControlKnobActionNone,
 			},
-			types.ControlKnobNonReclaimedCPUSizeLower: {
+			types.ControlKnobNonReclaimedCPURequirementLower: {
 				Value:  p.ResourceLowerBound,
 				Action: types.ControlKnobActionNone,
 			},

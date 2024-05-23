@@ -85,6 +85,8 @@ type ResourceEssentials struct {
 	ResourceLowerBound  float64
 	ReservedForReclaim  float64
 	ReservedForAllocate float64
+
+	AllowSharedCoresOverlapReclaimedCores bool
 }
 
 // PolicyUpdateStatus works as a flag indicating update result

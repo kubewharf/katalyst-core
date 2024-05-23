@@ -26,11 +26,13 @@ func TestRegulatePoolSizes(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name              string
-		available         int
-		enableReclaim     bool
-		poolSizes         map[string]int
-		expectedPoolSizes map[string]int
+		name                                  string
+		available                             int
+		enableReclaim                         bool
+		allowSharedCoresOverlapReclaimedCores bool
+		poolSizes                             map[string]int
+		isolatedPoolSizes                     map[string]int
+		expectedPoolSizes                     map[string]int
 	}{
 		{
 			name:              "test1",
@@ -81,14 +83,32 @@ func TestRegulatePoolSizes(t *testing.T) {
 			poolSizes:         map[string]int{"share": 1, "batch": 2, "flink": 3},
 			expectedPoolSizes: map[string]int{"share": 2, "batch": 2, "flink": 2},
 		},
+		{
+			name:                                  "test8",
+			available:                             24,
+			enableReclaim:                         true,
+			allowSharedCoresOverlapReclaimedCores: true,
+			poolSizes:                             map[string]int{"share": 1, "batch": 2, "flink": 3},
+			isolatedPoolSizes:                     map[string]int{"i1": 2, "i2": 2},
+			expectedPoolSizes:                     map[string]int{"share": 3, "batch": 7, "flink": 10, "i1": 2, "i2": 2},
+		},
+		{
+			name:                                  "test9",
+			available:                             8,
+			enableReclaim:                         true,
+			allowSharedCoresOverlapReclaimedCores: true,
+			poolSizes:                             map[string]int{"share": 2, "batch": 4, "flink": 6},
+			isolatedPoolSizes:                     map[string]int{"i1": 2, "i2": 2},
+			expectedPoolSizes:                     map[string]int{"share": 1, "batch": 2, "flink": 3, "i1": 1, "i2": 1},
+		},
 	}
 
 	for _, tt := range tests {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			regulatePoolSizes(tt.poolSizes, tt.available, tt.enableReclaim)
-			assert.Equal(t, tt.expectedPoolSizes, tt.poolSizes)
+			poolSizes, _ := regulatePoolSizes(tt.poolSizes, tt.isolatedPoolSizes, tt.available, tt.enableReclaim, tt.allowSharedCoresOverlapReclaimedCores)
+			assert.Equal(t, tt.expectedPoolSizes, poolSizes)
 		})
 	}
 }
