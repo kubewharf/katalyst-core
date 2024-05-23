@@ -275,14 +275,8 @@ func (cs *cpuServer) updateContainerInfo(podUID string, containerName string, po
 		ci.QoSLevel = qosLevel
 	}
 
-	// get origin owner pool name according to the qos conf
-	originOwnerPoolName, err := cs.qosConf.GetSpecifiedPoolNameForPod(pod)
-	if err != nil {
-		return fmt.Errorf("container %v/%v get origin owner pool name failed", podUID, containerName)
-	}
-	if ci.OriginOwnerPoolName != originOwnerPoolName {
-		general.Infof("OriginOwnerPoolName has change from %s to %s", ci.OriginOwnerPoolName, originOwnerPoolName)
-		ci.OriginOwnerPoolName = originOwnerPoolName
+	if ci.OriginOwnerPoolName == "" {
+		ci.OriginOwnerPoolName = ci.OwnerPoolName
 	}
 
 	// fill in topology aware assignment for containers with owner pool
@@ -350,7 +344,7 @@ func (cs *cpuServer) assemblePodEntries(calculationEntriesMap map[string]*cpuadv
 	}
 
 	// currently, only pods in "dedicated_nums with numa binding" has topology aware allocations
-	if ci.IsNumaBinding() {
+	if ci.IsDedicatedNumaBinding() {
 		calculationResultsByNumas := make(map[int64]*cpuadvisor.NumaCalculationResult)
 
 		for numaID, cpuset := range ci.TopologyAwareAssignments {

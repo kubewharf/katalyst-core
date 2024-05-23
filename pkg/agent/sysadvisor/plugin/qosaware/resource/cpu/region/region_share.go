@@ -30,6 +30,7 @@ import (
 	pkgconsts "github.com/kubewharf/katalyst-core/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
+	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 	"github.com/kubewharf/katalyst-core/pkg/util/metric"
 )
 
@@ -45,18 +46,27 @@ type QoSRegionShare struct {
 }
 
 // NewQoSRegionShare returns a region instance for shared pool
-func NewQoSRegionShare(ci *types.ContainerInfo, conf *config.Configuration, extraConf interface{},
+func NewQoSRegionShare(ci *types.ContainerInfo, conf *config.Configuration, extraConf interface{}, numaID int,
 	metaReader metacache.MetaReader, metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter,
 ) QoSRegion {
-	regionName := getRegionNameFromMetaCache(ci, cpuadvisor.FakedNUMAID, metaReader)
+	regionName := getRegionNameFromMetaCache(ci, numaID, metaReader)
 	if regionName == "" {
 		regionName = string(types.QoSRegionTypeShare) + types.RegionNameSeparator + string(uuid.NewUUID())
 	}
 
+	// Why OriginOwnerPoolName ?
+	// Case 1. create a share pool with OwnerPoolName:
+	//	When receive a new pod with new share pool from QRM, advisor should create a new share region with OwnerPoolName (OriginOwnerPoolName == OwnerPoolName).
+	// Case 2. create a share pool with OriginOwnerPoolName:
+	//	When put isolation pods back to share pool, advisor should create a new share region with OriginOwnerPoolName (OriginOwnerPoolName != OwnerPoolName).
+	isNumaBinding := numaID != cpuadvisor.FakedNUMAID
 	r := &QoSRegionShare{
-		QoSRegionBase: NewQoSRegionBase(regionName, ci.OriginOwnerPoolName, types.QoSRegionTypeShare, conf, extraConf, metaReader, metaServer, emitter),
+		QoSRegionBase: NewQoSRegionBase(regionName, ci.OriginOwnerPoolName, types.QoSRegionTypeShare, conf, extraConf, isNumaBinding, metaReader, metaServer, emitter),
 	}
 
+	if isNumaBinding {
+		r.bindingNumas = machine.NewCPUSet(numaID)
+	}
 	r.indicatorCurrentGetters = map[string]types.IndicatorCurrentGetter{
 		string(v1alpha1.ServiceSystemIndicatorNameCPUSchedWait):             r.getPoolCPUSchedWait,
 		string(v1alpha1.ServiceSystemIndicatorNameCPUUsageRatio):            r.getPoolCPUUsageRatio,
@@ -103,6 +113,7 @@ func (r *QoSRegionShare) updateProvisionPolicy() {
 
 		// set essentials for policy and regulator
 		internal.policy.SetPodSet(r.podSet)
+		internal.policy.SetBindingNumas(r.bindingNumas)
 		internal.policy.SetEssentials(r.ResourceEssentials, r.ControlEssentials)
 
 		// run an episode of policy update

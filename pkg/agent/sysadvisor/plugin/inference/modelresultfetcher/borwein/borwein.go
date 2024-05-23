@@ -151,7 +151,7 @@ func (bmrf *BorweinModelResultFetcher) FetchModelResult(ctx context.Context, met
 			return
 		}
 
-		if containerInfo.QoSLevel == apiconsts.PodAnnotationQoSLevelSharedCores || containerInfo.IsNumaExclusive() {
+		if containerInfo.QoSLevel == apiconsts.PodAnnotationQoSLevelSharedCores || containerInfo.IsDedicatedNumaExclusive() {
 			requestContainers = append(requestContainers, containerInfo.Clone())
 		}
 

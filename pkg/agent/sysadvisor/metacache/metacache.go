@@ -18,6 +18,7 @@ package metacache
 
 import (
 	"fmt"
+	"os"
 	"reflect"
 	"sync"
 	"time"
@@ -156,6 +157,13 @@ var _ MetaCache = &MetaCacheImp{}
 
 // NewMetaCacheImp returns the single instance of MetaCacheImp
 func NewMetaCacheImp(conf *config.Configuration, emitterPool metricspool.MetricsEmitterPool, metricsReader metrictypes.MetricsReader) (*MetaCacheImp, error) {
+	if conf.GenericSysAdvisorConfiguration.ClearStateFileDirectory {
+		if err := os.RemoveAll(conf.GenericSysAdvisorConfiguration.StateFileDirectory); err != nil {
+			if !os.IsNotExist(err) {
+				return nil, fmt.Errorf("failed to clear state file dir")
+			}
+		}
+	}
 	stateFileDir := conf.GenericSysAdvisorConfiguration.StateFileDirectory
 	checkpointManager, err := checkpointmanager.NewCheckpointManager(stateFileDir)
 	if err != nil {

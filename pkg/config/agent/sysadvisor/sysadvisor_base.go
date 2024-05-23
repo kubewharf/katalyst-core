@@ -26,8 +26,10 @@ import (
 
 // GenericSysAdvisorConfiguration stores configurations of generic sysadvisor
 type GenericSysAdvisorConfiguration struct {
-	SysAdvisorPlugins  []string
-	StateFileDirectory string
+	SysAdvisorPlugins            []string
+	StateFileDirectory           string
+	ClearStateFileDirectory      bool
+	DisableShareCoresNumaBinding bool
 }
 
 // NewGenericSysAdvisorConfiguration creates a new generic sysadvisor plugin configuration.

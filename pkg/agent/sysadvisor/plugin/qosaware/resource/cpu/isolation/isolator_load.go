@@ -67,6 +67,8 @@ type LoadIsolator struct {
 
 	// map from pod/container pair to containerIsolationState
 	states sync.Map
+
+	configTranslator *general.CommonSuffixTranslator
 }
 
 func NewLoadIsolator(conf *config.Configuration, _ interface{}, emitter metrics.MetricEmitter,
@@ -78,6 +80,8 @@ func NewLoadIsolator(conf *config.Configuration, _ interface{}, emitter metrics.
 		emitter:    emitter,
 		metaReader: metaCache,
 		metaServer: metaServer,
+
+		configTranslator: general.NewCommonSuffixTranslator("-NUMA"),
 	}
 }
 
@@ -96,7 +100,7 @@ func (l *LoadIsolator) GetIsolatedPods() []string {
 	existed := sets.NewString()
 	for _, ci := range l.getSortedContainerInfo() {
 		// if isolation is disabled from the certain pool, mark as none-isolated and trigger container clear
-		if l.conf.IsolationDisabledPools.Has(ci.OriginOwnerPoolName) {
+		if l.conf.IsolationDisabledPools.Has(l.configTranslator.Translate(ci.OriginOwnerPoolName)) {
 			continue
 		}
 
@@ -180,7 +184,11 @@ func (l *LoadIsolator) checkContainerLoad(info *types.ContainerInfo) bool {
 // checkIsolationPoolThreshold returns true if this container can be isolated
 // aspect of the limitation of total isolated containers in this pool
 func (l *LoadIsolator) checkIsolationPoolThreshold(info *types.ContainerInfo, isolationResources map[string]*poolIsolationStates) bool {
-	poolResource := isolationResources[info.OriginOwnerPoolName]
+	poolResource, ok := isolationResources[info.OriginOwnerPoolName]
+	if !ok {
+		general.Warningf("pod %v container %v doesn't has pool resource for %s", info.PodName, info.ContainerName, info.OriginOwnerPoolName)
+		return false
+	}
 
 	if poolResource.isolatedResources+poolResource.podResources[info.PodUID] > poolResource.maxResources {
 		general.Warningf("pod %v container %v can't be isolated: exceeds resource-ratio, current %v, max %v",
@@ -205,6 +213,7 @@ func (l *LoadIsolator) initIsolationStates() map[string]*poolIsolationStates {
 			return true
 		}
 
+		isolationConfigKey := l.configTranslator.Translate(ci.OriginOwnerPoolName)
 		// init for corresponding pool
 		if _, ok := isolationResources[ci.OriginOwnerPoolName]; !ok {
 			state := &poolIsolationStates{
@@ -214,10 +223,10 @@ func (l *LoadIsolator) initIsolationStates() map[string]*poolIsolationStates {
 				isolatedPods:     sets.NewString(),
 			}
 
-			if ratio, ratioOK := l.conf.IsolatedMaxPoolResourceRatios[ci.OriginOwnerPoolName]; ratioOK {
+			if ratio, ratioOK := l.conf.IsolatedMaxPoolResourceRatios[isolationConfigKey]; ratioOK {
 				state.maxResourceRatio = ratio
 			}
-			if ratio, ratioOK := l.conf.IsolatedMaxPoolPodRatios[ci.OriginOwnerPoolName]; ratioOK {
+			if ratio, ratioOK := l.conf.IsolatedMaxPoolPodRatios[isolationConfigKey]; ratioOK {
 				state.maxPodRatio = ratio
 			}
 
