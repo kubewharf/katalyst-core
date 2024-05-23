@@ -38,10 +38,10 @@ func NewCPUShareOptions() *CPUShareOptions {
 			string(types.CPUProvisionPolicyRama): string(types.CPUProvisionPolicyCanonical),
 		},
 		RestrictControlKnobMaxGap: map[string]string{
-			string(types.ControlKnobNonReclaimedCPUSize): "20",
+			string(types.ControlKnobNonReclaimedCPURequirement): "20",
 		},
 		RestrictControlKnobMaxGapRatio: map[string]string{
-			string(types.ControlKnobNonReclaimedCPUSize): "0.3",
+			string(types.ControlKnobNonReclaimedCPURequirement): "0.3",
 		},
 	}
 }

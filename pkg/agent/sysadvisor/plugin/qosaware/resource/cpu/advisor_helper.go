@@ -128,7 +128,7 @@ func (cra *cpuResourceAdvisor) initializeProvisionAssembler() error {
 	if !ok {
 		return fmt.Errorf("unsupported provision assembler %v", assemblerName)
 	}
-	cra.provisionAssembler = initializer(cra.conf, cra.extraConf, &cra.regionMap, &cra.reservedForReclaim, &cra.numaAvailable, &cra.nonBindingNumas, cra.metaCache, cra.metaServer, cra.emitter)
+	cra.provisionAssembler = initializer(cra.conf, cra.extraConf, &cra.regionMap, &cra.reservedForReclaim, &cra.numaAvailable, &cra.nonBindingNumas, &cra.allowSharedCoresOverlapReclaimedCores, cra.metaCache, cra.metaServer, cra.emitter)
 
 	return nil
 }
@@ -243,6 +243,7 @@ func (cra *cpuResourceAdvisor) updateRegionEntries() {
 			RegionType:    r.Type(),
 			OwnerPoolName: r.OwnerPoolName(),
 			BindingNumas:  r.GetBindingNumas(),
+			Pods:          r.GetPods(),
 		}
 
 		if r.Type() == types.QoSRegionTypeShare || r.Type() == types.QoSRegionTypeDedicatedNumaExclusive {

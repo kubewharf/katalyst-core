@@ -24,10 +24,10 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
-func getNumasAvailableResource(numaAvailable map[int]int, numas machine.CPUSet) int {
+func getNUMAsResource(resources map[int]int, numas machine.CPUSet) int {
 	res := 0
 	for _, numaID := range numas.ToSliceInt() {
-		res += numaAvailable[numaID]
+		res += resources[numaID]
 	}
 	return res
 }
@@ -35,36 +35,32 @@ func getNumasAvailableResource(numaAvailable map[int]int, numas machine.CPUSet) 
 // regulatePoolSizes modifies pool size map to legal values, taking total available
 // resource and config such as enable reclaim into account. should be compatible with
 // any case and not return error. return true if reach resource upper bound.
-func regulatePoolSizes(poolSizes map[string]int, available int, enableReclaim bool) bool {
-	targetSum := general.SumUpMapValues(poolSizes)
-	throttled := false
-
-	// set bound upper if reaching max available resource
-	// todo this boundUpper value only works for enableReclaim (and kind of mess), need to refine this in the future
-	if targetSum >= available && enableReclaim {
-		throttled = true
-	}
+func regulatePoolSizes(poolSizeRequirements map[string]int, available int, enableReclaim bool, allowSharedCoresOverlapReclaimedCores bool) (map[string]int, bool) {
+	targetSum := general.SumUpMapValues(poolSizeRequirements)
 
 	// use all available resource for pools when reclaim is disabled
 	// or reaching max available resource
-	if !enableReclaim || targetSum > available {
+	if !enableReclaim || targetSum > available || allowSharedCoresOverlapReclaimedCores {
 		targetSum = available
 	}
 
-	if err := normalizePoolSizes(poolSizes, targetSum); err != nil {
+	poolSizes, err := normalizePoolSizes(poolSizeRequirements, targetSum)
+	if err != nil {
 		// all pools share available resource as fallback if normalization failed
-		for k := range poolSizes {
+		for k := range poolSizeRequirements {
 			poolSizes[k] = available
 		}
 	}
 
-	return throttled
+	throttled := general.SumUpMapValues(poolSizes) < general.SumUpMapValues(poolSizeRequirements)
+
+	return poolSizes, throttled
 }
 
-func normalizePoolSizes(poolSizes map[string]int, targetSum int) error {
+func normalizePoolSizes(poolSizes map[string]int, targetSum int) (map[string]int, error) {
 	sum := general.SumUpMapValues(poolSizes)
 	if sum == targetSum {
-		return nil
+		return general.DeepCopyIntMap(poolSizes), nil
 	}
 
 	poolSizesNormalized := make(map[string]int)
@@ -82,16 +78,12 @@ func normalizePoolSizes(poolSizes map[string]int, targetSum int) error {
 		}
 		poolName := selectPoolHelper(poolSizes, poolSizesNormalized)
 		if poolName == "" {
-			return fmt.Errorf("no enough resource")
+			return poolSizesNormalized, fmt.Errorf("no enough resource")
 		}
 		poolSizesNormalized[poolName] -= 1
 		normalizedSum -= 1
 	}
-
-	for k, v := range poolSizesNormalized {
-		poolSizes[k] = v
-	}
-	return nil
+	return poolSizesNormalized, nil
 }
 
 func selectPoolHelper(poolSizesOriginal, poolSizesNormalized map[string]int) string {

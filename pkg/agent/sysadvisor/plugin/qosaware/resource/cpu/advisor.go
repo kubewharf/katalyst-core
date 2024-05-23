@@ -79,7 +79,7 @@ func init() {
 	provisionassembler.RegisterInitializer(types.CPUProvisionAssemblerCommon, provisionassembler.NewProvisionAssemblerCommon)
 
 	headroomassembler.RegisterInitializer(types.CPUHeadroomAssemblerCommon, headroomassembler.NewHeadroomAssemblerCommon)
-	headroomassembler.RegisterInitializer(types.CPUHeadroomAssemblerDedicated, headroomassembler.NewHeadroomAssemblerDedicated)
+	headroomassembler.RegisterInitializer(types.CPUHeadroomAssemblerDedicated, headroomassembler.NewHeadroomAssemblerCommon)
 }
 
 // cpuResourceAdvisor is the entrance of updating cpu resource provision advice for
@@ -101,6 +101,8 @@ type cpuResourceAdvisor struct {
 	numaAvailable      map[int]int                 // map[numaID]availableResource
 	numRegionsPerNuma  map[int]int                 // map[numaID]regionQuantity
 	nonBindingNumas    machine.CPUSet              // numas without numa binding pods
+
+	allowSharedCoresOverlapReclaimedCores bool
 
 	provisionAssembler provisionassembler.ProvisionAssembler
 	headroomAssembler  headroomassembler.HeadroomAssembler
@@ -277,6 +279,8 @@ func (cra *cpuResourceAdvisor) updateWithIsolationGuardian(tryIsolation bool) er
 			ResourceLowerBound:  cra.getRegionMinRequirement(r),
 			ReservedForReclaim:  cra.getRegionReservedForReclaim(r),
 			ReservedForAllocate: cra.getRegionReservedForAllocate(r),
+
+			AllowSharedCoresOverlapReclaimedCores: cra.allowSharedCoresOverlapReclaimedCores,
 		})
 
 		r.TryUpdateProvision()
@@ -340,7 +344,7 @@ func (cra *cpuResourceAdvisor) checkIsolationSafety() bool {
 				klog.Errorf("[qosaware-cpu] get controlKnob for %v err: %v", r.Name(), err)
 				return false
 			}
-			shareAndIsolationPoolSize += int(controlKnob[types.ControlKnobNonReclaimedCPUSize].Value)
+			shareAndIsolationPoolSize += int(controlKnob[types.ControlKnobNonReclaimedCPURequirement].Value)
 		} else if r.Type() == types.QoSRegionTypeIsolation {
 			pods := r.GetPods()
 			cra.metaCache.RangeContainer(func(podUID string, _ string, containerInfo *types.ContainerInfo) bool {
@@ -443,7 +447,7 @@ func (cra *cpuResourceAdvisor) assignShareContainerToRegions(ci *types.Container
 		}
 
 		if len(ci.TopologyAwareAssignments) != 1 {
-			return nil, fmt.Errorf("invalid share pool topology aware assignments")
+			return nil, fmt.Errorf("invalid share pool topology aware assignments, container: %+v", ci)
 		}
 
 		for key := range ci.TopologyAwareAssignments {
@@ -552,6 +556,7 @@ func (cra *cpuResourceAdvisor) gcRegionMap() {
 // 3. region quantity of each numa
 func (cra *cpuResourceAdvisor) updateAdvisorEssentials() {
 	cra.nonBindingNumas = cra.metaServer.CPUDetails.NUMANodes()
+	cra.allowSharedCoresOverlapReclaimedCores = cra.conf.GetDynamicConfiguration().AllowSharedCoresOverlapReclaimedCores
 
 	// update non-binding numas
 	for _, r := range cra.regionMap {

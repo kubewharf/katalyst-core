@@ -139,6 +139,7 @@ func (ri *RegionInfo) Clone() *RegionInfo {
 		OwnerPoolName: ri.OwnerPoolName,
 		BindingNumas:  ri.BindingNumas.Clone(),
 		RegionStatus:  ri.RegionStatus.Clone(),
+		Pods:          ri.Pods.Clone(),
 
 		HeadroomPolicyTopPriority: ri.HeadroomPolicyTopPriority,
 		HeadroomPolicyInUse:       ri.HeadroomPolicyInUse,
@@ -270,6 +271,27 @@ func (r *InternalCPUCalculationResult) SetPoolEntry(poolName string, numaID int,
 		r.PoolEntries[poolName] = make(map[int]int)
 	}
 	r.PoolEntries[poolName][numaID] = poolSize
+}
+
+func (r *InternalCPUCalculationResult) SetPoolOverlapInfo(poolName string, numaID int, overlapPoolName string, poolSize int) {
+	if poolSize <= 0 {
+		return
+	}
+	if r.PoolOverlapInfo[poolName] == nil {
+		r.PoolOverlapInfo[poolName] = map[int]map[string]int{}
+	}
+	if r.PoolOverlapInfo[poolName][numaID] == nil {
+		r.PoolOverlapInfo[poolName][numaID] = map[string]int{}
+	}
+	r.PoolOverlapInfo[poolName][numaID][overlapPoolName] = poolSize
+}
+
+func (r *InternalCPUCalculationResult) GetPoolOverlapInfo(poolName string, numaID int) map[string]int {
+	v, ok := r.PoolOverlapInfo[poolName]
+	if !ok {
+		return nil
+	}
+	return v[numaID]
 }
 
 func (ck ControlKnob) Clone() ControlKnob {

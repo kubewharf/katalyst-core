@@ -27,16 +27,19 @@ import (
 	"github.com/stretchr/testify/require"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
+	"k8s.io/apimachinery/pkg/util/sets"
 
 	"github.com/kubewharf/katalyst-api/pkg/apis/node/v1alpha1"
 	"github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/options"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
+	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource/cpu/region"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/adminqos/reclaimedresource"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/adminqos/reclaimedresource/cpuheadroom"
+	metric_consts "github.com/kubewharf/katalyst-core/pkg/consts"
 	pkgconsts "github.com/kubewharf/katalyst-core/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent"
@@ -47,6 +50,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	metricspool "github.com/kubewharf/katalyst-core/pkg/metrics/metrics-pool"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
+	metric_util "github.com/kubewharf/katalyst-core/pkg/util/metric"
 	utilmetric "github.com/kubewharf/katalyst-core/pkg/util/metric"
 )
 
@@ -91,12 +95,15 @@ func TestHeadroomAssemblerCommon_GetHeadroom(t *testing.T) {
 	now := time.Now()
 
 	type fields struct {
+		regions                        map[string]region.QoSRegion
 		entries                        types.RegionEntries
 		cnr                            *v1alpha1.CustomNodeResource
 		podList                        []*v1.Pod
 		reclaimedResourceConfiguration *reclaimedresource.ReclaimedResourceConfiguration
 		setFakeMetric                  func(store *metric.FakeMetricsFetcher)
 		setMetaCache                   func(cache *metacache.MetaCacheImp)
+
+		allowSharedCoresOverlapReclaimedCores bool
 	}
 	tests := []struct {
 		name    string
@@ -148,6 +155,68 @@ func TestHeadroomAssemblerCommon_GetHeadroom(t *testing.T) {
 				},
 			},
 			want: *resource.NewQuantity(13, resource.DecimalSI),
+		},
+		{
+			name: "allow shared cores overlap reclaimed cores",
+			fields: fields{
+				allowSharedCoresOverlapReclaimedCores: true,
+				entries: map[string]*types.RegionInfo{
+					"share-0": {
+						RegionName:    "share-0",
+						OwnerPoolName: "share-0",
+						BindingNumas:  machine.NewCPUSet(0, 1),
+						RegionType:    types.QoSRegionTypeShare,
+						Pods: map[string]sets.String{
+							"pod1": sets.NewString("container1"),
+						},
+					},
+				},
+				cnr: &v1alpha1.CustomNodeResource{
+					Status: v1alpha1.CustomNodeResourceStatus{
+						Resources: v1alpha1.Resources{
+							Allocatable: &v1.ResourceList{
+								consts.ReclaimedResourceMilliCPU: resource.MustParse("10000"),
+							},
+						},
+					},
+				},
+				reclaimedResourceConfiguration: &reclaimedresource.ReclaimedResourceConfiguration{
+					EnableReclaim: true,
+					CPUHeadroomConfiguration: &cpuheadroom.CPUHeadroomConfiguration{
+						CPUUtilBasedConfiguration: &cpuheadroom.CPUUtilBasedConfiguration{
+							Enable:                         true,
+							TargetReclaimedCoreUtilization: 0.6,
+							MaxReclaimedCoreUtilization:    0,
+							MaxOversoldRate:                1.5,
+						},
+					},
+				},
+				setFakeMetric: func(store *metric.FakeMetricsFetcher) {
+					for i := 0; i < 10; i++ {
+						store.SetCPUMetric(i, pkgconsts.MetricCPUUsageRatio, utilmetric.MetricData{Value: 0.3, Time: &now})
+					}
+					store.SetContainerMetric("pod1", "container1", metric_consts.MetricCPUUsageContainer, metric_util.MetricData{Value: 4})
+				},
+				setMetaCache: func(cache *metacache.MetaCacheImp) {
+					err := cache.SetPoolInfo(state.PoolNameReclaim, &types.PoolInfo{
+						PoolName: state.PoolNameReclaim,
+						TopologyAwareAssignments: map[int]machine.CPUSet{
+							0: machine.MustParse("0-9"),
+						},
+					})
+					require.NoError(t, err)
+					cache.SetPoolInfo("share-0", &types.PoolInfo{
+						PoolName: "share-0",
+						TopologyAwareAssignments: map[int]machine.CPUSet{
+							0: machine.NewCPUSet(0, 1, 2, 4),
+							1: machine.NewCPUSet(5, 6, 7, 8),
+						},
+						OriginalTopologyAwareAssignments: nil,
+						RegionNames:                      sets.NewString("share-0"),
+					})
+				},
+			},
+			want: *resource.NewQuantity(6, resource.DecimalSI),
 		},
 		{
 			name: "disable util based",
@@ -347,6 +416,7 @@ func TestHeadroomAssemblerCommon_GetHeadroom(t *testing.T) {
 
 			conf := generateTestConfiguration(t, ckDir, sfDir)
 			conf.GetDynamicConfiguration().ReclaimedResourceConfiguration = tt.fields.reclaimedResourceConfiguration
+			conf.GetDynamicConfiguration().AllowSharedCoresOverlapReclaimedCores = tt.fields.allowSharedCoresOverlapReclaimedCores
 			metricsFetcher := metric.NewFakeMetricsFetcher(metrics.DummyMetrics{})
 			metaCache, err := metacache.NewMetaCacheImp(conf, metricspool.DummyMetricsEmitterPool{}, metricsFetcher)
 			require.NoError(t, err)
@@ -356,7 +426,16 @@ func TestHeadroomAssemblerCommon_GetHeadroom(t *testing.T) {
 			tt.fields.setMetaCache(metaCache)
 
 			metaServer := generateTestMetaServer(t, tt.fields.cnr, tt.fields.podList, metricsFetcher)
-			ha := NewHeadroomAssemblerCommon(conf, nil, nil, nil, nil, nil, metaCache, metaServer, metrics.DummyMetrics{})
+
+			if tt.fields.regions == nil {
+				shareRegion := region.NewQoSRegionBase("share", "share", types.QoSRegionTypeShare, conf, nil, false, metaCache, metaServer, metrics.DummyMetrics{})
+				shareRegion.SetBindingNumas(machine.NewCPUSet(0, 1))
+				tt.fields.regions = map[string]region.QoSRegion{
+					"share": shareRegion,
+				}
+			}
+
+			ha := NewHeadroomAssemblerCommon(conf, nil, &tt.fields.regions, nil, nil, nil, metaCache, metaServer, metrics.DummyMetrics{})
 
 			store := metricsFetcher.(*metric.FakeMetricsFetcher)
 			tt.fields.setFakeMetric(store)

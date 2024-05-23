@@ -233,24 +233,13 @@ func TestAssembleProvision(t *testing.T) {
 			RegionNames: sets.NewString("isolation-NUMA1-pod2"),
 		},
 	}
-
-	share := NewFakeRegion("share", types.QoSRegionTypeShare, "share")
-	share.SetBindingNumas(machine.NewCPUSet(0))
-	share.SetProvision(types.ControlKnob{
-		types.ControlKnobNonReclaimedCPUSize: {Value: 6},
-	})
-
-	shareNumaBinding := NewFakeRegion("share-NUMA1", types.QoSRegionTypeShare, "share-NUMA1")
-	shareNumaBinding.SetBindingNumas(machine.NewCPUSet(1))
-	shareNumaBinding.SetIsNumaBinding(true)
-	shareNumaBinding.SetProvision(types.ControlKnob{
-		types.ControlKnobNonReclaimedCPUSize: {Value: 8},
-	})
 	tests := []struct {
-		name            string
-		enableReclaimed bool
-		poolInfos       []testCasePoolConfig
-		expect          map[string]map[int]int
+		name                                  string
+		enableReclaimed                       bool
+		allowSharedCoresOverlapReclaimedCores bool
+		poolInfos                             []testCasePoolConfig
+		expectPoolEntries                     map[string]map[int]int
+		expectPoolOverlapInfo                 map[string]map[int]map[string]int
 	}{
 		{
 			name:            "test1",
@@ -262,7 +251,7 @@ func TestAssembleProvision(t *testing.T) {
 					numa:          machine.NewCPUSet(0),
 					isNumaBinding: false,
 					provision: types.ControlKnob{
-						types.ControlKnobNonReclaimedCPUSize: {Value: 6},
+						types.ControlKnobNonReclaimedCPURequirement: {Value: 6},
 					},
 				},
 				{
@@ -271,11 +260,11 @@ func TestAssembleProvision(t *testing.T) {
 					numa:          machine.NewCPUSet(1),
 					isNumaBinding: true,
 					provision: types.ControlKnob{
-						types.ControlKnobNonReclaimedCPUSize: {Value: 8},
+						types.ControlKnobNonReclaimedCPURequirement: {Value: 8},
 					},
 				},
 			},
-			expect: map[string]map[int]int{
+			expectPoolEntries: map[string]map[int]int{
 				"share": {
 					-1: 6,
 				},
@@ -301,7 +290,7 @@ func TestAssembleProvision(t *testing.T) {
 					numa:          machine.NewCPUSet(0),
 					isNumaBinding: false,
 					provision: types.ControlKnob{
-						types.ControlKnobNonReclaimedCPUSize: {Value: 6},
+						types.ControlKnobNonReclaimedCPURequirement: {Value: 6},
 					},
 				},
 				{
@@ -310,11 +299,11 @@ func TestAssembleProvision(t *testing.T) {
 					numa:          machine.NewCPUSet(1),
 					isNumaBinding: true,
 					provision: types.ControlKnob{
-						types.ControlKnobNonReclaimedCPUSize: {Value: 8},
+						types.ControlKnobNonReclaimedCPURequirement: {Value: 8},
 					},
 				},
 			},
-			expect: map[string]map[int]int{
+			expectPoolEntries: map[string]map[int]int{
 				"share": {
 					-1: 20,
 				},
@@ -340,7 +329,7 @@ func TestAssembleProvision(t *testing.T) {
 					numa:          machine.NewCPUSet(0),
 					isNumaBinding: false,
 					provision: types.ControlKnob{
-						types.ControlKnobNonReclaimedCPUSize: {Value: 6},
+						types.ControlKnobNonReclaimedCPURequirement: {Value: 6},
 					},
 				},
 				{
@@ -349,7 +338,7 @@ func TestAssembleProvision(t *testing.T) {
 					numa:          machine.NewCPUSet(1),
 					isNumaBinding: true,
 					provision: types.ControlKnob{
-						types.ControlKnobNonReclaimedCPUSize: {Value: 8},
+						types.ControlKnobNonReclaimedCPURequirement: {Value: 8},
 					},
 				},
 				{
@@ -358,12 +347,12 @@ func TestAssembleProvision(t *testing.T) {
 					numa:          machine.NewCPUSet(1),
 					isNumaBinding: true,
 					provision: types.ControlKnob{
-						types.ControlKnobNonReclaimedCPUSizeUpper: {Value: 8},
-						types.ControlKnobNonReclaimedCPUSizeLower: {Value: 4},
+						types.ControlKnobNonReclaimedCPURequirementUpper: {Value: 8},
+						types.ControlKnobNonReclaimedCPURequirementLower: {Value: 4},
 					},
 				},
 			},
-			expect: map[string]map[int]int{
+			expectPoolEntries: map[string]map[int]int{
 				"share": {
 					-1: 6,
 				},
@@ -392,7 +381,7 @@ func TestAssembleProvision(t *testing.T) {
 					numa:          machine.NewCPUSet(0),
 					isNumaBinding: false,
 					provision: types.ControlKnob{
-						types.ControlKnobNonReclaimedCPUSize: {Value: 6},
+						types.ControlKnobNonReclaimedCPURequirement: {Value: 6},
 					},
 				},
 				{
@@ -401,7 +390,7 @@ func TestAssembleProvision(t *testing.T) {
 					numa:          machine.NewCPUSet(1),
 					isNumaBinding: true,
 					provision: types.ControlKnob{
-						types.ControlKnobNonReclaimedCPUSize: {Value: 8},
+						types.ControlKnobNonReclaimedCPURequirement: {Value: 8},
 					},
 				},
 				{
@@ -410,12 +399,12 @@ func TestAssembleProvision(t *testing.T) {
 					numa:          machine.NewCPUSet(1),
 					isNumaBinding: true,
 					provision: types.ControlKnob{
-						types.ControlKnobNonReclaimedCPUSizeUpper: {Value: 8},
-						types.ControlKnobNonReclaimedCPUSizeLower: {Value: 4},
+						types.ControlKnobNonReclaimedCPURequirementUpper: {Value: 8},
+						types.ControlKnobNonReclaimedCPURequirementLower: {Value: 4},
 					},
 				},
 			},
-			expect: map[string]map[int]int{
+			expectPoolEntries: map[string]map[int]int{
 				"share": {
 					-1: 20,
 				},
@@ -444,7 +433,7 @@ func TestAssembleProvision(t *testing.T) {
 					numa:          machine.NewCPUSet(0),
 					isNumaBinding: false,
 					provision: types.ControlKnob{
-						types.ControlKnobNonReclaimedCPUSize: {Value: 6},
+						types.ControlKnobNonReclaimedCPURequirement: {Value: 6},
 					},
 				},
 				{
@@ -453,7 +442,7 @@ func TestAssembleProvision(t *testing.T) {
 					numa:          machine.NewCPUSet(1),
 					isNumaBinding: true,
 					provision: types.ControlKnob{
-						types.ControlKnobNonReclaimedCPUSize: {Value: 15},
+						types.ControlKnobNonReclaimedCPURequirement: {Value: 15},
 					},
 				},
 				{
@@ -462,12 +451,12 @@ func TestAssembleProvision(t *testing.T) {
 					numa:          machine.NewCPUSet(1),
 					isNumaBinding: true,
 					provision: types.ControlKnob{
-						types.ControlKnobNonReclaimedCPUSizeUpper: {Value: 8},
-						types.ControlKnobNonReclaimedCPUSizeLower: {Value: 4},
+						types.ControlKnobNonReclaimedCPURequirementUpper: {Value: 8},
+						types.ControlKnobNonReclaimedCPURequirementLower: {Value: 4},
 					},
 				},
 			},
-			expect: map[string]map[int]int{
+			expectPoolEntries: map[string]map[int]int{
 				"share": {
 					-1: 20,
 				},
@@ -496,7 +485,7 @@ func TestAssembleProvision(t *testing.T) {
 					numa:          machine.NewCPUSet(0),
 					isNumaBinding: false,
 					provision: types.ControlKnob{
-						types.ControlKnobNonReclaimedCPUSize: {Value: 6},
+						types.ControlKnobNonReclaimedCPURequirement: {Value: 6},
 					},
 				},
 				{
@@ -505,7 +494,7 @@ func TestAssembleProvision(t *testing.T) {
 					numa:          machine.NewCPUSet(1),
 					isNumaBinding: true,
 					provision: types.ControlKnob{
-						types.ControlKnobNonReclaimedCPUSize: {Value: 15},
+						types.ControlKnobNonReclaimedCPURequirement: {Value: 15},
 					},
 				},
 				{
@@ -514,12 +503,12 @@ func TestAssembleProvision(t *testing.T) {
 					numa:          machine.NewCPUSet(1),
 					isNumaBinding: true,
 					provision: types.ControlKnob{
-						types.ControlKnobNonReclaimedCPUSizeUpper: {Value: 8},
-						types.ControlKnobNonReclaimedCPUSizeLower: {Value: 4},
+						types.ControlKnobNonReclaimedCPURequirementUpper: {Value: 8},
+						types.ControlKnobNonReclaimedCPURequirementLower: {Value: 4},
 					},
 				},
 			},
-			expect: map[string]map[int]int{
+			expectPoolEntries: map[string]map[int]int{
 				"share": {
 					-1: 6,
 				},
@@ -548,7 +537,7 @@ func TestAssembleProvision(t *testing.T) {
 					numa:          machine.NewCPUSet(0),
 					isNumaBinding: false,
 					provision: types.ControlKnob{
-						types.ControlKnobNonReclaimedCPUSize: {Value: 6},
+						types.ControlKnobNonReclaimedCPURequirement: {Value: 6},
 					},
 				},
 				{
@@ -557,7 +546,7 @@ func TestAssembleProvision(t *testing.T) {
 					numa:          machine.NewCPUSet(1),
 					isNumaBinding: true,
 					provision: types.ControlKnob{
-						types.ControlKnobNonReclaimedCPUSize: {Value: 4},
+						types.ControlKnobNonReclaimedCPURequirement: {Value: 4},
 					},
 				},
 				{
@@ -566,8 +555,8 @@ func TestAssembleProvision(t *testing.T) {
 					numa:          machine.NewCPUSet(1),
 					isNumaBinding: true,
 					provision: types.ControlKnob{
-						types.ControlKnobNonReclaimedCPUSizeUpper: {Value: 8},
-						types.ControlKnobNonReclaimedCPUSizeLower: {Value: 4},
+						types.ControlKnobNonReclaimedCPURequirementUpper: {Value: 8},
+						types.ControlKnobNonReclaimedCPURequirementLower: {Value: 4},
 					},
 				},
 				{
@@ -576,12 +565,12 @@ func TestAssembleProvision(t *testing.T) {
 					numa:          machine.NewCPUSet(1),
 					isNumaBinding: true,
 					provision: types.ControlKnob{
-						types.ControlKnobNonReclaimedCPUSizeUpper: {Value: 8},
-						types.ControlKnobNonReclaimedCPUSizeLower: {Value: 4},
+						types.ControlKnobNonReclaimedCPURequirementUpper: {Value: 8},
+						types.ControlKnobNonReclaimedCPURequirementLower: {Value: 4},
 					},
 				},
 			},
-			expect: map[string]map[int]int{
+			expectPoolEntries: map[string]map[int]int{
 				"share": {
 					-1: 6,
 				},
@@ -613,7 +602,7 @@ func TestAssembleProvision(t *testing.T) {
 					numa:          machine.NewCPUSet(0),
 					isNumaBinding: false,
 					provision: types.ControlKnob{
-						types.ControlKnobNonReclaimedCPUSize: {Value: 6},
+						types.ControlKnobNonReclaimedCPURequirement: {Value: 6},
 					},
 				},
 				{
@@ -622,7 +611,7 @@ func TestAssembleProvision(t *testing.T) {
 					numa:          machine.NewCPUSet(1),
 					isNumaBinding: true,
 					provision: types.ControlKnob{
-						types.ControlKnobNonReclaimedCPUSize: {Value: 8},
+						types.ControlKnobNonReclaimedCPURequirement: {Value: 8},
 					},
 				},
 				{
@@ -631,8 +620,8 @@ func TestAssembleProvision(t *testing.T) {
 					numa:          machine.NewCPUSet(1),
 					isNumaBinding: true,
 					provision: types.ControlKnob{
-						types.ControlKnobNonReclaimedCPUSizeUpper: {Value: 8},
-						types.ControlKnobNonReclaimedCPUSizeLower: {Value: 4},
+						types.ControlKnobNonReclaimedCPURequirementUpper: {Value: 8},
+						types.ControlKnobNonReclaimedCPURequirementLower: {Value: 4},
 					},
 				},
 				{
@@ -641,12 +630,12 @@ func TestAssembleProvision(t *testing.T) {
 					numa:          machine.NewCPUSet(1),
 					isNumaBinding: true,
 					provision: types.ControlKnob{
-						types.ControlKnobNonReclaimedCPUSizeUpper: {Value: 8},
-						types.ControlKnobNonReclaimedCPUSizeLower: {Value: 4},
+						types.ControlKnobNonReclaimedCPURequirementUpper: {Value: 8},
+						types.ControlKnobNonReclaimedCPURequirementLower: {Value: 4},
 					},
 				},
 			},
-			expect: map[string]map[int]int{
+			expectPoolEntries: map[string]map[int]int{
 				"share": {
 					-1: 6,
 				},
@@ -678,7 +667,7 @@ func TestAssembleProvision(t *testing.T) {
 					numa:          machine.NewCPUSet(0),
 					isNumaBinding: false,
 					provision: types.ControlKnob{
-						types.ControlKnobNonReclaimedCPUSize: {Value: 6},
+						types.ControlKnobNonReclaimedCPURequirement: {Value: 6},
 					},
 				},
 				{
@@ -687,7 +676,7 @@ func TestAssembleProvision(t *testing.T) {
 					numa:          machine.NewCPUSet(1),
 					isNumaBinding: true,
 					provision: types.ControlKnob{
-						types.ControlKnobNonReclaimedCPUSize: {Value: 8},
+						types.ControlKnobNonReclaimedCPURequirement: {Value: 8},
 					},
 				},
 				{
@@ -696,8 +685,8 @@ func TestAssembleProvision(t *testing.T) {
 					numa:          machine.NewCPUSet(1),
 					isNumaBinding: true,
 					provision: types.ControlKnob{
-						types.ControlKnobNonReclaimedCPUSizeUpper: {Value: 8},
-						types.ControlKnobNonReclaimedCPUSizeLower: {Value: 4},
+						types.ControlKnobNonReclaimedCPURequirementUpper: {Value: 8},
+						types.ControlKnobNonReclaimedCPURequirementLower: {Value: 4},
 					},
 				},
 				{
@@ -706,12 +695,12 @@ func TestAssembleProvision(t *testing.T) {
 					numa:          machine.NewCPUSet(1),
 					isNumaBinding: true,
 					provision: types.ControlKnob{
-						types.ControlKnobNonReclaimedCPUSizeUpper: {Value: 8},
-						types.ControlKnobNonReclaimedCPUSizeLower: {Value: 4},
+						types.ControlKnobNonReclaimedCPURequirementUpper: {Value: 8},
+						types.ControlKnobNonReclaimedCPURequirementLower: {Value: 4},
 					},
 				},
 			},
-			expect: map[string]map[int]int{
+			expectPoolEntries: map[string]map[int]int{
 				"share": {
 					-1: 20,
 				},
@@ -733,6 +722,144 @@ func TestAssembleProvision(t *testing.T) {
 				},
 			},
 		},
+		{
+			name:                                  "share and isolated pool not throttled, overlap reclaimed cores",
+			enableReclaimed:                       true,
+			allowSharedCoresOverlapReclaimedCores: true,
+			poolInfos: []testCasePoolConfig{
+				{
+					poolName:      "share",
+					poolType:      types.QoSRegionTypeShare,
+					numa:          machine.NewCPUSet(0),
+					isNumaBinding: false,
+					provision: types.ControlKnob{
+						types.ControlKnobNonReclaimedCPURequirement: {Value: 6},
+					},
+				},
+				{
+					poolName:      "share-NUMA1",
+					poolType:      types.QoSRegionTypeShare,
+					numa:          machine.NewCPUSet(1),
+					isNumaBinding: true,
+					provision: types.ControlKnob{
+						types.ControlKnobNonReclaimedCPURequirement: {Value: 8},
+					},
+				},
+				{
+					poolName:      "isolation-NUMA1",
+					poolType:      types.QoSRegionTypeIsolation,
+					numa:          machine.NewCPUSet(1),
+					isNumaBinding: true,
+					provision: types.ControlKnob{
+						types.ControlKnobNonReclaimedCPURequirementUpper: {Value: 8},
+						types.ControlKnobNonReclaimedCPURequirementLower: {Value: 4},
+					},
+				},
+				{
+					poolName:      "isolation-NUMA1-pod2",
+					poolType:      types.QoSRegionTypeIsolation,
+					numa:          machine.NewCPUSet(1),
+					isNumaBinding: true,
+					provision: types.ControlKnob{
+						types.ControlKnobNonReclaimedCPURequirementUpper: {Value: 8},
+						types.ControlKnobNonReclaimedCPURequirementLower: {Value: 4},
+					},
+				},
+			},
+			expectPoolEntries: map[string]map[int]int{
+				"share": {
+					-1: 24,
+				},
+				"share-NUMA1": {
+					1: 8,
+				},
+				"isolation-NUMA1": {
+					1: 8,
+				},
+				"isolation-NUMA1-pod2": {
+					1: 8,
+				},
+				"reserve": {
+					-1: 0,
+				},
+				"reclaim": {
+					-1: 18,
+					1:  4,
+				},
+			},
+			expectPoolOverlapInfo: map[string]map[int]map[string]int{
+				"reclaim": {-1: map[string]int{"share": 18}, 1: map[string]int{"share-NUMA1": 4}},
+			},
+		},
+		{
+			name:                                  "share and isolated pool not throttled, overlap reclaimed cores, reclaim disabled",
+			enableReclaimed:                       false,
+			allowSharedCoresOverlapReclaimedCores: true,
+			poolInfos: []testCasePoolConfig{
+				{
+					poolName:      "share",
+					poolType:      types.QoSRegionTypeShare,
+					numa:          machine.NewCPUSet(0),
+					isNumaBinding: false,
+					provision: types.ControlKnob{
+						types.ControlKnobNonReclaimedCPURequirement: {Value: 6},
+					},
+				},
+				{
+					poolName:      "share-NUMA1",
+					poolType:      types.QoSRegionTypeShare,
+					numa:          machine.NewCPUSet(1),
+					isNumaBinding: true,
+					provision: types.ControlKnob{
+						types.ControlKnobNonReclaimedCPURequirement: {Value: 8},
+					},
+				},
+				{
+					poolName:      "isolation-NUMA1",
+					poolType:      types.QoSRegionTypeIsolation,
+					numa:          machine.NewCPUSet(1),
+					isNumaBinding: true,
+					provision: types.ControlKnob{
+						types.ControlKnobNonReclaimedCPURequirementUpper: {Value: 8},
+						types.ControlKnobNonReclaimedCPURequirementLower: {Value: 4},
+					},
+				},
+				{
+					poolName:      "isolation-NUMA1-pod2",
+					poolType:      types.QoSRegionTypeIsolation,
+					numa:          machine.NewCPUSet(1),
+					isNumaBinding: true,
+					provision: types.ControlKnob{
+						types.ControlKnobNonReclaimedCPURequirementUpper: {Value: 8},
+						types.ControlKnobNonReclaimedCPURequirementLower: {Value: 4},
+					},
+				},
+			},
+			expectPoolEntries: map[string]map[int]int{
+				"share": {
+					-1: 24,
+				},
+				"share-NUMA1": {
+					1: 8,
+				},
+				"isolation-NUMA1": {
+					1: 8,
+				},
+				"isolation-NUMA1-pod2": {
+					1: 8,
+				},
+				"reserve": {
+					-1: 0,
+				},
+				"reclaim": {
+					-1: 4,
+					1:  4,
+				},
+			},
+			expectPoolOverlapInfo: map[string]map[int]map[string]int{
+				"reclaim": {-1: map[string]int{"share": 4}, 1: map[string]int{"share-NUMA1": 4}},
+			},
+		},
 	}
 
 	reservedForReclaim := map[int]int{
@@ -745,14 +872,12 @@ func TestAssembleProvision(t *testing.T) {
 		1: 20,
 	}
 
-	nonBindingNumas := machine.NewCPUSet(0)
-
-	for i := range tests {
-		test := tests[i]
-		t.Run(test.name, func(t *testing.T) {
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			conf := generateTestConf(t, test.enableReclaimed)
+			conf := generateTestConf(t, tt.enableReclaimed)
 
 			genericCtx, err := katalyst_base.GenerateFakeGenericContext([]runtime.Object{})
 			require.NoError(t, err)
@@ -767,8 +892,13 @@ func TestAssembleProvision(t *testing.T) {
 			metaCache, err := metacache.NewMetaCacheImp(conf, metricspool.DummyMetricsEmitterPool{}, metric.NewFakeMetricsFetcher(metrics.DummyMetrics{}))
 			require.NoError(t, err)
 
+			nonBindingNumas := machine.NewCPUSet()
+			for numaID := range numaAvailable {
+				nonBindingNumas.Add(numaID)
+			}
+
 			regionMap := map[string]region.QoSRegion{}
-			for _, poolConfig := range test.poolInfos {
+			for _, poolConfig := range tt.poolInfos {
 				poolInfo, ok := poolInfos[poolConfig.poolName]
 				require.True(t, ok, "pool config doesn't exist")
 				require.NoError(t, metaCache.SetPoolInfo(poolInfo.PoolName, &poolInfo), "failed to set pool info %s", poolInfo.PoolName)
@@ -779,14 +909,21 @@ func TestAssembleProvision(t *testing.T) {
 				region.TryUpdateProvision()
 				require.Equal(t, poolConfig.isNumaBinding, region.IsNumaBinding(), "invalid numa binding state")
 				regionMap[region.name] = region
+
+				if region.IsNumaBinding() {
+					nonBindingNumas = nonBindingNumas.Difference(region.GetBindingNumas())
+				}
 			}
 
-			common := NewProvisionAssemblerCommon(conf, nil, &regionMap, &reservedForReclaim, &numaAvailable, &nonBindingNumas, metaCache, metaServer, metrics.DummyMetrics{})
+			common := NewProvisionAssemblerCommon(conf, nil, &regionMap, &reservedForReclaim, &numaAvailable, &nonBindingNumas, &tt.allowSharedCoresOverlapReclaimedCores, metaCache, metaServer, metrics.DummyMetrics{})
 			result, err := common.AssembleProvision()
 			require.NoErrorf(t, err, "failed to AssembleProvision: %s", err)
 			require.NotNil(t, result, "invalid assembler result")
 			t.Logf("%v", result)
-			require.Equal(t, test.expect, result.PoolEntries, "unexpected result")
+			require.Equal(t, tt.expectPoolEntries, result.PoolEntries, "unexpected result")
+			if len(tt.expectPoolOverlapInfo) > 0 {
+				require.Equal(t, tt.expectPoolOverlapInfo, result.PoolOverlapInfo, "unexpected result")
+			}
 		})
 	}
 }

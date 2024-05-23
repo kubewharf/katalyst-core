@@ -183,7 +183,7 @@ func (r *QoSRegionDedicatedNumaExclusive) getControlKnobs() types.ControlKnob {
 	cpuRequirement := r.ResourceUpperBound + r.ReservedForReclaim - float64(reclaimedCPUSize)
 
 	return types.ControlKnob{
-		types.ControlKnobNonReclaimedCPUSize: {
+		types.ControlKnobNonReclaimedCPURequirement: {
 			Value:  cpuRequirement,
 			Action: types.ControlKnobActionNone,
 		},

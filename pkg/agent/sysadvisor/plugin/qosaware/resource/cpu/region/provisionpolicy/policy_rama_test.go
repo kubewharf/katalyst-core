@@ -199,7 +199,7 @@ func TestPolicyRama(t *testing.T) {
 			},
 			controlEssentials: types.ControlEssentials{
 				ControlKnobs: types.ControlKnob{
-					types.ControlKnobNonReclaimedCPUSize: {
+					types.ControlKnobNonReclaimedCPURequirement: {
 						Value:  40,
 						Action: types.ControlKnobActionNone,
 					},
@@ -213,7 +213,7 @@ func TestPolicyRama(t *testing.T) {
 				ReclaimOverlap: false,
 			},
 			wantResult: types.ControlKnob{
-				types.ControlKnobNonReclaimedCPUSize: {
+				types.ControlKnobNonReclaimedCPURequirement: {
 					Value:  46.93147180559946,
 					Action: types.ControlKnobActionNone,
 				},
@@ -254,7 +254,7 @@ func TestPolicyRama(t *testing.T) {
 			},
 			controlEssentials: types.ControlEssentials{
 				ControlKnobs: types.ControlKnob{
-					types.ControlKnobNonReclaimedCPUSize: {
+					types.ControlKnobNonReclaimedCPURequirement: {
 						Value:  40,
 						Action: types.ControlKnobActionNone,
 					},
@@ -268,7 +268,7 @@ func TestPolicyRama(t *testing.T) {
 				ReclaimOverlap: false,
 			},
 			wantResult: types.ControlKnob{
-				types.ControlKnobNonReclaimedCPUSize: {
+				types.ControlKnobNonReclaimedCPURequirement: {
 					Value:  38,
 					Action: types.ControlKnobActionNone,
 				},
@@ -309,7 +309,7 @@ func TestPolicyRama(t *testing.T) {
 			},
 			controlEssentials: types.ControlEssentials{
 				ControlKnobs: types.ControlKnob{
-					types.ControlKnobNonReclaimedCPUSize: {
+					types.ControlKnobNonReclaimedCPURequirement: {
 						Value:  40,
 						Action: types.ControlKnobActionNone,
 					},
@@ -323,7 +323,7 @@ func TestPolicyRama(t *testing.T) {
 				ReclaimOverlap: false,
 			},
 			wantResult: types.ControlKnob{
-				types.ControlKnobNonReclaimedCPUSize: {
+				types.ControlKnobNonReclaimedCPURequirement: {
 					Value:  40,
 					Action: types.ControlKnobActionNone,
 				},
@@ -359,7 +359,7 @@ func TestPolicyRama(t *testing.T) {
 			},
 			controlEssentials: types.ControlEssentials{
 				ControlKnobs: types.ControlKnob{
-					types.ControlKnobNonReclaimedCPUSize: {
+					types.ControlKnobNonReclaimedCPURequirement: {
 						Value:  40,
 						Action: types.ControlKnobActionNone,
 					},
@@ -377,8 +377,8 @@ func TestPolicyRama(t *testing.T) {
 				ReclaimOverlap: true,
 			},
 			wantResult: types.ControlKnob{
-				types.ControlKnobNonReclaimedCPUSize: {
-					Value:  90,
+				types.ControlKnobNonReclaimedCPURequirement: {
+					Value:  46.93147180559945,
 					Action: types.ControlKnobActionNone,
 				},
 			},

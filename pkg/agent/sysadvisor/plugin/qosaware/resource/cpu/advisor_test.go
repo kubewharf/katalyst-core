@@ -690,7 +690,7 @@ func TestAdvisorUpdate(t *testing.T) {
 					},
 				},
 			},
-			wantHeadroom: *resource.NewQuantity(43, resource.DecimalSI),
+			wantHeadroom: *resource.NewQuantity(50, resource.DecimalSI), // 41 + 9
 		},
 		{
 			name: "dedicated_numa_exclusive_&_share_disable_reclaim",
@@ -830,8 +830,8 @@ func TestAdvisorUpdate(t *testing.T) {
 			wantInternalCalculationResult: types.InternalCPUCalculationResult{
 				PoolEntries: map[string]map[int]int{
 					state.PoolNameReserve: {-1: 2},
-					state.PoolNameShare:   {-1: 86},
-					state.PoolNameReclaim: {-1: 6},
+					state.PoolNameShare:   {-1: 84},
+					state.PoolNameReclaim: {-1: 8},
 					"isolation-pod1":      {-1: 2},
 				},
 			},

@@ -30,10 +30,10 @@ func NewCPUProvisionPolicyConfiguration() *CPUProvisionPolicyConfiguration {
 	return &CPUProvisionPolicyConfiguration{
 		RegionIndicatorTargetConfiguration: map[types.QoSRegionType][]types.IndicatorTargetConfiguration{
 			types.QoSRegionTypeShare: {
-				{
-					Name:   string(v1alpha1.ServiceSystemIndicatorNameCPUSchedWait),
-					Target: 460,
-				},
+				//{
+				//	Name:   string(v1alpha1.ServiceSystemIndicatorNameCPUSchedWait),
+				//	Target: 460,
+				//},
 				{
 					Name:   string(v1alpha1.ServiceSystemIndicatorNameCPUUsageRatio),
 					Target: 0.8,

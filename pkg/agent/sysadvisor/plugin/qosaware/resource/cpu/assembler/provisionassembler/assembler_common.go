@@ -19,6 +19,7 @@ package provisionassembler
 import (
 	"context"
 	"fmt"
+	"math"
 	"time"
 
 	"k8s.io/klog/v2"
@@ -37,11 +38,12 @@ import (
 )
 
 type ProvisionAssemblerCommon struct {
-	conf               *config.Configuration
-	regionMap          *map[string]region.QoSRegion
-	reservedForReclaim *map[int]int
-	numaAvailable      *map[int]int
-	nonBindingNumas    *machine.CPUSet
+	conf                                  *config.Configuration
+	regionMap                             *map[string]region.QoSRegion
+	reservedForReclaim                    *map[int]int
+	numaAvailable                         *map[int]int
+	nonBindingNumas                       *machine.CPUSet
+	allowSharedCoresOverlapReclaimedCores *bool
 
 	metaReader   metacache.MetaReader
 	metaServer   *metaserver.MetaServer
@@ -50,15 +52,16 @@ type ProvisionAssemblerCommon struct {
 }
 
 func NewProvisionAssemblerCommon(conf *config.Configuration, _ interface{}, regionMap *map[string]region.QoSRegion,
-	reservedForReclaim *map[int]int, numaAvailable *map[int]int, nonBindingNumas *machine.CPUSet,
+	reservedForReclaim *map[int]int, numaAvailable *map[int]int, nonBindingNumas *machine.CPUSet, allowSharedCoresOverlapReclaimedCores *bool,
 	metaReader metacache.MetaReader, metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter,
 ) ProvisionAssembler {
 	return &ProvisionAssemblerCommon{
-		conf:               conf,
-		regionMap:          regionMap,
-		reservedForReclaim: reservedForReclaim,
-		numaAvailable:      numaAvailable,
-		nonBindingNumas:    nonBindingNumas,
+		conf:                                  conf,
+		regionMap:                             regionMap,
+		reservedForReclaim:                    reservedForReclaim,
+		numaAvailable:                         numaAvailable,
+		nonBindingNumas:                       nonBindingNumas,
+		allowSharedCoresOverlapReclaimedCores: allowSharedCoresOverlapReclaimedCores,
 
 		metaReader:   metaReader,
 		metaServer:   metaServer,
@@ -71,8 +74,10 @@ func (pa *ProvisionAssemblerCommon) AssembleProvision() (types.InternalCPUCalcul
 	nodeEnableReclaim := pa.conf.GetDynamicConfiguration().EnableReclaim
 
 	calculationResult := types.InternalCPUCalculationResult{
-		PoolEntries: make(map[string]map[int]int),
-		TimeStamp:   time.Now(),
+		PoolEntries:                           make(map[string]map[int]int),
+		PoolOverlapInfo:                       map[string]map[int]map[string]int{},
+		TimeStamp:                             time.Now(),
+		AllowSharedCoresOverlapReclaimedCores: *pa.allowSharedCoresOverlapReclaimedCores,
 	}
 
 	// fill in reserve pool entry
@@ -82,7 +87,7 @@ func (pa *ProvisionAssemblerCommon) AssembleProvision() (types.InternalCPUCalcul
 	shares := 0
 	isolationUppers := 0
 
-	sharePoolSizes := make(map[string]int)
+	sharePoolRequirements := make(map[string]int)
 	isolationUpperSizes := make(map[string]int)
 	isolationLowerSizes := make(map[string]int)
 
@@ -98,16 +103,19 @@ func (pa *ProvisionAssemblerCommon) AssembleProvision() (types.InternalCPUCalcul
 				regionNuma := r.GetBindingNumas().ToSliceInt()[0] // always one binding numa for this type of region
 				reservedForReclaim := pa.getNumasReservedForReclaim(r.GetBindingNumas())
 
-				nonReclaimRequirement := int(controlKnob[types.ControlKnobNonReclaimedCPUSize].Value)
-				// available = NUMA Size - Reserved - ReservedForReclaimed
-				available := getNumasAvailableResource(*pa.numaAvailable, r.GetBindingNumas())
+				nonReclaimRequirement := int(controlKnob[types.ControlKnobNonReclaimedCPURequirement].Value)
+				// available = NUMA Size - Reserved - ReservedForReclaimed when allowSharedCoresOverlapReclaimedCores == false
+				// available = NUMA Size - Reserved when allowSharedCoresOverlapReclaimedCores == true
+				available := getNUMAsResource(*pa.numaAvailable, r.GetBindingNumas())
+				if *pa.allowSharedCoresOverlapReclaimedCores {
+					available += getNUMAsResource(*pa.reservedForReclaim, r.GetBindingNumas())
+				}
 
 				// calc isolation pool size
-				isolationPoolSizeSum := 0
 				isolationRegions := pa.regionHelper.GetRegions(regionNuma, types.QoSRegionTypeIsolation)
 
 				isolationRegionControlKnobs := map[string]types.ControlKnob{}
-				isolationRegionControlKnobKey := types.ControlKnobNonReclaimedCPUSizeUpper
+				isolationRegionControlKnobKey := types.ControlKnobNonReclaimedCPURequirementUpper
 				if len(isolationRegions) > 0 {
 					isolationUpperSum := 0
 					for _, isolationRegion := range isolationRegions {
@@ -116,57 +124,53 @@ func (pa *ProvisionAssemblerCommon) AssembleProvision() (types.InternalCPUCalcul
 							return types.InternalCPUCalculationResult{}, err
 						}
 						isolationRegionControlKnobs[isolationRegion.Name()] = isolationControlKnob
-						isolationUpperSum += int(isolationControlKnob[types.ControlKnobNonReclaimedCPUSizeUpper].Value)
+						isolationUpperSum += int(isolationControlKnob[types.ControlKnobNonReclaimedCPURequirementUpper].Value)
 					}
 
 					if nonReclaimRequirement+isolationUpperSum > available {
-						isolationRegionControlKnobKey = types.ControlKnobNonReclaimedCPUSizeLower
+						isolationRegionControlKnobKey = types.ControlKnobNonReclaimedCPURequirementLower
 					}
 				}
 
-				numaPoolSize := map[string]int{r.OwnerPoolName(): nonReclaimRequirement}
+				poolRequirements := map[string]int{r.OwnerPoolName(): nonReclaimRequirement}
 				for isolationRegionName, isolationRegionControlKnob := range isolationRegionControlKnobs {
-					numaPoolSize[isolationRegionName] = int(isolationRegionControlKnob[isolationRegionControlKnobKey].Value)
+					poolRequirements[isolationRegionName] = int(isolationRegionControlKnob[isolationRegionControlKnobKey].Value)
 				}
-				poolThrottled := regulatePoolSizes(numaPoolSize, available, nodeEnableReclaim)
+				poolSizes, poolThrottled := regulatePoolSizes(poolRequirements, available, nodeEnableReclaim, *pa.allowSharedCoresOverlapReclaimedCores)
 				r.SetThrottled(poolThrottled)
 
-				nonReclaimRequirement = numaPoolSize[r.OwnerPoolName()]
-				for isolationRegionName := range isolationRegionControlKnobs {
-					isolationPoolSize := numaPoolSize[isolationRegionName]
-					calculationResult.SetPoolEntry(isolationRegionName, regionNuma, isolationPoolSize)
-					isolationPoolSizeSum += isolationPoolSize
+				for poolName, size := range poolSizes {
+					calculationResult.SetPoolEntry(poolName, regionNuma, size)
 				}
 
-				// calc share and reclaimed pool size
-				sharePoolSize := 0
-				reclaimed := 0
-				if nodeEnableReclaim {
-					reclaimed = available - nonReclaimRequirement - isolationPoolSizeSum + reservedForReclaim
-					sharePoolSize = nonReclaimRequirement
-				} else {
-					reclaimed = reservedForReclaim
-					sharePoolSize = available - isolationPoolSizeSum
+				reclaimedCoresSize := available - general.SumUpMapValues(poolSizes) + reservedForReclaim
+				if *pa.allowSharedCoresOverlapReclaimedCores {
+					reclaimedCoresAvail := poolSizes[r.OwnerPoolName()] - poolRequirements[r.OwnerPoolName()]
+					if !nodeEnableReclaim {
+						reclaimedCoresAvail = 0
+					}
+					reclaimedCoresSize = general.Max(pa.getNumasReservedForReclaim(r.GetBindingNumas()), reclaimedCoresAvail)
+					reclaimedCoresSize = general.Min(reclaimedCoresSize, poolSizes[r.OwnerPoolName()])
+					calculationResult.SetPoolOverlapInfo(state.PoolNameReclaim, regionNuma, r.OwnerPoolName(), reclaimedCoresSize)
 				}
 
-				calculationResult.SetPoolEntry(state.PoolNameReclaim, regionNuma, reclaimed)
-				calculationResult.SetPoolEntry(r.OwnerPoolName(), regionNuma, sharePoolSize)
+				calculationResult.SetPoolEntry(state.PoolNameReclaim, regionNuma, reclaimedCoresSize)
 			} else {
 				// save raw share pool sizes
-				sharePoolSizes[r.OwnerPoolName()] = int(controlKnob[types.ControlKnobNonReclaimedCPUSize].Value)
-				shares += sharePoolSizes[r.OwnerPoolName()]
+				sharePoolRequirements[r.OwnerPoolName()] = int(controlKnob[types.ControlKnobNonReclaimedCPURequirement].Value)
+				shares += sharePoolRequirements[r.OwnerPoolName()]
 			}
 		case types.QoSRegionTypeIsolation:
 			if r.IsNumaBinding() {
 				regionNuma := r.GetBindingNumas().ToSliceInt()[0] // always one binding numa for this type of region
 				// If there is a SNB pool with the same NUMA ID, it will be calculated while processing the SNB pool.
 				if shareRegions := pa.regionHelper.GetRegions(regionNuma, types.QoSRegionTypeShare); len(shareRegions) == 0 {
-					calculationResult.SetPoolEntry(r.Name(), regionNuma, int(controlKnob[types.ControlKnobNonReclaimedCPUSizeUpper].Value))
+					calculationResult.SetPoolEntry(r.Name(), regionNuma, int(controlKnob[types.ControlKnobNonReclaimedCPURequirementUpper].Value))
 				}
 			} else {
 				// save limits and requests for isolated region
-				isolationUpperSizes[r.Name()] = int(controlKnob[types.ControlKnobNonReclaimedCPUSizeUpper].Value)
-				isolationLowerSizes[r.Name()] = int(controlKnob[types.ControlKnobNonReclaimedCPUSizeLower].Value)
+				isolationUpperSizes[r.Name()] = int(controlKnob[types.ControlKnobNonReclaimedCPURequirementUpper].Value)
+				isolationLowerSizes[r.Name()] = int(controlKnob[types.ControlKnobNonReclaimedCPURequirementLower].Value)
 
 				isolationUppers += isolationUpperSizes[r.Name()]
 			}
@@ -191,31 +195,44 @@ func (pa *ProvisionAssemblerCommon) AssembleProvision() (types.InternalCPUCalcul
 					calculationResult.SetPoolEntry(state.PoolNameReclaim, regionNuma, reservedForReclaim)
 				}
 			} else {
-				available := getNumasAvailableResource(*pa.numaAvailable, r.GetBindingNumas())
-				nonReclaimRequirement := int(controlKnob[types.ControlKnobNonReclaimedCPUSize].Value)
+				available := getNUMAsResource(*pa.numaAvailable, r.GetBindingNumas())
+				nonReclaimRequirement := int(controlKnob[types.ControlKnobNonReclaimedCPURequirement].Value)
 				reclaimed := available - nonReclaimRequirement + reservedForReclaim
+
+				reclaimPoolThrottleReason := ""
+				//if reclaimContainerCnt <= 0 {
+				//	reclaimed = reservedForReclaim
+				//	reclaimPoolThrottleReason = "no reclaimed container"
+				//} else if reclaimCoresUsage[regionNuma] < types.ReclaimUsageMarginForOverlap {
+				//	reclaimed = types.ReclaimUsageMarginForOverlap
+				//	reclaimPoolThrottleReason = "low reclaim usage"
+				//}
 
 				calculationResult.SetPoolEntry(state.PoolNameReclaim, regionNuma, reclaimed)
 
 				klog.InfoS("assemble info", "regionName", r.Name(), "reclaimed", reclaimed,
-					"available", available, "nonReclaimRequirement", nonReclaimRequirement, "reservedForReclaim", reservedForReclaim)
+					"available", available, "nonReclaimRequirement", nonReclaimRequirement,
+					"reservedForReclaim", reservedForReclaim, "reclaimPoolThrottleReason", reclaimPoolThrottleReason)
 			}
 		}
 	}
 
-	shareAndIsolatedPoolAvailable := getNumasAvailableResource(*pa.numaAvailable, *pa.nonBindingNumas)
-	shareAndIsolatePoolSizes := general.MergeMapInt(sharePoolSizes, isolationUpperSizes)
-	if shares+isolationUppers > shareAndIsolatedPoolAvailable {
-		shareAndIsolatePoolSizes = general.MergeMapInt(sharePoolSizes, isolationLowerSizes)
+	shareAndIsolatedPoolAvailable := getNUMAsResource(*pa.numaAvailable, *pa.nonBindingNumas)
+	if *pa.allowSharedCoresOverlapReclaimedCores {
+		shareAndIsolatedPoolAvailable += getNUMAsResource(*pa.reservedForReclaim, *pa.nonBindingNumas)
 	}
-	poolThrottled := regulatePoolSizes(shareAndIsolatePoolSizes, shareAndIsolatedPoolAvailable, nodeEnableReclaim)
+	shareAndIsolatePoolSizeRequirements := general.MergeMapInt(sharePoolRequirements, isolationUpperSizes)
+	if shares+isolationUppers > shareAndIsolatedPoolAvailable {
+		shareAndIsolatePoolSizeRequirements = general.MergeMapInt(sharePoolRequirements, isolationLowerSizes)
+	}
+	shareAndIsolatePoolSizes, poolThrottled := regulatePoolSizes(shareAndIsolatePoolSizeRequirements, shareAndIsolatedPoolAvailable, nodeEnableReclaim, *pa.allowSharedCoresOverlapReclaimedCores)
 	for _, r := range *pa.regionMap {
 		if r.Type() == types.QoSRegionTypeShare && !r.IsNumaBinding() {
 			r.SetThrottled(poolThrottled)
 		}
 	}
 
-	klog.InfoS("pool sizes", "share size", sharePoolSizes,
+	klog.InfoS("pool sizes", "share pool requirement", sharePoolRequirements,
 		"isolate upper-size", isolationUpperSizes, "isolate lower-size", isolationLowerSizes,
 		"shareAndIsolatePoolSizes", shareAndIsolatePoolSizes,
 		"shareAndIsolatedPoolAvailable", shareAndIsolatedPoolAvailable)
@@ -225,17 +242,46 @@ func (pa *ProvisionAssemblerCommon) AssembleProvision() (types.InternalCPUCalcul
 		calculationResult.SetPoolEntry(poolName, cpuadvisor.FakedNUMAID, poolSize)
 	}
 
-	var reclaimPoolSizeOfNonBindingNumas int
+	reclaimPoolSizeOfNonBindingNUMAs := shareAndIsolatedPoolAvailable - general.SumUpMapValues(shareAndIsolatePoolSizes) + pa.getNumasReservedForReclaim(*pa.nonBindingNumas)
+	if *pa.allowSharedCoresOverlapReclaimedCores {
+		isolated := shareAndIsolatedPoolAvailable
+		sharePoolSizes := make(map[string]int)
+		for poolName := range sharePoolRequirements {
+			sharePoolSizes[poolName] = shareAndIsolatePoolSizes[poolName]
+			isolated -= shareAndIsolatePoolSizes[poolName]
+		}
+		sharePoolSum := general.SumUpMapValues(sharePoolSizes)
+		reclaimPoolSizeOfNonBindingNUMAs = general.Max(pa.getNumasReservedForReclaim(*pa.nonBindingNumas), shareAndIsolatedPoolAvailable-isolated-general.SumUpMapValues(sharePoolRequirements))
+		if !nodeEnableReclaim {
+			reclaimPoolSizeOfNonBindingNUMAs = pa.getNumasReservedForReclaim(*pa.nonBindingNumas)
+		}
 
-	// fill in reclaim pool entries of non binding numas
-	if nodeEnableReclaim {
-		// generate based on share pool requirement on non binding numas
-		reclaimPoolSizeOfNonBindingNumas = shareAndIsolatedPoolAvailable - general.SumUpMapValues(shareAndIsolatePoolSizes) + pa.getNumasReservedForReclaim(*pa.nonBindingNumas)
-	} else {
-		// generate by reserved value on non binding numas
-		reclaimPoolSizeOfNonBindingNumas = pa.getNumasReservedForReclaim(*pa.nonBindingNumas)
+		if len(sharePoolSizes) > 0 {
+			reclaimPoolSizeOfNonBindingNUMAs = general.Min(reclaimPoolSizeOfNonBindingNUMAs, general.SumUpMapValues(sharePoolSizes))
+			sharedOverlapReclaimSize := make(map[string]int) // sharedPoolName -> reclaimedSize
+			ps := general.SortedByValue(sharePoolSizes)
+			for _, p := range ps {
+				sharePoolSize := p.Value
+				sharePoolName := p.Key
+				size := int(math.Round(float64(reclaimPoolSizeOfNonBindingNUMAs*sharePoolSize) / float64(sharePoolSum)))
+				if size > 0 {
+					sharedOverlapReclaimSize[sharePoolName] = size
+				}
+			}
+
+			diff := reclaimPoolSizeOfNonBindingNUMAs - general.SumUpMapValues(sharedOverlapReclaimSize)
+			if diff > 0 {
+				sharedOverlapReclaimSize[ps[0].Key] += diff
+			} else if diff < 0 {
+				sharedOverlapReclaimSize[ps[len(ps)-1].Key] -= diff
+			}
+
+			for overlapPoolName, size := range sharedOverlapReclaimSize {
+				calculationResult.SetPoolOverlapInfo(state.PoolNameReclaim, cpuadvisor.FakedNUMAID, overlapPoolName, size)
+			}
+		}
 	}
-	calculationResult.SetPoolEntry(state.PoolNameReclaim, cpuadvisor.FakedNUMAID, reclaimPoolSizeOfNonBindingNumas)
+	calculationResult.SetPoolEntry(state.PoolNameReclaim, cpuadvisor.FakedNUMAID, reclaimPoolSizeOfNonBindingNUMAs)
 
 	return calculationResult, nil
 }

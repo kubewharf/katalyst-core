@@ -148,16 +148,19 @@ func (ib *internalBlock) join(blockID string, set blockSet) {
 		// if cpu size for current Block is smaller, split existing Block in blockSet into multiple ones
 		// i.e. one to match with cpu size for current Block, one to add as a new blockSet
 
+		newBlockID := ib.Block.BlockId
+		oldSize := ibList[0].Block.Result
 		for _, innerBlock := range ibList {
-			newBlock := NewBlock(ibList[0].Block.Result-ib.Block.Result, "")
+			// shrink old block size to (old size - ib size)
+			innerBlock.Block.Result = oldSize - ib.Block.Result
+			// make new block as size of (ib size)
+			newBlock := NewBlock(ib.Block.Result, newBlockID)
 			newInnerBlock := NewInnerBlock(newBlock, innerBlock.NumaID, innerBlock.PoolName, innerBlock.ContainerInfo, innerBlock.NumaCalculationResult)
-			newInnerBlock.join(newBlock.BlockId, set)
-
 			innerBlock.NumaCalculationResult.Blocks = append(innerBlock.NumaCalculationResult.Blocks, newBlock)
-			innerBlock.Block.Result = ib.Block.Result
+			newInnerBlock.join(newBlock.BlockId, set)
 		}
 
-		ib.join(ib.Block.BlockId, set)
+		ib.join(newBlockID, set)
 	}
 }
 

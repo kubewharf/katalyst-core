@@ -23,6 +23,7 @@ import (
 	"k8s.io/klog/v2"
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
+	"github.com/kubewharf/katalyst-core/pkg/util/general"
 )
 
 // Regulator gets raw requirement data from policy and generates real requirement
@@ -31,20 +32,22 @@ type Regulator interface {
 	// SetEssentials updates some essential parameters to restrict requirement
 	SetEssentials(essentials types.ResourceEssentials)
 
-	// SetLatestRequirement overwrites the latest regulated requirement
-	SetLatestRequirement(latestRequirement int)
+	// SetLatestControlKnobValue overwrites the latest regulated requirement
+	SetLatestControlKnobValue(controlKnobValue types.ControlKnobValue)
 
 	// Regulate runs an episode of regulation to restrict raw requirement and store the result
 	// as the latest requirement value
-	Regulate(requirement float64)
+	Regulate(controlKnobValue types.ControlKnobValue)
 
 	// GetRequirement returns the latest regulated requirement
 	GetRequirement() int
+
+	GetReason() string
 }
 
 // DummyRegulator always get requirement without regulate
 type DummyRegulator struct {
-	latestRequirement int
+	latestControlKnobValue types.ControlKnobValue
 }
 
 func NewDummyRegulator() Regulator {
@@ -56,16 +59,20 @@ var _ Regulator = &DummyRegulator{}
 func (d *DummyRegulator) SetEssentials(_ types.ResourceEssentials) {
 }
 
-func (d *DummyRegulator) SetLatestRequirement(latestRequirement int) {
-	d.latestRequirement = latestRequirement
+func (d *DummyRegulator) SetLatestControlKnobValue(controlKnobValue types.ControlKnobValue) {
+	d.latestControlKnobValue = controlKnobValue
 }
 
-func (d *DummyRegulator) Regulate(requirement float64) {
-	d.SetLatestRequirement(int(requirement))
+func (d *DummyRegulator) Regulate(controlKnobValue types.ControlKnobValue) {
+	d.SetLatestControlKnobValue(controlKnobValue)
 }
 
 func (d *DummyRegulator) GetRequirement() int {
-	return d.latestRequirement
+	return int(d.latestControlKnobValue.Value)
+}
+
+func (d *DummyRegulator) GetReason() string {
+	return d.latestControlKnobValue.Reason
 }
 
 // CPURegulator gets raw cpu requirement data from policy and generates real cpu requirement
@@ -82,8 +89,8 @@ type CPURegulator struct {
 	// minRampDownPeriod is the min time gap between two consecutive cpu requirement ramp down
 	minRampDownPeriod time.Duration
 
-	// latestCPURequirement is the latest updated cpu requirement value
-	latestCPURequirement int
+	// latestControlKnobValue is the latest updated cpu requirement value
+	latestControlKnobValue types.ControlKnobValue
 
 	// latestRampDownTime is the latest ramp down timestamp
 	latestRampDownTime time.Time
@@ -105,14 +112,15 @@ func (c *CPURegulator) SetEssentials(essentials types.ResourceEssentials) {
 	c.ResourceEssentials = essentials
 }
 
-// SetLatestRequirement overwrites the latest regulated cpu requirement
-func (c *CPURegulator) SetLatestRequirement(latestCPURequirement int) {
-	c.latestCPURequirement = latestCPURequirement
+// SetLatestControlKnobValue overwrites the latest regulated cpu requirement
+func (c *CPURegulator) SetLatestControlKnobValue(controlKnobValue types.ControlKnobValue) {
+	c.latestControlKnobValue = controlKnobValue
 }
 
 // Regulate runs an episode of cpu regulation to restrict raw cpu requirement and store the result
 // as the latest cpu requirement value
-func (c *CPURegulator) Regulate(cpuRequirement float64) {
+func (c *CPURegulator) Regulate(controlKnobValue types.ControlKnobValue) {
+	cpuRequirement := controlKnobValue.Value
 	cpuRequirementReserved := cpuRequirement + c.ReservedForAllocate
 	cpuRequirementRound := c.round(cpuRequirementReserved)
 	cpuRequirementSlowdown := c.slowdown(cpuRequirementRound)
@@ -121,30 +129,37 @@ func (c *CPURegulator) Regulate(cpuRequirement float64) {
 	klog.Infof("[qosaware-cpu] cpu requirement by policy: %.2f, with reserve: %.2f, after round: %d, after slowdown: %d, after clamp: %d",
 		cpuRequirement, cpuRequirementReserved, cpuRequirementRound, cpuRequirementSlowdown, cpuRequirementClamp)
 
-	if cpuRequirementClamp != c.latestCPURequirement {
-		c.latestCPURequirement = cpuRequirementClamp
+	if cpuRequirementClamp != int(c.latestControlKnobValue.Value) {
+		c.latestControlKnobValue.Value = float64(cpuRequirementClamp)
 		c.latestRampDownTime = time.Now()
 	}
+	c.latestControlKnobValue.Reason = controlKnobValue.Reason
 }
 
 // GetRequirement returns the latest regulated cpu requirement
 func (c *CPURegulator) GetRequirement() int {
-	return c.latestCPURequirement
+	return int(c.latestControlKnobValue.Value)
+}
+
+func (c *CPURegulator) GetReason() string {
+	return c.latestControlKnobValue.Reason
 }
 
 func (c *CPURegulator) slowdown(cpuRequirement int) int {
 	now := time.Now()
 
+	general.InfoS("slowdown info", "cpuRequirement", cpuRequirement, "latestCPURequirement", c.latestControlKnobValue.Value, "latestRampDownTime", c.latestRampDownTime, "minRampDownPeriod", c.minRampDownPeriod)
+
 	// Restrict ramp down frequency
-	if cpuRequirement < c.latestCPURequirement && now.Before(c.latestRampDownTime.Add(c.minRampDownPeriod)) {
-		return c.latestCPURequirement
+	if cpuRequirement < int(c.latestControlKnobValue.Value) && now.Before(c.latestRampDownTime.Add(c.minRampDownPeriod)) {
+		return int(c.latestControlKnobValue.Value)
 	}
 
 	// Restrict ramp up and down step
-	if cpuRequirement-c.latestCPURequirement > c.maxRampUpStep {
-		cpuRequirement = c.latestCPURequirement + c.maxRampUpStep
-	} else if c.latestCPURequirement-cpuRequirement > c.maxRampDownStep {
-		cpuRequirement = c.latestCPURequirement - c.maxRampDownStep
+	if cpuRequirement-int(c.latestControlKnobValue.Value) > c.maxRampUpStep {
+		cpuRequirement = int(c.latestControlKnobValue.Value) + c.maxRampUpStep
+	} else if int(c.latestControlKnobValue.Value)-cpuRequirement > c.maxRampDownStep {
+		cpuRequirement = int(c.latestControlKnobValue.Value) - c.maxRampDownStep
 	}
 
 	return cpuRequirement

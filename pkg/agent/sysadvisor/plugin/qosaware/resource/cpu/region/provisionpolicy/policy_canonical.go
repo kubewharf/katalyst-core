@@ -59,7 +59,7 @@ func (p *PolicyCanonical) Update() error {
 	}
 
 	p.controlKnobAdjusted = types.ControlKnob{
-		types.ControlKnobNonReclaimedCPUSize: types.ControlKnobValue{
+		types.ControlKnobNonReclaimedCPURequirement: types.ControlKnobValue{
 			Value:  cpuEstimation,
 			Action: types.ControlKnobActionNone,
 		},
@@ -76,7 +76,7 @@ func (p *PolicyCanonical) sanityCheck() error {
 	// 1. check control knob legality
 	isLegal = true
 	if p.ControlKnobs != nil {
-		v, ok := p.ControlKnobs[types.ControlKnobNonReclaimedCPUSize]
+		v, ok := p.ControlKnobs[types.ControlKnobNonReclaimedCPURequirement]
 		if !ok || v.Value <= 0 {
 			isLegal = false
 		}
