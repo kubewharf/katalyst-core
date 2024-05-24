@@ -25,7 +25,6 @@ import (
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 
 	"github.com/kubewharf/katalyst-api/pkg/consts"
-	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/cpuadvisor"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
@@ -140,10 +139,10 @@ func (ai *AllocationInfo) String() string {
 // if owner exists, just return; otherwise, parse from qos-level
 func (ai *AllocationInfo) GetPoolName() string {
 	if ai == nil {
-		return cpuadvisor.EmptyOwnerPoolName
+		return EmptyOwnerPoolName
 	}
 
-	if ownerPoolName := ai.GetOwnerPoolName(); ownerPoolName != cpuadvisor.EmptyOwnerPoolName {
+	if ownerPoolName := ai.GetOwnerPoolName(); ownerPoolName != EmptyOwnerPoolName {
 		return ownerPoolName
 	}
 	return ai.GetSpecifiedPoolName()
@@ -152,7 +151,7 @@ func (ai *AllocationInfo) GetPoolName() string {
 // GetOwnerPoolName parses the owner pool name for AllocationInfo
 func (ai *AllocationInfo) GetOwnerPoolName() string {
 	if ai == nil {
-		return cpuadvisor.EmptyOwnerPoolName
+		return EmptyOwnerPoolName
 	}
 	return ai.OwnerPoolName
 }
@@ -160,7 +159,7 @@ func (ai *AllocationInfo) GetOwnerPoolName() string {
 // GetSpecifiedPoolName parses the owner pool name for AllocationInfo from qos-level
 func (ai *AllocationInfo) GetSpecifiedPoolName() string {
 	if ai == nil {
-		return cpuadvisor.EmptyOwnerPoolName
+		return EmptyOwnerPoolName
 	}
 
 	return GetSpecifiedPoolName(ai.QoSLevel, ai.Annotations[consts.PodAnnotationCPUEnhancementCPUSet])
@@ -210,14 +209,14 @@ func CheckDedicatedPool(ai *AllocationInfo) bool {
 // IsPoolEntry returns true if this entry is for a pool;
 // otherwise, this entry is for a container entity.
 func (ce ContainerEntries) IsPoolEntry() bool {
-	return len(ce) == 1 && ce[cpuadvisor.FakedContainerName] != nil
+	return len(ce) == 1 && ce[FakedContainerName] != nil
 }
 
 func (ce ContainerEntries) GetPoolEntry() *AllocationInfo {
 	if !ce.IsPoolEntry() {
 		return nil
 	}
-	return ce[cpuadvisor.FakedContainerName]
+	return ce[FakedContainerName]
 }
 
 // GetMainContainerEntry returns the main container entry in pod container entries
@@ -273,8 +272,8 @@ func (pe PodEntries) String() string {
 
 // CheckPoolEmpty returns true if the given pool doesn't exist
 func (pe PodEntries) CheckPoolEmpty(poolName string) bool {
-	return pe[poolName][cpuadvisor.FakedContainerName] == nil ||
-		pe[poolName][cpuadvisor.FakedContainerName].AllocationResult.IsEmpty()
+	return pe[poolName][FakedContainerName] == nil ||
+		pe[poolName][FakedContainerName].AllocationResult.IsEmpty()
 }
 
 // GetCPUSetForPool returns cpuset that belongs to the given pool
@@ -286,7 +285,7 @@ func (pe PodEntries) GetCPUSetForPool(poolName string) (machine.CPUSet, error) {
 	if !pe[poolName].IsPoolEntry() {
 		return machine.NewCPUSet(), fmt.Errorf("pool not found")
 	}
-	return pe[poolName][cpuadvisor.FakedContainerName].AllocationResult.Clone(), nil
+	return pe[poolName][FakedContainerName].AllocationResult.Clone(), nil
 }
 
 // GetFilteredPoolsCPUSet returns a mapping of pools for all of them (except for those skipped ones)

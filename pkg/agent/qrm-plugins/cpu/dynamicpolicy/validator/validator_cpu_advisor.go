@@ -120,10 +120,10 @@ func (c *CPUAdvisorValidator) validateStaticPools(resp *advisorapi.ListAndWatchR
 
 	for _, poolName := range state.StaticPools.List() {
 		var nilStateEntry, nilRespEntry bool
-		if entries[poolName] == nil || entries[poolName][advisorapi.FakedContainerName] == nil {
+		if entries[poolName] == nil || entries[poolName][state.FakedContainerName] == nil {
 			nilStateEntry = true
 		}
-		if resp.Entries[poolName] == nil || resp.Entries[poolName].Entries[advisorapi.FakedContainerName] == nil {
+		if resp.Entries[poolName] == nil || resp.Entries[poolName].Entries[state.FakedContainerName] == nil {
 			nilRespEntry = true
 		}
 
@@ -136,16 +136,16 @@ func (c *CPUAdvisorValidator) validateStaticPools(resp *advisorapi.ListAndWatchR
 			continue
 		}
 
-		allocationInfo := entries[poolName][advisorapi.FakedContainerName]
-		calculationInfo := resp.Entries[poolName].Entries[advisorapi.FakedContainerName]
+		allocationInfo := entries[poolName][state.FakedContainerName]
+		calculationInfo := resp.Entries[poolName].Entries[state.FakedContainerName]
 		if calculationInfo.OwnerPoolName != poolName {
 			return fmt.Errorf("pool: %s has invalid owner pool name: %s in cpu advisor resp",
 				poolName, calculationInfo.OwnerPoolName)
 		}
 
 		if len(calculationInfo.CalculationResultsByNumas) != 1 ||
-			calculationInfo.CalculationResultsByNumas[advisorapi.FakedNUMAID] == nil ||
-			len(calculationInfo.CalculationResultsByNumas[advisorapi.FakedNUMAID].Blocks) != 1 {
+			calculationInfo.CalculationResultsByNumas[state.FakedNUMAID] == nil ||
+			len(calculationInfo.CalculationResultsByNumas[state.FakedNUMAID].Blocks) != 1 {
 			return fmt.Errorf("static pool: %s has invalid calculationInfo", poolName)
 		}
 
@@ -178,7 +178,7 @@ func (c *CPUAdvisorValidator) validateBlocks(resp *advisorapi.ListAndWatchRespon
 	totalQuantity := 0
 	numas := c.machineInfo.CPUTopology.CPUDetails.NUMANodes()
 	for numaId, blocks := range numaToBlocks {
-		if numaId != advisorapi.FakedNUMAID && !numas.Contains(numaId) {
+		if numaId != state.FakedNUMAID && !numas.Contains(numaId) {
 			return fmt.Errorf("NUMA: %d referred by blocks isn't in topology", numaId)
 		}
 
@@ -196,7 +196,7 @@ func (c *CPUAdvisorValidator) validateBlocks(resp *advisorapi.ListAndWatchRespon
 			numaQuantity += quantityInt
 		}
 
-		if numaId != advisorapi.FakedNUMAID {
+		if numaId != state.FakedNUMAID {
 			numaCapacity := c.machineInfo.CPUTopology.CPUDetails.CPUsInNUMANodes(numaId).Size()
 			if numaQuantity > numaCapacity {
 				return fmt.Errorf("numaQuantity: %d exceeds NUMA capacity: %d in NUMA: %d", numaQuantity, numaCapacity, numaId)

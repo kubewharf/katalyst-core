@@ -29,7 +29,6 @@ import (
 	"k8s.io/apimachinery/pkg/util/wait"
 
 	pluginapi "github.com/kubewharf/katalyst-api/pkg/protocol/evictionplugin/v1alpha1"
-	advisorapi "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/cpuadvisor"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
 	cpuutil "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/util"
 	"github.com/kubewharf/katalyst-core/pkg/config"
@@ -155,7 +154,7 @@ func (p *CPUPressureLoadEviction) ThresholdMet(_ context.Context,
 			continue
 		}
 
-		metricRing := entries[advisorapi.FakedContainerName]
+		metricRing := entries[state.FakedContainerName]
 		if metricRing == nil {
 			general.Warningf("pool: %s hasn't metric: %s metricsRing", poolName, consts.MetricLoad1MinContainer)
 			continue
@@ -203,7 +202,7 @@ func (p *CPUPressureLoadEviction) ThresholdMet(_ context.Context,
 	}
 
 	p.clearEvictionPoolName()
-	if softThresholdMetPoolName != advisorapi.EmptyOwnerPoolName {
+	if softThresholdMetPoolName != state.EmptyOwnerPoolName {
 		_ = p.emitter.StoreFloat64(metricsNameThresholdMet, 1, metrics.MetricTypeNameCount,
 			metrics.ConvertMapToTags(map[string]string{
 				metricsTagKeyPoolName:         softThresholdMetPoolName,
@@ -334,7 +333,7 @@ func (p *CPUPressureLoadEviction) collectMetrics(_ context.Context) {
 		for containerName, containerEntry := range entry {
 			if containerEntry == nil || containerEntry.IsPool {
 				continue
-			} else if containerEntry.OwnerPool == advisorapi.EmptyOwnerPoolName || p.skipPools.Has(containerEntry.OwnerPool) {
+			} else if containerEntry.OwnerPool == state.EmptyOwnerPoolName || p.skipPools.Has(containerEntry.OwnerPool) {
 				general.Infof("skip collecting metric for pod: %s, container: %s with owner pool name: %s",
 					podUID, containerName, containerEntry.OwnerPool)
 				continue
@@ -402,7 +401,7 @@ func (p *CPUPressureLoadEviction) checkSharedPressureByPoolSize(pod2Pool PodPool
 		}
 
 		for _, containerEntry := range entry {
-			if !containerEntry.IsPool || p.skipPools.Has(poolName) || entry[advisorapi.FakedContainerName] == nil {
+			if !containerEntry.IsPool || p.skipPools.Has(poolName) || entry[state.FakedContainerName] == nil {
 				continue
 			}
 			poolSizeSum += containerEntry.PoolSize
@@ -476,7 +475,7 @@ func (p *CPUPressureLoadEviction) collectPoolLoad(dynamicConfig *dynamic.Configu
 		})...)
 
 	p.logPoolSnapShot(snapshot, poolName, true)
-	p.pushMetric(dynamicConfig, metricName, poolName, advisorapi.FakedContainerName, snapshot)
+	p.pushMetric(dynamicConfig, metricName, poolName, state.FakedContainerName, snapshot)
 }
 
 // collectPoolMetricDefault is a common collect in pool level,
@@ -493,7 +492,7 @@ func (p *CPUPressureLoadEviction) collectPoolMetricDefault(dynamicConfig *dynami
 	}
 
 	p.logPoolSnapShot(snapshot, poolName, false)
-	p.pushMetric(dynamicConfig, metricName, poolName, advisorapi.FakedContainerName, snapshot)
+	p.pushMetric(dynamicConfig, metricName, poolName, state.FakedContainerName, snapshot)
 }
 
 // pushMetric stores and push-in metric for the given pod
@@ -552,10 +551,10 @@ func (p *CPUPressureLoadEviction) logPoolSnapShot(snapshot *MetricSnapshot, pool
 
 // clearEvictionPoolName resets pool in local memory
 func (p *CPUPressureLoadEviction) clearEvictionPoolName() {
-	if p.evictionPoolName != advisorapi.FakedContainerName {
+	if p.evictionPoolName != state.FakedContainerName {
 		general.Infof("clear eviction pool name: %s", p.evictionPoolName)
 	}
-	p.evictionPoolName = advisorapi.FakedContainerName
+	p.evictionPoolName = state.FakedContainerName
 }
 
 // setEvictionPoolName sets pool in local memory
@@ -567,7 +566,7 @@ func (p *CPUPressureLoadEviction) setEvictionPoolName(evictionPoolName string) {
 // getEvictionPoolName returns the previously-set pool
 func (p *CPUPressureLoadEviction) getEvictionPoolName() (exists bool, evictionPoolName string) {
 	evictionPoolName = p.evictionPoolName
-	if evictionPoolName == advisorapi.FakedContainerName {
+	if evictionPoolName == state.FakedContainerName {
 		exists = false
 		return
 	}

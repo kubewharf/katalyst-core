@@ -28,7 +28,6 @@ import (
 
 	apiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/calculator"
-	advisorapi "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/cpuadvisor"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
 	cpuutil "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/util"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util"
@@ -89,7 +88,7 @@ func (p *DynamicPolicy) sharedCoresAllocationHandler(_ context.Context,
 			ContainerType:                    req.ContainerType.String(),
 			ContainerIndex:                   req.ContainerIndex,
 			RampUp:                           shouldRampUp,
-			OwnerPoolName:                    advisorapi.EmptyOwnerPoolName,
+			OwnerPoolName:                    state.EmptyOwnerPoolName,
 			PodRole:                          req.PodRole,
 			PodType:                          req.PodType,
 			AllocationResult:                 pooledCPUs,
@@ -105,7 +104,7 @@ func (p *DynamicPolicy) sharedCoresAllocationHandler(_ context.Context,
 
 		if !shouldRampUp {
 			targetPoolName := allocationInfo.GetSpecifiedPoolName()
-			poolAllocationInfo := p.state.GetAllocationInfo(targetPoolName, advisorapi.FakedContainerName)
+			poolAllocationInfo := p.state.GetAllocationInfo(targetPoolName, state.FakedContainerName)
 
 			if poolAllocationInfo == nil {
 				general.Infof("pod: %s/%s, container: %s is active, but its specified pool entry doesn't exist, try to ramp up it",
@@ -183,7 +182,7 @@ func (p *DynamicPolicy) reclaimedCoresAllocationHandler(_ context.Context,
 		return nil, fmt.Errorf("updateAllocationInfoByReq failed with error: %v", err)
 	}
 
-	reclaimedAllocationInfo := p.state.GetAllocationInfo(state.PoolNameReclaim, advisorapi.FakedContainerName)
+	reclaimedAllocationInfo := p.state.GetAllocationInfo(state.PoolNameReclaim, state.FakedContainerName)
 	if reclaimedAllocationInfo == nil {
 		general.Errorf("allocation for pod: %s/%s, container: %s is failed, because pool: %s is not ready",
 			req.PodNamespace, req.PodName, req.ContainerName, state.PoolNameReclaim)
@@ -538,7 +537,7 @@ func (p *DynamicPolicy) putAllocationsAndAdjustAllocationEntries(allocationInfos
 		}
 
 		poolName := allocationInfo.GetSpecifiedPoolName()
-		if poolName == advisorapi.EmptyOwnerPoolName {
+		if poolName == state.EmptyOwnerPoolName {
 			return fmt.Errorf("allocationInfo points to empty poolName")
 		}
 
@@ -634,7 +633,7 @@ func (p *DynamicPolicy) reclaimOverlapNUMABinding(poolsCPUSet map[string]machine
 		return fmt.Errorf("reclaim pool misses in current entries")
 	}
 
-	curReclaimCPUSet := entries[state.PoolNameReclaim][advisorapi.FakedContainerName].AllocationResult.Clone()
+	curReclaimCPUSet := entries[state.PoolNameReclaim][state.FakedContainerName].AllocationResult.Clone()
 	nonOverlapReclaimCPUSet := poolsCPUSet[state.PoolNameReclaim].Clone()
 	general.Infof("curReclaimCPUSet: %s", curReclaimCPUSet.String())
 
@@ -733,7 +732,7 @@ func (p *DynamicPolicy) applyPoolsAndIsolatedInfo(poolsCPUSet map[string]machine
 				poolName, cset.String(), err)
 		}
 
-		allocationInfo := curEntries[poolName][advisorapi.FakedContainerName]
+		allocationInfo := curEntries[poolName][state.FakedContainerName]
 		if allocationInfo != nil {
 			general.Infof("pool: %s allocation result transform from %s to %s",
 				poolName, allocationInfo.AllocationResult.String(), cset.String())
@@ -742,7 +741,7 @@ func (p *DynamicPolicy) applyPoolsAndIsolatedInfo(poolsCPUSet map[string]machine
 		if newPodEntries[poolName] == nil {
 			newPodEntries[poolName] = make(state.ContainerEntries)
 		}
-		newPodEntries[poolName][advisorapi.FakedContainerName] = &state.AllocationInfo{
+		newPodEntries[poolName][state.FakedContainerName] = &state.AllocationInfo{
 			PodUid:                           poolName,
 			OwnerPoolName:                    poolName,
 			AllocationResult:                 cset.Clone(),
@@ -819,17 +818,17 @@ func (p *DynamicPolicy) applyPoolsAndIsolatedInfo(poolsCPUSet map[string]machine
 						allocationInfo.PodNamespace, allocationInfo.PodName, allocationInfo.ContainerName,
 						allocationInfo.AllocationResult.String(), rampUpCPUs.String())
 
-					newPodEntries[podUID][containerName].OwnerPoolName = advisorapi.EmptyOwnerPoolName
+					newPodEntries[podUID][containerName].OwnerPoolName = state.EmptyOwnerPoolName
 					newPodEntries[podUID][containerName].AllocationResult = rampUpCPUs.Clone()
 					newPodEntries[podUID][containerName].OriginalAllocationResult = rampUpCPUs.Clone()
 					newPodEntries[podUID][containerName].TopologyAwareAssignments = machine.DeepcopyCPUAssignment(rampUpCPUsTopologyAwareAssignments)
 					newPodEntries[podUID][containerName].OriginalTopologyAwareAssignments = machine.DeepcopyCPUAssignment(rampUpCPUsTopologyAwareAssignments)
-				} else if newPodEntries[ownerPoolName][advisorapi.FakedContainerName] == nil {
+				} else if newPodEntries[ownerPoolName][state.FakedContainerName] == nil {
 					general.Warningf("pod: %s/%s container: %s get owner pool: %s allocationInfo failed. reuse its allocation result: %s",
 						allocationInfo.PodNamespace, allocationInfo.PodName, allocationInfo.ContainerName,
 						ownerPoolName, allocationInfo.AllocationResult.String())
 				} else {
-					poolEntry := newPodEntries[ownerPoolName][advisorapi.FakedContainerName]
+					poolEntry := newPodEntries[ownerPoolName][state.FakedContainerName]
 					general.Infof("put pod: %s/%s container: %s to pool: %s, set its allocation result from %s to %s",
 						allocationInfo.PodNamespace, allocationInfo.PodName, allocationInfo.ContainerName,
 						ownerPoolName, allocationInfo.AllocationResult.String(), poolEntry.AllocationResult.String())

@@ -140,7 +140,7 @@ func (p *DynamicPolicy) GetCheckpoint(_ context.Context,
 			}
 
 			ownerPoolName := allocationInfo.GetOwnerPoolName()
-			if ownerPoolName == advisorapi.EmptyOwnerPoolName {
+			if ownerPoolName == state.EmptyOwnerPoolName {
 				general.Warningf("pod: %s/%s container: %s get empty owner pool name",
 					allocationInfo.PodNamespace, allocationInfo.PodName, allocationInfo.ContainerName)
 				if allocationInfo.CheckSideCar() {
@@ -308,12 +308,12 @@ func (p *DynamicPolicy) generateBlockCPUSet(resp *advisorapi.ListAndWatchRespons
 	// and calculate availableCPUs after deducting static pools
 	blockCPUSet := advisorapi.NewBlockCPUSet()
 	for _, poolName := range state.StaticPools.List() {
-		allocationInfo := p.state.GetAllocationInfo(poolName, advisorapi.FakedContainerName)
+		allocationInfo := p.state.GetAllocationInfo(poolName, state.FakedContainerName)
 		if allocationInfo == nil {
 			continue
 		}
 
-		blocks, ok := resp.GeEntryNUMABlocks(poolName, advisorapi.FakedContainerName, advisorapi.FakedNUMAID)
+		blocks, ok := resp.GeEntryNUMABlocks(poolName, state.FakedContainerName, state.FakedNUMAID)
 		if !ok || len(blocks) != 1 {
 			return nil, fmt.Errorf("blocks of pool: %s is invalid", poolName)
 		}
@@ -326,7 +326,7 @@ func (p *DynamicPolicy) generateBlockCPUSet(resp *advisorapi.ListAndWatchRespons
 	// walk through all blocks with specified NUMA ids
 	// for each block, add them into blockCPUSet (if not exist) and renew availableCPUs
 	for numaID, blocks := range numaToBlocks {
-		if numaID == advisorapi.FakedNUMAID {
+		if numaID == state.FakedNUMAID {
 			continue
 		}
 
@@ -364,7 +364,7 @@ func (p *DynamicPolicy) generateBlockCPUSet(resp *advisorapi.ListAndWatchRespons
 
 	// walk through all blocks without specified NUMA id
 	// for each block, add them into blockCPUSet (if not exist) and renew availableCPUs
-	for _, block := range numaToBlocks[advisorapi.FakedNUMAID] {
+	for _, block := range numaToBlocks[state.FakedNUMAID] {
 		if block == nil {
 			general.Warningf("got nil block")
 			continue
@@ -420,7 +420,7 @@ func (p *DynamicPolicy) applyBlocks(blockCPUSet advisorapi.BlockCPUSet, resp *ad
 			if calculationInfo == nil {
 				general.Warningf("got nil calculationInfo entry: %s, subEntry: %s", entryName, subEntryName)
 				continue
-			} else if !(subEntryName == advisorapi.FakedContainerName || calculationInfo.OwnerPoolName == state.PoolNameDedicated) {
+			} else if !(subEntryName == state.FakedContainerName || calculationInfo.OwnerPoolName == state.PoolNameDedicated) {
 				continue
 			}
 
@@ -442,7 +442,7 @@ func (p *DynamicPolicy) applyBlocks(blockCPUSet advisorapi.BlockCPUSet, resp *ad
 			if allocationInfo == nil {
 				// currently, cpu advisor can only create new pools,
 				// all container entries or entries with owner pool name dedicated can't be created by cpu advisor
-				if calculationInfo.OwnerPoolName == state.PoolNameDedicated || subEntryName != advisorapi.FakedContainerName {
+				if calculationInfo.OwnerPoolName == state.PoolNameDedicated || subEntryName != state.FakedContainerName {
 					return fmt.Errorf("no-pool entry isn't found in plugin cache, entry: %s, subEntry: %s", entryName, subEntryName)
 				} else if entryName != calculationInfo.OwnerPoolName {
 					return fmt.Errorf("pool entryName: %s and OwnerPoolName: %s mismatch", entryName, calculationInfo.OwnerPoolName)
@@ -525,7 +525,7 @@ func (p *DynamicPolicy) applyBlocks(blockCPUSet advisorapi.BlockCPUSet, resp *ad
 		if newEntries[state.PoolNameReclaim] == nil {
 			newEntries[state.PoolNameReclaim] = make(state.ContainerEntries)
 		}
-		newEntries[state.PoolNameReclaim][advisorapi.FakedContainerName] = &state.AllocationInfo{
+		newEntries[state.PoolNameReclaim][state.FakedContainerName] = &state.AllocationInfo{
 			PodUid:                           state.PoolNameReclaim,
 			OwnerPoolName:                    state.PoolNameReclaim,
 			AllocationResult:                 reclaimPoolCPUSet.Clone(),
@@ -534,7 +534,7 @@ func (p *DynamicPolicy) applyBlocks(blockCPUSet advisorapi.BlockCPUSet, resp *ad
 			OriginalTopologyAwareAssignments: machine.DeepcopyCPUAssignment(topologyAwareAssignments),
 		}
 	} else {
-		general.Infof("detected reclaimPoolCPUSet: %s", newEntries[state.PoolNameReclaim][advisorapi.FakedContainerName].AllocationResult.String())
+		general.Infof("detected reclaimPoolCPUSet: %s", newEntries[state.PoolNameReclaim][state.FakedContainerName].AllocationResult.String())
 	}
 
 	// deal with blocks of reclaimed_cores and share_cores
@@ -589,19 +589,19 @@ func (p *DynamicPolicy) applyBlocks(blockCPUSet advisorapi.BlockCPUSet, resp *ad
 						continue containerLoop
 					}
 
-					newEntries[podUID][containerName].OwnerPoolName = advisorapi.EmptyOwnerPoolName
+					newEntries[podUID][containerName].OwnerPoolName = state.EmptyOwnerPoolName
 					newEntries[podUID][containerName].AllocationResult = rampUpCPUs.Clone()
 					newEntries[podUID][containerName].OriginalAllocationResult = rampUpCPUs.Clone()
 					newEntries[podUID][containerName].TopologyAwareAssignments = machine.DeepcopyCPUAssignment(rampUpCPUsTopologyAwareAssignments)
 					newEntries[podUID][containerName].OriginalTopologyAwareAssignments = machine.DeepcopyCPUAssignment(rampUpCPUsTopologyAwareAssignments)
-				} else if newEntries[ownerPoolName][advisorapi.FakedContainerName] == nil {
+				} else if newEntries[ownerPoolName][state.FakedContainerName] == nil {
 					errMsg := fmt.Sprintf("cpu advisor doesn't return entry for pool: %s and it's referred by pod: %s/%s, container: %s, qosLevel: %s",
 						ownerPoolName, allocationInfo.PodNamespace, allocationInfo.PodName, allocationInfo.ContainerName, allocationInfo.QoSLevel)
 
 					general.Errorf(errMsg)
 					return fmt.Errorf(errMsg)
 				} else {
-					poolEntry := newEntries[ownerPoolName][advisorapi.FakedContainerName]
+					poolEntry := newEntries[ownerPoolName][state.FakedContainerName]
 
 					general.Infof("put pod: %s/%s container: %s to pool: %s, set its allocation result from %s to %s",
 						allocationInfo.PodNamespace, allocationInfo.PodName, allocationInfo.ContainerName, ownerPoolName, allocationInfo.AllocationResult.String(), poolEntry.AllocationResult.String())

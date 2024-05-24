@@ -19,7 +19,7 @@ package strategy
 import (
 	"sync"
 
-	advisorapi "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/cpuadvisor"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic"
 )
 
@@ -47,7 +47,7 @@ type MetricRing struct {
 type SubEntries map[string]*MetricRing
 
 func (se SubEntries) IsPoolEntry() bool {
-	return len(se) == 1 && se[advisorapi.FakedContainerName] != nil
+	return len(se) == 1 && se[state.FakedContainerName] != nil
 }
 
 // Entries are keyed by pod UID or pool name

@@ -30,6 +30,7 @@ import (
 	"github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/advisorsvc"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/cpuadvisor"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
 	qrmstate "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
@@ -169,7 +170,7 @@ func (cs *cpuServer) syncCheckpoint(ctx context.Context, resp *cpuadvisor.GetChe
 
 	// parse pool entries first, which are needed for parsing container entries
 	for entryName, entry := range resp.Entries {
-		if poolInfo, ok := entry.Entries[cpuadvisor.FakedContainerName]; ok {
+		if poolInfo, ok := entry.Entries[state.FakedContainerName]; ok {
 			poolName := entryName
 			livingPoolNameSet.Insert(poolName)
 			if err := cs.updatePoolInfo(poolName, poolInfo); err != nil {
@@ -180,7 +181,7 @@ func (cs *cpuServer) syncCheckpoint(ctx context.Context, resp *cpuadvisor.GetChe
 
 	// parse container entries after pool entries
 	for entryName, entry := range resp.Entries {
-		if _, ok := entry.Entries[cpuadvisor.FakedContainerName]; !ok {
+		if _, ok := entry.Entries[state.FakedContainerName]; !ok {
 			podUID := entryName
 			pod, err := cs.metaServer.GetPod(ctx, podUID)
 			if err != nil {
@@ -310,7 +311,7 @@ func (cs *cpuServer) assemblePoolEntries(advisorResp *types.InternalCPUCalculati
 			innerBlock := NewInnerBlock(block, int64(numaID), poolName, nil, numaCalculationResult)
 			innerBlock.join(block.BlockId, bs)
 
-			poolEntry.Entries[cpuadvisor.FakedContainerName].CalculationResultsByNumas[int64(numaID)] = numaCalculationResult
+			poolEntry.Entries[state.FakedContainerName].CalculationResultsByNumas[int64(numaID)] = numaCalculationResult
 		}
 		calculationEntriesMap[poolName] = poolEntry
 	}
@@ -375,7 +376,7 @@ func (cs *cpuServer) assemblePodEntries(calculationEntriesMap map[string]*cpuadv
 				// if this podUID appears firstly, we should generate a new Block
 
 				reclaimPoolCalculationResults, ok := getNumaCalculationResult(calculationEntriesMap, qrmstate.PoolNameReclaim,
-					cpuadvisor.FakedContainerName, int64(numaID))
+					state.FakedContainerName, int64(numaID))
 				if !ok {
 					// if no reclaimed pool exists, return the generated Block
 

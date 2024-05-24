@@ -456,7 +456,7 @@ func (p *DynamicPolicy) GetResourcesAllocation(_ context.Context,
 					allocationInfo.TopologyAwareAssignments = clonedPooledCPUsTopologyAwareAssignments
 					allocationInfo.OriginalTopologyAwareAssignments = clonedPooledCPUsTopologyAwareAssignments
 					// fill OwnerPoolName with empty string when ramping up
-					allocationInfo.OwnerPoolName = advisorapi.EmptyOwnerPoolName
+					allocationInfo.OwnerPoolName = state.EmptyOwnerPoolName
 					allocationInfo.RampUp = true
 				}
 
@@ -930,7 +930,7 @@ func (p *DynamicPolicy) cleanPools() error {
 
 		for _, allocationInfo := range entries {
 			ownerPool := allocationInfo.GetOwnerPoolName()
-			if ownerPool != advisorapi.EmptyOwnerPoolName {
+			if ownerPool != state.EmptyOwnerPoolName {
 				remainPools[ownerPool] = true
 			}
 		}
@@ -968,7 +968,7 @@ func (p *DynamicPolicy) cleanPools() error {
 
 // initReservePool initializes reserve pool for system cores workload
 func (p *DynamicPolicy) initReservePool() error {
-	reserveAllocationInfo := p.state.GetAllocationInfo(state.PoolNameReserve, advisorapi.FakedContainerName)
+	reserveAllocationInfo := p.state.GetAllocationInfo(state.PoolNameReserve, state.FakedContainerName)
 	if reserveAllocationInfo != nil && !reserveAllocationInfo.AllocationResult.IsEmpty() {
 		general.Infof("pool: %s allocation result transform from %s to %s",
 			state.PoolNameReserve, reserveAllocationInfo.AllocationResult.String(), p.reservedCPUs)
@@ -989,7 +989,7 @@ func (p *DynamicPolicy) initReservePool() error {
 		TopologyAwareAssignments:         topologyAwareAssignments,
 		OriginalTopologyAwareAssignments: machine.DeepcopyCPUAssignment(topologyAwareAssignments),
 	}
-	p.state.SetAllocationInfo(state.PoolNameReserve, advisorapi.FakedContainerName, curReserveAllocationInfo)
+	p.state.SetAllocationInfo(state.PoolNameReserve, state.FakedContainerName, curReserveAllocationInfo)
 
 	return nil
 }
@@ -997,7 +997,7 @@ func (p *DynamicPolicy) initReservePool() error {
 // initReclaimPool initializes pools for reclaimed-cores.
 // if this info already exists in state-file, just use it, otherwise calculate right away
 func (p *DynamicPolicy) initReclaimPool() error {
-	reclaimedAllocationInfo := p.state.GetAllocationInfo(state.PoolNameReclaim, advisorapi.FakedContainerName)
+	reclaimedAllocationInfo := p.state.GetAllocationInfo(state.PoolNameReclaim, state.FakedContainerName)
 	if reclaimedAllocationInfo == nil {
 		podEntries := p.state.GetPodEntries()
 		noneResidentCPUs := podEntries.GetFilteredPoolsCPUSet(state.ResidentPools)
@@ -1046,7 +1046,7 @@ func (p *DynamicPolicy) initReclaimPool() error {
 				TopologyAwareAssignments:         topologyAwareAssignments,
 				OriginalTopologyAwareAssignments: machine.DeepcopyCPUAssignment(topologyAwareAssignments),
 			}
-			p.state.SetAllocationInfo(poolName, advisorapi.FakedContainerName, curPoolAllocationInfo)
+			p.state.SetAllocationInfo(poolName, state.FakedContainerName, curPoolAllocationInfo)
 		}
 	} else {
 		general.Infof("exist initial %s: %s", state.PoolNameReclaim, reclaimedAllocationInfo.AllocationResult.String())
