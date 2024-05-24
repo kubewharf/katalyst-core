@@ -153,7 +153,7 @@ func (o *OvercommitRatioReporterPlugin) Stop() error {
 // GetReportContent get overcommitment ratio from manager directly.
 // Since the metrics collected by Manager are already an average within a time period,
 // we expect a faster response to node load fluctuations to avoid excessive overcommit of online resources.
-func (o *OvercommitRatioReporterPlugin) GetReportContent(_ context.Context, _ *v1alpha1.Empty) (*v1alpha1.GetReportContentResponse, error) {
+func (o *OvercommitRatioReporterPlugin) GetReportContent(ctx context.Context, _ *v1alpha1.Empty) (*v1alpha1.GetReportContentResponse, error) {
 	response := &v1alpha1.GetReportContentResponse{
 		Content: []*v1alpha1.ReportContent{},
 	}
@@ -173,7 +173,7 @@ func (o *OvercommitRatioReporterPlugin) GetReportContent(_ context.Context, _ *v
 	response.Content = append(response.Content, overcommitRatioContent)
 
 	// get topologyProvider and guaranteed cpus
-	topologyProviderContent, err := o.getTopologyProviderReportContent(o.ctx)
+	topologyProviderContent, err := o.getTopologyProviderReportContent(ctx)
 	if err != nil {
 		return nil, err
 	}

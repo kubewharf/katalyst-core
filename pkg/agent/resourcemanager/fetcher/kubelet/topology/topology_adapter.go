@@ -53,6 +53,7 @@ import (
 
 const (
 	podResourcesClientTimeout    = 10 * time.Second
+	getTopologyZonesTimeout      = 10 * time.Second
 	podResourcesClientMaxMsgSize = 1024 * 1024 * 16
 )
 
@@ -139,6 +140,8 @@ func (p *topologyAdapterImpl) GetTopologyZones(parentCtx context.Context) ([]*no
 	// always force getting pod list instead of cache
 	ctx := context.WithValue(parentCtx, metaserverpod.BypassCacheKey, metaserverpod.BypassCacheTrue)
 
+	ctx, cancel := context.WithTimeout(ctx, getTopologyZonesTimeout)
+	defer cancel()
 	podList, err := p.metaServer.GetPodList(ctx, nil)
 	if err != nil {
 		return nil, errors.Wrap(err, "get pod list from metaServer failed")

@@ -33,6 +33,7 @@ import (
 
 const (
 	dialRemoteEndpointTimeout = 10 * time.Second
+	getReportContentTimeout   = 10 * time.Second
 )
 
 // ListAndWatchCallback should be called when plugins report info update.
@@ -173,7 +174,9 @@ func (e *remoteEndpointImpl) GetReportContent(c context.Context) (*v1alpha1.GetR
 		return nil, fmt.Errorf("endpoint %v has been stopped", e.pluginName)
 	}
 
-	resp, err := e.client.GetReportContent(c, &v1alpha1.Empty{})
+	ctx, cancel := context.WithTimeout(c, getReportContentTimeout)
+	defer cancel()
+	resp, err := e.client.GetReportContent(ctx, &v1alpha1.Empty{})
 	if err == nil {
 		e.setCache(resp)
 	}
