@@ -27,8 +27,6 @@ import (
 
 	apiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/consts"
-	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/cpuadvisor"
-	advisorapi "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/cpuadvisor"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
@@ -45,6 +43,15 @@ const (
 	// PoolNameFallback is not a real pool, and is a union of
 	// all none-reclaimed pools to put pod should have been isolated
 	PoolNameFallback = "fallback"
+)
+
+// FakedContainerName represents a placeholder since pool entry has no container-level
+// FakedNUMAID represents a placeholder since pools like shared/reclaimed will not contain a specific numa
+const (
+	EmptyOwnerPoolName = ""
+	FakedContainerName = ""
+	FakedNUMAID        = -1
+	NameSeparator      = "#"
 )
 
 var (
@@ -150,7 +157,7 @@ func GetSharedQuantityMapFromPodEntries(podEntries PodEntries, ignoreAllocationI
 				}
 			}
 
-			if poolName := allocationInfo.GetOwnerPoolName(); poolName != advisorapi.EmptyOwnerPoolName {
+			if poolName := allocationInfo.GetOwnerPoolName(); poolName != EmptyOwnerPoolName {
 				preciseQuantityMap[poolName] += GetContainerRequestedCores()(allocationInfo)
 			}
 		}
@@ -179,7 +186,7 @@ func GenerateMachineStateFromPodEntries(topology *machine.CPUTopology, podEntrie
 
 		for podUID, containerEntries := range podEntries {
 			for containerName, allocationInfo := range containerEntries {
-				if containerName != advisorapi.FakedContainerName && allocationInfo != nil {
+				if containerName != FakedContainerName && allocationInfo != nil {
 
 					// the container hasn't cpuset assignment in the current NUMA node
 					if allocationInfo.OriginalTopologyAwareAssignments[int(numaNode)].Size() == 0 &&
@@ -241,7 +248,7 @@ func GetPoolType(poolName string) string {
 func GetSpecifiedPoolName(qosLevel, cpusetEnhancementValue string) string {
 	switch qosLevel {
 	case apiconsts.PodAnnotationQoSLevelSharedCores:
-		if cpusetEnhancementValue != cpuadvisor.EmptyOwnerPoolName {
+		if cpusetEnhancementValue != EmptyOwnerPoolName {
 			return cpusetEnhancementValue
 		}
 		return PoolNameShare
@@ -250,6 +257,6 @@ func GetSpecifiedPoolName(qosLevel, cpusetEnhancementValue string) string {
 	case apiconsts.PodAnnotationQoSLevelDedicatedCores:
 		return PoolNameDedicated
 	default:
-		return cpuadvisor.EmptyOwnerPoolName
+		return EmptyOwnerPoolName
 	}
 }

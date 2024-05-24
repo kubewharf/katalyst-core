@@ -19,7 +19,7 @@ package region
 import (
 	"k8s.io/apimachinery/pkg/util/uuid"
 
-	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/cpuadvisor"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
 	"github.com/kubewharf/katalyst-core/pkg/config"
@@ -39,7 +39,7 @@ func NewQoSRegionIsolation(ci *types.ContainerInfo, customRegionName string, con
 ) QoSRegion {
 	regionName := customRegionName
 	if regionName == "" {
-		regionName = getRegionNameFromMetaCache(ci, cpuadvisor.FakedNUMAID, metaReader)
+		regionName = getRegionNameFromMetaCache(ci, state.FakedNUMAID, metaReader)
 		if regionName == "" {
 			regionName = string(types.QoSRegionTypeIsolation) + types.RegionNameSeparator + ci.PodName + types.RegionNameSeparator + string(uuid.NewUUID())
 		}

@@ -23,7 +23,6 @@ import (
 
 	"k8s.io/klog/v2"
 
-	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/cpuadvisor"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource/cpu/region"
@@ -75,7 +74,7 @@ func (pa *ProvisionAssemblerCommon) AssembleProvision() (types.InternalCPUCalcul
 
 	// fill in reserve pool entry
 	reservePoolSize, _ := pa.metaReader.GetPoolSize(state.PoolNameReserve)
-	calculationResult.SetPoolEntry(state.PoolNameReserve, cpuadvisor.FakedNUMAID, reservePoolSize)
+	calculationResult.SetPoolEntry(state.PoolNameReserve, state.FakedNUMAID, reservePoolSize)
 
 	shares := 0
 	isolationUppers := 0
@@ -156,7 +155,7 @@ func (pa *ProvisionAssemblerCommon) AssembleProvision() (types.InternalCPUCalcul
 
 	// fill in regulated share-and-isolated pool entries
 	for poolName, poolSize := range shareAndIsolatePoolSizes {
-		calculationResult.SetPoolEntry(poolName, cpuadvisor.FakedNUMAID, poolSize)
+		calculationResult.SetPoolEntry(poolName, state.FakedNUMAID, poolSize)
 	}
 
 	var reclaimPoolSizeOfNonBindingNumas int
@@ -169,7 +168,7 @@ func (pa *ProvisionAssemblerCommon) AssembleProvision() (types.InternalCPUCalcul
 		// generate by reserved value on non binding numas
 		reclaimPoolSizeOfNonBindingNumas = pa.getNumasReservedForReclaim(*pa.nonBindingNumas)
 	}
-	calculationResult.SetPoolEntry(state.PoolNameReclaim, cpuadvisor.FakedNUMAID, reclaimPoolSizeOfNonBindingNumas)
+	calculationResult.SetPoolEntry(state.PoolNameReclaim, state.FakedNUMAID, reclaimPoolSizeOfNonBindingNumas)
 
 	return calculationResult, nil
 }

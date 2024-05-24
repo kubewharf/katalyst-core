@@ -23,7 +23,7 @@ import (
 	"k8s.io/klog/v2"
 
 	"github.com/kubewharf/katalyst-api/pkg/apis/workload/v1alpha1"
-	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/cpuadvisor"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
 	"github.com/kubewharf/katalyst-core/pkg/config"
@@ -48,7 +48,7 @@ type QoSRegionShare struct {
 func NewQoSRegionShare(ci *types.ContainerInfo, conf *config.Configuration, extraConf interface{},
 	metaReader metacache.MetaReader, metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter,
 ) QoSRegion {
-	regionName := getRegionNameFromMetaCache(ci, cpuadvisor.FakedNUMAID, metaReader)
+	regionName := getRegionNameFromMetaCache(ci, state.FakedNUMAID, metaReader)
 	if regionName == "" {
 		regionName = string(types.QoSRegionTypeShare) + types.RegionNameSeparator + string(uuid.NewUUID())
 	}

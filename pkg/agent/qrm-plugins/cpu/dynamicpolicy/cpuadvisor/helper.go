@@ -21,17 +21,9 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
-)
-
-// FakedContainerName represents a placeholder since pool entry has no container-level
-// FakedNUMAID represents a placeholder since pools like shared/reclaimed will not contain a specific numa
-const (
-	EmptyOwnerPoolName = ""
-	FakedContainerName = ""
-	FakedNUMAID        = -1
-	NameSeparator      = "#"
 )
 
 type BlockCPUSet map[string]machine.CPUSet
@@ -133,17 +125,26 @@ func getBlocksLessFunc(blocksEntryNames map[string][][]string, blocks []*Block) 
 		entryNames1 := blocksEntryNames[blockId1]
 		entryNames2 := blocksEntryNames[blockId2]
 
+		reclaimBlock1, reclaimBlock2 := IsBlockOfRelcaim(entryNames1), IsBlockOfRelcaim(entryNames2)
+
+		// always alloate reclaim block lastly
+		if reclaimBlock1 && !reclaimBlock2 {
+			return false
+		} else if !reclaimBlock1 && reclaimBlock2 {
+			return true
+		}
+
 		getNames := func(entryNames [][]string, isPod bool) []string {
 			names := make([]string, 0, len(entryNames))
 			for _, namesTuple := range entryNames {
 				entryName, subEntryName := namesTuple[0], namesTuple[1]
 
 				if isPod {
-					if subEntryName != FakedContainerName {
+					if subEntryName != state.FakedContainerName {
 						names = append(names, entryName)
 					}
 				} else {
-					if subEntryName == FakedContainerName {
+					if subEntryName == state.FakedContainerName {
 						names = append(names, entryName)
 					}
 				}
@@ -163,7 +164,7 @@ func getBlocksLessFunc(blocksEntryNames map[string][][]string, blocks []*Block) 
 			return false
 		} else {
 			if len(podNames1) > 0 {
-				return strings.Join(podNames1, NameSeparator) < strings.Join(podNames2, NameSeparator)
+				return strings.Join(podNames1, state.NameSeparator) < strings.Join(podNames2, state.NameSeparator)
 			}
 
 			if len(poolNames1) > len(poolNames2) {
@@ -171,7 +172,7 @@ func getBlocksLessFunc(blocksEntryNames map[string][][]string, blocks []*Block) 
 			} else if len(poolNames1) < len(poolNames2) {
 				return false
 			} else {
-				return strings.Join(poolNames1, NameSeparator) < strings.Join(poolNames2, NameSeparator)
+				return strings.Join(poolNames1, state.NameSeparator) < strings.Join(poolNames2, state.NameSeparator)
 			}
 		}
 	}
@@ -315,4 +316,16 @@ func (ci *CalculationInfo) GetCPUSet(entry, subEntry string, b BlockCPUSet) (mac
 		}
 	}
 	return cpusets, nil
+}
+
+func IsBlockOfRelcaim(blockEntryNames [][]string) bool {
+	for _, namesTuple := range blockEntryNames {
+		entryName, subEntryName := namesTuple[0], namesTuple[1]
+
+		if entryName == state.PoolNameReclaim && subEntryName == state.FakedContainerName {
+			return true
+		}
+	}
+
+	return false
 }
