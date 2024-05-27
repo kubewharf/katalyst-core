@@ -44,8 +44,8 @@ func NewSystemLoadEvictionPluginConfiguration() *SystemLoadEvictionPluginConfigu
 
 func (l *SystemLoadEvictionPluginConfiguration) ApplyConfiguration(conf *crd.DynamicConfigCRD) {
 	if aqc := conf.AdminQoSConfiguration; aqc != nil && aqc.Spec.Config.EvictionConfig != nil &&
-		aqc.Spec.Config.EvictionConfig.SystemLoadPressureEvictionConfig != nil {
-		config := aqc.Spec.Config.EvictionConfig.SystemLoadPressureEvictionConfig
+		aqc.Spec.Config.EvictionConfig.SystemLoadPressureEvictionConfig != nil { //nolint:staticcheck
+		config := aqc.Spec.Config.EvictionConfig.SystemLoadPressureEvictionConfig //nolint:staticcheck
 		if config.SoftThreshold != nil {
 			l.SoftThreshold = *config.SoftThreshold
 		}
