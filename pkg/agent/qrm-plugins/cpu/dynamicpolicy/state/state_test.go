@@ -521,7 +521,7 @@ func TestNewCheckpointState(t *testing.T) {
 			}
 		}
 	},
-	"checksum": 1743112210
+	"checksum": 1563971849
 }`,
 			"",
 			&cpuPluginState{
@@ -1460,7 +1460,7 @@ func TestNewCheckpointState(t *testing.T) {
 				require.Nil(t, err)
 			}
 		} else {
-			require.NoError(t, err, "unexpected error while creating checkpointState")
+			require.NoError(t, err, "unexpected error while creating checkpointState, case: %s", tc.description)
 			// compare state after restoration with the one expected
 			assertStateEqual(t, restoredState, tc.expectedState)
 		}

@@ -325,12 +325,7 @@ func (p *CPUPressureLoadEviction) collectMetrics(_ context.Context) {
 		return
 	}
 
-	allowSharedCoresOverlapReclaimedCores, err := state.GetAllowSharedCoresOverlapReclaimedCores()
-
-	if err != nil {
-		general.Errorf("GetAllowSharedCoresOverlapReclaimedCores failed with error: %v", err)
-		return
-	}
+	allowSharedCoresOverlapReclaimedCores := p.state.GetAllowSharedCoresOverlapReclaimedCores()
 
 	pod2Pool := getPodPoolMapFunc(p.metaServer.MetaAgent, p.state)
 	p.clearExpiredMetricsHistory(pod2Pool)
@@ -448,7 +443,8 @@ func (p *CPUPressureLoadEviction) accumulateSharedPoolsLimit() int {
 // and its upper-bound and lower-bound are calculated by pool size.
 func (p *CPUPressureLoadEviction) collectPoolLoad(dynamicConfig *dynamic.Configuration, pressureByPoolSize bool,
 	metricName string, metricValue float64, poolName string,
-	poolSize int, collectTime int64, allowSharedCoresOverlapReclaimedCores bool) {
+	poolSize int, collectTime int64, allowSharedCoresOverlapReclaimedCores bool,
+) {
 	snapshot := &MetricSnapshot{
 		Info: MetricInfo{
 			Name:       metricName,
