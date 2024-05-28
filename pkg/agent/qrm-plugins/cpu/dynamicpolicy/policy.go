@@ -116,21 +116,20 @@ type DynamicPolicy struct {
 
 	// those are parsed from configurations
 	// todo if we want to use dynamic configuration, we'd better not use self-defined conf
-	enableCPUAdvisor                      bool
-	reservedCPUs                          machine.CPUSet
-	cpuAdvisorSocketAbsPath               string
-	cpuPluginSocketAbsPath                string
-	extraStateFileAbsPath                 string
-	enableCPUIdle                         bool
-	enableSyncingCPUIdle                  bool
-	reclaimRelativeRootCgroupPath         string
-	qosConfig                             *generic.QoSConfiguration
-	dynamicConfig                         *dynamicconfig.DynamicAgentConfiguration
-	podDebugAnnoKeys                      []string
-	transitionPeriod                      time.Duration
-	cpuNUMAHintPreferPolicy               string
-	cpuNUMAHintPreferLowThreshold         float64
-	allowSharedCoresOverlapReclaimedCores bool
+	enableCPUAdvisor              bool
+	reservedCPUs                  machine.CPUSet
+	cpuAdvisorSocketAbsPath       string
+	cpuPluginSocketAbsPath        string
+	extraStateFileAbsPath         string
+	enableCPUIdle                 bool
+	enableSyncingCPUIdle          bool
+	reclaimRelativeRootCgroupPath string
+	qosConfig                     *generic.QoSConfiguration
+	dynamicConfig                 *dynamicconfig.DynamicAgentConfiguration
+	podDebugAnnoKeys              []string
+	transitionPeriod              time.Duration
+	cpuNUMAHintPreferPolicy       string
+	cpuNUMAHintPreferLowThreshold float64
 }
 
 func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration,
@@ -274,9 +273,6 @@ func (p *DynamicPolicy) Start() (err error) {
 		general.Infof("is already started")
 		return nil
 	}
-
-	p.allowSharedCoresOverlapReclaimedCores = p.dynamicConfig.GetDynamicConfiguration().AllowSharedCoresOverlapReclaimedCores
-	state.SetAllowSharedCoresOverlapReclaimedCores(p.allowSharedCoresOverlapReclaimedCores)
 
 	p.stopCh = make(chan struct{})
 

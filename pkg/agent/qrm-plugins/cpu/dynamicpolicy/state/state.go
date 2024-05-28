@@ -693,6 +693,7 @@ type reader interface {
 	GetMachineState() NUMANodeMap
 	GetPodEntries() PodEntries
 	GetAllocationInfo(podUID string, containerName string) *AllocationInfo
+	GetAllowSharedCoresOverlapReclaimedCores() bool
 }
 
 // writer is used to store information into local states,
@@ -701,6 +702,7 @@ type writer interface {
 	SetMachineState(numaNodeMap NUMANodeMap)
 	SetPodEntries(podEntries PodEntries)
 	SetAllocationInfo(podUID string, containerName string, allocationInfo *AllocationInfo)
+	SetAllowSharedCoresOverlapReclaimedCores(allowSharedCoresOverlapReclaimedCores bool)
 
 	Delete(podUID string, containerName string)
 	ClearState()

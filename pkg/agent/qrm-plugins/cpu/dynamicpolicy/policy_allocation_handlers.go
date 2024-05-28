@@ -1056,14 +1056,14 @@ func (p *DynamicPolicy) generateNUMABindingPoolsCPUSetInPlace(poolsCPUSet map[st
 
 		var tErr error
 		var leftCPUs machine.CPUSet
-		if numaPoolsTotalQuantity <= availableSize && enableReclaim && !p.allowSharedCoresOverlapReclaimedCores {
+		if numaPoolsTotalQuantity <= availableSize && enableReclaim && !p.state.GetAllowSharedCoresOverlapReclaimedCores() {
 			leftCPUs, tErr = p.takeCPUsForPoolsInPlace(numaPoolsToQuantityMap, poolsCPUSet, numaAvailableCPUs)
 			if tErr != nil {
 				return originalAvailableCPUSet, fmt.Errorf("allocate cpus for numa_binding pools in NUMA: %d failed with error: %v",
 					numaID, tErr)
 			}
 		} else {
-			// numaPoolsTotalQuantity > availableSize || !enableReclaim || p.allowSharedCoresOverlapReclaimedCores
+			// numaPoolsTotalQuantity > availableSize || !enableReclaim || p.state.GetAllowSharedCoresOverlapReclaimedCores()
 			// both allocate all numaAvailableCPUs proportionally
 			leftCPUs, tErr = p.generateProportionalPoolsCPUSetInPlace(numaPoolsToQuantityMap, poolsCPUSet, numaAvailableCPUs)
 
@@ -1206,7 +1206,7 @@ func (p *DynamicPolicy) generatePoolsAndIsolation(poolsQuantityMap map[string]ma
 	// deal with reclaim pool
 	poolsCPUSet[state.PoolNameReclaim] = poolsCPUSet[state.PoolNameReclaim].Union(availableCPUs)
 
-	if !p.allowSharedCoresOverlapReclaimedCores {
+	if !p.state.GetAllowSharedCoresOverlapReclaimedCores() {
 		if poolsCPUSet[state.PoolNameReclaim].IsEmpty() {
 			// for reclaimed pool, we must make them exist when the node isn't in hybrid mode even if cause overlap
 			allAvailableCPUs := p.machineInfo.CPUDetails.CPUs().Difference(p.reservedCPUs)
@@ -1228,7 +1228,7 @@ func (p *DynamicPolicy) generatePoolsAndIsolation(poolsQuantityMap map[string]ma
 				state.PoolNameReclaim, poolsCPUSet[state.PoolNameReclaim].String())
 		}
 	} else {
-		// p.allowSharedCoresOverlapReclaimedCores == true
+		// p.state.GetAllowSharedCoresOverlapReclaimedCores() == true
 		for poolName, cset := range poolsCPUSet {
 			if ratio, found := reclaimOverlapShareRatio[poolName]; found && ratio > 0 {
 
@@ -1507,7 +1507,7 @@ func (p *DynamicPolicy) doAndCheckPutAllocationInfo(allocationInfo *state.Alloca
 }
 
 func (p *DynamicPolicy) getReclaimOverlapShareRatio(entries state.PodEntries) (map[string]float64, error) {
-	if !p.allowSharedCoresOverlapReclaimedCores {
+	if !p.state.GetAllowSharedCoresOverlapReclaimedCores() {
 		return nil, nil
 	}
 

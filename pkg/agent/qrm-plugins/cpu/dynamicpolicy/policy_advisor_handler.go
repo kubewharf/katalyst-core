@@ -282,11 +282,12 @@ func (p *DynamicPolicy) allocateByCPUAdvisor(resp *advisorapi.ListAndWatchRespon
 		return fmt.Errorf("applyBlocks failed with error: %v", applyErr)
 	}
 
-	if p.allowSharedCoresOverlapReclaimedCores != resp.AllowSharedCoresOverlapReclaimedCores {
+	curAllowSharedCoresOverlapReclaimedCores := p.state.GetAllowSharedCoresOverlapReclaimedCores()
+
+	if curAllowSharedCoresOverlapReclaimedCores != resp.AllowSharedCoresOverlapReclaimedCores {
 		general.Infof("set allowSharedCoresOverlapReclaimedCores from %v to %v",
-			p.allowSharedCoresOverlapReclaimedCores, resp.AllowSharedCoresOverlapReclaimedCores)
-		p.allowSharedCoresOverlapReclaimedCores = resp.AllowSharedCoresOverlapReclaimedCores
-		state.SetAllowSharedCoresOverlapReclaimedCores(p.allowSharedCoresOverlapReclaimedCores)
+			curAllowSharedCoresOverlapReclaimedCores, resp.AllowSharedCoresOverlapReclaimedCores)
+		p.state.SetAllowSharedCoresOverlapReclaimedCores(resp.AllowSharedCoresOverlapReclaimedCores)
 	}
 
 	return nil

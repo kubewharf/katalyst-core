@@ -32,9 +32,10 @@ type cpuPluginState struct {
 
 	cpuTopology *machine.CPUTopology
 
-	podEntries     PodEntries
-	machineState   NUMANodeMap
-	socketTopology map[int]string
+	podEntries                            PodEntries
+	machineState                          NUMANodeMap
+	allowSharedCoresOverlapReclaimedCores bool
+	socketTopology                        map[int]string
 }
 
 var _ State = &cpuPluginState{}
@@ -119,6 +120,23 @@ func (s *cpuPluginState) SetPodEntries(podEntries PodEntries) {
 	s.podEntries = podEntries.Clone()
 	klog.InfoS("[cpu_plugin] Updated cpu plugin pod entries",
 		"podEntries", podEntries.String())
+}
+
+func (s *cpuPluginState) SetAllowSharedCoresOverlapReclaimedCores(allowSharedCoresOverlapReclaimedCores bool) {
+	s.Lock()
+	defer s.Unlock()
+
+	klog.InfoS("[cpu_plugin] Updated allowSharedCoresOverlapReclaimedCores",
+		"allowSharedCoresOverlapReclaimedCores", allowSharedCoresOverlapReclaimedCores)
+
+	s.allowSharedCoresOverlapReclaimedCores = allowSharedCoresOverlapReclaimedCores
+}
+
+func (s *cpuPluginState) GetAllowSharedCoresOverlapReclaimedCores() bool {
+	s.RLock()
+	defer s.RUnlock()
+
+	return s.allowSharedCoresOverlapReclaimedCores
 }
 
 func (s *cpuPluginState) Delete(podUID string, containerName string) {
