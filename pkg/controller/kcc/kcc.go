@@ -422,7 +422,8 @@ func (k *KatalystCustomConfigController) collectInvalidConfigs(list []*unstructu
 }
 
 func (k *KatalystCustomConfigController) updateKCCStatusCondition(kcc *configapis.KatalystCustomConfig,
-	conditionType configapis.KatalystCustomConfigConditionType, status v1.ConditionStatus, reason, message string) error {
+	conditionType configapis.KatalystCustomConfigConditionType, status v1.ConditionStatus, reason, message string,
+) error {
 	updated := setKatalystCustomConfigConditions(kcc, conditionType, status, reason, message)
 	if updated || kcc.Status.ObservedGeneration != kcc.Generation {
 		kcc.Status.ObservedGeneration = kcc.Generation
@@ -470,9 +471,7 @@ func (k *KatalystCustomConfigController) handleKCCFinalizer(kcc *configapis.Kata
 
 func (k *KatalystCustomConfigController) ensureKCCFinalizer(kcc *configapis.KatalystCustomConfig) (*configapis.KatalystCustomConfig, error) {
 	err := retry.RetryOnConflict(retry.DefaultBackoff, func() error {
-		var (
-			err, getErr error
-		)
+		var err, getErr error
 		if controllerutil.ContainsFinalizer(kcc, consts.KatalystCustomConfigFinalizerKCC) {
 			return nil
 		}
@@ -498,9 +497,7 @@ func (k *KatalystCustomConfigController) ensureKCCFinalizer(kcc *configapis.Kata
 
 func (k *KatalystCustomConfigController) removeKCCFinalizer(kcc *configapis.KatalystCustomConfig) error {
 	err := retry.RetryOnConflict(retry.DefaultBackoff, func() error {
-		var (
-			err, getErr error
-		)
+		var err, getErr error
 		if !controllerutil.ContainsFinalizer(kcc, consts.KatalystCustomConfigFinalizerKCC) {
 			return nil
 		}
@@ -548,7 +545,8 @@ func setKatalystCustomConfigConditions(
 	kcc *configapis.KatalystCustomConfig,
 	conditionType configapis.KatalystCustomConfigConditionType,
 	conditionStatus v1.ConditionStatus,
-	reason, message string) bool {
+	reason, message string,
+) bool {
 	var conditionIndex int
 	conditions := kcc.Status.Conditions
 	for conditionIndex = 0; conditionIndex < len(conditions); conditionIndex++ {

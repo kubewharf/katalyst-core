@@ -44,7 +44,8 @@ type ShardingController struct {
 }
 
 func NewShardingController(ctx context.Context, baseCtx *katalystbase.GenericContext,
-	storeConf *metricconf.StoreConfiguration) (*ShardingController, error) {
+	storeConf *metricconf.StoreConfiguration,
+) (*ShardingController, error) {
 	sdManager, err := sd.GetSDManager(ctx, baseCtx, storeConf.ServiceDiscoveryConf)
 	if err != nil {
 		return nil, err

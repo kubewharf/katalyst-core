@@ -75,6 +75,8 @@ func PodUniqKeyCmpFunc(i1, i2 interface{}) int {
 	return general.CmpString(p1UniqKey, p2UniqKey)
 }
 
-var _ general.CmpFunc = PodPriorityCmpFunc
-var _ general.CmpFunc = PodCPURequestCmpFunc
-var _ general.CmpFunc = PodUniqKeyCmpFunc
+var (
+	_ general.CmpFunc = PodPriorityCmpFunc
+	_ general.CmpFunc = PodCPURequestCmpFunc
+	_ general.CmpFunc = PodUniqKeyCmpFunc
+)

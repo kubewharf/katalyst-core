@@ -161,7 +161,7 @@ func EnsureDirectory(dir string) error {
 	fs := utilfs.DefaultFs{}
 	if _, err := fs.Stat(dir); err != nil {
 		// MkdirAll returns nil if directory already exists.
-		return fs.MkdirAll(dir, 0755)
+		return fs.MkdirAll(dir, 0o755)
 	}
 	return nil
 }

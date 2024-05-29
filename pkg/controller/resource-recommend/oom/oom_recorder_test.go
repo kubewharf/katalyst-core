@@ -27,7 +27,6 @@ import (
 )
 
 func TestCleanOOMRecord(t *testing.T) {
-
 	oomRecordsList := []PodOOMRecorder{
 		{
 			OOMRecordMaxNumber: 4,
@@ -164,7 +163,6 @@ func TestCleanOOMRecord(t *testing.T) {
 			}
 		}
 	}
-
 }
 
 func TestListOOMRecordsFromConfigmap(t *testing.T) {
@@ -269,7 +267,6 @@ func TestUpdateOOMRecordCache(t *testing.T) {
 			t.Errorf("Expected isUpdated %v, but it is actually %v", resultList[index], isUpdated)
 		}
 	}
-
 }
 
 func TestUpdateOOMRecordConfigMap(t *testing.T) {

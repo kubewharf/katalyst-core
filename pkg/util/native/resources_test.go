@@ -162,11 +162,27 @@ func TestMultiplyResourceQuantity(t *testing.T) {
 			want:         true,
 		},
 		{
-			name:         "resource memory",
-			resourceName: v1.ResourceMemory,
+			name:         "resource memory Gi",
+			resourceName: v1.ResourceCPU,
 			quant:        resource.MustParse("200Gi"),
 			factor:       1.5,
 			res:          resource.MustParse("300Gi"),
+			want:         true,
+		},
+		{
+			name:         "resource memory ki",
+			resourceName: v1.ResourceMemory,
+			quant:        resource.MustParse("32612508Ki"),
+			factor:       1.5,
+			res:          resource.MustParse("48918762Ki"),
+			want:         true,
+		},
+		{
+			name:         "resource memory m",
+			resourceName: v1.ResourceMemory,
+			quant:        resource.MustParse("29258114498560m"),
+			factor:       1.5,
+			res:          resource.MustParse("43887171747840m"),
 			want:         true,
 		},
 		{
@@ -198,8 +214,8 @@ func TestMultiplyResourceQuantity(t *testing.T) {
 		c := c
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
-
-			quant := MultiplyResourceQuantity(c.resourceName, c.quant, c.factor)
+			quant := MultiplyMilliQuantity(c.quant, c.factor)
+			t.Log(quant.String())
 			assert.Equal(t, c.want, quant.Equal(c.res))
 		})
 	}

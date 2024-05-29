@@ -63,8 +63,8 @@ type MockCollector struct {
 }
 
 func NewMockCollector(ctx context.Context, baseCtx *katalystbase.GenericContext, genericConf *metric.GenericMetricConfiguration,
-	collectConf *metric.CollectorConfiguration, mockConf *metric.MockConfiguration, metricStore store.MetricStore) (collector.MetricCollector, error) {
-
+	collectConf *metric.CollectorConfiguration, mockConf *metric.MockConfiguration, metricStore store.MetricStore,
+) (collector.MetricCollector, error) {
 	bufferBucketSize := 2000
 	metricBuffer := make(map[int]*metricBucket, bufferBucketSize)
 	for i := 0; i < bufferBucketSize; i++ {
@@ -112,7 +112,6 @@ func (m *MockCollector) Stop() error {
 }
 
 func (m *MockCollector) sync() {
-
 	syncStart := time.Now()
 	defer func() {
 		costs := time.Since(syncStart)

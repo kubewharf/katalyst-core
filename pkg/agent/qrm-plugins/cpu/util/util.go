@@ -123,7 +123,8 @@ func RegenerateHints(allocationInfo *state.AllocationInfo, reqInt int) map[strin
 
 // PackAllocationResponse fills pluginapi.ResourceAllocationResponse with information from AllocationInfo and pluginapi.ResourceRequest
 func PackAllocationResponse(allocationInfo *state.AllocationInfo, resourceName, ociPropertyName string,
-	isNodeResource, isScalarResource bool, req *pluginapi.ResourceRequest) (*pluginapi.ResourceAllocationResponse, error) {
+	isNodeResource, isScalarResource bool, req *pluginapi.ResourceRequest,
+) (*pluginapi.ResourceAllocationResponse, error) {
 	if allocationInfo == nil {
 		return nil, fmt.Errorf("packAllocationResponse got nil allocationInfo")
 	} else if req == nil {

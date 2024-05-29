@@ -81,6 +81,18 @@ func (m *manager) ApplyMemory(absCgroupPath string, data *common.MemoryData) err
 		}
 	}
 
+	if data.SwapMaxInBytes != 0 {
+		// Do Not change swap max setting if SwapMaxInBytes equals to 0
+		var swapMax int64 = 0
+		if data.SwapMaxInBytes > 0 {
+			swapMax = data.SwapMaxInBytes
+		}
+		if err, applied, oldData := common.WriteFileIfChange(absCgroupPath, "memory.swap.max", fmt.Sprintf("%d", swapMax)); err != nil {
+			return err
+		} else if applied {
+			klog.Infof("[CgroupV2] apply memory swap max successfully, cgroupPath: %s, data: %v, old data: %v\n", absCgroupPath, swapMax, oldData)
+		}
+	}
 	return nil
 }
 
@@ -118,7 +130,6 @@ func (m *manager) ApplyCPU(absCgroupPath string, data *common.CPUData) error {
 		var cpuIdleValue int64
 		if *data.CpuIdlePtr {
 			cpuIdleValue = 1
-
 		} else {
 			cpuIdleValue = 0
 		}
@@ -217,7 +228,6 @@ func (m *manager) ApplyIOWeight(absCgroupPath string, devID string, weight uint6
 	dataContent := fmt.Sprintf("%s %d", devID, weight)
 
 	curWight, found, err := m.GetDeviceIOWeight(absCgroupPath, devID)
-
 	if err != nil {
 		return fmt.Errorf("try GetDeviceIOWeight before ApplyIOWeight failed with error: %v", err)
 	}
@@ -314,13 +324,11 @@ func (m *manager) GetCPUSet(absCgroupPath string) (*common.CPUSetStats, error) {
 
 	var err error
 	cpusetStats.CPUs, err = fscommon.GetCgroupParamString(absCgroupPath, "cpuset.cpus")
-
 	if err != nil {
 		return nil, fmt.Errorf("read cpuset.cpus failed with error: %v", err)
 	}
 
 	cpusetStats.Mems, err = fscommon.GetCgroupParamString(absCgroupPath, "cpuset.mems")
-
 	if err != nil {
 		return nil, fmt.Errorf("read cpuset.mems failed with error: %v", err)
 	}

@@ -60,7 +60,8 @@ type WebhookVPAValidator interface {
 
 func NewWebhookVPA(ctx context.Context, webhookCtx *katalystbase.GenericContext,
 	genericConf *generic.GenericConfiguration, _ *webhookconfig.GenericWebhookConfiguration,
-	_ *webhookconfig.WebhooksConfiguration, metricsEmitter metrics.MetricEmitter) (kubewebhook.Webhook, webhookconsts.GenericStartFunc, error) {
+	_ *webhookconfig.WebhooksConfiguration, metricsEmitter metrics.MetricEmitter,
+) (kubewebhook.Webhook, webhookconsts.GenericStartFunc, error) {
 	wa := &WebhookVPA{
 		ctx:    ctx,
 		dryRun: genericConf.DryRun,

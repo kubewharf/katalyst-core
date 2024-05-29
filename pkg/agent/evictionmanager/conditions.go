@@ -33,12 +33,10 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 )
 
-var (
-	validNodeTaintEffects = sets.NewString(
-		string(v1.TaintEffectNoSchedule),
-		string(v1.TaintEffectPreferNoSchedule),
-		string(v1.TaintEffectNoExecute),
-	)
+var validNodeTaintEffects = sets.NewString(
+	string(v1.TaintEffectNoSchedule),
+	string(v1.TaintEffectPreferNoSchedule),
+	string(v1.TaintEffectNoExecute),
 )
 
 func getTaintKeyFromConditionName(conditionName string) string {
@@ -95,7 +93,6 @@ func (m *EvictionManger) reportConditionsAsNodeTaints(ctx context.Context) {
 		_ = general.UpdateHealthzStateByError(reportTaintHealthCheckName, err)
 	}()
 	node, err := m.metaGetter.GetNode(ctx)
-
 	if err != nil {
 		klog.Errorf("[eviction manager] get node failed with error: %v", err)
 		return

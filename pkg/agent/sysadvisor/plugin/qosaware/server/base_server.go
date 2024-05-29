@@ -79,7 +79,8 @@ type baseServer struct {
 }
 
 func newBaseServer(name string, conf *config.Configuration, recvCh interface{}, sendCh chan types.TriggerInfo,
-	metaCache metacache.MetaCache, metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter, resourceServer subQRMServer) *baseServer {
+	metaCache metacache.MetaCache, metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter, resourceServer subQRMServer,
+) *baseServer {
 	return &baseServer{
 		name:           name,
 		period:         conf.QoSAwarePluginConfiguration.SyncPeriod,
@@ -191,7 +192,6 @@ func (bs *baseServer) dial(unixSocketPath string, timeout time.Duration) (*grpc.
 			return net.DialTimeout("unix", addr, timeout)
 		}),
 	)
-
 	if err != nil {
 		return nil, err
 	}

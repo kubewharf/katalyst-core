@@ -225,7 +225,8 @@ func TestSPDController_Run(t *testing.T) {
 				},
 				Status: apiworkload.ServiceProfileDescriptorStatus{
 					AggMetrics: []apiworkload.AggPodMetrics{},
-				}},
+				},
+			},
 		},
 		{
 			name: "auto create spd(dedicated_cores)",
@@ -309,7 +310,8 @@ func TestSPDController_Run(t *testing.T) {
 				},
 				Status: apiworkload.ServiceProfileDescriptorStatus{
 					AggMetrics: []apiworkload.AggPodMetrics{},
-				}},
+				},
+			},
 		},
 		{
 			name: "auto create spd(shared_cores)",
@@ -706,12 +708,14 @@ func TestIndicatorUpdater(t *testing.T) {
 
 	indicator_plugin.RegisterPluginInitializer("d1", func(_ context.Context, _ *controller.SPDConfig,
 		_ interface{}, _ map[schema.GroupVersionResource]native.DynamicInformer, _ *katalystbase.GenericContext,
-		_ indicator_plugin.IndicatorUpdater) (indicator_plugin.IndicatorPlugin, error) {
+		_ indicator_plugin.IndicatorUpdater,
+	) (indicator_plugin.IndicatorPlugin, error) {
 		return d1, nil
 	})
 	indicator_plugin.RegisterPluginInitializer("d2", func(_ context.Context, _ *controller.SPDConfig,
 		_ interface{}, _ map[schema.GroupVersionResource]native.DynamicInformer, _ *katalystbase.GenericContext,
-		_ indicator_plugin.IndicatorUpdater) (indicator_plugin.IndicatorPlugin, error) {
+		_ indicator_plugin.IndicatorUpdater,
+	) (indicator_plugin.IndicatorPlugin, error) {
 		return d2, nil
 	})
 

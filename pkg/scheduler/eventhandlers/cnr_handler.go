@@ -26,6 +26,14 @@ import (
 	schedulercache "github.com/kubewharf/katalyst-core/pkg/scheduler/cache"
 )
 
+const (
+	CommonCNRHandler = "CommonCNRHandler"
+)
+
+func RegisterCommonCNRHandler() {
+	RegisterEventHandler(CommonCNRHandler, AddCNREventHandler)
+}
+
 // AddCNREventHandler adds CNR event handlers for the scheduler.
 func AddCNREventHandler(_ informers.SharedInformerFactory, internalInformerFactory externalversions.SharedInformerFactory) {
 	cnrInformer := internalInformerFactory.Node().V1alpha1().CustomNodeResources()

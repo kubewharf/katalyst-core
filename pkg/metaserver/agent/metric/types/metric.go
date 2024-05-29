@@ -18,6 +18,7 @@ package types
 
 import (
 	"context"
+	"time"
 
 	v1 "k8s.io/api/core/v1"
 
@@ -28,11 +29,12 @@ import (
 type MetricsScope string
 
 const (
-	MetricsScopeNode      MetricsScope = "node"
-	MetricsScopeNuma      MetricsScope = "numa"
-	MetricsScopeCPU       MetricsScope = "cpu"
-	MetricsScopeDevice    MetricsScope = "device"
-	MetricsScopeContainer MetricsScope = "container"
+	MetricsScopeNode          MetricsScope = "node"
+	MetricsScopeNuma          MetricsScope = "numa"
+	MetricsScopeCPU           MetricsScope = "cpu"
+	MetricsScopeDevice        MetricsScope = "device"
+	MetricsScopeContainer     MetricsScope = "container"
+	MetricsScopeContainerNUMA MetricsScope = "container-numa"
 )
 
 // NotifiedRequest defines the structure as requests for notifier
@@ -50,9 +52,10 @@ type NotifiedRequest struct {
 
 // NotifiedData defines the structure as response data for notifier
 type NotifiedData struct {
-	Scope    MetricsScope
-	Req      NotifiedRequest
-	Response chan NotifiedResponse
+	Scope      MetricsScope
+	Req        NotifiedRequest
+	Response   chan NotifiedResponse
+	LastNotify time.Time
 }
 
 type NotifiedResponse struct {

@@ -68,7 +68,8 @@ func (c *CPUPressureEviction) Run(ctx context.Context) {
 }
 
 func NewCPUPressureEviction(emitter metrics.MetricEmitter, metaServer *metaserver.MetaServer,
-	conf *config.Configuration, state state.ReadonlyState) (*CPUPressureEviction, error) {
+	conf *config.Configuration, state state.ReadonlyState,
+) (*CPUPressureEviction, error) {
 	eviction, err := newCPUPressureEviction(emitter, metaServer, conf, state)
 	if err != nil {
 		return nil, fmt.Errorf("create cpu eviction plugin failed: %s", err)
@@ -78,7 +79,8 @@ func NewCPUPressureEviction(emitter metrics.MetricEmitter, metaServer *metaserve
 }
 
 func newCPUPressureEviction(emitter metrics.MetricEmitter, metaServer *metaserver.MetaServer,
-	conf *config.Configuration, state state.ReadonlyState) (*CPUPressureEviction, error) {
+	conf *config.Configuration, state state.ReadonlyState,
+) (*CPUPressureEviction, error) {
 	var errList []error
 
 	plugins := make(map[string]agent.Component)

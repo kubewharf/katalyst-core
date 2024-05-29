@@ -103,9 +103,7 @@ type ControlKnobValue struct {
 	Action ControlKnobAction
 }
 
-var (
-	InvalidControlKnob = map[ControlKnobName]ControlKnobValue{"": {}}
-)
+var InvalidControlKnob = map[ControlKnobName]ControlKnobValue{"": {}}
 
 const (
 	InvalidHeadroom = -1

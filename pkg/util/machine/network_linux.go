@@ -134,7 +134,7 @@ func getNSNetworkHardwareTopology(nsName, netNSDirAbsPath string) ([]InterfaceIn
 		// create the target directory if it doesn't exist
 		if _, err := os.Stat(sysFSDirNetNSTmp); err != nil {
 			if os.IsNotExist(err) {
-				if err := os.MkdirAll(sysFSDirNetNSTmp, os.FileMode(0755)); err != nil {
+				if err := os.MkdirAll(sysFSDirNetNSTmp, os.FileMode(0o755)); err != nil {
 					return nil, fmt.Errorf("make dir: %s failed with error: %v", sysFSDirNetNSTmp, err)
 				}
 			} else {

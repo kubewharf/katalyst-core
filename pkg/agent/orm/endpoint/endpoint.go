@@ -42,6 +42,8 @@ type Endpoint interface {
 	IsStopped() bool
 	StopGracePeriodExpired() bool
 	GetResourcePluginOptions(ctx context.Context, in *pluginapi.Empty, opts ...grpc.CallOption) (*pluginapi.ResourcePluginOptions, error)
+	GetTopologyAwareAllocatableResources(c context.Context, request *pluginapi.GetTopologyAwareAllocatableResourcesRequest) (*pluginapi.GetTopologyAwareAllocatableResourcesResponse, error)
+	GetTopologyAwareResources(c context.Context, request *pluginapi.GetTopologyAwareResourcesRequest) (*pluginapi.GetTopologyAwareResourcesResponse, error)
 }
 
 type EndpointInfo struct {
@@ -161,6 +163,24 @@ func (e *EndpointImpl) GetTopologyHints(c context.Context, resourceRequest *plug
 	return e.client.GetTopologyHints(ctx, resourceRequest)
 }
 
+func (e *EndpointImpl) GetTopologyAwareAllocatableResources(c context.Context, request *pluginapi.GetTopologyAwareAllocatableResourcesRequest) (*pluginapi.GetTopologyAwareAllocatableResourcesResponse, error) {
+	if e.IsStopped() {
+		return nil, fmt.Errorf(errEndpointStopped, e)
+	}
+	ctx, cancel := context.WithTimeout(c, pluginapi.KubeletResourcePluginGetTopologyAwareAllocatableResourcesRPCTimeoutInSecs*time.Second)
+	defer cancel()
+	return e.client.GetTopologyAwareAllocatableResources(ctx, request)
+}
+
+func (e *EndpointImpl) GetTopologyAwareResources(c context.Context, request *pluginapi.GetTopologyAwareResourcesRequest) (*pluginapi.GetTopologyAwareResourcesResponse, error) {
+	if e.IsStopped() {
+		return nil, fmt.Errorf(errEndpointStopped, e)
+	}
+	ctx, cancel := context.WithTimeout(c, pluginapi.KubeletResourcePluginGetTopologyAwareResourcesRPCTimeoutInSecs*time.Second)
+	defer cancel()
+	return e.client.GetTopologyAwareResources(ctx, request)
+}
+
 // dial establishes the gRPC communication with the registered resource plugin. https://godoc.org/google.golang.org/grpc#Dial
 func dial(unixSocketPath string) (pluginapi.ResourcePluginClient, *grpc.ClientConn, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -171,7 +191,6 @@ func dial(unixSocketPath string) (pluginapi.ResourcePluginClient, *grpc.ClientCo
 			return (&net.Dialer{}).DialContext(ctx, "unix", addr)
 		}),
 	)
-
 	if err != nil {
 		return nil, nil, fmt.Errorf(errFailedToDialResourcePlugin+" %v", err)
 	}

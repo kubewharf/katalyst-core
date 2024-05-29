@@ -65,7 +65,8 @@ func applyIOWeightCgroupLevelConfig(conf *coreconfig.Configuration, emitter metr
 }
 
 func applyIOWeightQoSLevelConfig(conf *coreconfig.Configuration,
-	emitter metrics.MetricEmitter, metaServer *metaserver.MetaServer) {
+	emitter metrics.MetricEmitter, metaServer *metaserver.MetaServer,
+) {
 	if conf.IOWeightQoSLevelConfigFile == "" {
 		general.Infof("no IOWeightQoSLevelConfigFile found")
 		return
@@ -126,7 +127,8 @@ func applyIOWeightQoSLevelConfig(conf *coreconfig.Configuration,
 
 func IOWeightTaskFunc(conf *coreconfig.Configuration,
 	_ interface{}, _ *dynamicconfig.DynamicAgentConfiguration,
-	emitter metrics.MetricEmitter, metaServer *metaserver.MetaServer) {
+	emitter metrics.MetricEmitter, metaServer *metaserver.MetaServer,
+) {
 	general.Infof("called")
 
 	if conf == nil {

@@ -242,7 +242,8 @@ func testWithRemoteStoreWithIndex(t *testing.T, index []int) {
 }
 
 func testProvider(t *testing.T, p MetricProvider, s store.MetricStore, ctx context.Context, baseCtx *katalystbase.GenericContext,
-	genericConf *metricconf.GenericMetricConfiguration, storeConf *metricconf.StoreConfiguration) {
+	genericConf *metricconf.GenericMetricConfiguration, storeConf *metricconf.StoreConfiguration,
+) {
 	var err error
 
 	podGR := schema.GroupVersionResource{Version: "v1", Resource: "pods"}.GroupResource()

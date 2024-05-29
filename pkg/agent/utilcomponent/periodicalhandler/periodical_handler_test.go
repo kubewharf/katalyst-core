@@ -89,7 +89,8 @@ func TestPeriodicalHandlerManager(t *testing.T) {
 		extraConf interface{},
 		dynamicConf *dynamicconfig.DynamicAgentConfiguration,
 		emitter metrics.MetricEmitter,
-		metaServer *metaserver.MetaServer) {
+		metaServer *metaserver.MetaServer,
+	) {
 		lock.Lock()
 		testNum = 10
 		lock.Unlock()
@@ -101,7 +102,8 @@ func TestPeriodicalHandlerManager(t *testing.T) {
 		extraConf interface{},
 		dynamicConf *dynamicconfig.DynamicAgentConfiguration,
 		emitter metrics.MetricEmitter,
-		metaServer *metaserver.MetaServer) {
+		metaServer *metaserver.MetaServer,
+	) {
 		lock.Lock()
 		testNum1 = 2
 		lock.Unlock()

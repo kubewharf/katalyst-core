@@ -60,7 +60,6 @@ func (m *TimeMonitor) GetRefreshTime() time.Time {
 	m.RLock()
 	defer m.RUnlock()
 	return m.refreshTime
-
 }
 
 func (m *TimeMonitor) monitorRefreshTime() {

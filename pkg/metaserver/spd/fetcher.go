@@ -93,7 +93,8 @@ type spdFetcher struct {
 
 // NewSPDFetcher creates a spd manager to implement SPDFetcher
 func NewSPDFetcher(clientSet *client.GenericClientSet, emitter metrics.MetricEmitter,
-	cncFetcher cnc.CNCFetcher, conf *pkgconfig.Configuration) (SPDFetcher, error) {
+	cncFetcher cnc.CNCFetcher, conf *pkgconfig.Configuration,
+) (SPDFetcher, error) {
 	checkpointManager, err := checkpointmanager.NewCheckpointManager(conf.CheckpointManagerDir)
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize checkpoint manager: %v", err)
@@ -222,7 +223,8 @@ func (s *spdFetcher) sync(ctx context.Context) {
 // updateSPDCacheIfNeed checks if the previous spd has changed, and
 // re-get from APIServer if the previous is out-of date.
 func (s *spdFetcher) updateSPDCacheIfNeed(ctx context.Context, originSPD *workloadapis.ServiceProfileDescriptor,
-	targetConfig *configapis.TargetConfig) error {
+	targetConfig *configapis.TargetConfig,
+) error {
 	if originSPD == nil && targetConfig == nil {
 		return nil
 	}

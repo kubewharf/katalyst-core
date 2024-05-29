@@ -82,7 +82,8 @@ func TestResourceRecommendController_UpdateRecommendationStatus(t *testing.T) {
 			defer monkey.UnpatchAll()
 
 			monkey.Patch(resourceutils.PatchUpdateResourceRecommend, func(client k8sclient.Client, namespaceName types.NamespacedName,
-				resourceRecommend *v1alpha1.ResourceRecommend) error {
+				resourceRecommend *v1alpha1.ResourceRecommend,
+			) error {
 				if resourceRecommend.Status.ObservedGeneration != tt.args.recommendation.ObservedGeneration {
 					return errors.New("ObservedGeneration not update")
 				}
@@ -232,5 +233,4 @@ func TestResourceRecommendController_RegisterTasks_AssignmentTest(t *testing.T) 
 			t.Errorf("RegisterTasks Assignment processConfig failed, got: %s, want: %s", string(got), string(want))
 		}
 	})
-
 }

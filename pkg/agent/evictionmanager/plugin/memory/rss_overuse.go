@@ -51,7 +51,8 @@ const (
 )
 
 func NewRssOveruseEvictionPlugin(_ *client.GenericClientSet, _ events.EventRecorder,
-	metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter, conf *config.Configuration) plugin.EvictionPlugin {
+	metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter, conf *config.Configuration,
+) plugin.EvictionPlugin {
 	return &RssOveruseEvictionPlugin{
 		StopControl:        process.NewStopControl(time.Time{}),
 		emitter:            emitter,
@@ -148,7 +149,7 @@ func (r *RssOveruseEvictionPlugin) GetEvictPods(_ context.Context, request *plug
 		}
 
 		var memRequest int64 = 0
-		var requestNotSet = false
+		requestNotSet := false
 		for _, container := range pod.Spec.Containers {
 			containerMemRequest := container.Resources.Requests.Memory()
 			if containerMemRequest.IsZero() {

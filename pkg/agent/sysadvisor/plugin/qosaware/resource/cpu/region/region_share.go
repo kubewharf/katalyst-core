@@ -46,8 +46,8 @@ type QoSRegionShare struct {
 
 // NewQoSRegionShare returns a region instance for shared pool
 func NewQoSRegionShare(ci *types.ContainerInfo, conf *config.Configuration, extraConf interface{},
-	metaReader metacache.MetaReader, metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter) QoSRegion {
-
+	metaReader metacache.MetaReader, metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter,
+) QoSRegion {
 	regionName := getRegionNameFromMetaCache(ci, cpuadvisor.FakedNUMAID, metaReader)
 	if regionName == "" {
 		regionName = string(types.QoSRegionTypeShare) + types.RegionNameSeparator + string(uuid.NewUUID())

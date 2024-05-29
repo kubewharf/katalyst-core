@@ -78,9 +78,7 @@ func getSystemTestServer(data []byte) *httptest.Server {
 		}
 		r.Response.StatusCode = http.StatusOK
 		_, _ = w.Write(data)
-
 	}))
-
 }
 
 func TestGetSystemComputeStats(t *testing.T) {

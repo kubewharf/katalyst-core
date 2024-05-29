@@ -61,7 +61,6 @@ func (p *prometheusAuthClient) Do(ctx context.Context, request *http.Request) (*
 
 // NewPrometheusClient returns a prometheus.Client
 func NewPrometheusClient(config *PromConfig) (prometheusapi.Client, error) {
-
 	tlsConfig := &tls.Config{InsecureSkipVerify: config.InsecureSkipVerify}
 
 	var rt http.RoundTripper = &http.Transport{

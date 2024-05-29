@@ -101,7 +101,8 @@ func (p *DynamicPolicy) setExtraControlKnobByConfigs(_ *coreconfig.Configuration
 	_ interface{},
 	_ *dynamicconfig.DynamicAgentConfiguration,
 	_ metrics.MetricEmitter,
-	_ *metaserver.MetaServer) {
+	_ *metaserver.MetaServer,
+) {
 	general.Infof("called")
 	var (
 		err     error
@@ -167,7 +168,8 @@ func (p *DynamicPolicy) applyExternalCgroupParams(_ *coreconfig.Configuration,
 	_ interface{},
 	_ *dynamicconfig.DynamicAgentConfiguration,
 	_ metrics.MetricEmitter,
-	_ *metaserver.MetaServer) {
+	_ *metaserver.MetaServer,
+) {
 	general.Infof("called")
 
 	var err error
@@ -221,7 +223,6 @@ func (p *DynamicPolicy) applyExternalCgroupParams(_ *coreconfig.Configuration,
 					"cgroupIfaceName", cgroupIfaceName)
 
 				err = cgroupmgr.ApplyUnifiedDataForContainer(podUID, containerID, entry.CgroupSubsysName, cgroupIfaceName, entry.ControlKnobValue)
-
 				if err != nil {
 					general.ErrorS(err, "ApplyUnifiedDataForContainer failed",
 						"podNamespace", allocationInfo.PodNamespace,
@@ -242,7 +243,8 @@ func (p *DynamicPolicy) checkMemorySet(_ *coreconfig.Configuration,
 	_ interface{},
 	_ *dynamicconfig.DynamicAgentConfiguration,
 	_ metrics.MetricEmitter,
-	_ *metaserver.MetaServer) {
+	_ *metaserver.MetaServer,
+) {
 	general.Infof("called")
 	var (
 		err              error
@@ -386,7 +388,8 @@ func (p *DynamicPolicy) clearResidualState(_ *coreconfig.Configuration,
 	_ interface{},
 	_ *dynamicconfig.DynamicAgentConfiguration,
 	_ metrics.MetricEmitter,
-	_ *metaserver.MetaServer) {
+	_ *metaserver.MetaServer,
+) {
 	general.Infof("called")
 	var (
 		err     error
@@ -555,7 +558,8 @@ func (p *DynamicPolicy) setMemoryMigrate() {
 // clearResidualOOMPriority is used to clean residual oom pinned map entries
 func (p *DynamicPolicy) clearResidualOOMPriority(conf *coreconfig.Configuration,
 	_ interface{}, _ *dynamicconfig.DynamicAgentConfiguration,
-	emitter metrics.MetricEmitter, metaServer *metaserver.MetaServer) {
+	emitter metrics.MetricEmitter, metaServer *metaserver.MetaServer,
+) {
 	if p.oomPriorityMap == nil {
 		general.Infof("oom priority bpf has not been initialized yet")
 		return
@@ -569,7 +573,7 @@ func (p *DynamicPolicy) clearResidualOOMPriority(conf *coreconfig.Configuration,
 		return
 	}
 
-	var activeCgroupIDsMap = make(map[uint64]struct{})
+	activeCgroupIDsMap := make(map[uint64]struct{})
 	for _, pod := range activePods {
 		if pod == nil {
 			general.Errorf("get nil pod from metaServer")
@@ -642,7 +646,8 @@ func (p *DynamicPolicy) clearResidualOOMPriority(conf *coreconfig.Configuration,
 // syncOOMPriority is used to sync the OOM pinned map according to the current pod list
 func (p *DynamicPolicy) syncOOMPriority(conf *coreconfig.Configuration,
 	_ interface{}, _ *dynamicconfig.DynamicAgentConfiguration,
-	emitter metrics.MetricEmitter, metaServer *metaserver.MetaServer) {
+	emitter metrics.MetricEmitter, metaServer *metaserver.MetaServer,
+) {
 	var (
 		updateBPFMapErr []error
 		err             error

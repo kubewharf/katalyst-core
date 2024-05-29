@@ -21,6 +21,7 @@ import (
 	"os"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	v1 "k8s.io/api/core/v1"
 	v12 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -103,4 +104,51 @@ func TestReconcile(t *testing.T) {
 	manager.reconcile()
 	require.Equal(t, 2, len(newPodList))
 	require.Equal(t, 3, len(removePodList))
+}
+
+func TestReconcilePods(t *testing.T) {
+	t.Parallel()
+
+	ckDir, err := ioutil.TempDir("", "checkpoint-Test")
+	require.NoError(t, err)
+	defer func() { _ = os.RemoveAll(ckDir) }()
+
+	conf := generateTestConfiguration(ckDir)
+	metaServer, err := generateTestMetaServer(conf)
+	require.NoError(t, err)
+
+	metaServer.PodFetcher = &pod.PodFetcherStub{
+		PodList: []*v1.Pod{
+			{
+				ObjectMeta: v12.ObjectMeta{
+					Name: "pod0",
+					UID:  "pod0",
+				},
+			},
+			{
+				ObjectMeta: v12.ObjectMeta{
+					Name: "pod1",
+					UID:  "pod1",
+				},
+			},
+			{
+				ObjectMeta: v12.ObjectMeta{
+					Name: "pod2",
+					UID:  "pod2",
+				},
+			},
+		},
+	}
+
+	manager := NewManager(metrics.DummyMetrics{}, func() sets.String {
+		return sets.NewString("pod0", "pod3", "pod4", "pod5")
+	}, metaServer)
+
+	p := manager.GetPods()
+	assert.Equal(t, 3, len(p))
+
+	newPods, removePods, err := manager.ReconcilePods()
+	assert.NoError(t, err)
+	assert.Equal(t, 2, len(newPods))
+	assert.Equal(t, 3, len(removePods))
 }

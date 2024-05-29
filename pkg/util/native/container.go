@@ -28,8 +28,10 @@ const (
 	defaultContainerdContainerIDPrefix = "containerd://"
 )
 
-const ContainerMetricPortName = "metrics"
-const ContainerMetricStorePortName = "store"
+const (
+	ContainerMetricPortName      = "metrics"
+	ContainerMetricStorePortName = "store"
+)
 
 // CheckContainerNotRunning returns whether the given container is not-runnin
 func CheckContainerNotRunning(pod *v1.Pod, containerName string) (bool, error) {

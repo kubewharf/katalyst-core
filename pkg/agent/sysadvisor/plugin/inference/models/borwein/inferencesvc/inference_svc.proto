@@ -72,6 +72,8 @@ message InferenceResult {
     float output = 3;
     // threshold to judge overload or underload. should be float between 0 and 1.
     float percentile = 4;
+    // model_version to identify where does the output come from.
+    string model_version = 5;
 }
 
 service InferenceService {

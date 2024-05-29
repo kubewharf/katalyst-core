@@ -20,10 +20,12 @@ jobs:
         run: |
           go mod tidy && git add go.* &&
           git diff --cached --exit-code || (echo 'Please run "go mod tidy" to sync Go modules' && exit 1);
-      - name: Verify gofmt
+      - name: Verify gofumpt
         run: |
-          make fmt && git add pkg cmd &&
-          git diff --cached --exit-code || (echo 'Please run "make fmt" to verify gofmt' && exit 1);
+          echo "refer to https://github.com/mvdan/gofumpt for detailed info" &&
+          GO111MODULE=on go install mvdan.cc/gofumpt@v0.4.0 &&
+          make fmt-strict && git add pkg cmd &&
+          git diff --cached --exit-code || (echo 'Please run "make fmt-strict" to verify fmt' && exit 1);
 
   vet:
     name: Vet
@@ -103,7 +105,7 @@ jobs:
         if: ${{ (env.NEED_TO_CHECK == 'true') || (github.event_name != 'pull_request') }}
         uses: codecov/codecov-action@v4
         env:
-          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+          CODECOV_TOKEN: 411bcf91-fb5f-444e-ad16-8380573a8c81
         with:
           flags: unittest
           file: coverage.txt

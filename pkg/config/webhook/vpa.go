@@ -16,8 +16,7 @@ limitations under the License.
 
 package webhook
 
-type VPAConfig struct {
-}
+type VPAConfig struct{}
 
 func NewVPAConfig() *VPAConfig {
 	return &VPAConfig{}

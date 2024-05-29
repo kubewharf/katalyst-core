@@ -212,7 +212,8 @@ func (a *cpuAccumulator) isFailed() bool {
 
 // TakeByTopology tries to allocate those required cpus in the same socket or cores
 func TakeByTopology(info *machine.KatalystMachineInfo, availableCPUs machine.CPUSet,
-	cpuRequirement int) (machine.CPUSet, error) {
+	cpuRequirement int,
+) (machine.CPUSet, error) {
 	acc := newCPUAccumulator(info, availableCPUs, cpuRequirement)
 	if acc.isSatisfied() {
 		return acc.result.Clone(), nil
@@ -250,7 +251,8 @@ func TakeByTopology(info *machine.KatalystMachineInfo, availableCPUs machine.CPU
 // TakeByNUMABalance tries to make the allocated cpu spread on different
 // sockets, and it uses cpu Cores as the basic allocation unit
 func TakeByNUMABalance(info *machine.KatalystMachineInfo, availableCPUs machine.CPUSet,
-	cpuRequirement int) (machine.CPUSet, machine.CPUSet, error) {
+	cpuRequirement int,
+) (machine.CPUSet, machine.CPUSet, error) {
 	var err error
 	acc := newCPUAccumulator(info, availableCPUs, cpuRequirement)
 	if acc.isSatisfied() {
@@ -301,7 +303,8 @@ successful:
 // TakeHTByNUMABalance tries to make the allocated cpu spread on different
 // sockets, and it uses cpu HT as the basic allocation unit
 func TakeHTByNUMABalance(info *machine.KatalystMachineInfo, availableCPUs machine.CPUSet,
-	cpuRequirement int) (machine.CPUSet, machine.CPUSet, error) {
+	cpuRequirement int,
+) (machine.CPUSet, machine.CPUSet, error) {
 	var err error
 	acc := newCPUAccumulator(info, availableCPUs, cpuRequirement)
 	if acc.isSatisfied() {

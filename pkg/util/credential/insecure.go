@@ -26,8 +26,7 @@ import (
 
 const SubjectNameAnonymous = "anonymous"
 
-type AnonymousAuthInfo struct {
-}
+type AnonymousAuthInfo struct{}
 
 func (a AnonymousAuthInfo) AuthType() AuthType {
 	return AuthTypeInsecure
@@ -41,8 +40,7 @@ func NewInsecureCredential(_ *generic.AuthConfiguration, _ *dynamic.DynamicAgent
 	return &insecureCredential{}, nil
 }
 
-type insecureCredential struct {
-}
+type insecureCredential struct{}
 
 func (i *insecureCredential) Run(_ context.Context) {
 }

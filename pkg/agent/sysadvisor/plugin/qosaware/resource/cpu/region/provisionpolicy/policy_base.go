@@ -43,7 +43,8 @@ type PolicyBase struct {
 }
 
 func NewPolicyBase(regionName string, regionType types.QoSRegionType, ownerPoolName string,
-	metaReader metacache.MetaReader, metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter) *PolicyBase {
+	metaReader metacache.MetaReader, metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter,
+) *PolicyBase {
 	cp := &PolicyBase{
 		regionName:    regionName,
 		regionType:    regionType,

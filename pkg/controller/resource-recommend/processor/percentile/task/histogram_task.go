@@ -171,7 +171,7 @@ func (t *HistogramTask) QueryPercentileValue(ctx context.Context, percentile flo
 	if t.lastSampleTime.Sub(t.firstSampleTime) < time.Hour*24 {
 		return 0, InsufficientSampleErr
 	}
-	//TODO:  Check whether the ratio between the count of samples and the running time meets the requirements
+	// TODO:  Check whether the ratio between the count of samples and the running time meets the requirements
 
 	percentileValue := t.histogram.Percentile(percentile)
 

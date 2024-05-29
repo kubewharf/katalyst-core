@@ -64,7 +64,8 @@ type StaticPolicy struct {
 
 // NewStaticPolicy returns a static io policy
 func NewStaticPolicy(agentCtx *agent.GenericContext, conf *config.Configuration,
-	_ interface{}, agentName string) (bool, agent.Component, error) {
+	_ interface{}, agentName string,
+) (bool, agent.Component, error) {
 	wrappedEmitter := agentCtx.EmitterPool.GetDefaultMetricsEmitter().WithTags(agentName, metrics.MetricTag{
 		Key: util.QRMPluginPolicyTagName,
 		Val: IOResourcePluginPolicyNameStatic,
@@ -179,7 +180,8 @@ func (p *StaticPolicy) ResourceName() string {
 
 // GetTopologyHints returns hints of corresponding resources
 func (p *StaticPolicy) GetTopologyHints(_ context.Context,
-	req *pluginapi.ResourceRequest) (resp *pluginapi.ResourceHintsResponse, err error) {
+	req *pluginapi.ResourceRequest,
+) (resp *pluginapi.ResourceHintsResponse, err error) {
 	if req == nil {
 		return nil, fmt.Errorf("GetTopologyHints got nil req")
 	}
@@ -188,7 +190,8 @@ func (p *StaticPolicy) GetTopologyHints(_ context.Context,
 }
 
 func (p *StaticPolicy) RemovePod(_ context.Context,
-	req *pluginapi.RemovePodRequest) (*pluginapi.RemovePodResponse, error) {
+	req *pluginapi.RemovePodRequest,
+) (*pluginapi.RemovePodResponse, error) {
 	if req == nil {
 		return nil, fmt.Errorf("RemovePod got nil req")
 	}
@@ -198,25 +201,29 @@ func (p *StaticPolicy) RemovePod(_ context.Context,
 
 // GetResourcesAllocation returns allocation results of corresponding resources
 func (p *StaticPolicy) GetResourcesAllocation(_ context.Context,
-	_ *pluginapi.GetResourcesAllocationRequest) (*pluginapi.GetResourcesAllocationResponse, error) {
+	_ *pluginapi.GetResourcesAllocationRequest,
+) (*pluginapi.GetResourcesAllocationResponse, error) {
 	return &pluginapi.GetResourcesAllocationResponse{}, nil
 }
 
 // GetTopologyAwareResources returns allocation results of corresponding resources as topology aware format
 func (p *StaticPolicy) GetTopologyAwareResources(_ context.Context,
-	_ *pluginapi.GetTopologyAwareResourcesRequest) (*pluginapi.GetTopologyAwareResourcesResponse, error) {
+	_ *pluginapi.GetTopologyAwareResourcesRequest,
+) (*pluginapi.GetTopologyAwareResourcesResponse, error) {
 	return &pluginapi.GetTopologyAwareResourcesResponse{}, nil
 }
 
 // GetTopologyAwareAllocatableResources returns corresponding allocatable resources as topology aware format
 func (p *StaticPolicy) GetTopologyAwareAllocatableResources(_ context.Context,
-	_ *pluginapi.GetTopologyAwareAllocatableResourcesRequest) (*pluginapi.GetTopologyAwareAllocatableResourcesResponse, error) {
+	_ *pluginapi.GetTopologyAwareAllocatableResourcesRequest,
+) (*pluginapi.GetTopologyAwareAllocatableResourcesResponse, error) {
 	return &pluginapi.GetTopologyAwareAllocatableResourcesResponse{}, nil
 }
 
 // GetResourcePluginOptions returns options to be communicated with Resource Manager
 func (p *StaticPolicy) GetResourcePluginOptions(context.Context,
-	*pluginapi.Empty) (*pluginapi.ResourcePluginOptions, error) {
+	*pluginapi.Empty,
+) (*pluginapi.ResourcePluginOptions, error) {
 	return &pluginapi.ResourcePluginOptions{
 		PreStartRequired:      false,
 		WithTopologyAlignment: false,
@@ -228,7 +235,8 @@ func (p *StaticPolicy) GetResourcePluginOptions(context.Context,
 // plugin can allocate corresponding resource for the container
 // according to resource request
 func (p *StaticPolicy) Allocate(_ context.Context,
-	req *pluginapi.ResourceRequest) (resp *pluginapi.ResourceAllocationResponse, err error) {
+	req *pluginapi.ResourceRequest,
+) (resp *pluginapi.ResourceAllocationResponse, err error) {
 	if req == nil {
 		return nil, fmt.Errorf("GetTopologyHints got nil req")
 	}
@@ -252,6 +260,7 @@ func (p *StaticPolicy) Allocate(_ context.Context,
 // before each container start. Resource plugin can run resource specific operations
 // such as resetting the resource before making resources available to the container
 func (p *StaticPolicy) PreStartContainer(context.Context,
-	*pluginapi.PreStartContainerRequest) (*pluginapi.PreStartContainerResponse, error) {
+	*pluginapi.PreStartContainerRequest,
+) (*pluginapi.PreStartContainerResponse, error) {
 	return &pluginapi.PreStartContainerResponse{}, nil
 }

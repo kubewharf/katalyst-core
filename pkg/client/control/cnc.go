@@ -53,22 +53,26 @@ type CNCControl interface {
 type DummyCNCControl struct{}
 
 func (d DummyCNCControl) CreateCNC(_ context.Context, cnc *v1alpha1.CustomNodeConfig,
-	_ metav1.CreateOptions) (*v1alpha1.CustomNodeConfig, error) {
+	_ metav1.CreateOptions,
+) (*v1alpha1.CustomNodeConfig, error) {
 	return cnc, nil
 }
 
 func (d DummyCNCControl) DeleteCNC(_ context.Context, _ string,
-	_ metav1.DeleteOptions) error {
+	_ metav1.DeleteOptions,
+) error {
 	return nil
 }
 
 func (d DummyCNCControl) PatchCNC(_ context.Context, _ string,
-	_, newCNC *v1alpha1.CustomNodeConfig) (*v1alpha1.CustomNodeConfig, error) {
+	_, newCNC *v1alpha1.CustomNodeConfig,
+) (*v1alpha1.CustomNodeConfig, error) {
 	return newCNC, nil
 }
 
 func (d DummyCNCControl) PatchCNCStatus(_ context.Context, _ string,
-	_, newCNC *v1alpha1.CustomNodeConfig) (*v1alpha1.CustomNodeConfig, error) {
+	_, newCNC *v1alpha1.CustomNodeConfig,
+) (*v1alpha1.CustomNodeConfig, error) {
 	return newCNC, nil
 }
 

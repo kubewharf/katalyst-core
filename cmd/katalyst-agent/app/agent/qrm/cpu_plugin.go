@@ -30,10 +30,10 @@ const (
 	QRMPluginNameCPU = "qrm_cpu_plugin"
 )
 
-var (
-	QRMCPUPluginPeriodicalHandlerGroupName = strings.Join([]string{QRMPluginNameCPU,
-		phconsts.PeriodicalHandlersGroupNameSuffix}, phconsts.GroupNameSeparator)
-)
+var QRMCPUPluginPeriodicalHandlerGroupName = strings.Join([]string{
+	QRMPluginNameCPU,
+	phconsts.PeriodicalHandlersGroupNameSuffix,
+}, phconsts.GroupNameSeparator)
 
 // cpuPolicyInitializers is used to store the initializing function for cpu resource-plugin policies
 var cpuPolicyInitializers sync.Map

@@ -89,7 +89,8 @@ func NewHealthzController(ctx context.Context,
 	nodeInformer coreinformers.NodeInformer,
 	podInformer coreinformers.PodInformer,
 	cnrInformer informers.CustomNodeResourceInformer,
-	metricsEmitter metrics.MetricEmitter) (*HealthzController, error) {
+	metricsEmitter metrics.MetricEmitter,
+) (*HealthzController, error) {
 	ec := &HealthzController{
 		ctx:     ctx,
 		emitter: metricsEmitter,

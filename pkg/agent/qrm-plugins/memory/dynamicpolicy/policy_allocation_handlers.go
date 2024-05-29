@@ -35,7 +35,8 @@ import (
 )
 
 func (p *DynamicPolicy) sharedCoresAllocationHandler(ctx context.Context,
-	req *pluginapi.ResourceRequest) (*pluginapi.ResourceAllocationResponse, error) {
+	req *pluginapi.ResourceRequest,
+) (*pluginapi.ResourceAllocationResponse, error) {
 	if req == nil {
 		return nil, fmt.Errorf("sharedCoresAllocationHandler got nil request")
 	}
@@ -44,7 +45,8 @@ func (p *DynamicPolicy) sharedCoresAllocationHandler(ctx context.Context,
 }
 
 func (p *DynamicPolicy) reclaimedCoresAllocationHandler(ctx context.Context,
-	req *pluginapi.ResourceRequest) (*pluginapi.ResourceAllocationResponse, error) {
+	req *pluginapi.ResourceRequest,
+) (*pluginapi.ResourceAllocationResponse, error) {
 	if req == nil {
 		return nil, fmt.Errorf("reclaimedCoresAllocationHandler got nil request")
 	}
@@ -57,7 +59,8 @@ func (p *DynamicPolicy) reclaimedCoresAllocationHandler(ctx context.Context,
 }
 
 func (p *DynamicPolicy) dedicatedCoresAllocationHandler(ctx context.Context,
-	req *pluginapi.ResourceRequest) (*pluginapi.ResourceAllocationResponse, error) {
+	req *pluginapi.ResourceRequest,
+) (*pluginapi.ResourceAllocationResponse, error) {
 	if req == nil {
 		return nil, fmt.Errorf("dedicatedCoresAllocationHandler got nil req")
 	}
@@ -71,7 +74,8 @@ func (p *DynamicPolicy) dedicatedCoresAllocationHandler(ctx context.Context,
 }
 
 func (p *DynamicPolicy) dedicatedCoresWithNUMABindingAllocationHandler(ctx context.Context,
-	req *pluginapi.ResourceRequest) (*pluginapi.ResourceAllocationResponse, error) {
+	req *pluginapi.ResourceRequest,
+) (*pluginapi.ResourceAllocationResponse, error) {
 	if req.ContainerType == pluginapi.ContainerType_SIDECAR {
 		return p.dedicatedCoresWithNUMABindingAllocationSidecarHandler(ctx, req)
 	}
@@ -198,7 +202,8 @@ func (p *DynamicPolicy) dedicatedCoresWithNUMABindingAllocationHandler(ctx conte
 }
 
 func (p *DynamicPolicy) dedicatedCoresWithoutNUMABindingAllocationHandler(_ context.Context,
-	_ *pluginapi.ResourceRequest) (*pluginapi.ResourceAllocationResponse, error) {
+	_ *pluginapi.ResourceRequest,
+) (*pluginapi.ResourceAllocationResponse, error) {
 	// todo: support dedicated_cores without NUMA binding
 	return nil, fmt.Errorf("not support dedicated_cores without NUMA binding")
 }
@@ -206,7 +211,8 @@ func (p *DynamicPolicy) dedicatedCoresWithoutNUMABindingAllocationHandler(_ cont
 // dedicatedCoresWithNUMABindingAllocationSidecarHandler allocates for sidecar
 // currently, we set cpuset of sidecar to the cpuset of its main container
 func (p *DynamicPolicy) dedicatedCoresWithNUMABindingAllocationSidecarHandler(_ context.Context,
-	req *pluginapi.ResourceRequest) (*pluginapi.ResourceAllocationResponse, error) {
+	req *pluginapi.ResourceRequest,
+) (*pluginapi.ResourceAllocationResponse, error) {
 	podResourceEntries := p.state.GetPodResourceEntries()
 
 	podEntries := podResourceEntries[v1.ResourceMemory]
@@ -265,7 +271,8 @@ func (p *DynamicPolicy) dedicatedCoresWithNUMABindingAllocationSidecarHandler(_ 
 // allocateNUMAsWithoutNUMABindingPods works both for sharedCoresAllocationHandler and reclaimedCoresAllocationHandler,
 // and it will store the allocation in states.
 func (p *DynamicPolicy) allocateNUMAsWithoutNUMABindingPods(_ context.Context,
-	req *pluginapi.ResourceRequest, qosLevel string) (*pluginapi.ResourceAllocationResponse, error) {
+	req *pluginapi.ResourceRequest, qosLevel string,
+) (*pluginapi.ResourceAllocationResponse, error) {
 	if !pluginapi.SupportedKatalystQoSLevels.Has(qosLevel) {
 		return nil, fmt.Errorf("invalid qosLevel: %s", qosLevel)
 	}
@@ -319,7 +326,8 @@ func (p *DynamicPolicy) allocateNUMAsWithoutNUMABindingPods(_ context.Context,
 // allocateAllNUMAs returns all numa node as allocation results,
 // and it will store the allocation in states.
 func (p *DynamicPolicy) allocateAllNUMAs(req *pluginapi.ResourceRequest,
-	qosLevel string) (*pluginapi.ResourceAllocationResponse, error) {
+	qosLevel string,
+) (*pluginapi.ResourceAllocationResponse, error) {
 	if !pluginapi.SupportedKatalystQoSLevels.Has(qosLevel) {
 		return nil, fmt.Errorf("invalid qosLevel: %s", qosLevel)
 	}
@@ -450,11 +458,13 @@ func (p *DynamicPolicy) adjustAllocationEntries() error {
 				err = p.asyncWorkers.AddWork(migratePagesWorkName,
 					&asyncworker.Work{
 						Fn: MovePagesForContainer,
-						Params: []interface{}{podUID, containerID,
+						Params: []interface{}{
+							podUID, containerID,
 							p.topology.CPUDetails.NUMANodes(),
-							numaWithoutNUMABindingPods.Clone()},
-						DeliveredAt: time.Now()}, asyncworker.DuplicateWorkPolicyOverride)
-
+							numaWithoutNUMABindingPods.Clone(),
+						},
+						DeliveredAt: time.Now(),
+					}, asyncworker.DuplicateWorkPolicyOverride)
 				if err != nil {
 					general.Errorf("add work: %s pod: %s container: %s failed with error: %v", migratePagesWorkName, podUID, containerName, err)
 				}
@@ -467,8 +477,8 @@ func (p *DynamicPolicy) adjustAllocationEntries() error {
 				&asyncworker.Work{
 					Fn:          cgroupmgr.DropCacheWithTimeoutForContainer,
 					Params:      []interface{}{podUID, containerID, dropCacheTimeoutSeconds, GetFullyDropCacheBytes(container)},
-					DeliveredAt: time.Now()}, asyncworker.DuplicateWorkPolicyOverride)
-
+					DeliveredAt: time.Now(),
+				}, asyncworker.DuplicateWorkPolicyOverride)
 			if err != nil {
 				general.Errorf("add work: %s pod: %s container: %s failed with error: %v", dropCacheWorkName, podUID, containerName, err)
 			}
@@ -493,7 +503,6 @@ func (p *DynamicPolicy) calculateMemoryAllocation(req *pluginapi.ResourceRequest
 	}
 
 	memoryReq, _, err := util.GetQuantityFromResourceReq(req)
-
 	if err != nil {
 		return fmt.Errorf("GetQuantityFromResourceReq failed with error: %v", err)
 	}
@@ -535,7 +544,8 @@ func (p *DynamicPolicy) calculateMemoryAllocation(req *pluginapi.ResourceRequest
 // it will update the passed by machineState in-place; so the function will be
 // called `calculateXXX` rather than `allocateXXX`
 func calculateExclusiveMemory(req *pluginapi.ResourceRequest,
-	machineState state.NUMANodeMap, numaNodes []int, reqQuantity uint64, qosLevel string) (leftQuantity uint64, err error) {
+	machineState state.NUMANodeMap, numaNodes []int, reqQuantity uint64, qosLevel string,
+) (leftQuantity uint64, err error) {
 	for _, numaNode := range numaNodes {
 		var curNumaNodeAllocated uint64 = 0
 
@@ -594,8 +604,8 @@ func calculateExclusiveMemory(req *pluginapi.ResourceRequest,
 // the given container, and returns the remaining un-satisfied quantity.
 func calculateMemoryInNumaNodes(req *pluginapi.ResourceRequest,
 	machineState state.NUMANodeMap, numaNodes []int,
-	reqQuantity uint64, qosLevel string) (leftQuantity uint64, err error) {
-
+	reqQuantity uint64, qosLevel string,
+) (leftQuantity uint64, err error) {
 	for _, numaNode := range numaNodes {
 		var curNumaNodeAllocated uint64 = 0
 

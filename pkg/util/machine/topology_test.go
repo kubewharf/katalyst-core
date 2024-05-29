@@ -19,6 +19,11 @@ package machine
 import (
 	"reflect"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"k8s.io/apimachinery/pkg/util/sets"
+
+	"github.com/kubewharf/katalyst-core/pkg/config/agent/global"
 )
 
 func TestMemoryDetailsEqual(t *testing.T) {
@@ -157,6 +162,176 @@ func TestMemoryDetailsFillNUMANodesWithZero(t *testing.T) {
 			if got := tt.detail.FillNUMANodesWithZero(tt.allNUMAs); !reflect.DeepEqual(got, tt.expected) {
 				t.Errorf("MemoryDetails.FillNUMANodesWithZero() = %v, want %v", got, tt.expected)
 			}
+		})
+	}
+}
+
+func TestGetSiblingNumaInfo(t *testing.T) {
+	t.Parallel()
+
+	type args struct {
+		conf            *global.MachineInfoConfiguration
+		numaDistanceMap map[int][]NumaDistanceInfo
+	}
+	tests := []struct {
+		name string
+		args args
+		want *SiblingNumaInfo
+	}{
+		{
+			name: "test for without sibling",
+			args: args{
+				conf: &global.MachineInfoConfiguration{
+					SiblingNumaMemoryBandwidthAllocatableRate: 0.5,
+					SiblingNumaMemoryBandwidthCapacity:        10,
+				},
+				numaDistanceMap: map[int][]NumaDistanceInfo{
+					0: {
+						{
+							NumaID:   0,
+							Distance: 10,
+						},
+						{
+							NumaID:   1,
+							Distance: 32,
+						},
+					},
+					1: {
+						{
+							NumaID:   0,
+							Distance: 32,
+						},
+						{
+							NumaID:   1,
+							Distance: 10,
+						},
+					},
+				},
+			},
+			want: &SiblingNumaInfo{
+				SiblingNumaMap: map[int]sets.Int{
+					0: sets.NewInt(),
+					1: sets.NewInt(),
+				},
+				SiblingNumaAvgMBWCapacityMap: map[int]int64{
+					0: 10,
+					1: 10,
+				},
+				SiblingNumaAvgMBWAllocatableMap: map[int]int64{
+					0: 5,
+					1: 5,
+				},
+			},
+		},
+		{
+			name: "test for with sibling",
+			args: args{
+				conf: &global.MachineInfoConfiguration{
+					SiblingNumaMemoryBandwidthAllocatableRate: 0.8,
+					SiblingNumaMemoryBandwidthCapacity:        10,
+				},
+				numaDistanceMap: map[int][]NumaDistanceInfo{
+					0: {
+						{
+							NumaID:   0,
+							Distance: 10,
+						},
+						{
+							NumaID:   1,
+							Distance: 10,
+						},
+						{
+							NumaID:   2,
+							Distance: 32,
+						},
+						{
+							NumaID:   3,
+							Distance: 32,
+						},
+					},
+					1: {
+						{
+							NumaID:   0,
+							Distance: 10,
+						},
+						{
+							NumaID:   1,
+							Distance: 10,
+						},
+						{
+							NumaID:   2,
+							Distance: 32,
+						},
+						{
+							NumaID:   3,
+							Distance: 32,
+						},
+					},
+					2: {
+						{
+							NumaID:   0,
+							Distance: 32,
+						},
+						{
+							NumaID:   1,
+							Distance: 32,
+						},
+						{
+							NumaID:   2,
+							Distance: 10,
+						},
+						{
+							NumaID:   3,
+							Distance: 10,
+						},
+					},
+					3: {
+						{
+							NumaID:   0,
+							Distance: 32,
+						},
+						{
+							NumaID:   1,
+							Distance: 32,
+						},
+						{
+							NumaID:   2,
+							Distance: 10,
+						},
+						{
+							NumaID:   3,
+							Distance: 10,
+						},
+					},
+				},
+			},
+			want: &SiblingNumaInfo{
+				SiblingNumaMap: map[int]sets.Int{
+					0: sets.NewInt(1),
+					1: sets.NewInt(0),
+					2: sets.NewInt(3),
+					3: sets.NewInt(2),
+				},
+				SiblingNumaAvgMBWCapacityMap: map[int]int64{
+					0: 5,
+					1: 5,
+					2: 5,
+					3: 5,
+				},
+				SiblingNumaAvgMBWAllocatableMap: map[int]int64{
+					0: 4,
+					1: 4,
+					2: 4,
+					3: 4,
+				},
+			},
+		},
+	}
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			assert.Equalf(t, tt.want, GetSiblingNumaInfo(tt.args.conf, tt.args.numaDistanceMap), "GetSiblingNumaInfo(%v, %v)", tt.args.conf, tt.args.numaDistanceMap)
 		})
 	}
 }

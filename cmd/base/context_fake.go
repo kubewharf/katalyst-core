@@ -21,6 +21,8 @@ import (
 	"reflect"
 	"strconv"
 
+	nodev1alpha1 "github.com/kubewharf/katalyst-api/pkg/apis/node/v1alpha1"
+
 	"github.com/pkg/errors"
 	appsv1 "k8s.io/api/apps/v1"
 	v1 "k8s.io/api/core/v1"
@@ -93,7 +95,8 @@ var fakeDiscoveryClient = &fakedisco.FakeDiscovery{Fake: &coretesting.Fake{
 // versionedUpdate increases object resource version if needed;
 // and if the resourceVersion of is not equal to origin one, returns a conflict error
 func versionedUpdate(tracker coretesting.ObjectTracker, gvr schema.GroupVersionResource,
-	obj runtime.Object, ns string) error {
+	obj runtime.Object, ns string,
+) error {
 	accessor, err := meta.Accessor(obj)
 	if err != nil {
 		return fmt.Errorf("failed to get accessor for object: %v", err)
@@ -130,7 +133,8 @@ func versionedUpdate(tracker coretesting.ObjectTracker, gvr schema.GroupVersionR
 
 // increaseObjectResourceVersion increase object resourceVersion if needed, and if the resourceVersion is empty just skip it
 func increaseObjectResourceVersion(tracker coretesting.ObjectTracker, gvr schema.GroupVersionResource,
-	obj runtime.Object, ns string) error {
+	obj runtime.Object, ns string,
+) error {
 	accessor, err := meta.Accessor(obj)
 	if err != nil {
 		return fmt.Errorf("failed to get accessor for object: %v", err)
@@ -152,7 +156,8 @@ func increaseObjectResourceVersion(tracker coretesting.ObjectTracker, gvr schema
 
 // versionedUpdateReactor is reactor for versioned update
 func versionedUpdateReactor(tracker coretesting.ObjectTracker,
-	action coretesting.UpdateActionImpl) (bool, runtime.Object, error) {
+	action coretesting.UpdateActionImpl,
+) (bool, runtime.Object, error) {
 	obj := action.GetObject()
 	accessor, err := meta.Accessor(obj)
 	if err != nil {
@@ -175,7 +180,8 @@ func versionedUpdateReactor(tracker coretesting.ObjectTracker,
 
 // versionedPatchReactor is reactor for versioned patch
 func versionedPatchReactor(tracker coretesting.ObjectTracker,
-	action coretesting.PatchActionImpl) (bool, runtime.Object, error) {
+	action coretesting.PatchActionImpl,
+) (bool, runtime.Object, error) {
 	obj, err := tracker.Get(action.GetResource(), action.GetNamespace(), action.GetName())
 	if err != nil {
 		return true, nil, err
@@ -241,6 +247,7 @@ func GenerateFakeGenericContext(objects ...[]runtime.Object) (*GenericContext, e
 	utilruntime.Must(v1alpha1.AddToScheme(scheme))
 	utilruntime.Must(overcommitapis.AddToScheme(scheme))
 	utilruntime.Must(apiregistration.AddToScheme(scheme))
+	utilruntime.Must(nodev1alpha1.AddToScheme(scheme))
 
 	fakeMetaClient := metaFake.NewSimpleMetadataClient(scheme, nilObjectFilter(metaObjects)...)
 	fakeInternalClient := externalfake.NewSimpleClientset(nilObjectFilter(internalObjects)...)

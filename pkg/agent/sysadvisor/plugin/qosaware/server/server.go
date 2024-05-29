@@ -54,7 +54,8 @@ type qrmServerWrapper struct {
 // NewQRMServer returns a qrm server wrapper, which instantiates
 // all required qrm plugin servers according to config
 func NewQRMServer(advisorWrapper resource.ResourceAdvisor, conf *config.Configuration,
-	metaCache metacache.MetaCache, metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter) (QRMServer, error) {
+	metaCache metacache.MetaCache, metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter,
+) (QRMServer, error) {
 	qrmServer := qrmServerWrapper{
 		serversToRun: make(map[v1.ResourceName]subQRMServer),
 	}
@@ -89,7 +90,8 @@ func (qs *qrmServerWrapper) Run(ctx context.Context) {
 }
 
 func newSubQRMServer(resourceName v1.ResourceName, advisorWrapper resource.ResourceAdvisor,
-	conf *config.Configuration, metaCache metacache.MetaCache, metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter) (subQRMServer, error) {
+	conf *config.Configuration, metaCache metacache.MetaCache, metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter,
+) (subQRMServer, error) {
 	switch resourceName {
 	case v1.ResourceCPU:
 		subAdvisor, err := advisorWrapper.GetSubAdvisor(types.QoSResourceCPU)

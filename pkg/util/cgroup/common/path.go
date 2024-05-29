@@ -30,11 +30,13 @@ import (
 
 // k8sCgroupPathList is used to record cgroup-path related configurations,
 // and it will be set as SystemdRootPath (along with kubernetes levels) as default.
-var k8sCgroupPathLock sync.RWMutex
-var k8sCgroupPathList = sets.NewString(
-	CgroupFsRootPath,
-	CgroupFsRootPathBestEffort,
-	CgroupFsRootPathBurstable,
+var (
+	k8sCgroupPathLock sync.RWMutex
+	k8sCgroupPathList = sets.NewString(
+		CgroupFsRootPath,
+		CgroupFsRootPathBestEffort,
+		CgroupFsRootPathBurstable,
+	)
 )
 
 var k8sCgroupPathSettingOnce = sync.Once{}

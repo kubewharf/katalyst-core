@@ -186,7 +186,6 @@ func resourceHints(resourceName v1.ResourceName, quantity resource.Quantity, num
 }
 
 func merge(resourceTopologyHints map[string][]topologymanager.TopologyHint, alignedResource sets.String) (map[string]topologymanager.TopologyHint, bool) {
-
 	filteredHints, resourceNames := splitResourceTopologyHint(resourceTopologyHints)
 
 	bestHints := findBestNumericPermutation(filteredHints, getAlignResourceIndexes(resourceNames, alignedResource.UnsortedList()))
@@ -260,7 +259,6 @@ func findBestNumericPermutation(filteredHints [][]topologymanager.TopologyHint, 
 			bestHints = DeepCopyTopologyHints(permutation)
 			return
 		}
-
 	})
 
 	return bestHints

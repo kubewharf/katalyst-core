@@ -44,15 +44,14 @@ const (
 	CNRFieldNameResources              = "Resources"
 	CNRFieldNameTopologyPolicy         = "TopologyPolicy"
 	CNRFieldNameNodeMetricStatus       = "NodeMetricStatus"
+	CNRFieldNameAnnotations            = "Annotations"
 )
 
-var (
-	CNRGroupVersionKind = metav1.GroupVersionKind{
-		Group:   nodev1alpha1.SchemeGroupVersion.Group,
-		Kind:    CNRKind,
-		Version: nodev1alpha1.SchemeGroupVersion.Version,
-	}
-)
+var CNRGroupVersionKind = metav1.GroupVersionKind{
+	Group:   nodev1alpha1.SchemeGroupVersion.Group,
+	Kind:    CNRKind,
+	Version: nodev1alpha1.SchemeGroupVersion.Version,
+}
 
 // GetCNRCondition extracts the provided condition from the given status and returns that.
 // Returns nil and -1 if the condition is not present, and the index of the located condition.
@@ -202,7 +201,7 @@ func MergeAttributes(dst, src []apis.Attribute) []apis.Attribute {
 	}
 
 	sort.SliceStable(attrs, func(i, j int) bool {
-		return attrs[i].Name < attrs[j].Value
+		return attrs[i].Name < attrs[j].Name
 	})
 
 	return attrs
@@ -234,8 +233,7 @@ func MergeAllocations(dst, src []*apis.Allocation) []*apis.Allocation {
 			continue
 		}
 
-		allocationMap[allocation.Consumer].Requests =
-			native.MergeResources(allocationMap[allocation.Consumer].Requests, allocation.Requests)
+		allocationMap[allocation.Consumer].Requests = native.MergeResources(allocationMap[allocation.Consumer].Requests, allocation.Requests)
 	}
 
 	allocations := make([]*apis.Allocation, 0, len(allocationMap))

@@ -49,7 +49,8 @@ func SetVPAConditions(
 	vpa *apis.KatalystVerticalPodAutoscaler,
 	conditionType apis.VerticalPodAutoscalerConditionType,
 	conditionStatus core.ConditionStatus,
-	reason, message string) error {
+	reason, message string,
+) error {
 	if vpa == nil {
 		return fmt.Errorf("can't update condition of a nil vpa")
 	}
@@ -85,7 +86,8 @@ func SetVPARecConditions(
 	vpaRec *apis.VerticalPodAutoscalerRecommendation,
 	conditionType apis.VerticalPodAutoscalerRecommendationConditionType,
 	conditionStatus core.ConditionStatus,
-	reason, message string) error {
+	reason, message string,
+) error {
 	if vpaRec == nil {
 		return fmt.Errorf("can't update condition of a nil vpa")
 	}

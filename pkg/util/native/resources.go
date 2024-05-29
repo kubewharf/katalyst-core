@@ -188,7 +188,8 @@ func MergeResources(updateList ...*v1.ResourceList) *v1.ResourceList {
 
 // EmitResourceMetrics emit metrics for given ResourceList.
 func EmitResourceMetrics(name string, resourceList v1.ResourceList,
-	tags map[string]string, emitter metrics.MetricEmitter) {
+	tags map[string]string, emitter metrics.MetricEmitter,
+) {
 	if emitter == nil {
 		klog.Warningf("EmitResourceMetrics by nil emitter")
 		return

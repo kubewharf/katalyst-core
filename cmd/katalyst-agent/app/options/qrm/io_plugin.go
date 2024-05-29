@@ -27,7 +27,7 @@ type IOOptions struct {
 
 	WritebackThrottlingOption // option for writeback throttling, it determin the recycling speed of dirty memory.
 	// TO-DO
-	//DirtyThrottlingOption // option for dirty throttling, it determin the global watermark of dirty memory.
+	// DirtyThrottlingOption // option for dirty throttling, it determin the global watermark of dirty memory.
 	IOCostOption
 	IOWeightOption
 }
@@ -36,6 +36,7 @@ type WritebackThrottlingOption struct {
 	EnableSettingWBT bool
 	WBTValueHDD      int
 	WBTValueSSD      int
+	WBTValueNVME     int
 }
 
 type IOCostOption struct {
@@ -57,6 +58,7 @@ func NewIOOptions() *IOOptions {
 			EnableSettingWBT: false,
 			WBTValueHDD:      75000,
 			WBTValueSSD:      2000,
+			WBTValueNVME:     2000,
 		},
 		IOCostOption: IOCostOption{
 			EnableSettingIOCost:   false,
@@ -82,6 +84,8 @@ func (o *IOOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 		o.WBTValueHDD, "writeback throttling value for HDD")
 	fs.IntVar(&o.WBTValueSSD, "disk-wbt-ssd",
 		o.WBTValueSSD, "writeback throttling value for SSD")
+	fs.IntVar(&o.WBTValueNVME, "disk-wbt-nvme",
+		o.WBTValueNVME, "writeback throttling value for NVME")
 	fs.BoolVar(&o.EnableSettingIOCost, "enable-io-cost",
 		o.EnableSettingIOCost, "if set it to true, io.cost setting will be executed")
 	fs.StringVar(&o.IOCostQoSConfigFile, "io-cost-qos-config-file",
@@ -101,6 +105,7 @@ func (o *IOOptions) ApplyTo(conf *qrmconfig.IOQRMPluginConfig) error {
 	conf.EnableSettingWBT = o.EnableSettingWBT
 	conf.WBTValueHDD = o.WBTValueHDD
 	conf.WBTValueSSD = o.WBTValueSSD
+	conf.WBTValueNVME = o.WBTValueNVME
 	conf.EnableSettingIOCost = o.EnableSettingIOCost
 	conf.IOCostQoSConfigFile = o.IOCostQoSConfigFile
 	conf.IOCostModelConfigFile = o.IOCostModelConfigFile

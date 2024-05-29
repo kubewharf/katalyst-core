@@ -32,8 +32,7 @@ const (
 )
 
 // VPARecommendationOptions holds the configurations for vertical pod auto-scaler recommendation.
-type VPARecommendationOptions struct {
-}
+type VPARecommendationOptions struct{}
 
 // ResourceRecommendOptions holds the configurations for resource recommend.
 type ResourceRecommendOptions struct {

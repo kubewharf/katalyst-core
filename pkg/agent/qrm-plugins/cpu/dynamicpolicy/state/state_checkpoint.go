@@ -46,7 +46,8 @@ type stateCheckpoint struct {
 var _ State = &stateCheckpoint{}
 
 func NewCheckpointState(stateDir, checkpointName, policyName string,
-	topology *machine.CPUTopology, skipStateCorruption bool) (State, error) {
+	topology *machine.CPUTopology, skipStateCorruption bool,
+) (State, error) {
 	checkpointManager, err := checkpointmanager.NewCheckpointManager(stateDir)
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize checkpoint manager: %v", err)

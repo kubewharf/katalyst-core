@@ -34,6 +34,7 @@ import (
 	apisconfig "github.com/kubewharf/katalyst-api/pkg/apis/scheduling/config"
 	"github.com/kubewharf/katalyst-api/pkg/apis/scheduling/config/validation"
 	"github.com/kubewharf/katalyst-api/pkg/consts"
+	"github.com/kubewharf/katalyst-core/pkg/scheduler/eventhandlers"
 	"github.com/kubewharf/katalyst-core/pkg/scheduler/util"
 	"github.com/kubewharf/katalyst-core/pkg/util/native"
 )
@@ -42,12 +43,12 @@ const (
 	TopologyMatchName = "NodeResourceTopology"
 )
 
-var (
-	nativeAlignedResources = sets.NewString()
-)
+var nativeAlignedResources = sets.NewString()
 
-type filterFn func(*v1.Pod, []*v1alpha1.TopologyZone, *framework.NodeInfo) *framework.Status
-type scoringFn func(*v1.Pod, []*v1alpha1.TopologyZone) (int64, *framework.Status)
+type (
+	filterFn  func(*v1.Pod, []*v1alpha1.TopologyZone, *framework.NodeInfo) *framework.Status
+	scoringFn func(*v1.Pod, []*v1alpha1.TopologyZone) (int64, *framework.Status)
+)
 
 type NUMANode struct {
 	SocketID    string
@@ -69,10 +70,12 @@ type TopologyMatch struct {
 	sharedLister        framework.SharedLister
 }
 
-var _ framework.FilterPlugin = &TopologyMatch{}
-var _ framework.ScorePlugin = &TopologyMatch{}
-var _ framework.ReservePlugin = &TopologyMatch{}
-var _ framework.EnqueueExtensions = &TopologyMatch{}
+var (
+	_ framework.FilterPlugin      = &TopologyMatch{}
+	_ framework.ScorePlugin       = &TopologyMatch{}
+	_ framework.ReservePlugin     = &TopologyMatch{}
+	_ framework.EnqueueExtensions = &TopologyMatch{}
+)
 
 // Name returns name of the plugin.
 func (tm *TopologyMatch) Name() string {
@@ -102,6 +105,9 @@ func New(args runtime.Object, h framework.Handle) (framework.Plugin, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	eventhandlers.RegisterCommonPodHandler()
+	eventhandlers.RegisterCommonCNRHandler()
 
 	return &TopologyMatch{
 		scoreStrategyType:   tcfg.ScoringStrategy.Type,

@@ -68,7 +68,8 @@ func NewResourcesEvictionPlugin(pluginName string, metaServer *metaserver.MetaSe
 	emitter metrics.MetricEmitter, resourcesGetter ResourcesGetter, thresholdGetter ThresholdGetter,
 	deletionGracePeriodGetter GracePeriodGetter, thresholdMetToleranceDurationGetter GracePeriodGetter,
 	skipZeroQuantityResourceNames sets.String,
-	podFilter func(pod *v1.Pod) (bool, error)) *ResourcesEvictionPlugin {
+	podFilter func(pod *v1.Pod) (bool, error),
+) *ResourcesEvictionPlugin {
 	// use the given threshold to override the default configurations
 	plugin := &ResourcesEvictionPlugin{
 		pluginName:                          pluginName,

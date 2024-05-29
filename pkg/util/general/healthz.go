@@ -22,8 +22,10 @@ import (
 	"time"
 )
 
-var healthzCheckMap = make(map[HealthzCheckName]*healthzCheckStatus)
-var healthzCheckLock sync.RWMutex
+var (
+	healthzCheckMap  = make(map[HealthzCheckName]*healthzCheckStatus)
+	healthzCheckLock sync.RWMutex
+)
 
 // HealthzCheckName describes which rule name for this check
 type HealthzCheckName string

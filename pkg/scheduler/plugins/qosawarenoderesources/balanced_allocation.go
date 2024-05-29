@@ -31,6 +31,7 @@ import (
 	"github.com/kubewharf/katalyst-api/pkg/apis/scheduling/config"
 	"github.com/kubewharf/katalyst-api/pkg/apis/scheduling/config/validation"
 	"github.com/kubewharf/katalyst-core/pkg/scheduler/cache"
+	"github.com/kubewharf/katalyst-core/pkg/scheduler/eventhandlers"
 	"github.com/kubewharf/katalyst-core/pkg/scheduler/util"
 )
 
@@ -97,6 +98,9 @@ func NewBalancedAllocation(baArgs runtime.Object, h framework.Handle) (framework
 		return nil, err
 	}
 
+	eventhandlers.RegisterCommonPodHandler()
+	eventhandlers.RegisterCommonCNRHandler()
+
 	return &BalancedAllocation{
 		handle: h,
 		resourceAllocationScorer: resourceAllocationScorer{
@@ -146,7 +150,6 @@ func balancedResourceScorer(requested, allocatable resourceToValueMap) int64 {
 	// Otherwise, set the std to zero is enough.
 	if len(resourceToFractions) == 2 {
 		std = math.Abs((resourceToFractions[0] - resourceToFractions[1]) / 2)
-
 	} else if len(resourceToFractions) > 2 {
 		mean := totalFraction / float64(len(resourceToFractions))
 		var sum float64

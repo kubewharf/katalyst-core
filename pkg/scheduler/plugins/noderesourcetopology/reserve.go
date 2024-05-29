@@ -69,7 +69,6 @@ func (tm *TopologyMatch) Unreserve(ctx context.Context, state *framework.CycleSt
 }
 
 func adjustExclusivePodRequest(pod *corev1.Pod, capacity corev1.ResourceList, alignedResource sets.String) {
-
 	NUMAFit := false
 
 	podRequests := util.GetPodEffectiveRequest(pod)

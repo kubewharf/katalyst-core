@@ -51,14 +51,12 @@ import (
 	utilmetric "github.com/kubewharf/katalyst-core/pkg/util/metric"
 )
 
-var (
-	qosLevel2PoolName = map[string]string{
-		consts.PodAnnotationQoSLevelSharedCores:    qrmstate.PoolNameShare,
-		consts.PodAnnotationQoSLevelReclaimedCores: qrmstate.PoolNameReclaim,
-		consts.PodAnnotationQoSLevelSystemCores:    qrmstate.PoolNameReserve,
-		consts.PodAnnotationQoSLevelDedicatedCores: qrmstate.PoolNameDedicated,
-	}
-)
+var qosLevel2PoolName = map[string]string{
+	consts.PodAnnotationQoSLevelSharedCores:    qrmstate.PoolNameShare,
+	consts.PodAnnotationQoSLevelReclaimedCores: qrmstate.PoolNameReclaim,
+	consts.PodAnnotationQoSLevelSystemCores:    qrmstate.PoolNameReserve,
+	consts.PodAnnotationQoSLevelDedicatedCores: qrmstate.PoolNameDedicated,
+}
 
 func generateTestConfiguration(t *testing.T, checkpointDir, stateFileDir string) *config.Configuration {
 	conf, err := options.NewOptions().Config()
@@ -72,7 +70,8 @@ func generateTestConfiguration(t *testing.T, checkpointDir, stateFileDir string)
 }
 
 func generateTestMetaServer(t *testing.T, podList []*v1.Pod,
-	metricsFetcher metrictypes.MetricsFetcher) *metaserver.MetaServer {
+	metricsFetcher metrictypes.MetricsFetcher,
+) *metaserver.MetaServer {
 	// numa node0 cpu(s): 0-23,48-71
 	// numa node1 cpu(s): 24-47,72-95
 	cpuTopology, err := machine.GenerateDummyCPUTopology(96, 2, 2)
@@ -99,7 +98,8 @@ func generateTestMetaServer(t *testing.T, podList []*v1.Pod,
 }
 
 func makeContainerInfo(podUID, namespace, podName, containerName, qoSLevel string, annotations map[string]string,
-	topologyAwareAssignments types.TopologyAwareAssignment, memoryRequest float64) *types.ContainerInfo {
+	topologyAwareAssignments types.TopologyAwareAssignment, memoryRequest float64,
+) *types.ContainerInfo {
 	return &types.ContainerInfo{
 		PodUID:                           podUID,
 		PodNamespace:                     namespace,
@@ -460,8 +460,10 @@ func TestPolicyCanonical_calculateMemoryBuffer(t *testing.T) {
 					makeContainerInfo("pod1", "default",
 						"pod1", "container1",
 						consts.PodAnnotationQoSLevelDedicatedCores,
-						map[string]string{consts.PodAnnotationMemoryEnhancementNumaBinding: consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
-							consts.PodAnnotationMemoryEnhancementNumaExclusive: consts.PodAnnotationMemoryEnhancementNumaExclusiveEnable},
+						map[string]string{
+							consts.PodAnnotationMemoryEnhancementNumaBinding:   consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
+							consts.PodAnnotationMemoryEnhancementNumaExclusive: consts.PodAnnotationMemoryEnhancementNumaExclusiveEnable,
+						},
 						types.TopologyAwareAssignment{0: machine.NewCPUSet(0, 1, 2, 3, 4)}, 1),
 				},
 				memoryHeadroomConfiguration: &memoryheadroom.MemoryHeadroomConfiguration{

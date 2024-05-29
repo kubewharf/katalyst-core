@@ -49,20 +49,18 @@ const (
 	testPluginNameThird  = "fake-reporter-plugin-3"
 )
 
-var (
-	testGroupVersionKind = v1.GroupVersionKind{
-		Group:   "test-group",
-		Kind:    "test-kind",
-		Version: "test-version",
-	}
-)
+var testGroupVersionKind = v1.GroupVersionKind{
+	Group:   "test-group",
+	Kind:    "test-kind",
+	Version: "test-version",
+}
 
 func tmpSocketDir() (socketDir string, err error) {
 	socketDir, err = ioutil.TempDir("", "reporter_plugin")
 	if err != nil {
 		return
 	}
-	_ = os.MkdirAll(socketDir, 0755)
+	_ = os.MkdirAll(socketDir, 0o755)
 	return
 }
 

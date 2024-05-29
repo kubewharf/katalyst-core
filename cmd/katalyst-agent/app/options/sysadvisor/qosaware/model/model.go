@@ -43,7 +43,6 @@ func (o *ModelOptions) AddFlags(fs *pflag.FlagSet) {
 
 // ApplyTo fills up config with options
 func (o *ModelOptions) ApplyTo(c *model.ModelConfiguration) error {
-
 	var errList []error
 	errList = append(errList, o.BorweinOptions.ApplyTo(c.BorweinConfiguration))
 

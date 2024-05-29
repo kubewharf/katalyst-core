@@ -34,7 +34,8 @@ type Manager struct {
 func NewManager(ProcessorManager processormanager.Manager, OomRecorder oom.Recorder) *Manager {
 	return &Manager{
 		ProcessorManager: ProcessorManager,
-		OomRecorder:      OomRecorder}
+		OomRecorder:      OomRecorder,
+	}
 }
 
 func (m *Manager) NewRecommender(algorithm v1alpha1.Algorithm) recommender.Recommender {

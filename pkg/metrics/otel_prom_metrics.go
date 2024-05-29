@@ -113,7 +113,8 @@ func (c customExportKindSelectorWrapper) ExportKindFor(desc *metric.Descriptor, 
 
 // NewOpenTelemetryPrometheusMetricsEmitter implement a MetricEmitter use open-telemetry sdk.
 func NewOpenTelemetryPrometheusMetricsEmitter(metricsConf *generic.MetricsConfiguration, pathName PrometheusMetricPathName,
-	mux *http.ServeMux) (MetricEmitter, error) {
+	mux *http.ServeMux,
+) (MetricEmitter, error) {
 	exporter, err := prometheus.NewExporter(prometheus.Config{}, controller.New(
 		processor.New(
 			selector.NewWithInexpensiveDistribution(),
@@ -146,18 +147,21 @@ func NewOpenTelemetryPrometheusMetricsEmitter(metricsConf *generic.MetricsConfig
 
 // StoreInt64 store a int64 metrics to prometheus collector.
 func (p *openTelemetryPrometheusMetricsEmitter) StoreInt64(
-	key string, val int64, emitType MetricTypeName, tags ...MetricTag) error {
+	key string, val int64, emitType MetricTypeName, tags ...MetricTag,
+) error {
 	return p.storeInt64(key, val, emitType, p.convertTagsToMap(tags))
 }
 
 // StoreFloat64 store a float64 metrics to prometheus collector.
 func (p *openTelemetryPrometheusMetricsEmitter) StoreFloat64(
-	key string, val float64, emitType MetricTypeName, tags ...MetricTag) error {
+	key string, val float64, emitType MetricTypeName, tags ...MetricTag,
+) error {
 	return p.storeFloat64(key, val, emitType, p.convertTagsToMap(tags))
 }
 
 func (p *openTelemetryPrometheusMetricsEmitter) WithTags(
-	unit string, commonTags ...MetricTag) MetricEmitter {
+	unit string, commonTags ...MetricTag,
+) MetricEmitter {
 	newMetricTagWrapper := &MetricTagWrapper{MetricEmitter: p}
 	return newMetricTagWrapper.WithTags(unit, commonTags...)
 }
@@ -176,7 +180,8 @@ func (p *openTelemetryPrometheusMetricsEmitter) gc() {
 }
 
 func (p *openTelemetryPrometheusMetricsEmitter) storeInt64(
-	key string, val int64, emitType MetricTypeName, tags map[string]string) error {
+	key string, val int64, emitType MetricTypeName, tags map[string]string,
+) error {
 	var err error
 	switch emitType {
 	case MetricTypeNameRaw:
@@ -198,7 +203,8 @@ func (p *openTelemetryPrometheusMetricsEmitter) storeInt64(
 }
 
 func (p *openTelemetryPrometheusMetricsEmitter) storeFloat64(key string,
-	val float64, emitType MetricTypeName, tags map[string]string) error {
+	val float64, emitType MetricTypeName, tags map[string]string,
+) error {
 	var err error
 	switch emitType {
 	case MetricTypeNameRaw:

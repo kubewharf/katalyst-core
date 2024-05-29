@@ -76,7 +76,6 @@ func (tm *TopologyMatch) Filter(ctx context.Context, cycleState *framework.Cycle
 }
 
 func (tm *TopologyMatch) filterHanlder(pod *v1.Pod, nodeResourceTopology *cache.ResourceTopology) filterFn {
-
 	if tm.resourcePolicy == consts.ResourcePluginPolicyNameNative {
 		// only single-numa-node supported
 		if qos.GetPodQOS(pod) == v1.PodQOSGuaranteed && util.IsRequestFullCPU(pod) {
@@ -258,7 +257,8 @@ func subtractFromNUMAs(
 	resourceTopologyHints map[string]topologymanager.TopologyHint,
 	container v1.Container,
 	alignedResource sets.String,
-	numaBinding, exclusive bool) error {
+	numaBinding, exclusive bool,
+) error {
 	for resourceName, hint := range resourceTopologyHints {
 		numaIDs := hint.NUMANodeAffinity.GetBits()
 		// for numaBinding unexclusive resource, only one numaNode allowed.
