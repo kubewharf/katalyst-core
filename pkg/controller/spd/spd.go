@@ -22,7 +22,6 @@ import (
 	"sync"
 	"time"
 
-	"go.uber.org/atomic"
 	core "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -62,6 +61,7 @@ const (
 	spdWorkerCount             = 1
 	indicatorSpecWorkerCount   = 1
 	indicatorStatusWorkerCount = 1
+	spdCreateWorkerCount       = 5
 )
 
 // SPDController is responsible to maintain lifecycle of SPD CR,
@@ -89,10 +89,10 @@ type SPDController struct {
 	workloadLister      map[schema.GroupVersionResource]cache.GenericLister
 	spdWorkloadInformer map[schema.GroupVersionResource]native.DynamicInformer
 
-	syncedFunc        []cache.InformerSynced
-	spdQueue          workqueue.RateLimitingInterface
-	workloadSyncQueue workqueue.RateLimitingInterface
-	spdSyncDone       *atomic.Bool
+	syncedFunc             []cache.InformerSynced
+	spdQueue               workqueue.RateLimitingInterface
+	workloadSyncQueue      workqueue.RateLimitingInterface
+	createSPDWorkloadQueue workqueue.RateLimitingInterface
 
 	metricsEmitter metrics.MetricEmitter
 
@@ -118,19 +118,19 @@ func NewSPDController(ctx context.Context, controlCtx *katalystbase.GenericConte
 	cncInformer := controlCtx.InternalInformerFactory.Config().V1alpha1().CustomNodeConfigs()
 
 	spdController := &SPDController{
-		ctx:                 ctx,
-		conf:                conf,
-		qosConfig:           qosConfig,
-		podUpdater:          &control.DummyPodUpdater{},
-		spdControl:          &control.DummySPDControl{},
-		workloadControl:     &control.DummyUnstructuredControl{},
-		spdQueue:            workqueue.NewNamedRateLimitingQueue(workqueue.DefaultControllerRateLimiter(), "spd"),
-		workloadSyncQueue:   workqueue.NewNamedRateLimitingQueue(workqueue.DefaultControllerRateLimiter(), "workload"),
-		metricsEmitter:      controlCtx.EmitterPool.GetDefaultMetricsEmitter().WithTags(spdControllerName),
-		workloadGVKLister:   make(map[schema.GroupVersionKind]cache.GenericLister),
-		workloadLister:      make(map[schema.GroupVersionResource]cache.GenericLister),
-		spdWorkloadInformer: make(map[schema.GroupVersionResource]native.DynamicInformer),
-		spdSyncDone:         atomic.NewBool(false),
+		ctx:                    ctx,
+		conf:                   conf,
+		qosConfig:              qosConfig,
+		podUpdater:             &control.DummyPodUpdater{},
+		spdControl:             &control.DummySPDControl{},
+		workloadControl:        &control.DummyUnstructuredControl{},
+		spdQueue:               workqueue.NewNamedRateLimitingQueue(workqueue.DefaultControllerRateLimiter(), "spd"),
+		workloadSyncQueue:      workqueue.NewNamedRateLimitingQueue(workqueue.DefaultControllerRateLimiter(), "workload"),
+		createSPDWorkloadQueue: workqueue.NewNamedRateLimitingQueue(workqueue.DefaultControllerRateLimiter(), "createWorkloadSPD"),
+		metricsEmitter:         controlCtx.EmitterPool.GetDefaultMetricsEmitter().WithTags(spdControllerName),
+		workloadGVKLister:      make(map[schema.GroupVersionKind]cache.GenericLister),
+		workloadLister:         make(map[schema.GroupVersionResource]cache.GenericLister),
+		spdWorkloadInformer:    make(map[schema.GroupVersionResource]native.DynamicInformer),
 	}
 
 	spdController.podLister = podInformer.Lister()
@@ -238,7 +238,10 @@ func (sc *SPDController) Run() {
 		go wait.Until(sc.workloadWorker, time.Second, sc.ctx.Done())
 	}
 	for i := 0; i < spdWorkerCount; i++ {
-		go wait.Until(sc.spdWorker, time.Second, sc.ctx.Done())
+		go wait.Until(sc.syncSPDWorker, time.Second, sc.ctx.Done())
+	}
+	for i := 0; i < spdCreateWorkerCount; i++ {
+		go wait.Until(sc.createSPDWorker, time.Second, sc.ctx.Done())
 	}
 	go wait.Until(sc.cleanSPD, time.Minute*5, sc.ctx.Done())
 
@@ -308,17 +311,8 @@ func (sc *SPDController) addWorkload(workloadGVR string) func(obj interface{}) {
 			return
 		}
 
-		if sc.spdSyncDone.Load() {
-			wl, err := native.ToUnstructured(obj)
-			if err != nil {
-				klog.Errorf("[spd] cannot convert obj %s to unstructured: %v", obj, err)
-			}
-
-			_, err = sc.getOrCreateSPDForWorkload(wl)
-			if err != nil {
-				klog.Errorf("[spd] get or create spd for workload %s/%s failed: %v", workloadGVR, workload, err)
-				return
-			}
+		if util.WorkloadSPDEnabled(workload) {
+			sc.enqueueWorkloadForSPDCreate(workloadGVR, workload)
 		}
 
 		sc.enqueueWorkload(workloadGVR, workload)
@@ -326,13 +320,23 @@ func (sc *SPDController) addWorkload(workloadGVR string) func(obj interface{}) {
 }
 
 func (sc *SPDController) updateWorkload(workloadGVR string) func(oldObj, newObj interface{}) {
-	return func(_, cur interface{}) {
-		workload, ok := cur.(metav1.Object)
+	return func(oldObj, newObj interface{}) {
+		newWorkload, ok := newObj.(metav1.Object)
 		if !ok {
-			klog.Errorf("[spd] cannot convert cur obj to metav1.Object")
+			klog.Errorf("[spd] cannot convert new obj to metav1.Object")
 			return
 		}
-		sc.enqueueWorkload(workloadGVR, workload)
+		oldWorkload, ok := oldObj.(metav1.Object)
+		if !ok {
+			klog.Errorf("[spd] cannot convert old obj to metav1.Object")
+			return
+		}
+
+		if util.WorkloadSPDEnabled(newWorkload) && !util.WorkloadSPDEnabled(oldWorkload) {
+			sc.enqueueWorkloadForSPDCreate(workloadGVR, newWorkload)
+		}
+
+		sc.enqueueWorkload(workloadGVR, newWorkload)
 	}
 }
 
@@ -351,6 +355,21 @@ func (sc *SPDController) enqueueWorkload(workloadGVR string, workload metav1.Obj
 	sc.workloadSyncQueue.Add(key)
 }
 
+func (sc *SPDController) enqueueWorkloadForSPDCreate(workloadGVR string, workload metav1.Object) {
+	if workload == nil {
+		klog.Warning("[spd] trying to enqueue a nil spd")
+		return
+	}
+
+	key, err := native.GenerateUniqGVRNameKey(workloadGVR, workload)
+	if err != nil {
+		utilruntime.HandleError(err)
+		return
+	}
+
+	sc.createSPDWorkloadQueue.Add(key)
+}
+
 func (sc *SPDController) workloadWorker() {
 	for sc.processNextWorkload() {
 	}
@@ -363,7 +382,7 @@ func (sc *SPDController) processNextWorkload() bool {
 	}
 	defer sc.workloadSyncQueue.Done(key)
 
-	err := sc.syncWorkload(key.(string))
+	err := sc.syncSPDAnnotation(key.(string))
 	if err == nil {
 		sc.workloadSyncQueue.Forget(key)
 		return true
@@ -375,9 +394,8 @@ func (sc *SPDController) processNextWorkload() bool {
 	return true
 }
 
-// syncWorkload is mainly responsible to maintain the lifecycle of spd for each
-// workload, without handling the service profile calculation logic.
-func (sc *SPDController) syncWorkload(key string) error {
+// syncSPDAnnotation is mainly responsible to patch pod spd annotation.
+func (sc *SPDController) syncSPDAnnotation(key string) error {
 	klog.V(5).Infof("[spd] syncing workload [%v]", key)
 	workloadGVR, namespace, name, err := native.ParseUniqGVRNameKey(key)
 	if err != nil {
@@ -415,14 +433,65 @@ func (sc *SPDController) syncWorkload(key string) error {
 		return nil
 	}
 
-	spd, err := sc.getOrCreateSPDForWorkload(workload)
+	if err := sc.setPodListSPDAnnotation(podList, workload.GetName()); err != nil {
+		klog.Errorf("[spd] set pod list annotations for workload %s/%s failed: %v", namespace, name, err)
+		return err
+	}
+	return nil
+}
+
+func (sc *SPDController) createSPDWorker() {
+	for sc.processNextSPDCreation() {
+	}
+}
+
+func (sc *SPDController) processNextSPDCreation() bool {
+	key, quit := sc.createSPDWorkloadQueue.Get()
+	if quit {
+		return false
+	}
+	defer sc.createSPDWorkloadQueue.Done(key)
+
+	err := sc.syncWorkloadCreateSPD(key.(string))
+	if err == nil {
+		sc.createSPDWorkloadQueue.Forget(key)
+		return true
+	}
+
+	utilruntime.HandleError(fmt.Errorf("sync %q failed with %v", key, err))
+	sc.createSPDWorkloadQueue.AddRateLimited(key)
+
+	return true
+}
+
+// syncWorkloadCreateSPD manages workload spd creation lifecycle and patch first batch of annotation.
+func (sc *SPDController) syncWorkloadCreateSPD(key string) error {
+	klog.V(5).Infof("[spd] syncing workload create SPD [%v]", key)
+	workloadGVR, namespace, name, err := native.ParseUniqGVRNameKey(key)
 	if err != nil {
-		klog.Errorf("[spd] get or create spd for workload %s/%s failed: %v", namespace, name, err)
+		klog.Errorf("[spd] failed to parse key %s to workload", key)
 		return err
 	}
 
-	if err := sc.setPodListSPDAnnotation(podList, spd.Name); err != nil {
-		klog.Errorf("[spd] set pod list annotations for workload %s/%s failed: %v", namespace, name, err)
+	gvr, _ := schema.ParseResourceArg(workloadGVR)
+	if gvr == nil {
+		err = fmt.Errorf("[spd] ParseResourceArg worload %v failed", workloadGVR)
+		klog.Error(err)
+		return err
+	}
+
+	workload, err := sc.getWorkload(*gvr, namespace, name)
+	if err != nil {
+		klog.Errorf("[spd] failed to get workload %s/%s", namespace, name)
+		if errors.IsNotFound(err) {
+			return nil
+		}
+		return err
+	}
+
+	_, err = sc.getOrCreateSPDForWorkload(workload)
+	if err != nil {
+		klog.Errorf("[spd] get or create spd for workload %s/%s failed: %v", namespace, name, err)
 		return err
 	}
 	return nil
@@ -461,7 +530,7 @@ func (sc *SPDController) enqueueSPD(spd *apiworkload.ServiceProfileDescriptor) {
 	sc.spdQueue.Add(key)
 }
 
-func (sc *SPDController) spdWorker() {
+func (sc *SPDController) syncSPDWorker() {
 	for sc.processNextSPD() {
 	}
 }
@@ -476,9 +545,6 @@ func (sc *SPDController) processNextSPD() bool {
 	err := sc.syncSPD(key.(string))
 	if err == nil {
 		sc.spdQueue.Forget(key)
-		if sc.spdQueue.Len() == 0 {
-			sc.spdSyncDone.Store(true)
-		}
 		return true
 	}
 
@@ -655,33 +721,38 @@ func (sc *SPDController) getOrCreateSPDForWorkload(workload *unstructured.Unstru
 				return nil, fmt.Errorf("[spd] failed to create spd: %v", err)
 			}
 
-			if sc.spdSyncDone.Load() {
-				for _, plugin := range sc.indicatorPlugins {
-					aggMetrics, err := plugin.GetAggMetrics(workload)
-					if err != nil {
-						klog.Errorf("[spd] cannot get aggMetrics for workload %s: %v", workload, err)
-						continue
-					}
-					for _, aggPodMetric := range aggMetrics {
-						spd.Status.AggMetrics = append(spd.Status.AggMetrics, aggPodMetric)
-					}
-				}
-
-				err = sc.updateHash(spd)
-				if err != nil {
-					return nil, err
-				}
-
-				spd, err = sc.spdControl.UpdateSPDStatus(sc.ctx, spd, metav1.UpdateOptions{})
-				if err != nil {
-					klog.Errorf("[spd] cannot update aggMetrics for workload %s: %v", workload, err)
-				}
+			spd, err = sc.setSPDStatus(workload, spd)
+			if err != nil {
+				return nil, fmt.Errorf("[spd] failed to set status for spd %s: %v", workload, err)
 			}
-
-			return spd, nil
 		}
 
 		return nil, err
+	}
+
+	return spd, nil
+}
+
+func (sc *SPDController) setSPDStatus(workload *unstructured.Unstructured, spd *apiworkload.ServiceProfileDescriptor) (*apiworkload.ServiceProfileDescriptor, error) {
+	for _, plugin := range sc.indicatorPlugins {
+		aggMetrics, err := plugin.GetAggMetrics(workload)
+		if err != nil {
+			klog.Errorf("[spd] failed to get spd aggMetrics for workload %s: %v", workload, err)
+			continue
+		}
+		for _, aggPodMetric := range aggMetrics {
+			spd.Status.AggMetrics = append(spd.Status.AggMetrics, aggPodMetric)
+		}
+	}
+
+	err := sc.updateHash(spd)
+	if err != nil {
+		return nil, err
+	}
+
+	spd, err = sc.spdControl.UpdateSPDStatus(sc.ctx, spd, metav1.UpdateOptions{})
+	if err != nil {
+		klog.Errorf("[spd] failed to update spd status for workload %s: %v", workload, err)
 	}
 
 	return spd, nil

@@ -223,4 +223,9 @@ func (sc *SPDController) mergeIndicatorStatus(spd *apiworkload.ServiceProfileDes
 			spd.Status.BusinessStatus = append(spd.Status.BusinessStatus[:i], spd.Status.BusinessStatus[i+1:]...)
 		}
 	}
+
+	for _, indicator := range expected.AggMetrics {
+		util.InsertSPDAggMetrics(&spd.Status, &indicator)
+	}
+
 }

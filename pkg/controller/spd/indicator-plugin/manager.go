@@ -40,8 +40,7 @@ type IndicatorUpdater interface {
 	UpdateExtendedIndicatorSpec(_ types.NamespacedName, _ []apiworkload.ServiceExtendedIndicatorSpec)
 	UpdateBusinessIndicatorSpec(_ types.NamespacedName, _ []apiworkload.ServiceBusinessIndicatorSpec)
 	UpdateSystemIndicatorSpec(_ types.NamespacedName, _ []apiworkload.ServiceSystemIndicatorSpec)
-	UpdateBusinessIndicatorStatus(_ types.NamespacedName, _ []apiworkload.ServiceBusinessIndicatorStatus)
-	UpdateAggMetrics(_ *unstructured.Unstructured)
+	UpdateBusinessIndicatorStatus(_ types.NamespacedName, _ []apiworkload.ServiceBusinessIndicatorStatus, _ []apiworkload.AggPodMetrics)
 }
 
 // IndicatorGetter is used by spd controller as indicator notifier to trigger
@@ -135,7 +134,7 @@ func (u *IndicatorManager) UpdateSystemIndicatorSpec(nn types.NamespacedName, in
 	}
 }
 
-func (u *IndicatorManager) UpdateBusinessIndicatorStatus(nn types.NamespacedName, indicators []apiworkload.ServiceBusinessIndicatorStatus) {
+func (u *IndicatorManager) UpdateBusinessIndicatorStatus(nn types.NamespacedName, businessIndicators []apiworkload.ServiceBusinessIndicatorStatus, aggMetrics []apiworkload.AggPodMetrics) {
 	u.statusMtx.Lock()
 
 	insert := false
@@ -143,8 +142,11 @@ func (u *IndicatorManager) UpdateBusinessIndicatorStatus(nn types.NamespacedName
 		insert = true
 		u.statusMap[nn] = initServiceProfileDescriptorStatus()
 	}
-	for _, indicator := range indicators {
+	for _, indicator := range businessIndicators {
 		util.InsertSPDBusinessIndicatorStatus(u.statusMap[nn], &indicator)
+	}
+	for _, aggMetric := range aggMetrics {
+		util.InsertSPDAggMetrics(u.statusMap[nn], &aggMetric)
 	}
 
 	u.statusMtx.Unlock()
@@ -205,5 +207,6 @@ func initServiceProfileDescriptorSpec() *apiworkload.ServiceProfileDescriptorSpe
 func initServiceProfileDescriptorStatus() *apiworkload.ServiceProfileDescriptorStatus {
 	return &apiworkload.ServiceProfileDescriptorStatus{
 		BusinessStatus: []apiworkload.ServiceBusinessIndicatorStatus{},
+		AggMetrics:     []apiworkload.AggPodMetrics{},
 	}
 }

@@ -305,6 +305,26 @@ func InsertSPDBusinessIndicatorStatus(status *apiworkload.ServiceProfileDescript
 	status.BusinessStatus = append(status.BusinessStatus, *serviceBusinessIndicatorStatus)
 }
 
+// InsertSPDAggMetrics inserts aggMetrics into spd status.
+func InsertSPDAggMetrics(status *apiworkload.ServiceProfileDescriptorStatus,
+	aggMetrics *apiworkload.AggPodMetrics) {
+	if status == nil || aggMetrics == nil {
+		return
+	}
+
+	if status.AggMetrics == nil {
+		status.AggMetrics = []apiworkload.AggPodMetrics{}
+	}
+
+	for i := range status.AggMetrics {
+		if status.AggMetrics[i].Aggregator == aggMetrics.Aggregator {
+			status.AggMetrics[i].Items = aggMetrics.Items
+			return
+		}
+	}
+	status.AggMetrics = append(status.AggMetrics, *aggMetrics)
+}
+
 /*
  helper functions to get the spd hash and the pod's spd name
 */
