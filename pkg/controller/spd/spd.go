@@ -722,10 +722,7 @@ func (sc *SPDController) getOrCreateSPDForWorkload(workload *unstructured.Unstru
 				return nil, fmt.Errorf("[spd] failed to create spd: %v", err)
 			}
 
-			spd, err = sc.setSPDStatus(workload, spd)
-			if err != nil {
-				return nil, fmt.Errorf("[spd] failed to set status for spd %s: %v", workload, err)
-			}
+			return sc.setSPDStatus(workload, spd)
 		}
 
 		return nil, err

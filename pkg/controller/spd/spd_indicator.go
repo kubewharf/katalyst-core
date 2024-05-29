@@ -227,5 +227,4 @@ func (sc *SPDController) mergeIndicatorStatus(spd *apiworkload.ServiceProfileDes
 	for _, indicator := range expected.AggMetrics {
 		util.InsertSPDAggMetrics(&spd.Status, &indicator)
 	}
-
 }

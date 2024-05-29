@@ -314,7 +314,8 @@ func InsertSPDBusinessIndicatorStatus(status *apiworkload.ServiceProfileDescript
 
 // InsertSPDAggMetrics inserts aggMetrics into spd status.
 func InsertSPDAggMetrics(status *apiworkload.ServiceProfileDescriptorStatus,
-	aggMetrics *apiworkload.AggPodMetrics) {
+	aggMetrics *apiworkload.AggPodMetrics,
+) {
 	if status == nil || aggMetrics == nil {
 		return
 	}
