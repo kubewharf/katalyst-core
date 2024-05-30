@@ -49,15 +49,12 @@ func GetRDTScalar() uint32 {
 }
 
 func GetRDTValue(core uint32, event PQOS_EVENT_TYPE) (uint64, error) {
-	var rmid, msr_value uint64 = 0, 0
-	var err error
-
-	msr_value, err = msr.ReadMSR(core, PQR_ASSOC)
+	msr_value, err := msr.ReadMSR(core, PQR_ASSOC)
 	if err != nil {
 		return msr_value, fmt.Errorf("faild to read msr %v", err.Error())
 	}
 
-	rmid = (msr_value & 0x00000000000003ff)
+	rmid := (msr_value & 0x00000000000003ff)
 	msr_value = (rmid << 32) + uint64(event)
 	err = msr.WriteMSR(core, IA32_QM_EVTSEL, msr_value)
 	if err != nil {
