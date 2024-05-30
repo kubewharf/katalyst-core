@@ -53,7 +53,7 @@ jobs:
           go-version-file: go.mod
           cache: false
       - name: Install libpci
-        run: sudo apt install -y libpci-dev
+        run: sudo apt update -y && sudo apt install -y libpci-dev
       - uses: golangci/golangci-lint-action@v3
         with:
           args: --verbose --out-${NO_FUTURE}format colored-line-number --config .golangci.yml
@@ -95,7 +95,7 @@ jobs:
         with:
           go-version-file: go.mod
       - name: Install libpci
-        run: sudo apt install -y libpci-dev
+        run: sudo apt update -y && sudo apt install -y libpci-dev
       - name: Coverage
         run: sudo make test
       - name: Check the number of changed lines
