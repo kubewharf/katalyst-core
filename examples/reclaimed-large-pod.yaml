@@ -57,7 +57,7 @@ spec:
       resources:
         requests:
           resource.katalyst.kubewharf.io/reclaimed_millicpu: 24k
-          resource.katalyst.kubewharf.io/reclaimed_memory": 48Gi
+          resource.katalyst.kubewharf.io/reclaimed_memory: 48Gi
         limits:
           resource.katalyst.kubewharf.io/reclaimed_millicpu: 24k
           resource.katalyst.kubewharf.io/reclaimed_memory: 48Gi
