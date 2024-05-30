@@ -600,7 +600,7 @@ func checkLabelSelectorOverlap(selector labels.Selector, otherSelector labels.Se
 		equalValueSet, inEqualValueSet, _ := getMatchValueSet(selector, key)
 		otherEqualValueSet, otherInEqualValueSet, _ := getMatchValueSet(otherSelector, key)
 		if (equalValueSet.Len() > 0 && otherEqualValueSet.Len() > 0 && equalValueSet.Intersection(otherEqualValueSet).Len() > 0) ||
-			(equalValueSet.Len() == 0 && otherEqualValueSet.Len() == 0 && (inEqualValueSet.Len() > 0 || otherInEqualValueSet.Len() > 0)) ||
+			(equalValueSet.Len() == 0 && otherEqualValueSet.Len() == 0) ||
 			(inEqualValueSet.Len() > 0 && !inEqualValueSet.Intersection(otherEqualValueSet).Equal(otherEqualValueSet)) ||
 			(otherInEqualValueSet.Len() > 0 && !otherInEqualValueSet.Intersection(equalValueSet).Equal(equalValueSet)) ||
 			(equalValueSet.Len() > 0 && otherEqualValueSet.Len() == 0 && otherInEqualValueSet.Len() == 0) ||

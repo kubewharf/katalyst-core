@@ -739,6 +739,15 @@ func Test_checkLabelSelectorOverlap(t *testing.T) {
 			},
 			want: true,
 		},
+		{
+			name: "test-10",
+			args: args{
+				selector:      testLabelSelector(t, "label1 notin (aa)"),
+				otherSelector: testLabelSelector(t, "label1=cc"),
+				keyList:       []string{"label1", "label2"},
+			},
+			want: true,
+		},
 	}
 	for _, tt := range tests {
 		tt := tt
