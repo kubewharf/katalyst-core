@@ -32,6 +32,7 @@ package pci
 import (
 	"C"
 )
+
 import (
 	"fmt"
 	"sync"

@@ -20,9 +20,7 @@ import (
 	"syscall"
 )
 
-var (
-	AppSyscall Syscaller = &realOS{}
-)
+var AppSyscall Syscaller = &realOS{}
 
 type Syscaller interface {
 	Close(fd int) (err error)

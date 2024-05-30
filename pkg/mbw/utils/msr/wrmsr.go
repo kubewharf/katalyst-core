@@ -19,12 +19,12 @@ package msr
 import (
 	"encoding/binary"
 	"fmt"
+
 	"github.com/kubewharf/katalyst-core/pkg/mbw/utils"
 )
 
 // Write() writes a given value to the provided register
 func (d MSRDev) Write(regno int64, value uint64) error {
-
 	buf := make([]byte, 8)
 
 	binary.LittleEndian.PutUint64(buf, value)

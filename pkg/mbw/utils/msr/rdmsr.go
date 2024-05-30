@@ -19,6 +19,7 @@ package msr
 import (
 	"encoding/binary"
 	"fmt"
+
 	"github.com/kubewharf/katalyst-core/pkg/mbw/utils"
 )
 
@@ -27,7 +28,6 @@ func (d MSRDev) Read(msr int64) (uint64, error) {
 	regBuf := make([]byte, 8)
 
 	rc, err := utils.AppSyscall.Pread(d.fd, regBuf, msr)
-
 	if err != nil {
 		return 0, err
 	}

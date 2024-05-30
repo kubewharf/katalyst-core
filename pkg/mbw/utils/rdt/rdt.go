@@ -1,3 +1,6 @@
+//go:build amd64 && !gccgo && !noasm && !appengine
+// +build amd64,!gccgo,!noasm,!appengine
+
 /*
 Copyright 2022 The Katalyst Authors.
 
@@ -13,9 +16,6 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 */
-
-//go:build amd64 && !gccgo && !noasm && !appengine
-// +build amd64,!gccgo,!noasm,!appengine
 
 package rdt
 

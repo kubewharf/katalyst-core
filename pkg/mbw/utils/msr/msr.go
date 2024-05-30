@@ -18,8 +18,9 @@ package msr
 
 import (
 	"fmt"
-	"github.com/kubewharf/katalyst-core/pkg/mbw/utils"
 	"syscall"
+
+	"github.com/kubewharf/katalyst-core/pkg/mbw/utils"
 )
 
 const defaultFmtStr = "/dev/cpu/%d/msr"

@@ -43,7 +43,7 @@ func (s stubSyscaller) Pwrite(fd int, p []byte, offset int64) (n int, err error)
 }
 
 func (s stubSyscaller) Pread(fd int, p []byte, offset int64) (n int, err error) {
-	p[7] = 0x003B //59
+	p[7] = 0x003B // 59
 	return 8, nil
 }
 

@@ -63,18 +63,18 @@ func newSysInfo() (*SysInfo, error) {
 		delete it once the katalyst-agent code is updated
 	*/
 	sysInfo.ExtraTopologyInfo.SiblingNumaMap = map[int]sets.Int{
-		0:  sets.Int{1: {}, 2: {}},
-		1:  sets.Int{0: {}, 2: {}},
-		2:  sets.Int{0: {}, 1: {}},
-		3:  sets.Int{4: {}, 5: {}},
-		4:  sets.Int{3: {}, 5: {}},
-		5:  sets.Int{3: {}, 4: {}},
-		6:  sets.Int{7: {}, 8: {}},
-		7:  sets.Int{6: {}, 8: {}},
-		8:  sets.Int{6: {}, 7: {}},
-		9:  sets.Int{10: {}, 11: {}},
-		10: sets.Int{9: {}, 11: {}},
-		11: sets.Int{9: {}, 10: {}},
+		0:  {1: {}, 2: {}},
+		1:  {0: {}, 2: {}},
+		2:  {0: {}, 1: {}},
+		3:  {4: {}, 5: {}},
+		4:  {3: {}, 5: {}},
+		5:  {3: {}, 4: {}},
+		6:  {7: {}, 8: {}},
+		7:  {6: {}, 8: {}},
+		8:  {6: {}, 7: {}},
+		9:  {10: {}, 11: {}},
+		10: {9: {}, 11: {}},
+		11: {9: {}, 10: {}},
 	}
 
 	if sysInfo.ExtraTopologyInfo.SiblingNumaMap[0].Len() > 0 {

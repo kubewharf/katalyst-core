@@ -25,7 +25,7 @@ import (
 
 func TestPCIDev_GetDevInfo(t *testing.T) {
 	t.Parallel()
-	var devTest = &pci.PCIDev{}
+	devTest := &pci.PCIDev{}
 	got := devTest.GetDevInfo()
 	if 0 != got.DeviceID {
 		t.Errorf("expected dev id 11, got %d", got.DeviceID)
@@ -34,8 +34,7 @@ func TestPCIDev_GetDevInfo(t *testing.T) {
 
 func TestPCIDev_BDFString(t *testing.T) {
 	t.Parallel()
-	var devTest = &pci.PCIDev{}
-
+	devTest := &pci.PCIDev{}
 	got := devTest.BDFString()
 	want := "0000:00:00.0"
 	if want != got {
@@ -81,7 +80,7 @@ func TestGetFirstIOHC(t *testing.T) {
 
 	testNode := 1
 	testDevs := []*pci.PCIDev{
-		&pci.PCIDev{},
+		{},
 	}
 
 	var want *pci.PCIDev = nil
