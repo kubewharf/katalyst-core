@@ -31,4 +31,4 @@ GO111MODULE=on
 # to prepare C related dependencies
 BUILD_HOST_OS=${BUILD_HOST_OS:-$(go env GOHOSTOS)}
 [[ "${BUILD_HOST_OS}" == "linux" ]] && sudo apt install -y libpci-dev
-[[ "${BUILD_HOST_OS}" != "linux" ]] && echo ${BUILD_HOST_OS} is not supported yet. Please use Linux for now.
+[[ "${BUILD_HOST_OS}" != "linux" ]] && echo ${BUILD_HOST_OS} is not supported yet. Please use Linux for now || true
