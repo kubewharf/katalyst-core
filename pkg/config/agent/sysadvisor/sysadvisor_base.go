@@ -21,6 +21,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/sysadvisor/metacache"
 	metricemitter "github.com/kubewharf/katalyst-core/pkg/config/agent/sysadvisor/metric-emitter"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/sysadvisor/overcommit"
+	"github.com/kubewharf/katalyst-core/pkg/config/agent/sysadvisor/poweraware"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/sysadvisor/qosaware"
 )
 
@@ -42,6 +43,7 @@ type SysAdvisorPluginsConfiguration struct {
 	*metricemitter.MetricEmitterPluginConfiguration
 	*inference.InferencePluginConfiguration
 	*overcommit.OvercommitAwarePluginConfiguration
+	*poweraware.PowerAwarePluginOptions
 }
 
 // NewSysAdvisorPluginsConfiguration creates a new sysadvisor plugins configuration.
@@ -52,5 +54,6 @@ func NewSysAdvisorPluginsConfiguration() *SysAdvisorPluginsConfiguration {
 		MetricEmitterPluginConfiguration:   metricemitter.NewMetricEmitterPluginConfiguration(),
 		InferencePluginConfiguration:       inference.NewInferencePluginConfiguration(),
 		OvercommitAwarePluginConfiguration: overcommit.NewOvercommitAwarePluginConfiguration(),
+		PowerAwarePluginOptions:            poweraware.NewPowerAwarePluginOptions(),
 	}
 }
