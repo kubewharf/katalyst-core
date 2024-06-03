@@ -115,9 +115,9 @@ type DynamicPolicy struct {
 	emitter    metrics.MetricEmitter
 	metaServer *metaserver.MetaServer
 
-	advisorClient     advisorsvc.AdvisorServiceClient
-	advisorConn       *grpc.ClientConn
-	lwRecvTimeMonitor *timemonitor.TimeMonitor
+	advisorClient  advisorsvc.AdvisorServiceClient
+	advisorConn    *grpc.ClientConn
+	advisorMonitor *timemonitor.TimeMonitor
 
 	topology *machine.CPUTopology
 	state    state.State
@@ -366,6 +366,15 @@ func (p *DynamicPolicy) Start() (err error) {
 		return
 	}
 
+	p.advisorMonitor, err = timemonitor.NewTimeMonitor(memoryAdvisorHealthMonitorName, memoryAdvisorHealthMonitorInterval,
+		memoryAdvisorUnhealthyThreshold, memoryAdvisorHealthyThreshold,
+		util.MetricNameAdvisorUnhealthy, p.emitter, memoryAdvisorHealthyCount, true)
+	if err != nil {
+		general.Errorf("initialize memory advisor monitor failed with error: %v", err)
+		return
+	}
+	go p.advisorMonitor.Run(p.stopCh)
+
 	go wait.BackoffUntil(func() { p.serveForAdvisor(p.stopCh) }, wait.NewExponentialBackoffManager(
 		800*time.Millisecond, 30*time.Second, 2*time.Minute, 2.0, 0, &clock.RealClock{}), true, p.stopCh)
 
@@ -399,10 +408,6 @@ func (p *DynamicPolicy) Start() (err error) {
 	go wait.BackoffUntil(communicateWithMemoryAdvisorServer, wait.NewExponentialBackoffManager(800*time.Millisecond,
 		30*time.Second, 2*time.Minute, 2.0, 0, &clock.RealClock{}), true, p.stopCh)
 
-	p.lwRecvTimeMonitor = timemonitor.NewTimeMonitor(memoryAdvisorLWRecvTimeMonitorName,
-		memoryAdvisorLWRecvTimeMonitorDurationThreshold, memoryAdvisorLWRecvTimeMonitorInterval,
-		util.MetricNameLWRecvStuck, p.emitter)
-	go p.lwRecvTimeMonitor.Run(p.stopCh)
 	return nil
 }
 

@@ -43,9 +43,11 @@ import (
 )
 
 const (
-	cpuAdvisorLWRecvTimeMonitorName              = "cpuAdvisorLWRecvTimeMonitor"
-	cpuAdvisorLWRecvTimeMonitorDurationThreshold = 30 * time.Second
-	cpuAdvisorLWRecvTimeMonitorInterval          = 30 * time.Second
+	cpuAdvisorHealthMonitorName     = "cpuAdvisorHealthMonitor"
+	cpuAdvisorUnhealthyThreshold    = 5 * time.Minute
+	cpuAdvisorHealthyThreshold      = 2 * time.Minute
+	cpuAdvisorHealthyCount          = 2
+	cpuAdvisorHealthMonitorInterval = 30 * time.Second
 )
 
 /* in the below, cpu-plugin works in server-mode, while cpu-advisor works in client-mode */
@@ -229,11 +231,6 @@ func (p *DynamicPolicy) lwCPUAdvisorServer(stopCh <-chan struct{}) error {
 
 	for {
 		resp, err := stream.Recv()
-
-		if p.lwRecvTimeMonitor != nil {
-			p.lwRecvTimeMonitor.UpdateRefreshTime()
-		}
-
 		if err != nil {
 			_ = p.emitter.StoreInt64(util.MetricNameLWAdvisorServerFailed, 1, metrics.MetricTypeNameRaw)
 			return fmt.Errorf("receive ListAndWatch response of CPUAdvisorServer failed with error: %v, grpc code: %v",
@@ -245,6 +242,10 @@ func (p *DynamicPolicy) lwCPUAdvisorServer(stopCh <-chan struct{}) error {
 			general.Errorf("allocate by ListAndWatch response of CPUAdvisorServer failed with error: %v", err)
 		}
 		_ = general.UpdateHealthzStateByError(cpuconsts.CommunicateWithAdvisor, err)
+
+		if p.advisorMonitor != nil && err == nil {
+			p.advisorMonitor.UpdateRefreshTime()
+		}
 	}
 }
 
