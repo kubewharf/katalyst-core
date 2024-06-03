@@ -81,6 +81,8 @@ const (
 
 	healthCheckTolerationTimes = 3
 	dropCacheGracePeriod       = 60 * time.Second
+
+	defaultAsyncWorkLimit = 8
 )
 
 var (
@@ -133,7 +135,8 @@ type DynamicPolicy struct {
 
 	podDebugAnnoKeys []string
 
-	asyncWorkers *asyncworker.AsyncWorkers
+	asyncWorkers        *asyncworker.AsyncWorkers
+	asyncLimitedWorkers *asyncworker.AsyncLimitedWorkers
 
 	enableSettingMemoryMigrate bool
 	enableSettingSockMem       bool
@@ -197,6 +200,7 @@ func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration
 		name:                       fmt.Sprintf("%s_%s", agentName, memconsts.MemoryResourcePluginPolicyNameDynamic),
 		podDebugAnnoKeys:           conf.PodDebugAnnoKeys,
 		asyncWorkers:               asyncworker.NewAsyncWorkers(memoryPluginAsyncWorkersName, wrappedEmitter),
+		asyncLimitedWorkers:        asyncworker.NewAsyncLimitedWorkers(memoryPluginAsyncWorkersName, defaultAsyncWorkLimit, wrappedEmitter),
 		enableSettingMemoryMigrate: conf.EnableSettingMemoryMigrate,
 		enableSettingSockMem:       conf.EnableSettingSockMem,
 		enableMemoryAdvisor:        conf.EnableMemoryAdvisor,
@@ -306,6 +310,10 @@ func (p *DynamicPolicy) Start() (err error) {
 	err = p.asyncWorkers.Start(p.stopCh)
 	if err != nil {
 		general.Errorf("start async worker failed, err: %v", err)
+	}
+	err = p.asyncLimitedWorkers.Start(p.stopCh)
+	if err != nil {
+		general.Errorf("start async limited worker failed, err: %v", err)
 	}
 
 	if p.enableSettingMemoryMigrate {

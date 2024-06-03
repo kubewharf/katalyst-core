@@ -21,6 +21,9 @@ import (
 	"sync"
 	"time"
 
+	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/tools/cache"
+
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 )
 
@@ -45,6 +48,7 @@ const (
 
 	// metrics for asyncworker
 	metricNameAsyncWorkDurationMs = "async_work_duration_ms"
+	metricNameAsyncWorkWaitingMs  = "sync_work_waiting_ms"
 	metricNameAsyncWorkPanic      = "async_work_panic"
 )
 
@@ -59,6 +63,8 @@ type workStatus struct {
 	working bool
 	// startAt is the time at which the worker starts working
 	startedAt time.Time
+	// finishedAt is the time at which the worker finish working
+	finishedAt time.Time
 	// work is being handled,
 	// only set when property working is true
 	work *Work
@@ -66,6 +72,8 @@ type workStatus struct {
 
 // Work contains details to handle by workers
 type Work struct {
+	Name string
+	UID  types.UID
 	// Fn is the function to handle the work,
 	// its first param must be of type context.Context,
 	// it's allowed to have any number of other parameters of any type,
@@ -89,4 +97,20 @@ type AsyncWorkers struct {
 	lastUndeliveredWork map[string]*Work
 	// Tracks work status by work name
 	workStatuses map[string]*workStatus
+}
+
+type AsyncLimitedWorkers struct {
+	name string
+
+	emitter metrics.MetricEmitter
+	// Protects all per work fields
+	workLock sync.Mutex
+	cond     sync.Cond
+	limit    int
+
+	// activeQ and waitQ should not exist same key of work
+	activeQ map[string]*workStatus
+	waitQ   *cache.Heap
+
+	backoffQ map[string]*Work
 }
