@@ -19,10 +19,13 @@ package asyncworker
 import (
 	"context"
 	"fmt"
+	"sync"
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"k8s.io/apimachinery/pkg/util/wait"
 
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 )
@@ -134,4 +137,179 @@ func TestAsyncWorkers(t *testing.T) {
 	asw.workLock.Unlock()
 
 	rt.Equal(result, e+f)
+}
+
+var (
+	res = map[string]string{}
+	mu  sync.Mutex
+)
+
+func newWork(name string, a string) *Work {
+	fn := func(ctx context.Context, params ...interface{}) error {
+		time.Sleep(time.Millisecond)
+		p0 := params[0].(string)
+		mu.Lock()
+		defer mu.Unlock()
+		res[name] = p0
+		return nil
+	}
+
+	work := &Work{
+		Name:        name,
+		Fn:          fn,
+		Params:      []interface{}{a},
+		DeliveredAt: time.Now(),
+	}
+	return work
+}
+
+func TestAsyncLimitedWorkers(t *testing.T) {
+	t.Parallel()
+
+	type addWorkFunc func(alw *AsyncLimitedWorkers)
+
+	tests := []struct {
+		name             string
+		addWorkFunc      addWorkFunc
+		wantActiveQKeys  []string
+		wantBackoffQKeys []string
+		wantWaitQKeys    []string
+		wantRet          map[string]string
+	}{
+		{
+			name: "same work to discard",
+			addWorkFunc: func(alw *AsyncLimitedWorkers) {
+				w := newWork("w1", "1")
+				alw.AddWork(w, DuplicateWorkPolicyDiscard)
+
+				_, _, _ = alw.poll(wait.NeverStop)
+
+				w = newWork("w1", "2")
+				alw.AddWork(w, DuplicateWorkPolicyDiscard)
+			},
+			wantActiveQKeys:  []string{"w1"},
+			wantWaitQKeys:    []string{},
+			wantBackoffQKeys: []string{},
+		},
+		{
+			name: "same work to override",
+			addWorkFunc: func(alw *AsyncLimitedWorkers) {
+				w := newWork("w1", "1")
+				alw.AddWork(w, DuplicateWorkPolicyDiscard)
+
+				_, _, _ = alw.poll(wait.NeverStop)
+
+				w = newWork("w1", "2")
+				alw.AddWork(w, DuplicateWorkPolicyOverride)
+			},
+			wantActiveQKeys:  []string{"w1"},
+			wantWaitQKeys:    []string{},
+			wantBackoffQKeys: []string{"w1"},
+		},
+		{
+			name: "2 diff work to add",
+			addWorkFunc: func(alw *AsyncLimitedWorkers) {
+				w := newWork("w1", "1")
+				alw.AddWork(w, DuplicateWorkPolicyDiscard)
+				_, _, _ = alw.poll(wait.NeverStop)
+
+				w = newWork("w2", "1")
+				alw.AddWork(w, DuplicateWorkPolicyOverride)
+				_, _, _ = alw.poll(wait.NeverStop)
+			},
+			wantActiveQKeys:  []string{"w1", "w2"},
+			wantWaitQKeys:    []string{},
+			wantBackoffQKeys: []string{},
+		},
+		{
+			name: "3 diff work to add",
+			addWorkFunc: func(alw *AsyncLimitedWorkers) {
+				w := newWork("w1", "1")
+				alw.AddWork(w, DuplicateWorkPolicyDiscard)
+				_, _, _ = alw.poll(wait.NeverStop)
+
+				w = newWork("w2", "1")
+				alw.AddWork(w, DuplicateWorkPolicyOverride)
+				_, _, _ = alw.poll(wait.NeverStop)
+
+				w = newWork("w3", "1")
+				alw.AddWork(w, DuplicateWorkPolicyOverride)
+			},
+			wantActiveQKeys:  []string{"w1", "w2"},
+			wantWaitQKeys:    []string{"w3"},
+			wantBackoffQKeys: []string{},
+		},
+		{
+			name: "3 diff work to handle",
+			addWorkFunc: func(alw *AsyncLimitedWorkers) {
+				w := newWork("w1", "1")
+				alw.AddWork(w, DuplicateWorkPolicyDiscard)
+				ctx, work, _ := alw.poll(wait.NeverStop)
+				alw.doHandle(ctx, work)
+
+				w = newWork("w2", "1")
+				alw.AddWork(w, DuplicateWorkPolicyOverride)
+				ctx, work, _ = alw.poll(wait.NeverStop)
+				alw.doHandle(ctx, work)
+
+				w = newWork("w3", "1")
+				alw.AddWork(w, DuplicateWorkPolicyOverride)
+			},
+			wantActiveQKeys:  []string{},
+			wantWaitQKeys:    []string{"w3"},
+			wantBackoffQKeys: []string{},
+			wantRet:          map[string]string{"w1": "1", "w2": "2"},
+		},
+		{
+			name: "4 diff work to add",
+			addWorkFunc: func(alw *AsyncLimitedWorkers) {
+				w := newWork("w1", "1")
+				alw.AddWork(w, DuplicateWorkPolicyDiscard)
+
+				w = newWork("w2", "1")
+				alw.AddWork(w, DuplicateWorkPolicyOverride)
+
+				w = newWork("w3", "1")
+				alw.AddWork(w, DuplicateWorkPolicyOverride)
+
+				w = newWork("w4", "1")
+				alw.AddWork(w, DuplicateWorkPolicyOverride)
+
+				ctx, work, _ := alw.poll(wait.NeverStop)
+				alw.doHandle(ctx, work)
+
+				ctx, work, _ = alw.poll(wait.NeverStop)
+				alw.doHandle(ctx, work)
+
+				ctx, work, _ = alw.poll(wait.NeverStop)
+				alw.doHandle(ctx, work)
+			},
+			wantActiveQKeys:  []string{},
+			wantWaitQKeys:    []string{"w4"},
+			wantBackoffQKeys: []string{},
+			wantRet:          map[string]string{"w1": "1", "w2": "1", "w3": "1"},
+		},
+	}
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			alw := NewAsyncLimitedWorkers("test", 2, metrics.DummyMetrics{})
+			tt.addWorkFunc(alw)
+
+			assert.ElementsMatch(t, tt.wantWaitQKeys, alw.waitQ.ListKeys())
+
+			var activeQKeys []string
+			for key := range alw.activeQ {
+				activeQKeys = append(activeQKeys, key)
+			}
+			assert.ElementsMatch(t, tt.wantActiveQKeys, activeQKeys)
+
+			var backoffQKeys []string
+			for key := range alw.backoffQ {
+				backoffQKeys = append(backoffQKeys, key)
+			}
+			assert.ElementsMatch(t, tt.wantBackoffQKeys, backoffQKeys)
+		})
+	}
 }

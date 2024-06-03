@@ -29,6 +29,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/status"
 	v1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/util/uuid"
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 	maputil "k8s.io/kubernetes/pkg/util/maps"
 
@@ -736,8 +737,10 @@ func (p *DynamicPolicy) handleAdvisorMemoryOffloading(_ *config.Configuration,
 	}
 
 	// start a asynchronous work to execute memory offloading
-	err = p.asyncWorkers.AddWork(memoryOffloadingWorkName,
+	err = p.asyncLimitedWorkers.AddWork(
 		&asyncworker.Work{
+			Name:        memoryOffloadingWorkName,
+			UID:         uuid.NewUUID(),
 			Fn:          cgroupmgr.MemoryOffloadingWithAbsolutePath,
 			Params:      []interface{}{absCGPath, memoryOffloadingSizeInBytesInt64},
 			DeliveredAt: time.Now(),
