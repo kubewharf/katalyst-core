@@ -20,21 +20,32 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 )
 
 func TestTimeMonitor(t *testing.T) {
 	t.Parallel()
 
-	timeMonitor := NewTimeMonitor("test", time.Second, time.Second, "test_metric_name", metrics.DummyMetrics{})
+	timeMonitor, err := NewTimeMonitor("test", time.Second, 1*time.Second, 5*time.Second, "test_metric_name", metrics.DummyMetrics{}, 3, true)
+	as := require.New(t)
 
-	timeMonitor.monitorRefreshTime()
-	timeMonitor.UpdateRefreshTime()
-	timeMonitor.monitorRefreshTime()
+	as.Nil(err)
+
+	healthy := timeMonitor.GetHealthy()
+	as.True(healthy)
 
 	time.Sleep(2 * time.Second)
-	timeMonitor.monitorRefreshTime()
+	timeMonitor.monitor()
+	healthy = timeMonitor.GetHealthy()
+	as.False(healthy)
 
-	timeMonitor = NewTimeMonitor("test", time.Second, time.Second, "", nil)
-	timeMonitor.monitorRefreshTime()
+	timeMonitor.UpdateRefreshTime()
+	timeMonitor.UpdateRefreshTime()
+	timeMonitor.UpdateRefreshTime()
+	timeMonitor.monitor()
+
+	healthy = timeMonitor.GetHealthy()
+	as.True(healthy)
 }

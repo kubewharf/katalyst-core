@@ -55,9 +55,11 @@ import (
 )
 
 const (
-	memoryAdvisorLWRecvTimeMonitorName              = "memoryAdvisorLWRecvTimeMonitor"
-	memoryAdvisorLWRecvTimeMonitorDurationThreshold = 30 * time.Second
-	memoryAdvisorLWRecvTimeMonitorInterval          = 30 * time.Second
+	memoryAdvisorHealthMonitorName     = "memoryAdvisorHealthMonitor"
+	memoryAdvisorUnhealthyThreshold    = 5 * time.Minute
+	memoryAdvisorHealthyThreshold      = 2 * time.Minute
+	memoryAdvisorHealthyCount          = 2
+	memoryAdvisorHealthMonitorInterval = 30 * time.Second
 )
 
 // initAdvisorClientConn initializes memory-advisor related connections
@@ -92,11 +94,6 @@ func (p *DynamicPolicy) lwMemoryAdvisorServer(stopCh <-chan struct{}) error {
 
 	for {
 		resp, err := stream.Recv()
-
-		if p.lwRecvTimeMonitor != nil {
-			p.lwRecvTimeMonitor.UpdateRefreshTime()
-		}
-
 		if err != nil {
 			_ = p.emitter.StoreInt64(util.MetricNameLWAdvisorServerFailed, 1, metrics.MetricTypeNameRaw)
 			return fmt.Errorf("receive ListAndWatch response of MemoryAdvisorServer failed with error: %v, grpc code: %v",
@@ -108,6 +105,10 @@ func (p *DynamicPolicy) lwMemoryAdvisorServer(stopCh <-chan struct{}) error {
 			general.Errorf("handle ListAndWatch response of MemoryAdvisorServer failed with error: %v", err)
 		}
 		_ = general.UpdateHealthzStateByError(memconsts.CommunicateWithAdvisor, err)
+
+		if p.advisorMonitor != nil && err == nil {
+			p.advisorMonitor.UpdateRefreshTime()
+		}
 	}
 }
 

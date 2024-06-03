@@ -104,7 +104,7 @@ type DynamicPolicy struct {
 	advisorConn      *grpc.ClientConn
 	advisorValidator *validator.CPUAdvisorValidator
 	advisorapi.UnimplementedCPUPluginServer
-	lwRecvTimeMonitor *timemonitor.TimeMonitor
+	advisorMonitor *timemonitor.TimeMonitor
 
 	state              state.State
 	residualHitMap     map[string]int64
@@ -329,6 +329,15 @@ func (p *DynamicPolicy) Start() (err error) {
 		return
 	}
 
+	p.advisorMonitor, err = timemonitor.NewTimeMonitor(cpuAdvisorHealthMonitorName, cpuAdvisorHealthMonitorInterval,
+		cpuAdvisorUnhealthyThreshold, cpuAdvisorHealthyThreshold,
+		util.MetricNameAdvisorUnhealthy, p.emitter, cpuAdvisorHealthyCount, true)
+	if err != nil {
+		general.Errorf("initialize cpu advisor monitor failed with error: %v", err)
+		return
+	}
+	go p.advisorMonitor.Run(p.stopCh)
+
 	go wait.BackoffUntil(func() { p.serveForAdvisor(p.stopCh) }, wait.NewExponentialBackoffManager(
 		800*time.Millisecond, 30*time.Second, 2*time.Minute, 2.0, 0, &clock.RealClock{}), true, p.stopCh)
 
@@ -361,10 +370,6 @@ func (p *DynamicPolicy) Start() (err error) {
 	go wait.BackoffUntil(communicateWithCPUAdvisorServer, wait.NewExponentialBackoffManager(800*time.Millisecond,
 		30*time.Second, 2*time.Minute, 2.0, 0, &clock.RealClock{}), true, p.stopCh)
 
-	p.lwRecvTimeMonitor = timemonitor.NewTimeMonitor(cpuAdvisorLWRecvTimeMonitorName,
-		cpuAdvisorLWRecvTimeMonitorDurationThreshold, cpuAdvisorLWRecvTimeMonitorInterval,
-		util.MetricNameLWRecvStuck, p.emitter)
-	go p.lwRecvTimeMonitor.Run(p.stopCh)
 	return nil
 }
 

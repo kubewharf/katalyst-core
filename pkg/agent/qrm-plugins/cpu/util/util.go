@@ -158,3 +158,11 @@ func PackAllocationResponse(allocationInfo *state.AllocationInfo, resourceName, 
 		NativeQosClass: req.NativeQosClass,
 	}, nil
 }
+
+func AdvisorDegradation(advisorHealth, enableReclaim bool) bool {
+	advisorDegradation := !advisorHealth && !enableReclaim
+
+	general.Infof("advisorDegradation: %v", advisorDegradation)
+
+	return advisorDegradation
+}

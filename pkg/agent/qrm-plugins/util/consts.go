@@ -25,7 +25,7 @@ const (
 	MetricNameLWAdvisorServerFailed   = "lw_advisor_server_failed"
 	MetricNameHandleAdvisorRespCalled = "handle_advisor_resp_called"
 	MetricNameHandleAdvisorRespFailed = "handle_advisor_resp_failed"
-	MetricNameLWRecvStuck             = "lw_recv_stuck"
+	MetricNameAdvisorUnhealthy        = "advisor_unhealthy"
 
 	// metrics for cpu plugin
 	MetricNamePoolSize         = "pool_size"

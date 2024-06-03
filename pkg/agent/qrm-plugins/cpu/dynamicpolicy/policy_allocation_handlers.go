@@ -517,7 +517,8 @@ func (p *DynamicPolicy) putAllocationsAndAdjustAllocationEntries(allocationInfos
 	machineState := p.state.GetMachineState()
 
 	var poolsQuantityMap map[string]int
-	if p.enableCPUAdvisor {
+	if p.enableCPUAdvisor &&
+		!cpuutil.AdvisorDegradation(p.advisorMonitor.GetHealthy(), p.dynamicConfig.GetDynamicConfiguration().EnableReclaim) {
 		// if sys advisor is enabled, we believe the pools' ratio that sys advisor indicates
 		poolsQuantityMap = machine.ParseCPUAssignmentQuantityMap(entries.GetFilteredPoolsCPUSetMap(state.ResidentPools))
 	} else {
@@ -572,7 +573,8 @@ func (p *DynamicPolicy) adjustAllocationEntries() error {
 	// if sys advisor is enabled, we believe the pools' ratio that sys advisor indicates,
 	// else we do sum(containers req) for each pool to get pools ratio
 	var poolsQuantityMap map[string]int
-	if p.enableCPUAdvisor {
+	if p.enableCPUAdvisor &&
+		!cpuutil.AdvisorDegradation(p.advisorMonitor.GetHealthy(), p.dynamicConfig.GetDynamicConfiguration().EnableReclaim) {
 		poolsQuantityMap = machine.ParseCPUAssignmentQuantityMap(entries.GetFilteredPoolsCPUSetMap(state.ResidentPools))
 	} else {
 		poolsQuantityMap = state.GetSharedQuantityMapFromPodEntries(entries, nil)

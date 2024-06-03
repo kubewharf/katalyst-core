@@ -17,6 +17,7 @@ limitations under the License.
 package timemonitor
 
 import (
+	"fmt"
 	"sync"
 	"time"
 
@@ -28,52 +29,111 @@ import (
 
 // TimeMonitor is used to periodically monitor if time.Now().Sub(refreshTime) is greater than durationThreshold
 type TimeMonitor struct {
-	name              string
-	refreshTime       time.Time
-	durationThreshold time.Duration
-	interval          time.Duration
-
-	metricName string
-	emitter    metrics.MetricEmitter
-
+	name                string
+	interval            time.Duration
+	unhealthyMetricName string
+	emitter             metrics.MetricEmitter
 	sync.RWMutex
+
+	unhealthyThreshold time.Duration
+
+	healthyThreshold time.Duration
+
+	healthy bool
+
+	// cache is used a cyclic buffer - its first element (with the smallest
+	// resourceVersion) is defined by startIndex, its last element is defined
+	// by endIndex (if cache is full it will be startIndex + capacity).
+	// Both startIndex and endIndex can be greater than buffer capacity -
+	// you should always apply modulo capacity to get an index in cache array.
+	refreshTimestampsBuffer []time.Time
+	// index won't overflow in the foreseeable future.
+	startIndex int
+	endIndex   int
+	capacity   int
 }
 
-func NewTimeMonitor(name string, durationThreshold, interval time.Duration, metricName string, emitter metrics.MetricEmitter) *TimeMonitor {
-	return &TimeMonitor{
-		name:              name,
-		durationThreshold: durationThreshold,
-		interval:          interval,
-		metricName:        metricName,
-		emitter:           emitter,
+func NewTimeMonitor(name string, interval, unhealthyThreshold, healthyThreshold time.Duration,
+	unhealthyMetricName string, emitter metrics.MetricEmitter, capacity int, healthy bool,
+) (*TimeMonitor, error) {
+	if capacity <= 0 {
+		return nil, fmt.Errorf("invalid capacity: %d", capacity)
+	} else if emitter == nil {
+		return nil, fmt.Errorf("invalid emitter")
 	}
+
+	tm := &TimeMonitor{
+		name:                    name,
+		interval:                interval,
+		unhealthyMetricName:     unhealthyMetricName,
+		emitter:                 emitter,
+		unhealthyThreshold:      unhealthyThreshold,
+		healthyThreshold:        healthyThreshold,
+		capacity:                capacity,
+		refreshTimestampsBuffer: make([]time.Time, capacity),
+		healthy:                 healthy,
+	}
+
+	// UpdateRefreshTime at first,
+	// to make monitorRefreshTime works when initial healthy status is true
+	tm.UpdateRefreshTime()
+
+	return tm, nil
+}
+
+func (m *TimeMonitor) isBufferFullLocked() bool {
+	return m.endIndex == m.startIndex+m.capacity
 }
 
 func (m *TimeMonitor) UpdateRefreshTime() {
 	m.Lock()
-	m.refreshTime = time.Now()
-	general.Warningf("TimeMonitor: %s update refreshTime: %s", m.name, m.refreshTime)
+	if m.isBufferFullLocked() {
+		m.startIndex++
+	}
+	refreshTime := time.Now()
+	m.refreshTimestampsBuffer[m.endIndex%m.capacity] = refreshTime
+	m.endIndex++
 	m.Unlock()
+	general.Warningf("TimeMonitor: %s refresh time: %s", m.name, refreshTime)
 }
 
-func (m *TimeMonitor) GetRefreshTime() time.Time {
-	m.RLock()
-	defer m.RUnlock()
-	return m.refreshTime
-}
-
-func (m *TimeMonitor) monitorRefreshTime() {
-	refreshTime := m.GetRefreshTime()
-
-	if refreshTime.IsZero() || time.Since(refreshTime) > m.durationThreshold {
-		general.Warningf("TimeMonitor: %s refreshTime stucks, refreshTime: %s", m.name, refreshTime)
-		if m.emitter != nil && m.metricName != "" {
-			_ = m.emitter.StoreInt64(m.metricName, 1, metrics.MetricTypeNameRaw)
+func (m *TimeMonitor) monitor() {
+	m.Lock()
+	defer m.Unlock()
+	if m.healthy {
+		newestTs := m.refreshTimestampsBuffer[(m.endIndex-1)%m.capacity]
+		if time.Since(newestTs) > m.unhealthyThreshold {
+			general.Warningf("TimeMonitor: %s newest refreshTime is outdated, refreshTime: %s; set status to unhealthy", m.name, newestTs)
+			m.healthy = false
+		}
+	} else {
+		if m.isBufferFullLocked() {
+			oldestTs := m.refreshTimestampsBuffer[m.startIndex%m.capacity]
+			if time.Since(oldestTs) <= m.healthyThreshold {
+				general.Warningf("TimeMonitor: %s received %d events in %s seconds; set status to healthy", m.name, m.capacity, m.healthyThreshold)
+				m.healthy = true
+			}
 		}
 	}
+
+	if !m.healthy {
+		_ = m.emitter.StoreInt64(m.unhealthyMetricName, 1, metrics.MetricTypeNameRaw)
+	}
+
+	general.Infof("TimeMonitor: %s, healthy: %v", m.name, m.healthy)
 }
 
 // Run is blocking runned
 func (m *TimeMonitor) Run(stopCh <-chan struct{}) {
-	wait.Until(m.monitorRefreshTime, m.interval, stopCh)
+	wait.Until(m.monitor, m.interval, stopCh)
+}
+
+func (m *TimeMonitor) GetHealthy() bool {
+	if m == nil {
+		return true
+	}
+
+	m.RLock()
+	defer m.RUnlock()
+	return m.healthy
 }
