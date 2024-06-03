@@ -831,26 +831,26 @@ func TestIndicatorUpdater(t *testing.T) {
 				Current: &value,
 			},
 		},
-		[]apiworkload.AggPodMetrics{
-			{
-				Aggregator: apiworkload.Avg,
-				Items: []metrics.PodMetrics{
-					{
-						Timestamp: metav1.NewTime(time.Date(2022, 1, 1, 1, 0, 0, 0, time.Local)),
-						Window:    metav1.Duration{Duration: time.Hour},
-						Containers: []metrics.ContainerMetrics{
-							{
-								Name: "c1",
-								Usage: map[v1.ResourceName]resource.Quantity{
-									apimetricpod.CustomMetricPodCPULoad1Min: resource.MustParse("20"),
-								},
+	)
+	sc.indicatorManager.UpdateAggMetrics(nn, []apiworkload.AggPodMetrics{
+		{
+			Aggregator: apiworkload.Avg,
+			Items: []metrics.PodMetrics{
+				{
+					Timestamp: metav1.NewTime(time.Date(2022, 1, 1, 1, 0, 0, 0, time.Local)),
+					Window:    metav1.Duration{Duration: time.Hour},
+					Containers: []metrics.ContainerMetrics{
+						{
+							Name: "c1",
+							Usage: map[v1.ResourceName]resource.Quantity{
+								apimetricpod.CustomMetricPodCPULoad1Min: resource.MustParse("20"),
 							},
 						},
 					},
 				},
 			},
 		},
-	)
+	})
 	time.Sleep(time.Second)
 	newSPD, err := controlCtx.Client.InternalClient.WorkloadV1alpha1().
 		ServiceProfileDescriptors("default").Get(ctx, "spd1", metav1.GetOptions{})

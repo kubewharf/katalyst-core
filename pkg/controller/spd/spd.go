@@ -434,7 +434,7 @@ func (sc *SPDController) syncSPDAnnotation(key string) error {
 		return nil
 	}
 
-	if err := sc.setPodListSPDAnnotation(podList, workload.GetName()); err != nil {
+	if err := sc.setPodListSPDAnnotation(podList, workload); err != nil {
 		klog.Errorf("[spd] set pod list annotations for workload %s/%s failed: %v", namespace, name, err)
 		return err
 	}
@@ -718,6 +718,8 @@ func (sc *SPDController) getOrCreateSPDForWorkload(workload *unstructured.Unstru
 			}
 
 			spd, err = sc.spdControl.CreateSPD(sc.ctx, spd, metav1.CreateOptions{})
+			cost := spd.GetCreationTimestamp().Sub(workload.GetCreationTimestamp().Time)
+			_ = sc.metricsEmitter.StoreInt64(metricsNameCreateSPDByWorkloadCost, cost.Microseconds(), metrics.MetricTypeNameRaw)
 			if err != nil {
 				return nil, fmt.Errorf("[spd] failed to create spd: %v", err)
 			}
@@ -756,11 +758,18 @@ func (sc *SPDController) setSPDStatus(workload *unstructured.Unstructured, spd *
 	return spd, nil
 }
 
-func (sc *SPDController) setPodListSPDAnnotation(podList []*core.Pod, spdName string) error {
+func (sc *SPDController) setPodListSPDAnnotation(podList []*core.Pod, workload *unstructured.Unstructured) error {
 	var mtx sync.Mutex
 	var errList []error
+
+	spdName := workload.GetName()
+	spd, err := util.GetSPDForWorkload(workload, sc.spdIndexer, sc.spdLister)
+	if err != nil {
+		return err
+	}
+	spdCreationTime := spd.GetCreationTimestamp()
 	setPodAnnotations := func(i int) {
-		err := sc.setPodSPDAnnotation(podList[i], spdName)
+		err := sc.setPodSPDAnnotation(podList[i], spdName, spdCreationTime)
 		if err != nil {
 			mtx.Lock()
 			errList = append(errList, err)
@@ -779,7 +788,7 @@ func (sc *SPDController) setPodListSPDAnnotation(podList []*core.Pod, spdName st
 }
 
 // setPodSPDAnnotation add spd name in pod annotations
-func (sc *SPDController) setPodSPDAnnotation(pod *core.Pod, spdName string) error {
+func (sc *SPDController) setPodSPDAnnotation(pod *core.Pod, spdName string, spdCreationTime metav1.Time) error {
 	if pod.GetAnnotations()[apiconsts.PodAnnotationSPDNameKey] == spdName {
 		return nil
 	}
@@ -797,6 +806,9 @@ func (sc *SPDController) setPodSPDAnnotation(pod *core.Pod, spdName string) erro
 		return err
 	}
 
+	if pod.GetCreationTimestamp().Sub(spdCreationTime.Time) > 0 {
+		_ = sc.metricsEmitter.StoreInt64(metricsNameSPDCreatedAfterPod, 1, metrics.MetricTypeNameCount)
+	}
 	klog.Infof("[spd] successfully set annotations for pod %v to %v", pod.GetName(), spdName)
 	return nil
 }
