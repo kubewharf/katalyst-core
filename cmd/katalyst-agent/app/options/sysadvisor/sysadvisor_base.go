@@ -33,10 +33,11 @@ import (
 
 // GenericSysAdvisorOptions holds the configurations for sysadvisor
 type GenericSysAdvisorOptions struct {
-	SysAdvisorPlugins            []string
-	StateFileDirectory           string
-	ClearStateFileDirectory      bool
-	DisableShareCoresNumaBinding bool
+	SysAdvisorPlugins           []string
+	StateFileDirectory          string
+	ClearStateFileDirectory     bool
+	EnableShareCoresNumaBinding bool
+	SkipStateCorruption         bool
 }
 
 // NewGenericSysAdvisorOptions creates a new Options with a default config.
@@ -48,9 +49,10 @@ func NewGenericSysAdvisorOptions() *GenericSysAdvisorOptions {
 			types.AdvisorPluginNameMetricEmitter,
 			types.AdvisorPluginNameInference,
 		},
-		StateFileDirectory:           "/var/lib/katalyst/sys_advisor/",
-		ClearStateFileDirectory:      false,
-		DisableShareCoresNumaBinding: false,
+		StateFileDirectory:          "/var/lib/katalyst/sys_advisor/",
+		ClearStateFileDirectory:     false,
+		EnableShareCoresNumaBinding: true,
+		SkipStateCorruption:         false,
 	}
 }
 
@@ -63,7 +65,8 @@ func (o *GenericSysAdvisorOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 		"named 'foo', '-foo' disables the sysadvisor plugin named 'foo'"))
 	fs.StringVar(&o.StateFileDirectory, "state-dir", o.StateFileDirectory, "directory for sys advisor to store state file")
 	fs.BoolVar(&o.ClearStateFileDirectory, "clear-state-dir", o.ClearStateFileDirectory, "clear state file when starting up (only for rollback)")
-	fs.BoolVar(&o.DisableShareCoresNumaBinding, "disable-share-cores-numa-binding", o.DisableShareCoresNumaBinding, "disable share cores with NUMA binding feature")
+	fs.BoolVar(&o.EnableShareCoresNumaBinding, "enable-share-cores-numa-binding", o.EnableShareCoresNumaBinding, "enable share cores with NUMA binding feature")
+	fs.BoolVar(&o.SkipStateCorruption, "skip-state-corruption", o.SkipStateCorruption, "skip meta cache state corruption")
 }
 
 // ApplyTo fills up config with options
@@ -71,7 +74,8 @@ func (o *GenericSysAdvisorOptions) ApplyTo(c *sysadvisor.GenericSysAdvisorConfig
 	c.SysAdvisorPlugins = o.SysAdvisorPlugins
 	c.StateFileDirectory = o.StateFileDirectory
 	c.ClearStateFileDirectory = o.ClearStateFileDirectory
-	c.DisableShareCoresNumaBinding = o.DisableShareCoresNumaBinding
+	c.EnableShareCoresNumaBinding = o.EnableShareCoresNumaBinding
+	c.SkipStateCorruption = o.SkipStateCorruption
 	return nil
 }
 

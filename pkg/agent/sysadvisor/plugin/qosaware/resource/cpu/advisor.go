@@ -437,7 +437,7 @@ func (cra *cpuResourceAdvisor) assignToRegions(ci *types.ContainerInfo) ([]regio
 
 func (cra *cpuResourceAdvisor) assignShareContainerToRegions(ci *types.ContainerInfo) ([]region.QoSRegion, error) {
 	numaID := cpuadvisor.FakedNUMAID
-	if !cra.conf.GenericSysAdvisorConfiguration.DisableShareCoresNumaBinding && ci.IsNumaBinding() {
+	if cra.conf.GenericSysAdvisorConfiguration.EnableShareCoresNumaBinding && ci.IsNumaBinding() {
 		if ci.OwnerPoolName == "" {
 			return nil, fmt.Errorf("empty owner pool name, %v/%v", ci.PodUID, ci.ContainerName)
 		}

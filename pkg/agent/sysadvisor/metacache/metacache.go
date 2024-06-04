@@ -18,6 +18,7 @@ package metacache
 
 import (
 	"fmt"
+	"k8s.io/kubernetes/pkg/kubelet/checkpointmanager/errors"
 	"os"
 	"reflect"
 	"sync"
@@ -133,6 +134,8 @@ type MetaCache interface {
 type MetaCacheImp struct {
 	metrictypes.MetricsReader
 
+	skipStateCorruption bool
+
 	podEntries types.PodEntries
 	podMutex   sync.RWMutex
 
@@ -173,6 +176,7 @@ func NewMetaCacheImp(conf *config.Configuration, emitterPool metricspool.Metrics
 
 	mc := &MetaCacheImp{
 		MetricsReader:            metricsReader,
+		skipStateCorruption:      conf.SkipStateCorruption,
 		podEntries:               make(types.PodEntries),
 		poolEntries:              make(types.PoolEntries),
 		regionEntries:            make(types.RegionEntries),
@@ -564,14 +568,31 @@ func (mc *MetaCacheImp) storeState() error {
 func (mc *MetaCacheImp) restoreState() error {
 	checkpoint := NewMetaCacheCheckpoint()
 
+	foundAndSkippedStateCorruption := false
 	if err := mc.checkpointManager.GetCheckpoint(mc.checkpointName, checkpoint); err != nil {
-		klog.Infof("[metacache] checkpoint %v err %v, create it", mc.checkpointName, err)
-		return mc.storeState()
+		if err == errors.ErrCheckpointNotFound {
+			// create a new store state
+			klog.Infof("[metacache] checkpoint %v doesn't exist, create it", mc.checkpointName, err)
+			return mc.storeState()
+		} else if err == errors.ErrCorruptCheckpoint {
+			if !mc.skipStateCorruption {
+				return err
+			}
+
+			foundAndSkippedStateCorruption = true
+		} else {
+			return err
+		}
 	}
 
 	mc.podEntries = checkpoint.PodEntries
 	mc.poolEntries = checkpoint.PoolEntries
 	mc.regionEntries = checkpoint.RegionEntries
+
+	if foundAndSkippedStateCorruption {
+		klog.Infof("[metacache] checkpoint %v recovery corrupt, create it", mc.checkpointName)
+		return mc.storeState()
+	}
 
 	klog.Infof("[metacache] restore state succeeded")
 
