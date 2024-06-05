@@ -18,6 +18,7 @@ package machine
 
 import (
 	"fmt"
+	"math"
 
 	info "github.com/google/cadvisor/info/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -25,6 +26,7 @@ import (
 	"k8s.io/klog/v2"
 
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/global"
+	"github.com/kubewharf/katalyst-core/pkg/util/general"
 )
 
 // NUMANodeInfo is a map from NUMANode ID to a list of
@@ -525,12 +527,19 @@ func GetSiblingNumaInfo(conf *global.MachineInfoConfiguration,
 
 	for numaID, distanceMap := range numaDistanceMap {
 		var selfNumaDistance int
+		// calculate self NUMA distance and the minimum cross-NUMA distance.
+		minCrossNumaDistance := math.MaxInt
 		for _, distance := range distanceMap {
 			if distance.NumaID == numaID {
 				selfNumaDistance = distance.Distance
-				break
+			} else {
+				minCrossNumaDistance = general.Min(distance.Distance, minCrossNumaDistance)
 			}
 		}
+		// the sibling NUMA distance must be no smaller than the distance to itself
+		// and no larger than the minimum cross-NUMA distance.
+		siblingNumaDistance := general.Min(general.Max(selfNumaDistance, conf.SiblingNumaMaxDistance),
+			minCrossNumaDistance)
 
 		siblingSet := sets.NewInt()
 		for _, distance := range distanceMap {
@@ -538,9 +547,9 @@ func GetSiblingNumaInfo(conf *global.MachineInfoConfiguration,
 				continue
 			}
 
-			// the distance between two different NUMAs is equal to the distance between
-			// it and itself are siblings each other
-			if distance.Distance == selfNumaDistance {
+			// the distance between two different NUMAs is equal to the sibling
+			// numa distance
+			if distance.Distance == siblingNumaDistance {
 				siblingSet.Insert(distance.NumaID)
 			}
 		}

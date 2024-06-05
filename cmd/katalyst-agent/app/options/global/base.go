@@ -69,6 +69,7 @@ type BaseOptions struct {
 	// configurations for machine-info
 	MachineNetMultipleNS                             bool
 	MachineNetNSDirAbsPath                           string
+	MachineSiblingNumaMaxDistance                    int
 	MachineSiblingNumaMemoryBandwidthCapacity        resource.QuantityValue
 	MachineSiblingNumaMemoryBandwidthAllocatableRate float64
 }
@@ -143,6 +144,8 @@ func (o *BaseOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 	fs.StringVar(&o.MachineNetNSDirAbsPath, "machine-net-ns-dir", o.MachineNetNSDirAbsPath,
 		"if set as true, we should collect network interfaces from multiple ns")
 
+	fs.IntVar(&o.MachineSiblingNumaMaxDistance, "machine-sibling-numa-max-distance", o.MachineSiblingNumaMaxDistance,
+		"The maximum distance between sibling NUMA nodes. If not set, the maximum distance defaults to the distance to itself.")
 	fs.Var(&o.MachineSiblingNumaMemoryBandwidthCapacity, "machine-sibling-numa-memory-bandwidth-capacity",
 		"if set the sibling numa memory bandwidth capacity, the per memory bandwidth capacity and allocatable will be reported to numa zone of cnr")
 	fs.Float64Var(&o.MachineSiblingNumaMemoryBandwidthAllocatableRate, "machine-sibling-numa-memory-bandwidth-allocatable-rate", o.MachineSiblingNumaMemoryBandwidthAllocatableRate,
@@ -163,6 +166,7 @@ func (o *BaseOptions) ApplyTo(c *global.BaseConfiguration) error {
 
 	c.NetMultipleNS = o.MachineNetMultipleNS
 	c.NetNSDirAbsPath = o.MachineNetNSDirAbsPath
+	c.SiblingNumaMaxDistance = o.MachineSiblingNumaMaxDistance
 	c.SiblingNumaMemoryBandwidthCapacity = o.MachineSiblingNumaMemoryBandwidthCapacity.Quantity.Value()
 	c.SiblingNumaMemoryBandwidthAllocatableRate = o.MachineSiblingNumaMemoryBandwidthAllocatableRate
 

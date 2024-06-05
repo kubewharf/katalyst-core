@@ -326,6 +326,426 @@ func TestGetSiblingNumaInfo(t *testing.T) {
 				},
 			},
 		},
+		{
+			name: "test for with sibling with 3 level distance larger than 10",
+			args: args{
+				conf: &global.MachineInfoConfiguration{
+					SiblingNumaMemoryBandwidthAllocatableRate: 0.8,
+					SiblingNumaMaxDistance:                    11,
+					SiblingNumaMemoryBandwidthCapacity:        10,
+				},
+				numaDistanceMap: map[int][]NumaDistanceInfo{
+					0: {
+						{
+							NumaID:   0,
+							Distance: 10,
+						},
+						{
+							NumaID:   1,
+							Distance: 11,
+						},
+						{
+							NumaID:   2,
+							Distance: 32,
+						},
+						{
+							NumaID:   3,
+							Distance: 32,
+						},
+					},
+					1: {
+						{
+							NumaID:   0,
+							Distance: 11,
+						},
+						{
+							NumaID:   1,
+							Distance: 10,
+						},
+						{
+							NumaID:   2,
+							Distance: 32,
+						},
+						{
+							NumaID:   3,
+							Distance: 32,
+						},
+					},
+					2: {
+						{
+							NumaID:   0,
+							Distance: 32,
+						},
+						{
+							NumaID:   1,
+							Distance: 32,
+						},
+						{
+							NumaID:   2,
+							Distance: 10,
+						},
+						{
+							NumaID:   3,
+							Distance: 11,
+						},
+					},
+					3: {
+						{
+							NumaID:   0,
+							Distance: 32,
+						},
+						{
+							NumaID:   1,
+							Distance: 32,
+						},
+						{
+							NumaID:   2,
+							Distance: 11,
+						},
+						{
+							NumaID:   3,
+							Distance: 10,
+						},
+					},
+				},
+			},
+			want: &SiblingNumaInfo{
+				SiblingNumaMap: map[int]sets.Int{
+					0: sets.NewInt(1),
+					1: sets.NewInt(0),
+					2: sets.NewInt(3),
+					3: sets.NewInt(2),
+				},
+				SiblingNumaAvgMBWCapacityMap: map[int]int64{
+					0: 5,
+					1: 5,
+					2: 5,
+					3: 5,
+				},
+				SiblingNumaAvgMBWAllocatableMap: map[int]int64{
+					0: 4,
+					1: 4,
+					2: 4,
+					3: 4,
+				},
+			},
+		},
+		{
+			name: "test for with sibling with 4 level distance larger than 10",
+			args: args{
+				conf: &global.MachineInfoConfiguration{
+					SiblingNumaMemoryBandwidthAllocatableRate: 0.8,
+					SiblingNumaMaxDistance:                    12,
+					SiblingNumaMemoryBandwidthCapacity:        10,
+				},
+				numaDistanceMap: map[int][]NumaDistanceInfo{
+					0: {
+						{
+							NumaID:   0,
+							Distance: 10,
+						},
+						{
+							NumaID:   1,
+							Distance: 11,
+						},
+						{
+							NumaID:   2,
+							Distance: 12,
+						},
+						{
+							NumaID:   3,
+							Distance: 12,
+						},
+						{
+							NumaID:   4,
+							Distance: 32,
+						},
+						{
+							NumaID:   5,
+							Distance: 32,
+						},
+						{
+							NumaID:   6,
+							Distance: 32,
+						},
+						{
+							NumaID:   7,
+							Distance: 32,
+						},
+					},
+					1: {
+						{
+							NumaID:   0,
+							Distance: 11,
+						},
+						{
+							NumaID:   1,
+							Distance: 10,
+						},
+						{
+							NumaID:   2,
+							Distance: 12,
+						},
+						{
+							NumaID:   3,
+							Distance: 12,
+						},
+						{
+							NumaID:   4,
+							Distance: 32,
+						},
+						{
+							NumaID:   5,
+							Distance: 32,
+						},
+						{
+							NumaID:   6,
+							Distance: 32,
+						},
+						{
+							NumaID:   7,
+							Distance: 32,
+						},
+					},
+					2: {
+						{
+							NumaID:   0,
+							Distance: 12,
+						},
+						{
+							NumaID:   1,
+							Distance: 12,
+						},
+						{
+							NumaID:   2,
+							Distance: 10,
+						},
+						{
+							NumaID:   3,
+							Distance: 11,
+						},
+						{
+							NumaID:   4,
+							Distance: 32,
+						},
+						{
+							NumaID:   5,
+							Distance: 32,
+						},
+						{
+							NumaID:   6,
+							Distance: 32,
+						},
+						{
+							NumaID:   7,
+							Distance: 32,
+						},
+					},
+					3: {
+						{
+							NumaID:   0,
+							Distance: 12,
+						},
+						{
+							NumaID:   1,
+							Distance: 12,
+						},
+						{
+							NumaID:   2,
+							Distance: 11,
+						},
+						{
+							NumaID:   3,
+							Distance: 10,
+						},
+						{
+							NumaID:   4,
+							Distance: 32,
+						},
+						{
+							NumaID:   5,
+							Distance: 32,
+						},
+						{
+							NumaID:   6,
+							Distance: 32,
+						},
+						{
+							NumaID:   7,
+							Distance: 32,
+						},
+					},
+					4: {
+						{
+							NumaID:   0,
+							Distance: 32,
+						},
+						{
+							NumaID:   1,
+							Distance: 32,
+						},
+						{
+							NumaID:   2,
+							Distance: 32,
+						},
+						{
+							NumaID:   3,
+							Distance: 32,
+						},
+						{
+							NumaID:   4,
+							Distance: 10,
+						},
+						{
+							NumaID:   5,
+							Distance: 11,
+						},
+						{
+							NumaID:   6,
+							Distance: 12,
+						},
+						{
+							NumaID:   7,
+							Distance: 12,
+						},
+					},
+					5: {
+						{
+							NumaID:   0,
+							Distance: 32,
+						},
+						{
+							NumaID:   1,
+							Distance: 32,
+						},
+						{
+							NumaID:   2,
+							Distance: 32,
+						},
+						{
+							NumaID:   3,
+							Distance: 32,
+						},
+						{
+							NumaID:   4,
+							Distance: 11,
+						},
+						{
+							NumaID:   5,
+							Distance: 10,
+						},
+						{
+							NumaID:   6,
+							Distance: 12,
+						},
+						{
+							NumaID:   7,
+							Distance: 12,
+						},
+					},
+					6: {
+						{
+							NumaID:   0,
+							Distance: 32,
+						},
+						{
+							NumaID:   1,
+							Distance: 32,
+						},
+						{
+							NumaID:   2,
+							Distance: 32,
+						},
+						{
+							NumaID:   3,
+							Distance: 32,
+						},
+						{
+							NumaID:   4,
+							Distance: 12,
+						},
+						{
+							NumaID:   5,
+							Distance: 12,
+						},
+						{
+							NumaID:   6,
+							Distance: 10,
+						},
+						{
+							NumaID:   7,
+							Distance: 11,
+						},
+					},
+					7: {
+						{
+							NumaID:   0,
+							Distance: 32,
+						},
+						{
+							NumaID:   1,
+							Distance: 32,
+						},
+						{
+							NumaID:   2,
+							Distance: 32,
+						},
+						{
+							NumaID:   3,
+							Distance: 32,
+						},
+						{
+							NumaID:   4,
+							Distance: 12,
+						},
+						{
+							NumaID:   5,
+							Distance: 12,
+						},
+						{
+							NumaID:   6,
+							Distance: 11,
+						},
+						{
+							NumaID:   7,
+							Distance: 11,
+						},
+					},
+				},
+			},
+			want: &SiblingNumaInfo{
+				SiblingNumaMap: map[int]sets.Int{
+					0: sets.NewInt(1),
+					1: sets.NewInt(0),
+					2: sets.NewInt(3),
+					3: sets.NewInt(2),
+					4: sets.NewInt(5),
+					5: sets.NewInt(4),
+					6: sets.NewInt(7),
+					7: sets.NewInt(6),
+				},
+				SiblingNumaAvgMBWCapacityMap: map[int]int64{
+					0: 5,
+					1: 5,
+					2: 5,
+					3: 5,
+					4: 5,
+					5: 5,
+					6: 5,
+					7: 5,
+				},
+				SiblingNumaAvgMBWAllocatableMap: map[int]int64{
+					0: 4,
+					1: 4,
+					2: 4,
+					3: 4,
+					4: 4,
+					5: 4,
+					6: 4,
+					7: 4,
+				},
+			},
+		},
 	}
 	for _, tt := range tests {
 		tt := tt
