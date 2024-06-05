@@ -78,6 +78,8 @@ type QoSRegion interface {
 	GetStatus() types.RegionStatus
 	// GetControlEssentials returns the latest control essentials
 	GetControlEssentials() types.ControlEssentials
+
+	EnableReclaim() bool
 }
 
 // GetRegionBasicMetricTags returns metric tag slice of region info and status
@@ -86,6 +88,7 @@ func GetRegionBasicMetricTags(r QoSRegion) []metrics.MetricTag {
 	headroomPolicyPrior, headroomPolicyInUse := r.GetHeadRoomPolicy()
 
 	tags := []metrics.MetricTag{
+		{Key: "containers", Val: r.GetPods().String()},
 		{Key: "region_name", Val: r.Name()},
 		{Key: "region_type", Val: string(r.Type())},
 		{Key: "owner_pool_name", Val: r.OwnerPoolName()},

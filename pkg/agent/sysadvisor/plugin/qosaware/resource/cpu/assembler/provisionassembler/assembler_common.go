@@ -17,8 +17,7 @@ limitations under the License.
 package provisionassembler
 
 import (
-	"context"
-	"fmt"
+	"math"
 	"time"
 
 	"k8s.io/klog/v2"
@@ -27,13 +26,20 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource/cpu/region"
-	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource/helper"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
+)
+
+const (
+	minShrinkInterval = time.Second * 20
+	minShrinkStep     = 4
+	minExpandStep     = 2
+
+	metricNameShrinkRegionSize = "shrink_region_size"
 )
 
 type ProvisionAssemblerCommon struct {
@@ -46,6 +52,9 @@ type ProvisionAssemblerCommon struct {
 	metaReader metacache.MetaReader
 	metaServer *metaserver.MetaServer
 	emitter    metrics.MetricEmitter
+
+	lastResult *types.InternalCPUCalculationResult
+	lastShrink time.Time
 }
 
 func NewProvisionAssemblerCommon(conf *config.Configuration, _ interface{}, regionMap *map[string]region.QoSRegion,
@@ -84,6 +93,9 @@ func (pa *ProvisionAssemblerCommon) AssembleProvision() (types.InternalCPUCalcul
 	isolationUpperSizes := make(map[string]int)
 	isolationLowerSizes := make(map[string]int)
 
+	needShrinkRemoteReclaimCores := false
+	reservedForReclaims := map[int]int{}
+
 	for _, r := range *pa.regionMap {
 		controlKnob, err := r.GetProvision()
 		if err != nil {
@@ -108,19 +120,10 @@ func (pa *ProvisionAssemblerCommon) AssembleProvision() (types.InternalCPUCalcul
 			regionNuma := r.GetBindingNumas().ToSliceInt()[0] // always one binding numa for this type of region
 			reservedForReclaim := pa.getNumasReservedForReclaim(r.GetBindingNumas())
 
-			podSet := r.GetPods()
-			if podSet.Pods() != 1 {
-				return types.InternalCPUCalculationResult{}, fmt.Errorf("more than one pod are assgined to numa exclusive region: %v", podSet)
-			}
-			podUID, _, _ := podSet.PopAny()
-
-			enableReclaim, err := helper.PodEnableReclaim(context.Background(), pa.metaServer, podUID, nodeEnableReclaim)
-			if err != nil {
-				return types.InternalCPUCalculationResult{}, err
-			}
+			reservedForReclaims[regionNuma] = reservedForReclaim
 
 			// fill in reclaim pool entry for dedicated numa exclusive regions
-			if !enableReclaim {
+			if !r.EnableReclaim() {
 				if reservedForReclaim > 0 {
 					calculationResult.SetPoolEntry(state.PoolNameReclaim, regionNuma, reservedForReclaim)
 				}
@@ -133,6 +136,11 @@ func (pa *ProvisionAssemblerCommon) AssembleProvision() (types.InternalCPUCalcul
 
 				klog.InfoS("assemble info", "regionName", r.Name(), "reclaimed", reclaimed,
 					"available", available, "nonReclaimRequirement", nonReclaimRequirement, "reservedForReclaim", reservedForReclaim)
+				if r.GetStatus().BoundType == types.BoundUpper {
+					general.InfoS("region is in status of BoundUpper, need to shrink remote reclaim pool",
+						"name", r.Name(), "numas", r.GetBindingNumas().String())
+					needShrinkRemoteReclaimCores = true
+				}
 			}
 		}
 	}
@@ -170,6 +178,52 @@ func (pa *ProvisionAssemblerCommon) AssembleProvision() (types.InternalCPUCalcul
 		reclaimPoolSizeOfNonBindingNumas = pa.getNumasReservedForReclaim(*pa.nonBindingNumas)
 	}
 	calculationResult.SetPoolEntry(state.PoolNameReclaim, cpuadvisor.FakedNUMAID, reclaimPoolSizeOfNonBindingNumas)
+	reservedForReclaims[cpuadvisor.FakedNUMAID] = pa.getNumasReservedForReclaim(*pa.nonBindingNumas)
+
+	if needShrinkRemoteReclaimCores && pa.lastResult != nil {
+		now := time.Now()
+		lastReclaimPools := pa.lastResult.PoolEntries[state.PoolNameReclaim]
+		if now.After(pa.lastShrink.Add(minShrinkInterval)) {
+			for numaID, lastReclaimPoolSize := range lastReclaimPools {
+				calculatedSize, ok := calculationResult.GetPoolEntry(state.PoolNameReclaim, numaID)
+				if !ok {
+					calculatedSize = math.MaxInt
+				}
+				reclaimPoolSize := general.ClampInt(lastReclaimPoolSize-minShrinkStep, reservedForReclaims[numaID], calculatedSize)
+				calculationResult.SetPoolEntry(state.PoolNameReclaim, numaID, reclaimPoolSize)
+				general.InfoS("shrink to do", "numa", numaID, "lastReclaimPoolSize", lastReclaimPoolSize, "reservedForReclaims", reservedForReclaims[numaID], "calculatedSize", calculatedSize, "reclaimPoolSize", reclaimPoolSize)
+				_ = pa.emitter.StoreInt64(metricNameShrinkRegionSize, int64(calculatedSize-reclaimPoolSize), metrics.MetricTypeNameRaw)
+			}
+			pa.lastShrink = now
+		} else {
+			for numaID, lastReclaimPoolSize := range lastReclaimPools {
+				calculatedSize, ok := calculationResult.GetPoolEntry(state.PoolNameReclaim, numaID)
+				if !ok {
+					calculatedSize = math.MaxInt
+				}
+				reclaimPoolSize := general.Min(lastReclaimPoolSize, calculatedSize)
+				calculationResult.SetPoolEntry(state.PoolNameReclaim, numaID, reclaimPoolSize)
+				general.InfoS("shrink to hold", "numa", numaID, "lastReclaimPoolSize", lastReclaimPoolSize, "reservedForReclaims", reservedForReclaims[numaID], "calculatedSize", calculatedSize, "reclaimPoolSize", reclaimPoolSize)
+				_ = pa.emitter.StoreInt64(metricNameShrinkRegionSize, int64(calculatedSize-reclaimPoolSize), metrics.MetricTypeNameRaw)
+			}
+		}
+	}
+
+	reclaimPoolSizes := calculationResult.PoolEntries[state.PoolNameReclaim]
+	for numaID, size := range reclaimPoolSizes {
+		if pa.lastResult != nil {
+			laseSize, ok := pa.lastResult.GetPoolEntry(state.PoolNameReclaim, numaID)
+			if !ok {
+				laseSize = 0
+			}
+			if size-laseSize > minExpandStep {
+				calculationResult.SetPoolEntry(state.PoolNameReclaim, numaID, laseSize+minExpandStep)
+				general.InfoS("expand throttled", "numa", numaID, "laseSize", laseSize, "size", size)
+			}
+		}
+	}
+
+	pa.lastResult = &calculationResult
 
 	return calculationResult, nil
 }
