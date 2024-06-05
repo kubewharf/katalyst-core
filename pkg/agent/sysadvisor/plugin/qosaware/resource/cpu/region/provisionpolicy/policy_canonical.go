@@ -106,7 +106,13 @@ func (p *PolicyCanonical) estimateCPUUsage() (float64, error) {
 			}
 
 			var containerEstimation float64 = 0
-			if ci.IsNumaBinding() && !enableReclaim {
+			if ci.IsNumaBinding() && !ci.IsNumaExclusive() {
+				if ci.ContainerType == v1alpha1.ContainerType_MAIN {
+					containerEstimation += ci.CPURequest
+				} else {
+					containerEstimation = 0
+				}
+			} else if ci.IsNumaBinding() && !enableReclaim {
 				if ci.ContainerType == v1alpha1.ContainerType_MAIN {
 					bindingNumas := machine.GetCPUAssignmentNUMAs(ci.TopologyAwareAssignments)
 					for range bindingNumas.ToSliceInt() {

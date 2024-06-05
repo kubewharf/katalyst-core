@@ -26,6 +26,7 @@ import (
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/status"
+	"k8s.io/klog/v2"
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 	maputil "k8s.io/kubernetes/pkg/util/maps"
 
@@ -36,10 +37,12 @@ import (
 	advisorapi "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/cpuadvisor"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util"
+	"github.com/kubewharf/katalyst-core/pkg/config/generic"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 	"github.com/kubewharf/katalyst-core/pkg/util/process"
+	"github.com/kubewharf/katalyst-core/pkg/util/qos"
 )
 
 const (
@@ -284,7 +287,7 @@ func (p *DynamicPolicy) allocateByCPUAdvisor(resp *advisorapi.ListAndWatchRespon
 
 // generateBlockCPUSet generates BlockCPUSet from cpu-advisor response
 // and the logic contains three main steps
-//  1. handle blocks for static pools
+//  1. handle blocks for static pools and pods(dedicated_cores with numa_binding without numa_exclusive)
 //  2. handle blocks with specified NUMA ids (probably be blocks for
 //     numa_binding dedicated_cores containers and reclaimed_cores containers colocated with them)
 //  3. handle blocks without specified NUMA id (probably be blocks for
@@ -320,6 +323,44 @@ func (p *DynamicPolicy) generateBlockCPUSet(resp *advisorapi.ListAndWatchRespons
 		blockID := blocks[0].BlockId
 		blockCPUSet[blockID] = allocationInfo.AllocationResult.Clone()
 		availableCPUs = availableCPUs.Difference(blockCPUSet[blockID])
+	}
+
+	// walk through static pods to reuse cpuset if exists.
+	qosConf := generic.NewQoSConfiguration()
+	for podUID, containerEntries := range p.state.GetPodEntries() {
+		if containerEntries.IsPoolEntry() {
+			continue
+		}
+		if containerEntries.GetMainContainerEntry().QoSLevel != consts.PodAnnotationQoSLevelDedicatedCores {
+			continue
+		}
+		pod, err := p.metaServer.GetPod(context.Background(), podUID)
+		if err != nil {
+			err = fmt.Errorf("getPod %s fail: %v", podUID, err)
+			return nil, err
+		}
+		if !qos.IsPodNumaBinding(qosConf, pod) {
+			continue
+		}
+		if qos.IsPodNumaExclusive(qosConf, pod) {
+			continue
+		}
+
+		for containerName, allocationInfo := range containerEntries {
+			for numaID, cpuset := range allocationInfo.TopologyAwareAssignments {
+				blocks, ok := resp.GeEntryNUMABlocks(podUID, containerName, int64(numaID))
+				if !ok || len(blocks) != 1 {
+					klog.Error(err)
+					return nil, fmt.Errorf("blocks of pod %v container %v numaID %v is invalid", pod.Name, containerName, numaID)
+				}
+
+				blockID := blocks[0].BlockId
+				blockCPUSet[blockID] = cpuset.Clone()
+				availableCPUs = availableCPUs.Difference(blockCPUSet[blockID])
+
+				klog.V(6).Infof("pod %v container %v numaId %v reuse cpuset %v", pod.Name, containerName, numaID, blockCPUSet[blockID])
+			}
+		}
 	}
 
 	// walk through all blocks with specified NUMA ids

@@ -183,6 +183,22 @@ func (cra *cpuResourceAdvisor) getRegionMaxRequirement(r region.QoSRegion) float
 			return true
 		})
 		res = general.MaxFloat64(1, res)
+
+	case types.QoSRegionTypeDedicatedNumaExclusive:
+		dr := r.(*region.QoSRegionDedicatedNumaExclusive)
+		if !dr.IsNumaExclusive() {
+			request, err := dr.GetRegionRequest()
+			if err != nil {
+				klog.Errorf("region %v GetRegionRequest fail: %v, use MinDedicatedCPURequirement %v instead",
+					r.Name(), err, types.MinDedicatedCPURequirement)
+				res = types.MinDedicatedCPURequirement
+			} else {
+				res = request
+			}
+			return res
+		}
+		fallthrough
+
 	default:
 		for _, numaID := range r.GetBindingNumas().ToSliceInt() {
 			res += float64(cra.numaAvailable[numaID])
@@ -208,7 +224,18 @@ func (cra *cpuResourceAdvisor) getRegionMinRequirement(r region.QoSRegion) float
 		res = general.MaxFloat64(1, res)
 		return res
 	case types.QoSRegionTypeDedicatedNumaExclusive:
-		return types.MinDedicatedCPURequirement
+		dr := r.(*region.QoSRegionDedicatedNumaExclusive)
+		if dr.IsNumaExclusive() {
+			return types.MinDedicatedCPURequirement
+		} else {
+			request, err := dr.GetRegionRequest()
+			if err != nil {
+				klog.Errorf("region %v GetRegionRequest fail: %v, use MinDedicatedCPURequirement %v instead",
+					r.Name(), err, types.MinDedicatedCPURequirement)
+				return types.MinDedicatedCPURequirement
+			}
+			return request
+		}
 	default:
 		klog.Errorf("[qosaware-cpu] unknown region type %v", r.Type())
 		return 0.0

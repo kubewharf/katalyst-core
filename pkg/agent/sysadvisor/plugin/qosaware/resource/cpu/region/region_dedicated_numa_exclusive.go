@@ -47,6 +47,8 @@ const (
 
 type QoSRegionDedicatedNumaExclusive struct {
 	*QoSRegionBase
+
+	isNumaExclusive bool
 }
 
 // NewQoSRegionDedicatedNumaExclusive returns a region instance for dedicated cores
@@ -68,6 +70,7 @@ func NewQoSRegionDedicatedNumaExclusive(ci *types.ContainerInfo, conf *config.Co
 	}
 	r.enableReclaim = r.EnableReclaim
 
+	r.isNumaExclusive = ci.IsNumaExclusive()
 	return r
 }
 
@@ -174,13 +177,27 @@ out:
 }
 
 func (r *QoSRegionDedicatedNumaExclusive) getControlKnobs() types.ControlKnob {
-	reclaimedCPUSize := 0
-	if reclaimedInfo, ok := r.metaReader.GetPoolInfo(state.PoolNameReclaim); ok {
-		for _, numaID := range r.bindingNumas.ToSliceInt() {
-			reclaimedCPUSize += reclaimedInfo.TopologyAwareAssignments[numaID].Size()
+	var (
+		cpuRequirement float64
+		err            error
+	)
+
+	if r.isNumaExclusive {
+		reclaimedCPUSize := 0
+		if reclaimedInfo, ok := r.metaReader.GetPoolInfo(state.PoolNameReclaim); ok {
+			for _, numaID := range r.bindingNumas.ToSliceInt() {
+				reclaimedCPUSize += reclaimedInfo.TopologyAwareAssignments[numaID].Size()
+			}
+		}
+		cpuRequirement = r.ResourceUpperBound + r.ReservedForReclaim - float64(reclaimedCPUSize)
+	} else {
+		cpuRequirement, err = r.GetRegionRequest()
+		if err != nil {
+			// dedicated without numaExclusive region has a static estimation limited by min and max requirement
+			// just log and skip error here.
+			klog.Errorf("region %v GetRegionRequest fail: %v", r.name, err)
 		}
 	}
-	cpuRequirement := r.ResourceUpperBound + r.ReservedForReclaim - float64(reclaimedCPUSize)
 
 	return types.ControlKnob{
 		types.ControlKnobNonReclaimedCPUSize: {
@@ -216,4 +233,28 @@ func (r *QoSRegionDedicatedNumaExclusive) getPodCPICurrent() (float64, error) {
 	}
 
 	return cpiSum / containerCnt, nil
+}
+
+func (r *QoSRegionDedicatedNumaExclusive) IsNumaExclusive() bool {
+	return r.isNumaExclusive
+}
+
+func (r *QoSRegionDedicatedNumaExclusive) GetRegionRequest() (float64, error) {
+	var res float64
+
+	for podUID, containerSet := range r.podSet {
+		for containerName := range containerSet {
+			ci, ok := r.metaReader.GetContainerInfo(podUID, containerName)
+			if !ok || ci == nil {
+				err := fmt.Errorf("[qosaware-cpu] illegal container info of %v/%v", podUID, containerName)
+				return res, err
+			}
+			if ci.ContainerType == v1alpha1.ContainerType_MAIN {
+				res = ci.CPURequest
+				break
+			}
+		}
+	}
+
+	return res, nil
 }

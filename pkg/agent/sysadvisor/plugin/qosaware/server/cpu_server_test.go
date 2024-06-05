@@ -393,7 +393,8 @@ func TestCPUServerListAndWatch(t *testing.T) {
 						PodUid:        "pod1",
 						ContainerName: "c1",
 						Annotations: map[string]string{
-							consts.PodAnnotationMemoryEnhancementNumaBinding: consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
+							consts.PodAnnotationMemoryEnhancementNumaBinding:   consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
+							consts.PodAnnotationMemoryEnhancementNumaExclusive: consts.PodAnnotationMemoryEnhancementNumaExclusiveEnable,
 						},
 						QosLevel: consts.PodAnnotationQoSLevelDedicatedCores,
 					},
@@ -404,7 +405,7 @@ func TestCPUServerListAndWatch(t *testing.T) {
 							UID:       "pod1",
 							Annotations: map[string]string{
 								consts.PodAnnotationQoSLevelKey:          consts.PodAnnotationQoSLevelDedicatedCores,
-								consts.PodAnnotationMemoryEnhancementKey: "{\"numa_exclusive\":true}",
+								consts.PodAnnotationMemoryEnhancementKey: "{\"numa_exclusive\":true,\"numa_binding\":true}",
 							},
 						},
 						Spec: v1.PodSpec{
@@ -524,7 +525,8 @@ func TestCPUServerListAndWatch(t *testing.T) {
 						PodUid:        "pod1",
 						ContainerName: "c1",
 						Annotations: map[string]string{
-							consts.PodAnnotationMemoryEnhancementNumaBinding: consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
+							consts.PodAnnotationMemoryEnhancementNumaBinding:   consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
+							consts.PodAnnotationMemoryEnhancementNumaExclusive: consts.PodAnnotationMemoryEnhancementNumaExclusiveEnable,
 						},
 						QosLevel: consts.PodAnnotationQoSLevelDedicatedCores,
 					},
@@ -535,7 +537,7 @@ func TestCPUServerListAndWatch(t *testing.T) {
 							UID:       "pod1",
 							Annotations: map[string]string{
 								consts.PodAnnotationQoSLevelKey:          consts.PodAnnotationQoSLevelDedicatedCores,
-								consts.PodAnnotationMemoryEnhancementKey: "{\"numa_exclusive\":true}",
+								consts.PodAnnotationMemoryEnhancementKey: "{\"numa_exclusive\":true,\"numa_binding\":true}",
 							},
 						},
 						Spec: v1.PodSpec{
@@ -559,7 +561,8 @@ func TestCPUServerListAndWatch(t *testing.T) {
 						PodUid:        "pod1",
 						ContainerName: "c2",
 						Annotations: map[string]string{
-							consts.PodAnnotationMemoryEnhancementNumaBinding: consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
+							consts.PodAnnotationMemoryEnhancementNumaBinding:   consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
+							consts.PodAnnotationMemoryEnhancementNumaExclusive: consts.PodAnnotationMemoryEnhancementNumaExclusiveEnable,
 						},
 						QosLevel: consts.PodAnnotationQoSLevelDedicatedCores,
 					},
@@ -570,7 +573,7 @@ func TestCPUServerListAndWatch(t *testing.T) {
 							UID:       "pod1",
 							Annotations: map[string]string{
 								consts.PodAnnotationQoSLevelKey:          consts.PodAnnotationQoSLevelDedicatedCores,
-								consts.PodAnnotationMemoryEnhancementKey: "{\"numa_exclusive\":true}",
+								consts.PodAnnotationMemoryEnhancementKey: "{\"numa_exclusive\":true,\"numa_binding\":true}",
 							},
 						},
 						Spec: v1.PodSpec{
@@ -767,7 +770,8 @@ func TestCPUServerListAndWatch(t *testing.T) {
 						PodUid:        "pod1",
 						ContainerName: "c1",
 						Annotations: map[string]string{
-							consts.PodAnnotationMemoryEnhancementNumaBinding: consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
+							consts.PodAnnotationMemoryEnhancementNumaBinding:   consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
+							consts.PodAnnotationMemoryEnhancementNumaExclusive: consts.PodAnnotationMemoryEnhancementNumaExclusiveEnable,
 						},
 						QosLevel: consts.PodAnnotationQoSLevelDedicatedCores,
 					},
@@ -778,7 +782,7 @@ func TestCPUServerListAndWatch(t *testing.T) {
 							UID:       "pod1",
 							Annotations: map[string]string{
 								consts.PodAnnotationQoSLevelKey:          consts.PodAnnotationQoSLevelDedicatedCores,
-								consts.PodAnnotationMemoryEnhancementKey: "{\"numa_exclusive\":true}",
+								consts.PodAnnotationMemoryEnhancementKey: "{\"numa_exclusive\":true,\"numa_binding\":true}",
 							},
 						},
 						Spec: v1.PodSpec{
@@ -802,7 +806,8 @@ func TestCPUServerListAndWatch(t *testing.T) {
 						PodUid:        "pod1",
 						ContainerName: "c2",
 						Annotations: map[string]string{
-							consts.PodAnnotationMemoryEnhancementNumaBinding: consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
+							consts.PodAnnotationMemoryEnhancementNumaBinding:   consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
+							consts.PodAnnotationMemoryEnhancementNumaExclusive: consts.PodAnnotationMemoryEnhancementNumaExclusiveEnable,
 						},
 						QosLevel: consts.PodAnnotationQoSLevelDedicatedCores,
 					},
@@ -813,7 +818,7 @@ func TestCPUServerListAndWatch(t *testing.T) {
 							UID:       "pod1",
 							Annotations: map[string]string{
 								consts.PodAnnotationQoSLevelKey:          consts.PodAnnotationQoSLevelDedicatedCores,
-								consts.PodAnnotationMemoryEnhancementKey: "{\"numa_exclusive\":true}",
+								consts.PodAnnotationMemoryEnhancementKey: "{\"numa_exclusive\":true,\"numa_binding\":true}",
 							},
 						},
 						Spec: v1.PodSpec{
@@ -837,7 +842,8 @@ func TestCPUServerListAndWatch(t *testing.T) {
 						PodUid:        "pod1",
 						ContainerName: "c3",
 						Annotations: map[string]string{
-							consts.PodAnnotationMemoryEnhancementNumaBinding: consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
+							consts.PodAnnotationMemoryEnhancementNumaBinding:   consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
+							consts.PodAnnotationMemoryEnhancementNumaExclusive: consts.PodAnnotationMemoryEnhancementNumaExclusiveEnable,
 						},
 						QosLevel: consts.PodAnnotationQoSLevelDedicatedCores,
 					},
@@ -848,7 +854,7 @@ func TestCPUServerListAndWatch(t *testing.T) {
 							UID:       "pod1",
 							Annotations: map[string]string{
 								consts.PodAnnotationQoSLevelKey:          consts.PodAnnotationQoSLevelDedicatedCores,
-								consts.PodAnnotationMemoryEnhancementKey: "{\"numa_exclusive\":true}",
+								consts.PodAnnotationMemoryEnhancementKey: "{\"numa_exclusive\":true,\"numa_binding\":true}",
 							},
 						},
 						Spec: v1.PodSpec{

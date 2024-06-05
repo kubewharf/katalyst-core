@@ -2539,3 +2539,110 @@ func TestGetSocketTopology(t *testing.T) {
 		as.Equalf(tc.expectedSocketTopology, actualSocketToplogy, "failed in test case: %s", tc.description)
 	}
 }
+
+func TestCheckNUMAExclusive(t *testing.T) {
+	t.Parallel()
+
+	ai := &AllocationInfo{
+		Annotations: map[string]string{
+			consts.PodAnnotationMemoryEnhancementNumaExclusive: consts.PodAnnotationMemoryEnhancementNumaExclusiveEnable,
+		},
+	}
+	assert.True(t, CheckNUMAExclusive(ai))
+
+	ai = &AllocationInfo{
+		Annotations: map[string]string{
+			consts.PodAnnotationMemoryEnhancementNumaExclusive: "",
+		},
+	}
+	assert.False(t, CheckNUMAExclusive(ai))
+
+	ai = &AllocationInfo{
+		Annotations: map[string]string{
+			consts.PodAnnotationMemoryEnhancementNumaBinding: consts.PodAnnotationMemoryEnhancementNumaExclusiveEnable,
+		},
+	}
+	assert.False(t, CheckNUMAExclusive(ai))
+}
+
+func TestCheckDedicatedNUMABindingWithNUMAExclusive(t *testing.T) {
+	t.Parallel()
+
+	ai := &AllocationInfo{
+		Annotations: map[string]string{
+			consts.PodAnnotationMemoryEnhancementNumaExclusive: consts.PodAnnotationMemoryEnhancementNumaExclusiveEnable,
+			consts.PodAnnotationMemoryEnhancementNumaBinding:   consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
+		},
+		QoSLevel: consts.PodAnnotationQoSLevelDedicatedCores,
+	}
+	assert.True(t, CheckDedicatedNUMABindingWithNUMAExclusive(ai))
+
+	ai = &AllocationInfo{
+		Annotations: map[string]string{
+			consts.PodAnnotationMemoryEnhancementNumaExclusive: consts.PodAnnotationMemoryEnhancementNumaExclusiveEnable,
+			consts.PodAnnotationMemoryEnhancementNumaBinding:   consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
+		},
+		QoSLevel: consts.PodAnnotationQoSLevelSharedCores,
+	}
+	assert.False(t, CheckDedicatedNUMABindingWithNUMAExclusive(ai))
+}
+
+func TestCheckDedicatedNUMABindingWithoutNUMAExclusive(t *testing.T) {
+	t.Parallel()
+
+	ai := &AllocationInfo{
+		Annotations: map[string]string{
+			consts.PodAnnotationMemoryEnhancementNumaBinding: consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
+		},
+		QoSLevel: consts.PodAnnotationQoSLevelDedicatedCores,
+	}
+	assert.True(t, CheckDedicatedNUMABindingWithoutNUMAExclusive(ai))
+
+	ai = &AllocationInfo{
+		Annotations: map[string]string{
+			consts.PodAnnotationMemoryEnhancementNumaExclusive: consts.PodAnnotationMemoryEnhancementNumaExclusiveEnable,
+			consts.PodAnnotationMemoryEnhancementNumaBinding:   consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
+		},
+		QoSLevel: consts.PodAnnotationQoSLevelDedicatedCores,
+	}
+	assert.False(t, CheckDedicatedNUMABindingWithoutNUMAExclusive(ai))
+
+	ai = &AllocationInfo{
+		Annotations: map[string]string{
+			consts.PodAnnotationMemoryEnhancementNumaBinding: consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
+		},
+		QoSLevel: consts.PodAnnotationQoSLevelSharedCores,
+	}
+	assert.False(t, CheckDedicatedNUMABindingWithoutNUMAExclusive(ai))
+}
+
+func TestGetMatchedAvailableCPUSet(t *testing.T) {
+	t.Parallel()
+
+	ns := map[int]*NUMANodeState{
+		0: {
+			DefaultCPUSet:   machine.NewCPUSet(0, 1, 2, 3, 4, 5, 6, 7),
+			AllocatedCPUSet: machine.NewCPUSet(),
+		},
+		1: {
+			DefaultCPUSet:   machine.NewCPUSet(12, 13, 14, 15),
+			AllocatedCPUSet: machine.NewCPUSet(8, 9, 10, 11),
+			PodEntries: map[string]ContainerEntries{
+				"podUID": map[string]*AllocationInfo{
+					"testContainer": {
+						QoSLevel: consts.PodAnnotationQoSLevelDedicatedCores,
+						Annotations: map[string]string{
+							consts.PodAnnotationMemoryEnhancementNumaBinding: consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
+						},
+						AllocationResult: machine.NewCPUSet(8, 9, 10, 11),
+					},
+				},
+			},
+		},
+	}
+	nm := NUMANodeMap(ns)
+
+	reservedCPUs := machine.NewCPUSet(0, 1)
+	res := nm.GetMatchedAvailableCPUSet(reservedCPUs, CheckDedicatedNUMABindingWithoutNUMAExclusive, CheckDedicatedNUMABindingWithoutNUMAExclusive)
+	assert.True(t, res.Equals(machine.NewCPUSet(12, 13, 14, 15)))
+}

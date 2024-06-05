@@ -432,7 +432,10 @@ func TestAdvisorUpdate(t *testing.T) {
 			},
 			containers: []*types.ContainerInfo{
 				makeContainerInfo("uid1", "default", "pod1", "c1", consts.PodAnnotationQoSLevelDedicatedCores, state.PoolNameDedicated,
-					map[string]string{consts.PodAnnotationMemoryEnhancementNumaBinding: consts.PodAnnotationMemoryEnhancementNumaBindingEnable},
+					map[string]string{
+						consts.PodAnnotationMemoryEnhancementNumaBinding:   consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
+						consts.PodAnnotationMemoryEnhancementNumaExclusive: consts.PodAnnotationMemoryEnhancementNumaExclusiveEnable,
+					},
 					map[int]machine.CPUSet{
 						0: machine.MustParse("1-23,48-71"),
 					}, 36),
@@ -482,7 +485,10 @@ func TestAdvisorUpdate(t *testing.T) {
 			},
 			containers: []*types.ContainerInfo{
 				makeContainerInfo("uid1", "default", "pod1", "c1", consts.PodAnnotationQoSLevelDedicatedCores, state.PoolNameDedicated,
-					map[string]string{consts.PodAnnotationMemoryEnhancementNumaBinding: consts.PodAnnotationMemoryEnhancementNumaBindingEnable},
+					map[string]string{
+						consts.PodAnnotationMemoryEnhancementNumaBinding:   consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
+						consts.PodAnnotationMemoryEnhancementNumaExclusive: consts.PodAnnotationMemoryEnhancementNumaExclusiveEnable,
+					},
 					map[int]machine.CPUSet{
 						0: machine.MustParse("1-23,48-71"),
 					}, 36),
@@ -536,7 +542,10 @@ func TestAdvisorUpdate(t *testing.T) {
 			},
 			containers: []*types.ContainerInfo{
 				makeContainerInfo("uid1", "default", "pod1", "c1", consts.PodAnnotationQoSLevelDedicatedCores, state.PoolNameDedicated,
-					map[string]string{consts.PodAnnotationMemoryEnhancementNumaBinding: consts.PodAnnotationMemoryEnhancementNumaBindingEnable},
+					map[string]string{
+						consts.PodAnnotationMemoryEnhancementNumaBinding:   consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
+						consts.PodAnnotationMemoryEnhancementNumaExclusive: consts.PodAnnotationMemoryEnhancementNumaExclusiveEnable,
+					},
 					map[int]machine.CPUSet{
 						0: machine.MustParse("1-23,48-71"),
 					}, 36),
@@ -590,7 +599,10 @@ func TestAdvisorUpdate(t *testing.T) {
 			},
 			containers: []*types.ContainerInfo{
 				makeContainerInfo("uid1", "default", "pod1", "c1", consts.PodAnnotationQoSLevelDedicatedCores, state.PoolNameDedicated,
-					map[string]string{consts.PodAnnotationMemoryEnhancementNumaBinding: consts.PodAnnotationMemoryEnhancementNumaBindingEnable},
+					map[string]string{
+						consts.PodAnnotationMemoryEnhancementNumaBinding:   consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
+						consts.PodAnnotationMemoryEnhancementNumaExclusive: consts.PodAnnotationMemoryEnhancementNumaExclusiveEnable,
+					},
 					map[int]machine.CPUSet{
 						0: machine.MustParse("1-23,48-71"),
 					}, 36),
@@ -650,7 +662,10 @@ func TestAdvisorUpdate(t *testing.T) {
 			},
 			containers: []*types.ContainerInfo{
 				makeContainerInfo("uid1", "default", "pod1", "c1", consts.PodAnnotationQoSLevelDedicatedCores, state.PoolNameDedicated,
-					map[string]string{consts.PodAnnotationMemoryEnhancementNumaBinding: consts.PodAnnotationMemoryEnhancementNumaBindingEnable},
+					map[string]string{
+						consts.PodAnnotationMemoryEnhancementNumaBinding:   consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
+						consts.PodAnnotationMemoryEnhancementNumaExclusive: consts.PodAnnotationMemoryEnhancementNumaExclusiveEnable,
+					},
 					map[int]machine.CPUSet{
 						0: machine.MustParse("1-23,48-71"),
 					}, 36),
@@ -718,7 +733,10 @@ func TestAdvisorUpdate(t *testing.T) {
 			},
 			containers: []*types.ContainerInfo{
 				makeContainerInfo("uid1", "default", "pod1", "c1", consts.PodAnnotationQoSLevelDedicatedCores, state.PoolNameDedicated,
-					map[string]string{consts.PodAnnotationMemoryEnhancementNumaBinding: consts.PodAnnotationMemoryEnhancementNumaBindingEnable},
+					map[string]string{
+						consts.PodAnnotationMemoryEnhancementNumaBinding:   consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
+						consts.PodAnnotationMemoryEnhancementNumaExclusive: consts.PodAnnotationMemoryEnhancementNumaExclusiveEnable,
+					},
 					map[int]machine.CPUSet{
 						0: machine.MustParse("1-23,48-71"),
 					}, 36),
@@ -1108,6 +1126,57 @@ func TestAdvisorUpdate(t *testing.T) {
 					value:     7,
 				},
 			},
+		},
+		{
+			name: "provision:dedicated_numa_without_exclusive",
+			pools: map[string]*types.PoolInfo{
+				state.PoolNameReserve: {
+					PoolName: state.PoolNameReserve,
+					TopologyAwareAssignments: map[int]machine.CPUSet{
+						0: machine.MustParse("0"),
+						1: machine.MustParse("24"),
+					},
+				},
+				state.PoolNameReclaim: {
+					PoolName: state.PoolNameReclaim,
+					TopologyAwareAssignments: map[int]machine.CPUSet{
+						0: machine.MustParse("70-71"),
+						1: machine.MustParse("25-46"),
+					},
+				},
+			},
+			containers: []*types.ContainerInfo{
+				makeContainerInfo("uid1", "default", "pod1", "c1", consts.PodAnnotationQoSLevelDedicatedCores, state.PoolNameDedicated,
+					map[string]string{
+						consts.PodAnnotationMemoryEnhancementNumaBinding: consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
+					},
+					map[int]machine.CPUSet{
+						0: machine.MustParse("1-23,48"),
+					}, 24),
+			},
+			pods: []*v1.Pod{
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "pod1",
+						Namespace: "default",
+						UID:       "uid1",
+					},
+				},
+			},
+			nodeEnableReclaim: true,
+			headroomAssembler: types.CPUHeadroomAssemblerCommon,
+			wantInternalCalculationResult: types.InternalCPUCalculationResult{
+				PoolEntries: map[string]map[int]int{
+					state.PoolNameReserve: {
+						-1: 2,
+					},
+					state.PoolNameReclaim: {
+						0:  21,
+						-1: 47,
+					},
+				},
+			},
+			wantHeadroom: resource.Quantity{},
 		},
 	}
 

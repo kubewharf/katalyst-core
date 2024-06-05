@@ -19,8 +19,10 @@ package provisionassembler
 import (
 	"context"
 	"fmt"
+	"math"
 	"time"
 
+	v1 "k8s.io/api/core/v1"
 	"k8s.io/klog/v2"
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/cpuadvisor"
@@ -79,6 +81,7 @@ func (pa *ProvisionAssemblerCommon) AssembleProvision() (types.InternalCPUCalcul
 
 	shares := 0
 	isolationUppers := 0
+	dedicatedNonReclaimCpuSize := make(map[int]int)
 
 	sharePoolSizes := make(map[string]int)
 	isolationUpperSizes := make(map[string]int)
@@ -119,21 +122,49 @@ func (pa *ProvisionAssemblerCommon) AssembleProvision() (types.InternalCPUCalcul
 				return types.InternalCPUCalculationResult{}, err
 			}
 
-			// fill in reclaim pool entry for dedicated numa exclusive regions
-			if !enableReclaim {
-				if reservedForReclaim > 0 {
-					calculationResult.SetPoolEntry(state.PoolNameReclaim, regionNuma, reservedForReclaim)
+			dr := r.(*region.QoSRegionDedicatedNumaExclusive)
+
+			if dr.IsNumaExclusive() {
+				// fill in reclaim pool entry for dedicated numa exclusive regions
+				if !enableReclaim {
+					if reservedForReclaim > 0 {
+						calculationResult.SetPoolEntry(state.PoolNameReclaim, regionNuma, reservedForReclaim)
+					}
+				} else {
+					available := getNumasAvailableResource(*pa.numaAvailable, r.GetBindingNumas())
+					nonReclaimRequirement := int(controlKnob[types.ControlKnobNonReclaimedCPUSize].Value)
+					reclaimed := available - nonReclaimRequirement + reservedForReclaim
+
+					calculationResult.SetPoolEntry(state.PoolNameReclaim, regionNuma, reclaimed)
+
+					klog.InfoS("assemble info", "regionName", r.Name(), "reclaimed", reclaimed,
+						"available", available, "nonReclaimRequirement", nonReclaimRequirement, "reservedForReclaim", reservedForReclaim)
 				}
 			} else {
-				available := getNumasAvailableResource(*pa.numaAvailable, r.GetBindingNumas())
-				nonReclaimRequirement := int(controlKnob[types.ControlKnobNonReclaimedCPUSize].Value)
-				reclaimed := available - nonReclaimRequirement + reservedForReclaim
-
-				calculationResult.SetPoolEntry(state.PoolNameReclaim, regionNuma, reclaimed)
-
-				klog.InfoS("assemble info", "regionName", r.Name(), "reclaimed", reclaimed,
-					"available", available, "nonReclaimRequirement", nonReclaimRequirement, "reservedForReclaim", reservedForReclaim)
+				dedicatedNonReclaimCpuSize[regionNuma] += int(controlKnob[types.ControlKnobNonReclaimedCPUSize].Value)
 			}
+		}
+	}
+
+	var (
+		reservedPerNuma     int
+		reservedForAllocate = pa.conf.GetDynamicConfiguration().ReservedResourceForAllocate[v1.ResourceCPU]
+	)
+	if len(dedicatedNonReclaimCpuSize) > 0 {
+		reservedPerNuma = int(math.Ceil(float64(reservedForAllocate.Value()*int64(len(dedicatedNonReclaimCpuSize))) /
+			float64(pa.metaServer.NumNUMANodes)))
+	}
+	for numaID, cpuSize := range dedicatedNonReclaimCpuSize {
+		numas := machine.NewCPUSet(numaID)
+		reservedForReclaim := pa.getNumasReservedForReclaim(numas)
+		available := getNumasAvailableResource(*pa.numaAvailable, numas)
+		reclaimed := available - cpuSize - reservedPerNuma + reservedForReclaim
+
+		klog.InfoS("assemble info", "dedicated numaID", numaID, "reclaimed", reclaimed,
+			"availabel", available, "nonReclaimRequirement", cpuSize, "reservedPerNuma", reservedPerNuma, "reservedForReclaim", reservedForReclaim)
+
+		if reclaimed > 0 {
+			calculationResult.SetPoolEntry(state.PoolNameReclaim, numaID, reclaimed)
 		}
 	}
 

@@ -24,6 +24,7 @@ import (
 	"time"
 
 	v1 "k8s.io/api/core/v1"
+	"k8s.io/klog/v2"
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 
 	apiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
@@ -597,7 +598,11 @@ func (p *DynamicPolicy) adjustPoolsAndIsolatedEntries(poolsQuantityMap map[strin
 ) error {
 	availableCPUs := machineState.GetFilteredAvailableCPUSet(p.reservedCPUs, nil, state.CheckDedicatedNUMABinding)
 
-	poolsCPUSet, isolatedCPUSet, err := p.generatePoolsAndIsolation(poolsQuantityMap, isolatedQuantityMap, availableCPUs)
+	// availableCPUs only for reclaimed pool, all unused cpu on dedicated without exclusive NUMA
+	reclaimedAvailableCPUs := machineState.GetMatchedAvailableCPUSet(p.reservedCPUs, state.CheckDedicatedNUMABindingWithoutNUMAExclusive, state.CheckDedicatedNUMABindingWithoutNUMAExclusive)
+	klog.V(6).Infof("adjustPoolsAndIsolatedEntries availableCPUs: %v, reclaimedAvailableCPUs: %v", availableCPUs.String(), reclaimedAvailableCPUs.String())
+
+	poolsCPUSet, isolatedCPUSet, err := p.generatePoolsAndIsolation(poolsQuantityMap, isolatedQuantityMap, availableCPUs, reclaimedAvailableCPUs)
 	if err != nil {
 		return fmt.Errorf("generatePoolsAndIsolation failed with error: %v", err)
 	}
@@ -642,7 +647,7 @@ func (p *DynamicPolicy) reclaimOverlapNUMABinding(poolsCPUSet map[string]machine
 		}
 
 		for _, allocationInfo := range containerEntries {
-			if !(allocationInfo != nil && state.CheckDedicatedNUMABinding(allocationInfo) && allocationInfo.CheckMainContainer()) {
+			if !(allocationInfo != nil && state.CheckDedicatedNUMABindingWithNUMAExclusive(allocationInfo) && allocationInfo.CheckMainContainer()) {
 				continue
 			} else if allocationInfo.RampUp {
 				general.Infof("dedicated numa_binding pod: %s/%s container: %s is in ramp up, not to overlap reclaim pool with it",
@@ -862,7 +867,7 @@ func (p *DynamicPolicy) applyPoolsAndIsolatedInfo(poolsCPUSet map[string]machine
 // 2. use the left cores to allocate among different pools
 // 3. apportion to other pools if reclaimed is disabled
 func (p *DynamicPolicy) generatePoolsAndIsolation(poolsQuantityMap map[string]int,
-	isolatedQuantityMap map[string]map[string]int, availableCPUs machine.CPUSet) (poolsCPUSet map[string]machine.CPUSet,
+	isolatedQuantityMap map[string]map[string]int, availableCPUs machine.CPUSet, reclaimAvailableCPUS machine.CPUSet) (poolsCPUSet map[string]machine.CPUSet,
 	isolatedCPUSet map[string]map[string]machine.CPUSet, err error,
 ) {
 	// clear pool map with zero quantity
@@ -995,6 +1000,9 @@ func (p *DynamicPolicy) generatePoolsAndIsolation(poolsQuantityMap map[string]in
 	}
 
 	poolsCPUSet[state.PoolNameReclaim] = poolsCPUSet[state.PoolNameReclaim].Union(availableCPUs)
+	// join reclaim pool with all unused cpu on dedicated without exclusive NUMA
+	// final cpuSet include reservedResourceForAllocated will be calculated by advisor soon if cpu advisor is enabled
+	poolsCPUSet[state.PoolNameReclaim] = poolsCPUSet[state.PoolNameReclaim].Union(reclaimAvailableCPUS)
 	if poolsCPUSet[state.PoolNameReclaim].IsEmpty() {
 		// for reclaimed pool, we must make them exist when the node isn't in hybrid mode even if cause overlap
 		allAvailableCPUs := p.machineInfo.CPUDetails.CPUs().Difference(p.reservedCPUs)
