@@ -120,30 +120,30 @@ func (ha *HeadroomAssemblerCommon) GetHeadroom() (resource.Quantity, error) {
 		reclaimPoolNUMAs := machine.GetCPUAssignmentNUMAs(reclaimPoolInfo.TopologyAwareAssignments)
 
 		sharedCoresHeadroom := 0.0
-		if dynamicConfig.AllowSharedCoresOverlapReclaimedCores {
-			regionMetrics, err := ha.getShareRegionMetrics()
-			if err != nil {
-				return *resource.NewQuantity(0, resource.DecimalSI), err
-			}
+		//if dynamicConfig.AllowSharedCoresOverlapReclaimedCores {
+		//	regionMetrics, err := ha.getShareRegionMetrics()
+		//	if err != nil {
+		//		return *resource.NewQuantity(0, resource.DecimalSI), err
+		//	}
+		//
+		//	for _, regionMetric := range regionMetrics {
+		//		sharedCoresHeadroom += general.MaxFloat64(float64(regionMetric.cpus)-regionMetric.cpuUsage, 0)
+		//		general.InfoS("shared_cores region headroom", "regionName", regionMetric.regionInfo.RegionName, "cpus", regionMetric.cpus, "cpu usage", regionMetric.cpuUsage)
+		//		if regionMetric.regionInfo.RegionStatus.BoundType == types.BoundUpper {
+		//			general.Infof("region %v is in status of upper bound", regionMetric.regionInfo.RegionName)
+		//			hasUpperBound = true
+		//		}
+		//	}
+		//
+		//	klog.InfoS("shared_cores headroom", "headroom", sharedCoresHeadroom)
+		//} else {
+		for _, numaID := range reclaimPoolNUMAs.Difference(exclusiveNUMAs).Difference(emptyNUMAs).ToSliceInt() {
+			headroom := float64(reclaimPoolInfo.TopologyAwareAssignments[numaID].Size())
+			sharedCoresHeadroom += headroom
 
-			for _, regionMetric := range regionMetrics {
-				sharedCoresHeadroom += general.MaxFloat64(float64(regionMetric.cpus)-regionMetric.cpuUsage, 0)
-				general.InfoS("shared_cores region headroom", "regionName", regionMetric.regionInfo.RegionName, "cpus", regionMetric.cpus, "cpu usage", regionMetric.cpuUsage)
-				if regionMetric.regionInfo.RegionStatus.BoundType == types.BoundUpper {
-					general.Infof("region %v is in status of upper bound", regionMetric.regionInfo.RegionName)
-					hasUpperBound = true
-				}
-			}
-
-			klog.InfoS("shared_cores headroom", "headroom", sharedCoresHeadroom)
-		} else {
-			for _, numaID := range reclaimPoolNUMAs.Difference(exclusiveNUMAs).Difference(emptyNUMAs).ToSliceInt() {
-				headroom := float64(reclaimPoolInfo.TopologyAwareAssignments[numaID].Size())
-				sharedCoresHeadroom += headroom
-
-				klog.InfoS("shared_cores headroom", "headroom", headroom, "numaID", numaID)
-			}
+			klog.InfoS("shared_cores headroom", "headroom", headroom, "numaID", numaID)
 		}
+		//}
 
 		headroomTotal += sharedCoresHeadroom
 	}

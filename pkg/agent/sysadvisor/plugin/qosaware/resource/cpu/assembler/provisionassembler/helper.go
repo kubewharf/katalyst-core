@@ -32,29 +32,36 @@ func getNUMAsResource(resources map[int]int, numas machine.CPUSet) int {
 	return res
 }
 
-// regulatePoolSizes modifies pool size map to legal values, taking total available
-// resource and config such as enable reclaim into account. should be compatible with
-// any case and not return error. return true if reach resource upper bound.
-func regulatePoolSizes(poolSizeRequirements map[string]int, available int, enableReclaim bool, allowSharedCoresOverlapReclaimedCores bool) (map[string]int, bool) {
-	targetSum := general.SumUpMapValues(poolSizeRequirements)
+func regulatePoolSizes(expandableRequirements, unexpandableRequirements map[string]int, available int, enableReclaim bool, allowSharedCoresOverlapReclaimedCores bool) (map[string]int, bool) {
+	expandableRequirementsSum := general.SumUpMapValues(expandableRequirements)
+	unexpandableRequirementsSum := general.SumUpMapValues(unexpandableRequirements)
 
-	// use all available resource for pools when reclaim is disabled
-	// or reaching max available resource
-	if !enableReclaim || targetSum > available || allowSharedCoresOverlapReclaimedCores {
-		targetSum = available
+	requirementSum := expandableRequirementsSum + unexpandableRequirementsSum
+	if requirementSum > available {
+		requirements := general.MergeMapInt(expandableRequirements, unexpandableRequirements)
+		poolSizes, err := normalizePoolSizes(requirements, available)
+		if err != nil {
+			// all pools share available resource as fallback if normalization failed
+			for k := range requirements {
+				poolSizes[k] = available
+			}
+		}
+		return poolSizes, true
+	} else if !enableReclaim || allowSharedCoresOverlapReclaimedCores {
+		expandableRequirementsSum = available - unexpandableRequirementsSum
 	}
 
-	poolSizes, err := normalizePoolSizes(poolSizeRequirements, targetSum)
+	poolSizes, err := normalizePoolSizes(expandableRequirements, expandableRequirementsSum)
 	if err != nil {
-		// all pools share available resource as fallback if normalization failed
-		for k := range poolSizeRequirements {
+		for k := range expandableRequirements {
 			poolSizes[k] = available
 		}
 	}
+	for name, size := range unexpandableRequirements {
+		poolSizes[name] = size
+	}
 
-	throttled := general.SumUpMapValues(poolSizes) < general.SumUpMapValues(poolSizeRequirements)
-
-	return poolSizes, throttled
+	return poolSizes, false
 }
 
 func normalizePoolSizes(poolSizes map[string]int, targetSum int) (map[string]int, error) {

@@ -133,10 +133,11 @@ func (pa *ProvisionAssemblerCommon) AssembleProvision() (types.InternalCPUCalcul
 				}
 
 				poolRequirements := map[string]int{r.OwnerPoolName(): nonReclaimRequirement}
+				isolationRequirements := map[string]int{}
 				for isolationRegionName, isolationRegionControlKnob := range isolationRegionControlKnobs {
-					poolRequirements[isolationRegionName] = int(isolationRegionControlKnob[isolationRegionControlKnobKey].Value)
+					isolationRequirements[isolationRegionName] = int(isolationRegionControlKnob[isolationRegionControlKnobKey].Value)
 				}
-				poolSizes, poolThrottled := regulatePoolSizes(poolRequirements, available, nodeEnableReclaim, *pa.allowSharedCoresOverlapReclaimedCores)
+				poolSizes, poolThrottled := regulatePoolSizes(poolRequirements, isolationRequirements, available, nodeEnableReclaim, *pa.allowSharedCoresOverlapReclaimedCores)
 				r.SetThrottled(poolThrottled)
 
 				for poolName, size := range poolSizes {
@@ -221,11 +222,13 @@ func (pa *ProvisionAssemblerCommon) AssembleProvision() (types.InternalCPUCalcul
 	if *pa.allowSharedCoresOverlapReclaimedCores {
 		shareAndIsolatedPoolAvailable += getNUMAsResource(*pa.reservedForReclaim, *pa.nonBindingNumas)
 	}
-	shareAndIsolatePoolSizeRequirements := general.MergeMapInt(sharePoolRequirements, isolationUpperSizes)
+
+	isolationPoolSizes := isolationUpperSizes
 	if shares+isolationUppers > shareAndIsolatedPoolAvailable {
-		shareAndIsolatePoolSizeRequirements = general.MergeMapInt(sharePoolRequirements, isolationLowerSizes)
+		isolationPoolSizes = isolationLowerSizes
 	}
-	shareAndIsolatePoolSizes, poolThrottled := regulatePoolSizes(shareAndIsolatePoolSizeRequirements, shareAndIsolatedPoolAvailable, nodeEnableReclaim, *pa.allowSharedCoresOverlapReclaimedCores)
+
+	shareAndIsolatePoolSizes, poolThrottled := regulatePoolSizes(sharePoolRequirements, isolationPoolSizes, shareAndIsolatedPoolAvailable, nodeEnableReclaim, *pa.allowSharedCoresOverlapReclaimedCores)
 	for _, r := range *pa.regionMap {
 		if r.Type() == types.QoSRegionTypeShare && !r.IsNumaBinding() {
 			r.SetThrottled(poolThrottled)

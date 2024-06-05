@@ -18,7 +18,6 @@ package metacache
 
 import (
 	"fmt"
-	"k8s.io/kubernetes/pkg/kubelet/checkpointmanager/errors"
 	"os"
 	"reflect"
 	"sync"
@@ -27,6 +26,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/klog/v2"
 	"k8s.io/kubernetes/pkg/kubelet/checkpointmanager"
+	"k8s.io/kubernetes/pkg/kubelet/checkpointmanager/errors"
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
 	"github.com/kubewharf/katalyst-core/pkg/config"
