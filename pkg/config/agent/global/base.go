@@ -47,6 +47,11 @@ type MachineInfoConfiguration struct {
 	NetMultipleNS   bool
 	NetNSDirAbsPath string
 
+	// SiblingNumaMaxDistance represents the maximum distance between sibling NUMA nodes.
+	// These sibling NUMA nodes have the smallest distance to each other, except for the
+	// distance to themselves.
+	SiblingNumaMaxDistance int
+
 	// SiblingNumaMemoryBandwidthCapacity is the max capacity of memory bandwidth can share
 	// among sibling NUMAs, and SiblingNumaMemoryBandwidthAllocatableRate is the rate of
 	// the allocatable to the capacity
