@@ -238,7 +238,9 @@ func (bc *BorweinController) getUpdatedIndicators(indicators types.Indicator) ty
 	// update target indicators by bc.indicatorOffsets
 	for indicatorName, indicatorValue := range indicators {
 		if _, found := bc.indicatorOffsets[indicatorName]; !found {
-			general.Infof("there is no offset for indicator: %s", indicatorName)
+			general.Infof("there is no offset for indicator: %s, use its original value(current: %.2f, target: %.2f) without updating",
+				indicatorName, indicatorValue.Current, indicatorValue.Target)
+			updatedIndicators[indicatorName] = indicatorValue
 			continue
 		}
 
