@@ -25,28 +25,40 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
+	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
-const isolationRegionDefaultOwnerPoolName = "isolation-default"
+const (
+	isolationRegionDefaultOwnerPoolName = "isolation-default"
+	isolationRegionNUMAOwnerPoolName    = "isolation-numa"
+)
 
 type QoSRegionIsolation struct {
 	*QoSRegionBase
 }
 
 // NewQoSRegionIsolation returns a region instance for isolated pods
-func NewQoSRegionIsolation(ci *types.ContainerInfo, customRegionName string, conf *config.Configuration, extraConf interface{},
+func NewQoSRegionIsolation(ci *types.ContainerInfo, customRegionName string, conf *config.Configuration, extraConf interface{}, numaID int,
 	metaReader metacache.MetaReader, metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter,
 ) QoSRegion {
 	regionName := customRegionName
 	if regionName == "" {
-		regionName = getRegionNameFromMetaCache(ci, state.FakedNUMAID, metaReader)
+		regionName = getRegionNameFromMetaCache(ci, numaID, metaReader)
 		if regionName == "" {
 			regionName = string(types.QoSRegionTypeIsolation) + types.RegionNameSeparator + ci.PodName + types.RegionNameSeparator + string(uuid.NewUUID())
 		}
 	}
 
+	isNumaBinding := numaID != state.FakedNUMAID
+	ownerPoolName := isolationRegionDefaultOwnerPoolName
+	if isNumaBinding {
+		ownerPoolName = isolationRegionNUMAOwnerPoolName
+	}
 	r := &QoSRegionIsolation{
-		QoSRegionBase: NewQoSRegionBase(regionName, isolationRegionDefaultOwnerPoolName, types.QoSRegionTypeIsolation, conf, extraConf, metaReader, metaServer, emitter),
+		QoSRegionBase: NewQoSRegionBase(regionName, ownerPoolName, types.QoSRegionTypeIsolation, conf, extraConf, isNumaBinding, metaReader, metaServer, emitter),
+	}
+	if isNumaBinding {
+		r.bindingNumas = machine.NewCPUSet(numaID)
 	}
 	return r
 }

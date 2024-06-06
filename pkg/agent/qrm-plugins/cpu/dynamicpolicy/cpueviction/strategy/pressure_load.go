@@ -88,20 +88,22 @@ type CPUPressureLoadEviction struct {
 	poolMetricCollectHandlers map[string]PoolMetricCollectHandler
 
 	systemReservedCPUs machine.CPUSet
+	configTranslator   *general.CommonSuffixTranslator
 }
 
 func NewCPUPressureLoadEviction(emitter metrics.MetricEmitter, metaServer *metaserver.MetaServer,
-	conf *config.Configuration, state state.ReadonlyState,
+	conf *config.Configuration, readonlyState state.ReadonlyState,
 ) (CPUPressureEviction, error) {
 	plugin := &CPUPressureLoadEviction{
-		state:          state,
-		emitter:        emitter,
-		metaServer:     metaServer,
-		metricsHistory: make(map[string]Entries),
-		qosConf:        conf.QoSConfiguration,
-		dynamicConf:    conf.DynamicAgentConfiguration,
-		skipPools:      sets.NewString(conf.LoadPressureEvictionSkipPools...),
-		syncPeriod:     conf.LoadEvictionSyncPeriod,
+		state:            readonlyState,
+		emitter:          emitter,
+		metaServer:       metaServer,
+		metricsHistory:   make(map[string]Entries),
+		qosConf:          conf.QoSConfiguration,
+		dynamicConf:      conf.DynamicAgentConfiguration,
+		skipPools:        sets.NewString(conf.LoadPressureEvictionSkipPools...),
+		syncPeriod:       conf.LoadEvictionSyncPeriod,
+		configTranslator: general.NewCommonSuffixTranslator(state.NUMAPoolInfix),
 	}
 
 	systemReservedCores, reserveErr := cpuutil.GetCoresReservedForSystem(conf, metaServer, metaServer.KatalystMachineInfo, metaServer.CPUDetails.CPUs().Clone())
@@ -150,7 +152,7 @@ func (p *CPUPressureLoadEviction) ThresholdMet(_ context.Context,
 
 	var softThresholdMetPoolName string
 	for poolName, entries := range p.metricsHistory[consts.MetricLoad1MinContainer] {
-		if !entries.IsPoolEntry() || p.skipPools.Has(poolName) || state.IsIsolationPool(poolName) {
+		if !entries.IsPoolEntry() || p.skipPools.Has(p.configTranslator.Translate(poolName)) || state.IsIsolationPool(poolName) {
 			continue
 		}
 
@@ -333,7 +335,7 @@ func (p *CPUPressureLoadEviction) collectMetrics(_ context.Context) {
 		for containerName, containerEntry := range entry {
 			if containerEntry == nil || containerEntry.IsPool {
 				continue
-			} else if containerEntry.OwnerPool == state.EmptyOwnerPoolName || p.skipPools.Has(containerEntry.OwnerPool) {
+			} else if containerEntry.OwnerPool == state.EmptyOwnerPoolName || p.skipPools.Has(p.configTranslator.Translate(containerEntry.OwnerPool)) {
 				general.Infof("skip collecting metric for pod: %s, container: %s with owner pool name: %s",
 					podUID, containerName, containerEntry.OwnerPool)
 				continue
@@ -372,7 +374,7 @@ func (p *CPUPressureLoadEviction) collectMetrics(_ context.Context) {
 		}
 
 		for _, poolEntry := range entry {
-			if poolEntry == nil || !poolEntry.IsPool || p.skipPools.Has(poolName) {
+			if poolEntry == nil || !poolEntry.IsPool || p.skipPools.Has(p.configTranslator.Translate(poolName)) {
 				continue
 			}
 
@@ -401,7 +403,7 @@ func (p *CPUPressureLoadEviction) checkSharedPressureByPoolSize(pod2Pool PodPool
 		}
 
 		for _, containerEntry := range entry {
-			if !containerEntry.IsPool || p.skipPools.Has(poolName) || entry[state.FakedContainerName] == nil {
+			if !containerEntry.IsPool || p.skipPools.Has(p.configTranslator.Translate(poolName)) || entry[state.FakedContainerName] == nil {
 				continue
 			}
 			poolSizeSum += containerEntry.PoolSize
