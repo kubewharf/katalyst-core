@@ -53,6 +53,7 @@ const (
 	FakedContainerName = ""
 	FakedNUMAID        = -1
 	NameSeparator      = "#"
+	NUMAPoolInfix      = "-NUMA"
 )
 
 var (
@@ -268,7 +269,7 @@ func GetSpecifiedPoolName(qosLevel, cpusetEnhancementValue string) string {
 }
 
 func GetNUMAPoolName(candidateSpecifiedPoolName string, targetNUMANode uint64) string {
-	return fmt.Sprintf("%s-NUMA%d", candidateSpecifiedPoolName, targetNUMANode)
+	return fmt.Sprintf("%s%s%d", candidateSpecifiedPoolName, NUMAPoolInfix, targetNUMANode)
 }
 
 func GetCPUIncrRatio(allocationInfo *AllocationInfo) float64 {

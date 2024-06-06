@@ -478,8 +478,6 @@ func (p *DynamicPolicy) sharedCoresWithNUMABindingAllocationHandler(ctx context.
 
 	// there is no need to delete old allocationInfo for the container if it exists,
 	// allocateSharedNumaBindingCPUs will re-calculate pool size and avoid counting same entry twice
-
-	// [TODO]: pass pod entries
 	allocationInfo, err := p.allocateSharedNumaBindingCPUs(req, req.Hint)
 	if err != nil || allocationInfo == nil {
 		general.ErrorS(err, "unable to allocate CPUs",
