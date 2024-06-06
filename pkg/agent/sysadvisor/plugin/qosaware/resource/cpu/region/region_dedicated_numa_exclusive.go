@@ -60,7 +60,7 @@ func NewQoSRegionDedicatedNumaExclusive(ci *types.ContainerInfo, conf *config.Co
 	}
 
 	r := &QoSRegionDedicatedNumaExclusive{
-		QoSRegionBase: NewQoSRegionBase(regionName, ci.OwnerPoolName, types.QoSRegionTypeDedicatedNumaExclusive, conf, extraConf, metaReader, metaServer, emitter),
+		QoSRegionBase: NewQoSRegionBase(regionName, ci.OwnerPoolName, types.QoSRegionTypeDedicatedNumaExclusive, conf, extraConf, true, metaReader, metaServer, emitter),
 	}
 	r.bindingNumas = machine.NewCPUSet(numaID)
 	r.indicatorCurrentGetters = map[string]types.IndicatorCurrentGetter{

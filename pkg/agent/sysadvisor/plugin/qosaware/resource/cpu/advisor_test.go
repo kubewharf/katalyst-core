@@ -1270,20 +1270,20 @@ func TestGetIsolatedContainerRegions(t *testing.T) {
 
 	r1 := &region.QoSRegionShare{
 		QoSRegionBase: region.NewQoSRegionBase("r1", "", types.QoSRegionTypeIsolation,
-			conf, struct{}{}, nil, nil, nil),
+			conf, struct{}{}, false, nil, nil, nil),
 	}
 	_ = r1.AddContainer(c1_1)
 	_ = r1.AddContainer(c1_2)
 
 	r2 := &region.QoSRegionShare{
 		QoSRegionBase: region.NewQoSRegionBase("r2", "", types.QoSRegionTypeShare,
-			conf, struct{}{}, nil, nil, nil),
+			conf, struct{}{}, false, nil, nil, nil),
 	}
 	_ = r2.AddContainer(c2)
 
 	r3 := &region.QoSRegionShare{
 		QoSRegionBase: region.NewQoSRegionBase("r3", "", types.QoSRegionTypeDedicatedNumaExclusive,
-			conf, struct{}{}, nil, nil, nil),
+			conf, struct{}{}, false, nil, nil, nil),
 	}
 	_ = r3.AddContainer(c3_1)
 	_ = r3.AddContainer(c3_2)

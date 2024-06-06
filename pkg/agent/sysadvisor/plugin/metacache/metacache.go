@@ -95,7 +95,7 @@ func (mcp *MetaCachePlugin) periodicWork(_ context.Context) {
 		// For these containers do not belong to NumaExclusive, assign the actual value to CPURequest of them.
 		// Because CPURequest of containerInfo would be assigned as math.Ceil(Actual CPURequest).
 		// As for NumaExclusive containers, the "math.Ceil(Actual CPURequest)" is acceptable.
-		if ci.CPURequest <= 0 || !ci.IsNumaExclusive() {
+		if ci.CPURequest <= 0 || !ci.IsDedicatedNumaExclusive() {
 			ci.CPURequest = spec.Resources.Requests.Cpu().AsApproximateFloat64()
 		}
 		if ci.CPULimit <= 0 {
