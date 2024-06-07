@@ -249,12 +249,12 @@ func (m *EvictionManger) sync(ctx context.Context) {
 	general.Infof(" currently, there are %v candidate pods", len(pods))
 	_ = m.emitter.StoreInt64(MetricsNameCandidatePodCNT, int64(len(pods)), metrics.MetricTypeNameRaw)
 
-	errList := make([]error, 0)
 	collector, collectErr := m.collectEvictionResult(pods)
 	if collectErr != nil {
-		errList = append(errList, collectErr)
+		general.Infof("collect eviction result error:%v", collectErr)
 	}
 
+	errList := make([]error, 0)
 	evictErr := m.doEvict(collector.getSoftEvictPods(), collector.getForceEvictPods())
 	if evictErr != nil {
 		errList = append(errList, evictErr)

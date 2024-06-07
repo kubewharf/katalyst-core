@@ -18,6 +18,7 @@ package memory
 
 import (
 	"strconv"
+	"time"
 
 	v1 "k8s.io/api/core/v1"
 
@@ -36,6 +37,8 @@ const (
 	actionNoop = iota
 	actionReclaimedEviction
 	actionEviction
+
+	healthCheckTimeout = 1 * time.Minute
 )
 
 // control-related variables

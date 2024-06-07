@@ -54,6 +54,9 @@ const (
 	metricsNameGetContentCost       = "reporter_get_content_cost"
 	metricsNameGetContentPluginCost = "reporter_get_content_plugin_cost"
 	metricsNameGenericSyncCost      = "reporter_generic_sync_cost"
+
+	reporterPushContentHealthCheckName = "reporter_push_content"
+	healthCheckAutoRecoverPeriod       = 1 * time.Minute
 )
 
 // ReporterPluginManager is used to manage in-tree or out-tree reporter plugin registrations and
@@ -216,6 +219,7 @@ func (m *ReporterPluginManager) DeRegisterPlugin(pluginName string) {
 
 // Run start the reporter plugin manager
 func (m *ReporterPluginManager) Run(ctx context.Context) {
+	general.RegisterReportCheck(reporterManagerCheckpoint, healthCheckAutoRecoverPeriod)
 	go wait.UntilWithContext(ctx, m.syncFunc, m.reconcilePeriod)
 
 	klog.Infof("reporter plugin manager started")
@@ -304,7 +308,9 @@ func (m *ReporterPluginManager) pushContents(ctx context.Context, reportResponse
 		klog.Errorf("writing checkpoint encountered %v", err)
 	}
 
-	return m.reporter.PushContents(ctx, reportResponses)
+	err := m.reporter.PushContents(ctx, reportResponses)
+	_ = general.UpdateHealthzStateByError(reporterPushContentHealthCheckName, err)
+	return err
 }
 
 // genericSync periodically calls the Get function to obtain content changes

@@ -23,6 +23,7 @@ import (
 	"time"
 
 	v1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/util/errors"
 	"k8s.io/client-go/tools/events"
 
 	pluginapi "github.com/kubewharf/katalyst-api/pkg/protocol/evictionplugin/v1alpha1"
@@ -80,6 +81,7 @@ type NumaMemoryPressurePlugin struct {
 }
 
 func (n *NumaMemoryPressurePlugin) Start() {
+	general.RegisterHeartbeatCheck(EvictionPluginNameNumaMemoryPressure, healthCheckTimeout, general.HealthzCheckStateNotReady, healthCheckTimeout)
 	return
 }
 
@@ -92,6 +94,11 @@ func (n *NumaMemoryPressurePlugin) Name() string {
 }
 
 func (n *NumaMemoryPressurePlugin) ThresholdMet(_ context.Context) (*pluginapi.ThresholdMetResponse, error) {
+	var err error
+	defer func() {
+		_ = general.UpdateHealthzStateByError(EvictionPluginNameNumaMemoryPressure, err)
+	}()
+
 	resp := &pluginapi.ThresholdMetResponse{
 		MetType: pluginapi.ThresholdMetType_NOT_MET,
 	}
@@ -100,7 +107,7 @@ func (n *NumaMemoryPressurePlugin) ThresholdMet(_ context.Context) (*pluginapi.T
 		return resp, nil
 	}
 
-	n.detectNumaPressures()
+	err = n.detectNumaPressures()
 	if n.isUnderNumaPressure {
 		resp = &pluginapi.ThresholdMetResponse{
 			MetType:       pluginapi.ThresholdMetType_HARD_MET,
@@ -111,7 +118,8 @@ func (n *NumaMemoryPressurePlugin) ThresholdMet(_ context.Context) (*pluginapi.T
 	return resp, nil
 }
 
-func (n *NumaMemoryPressurePlugin) detectNumaPressures() {
+func (n *NumaMemoryPressurePlugin) detectNumaPressures() error {
+	var errList []error
 	n.isUnderNumaPressure = false
 	for _, numaID := range n.metaServer.CPUDetails.NUMANodes().ToSliceNoSortInt() {
 		n.numaActionMap[numaID] = actionNoop
@@ -120,9 +128,12 @@ func (n *NumaMemoryPressurePlugin) detectNumaPressures() {
 		}
 
 		if err := n.detectNumaWatermarkPressure(numaID); err != nil {
+			errList = append(errList, err)
 			continue
 		}
 	}
+
+	return errors.NewAggregate(errList)
 }
 
 func (n *NumaMemoryPressurePlugin) detectNumaWatermarkPressure(numaID int) error {

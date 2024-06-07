@@ -46,7 +46,6 @@ const (
 	EvictionPluginNameSystemMemoryPressure = "system-memory-pressure-eviction-plugin"
 	EvictionScopeSystemMemory              = "SystemMemory"
 	evictionConditionMemoryPressure        = "MemoryPressure"
-	systemMemoryPressureHealthCheck        = "system_memory_pressure_eviction_detect"
 	syncTolerationTurns                    = 3
 )
 
@@ -102,7 +101,7 @@ func (s *SystemPressureEvictionPlugin) Name() string {
 }
 
 func (s *SystemPressureEvictionPlugin) Start() {
-	general.RegisterHeartbeatCheck(systemMemoryPressureHealthCheck, syncTolerationTurns*s.syncPeriod,
+	general.RegisterHeartbeatCheck(EvictionPluginNameSystemMemoryPressure, syncTolerationTurns*s.syncPeriod,
 		general.HealthzCheckStateNotReady, syncTolerationTurns*s.syncPeriod)
 	go wait.UntilWithContext(context.TODO(), s.detectSystemPressures, s.syncPeriod)
 }
@@ -144,7 +143,7 @@ func (s *SystemPressureEvictionPlugin) detectSystemPressures(_ context.Context) 
 	defer s.Unlock()
 	var err error
 	defer func() {
-		_ = general.UpdateHealthzStateByError(systemMemoryPressureHealthCheck, err)
+		_ = general.UpdateHealthzStateByError(EvictionPluginNameSystemMemoryPressure, err)
 	}()
 
 	s.isUnderSystemPressure = false
