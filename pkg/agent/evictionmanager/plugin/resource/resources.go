@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"time"
 
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
@@ -36,6 +37,8 @@ const (
 	MetricsNamePodCount         = "pod_count"
 	MetricsNamePodResource      = "pod_resource"
 	MetricsNameGetResourceEmpty = "get_resource_empty"
+
+	defaultHealthCheckTimeout = 1 * time.Minute
 )
 
 type ResourcesGetter func(ctx context.Context) (v1.ResourceList, error)
@@ -94,6 +97,7 @@ func (b *ResourcesEvictionPlugin) Name() string {
 }
 
 func (b *ResourcesEvictionPlugin) Start() {
+	general.RegisterHeartbeatCheck(ReclaimedResourcesEvictionPluginName, defaultHealthCheckTimeout, general.HealthzCheckStateNotReady, defaultHealthCheckTimeout)
 	return
 }
 
