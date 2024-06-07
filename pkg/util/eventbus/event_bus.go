@@ -25,6 +25,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/wait"
 
+	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 )
 
@@ -34,6 +35,8 @@ const (
 
 	ErrTypeNoSubscriber = "NoSubscriber"
 	ErrTypeBufferFull   = "BufferFull"
+
+	MetricNameEventBusErr = "event_bus_err"
 )
 
 var defaultEventBus = NewEventBus(defaultBufferSize)
@@ -50,12 +53,14 @@ type EventBus interface {
 	Publish(topic string, event interface{}) error
 	Subscribe(topic string, subscriber string, bufferSize int, handler ConsumeFunc) error
 	EnableStatistic()
+	SetEmitter(emitter metrics.MetricEmitter)
 }
 
 type eventHandler struct {
 	name    string
 	buffer  chan interface{}
 	handler ConsumeFunc
+	emitter metrics.MetricEmitter
 }
 
 func (e *eventHandler) Run() {
@@ -74,7 +79,16 @@ type topicContext struct {
 	topic         string
 	buffer        chan interface{}
 	eventHandlers map[string]*eventHandler
-	errCounter    map[string]*uint64
+	errCounter    *sync.Map
+}
+
+func addCounter(counterMap *sync.Map, errType string, value uint64) {
+	if counterMap == nil {
+		return
+	}
+
+	counter, _ := counterMap.LoadOrStore(errType, new(uint64))
+	atomic.AddUint64(counter.(*uint64), value)
 }
 
 func (t *topicContext) dispatch(event interface{}) {
@@ -125,18 +139,18 @@ type eventBus struct {
 	bufferSize    int
 	topicSet      sets.String
 	topics        map[string]*topicContext
-	errorCounter  map[string]*uint64
+	errorCounter  *sync.Map
 	statisticOnce sync.Once
+	emitter       metrics.MetricEmitter
+	emitterMutex  sync.RWMutex
 }
 
 func NewEventBus(bufferSize int) EventBus {
 	return &eventBus{
-		topicSet:   sets.NewString(),
-		topics:     make(map[string]*topicContext),
-		bufferSize: bufferSize,
-		errorCounter: map[string]*uint64{
-			ErrTypeNoSubscriber: new(uint64),
-		},
+		topicSet:      sets.NewString(),
+		topics:        make(map[string]*topicContext),
+		bufferSize:    bufferSize,
+		errorCounter:  &sync.Map{},
 		statisticOnce: sync.Once{},
 	}
 }
@@ -147,18 +161,50 @@ func (e *eventBus) EnableStatistic() {
 	})
 }
 
+func (e *eventBus) SetEmitter(emitter metrics.MetricEmitter) {
+	e.emitterMutex.Lock()
+	defer e.emitterMutex.Unlock()
+
+	e.emitter = emitter
+}
+
+func (e *eventBus) getEmitter() metrics.MetricEmitter {
+	e.emitterMutex.RLock()
+	defer e.emitterMutex.RUnlock()
+
+	return e.emitter
+}
+
 func (e *eventBus) reportStatistic() {
-	for errType, counter := range e.errorCounter {
+	emitter := e.getEmitter()
+	e.errorCounter.Range(func(key, value interface{}) bool {
+		errType := key.(string)
+		counter := value.(*uint64)
 		general.Infof("eventbus error counter: %v, %v", errType, atomic.LoadUint64(counter))
+		if emitter != nil {
+			_ = emitter.StoreInt64(MetricNameEventBusErr, int64(atomic.LoadUint64(counter)), metrics.MetricTypeNameCount,
+				metrics.MetricTag{Key: "errType", Val: errType},
+			)
+		}
 		atomic.StoreUint64(counter, 0)
-	}
+		return true
+	})
 
 	for topic := range e.topicSet {
 		t := e.getTopicContext(topic)
-		for errType, counter := range t.errCounter {
+		t.errCounter.Range(func(key, value interface{}) bool {
+			errType := key.(string)
+			counter := value.(*uint64)
 			general.Infof("eventbus topic %v error counter: %v, %v", topic, errType, atomic.LoadUint64(counter))
+			if emitter != nil {
+				_ = emitter.StoreInt64(MetricNameEventBusErr, int64(atomic.LoadUint64(counter)), metrics.MetricTypeNameCount,
+					metrics.MetricTag{Key: "errType", Val: errType},
+					metrics.MetricTag{Key: "topic", Val: topic},
+				)
+			}
 			atomic.StoreUint64(counter, 0)
-		}
+			return true
+		})
 	}
 }
 
@@ -174,9 +220,7 @@ func (e *eventBus) GetOrRegisterTopic(topic string) *topicContext {
 			topic:         topic,
 			buffer:        make(chan interface{}, e.bufferSize),
 			eventHandlers: make(map[string]*eventHandler),
-			errCounter: map[string]*uint64{
-				ErrTypeNoSubscriber: new(uint64),
-			},
+			errCounter:    &sync.Map{},
 		}
 		e.topicSet.Insert(topic)
 		go e.topics[topic].Run()
@@ -201,11 +245,11 @@ func (e *eventBus) Publish(topic string, event interface{}) error {
 		case ctx.buffer <- event:
 			return nil
 		default:
-			atomic.AddUint64(ctx.errCounter[ErrTypeBufferFull], 1)
+			addCounter(ctx.errCounter, ErrTypeBufferFull, 1)
 			return fmt.Errorf("buffer full")
 		}
 	} else {
-		atomic.AddUint64(e.errorCounter[ErrTypeNoSubscriber], 1)
+		addCounter(e.errorCounter, ErrTypeNoSubscriber, 1)
 	}
 	return nil
 }
