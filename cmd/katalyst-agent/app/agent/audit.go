@@ -27,6 +27,7 @@ const (
 )
 
 func InitAuditManager(agentCtx *GenericContext, conf *config.Configuration, _ interface{}, _ string) (bool, Component, error) {
+	eventbus.GetDefaultEventBus().SetEmitter(agentCtx.EmitterPool.GetDefaultMetricsEmitter())
 	auditManager := audit.NewAuditManager(conf.AuditConfiguration, eventbus.GetDefaultEventBus(), agentCtx.EmitterPool.GetDefaultMetricsEmitter())
 
 	return true, auditManager, nil

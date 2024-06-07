@@ -26,6 +26,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"go.uber.org/atomic"
 
+	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 )
 
@@ -54,6 +55,7 @@ func TestEventBus(t *testing.T) {
 
 	bufferSize := 20
 	bus := NewEventBus(bufferSize)
+	bus.SetEmitter(metrics.DummyMetrics{})
 
 	s1 := &countSubscriber{name: "s1", msgKind: reflect.TypeOf(msg1{})}
 	s2 := &countSubscriber{name: "s2", msgKind: reflect.TypeOf(msg2{})}
@@ -62,6 +64,7 @@ func TestEventBus(t *testing.T) {
 	topic1 := "topic1"
 	topic2 := "topic2"
 	topic3 := "topic3"
+	topic4 := "topic4"
 
 	err := bus.Subscribe(topic1, s1.name, bufferSize, s1.OnMessage)
 	assert.NoError(t, err)
@@ -71,7 +74,7 @@ func TestEventBus(t *testing.T) {
 	assert.NoError(t, err)
 
 	wg := sync.WaitGroup{}
-	wg.Add(2)
+	wg.Add(3)
 	go func() {
 		defer wg.Done()
 
@@ -92,6 +95,16 @@ func TestEventBus(t *testing.T) {
 		}
 	}()
 
+	go func() {
+		defer wg.Done()
+
+		for i := 0; i < 600; i++ {
+			_ = bus.Publish(topic4, msg2{})
+			general.Infof("publish topic4")
+			time.Sleep(1 * time.Millisecond)
+		}
+	}()
+
 	wg.Wait()
 
 	assert.Equal(t, 400, int(s1.count.Load()))
@@ -100,4 +113,6 @@ func TestEventBus(t *testing.T) {
 
 	err = bus.Publish(topic3, msg1{})
 	assert.NoError(t, err)
+
+	bus.(*eventBus).reportStatistic()
 }
