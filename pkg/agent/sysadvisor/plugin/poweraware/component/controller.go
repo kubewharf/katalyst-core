@@ -27,17 +27,24 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/config/generic"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/node"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/pod"
+	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/external/rapl"
 )
 
 // 8 seconds between actions since RAPL capping needs 4-6 seconds to stablize itself
-const intervalSpecFetch = time.Second * 8
+const (
+	intervalSpecFetch = time.Second * 8
+
+	metricPowerAwareCurrentPowerInWatt = "power_current_watt"
+	metricPowerAwareDesiredPowerInWatt = "power_desired_watt"
+)
 
 type PowerAwareController interface {
 	Run(ctx context.Context)
 }
 
 type powerAwareController struct {
+	emitter                metrics.MetricEmitter
 	specFetcher            SpecFetcher
 	powerReader            PowerReader
 	reconciler             PowerReconciler
@@ -82,14 +89,20 @@ func (p powerAwareController) run(ctx context.Context) {
 		klog.Errorf("pap: reading power failed: %#v", err)
 		return
 	}
+
+	// report metrics: current power reading, desired power value
+	_ = p.emitter.StoreInt64(metricPowerAwareCurrentPowerInWatt, int64(currentWatts), metrics.MetricTypeNameRaw)
+	_ = p.emitter.StoreInt64(metricPowerAwareDesiredPowerInWatt, int64(spec.Budget), metrics.MetricTypeNameRaw)
+
 	p.reconciler.Reconcile(ctx, spec, currentWatts)
 }
 
-func NewController(dryRun bool, nodeFetcher node.NodeFetcher,
-	podFetcher pod.PodFetcher, qosConfig *generic.QoSConfiguration,
-	limiter rapl.RAPLLimiter,
+func NewController(dryRun bool, emitter metrics.MetricEmitter,
+	nodeFetcher node.NodeFetcher, podFetcher pod.PodFetcher,
+	qosConfig *generic.QoSConfiguration, limiter rapl.RAPLLimiter,
 ) PowerAwareController {
 	return &powerAwareController{
+		emitter:     emitter,
 		specFetcher: &specFetcherByNodeAnnotation{nodeFetcher: nodeFetcher},
 		powerReader: &ipmiPowerReader{},
 		reconciler: &powerReconciler{

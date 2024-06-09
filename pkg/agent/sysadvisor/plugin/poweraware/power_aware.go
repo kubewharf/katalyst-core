@@ -27,9 +27,10 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/poweraware/component"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
-	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	metricspool "github.com/kubewharf/katalyst-core/pkg/metrics/metrics-pool"
 )
+
+const metricName = "advisor-poweraware"
 
 var PluginDisabledError = errors.New("plugin disabled")
 
@@ -37,7 +38,6 @@ type powerAwarePlugin struct {
 	name       string
 	disabled   bool
 	dryRun     bool
-	emitter    metrics.MetricEmitter
 	controller component.PowerAwareController
 }
 
@@ -72,9 +72,9 @@ func NewPowerAwarePlugin(
 		name:     pluginName,
 		disabled: conf.PowerAwarePluginOptions.Disabled,
 		dryRun:   conf.PowerAwarePluginOptions.DryRun,
-		emitter:  emitterPool.GetDefaultMetricsEmitter(),
 		controller: component.NewController(
 			conf.PowerAwarePluginOptions.DryRun,
+			emitterPool.GetDefaultMetricsEmitter().WithTags(metricName),
 			metaServer.NodeFetcher,
 			metaServer.PodFetcher,
 			conf.QoSConfiguration,

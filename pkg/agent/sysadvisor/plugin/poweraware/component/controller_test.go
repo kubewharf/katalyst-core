@@ -23,6 +23,7 @@ import (
 	"github.com/pkg/errors"
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
+	metricspool "github.com/kubewharf/katalyst-core/pkg/metrics/metrics-pool"
 	"github.com/kubewharf/katalyst-core/pkg/util/external/rapl"
 )
 
@@ -107,11 +108,13 @@ func Test_powerAwareController_run_normal(t *testing.T) {
 	t.Parallel()
 	// make sure controller run gets power spec, gets actual power status, and takes action in order
 
+	dummyEmitter := metricspool.DummyMetricsEmitterPool{}.GetDefaultMetricsEmitter().WithTags("advisor-poweraware")
 	depSpecFetcher := dummySpecFetcher{}
 	depPowerReader := &dummyPowerReader{}
 	depPowerReconciler := &dummyPowerReconciler{}
 
 	controller := powerAwareController{
+		emitter:     dummyEmitter,
 		specFetcher: &depSpecFetcher,
 		powerReader: depPowerReader,
 		reconciler:  depPowerReconciler,
