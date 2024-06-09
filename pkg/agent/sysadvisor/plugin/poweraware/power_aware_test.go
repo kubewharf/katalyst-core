@@ -30,7 +30,6 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/node"
-	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	metricspool "github.com/kubewharf/katalyst-core/pkg/metrics/metrics-pool"
 )
 
@@ -96,11 +95,12 @@ func Test_powerAwarePlugin_Name(t *testing.T) {
 
 func Test_powerAwarePlugin_Init(t *testing.T) {
 	t.Parallel()
+	dummyEmitter := metricspool.DummyMetricsEmitterPool{}.GetDefaultMetricsEmitter().WithTags("advisor-poweraware")
+
 	type fields struct {
 		name        string
 		disabled    bool
 		dryRun      bool
-		emitter     metrics.MetricEmitter
 		nodeFetcher node.NodeFetcher
 	}
 	tests := []struct {
@@ -130,11 +130,12 @@ func Test_powerAwarePlugin_Init(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			p := powerAwarePlugin{
-				name:       tt.fields.name,
-				disabled:   tt.fields.disabled,
-				dryRun:     tt.fields.dryRun,
-				emitter:    tt.fields.emitter,
-				controller: component.NewController(false, tt.fields.nodeFetcher, nil, nil, nil),
+				name:     tt.fields.name,
+				disabled: tt.fields.disabled,
+				dryRun:   tt.fields.dryRun,
+				controller: component.NewController(false, dummyEmitter,
+					tt.fields.nodeFetcher, nil, nil, nil,
+				),
 			}
 			if err := p.Init(); (err != nil) != tt.wantErr {
 				t.Errorf("Init() error = %v, wantErr %v", err, tt.wantErr)
@@ -159,7 +160,6 @@ func Test_powerAwarePlugin_Run(t *testing.T) {
 		name       string
 		disabled   bool
 		dryRun     bool
-		emitter    metrics.MetricEmitter
 		controller component.PowerAwareController
 	}
 	type args struct {
@@ -188,7 +188,6 @@ func Test_powerAwarePlugin_Run(t *testing.T) {
 				name:       tt.fields.name,
 				disabled:   tt.fields.disabled,
 				dryRun:     tt.fields.dryRun,
-				emitter:    tt.fields.emitter,
 				controller: tt.fields.controller,
 			}
 			p.Run(tt.args.ctx)
