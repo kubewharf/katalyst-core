@@ -21,7 +21,7 @@ import (
 	"time"
 )
 
-// TickUntilDone runs a given action at a tick rate specified by refreshRate, it returns if the context is cancelled
+// TickUntilDone runs a given action at a tick rate specified by refreshRate, it returns if the context is canceled
 func TickUntilDone(ctx context.Context, refreshRate uint64, action func() error) (err error) {
 	ticker := time.NewTicker(time.Duration(refreshRate) * time.Millisecond)
 	defer ticker.Stop()
