@@ -27,7 +27,6 @@ import (
 
 	"github.com/klauspost/cpuid/v2"
 	"golang.org/x/sync/errgroup"
-	"k8s.io/apimachinery/pkg/util/sets"
 
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/global"
 	"github.com/kubewharf/katalyst-core/pkg/mbw/utils"
@@ -58,25 +57,7 @@ func newSysInfo() (*SysInfo, error) {
 		Model:               cpuid.CPU.Model,
 	}
 
-	/*
-		hard code for the a tmp test - mock the case of 2 physical NUMA per socket and 3 fake NUMA each physical NUMA
-		delete it once the katalyst-agent code is updated
-	*/
-	sysInfo.ExtraTopologyInfo.SiblingNumaMap = map[int]sets.Int{
-		0:  {1: {}, 2: {}},
-		1:  {0: {}, 2: {}},
-		2:  {0: {}, 1: {}},
-		3:  {4: {}, 5: {}},
-		4:  {3: {}, 5: {}},
-		5:  {3: {}, 4: {}},
-		6:  {7: {}, 8: {}},
-		7:  {6: {}, 8: {}},
-		8:  {6: {}, 7: {}},
-		9:  {10: {}, 11: {}},
-		10: {9: {}, 11: {}},
-		11: {9: {}, 10: {}},
-	}
-
+	sysInfo.ExtraTopologyInfo.SiblingNumaMap = kmachineInfo.ExtraTopologyInfo.SiblingNumaMap
 	if sysInfo.ExtraTopologyInfo.SiblingNumaMap[0].Len() > 0 {
 		sysInfo.FakeNUMAEnabled = true
 	}
