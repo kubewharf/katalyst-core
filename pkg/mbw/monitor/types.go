@@ -27,11 +27,9 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
-type (
-	CPU_VENDOR_NAME       string
-	CORE_MB_EVENT_TYPE    int
-	PACKAGE_MB_EVENT_TYPE int
-)
+type CPU_VENDOR_NAME string
+type CORE_MB_EVENT_TYPE int
+type PACKAGE_MB_EVENT_TYPE int
 
 const (
 	CPU_VENDOR_INTEL   CPU_VENDOR_NAME = "Intel"
@@ -81,6 +79,7 @@ type SysInfo struct {
 	CCDMap           map[int][]int // mapping from CCD to CPU cores on AMD
 	NumaMap          map[int][]int // mapping from Numa to CCDs on AMD
 	MemoryBandwidth  MemoryBandwidthInfo
+	MemoryLatency    MemoryLatencyInfo
 	RMIDPerPackage   []uint32
 	PMU              PMUInfo
 }
@@ -141,6 +140,20 @@ type MemoryBandwidthInfo struct {
 	Packages      []PackageMB
 }
 
+type MemoryLatencyInfo struct {
+	CCDLocker sync.RWMutex
+	L3Latency []L3PMCLatencyInfo
+}
+
+type L3PMCLatencyInfo struct {
+	Package             int
+	L3PMCLatency1       uint64
+	L3PMCLatency1_Delta uint64
+	L3PMCLatency2       uint64
+	L3PMCLatency2_Delta uint64
+	L3PMCLatency        float64
+}
+
 type CoreMB struct {
 	Package    int    // physical NUMA ID
 	LRMB       uint64 // local mb for read
@@ -170,7 +183,15 @@ type SocketPMU struct {
 	IOHC *pci.PCIDev // we can use the first PCI IOHC dev to read all PMUs (i.e. Intel IMC or AMD UMC) on each socket, and the umc and memory channel is 1:1 mapping on AMD CPU
 }
 
-func (s *SysInfo) Is_Rome() bool {
+func (s SysInfo) Is_Intel() bool {
+	return s.Vendor == CPU_VENDOR_INTEL
+}
+
+func (s SysInfo) Is_AMD() bool {
+	return s.Vendor == CPU_VENDOR_AMD
+}
+
+func (s SysInfo) Is_Rome() bool {
 	if s.Vendor != CPU_VENDOR_AMD {
 		return false
 	}
@@ -182,7 +203,7 @@ func (s *SysInfo) Is_Rome() bool {
 	return false
 }
 
-func (s *SysInfo) Is_Milan() bool {
+func (s SysInfo) Is_Milan() bool {
 	if s.Vendor != CPU_VENDOR_AMD {
 		return false
 	}
@@ -194,7 +215,7 @@ func (s *SysInfo) Is_Milan() bool {
 	return false
 }
 
-func (s *SysInfo) Is_Genoa() bool {
+func (s SysInfo) Is_Genoa() bool {
 	if s.Vendor != CPU_VENDOR_AMD {
 		return false
 	}
@@ -207,7 +228,7 @@ func (s *SysInfo) Is_Genoa() bool {
 	return false
 }
 
-func (s *SysInfo) Is_SPR() bool {
+func (s SysInfo) Is_SPR() bool {
 	if s.Vendor != CPU_VENDOR_INTEL {
 		return false
 	}
@@ -219,7 +240,7 @@ func (s *SysInfo) Is_SPR() bool {
 	return false
 }
 
-func (s *SysInfo) Is_EMR() bool {
+func (s SysInfo) Is_EMR() bool {
 	if s.Vendor != CPU_VENDOR_INTEL {
 		return false
 	}
@@ -231,7 +252,7 @@ func (s *SysInfo) Is_EMR() bool {
 	return false
 }
 
-func (s *SysInfo) Is_ICX() bool {
+func (s SysInfo) Is_ICX() bool {
 	if s.Vendor != CPU_VENDOR_INTEL {
 		return false
 	}
@@ -243,7 +264,7 @@ func (s *SysInfo) Is_ICX() bool {
 	return false
 }
 
-func (s *SysInfo) Is_SKX() bool {
+func (s SysInfo) Is_SKX() bool {
 	if s.Vendor != CPU_VENDOR_INTEL {
 		return false
 	}
@@ -255,7 +276,7 @@ func (s *SysInfo) Is_SKX() bool {
 	return false
 }
 
-func (s *SysInfo) GetPkgByNuma(numa int) int {
+func (s SysInfo) GetPkgByNuma(numa int) int {
 	for i, v := range s.PackageMap {
 		for _, n := range v {
 			if n == numa {
@@ -268,7 +289,7 @@ func (s *SysInfo) GetPkgByNuma(numa int) int {
 	return -1
 }
 
-func (s *SysInfo) GetPackageMap(numasPerPackage int) map[int][]int {
+func (s SysInfo) GetPackageMap(numasPerPackage int) map[int][]int {
 	pMap := make(map[int][]int, s.NumPackages)
 	for i := 0; i < s.NumPackages; i++ {
 		numas := []int{}
@@ -281,7 +302,7 @@ func (s *SysInfo) GetPackageMap(numasPerPackage int) map[int][]int {
 	return pMap
 }
 
-func (s *SysInfo) GetNumaCCDMap() (map[int][]int, error) {
+func (s SysInfo) GetNumaCCDMap() (map[int][]int, error) {
 	numaMap := make(map[int][]int)
 
 	for idx, cores := range s.CCDMap {
@@ -302,7 +323,7 @@ func (s *SysInfo) GetNumaCCDMap() (map[int][]int, error) {
 	return numaMap, nil
 }
 
-func (s *SysInfo) GetCCDByCoreID(core int) (int, error) {
+func (s SysInfo) GetCCDByCoreID(core int) (int, error) {
 	for ccd, cores := range s.CCDMap {
 		if utils.Contains(cores, core) {
 			return ccd, nil

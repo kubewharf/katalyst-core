@@ -111,6 +111,7 @@ func (m MBMonitor) ConfigCCDMBACos(ccd, cos, ul int, max uint64) error {
 	if a >= maskA {
 		a1 = 0
 		b1 = 1
+		max = 0
 	}
 
 	shiftedB := b1 << BW_LEN
@@ -210,6 +211,9 @@ func (m *MBMonitor) AddInstance(instances ...Instance) error {
 }
 
 func (m *MBMonitor) AdjustNumaMB(node int, avgMB, quota uint64, action MB_CONTROL_ACTION) error {
+	m.MemoryBandwidth.PackageLocker.RLock()
+	defer m.MemoryBandwidth.PackageLocker.RUnlock()
+
 	ccdMB := m.MemoryBandwidth.Numas[node].Total / uint64(len(m.SysInfo.NumaMap[node]))
 	// TODO: adjust the quota distribution based on CPU usage
 	ccdQuota := quota / uint64(len(m.SysInfo.NumaMap[node]))

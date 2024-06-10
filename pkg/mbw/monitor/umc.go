@@ -17,8 +17,9 @@ limitations under the License.
 package monitor
 
 import (
-	"github.com/kubewharf/katalyst-core/pkg/mbw/utils"
-	"github.com/kubewharf/katalyst-core/pkg/mbw/utils/pci"
+	"membw_manager/pkg/utils"
+	"membw_manager/pkg/utils/pci"
+
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 )
 
@@ -122,9 +123,6 @@ func (m MBMonitor) ReadUMCCounter(iohc *pci.PCIDev, umc_idx, ctl_idx uint32) uin
 // collect the memory-bandwidth for each package by reading UMC
 func (m MBMonitor) ReadPackageUMC() {
 	var cas_rd, cas_wr uint64 = 0, 0
-
-	m.MemoryBandwidth.PackageLocker.Lock()
-	defer m.MemoryBandwidth.PackageLocker.Unlock()
 
 	for skt := 0; skt < m.SysInfo.MachineInfo.NumSockets; skt++ {
 		for umc := 0; umc < m.PMU.UMC.NumPerSocket; umc++ {

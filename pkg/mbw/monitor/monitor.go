@@ -205,8 +205,7 @@ func (m MBMonitor) Init() error {
 	// start PMC monitoring
 	switch m.Vendor {
 	case CPU_VENDOR_AMD:
-		m.StartUMCMonitor()
-		m.ClearUMCMonitor()
+		m.StartPMC()
 	case CPU_VENDOR_INTEL:
 		// not support yet
 	case CPU_VENDOR_ARM:
@@ -220,7 +219,7 @@ func (m MBMonitor) Stop() {
 	// stop PMC monitoring
 	switch m.Vendor {
 	case CPU_VENDOR_AMD:
-		m.StopUMCMonitor()
+		m.StopPMC()
 	case CPU_VENDOR_INTEL:
 		// not support yet
 	case CPU_VENDOR_ARM:
@@ -293,9 +292,12 @@ type serveFunc func() error
 // GlobalStats gets stats about the mem and the CPUs
 func (m MBMonitor) GlobalStats(ctx context.Context, refreshRate uint64) error {
 	serveFuncs := []serveFunc{
+		// measure the per-package (i.e. a physical NUMA) memory bandwidth by reading PMC
 		m.ServePackageMB,
+		// measure the per-core memory bandwidth by RDT
 		m.ServeCoreMB,
-		// TODO: read memory access latency per package
+		// measure the per-die (i.e. a CCD on AMD Genoa) memory access latency by reading L3 PMC
+		m.ServeL3Latency,
 	}
 
 	return utils.TickUntilDone(ctx, refreshRate, func() error {
@@ -340,6 +342,21 @@ func (m MBMonitor) HandleMBMetrics(ctx context.Context, refreshRate uint64) erro
 			m.AdjustMemoryBandwidth()
 		}
 	}
+}
+
+// ServeL3Latency() collects the latency between that a L3 cache line is missed to that it is loaded from memory to L3
+func (m MBMonitor) ServeL3Latency() error {
+	var err error = nil
+	switch m.Vendor {
+	case CPU_VENDOR_AMD:
+		err = m.ReadL3MissLatency()
+	case CPU_VENDOR_INTEL:
+		// not support yet
+	case CPU_VENDOR_ARM:
+		// not support yet
+	}
+
+	return err
 }
 
 // ServeCoreMB provides per-core memory-bandwidth and calculates the per-numa results
@@ -397,6 +414,9 @@ func (m MBMonitor) ServeCoreMB() error {
 
 // ServePackageMB provides information about memory-bandwidth per package
 func (m MBMonitor) ServePackageMB() error {
+	m.MemoryBandwidth.PackageLocker.Lock()
+	defer m.MemoryBandwidth.PackageLocker.Unlock()
+
 	switch m.Vendor {
 	case CPU_VENDOR_AMD:
 		m.ReadPackageUMC()
@@ -413,9 +433,7 @@ func (m MBMonitor) PrintMB() {
 	if m.MemoryBandwidth.Cores[0].LRMB_Delta != 0 {
 		// ignore the result at the 1st sec
 		m.MemoryBandwidth.CoreLocker.RLock()
-		m.MemoryBandwidth.PackageLocker.RLock()
 		defer m.MemoryBandwidth.CoreLocker.RUnlock()
-		defer m.MemoryBandwidth.PackageLocker.RUnlock()
 
 		fmt.Println("Memory Bandwidth [MB/s]")
 		fmt.Println("RDT - Read & Estimated Write Bandwidth")
@@ -424,14 +442,64 @@ func (m MBMonitor) PrintMB() {
 		for i, numa := range m.MemoryBandwidth.Numas {
 			fmt.Printf("node %d: %d, ", i, numa.Total)
 		}
+
 		fmt.Println("")
 	}
 
-	fmt.Println("PMU - Read & Write Bandwidth [r/w ratio]")
-	// print per-package memory-bandwidth
-	for i, pkg := range m.MemoryBandwidth.Packages {
-		fmt.Printf("package %d: %d [%.0f], ", i, pkg.Total, float64(pkg.RMB_Delta)/float64(pkg.WMB_Delta))
+	if m.MemoryBandwidth.Packages[0].RMB_Delta != 0 {
+		// ignore the result at the 1st sec
+		m.MemoryBandwidth.PackageLocker.RLock()
+		defer m.MemoryBandwidth.PackageLocker.RUnlock()
+
+		fmt.Println("PMU - Read & Write Bandwidth [r/w ratio]")
+		// print per-package memory-bandwidth
+		for i, pkg := range m.MemoryBandwidth.Packages {
+			fmt.Printf("package %d: %d [%.0f], ", i, pkg.Total, float64(pkg.RMB_Delta)/float64(pkg.WMB_Delta))
+		}
+
+		fmt.Println("")
 	}
-	fmt.Println()
+
+	if m.MemoryLatency.L3Latency[0].L3PMCLatency != 0 {
+		m.MemoryLatency.CCDLocker.RLock()
+		defer m.MemoryLatency.CCDLocker.RUnlock()
+
+		fmt.Println("L3PMC - Memory Access Latency [ns]")
+		// print avg memory access latency for each package
+		for i := 0; i < len(m.PackageMap); i++ {
+			for _, node := range m.PackageMap[i] {
+				latency := 0.0
+				for _, ccd := range m.NumaMap[node] {
+					latency += m.MemoryLatency.L3Latency[ccd].L3PMCLatency
+				}
+				fmt.Printf("node %d: %.1f, ", node, latency/float64(len(m.NumaMap[0])))
+			}
+		}
+
+		fmt.Println()
+	}
+
 	fmt.Println("*********************************************************************************************")
+}
+
+func (m MBMonitor) StartPMC() {
+	// start AMD L3 PMC
+	m.StartL3PMCMonitor()
+	m.ClearL3PMCSetting()
+
+	// start AMD UMC monitoring
+	m.StartUMCMonitor()
+	m.ClearUMCMonitor()
+
+	// TODO: Intel IMC
+}
+
+func (m MBMonitor) StopPMC() {
+	// stop AMD L3 PMC
+	m.StopL3PMCMonitor()
+
+	// stop AMD UMC monitoring
+	m.StopUMCMonitor()
+
+	// TODO: Intel IMC
 }

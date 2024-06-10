@@ -24,13 +24,22 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+
+	"github.com/kubewharf/katalyst-core/pkg/util/general"
 )
 
 const (
 	SYS_CACHE_LINE_BYTE = 64
 
 	SYS_DEVICE_SYSTEM_NODE_PATH = "/sys/devices/system/node/"
-	CPU_CACHE_LEVEL_LLC         = 3
+	SYS_DEVICE_SYSTEM_CPU_PATH  = "/sys/devices/system/cpu/"
+	CPU_FREQUENCY_PATH_AMD      = "cpufreq/cpuinfo_cur_freq"
+	CPU_FREQUENCY_PATH_INTEL    = "cpufreq/scaling_cur_freq"
+
+	DEFAULT_CPU_CLOCK   = 0.3846 // calcualted with the frequency of 2.6GHZ
+	CPU_CACHE_LEVEL_LLC = 3
+
+	L3_LAT_FACTOR = 16.0
 )
 
 func Contains(array []int, item int) bool {
@@ -70,7 +79,7 @@ func Delta(bit int, new, old uint64) uint64 {
 			return new - old
 		} else {
 			if restart_cnt < 10 {
-				new = max + new // multiple 48bit counter accumulated,such as pkg mem bandwidth
+				new = max + new //multiple 48bit counter accumulated,such as pkg mem bandwidth
 				restart_cnt++
 				goto restart
 			} else {
@@ -85,11 +94,21 @@ func Delta(bit int, new, old uint64) uint64 {
 }
 
 func RDTEventToMB(event, interval, scalar uint64) uint64 {
-	return BytesToMB(event*scalar) / (interval / 1000)
+	return BytesToMB(event*scalar) * 1000 / interval
+}
+
+// the latency uint is core clock
+// 1 core clock is 1 / max_frequency, around 3ns on AMD Genoa
+func L3PMCToLatency(count1, count2, interval uint64) float64 {
+	if count2 == 0 {
+		return 0
+	}
+
+	return (L3_LAT_FACTOR * float64(count1) / float64(count2)) * 1000 / float64(interval)
 }
 
 func PMUToMB(count, interval uint64) uint64 {
-	return BytesToMB(count*SYS_CACHE_LINE_BYTE) / (interval / 1000)
+	return BytesToMB(count*SYS_CACHE_LINE_BYTE) * 1000 / interval
 }
 
 func BytesToMB(b uint64) uint64 {
@@ -98,6 +117,40 @@ func BytesToMB(b uint64) uint64 {
 
 func BytesToGB(b uint64) uint64 {
 	return b / 1024 / 1024 / 1024
+}
+
+func GetCPUFrequency(cpu int, vendor string) (int, error) {
+	var path string
+
+	switch vendor {
+	case "AMD":
+		path = filepath.Join(
+			SYS_DEVICE_SYSTEM_CPU_PATH,
+			fmt.Sprintf("cpu%d", cpu),
+			CPU_FREQUENCY_PATH_AMD)
+	case "Intel":
+		path = filepath.Join(
+			SYS_DEVICE_SYSTEM_CPU_PATH,
+			fmt.Sprintf("cpu%d", cpu),
+			CPU_FREQUENCY_PATH_INTEL)
+	}
+
+	freq, err := general.ReadFileIntoInt(path)
+	if err != nil {
+		fmt.Printf("failed to get frequency of cpu %d - %v\n", cpu, err)
+		return -1, err
+	}
+
+	return freq, nil
+}
+
+func GetCPUClock(cpu int, family string) float64 {
+	freq, err := GetCPUFrequency(cpu, family)
+	if err != nil {
+		return DEFAULT_CPU_CLOCK
+	}
+
+	return 1.0 / (float64(freq) / 1000000.0)
 }
 
 // get the CCD topology of AMD CPUs which represents the CCD mapping to CPU cores.
