@@ -35,7 +35,7 @@ func TickUntilDone(ctx context.Context, refreshRate uint64, action func() error)
 
 		select {
 		case <-ctx.Done():
-			// Stop execution if context is cancelled
+			// Stop execution if context is canceled
 			return ctx.Err()
 		case <-ticker.C:
 			// Break out of blocking select for every tick
