@@ -79,7 +79,7 @@ func Delta(bit int, new, old uint64) uint64 {
 			return new - old
 		} else {
 			if restart_cnt < 10 {
-				new = max + new //multiple 48bit counter accumulated,such as pkg mem bandwidth
+				new = max + new // multiple 48bit counter accumulated,such as pkg mem bandwidth
 				restart_cnt++
 				goto restart
 			} else {

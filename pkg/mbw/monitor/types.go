@@ -27,9 +27,11 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
-type CPU_VENDOR_NAME string
-type CORE_MB_EVENT_TYPE int
-type PACKAGE_MB_EVENT_TYPE int
+type (
+	CPU_VENDOR_NAME       string
+	CORE_MB_EVENT_TYPE    int
+	PACKAGE_MB_EVENT_TYPE int
+)
 
 const (
 	CPU_VENDOR_INTEL   CPU_VENDOR_NAME = "Intel"

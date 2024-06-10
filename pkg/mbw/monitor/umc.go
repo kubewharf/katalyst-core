@@ -17,9 +17,8 @@ limitations under the License.
 package monitor
 
 import (
-	"membw_manager/pkg/utils"
-	"membw_manager/pkg/utils/pci"
-
+	"github.com/kubewharf/katalyst-core/pkg/mbw/utils"
+	"github.com/kubewharf/katalyst-core/pkg/mbw/utils/pci"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 )
 
