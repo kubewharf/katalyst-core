@@ -67,11 +67,11 @@ func NewMBWMetricsProvisioner(_ *global.BaseConfiguration, metricConf *metaserve
 		emitter:     emitter,
 	}
 
-	sampler, err := monitor.NewMonitor()
+	mbwMonitor, err := monitor.NewMonitor()
 	if err != nil {
 		m.shouldNotRun = true
 	} else {
-		m.sampler = sampler
+		m.sampler = sampling.New(mbwMonitor, metricStore, emitter)
 	}
 
 	return &m

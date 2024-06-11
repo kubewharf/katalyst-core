@@ -38,6 +38,21 @@ func TestStore_SetAndGetNodeMetric(t *testing.T) {
 	assert.Error(t, err)
 }
 
+func TestStore_SetAndGetPackageMetric(t *testing.T) {
+	t.Parallel()
+
+	now := time.Now()
+
+	store := NewMetricStore()
+	store.SetPackageMetric(1, "test-metric-name", MetricData{Value: 1.0, Time: &now})
+	value, _ := store.GetPacketMetric(1, "test-metric-name")
+	assert.Equal(t, MetricData{Value: 1.0, Time: &now}, value)
+	_, err := store.GetPacketMetric(1, "test-not-exist")
+	assert.Error(t, err)
+	_, err = store.GetPacketMetric(99, "test-not-exist")
+	assert.Error(t, err)
+}
+
 func TestStore_SetAndGetNumaMetric(t *testing.T) {
 	t.Parallel()
 
