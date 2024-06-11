@@ -527,7 +527,6 @@ func (ns *NUMANodeState) GetAvailableCPUQuantity(reservedCPUs machine.CPUSet) in
 		}
 
 		for _, allocationInfo := range containerEntries {
-			// sidecar doesn't contribute to allocated quantity currently
 			if allocationInfo == nil ||
 				!CheckSharedNUMABinding(allocationInfo) {
 				continue

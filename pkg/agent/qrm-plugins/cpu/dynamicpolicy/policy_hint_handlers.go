@@ -255,6 +255,8 @@ func (p *DynamicPolicy) sharedCoresWithNUMABindingHintHandler(_ context.Context,
 	}
 
 	machineState := p.state.GetMachineState()
+	podEntries := p.state.GetPodEntries()
+
 	var hints map[string]*pluginapi.ListOfTopologyHints
 
 	allocationInfo := p.state.GetAllocationInfo(req.PodUid, req.ContainerName)
@@ -263,7 +265,6 @@ func (p *DynamicPolicy) sharedCoresWithNUMABindingHintHandler(_ context.Context,
 
 		// regenerateHints failed. need to clear container record and re-calculate.
 		if hints == nil {
-			podEntries := p.state.GetPodEntries()
 			delete(podEntries[req.PodUid], req.ContainerName)
 			if len(podEntries[req.PodUid]) == 0 {
 				delete(podEntries, req.PodUid)
@@ -282,7 +283,7 @@ func (p *DynamicPolicy) sharedCoresWithNUMABindingHintHandler(_ context.Context,
 
 	if hints == nil {
 		var calculateErr error
-		hints, calculateErr = p.calculateHintsForNUMABindingSharedCores(reqInt, machineState, req.Annotations)
+		hints, calculateErr = p.calculateHintsForNUMABindingSharedCores(reqInt, podEntries, machineState, req.Annotations)
 		if calculateErr != nil {
 			return nil, fmt.Errorf("calculateHintsForNUMABindingSharedCores failed with error: %v", calculateErr)
 		}
@@ -351,7 +352,12 @@ func (p *DynamicPolicy) filterNUMANodesByHintPreferLowThreshold(reqInt int,
 			continue
 		}
 
-		if float64(availableCPUQuantity)/float64(allocatableCPUQuantity) >= p.cpuNUMAHintPreferLowThreshold {
+		availableRatio := float64(availableCPUQuantity) / float64(allocatableCPUQuantity)
+
+		general.Infof("NUMA: %d, availableCPUQuantity: %d, allocatableCPUQuantity: %d, availableRatio: %.2f, cpuNUMAHintPreferLowThreshold:%.2f",
+			nodeID, availableCPUQuantity, allocatableCPUQuantity, availableRatio, p.cpuNUMAHintPreferLowThreshold)
+
+		if availableRatio >= p.cpuNUMAHintPreferLowThreshold {
 			filteredNUMANodes = append(filteredNUMANodes, nodeID)
 		}
 	}
@@ -359,11 +365,45 @@ func (p *DynamicPolicy) filterNUMANodesByHintPreferLowThreshold(reqInt int,
 	return filteredNUMANodes
 }
 
-func (p *DynamicPolicy) calculateHintsForNUMABindingSharedCores(reqInt int, machineState state.NUMANodeMap,
+func (p *DynamicPolicy) filterNUMANodesByNonBindingSharedRequestedQuantity(nonBindingSharedRequestedQuantity,
+	nonBindingNUMAsCPUQuantity int,
+	nonBindingNUMAs machine.CPUSet,
+	machineState state.NUMANodeMap, numaNodes []int,
+) []int {
+	filteredNUMANodes := make([]int, 0, len(numaNodes))
+
+	for _, nodeID := range numaNodes {
+		if nonBindingNUMAs.Contains(nodeID) {
+			allocatableCPUQuantity := machineState[nodeID].GetFilteredDefaultCPUSet(nil, nil).Difference(p.reservedCPUs).Size()
+
+			// take this non-binding NUMA for candicate shared_cores with numa_binding,
+			// won't cause normal shared_cores in short supply
+			if nonBindingNUMAsCPUQuantity-allocatableCPUQuantity >= nonBindingSharedRequestedQuantity {
+				filteredNUMANodes = append(filteredNUMANodes, nodeID)
+			} else {
+				general.Infof("filter out NUMA: %d since taking it will cause normal shared_cores in short supply;"+
+					" nonBindingNUMAsCPUQuantity: %d, targetNUMAAllocatableCPUQuantity: %d, nonBindingSharedRequestedQuantity: %d",
+					nodeID, nonBindingNUMAsCPUQuantity, allocatableCPUQuantity, nonBindingSharedRequestedQuantity)
+			}
+		} else {
+			filteredNUMANodes = append(filteredNUMANodes, nodeID)
+		}
+	}
+
+	return filteredNUMANodes
+}
+
+func (p *DynamicPolicy) calculateHintsForNUMABindingSharedCores(reqInt int, podEntries state.PodEntries,
+	machineState state.NUMANodeMap,
 	reqAnnotations map[string]string,
 ) (map[string]*pluginapi.ListOfTopologyHints, error) {
-	numaNodes := machineState.GetFilteredNUMASetWithAnnotations(
-		state.CheckNUMABindingSharedCoresAntiAffinity, reqAnnotations).ToSliceInt()
+	nonBindingNUMAsCPUQuantity := machineState.GetFilteredAvailableCPUSet(p.reservedCPUs, nil, state.CheckNUMABinding).Size()
+	nonBindingNUMAs := machineState.GetFilteredNUMASet(state.CheckNUMABinding)
+	nonBindingSharedRequestedQuantity := state.GetNonBindingSharedRequestedQuantityFromPodEntries(podEntries)
+
+	numaNodes := p.filterNUMANodesByNonBindingSharedRequestedQuantity(nonBindingSharedRequestedQuantity,
+		nonBindingNUMAsCPUQuantity, nonBindingNUMAs, machineState,
+		machineState.GetFilteredNUMASetWithAnnotations(state.CheckNUMABindingSharedCoresAntiAffinity, reqAnnotations).ToSliceInt())
 
 	hints := map[string]*pluginapi.ListOfTopologyHints{
 		string(v1.ResourceCPU): {
