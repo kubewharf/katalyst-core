@@ -376,8 +376,8 @@ func (cs *cpuServer) assemblePodEntries(calculationEntriesMap map[string]*cpuadv
 
 				reclaimPoolCalculationResults, ok := getNumaCalculationResult(calculationEntriesMap, qrmstate.PoolNameReclaim,
 					cpuadvisor.FakedContainerName, int64(numaID))
-				if !ok {
-					// if no reclaimed pool exists, return the generated Block
+				if !ci.IsNumaExclusive() || !ok {
+					// if no reclaimed pool exists or container is not numaExclusive, return the generated Block
 
 					block := NewBlock(uint64(cpuset.Size()), "")
 					innerBlock := NewInnerBlock(block, int64(numaID), "", ci, numaCalculationResult)

@@ -26,6 +26,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	k8types "k8s.io/apimachinery/pkg/types"
+	"k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 
 	apiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
 	katalyst_base "github.com/kubewharf/katalyst-core/cmd/base"
@@ -157,7 +158,7 @@ func TestPolicyCanonical(t *testing.T) {
 	tests := []struct {
 		name                string
 		regionInfo          types.RegionInfo
-		containerInfo       map[string]map[string]types.ContainerInfo
+		containerInfo       map[string]map[string]*types.ContainerInfo
 		containerMetricData map[string]map[string]map[string]metricutil.MetricData
 		resourceEssentials  types.ResourceEssentials
 		controlEssentials   types.ControlEssentials
@@ -165,9 +166,9 @@ func TestPolicyCanonical(t *testing.T) {
 	}{
 		{
 			name: "share_ramp_up",
-			containerInfo: map[string]map[string]types.ContainerInfo{
+			containerInfo: map[string]map[string]*types.ContainerInfo{
 				"pod0": {
-					"container0": types.ContainerInfo{
+					"container0": &types.ContainerInfo{
 						PodUID:        "pod0",
 						PodName:       "pod0",
 						ContainerName: "container0",
@@ -220,9 +221,9 @@ func TestPolicyCanonical(t *testing.T) {
 		},
 		{
 			name: "share_ramp_down",
-			containerInfo: map[string]map[string]types.ContainerInfo{
+			containerInfo: map[string]map[string]*types.ContainerInfo{
 				"pod0": {
-					"container0": types.ContainerInfo{
+					"container0": &types.ContainerInfo{
 						PodUID:        "pod0",
 						PodName:       "pod0",
 						ContainerName: "container0",
@@ -275,15 +276,88 @@ func TestPolicyCanonical(t *testing.T) {
 		},
 		{
 			name: "dedicated_numa_exclusive",
-			containerInfo: map[string]map[string]types.ContainerInfo{
+			containerInfo: map[string]map[string]*types.ContainerInfo{
 				"pod0": {
-					"container0": types.ContainerInfo{
+					"container0": &types.ContainerInfo{
 						PodUID:        "pod0",
 						PodName:       "pod0",
 						ContainerName: "container0",
 						QoSLevel:      apiconsts.PodAnnotationQoSLevelDedicatedCores,
 						CPURequest:    4.0,
 						RampUp:        false,
+						TopologyAwareAssignments: map[int]machine.CPUSet{
+							0: machine.NewCPUSet(0, 1, 2, 3),
+						},
+					},
+				},
+			},
+			regionInfo: types.RegionInfo{
+				RegionName:   "dedicated-numa-exclusive-xxx",
+				RegionType:   types.QoSRegionTypeDedicatedNumaExclusive,
+				BindingNumas: machine.NewCPUSet(0),
+			},
+			resourceEssentials: types.ResourceEssentials{
+				EnableReclaim:       true,
+				ResourceUpperBound:  90,
+				ResourceLowerBound:  4,
+				ReservedForAllocate: 0,
+			},
+			controlEssentials: types.ControlEssentials{
+				ControlKnobs: types.ControlKnob{
+					types.ControlKnobNonReclaimedCPUSize: {
+						Value:  40,
+						Action: types.ControlKnobActionNone,
+					},
+				},
+				Indicators: types.Indicator{
+					consts.MetricCPUCPIContainer: {
+						Current: 2.0,
+						Target:  1.0,
+					},
+					consts.MetricMemBandwidthNuma: {
+						Current: 4,
+						Target:  40,
+					},
+				},
+				ReclaimOverlap: false,
+			},
+			wantResult: types.ControlKnob{
+				types.ControlKnobNonReclaimedCPUSize: {
+					Value:  4,
+					Action: types.ControlKnobActionNone,
+				},
+			},
+		},
+		{
+			name: "dedicated_numa_without_exclusive",
+			containerInfo: map[string]map[string]*types.ContainerInfo{
+				"testpod": {
+					"container0": &types.ContainerInfo{
+						ContainerType: v1alpha1.ContainerType_MAIN,
+						PodUID:        "pod0",
+						PodName:       "pod0",
+						ContainerName: "container0",
+						QoSLevel:      apiconsts.PodAnnotationQoSLevelDedicatedCores,
+						Annotations: map[string]string{
+							apiconsts.PodAnnotationMemoryEnhancementNumaBinding: apiconsts.PodAnnotationMemoryEnhancementNumaBindingEnable,
+						},
+						CPURequest: 4.0,
+						RampUp:     false,
+						TopologyAwareAssignments: map[int]machine.CPUSet{
+							0: machine.NewCPUSet(0, 1, 2, 3),
+						},
+					},
+					"container1": &types.ContainerInfo{
+						ContainerType: v1alpha1.ContainerType_SIDECAR,
+						PodUID:        "pod0",
+						PodName:       "pod0",
+						ContainerName: "container1",
+						QoSLevel:      apiconsts.PodAnnotationQoSLevelDedicatedCores,
+						CPURequest:    1.0,
+						RampUp:        false,
+						Annotations: map[string]string{
+							apiconsts.PodAnnotationMemoryEnhancementNumaBinding: apiconsts.PodAnnotationMemoryEnhancementNumaBindingEnable,
+						},
 						TopologyAwareAssignments: map[int]machine.CPUSet{
 							0: machine.NewCPUSet(0, 1, 2, 3),
 						},
@@ -370,7 +444,7 @@ func TestPolicyCanonical(t *testing.T) {
 			for podName, containerSet := range tt.containerInfo {
 				podNames = append(podNames, podName)
 				for containerName, info := range containerSet {
-					err = policy.metaReader.(*metacache.MetaCacheImp).AddContainer(podName, containerName, &info)
+					err = policy.metaReader.(*metacache.MetaCacheImp).AddContainer(podName, containerName, info)
 					assert.Nil(t, err)
 				}
 			}

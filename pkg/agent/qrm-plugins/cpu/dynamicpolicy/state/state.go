@@ -196,10 +196,27 @@ func CheckNUMABinding(ai *AllocationInfo) bool {
 	return ai.Annotations[consts.PodAnnotationMemoryEnhancementNumaBinding] == consts.PodAnnotationMemoryEnhancementNumaBindingEnable
 }
 
+// CheckNUMAExclusive returns true if the AllocationInfo is for pod with numa-exclusive enhancement
+func CheckNUMAExclusive(ai *AllocationInfo) bool {
+	return ai.Annotations[consts.PodAnnotationMemoryEnhancementNumaExclusive] == consts.PodAnnotationMemoryEnhancementNumaExclusiveEnable
+}
+
 // CheckDedicatedNUMABinding returns true if the AllocationInfo is for pod with
 // dedicated-qos and numa-binding enhancement
 func CheckDedicatedNUMABinding(ai *AllocationInfo) bool {
 	return CheckDedicated(ai) && CheckNUMABinding(ai)
+}
+
+// CheckDedicatedNUMABindingWithNUMAExclusive returns true if the AllocationInfo is for pod with
+// dedicated-qos and numa-binding and numa-exclusive enhancement
+func CheckDedicatedNUMABindingWithNUMAExclusive(ai *AllocationInfo) bool {
+	return CheckDedicated(ai) && CheckNUMABinding(ai) && CheckNUMAExclusive(ai)
+}
+
+// CheckDedicatedNUMABindingWithoutNUMAExclusive returns true if the AllocationInfo is for pod with
+// dedicated-qos and numa-binding and without numa-exclusive enhancement
+func CheckDedicatedNUMABindingWithoutNUMAExclusive(ai *AllocationInfo) bool {
+	return CheckDedicated(ai) && CheckNUMABinding(ai) && (!CheckNUMAExclusive(ai))
 }
 
 // CheckDedicatedPool returns true if the AllocationInfo is for a container in the dedicated pool
@@ -436,6 +453,22 @@ func (nm NUMANodeMap) GetFilteredAvailableCPUSet(reservedCPUs machine.CPUSet,
 	excludeEntry, excludeWholeNUMA func(ai *AllocationInfo) bool,
 ) machine.CPUSet {
 	return nm.GetFilteredDefaultCPUSet(excludeEntry, excludeWholeNUMA).Difference(reservedCPUs)
+}
+
+// GetMatchedAvailableCPUSet returns available cpuset on includeNUMA, along with the excludeEntry filter functions
+func (nm NUMANodeMap) GetMatchedAvailableCPUSet(reservedCPUs machine.CPUSet,
+	includeNUMA, excludeEntry func(ai *AllocationInfo) bool,
+) machine.CPUSet {
+	res := machine.NewCPUSet()
+	for _, numaNodeState := range nm {
+		if !numaNodeState.ExistMatchedAllocationInfo(includeNUMA) {
+			continue
+		}
+
+		res = res.Union(numaNodeState.GetFilteredDefaultCPUSet(excludeEntry, nil))
+	}
+
+	return res.Difference(reservedCPUs)
 }
 
 // GetFilteredNUMASet return numa set except the numa which are excluded by the predicate.
