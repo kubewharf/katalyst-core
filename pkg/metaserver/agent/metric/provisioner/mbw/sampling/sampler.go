@@ -46,7 +46,6 @@ func (m mbwSampler) Startup(ctx context.Context) error {
 	}
 
 	return m.monitor.GlobalStats(ctx, uint64(probeInterval.Milliseconds()))
-
 }
 
 func (m mbwSampler) Sample(ctx context.Context) {
