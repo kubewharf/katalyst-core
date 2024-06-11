@@ -212,6 +212,15 @@ func (m *ManagerImpl) GetTopologyHints(pod *v1.Pod, container *v1.Container) map
 		return nil
 	}
 
+	skipPod, err := isSkippedPod(pod, m.qosConfig)
+	if err != nil {
+		klog.Errorf("[ORM] check skip pod fail for pod: %v, err: %v", pod.Name, err)
+		return nil
+	}
+	if skipPod {
+		return nil
+	}
+
 	podUID := string(pod.UID)
 	contName := container.Name
 	containerType, containerIndex, err := GetContainerTypeAndIndex(pod, container)
@@ -415,13 +424,12 @@ func (m *ManagerImpl) processDeletePod(podUID string) error {
 func (m *ManagerImpl) addContainer(pod *v1.Pod, container *v1.Container) error {
 	klog.V(5).Infof("[ORM] addContainer, pod: %v, container: %v", pod.Name, container.Name)
 
-	systemCores, err := isPodKatalystQoSLevelSystemCores(m.qosConfig, pod)
+	skipPod, err := isSkippedPod(pod, m.qosConfig)
 	if err != nil {
 		klog.Errorf("[ORM] check pod %s qos level fail: %v", pod.Name, err)
 		return err
 	}
-
-	if native.CheckDaemonPod(pod) && !systemCores {
+	if skipPod {
 		klog.Infof("[ORM] skip pod: %s/%s, container: %s resource allocation",
 			pod.Namespace, pod.Name, container.Name)
 		return nil
@@ -563,14 +571,15 @@ func (m *ManagerImpl) reconcile() {
 		if pod == nil {
 			continue
 		}
-		systemCores, err := isPodKatalystQoSLevelSystemCores(m.qosConfig, pod)
+		skipPod, err := isSkippedPod(pod, m.qosConfig)
 		if err != nil {
 			klog.Errorf("[ORM] check pod %s qos level fail: %v", pod.Name, err)
-		}
-
-		if native.CheckDaemonPod(pod) && !systemCores {
 			continue
 		}
+		if skipPod {
+			continue
+		}
+
 		for _, container := range pod.Spec.Containers {
 
 			needsReAllocate := false
@@ -732,13 +741,17 @@ func isSkippedContainer(pod *v1.Pod, container *v1.Container) bool {
 	return containerType == pluginapi.ContainerType_INIT
 }
 
-func isPodKatalystQoSLevelSystemCores(qosConfig *generic.QoSConfiguration, pod *v1.Pod) (bool, error) {
-	qosLevel, err := qosConfig.GetQoSLevelForPod(pod)
+func isSkippedPod(pod *v1.Pod, qosConfig *generic.QoSConfiguration) (bool, error) {
+	systemCores, err := qosConfig.CheckSystemQoSForPod(pod)
 	if err != nil {
+		klog.Errorf("[ORM] check pod %s qos level fail: %v", pod.Name, err)
 		return false, err
 	}
 
-	return qosLevel == pluginapi.KatalystQoSLevelSystemCores, nil
+	if native.CheckDaemonPod(pod) && !systemCores {
+		return true, nil
+	}
+	return false, nil
 }
 
 func ParseListOfTopologyHints(hintsList *pluginapi.ListOfTopologyHints) []topology.TopologyHint {
