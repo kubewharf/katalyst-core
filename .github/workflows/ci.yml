@@ -68,6 +68,8 @@ jobs:
       - uses: actions/setup-go@v3
         with:
           go-version-file: go.mod
+      - name: Install libpci
+        run: sudo apt install -y libpci-dev
       - name: Build
         run: make all-binaries
 
