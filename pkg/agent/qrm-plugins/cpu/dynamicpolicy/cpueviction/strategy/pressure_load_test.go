@@ -822,7 +822,7 @@ func TestCPUPressureLoadEviction_collectMetrics(t *testing.T) {
 		enableReclaim           bool
 		podEntries              qrmstate.PodEntries
 		loads                   map[string]map[string]float64
-		wantSharedPoolSnapshots MetricInfo
+		wantSharedPoolSnapshots utilmetric.MetricInfo
 	}{
 		{
 			name:                   "use default bound, without dedicated core pod",
@@ -983,7 +983,7 @@ func TestCPUPressureLoadEviction_collectMetrics(t *testing.T) {
 					testName: 8,
 				},
 			},
-			wantSharedPoolSnapshots: MetricInfo{
+			wantSharedPoolSnapshots: utilmetric.MetricInfo{
 				Name:       consts.MetricLoad1MinContainer,
 				Value:      2.4,
 				UpperBound: 18,
@@ -1174,7 +1174,7 @@ func TestCPUPressureLoadEviction_collectMetrics(t *testing.T) {
 					testName: 8,
 				},
 			},
-			wantSharedPoolSnapshots: MetricInfo{
+			wantSharedPoolSnapshots: utilmetric.MetricInfo{
 				Name:       consts.MetricLoad1MinContainer,
 				Value:      3.4,
 				UpperBound: 8 * 1.8,
@@ -1366,7 +1366,7 @@ func TestCPUPressureLoadEviction_collectMetrics(t *testing.T) {
 					testName: 8,
 				},
 			},
-			wantSharedPoolSnapshots: MetricInfo{
+			wantSharedPoolSnapshots: utilmetric.MetricInfo{
 				Name:       consts.MetricLoad1MinContainer,
 				Value:      3.4,
 				LowerBound: 1,
@@ -1558,7 +1558,7 @@ func TestCPUPressureLoadEviction_collectMetrics(t *testing.T) {
 					testName: 8,
 				},
 			},
-			wantSharedPoolSnapshots: MetricInfo{
+			wantSharedPoolSnapshots: utilmetric.MetricInfo{
 				Name:       consts.MetricLoad1MinContainer,
 				Value:      3.4,
 				LowerBound: 4.4,

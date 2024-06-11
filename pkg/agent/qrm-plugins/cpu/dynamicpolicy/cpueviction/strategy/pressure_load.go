@@ -40,6 +40,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
+	"github.com/kubewharf/katalyst-core/pkg/util/metric"
 	"github.com/kubewharf/katalyst-core/pkg/util/native"
 )
 
@@ -348,8 +349,8 @@ func (p *CPUPressureLoadEviction) collectMetrics(_ context.Context) {
 					continue
 				}
 
-				snapshot := &MetricSnapshot{
-					Info: MetricInfo{
+				snapshot := &metric.MetricSnapshot{
+					Info: metric.MetricInfo{
 						Name:  metricName,
 						Value: m.Value,
 					},
@@ -441,8 +442,8 @@ func (p *CPUPressureLoadEviction) accumulateSharedPoolsLimit() int {
 func (p *CPUPressureLoadEviction) collectPoolLoad(dynamicConfig *dynamic.Configuration, pressureByPoolSize bool,
 	metricName string, metricValue float64, poolName string, poolSize int, collectTime int64,
 ) {
-	snapshot := &MetricSnapshot{
-		Info: MetricInfo{
+	snapshot := &metric.MetricSnapshot{
+		Info: metric.MetricInfo{
 			Name:       metricName,
 			Value:      metricValue,
 			UpperBound: float64(poolSize) * dynamicConfig.LoadUpperBoundRatio,
@@ -484,8 +485,8 @@ func (p *CPUPressureLoadEviction) collectPoolLoad(dynamicConfig *dynamic.Configu
 func (p *CPUPressureLoadEviction) collectPoolMetricDefault(dynamicConfig *dynamic.Configuration, _ bool,
 	metricName string, metricValue float64, poolName string, _ int, collectTime int64,
 ) {
-	snapshot := &MetricSnapshot{
-		Info: MetricInfo{
+	snapshot := &metric.MetricSnapshot{
+		Info: metric.MetricInfo{
 			Name:  metricName,
 			Value: metricValue,
 		},
@@ -498,7 +499,7 @@ func (p *CPUPressureLoadEviction) collectPoolMetricDefault(dynamicConfig *dynami
 
 // pushMetric stores and push-in metric for the given pod
 func (p *CPUPressureLoadEviction) pushMetric(dynamicConfig *dynamic.Configuration,
-	metricName, entryName, subEntryName string, snapshot *MetricSnapshot,
+	metricName, entryName, subEntryName string, snapshot *metric.MetricSnapshot,
 ) {
 	if p.metricsHistory[metricName] == nil {
 		p.metricsHistory[metricName] = make(Entries)
@@ -509,13 +510,13 @@ func (p *CPUPressureLoadEviction) pushMetric(dynamicConfig *dynamic.Configuratio
 	}
 
 	if p.metricsHistory[metricName][entryName][subEntryName] == nil {
-		p.metricsHistory[metricName][entryName][subEntryName] = CreateMetricRing(dynamicConfig.LoadMetricRingSize)
+		p.metricsHistory[metricName][entryName][subEntryName] = metric.CreateMetricRing(dynamicConfig.LoadMetricRingSize)
 	}
 
 	p.metricsHistory[metricName][entryName][subEntryName].Push(snapshot)
 }
 
-func (p *CPUPressureLoadEviction) logPoolSnapShot(snapshot *MetricSnapshot, poolName string, withBound bool) {
+func (p *CPUPressureLoadEviction) logPoolSnapShot(snapshot *metric.MetricSnapshot, poolName string, withBound bool) {
 	if snapshot == nil {
 		return
 	}
