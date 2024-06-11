@@ -109,12 +109,12 @@ func (alw *AsyncLimitedWorkers) AddWork(work *Work, policy DuplicateWorkPolicy) 
 
 func (alw *AsyncLimitedWorkers) poll(stopCh <-chan struct{}) (context.Context, *Work, error) {
 	alw.workLock.Lock()
+	defer alw.workLock.Unlock()
 	work, err := alw.doPoll(stopCh)
 	if err != nil {
 		return nil, nil, err
 	}
 	ctx := alw.prepareWork(work)
-	alw.workLock.Unlock()
 	return ctx, work, nil
 }
 
