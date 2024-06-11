@@ -171,6 +171,27 @@ func GetSharedQuantityMapFromPodEntries(podEntries PodEntries, ignoreAllocationI
 	return poolsQuantityMap, nil
 }
 
+// GetTotoalSharedQuantity returns total quanity shared_cores without numa_binding requested
+func GetNonBindingSharedRequestedQuantityFromPodEntries(podEntries PodEntries) int {
+	var reqFloat64 float64 = 0
+
+	for _, entries := range podEntries {
+		if entries.IsPoolEntry() {
+			continue
+		}
+
+		for _, allocationInfo := range entries {
+			if allocationInfo == nil || !CheckShared(allocationInfo) || CheckNUMABinding(allocationInfo) {
+				continue
+			}
+
+			reqFloat64 += GetContainerRequestedCores()(allocationInfo)
+		}
+	}
+
+	return int(math.Ceil(reqFloat64))
+}
+
 // GenerateMachineStateFromPodEntries returns NUMANodeMap for given resource based on
 // machine info and reserved resources along with existed pod entries
 func GenerateMachineStateFromPodEntries(topology *machine.CPUTopology, podEntries PodEntries, policyName string) (NUMANodeMap, error) {
