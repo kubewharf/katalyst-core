@@ -27,6 +27,7 @@ import (
 
 	//nolint
 	"github.com/golang/protobuf/proto"
+
 	apiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/inference/modelresultfetcher"
@@ -354,7 +355,7 @@ func NewBorweinModelResultFetcher(fetcherName string, conf *config.Configuration
 ) (modelresultfetcher.ModelResultFetcher, error) {
 	if conf == nil || conf.BorweinConfiguration == nil {
 		return nil, fmt.Errorf("nil conf")
-	} else if !conf.PolicyRama.EnableBorweinModelResultFetcher {
+	} else if !conf.GetDynamicConfiguration().PolicyRama.EnableBorweinModelResultFetcher {
 		return nil, nil
 	} else if metaServer == nil {
 		return nil, fmt.Errorf("nil metaServer")
