@@ -20,9 +20,7 @@ import "github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
 
 // CPUShareConfiguration stores configurations of cpu share
 type CPUShareConfiguration struct {
-	RestrictRefPolicy              map[types.CPUProvisionPolicyName]types.CPUProvisionPolicyName
-	RestrictControlKnobMaxGap      map[types.ControlKnobName]float64
-	RestrictControlKnobMaxGapRatio map[types.ControlKnobName]float64
+	RestrictRefPolicy map[types.CPUProvisionPolicyName]types.CPUProvisionPolicyName
 }
 
 // NewCPUShareConfiguration creates new resource advisor configurations

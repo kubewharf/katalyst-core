@@ -145,15 +145,21 @@ func (r *QoSRegionShare) restrictProvisionControlKnob(originControlKnob map[type
 				continue
 			}
 
+			controlKnobConstraints := r.conf.GetDynamicConfiguration().ControlKnobConstraints
+
 			min, max := refKnobValue.Value, refKnobValue.Value
-			if maxGap, ok := r.conf.RestrictControlKnobMaxGap[controlKnobName]; ok {
-				min = math.Min(min, refKnobValue.Value-maxGap)
-				max = math.Max(max, refKnobValue.Value+maxGap)
+			if maxUpperGap, ok := controlKnobConstraints.RestrictControlKnobMaxUpperGap[string(controlKnobName)]; ok {
+				max = math.Max(max, refKnobValue.Value+maxUpperGap)
+			}
+			if maxLowerGap, ok := controlKnobConstraints.RestrictControlKnobMaxLowerGap[string(controlKnobName)]; ok {
+				min = math.Min(min, refKnobValue.Value-maxLowerGap)
 			}
 
-			if maxGapRatio, ok := r.conf.RestrictControlKnobMaxGapRatio[controlKnobName]; ok {
-				min = math.Min(min, refKnobValue.Value*(1-maxGapRatio))
-				max = math.Max(max, refKnobValue.Value*(1+maxGapRatio))
+			if maxGapUpperRatio, ok := controlKnobConstraints.RestrictControlKnobMaxUpperGapRatio[string(controlKnobName)]; ok {
+				max = math.Max(max, refKnobValue.Value*(1+maxGapUpperRatio))
+			}
+			if maxGapLowerRatio, ok := controlKnobConstraints.RestrictControlKnobMaxLowerGapRatio[string(controlKnobName)]; ok {
+				min = math.Min(min, refKnobValue.Value*(1-maxGapLowerRatio))
 			}
 
 			restrictedKnobValue := rawKnobValue
