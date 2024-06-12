@@ -37,6 +37,8 @@ const (
 	metricsNameSyncIndicatorStatusCost   = "sync_indicator_status_cost"
 	metricsNameIndicatorSpecChanLength   = "indicator_spec_chan_length"
 	metricsNameIndicatorStatusChanLength = "indicator_status_chan_length"
+	metricsNameCreateSPDByWorkloadCost   = "create_spd_by_workload_cost"
+	metricsNameSPDCreatedAfterPod        = "spd_created_after_pod"
 )
 
 func (sc *SPDController) syncIndicatorSpec() {
@@ -222,5 +224,9 @@ func (sc *SPDController) mergeIndicatorStatus(spd *apiworkload.ServiceProfileDes
 			klog.Infof("skip status business %v for spd %v", spd.Status.BusinessStatus[i].Name, spd.Name)
 			spd.Status.BusinessStatus = append(spd.Status.BusinessStatus[:i], spd.Status.BusinessStatus[i+1:]...)
 		}
+	}
+
+	for _, indicator := range expected.AggMetrics {
+		util.InsertSPDAggMetrics(&spd.Status, &indicator)
 	}
 }

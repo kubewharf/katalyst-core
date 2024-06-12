@@ -25,16 +25,19 @@ import (
 	"github.com/stretchr/testify/assert"
 	appsv1 "k8s.io/api/apps/v1"
 	v1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/cache"
+	metrics "k8s.io/metrics/pkg/apis/metrics/v1beta1"
 	"k8s.io/utils/pointer"
 
 	apis "github.com/kubewharf/katalyst-api/pkg/apis/autoscaling/v1alpha1"
 	apiworkload "github.com/kubewharf/katalyst-api/pkg/apis/workload/v1alpha1"
 	apiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
+	apimetricpod "github.com/kubewharf/katalyst-api/pkg/metric/pod"
 	katalystbase "github.com/kubewharf/katalyst-core/cmd/base"
 	"github.com/kubewharf/katalyst-core/pkg/config/controller"
 	"github.com/kubewharf/katalyst-core/pkg/config/generic"
@@ -648,6 +651,25 @@ func TestIndicatorUpdater(t *testing.T) {
 					Current: &value,
 				},
 			},
+			AggMetrics: []apiworkload.AggPodMetrics{
+				{
+					Aggregator: apiworkload.Avg,
+					Items: []metrics.PodMetrics{
+						{
+							Timestamp: metav1.NewTime(time.Date(2022, 1, 1, 1, 0, 0, 0, time.Local)),
+							Window:    metav1.Duration{Duration: time.Hour},
+							Containers: []metrics.ContainerMetrics{
+								{
+									Name: "c1",
+									Usage: map[v1.ResourceName]resource.Quantity{
+										apimetricpod.CustomMetricPodCPULoad1Min: resource.MustParse("20"),
+									},
+								},
+							},
+						},
+					},
+				},
+			},
 		},
 	}
 
@@ -798,14 +820,35 @@ func TestIndicatorUpdater(t *testing.T) {
 		},
 	})
 
-	sc.indicatorManager.UpdateBusinessIndicatorStatus(nn, []apiworkload.ServiceBusinessIndicatorStatus{
-		{
-			Name:    "system-1",
-			Current: &value,
+	sc.indicatorManager.UpdateBusinessIndicatorStatus(
+		nn, []apiworkload.ServiceBusinessIndicatorStatus{
+			{
+				Name:    "system-1",
+				Current: &value,
+			},
+			{
+				Name:    "system-2",
+				Current: &value,
+			},
 		},
+	)
+	sc.indicatorManager.UpdateAggMetrics(nn, []apiworkload.AggPodMetrics{
 		{
-			Name:    "system-2",
-			Current: &value,
+			Aggregator: apiworkload.Avg,
+			Items: []metrics.PodMetrics{
+				{
+					Timestamp: metav1.NewTime(time.Date(2022, 1, 1, 1, 0, 0, 0, time.Local)),
+					Window:    metav1.Duration{Duration: time.Hour},
+					Containers: []metrics.ContainerMetrics{
+						{
+							Name: "c1",
+							Usage: map[v1.ResourceName]resource.Quantity{
+								apimetricpod.CustomMetricPodCPULoad1Min: resource.MustParse("20"),
+							},
+						},
+					},
+				},
+			},
 		},
 	})
 	time.Sleep(time.Second)
@@ -816,4 +859,5 @@ func TestIndicatorUpdater(t *testing.T) {
 	assert.Equal(t, expectedSpd.Spec.BusinessIndicator, newSPD.Spec.BusinessIndicator)
 	assert.Equal(t, expectedSpd.Spec.SystemIndicator, newSPD.Spec.SystemIndicator)
 	assert.Equal(t, expectedSpd.Status.BusinessStatus, newSPD.Status.BusinessStatus)
+	assert.Equal(t, expectedSpd.Status.AggMetrics, newSPD.Status.AggMetrics)
 }
