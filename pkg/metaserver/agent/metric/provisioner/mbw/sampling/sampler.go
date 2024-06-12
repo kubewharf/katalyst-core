@@ -18,7 +18,6 @@ package sampling
 
 import (
 	"context"
-	"fmt"
 	"time"
 
 	"github.com/kubewharf/katalyst-core/pkg/mbw/monitor"
@@ -34,8 +33,7 @@ type Sampler interface {
 }
 
 type mbwSampler struct {
-	monitor *monitor.MBMonitor
-
+	monitor     MBMonitorAdaptor
 	metricStore *utilmetric.MetricStore
 	emitter     metrics.MetricEmitter
 }
@@ -51,55 +49,45 @@ func (m mbwSampler) Startup(ctx context.Context) error {
 func (m mbwSampler) Sample(ctx context.Context) {
 	now := time.Now()
 
-	if m.monitor.MemoryBandwidth.Cores[0].LRMB_Delta != 0 {
-		// ignore the result at the 1st sec
-		m.monitor.MemoryBandwidth.CoreLocker.RLock()
-		defer m.monitor.MemoryBandwidth.CoreLocker.RUnlock()
-
-		// write per-NUMA memory-bandwidth
-		for i, numa := range m.monitor.MemoryBandwidth.Numas {
-			m.metricStore.SetNumaMetric(i,
-				"mb-mbps",
-				utilmetric.MetricData{Value: float64(numa.Total), Time: &now})
-		}
-
+	// write per-NUMA memory-bandwidth
+	for i, numaMB := range m.monitor.GetMemoryBandwidthOfNUMAs() {
+		m.metricStore.SetNumaMetric(i, "mb-mbps",
+			utilmetric.MetricData{Value: float64(numaMB.Total), Time: &now})
 	}
 
-	if m.monitor.MemoryBandwidth.Packages[0].RMB_Delta != 0 {
-		// ignore the result at the 1st sec
-		m.monitor.MemoryBandwidth.PackageLocker.RLock()
-		defer m.monitor.MemoryBandwidth.PackageLocker.RUnlock()
-
-		// write per-package memory-bandwidth - Read & Write Bandwidth [r/w ratio]
-		for i, pkg := range m.monitor.MemoryBandwidth.Packages {
-			fmt.Printf("package %d: %d [%.0f], ", i, pkg.Total, float64(pkg.RMB_Delta)/float64(pkg.WMB_Delta))
-			m.metricStore.SetPackageMetric(i, "rw-mbps",
-				utilmetric.MetricData{Value: float64(pkg.Total), Time: &now})
-			m.metricStore.SetPackageMetric(i, "rw-ratio",
-				utilmetric.MetricData{Value: float64(pkg.RMB_Delta) / float64(pkg.WMB_Delta), Time: &now})
-		}
-
+	// write per-package memory-bandwidth - Read & Write Bandwidth [r/w ratio]
+	for i, packageMB := range m.monitor.GetMemoryBandwidthOfPackages() {
+		m.metricStore.SetPackageMetric(i, "rw-mbps",
+			utilmetric.MetricData{Value: float64(packageMB.Total), Time: &now})
+		m.metricStore.SetPackageMetric(i, "rw-ratio",
+			utilmetric.MetricData{Value: float64(packageMB.RMB_Delta) / float64(packageMB.WMB_Delta), Time: &now})
 	}
 
-	if m.monitor.MemoryLatency.L3Latency[0].L3PMCLatency != 0 {
-		m.monitor.MemoryLatency.CCDLocker.RLock()
-		defer m.monitor.MemoryLatency.CCDLocker.RUnlock()
-
-		fmt.Println("L3PMC - Memory Access Latency [ns]")
-		// print avg memory access latency for each package
-		for i := 0; i < len(m.monitor.PackageMap); i++ {
-			// todo: verify it has right logic?????
-			for _, node := range m.monitor.PackageMap[i] {
-				latency := 0.0
-				for _, ccd := range m.monitor.NumaMap[node] {
-					latency += m.monitor.MemoryLatency.L3Latency[ccd].L3PMCLatency
-				}
-				fmt.Printf("node %d: %.1f, ", node, latency/float64(len(m.monitor.NumaMap[0])))
+	// write avg L3 memory access latency for each numa
+	// L3PMC - Memory Access Latency [ns]
+	packageNUMA := m.monitor.GetPackageNUMA()
+	// we need package-numa count for estimated value per numa
+	numaInPackage := float64(len(packageNUMA[0]))
+	numaCCD := m.monitor.GetNUMACCD()
+	ccdL3Latency := m.monitor.GetCCDL3Latency()
+	// todo: more stringent sanity check for valid ccd latency data
+	if len(ccdL3Latency) > 0 {
+		for i := 0; i < len(packageNUMA); i++ {
+			for _, node := range packageNUMA[i] {
+				latency := averageLatency(numaInPackage, numaCCD[node], ccdL3Latency)
+				m.metricStore.SetNumaMetric(node, "l3-pmc",
+					utilmetric.MetricData{Value: latency, Time: &now})
 			}
 		}
-
-		fmt.Println()
 	}
+}
+
+func averageLatency(count float64, ccds []int, ccdL3Latency []float64) float64 {
+	latency := 0.0
+	for _, ccd := range ccds {
+		latency += ccdL3Latency[ccd]
+	}
+	return latency / count
 }
 
 func New(monitor *monitor.MBMonitor, metricStore *utilmetric.MetricStore, emitter metrics.MetricEmitter) Sampler {

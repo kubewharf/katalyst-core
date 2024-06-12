@@ -75,6 +75,8 @@ func (c *MetricStore) SetNodeMetric(metricName string, data MetricData) {
 }
 
 func (c *MetricStore) SetPackageMetric(packageID int, metricName string, data MetricData) {
+	c.mutex.Lock()
+	defer c.mutex.Unlock()
 	if _, ok := c.packageMetricMap[packageID]; !ok {
 		c.packageMetricMap[packageID] = make(map[string]MetricData)
 	}
