@@ -25,6 +25,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/sets"
 
+	"github.com/kubewharf/katalyst-api/pkg/apis/config/v1alpha1"
 	"github.com/kubewharf/katalyst-api/pkg/consts"
 	katalyst_base "github.com/kubewharf/katalyst-core/cmd/base"
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/options"
@@ -197,4 +198,73 @@ func TestIsNumaBinding(t *testing.T) {
 	}
 	isolation2 := NewQoSRegionIsolation(&ci4, "isolation-1", conf, nil, state.FakedNUMAID, metaCache, metaServer, metrics.DummyMetrics{})
 	require.False(t, isolation2.IsNumaBinding(), "test IsNumaBinding failed")
+}
+
+func TestRestrictProvisionControlKnob(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name                   string
+		controlKnobConstraints *v1alpha1.ControlKnobConstraints
+		originControlKnob      map[types.CPUProvisionPolicyName]types.ControlKnob
+		wantControlKnob        map[types.CPUProvisionPolicyName]types.ControlKnob
+	}{
+		{
+			name: "below ref",
+			controlKnobConstraints: &v1alpha1.ControlKnobConstraints{
+				RestrictControlKnobMaxUpperGap: map[string]float64{"c1": 4},
+				RestrictControlKnobMaxLowerGap: map[string]float64{"c1": 1},
+			},
+			originControlKnob: map[types.CPUProvisionPolicyName]types.ControlKnob{"p1": {"c1": types.ControlKnobValue{Value: 8}}, "p2": {"c1": types.ControlKnobValue{Value: 10}}},
+			wantControlKnob:   map[types.CPUProvisionPolicyName]types.ControlKnob{"p1": {"c1": types.ControlKnobValue{Value: 9}}, "p2": {"c1": types.ControlKnobValue{Value: 10}}},
+		},
+		{
+			name: "upper ref",
+			controlKnobConstraints: &v1alpha1.ControlKnobConstraints{
+				RestrictControlKnobMaxUpperGap: map[string]float64{"c1": 4},
+				RestrictControlKnobMaxLowerGap: map[string]float64{"c1": 1},
+			},
+			originControlKnob: map[types.CPUProvisionPolicyName]types.ControlKnob{"p1": {"c1": types.ControlKnobValue{Value: 16}}, "p2": {"c1": types.ControlKnobValue{Value: 10}}},
+			wantControlKnob:   map[types.CPUProvisionPolicyName]types.ControlKnob{"p1": {"c1": types.ControlKnobValue{Value: 14}}, "p2": {"c1": types.ControlKnobValue{Value: 10}}},
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			conf, err := options.NewOptions().Config()
+			require.NoError(t, err)
+			require.NotNil(t, conf)
+
+			stateFileDir := "stateFileDir"
+			checkpointDir := "checkpointDir"
+
+			conf.GenericSysAdvisorConfiguration.StateFileDirectory = stateFileDir
+			conf.MetaServerConfiguration.CheckpointManagerDir = checkpointDir
+			conf.CPUShareConfiguration.RestrictRefPolicy = map[types.CPUProvisionPolicyName]types.CPUProvisionPolicyName{"p1": "p2"}
+			conf.GetDynamicConfiguration().ControlKnobConstraints = tt.controlKnobConstraints
+
+			genericCtx, err := katalyst_base.GenerateFakeGenericContext([]runtime.Object{})
+			require.NoError(t, err)
+
+			metaServer, err := metaserver.NewMetaServer(genericCtx.Client, metrics.DummyMetrics{}, conf)
+			require.NoError(t, err)
+			defer func() {
+				os.RemoveAll(stateFileDir)
+				os.RemoveAll(checkpointDir)
+			}()
+
+			metaCache, err := metacache.NewMetaCacheImp(conf, metricspool.DummyMetricsEmitterPool{}, metric.NewFakeMetricsFetcher(metrics.DummyMetrics{}))
+			require.NoError(t, err)
+			ci := types.ContainerInfo{
+				QoSLevel:    consts.PodAnnotationQoSLevelSharedCores,
+				RegionNames: sets.NewString("share"),
+			}
+			share := NewQoSRegionShare(&ci, conf, nil, state.FakedNUMAID, metaCache, metaServer, metrics.DummyMetrics{})
+			restrictedControlKnobs := share.(*QoSRegionShare).restrictProvisionControlKnob(tt.originControlKnob)
+			assert.Equal(t, tt.wantControlKnob, restrictedControlKnobs)
+		})
+	}
 }

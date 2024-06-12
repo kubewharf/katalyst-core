@@ -182,10 +182,8 @@ type QoSRegionBase struct {
 	metaServer *metaserver.MetaServer
 	emitter    metrics.MetricEmitter
 
-	// enableBorweinModel and borweinController will take effect only when using rama provision policy.
-	// If enableBorweinModel is set, borweinController will update target indicators by model inference.
-	enableBorweinModel bool
-	borweinController  *borweinctrl.BorweinController
+	// borweinController will take effect only when using rama provision policy.
+	borweinController *borweinctrl.BorweinController
 
 	// enableReclaim returns true if the resources of region can be reclaimed to supply for reclaimed_cores
 	enableReclaim func() bool
@@ -225,9 +223,8 @@ func NewQoSRegionBase(name string, ownerPoolName string, regionType types.QoSReg
 		metaServer: metaServer,
 		emitter:    emitter,
 
-		enableBorweinModel: conf.PolicyRama.EnableBorwein,
-		throttled:          *atomic.NewBool(false),
-		idle:               *atomic.NewBool(false),
+		throttled: *atomic.NewBool(false),
+		idle:      *atomic.NewBool(false),
 
 		isNumaBinding: isNumaBinding,
 	}
@@ -239,7 +236,7 @@ func NewQoSRegionBase(name string, ownerPoolName string, regionType types.QoSReg
 	// it only takes effect when updating target indicators,
 	// if there are more code positions depending on it,
 	// we should consider provide a dummy borwein controller to avoid redundant judgement.
-	if r.enableBorweinModel {
+	if r.conf.GetDynamicConfiguration().PolicyRama.EnableBorwein {
 		r.borweinController = borweinctrl.NewBorweinController(name, regionType, ownerPoolName, conf, metaReader, emitter)
 	}
 	r.enableReclaim = r.EnableReclaim
@@ -383,7 +380,7 @@ func (r *QoSRegionBase) GetProvision() (types.ControlKnob, error) {
 		if r.provisionPolicyNameInUse != oldProvisionPolicyNameInUse {
 			klog.Infof("[qosaware-cpu] region: %v provision policy switch from %v to %v",
 				r.Name(), oldProvisionPolicyNameInUse, r.provisionPolicyNameInUse)
-			if r.enableBorweinModel {
+			if r.conf.GetDynamicConfiguration().PolicyRama.EnableBorwein {
 				r.borweinController.ResetIndicatorOffsets()
 			}
 		}
@@ -656,7 +653,7 @@ func (r *QoSRegionBase) regulateProvisionControlKnob(originControlKnob map[types
 // getIndicators returns indicator targets from spd and current by region specific indicator getters
 func (r *QoSRegionBase) getIndicators() (types.Indicator, error) {
 	ctx := context.Background()
-	indicatorTargetConfig, ok := r.conf.RegionIndicatorTargetConfiguration[r.regionType]
+	indicatorTargetConfig, ok := r.conf.GetDynamicConfiguration().RegionIndicatorTargetConfiguration[string(r.regionType)]
 	if !ok {
 		return nil, fmt.Errorf("get %v indicators failed", r.regionType)
 	}
@@ -701,7 +698,7 @@ func (r *QoSRegionBase) getIndicators() (types.Indicator, error) {
 
 		indicators[indicatorName] = indicatorValue
 	}
-	if r.enableBorweinModel && r.provisionPolicyNameInUse == types.CPUProvisionPolicyRama {
+	if r.conf.GetDynamicConfiguration().PolicyRama.EnableBorwein && r.provisionPolicyNameInUse == types.CPUProvisionPolicyRama {
 		general.Infof("try to update indicators by borwein model")
 		return r.borweinController.GetUpdatedIndicators(indicators, r.podSet), nil
 	} else {

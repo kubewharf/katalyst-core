@@ -825,7 +825,7 @@ func TestNewBorweinModelResultFetcher(t *testing.T) {
 	}
 	for _, tt := range tests {
 		if tt.args.conf != nil {
-			tt.args.conf.PolicyRama.EnableBorweinModelResultFetcher = tt.args.enableBorweinModelResultFetcher
+			tt.args.conf.GetDynamicConfiguration().PolicyRama.EnableBorweinModelResultFetcher = tt.args.enableBorweinModelResultFetcher
 		}
 
 		var svr *grpc.Server

@@ -35,6 +35,7 @@ import (
 	k8stypes "k8s.io/apimachinery/pkg/types"
 	"k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 
+	configv1alpha1 "github.com/kubewharf/katalyst-api/pkg/apis/config/v1alpha1"
 	workloadapis "github.com/kubewharf/katalyst-api/pkg/apis/workload/v1alpha1"
 	"github.com/kubewharf/katalyst-api/pkg/consts"
 	katalyst_base "github.com/kubewharf/katalyst-core/cmd/base"
@@ -1138,8 +1139,8 @@ func TestAdvisorUpdate(t *testing.T) {
 			conf.IsolatedMaxResourceRatio = 0.3
 			conf.IsolationLockInThreshold = 1
 			conf.IsolationLockOutPeriodSecs = 30
-			conf.RegionIndicatorTargetConfiguration = map[types.QoSRegionType][]types.IndicatorTargetConfiguration{
-				types.QoSRegionTypeShare: {
+			conf.GetDynamicConfiguration().RegionIndicatorTargetConfiguration = map[string][]configv1alpha1.IndicatorTargetConfiguration{
+				string(types.QoSRegionTypeShare): {
 					{
 						Name:   string(workloadapis.ServiceSystemIndicatorNameCPUSchedWait),
 						Target: 460,
@@ -1161,7 +1162,7 @@ func TestAdvisorUpdate(t *testing.T) {
 						Target: 400,
 					},
 				},
-				types.QoSRegionTypeDedicatedNumaExclusive: {
+				string(types.QoSRegionTypeDedicatedNumaExclusive): {
 					{
 						Name:   string(workloadapis.ServiceSystemIndicatorNameCPI),
 						Target: 1.4,

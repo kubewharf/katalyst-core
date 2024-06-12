@@ -27,13 +27,13 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	k8types "k8s.io/apimachinery/pkg/types"
 
+	"github.com/kubewharf/katalyst-api/pkg/apis/config/v1alpha1"
 	apiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
 	katalyst_base "github.com/kubewharf/katalyst-core/cmd/base"
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/options"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
 	"github.com/kubewharf/katalyst-core/pkg/config"
-	provisionconf "github.com/kubewharf/katalyst-core/pkg/config/agent/sysadvisor/qosaware/resource/cpu/provision"
 	"github.com/kubewharf/katalyst-core/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric"
@@ -54,13 +54,13 @@ func generateCanonicalTestConfiguration(t *testing.T, checkpointDir, stateFileDi
 	conf.MetaServerConfiguration.CheckpointManagerDir = checkpointDir
 	conf.CheckpointManagerDir = checkpointManagerDir
 
-	conf.RegionIndicatorTargetConfiguration = map[types.QoSRegionType][]types.IndicatorTargetConfiguration{
-		types.QoSRegionTypeShare: {
+	conf.GetDynamicConfiguration().RegionIndicatorTargetConfiguration = map[string][]v1alpha1.IndicatorTargetConfiguration{
+		string(types.QoSRegionTypeShare): {
 			{
 				Name: consts.MetricCPUSchedwait,
 			},
 		},
-		types.QoSRegionTypeDedicatedNumaExclusive: {
+		string(types.QoSRegionTypeDedicatedNumaExclusive): {
 			{
 				Name: consts.MetricCPUCPIContainer,
 			},
@@ -70,8 +70,8 @@ func generateCanonicalTestConfiguration(t *testing.T, checkpointDir, stateFileDi
 		},
 	}
 
-	conf.PolicyRama = &provisionconf.PolicyRamaConfiguration{
-		PIDParameters: map[string]types.FirstOrderPIDParams{
+	conf.GetDynamicConfiguration().PolicyRama = &v1alpha1.PolicyRamaConfiguration{
+		PIDParameters: map[string]v1alpha1.FirstOrderPIDParams{
 			consts.MetricCPUSchedwait: {
 				Kpp:                  10.0,
 				Kpn:                  1.0,

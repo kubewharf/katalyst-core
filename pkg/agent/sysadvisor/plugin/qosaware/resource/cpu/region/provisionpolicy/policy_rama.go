@@ -70,7 +70,7 @@ func (p *PolicyRama) Update() error {
 
 	// run pid control for each indicator
 	for metricName, indicator := range p.Indicators {
-		params, ok := p.conf.PolicyRama.PIDParameters[metricName]
+		params, ok := p.conf.GetDynamicConfiguration().PolicyRama.PIDParameters[metricName]
 		if !ok {
 			klog.Warningf("[qosaware-cpu-rama] pid parameter not found for indicator %v", metricName)
 			continue
@@ -97,7 +97,7 @@ func (p *PolicyRama) Update() error {
 	}...)
 
 	for metricName := range p.controllers {
-		_, ok := p.conf.PolicyRama.PIDParameters[metricName]
+		_, ok := p.conf.GetDynamicConfiguration().PolicyRama.PIDParameters[metricName]
 		if !ok {
 			delete(p.controllers, metricName)
 		}

@@ -19,7 +19,6 @@ package cpu
 import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/sysadvisor/qosaware/resource/cpu/headroom"
-	"github.com/kubewharf/katalyst-core/pkg/config/agent/sysadvisor/qosaware/resource/cpu/provision"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/sysadvisor/qosaware/resource/cpu/region"
 )
 
@@ -31,7 +30,6 @@ type CPUAdvisorConfiguration struct {
 	HeadroomAssembler  types.CPUHeadroomAssemblerName
 
 	*headroom.CPUHeadroomPolicyConfiguration
-	*provision.CPUProvisionPolicyConfiguration
 	*region.CPURegionConfiguration
 	*CPUIsolationConfiguration
 }
@@ -39,13 +37,12 @@ type CPUAdvisorConfiguration struct {
 // NewCPUAdvisorConfiguration creates new cpu advisor configurations
 func NewCPUAdvisorConfiguration() *CPUAdvisorConfiguration {
 	return &CPUAdvisorConfiguration{
-		ProvisionPolicies:               map[types.QoSRegionType][]types.CPUProvisionPolicyName{},
-		HeadroomPolicies:                map[types.QoSRegionType][]types.CPUHeadroomPolicyName{},
-		ProvisionAssembler:              types.CPUProvisionAssemblerCommon,
-		HeadroomAssembler:               types.CPUHeadroomAssemblerCommon,
-		CPUHeadroomPolicyConfiguration:  headroom.NewCPUHeadroomPolicyConfiguration(),
-		CPUProvisionPolicyConfiguration: provision.NewCPUProvisionPolicyConfiguration(),
-		CPURegionConfiguration:          region.NewCPURegionConfiguration(),
-		CPUIsolationConfiguration:       NewCPUIsolationConfiguration(),
+		ProvisionPolicies:              map[types.QoSRegionType][]types.CPUProvisionPolicyName{},
+		HeadroomPolicies:               map[types.QoSRegionType][]types.CPUHeadroomPolicyName{},
+		ProvisionAssembler:             types.CPUProvisionAssemblerCommon,
+		HeadroomAssembler:              types.CPUHeadroomAssemblerCommon,
+		CPUHeadroomPolicyConfiguration: headroom.NewCPUHeadroomPolicyConfiguration(),
+		CPURegionConfiguration:         region.NewCPURegionConfiguration(),
+		CPUIsolationConfiguration:      NewCPUIsolationConfiguration(),
 	}
 }
