@@ -19,14 +19,9 @@ package monitor
 import (
 	"context"
 	"fmt"
-	"os"
-	"os/signal"
 	"sync"
-	"syscall"
-	"time"
 
 	"github.com/klauspost/cpuid/v2"
-	"golang.org/x/sync/errgroup"
 
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/global"
 	"github.com/kubewharf/katalyst-core/pkg/mbw/utils"
@@ -213,61 +208,6 @@ func (m MBMonitor) Stop() {
 	m.Started = false
 }
 
-func (m MBMonitor) listen() error {
-	signalChannel := getStopSignalsChannel()
-	select {
-	case sig := <-signalChannel:
-		fmt.Printf("Received signal: %s\n", sig)
-		// Give outstanding requests a deadline for completion.
-		m.Stop()
-		m.done()
-	case <-m.mctx.Done():
-		fmt.Printf("closing signal goroutine\n")
-		m.Stop()
-		return m.mctx.Err()
-	}
-
-	return nil
-}
-
-func getStopSignalsChannel() <-chan os.Signal {
-	signalChannel := make(chan os.Signal, 1)
-	signal.Notify(signalChannel,
-		os.Interrupt,    // interrupt is syscall.SIGINT, Ctrl+C
-		syscall.SIGQUIT, // Ctrl-\
-		syscall.SIGHUP,  // "terminal is disconnected"
-		syscall.SIGTERM, // "the normal way to politely ask a program to terminate"
-	)
-	return signalChannel
-}
-
-func (m MBMonitor) Start() error {
-	// ErrGroup for graceful shutdown
-	ctx, done := context.WithCancel(context.Background())
-	defer done()
-
-	eg, ctx := errgroup.WithContext(ctx)
-	m.mctx = ctx
-	m.done = done
-
-	// goroutine to check for signals to gracefully finish all functions
-	eg.Go(m.listen)
-
-	// start producing metrics.
-	eg.Go(func() error {
-		return m.GlobalStats(ctx, m.Interval)
-	})
-
-	// start consuming metrics.
-	eg.Go(func() error {
-		return m.HandleMBMetrics(ctx, m.Interval)
-	})
-
-	m.Started = true
-
-	return eg.Wait()
-}
-
 type serveFunc func() error
 
 // GlobalStats gets stats about the mem and the CPUs
@@ -306,24 +246,24 @@ func (m MBMonitor) GlobalStats(ctx context.Context, refreshRate uint64) error {
 	})
 }
 
-// HandleMBMetrics process the collected data and respond
-func (m MBMonitor) HandleMBMetrics(ctx context.Context, refreshRate uint64) error {
-	t := time.NewTicker(time.Duration(refreshRate) * time.Millisecond)
-	tick := t.C
-	for {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-
-		case <-tick:
-			// print the data if needed
-			m.PrintMB()
-			// adjust the bandwidth dynamically
-			// TODO: support differentiated intervals on control routine if the observed MB beyonds the specified threshold
-			m.AdjustMemoryBandwidth()
-		}
-	}
-}
+//// HandleMBMetrics process the collected data and respond
+//func (m MBMonitor) HandleMBMetrics(ctx context.Context, refreshRate uint64) error {
+//	t := time.NewTicker(time.Duration(refreshRate) * time.Millisecond)
+//	tick := t.C
+//	for {
+//		select {
+//		case <-ctx.Done():
+//			return ctx.Err()
+//
+//		case <-tick:
+//			// print the data if needed
+//			m.PrintMB()
+//			// adjust the bandwidth dynamically
+//			// TODO: support differentiated intervals on control routine if the observed MB beyonds the specified threshold
+//			m.AdjustMemoryBandwidth()
+//		}
+//	}
+//}
 
 // ServeL3Latency() collects the latency between that a L3 cache line is missed to that it is loaded from memory to L3
 func (m MBMonitor) ServeL3Latency() error {
@@ -408,59 +348,6 @@ func (m MBMonitor) ServePackageMB() error {
 	}
 
 	return nil
-}
-
-func (m MBMonitor) PrintMB() {
-	if m.MemoryBandwidth.Cores[0].LRMB_Delta != 0 {
-		// ignore the result at the 1st sec
-		m.MemoryBandwidth.CoreLocker.RLock()
-		defer m.MemoryBandwidth.CoreLocker.RUnlock()
-
-		fmt.Println("Memory Bandwidth [MB/s]")
-		fmt.Println("RDT - Read & Estimated Write Bandwidth")
-
-		// print per-NUMA memory-bandwidth
-		for i, numa := range m.MemoryBandwidth.Numas {
-			fmt.Printf("node %d: %d, ", i, numa.Total)
-		}
-
-		fmt.Println("")
-	}
-
-	if m.MemoryBandwidth.Packages[0].RMB_Delta != 0 {
-		// ignore the result at the 1st sec
-		m.MemoryBandwidth.PackageLocker.RLock()
-		defer m.MemoryBandwidth.PackageLocker.RUnlock()
-
-		fmt.Println("PMU - Read & Write Bandwidth [r/w ratio]")
-		// print per-package memory-bandwidth
-		for i, pkg := range m.MemoryBandwidth.Packages {
-			fmt.Printf("package %d: %d [%.0f], ", i, pkg.Total, float64(pkg.RMB_Delta)/float64(pkg.WMB_Delta))
-		}
-
-		fmt.Println("")
-	}
-
-	if m.MemoryLatency.L3Latency[0].L3PMCLatency != 0 {
-		m.MemoryLatency.CCDLocker.RLock()
-		defer m.MemoryLatency.CCDLocker.RUnlock()
-
-		fmt.Println("L3PMC - Memory Access Latency [ns]")
-		// print avg memory access latency for each package
-		for i := 0; i < len(m.PackageMap); i++ {
-			for _, node := range m.PackageMap[i] {
-				latency := 0.0
-				for _, ccd := range m.NumaMap[node] {
-					latency += m.MemoryLatency.L3Latency[ccd].L3PMCLatency
-				}
-				fmt.Printf("node %d: %.1f, ", node, latency/float64(len(m.NumaMap[0])))
-			}
-		}
-
-		fmt.Println()
-	}
-
-	fmt.Println("*********************************************************************************************")
 }
 
 func (m MBMonitor) StartPMC() {
