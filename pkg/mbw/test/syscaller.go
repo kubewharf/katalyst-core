@@ -32,8 +32,8 @@ var (
 func setupTestSyscaller() {
 	onceTest.Do(func() {
 		instanceTest = &stubSyscaller{}
+		utils.AppSyscall = instanceTest
 	})
-	utils.AppSyscall = instanceTest
 }
 
 type stubSyscaller struct{}
