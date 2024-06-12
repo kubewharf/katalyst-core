@@ -38,7 +38,6 @@ require (
 	go.opentelemetry.io/otel/sdk/export/metric v0.20.0
 	go.opentelemetry.io/otel/sdk/metric v0.20.0
 	go.uber.org/atomic v1.9.0
-	golang.org/x/sync v0.1.0
 	golang.org/x/sys v0.7.0
 	golang.org/x/time v0.0.0-20220210224613-90d013bbcef8
 	gonum.org/v1/gonum v0.8.2
@@ -131,6 +130,7 @@ require (
 	golang.org/x/exp v0.0.0-20220303212507-bbda1eaf7a17 // indirect
 	golang.org/x/net v0.9.0 // indirect
 	golang.org/x/oauth2 v0.0.0-20220223155221-ee480838109b // indirect
+	golang.org/x/sync v0.1.0 // indirect
 	golang.org/x/term v0.7.0 // indirect
 	golang.org/x/text v0.9.0 // indirect
 	gomodules.xyz/jsonpatch/v2 v2.2.0 // indirect
