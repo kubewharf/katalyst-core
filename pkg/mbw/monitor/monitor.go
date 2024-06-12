@@ -33,10 +33,12 @@ import (
 const (
 	MBM_MONITOR_INTERVAL = 1000
 
+	MAX_NUMA_DISTANCE = 32 // this is the inter-socket distance on AMD, intel inter-socket distance < 32
 	MIN_NUMA_DISTANCE = 11 // the distance to local numa is 10 in Linux, thus 11 is the minimum inter-numa distance
 )
 
 func newSysInfo(machineInfoConfig *global.MachineInfoConfiguration) (*SysInfo, error) {
+	// todo: (after git rebase) ensure machine info config has valid MAX numa distance (>=MIN_NUMA_DISTANCE)
 	kmachineInfo, err := machine.GetKatalystMachineInfo(machineInfoConfig)
 	if err != nil {
 		fmt.Println("Failed to initialize the katalyst machine info")
@@ -243,25 +245,6 @@ func (m MBMonitor) GlobalStats(ctx context.Context, refreshRate uint64) error {
 		return nil
 	})
 }
-
-//// HandleMBMetrics process the collected data and respond
-//func (m MBMonitor) HandleMBMetrics(ctx context.Context, refreshRate uint64) error {
-//	t := time.NewTicker(time.Duration(refreshRate) * time.Millisecond)
-//	tick := t.C
-//	for {
-//		select {
-//		case <-ctx.Done():
-//			return ctx.Err()
-//
-//		case <-tick:
-//			// print the data if needed
-//			m.PrintMB()
-//			// adjust the bandwidth dynamically
-//			// TODO: support differentiated intervals on control routine if the observed MB beyonds the specified threshold
-//			m.AdjustMemoryBandwidth()
-//		}
-//	}
-//}
 
 // ServeL3Latency() collects the latency between that a L3 cache line is missed to that it is loaded from memory to L3
 func (m MBMonitor) ServeL3Latency() error {
