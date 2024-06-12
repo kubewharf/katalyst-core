@@ -17,7 +17,7 @@ limitations under the License.
 package monitor
 
 // this file is extension of mbw monitor
-// it implements the needed adaptor utilities (besides Init & GlobalStats) for sampled metrics retrievals
+// it implements the needed adaptor utilities (besides FakeNumaConfigured, Init & GlobalStats) for sampled metrics retrievals
 
 // GetMemoryBandwidthOfNUMAs is the extension utility as part of adaptor to MB metric sampler
 func (m MBMonitor) GetMemoryBandwidthOfNUMAs() []NumaMB {

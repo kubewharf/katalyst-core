@@ -29,9 +29,14 @@ import (
 
 type mockMBMonitor struct {
 	MBMonitorAdaptor
-	errInit        bool
-	errGlobalStats bool
-	hasData        bool
+	numaFakeConfigured bool
+	errInit            bool
+	errGlobalStats     bool
+	hasData            bool
+}
+
+func (m mockMBMonitor) FakeNumaConfigured() bool {
+	return m.numaFakeConfigured
 }
 
 func (m mockMBMonitor) Init() error {
@@ -143,7 +148,7 @@ func Test_mbwSampler_Startup(t *testing.T) {
 		{
 			name: "happy path no error",
 			fields: fields{
-				monitor:     &mockMBMonitor{},
+				monitor:     &mockMBMonitor{numaFakeConfigured: true},
 				metricStore: nil,
 				emitter:     nil,
 			},
@@ -153,9 +158,19 @@ func Test_mbwSampler_Startup(t *testing.T) {
 			wantErr: false,
 		},
 		{
+			name: "negative path of not fake numa",
+			fields: fields{
+				monitor: &mockMBMonitor{numaFakeConfigured: false},
+			},
+			args: args{
+				ctx: context.TODO(),
+			},
+			wantErr: true,
+		},
+		{
 			name: "negative path of Init error",
 			fields: fields{
-				monitor: &mockMBMonitor{errInit: true},
+				monitor: &mockMBMonitor{numaFakeConfigured: true, errInit: true},
 			},
 			args: args{
 				ctx: context.TODO(),

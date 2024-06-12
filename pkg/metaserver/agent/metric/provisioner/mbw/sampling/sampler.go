@@ -18,6 +18,7 @@ package sampling
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
@@ -38,6 +39,10 @@ type mbwSampler struct {
 }
 
 func (m mbwSampler) Startup(ctx context.Context) error {
+	if !m.monitor.FakeNumaConfigured() {
+		return errors.New("not fake numa; memory bandwidth management not applicable")
+	}
+
 	if err := m.monitor.Init(); err != nil {
 		return err
 	}

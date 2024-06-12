@@ -24,6 +24,7 @@ import (
 
 // MBMonitorAdaptor is the adaptor interface tailored for mbw monitor
 type MBMonitorAdaptor interface {
+	FakeNumaConfigured() bool
 	Init() error
 	GlobalStats(ctx context.Context, refreshRate uint64) error
 
