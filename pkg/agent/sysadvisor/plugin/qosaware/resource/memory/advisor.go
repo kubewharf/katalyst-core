@@ -205,8 +205,9 @@ func (ra *memoryResourceAdvisor) update() error {
 		return fmt.Errorf("meta reader has not synced")
 	}
 
-	reservedForAllocate := ra.conf.GetDynamicConfiguration().
-		ReservedResourceForAllocate[v1.ResourceMemory]
+	reservedForAllocate := ra.conf.GetDynamicConfiguration().GetReservedResourceForAllocate(v1.ResourceList{
+		v1.ResourceMemory: *resource.NewQuantity(int64(ra.metaServer.MemoryCapacity), resource.BinarySI),
+	})[v1.ResourceMemory]
 
 	for _, headroomPolicy := range ra.headroomPolices {
 		// capacity and reserved can both be adjusted dynamically during running process

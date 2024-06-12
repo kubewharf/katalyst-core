@@ -64,7 +64,9 @@ func NewHeadroomAssemblerDedicated(conf *config.Configuration, _ interface{}, re
 
 func (ha *HeadroomAssemblerDedicated) GetHeadroom() (resource.Quantity, error) {
 	dynamicConfig := ha.conf.GetDynamicConfiguration()
-	reserved := ha.conf.GetDynamicConfiguration().ReservedResourceForAllocate[v1.ResourceCPU]
+	reserved := ha.conf.GetDynamicConfiguration().GetReservedResourceForAllocate(v1.ResourceList{
+		v1.ResourceCPU: *resource.NewQuantity(int64(ha.metaServer.NumCPUs), resource.DecimalSI),
+	})[v1.ResourceCPU]
 
 	// return zero when reclaim is disabled
 	if !dynamicConfig.EnableReclaim {

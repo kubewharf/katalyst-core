@@ -20,6 +20,7 @@ import (
 	"fmt"
 
 	v1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/klog/v2"
 	"k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
@@ -167,7 +168,10 @@ func (cra *cpuResourceAdvisor) updateNumasAvailableResource() {
 }
 
 func (cra *cpuResourceAdvisor) getNumasReservedForAllocate(numas machine.CPUSet) float64 {
-	reserved := cra.conf.GetDynamicConfiguration().ReservedResourceForAllocate[v1.ResourceCPU]
+	reserved := cra.conf.GetDynamicConfiguration().GetReservedResourceForAllocate(v1.ResourceList{
+		v1.ResourceCPU: *resource.NewQuantity(int64(cra.metaServer.NumCPUs), resource.DecimalSI),
+	})[v1.ResourceCPU]
+
 	return float64(reserved.Value()*int64(numas.Size())) / float64(cra.metaServer.NumNUMANodes)
 }
 
