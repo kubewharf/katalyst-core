@@ -266,6 +266,15 @@ func (s *SysInfo) Is_ICX() bool {
 	return false
 }
 
+func (s *SysInfo) FakeNumaConfigured() bool {
+	if s.ExtraTopologyInfo.SiblingNumaMap[0].Len() > 0 {
+		// NOTE: might be wrong in some old machines
+		return s.ExtraTopologyInfo.NumaDistanceMap[0][s.ExtraTopologyInfo.SiblingNumaMap[0].List()[0]].Distance == MIN_NUMA_DISTANCE
+	}
+
+	return false
+}
+
 func (s *SysInfo) Is_SKX() bool {
 	if s.Vendor != CPU_VENDOR_INTEL {
 		return false

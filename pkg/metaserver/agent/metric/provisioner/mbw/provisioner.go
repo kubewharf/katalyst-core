@@ -59,7 +59,7 @@ func (m *MBWMetricsProvisioner) Run(ctx context.Context) {
 	m.sampler.Sample(ctx)
 }
 
-func NewMBWMetricsProvisioner(_ *global.BaseConfiguration, metricConf *metaserver.MetricConfiguration,
+func NewMBWMetricsProvisioner(config *global.BaseConfiguration, metricConf *metaserver.MetricConfiguration,
 	emitter metrics.MetricEmitter, _ pod.PodFetcher, metricStore *utilmetric.MetricStore,
 ) types.MetricsProvisioner {
 	m := MBWMetricsProvisioner{
@@ -67,7 +67,7 @@ func NewMBWMetricsProvisioner(_ *global.BaseConfiguration, metricConf *metaserve
 		emitter:     emitter,
 	}
 
-	mbwMonitor, err := monitor.NewMonitor()
+	mbwMonitor, err := monitor.NewMonitor(config.MachineInfoConfiguration)
 	if err != nil {
 		m.shouldNotRun = true
 	} else {

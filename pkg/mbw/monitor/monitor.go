@@ -32,13 +32,11 @@ import (
 
 const (
 	MBM_MONITOR_INTERVAL = 1000
+
+	MIN_NUMA_DISTANCE = 11 // the distance to local numa is 10 in Linux, thus 11 is the minimum inter-numa distance
 )
 
-func newSysInfo() (*SysInfo, error) {
-	machineInfoConfig := &global.MachineInfoConfiguration{
-		NetMultipleNS: false,
-	}
-
+func newSysInfo(machineInfoConfig *global.MachineInfoConfiguration) (*SysInfo, error) {
 	kmachineInfo, err := machine.GetKatalystMachineInfo(machineInfoConfig)
 	if err != nil {
 		fmt.Println("Failed to initialize the katalyst machine info")
@@ -52,8 +50,7 @@ func newSysInfo() (*SysInfo, error) {
 		Model:               cpuid.CPU.Model,
 	}
 
-	sysInfo.ExtraTopologyInfo.SiblingNumaMap = kmachineInfo.ExtraTopologyInfo.SiblingNumaMap
-	if sysInfo.ExtraTopologyInfo.SiblingNumaMap[0].Len() > 0 {
+	if sysInfo.FakeNumaConfigured() {
 		sysInfo.FakeNUMAEnabled = true
 	}
 
@@ -115,8 +112,8 @@ func newSysInfo() (*SysInfo, error) {
 	return sysInfo, nil
 }
 
-func NewMonitor() (*MBMonitor, error) {
-	sysInfo, err := newSysInfo()
+func NewMonitor(machineInfoConfig *global.MachineInfoConfiguration) (*MBMonitor, error) {
+	sysInfo, err := newSysInfo(machineInfoConfig)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create the sysInfo - %v", err)
 	}
@@ -133,7 +130,8 @@ func NewMonitor() (*MBMonitor, error) {
 	general.Infof("CCDs: %d", len(sysInfo.CCDMap))
 	general.Infof("Cores per CCD: %d", sysInfo.CCDMap)
 	general.Infof("CCDs per Numa: %v", sysInfo.NumaMap)
-	general.Infof("Extral TopologyInfo: %v", *sysInfo.KatalystMachineInfo.ExtraTopologyInfo)
+	general.Infof("FakeNuma Enabled: %t", sysInfo.FakeNUMAEnabled)
+	general.Infof("SiblingNumaMap: %v", sysInfo.KatalystMachineInfo.ExtraTopologyInfo.SiblingNumaMap)
 
 	monitor := &MBMonitor{
 		SysInfo:  sysInfo,
