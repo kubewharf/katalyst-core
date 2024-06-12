@@ -20,7 +20,6 @@ import (
 	"context"
 	"time"
 
-	"github.com/kubewharf/katalyst-core/pkg/mbw/monitor"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	utilmetric "github.com/kubewharf/katalyst-core/pkg/util/metric"
 )
@@ -90,7 +89,7 @@ func averageLatency(count float64, ccds []int, ccdL3Latency []float64) float64 {
 	return latency / count
 }
 
-func New(monitor *monitor.MBMonitor, metricStore *utilmetric.MetricStore, emitter metrics.MetricEmitter) Sampler {
+func New(monitor MBMonitorAdaptor, metricStore *utilmetric.MetricStore, emitter metrics.MetricEmitter) Sampler {
 	return &mbwSampler{
 		monitor:     monitor,
 		metricStore: metricStore,

@@ -215,11 +215,7 @@ func Test_mbwSampler_Sample(t *testing.T) {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			m := mbwSampler{
-				monitor:     tt.fields.monitor,
-				metricStore: tt.fields.metricStore,
-				emitter:     tt.fields.emitter,
-			}
+			m := New(tt.fields.monitor, tt.fields.metricStore, tt.fields.emitter)
 			m.Sample(tt.args.ctx)
 		})
 	}
