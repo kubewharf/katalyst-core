@@ -44,8 +44,10 @@ func NewSystemLoadEvictionPluginConfiguration() *SystemLoadEvictionPluginConfigu
 
 func (l *SystemLoadEvictionPluginConfiguration) ApplyConfiguration(conf *crd.DynamicConfigCRD) {
 	if aqc := conf.AdminQoSConfiguration; aqc != nil && aqc.Spec.Config.EvictionConfig != nil &&
-		aqc.Spec.Config.EvictionConfig.SystemLoadPressureEvictionConfig != nil {
-		config := aqc.Spec.Config.EvictionConfig.SystemLoadPressureEvictionConfig
+		// SystemLoadPressureEvictionConfig is legacy config, we'll remove it in the future. For now,
+		// we ignore the static check for this two line to prevent lint fails.
+		aqc.Spec.Config.EvictionConfig.SystemLoadPressureEvictionConfig != nil { // nolint:staticcheck
+		config := aqc.Spec.Config.EvictionConfig.SystemLoadPressureEvictionConfig // nolint:staticcheck
 		if config.SoftThreshold != nil {
 			l.SoftThreshold = *config.SoftThreshold
 		}
