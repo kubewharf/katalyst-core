@@ -38,7 +38,10 @@ const (
 )
 
 func newSysInfo(machineInfoConfig *global.MachineInfoConfiguration) (*SysInfo, error) {
-	// todo: (after git rebase) ensure machine info config has valid MAX numa distance (>=MIN_NUMA_DISTANCE)
+	// ensure max numa distance make sense, as it is critical for mbw monitor
+	if machineInfoConfig.SiblingNumaMaxDistance < MIN_NUMA_DISTANCE {
+		machineInfoConfig.SiblingNumaMaxDistance = MAX_NUMA_DISTANCE
+	}
 	kmachineInfo, err := machine.GetKatalystMachineInfo(machineInfoConfig)
 	if err != nil {
 		fmt.Println("Failed to initialize the katalyst machine info")
