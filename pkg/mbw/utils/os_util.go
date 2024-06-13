@@ -15,3 +15,7 @@ limitations under the License.
 */
 
 package utils
+
+import "github.com/spf13/afero"
+
+var OSSingleton = &afero.Afero{Fs: afero.NewOsFs()}

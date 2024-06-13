@@ -18,15 +18,29 @@ package test
 
 import (
 	"errors"
+	"os"
+	"path/filepath"
+	"reflect"
 	"sync"
 	"testing"
+
+	"github.com/spf13/afero"
 
 	"github.com/kubewharf/katalyst-core/pkg/mbw/utils"
 )
 
+var (
+	osTestOnce    sync.Once
+	filerTestOnce sync.Once
+)
+
+func init() {
+	SetupTestOS()
+	SetupTestFiler()
+}
+
 func Test_Contains(t *testing.T) {
 	t.Parallel()
-
 	list := []int{1, 2, 3}
 	if found := utils.Contains(list, 3); !found {
 		t.Errorf("expected found, got %v", found)
@@ -131,18 +145,14 @@ func (f filerMock) ReadFileIntoInt(filepath string) (int, error) {
 	}
 }
 
-var onceFiler sync.Once
-
-func testFilerSetup() {
-	onceFiler.Do(func() {
+func SetupTestFiler() {
+	filerTestOnce.Do(func() {
 		utils.FilerSingleton = &filerMock{}
 	})
 }
 
 func TestGetCPUFrequency(t *testing.T) {
 	t.Parallel()
-	testFilerSetup()
-
 	type args struct {
 		cpu    int
 		vendor string
@@ -183,6 +193,83 @@ func TestGetCPUFrequency(t *testing.T) {
 			}
 			if got != tt.want {
 				t.Errorf("GetCPUFrequency() got = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func SetupTestOS() {
+	osTestOnce.Do(func() {
+		testOS := &afero.Afero{Fs: afero.NewMemMapFs()}
+
+		// we would like to have below device files exist for testing
+		fakeFiles := []struct {
+			dir     string
+			file    string
+			content string
+		}{
+			{
+				dir:     "/sys/devices/system/node/node0/cpu0/cache/index3/",
+				file:    "shared_cpu_list",
+				content: "0-1\n",
+			},
+			{
+				dir:     "/sys/devices/system/node/node0/cpu1/cache/index3/",
+				file:    "shared_cpu_list",
+				content: "0-1\n",
+			},
+			{
+				dir:     "/sys/devices/system/node/node1/cpu2/cache/index3/",
+				file:    "shared_cpu_list",
+				content: "2-3\n",
+			},
+			{
+				dir:     "/sys/devices/system/node/node1/cpu3/cache/index3/",
+				file:    "shared_cpu_list",
+				content: "2-3\n",
+			},
+		}
+
+		for _, entry := range fakeFiles {
+			_ = testOS.MkdirAll(entry.dir, os.ModePerm)
+			_ = testOS.WriteFile(filepath.Join(entry.dir, entry.file), []byte(entry.content), os.ModePerm)
+		}
+
+		utils.OSSingleton = testOS
+	})
+}
+
+func TestGetCCDTopology(t *testing.T) {
+	t.Parallel()
+	type args struct {
+		numNuma int
+	}
+	tests := []struct {
+		name    string
+		args    args
+		want    map[int][]int
+		wantErr bool
+	}{
+		{
+			name: "happy path",
+			args: args{
+				numNuma: 2,
+			},
+			want:    map[int][]int{0: {0, 1}, 1: {2, 3}},
+			wantErr: false,
+		},
+	}
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got, err := utils.GetCCDTopology(tt.args.numNuma)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("GetCCDTopology() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("GetCCDTopology() got = %v, want %v", got, tt.want)
 			}
 		})
 	}

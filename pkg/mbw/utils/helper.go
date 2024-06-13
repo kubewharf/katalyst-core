@@ -161,7 +161,7 @@ func GetCCDTopology(numNuma int) (map[int][]int, error) {
 
 	for nodeID := 0; nodeID < numNuma; nodeID++ {
 		path := filepath.Join(SYS_DEVICE_SYSTEM_NODE_PATH, fmt.Sprintf("node%d", nodeID))
-		files, err := os.ReadDir(path)
+		files, err := OSSingleton.ReadDir(path)
 		if err != nil {
 			return nil, err
 		}
@@ -193,10 +193,10 @@ func GetCCDTopology(numNuma int) (map[int][]int, error) {
 			// here to retrieve the CCX/CCD domains on this machine, so index3 is the
 			// target file we gonna read.
 			cachePath := filepath.Join(cpuPath, "cache")
-			if _, err = os.Stat(cachePath); errors.Is(err, os.ErrNotExist) {
+			if _, err = OSSingleton.Stat(cachePath); errors.Is(err, os.ErrNotExist) {
 				continue
 			}
-			cacheDirFiles, err := os.ReadDir(cachePath)
+			cacheDirFiles, err := OSSingleton.ReadDir(cachePath)
 			if err != nil {
 				return nil, err
 			}

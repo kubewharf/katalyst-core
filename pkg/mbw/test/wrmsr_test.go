@@ -24,10 +24,6 @@ import (
 
 func TestMSRDev_Write(t *testing.T) {
 	t.Parallel()
-
-	// set up test stub
-	setupTestSyscaller()
-
 	type args struct {
 		regno int64
 		value uint64
@@ -60,10 +56,6 @@ func TestMSRDev_Write(t *testing.T) {
 
 func TestWriteMSR(t *testing.T) {
 	t.Parallel()
-
-	// set up test stub
-	setupTestSyscaller()
-
 	type args struct {
 		cpu   uint32
 		msr   int64

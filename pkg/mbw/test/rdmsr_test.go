@@ -24,10 +24,6 @@ import (
 
 func TestMSRDev_Read(t *testing.T) {
 	t.Parallel()
-
-	// set up test stub
-	setupTestSyscaller()
-
 	type args struct {
 		msr int64
 	}
@@ -65,10 +61,6 @@ func TestMSRDev_Read(t *testing.T) {
 
 func TestReadMSR(t *testing.T) {
 	t.Parallel()
-
-	// set up test stub
-	setupTestSyscaller()
-
 	type args struct {
 		cpu uint32
 		msr int64

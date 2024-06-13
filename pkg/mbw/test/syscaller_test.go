@@ -24,12 +24,16 @@ import (
 
 // below for testing only; MUST not be used in prod code
 var (
-	onceTest sync.Once
+	syscallTestOnce sync.Once
 )
+
+func init() {
+	setupTestSyscaller()
+}
 
 // caveat: NEVER EVER call this in prod code
 func setupTestSyscaller() {
-	onceTest.Do(func() {
+	syscallTestOnce.Do(func() {
 		utils.AppSyscall = &stubSyscaller{}
 	})
 }
@@ -52,5 +56,3 @@ func (s stubSyscaller) Close(fd int) (err error) {
 func (s stubSyscaller) Open(path string, mode int, perm uint32) (fd int, err error) {
 	return 99, nil
 }
-
-var _ utils.Syscaller = &stubSyscaller{}

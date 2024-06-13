@@ -24,10 +24,6 @@ import (
 
 func TestGetRDTValue(t *testing.T) {
 	t.Parallel()
-
-	// set up test stub
-	setupTestSyscaller()
-
 	type args struct {
 		core  uint32
 		event rdt.PQOS_EVENT_TYPE
