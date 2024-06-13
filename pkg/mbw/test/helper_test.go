@@ -25,6 +25,7 @@ import (
 	"testing"
 
 	"github.com/spf13/afero"
+	"github.com/stretchr/testify/assert"
 
 	"github.com/kubewharf/katalyst-core/pkg/mbw/utils"
 )
@@ -273,4 +274,22 @@ func TestGetCCDTopology(t *testing.T) {
 			}
 		})
 	}
+}
+
+func Test_RDTEventToMB(t *testing.T) {
+	t.Parallel()
+	got := utils.RDTEventToMB(4*1024, 1000, 6*1024)
+	assert.Equal(t, uint64(24), got)
+}
+
+func Test_PMUToMB(t *testing.T) {
+	t.Parallel()
+	got := utils.PMUToMB(32*1024, 500)
+	assert.Equal(t, uint64(4), got)
+}
+
+func Test_GetCPUClock(t *testing.T) {
+	t.Parallel()
+	got := utils.GetCPUClock(1, "AMD")
+	assert.Equal(t, float64(0.3846), got)
 }
