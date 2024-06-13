@@ -254,7 +254,7 @@ func (h *HealthzHelper) syncHeartBeatMap() {
 		_ = h.emitter.StoreInt64(metricsNameAgentNotFoundTotal, totalNotFoundNode[agent],
 			metrics.MetricTypeNameRaw, tag)
 		if nodeCount > 0 {
-			_ = h.emitter.StoreFloat64(metricsNameAgentReadyRate, float64(totalNotReadyNode[agent])/float64(nodeCount),
+			_ = h.emitter.StoreFloat64(metricsNameAgentReadyRate, float64(totalReadyNode[agent])/float64(nodeCount),
 				metrics.MetricTypeNameRaw, tag)
 		}
 	}
