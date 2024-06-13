@@ -15,3 +15,175 @@ limitations under the License.
 */
 
 package test
+
+import (
+	"errors"
+	"sync"
+	"testing"
+
+	"github.com/kubewharf/katalyst-core/pkg/mbw/utils"
+)
+
+func Test_Contains(t *testing.T) {
+	t.Parallel()
+
+	list := []int{1, 2, 3}
+	if found := utils.Contains(list, 3); !found {
+		t.Errorf("expected found, got %v", found)
+	}
+	if found := utils.Contains(list, 4); found {
+		t.Errorf("expected not found, got %v", found)
+	}
+}
+
+func TestDelta(t *testing.T) {
+	t.Parallel()
+	type args struct {
+		bit int
+		new uint64
+		old uint64
+	}
+	tests := []struct {
+		name string
+		args args
+		want uint64
+	}{
+		{
+			name: "happy path 8 bits",
+			args: args{
+				bit: 8,
+				new: 140,
+				old: 100,
+			},
+			want: 40,
+		},
+		{
+			name: "happy path 16 bits",
+			args: args{
+				bit: 16,
+				new: 100,
+				old: 140,
+			},
+			want: 2<<15 - 40 - 1, // 65495,
+		},
+	}
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			if got := utils.Delta(tt.args.bit, tt.args.new, tt.args.old); got != tt.want {
+				t.Errorf("Delta() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestL3PMCToLatency(t *testing.T) {
+	t.Parallel()
+	type args struct {
+		count1   uint64
+		count2   uint64
+		interval uint64
+	}
+	tests := []struct {
+		name string
+		args args
+		want float64
+	}{
+		{
+			name: "conner case 0 divider",
+			args: args{
+				count1:   1,
+				count2:   0,
+				interval: 1,
+			},
+			want: 0,
+		},
+		{
+			name: "happy path",
+			args: args{
+				count1:   100,
+				count2:   2,
+				interval: 1,
+			},
+			want: 800000,
+		},
+	}
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			if got := utils.L3PMCToLatency(tt.args.count1, tt.args.count2, tt.args.interval); got != tt.want {
+				t.Errorf("L3PMCToLatency() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+type filerMock struct{}
+
+func (f filerMock) ReadFileIntoInt(filepath string) (int, error) {
+	switch filepath {
+	case "/sys/devices/system/cpu/cpu0/cpufreq/cpuinfo_cur_freq":
+		return 101, nil
+	default:
+		return 0, errors.New("mock test error")
+	}
+}
+
+var onceFiler sync.Once
+
+func testFilerSetup() {
+	onceFiler.Do(func() {
+		utils.FilerSingleton = &filerMock{}
+	})
+}
+
+func TestGetCPUFrequency(t *testing.T) {
+	t.Parallel()
+	testFilerSetup()
+
+	type args struct {
+		cpu    int
+		vendor string
+	}
+	tests := []struct {
+		name    string
+		args    args
+		want    int
+		wantErr bool
+	}{
+		{
+			name: "happy path AMD",
+			args: args{
+				cpu:    0,
+				vendor: "AMD",
+			},
+			want:    101,
+			wantErr: false,
+		},
+		{
+			name: "negative path Intel",
+			args: args{
+				cpu:    1,
+				vendor: "Intel",
+			},
+			want:    -1,
+			wantErr: true,
+		},
+	}
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got, err := utils.GetCPUFrequency(tt.args.cpu, tt.args.vendor)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("GetCPUFrequency() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if got != tt.want {
+				t.Errorf("GetCPUFrequency() got = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}

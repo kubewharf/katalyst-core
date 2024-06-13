@@ -24,8 +24,6 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-
-	"github.com/kubewharf/katalyst-core/pkg/util/general"
 )
 
 const (
@@ -135,7 +133,7 @@ func GetCPUFrequency(cpu int, vendor string) (int, error) {
 			CPU_FREQUENCY_PATH_INTEL)
 	}
 
-	freq, err := general.ReadFileIntoInt(path)
+	freq, err := FilerSingleton.ReadFileIntoInt(path)
 	if err != nil {
 		fmt.Printf("failed to get frequency of cpu %d - %v\n", cpu, err)
 		return -1, err

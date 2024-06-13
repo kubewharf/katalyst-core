@@ -24,15 +24,13 @@ import (
 
 // below for testing only; MUST not be used in prod code
 var (
-	instanceTest utils.Syscaller
-	onceTest     sync.Once
+	onceTest sync.Once
 )
 
 // caveat: NEVER EVER call this in prod code
 func setupTestSyscaller() {
 	onceTest.Do(func() {
-		instanceTest = &stubSyscaller{}
-		utils.AppSyscall = instanceTest
+		utils.AppSyscall = &stubSyscaller{}
 	})
 }
 
