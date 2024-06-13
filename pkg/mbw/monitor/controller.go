@@ -18,8 +18,6 @@ package monitor
 
 import (
 	"fmt"
-
-	msrutils "github.com/kubewharf/katalyst-core/pkg/mbw/utils/msr"
 	"github.com/kubewharf/katalyst-core/pkg/mbw/utils/rdt"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 )
@@ -50,7 +48,7 @@ const (
 )
 
 func checkMSR(core uint32, msr int64, target uint64) error {
-	ret, err := msrutils.ReadMSR(core, msr)
+	ret, err := msrSingleton.ReadMSR(core, msr)
 	if err != nil {
 		return fmt.Errorf("failed to read msr - %v", err)
 	}
@@ -64,7 +62,7 @@ func checkMSR(core uint32, msr int64, target uint64) error {
 }
 
 func writeMBAMSR(core uint32, msr int64, val uint64) error {
-	if wErr := msrutils.WriteMSR(core, msr, val); wErr != nil {
+	if wErr := msrSingleton.WriteMSR(core, msr, val); wErr != nil {
 		general.Errorf("failed to write %d to msr %d on core %d - %v", val, msr, core, wErr)
 		return wErr
 	}
