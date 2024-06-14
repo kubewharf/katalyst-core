@@ -358,6 +358,7 @@ numaLoop:
 func moveProcessPagesToOneNuma(ctx context.Context, pid int32, pagesAddr []uint64, dstNuma int) (err error) {
 	leftPhyPages := pagesAddr[:]
 
+	var movePagesLatencyMax int64
 	movePagesEachTime := MovePagesMinEachTime
 	var movingPagesAddr []uint64
 
@@ -396,6 +397,10 @@ pagesLoop:
 			continue
 		}
 
+		if timeCost > movePagesLatencyMax {
+			movePagesLatencyMax = timeCost
+		}
+
 		movePagesEachTime = movePagesEachTime * MovePagesAcceptableTimeCost / int(timeCost)
 		if movePagesEachTime < MovePagesMinEachTime {
 			movePagesEachTime = MovePagesMinEachTime
@@ -404,6 +409,9 @@ pagesLoop:
 		}
 	}
 
+	if movePagesLatencyMax > 0 {
+		general.Infof("moveProcessPagesToOneNuma pid: %d, dest numa: %d, timeCost max: %d ms\n", pid, dstNuma, movePagesLatencyMax)
+	}
 	return utilerrors.NewAggregate(errList)
 }
 

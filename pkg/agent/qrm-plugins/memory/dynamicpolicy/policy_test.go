@@ -146,6 +146,11 @@ func getTestDynamicPolicyWithInitialization(topology *machine.CPUTopology, machi
 
 	policyImplement.asyncWorkers = asyncworker.NewAsyncWorkers(memoryPluginAsyncWorkersName, policyImplement.emitter)
 
+	policyImplement.defaultAsyncLimitedWorkers = asyncworker.NewAsyncLimitedWorkers(memoryPluginAsyncWorkersName, defaultAsyncWorkLimit, policyImplement.emitter)
+	policyImplement.asyncLimitedWorkersMap = map[string]*asyncworker.AsyncLimitedWorkers{
+		memoryPluginAsyncWorkTopicMovePage: asyncworker.NewAsyncLimitedWorkers(memoryPluginAsyncWorkTopicMovePage, movePagesWorkLimit, policyImplement.emitter),
+	}
+
 	return policyImplement, nil
 }
 

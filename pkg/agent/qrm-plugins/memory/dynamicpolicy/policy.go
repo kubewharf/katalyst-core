@@ -83,6 +83,7 @@ const (
 	dropCacheGracePeriod       = 60 * time.Second
 
 	defaultAsyncWorkLimit = 8
+	movePagesWorkLimit    = 2
 )
 
 var (
@@ -135,8 +136,11 @@ type DynamicPolicy struct {
 
 	podDebugAnnoKeys []string
 
-	asyncWorkers        *asyncworker.AsyncWorkers
-	asyncLimitedWorkers *asyncworker.AsyncLimitedWorkers
+	asyncWorkers *asyncworker.AsyncWorkers
+	// defaultAsyncLimitedWorkers is general workers with default limit.
+	// asyncLimitedWorkersMap is workers map for plugin can define its own limit.
+	defaultAsyncLimitedWorkers *asyncworker.AsyncLimitedWorkers
+	asyncLimitedWorkersMap     map[string]*asyncworker.AsyncLimitedWorkers
 
 	enableSettingMemoryMigrate bool
 	enableSettingSockMem       bool
@@ -200,7 +204,7 @@ func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration
 		name:                       fmt.Sprintf("%s_%s", agentName, memconsts.MemoryResourcePluginPolicyNameDynamic),
 		podDebugAnnoKeys:           conf.PodDebugAnnoKeys,
 		asyncWorkers:               asyncworker.NewAsyncWorkers(memoryPluginAsyncWorkersName, wrappedEmitter),
-		asyncLimitedWorkers:        asyncworker.NewAsyncLimitedWorkers(memoryPluginAsyncWorkersName, defaultAsyncWorkLimit, wrappedEmitter),
+		defaultAsyncLimitedWorkers: asyncworker.NewAsyncLimitedWorkers(memoryPluginAsyncWorkersName, defaultAsyncWorkLimit, wrappedEmitter),
 		enableSettingMemoryMigrate: conf.EnableSettingMemoryMigrate,
 		enableSettingSockMem:       conf.EnableSettingSockMem,
 		enableMemoryAdvisor:        conf.EnableMemoryAdvisor,
@@ -221,6 +225,10 @@ func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration
 		apiconsts.PodAnnotationQoSLevelSharedCores:    policyImplement.sharedCoresHintHandler,
 		apiconsts.PodAnnotationQoSLevelDedicatedCores: policyImplement.dedicatedCoresHintHandler,
 		apiconsts.PodAnnotationQoSLevelReclaimedCores: policyImplement.reclaimedCoresHintHandler,
+	}
+
+	policyImplement.asyncLimitedWorkersMap = map[string]*asyncworker.AsyncLimitedWorkers{
+		memoryPluginAsyncWorkTopicMovePage: asyncworker.NewAsyncLimitedWorkers(memoryPluginAsyncWorkTopicMovePage, movePagesWorkLimit, wrappedEmitter),
 	}
 
 	if policyImplement.enableOOMPriority {
@@ -311,9 +319,16 @@ func (p *DynamicPolicy) Start() (err error) {
 	if err != nil {
 		general.Errorf("start async worker failed, err: %v", err)
 	}
-	err = p.asyncLimitedWorkers.Start(p.stopCh)
+	err = p.defaultAsyncLimitedWorkers.Start(p.stopCh)
 	if err != nil {
 		general.Errorf("start async limited worker failed, err: %v", err)
+	}
+
+	for name, workers := range p.asyncLimitedWorkersMap {
+		err = workers.Start(p.stopCh)
+		if err != nil {
+			general.Errorf("start async limited worker for plugin %s failed, err: %v", name, err)
+		}
 	}
 
 	if p.enableSettingMemoryMigrate {
