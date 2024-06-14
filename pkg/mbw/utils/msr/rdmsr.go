@@ -19,15 +19,14 @@ package msr
 import (
 	"encoding/binary"
 	"fmt"
-	"syscall"
+
+	"github.com/kubewharf/katalyst-core/pkg/mbw/utils"
 )
 
 // Read() reads a given MSR on the CPU and returns the uint64
 func (d MSRDev) Read(msr int64) (uint64, error) {
 	regBuf := make([]byte, 8)
-
-	rc, err := syscall.Pread(d.fd, regBuf, msr)
-
+	rc, err := utils.AppSyscall.Pread(d.fd, regBuf, msr)
 	if err != nil {
 		return 0, err
 	}

@@ -24,8 +24,6 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-
-	"github.com/kubewharf/katalyst-core/pkg/util/general"
 )
 
 const (
@@ -36,7 +34,7 @@ const (
 	CPU_FREQUENCY_PATH_AMD      = "cpufreq/cpuinfo_cur_freq"
 	CPU_FREQUENCY_PATH_INTEL    = "cpufreq/scaling_cur_freq"
 
-	DEFAULT_CPU_CLOCK   = 0.3846 // calcualted with the frequency of 2.6GHZ
+	DEFAULT_CPU_CLOCK   = 0.3846 // calculated with the frequency of 2.6GHZ
 	CPU_CACHE_LEVEL_LLC = 3
 
 	L3_LAT_FACTOR = 16.0
@@ -79,7 +77,7 @@ func Delta(bit int, new, old uint64) uint64 {
 			return new - old
 		} else {
 			if restart_cnt < 10 {
-				new = max + new //multiple 48bit counter accumulated,such as pkg mem bandwidth
+				new = max + new // multiple 48bit counter accumulated,such as pkg mem bandwidth
 				restart_cnt++
 				goto restart
 			} else {
@@ -135,7 +133,7 @@ func GetCPUFrequency(cpu int, vendor string) (int, error) {
 			CPU_FREQUENCY_PATH_INTEL)
 	}
 
-	freq, err := general.ReadFileIntoInt(path)
+	freq, err := FilerSingleton.ReadFileIntoInt(path)
 	if err != nil {
 		fmt.Printf("failed to get frequency of cpu %d - %v\n", cpu, err)
 		return -1, err
@@ -163,7 +161,7 @@ func GetCCDTopology(numNuma int) (map[int][]int, error) {
 
 	for nodeID := 0; nodeID < numNuma; nodeID++ {
 		path := filepath.Join(SYS_DEVICE_SYSTEM_NODE_PATH, fmt.Sprintf("node%d", nodeID))
-		files, err := os.ReadDir(path)
+		files, err := OSSingleton.ReadDir(path)
 		if err != nil {
 			return nil, err
 		}
@@ -195,10 +193,10 @@ func GetCCDTopology(numNuma int) (map[int][]int, error) {
 			// here to retrieve the CCX/CCD domains on this machine, so index3 is the
 			// target file we gonna read.
 			cachePath := filepath.Join(cpuPath, "cache")
-			if _, err = os.Stat(cachePath); errors.Is(err, os.ErrNotExist) {
+			if _, err = OSSingleton.Stat(cachePath); errors.Is(err, os.ErrNotExist) {
 				continue
 			}
-			cacheDirFiles, err := os.ReadDir(cachePath)
+			cacheDirFiles, err := OSSingleton.ReadDir(cachePath)
 			if err != nil {
 				return nil, err
 			}

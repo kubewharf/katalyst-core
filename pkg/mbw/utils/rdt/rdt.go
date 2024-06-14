@@ -1,3 +1,6 @@
+//go:build amd64 && !gccgo && !noasm && !appengine
+// +build amd64,!gccgo,!noasm,!appengine
+
 /*
 Copyright 2022 The Katalyst Authors.
 
@@ -14,14 +17,12 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-//go:build amd64 && !gccgo && !noasm && !appengine
-// +build amd64,!gccgo,!noasm,!appengine
-
 package rdt
 
 import (
 	"fmt"
-	"membw_manager/pkg/utils/msr"
+
+	"github.com/kubewharf/katalyst-core/pkg/mbw/utils/msr"
 )
 
 type PQOS_EVENT_TYPE uint64
@@ -48,15 +49,12 @@ func GetRDTScalar() uint32 {
 }
 
 func GetRDTValue(core uint32, event PQOS_EVENT_TYPE) (uint64, error) {
-	var rmid, msr_value uint64 = 0, 0
-	var err error
-
-	msr_value, err = msr.ReadMSR(core, PQR_ASSOC)
+	msr_value, err := msr.ReadMSR(core, PQR_ASSOC)
 	if err != nil {
 		return msr_value, fmt.Errorf("faild to read msr %v", err.Error())
 	}
 
-	rmid = (msr_value & 0x00000000000003ff)
+	rmid := (msr_value & 0x00000000000003ff)
 	msr_value = (rmid << 32) + uint64(event)
 	err = msr.WriteMSR(core, IA32_QM_EVTSEL, msr_value)
 	if err != nil {

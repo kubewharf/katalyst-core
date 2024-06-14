@@ -70,15 +70,15 @@ func (m *MBMonitor) ReadL3MissLatency() error {
 	m.MemoryLatency.CCDLocker.Lock()
 	defer m.MemoryLatency.CCDLocker.Unlock()
 
-	var l3lat1, l3lat2 uint64 = 0, 0
-	var err error
-
 	for i, ccd := range m.SysInfo.CCDMap {
-		l3lat1, err = ReadL3PMCEvent(ccd[0], L3PMC_EVE_LAT1)
-		l3lat2, err = ReadL3PMCEvent(ccd[0], L3PMC_EVE_LAT2)
-
+		l3lat1, err := ReadL3PMCEvent(ccd[0], L3PMC_EVE_LAT1)
 		if err != nil {
-			general.Errorf("failed to read L3 miss latency on ccd %d / core %d - %v", i, ccd[0], err)
+			general.Errorf("failed to read L3 miss latency on ccd %d / core %d lat 1 - %v", i, ccd[0], err)
+			return err
+		}
+		l3lat2, err := ReadL3PMCEvent(ccd[0], L3PMC_EVE_LAT2)
+		if err != nil {
+			general.Errorf("failed to read L3 miss latency on ccd %d / core %d lat 2 - %v", i, ccd[0], err)
 			return err
 		}
 
@@ -128,7 +128,7 @@ func ReadL3PMCEvent(cpu, event int) (uint64, error) {
 	}
 
 	if err != nil {
-		general.Errorf("failed to read L3PMC event on core - %v", cpu, err)
+		general.Errorf("failed to read L3PMC event on core %d - %v", cpu, err)
 		return 0, err
 	}
 

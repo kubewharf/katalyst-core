@@ -16,17 +16,16 @@ limitations under the License.
 
 package utils
 
-import (
-	"context"
-	"time"
+import "github.com/kubewharf/katalyst-core/pkg/util/general"
 
-	"k8s.io/apimachinery/pkg/util/wait"
-)
+var FilerSingleton Filer = &filerProd{}
 
-// TickUntilDone runs a given action at a tick rate specified by refreshRate, it returns if the context is canceled
-func TickUntilDone(ctx context.Context, refreshRate uint64, action func() error) (err error) {
-	return wait.PollImmediateUntil(time.Duration(refreshRate)*time.Millisecond,
-		func() (bool, error) { return false, action() },
-		ctx.Done(),
-	)
+type Filer interface {
+	ReadFileIntoInt(filepath string) (int, error)
+}
+
+type filerProd struct{}
+
+func (f filerProd) ReadFileIntoInt(filepath string) (int, error) {
+	return general.ReadFileIntoInt(filepath)
 }

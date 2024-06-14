@@ -19,33 +19,29 @@ package monitor
 import (
 	"context"
 	"fmt"
-	"os"
-	"os/signal"
 	"sync"
-	"syscall"
-	"time"
 
 	"github.com/klauspost/cpuid/v2"
-	"golang.org/x/sync/errgroup"
-	"k8s.io/apimachinery/pkg/util/sets"
 
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/global"
 	"github.com/kubewharf/katalyst-core/pkg/mbw/utils"
 	"github.com/kubewharf/katalyst-core/pkg/mbw/utils/pci"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
-	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
 const (
 	MBM_MONITOR_INTERVAL = 1000
+
+	MAX_NUMA_DISTANCE = 32 // this is the inter-socket distance on AMD, intel inter-socket distance < 32
+	MIN_NUMA_DISTANCE = 11 // the distance to local numa is 10 in Linux, thus 11 is the minimum inter-numa distance
 )
 
-func newSysInfo() (*SysInfo, error) {
-	machineInfoConfig := &global.MachineInfoConfiguration{
-		NetMultipleNS: false,
+func newSysInfo(machineInfoConfig *global.MachineInfoConfiguration) (*SysInfo, error) {
+	// ensure max numa distance make sense, as it is critical for mbw monitor
+	if machineInfoConfig.SiblingNumaMaxDistance < MIN_NUMA_DISTANCE {
+		machineInfoConfig.SiblingNumaMaxDistance = MAX_NUMA_DISTANCE
 	}
-
-	kmachineInfo, err := machine.GetKatalystMachineInfo(machineInfoConfig)
+	kmachineInfo, err := machineWrapper.GetKatalystMachineInfo(machineInfoConfig)
 	if err != nil {
 		fmt.Println("Failed to initialize the katalyst machine info")
 		return nil, err
@@ -58,26 +54,7 @@ func newSysInfo() (*SysInfo, error) {
 		Model:               cpuid.CPU.Model,
 	}
 
-	/*
-		hard code for the a tmp test - mock the case of 2 physical NUMA per socket and 3 fake NUMA each physical NUMA
-		delete it once the katalyst-agent code is updated
-	*/
-	sysInfo.ExtraTopologyInfo.SiblingNumaMap = map[int]sets.Int{
-		0:  sets.Int{1: {}, 2: {}},
-		1:  sets.Int{0: {}, 2: {}},
-		2:  sets.Int{0: {}, 1: {}},
-		3:  sets.Int{4: {}, 5: {}},
-		4:  sets.Int{3: {}, 5: {}},
-		5:  sets.Int{3: {}, 4: {}},
-		6:  sets.Int{7: {}, 8: {}},
-		7:  sets.Int{6: {}, 8: {}},
-		8:  sets.Int{6: {}, 7: {}},
-		9:  sets.Int{10: {}, 11: {}},
-		10: sets.Int{9: {}, 11: {}},
-		11: sets.Int{9: {}, 10: {}},
-	}
-
-	if sysInfo.ExtraTopologyInfo.SiblingNumaMap[0].Len() > 0 {
+	if sysInfo.FakeNumaConfigured() {
 		sysInfo.FakeNUMAEnabled = true
 	}
 
@@ -99,8 +76,6 @@ func newSysInfo() (*SysInfo, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to get mapping from numa node to CCDs - %v", err)
 	}
-
-	sysInfo.MemoryLatency.L3Latency = make([]L3PMCLatencyInfo, sysInfo.NumCCDs)
 
 	sysInfo.MemoryBandwidth.Cores = make([]CoreMB, sysInfo.MachineInfo.NumCores)
 	for i := range sysInfo.MemoryBandwidth.Cores {
@@ -141,12 +116,15 @@ func newSysInfo() (*SysInfo, error) {
 	return sysInfo, nil
 }
 
-func NewMonitor() (*MBMonitor, error) {
-	sysInfo, err := newSysInfo()
+func NewMonitor(machineInfoConfig *global.MachineInfoConfiguration) (*MBMonitor, error) {
+	sysInfo, err := newSysInfo(machineInfoConfig)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create the sysInfo - %v", err)
 	}
+	return newMonitor(sysInfo)
+}
 
+func newMonitor(sysInfo *SysInfo) (*MBMonitor, error) {
 	general.Infof("Vendor: %s", sysInfo.Vendor)
 	general.Infof("CPU cores: %d", sysInfo.MachineInfo.NumCores)
 	general.Infof("CPU per NUMA: %d", sysInfo.CPUsPerNuma())
@@ -159,7 +137,8 @@ func NewMonitor() (*MBMonitor, error) {
 	general.Infof("CCDs: %d", len(sysInfo.CCDMap))
 	general.Infof("Cores per CCD: %d", sysInfo.CCDMap)
 	general.Infof("CCDs per Numa: %v", sysInfo.NumaMap)
-	general.Infof("Extral TopologyInfo: %v", *sysInfo.KatalystMachineInfo.ExtraTopologyInfo)
+	general.Infof("FakeNuma Enabled: %t", sysInfo.FakeNUMAEnabled)
+	general.Infof("SiblingNumaMap: %v", sysInfo.KatalystMachineInfo.ExtraTopologyInfo.SiblingNumaMap)
 
 	monitor := &MBMonitor{
 		SysInfo:  sysInfo,
@@ -184,7 +163,7 @@ func NewMonitor() (*MBMonitor, error) {
 		monitor.Controller.CCDCosMap[i] = make([]CosEntry, MBA_COS_MAX)
 		// we actually only need the first cos on each ccd before supporting workloads hybird deployment
 	}
-	if err = monitor.ResetMBACos(); err != nil {
+	if err := monitor.ResetMBACos(); err != nil {
 		general.Errorf("failed to initialize the MBA cos - %v", err)
 		return nil, err
 	}
@@ -234,61 +213,6 @@ func (m MBMonitor) Stop() {
 	m.Started = false
 }
 
-func (m MBMonitor) listen() error {
-	signalChannel := getStopSignalsChannel()
-	select {
-	case sig := <-signalChannel:
-		fmt.Printf("Received signal: %s\n", sig)
-		// Give outstanding requests a deadline for completion.
-		m.Stop()
-		m.done()
-	case <-m.mctx.Done():
-		fmt.Printf("closing signal goroutine\n")
-		m.Stop()
-		return m.mctx.Err()
-	}
-
-	return nil
-}
-
-func getStopSignalsChannel() <-chan os.Signal {
-	signalChannel := make(chan os.Signal, 1)
-	signal.Notify(signalChannel,
-		os.Interrupt,    // interrupt is syscall.SIGINT, Ctrl+C
-		syscall.SIGQUIT, // Ctrl-\
-		syscall.SIGHUP,  // "terminal is disconnected"
-		syscall.SIGTERM, // "the normal way to politely ask a program to terminate"
-	)
-	return signalChannel
-}
-
-func (m MBMonitor) Start() error {
-	// ErrGroup for graceful shutdown
-	ctx, done := context.WithCancel(context.Background())
-	defer done()
-
-	eg, ctx := errgroup.WithContext(ctx)
-	m.mctx = ctx
-	m.done = done
-
-	// goroutine to check for signals to gracefully finish all functions
-	eg.Go(m.listen)
-
-	// start producing metrics.
-	eg.Go(func() error {
-		return m.GlobalStats(ctx, m.Interval)
-	})
-
-	// start consuming metrics.
-	eg.Go(func() error {
-		return m.HandleMBMetrics(ctx, m.Interval)
-	})
-
-	m.Started = true
-
-	return eg.Wait()
-}
-
 type serveFunc func() error
 
 // GlobalStats gets stats about the mem and the CPUs
@@ -325,25 +249,6 @@ func (m MBMonitor) GlobalStats(ctx context.Context, refreshRate uint64) error {
 
 		return nil
 	})
-}
-
-// HandleMBMetrics process the collected data and respond
-func (m MBMonitor) HandleMBMetrics(ctx context.Context, refreshRate uint64) error {
-	t := time.NewTicker(time.Duration(refreshRate) * time.Millisecond)
-	tick := t.C
-	for {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-
-		case <-tick:
-			// print the data if needed
-			m.PrintMB()
-			// adjust the bandwidth dynamically
-			// TODO: support differentiated intervals on control routine if the observed MB beyonds the specified threshold
-			m.AdjustMemoryBandwidth()
-		}
-	}
 }
 
 // ServeL3Latency() collects the latency between that a L3 cache line is missed to that it is loaded from memory to L3
@@ -429,59 +334,6 @@ func (m MBMonitor) ServePackageMB() error {
 	}
 
 	return nil
-}
-
-func (m MBMonitor) PrintMB() {
-	if m.MemoryBandwidth.Cores[0].LRMB_Delta != 0 {
-		// ignore the result at the 1st sec
-		m.MemoryBandwidth.CoreLocker.RLock()
-		defer m.MemoryBandwidth.CoreLocker.RUnlock()
-
-		fmt.Println("Memory Bandwidth [MB/s]")
-		fmt.Println("RDT - Read & Estimated Write Bandwidth")
-
-		// print per-NUMA memory-bandwidth
-		for i, numa := range m.MemoryBandwidth.Numas {
-			fmt.Printf("node %d: %d, ", i, numa.Total)
-		}
-
-		fmt.Println("")
-	}
-
-	if m.MemoryBandwidth.Packages[0].RMB_Delta != 0 {
-		// ignore the result at the 1st sec
-		m.MemoryBandwidth.PackageLocker.RLock()
-		defer m.MemoryBandwidth.PackageLocker.RUnlock()
-
-		fmt.Println("PMU - Read & Write Bandwidth [r/w ratio]")
-		// print per-package memory-bandwidth
-		for i, pkg := range m.MemoryBandwidth.Packages {
-			fmt.Printf("package %d: %d [%.0f], ", i, pkg.Total, float64(pkg.RMB_Delta)/float64(pkg.WMB_Delta))
-		}
-
-		fmt.Println("")
-	}
-
-	if m.MemoryLatency.L3Latency[0].L3PMCLatency != 0 {
-		m.MemoryLatency.CCDLocker.RLock()
-		defer m.MemoryLatency.CCDLocker.RUnlock()
-
-		fmt.Println("L3PMC - Memory Access Latency [ns]")
-		// print avg memory access latency for each package
-		for i := 0; i < len(m.PackageMap); i++ {
-			for _, node := range m.PackageMap[i] {
-				latency := 0.0
-				for _, ccd := range m.NumaMap[node] {
-					latency += m.MemoryLatency.L3Latency[ccd].L3PMCLatency
-				}
-				fmt.Printf("node %d: %.1f, ", node, latency/float64(len(m.NumaMap[0])))
-			}
-		}
-
-		fmt.Println()
-	}
-
-	fmt.Println("*********************************************************************************************")
 }
 
 func (m MBMonitor) StartPMC() {
