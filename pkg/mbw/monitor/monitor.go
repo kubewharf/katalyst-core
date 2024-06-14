@@ -27,7 +27,6 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/mbw/utils"
 	"github.com/kubewharf/katalyst-core/pkg/mbw/utils/pci"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
-	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
 const (
@@ -42,7 +41,7 @@ func newSysInfo(machineInfoConfig *global.MachineInfoConfiguration) (*SysInfo, e
 	if machineInfoConfig.SiblingNumaMaxDistance < MIN_NUMA_DISTANCE {
 		machineInfoConfig.SiblingNumaMaxDistance = MAX_NUMA_DISTANCE
 	}
-	kmachineInfo, err := machine.GetKatalystMachineInfo(machineInfoConfig)
+	kmachineInfo, err := machineWrapper.GetKatalystMachineInfo(machineInfoConfig)
 	if err != nil {
 		fmt.Println("Failed to initialize the katalyst machine info")
 		return nil, err

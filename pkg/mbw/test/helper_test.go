@@ -17,22 +17,12 @@ limitations under the License.
 package test
 
 import (
-	"errors"
-	"os"
-	"path/filepath"
 	"reflect"
-	"sync"
 	"testing"
 
-	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 
 	"github.com/kubewharf/katalyst-core/pkg/mbw/utils"
-)
-
-var (
-	osTestOnce    sync.Once
-	filerTestOnce sync.Once
 )
 
 func init() {
@@ -135,23 +125,6 @@ func TestL3PMCToLatency(t *testing.T) {
 	}
 }
 
-type filerMock struct{}
-
-func (f filerMock) ReadFileIntoInt(filepath string) (int, error) {
-	switch filepath {
-	case "/sys/devices/system/cpu/cpu0/cpufreq/cpuinfo_cur_freq":
-		return 101, nil
-	default:
-		return 0, errors.New("mock test error")
-	}
-}
-
-func SetupTestFiler() {
-	filerTestOnce.Do(func() {
-		utils.FilerSingleton = &filerMock{}
-	})
-}
-
 func TestGetCPUFrequency(t *testing.T) {
 	t.Parallel()
 	type args struct {
@@ -197,47 +170,6 @@ func TestGetCPUFrequency(t *testing.T) {
 			}
 		})
 	}
-}
-
-func SetupTestOS() {
-	osTestOnce.Do(func() {
-		testOS := &afero.Afero{Fs: afero.NewMemMapFs()}
-
-		// we would like to have below device files exist for testing
-		fakeFiles := []struct {
-			dir     string
-			file    string
-			content string
-		}{
-			{
-				dir:     "/sys/devices/system/node/node0/cpu0/cache/index3/",
-				file:    "shared_cpu_list",
-				content: "0-1\n",
-			},
-			{
-				dir:     "/sys/devices/system/node/node0/cpu1/cache/index3/",
-				file:    "shared_cpu_list",
-				content: "0-1\n",
-			},
-			{
-				dir:     "/sys/devices/system/node/node1/cpu2/cache/index3/",
-				file:    "shared_cpu_list",
-				content: "2-3\n",
-			},
-			{
-				dir:     "/sys/devices/system/node/node1/cpu3/cache/index3/",
-				file:    "shared_cpu_list",
-				content: "2-3\n",
-			},
-		}
-
-		for _, entry := range fakeFiles {
-			_ = testOS.MkdirAll(entry.dir, os.ModePerm)
-			_ = testOS.WriteFile(filepath.Join(entry.dir, entry.file), []byte(entry.content), os.ModePerm)
-		}
-
-		utils.OSSingleton = testOS
-	})
 }
 
 func TestGetCCDTopology(t *testing.T) {
