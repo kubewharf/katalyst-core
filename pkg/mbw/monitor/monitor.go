@@ -121,7 +121,10 @@ func NewMonitor(machineInfoConfig *global.MachineInfoConfiguration) (*MBMonitor,
 	if err != nil {
 		return nil, fmt.Errorf("failed to create the sysInfo - %v", err)
 	}
+	return newMonitor(sysInfo)
+}
 
+func newMonitor(sysInfo *SysInfo) (*MBMonitor, error) {
 	general.Infof("Vendor: %s", sysInfo.Vendor)
 	general.Infof("CPU cores: %d", sysInfo.MachineInfo.NumCores)
 	general.Infof("CPU per NUMA: %d", sysInfo.CPUsPerNuma())
@@ -160,7 +163,7 @@ func NewMonitor(machineInfoConfig *global.MachineInfoConfiguration) (*MBMonitor,
 		monitor.Controller.CCDCosMap[i] = make([]CosEntry, MBA_COS_MAX)
 		// we actually only need the first cos on each ccd before supporting workloads hybird deployment
 	}
-	if err = monitor.ResetMBACos(); err != nil {
+	if err := monitor.ResetMBACos(); err != nil {
 		general.Errorf("failed to initialize the MBA cos - %v", err)
 		return nil, err
 	}
