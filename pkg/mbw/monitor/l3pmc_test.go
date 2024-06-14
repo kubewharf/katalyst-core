@@ -18,6 +18,7 @@ package monitor
 
 import (
 	"context"
+	"sync"
 	"testing"
 )
 
@@ -215,6 +216,62 @@ func TestStopL3PMCEvent(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			StopL3PMCEvent(tt.args.cpu, tt.args.event)
+		})
+	}
+}
+
+func TestMBMonitor_ReadL3MissLatency(t *testing.T) {
+	t.Parallel()
+	type fields struct {
+		SysInfo     *SysInfo
+		Controller  MBController
+		Interval    uint64
+		Started     bool
+		MonitorOnly bool
+		mctx        context.Context
+		done        context.CancelFunc
+	}
+	tests := []struct {
+		name    string
+		fields  fields
+		wantErr bool
+	}{
+		{
+			name: "happy path no error",
+			fields: fields{
+				SysInfo: &SysInfo{
+					CCDMap: map[int][]int{0: []int{0, 1, 2}},
+					MemoryLatency: MemoryLatencyInfo{
+						CCDLocker: sync.RWMutex{},
+						L3Latency: make([]L3PMCLatencyInfo, 3),
+					},
+				},
+				Controller:  MBController{},
+				Interval:    0,
+				Started:     false,
+				MonitorOnly: false,
+				mctx:        nil,
+				done:        nil,
+			},
+			wantErr: false,
+		},
+	}
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			m := &MBMonitor{
+				SysInfo:     tt.fields.SysInfo,
+				Controller:  tt.fields.Controller,
+				Interval:    tt.fields.Interval,
+				Started:     tt.fields.Started,
+				MonitorOnly: tt.fields.MonitorOnly,
+				mctx:        tt.fields.mctx,
+				done:        tt.fields.done,
+			}
+			if err := m.ReadL3MissLatency(); (err != nil) != tt.wantErr {
+				t.Errorf("ReadL3MissLatency() error = %v, wantErr %v", err, tt.wantErr)
+			}
 		})
 	}
 }
