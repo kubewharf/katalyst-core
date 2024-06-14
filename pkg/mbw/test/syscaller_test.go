@@ -14,19 +14,8 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package utils
+package test
 
-import (
-	"context"
-	"time"
-
-	"k8s.io/apimachinery/pkg/util/wait"
-)
-
-// TickUntilDone runs a given action at a tick rate specified by refreshRate, it returns if the context is canceled
-func TickUntilDone(ctx context.Context, refreshRate uint64, action func() error) (err error) {
-	return wait.PollImmediateUntil(time.Duration(refreshRate)*time.Millisecond,
-		func() (bool, error) { return false, action() },
-		ctx.Done(),
-	)
+func init() {
+	SetupTestSyscaller()
 }

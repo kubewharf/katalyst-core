@@ -29,9 +29,8 @@ package pci
 
 #cgo LDFLAGS: -lpci
 */
-import (
-	"C"
-)
+import "C"
+
 import (
 	"fmt"
 	"sync"
@@ -165,11 +164,11 @@ func ReadLong(dev *PCIDev, addr int32) uint32 {
 }
 
 func ReadSMNApp(dev *PCIDev, addr uint32) uint32 {
-	WriteLong(dev, IOHC_NB_SMN_INDEX_0_REG, uint32(addr))
+	WriteLong(dev, IOHC_NB_SMN_INDEX_0_REG, addr)
 	return ReadLong(dev, IOHC_NB_SMN_DATA_0_REG)
 }
 
 func WriteSMNApp(dev *PCIDev, addr, data uint32) {
-	WriteLong(dev, IOHC_NB_SMN_INDEX_0_REG, uint32(addr))
+	WriteLong(dev, IOHC_NB_SMN_INDEX_0_REG, addr)
 	WriteLong(dev, IOHC_NB_SMN_DATA_0_REG, data)
 }

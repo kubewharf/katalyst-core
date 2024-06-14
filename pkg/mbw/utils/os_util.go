@@ -16,17 +16,6 @@ limitations under the License.
 
 package utils
 
-import (
-	"context"
-	"time"
+import "github.com/spf13/afero"
 
-	"k8s.io/apimachinery/pkg/util/wait"
-)
-
-// TickUntilDone runs a given action at a tick rate specified by refreshRate, it returns if the context is canceled
-func TickUntilDone(ctx context.Context, refreshRate uint64, action func() error) (err error) {
-	return wait.PollImmediateUntil(time.Duration(refreshRate)*time.Millisecond,
-		func() (bool, error) { return false, action() },
-		ctx.Done(),
-	)
-}
+var OSSingleton = &afero.Afero{Fs: afero.NewOsFs()}
