@@ -240,7 +240,7 @@ func TestMBMonitor_ReadL3MissLatency(t *testing.T) {
 			name: "happy path no error",
 			fields: fields{
 				SysInfo: &SysInfo{
-					CCDMap: map[int][]int{0: []int{0, 1, 2}},
+					CCDMap: map[int][]int{0: {0, 1, 2}},
 					MemoryLatency: MemoryLatencyInfo{
 						CCDLocker: sync.RWMutex{},
 						L3Latency: make([]L3PMCLatencyInfo, 3),
