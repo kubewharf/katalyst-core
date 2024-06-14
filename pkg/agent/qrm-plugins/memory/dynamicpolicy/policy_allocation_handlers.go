@@ -22,6 +22,7 @@ import (
 	"time"
 
 	v1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/util/uuid"
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 
 	apiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
@@ -441,6 +442,11 @@ func (p *DynamicPolicy) adjustAllocationEntries() error {
 	p.state.SetPodResourceEntries(podResourceEntries)
 	p.state.SetMachineState(resourcesMachineState)
 
+	movePagesWorkers, ok := p.asyncLimitedWorkersMap[memoryPluginAsyncWorkTopicMovePage]
+	if !ok {
+		return fmt.Errorf("asyncLimitedWorkers for %s not found", memoryPluginAsyncWorkTopicMovePage)
+	}
+
 	// drop cache and migrate pages for containers whose numaset changed
 	for podUID, containers := range numaSetChangedContainers {
 		for containerName := range containers {
@@ -457,12 +463,14 @@ func (p *DynamicPolicy) adjustAllocationEntries() error {
 			}
 
 			if !numaWithoutNUMABindingPods.IsEmpty() {
-				migratePagesWorkName := util.GetContainerAsyncWorkName(podUID, containerName,
+				movePagesWorkName := util.GetContainerAsyncWorkName(podUID, containerName,
 					memoryPluginAsyncWorkTopicMovePage)
 				// start a asynchronous work to migrate pages for containers whose numaset changed and doesn't require numa_binding
-				err = p.asyncWorkers.AddWork(migratePagesWorkName,
+				err = movePagesWorkers.AddWork(
 					&asyncworker.Work{
-						Fn: MovePagesForContainer,
+						Name: movePagesWorkName,
+						UID:  uuid.NewUUID(),
+						Fn:   MovePagesForContainer,
 						Params: []interface{}{
 							podUID, containerID,
 							p.topology.CPUDetails.NUMANodes(),
@@ -471,15 +479,17 @@ func (p *DynamicPolicy) adjustAllocationEntries() error {
 						DeliveredAt: time.Now(),
 					}, asyncworker.DuplicateWorkPolicyOverride)
 				if err != nil {
-					general.Errorf("add work: %s pod: %s container: %s failed with error: %v", migratePagesWorkName, podUID, containerName, err)
+					general.Errorf("add work: %s pod: %s container: %s failed with error: %v", movePagesWorkName, podUID, containerName, err)
 				}
 			}
 
 			dropCacheWorkName := util.GetContainerAsyncWorkName(podUID, containerName,
 				memoryPluginAsyncWorkTopicDropCache)
 			// start a asynchronous work to drop cache for the container whose numaset changed and doesn't require numa_binding
-			err = p.asyncWorkers.AddWork(dropCacheWorkName,
+			err = p.defaultAsyncLimitedWorkers.AddWork(
 				&asyncworker.Work{
+					Name:        dropCacheWorkName,
+					UID:         uuid.NewUUID(),
 					Fn:          cgroupmgr.DropCacheWithTimeoutForContainer,
 					Params:      []interface{}{podUID, containerID, dropCacheTimeoutSeconds, GetFullyDropCacheBytes(container)},
 					DeliveredAt: time.Now(),

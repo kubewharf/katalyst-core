@@ -738,7 +738,7 @@ func (p *DynamicPolicy) handleAdvisorMemoryOffloading(_ *config.Configuration,
 	}
 
 	// start a asynchronous work to execute memory offloading
-	err = p.asyncLimitedWorkers.AddWork(
+	err = p.defaultAsyncLimitedWorkers.AddWork(
 		&asyncworker.Work{
 			Name:        memoryOffloadingWorkName,
 			UID:         uuid.NewUUID(),
