@@ -1,0 +1,42 @@
+package monitor
+
+import (
+	"membw_manager/pkg/utils/pci"
+
+	"github.com/kubewharf/katalyst-core/pkg/util/general"
+)
+
+const (
+	DRV_IS_PCI_VENDOR_ID_AMD = 0x1022
+	AMD_ROME_IOHC            = 0x1480
+	AMD_GENOA_IOHC           = 0x14a4
+)
+
+func (m MBMonitor) InitPCIAccess() error {
+	// init the PCI access to read UMC/IMC counters
+	pci.PCIDevInit()
+
+	var pciDevID uint16
+	if m.Is_Genoa() {
+		pciDevID = AMD_GENOA_IOHC
+	} else if m.Is_Milan() || m.Is_Rome() {
+		pciDevID = AMD_ROME_IOHC
+	}
+
+	numaPerSocket, err := m.NUMAsPerSocket()
+	if err != nil {
+		general.Errorf("failed to get numa per socket - %v", err)
+		return err
+	}
+
+	// get all IOHC devs on PCI
+	devs := pci.ScanDevices(uint16(DRV_IS_PCI_VENDOR_ID_AMD), pciDevID)
+	for i := range m.SysInfo.PMU.SktIOHC {
+		// any PCI IOHC dev can read all UMCs on a socket,
+		// so only need to find out the first IOHC on each socket
+		m.SysInfo.PMU.SktIOHC[i] = pci.GetFirstIOHC(i*numaPerSocket, devs)
+		general.Infof("socket %d got iohc dev %s on its first node (numa node %d)", i, m.SysInfo.PMU.SktIOHC[i].BDFString(), i*numaPerSocket)
+	}
+
+	return nil
+}
