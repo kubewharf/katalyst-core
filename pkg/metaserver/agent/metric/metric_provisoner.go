@@ -24,6 +24,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric/provisioner/cgroup"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric/provisioner/kubelet"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric/provisioner/malachite"
+	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric/provisioner/mbw"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric/provisioner/rodan"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric/types"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/pod"
@@ -36,6 +37,7 @@ func init() {
 	RegisterProvisioners(metaserver.MetricProvisionerKubelet, kubelet.NewKubeletSummaryProvisioner)
 	RegisterProvisioners(metaserver.MetricProvisionerCgroup, cgroup.NewCGroupMetricsProvisioner)
 	RegisterProvisioners(metaserver.MetricProvisionerRodan, rodan.NewRodanMetricsProvisioner)
+	RegisterProvisioners(metaserver.MetricProvisionerMBW, mbw.NewMBWMetricsProvisioner)
 }
 
 type ProvisionerInitFunc func(baseConf *global.BaseConfiguration, metricConf *metaserver.MetricConfiguration,
