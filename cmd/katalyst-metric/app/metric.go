@@ -33,6 +33,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/custom-metric/mock"
 	"github.com/kubewharf/katalyst-core/pkg/custom-metric/store"
+	"github.com/kubewharf/katalyst-core/pkg/custom-metric/store/custom"
 	"github.com/kubewharf/katalyst-core/pkg/custom-metric/store/local"
 	"github.com/kubewharf/katalyst-core/pkg/custom-metric/store/remote"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
@@ -157,6 +158,8 @@ func initStore(ctx context.Context, baseCtx *katalystbase.GenericContext, conf *
 		return local.NewLocalMemoryMetricStore(ctx, baseCtx, conf.GenericMetricConfiguration, conf.StoreConfiguration)
 	case remote.MetricStoreNameRemoteMemory:
 		return remote.NewRemoteMemoryMetricStore(ctx, baseCtx, conf.GenericMetricConfiguration, conf.StoreConfiguration)
+	case custom.SPDCustomMetricStore:
+		return custom.NewSPDMetricStore(ctx, baseCtx, conf.GenericMetricConfiguration, conf.StoreConfiguration)
 	}
 
 	return nil, fmt.Errorf("unsupported store name: %v", conf.CustomMetricConfiguration.StoreConfiguration.StoreName)

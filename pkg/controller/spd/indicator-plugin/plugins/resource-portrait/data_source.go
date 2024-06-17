@@ -33,17 +33,17 @@ import (
 
 const dataSourceClientName = "prom"
 
-var datasourceRegistry = map[string]func(conf interface{}) (dataSourceClient, error){}
+var datasourceRegistry = map[string]func(conf interface{}) (DataSourceClient, error){}
 
-type dataSourceClient interface {
+type DataSourceClient interface {
 	Query(workloadName, workloadNamespace string, config *apiconfig.ResourcePortraitConfig) map[string][]model.SamplePair
 }
 
-func registerDataSourceClientInitFunc(name string, f func(conf interface{}) (dataSourceClient, error)) {
+func RegisterDataSourceClientInitFunc(name string, f func(conf interface{}) (DataSourceClient, error)) {
 	datasourceRegistry[name] = f
 }
 
-func newDataSourceClient(name string, conf interface{}) (dataSourceClient, error) {
+func NewDataSourceClient(name string, conf interface{}) (DataSourceClient, error) {
 	initFunc, ok := datasourceRegistry[name]
 	if !ok {
 		return nil, fmt.Errorf("no init function found for %s", name)
@@ -52,14 +52,14 @@ func newDataSourceClient(name string, conf interface{}) (dataSourceClient, error
 }
 
 func init() {
-	registerDataSourceClientInitFunc(dataSourceClientName, newPromClient)
+	RegisterDataSourceClientInitFunc(dataSourceClientName, newPromClient)
 }
 
 type promClientImpl struct {
 	promapiv1.API
 }
 
-var presetWorkloadMetricQueryMapping = map[string]string{
+var PresetWorkloadMetricQueryMapping = map[string]string{
 	"cpu_utilization_cfs_throttled_seconds": "sum(rate(container_cpu_cfs_throttled_seconds_total{namespace=\"%s\",pod=~\"%s\",container!=\"\"}[%s]))",
 	"cpu_utilization_user_seconds":          "sum(rate(container_cpu_user_seconds_total{namespace=\"%s\",pod=~\"%s\",container!=\"\"}[%s]))",
 	"cpu_utilization_system_seconds":        "sum(rate(container_cpu_system_seconds_total{namespace=\"%s\",pod=~\"%s\",container!=\"\"}[%s]))",
@@ -82,7 +82,7 @@ var presetWorkloadMetricQueryMapping = map[string]string{
 	"disk_io_write":                         "sum(rate(container_fs_writes_bytes_total{namespace=\"%s\",pod=~\"%s\",container!=\"\"}[%s]))",
 }
 
-func newPromClient(config interface{}) (dataSourceClient, error) {
+func newPromClient(config interface{}) (DataSourceClient, error) {
 	_, ok := config.(*datasourceprometheus.PromConfig)
 	if !ok {
 		return nil, fmt.Errorf("invalid prom config")
@@ -142,7 +142,7 @@ func (c *promClientImpl) Query(workloadName, workloadNamespace string, config *a
 		if len(samples) == 0 {
 			klog.Warningf("[spd-resource-portrait] query promql %s return no data", promql)
 			continue
-		} else if len(samples) != (config.AlgorithmConfig.TimeWindow.HistorySteps + 1) {
+		} else if len(samples) < (config.AlgorithmConfig.TimeWindow.HistorySteps + 1) {
 			klog.Warningf("[spd-resource-portrait] query promql %s not get enough data: nums=%d", promql, len(samples))
 			continue
 		}
@@ -152,7 +152,7 @@ func (c *promClientImpl) Query(workloadName, workloadNamespace string, config *a
 }
 
 func getPromqlFromMapping(metric, workload, ns, durationStr string) (promQL string) {
-	if promql, ok := presetWorkloadMetricQueryMapping[metric]; ok {
+	if promql, ok := PresetWorkloadMetricQueryMapping[metric]; ok {
 		if !strings.HasSuffix(workload, ".*") {
 			workload += ".*"
 		}

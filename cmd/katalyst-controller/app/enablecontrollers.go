@@ -47,6 +47,7 @@ var ControllersDisabledByDefault = sets.NewString()
 var controllerInitializers sync.Map
 
 func init() {
+	controllerInitializers.Store(controller.IHPAControllerName, ControllerStarter{Starter: controller.StartIHPAController})
 	controllerInitializers.Store(controller.VPAControllerName, ControllerStarter{Starter: controller.StartVPAController})
 	controllerInitializers.Store(controller.KCCControllerName, ControllerStarter{Starter: controller.StartKCCController})
 	controllerInitializers.Store(controller.SPDControllerName, ControllerStarter{Starter: controller.StartSPDController})

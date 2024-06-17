@@ -19,6 +19,7 @@ package resource_portrait
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -50,7 +51,7 @@ import (
 const (
 	spdWorkerCount = 1
 
-	resourcePortraitExtendedSpecName = "ResourcePortrait"
+	ResourcePortraitExtendedSpecName = "ResourcePortrait"
 	ResourcePortraitPluginName       = "ResourcePortraitIndicatorPlugin"
 )
 
@@ -66,9 +67,8 @@ const (
 )
 
 type ResourcePortraitIndicatorPlugin struct {
-	ctx          context.Context
-	reSyncPeriod time.Duration
-	conf         *controller.ResourcePortraitIndicatorPluginConfig
+	ctx  context.Context
+	conf *controller.ResourcePortraitIndicatorPluginConfig
 
 	spdQueue       workqueue.RateLimitingInterface
 	spdLister      apiListers.ServiceProfileDescriptorLister
@@ -78,7 +78,7 @@ type ResourcePortraitIndicatorPlugin struct {
 	metricsEmitter katalystmetrics.MetricEmitter
 	configManager  resourcePortraitConfigManager
 
-	dataSourceClient dataSourceClient
+	dataSourceClient DataSourceClient
 }
 
 func (p *ResourcePortraitIndicatorPlugin) Run() {
@@ -86,15 +86,15 @@ func (p *ResourcePortraitIndicatorPlugin) Run() {
 	defer p.spdQueue.ShutDown()
 	defer klog.Infof("shutting down spd plugin: %s", p.Name())
 
-	go wait.Until(p.emitMetrics, p.reSyncPeriod, p.ctx.Done())
+	go wait.Until(p.emitMetrics, p.conf.ReSyncPeriod, p.ctx.Done())
 
 	if p.conf.EnableAutomaticResyncGlobalConfiguration {
 		p.configManager.Run(p.ctx)
-		go wait.Until(p.resyncSpecWorker, p.reSyncPeriod, p.ctx.Done())
+		go wait.Until(p.resyncSpecWorker, p.conf.ReSyncPeriod, p.ctx.Done())
 	}
 
 	for i := 0; i < spdWorkerCount; i++ {
-		go wait.Until(p.spdWorker, p.reSyncPeriod, p.ctx.Done())
+		go wait.Until(p.spdWorker, p.conf.ReSyncPeriod, p.ctx.Done())
 	}
 
 	<-p.ctx.Done()
@@ -114,11 +114,11 @@ func (p *ResourcePortraitIndicatorPlugin) GetSupportedBusinessIndicatorStatus() 
 }
 
 func (p *ResourcePortraitIndicatorPlugin) GetSupportedExtendedIndicatorSpec() []string {
-	return []string{resourcePortraitExtendedSpecName}
+	return []string{ResourcePortraitExtendedSpecName}
 }
 
 func (p *ResourcePortraitIndicatorPlugin) GetSupportedAggMetricsStatus() []string {
-	return []string{resourcePortraitExtendedSpecName}
+	return []string{ResourcePortraitPluginName}
 }
 
 // resyncSpecWorker is used to synchronize global configuration to SPD.
@@ -156,7 +156,7 @@ func (p *ResourcePortraitIndicatorPlugin) resyncSpecWorker() {
 				Namespace: spd.Namespace,
 				Name:      spd.Name,
 			}, []apiworkload.ServiceExtendedIndicatorSpec{{
-				Name:       resourcePortraitExtendedSpecName,
+				Name:       ResourcePortraitExtendedSpecName,
 				Indicators: runtime.RawExtension{Object: &apiconfig.ResourcePortraitIndicators{Configs: matchedConfigs}},
 			}})
 		}
@@ -176,18 +176,21 @@ func (p *ResourcePortraitIndicatorPlugin) emitMetrics() {
 				continue
 			}
 
+			if len(aggMetrics.Items) == 0 {
+				continue
+			}
+
 			var currentMetric *metrics.PodMetrics
 			now := time.Now()
 			for _, item := range aggMetrics.Items {
-				if now.Before(item.Timestamp.Time) {
-					currentMetric = &item
+				if now.After(item.Timestamp.Time) {
+					currentMetric = item.DeepCopy()
 				} else {
 					break
 				}
 			}
 
 			if currentMetric == nil {
-				klog.Warningf("[spd-resource-portrait] cannot find current metric for spd %s", spd.Name)
 				continue
 			}
 
@@ -321,11 +324,16 @@ func (p *ResourcePortraitIndicatorPlugin) refreshPortrait(spd *apiworkload.Servi
 	aggMetrics = getAggMetricsFromSPD(spd)
 	metricsRefreshRecord := generateMetricsRefreshRecord(aggMetrics)
 	for _, algoConf := range rpIndicator.Configs {
-		if lastTimestamp, ok := metricsRefreshRecord[fmt.Sprintf("%s-%s", algoConf.Source, algoConf.AlgorithmConfig.Method)]; ok {
-			if lastTimestamp.Add(algoConf.AlgorithmConfig.ResyncPeriod * time.Second).After(time.Now()) {
+		if firstTimestamp, ok := metricsRefreshRecord[fmt.Sprintf("%s-%s", algoConf.Source, algoConf.AlgorithmConfig.Method)]; ok {
+			if firstTimestamp.Add(algoConf.AlgorithmConfig.ResyncPeriod * time.Second).After(time.Now()) {
 				continue
 			}
 		}
+
+		if algoConf.AlgorithmConfig.Params == nil {
+			algoConf.AlgorithmConfig.Params = map[string]string{}
+		}
+		algoConf.AlgorithmConfig.Params[defaultPredictionInputKeySteps] = strconv.Itoa(algoConf.AlgorithmConfig.TimeWindow.PredictionSteps)
 
 		originMetrics := p.dataSourceClient.Query(spd.Spec.TargetRef.Name, spd.Namespace, &algoConf)
 		algorithmProvider, err := NewAlgorithmProvider(p.conf.AlgorithmServingAddress, algoConf.AlgorithmConfig.Method)
@@ -359,7 +367,7 @@ func ResourcePortraitIndicatorPluginInitFunc(ctx context.Context, conf *controll
 		conf:           conf.ResourcePortraitIndicatorPluginConfig,
 		spdQueue:       workqueue.NewNamedRateLimitingQueue(workqueue.DefaultControllerRateLimiter(), "spd"),
 		updater:        updater,
-		metricsEmitter: controlCtx.EmitterPool.GetDefaultMetricsEmitter().WithTags(resourcePortraitExtendedSpecName),
+		metricsEmitter: controlCtx.EmitterPool.GetDefaultMetricsEmitter().WithTags(ResourcePortraitExtendedSpecName),
 	}
 	p.conf.ReSyncPeriod = conf.ReSyncPeriod
 
@@ -376,7 +384,7 @@ func ResourcePortraitIndicatorPluginInitFunc(ctx context.Context, conf *controll
 		UpdateFunc: p.updateSPD,
 	}, conf.ReSyncPeriod)
 
-	dataSourceClient, err := newDataSourceClient(conf.DataSource, &conf.DataSourcePromConfig)
+	dataSourceClient, err := NewDataSourceClient(conf.DataSource, &conf.DataSourcePromConfig)
 	if err != nil {
 		return nil, err
 	}

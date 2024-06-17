@@ -24,6 +24,7 @@ import (
 )
 
 type ControllersOptions struct {
+	*IHPAOptions
 	*VPAOptions
 	*KCCOptions
 	*SPDOptions
@@ -35,6 +36,7 @@ type ControllersOptions struct {
 
 func NewControllersOptions() *ControllersOptions {
 	return &ControllersOptions{
+		IHPAOptions:                NewIHPAOptions(),
 		VPAOptions:                 NewVPAOptions(),
 		KCCOptions:                 NewKCCOptions(),
 		SPDOptions:                 NewSPDOptions(),
@@ -46,6 +48,7 @@ func NewControllersOptions() *ControllersOptions {
 }
 
 func (o *ControllersOptions) AddFlags(fss *cliflag.NamedFlagSets) {
+	o.IHPAOptions.AddFlags(fss)
 	o.VPAOptions.AddFlags(fss)
 	o.KCCOptions.AddFlags(fss)
 	o.SPDOptions.AddFlags(fss)
@@ -59,6 +62,7 @@ func (o *ControllersOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 func (o *ControllersOptions) ApplyTo(c *controllerconfig.ControllersConfiguration) error {
 	var errList []error
 
+	errList = append(errList, o.IHPAOptions.ApplyTo(c.IHPAConfig))
 	errList = append(errList, o.VPAOptions.ApplyTo(c.VPAConfig))
 	errList = append(errList, o.KCCOptions.ApplyTo(c.KCCConfig))
 	errList = append(errList, o.SPDOptions.ApplyTo(c.SPDConfig))
