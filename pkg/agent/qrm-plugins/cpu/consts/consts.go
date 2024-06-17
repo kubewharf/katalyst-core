@@ -27,6 +27,9 @@ const (
 	// CPUResourcePluginPolicyNameNative is the name of the native policy.
 	CPUResourcePluginPolicyNameNative = string(consts.ResourcePluginPolicyNameNative)
 
+	// CPUResourcePluginPolicyNameStatic is the name of the vci static policy.
+	CPUResourcePluginPolicyNameStatic = "static"
+
 	CPUPluginDynamicPolicyName = "qrm_cpu_plugin_" + CPUResourcePluginPolicyNameDynamic
 	ClearResidualState         = CPUPluginDynamicPolicyName + "_clear_residual_state"
 	CheckCPUSet                = CPUPluginDynamicPolicyName + "_check_cpuset"

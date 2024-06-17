@@ -18,7 +18,10 @@ package machine
 
 import (
 	"fmt"
+	"io/ioutil"
 	"math"
+	"sort"
+	"strings"
 
 	info "github.com/google/cadvisor/info/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -44,6 +47,7 @@ type CPUDetails map[int]CPUInfo
 type CPUTopology struct {
 	NumCPUs      int
 	NumCores     int
+	NumDies      int
 	NumSockets   int
 	NumNUMANodes int
 	CPUDetails   CPUDetails
@@ -119,6 +123,15 @@ func (topo *CPUTopology) CPUsPerSocket() int {
 		return 0
 	}
 	return topo.NumCPUs / topo.NumSockets
+}
+
+// CPUsPerDie returns the number of logical CPUs are associated with
+// each die.
+func (topo *CPUTopology) CPUsPerDie() int {
+	if topo.NumDies == 0 {
+		return 0
+	}
+	return topo.NumCPUs / topo.NumDies
 }
 
 // CPUsPerNuma returns the number of logical CPUs
@@ -272,6 +285,7 @@ type CPUInfo struct {
 	NUMANodeID int
 	SocketID   int
 	CoreID     int
+	DieID      int
 }
 
 // KeepOnly returns a new CPUDetails object with only the supplied cpus.
@@ -382,6 +396,58 @@ func (d CPUDetails) CoresInSockets(ids ...int) CPUSet {
 	return b
 }
 
+// CoresInDies returns all of the core IDs associated with the given die
+// IDs in this CPUDetails.
+func (d CPUDetails) CoresInDies(ids ...int) CPUSet {
+	b := NewCPUSet()
+	for _, id := range ids {
+		for _, info := range d {
+			if info.DieID == id {
+				b.Add(info.CoreID)
+			}
+		}
+	}
+	return b
+}
+
+// Dies returns all of the die IDs associated with the CPUs in this
+// CPUDetails.
+func (d CPUDetails) Dies() CPUSet {
+	b := NewCPUSet()
+	for _, info := range d {
+		b.Add(info.DieID)
+	}
+	return b
+}
+
+// DiesInSockets returns all of the die IDs associated with the given socket
+// IDs in this CPUDetails.
+func (d CPUDetails) DiesInSockets(ids ...int) CPUSet {
+	b := NewCPUSet()
+	for _, id := range ids {
+		for _, info := range d {
+			if info.SocketID == id {
+				b.Add(info.DieID)
+			}
+		}
+	}
+	return b
+}
+
+// CPUsInDies returns all of the logical CPU IDs associated with the given
+// die IDs in this CPUDetails.
+func (d CPUDetails) CPUsInDies(ids ...int) CPUSet {
+	b := NewCPUSet()
+	for _, id := range ids {
+		for cpu, info := range d {
+			if info.DieID == id {
+				b.Add(cpu)
+			}
+		}
+	}
+	return b
+}
+
 // CPUs returns all logical CPU IDs in this CPUDetails.
 func (d CPUDetails) CPUs() CPUSet {
 	b := NewCPUSet()
@@ -419,6 +485,142 @@ func (d CPUDetails) CPUsInCores(ids ...int) CPUSet {
 	return b
 }
 
+// DieInfo is a map from Die ID to a list of CPU IDs associated with that Die.
+type DieInfo map[int]CPUSet
+
+func (d CPUDetails) discoverDie() (DieInfo, error) {
+	dieInfo := DieInfo{}
+
+	constructDieInfo := func(thread int) (err error) {
+		for _, cpuIDs := range dieInfo {
+			if cpuIDs.Contains(thread) {
+				return nil
+			}
+		}
+		path := fmt.Sprintf("/sys/devices/system/cpu/cpu%d", thread) + "/cache/index3/shared_cpu_list"
+		cpusetByte, err := ioutil.ReadFile(path)
+		if err != nil {
+			return err
+		}
+
+		cpus, err := Parse(strings.TrimSpace(string(cpusetByte)))
+		if err != nil {
+			return err
+		}
+
+		sharedThreads := cpus.ToSliceInt()
+		if len(sharedThreads) == 0 {
+			return fmt.Errorf("The index3 shared_cpu_list is empty with cpuset:%v for cpu:%v", cpus.String(), thread)
+		}
+		min := sharedThreads[0]
+		dieInfo[min] = cpus
+		return nil
+	}
+
+	threads := d.CPUs().ToSliceInt()
+	for _, thread := range threads {
+		err := constructDieInfo(thread)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	all := NewCPUSet()
+	for _, v := range dieInfo {
+		all = all.Union(v)
+	}
+
+	if !all.Equals(d.CPUs()) {
+		return nil, fmt.Errorf("construct die info err")
+	}
+	klog.V(4).Infof("[cpumanager] discover die success")
+
+	return dieInfo, nil
+}
+
+// CPUDistributed judge whether the cpu is evenly distributed
+func (d CPUDetails) CPUDistributed() bool {
+	if len(d) == 0 {
+		return false
+	}
+
+	// 1. The number of thread on each core is equal
+	cores := d.Cores().ToSliceInt()
+	elems := map[int]struct{}{}
+	for _, i := range cores {
+		htNum := d.CPUsInCores(i).Size()
+		elems[htNum] = struct{}{}
+	}
+	if len(elems) > 1 {
+		return false
+	}
+
+	// 2. The number of core on each die is equal
+	dies := d.Dies().ToSliceInt()
+	elems = map[int]struct{}{}
+	for _, i := range dies {
+		coreNum := d.CoresInDies(i).Size()
+		elems[coreNum] = struct{}{}
+	}
+	if len(elems) > 1 {
+		return false
+	}
+
+	// 3. The number of die on each socket is equal
+	sockets := d.Sockets().ToSliceInt()
+	elems = map[int]struct{}{}
+	for _, i := range sockets {
+		dieNum := d.DiesInSockets(i).Size()
+		elems[dieNum] = struct{}{}
+	}
+	if len(elems) > 1 {
+		return false
+	}
+
+	return true
+}
+
+// SortCPUToVCPU sort pcpu， ascending order by vcpu binding orders
+func (d CPUDetails) SortCPUToVCPU() []int {
+	ids := d.CPUs().ToSliceInt()
+
+	sort.Slice(ids,
+		func(i, j int) bool {
+			icpu := ids[i]
+			jcpu := ids[j]
+
+			iSocket := d[icpu].SocketID
+			jSocket := d[jcpu].SocketID
+			if iSocket < jSocket {
+				return true
+			}
+			if iSocket > jSocket {
+				return false
+			}
+
+			iDie := d[icpu].DieID
+			jDie := d[jcpu].DieID
+			if iDie < jDie {
+				return true
+			}
+			if iDie > jDie {
+				return false
+			}
+
+			iCore := d[icpu].CoreID
+			jCore := d[jcpu].CoreID
+			if iCore < jCore {
+				return true
+			}
+			if iCore > jCore {
+				return false
+			}
+			return ids[i] < ids[j]
+		})
+
+	return ids
+}
+
 // Discover returns CPUTopology based on cadvisor node info
 func Discover(machineInfo *info.MachineInfo) (*CPUTopology, *MemoryTopology, error) {
 	if machineInfo.NumCores == 0 {
@@ -441,6 +643,8 @@ func Discover(machineInfo *info.MachineInfo) (*CPUTopology, *MemoryTopology, err
 						CoreID:     coreID,
 						SocketID:   core.SocketID,
 						NUMANodeID: node.Id,
+						// Die id is equal to numa node id by default,such as intel cpu arch.
+						DieID: node.Id,
 					}
 				}
 			} else {
@@ -451,10 +655,36 @@ func Discover(machineInfo *info.MachineInfo) (*CPUTopology, *MemoryTopology, err
 		}
 	}
 
+	dieInfo := DieInfo{}
+	isAMD, err := CPUIsAMD()
+	if err != nil {
+		return nil, nil, fmt.Errorf("could not detect cpu type err:%v", err)
+	}
+
+	if isAMD {
+		info, err := CPUDetails.discoverDie()
+		if err != nil {
+			return nil, nil, err
+		}
+		dieInfo = info
+	}
+
+	for dieID, threads := range dieInfo {
+		for _, v := range threads.ToSliceInt() {
+			if info, ok := CPUDetails[v]; ok {
+				info.DieID = dieID
+				CPUDetails[v] = info
+			} else {
+				return nil, nil, fmt.Errorf("Thread from die info is not exists in CPUDetails")
+			}
+		}
+	}
+
 	return &CPUTopology{
 		NumCPUs:      machineInfo.NumCores,
 		NumSockets:   machineInfo.NumSockets,
 		NumCores:     numPhysicalCores,
+		NumDies:      CPUDetails.Dies().Size(),
 		NumNUMANodes: CPUDetails.NUMANodes().Size(),
 		CPUDetails:   CPUDetails,
 	}, &memoryTopology, nil

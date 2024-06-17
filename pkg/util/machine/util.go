@@ -18,6 +18,8 @@ package machine
 
 import (
 	"fmt"
+	"io/ioutil"
+	"strings"
 
 	"k8s.io/kubernetes/pkg/kubelet/cm/topologymanager/bitmask"
 )
@@ -124,4 +126,19 @@ func GetSiblingNUMAs(numaID int, topology *CPUTopology) (CPUSet, error) {
 	}
 
 	return numaSet, nil
+}
+
+// CPUIsAMD judges cpu type of this machine
+func CPUIsAMD() (bool, error) {
+	content, err := ioutil.ReadFile("/proc/cpuinfo")
+	if err != nil {
+		return false, fmt.Errorf("failed to read cpuinfo:%v", err)
+	}
+
+	str := string(content)
+	if strings.Contains(str, "AuthenticAMD") {
+		return true, nil
+	}
+
+	return false, nil
 }
