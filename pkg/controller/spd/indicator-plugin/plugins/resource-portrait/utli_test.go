@@ -102,7 +102,7 @@ func TestGetSPDExtendedIndicators(t *testing.T) {
 					Spec: apiworkload.ServiceProfileDescriptorSpec{
 						ExtendedIndicator: []apiworkload.ServiceExtendedIndicatorSpec{
 							{
-								Name: resourcePortraitExtendedSpecName,
+								Name: ResourcePortraitExtendedSpecName,
 							},
 						},
 					},
@@ -118,7 +118,7 @@ func TestGetSPDExtendedIndicators(t *testing.T) {
 					Spec: apiworkload.ServiceProfileDescriptorSpec{
 						ExtendedIndicator: []apiworkload.ServiceExtendedIndicatorSpec{
 							{
-								Name: resourcePortraitExtendedSpecName + "x",
+								Name: ResourcePortraitExtendedSpecName + "x",
 							},
 						},
 					},
@@ -135,7 +135,7 @@ func TestGetSPDExtendedIndicators(t *testing.T) {
 					Spec: apiworkload.ServiceProfileDescriptorSpec{
 						ExtendedIndicator: []apiworkload.ServiceExtendedIndicatorSpec{
 							{
-								Name: resourcePortraitExtendedSpecName,
+								Name: ResourcePortraitExtendedSpecName,
 								Indicators: runtime.RawExtension{
 									Object: &v1.ConfigMap{
 										Data: map[string]string{},
@@ -156,7 +156,7 @@ func TestGetSPDExtendedIndicators(t *testing.T) {
 					Spec: apiworkload.ServiceProfileDescriptorSpec{
 						ExtendedIndicator: []apiworkload.ServiceExtendedIndicatorSpec{
 							{
-								Name: resourcePortraitExtendedSpecName,
+								Name: ResourcePortraitExtendedSpecName,
 								Indicators: runtime.RawExtension{
 									Raw: raw,
 								},

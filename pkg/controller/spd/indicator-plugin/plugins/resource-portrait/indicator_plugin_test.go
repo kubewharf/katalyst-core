@@ -122,7 +122,7 @@ func TestResourcePortraitIndicatorPlugin(t *testing.T) {
 			assert.Equal(t, tt.wantErr, err != nil)
 
 			assert.Equal(t, plugin.Name(), ResourcePortraitPluginName)
-			assert.Equal(t, plugin.GetSupportedExtendedIndicatorSpec(), []string{resourcePortraitExtendedSpecName})
+			assert.Equal(t, plugin.GetSupportedExtendedIndicatorSpec(), []string{ResourcePortraitExtendedSpecName})
 
 			var serviceBusinessIndicatorNames []apiworkload.ServiceBusinessIndicatorName
 			assert.Equal(t, plugin.GetSupportedBusinessIndicatorSpec(), serviceBusinessIndicatorNames)

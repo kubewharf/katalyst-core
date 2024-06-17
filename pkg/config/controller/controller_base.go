@@ -42,6 +42,7 @@ type GenericControllerConfiguration struct {
 }
 
 type ControllersConfiguration struct {
+	*IHPAConfig
 	*VPAConfig
 	*KCCConfig
 	*SPDConfig
@@ -58,6 +59,7 @@ func NewGenericControllerConfiguration() *GenericControllerConfiguration {
 
 func NewControllersConfiguration() *ControllersConfiguration {
 	return &ControllersConfiguration{
+		IHPAConfig:                NewIHPAConfig(),
 		VPAConfig:                 NewVPAConfig(),
 		KCCConfig:                 NewKCCConfig(),
 		SPDConfig:                 NewSPDConfig(),

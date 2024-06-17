@@ -62,7 +62,7 @@ func NewAlgorithmProvider(addr, algorithmType string) (AlgorithmProvider, error)
 }
 
 func init() {
-	register(resourcePortraitMethodPredict, newPredictionProvider)
+	register(ResourcePortraitMethodPredict, newPredictionProvider)
 }
 
 // predictProviderImpl is used to call the time series prediction algorithm based on the given
@@ -98,7 +98,7 @@ const (
 	algorithmMsgSuccessful  = "Successful"
 	algorithmServingTimeout = 120
 
-	resourcePortraitMethodPredict         = "predict"
+	ResourcePortraitMethodPredict         = "predict"
 	resourcePortraitRequestPathPrediction = "/openapi/tsa/predict"
 
 	// periodicityMetricsPrefix is used to mark whether the current indicator is a
@@ -134,7 +134,7 @@ func newPredictionProvider(addr string) AlgorithmProvider {
 }
 
 func (p *predictProviderImpl) Method() string {
-	return resourcePortraitMethodPredict
+	return ResourcePortraitMethodPredict
 }
 
 func (p *predictProviderImpl) SetConfig(cfg map[string]string) {
