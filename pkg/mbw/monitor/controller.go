@@ -99,7 +99,7 @@ func (m MBMonitor) ConfigCCDMBACos(ccd, cos, ul int, max uint64) error {
 	shiftedB := b1 << BW_LEN
 	targetVal := a1 | uint64(shiftedB)
 	// use the first core on each CCD when throttling the CCD as a whole
-	core := m.SysInfo.CCDMap[ccd][0]
+	core := m.KatalystMachineInfo.CCDMap[ccd][0]
 	if err := writeMBAMSR(uint32(core), int64(bwControl), targetVal); err != nil {
 		general.Errorf("failed to set core mba cos on core %d - %v", core, err)
 		return err

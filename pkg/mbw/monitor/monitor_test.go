@@ -31,7 +31,7 @@ import (
 
 // not to verify much other than expecting no error
 // most of this test purpose is more test coverage
-func Test_newSysInfo(t *testing.T) {
+func Test_newExtKatalystMachineInfo(t *testing.T) {
 	t.Parallel()
 	type args struct {
 		machineInfoConfig *global.MachineInfoConfiguration
@@ -39,7 +39,7 @@ func Test_newSysInfo(t *testing.T) {
 	tests := []struct {
 		name    string
 		args    args
-		want    *SysInfo
+		want    *machine.KatalystMachineInfo
 		wantErr bool
 	}{
 		{
@@ -55,9 +55,9 @@ func Test_newSysInfo(t *testing.T) {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			_, err := newSysInfo(tt.args.machineInfoConfig)
+			_, err := newExtKatalystMachineInfo(tt.args.machineInfoConfig)
 			if (err != nil) != tt.wantErr {
-				t.Errorf("newSysInfo() error = %v, wantErr %v", err, tt.wantErr)
+				t.Errorf("newExtKatalystMachineInfo() error = %v, wantErr %v", err, tt.wantErr)
 				return
 			}
 		})
@@ -67,7 +67,7 @@ func Test_newSysInfo(t *testing.T) {
 func Test_newMonitor(t *testing.T) {
 	t.Parallel()
 	type args struct {
-		sysInfo *SysInfo
+		sysInfo *machine.KatalystMachineInfo
 	}
 	tests := []struct {
 		name    string
@@ -78,69 +78,69 @@ func Test_newMonitor(t *testing.T) {
 		{
 			name: "happy path no error",
 			args: args{
-				sysInfo: &SysInfo{
-					KatalystMachineInfo: machine.KatalystMachineInfo{
-						MachineInfo: &v1.MachineInfo{
-							Timestamp:        time.Time{},
-							CPUVendorID:      "",
-							NumCores:         1,
-							NumPhysicalCores: 0,
-							NumSockets:       0,
-							CpuFrequency:     0,
-							MemoryCapacity:   0,
-							MemoryByType:     nil,
-							NVMInfo:          v1.NVMInfo{},
-							HugePages:        nil,
-							MachineID:        "",
-							SystemUUID:       "",
-							BootID:           "",
-							Filesystems:      nil,
-							DiskMap:          nil,
-							NetworkDevices:   nil,
-							Topology:         nil,
-							CloudProvider:    "",
-							InstanceType:     "",
-							InstanceID:       "",
+				sysInfo: &machine.KatalystMachineInfo{
+					MachineInfo: &v1.MachineInfo{
+						Timestamp:        time.Time{},
+						CPUVendorID:      "",
+						NumCores:         1,
+						NumPhysicalCores: 0,
+						NumSockets:       0,
+						CpuFrequency:     0,
+						MemoryCapacity:   0,
+						MemoryByType:     nil,
+						NVMInfo:          v1.NVMInfo{},
+						HugePages:        nil,
+						MachineID:        "",
+						SystemUUID:       "",
+						BootID:           "",
+						Filesystems:      nil,
+						DiskMap:          nil,
+						NetworkDevices:   nil,
+						Topology:         nil,
+						CloudProvider:    "",
+						InstanceType:     "",
+						InstanceID:       "",
+					},
+					CPUTopology: &machine.CPUTopology{
+						NumCPUs:      1,
+						NumCores:     2,
+						NumSockets:   1,
+						NumNUMANodes: 1,
+					},
+					MemoryTopology: &machine.MemoryTopology{
+						PMU:             machine.PMUInfo{},
+						MemoryBandwidth: machine.MemoryBandwidthInfo{},
+						MemoryLatency:   machine.MemoryLatencyInfo{},
+						RMIDPerPackage:  nil,
+					},
+					DieTopology: &machine.DieTopology{
+						NumPackages:      1,
+						PackageMap:       nil,
+						PackagePerSocket: 0,
+						RDTScalar:        0,
+						DieSize:          0,
+						NumCCDs:          0,
+						CCDMap:           nil,
+						NumaMap:          nil,
+						FakeNUMAEnabled:  false,
+					},
+					ExtraCPUInfo: &machine.ExtraCPUInfo{
+						Vendor: "dummy-test",
+					},
+					ExtraNetworkInfo: nil,
+					ExtraTopologyInfo: &machine.ExtraTopologyInfo{
+						NumaDistanceMap: map[int][]machine.NumaDistanceInfo{
+							0: {{
+								NumaID:   0,
+								Distance: 10,
+							}},
 						},
-						CPUTopology: &machine.CPUTopology{
-							NumCPUs:      1,
-							NumCores:     2,
-							NumSockets:   1,
-							NumNUMANodes: 1,
-						},
-						MemoryTopology:   nil,
-						ExtraCPUInfo:     nil,
-						ExtraNetworkInfo: nil,
-						ExtraTopologyInfo: &machine.ExtraTopologyInfo{
-							NumaDistanceMap: map[int][]machine.NumaDistanceInfo{
-								0: {{
-									NumaID:   0,
-									Distance: 10,
-								}},
-							},
-							SiblingNumaInfo: &machine.SiblingNumaInfo{
-								SiblingNumaMap:                  map[int]sets.Int{0: sets.NewInt()},
-								SiblingNumaAvgMBWAllocatableMap: nil,
-								SiblingNumaAvgMBWCapacityMap:    nil,
-							},
+						SiblingNumaInfo: &machine.SiblingNumaInfo{
+							SiblingNumaMap:                  map[int]sets.Int{0: sets.NewInt()},
+							SiblingNumaAvgMBWAllocatableMap: nil,
+							SiblingNumaAvgMBWCapacityMap:    nil,
 						},
 					},
-					Vendor:           "dummy-test",
-					Family:           0,
-					Model:            0,
-					FakeNUMAEnabled:  false,
-					NumPackages:      1,
-					PackageMap:       nil,
-					PackagePerSocket: 0,
-					RDTScalar:        0,
-					DieSize:          0,
-					NumCCDs:          0,
-					CCDMap:           nil,
-					NumaMap:          nil,
-					MemoryBandwidth:  MemoryBandwidthInfo{},
-					MemoryLatency:    MemoryLatencyInfo{},
-					RMIDPerPackage:   nil,
-					PMU:              PMUInfo{},
 				},
 			},
 			want:    nil,
@@ -163,7 +163,7 @@ func Test_newMonitor(t *testing.T) {
 func TestMBMonitor_ServeCoreMB(t *testing.T) {
 	t.Parallel()
 	type fields struct {
-		SysInfo     *SysInfo
+		SysInfo     *machine.KatalystMachineInfo
 		Controller  MBController
 		Interval    uint64
 		Started     bool
@@ -179,41 +179,44 @@ func TestMBMonitor_ServeCoreMB(t *testing.T) {
 		{
 			name: "happy path no error",
 			fields: fields{
-				SysInfo: &SysInfo{
-					KatalystMachineInfo: machine.KatalystMachineInfo{
-						CPUTopology: &machine.CPUTopology{
-							NumCPUs:      1,
-							NumCores:     2,
-							NumSockets:   1,
-							NumNUMANodes: 1,
-						},
+				SysInfo: &machine.KatalystMachineInfo{
+					CPUTopology: &machine.CPUTopology{
+						NumCPUs:      1,
+						NumCores:     2,
+						NumSockets:   1,
+						NumNUMANodes: 1,
 					},
-					MemoryBandwidth: MemoryBandwidthInfo{
-						CoreLocker:    sync.RWMutex{},
-						PackageLocker: sync.RWMutex{},
-						Cores: []CoreMB{{
-							Package:    0,
-							LRMB:       0,
-							LRMB_Delta: 0,
-							RRMB_Delta: 0,
-							TRMB:       0,
-							TRMB_Delta: 0,
-						}, {
-							Package:    0,
-							LRMB:       0,
-							LRMB_Delta: 0,
-							RRMB_Delta: 0,
-							TRMB:       0,
-							TRMB_Delta: 0,
-						}},
-						Numas: []NumaMB{{
-							Package: 0,
-							LRMB:    0,
-							RRMB:    0,
-							TRMB:    0,
-							Total:   0,
-						}},
-						Packages: nil,
+					DieTopology: &machine.DieTopology{
+						PackageMap: nil,
+					},
+					MemoryTopology: &machine.MemoryTopology{
+						MemoryBandwidth: machine.MemoryBandwidthInfo{
+							CoreLocker:    sync.RWMutex{},
+							PackageLocker: sync.RWMutex{},
+							Cores: []machine.CoreMB{{
+								Package:    0,
+								LRMB:       0,
+								LRMB_Delta: 0,
+								RRMB_Delta: 0,
+								TRMB:       0,
+								TRMB_Delta: 0,
+							}, {
+								Package:    0,
+								LRMB:       0,
+								LRMB_Delta: 0,
+								RRMB_Delta: 0,
+								TRMB:       0,
+								TRMB_Delta: 0,
+							}},
+							Numas: []machine.NumaMB{{
+								Package: 0,
+								LRMB:    0,
+								RRMB:    0,
+								TRMB:    0,
+								Total:   0,
+							}},
+							Packages: nil,
+						},
 					},
 				},
 				Controller:  MBController{},
@@ -231,13 +234,13 @@ func TestMBMonitor_ServeCoreMB(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			m := MBMonitor{
-				SysInfo:     tt.fields.SysInfo,
-				Controller:  tt.fields.Controller,
-				Interval:    tt.fields.Interval,
-				Started:     tt.fields.Started,
-				MonitorOnly: tt.fields.MonitorOnly,
-				mctx:        tt.fields.mctx,
-				done:        tt.fields.done,
+				KatalystMachineInfo: tt.fields.SysInfo,
+				Controller:          tt.fields.Controller,
+				Interval:            tt.fields.Interval,
+				Started:             tt.fields.Started,
+				MonitorOnly:         tt.fields.MonitorOnly,
+				mctx:                tt.fields.mctx,
+				done:                tt.fields.done,
 			}
 			if err := m.ServeCoreMB(); (err != nil) != tt.wantErr {
 				t.Errorf("ServeCoreMB() error = %v, wantErr %v", err, tt.wantErr)

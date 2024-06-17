@@ -20,6 +20,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/mbw/utils"
 	"github.com/kubewharf/katalyst-core/pkg/mbw/utils/msr"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
+	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
 const (
@@ -40,7 +41,7 @@ const (
 func (m MBMonitor) StartL3PMCMonitor() {
 	// each AMD Die/CCD/CCX has a separate L3 cache
 	// only need to collect L3 miss latency on the 1st core of each CCD
-	for i, ccd := range m.SysInfo.CCDMap {
+	for i, ccd := range m.KatalystMachineInfo.CCDMap {
 		m.StartL3PMCEvent(ccd[0], L3PMC_EVE_LAT1)
 		m.StartL3PMCEvent(ccd[0], L3PMC_EVE_LAT2)
 
@@ -49,7 +50,7 @@ func (m MBMonitor) StartL3PMCMonitor() {
 }
 
 func (m MBMonitor) StopL3PMCMonitor() {
-	for i, ccd := range m.SysInfo.CCDMap {
+	for i, ccd := range m.KatalystMachineInfo.CCDMap {
 		StopL3PMCEvent(ccd[0], L3PMC_EVE_LAT1)
 		StopL3PMCEvent(ccd[0], L3PMC_EVE_LAT2)
 
@@ -58,7 +59,7 @@ func (m MBMonitor) StopL3PMCMonitor() {
 }
 
 func (m MBMonitor) ClearL3PMCSetting() {
-	for i, ccd := range m.SysInfo.CCDMap {
+	for i, ccd := range m.KatalystMachineInfo.CCDMap {
 		ClearL3PMCEvent(ccd[0], L3PMC_EVE_LAT1)
 		ClearL3PMCEvent(ccd[0], L3PMC_EVE_LAT2)
 
@@ -70,7 +71,7 @@ func (m *MBMonitor) ReadL3MissLatency() error {
 	m.MemoryLatency.CCDLocker.Lock()
 	defer m.MemoryLatency.CCDLocker.Unlock()
 
-	for i, ccd := range m.SysInfo.CCDMap {
+	for i, ccd := range m.KatalystMachineInfo.CCDMap {
 		l3lat1, err := ReadL3PMCEvent(ccd[0], L3PMC_EVE_LAT1)
 		if err != nil {
 			general.Errorf("failed to read L3 miss latency on ccd %d / core %d lat 1 - %v", i, ccd[0], err)
@@ -85,7 +86,7 @@ func (m *MBMonitor) ReadL3MissLatency() error {
 		m.MemoryLatency.L3Latency[i].L3PMCLatency1_Delta = utils.Delta(48, l3lat1, m.MemoryLatency.L3Latency[i].L3PMCLatency1)
 		m.MemoryLatency.L3Latency[i].L3PMCLatency2_Delta = utils.Delta(48, l3lat2, m.MemoryLatency.L3Latency[i].L3PMCLatency2)
 		m.MemoryLatency.L3Latency[i].L3PMCLatency = utils.L3PMCToLatency(m.MemoryLatency.L3Latency[i].L3PMCLatency1_Delta,
-			m.MemoryLatency.L3Latency[i].L3PMCLatency2_Delta, m.Interval) * utils.GetCPUClock(ccd[0], string(m.SysInfo.Vendor))
+			m.MemoryLatency.L3Latency[i].L3PMCLatency2_Delta, m.Interval) * utils.GetCPUClock(ccd[0], string(m.KatalystMachineInfo.Vendor))
 
 		m.MemoryLatency.L3Latency[i].L3PMCLatency1 = l3lat1
 		m.MemoryLatency.L3Latency[i].L3PMCLatency2 = l3lat2
@@ -97,17 +98,17 @@ func (m *MBMonitor) ReadL3MissLatency() error {
 func (m MBMonitor) StartL3PMCEvent(cpu, event int) {
 	switch event {
 	case L3PMC_EVE_LAT1:
-		if m.SysInfo.Family >= 0x19 && m.SysInfo.Model >= AMD_ZEN4_GENOA_A {
+		if m.KatalystMachineInfo.Family >= 0x19 && m.KatalystMachineInfo.Model >= machine.AMD_ZEN4_GENOA_A {
 			msr.WriteMSR(uint32(cpu), L3PMCCTL_2, L3PMCLAT1_G)
-		} else if m.SysInfo.Family >= 0x19 {
+		} else if m.KatalystMachineInfo.Family >= 0x19 {
 			msr.WriteMSR(uint32(cpu), L3PMCCTL_2, L3PMCLAT1_M)
 		} else {
 			msr.WriteMSR(uint32(cpu), L3PMCCTL_2, L3PMCLAT1)
 		}
 	case L3PMC_EVE_LAT2:
-		if m.SysInfo.Family >= 0x19 && m.SysInfo.Model >= AMD_ZEN4_GENOA_A {
+		if m.KatalystMachineInfo.Family >= 0x19 && m.KatalystMachineInfo.Model >= machine.AMD_ZEN4_GENOA_A {
 			msr.WriteMSR(uint32(cpu), L3PMCCTL_3, L3PMCLAT2_G)
-		} else if m.SysInfo.Family >= 0x19 {
+		} else if m.KatalystMachineInfo.Family >= 0x19 {
 			msr.WriteMSR(uint32(cpu), L3PMCCTL_3, L3PMCLAT2_M)
 		} else {
 			msr.WriteMSR(uint32(cpu), L3PMCCTL_3, L3PMCLAT2)

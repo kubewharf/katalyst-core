@@ -21,6 +21,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/klauspost/cpuid/v2"
 	"github.com/pkg/errors"
 	"k8s.io/apimachinery/pkg/util/sets"
 )
@@ -32,9 +33,24 @@ var (
 	avx512RegExp = regexp.MustCompile(`^flags\s*:.* (avx512 .*|avx512)$`)
 )
 
+type CPU_VENDOR_NAME string
+
+const (
+	CPU_VENDOR_INTEL   CPU_VENDOR_NAME = "Intel"
+	CPU_VENDOR_AMD     CPU_VENDOR_NAME = "AMD"
+	CPU_VENDOR_ARM     CPU_VENDOR_NAME = "ARM"
+	CPU_VENDOR_UNKNOWN CPU_VENDOR_NAME = "UNKNOWN"
+)
+
 type ExtraCPUInfo struct {
 	// SupportInstructionSet instructions all cpus support.
 	SupportInstructionSet sets.String
+
+	// below are CPU related info detected by cpuid package which is dependency of mbw lib
+	// may consider to unify with cadvisor detected info
+	Vendor CPU_VENDOR_NAME
+	Family int
+	Model  int
 }
 
 // GetExtraCPUInfo get extend cpu info from proc system
@@ -46,6 +62,9 @@ func GetExtraCPUInfo() (*ExtraCPUInfo, error) {
 
 	return &ExtraCPUInfo{
 		SupportInstructionSet: getCPUInstructionInfo(string(cpuInfo)),
+		Vendor:                CPU_VENDOR_NAME(cpuid.CPU.VendorID.String()),
+		Family:                cpuid.CPU.Family,
+		Model:                 cpuid.CPU.Model,
 	}, nil
 }
 

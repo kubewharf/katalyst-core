@@ -136,9 +136,11 @@ func Test_bindCorePQRAssoc(t *testing.T) {
 func Test_ConfigCCDMBACos(t *testing.T) {
 	t.Parallel()
 	m := MBMonitor{
-		SysInfo: &SysInfo{
-			CCDMap: map[int][]int{
-				0: {0, 1},
+		KatalystMachineInfo: &machine.KatalystMachineInfo{
+			DieTopology: &machine.DieTopology{
+				CCDMap: map[int][]int{
+					0: {0, 1},
+				},
 			},
 		},
 	}
@@ -150,15 +152,15 @@ func Test_ConfigCCDMBACos(t *testing.T) {
 func Test_ResetMBACos(t *testing.T) {
 	t.Parallel()
 	m := MBMonitor{
-		SysInfo: &SysInfo{
-			NumCCDs: 3,
-			KatalystMachineInfo: machine.KatalystMachineInfo{
-				MachineInfo: &v1.MachineInfo{
-					NumCores: 1,
+		KatalystMachineInfo: &machine.KatalystMachineInfo{
+			DieTopology: &machine.DieTopology{
+				NumCCDs: 3,
+				CCDMap: map[int][]int{
+					0: {0, 1},
 				},
 			},
-			CCDMap: map[int][]int{
-				0: {0, 1},
+			MachineInfo: &v1.MachineInfo{
+				NumCores: 1,
 			},
 		},
 	}

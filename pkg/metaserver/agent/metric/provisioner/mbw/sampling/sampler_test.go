@@ -21,9 +21,9 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/kubewharf/katalyst-core/pkg/mbw/monitor"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	metrics_pool "github.com/kubewharf/katalyst-core/pkg/metrics/metrics-pool"
+	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 	utilmetric "github.com/kubewharf/katalyst-core/pkg/util/metric"
 )
 
@@ -69,12 +69,12 @@ func (m mockMBMonitor) GetNUMACCD() map[int][]int {
 	}
 }
 
-func (m mockMBMonitor) GetMemoryBandwidthOfPackages() []monitor.PackageMB {
+func (m mockMBMonitor) GetMemoryBandwidthOfPackages() []machine.PackageMB {
 	if !m.hasData {
 		return nil
 	}
 
-	return []monitor.PackageMB{
+	return []machine.PackageMB{
 		{
 			RMB:       700,
 			RMB_Delta: 400,
@@ -92,12 +92,12 @@ func (m mockMBMonitor) GetMemoryBandwidthOfPackages() []monitor.PackageMB {
 	}
 }
 
-func (m mockMBMonitor) GetMemoryBandwidthOfNUMAs() []monitor.NumaMB {
+func (m mockMBMonitor) GetMemoryBandwidthOfNUMAs() []machine.NumaMB {
 	if !m.hasData {
 		return nil
 	}
 
-	return []monitor.NumaMB{
+	return []machine.NumaMB{
 		{
 			Package: 0,
 			LRMB:    100,

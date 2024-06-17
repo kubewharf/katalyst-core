@@ -22,13 +22,14 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/mbw/utils/msr"
 	"github.com/kubewharf/katalyst-core/pkg/mbw/utils/rdt"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
+	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
 func (m *MBMonitor) InitRDT() error {
 	m.RDTScalar = rdt.GetRDTScalar()
 
-	if m.Vendor == CPU_VENDOR_INTEL || m.Vendor == CPU_VENDOR_AMD {
-		for _, cores := range m.SysInfo.CCDMap {
+	if m.Vendor == machine.CPU_VENDOR_INTEL || m.Vendor == machine.CPU_VENDOR_AMD {
+		for _, cores := range m.KatalystMachineInfo.CCDMap {
 			// Ensure each ccd uses a unique rmid range
 			// each CCD is a separate Die on AMD Genoa
 			for i, core := range cores {
@@ -69,9 +70,9 @@ func (m MBMonitor) Assign_Uniq_RMID(core uint32, rmid uint64) error {
 	return nil
 }
 
-func (m MBMonitor) ReadCoreMB() (map[CORE_MB_EVENT_TYPE][]uint64, error) {
+func (m MBMonitor) ReadCoreMB() (map[machine.CORE_MB_EVENT_TYPE][]uint64, error) {
 	var err error
-	mbMap := map[CORE_MB_EVENT_TYPE][]uint64{}
+	mbMap := map[machine.CORE_MB_EVENT_TYPE][]uint64{}
 	lrmb := make([]uint64, len(m.MemoryBandwidth.Cores))
 	trmb := make([]uint64, len(m.MemoryBandwidth.Cores))
 
@@ -89,8 +90,8 @@ func (m MBMonitor) ReadCoreMB() (map[CORE_MB_EVENT_TYPE][]uint64, error) {
 		}
 	}
 
-	mbMap[CORE_MB_READ_LOCAL] = lrmb
-	mbMap[CORE_MB_READ_TOTAL] = trmb
+	mbMap[machine.CORE_MB_READ_LOCAL] = lrmb
+	mbMap[machine.CORE_MB_READ_TOTAL] = trmb
 
 	return mbMap, err
 }
