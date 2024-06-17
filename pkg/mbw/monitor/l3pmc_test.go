@@ -20,12 +20,14 @@ import (
 	"context"
 	"sync"
 	"testing"
+
+	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
 func TestMBMonitor_StartL3PMCEvent(t *testing.T) {
 	t.Parallel()
 	type fields struct {
-		SysInfo     *SysInfo
+		SysInfo     *machine.KatalystMachineInfo
 		Controller  MBController
 		Interval    uint64
 		Started     bool
@@ -45,9 +47,11 @@ func TestMBMonitor_StartL3PMCEvent(t *testing.T) {
 		{
 			name: "happy path of LAT1",
 			fields: fields{
-				SysInfo: &SysInfo{
-					Family: 0x19,
-					Model:  0x10,
+				SysInfo: &machine.KatalystMachineInfo{
+					ExtraCPUInfo: &machine.ExtraCPUInfo{
+						Family: 0x19,
+						Model:  0x10,
+					},
 				},
 			},
 			args: args{
@@ -58,9 +62,11 @@ func TestMBMonitor_StartL3PMCEvent(t *testing.T) {
 		{
 			name: "2nd path of LAT1",
 			fields: fields{
-				SysInfo: &SysInfo{
-					Family: 0x19,
-					Model:  0x09,
+				SysInfo: &machine.KatalystMachineInfo{
+					ExtraCPUInfo: &machine.ExtraCPUInfo{
+						Family: 0x19,
+						Model:  0x09,
+					},
 				},
 			},
 			args: args{
@@ -71,9 +77,11 @@ func TestMBMonitor_StartL3PMCEvent(t *testing.T) {
 		{
 			name: "3rd path of LAT1",
 			fields: fields{
-				SysInfo: &SysInfo{
-					Family: 0x18,
-					Model:  0x10,
+				SysInfo: &machine.KatalystMachineInfo{
+					ExtraCPUInfo: &machine.ExtraCPUInfo{
+						Family: 0x18,
+						Model:  0x10,
+					},
 				},
 			},
 			args: args{
@@ -84,9 +92,11 @@ func TestMBMonitor_StartL3PMCEvent(t *testing.T) {
 		{
 			name: "happy path of LAT2",
 			fields: fields{
-				SysInfo: &SysInfo{
-					Family: 0x19,
-					Model:  0x10,
+				SysInfo: &machine.KatalystMachineInfo{
+					ExtraCPUInfo: &machine.ExtraCPUInfo{
+						Family: 0x19,
+						Model:  0x10,
+					},
 				},
 			},
 			args: args{
@@ -97,9 +107,11 @@ func TestMBMonitor_StartL3PMCEvent(t *testing.T) {
 		{
 			name: "2nd path of LAT2",
 			fields: fields{
-				SysInfo: &SysInfo{
-					Family: 0x19,
-					Model:  0x09,
+				SysInfo: &machine.KatalystMachineInfo{
+					ExtraCPUInfo: &machine.ExtraCPUInfo{
+						Family: 0x19,
+						Model:  0x09,
+					},
 				},
 			},
 			args: args{
@@ -110,9 +122,11 @@ func TestMBMonitor_StartL3PMCEvent(t *testing.T) {
 		{
 			name: "3rd path of LAT2",
 			fields: fields{
-				SysInfo: &SysInfo{
-					Family: 0x18,
-					Model:  0x10,
+				SysInfo: &machine.KatalystMachineInfo{
+					ExtraCPUInfo: &machine.ExtraCPUInfo{
+						Family: 0x18,
+						Model:  0x10,
+					},
 				},
 			},
 			args: args{
@@ -126,13 +140,13 @@ func TestMBMonitor_StartL3PMCEvent(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			m := MBMonitor{
-				SysInfo:     tt.fields.SysInfo,
-				Controller:  tt.fields.Controller,
-				Interval:    tt.fields.Interval,
-				Started:     tt.fields.Started,
-				MonitorOnly: tt.fields.MonitorOnly,
-				mctx:        tt.fields.mctx,
-				done:        tt.fields.done,
+				KatalystMachineInfo: tt.fields.SysInfo,
+				Controller:          tt.fields.Controller,
+				Interval:            tt.fields.Interval,
+				Started:             tt.fields.Started,
+				MonitorOnly:         tt.fields.MonitorOnly,
+				mctx:                tt.fields.mctx,
+				done:                tt.fields.done,
 			}
 			m.StartL3PMCEvent(tt.args.cpu, tt.args.event)
 		})
@@ -223,7 +237,7 @@ func TestStopL3PMCEvent(t *testing.T) {
 func TestMBMonitor_ReadL3MissLatency(t *testing.T) {
 	t.Parallel()
 	type fields struct {
-		SysInfo     *SysInfo
+		SysInfo     *machine.KatalystMachineInfo
 		Controller  MBController
 		Interval    uint64
 		Started     bool
@@ -239,11 +253,16 @@ func TestMBMonitor_ReadL3MissLatency(t *testing.T) {
 		{
 			name: "happy path no error",
 			fields: fields{
-				SysInfo: &SysInfo{
-					CCDMap: map[int][]int{0: {0, 1, 2}},
-					MemoryLatency: MemoryLatencyInfo{
-						CCDLocker: sync.RWMutex{},
-						L3Latency: make([]L3PMCLatencyInfo, 3),
+				SysInfo: &machine.KatalystMachineInfo{
+					ExtraCPUInfo: &machine.ExtraCPUInfo{Vendor: "dummy"},
+					DieTopology: &machine.DieTopology{
+						CCDMap: map[int][]int{0: {0, 1, 2}},
+					},
+					MemoryTopology: &machine.MemoryTopology{
+						MemoryLatency: machine.MemoryLatencyInfo{
+							CCDLocker: sync.RWMutex{},
+							L3Latency: make([]machine.L3PMCLatencyInfo, 3),
+						},
 					},
 				},
 				Controller:  MBController{},
@@ -261,13 +280,13 @@ func TestMBMonitor_ReadL3MissLatency(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			m := &MBMonitor{
-				SysInfo:     tt.fields.SysInfo,
-				Controller:  tt.fields.Controller,
-				Interval:    tt.fields.Interval,
-				Started:     tt.fields.Started,
-				MonitorOnly: tt.fields.MonitorOnly,
-				mctx:        tt.fields.mctx,
-				done:        tt.fields.done,
+				KatalystMachineInfo: tt.fields.SysInfo,
+				Controller:          tt.fields.Controller,
+				Interval:            tt.fields.Interval,
+				Started:             tt.fields.Started,
+				MonitorOnly:         tt.fields.MonitorOnly,
+				mctx:                tt.fields.mctx,
+				done:                tt.fields.done,
 			}
 			if err := m.ReadL3MissLatency(); (err != nil) != tt.wantErr {
 				t.Errorf("ReadL3MissLatency() error = %v, wantErr %v", err, tt.wantErr)

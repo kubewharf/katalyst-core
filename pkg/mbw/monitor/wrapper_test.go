@@ -112,8 +112,15 @@ func (m machineMock) GetKatalystMachineInfo(conf *global.MachineInfoConfiguratio
 				},
 			},
 		},
-		MemoryTopology:   nil,
-		ExtraCPUInfo:     nil,
+		MemoryTopology: &machine.MemoryTopology{
+			PMU: machine.PMUInfo{},
+		},
+		DieTopology: &machine.DieTopology{
+			NumPackages: 1,
+		},
+		ExtraCPUInfo: &machine.ExtraCPUInfo{
+			Vendor: "mocked",
+		},
 		ExtraNetworkInfo: nil,
 		ExtraTopologyInfo: &machine.ExtraTopologyInfo{
 			NumaDistanceMap: map[int][]machine.NumaDistanceInfo{

@@ -19,7 +19,7 @@ package sampling
 import (
 	"context"
 
-	"github.com/kubewharf/katalyst-core/pkg/mbw/monitor"
+	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
 // MBMonitorAdaptor is the adaptor interface tailored for mbw monitor
@@ -30,7 +30,7 @@ type MBMonitorAdaptor interface {
 
 	GetPackageNUMA() map[int][]int
 	GetNUMACCD() map[int][]int
-	GetMemoryBandwidthOfPackages() []monitor.PackageMB
-	GetMemoryBandwidthOfNUMAs() []monitor.NumaMB
+	GetMemoryBandwidthOfPackages() []machine.PackageMB
+	GetMemoryBandwidthOfNUMAs() []machine.NumaMB
 	GetCCDL3Latency() []float64
 }

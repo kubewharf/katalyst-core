@@ -46,11 +46,11 @@ func (m MBMonitor) InitPCIAccess() error {
 
 	// get all IOHC devs on PCI
 	devs := pci.ScanDevices(uint16(DRV_IS_PCI_VENDOR_ID_AMD), pciDevID)
-	for i := range m.SysInfo.PMU.SktIOHC {
+	for i := range m.KatalystMachineInfo.PMU.SktIOHC {
 		// any PCI IOHC dev can read all UMCs on a socket,
 		// so only need to find out the first IOHC on each socket
-		m.SysInfo.PMU.SktIOHC[i] = pci.GetFirstIOHC(i*numaPerSocket, devs)
-		general.Infof("socket %d got iohc dev %s on its first node (numa node %d)", i, m.SysInfo.PMU.SktIOHC[i].BDFString(), i*numaPerSocket)
+		m.KatalystMachineInfo.PMU.SktIOHC[i] = pci.GetFirstIOHC(i*numaPerSocket, devs)
+		general.Infof("socket %d got iohc dev %s on its first node (numa node %d)", i, m.KatalystMachineInfo.PMU.SktIOHC[i].BDFString(), i*numaPerSocket)
 	}
 
 	return nil

@@ -49,7 +49,7 @@ const (
 
 func (m MBMonitor) StartUMCMonitor() {
 	var ctl uint32
-	for skt := 0; skt < m.SysInfo.MachineInfo.NumSockets; skt++ {
+	for skt := 0; skt < m.KatalystMachineInfo.MachineInfo.NumSockets; skt++ {
 		for umc := 0; umc < m.PMU.UMC.NumPerSocket; umc++ {
 			// init read umc
 			ctl = UMC_PERF_BASE + uint32(umc)*UMC_CH_SIZE + m.PMU.UMC.CtlBase + 0*m.PMU.UMC.CtlSize
@@ -71,7 +71,7 @@ func (m MBMonitor) StartUMCMonitor() {
 
 func (m MBMonitor) StopUMCMonitor() {
 	var ctl uint32
-	for skt := 0; skt < m.SysInfo.MachineInfo.NumSockets; skt++ {
+	for skt := 0; skt < m.KatalystMachineInfo.MachineInfo.NumSockets; skt++ {
 		for umc := 0; umc < m.PMU.UMC.NumPerSocket; umc++ {
 			// init read umc
 			ctl = UMC_PERF_BASE + uint32(umc)*UMC_CH_SIZE + m.PMU.UMC.CtlBase + 0*m.PMU.UMC.CtlSize
@@ -93,7 +93,7 @@ func (m MBMonitor) StopUMCMonitor() {
 
 func (m MBMonitor) ClearUMCMonitor() {
 	var ctl uint32
-	for skt := 0; skt < m.SysInfo.MachineInfo.NumSockets; skt++ {
+	for skt := 0; skt < m.KatalystMachineInfo.MachineInfo.NumSockets; skt++ {
 		for umc := 0; umc < m.PMU.UMC.NumPerSocket; umc++ {
 			ctl = UMC_PERF_BASE + uint32(umc)*UMC_CH_SIZE + UMC_CLKCTL_BASE
 			pci.WriteSMNApp(m.PMU.SktIOHC[skt], ctl, UMC_CLKCTL_G_EN)
@@ -123,7 +123,7 @@ func (m MBMonitor) ReadUMCCounter(iohc *pci.PCIDev, umc_idx, ctl_idx uint32) uin
 func (m MBMonitor) ReadPackageUMC() {
 	var cas_rd, cas_wr uint64 = 0, 0
 
-	for skt := 0; skt < m.SysInfo.MachineInfo.NumSockets; skt++ {
+	for skt := 0; skt < m.KatalystMachineInfo.MachineInfo.NumSockets; skt++ {
 		for umc := 0; umc < m.PMU.UMC.NumPerSocket; umc++ {
 			cas_rd += m.ReadUMCCounter(m.PMU.SktIOHC[skt], uint32(umc), UMC_IOHC_READ)
 			cas_wr += m.ReadUMCCounter(m.PMU.SktIOHC[skt], uint32(umc), UMC_IOHC_WRITE)

@@ -21,12 +21,11 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/klauspost/cpuid/v2"
-
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/global"
 	"github.com/kubewharf/katalyst-core/pkg/mbw/utils"
 	"github.com/kubewharf/katalyst-core/pkg/mbw/utils/pci"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
+	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
 const (
@@ -36,113 +35,111 @@ const (
 	MIN_NUMA_DISTANCE = 11 // the distance to local numa is 10 in Linux, thus 11 is the minimum inter-numa distance
 )
 
-func newSysInfo(machineInfoConfig *global.MachineInfoConfiguration) (*SysInfo, error) {
+// newExtKatalystMachineInfo arguments the normal KatalystMachineInfo with memory bandwidth related information
+// for now it could not be unified into normal machine info as it would err at unsupported hardware
+// todo: merge this argumentation into the 'normal' info so that the unified info exists only
+func newExtKatalystMachineInfo(machineInfoConfig *global.MachineInfoConfiguration) (
+	*machine.KatalystMachineInfo, error,
+) {
 	// ensure max numa distance make sense, as it is critical for mbw monitor
 	if machineInfoConfig.SiblingNumaMaxDistance < MIN_NUMA_DISTANCE {
 		machineInfoConfig.SiblingNumaMaxDistance = MAX_NUMA_DISTANCE
 	}
-	kmachineInfo, err := machineWrapper.GetKatalystMachineInfo(machineInfoConfig)
+	info, err := machineWrapper.GetKatalystMachineInfo(machineInfoConfig)
 	if err != nil {
 		fmt.Println("Failed to initialize the katalyst machine info")
 		return nil, err
 	}
 
-	sysInfo := &SysInfo{
-		KatalystMachineInfo: *kmachineInfo,
-		Vendor:              CPU_VENDOR_NAME(cpuid.CPU.VendorID.String()),
-		Family:              cpuid.CPU.Family,
-		Model:               cpuid.CPU.Model,
-	}
-
-	if sysInfo.FakeNumaConfigured() {
-		sysInfo.FakeNUMAEnabled = true
+	if info.FakeNumaConfigured() {
+		info.FakeNUMAEnabled = true
 	}
 
 	// ExtraTopologyInfo handling is still under development
-	numasPerPackage := sysInfo.ExtraTopologyInfo.SiblingNumaMap[0].Len() + 1
-	sysInfo.NumPackages = sysInfo.NumNUMANodes / numasPerPackage
-	sysInfo.PackagePerSocket = sysInfo.NumPackages / sysInfo.MachineInfo.NumSockets
-	sysInfo.PackageMap = sysInfo.GetPackageMap(numasPerPackage)
+	numasPerPackage := info.ExtraTopologyInfo.SiblingNumaMap[0].Len() + 1
+	info.NumPackages = info.NumNUMANodes / numasPerPackage
+	info.PackagePerSocket = info.NumPackages / info.MachineInfo.NumSockets
+	info.PackageMap = info.GetPackageMap(numasPerPackage)
 
-	sysInfo.CCDMap, err = utils.GetCCDTopology(sysInfo.NumNUMANodes)
+	info.CCDMap, err = utils.GetCCDTopology(info.NumNUMANodes)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get CCD topology - %v", err)
 	}
-	sysInfo.NumCCDs = len(sysInfo.CCDMap)
-	sysInfo.DieSize = len(sysInfo.CCDMap[0])
+	info.NumCCDs = len(info.CCDMap)
+	info.DieSize = len(info.CCDMap[0])
 
 	// calculate the mapping from numa node to ccds, suppose that each numa node already aligns with ccds
-	sysInfo.NumaMap, err = sysInfo.GetNumaCCDMap()
+	info.NumaMap, err = info.GetNumaCCDMap()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get mapping from numa node to CCDs - %v", err)
 	}
 
-	sysInfo.MemoryBandwidth.Cores = make([]CoreMB, sysInfo.MachineInfo.NumCores)
-	for i := range sysInfo.MemoryBandwidth.Cores {
+	info.MemoryBandwidth.Cores = make([]machine.CoreMB, info.MachineInfo.NumCores)
+	for i := range info.MemoryBandwidth.Cores {
 		// the physical NUMA ID equals to "node ID / number of node per physical NUMA"
-		sysInfo.MemoryBandwidth.Cores[i].Package = sysInfo.CPUTopology.CPUDetails[i].NUMANodeID / (sysInfo.ExtraTopologyInfo.SiblingNumaMap[sysInfo.CPUTopology.CPUDetails[i].NUMANodeID].Len() + 1)
+		info.MemoryBandwidth.Cores[i].Package = info.CPUTopology.CPUDetails[i].NUMANodeID / (info.ExtraTopologyInfo.SiblingNumaMap[info.CPUTopology.CPUDetails[i].NUMANodeID].Len() + 1)
 	}
 
-	sysInfo.MemoryBandwidth.Numas = make([]NumaMB, sysInfo.NumNUMANodes)
-	for i := range sysInfo.MemoryBandwidth.Numas {
-		sysInfo.MemoryBandwidth.Numas[i].Package = i / (sysInfo.ExtraTopologyInfo.SiblingNumaMap[sysInfo.CPUTopology.CPUDetails[i].NUMANodeID].Len() + 1)
+	info.MemoryBandwidth.Numas = make([]machine.NumaMB, info.NumNUMANodes)
+	for i := range info.MemoryBandwidth.Numas {
+		info.MemoryBandwidth.Numas[i].Package = i / (info.ExtraTopologyInfo.SiblingNumaMap[info.CPUTopology.CPUDetails[i].NUMANodeID].Len() + 1)
 	}
 
-	sysInfo.MemoryBandwidth.Packages = make([]PackageMB, sysInfo.NumPackages)
-	sysInfo.PMU.SktIOHC = make([]*pci.PCIDev, sysInfo.MachineInfo.NumSockets)
+	info.MemoryBandwidth.Packages = make([]machine.PackageMB, info.NumPackages)
+	info.PMU.SktIOHC = make([]*pci.PCIDev, info.MachineInfo.NumSockets)
 
 	// each package rmid is initialized to 0
-	sysInfo.RMIDPerPackage = make([]uint32, sysInfo.NumPackages)
+	info.RMIDPerPackage = make([]uint32, info.NumPackages)
 
 	// initialize the AMD UMC if needed
-	if sysInfo.Is_Genoa() {
-		sysInfo.PMU.UMC.CtlBase = UMC_CTL_BASE_GENOA
-		sysInfo.PMU.UMC.CtlSize = UMC_CTL_SIZE_GENOA
-		sysInfo.PMU.UMC.CtrLowBase = UMC_CTR_LO_BASE_GENOA
-		sysInfo.PMU.UMC.CtrHighBase = UMC_CTR_HI_BASE_GENOA
-		sysInfo.PMU.UMC.CtrSize = UMC_CTR_SIZE_GENOA
-		sysInfo.PMU.UMC.NumPerSocket = UMC_PER_PKG_GENOA
-	} else if sysInfo.Is_Milan() || sysInfo.Is_Rome() {
-		sysInfo.PMU.UMC.CtlBase = UMC_CTL_BASE
-		sysInfo.PMU.UMC.CtlSize = UMC_CTL_SIZE
-		sysInfo.PMU.UMC.CtrLowBase = UMC_CTR_LO_BASE
-		sysInfo.PMU.UMC.CtrHighBase = UMC_CTR_HI_BASE
-		sysInfo.PMU.UMC.CtrSize = UMC_CTR_SIZE
-		sysInfo.PMU.UMC.NumPerSocket = UMC_PER_PKG
+	if info.Is_Genoa() {
+		info.PMU.UMC.CtlBase = UMC_CTL_BASE_GENOA
+		info.PMU.UMC.CtlSize = UMC_CTL_SIZE_GENOA
+		info.PMU.UMC.CtrLowBase = UMC_CTR_LO_BASE_GENOA
+		info.PMU.UMC.CtrHighBase = UMC_CTR_HI_BASE_GENOA
+		info.PMU.UMC.CtrSize = UMC_CTR_SIZE_GENOA
+		info.PMU.UMC.NumPerSocket = UMC_PER_PKG_GENOA
+	} else if info.Is_Milan() || info.Is_Rome() {
+		info.PMU.UMC.CtlBase = UMC_CTL_BASE
+		info.PMU.UMC.CtlSize = UMC_CTL_SIZE
+		info.PMU.UMC.CtrLowBase = UMC_CTR_LO_BASE
+		info.PMU.UMC.CtrHighBase = UMC_CTR_HI_BASE
+		info.PMU.UMC.CtrSize = UMC_CTR_SIZE
+		info.PMU.UMC.NumPerSocket = UMC_PER_PKG
 	}
 
-	sysInfo.PMU.UMC.NumPerPackage = sysInfo.PMU.UMC.NumPerSocket / sysInfo.PackagePerSocket
+	info.PMU.UMC.NumPerPackage = info.PMU.UMC.NumPerSocket / info.PackagePerSocket
 
-	return sysInfo, nil
+	return info, nil
 }
 
 func NewMonitor(machineInfoConfig *global.MachineInfoConfiguration) (*MBMonitor, error) {
-	sysInfo, err := newSysInfo(machineInfoConfig)
+	sysInfo, err := newExtKatalystMachineInfo(machineInfoConfig)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create the sysInfo - %v", err)
 	}
 	return newMonitor(sysInfo)
 }
 
-func newMonitor(sysInfo *SysInfo) (*MBMonitor, error) {
-	general.Infof("Vendor: %s", sysInfo.Vendor)
-	general.Infof("CPU cores: %d", sysInfo.MachineInfo.NumCores)
-	general.Infof("CPU per NUMA: %d", sysInfo.CPUsPerNuma())
-	general.Infof("NUMAs: %d", sysInfo.NumNUMANodes)
-	general.Infof("Packages: %d", sysInfo.NumPackages)
-	general.Infof("PackageMap: %v", sysInfo.PackageMap)
-	general.Infof("UMC per pakcage: %d", sysInfo.PMU.UMC.NumPerPackage)
-	general.Infof("Sockets: %d", sysInfo.MachineInfo.NumSockets)
-	general.Infof("UMC per socket: %d", sysInfo.PMU.UMC.NumPerSocket)
-	general.Infof("CCDs: %d", len(sysInfo.CCDMap))
-	general.Infof("Cores per CCD: %d", sysInfo.CCDMap)
-	general.Infof("CCDs per Numa: %v", sysInfo.NumaMap)
-	general.Infof("FakeNuma Enabled: %t", sysInfo.FakeNUMAEnabled)
-	general.Infof("SiblingNumaMap: %v", sysInfo.KatalystMachineInfo.ExtraTopologyInfo.SiblingNumaMap)
+func newMonitor(info *machine.KatalystMachineInfo) (*MBMonitor, error) {
+	general.Infof("Vendor: %s", info.Vendor)
+	general.Infof("CPU cores: %d", info.MachineInfo.NumCores)
+	general.Infof("CPU per NUMA: %d", info.CPUsPerNuma())
+	general.Infof("NUMAs: %d", info.NumNUMANodes)
+	general.Infof("Packages: %d", info.NumPackages)
+	general.Infof("PackageMap: %v", info.PackageMap)
+	general.Infof("UMC per pakcage: %d", info.PMU.UMC.NumPerPackage)
+	general.Infof("Sockets: %d", info.MachineInfo.NumSockets)
+	general.Infof("UMC per socket: %d", info.PMU.UMC.NumPerSocket)
+	general.Infof("CCDs: %d", len(info.CCDMap))
+	general.Infof("Cores per CCD: %d", info.CCDMap)
+	general.Infof("CCDs per Numa: %v", info.NumaMap)
+	general.Infof("FakeNuma Enabled: %t", info.FakeNUMAEnabled)
+	general.Infof("SiblingNumaMap: %v", info.ExtraTopologyInfo.SiblingNumaMap)
 
 	monitor := &MBMonitor{
-		SysInfo:  sysInfo,
-		Interval: MBM_MONITOR_INTERVAL,
+		KatalystMachineInfo: info,
+		Interval:            MBM_MONITOR_INTERVAL,
 		Controller: MBController{
 			MBThresholdPerNUMA: MEMORY_BANDWIDTH_THRESHOLD_PHYSICAL_NUMA,
 			IncreaseStep:       MEMORY_BANDWIDTH_INCREASE_STEP,
@@ -154,12 +151,12 @@ func newMonitor(sysInfo *SysInfo) (*MBMonitor, error) {
 	}
 
 	monitor.Controller.Instances = make([]Instance, 0)
-	monitor.Controller.PackageThrottled = make(map[int]bool, sysInfo.NumPackages)
-	monitor.Controller.NumaLowPriThrottled = make(map[int]bool, sysInfo.NumPackages)
-	monitor.Controller.NumaThrottled = make(map[int]bool, sysInfo.NumNUMANodes)
-	monitor.Controller.RMIDMap = make(map[int]int, sysInfo.MachineInfo.NumCores)
-	monitor.Controller.CCDCosMap = make(map[int][]CosEntry, sysInfo.NumCCDs)
-	for i := 0; i < sysInfo.NumCCDs; i++ {
+	monitor.Controller.PackageThrottled = make(map[int]bool, info.NumPackages)
+	monitor.Controller.NumaLowPriThrottled = make(map[int]bool, info.NumPackages)
+	monitor.Controller.NumaThrottled = make(map[int]bool, info.NumNUMANodes)
+	monitor.Controller.RMIDMap = make(map[int]int, info.MachineInfo.NumCores)
+	monitor.Controller.CCDCosMap = make(map[int][]CosEntry, info.NumCCDs)
+	for i := 0; i < info.NumCCDs; i++ {
 		monitor.Controller.CCDCosMap[i] = make([]CosEntry, MBA_COS_MAX)
 		// we actually only need the first cos on each ccd before supporting workloads hybird deployment
 	}
@@ -185,11 +182,11 @@ func (m MBMonitor) Init() error {
 
 	// start PMC monitoring
 	switch m.Vendor {
-	case CPU_VENDOR_AMD:
+	case machine.CPU_VENDOR_AMD:
 		m.StartPMC()
-	case CPU_VENDOR_INTEL:
+	case machine.CPU_VENDOR_INTEL:
 		// not support yet
-	case CPU_VENDOR_ARM:
+	case machine.CPU_VENDOR_ARM:
 		// not support yet
 	}
 
@@ -199,11 +196,11 @@ func (m MBMonitor) Init() error {
 func (m MBMonitor) Stop() {
 	// stop PMC monitoring
 	switch m.Vendor {
-	case CPU_VENDOR_AMD:
+	case machine.CPU_VENDOR_AMD:
 		m.StopPMC()
-	case CPU_VENDOR_INTEL:
+	case machine.CPU_VENDOR_INTEL:
 		// not support yet
-	case CPU_VENDOR_ARM:
+	case machine.CPU_VENDOR_ARM:
 		// not support yet
 	}
 
@@ -255,11 +252,11 @@ func (m MBMonitor) GlobalStats(ctx context.Context, refreshRate uint64) error {
 func (m MBMonitor) ServeL3Latency() error {
 	var err error = nil
 	switch m.Vendor {
-	case CPU_VENDOR_AMD:
+	case machine.CPU_VENDOR_AMD:
 		err = m.ReadL3MissLatency()
-	case CPU_VENDOR_INTEL:
+	case machine.CPU_VENDOR_INTEL:
 		// not support yet
-	case CPU_VENDOR_ARM:
+	case machine.CPU_VENDOR_ARM:
 		// not support yet
 	}
 
@@ -287,11 +284,11 @@ func (m MBMonitor) ServeCoreMB() error {
 	// collect the per-core memory-bandwidth by RDT event and calculate the per-NUMA memory-bandwidth
 	for i := 0; i < len(m.MemoryBandwidth.Cores); i++ {
 		// we only have the accurate read bw on AMD Genoa for now
-		m.MemoryBandwidth.Cores[i].LRMB_Delta = utils.Delta(24, coreMBMap[CORE_MB_READ_LOCAL][i], m.MemoryBandwidth.Cores[i].LRMB)
-		m.MemoryBandwidth.Cores[i].LRMB = coreMBMap[CORE_MB_READ_LOCAL][i]
+		m.MemoryBandwidth.Cores[i].LRMB_Delta = utils.Delta(24, coreMBMap[machine.CORE_MB_READ_LOCAL][i], m.MemoryBandwidth.Cores[i].LRMB)
+		m.MemoryBandwidth.Cores[i].LRMB = coreMBMap[machine.CORE_MB_READ_LOCAL][i]
 		m.MemoryBandwidth.Numas[m.CPUTopology.CPUDetails[i].NUMANodeID].LRMB += m.MemoryBandwidth.Cores[i].LRMB_Delta
 
-		m.MemoryBandwidth.Cores[i].TRMB_Delta = utils.Delta(24, coreMBMap[CORE_MB_READ_TOTAL][i], m.MemoryBandwidth.Cores[i].TRMB)
+		m.MemoryBandwidth.Cores[i].TRMB_Delta = utils.Delta(24, coreMBMap[machine.CORE_MB_READ_TOTAL][i], m.MemoryBandwidth.Cores[i].TRMB)
 		if m.MemoryBandwidth.Cores[i].TRMB_Delta > m.MemoryBandwidth.Cores[i].LRMB_Delta {
 			m.MemoryBandwidth.Cores[i].RRMB_Delta = m.MemoryBandwidth.Cores[i].TRMB_Delta - m.MemoryBandwidth.Cores[i].LRMB_Delta
 			m.MemoryBandwidth.Numas[m.CPUTopology.CPUDetails[i].NUMANodeID].RRMB += m.MemoryBandwidth.Cores[i].RRMB_Delta
@@ -299,7 +296,7 @@ func (m MBMonitor) ServeCoreMB() error {
 			m.MemoryBandwidth.Cores[i].RRMB_Delta = 0
 		}
 
-		m.MemoryBandwidth.Cores[i].TRMB = coreMBMap[CORE_MB_READ_TOTAL][i]
+		m.MemoryBandwidth.Cores[i].TRMB = coreMBMap[machine.CORE_MB_READ_TOTAL][i]
 		m.MemoryBandwidth.Numas[m.CPUTopology.CPUDetails[i].NUMANodeID].TRMB += m.MemoryBandwidth.Cores[i].TRMB_Delta
 
 		// to-do: record the write mb from counter as well, we do not have the accurate write data from counters for now
@@ -307,7 +304,7 @@ func (m MBMonitor) ServeCoreMB() error {
 
 	// estimate the write mb by read/write ration on the physical node, and calculate the total mb
 	for i := 0; i < m.NumNUMANodes; i++ {
-		pkg := m.SysInfo.GetPkgByNuma(i)
+		pkg := m.KatalystMachineInfo.GetPkgByNuma(i)
 		if pkg == -1 {
 			continue
 		}
@@ -325,11 +322,11 @@ func (m MBMonitor) ServePackageMB() error {
 	defer m.MemoryBandwidth.PackageLocker.Unlock()
 
 	switch m.Vendor {
-	case CPU_VENDOR_AMD:
+	case machine.CPU_VENDOR_AMD:
 		m.ReadPackageUMC()
-	case CPU_VENDOR_INTEL:
+	case machine.CPU_VENDOR_INTEL:
 		// not support yet
-	case CPU_VENDOR_ARM:
+	case machine.CPU_VENDOR_ARM:
 		// not support yet
 	}
 

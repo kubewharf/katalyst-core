@@ -32,6 +32,8 @@ type KatalystMachineInfo struct {
 
 	*MemoryTopology
 
+	*DieTopology
+
 	// ExtraCPUInfo is extra cpu info not in MachineInfo, such as
 	// supported instructions
 	*ExtraCPUInfo

@@ -16,11 +16,13 @@ limitations under the License.
 
 package monitor
 
+import "github.com/kubewharf/katalyst-core/pkg/util/machine"
+
 // this file is extension of mbw monitor
 // it implements the needed adaptor utilities (besides FakeNumaConfigured, Init & GlobalStats) for sampled metrics retrievals
 
 // GetMemoryBandwidthOfNUMAs is the extension utility as part of adaptor to MB metric sampler
-func (m MBMonitor) GetMemoryBandwidthOfNUMAs() []NumaMB {
+func (m MBMonitor) GetMemoryBandwidthOfNUMAs() []machine.NumaMB {
 	m.MemoryBandwidth.CoreLocker.RLock()
 	defer m.MemoryBandwidth.CoreLocker.RUnlock()
 
@@ -32,7 +34,7 @@ func (m MBMonitor) GetMemoryBandwidthOfNUMAs() []NumaMB {
 }
 
 // GetMemoryBandwidthOfPackages is the extension utility as part of adaptor to MB metric sampler
-func (m MBMonitor) GetMemoryBandwidthOfPackages() []PackageMB {
+func (m MBMonitor) GetMemoryBandwidthOfPackages() []machine.PackageMB {
 	m.MemoryBandwidth.PackageLocker.RLock()
 	defer m.MemoryBandwidth.PackageLocker.RUnlock()
 
