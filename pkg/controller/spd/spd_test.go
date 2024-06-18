@@ -1073,21 +1073,7 @@ func TestIndicatorUpdater(t *testing.T) {
 			},
 			AggMetrics: []apiworkload.AggPodMetrics{
 				{
-					Aggregator: apiworkload.Avg,
-					Items: []metrics.PodMetrics{
-						{
-							Timestamp: metav1.NewTime(time.Date(2022, 1, 1, 1, 0, 0, 0, time.Local)),
-							Window:    metav1.Duration{Duration: time.Hour},
-							Containers: []metrics.ContainerMetrics{
-								{
-									Name: "c1",
-									Usage: map[v1.ResourceName]resource.Quantity{
-										apimetricpod.CustomMetricPodCPULoad1Min: resource.MustParse("20"),
-									},
-								},
-							},
-						},
-					},
+					Aggregator: apiworkload.Sum,
 				},
 			},
 		},
@@ -1269,6 +1255,9 @@ func TestIndicatorUpdater(t *testing.T) {
 					},
 				},
 			},
+		},
+		{
+			Aggregator: apiworkload.Sum,
 		},
 	})
 	time.Sleep(time.Second)

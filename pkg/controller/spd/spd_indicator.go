@@ -17,16 +17,17 @@ limitations under the License.
 package spd
 
 import (
-	"k8s.io/klog/v2"
 	"time"
 
-	apiworkload "github.com/kubewharf/katalyst-api/pkg/apis/workload/v1alpha1"
-	"github.com/kubewharf/katalyst-core/pkg/metrics"
-	"github.com/kubewharf/katalyst-core/pkg/util"
 	apiequality "k8s.io/apimachinery/pkg/api/equality"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/util/retry"
+	"k8s.io/klog/v2"
+
+	apiworkload "github.com/kubewharf/katalyst-api/pkg/apis/workload/v1alpha1"
+	"github.com/kubewharf/katalyst-core/pkg/metrics"
+	"github.com/kubewharf/katalyst-core/pkg/util"
 )
 
 const (
