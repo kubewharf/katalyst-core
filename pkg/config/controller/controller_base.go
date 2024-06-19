@@ -46,6 +46,7 @@ type ControllersConfiguration struct {
 	*VPAConfig
 	*KCCConfig
 	*SPDConfig
+	*NPDConfig
 	*LifeCycleConfig
 	*MonitorConfig
 	*OvercommitConfig
@@ -63,6 +64,7 @@ func NewControllersConfiguration() *ControllersConfiguration {
 		VPAConfig:                 NewVPAConfig(),
 		KCCConfig:                 NewKCCConfig(),
 		SPDConfig:                 NewSPDConfig(),
+		NPDConfig:                 NewNPDConfig(),
 		LifeCycleConfig:           NewLifeCycleConfig(),
 		MonitorConfig:             NewMonitorConfig(),
 		OvercommitConfig:          NewOvercommitConfig(),
