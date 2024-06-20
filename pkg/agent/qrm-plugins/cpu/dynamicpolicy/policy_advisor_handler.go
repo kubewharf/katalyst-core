@@ -539,12 +539,12 @@ func (p *DynamicPolicy) applyBlocks(blockCPUSet advisorapi.BlockCPUSet, resp *ad
 		return fmt.Errorf("GetSharedBindingNUMAs failed with error: %v", err)
 	}
 	sharedBindingNUMACPUs := p.machineInfo.CPUDetails.CPUsInNUMANodes(sharedBindingNUMAs.UnsortedList()...)
-	// rampUpCPUs include reclaim pool
+	// rampUpCPUs include reclaim pool in NUMAs without NUMA_binding cpus
 	rampUpCPUs := p.machineInfo.CPUDetails.CPUs().
 		Difference(p.reservedCPUs).
 		Difference(dedicatedCPUSet).
-		Difference(sharedBindingNUMACPUs).
-		Union(newEntries[state.PoolNameReclaim][state.FakedContainerName].AllocationResult)
+		Difference(sharedBindingNUMACPUs)
+
 	rampUpCPUsTopologyAwareAssignments, err := machine.GetNumaAwareAssignments(p.machineInfo.CPUTopology, rampUpCPUs)
 	if err != nil {
 		return fmt.Errorf("unable to calculate topologyAwareAssignments for rampUpCPUs, result cpuset: %s, error: %v",

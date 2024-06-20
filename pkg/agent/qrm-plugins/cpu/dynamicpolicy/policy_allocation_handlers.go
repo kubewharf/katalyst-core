@@ -68,9 +68,7 @@ func (p *DynamicPolicy) sharedCoresWithoutNUMABindingAllocationHandler(_ context
 
 	machineState := p.state.GetMachineState()
 	pooledCPUs := machineState.GetFilteredAvailableCPUSet(p.reservedCPUs,
-		func(ai *state.AllocationInfo) bool {
-			return state.CheckDedicated(ai) || state.CheckNUMABinding(ai)
-		}, state.CheckDedicatedNUMABinding)
+		state.CheckDedicated, state.CheckNUMABinding)
 
 	if pooledCPUs.IsEmpty() {
 		general.Errorf("pod: %s/%s, container: %s get empty pooledCPUs", req.PodNamespace, req.PodName, req.ContainerName)
@@ -880,12 +878,11 @@ func (p *DynamicPolicy) applyPoolsAndIsolatedInfo(poolsCPUSet map[string]machine
 	}
 
 	sharedBindingNUMACPUs := p.machineInfo.CPUDetails.CPUsInNUMANodes(sharedBindingNUMAs.UnsortedList()...)
-	// rampUpCPUs include reclaim pool
+	// rampUpCPUs include reclaim pool in NUMAs without NUMA_binding cpus
 	rampUpCPUs := machineState.GetFilteredAvailableCPUSet(p.reservedCPUs,
 		nil, state.CheckDedicatedNUMABinding).
 		Difference(unionDedicatedIsolatedCPUSet).
-		Difference(sharedBindingNUMACPUs).
-		Union(poolsCPUSet[state.PoolNameReclaim])
+		Difference(sharedBindingNUMACPUs)
 
 	rampUpCPUsTopologyAwareAssignments, err := machine.GetNumaAwareAssignments(p.machineInfo.CPUTopology, rampUpCPUs)
 	if err != nil {
