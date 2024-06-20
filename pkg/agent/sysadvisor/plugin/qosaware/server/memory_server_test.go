@@ -187,6 +187,11 @@ func TestMemoryServerStartAndStop(t *testing.T) {
 	err := cs.Start()
 	assert.NoError(t, err)
 
+	conn, err := cs.dial(cs.advisorSocketPath, cs.period)
+	assert.NoError(t, err)
+	assert.NotNil(t, conn)
+	_ = conn.Close()
+
 	err = cs.Stop()
 	assert.NoError(t, err)
 }

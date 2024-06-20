@@ -42,13 +42,16 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
-func generateTestConfiguration(t *testing.T, checkpointDir, stateFileDir string) *config.Configuration {
+func generateTestConfiguration(t *testing.T, checkpointDir, stateFileDir, socketDir, pluginDir string) *config.Configuration {
 	conf, err := options.NewOptions().Config()
 	require.NoError(t, err)
 	require.NotNil(t, conf)
 
 	conf.GenericSysAdvisorConfiguration.StateFileDirectory = stateFileDir
 	conf.MetaServerConfiguration.CheckpointManagerDir = checkpointDir
+	conf.QRMAdvisorConfiguration.CPUAdvisorSocketAbsPath = socketDir + "-cpu_advisor.sock"
+	conf.QRMAdvisorConfiguration.MemoryAdvisorSocketAbsPath = socketDir + "-memory_plugin.sock"
+	conf.PluginRegistrationDir = pluginDir
 
 	return conf
 }
@@ -92,11 +95,19 @@ func TestQoSAwarePlugin(t *testing.T) {
 	require.NoError(t, err)
 	defer os.RemoveAll(checkpoinDir)
 
-	statefileDir, err := ioutil.TempDir("", "statefile")
+	statefileDir, err := ioutil.TempDir("", "statefile-TestQoSAwarePlugin")
 	require.NoError(t, err)
 	defer os.RemoveAll(statefileDir)
 
-	conf := generateTestConfiguration(t, checkpoinDir, statefileDir)
+	socketDir, err := ioutil.TempDir("", "socketdir-TestQoSAwarePlugin")
+	require.NoError(t, err)
+	defer os.RemoveAll(socketDir)
+
+	pluginDir, err := ioutil.TempDir("", "plugindir-TestQoSAwarePlugin")
+	require.NoError(t, err)
+	defer os.RemoveAll(socketDir)
+
+	conf := generateTestConfiguration(t, checkpoinDir, statefileDir, socketDir, pluginDir)
 	metaServer := generateTestMetaServer(t, conf)
 	metaCache := generateTestMetaCache(t, conf, metaServer.MetricsFetcher)
 
