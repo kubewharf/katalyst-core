@@ -31,6 +31,7 @@ import (
 	"k8s.io/client-go/tools/clientcmd"
 	componentbaseconfig "k8s.io/component-base/config"
 	aggregator "k8s.io/kube-aggregator/pkg/client/clientset_generated/clientset"
+	"k8s.io/metrics/pkg/client/clientset/versioned"
 	"k8s.io/metrics/pkg/client/custom_metrics"
 	customclient "k8s.io/metrics/pkg/client/custom_metrics"
 	cmfake "k8s.io/metrics/pkg/client/custom_metrics/fake"
@@ -52,6 +53,7 @@ type GenericClientSet struct {
 	DynamicClient    dynamic.Interface
 	DiscoveryClient  discovery.DiscoveryInterface
 	AggregatorClient aggregator.Interface
+	MetricClient     versioned.Interface
 
 	CustomClient   customclient.CustomMetricsClient
 	ExternalClient externalclient.ExternalMetricsClient
@@ -97,6 +99,11 @@ func newForConfig(cfg *rest.Config) (*GenericClientSet, error) {
 		return nil, err
 	}
 
+	metricClient, err := versioned.NewForConfig(cfg)
+	if err != nil {
+		return nil, err
+	}
+
 	return &GenericClientSet{
 		cfg:             cfg,
 		MetaClient:      metaClient,
@@ -104,6 +111,7 @@ func newForConfig(cfg *rest.Config) (*GenericClientSet, error) {
 		InternalClient:  internalClient,
 		DynamicClient:   dynamicClient,
 		DiscoveryClient: discoveryClient,
+		MetricClient:    metricClient,
 
 		CustomClient:   &cmfake.FakeCustomMetricsClient{},
 		ExternalClient: &emfake.FakeExternalMetricsClient{},

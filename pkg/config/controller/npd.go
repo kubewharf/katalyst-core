@@ -16,12 +16,16 @@ limitations under the License.
 
 package controller
 
+import "time"
+
 type NPDConfig struct {
 	NPDIndicatorPlugins []string
 
 	EnableScopeDuplicated bool
 
 	SyncWorkers int
+
+	*LoadAwarePluginConfig
 }
 
 func NewNPDConfig() *NPDConfig {
@@ -29,5 +33,22 @@ func NewNPDConfig() *NPDConfig {
 		NPDIndicatorPlugins:   []string{},
 		EnableScopeDuplicated: false,
 		SyncWorkers:           1,
+		LoadAwarePluginConfig: &LoadAwarePluginConfig{},
 	}
+}
+
+type LoadAwarePluginConfig struct {
+	// number of workers to sync node metrics
+	Workers int
+	// time interval of sync node metrics
+	SyncMetricInterval time.Duration
+	// timeout of list metrics from apiserver
+	ListMetricTimeout time.Duration
+
+	// pod selector for checking if pod usage is required
+	PodUsageSelectorNamespace string
+	PodUsageSelectorKey       string
+	PodUsageSelectorVal       string
+
+	MaxPodUsageCount int
 }

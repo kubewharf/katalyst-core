@@ -21,13 +21,11 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/kubewharf/katalyst-core/pkg/metrics"
-	"k8s.io/apimachinery/pkg/labels"
-	"k8s.io/apimachinery/pkg/util/wait"
-
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
+	"k8s.io/apimachinery/pkg/util/wait"
 	corev1 "k8s.io/client-go/listers/core/v1"
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/util/workqueue"
@@ -40,6 +38,8 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/config/controller"
 	"github.com/kubewharf/katalyst-core/pkg/config/generic"
 	indicator_plugin "github.com/kubewharf/katalyst-core/pkg/controller/npd/indicator-plugin"
+	_ "github.com/kubewharf/katalyst-core/pkg/controller/npd/indicator-plugin/loadaware"
+	"github.com/kubewharf/katalyst-core/pkg/metrics"
 )
 
 const npdControllerName = "npd"
