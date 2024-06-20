@@ -78,9 +78,9 @@ func (d DummySPDFetcher) Run(_ context.Context) {
 }
 
 type spdFetcher struct {
-	started       *atomic.Bool
-	getFromRemote bool
-	mux           sync.Mutex
+	started          *atomic.Bool
+	spdGetFromRemote bool
+	mux              sync.Mutex
 
 	client            *client.GenericClientSet
 	emitter           metrics.MetricEmitter
@@ -107,7 +107,7 @@ func NewSPDFetcher(clientSet *client.GenericClientSet, emitter metrics.MetricEmi
 		emitter:           emitter,
 		checkpointManager: checkpointManager,
 		cncFetcher:        cncFetcher,
-		getFromRemote:     conf.GetFromRemote,
+		spdGetFromRemote:  conf.SPDGetFromRemote,
 	}
 
 	m.getPodSPDNameFunc = util.GetPodSPDName
@@ -161,7 +161,7 @@ func (s *spdFetcher) getSPDByNamespaceName(ctx context.Context, namespace, name 
 	currentSPD := s.spdCache.GetSPD(key, true)
 	if currentSPD != nil {
 		return currentSPD, nil
-	} else if s.getFromRemote {
+	} else if s.spdGetFromRemote {
 		klog.Infof("[spd-manager] need to get spd %s from remote", key)
 		targetConfig, err := s.getSPDTargetConfig(ctx, namespace, name)
 		if err != nil {
@@ -172,7 +172,7 @@ func (s *spdFetcher) getSPDByNamespaceName(ctx context.Context, namespace, name 
 			}
 			_ = s.emitter.StoreInt64(metricsNameGetCNCTargetConfigFailed, 1, metrics.MetricTypeNameCount, baseTag...)
 		}
-		err = s.updateSPDCacheIfNeed(ctx, currentSPD, targetConfig, s.getFromRemote)
+		err = s.updateSPDCacheIfNeed(ctx, currentSPD, targetConfig, s.spdGetFromRemote)
 		if err != nil {
 			klog.Errorf("[spd-manager] failed update spd cache from remote: %v, use local cache instead", err)
 			_ = s.emitter.StoreInt64(metricsNameUpdateCacheFailed, 1, metrics.MetricTypeNameCount, baseTag...)
@@ -247,18 +247,18 @@ func (s *spdFetcher) sync(ctx context.Context) {
 // updateSPDCacheIfNeed checks if the previous spd has changed, and
 // re-get from APIServer if the previous is out-of date.
 func (s *spdFetcher) updateSPDCacheIfNeed(ctx context.Context, originSPD *workloadapis.ServiceProfileDescriptor,
-	targetConfig *configapis.TargetConfig, needToGetFromRemote bool,
+	targetConfig *configapis.TargetConfig, spdGetFromRemote bool,
 ) error {
 	if originSPD == nil && targetConfig == nil {
 		return nil
 	}
 
 	now := time.Now()
-	if originSPD == nil || util.GetSPDHash(originSPD) != targetConfig.Hash || needToGetFromRemote {
+	if originSPD == nil || util.GetSPDHash(originSPD) != targetConfig.Hash || spdGetFromRemote {
 		key := native.GenerateNamespaceNameKey(targetConfig.ConfigNamespace, targetConfig.ConfigName)
 		// Skip the backoff delay if the configuration hash of the CNC target changes, ensuring the
 		// local SPD cache is always updated with the latest configuration.
-		if nextFetchRemoteTime := s.spdCache.GetNextFetchRemoteTime(key, now, targetConfig.Hash != ""); nextFetchRemoteTime.After(time.Now()) && !needToGetFromRemote {
+		if nextFetchRemoteTime := s.spdCache.GetNextFetchRemoteTime(key, now, targetConfig.Hash != ""); nextFetchRemoteTime.After(time.Now()) && !spdGetFromRemote {
 			return nil
 		} else {
 			// first update the timestamp of the last attempt to fetch the remote spd to
