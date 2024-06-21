@@ -33,6 +33,8 @@ const (
 
 	MAX_NUMA_DISTANCE = 32 // this is the inter-socket distance on AMD, intel inter-socket distance < 32
 	MIN_NUMA_DISTANCE = 11 // the distance to local numa is 10 in Linux, thus 11 is the minimum inter-numa distance
+
+	MBA_COS_MAX = 16 // AMD supports up to 16 cos per CCD, while Intel supports up to 16 cos per socket
 )
 
 // newExtKatalystMachineInfo arguments the normal KatalystMachineInfo with memory bandwidth related information
@@ -140,14 +142,7 @@ func newMonitor(info *machine.KatalystMachineInfo) (*MBMonitor, error) {
 	monitor := &MBMonitor{
 		KatalystMachineInfo: info,
 		Interval:            MBM_MONITOR_INTERVAL,
-		Controller: MBController{
-			MBThresholdPerNUMA: MEMORY_BANDWIDTH_THRESHOLD_PHYSICAL_NUMA,
-			IncreaseStep:       MEMORY_BANDWIDTH_INCREASE_STEP,
-			DecreaseStep:       MEMORY_BANDWIDTH_DECREASE_STEP,
-			SweetPoint:         MEMORY_BANDWIDTH_PHYSICAL_NUMA_SWEETPOINT,
-			PainPoint:          MEMORY_BANDWIDTH_PHYSICAL_NUMA_PAINPOINT,
-			UnthrottlePoint:    MEMORY_BANDWIDTH_PHYSICAL_NUMA_UNTHROTTLEPOINT,
-		},
+		Controller:          MBController{},
 	}
 
 	monitor.Controller.Instances = make([]Instance, 0)
@@ -160,10 +155,8 @@ func newMonitor(info *machine.KatalystMachineInfo) (*MBMonitor, error) {
 		monitor.Controller.CCDCosMap[i] = make([]CosEntry, MBA_COS_MAX)
 		// we actually only need the first cos on each ccd before supporting workloads hybird deployment
 	}
-	if err := monitor.ResetMBACos(); err != nil {
-		general.Errorf("failed to initialize the MBA cos - %v", err)
-		return nil, err
-	}
+
+	// todo: reset/initialize controller if applicable
 
 	return monitor, nil
 }

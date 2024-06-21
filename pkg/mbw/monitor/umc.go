@@ -128,7 +128,6 @@ func (m MBMonitor) ReadPackageUMC() {
 			cas_rd += m.ReadUMCCounter(m.PMU.SktIOHC[skt], uint32(umc), UMC_IOHC_READ)
 			cas_wr += m.ReadUMCCounter(m.PMU.SktIOHC[skt], uint32(umc), UMC_IOHC_WRITE)
 
-			// general.Infof("get the umc reading on socket %d and umc %d: (%d, %d)", skt, umc, cas_rd, cas_wr)
 			// accumulate the UMC result for each package (i.e. physical Numa)
 			if (umc+1)%m.PMU.UMC.NumPerPackage == 0 {
 				pkgIdx := (skt*m.PMU.UMC.NumPerSocket + umc) / m.PMU.UMC.NumPerPackage
@@ -138,7 +137,6 @@ func (m MBMonitor) ReadPackageUMC() {
 
 				m.MemoryBandwidth.Packages[pkgIdx].RMB = cas_rd
 				m.MemoryBandwidth.Packages[pkgIdx].WMB = cas_wr
-				// general.Infof("get the mb result for physical node %d: (%d, %d)", (skt*m.UMC.NumPerSocket+umc)/m.UMC.NumPerPackage, cas_rd, cas_wr)
 
 				cas_rd = 0
 				cas_wr = 0
