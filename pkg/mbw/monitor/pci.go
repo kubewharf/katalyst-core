@@ -17,6 +17,8 @@ limitations under the License.
 package monitor
 
 import (
+	"errors"
+
 	"github.com/kubewharf/katalyst-core/pkg/mbw/utils/pci"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 )
@@ -44,8 +46,12 @@ func (m MBMonitor) InitPCIAccess() error {
 		return err
 	}
 
-	// get all IOHC devs on PCI
+	// get all IOHC devs on PCI; 0 device usually caused by absence of libpci-dev
 	devs := pci.ScanDevices(uint16(DRV_IS_PCI_VENDOR_ID_AMD), pciDevID)
+	if len(devs) == 0 {
+		return errors.New("no IOHC devive found, likely caused by absence of libpci-dev")
+	}
+
 	for i := range m.KatalystMachineInfo.PMU.SktIOHC {
 		// any PCI IOHC dev can read all UMCs on a socket,
 		// so only need to find out the first IOHC on each socket
