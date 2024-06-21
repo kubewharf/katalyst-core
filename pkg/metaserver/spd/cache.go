@@ -185,6 +185,9 @@ func (s *Cache) DeleteSPD(key string) error {
 		if err != nil {
 			return err
 		}
+
+		// clear local spd cache when checkpoint is deleted
+		info.spd = nil
 	}
 
 	return nil
