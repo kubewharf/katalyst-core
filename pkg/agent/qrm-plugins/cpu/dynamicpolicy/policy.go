@@ -173,7 +173,7 @@ func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration
 
 	var mbmController agent.Component
 	if conf.EnableMBM {
-		mbmController = mbm.NewController()
+		mbmController = mbm.NewController(agentCtx.EmitterPool.GetDefaultMetricsEmitter(), agentCtx.MetricsFetcher, stateImpl)
 	}
 
 	// since the reservedCPUs won't influence stateImpl directly.
