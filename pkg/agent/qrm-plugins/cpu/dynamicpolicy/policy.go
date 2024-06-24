@@ -115,7 +115,8 @@ type DynamicPolicy struct {
 	cpuPressureEviction       agent.Component
 	cpuPressureEvictionCancel context.CancelFunc
 
-	mbmController agent.Component
+	mbmController       agent.Component
+	mbmControllerCancel context.CancelFunc
 
 	// those are parsed from configurations
 	// todo if we want to use dynamic configuration, we'd better not use self-defined conf
@@ -173,7 +174,14 @@ func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration
 
 	var mbmController agent.Component
 	if conf.EnableMBM {
-		mbmController = mbm.NewController(agentCtx.EmitterPool.GetDefaultMetricsEmitter(), agentCtx.MetricsFetcher, stateImpl)
+		mbmController = mbm.NewController(agentCtx.EmitterPool.GetDefaultMetricsEmitter(),
+			agentCtx.MetricsFetcher,
+			stateImpl,
+			agentCtx.ExternalManager,
+			conf.MBMControlInterval,
+			conf.MBMBandwidthThreshold,
+			agentCtx.PackageMap,
+		)
 	}
 
 	// since the reservedCPUs won't influence stateImpl directly.
@@ -322,6 +330,13 @@ func (p *DynamicPolicy) Start() (err error) {
 		go p.cpuPressureEviction.Run(ctx)
 	}
 
+	// start mbm-controller plugin if needed
+	if p.mbmController != nil {
+		ctx := context.Background()
+		ctx, p.mbmControllerCancel = context.WithCancel(context.Background())
+		go p.mbmController.Run(ctx)
+	}
+
 	go wait.Until(func() {
 		periodicalhandler.ReadyToStartHandlersByGroup(qrm.QRMCPUPluginPeriodicalHandlerGroupName)
 	}, 5*time.Second, p.stopCh)
@@ -403,6 +418,10 @@ func (p *DynamicPolicy) Stop() error {
 
 	if p.cpuPressureEvictionCancel != nil {
 		p.cpuPressureEvictionCancel()
+	}
+
+	if p.mbmControllerCancel != nil {
+		p.mbmControllerCancel()
 	}
 
 	periodicalhandler.StopHandlersByGroup(qrm.QRMCPUPluginPeriodicalHandlerGroupName)

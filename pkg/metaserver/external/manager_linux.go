@@ -27,6 +27,7 @@ import (
 
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/pod"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/external/cgroupid"
+	"github.com/kubewharf/katalyst-core/pkg/util/external/mbm"
 	"github.com/kubewharf/katalyst-core/pkg/util/external/network"
 	"github.com/kubewharf/katalyst-core/pkg/util/external/rdt"
 )
@@ -91,4 +92,9 @@ func (m *externalManagerImpl) setComponentImplementation(setter func()) {
 	}
 
 	setter()
+}
+
+func (m *externalManagerImpl) AdjustNumaMB(node int, avgMB, quota uint64, action mbm.MB_CONTROL_ACTION) error {
+	// TODO implement me -- based on mbw manage code
+	panic("implement me")
 }

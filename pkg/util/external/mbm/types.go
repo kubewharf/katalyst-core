@@ -1,0 +1,13 @@
+package mbm
+
+type MB_CONTROL_ACTION int
+
+const (
+	MEMORY_BANDWIDTH_CONTROL_RAISE      MB_CONTROL_ACTION = 1
+	MEMORY_BANDWIDTH_CONTROL_REDUCE     MB_CONTROL_ACTION = 2
+	MEMORY_BANDWIDTH_CONTROL_UNTHROTTLE MB_CONTROL_ACTION = 3
+)
+
+type MBAdjuster interface {
+	AdjustNumaMB(node int, avgMB, quota uint64, action MB_CONTROL_ACTION) error
+}
