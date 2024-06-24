@@ -17,6 +17,7 @@ limitations under the License.
 package main
 
 import (
+	"github.com/kubewharf/katalyst-core/pkg/scheduler/plugins/loadaware"
 	"os"
 
 	"github.com/spf13/cobra"
@@ -40,6 +41,7 @@ func main() {
 		app.WithPlugin(qosawarenoderesources.BalancedAllocationName, qosawarenoderesources.NewBalancedAllocation),
 		app.WithPlugin(noderesourcetopology.TopologyMatchName, noderesourcetopology.New),
 		app.WithPlugin(nodeovercommitment.Name, nodeovercommitment.New),
+		app.WithPlugin(loadaware.Name, loadaware.NewPlugin),
 	)
 
 	if err := runCommand(command); err != nil {
