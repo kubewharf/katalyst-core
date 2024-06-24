@@ -221,11 +221,15 @@ func (bs *baseServer) RemovePod(_ context.Context, request *advisorsvc.RemovePod
 	if request == nil {
 		return nil, fmt.Errorf("remove pod request is nil")
 	}
+
 	klog.Infof("[qosaware-server] %v get remove pod request: %v", bs.name, request.PodUid)
 
+	start := time.Now()
 	err := bs.metaCache.RemovePod(request.PodUid)
 	if err != nil {
-		klog.Errorf("[qosaware-server] %v remove pod with error: %v", bs.name, err)
+		klog.Errorf("[qosaware-server] %v remove pod (%s) with error (time: %s): %v", bs.name, request.PodUid, time.Since(start), err)
+	} else {
+		klog.Infof("[qosaware-server] %s remove pod (%s) successfully (time: %s)", bs.name, request.PodUid, time.Since(start))
 	}
 
 	return &advisorsvc.RemovePodResponse{}, err
@@ -240,9 +244,12 @@ func (bs *baseServer) AddContainer(_ context.Context, request *advisorsvc.Contai
 	}
 	klog.Infof("[qosaware-server] %v get add container request: %v", bs.name, general.ToString(request))
 
+	start := time.Now()
 	err := bs.addContainer(request)
 	if err != nil {
-		klog.Errorf("[qosaware-server] %v add container with error: %v", bs.name, err)
+		klog.Errorf("[qosaware-server] %v add container (%s/%s) with error (time: %s): %v", bs.name, request.PodUid, request.ContainerName, time.Since(start), err)
+	} else {
+		klog.Infof("[qosaware-server] %v add container (%s/%s) successfully (time: %s)", bs.name, request.PodUid, request.ContainerName, time.Since(start))
 	}
 
 	return &advisorsvc.AddContainerResponse{}, err
