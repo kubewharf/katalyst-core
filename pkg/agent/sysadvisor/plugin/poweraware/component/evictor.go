@@ -57,8 +57,7 @@ func (l loadEvictor) isBE(pod *v1.Pod) bool {
 		return false
 	}
 
-	return qosLevel == apiconsts.PodAnnotationQoSLevelSharedCores ||
-		qosLevel == apiconsts.PodAnnotationQoSLevelReclaimedCores
+	return qosLevel == apiconsts.PodAnnotationQoSLevelReclaimedCores
 }
 
 func (l loadEvictor) Evict(ctx context.Context, targetPercent int) {
