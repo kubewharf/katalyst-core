@@ -20,8 +20,6 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-
-	"k8s.io/kubernetes/pkg/kubelet/cm/topologymanager/bitmask"
 )
 
 func TestParseCPUAssignmentFormat(t *testing.T) {
@@ -50,7 +48,7 @@ func TestDeepcopyCPUAssignment(t *testing.T) {
 func TestMaskToUInt64Array(t *testing.T) {
 	t.Parallel()
 
-	mask, err := bitmask.NewBitMask(0, 1, 2, 3)
+	mask, err := NewBitMask(0, 1, 2, 3)
 	assert.NoError(t, err)
 	assert.Equal(t, []uint64{0, 1, 2, 3}, MaskToUInt64Array(mask))
 }

@@ -33,6 +33,7 @@ import (
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/uuid"
+	"k8s.io/klog/v2"
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 	utilfs "k8s.io/kubernetes/pkg/util/filesystem"
 
@@ -58,6 +59,13 @@ import (
 const (
 	podDebugAnnoKey = "qrm.katalyst.kubewharf.io/debug_pod"
 )
+
+type cpuTestCase struct {
+	cpuNum      int
+	socketNum   int
+	numaNum     int
+	fakeNUMANum int
+}
 
 func getTestDynamicPolicyWithInitialization(topology *machine.CPUTopology, stateFileDirectory string) (*DynamicPolicy, error) {
 	dynamicPolicy, err := getTestDynamicPolicyWithoutInitialization(topology, stateFileDirectory)
@@ -4462,4 +4470,117 @@ func TestShoudSharedCoresRampUp(t *testing.T) {
 	as.NotNil(allocationInfo)
 	as.Equal(false, allocationInfo.RampUp)
 	as.Equal(allocationInfo.OwnerPoolName, state.PoolNameShare)
+}
+
+func BenchmarkGetTopologyHints(b *testing.B) {
+	klog.SetOutput(ioutil.Discard)
+	klog.V(0)
+	klog.LogToStderr(false)
+	cpuCases := []cpuTestCase{
+		{
+			cpuNum:      96,
+			socketNum:   2,
+			numaNum:     4,
+			fakeNUMANum: 4,
+		},
+		//{
+		//	cpuNum:      128,
+		//	socketNum:   2,
+		//	numaNum:     4,
+		//	fakeNUMANum: 4,
+		//},
+		//{
+		//	cpuNum:      192,
+		//	socketNum:   2,
+		//	numaNum:     8,
+		//	fakeNUMANum: 8,
+		//},
+		{
+			cpuNum:      384,
+			socketNum:   2,
+			numaNum:     8,
+			fakeNUMANum: 8,
+		},
+		{
+			cpuNum:      384,
+			socketNum:   2,
+			numaNum:     8,
+			fakeNUMANum: 16,
+		},
+		{
+			cpuNum:      384,
+			socketNum:   2,
+			numaNum:     8,
+			fakeNUMANum: 24,
+		},
+		//{
+		//	cpuNum:      512,
+		//	socketNum:   2,
+		//	numaNum:     8,
+		//	fakeNUMANum: 8,
+		//},
+		//{
+		//	cpuNum:      512,
+		//	socketNum:   2,
+		//	numaNum:     8,
+		//	fakeNUMANum: 16,
+		//},
+		{
+			cpuNum:      512,
+			socketNum:   2,
+			numaNum:     8,
+			fakeNUMANum: 32,
+		},
+	}
+
+	testName := "test"
+
+	req := &pluginapi.ResourceRequest{
+		PodUid:           string(uuid.NewUUID()),
+		PodNamespace:     testName,
+		PodName:          testName,
+		ContainerName:    testName,
+		ContainerType:    pluginapi.ContainerType_MAIN,
+		ContainerIndex:   0,
+		ResourceName:     string(v1.ResourceCPU),
+		ResourceRequests: map[string]float64{},
+		Annotations: map[string]string{
+			consts.PodAnnotationQoSLevelKey:          consts.PodAnnotationQoSLevelDedicatedCores,
+			consts.PodAnnotationMemoryEnhancementKey: `{"numa_binding": "true", "numa_exclusive": "true"}`,
+		},
+		Labels: map[string]string{
+			consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelDedicatedCores,
+		},
+	}
+
+	for _, tc := range cpuCases {
+		tmpDir, _ := ioutil.TempDir("", "checkpoint-BenchmarkGetTopologyHints")
+
+		cpuTopology, _ := machine.GenerateDummyCPUTopology(tc.cpuNum, tc.socketNum, tc.fakeNUMANum)
+
+		cpusPerNUMA := cpuTopology.NumCPUs / cpuTopology.NumNUMANodes
+
+		dynamicPolicy, _ := getTestDynamicPolicyWithInitialization(cpuTopology, tmpDir)
+
+		for _, numaNeeded := range []int{1, 2, 4} {
+			req.ResourceRequests[string(v1.ResourceCPU)] = float64(numaNeeded*cpusPerNUMA - 1)
+			req.Annotations = map[string]string{
+				consts.PodAnnotationQoSLevelKey:          consts.PodAnnotationQoSLevelDedicatedCores,
+				consts.PodAnnotationMemoryEnhancementKey: `{"numa_binding": "true", "numa_exclusive": "true"}`,
+			}
+			req.Labels = map[string]string{
+				consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelDedicatedCores,
+			}
+
+			b.Run(fmt.Sprintf("%d cpus, %d sockets, %d NUMAs, %d fake-NUMAs, %d NUMAs package",
+				tc.cpuNum, tc.socketNum, tc.numaNum, tc.fakeNUMANum, numaNeeded), func(b *testing.B) {
+				for i := 0; i < b.N; i++ {
+					dynamicPolicy.GetTopologyHints(context.Background(), req)
+				}
+			})
+
+		}
+
+		_ = os.RemoveAll(tmpDir)
+	}
 }
