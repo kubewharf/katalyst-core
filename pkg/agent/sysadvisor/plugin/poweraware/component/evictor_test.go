@@ -61,7 +61,7 @@ func Test_loadEvictor_isBE(t *testing.T) {
 			want: true,
 		},
 		{
-			name: "shared core is BE",
+			name: "shared core is NOT BE",
 			fields: fields{
 				qosConfig: qosConfig,
 			},
@@ -74,7 +74,7 @@ func Test_loadEvictor_isBE(t *testing.T) {
 					},
 				},
 			},
-			want: true,
+			want: false,
 		},
 		{
 			name: "system core is not BE",
