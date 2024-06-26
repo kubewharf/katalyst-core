@@ -849,6 +849,11 @@ func (p *DynamicPolicy) RemovePod(ctx context.Context,
 		}
 	}()
 
+	podEntries := p.state.GetPodEntries()
+	if len(podEntries[req.PodUid]) == 0 {
+		return &pluginapi.RemovePodResponse{}, nil
+	}
+
 	if p.enableCPUAdvisor {
 		_, err = p.advisorClient.RemovePod(ctx, &advisorsvc.RemovePodRequest{PodUid: req.PodUid})
 		if err != nil {
@@ -856,7 +861,7 @@ func (p *DynamicPolicy) RemovePod(ctx context.Context,
 		}
 	}
 
-	err = p.removePod(req.PodUid)
+	err = p.removePod(req.PodUid, podEntries)
 	if err != nil {
 		general.ErrorS(err, "remove pod failed with error", "podUID", req.PodUid)
 		return nil, err
@@ -870,11 +875,7 @@ func (p *DynamicPolicy) RemovePod(ctx context.Context,
 	return &pluginapi.RemovePodResponse{}, nil
 }
 
-func (p *DynamicPolicy) removePod(podUID string) error {
-	podEntries := p.state.GetPodEntries()
-	if len(podEntries[podUID]) == 0 {
-		return nil
-	}
+func (p *DynamicPolicy) removePod(podUID string, podEntries state.PodEntries) error {
 	delete(podEntries, podUID)
 
 	updatedMachineState, err := generateMachineStateFromPodEntries(p.machineInfo.CPUTopology, podEntries)
