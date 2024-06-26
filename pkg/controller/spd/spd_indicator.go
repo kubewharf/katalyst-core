@@ -229,6 +229,11 @@ func (sc *SPDController) mergeIndicatorStatus(spd *apiworkload.ServiceProfileDes
 	}
 
 	for i := 0; i < len(spd.Status.AggMetrics); i++ {
+		// todo skip merge metrics when scope is empty(legacy), it will be removed in the future
+		if spd.Status.AggMetrics[i].Scope == "" {
+			continue
+		}
+
 		if _, ok := sc.indicatorsStatusAggMetrics[spd.Status.AggMetrics[i].Scope]; !ok {
 			klog.Infof("skip status metrics %v for spd %v", spd.Status.AggMetrics[i].Scope, spd.Name)
 			spd.Status.AggMetrics = append(spd.Status.AggMetrics[:i], spd.Status.AggMetrics[i+1:]...)
