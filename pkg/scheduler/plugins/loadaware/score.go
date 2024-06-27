@@ -3,13 +3,13 @@ package loadaware
 import (
 	"context"
 	"fmt"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/klog/v2"
 	"math"
 	"time"
 
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	quotav1 "k8s.io/apiserver/pkg/quota/v1"
 	resourceapi "k8s.io/kubernetes/pkg/api/v1/resource"
 	"k8s.io/kubernetes/pkg/scheduler/framework"
@@ -35,10 +35,19 @@ func (p *Plugin) Score(_ context.Context, _ *framework.CycleState, pod *v1.Pod, 
 		return 0, nil
 	}
 
+	if p.enablePortrait() {
+		return p.scoreByPortrait(pod, nodeName)
+	}
+
+	return p.scoreByNPD(pod, nodeName)
+}
+
+func (p *Plugin) scoreByNPD(pod *v1.Pod, nodeName string) (int64, *framework.Status) {
 	nodeInfo, err := p.handle.SnapshotSharedLister().NodeInfos().Get(nodeName)
 	if err != nil {
 		return 0, framework.NewStatus(framework.Unschedulable, fmt.Sprintf("get node %v from Snapshot: %v", nodeName, err))
 	}
+
 	node := nodeInfo.Node()
 	if node == nil {
 		return 0, framework.NewStatus(framework.Unschedulable, "node not found")
@@ -75,18 +84,86 @@ func (p *Plugin) Score(_ context.Context, _ *framework.CycleState, pod *v1.Pod, 
 	return score, nil
 }
 
+func (p *Plugin) scoreByPortrait(pod *v1.Pod, nodeName string) (int64, *framework.Status) {
+	if pod == nil {
+		return framework.MinNodeScore, nil
+	}
+	nodeInfo, err := p.handle.SnapshotSharedLister().NodeInfos().Get(nodeName)
+	if err != nil {
+		return 0, framework.NewStatus(framework.Unschedulable, fmt.Sprintf("get node %v from Snapshot: %v", nodeName, err))
+	}
+
+	nodePredictUsage, err := p.getNodePredictUsage(pod, nodeName)
+	if err != nil {
+		klog.Error(err)
+		return framework.MinNodeScore, nil
+	}
+
+	var (
+		scoreSum, weightSum int64
+	)
+
+	for _, resourceName := range []v1.ResourceName{v1.ResourceCPU, v1.ResourceMemory} {
+		targetUsage, ok := p.args.ResourceToTargetMap[resourceName]
+		if !ok {
+			continue
+		}
+		weight, ok := p.args.ResourceToWeightMap[resourceName]
+		if !ok {
+			continue
+		}
+
+		total := nodeInfo.Node().Status.Allocatable[resourceName]
+		if total.IsZero() {
+			continue
+		}
+		var totalValue int64
+		if resourceName == v1.ResourceCPU {
+			totalValue = total.MilliValue()
+		} else {
+			totalValue = total.Value()
+		}
+
+		maxUsage := nodePredictUsage.max(resourceName)
+		usageRatio := maxUsage / float64(totalValue) * 100
+
+		score, err := targetLoadPacking(float64(targetUsage), usageRatio)
+		if err != nil {
+			klog.Errorf("pod %v node %v targetLoadPacking fail: %v", pod.Name, nodeName, err)
+			return framework.MinNodeScore, nil
+		}
+
+		klog.V(6).Infof("loadAware score pod %v, node %v, resource %v, target: %v, maxUsage: %v, total: %v, usageRatio: %v, score: %v",
+			pod.Name, nodeInfo.Node().Name, resourceName, targetUsage, maxUsage, totalValue, usageRatio, score)
+		scoreSum += score
+		weightSum += weight
+	}
+
+	if weightSum <= 0 {
+		err = fmt.Errorf("resource weight is zero, resourceWightMap: %v", p.args.ResourceToWeightMap)
+		klog.Error(err)
+		return framework.MinNodeScore, nil
+	}
+	score := scoreSum / weightSum
+	klog.V(6).Infof("loadAware score pod %v, node %v, finalScore: %v",
+		pod.Name, nodeInfo.Node().Name, score)
+	return score, nil
+}
+
 func (p *Plugin) estimatedAssignedPodUsage(nodeName string, updateTime time.Time) v1.ResourceList {
-	cache.RLock()
-	defer cache.RUnlock()
 	var (
 		estimatedUsed = make(map[v1.ResourceName]int64)
 		result        = v1.ResourceList{}
 	)
+	cache.RLock()
 	nodeCache, ok := cache.NodePodInfo[nodeName]
+	cache.RUnlock()
 	if !ok {
 		return result
 	}
 
+	nodeCache.RLock()
+	defer nodeCache.RUnlock()
 	for _, podInfo := range nodeCache.PodInfoMap {
 		if isNeedToEstimatedUsage(podInfo, updateTime) {
 			estimated := estimatedPodUsed(podInfo.pod, p.args.ResourceToWeightMap, p.args.ResourceToScalingFactorMap)

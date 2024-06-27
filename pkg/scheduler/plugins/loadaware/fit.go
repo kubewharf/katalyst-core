@@ -19,6 +19,21 @@ func (p *Plugin) Filter(_ context.Context, _ *framework.CycleState, pod *v1.Pod,
 		return nil
 	}
 
+	// fit by node metrics
+	status := p.fitByNPD(nodeInfo)
+	if status != nil || status.IsUnschedulable() {
+		return status
+	}
+
+	if p.enablePortrait() {
+		// fit by workload portrait
+		status = p.fitByPortrait(pod, nodeInfo)
+	}
+
+	return status
+}
+
+func (p *Plugin) fitByNPD(nodeInfo *framework.NodeInfo) *framework.Status {
 	node := nodeInfo.Node()
 	if node == nil {
 		return framework.NewStatus(framework.Unschedulable, "node not found")
@@ -58,6 +73,50 @@ func (p *Plugin) Filter(_ context.Context, _ *framework.CycleState, pod *v1.Pod,
 		klog.V(6).Infof("loadAware fit node: %v resource: %v usage: %v, threshold: %v", node.Name, resourceName, usage, threshold)
 		if usage > threshold {
 			return framework.NewStatus(framework.Unschedulable, fmt.Sprintf("node(s) %s usage exceed threshold, usage:%v, threshold: %v ", resourceName, usage, threshold))
+		}
+	}
+
+	return nil
+}
+
+func (p *Plugin) fitByPortrait(pod *v1.Pod, nodeInfo *framework.NodeInfo) *framework.Status {
+	if pod == nil {
+		return nil
+	}
+	if nodeInfo == nil || nodeInfo.Node() == nil {
+		return nil
+	}
+
+	nodePredictUsage, err := p.getNodePredictUsage(pod, nodeInfo.Node().Name)
+	if err != nil {
+		klog.Error(err)
+		return nil
+	}
+
+	// check if nodePredictUsage is greater than threshold
+	for _, resourceName := range []v1.ResourceName{v1.ResourceCPU, v1.ResourceMemory} {
+		threshold, ok := p.args.ResourceToThresholdMap[resourceName]
+		if !ok {
+			continue
+		}
+		total := nodeInfo.Node().Status.Allocatable[resourceName]
+		if total.IsZero() {
+			continue
+		}
+		var totalValue int64
+		if resourceName == v1.ResourceCPU {
+			totalValue = total.MilliValue()
+		} else {
+			totalValue = total.Value()
+		}
+
+		maxUsage := nodePredictUsage.max(resourceName)
+		usageRatio := int64(math.Round(maxUsage / float64(totalValue) * 100))
+		klog.V(6).Infof("loadAware fit pod %v, node %v, resource %v, threshold: %v, usageRatio: %v, maxUsage: %v, nodeTotal %v",
+			pod.Name, nodeInfo.Node().Name, resourceName, threshold, usageRatio, maxUsage, totalValue)
+
+		if usageRatio > threshold {
+			return framework.NewStatus(framework.Unschedulable, fmt.Sprintf("node(s) %s usage exceed threshold, usage:%v, threshold: %v ", resourceName, usageRatio, threshold))
 		}
 	}
 

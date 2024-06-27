@@ -16,6 +16,7 @@ import (
 const (
 	LoadAwarePodHandler = "LoadAwarePodHandler"
 	LoadAwareNPDHandler = "LoadAwareNPDHandler"
+	LoadAwareSPDHandler = "LoadAwareSPDHandler"
 )
 
 func RegisterPodHandler() {
@@ -38,11 +39,21 @@ func RegisterPodHandler() {
 		})
 }
 
-func (p *Plugin) registerNodeMonitorHandler() {
+func (p *Plugin) registerNPDHandler() {
 	eventhandlers.RegisterEventHandler(
 		LoadAwareNPDHandler,
 		func(_ informers.SharedInformerFactory, internalInformerFactory externalversions.SharedInformerFactory) {
 			p.npdLister = internalInformerFactory.Node().V1alpha1().NodeProfileDescriptors().Lister()
+		},
+	)
+}
+
+func (p *Plugin) registerSPDHandler() {
+	eventhandlers.RegisterEventHandler(
+		LoadAwareSPDHandler,
+		func(_ informers.SharedInformerFactory, internalInformerFactory externalversions.SharedInformerFactory) {
+			p.spdLister = internalInformerFactory.Workload().V1alpha1().ServiceProfileDescriptors().Lister()
+			p.spdHasSynced = internalInformerFactory.Workload().V1alpha1().ServiceProfileDescriptors().Informer().HasSynced
 		},
 	)
 }
