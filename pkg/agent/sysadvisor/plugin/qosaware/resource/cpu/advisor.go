@@ -442,7 +442,7 @@ func (cra *cpuResourceAdvisor) assignShareContainerToRegions(ci *types.Container
 		}
 
 		if len(ci.TopologyAwareAssignments) != 1 {
-			return nil, fmt.Errorf("invalid share pool topology aware assignments")
+			return nil, fmt.Errorf("invalid topology aware assignments of container: %s/%s", ci.PodUID, ci.ContainerName)
 		}
 
 		for key := range ci.TopologyAwareAssignments {

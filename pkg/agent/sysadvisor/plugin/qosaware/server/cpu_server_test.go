@@ -104,6 +104,11 @@ func TestCPUServerStartAndStop(t *testing.T) {
 	err := cs.Start()
 	assert.NoError(t, err)
 
+	conn, err := cs.dial(cs.advisorSocketPath, cs.period)
+	assert.NoError(t, err, "failed to dial check cpu server")
+	assert.NotNil(t, conn, "invalid conn")
+	_ = conn.Close()
+
 	err = cs.Stop()
 	assert.NoError(t, err)
 }

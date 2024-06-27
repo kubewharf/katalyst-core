@@ -27,6 +27,7 @@ import (
 	"time"
 
 	"google.golang.org/grpc"
+	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/klog/v2"
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/advisorsvc"
@@ -45,6 +46,7 @@ const (
 	metricServerStopCalled                      = "stop_called"
 	metricServerAddContainerCalled              = "add_container_called"
 	metricServerRemovePodCalled                 = "remove_pod_called"
+	metricServerStartFailed                     = "start_failed"
 	metricServerLWCalled                        = "lw_called"
 	metricServerLWGetCheckpointFailed           = "lw_get_checkpoint_failed"
 	metricServerLWGetCheckpointSucceeded        = "lw_get_checkpoint_succeeded"
@@ -109,23 +111,24 @@ func (bs *baseServer) genMetricsName(name string) string {
 func (bs *baseServer) Start() error {
 	_ = bs.emitter.StoreInt64(bs.genMetricsName(metricServerStartCalled), int64(bs.period.Seconds()), metrics.MetricTypeNameCount)
 
-	if err := bs.serve(); err != nil {
-		klog.Errorf("[qosaware-server] start %v failed: %v", bs.name, err)
-		_ = bs.Stop()
-		return err
-	}
-	klog.Infof("[qosaware-server] %v started", bs.name)
-
-	go func() {
-		for {
-			select {
-			case <-bs.lwCalledChan:
-				return
-			case <-bs.stopCh:
-				return
-			}
+	go wait.PollImmediateUntil(2*time.Second, func() (bool, error) {
+		klog.Infof("[qosaware-server] starting %s", bs.name)
+		if err := bs.serve(); err != nil {
+			klog.Errorf("[qosaware-server] start %s failed: %q", bs.name, err)
+			_ = bs.emitter.StoreInt64(bs.genMetricsName(metricServerStartFailed), 1, metrics.MetricTypeNameRaw)
+			return false, nil
 		}
-	}()
+		klog.Infof("[qosaware-server] %s exited", bs.name)
+		return false, nil
+	}, bs.stopCh)
+
+	conn, err := bs.dial(bs.advisorSocketPath, bs.period)
+	if err != nil {
+		klog.Warningf("[qosaware-server] failed to dial check %s: %q", bs.name, err)
+	} else {
+		_ = conn.Close()
+		klog.Infof("[qosaware-server] %s is ready", bs.name)
+	}
 
 	return nil
 }
@@ -143,43 +146,23 @@ func (bs *baseServer) serve() error {
 		return fmt.Errorf("remove %v failed: %v", bs.advisorSocketPath, err)
 	}
 
+	klog.Infof("[qosaware-server] %s listen at: %s", bs.name, bs.advisorSocketPath)
 	sock, err := net.Listen("unix", bs.advisorSocketPath)
 	if err != nil {
 		return fmt.Errorf("%v listen %s failed: %v", bs.name, bs.advisorSocketPath, err)
 	}
+	defer sock.Close()
+
 	klog.Infof("[qosaware-server] %v listen at: %s successfully", bs.name, bs.advisorSocketPath)
 
 	bs.resourceServer.RegisterAdvisorServer()
 
-	go func() {
-		lastCrashTime := time.Now()
-		restartCount := 0
-		for {
-			klog.Infof("[qosaware-server] %v starting grpc server at %v", bs.name, bs.advisorSocketPath)
-			if err := bs.grpcServer.Serve(sock); err == nil {
-				break
-			}
-			klog.Errorf("[qosaware-server] grpc server at %v crashed: %v", bs.advisorSocketPath, err)
-
-			if restartCount > 5 {
-				klog.Errorf("[qosaware-server] grpc server at %v has crashed repeatedly recently, quit", bs.advisorSocketPath)
-				os.Exit(0)
-			}
-			timeSinceLastCrash := time.Since(lastCrashTime).Seconds()
-			lastCrashTime = time.Now()
-			if timeSinceLastCrash > 3600 {
-				restartCount = 1
-			} else {
-				restartCount++
-			}
-		}
-	}()
-
-	if conn, err := bs.dial(bs.advisorSocketPath, bs.period); err != nil {
-		return fmt.Errorf("dial check at %v failed: %v", bs.advisorSocketPath, err)
-	} else {
-		_ = conn.Close()
+	klog.Infof("[qosaware-server] starting %s at %v", bs.name, bs.advisorSocketPath)
+	if err := bs.grpcServer.Serve(sock); err != nil {
+		klog.Errorf("[qosaware-server] %s at %v crashed: %v", bs.name, bs.advisorSocketPath, err)
+		return err
 	}
+	klog.Infof("[qosaware-server] %s exit successfully", bs.name)
 
 	return nil
 }
@@ -206,10 +189,6 @@ func (bs *baseServer) Stop() error {
 	if bs.grpcServer != nil {
 		bs.grpcServer.Stop()
 		klog.Infof("[qosaware-server] %v stopped", bs.name)
-	}
-
-	if err := os.Remove(bs.advisorSocketPath); err != nil && !os.IsNotExist(err) {
-		return fmt.Errorf("remove %v failed: %v", bs.advisorSocketPath, err)
 	}
 
 	return nil
