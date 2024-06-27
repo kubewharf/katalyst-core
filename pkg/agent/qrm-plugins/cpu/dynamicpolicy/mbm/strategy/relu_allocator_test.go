@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package mbm
+package strategy
 
 import (
 	"reflect"
@@ -67,8 +67,9 @@ func Test_distributeInGroup(t *testing.T) {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			if got := distributeInGroup(tt.args.target, tt.args.fairBar, tt.args.groupUses); !reflect.DeepEqual(got, tt.want) {
-				t.Errorf("distributeInGroup() = %v, want %v", got, tt.want)
+			allocator := &reluAllocator{}
+			if got := allocator.reluDistribute(tt.args.target, tt.args.fairBar, tt.args.groupUses); !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("reluDistribute() = %v, want %v", got, tt.want)
 			}
 		})
 	}
@@ -78,7 +79,7 @@ func Test_calcShares(t *testing.T) {
 	t.Parallel()
 	type args struct {
 		targetDeduction float64
-		currentUses     []map[int]float64
+		currentUses     GroupMBs
 	}
 	tests := []struct {
 		name string
@@ -89,7 +90,7 @@ func Test_calcShares(t *testing.T) {
 			name: "2 groups with one composite both noisy",
 			args: args{
 				targetDeduction: 40,
-				currentUses:     []map[int]float64{{4: 100}, {3: 150, 5: 80}},
+				currentUses:     GroupMBs{{4: 100}, {3: 150, 5: 80}},
 			},
 			want: []map[int]float64{{4: 3.33333333333333}, {3: 36.66666666666667}},
 		},
@@ -97,7 +98,7 @@ func Test_calcShares(t *testing.T) {
 			name: "2 groups with one composite quiet",
 			args: args{
 				targetDeduction: 40,
-				currentUses:     []map[int]float64{{2: 160}, {0: 170, 1: 10}},
+				currentUses:     GroupMBs{{2: 160}, {0: 170, 1: 10}},
 			},
 			want: []map[int]float64{{2: 40}, nil},
 		},
@@ -106,39 +107,9 @@ func Test_calcShares(t *testing.T) {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			if got := calcShares(tt.args.targetDeduction, tt.args.currentUses); !reflect.DeepEqual(got, tt.want) {
-				t.Errorf("calcShares() = %v, want %v", got, tt.want)
-			}
-		})
-	}
-}
-
-func Test_getFairAverage(t *testing.T) {
-	t.Parallel()
-	type args struct {
-		useGroups []map[int]float64
-		excessive float64
-	}
-	tests := []struct {
-		name string
-		args args
-		want float64
-	}{
-		{
-			name: "happy path",
-			args: args{
-				useGroups: []map[int]float64{{1: 13}, {2: 10, 0: 18}},
-				excessive: 7.7,
-			},
-			want: 11.1,
-		},
-	}
-	for _, tt := range tests {
-		tt := tt
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			if got := getFairAverage(tt.args.useGroups, tt.args.excessive); got != tt.want {
-				t.Errorf("getFairAverage() = %v, want %v", got, tt.want)
+			allocator := reluAllocator{}
+			if got := allocator.reluCalcShares(tt.args.targetDeduction, tt.args.currentUses); !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("reluCalcShares() = %v, want %v", got, tt.want)
 			}
 		})
 	}
@@ -171,7 +142,8 @@ func Test_calcSharesInThrottleds(t *testing.T) {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			assert.Equalf(t, tt.want, calcSharesInThrottleds(tt.args.target, tt.args.throttledMBs), "calcSharesInThrottleds(%v, %v)", tt.args.target, tt.args.throttledMBs)
+			allocator := reluAllocator{}
+			assert.Equalf(t, tt.want, allocator.reluReversalCalcShares(tt.args.target, tt.args.throttledMBs), "calcSharesInThrottleds(%v, %v)", tt.args.target, tt.args.throttledMBs)
 		})
 	}
 }

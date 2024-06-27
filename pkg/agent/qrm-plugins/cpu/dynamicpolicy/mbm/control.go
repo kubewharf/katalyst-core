@@ -23,6 +23,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/wait"
 
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/mbm/strategy"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric/types"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
@@ -89,7 +90,8 @@ func (c Controller) getActiveNodeSets(nodes []int) map[string]sets.Int {
 	return nodeSets
 }
 
-func (c Controller) getNodeMBMetrics(nodes sets.Int) (map[int]float64, error) {
+// todo: to leverage the active group MB of whole package to save metric store fetching
+func (c Controller) getNodeMBMetrics(nodes sets.Int) (strategy.GroupMB, error) {
 	mbs := make(map[int]float64)
 	for node, _ := range nodes {
 		nodeMB, err := c.metricReader.GetNumaMetric(node, "mb-mbps")
@@ -101,8 +103,20 @@ func (c Controller) getNodeMBMetrics(nodes sets.Int) (map[int]float64, error) {
 	return mbs, nil
 }
 
-func (c Controller) getGroupMBMetrics(actives map[string]sets.Int) ([]map[int]float64, error) {
-	groups := make([]map[int]float64, 0)
+func (c Controller) getActiveGroupMBs(nodes []int) (toSkip bool, mbs strategy.GroupMBs, err error) {
+	activeGroups := c.getActiveNodeSets(nodes)
+	if len(activeGroups) <= 1 {
+		// no need to take any action; neither an error
+		toSkip = true
+		return
+	}
+
+	mbs, err = c.getGroupMBMetrics(activeGroups)
+	return
+}
+
+func (c Controller) getGroupMBMetrics(actives map[string]sets.Int) (strategy.GroupMBs, error) {
+	groups := make(strategy.GroupMBs, 0)
 	for _, nodes := range actives {
 		groupMB, err := c.getNodeMBMetrics(nodes)
 		if err != nil {
@@ -128,32 +142,31 @@ func (c Controller) processPackage(packageID int, nodes []int) {
 	if mbwPackage >= c.bandwidthThreshold/100*MEMORY_BANDWIDTH_PHYSICAL_NUMA_PAINPOINT {
 		// over the threshold - to throttle noisy neighbors
 		// identify the numa-node-set (nodes of one workload) of this package
-		activeGroups := c.getActiveNodeSets(nodes)
-		if len(activeGroups) <= 1 { // single group - no need to control, ok as is
-			return
-		}
-
-		activeGroupMBs, err := c.getGroupMBMetrics(activeGroups)
+		toSkip, activeGroupMBs, err := c.getActiveGroupMBs(nodes)
 		if err != nil {
 			// error happened; skip for now
+			c.metricEmitter.StoreInt64("numa metric reading error", 1, metrics.MetricTypeNameCount)
 			return
 		}
 
-		// locate the fair share of decreases to each group
-		sumNodeMBs := sumMB(activeGroupMBs)
-		numNodes := countNodes(activeGroupMBs)
-		avgNodeMB := sumNodeMBs / float64(numNodes)
-		excessiveOnPackageMetrics := mbwPackage - c.bandwidthThreshold
-		ratio := sumNodeMBs / float64(mbwPackage)
-		excessiveOnNUMAMetrics := float64(excessiveOnPackageMetrics) * ratio
-		// distribute the share of the set to each node, and conduct the throttling
-		shares := calcShares(excessiveOnNUMAMetrics, activeGroupMBs)
+		if toSkip {
+			return
+		}
+
+		shareAllocator := strategy.NewAllocator()
+		shares := shareAllocator.AllocateDeductions(activeGroupMBs, float64(mbwPackage), float64(c.bandwidthThreshold))
 		for _, group := range shares {
 			for node, share := range group {
 				// ignore if the deduction step is too small
 				if share >= c.minDeductionStep {
 					c.numaThrottled.Insert(node)
-					_ = c.mbAdjust.AdjustNumaMB(node, uint64(avgNodeMB), uint64(share), mbm.MEMORY_BANDWIDTH_CONTROL_REDUCE)
+					if err := c.mbAdjust.AdjustNumaMB(node,
+						uint64(activeGroupMBs.NodeMBAverage()),
+						uint64(share),
+						mbm.MEMORY_BANDWIDTH_CONTROL_REDUCE,
+					); err == nil {
+						c.numaThrottled.Insert(node)
+					}
 				}
 			}
 		}
@@ -164,7 +177,6 @@ func (c Controller) processPackage(packageID int, nodes []int) {
 		mbwPackage > c.bandwidthThreshold/100*MEMORY_BANDWIDTH_PHYSICAL_NUMA_UNTHROTTLEPOINT {
 		// below the threshold a little - to grant some nodes' a little more bandwidth
 		// we take precautious and gradual steps when releasing the throttle
-		underdoneOnPackageMetrics := (c.bandwidthThreshold - mbwPackage) / 2
 		activeGroups := c.getActiveNodeSets(nodes)
 		activeGroupMBs, err := c.getGroupMBMetrics(activeGroups)
 		if err != nil {
@@ -172,28 +184,19 @@ func (c Controller) processPackage(packageID int, nodes []int) {
 			return
 		}
 
-		sumNodeMBs := sumMB(activeGroupMBs)
-		ratio := sumNodeMBs / float64(mbwPackage)
-		underdoneOnNUMAMetrics := float64(underdoneOnPackageMetrics) * ratio
-
-		mbs, err := c.getNodeMBMetrics(c.numaThrottled)
+		mbThrottleds, err := c.getNodeMBMetrics(c.numaThrottled)
 		if err != nil {
 			// error happened; skip for now
 			return
 		}
 
-		var sumThrolledMBs float64
-		for _, mb := range mbs {
-			sumThrolledMBs += mb
-		}
-		avgThrolledMB := sumThrolledMBs / float64(len(c.numaThrottled))
-
-		// distribute the target increase among nodes under throttle
-		shares := calcSharesInThrottleds(underdoneOnNUMAMetrics, mbs)
+		shareAllocator := strategy.NewAllocator()
+		shares := shareAllocator.AllocateIncreases(mbThrottleds, activeGroupMBs, float64(mbwPackage), float64(c.bandwidthThreshold))
 
 		for node, share := range shares {
 			if share >= c.minIncreaseStep {
-				_ = c.mbAdjust.AdjustNumaMB(node, uint64(avgThrolledMB), uint64(share), mbm.MEMORY_BANDWIDTH_CONTROL_RAISE)
+				// ok to skip if error happened this time
+				_ = c.mbAdjust.AdjustNumaMB(node, uint64(mbThrottleds.NodeMBAverage()), uint64(share), mbm.MEMORY_BANDWIDTH_CONTROL_RAISE)
 			}
 		}
 
@@ -203,10 +206,10 @@ func (c Controller) processPackage(packageID int, nodes []int) {
 	if mbwPackage < c.bandwidthThreshold/100*MEMORY_BANDWIDTH_PHYSICAL_NUMA_UNTHROTTLEPOINT {
 		// under the watermark significantly - well it seems ok to un-throttle
 		for _, node := range nodes {
-			// to treat error in sensible way
-			_ = c.mbAdjust.AdjustNumaMB(node, 0, 0, mbm.MEMORY_BANDWIDTH_CONTROL_UNTHROTTLE)
+			if err := c.mbAdjust.AdjustNumaMB(node, 0, 0, mbm.MEMORY_BANDWIDTH_CONTROL_UNTHROTTLE); err == nil {
+				c.numaThrottled.Delete(node)
+			}
 		}
-		c.numaThrottled = sets.Int{}
 		return
 	}
 

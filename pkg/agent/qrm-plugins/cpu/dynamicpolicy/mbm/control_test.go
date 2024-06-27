@@ -248,7 +248,7 @@ func TestController_processPackage_unthrottle(t *testing.T) {
 	if !dummyAdjuster.calledToUnthrottle {
 		t.Errorf("expected to unthrottle MB on all nodes, and not")
 	}
-	assert.Equal(t, sets.Int{0: {}, 2: {}}, controller.numaThrottled)
+	assert.Equal(t, sets.Int{}, controller.numaThrottled)
 }
 
 func TestController_processPackage_raise(t *testing.T) {
