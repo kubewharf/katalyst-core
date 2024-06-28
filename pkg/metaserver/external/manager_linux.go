@@ -21,12 +21,15 @@ package external
 
 import (
 	"context"
+	"errors"
 	"sync"
 
 	"k8s.io/klog/v2"
 
+	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric/provisioner/mbw"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/pod"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/external/cgroupid"
+	"github.com/kubewharf/katalyst-core/pkg/util/external/mbm"
 	"github.com/kubewharf/katalyst-core/pkg/util/external/network"
 	"github.com/kubewharf/katalyst-core/pkg/util/external/rdt"
 )
@@ -91,4 +94,11 @@ func (m *externalManagerImpl) setComponentImplementation(setter func()) {
 	}
 
 	setter()
+}
+
+func (m *externalManagerImpl) AdjustNumaMB(node int, avgMB, quota uint64, action mbm.MB_CONTROL_ACTION) error {
+	if mbw.MBAdjuster == nil {
+		return errors.New("low level mbw not enabled")
+	}
+	return mbw.MBAdjuster.AdjustNumaMB(node, avgMB, quota, action)
 }

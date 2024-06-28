@@ -156,7 +156,10 @@ func newMonitor(info *machine.KatalystMachineInfo) (*MBMonitor, error) {
 		// we actually only need the first cos on each ccd before supporting workloads hybird deployment
 	}
 
-	// todo: reset/initialize controller if applicable
+	if err := monitor.ResetMBACos(); err != nil {
+		general.Errorf("failed to initialize the MBA cos - %v", err)
+		return nil, err
+	}
 
 	return monitor, nil
 }
