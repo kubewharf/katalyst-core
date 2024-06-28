@@ -304,6 +304,10 @@ func (f *MetricsFetcherImpl) GetNodeMetric(metricName string) (utilmetric.Metric
 	return f.checkMetricDataExpire(f.metricStore.GetNodeMetric(metricName))
 }
 
+func (f *MetricsFetcherImpl) GetPackageMetric(packageID int, metricName string) (utilmetric.MetricData, error) {
+	return f.checkMetricDataExpire(f.metricStore.GetPacketMetric(packageID, metricName))
+}
+
 func (f *MetricsFetcherImpl) GetNumaMetric(numaID int, metricName string) (utilmetric.MetricData, error) {
 	return f.checkMetricDataExpire(f.metricStore.GetNumaMetric(numaID, metricName))
 }

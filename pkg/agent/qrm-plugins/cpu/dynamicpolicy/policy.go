@@ -39,6 +39,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/calculator"
 	advisorapi "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/cpuadvisor"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/cpueviction"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/mbm"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/validator"
 	cpuutil "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/util"
@@ -114,6 +115,9 @@ type DynamicPolicy struct {
 	cpuPressureEviction       agent.Component
 	cpuPressureEvictionCancel context.CancelFunc
 
+	mbmController       agent.Component
+	mbmControllerCancel context.CancelFunc
+
 	// those are parsed from configurations
 	// todo if we want to use dynamic configuration, we'd better not use self-defined conf
 	enableCPUAdvisor              bool
@@ -168,6 +172,18 @@ func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration
 		}
 	}
 
+	var mbmController agent.Component
+	if conf.EnableMBM {
+		mbmController = mbm.NewController(agentCtx.EmitterPool.GetDefaultMetricsEmitter(),
+			agentCtx.MetricsFetcher,
+			stateImpl,
+			agentCtx.ExternalManager,
+			conf.MBMControlInterval,
+			conf.MBMBandwidthThreshold,
+			agentCtx.PackageMap,
+		)
+	}
+
 	// since the reservedCPUs won't influence stateImpl directly.
 	// so we don't modify stateImpl with reservedCPUs here.
 	// for those pods have already been allocated reservedCPUs,
@@ -186,6 +202,7 @@ func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration
 		advisorValidator: validator.NewCPUAdvisorValidator(stateImpl, agentCtx.KatalystMachineInfo),
 
 		cpuPressureEviction: cpuPressureEviction,
+		mbmController:       mbmController,
 
 		qosConfig:                     conf.QoSConfiguration,
 		dynamicConfig:                 conf.DynamicAgentConfiguration,
@@ -313,6 +330,13 @@ func (p *DynamicPolicy) Start() (err error) {
 		go p.cpuPressureEviction.Run(ctx)
 	}
 
+	// start mbm-controller plugin if needed
+	if p.mbmController != nil {
+		ctx := context.Background()
+		ctx, p.mbmControllerCancel = context.WithCancel(ctx)
+		go p.mbmController.Run(ctx)
+	}
+
 	go wait.Until(func() {
 		periodicalhandler.ReadyToStartHandlersByGroup(qrm.QRMCPUPluginPeriodicalHandlerGroupName)
 	}, 5*time.Second, p.stopCh)
@@ -394,6 +418,10 @@ func (p *DynamicPolicy) Stop() error {
 
 	if p.cpuPressureEvictionCancel != nil {
 		p.cpuPressureEvictionCancel()
+	}
+
+	if p.mbmControllerCancel != nil {
+		p.mbmControllerCancel()
 	}
 
 	periodicalhandler.StopHandlersByGroup(qrm.QRMCPUPluginPeriodicalHandlerGroupName)

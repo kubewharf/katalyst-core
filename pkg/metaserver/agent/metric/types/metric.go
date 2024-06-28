@@ -66,6 +66,8 @@ type NotifiedResponse struct {
 type MetricsReader interface {
 	// GetNodeMetric get metric of node.
 	GetNodeMetric(metricName string) (metric.MetricData, error)
+	// GetPackageMetric get metric of package.
+	GetPackageMetric(packageID int, metricName string) (metric.MetricData, error)
 	// GetNumaMetric get metric of numa.
 	GetNumaMetric(numaID int, metricName string) (metric.MetricData, error)
 	// GetDeviceMetric get metric of device.

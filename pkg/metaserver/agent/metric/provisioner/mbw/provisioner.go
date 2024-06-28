@@ -28,8 +28,12 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric/types"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/pod"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
+	"github.com/kubewharf/katalyst-core/pkg/util/external/mbm"
 	utilmetric "github.com/kubewharf/katalyst-core/pkg/util/metric"
 )
+
+// MBAdjuster is for external manager to get hold of
+var MBAdjuster mbm.MBAdjuster
 
 type MBWMetricsProvisioner struct {
 	metricStore *utilmetric.MetricStore
@@ -71,10 +75,9 @@ func NewMBWMetricsProvisioner(config *global.BaseConfiguration, metricConf *meta
 	if err != nil {
 		m.shouldNotRun = true
 	} else {
+		MBAdjuster = mbwMonitor
 		m.sampler = sampling.New(mbwMonitor, metricStore, emitter)
 	}
 
 	return &m
 }
-
-var _ types.MetricsProvisioner = &MBWMetricsProvisioner{}
