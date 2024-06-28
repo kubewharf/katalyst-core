@@ -333,7 +333,7 @@ func (p *DynamicPolicy) Start() (err error) {
 	// start mbm-controller plugin if needed
 	if p.mbmController != nil {
 		ctx := context.Background()
-		ctx, p.mbmControllerCancel = context.WithCancel(context.Background())
+		ctx, p.mbmControllerCancel = context.WithCancel(ctx)
 		go p.mbmController.Run(ctx)
 	}
 

@@ -97,7 +97,6 @@ func (m MBMonitor) ConfigCCDMBACos(ccd, cos, ul int, max uint64) error {
 	if a >= maskA {
 		a1 = 0
 		b1 = 1
-		max = 0
 	}
 
 	shiftedB := b1 << BW_LEN

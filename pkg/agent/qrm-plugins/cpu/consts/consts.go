@@ -17,8 +17,9 @@ limitations under the License.
 package consts
 
 import (
-	"github.com/kubewharf/katalyst-api/pkg/consts"
 	"time"
+
+	"github.com/kubewharf/katalyst-api/pkg/consts"
 )
 
 const (

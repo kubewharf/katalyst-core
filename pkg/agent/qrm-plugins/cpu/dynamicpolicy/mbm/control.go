@@ -80,7 +80,7 @@ func (c Controller) getActiveNodeSets(nodes []int) map[string]sets.Int {
 	states := c.numaStater.GetMachineState()
 	for _, node := range nodes {
 		nodeState := states[node]
-		for podUID, _ := range nodeState.PodEntries {
+		for podUID := range nodeState.PodEntries {
 			if _, ok := nodeSets[podUID]; !ok {
 				nodeSets[podUID] = sets.Int{}
 			}
@@ -93,7 +93,7 @@ func (c Controller) getActiveNodeSets(nodes []int) map[string]sets.Int {
 // todo: to leverage the active group MB of whole package to save metric store fetching
 func (c Controller) getNodeMBMetrics(nodes sets.Int) (strategy.GroupMB, error) {
 	mbs := make(map[int]float64)
-	for node, _ := range nodes {
+	for node := range nodes {
 		nodeMB, err := c.metricReader.GetNumaMetric(node, "mb-mbps")
 		if err != nil {
 			return nil, err

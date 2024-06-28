@@ -22,15 +22,15 @@ type reluAllocator struct{}
 func (r reluAllocator) AllocateDeductions(activeGroups GroupMBs, packageMB, mbThreshold float64) []map[int]float64 {
 	excessiveByPackage := packageMB - mbThreshold
 	totalByNodes := activeGroups.sum()
-	ratio := totalByNodes / float64(packageMB)
-	excessiveByNodes := float64(excessiveByPackage) * ratio
+	ratio := totalByNodes / packageMB
+	excessiveByNodes := excessiveByPackage * ratio
 	return r.reluCalcShares(excessiveByNodes, activeGroups)
 }
 
 // reluCalcShares distributes the shares of total to each slot based on the current in use amount
 // e.g. in uses [{0:100}, {1:150}, {2:80}], total 40, the optimal share distributions could be
 //              [{0:  2}, {1: 38], {2: 0}], resulting the next in-use quotas
-//              [{0: 98}, {1:112}, {2:80}] (the bar being noisy neighbour is ((100+150+80)-40) / 3 = 97
+//              [{0: 98}, {1:112}, {2:80}] (the bar being noisy neighbor is ((100+150+80)-40) / 3 = 97
 // a more complicated example is
 //              [{4:110}, {3:160, 5:20}], total to decrease 20, the deduction share should be
 //              [{4: 20}, {3:  0, 5: 0}], as the set [3,5] consumes no more than it is entitled to
@@ -67,8 +67,8 @@ func (r reluAllocator) AllocateIncreases(throttleds GroupMB, activeGroupMBs Grou
 	// we take precautious and gradual steps when releasing the throttle
 	underdoneByPackage := (mbThreshold - packageMB) / 2.0
 	totalByNodes := activeGroupMBs.sum()
-	ratio := totalByNodes / float64(packageMB)
-	underdoneByNodes := float64(underdoneByPackage) * ratio
+	ratio := totalByNodes / packageMB
+	underdoneByNodes := underdoneByPackage * ratio
 
 	return r.reluReversalCalcShares(underdoneByNodes, throttleds)
 }
