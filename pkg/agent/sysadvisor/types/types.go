@@ -29,6 +29,7 @@ const (
 	AdvisorPluginNameMetricEmitter   = "metric_emitter"
 	AdvisorPluginNameInference       = "inference"
 	AdvisorPluginNameOvercommitAware = "overcommit_aware"
+	AdvisorPluginNamePowerAware      = "power_aware"
 )
 
 // QoSResourceName describes different resources under qos aware control
