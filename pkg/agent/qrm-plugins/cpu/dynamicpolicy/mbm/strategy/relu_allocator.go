@@ -27,13 +27,13 @@ func (r reluAllocator) AllocateDeductions(activeGroups GroupMBs, packageMB, mbTh
 	return r.reluCalcShares(excessiveByNodes, activeGroups)
 }
 
-// reluCalcShares distributes the shares of total to each slot based on the current in use amount
-// e.g. in uses [{0:100}, {1:150}, {2:80}], total 40, the optimal share distributions could be
-//              [{0:  2}, {1: 38], {2: 0}], resulting the next in-use quotas
-//              [{0: 98}, {1:112}, {2:80}] (the bar being noisy neighbor is ((100+150+80)-40) / 3 = 97
-// a more complicated example is
-//              [{4:110}, {3:160, 5:20}], total to decrease 20, the deduction share should be
-//              [{4: 20}, {3:  0, 5: 0}], as the set [3,5] consumes no more than it is entitled to
+// reluCalcShares distributes the shares of total to each slot based on the current in use amount, e.g.
+// [{0:100}, {1:150}, {2:80}] : current bandwidths of 3 numa nodes, the target deduction 40,
+// [{0:  2}, {1: 38], {2: 0}] : the optimal share distributions of deduction 40,
+// [{0: 98}, {1:112}, {2:80}] : the next in-use quotas,
+// as the bar being noisy neighbor is ((100+150+80)-40) / 3 = 97; a more complicated example is
+// [{4:110}, {3:160, 5:20}]: current bandwidths of 2 groups (including a 2-node group), total to decrease 20,
+// [{4: 20}, {3:  0, 5: 0}], as the set [3,5] consumes no more than they are entitled to combined.
 func (r reluAllocator) reluCalcShares(targetDeduction float64, useGroups GroupMBs) []map[int]float64 {
 	fairAverage := useGroups.fairAverage(targetDeduction)
 	noises := useGroups.sumNoises(fairAverage)
