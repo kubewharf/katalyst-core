@@ -246,13 +246,14 @@ func TestAllocate(t *testing.T) {
 	testName := "test"
 
 	testCases := []struct {
-		description              string
-		req                      *pluginapi.ResourceRequest
-		expectedResp             *pluginapi.ResourceAllocationResponse
-		enableReclaim            bool
-		wantError                bool
-		cpuTopology              *machine.CPUTopology
-		enhancementDefaultValues map[string]string
+		description                           string
+		req                                   *pluginapi.ResourceRequest
+		expectedResp                          *pluginapi.ResourceAllocationResponse
+		enableReclaim                         bool
+		wantError                             bool
+		cpuTopology                           *machine.CPUTopology
+		enhancementDefaultValues              map[string]string
+		allowSharedCoresOverlapReclaimedCores bool
 	}{
 		{
 			description: "req for init container",
@@ -822,6 +823,67 @@ func TestAllocate(t *testing.T) {
 			expectedResp: nil,
 			cpuTopology:  cpuTopology,
 		},
+		{
+			description: "req for shared_cores with numa_binding with allowSharedCoresOverlapReclaimedCores set to true",
+			req: &pluginapi.ResourceRequest{
+				PodUid:         string(uuid.NewUUID()),
+				PodNamespace:   testName,
+				PodName:        testName,
+				ContainerName:  testName,
+				ContainerType:  pluginapi.ContainerType_MAIN,
+				ContainerIndex: 0,
+				ResourceName:   string(v1.ResourceCPU),
+				ResourceRequests: map[string]float64{
+					string(v1.ResourceCPU): 1,
+				},
+				Annotations: map[string]string{
+					consts.PodAnnotationQoSLevelKey:          consts.PodAnnotationQoSLevelSharedCores,
+					consts.PodAnnotationMemoryEnhancementKey: `{"numa_binding": "true"}`,
+				},
+				Labels: map[string]string{
+					consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
+				},
+				Hint: &pluginapi.TopologyHint{
+					Nodes:     []uint64{0},
+					Preferred: true,
+				},
+			},
+			expectedResp: &pluginapi.ResourceAllocationResponse{
+				PodNamespace:   testName,
+				PodName:        testName,
+				ContainerName:  testName,
+				ContainerType:  pluginapi.ContainerType_MAIN,
+				ContainerIndex: 0,
+				ResourceName:   string(v1.ResourceCPU),
+				AllocationResult: &pluginapi.ResourceAllocation{
+					ResourceAllocation: map[string]*pluginapi.ResourceAllocationInfo{
+						string(v1.ResourceCPU): {
+							OciPropertyName:   util.OCIPropertyNameCPUSetCPUs,
+							IsNodeResource:    false,
+							IsScalarResource:  true,
+							AllocatedQuantity: 3,
+							AllocationResult:  machine.NewCPUSet(1, 8, 9).String(),
+							ResourceHints: &pluginapi.ListOfTopologyHints{
+								Hints: []*pluginapi.TopologyHint{
+									{
+										Nodes:     []uint64{0},
+										Preferred: true,
+									},
+								},
+							},
+						},
+					},
+				},
+				Labels: map[string]string{
+					consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
+				},
+				Annotations: map[string]string{
+					consts.PodAnnotationQoSLevelKey:                  consts.PodAnnotationQoSLevelSharedCores,
+					consts.PodAnnotationMemoryEnhancementNumaBinding: consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
+				},
+			},
+			cpuTopology: cpuTopology,
+		},
 	}
 
 	for _, tc := range testCases {
@@ -839,6 +901,10 @@ func TestAllocate(t *testing.T) {
 			dynamicPolicy.dynamicConfig.GetDynamicConfiguration().EnableReclaim = true
 		}
 
+		if tc.allowSharedCoresOverlapReclaimedCores {
+			dynamicPolicy.state.SetAllowSharedCoresOverlapReclaimedCores(true)
+		}
+
 		resp, err := dynamicPolicy.Allocate(context.Background(), tc.req)
 		if tc.wantError {
 			as.NotNil(err)
@@ -848,6 +914,11 @@ func TestAllocate(t *testing.T) {
 		as.Nil(err)
 		tc.expectedResp.PodUid = tc.req.PodUid
 		as.Equalf(tc.expectedResp, resp, "failed in test case: %s", tc.description)
+
+		if tc.allowSharedCoresOverlapReclaimedCores {
+			err := dynamicPolicy.adjustAllocationEntries()
+			as.NotNil(err)
+		}
 
 		_ = os.RemoveAll(tmpDir)
 	}
