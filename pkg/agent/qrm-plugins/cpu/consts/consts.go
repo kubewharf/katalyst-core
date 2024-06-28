@@ -17,6 +17,8 @@ limitations under the License.
 package consts
 
 import (
+	"time"
+
 	"github.com/kubewharf/katalyst-api/pkg/consts"
 )
 
@@ -58,4 +60,8 @@ const (
 	// dynamic_packing: refers to the strategy of putting as many containers as possible onto a single NUMA node until the node hits configurable threshold.
 	// if all nodes hit configurable threshold, use spreading policy instead.
 	CPUNUMAHintPreferPolicyDynamicPacking = "dynamic_packing"
+	// mbm control interval: the interval between mbm control cycles
+	MBMControlInterval = time.Second * 1
+	// mbm bandwidth threshold is the value, in MB per second, the controller will be engaged to throttle certain numa nodes inside one package
+	MBMBandwidthThreshold = 14_000
 )
