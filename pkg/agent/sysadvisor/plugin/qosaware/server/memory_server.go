@@ -61,6 +61,9 @@ func NewMemoryServer(recvCh chan types.InternalMemoryCalculationResult, sendCh c
 }
 
 func (ms *memoryServer) RegisterAdvisorServer() {
+	ms.mutex.Lock()
+	defer ms.mutex.Unlock()
+
 	grpcServer := grpc.NewServer()
 	advisorsvc.RegisterAdvisorServiceServer(grpcServer, ms)
 	ms.grpcServer = grpcServer
