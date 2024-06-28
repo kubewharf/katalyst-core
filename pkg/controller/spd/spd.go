@@ -384,6 +384,7 @@ func (sc *SPDController) workloadWorker() {
 
 func (sc *SPDController) processNextWorkload() bool {
 	key, quit := sc.workloadSyncQueue.Get()
+	klog.Infof("[spd] process next workload key: ", key)
 	if quit {
 		return false
 	}
@@ -454,7 +455,9 @@ func (sc *SPDController) createSPDWorker() {
 
 func (sc *SPDController) processNextSPDCreation() bool {
 	key, quit := sc.createSPDWorkloadQueue.Get()
+	klog.Infof("[spd] create next SPD with workload: %s", key)
 	if quit {
+		klog.InfoS("[spd] createSPDWorkloadQueue shutdown")
 		return false
 	}
 	defer sc.createSPDWorkloadQueue.Done(key)
@@ -465,7 +468,7 @@ func (sc *SPDController) processNextSPDCreation() bool {
 		return true
 	}
 
-	utilruntime.HandleError(fmt.Errorf("sync %q failed with %v", key, err))
+	utilruntime.HandleError(fmt.Errorf("[spd] sync %q failed with %v", key, err))
 	sc.createSPDWorkloadQueue.AddRateLimited(key)
 
 	return true
@@ -473,7 +476,7 @@ func (sc *SPDController) processNextSPDCreation() bool {
 
 // syncWorkloadCreateSPD manages workload spd creation lifecycle and patch first batch of annotation.
 func (sc *SPDController) syncWorkloadCreateSPD(key string) error {
-	klog.V(5).Infof("[spd] syncing workload create SPD [%v]", key)
+	klog.Infof("[spd] syncing workload create SPD [%v]", key)
 	workloadGVR, namespace, name, err := native.ParseUniqGVRNameKey(key)
 	if err != nil {
 		klog.Errorf("[spd] failed to parse key %s to workload", key)
@@ -584,11 +587,13 @@ func (sc *SPDController) syncSPD(key string) error {
 	newSPD := spd.DeepCopy()
 	err = sc.updateSPDAnnotations(newSPD)
 	if err != nil {
+		klog.Errorf("[spd] failed to update SPD key [%v] annotations: %v", key, err)
 		return err
 	}
 
 	_, err = sc.spdControl.PatchSPD(sc.ctx, spd, newSPD)
 	if err != nil {
+		klog.Errorf("[spd] failed to patch SPD key [%v]: %v", key, err)
 		return err
 	}
 
@@ -720,7 +725,7 @@ func (sc *SPDController) getOrCreateSPDForWorkload(workload *unstructured.Unstru
 
 			err = sc.updateSPDAnnotations(spd)
 			if err != nil {
-				return nil, err
+				return nil, fmt.Errorf("[spd] failed to update spd [%v] annotation: %v", spd.Name, err)
 			}
 
 			spd, err = sc.spdControl.CreateSPD(sc.ctx, spd, metav1.CreateOptions{})
@@ -740,6 +745,7 @@ func (sc *SPDController) getOrCreateSPDForWorkload(workload *unstructured.Unstru
 }
 
 func (sc *SPDController) setSPDStatus(workload *unstructured.Unstructured, spd *apiworkload.ServiceProfileDescriptor) (*apiworkload.ServiceProfileDescriptor, error) {
+	klog.Infof("[spd] setting status for new SPD")
 	for _, plugin := range sc.indicatorPlugins {
 		aggMetrics, err := plugin.GetAggMetrics(workload)
 		if err != nil {
@@ -753,6 +759,7 @@ func (sc *SPDController) setSPDStatus(workload *unstructured.Unstructured, spd *
 
 	err := sc.updateHash(spd)
 	if err != nil {
+		klog.Errorf("[spd] failed to update hash for workload %s: %v", workload, err)
 		return nil, err
 	}
 
@@ -771,7 +778,7 @@ func (sc *SPDController) setPodListSPDAnnotation(podList []*core.Pod, workload *
 	spdName := workload.GetName()
 	spd, err := util.GetSPDForWorkload(workload, sc.spdIndexer, sc.spdLister)
 	if err != nil {
-		return err
+		return fmt.Errorf("[spd] failed to get spd %s: %v", spdName, err)
 	}
 	spdCreationTime := spd.GetCreationTimestamp()
 	setPodAnnotations := func(i int) {
@@ -809,7 +816,7 @@ func (sc *SPDController) setPodSPDAnnotation(pod *core.Pod, spdName string, spdC
 
 	err := sc.podUpdater.PatchPod(sc.ctx, pod, podCopy)
 	if err != nil {
-		return err
+		return fmt.Errorf("[spd] failed to patch pod spd annotation: %v", err)
 	}
 
 	if pod.GetCreationTimestamp().Sub(spdCreationTime.Time) > 0 {
@@ -854,7 +861,7 @@ func (sc *SPDController) cleanPodSPDAnnotation(pod *core.Pod) error {
 
 	err := sc.podUpdater.PatchPod(sc.ctx, pod, podCopy)
 	if err != nil {
-		return err
+		return fmt.Errorf("[spd] failed to patch clean spd annotation: %v", err)
 	}
 
 	klog.Infof("[spd] successfully clear annotations for pod %v", pod.GetName())
