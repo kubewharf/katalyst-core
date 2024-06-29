@@ -1168,18 +1168,38 @@ func (p *DynamicPolicy) generatePoolsAndIsolation(poolsQuantityMap map[string]ma
 			return
 		}
 
-		nonBindingAvailableCPUs, tErr = p.takeCPUsForPoolsInPlace(nonBindingPoolsQuantityMap, poolsCPUSet, nonBindingAvailableCPUs)
-		if tErr != nil {
-			err = fmt.Errorf("allocate cpus for pools failed with error: %v", tErr)
-			return
+		if !p.state.GetAllowSharedCoresOverlapReclaimedCores() {
+			nonBindingAvailableCPUs, tErr = p.takeCPUsForPoolsInPlace(nonBindingPoolsQuantityMap, poolsCPUSet, nonBindingAvailableCPUs)
+			if tErr != nil {
+				err = fmt.Errorf("allocate cpus for pools failed with error: %v", tErr)
+				return
+			}
+		} else {
+			general.Infof("allowSharedCoresOverlapReclaimedCores is true, take all nonBindingAvailableCPUs for pools")
+			nonBindingAvailableCPUs, tErr = p.generateProportionalPoolsCPUSetInPlace(nonBindingPoolsQuantityMap, poolsCPUSet, nonBindingAvailableCPUs)
+
+			if tErr != nil {
+				err = fmt.Errorf("generateProportionalPoolsCPUSetInPlace pools failed with error: %v", tErr)
+				return
+			}
 		}
 	} else if nonBindingPoolsTotalQuantity <= nonBindingAvailableSize {
 		general.Infof("all pools could be allocated, all isolated containers would be put to pools")
 
-		nonBindingAvailableCPUs, tErr = p.takeCPUsForPoolsInPlace(nonBindingPoolsQuantityMap, poolsCPUSet, nonBindingAvailableCPUs)
-		if tErr != nil {
-			err = fmt.Errorf("allocate cpus for pools failed with error: %v", tErr)
-			return
+		if !p.state.GetAllowSharedCoresOverlapReclaimedCores() {
+			nonBindingAvailableCPUs, tErr = p.takeCPUsForPoolsInPlace(nonBindingPoolsQuantityMap, poolsCPUSet, nonBindingAvailableCPUs)
+			if tErr != nil {
+				err = fmt.Errorf("allocate cpus for pools failed with error: %v", tErr)
+				return
+			}
+		} else {
+			general.Infof("allowSharedCoresOverlapReclaimedCores is true, take all nonBindingAvailableCPUs for pools")
+			nonBindingAvailableCPUs, tErr = p.generateProportionalPoolsCPUSetInPlace(nonBindingPoolsQuantityMap, poolsCPUSet, nonBindingAvailableCPUs)
+
+			if tErr != nil {
+				err = fmt.Errorf("generateProportionalPoolsCPUSetInPlace pools failed with error: %v", tErr)
+				return
+			}
 		}
 	} else if nonBindingPoolsTotalQuantity > 0 {
 		general.Infof("can't allocate for all pools")
@@ -1207,19 +1227,6 @@ func (p *DynamicPolicy) generatePoolsAndIsolation(poolsQuantityMap map[string]ma
 	poolsCPUSet[state.PoolNameReclaim] = poolsCPUSet[state.PoolNameReclaim].Union(availableCPUs)
 
 	if !p.state.GetAllowSharedCoresOverlapReclaimedCores() {
-		if poolsCPUSet[state.PoolNameReclaim].IsEmpty() {
-			// for reclaimed pool, we must make them exist when the node isn't in hybrid mode even if cause overlap
-			allAvailableCPUs := p.machineInfo.CPUDetails.CPUs().Difference(p.reservedCPUs)
-			reclaimedCPUSet, _, tErr := calculator.TakeByNUMABalance(p.machineInfo, allAvailableCPUs, reservedReclaimedCPUsSize)
-			if tErr != nil {
-				err = fmt.Errorf("fallback takeByNUMABalance faild in generatePoolsAndIsolation for reclaimedCPUSet with error: %v", tErr)
-				return
-			}
-
-			general.Infof("fallback takeByNUMABalance in generatePoolsAndIsolation for reclaimedCPUSet: %s", reclaimedCPUSet.String())
-			poolsCPUSet[state.PoolNameReclaim] = reclaimedCPUSet
-		}
-
 		enableReclaim := p.dynamicConfig.GetDynamicConfiguration().EnableReclaim
 		if !enableReclaim && poolsCPUSet[state.PoolNameReclaim].Size() > reservedReclaimedCPUsSize {
 			poolsCPUSet[state.PoolNameReclaim] = p.apportionReclaimedPool(
@@ -1247,6 +1254,19 @@ func (p *DynamicPolicy) generatePoolsAndIsolation(poolsQuantityMap map[string]ma
 				poolsCPUSet[state.PoolNameReclaim] = poolsCPUSet[state.PoolNameReclaim].Union(overlapCPUs)
 			}
 		}
+	}
+
+	if poolsCPUSet[state.PoolNameReclaim].IsEmpty() {
+		// for reclaimed pool, we must make them exist when the node isn't in hybrid mode even if cause overlap
+		allAvailableCPUs := p.machineInfo.CPUDetails.CPUs().Difference(p.reservedCPUs)
+		reclaimedCPUSet, _, tErr := calculator.TakeByNUMABalance(p.machineInfo, allAvailableCPUs, reservedReclaimedCPUsSize)
+		if tErr != nil {
+			err = fmt.Errorf("fallback takeByNUMABalance faild in generatePoolsAndIsolation for reclaimedCPUSet with error: %v", tErr)
+			return
+		}
+
+		general.Infof("fallback takeByNUMABalance in generatePoolsAndIsolation for reclaimedCPUSet: %s", reclaimedCPUSet.String())
+		poolsCPUSet[state.PoolNameReclaim] = reclaimedCPUSet
 	}
 
 	return
