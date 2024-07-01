@@ -20,11 +20,15 @@ import (
 	"os"
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/utils/pointer"
 
+	"github.com/kubewharf/katalyst-api/pkg/apis/config/v1alpha1"
+	configapi "github.com/kubewharf/katalyst-api/pkg/apis/config/v1alpha1"
 	"github.com/kubewharf/katalyst-api/pkg/consts"
 	katalyst_base "github.com/kubewharf/katalyst-core/cmd/base"
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/options"
@@ -56,7 +60,7 @@ func TestGetRegionNameFromMetaCache(t *testing.T) {
 			},
 			region: &types.RegionInfo{
 				RegionName: "share-t",
-				RegionType: types.QoSRegionTypeShare,
+				RegionType: configapi.QoSRegionTypeShare,
 			},
 			regionName: "share-t",
 		},
@@ -71,7 +75,7 @@ func TestGetRegionNameFromMetaCache(t *testing.T) {
 			},
 			region: &types.RegionInfo{
 				RegionName:   "dedicated-t",
-				RegionType:   types.QoSRegionTypeDedicatedNumaExclusive,
+				RegionType:   configapi.QoSRegionTypeDedicatedNumaExclusive,
 				BindingNumas: machine.NewCPUSet(1),
 			},
 			numaID:     1,
@@ -88,7 +92,7 @@ func TestGetRegionNameFromMetaCache(t *testing.T) {
 			},
 			region: &types.RegionInfo{
 				RegionName:   "dedicated-t",
-				RegionType:   types.QoSRegionTypeDedicatedNumaExclusive,
+				RegionType:   configapi.QoSRegionTypeDedicatedNumaExclusive,
 				BindingNumas: machine.NewCPUSet(1),
 			},
 			numaID:     2,
@@ -103,7 +107,7 @@ func TestGetRegionNameFromMetaCache(t *testing.T) {
 			},
 			region: &types.RegionInfo{
 				RegionName: "isolation-t",
-				RegionType: types.QoSRegionTypeIsolation,
+				RegionType: configapi.QoSRegionTypeIsolation,
 			},
 			regionName: "isolation-t",
 		},
@@ -116,7 +120,7 @@ func TestGetRegionNameFromMetaCache(t *testing.T) {
 			},
 			region: &types.RegionInfo{
 				RegionName: "isolation-t",
-				RegionType: types.QoSRegionTypeShare,
+				RegionType: configapi.QoSRegionTypeShare,
 			},
 			regionName: "",
 		},
@@ -197,4 +201,77 @@ func TestIsNumaBinding(t *testing.T) {
 	}
 	isolation2 := NewQoSRegionIsolation(&ci4, "isolation-1", conf, nil, state.FakedNUMAID, metaCache, metaServer, metrics.DummyMetrics{})
 	require.False(t, isolation2.IsNumaBinding(), "test IsNumaBinding failed")
+}
+
+func TestRestrictProvisionControlKnob(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name                   string
+		controlKnobConstraints map[v1alpha1.ControlKnobName]v1alpha1.RestrictConstraints
+		originControlKnob      map[types.CPUProvisionPolicyName]types.ControlKnob
+		wantControlKnob        map[types.CPUProvisionPolicyName]types.ControlKnob
+	}{
+		{
+			name: "below ref",
+			controlKnobConstraints: map[configapi.ControlKnobName]configapi.RestrictConstraints{
+				"c1": {
+					MaxUpperGap: pointer.Float64(4),
+					MaxLowerGap: pointer.Float64(1),
+				},
+			},
+			originControlKnob: map[types.CPUProvisionPolicyName]types.ControlKnob{"p1": {"c1": types.ControlKnobValue{Value: 8}}, "p2": {"c1": types.ControlKnobValue{Value: 10}}},
+			wantControlKnob:   map[types.CPUProvisionPolicyName]types.ControlKnob{"p1": {"c1": types.ControlKnobValue{Value: 9}}, "p2": {"c1": types.ControlKnobValue{Value: 10}}},
+		},
+		{
+			name: "upper ref",
+			controlKnobConstraints: map[configapi.ControlKnobName]configapi.RestrictConstraints{
+				"c1": {
+					MaxUpperGap: pointer.Float64(4),
+					MaxLowerGap: pointer.Float64(1),
+				},
+			},
+			originControlKnob: map[types.CPUProvisionPolicyName]types.ControlKnob{"p1": {"c1": types.ControlKnobValue{Value: 16}}, "p2": {"c1": types.ControlKnobValue{Value: 10}}},
+			wantControlKnob:   map[types.CPUProvisionPolicyName]types.ControlKnob{"p1": {"c1": types.ControlKnobValue{Value: 14}}, "p2": {"c1": types.ControlKnobValue{Value: 10}}},
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			conf, err := options.NewOptions().Config()
+			require.NoError(t, err)
+			require.NotNil(t, conf)
+
+			stateFileDir := "stateFileDir" + uuid.New().String()
+			checkpointDir := "checkpointDir" + uuid.New().String()
+
+			conf.GenericSysAdvisorConfiguration.StateFileDirectory = stateFileDir
+			conf.MetaServerConfiguration.CheckpointManagerDir = checkpointDir
+			conf.CPUShareConfiguration.RestrictRefPolicy = map[types.CPUProvisionPolicyName]types.CPUProvisionPolicyName{"p1": "p2"}
+			conf.GetDynamicConfiguration().RestrictConstraints = tt.controlKnobConstraints
+
+			genericCtx, err := katalyst_base.GenerateFakeGenericContext([]runtime.Object{})
+			require.NoError(t, err)
+
+			metaServer, err := metaserver.NewMetaServer(genericCtx.Client, metrics.DummyMetrics{}, conf)
+			require.NoError(t, err)
+			defer func() {
+				os.RemoveAll(stateFileDir)
+				os.RemoveAll(checkpointDir)
+			}()
+
+			metaCache, err := metacache.NewMetaCacheImp(conf, metricspool.DummyMetricsEmitterPool{}, metric.NewFakeMetricsFetcher(metrics.DummyMetrics{}))
+			require.NoError(t, err)
+			ci := types.ContainerInfo{
+				QoSLevel:    consts.PodAnnotationQoSLevelSharedCores,
+				RegionNames: sets.NewString("share"),
+			}
+			share := NewQoSRegionShare(&ci, conf, nil, state.FakedNUMAID, metaCache, metaServer, metrics.DummyMetrics{})
+			restrictedControlKnobs := share.(*QoSRegionShare).restrictProvisionControlKnob(tt.originControlKnob)
+			assert.Equal(t, tt.wantControlKnob, restrictedControlKnobs)
+		})
+	}
 }

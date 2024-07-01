@@ -17,26 +17,19 @@ limitations under the License.
 package provision
 
 import (
-	"fmt"
-	"strconv"
-	"strings"
-
 	"github.com/spf13/pflag"
 	"k8s.io/apimachinery/pkg/util/errors"
 
-	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
 	provisionconfig "github.com/kubewharf/katalyst-core/pkg/config/agent/sysadvisor/qosaware/resource/cpu/provision"
 )
 
 type CPUProvisionPolicyOptions struct {
-	PolicyRama                   *PolicyRamaOptions
-	RegionIndicatorTargetOptions map[string]string
+	PolicyRama *PolicyRamaOptions
 }
 
 func NewCPUProvisionPolicyOptions() *CPUProvisionPolicyOptions {
 	return &CPUProvisionPolicyOptions{
-		PolicyRama:                   NewPolicyRamaOptions(),
-		RegionIndicatorTargetOptions: map[string]string{},
+		PolicyRama: NewPolicyRamaOptions(),
 	}
 }
 
@@ -45,31 +38,10 @@ func (o *CPUProvisionPolicyOptions) ApplyTo(c *provisionconfig.CPUProvisionPolic
 	var errList []error
 	errList = append(errList, o.PolicyRama.ApplyTo(c.PolicyRama))
 
-	for regionType, targets := range o.RegionIndicatorTargetOptions {
-		regionIndicatorTarget := make([]types.IndicatorTargetConfiguration, 0)
-		indicatorTargets := strings.Split(targets, "/")
-		for _, indicatorTarget := range indicatorTargets {
-			tmp := strings.Split(indicatorTarget, "=")
-			if len(tmp) != 2 {
-				errList = append(errList, fmt.Errorf("indicatorTarget %v is invalid", indicatorTarget))
-				continue
-			}
-			target, err := strconv.ParseFloat(tmp[1], 64)
-			if err != nil {
-				errList = append(errList, err)
-				continue
-			}
-			regionIndicatorTarget = append(regionIndicatorTarget, types.IndicatorTargetConfiguration{Name: tmp[0], Target: target})
-		}
-		c.RegionIndicatorTargetConfiguration[types.QoSRegionType(regionType)] = regionIndicatorTarget
-	}
-
 	return errors.NewAggregate(errList)
 }
 
 // AddFlags adds flags to the specified FlagSet.
 func (o *CPUProvisionPolicyOptions) AddFlags(fs *pflag.FlagSet) {
 	o.PolicyRama.AddFlags(fs)
-	fs.StringToStringVar(&o.RegionIndicatorTargetOptions, "region-indicator-targets", o.RegionIndicatorTargetOptions,
-		"indicators targets for each region, in format like cpu_sched_wait=400/cpu_iowait_ratio=0.8")
 }

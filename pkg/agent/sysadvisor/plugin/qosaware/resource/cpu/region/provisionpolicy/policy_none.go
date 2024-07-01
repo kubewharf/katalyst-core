@@ -17,6 +17,7 @@ limitations under the License.
 package provisionpolicy
 
 import (
+	configapi "github.com/kubewharf/katalyst-api/pkg/apis/config/v1alpha1"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
 	"github.com/kubewharf/katalyst-core/pkg/config"
@@ -27,7 +28,7 @@ import (
 
 type PolicyNone struct{}
 
-func NewPolicyNone(_ string, _ types.QoSRegionType, _ string,
+func NewPolicyNone(_ string, _ configapi.QoSRegionType, _ string,
 	_ *config.Configuration, _ interface{}, _ metacache.MetaReader,
 	_ *metaserver.MetaServer, _ metrics.MetricEmitter,
 ) ProvisionPolicy {

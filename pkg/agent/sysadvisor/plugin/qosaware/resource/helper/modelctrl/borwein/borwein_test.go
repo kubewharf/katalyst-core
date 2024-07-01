@@ -33,6 +33,7 @@ import (
 	"k8s.io/client-go/kubernetes/fake"
 	"k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 
+	configapi "github.com/kubewharf/katalyst-api/pkg/apis/config/v1alpha1"
 	workloadv1alpha1 "github.com/kubewharf/katalyst-api/pkg/apis/workload/v1alpha1"
 	internalfake "github.com/kubewharf/katalyst-api/pkg/client/clientset/versioned/fake"
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/options"
@@ -104,7 +105,7 @@ func TestNewBorweinController(t *testing.T) {
 
 	conf := generateTestConfiguration(t, checkpointDir, stateFileDir)
 	regionName := "test"
-	regionType := types.QoSRegionTypeShare
+	regionType := configapi.QoSRegionTypeShare
 
 	clientSet := generateTestGenericClientSet([]runtime.Object{&v1.Node{
 		ObjectMeta: metav1.ObjectMeta{
@@ -145,7 +146,7 @@ func TestNewBorweinController(t *testing.T) {
 
 	type args struct {
 		regionName    string
-		regionType    types.QoSRegionType
+		regionType    configapi.QoSRegionType
 		ownerPoolName string
 		conf          *config.Configuration
 		metaReader    metacache.MetaReader
@@ -357,7 +358,7 @@ func TestBorweinController_updateIndicatorOffsets(t *testing.T) {
 	nodeName := "node1"
 	fakeCPUUsage := 20.0
 	regionName := "test"
-	regionType := types.QoSRegionTypeShare
+	regionType := configapi.QoSRegionTypeShare
 
 	checkpointDir, err := ioutil.TempDir("", "checkpoint-updateIndicatorOffsets")
 	require.NoError(t, err)
@@ -408,7 +409,7 @@ func TestBorweinController_updateIndicatorOffsets(t *testing.T) {
 
 	type fields struct {
 		regionName              string
-		regionType              types.QoSRegionType
+		regionType              configapi.QoSRegionType
 		conf                    *config.Configuration
 		borweinParameters       map[string]*borweintypes.BorweinParameter
 		indicatorOffsets        map[string]float64
@@ -473,7 +474,7 @@ func TestBorweinController_getUpdatedIndicators(t *testing.T) {
 	nodeName := "node1"
 	fakeCPUUsage := 20.0
 	regionName := "test"
-	regionType := types.QoSRegionTypeShare
+	regionType := configapi.QoSRegionTypeShare
 
 	checkpointDir, err := ioutil.TempDir("", "checkpoint-getUpdatedIndicators")
 	require.NoError(t, err)
@@ -524,7 +525,7 @@ func TestBorweinController_getUpdatedIndicators(t *testing.T) {
 
 	type fields struct {
 		regionName              string
-		regionType              types.QoSRegionType
+		regionType              configapi.QoSRegionType
 		conf                    *config.Configuration
 		borweinParameters       map[string]*borweintypes.BorweinParameter
 		indicatorOffsets        map[string]float64
@@ -618,7 +619,7 @@ func TestBorweinController_GetUpdatedIndicators(t *testing.T) {
 	nodeName := "node1"
 	fakeCPUUsage := 20.0
 	regionName := "test"
-	regionType := types.QoSRegionTypeShare
+	regionType := configapi.QoSRegionTypeShare
 
 	checkpointDir, err := ioutil.TempDir("", "checkpoint-getUpdatedIndicators")
 	require.NoError(t, err)
@@ -669,7 +670,7 @@ func TestBorweinController_GetUpdatedIndicators(t *testing.T) {
 
 	type fields struct {
 		regionName              string
-		regionType              types.QoSRegionType
+		regionType              configapi.QoSRegionType
 		conf                    *config.Configuration
 		borweinParameters       map[string]*borweintypes.BorweinParameter
 		indicatorOffsets        map[string]float64

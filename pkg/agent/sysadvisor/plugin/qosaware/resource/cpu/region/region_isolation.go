@@ -19,6 +19,7 @@ package region
 import (
 	"k8s.io/apimachinery/pkg/util/uuid"
 
+	configapi "github.com/kubewharf/katalyst-api/pkg/apis/config/v1alpha1"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
@@ -45,7 +46,7 @@ func NewQoSRegionIsolation(ci *types.ContainerInfo, customRegionName string, con
 	if regionName == "" {
 		regionName = getRegionNameFromMetaCache(ci, numaID, metaReader)
 		if regionName == "" {
-			regionName = string(types.QoSRegionTypeIsolation) + types.RegionNameSeparator + ci.PodName + types.RegionNameSeparator + string(uuid.NewUUID())
+			regionName = string(configapi.QoSRegionTypeIsolation) + types.RegionNameSeparator + ci.PodName + types.RegionNameSeparator + string(uuid.NewUUID())
 		}
 	}
 
@@ -55,7 +56,7 @@ func NewQoSRegionIsolation(ci *types.ContainerInfo, customRegionName string, con
 		ownerPoolName = isolationRegionNUMAOwnerPoolName
 	}
 	r := &QoSRegionIsolation{
-		QoSRegionBase: NewQoSRegionBase(regionName, ownerPoolName, types.QoSRegionTypeIsolation, conf, extraConf, isNumaBinding, metaReader, metaServer, emitter),
+		QoSRegionBase: NewQoSRegionBase(regionName, ownerPoolName, configapi.QoSRegionTypeIsolation, conf, extraConf, isNumaBinding, metaReader, metaServer, emitter),
 	}
 	if isNumaBinding {
 		r.bindingNumas = machine.NewCPUSet(numaID)

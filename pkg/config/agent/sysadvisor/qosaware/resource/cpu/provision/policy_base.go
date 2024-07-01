@@ -16,36 +16,12 @@ limitations under the License.
 
 package provision
 
-import (
-	"github.com/kubewharf/katalyst-api/pkg/apis/workload/v1alpha1"
-	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
-)
-
 type CPUProvisionPolicyConfiguration struct {
-	RegionIndicatorTargetConfiguration map[types.QoSRegionType][]types.IndicatorTargetConfiguration
-	PolicyRama                         *PolicyRamaConfiguration
+	PolicyRama *PolicyRamaConfiguration
 }
 
 func NewCPUProvisionPolicyConfiguration() *CPUProvisionPolicyConfiguration {
 	return &CPUProvisionPolicyConfiguration{
-		RegionIndicatorTargetConfiguration: map[types.QoSRegionType][]types.IndicatorTargetConfiguration{
-			types.QoSRegionTypeShare: {
-				{
-					Name:   string(v1alpha1.ServiceSystemIndicatorNameCPUSchedWait),
-					Target: 460,
-				},
-				{
-					Name:   string(v1alpha1.ServiceSystemIndicatorNameCPUUsageRatio),
-					Target: 0.8,
-				},
-			},
-			types.QoSRegionTypeDedicatedNumaExclusive: {
-				{
-					Name:   string(v1alpha1.ServiceSystemIndicatorNameCPI),
-					Target: 1.4,
-				},
-			},
-		},
 		PolicyRama: NewPolicyRamaConfiguration(),
 	}
 }

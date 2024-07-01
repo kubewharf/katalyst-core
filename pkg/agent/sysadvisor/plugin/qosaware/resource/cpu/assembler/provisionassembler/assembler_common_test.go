@@ -25,6 +25,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/rand"
 	"k8s.io/apimachinery/pkg/util/sets"
 
+	configapi "github.com/kubewharf/katalyst-api/pkg/apis/config/v1alpha1"
 	"github.com/kubewharf/katalyst-api/pkg/consts"
 	katalyst_base "github.com/kubewharf/katalyst-core/cmd/base"
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/options"
@@ -42,7 +43,7 @@ import (
 type FakeRegion struct {
 	name                       string
 	ownerPoolName              string
-	regionType                 types.QoSRegionType
+	regionType                 configapi.QoSRegionType
 	bindingNumas               machine.CPUSet
 	isNumaBinding              bool
 	podSets                    types.PodSet
@@ -57,7 +58,7 @@ type FakeRegion struct {
 	essentials                 types.ResourceEssentials
 }
 
-func NewFakeRegion(name string, regionType types.QoSRegionType, ownerPoolName string) *FakeRegion {
+func NewFakeRegion(name string, regionType configapi.QoSRegionType, ownerPoolName string) *FakeRegion {
 	return &FakeRegion{
 		name:          name,
 		regionType:    regionType,
@@ -69,7 +70,7 @@ func (fake *FakeRegion) Name() string {
 	return fake.name
 }
 
-func (fake *FakeRegion) Type() types.QoSRegionType {
+func (fake *FakeRegion) Type() configapi.QoSRegionType {
 	return fake.regionType
 }
 
@@ -165,7 +166,7 @@ func (fake *FakeRegion) GetControlEssentials() types.ControlEssentials {
 
 type testCasePoolConfig struct {
 	poolName      string
-	poolType      types.QoSRegionType
+	poolType      configapi.QoSRegionType
 	numa          machine.CPUSet
 	isNumaBinding bool
 	provision     types.ControlKnob
@@ -232,25 +233,32 @@ func TestAssembleProvision(t *testing.T) {
 			},
 			RegionNames: sets.NewString("isolation-NUMA1-pod2"),
 		},
+		"share-a": {
+			PoolName: "share",
+			TopologyAwareAssignments: map[int]machine.CPUSet{
+				0: machine.NewCPUSet(1, 2, 3, 4, 5, 6, 7, 8, 9, 10),
+			},
+			OriginalTopologyAwareAssignments: map[int]machine.CPUSet{
+				0: machine.NewCPUSet(1, 2, 3, 4, 5, 6, 7, 8, 9, 10),
+			},
+		},
+		"share-b": {
+			PoolName: "share",
+			TopologyAwareAssignments: map[int]machine.CPUSet{
+				0: machine.NewCPUSet(1, 2, 3, 4, 5, 6, 7, 8, 9, 10),
+			},
+			OriginalTopologyAwareAssignments: map[int]machine.CPUSet{
+				0: machine.NewCPUSet(1, 2, 3, 4, 5, 6, 7, 8, 9, 10),
+			},
+		},
 	}
-
-	share := NewFakeRegion("share", types.QoSRegionTypeShare, "share")
-	share.SetBindingNumas(machine.NewCPUSet(0))
-	share.SetProvision(types.ControlKnob{
-		types.ControlKnobNonReclaimedCPUSize: {Value: 6},
-	})
-
-	shareNumaBinding := NewFakeRegion("share-NUMA1", types.QoSRegionTypeShare, "share-NUMA1")
-	shareNumaBinding.SetBindingNumas(machine.NewCPUSet(1))
-	shareNumaBinding.SetIsNumaBinding(true)
-	shareNumaBinding.SetProvision(types.ControlKnob{
-		types.ControlKnobNonReclaimedCPUSize: {Value: 8},
-	})
 	tests := []struct {
-		name            string
-		enableReclaimed bool
-		poolInfos       []testCasePoolConfig
-		expect          map[string]map[int]int
+		name                                  string
+		enableReclaimed                       bool
+		allowSharedCoresOverlapReclaimedCores bool
+		poolInfos                             []testCasePoolConfig
+		expectPoolEntries                     map[string]map[int]int
+		expectPoolOverlapInfo                 map[string]map[int]map[string]int
 	}{
 		{
 			name:            "test1",
@@ -258,24 +266,24 @@ func TestAssembleProvision(t *testing.T) {
 			poolInfos: []testCasePoolConfig{
 				{
 					poolName:      "share",
-					poolType:      types.QoSRegionTypeShare,
+					poolType:      configapi.QoSRegionTypeShare,
 					numa:          machine.NewCPUSet(0),
 					isNumaBinding: false,
 					provision: types.ControlKnob{
-						types.ControlKnobNonReclaimedCPUSize: {Value: 6},
+						configapi.ControlKnobNonReclaimedCPURequirement: {Value: 6},
 					},
 				},
 				{
 					poolName:      "share-NUMA1",
-					poolType:      types.QoSRegionTypeShare,
+					poolType:      configapi.QoSRegionTypeShare,
 					numa:          machine.NewCPUSet(1),
 					isNumaBinding: true,
 					provision: types.ControlKnob{
-						types.ControlKnobNonReclaimedCPUSize: {Value: 8},
+						configapi.ControlKnobNonReclaimedCPURequirement: {Value: 8},
 					},
 				},
 			},
-			expect: map[string]map[int]int{
+			expectPoolEntries: map[string]map[int]int{
 				"share": {
 					-1: 6,
 				},
@@ -297,24 +305,24 @@ func TestAssembleProvision(t *testing.T) {
 			poolInfos: []testCasePoolConfig{
 				{
 					poolName:      "share",
-					poolType:      types.QoSRegionTypeShare,
+					poolType:      configapi.QoSRegionTypeShare,
 					numa:          machine.NewCPUSet(0),
 					isNumaBinding: false,
 					provision: types.ControlKnob{
-						types.ControlKnobNonReclaimedCPUSize: {Value: 6},
+						configapi.ControlKnobNonReclaimedCPURequirement: {Value: 6},
 					},
 				},
 				{
 					poolName:      "share-NUMA1",
-					poolType:      types.QoSRegionTypeShare,
+					poolType:      configapi.QoSRegionTypeShare,
 					numa:          machine.NewCPUSet(1),
 					isNumaBinding: true,
 					provision: types.ControlKnob{
-						types.ControlKnobNonReclaimedCPUSize: {Value: 8},
+						configapi.ControlKnobNonReclaimedCPURequirement: {Value: 8},
 					},
 				},
 			},
-			expect: map[string]map[int]int{
+			expectPoolEntries: map[string]map[int]int{
 				"share": {
 					-1: 20,
 				},
@@ -336,34 +344,34 @@ func TestAssembleProvision(t *testing.T) {
 			poolInfos: []testCasePoolConfig{
 				{
 					poolName:      "share",
-					poolType:      types.QoSRegionTypeShare,
+					poolType:      configapi.QoSRegionTypeShare,
 					numa:          machine.NewCPUSet(0),
 					isNumaBinding: false,
 					provision: types.ControlKnob{
-						types.ControlKnobNonReclaimedCPUSize: {Value: 6},
+						configapi.ControlKnobNonReclaimedCPURequirement: {Value: 6},
 					},
 				},
 				{
 					poolName:      "share-NUMA1",
-					poolType:      types.QoSRegionTypeShare,
+					poolType:      configapi.QoSRegionTypeShare,
 					numa:          machine.NewCPUSet(1),
 					isNumaBinding: true,
 					provision: types.ControlKnob{
-						types.ControlKnobNonReclaimedCPUSize: {Value: 8},
+						configapi.ControlKnobNonReclaimedCPURequirement: {Value: 8},
 					},
 				},
 				{
 					poolName:      "isolation-NUMA1",
-					poolType:      types.QoSRegionTypeIsolation,
+					poolType:      configapi.QoSRegionTypeIsolation,
 					numa:          machine.NewCPUSet(1),
 					isNumaBinding: true,
 					provision: types.ControlKnob{
-						types.ControlKnobNonReclaimedCPUSizeUpper: {Value: 8},
-						types.ControlKnobNonReclaimedCPUSizeLower: {Value: 4},
+						configapi.ControlKnobNonReclaimedCPURequirementUpper: {Value: 8},
+						configapi.ControlKnobNonReclaimedCPURequirementLower: {Value: 4},
 					},
 				},
 			},
-			expect: map[string]map[int]int{
+			expectPoolEntries: map[string]map[int]int{
 				"share": {
 					-1: 6,
 				},
@@ -388,42 +396,42 @@ func TestAssembleProvision(t *testing.T) {
 			poolInfos: []testCasePoolConfig{
 				{
 					poolName:      "share",
-					poolType:      types.QoSRegionTypeShare,
+					poolType:      configapi.QoSRegionTypeShare,
 					numa:          machine.NewCPUSet(0),
 					isNumaBinding: false,
 					provision: types.ControlKnob{
-						types.ControlKnobNonReclaimedCPUSize: {Value: 6},
+						configapi.ControlKnobNonReclaimedCPURequirement: {Value: 6},
 					},
 				},
 				{
 					poolName:      "share-NUMA1",
-					poolType:      types.QoSRegionTypeShare,
+					poolType:      configapi.QoSRegionTypeShare,
 					numa:          machine.NewCPUSet(1),
 					isNumaBinding: true,
 					provision: types.ControlKnob{
-						types.ControlKnobNonReclaimedCPUSize: {Value: 8},
+						configapi.ControlKnobNonReclaimedCPURequirement: {Value: 8},
 					},
 				},
 				{
 					poolName:      "isolation-NUMA1",
-					poolType:      types.QoSRegionTypeIsolation,
+					poolType:      configapi.QoSRegionTypeIsolation,
 					numa:          machine.NewCPUSet(1),
 					isNumaBinding: true,
 					provision: types.ControlKnob{
-						types.ControlKnobNonReclaimedCPUSizeUpper: {Value: 8},
-						types.ControlKnobNonReclaimedCPUSizeLower: {Value: 4},
+						configapi.ControlKnobNonReclaimedCPURequirementUpper: {Value: 8},
+						configapi.ControlKnobNonReclaimedCPURequirementLower: {Value: 4},
 					},
 				},
 			},
-			expect: map[string]map[int]int{
+			expectPoolEntries: map[string]map[int]int{
 				"share": {
 					-1: 20,
 				},
 				"share-NUMA1": {
-					1: 10,
+					1: 12,
 				},
 				"isolation-NUMA1": {
-					1: 10,
+					1: 8,
 				},
 				"reserve": {
 					-1: 0,
@@ -440,34 +448,34 @@ func TestAssembleProvision(t *testing.T) {
 			poolInfos: []testCasePoolConfig{
 				{
 					poolName:      "share",
-					poolType:      types.QoSRegionTypeShare,
+					poolType:      configapi.QoSRegionTypeShare,
 					numa:          machine.NewCPUSet(0),
 					isNumaBinding: false,
 					provision: types.ControlKnob{
-						types.ControlKnobNonReclaimedCPUSize: {Value: 6},
+						configapi.ControlKnobNonReclaimedCPURequirement: {Value: 6},
 					},
 				},
 				{
 					poolName:      "share-NUMA1",
-					poolType:      types.QoSRegionTypeShare,
+					poolType:      configapi.QoSRegionTypeShare,
 					numa:          machine.NewCPUSet(1),
 					isNumaBinding: true,
 					provision: types.ControlKnob{
-						types.ControlKnobNonReclaimedCPUSize: {Value: 15},
+						configapi.ControlKnobNonReclaimedCPURequirement: {Value: 15},
 					},
 				},
 				{
 					poolName:      "isolation-NUMA1",
-					poolType:      types.QoSRegionTypeIsolation,
+					poolType:      configapi.QoSRegionTypeIsolation,
 					numa:          machine.NewCPUSet(1),
 					isNumaBinding: true,
 					provision: types.ControlKnob{
-						types.ControlKnobNonReclaimedCPUSizeUpper: {Value: 8},
-						types.ControlKnobNonReclaimedCPUSizeLower: {Value: 4},
+						configapi.ControlKnobNonReclaimedCPURequirementUpper: {Value: 8},
+						configapi.ControlKnobNonReclaimedCPURequirementLower: {Value: 4},
 					},
 				},
 			},
-			expect: map[string]map[int]int{
+			expectPoolEntries: map[string]map[int]int{
 				"share": {
 					-1: 20,
 				},
@@ -492,34 +500,34 @@ func TestAssembleProvision(t *testing.T) {
 			poolInfos: []testCasePoolConfig{
 				{
 					poolName:      "share",
-					poolType:      types.QoSRegionTypeShare,
+					poolType:      configapi.QoSRegionTypeShare,
 					numa:          machine.NewCPUSet(0),
 					isNumaBinding: false,
 					provision: types.ControlKnob{
-						types.ControlKnobNonReclaimedCPUSize: {Value: 6},
+						configapi.ControlKnobNonReclaimedCPURequirement: {Value: 6},
 					},
 				},
 				{
 					poolName:      "share-NUMA1",
-					poolType:      types.QoSRegionTypeShare,
+					poolType:      configapi.QoSRegionTypeShare,
 					numa:          machine.NewCPUSet(1),
 					isNumaBinding: true,
 					provision: types.ControlKnob{
-						types.ControlKnobNonReclaimedCPUSize: {Value: 15},
+						configapi.ControlKnobNonReclaimedCPURequirement: {Value: 15},
 					},
 				},
 				{
 					poolName:      "isolation-NUMA1",
-					poolType:      types.QoSRegionTypeIsolation,
+					poolType:      configapi.QoSRegionTypeIsolation,
 					numa:          machine.NewCPUSet(1),
 					isNumaBinding: true,
 					provision: types.ControlKnob{
-						types.ControlKnobNonReclaimedCPUSizeUpper: {Value: 8},
-						types.ControlKnobNonReclaimedCPUSizeLower: {Value: 4},
+						configapi.ControlKnobNonReclaimedCPURequirementUpper: {Value: 8},
+						configapi.ControlKnobNonReclaimedCPURequirementLower: {Value: 4},
 					},
 				},
 			},
-			expect: map[string]map[int]int{
+			expectPoolEntries: map[string]map[int]int{
 				"share": {
 					-1: 6,
 				},
@@ -544,44 +552,44 @@ func TestAssembleProvision(t *testing.T) {
 			poolInfos: []testCasePoolConfig{
 				{
 					poolName:      "share",
-					poolType:      types.QoSRegionTypeShare,
+					poolType:      configapi.QoSRegionTypeShare,
 					numa:          machine.NewCPUSet(0),
 					isNumaBinding: false,
 					provision: types.ControlKnob{
-						types.ControlKnobNonReclaimedCPUSize: {Value: 6},
+						configapi.ControlKnobNonReclaimedCPURequirement: {Value: 6},
 					},
 				},
 				{
 					poolName:      "share-NUMA1",
-					poolType:      types.QoSRegionTypeShare,
+					poolType:      configapi.QoSRegionTypeShare,
 					numa:          machine.NewCPUSet(1),
 					isNumaBinding: true,
 					provision: types.ControlKnob{
-						types.ControlKnobNonReclaimedCPUSize: {Value: 4},
+						configapi.ControlKnobNonReclaimedCPURequirement: {Value: 4},
 					},
 				},
 				{
 					poolName:      "isolation-NUMA1",
-					poolType:      types.QoSRegionTypeIsolation,
+					poolType:      configapi.QoSRegionTypeIsolation,
 					numa:          machine.NewCPUSet(1),
 					isNumaBinding: true,
 					provision: types.ControlKnob{
-						types.ControlKnobNonReclaimedCPUSizeUpper: {Value: 8},
-						types.ControlKnobNonReclaimedCPUSizeLower: {Value: 4},
+						configapi.ControlKnobNonReclaimedCPURequirementUpper: {Value: 8},
+						configapi.ControlKnobNonReclaimedCPURequirementLower: {Value: 4},
 					},
 				},
 				{
 					poolName:      "isolation-NUMA1-pod2",
-					poolType:      types.QoSRegionTypeIsolation,
+					poolType:      configapi.QoSRegionTypeIsolation,
 					numa:          machine.NewCPUSet(1),
 					isNumaBinding: true,
 					provision: types.ControlKnob{
-						types.ControlKnobNonReclaimedCPUSizeUpper: {Value: 8},
-						types.ControlKnobNonReclaimedCPUSizeLower: {Value: 4},
+						configapi.ControlKnobNonReclaimedCPURequirementUpper: {Value: 8},
+						configapi.ControlKnobNonReclaimedCPURequirementLower: {Value: 4},
 					},
 				},
 			},
-			expect: map[string]map[int]int{
+			expectPoolEntries: map[string]map[int]int{
 				"share": {
 					-1: 6,
 				},
@@ -609,44 +617,44 @@ func TestAssembleProvision(t *testing.T) {
 			poolInfos: []testCasePoolConfig{
 				{
 					poolName:      "share",
-					poolType:      types.QoSRegionTypeShare,
+					poolType:      configapi.QoSRegionTypeShare,
 					numa:          machine.NewCPUSet(0),
 					isNumaBinding: false,
 					provision: types.ControlKnob{
-						types.ControlKnobNonReclaimedCPUSize: {Value: 6},
+						configapi.ControlKnobNonReclaimedCPURequirement: {Value: 6},
 					},
 				},
 				{
 					poolName:      "share-NUMA1",
-					poolType:      types.QoSRegionTypeShare,
+					poolType:      configapi.QoSRegionTypeShare,
 					numa:          machine.NewCPUSet(1),
 					isNumaBinding: true,
 					provision: types.ControlKnob{
-						types.ControlKnobNonReclaimedCPUSize: {Value: 8},
+						configapi.ControlKnobNonReclaimedCPURequirement: {Value: 8},
 					},
 				},
 				{
 					poolName:      "isolation-NUMA1",
-					poolType:      types.QoSRegionTypeIsolation,
+					poolType:      configapi.QoSRegionTypeIsolation,
 					numa:          machine.NewCPUSet(1),
 					isNumaBinding: true,
 					provision: types.ControlKnob{
-						types.ControlKnobNonReclaimedCPUSizeUpper: {Value: 8},
-						types.ControlKnobNonReclaimedCPUSizeLower: {Value: 4},
+						configapi.ControlKnobNonReclaimedCPURequirementUpper: {Value: 8},
+						configapi.ControlKnobNonReclaimedCPURequirementLower: {Value: 4},
 					},
 				},
 				{
 					poolName:      "isolation-NUMA1-pod2",
-					poolType:      types.QoSRegionTypeIsolation,
+					poolType:      configapi.QoSRegionTypeIsolation,
 					numa:          machine.NewCPUSet(1),
 					isNumaBinding: true,
 					provision: types.ControlKnob{
-						types.ControlKnobNonReclaimedCPUSizeUpper: {Value: 8},
-						types.ControlKnobNonReclaimedCPUSizeLower: {Value: 4},
+						configapi.ControlKnobNonReclaimedCPURequirementUpper: {Value: 8},
+						configapi.ControlKnobNonReclaimedCPURequirementLower: {Value: 4},
 					},
 				},
 			},
-			expect: map[string]map[int]int{
+			expectPoolEntries: map[string]map[int]int{
 				"share": {
 					-1: 6,
 				},
@@ -674,55 +682,55 @@ func TestAssembleProvision(t *testing.T) {
 			poolInfos: []testCasePoolConfig{
 				{
 					poolName:      "share",
-					poolType:      types.QoSRegionTypeShare,
+					poolType:      configapi.QoSRegionTypeShare,
 					numa:          machine.NewCPUSet(0),
 					isNumaBinding: false,
 					provision: types.ControlKnob{
-						types.ControlKnobNonReclaimedCPUSize: {Value: 6},
+						configapi.ControlKnobNonReclaimedCPURequirement: {Value: 6},
 					},
 				},
 				{
 					poolName:      "share-NUMA1",
-					poolType:      types.QoSRegionTypeShare,
+					poolType:      configapi.QoSRegionTypeShare,
 					numa:          machine.NewCPUSet(1),
 					isNumaBinding: true,
 					provision: types.ControlKnob{
-						types.ControlKnobNonReclaimedCPUSize: {Value: 8},
+						configapi.ControlKnobNonReclaimedCPURequirement: {Value: 8},
 					},
 				},
 				{
 					poolName:      "isolation-NUMA1",
-					poolType:      types.QoSRegionTypeIsolation,
+					poolType:      configapi.QoSRegionTypeIsolation,
 					numa:          machine.NewCPUSet(1),
 					isNumaBinding: true,
 					provision: types.ControlKnob{
-						types.ControlKnobNonReclaimedCPUSizeUpper: {Value: 8},
-						types.ControlKnobNonReclaimedCPUSizeLower: {Value: 4},
+						configapi.ControlKnobNonReclaimedCPURequirementUpper: {Value: 8},
+						configapi.ControlKnobNonReclaimedCPURequirementLower: {Value: 4},
 					},
 				},
 				{
 					poolName:      "isolation-NUMA1-pod2",
-					poolType:      types.QoSRegionTypeIsolation,
+					poolType:      configapi.QoSRegionTypeIsolation,
 					numa:          machine.NewCPUSet(1),
 					isNumaBinding: true,
 					provision: types.ControlKnob{
-						types.ControlKnobNonReclaimedCPUSizeUpper: {Value: 8},
-						types.ControlKnobNonReclaimedCPUSizeLower: {Value: 4},
+						configapi.ControlKnobNonReclaimedCPURequirementUpper: {Value: 8},
+						configapi.ControlKnobNonReclaimedCPURequirementLower: {Value: 4},
 					},
 				},
 			},
-			expect: map[string]map[int]int{
+			expectPoolEntries: map[string]map[int]int{
 				"share": {
 					-1: 20,
 				},
 				"share-NUMA1": {
-					1: 10,
+					1: 12,
 				},
 				"isolation-NUMA1": {
-					1: 5,
+					1: 4,
 				},
 				"isolation-NUMA1-pod2": {
-					1: 5,
+					1: 4,
 				},
 				"reserve": {
 					-1: 0,
@@ -731,6 +739,186 @@ func TestAssembleProvision(t *testing.T) {
 					-1: 4,
 					1:  4,
 				},
+			},
+		},
+		{
+			name:                                  "share and isolated pool not throttled, overlap reclaimed cores",
+			enableReclaimed:                       true,
+			allowSharedCoresOverlapReclaimedCores: true,
+			poolInfos: []testCasePoolConfig{
+				{
+					poolName:      "share",
+					poolType:      configapi.QoSRegionTypeShare,
+					numa:          machine.NewCPUSet(0),
+					isNumaBinding: false,
+					provision: types.ControlKnob{
+						configapi.ControlKnobNonReclaimedCPURequirement: {Value: 6},
+					},
+				},
+				{
+					poolName:      "share-NUMA1",
+					poolType:      configapi.QoSRegionTypeShare,
+					numa:          machine.NewCPUSet(1),
+					isNumaBinding: true,
+					provision: types.ControlKnob{
+						configapi.ControlKnobNonReclaimedCPURequirement: {Value: 8},
+					},
+				},
+				{
+					poolName:      "isolation-NUMA1",
+					poolType:      configapi.QoSRegionTypeIsolation,
+					numa:          machine.NewCPUSet(1),
+					isNumaBinding: true,
+					provision: types.ControlKnob{
+						configapi.ControlKnobNonReclaimedCPURequirementUpper: {Value: 8},
+						configapi.ControlKnobNonReclaimedCPURequirementLower: {Value: 4},
+					},
+				},
+				{
+					poolName:      "isolation-NUMA1-pod2",
+					poolType:      configapi.QoSRegionTypeIsolation,
+					numa:          machine.NewCPUSet(1),
+					isNumaBinding: true,
+					provision: types.ControlKnob{
+						configapi.ControlKnobNonReclaimedCPURequirementUpper: {Value: 8},
+						configapi.ControlKnobNonReclaimedCPURequirementLower: {Value: 4},
+					},
+				},
+			},
+			expectPoolEntries: map[string]map[int]int{
+				"share": {
+					-1: 24,
+				},
+				"share-NUMA1": {
+					1: 8,
+				},
+				"isolation-NUMA1": {
+					1: 8,
+				},
+				"isolation-NUMA1-pod2": {
+					1: 8,
+				},
+				"reserve": {
+					-1: 0,
+				},
+				"reclaim": {
+					-1: 18,
+					1:  4,
+				},
+			},
+			expectPoolOverlapInfo: map[string]map[int]map[string]int{
+				"reclaim": {-1: map[string]int{"share": 18}, 1: map[string]int{"share-NUMA1": 4}},
+			},
+		},
+		{
+			name:                                  "share and isolated pool not throttled, overlap reclaimed cores, reclaim disabled",
+			enableReclaimed:                       false,
+			allowSharedCoresOverlapReclaimedCores: true,
+			poolInfos: []testCasePoolConfig{
+				{
+					poolName:      "share",
+					poolType:      configapi.QoSRegionTypeShare,
+					numa:          machine.NewCPUSet(0),
+					isNumaBinding: false,
+					provision: types.ControlKnob{
+						configapi.ControlKnobNonReclaimedCPURequirement: {Value: 6},
+					},
+				},
+				{
+					poolName:      "share-NUMA1",
+					poolType:      configapi.QoSRegionTypeShare,
+					numa:          machine.NewCPUSet(1),
+					isNumaBinding: true,
+					provision: types.ControlKnob{
+						configapi.ControlKnobNonReclaimedCPURequirement: {Value: 8},
+					},
+				},
+				{
+					poolName:      "isolation-NUMA1",
+					poolType:      configapi.QoSRegionTypeIsolation,
+					numa:          machine.NewCPUSet(1),
+					isNumaBinding: true,
+					provision: types.ControlKnob{
+						configapi.ControlKnobNonReclaimedCPURequirementUpper: {Value: 8},
+						configapi.ControlKnobNonReclaimedCPURequirementLower: {Value: 4},
+					},
+				},
+				{
+					poolName:      "isolation-NUMA1-pod2",
+					poolType:      configapi.QoSRegionTypeIsolation,
+					numa:          machine.NewCPUSet(1),
+					isNumaBinding: true,
+					provision: types.ControlKnob{
+						configapi.ControlKnobNonReclaimedCPURequirementUpper: {Value: 8},
+						configapi.ControlKnobNonReclaimedCPURequirementLower: {Value: 4},
+					},
+				},
+			},
+			expectPoolEntries: map[string]map[int]int{
+				"share": {
+					-1: 24,
+				},
+				"share-NUMA1": {
+					1: 8,
+				},
+				"isolation-NUMA1": {
+					1: 8,
+				},
+				"isolation-NUMA1-pod2": {
+					1: 8,
+				},
+				"reserve": {
+					-1: 0,
+				},
+				"reclaim": {
+					-1: 4,
+					1:  4,
+				},
+			},
+			expectPoolOverlapInfo: map[string]map[int]map[string]int{
+				"reclaim": {-1: map[string]int{"share": 4}, 1: map[string]int{"share-NUMA1": 4}},
+			},
+		},
+		{
+			name:                                  "share and bach pool non binding NUMAs, overlap reclaimed cores",
+			enableReclaimed:                       true,
+			allowSharedCoresOverlapReclaimedCores: true,
+			poolInfos: []testCasePoolConfig{
+				{
+					poolName:      "share-a",
+					poolType:      configapi.QoSRegionTypeShare,
+					numa:          machine.NewCPUSet(0, 1),
+					isNumaBinding: false,
+					provision: types.ControlKnob{
+						configapi.ControlKnobNonReclaimedCPURequirement: {Value: 6},
+					},
+				},
+				{
+					poolName:      "share-b",
+					poolType:      configapi.QoSRegionTypeShare,
+					numa:          machine.NewCPUSet(0, 1),
+					isNumaBinding: false,
+					provision: types.ControlKnob{
+						configapi.ControlKnobNonReclaimedCPURequirement: {Value: 8},
+					},
+				},
+			},
+			expectPoolEntries: map[string]map[int]int{
+				"share-a": {
+					-1: 21,
+				},
+				"share-b": {
+					-1: 27,
+				},
+				"reserve": {
+					-1: 0,
+				},
+				"reclaim": {
+					-1: 34,
+				},
+			},
+			expectPoolOverlapInfo: map[string]map[int]map[string]int{
+				"reclaim": {-1: map[string]int{"share-a": 15, "share-b": 19}},
 			},
 		},
 	}
@@ -745,14 +933,12 @@ func TestAssembleProvision(t *testing.T) {
 		1: 20,
 	}
 
-	nonBindingNumas := machine.NewCPUSet(0)
-
-	for i := range tests {
-		test := tests[i]
-		t.Run(test.name, func(t *testing.T) {
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			conf := generateTestConf(t, test.enableReclaimed)
+			conf := generateTestConf(t, tt.enableReclaimed)
 
 			genericCtx, err := katalyst_base.GenerateFakeGenericContext([]runtime.Object{})
 			require.NoError(t, err)
@@ -767,8 +953,13 @@ func TestAssembleProvision(t *testing.T) {
 			metaCache, err := metacache.NewMetaCacheImp(conf, metricspool.DummyMetricsEmitterPool{}, metric.NewFakeMetricsFetcher(metrics.DummyMetrics{}))
 			require.NoError(t, err)
 
+			nonBindingNumas := machine.NewCPUSet()
+			for numaID := range numaAvailable {
+				nonBindingNumas.Add(numaID)
+			}
+
 			regionMap := map[string]region.QoSRegion{}
-			for _, poolConfig := range test.poolInfos {
+			for _, poolConfig := range tt.poolInfos {
 				poolInfo, ok := poolInfos[poolConfig.poolName]
 				require.True(t, ok, "pool config doesn't exist")
 				require.NoError(t, metaCache.SetPoolInfo(poolInfo.PoolName, &poolInfo), "failed to set pool info %s", poolInfo.PoolName)
@@ -779,14 +970,21 @@ func TestAssembleProvision(t *testing.T) {
 				region.TryUpdateProvision()
 				require.Equal(t, poolConfig.isNumaBinding, region.IsNumaBinding(), "invalid numa binding state")
 				regionMap[region.name] = region
+
+				if region.IsNumaBinding() {
+					nonBindingNumas = nonBindingNumas.Difference(region.GetBindingNumas())
+				}
 			}
 
-			common := NewProvisionAssemblerCommon(conf, nil, &regionMap, &reservedForReclaim, &numaAvailable, &nonBindingNumas, metaCache, metaServer, metrics.DummyMetrics{})
+			common := NewProvisionAssemblerCommon(conf, nil, &regionMap, &reservedForReclaim, &numaAvailable, &nonBindingNumas, &tt.allowSharedCoresOverlapReclaimedCores, metaCache, metaServer, metrics.DummyMetrics{})
 			result, err := common.AssembleProvision()
 			require.NoErrorf(t, err, "failed to AssembleProvision: %s", err)
 			require.NotNil(t, result, "invalid assembler result")
 			t.Logf("%v", result)
-			require.Equal(t, test.expect, result.PoolEntries, "unexpected result")
+			require.Equal(t, tt.expectPoolEntries, result.PoolEntries, "unexpected result")
+			if len(tt.expectPoolOverlapInfo) > 0 {
+				require.Equal(t, tt.expectPoolOverlapInfo, result.PoolOverlapInfo, "unexpected result")
+			}
 		})
 	}
 }
@@ -803,8 +1001,8 @@ func generateTestConf(t *testing.T, enableReclaim bool) *config.Configuration {
 	conf.GenericSysAdvisorConfiguration.StateFileDirectory = stateFileDir
 	conf.MetaServerConfiguration.CheckpointManagerDir = checkpointDir
 	conf.CPUShareConfiguration.RestrictRefPolicy = nil
-	conf.CPUAdvisorConfiguration.ProvisionPolicies = map[types.QoSRegionType][]types.CPUProvisionPolicyName{
-		types.QoSRegionTypeShare: {types.CPUProvisionPolicyCanonical},
+	conf.CPUAdvisorConfiguration.ProvisionPolicies = map[configapi.QoSRegionType][]types.CPUProvisionPolicyName{
+		configapi.QoSRegionTypeShare: {types.CPUProvisionPolicyCanonical},
 	}
 	conf.GetDynamicConfiguration().EnableReclaim = enableReclaim
 	return conf

@@ -17,6 +17,7 @@ limitations under the License.
 package cpu
 
 import (
+	"github.com/kubewharf/katalyst-api/pkg/apis/config/v1alpha1"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/sysadvisor/qosaware/resource/cpu/headroom"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/sysadvisor/qosaware/resource/cpu/provision"
@@ -25,8 +26,8 @@ import (
 
 // CPUAdvisorConfiguration stores configurations of cpu advisors in qos aware plugin
 type CPUAdvisorConfiguration struct {
-	ProvisionPolicies  map[types.QoSRegionType][]types.CPUProvisionPolicyName
-	HeadroomPolicies   map[types.QoSRegionType][]types.CPUHeadroomPolicyName
+	ProvisionPolicies  map[v1alpha1.QoSRegionType][]types.CPUProvisionPolicyName
+	HeadroomPolicies   map[v1alpha1.QoSRegionType][]types.CPUHeadroomPolicyName
 	ProvisionAssembler types.CPUProvisionAssemblerName
 	HeadroomAssembler  types.CPUHeadroomAssemblerName
 
@@ -39,8 +40,8 @@ type CPUAdvisorConfiguration struct {
 // NewCPUAdvisorConfiguration creates new cpu advisor configurations
 func NewCPUAdvisorConfiguration() *CPUAdvisorConfiguration {
 	return &CPUAdvisorConfiguration{
-		ProvisionPolicies:               map[types.QoSRegionType][]types.CPUProvisionPolicyName{},
-		HeadroomPolicies:                map[types.QoSRegionType][]types.CPUHeadroomPolicyName{},
+		ProvisionPolicies:               map[v1alpha1.QoSRegionType][]types.CPUProvisionPolicyName{},
+		HeadroomPolicies:                map[v1alpha1.QoSRegionType][]types.CPUHeadroomPolicyName{},
 		ProvisionAssembler:              types.CPUProvisionAssemblerCommon,
 		HeadroomAssembler:               types.CPUHeadroomAssemblerCommon,
 		CPUHeadroomPolicyConfiguration:  headroom.NewCPUHeadroomPolicyConfiguration(),
