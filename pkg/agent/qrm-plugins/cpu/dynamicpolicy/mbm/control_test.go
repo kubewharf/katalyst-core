@@ -26,6 +26,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
+	"github.com/kubewharf/katalyst-core/pkg/mbw/monitor"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric/types"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/external/mbm"
@@ -193,13 +194,13 @@ type dummyMBAdjuster struct {
 	sharesToAdjust     map[int]uint64
 }
 
-func (d *dummyMBAdjuster) AdjustNumaMB(node int, avgMB, quota uint64, action mbm.MB_CONTROL_ACTION) error {
+func (d *dummyMBAdjuster) AdjustNumaMB(node int, avgMB, quota uint64, action monitor.MB_CONTROL_ACTION) error {
 	switch action {
-	case mbm.MEMORY_BANDWIDTH_CONTROL_REDUCE:
+	case monitor.MEMORY_BANDWIDTH_CONTROL_REDUCE:
 		d.calledToReduce = true
-	case mbm.MEMORY_BANDWIDTH_CONTROL_RAISE:
+	case monitor.MEMORY_BANDWIDTH_CONTROL_RAISE:
 		d.calledToRaise = true
-	case mbm.MEMORY_BANDWIDTH_CONTROL_UNTHROTTLE:
+	case monitor.MEMORY_BANDWIDTH_CONTROL_UNTHROTTLE:
 		d.calledToUnthrottle = true
 	}
 	d.sharesToAdjust[node] = quota

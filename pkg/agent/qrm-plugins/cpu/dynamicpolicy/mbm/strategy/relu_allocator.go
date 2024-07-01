@@ -41,6 +41,7 @@ func (r reluAllocator) reluCalcShares(targetDeduction float64, useGroups GroupMB
 	// knowing the total noises (also the noise-makers), we should be able to decide the share to decrease
 	shares := make([]map[int]float64, len(useGroups))
 	for i, uses := range useGroups {
+		// todo: consider punishing group exceeding its profiling value, since some pods use more mem bw than others reasonably.
 		groupFairAmount := fairAverage * float64(len(uses))
 		var groupCurrAmount float64
 		for _, use := range uses {

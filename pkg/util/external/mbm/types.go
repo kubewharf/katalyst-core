@@ -16,14 +16,27 @@ limitations under the License.
 
 package mbm
 
-type MB_CONTROL_ACTION int
+import (
+	"errors"
 
-const (
-	MEMORY_BANDWIDTH_CONTROL_RAISE      MB_CONTROL_ACTION = 1
-	MEMORY_BANDWIDTH_CONTROL_REDUCE     MB_CONTROL_ACTION = 2
-	MEMORY_BANDWIDTH_CONTROL_UNTHROTTLE MB_CONTROL_ACTION = 3
+	"github.com/kubewharf/katalyst-core/pkg/mbw/monitor"
+	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric/provisioner/mbw"
 )
 
 type MBAdjuster interface {
-	AdjustNumaMB(node int, avgMB, quota uint64, action MB_CONTROL_ACTION) error
+	AdjustNumaMB(node int, avgMB, quota uint64, action monitor.MB_CONTROL_ACTION) error
+}
+
+type dummyMBAdjuster struct{}
+
+func (d dummyMBAdjuster) AdjustNumaMB(node int, avgMB, quota uint64, action monitor.MB_CONTROL_ACTION) error {
+	return errors.New("low level mbw not enabled")
+}
+
+func NewMBAdjuster() MBAdjuster {
+	if adjuster := mbw.GetMBWMonitor(); adjuster != nil {
+		return adjuster
+	}
+
+	return &dummyMBAdjuster{}
 }

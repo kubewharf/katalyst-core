@@ -17,6 +17,8 @@ limitations under the License.
 package strategy
 
 type ShareAllocator interface {
+	// caller (mbm controller) should make sure packageMB > mbThreshold when  AllocateDeductions is called
 	AllocateDeductions(activeGroupMBs GroupMBs, packageMB, mbThreshold float64) []map[int]float64
+	// caller (mbm controller) should make sure packageMB < mbThreshold when  AllocateIncreases is called
 	AllocateIncreases(throttleds GroupMB, activeGroupMBs GroupMBs, packageMB, mbThreshold float64) map[int]float64
 }
