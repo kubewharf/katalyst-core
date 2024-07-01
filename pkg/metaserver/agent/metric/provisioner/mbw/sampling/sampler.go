@@ -21,6 +21,7 @@ import (
 	"errors"
 	"time"
 
+	"github.com/kubewharf/katalyst-core/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	utilmetric "github.com/kubewharf/katalyst-core/pkg/util/metric"
 )
@@ -55,15 +56,15 @@ func (m mbwSampler) Sample(ctx context.Context) {
 
 	// write per-NUMA memory-bandwidth
 	for i, numaMB := range m.monitor.GetMemoryBandwidthOfNUMAs() {
-		m.metricStore.SetNumaMetric(i, "mb-mbps",
+		m.metricStore.SetNumaMetric(i, consts.MetricMemBandwidthFinerNuma,
 			utilmetric.MetricData{Value: float64(numaMB.Total), Time: &now})
 	}
 
 	// write per-package memory-bandwidth - Read & Write Bandwidth [r/w ratio]
 	for i, packageMB := range m.monitor.GetMemoryBandwidthOfPackages() {
-		m.metricStore.SetPackageMetric(i, "rw-mbps",
+		m.metricStore.SetPackageMetric(i, consts.MetricMemBandwidthRWPackage,
 			utilmetric.MetricData{Value: float64(packageMB.Total), Time: &now})
-		m.metricStore.SetPackageMetric(i, "rw-ratio",
+		m.metricStore.SetPackageMetric(i, consts.MetricMemBandwidthRWRatioPackage,
 			utilmetric.MetricData{Value: float64(packageMB.RMB_Delta) / float64(packageMB.WMB_Delta), Time: &now})
 	}
 
@@ -79,7 +80,7 @@ func (m mbwSampler) Sample(ctx context.Context) {
 		for i := 0; i < len(packageNUMA); i++ {
 			for _, node := range packageNUMA[i] {
 				latency := averageLatency(numaInPackage, numaCCD[node], ccdL3Latency)
-				m.metricStore.SetNumaMetric(node, "l3-pmc",
+				m.metricStore.SetNumaMetric(node, consts.MetricMemL3PMCNuma,
 					utilmetric.MetricData{Value: latency, Time: &now})
 			}
 		}

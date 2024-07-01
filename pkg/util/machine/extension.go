@@ -18,6 +18,7 @@ package machine
 
 import (
 	"fmt"
+	"sort"
 
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 )
@@ -119,17 +120,33 @@ func (s *KatalystMachineInfo) GetPkgByNuma(numa int) int {
 	return -1
 }
 
-func (s *KatalystMachineInfo) GetPackageMap(numasPerPackage int) map[int][]int {
-	pMap := make(map[int][]int, s.NumPackages)
-	for i := 0; i < s.NumPackages; i++ {
-		numas := []int{}
-		for j := 0; j < numasPerPackage; j++ {
-			numas = append(numas, i*numasPerPackage+j)
+// GetPackageMap derives relationship of package and numa nodes, based on known SiblingNumaInfo.SiblingNumaMap
+func (s *KatalystMachineInfo) GetPackageMap() map[int][]int {
+	// numa ids of a package are consecutive, i.e. numa 3,4,5 are of package 1 (assuming each package has 3 numa nodes)
+	// hence package 1 related SiblingNumaInfo's records are
+	// 3: {4, 5}
+	// 4: {3, 5}
+	// 5: {3, 4}
+	numasPerPackage := s.SiblingNumaMap[0].Len() + 1
+
+	numasInPackages := make(map[int][]int)
+	for node, siblings := range s.SiblingNumaMap {
+		packageID := node / numasPerPackage
+		if _, ok := numasInPackages[packageID]; ok {
+			// already populated
+			continue
 		}
-		pMap[i] = numas
+
+		nodes := []int{node}
+		for sibling := range siblings {
+			nodes = append(nodes, sibling)
+		}
+
+		sort.Ints(nodes)
+		numasInPackages[packageID] = nodes
 	}
 
-	return pMap
+	return numasInPackages
 }
 
 func (s *KatalystMachineInfo) GetNumaCCDMap() (map[int][]int, error) {

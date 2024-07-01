@@ -19,16 +19,28 @@ package monitor
 import (
 	"fmt"
 
-	mbmplugin "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/mbm"
 	msrutils "github.com/kubewharf/katalyst-core/pkg/mbw/utils/msr"
 	"github.com/kubewharf/katalyst-core/pkg/mbw/utils/rdt"
-	"github.com/kubewharf/katalyst-core/pkg/util/external/mbm"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 )
+
+type MB_CONTROL_ACTION int
 
 const (
 	BW_LEN                = 11
 	L3QOS_BW_CONTROL_BASE = 0xc0000200
+
+	// controlling hype-parameters in percentage
+	MEMORY_BANDWIDTH_PHYSICAL_NUMA_PAINPOINT       = 105
+	MEMORY_BANDWIDTH_PHYSICAL_NUMA_SWEETPOINT      = 95
+	MEMORY_BANDWIDTH_PHYSICAL_NUMA_UNTHROTTLEPOINT = 80
+
+	MEMORY_BANDWIDTH_INCREASE_MIN = 256 // the minimum incremental value
+	MEMORY_BANDWIDTH_DECREASE_MIN = 512 // the minimum decremental value
+
+	MEMORY_BANDWIDTH_CONTROL_RAISE      MB_CONTROL_ACTION = 1
+	MEMORY_BANDWIDTH_CONTROL_REDUCE     MB_CONTROL_ACTION = 2
+	MEMORY_BANDWIDTH_CONTROL_UNTHROTTLE MB_CONTROL_ACTION = 3
 )
 
 // ResetMBACos is critical for MB adjusting, should be called only once
@@ -111,7 +123,7 @@ func (m MBMonitor) ConfigCCDMBACos(ccd, cos, ul int, max uint64) error {
 	return nil
 }
 
-func (m *MBMonitor) AdjustNumaMB(node int, avgMB, quota uint64, action mbm.MB_CONTROL_ACTION) error {
+func (m *MBMonitor) AdjustNumaMB(node int, avgMB, quota uint64, action MB_CONTROL_ACTION) error {
 	m.MemoryBandwidth.PackageLocker.RLock()
 	defer m.MemoryBandwidth.PackageLocker.RUnlock()
 
@@ -120,9 +132,9 @@ func (m *MBMonitor) AdjustNumaMB(node int, avgMB, quota uint64, action mbm.MB_CO
 	ccdQuota := quota / uint64(len(m.NumaMap[node]))
 
 	if m.MemoryBandwidth.Numas[node].Total <=
-		uint64(float64(avgMB)*mbmplugin.MEMORY_BANDWIDTH_PHYSICAL_NUMA_PAINPOINT) &&
-		action != mbm.MEMORY_BANDWIDTH_CONTROL_UNTHROTTLE {
-		action = mbm.MEMORY_BANDWIDTH_CONTROL_UNTHROTTLE
+		uint64(float64(avgMB)*MEMORY_BANDWIDTH_PHYSICAL_NUMA_PAINPOINT) &&
+		action != MEMORY_BANDWIDTH_CONTROL_UNTHROTTLE {
+		action = MEMORY_BANDWIDTH_CONTROL_UNTHROTTLE
 	}
 
 	for _, ccd := range m.NumaMap[node] {
@@ -138,20 +150,20 @@ func (m *MBMonitor) AdjustNumaMB(node int, avgMB, quota uint64, action mbm.MB_CO
 		// ingore the hybird deployment for now
 		if entry.Used {
 			switch action {
-			case mbm.MEMORY_BANDWIDTH_CONTROL_RAISE:
+			case MEMORY_BANDWIDTH_CONTROL_RAISE:
 				if entry.Cap == 0 {
 					entry.Cap = ccdMB + ccdQuota
 				} else {
 					entry.Cap += ccdQuota
 				}
-			case mbm.MEMORY_BANDWIDTH_CONTROL_REDUCE:
+			case MEMORY_BANDWIDTH_CONTROL_REDUCE:
 				// workaround based on the experience: 1) MBA setting = (current_MB - quota) x 1.25
 				if entry.Cap == 0 {
 					entry.Cap = (ccdMB - ccdQuota) * 5 / 4
 				} else {
 					entry.Cap -= ccdQuota / 2
 				}
-			case mbm.MEMORY_BANDWIDTH_CONTROL_UNTHROTTLE:
+			case MEMORY_BANDWIDTH_CONTROL_UNTHROTTLE:
 				entry.Cap = 0
 				ul = 1
 			}
@@ -165,7 +177,7 @@ func (m *MBMonitor) AdjustNumaMB(node int, avgMB, quota uint64, action mbm.MB_CO
 			// reassign the entry because the myMap["key"] is not "addressable"
 			m.Controller.CCDCosMap[ccd][cos] = entry
 
-			if action == mbm.MEMORY_BANDWIDTH_CONTROL_REDUCE || action == mbm.MEMORY_BANDWIDTH_CONTROL_RAISE {
+			if action == MEMORY_BANDWIDTH_CONTROL_REDUCE || action == MEMORY_BANDWIDTH_CONTROL_RAISE {
 				m.Controller.NumaThrottled[node] = true
 				general.Infof("adjust ccd %d to target throttling %d, current MB: %d", ccd, entry.Cap, ccdMB)
 			} else {

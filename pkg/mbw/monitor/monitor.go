@@ -61,7 +61,7 @@ func newExtKatalystMachineInfo(machineInfoConfig *global.MachineInfoConfiguratio
 	numasPerPackage := info.ExtraTopologyInfo.SiblingNumaMap[0].Len() + 1
 	info.NumPackages = info.NumNUMANodes / numasPerPackage
 	info.PackagePerSocket = info.NumPackages / info.MachineInfo.NumSockets
-	info.PackageMap = info.GetPackageMap(numasPerPackage)
+	info.PackageMap = info.GetPackageMap()
 
 	info.CCDMap, err = utils.GetCCDTopology(info.NumNUMANodes)
 	if err != nil {
