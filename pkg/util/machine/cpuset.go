@@ -220,6 +220,17 @@ func (s CPUSet) ToSliceInt() []int {
 	return result
 }
 
+// ToSliceInt returns an resersely ordered slice of int that contains
+// all elements from this set
+func (s CPUSet) ToSliceIntReversely() []int {
+	result := []int{}
+	for cpu := range s.elems {
+		result = append(result, cpu)
+	}
+	sort.Sort(sort.Reverse(sort.IntSlice(result)))
+	return result
+}
+
 // ToSliceInt64 returns an ordered slice of int64 that contains
 // all elements from this set
 func (s CPUSet) ToSliceInt64() []int64 {

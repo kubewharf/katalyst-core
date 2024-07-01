@@ -2809,6 +2809,23 @@ func TestGetResourcesAllocation(t *testing.T) {
 	}
 
 	dynamicPolicy.state.SetAllowSharedCoresOverlapReclaimedCores(true)
+	dynamicPolicy.dynamicConfig.GetDynamicConfiguration().EnableReclaim = true
+	dynamicPolicy.state.SetAllocationInfo(state.PoolNameReclaim, "", &state.AllocationInfo{
+		PodUid:                   state.PoolNameReclaim,
+		OwnerPoolName:            state.PoolNameReclaim,
+		AllocationResult:         machine.MustParse("1,3,4-5"),
+		OriginalAllocationResult: machine.MustParse("1,3,4-5"),
+		TopologyAwareAssignments: map[int]machine.CPUSet{
+			0: machine.NewCPUSet(1),
+			1: machine.NewCPUSet(3),
+			2: machine.NewCPUSet(4, 5),
+		},
+		OriginalTopologyAwareAssignments: map[int]machine.CPUSet{
+			0: machine.NewCPUSet(1),
+			1: machine.NewCPUSet(3),
+			2: machine.NewCPUSet(4, 5),
+		},
+	})
 	_, err = dynamicPolicy.Allocate(context.Background(), req)
 	as.Nil(err)
 
@@ -2833,8 +2850,12 @@ func TestGetResourcesAllocation(t *testing.T) {
 		IsNodeResource:    false,
 		IsScalarResource:  true,
 		AllocatedQuantity: 14,
-		AllocationResult:  machine.NewCPUSet(1, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 15).String(),
+		AllocationResult:  machine.NewCPUSet(1, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15).String(),
 	}, resp3.PodResources[req.PodUid].ContainerResources[testName].ResourceAllocation[string(v1.ResourceCPU)])
+
+	reclaimEntry := dynamicPolicy.state.GetAllocationInfo(state.PoolNameReclaim, "")
+	as.NotNil(reclaimEntry)
+	as.Equal(6, reclaimEntry.AllocationResult.Size()) // ceil("14 * (4 / 10)") == 6
 }
 
 func TestAllocateByQoSAwareServerListAndWatchResp(t *testing.T) {

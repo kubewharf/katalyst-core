@@ -1241,8 +1241,10 @@ func (p *DynamicPolicy) generatePoolsAndIsolation(poolsQuantityMap map[string]ma
 
 				req := int(math.Ceil(float64(cset.Size()) * ratio))
 
+				// if p.state.GetAllowSharedCoresOverlapReclaimedCores() == false, we will take cpus for reclaim pool lastly,
+				// else we also should take cpus for reclaim pool reversely overlapping with share type pool to aviod cpuset jumping obviously
 				var tErr error
-				overlapCPUs, _, tErr := calculator.TakeByNUMABalance(p.machineInfo, cset, req)
+				overlapCPUs, _, tErr := calculator.TakeByNUMABalanceReversely(p.machineInfo, cset, req)
 				if tErr != nil {
 					err = fmt.Errorf("take overlapCPUs from: %s to %s by ratio: %.4f failed with err: %v",
 						poolName, state.PoolNameReclaim, ratio, tErr)
