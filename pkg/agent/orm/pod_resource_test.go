@@ -32,7 +32,7 @@ func TestPodResources(t *testing.T) {
 
 	podResource := newPodResourcesChk()
 
-	resourceAllocationInfo := generateResourceAllocationInfo()
+	resourceAllocationInfo := generateCpuSetCpusAllocationInfo()
 
 	podResource.insert("testPod", "testContainer", "cpu", resourceAllocationInfo)
 
@@ -155,13 +155,26 @@ func TestCheckpointMarshal(t *testing.T) {
 	assert.NoError(t, err)
 }
 
-func generateResourceAllocationInfo() *pluginapi.ResourceAllocationInfo {
+func generateCpuSetCpusAllocationInfo() *pluginapi.ResourceAllocationInfo {
 	return &pluginapi.ResourceAllocationInfo{
 		OciPropertyName:   "CpusetCpus",
 		IsNodeResource:    true,
 		IsScalarResource:  true,
 		AllocatedQuantity: 3,
 		AllocationResult:  "5-6,10",
+		Envs:              map[string]string{"mock_key": "mock_env"},
+		Annotations:       map[string]string{"mock_key": "mock_ano"},
+		ResourceHints:     &pluginapi.ListOfTopologyHints{},
+	}
+}
+
+func generateCpuSetMemsAllocationInfo() *pluginapi.ResourceAllocationInfo {
+	return &pluginapi.ResourceAllocationInfo{
+		OciPropertyName:   "CpusetMems",
+		IsNodeResource:    true,
+		IsScalarResource:  true,
+		AllocatedQuantity: 3,
+		AllocationResult:  "7-8,11",
 		Envs:              map[string]string{"mock_key": "mock_env"},
 		Annotations:       map[string]string{"mock_key": "mock_ano"},
 		ResourceHints:     &pluginapi.ListOfTopologyHints{},

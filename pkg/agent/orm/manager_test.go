@@ -43,6 +43,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/orm/topology"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/config/generic"
+	"github.com/kubewharf/katalyst-core/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/pod"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
@@ -99,6 +100,7 @@ func TestProcess(t *testing.T) {
 
 	m := &ManagerImpl{
 		ctx:               ctx,
+		mode:              consts.WorkModeBypass,
 		endpoints:         map[string]endpoint.EndpointInfo{},
 		socketdir:         "/tmp/process",
 		metaManager:       metamanager,
@@ -182,6 +184,7 @@ func TestReconcile(t *testing.T) {
 	assert.NoError(t, err)
 
 	m := &ManagerImpl{
+		mode:        consts.WorkModeBypass,
 		endpoints:   map[string]endpoint.EndpointInfo{},
 		socketdir:   "/tmp/reconcile",
 		metaManager: metamanager,
@@ -366,6 +369,7 @@ func TestRun(t *testing.T) {
 	assert.NoError(t, err)
 
 	m := &ManagerImpl{
+		mode:            consts.WorkModeBypass,
 		reconcilePeriod: 2 * time.Second,
 		endpoints:       map[string]endpoint.EndpointInfo{},
 		socketdir:       "/tmp/run",

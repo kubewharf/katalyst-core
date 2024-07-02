@@ -22,10 +22,12 @@ import (
 	cliflag "k8s.io/component-base/cli/flag"
 
 	ormconfig "github.com/kubewharf/katalyst-core/pkg/config/agent/orm"
+	"github.com/kubewharf/katalyst-core/pkg/consts"
 )
 
 type GenericORMPluginOptions struct {
-	ORMRconcilePeriod               time.Duration
+	ORMWorkMode                     consts.WorkMode
+	ORMReconcilePeriod              time.Duration
 	ORMResourceNamesMap             map[string]string
 	ORMPodNotifyChanLen             int
 	TopologyPolicyName              string
@@ -33,11 +35,16 @@ type GenericORMPluginOptions struct {
 	ORMPodResourcesSocket           string
 	ORMDevicesProvider              string
 	ORMKubeletPodResourcesEndpoints []string
+	ORMNRISocketPath                string
+	ORMNRIPluginName                string
+	ORMNRIPluginIndex               string
+	ORMNRIHandleEvents              string
 }
 
 func NewGenericORMPluginOptions() *GenericORMPluginOptions {
 	return &GenericORMPluginOptions{
-		ORMRconcilePeriod:               time.Second * 5,
+		ORMWorkMode:                     consts.WorkModeBypass,
+		ORMReconcilePeriod:              time.Second * 5,
 		ORMResourceNamesMap:             map[string]string{},
 		ORMPodNotifyChanLen:             10,
 		TopologyPolicyName:              "",
@@ -45,14 +52,19 @@ func NewGenericORMPluginOptions() *GenericORMPluginOptions {
 		ORMPodResourcesSocket:           "unix:/var/lib/katalyst/pod-resources/kubelet.sock",
 		ORMDevicesProvider:              "",
 		ORMKubeletPodResourcesEndpoints: []string{"/var/lib/kubelet/pod-resources/kubelet.sock"},
+		ORMNRISocketPath:                "/var/run/nri/nri.sock",
+		ORMNRIPluginName:                "orm",
+		ORMNRIPluginIndex:               "00",
+		ORMNRIHandleEvents:              "RunPodSandbox,CreateContainer,UpdateContainer,RemovePodSandbox",
 	}
 }
 
 func (o *GenericORMPluginOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 	fs := fss.FlagSet("orm")
 
-	fs.DurationVar(&o.ORMRconcilePeriod, "orm-reconcile-period",
-		o.ORMRconcilePeriod, "orm resource reconcile period")
+	fs.StringVar((*string)(&o.ORMWorkMode), "orm-work-mode", string(o.ORMWorkMode), "orm work mode, nri or bypass")
+	fs.DurationVar(&o.ORMReconcilePeriod, "orm-reconcile-period",
+		o.ORMReconcilePeriod, "orm resource reconcile period")
 	fs.StringToStringVar(&o.ORMResourceNamesMap, "orm-resource-names-map", o.ORMResourceNamesMap,
 		"A set of ResourceName=ResourceQuantity pairs that map resource name during out-of-band Resource Manager allocation period. "+
 			"e.g. 'resource.katalyst.kubewharf.io/reclaimed_millicpu=cpu,resource.katalyst.kubewharf.io/reclaimed_memory=memory' "+
@@ -70,10 +82,14 @@ func (o *GenericORMPluginOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 		"devices provider provides devices resources and allocatable for ORM podResources api")
 	fs.StringSliceVar(&o.ORMKubeletPodResourcesEndpoints, "orm-kubelet-pod-resources-endpoints", o.ORMKubeletPodResourcesEndpoints,
 		"kubelet podResources endpoints for ORM kubelet devices provider")
+	fs.StringVar(&o.ORMNRIPluginName, "orm-nri-plugin-name", o.ORMNRIPluginName, "orm nri plugin name")
+	fs.StringVar(&o.ORMNRIPluginIndex, "orm-nri-plugin-index", o.ORMNRIPluginIndex, "orm nri plugin index")
+	fs.StringVar(&o.ORMNRIHandleEvents, "orm-nri-handle-events", o.ORMNRIHandleEvents, "orm nri handle events")
 }
 
 func (o *GenericORMPluginOptions) ApplyTo(conf *ormconfig.GenericORMConfiguration) error {
-	conf.ORMRconcilePeriod = o.ORMRconcilePeriod
+	conf.ORMWorkMode = o.ORMWorkMode
+	conf.ORMReconcilePeriod = o.ORMReconcilePeriod
 	conf.ORMResourceNamesMap = o.ORMResourceNamesMap
 	conf.ORMPodNotifyChanLen = o.ORMPodNotifyChanLen
 	conf.TopologyPolicyName = o.TopologyPolicyName
@@ -81,6 +97,10 @@ func (o *GenericORMPluginOptions) ApplyTo(conf *ormconfig.GenericORMConfiguratio
 	conf.ORMPodResourcesSocket = o.ORMPodResourcesSocket
 	conf.ORMDevicesProvider = o.ORMDevicesProvider
 	conf.ORMKubeletPodResourcesEndpoints = o.ORMKubeletPodResourcesEndpoints
+	conf.ORMNRISocketPath = o.ORMNRISocketPath
+	conf.ORMNRIPluginName = o.ORMNRIPluginName
+	conf.ORMNRIPluginIndex = o.ORMNRIPluginIndex
+	conf.ORMNRIHandleEvents = o.ORMNRIHandleEvents
 
 	return nil
 }

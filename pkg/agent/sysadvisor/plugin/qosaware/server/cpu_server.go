@@ -65,6 +65,9 @@ func NewCPUServer(recvCh chan types.InternalCPUCalculationResult, sendCh chan ty
 }
 
 func (cs *cpuServer) RegisterAdvisorServer() {
+	cs.mutex.Lock()
+	defer cs.mutex.Unlock()
+
 	grpcServer := grpc.NewServer()
 	cpuadvisor.RegisterCPUAdvisorServer(grpcServer, cs)
 	cs.grpcServer = grpcServer

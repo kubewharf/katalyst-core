@@ -26,12 +26,12 @@ import (
 	"sync"
 	"time"
 
+	"github.com/containerd/nri/pkg/stub"
 	"github.com/opencontainers/selinux/go-selinux"
-	"k8s.io/klog/v2"
-
 	"google.golang.org/grpc"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/wait"
+	"k8s.io/klog/v2"
 	"k8s.io/kubelet/pkg/apis/pluginregistration/v1"
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 	"k8s.io/kubernetes/pkg/kubelet/checkpointmanager"
@@ -46,7 +46,9 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/orm/topology"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/config/generic"
+	"github.com/kubewharf/katalyst-core/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
+	metaserverpod "github.com/kubewharf/katalyst-core/pkg/metaserver/agent/pod"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/bitmask"
 	cgroupmgr "github.com/kubewharf/katalyst-core/pkg/util/cgroup/manager"
@@ -56,6 +58,8 @@ import (
 
 type ManagerImpl struct {
 	ctx context.Context
+
+	mode consts.WorkMode
 
 	socketname string
 	socketdir  string
@@ -68,6 +72,13 @@ type ManagerImpl struct {
 	metaManager *metamanager.Manager
 
 	topologyManager topology.Manager
+
+	nriConf nriConfig
+	// nriStub is the implementation of NRI events handlers
+	nriStub stub.Stub
+	// nriMask stores the specific events that need to be hooked
+	nriMask    stub.EventMask
+	nriOptions []stub.Option
 
 	server *grpc.Server
 	wg     sync.WaitGroup
@@ -88,8 +99,11 @@ type ManagerImpl struct {
 	devicesProvider podresources.DevicesProvider
 }
 
-func NewManager(socketPath string, emitter metrics.MetricEmitter, metaServer *metaserver.MetaServer, config *config.Configuration) (*ManagerImpl, error) {
-	klog.V(2).Infof("new ORM..., socketPath: %v, resourceNameMap: %v, reconcilePeriod: %v", socketPath, config.ORMResourceNamesMap, config.ORMRconcilePeriod)
+func NewManager(socketPath string, emitter metrics.MetricEmitter, metaServer *metaserver.MetaServer,
+	config *config.Configuration,
+) (*ManagerImpl, error) {
+	klog.V(2).Infof("new ORM..., socketPath: %v, resourceNameMap: %v, reconcilePeriod: %v", socketPath,
+		config.ORMResourceNamesMap, config.ORMReconcilePeriod)
 
 	if socketPath == "" || !filepath.IsAbs(socketPath) {
 		return nil, fmt.Errorf(errBadSocket+" %s", socketPath)
@@ -102,6 +116,7 @@ func NewManager(socketPath string, emitter metrics.MetricEmitter, metaServer *me
 	}
 
 	m := &ManagerImpl{
+		mode:       config.ORMWorkMode,
 		socketdir:  dir,
 		socketname: file,
 
@@ -110,7 +125,7 @@ func NewManager(socketPath string, emitter metrics.MetricEmitter, metaServer *me
 		checkpointManager: checkpointManager,
 
 		resourceNamesMap: config.ORMResourceNamesMap,
-		reconcilePeriod:  config.ORMRconcilePeriod,
+		reconcilePeriod:  config.ORMReconcilePeriod,
 
 		podAddChan:        make(chan string, config.ORMPodNotifyChanLen),
 		podDeleteChan:     make(chan string, config.ORMPodNotifyChanLen),
@@ -118,11 +133,9 @@ func NewManager(socketPath string, emitter metrics.MetricEmitter, metaServer *me
 		qosConfig:         config.QoSConfiguration,
 		podResourceSocket: config.ORMPodResourcesSocket,
 	}
-
-	m.resourceExecutor = executor.NewExecutor(cgroupmgr.GetManager())
-
-	metaManager := metamanager.NewManager(emitter, m.podResources.pods, metaServer)
-	m.metaManager = metaManager
+	m.metaManager = metamanager.NewManager(emitter, m.podResources.pods, metaServer)
+	// init orm work mode with essential components
+	m.initORMWorkMode(config)
 
 	topologyManager, err := topology.NewManager(metaServer.Topology, config.TopologyPolicyName, config.NumericAlignResources)
 	if err != nil {
@@ -142,6 +155,18 @@ func NewManager(socketPath string, emitter metrics.MetricEmitter, metaServer *me
 	klog.V(5).Infof("removeContents......")
 
 	return m, nil
+}
+
+func (m *ManagerImpl) initORMWorkMode(config *config.Configuration) {
+	if m.validateNRIMode(config) {
+		m.mode = consts.WorkModeNri
+		klog.Infof("[ORM] init ORM work mode with nri mode")
+	} else {
+		m.mode = consts.WorkModeBypass
+		klog.Infof("[ORM] init ORM work mode with bypass mode")
+		m.resourceExecutor = executor.NewExecutor(cgroupmgr.GetManager())
+	}
+	return
 }
 
 func (m *ManagerImpl) Run(ctx context.Context) {
@@ -182,23 +207,34 @@ func (m *ManagerImpl) Run(ctx context.Context) {
 			if err := recover(); err != nil {
 				klog.Fatalf("[ORM] Start recover from err: %v", err)
 			}
-			s.Close()
+			_ = s.Close()
 		}()
-		m.server.Serve(s)
+		err := m.server.Serve(s)
+		if err != nil {
+			klog.Fatalf("[ORM] serve fail: %v", err)
+		}
 	}()
 
 	klog.V(5).Infof("[ORM] start serve socketPath %v", socketPath)
-	go func() {
-		m.process()
-	}()
 
-	go wait.Until(m.reconcile, m.reconcilePeriod, m.ctx.Done())
-
-	m.metaManager.RegistPodAddedFunc(m.onPodAdd)
-	m.metaManager.RegistPodDeletedFunc(m.onPodDelete)
+	if m.mode == consts.WorkModeBypass {
+		go func() {
+			m.process()
+		}()
+		m.metaManager.RegistPodAddedFunc(m.onPodAdd)
+		m.metaManager.RegistPodDeletedFunc(m.onPodDelete)
+	} else {
+		go func() {
+			klog.Info("[ORM] nri stub run...")
+			err := m.nriStub.Run(ctx)
+			if err != nil {
+				klog.Fatalf("[ORM] nri stub run fail: %v", err)
+			}
+		}()
+	}
 
 	m.metaManager.Run(ctx, m.reconcilePeriod)
-
+	go wait.Until(m.reconcile, m.reconcilePeriod, m.ctx.Done())
 	go server.ListenAndServePodResources(m.podResourceSocket, m.metaManager, m, m.devicesProvider, m.emitter)
 }
 
@@ -298,11 +334,12 @@ func (m *ManagerImpl) GetPodTopologyHints(pod *v1.Pod) map[string][]topology.Top
 
 func (m *ManagerImpl) Allocate(pod *v1.Pod, container *v1.Container) error {
 	if pod == nil || container == nil {
-		return fmt.Errorf("Allocate got nil pod: %v or container: %v", pod, container)
+		return fmt.Errorf("allocate got nil pod: %v or container: %v", pod, container)
 	}
 
+	// allocate resources for current pod, return after resource allocate when run in NRIMode
 	err := m.addContainer(pod, container)
-	if err != nil {
+	if err != nil || m.mode == consts.WorkModeNri {
 		return err
 	}
 
@@ -380,7 +417,16 @@ func (m *ManagerImpl) process() {
 }
 
 func (m *ManagerImpl) processAddPod(podUID string) error {
-	pod, err := m.metaManager.MetaServer.GetPod(m.ctx, podUID)
+	var (
+		pod *v1.Pod
+		err error
+	)
+	if m.mode == consts.WorkModeNri {
+		nriQueryCtx := context.WithValue(m.ctx, metaserverpod.BypassCacheKey, metaserverpod.BypassCacheTrue)
+		pod, err = m.metaManager.GetPod(nriQueryCtx, podUID)
+	} else {
+		pod, err = m.metaManager.GetPod(m.ctx, podUID)
+	}
 	if err != nil {
 		klog.Errorf("[ORM] processAddPod getPod fail, podUID: %v, err: %v", podUID, err)
 		return err
@@ -393,8 +439,8 @@ func (m *ManagerImpl) processDeletePod(podUID string) error {
 	allSuccess := true
 
 	m.mutex.Lock()
-	for resourceName, endpoint := range m.endpoints {
-		_, err := endpoint.E.RemovePod(m.ctx, &pluginapi.RemovePodRequest{
+	for resourceName, ep := range m.endpoints {
+		_, err := ep.E.RemovePod(m.ctx, &pluginapi.RemovePodRequest{
 			PodUid: podUID,
 		})
 		if err != nil {
@@ -606,7 +652,17 @@ func (m *ManagerImpl) reconcile() {
 				}
 			}
 
-			_ = m.syncContainer(pod, &container)
+			if m.mode == consts.WorkModeNri {
+				containerId, err := native.GetContainerID(pod, container.Name)
+				if err != nil {
+					klog.Errorf("[ORM] pod: %s/%s/%s, container: %s, get container id fail: %v",
+						pod.Namespace, pod.Name, pod.UID, container.Name, err)
+					continue
+				}
+				m.updateContainerByNRI(string(pod.UID), containerId, container.Name)
+			} else {
+				_ = m.syncContainer(pod, &container)
+			}
 		}
 	}
 
