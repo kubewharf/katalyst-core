@@ -82,7 +82,7 @@ func GetReadonlyState() (state.ReadonlyState, error) {
 	defer readonlyStateLock.RUnlock()
 
 	if readonlyState == nil {
-		return nil, fmt.Errorf("readonlyState isn't setted")
+		return nil, fmt.Errorf("readonlyState isn't set")
 	}
 	return readonlyState, nil
 }
@@ -273,6 +273,7 @@ func (p *DynamicPolicy) Start() (err error) {
 		general.Infof("is already started")
 		return nil
 	}
+
 	p.stopCh = make(chan struct{})
 
 	go wait.Until(func() {

@@ -242,6 +242,7 @@ func (p *DynamicPolicy) lwCPUAdvisorServer(stopCh <-chan struct{}) error {
 		if err != nil {
 			general.Errorf("allocate by ListAndWatch response of CPUAdvisorServer failed with error: %v", err)
 		}
+
 		_ = general.UpdateHealthzStateByError(cpuconsts.CommunicateWithAdvisor, err)
 
 		if p.advisorMonitor != nil && err == nil {
@@ -279,6 +280,14 @@ func (p *DynamicPolicy) allocateByCPUAdvisor(resp *advisorapi.ListAndWatchRespon
 	applyErr := p.applyBlocks(blockToCPUSet, resp)
 	if applyErr != nil {
 		return fmt.Errorf("applyBlocks failed with error: %v", applyErr)
+	}
+
+	curAllowSharedCoresOverlapReclaimedCores := p.state.GetAllowSharedCoresOverlapReclaimedCores()
+
+	if curAllowSharedCoresOverlapReclaimedCores != resp.AllowSharedCoresOverlapReclaimedCores {
+		general.Infof("set allowSharedCoresOverlapReclaimedCores from %v to %v",
+			curAllowSharedCoresOverlapReclaimedCores, resp.AllowSharedCoresOverlapReclaimedCores)
+		p.state.SetAllowSharedCoresOverlapReclaimedCores(resp.AllowSharedCoresOverlapReclaimedCores)
 	}
 
 	return nil

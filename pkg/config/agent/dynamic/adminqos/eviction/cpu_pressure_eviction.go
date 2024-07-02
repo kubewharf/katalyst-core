@@ -25,6 +25,7 @@ import (
 type CPUPressureEvictionConfiguration struct {
 	EnableLoadEviction              bool
 	LoadUpperBoundRatio             float64
+	LoadLowerBoundRatio             float64
 	LoadThresholdMetPercentage      float64
 	LoadMetricRingSize              int
 	LoadEvictionCoolDownTime        time.Duration
@@ -48,6 +49,10 @@ func (c *CPUPressureEvictionConfiguration) ApplyConfiguration(conf *crd.DynamicC
 
 		if config.LoadUpperBoundRatio != nil {
 			c.LoadUpperBoundRatio = *config.LoadUpperBoundRatio
+		}
+
+		if config.LoadLowerBoundRatio != nil {
+			c.LoadLowerBoundRatio = *config.LoadLowerBoundRatio
 		}
 
 		if config.LoadThresholdMetPercentage != nil {

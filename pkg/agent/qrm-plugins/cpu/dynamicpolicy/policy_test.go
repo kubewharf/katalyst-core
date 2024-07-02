@@ -246,13 +246,14 @@ func TestAllocate(t *testing.T) {
 	testName := "test"
 
 	testCases := []struct {
-		description              string
-		req                      *pluginapi.ResourceRequest
-		expectedResp             *pluginapi.ResourceAllocationResponse
-		enableReclaim            bool
-		wantError                bool
-		cpuTopology              *machine.CPUTopology
-		enhancementDefaultValues map[string]string
+		description                           string
+		req                                   *pluginapi.ResourceRequest
+		expectedResp                          *pluginapi.ResourceAllocationResponse
+		enableReclaim                         bool
+		wantError                             bool
+		cpuTopology                           *machine.CPUTopology
+		enhancementDefaultValues              map[string]string
+		allowSharedCoresOverlapReclaimedCores bool
 	}{
 		{
 			description: "req for init container",
@@ -822,6 +823,67 @@ func TestAllocate(t *testing.T) {
 			expectedResp: nil,
 			cpuTopology:  cpuTopology,
 		},
+		{
+			description: "req for shared_cores with numa_binding with allowSharedCoresOverlapReclaimedCores set to true",
+			req: &pluginapi.ResourceRequest{
+				PodUid:         string(uuid.NewUUID()),
+				PodNamespace:   testName,
+				PodName:        testName,
+				ContainerName:  testName,
+				ContainerType:  pluginapi.ContainerType_MAIN,
+				ContainerIndex: 0,
+				ResourceName:   string(v1.ResourceCPU),
+				ResourceRequests: map[string]float64{
+					string(v1.ResourceCPU): 1,
+				},
+				Annotations: map[string]string{
+					consts.PodAnnotationQoSLevelKey:          consts.PodAnnotationQoSLevelSharedCores,
+					consts.PodAnnotationMemoryEnhancementKey: `{"numa_binding": "true"}`,
+				},
+				Labels: map[string]string{
+					consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
+				},
+				Hint: &pluginapi.TopologyHint{
+					Nodes:     []uint64{0},
+					Preferred: true,
+				},
+			},
+			expectedResp: &pluginapi.ResourceAllocationResponse{
+				PodNamespace:   testName,
+				PodName:        testName,
+				ContainerName:  testName,
+				ContainerType:  pluginapi.ContainerType_MAIN,
+				ContainerIndex: 0,
+				ResourceName:   string(v1.ResourceCPU),
+				AllocationResult: &pluginapi.ResourceAllocation{
+					ResourceAllocation: map[string]*pluginapi.ResourceAllocationInfo{
+						string(v1.ResourceCPU): {
+							OciPropertyName:   util.OCIPropertyNameCPUSetCPUs,
+							IsNodeResource:    false,
+							IsScalarResource:  true,
+							AllocatedQuantity: 3,
+							AllocationResult:  machine.NewCPUSet(1, 8, 9).String(),
+							ResourceHints: &pluginapi.ListOfTopologyHints{
+								Hints: []*pluginapi.TopologyHint{
+									{
+										Nodes:     []uint64{0},
+										Preferred: true,
+									},
+								},
+							},
+						},
+					},
+				},
+				Labels: map[string]string{
+					consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
+				},
+				Annotations: map[string]string{
+					consts.PodAnnotationQoSLevelKey:                  consts.PodAnnotationQoSLevelSharedCores,
+					consts.PodAnnotationMemoryEnhancementNumaBinding: consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
+				},
+			},
+			cpuTopology: cpuTopology,
+		},
 	}
 
 	for _, tc := range testCases {
@@ -839,6 +901,10 @@ func TestAllocate(t *testing.T) {
 			dynamicPolicy.dynamicConfig.GetDynamicConfiguration().EnableReclaim = true
 		}
 
+		if tc.allowSharedCoresOverlapReclaimedCores {
+			dynamicPolicy.state.SetAllowSharedCoresOverlapReclaimedCores(true)
+		}
+
 		resp, err := dynamicPolicy.Allocate(context.Background(), tc.req)
 		if tc.wantError {
 			as.NotNil(err)
@@ -848,6 +914,11 @@ func TestAllocate(t *testing.T) {
 		as.Nil(err)
 		tc.expectedResp.PodUid = tc.req.PodUid
 		as.Equalf(tc.expectedResp, resp, "failed in test case: %s", tc.description)
+
+		if tc.allowSharedCoresOverlapReclaimedCores {
+			err := dynamicPolicy.adjustAllocationEntries()
+			as.NotNil(err)
+		}
 
 		_ = os.RemoveAll(tmpDir)
 	}
@@ -2649,13 +2720,13 @@ func TestGetResourcesAllocation(t *testing.T) {
 	as.NotNil(resp1.PodResources[req.PodUid])
 	as.NotNil(resp1.PodResources[req.PodUid].ContainerResources[testName])
 	as.NotNil(resp1.PodResources[req.PodUid].ContainerResources[testName].ResourceAllocation[string(v1.ResourceCPU)])
-	as.Equal(resp1.PodResources[req.PodUid].ContainerResources[testName].ResourceAllocation[string(v1.ResourceCPU)], &pluginapi.ResourceAllocationInfo{
+	as.Equal(&pluginapi.ResourceAllocationInfo{
 		OciPropertyName:   util.OCIPropertyNameCPUSetCPUs,
 		IsNodeResource:    false,
 		IsScalarResource:  true,
 		AllocatedQuantity: 14,
 		AllocationResult:  cpuTopology.CPUDetails.CPUs().Difference(dynamicPolicy.reservedCPUs).String(),
-	})
+	}, resp1.PodResources[req.PodUid].ContainerResources[testName].ResourceAllocation[string(v1.ResourceCPU)])
 
 	// test after ramping up
 	originalTransitionPeriod := dynamicPolicy.transitionPeriod
@@ -2666,20 +2737,20 @@ func TestGetResourcesAllocation(t *testing.T) {
 	dynamicPolicy.transitionPeriod = originalTransitionPeriod
 	allocationInfo := dynamicPolicy.state.GetAllocationInfo(req.PodUid, testName)
 	as.NotNil(allocationInfo)
-	as.Equal(allocationInfo.RampUp, false)
+	as.Equal(false, allocationInfo.RampUp)
 
 	resp2, err := dynamicPolicy.GetResourcesAllocation(context.Background(), &pluginapi.GetResourcesAllocationRequest{})
 	as.Nil(err)
 	as.NotNil(resp2.PodResources[req.PodUid])
 	as.NotNil(resp2.PodResources[req.PodUid].ContainerResources[testName])
 	as.NotNil(resp2.PodResources[req.PodUid].ContainerResources[testName].ResourceAllocation[string(v1.ResourceCPU)])
-	as.Equal(resp2.PodResources[req.PodUid].ContainerResources[testName].ResourceAllocation[string(v1.ResourceCPU)], &pluginapi.ResourceAllocationInfo{
+	as.Equal(&pluginapi.ResourceAllocationInfo{
 		OciPropertyName:   util.OCIPropertyNameCPUSetCPUs,
 		IsNodeResource:    false,
 		IsScalarResource:  true,
 		AllocatedQuantity: 10,
 		AllocationResult:  machine.NewCPUSet(1, 3, 4, 5, 6, 9, 11, 12, 13, 14).String(),
-	})
+	}, resp2.PodResources[req.PodUid].ContainerResources[testName].ResourceAllocation[string(v1.ResourceCPU)])
 
 	// test for reclaimed_cores
 	req = &pluginapi.ResourceRequest{
@@ -2710,13 +2781,81 @@ func TestGetResourcesAllocation(t *testing.T) {
 	as.NotNil(resp2.PodResources[req.PodUid])
 	as.NotNil(resp2.PodResources[req.PodUid].ContainerResources[testName])
 	as.NotNil(resp2.PodResources[req.PodUid].ContainerResources[testName].ResourceAllocation[string(v1.ResourceCPU)])
-	as.Equal(resp2.PodResources[req.PodUid].ContainerResources[testName].ResourceAllocation[string(v1.ResourceCPU)], &pluginapi.ResourceAllocationInfo{
+	as.Equal(&pluginapi.ResourceAllocationInfo{
 		OciPropertyName:   util.OCIPropertyNameCPUSetCPUs,
 		IsNodeResource:    false,
 		IsScalarResource:  true,
 		AllocatedQuantity: 4,
 		AllocationResult:  machine.NewCPUSet(7, 8, 10, 15).String(),
+	}, resp2.PodResources[req.PodUid].ContainerResources[testName].ResourceAllocation[string(v1.ResourceCPU)])
+
+	req = &pluginapi.ResourceRequest{
+		PodUid:         string(uuid.NewUUID()),
+		PodNamespace:   testName,
+		PodName:        testName,
+		ContainerName:  testName,
+		ContainerType:  pluginapi.ContainerType_MAIN,
+		ContainerIndex: 0,
+		ResourceName:   string(v1.ResourceCPU),
+		ResourceRequests: map[string]float64{
+			string(v1.ResourceCPU): 2,
+		},
+		Labels: map[string]string{
+			consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
+		},
+		Annotations: map[string]string{
+			consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
+		},
+	}
+
+	dynamicPolicy.state.SetAllowSharedCoresOverlapReclaimedCores(true)
+	dynamicPolicy.dynamicConfig.GetDynamicConfiguration().EnableReclaim = true
+	dynamicPolicy.state.SetAllocationInfo(state.PoolNameReclaim, "", &state.AllocationInfo{
+		PodUid:                   state.PoolNameReclaim,
+		OwnerPoolName:            state.PoolNameReclaim,
+		AllocationResult:         machine.MustParse("1,3,4-5"),
+		OriginalAllocationResult: machine.MustParse("1,3,4-5"),
+		TopologyAwareAssignments: map[int]machine.CPUSet{
+			0: machine.NewCPUSet(1),
+			1: machine.NewCPUSet(3),
+			2: machine.NewCPUSet(4, 5),
+		},
+		OriginalTopologyAwareAssignments: map[int]machine.CPUSet{
+			0: machine.NewCPUSet(1),
+			1: machine.NewCPUSet(3),
+			2: machine.NewCPUSet(4, 5),
+		},
 	})
+	_, err = dynamicPolicy.Allocate(context.Background(), req)
+	as.Nil(err)
+
+	// test after ramping up
+	originalTransitionPeriod = dynamicPolicy.transitionPeriod
+	dynamicPolicy.transitionPeriod = time.Millisecond * 10
+	time.Sleep(20 * time.Millisecond)
+	_, err = dynamicPolicy.GetResourcesAllocation(context.Background(), &pluginapi.GetResourcesAllocationRequest{})
+	as.Nil(err)
+	dynamicPolicy.transitionPeriod = originalTransitionPeriod
+	allocationInfo = dynamicPolicy.state.GetAllocationInfo(req.PodUid, testName)
+	as.NotNil(allocationInfo)
+	as.Equal(false, allocationInfo.RampUp)
+
+	resp3, err := dynamicPolicy.GetResourcesAllocation(context.Background(), &pluginapi.GetResourcesAllocationRequest{})
+	as.Nil(err)
+	as.NotNil(resp3.PodResources[req.PodUid])
+	as.NotNil(resp3.PodResources[req.PodUid].ContainerResources[testName])
+	as.NotNil(resp3.PodResources[req.PodUid].ContainerResources[testName].ResourceAllocation[string(v1.ResourceCPU)])
+	as.Equal(&pluginapi.ResourceAllocationInfo{
+		OciPropertyName:   util.OCIPropertyNameCPUSetCPUs,
+		IsNodeResource:    false,
+		IsScalarResource:  true,
+		AllocatedQuantity: 14,
+		AllocationResult:  machine.NewCPUSet(1, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15).String(),
+	}, resp3.PodResources[req.PodUid].ContainerResources[testName].ResourceAllocation[string(v1.ResourceCPU)])
+
+	reclaimEntry := dynamicPolicy.state.GetAllocationInfo(state.PoolNameReclaim, "")
+	as.NotNil(reclaimEntry)
+	as.Equal(6, reclaimEntry.AllocationResult.Size()) // ceil("14 * (4 / 10)") == 6
 }
 
 func TestAllocateByQoSAwareServerListAndWatchResp(t *testing.T) {

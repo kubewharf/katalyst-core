@@ -101,6 +101,7 @@ func (sc *stateCheckpoint) restoreState(topology *machine.CPUTopology) error {
 
 	sc.cache.SetMachineState(generatedMachineState)
 	sc.cache.SetPodEntries(checkpoint.PodEntries)
+	sc.cache.SetAllowSharedCoresOverlapReclaimedCores(checkpoint.AllowSharedCoresOverlapReclaimedCores)
 
 	if !reflect.DeepEqual(generatedMachineState, checkpoint.MachineState) {
 		klog.Warningf("[cpu_plugin] machine state changed: generatedMachineState: %s; checkpointMachineState: %s",
@@ -128,6 +129,7 @@ func (sc *stateCheckpoint) storeState() error {
 	checkpoint.PolicyName = sc.policyName
 	checkpoint.MachineState = sc.cache.GetMachineState()
 	checkpoint.PodEntries = sc.cache.GetPodEntries()
+	checkpoint.AllowSharedCoresOverlapReclaimedCores = sc.cache.GetAllowSharedCoresOverlapReclaimedCores()
 
 	err := sc.checkpointManager.CreateCheckpoint(sc.checkpointName, checkpoint)
 	if err != nil {
@@ -187,8 +189,26 @@ func (sc *stateCheckpoint) SetPodEntries(podEntries PodEntries) {
 	sc.cache.SetPodEntries(podEntries)
 	err := sc.storeState()
 	if err != nil {
-		klog.ErrorS(err, "[cpu_plugin] store pod entries to checkpoint error", "err")
+		klog.ErrorS(err, "[cpu_plugin] store pod entries to checkpoint error")
 	}
+}
+
+func (sc *stateCheckpoint) SetAllowSharedCoresOverlapReclaimedCores(allowSharedCoresOverlapReclaimedCores bool) {
+	sc.Lock()
+	defer sc.Unlock()
+
+	sc.cache.SetAllowSharedCoresOverlapReclaimedCores(allowSharedCoresOverlapReclaimedCores)
+	err := sc.storeState()
+	if err != nil {
+		klog.ErrorS(err, "[cpu_plugin] store allowSharedCoresOverlapReclaimedCores to checkpoint error")
+	}
+}
+
+func (sc *stateCheckpoint) GetAllowSharedCoresOverlapReclaimedCores() bool {
+	sc.RLock()
+	defer sc.RUnlock()
+
+	return sc.cache.GetAllowSharedCoresOverlapReclaimedCores()
 }
 
 func (sc *stateCheckpoint) Delete(podUID string, containerName string) {

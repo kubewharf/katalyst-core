@@ -19,6 +19,7 @@ package dynamicpolicy
 import (
 	"context"
 	"fmt"
+	"math"
 	"sort"
 	"time"
 
@@ -717,7 +718,12 @@ func (p *DynamicPolicy) adjustPoolsAndIsolatedEntries(poolsQuantityMap map[strin
 ) error {
 	availableCPUs := machineState.GetFilteredAvailableCPUSet(p.reservedCPUs, nil, state.CheckDedicatedNUMABinding)
 
-	poolsCPUSet, isolatedCPUSet, err := p.generatePoolsAndIsolation(poolsQuantityMap, isolatedQuantityMap, availableCPUs)
+	reclaimOverlapShareRatio, err := p.getReclaimOverlapShareRatio(entries)
+	if err != nil {
+		return fmt.Errorf("reclaimOverlapShareRatio failed with error: %v", err)
+	}
+
+	poolsCPUSet, isolatedCPUSet, err := p.generatePoolsAndIsolation(poolsQuantityMap, isolatedQuantityMap, availableCPUs, reclaimOverlapShareRatio)
 	if err != nil {
 		return fmt.Errorf("generatePoolsAndIsolation failed with error: %v", err)
 	}
@@ -1050,14 +1056,14 @@ func (p *DynamicPolicy) generateNUMABindingPoolsCPUSetInPlace(poolsCPUSet map[st
 
 		var tErr error
 		var leftCPUs machine.CPUSet
-		if numaPoolsTotalQuantity <= availableSize && enableReclaim {
+		if numaPoolsTotalQuantity <= availableSize && enableReclaim && !p.state.GetAllowSharedCoresOverlapReclaimedCores() {
 			leftCPUs, tErr = p.takeCPUsForPoolsInPlace(numaPoolsToQuantityMap, poolsCPUSet, numaAvailableCPUs)
 			if tErr != nil {
 				return originalAvailableCPUSet, fmt.Errorf("allocate cpus for numa_binding pools in NUMA: %d failed with error: %v",
 					numaID, tErr)
 			}
 		} else {
-			// numaPoolsTotalQuantity > availableSize || !enableReclaim
+			// numaPoolsTotalQuantity > availableSize || !enableReclaim || p.state.GetAllowSharedCoresOverlapReclaimedCores()
 			// both allocate all numaAvailableCPUs proportionally
 			leftCPUs, tErr = p.generateProportionalPoolsCPUSetInPlace(numaPoolsToQuantityMap, poolsCPUSet, numaAvailableCPUs)
 
@@ -1078,7 +1084,8 @@ func (p *DynamicPolicy) generateNUMABindingPoolsCPUSetInPlace(poolsCPUSet map[st
 // 2. use the left cores to allocate among different pools
 // 3. apportion to other pools if reclaimed is disabled
 func (p *DynamicPolicy) generatePoolsAndIsolation(poolsQuantityMap map[string]map[int]int,
-	isolatedQuantityMap map[string]map[string]int, availableCPUs machine.CPUSet) (poolsCPUSet map[string]machine.CPUSet,
+	isolatedQuantityMap map[string]map[string]int, availableCPUs machine.CPUSet,
+	reclaimOverlapShareRatio map[string]float64) (poolsCPUSet map[string]machine.CPUSet,
 	isolatedCPUSet map[string]map[string]machine.CPUSet, err error,
 ) {
 	poolsBindingNUMAs := sets.NewInt()
@@ -1161,18 +1168,38 @@ func (p *DynamicPolicy) generatePoolsAndIsolation(poolsQuantityMap map[string]ma
 			return
 		}
 
-		nonBindingAvailableCPUs, tErr = p.takeCPUsForPoolsInPlace(nonBindingPoolsQuantityMap, poolsCPUSet, nonBindingAvailableCPUs)
-		if tErr != nil {
-			err = fmt.Errorf("allocate cpus for pools failed with error: %v", tErr)
-			return
+		if !p.state.GetAllowSharedCoresOverlapReclaimedCores() {
+			nonBindingAvailableCPUs, tErr = p.takeCPUsForPoolsInPlace(nonBindingPoolsQuantityMap, poolsCPUSet, nonBindingAvailableCPUs)
+			if tErr != nil {
+				err = fmt.Errorf("allocate cpus for pools failed with error: %v", tErr)
+				return
+			}
+		} else {
+			general.Infof("allowSharedCoresOverlapReclaimedCores is true, take all nonBindingAvailableCPUs for pools")
+			nonBindingAvailableCPUs, tErr = p.generateProportionalPoolsCPUSetInPlace(nonBindingPoolsQuantityMap, poolsCPUSet, nonBindingAvailableCPUs)
+
+			if tErr != nil {
+				err = fmt.Errorf("generateProportionalPoolsCPUSetInPlace pools failed with error: %v", tErr)
+				return
+			}
 		}
 	} else if nonBindingPoolsTotalQuantity <= nonBindingAvailableSize {
 		general.Infof("all pools could be allocated, all isolated containers would be put to pools")
 
-		nonBindingAvailableCPUs, tErr = p.takeCPUsForPoolsInPlace(nonBindingPoolsQuantityMap, poolsCPUSet, nonBindingAvailableCPUs)
-		if tErr != nil {
-			err = fmt.Errorf("allocate cpus for pools failed with error: %v", tErr)
-			return
+		if !p.state.GetAllowSharedCoresOverlapReclaimedCores() {
+			nonBindingAvailableCPUs, tErr = p.takeCPUsForPoolsInPlace(nonBindingPoolsQuantityMap, poolsCPUSet, nonBindingAvailableCPUs)
+			if tErr != nil {
+				err = fmt.Errorf("allocate cpus for pools failed with error: %v", tErr)
+				return
+			}
+		} else {
+			general.Infof("allowSharedCoresOverlapReclaimedCores is true, take all nonBindingAvailableCPUs for pools")
+			nonBindingAvailableCPUs, tErr = p.generateProportionalPoolsCPUSetInPlace(nonBindingPoolsQuantityMap, poolsCPUSet, nonBindingAvailableCPUs)
+
+			if tErr != nil {
+				err = fmt.Errorf("generateProportionalPoolsCPUSetInPlace pools failed with error: %v", tErr)
+				return
+			}
 		}
 	} else if nonBindingPoolsTotalQuantity > 0 {
 		general.Infof("can't allocate for all pools")
@@ -1198,6 +1225,39 @@ func (p *DynamicPolicy) generatePoolsAndIsolation(poolsQuantityMap map[string]ma
 
 	// deal with reclaim pool
 	poolsCPUSet[state.PoolNameReclaim] = poolsCPUSet[state.PoolNameReclaim].Union(availableCPUs)
+
+	if !p.state.GetAllowSharedCoresOverlapReclaimedCores() {
+		enableReclaim := p.dynamicConfig.GetDynamicConfiguration().EnableReclaim
+		if !enableReclaim && poolsCPUSet[state.PoolNameReclaim].Size() > reservedReclaimedCPUsSize {
+			poolsCPUSet[state.PoolNameReclaim] = p.apportionReclaimedPool(
+				poolsCPUSet, poolsCPUSet[state.PoolNameReclaim].Clone(), nonBindingPoolsQuantityMap)
+			general.Infof("apportionReclaimedPool finished, current %s pool: %s",
+				state.PoolNameReclaim, poolsCPUSet[state.PoolNameReclaim].String())
+		}
+	} else {
+		// p.state.GetAllowSharedCoresOverlapReclaimedCores() == true
+		for poolName, cset := range poolsCPUSet {
+			if ratio, found := reclaimOverlapShareRatio[poolName]; found && ratio > 0 {
+
+				req := int(math.Ceil(float64(cset.Size()) * ratio))
+
+				// if p.state.GetAllowSharedCoresOverlapReclaimedCores() == false, we will take cpus for reclaim pool lastly,
+				// else we also should take cpus for reclaim pool reversely overlapping with share type pool to aviod cpuset jumping obviously
+				var tErr error
+				overlapCPUs, _, tErr := calculator.TakeByNUMABalanceReversely(p.machineInfo, cset, req)
+				if tErr != nil {
+					err = fmt.Errorf("take overlapCPUs from: %s to %s by ratio: %.4f failed with err: %v",
+						poolName, state.PoolNameReclaim, ratio, tErr)
+					return
+				}
+
+				general.Infof("merge overlapCPUs: %s from pool: %s to %s by ratio: %.4f",
+					overlapCPUs.String(), poolName, state.PoolNameReclaim, ratio)
+				poolsCPUSet[state.PoolNameReclaim] = poolsCPUSet[state.PoolNameReclaim].Union(overlapCPUs)
+			}
+		}
+	}
+
 	if poolsCPUSet[state.PoolNameReclaim].IsEmpty() {
 		// for reclaimed pool, we must make them exist when the node isn't in hybrid mode even if cause overlap
 		allAvailableCPUs := p.machineInfo.CPUDetails.CPUs().Difference(p.reservedCPUs)
@@ -1209,14 +1269,6 @@ func (p *DynamicPolicy) generatePoolsAndIsolation(poolsQuantityMap map[string]ma
 
 		general.Infof("fallback takeByNUMABalance in generatePoolsAndIsolation for reclaimedCPUSet: %s", reclaimedCPUSet.String())
 		poolsCPUSet[state.PoolNameReclaim] = reclaimedCPUSet
-	}
-
-	enableReclaim := p.dynamicConfig.GetDynamicConfiguration().EnableReclaim
-	if !enableReclaim && poolsCPUSet[state.PoolNameReclaim].Size() > reservedReclaimedCPUsSize {
-		poolsCPUSet[state.PoolNameReclaim] = p.apportionReclaimedPool(
-			poolsCPUSet, poolsCPUSet[state.PoolNameReclaim].Clone(), nonBindingPoolsQuantityMap)
-		general.Infof("apportionReclaimedPool finished, current %s pool: %s",
-			state.PoolNameReclaim, poolsCPUSet[state.PoolNameReclaim].String())
 	}
 
 	return
@@ -1474,4 +1526,43 @@ func (p *DynamicPolicy) doAndCheckPutAllocationInfo(allocationInfo *state.Alloca
 	}
 
 	return checkedAllocationInfo, nil
+}
+
+func (p *DynamicPolicy) getReclaimOverlapShareRatio(entries state.PodEntries) (map[string]float64, error) {
+	if !p.state.GetAllowSharedCoresOverlapReclaimedCores() {
+		return nil, nil
+	}
+
+	if entries.CheckPoolEmpty(state.PoolNameReclaim) {
+		return nil, fmt.Errorf("reclaim pool misses in current entries")
+	}
+
+	reclaimOverlapShareRatio := make(map[string]float64)
+
+	curReclaimCPUSet := entries[state.PoolNameReclaim][state.FakedContainerName].AllocationResult
+
+	for poolName, subEntries := range entries {
+		if !subEntries.IsPoolEntry() {
+			continue
+		}
+
+		allocationInfo := subEntries.GetPoolEntry()
+
+		if allocationInfo != nil && state.GetPoolType(poolName) == state.PoolNameShare {
+			if allocationInfo.AllocationResult.IsEmpty() {
+				continue
+			}
+
+			shareTypePoolSize := allocationInfo.AllocationResult.Size()
+			overlapSize := allocationInfo.AllocationResult.Intersection(curReclaimCPUSet).Size()
+
+			if overlapSize == 0 {
+				continue
+			}
+
+			reclaimOverlapShareRatio[poolName] = float64(overlapSize) / float64(shareTypePoolSize)
+		}
+	}
+
+	return reclaimOverlapShareRatio, nil
 }

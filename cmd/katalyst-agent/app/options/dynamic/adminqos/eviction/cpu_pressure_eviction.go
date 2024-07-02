@@ -27,6 +27,7 @@ import (
 const (
 	defaultEnableLoadEviction              = false
 	defaultLoadUpperBoundRatio             = 1.8
+	defaultLoadLowerBoundRatio             = 1.0
 	defaultLoadThresholdMetPercentage      = 0.8
 	defaultLoadMetricSize                  = 10
 	defaultLoadEvictionCoolDownTime        = 300 * time.Second
@@ -40,6 +41,7 @@ const (
 type CPUPressureEvictionOptions struct {
 	EnableLoadEviction              bool
 	LoadUpperBoundRatio             float64
+	LoadLowerBoundRatio             float64
 	LoadThresholdMetPercentage      float64
 	LoadMetricRingSize              int
 	LoadEvictionCoolDownTime        time.Duration
@@ -54,6 +56,7 @@ func NewCPUPressureEvictionOptions() *CPUPressureEvictionOptions {
 	return &CPUPressureEvictionOptions{
 		EnableLoadEviction:              defaultEnableLoadEviction,
 		LoadUpperBoundRatio:             defaultLoadUpperBoundRatio,
+		LoadLowerBoundRatio:             defaultLoadLowerBoundRatio,
 		LoadThresholdMetPercentage:      defaultLoadThresholdMetPercentage,
 		LoadMetricRingSize:              defaultLoadMetricSize,
 		LoadEvictionCoolDownTime:        defaultLoadEvictionCoolDownTime,
@@ -71,8 +74,11 @@ func (o *CPUPressureEvictionOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 	fs.BoolVar(&o.EnableLoadEviction, "eviction-load-enable", o.EnableLoadEviction,
 		"set true to enable cpu load eviction")
 	fs.Float64Var(&o.LoadUpperBoundRatio, "eviction-load-upper-bound-ratio", o.LoadUpperBoundRatio,
-		"multiply the target cpuset pool size by this ration to get the load upper bound. "+
+		"multiply the target cpuset pool size by this ratio to get the load upper bound. "+
 			"if the load of the target cpuset pool is greater than the load upper bound repeatedly, the eviction will be triggered")
+	fs.Float64Var(&o.LoadLowerBoundRatio, "eviction-load-lower-bound-ratio", o.LoadLowerBoundRatio,
+		"multiply the target cpuset pool size by this ratio to get the load lower bound. "+
+			"if the load of the target cpuset pool is greater than the load lower bound repeatedly, the node taint will be triggered")
 	fs.Float64Var(&o.LoadThresholdMetPercentage, "eviction-load-threshold-met-percentage", o.LoadThresholdMetPercentage,
 		"the ratio between the times metric value over the bound value and the metric ring size is greater than this percentage "+
 			", the eviction or node taint will be triggered")
@@ -95,6 +101,7 @@ func (o *CPUPressureEvictionOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 func (o *CPUPressureEvictionOptions) ApplyTo(c *eviction.CPUPressureEvictionConfiguration) error {
 	c.EnableLoadEviction = o.EnableLoadEviction
 	c.LoadUpperBoundRatio = o.LoadUpperBoundRatio
+	c.LoadLowerBoundRatio = o.LoadLowerBoundRatio
 	c.LoadThresholdMetPercentage = o.LoadThresholdMetPercentage
 	c.LoadMetricRingSize = o.LoadMetricRingSize
 	c.LoadEvictionCoolDownTime = o.LoadEvictionCoolDownTime

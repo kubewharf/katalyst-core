@@ -64,9 +64,22 @@ func (a *cpuAccumulator) freeCPUsInNUMANode(numaID int) []int {
 	return a.cpuDetails.CPUsInNUMANodes(numaID).ToSliceInt()
 }
 
-// freeCoresInNUMANode returns free core ids in specified NUMA
+// freeCPUsInNUMANodeReversely returns free cpu ids in specified NUMA,
+// and those returned cpu slices have already been sorted reversely
+func (a *cpuAccumulator) freeCPUsInNUMANodeReversely(numaID int) []int {
+	return a.cpuDetails.CPUsInNUMANodes(numaID).ToSliceIntReversely()
+}
+
+// freeCoresInNUMANode returns free core ids in specified NUMA,
+// and those returned cpu slices have already been sorted
 func (a *cpuAccumulator) freeCoresInNUMANode(numaID int) []int {
 	return a.cpuDetails.CoresInNUMANodes(numaID).Filter(a.isCoreFree).ToSliceInt()
+}
+
+// freeCoresInNUMANode returns free core ids in specified NUMA,
+// and those returned cpu slices have already been sorted reversely
+func (a *cpuAccumulator) freeCoresInNUMANodeReversely(numaID int) []int {
+	return a.cpuDetails.CoresInNUMANodes(numaID).Filter(a.isCoreFree).ToSliceIntReversely()
 }
 
 // isSocketFree returns true if the supplied socket is fully available
@@ -301,7 +314,7 @@ successful:
 }
 
 // TakeHTByNUMABalance tries to make the allocated cpu spread on different
-// sockets, and it uses cpu HT as the basic allocation unit
+// NUMAs, and it uses cpu HT as the basic allocation unit
 func TakeHTByNUMABalance(info *machine.KatalystMachineInfo, availableCPUs machine.CPUSet,
 	cpuRequirement int,
 ) (machine.CPUSet, machine.CPUSet, error) {
@@ -319,6 +332,58 @@ func TakeHTByNUMABalance(info *machine.KatalystMachineInfo, availableCPUs machin
 
 		for _, s := range info.CPUDetails.NUMANodes().ToSliceInt64() {
 			for _, c := range acc.freeCPUsInNUMANode(int(s)) {
+				if acc.needs(1) {
+					acc.take(machine.NewCPUSet(c))
+				}
+				if acc.isSatisfied() {
+					goto successful
+				} else {
+					break
+				}
+			}
+		}
+	}
+failed:
+	if err == nil {
+		err = errors.New("failed to allocate cpus")
+	}
+	return availableCPUs, availableCPUs, err
+successful:
+	return acc.result.Clone(), availableCPUs.Difference(acc.result), nil
+}
+
+// TakeByNUMABalanceReversely tries to make the allocated cpu resersely spread on different
+// NUMAs, and it uses cpu Cores as the basic allocation unit
+func TakeByNUMABalanceReversely(info *machine.KatalystMachineInfo, availableCPUs machine.CPUSet,
+	cpuRequirement int,
+) (machine.CPUSet, machine.CPUSet, error) {
+	var err error
+	acc := newCPUAccumulator(info, availableCPUs, cpuRequirement)
+	if acc.isSatisfied() {
+		goto successful
+	}
+
+	for {
+		if acc.isFailed() {
+			err = fmt.Errorf("not enough cpus available to satisfy request")
+			goto failed
+		}
+
+	numaLoop:
+		for _, s := range info.CPUDetails.NUMANodes().ToSliceInt() {
+			if acc.needs(acc.getTopology().CPUsPerCore()) && len(acc.freeCores()) > 0 {
+				for _, c := range acc.freeCoresInNUMANodeReversely(s) {
+					acc.take(acc.getDetails().CPUsInCores(c))
+					if acc.isSatisfied() {
+						goto successful
+					} else {
+						continue numaLoop
+					}
+				}
+				continue
+			}
+
+			for _, c := range acc.freeCPUsInNUMANodeReversely(s) {
 				if acc.needs(1) {
 					acc.take(machine.NewCPUSet(c))
 				}
