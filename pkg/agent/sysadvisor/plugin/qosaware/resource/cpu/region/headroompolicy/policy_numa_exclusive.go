@@ -23,6 +23,7 @@ import (
 
 	"k8s.io/klog/v2"
 
+	configapi "github.com/kubewharf/katalyst-api/pkg/apis/config/v1alpha1"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource/helper"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
@@ -40,7 +41,7 @@ type PolicyNUMAExclusive struct {
 
 // NOTE: NewPolicyNUMAExclusive can only for dedicated_cores with numa exclusive region
 
-func NewPolicyNUMAExclusive(regionName string, regionType types.QoSRegionType, ownerPoolName string,
+func NewPolicyNUMAExclusive(regionName string, regionType configapi.QoSRegionType, ownerPoolName string,
 	_ *config.Configuration, _ interface{}, metaReader metacache.MetaReader,
 	metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter,
 ) HeadroomPolicy {

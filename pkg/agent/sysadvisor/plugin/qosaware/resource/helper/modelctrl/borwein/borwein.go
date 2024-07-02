@@ -23,6 +23,7 @@ import (
 	//nolint
 	"github.com/golang/protobuf/proto"
 
+	configapi "github.com/kubewharf/katalyst-api/pkg/apis/config/v1alpha1"
 	"github.com/kubewharf/katalyst-api/pkg/apis/workload/v1alpha1"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
 	borweinconsts "github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/inference/models/borwein/consts"
@@ -43,7 +44,7 @@ type IndicatorOffsetUpdater func(podSet types.PodSet, currentIndicatorOffset flo
 
 type BorweinController struct {
 	regionName string
-	regionType types.QoSRegionType
+	regionType configapi.QoSRegionType
 	conf       *config.Configuration
 
 	borweinParameters       map[string]*borweintypes.BorweinParameter
@@ -53,7 +54,7 @@ type BorweinController struct {
 	indicatorOffsetUpdaters map[string]IndicatorOffsetUpdater
 }
 
-func NewBorweinController(regionName string, regionType types.QoSRegionType, ownerPoolName string,
+func NewBorweinController(regionName string, regionType configapi.QoSRegionType, ownerPoolName string,
 	conf *config.Configuration, metaReader metacache.MetaReader, emitter metrics.MetricEmitter,
 ) *BorweinController {
 	bc := &BorweinController{

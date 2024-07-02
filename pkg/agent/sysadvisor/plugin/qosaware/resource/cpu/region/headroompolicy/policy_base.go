@@ -17,6 +17,7 @@ limitations under the License.
 package headroompolicy
 
 import (
+	configapi "github.com/kubewharf/katalyst-api/pkg/apis/config/v1alpha1"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
@@ -28,7 +29,7 @@ type PolicyBase struct {
 	types.ResourceEssentials
 
 	regionName    string
-	regionType    types.QoSRegionType
+	regionType    configapi.QoSRegionType
 	ownerPoolName string
 	podSet        types.PodSet
 	bindingNumas  machine.CPUSet
@@ -38,7 +39,7 @@ type PolicyBase struct {
 	emitter    metrics.MetricEmitter
 }
 
-func NewPolicyBase(regionName string, regionType types.QoSRegionType, ownerPoolName string,
+func NewPolicyBase(regionName string, regionType configapi.QoSRegionType, ownerPoolName string,
 	metaReader metacache.MetaReader, metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter,
 ) *PolicyBase {
 	cp := &PolicyBase{

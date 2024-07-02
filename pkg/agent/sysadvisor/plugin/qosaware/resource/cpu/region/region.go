@@ -17,6 +17,7 @@ limitations under the License.
 package region
 
 import (
+	configapi "github.com/kubewharf/katalyst-api/pkg/apis/config/v1alpha1"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
@@ -29,7 +30,7 @@ type QoSRegion interface {
 	// Name returns region's global unique identifier, combined with region type and uuid
 	Name() string
 	// Type returns region's type
-	Type() types.QoSRegionType
+	Type() configapi.QoSRegionType
 	// OwnerPoolName returns region's owner pool name
 	OwnerPoolName() string
 

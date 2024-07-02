@@ -19,6 +19,7 @@ package headroompolicy
 import (
 	"sync"
 
+	configapi "github.com/kubewharf/katalyst-api/pkg/apis/config/v1alpha1"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
 	"github.com/kubewharf/katalyst-core/pkg/config"
@@ -44,7 +45,7 @@ type HeadroomPolicy interface {
 	GetHeadroom() (float64, error)
 }
 
-type InitFunc func(regionName string, regionType types.QoSRegionType, ownerPoolName string,
+type InitFunc func(regionName string, regionType configapi.QoSRegionType, ownerPoolName string,
 	conf *config.Configuration, extraConfig interface{}, metaReader metacache.MetaReader,
 	metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter) HeadroomPolicy
 

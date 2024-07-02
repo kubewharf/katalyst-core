@@ -19,6 +19,7 @@ package provisionpolicy
 import (
 	"fmt"
 
+	configapi "github.com/kubewharf/katalyst-api/pkg/apis/config/v1alpha1"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
@@ -31,7 +32,7 @@ type PolicyBase struct {
 	types.ControlEssentials
 
 	regionName          string
-	regionType          types.QoSRegionType
+	regionType          configapi.QoSRegionType
 	ownerPoolName       string
 	podSet              types.PodSet
 	bindingNumas        machine.CPUSet
@@ -42,7 +43,7 @@ type PolicyBase struct {
 	emitter    metrics.MetricEmitter
 }
 
-func NewPolicyBase(regionName string, regionType types.QoSRegionType, ownerPoolName string,
+func NewPolicyBase(regionName string, regionType configapi.QoSRegionType, ownerPoolName string,
 	metaReader metacache.MetaReader, metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter,
 ) *PolicyBase {
 	cp := &PolicyBase{
@@ -71,16 +72,16 @@ func (p *PolicyBase) SetBindingNumas(numas machine.CPUSet) {
 
 func (p *PolicyBase) GetControlKnobAdjusted() (types.ControlKnob, error) {
 	switch p.regionType {
-	case types.QoSRegionTypeShare, types.QoSRegionTypeDedicatedNumaExclusive:
+	case configapi.QoSRegionTypeShare, configapi.QoSRegionTypeDedicatedNumaExclusive:
 		return p.controlKnobAdjusted.Clone(), nil
 
-	case types.QoSRegionTypeIsolation:
-		return map[types.ControlKnobName]types.ControlKnobValue{
-			types.ControlKnobNonReclaimedCPUSizeUpper: {
+	case configapi.QoSRegionTypeIsolation:
+		return map[configapi.ControlKnobName]types.ControlKnobValue{
+			configapi.ControlKnobNonReclaimedCPURequirementUpper: {
 				Value:  p.ResourceUpperBound,
 				Action: types.ControlKnobActionNone,
 			},
-			types.ControlKnobNonReclaimedCPUSizeLower: {
+			configapi.ControlKnobNonReclaimedCPURequirementLower: {
 				Value:  p.ResourceLowerBound,
 				Action: types.ControlKnobActionNone,
 			},

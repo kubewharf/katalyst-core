@@ -240,6 +240,28 @@ func SumUpMapValues(m map[string]int) int {
 	return total
 }
 
+type Pair struct {
+	Key   string
+	Value int
+}
+
+type pairList []Pair
+
+func (p pairList) Len() int           { return len(p) }
+func (p pairList) Less(i, j int) bool { return p[i].Value < p[j].Value }
+func (p pairList) Swap(i, j int)      { p[i], p[j] = p[j], p[i] }
+
+func SortedByValue(m map[string]int) []Pair {
+	pairs := make(pairList, len(m))
+	i := 0
+	for k, v := range m {
+		pairs[i] = Pair{k, v}
+		i++
+	}
+	sort.Sort(pairs)
+	return pairs
+}
+
 func CheckMapEqual(pre, cur map[string]string) bool {
 	if len(pre) != len(cur) {
 		return false

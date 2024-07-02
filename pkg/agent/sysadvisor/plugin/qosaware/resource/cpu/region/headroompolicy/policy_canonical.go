@@ -22,9 +22,9 @@ import (
 
 	"k8s.io/klog/v2"
 
+	configapi "github.com/kubewharf/katalyst-api/pkg/apis/config/v1alpha1"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource/helper"
-	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
@@ -36,7 +36,7 @@ type PolicyCanonical struct {
 	headroom float64
 }
 
-func NewPolicyCanonical(regionName string, regionType types.QoSRegionType, ownerPoolName string,
+func NewPolicyCanonical(regionName string, regionType configapi.QoSRegionType, ownerPoolName string,
 	_ *config.Configuration, _ interface{}, metaReader metacache.MetaReader,
 	metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter,
 ) HeadroomPolicy {

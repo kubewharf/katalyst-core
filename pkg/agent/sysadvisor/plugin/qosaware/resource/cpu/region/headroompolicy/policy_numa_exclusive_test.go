@@ -28,6 +28,7 @@ import (
 	k8types "k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 
+	configapi "github.com/kubewharf/katalyst-api/pkg/apis/config/v1alpha1"
 	katalyst_base "github.com/kubewharf/katalyst-core/cmd/base"
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/options"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
@@ -119,7 +120,7 @@ func TestPolicyNumaExclusive(t *testing.T) {
 			},
 			regionInfo: types.RegionInfo{
 				RegionName:   "share-xxx",
-				RegionType:   types.QoSRegionTypeShare,
+				RegionType:   configapi.QoSRegionTypeShare,
 				BindingNumas: machine.NewCPUSet(0),
 			},
 			resourceEssentials: types.ResourceEssentials{
@@ -140,7 +141,7 @@ func TestPolicyNumaExclusive(t *testing.T) {
 			},
 			regionInfo: types.RegionInfo{
 				RegionName:   "share-xxx",
-				RegionType:   types.QoSRegionTypeShare,
+				RegionType:   configapi.QoSRegionTypeShare,
 				BindingNumas: machine.NewCPUSet(0),
 			},
 			resourceEssentials: types.ResourceEssentials{
@@ -161,7 +162,7 @@ func TestPolicyNumaExclusive(t *testing.T) {
 			},
 			regionInfo: types.RegionInfo{
 				RegionName:   "share-xxx",
-				RegionType:   types.QoSRegionTypeShare,
+				RegionType:   configapi.QoSRegionTypeShare,
 				BindingNumas: machine.NewCPUSet(0),
 			},
 			resourceEssentials: types.ResourceEssentials{
@@ -182,7 +183,7 @@ func TestPolicyNumaExclusive(t *testing.T) {
 			},
 			regionInfo: types.RegionInfo{
 				RegionName:   "dedicated-numa-exclusive-xxx",
-				RegionType:   types.QoSRegionTypeDedicatedNumaExclusive,
+				RegionType:   configapi.QoSRegionTypeDedicatedNumaExclusive,
 				BindingNumas: machine.NewCPUSet(0),
 			},
 			resourceEssentials: types.ResourceEssentials{
@@ -203,7 +204,7 @@ func TestPolicyNumaExclusive(t *testing.T) {
 			},
 			regionInfo: types.RegionInfo{
 				RegionName:   "dedicated-numa-exclusive-xxx",
-				RegionType:   types.QoSRegionTypeDedicatedNumaExclusive,
+				RegionType:   configapi.QoSRegionTypeDedicatedNumaExclusive,
 				BindingNumas: machine.NewCPUSet(0),
 			},
 			resourceEssentials: types.ResourceEssentials{
@@ -224,7 +225,7 @@ func TestPolicyNumaExclusive(t *testing.T) {
 			},
 			regionInfo: types.RegionInfo{
 				RegionName:   "dedicated-numa-exclusive-xxx",
-				RegionType:   types.QoSRegionTypeDedicatedNumaExclusive,
+				RegionType:   configapi.QoSRegionTypeDedicatedNumaExclusive,
 				BindingNumas: machine.NewCPUSet(0),
 			},
 			resourceEssentials: types.ResourceEssentials{

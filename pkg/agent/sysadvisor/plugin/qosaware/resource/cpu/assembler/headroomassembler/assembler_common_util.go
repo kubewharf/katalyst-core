@@ -18,7 +18,6 @@ package headroomassembler
 
 import (
 	"context"
-	"fmt"
 
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/klog/v2"
@@ -29,12 +28,8 @@ import (
 )
 
 func (ha *HeadroomAssemblerCommon) getUtilBasedHeadroom(dynamicConfig *dynamic.Configuration,
-	reclaimedMetrics *poolMetrics,
+	poolSize int, util float64,
 ) (resource.Quantity, error) {
-	if reclaimedMetrics == nil {
-		return resource.Quantity{}, fmt.Errorf("invalid reclaimed metrics")
-	}
-
 	lastReclaimedCPU, err := ha.getLastReclaimedCPU()
 	if err != nil {
 		return resource.Quantity{}, err
@@ -47,8 +42,8 @@ func (ha *HeadroomAssemblerCommon) getUtilBasedHeadroom(dynamicConfig *dynamic.C
 			MaxOversoldRate:   dynamicConfig.MaxOversoldRate,
 			MaxCapacity:       dynamicConfig.MaxHeadroomCapacityRate * float64(ha.metaServer.MachineInfo.NumCores),
 		},
-		float64(reclaimedMetrics.poolSize),
-		reclaimedMetrics.coreAvgUtil,
+		float64(poolSize),
+		util,
 		lastReclaimedCPU,
 	)
 	if err != nil {

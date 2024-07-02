@@ -24,6 +24,7 @@ import (
 	"k8s.io/klog/v2"
 	"k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 
+	configapi "github.com/kubewharf/katalyst-api/pkg/apis/config/v1alpha1"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource/helper"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
@@ -37,7 +38,7 @@ type PolicyCanonical struct {
 	*PolicyBase
 }
 
-func NewPolicyCanonical(regionName string, regionType types.QoSRegionType, ownerPoolName string,
+func NewPolicyCanonical(regionName string, regionType configapi.QoSRegionType, ownerPoolName string,
 	_ *config.Configuration, _ interface{}, metaReader metacache.MetaReader,
 	metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter,
 ) ProvisionPolicy {
@@ -59,7 +60,7 @@ func (p *PolicyCanonical) Update() error {
 	}
 
 	p.controlKnobAdjusted = types.ControlKnob{
-		types.ControlKnobNonReclaimedCPUSize: types.ControlKnobValue{
+		configapi.ControlKnobNonReclaimedCPURequirement: types.ControlKnobValue{
 			Value:  cpuEstimation,
 			Action: types.ControlKnobActionNone,
 		},
@@ -76,7 +77,7 @@ func (p *PolicyCanonical) sanityCheck() error {
 	// 1. check control knob legality
 	isLegal = true
 	if p.ControlKnobs != nil {
-		v, ok := p.ControlKnobs[types.ControlKnobNonReclaimedCPUSize]
+		v, ok := p.ControlKnobs[configapi.ControlKnobNonReclaimedCPURequirement]
 		if !ok || v.Value <= 0 {
 			isLegal = false
 		}

@@ -24,6 +24,7 @@ import (
 	"k8s.io/klog/v2"
 	"k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 
+	configapi "github.com/kubewharf/katalyst-api/pkg/apis/config/v1alpha1"
 	workloadapis "github.com/kubewharf/katalyst-api/pkg/apis/workload/v1alpha1"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
@@ -56,11 +57,11 @@ func NewQoSRegionDedicatedNumaExclusive(ci *types.ContainerInfo, conf *config.Co
 ) QoSRegion {
 	regionName := getRegionNameFromMetaCache(ci, numaID, metaReader)
 	if regionName == "" {
-		regionName = string(types.QoSRegionTypeDedicatedNumaExclusive) + types.RegionNameSeparator + string(uuid.NewUUID())
+		regionName = string(configapi.QoSRegionTypeDedicatedNumaExclusive) + types.RegionNameSeparator + string(uuid.NewUUID())
 	}
 
 	r := &QoSRegionDedicatedNumaExclusive{
-		QoSRegionBase: NewQoSRegionBase(regionName, ci.OwnerPoolName, types.QoSRegionTypeDedicatedNumaExclusive, conf, extraConf, true, metaReader, metaServer, emitter),
+		QoSRegionBase: NewQoSRegionBase(regionName, ci.OwnerPoolName, configapi.QoSRegionTypeDedicatedNumaExclusive, conf, extraConf, true, metaReader, metaServer, emitter),
 	}
 	r.bindingNumas = machine.NewCPUSet(numaID)
 	r.indicatorCurrentGetters = map[string]types.IndicatorCurrentGetter{
@@ -183,7 +184,7 @@ func (r *QoSRegionDedicatedNumaExclusive) getControlKnobs() types.ControlKnob {
 	cpuRequirement := r.ResourceUpperBound + r.ReservedForReclaim - float64(reclaimedCPUSize)
 
 	return types.ControlKnob{
-		types.ControlKnobNonReclaimedCPUSize: {
+		configapi.ControlKnobNonReclaimedCPURequirement: {
 			Value:  cpuRequirement,
 			Action: types.ControlKnobActionNone,
 		},

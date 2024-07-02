@@ -22,6 +22,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"k8s.io/apimachinery/pkg/util/sets"
 
+	configapi "github.com/kubewharf/katalyst-api/pkg/apis/config/v1alpha1"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
@@ -55,7 +56,7 @@ func TestCheckpoint(t *testing.T) {
 	}
 	cp.RegionEntries = map[string]*types.RegionInfo{
 		"r1": {
-			RegionType:                 types.QoSRegionTypeShare,
+			RegionType:                 configapi.QoSRegionTypeShare,
 			BindingNumas:               machine.NewCPUSet(0, 1),
 			HeadroomPolicyTopPriority:  "",
 			HeadroomPolicyInUse:        "",

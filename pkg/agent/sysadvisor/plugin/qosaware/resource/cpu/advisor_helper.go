@@ -24,6 +24,7 @@ import (
 	"k8s.io/klog/v2"
 	"k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 
+	configapi "github.com/kubewharf/katalyst-api/pkg/apis/config/v1alpha1"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource/cpu/assembler/headroomassembler"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource/cpu/assembler/provisionassembler"
@@ -58,7 +59,7 @@ func (cra *cpuResourceAdvisor) getRegionsByPodUID(podUID string) []region.QoSReg
 	return regions
 }
 
-func (cra *cpuResourceAdvisor) getContainerRegions(ci *types.ContainerInfo, regionType types.QoSRegionType) ([]region.QoSRegion, error) {
+func (cra *cpuResourceAdvisor) getContainerRegions(ci *types.ContainerInfo, regionType configapi.QoSRegionType) ([]region.QoSRegion, error) {
 	var regions []region.QoSRegion
 
 	// For non-newly allocated containers, they already had regionNames,
@@ -128,7 +129,7 @@ func (cra *cpuResourceAdvisor) initializeProvisionAssembler() error {
 	if !ok {
 		return fmt.Errorf("unsupported provision assembler %v", assemblerName)
 	}
-	cra.provisionAssembler = initializer(cra.conf, cra.extraConf, &cra.regionMap, &cra.reservedForReclaim, &cra.numaAvailable, &cra.nonBindingNumas, cra.metaCache, cra.metaServer, cra.emitter)
+	cra.provisionAssembler = initializer(cra.conf, cra.extraConf, &cra.regionMap, &cra.reservedForReclaim, &cra.numaAvailable, &cra.nonBindingNumas, &cra.allowSharedCoresOverlapReclaimedCores, cra.metaCache, cra.metaServer, cra.emitter)
 
 	return nil
 }
@@ -174,7 +175,7 @@ func (cra *cpuResourceAdvisor) getNumasReservedForAllocate(numas machine.CPUSet)
 func (cra *cpuResourceAdvisor) getRegionMaxRequirement(r region.QoSRegion) float64 {
 	res := 0.0
 	switch r.Type() {
-	case types.QoSRegionTypeIsolation:
+	case configapi.QoSRegionTypeIsolation:
 		cra.metaCache.RangeContainer(func(podUID string, containerName string, ci *types.ContainerInfo) bool {
 			if _, ok := r.GetPods()[podUID]; ok && ci.ContainerType == v1alpha1.ContainerType_MAIN {
 				// for pods without limits, fallback to requests instead
@@ -193,9 +194,9 @@ func (cra *cpuResourceAdvisor) getRegionMaxRequirement(r region.QoSRegion) float
 
 func (cra *cpuResourceAdvisor) getRegionMinRequirement(r region.QoSRegion) float64 {
 	switch r.Type() {
-	case types.QoSRegionTypeShare:
+	case configapi.QoSRegionTypeShare:
 		return types.MinShareCPURequirement
-	case types.QoSRegionTypeIsolation:
+	case configapi.QoSRegionTypeIsolation:
 		res := 0.0
 		cra.metaCache.RangeContainer(func(podUID string, containerName string, ci *types.ContainerInfo) bool {
 			if _, ok := r.GetPods()[podUID]; ok && ci.ContainerType == v1alpha1.ContainerType_MAIN {
@@ -207,7 +208,7 @@ func (cra *cpuResourceAdvisor) getRegionMinRequirement(r region.QoSRegion) float
 		})
 		res = general.MaxFloat64(1, res)
 		return res
-	case types.QoSRegionTypeDedicatedNumaExclusive:
+	case configapi.QoSRegionTypeDedicatedNumaExclusive:
 		return types.MinDedicatedCPURequirement
 	default:
 		klog.Errorf("[qosaware-cpu] unknown region type %v", r.Type())
@@ -243,9 +244,10 @@ func (cra *cpuResourceAdvisor) updateRegionEntries() {
 			RegionType:    r.Type(),
 			OwnerPoolName: r.OwnerPoolName(),
 			BindingNumas:  r.GetBindingNumas(),
+			Pods:          r.GetPods(),
 		}
 
-		if r.Type() == types.QoSRegionTypeShare || r.Type() == types.QoSRegionTypeDedicatedNumaExclusive {
+		if r.Type() == configapi.QoSRegionTypeShare || r.Type() == configapi.QoSRegionTypeDedicatedNumaExclusive {
 			headroom, err := r.GetHeadroom()
 			if err != nil {
 				general.ErrorS(err, "failed to get region headroom", "regionName", r.Name())
