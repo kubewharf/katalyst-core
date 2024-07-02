@@ -249,7 +249,7 @@ func TestPredictionAlgorithmProvider_Predict(t *testing.T) {
 				Reply(200).
 				JSON(tt.fields.RespJson)
 
-			p, _ := NewAlgorithmProvider(tt.fields.Address, resourcePortraitMethodPredict)
+			p, _ := NewAlgorithmProvider(tt.fields.Address, ResourcePortraitMethodPredict)
 			p.SetConfig(tt.fields.Cfg)
 			p.SetMetrics(tt.fields.Metrics)
 			timeseries, data, err := p.Call()
@@ -271,8 +271,8 @@ func TestMethod(t *testing.T) {
 	t.Run("normal", func(t *testing.T) {
 		t.Parallel()
 
-		p, _ := NewAlgorithmProvider("test.com", resourcePortraitMethodPredict)
-		assert.Equal(t, p.Method(), resourcePortraitMethodPredict)
+		p, _ := NewAlgorithmProvider("test.com", ResourcePortraitMethodPredict)
+		assert.Equal(t, p.Method(), ResourcePortraitMethodPredict)
 	})
 }
 
@@ -281,7 +281,7 @@ func TestNewAlgorithmProvider(t *testing.T) {
 	t.Run("normal", func(t *testing.T) {
 		t.Parallel()
 
-		p, err := NewAlgorithmProvider("test.com", resourcePortraitMethodPredict)
+		p, err := NewAlgorithmProvider("test.com", ResourcePortraitMethodPredict)
 		assert.Nil(t, err)
 		assert.NotNil(t, p)
 	})
