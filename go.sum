@@ -84,8 +84,8 @@ github.com/Shopify/sarama v1.19.0/go.mod h1:FVkBWblsNy7DGZRfXLU0O9RCGt5g3g3yEuWX
 github.com/Shopify/toxiproxy v2.1.4+incompatible/go.mod h1:OXgGpZ6Cli1/URJOF1DMxUHB2q5Ap20/P/eIdh4G0pI=
 github.com/StackExchange/wmi v0.0.0-20180116203802-5d049714c4a6/go.mod h1:3eOhrUMpNV+6aFIbp5/iudMxNCF27Vw2OZgy4xEx0Fg=
 github.com/VividCortex/gohistogram v1.0.0/go.mod h1:Pf5mBqqDxYaXu3hDrrU+w6nw50o/4+TcAqDqk/vUH7g=
-github.com/WangZzzhe/katalyst-api v0.0.0-20240626083651-4a90fe53af11 h1:4RUG7QfX0hBwtHtI3Nll6F4lCP31ThYxkWIu93G6Ei4=
-github.com/WangZzzhe/katalyst-api v0.0.0-20240626083651-4a90fe53af11/go.mod h1:Y2IeIorxQamF2a3oa0+URztl5QCSty6Jj3zD83R8J9k=
+github.com/WangZzzhe/katalyst-api v0.0.0-20240719035252-ac200da4db6c h1:/0fwVknrQEJoRKnT2H0f5xkzCdcDIH4qfNvpPn7QoH8=
+github.com/WangZzzhe/katalyst-api v0.0.0-20240719035252-ac200da4db6c/go.mod h1:HHUJnOrDN5xrzKhEspq70ZJL859b09j07pMAl9ACnwU=
 github.com/afex/hystrix-go v0.0.0-20180502004556-fa1af6a1f4f5/go.mod h1:SkGFH1ia65gfNATL8TAiHDNxPzPdmEL5uirI2Uyuz6c=
 github.com/ajstarks/svgo v0.0.0-20180226025133-644b8db467af/go.mod h1:K08gAheRH3/J6wwsYMMT4xOr94bZjxIelGM0+d/wbFw=
 github.com/alecthomas/template v0.0.0-20160405071501-a0175ee3bccc/go.mod h1:LOuyumcjzFXgccqObfd/Ljyb9UuFJ6TxHnclSeseNhc=

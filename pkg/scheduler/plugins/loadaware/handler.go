@@ -1,3 +1,19 @@
+/*
+Copyright 2022 The Katalyst Authors.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
 package loadaware
 
 import (
@@ -19,7 +35,7 @@ const (
 	LoadAwareSPDHandler = "LoadAwareSPDHandler"
 )
 
-func RegisterPodHandler() {
+func (p *Plugin) registerPodHandler() {
 	eventhandlers.RegisterEventHandler(
 		LoadAwarePodHandler,
 		func(informerFactory informers.SharedInformerFactory, _ externalversions.SharedInformerFactory) {
@@ -30,9 +46,9 @@ func RegisterPodHandler() {
 						return true
 					},
 					Handler: toolcache.ResourceEventHandlerFuncs{
-						AddFunc:    OnAdd,
-						UpdateFunc: OnUpdate,
-						DeleteFunc: OnDelete,
+						AddFunc:    p.OnAdd,
+						UpdateFunc: p.OnUpdate,
+						DeleteFunc: p.OnDelete,
 					},
 				},
 			)
@@ -58,7 +74,7 @@ func (p *Plugin) registerSPDHandler() {
 	)
 }
 
-func OnAdd(obj interface{}) {
+func (p *Plugin) OnAdd(obj interface{}) {
 	pod, ok := obj.(*v1.Pod)
 	if !ok {
 		klog.Warningf("transfer obj to pod fail")
@@ -73,27 +89,27 @@ func OnAdd(obj interface{}) {
 		startTime = pod.Status.StartTime.Time
 	}
 
-	cache.addPod(nodeName, pod, startTime)
+	p.cache.addPod(nodeName, pod, startTime)
 }
 
-func OnUpdate(oldObj, newObj interface{}) {
+func (p *Plugin) OnUpdate(oldObj, newObj interface{}) {
 	pod, ok := newObj.(*v1.Pod)
 	if !ok {
 		return
 	}
 	if v1pod.IsPodTerminal(pod) {
-		cache.removePod(pod.Spec.NodeName, pod)
+		p.cache.removePod(pod.Spec.NodeName, pod)
 	} else {
-		//pod delete and pod may merge a update event
+		// pod delete and pod may merge a update event
 		assignTime := time.Now()
 		if pod.Status.StartTime != nil {
 			assignTime = pod.Status.StartTime.Time
 		}
-		cache.addPod(pod.Spec.NodeName, pod, assignTime)
+		p.cache.addPod(pod.Spec.NodeName, pod, assignTime)
 	}
 }
 
-func OnDelete(obj interface{}) {
+func (p *Plugin) OnDelete(obj interface{}) {
 	var pod *v1.Pod
 	switch t := obj.(type) {
 	case *v1.Pod:
@@ -107,5 +123,5 @@ func OnDelete(obj interface{}) {
 	default:
 		return
 	}
-	cache.removePod(pod.Spec.NodeName, pod)
+	p.cache.removePod(pod.Spec.NodeName, pod)
 }

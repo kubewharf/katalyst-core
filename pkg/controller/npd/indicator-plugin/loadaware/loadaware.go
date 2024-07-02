@@ -1,9 +1,26 @@
+/*
+Copyright 2022 The Katalyst Authors.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
 package loadaware
 
 import (
 	"context"
 	"fmt"
 	"hash/crc32"
+	"sort"
 	"sync"
 	"time"
 
@@ -64,7 +81,8 @@ type Plugin struct {
 }
 
 func NewLoadAwarePlugin(ctx context.Context, conf *controller.NPDConfig, extraConf interface{},
-	controlCtx *katalystbase.GenericContext, updater indicator_plugin.IndicatorUpdater) (indicator_plugin.IndicatorPlugin, error) {
+	controlCtx *katalystbase.GenericContext, updater indicator_plugin.IndicatorUpdater,
+) (indicator_plugin.IndicatorPlugin, error) {
 	p := &Plugin{
 		ctx:     ctx,
 		workers: int32(conf.Workers),
@@ -150,7 +168,7 @@ func (p *Plugin) Run() {
 	if err != nil {
 		klog.Fatalf("get all nodes from cache error, err:%v", err)
 	}
-	//init worker node pool
+	// init worker node pool
 	for _, node := range nodes {
 		bucketID := p.getBucketID(node.Name)
 		if pool, ok := p.nodePoolMap[bucketID]; !ok {
@@ -162,7 +180,7 @@ func (p *Plugin) Run() {
 
 	p.constructNodeToPodMap()
 
-	//restore npd from api server
+	// restore npd from api server
 	p.restoreNPD()
 
 	// start sync node
@@ -230,11 +248,11 @@ func (p *Plugin) restoreNPD() {
 			}
 
 			var (
-				avg15MinCache = make([]corev1.ResourceList, 0)
+				avg15MinCache = make([]*ResourceListWithTime, 0)
 				max1HourCache = make([]*ResourceListWithTime, 0)
 				max1DayCache  = make([]*ResourceListWithTime, 0)
 
-				avg15MinMap = make(map[metav1.Time]corev1.ResourceList)
+				avg15MinMap = make(map[metav1.Time]*ResourceListWithTime)
 				max1HourMap = make(map[metav1.Time]*ResourceListWithTime)
 				max1DayMap  = make(map[metav1.Time]*ResourceListWithTime)
 			)
@@ -242,9 +260,12 @@ func (p *Plugin) restoreNPD() {
 			for _, metricValue := range npd.Status.NodeMetrics[i].Metrics {
 				if metricValue.Window.Duration == 15*time.Minute {
 					if _, ok := avg15MinMap[metricValue.Timestamp]; !ok {
-						avg15MinMap[metricValue.Timestamp] = corev1.ResourceList{}
+						avg15MinMap[metricValue.Timestamp] = &ResourceListWithTime{
+							Ts:           metricValue.Timestamp.Unix(),
+							ResourceList: corev1.ResourceList{},
+						}
+						avg15MinMap[metricValue.Timestamp].ResourceList[corev1.ResourceName(metricValue.MetricName)] = metricValue.Value
 					}
-					avg15MinMap[metricValue.Timestamp][corev1.ResourceName(metricValue.MetricName)] = metricValue.Value
 				} else if metricValue.Window.Duration == time.Hour {
 					if _, ok := max1HourMap[metricValue.Timestamp]; !ok {
 						max1HourMap[metricValue.Timestamp] = &ResourceListWithTime{
@@ -269,15 +290,18 @@ func (p *Plugin) restoreNPD() {
 			for i := range avg15MinMap {
 				avg15MinCache = append(avg15MinCache, avg15MinMap[i])
 			}
+			sort.Sort(ResourceListWithTimeList(avg15MinCache))
 			for i := range max1HourMap {
 				max1HourCache = append(max1HourCache, max1HourMap[i])
 			}
+			sort.Sort(ResourceListWithTimeList(max1HourCache))
 			for i := range max1DayMap {
 				max1DayCache = append(max1DayCache, max1DayMap[i])
 			}
+			sort.Sort(ResourceListWithTimeList(max1DayCache))
 
 			p.nodeStatDataMap[npd.Name] = &NodeMetricData{
-				Latest15MinCache: avg15MinCache,
+				Latest15MinCache: ResourceListWithTimeList(avg15MinCache).ToResourceList(),
 				Latest1HourCache: max1HourCache,
 				Latest1DayCache:  max1DayCache,
 			}
@@ -625,36 +649,6 @@ func (p *Plugin) checkPodUsageRequired() {
 		if podUsageUnrequiredCount >= 5 {
 			p.enableSyncPodUsage = false
 			podUsageUnrequiredCount = 0
-		}
-	}
-}
-
-func (p *Plugin) reportNodeLoadMetric() {
-	p.RLock()
-	defer p.RUnlock()
-	resourceDims := []corev1.ResourceName{corev1.ResourceCPU, corev1.ResourceMemory}
-	for _, resourceName := range resourceDims {
-		resultMap := make(map[int64]*int64)
-		for _, data := range p.nodeStatDataMap {
-			data.lock.RLock()
-			load := calNodeLoad(resourceName, data.LatestUsage, data.TotalRes)
-			data.lock.RUnlock()
-			idx := load / 10
-			if count, ok := resultMap[idx]; !ok {
-				i := int64(1)
-				resultMap[idx] = &i
-			} else {
-				*count++
-			}
-		}
-		for idx, level := range levels {
-			typeTag := metrics.MetricTag{Key: metricTagType, Val: string(resourceName)}
-			levelTag := metrics.MetricTag{Key: metricTagLevel, Val: level}
-			if count, ok := resultMap[int64(idx)]; ok {
-				_ = p.emitter.StoreFloat64(loadAwareMetricName, float64(*count), metrics.MetricTypeNameRaw, typeTag, levelTag)
-			} else {
-				_ = p.emitter.StoreFloat64(loadAwareMetricName, 0, metrics.MetricTypeNameRaw, typeTag, levelTag)
-			}
 		}
 	}
 }

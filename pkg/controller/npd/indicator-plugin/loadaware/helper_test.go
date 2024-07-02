@@ -14,18 +14,18 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package sorter
+package loadaware
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
-	quotav1 "k8s.io/apiserver/pkg/quota/v1"
 )
 
-func TestSortPods(t *testing.T) {
+func TestGetTopNPodUsages(t *testing.T) {
 	t.Parallel()
 	podRealUsage := map[string]corev1.ResourceList{
 		"default/test-1": {
@@ -57,25 +57,12 @@ func TestSortPods(t *testing.T) {
 			corev1.ResourceMemory: resource.MustParse("10Gi"),
 		},
 	}
-
-	resourceToWeightMap := map[corev1.ResourceName]int64{
-		corev1.ResourceCPU:    1,
-		corev1.ResourceMemory: 1,
-	}
-	var objs []*Obj
-	totalResUsage := make(corev1.ResourceList)
-	for name, usage := range podRealUsage {
-		obj := Obj{
-			Name: name,
+	resultMap := getTopNPodUsages(podRealUsage, 3)
+	expected := []string{"default/test-1", "default/test-4", "default/test-7"}
+	assert.Equal(t, len(resultMap), 3)
+	for _, v := range expected {
+		if _, ok := resultMap[v]; !ok {
+			t.Error(fmt.Errorf("not exit"))
 		}
-		objs = append(objs, &obj)
-		totalResUsage = quotav1.Add(totalResUsage, usage)
 	}
-	SortPodsByUsage(objs, podRealUsage, totalResUsage, resourceToWeightMap)
-	expectedPodsOrder := []string{"default/test-1", "default/test-4", "default/test-7", "default/test-3", "default/test-6", "default/test-2", "default/test-5"}
-	var podsOrder []string
-	for _, v := range objs {
-		podsOrder = append(podsOrder, v.Name)
-	}
-	assert.Equal(t, expectedPodsOrder, podsOrder)
 }

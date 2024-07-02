@@ -17,8 +17,9 @@ limitations under the License.
 package options
 
 import (
-	cliflag "k8s.io/component-base/cli/flag"
 	"time"
+
+	cliflag "k8s.io/component-base/cli/flag"
 
 	"github.com/kubewharf/katalyst-core/pkg/config/controller"
 )

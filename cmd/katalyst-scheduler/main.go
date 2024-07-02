@@ -17,13 +17,13 @@ limitations under the License.
 package main
 
 import (
-	"github.com/kubewharf/katalyst-core/pkg/scheduler/plugins/loadaware"
 	"os"
 
 	"github.com/spf13/cobra"
 	"k8s.io/component-base/logs"
 
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-scheduler/app"
+	"github.com/kubewharf/katalyst-core/pkg/scheduler/plugins/loadaware"
 	"github.com/kubewharf/katalyst-core/pkg/scheduler/plugins/nodeovercommitment"
 	"github.com/kubewharf/katalyst-core/pkg/scheduler/plugins/noderesourcetopology"
 	"github.com/kubewharf/katalyst-core/pkg/scheduler/plugins/qosawarenoderesources"

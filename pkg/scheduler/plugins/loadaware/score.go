@@ -1,11 +1,28 @@
+/*
+Copyright 2022 The Katalyst Authors.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
 package loadaware
 
 import (
 	"context"
 	"fmt"
-	"k8s.io/klog/v2"
 	"math"
 	"time"
+
+	"k8s.io/klog/v2"
 
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -17,13 +34,6 @@ import (
 	"github.com/kubewharf/katalyst-api/pkg/apis/node/v1alpha1"
 	"github.com/kubewharf/katalyst-api/pkg/apis/scheduling/config"
 	"github.com/kubewharf/katalyst-api/pkg/consts"
-)
-
-const (
-	metric5Min  = "avg_5min"
-	metric15Min = "avg_15min"
-	metric1Hour = "max_1hour"
-	metric1Day  = "max_1day"
 )
 
 func (p *Plugin) ScoreExtensions() framework.ScoreExtensions {
@@ -64,11 +74,11 @@ func (p *Plugin) scoreByNPD(pod *v1.Pod, nodeName string) (int64, *framework.Sta
 
 	loadAwareUsage := p.getLoadAwareResourceList(npd)
 
-	//estimated the recent assign pod usage
+	// estimated the recent assign pod usage
 	estimatedUsed := estimatedPodUsed(pod, p.args.ResourceToWeightMap, p.args.ResourceToScalingFactorMap)
 	estimatedAssignedPodUsage := p.estimatedAssignedPodUsage(nodeName, timeStamp)
 	finalEstimatedUsed := quotav1.Add(estimatedUsed, estimatedAssignedPodUsage)
-	//add estimated usage to avg_15min_usage
+	// add estimated usage to avg_15min_usage
 	finalNodeUsedOfIndicators := make(map[config.IndicatorType]v1.ResourceList)
 	for indicator := range p.args.CalculateIndicatorWeight {
 		if loadAwareUsage != nil {
@@ -99,9 +109,7 @@ func (p *Plugin) scoreByPortrait(pod *v1.Pod, nodeName string) (int64, *framewor
 		return framework.MinNodeScore, nil
 	}
 
-	var (
-		scoreSum, weightSum int64
-	)
+	var scoreSum, weightSum int64
 
 	for _, resourceName := range []v1.ResourceName{v1.ResourceCPU, v1.ResourceMemory} {
 		targetUsage, ok := p.args.ResourceToTargetMap[resourceName]
@@ -155,9 +163,9 @@ func (p *Plugin) estimatedAssignedPodUsage(nodeName string, updateTime time.Time
 		estimatedUsed = make(map[v1.ResourceName]int64)
 		result        = v1.ResourceList{}
 	)
-	cache.RLock()
-	nodeCache, ok := cache.NodePodInfo[nodeName]
-	cache.RUnlock()
+	p.cache.RLock()
+	nodeCache, ok := p.cache.NodePodInfo[nodeName]
+	p.cache.RUnlock()
 	if !ok {
 		return result
 	}

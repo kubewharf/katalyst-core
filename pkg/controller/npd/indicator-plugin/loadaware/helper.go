@@ -1,13 +1,31 @@
+/*
+Copyright 2022 The Katalyst Authors.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
 package loadaware
 
 import (
-	"github.com/kubewharf/katalyst-core/pkg/controller/npd/indicator-plugin/loadaware/sorter"
+	"time"
+
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	quotav1 "k8s.io/apiserver/pkg/quota/v1"
 	"k8s.io/metrics/pkg/apis/metrics/v1beta1"
-	"time"
+
+	"github.com/kubewharf/katalyst-core/pkg/controller/npd/indicator-plugin/loadaware/sorter"
 )
 
 // getUsage transfer cpu Nano to Milli, memory Ki to Mega
@@ -92,7 +110,7 @@ func refreshNodeMetricData(metricData *NodeMetricData, metricInfo *v1beta1.NodeM
 	max1Hour := calCPUAndMemoryMax(metricData.Latest1HourCache)
 	metricData.Max1Hour = max1Hour.DeepCopy()
 
-	//calculate 1 day max data
+	// calculate 1 day max data
 	if metricData.ifCanInsertLatest1DayCache(now) {
 		resWithTime := &ResourceListWithTime{
 			ResourceList: max1Hour.DeepCopy(),
@@ -115,7 +133,7 @@ func refreshPodMetricData(metricData *PodMetricData, metricInfo *v1beta1.PodMetr
 		podUsage = quotav1.Add(podUsage, containerMetrics.Usage)
 	}
 	metricData.LatestUsage = podUsage.DeepCopy()
-	//calculate 5 min avg data
+	// calculate 5 min avg data
 	metricData.Latest5MinCache = append(metricData.Latest5MinCache, getUsage(podUsage))
 	if len(metricData.Latest5MinCache) > Avg5MinPointNumber {
 		metricData.Latest5MinCache = metricData.Latest5MinCache[len(metricData.Latest5MinCache)-Avg5MinPointNumber:]
@@ -152,26 +170,4 @@ func getTopNPodUsages(podUsages map[string]corev1.ResourceList, maxPodUsageCount
 		}
 	}
 	return topNPodUsages
-}
-
-func calNodeLoad(resourceName corev1.ResourceName, usage, totalRes corev1.ResourceList) int64 {
-	if usage == nil || totalRes == nil {
-		return 0
-	}
-	used := int64(0)
-	total := int64(0)
-	if resourceName == corev1.ResourceCPU {
-		used = usage.Cpu().MilliValue()
-		total = totalRes.Cpu().MilliValue()
-	} else {
-		used = usage.Memory().Value()
-		total = totalRes.Memory().Value()
-	}
-	if total == 0 {
-		return 0
-	}
-	if used >= total {
-		return 99
-	}
-	return used * 100 / total
 }
