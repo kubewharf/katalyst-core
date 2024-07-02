@@ -41,6 +41,7 @@ type WritebackThrottlingOption struct {
 
 type IOCostOption struct {
 	EnableSettingIOCost   bool
+	CheckWBTDisabled      bool
 	IOCostQoSConfigFile   string
 	IOCostModelConfigFile string
 }
@@ -62,6 +63,7 @@ func NewIOOptions() *IOOptions {
 		},
 		IOCostOption: IOCostOption{
 			EnableSettingIOCost:   false,
+			CheckWBTDisabled:      true,
 			IOCostQoSConfigFile:   "",
 			IOCostModelConfigFile: "",
 		},
@@ -88,6 +90,8 @@ func (o *IOOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 		o.WBTValueNVME, "writeback throttling value for NVME")
 	fs.BoolVar(&o.EnableSettingIOCost, "enable-io-cost",
 		o.EnableSettingIOCost, "if set it to true, io.cost setting will be executed")
+	fs.BoolVar(&o.CheckWBTDisabled, "check-wbt-disabled",
+		o.CheckWBTDisabled, "if set it to true, wbt should be disabled")
 	fs.StringVar(&o.IOCostQoSConfigFile, "io-cost-qos-config-file",
 		o.IOCostQoSConfigFile, "the absolute path of io.cost.qos qos config file")
 	fs.StringVar(&o.IOCostModelConfigFile, "io-cost-model-config-file",
@@ -107,6 +111,7 @@ func (o *IOOptions) ApplyTo(conf *qrmconfig.IOQRMPluginConfig) error {
 	conf.WBTValueSSD = o.WBTValueSSD
 	conf.WBTValueNVME = o.WBTValueNVME
 	conf.EnableSettingIOCost = o.EnableSettingIOCost
+	conf.CheckWBTDisabled = o.CheckWBTDisabled
 	conf.IOCostQoSConfigFile = o.IOCostQoSConfigFile
 	conf.IOCostModelConfigFile = o.IOCostModelConfigFile
 	conf.EnableSettingIOWeight = o.EnableSettingIOWeight

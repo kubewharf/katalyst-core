@@ -21,7 +21,10 @@ package ioweight
 
 import (
 	"context"
+	"fmt"
 	"strconv"
+
+	v1 "k8s.io/api/core/v1"
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
 	coreconfig "github.com/kubewharf/katalyst-core/pkg/config"
@@ -64,6 +67,26 @@ func applyIOWeightCgroupLevelConfig(conf *coreconfig.Configuration, emitter metr
 	}
 }
 
+func applyPodIOWeight(pod *v1.Pod, defaultDevID, qosLevelDefaultValue string) error {
+	ioWeightValue, err := strconv.ParseInt(qosLevelDefaultValue, 10, 64)
+	if err != nil {
+		return fmt.Errorf("strconv.ParseInt failed, string=%v, err=%v", qosLevelDefaultValue, err)
+	}
+
+	podAbsCGPath, err := common.GetPodAbsCgroupPath(common.CgroupSubsysIO, string(pod.UID))
+	if err != nil {
+		return fmt.Errorf("GetPodAbsCgroupPath for pod: %s/%s failed with error: %v", pod.Namespace, pod.Name, err)
+	}
+
+	err = cgroupmgr.ApplyIOWeightWithAbsolutePath(podAbsCGPath, defaultDevID, uint64(ioWeightValue))
+	if err != nil {
+		return fmt.Errorf("ApplyIOWeightWithAbsolutePath for pod: %s/%s failed with error: %v", pod.Namespace, pod.Name, err)
+	}
+
+	general.Infof("ApplyIOWeightWithRelativePath for pod: %s/%s, weight: %d successfully", pod.Namespace, pod.Name, ioWeightValue)
+	return nil
+}
+
 func applyIOWeightQoSLevelConfig(conf *coreconfig.Configuration,
 	emitter metrics.MetricEmitter, metaServer *metaserver.MetaServer,
 ) {
@@ -102,6 +125,15 @@ func applyIOWeightQoSLevelConfig(conf *coreconfig.Configuration,
 		if !ok {
 			continue
 		}
+
+		// setup pod level.
+		err = applyPodIOWeight(pod, defaultDevID, qosLevelDefaultValue)
+		if err != nil {
+			general.Errorf("Failed to apply IO weight for pod %s/%s: %v", pod.Namespace, pod.Name, err)
+			continue
+		}
+
+		// setup contaienr level.
 		for _, containerStatus := range pod.Status.ContainerStatuses {
 			podUID, containerID := string(pod.UID), native.TrimContainerIDPrefix(containerStatus.ContainerID)
 			err := cgroupmgr.ApplyUnifiedDataForContainer(podUID, containerID, extraControlKnobConfigs[controlKnobKeyIOWeight].CgroupSubsysName, cgroupIOWeightName, qosLevelDefaultValue)
