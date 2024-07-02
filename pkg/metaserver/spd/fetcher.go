@@ -163,19 +163,8 @@ func (s *spdFetcher) getSPDByNamespaceName(ctx context.Context, namespace, name 
 		return currentSPD, nil
 	} else if s.spdGetFromRemote {
 		klog.Infof("[spd-manager] need to get spd %s from remote", key)
-		targetConfig, err := s.getSPDTargetConfig(ctx, namespace, name)
+		err := s.tryUpdateSPDCache(ctx, namespace, name, currentSPD, baseTag, s.spdGetFromRemote)
 		if err != nil {
-			klog.Warningf("[spd-manager] get spd targetConfig config failed: %v, use local cache instead", err)
-			targetConfig = &configapis.TargetConfig{
-				ConfigNamespace: namespace,
-				ConfigName:      name,
-			}
-			_ = s.emitter.StoreInt64(metricsNameGetCNCTargetConfigFailed, 1, metrics.MetricTypeNameCount, baseTag...)
-		}
-		err = s.updateSPDCacheIfNeed(ctx, currentSPD, targetConfig, s.spdGetFromRemote)
-		if err != nil {
-			klog.Errorf("[spd-manager] failed update spd cache from remote: %v, use local cache instead", err)
-			_ = s.emitter.StoreInt64(metricsNameUpdateCacheFailed, 1, metrics.MetricTypeNameCount, baseTag...)
 			return currentSPD, nil
 		}
 
@@ -222,26 +211,32 @@ func (s *spdFetcher) sync(ctx context.Context) {
 		// first get spd origin spd from local cache
 		originSPD := s.spdCache.GetSPD(key, false)
 
-		// get spd current target config from cnc to limit rate of get remote spd by comparing local spd
-		// hash with cnc target config hash, if cnc target config not found it will get remote spd directly
-		targetConfig, err := s.getSPDTargetConfig(ctx, namespace, name)
-		if err != nil {
-			klog.Warningf("[spd-manager] get spd targetConfig config failed: %v, use local cache instead", err)
-			targetConfig = &configapis.TargetConfig{
-				ConfigNamespace: namespace,
-				ConfigName:      name,
-			}
-			_ = s.emitter.StoreInt64(metricsNameGetCNCTargetConfigFailed, 1, metrics.MetricTypeNameCount, baseTag...)
-		}
-
-		// try to update spd cache from remote if cache spd hash is not equal to target config hash,
-		// the rate of getting remote spd will be limited by spd ServiceProfileCacheTTL
-		err = s.updateSPDCacheIfNeed(ctx, originSPD, targetConfig, false)
-		if err != nil {
-			klog.Errorf("[spd-manager] failed update spd cache from remote: %v, use local cache instead", err)
-			_ = s.emitter.StoreInt64(metricsNameUpdateCacheFailed, 1, metrics.MetricTypeNameCount, baseTag...)
-		}
+		_ = s.tryUpdateSPDCache(ctx, namespace, name, originSPD, baseTag, false)
 	}
+}
+
+func (s *spdFetcher) tryUpdateSPDCache(ctx context.Context, namespace, name string,
+	currentSPD *workloadapis.ServiceProfileDescriptor, baseTag []metrics.MetricTag, spdGetFromRemote bool,
+) error {
+	// get spd current target config from cnc to limit rate of get remote spd by comparing local spd
+	// hash with cnc target config hash, if cnc target config not found it will get remote spd directly
+	targetConfig, err := s.getSPDTargetConfig(ctx, namespace, name)
+	if err != nil {
+		klog.Warningf("[spd-manager] get spd targetConfig config failed: %v, use local cache instead", err)
+		targetConfig = &configapis.TargetConfig{
+			ConfigNamespace: namespace,
+			ConfigName:      name,
+		}
+		_ = s.emitter.StoreInt64(metricsNameGetCNCTargetConfigFailed, 1, metrics.MetricTypeNameCount, baseTag...)
+	}
+
+	err = s.updateSPDCacheIfNeed(ctx, currentSPD, targetConfig, spdGetFromRemote)
+	if err != nil {
+		klog.Errorf("[spd-manager] failed update spd cache from remote: %v, use local cache instead", err)
+		_ = s.emitter.StoreInt64(metricsNameUpdateCacheFailed, 1, metrics.MetricTypeNameCount, baseTag...)
+		return err
+	}
+	return nil
 }
 
 // updateSPDCacheIfNeed checks if the previous spd has changed, and
