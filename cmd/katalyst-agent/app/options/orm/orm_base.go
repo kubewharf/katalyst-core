@@ -22,10 +22,11 @@ import (
 	cliflag "k8s.io/component-base/cli/flag"
 
 	ormconfig "github.com/kubewharf/katalyst-core/pkg/config/agent/orm"
+	"github.com/kubewharf/katalyst-core/pkg/consts"
 )
 
 type GenericORMPluginOptions struct {
-	ORMWorkMode                     string
+	ORMWorkMode                     consts.WorkMode
 	ORMReconcilePeriod              time.Duration
 	ORMResourceNamesMap             map[string]string
 	ORMPodNotifyChanLen             int
@@ -42,7 +43,7 @@ type GenericORMPluginOptions struct {
 
 func NewGenericORMPluginOptions() *GenericORMPluginOptions {
 	return &GenericORMPluginOptions{
-		ORMWorkMode:                     "bypass",
+		ORMWorkMode:                     consts.WorkModeBypass,
 		ORMReconcilePeriod:              time.Second * 5,
 		ORMResourceNamesMap:             map[string]string{},
 		ORMPodNotifyChanLen:             10,
@@ -61,7 +62,7 @@ func NewGenericORMPluginOptions() *GenericORMPluginOptions {
 func (o *GenericORMPluginOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 	fs := fss.FlagSet("orm")
 
-	fs.StringVar(&o.ORMWorkMode, "orm-work-mode", o.ORMWorkMode, "orm work mode, nri or bypass")
+	fs.StringVar((*string)(&o.ORMWorkMode), "orm-work-mode", string(o.ORMWorkMode), "orm work mode, nri or bypass")
 	fs.DurationVar(&o.ORMReconcilePeriod, "orm-reconcile-period",
 		o.ORMReconcilePeriod, "orm resource reconcile period")
 	fs.StringToStringVar(&o.ORMResourceNamesMap, "orm-resource-names-map", o.ORMResourceNamesMap,

@@ -16,10 +16,14 @@ limitations under the License.
 
 package orm
 
-import "time"
+import (
+	"time"
+
+	"github.com/kubewharf/katalyst-core/pkg/consts"
+)
 
 type GenericORMConfiguration struct {
-	ORMWorkMode                     string
+	ORMWorkMode                     consts.WorkMode
 	ORMReconcilePeriod              time.Duration
 	ORMResourceNamesMap             map[string]string
 	ORMPodNotifyChanLen             int
@@ -36,7 +40,7 @@ type GenericORMConfiguration struct {
 
 func NewGenericORMConfiguration() *GenericORMConfiguration {
 	return &GenericORMConfiguration{
-		ORMWorkMode:                     "bypass",
+		ORMWorkMode:                     consts.WorkModeBypass,
 		ORMReconcilePeriod:              time.Second * 5,
 		ORMResourceNamesMap:             map[string]string{},
 		ORMPodNotifyChanLen:             10,

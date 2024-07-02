@@ -48,10 +48,3 @@ const (
 
 	NoneDevicesProvider = ""
 )
-
-type workMode string
-
-const (
-	workModeNri    workMode = "nri"
-	workModeBypass workMode = "bypass"
-)
