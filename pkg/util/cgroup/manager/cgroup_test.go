@@ -149,6 +149,11 @@ func testSwapMax(t *testing.T) {
 	err = ioutil.WriteFile(curFile, []byte("12600"), 0o700)
 	assert.NoError(t, err)
 
+	statFile := filepath.Join(tmpDir, "memory.stat")
+	statContent := "file 0\ninactive_file 0\n"
+	err = ioutil.WriteFile(statFile, []byte(statContent), 0o700)
+	assert.NoError(t, err)
+
 	err = SetSwapMaxWithAbsolutePathRecursive(tmpDir)
 	assert.NoError(t, err)
 
