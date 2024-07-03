@@ -182,4 +182,5 @@ func (o *CPUProvisionOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 		"set true to allow shared_cores overlap reclaimed_cores")
 	fs.StringToStringVar(&o.RegionIndicatorTargetOptions, "region-indicator-targets", o.RegionIndicatorTargetOptions,
 		"indicators targets for each region, in format like cpu_sched_wait=400/cpu_iowait_ratio=0.8")
+	o.ControlKnobConstrains.AddFlags(fs)
 }
