@@ -241,6 +241,10 @@ func (m *MalachiteMetricsProvisioner) processSystemComputeData(systemComputeData
 		utilmetric.MetricData{Value: load.Five, Time: &updateTime})
 	m.metricStore.SetNodeMetric(consts.MetricLoad15MinSystem,
 		utilmetric.MetricData{Value: load.Fifteen, Time: &updateTime})
+
+	procsRunning := systemComputeData.ProcessStats.ProcessRunning
+	m.metricStore.SetNodeMetric(consts.MetricProcsRunningSystem,
+		utilmetric.MetricData{Value: float64(procsRunning), Time: &updateTime})
 }
 
 func (m *MalachiteMetricsProvisioner) processSystemMemoryData(systemMemoryData *malachitetypes.SystemMemoryData) {
@@ -274,6 +278,15 @@ func (m *MalachiteMetricsProvisioner) processSystemMemoryData(systemMemoryData *
 	m.metricStore.SetNodeMetric(consts.MetricMemAvailableSystem,
 		utilmetric.MetricData{Value: float64(mem.MemAvailable << 10), Time: &updateTime})
 
+	m.metricStore.SetNodeMetric(consts.MetricMemActiveAnonSystem,
+		utilmetric.MetricData{Value: float64(mem.MemActiveAnon << 10), Time: &updateTime})
+	m.metricStore.SetNodeMetric(consts.MetricMemInactiveAnonSystem,
+		utilmetric.MetricData{Value: float64(mem.MemInactiveAnon << 10), Time: &updateTime})
+	m.metricStore.SetNodeMetric(consts.MetricMemActiveFileSystem,
+		utilmetric.MetricData{Value: float64(mem.MemActiveFile << 10), Time: &updateTime})
+	m.metricStore.SetNodeMetric(consts.MetricMemInactiveFileSystem,
+		utilmetric.MetricData{Value: float64(mem.MemInactiveFile << 10), Time: &updateTime})
+
 	m.metricStore.SetNodeMetric(consts.MetricMemDirtySystem,
 		utilmetric.MetricData{Value: float64(mem.MemDirtyPageCache << 10), Time: &updateTime})
 	m.metricStore.SetNodeMetric(consts.MetricMemWritebackSystem,
@@ -290,6 +303,15 @@ func (m *MalachiteMetricsProvisioner) processSystemMemoryData(systemMemoryData *
 
 	m.metricStore.SetNodeMetric(consts.MetricMemScaleFactorSystem,
 		utilmetric.MetricData{Value: float64(mem.VMWatermarkScaleFactor), Time: &updateTime})
+
+	m.metricStore.SetNodeMetric(consts.MetricMemSockTCPSystem,
+		utilmetric.MetricData{Value: float64(mem.MemSockTcp), Time: &updateTime})
+	m.metricStore.SetNodeMetric(consts.MetricMemSockTCPLimitSystem,
+		utilmetric.MetricData{Value: float64(mem.MemSockTcpLimit), Time: &updateTime})
+	m.metricStore.SetNodeMetric(consts.MetricMemSockUDPSystem,
+		utilmetric.MetricData{Value: float64(mem.MemSockUdp), Time: &updateTime})
+	m.metricStore.SetNodeMetric(consts.MetricMemSockUDPLimitSystem,
+		utilmetric.MetricData{Value: float64(mem.MemSockUdpLimit), Time: &updateTime})
 
 	// timestamp
 	m.metricStore.SetNodeMetric(consts.MetricMemUpdateTimeSystem,
@@ -472,6 +494,7 @@ func (m *MalachiteMetricsProvisioner) processSystemCPUComputeData(systemComputeD
 	// todo, currently we only get a unified data for the whole system compute data
 	updateTime := time.Unix(systemComputeData.UpdateTime, 0)
 
+	var cpiTotal, cpiCount float64
 	for _, cpu := range systemComputeData.CPU {
 		cpuID, err := strconv.Atoi(cpu.Name[3:])
 		if err != nil {
@@ -487,9 +510,21 @@ func (m *MalachiteMetricsProvisioner) processSystemCPUComputeData(systemComputeD
 			utilmetric.MetricData{Value: cpu.CPUSchedWait * 1000, Time: &updateTime})
 		m.metricStore.SetCPUMetric(cpuID, consts.MetricCPUIOWaitRatio,
 			utilmetric.MetricData{Value: cpu.CPUIowaitRatio, Time: &updateTime})
+
+		if cpu.CpiData != nil {
+			cpiTotal += cpu.CpiData.Cpi
+			cpiCount += 1
+		}
 	}
 	m.metricStore.SetNodeMetric(consts.MetricCPUUsageRatio,
 		utilmetric.MetricData{Value: systemComputeData.GlobalCPU.CPUUsage / 100.0, Time: &updateTime})
+	m.metricStore.SetNodeMetric(consts.MetricCPUSysUsageRatio,
+		utilmetric.MetricData{Value: systemComputeData.GlobalCPU.CPUSysUsage / 100.0, Time: &updateTime})
+
+	if cpiCount > 0 {
+		m.metricStore.SetNodeMetric(consts.MetricCPIAvgSystem,
+			utilmetric.MetricData{Value: cpiTotal / cpiCount, Time: &updateTime})
+	}
 }
 
 func (m *MalachiteMetricsProvisioner) processCgroupCPUData(cgroupPath string, cgStats *malachitetypes.MalachiteCgroupInfo) {

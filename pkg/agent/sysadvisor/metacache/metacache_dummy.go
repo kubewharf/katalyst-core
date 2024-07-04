@@ -14,9 +14,20 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package consts
+package metacache
 
-const (
-	ModelNameBorwein                   = "borwein"
-	ModelNameBorweinTrainingThroughput = "borwein_training_throughput"
+import (
+	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
+	"github.com/kubewharf/katalyst-core/pkg/metrics"
 )
+
+func NewDummyMetaCacheImp() *MetaCacheImp {
+	return &MetaCacheImp{
+		podEntries:               make(types.PodEntries),
+		poolEntries:              make(types.PoolEntries),
+		regionEntries:            make(types.RegionEntries),
+		modelToResult:            make(map[string]interface{}),
+		containerCreateTimestamp: make(map[string]int64),
+		emitter:                  metrics.DummyMetrics{},
+	}
+}

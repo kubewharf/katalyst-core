@@ -27,6 +27,7 @@ import (
 
 	apimetricpod "github.com/kubewharf/katalyst-api/pkg/metric/pod"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
+	borweinconsts "github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/inference/models/borwein/consts"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/metric-emitter/syncer"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/metric-emitter/types"
 	"github.com/kubewharf/katalyst-core/pkg/config"
@@ -45,7 +46,8 @@ import (
 const (
 	podMetricLabelSelectorNodeName = "node_name"
 
-	podModelInferenceResultBorwein = "pod_borwein_inference_result"
+	podModelInferenceResultBorwein              = "pod_borwein_inference_result"
+	podTrainingThroughputInferenceResultBorwein = "pod_borwein_training_throughput_inference_result"
 )
 
 // podRawMetricNameMapping maps the raw metricName (collected from agent.MetricsFetcher)
@@ -82,6 +84,8 @@ type MetricSyncerPod struct {
 
 	metaServer *metaserver.MetaServer
 	metaReader metacache.MetaReader
+
+	modelToCustomizedEmitterFunc map[string]func()
 }
 
 func NewMetricSyncerPod(conf *config.Configuration, _ interface{},
@@ -99,7 +103,7 @@ func NewMetricSyncerPod(conf *config.Configuration, _ interface{},
 
 	metricMapping := general.MergeMap(podRawMetricNameMapping, conf.MetricEmitterPodConfiguration.MetricMapping)
 
-	return &MetricSyncerPod{
+	metricSyncerPod := &MetricSyncerPod{
 		metricMapping: metricMapping,
 
 		emitterConf: conf.AgentConfiguration.MetricEmitterPluginConfiguration,
@@ -110,7 +114,13 @@ func NewMetricSyncerPod(conf *config.Configuration, _ interface{},
 		dataEmitter:   dataEmitter,
 		metaServer:    metaServer,
 		metaReader:    metaReader,
-	}, nil
+	}
+
+	metricSyncerPod.modelToCustomizedEmitterFunc = map[string]func(){
+		borweinconsts.ModelNameBorweinTrainingThroughput: metricSyncerPod.emitBorweinTrainingThroughput,
+	}
+
+	return metricSyncerPod, nil
 }
 
 func (p *MetricSyncerPod) Name() string {

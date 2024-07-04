@@ -62,6 +62,12 @@ enum InferenceType {
     Other = 15;
 }
 
+enum ResultFlag {
+    ResultFlagValid = 0;
+    ResultFlagInvalid = 1;
+    ResultFlagSkip = 2;
+}
+
 message InferenceResult {
     // if use default model. default model should be trained using all service data for fallback.
     bool is_default  = 1;
@@ -78,6 +84,10 @@ message InferenceResult {
     // generic_output provides specific inference result from corresponding model,
     // it will be decoded by the specific client accesses the model.
     string generic_output = 6;
+    // since every entry in request should have a corresponding entry in resp,
+    // but not all entries need to be inferred. 
+    // so we use result_flag to identify if this entry in resp should be handled.
+    ResultFlag result_flag= 7;
 }
 
 service InferenceService {
