@@ -59,6 +59,7 @@ enum InferenceType {
     ClassificationOverload = 0;
     ClassificationUnderload = 1;
     LatencyRegression = 2;
+    Other = 15;
 }
 
 message InferenceResult {
@@ -74,6 +75,9 @@ message InferenceResult {
     float percentile = 4;
     // model_version to identify where does the output come from.
     string model_version = 5;
+    // generic_output provides specific inference result from corresponding model,
+    // it will be decoded by the specific client accesses the model.
+    string generic_output = 6;
 }
 
 service InferenceService {
