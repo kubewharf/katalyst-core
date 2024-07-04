@@ -32,6 +32,37 @@ func getNUMAsResource(resources map[int]int, numas machine.CPUSet) int {
 	return res
 }
 
+func regulateOverlapReclaimPoolSize(sharePoolSizes map[string]int, overlapReclaimPoolSizeRequired int) (map[string]int, error) {
+	sharePoolSum := general.SumUpMapValues(sharePoolSizes)
+	if overlapReclaimPoolSizeRequired > sharePoolSum {
+		return nil, fmt.Errorf("invalid sharedOverlapReclaimSize")
+	}
+
+	overlapReclaimPoolSizeRequiredLeft := overlapReclaimPoolSizeRequired
+	sharedOverlapReclaimSize := make(map[string]int) // sharedPoolName -> reclaimedSize
+	ps := general.SortedByValue(sharePoolSizes)
+	for i := 0; i < len(ps); i++ {
+		index := len(ps) - 1 - i
+		sharePoolSize := ps[index].Value
+		sharePoolName := ps[index].Key
+
+		size := int(math.Ceil(float64(overlapReclaimPoolSizeRequired*sharePoolSize) / float64(sharePoolSum)))
+		if size > sharePoolSize {
+			size = sharePoolSize
+		}
+		if size > overlapReclaimPoolSizeRequiredLeft {
+			size = overlapReclaimPoolSizeRequiredLeft
+		}
+		sharedOverlapReclaimSize[sharePoolName] = size
+		overlapReclaimPoolSizeRequiredLeft -= size
+		if overlapReclaimPoolSizeRequiredLeft == 0 {
+			break
+		}
+	}
+
+	return sharedOverlapReclaimSize, nil
+}
+
 // regulatePoolSizes modifies pool size map to legal values, taking total available
 // resource and config such as enable reclaim into account. should be compatible with
 // any case and not return error. return true if reach resource upper bound.

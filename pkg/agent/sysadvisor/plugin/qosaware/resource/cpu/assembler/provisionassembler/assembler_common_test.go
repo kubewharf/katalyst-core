@@ -918,7 +918,7 @@ func TestAssembleProvision(t *testing.T) {
 				},
 			},
 			expectPoolOverlapInfo: map[string]map[int]map[string]int{
-				"reclaim": {-1: map[string]int{"share-a": 15, "share-b": 19}},
+				"reclaim": {-1: map[string]int{"share-a": 14, "share-b": 20}},
 			},
 		},
 	}
