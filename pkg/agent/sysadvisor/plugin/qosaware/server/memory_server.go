@@ -140,7 +140,8 @@ func (ms *memoryServer) listContainers() error {
 
 func (ms *memoryServer) ListAndWatch(_ *advisorsvc.Empty, server advisorsvc.AdvisorService_ListAndWatchServer) error {
 	_ = ms.emitter.StoreInt64(ms.genMetricsName(metricServerLWCalled), int64(ms.period.Seconds()), metrics.MetricTypeNameCount)
-	general.RegisterHeartbeatCheck(memoryServerHealthCheckName, healthCheckTolerationDuration, general.HealthzCheckStateNotReady, healthCheckTolerationDuration)
+	general.RegisterTemporaryHeartbeatCheck(memoryServerHealthCheckName, healthCheckTolerationDuration, general.HealthzCheckStateNotReady, healthCheckTolerationDuration)
+	defer general.UnregisterTemporaryHeartbeatCheck(memoryServerHealthCheckName)
 
 	recvCh, ok := ms.recvCh.(chan types.InternalMemoryCalculationResult)
 	if !ok {
@@ -148,6 +149,18 @@ func (ms *memoryServer) ListAndWatch(_ *advisorsvc.Empty, server advisorsvc.Advi
 	}
 	ms.listAndWatchCalled = true
 
+	maxDropLength := len(recvCh)
+	klog.Infof("[qosaware-server-memory] drop all old memory advices in channel (max: %d)", maxDropLength)
+	for i := 0; i < maxDropLength; i++ {
+		select {
+		case <-recvCh:
+		default:
+			klog.Infof("[qosaware-server-memory] all old memory advice in channel is dropped (max: %d)", i)
+			break
+		}
+	}
+
+	klog.Infof("[qosaware-server-memory] start to push memory advice")
 	for {
 		select {
 		case <-server.Context().Done():

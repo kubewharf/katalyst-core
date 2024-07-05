@@ -75,7 +75,8 @@ func (cs *cpuServer) RegisterAdvisorServer() {
 
 func (cs *cpuServer) ListAndWatch(_ *advisorsvc.Empty, server cpuadvisor.CPUAdvisor_ListAndWatchServer) error {
 	_ = cs.emitter.StoreInt64(cs.genMetricsName(metricServerLWCalled), int64(cs.period.Seconds()), metrics.MetricTypeNameCount)
-	general.RegisterHeartbeatCheck(cpuServerHealthCheckName, healthCheckTolerationDuration, general.HealthzCheckStateNotReady, healthCheckTolerationDuration)
+	general.RegisterTemporaryHeartbeatCheck(cpuServerHealthCheckName, healthCheckTolerationDuration, general.HealthzCheckStateNotReady, healthCheckTolerationDuration)
+	defer general.UnregisterTemporaryHeartbeatCheck(cpuServerHealthCheckName)
 
 	if !cs.getCheckpointCalled {
 		if err := cs.startToGetCheckpointFromCPUPlugin(); err != nil {
@@ -91,6 +92,18 @@ func (cs *cpuServer) ListAndWatch(_ *advisorsvc.Empty, server cpuadvisor.CPUAdvi
 		return fmt.Errorf("recvCh convert failed")
 	}
 
+	maxDropLength := len(recvCh)
+	klog.Infof("[qosaware-server-cpu] drop all old cpu advices in channel (max: %d)", maxDropLength)
+	for i := 0; i < maxDropLength; i++ {
+		select {
+		case <-recvCh:
+		default:
+			klog.Infof("[qosaware-server-cpu] all old cpu advices in channel is dropped (count: %d)", i)
+			break
+		}
+	}
+
+	klog.Infof("[qosaware-server-cpu] start to push cpu advices")
 	for {
 		select {
 		case <-server.Context().Done():

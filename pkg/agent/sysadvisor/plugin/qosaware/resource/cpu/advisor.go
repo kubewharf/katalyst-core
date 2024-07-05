@@ -308,8 +308,8 @@ func (cra *cpuResourceAdvisor) updateWithIsolationGuardian(tryIsolation bool) er
 		klog.Infof("[qosaware-cpu] notify cpu server: %+v", calculationResult)
 		return nil
 	default:
-		klog.Errorf("[qosaware-cpu] channel is full")
-		return fmt.Errorf("calculation result channel is full")
+		klog.Warningf("[qosaware-cpu] channel is full, drop the new advice")
+		return nil
 	}
 }
 

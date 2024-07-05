@@ -98,6 +98,33 @@ func newTestCPUServer(t *testing.T, podList []*v1.Pod) *cpuServer {
 	return cpuServer
 }
 
+func newTestCPUServerWithChanBuffer(t *testing.T, podList []*v1.Pod) *cpuServer {
+	recvCh := make(chan types.InternalCPUCalculationResult, 1)
+	sendCh := make(chan types.TriggerInfo, 1)
+	conf := generateTestConfiguration(t)
+
+	metricsFetcher := metric.NewFakeMetricsFetcher(metrics.DummyMetrics{})
+	metaCache, err := metacache.NewMetaCacheImp(conf, metricspool.DummyMetricsEmitterPool{}, metricsFetcher)
+	require.NoError(t, err)
+	require.NotNil(t, metaCache)
+
+	metaServer := &metaserver.MetaServer{
+		MetaAgent: &agent.MetaAgent{
+			PodFetcher: &pod.PodFetcherStub{
+				PodList: podList,
+			},
+		},
+	}
+
+	cpuServer, err := NewCPUServer(recvCh, sendCh, conf, metaCache, metaServer, metrics.DummyMetrics{})
+	require.NoError(t, err)
+	require.NotNil(t, cpuServer)
+
+	cpuServer.getCheckpointCalled = true
+
+	return cpuServer
+}
+
 func TestCPUServerStartAndStop(t *testing.T) {
 	t.Parallel()
 
@@ -259,16 +286,16 @@ func DeepCopyResponse(response *cpuadvisor.ListAndWatchResponse) (*cpuadvisor.Li
 	return copyResponse, nil
 }
 
+type ContainerInfo struct {
+	request        *advisorsvc.ContainerMetadata
+	podInfo        *v1.Pod
+	allocationInfo *cpuadvisor.AllocationInfo
+	isolated       bool
+	regions        sets.String
+}
+
 func TestCPUServerListAndWatch(t *testing.T) {
 	t.Parallel()
-
-	type ContainerInfo struct {
-		request        *advisorsvc.ContainerMetadata
-		podInfo        *v1.Pod
-		allocationInfo *cpuadvisor.AllocationInfo
-		isolated       bool
-		regions        sets.String
-	}
 
 	tests := []struct {
 		name      string
@@ -1707,4 +1734,166 @@ func TestConcurrencyGetCheckpointAndAddContainer(t *testing.T) {
 
 	time.Sleep(10 * time.Second)
 	cancel()
+}
+
+func TestCPUServerDropOldAdvice(t *testing.T) {
+	t.Parallel()
+
+	cpuServer := newTestCPUServerWithChanBuffer(t, []*v1.Pod{})
+	s := &mockCPUServerService_ListAndWatchServer{ResultsChan: make(chan *cpuadvisor.ListAndWatchResponse)}
+	stop := make(chan struct{})
+	recvCh := cpuServer.recvCh.(chan types.InternalCPUCalculationResult)
+	recvCh <- types.InternalCPUCalculationResult{}
+	go func() {
+		err := cpuServer.ListAndWatch(&advisorsvc.Empty{}, s)
+		assert.NoError(t, err, "failed to LW cpu server")
+		stop <- struct{}{}
+	}()
+	provision := types.InternalCPUCalculationResult{
+		TimeStamp: time.Now(),
+		PoolEntries: map[string]map[int]int{
+			state.PoolNameReclaim: {
+				0: 4,
+				1: 8,
+			},
+		},
+	}
+	infos := []*ContainerInfo{
+		{
+			request: &advisorsvc.ContainerMetadata{
+				PodUid:        "pod1",
+				ContainerName: "c1",
+				Annotations: map[string]string{
+					consts.PodAnnotationMemoryEnhancementNumaBinding: consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
+				},
+				QosLevel: consts.PodAnnotationQoSLevelDedicatedCores,
+			},
+			podInfo: &v1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					Namespace: "default",
+					Name:      "pod1",
+					UID:       "pod1",
+					Annotations: map[string]string{
+						consts.PodAnnotationQoSLevelKey:          consts.PodAnnotationQoSLevelDedicatedCores,
+						consts.PodAnnotationMemoryEnhancementKey: "{\"numa_exclusive\":true}",
+					},
+				},
+				Spec: v1.PodSpec{
+					Containers: []v1.Container{
+						{
+							Name: "c1",
+						},
+					},
+				},
+			},
+			allocationInfo: &cpuadvisor.AllocationInfo{
+				OwnerPoolName: state.PoolNameDedicated,
+				TopologyAwareAssignments: map[uint64]string{
+					0: "0-3",
+					1: "24-47",
+				},
+			},
+		},
+	}
+	for _, info := range infos {
+		assert.NoError(t, cpuServer.addContainer(info.request))
+		assert.NoError(t, cpuServer.updateContainerInfo(info.request.PodUid, info.request.ContainerName, info.podInfo, info.allocationInfo))
+
+		nodeInfo, _ := cpuServer.metaCache.GetContainerInfo(info.request.PodUid, info.request.ContainerName)
+		nodeInfo.Isolated = info.isolated
+		if info.regions.Len() > 0 {
+			nodeInfo.RegionNames = info.regions
+		}
+		assert.NoError(t, cpuServer.metaCache.SetContainerInfo(info.request.PodUid, info.request.ContainerName, nodeInfo))
+	}
+
+	recvCh <- provision
+	res := <-s.ResultsChan
+	close(cpuServer.stopCh)
+	<-stop
+	copyres, err := DeepCopyResponse(res)
+	assert.NoError(t, err)
+	wantRes := &cpuadvisor.ListAndWatchResponse{
+		Entries: map[string]*cpuadvisor.CalculationEntries{
+			state.PoolNameReclaim: {
+				Entries: map[string]*cpuadvisor.CalculationInfo{
+					"": {
+						OwnerPoolName: state.PoolNameReclaim,
+						CalculationResultsByNumas: map[int64]*cpuadvisor.NumaCalculationResult{
+							0: {
+								Blocks: []*cpuadvisor.Block{
+									{
+										Result: 4,
+										OverlapTargets: []*cpuadvisor.OverlapTarget{
+											{
+												OverlapTargetPodUid:        "pod1",
+												OverlapTargetContainerName: "c1",
+												OverlapType:                cpuadvisor.OverlapType_OverlapWithPod,
+											},
+										},
+									},
+								},
+							},
+							1: {
+								Blocks: []*cpuadvisor.Block{
+									{
+										Result: 8,
+										OverlapTargets: []*cpuadvisor.OverlapTarget{
+											{
+												OverlapTargetPodUid:        "pod1",
+												OverlapTargetContainerName: "c1",
+												OverlapType:                cpuadvisor.OverlapType_OverlapWithPod,
+											},
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+			"pod1": {
+				Entries: map[string]*cpuadvisor.CalculationInfo{
+					"c1": {
+						OwnerPoolName: state.PoolNameDedicated,
+						CalculationResultsByNumas: map[int64]*cpuadvisor.NumaCalculationResult{
+							0: {
+								Blocks: []*cpuadvisor.Block{
+									{
+										Result: 4,
+										OverlapTargets: []*cpuadvisor.OverlapTarget{
+											{
+												OverlapTargetPoolName: state.PoolNameReclaim,
+												OverlapType:           cpuadvisor.OverlapType_OverlapWithPool,
+											},
+										},
+									},
+								},
+							},
+							1: {
+								Blocks: []*cpuadvisor.Block{
+									{
+										Result:         16,
+										OverlapTargets: nil,
+									},
+									{
+										Result: 8,
+										OverlapTargets: []*cpuadvisor.OverlapTarget{
+											{
+												OverlapTargetPoolName: state.PoolNameReclaim,
+												OverlapType:           cpuadvisor.OverlapType_OverlapWithPool,
+											},
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+	if !reflect.DeepEqual(copyres, wantRes) {
+		t.Errorf("ListAndWatch()\ngot = %+v, \nwant= %+v", general.ToString(copyres), general.ToString(wantRes))
+	}
 }

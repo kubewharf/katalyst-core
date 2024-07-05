@@ -20,6 +20,8 @@ import (
 	"fmt"
 	"sync"
 	"time"
+
+	"k8s.io/klog/v2"
 )
 
 var (
@@ -60,6 +62,8 @@ type healthzCheckStatus struct {
 	// is failed.
 	AutoRecoverPeriod time.Duration `json:"autoRecoverPeriod"`
 	mutex             sync.RWMutex
+	temporary         bool
+	count             int
 }
 
 func (h *healthzCheckStatus) update(state HealthzCheckState, message string) {
@@ -102,6 +106,13 @@ type HealthzCheckFunc func() (healthzCheckStatus, error)
 func RegisterHeartbeatCheck(name string, timeout time.Duration, initState HealthzCheckState, tolerationPeriod time.Duration) {
 	healthzCheckLock.Lock()
 	defer healthzCheckLock.Unlock()
+	origin, ok := healthzCheckMap[HealthzCheckName(name)]
+	if ok {
+		if origin.Mode != HealthzCheckModeHeartBeat {
+			klog.Errorf("RegisterHeartbeatCheck don't allow to change mode (%s)", name)
+		}
+		return
+	}
 
 	healthzCheckMap[HealthzCheckName(name)] = &healthzCheckStatus{
 		State:            initState,
@@ -110,19 +121,91 @@ func RegisterHeartbeatCheck(name string, timeout time.Duration, initState Health
 		TimeoutPeriod:    timeout,
 		TolerationPeriod: tolerationPeriod,
 		Mode:             HealthzCheckModeHeartBeat,
+		temporary:        false,
 	}
+}
+
+func RegisterTemporaryHeartbeatCheck(name string, timeout time.Duration, initState HealthzCheckState, tolerationPeriod time.Duration) {
+	healthzCheckLock.Lock()
+	defer healthzCheckLock.Unlock()
+
+	origin, ok := healthzCheckMap[HealthzCheckName(name)]
+	if ok {
+		if !origin.temporary {
+			klog.Errorf("RegisterTemporaryHeartbeatCheck not allow to change non-temporary health check")
+			return
+		}
+		origin.count++
+		klog.Infof("request to register temporary heartbeat check(name: %s, count: %d)", name, origin.count)
+		return
+	}
+
+	klog.Infof("request to register temporary heartbeat check(name: %s)", name)
+	healthzCheckMap[HealthzCheckName(name)] = &healthzCheckStatus{
+		State:            initState,
+		Message:          InitMessage,
+		LastUpdateTime:   time.Now(),
+		TimeoutPeriod:    timeout,
+		TolerationPeriod: tolerationPeriod,
+		Mode:             HealthzCheckModeHeartBeat,
+		temporary:        true,
+		count:            1,
+	}
+}
+
+func UnregisterTemporaryHeartbeatCheck(name string) {
+	unregisterHealthCheck(name, HealthzCheckModeHeartBeat)
 }
 
 func RegisterReportCheck(name string, autoRecoverPeriod time.Duration) {
 	healthzCheckLock.Lock()
 	defer healthzCheckLock.Unlock()
 
+	origin, ok := healthzCheckMap[HealthzCheckName(name)]
+	if ok {
+		if origin.Mode != HealthzCheckModeReport {
+			klog.Errorf("RegisterReportCheck don't allow to change mode (%s)", name)
+		}
+		return
+	}
+
 	healthzCheckMap[HealthzCheckName(name)] = &healthzCheckStatus{
 		State:             HealthzCheckStateReady,
 		Message:           InitMessage,
 		AutoRecoverPeriod: autoRecoverPeriod,
 		Mode:              HealthzCheckModeReport,
+		temporary:         false,
 	}
+}
+
+func RegisterTemporaryReportCheck(name string, autoRecoverPeriod time.Duration) {
+	healthzCheckLock.Lock()
+	defer healthzCheckLock.Unlock()
+
+	origin, ok := healthzCheckMap[HealthzCheckName(name)]
+	if ok {
+		if !origin.temporary {
+			klog.Errorf("RegisterTemporaryReportCheck not allow to change non-temporary health check")
+			return
+		}
+		origin.count++
+		klog.Infof("request to register temporary report check(name: %s, count: %d)", name, origin.count)
+		return
+	}
+
+	klog.Infof("request to register temporary report check(name: %s)", name)
+	healthzCheckMap[HealthzCheckName(name)] = &healthzCheckStatus{
+		State:             HealthzCheckStateReady,
+		Message:           InitMessage,
+		AutoRecoverPeriod: autoRecoverPeriod,
+		Mode:              HealthzCheckModeReport,
+		temporary:         true,
+		count:             1,
+	}
+}
+
+func UnregisterTemporaryReportCheck(name string) {
+	unregisterHealthCheck(name, HealthzCheckModeReport)
 }
 
 func UpdateHealthzStateByError(name string, err error) error {
@@ -185,4 +268,31 @@ func GetRegisterReadinessCheckResult() map[HealthzCheckName]HealthzCheckResult {
 		}()
 	}
 	return results
+}
+
+func unregisterHealthCheck(name string, mode HealthzCheckMode) {
+	healthzCheckLock.Lock()
+	defer healthzCheckLock.Unlock()
+
+	current, ok := healthzCheckMap[HealthzCheckName(name)]
+	if !ok {
+		return
+	}
+
+	if !current.temporary {
+		klog.Warningf("reject unregister non short time health check(name: %s, mode: %s)", name, current.Mode)
+		return
+	}
+
+	if current.Mode != mode {
+		klog.Warning("reject to unregister health check(name: %s) with unmatched mode: %s (current mode: %s)", name, mode, current.Mode)
+		return
+	}
+
+	current.count--
+	if current.count == 0 {
+		delete(healthzCheckMap, HealthzCheckName(name))
+	} else {
+		klog.Infof("request to unregister short time health check(name: %s, mode: %s, count: %d)", name, current.Mode, current.count)
+	}
 }

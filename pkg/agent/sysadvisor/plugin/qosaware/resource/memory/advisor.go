@@ -180,8 +180,8 @@ func (ra *memoryResourceAdvisor) sendAdvices() error {
 		general.Infof("notify memory server: %+v", result)
 		return nil
 	default:
-		general.Errorf("channel is full")
-		return fmt.Errorf("memory advice channel is full")
+		klog.Warningf("[qosaware-memory] channel is full, drop the new advice")
+		return nil
 	}
 }
 
