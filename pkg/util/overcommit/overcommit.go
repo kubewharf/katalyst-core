@@ -17,6 +17,7 @@ limitations under the License.
 package overcommit
 
 import (
+	"fmt"
 	"strconv"
 
 	"k8s.io/klog/v2"
@@ -24,7 +25,8 @@ import (
 
 func OvercommitRatioValidate(
 	nodeAnnotation map[string]string,
-	setOvercommitKey, realtimeOvercommitKey string,
+	setOvercommitKey, predictOvercommitKey, realtimeOvercommitKey string,
+	enableDynamicOvercommit bool,
 ) (float64, error) {
 	// overcommit is not allowed if overcommitRatio is not set by user
 	setOvercommitVal, ok := nodeAnnotation[setOvercommitKey]
@@ -35,6 +37,21 @@ func OvercommitRatioValidate(
 	overcommitRatio, err := strconv.ParseFloat(setOvercommitVal, 64)
 	if err != nil {
 		return 1.0, err
+	}
+
+	if !enableDynamicOvercommit {
+		return overcommitRatio, nil
+	}
+
+	predictOvercommitVal, ok := nodeAnnotation[predictOvercommitKey]
+	if ok {
+		predictOvercommitRatio, err := strconv.ParseFloat(predictOvercommitVal, 64)
+		if err != nil {
+			klog.Errorf("predict overcommit %s validate fail: %v", predictOvercommitVal, err)
+		}
+		if predictOvercommitRatio < overcommitRatio {
+			overcommitRatio = predictOvercommitRatio
+		}
 	}
 
 	realtimeOvercommitVal, ok := nodeAnnotation[realtimeOvercommitKey]
@@ -49,7 +66,8 @@ func OvercommitRatioValidate(
 	}
 
 	if overcommitRatio < 1.0 {
-		klog.Warningf("overcommitRatio should be greater than 1")
+		err = fmt.Errorf("overcommitRatio should be greater than 1")
+		klog.Error(err)
 		return 1.0, nil
 	}
 

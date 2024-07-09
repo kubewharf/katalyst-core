@@ -21,12 +21,14 @@ import (
 	"sync"
 
 	v1 "k8s.io/api/core/v1"
+	clientCache "k8s.io/client-go/tools/cache"
 	"k8s.io/klog/v2"
 	"k8s.io/kubernetes/pkg/features"
 	"k8s.io/kubernetes/pkg/kubelet/cm/cpumanager"
 	"k8s.io/kubernetes/pkg/scheduler/framework"
 
 	"github.com/kubewharf/katalyst-api/pkg/apis/node/v1alpha1"
+	v1alpha12 "github.com/kubewharf/katalyst-api/pkg/apis/overcommit/v1alpha1"
 	"github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/util/native"
 )
@@ -44,6 +46,7 @@ func init() {
 type overcommitCache struct {
 	sync.RWMutex
 	nodeCaches map[string]*NodeCache
+	nocIndexer clientCache.Indexer
 }
 
 func GetCache() *overcommitCache {
@@ -60,6 +63,29 @@ func (c *overcommitCache) GetNode(name string) (*NodeCache, error) {
 	}
 
 	return node, nil
+}
+
+func (c *overcommitCache) GetNocByIndexer(labelVal string) (*v1alpha12.NodeOvercommitConfig, error) {
+	nocList, err := c.nocIndexer.ByIndex(NOCIndexerKey, labelVal)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(nocList) == 0 {
+		return nil, nil
+	}
+
+	if len(nocList) > 1 {
+		return nil, fmt.Errorf("matched more than 1 noc with label value %s", labelVal)
+	}
+
+	nocInterface := nocList[0]
+	noc, ok := nocInterface.(*v1alpha12.NodeOvercommitConfig)
+	if !ok {
+		return nil, fmt.Errorf("transfer interface to noc fail")
+	}
+
+	return noc, nil
 }
 
 func (c *overcommitCache) AddPod(pod *v1.Pod) error {

@@ -26,6 +26,7 @@ import (
 	"k8s.io/klog/v2"
 
 	"github.com/kubewharf/katalyst-api/pkg/apis/node/v1alpha1"
+	v1alpha12 "github.com/kubewharf/katalyst-api/pkg/apis/overcommit/v1alpha1"
 	"github.com/kubewharf/katalyst-api/pkg/client/informers/externalversions"
 	schedulercache "github.com/kubewharf/katalyst-core/pkg/scheduler/cache"
 	"github.com/kubewharf/katalyst-core/pkg/scheduler/eventhandlers"
@@ -35,6 +36,10 @@ import (
 const (
 	OvercommitPodHandler = "OvercommitPodHandler"
 	OvercommitCNRHandler = "OvercommitCNRHandler"
+
+	OvercommitNOCHandler = "OvercommitNOCHandler"
+
+	NOCIndexerKey = "overcommitIndexerKey"
 )
 
 // RegisterPodHandler register handler to scheduler event handlers
@@ -80,6 +85,33 @@ func RegisterCNRHandler() {
 				UpdateFunc: updateCNR,
 				DeleteFunc: deleteCNR,
 			})
+	})
+}
+
+func RegisterNOCHandler() {
+	eventhandlers.RegisterEventHandler(OvercommitNOCHandler, func(_ informers.SharedInformerFactory, internalInformerFactory externalversions.SharedInformerFactory) {
+		nocInformer := internalInformerFactory.Overcommit().V1alpha1().NodeOvercommitConfigs()
+
+		err := nocInformer.Informer().AddIndexers(clientgocache.Indexers{
+			NOCIndexerKey: func(obj interface{}) ([]string, error) {
+				noc, ok := obj.(*v1alpha12.NodeOvercommitConfig)
+				if !ok {
+					klog.Warningf("transfer obj to noc fail")
+					return []string{}, nil
+				}
+
+				if noc.Spec.NodeOvercommitSelectorVal == "" {
+					return []string{}, nil
+				}
+
+				return []string{noc.Spec.NodeOvercommitSelectorVal}, nil
+			},
+		})
+		if err != nil {
+			klog.Fatalf("RegisterNOCHandler fail: %v", err)
+		}
+
+		cache.nocIndexer = nocInformer.Informer().GetIndexer()
 	})
 }
 
