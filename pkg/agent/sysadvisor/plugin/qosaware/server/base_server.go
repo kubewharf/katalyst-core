@@ -24,6 +24,7 @@ import (
 	"path"
 	"reflect"
 	"strings"
+	"sync"
 	"time"
 
 	"google.golang.org/grpc"
@@ -58,6 +59,8 @@ const (
 )
 
 type baseServer struct {
+	mutex sync.RWMutex
+
 	name              string
 	period            time.Duration
 	advisorSocketPath string
@@ -183,6 +186,9 @@ func (bs *baseServer) dial(unixSocketPath string, timeout time.Duration) (*grpc.
 }
 
 func (bs *baseServer) Stop() error {
+	bs.mutex.RLock()
+	defer bs.mutex.RUnlock()
+
 	close(bs.stopCh)
 	_ = bs.emitter.StoreInt64(bs.genMetricsName(metricServerStopCalled), int64(bs.period.Seconds()), metrics.MetricTypeNameCount)
 
