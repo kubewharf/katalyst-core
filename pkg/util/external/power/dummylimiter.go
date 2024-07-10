@@ -18,8 +18,7 @@ package power
 
 import "errors"
 
-type dummyLimiter struct {
-}
+type dummyLimiter struct{}
 
 func (d dummyLimiter) SetLimitOnBasis(limit, base int) error {
 	return errors.New("dummy limiter is unable to set limit")
