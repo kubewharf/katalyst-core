@@ -30,6 +30,8 @@ const (
 	AMD_ZEN3_MILAN            = 0x01
 )
 
+// SysInfo is the subset of machine info that are related to power capping functions
+// at AMD chip machines
 type SysInfo struct {
 	VenderID      string
 	Family        int
