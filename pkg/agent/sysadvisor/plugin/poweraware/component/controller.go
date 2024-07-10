@@ -24,7 +24,6 @@ import (
 	"k8s.io/klog/v2"
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/poweraware/component/capper"
-	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/poweraware/component/intel"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/poweraware/component/reader"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
 	"github.com/kubewharf/katalyst-core/pkg/config/generic"
@@ -108,7 +107,7 @@ func NewController(dryRun bool, emitter metrics.MetricEmitter,
 		emitter:     emitter,
 		specFetcher: &specFetcherByNodeAnnotation{nodeFetcher: nodeFetcher},
 		// todo: + support amd
-		powerReader: intel.NewPowerReader(),
+		powerReader: reader.NewIPMIPowerReader(),
 		reconciler: &powerReconciler{
 			dryRun:      dryRun,
 			priorAction: PowerAction{},
