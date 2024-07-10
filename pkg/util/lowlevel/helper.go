@@ -50,6 +50,10 @@ func GetVenderID() string {
 	return CPU.VendorID.String()
 }
 
+func IsAMD() bool {
+	return GetVenderID() == MACHINE_INFO_VENDER_AMD
+}
+
 func GetCPUFamily() int {
 	return CPU.Family
 }
