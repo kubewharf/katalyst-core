@@ -38,7 +38,7 @@ type SysInfo struct {
 	NumaNum       int
 	NumaPerSocket int
 	PciDevID      uint16
-	PowerMaxLimit []uint32 //the max power limit can be set for each socket
+	PowerMaxLimit []uint32 // the max power limit can be set for each socket
 	CCDMapping    map[int][]int
 }
 
