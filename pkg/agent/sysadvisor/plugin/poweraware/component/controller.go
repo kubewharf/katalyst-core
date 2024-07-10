@@ -23,7 +23,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/klog/v2"
 
-	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/poweraware/component/capper"
+	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/poweraware/component/capper/intel"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/poweraware/component/reader"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
 	"github.com/kubewharf/katalyst-core/pkg/config/generic"
@@ -106,7 +106,6 @@ func NewController(dryRun bool, emitter metrics.MetricEmitter,
 	return &powerAwareController{
 		emitter:     emitter,
 		specFetcher: &specFetcherByNodeAnnotation{nodeFetcher: nodeFetcher},
-		// todo: + support amd
 		powerReader: reader.NewIPMIPowerReader(),
 		reconciler: &powerReconciler{
 			dryRun:      dryRun,
@@ -117,7 +116,7 @@ func NewController(dryRun bool, emitter metrics.MetricEmitter,
 				podKiller:  &dummyPodKiller{},
 			},
 			// todo: + support amd
-			capper:   capper.NewCapper(limiter),
+			capper:   intel.NewCapper(limiter),
 			strategy: &ruleBasedPowerStrategy{coefficient: linearDecay{b: defaultDecayB}},
 		},
 		powerLimitInitResetter: limiter,
