@@ -208,7 +208,7 @@ func (r *raplGetSetter) readWattFromFile(path string) (int, error) {
 	return reading, nil
 }
 
-func NewLimiter() PowerLimiter {
+func NewRAPLLimiter() PowerLimiter {
 	raplHandler := &raplGetSetter{
 		fs: afero.NewOsFs(),
 	}

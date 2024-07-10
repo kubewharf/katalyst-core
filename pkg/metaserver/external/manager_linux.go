@@ -56,7 +56,7 @@ func InitExternalManager(podFetcher pod.PodFetcher) ExternalManager {
 			NetworkManager:  network.NewNetworkManager(),
 			RDTManager:      rdt.NewDefaultManager(),
 			// todo: + support of amd
-			PowerLimiter: power.NewLimiter(),
+			PowerLimiter: power.NewRAPLLimiter(),
 		}
 	})
 
