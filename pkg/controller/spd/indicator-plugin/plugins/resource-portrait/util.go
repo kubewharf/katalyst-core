@@ -53,7 +53,7 @@ func convertPodMetricsSliceToMap(metrics []apimetrics.PodMetrics) map[int64]apim
 
 // convertTimeseriesToPodMetricsMap converts time series data into metric maps.
 func convertTimeseriesToPodMetricsMap(source, method string, timeSeriesData map[string][]timeSeriesItem, groupData map[string]float64) map[int64]apimetrics.PodMetrics {
-	fakeContainerName := fmt.Sprintf("%s-%s", source, method)
+	fakeContainerName := GenerateFakeContainerName(source, method)
 	podMetricsMap := map[int64]apimetrics.PodMetrics{}
 	for resourceName, timeSeries := range timeSeriesData {
 		for _, item := range timeSeries {
@@ -214,4 +214,9 @@ func filterResourcePortraitIndicators(rpIndicator *apiconfig.ResourcePortraitInd
 
 func convertAlgorithmResultToAggMetrics(aggMetrics *apiworkload.AggPodMetrics, algoConf *apiconfig.ResourcePortraitConfig, timeseries map[string][]timeSeriesItem, groupData map[string]float64) *apiworkload.AggPodMetrics {
 	return &apiworkload.AggPodMetrics{Aggregator: apiworkload.Aggregator(algoConf.AlgorithmConfig.TimeWindow.Aggregator), Items: generatePodMetrics(algoConf, aggMetrics.Items, timeseries, groupData)}
+}
+
+// GenerateFakeContainerName generates fake container name for resource portrait
+func GenerateFakeContainerName(source, method string) string {
+	return fmt.Sprintf("%s-%s", source, method)
 }

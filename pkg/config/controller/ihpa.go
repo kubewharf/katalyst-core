@@ -14,15 +14,15 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package plugins
+package controller
 
-import (
-	indicatorplugin "github.com/kubewharf/katalyst-core/pkg/controller/spd/indicator-plugin"
-	"github.com/kubewharf/katalyst-core/pkg/controller/spd/indicator-plugin/plugins/ihpa"
-	resourceportrait "github.com/kubewharf/katalyst-core/pkg/controller/spd/indicator-plugin/plugins/resource-portrait"
-)
+import "time"
 
-func init() {
-	indicatorplugin.RegisterPluginInitializer(resourceportrait.ResourcePortraitPluginName, resourceportrait.ResourcePortraitIndicatorPluginInitFunc)
-	indicatorplugin.RegisterPluginInitializer(ihpa.PluginName, ihpa.PluginInitFunc)
+type IHPAConfig struct {
+	SyncWorkers  int
+	ResyncPeriod time.Duration
+}
+
+func NewIHPAConfig() *IHPAConfig {
+	return &IHPAConfig{}
 }
