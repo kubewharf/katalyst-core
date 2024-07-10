@@ -45,27 +45,27 @@ func (p powerCapLimiter) Cap(ctx context.Context, targetWatts, currWatt int) {
 }
 
 func (p powerCapLimiter) getCurrentPower() int {
-	var total uint32
+	var totalMicroWatts uint32
 	for i := 0; i < p.op.MachineInfo.SocketNum; i++ {
-		total += p.op.GetSocketPower(i)
+		totalMicroWatts += p.op.GetSocketPower(i)
 	}
-	return int(total)
+	return int(totalMicroWatts / 1_000)
 }
 
-func (p powerCapLimiter) SetLimitOnBasis(limit, base int) error {
+func (p powerCapLimiter) SetLimitOnBasis(limitWatts, baseWatts int) error {
 	// adjustment formula: settings = readings + limit - base
 	// assuming N packages equally applied to
 	reading := p.getCurrentPower()
 
-	setting := reading + (limit - base)
+	setting := reading + (limitWatts - baseWatts)
 	if p.op.MachineInfo.SocketNum == 0 {
 		return errors.New("should have at lease 1 physical socket")
 	}
 
-	targetPerSocket := setting / p.op.MachineInfo.SocketNum
+	targetMicroWattsPerSocket := setting / p.op.MachineInfo.SocketNum * 1_000
 
 	for i := 0; i < p.op.MachineInfo.SocketNum; i++ {
-		err := p.op.SetSocketPowerLimit(i, uint32(targetPerSocket))
+		err := p.op.SetSocketPowerLimit(i, uint32(targetMicroWattsPerSocket))
 		if err != nil {
 			return errors.Wrap(err, "amd set socket power fail")
 		}
