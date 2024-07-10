@@ -36,7 +36,7 @@ const (
 	SYS_DEVICE_SYSTEM_CPU_PATH  = "/sys/devices/system/cpu/"
 	CPU_FREQUENCY_PATH_AMD      = "cpufreq/cpuinfo_cur_freq"
 
-	DEFAULT_CPU_CLOCK = 0.3846 // calcualted with the frequency of 2.6GHZ
+	DEFAULT_CPU_CLOCK = 0.3846 // calculated with the frequency of 2.6GHZ
 
 	CPU_CACHE_LEVEL_LLC       = 3
 	MACHINE_INFO_VENDER_AMD   = "AMD"
