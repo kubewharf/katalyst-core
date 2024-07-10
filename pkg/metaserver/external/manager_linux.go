@@ -25,11 +25,13 @@ import (
 
 	"k8s.io/klog/v2"
 
+	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/poweraware/component/capper/amd"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/pod"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/external/cgroupid"
 	"github.com/kubewharf/katalyst-core/pkg/util/external/network"
 	"github.com/kubewharf/katalyst-core/pkg/util/external/power"
 	"github.com/kubewharf/katalyst-core/pkg/util/external/rdt"
+	utils "github.com/kubewharf/katalyst-core/pkg/util/lowlevel"
 )
 
 var (
@@ -49,14 +51,19 @@ type externalManagerImpl struct {
 
 // InitExternalManager initializes an externalManagerImpl
 func InitExternalManager(podFetcher pod.PodFetcher) ExternalManager {
+	var powerLimiter power.PowerLimiter
+	if utils.IsAMD() {
+		powerLimiter = amd.NewAMDPowerLimiter()
+	} else {
+		powerLimiter = power.NewRAPLLimiter()
+	}
 	initManagerOnce.Do(func() {
 		manager = &externalManagerImpl{
 			start:           false,
 			CgroupIDManager: cgroupid.NewCgroupIDManager(podFetcher),
 			NetworkManager:  network.NewNetworkManager(),
 			RDTManager:      rdt.NewDefaultManager(),
-			// todo: + support of amd
-			PowerLimiter: power.NewRAPLLimiter(),
+			PowerLimiter:    powerLimiter,
 		}
 	})
 
