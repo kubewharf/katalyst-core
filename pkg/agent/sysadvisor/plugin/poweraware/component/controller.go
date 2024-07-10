@@ -23,12 +23,15 @@ import (
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/klog/v2"
 
+	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/poweraware/component/capper"
+	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/poweraware/component/intel"
+	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/poweraware/component/reader"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
 	"github.com/kubewharf/katalyst-core/pkg/config/generic"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/node"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/pod"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
-	"github.com/kubewharf/katalyst-core/pkg/util/external/rapl"
+	"github.com/kubewharf/katalyst-core/pkg/util/external/power"
 )
 
 // 8 seconds between actions since RAPL capping needs 4-6 seconds to stablize itself
@@ -46,9 +49,9 @@ type PowerAwareController interface {
 type powerAwareController struct {
 	emitter                metrics.MetricEmitter
 	specFetcher            SpecFetcher
-	powerReader            PowerReader
+	powerReader            reader.PowerReader
 	reconciler             PowerReconciler
-	powerLimitInitResetter rapl.InitResetter
+	powerLimitInitResetter power.InitResetter
 }
 
 func (p powerAwareController) Run(ctx context.Context) {
@@ -99,12 +102,13 @@ func (p powerAwareController) run(ctx context.Context) {
 
 func NewController(dryRun bool, emitter metrics.MetricEmitter,
 	nodeFetcher node.NodeFetcher, podFetcher pod.PodFetcher,
-	qosConfig *generic.QoSConfiguration, limiter rapl.RAPLLimiter,
+	qosConfig *generic.QoSConfiguration, limiter power.PowerLimiter,
 ) PowerAwareController {
 	return &powerAwareController{
 		emitter:     emitter,
 		specFetcher: &specFetcherByNodeAnnotation{nodeFetcher: nodeFetcher},
-		powerReader: &ipmiPowerReader{},
+		// todo: + support amd
+		powerReader: intel.NewPowerReader(),
 		reconciler: &powerReconciler{
 			dryRun:      dryRun,
 			priorAction: PowerAction{},
@@ -113,7 +117,8 @@ func NewController(dryRun bool, emitter metrics.MetricEmitter,
 				podFetcher: podFetcher,
 				podKiller:  &dummyPodKiller{},
 			},
-			capper:   &raplCapper{raplLimiter: limiter},
+			// todo: + support amd
+			capper:   capper.NewCapper(limiter),
 			strategy: &ruleBasedPowerStrategy{coefficient: linearDecay{b: defaultDecayB}},
 		},
 		powerLimitInitResetter: limiter,

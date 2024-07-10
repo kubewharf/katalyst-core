@@ -22,9 +22,10 @@ import (
 
 	"github.com/pkg/errors"
 
+	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/poweraware/component/reader"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
 	metricspool "github.com/kubewharf/katalyst-core/pkg/metrics/metrics-pool"
-	"github.com/kubewharf/katalyst-core/pkg/util/external/rapl"
+	"github.com/kubewharf/katalyst-core/pkg/util/external/power"
 )
 
 type dummySpecFetcher struct {
@@ -33,7 +34,7 @@ type dummySpecFetcher struct {
 }
 
 type dummyPowerReader struct {
-	PowerReader
+	reader.PowerReader
 	calledInit    bool
 	calledGet     bool
 	calledCleanup bool
@@ -59,7 +60,7 @@ type dummyPowerReconciler struct {
 }
 
 type dummyPowerLimitResetter struct {
-	rapl.InitResetter
+	power.InitResetter
 	resetCalled bool
 	initCalled  bool
 }
@@ -221,7 +222,7 @@ func Test_powerAwareController_run_return_on_Pause_op(t *testing.T) {
 }
 
 type dummyErrorPowerReader struct {
-	PowerReader
+	reader.PowerReader
 	calledCleanup bool
 }
 

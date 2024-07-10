@@ -14,14 +14,14 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package component
+package capper
 
 import (
 	"context"
 
 	"k8s.io/klog/v2"
 
-	"github.com/kubewharf/katalyst-core/pkg/util/external/rapl"
+	"github.com/kubewharf/katalyst-core/pkg/util/external/power"
 )
 
 type PowerCapper interface {
@@ -29,7 +29,7 @@ type PowerCapper interface {
 }
 
 type raplCapper struct {
-	raplLimiter rapl.RAPLLimiter
+	raplLimiter power.PowerLimiter
 }
 
 func (r raplCapper) Cap(_ context.Context, targetWatts, currWatt int) {
@@ -39,3 +39,7 @@ func (r raplCapper) Cap(_ context.Context, targetWatts, currWatt int) {
 }
 
 var _ PowerCapper = &raplCapper{}
+
+func NewCapper(limiter power.PowerLimiter) PowerCapper {
+	return &raplCapper{raplLimiter: limiter}
+}

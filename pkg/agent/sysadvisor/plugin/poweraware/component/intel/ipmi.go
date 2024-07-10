@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package component
+package intel
 
 import (
 	"context"
@@ -22,13 +22,9 @@ import (
 
 	"github.com/bougou/go-ipmi"
 	"github.com/pkg/errors"
-)
 
-type PowerReader interface {
-	Init() error
-	Get(ctx context.Context) (int, error)
-	Cleanup()
-}
+	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/poweraware/component/reader"
+)
 
 type ipmiPowerReader struct {
 	ipmiClient  *ipmi.Client
@@ -76,7 +72,7 @@ func (pr *ipmiPowerReader) Get(_ context.Context) (int, error) {
 	return int(pr.powerSensor.ConvertReading(resp.Reading)), nil
 }
 
-var _ PowerReader = &ipmiPowerReader{}
+var _ reader.PowerReader = &ipmiPowerReader{}
 
 type (
 	SDR    = ipmi.SDR
@@ -128,4 +124,8 @@ func sdrToSensor(sdr *SDR) (*Sensor, error) {
 	}
 
 	return sensor, nil
+}
+
+func NewPowerReader() reader.PowerReader {
+	return &ipmiPowerReader{}
 }
