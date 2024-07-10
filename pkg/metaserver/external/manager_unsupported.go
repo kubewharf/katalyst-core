@@ -56,8 +56,7 @@ func InitExternalManager(podFetcher pod.PodFetcher) ExternalManager {
 			CgroupIDManager: cgroupid.NewCgroupIDManager(podFetcher),
 			NetworkManager:  network.NewNetworkManager(),
 			RDTManager:      rdt.NewDefaultManager(),
-			// todo: use unsupported power limiter
-			PowerLimiter: power.NewLimiter(),
+			PowerLimiter:    power.NewDummyLimiter(),
 		}
 	})
 
