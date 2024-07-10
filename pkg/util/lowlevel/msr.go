@@ -48,9 +48,7 @@ func MSR(cpu uint32) (MSRDev, error) {
 // Read() reads a given MSR on the CPU and returns the uint64
 func (d MSRDev) Read(msr int64) (uint64, error) {
 	regBuf := make([]byte, 8)
-
 	rc, err := syscall.Pread(d.fd, regBuf, msr)
-
 	if err != nil {
 		return 0, err
 	}
@@ -84,11 +82,8 @@ func ReadMSR(cpu uint32, msr int64) (uint64, error) {
 
 // Write() writes a given value to the provided register
 func (d MSRDev) Write(regno int64, value uint64) error {
-
 	buf := make([]byte, 8)
-
 	binary.LittleEndian.PutUint64(buf, value)
-
 	count, err := syscall.Pwrite(d.fd, buf, regno)
 	if err != nil {
 		return err
