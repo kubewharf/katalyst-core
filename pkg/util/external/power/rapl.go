@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package rapl
+package power
 
 import (
 	"errors"
@@ -33,11 +33,6 @@ const (
 
 	min_long_term_power_limit_watt = 80
 )
-
-type RAPLLimiter interface {
-	SetLimitOnBasis(limit, base int) error
-	InitResetter
-}
 
 type RAPL struct {
 	getSetter    GetSetter
@@ -213,7 +208,7 @@ func (r *raplGetSetter) readWattFromFile(path string) (int, error) {
 	return reading, nil
 }
 
-func NewLimiter() RAPLLimiter {
+func NewLimiter() PowerLimiter {
 	raplHandler := &raplGetSetter{
 		fs: afero.NewOsFs(),
 	}

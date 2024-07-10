@@ -22,6 +22,7 @@ import (
 
 	"k8s.io/klog/v2"
 
+	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/poweraware/component/capper"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
 )
 
@@ -34,7 +35,7 @@ type powerReconciler struct {
 	priorAction PowerAction
 
 	evictor  LoadEvictor
-	capper   PowerCapper
+	capper   capper.PowerCapper
 	strategy PowerStrategy
 }
 

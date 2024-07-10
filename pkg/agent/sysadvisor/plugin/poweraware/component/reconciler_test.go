@@ -21,6 +21,7 @@ import (
 	"testing"
 	"time"
 
+	capper "github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/poweraware/component/capper"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
 )
 
@@ -45,7 +46,7 @@ func Test_powerReconciler_Reconcile_DryRun(t *testing.T) {
 		dryRun      bool
 		priorAction PowerAction
 		evictor     LoadEvictor
-		capper      PowerCapper
+		capper      capper.PowerCapper
 		strategy    PowerStrategy
 	}
 	type args struct {

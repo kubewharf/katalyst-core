@@ -21,7 +21,7 @@ import (
 
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/external/cgroupid"
 	"github.com/kubewharf/katalyst-core/pkg/util/external/network"
-	"github.com/kubewharf/katalyst-core/pkg/util/external/rapl"
+	"github.com/kubewharf/katalyst-core/pkg/util/external/power"
 	"github.com/kubewharf/katalyst-core/pkg/util/external/rdt"
 )
 
@@ -30,7 +30,7 @@ type ExternalManager interface {
 	cgroupid.CgroupIDManager
 	network.NetworkManager
 	rdt.RDTManager
-	rapl.RAPLLimiter
+	power.PowerLimiter
 
 	Run(ctx context.Context)
 }
@@ -39,7 +39,7 @@ type DummyExternalManager struct {
 	cgroupid.CgroupIDManager
 	network.NetworkManager
 	rdt.RDTManager
-	rapl.RAPLLimiter
+	power.PowerLimiter
 }
 
 func (d *DummyExternalManager) Run(_ context.Context) {}

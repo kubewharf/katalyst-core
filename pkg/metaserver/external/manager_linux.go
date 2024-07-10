@@ -28,7 +28,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/pod"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/external/cgroupid"
 	"github.com/kubewharf/katalyst-core/pkg/util/external/network"
-	"github.com/kubewharf/katalyst-core/pkg/util/external/rapl"
+	"github.com/kubewharf/katalyst-core/pkg/util/external/power"
 	"github.com/kubewharf/katalyst-core/pkg/util/external/rdt"
 )
 
@@ -44,7 +44,7 @@ type externalManagerImpl struct {
 
 	network.NetworkManager
 	rdt.RDTManager
-	rapl.RAPLLimiter
+	power.PowerLimiter
 }
 
 // InitExternalManager initializes an externalManagerImpl
@@ -55,7 +55,8 @@ func InitExternalManager(podFetcher pod.PodFetcher) ExternalManager {
 			CgroupIDManager: cgroupid.NewCgroupIDManager(podFetcher),
 			NetworkManager:  network.NewNetworkManager(),
 			RDTManager:      rdt.NewDefaultManager(),
-			RAPLLimiter:     rapl.NewLimiter(),
+			// todo: + support of amd
+			PowerLimiter: power.NewLimiter(),
 		}
 	})
 
