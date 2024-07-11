@@ -17,42 +17,19 @@ limitations under the License.
 package amd
 
 import (
-	"context"
-	"sync"
-
 	"github.com/pkg/errors"
 	"k8s.io/klog/v2"
 
-	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/poweraware/component/capper"
 	"github.com/kubewharf/katalyst-core/pkg/util/external/power"
 	utils "github.com/kubewharf/katalyst-core/pkg/util/lowlevel"
 	"github.com/kubewharf/katalyst-core/pkg/util/power/amd"
 )
 
-var (
-	once       sync.Once
-	amdPowerOp *powerCapLimiter
-)
-
-type powerCapLimiter struct {
+type powerLimiter struct {
 	op amd.Operation
 }
 
-func (p powerCapLimiter) Cap(ctx context.Context, targetWatts, currWatt int) {
-	if err := p.SetLimitOnBasis(targetWatts, currWatt); err != nil {
-		klog.Errorf("pap: failed to power cap, current watt %d, target watt %d", currWatt, targetWatts)
-	}
-}
-
-func (p powerCapLimiter) getCurrentPower() int {
-	var totalMicroWatts uint32
-	for i := 0; i < p.op.MachineInfo.SocketNum; i++ {
-		totalMicroWatts += p.op.GetSocketPower(i)
-	}
-	return int(totalMicroWatts / 1_000)
-}
-
-func (p powerCapLimiter) SetLimitOnBasis(limitWatts, baseWatts int) error {
+func (p powerLimiter) SetLimitOnBasis(limitWatts, baseWatts int) error {
 	// adjustment formula: settings = readings + limit - base
 	// assuming N packages equally applied to
 	reading := p.getCurrentPower()
@@ -74,33 +51,33 @@ func (p powerCapLimiter) SetLimitOnBasis(limitWatts, baseWatts int) error {
 	return nil
 }
 
-// Reset is method of power capper, which sets 0 in amd case
-func (p powerCapLimiter) Reset() {
-	for i := 0; i < p.op.MachineInfo.SocketNum; i++ {
-		p.op.SetSocketPowerLimit(i, 0)
-	}
-}
-
-func (p powerCapLimiter) Init() error {
+func (p powerLimiter) Init() error {
 	utils.PCIDevInit()
 	return p.op.InitIOHCs(false)
 }
 
-func getSingleton() *powerCapLimiter {
-	once.Do(func() {
-		if op, err := amd.NewOperation(); err == nil {
-			amdPowerOp = &powerCapLimiter{
-				op: op,
-			}
-		}
-	})
-	return amdPowerOp
+func (p powerLimiter) Reset() {
+	for i := 0; i < p.op.MachineInfo.SocketNum; i++ {
+		_ = p.op.SetSocketPowerLimit(i, 0)
+	}
 }
 
-func NewAMDPowerLimiter() power.PowerLimiter {
-	return getSingleton()
+func (p powerLimiter) getCurrentPower() int {
+	var totalMicroWatts uint32
+	for i := 0; i < p.op.MachineInfo.SocketNum; i++ {
+		totalMicroWatts += p.op.GetSocketPower(i)
+	}
+	return int(totalMicroWatts / 1_000)
 }
 
-func NewAMDPowerCapper() capper.PowerCapper {
-	return getSingleton()
+func NewPowerLimiter() power.PowerLimiter {
+	op, err := amd.NewOperation()
+	if err != nil {
+		klog.Error("unexpected error to get amd power op object: %v", err)
+		return nil
+	}
+
+	return &powerLimiter{
+		op: op,
+	}
 }

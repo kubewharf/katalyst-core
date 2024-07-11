@@ -54,7 +54,7 @@ type externalManagerImpl struct {
 func InitExternalManager(podFetcher pod.PodFetcher) ExternalManager {
 	var powerLimiter power.PowerLimiter
 	if utils.IsAMD() {
-		powerLimiter = amd.NewAMDPowerLimiter()
+		powerLimiter = amd.NewPowerLimiter()
 	} else {
 		powerLimiter = intel.NewRAPLLimiter()
 	}

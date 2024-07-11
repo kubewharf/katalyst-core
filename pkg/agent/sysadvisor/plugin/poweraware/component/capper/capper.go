@@ -18,8 +18,26 @@ package capper
 
 import (
 	"context"
+
+	"k8s.io/klog/v2"
+
+	"github.com/kubewharf/katalyst-core/pkg/util/external/power"
 )
 
 type PowerCapper interface {
 	Cap(ctx context.Context, targetWatts, currWatt int)
+}
+
+type powerCapper struct {
+	limiter power.PowerLimiter
+}
+
+func (r powerCapper) Cap(_ context.Context, targetWatts, currWatt int) {
+	if err := r.limiter.SetLimitOnBasis(targetWatts, currWatt); err != nil {
+		klog.Errorf("pap: failed to power cap, current watt %d, target watt %d", currWatt, targetWatts)
+	}
+}
+
+func NewCapper(limiter power.PowerLimiter) PowerCapper {
+	return &powerCapper{limiter: limiter}
 }
