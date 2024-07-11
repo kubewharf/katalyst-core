@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package power
+package intel
 
 import (
 	"errors"
@@ -25,6 +25,8 @@ import (
 
 	"github.com/spf13/afero"
 	"k8s.io/klog/v2"
+
+	"github.com/kubewharf/katalyst-core/pkg/util/external/power"
 )
 
 const (
@@ -36,7 +38,7 @@ const (
 
 type RAPL struct {
 	getSetter    GetSetter
-	initResetter InitResetter
+	initResetter power.InitResetter
 }
 
 func (r RAPL) Init() error {
@@ -65,11 +67,6 @@ func (r RAPL) SetLimitOnBasis(limit, base int) error {
 type GetSetter interface {
 	Get() (int, error)
 	Set(int) error
-}
-
-type InitResetter interface {
-	Init() error
-	Reset()
 }
 
 type raplGetSetter struct {
@@ -148,8 +145,8 @@ func (r *raplGetSetter) Set(limit int) error {
 }
 
 var (
-	_ GetSetter    = &raplGetSetter{}
-	_ InitResetter = &raplGetSetter{}
+	_ GetSetter          = &raplGetSetter{}
+	_ power.InitResetter = &raplGetSetter{}
 )
 
 func (r *raplGetSetter) getShortTermWattOfPackage(id int) (int, error) {
@@ -208,7 +205,7 @@ func (r *raplGetSetter) readWattFromFile(path string) (int, error) {
 	return reading, nil
 }
 
-func NewRAPLLimiter() PowerLimiter {
+func NewRAPLLimiter() power.PowerLimiter {
 	raplHandler := &raplGetSetter{
 		fs: afero.NewOsFs(),
 	}
