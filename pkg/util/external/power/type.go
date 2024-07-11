@@ -20,3 +20,8 @@ type PowerLimiter interface {
 	SetLimitOnBasis(limit, base int) error
 	InitResetter
 }
+
+type InitResetter interface {
+	Init() error
+	Reset()
+}

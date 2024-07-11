@@ -26,6 +26,7 @@ import (
 	"k8s.io/klog/v2"
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/poweraware/component/capper/amd"
+	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/poweraware/component/capper/intel"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/pod"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/external/cgroupid"
 	"github.com/kubewharf/katalyst-core/pkg/util/external/network"
@@ -55,7 +56,7 @@ func InitExternalManager(podFetcher pod.PodFetcher) ExternalManager {
 	if utils.IsAMD() {
 		powerLimiter = amd.NewAMDPowerLimiter()
 	} else {
-		powerLimiter = power.NewRAPLLimiter()
+		powerLimiter = intel.NewRAPLLimiter()
 	}
 	initManagerOnce.Do(func() {
 		manager = &externalManagerImpl{
