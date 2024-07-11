@@ -24,8 +24,6 @@ import (
 	"k8s.io/klog/v2"
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/poweraware/component/capper"
-	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/poweraware/component/capper/amd"
-	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/poweraware/component/capper/intel"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/poweraware/component/reader"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
 	"github.com/kubewharf/katalyst-core/pkg/config/generic"
@@ -33,7 +31,6 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/pod"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/external/power"
-	utils "github.com/kubewharf/katalyst-core/pkg/util/lowlevel"
 )
 
 // 8 seconds between actions since RAPL capping needs 4-6 seconds to stablize itself
@@ -106,14 +103,6 @@ func NewController(dryRun bool, emitter metrics.MetricEmitter,
 	nodeFetcher node.NodeFetcher, podFetcher pod.PodFetcher,
 	qosConfig *generic.QoSConfiguration, limiter power.PowerLimiter,
 ) PowerAwareController {
-	// amd and intel have different power capping approaches
-	var powerCapper capper.PowerCapper
-	if utils.IsAMD() {
-		powerCapper = amd.NewAMDPowerCapper()
-	} else {
-		powerCapper = intel.NewCapper(limiter)
-	}
-
 	return &powerAwareController{
 		emitter:     emitter,
 		specFetcher: &specFetcherByNodeAnnotation{nodeFetcher: nodeFetcher},
@@ -126,7 +115,7 @@ func NewController(dryRun bool, emitter metrics.MetricEmitter,
 				podFetcher: podFetcher,
 				podKiller:  &dummyPodKiller{},
 			},
-			capper:   powerCapper,
+			capper:   capper.NewCapper(limiter),
 			strategy: &ruleBasedPowerStrategy{coefficient: linearDecay{b: defaultDecayB}},
 		},
 		powerLimitInitResetter: limiter,
