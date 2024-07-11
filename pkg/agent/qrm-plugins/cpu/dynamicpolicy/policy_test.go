@@ -2096,6 +2096,10 @@ func TestGetTopologyHints(t *testing.T) {
 								Nodes:     []uint64{3},
 								Preferred: true,
 							},
+							{
+								Nodes:     []uint64{1},
+								Preferred: false,
+							},
 						},
 					},
 				},
