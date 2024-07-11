@@ -910,8 +910,6 @@ func (p *DynamicPolicy) applyPoolsAndIsolatedInfo(poolsCPUSet map[string]machine
 			}
 
 			if newPodEntries[podUID][containerName] != nil {
-				// adapt to old checkpoint without RequestQuantity property
-				newPodEntries[podUID][containerName].RequestQuantity = state.GetContainerRequestedCores()(allocationInfo)
 				general.Infof("pod: %s/%s, container: %s, qosLevel: %s is isolated, ignore original allocationInfo",
 					allocationInfo.PodNamespace, allocationInfo.PodName, allocationInfo.ContainerName, allocationInfo.QoSLevel)
 				continue
@@ -922,6 +920,8 @@ func (p *DynamicPolicy) applyPoolsAndIsolatedInfo(poolsCPUSet map[string]machine
 			}
 
 			newPodEntries[podUID][containerName] = allocationInfo.Clone()
+			// adapt to old checkpoint without RequestQuantity property
+			newPodEntries[podUID][containerName].RequestQuantity = state.GetContainerRequestedCores()(allocationInfo)
 			switch allocationInfo.QoSLevel {
 			case apiconsts.PodAnnotationQoSLevelDedicatedCores:
 				newPodEntries[podUID][containerName].OwnerPoolName = allocationInfo.GetPoolName()

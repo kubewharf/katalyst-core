@@ -1094,22 +1094,25 @@ func (p *DynamicPolicy) getContainerRequestedCores(allocationInfo *state.Allocat
 		return 0
 	}
 
-	if allocationInfo.RequestQuantity == 0 {
-		if p.metaServer == nil {
-			general.Errorf("got nil metaServer")
-			return 0
-		}
+	if p.metaServer == nil {
+		general.Errorf("got nil metaServer")
+		return allocationInfo.RequestQuantity
+	}
 
-		container, err := p.metaServer.GetContainerSpec(allocationInfo.PodUid, allocationInfo.ContainerName)
-		if err != nil || container == nil {
-			general.Errorf("get container failed with error: %v", err)
-			return 0
-		}
+	container, err := p.metaServer.GetContainerSpec(allocationInfo.PodUid, allocationInfo.ContainerName)
+	if err != nil || container == nil {
+		general.Errorf("get container failed with error: %v", err)
+		return allocationInfo.RequestQuantity
+	}
 
-		cpuQuantity := native.CPUQuantityGetter()(container.Resources.Requests)
-		allocationInfo.RequestQuantity = general.MaxFloat64(float64(cpuQuantity.MilliValue())/1000.0, 0)
+	cpuQuantity := native.CPUQuantityGetter()(container.Resources.Requests)
+	metaValue := general.MaxFloat64(float64(cpuQuantity.MilliValue())/1000.0, 0)
+
+	if metaValue != allocationInfo.RequestQuantity {
+		allocationInfo.RequestQuantity = metaValue
 		general.Infof("get cpu request quantity: %.3f for pod: %s/%s container: %s from podWatcher",
 			allocationInfo.RequestQuantity, allocationInfo.PodNamespace, allocationInfo.PodName, allocationInfo.ContainerName)
 	}
+
 	return allocationInfo.RequestQuantity
 }
