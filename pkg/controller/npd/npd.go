@@ -121,8 +121,9 @@ func (nc *NPDController) Run() {
 	for _, plugin := range nc.indicatorPlugins {
 		go plugin.Run()
 	}
+
 	for i := 0; i < nc.conf.SyncWorkers; i++ {
-		go wait.Until(nc.syncIndicatorStatus, time.Second, nc.ctx.Done())
+		go wait.Until(nc.npdWorker, time.Second, nc.ctx.Done())
 	}
 
 	go wait.Until(nc.cleanNPD, time.Hour, nc.ctx.Done())
