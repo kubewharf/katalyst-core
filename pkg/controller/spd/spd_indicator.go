@@ -37,6 +37,8 @@ const (
 	metricsNameSyncIndicatorStatusCost   = "sync_indicator_status_cost"
 	metricsNameIndicatorSpecChanLength   = "indicator_spec_chan_length"
 	metricsNameIndicatorStatusChanLength = "indicator_status_chan_length"
+	metricsNameCreateSPDByWorkloadCost   = "create_spd_by_workload_cost"
+	metricsNameSPDCreatedAfterPod        = "spd_created_after_pod"
 )
 
 func (sc *SPDController) syncIndicatorSpec() {

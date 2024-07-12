@@ -20,6 +20,7 @@ import (
 	"context"
 	"time"
 
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -107,6 +108,10 @@ func (p *Plugin) GetSupportedExtendedIndicatorSpec() []string {
 
 func (p *Plugin) GetSupportedAggMetricsStatus() []string {
 	return nil
+}
+
+func (p *Plugin) GetAggMetrics(_ *unstructured.Unstructured) ([]apiworkload.AggPodMetrics, error) {
+	return nil, nil
 }
 
 func PluginInitFunc(ctx context.Context, conf *controller.SPDConfig, _ interface{},

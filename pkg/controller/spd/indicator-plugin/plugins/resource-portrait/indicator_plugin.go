@@ -121,6 +121,10 @@ func (p *ResourcePortraitIndicatorPlugin) GetSupportedAggMetricsStatus() []strin
 	return []string{ResourcePortraitPluginName}
 }
 
+func (p *ResourcePortraitIndicatorPlugin) GetAggMetrics(_ *unstructured.Unstructured) ([]apiworkload.AggPodMetrics, error) {
+	return nil, nil
+}
+
 // resyncSpecWorker is used to synchronize global configuration to SPD.
 func (p *ResourcePortraitIndicatorPlugin) resyncSpecWorker() {
 	spdList, err := p.spdLister.List(labels.Everything())
