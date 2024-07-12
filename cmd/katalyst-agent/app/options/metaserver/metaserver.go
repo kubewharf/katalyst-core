@@ -41,6 +41,7 @@ const (
 const (
 	defaultServiceProfileSkipCorruptionError = true
 	defaultServiceProfileCacheTTL            = 1 * time.Minute
+	defaultSPDGetFromRemote                  = false
 )
 
 const (
@@ -74,6 +75,7 @@ type MetaServerOptions struct {
 	// configurations for spd
 	ServiceProfileSkipCorruptionError bool
 	ServiceProfileCacheTTL            time.Duration
+	SPDGetFromRemote                  bool
 
 	// configurations for pod-cache
 	KubeletPodCacheSyncPeriod    time.Duration
@@ -104,6 +106,7 @@ func NewMetaServerOptions() *MetaServerOptions {
 
 		ServiceProfileSkipCorruptionError: defaultServiceProfileSkipCorruptionError,
 		ServiceProfileCacheTTL:            defaultServiceProfileCacheTTL,
+		SPDGetFromRemote:                  defaultSPDGetFromRemote,
 
 		KubeletPodCacheSyncPeriod:    defaultKubeletPodCacheSyncPeriod,
 		KubeletPodCacheSyncMaxRate:   defaultKubeletPodCacheSyncMaxRate,
@@ -142,6 +145,7 @@ func (o *MetaServerOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 		"Whether to skip corruption error when loading spd checkpoint")
 	fs.DurationVar(&o.ServiceProfileCacheTTL, "service-profile-cache-ttl", o.ServiceProfileCacheTTL,
 		"The ttl of service profile manager cache remote spd")
+	fs.BoolVar(&o.SPDGetFromRemote, "spd-get-from-remote", o.SPDGetFromRemote, "get spd from remote if not in cache")
 
 	fs.DurationVar(&o.KubeletPodCacheSyncPeriod, "kubelet-pod-cache-sync-period", o.KubeletPodCacheSyncPeriod,
 		"The period of meta server to sync pod from kubelet 10255 port")
@@ -174,6 +178,7 @@ func (o *MetaServerOptions) ApplyTo(c *metaserver.MetaServerConfiguration) error
 
 	c.ServiceProfileSkipCorruptionError = o.ServiceProfileSkipCorruptionError
 	c.ServiceProfileCacheTTL = o.ServiceProfileCacheTTL
+	c.SPDGetFromRemote = o.SPDGetFromRemote
 
 	c.KubeletPodCacheSyncPeriod = o.KubeletPodCacheSyncPeriod
 	c.KubeletPodCacheSyncMaxRate = rate.Limit(o.KubeletPodCacheSyncMaxRate)

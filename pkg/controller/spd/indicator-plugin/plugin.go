@@ -20,6 +20,7 @@ import (
 	"context"
 	"sync"
 
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 
 	apiworkload "github.com/kubewharf/katalyst-api/pkg/apis/workload/v1alpha1"
@@ -44,6 +45,9 @@ type IndicatorPlugin interface {
 	GetSupportedExtendedIndicatorSpec() []string
 	GetSupportedBusinessIndicatorStatus() []apiworkload.ServiceBusinessIndicatorName
 	GetSupportedAggMetricsStatus() []string
+	// GetAggMetrics is only used in SPD creation for timing-sensitive status.
+	// The other non-timing-sensitive status are updated at UpdateAggMetrics in indicatorUpdater.
+	GetAggMetrics(workload *unstructured.Unstructured) ([]apiworkload.AggPodMetrics, error)
 }
 
 type DummyIndicatorPlugin struct {
@@ -76,6 +80,10 @@ func (d DummyIndicatorPlugin) GetSupportedBusinessIndicatorStatus() []apiworkloa
 
 func (d DummyIndicatorPlugin) GetSupportedAggMetricsStatus() []string {
 	return nil
+}
+
+func (d DummyIndicatorPlugin) GetAggMetrics(_ *unstructured.Unstructured) ([]apiworkload.AggPodMetrics, error) {
+	return nil, nil
 }
 
 // pluginInitializers is used to store the initializing function for each plugin

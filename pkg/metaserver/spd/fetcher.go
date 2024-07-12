@@ -78,8 +78,9 @@ func (d DummySPDFetcher) Run(_ context.Context) {
 }
 
 type spdFetcher struct {
-	started *atomic.Bool
-	mux     sync.Mutex
+	started          *atomic.Bool
+	spdGetFromRemote bool
+	mux              sync.Mutex
 
 	client            *client.GenericClientSet
 	emitter           metrics.MetricEmitter
@@ -106,6 +107,7 @@ func NewSPDFetcher(clientSet *client.GenericClientSet, emitter metrics.MetricEmi
 		emitter:           emitter,
 		checkpointManager: checkpointManager,
 		cncFetcher:        cncFetcher,
+		spdGetFromRemote:  conf.SPDGetFromRemote,
 	}
 
 	m.getPodSPDNameFunc = util.GetPodSPDName
@@ -148,7 +150,7 @@ func (s *spdFetcher) Run(ctx context.Context) {
 	<-ctx.Done()
 }
 
-func (s *spdFetcher) getSPDByNamespaceName(_ context.Context, namespace, name string) (*workloadapis.ServiceProfileDescriptor, error) {
+func (s *spdFetcher) getSPDByNamespaceName(ctx context.Context, namespace, name string) (*workloadapis.ServiceProfileDescriptor, error) {
 	key := native.GenerateNamespaceNameKey(namespace, name)
 	baseTag := []metrics.MetricTag{
 		{Key: "spdNamespace", Val: namespace},
@@ -159,6 +161,17 @@ func (s *spdFetcher) getSPDByNamespaceName(_ context.Context, namespace, name st
 	currentSPD := s.spdCache.GetSPD(key, true)
 	if currentSPD != nil {
 		return currentSPD, nil
+	} else if s.spdGetFromRemote {
+		klog.Infof("[spd-manager] need to get spd %s from remote", key)
+		err := s.tryUpdateSPDCache(ctx, namespace, name, currentSPD, baseTag, s.spdGetFromRemote)
+		if err != nil {
+			return currentSPD, err
+		}
+
+		currentSPD = s.spdCache.GetSPD(key, true)
+		if currentSPD != nil {
+			return currentSPD, nil
+		}
 	}
 
 	_ = s.emitter.StoreInt64(metricsNameCacheNotFound, 1, metrics.MetricTypeNameCount, baseTag...)
@@ -198,49 +211,55 @@ func (s *spdFetcher) sync(ctx context.Context) {
 		// first get spd origin spd from local cache
 		originSPD := s.spdCache.GetSPD(key, false)
 
-		// get spd current target config from cnc to limit rate of get remote spd by comparing local spd
-		// hash with cnc target config hash, if cnc target config not found it will get remote spd directly
-		targetConfig, err := s.getSPDTargetConfig(ctx, namespace, name)
-		if err != nil {
-			klog.Warningf("[spd-manager] get spd targetConfig config failed: %v, use local cache instead", err)
-			targetConfig = &configapis.TargetConfig{
-				ConfigNamespace: namespace,
-				ConfigName:      name,
-			}
-			_ = s.emitter.StoreInt64(metricsNameGetCNCTargetConfigFailed, 1, metrics.MetricTypeNameCount, baseTag...)
-		}
-
-		// try to update spd cache from remote if cache spd hash is not equal to target config hash,
-		// the rate of getting remote spd will be limited by spd ServiceProfileCacheTTL
-		err = s.updateSPDCacheIfNeed(ctx, originSPD, targetConfig)
-		if err != nil {
-			klog.Errorf("[spd-manager] failed update spd cache from remote: %v, use local cache instead", err)
-			_ = s.emitter.StoreInt64(metricsNameUpdateCacheFailed, 1, metrics.MetricTypeNameCount, baseTag...)
-		}
+		_ = s.tryUpdateSPDCache(ctx, namespace, name, originSPD, baseTag, false)
 	}
+}
+
+func (s *spdFetcher) tryUpdateSPDCache(ctx context.Context, namespace, name string,
+	currentSPD *workloadapis.ServiceProfileDescriptor, baseTag []metrics.MetricTag, spdGetFromRemote bool,
+) error {
+	// get spd current target config from cnc to limit rate of get remote spd by comparing local spd
+	// hash with cnc target config hash, if cnc target config not found it will get remote spd directly
+	targetConfig, err := s.getSPDTargetConfig(ctx, namespace, name)
+	if err != nil {
+		klog.Warningf("[spd-manager] get spd targetConfig config failed: %v, use local cache instead", err)
+		targetConfig = &configapis.TargetConfig{
+			ConfigNamespace: namespace,
+			ConfigName:      name,
+		}
+		_ = s.emitter.StoreInt64(metricsNameGetCNCTargetConfigFailed, 1, metrics.MetricTypeNameCount, baseTag...)
+	}
+
+	err = s.updateSPDCacheIfNeed(ctx, currentSPD, targetConfig, spdGetFromRemote)
+	if err != nil {
+		klog.Errorf("[spd-manager] failed update spd cache from remote: %v, use local cache instead", err)
+		_ = s.emitter.StoreInt64(metricsNameUpdateCacheFailed, 1, metrics.MetricTypeNameCount, baseTag...)
+		return err
+	}
+	return nil
 }
 
 // updateSPDCacheIfNeed checks if the previous spd has changed, and
 // re-get from APIServer if the previous is out-of date.
 func (s *spdFetcher) updateSPDCacheIfNeed(ctx context.Context, originSPD *workloadapis.ServiceProfileDescriptor,
-	targetConfig *configapis.TargetConfig,
+	targetConfig *configapis.TargetConfig, spdGetFromRemote bool,
 ) error {
 	if originSPD == nil && targetConfig == nil {
 		return nil
 	}
 
 	now := time.Now()
-	if originSPD == nil || util.GetSPDHash(originSPD) != targetConfig.Hash {
-		key := native.GenerateNamespaceNameKey(targetConfig.ConfigNamespace, targetConfig.ConfigName)
-		// Skip the backoff delay if the configuration hash of the CNC target changes, ensuring the
-		// local SPD cache is always updated with the latest configuration.
-		if nextFetchRemoteTime := s.spdCache.GetNextFetchRemoteTime(key, now, targetConfig.Hash != ""); nextFetchRemoteTime.After(time.Now()) {
-			return nil
-		} else {
-			// first update the timestamp of the last attempt to fetch the remote spd to
-			// avoid frequent requests to the api-server in some bad situations
-			s.spdCache.SetLastFetchRemoteTime(key, now)
-		}
+	key := native.GenerateNamespaceNameKey(targetConfig.ConfigNamespace, targetConfig.ConfigName)
+
+	// Skip the backoff delay if the configuration hash of the CNC target changes, ensuring the
+	// local SPD cache is always updated with the latest configuration.
+	nextFetchRemoteTime := s.spdCache.GetNextFetchRemoteTime(key, now, targetConfig.Hash != "")
+	shouldFetchRemote := (originSPD == nil || util.GetSPDHash(originSPD) != targetConfig.Hash) && !nextFetchRemoteTime.After(now)
+	shouldFetchRemote = shouldFetchRemote || spdGetFromRemote
+	if shouldFetchRemote {
+		// update the timestamp of the last attempt to fetch the remote spd to
+		// avoid frequent requests to the api-server in some bad situations
+		s.spdCache.SetLastFetchRemoteTime(key, now)
 
 		baseTag := []metrics.MetricTag{
 			{Key: "spdNamespace", Val: targetConfig.ConfigNamespace},
