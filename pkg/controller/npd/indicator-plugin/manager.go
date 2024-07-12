@@ -19,14 +19,11 @@ package indicator_plugin
 import (
 	"sync"
 
+	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog/v2"
 
 	"github.com/kubewharf/katalyst-api/pkg/apis/node/v1alpha1"
 	"github.com/kubewharf/katalyst-core/pkg/util"
-)
-
-const (
-	indicatorStatusQueueLen = 1000
 )
 
 // IndicatorUpdater is used by IndicatorPlugin as a unified implementation
@@ -39,14 +36,15 @@ type IndicatorUpdater interface {
 // IndicatorGetter is used by npd controller as indicator notifier to trigger
 // update real npd.
 type IndicatorGetter interface {
-	GetNodeProfileStatusChan() chan string
+	GetNodeProfileStatusQueue() workqueue.RateLimitingInterface
 	GetNodeProfileStatus(name string) *v1alpha1.NodeProfileDescriptorStatus
+	DeleteNodeProfileStatus(name string)
 }
 
 type IndicatorManager struct {
 	sync.Mutex
 
-	statusQueue chan string
+	statusQueue workqueue.RateLimitingInterface
 	statusMap   map[string]*v1alpha1.NodeProfileDescriptorStatus
 }
 
@@ -58,16 +56,14 @@ var (
 func NewIndicatorManager() *IndicatorManager {
 	return &IndicatorManager{
 		statusMap:   make(map[string]*v1alpha1.NodeProfileDescriptorStatus),
-		statusQueue: make(chan string, indicatorStatusQueueLen),
+		statusQueue: workqueue.NewNamedRateLimitingQueue(workqueue.DefaultControllerRateLimiter(), "npd"),
 	}
 }
 
 func (im *IndicatorManager) UpdateNodeMetrics(name string, scopedNodeMetrics []v1alpha1.ScopedNodeMetrics) {
 	im.Lock()
 
-	insert := false
 	if _, ok := im.statusMap[name]; !ok {
-		insert = true
 		im.statusMap[name] = initNodeProfileDescriptorStatus()
 	}
 	for _, scopedNodeMetric := range scopedNodeMetrics {
@@ -76,17 +72,13 @@ func (im *IndicatorManager) UpdateNodeMetrics(name string, scopedNodeMetrics []v
 
 	im.Unlock()
 
-	if insert {
-		im.statusQueue <- name
-	}
+	im.statusQueue.AddRateLimited(name)
 }
 
 func (im *IndicatorManager) UpdatePodMetrics(nodeName string, scopedPodMetrics []v1alpha1.ScopedPodMetrics) {
 	im.Lock()
 
-	insert := false
 	if _, ok := im.statusMap[nodeName]; !ok {
-		insert = true
 		im.statusMap[nodeName] = initNodeProfileDescriptorStatus()
 	}
 	for _, scopedPodMetric := range scopedPodMetrics {
@@ -95,21 +87,16 @@ func (im *IndicatorManager) UpdatePodMetrics(nodeName string, scopedPodMetrics [
 
 	im.Unlock()
 
-	if insert {
-		im.statusQueue <- nodeName
-	}
+	im.statusQueue.AddRateLimited(nodeName)
 }
 
-func (im *IndicatorManager) GetNodeProfileStatusChan() chan string {
+func (im *IndicatorManager) GetNodeProfileStatusQueue() workqueue.RateLimitingInterface {
 	return im.statusQueue
 }
 
 func (im *IndicatorManager) GetNodeProfileStatus(name string) *v1alpha1.NodeProfileDescriptorStatus {
 	im.Lock()
-	defer func() {
-		delete(im.statusMap, name)
-		im.Unlock()
-	}()
+	defer im.Unlock()
 
 	status, ok := im.statusMap[name]
 	if !ok {
@@ -117,6 +104,13 @@ func (im *IndicatorManager) GetNodeProfileStatus(name string) *v1alpha1.NodeProf
 		return nil
 	}
 	return status
+}
+
+func (im *IndicatorManager) DeleteNodeProfileStatus(name string) {
+	im.Lock()
+	defer im.Unlock()
+
+	delete(im.statusMap, name)
 }
 
 func initNodeProfileDescriptorStatus() *v1alpha1.NodeProfileDescriptorStatus {

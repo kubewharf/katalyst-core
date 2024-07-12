@@ -17,8 +17,11 @@ limitations under the License.
 package npd
 
 import (
+	"fmt"
+
 	apiequality "k8s.io/apimachinery/pkg/api/equality"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/client-go/util/retry"
 	"k8s.io/klog/v2"
 
@@ -31,31 +34,44 @@ const (
 	metricsNameSyncNPDStatus = "sync_npd_status"
 )
 
-func (nc *NPDController) syncIndicatorStatus() {
-	c := nc.indicatorManager.GetNodeProfileStatusChan()
-	for {
-		select {
-		case nodeName, ok := <-c:
-			if !ok {
-				klog.Infof("[npd] indicator status chan is closed")
-				return
-			}
-
-			nc.syncStatus(nodeName)
-		case <-nc.ctx.Done():
-			klog.Infoln("[npd] stop sync status.")
-			return
-		}
+func (nc *NPDController) npdWorker() {
+	for nc.processNextNPDItem() {
 	}
 }
 
-func (nc *NPDController) syncStatus(nodeName string) {
+func (nc *NPDController) processNextNPDItem() bool {
+	key, quit := nc.indicatorManager.GetNodeProfileStatusQueue().Get()
+	if quit {
+		klog.Warningf("[npd] NodeProfileStatusQueue quit")
+		return false
+	}
+	defer nc.indicatorManager.GetNodeProfileStatusQueue().Done(key)
+
+	nodeName, ok := key.(string)
+	if !ok {
+		klog.Errorf("[spd] unknown data from NodeProfileStatusQueue: %v", key)
+		nc.indicatorManager.GetNodeProfileStatusQueue().Forget(key)
+		return true
+	}
+
+	err := nc.syncStatus(nodeName)
+	if err == nil {
+		nc.indicatorManager.GetNodeProfileStatusQueue().Forget(key)
+		return true
+	}
+
+	utilruntime.HandleError(fmt.Errorf("sync %v fail with %v", key, err))
+	nc.indicatorManager.GetNodeProfileStatusQueue().AddRateLimited(key)
+	return true
+}
+
+func (nc *NPDController) syncStatus(nodeName string) error {
 	klog.V(6).Infof("[npd] sync node %v npd status", nodeName)
 
 	status := nc.indicatorManager.GetNodeProfileStatus(nodeName)
 	if status == nil {
 		klog.Warningf("[npd] get node %v npd status nil", nodeName)
-		return
+		return nil
 	}
 
 	err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
@@ -89,7 +105,9 @@ func (nc *NPDController) syncStatus(nodeName string) {
 		_ = nc.metricsEmitter.StoreInt64(metricsNameSyncNPDStatus, 1, metrics.MetricTypeNameCount, metrics.MetricTag{
 			Key: "status", Val: "failed",
 		})
+		return err
 	}
+	return nil
 }
 
 func (nc *NPDController) mergeIndicatorStatus(npd *v1alpha1.NodeProfileDescriptor, expected v1alpha1.NodeProfileDescriptorStatus) {
