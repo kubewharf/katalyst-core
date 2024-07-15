@@ -21,6 +21,7 @@ import (
 	"math"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -64,6 +65,7 @@ var tmoPolicyFuncs sync.Map
 var tmoBlockFuncs sync.Map
 
 type TmoStats struct {
+	obj                  string
 	memUsage             float64
 	memInactive          float64
 	memPsiAvg60          float64
@@ -109,7 +111,7 @@ func refaultPolicyFunc(lastStats TmoStats, currStats TmoStats, conf *tmoconf.TMO
 		// which means reclaim accuracy and reclaim scan efficiency is low.
 		result = math.Min(math.Max(lastStats.offloadingTargetSize*OffloadingSizeScaleCoeff, currStats.memInactive*InactiveProbe), currStats.memUsage*conf.RefaultPolicyConf.MaxProbe)
 	}
-	general.InfoS("refault info", "reclaimAccuracyRatio", reclaimAccuracyRatio, "ReclaimAccuracyTarget", conf.RefaultPolicyConf.ReclaimAccuracyTarget,
+	general.InfoS("refault info", "obj", currStats.obj, "reclaimAccuracyRatio", reclaimAccuracyRatio, "ReclaimAccuracyTarget", conf.RefaultPolicyConf.ReclaimAccuracyTarget,
 		"reclaimScanEfficiencyRatio", reclaimScanEfficiencyRatio, "ReclaimScanEfficiencyTarget", conf.RefaultPolicyConf.ReclaimScanEfficiencyTarget,
 		"refaultDelta", refaultDelta, "pgstealDelta", pgstealDelta, "pgscanDelta", pgscanDelta, "lastOffloadingTargetSize", general.FormatMemoryQuantity(lastStats.offloadingTargetSize),
 		"result", general.FormatMemoryQuantity(result))
@@ -287,8 +289,10 @@ func (tmoEngine *tmoEngineInstance) getStats() (TmoStats, error) {
 
 	if tmoEngine.containerInfo == nil {
 		err = getCgroupMetrics(tmoEngine.metaServer, tmoEngine.cgpath)
+		tmoStats.obj = tmoEngine.cgpath
 	} else {
 		err = getContainerMetrics(tmoEngine.metaServer, tmoEngine.containerInfo.PodUID, tmoEngine.containerInfo.ContainerName)
+		tmoStats.obj = strings.Join([]string{tmoEngine.containerInfo.PodNamespace, tmoEngine.containerInfo.PodName}, "/")
 	}
 	return *tmoStats, err
 }
