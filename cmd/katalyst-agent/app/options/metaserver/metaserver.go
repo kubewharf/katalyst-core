@@ -73,6 +73,7 @@ type MetaServerOptions struct {
 	ConfigCheckpointGraceTime      time.Duration
 
 	// configurations for spd
+	ServiceProfileEnableNamespaces    []string
 	ServiceProfileSkipCorruptionError bool
 	ServiceProfileCacheTTL            time.Duration
 	SPDGetFromRemote                  bool
@@ -104,6 +105,7 @@ func NewMetaServerOptions() *MetaServerOptions {
 		ConfigSkipFailedInitialization: defaultConfigSkipFailedInitialization,
 		ConfigCheckpointGraceTime:      defaultConfigCheckpointGraceTime,
 
+		ServiceProfileEnableNamespaces:    []string{"*"},
 		ServiceProfileSkipCorruptionError: defaultServiceProfileSkipCorruptionError,
 		ServiceProfileCacheTTL:            defaultServiceProfileCacheTTL,
 		SPDGetFromRemote:                  defaultSPDGetFromRemote,
@@ -132,6 +134,8 @@ func (o *MetaServerOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 	fs.BoolVar(&o.EnableCNCFetcher, "enable-cnc-fetcher", o.EnableCNCFetcher,
 		"Whether to enable cnc fetcher")
 
+	fs.StringSliceVar(&o.ServiceProfileEnableNamespaces, "service-profile-enable-namespaces", o.ServiceProfileEnableNamespaces,
+		"Comma-separated list of namespaces where service profiles are enabled, default is all namespaces")
 	fs.DurationVar(&o.ConfigCacheTTL, "config-cache-ttl", o.ConfigCacheTTL,
 		"The ttl of katalyst custom config loader cache remote config")
 	fs.BoolVar(&o.ConfigDisableDynamic, "config-disable-dynamic", o.ConfigDisableDynamic,
@@ -176,6 +180,7 @@ func (o *MetaServerOptions) ApplyTo(c *metaserver.MetaServerConfiguration) error
 	c.ConfigSkipFailedInitialization = o.ConfigSkipFailedInitialization
 	c.ConfigCheckpointGraceTime = o.ConfigCheckpointGraceTime
 
+	c.ServiceProfileEnableNamespaces = o.ServiceProfileEnableNamespaces
 	c.ServiceProfileSkipCorruptionError = o.ServiceProfileSkipCorruptionError
 	c.ServiceProfileCacheTTL = o.ServiceProfileCacheTTL
 	c.SPDGetFromRemote = o.SPDGetFromRemote
