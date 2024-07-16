@@ -22,6 +22,7 @@ type SPDConfiguration struct {
 	ServiceProfileSkipCorruptionError bool
 	ServiceProfileCacheTTL            time.Duration
 	SPDGetFromRemote                  bool
+	ServiceProfileEnableNamespaces    []string
 }
 
 func NewSPDConfiguration() *SPDConfiguration {
