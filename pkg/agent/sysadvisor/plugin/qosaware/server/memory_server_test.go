@@ -103,6 +103,33 @@ func newTestMemoryServer(t *testing.T, podList []*v1.Pod) *memoryServer {
 	return memoryServer
 }
 
+func newTestMemoryServerWithChannelBuffer(t *testing.T, podList []*v1.Pod) *memoryServer {
+	recvCh := make(chan types.InternalMemoryCalculationResult, 1)
+	sendCh := make(chan types.TriggerInfo, 1)
+	conf := generateTestMemoryAdvisorConfiguration(t)
+
+	metricsFetcher := metric.NewFakeMetricsFetcher(metrics.DummyMetrics{})
+	metaCache, err := metacache.NewMetaCacheImp(conf, metricspool.DummyMetricsEmitterPool{}, metricsFetcher)
+	require.NoError(t, err)
+	require.NotNil(t, metaCache)
+
+	metaServer := &metaserver.MetaServer{
+		MetaAgent: &agent.MetaAgent{
+			PodFetcher: &pod.PodFetcherStub{
+				PodList: podList,
+			},
+		},
+	}
+
+	memoryServer, err := NewMemoryServer(recvCh, sendCh, conf, metaCache, metaServer, metrics.DummyMetrics{})
+	require.NoError(t, err)
+	require.NotNil(t, memoryServer)
+
+	memoryServer.listAndWatchCalled = true
+
+	return memoryServer
+}
+
 type MockQRMServiceServer struct {
 	containers []*advisorsvc.ContainerMetadata
 	listErr    error
@@ -323,5 +350,107 @@ func TestMemoryServerListAndWatch(t *testing.T) {
 				t.Errorf("ListAndWatch()\ngot = %+v, \nwant= %+v", res, tt.wantRes)
 			}
 		})
+	}
+}
+
+func TestMemoryServerDropOldAdvice(t *testing.T) {
+	t.Parallel()
+
+	cs := newTestMemoryServerWithChannelBuffer(t, []*v1.Pod{})
+	s := &mockMemoryServerService_ListAndWatchServer{ResultsChan: make(chan *advisorsvc.ListAndWatchResponse)}
+	recvCh := cs.recvCh.(chan types.InternalMemoryCalculationResult)
+	recvCh <- types.InternalMemoryCalculationResult{}
+
+	stop := make(chan struct{})
+	go func() {
+		err := cs.ListAndWatch(&advisorsvc.Empty{}, s)
+		assert.NoError(t, err, "failed to lw memory server")
+		stop <- struct{}{}
+	}()
+	recvCh <- types.InternalMemoryCalculationResult{
+		TimeStamp: time.Now(),
+		ContainerEntries: []types.ContainerMemoryAdvices{
+			{
+				PodUID:        "pod1",
+				ContainerName: "c1",
+				Values:        map[string]string{"k1": "v1"},
+			},
+			{
+				PodUID:        "pod1",
+				ContainerName: "c1",
+				Values:        map[string]string{"k2": "v2"},
+			},
+			{
+				PodUID:        "pod2",
+				ContainerName: "c1",
+				Values:        map[string]string{"k1": "v1"},
+			},
+			{
+				PodUID:        "pod2",
+				ContainerName: "c2",
+				Values:        map[string]string{"k2": "v2"},
+			},
+		},
+		ExtraEntries: []types.ExtraMemoryAdvices{
+			{
+				CgroupPath: "/kubepods/burstable",
+				Values:     map[string]string{"k1": "v1"},
+			},
+			{
+				CgroupPath: "/kubepods/burstable",
+				Values:     map[string]string{"k2": "v2"},
+			},
+			{
+				CgroupPath: "/kubepods/besteffort",
+				Values:     map[string]string{"k1": "v1"},
+			},
+		},
+	}
+	res := <-s.ResultsChan
+	close(cs.stopCh)
+	<-stop
+	wantRes := &advisorsvc.ListAndWatchResponse{
+		PodEntries: map[string]*advisorsvc.CalculationEntries{
+			"pod1": {
+				ContainerEntries: map[string]*advisorsvc.CalculationInfo{
+					"c1": {
+						CalculationResult: &advisorsvc.CalculationResult{
+							Values: map[string]string{"k1": "v1", "k2": "v2"},
+						},
+					},
+				},
+			},
+			"pod2": {
+				ContainerEntries: map[string]*advisorsvc.CalculationInfo{
+					"c1": {
+						CalculationResult: &advisorsvc.CalculationResult{
+							Values: map[string]string{"k1": "v1"},
+						},
+					},
+					"c2": {
+						CalculationResult: &advisorsvc.CalculationResult{
+							Values: map[string]string{"k2": "v2"},
+						},
+					},
+				},
+			},
+		},
+		ExtraEntries: []*advisorsvc.CalculationInfo{
+			{
+				CgroupPath: "/kubepods/burstable",
+				CalculationResult: &advisorsvc.CalculationResult{
+					Values: map[string]string{"k1": "v1", "k2": "v2"},
+				},
+			},
+			{
+				CgroupPath: "/kubepods/besteffort",
+				CalculationResult: &advisorsvc.CalculationResult{
+					Values: map[string]string{"k1": "v1"},
+				},
+			},
+		},
+	}
+	if !reflect.DeepEqual(res, wantRes) {
+		t.Errorf("ListAndWatch()\ngot = %+v, \nwant= %+v", res, wantRes)
 	}
 }
