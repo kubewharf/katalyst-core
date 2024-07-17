@@ -32,12 +32,12 @@ type powerCapper struct {
 	limiter power.PowerLimiter
 }
 
-func (r powerCapper) Cap(_ context.Context, targetWatts, currWatt int) {
-	if err := r.limiter.SetLimitOnBasis(targetWatts, currWatt); err != nil {
+func (p powerCapper) Cap(_ context.Context, targetWatts, currWatt int) {
+	if err := p.limiter.SetLimitOnBasis(targetWatts, currWatt); err != nil {
 		klog.Errorf("pap: failed to power cap, current watt %d, target watt %d", currWatt, targetWatts)
 	}
 }
 
-func NewCapper(limiter power.PowerLimiter) PowerCapper {
+func NewPowerCapper(limiter power.PowerLimiter) PowerCapper {
 	return &powerCapper{limiter: limiter}
 }
