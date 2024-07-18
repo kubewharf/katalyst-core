@@ -50,5 +50,6 @@ func New(args runtime.Object, h framework.Handle) (framework.Plugin, error) {
 
 	cache.RegisterPodHandler()
 	cache.RegisterCNRHandler()
+	cache.RegisterNOCHandler()
 	return &NodeOvercommitment{}, nil
 }

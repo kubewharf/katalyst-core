@@ -137,20 +137,46 @@ func (n *NodeOvercommitment) nodeOvercommitRatio(nodeInfo *framework.NodeInfo) (
 		return
 	}
 
-	annotation := nodeInfo.Node().GetAnnotations()
-	CPUOvercommitRatio, err = overcommitutil.OvercommitRatioValidate(annotation, consts.NodeAnnotationCPUOvercommitRatioKey, consts.NodeAnnotationRealtimeCPUOvercommitRatioKey)
+	var (
+		annotation              = nodeInfo.Node().GetAnnotations()
+		enableDynamicOvercommit = n.enableDynamicOvercommit(nodeInfo.Node())
+	)
+	klog.V(6).Infof("node %v enable dynamic overcommit: %v", nodeInfo.Node().Name, enableDynamicOvercommit)
+
+	CPUOvercommitRatio, err = overcommitutil.OvercommitRatioValidate(annotation, consts.NodeAnnotationCPUOvercommitRatioKey, consts.NodeAnnotationPredictCPUOvercommitRatioKey, consts.NodeAnnotationRealtimeCPUOvercommitRatioKey, enableDynamicOvercommit)
 	if err != nil {
 		klog.Error(err)
 		return
 	}
 
-	memoryOvercommitRatio, err = overcommitutil.OvercommitRatioValidate(annotation, consts.NodeAnnotationMemoryOvercommitRatioKey, consts.NodeAnnotationRealtimeMemoryOvercommitRatioKey)
+	memoryOvercommitRatio, err = overcommitutil.OvercommitRatioValidate(annotation, consts.NodeAnnotationMemoryOvercommitRatioKey, consts.NodeAnnotationPredictMemoryOvercommitRatioKey, consts.NodeAnnotationRealtimeMemoryOvercommitRatioKey, enableDynamicOvercommit)
 	if err != nil {
 		klog.Error(err)
 		return
 	}
 
 	return
+}
+
+func (n *NodeOvercommitment) enableDynamicOvercommit(node *v1.Node) bool {
+	if node == nil || node.Labels == nil {
+		return false
+	}
+
+	overcommitPool, ok := node.Labels[consts.NodeOvercommitSelectorKey]
+	if !ok {
+		return false
+	}
+
+	// get pool matched config
+	noc, err := cache.GetCache().GetNocByIndexer(overcommitPool)
+	if err != nil {
+		klog.Errorf("get node overcommit fail, node: %v, labelValue: %v, err: %v", node.Name, overcommitPool, err)
+		return false
+	}
+	klog.V(6).Infof("node %v matched noc %v with label value %v, enableDynamicOvercommit: %v", node.Name, noc.Name, overcommitPool, noc.Spec.EnableDynamicOvercommit)
+
+	return noc.Spec.EnableDynamicOvercommit
 }
 
 func computePodResourceRequest(pod *v1.Pod) *preFilterState {

@@ -181,7 +181,9 @@ func cpuOvercommitRatioValidate(nodeAnnotation map[string]string) (float64, erro
 	return overcommitutil.OvercommitRatioValidate(
 		nodeAnnotation,
 		consts.NodeAnnotationCPUOvercommitRatioKey,
+		consts.NodeAnnotationPredictCPUOvercommitRatioKey,
 		consts.NodeAnnotationRealtimeCPUOvercommitRatioKey,
+		true,
 	)
 }
 
@@ -189,6 +191,8 @@ func memOvercommitRatioValidate(nodeAnnotation map[string]string) (float64, erro
 	return overcommitutil.OvercommitRatioValidate(
 		nodeAnnotation,
 		consts.NodeAnnotationMemoryOvercommitRatioKey,
+		consts.NodeAnnotationPredictMemoryOvercommitRatioKey,
 		consts.NodeAnnotationRealtimeMemoryOvercommitRatioKey,
+		true,
 	)
 }

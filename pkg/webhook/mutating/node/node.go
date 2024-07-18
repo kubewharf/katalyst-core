@@ -93,7 +93,7 @@ func (wn *WebhookNode) Run() bool {
 }
 
 func (wn *WebhookNode) Mutate(ctx context.Context, obj metav1.Object) (bool, error) {
-	klog.V(5).Info("webhookNode notice an obj to be mutated")
+	klog.V(6).Info("webhookNode notice an obj to be mutated")
 
 	node, ok := obj.(*core.Node)
 	if !ok {
@@ -125,7 +125,7 @@ func (wn *WebhookNode) Mutate(ctx context.Context, obj metav1.Object) (bool, err
 		}
 		wn.emitMetrics(true, start, mutator)
 	}
-	klog.Infof("node %s was mutated", node.Name)
+	klog.V(6).Infof("node %s was mutated", node.Name)
 	return true, nil
 }
 

@@ -16,14 +16,20 @@ limitations under the License.
 
 package controller
 
-import "time"
+import (
+	"time"
+
+	"github.com/kubewharf/katalyst-core/pkg/util/datasource/prometheus"
+)
 
 type OvercommitConfig struct {
 	Node NodeOvercommitConfig
+
+	Prediction PredictionConfig
 }
 
 type NodeOvercommitConfig struct {
-	// numer of workers to sync overcommit config
+	// number of workers to sync overcommit config
 	SyncWorkers int
 
 	// time interval of reconcile overcommit config
@@ -33,5 +39,36 @@ type NodeOvercommitConfig struct {
 func NewOvercommitConfig() *OvercommitConfig {
 	return &OvercommitConfig{
 		Node: NodeOvercommitConfig{},
+		Prediction: PredictionConfig{
+			PromConfig: &prometheus.PromConfig{},
+		},
 	}
+}
+
+type PredictionConfig struct {
+	EnablePredict   bool
+	Predictor       string
+	PredictPeriod   time.Duration
+	ReconcilePeriod time.Duration
+
+	MaxTimeSeriesDuration time.Duration
+	MinTimeSeriesDuration time.Duration
+
+	TargetReferenceNameKey string
+	TargetReferenceTypeKey string
+	CPUScaleFactor         float64
+	MemoryScaleFactor      float64
+
+	NodeCPUTargetLoad      float64
+	NodeMemoryTargetLoad   float64
+	PodEstimatedCPULoad    float64
+	PodEstimatedMemoryLoad float64
+
+	*prometheus.PromConfig
+	NSigmaPredictorConfig
+}
+
+type NSigmaPredictorConfig struct {
+	Factor  int
+	Buckets int
 }
