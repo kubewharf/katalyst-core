@@ -189,6 +189,13 @@ func (p *StaticPolicy) GetTopologyHints(_ context.Context,
 	return util.PackResourceHintsResponse(req, p.ResourceName(), nil)
 }
 
+// GetPodTopologyHints returns hints of corresponding resources
+func (p *StaticPolicy) GetPodTopologyHints(_ context.Context,
+	req *pluginapi.PodResourceRequest,
+) (resp *pluginapi.PodResourceHintsResponse, err error) {
+	return nil, util.ErrNotImplemented
+}
+
 func (p *StaticPolicy) RemovePod(_ context.Context,
 	req *pluginapi.RemovePodRequest,
 ) (*pluginapi.RemovePodResponse, error) {
@@ -254,6 +261,15 @@ func (p *StaticPolicy) Allocate(_ context.Context,
 		Labels:         general.DeepCopyMap(req.Labels),
 		Annotations:    general.DeepCopyMap(req.Annotations),
 	}, nil
+}
+
+// AllocateForPod is called during pod admit so that the resource
+// plugin can allocate corresponding resource for the pod
+// according to resource request
+func (p *StaticPolicy) AllocateForPod(_ context.Context,
+	req *pluginapi.PodResourceRequest,
+) (resp *pluginapi.PodResourceAllocationResponse, err error) {
+	return nil, util.ErrNotImplemented
 }
 
 // PreStartContainer is called, if indicated by resource plugin during registration phase,

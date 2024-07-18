@@ -659,6 +659,13 @@ func (p *DynamicPolicy) GetTopologyHints(ctx context.Context,
 	return p.hintHandlers[qosLevel](ctx, req)
 }
 
+// GetPodTopologyHints returns hints of corresponding resources for pod
+func (p *DynamicPolicy) GetPodTopologyHints(ctx context.Context,
+	req *pluginapi.PodResourceRequest,
+) (resp *pluginapi.PodResourceHintsResponse, err error) {
+	return nil, util.ErrNotImplemented
+}
+
 // GetResourcePluginOptions returns options to be communicated with Resource Manager
 func (p *DynamicPolicy) GetResourcePluginOptions(context.Context,
 	*pluginapi.Empty,
@@ -822,6 +829,15 @@ func (p *DynamicPolicy) Allocate(ctx context.Context,
 		return nil, fmt.Errorf("katalyst QoS level: %s is not supported yet", qosLevel)
 	}
 	return p.allocationHandlers[qosLevel](ctx, req)
+}
+
+// AllocateForPod is called during pod admit so that the resource
+// plugin can allocate corresponding resource for the pod
+// according to resource request
+func (p *DynamicPolicy) AllocateForPod(ctx context.Context,
+	req *pluginapi.PodResourceRequest,
+) (resp *pluginapi.PodResourceAllocationResponse, respErr error) {
+	return nil, util.ErrNotImplemented
 }
 
 // PreStartContainer is called, if indicated by resource plugin during registration phase,

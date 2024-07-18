@@ -46,6 +46,8 @@ type Stub struct {
 	allocFunc1 stubAllocFunc1
 	// handling get allocation request
 	allocFunc2 stubAllocFunc2
+	// allocFunc3 is used for handling allocation for pod request
+	allocFunc3 stubAllocFunc3
 
 	getTopologyAwareAllocatableResourcesFunc stubGetTopologyAwareAllocatableResourcesFunc
 	getTopologyAwareResourcesFunc            stubGetTopologyAwareResourcesFunc
@@ -59,6 +61,9 @@ type stubAllocFunc1 func(r *pluginapi.ResourceRequest) (*pluginapi.ResourceAlloc
 
 // stubAllocFYnc2 is the function called when a get allocation request is received form Kubelet
 type stubAllocFunc2 func(r *pluginapi.GetResourcesAllocationRequest) (*pluginapi.GetResourcesAllocationResponse, error)
+
+// stubAllocFunc3 is the function called when an allocation for pod request is received from Kubelet
+type stubAllocFunc3 func(r *pluginapi.PodResourceRequest) (*pluginapi.PodResourceAllocationResponse, error)
 
 type stubGetTopologyAwareAllocatableResourcesFunc func(r *pluginapi.GetTopologyAwareAllocatableResourcesRequest) (*pluginapi.GetTopologyAwareAllocatableResourcesResponse, error)
 
@@ -239,6 +244,13 @@ func (m *Stub) Allocate(ctx context.Context, r *pluginapi.ResourceRequest) (*plu
 	return m.allocFunc1(r)
 }
 
+// AllocateForPod does a mock allocation for pod
+func (m *Stub) AllocateForPod(ctx context.Context, r *pluginapi.PodResourceRequest) (*pluginapi.PodResourceAllocationResponse, error) {
+	log.Printf("AllocateForPod, %+v", r)
+
+	return m.allocFunc3(r)
+}
+
 func (m *Stub) cleanup() error {
 	if err := os.Remove(m.socket); err != nil && !os.IsNotExist(err) {
 		return err
@@ -269,6 +281,12 @@ func (m *Stub) GetTopologyAwareAllocatableResources(ctx context.Context, r *plug
 func (m *Stub) GetTopologyHints(ctx context.Context, r *pluginapi.ResourceRequest) (*pluginapi.ResourceHintsResponse, error) {
 	log.Printf("GetTopologyHints, %+v", r)
 	return &pluginapi.ResourceHintsResponse{}, nil
+}
+
+// GetPodTopologyHints returns hints of corresponding resources
+func (m *Stub) GetPodTopologyHints(ctx context.Context, r *pluginapi.PodResourceRequest) (*pluginapi.PodResourceHintsResponse, error) {
+	log.Printf("GetPodTopologyHints, %+v", r)
+	return &pluginapi.PodResourceHintsResponse{}, nil
 }
 
 // Notify the resource plugin that the pod has beed deleted,

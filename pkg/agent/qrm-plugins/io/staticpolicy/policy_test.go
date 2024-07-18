@@ -382,6 +382,61 @@ func TestStaticPolicy_GetTopologyHints(t *testing.T) {
 	}
 }
 
+func TestStaticPolicy_GetPodTopologyHints(t *testing.T) {
+	t.Parallel()
+
+	type fields struct {
+		name       string
+		stopCh     chan struct{}
+		started    bool
+		emitter    metrics.MetricEmitter
+		metaServer *metaserver.MetaServer
+		agentCtx   *agent.GenericContext
+	}
+	type args struct {
+		in0 context.Context
+		req *pluginapi.PodResourceRequest
+	}
+	tests := []struct {
+		name   string
+		fields fields
+		args   args
+	}{
+		{
+			name: "get pod topology hints",
+			fields: fields{
+				name:       fmt.Sprintf("%s_%s", qrm.QRMPluginNameIO, IOResourcePluginPolicyNameStatic),
+				stopCh:     make(chan struct{}),
+				started:    true,
+				emitter:    metrics.DummyMetrics{},
+				metaServer: makeMetaServer(),
+				agentCtx:   makeTestGenericContext(t),
+			},
+			args: args{
+				in0: context.Background(),
+				req: &pluginapi.PodResourceRequest{},
+			},
+		},
+	}
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			p := &StaticPolicy{
+				name:       tt.fields.name,
+				stopCh:     tt.fields.stopCh,
+				started:    tt.fields.started,
+				emitter:    tt.fields.emitter,
+				metaServer: tt.fields.metaServer,
+				agentCtx:   tt.fields.agentCtx,
+			}
+			_, err := p.GetPodTopologyHints(tt.args.in0, tt.args.req)
+			assert.NotNil(t, err)
+		})
+	}
+}
+
 func TestStaticPolicy_RemovePod(t *testing.T) {
 	t.Parallel()
 
@@ -780,6 +835,72 @@ func TestStaticPolicy_Allocate(t *testing.T) {
 			if !reflect.DeepEqual(gotResp, tt.wantResp) {
 				t.Errorf("StaticPolicy.Allocate() = %v, want %v", gotResp, tt.wantResp)
 			}
+		})
+	}
+}
+
+func TestStaticPolicy_AllocateForPod(t *testing.T) {
+	t.Parallel()
+
+	type fields struct {
+		name       string
+		stopCh     chan struct{}
+		started    bool
+		emitter    metrics.MetricEmitter
+		metaServer *metaserver.MetaServer
+		agentCtx   *agent.GenericContext
+	}
+	type args struct {
+		in0 context.Context
+		req *pluginapi.PodResourceRequest
+	}
+	tests := []struct {
+		name     string
+		fields   fields
+		args     args
+		wantResp *pluginapi.ResourceAllocationResponse
+		wantErr  bool
+	}{
+		{
+			name: "test allocateForPod",
+			fields: fields{
+				name:       fmt.Sprintf("%s_%s", qrm.QRMPluginNameIO, IOResourcePluginPolicyNameStatic),
+				stopCh:     make(chan struct{}),
+				started:    true,
+				emitter:    metrics.DummyMetrics{},
+				metaServer: makeMetaServer(),
+				agentCtx:   makeTestGenericContext(t),
+			},
+			args: args{
+				in0: context.Background(),
+				req: &pluginapi.PodResourceRequest{
+					PodNamespace: "test",
+					PodName:      "test",
+				},
+			},
+			wantResp: &pluginapi.ResourceAllocationResponse{
+				PodNamespace:  "test",
+				PodName:       "test",
+				ContainerName: "test",
+			},
+			wantErr: false,
+		},
+	}
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			p := &StaticPolicy{
+				name:       tt.fields.name,
+				stopCh:     tt.fields.stopCh,
+				started:    tt.fields.started,
+				emitter:    tt.fields.emitter,
+				metaServer: tt.fields.metaServer,
+				agentCtx:   tt.fields.agentCtx,
+			}
+			_, err := p.AllocateForPod(tt.args.in0, tt.args.req)
+			assert.NotNil(t, err)
 		})
 	}
 }

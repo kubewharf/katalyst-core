@@ -36,7 +36,9 @@ import (
 type Endpoint interface {
 	Stop()
 	Allocate(c context.Context, resourceRequest *pluginapi.ResourceRequest) (*pluginapi.ResourceAllocationResponse, error)
+	AllocateForPod(c context.Context, resourceRequest *pluginapi.PodResourceRequest) (*pluginapi.PodResourceAllocationResponse, error)
 	GetTopologyHints(c context.Context, resourceRequest *pluginapi.ResourceRequest) (*pluginapi.ResourceHintsResponse, error)
+	GetPodTopologyHints(c context.Context, resourceRequest *pluginapi.PodResourceRequest) (*pluginapi.PodResourceHintsResponse, error)
 	GetResourceAllocation(c context.Context, request *pluginapi.GetResourcesAllocationRequest) (*pluginapi.GetResourcesAllocationResponse, error)
 	RemovePod(c context.Context, removePodRequest *pluginapi.RemovePodRequest) (*pluginapi.RemovePodResponse, error)
 	IsStopped() bool
@@ -122,6 +124,15 @@ func (e *EndpointImpl) Allocate(c context.Context, resourceRequest *pluginapi.Re
 	return e.client.Allocate(ctx, resourceRequest)
 }
 
+func (e *EndpointImpl) AllocateForPod(c context.Context, resourceRequest *pluginapi.PodResourceRequest) (*pluginapi.PodResourceAllocationResponse, error) {
+	if e.IsStopped() {
+		return nil, fmt.Errorf(errEndpointStopped, e)
+	}
+	ctx, cancel := context.WithTimeout(c, pluginapi.KubeletResourcePluginAllocateRPCTimeoutInSecs*time.Second)
+	defer cancel()
+	return e.client.AllocateForPod(ctx, resourceRequest)
+}
+
 func (e *EndpointImpl) Stop() {
 	e.mutex.Lock()
 	defer e.mutex.Unlock()
@@ -161,6 +172,16 @@ func (e *EndpointImpl) GetTopologyHints(c context.Context, resourceRequest *plug
 	defer cancel()
 
 	return e.client.GetTopologyHints(ctx, resourceRequest)
+}
+
+func (e *EndpointImpl) GetPodTopologyHints(c context.Context, resourceRequest *pluginapi.PodResourceRequest) (*pluginapi.PodResourceHintsResponse, error) {
+	if e.IsStopped() {
+		return nil, fmt.Errorf(errEndpointStopped, e)
+	}
+	ctx, cancel := context.WithTimeout(c, pluginapi.KubeletResourcePluginGetTopologyHintsRPCTimeoutInSecs*time.Second)
+	defer cancel()
+
+	return e.client.GetPodTopologyHints(ctx, resourceRequest)
 }
 
 func (e *EndpointImpl) GetTopologyAwareAllocatableResources(c context.Context, request *pluginapi.GetTopologyAwareAllocatableResourcesRequest) (*pluginapi.GetTopologyAwareAllocatableResourcesResponse, error) {

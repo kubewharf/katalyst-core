@@ -924,6 +924,34 @@ func TestAllocate(t *testing.T) {
 	}
 }
 
+func TestAllocateForPod(t *testing.T) {
+	t.Parallel()
+
+	as := require.New(t)
+	cpuTopology, err := machine.GenerateDummyCPUTopology(16, 2, 4)
+	as.Nil(err)
+
+	tmpDir, err := ioutil.TempDir("", "checkpoint-TestAllocateForPod")
+	as.Nil(err)
+
+	dynamicPolicy, err := getTestDynamicPolicyWithInitialization(cpuTopology, tmpDir)
+	as.Nil(err)
+
+	req := &pluginapi.PodResourceRequest{
+		PodUid:       string(uuid.NewUUID()),
+		PodNamespace: "testNamespace",
+		PodName:      "testName",
+		ResourceName: string(v1.ResourceCPU),
+		ResourceRequests: map[string]float64{
+			string(v1.ResourceCPU): 2,
+		},
+	}
+	_, err = dynamicPolicy.AllocateForPod(context.Background(), req)
+	as.ErrorIs(err, util.ErrNotImplemented)
+
+	_ = os.RemoveAll(tmpDir)
+}
+
 func TestGetTopologyHints(t *testing.T) {
 	t.Parallel()
 
@@ -2433,6 +2461,34 @@ func TestGetTopologyHints(t *testing.T) {
 
 		_ = os.RemoveAll(tmpDir)
 	}
+}
+
+func TestGetPodTopologyHints(t *testing.T) {
+	t.Parallel()
+
+	as := require.New(t)
+	cpuTopology, err := machine.GenerateDummyCPUTopology(16, 2, 4)
+	as.Nil(err)
+
+	tmpDir, err := ioutil.TempDir("", "checkpoint-TestGetPodTopologyHints")
+	as.Nil(err)
+
+	dynamicPolicy, err := getTestDynamicPolicyWithInitialization(cpuTopology, tmpDir)
+	as.Nil(err)
+
+	req := &pluginapi.PodResourceRequest{
+		PodUid:       string(uuid.NewUUID()),
+		PodNamespace: "testNamespace",
+		PodName:      "testName",
+		ResourceName: string(v1.ResourceCPU),
+		ResourceRequests: map[string]float64{
+			string(v1.ResourceCPU): 2,
+		},
+	}
+	_, err = dynamicPolicy.GetPodTopologyHints(context.Background(), req)
+	as.ErrorIs(err, util.ErrNotImplemented)
+
+	_ = os.RemoveAll(tmpDir)
 }
 
 func TestGetTopologyAwareAllocatableResources(t *testing.T) {

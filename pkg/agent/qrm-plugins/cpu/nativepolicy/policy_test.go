@@ -30,6 +30,7 @@ import (
 
 	cpuconsts "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/consts"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
@@ -330,6 +331,64 @@ func TestGetTopologyHints(t *testing.T) {
 
 		_ = os.RemoveAll(tmpDir)
 	}
+}
+
+func TestGetPodTopologyHints(t *testing.T) {
+	t.Parallel()
+
+	as := require.New(t)
+	cpuTopology, err := machine.GenerateDummyCPUTopology(16, 2, 4)
+	as.Nil(err)
+
+	tmpDir, err := ioutil.TempDir("", "checkpoint-TestGetPodTopologyHints")
+	as.Nil(err)
+
+	nativePolicy, err := getTestNativePolicy(cpuTopology, tmpDir)
+	as.Nil(err)
+
+	testName := "testPod"
+	req := &pluginapi.PodResourceRequest{
+		PodUid:       string(uuid.NewUUID()),
+		PodNamespace: testName,
+		PodName:      testName,
+		ResourceName: string(v1.ResourceCPU),
+		ResourceRequests: map[string]float64{
+			string(v1.ResourceCPU): 2,
+		},
+	}
+	_, err = nativePolicy.GetPodTopologyHints(context.Background(), req)
+	as.ErrorIs(err, util.ErrNotImplemented)
+
+	_ = os.RemoveAll(tmpDir)
+}
+
+func TestAllocateForPod(t *testing.T) {
+	t.Parallel()
+
+	as := require.New(t)
+	cpuTopology, err := machine.GenerateDummyCPUTopology(16, 2, 4)
+	as.Nil(err)
+
+	tmpDir, err := ioutil.TempDir("", "checkpoint-TestAllocateForPod")
+	as.Nil(err)
+
+	nativePolicy, err := getTestNativePolicy(cpuTopology, tmpDir)
+	as.Nil(err)
+
+	testName := "testPod"
+	req := &pluginapi.PodResourceRequest{
+		PodUid:       string(uuid.NewUUID()),
+		PodNamespace: testName,
+		PodName:      testName,
+		ResourceName: string(v1.ResourceCPU),
+		ResourceRequests: map[string]float64{
+			string(v1.ResourceCPU): 2,
+		},
+	}
+	_, err = nativePolicy.AllocateForPod(context.Background(), req)
+	as.ErrorIs(err, util.ErrNotImplemented)
+
+	_ = os.RemoveAll(tmpDir)
 }
 
 func TestGetReadonlyState(t *testing.T) {
