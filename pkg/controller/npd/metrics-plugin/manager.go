@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package indicator_plugin
+package metrics_plugin
 
 import (
 	"sync"
@@ -26,22 +26,22 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/util"
 )
 
-// IndicatorUpdater is used by IndicatorPlugin as a unified implementation
-// to trigger indicator updating logic.
-type IndicatorUpdater interface {
+// MetricsUpdater is used by MetricsPlugin as a unified implementation
+// to trigger metrics updating logic.
+type MetricsUpdater interface {
 	UpdateNodeMetrics(name string, scopedNodeMetrics []v1alpha1.ScopedNodeMetrics)
 	UpdatePodMetrics(nodeName string, scopedPodMetrics []v1alpha1.ScopedPodMetrics)
 }
 
-// IndicatorGetter is used by npd controller as indicator notifier to trigger
+// MetricsGetter is used by npd controller as metrics notifier to trigger
 // update real npd.
-type IndicatorGetter interface {
+type MetricsGetter interface {
 	GetNodeProfileStatusQueue() workqueue.RateLimitingInterface
 	GetNodeProfileStatus(name string) *v1alpha1.NodeProfileDescriptorStatus
 	DeleteNodeProfileStatus(name string)
 }
 
-type IndicatorManager struct {
+type MetricsManager struct {
 	sync.Mutex
 
 	statusQueue workqueue.RateLimitingInterface
@@ -49,18 +49,18 @@ type IndicatorManager struct {
 }
 
 var (
-	_ IndicatorUpdater = &IndicatorManager{}
-	_ IndicatorGetter  = &IndicatorManager{}
+	_ MetricsUpdater = &MetricsManager{}
+	_ MetricsGetter  = &MetricsManager{}
 )
 
-func NewIndicatorManager() *IndicatorManager {
-	return &IndicatorManager{
+func NewMetricsManager() *MetricsManager {
+	return &MetricsManager{
 		statusMap:   make(map[string]*v1alpha1.NodeProfileDescriptorStatus),
 		statusQueue: workqueue.NewNamedRateLimitingQueue(workqueue.DefaultControllerRateLimiter(), "npd"),
 	}
 }
 
-func (im *IndicatorManager) UpdateNodeMetrics(name string, scopedNodeMetrics []v1alpha1.ScopedNodeMetrics) {
+func (im *MetricsManager) UpdateNodeMetrics(name string, scopedNodeMetrics []v1alpha1.ScopedNodeMetrics) {
 	im.Lock()
 
 	if _, ok := im.statusMap[name]; !ok {
@@ -75,7 +75,7 @@ func (im *IndicatorManager) UpdateNodeMetrics(name string, scopedNodeMetrics []v
 	im.statusQueue.AddRateLimited(name)
 }
 
-func (im *IndicatorManager) UpdatePodMetrics(nodeName string, scopedPodMetrics []v1alpha1.ScopedPodMetrics) {
+func (im *MetricsManager) UpdatePodMetrics(nodeName string, scopedPodMetrics []v1alpha1.ScopedPodMetrics) {
 	im.Lock()
 
 	if _, ok := im.statusMap[nodeName]; !ok {
@@ -90,11 +90,11 @@ func (im *IndicatorManager) UpdatePodMetrics(nodeName string, scopedPodMetrics [
 	im.statusQueue.AddRateLimited(nodeName)
 }
 
-func (im *IndicatorManager) GetNodeProfileStatusQueue() workqueue.RateLimitingInterface {
+func (im *MetricsManager) GetNodeProfileStatusQueue() workqueue.RateLimitingInterface {
 	return im.statusQueue
 }
 
-func (im *IndicatorManager) GetNodeProfileStatus(name string) *v1alpha1.NodeProfileDescriptorStatus {
+func (im *MetricsManager) GetNodeProfileStatus(name string) *v1alpha1.NodeProfileDescriptorStatus {
 	im.Lock()
 	defer im.Unlock()
 
@@ -106,7 +106,7 @@ func (im *IndicatorManager) GetNodeProfileStatus(name string) *v1alpha1.NodeProf
 	return status
 }
 
-func (im *IndicatorManager) DeleteNodeProfileStatus(name string) {
+func (im *MetricsManager) DeleteNodeProfileStatus(name string) {
 	im.Lock()
 	defer im.Unlock()
 

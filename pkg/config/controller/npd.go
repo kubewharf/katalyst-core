@@ -17,7 +17,7 @@ limitations under the License.
 package controller
 
 type NPDConfig struct {
-	NPDIndicatorPlugins []string
+	NPDMetricsPlugins []string
 
 	EnableScopeDuplicated bool
 
@@ -26,7 +26,7 @@ type NPDConfig struct {
 
 func NewNPDConfig() *NPDConfig {
 	return &NPDConfig{
-		NPDIndicatorPlugins:   []string{},
+		NPDMetricsPlugins:     []string{},
 		EnableScopeDuplicated: false,
 		SyncWorkers:           1,
 	}
