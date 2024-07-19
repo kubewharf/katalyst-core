@@ -33,15 +33,15 @@ import (
 	katalystbase "github.com/kubewharf/katalyst-core/cmd/base"
 	"github.com/kubewharf/katalyst-core/pkg/config/controller"
 	"github.com/kubewharf/katalyst-core/pkg/config/generic"
-	indicator_plugin "github.com/kubewharf/katalyst-core/pkg/controller/npd/indicator-plugin"
+	metrics_plugin "github.com/kubewharf/katalyst-core/pkg/controller/npd/metrics-plugin"
 )
 
-func TestIndicatorUpdater(t *testing.T) {
+func TestMetricsUpdater(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.TODO()
 	npdConfig := &controller.NPDConfig{
-		NPDIndicatorPlugins:   []string{"plugin1", "plugin2"},
+		NPDMetricsPlugins:     []string{"plugin1", "plugin2"},
 		SyncWorkers:           1,
 		EnableScopeDuplicated: false,
 	}
@@ -74,8 +74,8 @@ func TestIndicatorUpdater(t *testing.T) {
 	assert.NoError(t, err)
 
 	// register plugins
-	indicator_plugin.RegisterPluginInitializer("plugin1", func(ctx context.Context, conf *controller.NPDConfig, extraConf interface{}, controlCtx *katalystbase.GenericContext, updater indicator_plugin.IndicatorUpdater) (indicator_plugin.IndicatorPlugin, error) {
-		return indicator_plugin.DummyIndicatorPlugin{
+	metrics_plugin.RegisterPluginInitializer("plugin1", func(ctx context.Context, conf *controller.NPDConfig, extraConf interface{}, controlCtx *katalystbase.GenericContext, updater metrics_plugin.MetricsUpdater) (metrics_plugin.MetricsPlugin, error) {
+		return metrics_plugin.DummyMetricsPlugin{
 			NodeMetricsScopes: []string{
 				"scope1", "scope2",
 			},
@@ -84,8 +84,8 @@ func TestIndicatorUpdater(t *testing.T) {
 			},
 		}, nil
 	})
-	indicator_plugin.RegisterPluginInitializer("plugin2", func(ctx context.Context, conf *controller.NPDConfig, extraConf interface{}, controlCtx *katalystbase.GenericContext, updater indicator_plugin.IndicatorUpdater) (indicator_plugin.IndicatorPlugin, error) {
-		return indicator_plugin.DummyIndicatorPlugin{
+	metrics_plugin.RegisterPluginInitializer("plugin2", func(ctx context.Context, conf *controller.NPDConfig, extraConf interface{}, controlCtx *katalystbase.GenericContext, updater metrics_plugin.MetricsUpdater) (metrics_plugin.MetricsPlugin, error) {
+		return metrics_plugin.DummyMetricsPlugin{
 			NodeMetricsScopes: []string{
 				"scope3", "scope4",
 			},
@@ -105,7 +105,7 @@ func TestIndicatorUpdater(t *testing.T) {
 	synced := cache.WaitForCacheSync(timeout.Done(), npdController.syncedFunc...)
 	assert.True(t, synced)
 
-	manager := npdController.indicatorManager.(*indicator_plugin.IndicatorManager)
+	manager := npdController.metricsManager.(*metrics_plugin.MetricsManager)
 	manager.UpdateNodeMetrics("node1", []v1alpha1.ScopedNodeMetrics{
 		{
 			Scope: "scope1",
