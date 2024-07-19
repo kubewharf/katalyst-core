@@ -23,14 +23,14 @@ import (
 )
 
 type NPDOptions struct {
-	NPDIndicatorPlugins   []string
+	NPDMetricsPlugins     []string
 	EnableScopeDuplicated bool
 	SyncWorkers           int
 }
 
 func NewNPDOptions() *NPDOptions {
 	return &NPDOptions{
-		NPDIndicatorPlugins:   []string{},
+		NPDMetricsPlugins:     []string{},
 		EnableScopeDuplicated: false,
 		SyncWorkers:           1,
 	}
@@ -39,8 +39,8 @@ func NewNPDOptions() *NPDOptions {
 func (o *NPDOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 	fs := fss.FlagSet("npd")
 
-	fs.StringSliceVar(&o.NPDIndicatorPlugins, "npd-indicator-plugins", o.NPDIndicatorPlugins,
-		"A list  of indicator plugins to be used")
+	fs.StringSliceVar(&o.NPDMetricsPlugins, "npd-metrics-plugins", o.NPDMetricsPlugins,
+		"A list  of metrics plugins to be used")
 	fs.BoolVar(&o.EnableScopeDuplicated, "npd-enable-scope-duplicated", o.EnableScopeDuplicated,
 		"Whether metrics with the same scope can be updated by multiple plugins")
 	fs.IntVar(&o.SyncWorkers, "npd-sync-workers", o.SyncWorkers,
@@ -48,7 +48,7 @@ func (o *NPDOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 }
 
 func (o *NPDOptions) ApplyTo(c *controller.NPDConfig) error {
-	c.NPDIndicatorPlugins = o.NPDIndicatorPlugins
+	c.NPDMetricsPlugins = o.NPDMetricsPlugins
 	c.EnableScopeDuplicated = o.EnableScopeDuplicated
 	c.SyncWorkers = o.SyncWorkers
 	return nil

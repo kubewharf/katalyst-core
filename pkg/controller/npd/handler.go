@@ -54,7 +54,7 @@ func (nc *NPDController) onNodeDelete(obj interface{}) {
 		klog.Errorf("delete node %v fail: %v", node.Name, err)
 		return
 	}
-	nc.indicatorManager.DeleteNodeProfileStatus(node.Name)
+	nc.metricsManager.DeleteNodeProfileStatus(node.Name)
 }
 
 func (nc *NPDController) enqueueNode(node *v1.Node) {
