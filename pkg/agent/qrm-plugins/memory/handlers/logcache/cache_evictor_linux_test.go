@@ -40,9 +40,9 @@ func TestEvictFileCache(t *testing.T) {
 			expectedError: true,
 		},
 		{
-			name:          "no error",
+			name:          "file not exist",
 			filePath:      "regular.log",
-			expectedError: false,
+			expectedError: true,
 		},
 	}
 

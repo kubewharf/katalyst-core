@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package indicator_plugin
+package metrics_plugin
 
 import (
 	"context"
@@ -24,7 +24,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/config/controller"
 )
 
-type IndicatorPlugin interface {
+type MetricsPlugin interface {
 	Run()
 	Name() string
 
@@ -35,14 +35,14 @@ type IndicatorPlugin interface {
 var pluginInitializers sync.Map
 
 type InitFunc func(ctx context.Context, conf *controller.NPDConfig, extraConf interface{},
-	controlCtx *katalystbase.GenericContext, updater IndicatorUpdater) (IndicatorPlugin, error)
+	controlCtx *katalystbase.GenericContext, updater MetricsUpdater) (MetricsPlugin, error)
 
-// RegisterPluginInitializer is used to register user-defined indicator plugins
+// RegisterPluginInitializer is used to register user-defined metrics plugins
 func RegisterPluginInitializer(name string, initFunc InitFunc) {
 	pluginInitializers.Store(name, initFunc)
 }
 
-// GetPluginInitializers returns initialized functions of indicator plugins
+// GetPluginInitializers returns initialized functions of metrics plugins
 func GetPluginInitializers() map[string]InitFunc {
 	plugins := make(map[string]InitFunc)
 	pluginInitializers.Range(func(key, value any) bool {
@@ -52,21 +52,21 @@ func GetPluginInitializers() map[string]InitFunc {
 	return plugins
 }
 
-type DummyIndicatorPlugin struct {
+type DummyMetricsPlugin struct {
 	NodeMetricsScopes []string
 	PodMetricsScopes  []string
 }
 
-var _ IndicatorPlugin = DummyIndicatorPlugin{}
+var _ MetricsPlugin = DummyMetricsPlugin{}
 
-func (d DummyIndicatorPlugin) Run() {}
+func (d DummyMetricsPlugin) Run() {}
 
-func (d DummyIndicatorPlugin) Name() string { return "dummy-indicator-plugin" }
+func (d DummyMetricsPlugin) Name() string { return "dummy-metrics-plugin" }
 
-func (d DummyIndicatorPlugin) GetSupportedNodeMetricsScope() []string {
+func (d DummyMetricsPlugin) GetSupportedNodeMetricsScope() []string {
 	return d.NodeMetricsScopes
 }
 
-func (d DummyIndicatorPlugin) GetSupportedPodMetricsScope() []string {
+func (d DummyMetricsPlugin) GetSupportedPodMetricsScope() []string {
 	return d.PodMetricsScopes
 }

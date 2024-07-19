@@ -40,35 +40,35 @@ func (nc *NPDController) npdWorker() {
 }
 
 func (nc *NPDController) processNextNPDItem() bool {
-	key, quit := nc.indicatorManager.GetNodeProfileStatusQueue().Get()
+	key, quit := nc.metricsManager.GetNodeProfileStatusQueue().Get()
 	if quit {
 		klog.Warningf("[npd] NodeProfileStatusQueue quit")
 		return false
 	}
-	defer nc.indicatorManager.GetNodeProfileStatusQueue().Done(key)
+	defer nc.metricsManager.GetNodeProfileStatusQueue().Done(key)
 
 	nodeName, ok := key.(string)
 	if !ok {
 		klog.Errorf("[spd] unknown data from NodeProfileStatusQueue: %v", key)
-		nc.indicatorManager.GetNodeProfileStatusQueue().Forget(key)
+		nc.metricsManager.GetNodeProfileStatusQueue().Forget(key)
 		return true
 	}
 
 	err := nc.syncStatus(nodeName)
 	if err == nil {
-		nc.indicatorManager.GetNodeProfileStatusQueue().Forget(key)
+		nc.metricsManager.GetNodeProfileStatusQueue().Forget(key)
 		return true
 	}
 
 	utilruntime.HandleError(fmt.Errorf("sync %v fail with %v", key, err))
-	nc.indicatorManager.GetNodeProfileStatusQueue().AddRateLimited(key)
+	nc.metricsManager.GetNodeProfileStatusQueue().AddRateLimited(key)
 	return true
 }
 
 func (nc *NPDController) syncStatus(nodeName string) error {
 	klog.V(6).Infof("[npd] sync node %v npd status", nodeName)
 
-	status := nc.indicatorManager.GetNodeProfileStatus(nodeName)
+	status := nc.metricsManager.GetNodeProfileStatus(nodeName)
 	if status == nil {
 		klog.Warningf("[npd] get node %v npd status nil", nodeName)
 		return nil
@@ -82,7 +82,7 @@ func (nc *NPDController) syncStatus(nodeName string) error {
 		}
 
 		npdCopy := npd.DeepCopy()
-		nc.mergeIndicatorStatus(npdCopy, *status)
+		nc.mergeMetricsStatus(npdCopy, *status)
 		if apiequality.Semantic.DeepEqual(npd.Status, npdCopy.Status) {
 			return nil
 		}
@@ -110,7 +110,7 @@ func (nc *NPDController) syncStatus(nodeName string) error {
 	return nil
 }
 
-func (nc *NPDController) mergeIndicatorStatus(npd *v1alpha1.NodeProfileDescriptor, expected v1alpha1.NodeProfileDescriptorStatus) {
+func (nc *NPDController) mergeMetricsStatus(npd *v1alpha1.NodeProfileDescriptor, expected v1alpha1.NodeProfileDescriptorStatus) {
 	for _, nodeMetric := range expected.NodeMetrics {
 		util.InsertNPDScopedNodeMetrics(&npd.Status, &nodeMetric)
 	}

@@ -37,7 +37,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/client/control"
 	"github.com/kubewharf/katalyst-core/pkg/config/controller"
 	"github.com/kubewharf/katalyst-core/pkg/config/generic"
-	indicator_plugin "github.com/kubewharf/katalyst-core/pkg/controller/npd/indicator-plugin"
+	metrics_plugin "github.com/kubewharf/katalyst-core/pkg/controller/npd/metrics-plugin"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 )
 
@@ -52,8 +52,8 @@ type NPDController struct {
 	npdLister  npdlisters.NodeProfileDescriptorLister
 	nodeLister corev1.NodeLister
 
-	indicatorManager    indicator_plugin.IndicatorGetter
-	indicatorPlugins    map[string]indicator_plugin.IndicatorPlugin
+	metricsManager      metrics_plugin.MetricsGetter
+	metricsPlugins      map[string]metrics_plugin.MetricsPlugin
 	supportedNodeScopes map[string]struct{}
 	supportedPodScopes  map[string]struct{}
 
@@ -98,7 +98,7 @@ func NewNPDController(
 		npdController.npdControl = control.NewNPDControlImp(controlCtx.Client.InternalClient)
 	}
 
-	if err := npdController.initializeIndicatorPlugins(controlCtx, extraConf); err != nil {
+	if err := npdController.initializeMetricsPlugins(controlCtx, extraConf); err != nil {
 		return nil, err
 	}
 
@@ -118,7 +118,7 @@ func (nc *NPDController) Run() {
 
 	go wait.Until(nc.nodeWorker, time.Second, nc.ctx.Done())
 
-	for _, plugin := range nc.indicatorPlugins {
+	for _, plugin := range nc.metricsPlugins {
 		go plugin.Run()
 	}
 
@@ -131,23 +131,23 @@ func (nc *NPDController) Run() {
 	<-nc.ctx.Done()
 }
 
-func (nc *NPDController) initializeIndicatorPlugins(controlCtx *katalystbase.GenericContext, extraConf interface{}) error {
-	indicatorManager := indicator_plugin.NewIndicatorManager()
-	nc.indicatorManager = indicatorManager
-	nc.indicatorPlugins = make(map[string]indicator_plugin.IndicatorPlugin)
+func (nc *NPDController) initializeMetricsPlugins(controlCtx *katalystbase.GenericContext, extraConf interface{}) error {
+	metricsManager := metrics_plugin.NewMetricsManager()
+	nc.metricsManager = metricsManager
+	nc.metricsPlugins = make(map[string]metrics_plugin.MetricsPlugin)
 	nc.supportedNodeScopes = make(map[string]struct{})
 	nc.supportedPodScopes = make(map[string]struct{})
 
-	initializers := indicator_plugin.GetPluginInitializers()
-	for _, pluginName := range nc.conf.NPDIndicatorPlugins {
+	initializers := metrics_plugin.GetPluginInitializers()
+	for _, pluginName := range nc.conf.NPDMetricsPlugins {
 		if initFunc, ok := initializers[pluginName]; ok {
-			plugin, err := initFunc(nc.ctx, nc.conf, extraConf, controlCtx, indicatorManager)
+			plugin, err := initFunc(nc.ctx, nc.conf, extraConf, controlCtx, metricsManager)
 			if err != nil {
 				return err
 			}
 
-			klog.Infof("[npd] init indicator plugin: %v", pluginName)
-			nc.indicatorPlugins[pluginName] = plugin
+			klog.Infof("[npd] init metrics plugin: %v", pluginName)
+			nc.metricsPlugins[pluginName] = plugin
 
 			for _, scope := range plugin.GetSupportedNodeMetricsScope() {
 				if _, ok := nc.supportedNodeScopes[scope]; !ok {
