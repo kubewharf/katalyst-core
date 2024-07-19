@@ -28,6 +28,7 @@ type ControllersOptions struct {
 	*VPAOptions
 	*KCCOptions
 	*SPDOptions
+	*NPDOptions
 	*LifeCycleOptions
 	*MonitorOptions
 	*OvercommitOptions
@@ -40,6 +41,7 @@ func NewControllersOptions() *ControllersOptions {
 		VPAOptions:                 NewVPAOptions(),
 		KCCOptions:                 NewKCCOptions(),
 		SPDOptions:                 NewSPDOptions(),
+		NPDOptions:                 NewNPDOptions(),
 		LifeCycleOptions:           NewLifeCycleOptions(),
 		MonitorOptions:             NewMonitorOptions(),
 		OvercommitOptions:          NewOvercommitOptions(),
@@ -52,6 +54,7 @@ func (o *ControllersOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 	o.VPAOptions.AddFlags(fss)
 	o.KCCOptions.AddFlags(fss)
 	o.SPDOptions.AddFlags(fss)
+	o.NPDOptions.AddFlags(fss)
 	o.LifeCycleOptions.AddFlags(fss)
 	o.MonitorOptions.AddFlags(fss)
 	o.OvercommitOptions.AddFlags(fss)
@@ -66,6 +69,7 @@ func (o *ControllersOptions) ApplyTo(c *controllerconfig.ControllersConfiguratio
 	errList = append(errList, o.VPAOptions.ApplyTo(c.VPAConfig))
 	errList = append(errList, o.KCCOptions.ApplyTo(c.KCCConfig))
 	errList = append(errList, o.SPDOptions.ApplyTo(c.SPDConfig))
+	errList = append(errList, o.NPDOptions.ApplyTo(c.NPDConfig))
 	errList = append(errList, o.LifeCycleOptions.ApplyTo(c.LifeCycleConfig))
 	errList = append(errList, o.MonitorOptions.ApplyTo(c.MonitorConfig))
 	errList = append(errList, o.OvercommitOptions.ApplyTo(c.OvercommitConfig))
