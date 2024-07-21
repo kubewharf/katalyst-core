@@ -21,9 +21,11 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/consts"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/nativepolicy"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/vcipolicy"
 )
 
 func init() {
 	qrm.RegisterCPUPolicyInitializer(consts.CPUResourcePluginPolicyNameDynamic, dynamicpolicy.NewDynamicPolicy)
 	qrm.RegisterCPUPolicyInitializer(consts.CPUResourcePluginPolicyNameNative, nativepolicy.NewNativePolicy)
+	qrm.RegisterCPUPolicyInitializer(consts.CPUResourcePluginPolicyNameStatic, vcipolicy.NewStaticPolicy)
 }
