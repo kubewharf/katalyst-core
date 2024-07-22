@@ -811,6 +811,20 @@ func TestAssembleProvision(t *testing.T) {
 			},
 		},
 		{
+			name:                                  "no share pool and isolated pool, allow shared_cores overlap reclaimed_cores",
+			enableReclaimed:                       true,
+			allowSharedCoresOverlapReclaimedCores: true,
+			poolInfos:                             []testCasePoolConfig{},
+			expectPoolEntries: map[string]map[int]int{
+				"reserve": {
+					-1: 0,
+				},
+				"reclaim": {
+					-1: 48,
+				},
+			},
+		},
+		{
 			name:                                  "share and isolated pool not throttled, overlap reclaimed cores, reclaim disabled",
 			enableReclaimed:                       false,
 			allowSharedCoresOverlapReclaimedCores: true,
@@ -877,6 +891,48 @@ func TestAssembleProvision(t *testing.T) {
 			},
 			expectPoolOverlapInfo: map[string]map[int]map[string]int{
 				"reclaim": {-1: map[string]int{"share": 4}, 1: map[string]int{"share-NUMA1": 4}},
+			},
+		},
+		{
+			name:                                  "isolated pools only, with numa binding",
+			enableReclaimed:                       true,
+			allowSharedCoresOverlapReclaimedCores: true,
+			poolInfos: []testCasePoolConfig{
+				{
+					poolName:      "isolation-NUMA1",
+					poolType:      configapi.QoSRegionTypeIsolation,
+					numa:          machine.NewCPUSet(1),
+					isNumaBinding: true,
+					provision: types.ControlKnob{
+						configapi.ControlKnobNonReclaimedCPURequirementUpper: {Value: 8},
+						configapi.ControlKnobNonReclaimedCPURequirementLower: {Value: 4},
+					},
+				},
+				{
+					poolName:      "isolation-NUMA1-pod2",
+					poolType:      configapi.QoSRegionTypeIsolation,
+					numa:          machine.NewCPUSet(1),
+					isNumaBinding: true,
+					provision: types.ControlKnob{
+						configapi.ControlKnobNonReclaimedCPURequirementUpper: {Value: 8},
+						configapi.ControlKnobNonReclaimedCPURequirementLower: {Value: 4},
+					},
+				},
+			},
+			expectPoolEntries: map[string]map[int]int{
+				"isolation-NUMA1": {
+					1: 8,
+				},
+				"isolation-NUMA1-pod2": {
+					1: 8,
+				},
+				"reserve": {
+					-1: 0,
+				},
+				"reclaim": {
+					1:  8,
+					-1: 24,
+				},
 			},
 		},
 		{
