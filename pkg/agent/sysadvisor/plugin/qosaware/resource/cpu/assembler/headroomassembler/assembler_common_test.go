@@ -144,6 +144,7 @@ func TestHeadroomAssemblerCommon_GetHeadroom(t *testing.T) {
 					for i := 0; i < 10; i++ {
 						store.SetCPUMetric(i, pkgconsts.MetricCPUUsageRatio, utilmetric.MetricData{Value: 0.3, Time: &now})
 					}
+					store.SetCgroupMetric("/kubepods/besteffort", pkgconsts.MetricCPUUsageCgroup, utilmetric.MetricData{Value: 3, Time: &now})
 				},
 				setMetaCache: func(cache *metacache.MetaCacheImp) {
 					err := cache.SetPoolInfo(state.PoolNameReclaim, &types.PoolInfo{
@@ -194,8 +195,9 @@ func TestHeadroomAssemblerCommon_GetHeadroom(t *testing.T) {
 				},
 				setFakeMetric: func(store *metric.FakeMetricsFetcher) {
 					for i := 0; i < 10; i++ {
-						store.SetCPUMetric(i, pkgconsts.MetricCPUUsageRatio, utilmetric.MetricData{Value: 0.3, Time: &now})
+						store.SetCPUMetric(i, pkgconsts.MetricCPUUsageRatio, utilmetric.MetricData{Value: 0.8, Time: &now})
 					}
+					store.SetCgroupMetric("/kubepods/besteffort", pkgconsts.MetricCPUUsageCgroup, utilmetric.MetricData{Value: 1, Time: &now})
 					store.SetContainerMetric("pod1", "container1", metric_consts.MetricCPUUsageContainer, metric_util.MetricData{Value: 4})
 				},
 				setMetaCache: func(cache *metacache.MetaCacheImp) {
@@ -217,7 +219,7 @@ func TestHeadroomAssemblerCommon_GetHeadroom(t *testing.T) {
 					})
 				},
 			},
-			want: *resource.NewQuantity(13, resource.DecimalSI),
+			want: *resource.NewQuantity(5, resource.DecimalSI),
 		},
 		{
 			name: "disable util based",
@@ -251,6 +253,7 @@ func TestHeadroomAssemblerCommon_GetHeadroom(t *testing.T) {
 					for i := 0; i < 10; i++ {
 						store.SetCPUMetric(i, pkgconsts.MetricCPUUsageRatio, utilmetric.MetricData{Value: 0.3, Time: &now})
 					}
+					store.SetCgroupMetric("/kubepods/besteffort", pkgconsts.MetricCPUUsageCgroup, utilmetric.MetricData{Value: 3, Time: &now})
 				},
 				setMetaCache: func(cache *metacache.MetaCacheImp) {
 					err := cache.SetPoolInfo(state.PoolNameReclaim, &types.PoolInfo{
@@ -296,6 +299,7 @@ func TestHeadroomAssemblerCommon_GetHeadroom(t *testing.T) {
 					for i := 0; i < 10; i++ {
 						store.SetCPUMetric(i, pkgconsts.MetricCPUUsageRatio, utilmetric.MetricData{Time: &now})
 					}
+					store.SetCgroupMetric("/kubepods/besteffort", pkgconsts.MetricCPUUsageCgroup, utilmetric.MetricData{Value: 0, Time: &now})
 				},
 				setMetaCache: func(cache *metacache.MetaCacheImp) {
 					err := cache.SetPoolInfo(state.PoolNameReclaim, &types.PoolInfo{
@@ -341,6 +345,7 @@ func TestHeadroomAssemblerCommon_GetHeadroom(t *testing.T) {
 					for i := 0; i < 96; i++ {
 						store.SetCPUMetric(i, pkgconsts.MetricCPUUsageRatio, utilmetric.MetricData{Value: 0.9, Time: &now})
 					}
+					store.SetCgroupMetric("/kubepods/besteffort", pkgconsts.MetricCPUUsageCgroup, utilmetric.MetricData{Value: 9, Time: &now})
 				},
 				setMetaCache: func(cache *metacache.MetaCacheImp) {
 					err := cache.SetPoolInfo(state.PoolNameReclaim, &types.PoolInfo{
@@ -388,6 +393,7 @@ func TestHeadroomAssemblerCommon_GetHeadroom(t *testing.T) {
 					for i := 0; i < 96; i++ {
 						store.SetCPUMetric(i, pkgconsts.MetricCPUUsageRatio, utilmetric.MetricData{Value: 0.3, Time: &now})
 					}
+					store.SetCgroupMetric("/kubepods/besteffort", pkgconsts.MetricCPUUsageCgroup, utilmetric.MetricData{Value: 28.8, Time: &now})
 				},
 				setMetaCache: func(cache *metacache.MetaCacheImp) {
 					err := cache.SetPoolInfo(state.PoolNameReclaim, &types.PoolInfo{
