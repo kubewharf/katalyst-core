@@ -18,6 +18,8 @@ package headroomassembler
 
 import (
 	"context"
+	"fmt"
+	"math"
 
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/klog/v2"
@@ -25,15 +27,30 @@ import (
 	"github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource/helper"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic"
+	metaserverHelper "github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric/helper"
+	"github.com/kubewharf/katalyst-core/pkg/util/general"
 )
 
 func (ha *HeadroomAssemblerCommon) getUtilBasedHeadroom(dynamicConfig *dynamic.Configuration,
-	poolSize int, util float64,
+	reclaimMetrics *metaserverHelper.ReclaimMetrics,
 ) (resource.Quantity, error) {
 	lastReclaimedCPU, err := ha.getLastReclaimedCPU()
 	if err != nil {
 		return resource.Quantity{}, err
 	}
+	if reclaimMetrics == nil {
+		return resource.Quantity{}, fmt.Errorf("reclaimMetrics is nil")
+	}
+
+	if reclaimMetrics.ReclaimedCoresSupply == 0 {
+		return *resource.NewQuantity(0, resource.DecimalSI), nil
+	}
+
+	util := reclaimMetrics.CgroupCPUUsage / reclaimMetrics.ReclaimedCoresSupply
+
+	general.InfoS("getUtilBasedHeadroom", "reclaimedCoresSupply", reclaimMetrics.ReclaimedCoresSupply,
+		"util", util, "reclaim PoolCPUUsage", reclaimMetrics.PoolCPUUsage, "reclaim CgroupCPUUsage", reclaimMetrics.CgroupCPUUsage,
+		"lastReclaimedCPU", lastReclaimedCPU)
 
 	headroom, err := helper.EstimateUtilBasedCapacity(
 		helper.UtilBasedCapacityOptions{
@@ -42,7 +59,7 @@ func (ha *HeadroomAssemblerCommon) getUtilBasedHeadroom(dynamicConfig *dynamic.C
 			MaxOversoldRate:   dynamicConfig.MaxOversoldRate,
 			MaxCapacity:       dynamicConfig.MaxHeadroomCapacityRate * float64(ha.metaServer.MachineInfo.NumCores),
 		},
-		float64(poolSize),
+		reclaimMetrics.ReclaimedCoresSupply,
 		util,
 		lastReclaimedCPU,
 	)
@@ -50,7 +67,7 @@ func (ha *HeadroomAssemblerCommon) getUtilBasedHeadroom(dynamicConfig *dynamic.C
 		return resource.Quantity{}, err
 	}
 
-	return *resource.NewQuantity(int64(headroom), resource.DecimalSI), nil
+	return *resource.NewQuantity(int64(math.Ceil(headroom)), resource.DecimalSI), nil
 }
 
 func (ha *HeadroomAssemblerCommon) getLastReclaimedCPU() (float64, error) {
