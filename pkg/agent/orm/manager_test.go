@@ -585,6 +585,7 @@ func registerEndpointByPods(manager *ManagerImpl, pods []*v1.Pod) error {
 /* ------------------  mock endpoint for test  ----------------------- */
 type MockEndpoint struct {
 	allocateFunc                             func(resourceRequest *pluginapi.ResourceRequest) (*pluginapi.ResourceAllocationResponse, error)
+	allocateForPodFunc                       func(resourceRequest *pluginapi.PodResourceRequest) (*pluginapi.PodResourceAllocationResponse, error)
 	resourceAlloc                            func(ctx context.Context, request *pluginapi.GetResourcesAllocationRequest) (*pluginapi.GetResourcesAllocationResponse, error)
 	getTopologyAwareResourcesFunc            func(c context.Context, request *pluginapi.GetTopologyAwareResourcesRequest) (*pluginapi.GetTopologyAwareResourcesResponse, error)
 	getTopologyAwareAllocatableResourcesFunc func(c context.Context, request *pluginapi.GetTopologyAwareAllocatableResourcesRequest) (*pluginapi.GetTopologyAwareAllocatableResourcesResponse, error)
@@ -607,6 +608,16 @@ func (m *MockEndpoint) Allocate(ctx context.Context, resourceRequest *pluginapi.
 	return nil, nil
 }
 
+func (m *MockEndpoint) AllocateForPod(ctx context.Context, resourceRequest *pluginapi.PodResourceRequest) (*pluginapi.PodResourceAllocationResponse, error) {
+	if m.IsStopped() {
+		return nil, fmt.Errorf("endpoint %v has been stopped", m)
+	}
+	if m.allocateForPodFunc != nil {
+		return m.allocateForPodFunc(resourceRequest)
+	}
+	return nil, nil
+}
+
 func (m *MockEndpoint) GetTopologyHints(c context.Context, resourceRequest *pluginapi.ResourceRequest) (*pluginapi.ResourceHintsResponse, error) {
 	return &pluginapi.ResourceHintsResponse{
 		PodUid:         resourceRequest.PodUid,
@@ -620,6 +631,24 @@ func (m *MockEndpoint) GetTopologyHints(c context.Context, resourceRequest *plug
 		ResourceName:   resourceRequest.ResourceName,
 		Labels:         resourceRequest.Labels,
 		Annotations:    resourceRequest.Annotations,
+		ResourceHints: map[string]*pluginapi.ListOfTopologyHints{
+			resourceRequest.ResourceName: {
+				Hints: m.topologyHints,
+			},
+		},
+	}, nil
+}
+
+func (m *MockEndpoint) GetPodTopologyHints(c context.Context, resourceRequest *pluginapi.PodResourceRequest) (*pluginapi.PodResourceHintsResponse, error) {
+	return &pluginapi.PodResourceHintsResponse{
+		PodUid:       resourceRequest.PodUid,
+		PodNamespace: resourceRequest.PodNamespace,
+		PodName:      resourceRequest.PodName,
+		PodRole:      resourceRequest.PodRole,
+		PodType:      resourceRequest.PodType,
+		ResourceName: resourceRequest.ResourceName,
+		Labels:       resourceRequest.Labels,
+		Annotations:  resourceRequest.Annotations,
 		ResourceHints: map[string]*pluginapi.ListOfTopologyHints{
 			resourceRequest.ResourceName: {
 				Hints: m.topologyHints,

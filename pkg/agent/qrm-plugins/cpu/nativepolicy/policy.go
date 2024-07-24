@@ -276,6 +276,13 @@ func (p *NativePolicy) GetTopologyHints(ctx context.Context,
 	return p.dedicatedCoresHintHandler(ctx, req)
 }
 
+// GetPodTopologyHints returns hints of corresponding resources for pod
+func (p *NativePolicy) GetPodTopologyHints(ctx context.Context,
+	req *pluginapi.PodResourceRequest,
+) (resp *pluginapi.PodResourceHintsResponse, err error) {
+	return nil, util.ErrNotImplemented
+}
+
 // Allocate is called during pod admit so that the resource
 // plugin can allocate corresponding resource for the container
 // according to resource request
@@ -409,6 +416,15 @@ func (p *NativePolicy) Allocate(ctx context.Context,
 		return p.sharedPoolAllocationHandler(ctx, req)
 	}
 	return p.dedicatedCoresAllocationHandler(ctx, req)
+}
+
+// AllocateForPod is called during pod admit so that the resource
+// plugin can allocate corresponding resource for the pod
+// according to resource request
+func (p *NativePolicy) AllocateForPod(ctx context.Context,
+	req *pluginapi.PodResourceRequest,
+) (resp *pluginapi.PodResourceAllocationResponse, respErr error) {
+	return nil, util.ErrNotImplemented
 }
 
 // GetResourcesAllocation returns allocation results of corresponding resources

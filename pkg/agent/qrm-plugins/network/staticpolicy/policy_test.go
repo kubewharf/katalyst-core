@@ -802,6 +802,66 @@ func TestAllocate(t *testing.T) {
 	}
 }
 
+func TestAllocateForPod(t *testing.T) {
+	t.Parallel()
+
+	staticPolicy := makeStaticPolicy(t, true)
+	testName := "test"
+	req := &pluginapi.PodResourceRequest{
+		PodUid:       string(uuid.NewUUID()),
+		PodNamespace: testName,
+		PodName:      testName,
+		ResourceName: string(consts.ResourceNetBandwidth),
+		Hint: &pluginapi.TopologyHint{
+			Nodes:     []uint64{0, 1},
+			Preferred: true,
+		},
+		ResourceRequests: map[string]float64{
+			string(consts.ResourceNetBandwidth): 5000,
+		},
+		Annotations: map[string]string{
+			consts.PodAnnotationQoSLevelKey:           consts.PodAnnotationQoSLevelDedicatedCores,
+			consts.PodAnnotationNetworkEnhancementKey: testHostEnhancementValue,
+		},
+		Labels: map[string]string{
+			consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelDedicatedCores,
+		},
+	}
+
+	_, err := staticPolicy.AllocateForPod(context.Background(), req)
+	assert.Error(t, err)
+}
+
+func TestGetPodTopologyHints(t *testing.T) {
+	t.Parallel()
+
+	staticPolicy := makeStaticPolicy(t, true)
+	testName := "test"
+	req := &pluginapi.PodResourceRequest{
+		PodUid:       string(uuid.NewUUID()),
+		PodNamespace: testName,
+		PodName:      testName,
+		ResourceName: string(consts.ResourceNetBandwidth),
+		Hint: &pluginapi.TopologyHint{
+			Nodes:     []uint64{0, 1},
+			Preferred: true,
+		},
+		ResourceRequests: map[string]float64{
+			string(consts.ResourceNetBandwidth): 5000,
+		},
+		Annotations: map[string]string{
+			consts.PodAnnotationQoSLevelKey:           consts.PodAnnotationQoSLevelDedicatedCores,
+			consts.PodAnnotationNetworkEnhancementKey: testHostEnhancementValue,
+		},
+		Labels: map[string]string{
+			consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelDedicatedCores,
+		},
+	}
+
+	_, err := staticPolicy.GetPodTopologyHints(context.Background(), req)
+	assert.Error(t, err)
+}
+
 func TestGetNetClassID(t *testing.T) {
 	t.Parallel()
 

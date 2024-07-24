@@ -18,6 +18,7 @@ package util
 
 import (
 	"context"
+	"errors"
 
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 
@@ -46,6 +47,8 @@ type EnhancementHandler func(ctx context.Context,
 // the second key is the last level of enhancement key, like PodAnnotationMemoryEnhancementOOMPriority in
 // memory enhancement
 type ResourceEnhancementHandlerMap map[apiconsts.QRMPhase]map[string]EnhancementHandler
+
+var ErrNotImplemented = errors.New("not implemented")
 
 // Register registers a handler for the specified phase and last level enhancement key
 func (r ResourceEnhancementHandlerMap) Register(
