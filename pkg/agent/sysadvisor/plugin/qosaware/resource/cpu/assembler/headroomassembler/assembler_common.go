@@ -104,7 +104,7 @@ func (ha *HeadroomAssemblerCommon) GetHeadroom() (resource.Quantity, error) {
 		emptyNUMAs = emptyNUMAs.Difference(r.GetBindingNumas())
 	}
 
-	reclaimPoolUtil := 0.0
+	reclaimPoolUsage := 0.0
 
 	// add non binding reclaim pool size
 	reclaimPoolInfo, ok := ha.metaReader.GetPoolInfo(state.PoolNameReclaim)
@@ -114,7 +114,7 @@ func (ha *HeadroomAssemblerCommon) GetHeadroom() (resource.Quantity, error) {
 		if err != nil {
 			return resource.Quantity{}, err
 		}
-		reclaimPoolUtil = reclaimedMetrics.coreAvgUtil
+		reclaimPoolUsage = reclaimedMetrics.coresUsage
 
 		reclaimPoolNUMAs := machine.GetCPUAssignmentNUMAs(reclaimPoolInfo.TopologyAwareAssignments)
 
@@ -155,12 +155,18 @@ func (ha *HeadroomAssemblerCommon) GetHeadroom() (resource.Quantity, error) {
 		return *resource.NewQuantity(int64(headroomTotal), resource.DecimalSI), nil
 	}
 
-	return ha.getUtilBasedHeadroom(dynamicConfig, int(headroomTotal), reclaimPoolUtil)
+	data, err := ha.metaServer.GetCgroupMetric(ha.conf.ReclaimRelativeRootCgroupPath, pkgconsts.MetricCPUUsageCgroup)
+	if err != nil {
+		return resource.Quantity{}, err
+	}
+	reclaimedCoresUsage := data.Value
+
+	return ha.getUtilBasedHeadroom(dynamicConfig, int(headroomTotal), reclaimPoolUsage, reclaimedCoresUsage)
 }
 
 type poolMetrics struct {
-	coreAvgUtil float64
-	poolSize    int
+	coresUsage float64
+	poolSize   int
 }
 
 // getPoolMetrics get reclaimed pool metrics, including the average utilization of each core in
@@ -174,7 +180,7 @@ func (ha *HeadroomAssemblerCommon) getPoolMetrics(poolName string) (*poolMetrics
 	cpuSet := reclaimedInfo.TopologyAwareAssignments.MergeCPUSet()
 	m := ha.metaServer.AggregateCoreMetric(cpuSet, pkgconsts.MetricCPUUsageRatio, metric.AggregatorAvg)
 	return &poolMetrics{
-		coreAvgUtil: m.Value,
-		poolSize:    cpuSet.Size(),
+		coresUsage: m.Value * float64(cpuSet.Size()),
+		poolSize:   cpuSet.Size(),
 	}, nil
 }

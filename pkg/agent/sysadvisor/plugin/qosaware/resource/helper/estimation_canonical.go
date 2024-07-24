@@ -217,6 +217,8 @@ func EstimateUtilBasedCapacity(options UtilBasedCapacityOptions, resourceSupply,
 		oversold = resourceSupply * (options.MaxUtilization - currentUtilization)
 	}
 
+	// TODO: consider cpu PSI
+
 	result = math.Max(lastCapacityResult+oversold, resourceSupply)
 	result = math.Min(result, resourceSupply*options.MaxOversoldRate)
 	if options.MaxCapacity > 0 {

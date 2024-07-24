@@ -25,15 +25,23 @@ import (
 	"github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource/helper"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic"
+	"github.com/kubewharf/katalyst-core/pkg/util/general"
 )
 
 func (ha *HeadroomAssemblerCommon) getUtilBasedHeadroom(dynamicConfig *dynamic.Configuration,
-	poolSize int, util float64,
+	poolSize int, poolUsage float64, reclaimedCoresUsage float64,
 ) (resource.Quantity, error) {
 	lastReclaimedCPU, err := ha.getLastReclaimedCPU()
 	if err != nil {
 		return resource.Quantity{}, err
 	}
+
+	reclaimedCoresSupply := float64(poolSize) - general.MaxFloat64(poolUsage-reclaimedCoresUsage, 0)
+	util := reclaimedCoresUsage / reclaimedCoresSupply
+
+	general.InfoS("getUtilBasedHeadroom", "poolSize", poolSize, "poolUsage", poolUsage,
+		"reclaimedCoresUsage", reclaimedCoresUsage, "util", util, "reclaimedCoresSupply", reclaimedCoresSupply,
+		"lastReclaimedCPU", lastReclaimedCPU)
 
 	headroom, err := helper.EstimateUtilBasedCapacity(
 		helper.UtilBasedCapacityOptions{
@@ -42,7 +50,7 @@ func (ha *HeadroomAssemblerCommon) getUtilBasedHeadroom(dynamicConfig *dynamic.C
 			MaxOversoldRate:   dynamicConfig.MaxOversoldRate,
 			MaxCapacity:       dynamicConfig.MaxHeadroomCapacityRate * float64(ha.metaServer.MachineInfo.NumCores),
 		},
-		float64(poolSize),
+		reclaimedCoresSupply,
 		util,
 		lastReclaimedCPU,
 	)
