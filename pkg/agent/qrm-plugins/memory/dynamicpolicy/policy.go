@@ -134,7 +134,9 @@ type DynamicPolicy struct {
 	extraStateFileAbsPath string
 	name                  string
 
-	podDebugAnnoKeys []string
+	podDebugAnnoKeys      []string
+	podAnnotationKeptKeys []string
+	podLabelKeptKeys      []string
 
 	asyncWorkers *asyncworker.AsyncWorkers
 	// defaultAsyncLimitedWorkers is general workers with default limit.
@@ -203,6 +205,8 @@ func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration
 		extraStateFileAbsPath:      conf.ExtraStateFileAbsPath,
 		name:                       fmt.Sprintf("%s_%s", agentName, memconsts.MemoryResourcePluginPolicyNameDynamic),
 		podDebugAnnoKeys:           conf.PodDebugAnnoKeys,
+		podAnnotationKeptKeys:      conf.PodAnnotationKeptKeys,
+		podLabelKeptKeys:           conf.PodLabelKeptKeys,
 		asyncWorkers:               asyncworker.NewAsyncWorkers(memoryPluginAsyncWorkersName, wrappedEmitter),
 		defaultAsyncLimitedWorkers: asyncworker.NewAsyncLimitedWorkers(memoryPluginAsyncWorkersName, defaultAsyncWorkLimit, wrappedEmitter),
 		enableSettingMemoryMigrate: conf.EnableSettingMemoryMigrate,
@@ -468,7 +472,7 @@ func (p *DynamicPolicy) GetTopologyHints(ctx context.Context,
 	// we should do it before GetKatalystQoSLevelFromResourceReq.
 	isDebugPod := util.IsDebugPod(req.Annotations, p.podDebugAnnoKeys)
 
-	qosLevel, err := util.GetKatalystQoSLevelFromResourceReq(p.qosConfig, req)
+	qosLevel, err := util.GetKatalystQoSLevelFromResourceReq(p.qosConfig, req, p.podAnnotationKeptKeys, p.podLabelKeptKeys)
 	if err != nil {
 		err = fmt.Errorf("GetKatalystQoSLevelFromResourceReq for pod: %s/%s, container: %s failed with error: %v",
 			req.PodNamespace, req.PodName, req.ContainerName, err)
@@ -741,7 +745,7 @@ func (p *DynamicPolicy) Allocate(ctx context.Context,
 	// we should do it before GetKatalystQoSLevelFromResourceReq.
 	isDebugPod := util.IsDebugPod(req.Annotations, p.podDebugAnnoKeys)
 
-	qosLevel, err := util.GetKatalystQoSLevelFromResourceReq(p.qosConfig, req)
+	qosLevel, err := util.GetKatalystQoSLevelFromResourceReq(p.qosConfig, req, p.podAnnotationKeptKeys, p.podLabelKeptKeys)
 	if err != nil {
 		err = fmt.Errorf("GetKatalystQoSLevelFromResourceReq for pod: %s/%s, container: %s failed with error: %v",
 			req.PodNamespace, req.PodName, req.ContainerName, err)

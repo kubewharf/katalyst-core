@@ -299,6 +299,21 @@ func MergeMapInt(src, override map[string]int) map[string]int {
 	return res
 }
 
+// FilterPodAnnotationKeptKeys filter keys kept in qrm state
+func FilterStringToStringMapByKeys(keptKeys []string, originalMap map[string]string) map[string]string {
+	if originalMap == nil {
+		return nil
+	}
+
+	filteredMap := make(map[string]string)
+	for _, key := range keptKeys {
+		if val, ok := originalMap[key]; ok {
+			filteredMap[key] = val
+		}
+	}
+	return filteredMap
+}
+
 // GetSortedMapKeys returns a slice containing sorted keys for the given map
 func GetSortedMapKeys(m map[string]int) []string {
 	ret := make([]string, 0, len(m))

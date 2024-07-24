@@ -28,13 +28,17 @@ type GenericQRMPluginOptions struct {
 	ExtraStateFileAbsPath    string
 	PodDebugAnnoKeys         []string
 	UseKubeletReservedConfig bool
+	PodAnnotationKeptKeys    []string
+	PodLabelKeptKeys         []string
 }
 
 func NewGenericQRMPluginOptions() *GenericQRMPluginOptions {
 	return &GenericQRMPluginOptions{
-		QRMPluginSocketDirs: []string{"/var/lib/kubelet/plugins_registry"},
-		StateFileDirectory:  "/var/lib/katalyst/qrm_advisor",
-		PodDebugAnnoKeys:    []string{},
+		QRMPluginSocketDirs:   []string{"/var/lib/kubelet/plugins_registry"},
+		StateFileDirectory:    "/var/lib/katalyst/qrm_advisor",
+		PodDebugAnnoKeys:      []string{},
+		PodAnnotationKeptKeys: []string{},
+		PodLabelKeptKeys:      []string{},
 	}
 }
 
@@ -49,6 +53,10 @@ func (o *GenericQRMPluginOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 		o.PodDebugAnnoKeys, "pod annotations keys to identify the pod is a debug pod, and qrm plugins will apply specific strategy to it")
 	fs.BoolVar(&o.UseKubeletReservedConfig, "use-kubelet-reserved-config",
 		o.UseKubeletReservedConfig, "if set true, we will prefer to use kubelet reserved config to reserved resource configuration in katalyst")
+	fs.StringSliceVar(&o.PodAnnotationKeptKeys, "pod-annotation-kept-keys",
+		o.PodAnnotationKeptKeys, "pod annotation keys will be kept in qrm state")
+	fs.StringSliceVar(&o.PodLabelKeptKeys, "pod-label-kept-keys",
+		o.PodLabelKeptKeys, "pod label keys will be kept in qrm state")
 }
 
 func (o *GenericQRMPluginOptions) ApplyTo(conf *qrmconfig.GenericQRMPluginConfiguration) error {
@@ -57,6 +65,8 @@ func (o *GenericQRMPluginOptions) ApplyTo(conf *qrmconfig.GenericQRMPluginConfig
 	conf.ExtraStateFileAbsPath = o.ExtraStateFileAbsPath
 	conf.PodDebugAnnoKeys = o.PodDebugAnnoKeys
 	conf.UseKubeletReservedConfig = o.UseKubeletReservedConfig
+	conf.PodAnnotationKeptKeys = o.PodAnnotationKeptKeys
+	conf.PodLabelKeptKeys = o.PodLabelKeptKeys
 	return nil
 }
 

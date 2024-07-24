@@ -23,14 +23,19 @@ import (
 	"sort"
 
 	v1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/sets"
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
-	"k8s.io/kubernetes/pkg/kubelet/cm/topologymanager/bitmask"
 
 	apiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
 	cpuconsts "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/consts"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
 	cpuutil "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/util"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util"
+	"github.com/kubewharf/katalyst-core/pkg/metaserver"
+	"github.com/kubewharf/katalyst-core/pkg/metaserver/spd"
+	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 	qosutil "github.com/kubewharf/katalyst-core/pkg/util/qos"
@@ -132,7 +137,7 @@ func (p *DynamicPolicy) dedicatedCoresWithNUMABindingHintHandler(_ context.Conte
 	if hints == nil {
 		var calculateErr error
 		// calculate hint for container without allocated cpus
-		hints, calculateErr = p.calculateHints(reqInt, machineState, req.Annotations)
+		hints, calculateErr = p.calculateHints(reqInt, machineState, req)
 		if calculateErr != nil {
 			return nil, fmt.Errorf("calculateHints failed with error: %v", calculateErr)
 		}
@@ -150,9 +155,14 @@ func (p *DynamicPolicy) dedicatedCoresWithoutNUMABindingHintHandler(_ context.Co
 
 // calculateHints is a helper function to calculate the topology hints
 // with the given container requests.
-func (p *DynamicPolicy) calculateHints(reqInt int, machineState state.NUMANodeMap,
-	reqAnnotations map[string]string,
+func (p *DynamicPolicy) calculateHints(reqInt int,
+	machineState state.NUMANodeMap,
+	req *pluginapi.ResourceRequest,
 ) (map[string]*pluginapi.ListOfTopologyHints, error) {
+	if req == nil {
+		return nil, fmt.Errorf("nil req in calculateHints")
+	}
+
 	numaNodes := make([]int, 0, len(machineState))
 	for numaNode := range machineState {
 		numaNodes = append(numaNodes, numaNode)
@@ -170,26 +180,53 @@ func (p *DynamicPolicy) calculateHints(reqInt int, machineState state.NUMANodeMa
 		return nil, fmt.Errorf("GetNUMANodesCountToFitCPUReq failed with error: %v", err)
 	}
 
+	numaBinding := qosutil.AnnotationsIndicateNUMABinding(req.Annotations)
+	numaExclusive := qosutil.AnnotationsIndicateNUMAExclusive(req.Annotations)
+
 	// because it's hard to control memory allocation accurately,
 	// we only support numa_binding but not exclusive container with request smaller than 1 NUMA
-	if qosutil.AnnotationsIndicateNUMABinding(reqAnnotations) &&
-		!qosutil.AnnotationsIndicateNUMAExclusive(reqAnnotations) &&
-		minNUMAsCountNeeded > 1 {
+	if numaBinding && !numaExclusive && minNUMAsCountNeeded > 1 {
 		return nil, fmt.Errorf("NUMA not exclusive binding container has request larger than 1 NUMA")
 	}
 
-	numaPerSocket, err := p.machineInfo.NUMAsPerSocket()
+	numasPerSocket, err := p.machineInfo.NUMAsPerSocket()
 	if err != nil {
 		return nil, fmt.Errorf("NUMAsPerSocket failed with error: %v", err)
 	}
 
-	bitmask.IterateBitMasks(numaNodes, func(mask bitmask.BitMask) {
+	numaToAvailableCPUCount := make(map[int]int, len(numaNodes))
+
+	for _, nodeID := range numaNodes {
+		if machineState[nodeID] == nil {
+			general.Warningf("NUMA: %d has nil state", nodeID)
+			numaToAvailableCPUCount[nodeID] = 0
+			continue
+		}
+
+		if numaExclusive && machineState[nodeID].AllocatedCPUSet.Size() > 0 {
+			numaToAvailableCPUCount[nodeID] = 0
+			general.Warningf("numa_exclusive container skip NUMA: %d allocated: %d",
+				nodeID, machineState[nodeID].AllocatedCPUSet.Size())
+		} else {
+			numaToAvailableCPUCount[nodeID] = machineState[nodeID].GetAvailableCPUSet(p.reservedCPUs).Size()
+		}
+	}
+
+	general.Infof("calculate hints with req: %d, numaToAvailableCPUCount: %+v",
+		reqInt, numaToAvailableCPUCount)
+
+	numaBound := len(numaNodes)
+	if numaBound > machine.LargeNUMAsPoint {
+		// [TODO]: to discuss refine minNUMAsCountNeeded+1
+		numaBound = minNUMAsCountNeeded + 1
+	}
+
+	preferredHintIndexes := []int{}
+	machine.IterateBitMasks(numaNodes, numaBound, func(mask machine.BitMask) {
 		maskCount := mask.Count()
 		if maskCount < minNUMAsCountNeeded {
 			return
-		} else if qosutil.AnnotationsIndicateNUMABinding(reqAnnotations) &&
-			!qosutil.AnnotationsIndicateNUMAExclusive(reqAnnotations) &&
-			maskCount > 1 {
+		} else if numaBinding && !numaExclusive && maskCount > 1 {
 			// because it's hard to control memory allocation accurately,
 			// we only support numa_binding but not exclusive container with request smaller than 1 NUMA
 			return
@@ -198,43 +235,260 @@ func (p *DynamicPolicy) calculateHints(reqInt int, machineState state.NUMANodeMa
 		maskBits := mask.GetBits()
 		numaCountNeeded := mask.Count()
 
-		allAvailableCPUsInMask := machine.NewCPUSet()
+		allAvailableCPUsCountInMask := 0
 		for _, nodeID := range maskBits {
-			if machineState[nodeID] == nil {
-				general.Warningf("NUMA: %d has nil state", nodeID)
-				return
-			} else if qosutil.AnnotationsIndicateNUMAExclusive(reqAnnotations) && machineState[nodeID].AllocatedCPUSet.Size() > 0 {
-				general.Warningf("numa_exclusive container skip mask: %s with NUMA: %d allocated: %d",
-					mask.String(), nodeID, machineState[nodeID].AllocatedCPUSet.Size())
-				return
-			}
-
-			allAvailableCPUsInMask = allAvailableCPUsInMask.Union(machineState[nodeID].GetAvailableCPUSet(p.reservedCPUs))
+			allAvailableCPUsCountInMask += numaToAvailableCPUCount[nodeID]
 		}
 
-		if allAvailableCPUsInMask.Size() < reqInt {
-			general.InfofV(4, "available cpuset: %s of size: %d excluding NUMA binding pods which is smaller than request: %d",
-				allAvailableCPUsInMask.String(), allAvailableCPUsInMask.Size(), reqInt)
+		if allAvailableCPUsCountInMask < reqInt {
 			return
 		}
 
 		crossSockets, err := machine.CheckNUMACrossSockets(maskBits, p.machineInfo.CPUTopology)
 		if err != nil {
-			general.Errorf("CheckNUMACrossSockets failed with error: %v", err)
 			return
-		} else if numaCountNeeded <= numaPerSocket && crossSockets {
-			general.InfofV(4, "needed: %d; min-needed: %d; NUMAs: %v cross sockets with numaPerSocket: %d",
-				numaCountNeeded, minNUMAsCountNeeded, maskBits, numaPerSocket)
+		} else if numaCountNeeded <= numasPerSocket && crossSockets {
 			return
 		}
 
+		preferred := maskCount == minNUMAsCountNeeded
 		hints[string(v1.ResourceCPU)].Hints = append(hints[string(v1.ResourceCPU)].Hints, &pluginapi.TopologyHint{
 			Nodes:     machine.MaskToUInt64Array(mask),
-			Preferred: len(maskBits) == minNUMAsCountNeeded,
+			Preferred: preferred,
 		})
+
+		if preferred {
+			preferredHintIndexes = append(preferredHintIndexes, len(hints[string(v1.ResourceCPU)].Hints)-1)
+		}
 	})
 
+	if numaBound > machine.MBWNUMAsPoint {
+		numaAllocatedMemBW, err := getNUMAAllocatedMemBW(machineState, p.metaServer)
+
+		general.InfoS("getNUMAAllocatedMemBW",
+			"podNamespace", req.PodNamespace,
+			"podName", req.PodName,
+			"numaAllocatedMemBW", numaAllocatedMemBW)
+
+		if err != nil {
+			general.Errorf("getNUMAAllocatedMemBW failed with error: %v", err)
+			_ = p.emitter.StoreInt64(util.MetricNameGetNUMAAllocatedMemBWFailed, 1, metrics.MetricTypeNameRaw)
+		} else {
+			p.updatePreferredCPUHintsByMemBW(preferredHintIndexes, hints[string(v1.ResourceCPU)].Hints,
+				reqInt, numaAllocatedMemBW, req)
+		}
+	}
+
 	return hints, nil
+}
+
+func getNUMAAllocatedMemBW(machineState state.NUMANodeMap, metaServer *metaserver.MetaServer) (map[int]int, error) {
+	numaAllocatedMemBW := make(map[int]int)
+	podUIDToMemBWReq := make(map[string]int)
+	podUIDToBindingNUMAs := make(map[string]sets.Int)
+
+	if metaServer == nil {
+		return nil, fmt.Errorf("getNUMAAllocatedMemBW got nil metaServer")
+	}
+
+	for numaID, numaState := range machineState {
+		if numaState == nil {
+			general.Errorf("numaState is nil, NUMA: %d", numaID)
+			continue
+		}
+
+		for _, entries := range numaState.PodEntries {
+			for _, allocationInfo := range entries {
+				if !(state.CheckDedicatedNUMABinding(allocationInfo) && allocationInfo.CheckMainContainer()) {
+					continue
+				}
+
+				if _, found := podUIDToMemBWReq[allocationInfo.PodUid]; !found {
+					containerMemoryBandwidthRequest, err := spd.GetContainerMemoryBandwidthRequest(metaServer, metav1.ObjectMeta{
+						UID:         types.UID(allocationInfo.PodUid),
+						Namespace:   allocationInfo.PodNamespace,
+						Name:        allocationInfo.PodName,
+						Labels:      allocationInfo.Labels,
+						Annotations: allocationInfo.Annotations,
+					}, int(math.Ceil(state.GetContainerRequestedCores()(allocationInfo))))
+					if err != nil {
+						return nil, fmt.Errorf("GetContainerMemoryBandwidthRequest for pod: %s/%s, container: %s failed with error: %v",
+							allocationInfo.PodNamespace, allocationInfo.PodName, allocationInfo.ContainerName, err)
+					}
+
+					podUIDToMemBWReq[allocationInfo.PodUid] = containerMemoryBandwidthRequest
+				}
+
+				if podUIDToBindingNUMAs[allocationInfo.PodUid] == nil {
+					podUIDToBindingNUMAs[allocationInfo.PodUid] = sets.NewInt()
+				}
+
+				podUIDToBindingNUMAs[allocationInfo.PodUid].Insert(numaID)
+			}
+		}
+	}
+
+	for podUID, numaSet := range podUIDToBindingNUMAs {
+		podMemBWReq, found := podUIDToMemBWReq[podUID]
+
+		if !found {
+			return nil, fmt.Errorf("pod: %s is found in podUIDToBindingNUMAs, but not found in podUIDToMemBWReq", podUID)
+		}
+
+		numaCount := numaSet.Len()
+
+		if numaCount == 0 {
+			continue
+		}
+
+		perNUMAMemoryBandwidthRequest := podMemBWReq / numaCount
+
+		for _, numaID := range numaSet.UnsortedList() {
+			numaAllocatedMemBW[numaID] += perNUMAMemoryBandwidthRequest
+		}
+	}
+
+	return numaAllocatedMemBW, nil
+}
+
+func (p *DynamicPolicy) updatePreferredCPUHintsByMemBW(preferredHintIndexes []int, cpuHints []*pluginapi.TopologyHint, reqInt int,
+	numaAllocatedMemBW map[int]int, req *pluginapi.ResourceRequest,
+) {
+	if len(preferredHintIndexes) == 0 {
+		general.Infof("there is no preferred hints, skip update")
+		return
+	} else if req == nil {
+		general.Errorf("empty req")
+		return
+	}
+
+	containerMemoryBandwidthRequest, err := spd.GetContainerMemoryBandwidthRequest(p.metaServer,
+		metav1.ObjectMeta{
+			UID:         types.UID(req.PodUid),
+			Namespace:   req.PodNamespace,
+			Name:        req.PodName,
+			Labels:      req.Labels,
+			Annotations: req.Annotations,
+		}, reqInt)
+	if err != nil {
+		general.Errorf("GetContainerMemoryBandwidthRequest failed with error: %v", err)
+		return
+	}
+
+	general.InfoS("GetContainerMemoryBandwidthRequest",
+		"podNamespace", req.PodNamespace,
+		"podName", req.PodName,
+		"containerMemoryBandwidthRequest", containerMemoryBandwidthRequest)
+
+	allFalse := true
+	for _, i := range preferredHintIndexes {
+		if len(cpuHints[i].Nodes) == 0 {
+			continue
+		}
+
+		updated, err := getPreferenceByMemBW(cpuHints[i].Nodes, containerMemoryBandwidthRequest,
+			numaAllocatedMemBW, p.machineInfo,
+			p.metaServer, req)
+		if err != nil {
+			general.Errorf("getPreferenceByMemBW for hints: %#v failed with error: %v", cpuHints[i].Nodes, err)
+			_ = p.emitter.StoreInt64(util.MetricNameGetMemBWPreferenceFailed, 1, metrics.MetricTypeNameRaw)
+			continue
+		}
+
+		if !updated {
+			cpuHints[i].Preferred = updated
+
+			general.Infof("update hint: %#v preference to false", cpuHints[i].Nodes)
+		} else {
+			allFalse = false
+		}
+	}
+
+	if allFalse {
+		// mem bw check is best-effort, if all preferred hints' preference are updated to false
+		// we should revert preference of them to true.
+		// topology mananger will pick the final result after merge all hints.
+		for _, i := range preferredHintIndexes {
+			if !cpuHints[i].Preferred {
+				cpuHints[i].Preferred = true
+				general.Infof("revert hint: %#v preference to true", cpuHints[i].Nodes)
+			}
+		}
+	}
+}
+
+func getPreferenceByMemBW(targetNUMANodesUInt64 []uint64,
+	containerMemoryBandwidthRequest int, numaAllocatedMemBW map[int]int,
+	machineInfo *machine.KatalystMachineInfo,
+	metaServer *metaserver.MetaServer, req *pluginapi.ResourceRequest,
+) (bool, error) {
+	if req == nil {
+		return false, fmt.Errorf("empty req")
+	} else if len(targetNUMANodesUInt64) == 0 {
+		return false, fmt.Errorf("empty targetNUMANodes")
+	} else if machineInfo == nil || machineInfo.ExtraTopologyInfo == nil {
+		return false, fmt.Errorf("invalid machineInfo")
+	} else if metaServer == nil {
+		return false, fmt.Errorf("nil metaServer")
+	}
+
+	targetNUMANodes := make([]int, len(targetNUMANodesUInt64))
+	for i, numaID := range targetNUMANodesUInt64 {
+		var err error
+		targetNUMANodes[i], err = general.CovertUInt64ToInt(numaID)
+		if err != nil {
+			return false, fmt.Errorf("convert NUMA: %d to int failed with error: %v", numaID, err)
+		}
+	}
+
+	perNUMAMemoryBandwidthRequest := containerMemoryBandwidthRequest / len(targetNUMANodes)
+	copiedNUMAAllocatedMemBW := general.DeepCopyIntToIntMap(numaAllocatedMemBW)
+
+	for _, numaID := range targetNUMANodes {
+		copiedNUMAAllocatedMemBW[numaID] += perNUMAMemoryBandwidthRequest
+	}
+
+	groupID := 0
+	groupNUMAsAllocatedMemBW := make(map[int]int)
+	groupNUMAsAllocatableMemBW := make(map[int]int)
+	visNUMAs := sets.NewInt()
+
+	// aggregate each target NUMA and all its sibling NUMAs into a group.
+	// calculate allocated and allocable memory bandwidth for each group.
+	// currently, if there is one group whose allocated memory bandwidth is greater than its allocatable memory bandwidth,
+	// we will set preferrence of the hint to false.
+	// for the future, we can gather group statistics of each hint,
+	// and to get the most suitable hint, then set its preferrence to true.
+	for _, numaID := range targetNUMANodes {
+		if visNUMAs.Has(numaID) {
+			continue
+		}
+
+		groupNUMAsAllocatableMemBW[groupID] += int(machineInfo.ExtraTopologyInfo.SiblingNumaAvgMBWAllocatableMap[numaID])
+		groupNUMAsAllocatedMemBW[groupID] += copiedNUMAAllocatedMemBW[numaID]
+		visNUMAs.Insert(numaID)
+		for _, siblingNUMAID := range machineInfo.ExtraTopologyInfo.SiblingNumaMap[numaID].UnsortedList() {
+			groupNUMAsAllocatedMemBW[groupID] += copiedNUMAAllocatedMemBW[siblingNUMAID]
+			groupNUMAsAllocatableMemBW[groupID] += int(machineInfo.ExtraTopologyInfo.SiblingNumaAvgMBWAllocatableMap[siblingNUMAID])
+			visNUMAs.Insert(siblingNUMAID)
+		}
+
+		general.InfoS("getPreferenceByMemBW",
+			"podNamespace", req.PodNamespace,
+			"podName", req.PodName,
+			"groupID", groupID,
+			"targetNUMANodes", targetNUMANodes,
+			"groupNUMAsAllocatedMemBW", groupNUMAsAllocatedMemBW[groupID],
+			"groupNUMAsAllocatableMemBW", groupNUMAsAllocatableMemBW[groupID])
+
+		if groupNUMAsAllocatedMemBW[groupID] > groupNUMAsAllocatableMemBW[groupID] {
+			return false, nil
+		}
+
+		groupID++
+	}
+
+	return true, nil
 }
 
 func (p *DynamicPolicy) sharedCoresWithNUMABindingHintHandler(_ context.Context,

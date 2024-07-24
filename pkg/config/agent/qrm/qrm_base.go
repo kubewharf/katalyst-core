@@ -22,6 +22,10 @@ type GenericQRMPluginConfiguration struct {
 	ExtraStateFileAbsPath    string
 	PodDebugAnnoKeys         []string
 	UseKubeletReservedConfig bool
+	// PodAnnotationKeptKeys indicates pod annotation keys will be kept in qrm state
+	PodAnnotationKeptKeys []string
+	// PodLabelKeptKeys indicates pod label keys will be kept in qrm state
+	PodLabelKeptKeys []string
 }
 
 type QRMPluginsConfiguration struct {
@@ -32,7 +36,10 @@ type QRMPluginsConfiguration struct {
 }
 
 func NewGenericQRMPluginConfiguration() *GenericQRMPluginConfiguration {
-	return &GenericQRMPluginConfiguration{}
+	return &GenericQRMPluginConfiguration{
+		PodAnnotationKeptKeys: []string{},
+		PodLabelKeptKeys:      []string{},
+	}
 }
 
 func NewQRMPluginsConfiguration() *QRMPluginsConfiguration {

@@ -25,6 +25,7 @@ import (
 	"io/ioutil"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -33,6 +34,7 @@ import (
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/uuid"
+	"k8s.io/klog/v2"
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 	utilfs "k8s.io/kubernetes/pkg/util/filesystem"
 
@@ -48,6 +50,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/pod"
+	"github.com/kubewharf/katalyst-core/pkg/metaserver/spd"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/cgroup/common"
 	cgroupcm "github.com/kubewharf/katalyst-core/pkg/util/cgroup/common"
@@ -58,6 +61,13 @@ import (
 const (
 	podDebugAnnoKey = "qrm.katalyst.kubewharf.io/debug_pod"
 )
+
+type cpuTestCase struct {
+	cpuNum      int
+	socketNum   int
+	numaNum     int
+	fakeNUMANum int
+}
 
 func getTestDynamicPolicyWithInitialization(topology *machine.CPUTopology, stateFileDirectory string) (*DynamicPolicy, error) {
 	dynamicPolicy, err := getTestDynamicPolicyWithoutInitialization(topology, stateFileDirectory)
@@ -80,8 +90,10 @@ func getTestDynamicPolicyWithoutInitialization(topology *machine.CPUTopology, st
 		return nil, err
 	}
 
+	extraTopologyInfo, _ := machine.GenerateDummyExtraTopology(topology.NumNUMANodes)
 	machineInfo := &machine.KatalystMachineInfo{
-		CPUTopology: topology,
+		CPUTopology:       topology,
+		ExtraTopologyInfo: extraTopologyInfo,
 	}
 
 	reservedCPUs, _, err := calculator.TakeHTByNUMABalance(machineInfo, machineInfo.CPUDetails.CPUs().Clone(), 2)
@@ -123,6 +135,7 @@ func getTestDynamicPolicyWithoutInitialization(topology *machine.CPUTopology, st
 		MetaAgent: &agent.MetaAgent{
 			PodFetcher: &pod.PodFetcherStub{},
 		},
+		ServiceProfilingManager: &spd.DummyServiceProfilingManager{},
 	}
 
 	return policyImplement, nil
@@ -957,6 +970,8 @@ func TestGetTopologyHints(t *testing.T) {
 
 	as := require.New(t)
 	cpuTopology, err := machine.GenerateDummyCPUTopology(16, 2, 4)
+	as.Nil(err)
+	highDensityCPUTopology, err := machine.GenerateDummyCPUTopology(384, 2, 12)
 	as.Nil(err)
 
 	testName := "test"
@@ -2423,6 +2438,55 @@ func TestGetTopologyHints(t *testing.T) {
 				},
 			},
 			cpuTopology: cpuTopology,
+		},
+		{
+			description: "req for dedicated_cores with numa_binding & numa_exclusive main container in high density machine",
+			req: &pluginapi.ResourceRequest{
+				PodUid:         string(uuid.NewUUID()),
+				PodNamespace:   testName,
+				PodName:        testName,
+				ContainerName:  testName,
+				ContainerType:  pluginapi.ContainerType_MAIN,
+				ContainerIndex: 0,
+				ResourceName:   string(v1.ResourceCPU),
+				ResourceRequests: map[string]float64{
+					string(v1.ResourceCPU): 380,
+				},
+				Annotations: map[string]string{
+					consts.PodAnnotationQoSLevelKey:          consts.PodAnnotationQoSLevelDedicatedCores,
+					consts.PodAnnotationMemoryEnhancementKey: `{"numa_binding": "true", "numa_exclusive": "true"}`,
+				},
+				Labels: map[string]string{
+					consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelDedicatedCores,
+				},
+			},
+			expectedResp: &pluginapi.ResourceHintsResponse{
+				PodNamespace:   testName,
+				PodName:        testName,
+				ContainerName:  testName,
+				ContainerType:  pluginapi.ContainerType_MAIN,
+				ContainerIndex: 0,
+				ResourceName:   string(v1.ResourceCPU),
+				ResourceHints: map[string]*pluginapi.ListOfTopologyHints{
+					string(v1.ResourceCPU): {
+						Hints: []*pluginapi.TopologyHint{
+							{
+								Nodes:     []uint64{0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11},
+								Preferred: true,
+							},
+						},
+					},
+				},
+				Labels: map[string]string{
+					consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelDedicatedCores,
+				},
+				Annotations: map[string]string{
+					consts.PodAnnotationQoSLevelKey:                    consts.PodAnnotationQoSLevelDedicatedCores,
+					consts.PodAnnotationMemoryEnhancementNumaBinding:   consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
+					consts.PodAnnotationMemoryEnhancementNumaExclusive: consts.PodAnnotationMemoryEnhancementNumaExclusiveEnable,
+				},
+			},
+			cpuTopology: highDensityCPUTopology,
 		},
 	}
 
@@ -4661,4 +4725,456 @@ func TestShoudSharedCoresRampUp(t *testing.T) {
 	as.NotNil(allocationInfo)
 	as.Equal(false, allocationInfo.RampUp)
 	as.Equal(allocationInfo.OwnerPoolName, state.PoolNameShare)
+}
+
+func BenchmarkGetTopologyHints(b *testing.B) {
+	klog.SetOutput(ioutil.Discard)
+	klog.V(0)
+	klog.LogToStderr(false)
+	cpuCases := []cpuTestCase{
+		{
+			cpuNum:      96,
+			socketNum:   2,
+			numaNum:     4,
+			fakeNUMANum: 4,
+		},
+		//{
+		//	cpuNum:      128,
+		//	socketNum:   2,
+		//	numaNum:     4,
+		//	fakeNUMANum: 4,
+		//},
+		//{
+		//	cpuNum:      192,
+		//	socketNum:   2,
+		//	numaNum:     8,
+		//	fakeNUMANum: 8,
+		//},
+		{
+			cpuNum:      384,
+			socketNum:   2,
+			numaNum:     8,
+			fakeNUMANum: 8,
+		},
+		{
+			cpuNum:      384,
+			socketNum:   2,
+			numaNum:     8,
+			fakeNUMANum: 16,
+		},
+		{
+			cpuNum:      384,
+			socketNum:   2,
+			numaNum:     8,
+			fakeNUMANum: 24,
+		},
+		//{
+		//	cpuNum:      512,
+		//	socketNum:   2,
+		//	numaNum:     8,
+		//	fakeNUMANum: 8,
+		//},
+		//{
+		//	cpuNum:      512,
+		//	socketNum:   2,
+		//	numaNum:     8,
+		//	fakeNUMANum: 16,
+		//},
+		{
+			cpuNum:      512,
+			socketNum:   2,
+			numaNum:     8,
+			fakeNUMANum: 32,
+		},
+	}
+
+	testName := "test"
+
+	req := &pluginapi.ResourceRequest{
+		PodUid:           string(uuid.NewUUID()),
+		PodNamespace:     testName,
+		PodName:          testName,
+		ContainerName:    testName,
+		ContainerType:    pluginapi.ContainerType_MAIN,
+		ContainerIndex:   0,
+		ResourceName:     string(v1.ResourceCPU),
+		ResourceRequests: map[string]float64{},
+		Annotations: map[string]string{
+			consts.PodAnnotationQoSLevelKey:          consts.PodAnnotationQoSLevelDedicatedCores,
+			consts.PodAnnotationMemoryEnhancementKey: `{"numa_binding": "true", "numa_exclusive": "true"}`,
+		},
+		Labels: map[string]string{
+			consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelDedicatedCores,
+		},
+	}
+
+	for _, tc := range cpuCases {
+		tmpDir, _ := ioutil.TempDir("", "checkpoint-BenchmarkGetTopologyHints")
+
+		cpuTopology, _ := machine.GenerateDummyCPUTopology(tc.cpuNum, tc.socketNum, tc.fakeNUMANum)
+
+		cpusPerNUMA := cpuTopology.NumCPUs / cpuTopology.NumNUMANodes
+
+		dynamicPolicy, _ := getTestDynamicPolicyWithInitialization(cpuTopology, tmpDir)
+
+		for _, numaNeeded := range []int{1, 2, 4} {
+			req.ResourceRequests[string(v1.ResourceCPU)] = float64(numaNeeded*cpusPerNUMA - 1)
+			req.Annotations = map[string]string{
+				consts.PodAnnotationQoSLevelKey:          consts.PodAnnotationQoSLevelDedicatedCores,
+				consts.PodAnnotationMemoryEnhancementKey: `{"numa_binding": "true", "numa_exclusive": "true"}`,
+			}
+			req.Labels = map[string]string{
+				consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelDedicatedCores,
+			}
+
+			b.Run(fmt.Sprintf("%d cpus, %d sockets, %d NUMAs, %d fake-NUMAs, %d NUMAs package",
+				tc.cpuNum, tc.socketNum, tc.numaNum, tc.fakeNUMANum, numaNeeded), func(b *testing.B) {
+				for i := 0; i < b.N; i++ {
+					dynamicPolicy.GetTopologyHints(context.Background(), req)
+				}
+			})
+
+		}
+
+		_ = os.RemoveAll(tmpDir)
+	}
+}
+
+func Test_getPreferenceByMemBW(t *testing.T) {
+	t.Parallel()
+	type args struct {
+		targetNUMANodesUInt64           []uint64
+		containerMemoryBandwidthRequest int
+		numaAllocatedMemBW              map[int]int
+		machineInfo                     *machine.KatalystMachineInfo
+		metaServer                      *metaserver.MetaServer
+		req                             *pluginapi.ResourceRequest
+	}
+	tests := []struct {
+		name    string
+		args    args
+		want    bool
+		wantErr bool
+	}{
+		{
+			name:    "req is nil",
+			args:    args{},
+			want:    false,
+			wantErr: true,
+		},
+		{
+			name: "targetNUMANodesUInt64 is empty",
+			args: args{
+				req:                   &pluginapi.ResourceRequest{},
+				targetNUMANodesUInt64: []uint64{},
+			},
+			want:    false,
+			wantErr: true,
+		},
+		{
+			name: "machineInfo is nil",
+			args: args{
+				req:                   &pluginapi.ResourceRequest{},
+				targetNUMANodesUInt64: []uint64{1},
+			},
+			want:    false,
+			wantErr: true,
+		},
+		{
+			name: "ExtraTopologyInfo is nil",
+			args: args{
+				req:                   &pluginapi.ResourceRequest{},
+				targetNUMANodesUInt64: []uint64{1},
+				machineInfo:           &machine.KatalystMachineInfo{},
+			},
+			want:    false,
+			wantErr: true,
+		},
+		{
+			name: "metaServer is nil",
+			args: args{
+				req:                   &pluginapi.ResourceRequest{},
+				targetNUMANodesUInt64: []uint64{1},
+				machineInfo:           &machine.KatalystMachineInfo{ExtraTopologyInfo: &machine.ExtraTopologyInfo{}},
+			},
+			want:    false,
+			wantErr: true,
+		},
+	}
+	for _, tt := range tests {
+		curTT := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got, err := getPreferenceByMemBW(curTT.args.targetNUMANodesUInt64, curTT.args.containerMemoryBandwidthRequest, curTT.args.numaAllocatedMemBW, curTT.args.machineInfo, curTT.args.metaServer, curTT.args.req)
+			if (err != nil) != curTT.wantErr {
+				t.Errorf("getPreferenceByMemBW() error = %v, wantErr %v", err, curTT.wantErr)
+				return
+			}
+			if got != curTT.want {
+				t.Errorf("getPreferenceByMemBW() = %v, want %v", got, curTT.want)
+			}
+		})
+	}
+}
+
+func Test_getNUMAAllocatedMemBW(t *testing.T) {
+	t.Parallel()
+	as := require.New(t)
+
+	policyImplement := &DynamicPolicy{}
+	state.SetContainerRequestedCores(policyImplement.getContainerRequestedCores)
+
+	testName := "test"
+	highDensityCPUTopology, err := machine.GenerateDummyCPUTopology(384, 2, 12)
+	as.Nil(err)
+	podEntries := state.PodEntries{
+		"373d08e4-7a6b-4293-aaaf-b135ff812kkk": state.ContainerEntries{
+			testName: &state.AllocationInfo{
+				PodUid:                   "373d08e4-7a6b-4293-aaaf-b135ff812kkk",
+				PodNamespace:             testName,
+				PodName:                  testName,
+				ContainerName:            testName,
+				ContainerType:            pluginapi.ContainerType_MAIN.String(),
+				ContainerIndex:           0,
+				RampUp:                   false,
+				OwnerPoolName:            state.PoolNameDedicated,
+				AllocationResult:         machine.MustParse("1,8,9"),
+				OriginalAllocationResult: machine.MustParse("1,8,9"),
+				TopologyAwareAssignments: map[int]machine.CPUSet{
+					0: machine.NewCPUSet(1, 8, 9),
+				},
+				OriginalTopologyAwareAssignments: map[int]machine.CPUSet{
+					0: machine.NewCPUSet(1, 8, 9),
+				},
+				Labels: map[string]string{
+					consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelDedicatedCores,
+				},
+				Annotations: map[string]string{
+					consts.PodAnnotationQoSLevelKey:                  consts.PodAnnotationQoSLevelDedicatedCores,
+					consts.PodAnnotationMemoryEnhancementNumaBinding: consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
+				},
+				QoSLevel:        consts.PodAnnotationQoSLevelDedicatedCores,
+				RequestQuantity: 2,
+			},
+		},
+		"373d08e4-7a6b-4293-aaaf-b135ff8123bf": state.ContainerEntries{
+			testName: &state.AllocationInfo{
+				PodUid:                   "373d08e4-7a6b-4293-aaaf-b135ff8123bf",
+				PodNamespace:             testName,
+				PodName:                  testName,
+				ContainerName:            testName,
+				ContainerType:            pluginapi.ContainerType_MAIN.String(),
+				ContainerIndex:           0,
+				RampUp:                   false,
+				OwnerPoolName:            state.PoolNameShare,
+				AllocationResult:         machine.MustParse("4-5,12,6-7,14"),
+				OriginalAllocationResult: machine.MustParse("4-5,12,6-7,14"),
+				TopologyAwareAssignments: map[int]machine.CPUSet{
+					2: machine.NewCPUSet(4, 5, 12),
+					3: machine.NewCPUSet(6, 7, 14),
+				},
+				OriginalTopologyAwareAssignments: map[int]machine.CPUSet{
+					2: machine.NewCPUSet(4, 5, 12),
+					3: machine.NewCPUSet(6, 7, 14),
+				},
+				Labels: map[string]string{
+					consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
+				},
+				Annotations: map[string]string{
+					consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
+				},
+				QoSLevel:        consts.PodAnnotationQoSLevelSharedCores,
+				RequestQuantity: 2,
+			},
+		},
+		"ec6e2f30-c78a-4bc4-9576-c916db5281a3": state.ContainerEntries{
+			testName: &state.AllocationInfo{
+				PodUid:                   "ec6e2f30-c78a-4bc4-9576-c916db5281a3",
+				PodNamespace:             testName,
+				PodName:                  testName,
+				ContainerName:            testName,
+				ContainerType:            pluginapi.ContainerType_MAIN.String(),
+				ContainerIndex:           0,
+				RampUp:                   false,
+				OwnerPoolName:            state.PoolNameShare,
+				AllocationResult:         machine.MustParse("4-5,12,6-7,14"),
+				OriginalAllocationResult: machine.MustParse("4-5,12,6-7,14"),
+				TopologyAwareAssignments: map[int]machine.CPUSet{
+					2: machine.NewCPUSet(4, 5, 12),
+					3: machine.NewCPUSet(6, 7, 14),
+				},
+				OriginalTopologyAwareAssignments: map[int]machine.CPUSet{
+					2: machine.NewCPUSet(4, 5, 12),
+					3: machine.NewCPUSet(6, 7, 14),
+				},
+				Labels: map[string]string{
+					consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
+				},
+				Annotations: map[string]string{
+					consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
+				},
+				QoSLevel:        consts.PodAnnotationQoSLevelSharedCores,
+				RequestQuantity: 2,
+			},
+		},
+		"2432d068-c5a0-46ba-a7bd-b69d9bd16961": state.ContainerEntries{
+			testName: &state.AllocationInfo{
+				PodUid:                   "2432d068-c5a0-46ba-a7bd-b69d9bd16961",
+				PodNamespace:             testName,
+				PodName:                  testName,
+				ContainerName:            testName,
+				ContainerType:            pluginapi.ContainerType_MAIN.String(),
+				ContainerIndex:           0,
+				RampUp:                   false,
+				OwnerPoolName:            state.PoolNameReclaim,
+				AllocationResult:         machine.MustParse("9,11,13,15"),
+				OriginalAllocationResult: machine.MustParse("9,11,13,15"),
+				TopologyAwareAssignments: map[int]machine.CPUSet{
+					0: machine.NewCPUSet(9),
+					1: machine.NewCPUSet(11),
+					2: machine.NewCPUSet(13),
+					3: machine.NewCPUSet(15),
+				},
+				OriginalTopologyAwareAssignments: map[int]machine.CPUSet{
+					0: machine.NewCPUSet(9),
+					1: machine.NewCPUSet(11),
+					2: machine.NewCPUSet(13),
+					3: machine.NewCPUSet(15),
+				},
+				Labels: map[string]string{
+					consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelReclaimedCores,
+				},
+				Annotations: map[string]string{
+					consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelReclaimedCores,
+				},
+				QoSLevel:        consts.PodAnnotationQoSLevelReclaimedCores,
+				RequestQuantity: 2,
+			},
+		},
+		state.PoolNameReclaim: state.ContainerEntries{
+			"": &state.AllocationInfo{
+				PodUid:                   state.PoolNameReclaim,
+				OwnerPoolName:            state.PoolNameReclaim,
+				AllocationResult:         machine.MustParse("9,11,13,15"),
+				OriginalAllocationResult: machine.MustParse("9,11,13,15"),
+				TopologyAwareAssignments: map[int]machine.CPUSet{
+					0: machine.NewCPUSet(9),
+					1: machine.NewCPUSet(11),
+					2: machine.NewCPUSet(13),
+					3: machine.NewCPUSet(15),
+				},
+				OriginalTopologyAwareAssignments: map[int]machine.CPUSet{
+					0: machine.NewCPUSet(9),
+					1: machine.NewCPUSet(11),
+					2: machine.NewCPUSet(13),
+					3: machine.NewCPUSet(15),
+				},
+			},
+		},
+		state.PoolNameShare: state.ContainerEntries{
+			"": &state.AllocationInfo{
+				PodUid:                   state.PoolNameShare,
+				OwnerPoolName:            state.PoolNameShare,
+				AllocationResult:         machine.MustParse("4-5,12,6-7,14"),
+				OriginalAllocationResult: machine.MustParse("4-5,12,6-7,14"),
+				TopologyAwareAssignments: map[int]machine.CPUSet{
+					2: machine.NewCPUSet(4, 5, 12),
+					3: machine.NewCPUSet(6, 7, 14),
+				},
+				OriginalTopologyAwareAssignments: map[int]machine.CPUSet{
+					2: machine.NewCPUSet(4, 5, 12),
+					3: machine.NewCPUSet(6, 7, 14),
+				},
+			},
+		},
+		"share-NUMA1": state.ContainerEntries{
+			"": &state.AllocationInfo{
+				PodUid:                   state.PoolNameShare,
+				OwnerPoolName:            state.PoolNameShare,
+				AllocationResult:         machine.MustParse("3,10"),
+				OriginalAllocationResult: machine.MustParse("3,10"),
+				TopologyAwareAssignments: map[int]machine.CPUSet{
+					1: machine.NewCPUSet(3, 10),
+				},
+				OriginalTopologyAwareAssignments: map[int]machine.CPUSet{
+					1: machine.NewCPUSet(3, 10),
+				},
+				Annotations: map[string]string{
+					consts.PodAnnotationMemoryEnhancementNumaBinding: consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
+				},
+				QoSLevel: consts.PodAnnotationQoSLevelSharedCores,
+			},
+		},
+		"373d08e4-7a6b-4293-aaaf-b135ff812aaa": state.ContainerEntries{
+			testName: &state.AllocationInfo{
+				PodUid:                   "373d08e4-7a6b-4293-aaaf-b135ff812aaa",
+				PodNamespace:             testName,
+				PodName:                  testName,
+				ContainerName:            testName,
+				ContainerType:            pluginapi.ContainerType_MAIN.String(),
+				ContainerIndex:           0,
+				RampUp:                   false,
+				OwnerPoolName:            "share-NUMA1",
+				AllocationResult:         machine.MustParse("3,10"),
+				OriginalAllocationResult: machine.MustParse("3,10"),
+				TopologyAwareAssignments: map[int]machine.CPUSet{
+					1: machine.NewCPUSet(3, 10),
+				},
+				OriginalTopologyAwareAssignments: map[int]machine.CPUSet{
+					1: machine.NewCPUSet(3, 10),
+				},
+				Labels: map[string]string{
+					consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
+				},
+				Annotations: map[string]string{
+					consts.PodAnnotationQoSLevelKey:                  consts.PodAnnotationQoSLevelSharedCores,
+					consts.PodAnnotationMemoryEnhancementNumaBinding: consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
+				},
+				QoSLevel:        consts.PodAnnotationQoSLevelSharedCores,
+				RequestQuantity: 1,
+			},
+		},
+	}
+	machineState, err := generateMachineStateFromPodEntries(highDensityCPUTopology, podEntries)
+	as.Nil(err)
+
+	type args struct {
+		machineState state.NUMANodeMap
+		metaServer   *metaserver.MetaServer
+	}
+	tests := []struct {
+		name    string
+		args    args
+		want    map[int]int
+		wantErr bool
+	}{
+		{
+			name: "getNUMAAllocatedMemBW normally",
+			args: args{
+				machineState: machineState,
+				metaServer: &metaserver.MetaServer{
+					MetaAgent: &agent.MetaAgent{
+						PodFetcher: &pod.PodFetcherStub{},
+					},
+					ServiceProfilingManager: &spd.DummyServiceProfilingManager{},
+				},
+			},
+			want:    map[int]int{0: 0},
+			wantErr: false,
+		},
+	}
+	for _, tt := range tests {
+		curTT := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got, err := getNUMAAllocatedMemBW(curTT.args.machineState, curTT.args.metaServer)
+			if (err != nil) != curTT.wantErr {
+				t.Errorf("getNUMAAllocatedMemBW() error = %v, wantErr %v", err, curTT.wantErr)
+				return
+			}
+			if !reflect.DeepEqual(got, curTT.want) {
+				t.Errorf("getNUMAAllocatedMemBW() = %v, want %v", got, curTT.want)
+			}
+		})
+	}
 }

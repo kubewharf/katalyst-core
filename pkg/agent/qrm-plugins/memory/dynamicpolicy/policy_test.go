@@ -44,6 +44,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/uuid"
+	"k8s.io/klog/v2"
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 	maputil "k8s.io/kubernetes/pkg/util/maps"
 
@@ -77,6 +78,14 @@ import (
 const (
 	podDebugAnnoKey = "qrm.katalyst.kubewharf.io/debug_pod"
 )
+
+type topoTestCase struct {
+	cpuNum      int
+	socketNum   int
+	numaNum     int
+	fakeNUMANum int
+	memGB       int
+}
 
 var fakeConf = &config.Configuration{
 	AgentConfiguration: &configagent.AgentConfiguration{
@@ -3634,5 +3643,130 @@ func TestDynamicPolicy_adjustAllocationEntries(t *testing.T) {
 				t.Errorf("DynamicPolicy.adjustAllocationEntries() error = %v, wantErr %v", err, tt.wantErr)
 			}
 		})
+	}
+}
+
+func BenchmarkGetTopologyHints(b *testing.B) {
+	klog.SetOutput(ioutil.Discard)
+	klog.V(0)
+	klog.LogToStderr(false)
+	topoCases := []topoTestCase{
+		//{
+		//	cpuNum:      96,
+		//	socketNum:   2,
+		//	numaNum:     4,
+		//	fakeNUMANum: 4,
+		//	memGB:       384,
+		//},
+		//{
+		//	cpuNum:      128,
+		//	socketNum:   2,
+		//	numaNum:     4,
+		//	fakeNUMANum: 4,
+		//	memGB:       512,
+		//},
+		//{
+		//	cpuNum:      192,
+		//	socketNum:   2,
+		//	numaNum:     8,
+		//	fakeNUMANum: 8,
+		//	memGB:       768,
+		//},
+		//{
+		//	cpuNum:      384,
+		//	socketNum:   2,
+		//	numaNum:     8,
+		//	fakeNUMANum: 8,
+		//	memGB:       1536,
+		//},
+		//{
+		//	cpuNum:      384,
+		//	socketNum:   2,
+		//	numaNum:     8,
+		//	fakeNUMANum: 16,
+		//	memGB:       1536,
+		//},
+		//{
+		//	cpuNum:      384,
+		//	socketNum:   2,
+		//	numaNum:     8,
+		//	fakeNUMANum: 24,
+		//	memGB:       1536,
+		//},
+		{
+			cpuNum:      512,
+			socketNum:   2,
+			numaNum:     8,
+			fakeNUMANum: 8,
+			memGB:       2048,
+		},
+		{
+			cpuNum:      512,
+			socketNum:   2,
+			numaNum:     8,
+			fakeNUMANum: 16,
+			memGB:       2048,
+		},
+		{
+			cpuNum:      512,
+			socketNum:   2,
+			numaNum:     8,
+			fakeNUMANum: 32,
+			memGB:       2048,
+		},
+	}
+
+	testName := "test"
+
+	req := &pluginapi.ResourceRequest{
+		PodUid:           string(uuid.NewUUID()),
+		PodNamespace:     testName,
+		PodName:          testName,
+		ContainerName:    testName,
+		ContainerType:    pluginapi.ContainerType_MAIN,
+		ContainerIndex:   0,
+		ResourceName:     string(v1.ResourceMemory),
+		ResourceRequests: map[string]float64{},
+		Annotations: map[string]string{
+			consts.PodAnnotationQoSLevelKey:          consts.PodAnnotationQoSLevelDedicatedCores,
+			consts.PodAnnotationMemoryEnhancementKey: `{"numa_binding": "true", "numa_exclusive": "true"}`,
+		},
+		Labels: map[string]string{
+			consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelDedicatedCores,
+		},
+	}
+
+	for _, tc := range topoCases {
+		tmpDir, _ := ioutil.TempDir("", "checkpoint-BenchmarkGetTopologyHints")
+
+		cpuTopology, _ := machine.GenerateDummyCPUTopology(tc.cpuNum, tc.socketNum, tc.fakeNUMANum)
+
+		machineInfo, _ := machine.GenerateDummyMachineInfo(tc.fakeNUMANum, tc.memGB)
+
+		memGBPerNUMA := tc.memGB / cpuTopology.NumNUMANodes
+
+		dynamicPolicy, _ := getTestDynamicPolicyWithInitialization(cpuTopology, machineInfo, tmpDir)
+
+		for _, numaNeeded := range []int{1, 2, 4} {
+			memQuantity := resource.MustParse(fmt.Sprintf("%dGi", memGBPerNUMA))
+			req.ResourceRequests[string(v1.ResourceMemory)] = float64(memQuantity.MilliValue())/1000.0 - 1
+			req.Annotations = map[string]string{
+				consts.PodAnnotationQoSLevelKey:          consts.PodAnnotationQoSLevelDedicatedCores,
+				consts.PodAnnotationMemoryEnhancementKey: `{"numa_binding": "true", "numa_exclusive": "true"}`,
+			}
+			req.Labels = map[string]string{
+				consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelDedicatedCores,
+			}
+
+			b.Run(fmt.Sprintf("%d cpus, %d sockets, %d NUMAs, %d fake-NUMAs, %d NUMAs package",
+				tc.cpuNum, tc.socketNum, tc.numaNum, tc.fakeNUMANum, numaNeeded), func(b *testing.B) {
+				for i := 0; i < b.N; i++ {
+					dynamicPolicy.GetTopologyHints(context.Background(), req)
+				}
+			})
+
+		}
+
+		_ = os.RemoveAll(tmpDir)
 	}
 }

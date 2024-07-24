@@ -71,7 +71,9 @@ func IsDebugPod(podAnnotations map[string]string, podDebugAnnoKeys []string) boo
 }
 
 // GetKatalystQoSLevelFromResourceReq retrieves QoS Level for a given request
-func GetKatalystQoSLevelFromResourceReq(qosConf *generic.QoSConfiguration, req *pluginapi.ResourceRequest) (qosLevel string, err error) {
+func GetKatalystQoSLevelFromResourceReq(qosConf *generic.QoSConfiguration, req *pluginapi.ResourceRequest,
+	podAnnotationKeptKeys, podLabelKeptKeys []string,
+) (qosLevel string, err error) {
 	if req == nil {
 		err = fmt.Errorf("GetKatalystQoSLevelFromResourceReq got nil resource request")
 		return
@@ -89,13 +91,15 @@ func GetKatalystQoSLevelFromResourceReq(qosConf *generic.QoSConfiguration, req *
 		req.Annotations = make(map[string]string)
 	}
 	req.Annotations[apiconsts.PodAnnotationQoSLevelKey] = qosLevel
-	req.Annotations = qosConf.FilterQoSAndEnhancementMap(req.Annotations)
+	req.Annotations = general.MergeMap(general.FilterStringToStringMapByKeys(podAnnotationKeptKeys, req.Annotations),
+		qosConf.FilterQoSAndEnhancementMap(req.Annotations))
 
 	if req.Labels == nil {
 		req.Labels = make(map[string]string)
 	}
 	req.Labels[apiconsts.PodAnnotationQoSLevelKey] = qosLevel
-	req.Labels = qosConf.FilterQoSMap(req.Labels)
+	req.Labels = general.MergeMap(general.FilterStringToStringMapByKeys(podLabelKeptKeys, req.Labels),
+		qosConf.FilterQoSMap(req.Labels))
 	return
 }
 
