@@ -43,6 +43,7 @@ func (p *powerReconciler) Reconcile(ctx context.Context, desired *types.PowerSpe
 	alertTimeLimit, err := types.GetPowerAlertResponseTimeLimit(desired.Alert)
 	if err != nil {
 		// not to log error, as there would be too many such logs - denial of service risk
+		klog.V(6).Infof("pap: read ipmi error - %s", err)
 		// todo: report to metric dashboard
 		return
 	}
@@ -59,6 +60,8 @@ func (p *powerReconciler) Reconcile(ctx context.Context, desired *types.PowerSpe
 		p.priorAction = action
 		return
 	}
+
+	klog.V(6).Infof("pap: reconcile action %#v", action)
 
 	// todo: suppress actions too often??
 	switch action.op {
