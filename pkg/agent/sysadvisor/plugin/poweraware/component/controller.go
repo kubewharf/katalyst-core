@@ -76,6 +76,8 @@ func (p powerAwareController) run(ctx context.Context) {
 		return
 	}
 
+	klog.V(6).Infof("pap: current power spec: %#v", *spec)
+
 	// remove power capping limit if any, on NONE alert
 	if spec.Alert == types.PowerAlertOK {
 		p.powerLimitInitResetter.Reset()
@@ -91,6 +93,8 @@ func (p powerAwareController) run(ctx context.Context) {
 		klog.Errorf("pap: reading power failed: %#v", err)
 		return
 	}
+
+	klog.V(6).Infof("pap: current power usage: %d watts", currentWatts)
 
 	// report metrics: current power reading, desired power value
 	_ = p.emitter.StoreInt64(metricPowerAwareCurrentPowerInWatt, int64(currentWatts), metrics.MetricTypeNameRaw)
