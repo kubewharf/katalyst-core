@@ -154,6 +154,9 @@ func (cra *cpuResourceAdvisor) updateNumasAvailableResource() {
 	reservePoolInfo, _ := cra.metaCache.GetPoolInfo(state.PoolNameReserve)
 	cpusPerNuma := cra.metaServer.CPUsPerNuma()
 
+	coreNumReservedForReclaim := cra.conf.GetDynamicConfiguration().MinReclaimedResourceForAllocate[v1.ResourceCPU]
+	cra.reservedForReclaim = machine.GetCoreNumReservedForReclaim(int(coreNumReservedForReclaim.Value()), cra.metaServer.NumNUMANodes)
+
 	for id := 0; id < cra.metaServer.NumNUMANodes; id++ {
 		reservePoolNuma := 0
 		if cpuset, ok := reservePoolInfo.TopologyAwareAssignments[id]; ok {
