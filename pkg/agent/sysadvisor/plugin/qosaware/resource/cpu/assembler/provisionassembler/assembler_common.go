@@ -171,6 +171,24 @@ func (pa *ProvisionAssemblerCommon) AssembleProvision() (types.InternalCPUCalcul
 				// If there is a SNB pool with the same NUMA ID, it will be calculated while processing the SNB pool.
 				if shareRegions := pa.regionHelper.GetRegions(regionNuma, configapi.QoSRegionTypeShare); len(shareRegions) == 0 {
 					calculationResult.SetPoolEntry(r.Name(), regionNuma, int(controlKnob[configapi.ControlKnobNonReclaimedCPURequirementUpper].Value))
+
+					_, ok := calculationResult.GetPoolEntry(state.PoolNameReclaim, regionNuma)
+					if !ok {
+						available := getNUMAsResource(*pa.numaAvailable, r.GetBindingNumas())
+						reservedForReclaim := getNUMAsResource(*pa.reservedForReclaim, r.GetBindingNumas())
+
+						isolationRegions := pa.regionHelper.GetRegions(regionNuma, configapi.QoSRegionTypeIsolation)
+						isolationSizes := 0
+						for _, ir := range isolationRegions {
+							ck, err := ir.GetProvision()
+							if err != nil {
+								return types.InternalCPUCalculationResult{}, err
+							}
+							isolationSizes += int(ck[configapi.ControlKnobNonReclaimedCPURequirementUpper].Value)
+						}
+						reclaimedCoresSize := general.Max(available-isolationSizes, 0) + reservedForReclaim
+						calculationResult.SetPoolEntry(state.PoolNameReclaim, regionNuma, reclaimedCoresSize)
+					}
 				}
 			} else {
 				// save limits and requests for isolated region
@@ -242,12 +260,17 @@ func (pa *ProvisionAssemblerCommon) AssembleProvision() (types.InternalCPUCalcul
 
 	var reclaimPoolSizeOfNonBindingNUMAs int
 	if *pa.allowSharedCoresOverlapReclaimedCores {
-		isolated := shareAndIsolatedPoolAvailable
+		isolated := 0
 		sharePoolSizes := make(map[string]int)
-		for poolName := range sharePoolRequirements {
-			sharePoolSizes[poolName] = shareAndIsolatePoolSizes[poolName]
-			isolated -= shareAndIsolatePoolSizes[poolName]
+		for poolName, size := range shareAndIsolatePoolSizes {
+			_, ok := sharePoolRequirements[poolName]
+			if ok {
+				sharePoolSizes[poolName] = shareAndIsolatePoolSizes[poolName]
+			} else {
+				isolated += size
+			}
 		}
+
 		reclaimPoolSizeOfNonBindingNUMAs = general.Max(pa.getNumasReservedForReclaim(*pa.nonBindingNumas), shareAndIsolatedPoolAvailable-isolated-general.SumUpMapValues(sharePoolRequirements))
 		if !nodeEnableReclaim {
 			reclaimPoolSizeOfNonBindingNUMAs = pa.getNumasReservedForReclaim(*pa.nonBindingNumas)
