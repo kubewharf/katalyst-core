@@ -25,10 +25,15 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/util/sets"
+)
+
+const (
+	DefaultPageSize = 4096
 )
 
 func Max(a, b int) int {
@@ -406,4 +411,18 @@ func DedupStringSlice(input []string) []string {
 		result.Insert(v)
 	}
 	return result.UnsortedList()
+}
+
+func GetPageSize() int {
+	pageSize := syscall.Getpagesize()
+	if pageSize == 0 {
+		return DefaultPageSize
+	}
+	return pageSize
+}
+
+// ConvertBytesToPages return pages number from bytes
+func ConvertBytesToPages(bytes int) int {
+	pageSize := GetPageSize()
+	return (bytes + pageSize - 1) / pageSize // Ceiling division to account for partial pages
 }
