@@ -36,9 +36,11 @@ import (
 	evictionpluginapi "github.com/kubewharf/katalyst-api/pkg/protocol/evictionplugin/v1alpha1"
 	qrmstate "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
 	"github.com/kubewharf/katalyst-core/pkg/config"
+	pkgconsts "github.com/kubewharf/katalyst-core/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
+	utilmetric "github.com/kubewharf/katalyst-core/pkg/util/metric"
 )
 
 const (
@@ -53,6 +55,7 @@ func makeSuppressionEvictionConf(cpuMaxSuppressionToleranceRate float64,
 	conf.GetDynamicConfiguration().EnableSuppressionEviction = true
 	conf.GetDynamicConfiguration().MaxSuppressionToleranceRate = cpuMaxSuppressionToleranceRate
 	conf.GetDynamicConfiguration().MinSuppressionToleranceDuration = cpuMinSuppressionToleranceDuration
+	conf.ReclaimRelativeRootCgroupPath = "test"
 	return conf
 }
 
@@ -77,15 +80,7 @@ func TestCPUPressureSuppression_GetEvictPods(t *testing.T) {
 
 	as := require.New(t)
 
-	cpuTopology, err := machine.GenerateDummyCPUTopology(16, 2, 4)
-	as.Nil(err)
-	conf := makeSuppressionEvictionConf(defaultCPUMaxSuppressionToleranceRate, defaultCPUMinSuppressionToleranceDuration)
-	metaServer := makeMetaServer(metric.NewFakeMetricsFetcher(metrics.DummyMetrics{}), cpuTopology)
-	stateImpl, err := makeState(cpuTopology)
-	as.Nil(err)
-
-	plugin, _ := NewCPUPressureSuppressionEviction(metrics.DummyMetrics{}, metaServer, conf, stateImpl)
-	as.NotNil(plugin)
+	now := time.Now()
 
 	pod1UID := string(uuid.NewUUID())
 	pod1Name := "pod-1"
@@ -95,6 +90,7 @@ func TestCPUPressureSuppression_GetEvictPods(t *testing.T) {
 	tests := []struct {
 		name               string
 		podEntries         qrmstate.PodEntries
+		setFakeMetric      func(store *metric.FakeMetricsFetcher)
 		wantEvictPodUIDSet sets.String
 	}{
 		{
@@ -157,6 +153,20 @@ func TestCPUPressureSuppression_GetEvictPods(t *testing.T) {
 				},
 			},
 			wantEvictPodUIDSet: sets.NewString(),
+			setFakeMetric: func(store *metric.FakeMetricsFetcher) {
+				store.SetCPUMetric(1, pkgconsts.MetricCPUUsageRatio, utilmetric.MetricData{Value: 0.5, Time: &now})
+				store.SetCPUMetric(3, pkgconsts.MetricCPUUsageRatio, utilmetric.MetricData{Value: 0.5, Time: &now})
+				store.SetCPUMetric(4, pkgconsts.MetricCPUUsageRatio, utilmetric.MetricData{Value: 0.5, Time: &now})
+				store.SetCPUMetric(5, pkgconsts.MetricCPUUsageRatio, utilmetric.MetricData{Value: 0.5, Time: &now})
+				store.SetCPUMetric(6, pkgconsts.MetricCPUUsageRatio, utilmetric.MetricData{Value: 0.5, Time: &now})
+				store.SetCPUMetric(9, pkgconsts.MetricCPUUsageRatio, utilmetric.MetricData{Value: 0.5, Time: &now})
+				store.SetCPUMetric(11, pkgconsts.MetricCPUUsageRatio, utilmetric.MetricData{Value: 0.5, Time: &now})
+				store.SetCPUMetric(12, pkgconsts.MetricCPUUsageRatio, utilmetric.MetricData{Value: 0.5, Time: &now})
+				store.SetCPUMetric(13, pkgconsts.MetricCPUUsageRatio, utilmetric.MetricData{Value: 0.5, Time: &now})
+				store.SetCPUMetric(14, pkgconsts.MetricCPUUsageRatio, utilmetric.MetricData{Value: 0.5, Time: &now})
+
+				store.SetCgroupMetric("test", pkgconsts.MetricCPUUsageCgroup, utilmetric.MetricData{Value: 5, Time: &now})
+			},
 		},
 		{
 			name: "over tolerance rate",
@@ -253,72 +263,106 @@ func TestCPUPressureSuppression_GetEvictPods(t *testing.T) {
 				},
 			},
 			wantEvictPodUIDSet: sets.NewString(pod1UID),
+			setFakeMetric: func(store *metric.FakeMetricsFetcher) {
+				store.SetCPUMetric(1, pkgconsts.MetricCPUUsageRatio, utilmetric.MetricData{Value: 0.5, Time: &now})
+				store.SetCPUMetric(3, pkgconsts.MetricCPUUsageRatio, utilmetric.MetricData{Value: 0.5, Time: &now})
+				store.SetCPUMetric(4, pkgconsts.MetricCPUUsageRatio, utilmetric.MetricData{Value: 0.5, Time: &now})
+				store.SetCPUMetric(5, pkgconsts.MetricCPUUsageRatio, utilmetric.MetricData{Value: 0.5, Time: &now})
+				store.SetCPUMetric(6, pkgconsts.MetricCPUUsageRatio, utilmetric.MetricData{Value: 0.5, Time: &now})
+				store.SetCPUMetric(9, pkgconsts.MetricCPUUsageRatio, utilmetric.MetricData{Value: 0.5, Time: &now})
+				store.SetCPUMetric(11, pkgconsts.MetricCPUUsageRatio, utilmetric.MetricData{Value: 0.5, Time: &now})
+				store.SetCPUMetric(12, pkgconsts.MetricCPUUsageRatio, utilmetric.MetricData{Value: 0.5, Time: &now})
+				store.SetCPUMetric(13, pkgconsts.MetricCPUUsageRatio, utilmetric.MetricData{Value: 0.5, Time: &now})
+				store.SetCPUMetric(14, pkgconsts.MetricCPUUsageRatio, utilmetric.MetricData{Value: 0.5, Time: &now})
+
+				store.SetCgroupMetric("test", pkgconsts.MetricCPUUsageCgroup, utilmetric.MetricData{Value: 5, Time: &now})
+			},
 		},
 	}
 
 	for _, tt := range tests {
-		stateImpl, err := makeState(cpuTopology)
-		as.Nil(err)
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-		pods := make([]*v1.Pod, 0, len(tt.podEntries))
+			cpuTopology, err := machine.GenerateDummyCPUTopology(16, 2, 4)
+			as.Nil(err)
+			conf := makeSuppressionEvictionConf(defaultCPUMaxSuppressionToleranceRate, defaultCPUMinSuppressionToleranceDuration)
 
-		for entryName, entries := range tt.podEntries {
-			for subEntryName, entry := range entries {
-				stateImpl.SetAllocationInfo(entryName, subEntryName, entry)
+			metricsFetcher := metric.NewFakeMetricsFetcher(metrics.DummyMetrics{})
+			store := metricsFetcher.(*metric.FakeMetricsFetcher)
 
-				if entries.IsPoolEntry() {
-					continue
-				}
+			metaServer := makeMetaServer(metricsFetcher, cpuTopology)
+			stateImpl, err := makeState(cpuTopology)
+			as.Nil(err)
 
-				pod := &v1.Pod{
-					ObjectMeta: metav1.ObjectMeta{
-						UID:         types.UID(entry.PodUid),
-						Name:        entry.PodName,
-						Namespace:   entry.PodNamespace,
-						Annotations: maputil.CopySS(entry.Annotations),
-						Labels:      maputil.CopySS(entry.Labels),
-					},
-					Spec: v1.PodSpec{
-						Containers: []v1.Container{
-							{
-								Name: entry.ContainerName,
-								Resources: v1.ResourceRequirements{
-									Requests: v1.ResourceList{
-										apiconsts.ReclaimedResourceMilliCPU: *resource.NewQuantity(int64(entry.RequestQuantity*1000), resource.DecimalSI),
-									},
-									Limits: v1.ResourceList{
-										apiconsts.ReclaimedResourceMilliCPU: *resource.NewQuantity(int64(entry.RequestQuantity*1000), resource.DecimalSI),
+			plugin, _ := NewCPUPressureSuppressionEviction(metrics.DummyMetrics{}, metaServer, conf, stateImpl)
+			as.NotNil(plugin)
+
+			pods := make([]*v1.Pod, 0, len(tt.podEntries))
+
+			if tt.setFakeMetric != nil {
+				tt.setFakeMetric(store)
+			}
+
+			for entryName, entries := range tt.podEntries {
+				for subEntryName, entry := range entries {
+					stateImpl.SetAllocationInfo(entryName, subEntryName, entry)
+
+					if entries.IsPoolEntry() {
+						continue
+					}
+
+					pod := &v1.Pod{
+						ObjectMeta: metav1.ObjectMeta{
+							UID:         types.UID(entry.PodUid),
+							Name:        entry.PodName,
+							Namespace:   entry.PodNamespace,
+							Annotations: maputil.CopySS(entry.Annotations),
+							Labels:      maputil.CopySS(entry.Labels),
+						},
+						Spec: v1.PodSpec{
+							Containers: []v1.Container{
+								{
+									Name: entry.ContainerName,
+									Resources: v1.ResourceRequirements{
+										Requests: v1.ResourceList{
+											apiconsts.ReclaimedResourceMilliCPU: *resource.NewQuantity(int64(entry.RequestQuantity*1000), resource.DecimalSI),
+										},
+										Limits: v1.ResourceList{
+											apiconsts.ReclaimedResourceMilliCPU: *resource.NewQuantity(int64(entry.RequestQuantity*1000), resource.DecimalSI),
+										},
 									},
 								},
 							},
 						},
-					},
+					}
+
+					pods = append(pods, pod)
 				}
-
-				pods = append(pods, pod)
 			}
-		}
 
-		plugin.(*CPUPressureSuppression).state = stateImpl
+			plugin.(*CPUPressureSuppression).state = stateImpl
 
-		resp, err := plugin.GetEvictPods(context.TODO(), &evictionpluginapi.GetEvictPodsRequest{
-			ActivePods: pods,
+			resp, err := plugin.GetEvictPods(context.TODO(), &evictionpluginapi.GetEvictPodsRequest{
+				ActivePods: pods,
+			})
+			assert.NoError(t, err)
+			assert.NotNil(t, resp)
+
+			time.Sleep(defaultCPUMinSuppressionToleranceDuration)
+
+			resp, err = plugin.GetEvictPods(context.TODO(), &evictionpluginapi.GetEvictPodsRequest{
+				ActivePods: pods,
+			})
+			assert.NoError(t, err)
+			assert.NotNil(t, resp)
+
+			evictPodUIDSet := sets.String{}
+			for _, pod := range resp.EvictPods {
+				evictPodUIDSet.Insert(string(pod.Pod.GetUID()))
+			}
+			assert.Equal(t, tt.wantEvictPodUIDSet, evictPodUIDSet)
 		})
-		assert.NoError(t, err)
-		assert.NotNil(t, resp)
-
-		time.Sleep(defaultCPUMinSuppressionToleranceDuration)
-
-		resp, err = plugin.GetEvictPods(context.TODO(), &evictionpluginapi.GetEvictPodsRequest{
-			ActivePods: pods,
-		})
-		assert.NoError(t, err)
-		assert.NotNil(t, resp)
-
-		evictPodUIDSet := sets.String{}
-		for _, pod := range resp.EvictPods {
-			evictPodUIDSet.Insert(string(pod.Pod.GetUID()))
-		}
-		assert.Equal(t, tt.wantEvictPodUIDSet, evictPodUIDSet)
 	}
 }
