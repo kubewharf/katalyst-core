@@ -29,12 +29,11 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource/cpu/region"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
 	"github.com/kubewharf/katalyst-core/pkg/config"
-	pkgconsts "github.com/kubewharf/katalyst-core/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
+	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric/helper"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
-	"github.com/kubewharf/katalyst-core/pkg/util/metric"
 )
 
 type HeadroomAssemblerCommon struct {
@@ -104,18 +103,9 @@ func (ha *HeadroomAssemblerCommon) GetHeadroom() (resource.Quantity, error) {
 		emptyNUMAs = emptyNUMAs.Difference(r.GetBindingNumas())
 	}
 
-	reclaimPoolUtil := 0.0
-
 	// add non binding reclaim pool size
-	reclaimPoolInfo, ok := ha.metaReader.GetPoolInfo(state.PoolNameReclaim)
-	if ok && reclaimPoolInfo != nil {
-
-		reclaimedMetrics, err := ha.getPoolMetrics(state.PoolNameReclaim)
-		if err != nil {
-			return resource.Quantity{}, err
-		}
-		reclaimPoolUtil = reclaimedMetrics.coreAvgUtil
-
+	reclaimPoolInfo, reclaimPoolExist := ha.metaReader.GetPoolInfo(state.PoolNameReclaim)
+	if reclaimPoolExist && reclaimPoolInfo != nil {
 		reclaimPoolNUMAs := machine.GetCPUAssignmentNUMAs(reclaimPoolInfo.TopologyAwareAssignments)
 
 		sharedCoresHeadroom := 0.0
@@ -150,31 +140,15 @@ func (ha *HeadroomAssemblerCommon) GetHeadroom() (resource.Quantity, error) {
 	general.InfoS("[qosaware-cpu] headroom assembled", "headroomTotal", headroomTotal, "backoffRetries",
 		ha.backoffRetries, "util based enabled", dynamicConfig.CPUUtilBasedConfiguration.Enable)
 
-	// if util based cpu headroom disable, just return total reclaim pool size as headroom
-	if !dynamicConfig.CPUUtilBasedConfiguration.Enable {
+	// if util based cpu headroom disable or reclaim pool not existed, just return total reclaim pool size as headroom
+	if !dynamicConfig.CPUUtilBasedConfiguration.Enable || !reclaimPoolExist || reclaimPoolInfo == nil {
 		return *resource.NewQuantity(int64(headroomTotal), resource.DecimalSI), nil
 	}
 
-	return ha.getUtilBasedHeadroom(dynamicConfig, int(headroomTotal), reclaimPoolUtil)
-}
-
-type poolMetrics struct {
-	coreAvgUtil float64
-	poolSize    int
-}
-
-// getPoolMetrics get reclaimed pool metrics, including the average utilization of each core in
-// the reclaimed pool and the size of the pool
-func (ha *HeadroomAssemblerCommon) getPoolMetrics(poolName string) (*poolMetrics, error) {
-	reclaimedInfo, ok := ha.metaReader.GetPoolInfo(poolName)
-	if !ok {
-		return nil, fmt.Errorf("failed get reclaim pool info")
+	reclaimMetrics, err := helper.GetReclaimMetrics(reclaimPoolInfo.TopologyAwareAssignments.MergeCPUSet(), ha.conf.ReclaimRelativeRootCgroupPath, ha.metaServer.MetricsFetcher)
+	if err != nil {
+		return resource.Quantity{}, err
 	}
 
-	cpuSet := reclaimedInfo.TopologyAwareAssignments.MergeCPUSet()
-	m := ha.metaServer.AggregateCoreMetric(cpuSet, pkgconsts.MetricCPUUsageRatio, metric.AggregatorAvg)
-	return &poolMetrics{
-		coreAvgUtil: m.Value,
-		poolSize:    cpuSet.Size(),
-	}, nil
+	return ha.getUtilBasedHeadroom(dynamicConfig, reclaimMetrics)
 }

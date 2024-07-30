@@ -31,6 +31,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
+	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric/helper"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/native"
@@ -40,18 +41,20 @@ import (
 const EvictionNameSuppression = "cpu-pressure-suppression-plugin"
 
 type CPUPressureSuppression struct {
-	conf  *config.Configuration
-	state state.ReadonlyState
+	conf       *config.Configuration
+	state      state.ReadonlyState
+	metaServer *metaserver.MetaServer
 
 	lastToleranceTime sync.Map
 }
 
-func NewCPUPressureSuppressionEviction(_ metrics.MetricEmitter, _ *metaserver.MetaServer,
+func NewCPUPressureSuppressionEviction(_ metrics.MetricEmitter, metaServer *metaserver.MetaServer,
 	conf *config.Configuration, state state.ReadonlyState,
 ) (CPUPressureEviction, error) {
 	return &CPUPressureSuppression{
-		conf:  conf,
-		state: state,
+		conf:       conf,
+		state:      state,
+		metaServer: metaServer,
 	}, nil
 }
 
@@ -90,6 +93,11 @@ func (p *CPUPressureSuppression) GetEvictPods(_ context.Context, request *plugin
 		return &pluginapi.GetEvictPodsResponse{}, nil
 	}
 
+	reclaimMetrics, err := helper.GetReclaimMetrics(poolCPUSet, p.conf.ReclaimRelativeRootCgroupPath, p.metaServer.MetricsFetcher)
+	if err != nil {
+		return nil, fmt.Errorf("get reclaim metrics failed: %s", err)
+	}
+
 	filteredPods := native.FilterPods(request.ActivePods, p.conf.CheckReclaimedQoSForPod)
 	if len(filteredPods) == 0 {
 		return &pluginapi.GetEvictPodsResponse{}, nil
@@ -107,13 +115,21 @@ func (p *CPUPressureSuppression) GetEvictPods(_ context.Context, request *plugin
 	for _, pod := range filteredPods {
 		totalCPURequest.Add(native.CPUQuantityGetter()(native.SumUpPodRequestResources(pod)))
 	}
-	general.Infof("total reclaim cpu request is %v, reclaim pool size is %v", totalCPURequest.String(), poolSize)
+
+	general.InfoS("info", "reclaim cpu request", totalCPURequest.String(),
+		"reclaim pool size", poolSize, "reclaimedCoresSupply", reclaimMetrics.ReclaimedCoresSupply,
+		"reclaimPoolUsage", reclaimMetrics.PoolCPUUsage, "reclaimedCoresUsage", reclaimMetrics.CgroupCPUUsage)
 
 	now := time.Now()
 	var evictPods []*v1alpha1.EvictPod
 	for _, pod := range filteredPods {
 		key := native.GenerateUniqObjectNameKey(pod)
-		poolSuppressionRate := float64(totalCPURequest.Value()) / float64(poolSize)
+		poolSuppressionRate := 0.0
+		if reclaimMetrics.ReclaimedCoresSupply == 0 {
+			poolSuppressionRate = math.MaxFloat64
+		} else {
+			poolSuppressionRate = float64(totalCPURequest.Value()) / reclaimMetrics.ReclaimedCoresSupply
+		}
 
 		if podToleranceRate := p.getPodToleranceRate(pod, dynamicConfig.MaxSuppressionToleranceRate); podToleranceRate < poolSuppressionRate {
 			last, _ := p.lastToleranceTime.LoadOrStore(key, now)
