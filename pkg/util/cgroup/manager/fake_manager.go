@@ -60,6 +60,10 @@ func (f *FakeCgroupManager) GetNumaMemory(absCgroupPath string) (map[int]*common
 	return nil, nil
 }
 
+func (f *FakeCgroupManager) GetDetailedMemory(absCgroupPath string) (*common.MemoryDetailedStats, error) {
+	return nil, nil
+}
+
 func (f *FakeCgroupManager) GetCPU(absCgroupPath string) (*common.CPUStats, error) {
 	return nil, nil
 }

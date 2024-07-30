@@ -162,6 +162,12 @@ type MemoryStats struct {
 	Usage uint64
 }
 
+// MemoryDetailedStats get detailed cgroup memory data
+type MemoryDetailedStats struct {
+	File         uint64
+	FileInactive uint64
+}
+
 // CPUStats get cgroup cpu data
 type CPUStats struct {
 	CpuPeriod uint64
