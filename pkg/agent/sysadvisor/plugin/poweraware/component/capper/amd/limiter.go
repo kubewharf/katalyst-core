@@ -19,6 +19,7 @@ package amd
 import (
 	"github.com/pkg/errors"
 	"k8s.io/klog/v2"
+	"time"
 
 	"github.com/kubewharf/katalyst-core/pkg/util/external/power"
 	utils "github.com/kubewharf/katalyst-core/pkg/util/lowlevel"
@@ -53,7 +54,16 @@ func (p powerLimiter) SetLimitOnBasis(limitWatts, baseWatts int) error {
 
 func (p powerLimiter) Init() error {
 	utils.PCIDevInit()
-	return p.op.InitIOHCs(false)
+	if err := p.op.InitIOHCs(false); err != nil {
+		return err
+	}
+
+	for i := 0; i < p.op.MachineInfo.SocketNum; i++ {
+		p.op.MachineInfo.PowerMaxLimit[i] = p.op.GetSocketPowerMaxLimit(i)
+		time.Sleep(time.Microsecond * amd.SMN_READ_INTERVAL)
+	}
+
+	return nil
 }
 
 // the default current limit = 0.9 * max limit
@@ -61,7 +71,7 @@ func (p powerLimiter) Reset() {
 	for i := 0; i < p.op.MachineInfo.SocketNum; i++ {
 		maxLimit := p.op.GetSocketPowerMaxLimit(i)
 		klog.Infof("power max limit of socket %d: %v", i, maxLimit)
-		if err := p.op.SetSocketPowerLimit(i, maxLimit+300); err != nil {
+		if err := p.op.SetSocketPowerLimit(i, maxLimit*90/100); err != nil {
 			klog.Errorf("reset error: %v", err)
 		}
 	}
