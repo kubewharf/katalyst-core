@@ -125,7 +125,9 @@ func TestPreFilter(t *testing.T) {
 	}
 
 	for _, tc := range testCases {
+		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			n := &NodeOvercommitment{}
 			cs := framework.NewCycleState()
 			res, stat := n.PreFilter(context.TODO(), cs, tc.pod)
@@ -210,7 +212,7 @@ func TestFilter(t *testing.T) {
 			name: "node cpumanager on",
 			node: &v1.Node{
 				ObjectMeta: v12.ObjectMeta{
-					Name: "node1",
+					Name: "node2",
 					Annotations: map[string]string{
 						"katalyst.kubewharf.io/cpu_overcommit_ratio":     "2.0",
 						"katalyst.kubewharf.io/memory_overcommit_ratio":  "1.0",
@@ -227,7 +229,7 @@ func TestFilter(t *testing.T) {
 			cnrs: []*v1alpha1.CustomNodeResource{
 				{
 					ObjectMeta: v12.ObjectMeta{
-						Name: "node1",
+						Name: "node2",
 						Annotations: map[string]string{
 							"katalyst.kubewharf.io/overcommit_cpu_manager":    "static",
 							"katalyst.kubewharf.io/overcommit_memory_manager": "None",
@@ -246,7 +248,7 @@ func TestFilter(t *testing.T) {
 						UID:  "pod01",
 					},
 					Spec: v1.PodSpec{
-						NodeName: "node1",
+						NodeName: "node2",
 						Containers: []v1.Container{
 							{
 								Name: "testContainer",
@@ -289,7 +291,7 @@ func TestFilter(t *testing.T) {
 			name: "node cpumanager on with recommend",
 			node: &v1.Node{
 				ObjectMeta: v12.ObjectMeta{
-					Name: "node1",
+					Name: "node3",
 					Annotations: map[string]string{
 						"katalyst.kubewharf.io/cpu_overcommit_ratio":           "3.0",
 						"katalyst.kubewharf.io/memory_overcommit_ratio":        "1.0",
@@ -307,7 +309,7 @@ func TestFilter(t *testing.T) {
 			cnrs: []*v1alpha1.CustomNodeResource{
 				{
 					ObjectMeta: v12.ObjectMeta{
-						Name: "node1",
+						Name: "node3",
 						Annotations: map[string]string{
 							"katalyst.kubewharf.io/overcommit_cpu_manager":    "static",
 							"katalyst.kubewharf.io/overcommit_memory_manager": "None",
@@ -326,7 +328,7 @@ func TestFilter(t *testing.T) {
 						UID:  "pod01",
 					},
 					Spec: v1.PodSpec{
-						NodeName: "node1",
+						NodeName: "node3",
 						Containers: []v1.Container{
 							{
 								Name: "testContainer",
@@ -369,7 +371,7 @@ func TestFilter(t *testing.T) {
 			name: "node cpumanager on 2",
 			node: &v1.Node{
 				ObjectMeta: v12.ObjectMeta{
-					Name: "node1",
+					Name: "node4",
 					Annotations: map[string]string{
 						"katalyst.kubewharf.io/cpu_overcommit_ratio":     "2.0",
 						"katalyst.kubewharf.io/memory_overcommit_ratio":  "1.0",
@@ -386,7 +388,7 @@ func TestFilter(t *testing.T) {
 			cnrs: []*v1alpha1.CustomNodeResource{
 				{
 					ObjectMeta: v12.ObjectMeta{
-						Name: "node1",
+						Name: "node4",
 						Annotations: map[string]string{
 							"katalyst.kubewharf.io/overcommit_cpu_manager":    "static",
 							"katalyst.kubewharf.io/overcommit_memory_manager": "None",
@@ -405,7 +407,7 @@ func TestFilter(t *testing.T) {
 						UID:  "pod01",
 					},
 					Spec: v1.PodSpec{
-						NodeName: "node1",
+						NodeName: "node4",
 						Containers: []v1.Container{
 							{
 								Name: "testContainer",
@@ -448,7 +450,7 @@ func TestFilter(t *testing.T) {
 			name: "node cpumanager on 3",
 			node: &v1.Node{
 				ObjectMeta: v12.ObjectMeta{
-					Name: "node1",
+					Name: "node5",
 					Annotations: map[string]string{
 						"katalyst.kubewharf.io/cpu_overcommit_ratio":     "2.0",
 						"katalyst.kubewharf.io/memory_overcommit_ratio":  "1.0",
@@ -465,7 +467,7 @@ func TestFilter(t *testing.T) {
 			cnrs: []*v1alpha1.CustomNodeResource{
 				{
 					ObjectMeta: v12.ObjectMeta{
-						Name: "node1",
+						Name: "node5",
 						Annotations: map[string]string{
 							"katalyst.kubewharf.io/overcommit_cpu_manager":    "static",
 							"katalyst.kubewharf.io/overcommit_memory_manager": "None",
@@ -484,7 +486,7 @@ func TestFilter(t *testing.T) {
 						UID:  "pod01",
 					},
 					Spec: v1.PodSpec{
-						NodeName: "node1",
+						NodeName: "node5",
 						Containers: []v1.Container{
 							{
 								Name: "testContainer",
@@ -531,7 +533,7 @@ func TestFilter(t *testing.T) {
 			name: "node memorymanager on, overcommit not allowed",
 			node: &v1.Node{
 				ObjectMeta: v12.ObjectMeta{
-					Name: "node1",
+					Name: "node6",
 					Annotations: map[string]string{
 						"katalyst.kubewharf.io/cpu_overcommit_ratio":     "2.0",
 						"katalyst.kubewharf.io/memory_overcommit_ratio":  "1.5",
@@ -548,7 +550,7 @@ func TestFilter(t *testing.T) {
 			cnrs: []*v1alpha1.CustomNodeResource{
 				{
 					ObjectMeta: v12.ObjectMeta{
-						Name: "node1",
+						Name: "node6",
 						Annotations: map[string]string{
 							"katalyst.kubewharf.io/overcommit_cpu_manager":    "none",
 							"katalyst.kubewharf.io/overcommit_memory_manager": "Static",
@@ -584,7 +586,9 @@ func TestFilter(t *testing.T) {
 	}
 
 	for _, tc := range testCases {
+		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			cnrs := tc.cnrs
 			for _, cnr := range cnrs {
 				cache.GetCache().AddOrUpdateCNR(cnr)
