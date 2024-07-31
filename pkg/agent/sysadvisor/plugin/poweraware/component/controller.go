@@ -65,6 +65,7 @@ func (p powerAwareController) Run(ctx context.Context) {
 
 	wait.Until(func() { p.run(ctx) }, intervalSpecFetch, ctx.Done())
 
+	klog.V(6).Info("pap: Run exit")
 	p.powerReader.Cleanup()
 	p.powerLimitInitResetter.Reset()
 }
@@ -87,6 +88,8 @@ func (p powerAwareController) run(ctx context.Context) {
 	if types.InternalOpPause == spec.InternalOp {
 		return
 	}
+
+	klog.V(6).Info("pap: run to get power reading")
 
 	currentWatts, err := p.powerReader.Get(ctx)
 	if err != nil {
