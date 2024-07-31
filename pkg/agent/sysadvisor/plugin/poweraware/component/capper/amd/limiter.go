@@ -64,7 +64,9 @@ func (p powerLimiter) Reset() {
 		if maxLimit < 200 {
 			maxLimit = 240000
 		}
-		_ = p.op.SetSocketPowerLimit(i, maxLimit+300)
+		if err := p.op.SetSocketPowerLimit(i, maxLimit+300); err != nil {
+			klog.Errorf("reset error: %v", err)
+		}
 	}
 }
 
