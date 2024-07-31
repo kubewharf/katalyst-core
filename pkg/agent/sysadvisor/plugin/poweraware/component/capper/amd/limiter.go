@@ -56,9 +56,11 @@ func (p powerLimiter) Init() error {
 	return p.op.InitIOHCs(false)
 }
 
+// the default current limit = 0.9 * max limit
 func (p powerLimiter) Reset() {
 	for i := 0; i < p.op.MachineInfo.SocketNum; i++ {
-		_ = p.op.SetSocketPowerLimit(i, 0)
+		maxLimit := p.op.GetSocketPowerMaxLimit(i)
+		_ = p.op.SetSocketPowerLimit(i, maxLimit*90/100)
 	}
 }
 
