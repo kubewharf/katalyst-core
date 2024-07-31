@@ -18,6 +18,7 @@ package amd
 
 import (
 	"fmt"
+	"k8s.io/klog/v2"
 	"time"
 
 	utils "github.com/kubewharf/katalyst-core/pkg/util/lowlevel"
@@ -118,8 +119,8 @@ func (o Operation) SetSocketPowerLimit(skt int, powerLimit uint32) error {
 	}
 
 	if powerLimit > o.MachineInfo.PowerMaxLimit[skt] {
-		fmt.Printf("invalid power limit %d, the max power limit allowed is %d\n", powerLimit, o.MachineInfo.PowerMaxLimit[skt])
-		fmt.Printf("overwrite the power limit to %d \n", o.MachineInfo.PowerMaxLimit[skt])
+		klog.Infof("invalid power limit %d, the max power limit allowed is %d\n", powerLimit, o.MachineInfo.PowerMaxLimit[skt])
+		klog.Infof("overwrite the power limit to %d", o.MachineInfo.PowerMaxLimit[skt])
 		powerLimit = o.MachineInfo.PowerMaxLimit[skt]
 	}
 
