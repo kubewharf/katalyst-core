@@ -189,6 +189,8 @@ func (nc *NodeOvercommitController) Run() {
 
 	nc.reconcile()
 
+	go wait.Until(nc.cronWorker, time.Minute, nc.ctx.Done())
+
 	<-nc.ctx.Done()
 }
 
