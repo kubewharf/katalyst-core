@@ -51,9 +51,10 @@ type powerAwareController struct {
 	powerReader            reader.PowerReader
 	reconciler             PowerReconciler
 	powerLimitInitResetter power.InitResetter
+	inAlert                bool
 }
 
-func (p powerAwareController) Run(ctx context.Context) {
+func (p *powerAwareController) Run(ctx context.Context) {
 	if err := p.powerReader.Init(); err != nil {
 		klog.Errorf("pap: failed to initialize power reader: %v; exited", err)
 		return
@@ -70,7 +71,7 @@ func (p powerAwareController) Run(ctx context.Context) {
 	p.powerLimitInitResetter.Reset()
 }
 
-func (p powerAwareController) run(ctx context.Context) {
+func (p *powerAwareController) run(ctx context.Context) {
 	spec, err := p.specFetcher.GetPowerSpec(ctx)
 	if err != nil {
 		klog.Errorf("pap: getting power spec failed: %#v", err)
@@ -80,10 +81,16 @@ func (p powerAwareController) run(ctx context.Context) {
 	klog.V(6).Infof("pap: current power spec: %#v", *spec)
 
 	// remove power capping limit if any, on NONE alert
+	// only reset when an alert is gone
 	if spec.Alert == types.PowerAlertOK {
-		p.powerLimitInitResetter.Reset()
+		if p.inAlert {
+			p.inAlert = false
+			p.powerLimitInitResetter.Reset()
+		}
 		return
 	}
+
+	p.inAlert = true
 
 	if types.InternalOpPause == spec.InternalOp {
 		return
@@ -126,5 +133,6 @@ func NewController(dryRun bool, emitter metrics.MetricEmitter,
 			strategy: &ruleBasedPowerStrategy{coefficient: linearDecay{b: defaultDecayB}},
 		},
 		powerLimitInitResetter: limiter,
+		inAlert:                false,
 	}
 }
