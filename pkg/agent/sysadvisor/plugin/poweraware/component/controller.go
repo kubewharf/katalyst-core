@@ -64,6 +64,8 @@ func (p *powerAwareController) Run(ctx context.Context) {
 		return
 	}
 
+	klog.V(6).Infof("pap: Run: inAlert: %v", p.inAlert)
+
 	wait.Until(func() { p.run(ctx) }, intervalSpecFetch, ctx.Done())
 
 	klog.V(6).Info("pap: Run exit")
@@ -79,6 +81,7 @@ func (p *powerAwareController) run(ctx context.Context) {
 	}
 
 	klog.V(6).Infof("pap: current power spec: %#v", *spec)
+	klog.V(6).Infof("pap: inAlert: %v", p.inAlert)
 
 	// remove power capping limit if any, on NONE alert
 	// only reset when an alert is gone
