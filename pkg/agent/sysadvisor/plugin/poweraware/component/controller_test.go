@@ -74,8 +74,9 @@ func (dsr *dummyPowerLimitResetter) Init() error {
 	return nil
 }
 
-func (re *dummyPowerReconciler) Reconcile(ctx context.Context, desired *types.PowerSpec, actual int) {
+func (re *dummyPowerReconciler) Reconcile(ctx context.Context, desired *types.PowerSpec, actual int) (bool, error) {
 	re.called = true
+	return false, nil
 }
 
 type ctxKey string
@@ -187,8 +188,8 @@ func Test_powerAwareController_run_return_on_None_alert(t *testing.T) {
 		t.Errorf("expected power reader not calledGet, got %v", depPowerReader.calledGet)
 	}
 
-	if !depInitResetter.resetCalled {
-		t.Errorf("expected power capper to reset, got %v", depInitResetter.resetCalled)
+	if depInitResetter.resetCalled {
+		t.Errorf("unexpected power capper to reset")
 	}
 }
 

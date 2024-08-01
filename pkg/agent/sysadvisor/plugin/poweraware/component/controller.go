@@ -51,7 +51,7 @@ type powerAwareController struct {
 	powerReader            reader.PowerReader
 	reconciler             PowerReconciler
 	powerLimitInitResetter power.InitResetter
-	inAlert                bool
+	inFreqCap              bool
 }
 
 func (p *powerAwareController) Run(ctx context.Context) {
@@ -83,14 +83,12 @@ func (p *powerAwareController) run(ctx context.Context) {
 	// remove power capping limit if any, on NONE alert
 	// only reset when an alert is gone
 	if spec.Alert == types.PowerAlertOK {
-		if p.inAlert {
-			p.inAlert = false
+		if p.inFreqCap {
+			p.inFreqCap = false
 			p.powerLimitInitResetter.Reset()
 		}
 		return
 	}
-
-	p.inAlert = true
 
 	if types.InternalOpPause == spec.InternalOp {
 		return
@@ -110,7 +108,17 @@ func (p *powerAwareController) run(ctx context.Context) {
 	_ = p.emitter.StoreInt64(metricPowerAwareCurrentPowerInWatt, int64(currentWatts), metrics.MetricTypeNameRaw)
 	_ = p.emitter.StoreInt64(metricPowerAwareDesiredPowerInWatt, int64(spec.Budget), metrics.MetricTypeNameRaw)
 
-	p.reconciler.Reconcile(ctx, spec, currentWatts)
+	freqCapped, err := p.reconciler.Reconcile(ctx, spec, currentWatts)
+	if err != nil {
+		// not to log error, as there would be too many such logs - denial of service risk
+		klog.V(6).Infof("pap: reconcile error - %s", err)
+		// todo: report to metric dashboard
+		return
+	}
+
+	if freqCapped {
+		p.inFreqCap = true
+	}
 }
 
 func NewController(dryRun bool, emitter metrics.MetricEmitter,
@@ -133,6 +141,6 @@ func NewController(dryRun bool, emitter metrics.MetricEmitter,
 			strategy: &ruleBasedPowerStrategy{coefficient: linearDecay{b: defaultDecayB}},
 		},
 		powerLimitInitResetter: limiter,
-		inAlert:                false,
+		inFreqCap:              false,
 	}
 }

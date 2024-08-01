@@ -18,6 +18,7 @@ package component
 
 import (
 	"context"
+	"github.com/pkg/errors"
 	"time"
 
 	"k8s.io/klog/v2"
@@ -27,7 +28,10 @@ import (
 )
 
 type PowerReconciler interface {
-	Reconcile(ctx context.Context, desired *types.PowerSpec, actual int)
+	// Reconcile returns true if CPU frequency capping is involved
+	// this return is important as the cpu freq capping should be released
+	// when the alert is gone
+	Reconcile(ctx context.Context, desired *types.PowerSpec, actual int) (bool, error)
 }
 
 type powerReconciler struct {
@@ -39,13 +43,10 @@ type powerReconciler struct {
 	strategy PowerStrategy
 }
 
-func (p *powerReconciler) Reconcile(ctx context.Context, desired *types.PowerSpec, actual int) {
+func (p *powerReconciler) Reconcile(ctx context.Context, desired *types.PowerSpec, actual int) (bool, error) {
 	alertTimeLimit, err := types.GetPowerAlertResponseTimeLimit(desired.Alert)
 	if err != nil {
-		// not to log error, as there would be too many such logs - denial of service risk
-		klog.V(6).Infof("pap: read ipmi error - %s", err)
-		// todo: report to metric dashboard
-		return
+		return false, errors.Wrap(err, "GetPowerAlertResponseTimeLimit failed")
 	}
 	deadline := desired.AlertTime.Add(alertTimeLimit)
 	ttl := deadline.Sub(time.Now())
@@ -54,11 +55,11 @@ func (p *powerReconciler) Reconcile(ctx context.Context, desired *types.PowerSpe
 	if p.dryRun {
 		if p.priorAction == action {
 			// to throttle duplicate logs
-			return
+			return false, nil
 		}
 		klog.Infof("pap: dryRun: %s", action)
 		p.priorAction = action
-		return
+		return false, nil
 	}
 
 	klog.V(6).Infof("pap: reconcile action %#v", action)
@@ -67,11 +68,13 @@ func (p *powerReconciler) Reconcile(ctx context.Context, desired *types.PowerSpe
 	switch action.op {
 	case types.InternalOpFreqCap:
 		p.capper.Cap(ctx, action.arg, actual)
+		return true, nil
 	case types.InternalOpEvict:
 		p.evictor.Evict(ctx, action.arg)
+		return false, nil
 	default:
 		// no op
-		return
+		return false, nil
 	}
 }
 
