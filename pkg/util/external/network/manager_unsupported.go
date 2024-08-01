@@ -35,6 +35,11 @@ func (*unsupportedNetworkManager) ApplyNetClass(podUID, containerId string, data
 	return nil
 }
 
+// ListNetClass lists the net class config for all containers managed by kubernetes.
+func (*unsupportedNetworkManager) ListNetClass() ([]*common.NetClsData, error) {
+	return nil, nil
+}
+
 // ClearNetClass clears the net class config for a container.
 func (*unsupportedNetworkManager) ClearNetClass(cgroupID uint64) error {
 	return nil

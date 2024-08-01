@@ -708,12 +708,13 @@ func (p *StaticPolicy) applyNetClass() {
 		return
 	}
 
-	podList, err := p.metaServer.GetPodList(context.Background(), nil)
+	podList, err := p.metaServer.GetPodList(context.Background(), native.PodIsActive)
 	if err != nil {
 		general.Errorf("get pod list failed, err: %v", err)
 		return
 	}
 
+	activeNetClsData := make(map[uint64]*common.NetClsData)
 	for _, pod := range podList {
 		if pod == nil {
 			general.Errorf("get nil pod from metaServer")
@@ -731,33 +732,36 @@ func (p *StaticPolicy) applyNetClass() {
 		}
 
 		for _, container := range pod.Spec.Containers {
-			go func(podUID, containerName string, netClsData *common.NetClsData) {
-				containerID, err := p.metaServer.GetContainerID(podUID, containerName)
+			podUID := string(pod.GetUID())
+			containerName := container.Name
+			containerID, err := p.metaServer.GetContainerID(podUID, containerName)
+			if err != nil {
+				general.Errorf("get container id failed, pod: %s, container: %s(%s), err: %v",
+					podUID, containerName, containerID, err)
+				continue
+			}
+
+			if exist, err := common.IsContainerCgroupExist(podUID, containerID); err != nil {
+				general.Errorf("check if container cgroup exists failed, pod: %s, container: %s(%s), err: %v",
+					podUID, containerName, containerID, err)
+				continue
+			} else if !exist {
+				general.Infof("container cgroup does not exist, pod: %s, container: %s(%s)", podUID, containerName, containerID)
+				continue
+			}
+
+			if p.CgroupV2Env {
+				cgID, err := p.metaServer.ExternalManager.GetCgroupIDForContainer(podUID, containerID)
 				if err != nil {
-					general.Errorf("get container id failed, pod: %s, container: %s(%s), err: %v",
+					general.Errorf("get cgroup id failed, pod: %s, container: %s(%s), err: %v",
 						podUID, containerName, containerID, err)
-					return
+					continue
 				}
+				netClsData.CgroupID = cgID
+				activeNetClsData[cgID] = netClsData
+			}
 
-				if exist, err := common.IsContainerCgroupExist(podUID, containerID); err != nil {
-					general.Errorf("check if container cgroup exists failed, pod: %s, container: %s(%s), err: %v",
-						podUID, containerName, containerID, err)
-					return
-				} else if !exist {
-					general.Infof("container cgroup does not exist, pod: %s, container: %s(%s)", podUID, containerName, containerID)
-					return
-				}
-
-				if p.CgroupV2Env {
-					cgID, err := p.metaServer.ExternalManager.GetCgroupIDForContainer(podUID, containerID)
-					if err != nil {
-						general.Errorf("get cgroup id failed, pod: %s, container: %s(%s), err: %v",
-							podUID, containerName, containerID, err)
-						return
-					}
-					netClsData.CgroupID = cgID
-				}
-
+			go func(podUID, containerName string, netClsData *common.NetClsData) {
 				if err = p.applyNetClassFunc(podUID, containerID, netClsData); err != nil {
 					general.Errorf("apply net class failed, pod: %s, container: %s(%s), netClsData: %+v, err: %v",
 						podUID, containerName, containerID, *netClsData, err)
@@ -768,6 +772,10 @@ func (p *StaticPolicy) applyNetClass() {
 					podUID, containerName, containerID, *netClsData)
 			}(string(pod.UID), container.Name, netClsData)
 		}
+	}
+
+	if p.CgroupV2Env {
+		p.clearResidualNetClass(activeNetClsData)
 	}
 }
 
@@ -1036,4 +1044,25 @@ func (p *StaticPolicy) getSocketIDByNIC(ifName string) (int, error) {
 	}
 
 	return -1, fmt.Errorf("invalid NIC name - failed to find a matched NIC")
+}
+
+// clearResidualNetClass clear residual net class in cgroupv2 environment
+func (p *StaticPolicy) clearResidualNetClass(activeNetClsData map[uint64]*common.NetClsData) {
+	netClassList, err := p.metaServer.ExternalManager.ListNetClass()
+	if err != nil {
+		general.Errorf("list net class failed, err: %v", err)
+		return
+	}
+
+	for _, netClass := range netClassList {
+		if _, ok := activeNetClsData[netClass.CgroupID]; !ok {
+			go func(cgID uint64) {
+				general.Infof("clear residual net class, cgID: %v", cgID)
+				if err := p.metaServer.ExternalManager.ClearNetClass(cgID); err != nil {
+					general.Errorf("delete net class failed, cgID: %v, err: %v", cgID, err)
+					return
+				}
+			}(netClass.CgroupID)
+		}
+	}
 }

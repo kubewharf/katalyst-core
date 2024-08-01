@@ -25,6 +25,7 @@ import (
 	"sort"
 	"testing"
 
+	"bou.ke/monkey"
 	info "github.com/google/cadvisor/info/v1"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -46,7 +47,10 @@ import (
 	metaserveragent "github.com/kubewharf/katalyst-core/pkg/metaserver/agent"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/pod"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/external"
+	"github.com/kubewharf/katalyst-core/pkg/metaserver/external/cgroupid"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
+	"github.com/kubewharf/katalyst-core/pkg/util/cgroup/common"
+	"github.com/kubewharf/katalyst-core/pkg/util/external/network"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
@@ -1602,4 +1606,81 @@ func TestPreStartContainer(t *testing.T) {
 
 	_, err := policy.PreStartContainer(context.TODO(), req)
 	assert.NoError(t, err)
+}
+
+func TestStaticPolicy_applyNetClass(t *testing.T) {
+	t.Parallel()
+	defer monkey.UnpatchAll()
+
+	policy := makeStaticPolicy(t, true)
+	assert.NotNil(t, policy)
+	policy.CgroupV2Env = true
+	policy.metaServer.PodFetcher = &pod.PodFetcherStub{
+		PodList: []*v1.Pod{
+			{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-pod-name",
+					Namespace: "test-namespace",
+					UID:       "test-pod-uid",
+					Annotations: map[string]string{
+						consts.PodAnnotationNetClassKey: testSharedNetClsId,
+					},
+				},
+				Spec: v1.PodSpec{
+					Containers: []v1.Container{
+						{
+							Name: "test-container-name",
+						},
+					},
+				},
+				Status: v1.PodStatus{
+					ContainerStatuses: []v1.ContainerStatus{
+						{
+							Name:        "test-container-name",
+							ContainerID: "test-container-id",
+						},
+					},
+				},
+			},
+		},
+	}
+	policy.metaServer.ExternalManager = &external.DummyExternalManager{
+		CgroupIDManager: &cgroupid.CgroupIDManagerStub{
+			ContainerCGroupIDMap: map[string]map[string]uint64{
+				"test-pod-uid": {
+					"test-container-id": 314125,
+				},
+			},
+		},
+		NetworkManager: &network.NetworkManagerStub{
+			NetClassMap: map[string]map[string]*common.NetClsData{
+				"test-pod-uid": {
+					"test-container-id": {
+						ClassID:  0,
+						CgroupID: 314125,
+						Attributes: map[string]string{
+							testNetClassIDResourceAllocationAnnotationKey: testSharedNetClsId,
+						},
+					},
+				},
+				"resource-allocation-test-pod-uid": {
+					"test-container-id": {
+						ClassID:  0,
+						CgroupID: 242352,
+						Attributes: map[string]string{
+							testNetClassIDResourceAllocationAnnotationKey: testSharedNetClsId,
+						},
+					},
+				},
+			},
+		},
+	}
+
+	policy.applyNetClassFunc = policy.metaServer.ExternalManager.ApplyNetClass
+
+	monkey.Patch(common.IsContainerCgroupExist, func(podUID, containerID string) (bool, error) {
+		return true, nil
+	})
+
+	policy.applyNetClass()
 }
