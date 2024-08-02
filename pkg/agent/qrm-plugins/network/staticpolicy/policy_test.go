@@ -24,6 +24,7 @@ import (
 	"os"
 	"sort"
 	"testing"
+	"time"
 
 	"bou.ke/monkey"
 	info "github.com/google/cadvisor/info/v1"
@@ -1615,6 +1616,7 @@ func TestStaticPolicy_applyNetClass(t *testing.T) {
 	policy := makeStaticPolicy(t, true)
 	assert.NotNil(t, policy)
 	policy.CgroupV2Env = true
+	policy.aliveCgroupID = make(map[uint64]time.Time)
 	policy.metaServer.PodFetcher = &pod.PodFetcherStub{
 		PodList: []*v1.Pod{
 			{

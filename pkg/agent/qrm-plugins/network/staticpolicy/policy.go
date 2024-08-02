@@ -57,6 +57,11 @@ const (
 
 	// IPsSeparator is used to split merged IPs string
 	IPsSeparator = ","
+
+	// residualNetClassTTL is the ttl of residual net class in cgroupv2
+	residualNetClassTTL = 30 * time.Minute
+	// maxResidualNetClassNum is the max number of allowed net class in cgroupv2
+	maxResidualNetClassNum = 4096
 )
 
 // StaticPolicy is the static network policy
@@ -88,6 +93,9 @@ type StaticPolicy struct {
 
 	podAnnotationKeptKeys []string
 	podLabelKeptKeys      []string
+
+	// aliveCgroupID is used to record the alive cgroupIDs and their last alive time
+	aliveCgroupID map[uint64]time.Time
 }
 
 // NewStaticPolicy returns a static network policy
@@ -138,6 +146,7 @@ func NewStaticPolicy(agentCtx *agent.GenericContext, conf *config.Configuration,
 		qosLevelToNetClassMap: make(map[string]uint32),
 		podAnnotationKeptKeys: conf.PodAnnotationKeptKeys,
 		podLabelKeptKeys:      conf.PodLabelKeptKeys,
+		aliveCgroupID:         make(map[uint64]time.Time),
 	}
 
 	if common.CheckCgroup2UnifiedMode() {
@@ -1053,9 +1062,18 @@ func (p *StaticPolicy) clearResidualNetClass(activeNetClsData map[uint64]*common
 		general.Errorf("list net class failed, err: %v", err)
 		return
 	}
+	general.Infof("total %d net class list", len(netClassList))
 
+	now := time.Now()
+	residualNetClass := make(map[uint64]*common.NetClsData, len(netClassList))
 	for _, netClass := range netClassList {
+		residualNetClass[netClass.CgroupID] = netClass
 		if _, ok := activeNetClsData[netClass.CgroupID]; !ok {
+			lastAliveTime, alive := p.aliveCgroupID[netClass.CgroupID]
+			if alive && now.Before(lastAliveTime.Add(residualNetClassTTL)) &&
+				len(netClassList) < maxResidualNetClassNum/2 {
+				continue
+			}
 			go func(cgID uint64) {
 				general.Infof("clear residual net class, cgID: %v", cgID)
 				if err := p.metaServer.ExternalManager.ClearNetClass(cgID); err != nil {
@@ -1063,6 +1081,14 @@ func (p *StaticPolicy) clearResidualNetClass(activeNetClsData map[uint64]*common
 					return
 				}
 			}(netClass.CgroupID)
+		} else {
+			p.aliveCgroupID[netClass.CgroupID] = now
+		}
+	}
+
+	for cgID := range p.aliveCgroupID {
+		if _, ok := residualNetClass[cgID]; !ok {
+			delete(p.aliveCgroupID, cgID)
 		}
 	}
 }
