@@ -51,6 +51,7 @@ func testV1Manager(t *testing.T) {
 
 	testManager(t, "v1")
 	testNetCls(t, "v1")
+	testMemPressureV1(t)
 }
 
 func testV2Manager(t *testing.T) {
@@ -58,6 +59,7 @@ func testV2Manager(t *testing.T) {
 
 	testManager(t, "v2")
 	testSwapMax(t)
+	testMemPressure(t)
 }
 
 func testManager(t *testing.T, version string) {
@@ -80,6 +82,8 @@ func testManager(t *testing.T, version string) {
 
 	_, _ = GetMemoryWithRelativePath("/")
 	_, _ = GetMemoryWithAbsolutePath("/")
+	_, _ = GetMemoryPressureWithAbsolutePath("/", common.SOME)
+	_, _ = GetMemoryPressureWithAbsolutePath("/", common.FULL)
 	_, _ = GetCPUWithRelativePath("/")
 	_, _ = GetMetricsWithRelativePath("/", map[string]struct{}{"cpu": {}})
 	_, _ = GetPidsWithRelativePath("/")
@@ -166,4 +170,64 @@ func testSwapMax(t *testing.T) {
 	s, err = ioutil.ReadFile(sawpFile)
 	assert.NoError(t, err)
 	assert.Equal(t, fmt.Sprintf("%v", 0), string(s))
+}
+
+func testMemPressure(t *testing.T) {
+	defer monkey.UnpatchAll()
+	monkey.Patch(common.CheckCgroup2UnifiedMode, func() bool { return true })
+	monkey.Patch(GetManager, func() Manager { return v2.NewManager() })
+	monkey.Patch(cgroups.ReadFile, func(dir, file string) (string, error) {
+		f := filepath.Join(dir, file)
+		tmp, err := ioutil.ReadFile(f)
+		if err != nil {
+			return "", err
+		}
+		return string(tmp), nil
+	})
+	monkey.Patch(cgroups.WriteFile, func(dir, file, data string) error {
+		f := filepath.Join(dir, file)
+		return ioutil.WriteFile(f, []byte(data), 0o700)
+	})
+
+	rootDir := os.TempDir()
+	dir := filepath.Join(rootDir, "tmp")
+	err := os.Mkdir(dir, 0o700)
+	assert.NoError(t, err)
+
+	tmpDir, err := ioutil.TempDir(dir, "fake-cgroup")
+	assert.NoError(t, err)
+	defer os.RemoveAll(dir)
+
+	monkey.Patch(common.GetCgroupRootPath, func(s string) string {
+		t.Logf("rootDir=%v", rootDir)
+		return rootDir
+	})
+
+	content := "some avg10=1.00 avg60=2.00 avg300=3.00 total=67455876\nfull avg10=4.00 avg60=5.00 avg300=6.00 total=65331646\n"
+	statFile := filepath.Join(tmpDir, "memory.pressure")
+	err = ioutil.WriteFile(statFile, []byte(content), 0o700)
+	assert.NoError(t, err)
+
+	some, err := GetManager().GetMemoryPressure(tmpDir, common.SOME)
+	assert.NoError(t, err)
+	assert.Equal(t, "1", fmt.Sprint(some.Avg10))
+	assert.Equal(t, "2", fmt.Sprint(some.Avg60))
+	assert.Equal(t, "3", fmt.Sprint(some.Avg300))
+
+	full, err := GetManager().GetMemoryPressure(tmpDir, common.FULL)
+	assert.NoError(t, err)
+	assert.Equal(t, "4", fmt.Sprint(full.Avg10))
+	assert.Equal(t, "5", fmt.Sprint(full.Avg60))
+	assert.Equal(t, "6", fmt.Sprint(full.Avg300))
+
+	_, err = GetManager().GetMemoryPressure(tmpDir, 123)
+	assert.Error(t, err)
+}
+
+func testMemPressureV1(t *testing.T) {
+	some, err := GetManager().GetMemoryPressure("test", common.SOME)
+	assert.NoError(t, err)
+	assert.Equal(t, "0", fmt.Sprint(some.Avg10))
+	assert.Equal(t, "0", fmt.Sprint(some.Avg60))
+	assert.Equal(t, "0", fmt.Sprint(some.Avg300))
 }

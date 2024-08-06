@@ -36,6 +36,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric/helper"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
+	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 	"github.com/kubewharf/katalyst-core/pkg/util/native"
 	"github.com/kubewharf/katalyst-core/pkg/util/process"
 )
@@ -44,6 +45,13 @@ const (
 	EvictionPluginNameNumaMemoryPressure = "numa-memory-pressure-eviction-plugin"
 	EvictionScopeNumaMemory              = "NumaMemory"
 )
+
+const (
+	memLowReservePages = 1048576 // 4G
+	memGapPages        = 262144  // 1G
+)
+
+var hostZoneInfoFile = "/proc/zoneinfo"
 
 // NewNumaMemoryPressureEvictionPlugin returns a new MemoryPressureEvictionPlugin
 func NewNumaMemoryPressureEvictionPlugin(_ *client.GenericClientSet, _ events.EventRecorder,
@@ -121,36 +129,69 @@ func (n *NumaMemoryPressurePlugin) ThresholdMet(_ context.Context) (*pluginapi.T
 func (n *NumaMemoryPressurePlugin) detectNumaPressures() error {
 	var errList []error
 	n.isUnderNumaPressure = false
+
+	// step1, check zoneinfo
+	zoneinfo := machine.GetNormalZoneInfo(hostZoneInfoFile)
 	for _, numaID := range n.metaServer.CPUDetails.NUMANodes().ToSliceNoSortInt() {
 		n.numaActionMap[numaID] = actionNoop
 		if _, ok := n.numaFreeBelowWatermarkTimesMap[numaID]; !ok {
 			n.numaFreeBelowWatermarkTimesMap[numaID] = 0
 		}
 
-		if err := n.detectNumaWatermarkPressure(numaID); err != nil {
-			errList = append(errList, err)
-			continue
+		// Notice: the unit of free/min/low from zoneinfo is pages.
+		if numaID < len(zoneinfo) && zoneinfo[numaID].Node == int64(numaID) {
+			low := zoneinfo[numaID].Low
+			fileInactive := zoneinfo[numaID].FileInactive
+
+			// step2, add a compensation mechanism to prevent system thrashing due to insufficient file memory
+			fileReserved := general.Max(memLowReservePages, int(low))
+			if fileInactive < uint64(fileReserved) {
+				tmp := low + memGapPages
+				low = uint64(general.Max(memLowReservePages, int(tmp)))
+			}
+
+			// step3, compare mem.free, mem.low, mem.min
+			if err := n.detectNumaWatermarkPressure(numaID, int(zoneinfo[numaID].Free), int(zoneinfo[numaID].Min), int(low)); err != nil {
+				errList = append(errList, err)
+				continue
+			}
+		} else {
+			// If there is no watermark info in zoneinfo, fall back to applying info from metaServer
+			if err := n.detectNumaWatermarkPressure(numaID, 0, 0, 0); err != nil {
+				errList = append(errList, err)
+				continue
+			}
 		}
 	}
 
 	return errors.NewAggregate(errList)
 }
 
-func (n *NumaMemoryPressurePlugin) detectNumaWatermarkPressure(numaID int) error {
-	free, total, scaleFactor, err := helper.GetWatermarkMetrics(n.metaServer.MetricsFetcher, n.emitter, numaID)
-	if err != nil {
-		general.Errorf("failed to getWatermarkMetrics for numa %d, err: %v", numaID, err)
-		_ = n.emitter.StoreInt64(metricsNameFetchMetricError, 1, metrics.MetricTypeNameCount,
-			metrics.ConvertMapToTags(map[string]string{
-				metricsTagKeyNumaID: strconv.Itoa(numaID),
-			})...)
-		return err
+func (n *NumaMemoryPressurePlugin) isUnderAdditionalPressure(free, min, low int) bool {
+	return free < (min+low)/2 || (low > memGapPages && free < (low-memGapPages))
+}
+
+func (n *NumaMemoryPressurePlugin) detectNumaWatermarkPressure(numaID, free, min, low int) error {
+	if low <= 0 {
+		// If there is no watermark info in zoneinfo, fall back to applying info from metaServer
+		// Notice: the unit of freeMem here is bytes.
+		freeBytes, totalBytes, scaleFactor, err := helper.GetWatermarkMetrics(n.metaServer.MetricsFetcher, n.emitter, numaID)
+		if err != nil {
+			general.Errorf("failed to getWatermarkMetrics for numa %d, err: %v", numaID, err)
+			_ = n.emitter.StoreInt64(metricsNameFetchMetricError, 1, metrics.MetricTypeNameCount,
+				metrics.ConvertMapToTags(map[string]string{
+					metricsTagKeyNumaID: strconv.Itoa(numaID),
+				})...)
+			return err
+		}
+		free = general.ConvertBytesToPages(int(freeBytes))
+		low = general.ConvertBytesToPages(int(totalBytes * scaleFactor / 10000))
 	}
 
 	dynamicConfig := n.dynamicConfig.GetDynamicConfiguration()
 	general.Infof("numa watermark metrics of ID: %d, "+
-		"free: %+v, total: %+v, scaleFactor: %+v, numaFreeBelowWatermarkTimes: %+v, numaFreeBelowWatermarkTimesThreshold: %+v",
-		numaID, free, total, scaleFactor, n.numaFreeBelowWatermarkTimesMap[numaID],
+		"free pages: %+v, min pages: %+v, low pages: %+v, numaFreeBelowWatermarkTimes: %+v, numaFreeBelowWatermarkTimesThreshold: %+v",
+		numaID, free, min, low, n.numaFreeBelowWatermarkTimesMap[numaID],
 		dynamicConfig.NumaFreeBelowWatermarkTimesThreshold)
 	_ = n.emitter.StoreFloat64(metricsNameNumaMetric, float64(n.numaFreeBelowWatermarkTimesMap[numaID]), metrics.MetricTypeNameRaw,
 		metrics.ConvertMapToTags(map[string]string{
@@ -158,14 +199,20 @@ func (n *NumaMemoryPressurePlugin) detectNumaWatermarkPressure(numaID int) error
 			metricsTagKeyMetricName: metricsTagValueNumaFreeBelowWatermarkTimes,
 		})...)
 
-	if free < total*scaleFactor/10000 {
-		n.isUnderNumaPressure = true
-		n.numaActionMap[numaID] = actionReclaimedEviction
+	if free < low {
 		n.numaFreeBelowWatermarkTimesMap[numaID]++
+		if n.numaFreeBelowWatermarkTimesMap[numaID] > (dynamicConfig.NumaFreeBelowWatermarkTimesThreshold / 2) {
+			n.isUnderNumaPressure = true
+			n.numaActionMap[numaID] = actionReclaimedEviction
+		}
+
+		// avoid excessive pressure on LRU spinlock in kswapd
+		if n.numaFreeBelowWatermarkTimesMap[numaID] > 3 && n.isUnderAdditionalPressure(free, min, low) {
+			n.numaFreeBelowWatermarkTimesMap[numaID]++
+		}
 	} else {
 		n.numaFreeBelowWatermarkTimesMap[numaID] = 0
 	}
-
 	if n.numaFreeBelowWatermarkTimesMap[numaID] >= dynamicConfig.NumaFreeBelowWatermarkTimesThreshold {
 		n.numaActionMap[numaID] = actionEviction
 	}
@@ -244,10 +291,12 @@ func (n *NumaMemoryPressurePlugin) getCandidates(pods []*v1.Pod, numaID int, min
 		pod := pods[i]
 		totalMem, totalMemErr := helper.GetNumaMetric(n.metaServer.MetricsFetcher, n.emitter,
 			consts.MetricMemTotalNuma, numaID)
+		if totalMemErr != nil {
+			continue
+		}
 		usedMem, usedMemErr := helper.GetPodMetric(n.metaServer.MetricsFetcher, n.emitter, pod,
 			consts.MetricsMemTotalPerNumaContainer, numaID)
-		if totalMemErr != nil || usedMemErr != nil {
-			result = append(result, pod)
+		if usedMemErr != nil {
 			continue
 		}
 

@@ -30,15 +30,23 @@ type MemoryPressureEvictionOptions struct {
 	RSSOveruseEvictionFilter     string
 	SystemPressureSyncPeriod     int
 	SystemPressureCoolDownPeriod int
+	WorkloadPath                 string
+	MemPressureSomeThreshold     int
+	MemPressureFullThreshold     int
+	MemPressureDuration          int
 }
 
 // NewMemoryPressureEvictionOptions returns a new MemoryPressureEvictionOptions
 func NewMemoryPressureEvictionOptions() *MemoryPressureEvictionOptions {
 	return &MemoryPressureEvictionOptions{
-		SystemPressureSyncPeriod: 30,
+		SystemPressureSyncPeriod: 9,
 		// make sure the cool down period is greater than sync period in case it triggers many times eviction between
 		// two rounds of sync
 		SystemPressureCoolDownPeriod: 35,
+		WorkloadPath:                 "/sys/fs/cgroup/kubepods/burstable",
+		MemPressureSomeThreshold:     15,
+		MemPressureFullThreshold:     4,
+		MemPressureDuration:          15,
 	}
 }
 
@@ -52,6 +60,14 @@ func (o *MemoryPressureEvictionOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 		"system pressure plugin detection interval")
 	fs.IntVar(&o.SystemPressureCoolDownPeriod, "eviction-system-pressure-cool-down-period", o.SystemPressureCoolDownPeriod,
 		"the cool down time between system pressure plugin executes every two eviction")
+	fs.StringVar(&o.WorkloadPath, "workload-path", o.WorkloadPath,
+		"the path of workload")
+	fs.IntVar(&o.MemPressureSomeThreshold, "eviction-system-pressure-some-threshold", o.MemPressureSomeThreshold,
+		"the vaule of the threshold of memory.pressure.some")
+	fs.IntVar(&o.MemPressureFullThreshold, "eviction-system-pressure-full-threshold", o.MemPressureFullThreshold,
+		"the vaule of the threshold of memory.pressure.full")
+	fs.IntVar(&o.MemPressureDuration, "eviction-system-pressure-duration", o.MemPressureDuration,
+		"the vaule of the default duration set for period of high memory pressure")
 }
 
 // ApplyTo applies MemoryPressureEvictionOptions to MemoryPressureEvictionConfiguration
@@ -65,5 +81,9 @@ func (o *MemoryPressureEvictionOptions) ApplyTo(c *eviction.MemoryPressureEvicti
 	}
 	c.SystemPressureSyncPeriod = o.SystemPressureSyncPeriod
 	c.SystemPressureCoolDownPeriod = o.SystemPressureCoolDownPeriod
+	c.WorkloadPath = o.WorkloadPath
+	c.MemPressureSomeThreshold = o.MemPressureSomeThreshold
+	c.MemPressureFullThreshold = o.MemPressureFullThreshold
+	c.MemPressureDuration = o.MemPressureDuration
 	return nil
 }

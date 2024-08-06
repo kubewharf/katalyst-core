@@ -20,6 +20,7 @@ limitations under the License.
 package v2
 
 import (
+	"bufio"
 	"errors"
 	"fmt"
 	"io/ioutil"
@@ -317,6 +318,112 @@ func (m *manager) GetNumaMemory(absCgroupPath string) (map[int]*common.MemoryNum
 	}
 
 	return result, nil
+}
+
+func pressureTypeToString(t common.PressureType) string {
+	switch t {
+	case common.SOME:
+		return "some"
+	case common.FULL:
+		return "full"
+	default:
+		return "unreachable"
+	}
+}
+
+type PsiFormat int
+
+const (
+	UPSTREAM PsiFormat = iota
+	MISSING
+	INVALID
+)
+
+func getPsiFormat(lines []string) PsiFormat {
+	if strings.Contains(lines[0], "avg10") {
+		return UPSTREAM
+	} else if len(lines) == 0 {
+		return MISSING
+	}
+	return INVALID
+}
+
+func split(s, sep string) []string {
+	return strings.Split(s, sep)
+}
+
+func atou64(s string) uint64 {
+	f, err := strconv.ParseFloat(s, 64)
+	if err != nil {
+		return 0
+	}
+	return uint64(f)
+}
+
+func readRespressureFromLines(lines []string, t common.PressureType) (*common.MemoryPressure, error) {
+	typeName := pressureTypeToString(t)
+	var pressureLineIndex int
+	switch t {
+	case common.SOME:
+		pressureLineIndex = 0
+	case common.FULL:
+		pressureLineIndex = 1
+	}
+
+	switch getPsiFormat(lines) {
+	case UPSTREAM:
+		toks := split(lines[pressureLineIndex], " ")
+		if toks[0] != typeName {
+			return nil, errors.New("invalid type name")
+		}
+		avg10 := split(toks[1], "=")
+		if avg10[0] != "avg10" {
+			return nil, errors.New("invalid avg10 format")
+		}
+		avg60 := split(toks[2], "=")
+		if avg60[0] != "avg60" {
+			return nil, errors.New("invalid avg60 format")
+		}
+		avg300 := split(toks[3], "=")
+		if avg300[0] != "avg300" {
+			return nil, errors.New("invalid avg300 format")
+		}
+		total := split(toks[4], "=")
+		if total[0] != "total" {
+			return nil, errors.New("invalid total format")
+		}
+		return &common.MemoryPressure{
+			Avg10:  atou64(avg10[1]),
+			Avg60:  atou64(avg60[1]),
+			Avg300: atou64(avg300[1]),
+		}, nil
+
+	case MISSING:
+		return nil, errors.New("missing control file")
+	case INVALID:
+		return nil, errors.New("invalid format")
+	}
+	return nil, errors.New("unreachable")
+}
+
+func (m *manager) GetMemoryPressure(absCgroupPath string, t common.PressureType) (*common.MemoryPressure, error) {
+	pressureFile := filepath.Join(absCgroupPath, "memory.pressure")
+
+	file, err := os.Open(pressureFile)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+
+	var lines []string
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		lines = append(lines, scanner.Text())
+	}
+	if err := scanner.Err(); err != nil {
+		return nil, err
+	}
+	return readRespressureFromLines(lines, t)
 }
 
 func (m *manager) GetCPUSet(absCgroupPath string) (*common.CPUSetStats, error) {

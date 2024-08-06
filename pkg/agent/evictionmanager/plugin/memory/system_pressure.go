@@ -25,18 +25,23 @@ import (
 	"time"
 
 	v1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/tools/events"
 
+	apiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
 	pluginapi "github.com/kubewharf/katalyst-api/pkg/protocol/evictionplugin/v1alpha1"
 	"github.com/kubewharf/katalyst-core/pkg/agent/evictionmanager/plugin"
 	"github.com/kubewharf/katalyst-core/pkg/client"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic"
+	"github.com/kubewharf/katalyst-core/pkg/config/generic"
 	"github.com/kubewharf/katalyst-core/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric/helper"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
+	"github.com/kubewharf/katalyst-core/pkg/util/cgroup/common"
+	cgroupmgr "github.com/kubewharf/katalyst-core/pkg/util/cgroup/manager"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/native"
 	"github.com/kubewharf/katalyst-core/pkg/util/process"
@@ -47,6 +52,8 @@ const (
 	EvictionScopeSystemMemory              = "SystemMemory"
 	evictionConditionMemoryPressure        = "MemoryPressure"
 	syncTolerationTurns                    = 3
+	minMemPressure                         = 1
+	minPods                                = 3
 )
 
 func NewSystemPressureEvictionPlugin(_ *client.GenericClientSet, _ events.EventRecorder,
@@ -57,12 +64,18 @@ func NewSystemPressureEvictionPlugin(_ *client.GenericClientSet, _ events.EventR
 		emitter:                   emitter,
 		StopControl:               process.NewStopControl(time.Time{}),
 		metaServer:                metaServer,
+		supportedQosLevels:        sets.NewString(apiconsts.PodAnnotationQoSLevelDedicatedCores, apiconsts.PodAnnotationQoSLevelSharedCores),
 		evictionManagerSyncPeriod: conf.EvictionManagerSyncPeriod,
 		coolDownPeriod:            conf.SystemPressureCoolDownPeriod,
 		syncPeriod:                time.Duration(conf.SystemPressureSyncPeriod) * time.Second,
 		dynamicConfig:             conf.DynamicAgentConfiguration,
+		qosConf:                   conf.QoSConfiguration,
 		reclaimedPodFilter:        conf.CheckReclaimedQoSForPod,
 		evictionHelper:            NewEvictionHelper(emitter, metaServer, conf),
+		workloadPath:              conf.WorkloadPath,
+		memSomeThreshold:          conf.MemPressureSomeThreshold,
+		memFullThreshold:          conf.MemPressureFullThreshold,
+		memPressureDuration:       conf.MemPressureDuration,
 	}
 	return p
 }
@@ -79,10 +92,12 @@ type SystemPressureEvictionPlugin struct {
 	pluginName                string
 	metaServer                *metaserver.MetaServer
 	evictionHelper            *EvictionHelper
+	supportedQosLevels        sets.String
 
 	syncPeriod     time.Duration
 	coolDownPeriod int
 	dynamicConfig  *dynamic.DynamicAgentConfiguration
+	qosConf        *generic.QoSConfiguration
 
 	systemAction                   int
 	isUnderSystemPressure          bool
@@ -90,6 +105,13 @@ type SystemPressureEvictionPlugin struct {
 	kswapdStealPreviousCycleTime   time.Time
 	kswapdStealRateExceedStartTime *time.Time
 	lastEvictionTime               time.Time
+
+	// memory pressure protection
+	workloadMemHighPressureHitThresAt time.Time
+	workloadPath                      string
+	memSomeThreshold                  int
+	memFullThreshold                  int
+	memPressureDuration               int
 }
 
 func (s *SystemPressureEvictionPlugin) Name() string {
@@ -150,7 +172,9 @@ func (s *SystemPressureEvictionPlugin) detectSystemPressures(_ context.Context) 
 	s.systemAction = actionNoop
 
 	err = s.detectSystemWatermarkPressure()
-	err = s.detectSystemKswapdStealPressure()
+	if common.CheckCgroup2UnifiedMode() {
+		err = s.detectWorkloadMemPSI()
+	}
 
 	switch s.systemAction {
 	case actionReclaimedEviction:
@@ -191,6 +215,89 @@ func (s *SystemPressureEvictionPlugin) detectSystemWatermarkPressure() error {
 	if free < threshold {
 		s.isUnderSystemPressure = true
 		s.systemAction = actionReclaimedEviction
+	}
+	return nil
+}
+
+func (s *SystemPressureEvictionPlugin) detectWorkloadMemPSI() error {
+	workloadPath := s.workloadPath
+	memSomeThreshold := s.memSomeThreshold
+	memFullThreshold := s.memFullThreshold
+	duration := s.memPressureDuration
+
+	pressure, err := cgroupmgr.GetMemoryPressureWithAbsolutePath(workloadPath, common.SOME)
+	if err != nil {
+		general.Errorf("detectWorkloadMemPSI error: %v", err)
+		s.workloadMemHighPressureHitThresAt = time.Time{}
+		return err
+	}
+
+	now := time.Now()
+	if pressure.Avg10 >= uint64(memSomeThreshold) {
+		// calculate the mem.pressure of high qos jobs.
+		ctx := context.Background()
+		podList, err := s.metaServer.GetPodList(ctx, native.PodIsActive)
+		if err != nil {
+			general.Infof("get pod list failed: %v", err)
+			return err
+		}
+
+		var totalAvg10, avgAvg10, count, pressureCount uint64
+		for _, pod := range podList {
+			if pod == nil {
+				continue
+			}
+
+			qosLevel, err := s.qosConf.GetQoSLevelForPod(pod)
+			if err != nil {
+				general.Errorf("get qos level failed for pod %+v/%+v, skip check rss overuse, err: %v", pod.Namespace, pod.Name, err)
+				continue
+			}
+
+			if !s.supportedQosLevels.Has(qosLevel) {
+				continue
+			}
+
+			podUID := string(pod.UID)
+			absPath, err := common.GetPodAbsCgroupPath(common.CgroupSubsysMemory, podUID)
+			if err != nil {
+				continue
+			}
+			memPressure, err := cgroupmgr.GetMemoryPressureWithAbsolutePath(absPath, common.SOME)
+			if err != nil {
+				continue
+			}
+			if memPressure.Avg10 > minMemPressure {
+				pressureCount++
+			}
+			totalAvg10 += memPressure.Avg10
+			count++
+		}
+
+		if pressureCount < minPods {
+			return nil
+		}
+		if count > 0 {
+			avgAvg10 = totalAvg10 / count
+		}
+
+		if avgAvg10 >= uint64(memFullThreshold) {
+			if s.workloadMemHighPressureHitThresAt.IsZero() {
+				s.workloadMemHighPressureHitThresAt = now
+			}
+			diff := now.Sub(s.workloadMemHighPressureHitThresAt).Seconds()
+			general.Infof("Detect high mem.pressure: psi=%v, time=%v, dur=%v.\n", avgAvg10, s.workloadMemHighPressureHitThresAt, uint64(diff))
+			if uint64(diff) >= uint64(duration) {
+				s.isUnderSystemPressure = true
+				s.systemAction = actionReclaimedEviction
+			}
+			if uint64(diff) >= uint64(duration*3) {
+				s.systemAction = actionEviction
+			}
+			general.Infof("Trigger action:%v, thresholdMet: psi=%+v, duration=%+v", s.systemAction, avgAvg10, uint64(diff))
+		}
+	} else {
+		s.workloadMemHighPressureHitThresAt = time.Time{}
 	}
 	return nil
 }
