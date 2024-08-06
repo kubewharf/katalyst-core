@@ -587,14 +587,26 @@ func (p *DynamicPolicy) GetResourcesAllocation(_ context.Context,
 
 	podResources := make(map[string]*pluginapi.ContainerResources)
 	podEntries := p.state.GetPodResourceEntries()[v1.ResourceMemory]
+	needUpdateMachineState := false
 	for podUID, containerEntries := range podEntries {
 		if podResources[podUID] == nil {
 			podResources[podUID] = &pluginapi.ContainerResources{}
 		}
 
+		mainContainerAllocationInfo, _ := podEntries.GetMainContainerAllocation(podUID)
 		for containerName, allocationInfo := range containerEntries {
 			if allocationInfo == nil {
 				continue
+			}
+
+			if allocationInfo.CheckSideCar() && mainContainerAllocationInfo != nil {
+				if !allocationInfo.NumaAllocationResult.Equals(mainContainerAllocationInfo.NumaAllocationResult) {
+					general.Infof("pod: %s/%s sidecar container: %s update its allocation",
+						allocationInfo.PodNamespace, allocationInfo.PodName, allocationInfo.ContainerName)
+					allocationInfo.NumaAllocationResult = mainContainerAllocationInfo.NumaAllocationResult.Clone()
+					p.state.SetAllocationInfo(v1.ResourceMemory, podUID, containerName, allocationInfo)
+					needUpdateMachineState = true
+				}
 			}
 
 			if podResources[podUID].ContainerResources == nil {
@@ -612,6 +624,17 @@ func (p *DynamicPolicy) GetResourcesAllocation(_ context.Context,
 				return nil, fmt.Errorf(errMsg)
 			}
 		}
+	}
+
+	if needUpdateMachineState {
+		general.Infof("GetResourcesAllocation update machine state")
+		podResourceEntries := p.state.GetPodResourceEntries()
+		resourcesState, err := state.GenerateMachineStateFromPodEntries(p.state.GetMachineInfo(), podResourceEntries, p.state.GetReservedMemory())
+		if err != nil {
+			general.Infof("GetResourcesAllocation GenerateMachineStateFromPodEntries failed with error: %v", err)
+			return nil, fmt.Errorf("calculate machineState by updated pod entries failed with error: %v", err)
+		}
+		p.state.SetMachineState(resourcesState)
 	}
 
 	return &pluginapi.GetResourcesAllocationResponse{
@@ -758,14 +781,15 @@ func (p *DynamicPolicy) Allocate(ctx context.Context,
 		return nil, fmt.Errorf("getReqQuantityFromResourceReq failed with error: %v", err)
 	}
 
-	general.InfoS("called",
+	general.InfoS("Allocate is called",
 		"podNamespace", req.PodNamespace,
 		"podName", req.PodName,
 		"containerName", req.ContainerName,
 		"podType", req.PodType,
 		"podRole", req.PodRole,
 		"qosLevel", qosLevel,
-		"memoryReq(bytes)", reqInt)
+		"memoryReq(bytes)", reqInt,
+		"hint", req.Hint)
 
 	if req.ContainerType == pluginapi.ContainerType_INIT {
 		return &pluginapi.ResourceAllocationResponse{
@@ -838,7 +862,7 @@ func (p *DynamicPolicy) Allocate(ctx context.Context,
 	}()
 
 	allocationInfo := p.state.GetAllocationInfo(v1.ResourceMemory, req.PodUid, req.ContainerName)
-	if allocationInfo != nil && allocationInfo.AggregatedQuantity >= uint64(reqInt) {
+	if allocationInfo != nil && allocationInfo.AggregatedQuantity >= uint64(reqInt) && !util.PodIsInVPAResizing(req) {
 		general.InfoS("already allocated and meet requirement",
 			"podNamespace", req.PodNamespace,
 			"podName", req.PodName,
@@ -944,6 +968,10 @@ func (p *DynamicPolicy) getContainerRequestedMemoryBytes(allocationInfo *state.A
 		return 0
 	}
 
+	if allocationInfo.AggregatedQuantity != 0 {
+		return int(allocationInfo.AggregatedQuantity)
+	}
+
 	if p.metaServer == nil {
 		general.Errorf("got nil metaServer")
 		return 0
@@ -976,4 +1004,49 @@ func (p *DynamicPolicy) hasLastLevelEnhancementKey(lastLevelEnhancementKey strin
 
 	general.Infof("pod: %s does not have last level enhancement key: %s", podUID, lastLevelEnhancementKey)
 	return false
+}
+
+func (p *DynamicPolicy) checkNormalShareCoresResource(req *pluginapi.ResourceRequest) (bool, error) {
+	reqInt, _, err := util.GetQuantityFromResourceReq(req)
+	if err != nil {
+		return false, fmt.Errorf("GetQuantityFromResourceReq failed with error: %v", err)
+	}
+
+	shareCoresAllocated := uint64(reqInt)
+	podEntries := p.state.GetPodResourceEntries()[v1.ResourceMemory]
+	for podUid, containerEntries := range podEntries {
+		for containerName, containerAllocation := range containerEntries {
+			// skip the current container
+			if podUid == req.PodUid && containerName == req.ContainerName {
+				continue
+			}
+			// shareCoresAllocated should involve both main and sidecar containers
+			if containerAllocation.QoSLevel == apiconsts.PodAnnotationQoSLevelSharedCores && !containerAllocation.CheckNumaBinding() {
+				shareCoresAllocated += uint64(p.getContainerRequestedMemoryBytes(containerAllocation))
+			}
+		}
+	}
+
+	machineState := p.state.GetMachineState()
+	resourceState := machineState[v1.ResourceMemory]
+	numaWithoutNUMABindingPods := resourceState.GetNUMANodesWithoutNUMABindingPods()
+	numaAllocatableWithoutNUMABindingPods := uint64(0)
+	for _, numaID := range numaWithoutNUMABindingPods.ToSliceInt() {
+		numaAllocatableWithoutNUMABindingPods += resourceState[numaID].Allocatable
+	}
+
+	general.Infof("[checkNormalShareCoresResource] node memory allocated: %d, allocatable: %d", shareCoresAllocated, numaAllocatableWithoutNUMABindingPods)
+	if shareCoresAllocated > numaAllocatableWithoutNUMABindingPods {
+		general.Warningf("[checkNormalShareCoresResource] no enough memory resource for normal share cores pod: %s/%s, container: %s (allocated: %d, allocatable: %d)",
+			req.PodNamespace, req.PodName, req.ContainerName, shareCoresAllocated, numaAllocatableWithoutNUMABindingPods)
+		return false, nil
+	}
+
+	general.InfoS("checkNormalShareCoresResource memory successfully",
+		"podNamespace", req.PodNamespace,
+		"podName", req.PodName,
+		"containerName", req.ContainerName,
+		"reqInt", reqInt)
+
+	return true, nil
 }
