@@ -40,6 +40,7 @@ type MetricStore struct {
 	mutex sync.RWMutex
 
 	nodeMetricMap             map[string]MetricData                                  // map[metricName]data
+	packageMetricMap          map[int]map[string]MetricData                          // map[packageID]map[metricName]data
 	numaMetricMap             map[int]map[string]MetricData                          // map[numaID]map[metricName]data
 	deviceMetricMap           map[string]map[string]MetricData                       // map[deviceName]map[metricName]data
 	networkMetricMap          map[string]map[string]MetricData                       // map[networkName]map[metricName]data
@@ -54,6 +55,7 @@ type MetricStore struct {
 func NewMetricStore() *MetricStore {
 	return &MetricStore{
 		nodeMetricMap:             make(map[string]MetricData),
+		packageMetricMap:          make(map[int]map[string]MetricData),
 		numaMetricMap:             make(map[int]map[string]MetricData),
 		deviceMetricMap:           make(map[string]map[string]MetricData),
 		networkMetricMap:          make(map[string]map[string]MetricData),
@@ -70,6 +72,15 @@ func (c *MetricStore) SetNodeMetric(metricName string, data MetricData) {
 	c.mutex.Lock()
 	defer c.mutex.Unlock()
 	c.nodeMetricMap[metricName] = data
+}
+
+func (c *MetricStore) SetPackageMetric(packageID int, metricName string, data MetricData) {
+	c.mutex.Lock()
+	defer c.mutex.Unlock()
+	if _, ok := c.packageMetricMap[packageID]; !ok {
+		c.packageMetricMap[packageID] = make(map[string]MetricData)
+	}
+	c.packageMetricMap[packageID][metricName] = data
 }
 
 func (c *MetricStore) SetNumaMetric(numaID int, metricName string, data MetricData) {
@@ -162,6 +173,20 @@ func (c *MetricStore) GetNodeMetric(metricName string) (MetricData, error) {
 	} else {
 		return MetricData{}, errors.New(fmt.Sprintf("[MetricStore] load value failed, metric=%v", metricName))
 	}
+}
+
+func (c *MetricStore) GetPacketMetric(packetID int, metricName string) (MetricData, error) {
+	c.mutex.RLock()
+	defer c.mutex.RUnlock()
+
+	if c.packageMetricMap[packetID] != nil {
+		if data, ok := c.packageMetricMap[packetID][metricName]; ok {
+			return data, nil
+		} else {
+			return MetricData{}, errors.New(fmt.Sprintf("[MetricStore] load value failed, metric=%v, packageID=%v", metricName, packetID))
+		}
+	}
+	return MetricData{}, errors.New(fmt.Sprintf("[MetricStore] empty map, metric=%v, packageID=%v", metricName, packetID))
 }
 
 func (c *MetricStore) GetNumaMetric(numaID int, metricName string) (MetricData, error) {

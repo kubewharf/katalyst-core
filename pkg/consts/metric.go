@@ -142,9 +142,16 @@ const (
 	MetricMemBandwidthReadNuma   = "mem.bandwidth.read.numa"
 	MetricMemBandwidthWriteNuma  = "mem.bandwidth.write.numa"
 
+	// MetricMemBandwidthFinerNuma serves the similar purpose as MetricMemBandwidthNuma in MB per sec, but
+	// 1 - collecting metrics in a much shorter interval;
+	// 2 - able to support fake numa nodes.
+	MetricMemBandwidthFinerNuma = "mem.bandwidth.finer.numa"
+
 	MetricMemLatencyReadNuma      = "mem.latency.read.numa"
 	MetricMemLatencyWriteNuma     = "mem.latency.write.numa"
 	MetricMemAMDL3MissLatencyNuma = "mem.latency.amd.l3.miss"
+	// MetricMemL3PMCNuma is the L3 memory access latency measured at Package Memory Controller level, in nano sec
+	MetricMemL3PMCNuma = "mem.latency.l3.pmc.numa"
 )
 
 // System cpu compute metrics
@@ -377,4 +384,10 @@ const (
 	MetricsPodVolumeInodes     = "inodes.volume.pod.container"
 	MetricsPodVolumeInodesFree = "free.inodes.volume.pod.container"
 	MetricsPodVolumeInodesUsed = "used.inodes.volume.pod.container"
+)
+
+// Package (physical numa bode) metrics
+const (
+	MetricMemBandwidthRWPackage      = "mem.bandwidth.rw.package"
+	MetricMemBandwidthRWRatioPackage = "mem.bandwidth.rwratio.package"
 )
