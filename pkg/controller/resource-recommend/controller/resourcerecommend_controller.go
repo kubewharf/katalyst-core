@@ -114,7 +114,8 @@ func (r *ResourceRecommendController) Reconcile(ctx context.Context, req ctrl.Re
 		observedGeneration := resourceRecommend.Status.ObservedGeneration
 		if requeueAfter > time.Duration(0) && observedGeneration == resourceRecommend.GetGeneration() {
 			klog.InfoS("no spec change and not time to reconcile, skipping this reconcile", "requeueAfter", requeueAfter, "observedGeneration", observedGeneration, "generation", resourceRecommend.GetGeneration(), "resourceRecommendName", resourceRecommend.GetName())
-			return ctrl.Result{RequeueAfter: requeueAfter}, nil
+			//return ctrl.Result{RequeueAfter: requeueAfter}, nil
+			//todo: for test
 		}
 	}
 

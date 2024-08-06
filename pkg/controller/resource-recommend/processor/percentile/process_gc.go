@@ -18,18 +18,16 @@ package percentile
 
 import (
 	"context"
+	"k8s.io/apimachinery/pkg/labels"
 	"runtime/debug"
 	"time"
-
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/klog/v2"
-	k8sclient "sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/kubewharf/katalyst-api/pkg/apis/recommendation/v1alpha1"
 	"github.com/kubewharf/katalyst-core/pkg/controller/resource-recommend/processor/percentile/task"
 	"github.com/kubewharf/katalyst-core/pkg/util/resource-recommend/log"
 	processortypes "github.com/kubewharf/katalyst-core/pkg/util/resource-recommend/types/processor"
+	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/klog/v2"
 )
 
 func (p *Processor) GarbageCollector(ctx context.Context) {
@@ -78,10 +76,22 @@ func (p *Processor) garbageCollect(ctx context.Context) error {
 
 	// List all ResourceRecommend CR up to now
 	resourceRecommendList := &v1alpha1.ResourceRecommendList{}
-	err := p.Client.List(ctx, resourceRecommendList, &k8sclient.ListOptions{Raw: &metav1.ListOptions{ResourceVersion: "0"}})
+
+	// old way
+	//err := p.Client.List(ctx, resourceRecommendList, &k8sclient.ListOptions{Raw: &metav1.ListOptions{ResourceVersion: "0"}})
+	//if err != nil {
+	//	log.ErrorS(ctx, err, "garbage collect list all ResourceRecommend failed")
+	//	return err
+	//}
+
+	// new way
+	resourceRecommendArray, err := p.Lister.List(labels.Everything())
 	if err != nil {
 		log.ErrorS(ctx, err, "garbage collect list all ResourceRecommend failed")
 		return err
+	}
+	for _, v := range resourceRecommendArray {
+		resourceRecommendList.Items = append(resourceRecommendList.Items, *v)
 	}
 
 	// p.ClearingNoAttributionTask(resourceRecommendList)

@@ -18,6 +18,7 @@ package recommendation
 
 import (
 	"context"
+	"k8s.io/client-go/kubernetes"
 
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -94,6 +95,37 @@ func NewRecommendation(resourceRecommend *v1alpha1.ResourceRecommend) *Recommend
 		ObservedGeneration: resourceRecommend.Generation,
 		Conditions:         conditionstypes.NewResourceRecommendConditionsMap(),
 	}
+}
+
+func (r *Recommendation) DevSetConfig(ctx context.Context, client kubernetes.Interface,
+	resourceRecommend *v1alpha1.ResourceRecommend) *errortypes.CustomError {
+	targetRef, customErr := ValidateAndExtractTargetRef(resourceRecommend.Spec.TargetRef)
+	if customErr != nil {
+		klog.Errorf("spec.targetRef validate error, "+
+			"reason: %s, msg: %s", customErr.Code, customErr.Message)
+		return customErr
+	}
+
+	algorithmPolicy, customErr := ValidateAndExtractAlgorithmPolicy(resourceRecommend.Spec.ResourcePolicy.AlgorithmPolicy)
+	if customErr != nil {
+		klog.Errorf("spec.resourcePolicy.algorithmPolicy validate error,"+
+			" reason: %s, msg: %s", customErr.Code, customErr.Message)
+		return customErr
+	}
+
+	containers, customErr := DevValidateAndExtractContainers(ctx, client, resourceRecommend.Namespace, targetRef, resourceRecommend.Spec.ResourcePolicy.ContainerPolicies)
+	if customErr != nil {
+		klog.Errorf("spec.resourcePolicy.containerPolicies validate error, "+
+			"reason: %s, msg: %s", customErr.Code, customErr.Message)
+		return customErr
+	}
+
+	r.Config = Config{
+		TargetRef:       targetRef,
+		AlgorithmPolicy: algorithmPolicy,
+		Containers:      containers,
+	}
+	return nil
 }
 
 func (r *Recommendation) SetConfig(ctx context.Context, client k8sclient.Client,

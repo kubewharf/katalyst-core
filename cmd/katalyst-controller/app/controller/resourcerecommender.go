@@ -18,12 +18,10 @@ package controller
 
 import (
 	"context"
-
-	"k8s.io/klog/v2"
-
 	katalyst "github.com/kubewharf/katalyst-core/cmd/base"
 	"github.com/kubewharf/katalyst-core/pkg/config"
-	"github.com/kubewharf/katalyst-core/pkg/controller/resource-recommend/controller"
+	"github.com/kubewharf/katalyst-core/pkg/controller/resource-recommend/dev-controller"
+	"k8s.io/klog/v2"
 )
 
 const (
@@ -32,19 +30,40 @@ const (
 
 func StartResourceRecommenderController(
 	ctx context.Context,
-	_ *katalyst.GenericContext,
+	controlCtx *katalyst.GenericContext,
 	conf *config.Configuration,
 	_ interface{},
 	_ string,
 ) (bool, error) {
-	resourceRecommenderController, err := controller.NewResourceRecommenderController(ctx,
+	//resourceRecommenderController, err := controller.NewResourceRecommenderController(ctx,
+	//	conf.GenericConfiguration,
+	//	conf.ControllersConfiguration.ResourceRecommenderConfig)
+	//if err != nil {
+	//	klog.Errorf("failed to new ResourceRecommender controller")
+	//	return false, err
+	//}
+	//
+	//go resourceRecommenderController.Run()
+
+	oomRecorderController, err := controller.NewPodOOMRecorderController(ctx, controlCtx,
 		conf.GenericConfiguration,
+		conf.GenericControllerConfiguration,
 		conf.ControllersConfiguration.ResourceRecommenderConfig)
 	if err != nil {
-		klog.Errorf("failed to new ResourceRecommender controller")
+		klog.Errorf("failed to new PodOOMRecorder controller")
 		return false, err
 	}
+	recController, err := controller.NewResourceRecommendController(ctx, controlCtx,
+		conf.GenericConfiguration,
+		conf.GenericControllerConfiguration,
+		conf.ControllersConfiguration.ResourceRecommenderConfig,
+		oomRecorderController.Recorder)
+	if err != nil {
+		klog.Errorf("failed to new ResourceRecommend Controller")
+		return false, err
+	}
+	go oomRecorderController.Run()
+	go recController.Run()
 
-	go resourceRecommenderController.Run()
 	return true, nil
 }

@@ -19,6 +19,8 @@ package resource
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	v1 "k8s.io/api/apps/v1"
 
 	"github.com/pkg/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -28,7 +30,34 @@ import (
 	k8sclient "sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/kubewharf/katalyst-api/pkg/apis/recommendation/v1alpha1"
+
+	"k8s.io/client-go/kubernetes"
 )
+
+func DevConvertAndGetResource(ctx context.Context, client kubernetes.Interface, namespace string, targetRef v1alpha1.CrossVersionObjectReference) (*v1.Deployment, error) {
+	klog.V(5).Infof("get resource in targetRef: %v, namespace: %v", targetRef, namespace)
+	deployment, err := client.AppsV1().Deployments(namespace).Get(ctx, targetRef.Name, metav1.GetOptions{
+		TypeMeta: metav1.TypeMeta{
+			Kind:       targetRef.Kind,
+			APIVersion: targetRef.APIVersion,
+		},
+	})
+	if err != nil {
+		return nil, err
+	}
+	return deployment, nil
+}
+
+func DevGetAllClaimedContainers(deployment *v1.Deployment) ([]string, error) {
+	if deployment == nil {
+		return nil, fmt.Errorf("get containers failed, pod is nil object")
+	}
+	containerName := make([]string, 0, len(deployment.Spec.Template.Spec.Containers))
+	for _, v := range deployment.Spec.Template.Spec.Containers {
+		containerName = append(containerName, v.Name)
+	}
+	return containerName, nil
+}
 
 func ConvertAndGetResource(ctx context.Context, client k8sclient.Client, namespace string, targetRef v1alpha1.CrossVersionObjectReference) (*unstructured.Unstructured, error) {
 	klog.V(5).Infof("Get resource in", "targetRef", targetRef, "namespace", namespace)

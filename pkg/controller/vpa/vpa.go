@@ -110,6 +110,22 @@ func NewVPAController(ctx context.Context, controlCtx *katalyst_base.GenericCont
 	vpaRecInformer := controlCtx.InternalInformerFactory.Autoscaling().V1alpha1().VerticalPodAutoscalerRecommendations()
 
 	genericClient := controlCtx.Client
+
+	//pods := controlCtx.Client.KubeClient.CoreV1().Pods("default")
+	//deployments := controlCtx.Client.KubeClient.AppsV1().Deployments("default")
+	//if deployments != nil {
+	//
+	//	container, err := deployments.Get(ctx, "shared-normal-deployment", metav1.GetOptions{
+	//		TypeMeta: metav1.TypeMeta{
+	//			Kind:       "deployment",
+	//			APIVersion: "apps/v1",
+	//		},
+	//	})
+	//	if err != nil {
+	//	}
+	//	fmt.Print(container)
+	//}
+
 	vpaController := &VPAController{
 		ctx:                ctx,
 		conf:               vpaConf,
