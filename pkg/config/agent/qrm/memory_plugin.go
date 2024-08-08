@@ -36,6 +36,8 @@ type MemoryQRMPluginConfig struct {
 
 	// SockMemQRMPluginConfig: the configuration for sockmem limitation in cgroup and host level
 	SockMemQRMPluginConfig
+	// FragMemOptions: the configuration for memory compaction related features
+	FragMemOptions
 }
 
 type SockMemQRMPluginConfig struct {
@@ -45,6 +47,13 @@ type SockMemQRMPluginConfig struct {
 	SetGlobalTCPMemRatio int
 	// SetCgroupTCPMemRatio limit cgroup max tcp memory usage.
 	SetCgroupTCPMemRatio int
+}
+
+type FragMemOptions struct {
+	EnableSettingFragMem bool
+	// SetMemFragScoreAsync sets the threashold of frag score for async memory compaction.
+	// The async compaction behavior will be triggered while exceeding this score.
+	SetMemFragScoreAsync int
 }
 
 func NewMemoryQRMPluginConfig() *MemoryQRMPluginConfig {
