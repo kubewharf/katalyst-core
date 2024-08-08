@@ -1108,9 +1108,23 @@ func (p *DynamicPolicy) getContainerRequestedCores(allocationInfo *state.Allocat
 	cpuQuantity := native.CPUQuantityGetter()(container.Resources.Requests)
 	metaValue := general.MaxFloat64(float64(cpuQuantity.MilliValue())/1000.0, 0)
 
-	if metaValue != allocationInfo.RequestQuantity {
+	if state.CheckShared(allocationInfo) {
+		if state.CheckNUMABinding(allocationInfo) {
+			if metaValue < allocationInfo.RequestQuantity {
+				allocationInfo.RequestQuantity = metaValue
+				general.Infof("[snb] get cpu request quantity: %.3f for pod: %s/%s container: %s from podWatcher",
+					allocationInfo.RequestQuantity, allocationInfo.PodNamespace, allocationInfo.PodName, allocationInfo.ContainerName)
+			}
+		} else {
+			if metaValue != allocationInfo.RequestQuantity {
+				allocationInfo.RequestQuantity = metaValue
+				general.Infof("[share] get cpu request quantity: %.3f for pod: %s/%s container: %s from podWatcher",
+					allocationInfo.RequestQuantity, allocationInfo.PodNamespace, allocationInfo.PodName, allocationInfo.ContainerName)
+			}
+		}
+	} else if allocationInfo.RequestQuantity == 0 {
 		allocationInfo.RequestQuantity = metaValue
-		general.Infof("get cpu request quantity: %.3f for pod: %s/%s container: %s from podWatcher",
+		general.Infof("[other] get cpu request quantity: %.3f for pod: %s/%s container: %s from podWatcher",
 			allocationInfo.RequestQuantity, allocationInfo.PodNamespace, allocationInfo.PodName, allocationInfo.ContainerName)
 	}
 
