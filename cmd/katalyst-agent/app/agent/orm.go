@@ -31,7 +31,8 @@ const (
 )
 
 func InitORM(agentCtx *GenericContext, conf *config.Configuration, _ interface{}, _ string) (bool, Component, error) {
-	m, err := orm.NewManager(conf.PluginRegistrationDir+"/kubelet.sock", agentCtx.EmitterPool.GetDefaultMetricsEmitter(), agentCtx.MetaServer, conf)
+	m, err := orm.NewManager(conf.ORMPluginRegistrationDir+"/kubelet.sock", agentCtx.EmitterPool.GetDefaultMetricsEmitter(),
+		agentCtx.MetaServer, conf)
 	if err != nil {
 		return false, ComponentStub{}, fmt.Errorf("failed to init ORM: %v", err)
 	}

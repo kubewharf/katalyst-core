@@ -25,7 +25,12 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/consts"
 )
 
+const (
+	defaultORMPluginRegistrationDir = "/var/lib/katalyst/resource-plugins"
+)
+
 type GenericORMPluginOptions struct {
+	ORMPluginRegistrationDir        string
 	ORMWorkMode                     consts.WorkMode
 	ORMReconcilePeriod              time.Duration
 	ORMResourceNamesMap             map[string]string
@@ -43,6 +48,7 @@ type GenericORMPluginOptions struct {
 
 func NewGenericORMPluginOptions() *GenericORMPluginOptions {
 	return &GenericORMPluginOptions{
+		ORMPluginRegistrationDir:        defaultORMPluginRegistrationDir,
 		ORMWorkMode:                     consts.WorkModeBypass,
 		ORMReconcilePeriod:              time.Second * 5,
 		ORMResourceNamesMap:             map[string]string{},
@@ -62,6 +68,8 @@ func NewGenericORMPluginOptions() *GenericORMPluginOptions {
 func (o *GenericORMPluginOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 	fs := fss.FlagSet("orm")
 
+	fs.StringVar(&o.ORMPluginRegistrationDir, "orm-plugin-registration-dir", o.ORMPluginRegistrationDir,
+		"The path where the orm plugin manager finds the sockets of resource plugins")
 	fs.StringVar((*string)(&o.ORMWorkMode), "orm-work-mode", string(o.ORMWorkMode), "orm work mode, nri or bypass")
 	fs.DurationVar(&o.ORMReconcilePeriod, "orm-reconcile-period",
 		o.ORMReconcilePeriod, "orm resource reconcile period")
@@ -88,6 +96,7 @@ func (o *GenericORMPluginOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 }
 
 func (o *GenericORMPluginOptions) ApplyTo(conf *ormconfig.GenericORMConfiguration) error {
+	conf.ORMPluginRegistrationDir = o.ORMPluginRegistrationDir
 	conf.ORMWorkMode = o.ORMWorkMode
 	conf.ORMReconcilePeriod = o.ORMReconcilePeriod
 	conf.ORMResourceNamesMap = o.ORMResourceNamesMap
