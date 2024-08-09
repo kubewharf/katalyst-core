@@ -95,6 +95,7 @@ func NewMetaAgent(conf *config.Configuration, clientSet *client.GenericClientSet
 		KubeletConfigFetcher: kubeletconfig.NewKubeletConfigFetcher(conf.BaseConfiguration, emitter),
 	}
 
+	klog.V(6).Infof("metrics fetcher: is real fetcher to create: %v", conf.EnableMetricsFetcher)
 	if conf.EnableMetricsFetcher {
 		metaAgent.MetricsFetcher = metric.NewMetricsFetcher(conf.BaseConfiguration, conf.MetaServerConfiguration.MetricConfiguration, emitter, metaAgent)
 	} else {

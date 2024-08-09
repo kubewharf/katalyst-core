@@ -21,12 +21,17 @@ import (
 	"errors"
 	"time"
 
+	"k8s.io/klog/v2"
+
 	"github.com/kubewharf/katalyst-core/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	utilmetric "github.com/kubewharf/katalyst-core/pkg/util/metric"
 )
 
-const probeInterval = time.Second * 1
+const (
+	probeInterval       = time.Second * 1
+	metricsMemBandwidth = "mbw_samples"
+)
 
 type Sampler interface {
 	Startup(ctx context.Context) error
@@ -40,6 +45,7 @@ type mbwSampler struct {
 }
 
 func (m mbwSampler) Startup(ctx context.Context) error {
+	// todo: to support non-fake numa nodes
 	if !m.monitor.FakeNumaConfigured() {
 		return errors.New("not fake numa; memory bandwidth management not applicable")
 	}
@@ -54,10 +60,14 @@ func (m mbwSampler) Startup(ctx context.Context) error {
 func (m mbwSampler) Sample(ctx context.Context) {
 	now := time.Now()
 
+	// todo: send out more metrics to external metrics system
+	_ = m.emitter.StoreInt64(metricsMemBandwidth, 1, metrics.MetricTypeNameRaw)
+
 	// write per-NUMA memory-bandwidth
 	for i, numaMB := range m.monitor.GetMemoryBandwidthOfNUMAs() {
 		m.metricStore.SetNumaMetric(i, consts.MetricMemBandwidthFinerNuma,
 			utilmetric.MetricData{Value: float64(numaMB.Total), Time: &now})
+		klog.V(6).Infof("mbw: numa metrics: total %d mb", numaMB.Total)
 	}
 
 	// write per-package memory-bandwidth - Read & Write Bandwidth [r/w ratio]
@@ -66,6 +76,9 @@ func (m mbwSampler) Sample(ctx context.Context) {
 			utilmetric.MetricData{Value: float64(packageMB.Total), Time: &now})
 		m.metricStore.SetPackageMetric(i, consts.MetricMemBandwidthRWRatioPackage,
 			utilmetric.MetricData{Value: float64(packageMB.RMB_Delta) / float64(packageMB.WMB_Delta), Time: &now})
+		klog.V(6).Infof("mbw: package metrics: rw %d mbps, rw-ratio %f",
+			packageMB.Total,
+			float64(packageMB.RMB_Delta)/float64(packageMB.WMB_Delta))
 	}
 
 	// write avg L3 memory access latency for each numa
@@ -82,6 +95,7 @@ func (m mbwSampler) Sample(ctx context.Context) {
 				latency := averageLatency(numaInPackage, numaCCD[node], ccdL3Latency)
 				m.metricStore.SetNumaMetric(node, consts.MetricMemL3PMCNuma,
 					utilmetric.MetricData{Value: latency, Time: &now})
+				klog.V(6).Infof("mbw: package metrics: l3pmc %f ns", latency)
 			}
 		}
 	}

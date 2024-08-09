@@ -52,7 +52,7 @@ func (m *MBWMetricsProvisioner) Run(ctx context.Context) {
 	if !m.initialized {
 		m.initialized = true
 		if err := m.sampler.Startup(ctx); err != nil {
-			klog.Errorf("mbm: failed to initialize and start mbw monitor: %v", err)
+			klog.Errorf("mbw: failed to initialize and start mbw monitor: %v", err)
 			m.shouldNotRun = true
 			return
 		}
@@ -64,6 +64,8 @@ func (m *MBWMetricsProvisioner) Run(ctx context.Context) {
 func NewMBWMetricsProvisioner(config *global.BaseConfiguration, metricConf *metaserver.MetricConfiguration,
 	emitter metrics.MetricEmitter, _ pod.PodFetcher, metricStore *utilmetric.MetricStore,
 ) types.MetricsProvisioner {
+	klog.Infof("mbw: creating mbw metric provisioner")
+
 	m := MBWMetricsProvisioner{
 		metricStore: metricStore,
 		emitter:     emitter,
@@ -72,6 +74,7 @@ func NewMBWMetricsProvisioner(config *global.BaseConfiguration, metricConf *meta
 	var err error
 	mbwMonitor, err = monitor.NewMonitor(config.MachineInfoConfiguration)
 	if err != nil {
+		klog.Errorf("mbw: create provisioner failed: %v", err)
 		m.shouldNotRun = true
 	} else {
 		m.sampler = sampling.New(mbwMonitor, metricStore, emitter)

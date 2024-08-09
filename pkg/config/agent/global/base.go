@@ -57,10 +57,6 @@ type MachineInfoConfiguration struct {
 	// the allocatable to the capacity
 	SiblingNumaMemoryBandwidthCapacity        int64
 	SiblingNumaMemoryBandwidthAllocatableRate float64
-
-	// temporary fix - a few main commits after 480f were removed from mbw-metrics
-	// in order to base it on 480f only so to satisfy katalyst-adapter v1.159.0 build
-	SiblingNumaMaxDistance int64
 }
 
 type KubeletConfiguration struct {

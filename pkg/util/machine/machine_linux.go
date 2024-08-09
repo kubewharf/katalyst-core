@@ -65,6 +65,7 @@ func GetKatalystMachineInfo(conf *global.MachineInfoConfiguration) (*KatalystMac
 		ExtraCPUInfo:      extraCPUInfo,
 		ExtraNetworkInfo:  extraNetworkInfo,
 		ExtraTopologyInfo: extraTopologyInfo,
+		DieTopology:       &DieTopology{},
 	}, nil
 }
 

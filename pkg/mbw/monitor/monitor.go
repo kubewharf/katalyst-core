@@ -21,6 +21,8 @@ import (
 	"fmt"
 	"sync"
 
+	"k8s.io/klog/v2"
+
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/global"
 	"github.com/kubewharf/katalyst-core/pkg/mbw/utils"
 	"github.com/kubewharf/katalyst-core/pkg/mbw/utils/pci"
@@ -47,6 +49,7 @@ func newExtKatalystMachineInfo(machineInfoConfig *global.MachineInfoConfiguratio
 	if machineInfoConfig.SiblingNumaMaxDistance < MIN_NUMA_DISTANCE {
 		machineInfoConfig.SiblingNumaMaxDistance = MAX_NUMA_DISTANCE
 	}
+
 	info, err := machineWrapper.GetKatalystMachineInfo(machineInfoConfig)
 	if err != nil {
 		fmt.Println("Failed to initialize the katalyst machine info")
@@ -92,6 +95,9 @@ func newExtKatalystMachineInfo(machineInfoConfig *global.MachineInfoConfiguratio
 
 	// each package rmid is initialized to 0
 	info.RMIDPerPackage = make([]uint32, info.NumPackages)
+
+	// allocate l3 latency space for each CCD
+	info.MemoryLatency.L3Latency = make([]machine.L3PMCLatencyInfo, info.NumCCDs)
 
 	// initialize the AMD UMC if needed
 	if info.Is_Genoa() {
@@ -219,29 +225,43 @@ func (m MBMonitor) GlobalStats(ctx context.Context, refreshRate uint64) error {
 		m.ServeL3Latency,
 	}
 
-	return utils.TickUntilDone(ctx, refreshRate, func() error {
-		var wg sync.WaitGroup
+	go func() {
+		err := utils.TickUntilDone(ctx, refreshRate, func() error {
+			var wg sync.WaitGroup
 
-		errCh := make(chan error, len(serveFuncs))
+			errCh := make(chan error, len(serveFuncs))
 
-		for _, sf := range serveFuncs {
-			wg.Add(1)
-			go func(sf serveFunc) {
-				defer wg.Done()
-				errCh <- sf()
-			}(sf)
-		}
+			for _, sf := range serveFuncs {
+				// todo: remove log
+				klog.Infof("mbw: starting the background scanning threds: %#v", sf)
 
-		wg.Wait()
-		close(errCh)
-		for err := range errCh {
-			if err != nil {
-				return err
+				wg.Add(1)
+				go func(sf serveFunc) {
+					defer func() {
+						if r := recover(); r != nil {
+							klog.Errorf("mbw: crashed error: %v in thread %#v", r, sf)
+						}
+					}()
+					defer wg.Done()
+					errCh <- sf()
+				}(sf)
 			}
-		}
 
-		return nil
-	})
+			wg.Wait()
+			close(errCh)
+			for err := range errCh {
+				if err != nil {
+					return err
+				}
+			}
+
+			return nil
+		})
+
+		klog.Errorf("mbw: background periodcal scannings exit, error: %v", err)
+	}()
+
+	return nil
 }
 
 // ServeL3Latency() collects the latency between that a L3 cache line is missed to that it is loaded from memory to L3
