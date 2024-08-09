@@ -17,11 +17,60 @@ limitations under the License.
 package network
 
 import (
+	"sync"
+
 	"github.com/kubewharf/katalyst-core/pkg/util/cgroup/common"
 )
 
 // NetworkManager provides methods that control network resources.
 type NetworkManager interface {
+	// ApplyNetClass applies the net class config for a container.
 	ApplyNetClass(podUID, containerId string, data *common.NetClsData) error
+	// ListNetClass lists the net class config for all containers managed by kubernetes.
+	ListNetClass() ([]*common.NetClsData, error)
+	// ClearNetClass clears the net class config for a container.
 	ClearNetClass(cgroupID uint64) error
+}
+
+type NetworkManagerStub struct {
+	sync.RWMutex
+	NetClassMap map[string]map[string]*common.NetClsData
+}
+
+func (n *NetworkManagerStub) ApplyNetClass(podUID, containerId string, data *common.NetClsData) error {
+	n.Lock()
+	defer n.Unlock()
+	if _, ok := n.NetClassMap[podUID]; !ok {
+		n.NetClassMap[podUID] = make(map[string]*common.NetClsData)
+	}
+	n.NetClassMap[podUID][containerId] = data
+	return nil
+}
+
+func (n *NetworkManagerStub) ListNetClass() ([]*common.NetClsData, error) {
+	n.RLock()
+	defer n.RUnlock()
+	var netClassDataList []*common.NetClsData
+	for _, containerNetClassMap := range n.NetClassMap {
+		for _, netClassData := range containerNetClassMap {
+			netClassDataList = append(netClassDataList, netClassData)
+		}
+	}
+	return netClassDataList, nil
+}
+
+func (n *NetworkManagerStub) ClearNetClass(cgroupID uint64) error {
+	n.Lock()
+	defer n.Unlock()
+	for podUID, containerNetClassMap := range n.NetClassMap {
+		for containerID, netClassData := range containerNetClassMap {
+			if netClassData.CgroupID == cgroupID {
+				delete(containerNetClassMap, containerID)
+				if len(containerNetClassMap) == 0 {
+					delete(n.NetClassMap, podUID)
+				}
+			}
+		}
+	}
+	return nil
 }
