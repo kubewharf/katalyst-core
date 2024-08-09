@@ -51,6 +51,9 @@ const (
 	MetricNameMemoryNumaBalance                       = "memory_handle_numa_balance"
 	MetricNameMemoryNumaBalanceCost                   = "memory_numa_balance_cost"
 	MetricNameMemoryNumaBalanceResult                 = "memory_numa_balance_result"
+
+	// metrics for some cases
+	MetricNameShareCoresNoEnoughResourceFailed = "share_cores_no_enough_resource"
 )
 
 // those are OCI property names to be used by QRM plugins

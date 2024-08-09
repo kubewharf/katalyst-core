@@ -48,19 +48,51 @@ func (p *DynamicPolicy) sharedCoresHintHandler(ctx context.Context,
 		return nil, fmt.Errorf("got nil request")
 	}
 
-	if !qosutil.AnnotationsIndicateNUMABinding(req.Annotations) {
-		return util.PackResourceHintsResponse(req, string(v1.ResourceCPU),
-			map[string]*pluginapi.ListOfTopologyHints{
-				string(v1.ResourceCPU): nil, // indicates that there is no numa preference
-			})
+	if qosutil.AnnotationsIndicateNUMABinding(req.Annotations) {
+		return p.sharedCoresWithNUMABindingHintHandler(ctx, req)
 	}
 
-	return p.sharedCoresWithNUMABindingHintHandler(ctx, req)
+	ok, err := p.checkNormalShareCoresCpuResource(req)
+	if err != nil {
+		general.Errorf("failed to check share cores cpu resource for pod: %s/%s, container: %s",
+			req.PodNamespace, req.PodName, req.ContainerName)
+		return nil, fmt.Errorf("failed to check share cores cpu resource: %q", err)
+	}
+
+	if !ok {
+		_ = p.emitter.StoreInt64(util.MetricNameShareCoresNoEnoughResourceFailed, 1, metrics.MetricTypeNameCount, []metrics.MetricTag{
+			{
+				Key: "resource",
+				Val: "cpu",
+			},
+			{
+				Key: "userPodNs",
+				Val: req.PodNamespace,
+			},
+			{
+				Key: "userPodName",
+				Val: req.PodName,
+			},
+			{
+				Key: "userContainerName",
+				Val: req.ContainerName,
+			},
+		}...)
+		return nil, fmt.Errorf("no enough cpu resource")
+	}
+
+	return util.PackResourceHintsResponse(req, string(v1.ResourceCPU),
+		map[string]*pluginapi.ListOfTopologyHints{
+			string(v1.ResourceCPU): nil, // indicates that there is no numa preference
+		})
 }
 
 func (p *DynamicPolicy) reclaimedCoresHintHandler(ctx context.Context,
 	req *pluginapi.ResourceRequest,
 ) (*pluginapi.ResourceHintsResponse, error) {
+	if util.PodIsInVPAResizing(req) {
+		return nil, fmt.Errorf("not support VPA for reclaimed cores")
+	}
 	return p.sharedCoresHintHandler(ctx, req)
 }
 
@@ -69,6 +101,10 @@ func (p *DynamicPolicy) dedicatedCoresHintHandler(ctx context.Context,
 ) (*pluginapi.ResourceHintsResponse, error) {
 	if req == nil {
 		return nil, fmt.Errorf("dedicatedCoresHintHandler got nil req")
+	}
+
+	if util.PodIsInVPAResizing(req) {
+		return nil, fmt.Errorf("not support VPA for dedicated cores")
 	}
 
 	switch req.Annotations[apiconsts.PodAnnotationMemoryEnhancementNumaBinding] {
@@ -503,7 +539,8 @@ func (p *DynamicPolicy) sharedCoresWithNUMABindingHintHandler(_ context.Context,
 			})
 	}
 
-	reqInt, _, err := util.GetQuantityFromResourceReq(req)
+	// calc the hints with the pod aggregated request
+	reqInt, _, err := util.GetPodAggregatedRequestResource(req)
 	if err != nil {
 		return nil, fmt.Errorf("getReqQuantityFromResourceReq failed with error: %v", err)
 	}
@@ -519,23 +556,73 @@ func (p *DynamicPolicy) sharedCoresWithNUMABindingHintHandler(_ context.Context,
 
 		// regenerateHints failed. need to clear container record and re-calculate.
 		if hints == nil {
-			delete(podEntries[req.PodUid], req.ContainerName)
-			if len(podEntries[req.PodUid]) == 0 {
-				delete(podEntries, req.PodUid)
-			}
-
-			var err error
 			// [TODO]: generateMachineStateFromPodEntries adapts to shared_cores with numa_binding
-			machineState, err = generateMachineStateFromPodEntries(p.machineInfo.CPUTopology, podEntries)
+			machineState, err = p.clearContainerAndRegenerateMachineState(podEntries, req)
 			if err != nil {
-				general.Errorf("pod: %s/%s, container: %s GenerateMachineStateFromPodEntries failed with error: %v",
+				general.Errorf("pod: %s/%s, container: %s clearContainerAndRegenerateMachineState failed with error: %v",
 					req.PodNamespace, req.PodName, req.ContainerName, err)
 				return nil, fmt.Errorf("GenerateMachineStateFromPodEntries failed with error: %v", err)
 			}
 		}
+	} else if util.PodIsInVPAResizing(req) {
+		general.Errorf("pod: %s/%s, container: %s request to cpu VPA resize, but no origin allocation info",
+			req.PodNamespace, req.PodName, req.ContainerName)
+		return nil, fmt.Errorf("no origin allocation info")
 	}
 
-	if hints == nil {
+	general.Infof("pod: %s/%s, container: %s, VPA: %v", req.PodNamespace, req.PodName, req.ContainerName, util.PodIsInVPAResizing(req))
+	if util.PodIsInVPAResizing(req) {
+		numaset := allocationInfo.GetAllocationResultNUMASet()
+		if numaset.Size() != 1 {
+			general.Errorf("pod: %s/%s, container: %s is snb, but its numa set size is %d",
+				req.PodNamespace, req.PodName, req.ContainerName, numaset.Size())
+		}
+		nodeID := numaset.ToSliceInt()[0]
+		availableCPUQuantity := machineState[nodeID].GetAvailableCPUQuantity(p.reservedCPUs)
+		allocatedReq, ok := allocationInfo.GetPodAggregatedRequest()
+		if !ok {
+			allocatedReq = 0
+			containerEntries := podEntries[req.PodUid]
+			for _, containerEntry := range containerEntries {
+				allocatedReq += containerEntry.RequestQuantity
+			}
+		}
+		allocatedReqInt := int(allocatedReq)
+
+		general.Infof("pod: %s/%s, container: %s request cpu VPA on numa %d (available: %d, allocated: %d, request: %d)",
+			req.PodNamespace, req.PodName, req.ContainerName, nodeID, availableCPUQuantity, allocatedReqInt, reqInt)
+		if allocatedReqInt < reqInt && reqInt-allocatedReqInt > availableCPUQuantity { // no left resource to scale out
+			general.Infof("pod: %s/%s, container: %s request cpu VPA, but no enough resource for it in current NUMA, checking migratable",
+				req.PodNamespace, req.PodName, req.ContainerName)
+			// FIXME move isVPAMigratable to config
+			isVpaMigratable := false
+			if isVpaMigratable {
+				machineState, err = p.clearContainerAndRegenerateMachineState(podEntries, req)
+				if err != nil {
+					general.Errorf("pod: %s/%s, container: %s clearContainerAndRegenerateMachineState failed in VPA mode with error: %v",
+						req.PodNamespace, req.PodName, req.ContainerName, err)
+					return nil, err
+				}
+
+				general.Infof("pod: %s/%s, container: %s request VPA and no enough resource in current NUMA, try to migrate it to new NUMA",
+					req.PodNamespace, req.PodName, req.ContainerName)
+				var calculateErr error
+				hints, calculateErr = p.calculateHintsForNUMABindingSharedCores(reqInt, podEntries, machineState, req.Annotations)
+				if calculateErr != nil {
+					general.Errorf("pod: %s/%s, container: %s request VPA and no enough resource in current NUMA, failed to migrate it to new NUMA",
+						req.PodNamespace, req.PodName, req.ContainerName)
+					return nil, fmt.Errorf("calculateHintsForNUMABindingSharedCores failed in VPA mode with error: %v", calculateErr)
+				}
+			} else {
+				general.Errorf("pod: %s/%s, container: %s request VPA, but no enough resource for it in current NUMA",
+					req.PodNamespace, req.PodName, req.ContainerName)
+				return nil, fmt.Errorf("VPA scale out failed with no enough resource")
+			}
+		} else {
+			general.Infof("pod: %s/%s, container: %s request VPA, there is enough resource for it in current NUMA",
+				req.PodNamespace, req.PodName, req.ContainerName)
+		}
+	} else if hints == nil {
 		var calculateErr error
 		hints, calculateErr = p.calculateHintsForNUMABindingSharedCores(reqInt, podEntries, machineState, req.Annotations)
 		if calculateErr != nil {
@@ -544,6 +631,22 @@ func (p *DynamicPolicy) sharedCoresWithNUMABindingHintHandler(_ context.Context,
 	}
 
 	return util.PackResourceHintsResponse(req, string(v1.ResourceCPU), hints)
+}
+
+func (p *DynamicPolicy) clearContainerAndRegenerateMachineState(podEntries state.PodEntries, req *pluginapi.ResourceRequest) (state.NUMANodeMap, error) {
+	delete(podEntries[req.PodUid], req.ContainerName)
+	if len(podEntries[req.PodUid]) == 0 {
+		delete(podEntries, req.PodUid)
+	}
+
+	var err error
+	// [TODO]: generateMachineStateFromPodEntries adapts to shared_cores with numa_binding
+	machineState, err := generateMachineStateFromPodEntries(p.machineInfo.CPUTopology, podEntries)
+	if err != nil {
+		return nil, fmt.Errorf("GenerateMachineStateFromPodEntries failed with error: %v", err)
+	}
+
+	return machineState, nil
 }
 
 func (p *DynamicPolicy) populateHintsByPreferPolicy(numaNodes []int, preferPolicy string,

@@ -420,3 +420,46 @@ func CountAllocationInfosToPoolsQuantityMap(allocationInfos []*AllocationInfo,
 
 	return nil
 }
+
+func GetSharedNUMABindingTargetNuma(allocationInfo *AllocationInfo) (int, error) {
+	var numaSet machine.CPUSet
+	poolName := allocationInfo.GetOwnerPoolName()
+
+	if poolName == EmptyOwnerPoolName {
+		var pErr error
+		poolName, pErr = allocationInfo.GetSpecifiedNUMABindingPoolName()
+		if pErr != nil {
+			return FakedNUMAID, fmt.Errorf("GetSpecifiedNUMABindingPoolName for %s/%s/%s failed with error: %v",
+				allocationInfo.PodNamespace, allocationInfo.PodName, allocationInfo.ContainerName, pErr)
+		}
+
+		numaSet, pErr = machine.Parse(allocationInfo.Annotations[cpuconsts.CPUStateAnnotationKeyNUMAHint])
+		if pErr != nil {
+			return FakedNUMAID, fmt.Errorf("parse numaHintStr: %s failed with error: %v",
+				allocationInfo.Annotations[cpuconsts.CPUStateAnnotationKeyNUMAHint], pErr)
+		}
+
+		general.Infof(" %s/%s/%s count to specified NUMA binding pool name: %s, numaSet: %s",
+			allocationInfo.PodNamespace, allocationInfo.PodName, allocationInfo.ContainerName, poolName, numaSet.String())
+	} else {
+		// already in a valid pool (numa aware pool or isolation pool)
+		numaSet = allocationInfo.GetAllocationResultNUMASet()
+
+		general.Infof(" %s/%s/%s count to non-empty owner pool name: %s, numaSet: %s",
+			allocationInfo.PodNamespace, allocationInfo.PodName, allocationInfo.ContainerName, poolName, numaSet.String())
+	}
+
+	if numaSet.Size() != 1 {
+		return FakedNUMAID, fmt.Errorf("numaHintStr: %s indicates invalid numaSet size for numa_binding shared_cores",
+			allocationInfo.Annotations[cpuconsts.CPUStateAnnotationKeyNUMAHint])
+	}
+
+	targetNUMAID := numaSet.ToSliceNoSortInt()[0]
+
+	if targetNUMAID < 0 {
+		return FakedNUMAID, fmt.Errorf("numaHintStr: %s indicates invalid numaSet numa_binding shared_cores",
+			allocationInfo.Annotations[cpuconsts.CPUStateAnnotationKeyNUMAHint])
+	}
+
+	return targetNUMAID, nil
+}
