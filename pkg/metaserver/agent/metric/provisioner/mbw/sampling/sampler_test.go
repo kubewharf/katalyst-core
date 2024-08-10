@@ -213,6 +213,7 @@ func Test_mbwSampler_Sample(t *testing.T) {
 			name: "nil return is ok",
 			fields: fields{
 				monitor: &mockMBMonitor{},
+				emitter: metrics_pool.DummyMetricsEmitterPool{}.GetDefaultMetricsEmitter(),
 			},
 			args: args{},
 		},
