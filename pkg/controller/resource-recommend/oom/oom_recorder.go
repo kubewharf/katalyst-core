@@ -19,6 +19,9 @@ package oom
 import (
 	"context"
 	"encoding/json"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	corev1 "k8s.io/client-go/kubernetes/typed/core/v1"
 	"sort"
 	"sync"
 	"time"
@@ -26,7 +29,6 @@ import (
 	"github.com/pkg/errors"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
-	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog/v2"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -53,7 +55,7 @@ type OOMRecord struct {
 }
 
 type PodOOMRecorder struct {
-	client.Client
+	Client corev1.CoreV1Interface
 
 	mu sync.Mutex
 
@@ -142,12 +144,10 @@ func (r *PodOOMRecorder) updateOOMRecordConfigMap() error {
 		return err
 	}
 	oomConfigMap := &v1.ConfigMap{}
-	err = r.Client.Get(context.TODO(), types.NamespacedName{
-		Namespace: ConfigMapOOMRecordNameSpace,
-		Name:      ConfigMapOOMRecordName,
-	}, oomConfigMap)
+	oomConfigMap, err = r.Client.ConfigMaps(ConfigMapOOMRecordNameSpace).
+		Get(context.TODO(), ConfigMapOOMRecordName, metav1.GetOptions{})
 	if err != nil {
-		if client.IgnoreNotFound(err) != nil {
+		if apierrors.IsNotFound(err) {
 			return err
 		}
 		oomConfigMap.Name = ConfigMapOOMRecordName
@@ -155,12 +155,14 @@ func (r *PodOOMRecorder) updateOOMRecordConfigMap() error {
 		oomConfigMap.Data = map[string]string{
 			ConfigMapDataOOMRecord: string(cacheData),
 		}
-		return r.Client.Create(context.TODO(), oomConfigMap)
+		_, err = r.Client.ConfigMaps(ConfigMapOOMRecordNameSpace).Create(context.TODO(), oomConfigMap, metav1.CreateOptions{})
+		return err
 	}
 	oomConfigMap.Data = map[string]string{
 		ConfigMapDataOOMRecord: string(cacheData),
 	}
-	return r.Client.Update(context.TODO(), oomConfigMap)
+	_, err = r.Client.ConfigMaps(ConfigMapOOMRecordNameSpace).Update(context.TODO(), oomConfigMap, metav1.UpdateOptions{})
+	return err
 }
 
 func (r *PodOOMRecorder) Run(stopCh <-chan struct{}) error {
@@ -213,10 +215,8 @@ func (r *PodOOMRecorder) Run(stopCh <-chan struct{}) error {
 
 func (r *PodOOMRecorder) ListOOMRecordsFromConfigmap() ([]OOMRecord, error) {
 	oomConfigMap := &v1.ConfigMap{}
-	err := r.Client.Get(context.TODO(), types.NamespacedName{
-		Namespace: ConfigMapOOMRecordNameSpace,
-		Name:      ConfigMapOOMRecordName,
-	}, oomConfigMap)
+	oomConfigMap, err := r.Client.ConfigMaps(ConfigMapOOMRecordNameSpace).
+		Get(context.TODO(), ConfigMapOOMRecordName, metav1.GetOptions{})
 	if err != nil {
 		return nil, client.IgnoreNotFound(err)
 	}

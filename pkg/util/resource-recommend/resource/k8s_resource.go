@@ -21,22 +21,20 @@ import (
 	"encoding/json"
 	"fmt"
 	v1 "k8s.io/api/apps/v1"
+	appsv1 "k8s.io/client-go/kubernetes/typed/apps/v1"
 
 	"github.com/pkg/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	k8stypes "k8s.io/apimachinery/pkg/types"
 	"k8s.io/klog/v2"
 	k8sclient "sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/kubewharf/katalyst-api/pkg/apis/recommendation/v1alpha1"
-
-	"k8s.io/client-go/kubernetes"
 )
 
-func DevConvertAndGetResource(ctx context.Context, client kubernetes.Interface, namespace string, targetRef v1alpha1.CrossVersionObjectReference) (*v1.Deployment, error) {
+func ConvertAndGetResource(ctx context.Context, client appsv1.AppsV1Interface, namespace string, targetRef v1alpha1.CrossVersionObjectReference) (*v1.Deployment, error) {
 	klog.V(5).Infof("get resource in targetRef: %v, namespace: %v", targetRef, namespace)
-	deployment, err := client.AppsV1().Deployments(namespace).Get(ctx, targetRef.Name, metav1.GetOptions{
+	deployment, err := client.Deployments(namespace).Get(ctx, targetRef.Name, metav1.GetOptions{
 		TypeMeta: metav1.TypeMeta{
 			Kind:       targetRef.Kind,
 			APIVersion: targetRef.APIVersion,
@@ -48,7 +46,7 @@ func DevConvertAndGetResource(ctx context.Context, client kubernetes.Interface, 
 	return deployment, nil
 }
 
-func DevGetAllClaimedContainers(deployment *v1.Deployment) ([]string, error) {
+func GetAllClaimedContainers(deployment *v1.Deployment) ([]string, error) {
 	if deployment == nil {
 		return nil, fmt.Errorf("get containers failed, pod is nil object")
 	}
@@ -57,51 +55,6 @@ func DevGetAllClaimedContainers(deployment *v1.Deployment) ([]string, error) {
 		containerName = append(containerName, v.Name)
 	}
 	return containerName, nil
-}
-
-func ConvertAndGetResource(ctx context.Context, client k8sclient.Client, namespace string, targetRef v1alpha1.CrossVersionObjectReference) (*unstructured.Unstructured, error) {
-	klog.V(5).Infof("Get resource in", "targetRef", targetRef, "namespace", namespace)
-	obj := &unstructured.Unstructured{}
-	obj.SetAPIVersion(targetRef.APIVersion)
-	obj.SetKind(targetRef.Kind)
-	if err := client.Get(ctx, k8stypes.NamespacedName{Namespace: namespace, Name: targetRef.Name}, obj); err != nil {
-		return nil, err
-	}
-	return obj, nil
-}
-
-func GetAllClaimedContainers(controller *unstructured.Unstructured) ([]string, error) {
-	klog.V(5).InfoS("Get all controller claimed containers", "controller", controller)
-	templateSpec, found, err := unstructured.NestedMap(controller.Object, "spec", "template", "spec")
-	if err != nil {
-		return nil, errors.Wrapf(err, "unstructured.NestedMap err")
-	}
-	if !found {
-		return nil, errors.Errorf("spec.template.spec not found in the controller")
-	}
-	containersList, found, err := unstructured.NestedSlice(templateSpec, "containers")
-	if err != nil {
-		return nil, errors.Wrapf(err, "unstructured.NestedSlice err")
-	}
-	if !found {
-		return nil, errors.Errorf("failure to find containers in the controller")
-	}
-
-	containerNames := make([]string, 0, len(containersList))
-	for _, container := range containersList {
-		containerMap, ok := container.(map[string]interface{})
-		if !ok {
-			klog.Errorf("Unable to convert container:%v to map[string]interface{}", container)
-			continue
-		}
-		name, found, err := unstructured.NestedString(containerMap, "name")
-		if err != nil || !found {
-			klog.Errorf("Container name not found or get container name err:%v in the containerMap %v", err, containerMap)
-			continue
-		}
-		containerNames = append(containerNames, name)
-	}
-	return containerNames, nil
 }
 
 type patchRecord struct {

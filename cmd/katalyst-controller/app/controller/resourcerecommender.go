@@ -20,7 +20,7 @@ import (
 	"context"
 	katalyst "github.com/kubewharf/katalyst-core/cmd/base"
 	"github.com/kubewharf/katalyst-core/pkg/config"
-	"github.com/kubewharf/katalyst-core/pkg/controller/resource-recommend/dev-controller"
+	"github.com/kubewharf/katalyst-core/pkg/controller/resource-recommend/controller"
 	"k8s.io/klog/v2"
 )
 
@@ -35,16 +35,6 @@ func StartResourceRecommenderController(
 	_ interface{},
 	_ string,
 ) (bool, error) {
-	//resourceRecommenderController, err := controller.NewResourceRecommenderController(ctx,
-	//	conf.GenericConfiguration,
-	//	conf.ControllersConfiguration.ResourceRecommenderConfig)
-	//if err != nil {
-	//	klog.Errorf("failed to new ResourceRecommender controller")
-	//	return false, err
-	//}
-	//
-	//go resourceRecommenderController.Run()
-
 	oomRecorderController, err := controller.NewPodOOMRecorderController(ctx, controlCtx,
 		conf.GenericConfiguration,
 		conf.GenericControllerConfiguration,

@@ -72,21 +72,11 @@ var DefaultQueueRateLimiter = workqueue.NewMaxOfRateLimiter(
 	&workqueue.BucketRateLimiter{Limiter: rate.NewLimiter(rate.Limit(10), 100)},
 )
 
-func DevNewProcessor(datasourceProxy *datasource.Proxy, lister v1alpha1.ResourceRecommendLister) processor.Processor {
+func NewProcessor(datasourceProxy *datasource.Proxy, lister v1alpha1.ResourceRecommendLister) processor.Processor {
 	return &Processor{
 		DatasourceProxy:             datasourceProxy,
 		TaskQueue:                   workqueue.NewNamedRateLimitingQueue(DefaultQueueRateLimiter, ProcessorName),
 		Lister:                      lister,
-		AggregateTasks:              &sync.Map{},
-		ResourceRecommendTaskIDsMap: make(map[types.NamespacedName]*map[datasourcetypes.Metric]processortypes.TaskID),
-	}
-}
-
-func NewProcessor(datasourceProxy *datasource.Proxy, c client.Client) processor.Processor {
-	return &Processor{
-		DatasourceProxy:             datasourceProxy,
-		TaskQueue:                   workqueue.NewNamedRateLimitingQueue(DefaultQueueRateLimiter, ProcessorName),
-		Client:                      c,
 		AggregateTasks:              &sync.Map{},
 		ResourceRecommendTaskIDsMap: make(map[types.NamespacedName]*map[datasourcetypes.Metric]processortypes.TaskID),
 	}

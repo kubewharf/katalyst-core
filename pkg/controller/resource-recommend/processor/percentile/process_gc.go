@@ -75,31 +75,18 @@ func (p *Processor) garbageCollect(ctx context.Context) error {
 	})
 
 	// List all ResourceRecommend CR up to now
-	resourceRecommendList := &v1alpha1.ResourceRecommendList{}
-
-	// old way
-	//err := p.Client.List(ctx, resourceRecommendList, &k8sclient.ListOptions{Raw: &metav1.ListOptions{ResourceVersion: "0"}})
-	//if err != nil {
-	//	log.ErrorS(ctx, err, "garbage collect list all ResourceRecommend failed")
-	//	return err
-	//}
-
-	// new way
-	resourceRecommendArray, err := p.Lister.List(labels.Everything())
+	resourceRecommendItems, err := p.Lister.List(labels.Everything())
 	if err != nil {
 		log.ErrorS(ctx, err, "garbage collect list all ResourceRecommend failed")
 		return err
 	}
-	for _, v := range resourceRecommendArray {
-		resourceRecommendList.Items = append(resourceRecommendList.Items, *v)
-	}
 
 	// p.ClearingNoAttributionTask(resourceRecommendList)
 	klog.InfoS("percentile processor garbage collect list ResourceRecommend",
-		"ResourceRecommend Count", len(resourceRecommendList.Items))
+		"ResourceRecommend Count", len(resourceRecommendItems))
 	// Convert the ResourceRecommend list to map for quick check whether it exists
 	existResourceRecommends := make(map[types.NamespacedName]v1alpha1.CrossVersionObjectReference)
-	for _, existResourceRecommend := range resourceRecommendList.Items {
+	for _, existResourceRecommend := range resourceRecommendItems {
 		namespacedName := types.NamespacedName{
 			Name:      existResourceRecommend.Name,
 			Namespace: existResourceRecommend.Namespace,

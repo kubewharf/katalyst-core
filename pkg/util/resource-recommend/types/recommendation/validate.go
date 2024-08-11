@@ -18,7 +18,7 @@ package recommendation
 
 import (
 	"context"
-	"k8s.io/client-go/kubernetes"
+	appsv1 "k8s.io/client-go/kubernetes/typed/apps/v1"
 
 	"k8s.io/klog/v2"
 	k8sclient "sigs.k8s.io/controller-runtime/pkg/client"
@@ -65,9 +65,7 @@ func ValidateAndExtractAlgorithmPolicy(algorithmPolicyReq v1alpha1.AlgorithmPoli
 	return algorithmPolicy, nil
 }
 
-// DevidateAndExtractContainers
-// todo: 精简函数内容，目前的实现是基于最小改动，如果实现是正确的，应该可以省略非常多内容
-func DevValidateAndExtractContainers(ctx context.Context, client kubernetes.Interface, namespace string,
+func ValidateAndExtractContainers(ctx context.Context, client appsv1.AppsV1Interface, namespace string,
 	targetRef v1alpha1.CrossVersionObjectReference,
 	containerPolicies []v1alpha1.ContainerResourcePolicy) (
 	[]Container, *errortypes.CustomError,
@@ -76,7 +74,7 @@ func DevValidateAndExtractContainers(ctx context.Context, client kubernetes.Inte
 		return nil, errortypes.ContainerPoliciesNotFoundError()
 	}
 
-	deployment, err := resourceutils.DevConvertAndGetResource(ctx, client, namespace, targetRef)
+	deployment, err := resourceutils.ConvertAndGetResource(ctx, client, namespace, targetRef)
 	if err != nil {
 		klog.ErrorS(err, "ConvertAndGetResource err")
 		if k8sclient.IgnoreNotFound(err) == nil {
@@ -85,39 +83,7 @@ func DevValidateAndExtractContainers(ctx context.Context, client kubernetes.Inte
 		return nil, errortypes.WorkloadMatchedError(errortypes.WorkloadMatchedErrorMessage)
 	}
 
-	existContainerList, err := resourceutils.DevGetAllClaimedContainers(deployment)
-	if err != nil {
-		klog.ErrorS(err, "get all claimed containers err")
-		return nil, errortypes.ContainersMatchedError(errortypes.ContainersMatchedErrorMessage)
-	}
-
-	containers, validateErr := validateAndExtractContainers(containerPolicies, existContainerList)
-	if validateErr != nil {
-		return nil, validateErr
-	}
-
-	return containers, nil
-}
-
-func ValidateAndExtractContainers(ctx context.Context, client k8sclient.Client, namespace string,
-	targetRef v1alpha1.CrossVersionObjectReference,
-	containerPolicies []v1alpha1.ContainerResourcePolicy) (
-	[]Container, *errortypes.CustomError,
-) {
-	if len(containerPolicies) == 0 {
-		return nil, errortypes.ContainerPoliciesNotFoundError()
-	}
-
-	resource, err := resourceutils.ConvertAndGetResource(ctx, client, namespace, targetRef)
-	if err != nil {
-		klog.ErrorS(err, "ConvertAndGetResource err")
-		if k8sclient.IgnoreNotFound(err) == nil {
-			return nil, errortypes.WorkloadNotFoundError(errortypes.WorkloadNotFoundMessage)
-		}
-		return nil, errortypes.WorkloadMatchedError(errortypes.WorkloadMatchedErrorMessage)
-	}
-
-	existContainerList, err := resourceutils.GetAllClaimedContainers(resource)
+	existContainerList, err := resourceutils.GetAllClaimedContainers(deployment)
 	if err != nil {
 		klog.ErrorS(err, "get all claimed containers err")
 		return nil, errortypes.ContainersMatchedError(errortypes.ContainersMatchedErrorMessage)

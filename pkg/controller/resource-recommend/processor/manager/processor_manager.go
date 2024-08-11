@@ -21,8 +21,6 @@ import (
 	"runtime/debug"
 	"sync"
 
-	"sigs.k8s.io/controller-runtime/pkg/client"
-
 	"github.com/kubewharf/katalyst-api/pkg/apis/recommendation/v1alpha1"
 	lister "github.com/kubewharf/katalyst-api/pkg/client/listers/recommendation/v1alpha1"
 	"github.com/kubewharf/katalyst-core/pkg/controller/resource-recommend/datasource"
@@ -35,17 +33,8 @@ type Manager struct {
 	processors map[v1alpha1.Algorithm]processor.Processor
 }
 
-func DevNewManager(datasourceProxy *datasource.Proxy, lister lister.ResourceRecommendLister) *Manager {
-	percentileProcessor := percentile.DevNewProcessor(datasourceProxy, lister)
-	return &Manager{
-		processors: map[v1alpha1.Algorithm]processor.Processor{
-			v1alpha1.AlgorithmPercentile: percentileProcessor,
-		},
-	}
-}
-
-func NewManager(datasourceProxy *datasource.Proxy, c client.Client) *Manager {
-	percentileProcessor := percentile.NewProcessor(datasourceProxy, c)
+func NewManager(datasourceProxy *datasource.Proxy, lister lister.ResourceRecommendLister) *Manager {
+	percentileProcessor := percentile.NewProcessor(datasourceProxy, lister)
 	return &Manager{
 		processors: map[v1alpha1.Algorithm]processor.Processor{
 			v1alpha1.AlgorithmPercentile: percentileProcessor,
