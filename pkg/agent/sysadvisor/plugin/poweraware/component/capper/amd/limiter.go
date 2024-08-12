@@ -33,10 +33,10 @@ type powerLimiter struct {
 func (p powerLimiter) SetLimitOnBasis(limitWatts, baseWatts int) error {
 	// adjustment formula: settings = readings + limit - base
 	// assuming N packages equally applied to
-	reading := p.getCurrentPower()
+	reading := p.getCurrentPowerLimit()
 
 	setting := reading + (limitWatts - baseWatts)
-	klog.V(6).Infof("pap: base %d watt, target %d watt, package readings %d watt, to cap package limit %d watt",
+	klog.V(6).Infof("pap: amd: base %d watt, target %d watt, package readings %d watt, to cap package limit %d watt",
 		baseWatts, limitWatts, reading, setting)
 	if p.op.MachineInfo.SocketNum == 0 {
 		return errors.New("should have at lease 1 physical socket")
@@ -79,10 +79,10 @@ func (p powerLimiter) Reset() {
 	}
 }
 
-func (p powerLimiter) getCurrentPower() int {
+func (p powerLimiter) getCurrentPowerLimit() int {
 	var totalMicroWatts uint32
 	for i := 0; i < p.op.MachineInfo.SocketNum; i++ {
-		totalMicroWatts += p.op.GetSocketPower(i)
+		totalMicroWatts += p.op.GetSocketPowerLimit(i)
 	}
 	return int(totalMicroWatts / 1_000)
 }
