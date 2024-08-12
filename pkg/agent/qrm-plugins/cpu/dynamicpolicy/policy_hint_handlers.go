@@ -41,6 +41,11 @@ import (
 	qosutil "github.com/kubewharf/katalyst-core/pkg/util/qos"
 )
 
+type memBWHintUpdate struct {
+	updatedPreferrence bool
+	leftAllocatable    int
+}
+
 func (p *DynamicPolicy) sharedCoresHintHandler(ctx context.Context,
 	req *pluginapi.ResourceRequest,
 ) (*pluginapi.ResourceHintsResponse, error) {
@@ -275,7 +280,7 @@ func (p *DynamicPolicy) calculateHints(reqInt int,
 			_ = p.emitter.StoreInt64(util.MetricNameGetNUMAAllocatedMemBWFailed, 1, metrics.MetricTypeNameRaw)
 		} else {
 			p.updatePreferredCPUHintsByMemBW(preferredHintIndexes, hints[string(v1.ResourceCPU)].Hints,
-				reqInt, numaAllocatedMemBW, req)
+				reqInt, numaAllocatedMemBW, req, numaExclusive)
 		}
 	}
 
@@ -352,7 +357,7 @@ func getNUMAAllocatedMemBW(machineState state.NUMANodeMap, metaServer *metaserve
 }
 
 func (p *DynamicPolicy) updatePreferredCPUHintsByMemBW(preferredHintIndexes []int, cpuHints []*pluginapi.TopologyHint, reqInt int,
-	numaAllocatedMemBW map[int]int, req *pluginapi.ResourceRequest,
+	numaAllocatedMemBW map[int]int, req *pluginapi.ResourceRequest, numaExclusive bool,
 ) {
 	if len(preferredHintIndexes) == 0 {
 		general.Infof("there is no preferred hints, skip update")
@@ -380,56 +385,90 @@ func (p *DynamicPolicy) updatePreferredCPUHintsByMemBW(preferredHintIndexes []in
 		"podName", req.PodName,
 		"containerMemoryBandwidthRequest", containerMemoryBandwidthRequest)
 
+	memBWHintUpdates := make([]*memBWHintUpdate, 0, len(preferredHintIndexes))
 	allFalse := true
+	maxLeftAllocatable := math.MinInt
 	for _, i := range preferredHintIndexes {
 		if len(cpuHints[i].Nodes) == 0 {
 			continue
 		}
 
-		updated, err := getPreferenceByMemBW(cpuHints[i].Nodes, containerMemoryBandwidthRequest,
+		memBWHintUpdateResult, err := getPreferenceByMemBW(cpuHints[i].Nodes, containerMemoryBandwidthRequest,
 			numaAllocatedMemBW, p.machineInfo,
 			p.metaServer, req)
 		if err != nil {
 			general.Errorf("getPreferenceByMemBW for hints: %#v failed with error: %v", cpuHints[i].Nodes, err)
 			_ = p.emitter.StoreInt64(util.MetricNameGetMemBWPreferenceFailed, 1, metrics.MetricTypeNameRaw)
-			continue
+			return
 		}
 
-		if !updated {
-			cpuHints[i].Preferred = updated
-
-			general.Infof("update hint: %#v preference to false", cpuHints[i].Nodes)
-		} else {
+		if memBWHintUpdateResult.updatedPreferrence {
 			allFalse = false
 		}
+
+		memBWHintUpdates = append(memBWHintUpdates, memBWHintUpdateResult)
+
+		general.Infof("hint: %+v updated preference: %v, leftAllocatable: %d",
+			cpuHints[i].Nodes, memBWHintUpdateResult.updatedPreferrence, memBWHintUpdateResult.leftAllocatable)
+
+		maxLeftAllocatable = general.Max(maxLeftAllocatable, memBWHintUpdateResult.leftAllocatable)
 	}
 
-	if allFalse {
-		// mem bw check is best-effort, if all preferred hints' preference are updated to false
-		// we should revert preference of them to true.
-		// topology mananger will pick the final result after merge all hints.
-		for _, i := range preferredHintIndexes {
-			if !cpuHints[i].Preferred {
-				cpuHints[i].Preferred = true
-				general.Infof("revert hint: %#v preference to true", cpuHints[i].Nodes)
+	updatePreferredCPUHintsByMemBWInPlace(memBWHintUpdates, allFalse, numaExclusive, cpuHints, preferredHintIndexes, maxLeftAllocatable)
+}
+
+func updatePreferredCPUHintsByMemBWInPlace(memBWHintUpdates []*memBWHintUpdate,
+	allFalse, numaExclusive bool, cpuHints []*pluginapi.TopologyHint,
+	preferredHintIndexes []int, maxLeftAllocatable int,
+) {
+	if !allFalse {
+		general.Infof("not all updated hints indicate false")
+		for ui, hi := range preferredHintIndexes {
+			if cpuHints[hi].Preferred != memBWHintUpdates[ui].updatedPreferrence {
+				general.Infof("set hint: %+v preference from %v to %v", cpuHints[hi].Nodes, cpuHints[hi].Preferred, memBWHintUpdates[ui].updatedPreferrence)
+				cpuHints[hi].Preferred = memBWHintUpdates[ui].updatedPreferrence
 			}
 		}
+		return
 	}
+
+	general.Infof("all updated hints indicate false")
+
+	if !numaExclusive {
+		general.Infof("candidate isn't numa exclusive, keep all preferred hints")
+		return
+	}
+
+	for ui, hi := range preferredHintIndexes {
+		if memBWHintUpdates[ui].leftAllocatable == maxLeftAllocatable {
+			general.Infof("hint: %+v with max left allocatable memory bw: %d, set itspreference to true",
+				cpuHints[hi].Nodes, maxLeftAllocatable)
+			cpuHints[hi].Preferred = true
+		} else {
+			cpuHints[hi].Preferred = false
+		}
+	}
+
+	return
 }
 
 func getPreferenceByMemBW(targetNUMANodesUInt64 []uint64,
 	containerMemoryBandwidthRequest int, numaAllocatedMemBW map[int]int,
 	machineInfo *machine.KatalystMachineInfo,
 	metaServer *metaserver.MetaServer, req *pluginapi.ResourceRequest,
-) (bool, error) {
+) (*memBWHintUpdate, error) {
 	if req == nil {
-		return false, fmt.Errorf("empty req")
+		return nil, fmt.Errorf("empty req")
 	} else if len(targetNUMANodesUInt64) == 0 {
-		return false, fmt.Errorf("empty targetNUMANodes")
+		return nil, fmt.Errorf("empty targetNUMANodes")
 	} else if machineInfo == nil || machineInfo.ExtraTopologyInfo == nil {
-		return false, fmt.Errorf("invalid machineInfo")
+		return nil, fmt.Errorf("invalid machineInfo")
 	} else if metaServer == nil {
-		return false, fmt.Errorf("nil metaServer")
+		return nil, fmt.Errorf("nil metaServer")
+	}
+
+	ret := &memBWHintUpdate{
+		updatedPreferrence: true,
 	}
 
 	targetNUMANodes := make([]int, len(targetNUMANodesUInt64))
@@ -437,7 +476,7 @@ func getPreferenceByMemBW(targetNUMANodesUInt64 []uint64,
 		var err error
 		targetNUMANodes[i], err = general.CovertUInt64ToInt(numaID)
 		if err != nil {
-			return false, fmt.Errorf("convert NUMA: %d to int failed with error: %v", numaID, err)
+			return nil, fmt.Errorf("convert NUMA: %d to int failed with error: %v", numaID, err)
 		}
 	}
 
@@ -481,14 +520,15 @@ func getPreferenceByMemBW(targetNUMANodesUInt64 []uint64,
 			"groupNUMAsAllocatedMemBW", groupNUMAsAllocatedMemBW[groupID],
 			"groupNUMAsAllocatableMemBW", groupNUMAsAllocatableMemBW[groupID])
 
-		if groupNUMAsAllocatedMemBW[groupID] > groupNUMAsAllocatableMemBW[groupID] {
-			return false, nil
+		if ret.updatedPreferrence && groupNUMAsAllocatedMemBW[groupID] > groupNUMAsAllocatableMemBW[groupID] {
+			ret.updatedPreferrence = false
 		}
 
+		ret.leftAllocatable += (groupNUMAsAllocatableMemBW[groupID] - groupNUMAsAllocatedMemBW[groupID])
 		groupID++
 	}
 
-	return true, nil
+	return ret, nil
 }
 
 func (p *DynamicPolicy) sharedCoresWithNUMABindingHintHandler(_ context.Context,
