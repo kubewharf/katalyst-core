@@ -36,6 +36,8 @@ func (p powerLimiter) SetLimitOnBasis(limitWatts, baseWatts int) error {
 	reading := p.getCurrentPower()
 
 	setting := reading + (limitWatts - baseWatts)
+	klog.V(6).Infof("pap: base %d watt, target %d watt, package readings %d watt, to cap package limit %d watt",
+		baseWatts, limitWatts, reading, setting)
 	if p.op.MachineInfo.SocketNum == 0 {
 		return errors.New("should have at lease 1 physical socket")
 	}
@@ -71,7 +73,7 @@ func (p powerLimiter) Reset() {
 	for i := 0; i < p.op.MachineInfo.SocketNum; i++ {
 		maxLimit := p.op.GetSocketPowerMaxLimit(i)
 		klog.Infof("power max limit of socket %d: %v", i, maxLimit)
-		if err := p.op.SetSocketPowerLimit(i, maxLimit*90/100); err != nil {
+		if err := p.op.SetSocketPowerLimit(i, maxLimit*95/100); err != nil {
 			klog.Errorf("reset error: %v", err)
 		}
 	}
