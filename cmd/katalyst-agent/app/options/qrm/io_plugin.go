@@ -37,6 +37,7 @@ type WritebackThrottlingOption struct {
 	WBTValueHDD      int
 	WBTValueSSD      int
 	WBTValueNVME     int
+	WBTValueVIRTIO   int
 }
 
 type IOCostOption struct {
@@ -60,6 +61,7 @@ func NewIOOptions() *IOOptions {
 			WBTValueHDD:      75000,
 			WBTValueSSD:      2000,
 			WBTValueNVME:     2000,
+			WBTValueVIRTIO:   75000,
 		},
 		IOCostOption: IOCostOption{
 			EnableSettingIOCost:   false,
@@ -88,6 +90,8 @@ func (o *IOOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 		o.WBTValueSSD, "writeback throttling value for SSD")
 	fs.IntVar(&o.WBTValueNVME, "disk-wbt-nvme",
 		o.WBTValueNVME, "writeback throttling value for NVME")
+	fs.IntVar(&o.WBTValueVIRTIO, "disk-wbt-virtio",
+		o.WBTValueVIRTIO, "writeback throttling value for VIRTIO")
 	fs.BoolVar(&o.EnableSettingIOCost, "enable-io-cost",
 		o.EnableSettingIOCost, "if set it to true, io.cost setting will be executed")
 	fs.BoolVar(&o.CheckWBTDisabled, "check-wbt-disabled",
@@ -110,6 +114,7 @@ func (o *IOOptions) ApplyTo(conf *qrmconfig.IOQRMPluginConfig) error {
 	conf.WBTValueHDD = o.WBTValueHDD
 	conf.WBTValueSSD = o.WBTValueSSD
 	conf.WBTValueNVME = o.WBTValueNVME
+	conf.WBTValueVIRTIO = o.WBTValueVIRTIO
 	conf.EnableSettingIOCost = o.EnableSettingIOCost
 	conf.CheckWBTDisabled = o.CheckWBTDisabled
 	conf.IOCostQoSConfigFile = o.IOCostQoSConfigFile

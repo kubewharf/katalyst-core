@@ -30,6 +30,7 @@ type WritebackThrottlingOption struct {
 	WBTValueHDD      int
 	WBTValueSSD      int
 	WBTValueNVME     int
+	WBTValueVIRTIO   int
 }
 
 type IOCostOption struct {
