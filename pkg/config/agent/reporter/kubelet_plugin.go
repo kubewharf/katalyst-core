@@ -22,6 +22,7 @@ type KubeletPluginConfiguration struct {
 	EnableReportTopologyPolicy  bool
 	ResourceNameToZoneTypeMap   map[string]string
 	NeedValidationResources     []string
+	EnablePodResourcesFilter    bool
 }
 
 func NewKubeletPluginConfiguration() *KubeletPluginConfiguration {
