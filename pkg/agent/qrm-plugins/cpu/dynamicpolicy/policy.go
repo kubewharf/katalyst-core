@@ -1108,10 +1108,30 @@ func (p *DynamicPolicy) getContainerRequestedCores(allocationInfo *state.Allocat
 	cpuQuantity := native.CPUQuantityGetter()(container.Resources.Requests)
 	metaValue := general.MaxFloat64(float64(cpuQuantity.MilliValue())/1000.0, 0)
 
-	if metaValue != allocationInfo.RequestQuantity {
-		allocationInfo.RequestQuantity = metaValue
-		general.Infof("get cpu request quantity: %.3f for pod: %s/%s container: %s from podWatcher",
-			allocationInfo.RequestQuantity, allocationInfo.PodNamespace, allocationInfo.PodName, allocationInfo.ContainerName)
+	if state.CheckShared(allocationInfo) {
+		// if there is these two annotations in memory state, it is a new pod,
+		// we don't need to check the pod request from podWatcher
+		if allocationInfo.Annotations[consts.PodAnnotationAggregatedRequestsKey] != "" ||
+			allocationInfo.Annotations[consts.PodAnnotationVPAResizingKey] != "" {
+			return allocationInfo.RequestQuantity
+		}
+		if state.CheckNUMABinding(allocationInfo) {
+			if metaValue < allocationInfo.RequestQuantity {
+				general.Infof("[snb] get cpu request quantity: (%.3f->%.3f) for pod: %s/%s container: %s from podWatcher",
+					allocationInfo.RequestQuantity, metaValue, allocationInfo.PodNamespace, allocationInfo.PodName, allocationInfo.ContainerName)
+				return metaValue
+			}
+		} else {
+			if metaValue != allocationInfo.RequestQuantity {
+				general.Infof("[share] get cpu request quantity: (%.3f->%.3f) for pod: %s/%s container: %s from podWatcher",
+					allocationInfo.RequestQuantity, metaValue, allocationInfo.PodNamespace, allocationInfo.PodName, allocationInfo.ContainerName)
+				return metaValue
+			}
+		}
+	} else if allocationInfo.RequestQuantity == 0 {
+		general.Infof("[other] get cpu request quantity: (%.3f->%.3f) for pod: %s/%s container: %s from podWatcher",
+			allocationInfo.RequestQuantity, metaValue, allocationInfo.PodNamespace, allocationInfo.PodName, allocationInfo.ContainerName)
+		return metaValue
 	}
 
 	return allocationInfo.RequestQuantity

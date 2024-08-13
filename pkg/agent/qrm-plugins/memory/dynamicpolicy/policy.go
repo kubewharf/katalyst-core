@@ -18,6 +18,7 @@ package dynamicpolicy
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -44,6 +45,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util"
 	"github.com/kubewharf/katalyst-core/pkg/agent/utilcomponent/periodicalhandler"
 	"github.com/kubewharf/katalyst-core/pkg/config"
+	dynamicconfig "github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic"
 	"github.com/kubewharf/katalyst-core/pkg/config/generic"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
@@ -299,6 +301,29 @@ func (p *DynamicPolicy) Start() (err error) {
 		p.clearResidualState, stateCheckPeriod, healthCheckTolerationTimes)
 	if err != nil {
 		general.Errorf("start %v failed, err: %v", memconsts.ClearResidualState, err)
+	}
+
+	// we should remove this healthy check when we support vpa in all clusters.
+	syncMemoryStatusFromSpec := func(_ *config.Configuration,
+		_ interface{},
+		_ *dynamicconfig.DynamicAgentConfiguration,
+		_ metrics.MetricEmitter,
+		_ *metaserver.MetaServer,
+	) {
+		p.Lock()
+		defer func() {
+			p.Unlock()
+		}()
+		if err := p.adjustAllocationEntries(); err != nil {
+			general.Warningf("failed to sync memory state from pod spec: %q", err)
+		} else {
+			general.Warningf("sync memory state from pod spec successfully")
+		}
+	}
+	err = periodicalhandler.RegisterPeriodicalHandler(memconsts.SyncMemoryStateFromSpec, qrm.QRMMemoryPluginPeriodicalHandlerGroupName,
+		syncMemoryStatusFromSpec, stateCheckPeriod)
+	if err != nil {
+		general.Errorf("start %v failed, err: %v", memconsts.SyncMemoryStateFromSpec, err)
 	}
 
 	err = periodicalhandler.RegisterPeriodicalHandlerWithHealthz(memconsts.CheckMemSet, general.HealthzCheckStateNotReady,
@@ -938,29 +963,102 @@ func (p *DynamicPolicy) removeContainer(podUID, containerName string) error {
 }
 
 // getContainerRequestedMemoryBytes parses and returns requested memory bytes for the given container
-func (p *DynamicPolicy) getContainerRequestedMemoryBytes(allocationInfo *state.AllocationInfo) int {
+func (p *DynamicPolicy) getContainerRequestedMemoryBytes(allocationInfo *state.AllocationInfo) uint64 {
 	if allocationInfo == nil {
 		general.Errorf("got nil allocationInfo")
 		return 0
 	}
 
 	if p.metaServer == nil {
-		general.Errorf("got nil metaServer")
-		return 0
+		general.Errorf("got nil metaServer, return the origin value")
+		return allocationInfo.AggregatedQuantity
 	}
 
-	container, err := p.metaServer.GetContainerSpec(allocationInfo.PodUid, allocationInfo.ContainerName)
-	if err != nil || container == nil {
+	// check request for VPA
+	if allocationInfo.QoSLevel == apiconsts.PodAnnotationQoSLevelSharedCores {
+		// if there is these two annotations in memory state, it is a new pod,
+		// we don't need to check the pod request from podWatcher
+		if allocationInfo.Annotations[apiconsts.PodAnnotationAggregatedRequestsKey] != "" ||
+			allocationInfo.Annotations[apiconsts.PodAnnotationVPAResizingKey] != "" {
+			return allocationInfo.AggregatedQuantity
+		}
+
+		if allocationInfo.CheckNumaBinding() {
+			// snb count all memory into main container, sidecar is zero
+			if allocationInfo.CheckSideCar() {
+				// sidecar container always is zero
+				general.Infof("[snb] get memory request quantity: (%d -> 0) for pod: %s/%s container(sidecar): %s",
+					allocationInfo.AggregatedQuantity, allocationInfo.PodNamespace, allocationInfo.PodName, allocationInfo.ContainerName)
+				return 0
+			} else {
+				// main container contains the whole pod request (both sidecars and main container).
+				// check pod memory aggregated quantity from podWatcher
+				podAggregatedMemoryRequestBytes, err := p.getPodSpecAggregatedMemoryRequestBytes(allocationInfo.PodUid)
+				if err != nil {
+					general.Errorf("[snb] get container failed with error: %v, return the origin value", err)
+					return allocationInfo.AggregatedQuantity
+				}
+
+				// only handle scale in case
+				if podAggregatedMemoryRequestBytes < allocationInfo.AggregatedQuantity {
+					general.Infof("[snb] get memory request quantity: (%d->%d) for pod: %s/%s container: %s from podWatcher",
+						allocationInfo.AggregatedQuantity, podAggregatedMemoryRequestBytes, allocationInfo.PodNamespace, allocationInfo.PodName, allocationInfo.ContainerName)
+					return podAggregatedMemoryRequestBytes
+				}
+			}
+		} else {
+			// normal share cores pod
+			requestBytes, err := p.getContainerSpecMemoryRequestBytes(allocationInfo.PodUid, allocationInfo.ContainerName)
+			if err != nil {
+				general.Errorf("[other] get container failed with error: %v, return the origin value", err)
+				return allocationInfo.AggregatedQuantity
+			}
+			if requestBytes != allocationInfo.AggregatedQuantity {
+				general.Infof("[share] get memory request quantity: (%d->%d) for pod: %s/%s container: %s from podWatcher",
+					allocationInfo.AggregatedQuantity, requestBytes, allocationInfo.PodNamespace, allocationInfo.PodName, allocationInfo.ContainerName)
+				return requestBytes
+			}
+		}
+	}
+
+	general.Infof("get memory request bytes: %d for pod: %s/%s container: %s from podWatcher",
+		allocationInfo.AggregatedQuantity, allocationInfo.PodNamespace, allocationInfo.PodName, allocationInfo.ContainerName)
+	return allocationInfo.AggregatedQuantity
+}
+
+func (p *DynamicPolicy) getPodSpecAggregatedMemoryRequestBytes(podUID string) (uint64, error) {
+	pod, err := p.metaServer.GetPod(context.Background(), podUID)
+	if err != nil {
+		general.Errorf("get pod failed with error: %v", err)
+		return 0, err
+	} else if pod == nil {
+		general.Errorf("get pod failed with not found")
+		return 0, errors.New("pod not found")
+	}
+
+	requestBytes := uint64(0)
+	for _, container := range pod.Spec.Containers {
+		containerMemoryQuantity := native.MemoryQuantityGetter()(container.Resources.Requests)
+		requestBytes += uint64(general.Max(int(containerMemoryQuantity.Value()), 0))
+	}
+
+	return requestBytes, nil
+}
+
+func (p *DynamicPolicy) getContainerSpecMemoryRequestBytes(podUID, containerName string) (uint64, error) {
+	container, err := p.metaServer.GetContainerSpec(podUID, containerName)
+	if err != nil {
 		general.Errorf("get container failed with error: %v", err)
-		return 0
+		return 0, err
+	} else if container == nil {
+		general.Errorf("get container failed with not found")
+		return 0, errors.New("container not found")
 	}
 
 	memoryQuantity := native.MemoryQuantityGetter()(container.Resources.Requests)
-	requestBytes := general.Max(int(memoryQuantity.Value()), 0)
+	requestBytes := uint64(general.Max(int(memoryQuantity.Value()), 0))
 
-	general.Infof("get memory request bytes: %d for pod: %s/%s container: %s from podWatcher",
-		requestBytes, allocationInfo.PodNamespace, allocationInfo.PodName, allocationInfo.ContainerName)
-	return requestBytes
+	return requestBytes, nil
 }
 
 // hasLastLevelEnhancementKey check if the pod with the given UID has the corresponding last level enhancement key

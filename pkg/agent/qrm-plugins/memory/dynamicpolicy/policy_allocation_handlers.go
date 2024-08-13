@@ -427,9 +427,48 @@ func (p *DynamicPolicy) adjustAllocationEntries() error {
 					allocationInfo.NumaAllocationResult.String(), numaWithoutNUMABindingPods.String())
 			}
 
-			allocationInfo.AggregatedQuantity = 0
 			allocationInfo.NumaAllocationResult = numaWithoutNUMABindingPods.Clone()
 			allocationInfo.TopologyAwareAllocations = nil
+		}
+	}
+
+	// we should remove it someday
+	// adjust container request for old VPA pods
+	for podUID, containerEntries := range podEntries {
+		for containerName, allocationInfo := range containerEntries {
+			if allocationInfo == nil {
+				general.Errorf("pod: %s, container: %s has nil allocationInfo", podUID, containerName)
+				continue
+			} else if containerName == "" {
+				general.Errorf("pod: %s has empty containerName entry", podUID)
+				continue
+			} else if allocationInfo.QoSLevel != apiconsts.PodAnnotationQoSLevelSharedCores {
+				continue
+			}
+			if allocationInfo.QoSLevel == apiconsts.PodAnnotationQoSLevelSharedCores {
+				if allocationInfo.CheckNumaBinding() {
+					if allocationInfo.CheckSideCar() {
+						continue
+					}
+
+					if len(allocationInfo.TopologyAwareAllocations) != 1 {
+						general.Errorf("pod: %s/%s, container: %s topologyAwareAllocations length is not 1: %v",
+							allocationInfo.PodNamespace, allocationInfo.PodName, allocationInfo.ContainerName, allocationInfo.TopologyAwareAllocations)
+						continue
+					}
+
+					// update AggregatedQuantity && TopologyAwareAllocations for snb
+					allocationInfo.AggregatedQuantity = p.getContainerRequestedMemoryBytes(allocationInfo)
+					for numaId, quantity := range allocationInfo.TopologyAwareAllocations {
+						if quantity != allocationInfo.AggregatedQuantity {
+							allocationInfo.TopologyAwareAllocations[numaId] = allocationInfo.AggregatedQuantity
+						}
+					}
+				} else {
+					// update AggregatedQuantity for normal share cores
+					allocationInfo.AggregatedQuantity = p.getContainerRequestedMemoryBytes(allocationInfo)
+				}
+			}
 		}
 	}
 

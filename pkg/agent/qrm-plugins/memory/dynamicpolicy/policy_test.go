@@ -1,6 +1,3 @@
-//go:build linux
-// +build linux
-
 /*
 Copyright 2022 The Katalyst Authors.
 
@@ -3769,4 +3766,487 @@ func BenchmarkGetTopologyHints(b *testing.B) {
 
 		_ = os.RemoveAll(tmpDir)
 	}
+}
+
+func Test_getContainerRequestedMemoryBytes(t *testing.T) {
+	t.Parallel()
+
+	as := require.New(t)
+
+	tmpDir, err := ioutil.TempDir("", "checkpoint-Test_getContainerRequestedMemoryBytes")
+	as.Nil(err)
+	defer os.RemoveAll(tmpDir)
+
+	metaServer := makeMetaServer()
+
+	cpuTopology, err := machine.GenerateDummyCPUTopology(16, 2, 4)
+	assert.NoError(t, err)
+
+	machineInfo, err := machine.GenerateDummyMachineInfo(4, 32)
+	assert.NoError(t, err)
+
+	dynamicPolicy, err := getTestDynamicPolicyWithInitialization(cpuTopology, machineInfo, tmpDir)
+	as.Nil(err)
+
+	dynamicPolicy.metaServer = metaServer
+
+	memorySize1G := resource.MustParse("1Gi")
+
+	// check normal share cores
+	pod1Allocation := &state.AllocationInfo{
+		PodUid:             "test-pod-1-uid",
+		PodName:            "test-pod-1",
+		ContainerName:      "test-container-1",
+		AggregatedQuantity: 512,
+		QoSLevel:           consts.PodAnnotationQoSLevelSharedCores,
+	}
+	dynamicPolicy.state.SetAllocationInfo(v1.ResourceMemory, "test-pod-1-uid", "test-pod-1", pod1Allocation)
+	// case 1. pod spec not found, return the current allocated memory
+	as.Equal(uint64(512), dynamicPolicy.getContainerRequestedMemoryBytes(pod1Allocation))
+
+	podFetcher := &pod.PodFetcherStub{
+		PodList: []*v1.Pod{
+			{
+				ObjectMeta: metav1.ObjectMeta{
+					UID:  "test-pod-1-uid",
+					Name: "test-pod-1",
+					Annotations: map[string]string{
+						consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
+					},
+					Labels: map[string]string{
+						consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
+					},
+				},
+				Spec: v1.PodSpec{
+					Containers: []v1.Container{
+						{
+							Name: "test-container-1",
+							Resources: v1.ResourceRequirements{
+								Limits: v1.ResourceList{
+									v1.ResourceMemory: memorySize1G,
+								},
+								Requests: v1.ResourceList{
+									v1.ResourceMemory: memorySize1G,
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+	metaServer.PodFetcher = podFetcher
+
+	// case 2. check normal share cores scale out success
+	as.Equal(uint64(memorySize1G.Value()), dynamicPolicy.getContainerRequestedMemoryBytes(pod1Allocation))
+
+	// case 3. check normal share cores scale in
+	memorySize2G := resource.MustParse("2Gi")
+	pod1Allocation.AggregatedQuantity = uint64(memorySize2G.Value())
+	dynamicPolicy.state.SetAllocationInfo(v1.ResourceMemory, "test-pod-1-uid", "test-pod-1", pod1Allocation)
+	as.Equal(uint64(memorySize1G.Value()), dynamicPolicy.getContainerRequestedMemoryBytes(pod1Allocation))
+
+	// check normal snb
+	pod2Allocation := &state.AllocationInfo{
+		PodUid:             "test-pod-2-uid",
+		PodName:            "test-pod-2",
+		ContainerName:      "test-container-2",
+		AggregatedQuantity: 512,
+		QoSLevel:           consts.PodAnnotationQoSLevelSharedCores,
+		Annotations: map[string]string{
+			consts.PodAnnotationMemoryEnhancementNumaBinding: consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
+		},
+	}
+	as.Equalf(true, pod2Allocation.CheckNumaBinding(), "check numa binding failed")
+	// case 1. check pod spec not found
+	as.Equal(uint64(512), dynamicPolicy.getContainerRequestedMemoryBytes(pod2Allocation))
+
+	podFetcher.PodList = append(podFetcher.PodList, &v1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			UID:  "test-pod-2-uid",
+			Name: "test-pod-2",
+			Annotations: map[string]string{
+				consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
+			},
+			Labels: map[string]string{
+				consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
+			},
+		},
+		Spec: v1.PodSpec{
+			Containers: []v1.Container{
+				{
+					Name: "test-container-2",
+					Resources: v1.ResourceRequirements{
+						Limits: v1.ResourceList{
+							v1.ResourceMemory: memorySize1G,
+						},
+						Requests: v1.ResourceList{
+							v1.ResourceMemory: memorySize1G,
+						},
+					},
+				},
+			},
+		},
+	})
+
+	// case 2. snb scale out (expect ignore)
+	dynamicPolicy.state.SetAllocationInfo(v1.ResourceMemory, "test-pod-2-uid", "test-pod-2", pod2Allocation)
+	as.Equal(uint64(512), dynamicPolicy.getContainerRequestedMemoryBytes(pod2Allocation))
+
+	// case 3. snb scale in (expect sync from pod spec)
+	pod2Allocation.AggregatedQuantity = uint64(memorySize2G.Value())
+	dynamicPolicy.state.SetAllocationInfo(v1.ResourceMemory, "test-pod-2-uid", "test-pod-2", pod2Allocation)
+	as.Equal(uint64(memorySize1G.Value()), dynamicPolicy.getContainerRequestedMemoryBytes(pod2Allocation))
+
+	// snb with sidecar
+	podFetcher.PodList = append(podFetcher.PodList, &v1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			UID:  "test-pod-3-uid",
+			Name: "test-pod-3",
+			Annotations: map[string]string{
+				consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
+			},
+			Labels: map[string]string{
+				consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
+			},
+		},
+		Spec: v1.PodSpec{
+			Containers: []v1.Container{
+				{
+					Name: "test-container-3",
+					Resources: v1.ResourceRequirements{
+						Limits: v1.ResourceList{
+							v1.ResourceMemory: memorySize1G,
+						},
+						Requests: v1.ResourceList{
+							v1.ResourceMemory: memorySize1G,
+						},
+					},
+				},
+				{
+					Name: "test-container-4",
+					Resources: v1.ResourceRequirements{
+						Limits: v1.ResourceList{
+							v1.ResourceMemory: memorySize1G,
+						},
+						Requests: v1.ResourceList{
+							v1.ResourceMemory: memorySize1G,
+						},
+					},
+				},
+			},
+		},
+	})
+
+	pod3Container3Allocation := &state.AllocationInfo{
+		PodUid:             "test-pod-3-uid",
+		PodName:            "test-pod-3",
+		ContainerName:      "test-container-3",
+		AggregatedQuantity: 512,
+		QoSLevel:           consts.PodAnnotationQoSLevelSharedCores,
+		Annotations: map[string]string{
+			consts.PodAnnotationMemoryEnhancementNumaBinding: consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
+		},
+		ContainerType: pluginapi.ContainerType_MAIN.String(),
+	}
+	as.Equal(true, pod3Container3Allocation.CheckMainContainer())
+	pod3Container4Allocation := &state.AllocationInfo{
+		PodUid:             "test-pod-3-uid",
+		PodName:            "test-pod-3",
+		ContainerName:      "test-container-4",
+		AggregatedQuantity: 512,
+		QoSLevel:           consts.PodAnnotationQoSLevelSharedCores,
+		Annotations: map[string]string{
+			consts.PodAnnotationMemoryEnhancementNumaBinding: consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
+		},
+		ContainerType: pluginapi.ContainerType_SIDECAR.String(),
+	}
+	as.Equalf(true, pod3Container4Allocation.CheckSideCar(), "check sidecar container failed")
+
+	dynamicPolicy.state.SetAllocationInfo(v1.ResourceMemory, "test-pod-3-uid", "test-container-3", pod3Container3Allocation)
+	dynamicPolicy.state.SetAllocationInfo(v1.ResourceMemory, "test-pod-3-uid", "test-container-4", pod3Container4Allocation)
+
+	// case 1. check snb with sidecar scale out (expect ignore)
+	as.Equal(uint64(512), dynamicPolicy.getContainerRequestedMemoryBytes(pod3Container3Allocation))
+	as.Equal(uint64(0), dynamicPolicy.getContainerRequestedMemoryBytes(pod3Container4Allocation))
+
+	// case 2. check snb with sidecar scale in (expect not sync from pod spec)
+	pod3Container3Allocation.AggregatedQuantity = uint64(memorySize2G.Value())
+	dynamicPolicy.state.SetAllocationInfo(v1.ResourceMemory, "test-pod-3-uid", "test-container-3", pod3Container3Allocation)
+	as.Equal(uint64(memorySize2G.Value()), dynamicPolicy.getContainerRequestedMemoryBytes(pod3Container3Allocation))
+	as.Equal(uint64(0), dynamicPolicy.getContainerRequestedMemoryBytes(pod3Container4Allocation))
+
+	// case 3. check snb with sidecar scale in (expect not sync from pod spec)
+	memorySize1_5G := resource.MustParse("1.5Gi")
+	pod3Container3Allocation.AggregatedQuantity = uint64(memorySize1_5G.Value())
+	dynamicPolicy.state.SetAllocationInfo(v1.ResourceMemory, "test-pod-3-uid", "test-container-3", pod3Container3Allocation)
+	as.Equal(uint64(memorySize1_5G.Value()), dynamicPolicy.getContainerRequestedMemoryBytes(pod3Container3Allocation))
+	as.Equal(uint64(0), dynamicPolicy.getContainerRequestedMemoryBytes(pod3Container4Allocation))
+
+	// case 4. check snb with sidecar scale in (expect sync from pod spec)
+	memorySize3G := resource.MustParse("3Gi")
+	pod3Container3Allocation.AggregatedQuantity = uint64(memorySize3G.Value())
+	dynamicPolicy.state.SetAllocationInfo(v1.ResourceMemory, "test-pod-3-uid", "test-container-3", pod3Container3Allocation)
+	as.Equal(uint64(memorySize2G.Value()), dynamicPolicy.getContainerRequestedMemoryBytes(pod3Container3Allocation))
+	as.Equal(uint64(0), dynamicPolicy.getContainerRequestedMemoryBytes(pod3Container4Allocation))
+}
+
+func Test_adjustAllocationEntries(t *testing.T) {
+	t.Parallel()
+
+	as := require.New(t)
+
+	tmpDir, err := ioutil.TempDir("", "checkpoint-Test_adjustAllocationEntries")
+	as.Nil(err)
+	defer os.RemoveAll(tmpDir)
+
+	metaServer := makeMetaServer()
+
+	cpuTopology, err := machine.GenerateDummyCPUTopology(16, 2, 4)
+	assert.NoError(t, err)
+
+	machineInfo, err := machine.GenerateDummyMachineInfo(4, 32)
+	assert.NoError(t, err)
+
+	dynamicPolicy, err := getTestDynamicPolicyWithInitialization(cpuTopology, machineInfo, tmpDir)
+	as.Nil(err)
+
+	dynamicPolicy.metaServer = metaServer
+
+	memorySize1G := resource.MustParse("1Gi")
+	podFetcher := &pod.PodFetcherStub{
+		PodList: []*v1.Pod{
+			{
+				ObjectMeta: metav1.ObjectMeta{
+					UID:  "test-pod-1-uid",
+					Name: "test-pod-1",
+					Annotations: map[string]string{
+						consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
+					},
+					Labels: map[string]string{
+						consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
+					},
+				},
+				Spec: v1.PodSpec{
+					Containers: []v1.Container{
+						{
+							Name: "test-container-1",
+							Resources: v1.ResourceRequirements{
+								Limits: v1.ResourceList{
+									v1.ResourceMemory: memorySize1G,
+								},
+								Requests: v1.ResourceList{
+									v1.ResourceMemory: memorySize1G,
+								},
+							},
+						},
+					},
+				},
+			},
+			{
+				ObjectMeta: metav1.ObjectMeta{
+					UID:  "test-pod-2-uid",
+					Name: "test-pod-2",
+					Annotations: map[string]string{
+						consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
+					},
+					Labels: map[string]string{
+						consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
+					},
+				},
+				Spec: v1.PodSpec{
+					Containers: []v1.Container{
+						{
+							Name: "test-container-1",
+							Resources: v1.ResourceRequirements{
+								Limits: v1.ResourceList{
+									v1.ResourceMemory: memorySize1G,
+								},
+								Requests: v1.ResourceList{
+									v1.ResourceMemory: memorySize1G,
+								},
+							},
+						},
+					},
+				},
+			},
+			{
+				ObjectMeta: metav1.ObjectMeta{
+					UID:  "test-pod-3-uid",
+					Name: "test-pod-3",
+					Annotations: map[string]string{
+						consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
+					},
+					Labels: map[string]string{
+						consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
+					},
+				},
+				Spec: v1.PodSpec{
+					Containers: []v1.Container{
+						{
+							Name: "test-container-3",
+							Resources: v1.ResourceRequirements{
+								Limits: v1.ResourceList{
+									v1.ResourceMemory: memorySize1G,
+								},
+								Requests: v1.ResourceList{
+									v1.ResourceMemory: memorySize1G,
+								},
+							},
+						},
+						{
+							Name: "test-container-4",
+							Resources: v1.ResourceRequirements{
+								Limits: v1.ResourceList{
+									v1.ResourceMemory: memorySize1G,
+								},
+								Requests: v1.ResourceList{
+									v1.ResourceMemory: memorySize1G,
+								},
+							},
+						},
+					},
+				},
+			},
+			{
+				ObjectMeta: metav1.ObjectMeta{
+					UID:  "test-pod-4-uid",
+					Name: "test-pod-4",
+					Annotations: map[string]string{
+						consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
+					},
+					Labels: map[string]string{
+						consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
+					},
+				},
+				Spec: v1.PodSpec{
+					Containers: []v1.Container{
+						{
+							Name: "test-container-1",
+							Resources: v1.ResourceRequirements{
+								Limits: v1.ResourceList{
+									v1.ResourceMemory: memorySize1G,
+								},
+								Requests: v1.ResourceList{
+									v1.ResourceMemory: memorySize1G,
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+	metaServer.PodFetcher = podFetcher
+
+	pod1Allocation := &state.AllocationInfo{
+		PodUid:               "test-pod-1-uid",
+		PodName:              "test-pod-1",
+		ContainerName:        "test-container-1",
+		AggregatedQuantity:   512,
+		QoSLevel:             consts.PodAnnotationQoSLevelSharedCores,
+		NumaAllocationResult: machine.NewCPUSet(3),
+	}
+	dynamicPolicy.state.SetAllocationInfo(v1.ResourceMemory, "test-pod-1-uid", "test-container-1", pod1Allocation)
+
+	pod2Allocation := &state.AllocationInfo{
+		PodUid:             "test-pod-2-uid",
+		PodName:            "test-pod-2",
+		ContainerName:      "test-container-2",
+		AggregatedQuantity: 2 * uint64(memorySize1G.Value()),
+		QoSLevel:           consts.PodAnnotationQoSLevelSharedCores,
+		Annotations: map[string]string{
+			"katalyst.kubewharf.io/qos_level":                "shared_cores",
+			consts.PodAnnotationMemoryEnhancementNumaBinding: consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
+		},
+		NumaAllocationResult: machine.NewCPUSet(0),
+		TopologyAwareAllocations: map[int]uint64{
+			0: uint64(2 * memorySize1G.Value()),
+		},
+	}
+	dynamicPolicy.state.SetAllocationInfo(v1.ResourceMemory, "test-pod-2-uid", "test-container-2", pod2Allocation)
+
+	pod3Container3Allocation := &state.AllocationInfo{
+		PodUid:             "test-pod-3-uid",
+		PodName:            "test-pod-3",
+		ContainerName:      "test-container-3",
+		AggregatedQuantity: 3 * uint64(memorySize1G.Value()),
+		QoSLevel:           consts.PodAnnotationQoSLevelSharedCores,
+		Annotations: map[string]string{
+			"katalyst.kubewharf.io/qos_level":                "shared_cores",
+			consts.PodAnnotationMemoryEnhancementNumaBinding: consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
+		},
+		ContainerType:        pluginapi.ContainerType_MAIN.String(),
+		NumaAllocationResult: machine.NewCPUSet(1),
+		TopologyAwareAllocations: map[int]uint64{
+			1: uint64(3 * memorySize1G.Value()),
+		},
+	}
+	as.Equal(true, pod3Container3Allocation.CheckMainContainer())
+	dynamicPolicy.state.SetAllocationInfo(v1.ResourceMemory, "test-pod-3-uid", "test-container-3", pod3Container3Allocation)
+
+	pod3Container4Allocation := &state.AllocationInfo{
+		PodUid:             "test-pod-3-uid",
+		PodName:            "test-pod-3",
+		ContainerName:      "test-container-4",
+		AggregatedQuantity: 0,
+		QoSLevel:           consts.PodAnnotationQoSLevelSharedCores,
+		Annotations: map[string]string{
+			"katalyst.kubewharf.io/qos_level":                "shared_cores",
+			consts.PodAnnotationMemoryEnhancementNumaBinding: consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
+		},
+		ContainerType:        pluginapi.ContainerType_SIDECAR.String(),
+		NumaAllocationResult: machine.NewCPUSet(1),
+	}
+	as.Equalf(true, pod3Container4Allocation.CheckSideCar(), "check sidecar container failed")
+	dynamicPolicy.state.SetAllocationInfo(v1.ResourceMemory, "test-pod-3-uid", "test-container-4", pod3Container4Allocation)
+
+	pod4Container1Allocation := &state.AllocationInfo{
+		PodUid:             "test-pod-4-uid",
+		PodName:            "test-pod-4",
+		ContainerName:      "test-container-1",
+		AggregatedQuantity: uint64(memorySize1G.Value() / 2),
+		QoSLevel:           consts.PodAnnotationQoSLevelSharedCores,
+		Annotations: map[string]string{
+			consts.PodAnnotationMemoryEnhancementNumaBinding: consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
+		},
+		NumaAllocationResult: machine.NewCPUSet(2),
+		TopologyAwareAllocations: map[int]uint64{
+			2: uint64(memorySize1G.Value() / 2),
+		},
+		ContainerType: pluginapi.ContainerType_MAIN.String(),
+	}
+	as.Equal(true, pod3Container3Allocation.CheckMainContainer())
+	dynamicPolicy.state.SetAllocationInfo(v1.ResourceMemory, "test-pod-4-uid", "test-container-1", pod4Container1Allocation)
+
+	podResourceEntries := dynamicPolicy.state.GetPodResourceEntries()
+	machineState, err := state.GenerateMachineStateFromPodEntries(dynamicPolicy.state.GetMachineInfo(), podResourceEntries, dynamicPolicy.state.GetReservedMemory())
+	as.NoError(err)
+	dynamicPolicy.state.SetMachineState(machineState)
+
+	as.NoError(dynamicPolicy.adjustAllocationEntries())
+
+	allcation1 := dynamicPolicy.state.GetAllocationInfo(v1.ResourceMemory, "test-pod-1-uid", "test-container-1")
+	as.Equal(uint64(memorySize1G.Value()), allcation1.AggregatedQuantity)
+
+	allocation2 := dynamicPolicy.state.GetAllocationInfo(v1.ResourceMemory, "test-pod-2-uid", "test-container-2")
+	as.Equal(uint64(memorySize1G.Value()), allocation2.AggregatedQuantity)
+	as.Equal(map[int]uint64{0: uint64(memorySize1G.Value())}, allocation2.TopologyAwareAllocations)
+
+	allocation3Container3 := dynamicPolicy.state.GetAllocationInfo(v1.ResourceMemory, "test-pod-3-uid", "test-container-3")
+	as.Equal(2*uint64(memorySize1G.Value()), allocation3Container3.AggregatedQuantity)
+	as.Equal(map[int]uint64{1: uint64(2 * memorySize1G.Value())}, allocation3Container3.TopologyAwareAllocations)
+
+	allocation3Container4 := dynamicPolicy.state.GetAllocationInfo(v1.ResourceMemory, "test-pod-3-uid", "test-container-4")
+	as.Equal(uint64(0), allocation3Container4.AggregatedQuantity)
+	as.Equal(map[int]uint64(nil), allocation3Container4.TopologyAwareAllocations)
+
+	allocation4Container1 := dynamicPolicy.state.GetAllocationInfo(v1.ResourceMemory, "test-pod-4-uid", "test-container-1")
+	as.Equal(pod4Container1Allocation.AggregatedQuantity, allocation4Container1.AggregatedQuantity)
+	as.Equal(map[int]uint64{2: pod4Container1Allocation.AggregatedQuantity}, allocation4Container1.TopologyAwareAllocations)
+
+	machineStateNew := dynamicPolicy.state.GetMachineState()
+	as.Equal(uint64(6442450944), machineStateNew[v1.ResourceMemory][0].Free)
+	as.Equal(uint64(5368709120), machineStateNew[v1.ResourceMemory][1].Free)
+	as.Equal(uint64(6979321856), machineStateNew[v1.ResourceMemory][2].Free)
 }
