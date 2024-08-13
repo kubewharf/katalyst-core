@@ -514,7 +514,7 @@ func TestAllocate(t *testing.T) {
 							OciPropertyName:   util.OCIPropertyNameCPUSetMems,
 							IsNodeResource:    false,
 							IsScalarResource:  true,
-							AllocatedQuantity: 0,
+							AllocatedQuantity: 1073741824,
 							AllocationResult:  machine.NewCPUSet(0, 1, 2, 3).String(),
 							ResourceHints: &pluginapi.ListOfTopologyHints{
 								Hints: []*pluginapi.TopologyHint{nil},
@@ -1556,8 +1556,8 @@ func TestGetTopologyAwareResources(t *testing.T) {
 						string(v1.ResourceMemory): {
 							IsNodeResource:                    false,
 							IsScalarResource:                  true,
-							AggregatedQuantity:                0,
-							OriginalAggregatedQuantity:        0,
+							AggregatedQuantity:                1073741824,
+							OriginalAggregatedQuantity:        1073741824,
 							TopologyAwareQuantityList:         nil,
 							OriginalTopologyAwareQuantityList: nil,
 						},
@@ -1736,7 +1736,7 @@ func TestGetResourcesAllocation(t *testing.T) {
 		OciPropertyName:   util.OCIPropertyNameCPUSetMems,
 		IsNodeResource:    false,
 		IsScalarResource:  true,
-		AllocatedQuantity: 0,
+		AllocatedQuantity: 1073741824,
 		AllocationResult:  machine.NewCPUSet(0, 1, 2, 3).String(),
 	})
 
@@ -3766,6 +3766,149 @@ func BenchmarkGetTopologyHints(b *testing.B) {
 
 		_ = os.RemoveAll(tmpDir)
 	}
+}
+
+func TestSNBMemoryAdmitWithSidecarReallocate(t *testing.T) {
+	t.Parallel()
+
+	as := require.New(t)
+
+	tmpDir, err := ioutil.TempDir("", "checkpoint-TestSNBMemoryVPAWithSidecar")
+	as.Nil(err)
+	defer os.RemoveAll(tmpDir)
+
+	cpuTopology, err := machine.GenerateDummyCPUTopology(4, 1, 1)
+	as.Nil(err)
+
+	machineInfo, err := machine.GenerateDummyMachineInfo(1, 8)
+	as.Nil(err)
+
+	dynamicPolicy, err := getTestDynamicPolicyWithInitialization(cpuTopology, machineInfo, tmpDir)
+	as.Nil(err)
+	dynamicPolicy.podAnnotationKeptKeys = []string{
+		consts.PodAnnotationMemoryEnhancementNumaBinding,
+		consts.PodAnnotationInplaceUpdateResizingKey,
+		consts.PodAnnotationAggregatedRequestsKey,
+	}
+
+	testName := "test"
+	sidecarName := "sidecar"
+
+	// allocate sidecar firstly
+	podUID := string(uuid.NewUUID())
+	sidecarReq := &pluginapi.ResourceRequest{
+		PodUid:         podUID,
+		PodNamespace:   testName,
+		PodName:        testName,
+		ContainerName:  sidecarName,
+		ContainerType:  pluginapi.ContainerType_SIDECAR,
+		ContainerIndex: 0,
+		ResourceName:   string(v1.ResourceMemory),
+		ResourceRequests: map[string]float64{
+			string(v1.ResourceMemory): 2147483648,
+		},
+		Annotations: map[string]string{
+			consts.PodAnnotationQoSLevelKey:           consts.PodAnnotationQoSLevelSharedCores,
+			consts.PodAnnotationMemoryEnhancementKey:  `{"numa_binding": "true", "numa_exclusive": "false"}`,
+			consts.PodAnnotationAggregatedRequestsKey: `{"memory": 4294967296}`, // sidecar 2G + main 2G
+		},
+		Labels: map[string]string{
+			consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
+		},
+	}
+
+	// no topology hints for snb sidecar
+	res, err := dynamicPolicy.GetTopologyHints(context.Background(), sidecarReq)
+	as.Nil(err)
+	as.NotNil(res)
+	as.Nil(res.ResourceHints[string(v1.ResourceMemory)])
+
+	// no allocation info for snb sidecar
+	allocationRes, err := dynamicPolicy.Allocate(context.Background(), sidecarReq)
+	as.Nil(err)
+	as.Nil(allocationRes.AllocationResult)
+
+	// allocate main container
+	req := &pluginapi.ResourceRequest{
+		PodUid:         podUID,
+		PodNamespace:   testName,
+		PodName:        testName,
+		ContainerName:  testName,
+		ContainerType:  pluginapi.ContainerType_MAIN,
+		ContainerIndex: 1,
+		ResourceName:   string(v1.ResourceMemory),
+		ResourceRequests: map[string]float64{
+			string(v1.ResourceMemory): 2147483648,
+		},
+		Annotations: map[string]string{
+			consts.PodAnnotationQoSLevelKey:           consts.PodAnnotationQoSLevelSharedCores,
+			consts.PodAnnotationMemoryEnhancementKey:  `{"numa_binding": "true", "numa_exclusive": "false"}`,
+			consts.PodAnnotationAggregatedRequestsKey: `{"memory": 4294967296}`, // sidecar 2G + main 2G
+		},
+		Labels: map[string]string{
+			consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
+		},
+	}
+
+	res, err = dynamicPolicy.GetTopologyHints(context.Background(), req)
+	as.Nil(err)
+	as.NotNil(res)
+	as.NotNil(res.ResourceHints[string(v1.ResourceMemory)])
+	as.NotZero(len(res.ResourceHints[string(v1.ResourceMemory)].Hints))
+
+	req.Hint = res.ResourceHints[string(v1.ResourceMemory)].Hints[0]
+	allocationRes, err = dynamicPolicy.Allocate(context.Background(), req)
+	as.Nil(err)
+	as.NotNil(allocationRes.AllocationResult)
+
+	allocation, err := dynamicPolicy.GetResourcesAllocation(context.Background(), &pluginapi.GetResourcesAllocationRequest{})
+	as.Nil(err)
+	as.NotNil(allocation)
+	as.NotNil(allocation.PodResources)
+	as.NotNil(allocation.PodResources[req.PodUid])
+	as.NotNil(allocation.PodResources[req.PodUid].ContainerResources)
+	as.NotNil(allocation.PodResources[req.PodUid].ContainerResources[req.ContainerName])
+	// allocate all resource into main container: sidecar 2G + main 2G
+	as.Equal(float64(4294967296), allocation.PodResources[req.PodUid].ContainerResources[req.ContainerName].ResourceAllocation[string(v1.ResourceMemory)].AllocatedQuantity)
+
+	// another pod admit
+	anotherReq := &pluginapi.ResourceRequest{
+		PodUid:         podUID,
+		PodNamespace:   testName,
+		PodName:        "pod1",
+		ContainerName:  "container1",
+		ContainerType:  pluginapi.ContainerType_MAIN,
+		ContainerIndex: 1,
+		ResourceName:   string(v1.ResourceMemory),
+		ResourceRequests: map[string]float64{
+			string(v1.ResourceMemory): 7 * 1024 * 1024 * 1024,
+		},
+		Annotations: map[string]string{
+			consts.PodAnnotationQoSLevelKey:           consts.PodAnnotationQoSLevelSharedCores,
+			consts.PodAnnotationMemoryEnhancementKey:  `{"numa_binding": "true", "numa_exclusive": "false"}`,
+			consts.PodAnnotationAggregatedRequestsKey: `{"memory": 7516192768}`,
+		},
+		Labels: map[string]string{
+			consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
+		},
+	}
+
+	_, err = dynamicPolicy.GetTopologyHints(context.Background(), anotherReq)
+	as.NotNil(err)
+
+	// reallocate sidecar here
+	_, err = dynamicPolicy.Allocate(context.Background(), sidecarReq)
+	as.Nil(err)
+
+	allocation, err = dynamicPolicy.GetResourcesAllocation(context.Background(), &pluginapi.GetResourcesAllocationRequest{})
+	as.Nil(err)
+	as.NotNil(allocation)
+	as.NotNil(allocation.PodResources)
+	as.NotNil(allocation.PodResources[sidecarReq.PodUid])
+	as.NotNil(allocation.PodResources[sidecarReq.PodUid].ContainerResources)
+	as.NotNil(allocation.PodResources[sidecarReq.PodUid].ContainerResources[sidecarReq.ContainerName])
+	// allocate all resource into main container, here is zero
+	as.Equal(float64(0), allocation.PodResources[sidecarReq.PodUid].ContainerResources[sidecarReq.ContainerName].ResourceAllocation[string(v1.ResourceMemory)].AllocatedQuantity)
 }
 
 func Test_getContainerRequestedMemoryBytes(t *testing.T) {

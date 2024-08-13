@@ -19,6 +19,7 @@ package dynamicpolicy
 import (
 	"context"
 	"fmt"
+	"math"
 	"sync"
 	"time"
 
@@ -436,23 +437,30 @@ func (p *DynamicPolicy) GetResourcesAllocation(_ context.Context,
 		return nil, fmt.Errorf("GetNumaAwareAssignments err: %v", err)
 	}
 
-	podResources := make(map[string]*pluginapi.ContainerResources)
 	var allocationInfosJustFinishRampUp []*state.AllocationInfo
+	needUpdateMachineState := false
 	for podUID, containerEntries := range podEntries {
 		// if it's a pool, not returning to QRM
 		if containerEntries.IsPoolEntry() {
 			continue
 		}
 
-		if podResources[podUID] == nil {
-			podResources[podUID] = &pluginapi.ContainerResources{}
-		}
-
+		mainContainerAllocationInfo := podEntries[podUID].GetMainContainerEntry()
 		for containerName, allocationInfo := range containerEntries {
 			if allocationInfo == nil {
 				continue
 			}
 			allocationInfo = allocationInfo.Clone()
+
+			// sync allocation info from main container to sidecar
+			if allocationInfo.CheckSideCar() && mainContainerAllocationInfo != nil {
+				if p.applySidecarAllocationInfoFromMainContainer(allocationInfo, mainContainerAllocationInfo) {
+					general.Infof("pod: %s/%s, container: %s sync allocation info from main container",
+						allocationInfo.PodNamespace, allocationInfo.PodName, containerName)
+					p.state.SetAllocationInfo(podUID, containerName, allocationInfo)
+					needUpdateMachineState = true
+				}
+			}
 
 			initTs, tsErr := time.Parse(util.QRMTimeFormat, allocationInfo.InitTimestamp)
 			if tsErr != nil {
@@ -484,6 +492,39 @@ func (p *DynamicPolicy) GetResourcesAllocation(_ context.Context,
 				}
 			}
 
+		}
+	}
+
+	if len(allocationInfosJustFinishRampUp) > 0 {
+		if err = p.putAllocationsAndAdjustAllocationEntries(allocationInfosJustFinishRampUp, true); err != nil {
+			// not influencing return response to kubelet when putAllocationsAndAdjustAllocationEntries failed
+			general.Errorf("putAllocationsAndAdjustAllocationEntries failed with error: %v", err)
+		}
+	} else if needUpdateMachineState {
+		// NOTE: we only need update machine state when putAllocationsAndAdjustAllocationEntries is skipped,
+		// because putAllocationsAndAdjustAllocationEntries will update machine state.
+		general.Infof("GetResourcesAllocation update machine state")
+		podEntries = p.state.GetPodEntries()
+		updatedMachineState, err := generateMachineStateFromPodEntries(p.machineInfo.CPUTopology, podEntries)
+		if err != nil {
+			general.Errorf("GetResourcesAllocation GenerateMachineStateFromPodEntries failed with error: %v", err)
+			return nil, fmt.Errorf("GenerateMachineStateFromPodEntries failed with error: %v", err)
+		}
+		p.state.SetMachineState(updatedMachineState)
+	}
+
+	podEntries = p.state.GetPodEntries()
+	podResources := make(map[string]*pluginapi.ContainerResources)
+	for podUID, containerEntries := range podEntries {
+		if containerEntries.IsPoolEntry() {
+			continue
+		}
+
+		if podResources[podUID] == nil {
+			podResources[podUID] = &pluginapi.ContainerResources{}
+		}
+
+		for containerName, allocationInfo := range containerEntries {
 			if podResources[podUID].ContainerResources == nil {
 				podResources[podUID].ContainerResources = make(map[string]*pluginapi.ResourceAllocation)
 			}
@@ -498,13 +539,6 @@ func (p *DynamicPolicy) GetResourcesAllocation(_ context.Context,
 					},
 				},
 			}
-		}
-	}
-
-	if len(allocationInfosJustFinishRampUp) > 0 {
-		if err = p.putAllocationsAndAdjustAllocationEntries(allocationInfosJustFinishRampUp, true); err != nil {
-			// not influencing return response to kubelet when putAllocationsAndAdjustAllocationEntries failed
-			general.Errorf("putAllocationsAndAdjustAllocationEntries failed with error: %v", err)
 		}
 	}
 
@@ -639,7 +673,8 @@ func (p *DynamicPolicy) GetTopologyHints(ctx context.Context,
 		"qosLevel", qosLevel,
 		"numCPUsInt", reqInt,
 		"numCPUsFloat64", reqFloat64,
-		"isDebugPod", isDebugPod)
+		"isDebugPod", isDebugPod,
+		"annotation", req.Annotations)
 
 	if req.ContainerType == pluginapi.ContainerType_INIT || isDebugPod {
 		general.Infof("there is no NUMA preference, return nil hint")
@@ -721,7 +756,8 @@ func (p *DynamicPolicy) Allocate(ctx context.Context,
 		"qosLevel", qosLevel,
 		"numCPUsInt", reqInt,
 		"numCPUsFloat64", reqFloat64,
-		"isDebugPod", isDebugPod)
+		"isDebugPod", isDebugPod,
+		"annotations", req.Annotations)
 
 	if req.ContainerType == pluginapi.ContainerType_INIT {
 		return &pluginapi.ResourceAllocationResponse{
@@ -794,7 +830,7 @@ func (p *DynamicPolicy) Allocate(ctx context.Context,
 	}()
 
 	allocationInfo := p.state.GetAllocationInfo(req.PodUid, req.ContainerName)
-	if allocationInfo != nil && allocationInfo.OriginalAllocationResult.Size() >= reqInt {
+	if allocationInfo != nil && allocationInfo.OriginalAllocationResult.Size() >= reqInt && !util.PodInplaceUpdateResizing(req) {
 		general.InfoS("already allocated and meet requirement",
 			"podNamespace", req.PodNamespace,
 			"podName", req.PodName,
@@ -1108,11 +1144,13 @@ func (p *DynamicPolicy) getContainerRequestedCores(allocationInfo *state.Allocat
 	cpuQuantity := native.CPUQuantityGetter()(container.Resources.Requests)
 	metaValue := general.MaxFloat64(float64(cpuQuantity.MilliValue())/1000.0, 0)
 
+	// optimize this logic someday:
+	//	only for refresh cpu request for old pod with cpu ceil and old inplace update resized pods.
 	if state.CheckShared(allocationInfo) {
 		// if there is these two annotations in memory state, it is a new pod,
 		// we don't need to check the pod request from podWatcher
 		if allocationInfo.Annotations[consts.PodAnnotationAggregatedRequestsKey] != "" ||
-			allocationInfo.Annotations[consts.PodAnnotationVPAResizingKey] != "" {
+			allocationInfo.Annotations[consts.PodAnnotationInplaceUpdateResizingKey] != "" {
 			return allocationInfo.RequestQuantity
 		}
 		if state.CheckNUMABinding(allocationInfo) {
@@ -1135,4 +1173,74 @@ func (p *DynamicPolicy) getContainerRequestedCores(allocationInfo *state.Allocat
 	}
 
 	return allocationInfo.RequestQuantity
+}
+
+func (p *DynamicPolicy) checkNormalShareCoresCpuResource(req *pluginapi.ResourceRequest) (bool, error) {
+	_, reqFloat64, err := util.GetPodAggregatedRequestResource(req)
+	if err != nil {
+		return false, fmt.Errorf("GetQuantityFromResourceReq failed with error: %v", err)
+	}
+
+	shareCoresAllocated := reqFloat64
+	podEntries := p.state.GetPodEntries()
+	for podUid, podEntry := range podEntries {
+		if podEntry.IsPoolEntry() {
+			continue
+		}
+		if podUid == req.PodUid {
+			continue
+		}
+		for _, allocation := range podEntry {
+			// shareCoresAllocated should involve both main and sidecar containers
+			if state.CheckShared(allocation) && !state.CheckNUMABinding(allocation) {
+				shareCoresAllocated += p.getContainerRequestedCores(allocation)
+			}
+		}
+	}
+
+	machineState := p.state.GetMachineState()
+	pooledCPUs := machineState.GetFilteredAvailableCPUSet(p.reservedCPUs,
+		state.CheckDedicated, state.CheckNUMABinding)
+
+	shareCoresAllocatedInt := int(math.Ceil(shareCoresAllocated))
+	general.Infof("[checkNormalShareCoresCpuResource] node cpu allocated: %d, allocatable: %d", shareCoresAllocatedInt, pooledCPUs.Size())
+	if shareCoresAllocatedInt > pooledCPUs.Size() {
+		general.Warningf("[checkNormalShareCoresCpuResource] no enough cpu resource for normal share cores pod: %s/%s, container: %s (request: %.02f, node allocated: %d, node allocatable: %d)",
+			req.PodNamespace, req.PodName, req.ContainerName, reqFloat64, shareCoresAllocatedInt, pooledCPUs.Size())
+		return false, nil
+	}
+
+	general.InfoS("checkNormalShareCoresCpuResource memory successfully",
+		"podNamespace", req.PodNamespace,
+		"podName", req.PodName,
+		"containerName", req.ContainerName,
+		"request", reqFloat64)
+
+	return true, nil
+}
+
+func (p *DynamicPolicy) applySidecarAllocationInfoFromMainContainer(sidecarAllocationInfo, mainAllocationInfo *state.AllocationInfo) bool {
+	changed := false
+	if sidecarAllocationInfo.OwnerPoolName != mainAllocationInfo.OwnerPoolName ||
+		!sidecarAllocationInfo.AllocationResult.Equals(mainAllocationInfo.AllocationResult) ||
+		!sidecarAllocationInfo.OriginalAllocationResult.Equals(mainAllocationInfo.OriginalAllocationResult) ||
+		!state.CheckAllocationInfoTopologyAwareAssignments(sidecarAllocationInfo, mainAllocationInfo) ||
+		!state.CheckAllocationInfoOriginTopologyAwareAssignments(sidecarAllocationInfo, mainAllocationInfo) {
+
+		sidecarAllocationInfo.OwnerPoolName = mainAllocationInfo.OwnerPoolName
+		sidecarAllocationInfo.AllocationResult = mainAllocationInfo.AllocationResult.Clone()
+		sidecarAllocationInfo.OriginalAllocationResult = mainAllocationInfo.OriginalAllocationResult.Clone()
+		sidecarAllocationInfo.TopologyAwareAssignments = machine.DeepcopyCPUAssignment(mainAllocationInfo.TopologyAwareAssignments)
+		sidecarAllocationInfo.OriginalTopologyAwareAssignments = machine.DeepcopyCPUAssignment(mainAllocationInfo.OriginalTopologyAwareAssignments)
+
+		changed = true
+	}
+
+	request := p.getContainerRequestedCores(sidecarAllocationInfo)
+	if sidecarAllocationInfo.RequestQuantity != request {
+		sidecarAllocationInfo.RequestQuantity = request
+		changed = true
+	}
+
+	return changed
 }

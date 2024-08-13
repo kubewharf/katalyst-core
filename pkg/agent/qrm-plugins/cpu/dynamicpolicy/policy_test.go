@@ -1,6 +1,3 @@
-//go:build linux
-// +build linux
-
 /*
 Copyright 2022 The Katalyst Authors.
 
@@ -2812,6 +2809,7 @@ func TestGetResourcesAllocation(t *testing.T) {
 
 	dynamicPolicy, err := getTestDynamicPolicyWithInitialization(cpuTopology, tmpDir)
 	as.Nil(err)
+	dynamicPolicy.transitionPeriod = time.Millisecond * 10
 
 	testName := "test"
 
@@ -2841,6 +2839,9 @@ func TestGetResourcesAllocation(t *testing.T) {
 	resp1, err := dynamicPolicy.GetResourcesAllocation(context.Background(), &pluginapi.GetResourcesAllocationRequest{})
 	as.Nil(err)
 
+	reclaim := dynamicPolicy.state.GetAllocationInfo(state.PoolNameReclaim, state.FakedContainerName)
+	as.NotNil(reclaim)
+
 	as.NotNil(resp1.PodResources[req.PodUid])
 	as.NotNil(resp1.PodResources[req.PodUid].ContainerResources[testName])
 	as.NotNil(resp1.PodResources[req.PodUid].ContainerResources[testName].ResourceAllocation[string(v1.ResourceCPU)])
@@ -2848,8 +2849,8 @@ func TestGetResourcesAllocation(t *testing.T) {
 		OciPropertyName:   util.OCIPropertyNameCPUSetCPUs,
 		IsNodeResource:    false,
 		IsScalarResource:  true,
-		AllocatedQuantity: 14,
-		AllocationResult:  cpuTopology.CPUDetails.CPUs().Difference(dynamicPolicy.reservedCPUs).String(),
+		AllocatedQuantity: 10,
+		AllocationResult:  cpuTopology.CPUDetails.CPUs().Difference(dynamicPolicy.reservedCPUs).Difference(reclaim.AllocationResult).String(),
 	}, resp1.PodResources[req.PodUid].ContainerResources[testName].ResourceAllocation[string(v1.ResourceCPU)])
 
 	// test after ramping up
@@ -5177,4 +5178,130 @@ func Test_getNUMAAllocatedMemBW(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestSNBAdmitWithSidecarReallocate(t *testing.T) {
+	t.Parallel()
+	as := require.New(t)
+
+	tmpDir, err := ioutil.TempDir("", "checkpoint-TestSNBAdmit")
+	as.Nil(err)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
+
+	cpuTopology, err := machine.GenerateDummyCPUTopology(12, 1, 1)
+	as.Nil(err)
+
+	dynamicPolicy, err := getTestDynamicPolicyWithInitialization(cpuTopology, tmpDir)
+	as.Nil(err)
+
+	dynamicPolicy.podAnnotationKeptKeys = []string{
+		consts.PodAnnotationMemoryEnhancementNumaBinding,
+		consts.PodAnnotationInplaceUpdateResizingKey,
+		consts.PodAnnotationAggregatedRequestsKey,
+	}
+
+	testName := "test"
+	sidecarName := "sidecar"
+	podUID := string(uuid.NewUUID())
+	// admit sidecar container
+	sidecarReq := &pluginapi.ResourceRequest{
+		PodUid:         podUID,
+		PodNamespace:   testName,
+		PodName:        testName,
+		ContainerName:  sidecarName,
+		ContainerType:  pluginapi.ContainerType_SIDECAR,
+		ContainerIndex: 0,
+		ResourceName:   string(v1.ResourceCPU),
+		ResourceRequests: map[string]float64{
+			string(v1.ResourceCPU): 2,
+		},
+		Labels: map[string]string{
+			consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
+		},
+		Annotations: map[string]string{
+			consts.PodAnnotationQoSLevelKey:           consts.PodAnnotationQoSLevelSharedCores,
+			consts.PodAnnotationMemoryEnhancementKey:  `{"numa_binding": "true", "numa_exclusive": "false"}`,
+			consts.PodAnnotationAggregatedRequestsKey: `{"cpu": 8}`,
+		},
+	}
+
+	res, err := dynamicPolicy.GetTopologyHints(context.Background(), sidecarReq)
+	as.Nil(err)
+	as.Nil(res.ResourceHints[string(v1.ResourceCPU)])
+
+	_, err = dynamicPolicy.Allocate(context.Background(), sidecarReq)
+	as.Nil(err)
+
+	// admit main container
+	req := &pluginapi.ResourceRequest{
+		PodUid:         podUID,
+		PodNamespace:   testName,
+		PodName:        testName,
+		ContainerName:  testName,
+		ContainerType:  pluginapi.ContainerType_MAIN,
+		ContainerIndex: 1,
+		ResourceName:   string(v1.ResourceCPU),
+		ResourceRequests: map[string]float64{
+			string(v1.ResourceCPU): 6,
+		},
+		Labels: map[string]string{
+			consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
+		},
+		Annotations: map[string]string{
+			consts.PodAnnotationQoSLevelKey:           consts.PodAnnotationQoSLevelSharedCores,
+			consts.PodAnnotationMemoryEnhancementKey:  `{"numa_binding": "true", "numa_exclusive": "false"}`,
+			consts.PodAnnotationAggregatedRequestsKey: `{"cpu": 8}`,
+		},
+	}
+
+	res, err = dynamicPolicy.GetTopologyHints(context.Background(), req)
+	as.Nil(err)
+	hints := res.ResourceHints[string(v1.ResourceCPU)].Hints
+	as.NotZero(len(hints))
+	req.Hint = hints[0]
+
+	_, err = dynamicPolicy.Allocate(context.Background(), req)
+	as.Nil(err)
+
+	// we cannot GetResourceAllocation here, it will
+	// not sidecar container is wait for reallocate, only main container is in state file
+	sidecarAllocation := dynamicPolicy.state.GetAllocationInfo(podUID, sidecarName)
+	as.Nil(sidecarAllocation)
+
+	mainAllocation := dynamicPolicy.state.GetAllocationInfo(podUID, testName)
+	as.NotNil(mainAllocation)
+
+	// another container before reallocate with 4 core (because share-NUMA0 has only 11 core and 6 cores is allocated to podUID/test).
+	anotherReq := &pluginapi.ResourceRequest{
+		PodUid:         podUID,
+		PodNamespace:   testName,
+		PodName:        testName,
+		ContainerName:  "test1",
+		ContainerType:  pluginapi.ContainerType_MAIN,
+		ContainerIndex: 0,
+		ResourceName:   string(v1.ResourceCPU),
+		ResourceRequests: map[string]float64{
+			string(v1.ResourceCPU): 4,
+		},
+		Labels: map[string]string{
+			consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
+		},
+		Annotations: map[string]string{
+			consts.PodAnnotationQoSLevelKey:           consts.PodAnnotationQoSLevelSharedCores,
+			consts.PodAnnotationMemoryEnhancementKey:  `{"numa_binding": "true", "numa_exclusive": "false"}`,
+			consts.PodAnnotationAggregatedRequestsKey: `{"cpu": 4}`,
+		},
+	}
+
+	// pod aggregated size is 8, the new container request is 4, 8 + 4 > 11 (share-NUMA0 size)
+	res, err = dynamicPolicy.GetTopologyHints(context.Background(), anotherReq)
+	as.Nil(err)
+	as.NotNil(res.ResourceHints[string(v1.ResourceCPU)])
+	as.Equal(0, len(res.ResourceHints[string(v1.ResourceCPU)].Hints))
+
+	// reallocate sidecar
+	_, err = dynamicPolicy.Allocate(context.Background(), sidecarReq)
+	as.Nil(err)
+	sidecarAllocation = dynamicPolicy.state.GetAllocationInfo(podUID, sidecarName)
+	as.NotNil(sidecarAllocation)
 }

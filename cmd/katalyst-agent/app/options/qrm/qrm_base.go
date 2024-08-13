@@ -65,8 +65,8 @@ func (o *GenericQRMPluginOptions) ApplyTo(conf *qrmconfig.GenericQRMPluginConfig
 	conf.ExtraStateFileAbsPath = o.ExtraStateFileAbsPath
 	conf.PodDebugAnnoKeys = o.PodDebugAnnoKeys
 	conf.UseKubeletReservedConfig = o.UseKubeletReservedConfig
-	conf.PodAnnotationKeptKeys = o.PodAnnotationKeptKeys
-	conf.PodLabelKeptKeys = o.PodLabelKeptKeys
+	conf.PodAnnotationKeptKeys = append(conf.PodAnnotationKeptKeys, o.PodAnnotationKeptKeys...)
+	conf.PodLabelKeptKeys = append(conf.PodLabelKeptKeys, o.PodLabelKeptKeys...)
 	return nil
 }
 

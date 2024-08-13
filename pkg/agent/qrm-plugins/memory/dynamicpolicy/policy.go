@@ -303,7 +303,7 @@ func (p *DynamicPolicy) Start() (err error) {
 		general.Errorf("start %v failed, err: %v", memconsts.ClearResidualState, err)
 	}
 
-	// we should remove this healthy check when we support vpa in all clusters.
+	// TODO: we should remove this healthy check when we support inplace update resize in all clusters.
 	syncMemoryStatusFromSpec := func(_ *config.Configuration,
 		_ interface{},
 		_ *dynamicconfig.DynamicAgentConfiguration,
@@ -320,7 +320,7 @@ func (p *DynamicPolicy) Start() (err error) {
 			general.Warningf("sync memory state from pod spec successfully")
 		}
 	}
-	err = periodicalhandler.RegisterPeriodicalHandler(memconsts.SyncMemoryStateFromSpec, qrm.QRMMemoryPluginPeriodicalHandlerGroupName,
+	err = periodicalhandler.RegisterPeriodicalHandler(qrm.QRMMemoryPluginPeriodicalHandlerGroupName, memconsts.SyncMemoryStateFromSpec,
 		syncMemoryStatusFromSpec, stateCheckPeriod)
 	if err != nil {
 		general.Errorf("start %v failed, err: %v", memconsts.SyncMemoryStateFromSpec, err)
@@ -510,7 +510,7 @@ func (p *DynamicPolicy) GetTopologyHints(ctx context.Context,
 		return nil, fmt.Errorf("getReqQuantityFromResourceReq failed with error: %v", err)
 	}
 
-	general.InfoS("GetTopologyHints is called",
+	general.InfoS("called",
 		"podNamespace", req.PodNamespace,
 		"podName", req.PodName,
 		"containerName", req.ContainerName,
@@ -612,14 +612,25 @@ func (p *DynamicPolicy) GetResourcesAllocation(_ context.Context,
 
 	podResources := make(map[string]*pluginapi.ContainerResources)
 	podEntries := p.state.GetPodResourceEntries()[v1.ResourceMemory]
+	needUpdateMachineState := false
 	for podUID, containerEntries := range podEntries {
 		if podResources[podUID] == nil {
 			podResources[podUID] = &pluginapi.ContainerResources{}
 		}
 
+		mainContainerAllocationInfo, _ := podEntries.GetMainContainerAllocation(podUID)
 		for containerName, allocationInfo := range containerEntries {
 			if allocationInfo == nil {
 				continue
+			}
+
+			if allocationInfo.CheckSideCar() && mainContainerAllocationInfo != nil {
+				if applySidecarAllocationInfoFromMainContainer(allocationInfo, mainContainerAllocationInfo) {
+					general.Infof("pod: %s/%s sidecar container: %s update its allocation",
+						allocationInfo.PodNamespace, allocationInfo.PodName, allocationInfo.ContainerName)
+					p.state.SetAllocationInfo(v1.ResourceMemory, podUID, containerName, allocationInfo)
+					needUpdateMachineState = true
+				}
 			}
 
 			if podResources[podUID].ContainerResources == nil {
@@ -637,6 +648,17 @@ func (p *DynamicPolicy) GetResourcesAllocation(_ context.Context,
 				return nil, fmt.Errorf(errMsg)
 			}
 		}
+	}
+
+	if needUpdateMachineState {
+		general.Infof("GetResourcesAllocation update machine state")
+		podResourceEntries := p.state.GetPodResourceEntries()
+		resourcesState, err := state.GenerateMachineStateFromPodEntries(p.state.GetMachineInfo(), podResourceEntries, p.state.GetReservedMemory())
+		if err != nil {
+			general.Infof("GetResourcesAllocation GenerateMachineStateFromPodEntries failed with error: %v", err)
+			return nil, fmt.Errorf("calculate machineState by updated pod entries failed with error: %v", err)
+		}
+		p.state.SetMachineState(resourcesState)
 	}
 
 	return &pluginapi.GetResourcesAllocationResponse{
@@ -790,7 +812,8 @@ func (p *DynamicPolicy) Allocate(ctx context.Context,
 		"podType", req.PodType,
 		"podRole", req.PodRole,
 		"qosLevel", qosLevel,
-		"memoryReq(bytes)", reqInt)
+		"memoryReq(bytes)", reqInt,
+		"hint", req.Hint)
 
 	if req.ContainerType == pluginapi.ContainerType_INIT {
 		return &pluginapi.ResourceAllocationResponse{
@@ -863,7 +886,7 @@ func (p *DynamicPolicy) Allocate(ctx context.Context,
 	}()
 
 	allocationInfo := p.state.GetAllocationInfo(v1.ResourceMemory, req.PodUid, req.ContainerName)
-	if allocationInfo != nil && allocationInfo.AggregatedQuantity >= uint64(reqInt) {
+	if allocationInfo != nil && allocationInfo.AggregatedQuantity >= uint64(reqInt) && !util.PodInplaceUpdateResizing(req) {
 		general.InfoS("already allocated and meet requirement",
 			"podNamespace", req.PodNamespace,
 			"podName", req.PodName,
@@ -974,12 +997,14 @@ func (p *DynamicPolicy) getContainerRequestedMemoryBytes(allocationInfo *state.A
 		return allocationInfo.AggregatedQuantity
 	}
 
-	// check request for VPA
+	// TODO optimize this logic someday:
+	//	only for refresh cpu request for old pod with cpu ceil and old VPA pods.
+	//  we can remove refresh logic after upgrade all kubelet and qrm.
 	if allocationInfo.QoSLevel == apiconsts.PodAnnotationQoSLevelSharedCores {
 		// if there is these two annotations in memory state, it is a new pod,
 		// we don't need to check the pod request from podWatcher
 		if allocationInfo.Annotations[apiconsts.PodAnnotationAggregatedRequestsKey] != "" ||
-			allocationInfo.Annotations[apiconsts.PodAnnotationVPAResizingKey] != "" {
+			allocationInfo.Annotations[apiconsts.PodAnnotationInplaceUpdateResizingKey] != "" {
 			return allocationInfo.AggregatedQuantity
 		}
 
@@ -1074,4 +1099,49 @@ func (p *DynamicPolicy) hasLastLevelEnhancementKey(lastLevelEnhancementKey strin
 
 	general.Infof("pod: %s does not have last level enhancement key: %s", podUID, lastLevelEnhancementKey)
 	return false
+}
+
+func (p *DynamicPolicy) checkNormalShareCoresResource(req *pluginapi.ResourceRequest) (bool, error) {
+	reqInt, _, err := util.GetPodAggregatedRequestResource(req)
+	if err != nil {
+		return false, fmt.Errorf("GetQuantityFromResourceReq failed with error: %v", err)
+	}
+
+	shareCoresAllocated := uint64(reqInt)
+	podEntries := p.state.GetPodResourceEntries()[v1.ResourceMemory]
+	for podUid, containerEntries := range podEntries {
+		for _, containerAllocation := range containerEntries {
+			// skip the current pod
+			if podUid == req.PodUid {
+				continue
+			}
+			// shareCoresAllocated should involve both main and sidecar containers
+			if containerAllocation.QoSLevel == apiconsts.PodAnnotationQoSLevelSharedCores && !containerAllocation.CheckNumaBinding() {
+				shareCoresAllocated += p.getContainerRequestedMemoryBytes(containerAllocation)
+			}
+		}
+	}
+
+	machineState := p.state.GetMachineState()
+	resourceState := machineState[v1.ResourceMemory]
+	numaWithoutNUMABindingPods := resourceState.GetNUMANodesWithoutNUMABindingPods()
+	numaAllocatableWithoutNUMABindingPods := uint64(0)
+	for _, numaID := range numaWithoutNUMABindingPods.ToSliceInt() {
+		numaAllocatableWithoutNUMABindingPods += resourceState[numaID].Allocatable
+	}
+
+	general.Infof("[checkNormalShareCoresResource] node memory allocated: %d, allocatable: %d", shareCoresAllocated, numaAllocatableWithoutNUMABindingPods)
+	if shareCoresAllocated > numaAllocatableWithoutNUMABindingPods {
+		general.Warningf("[checkNormalShareCoresResource] no enough memory resource for normal share cores pod: %s/%s, container: %s (allocated: %d, allocatable: %d)",
+			req.PodNamespace, req.PodName, req.ContainerName, shareCoresAllocated, numaAllocatableWithoutNUMABindingPods)
+		return false, nil
+	}
+
+	general.InfoS("checkNormalShareCoresResource memory successfully",
+		"podNamespace", req.PodNamespace,
+		"podName", req.PodName,
+		"containerName", req.ContainerName,
+		"reqInt", reqInt)
+
+	return true, nil
 }

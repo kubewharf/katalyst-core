@@ -326,3 +326,33 @@ func GetCgroupAsyncWorkName(cgroup, topic string) string {
 func GetAsyncWorkNameByPrefix(prefix, topic string) string {
 	return strings.Join([]string{prefix, topic}, asyncworker.WorkNameSeperator)
 }
+
+func PodInplaceUpdateResizing(req *pluginapi.ResourceRequest) bool {
+	return req.Annotations != nil && req.Annotations[apiconsts.PodAnnotationInplaceUpdateResizingKey] == "true"
+}
+
+func GetPodAggregatedRequestResource(req *pluginapi.ResourceRequest) (int, float64, error) {
+	annotations := req.Annotations
+	if annotations == nil {
+		return GetQuantityFromResourceReq(req)
+	}
+	value, ok := annotations[apiconsts.PodAnnotationAggregatedRequestsKey]
+	if !ok {
+		return GetQuantityFromResourceReq(req)
+	}
+	var resourceList v1.ResourceList
+	if err := json.Unmarshal([]byte(value), &resourceList); err != nil {
+		return GetQuantityFromResourceReq(req)
+	}
+
+	switch req.ResourceName {
+	case string(v1.ResourceCPU):
+		podAggregatedReqFloat64 := float64(resourceList.Cpu().MilliValue()) / 1000
+		return int(math.Ceil(podAggregatedReqFloat64)), podAggregatedReqFloat64, nil
+	case string(v1.ResourceMemory):
+		podAggregatedReqFloat64 := float64(resourceList.Memory().MilliValue()) / 1000
+		return int(math.Ceil(podAggregatedReqFloat64)), podAggregatedReqFloat64, nil
+	default:
+		return 0, 0, fmt.Errorf("not support resource name: %s", req.ResourceName)
+	}
+}

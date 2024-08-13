@@ -85,6 +85,7 @@ func (p *DynamicPolicy) sharedCoresWithoutNUMABindingAllocationHandler(_ context
 
 	needSet := true
 	allocationInfo := p.state.GetAllocationInfo(req.PodUid, req.ContainerName)
+	originAllocationInfo := allocationInfo.Clone()
 	err = updateAllocationInfoByReq(req, allocationInfo)
 	if err != nil {
 		general.Errorf("pod: %s/%s, container: %s updateAllocationInfoByReq failed with error: %v",
@@ -139,6 +140,12 @@ func (p *DynamicPolicy) sharedCoresWithoutNUMABindingAllocationHandler(_ context
 			}
 		}
 	} else if allocationInfo.RampUp {
+		if util.PodInplaceUpdateResizing(req) {
+			general.Errorf("pod: %s/%s, container: %s is still in ramp up, not allow to inplace update resize",
+				req.PodNamespace, req.PodName, req.ContainerName)
+			return nil, fmt.Errorf("pod is still ramp up, not allow to inplace update resize")
+		}
+
 		general.Infof("pod: %s/%s, container: %s is still in ramp up, allocate pooled cpus: %s",
 			req.PodNamespace, req.PodName, req.ContainerName, pooledCPUs.String())
 
@@ -147,11 +154,27 @@ func (p *DynamicPolicy) sharedCoresWithoutNUMABindingAllocationHandler(_ context
 		allocationInfo.TopologyAwareAssignments = pooledCPUsTopologyAwareAssignments
 		allocationInfo.OriginalTopologyAwareAssignments = machine.DeepcopyCPUAssignment(pooledCPUsTopologyAwareAssignments)
 	} else {
-		_, err := p.doAndCheckPutAllocationInfo(allocationInfo, true)
-		if err != nil {
-			return nil, err
-		}
+		if util.PodInplaceUpdateResizing(req) {
+			general.Infof("pod: %s/%s, container: %s request to inplace update resize (%.02f->%.02f)",
+				req.PodNamespace, req.PodName, req.ContainerName, allocationInfo.RequestQuantity, reqFloat64)
+			allocationInfo.RequestQuantity = reqFloat64
 
+			p.state.SetAllocationInfo(allocationInfo.PodUid, allocationInfo.ContainerName, allocationInfo)
+			_, err := p.doAndCheckPutAllocationInfoPodResizingAware(originAllocationInfo, allocationInfo, false, true)
+			if err != nil {
+				general.Errorf("pod: %s/%s, container: %s doAndCheckPutAllocationInfoPodResizingAware failed: %q",
+					req.PodNamespace, req.PodName, req.ContainerName, err)
+				p.state.SetAllocationInfo(originAllocationInfo.PodUid, originAllocationInfo.ContainerName, originAllocationInfo)
+				return nil, err
+			}
+		} else {
+			_, err := p.doAndCheckPutAllocationInfo(allocationInfo, true)
+			if err != nil {
+				general.Errorf("pod: %s/%s, container: %s doAndCheckPutAllocationInfo failed: %q",
+					req.PodNamespace, req.PodName, req.ContainerName, err)
+				return nil, err
+			}
+		}
 		needSet = false
 	}
 
@@ -185,6 +208,10 @@ func (p *DynamicPolicy) reclaimedCoresAllocationHandler(_ context.Context,
 ) (*pluginapi.ResourceAllocationResponse, error) {
 	if req == nil {
 		return nil, fmt.Errorf("reclaimedCoresAllocationHandler got nil request")
+	}
+
+	if util.PodInplaceUpdateResizing(req) {
+		return nil, fmt.Errorf("not support inplace update resize for reclaimed cores")
 	}
 
 	_, reqFloat64, err := util.GetQuantityFromResourceReq(req)
@@ -272,6 +299,10 @@ func (p *DynamicPolicy) dedicatedCoresAllocationHandler(ctx context.Context,
 ) (*pluginapi.ResourceAllocationResponse, error) {
 	if req == nil {
 		return nil, fmt.Errorf("dedicatedCoresAllocationHandler got nil req")
+	}
+
+	if util.PodInplaceUpdateResizing(req) {
+		return nil, fmt.Errorf("not support inplace update resize for dedicated cores")
 	}
 
 	switch req.Annotations[apiconsts.PodAnnotationMemoryEnhancementNumaBinding] {
@@ -425,26 +456,23 @@ func (p *DynamicPolicy) allocationSidecarHandler(_ context.Context,
 		return &pluginapi.ResourceAllocationResponse{}, nil
 	}
 
+	// the sidecar container also support inplace update resize, update the allocation and machine state here
 	allocationInfo := &state.AllocationInfo{
-		PodUid:                           req.PodUid,
-		PodNamespace:                     req.PodNamespace,
-		PodName:                          req.PodName,
-		ContainerName:                    req.ContainerName,
-		ContainerType:                    req.ContainerType.String(),
-		ContainerIndex:                   req.ContainerIndex,
-		PodRole:                          req.PodRole,
-		PodType:                          req.PodType,
-		OwnerPoolName:                    mainContainerAllocationInfo.OwnerPoolName,
-		AllocationResult:                 mainContainerAllocationInfo.AllocationResult.Clone(),
-		OriginalAllocationResult:         mainContainerAllocationInfo.OriginalAllocationResult.Clone(),
-		TopologyAwareAssignments:         machine.DeepcopyCPUAssignment(mainContainerAllocationInfo.TopologyAwareAssignments),
-		OriginalTopologyAwareAssignments: machine.DeepcopyCPUAssignment(mainContainerAllocationInfo.OriginalTopologyAwareAssignments),
-		InitTimestamp:                    time.Now().Format(util.QRMTimeFormat),
-		QoSLevel:                         qosLevel,
-		Labels:                           general.DeepCopyMap(req.Labels),
-		Annotations:                      general.DeepCopyMap(req.Annotations),
-		RequestQuantity:                  reqFloat64,
+		PodUid:          req.PodUid,
+		PodNamespace:    req.PodNamespace,
+		PodName:         req.PodName,
+		ContainerName:   req.ContainerName,
+		ContainerType:   req.ContainerType.String(),
+		ContainerIndex:  req.ContainerIndex,
+		PodRole:         req.PodRole,
+		PodType:         req.PodType,
+		InitTimestamp:   time.Now().Format(util.QRMTimeFormat),
+		QoSLevel:        qosLevel,
+		Labels:          general.DeepCopyMap(req.Labels),
+		Annotations:     general.DeepCopyMap(req.Annotations),
+		RequestQuantity: reqFloat64,
 	}
+	p.applySidecarAllocationInfoFromMainContainer(allocationInfo, mainContainerAllocationInfo)
 
 	// update pod entries directly.
 	// if one of subsequent steps is failed, we will delete current allocationInfo from podEntries in defer function of allocation function.
@@ -604,43 +632,53 @@ func (p *DynamicPolicy) allocateSharedNumaBindingCPUs(req *pluginapi.ResourceReq
 		RequestQuantity: reqFloat64,
 	}
 
-	p.state.SetAllocationInfo(allocationInfo.PodUid, allocationInfo.ContainerName, allocationInfo)
-	checkedAllocationInfo, err := p.doAndCheckPutAllocationInfo(allocationInfo, true)
-	if err != nil {
-		return nil, fmt.Errorf("doAndCheckPutAllocationInfo failed with error: %v", err)
-	}
+	if util.PodInplaceUpdateResizing(req) {
+		originAllocationInfo := p.state.GetAllocationInfo(allocationInfo.PodUid, allocationInfo.ContainerName)
+		if originAllocationInfo == nil {
+			general.Errorf("pod: %s/%s, container: %s request to cpu inplace update resize alloation, but no origin allocation info, reject it",
+				req.PodNamespace, req.PodName, req.ContainerName)
+			return nil, fmt.Errorf("no origion cpu allocation info for inplace update resize")
+		}
 
-	return checkedAllocationInfo, nil
+		general.Infof("pod: %s/%s, container: %s request to cpu inplace update resize allocation (%.02f->%.02f)",
+			req.PodNamespace, req.PodName, req.ContainerName, originAllocationInfo.RequestQuantity, allocationInfo.RequestQuantity)
+		p.state.SetAllocationInfo(allocationInfo.PodUid, allocationInfo.ContainerName, allocationInfo)
+		checkedAllocationInfo, err := p.doAndCheckPutAllocationInfoPodResizingAware(originAllocationInfo, allocationInfo, false, true)
+		if err != nil {
+			general.Errorf("pod: %s/%s, container: %s request to cpu inplace update resize allocation, but doAndCheckPutAllocationInfoPodResizingAware failed: %q",
+				req.PodNamespace, req.PodName, req.ContainerName, err)
+			p.state.SetAllocationInfo(originAllocationInfo.PodUid, originAllocationInfo.ContainerName, originAllocationInfo)
+			return nil, fmt.Errorf("doAndCheckPutAllocationInfo failed with error: %v", err)
+		}
+		return checkedAllocationInfo, nil
+	} else {
+		p.state.SetAllocationInfo(allocationInfo.PodUid, allocationInfo.ContainerName, allocationInfo)
+		checkedAllocationInfo, err := p.doAndCheckPutAllocationInfo(allocationInfo, true)
+		if err != nil {
+			return nil, fmt.Errorf("doAndCheckPutAllocationInfo failed with error: %v", err)
+		}
+		return checkedAllocationInfo, nil
+	}
 }
 
 // putAllocationsAndAdjustAllocationEntries calculates and generates the latest checkpoint
 // - unlike adjustAllocationEntries, it will also consider AllocationInfo
 func (p *DynamicPolicy) putAllocationsAndAdjustAllocationEntries(allocationInfos []*state.AllocationInfo, incrByReq bool) error {
+	return p.putAllocationsAndAdjustAllocationEntriesResizeAware(nil, allocationInfos, incrByReq, false)
+}
+
+func (p *DynamicPolicy) putAllocationsAndAdjustAllocationEntriesResizeAware(originAllocationInfos, allocationInfos []*state.AllocationInfo, incrByReq, podInplaceUpdateResizing bool) error {
 	if len(allocationInfos) == 0 {
 		return nil
 	}
-
-	entries := p.state.GetPodEntries()
-	machineState := p.state.GetMachineState()
-
-	var poolsQuantityMap map[string]map[int]int
-	if p.enableCPUAdvisor &&
-		!cpuutil.AdvisorDegradation(p.advisorMonitor.GetHealthy(), p.dynamicConfig.GetDynamicConfiguration().EnableReclaim) {
-		// if sys advisor is enabled, we believe the pools' ratio that sys advisor indicates
-		csetMap, err := entries.GetFilteredPoolsCPUSetMap(state.ResidentPools)
-		if err != nil {
-			return fmt.Errorf("GetFilteredPoolsCPUSetMap failed with error: %v", err)
-		}
-
-		poolsQuantityMap = machine.ParseCPUAssignmentQuantityMap(csetMap)
-	} else {
-		// else we do sum(containers req) for each pool to get pools ratio
-		var err error
-		poolsQuantityMap, err = state.GetSharedQuantityMapFromPodEntries(entries, allocationInfos)
-		if err != nil {
-			return fmt.Errorf("GetSharedQuantityMapFromPodEntries failed with error: %v", err)
+	if podInplaceUpdateResizing {
+		if len(originAllocationInfos) != 1 && len(allocationInfos) != 1 {
+			general.Errorf("cannot adjust allocation entries for invalid allocation infos")
+			return fmt.Errorf("invalid inplace update resize allocation infos length")
 		}
 	}
+
+	entries := p.state.GetPodEntries()
 
 	for _, allocationInfo := range allocationInfos {
 		if allocationInfo == nil {
@@ -658,10 +696,59 @@ func (p *DynamicPolicy) putAllocationsAndAdjustAllocationEntries(allocationInfos
 		}
 	}
 
-	if incrByReq {
-		err := state.CountAllocationInfosToPoolsQuantityMap(allocationInfos, poolsQuantityMap)
+	machineState := p.state.GetMachineState()
+
+	var poolsQuantityMap map[string]map[int]int
+	if p.enableCPUAdvisor &&
+		!cpuutil.AdvisorDegradation(p.advisorMonitor.GetHealthy(), p.dynamicConfig.GetDynamicConfiguration().EnableReclaim) {
+		// if sys advisor is enabled, we believe the pools' ratio that sys advisor indicates
+		csetMap, err := entries.GetFilteredPoolsCPUSetMap(state.ResidentPools)
 		if err != nil {
-			return fmt.Errorf("CountAllocationInfosToPoolsQuantityMap failed with error: %v", err)
+			return fmt.Errorf("GetFilteredPoolsCPUSetMap failed with error: %v", err)
+		}
+
+		poolsQuantityMap = machine.ParseCPUAssignmentQuantityMap(csetMap)
+		if podInplaceUpdateResizing {
+			// adjust pool resize
+			originAllocationInfo := originAllocationInfos[0]
+			allocationInfo := allocationInfos[0]
+
+			poolName, targetNumaID, resizeReqFloat64, err := p.calcPoolResizeRequest(originAllocationInfo, allocationInfo, entries)
+			if err != nil {
+				return fmt.Errorf("calcPoolResizeRequest cannot calc pool resize request: %q", err)
+			}
+
+			// update the pool size
+			poolsQuantityMap[poolName][targetNumaID] += int(math.Ceil(resizeReqFloat64))
+			// return err will abort the procedure,
+			// so there is no need to revert modifications made in parameter poolsQuantityMap
+			if len(poolsQuantityMap[poolName]) > 1 {
+				return fmt.Errorf("pool %s cross NUMA: %+v", poolName, poolsQuantityMap[poolName])
+			}
+		} else if incrByReq {
+			err := state.CountAllocationInfosToPoolsQuantityMap(allocationInfos, poolsQuantityMap)
+			if err != nil {
+				return fmt.Errorf("CountAllocationInfosToPoolsQuantityMap failed with error: %v", err)
+			}
+		}
+	} else {
+		// else we do sum(containers req) for each pool to get pools ratio
+		var err error
+		poolsQuantityMap, err = state.GetSharedQuantityMapFromPodEntries(entries, allocationInfos)
+		if err != nil {
+			return fmt.Errorf("GetSharedQuantityMapFromPodEntries failed with error: %v", err)
+		}
+
+		if incrByReq || podInplaceUpdateResizing {
+			if podInplaceUpdateResizing {
+				general.Infof("pod: %s/%s, container: %s request to re-calc pool size for cpu inplace update resize",
+					allocationInfos[0].PodNamespace, allocationInfos[0].PodName, allocationInfos[0].ContainerName)
+			}
+			// if advisor is disabled, qrm can re-calc the pool size exactly. we don't need to adjust the pool size.
+			err := state.CountAllocationInfosToPoolsQuantityMap(allocationInfos, poolsQuantityMap)
+			if err != nil {
+				return fmt.Errorf("CountAllocationInfosToPoolsQuantityMap failed with error: %v", err)
+			}
 		}
 	}
 
@@ -673,6 +760,93 @@ func (p *DynamicPolicy) putAllocationsAndAdjustAllocationEntries(allocationInfos
 	}
 
 	return nil
+}
+
+func (p *DynamicPolicy) calcPoolResizeRequest(originAllocation, allocation *state.AllocationInfo, podEntries state.PodEntries) (string, int, float64, error) {
+	poolName := allocation.GetPoolName()
+	targetNumaID := state.FakedNUMAID
+
+	originPodAggregatedRequest, ok := originAllocation.GetPodAggregatedRequest()
+	if !ok {
+		containerEntries, ok := podEntries[originAllocation.PodUid]
+		if !ok {
+			general.Warningf("pod %s/%s container entries not exist", originAllocation.PodNamespace, originAllocation.PodName)
+			originPodAggregatedRequest = 0
+		} else {
+			podAggregatedRequestSum := float64(0)
+			for containerName, containerEntry := range containerEntries {
+				if containerName == originAllocation.ContainerName {
+					podAggregatedRequestSum += originAllocation.RequestQuantity
+				} else {
+					podAggregatedRequestSum += containerEntry.RequestQuantity
+				}
+			}
+			originPodAggregatedRequest = podAggregatedRequestSum
+		}
+	}
+
+	podAggregatedRequest, ok := allocation.GetPodAggregatedRequest()
+	if !ok {
+		containerEntries, ok := podEntries[originAllocation.PodUid]
+		if !ok {
+			general.Warningf("pod %s/%s container entries not exist", originAllocation.PodNamespace, originAllocation.PodName)
+			podAggregatedRequest = 0
+		} else {
+			podAggregatedRequestSum := float64(0)
+			for _, containerEntry := range containerEntries {
+				podAggregatedRequestSum += containerEntry.RequestQuantity
+			}
+			podAggregatedRequest = podAggregatedRequestSum
+		}
+	}
+
+	poolResizeQuantity := podAggregatedRequest - originPodAggregatedRequest
+	if poolResizeQuantity < 0 {
+		// We don't need to adjust pool size in inplace update scale in mode, wait advisor to adjust the pool size later.
+		general.Infof("pod: %s/%s, container: %s request cpu inplace update scale in (%.02f->%.02f)",
+			allocation.PodNamespace, allocation.PodName, allocation.ContainerName, originPodAggregatedRequest, podAggregatedRequest)
+		poolResizeQuantity = 0
+	} else {
+		// We should adjust pool size in inplace update scale out mode with resizeReqFloat64, and then wait advisor to adjust the pool size later.
+		general.Infof("pod: %s/%s, container: %s request cpu inplace update scale out (%.02f->%.02f)",
+			allocation.PodNamespace, allocation.PodName, allocation.ContainerName, originPodAggregatedRequest, podAggregatedRequest)
+	}
+
+	// only support normal share and snb inplace update resize now
+	if state.CheckSharedNUMABinding(allocation) {
+		// check snb numa migrate for inplace update resize
+		originTargetNumaID, err := state.GetSharedNUMABindingTargetNuma(originAllocation)
+		if err != nil {
+			return "", 0, 0, fmt.Errorf("failed to get origin target NUMA")
+		}
+		targetNumaID, err = state.GetSharedNUMABindingTargetNuma(allocation)
+		if err != nil {
+			return "", 0, 0, fmt.Errorf("failed to get target NUMA")
+		}
+
+		// the pod is migrated to a new NUMA if the NUMA changed.
+		// the new pool should scale out the whole request size.
+		// the old pool would be adjusted by advisor later.
+		if originTargetNumaID != targetNumaID {
+			poolResizeQuantity = podAggregatedRequest
+			general.Infof("pod %s/%s request inplace update resize and it was migrate to a new NUMA (%d->%d), AggregatedPodRequest(%.02f)",
+				allocation.PodNamespace, allocation.PodName, originTargetNumaID, targetNumaID, podAggregatedRequest)
+		}
+
+		// get snb pool name
+		poolName, err = allocation.GetSpecifiedNUMABindingPoolName()
+		if err != nil {
+			return "", 0, 0, fmt.Errorf("GetSpecifiedNUMABindingPoolName for %s/%s/%s failed with error: %v",
+				allocation.PodNamespace, allocation.PodName, allocation.ContainerName, err)
+		}
+	}
+
+	if poolName == state.EmptyOwnerPoolName {
+		return "", 0, 0, fmt.Errorf("get poolName failed for %s/%s/%s",
+			allocation.PodNamespace, allocation.PodName, allocation.ContainerName)
+	}
+
+	return poolName, targetNumaID, poolResizeQuantity, nil
 }
 
 // adjustAllocationEntries calculates and generates the latest checkpoint
@@ -1505,15 +1679,15 @@ func (p *DynamicPolicy) shouldSharedCoresRampUp(podUID string) bool {
 	}
 }
 
-func (p *DynamicPolicy) doAndCheckPutAllocationInfo(allocationInfo *state.AllocationInfo, incrByReq bool) (*state.AllocationInfo, error) {
+func (p *DynamicPolicy) doAndCheckPutAllocationInfoPodResizingAware(originAllocationInfo, allocationInfo *state.AllocationInfo, incrByReq, podInplaceUpdateResizing bool) (*state.AllocationInfo, error) {
 	if allocationInfo == nil {
 		return nil, fmt.Errorf("doAndCheckPutAllocationInfo got nil allocationInfo")
 	}
 
 	// need to adjust pools and putAllocationsAndAdjustAllocationEntries will set the allocationInfo after adjusted
-	err := p.putAllocationsAndAdjustAllocationEntries([]*state.AllocationInfo{allocationInfo}, incrByReq)
+	err := p.putAllocationsAndAdjustAllocationEntriesResizeAware([]*state.AllocationInfo{originAllocationInfo}, []*state.AllocationInfo{allocationInfo}, incrByReq, podInplaceUpdateResizing)
 	if err != nil {
-		general.Errorf("pod: %s/%s, container: %s putAllocationsAndAdjustAllocationEntries failed with error: %v",
+		general.Errorf("pod: %s/%s, container: %s putAllocationsAndAdjustAllocationEntriesResizeAware failed with error: %v",
 			allocationInfo.PodNamespace, allocationInfo.PodName, allocationInfo.ContainerName, err)
 		return nil, fmt.Errorf("putAllocationsAndAdjustAllocationEntries failed with error: %v", err)
 	}
@@ -1526,6 +1700,10 @@ func (p *DynamicPolicy) doAndCheckPutAllocationInfo(allocationInfo *state.Alloca
 	}
 
 	return checkedAllocationInfo, nil
+}
+
+func (p *DynamicPolicy) doAndCheckPutAllocationInfo(allocationInfo *state.AllocationInfo, incrByReq bool) (*state.AllocationInfo, error) {
+	return p.doAndCheckPutAllocationInfoPodResizingAware(nil, allocationInfo, incrByReq, false)
 }
 
 func (p *DynamicPolicy) getReclaimOverlapShareRatio(entries state.PodEntries) (map[string]float64, error) {

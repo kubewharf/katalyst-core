@@ -25,6 +25,7 @@ import (
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/memory/dynamicpolicy/state"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
@@ -93,4 +94,12 @@ func getReservedMemory(conf *config.Configuration, metaServer *metaserver.MetaSe
 		reservedMemory[node.Id] = uint64(perNumaReservedQuantity.Value())
 	}
 	return reservedMemory, nil
+}
+
+func applySidecarAllocationInfoFromMainContainer(sidecarAllocationInfo, mainAllocationInfo *state.AllocationInfo) bool {
+	if !sidecarAllocationInfo.NumaAllocationResult.Equals(mainAllocationInfo.NumaAllocationResult) {
+		sidecarAllocationInfo.NumaAllocationResult = mainAllocationInfo.NumaAllocationResult.Clone()
+		return true
+	}
+	return false
 }
