@@ -120,7 +120,7 @@ func (p *DynamicPolicy) sharedCoresWithoutNUMABindingAllocationHandler(_ context
 			RequestQuantity:                  reqFloat64,
 		}
 
-		if !shouldRampUp {
+		if !shouldRampUp || allocationInfo.GetSpecifiedPoolName() == "bmq" {
 			targetPoolName := allocationInfo.GetSpecifiedPoolName()
 			poolAllocationInfo := p.state.GetAllocationInfo(targetPoolName, state.FakedContainerName)
 
@@ -1376,7 +1376,7 @@ func (p *DynamicPolicy) apportionReclaimedPool(poolsCPUSet map[string]machine.CP
 	}
 
 	for poolName, poolCPUs := range poolsCPUSet {
-		if state.ResidentPools.Has(poolName) {
+		if state.ResidentPools.Has(poolName) || poolName == "bmq" {
 			continue
 		} else if _, found := nonBindingPoolsQuantityMap[poolName]; !found {
 			// numa-binding && none-reclaimed pools already handled in generateNUMABindingPoolsCPUSetInPlace
