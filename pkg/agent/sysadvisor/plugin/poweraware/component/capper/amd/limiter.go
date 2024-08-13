@@ -44,6 +44,13 @@ func (p powerLimiter) SetLimitOnBasis(limitWatts, baseWatts int) error {
 
 	targetMicroWattsPerSocket := setting / p.op.MachineInfo.SocketNum * 1_000
 
+	// 0 or negative limit would trigger AMD to max value; putting a minimum positive limit to avoid such bump
+	if targetMicroWattsPerSocket <= 0 {
+		targetMicroWattsPerSocket = 1_000
+	}
+
+	// todo: avoid setting minimum limit if already is
+
 	for i := 0; i < p.op.MachineInfo.SocketNum; i++ {
 		err := p.op.SetSocketPowerLimit(i, uint32(targetMicroWattsPerSocket))
 		if err != nil {
