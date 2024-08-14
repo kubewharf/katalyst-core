@@ -24,10 +24,10 @@ import (
 
 	coreconfig "github.com/kubewharf/katalyst-core/pkg/config"
 	dynamicconfig "github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic"
+	"github.com/kubewharf/katalyst-core/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
-	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
 func CanFilePathMatch(filePath string, patternStrings []string) bool {
@@ -41,6 +41,8 @@ func CanFilePathMatch(filePath string, patternStrings []string) bool {
 }
 
 type fileCacheEvictionManager struct {
+	metaServer *metaserver.MetaServer
+
 	highThresholdGB uint64
 	lowThresholdGB  uint64
 
@@ -98,13 +100,19 @@ func (e *fileCacheEvictionManager) determineNextInterval(evictedGB uint64, elaps
 	e.curInterval = interval
 }
 
-func (e *fileCacheEvictionManager) getMemInfoCachedGB() uint64 {
-	cachedBytes, err := machine.GetMemoryCached()
+func (e *fileCacheEvictionManager) getCachedMemoryInGB() uint64 {
+	m, err := e.metaServer.GetNodeMetric(consts.MetricMemPageCacheSystem)
 	if err != nil {
-		general.Errorf("get cached memory error: %v", err)
 		return 0
 	}
-	return cachedBytes / 1024 / 1024 / 1024
+
+	cachedBytes := uint64(m.Value)
+	cachedGB := cachedBytes >> 30
+	return cachedGB
+}
+
+func (e *fileCacheEvictionManager) waitForNodeMetricsSync() {
+	time.Sleep(time.Second * 30)
 }
 
 func (e *fileCacheEvictionManager) doEviction() {
@@ -123,21 +131,22 @@ func (e *fileCacheEvictionManager) doEviction() {
 		return
 	}
 
-	beforeEvictedGB := e.getMemInfoCachedGB()
+	beforeEvictedGB := e.getCachedMemoryInGB()
 
 	for _, path := range e.pathList {
-		general.Infof("evict walk path %s", path)
 		if err := e.evictWalk(path); err != nil {
 			general.Errorf("walk path %s error: %v", path, err)
 		}
 	}
 
-	afterEvictedGB := e.getMemInfoCachedGB()
+	elapsedTime := time.Since(now)
+
+	e.waitForNodeMetricsSync()
+	afterEvictedGB := e.getCachedMemoryInGB()
 	var evictedGB uint64 = 0
 	if beforeEvictedGB > afterEvictedGB {
 		evictedGB = beforeEvictedGB - afterEvictedGB
 	}
-	elapsedTime := time.Since(now)
 
 	e.lastEvictTime = &now
 	e.determineNextInterval(evictedGB, elapsedTime)
@@ -147,13 +156,14 @@ func (e *fileCacheEvictionManager) doEviction() {
 }
 
 func (e *fileCacheEvictionManager) EvictLogCache(_ *coreconfig.Configuration,
-	_ interface{}, _ *dynamicconfig.DynamicAgentConfiguration,
-	emitter metrics.MetricEmitter, metaServer *metaserver.MetaServer) {
+	_ interface{}, _ *dynamicconfig.DynamicAgentConfiguration, emitter metrics.MetricEmitter, metaServer *metaserver.MetaServer,
+) {
 	e.doEviction()
 }
 
-func NewManager(conf *coreconfig.Configuration) Manager {
+func NewManager(conf *coreconfig.Configuration, metaServer *metaserver.MetaServer) Manager {
 	e := &fileCacheEvictionManager{
+		metaServer:      metaServer,
 		highThresholdGB: conf.HighThreshold,
 		lowThresholdGB:  conf.LowThreshold,
 		minInterval:     conf.MinInterval,

@@ -267,7 +267,7 @@ func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration
 		memoryadvisor.ControlKnobHandlerWithChecker(policyImplement.handleAdvisorMemoryOffloading))
 
 	if policyImplement.enableEvictingLogCache {
-		policyImplement.logCacheEvictionManager = logcache.NewManager(conf)
+		policyImplement.logCacheEvictionManager = logcache.NewManager(conf, agentCtx.MetaServer)
 	}
 
 	return true, &agent.PluginWrapper{GenericPlugin: pluginWrapper}, nil

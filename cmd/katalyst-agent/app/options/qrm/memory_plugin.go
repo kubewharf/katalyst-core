@@ -78,8 +78,8 @@ func NewMemoryOptions() *MemoryOptions {
 		},
 		LogCacheOptions: LogCacheOptions{
 			EnableEvictingLogCache: false,
-			HighThreshold:          30, // 30GB
-			LowThreshold:           5,
+			HighThreshold:          30, // default: 30GB
+			LowThreshold:           5,  // default: 5GB
 			MinInterval:            time.Second * 600,
 			MaxInterval:            time.Second * 60 * 60 * 2,
 			PathList:               []string{},
