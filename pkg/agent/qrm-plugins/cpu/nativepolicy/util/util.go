@@ -22,6 +22,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
+// GenerateMachineStateFromPodEntries for native policy
 func GenerateMachineStateFromPodEntries(topology *machine.CPUTopology, podEntries state.PodEntries) (state.NUMANodeMap, error) {
-	return state.GenerateMachineStateFromPodEntries(topology, podEntries, cpuconsts.CPUResourcePluginPolicyNameNative)
+	return state.GenerateMachineStateFromPodEntriesByPolicy(topology, podEntries, cpuconsts.CPUResourcePluginPolicyNameNative)
 }
