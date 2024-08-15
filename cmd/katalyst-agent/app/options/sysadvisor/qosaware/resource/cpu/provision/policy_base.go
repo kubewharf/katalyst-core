@@ -17,24 +17,45 @@ limitations under the License.
 package provision
 
 import (
+	"time"
+
 	"github.com/spf13/pflag"
 	"k8s.io/apimachinery/pkg/util/errors"
 
 	provisionconfig "github.com/kubewharf/katalyst-core/pkg/config/agent/sysadvisor/qosaware/resource/cpu/provision"
 )
 
+type CPURegulatorOptions struct {
+	MaxRampUpStep     int
+	MaxRampDownStep   int
+	MinRampDownPeriod time.Duration
+}
+
 type CPUProvisionPolicyOptions struct {
+	// CPURegulatorOptions is the options for cpu regulator
+	CPURegulatorOptions
+
+	// PolicyRamaOptions is the options for policy rama
 	PolicyRama *PolicyRamaOptions
 }
 
 func NewCPUProvisionPolicyOptions() *CPUProvisionPolicyOptions {
 	return &CPUProvisionPolicyOptions{
+		CPURegulatorOptions: CPURegulatorOptions{
+			MaxRampUpStep:     10,
+			MaxRampDownStep:   2,
+			MinRampDownPeriod: 30 * time.Second,
+		},
 		PolicyRama: NewPolicyRamaOptions(),
 	}
 }
 
 // ApplyTo fills up config with options
 func (o *CPUProvisionPolicyOptions) ApplyTo(c *provisionconfig.CPUProvisionPolicyConfiguration) error {
+	c.MaxRampUpStep = o.MaxRampUpStep
+	c.MaxRampDownStep = o.MaxRampDownStep
+	c.MinRampDownPeriod = o.MinRampDownPeriod
+
 	var errList []error
 	errList = append(errList, o.PolicyRama.ApplyTo(c.PolicyRama))
 
@@ -43,5 +64,8 @@ func (o *CPUProvisionPolicyOptions) ApplyTo(c *provisionconfig.CPUProvisionPolic
 
 // AddFlags adds flags to the specified FlagSet.
 func (o *CPUProvisionPolicyOptions) AddFlags(fs *pflag.FlagSet) {
+	fs.IntVar(&o.MaxRampUpStep, "cpu-regulator-max-ramp-up-step", o.MaxRampUpStep, "max ramp up step for cpu provision policy")
+	fs.IntVar(&o.MaxRampDownStep, "cpu-regulator-max-ramp-down-step", o.MaxRampDownStep, "max ramp down step for cpu provision policy")
+	fs.DurationVar(&o.MinRampDownPeriod, "cpu-regulator-min-ramp-down-period", o.MinRampDownPeriod, "min ramp down period for cpu provision policy")
 	o.PolicyRama.AddFlags(fs)
 }

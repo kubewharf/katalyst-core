@@ -16,7 +16,11 @@ limitations under the License.
 
 package provision
 
+import "time"
+
 type CPUProvisionPolicyConfiguration struct {
+	CPURegulatorConfiguration
+	// PolicyRama is the configuration for policy rama
 	PolicyRama *PolicyRamaConfiguration
 }
 
@@ -24,4 +28,15 @@ func NewCPUProvisionPolicyConfiguration() *CPUProvisionPolicyConfiguration {
 	return &CPUProvisionPolicyConfiguration{
 		PolicyRama: NewPolicyRamaConfiguration(),
 	}
+}
+
+type CPURegulatorConfiguration struct {
+	// MaxRampUpStep is the max cpu cores can be increased during each cpu requirement update
+	MaxRampUpStep int
+
+	// MaxRampDownStep is the max cpu cores can be decreased during each cpu requirement update
+	MaxRampDownStep int
+
+	// MinRampDownPeriod is the min time gap between two consecutive cpu requirement ramp down
+	MinRampDownPeriod time.Duration
 }

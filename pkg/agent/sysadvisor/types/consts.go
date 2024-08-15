@@ -36,10 +36,9 @@ const (
 	MinShareCPURequirement     = 4
 	MinDedicatedCPURequirement = 4
 
-	MaxRampUpStep     = 10
-	MaxRampDownStep   = 2
-	MinRampDownPeriod = 30 * time.Second
-	StartUpPeriod     = 30 * time.Second
+	MaxRampUpStep   = 10
+	MaxRampDownStep = 2
+	StartUpPeriod   = 30 * time.Second
 
 	ReclaimUsageMarginForOverlap = 6
 )

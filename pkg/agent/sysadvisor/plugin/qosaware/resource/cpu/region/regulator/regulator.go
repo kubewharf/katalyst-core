@@ -74,14 +74,7 @@ func (d *DummyRegulator) GetRequirement() int {
 type CPURegulator struct {
 	types.ResourceEssentials
 
-	// maxRampUpStep is the max cpu cores can be increased during each cpu requirement update
-	maxRampUpStep int
-
-	// maxRampDownStep is the max cpu cores can be decreased during each cpu requirement update
-	maxRampDownStep int
-
-	// minRampDownPeriod is the min time gap between two consecutive cpu requirement ramp down
-	minRampDownPeriod time.Duration
+	RegulatorOptions
 
 	// latestControlKnobValue is the latest updated cpu requirement value
 	latestControlKnobValue types.ControlKnobValue
@@ -90,13 +83,23 @@ type CPURegulator struct {
 	latestRampDownTime time.Time
 }
 
+type RegulatorOptions struct {
+	// MaxRampUpStep is the max cpu cores can be increased during each cpu requirement update
+	MaxRampUpStep int
+
+	// MaxRampDownStep is the max cpu cores can be decreased during each cpu requirement update
+	MaxRampDownStep int
+
+	// MinRampDownPeriod is the min time gap between two consecutive cpu requirement ramp down
+	MinRampDownPeriod time.Duration
+}
+
 // NewCPURegulator returns a cpu regulator instance with immutable parameters
-func NewCPURegulator() Regulator {
+func NewCPURegulator(essentials types.ResourceEssentials, options RegulatorOptions) Regulator {
 	c := &CPURegulator{
-		maxRampUpStep:      types.MaxRampUpStep,
-		maxRampDownStep:    types.MaxRampDownStep,
-		minRampDownPeriod:  types.MinRampDownPeriod,
-		latestRampDownTime: time.Now().Add(-types.MinRampDownPeriod),
+		ResourceEssentials: essentials,
+		RegulatorOptions:   options,
+		latestRampDownTime: time.Now().Add(-options.MinRampDownPeriod),
 	}
 	return c
 }
@@ -137,18 +140,18 @@ func (c *CPURegulator) GetRequirement() int {
 func (c *CPURegulator) slowdown(cpuRequirement int) int {
 	now := time.Now()
 
-	general.InfoS("slowdown info", "cpuRequirement", cpuRequirement, "latestCPURequirement", c.latestControlKnobValue.Value, "latestRampDownTime", c.latestRampDownTime, "minRampDownPeriod", c.minRampDownPeriod)
+	general.InfoS("slowdown info", "cpuRequirement", cpuRequirement, "latestCPURequirement", c.latestControlKnobValue.Value, "latestRampDownTime", c.latestRampDownTime, "minRampDownPeriod", c.MinRampDownPeriod)
 
 	// Restrict ramp down frequency
-	if cpuRequirement < int(c.latestControlKnobValue.Value) && now.Before(c.latestRampDownTime.Add(c.minRampDownPeriod)) {
+	if cpuRequirement < int(c.latestControlKnobValue.Value) && now.Before(c.latestRampDownTime.Add(c.MinRampDownPeriod)) {
 		return int(c.latestControlKnobValue.Value)
 	}
 
 	// Restrict ramp up and down step
-	if cpuRequirement-int(c.latestControlKnobValue.Value) > c.maxRampUpStep {
-		cpuRequirement = int(c.latestControlKnobValue.Value) + c.maxRampUpStep
-	} else if int(c.latestControlKnobValue.Value)-cpuRequirement > c.maxRampDownStep {
-		cpuRequirement = int(c.latestControlKnobValue.Value) - c.maxRampDownStep
+	if cpuRequirement-int(c.latestControlKnobValue.Value) > c.MaxRampUpStep {
+		cpuRequirement = int(c.latestControlKnobValue.Value) + c.MaxRampUpStep
+	} else if int(c.latestControlKnobValue.Value)-cpuRequirement > c.MaxRampDownStep {
+		cpuRequirement = int(c.latestControlKnobValue.Value) - c.MaxRampDownStep
 	}
 
 	return cpuRequirement
