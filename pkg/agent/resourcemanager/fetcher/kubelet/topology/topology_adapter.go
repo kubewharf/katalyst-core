@@ -27,7 +27,6 @@ import (
 	"github.com/fsnotify/fsnotify"
 	info "github.com/google/cadvisor/info/v1"
 	"github.com/pkg/errors"
-	"google.golang.org/grpc"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -52,9 +51,7 @@ import (
 )
 
 const (
-	podResourcesClientTimeout    = 10 * time.Second
-	getTopologyZonesTimeout      = 10 * time.Second
-	podResourcesClientMaxMsgSize = 1024 * 1024 * 16
+	getTopologyZonesTimeout = 10 * time.Second
 )
 
 // NumaInfoGetter is to get numa info
@@ -235,18 +232,11 @@ func (p *topologyAdapterImpl) GetTopologyPolicy(ctx context.Context) (nodev1alph
 }
 
 func (p *topologyAdapterImpl) Run(ctx context.Context, handler func()) error {
-	var (
-		err  error
-		conn *grpc.ClientConn
-	)
 	p.mutex.Lock()
 	defer p.mutex.Unlock()
 
-	p.client, conn, err = p.getClientFunc(
-		general.GetOneExistPath(p.endpoints), podResourcesClientTimeout, podResourcesClientMaxMsgSize)
-	if err != nil {
-		return fmt.Errorf("get podResources client failed, connect err: %s", err)
-	}
+	var closeChan chan struct{}
+	p.client, closeChan = podresources.EndpointAutoDiscoveryPodResourcesClient(p.endpoints, p.getClientFunc)
 
 	// register file watcher to watch qrm checkpoint file change
 	watcher, err := general.RegisterFileEventWatcher(
@@ -265,10 +255,7 @@ func (p *topologyAdapterImpl) Run(ctx context.Context, handler func()) error {
 	// and when qrm checkpoint file changed, it means that the topology status may be changed
 	go func() {
 		defer func() {
-			err = conn.Close()
-			if err != nil {
-				klog.Errorf("pod resource connection close failed: %v", err)
-			}
+			close(closeChan)
 		}()
 		for {
 			select {
