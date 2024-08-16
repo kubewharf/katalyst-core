@@ -11,31 +11,31 @@
 
 ### owners for command lines
 /cmd/katalyst-controller/ @luomingmeng @caohe
-/cmd/katalyst-metric/ @zzzzhhb @luomingmeng
+/cmd/katalyst-metric/ @gary-lgy @luomingmeng
 /cmd/katalyst-scheduler/ @caohe @WangZzzhe
 /cmd/katalyst-webhook/ @caohe @luomingmeng
 
-/cmd/katalyst-agent/app/agent/qrm/ @csfldf
-/cmd/katalyst-agent/app/options/eviction @zzzzhhb @luomingmeng
-/cmd/katalyst-agent/app/options/qrm @csfldf
+/cmd/katalyst-agent/app/agent/qrm/ @nightmeng @luomingmeng
+/cmd/katalyst-agent/app/options/eviction @gary-lgy @luomingmeng
+/cmd/katalyst-agent/app/options/qrm @nightmeng @luomingmeng
 /cmd/katalyst-agent/app/options/reporter @luomingmeng
 /cmd/katalyst-agent/app/options/sysadvisor @nightmeng
 
 ### owners for configurations
 /pkg/config/controller/ @luomingmeng @caohe
-/pkg/config/metric/ @zzzzhhb @luomingmeng
+/pkg/config/metric/ @gary-lgy @luomingmeng
 /pkg/config/webhook/ @caohe @luomingmeng
 
 /pkg/config/agent/orm/ @caohe @WangZzzhe
-/pkg/config/agent/qrm/ @csfldf
-/pkg/config/agent/eviction/ @zzzzhhb @luomingmeng
+/pkg/config/agent/qrm/ @luomingmeng @nightmeng
+/pkg/config/agent/eviction/ @gary-lgy @luomingmeng
 /pkg/config/agent/reporter/ @luomingmeng
 /pkg/config/agent/sysadvisor/ @nightmeng
 
 ### owners for controllers
 /pkg/controller/kcc/ @luomingmeng
-/pkg/controller/lifecycle/ @luomingmeng @csfldf @zzzzhhb
-/pkg/controller/monitor/ @luomingmeng @csfldf
+/pkg/controller/lifecycle/ @luomingmeng 
+/pkg/controller/monitor/ @luomingmeng @nightmeng
 /pkg/controller/overcommit/ @caohe @WangZzzhe
 /pkg/controller/tide/ @caohe @WangZzzhe
 /pkg/controller/spd/ @luomingmeng
@@ -45,31 +45,31 @@
 ### owners for metaserver
 /pkg/metaserver/spd/ @luomingmeng
 /pkg/metaserver/config/ @luomingmeng
-/pkg/metaserver/external/ @csfldf @caohe
+/pkg/metaserver/external/ @luomingmeng @caohe
 /pkg/metaserver/agent/cnc/ @luomingmeng
 /pkg/metaserver/agent/cnr/ @luomingmeng
 /pkg/metaserver/agent/metric/ @nightmeng
-/pkg/metaserver/agent/kubeletconfig/ @caohe @csfldf
-/pkg/metaserver/agent/node/ @csfldf @luomingmeng
-/pkg/metaserver/agent/pod/ @csfldf @luomingmeng
+/pkg/metaserver/agent/kubeletconfig/ @caohe 
+/pkg/metaserver/agent/node/  @luomingmeng
+/pkg/metaserver/agent/pod/  @luomingmeng
 
 ### owners for agent
 /pkg/agent/orm/ @caohe @WangZzzhe
-/pkg/agent/evictionmanager/ @zzzzhhb @luomingmeng
-/pkg/agent/qrm-plugins/ @csfldf
+/pkg/agent/evictionmanager/ @luomingmeng
+/pkg/agent/qrm-plugins/ @luomingmeng @nightmeng
 /pkg/agent/resourcemanager/ @luomingmeng
 /pkg/agent/sysadvisor/ @nightmeng
 /pkg/agent/sysadvisor/plugin/inference @nightmeng
-/pkg/agent/sysadvisor/plugin/metric-emitter @zzzzhhb @luomingmeng
-/pkg/agent/utilcomponent/ @csfldf
+/pkg/agent/sysadvisor/plugin/metric-emitter @gary-lgy @luomingmeng
+/pkg/agent/utilcomponent/ @luomingmeng @nightmeng
 
 ### owners for util
-/pkg/util/ @csfldf @luomingmeng
-/pkg/util/asyncworker/ @csfldf
-/pkg/util/cgroup/ @csfldf
-/pkg/util/credential/ @zzzzhhb @luomingmeng
-/pkg/util/eviction/ @zzzzhhb @luomingmeng
-/pkg/util/external/ @csfldf
+/pkg/util/  @luomingmeng
+/pkg/util/asyncworker/ @nightmeng
+/pkg/util/cgroup/ @nightmeng
+/pkg/util/credential/ @gary-lgy @luomingmeng
+/pkg/util/eviction/ @gary-lgy @luomingmeng
+/pkg/util/external/ @nightmeng
 /pkg/util/metric/ @nightmeng
 /pkg/util/service-discovery/ @luomingmeng
 
@@ -80,7 +80,7 @@
 /pkg/webhook/ @caohe @luomingmeng
 
 ### owners for custom-metric
-/pkg/custom-metric/ @zzzzhhb @luomingmeng
+/pkg/custom-metric/ @gary-lgy @luomingmeng
 
 ### owners for metrics-emitter
-/pkg/metrics/ @csfldf @luomingmeng @zzzzhhb
+/pkg/metrics/ @luomingmeng @gary-lgy
