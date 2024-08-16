@@ -50,11 +50,11 @@ const (
 	// GetNumaForPagesMaxEachTime get numa for 16384 pages(64MB) at most at a time
 	GetNumaForPagesMaxEachTime = 16384
 
-	// MovePagesMaxEachTime means move 5120 pages(20MB) at most at a time
-	MovePagesMaxEachTime = 5120
+	// MovePagesMaxEachTime means move 1280 pages(5MB) at most at a time
+	MovePagesMaxEachTime = 1280
 
-	// MovePagesMinEachTime means move 256 pages(1MB) at least at a time
-	MovePagesMinEachTime = 256
+	// MovePagesMinEachTime means move 64 pages(256 KB) at least at a time
+	MovePagesMinEachTime = 64
 
 	// MovePagesAcceptableTimeCost is acceptable time cost of each move pages is 20ms
 	MovePagesAcceptableTimeCost = 20
@@ -265,12 +265,19 @@ func MovePagesForProcess(ctx context.Context, procDir string, pid int, srcNumas 
 	pagesMargin := GetNumaForPagesMaxEachTime
 	var pagesAdrr []uint64
 	var phyPagesAddr []uint64
+	var maxGetProcessPagesNuma int64
 
 	getPhyPagesOnSourceNumas := func() {
+		t0 := time.Now()
 		pagesNuma, err := getProcessPagesNuma(int32(pid), uint64(len(pagesAdrr)), pagesAdrr)
 		if err != nil {
 			return
 		}
+
+		if time.Since(t0).Milliseconds() > maxGetProcessPagesNuma {
+			maxGetProcessPagesNuma = time.Since(t0).Milliseconds()
+		}
+
 		for i, n := range pagesNuma {
 			if srcNumasBitSet.IsSet(int(n)) {
 				pageAddr := pagesAdrr[i]
@@ -290,6 +297,8 @@ func MovePagesForProcess(ctx context.Context, procDir string, pid int, srcNumas 
 			}
 		}
 	}
+
+	general.Infof("getProcessPagesNuma pid: %d, timeCost max: %d ms\n", pid, maxGetProcessPagesNuma)
 
 	// handle left pagesAddr whose length less than GetNumaForPagesMaxEachTime
 	if len(pagesAdrr) > 0 {
@@ -359,7 +368,9 @@ func moveProcessPagesToOneNuma(ctx context.Context, pid int32, pagesAddr []uint6
 	leftPhyPages := pagesAddr[:]
 
 	var movePagesLatencyMax int64
+	var movePagesLenWhenLatencyMax int
 	movePagesEachTime := MovePagesMinEachTime
+	moveCount := 0
 	var movingPagesAddr []uint64
 
 	var errList []error
@@ -390,6 +401,7 @@ pagesLoop:
 			errList = append(errList, fmt.Errorf("failed move pages for pid: %d, numa: %d err: %v", pid, dstNuma, err))
 			continue
 		}
+		moveCount++
 		timeCost := time.Since(start).Milliseconds()
 
 		if timeCost == 0 {
@@ -399,6 +411,7 @@ pagesLoop:
 
 		if timeCost > movePagesLatencyMax {
 			movePagesLatencyMax = timeCost
+			movePagesLenWhenLatencyMax = len(movingPagesAddr)
 		}
 
 		movePagesEachTime = movePagesEachTime * MovePagesAcceptableTimeCost / int(timeCost)
@@ -410,7 +423,7 @@ pagesLoop:
 	}
 
 	if movePagesLatencyMax > 0 {
-		general.Infof("moveProcessPagesToOneNuma pid: %d, dest numa: %d, timeCost max: %d ms\n", pid, dstNuma, movePagesLatencyMax)
+		general.Infof("moveProcessPagesToOneNuma pid: %d, dest numa: %d, moveCount: %d, timeCost max: %d ms, movePages len: %d\n", pid, dstNuma, moveCount, movePagesLatencyMax, movePagesLenWhenLatencyMax)
 	}
 	return utilerrors.NewAggregate(errList)
 }
