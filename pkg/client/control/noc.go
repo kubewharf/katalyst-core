@@ -21,6 +21,7 @@ import (
 	"encoding/json"
 	"fmt"
 
+	jsonpatch "github.com/evanphx/json-patch"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/jsonmergepatch"
@@ -31,12 +32,17 @@ import (
 )
 
 type NocUpdater interface {
+	PatchNoc(ctx context.Context, oldNoc, newNoc *v1alpha1.NodeOvercommitConfig) (*v1alpha1.NodeOvercommitConfig, error)
 	PatchNocStatus(ctx context.Context, oldNoc, newNoc *v1alpha1.NodeOvercommitConfig) (*v1alpha1.NodeOvercommitConfig, error)
 }
 
 type DummyNocUpdater struct{}
 
 func (d *DummyNocUpdater) PatchNocStatus(_ context.Context, _, newNoc *v1alpha1.NodeOvercommitConfig) (*v1alpha1.NodeOvercommitConfig, error) {
+	return newNoc, nil
+}
+
+func (d *DummyNocUpdater) PatchNoc(_ context.Context, _, newNoc *v1alpha1.NodeOvercommitConfig) (*v1alpha1.NodeOvercommitConfig, error) {
 	return newNoc, nil
 }
 
@@ -74,4 +80,30 @@ func (r *RealNocUpdater) PatchNocStatus(ctx context.Context, oldNoc, newNoc *v1a
 	}
 
 	return r.client.OvercommitV1alpha1().NodeOvercommitConfigs().Patch(ctx, oldNoc.Name, types.MergePatchType, patchBytes, metav1.PatchOptions{}, "status")
+}
+
+func (r *RealNocUpdater) PatchNoc(ctx context.Context, oldNoc, newNoc *v1alpha1.NodeOvercommitConfig) (*v1alpha1.NodeOvercommitConfig, error) {
+	if oldNoc == nil || newNoc == nil {
+		return nil, fmt.Errorf("can't patch a nil noc")
+	}
+
+	oldData, err := json.Marshal(oldNoc)
+	if err != nil {
+		return nil, err
+	}
+
+	newData, err := json.Marshal(newNoc)
+	if err != nil {
+		return nil, err
+	}
+
+	patchBytes, err := jsonpatch.CreateMergePatch(oldData, newData)
+	if err != nil {
+		return nil, err
+	}
+	if general.JsonPathEmpty(patchBytes) {
+		return oldNoc, nil
+	}
+
+	return r.client.OvercommitV1alpha1().NodeOvercommitConfigs().Patch(ctx, oldNoc.Name, types.MergePatchType, patchBytes, metav1.PatchOptions{})
 }
