@@ -43,6 +43,14 @@ func ApplyMemoryWithRelativePath(relCgroupPath string, data *common.MemoryData) 
 	return GetManager().ApplyMemory(absCgroupPath, data)
 }
 
+func ApplyMemoryWithAbsolutePath(absCgroupPath string, data *common.MemoryData) error {
+	if data == nil {
+		return fmt.Errorf("ApplyMemoryWithAbsolutePath with nil cgroup data")
+	}
+
+	return GetManager().ApplyMemory(absCgroupPath, data)
+}
+
 func ApplyCPUWithRelativePath(relCgroupPath string, data *common.CPUData) error {
 	if data == nil {
 		return fmt.Errorf("ApplyCPUWithRelativePath with nil cgroup data")
@@ -177,6 +185,10 @@ func GetMemoryWithRelativePath(relCgroupPath string) (*common.MemoryStats, error
 
 func GetMemoryWithAbsolutePath(absCgroupPath string) (*common.MemoryStats, error) {
 	return GetManager().GetMemory(absCgroupPath)
+}
+
+func GetDetailedMemoryWithAbsolutePath(absCgroupPath string) (*common.MemoryDetailedStats, error) {
+	return GetManager().GetDetailedMemory(absCgroupPath)
 }
 
 func GetIOCostQoSWithRelativePath(relCgroupPath string) (map[string]*common.IOCostQoSData, error) {

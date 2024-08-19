@@ -58,6 +58,7 @@ func testV2Manager(t *testing.T) {
 
 	testManager(t, "v2")
 	testSwapMax(t)
+	testDetailedMem(t)
 }
 
 func testManager(t *testing.T, version string) {
@@ -66,6 +67,8 @@ func testManager(t *testing.T, version string) {
 	var err error
 
 	err = ApplyMemoryWithRelativePath("/test", &common.MemoryData{})
+	assert.NoError(t, err)
+	err = ApplyMemoryWithAbsolutePath("/test", &common.MemoryData{})
 	assert.NoError(t, err)
 	err = ApplyCPUWithRelativePath("/test", &common.CPUData{})
 	assert.NoError(t, err)
@@ -80,6 +83,7 @@ func testManager(t *testing.T, version string) {
 
 	_, _ = GetMemoryWithRelativePath("/")
 	_, _ = GetMemoryWithAbsolutePath("/")
+	_, _ = GetDetailedMemoryWithAbsolutePath("/")
 	_, _ = GetCPUWithRelativePath("/")
 	_, _ = GetMetricsWithRelativePath("/", map[string]struct{}{"cpu": {}})
 	_, _ = GetPidsWithRelativePath("/")
@@ -166,4 +170,44 @@ func testSwapMax(t *testing.T) {
 	s, err = ioutil.ReadFile(sawpFile)
 	assert.NoError(t, err)
 	assert.Equal(t, fmt.Sprintf("%v", 0), string(s))
+}
+
+func testDetailedMem(t *testing.T) {
+	defer monkey.UnpatchAll()
+	monkey.Patch(common.CheckCgroup2UnifiedMode, func() bool { return true })
+	monkey.Patch(GetManager, func() Manager { return v2.NewManager() })
+	monkey.Patch(cgroups.ReadFile, func(dir, file string) (string, error) {
+		f := filepath.Join(dir, file)
+		tmp, err := ioutil.ReadFile(f)
+		if err != nil {
+			return "", err
+		}
+		return string(tmp), nil
+	})
+	monkey.Patch(cgroups.WriteFile, func(dir, file, data string) error {
+		f := filepath.Join(dir, file)
+		return ioutil.WriteFile(f, []byte(data), 0o700)
+	})
+
+	rootDir := os.TempDir()
+	dir := filepath.Join(rootDir, "tmp")
+	err := os.Mkdir(dir, 0o700)
+	assert.NoError(t, err)
+
+	tmpDir, err := ioutil.TempDir(dir, "fake-cgroup")
+	assert.NoError(t, err)
+	defer os.RemoveAll(dir)
+
+	monkey.Patch(common.GetCgroupRootPath, func(s string) string {
+		t.Logf("rootDir=%v", rootDir)
+		return rootDir
+	})
+
+	content := "file 1234\ninactive_file 2222\n"
+	statFile := filepath.Join(tmpDir, "memory.stat")
+	err = ioutil.WriteFile(statFile, []byte(content), 0o700)
+	assert.NoError(t, err)
+
+	_, err = GetManager().GetDetailedMemory(tmpDir)
+	assert.NoError(t, err)
 }

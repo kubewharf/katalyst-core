@@ -17,8 +17,10 @@ limitations under the License.
 package general
 
 import (
+	"syscall"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"k8s.io/apimachinery/pkg/util/sets"
 )
@@ -148,4 +150,17 @@ func TestFormatMemoryQutantity(t *testing.T) {
 	as.Equal("1024[1Ki]", FormatMemoryQuantity(1<<10))
 	as.Equal("1.048576e+06[1Mi]", FormatMemoryQuantity(1<<20))
 	as.Equal("1.073741824e+09[1Gi]", FormatMemoryQuantity(1<<30))
+}
+
+func TestAlignToPageSize(t *testing.T) {
+	t.Parallel()
+	pageSize := uint64(syscall.Getpagesize())
+
+	// Test case 1: Number already aligned to page size
+	result := AlignToPageSize(pageSize * 2)
+	assert.Equal(t, pageSize*2, result, "Unexpected result for aligned number")
+
+	// Test case 2: Number smaller than page size
+	result = AlignToPageSize(pageSize - 1)
+	assert.Equal(t, pageSize, result, "Unexpected result for number smaller than page size")
 }

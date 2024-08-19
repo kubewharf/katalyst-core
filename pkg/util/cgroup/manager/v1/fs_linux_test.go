@@ -97,3 +97,49 @@ func Test_manager_ApplyMemory(t *testing.T) {
 		})
 	}
 }
+
+func Test_manager_GetDetailedMemory(t *testing.T) {
+	t.Parallel()
+
+	type args struct {
+		absCgroupPath string
+	}
+	tests := []struct {
+		name    string
+		m       *manager
+		args    args
+		want    *common.MemoryDetailedStats
+		wantErr bool
+	}{
+		{
+			name: "test get memory",
+			m:    NewManager(),
+			args: args{
+				absCgroupPath: "test-fake-path",
+			},
+			want:    nil,
+			wantErr: true,
+		},
+	}
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			m := &manager{}
+			got, err := m.GetDetailedMemory(tt.args.absCgroupPath)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("manager.GetMemory() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("manager.GetMemory() = %v, want %v", got, tt.want)
+			}
+
+			_, _, err = GetMemoryStatsFromStatFile(tt.args.absCgroupPath)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("GetMemoryStatsFromStatFile() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+		})
+	}
+}
