@@ -22,6 +22,9 @@ import (
 	"regexp"
 	"time"
 
+	"k8s.io/apimachinery/pkg/util/errors"
+
+	memconsts "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/memory/consts"
 	coreconfig "github.com/kubewharf/katalyst-core/pkg/config"
 	dynamicconfig "github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic"
 	"github.com/kubewharf/katalyst-core/pkg/consts"
@@ -115,7 +118,7 @@ func (e *fileCacheEvictionManager) waitForNodeMetricsSync() {
 	time.Sleep(time.Second * 30)
 }
 
-func (e *fileCacheEvictionManager) doEviction() {
+func (e *fileCacheEvictionManager) doEviction() error {
 	now := time.Now()
 
 	runAtOnce := true
@@ -128,14 +131,16 @@ func (e *fileCacheEvictionManager) doEviction() {
 	}
 
 	if !runAtOnce {
-		return
+		return nil
 	}
 
 	beforeEvictedGB := e.getCachedMemoryInGB()
 
+	var errList []error
 	for _, path := range e.pathList {
 		if err := e.evictWalk(path); err != nil {
 			general.Errorf("walk path %s error: %v", path, err)
+			errList = append(errList, err)
 		}
 	}
 
@@ -153,12 +158,19 @@ func (e *fileCacheEvictionManager) doEviction() {
 
 	general.Infof("file cache eviction finished at %v, cost %v, cached memory from %d GB to %d GB, evicted %d GB, will run at %v later",
 		e.lastEvictTime.String(), elapsedTime.String(), beforeEvictedGB, afterEvictedGB, evictedGB, e.curInterval)
+
+	return errors.NewAggregate(errList)
 }
 
 func (e *fileCacheEvictionManager) EvictLogCache(_ *coreconfig.Configuration,
 	_ interface{}, _ *dynamicconfig.DynamicAgentConfiguration, emitter metrics.MetricEmitter, metaServer *metaserver.MetaServer,
 ) {
-	e.doEviction()
+	var err error
+	defer func() {
+		_ = general.UpdateHealthzStateByError(memconsts.EvictLogCache, err)
+	}()
+
+	err = e.doEviction()
 }
 
 func NewManager(conf *coreconfig.Configuration, metaServer *metaserver.MetaServer) Manager {
