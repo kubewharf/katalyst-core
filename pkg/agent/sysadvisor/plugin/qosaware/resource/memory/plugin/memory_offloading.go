@@ -47,15 +47,19 @@ import (
 
 const (
 	TransparentMemoryOffloading = "transparent-memory-offloading"
+
+	MetricMemoryOffloading = "memory_offloading"
 )
 
 const (
 	InactiveProbe            = 0.1
 	OffloadingSizeScaleCoeff = 1.05
+	CacheMappedCoeff         = 2
 )
 
 const (
-	DummyTMOBlockFnName string = "dummy-tmo-block-fn"
+	DummyTMOBlockFnName           string = "dummy-tmo-block-fn"
+	TMOBlockFuncFromDynamicConfig        = "tmo-block-func-from-dynamic-config"
 )
 
 // TMO policy funcs to calculate memory offloading size
@@ -73,22 +77,34 @@ type TmoStats struct {
 	pgsteal              float64
 	refault              float64
 	refaultActivate      float64
+	cache                float64
+	mapped               float64
 	offloadingTargetSize float64
 }
 
 type TmoPolicyFn func(
 	lastStats TmoStats,
 	currStats TmoStats,
-	conf *tmoconf.TMOConfigDetail) (error, float64)
+	conf *tmoconf.TMOConfigDetail,
+	emitter metrics.MetricEmitter) (error, float64)
 
-func psiPolicyFunc(lastStats TmoStats, currStats TmoStats, conf *tmoconf.TMOConfigDetail) (error, float64) {
+func psiPolicyFunc(lastStats TmoStats, currStats TmoStats, conf *tmoconf.TMOConfigDetail, emitter metrics.MetricEmitter) (error, float64) {
+
 	if conf.PSIPolicyConf == nil {
 		return errors.New("psi policy requires psi policy configuration"), 0
 	}
-	return nil, math.Max(0, 1-(currStats.memPsiAvg60)/(conf.PSIPolicyConf.PsiAvg60Threshold)) * conf.PSIPolicyConf.MaxProbe * currStats.memUsage
+	result := math.Max(0, 1-(currStats.memPsiAvg60)/(conf.PSIPolicyConf.PsiAvg60Threshold)) * conf.PSIPolicyConf.MaxProbe * currStats.memUsage
+
+	general.InfoS("psi info", "obj", currStats.obj, "memPsiAvg60", currStats.memPsiAvg60, "psiAvg60Threshold",
+		conf.PSIPolicyConf.PsiAvg60Threshold, "maxProbe", conf.PSIPolicyConf.MaxProbe, "memUsage", currStats.memUsage,
+		"result", result)
+	_ = emitter.StoreFloat64(MetricMemoryOffloading, result, metrics.MetricTypeNameRaw,
+		metrics.MetricTag{Key: "policy", Val: string(v1alpha1.TMOPolicyNamePSI)},
+		metrics.MetricTag{Key: "obj", Val: currStats.obj})
+	return nil, result
 }
 
-func refaultPolicyFunc(lastStats TmoStats, currStats TmoStats, conf *tmoconf.TMOConfigDetail) (error, float64) {
+func refaultPolicyFunc(lastStats TmoStats, currStats TmoStats, conf *tmoconf.TMOConfigDetail, emitter metrics.MetricEmitter) (error, float64) {
 	if conf.RefaultPolicyConf == nil {
 		return errors.New("refault policy requires refault policy configurations"), 0
 	}
@@ -115,16 +131,39 @@ func refaultPolicyFunc(lastStats TmoStats, currStats TmoStats, conf *tmoconf.TMO
 		"reclaimScanEfficiencyRatio", reclaimScanEfficiencyRatio, "ReclaimScanEfficiencyTarget", conf.RefaultPolicyConf.ReclaimScanEfficiencyTarget,
 		"refaultDelta", refaultDelta, "pgstealDelta", pgstealDelta, "pgscanDelta", pgscanDelta, "lastOffloadingTargetSize", general.FormatMemoryQuantity(lastStats.offloadingTargetSize),
 		"result", general.FormatMemoryQuantity(result))
+	_ = emitter.StoreFloat64(MetricMemoryOffloading, result, metrics.MetricTypeNameRaw,
+		metrics.MetricTag{Key: "policy", Val: string(v1alpha1.TMOPolicyNameRefault)},
+		metrics.MetricTag{Key: "obj", Val: currStats.obj})
 	return nil, result
 }
 
-type TMOBlockFn func(ci *types.ContainerInfo, conf interface{}) bool
+func integratedPolicyFunc(lastStats TmoStats, currStats TmoStats, conf *tmoconf.TMOConfigDetail, emitter metrics.MetricEmitter) (error, float64) {
+	err, targetSizeFromPSI := psiPolicyFunc(lastStats, currStats, conf, emitter)
+	if err != nil {
+		return err, 0
+	}
+	err, targetSizeFromRefault := refaultPolicyFunc(lastStats, currStats, conf, emitter)
+	if err != nil {
+		return err, 0
+	}
+	result := math.Min(targetSizeFromPSI, targetSizeFromRefault)
 
-func DummyTMOBlockFn(ci *types.ContainerInfo, conf interface{}) bool { return false }
+	_ = emitter.StoreFloat64(MetricMemoryOffloading, result, metrics.MetricTypeNameRaw,
+		metrics.MetricTag{Key: "policy", Val: string(v1alpha1.TMOPolicyNameIntegrated)},
+		metrics.MetricTag{Key: "obj", Val: currStats.obj})
+	return err, result
+}
+
+type TMOBlockFn func(ci *types.ContainerInfo, conf interface{}, dynamicConf interface{}) bool
+
+func DummyTMOBlockFn(ci *types.ContainerInfo, conf interface{}, dynamicConf interface{}) bool {
+	return false
+}
 
 func init() {
 	RegisterTMOPolicyFunc(v1alpha1.TMOPolicyNamePSI, psiPolicyFunc)
 	RegisterTMOPolicyFunc(v1alpha1.TMOPolicyNameRefault, refaultPolicyFunc)
+	RegisterTMOPolicyFunc(v1alpha1.TMOPolicyNameIntegrated, integratedPolicyFunc)
 	RegisterTMOBlockFunc(DummyTMOBlockFnName, DummyTMOBlockFn)
 }
 
@@ -134,6 +173,28 @@ func RegisterTMOPolicyFunc(policyName v1alpha1.TMOPolicyName, tmoPolicyFn TmoPol
 
 func RegisterTMOBlockFunc(blockFnName string, blockFn TMOBlockFn) {
 	tmoBlockFuncs.Store(blockFnName, blockFn)
+}
+
+func TMOBlockFnFromDynamicConfig(ci *types.ContainerInfo, extraConf interface{}, dynamicConf interface{}) bool {
+	if conf, ok := dynamicConf.(*tmoconf.TMOBlockConfig); ok {
+		if checkBlocked(conf.BlockLabels, ci.Labels) || checkBlocked(conf.BlockAnnotations, ci.Annotations) {
+			return true
+		}
+	}
+	return false
+}
+
+func checkBlocked(blockMap map[string][]string, originalMap map[string]string) bool {
+	for key, originalVal := range originalMap {
+		if blockValues, ok := blockMap[key]; ok {
+			for _, blockVal := range blockValues {
+				if originalVal == blockVal {
+					return true
+				}
+			}
+		}
+	}
+	return false
 }
 
 type transparentMemoryOffloading struct {
@@ -231,6 +292,14 @@ func (tmoEngine *tmoEngineInstance) getStats() (TmoStats, error) {
 		if err != nil {
 			return err
 		}
+		memCache, err := metaserver.GetCgroupMetric(relativePath, consts.MetricMemCacheCgroup)
+		if err != nil {
+			return err
+		}
+		memMappedFile, err := metaserver.GetCgroupMetric(relativePath, consts.MetricMemMappedCgroup)
+		if err != nil {
+			return err
+		}
 		tmoStats.memUsage = memUsage.Value
 		tmoStats.memInactive = memInactiveFile.Value + memInactiveAnon.Value
 		tmoStats.memPsiAvg60 = psiAvg60.Value
@@ -238,8 +307,10 @@ func (tmoEngine *tmoEngineInstance) getStats() (TmoStats, error) {
 		tmoStats.pgscan = pgscan.Value
 		tmoStats.refault = refault.Value
 		tmoStats.refaultActivate = refaultActivate.Value
+		tmoStats.cache = memCache.Value
+		tmoStats.mapped = memMappedFile.Value
 		tmoStats.offloadingTargetSize = tmoEngine.offloadingTargetSize
-		general.Infof("Memory Usage of Cgroup %s, memUsage: %v", tmoEngine.cgpath, memUsage.Value)
+		general.Infof("Memory Usage of Cgroup %s, memUsage: %v, cache: %v, mapped: %v", tmoEngine.cgpath, memUsage.Value, memCache.Value, memMappedFile.Value)
 		return nil
 	}
 	getContainerMetrics := func(metaserver *metaserver.MetaServer, podUID string, containerName string) error {
@@ -275,6 +346,14 @@ func (tmoEngine *tmoEngineInstance) getStats() (TmoStats, error) {
 		if err != nil {
 			return err
 		}
+		memCache, err := metaserver.GetContainerMetric(podUID, containerName, consts.MetricMemCacheContainer)
+		if err != nil {
+			return err
+		}
+		memMappedFile, err := metaserver.GetContainerMetric(podUID, containerName, consts.MetricMemMappedContainer)
+		if err != nil {
+			return err
+		}
 		tmoStats.memUsage = memUsage.Value
 		tmoStats.memInactive = memInactiveFile.Value + memInactiveAnon.Value
 		tmoStats.memPsiAvg60 = psiAvg60.Value
@@ -282,8 +361,10 @@ func (tmoEngine *tmoEngineInstance) getStats() (TmoStats, error) {
 		tmoStats.pgscan = pgscan.Value
 		tmoStats.refault = refault.Value
 		tmoStats.refaultActivate = refaultActivate.Value
+		tmoStats.cache = memCache.Value
+		tmoStats.mapped = memMappedFile.Value
 		tmoStats.offloadingTargetSize = tmoEngine.offloadingTargetSize
-		general.Infof("Memory Usage of Pod %v, Container %v, memUsage: %v", podUID, containerName, memUsage.Value)
+		general.Infof("Memory Usage of Pod %v, Container %v, memUsage: %v, cache: %v, mapped: %v", podUID, containerName, memUsage.Value, memCache.Value, memMappedFile.Value)
 		return nil
 	}
 
@@ -330,7 +411,6 @@ func (tmoEngine *tmoEngineInstance) CalculateOffloadingTargetSize() {
 	if !tmoEngine.conf.EnableTMO {
 		return
 	}
-
 	currTime := time.Now()
 	if currTime.Sub(tmoEngine.lastTime) < tmoEngine.conf.Interval {
 		tmoEngine.offloadingTargetSize = 0
@@ -342,14 +422,24 @@ func (tmoEngine *tmoEngineInstance) CalculateOffloadingTargetSize() {
 		general.Infof("Failed to get metrics %v", err)
 		return
 	}
+
 	// TODO: get result from qrm to make sure last offloading action finished
 	if fn, ok := tmoPolicyFuncs.Load(tmoEngine.conf.PolicyName); ok {
 		if policyFunc, ok := fn.(TmoPolicyFn); ok {
-			err, targetSize := policyFunc(tmoEngine.lastStats, currStats, tmoEngine.conf)
+			if !tmoEngine.conf.EnableSwap && currStats.cache < CacheMappedCoeff*currStats.mapped {
+				general.Infof("Tmo obj: %s cache is close to mapped, skip reclaim", currStats.obj)
+				tmoEngine.offloadingTargetSize = 0
+				return
+			}
+			err, targetSize := policyFunc(tmoEngine.lastStats, currStats, tmoEngine.conf, tmoEngine.emitter)
 			if err != nil {
 				general.ErrorS(err, "Failed to calculate offloading memory size")
 				return
 			}
+
+			cacheExceptMapped := currStats.cache - currStats.mapped
+			general.InfoS("Handle targetSize from policy", "Tmo obj:", currStats.obj, "targetSize:", targetSize, "cacheExceptMapped", cacheExceptMapped)
+			targetSize = math.Max(0, math.Min(cacheExceptMapped, targetSize))
 			tmoEngine.offloadingTargetSize = targetSize
 			currStats.offloadingTargetSize = targetSize
 			tmoEngine.lastStats = currStats
@@ -371,10 +461,14 @@ func NewTransparentMemoryOffloading(conf *config.Configuration, extraConfig inte
 }
 
 func (tmo *transparentMemoryOffloading) Reconcile(status *types.MemoryPressureStatus) error {
+	if tmo.conf.GetDynamicConfiguration().BlockConfig != nil {
+		RegisterTMOBlockFunc(TMOBlockFuncFromDynamicConfig, TMOBlockFnFromDynamicConfig)
+	}
 	podContainerNamesMap := make(map[katalystcoreconsts.PodContainerName]bool)
 	podList, err := tmo.metaServer.GetPodList(context.Background(), native.PodIsActive)
 	if err != nil {
 		general.Infof("Failed to get pod list: %v", err)
+		return err
 	}
 
 	for _, pod := range podList {
@@ -449,7 +543,7 @@ func (tmo *transparentMemoryOffloading) Reconcile(status *types.MemoryPressureSt
 				return true
 			})
 			for tmoBlockFnName, tmoBlockFn := range funcs {
-				if tmoBlockFn(containerInfo, tmo.extraConf) {
+				if tmoBlockFn(containerInfo, tmo.extraConf, tmo.conf.GetDynamicConfiguration().BlockConfig) {
 					tmo.containerTmoEngines[podContainerName].GetConf().EnableTMO = false
 					general.Infof("container with podContainerName: %s is required to disable TMO by TMOBlockFn: %s", podContainerName, tmoBlockFnName)
 				}

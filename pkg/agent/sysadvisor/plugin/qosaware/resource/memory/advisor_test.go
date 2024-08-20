@@ -816,6 +816,11 @@ func TestUpdate(t *testing.T) {
 						0: machine.MustParse("1"),
 						1: machine.MustParse("25"),
 					}, 200<<30),
+				makeContainerInfo("uid4", "default", "pod4", "c4", consts.PodAnnotationQoSLevelReclaimedCores, nil,
+					map[int]machine.CPUSet{
+						0: machine.MustParse("1"),
+						1: machine.MustParse("25"),
+					}, 200<<30),
 			},
 			pods: []*v1.Pod{
 				{
@@ -874,6 +879,62 @@ func TestUpdate(t *testing.T) {
 						},
 					},
 				},
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "pod3",
+						Namespace: "default",
+						UID:       "uid3",
+						Annotations: map[string]string{
+							consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
+						},
+						Labels: map[string]string{
+							consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
+						},
+					},
+					Spec: v1.PodSpec{
+						Containers: []v1.Container{
+							{
+								Name: "c3",
+							},
+						},
+					},
+					Status: v1.PodStatus{
+						ContainerStatuses: []v1.ContainerStatus{
+							{
+								Name:        "c3",
+								ContainerID: "containerd://c3",
+							},
+						},
+					},
+				},
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "pod4",
+						Namespace: "default",
+						UID:       "uid4",
+						Annotations: map[string]string{
+							consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelReclaimedCores,
+						},
+						Labels: map[string]string{
+							consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelReclaimedCores,
+						},
+					},
+					Spec: v1.PodSpec{
+						Containers: []v1.Container{
+							{
+								Name: "c4",
+							},
+						},
+					},
+					Status: v1.PodStatus{
+						ContainerStatuses: []v1.ContainerStatus{
+							{
+								Name:        "c4",
+								ContainerID: "containerd://c4",
+							},
+						},
+					},
+				},
 			},
 			wantHeadroom: *resource.NewQuantity(996<<30, resource.DecimalSI),
 			nodeMetrics:  defaultNodeMetrics,
@@ -892,6 +953,18 @@ func TestUpdate(t *testing.T) {
 					containerName: "c1",
 				},
 				{
+					metricName:    coreconsts.MetricMemCacheContainer,
+					metricValue:   metricutil.MetricData{Value: 5 << 30},
+					podUID:        "uid1",
+					containerName: "c1",
+				},
+				{
+					metricName:    coreconsts.MetricMemMappedContainer,
+					metricValue:   metricutil.MetricData{Value: 2 << 30},
+					podUID:        "uid1",
+					containerName: "c1",
+				},
+				{
 					metricName:    coreconsts.MetricMemInactiveAnonContainer,
 					metricValue:   metricutil.MetricData{Value: 1 << 30},
 					podUID:        "uid1",
@@ -940,8 +1013,20 @@ func TestUpdate(t *testing.T) {
 					containerName: "c2",
 				},
 				{
+					metricName:    coreconsts.MetricMemCacheContainer,
+					metricValue:   metricutil.MetricData{Value: 3 << 30},
+					podUID:        "uid2",
+					containerName: "c2",
+				},
+				{
+					metricName:    coreconsts.MetricMemMappedContainer,
+					metricValue:   metricutil.MetricData{Value: 2 << 30},
+					podUID:        "uid2",
+					containerName: "c2",
+				},
+				{
 					metricName:    coreconsts.MetricMemInactiveAnonContainer,
-					metricValue:   metricutil.MetricData{Value: 1 << 30},
+					metricValue:   metricutil.MetricData{Value: 2 << 30},
 					podUID:        "uid2",
 					containerName: "c2",
 				},
@@ -974,6 +1059,126 @@ func TestUpdate(t *testing.T) {
 					metricValue:   metricutil.MetricData{Value: 1000},
 					podUID:        "uid2",
 					containerName: "c2",
+				},
+				{
+					metricName:    coreconsts.MetricMemPsiAvg60Container,
+					metricValue:   metricutil.MetricData{Value: 0.01},
+					podUID:        "uid3",
+					containerName: "c3",
+				},
+				{
+					metricName:    coreconsts.MetricMemUsageContainer,
+					metricValue:   metricutil.MetricData{Value: 10 << 30},
+					podUID:        "uid3",
+					containerName: "c3",
+				},
+				{
+					metricName:    coreconsts.MetricMemCacheContainer,
+					metricValue:   metricutil.MetricData{Value: 3 << 30},
+					podUID:        "uid3",
+					containerName: "c3",
+				},
+				{
+					metricName:    coreconsts.MetricMemMappedContainer,
+					metricValue:   metricutil.MetricData{Value: 2 << 30},
+					podUID:        "uid3",
+					containerName: "c3",
+				},
+				{
+					metricName:    coreconsts.MetricMemInactiveAnonContainer,
+					metricValue:   metricutil.MetricData{Value: 2 << 30},
+					podUID:        "uid3",
+					containerName: "c3",
+				},
+				{
+					metricName:    coreconsts.MetricMemInactiveFileContainer,
+					metricValue:   metricutil.MetricData{Value: 1 << 30},
+					podUID:        "uid3",
+					containerName: "c3",
+				},
+				{
+					metricName:    coreconsts.MetricMemPgscanContainer,
+					metricValue:   metricutil.MetricData{Value: 15000},
+					podUID:        "uid3",
+					containerName: "c3",
+				},
+				{
+					metricName:    coreconsts.MetricMemPgstealContainer,
+					metricValue:   metricutil.MetricData{Value: 10000},
+					podUID:        "uid3",
+					containerName: "c3",
+				},
+				{
+					metricName:    coreconsts.MetricMemWorkingsetRefaultContainer,
+					metricValue:   metricutil.MetricData{Value: 1000},
+					podUID:        "uid3",
+					containerName: "c3",
+				},
+				{
+					metricName:    coreconsts.MetricMemWorkingsetActivateContainer,
+					metricValue:   metricutil.MetricData{Value: 1000},
+					podUID:        "uid3",
+					containerName: "c3",
+				},
+				{
+					metricName:    coreconsts.MetricMemPsiAvg60Container,
+					metricValue:   metricutil.MetricData{Value: 0.01},
+					podUID:        "uid4",
+					containerName: "c4",
+				},
+				{
+					metricName:    coreconsts.MetricMemUsageContainer,
+					metricValue:   metricutil.MetricData{Value: 10 << 30},
+					podUID:        "uid4",
+					containerName: "c4",
+				},
+				{
+					metricName:    coreconsts.MetricMemCacheContainer,
+					metricValue:   metricutil.MetricData{Value: 2 << 30},
+					podUID:        "uid4",
+					containerName: "c4",
+				},
+				{
+					metricName:    coreconsts.MetricMemMappedContainer,
+					metricValue:   metricutil.MetricData{Value: 2 << 30},
+					podUID:        "uid4",
+					containerName: "c4",
+				},
+				{
+					metricName:    coreconsts.MetricMemInactiveAnonContainer,
+					metricValue:   metricutil.MetricData{Value: 1 << 30},
+					podUID:        "uid4",
+					containerName: "c4",
+				},
+				{
+					metricName:    coreconsts.MetricMemInactiveFileContainer,
+					metricValue:   metricutil.MetricData{Value: 1 << 30},
+					podUID:        "uid4",
+					containerName: "c4",
+				},
+				{
+					metricName:    coreconsts.MetricMemPgscanContainer,
+					metricValue:   metricutil.MetricData{Value: 15000},
+					podUID:        "uid4",
+					containerName: "c4",
+				},
+				{
+					metricName:    coreconsts.MetricMemPgstealContainer,
+					metricValue:   metricutil.MetricData{Value: 10000},
+					podUID:        "uid4",
+					containerName: "c4",
+				},
+				{
+					metricName:    coreconsts.MetricMemWorkingsetRefaultContainer,
+					metricValue:   metricutil.MetricData{Value: 1000},
+					podUID:        "uid4",
+					containerName: "c4",
+				},
+				{
+					metricName:    coreconsts.MetricMemWorkingsetActivateContainer,
+					metricValue:   metricutil.MetricData{Value: 1000},
+					podUID:        "uid4",
+					containerName: "c4",
 				},
 			},
 			cgroupMetrics: []cgroupMetric{
@@ -1008,6 +1213,16 @@ func TestUpdate(t *testing.T) {
 					cgroupPath:  "/hdfs",
 				},
 				{
+					metricName:  coreconsts.MetricMemCacheCgroup,
+					metricValue: metricutil.MetricData{Value: 3 << 30},
+					cgroupPath:  "/hdfs",
+				},
+				{
+					metricName:  coreconsts.MetricMemMappedCgroup,
+					metricValue: metricutil.MetricData{Value: 1 << 30},
+					cgroupPath:  "/hdfs",
+				},
+				{
 					metricName:  coreconsts.MetricMemInactiveAnonCgroup,
 					metricValue: metricutil.MetricData{Value: 1 << 30},
 					cgroupPath:  "/hdfs",
@@ -1024,19 +1239,37 @@ func TestUpdate(t *testing.T) {
 					{
 						CgroupPath: "/hdfs",
 						Values: map[string]string{
-							string(memoryadvisor.ControlKnobKeySwapMax):          coreconsts.ControlKnobON,
+							string(memoryadvisor.ControlKnobKeySwapMax):          coreconsts.ControlKnobOFF,
 							string(memoryadvisor.ControlKnowKeyMemoryOffloading): "38654705",
 						},
 					},
 				},
-				ContainerEntries: []types.ContainerMemoryAdvices{{
-					PodUID:        "uid1",
-					ContainerName: "c1",
-					Values: map[string]string{
-						string(memoryadvisor.ControlKnobKeySwapMax):          coreconsts.ControlKnobON,
-						string(memoryadvisor.ControlKnowKeyMemoryOffloading): "96636764",
+				ContainerEntries: []types.ContainerMemoryAdvices{
+					{
+						PodUID:        "uid1",
+						ContainerName: "c1",
+						Values: map[string]string{
+							string(memoryadvisor.ControlKnobKeySwapMax):          coreconsts.ControlKnobOFF,
+							string(memoryadvisor.ControlKnowKeyMemoryOffloading): "96636764",
+						},
 					},
-				}},
+					{
+						PodUID:        "uid3",
+						ContainerName: "c3",
+						Values: map[string]string{
+							string(memoryadvisor.ControlKnobKeySwapMax):          coreconsts.ControlKnobON,
+							string(memoryadvisor.ControlKnowKeyMemoryOffloading): "96636764",
+						},
+					},
+					//{
+					//	PodUID:        "uid4",
+					//	ContainerName: "c4",
+					//	Values: map[string]string{
+					//		string(memoryadvisor.ControlKnobKeySwapMax):          coreconsts.ControlKnobOFF,
+					//		string(memoryadvisor.ControlKnowKeyMemoryOffloading): "96636764",
+					//	},
+					//},
+				},
 			},
 		},
 		{
@@ -2226,12 +2459,16 @@ func TestUpdate(t *testing.T) {
 			transparentMemoryOffloadingConfiguration := tmo.NewTransparentMemoryOffloadingConfiguration()
 			transparentMemoryOffloadingConfiguration.QoSLevelConfigs[consts.QoSLevelReclaimedCores] = tmo.NewTMOConfigDetail(transparentMemoryOffloadingConfiguration.DefaultConfigurations)
 			transparentMemoryOffloadingConfiguration.QoSLevelConfigs[consts.QoSLevelReclaimedCores].EnableTMO = true
-			transparentMemoryOffloadingConfiguration.QoSLevelConfigs[consts.QoSLevelReclaimedCores].EnableSwap = true
+			transparentMemoryOffloadingConfiguration.QoSLevelConfigs[consts.QoSLevelReclaimedCores].EnableSwap = false
+
+			transparentMemoryOffloadingConfiguration.QoSLevelConfigs[consts.QoSLevelSharedCores] = tmo.NewTMOConfigDetail(transparentMemoryOffloadingConfiguration.DefaultConfigurations)
+			transparentMemoryOffloadingConfiguration.QoSLevelConfigs[consts.QoSLevelSharedCores].EnableTMO = true
+			transparentMemoryOffloadingConfiguration.QoSLevelConfigs[consts.QoSLevelSharedCores].EnableSwap = true
 
 			// cgroup level
 			transparentMemoryOffloadingConfiguration.CgroupConfigs["/sys/fs/cgroup/hdfs"] = tmo.NewTMOConfigDetail(transparentMemoryOffloadingConfiguration.DefaultConfigurations)
 			transparentMemoryOffloadingConfiguration.CgroupConfigs["/sys/fs/cgroup/hdfs"].EnableTMO = true
-			transparentMemoryOffloadingConfiguration.CgroupConfigs["/sys/fs/cgroup/hdfs"].EnableSwap = true
+			transparentMemoryOffloadingConfiguration.CgroupConfigs["/sys/fs/cgroup/hdfs"].EnableSwap = false
 
 			advisor.conf.GetDynamicConfiguration().TransparentMemoryOffloadingConfiguration = transparentMemoryOffloadingConfiguration
 			_, advisorRecvChInterface := advisor.GetChannels()
@@ -2256,7 +2493,7 @@ func TestUpdate(t *testing.T) {
 			ctx, cancel := context.WithCancel(context.Background())
 			advisor.Run(ctx)
 
-			time.Sleep(10 * time.Millisecond) // Wait some time because no signal will be sent to channel
+			time.Sleep(100 * time.Millisecond) // Wait some time because no signal will be sent to channel
 			if tt.needRecvAdvices {
 				result := <-recvCh
 

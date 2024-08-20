@@ -161,6 +161,7 @@ require (
 )
 
 replace (
+	github.com/kubewharf/katalyst-api => github.com/yadzhang/katalyst-api v0.0.0-20240902073003-a72eb9ae209c
 	k8s.io/api => k8s.io/api v0.24.6
 	k8s.io/apiextensions-apiserver => k8s.io/apiextensions-apiserver v0.24.6
 	k8s.io/apimachinery => k8s.io/apimachinery v0.24.6

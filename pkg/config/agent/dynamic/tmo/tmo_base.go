@@ -39,6 +39,7 @@ type TransparentMemoryOffloadingConfiguration struct {
 	DefaultConfigurations *TMODefaultConfigurations
 	QoSLevelConfigs       map[consts.QoSLevel]*TMOConfigDetail
 	CgroupConfigs         map[string]*TMOConfigDetail
+	BlockConfig           *TMOBlockConfig
 }
 
 func NewTransparentMemoryOffloadingConfiguration() *TransparentMemoryOffloadingConfiguration {
@@ -46,6 +47,7 @@ func NewTransparentMemoryOffloadingConfiguration() *TransparentMemoryOffloadingC
 		DefaultConfigurations: NewTMODefaultConfigurations(),
 		QoSLevelConfigs:       map[consts.QoSLevel]*TMOConfigDetail{},
 		CgroupConfigs:         map[string]*TMOConfigDetail{},
+		BlockConfig:           &TMOBlockConfig{},
 	}
 }
 
@@ -98,6 +100,11 @@ func NewTMOConfigDetail(defaultConfigs *TMODefaultConfigurations) *TMOConfigDeta
 			ReclaimScanEfficiencyTarget: defaultConfigs.DefaultTMORefaultPolicyReclaimScanEfficiencyTarget,
 		},
 	}
+}
+
+type TMOBlockConfig struct {
+	BlockLabels      map[string][]string
+	BlockAnnotations map[string][]string
 }
 
 type PSIPolicyConf struct {
@@ -161,6 +168,10 @@ func (c *TransparentMemoryOffloadingConfiguration) ApplyConfiguration(conf *crd.
 				ApplyTMOConfigDetail(tmoConfigDetail, cgroupConfig.ConfigDetail)
 				c.CgroupConfigs[cgroupConfig.CgroupPath] = tmoConfigDetail
 			}
+		}
+		if tmoConf.Spec.Config.BlockConfig != nil {
+			c.BlockConfig.BlockLabels = tmoConf.Spec.Config.BlockConfig.Labels
+			c.BlockConfig.BlockAnnotations = tmoConf.Spec.Config.BlockConfig.Annotations
 		}
 	}
 }
