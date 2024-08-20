@@ -74,6 +74,20 @@ type MemoryData struct {
 	SwapMaxInBytes int64
 }
 
+type PressureType int
+
+const (
+	SOME PressureType = iota
+	FULL
+)
+
+// MemoryPressure get cgroup memory pressure
+type MemoryPressure struct {
+	Avg10  uint64
+	Avg60  uint64
+	Avg300 uint64
+}
+
 // CPUData set cgroup cpu data
 type CPUData struct {
 	Shares     uint64
