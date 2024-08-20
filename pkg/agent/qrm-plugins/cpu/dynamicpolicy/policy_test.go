@@ -4853,13 +4853,13 @@ func Test_getPreferenceByMemBW(t *testing.T) {
 	tests := []struct {
 		name    string
 		args    args
-		want    bool
+		want    *memBWHintUpdate
 		wantErr bool
 	}{
 		{
 			name:    "req is nil",
 			args:    args{},
-			want:    false,
+			want:    nil,
 			wantErr: true,
 		},
 		{
@@ -4868,7 +4868,7 @@ func Test_getPreferenceByMemBW(t *testing.T) {
 				req:                   &pluginapi.ResourceRequest{},
 				targetNUMANodesUInt64: []uint64{},
 			},
-			want:    false,
+			want:    nil,
 			wantErr: true,
 		},
 		{
@@ -4877,7 +4877,7 @@ func Test_getPreferenceByMemBW(t *testing.T) {
 				req:                   &pluginapi.ResourceRequest{},
 				targetNUMANodesUInt64: []uint64{1},
 			},
-			want:    false,
+			want:    nil,
 			wantErr: true,
 		},
 		{
@@ -4887,7 +4887,7 @@ func Test_getPreferenceByMemBW(t *testing.T) {
 				targetNUMANodesUInt64: []uint64{1},
 				machineInfo:           &machine.KatalystMachineInfo{},
 			},
-			want:    false,
+			want:    nil,
 			wantErr: true,
 		},
 		{
@@ -4897,7 +4897,7 @@ func Test_getPreferenceByMemBW(t *testing.T) {
 				targetNUMANodesUInt64: []uint64{1},
 				machineInfo:           &machine.KatalystMachineInfo{ExtraTopologyInfo: &machine.ExtraTopologyInfo{}},
 			},
-			want:    false,
+			want:    nil,
 			wantErr: true,
 		},
 	}
