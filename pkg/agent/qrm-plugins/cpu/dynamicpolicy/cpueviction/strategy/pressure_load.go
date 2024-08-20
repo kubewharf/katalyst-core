@@ -425,6 +425,9 @@ func (p *CPUPressureLoadEviction) accumulateSharedPoolsLimit() int {
 	availableCPUSet := p.state.GetMachineState().GetFilteredAvailableCPUSet(p.systemReservedCPUs, nil, state.CheckNUMABinding)
 
 	coreNumReservedForReclaim := p.dynamicConf.GetDynamicConfiguration().MinReclaimedResourceForAllocate[v1.ResourceCPU]
+	if coreNumReservedForReclaim.Value() > int64(p.metaServer.NumCPUs) {
+		coreNumReservedForReclaim.Set(int64(p.metaServer.NumCPUs))
+	}
 	reservedForReclaim := machine.GetCoreNumReservedForReclaim(int(coreNumReservedForReclaim.Value()), p.metaServer.NumNUMANodes)
 
 	reservedForReclaimInSharedNuma := 0

@@ -146,6 +146,9 @@ func NewCPUResourceAdvisor(conf *config.Configuration, extraConf interface{}, me
 	}
 
 	coreNumReservedForReclaim := conf.DynamicAgentConfiguration.GetDynamicConfiguration().MinReclaimedResourceForAllocate[v1.ResourceCPU]
+	if coreNumReservedForReclaim.Value() > int64(cra.metaServer.NumCPUs) {
+		coreNumReservedForReclaim.Set(int64(cra.metaServer.NumCPUs))
+	}
 	cra.reservedForReclaim = machine.GetCoreNumReservedForReclaim(int(coreNumReservedForReclaim.Value()), metaServer.KatalystMachineInfo.NumNUMANodes)
 
 	if err := cra.initializeProvisionAssembler(); err != nil {
