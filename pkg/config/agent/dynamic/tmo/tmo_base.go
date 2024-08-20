@@ -19,6 +19,9 @@ package tmo
 import (
 	"time"
 
+	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
+
 	"github.com/kubewharf/katalyst-api/pkg/apis/config/v1alpha1"
 	"github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/crd"
@@ -39,6 +42,7 @@ type TransparentMemoryOffloadingConfiguration struct {
 	DefaultConfigurations *TMODefaultConfigurations
 	QoSLevelConfigs       map[consts.QoSLevel]*TMOConfigDetail
 	CgroupConfigs         map[string]*TMOConfigDetail
+	BlockConfig           *TMOBlockConfig
 }
 
 func NewTransparentMemoryOffloadingConfiguration() *TransparentMemoryOffloadingConfiguration {
@@ -46,6 +50,7 @@ func NewTransparentMemoryOffloadingConfiguration() *TransparentMemoryOffloadingC
 		DefaultConfigurations: NewTMODefaultConfigurations(),
 		QoSLevelConfigs:       map[consts.QoSLevel]*TMOConfigDetail{},
 		CgroupConfigs:         map[string]*TMOConfigDetail{},
+		BlockConfig:           &TMOBlockConfig{},
 	}
 }
 
@@ -98,6 +103,11 @@ func NewTMOConfigDetail(defaultConfigs *TMODefaultConfigurations) *TMOConfigDeta
 			ReclaimScanEfficiencyTarget: defaultConfigs.DefaultTMORefaultPolicyReclaimScanEfficiencyTarget,
 		},
 	}
+}
+
+type TMOBlockConfig struct {
+	LabelsSelector      labels.Selector
+	AnnotationsSelector labels.Selector
 }
 
 type PSIPolicyConf struct {
@@ -161,6 +171,21 @@ func (c *TransparentMemoryOffloadingConfiguration) ApplyConfiguration(conf *crd.
 				ApplyTMOConfigDetail(tmoConfigDetail, cgroupConfig.ConfigDetail)
 				c.CgroupConfigs[cgroupConfig.CgroupPath] = tmoConfigDetail
 			}
+		}
+		if tmoConf.Spec.Config.BlockConfig != nil {
+			if len(tmoConf.Spec.Config.BlockConfig.Labels) != 0 {
+				selector, err := v1.LabelSelectorAsSelector(&v1.LabelSelector{MatchExpressions: tmoConf.Spec.Config.BlockConfig.Labels})
+				if err == nil {
+					c.BlockConfig.LabelsSelector = selector
+				}
+			}
+			if len(tmoConf.Spec.Config.BlockConfig.Annotations) != 0 {
+				selector, err := v1.LabelSelectorAsSelector(&v1.LabelSelector{MatchExpressions: tmoConf.Spec.Config.BlockConfig.Annotations})
+				if err == nil {
+					c.BlockConfig.AnnotationsSelector = selector
+				}
+			}
+
 		}
 	}
 }
