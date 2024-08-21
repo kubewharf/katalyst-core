@@ -18,9 +18,9 @@ package component
 
 import (
 	"context"
-	"github.com/pkg/errors"
 	"time"
 
+	"github.com/pkg/errors"
 	"k8s.io/klog/v2"
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/poweraware/component/capper"
