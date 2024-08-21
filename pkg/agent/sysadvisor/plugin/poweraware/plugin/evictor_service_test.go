@@ -21,7 +21,6 @@ import (
 	"fmt"
 	"net"
 	"sort"
-	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -104,7 +103,6 @@ func Test_powerPressureEvictPluginServer_ThresholdMet(t *testing.T) {
 	}
 
 	type fields struct {
-		mutex  sync.Mutex
 		evicts map[types.UID]*v1.Pod
 	}
 	type args struct {
@@ -137,7 +135,7 @@ func Test_powerPressureEvictPluginServer_ThresholdMet(t *testing.T) {
 			name: "happy path for some evicts",
 			fields: fields{
 				evicts: map[types.UID]*v1.Pod{
-					"1234": &v1.Pod{
+					"1234": {
 						ObjectMeta: metav1.ObjectMeta{
 							UID: "1234",
 						},

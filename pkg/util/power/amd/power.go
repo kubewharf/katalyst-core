@@ -18,8 +18,9 @@ package amd
 
 import (
 	"fmt"
-	"k8s.io/klog/v2"
 	"time"
+
+	"k8s.io/klog/v2"
 
 	utils "github.com/kubewharf/katalyst-core/pkg/util/lowlevel"
 )

@@ -20,7 +20,6 @@ import (
 	"context"
 	"testing"
 
-	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/poweraware/component"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	agentconf "github.com/kubewharf/katalyst-core/pkg/config/agent"
@@ -32,10 +31,6 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/node"
 	metricspool "github.com/kubewharf/katalyst-core/pkg/metrics/metrics-pool"
 )
-
-type stubMetaCache struct {
-	metacache.MetaCache
-}
 
 type stubNodeFetcher struct {
 	node.NodeFetcher

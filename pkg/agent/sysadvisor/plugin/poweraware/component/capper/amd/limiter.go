@@ -17,9 +17,10 @@ limitations under the License.
 package amd
 
 import (
+	"time"
+
 	"github.com/pkg/errors"
 	"k8s.io/klog/v2"
-	"time"
 
 	"github.com/kubewharf/katalyst-core/pkg/util/external/power"
 	utils "github.com/kubewharf/katalyst-core/pkg/util/lowlevel"
