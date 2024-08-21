@@ -23,17 +23,9 @@ import (
 	"k8s.io/klog/v2"
 
 	apiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
-	"github.com/kubewharf/katalyst-core/pkg/agent/evictionmanager/podkiller"
+	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/poweraware/plugin"
 	"github.com/kubewharf/katalyst-core/pkg/config/generic"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/pod"
-)
-
-const (
-	// gracePeriodSeconds is chosen 8 seconds as the interval to next round is 10 seconds
-	gracePeriodSeconds = 8
-
-	reasonEviction = "power alert"
-	pluginName     = "power_aware_plugin"
 )
 
 type LoadEvictor interface {
@@ -43,11 +35,7 @@ type LoadEvictor interface {
 type loadEvictor struct {
 	qosConfig  *generic.QoSConfiguration
 	podFetcher pod.PodFetcher
-
-	// todo: change podkill (or pod evict) API after KAtalyst-agent has it in place
-	// for now let's hook up with a dummy of pod killer type
-	// wiser design of API is to support batch kill - not finalized yet
-	podKiller podkiller.Killer
+	podEvictor plugin.PodEvictor
 }
 
 func (l loadEvictor) isBE(pod *v1.Pod) bool {
@@ -67,26 +55,30 @@ func (l loadEvictor) Evict(ctx context.Context, targetPercent int) {
 		return
 	}
 
+	// discard pending requests not handled yet; we will provide a new sleet of evict requests anyway
+	l.podEvictor.Reset(ctx)
+
 	countToLive := len(pods) * targetPercent / 100
 	for _, p := range pods[:countToLive] {
 		// not care much for returned error as power alert eviction is the best effort by design
-		_ = l.podKiller.Evict(ctx, p, gracePeriodSeconds, reasonEviction, pluginName)
+		_ = l.podEvictor.Evict(ctx, p)
 	}
 }
 
 var _ LoadEvictor = &loadEvictor{}
 
-type dummyPodKiller struct {
-	podKiller podkiller.Killer
-	called    int
+// NoopPodEvictor does not really evict any pod other than counting the invocations;
+// used in unit test, or when eviction feature is disabled
+type NoopPodEvictor struct {
+	called int
 }
 
-func (d dummyPodKiller) Name() string {
-	panic("dummyPodKiller")
-}
+func (d *NoopPodEvictor) Reset(ctx context.Context) {}
 
-func (d *dummyPodKiller) Evict(ctx context.Context, pod *v1.Pod, gracePeriodSeconds int64, reason, plugin string) error {
+func (d *NoopPodEvictor) Evict(ctx context.Context, pod *v1.Pod) error {
 	// dummy does no op, besides recording called times
 	d.called += 1
 	return nil
 }
+
+var _ plugin.PodEvictor = &NoopPodEvictor{}

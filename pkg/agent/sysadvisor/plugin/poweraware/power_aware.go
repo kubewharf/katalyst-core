@@ -68,17 +68,27 @@ func NewPowerAwarePlugin(
 	metaServer *metaserver.MetaServer,
 	_ metacache.MetaCache,
 ) (plugin.SysAdvisorPlugin, error) {
+	emitter := emitterPool.GetDefaultMetricsEmitter().WithTags(metricName)
+	podEvictor, err := component.GetPodEvictorBasedOnConfig(conf, emitter)
+	if err != nil {
+		return nil, err
+	}
+
+	controller := component.NewController(podEvictor,
+		conf.PowerAwarePluginOptions.DryRun,
+		emitter,
+		metaServer.NodeFetcher, conf.QoSConfiguration,
+		metaServer.PodFetcher,
+		metaServer.ExternalManager)
+
+	return NewPowerAwarePluginWithController(pluginName, conf, controller)
+}
+
+func NewPowerAwarePluginWithController(pluginName string, conf *config.Configuration, controller component.PowerAwareController) (plugin.SysAdvisorPlugin, error) {
 	return &powerAwarePlugin{
-		name:     pluginName,
-		disabled: conf.PowerAwarePluginOptions.Disabled,
-		dryRun:   conf.PowerAwarePluginOptions.DryRun,
-		controller: component.NewController(
-			conf.PowerAwarePluginOptions.DryRun,
-			emitterPool.GetDefaultMetricsEmitter().WithTags(metricName),
-			metaServer.NodeFetcher,
-			metaServer.PodFetcher,
-			conf.QoSConfiguration,
-			metaServer.ExternalManager,
-		),
+		name:       pluginName,
+		disabled:   conf.PowerAwarePluginOptions.Disabled,
+		dryRun:     conf.PowerAwarePluginOptions.DryRun,
+		controller: controller,
 	}, nil
 }

@@ -53,13 +53,21 @@ func Test_powerAwarePlugin_Name(t *testing.T) {
 			NodeFetcher: &stubNodeFetcher{},
 		},
 	}
-	stubCache := &stubMetaCache{}
 	dummyPluginConf := poweraware.PowerAwarePluginOptions{
 		Disabled: expectedDisabled,
 		DryRun:   expectedDryRun,
 	}
+	dummyEmitterPool := metricspool.DummyMetricsEmitterPool{}
+	dummyController := component.NewController(
+		&component.NoopPodEvictor{},
+		expectedDryRun,
+		dummyEmitterPool.GetDefaultMetricsEmitter(),
+		stubMetaServer.NodeFetcher,
+		nil,
+		stubMetaServer.PodFetcher,
+		stubMetaServer.ExternalManager)
 
-	p, err := NewPowerAwarePlugin(expectedName,
+	p, err := NewPowerAwarePluginWithController(expectedName,
 		&config.Configuration{
 			AgentConfiguration: &agentconf.AgentConfiguration{
 				StaticAgentConfiguration: &agentconf.StaticAgentConfiguration{
@@ -72,10 +80,8 @@ func Test_powerAwarePlugin_Name(t *testing.T) {
 				QoSConfiguration: generic.NewQoSConfiguration(),
 			},
 		},
-		nil,
-		&metricspool.DummyMetricsEmitterPool{},
-		stubMetaServer,
-		stubCache)
+		dummyController,
+	)
 	if err != nil {
 		t.Errorf("unexpected error: %#v", err)
 	}
@@ -133,7 +139,7 @@ func Test_powerAwarePlugin_Init(t *testing.T) {
 				name:     tt.fields.name,
 				disabled: tt.fields.disabled,
 				dryRun:   tt.fields.dryRun,
-				controller: component.NewController(false, dummyEmitter,
+				controller: component.NewController(&component.NoopPodEvictor{}, false, dummyEmitter,
 					tt.fields.nodeFetcher, nil, nil, nil,
 				),
 			}

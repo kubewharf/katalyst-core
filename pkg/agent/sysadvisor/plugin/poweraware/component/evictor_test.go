@@ -142,16 +142,16 @@ func (m mockPodFetcher) GetPodList(ctx context.Context, podFilter func(*v1.Pod) 
 func Test_loadEvictor_Evict(t *testing.T) {
 	t.Parallel()
 
-	podKiller := &dummyPodKiller{}
+	podEvictor := &NoopPodEvictor{}
 	l := loadEvictor{
 		qosConfig:  generic.NewQoSConfiguration(),
 		podFetcher: &mockPodFetcher{},
-		podKiller:  podKiller,
+		podEvictor: podEvictor,
 	}
 
 	l.Evict(context.TODO(), 100)
 
-	if podKiller.called != 1 {
-		t.Errorf("expected to call 1 times, got %d", podKiller.called)
+	if podEvictor.called != 1 {
+		t.Errorf("expected to call 1 times, got %d", podEvictor.called)
 	}
 }
