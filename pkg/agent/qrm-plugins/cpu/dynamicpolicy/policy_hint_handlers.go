@@ -53,19 +53,42 @@ func (p *DynamicPolicy) sharedCoresHintHandler(ctx context.Context,
 		return nil, fmt.Errorf("got nil request")
 	}
 
-	if !qosutil.AnnotationsIndicateNUMABinding(req.Annotations) {
-		return util.PackResourceHintsResponse(req, string(v1.ResourceCPU),
-			map[string]*pluginapi.ListOfTopologyHints{
-				string(v1.ResourceCPU): nil, // indicates that there is no numa preference
-			})
+	if qosutil.AnnotationsIndicateNUMABinding(req.Annotations) {
+		return p.sharedCoresWithNUMABindingHintHandler(ctx, req)
 	}
 
-	return p.sharedCoresWithNUMABindingHintHandler(ctx, req)
+	// TODO: support sidecar follow main container for normal share cores in future
+	if req.ContainerType == pluginapi.ContainerType_MAIN {
+		ok, err := p.checkNormalShareCoresCpuResource(req)
+		if err != nil {
+			general.Errorf("failed to check share cores cpu resource for pod: %s/%s, container: %s",
+				req.PodNamespace, req.PodName, req.ContainerName)
+			return nil, fmt.Errorf("failed to check share cores cpu resource: %q", err)
+		}
+
+		if !ok {
+			_ = p.emitter.StoreInt64(util.MetricNameShareCoresNoEnoughResourceFailed, 1, metrics.MetricTypeNameCount, metrics.ConvertMapToTags(map[string]string{
+				"resource":      v1.ResourceCPU.String(),
+				"podNamespace":  req.PodNamespace,
+				"podName":       req.PodName,
+				"containerName": req.ContainerName,
+			})...)
+			return nil, fmt.Errorf("no enough cpu resource")
+		}
+	}
+
+	return util.PackResourceHintsResponse(req, string(v1.ResourceCPU),
+		map[string]*pluginapi.ListOfTopologyHints{
+			string(v1.ResourceCPU): nil, // indicates that there is no numa preference
+		})
 }
 
 func (p *DynamicPolicy) reclaimedCoresHintHandler(ctx context.Context,
 	req *pluginapi.ResourceRequest,
 ) (*pluginapi.ResourceHintsResponse, error) {
+	if util.PodInplaceUpdateResizing(req) {
+		return nil, fmt.Errorf("not support inplace update resize for reclaimed cores")
+	}
 	return p.sharedCoresHintHandler(ctx, req)
 }
 
@@ -74,6 +97,10 @@ func (p *DynamicPolicy) dedicatedCoresHintHandler(ctx context.Context,
 ) (*pluginapi.ResourceHintsResponse, error) {
 	if req == nil {
 		return nil, fmt.Errorf("dedicatedCoresHintHandler got nil req")
+	}
+
+	if util.PodInplaceUpdateResizing(req) {
+		return nil, fmt.Errorf("not support inplace update resize for dedicated cores")
 	}
 
 	switch req.Annotations[apiconsts.PodAnnotationMemoryEnhancementNumaBinding] {
@@ -543,7 +570,8 @@ func (p *DynamicPolicy) sharedCoresWithNUMABindingHintHandler(_ context.Context,
 			})
 	}
 
-	reqInt, _, err := util.GetQuantityFromResourceReq(req)
+	// calc the hints with the pod aggregated request
+	reqInt, _, err := util.GetPodAggregatedRequestResource(req)
 	if err != nil {
 		return nil, fmt.Errorf("getReqQuantityFromResourceReq failed with error: %v", err)
 	}
@@ -557,25 +585,62 @@ func (p *DynamicPolicy) sharedCoresWithNUMABindingHintHandler(_ context.Context,
 	if allocationInfo != nil {
 		hints = cpuutil.RegenerateHints(allocationInfo, reqInt)
 
-		// regenerateHints failed. need to clear container record and re-calculate.
-		if hints == nil {
-			delete(podEntries[req.PodUid], req.ContainerName)
-			if len(podEntries[req.PodUid]) == 0 {
-				delete(podEntries, req.PodUid)
-			}
-
-			var err error
-			// [TODO]: generateMachineStateFromPodEntries adapts to shared_cores with numa_binding
-			machineState, err = generateMachineStateFromPodEntries(p.machineInfo.CPUTopology, podEntries)
+		// clear the current container and regenerate machine state in follow cases:
+		// 1. regenerateHints failed.
+		// 2. the container is inplace update resizing.
+		// hints it as a new container
+		if hints == nil || util.PodInplaceUpdateResizing(req) {
+			machineState, err = p.clearContainerAndRegenerateMachineState(podEntries, req)
 			if err != nil {
-				general.Errorf("pod: %s/%s, container: %s GenerateMachineStateFromPodEntries failed with error: %v",
+				general.Errorf("pod: %s/%s, container: %s clearContainerAndRegenerateMachineState failed with error: %v",
 					req.PodNamespace, req.PodName, req.ContainerName, err)
 				return nil, fmt.Errorf("GenerateMachineStateFromPodEntries failed with error: %v", err)
 			}
 		}
+	} else if util.PodInplaceUpdateResizing(req) {
+		general.Errorf("pod: %s/%s, container: %s request to cpu inplace update resize, but no origin allocation info",
+			req.PodNamespace, req.PodName, req.ContainerName)
+		return nil, fmt.Errorf("no origin allocation info")
 	}
 
-	if hints == nil {
+	general.Infof("pod: %s/%s, container: %s, inplace update resize: %v", req.PodNamespace, req.PodName, req.ContainerName, util.PodInplaceUpdateResizing(req))
+	if util.PodInplaceUpdateResizing(req) {
+		numaset := allocationInfo.GetAllocationResultNUMASet()
+		if numaset.Size() != 1 {
+			general.Errorf("pod: %s/%s, container: %s is snb, but its numa set size is %d",
+				req.PodNamespace, req.PodName, req.ContainerName, numaset.Size())
+			return nil, fmt.Errorf("snb port not support cross numa")
+		}
+		nodeID := numaset.ToSliceInt()[0]
+		availableCPUQuantity := machineState[nodeID].GetAvailableCPUQuantity(p.reservedCPUs)
+
+		general.Infof("pod: %s/%s, container: %s request cpu inplace update resize on numa %d (available: %d, request: %d)",
+			req.PodNamespace, req.PodName, req.ContainerName, nodeID, availableCPUQuantity, reqInt)
+		if reqInt > availableCPUQuantity { // no left resource to scale out
+			general.Infof("pod: %s/%s, container: %s request cpu inplace update resize, but no enough resource for it in current NUMA, checking migratable",
+				req.PodNamespace, req.PodName, req.ContainerName)
+			// TODO move this var to config
+			isInplaceUpdateResizeNumaMigratable := false
+			if isInplaceUpdateResizeNumaMigratable {
+				general.Infof("pod: %s/%s, container: %s request inplace update resize and no enough resource in current NUMA, try to migrate it to new NUMA",
+					req.PodNamespace, req.PodName, req.ContainerName)
+				var calculateErr error
+				hints, calculateErr = p.calculateHintsForNUMABindingSharedCores(reqInt, podEntries, machineState, req.Annotations)
+				if calculateErr != nil {
+					general.Errorf("pod: %s/%s, container: %s request inplace update resize and no enough resource in current NUMA, failed to migrate it to new NUMA",
+						req.PodNamespace, req.PodName, req.ContainerName)
+					return nil, fmt.Errorf("calculateHintsForNUMABindingSharedCores failed in inplace update resize mode with error: %v", calculateErr)
+				}
+			} else {
+				general.Errorf("pod: %s/%s, container: %s request inplace update resize, but no enough resource for it in current NUMA",
+					req.PodNamespace, req.PodName, req.ContainerName)
+				return nil, fmt.Errorf("inplace update resize scale out failed with no enough resource")
+			}
+		} else {
+			general.Infof("pod: %s/%s, container: %s request inplace update resize, there is enough resource for it in current NUMA",
+				req.PodNamespace, req.PodName, req.ContainerName)
+		}
+	} else if hints == nil {
 		var calculateErr error
 		hints, calculateErr = p.calculateHintsForNUMABindingSharedCores(reqInt, podEntries, machineState, req.Annotations)
 		if calculateErr != nil {
@@ -584,6 +649,21 @@ func (p *DynamicPolicy) sharedCoresWithNUMABindingHintHandler(_ context.Context,
 	}
 
 	return util.PackResourceHintsResponse(req, string(v1.ResourceCPU), hints)
+}
+
+func (p *DynamicPolicy) clearContainerAndRegenerateMachineState(podEntries state.PodEntries, req *pluginapi.ResourceRequest) (state.NUMANodeMap, error) {
+	delete(podEntries[req.PodUid], req.ContainerName)
+	if len(podEntries[req.PodUid]) == 0 {
+		delete(podEntries, req.PodUid)
+	}
+
+	var err error
+	machineState, err := generateMachineStateFromPodEntries(p.machineInfo.CPUTopology, podEntries)
+	if err != nil {
+		return nil, fmt.Errorf("GenerateMachineStateFromPodEntries failed with error: %v", err)
+	}
+
+	return machineState, nil
 }
 
 func (p *DynamicPolicy) populateHintsByPreferPolicy(numaNodes []int, preferPolicy string,

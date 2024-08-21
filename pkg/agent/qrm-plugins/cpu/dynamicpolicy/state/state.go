@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"math"
 
+	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/klog/v2"
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
@@ -229,6 +230,23 @@ func (ai *AllocationInfo) CheckSideCar() bool {
 	}
 
 	return ai.ContainerType == pluginapi.ContainerType_SIDECAR.String()
+}
+
+func (ai *AllocationInfo) GetPodAggregatedRequest() (float64, bool) {
+	if ai.Annotations == nil {
+		return 0, false
+	}
+	value, ok := ai.Annotations[apiconsts.PodAnnotationAggregatedRequestsKey]
+	if !ok {
+		return 0, false
+	}
+	var resourceList v1.ResourceList
+	if err := json.Unmarshal([]byte(value), &resourceList); err != nil {
+		general.Errorf("failed to unmarshal pod aggregated request list: %q", err)
+		return 0, false
+	}
+
+	return float64(resourceList.Cpu().MilliValue()) / 1000, true
 }
 
 // CheckDedicated returns true if the AllocationInfo is for pod with dedicated-qos
@@ -526,6 +544,19 @@ func (ns *NUMANodeState) GetAvailableCPUQuantity(reservedCPUs machine.CPUSet) in
 			continue
 		}
 
+		// if there is pod aggregated resource key in main container annotations, use pod aggregated resource instead.
+		mainContainerEntry := containerEntries.GetMainContainerEntry()
+		if mainContainerEntry == nil || !CheckSharedNUMABinding(mainContainerEntry) {
+			continue
+		}
+
+		aggregatedPodResource, ok := mainContainerEntry.GetPodAggregatedRequest()
+		if ok {
+			preciseAllocatedQuantity += aggregatedPodResource
+			continue
+		}
+
+		// calc pod aggregated resource request by container entries.
 		for _, allocationInfo := range containerEntries {
 			if allocationInfo == nil ||
 				!CheckSharedNUMABinding(allocationInfo) {
