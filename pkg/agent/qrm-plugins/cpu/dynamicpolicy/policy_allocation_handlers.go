@@ -723,7 +723,7 @@ func (p *DynamicPolicy) adjustPoolsAndIsolatedEntries(poolsQuantityMap map[strin
 		return fmt.Errorf("reclaimOverlapShareRatio failed with error: %v", err)
 	}
 
-	poolsCPUSet, isolatedCPUSet, err := p.generatePoolsAndIsolation(poolsQuantityMap, isolatedQuantityMap, availableCPUs, reclaimOverlapShareRatio)
+	poolsCPUSet, isolatedCPUSet, err := p.generatePoolsAndIsolation(poolsQuantityMap, entries, isolatedQuantityMap, availableCPUs, reclaimOverlapShareRatio)
 	if err != nil {
 		return fmt.Errorf("generatePoolsAndIsolation failed with error: %v", err)
 	}
@@ -1084,6 +1084,7 @@ func (p *DynamicPolicy) generateNUMABindingPoolsCPUSetInPlace(poolsCPUSet map[st
 // 2. use the left cores to allocate among different pools
 // 3. apportion to other pools if reclaimed is disabled
 func (p *DynamicPolicy) generatePoolsAndIsolation(poolsQuantityMap map[string]map[int]int,
+	entries state.PodEntries,
 	isolatedQuantityMap map[string]map[string]int, availableCPUs machine.CPUSet,
 	reclaimOverlapShareRatio map[string]float64) (poolsCPUSet map[string]machine.CPUSet,
 	isolatedCPUSet map[string]map[string]machine.CPUSet, err error,
@@ -1203,6 +1204,30 @@ func (p *DynamicPolicy) generatePoolsAndIsolation(poolsQuantityMap map[string]ma
 		}
 	} else if nonBindingPoolsTotalQuantity > 0 {
 		general.Infof("can't allocate for all pools")
+
+		var podEntriesQuantityMap map[string]map[int]int
+		podEntriesQuantityMap, tErr = state.GetSharedQuantityMapFromPodEntries(entries, nil)
+		if tErr != nil {
+			err = fmt.Errorf("get pools quantity from pod entries with error: %v", tErr)
+			return
+		}
+
+		poolsRequestQuantityMap := make(map[string]int)
+		for poolName, numaToQuantity := range podEntriesQuantityMap {
+			if len(numaToQuantity) == 1 {
+				for numaID, quantity := range numaToQuantity {
+					if numaID == state.FakedNUMAID && quantity != 0 {
+						poolsRequestQuantityMap[poolName] = quantity
+					}
+				}
+			}
+		}
+
+		// revise pool quantity for un-expandable pool
+		requestQuantity, requestOk := poolsRequestQuantityMap["bmq"]
+		if requestOk && nonBindingAvailableSize > 0 {
+			nonBindingPoolsQuantityMap["bmq"] = int(math.Ceil((float64(requestQuantity) / float64(nonBindingAvailableSize)) * float64(nonBindingPoolsTotalQuantity)))
+		}
 
 		nonBindingAvailableCPUs, tErr = p.generateProportionalPoolsCPUSetInPlace(nonBindingPoolsQuantityMap, poolsCPUSet, nonBindingAvailableCPUs)
 
