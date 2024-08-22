@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"math"
 	"sort"
+	"strings"
 	"time"
 
 	v1 "k8s.io/api/core/v1"
@@ -1021,7 +1022,7 @@ func (p *DynamicPolicy) applyPoolsAndIsolatedInfo(poolsCPUSet map[string]machine
 
 	// 2. construct entries for all pools
 	if poolsCPUSet[state.PoolNameReclaim].IsEmpty() {
-		return fmt.Errorf("entry: %s is empty", state.PoolNameShare)
+		return fmt.Errorf("entry: %s is empty", state.PoolNameReclaim)
 	}
 
 	for poolName, cset := range poolsCPUSet {
@@ -1116,6 +1117,20 @@ func (p *DynamicPolicy) applyPoolsAndIsolatedInfo(poolsCPUSet map[string]machine
 				newPodEntries[podUID][containerName].TopologyAwareAssignments = machine.DeepcopyCPUAssignment(rampUpCPUsTopologyAwareAssignments)
 				newPodEntries[podUID][containerName].OriginalTopologyAwareAssignments = machine.DeepcopyCPUAssignment(rampUpCPUsTopologyAwareAssignments)
 
+			case apiconsts.PodAnnotationQoSLevelSystemCores:
+				poolCPUSet, topologyAwareAssignments, err := p.getSystemPoolCPUSetAndNumaAwareAssignments(newPodEntries, allocationInfo)
+				if err != nil {
+					return fmt.Errorf("pod: %s/%s, container: %s is system_cores, "+
+						"getSystemPoolCPUSetAndNumaAwareAssignments failed with error: %v",
+						allocationInfo.PodNamespace, allocationInfo.PodName,
+						allocationInfo.ContainerName, err)
+				}
+
+				newPodEntries[podUID][containerName].AllocationResult = poolCPUSet
+				newPodEntries[podUID][containerName].OriginalAllocationResult = poolCPUSet.Clone()
+				newPodEntries[podUID][containerName].TopologyAwareAssignments = topologyAwareAssignments
+				newPodEntries[podUID][containerName].OriginalTopologyAwareAssignments = machine.DeepcopyCPUAssignment(topologyAwareAssignments)
+
 			case apiconsts.PodAnnotationQoSLevelSharedCores, apiconsts.PodAnnotationQoSLevelReclaimedCores:
 				var ownerPoolName string
 				if state.CheckSharedNUMABinding(allocationInfo) {
@@ -1123,9 +1138,9 @@ func (p *DynamicPolicy) applyPoolsAndIsolatedInfo(poolsCPUSet map[string]machine
 
 					if ownerPoolName == state.EmptyOwnerPoolName {
 						var err error
-						// why do we itegrate GetOwnerPoolName + GetSpecifiedNUMABindingPoolName into GetPoolName for SharedNUMABinding containers?
+						// why do we integrate GetOwnerPoolName + GetSpecifiedNUMABindingPoolName into GetPoolName for SharedNUMABinding containers?
 						// it's because we reply on GetSpecifiedPoolName (in GetPoolName) when calling CheckNUMABindingSharedCoresAntiAffinity,
-						// At that time, NUMA hint for the candicate container isn't confirmed, so we can't implement NUMA hint aware logic in GetSpecifiedPoolName.
+						// At that time, NUMA hint for the candidate container isn't confirmed, so we can't implement NUMA hint aware logic in GetSpecifiedPoolName.
 						ownerPoolName, err = allocationInfo.GetSpecifiedNUMABindingPoolName()
 						if err != nil {
 							return fmt.Errorf("pod: %s/%s, container: %s is shared_cores with numa_binding, "+
@@ -1743,4 +1758,122 @@ func (p *DynamicPolicy) getReclaimOverlapShareRatio(entries state.PodEntries) (m
 	}
 
 	return reclaimOverlapShareRatio, nil
+}
+
+func (p *DynamicPolicy) systemCoresHintHandler(_ context.Context, request *pluginapi.ResourceRequest) (*pluginapi.ResourceHintsResponse, error) {
+	return util.PackResourceHintsResponse(request, string(v1.ResourceCPU),
+		map[string]*pluginapi.ListOfTopologyHints{
+			string(v1.ResourceCPU): nil, // indicates that there is no numa preference
+		})
+}
+
+func (p *DynamicPolicy) systemCoresAllocationHandler(ctx context.Context, req *pluginapi.ResourceRequest) (*pluginapi.ResourceAllocationResponse, error) {
+	if req.ContainerType == pluginapi.ContainerType_SIDECAR {
+		return p.allocationSidecarHandler(ctx, req, apiconsts.PodAnnotationQoSLevelSystemCores)
+	}
+
+	allocationInfo := &state.AllocationInfo{
+		PodUid:         req.PodUid,
+		PodNamespace:   req.PodNamespace,
+		PodName:        req.PodName,
+		ContainerName:  req.ContainerName,
+		ContainerType:  req.ContainerType.String(),
+		ContainerIndex: req.ContainerIndex,
+		OwnerPoolName:  state.EmptyOwnerPoolName,
+		PodRole:        req.PodRole,
+		PodType:        req.PodType,
+		InitTimestamp:  time.Now().Format(util.QRMTimeFormat),
+		Labels:         general.DeepCopyMap(req.Labels),
+		Annotations:    general.DeepCopyMap(req.Annotations),
+		QoSLevel:       apiconsts.PodAnnotationQoSLevelSystemCores,
+	}
+
+	poolCPUSet, topologyAwareAssignments, err := p.getSystemPoolCPUSetAndNumaAwareAssignments(p.state.GetPodEntries(), allocationInfo)
+	if err != nil {
+		general.ErrorS(err, "unable to get system pool cpuset and topologyAwareAssignments",
+			"podNamespace", req.PodNamespace,
+			"podName", req.PodName,
+			"containerName", req.ContainerName)
+		return nil, err
+	}
+
+	systemPoolName, err := allocationInfo.GetSpecifiedSystemPoolName()
+	if err != nil {
+		return nil, err
+	}
+
+	general.InfoS("allocate system pool cpuset successfully",
+		"podNamespace", req.PodNamespace,
+		"podName", req.PodName,
+		"containerName", req.ContainerName,
+		"poolName", systemPoolName,
+		"result", poolCPUSet.String(),
+		"topologyAwareAssignments", topologyAwareAssignments)
+
+	allocationInfo.OwnerPoolName = systemPoolName
+	allocationInfo.AllocationResult = poolCPUSet
+	allocationInfo.OriginalAllocationResult = poolCPUSet.Clone()
+	allocationInfo.TopologyAwareAssignments = topologyAwareAssignments
+	allocationInfo.OriginalTopologyAwareAssignments = machine.DeepcopyCPUAssignment(topologyAwareAssignments)
+
+	p.state.SetAllocationInfo(allocationInfo.PodUid, allocationInfo.ContainerName, allocationInfo)
+	podEntries := p.state.GetPodEntries()
+
+	updatedMachineState, err := generateMachineStateFromPodEntries(p.machineInfo.CPUTopology, podEntries)
+	if err != nil {
+		general.Errorf("pod: %s/%s, container: %s generateMachineStateFromPodEntries failed with error: %v",
+			req.PodNamespace, req.PodName, req.ContainerName, err)
+		return nil, fmt.Errorf("generateMachineStateFromPodEntries failed with error: %v", err)
+	}
+	p.state.SetMachineState(updatedMachineState)
+
+	resp, err := cpuutil.PackAllocationResponse(allocationInfo, string(v1.ResourceCPU), util.OCIPropertyNameCPUSetCPUs, false, true, req)
+	if err != nil {
+		general.Errorf("pod: %s/%s, container: %s PackResourceAllocationResponseByAllocationInfo failed with error: %v",
+			req.PodNamespace, req.PodName, req.ContainerName, err)
+		return nil, fmt.Errorf("PackResourceAllocationResponseByAllocationInfo failed with error: %v", err)
+	}
+	return resp, nil
+}
+
+func (p *DynamicPolicy) getSystemPoolCPUSetAndNumaAwareAssignments(podEntries state.PodEntries,
+	allocationInfo *state.AllocationInfo,
+) (machine.CPUSet, map[int]machine.CPUSet, error) {
+	if allocationInfo == nil {
+		return machine.CPUSet{}, nil, fmt.Errorf("allocationInfo is nil")
+	}
+
+	poolCPUSet := machine.NewCPUSet()
+	specifiedPoolName := allocationInfo.GetSpecifiedPoolName()
+	if specifiedPoolName != state.EmptyOwnerPoolName {
+		for pool, entries := range podEntries {
+			if !entries.IsPoolEntry() {
+				continue
+			}
+
+			if pool == specifiedPoolName || strings.HasPrefix(pool, specifiedPoolName) {
+				poolCPUSet = poolCPUSet.Union(entries.GetPoolEntry().AllocationResult)
+				general.Infof("pod: %s/%s, container: %s get system pool cpuset from pool: %s, cpuset: %s", allocationInfo.PodNamespace, allocationInfo.PodName,
+					allocationInfo.ContainerName, pool, entries.GetPoolEntry().AllocationResult.String())
+			}
+		}
+	}
+
+	// use default cpuset by default
+	if poolCPUSet.IsEmpty() {
+		poolCPUSet = p.state.GetMachineState().GetDefaultCPUSet()
+		general.Infof("pod: %s/%s, container: %s get system pool cpuset from default cpuset: %s", allocationInfo.PodNamespace, allocationInfo.PodName,
+			allocationInfo.ContainerName, poolCPUSet.String())
+	}
+
+	if poolCPUSet.IsEmpty() {
+		return machine.CPUSet{}, nil, fmt.Errorf("no system pool cpuset for pool %s", specifiedPoolName)
+	}
+
+	topologyAwareAssignments, err := machine.GetNumaAwareAssignments(p.machineInfo.CPUTopology, poolCPUSet)
+	if err != nil {
+		return machine.CPUSet{}, nil, fmt.Errorf("unable to get numa aware assignments: %v", err)
+	}
+
+	return poolCPUSet, topologyAwareAssignments, nil
 }

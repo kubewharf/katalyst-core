@@ -590,6 +590,19 @@ func (p *DynamicPolicy) applyBlocks(blockCPUSet advisorapi.BlockCPUSet, resp *ad
 					allocationInfo.PodNamespace, allocationInfo.PodName, allocationInfo.ContainerName)
 				general.Errorf(errMsg)
 				return fmt.Errorf(errMsg)
+			case consts.PodAnnotationQoSLevelSystemCores:
+				poolCPUSet, topologyAwareAssignments, err := p.getSystemPoolCPUSetAndNumaAwareAssignments(newEntries, allocationInfo)
+				if err != nil {
+					return fmt.Errorf("pod: %s/%s, container: %s is system_cores, "+
+						"getSystemPoolCPUSetAndNumaAwareAssignments failed with error: %v",
+						allocationInfo.PodNamespace, allocationInfo.PodName,
+						allocationInfo.ContainerName, err)
+				}
+
+				newEntries[podUID][containerName].AllocationResult = poolCPUSet
+				newEntries[podUID][containerName].OriginalAllocationResult = poolCPUSet.Clone()
+				newEntries[podUID][containerName].TopologyAwareAssignments = topologyAwareAssignments
+				newEntries[podUID][containerName].OriginalTopologyAwareAssignments = machine.DeepcopyCPUAssignment(topologyAwareAssignments)
 			case consts.PodAnnotationQoSLevelSharedCores, consts.PodAnnotationQoSLevelReclaimedCores:
 				ownerPoolName := allocationInfo.GetOwnerPoolName()
 				if calculationInfo, ok := resp.GetCalculationInfo(podUID, containerName); ok {

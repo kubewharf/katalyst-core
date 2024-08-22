@@ -337,7 +337,10 @@ func (p *CPUPressureLoadEviction) collectMetrics(_ context.Context) {
 		for containerName, containerEntry := range entry {
 			if containerEntry == nil || containerEntry.IsPool {
 				continue
-			} else if containerEntry.OwnerPool == state.EmptyOwnerPoolName || p.skipPools.Has(p.configTranslator.Translate(containerEntry.OwnerPool)) {
+			} else if containerEntry.OwnerPool == state.EmptyOwnerPoolName ||
+				p.skipPools.Has(p.configTranslator.Translate(containerEntry.OwnerPool)) ||
+				// skip pod with system pool
+				state.IsSystemPool(containerEntry.OwnerPool) {
 				general.Infof("skip collecting metric for pod: %s, container: %s with owner pool name: %s",
 					podUID, containerName, containerEntry.OwnerPool)
 				continue

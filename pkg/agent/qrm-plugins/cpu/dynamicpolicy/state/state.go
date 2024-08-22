@@ -193,6 +193,27 @@ func (ai *AllocationInfo) GetSpecifiedNUMABindingPoolName() (string, error) {
 	return GetNUMAPoolName(specifiedPoolName, numaSet.ToSliceNoSortUInt64()[0]), nil
 }
 
+func (ai *AllocationInfo) GetSpecifiedSystemPoolName() (string, error) {
+	if !CheckSystem(ai) {
+		return EmptyOwnerPoolName, fmt.Errorf("GetSpecifiedSystemPoolName only for system_cores")
+	}
+
+	specifiedPoolName := ai.GetSpecifiedPoolName()
+	if specifiedPoolName == EmptyOwnerPoolName {
+		return PoolNamePrefixSystem, nil
+	}
+
+	return fmt.Sprintf("%s%s%s", PoolNamePrefixSystem, "-", specifiedPoolName), nil
+}
+
+func CheckSystem(ai *AllocationInfo) bool {
+	if ai == nil {
+		return false
+	}
+
+	return ai.QoSLevel == consts.PodAnnotationQoSLevelSystemCores
+}
+
 // CheckMainContainer returns true if the AllocationInfo is for main container
 func (ai *AllocationInfo) CheckMainContainer() bool {
 	if ai == nil {

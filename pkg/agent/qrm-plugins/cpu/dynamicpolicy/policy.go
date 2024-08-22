@@ -212,6 +212,7 @@ func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration
 		consts.PodAnnotationQoSLevelSharedCores:    policyImplement.sharedCoresAllocationHandler,
 		consts.PodAnnotationQoSLevelDedicatedCores: policyImplement.dedicatedCoresAllocationHandler,
 		consts.PodAnnotationQoSLevelReclaimedCores: policyImplement.reclaimedCoresAllocationHandler,
+		consts.PodAnnotationQoSLevelSystemCores:    policyImplement.systemCoresAllocationHandler,
 	}
 
 	// register hint providers for pods with different QoS level
@@ -219,6 +220,7 @@ func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration
 		consts.PodAnnotationQoSLevelSharedCores:    policyImplement.sharedCoresHintHandler,
 		consts.PodAnnotationQoSLevelDedicatedCores: policyImplement.dedicatedCoresHintHandler,
 		consts.PodAnnotationQoSLevelReclaimedCores: policyImplement.reclaimedCoresHintHandler,
+		consts.PodAnnotationQoSLevelSystemCores:    policyImplement.systemCoresHintHandler,
 	}
 
 	if err := policyImplement.cleanPools(); err != nil {

@@ -44,7 +44,7 @@ func generateMachineStateFromPodEntries(topology *machine.CPUTopology, podEntrie
 // because qos level and annotations will change after we support customized updater of enhancements and qos level
 func updateAllocationInfoByReq(req *pluginapi.ResourceRequest, allocationInfo *state.AllocationInfo) error {
 	if req == nil {
-		return fmt.Errorf("updateAllocationInfoByReq got ni l req")
+		return fmt.Errorf("updateAllocationInfoByReq got nil req")
 	} else if allocationInfo == nil {
 		return nil
 	}
