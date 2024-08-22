@@ -23,6 +23,10 @@ type MemoryPressureEvictionConfiguration struct {
 	RSSOveruseEvictionFilter     labels.Set
 	SystemPressureSyncPeriod     int
 	SystemPressureCoolDownPeriod int
+	WorkloadPath                 string
+	MemPressureSomeThreshold     int
+	MemPressureFullThreshold     int
+	MemPressureDuration          int
 }
 
 // NewMemoryPressureEvictionPluginConfiguration returns a new MemoryPressureEvictionConfiguration

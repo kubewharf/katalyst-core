@@ -413,7 +413,6 @@ func handleAdvisorCPUSetMems(
 
 	allocationInfo.NumaAllocationResult = cpusetMems
 	allocationInfo.TopologyAwareAllocations = nil
-	allocationInfo.AggregatedQuantity = 0
 
 	_ = emitter.StoreInt64(util.MetricNameMemoryHandleAdvisorCPUSetMems, 1,
 		metrics.MetricTypeNameRaw, metrics.ConvertMapToTags(map[string]string{

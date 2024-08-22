@@ -38,6 +38,12 @@ func (*defaultNetworkManager) ApplyNetClass(podUID, containerId string, data *co
 	return errors.New("not implemented yet")
 }
 
+// ListNetClass lists the net class config for all containers managed by kubernetes.
+func (m *defaultNetworkManager) ListNetClass() ([]*common.NetClsData, error) {
+	// TODO: implement traffic tagging by using eBPF
+	return nil, errors.New("not implemented yet")
+}
+
 // ClearNetClass clears the net class config for a container.
 func (*defaultNetworkManager) ClearNetClass(cgroupID uint64) error {
 	// TODO: clear the eBPF map when a pod is removed

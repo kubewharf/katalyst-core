@@ -34,6 +34,7 @@ import (
 	"k8s.io/klog/v2"
 	"k8s.io/kubelet/pkg/apis/pluginregistration/v1"
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
+	v1qos "k8s.io/kubernetes/pkg/apis/core/v1/helper/qos"
 	"k8s.io/kubernetes/pkg/kubelet/checkpointmanager"
 	maputil "k8s.io/kubernetes/pkg/util/maps"
 
@@ -307,6 +308,7 @@ func (m *ManagerImpl) GetTopologyHints(pod *v1.Pod, container *v1.Container) map
 			ResourceName: resource,
 			// use original requested resource name in "ResourceRequests" in order to make plugin identity real requested resource name
 			ResourceRequests: map[string]float64{string(resourceObj): requestedObj.AsApproximateFloat64()},
+			NativeQosClass:   string(v1qos.GetPodQOS(pod)),
 		}
 
 		resp, err := e.E.GetTopologyHints(context.Background(), resourceReq)
@@ -524,6 +526,7 @@ func (m *ManagerImpl) addContainer(pod *v1.Pod, container *v1.Container) error {
 			ResourceRequests: map[string]float64{resource: v.AsApproximateFloat64()},
 			Labels:           maputil.CopySS(pod.Labels),
 			Annotations:      maputil.CopySS(pod.Annotations),
+			NativeQosClass:   string(v1qos.GetPodQOS(pod)),
 		}
 
 		if e.Opts != nil && e.Opts.WithTopologyAlignment {

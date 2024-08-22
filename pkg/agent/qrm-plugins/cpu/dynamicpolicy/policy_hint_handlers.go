@@ -41,6 +41,11 @@ import (
 	qosutil "github.com/kubewharf/katalyst-core/pkg/util/qos"
 )
 
+type memBWHintUpdate struct {
+	updatedPreferrence bool
+	leftAllocatable    int
+}
+
 func (p *DynamicPolicy) sharedCoresHintHandler(ctx context.Context,
 	req *pluginapi.ResourceRequest,
 ) (*pluginapi.ResourceHintsResponse, error) {
@@ -48,19 +53,42 @@ func (p *DynamicPolicy) sharedCoresHintHandler(ctx context.Context,
 		return nil, fmt.Errorf("got nil request")
 	}
 
-	if !qosutil.AnnotationsIndicateNUMABinding(req.Annotations) {
-		return util.PackResourceHintsResponse(req, string(v1.ResourceCPU),
-			map[string]*pluginapi.ListOfTopologyHints{
-				string(v1.ResourceCPU): nil, // indicates that there is no numa preference
-			})
+	if qosutil.AnnotationsIndicateNUMABinding(req.Annotations) {
+		return p.sharedCoresWithNUMABindingHintHandler(ctx, req)
 	}
 
-	return p.sharedCoresWithNUMABindingHintHandler(ctx, req)
+	// TODO: support sidecar follow main container for normal share cores in future
+	if req.ContainerType == pluginapi.ContainerType_MAIN {
+		ok, err := p.checkNormalShareCoresCpuResource(req)
+		if err != nil {
+			general.Errorf("failed to check share cores cpu resource for pod: %s/%s, container: %s",
+				req.PodNamespace, req.PodName, req.ContainerName)
+			return nil, fmt.Errorf("failed to check share cores cpu resource: %q", err)
+		}
+
+		if !ok {
+			_ = p.emitter.StoreInt64(util.MetricNameShareCoresNoEnoughResourceFailed, 1, metrics.MetricTypeNameCount, metrics.ConvertMapToTags(map[string]string{
+				"resource":      v1.ResourceCPU.String(),
+				"podNamespace":  req.PodNamespace,
+				"podName":       req.PodName,
+				"containerName": req.ContainerName,
+			})...)
+			return nil, fmt.Errorf("no enough cpu resource")
+		}
+	}
+
+	return util.PackResourceHintsResponse(req, string(v1.ResourceCPU),
+		map[string]*pluginapi.ListOfTopologyHints{
+			string(v1.ResourceCPU): nil, // indicates that there is no numa preference
+		})
 }
 
 func (p *DynamicPolicy) reclaimedCoresHintHandler(ctx context.Context,
 	req *pluginapi.ResourceRequest,
 ) (*pluginapi.ResourceHintsResponse, error) {
+	if util.PodInplaceUpdateResizing(req) {
+		return nil, fmt.Errorf("not support inplace update resize for reclaimed cores")
+	}
 	return p.sharedCoresHintHandler(ctx, req)
 }
 
@@ -69,6 +97,10 @@ func (p *DynamicPolicy) dedicatedCoresHintHandler(ctx context.Context,
 ) (*pluginapi.ResourceHintsResponse, error) {
 	if req == nil {
 		return nil, fmt.Errorf("dedicatedCoresHintHandler got nil req")
+	}
+
+	if util.PodInplaceUpdateResizing(req) {
+		return nil, fmt.Errorf("not support inplace update resize for dedicated cores")
 	}
 
 	switch req.Annotations[apiconsts.PodAnnotationMemoryEnhancementNumaBinding] {
@@ -275,7 +307,7 @@ func (p *DynamicPolicy) calculateHints(reqInt int,
 			_ = p.emitter.StoreInt64(util.MetricNameGetNUMAAllocatedMemBWFailed, 1, metrics.MetricTypeNameRaw)
 		} else {
 			p.updatePreferredCPUHintsByMemBW(preferredHintIndexes, hints[string(v1.ResourceCPU)].Hints,
-				reqInt, numaAllocatedMemBW, req)
+				reqInt, numaAllocatedMemBW, req, numaExclusive)
 		}
 	}
 
@@ -352,7 +384,7 @@ func getNUMAAllocatedMemBW(machineState state.NUMANodeMap, metaServer *metaserve
 }
 
 func (p *DynamicPolicy) updatePreferredCPUHintsByMemBW(preferredHintIndexes []int, cpuHints []*pluginapi.TopologyHint, reqInt int,
-	numaAllocatedMemBW map[int]int, req *pluginapi.ResourceRequest,
+	numaAllocatedMemBW map[int]int, req *pluginapi.ResourceRequest, numaExclusive bool,
 ) {
 	if len(preferredHintIndexes) == 0 {
 		general.Infof("there is no preferred hints, skip update")
@@ -380,56 +412,90 @@ func (p *DynamicPolicy) updatePreferredCPUHintsByMemBW(preferredHintIndexes []in
 		"podName", req.PodName,
 		"containerMemoryBandwidthRequest", containerMemoryBandwidthRequest)
 
+	memBWHintUpdates := make([]*memBWHintUpdate, 0, len(preferredHintIndexes))
 	allFalse := true
+	maxLeftAllocatable := math.MinInt
 	for _, i := range preferredHintIndexes {
 		if len(cpuHints[i].Nodes) == 0 {
 			continue
 		}
 
-		updated, err := getPreferenceByMemBW(cpuHints[i].Nodes, containerMemoryBandwidthRequest,
+		memBWHintUpdateResult, err := getPreferenceByMemBW(cpuHints[i].Nodes, containerMemoryBandwidthRequest,
 			numaAllocatedMemBW, p.machineInfo,
 			p.metaServer, req)
 		if err != nil {
 			general.Errorf("getPreferenceByMemBW for hints: %#v failed with error: %v", cpuHints[i].Nodes, err)
 			_ = p.emitter.StoreInt64(util.MetricNameGetMemBWPreferenceFailed, 1, metrics.MetricTypeNameRaw)
-			continue
+			return
 		}
 
-		if !updated {
-			cpuHints[i].Preferred = updated
-
-			general.Infof("update hint: %#v preference to false", cpuHints[i].Nodes)
-		} else {
+		if memBWHintUpdateResult.updatedPreferrence {
 			allFalse = false
 		}
+
+		memBWHintUpdates = append(memBWHintUpdates, memBWHintUpdateResult)
+
+		general.Infof("hint: %+v updated preference: %v, leftAllocatable: %d",
+			cpuHints[i].Nodes, memBWHintUpdateResult.updatedPreferrence, memBWHintUpdateResult.leftAllocatable)
+
+		maxLeftAllocatable = general.Max(maxLeftAllocatable, memBWHintUpdateResult.leftAllocatable)
 	}
 
-	if allFalse {
-		// mem bw check is best-effort, if all preferred hints' preference are updated to false
-		// we should revert preference of them to true.
-		// topology mananger will pick the final result after merge all hints.
-		for _, i := range preferredHintIndexes {
-			if !cpuHints[i].Preferred {
-				cpuHints[i].Preferred = true
-				general.Infof("revert hint: %#v preference to true", cpuHints[i].Nodes)
+	updatePreferredCPUHintsByMemBWInPlace(memBWHintUpdates, allFalse, numaExclusive, cpuHints, preferredHintIndexes, maxLeftAllocatable)
+}
+
+func updatePreferredCPUHintsByMemBWInPlace(memBWHintUpdates []*memBWHintUpdate,
+	allFalse, numaExclusive bool, cpuHints []*pluginapi.TopologyHint,
+	preferredHintIndexes []int, maxLeftAllocatable int,
+) {
+	if !allFalse {
+		general.Infof("not all updated hints indicate false")
+		for ui, hi := range preferredHintIndexes {
+			if cpuHints[hi].Preferred != memBWHintUpdates[ui].updatedPreferrence {
+				general.Infof("set hint: %+v preference from %v to %v", cpuHints[hi].Nodes, cpuHints[hi].Preferred, memBWHintUpdates[ui].updatedPreferrence)
+				cpuHints[hi].Preferred = memBWHintUpdates[ui].updatedPreferrence
 			}
 		}
+		return
 	}
+
+	general.Infof("all updated hints indicate false")
+
+	if !numaExclusive {
+		general.Infof("candidate isn't numa exclusive, keep all preferred hints")
+		return
+	}
+
+	for ui, hi := range preferredHintIndexes {
+		if memBWHintUpdates[ui].leftAllocatable == maxLeftAllocatable {
+			general.Infof("hint: %+v with max left allocatable memory bw: %d, set itspreference to true",
+				cpuHints[hi].Nodes, maxLeftAllocatable)
+			cpuHints[hi].Preferred = true
+		} else {
+			cpuHints[hi].Preferred = false
+		}
+	}
+
+	return
 }
 
 func getPreferenceByMemBW(targetNUMANodesUInt64 []uint64,
 	containerMemoryBandwidthRequest int, numaAllocatedMemBW map[int]int,
 	machineInfo *machine.KatalystMachineInfo,
 	metaServer *metaserver.MetaServer, req *pluginapi.ResourceRequest,
-) (bool, error) {
+) (*memBWHintUpdate, error) {
 	if req == nil {
-		return false, fmt.Errorf("empty req")
+		return nil, fmt.Errorf("empty req")
 	} else if len(targetNUMANodesUInt64) == 0 {
-		return false, fmt.Errorf("empty targetNUMANodes")
+		return nil, fmt.Errorf("empty targetNUMANodes")
 	} else if machineInfo == nil || machineInfo.ExtraTopologyInfo == nil {
-		return false, fmt.Errorf("invalid machineInfo")
+		return nil, fmt.Errorf("invalid machineInfo")
 	} else if metaServer == nil {
-		return false, fmt.Errorf("nil metaServer")
+		return nil, fmt.Errorf("nil metaServer")
+	}
+
+	ret := &memBWHintUpdate{
+		updatedPreferrence: true,
 	}
 
 	targetNUMANodes := make([]int, len(targetNUMANodesUInt64))
@@ -437,7 +503,7 @@ func getPreferenceByMemBW(targetNUMANodesUInt64 []uint64,
 		var err error
 		targetNUMANodes[i], err = general.CovertUInt64ToInt(numaID)
 		if err != nil {
-			return false, fmt.Errorf("convert NUMA: %d to int failed with error: %v", numaID, err)
+			return nil, fmt.Errorf("convert NUMA: %d to int failed with error: %v", numaID, err)
 		}
 	}
 
@@ -481,14 +547,15 @@ func getPreferenceByMemBW(targetNUMANodesUInt64 []uint64,
 			"groupNUMAsAllocatedMemBW", groupNUMAsAllocatedMemBW[groupID],
 			"groupNUMAsAllocatableMemBW", groupNUMAsAllocatableMemBW[groupID])
 
-		if groupNUMAsAllocatedMemBW[groupID] > groupNUMAsAllocatableMemBW[groupID] {
-			return false, nil
+		if ret.updatedPreferrence && groupNUMAsAllocatedMemBW[groupID] > groupNUMAsAllocatableMemBW[groupID] {
+			ret.updatedPreferrence = false
 		}
 
+		ret.leftAllocatable += (groupNUMAsAllocatableMemBW[groupID] - groupNUMAsAllocatedMemBW[groupID])
 		groupID++
 	}
 
-	return true, nil
+	return ret, nil
 }
 
 func (p *DynamicPolicy) sharedCoresWithNUMABindingHintHandler(_ context.Context,
@@ -503,7 +570,8 @@ func (p *DynamicPolicy) sharedCoresWithNUMABindingHintHandler(_ context.Context,
 			})
 	}
 
-	reqInt, _, err := util.GetQuantityFromResourceReq(req)
+	// calc the hints with the pod aggregated request
+	reqInt, _, err := util.GetPodAggregatedRequestResource(req)
 	if err != nil {
 		return nil, fmt.Errorf("getReqQuantityFromResourceReq failed with error: %v", err)
 	}
@@ -517,25 +585,62 @@ func (p *DynamicPolicy) sharedCoresWithNUMABindingHintHandler(_ context.Context,
 	if allocationInfo != nil {
 		hints = cpuutil.RegenerateHints(allocationInfo, reqInt)
 
-		// regenerateHints failed. need to clear container record and re-calculate.
-		if hints == nil {
-			delete(podEntries[req.PodUid], req.ContainerName)
-			if len(podEntries[req.PodUid]) == 0 {
-				delete(podEntries, req.PodUid)
-			}
-
-			var err error
-			// [TODO]: generateMachineStateFromPodEntries adapts to shared_cores with numa_binding
-			machineState, err = generateMachineStateFromPodEntries(p.machineInfo.CPUTopology, podEntries)
+		// clear the current container and regenerate machine state in follow cases:
+		// 1. regenerateHints failed.
+		// 2. the container is inplace update resizing.
+		// hints it as a new container
+		if hints == nil || util.PodInplaceUpdateResizing(req) {
+			machineState, err = p.clearContainerAndRegenerateMachineState(podEntries, req)
 			if err != nil {
-				general.Errorf("pod: %s/%s, container: %s GenerateMachineStateFromPodEntries failed with error: %v",
+				general.Errorf("pod: %s/%s, container: %s clearContainerAndRegenerateMachineState failed with error: %v",
 					req.PodNamespace, req.PodName, req.ContainerName, err)
 				return nil, fmt.Errorf("GenerateMachineStateFromPodEntries failed with error: %v", err)
 			}
 		}
+	} else if util.PodInplaceUpdateResizing(req) {
+		general.Errorf("pod: %s/%s, container: %s request to cpu inplace update resize, but no origin allocation info",
+			req.PodNamespace, req.PodName, req.ContainerName)
+		return nil, fmt.Errorf("no origin allocation info")
 	}
 
-	if hints == nil {
+	general.Infof("pod: %s/%s, container: %s, inplace update resize: %v", req.PodNamespace, req.PodName, req.ContainerName, util.PodInplaceUpdateResizing(req))
+	if util.PodInplaceUpdateResizing(req) {
+		numaset := allocationInfo.GetAllocationResultNUMASet()
+		if numaset.Size() != 1 {
+			general.Errorf("pod: %s/%s, container: %s is snb, but its numa set size is %d",
+				req.PodNamespace, req.PodName, req.ContainerName, numaset.Size())
+			return nil, fmt.Errorf("snb port not support cross numa")
+		}
+		nodeID := numaset.ToSliceInt()[0]
+		availableCPUQuantity := machineState[nodeID].GetAvailableCPUQuantity(p.reservedCPUs)
+
+		general.Infof("pod: %s/%s, container: %s request cpu inplace update resize on numa %d (available: %d, request: %d)",
+			req.PodNamespace, req.PodName, req.ContainerName, nodeID, availableCPUQuantity, reqInt)
+		if reqInt > availableCPUQuantity { // no left resource to scale out
+			general.Infof("pod: %s/%s, container: %s request cpu inplace update resize, but no enough resource for it in current NUMA, checking migratable",
+				req.PodNamespace, req.PodName, req.ContainerName)
+			// TODO move this var to config
+			isInplaceUpdateResizeNumaMigratable := false
+			if isInplaceUpdateResizeNumaMigratable {
+				general.Infof("pod: %s/%s, container: %s request inplace update resize and no enough resource in current NUMA, try to migrate it to new NUMA",
+					req.PodNamespace, req.PodName, req.ContainerName)
+				var calculateErr error
+				hints, calculateErr = p.calculateHintsForNUMABindingSharedCores(reqInt, podEntries, machineState, req.Annotations)
+				if calculateErr != nil {
+					general.Errorf("pod: %s/%s, container: %s request inplace update resize and no enough resource in current NUMA, failed to migrate it to new NUMA",
+						req.PodNamespace, req.PodName, req.ContainerName)
+					return nil, fmt.Errorf("calculateHintsForNUMABindingSharedCores failed in inplace update resize mode with error: %v", calculateErr)
+				}
+			} else {
+				general.Errorf("pod: %s/%s, container: %s request inplace update resize, but no enough resource for it in current NUMA",
+					req.PodNamespace, req.PodName, req.ContainerName)
+				return nil, fmt.Errorf("inplace update resize scale out failed with no enough resource")
+			}
+		} else {
+			general.Infof("pod: %s/%s, container: %s request inplace update resize, there is enough resource for it in current NUMA",
+				req.PodNamespace, req.PodName, req.ContainerName)
+		}
+	} else if hints == nil {
 		var calculateErr error
 		hints, calculateErr = p.calculateHintsForNUMABindingSharedCores(reqInt, podEntries, machineState, req.Annotations)
 		if calculateErr != nil {
@@ -544,6 +649,21 @@ func (p *DynamicPolicy) sharedCoresWithNUMABindingHintHandler(_ context.Context,
 	}
 
 	return util.PackResourceHintsResponse(req, string(v1.ResourceCPU), hints)
+}
+
+func (p *DynamicPolicy) clearContainerAndRegenerateMachineState(podEntries state.PodEntries, req *pluginapi.ResourceRequest) (state.NUMANodeMap, error) {
+	delete(podEntries[req.PodUid], req.ContainerName)
+	if len(podEntries[req.PodUid]) == 0 {
+		delete(podEntries, req.PodUid)
+	}
+
+	var err error
+	machineState, err := generateMachineStateFromPodEntries(p.machineInfo.CPUTopology, podEntries)
+	if err != nil {
+		return nil, fmt.Errorf("GenerateMachineStateFromPodEntries failed with error: %v", err)
+	}
+
+	return machineState, nil
 }
 
 func (p *DynamicPolicy) populateHintsByPreferPolicy(numaNodes []int, preferPolicy string,

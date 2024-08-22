@@ -30,6 +30,7 @@ type KubeletPluginOptions struct {
 	EnableReportTopologyPolicy  bool
 	ResourceNameToZoneTypeMap   map[string]string
 	NeedValidationResources     []string
+	EnablePodResourcesFilter    bool
 }
 
 func NewKubeletPluginOptions() *KubeletPluginOptions {
@@ -46,6 +47,7 @@ func NewKubeletPluginOptions() *KubeletPluginOptions {
 			string(v1.ResourceCPU),
 			string(v1.ResourceMemory),
 		},
+		EnablePodResourcesFilter: true,
 	}
 }
 
@@ -62,6 +64,8 @@ func (o *KubeletPluginOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 		"a map that stores the mapping relationship between resource names to zone types in KCNR (e.g. nvidia.com/gpu=GPU,...)")
 	fs.StringSliceVar(&o.NeedValidationResources, "need-validation-resources", o.NeedValidationResources,
 		"resources need to be validated")
+	fs.BoolVar(&o.EnablePodResourcesFilter, "enable-pod-resources-filter", o.EnablePodResourcesFilter,
+		"whether to filter pod resources response")
 }
 
 func (o *KubeletPluginOptions) ApplyTo(c *reporter.KubeletPluginConfiguration) error {
@@ -70,6 +74,7 @@ func (o *KubeletPluginOptions) ApplyTo(c *reporter.KubeletPluginConfiguration) e
 	c.EnableReportTopologyPolicy = o.EnableReportTopologyPolicy
 	c.ResourceNameToZoneTypeMap = o.ResourceNameToZoneTypeMap
 	c.NeedValidationResources = o.NeedValidationResources
+	c.EnablePodResourcesFilter = o.EnablePodResourcesFilter
 
 	return nil
 }

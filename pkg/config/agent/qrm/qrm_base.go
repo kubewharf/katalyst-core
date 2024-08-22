@@ -16,6 +16,8 @@ limitations under the License.
 
 package qrm
 
+import "github.com/kubewharf/katalyst-api/pkg/consts"
+
 type GenericQRMPluginConfiguration struct {
 	StateFileDirectory       string
 	QRMPluginSocketDirs      []string
@@ -37,8 +39,11 @@ type QRMPluginsConfiguration struct {
 
 func NewGenericQRMPluginConfiguration() *GenericQRMPluginConfiguration {
 	return &GenericQRMPluginConfiguration{
-		PodAnnotationKeptKeys: []string{},
-		PodLabelKeptKeys:      []string{},
+		PodAnnotationKeptKeys: []string{
+			consts.PodAnnotationAggregatedRequestsKey,
+			consts.PodAnnotationInplaceUpdateResizingKey,
+		},
+		PodLabelKeptKeys: []string{},
 	}
 }
 

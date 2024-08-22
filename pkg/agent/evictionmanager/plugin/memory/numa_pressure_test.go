@@ -78,6 +78,10 @@ func TestNewNumaPressureEvictionPlugin(t *testing.T) {
 func TestNumaMemoryPressurePlugin_ThresholdMet(t *testing.T) {
 	t.Parallel()
 
+	original := hostZoneInfoFile
+	hostZoneInfoFile = "test"
+	defer func() { hostZoneInfoFile = original }()
+
 	plugin, err := makeNumaPressureEvictionPlugin(makeConf())
 	assert.NoError(t, err)
 	assert.NotNil(t, plugin)
@@ -123,6 +127,23 @@ func TestNumaMemoryPressurePlugin_ThresholdMet(t *testing.T) {
 				0: 1 * 1024 * 1024 * 1024,
 				1: 2 * 1024 * 1024 * 1024,
 			},
+			wantMetType:             pluginapi.ThresholdMetType_NOT_MET,
+			wantEvictionScope:       "",
+			wantCondition:           nil,
+			wantIsUnderNumaPressure: false,
+			wantNumaAction: map[int]int{
+				0: actionNoop,
+				1: actionNoop,
+				2: actionNoop,
+				3: actionNoop,
+			},
+		},
+		{
+			name: "numa0 below watermark, numa1 below watermark",
+			numaFree: map[int]float64{
+				0: 1 * 1024 * 1024 * 1024,
+				1: 2 * 1024 * 1024 * 1024,
+			},
 			wantMetType:             pluginapi.ThresholdMetType_HARD_MET,
 			wantEvictionScope:       EvictionScopeNumaMemory,
 			wantCondition:           nil,
@@ -145,7 +166,7 @@ func TestNumaMemoryPressurePlugin_ThresholdMet(t *testing.T) {
 			wantCondition:           nil,
 			wantIsUnderNumaPressure: true,
 			wantNumaAction: map[int]int{
-				0: actionReclaimedEviction,
+				0: actionEviction,
 				1: actionNoop,
 				2: actionNoop,
 				3: actionNoop,
@@ -163,7 +184,7 @@ func TestNumaMemoryPressurePlugin_ThresholdMet(t *testing.T) {
 			wantIsUnderNumaPressure: true,
 			wantNumaAction: map[int]int{
 				0: actionEviction,
-				1: actionReclaimedEviction,
+				1: actionNoop,
 				2: actionNoop,
 				3: actionNoop,
 			},
@@ -209,7 +230,6 @@ func TestNumaMemoryPressurePlugin_ThresholdMet(t *testing.T) {
 		for numaID, numaFree := range tt.numaFree {
 			fakeMetricsFetcher.SetNumaMetric(numaID, consts.MetricMemFreeNuma, utilMetric.MetricData{Value: numaFree, Time: &now})
 		}
-
 		metResp, err := plugin.ThresholdMet(context.TODO())
 		assert.NoError(t, err)
 		assert.NotNil(t, metResp)

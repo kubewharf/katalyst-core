@@ -1,3 +1,5 @@
+//go:build linux
+
 /*
 Copyright 2022 The Katalyst Authors.
 
@@ -14,17 +16,28 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package reporter
+package machine
 
-type KubeletPluginConfiguration struct {
-	PodResourcesServerEndpoints []string
-	KubeletResourcePluginPaths  []string
-	EnableReportTopologyPolicy  bool
-	ResourceNameToZoneTypeMap   map[string]string
-	NeedValidationResources     []string
-	EnablePodResourcesFilter    bool
+import (
+	"os"
+)
+
+type NormalZoneInfo struct {
+	Node         int64
+	Free         uint64
+	Min          uint64
+	Low          uint64
+	FileInactive uint64
 }
 
-func NewKubeletPluginConfiguration() *KubeletPluginConfiguration {
-	return &KubeletPluginConfiguration{}
+func GetNormalZoneInfo(zoneInfoPath string) []NormalZoneInfo {
+	data, err := os.ReadFile(zoneInfoPath)
+	if err != nil {
+		return nil
+	}
+	zoneInfo, err := parseNormalZoneInfo(data)
+	if err != nil {
+		return nil
+	}
+	return zoneInfo
 }

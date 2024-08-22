@@ -27,6 +27,7 @@ import (
 	apiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/memory/dynamicpolicy/state"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util"
+	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 	qosutil "github.com/kubewharf/katalyst-core/pkg/util/qos"
@@ -39,19 +40,43 @@ func (p *DynamicPolicy) sharedCoresHintHandler(ctx context.Context,
 		return nil, fmt.Errorf("got nil request")
 	}
 
-	if !qosutil.AnnotationsIndicateNUMABinding(req.Annotations) {
-		return util.PackResourceHintsResponse(req, string(v1.ResourceMemory),
-			map[string]*pluginapi.ListOfTopologyHints{
-				string(v1.ResourceMemory): nil, // indicates that there is no numa preference
-			})
+	if qosutil.AnnotationsIndicateNUMABinding(req.Annotations) {
+		return p.numaBindingHintHandler(ctx, req)
 	}
 
-	return p.numaBindingHintHandler(ctx, req)
+	// TODO: support sidecar follow main container for normal share cores in future
+	if req.ContainerType == pluginapi.ContainerType_MAIN {
+		ok, err := p.checkNormalShareCoresResource(req)
+		if err != nil {
+			general.Errorf("failed to check share cores resource: %q", err)
+			return nil, fmt.Errorf("failed to check share cores resource: %q", err)
+		}
+
+		if !ok {
+			_ = p.emitter.StoreInt64(util.MetricNameShareCoresNoEnoughResourceFailed, 1, metrics.MetricTypeNameCount, metrics.ConvertMapToTags(map[string]string{
+				"resource":      v1.ResourceMemory.String(),
+				"podNamespace":  req.PodNamespace,
+				"podName":       req.PodName,
+				"containerName": req.ContainerName,
+			})...)
+			return nil, fmt.Errorf("no enough memory resource")
+		}
+	}
+
+	return util.PackResourceHintsResponse(req, string(v1.ResourceMemory),
+		map[string]*pluginapi.ListOfTopologyHints{
+			string(v1.ResourceMemory): nil, // indicates that there is no numa preference
+		})
 }
 
 func (p *DynamicPolicy) reclaimedCoresHintHandler(ctx context.Context,
 	req *pluginapi.ResourceRequest,
 ) (*pluginapi.ResourceHintsResponse, error) {
+	if util.PodInplaceUpdateResizing(req) {
+		general.Errorf("pod: %s/%s, container: %s request to memory inplace update resize, but not support reclaimed cores",
+			req.PodNamespace, req.PodName, req.ContainerName)
+		return nil, fmt.Errorf("not support inplace update resize for reclaimed cores")
+	}
 	return p.sharedCoresHintHandler(ctx, req)
 }
 
@@ -60,6 +85,12 @@ func (p *DynamicPolicy) dedicatedCoresHintHandler(ctx context.Context,
 ) (*pluginapi.ResourceHintsResponse, error) {
 	if req == nil {
 		return nil, fmt.Errorf("dedicatedCoresHintHandler got nil req")
+	}
+
+	if util.PodInplaceUpdateResizing(req) {
+		general.Errorf("pod: %s/%s, container: %s request to memory inplace update resize, but not support dedicated cores",
+			req.PodNamespace, req.PodName, req.ContainerName)
+		return nil, fmt.Errorf("not support inplace update resize for didecated cores")
 	}
 
 	switch req.Annotations[apiconsts.PodAnnotationMemoryEnhancementNumaBinding] {
@@ -82,7 +113,7 @@ func (p *DynamicPolicy) numaBindingHintHandler(_ context.Context,
 			})
 	}
 
-	reqInt, _, err := util.GetQuantityFromResourceReq(req)
+	podAggregatedRequest, _, err := util.GetPodAggregatedRequestResource(req)
 	if err != nil {
 		return nil, fmt.Errorf("getReqQuantityFromResourceReq failed with error: %v", err)
 	}
@@ -92,26 +123,30 @@ func (p *DynamicPolicy) numaBindingHintHandler(_ context.Context,
 
 	allocationInfo := p.state.GetAllocationInfo(v1.ResourceMemory, req.PodUid, req.ContainerName)
 	if allocationInfo != nil {
-		hints = regenerateHints(uint64(reqInt), allocationInfo)
+		if allocationInfo.NumaAllocationResult.Size() != 1 {
+			general.Errorf("pod: %s/%s, container: %s is share cores with numa binding, but its numa set length is %d",
+				req.PodNamespace, req.PodName, req.ContainerName, allocationInfo.NumaAllocationResult.Size())
+			return nil, fmt.Errorf("invalid numa set size")
+		}
+		hints = regenerateHints(uint64(podAggregatedRequest), allocationInfo, util.PodInplaceUpdateResizing(req))
 
-		// regenerateHints failed, and we need to clear container record and re-calculate.
-		if hints == nil {
-			podResourceEntries := p.state.GetPodResourceEntries()
-			for _, podEntries := range podResourceEntries {
-				delete(podEntries[req.PodUid], req.ContainerName)
-				if len(podEntries[req.PodUid]) == 0 {
-					delete(podEntries, req.PodUid)
-				}
-			}
-
+		// clear the current container and regenerate machine state in follow cases:
+		// 1. regenerateHints failed.
+		// 2. the container is inplace update resizing.
+		// hints it as a new container
+		if hints == nil || util.PodInplaceUpdateResizing(req) {
 			var err error
-			resourcesMachineState, err = state.GenerateMachineStateFromPodEntries(p.state.GetMachineInfo(), podResourceEntries, p.state.GetReservedMemory())
+			resourcesMachineState, err = p.clearContainerAndRegenerateMachineState(req)
 			if err != nil {
 				general.Errorf("pod: %s/%s, container: %s GenerateMachineStateFromPodEntries failed with error: %v",
 					req.PodNamespace, req.PodName, req.ContainerName, err)
 				return nil, fmt.Errorf("GenerateMachineStateFromPodEntries failed with error: %v", err)
 			}
 		}
+	} else if util.PodInplaceUpdateResizing(req) {
+		general.Errorf("pod: %s/%s, container: %s request to inplace update resize, but no origin allocation info",
+			req.PodNamespace, req.PodName, req.ContainerName)
+		return nil, fmt.Errorf("no origin allocation info")
 	}
 
 	// if hints exists in extra state-file, prefer to use them
@@ -127,17 +162,81 @@ func (p *DynamicPolicy) numaBindingHintHandler(_ context.Context,
 		}
 	}
 
-	// otherwise, calculate hint for container without allocated memory
-	if hints == nil {
+	// check or regenerate hints for inplace update mode
+	if util.PodInplaceUpdateResizing(req) {
+		if allocationInfo.NumaAllocationResult.Size() != 1 {
+			general.Errorf("pod: %s/%s, container: %s is snb, but its numa size is %d",
+				req.PodNamespace, req.PodName, req.ContainerName, allocationInfo.NumaAllocationResult.Size())
+			return nil, fmt.Errorf("invalid hints for inplace update pod")
+		}
+
+		machineMemoryState := resourcesMachineState[v1.ResourceMemory]
+		nodeID := allocationInfo.NumaAllocationResult.ToSliceInt()[0]
+		nodeMemoryState := machineMemoryState[nodeID]
+
+		// the main container aggregated quantity involve all container requests of the pod in memory admit.
+		originPodAggregatedRequest := allocationInfo.AggregatedQuantity
+		general.Infof("pod: %s/%s, main container: %s request to memory inplace update resize (%d->%d)",
+			req.PodNamespace, req.PodName, req.ContainerName, originPodAggregatedRequest, podAggregatedRequest)
+
+		if uint64(podAggregatedRequest) > nodeMemoryState.Free { // no left resource to scale out
+			// TODO maybe support snb NUMA migrate inplace update resize later
+			isInplaceUpdateResizeNumaMigratable := false
+			if isInplaceUpdateResizeNumaMigratable {
+				general.Infof("pod: %s/%s, container: %s request to memory inplace update resize (%d->%d), but no enough memory"+
+					"to scale out in current numa (resize request extra: %d, free: %d), migrate numa",
+					req.PodNamespace, req.PodName, req.ContainerName, originPodAggregatedRequest, podAggregatedRequest, uint64(podAggregatedRequest)-originPodAggregatedRequest, nodeMemoryState.Free)
+
+				var calculateErr error
+				// recalculate hints for the whole pod
+				hints, calculateErr = p.calculateHints(uint64(podAggregatedRequest), resourcesMachineState, req.Annotations)
+				if calculateErr != nil {
+					general.Errorf("failed to calculate hints for pod: %s/%s, container: %s, error: %v",
+						req.PodNamespace, req.PodName, req.ContainerName, calculateErr)
+					return nil, fmt.Errorf("calculateHints failed with error: %v", calculateErr)
+				}
+			} else {
+				general.Infof("pod: %s/%s, container: %s request to memory inplace update resize (%d->%d, diff: %d), but no enough memory(%d)",
+					req.PodNamespace, req.PodName, req.ContainerName, originPodAggregatedRequest, podAggregatedRequest, uint64(podAggregatedRequest)-originPodAggregatedRequest, nodeMemoryState.Free)
+				return nil, fmt.Errorf("inplace update resize scale out failed with no enough resource")
+			}
+		}
+	} else if hints == nil {
+		// otherwise, calculate hint for container without allocated memory
 		var calculateErr error
 		// calculate hint for container without allocated memory
-		hints, calculateErr = p.calculateHints(uint64(reqInt), resourcesMachineState, req.Annotations)
+		hints, calculateErr = p.calculateHints(uint64(podAggregatedRequest), resourcesMachineState, req.Annotations)
 		if calculateErr != nil {
+			general.Errorf("failed to calculate hints for pod: %s/%s, container: %s, error: %v",
+				req.PodNamespace, req.PodName, req.ContainerName, calculateErr)
 			return nil, fmt.Errorf("calculateHints failed with error: %v", calculateErr)
 		}
 	}
 
+	general.Infof("memory hints for pod:%s/%s, container: %s success, hints: %v",
+		req.PodNamespace, req.PodName, req.ContainerName, hints)
+
 	return util.PackResourceHintsResponse(req, string(v1.ResourceMemory), hints)
+}
+
+func (p *DynamicPolicy) clearContainerAndRegenerateMachineState(req *pluginapi.ResourceRequest) (state.NUMANodeResourcesMap, error) {
+	podResourceEntries := p.state.GetPodResourceEntries()
+
+	for _, podEntries := range podResourceEntries {
+		delete(podEntries[req.PodUid], req.ContainerName)
+		if len(podEntries[req.PodUid]) == 0 {
+			delete(podEntries, req.PodUid)
+		}
+	}
+
+	var err error
+	resourcesMachineState, err := state.GenerateMachineStateFromPodEntries(p.state.GetMachineInfo(), podResourceEntries, p.state.GetReservedMemory())
+	if err != nil {
+		general.Errorf("pod: %s/%s, container: %s GenerateMachineStateFromPodEntries failed with error: %v",
+			req.PodNamespace, req.PodName, req.ContainerName, err)
+		return nil, fmt.Errorf("GenerateMachineStateFromPodEntries failed with error: %v", err)
+	}
+	return resourcesMachineState, nil
 }
 
 func (p *DynamicPolicy) dedicatedCoresWithoutNUMABindingHintHandler(_ context.Context,
@@ -262,11 +361,11 @@ func (p *DynamicPolicy) calculateHints(reqInt uint64, resourcesMachineState stat
 // regenerateHints regenerates hints for container that'd already been allocated memory,
 // and regenerateHints will assemble hints based on already-existed AllocationInfo,
 // without any calculation logics at all
-func regenerateHints(reqInt uint64, allocationInfo *state.AllocationInfo) map[string]*pluginapi.ListOfTopologyHints {
+func regenerateHints(reqInt uint64, allocationInfo *state.AllocationInfo, podInplaceUpdateResizing bool) map[string]*pluginapi.ListOfTopologyHints {
 	hints := map[string]*pluginapi.ListOfTopologyHints{}
 
 	allocatedInt := allocationInfo.AggregatedQuantity
-	if allocatedInt < reqInt {
+	if allocatedInt < reqInt && !podInplaceUpdateResizing {
 		general.ErrorS(nil, "memory's already allocated with smaller quantity than requested",
 			"podUID", allocationInfo.PodUid, "containerName", allocationInfo.ContainerName,
 			"requestedResource", reqInt, "allocatedSize", allocatedInt)

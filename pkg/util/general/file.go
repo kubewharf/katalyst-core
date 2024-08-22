@@ -17,6 +17,7 @@ limitations under the License.
 package general
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -110,6 +111,28 @@ func GetOneExistPath(paths []string) string {
 		}
 	}
 	return ""
+}
+
+// GetOneExistPathUntilExist returns a path until one provided path exists
+func GetOneExistPathUntilExist(paths []string, checkInterval,
+	timeoutDuration time.Duration,
+) (string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), timeoutDuration)
+	defer cancel()
+
+	ticker := time.NewTicker(checkInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return "", fmt.Errorf("timeout reached while waiting for an existing path")
+		case <-ticker.C:
+			if p := GetOneExistPath(paths); p != "" {
+				return p, nil
+			}
+		}
+	}
 }
 
 // IsPathExists is to check this path whether exists

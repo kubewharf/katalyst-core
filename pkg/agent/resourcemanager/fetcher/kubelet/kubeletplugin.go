@@ -91,9 +91,14 @@ func NewKubeletReporterPlugin(emitter metrics.MetricEmitter, metaServer *metaser
 		StopControl: process.NewStopControl(time.Time{}),
 	}
 
+	var podResourcesFilter topology.PodResourcesFilter
+	if conf.EnablePodResourcesFilter {
+		podResourcesFilter = topology.GenericPodResourcesFilter(conf.QoSConfiguration)
+	}
+
 	topologyStatusAdapter, err := topology.NewPodResourcesServerTopologyAdapter(metaServer, conf.QoSConfiguration,
 		conf.PodResourcesServerEndpoints, conf.KubeletResourcePluginPaths, conf.ResourceNameToZoneTypeMap,
-		nil, p.getNumaInfo, topology.GenericPodResourcesFilter(conf.QoSConfiguration), podresources.GetV1Client,
+		nil, p.getNumaInfo, podResourcesFilter, podresources.GetV1Client,
 		conf.NeedValidationResources)
 	if err != nil {
 		return nil, err

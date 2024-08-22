@@ -2,6 +2,9 @@
 /bin/
 hack/tools/bin
 
+# Vendor dir
+vendor
+
 # Binaries for programs and plugins
 *.exe
 *.dll

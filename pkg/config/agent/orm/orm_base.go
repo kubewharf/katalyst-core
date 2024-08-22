@@ -23,6 +23,7 @@ import (
 )
 
 type GenericORMConfiguration struct {
+	ORMPluginRegistrationDir        string
 	ORMWorkMode                     consts.WorkMode
 	ORMReconcilePeriod              time.Duration
 	ORMResourceNamesMap             map[string]string
