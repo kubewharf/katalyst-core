@@ -44,10 +44,9 @@ type ProvisionAssemblerCommon struct {
 	nonBindingNumas                       *machine.CPUSet
 	allowSharedCoresOverlapReclaimedCores *bool
 
-	metaReader   metacache.MetaReader
-	metaServer   *metaserver.MetaServer
-	emitter      metrics.MetricEmitter
-	regionHelper *RegionMapHelper
+	metaReader metacache.MetaReader
+	metaServer *metaserver.MetaServer
+	emitter    metrics.MetricEmitter
 }
 
 func NewProvisionAssemblerCommon(conf *config.Configuration, _ interface{}, regionMap *map[string]region.QoSRegion,
@@ -62,10 +61,9 @@ func NewProvisionAssemblerCommon(conf *config.Configuration, _ interface{}, regi
 		nonBindingNumas:                       nonBindingNumas,
 		allowSharedCoresOverlapReclaimedCores: allowSharedCoresOverlapReclaimedCores,
 
-		metaReader:   metaReader,
-		metaServer:   metaServer,
-		emitter:      emitter,
-		regionHelper: NewRegionMap(*regionMap),
+		metaReader: metaReader,
+		metaServer: metaServer,
+		emitter:    emitter,
 	}
 }
 
@@ -90,6 +88,8 @@ func (pa *ProvisionAssemblerCommon) AssembleProvision() (types.InternalCPUCalcul
 	isolationUpperSizes := make(map[string]int)
 	isolationLowerSizes := make(map[string]int)
 
+	regionHelper := NewRegionMap(*pa.regionMap)
+
 	for _, r := range *pa.regionMap {
 		controlKnob, err := r.GetProvision()
 		if err != nil {
@@ -111,7 +111,7 @@ func (pa *ProvisionAssemblerCommon) AssembleProvision() (types.InternalCPUCalcul
 				}
 
 				// calc isolation pool size
-				isolationRegions := pa.regionHelper.GetRegions(regionNuma, configapi.QoSRegionTypeIsolation)
+				isolationRegions := regionHelper.GetRegions(regionNuma, configapi.QoSRegionTypeIsolation)
 
 				isolationRegionControlKnobs := map[string]types.ControlKnob{}
 				isolationRegionControlKnobKey := configapi.ControlKnobNonReclaimedCPURequirementUpper
@@ -169,7 +169,7 @@ func (pa *ProvisionAssemblerCommon) AssembleProvision() (types.InternalCPUCalcul
 			if r.IsNumaBinding() {
 				regionNuma := r.GetBindingNumas().ToSliceInt()[0] // always one binding numa for this type of region
 				// If there is a SNB pool with the same NUMA ID, it will be calculated while processing the SNB pool.
-				if shareRegions := pa.regionHelper.GetRegions(regionNuma, configapi.QoSRegionTypeShare); len(shareRegions) == 0 {
+				if shareRegions := regionHelper.GetRegions(regionNuma, configapi.QoSRegionTypeShare); len(shareRegions) == 0 {
 					calculationResult.SetPoolEntry(r.Name(), regionNuma, int(controlKnob[configapi.ControlKnobNonReclaimedCPURequirementUpper].Value))
 
 					_, ok := calculationResult.GetPoolEntry(state.PoolNameReclaim, regionNuma)
@@ -177,7 +177,7 @@ func (pa *ProvisionAssemblerCommon) AssembleProvision() (types.InternalCPUCalcul
 						available := getNUMAsResource(*pa.numaAvailable, r.GetBindingNumas())
 						reservedForReclaim := getNUMAsResource(*pa.reservedForReclaim, r.GetBindingNumas())
 
-						isolationRegions := pa.regionHelper.GetRegions(regionNuma, configapi.QoSRegionTypeIsolation)
+						isolationRegions := regionHelper.GetRegions(regionNuma, configapi.QoSRegionTypeIsolation)
 						isolationSizes := 0
 						for _, ir := range isolationRegions {
 							ck, err := ir.GetProvision()
