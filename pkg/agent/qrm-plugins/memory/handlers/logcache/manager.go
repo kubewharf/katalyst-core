@@ -33,7 +33,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 )
 
-func CanFilePathMatch(filePath string, patternStrings []string) bool {
+func canFilePathMatch(filePath string, patternStrings []string) bool {
 	for _, str := range patternStrings {
 		re := regexp.MustCompile(str)
 		if re.MatchString(filePath) {
@@ -61,7 +61,7 @@ type fileCacheEvictionManager struct {
 }
 
 func (e *fileCacheEvictionManager) shouldEvictFile(filePath string) bool {
-	return CanFilePathMatch(filePath, e.fileFilters)
+	return canFilePathMatch(filePath, e.fileFilters)
 }
 
 func (e *fileCacheEvictionManager) evictWalk(path string) error {

@@ -407,7 +407,7 @@ func (p *DynamicPolicy) Start() (err error) {
 			general.HealthzCheckStateNotReady, qrm.QRMMemoryPluginPeriodicalHandlerGroupName,
 			p.logCacheEvictionManager.EvictLogCache, 600*time.Second, healthCheckTolerationTimes)
 		if err != nil {
-			general.Infof("evictLogCache failed, err=%v", err)
+			general.Errorf("evictLogCache failed, err=%v", err)
 		}
 	}
 

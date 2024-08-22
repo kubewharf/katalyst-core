@@ -25,25 +25,30 @@ func TestEvictFileCache(t *testing.T) {
 	t.Parallel()
 
 	testcases := []struct {
+		name          string
 		filePath      string
 		expectedError bool
 	}{
 		{
+			name:          "empty file path",
 			filePath:      "",
 			expectedError: true,
 		},
 		{
+			name:          "failed due to permission",
 			filePath:      "writeonly.log",
 			expectedError: true,
 		},
 		{
+			name:          "no error",
 			filePath:      "regular.log",
 			expectedError: false,
 		},
 	}
 
-	for _, tc := range testcases {
-		t.Run(tc.filePath, func(t *testing.T) {
+	for _, testcase := range testcases {
+		tc := testcase
+		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			file, err := os.Lstat(tc.filePath)
 			if err == nil && file.Mode().IsRegular() {
