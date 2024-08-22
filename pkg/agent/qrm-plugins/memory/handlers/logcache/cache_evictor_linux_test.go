@@ -44,6 +44,7 @@ func TestEvictFileCache(t *testing.T) {
 
 	for _, tc := range testcases {
 		t.Run(tc.filePath, func(t *testing.T) {
+			t.Parallel()
 			file, err := os.Lstat(tc.filePath)
 			if err == nil && file.Mode().IsRegular() {
 				err = EvictFileCache(tc.filePath, file.Size())
