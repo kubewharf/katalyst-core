@@ -72,12 +72,20 @@ func (p *DynamicPolicy) sharedCoresHintHandler(ctx context.Context,
 func (p *DynamicPolicy) reclaimedCoresHintHandler(ctx context.Context,
 	req *pluginapi.ResourceRequest,
 ) (*pluginapi.ResourceHintsResponse, error) {
+	if req == nil {
+		return nil, fmt.Errorf("got nil request")
+	}
+
 	if util.PodInplaceUpdateResizing(req) {
 		general.Errorf("pod: %s/%s, container: %s request to memory inplace update resize, but not support reclaimed cores",
 			req.PodNamespace, req.PodName, req.ContainerName)
 		return nil, fmt.Errorf("not support inplace update resize for reclaimed cores")
 	}
-	return p.sharedCoresHintHandler(ctx, req)
+
+	return util.PackResourceHintsResponse(req, string(v1.ResourceMemory),
+		map[string]*pluginapi.ListOfTopologyHints{
+			string(v1.ResourceMemory): nil, // indicates that there is no numa preference
+		})
 }
 
 func (p *DynamicPolicy) dedicatedCoresHintHandler(ctx context.Context,
