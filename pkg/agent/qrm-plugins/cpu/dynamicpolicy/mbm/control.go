@@ -18,6 +18,7 @@ package mbm
 
 import (
 	"context"
+	"k8s.io/klog/v2"
 	"time"
 
 	"k8s.io/apimachinery/pkg/util/sets"
@@ -134,6 +135,7 @@ func (c Controller) processPackage(packageID int, nodes []int) {
 	}
 
 	mbwPackage := int64(currMetric.Value)
+	klog.V(6).Infof("mbm: processPackage %d, current mbw: %v", packageID, mbwPackage)
 
 	// workloads are hi-prio (lo-prio not in scope of this stage)
 	// adjust mem bandwidth based on mbw metrics, if applicable
