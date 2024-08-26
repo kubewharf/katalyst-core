@@ -67,6 +67,7 @@ func (c Controller) Run(ctx context.Context) {
 func (c Controller) run() {
 	general.Infof("mbm controller run")
 	for p, nodes := range c.packageMap {
+		klog.V(6).Infof("mbm: package %d", p)
 		c.processPackage(p, nodes)
 	}
 }

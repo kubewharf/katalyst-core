@@ -176,6 +176,7 @@ func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration
 
 	var mbmController agent.Component
 	if conf.EnableMBM {
+		general.Infof("mbm: package map: %#v, len %d", agentCtx.PackageMap, len(agentCtx.PackageMap))
 		mbmController = mbm.NewController(agentCtx.EmitterPool.GetDefaultMetricsEmitter(),
 			agentCtx.MetricsFetcher,
 			stateImpl,
