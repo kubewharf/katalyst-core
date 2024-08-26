@@ -23,6 +23,7 @@ import (
 	"errors"
 
 	"github.com/kubewharf/katalyst-core/pkg/util/cgroup/common"
+	qrmgeneral "github.com/kubewharf/katalyst-core/pkg/util/qrm"
 )
 
 type defaultNetworkManager struct{}
@@ -48,4 +49,9 @@ func (m *defaultNetworkManager) ListNetClass() ([]*common.NetClsData, error) {
 func (*defaultNetworkManager) ClearNetClass(cgroupID uint64) error {
 	// TODO: clear the eBPF map when a pod is removed
 	return errors.New("not implemented yet")
+}
+
+// ApplyNetworkGroups apply parameters for network groups.
+func (n *defaultNetworkManager) ApplyNetworkGroups(map[string]*qrmgeneral.NetworkGroup) error {
+	return nil
 }
