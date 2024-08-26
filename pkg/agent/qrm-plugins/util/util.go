@@ -49,7 +49,14 @@ func GetQuantityFromResourceReq(req *pluginapi.ResourceRequest) (int, float64, e
 			return general.Max(int(math.Ceil(req.ResourceRequests[key])), 0), req.ResourceRequests[key], nil
 		case string(apiconsts.ReclaimedResourceMilliCPU):
 			return general.Max(int(math.Ceil(req.ResourceRequests[key]/1000.0)), 0), req.ResourceRequests[key] / 1000.0, nil
-		case string(v1.ResourceMemory), string(apiconsts.ReclaimedResourceMemory), string(apiconsts.ResourceNetBandwidth):
+		case string(v1.ResourceMemory), string(apiconsts.ReclaimedResourceMemory):
+			return general.Max(int(math.Ceil(req.ResourceRequests[key])), 0), req.ResourceRequests[key], nil
+		case string(apiconsts.ResourceNetBandwidth):
+			if req.Annotations[PodAnnotationQRMDeclarationKey] == PodAnnotationQRMDeclarationTrue {
+				general.Infof("detect %s: %s, return %s: 0 instead of %s: %.2f",
+					PodAnnotationQRMDeclarationKey, PodAnnotationQRMDeclarationTrue, key, key, req.ResourceRequests[key])
+				return 0, 0, nil
+			}
 			return general.Max(int(math.Ceil(req.ResourceRequests[key])), 0), req.ResourceRequests[key], nil
 		default:
 			return 0, 0, fmt.Errorf("invalid request resource name: %s", key)
