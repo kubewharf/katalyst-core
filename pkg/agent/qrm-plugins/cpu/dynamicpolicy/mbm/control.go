@@ -65,6 +65,7 @@ func (c Controller) Run(ctx context.Context) {
 }
 
 func (c Controller) run() {
+	general.Infof("mbm controller run")
 	for p, nodes := range c.packageMap {
 		c.processPackage(p, nodes)
 	}
@@ -131,6 +132,7 @@ func (c Controller) processPackage(packageID int, nodes []int) {
 	if err != nil {
 		c.metricEmitter.StoreInt64(metricGetPackageMetricsFail, 1, metrics.MetricTypeNameCount,
 			metrics.MetricTag{Key: "name", Val: consts.MetricMemBandwidthRWPackage})
+		general.Errorf("mbm controller failed to get package metrics: %v", err)
 		return
 	}
 
