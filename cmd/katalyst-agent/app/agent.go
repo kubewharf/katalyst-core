@@ -74,6 +74,11 @@ func Run(conf *config.Configuration, clientSet *client.GenericClientSet, generic
 		time.Sleep(1 * time.Second)
 	}()
 
+	// todo: remove tmp log
+	general.Infof("mbm: troubleshooting: package map %#v, %d", genericCtx.PackageMap, len(genericCtx.PackageMap))
+	genericCtx.PackageMap = genericCtx.GetPackageMap()
+	general.Infof("mbm: troubleshooting: after explicit set, package map %#v, %d", genericCtx.PackageMap, len(genericCtx.PackageMap))
+
 	return startAgent(ctx, genericCtx, conf, GetAgentInitializers())
 }
 
