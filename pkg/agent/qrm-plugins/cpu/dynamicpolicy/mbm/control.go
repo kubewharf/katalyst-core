@@ -70,6 +70,7 @@ func (c Controller) run() {
 		klog.V(6).Infof("mbm: package %d", p)
 		c.processPackage(p, nodes)
 	}
+	klog.V(6).Infof("mbm: run: packages are all done in one round")
 }
 
 // assuming all pods are of type socket in this stage
@@ -138,13 +139,18 @@ func (c Controller) processPackage(packageID int, nodes []int) {
 	}
 
 	mbwPackage := int64(currMetric.Value)
-	klog.V(6).Infof("mbm: processPackage %d, current mbw: %v", packageID, mbwPackage)
+	threhold_upper := c.bandwidthThreshold / 100 * monitor.MEMORY_BANDWIDTH_PHYSICAL_NUMA_PAINPOINT
+	threhold_lower := c.bandwidthThreshold / 100 * monitor.MEMORY_BANDWIDTH_PHYSICAL_NUMA_UNTHROTTLEPOINT
+	thread_sweet := c.bandwidthThreshold / 100 * monitor.MEMORY_BANDWIDTH_PHYSICAL_NUMA_SWEETPOINT
+	klog.V(6).Infof("mbm: processPackage %v, current mbw: %v, upper threshold=%v, sweet=%v, low=%v",
+		packageID, mbwPackage, threhold_upper, thread_sweet, threhold_lower)
 
 	// workloads are hi-prio (lo-prio not in scope of this stage)
 	// adjust mem bandwidth based on mbw metrics, if applicable
 	if mbwPackage >= c.bandwidthThreshold/100*monitor.MEMORY_BANDWIDTH_PHYSICAL_NUMA_PAINPOINT {
 		// over the threshold - to throttle noisy neighbors
 		// identify the numa-node-set (nodes of one workload) of this package
+		general.Infof("mbm: debug - to throttle")
 		toSkip, activeGroupMBs, err := c.getActiveGroupMBs(nodes)
 		if err != nil {
 			// error happened; skip for now
@@ -178,6 +184,7 @@ func (c Controller) processPackage(packageID int, nodes []int) {
 
 	if mbwPackage <= c.bandwidthThreshold/100*monitor.MEMORY_BANDWIDTH_PHYSICAL_NUMA_SWEETPOINT &&
 		mbwPackage > c.bandwidthThreshold/100*monitor.MEMORY_BANDWIDTH_PHYSICAL_NUMA_UNTHROTTLEPOINT {
+		general.Infof("mbm: debug - gradually relase throttling")
 		// below the threshold a little - to grant some nodes' a little more bandwidth
 		// we take precautious and gradual steps when releasing the throttle
 		activeGroups := c.getActiveNodeSets(nodes)
@@ -212,6 +219,7 @@ func (c Controller) processPackage(packageID int, nodes []int) {
 	}
 
 	if mbwPackage < c.bandwidthThreshold/100*monitor.MEMORY_BANDWIDTH_PHYSICAL_NUMA_UNTHROTTLEPOINT {
+		general.Infof("mbm: debug - to unthrottle")
 		// under the watermark significantly - well it seems ok to un-throttle
 		for _, node := range nodes {
 			if err := c.mbAdjust.AdjustNumaMB(node, 0, 0, monitor.MEMORY_BANDWIDTH_CONTROL_UNTHROTTLE); err == nil {
