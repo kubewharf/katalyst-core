@@ -144,9 +144,12 @@ func (m *MBMonitor) AdjustNumaMB(node int, avgMB, quota uint64, action MB_CONTRO
 			continue
 		}
 
+		general.Infof("mbm: ccd %d; instance 0: %#v", ccd, instances[0])
 		cos := instances[0].CosTracking[ccd]
 		entry := m.Controller.CCDCosMap[ccd][cos]
 		ul := 0
+		general.Infof("mbm: ccd %d; cos: %#v, entry: %#v", ccd, cos, entry)
+
 		// ingore the hybird deployment for now
 		if entry.Used {
 			switch action {
