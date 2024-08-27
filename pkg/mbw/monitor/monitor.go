@@ -182,6 +182,7 @@ func newMonitor(info *machine.KatalystMachineInfo) (*MBMonitor, error) {
 		Nodes:       map[int]struct{}{2: struct{}{}},
 		CosTracking: map[int]int{4: 0},
 	}
+	monitor.Controller.Instances = insts
 
 	monitor.Controller.PackageThrottled = make(map[int]bool, info.NumPackages)
 	monitor.Controller.NumaLowPriThrottled = make(map[int]bool, info.NumPackages)
