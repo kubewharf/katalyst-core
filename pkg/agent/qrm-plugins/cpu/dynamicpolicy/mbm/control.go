@@ -240,6 +240,7 @@ func NewController(metricEmitter metrics.MetricEmitter, metricReader types.Metri
 	return &Controller{
 		metricEmitter:      metricEmitter.WithTags(MemoryBandwidthManagement),
 		metricReader:       metricReader,
+		numaThrottled:      make(sets.Int),
 		numaStater:         stater,
 		mbAdjust:           mbAdjuster,
 		packageMap:         packageMap,
