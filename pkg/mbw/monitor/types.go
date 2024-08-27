@@ -18,6 +18,7 @@ package monitor
 
 import (
 	"context"
+	"k8s.io/klog/v2"
 
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
@@ -65,8 +66,10 @@ type Instance struct {
 }
 
 func (c MBController) GetInstancesByCCD(ccd int) []Instance {
+	klog.Infof("mbm: debug - controller: get inst by ccd %d, instances %d", ccd, len(c.Instances))
 	instances := make([]Instance, 0)
 	for _, ins := range c.Instances {
+		klog.Infof("mbm: debug controller: instance %#v", ins)
 		if _, ok := ins.CosTracking[ccd]; ok {
 			instances = append(instances, ins)
 		}

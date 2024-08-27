@@ -138,6 +138,7 @@ func (m *MBMonitor) AdjustNumaMB(node int, avgMB, quota uint64, action MB_CONTRO
 	}
 
 	for _, ccd := range m.NumaMap[node] {
+		general.Infof("mbm: debug - adjust: node %d, ccd %d", node, ccd)
 		instances := m.Controller.GetInstancesByCCD(ccd)
 		if len(instances) == 0 {
 			general.Infof("no instance running on ccd %d", ccd)
