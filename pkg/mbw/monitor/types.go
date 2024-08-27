@@ -45,7 +45,7 @@ type MBController struct {
 	PackageThrottled    map[int]bool       // if a physical numa node is MB throttled
 	NumaLowPriThrottled map[int]bool       // if the low priority instances on a physical numa has been throttled
 	NumaThrottled       map[int]bool       // if a numa is MB throttled
-	Instances           []Instance
+	Instances           []Instance         // todo: populate from pods info?
 }
 
 type CosEntry struct {

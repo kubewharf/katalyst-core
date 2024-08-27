@@ -152,6 +152,37 @@ func newMonitor(info *machine.KatalystMachineInfo) (*MBMonitor, error) {
 	}
 
 	monitor.Controller.Instances = make([]Instance, 0)
+	// todo: remove hard coded dummy values of instances
+	// below hard coded values only applicable for the specific validation test case
+	insts := make([]Instance, 3)
+	insts[0] = Instance{
+		Name:        "dummy workload 0",
+		Priority:    1,
+		Request:     140_000, //140G
+		Limit:       140_000,
+		SoftLimit:   false,
+		Nodes:       map[int]struct{}{0: struct{}{}},
+		CosTracking: map[int]int{0: 0, 1: 0},
+	}
+	insts[1] = Instance{
+		Name:        "dummy workload 1",
+		Priority:    1,
+		Request:     70_000, //140G
+		Limit:       140_000,
+		SoftLimit:   false,
+		Nodes:       map[int]struct{}{1: struct{}{}},
+		CosTracking: map[int]int{2: 0},
+	}
+	insts[2] = Instance{
+		Name:        "dummy workload 2",
+		Priority:    1,
+		Request:     70_000, //140G
+		Limit:       140_000,
+		SoftLimit:   false,
+		Nodes:       map[int]struct{}{2: struct{}{}},
+		CosTracking: map[int]int{4: 0},
+	}
+
 	monitor.Controller.PackageThrottled = make(map[int]bool, info.NumPackages)
 	monitor.Controller.NumaLowPriThrottled = make(map[int]bool, info.NumPackages)
 	monitor.Controller.NumaThrottled = make(map[int]bool, info.NumNUMANodes)
