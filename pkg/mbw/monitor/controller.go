@@ -123,7 +123,9 @@ func (m MBMonitor) ConfigCCDMBACos(ccd, cos, ul int, max uint64) error {
 	return nil
 }
 
+// todo: not to throttle as expected?
 func (m *MBMonitor) AdjustNumaMB(node int, avgMB, quota uint64, action MB_CONTROL_ACTION) error {
+	general.Infof("mbm adjust mb: node %d, avgMB %v, quota %v, action %v", node, avgMB, quota, action)
 	m.MemoryBandwidth.PackageLocker.RLock()
 	defer m.MemoryBandwidth.PackageLocker.RUnlock()
 
@@ -131,8 +133,14 @@ func (m *MBMonitor) AdjustNumaMB(node int, avgMB, quota uint64, action MB_CONTRO
 	// TODO: adjust the quota distribution based on CPU usage
 	ccdQuota := quota / uint64(len(m.NumaMap[node]))
 
-	if m.MemoryBandwidth.Numas[node].Total <=
-		uint64(float64(avgMB)*MEMORY_BANDWIDTH_PHYSICAL_NUMA_PAINPOINT) &&
+	general.Infof("mbm inside calc: node %v: total %v, divider %v, ccdMB %v, ccdQuota %v",
+		node,
+		m.MemoryBandwidth.Numas[node].Total,
+		len(m.NumaMap[node]),
+		ccdMB,
+		ccdQuota)
+
+	if m.MemoryBandwidth.Numas[node].Total <= uint64(float64(avgMB)*MEMORY_BANDWIDTH_PHYSICAL_NUMA_PAINPOINT) &&
 		action != MEMORY_BANDWIDTH_CONTROL_UNTHROTTLE {
 		action = MEMORY_BANDWIDTH_CONTROL_UNTHROTTLE
 	}
@@ -145,13 +153,13 @@ func (m *MBMonitor) AdjustNumaMB(node int, avgMB, quota uint64, action MB_CONTRO
 			continue
 		}
 
-		general.Infof("mbm: ccd %d; instance 0: %#v", ccd, instances[0])
+		general.Infof("mbm: node %v: ccd %d; instance 0: %#v", node, ccd, instances[0])
 		cos := instances[0].CosTracking[ccd]
 		entry := m.Controller.CCDCosMap[ccd][cos]
 		ul := 0
-		general.Infof("mbm: ccd %d; cos: %#v, entry: %#v", ccd, cos, entry)
+		general.Infof("mbm: node %v: ccd %d; cos: %#v, entry: %#v", node, ccd, cos, entry)
 
-		// todo: why entry.USed == false???
+		// todo: why entry.Used == false???
 		// ingore the hybird deployment for now
 		//		if entry.Used {
 		{
@@ -174,6 +182,8 @@ func (m *MBMonitor) AdjustNumaMB(node int, avgMB, quota uint64, action MB_CONTRO
 				ul = 1
 			}
 
+			general.Infof("mbm : set cos - node %v:  ccd %v, cos %v, ul %v, cap %v",
+				node, ccd, cos, ul, entry.Cap)
 			err := m.ConfigCCDMBACos(ccd, cos, ul, entry.Cap)
 			if err != nil {
 				general.Errorf("failed to throttle ccd %d to the target MB %d from %d - %v", ccd, entry.Cap, ccdMB, err)
