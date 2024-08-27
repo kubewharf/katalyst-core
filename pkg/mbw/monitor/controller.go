@@ -151,8 +151,10 @@ func (m *MBMonitor) AdjustNumaMB(node int, avgMB, quota uint64, action MB_CONTRO
 		ul := 0
 		general.Infof("mbm: ccd %d; cos: %#v, entry: %#v", ccd, cos, entry)
 
+		// todo: why entry.USed == false???
 		// ingore the hybird deployment for now
-		if entry.Used {
+		//		if entry.Used {
+		{
 			switch action {
 			case MEMORY_BANDWIDTH_CONTROL_RAISE:
 				if entry.Cap == 0 {
