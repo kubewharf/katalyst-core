@@ -18,13 +18,15 @@ package recommendation
 
 import (
 	"context"
+	corev1 "k8s.io/api/core/v1"
+	appsv1 "k8s.io/client-go/kubernetes/typed/apps/v1"
+	typecorev1 "k8s.io/client-go/kubernetes/typed/core/v1"
 	"reflect"
 	"testing"
 
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"k8s.io/client-go/kubernetes/fake"
 
 	"github.com/kubewharf/katalyst-api/pkg/apis/recommendation/v1alpha1"
 	resourceutils "github.com/kubewharf/katalyst-core/pkg/util/resource-recommend/resource"
@@ -114,23 +116,24 @@ func TestValidateAndExtractAlgorithmPolicy(t *testing.T) {
 func TestValidateAndExtractContainers(t *testing.T) {
 	type args struct {
 		ctx               context.Context
-		client            client.Client
+		client            appsv1.AppsV1Interface
+		coreClient        typecorev1.CoreV1Interface
 		namespace         string
 		targetRef         v1alpha1.CrossVersionObjectReference
 		containerPolicies []v1alpha1.ContainerResourcePolicy
 	}
 	type env struct {
-		podLabels                map[string]string
-		podAnnotations           map[string]string
-		matchLabelKey            string
-		matchLabelValue          string
-		podName                  string
-		podNodeName              string
-		unstructuredName         string
-		unstructuredTemplateSpec map[string]interface{}
-		namespace                string
-		kind                     string
-		apiVersion               string
+		podLabels       map[string]string
+		podAnnotations  map[string]string
+		matchLabelKey   string
+		matchLabelValue string
+		podName         string
+		podNodeName     string
+		deploymentName  string
+		containers      []corev1.Container
+		namespace       string
+		kind            string
+		apiVersion      string
 	}
 	tests := []struct {
 		name    string
@@ -142,9 +145,10 @@ func TestValidateAndExtractContainers(t *testing.T) {
 		{
 			name: errortypes.WorkloadNotFoundMessage,
 			args: args{
-				ctx:       context.TODO(),
-				client:    fake.NewClientBuilder().Build(),
-				namespace: "mockNamespace",
+				ctx:        context.TODO(),
+				client:     fake.NewSimpleClientset().AppsV1(),
+				coreClient: fake.NewSimpleClientset().CoreV1(),
+				namespace:  "mockNamespace",
 				targetRef: v1alpha1.CrossVersionObjectReference{
 					Kind:       "kind",
 					Name:       "Name",
@@ -162,9 +166,10 @@ func TestValidateAndExtractContainers(t *testing.T) {
 		{
 			name: errortypes.WorkloadMatchedErrorMessage,
 			args: args{
-				ctx:       context.TODO(),
-				client:    fake.NewClientBuilder().Build(),
-				namespace: "mockNamespace",
+				ctx:        context.TODO(),
+				client:     fake.NewSimpleClientset().AppsV1(),
+				coreClient: fake.NewSimpleClientset().CoreV1(),
+				namespace:  "mockNamespace.",
 				targetRef: v1alpha1.CrossVersionObjectReference{
 					Kind:       "",
 					Name:       "",
@@ -182,14 +187,15 @@ func TestValidateAndExtractContainers(t *testing.T) {
 				},
 			},
 			want:    nil,
-			wantErr: errortypes.WorkloadMatchedError(errortypes.WorkloadMatchedErrorMessage),
+			wantErr: errortypes.WorkloadNotFoundError(errortypes.WorkloadNotFoundMessage),
 		},
 		{
 			name: "all right",
 			args: args{
-				ctx:       context.TODO(),
-				client:    fake.NewClientBuilder().Build(),
-				namespace: "mockNamespace",
+				ctx:        context.TODO(),
+				client:     fake.NewSimpleClientset().AppsV1(),
+				coreClient: fake.NewSimpleClientset().CoreV1(),
+				namespace:  "mockNamespace",
 				targetRef: v1alpha1.CrossVersionObjectReference{
 					Name:       "mockName5",
 					Kind:       "Deployment",
@@ -218,21 +224,19 @@ func TestValidateAndExtractContainers(t *testing.T) {
 				podLabels: map[string]string{
 					"app": "mockPodLabels5",
 				},
-				matchLabelKey:    "app",
-				matchLabelValue:  "mockPodLabels5",
-				podName:          "mockPodName5",
-				podNodeName:      "mockPodNodeName5",
-				unstructuredName: "mockName5",
-				unstructuredTemplateSpec: map[string]interface{}{
-					"containers": []interface{}{
-						map[string]interface{}{
-							"name":  "container-1",
-							"image": "image:latest",
-						},
-						map[string]interface{}{
-							"name":  "container-2",
-							"image": "image:latest",
-						},
+				matchLabelKey:   "app",
+				matchLabelValue: "mockPodLabels5",
+				podName:         "mockPodName5",
+				podNodeName:     "mockPodNodeName5",
+				deploymentName:  "mockName5",
+				containers: []corev1.Container{
+					{
+						Name:  "container-1",
+						Image: "image:latest",
+					},
+					{
+						Name:  "container-2",
+						Image: "image:latest",
 					},
 				},
 				namespace:  "mockNamespace",
@@ -264,9 +268,10 @@ func TestValidateAndExtractContainers(t *testing.T) {
 		{
 			name: "controlled resources is empty",
 			args: args{
-				ctx:       context.TODO(),
-				client:    fake.NewClientBuilder().Build(),
-				namespace: "mockNamespace",
+				ctx:        context.TODO(),
+				client:     fake.NewSimpleClientset().AppsV1(),
+				coreClient: fake.NewSimpleClientset().CoreV1(),
+				namespace:  "mockNamespace",
 				targetRef: v1alpha1.CrossVersionObjectReference{
 					Name:       "mockName5",
 					Kind:       "Deployment",
@@ -282,21 +287,19 @@ func TestValidateAndExtractContainers(t *testing.T) {
 				podLabels: map[string]string{
 					"app": "mockPodLabels5",
 				},
-				matchLabelKey:    "app",
-				matchLabelValue:  "mockPodLabels5",
-				podName:          "mockPodName5",
-				podNodeName:      "mockPodNodeName5",
-				unstructuredName: "mockName5",
-				unstructuredTemplateSpec: map[string]interface{}{
-					"containers": []interface{}{
-						map[string]interface{}{
-							"name":  "container-1",
-							"image": "image:latest",
-						},
-						map[string]interface{}{
-							"name":  "container-2",
-							"image": "image:latest",
-						},
+				matchLabelKey:   "app",
+				matchLabelValue: "mockPodLabels5",
+				podName:         "mockPodName5",
+				podNodeName:     "mockPodNodeName5",
+				deploymentName:  "mockName5",
+				containers: []corev1.Container{
+					{
+						Name:  "container-1",
+						Image: "image:latest",
+					},
+					{
+						Name:  "container-2",
+						Image: "image:latest",
 					},
 				},
 				namespace:  "mockNamespace",
@@ -307,60 +310,12 @@ func TestValidateAndExtractContainers(t *testing.T) {
 			wantErr: errortypes.ControlledResourcesPoliciesEmptyError(errortypes.ControlledResourcesPoliciesEmptyMessage, "*"),
 		},
 		{
-			name: errortypes.ContainersMatchedErrorMessage,
-			args: args{
-				ctx:       context.TODO(),
-				client:    fake.NewClientBuilder().Build(),
-				namespace: "mockNamespace",
-				targetRef: v1alpha1.CrossVersionObjectReference{
-					Name:       "mockName5",
-					Kind:       "Deployment",
-					APIVersion: "apps/v1",
-				},
-				containerPolicies: []v1alpha1.ContainerResourcePolicy{
-					{
-						ContainerName: "container-1",
-					},
-					{
-						ContainerName: "container-2",
-					},
-				},
-			},
-			env: env{
-				podLabels: map[string]string{
-					"app": "mockPodLabels5",
-				},
-				podAnnotations:   map[string]string{},
-				matchLabelKey:    "app",
-				matchLabelValue:  "mockPodLabels5",
-				podName:          "mockPodName5",
-				podNodeName:      "mockPodNodeName5",
-				unstructuredName: "mockName5",
-				unstructuredTemplateSpec: map[string]interface{}{
-					"container": []interface{}{
-						map[string]interface{}{
-							"name":  "container-1",
-							"image": "image:latest",
-						},
-						map[string]interface{}{
-							"name":  "container-2",
-							"image": "image:latest",
-						},
-					},
-				},
-				namespace:  "mockNamespace",
-				kind:       "Deployment",
-				apiVersion: "apps/v1",
-			},
-			want:    nil,
-			wantErr: errortypes.ContainersMatchedError(errortypes.ContainersMatchedErrorMessage),
-		},
-		{
 			name: "validate containers err",
 			args: args{
-				ctx:       context.TODO(),
-				client:    fake.NewClientBuilder().Build(),
-				namespace: "mockNamespace",
+				ctx:        context.TODO(),
+				client:     fake.NewSimpleClientset().AppsV1(),
+				coreClient: fake.NewSimpleClientset().CoreV1(),
+				namespace:  "mockNamespace",
 				targetRef: v1alpha1.CrossVersionObjectReference{
 					Name:       "mockName5",
 					Kind:       "Deployment",
@@ -389,22 +344,20 @@ func TestValidateAndExtractContainers(t *testing.T) {
 				podLabels: map[string]string{
 					"app": "mockPodLabels5",
 				},
-				podAnnotations:   map[string]string{},
-				matchLabelKey:    "app",
-				matchLabelValue:  "mockPodLabels5",
-				podName:          "mockPodName5",
-				podNodeName:      "mockPodNodeName5",
-				unstructuredName: "mockName5",
-				unstructuredTemplateSpec: map[string]interface{}{
-					"containers": []interface{}{
-						map[string]interface{}{
-							"name":  "container-1",
-							"image": "image:latest",
-						},
-						map[string]interface{}{
-							"name":  "container-2",
-							"image": "image:latest",
-						},
+				podAnnotations:  map[string]string{},
+				matchLabelKey:   "app",
+				matchLabelValue: "mockPodLabels5",
+				podName:         "mockPodName5",
+				podNodeName:     "mockPodNodeName5",
+				deploymentName:  "mockName5",
+				containers: []corev1.Container{
+					{
+						Name:  "container-1",
+						Image: "image:latest",
+					},
+					{
+						Name:  "container-2",
+						Image: "image:latest",
 					},
 				},
 				namespace:  "mockNamespace",
@@ -417,11 +370,15 @@ func TestValidateAndExtractContainers(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			matchLabels := map[string]interface{}{
+			matchLabels := map[string]string{
 				tt.env.matchLabelKey: tt.env.matchLabelValue,
 			}
-			resourceutils.CreateMockUnstructured(matchLabels, tt.env.unstructuredTemplateSpec, tt.env.unstructuredName, tt.env.namespace, tt.env.apiVersion, tt.env.kind, tt.args.client)
-			resourceutils.CreateMockPod(tt.env.podLabels, tt.env.podAnnotations, tt.env.podName, tt.env.namespace, tt.env.podNodeName, nil, tt.args.client)
+			if err := resourceutils.CreateMockDeployment(matchLabels, tt.env.containers, tt.env.deploymentName, tt.env.namespace, tt.env.apiVersion, tt.env.kind, tt.args.client); err != nil {
+				t.Errorf("CreateMockDeployment() gotErr = %v", err)
+			}
+			if err := resourceutils.CreateMockPod(tt.env.podLabels, tt.env.podAnnotations, tt.env.podName, tt.env.namespace, tt.env.podNodeName, nil, tt.args.coreClient); err != nil {
+				t.Errorf("CreateMockPod() gotErr = %v", err)
+			}
 			got, gotErr := ValidateAndExtractContainers(tt.args.ctx, tt.args.client, tt.args.namespace, tt.args.targetRef, tt.args.containerPolicies)
 			SortContainersByContainerName(got)
 			if !reflect.DeepEqual(got, tt.want) {

@@ -41,7 +41,6 @@ type PodOOMRecorderController struct {
 }
 
 // NewPodOOMRecorderController
-// todo: genericConf 参考了其他的几个 Controller 都是要传入的，但是我们只有 OOMRecorder，似乎是不需要用到的
 func NewPodOOMRecorderController(ctx context.Context,
 	controlCtx *katalystbase.GenericContext,
 	genericConf *generic.GenericConfiguration,
@@ -61,10 +60,6 @@ func NewPodOOMRecorderController(ctx context.Context,
 		},
 	}
 
-	// 先启动协程再添加监听，client 从使用方式来看应该是 KubeClient，但是提示类型不适配?
-	// 感觉过去要改 recorder，recorder 用的也是对 ConfigMap 做修改
-	// 其他都能替代，但是没有找到 IgnoreNotFound 的替代，看了一下也是封装，应该可以用封装里面那个函数判断
-	// 240728: 使用修改后的 oom_recorder
 	podOOMRecorderController.Recorder = &oom.PodOOMRecorder{
 		Client:             controlCtx.Client.KubeClient.CoreV1(),
 		OOMRecordMaxNumber: recConf.OOMRecordMaxNumber,
@@ -74,7 +69,6 @@ func NewPodOOMRecorderController(ctx context.Context,
 	podInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc:    podOOMRecorderController.addPod,
 		UpdateFunc: podOOMRecorderController.updatePod,
-		// todo: Delete 事件应该不需要
 	})
 
 	return podOOMRecorderController, nil
@@ -121,8 +115,6 @@ func (oc *PodOOMRecorderController) updatePod(oldObj, _ interface{}) {
 
 // ProcessContainer checks for OOM kills in pod containers and enqueues them for processing.
 func (oc *PodOOMRecorderController) ProcessContainer(pod *core.Pod) {
-	// todo: 需要将这个处理过程也包一层工作队列吗？]
-	// 240727: 从 vpa 的调试情况来看 Informer 会直接给函数传递这个 pod 信息
 	for _, containerStatus := range pod.Status.ContainerStatuses {
 		if containerStatus.RestartCount > 0 &&
 			containerStatus.LastTerminationState.Terminated != nil &&
@@ -146,7 +138,6 @@ func (oc *PodOOMRecorderController) ProcessContainer(pod *core.Pod) {
 }
 
 // GetContainer get container info from pod
-// todo: 感觉可以放在 utils 里
 func GetContainer(pod *core.Pod, containerName string) *core.Container {
 	for i := range pod.Spec.Containers {
 		if pod.Spec.Containers[i].Name == containerName {

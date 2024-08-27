@@ -30,7 +30,7 @@ const (
 	WorkloadNotFound                 Code = "WorkloadNotFound"
 	ContainerPoliciesNotFound        Code = "ContainerPoliciesNotFound"
 	ContainersNotFound               Code = "ContainersNotFound"
-	ContainersMatchErrorCode         Code = "ContainersMatchErrorCode"
+	DeploymentIsNil                  Code = "DeploymentIsNilErrorCode"
 	ContainerDuplicate               Code = "ContainerDuplicate"
 	ContainerNameEmpty               Code = "ContainerNameEmpty"
 	ControlledResourcesPoliciesEmpty Code = "ControlledResourcesPoliciesEmpty"
@@ -46,11 +46,11 @@ const (
 	WorkloadNotFoundMessage                 = "workload not found"
 	WorkloadMatchedErrorMessage             = "workload matched err"
 	ContainerPoliciesNotFoundMessage        = "spec.containerPolicies cannot be empty"
-	ContainersMatchedErrorMessage           = "containers matched err"
 	ContainerDuplicateMessage               = "container name %s is duplicate"
 	ContainerNameEmptyMessage               = "empty container name"
 	ControlledResourcesPoliciesEmptyMessage = "container(%s) Resources Policies is empty"
 	ContainerNotFoundMessage                = "container %s is not found"
+	DeploymentIsNilMessage                  = "Deployment is nil"
 	ResourceNameUnsupportedMessage          = "unsupported ResourceName, current supported values: %s"
 	ControlledValuesUnsupportedMessage      = "unsupported ControlledValues, current supported values: %s"
 	ResourceBuffersUnsupportedMessage       = "resource buffers should be in the range from 0 to 100"
@@ -128,18 +128,18 @@ func ContainerPoliciesNotFoundError() *CustomError {
 	}
 }
 
-func ContainersMatchedError(msg string, arg ...any) *CustomError {
-	return &CustomError{
-		Phase:   Validated,
-		Code:    ContainersMatchErrorCode,
-		Message: fmt.Sprintf(msg, arg...),
-	}
-}
-
 func ContainerNameEmptyError(msg string, arg ...any) *CustomError {
 	return &CustomError{
 		Phase:   Validated,
 		Code:    ContainerNameEmpty,
+		Message: fmt.Sprintf(msg, arg...),
+	}
+}
+
+func DeploymentIsNilError(msg string, arg ...any) *CustomError {
+	return &CustomError{
+		Phase:   Validated,
+		Code:    DeploymentIsNil,
 		Message: fmt.Sprintf(msg, arg...),
 	}
 }

@@ -86,7 +86,7 @@ func ValidateAndExtractContainers(ctx context.Context, client appsv1.AppsV1Inter
 	existContainerList, err := resourceutils.GetAllClaimedContainers(deployment)
 	if err != nil {
 		klog.ErrorS(err, "get all claimed containers err")
-		return nil, errortypes.ContainersMatchedError(errortypes.ContainersMatchedErrorMessage)
+		return nil, errortypes.DeploymentIsNilError(errortypes.DeploymentIsNilMessage)
 	}
 
 	containers, validateErr := validateAndExtractContainers(containerPolicies, existContainerList)

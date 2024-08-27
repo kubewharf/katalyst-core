@@ -113,7 +113,7 @@ func NewResourceRecommendController(ctx context.Context,
 		client: controlCtx.Client.KubeClient.AppsV1(),
 	}
 
-	// todo: 没有完全理解这部分的作用，似乎是用于同步 katalyst 的 其他 cr？
+	// 用于同步 katalyst 的其他动态资源
 	// todo: 似乎不需要 workloadLister ，在 vpa 中会用于获得 SPD 和 Pod List，暂时注释掉
 	for _, wf := range controlCtx.DynamicResourcesManager.GetDynamicInformers() {
 		//recController.workloadLister[wf.GVK] = wf.Informer.Lister()
@@ -132,7 +132,7 @@ func NewResourceRecommendController(ctx context.Context,
 	}
 
 	// todo: 如果是和 vpa 协同工作，这里是否需要尝试给 vpa 构建索引呢？
-	// todo: 还有一个 metricsEmitter，但是原控制器似乎没有这部分的内容，这里感觉也可以补上
+	// todo: 补充 metricsEmitter
 
 	// 初始化数据源，创建新 ProcessorManager
 	dataProxy := initDataSources(recConf)
@@ -172,7 +172,7 @@ func (rrc *ResourceRecommendController) Run() {
 	klog.Infof("[resource-recommend] caches are synced for %s controller", resourceRecommendControllerName)
 	klog.Infof("[resource-recommend] start %v recSyncWorkers", rrc.recSyncWorkers)
 
-	// 开多个协程进行并发接任务，应该是为了提升吞吐率
+	// 开多个协程进行并发接任务，为了提升吞吐率
 	for i := 0; i < rrc.recSyncWorkers; i++ {
 		go wait.Until(rrc.recWorker, time.Second, rrc.ctx.Done())
 	}
@@ -204,7 +204,6 @@ func (rrc *ResourceRecommendController) updateRec(_, newObj interface{}) {
 // 将资源推荐任务入队
 func (rrc *ResourceRecommendController) enqueueRec(rec *v1alpha1.ResourceRecommend) {
 	if rec == nil {
-		// todo: 这里 vpa 的源代码用的是 spd，为什么不使用 vpa？
 		klog.Warningf("[resource-recommend] trying to enqueue a nil vpaRec")
 	}
 	key, err := cache.DeletionHandlingMetaNamespaceKeyFunc(rec)
@@ -215,8 +214,7 @@ func (rrc *ResourceRecommendController) enqueueRec(rec *v1alpha1.ResourceRecomme
 	rrc.recQueue.Add(key)
 }
 
-// recWorker 会不断地处理来自队列的任务，可以在 config 中配置多个 worker 以协程的形式同时运行
-// 这样可以增加吞吐率
+// recWorker 会不断地处理来自队列的任务，可以在 config 中配置多个 worker 以协程的形式同时运行，这样可以增加吞吐率
 func (rrc *ResourceRecommendController) recWorker() {
 	for rrc.ProcessNextResourceRecommend() {
 	}
@@ -259,7 +257,6 @@ func (rrc *ResourceRecommendController) syncRec(key string) error {
 	if err != nil {
 		if k8serrors.IsNotFound(err) {
 			klog.Warningf("[resource-recommend] recommendation %s/%s is not found", namespace, name)
-			// todo: 什么情况下会在有这个 namespace/name 但是没有找到这个 recommendation 呢？ 这里暂时当返回 nil 来看待
 			_ = rrc.CancelTasks(k8stypes.NamespacedName{
 				Namespace: namespace,
 				Name:      name,
@@ -268,8 +265,6 @@ func (rrc *ResourceRecommendController) syncRec(key string) error {
 		}
 		return err
 	}
-	// 后面代码就是接入 Reconcile 和 doReconcile 的内容了
-	// 一些函数会带上 Dev 开头，是因为做了修改，独立了一个基于原函数的最小修改新函数
 	if recommender := resourceRecommend.Spec.ResourcePolicy.AlgorithmPolicy.Recommender; recommender != "" &&
 		recommender != recommendationtypes.DefaultRecommenderType {
 		klog.InfoS("ResourceRecommend is not controlled by the default controller")
@@ -285,7 +280,7 @@ func (rrc *ResourceRecommendController) syncRec(key string) error {
 				"observedGeneration", observedGeneration,
 				"generation", resourceRecommend.GetGeneration(),
 				"resourceRecommendName", resourceRecommend.GetName())
-			//return nil // todo: for test
+			return nil
 		}
 	}
 
@@ -358,7 +353,7 @@ func (rrc *ResourceRecommendController) RegisterTasks(recommendation recommendat
 
 // CancelTasks Cancel all process task
 func (rrc *ResourceRecommendController) CancelTasks(namespacedName k8stypes.NamespacedName) *errortypes.CustomError {
-	// todo: 为什么这边写死了用 Percentile
+	// todo: 不应该写死用 Percentile
 	processor := rrc.ProcessorManager.GetProcessor(v1alpha1.AlgorithmPercentile)
 	err := processor.Cancel(&processortypes.ProcessKey{ResourceRecommendNamespacedName: namespacedName})
 	if err != nil {

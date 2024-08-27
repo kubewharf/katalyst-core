@@ -18,13 +18,17 @@ package resource
 
 import (
 	"context"
+	"fmt"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	appsv1 "k8s.io/client-go/kubernetes/typed/apps/v1"
+	corev1 "k8s.io/client-go/kubernetes/typed/core/v1"
 
+	apiappsv1 "k8s.io/api/apps/v1"
 	v1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-func CreateMockPod(labels, annotations map[string]string, name, namespace, nodeName string, containers []v1.Container, client client.Client) {
+func CreateMockPod(labels, annotations map[string]string, name, namespace, nodeName string, containers []v1.Container, client corev1.CoreV1Interface) error {
 	pod := &v1.Pod{
 		Spec: v1.PodSpec{
 			NodeName:   nodeName,
@@ -36,16 +40,44 @@ func CreateMockPod(labels, annotations map[string]string, name, namespace, nodeN
 	pod.SetName(name)
 	pod.SetNamespace(namespace)
 
-	client.Create(context.TODO(), pod)
+	_, err := client.Pods(namespace).Create(context.TODO(), pod, metav1.CreateOptions{})
+	return err
 }
 
-func CreateMockUnstructured(matchLabels, unstructuredTemplateSpec map[string]interface{}, name, namespace, apiVersion, kind string, client client.Client) {
-	collectorObject := &unstructured.Unstructured{}
-	collectorObject.SetName(name)
-	collectorObject.SetNamespace(namespace)
-	collectorObject.SetKind(kind)
-	collectorObject.SetAPIVersion(apiVersion)
-	unstructured.SetNestedMap(collectorObject.Object, matchLabels, "spec", "selector", "matchLabels")
-	unstructured.SetNestedMap(collectorObject.Object, unstructuredTemplateSpec, "spec", "template", "spec")
-	client.Create(context.TODO(), collectorObject)
+func CreateMockDeployment(matchLabels map[string]string, containers []v1.Container, name, namespace, apiVersion, kind string, client appsv1.AppsV1Interface) error {
+	deployment := &apiappsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      name,
+			Namespace: namespace,
+		},
+		Spec: apiappsv1.DeploymentSpec{
+			Selector: &metav1.LabelSelector{
+				MatchLabels: matchLabels,
+			},
+			Template: v1.PodTemplateSpec{
+				ObjectMeta: metav1.ObjectMeta{
+					Labels: matchLabels,
+				},
+				Spec: v1.PodSpec{
+					Containers: containers,
+				},
+			},
+		},
+	}
+
+	groupVersion, err := schema.ParseGroupVersion(apiVersion)
+	if err != nil {
+		return fmt.Errorf("failed to parse apiVersion: %v", err)
+	}
+	deployment.SetGroupVersionKind(schema.GroupVersionKind{
+		Group:   groupVersion.Group,
+		Version: groupVersion.Version,
+		Kind:    kind,
+	})
+
+	_, err = client.Deployments(namespace).Create(context.TODO(), deployment, metav1.CreateOptions{})
+	if err != nil {
+		return fmt.Errorf("failed to create deployment: %v", err)
+	}
+	return nil
 }

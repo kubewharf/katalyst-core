@@ -25,8 +25,8 @@ import (
 	"bou.ke/monkey"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/kubernetes/fake"
 	k8sclient "sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	"github.com/kubewharf/katalyst-api/pkg/apis/recommendation/v1alpha1"
 	conditionstypes "github.com/kubewharf/katalyst-core/pkg/util/resource-recommend/types/conditions"
@@ -238,7 +238,7 @@ func TestRecommendation_SetConfig(t *testing.T) {
 			})
 
 			r := NewRecommendation(&v1alpha1.ResourceRecommend{})
-			if gotErr := r.SetConfig(context.Background(), fake.NewClientBuilder().Build(), &v1alpha1.ResourceRecommend{}); !reflect.DeepEqual(gotErr, tt.wantErr) {
+			if gotErr := r.SetConfig(context.Background(), fake.NewSimpleClientset().AppsV1(), &v1alpha1.ResourceRecommend{}); !reflect.DeepEqual(gotErr, tt.wantErr) {
 				t.Errorf("SetConfig() = %v, want %v", gotErr, tt.wantErr)
 			}
 			if tt.wantErr == nil {

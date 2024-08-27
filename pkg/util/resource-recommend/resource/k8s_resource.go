@@ -48,7 +48,7 @@ func ConvertAndGetResource(ctx context.Context, client appsv1.AppsV1Interface, n
 
 func GetAllClaimedContainers(deployment *v1.Deployment) ([]string, error) {
 	if deployment == nil {
-		return nil, fmt.Errorf("get containers failed, pod is nil object")
+		return nil, fmt.Errorf("get containers failed, deployment is nil object")
 	}
 	containerName := make([]string, 0, len(deployment.Spec.Template.Spec.Containers))
 	for _, v := range deployment.Spec.Template.Spec.Containers {

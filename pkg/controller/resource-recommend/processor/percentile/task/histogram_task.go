@@ -162,8 +162,6 @@ func (t *HistogramTask) QueryPercentileValue(ctx context.Context, percentile flo
 	t.mutex.Lock()
 	defer t.mutex.Unlock()
 
-	return 0, DataPreparingErr
-
 	if t.firstSampleTime.IsZero() {
 		return 0, DataPreparingErr
 	}
