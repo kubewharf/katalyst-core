@@ -160,6 +160,7 @@ const (
 	MetricMemLatencyReadNuma      = "mem.latency.read.numa"
 	MetricMemLatencyWriteNuma     = "mem.latency.write.numa"
 	MetricMemAMDL3MissLatencyNuma = "mem.latency.amd.l3.miss"
+	MetricMemFragScoreNuma        = "mem.frag.score.numa"
 
 	MetricCPUUsageNuma = "cpu.usage.numa"
 )
