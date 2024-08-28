@@ -158,7 +158,7 @@ func newMonitor(info *machine.KatalystMachineInfo) (*MBMonitor, error) {
 	insts[0] = Instance{
 		Name:        "dummy workload 0",
 		Priority:    1,
-		Request:     140_000, //140G
+		Request:     100_000, //140G
 		Limit:       140_000,
 		SoftLimit:   false,
 		Nodes:       map[int]struct{}{0: struct{}{}},
@@ -167,8 +167,8 @@ func newMonitor(info *machine.KatalystMachineInfo) (*MBMonitor, error) {
 	insts[1] = Instance{
 		Name:        "dummy workload 1",
 		Priority:    1,
-		Request:     70_000, //140G
-		Limit:       140_000,
+		Request:     50_000, //140G
+		Limit:       70_000,
 		SoftLimit:   false,
 		Nodes:       map[int]struct{}{1: struct{}{}},
 		CosTracking: map[int]int{2: 0},
@@ -176,8 +176,8 @@ func newMonitor(info *machine.KatalystMachineInfo) (*MBMonitor, error) {
 	insts[2] = Instance{
 		Name:        "dummy workload 2",
 		Priority:    1,
-		Request:     70_000, //140G
-		Limit:       140_000,
+		Request:     50_000, //140G
+		Limit:       70_000,
 		SoftLimit:   false,
 		Nodes:       map[int]struct{}{2: struct{}{}},
 		CosTracking: map[int]int{4: 0},

@@ -140,7 +140,7 @@ func (m *MBMonitor) AdjustNumaMB(node int, avgMB, quota uint64, action MB_CONTRO
 		ccdMB,
 		ccdQuota)
 
-	if m.MemoryBandwidth.Numas[node].Total <= uint64(float64(avgMB)*MEMORY_BANDWIDTH_PHYSICAL_NUMA_PAINPOINT) &&
+	if m.MemoryBandwidth.Numas[node].Total <= uint64(float64(avgMB)*MEMORY_BANDWIDTH_PHYSICAL_NUMA_PAINPOINT/100) &&
 		action != MEMORY_BANDWIDTH_CONTROL_UNTHROTTLE {
 		action = MEMORY_BANDWIDTH_CONTROL_UNTHROTTLE
 	}
