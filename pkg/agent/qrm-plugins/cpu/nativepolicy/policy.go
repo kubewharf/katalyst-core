@@ -144,8 +144,6 @@ func NewNativePolicy(agentCtx *agent.GenericContext, conf *config.Configuration,
 		return false, agent.ComponentStub{}, fmt.Errorf("native policy set reserved CPUs failed with error: %v", err)
 	}
 
-	state.SetContainerRequestedCores(policyImplement.getContainerRequestedCores)
-
 	err := agentCtx.MetaServer.ConfigurationManager.AddConfigWatcher(crd.AdminQoSConfigurationGVR)
 	if err != nil {
 		return false, nil, err

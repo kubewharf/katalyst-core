@@ -303,7 +303,7 @@ func (p *DynamicPolicy) calculateHints(reqInt int,
 	})
 
 	if numaBound > machine.MBWNUMAsPoint {
-		numaAllocatedMemBW, err := getNUMAAllocatedMemBW(machineState, p.metaServer)
+		numaAllocatedMemBW, err := getNUMAAllocatedMemBW(machineState, p.metaServer, p.getContainerRequestedCores)
 
 		general.InfoS("getNUMAAllocatedMemBW",
 			"podNamespace", req.PodNamespace,
@@ -322,7 +322,7 @@ func (p *DynamicPolicy) calculateHints(reqInt int,
 	return hints, nil
 }
 
-func getNUMAAllocatedMemBW(machineState state.NUMANodeMap, metaServer *metaserver.MetaServer) (map[int]int, error) {
+func getNUMAAllocatedMemBW(machineState state.NUMANodeMap, metaServer *metaserver.MetaServer, getContainerRequestedCores state.GetContainerRequestedCoresFunc) (map[int]int, error) {
 	numaAllocatedMemBW := make(map[int]int)
 	podUIDToMemBWReq := make(map[string]int)
 	podUIDToBindingNUMAs := make(map[string]sets.Int)
@@ -350,7 +350,7 @@ func getNUMAAllocatedMemBW(machineState state.NUMANodeMap, metaServer *metaserve
 						Name:        allocationInfo.PodName,
 						Labels:      allocationInfo.Labels,
 						Annotations: allocationInfo.Annotations,
-					}, int(math.Ceil(state.GetContainerRequestedCores()(allocationInfo))))
+					}, int(math.Ceil(getContainerRequestedCores(allocationInfo))))
 					if err != nil {
 						return nil, fmt.Errorf("GetContainerMemoryBandwidthRequest for pod: %s/%s, container: %s failed with error: %v",
 							allocationInfo.PodNamespace, allocationInfo.PodName, allocationInfo.ContainerName, err)
@@ -784,7 +784,7 @@ func (p *DynamicPolicy) calculateHintsForNUMABindingSharedCores(reqInt int, podE
 ) (map[string]*pluginapi.ListOfTopologyHints, error) {
 	nonBindingNUMAsCPUQuantity := machineState.GetFilteredAvailableCPUSet(p.reservedCPUs, nil, state.CheckNUMABinding).Size()
 	nonBindingNUMAs := machineState.GetFilteredNUMASet(state.CheckNUMABinding)
-	nonBindingSharedRequestedQuantity := state.GetNonBindingSharedRequestedQuantityFromPodEntries(podEntries)
+	nonBindingSharedRequestedQuantity := state.GetNonBindingSharedRequestedQuantityFromPodEntries(podEntries, nil, p.getContainerRequestedCores)
 
 	numaNodes := p.filterNUMANodesByNonBindingSharedRequestedQuantity(nonBindingSharedRequestedQuantity,
 		nonBindingNUMAsCPUQuantity, nonBindingNUMAs, machineState,

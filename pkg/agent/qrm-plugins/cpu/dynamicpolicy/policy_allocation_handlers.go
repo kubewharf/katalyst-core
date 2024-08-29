@@ -726,7 +726,7 @@ func (p *DynamicPolicy) putAllocationsAndAdjustAllocationEntriesResizeAware(orig
 				return fmt.Errorf("pool %s cross NUMA: %+v", poolName, poolsQuantityMap[poolName])
 			}
 		} else if incrByReq {
-			err := state.CountAllocationInfosToPoolsQuantityMap(allocationInfos, poolsQuantityMap)
+			err := state.CountAllocationInfosToPoolsQuantityMap(allocationInfos, poolsQuantityMap, p.getContainerRequestedCores)
 			if err != nil {
 				return fmt.Errorf("CountAllocationInfosToPoolsQuantityMap failed with error: %v", err)
 			}
@@ -734,7 +734,7 @@ func (p *DynamicPolicy) putAllocationsAndAdjustAllocationEntriesResizeAware(orig
 	} else {
 		// else we do sum(containers req) for each pool to get pools ratio
 		var err error
-		poolsQuantityMap, err = state.GetSharedQuantityMapFromPodEntries(entries, allocationInfos)
+		poolsQuantityMap, err = state.GetSharedQuantityMapFromPodEntries(entries, allocationInfos, p.getContainerRequestedCores)
 		if err != nil {
 			return fmt.Errorf("GetSharedQuantityMapFromPodEntries failed with error: %v", err)
 		}
@@ -745,14 +745,14 @@ func (p *DynamicPolicy) putAllocationsAndAdjustAllocationEntriesResizeAware(orig
 					allocationInfos[0].PodNamespace, allocationInfos[0].PodName, allocationInfos[0].ContainerName)
 			}
 			// if advisor is disabled, qrm can re-calc the pool size exactly. we don't need to adjust the pool size.
-			err := state.CountAllocationInfosToPoolsQuantityMap(allocationInfos, poolsQuantityMap)
+			err := state.CountAllocationInfosToPoolsQuantityMap(allocationInfos, poolsQuantityMap, p.getContainerRequestedCores)
 			if err != nil {
 				return fmt.Errorf("CountAllocationInfosToPoolsQuantityMap failed with error: %v", err)
 			}
 		}
 	}
 
-	isolatedQuantityMap := state.GetIsolatedQuantityMapFromPodEntries(entries, allocationInfos)
+	isolatedQuantityMap := state.GetIsolatedQuantityMapFromPodEntries(entries, allocationInfos, p.getContainerRequestedCores)
 	err := p.adjustPoolsAndIsolatedEntries(poolsQuantityMap, isolatedQuantityMap,
 		entries, machineState)
 	if err != nil {
@@ -867,12 +867,12 @@ func (p *DynamicPolicy) adjustAllocationEntries() error {
 		poolsQuantityMap = machine.ParseCPUAssignmentQuantityMap(poolsCPUSetMap)
 	} else {
 		var err error
-		poolsQuantityMap, err = state.GetSharedQuantityMapFromPodEntries(entries, nil)
+		poolsQuantityMap, err = state.GetSharedQuantityMapFromPodEntries(entries, nil, p.getContainerRequestedCores)
 		if err != nil {
 			return fmt.Errorf("GetSharedQuantityMapFromPodEntries failed with error: %v", err)
 		}
 	}
-	isolatedQuantityMap := state.GetIsolatedQuantityMapFromPodEntries(entries, nil)
+	isolatedQuantityMap := state.GetIsolatedQuantityMapFromPodEntries(entries, nil, p.getContainerRequestedCores)
 
 	err := p.adjustPoolsAndIsolatedEntries(poolsQuantityMap, isolatedQuantityMap, entries, machineState)
 	if err != nil {
@@ -1095,7 +1095,7 @@ func (p *DynamicPolicy) applyPoolsAndIsolatedInfo(poolsCPUSet map[string]machine
 
 			newPodEntries[podUID][containerName] = allocationInfo.Clone()
 			// adapt to old checkpoint without RequestQuantity property
-			newPodEntries[podUID][containerName].RequestQuantity = state.GetContainerRequestedCores()(allocationInfo)
+			newPodEntries[podUID][containerName].RequestQuantity = p.getContainerRequestedCores(allocationInfo)
 			switch allocationInfo.QoSLevel {
 			case apiconsts.PodAnnotationQoSLevelDedicatedCores:
 				newPodEntries[podUID][containerName].OwnerPoolName = allocationInfo.GetPoolName()
