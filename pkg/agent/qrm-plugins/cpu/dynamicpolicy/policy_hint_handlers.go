@@ -41,6 +41,8 @@ import (
 	qosutil "github.com/kubewharf/katalyst-core/pkg/util/qos"
 )
 
+var errNoAvailableCPUHints = fmt.Errorf("no available cpu hints")
+
 type memBWHintUpdate struct {
 	updatedPreferrence bool
 	leftAllocatable    int
@@ -73,7 +75,7 @@ func (p *DynamicPolicy) sharedCoresHintHandler(ctx context.Context,
 				"podName":       req.PodName,
 				"containerName": req.ContainerName,
 			})...)
-			return nil, fmt.Errorf("no enough cpu resource")
+			return nil, errNoAvailableCPUHints
 		}
 	}
 
@@ -209,12 +211,6 @@ func (p *DynamicPolicy) calculateHints(reqInt int,
 	}
 	sort.Ints(numaNodes)
 
-	hints := map[string]*pluginapi.ListOfTopologyHints{
-		string(v1.ResourceCPU): {
-			Hints: []*pluginapi.TopologyHint{},
-		},
-	}
-
 	minNUMAsCountNeeded, _, err := util.GetNUMANodesCountToFitCPUReq(reqInt, p.machineInfo.CPUTopology)
 	if err != nil {
 		return nil, fmt.Errorf("GetNUMANodesCountToFitCPUReq failed with error: %v", err)
@@ -262,6 +258,7 @@ func (p *DynamicPolicy) calculateHints(reqInt int,
 	}
 
 	preferredHintIndexes := []int{}
+	var availableNumaHints []*pluginapi.TopologyHint
 	machine.IterateBitMasks(numaNodes, numaBound, func(mask machine.BitMask) {
 		maskCount := mask.Count()
 		if maskCount < minNUMAsCountNeeded {
@@ -292,15 +289,24 @@ func (p *DynamicPolicy) calculateHints(reqInt int,
 		}
 
 		preferred := maskCount == minNUMAsCountNeeded
-		hints[string(v1.ResourceCPU)].Hints = append(hints[string(v1.ResourceCPU)].Hints, &pluginapi.TopologyHint{
+		availableNumaHints = append(availableNumaHints, &pluginapi.TopologyHint{
 			Nodes:     machine.MaskToUInt64Array(mask),
 			Preferred: preferred,
 		})
 
 		if preferred {
-			preferredHintIndexes = append(preferredHintIndexes, len(hints[string(v1.ResourceCPU)].Hints)-1)
+			preferredHintIndexes = append(preferredHintIndexes, len(availableNumaHints)-1)
 		}
 	})
+
+	// NOTE: because grpc is inability to distinguish between an empty array and nil,
+	//       we return an error instead of an empty array.
+	//       we should resolve this issue if we need manage multi resource in one plugin.
+	if len(availableNumaHints) == 0 {
+		general.Warningf("calculateHints got no available cpu hints for pod: %s/%s, container: %s",
+			req.PodNamespace, req.PodName, req.ContainerName)
+		return nil, errNoAvailableCPUHints
+	}
 
 	if numaBound > machine.MBWNUMAsPoint {
 		numaAllocatedMemBW, err := getNUMAAllocatedMemBW(machineState, p.metaServer, p.getContainerRequestedCores)
@@ -314,9 +320,15 @@ func (p *DynamicPolicy) calculateHints(reqInt int,
 			general.Errorf("getNUMAAllocatedMemBW failed with error: %v", err)
 			_ = p.emitter.StoreInt64(util.MetricNameGetNUMAAllocatedMemBWFailed, 1, metrics.MetricTypeNameRaw)
 		} else {
-			p.updatePreferredCPUHintsByMemBW(preferredHintIndexes, hints[string(v1.ResourceCPU)].Hints,
+			p.updatePreferredCPUHintsByMemBW(preferredHintIndexes, availableNumaHints,
 				reqInt, numaAllocatedMemBW, req, numaExclusive)
 		}
+	}
+
+	hints := map[string]*pluginapi.ListOfTopologyHints{
+		string(v1.ResourceCPU): {
+			Hints: availableNumaHints,
+		},
 	}
 
 	return hints, nil
@@ -633,7 +645,7 @@ func (p *DynamicPolicy) sharedCoresWithNUMABindingHintHandler(_ context.Context,
 				general.Infof("pod: %s/%s, container: %s request inplace update resize and no enough resource in current NUMA, try to migrate it to new NUMA",
 					req.PodNamespace, req.PodName, req.ContainerName)
 				var calculateErr error
-				hints, calculateErr = p.calculateHintsForNUMABindingSharedCores(reqInt, podEntries, machineState, req.Annotations)
+				hints, calculateErr = p.calculateHintsForNUMABindingSharedCores(reqInt, podEntries, machineState, req)
 				if calculateErr != nil {
 					general.Errorf("pod: %s/%s, container: %s request inplace update resize and no enough resource in current NUMA, failed to migrate it to new NUMA",
 						req.PodNamespace, req.PodName, req.ContainerName)
@@ -642,7 +654,7 @@ func (p *DynamicPolicy) sharedCoresWithNUMABindingHintHandler(_ context.Context,
 			} else {
 				general.Errorf("pod: %s/%s, container: %s request inplace update resize, but no enough resource for it in current NUMA",
 					req.PodNamespace, req.PodName, req.ContainerName)
-				return nil, fmt.Errorf("inplace update resize scale out failed with no enough resource")
+				return nil, errNoAvailableCPUHints
 			}
 		} else {
 			general.Infof("pod: %s/%s, container: %s request inplace update resize, there is enough resource for it in current NUMA",
@@ -650,7 +662,7 @@ func (p *DynamicPolicy) sharedCoresWithNUMABindingHintHandler(_ context.Context,
 		}
 	} else if hints == nil {
 		var calculateErr error
-		hints, calculateErr = p.calculateHintsForNUMABindingSharedCores(reqInt, podEntries, machineState, req.Annotations)
+		hints, calculateErr = p.calculateHintsForNUMABindingSharedCores(reqInt, podEntries, machineState, req)
 		if calculateErr != nil {
 			return nil, fmt.Errorf("calculateHintsForNUMABindingSharedCores failed with error: %v", calculateErr)
 		}
@@ -780,12 +792,13 @@ func (p *DynamicPolicy) filterNUMANodesByNonBindingSharedRequestedQuantity(nonBi
 
 func (p *DynamicPolicy) calculateHintsForNUMABindingSharedCores(reqInt int, podEntries state.PodEntries,
 	machineState state.NUMANodeMap,
-	reqAnnotations map[string]string,
+	req *pluginapi.ResourceRequest,
 ) (map[string]*pluginapi.ListOfTopologyHints, error) {
 	nonBindingNUMAsCPUQuantity := machineState.GetFilteredAvailableCPUSet(p.reservedCPUs, nil, state.CheckNUMABinding).Size()
 	nonBindingNUMAs := machineState.GetFilteredNUMASet(state.CheckNUMABinding)
 	nonBindingSharedRequestedQuantity := state.GetNonBindingSharedRequestedQuantityFromPodEntries(podEntries, nil, p.getContainerRequestedCores)
 
+	reqAnnotations := req.Annotations
 	numaNodes := p.filterNUMANodesByNonBindingSharedRequestedQuantity(nonBindingSharedRequestedQuantity,
 		nonBindingNUMAsCPUQuantity, nonBindingNUMAs, machineState,
 		machineState.GetFilteredNUMASetWithAnnotations(state.CheckNUMABindingSharedCoresAntiAffinity, reqAnnotations).ToSliceInt())
@@ -824,6 +837,15 @@ func (p *DynamicPolicy) calculateHintsForNUMABindingSharedCores(reqInt int, podE
 	default:
 		general.Infof("unknown policy: %s, apply default spreading policy on NUMAs: %+v", p.cpuNUMAHintPreferPolicy, numaNodes)
 		p.populateHintsByPreferPolicy(numaNodes, cpuconsts.CPUNUMAHintPreferPolicySpreading, hints, machineState, reqInt)
+	}
+
+	// NOTE: because grpc is inability to distinguish between an empty array and nil,
+	//       we return an error instead of an empty array.
+	//       we should resolve this issue if we need manage multi resource in one plugin.
+	if len(hints[string(v1.ResourceCPU)].Hints) == 0 {
+		general.Warningf("calculateHints got no available memory hints for snb pod: %s/%s, container: %s",
+			req.PodNamespace, req.PodName, req.ContainerName)
+		return nil, errNoAvailableCPUHints
 	}
 
 	return hints, nil
