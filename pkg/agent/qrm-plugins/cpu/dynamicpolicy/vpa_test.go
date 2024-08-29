@@ -708,7 +708,7 @@ func TestNormalShareVPA(t *testing.T) {
 	}
 
 	_, err = dynamicPolicy.GetTopologyHints(context.Background(), resizeReq)
-	as.ErrorContains(err, "no enough")
+	as.ErrorContains(err, errNoAvailableCPUHints.Error())
 
 	resizeReq1 := &pluginapi.ResourceRequest{
 		PodUid:         req.PodUid,

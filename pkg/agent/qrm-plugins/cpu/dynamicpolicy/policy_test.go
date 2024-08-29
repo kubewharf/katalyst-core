@@ -5291,10 +5291,8 @@ func TestSNBAdmitWithSidecarReallocate(t *testing.T) {
 	}
 
 	// pod aggregated size is 8, the new container request is 4, 8 + 4 > 11 (share-NUMA0 size)
-	res, err = dynamicPolicy.GetTopologyHints(context.Background(), anotherReq)
-	as.Nil(err)
-	as.NotNil(res.ResourceHints[string(v1.ResourceCPU)])
-	as.Equal(0, len(res.ResourceHints[string(v1.ResourceCPU)].Hints))
+	_, err = dynamicPolicy.GetTopologyHints(context.Background(), anotherReq)
+	as.ErrorContains(err, errNoAvailableCPUHints.Error())
 
 	// reallocate sidecar
 	_, err = dynamicPolicy.Allocate(context.Background(), sidecarReq)
