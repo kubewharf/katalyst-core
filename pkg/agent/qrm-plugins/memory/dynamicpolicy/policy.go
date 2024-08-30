@@ -41,6 +41,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/memory/dynamicpolicy/memoryadvisor"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/memory/dynamicpolicy/oom"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/memory/dynamicpolicy/state"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/memory/handlers/logcache"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/memory/handlers/sockmem"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util"
 	"github.com/kubewharf/katalyst-core/pkg/agent/utilcomponent/periodicalhandler"
@@ -156,6 +157,9 @@ type DynamicPolicy struct {
 	oomPriorityMapPinnedPath string
 	oomPriorityMapLock       sync.Mutex
 	oomPriorityMap           *ebpf.Map
+
+	enableEvictingLogCache  bool
+	logCacheEvictionManager logcache.Manager
 }
 
 func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration,
@@ -219,6 +223,7 @@ func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration
 		extraControlKnobConfigs:    extraControlKnobConfigs, // [TODO]: support modifying extraControlKnobConfigs by KCC
 		enableOOMPriority:          conf.EnableOOMPriority,
 		oomPriorityMapPinnedPath:   conf.OOMPriorityPinnedMapAbsPath,
+		enableEvictingLogCache:     conf.EnableEvictingLogCache,
 	}
 
 	policyImplement.allocationHandlers = map[string]util.AllocationHandler{
@@ -263,6 +268,9 @@ func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration
 	memoryadvisor.RegisterControlKnobHandler(memoryadvisor.ControlKnowKeyMemoryOffloading,
 		memoryadvisor.ControlKnobHandlerWithChecker(policyImplement.handleAdvisorMemoryOffloading))
 
+	if policyImplement.enableEvictingLogCache {
+		policyImplement.logCacheEvictionManager = logcache.NewManager(conf, agentCtx.MetaServer)
+	}
 	return true, &agent.PluginWrapper{GenericPlugin: pluginWrapper}, nil
 }
 
@@ -389,6 +397,16 @@ func (p *DynamicPolicy) Start() (err error) {
 			sockmem.SetSockMemLimit, 60*time.Second, healthCheckTolerationTimes)
 		if err != nil {
 			general.Infof("setSockMem failed, err=%v", err)
+		}
+	}
+
+	if p.enableEvictingLogCache {
+		general.Infof("evictLogCache enabled")
+		err := periodicalhandler.RegisterPeriodicalHandlerWithHealthz(memconsts.EvictLogCache,
+			general.HealthzCheckStateNotReady, qrm.QRMMemoryPluginPeriodicalHandlerGroupName,
+			p.logCacheEvictionManager.EvictLogCache, 600*time.Second, healthCheckTolerationTimes)
+		if err != nil {
+			general.Errorf("evictLogCache failed, err=%v", err)
 		}
 	}
 

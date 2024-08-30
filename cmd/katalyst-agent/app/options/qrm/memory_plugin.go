@@ -17,6 +17,8 @@ limitations under the License.
 package qrm
 
 import (
+	"time"
+
 	cliflag "k8s.io/component-base/cli/flag"
 
 	qrmconfig "github.com/kubewharf/katalyst-core/pkg/config/agent/qrm"
@@ -33,6 +35,7 @@ type MemoryOptions struct {
 	OOMPriorityPinnedMapAbsPath string
 
 	SockMemOptions
+	LogCacheOptions
 }
 
 type SockMemOptions struct {
@@ -41,6 +44,23 @@ type SockMemOptions struct {
 	SetGlobalTCPMemRatio int
 	// SetCgroupTCPMemLimitRatio limit cgroup max tcp memory usage.
 	SetCgroupTCPMemRatio int
+}
+
+type LogCacheOptions struct {
+	// EnableEvictingLogCache is used to enable evicting log cache by advise kernel to throw page cache for log files
+	EnableEvictingLogCache bool
+	// If the change value of the page cache between two operations exceeds this threshold, then increase the frequency of subsequent eviction operations.
+	HighThreshold uint64
+	// If the change value of the page cache between two operations is lower than this value, then slow down the frequency of subsequent eviction operations.
+	LowThreshold uint64
+	// The minimum time interval between two operations
+	MinInterval time.Duration
+	// The maximum time interval between two operations
+	MaxInterval time.Duration
+	// The file directory for evicting the log cache
+	PathList []string
+	// Keywords for recognizing log files
+	FileFilters []string
 }
 
 func NewMemoryOptions() *MemoryOptions {
@@ -55,6 +75,15 @@ func NewMemoryOptions() *MemoryOptions {
 			EnableSettingSockMem: false,
 			SetGlobalTCPMemRatio: 20,  // default: 20% * {host total memory}
 			SetCgroupTCPMemRatio: 100, // default: 100% * {cgroup memory}
+		},
+		LogCacheOptions: LogCacheOptions{
+			EnableEvictingLogCache: false,
+			HighThreshold:          30, // default: 30GB
+			LowThreshold:           5,  // default: 5GB
+			MinInterval:            time.Second * 600,
+			MaxInterval:            time.Second * 60 * 60 * 2,
+			PathList:               []string{},
+			FileFilters:            []string{".*\\.log.*"},
 		},
 	}
 }
@@ -84,6 +113,20 @@ func (o *MemoryOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 		o.SetGlobalTCPMemRatio, "limit global max tcp memory usage")
 	fs.IntVar(&o.SetCgroupTCPMemRatio, "qrm-memory-cgroup-tcpmem-ratio",
 		o.SetCgroupTCPMemRatio, "limit cgroup max tcp memory usage")
+	fs.BoolVar(&o.EnableEvictingLogCache, "enable-evicting-logcache",
+		o.EnableEvictingLogCache, "if set true, we will enable log cache eviction")
+	fs.Uint64Var(&o.HighThreshold, "qrm-memory-logcache-high-threshold",
+		o.HighThreshold, "high level of evicted cache memory(GB) for log files")
+	fs.Uint64Var(&o.LowThreshold, "qrm-memory-logcache-low-threshold",
+		o.LowThreshold, "low level of evicted cache memory(GB) for log files")
+	fs.DurationVar(&o.MinInterval, "qrm-memory-logcache-min-interval", o.MinInterval,
+		"the minimum interval for logcache eviction")
+	fs.DurationVar(&o.MaxInterval, "qrm-memory-logcache-max-interval", o.MaxInterval,
+		"the maximum interval for logcache eviction")
+	fs.StringSliceVar(&o.PathList, "qrm-memory-logcache-path-list", o.PathList,
+		"the absolute path list where files will be checked to evic page cache")
+	fs.StringSliceVar(&o.FileFilters, "qrm-memory-logcache-file-filters",
+		o.FileFilters, "string list to filter log files, default to *log*")
 }
 
 func (o *MemoryOptions) ApplyTo(conf *qrmconfig.MemoryQRMPluginConfig) error {
@@ -98,5 +141,12 @@ func (o *MemoryOptions) ApplyTo(conf *qrmconfig.MemoryQRMPluginConfig) error {
 	conf.EnableSettingSockMem = o.EnableSettingSockMem
 	conf.SetGlobalTCPMemRatio = o.SetGlobalTCPMemRatio
 	conf.SetCgroupTCPMemRatio = o.SetCgroupTCPMemRatio
+	conf.EnableEvictingLogCache = o.EnableEvictingLogCache
+	conf.HighThreshold = o.HighThreshold
+	conf.LowThreshold = o.LowThreshold
+	conf.MinInterval = o.MinInterval
+	conf.MaxInterval = o.MaxInterval
+	conf.PathList = o.PathList
+	conf.FileFilters = o.FileFilters
 	return nil
 }
