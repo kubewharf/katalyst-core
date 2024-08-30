@@ -64,8 +64,6 @@ func getTestNativePolicy(topology *machine.CPUTopology, stateFileDirectory strin
 		reservedCPUs:     machine.NewCPUSet(),
 	}
 
-	state.SetContainerRequestedCores(policyImplement.getContainerRequestedCores)
-
 	return policyImplement, nil
 }
 

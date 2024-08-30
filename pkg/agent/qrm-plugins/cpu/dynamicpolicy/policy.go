@@ -19,7 +19,6 @@ package dynamicpolicy
 import (
 	"context"
 	"fmt"
-	"math"
 	"sync"
 	"time"
 
@@ -221,8 +220,6 @@ func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration
 		consts.PodAnnotationQoSLevelDedicatedCores: policyImplement.dedicatedCoresHintHandler,
 		consts.PodAnnotationQoSLevelReclaimedCores: policyImplement.reclaimedCoresHintHandler,
 	}
-
-	state.SetContainerRequestedCores(policyImplement.getContainerRequestedCores)
 
 	if err := policyImplement.cleanPools(); err != nil {
 		return false, agent.ComponentStub{}, fmt.Errorf("cleanPools failed with error: %v", err)
@@ -1181,28 +1178,12 @@ func (p *DynamicPolicy) checkNormalShareCoresCpuResource(req *pluginapi.Resource
 		return false, fmt.Errorf("GetQuantityFromResourceReq failed with error: %v", err)
 	}
 
-	shareCoresAllocated := reqFloat64
-	podEntries := p.state.GetPodEntries()
-	for podUid, podEntry := range podEntries {
-		if podEntry.IsPoolEntry() {
-			continue
-		}
-		if podUid == req.PodUid {
-			continue
-		}
-		for _, allocation := range podEntry {
-			// shareCoresAllocated should involve both main and sidecar containers
-			if state.CheckShared(allocation) && !state.CheckNUMABinding(allocation) {
-				shareCoresAllocated += p.getContainerRequestedCores(allocation)
-			}
-		}
-	}
+	shareCoresAllocatedInt := state.GetNonBindingSharedRequestedQuantityFromPodEntries(p.state.GetPodEntries(), map[string]float64{req.PodUid: reqFloat64}, p.getContainerRequestedCores)
 
 	machineState := p.state.GetMachineState()
 	pooledCPUs := machineState.GetFilteredAvailableCPUSet(p.reservedCPUs,
 		state.CheckDedicated, state.CheckNUMABinding)
 
-	shareCoresAllocatedInt := int(math.Ceil(shareCoresAllocated))
 	general.Infof("[checkNormalShareCoresCpuResource] node cpu allocated: %d, allocatable: %d", shareCoresAllocatedInt, pooledCPUs.Size())
 	if shareCoresAllocatedInt > pooledCPUs.Size() {
 		general.Warningf("[checkNormalShareCoresCpuResource] no enough cpu resource for normal share cores pod: %s/%s, container: %s (request: %.02f, node allocated: %d, node allocatable: %d)",

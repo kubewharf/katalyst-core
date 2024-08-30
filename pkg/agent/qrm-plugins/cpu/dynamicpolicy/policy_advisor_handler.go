@@ -582,7 +582,7 @@ func (p *DynamicPolicy) applyBlocks(blockCPUSet advisorapi.BlockCPUSet, resp *ad
 			}
 			newEntries[podUID][containerName] = allocationInfo.Clone()
 			// adapt to old checkpoint without RequestQuantity property
-			newEntries[podUID][containerName].RequestQuantity = state.GetContainerRequestedCores()(allocationInfo)
+			newEntries[podUID][containerName].RequestQuantity = p.getContainerRequestedCores(allocationInfo)
 
 			switch allocationInfo.QoSLevel {
 			case consts.PodAnnotationQoSLevelDedicatedCores:
