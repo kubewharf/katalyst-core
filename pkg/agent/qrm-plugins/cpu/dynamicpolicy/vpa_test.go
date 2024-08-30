@@ -708,7 +708,7 @@ func TestNormalShareVPA(t *testing.T) {
 	}
 
 	_, err = dynamicPolicy.GetTopologyHints(context.Background(), resizeReq)
-	as.ErrorContains(err, "no enough")
+	as.ErrorContains(err, errNoAvailableCPUHints.Error())
 
 	resizeReq1 := &pluginapi.ResourceRequest{
 		PodUid:         req.PodUid,
@@ -765,7 +765,7 @@ func TestNormalShareVPAWithSidecar(t *testing.T) {
 	t.Parallel()
 	as := require.New(t)
 
-	tmpDir, err := ioutil.TempDir("", "checkpoint-TestSNBVPAWithSidecar")
+	tmpDir, err := ioutil.TempDir("", "checkpoint-TestNormalShareVPAWithSidecar")
 	as.Nil(err)
 	defer func() { _ = os.RemoveAll(tmpDir) }()
 

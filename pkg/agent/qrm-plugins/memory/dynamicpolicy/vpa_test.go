@@ -731,7 +731,7 @@ func TestNormalShareMemoryVPAWithSidecar(t *testing.T) {
 
 	as := require.New(t)
 
-	tmpDir, err := ioutil.TempDir("", "checkpoint-TestNormalShareMemoryVPA")
+	tmpDir, err := ioutil.TempDir("", "checkpoint-TestNormalShareMemoryVPAWithSidecar")
 	as.Nil(err)
 	defer os.RemoveAll(tmpDir)
 

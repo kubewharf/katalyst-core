@@ -33,6 +33,8 @@ import (
 	qosutil "github.com/kubewharf/katalyst-core/pkg/util/qos"
 )
 
+var errNoAvailableMemoryHints = fmt.Errorf("no available memory hints")
+
 func (p *DynamicPolicy) sharedCoresHintHandler(ctx context.Context,
 	req *pluginapi.ResourceRequest,
 ) (*pluginapi.ResourceHintsResponse, error) {
@@ -59,7 +61,7 @@ func (p *DynamicPolicy) sharedCoresHintHandler(ctx context.Context,
 				"podName":       req.PodName,
 				"containerName": req.ContainerName,
 			})...)
-			return nil, fmt.Errorf("no enough memory resource")
+			return nil, errNoAvailableMemoryHints
 		}
 	}
 
@@ -197,7 +199,7 @@ func (p *DynamicPolicy) numaBindingHintHandler(_ context.Context,
 
 				var calculateErr error
 				// recalculate hints for the whole pod
-				hints, calculateErr = p.calculateHints(uint64(podAggregatedRequest), resourcesMachineState, req.Annotations)
+				hints, calculateErr = p.calculateHints(uint64(podAggregatedRequest), resourcesMachineState, req)
 				if calculateErr != nil {
 					general.Errorf("failed to calculate hints for pod: %s/%s, container: %s, error: %v",
 						req.PodNamespace, req.PodName, req.ContainerName, calculateErr)
@@ -213,7 +215,7 @@ func (p *DynamicPolicy) numaBindingHintHandler(_ context.Context,
 		// otherwise, calculate hint for container without allocated memory
 		var calculateErr error
 		// calculate hint for container without allocated memory
-		hints, calculateErr = p.calculateHints(uint64(podAggregatedRequest), resourcesMachineState, req.Annotations)
+		hints, calculateErr = p.calculateHints(uint64(podAggregatedRequest), resourcesMachineState, req)
 		if calculateErr != nil {
 			general.Errorf("failed to calculate hints for pod: %s/%s, container: %s, error: %v",
 				req.PodNamespace, req.PodName, req.ContainerName, calculateErr)
@@ -256,8 +258,9 @@ func (p *DynamicPolicy) dedicatedCoresWithoutNUMABindingHintHandler(_ context.Co
 
 // calculateHints is a helper function to calculate the topology hints
 // with the given container requests.
-func (p *DynamicPolicy) calculateHints(reqInt uint64, resourcesMachineState state.NUMANodeResourcesMap,
-	reqAnnotations map[string]string,
+func (p *DynamicPolicy) calculateHints(reqInt uint64,
+	resourcesMachineState state.NUMANodeResourcesMap,
+	req *pluginapi.ResourceRequest,
 ) (map[string]*pluginapi.ListOfTopologyHints, error) {
 	machineState := resourcesMachineState[v1.ResourceMemory]
 
@@ -271,12 +274,6 @@ func (p *DynamicPolicy) calculateHints(reqInt uint64, resourcesMachineState stat
 	}
 	sort.Ints(numaNodes)
 
-	hints := map[string]*pluginapi.ListOfTopologyHints{
-		string(v1.ResourceMemory): {
-			Hints: []*pluginapi.TopologyHint{},
-		},
-	}
-
 	bytesPerNUMA, err := machineState.BytesPerNUMA()
 	if err != nil {
 		return nil, fmt.Errorf("getBytesPerNUMAFromMachineState failed with error: %v", err)
@@ -286,7 +283,7 @@ func (p *DynamicPolicy) calculateHints(reqInt uint64, resourcesMachineState stat
 	if err != nil {
 		return nil, fmt.Errorf("GetNUMANodesCountToFitMemoryReq failed with error: %v", err)
 	}
-
+	reqAnnotations := req.Annotations
 	numaBinding := qosutil.AnnotationsIndicateNUMABinding(reqAnnotations)
 	numaExclusive := qosutil.AnnotationsIndicateNUMAExclusive(reqAnnotations)
 
@@ -328,6 +325,7 @@ func (p *DynamicPolicy) calculateHints(reqInt uint64, resourcesMachineState stat
 		numaBound = minNUMAsCountNeeded + 1
 	}
 
+	var availableNumaHints []*pluginapi.TopologyHint
 	machine.IterateBitMasks(numaNodes, numaBound, func(mask machine.BitMask) {
 		maskCount := mask.Count()
 		if maskCount < minNUMAsCountNeeded {
@@ -357,13 +355,26 @@ func (p *DynamicPolicy) calculateHints(reqInt uint64, resourcesMachineState stat
 			return
 		}
 
-		hints[string(v1.ResourceMemory)].Hints = append(hints[string(v1.ResourceMemory)].Hints, &pluginapi.TopologyHint{
+		availableNumaHints = append(availableNumaHints, &pluginapi.TopologyHint{
 			Nodes:     machine.MaskToUInt64Array(mask),
 			Preferred: len(maskBits) == minNUMAsCountNeeded,
 		})
 	})
 
-	return hints, nil
+	// NOTE: because grpc is inability to distinguish between an empty array and nil,
+	//       we return an error instead of an empty array.
+	//	     we should resolve this issue if we need manage multi resource in one plugin.
+	if len(availableNumaHints) == 0 {
+		general.Warningf("calculateHints got no available memory hints for pod: %s/%s, container: %s",
+			req.PodNamespace, req.PodName, req.ContainerName)
+		return nil, errNoAvailableMemoryHints
+	}
+
+	return map[string]*pluginapi.ListOfTopologyHints{
+		string(v1.ResourceMemory): {
+			Hints: availableNumaHints,
+		},
+	}, nil
 }
 
 // regenerateHints regenerates hints for container that'd already been allocated memory,

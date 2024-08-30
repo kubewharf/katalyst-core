@@ -112,8 +112,6 @@ func getTestDynamicPolicyWithoutInitialization(topology *machine.CPUTopology, st
 		podDebugAnnoKeys: []string{podDebugAnnoKey},
 	}
 
-	state.SetContainerRequestedCores(policyImplement.getContainerRequestedCores)
-
 	// register allocation behaviors for pods with different QoS level
 	policyImplement.allocationHandlers = map[string]util.AllocationHandler{
 		consts.PodAnnotationQoSLevelSharedCores:    policyImplement.sharedCoresAllocationHandler,
@@ -4923,7 +4921,6 @@ func Test_getNUMAAllocatedMemBW(t *testing.T) {
 	as := require.New(t)
 
 	policyImplement := &DynamicPolicy{}
-	state.SetContainerRequestedCores(policyImplement.getContainerRequestedCores)
 
 	testName := "test"
 	highDensityCPUTopology, err := machine.GenerateDummyCPUTopology(384, 2, 12)
@@ -5168,7 +5165,7 @@ func Test_getNUMAAllocatedMemBW(t *testing.T) {
 		curTT := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			got, err := getNUMAAllocatedMemBW(curTT.args.machineState, curTT.args.metaServer)
+			got, err := getNUMAAllocatedMemBW(curTT.args.machineState, curTT.args.metaServer, policyImplement.getContainerRequestedCores)
 			if (err != nil) != curTT.wantErr {
 				t.Errorf("getNUMAAllocatedMemBW() error = %v, wantErr %v", err, curTT.wantErr)
 				return
@@ -5294,10 +5291,8 @@ func TestSNBAdmitWithSidecarReallocate(t *testing.T) {
 	}
 
 	// pod aggregated size is 8, the new container request is 4, 8 + 4 > 11 (share-NUMA0 size)
-	res, err = dynamicPolicy.GetTopologyHints(context.Background(), anotherReq)
-	as.Nil(err)
-	as.NotNil(res.ResourceHints[string(v1.ResourceCPU)])
-	as.Equal(0, len(res.ResourceHints[string(v1.ResourceCPU)].Hints))
+	_, err = dynamicPolicy.GetTopologyHints(context.Background(), anotherReq)
+	as.ErrorContains(err, errNoAvailableCPUHints.Error())
 
 	// reallocate sidecar
 	_, err = dynamicPolicy.Allocate(context.Background(), sidecarReq)
