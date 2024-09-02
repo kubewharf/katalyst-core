@@ -40,7 +40,6 @@ import (
 	apiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-api/pkg/utils"
 	"github.com/kubewharf/katalyst-core/pkg/config/generic"
-	"github.com/kubewharf/katalyst-core/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	metaserverpod "github.com/kubewharf/katalyst-core/pkg/metaserver/agent/pod"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/spd"
@@ -88,6 +87,9 @@ type topologyAdapterImpl struct {
 	// kubeletResourcePluginPaths is the path of kubelet resource plugin
 	kubeletResourcePluginPaths []string
 
+	// kubeletResourcePluginStateFile is the path of kubelet resource plugin checkpoint file
+	kubeletResourcePluginStateFile string
+
 	// resourceNameToZoneTypeMap is a map that stores the mapping relationship between resource names to zone types for device zones
 	resourceNameToZoneTypeMap map[string]string
 
@@ -97,7 +99,7 @@ type topologyAdapterImpl struct {
 
 // NewPodResourcesServerTopologyAdapter creates a topology adapter which uses pod resources server
 func NewPodResourcesServerTopologyAdapter(metaServer *metaserver.MetaServer, qosConf *generic.QoSConfiguration,
-	endpoints []string, kubeletResourcePluginPaths []string, resourceNameToZoneTypeMap map[string]string,
+	endpoints []string, kubeletResourcePluginPaths []string, kubeletResourcePluginStateFile string, resourceNameToZoneTypeMap map[string]string,
 	skipDeviceNames sets.String, numaInfoGetter NumaInfoGetter, podResourcesFilter PodResourcesFilter,
 	getClientFunc podresources.GetClientFunc, needValidationResources []string,
 ) (Adapter, error) {
@@ -117,16 +119,17 @@ func NewPodResourcesServerTopologyAdapter(metaServer *metaserver.MetaServer, qos
 
 	numaSocketZoneNodeMap := util.GenerateNumaSocketZone(numaInfo)
 	return &topologyAdapterImpl{
-		endpoints:                  endpoints,
-		kubeletResourcePluginPaths: kubeletResourcePluginPaths,
-		qosConf:                    qosConf,
-		metaServer:                 metaServer,
-		numaSocketZoneNodeMap:      numaSocketZoneNodeMap,
-		skipDeviceNames:            skipDeviceNames,
-		getClientFunc:              getClientFunc,
-		podResourcesFilter:         podResourcesFilter,
-		resourceNameToZoneTypeMap:  resourceNameToZoneTypeMap,
-		needValidationResources:    needValidationResources,
+		endpoints:                      endpoints,
+		kubeletResourcePluginPaths:     kubeletResourcePluginPaths,
+		kubeletResourcePluginStateFile: kubeletResourcePluginStateFile,
+		qosConf:                        qosConf,
+		metaServer:                     metaServer,
+		numaSocketZoneNodeMap:          numaSocketZoneNodeMap,
+		skipDeviceNames:                skipDeviceNames,
+		getClientFunc:                  getClientFunc,
+		podResourcesFilter:             podResourcesFilter,
+		resourceNameToZoneTypeMap:      resourceNameToZoneTypeMap,
+		needValidationResources:        needValidationResources,
 	}, nil
 }
 
@@ -243,7 +246,7 @@ func (p *topologyAdapterImpl) Run(ctx context.Context, handler func()) error {
 		ctx.Done(),
 		general.FileWatcherInfo{
 			Path:     p.kubeletResourcePluginPaths,
-			Filename: consts.KubeletQoSResourceManagerCheckpoint,
+			Filename: p.kubeletResourcePluginStateFile,
 			Op:       fsnotify.Create,
 		},
 	)
