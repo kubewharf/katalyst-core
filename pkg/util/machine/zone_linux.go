@@ -22,14 +22,6 @@ import (
 	"os"
 )
 
-type NormalZoneInfo struct {
-	Node         int64
-	Free         uint64
-	Min          uint64
-	Low          uint64
-	FileInactive uint64
-}
-
 func GetNormalZoneInfo(zoneInfoPath string) []NormalZoneInfo {
 	data, err := os.ReadFile(zoneInfoPath)
 	if err != nil {

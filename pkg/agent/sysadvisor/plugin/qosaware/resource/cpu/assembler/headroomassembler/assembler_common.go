@@ -91,7 +91,7 @@ func (ha *HeadroomAssemblerCommon) GetHeadroom() (resource.Quantity, error) {
 			if !ok || regionInfo == nil || regionInfo.Headroom < 0 {
 				return resource.Quantity{}, fmt.Errorf("failed to get headroom for %v", r.Name())
 			}
-			if regionInfo.RegionStatus.BoundType == types.BoundUpper {
+			if regionInfo.RegionStatus.BoundType == types.BoundUpper && r.EnableReclaim() {
 				general.Infof("region %v is in status of upper bound", regionInfo.RegionName)
 				hasUpperBound = true
 			}

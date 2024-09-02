@@ -69,6 +69,8 @@ type QoSRegion interface {
 
 	IsThrottled() bool
 
+	EnableReclaim() bool
+
 	// GetProvisionPolicy returns provision policy for this region,
 	// the first is policy with top priority, while the second is the policy that is in-use currently
 	GetProvisionPolicy() (types.CPUProvisionPolicyName, types.CPUProvisionPolicyName)

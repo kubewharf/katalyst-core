@@ -240,7 +240,7 @@ func NewQoSRegionBase(name string, ownerPoolName string, regionType v1alpha1.QoS
 	if r.conf.PolicyRama.EnableBorwein {
 		r.borweinController = borweinctrl.NewBorweinController(name, regionType, ownerPoolName, conf, metaReader, emitter)
 	}
-	r.enableReclaim = r.EnableReclaim
+	r.enableReclaim = r.EnableReclaimFunc
 
 	klog.Infof("[qosaware-cpu] created region [%v/%v/%v]", r.Name(), r.Type(), r.OwnerPoolName())
 
@@ -437,6 +437,13 @@ func (r *QoSRegionBase) GetProvisionPolicy() (policyTopPriority types.CPUProvisi
 	}
 
 	return
+}
+
+func (r *QoSRegionBase) EnableReclaim() bool {
+	r.Lock()
+	defer r.Unlock()
+
+	return r.enableReclaim()
 }
 
 func (r *QoSRegionBase) GetHeadRoomPolicy() (policyTopPriority types.CPUHeadroomPolicyName, policyInUse types.CPUHeadroomPolicyName) {
@@ -802,7 +809,7 @@ func (r *QoSRegionBase) updateOvershootStatus() bool {
 	return overshoot
 }
 
-func (r *QoSRegionBase) EnableReclaim() bool {
+func (r *QoSRegionBase) EnableReclaimFunc() bool {
 	return r.ResourceEssentials.EnableReclaim
 }
 
