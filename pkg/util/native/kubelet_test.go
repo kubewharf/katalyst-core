@@ -21,7 +21,6 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-	kubeletconfigv1beta1 "k8s.io/kubelet/config/v1beta1"
 )
 
 func TestGenerateURI(t *testing.T) {
@@ -55,7 +54,7 @@ func TestGetAndUnmarshalForHttps(t *testing.T) {
 	authTokenFile := "/var/run/secrets/kubernetes.io/serviceaccount/token"
 
 	type configzWrapper struct {
-		ComponentConfig kubeletconfigv1beta1.KubeletConfiguration `json:"kubeletconfig"`
+		ComponentConfig KubeletConfiguration `json:"kubeletconfig"`
 	}
 	configz := configzWrapper{}
 

@@ -22,10 +22,10 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"k8s.io/apimachinery/pkg/api/resource"
-	kubeletconfigv1beta1 "k8s.io/kubelet/config/v1beta1"
 	"k8s.io/kubernetes/pkg/features"
 
 	"github.com/kubewharf/katalyst-api/pkg/consts"
+	"github.com/kubewharf/katalyst-core/pkg/util/native"
 )
 
 func TestCheckFeatureGateEnable(t *testing.T) {
@@ -33,7 +33,7 @@ func TestCheckFeatureGateEnable(t *testing.T) {
 
 	tests := []struct {
 		name     string
-		conf     *kubeletconfigv1beta1.KubeletConfiguration
+		conf     *native.KubeletConfiguration
 		features []string
 		enabled  bool
 		err      error
@@ -44,7 +44,7 @@ func TestCheckFeatureGateEnable(t *testing.T) {
 		},
 		{
 			name: "partial enabled",
-			conf: &kubeletconfigv1beta1.KubeletConfiguration{
+			conf: &native.KubeletConfiguration{
 				FeatureGates: map[string]bool{
 					"a": true,
 				},
@@ -55,7 +55,7 @@ func TestCheckFeatureGateEnable(t *testing.T) {
 		},
 		{
 			name: "total enabled",
-			conf: &kubeletconfigv1beta1.KubeletConfiguration{
+			conf: &native.KubeletConfiguration{
 				FeatureGates: map[string]bool{
 					"a": true,
 					"b": true,
@@ -88,7 +88,7 @@ func TestGetReservedQuantity(t *testing.T) {
 
 	tests := []struct {
 		name             string
-		conf             *kubeletconfigv1beta1.KubeletConfiguration
+		conf             *native.KubeletConfiguration
 		resourceName     string
 		resourceQuantity resource.Quantity
 		valid            bool
@@ -100,7 +100,7 @@ func TestGetReservedQuantity(t *testing.T) {
 		},
 		{
 			name: "resource both exists",
-			conf: &kubeletconfigv1beta1.KubeletConfiguration{
+			conf: &native.KubeletConfiguration{
 				KubeReserved: map[string]string{
 					"cpu": "1024m",
 				},
@@ -115,7 +115,7 @@ func TestGetReservedQuantity(t *testing.T) {
 		},
 		{
 			name: "resource only-one exists",
-			conf: &kubeletconfigv1beta1.KubeletConfiguration{
+			conf: &native.KubeletConfiguration{
 				KubeReserved: map[string]string{
 					"cpu": "1024m",
 				},
@@ -127,7 +127,7 @@ func TestGetReservedQuantity(t *testing.T) {
 		},
 		{
 			name: "resource not exists",
-			conf: &kubeletconfigv1beta1.KubeletConfiguration{
+			conf: &native.KubeletConfiguration{
 				KubeReserved: map[string]string{
 					"cpu": "1024m",
 				},
@@ -162,7 +162,7 @@ func TestGetInTreeProviderPolicies(t *testing.T) {
 
 	tests := []struct {
 		name string
-		conf *kubeletconfigv1beta1.KubeletConfiguration
+		conf *native.KubeletConfiguration
 		res  map[string]string
 		err  error
 	}{
@@ -172,7 +172,7 @@ func TestGetInTreeProviderPolicies(t *testing.T) {
 		},
 		{
 			name: "cpu only",
-			conf: &kubeletconfigv1beta1.KubeletConfiguration{
+			conf: &native.KubeletConfiguration{
 				FeatureGates: map[string]bool{
 					string(features.CPUManager): true,
 				},
@@ -186,7 +186,7 @@ func TestGetInTreeProviderPolicies(t *testing.T) {
 		},
 		{
 			name: "all policies",
-			conf: &kubeletconfigv1beta1.KubeletConfiguration{
+			conf: &native.KubeletConfiguration{
 				FeatureGates: map[string]bool{
 					string(features.CPUManager):    true,
 					string(features.MemoryManager): true,

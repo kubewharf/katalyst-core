@@ -32,6 +32,75 @@ const (
 	defaultTimeout = time.Second * 10
 )
 
+// KubeletConfiguration contains the configuration for the Kubelet
+// This struct is a simplification of the definition in the kubelet api repo, holding only the fields used by katalyst.
+type KubeletConfiguration struct {
+	// cpuManagerPolicy is the name of the policy to use.
+	// Requires the CPUManager feature gate to be enabled.
+	// Default: "None"
+	// +optional
+	CPUManagerPolicy string `json:"cpuManagerPolicy,omitempty"`
+	// memoryManagerPolicy is the name of the policy to use by memory manager.
+	// Requires the MemoryManager feature gate to be enabled.
+	// Default: "none"
+	// +optional
+	MemoryManagerPolicy string `json:"memoryManagerPolicy,omitempty"`
+	// topologyManagerPolicy is the name of the topology manager policy to use.
+	// Valid values include:
+	//
+	// - `restricted`: kubelet only allows pods with optimal NUMA node alignment for
+	//   requested resources;
+	// - `best-effort`: kubelet will favor pods with NUMA alignment of CPU and device
+	//   resources;
+	// - `none`: kubelet has no knowledge of NUMA alignment of a pod's CPU and device resources.
+	// - `single-numa-node`: kubelet only allows pods with a single NUMA alignment
+	//   of CPU and device resources.
+	//
+	// Policies other than "none" require the TopologyManager feature gate to be enabled.
+	// Default: "none"
+	// +optional
+	TopologyManagerPolicy string `json:"topologyManagerPolicy,omitempty"`
+	// topologyManagerScope represents the scope of topology hint generation
+	// that topology manager requests and hint providers generate. Valid values include:
+	//
+	// - `container`: topology policy is applied on a per-container basis.
+	// - `pod`: topology policy is applied on a per-pod basis.
+	//
+	// "pod" scope requires the TopologyManager feature gate to be enabled.
+	// Default: "container"
+	// +optional
+	TopologyManagerScope string `json:"topologyManagerScope,omitempty"`
+	// featureGates is a map of feature names to bools that enable or disable experimental
+	// features. This field modifies piecemeal the built-in default values from
+	// "k8s.io/kubernetes/pkg/features/kube_features.go".
+	// Default: nil
+	// +optional
+	FeatureGates map[string]bool `json:"featureGates,omitempty"`
+
+	/* the following fields are meant for Node Allocatable */
+
+	// systemReserved is a set of ResourceName=ResourceQuantity (e.g. cpu=200m,memory=150G)
+	// pairs that describe resources reserved for non-kubernetes components.
+	// Currently only cpu and memory are supported.
+	// See http://kubernetes.io/docs/user-guide/compute-resources for more detail.
+	// Default: nil
+	// +optional
+	SystemReserved map[string]string `json:"systemReserved,omitempty"`
+	// kubeReserved is a set of ResourceName=ResourceQuantity (e.g. cpu=200m,memory=150G) pairs
+	// that describe resources reserved for kubernetes system components.
+	// Currently cpu, memory and local storage for root file system are supported.
+	// See https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
+	// for more details.
+	// Default: nil
+	// +optional
+	KubeReserved map[string]string `json:"kubeReserved,omitempty"`
+	// The reservedSystemCPUs option specifies the CPU list reserved for the host
+	// level system threads and kubernetes related threads. This provide a "static"
+	// CPU list rather than the "dynamic" list by systemReserved and kubeReserved.
+	// This option does not support systemReservedCgroup or kubeReservedCgroup.
+	ReservedSystemCPUs string `json:"reservedSystemCPUs,omitempty"`
+}
+
 // GetAndUnmarshalForHttps gets data from the given url and unmarshal it into the given struct.
 func GetAndUnmarshalForHttps(ctx context.Context, port int, nodeAddress, endpoint, authTokenFile string, v interface{}) error {
 	uri, err := generateURI(port, nodeAddress, endpoint)
