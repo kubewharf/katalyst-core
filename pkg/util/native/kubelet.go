@@ -99,6 +99,14 @@ type KubeletConfiguration struct {
 	// CPU list rather than the "dynamic" list by systemReserved and kubeReserved.
 	// This option does not support systemReservedCgroup or kubeReservedCgroup.
 	ReservedSystemCPUs string `json:"reservedSystemCPUs,omitempty"`
+
+	/* the following fields are introduced for compatibility with KubeWharf Kubernetes distro */
+
+	// NumericTopologyAlignResources is a list of resources which need to be aligned numa affinity
+	// in numeric topology policy.
+	// Default: [cpu, memory]
+	// +optional
+	NumericTopologyAlignResources []string `json:"numericTopologyAlignResources,omitempty"`
 }
 
 // GetAndUnmarshalForHttps gets data from the given url and unmarshal it into the given struct.
