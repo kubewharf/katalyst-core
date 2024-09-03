@@ -29,7 +29,6 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes/fake"
 	corev1 "k8s.io/client-go/kubernetes/typed/core/v1"
-	kubeletconfigv1beta1 "k8s.io/kubelet/config/v1beta1"
 	"k8s.io/kubernetes/pkg/kubelet/apis/config"
 
 	"github.com/kubewharf/katalyst-api/pkg/apis/node/v1alpha1"
@@ -45,6 +44,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/node"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/pod"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
+	"github.com/kubewharf/katalyst-core/pkg/util/native"
 )
 
 func constructNodeInterface(name string) corev1.NodeInterface {
@@ -169,7 +169,7 @@ func TestFetcher(t *testing.T) {
 	}
 	s := &ObjectFetcherTest{obj: obj}
 
-	fakeKubeletConfig := kubeletconfigv1beta1.KubeletConfiguration{
+	fakeKubeletConfig := native.KubeletConfiguration{
 		TopologyManagerPolicy: config.SingleNumaNodeTopologyManagerPolicy,
 		TopologyManagerScope:  config.ContainerTopologyManagerScope,
 	}

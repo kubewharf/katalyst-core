@@ -33,7 +33,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
-	kubeletconfigv1beta1 "k8s.io/kubelet/config/v1beta1"
 	podresv1 "k8s.io/kubelet/pkg/apis/podresources/v1"
 	"k8s.io/kubernetes/pkg/kubelet/apis/config"
 	"k8s.io/kubernetes/pkg/kubelet/checkpointmanager"
@@ -51,6 +50,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/util"
 	"github.com/kubewharf/katalyst-core/pkg/util/kubelet/podresources"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
+	"github.com/kubewharf/katalyst-core/pkg/util/native"
 )
 
 type fakePodResourcesServer struct {
@@ -2913,7 +2913,7 @@ func Test_podResourcesServerTopologyAdapterImpl_GetTopologyZones(t *testing.T) {
 func Test_podResourcesServerTopologyAdapterImpl_GetTopologyPolicy(t *testing.T) {
 	t.Parallel()
 
-	fakeKubeletConfig := kubeletconfigv1beta1.KubeletConfiguration{
+	fakeKubeletConfig := native.KubeletConfiguration{
 		TopologyManagerPolicy: config.SingleNumaNodeTopologyManagerPolicy,
 		TopologyManagerScope:  config.ContainerTopologyManagerScope,
 	}

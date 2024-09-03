@@ -31,7 +31,6 @@ import (
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/klog/v2"
-	kubeletconfigv1beta1 "k8s.io/kubelet/config/v1beta1"
 	podresv1 "k8s.io/kubelet/pkg/apis/podresources/v1"
 	apisconfig "k8s.io/kubernetes/pkg/kubelet/apis/config"
 	"k8s.io/kubernetes/pkg/kubelet/checkpointmanager"
@@ -49,6 +48,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/pod"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
+	"github.com/kubewharf/katalyst-core/pkg/util/native"
 )
 
 type fakePodResourcesServer struct {
@@ -89,7 +89,7 @@ func generateTestConfiguration(t *testing.T, dir string) *config.Configuration {
 }
 
 func generateTestMetaServer(podList ...*v1.Pod) *metaserver.MetaServer {
-	fakeKubeletConfig := kubeletconfigv1beta1.KubeletConfiguration{
+	fakeKubeletConfig := native.KubeletConfiguration{
 		TopologyManagerPolicy: apisconfig.SingleNumaNodeTopologyManagerPolicy,
 		TopologyManagerScope:  apisconfig.ContainerTopologyManagerScope,
 	}

@@ -23,8 +23,6 @@ import (
 	"testing"
 	"time"
 
-	consts2 "github.com/kubewharf/katalyst-api/pkg/consts"
-
 	info "github.com/google/cadvisor/info/v1"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -34,9 +32,9 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	dynamicfake "k8s.io/client-go/dynamic/fake"
 	"k8s.io/client-go/kubernetes/fake"
-	"k8s.io/kubelet/config/v1beta1"
 
 	internalfake "github.com/kubewharf/katalyst-api/pkg/client/clientset/versioned/fake"
+	consts2 "github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/options"
 	"github.com/kubewharf/katalyst-core/pkg/client"
 	"github.com/kubewharf/katalyst-core/pkg/config"
@@ -47,6 +45,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/pod"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	metric2 "github.com/kubewharf/katalyst-core/pkg/util/metric"
+	"github.com/kubewharf/katalyst-core/pkg/util/native"
 )
 
 func TestUpdate(t *testing.T) {
@@ -437,7 +436,7 @@ func generateTestMetaServer(t *testing.T, conf *config.Configuration, podList []
 
 	meta.MetricsFetcher = fakeMetricsFetcher
 
-	meta.KubeletConfigFetcher = kubeletconfig.NewFakeKubeletConfigFetcher(v1beta1.KubeletConfiguration{})
+	meta.KubeletConfigFetcher = kubeletconfig.NewFakeKubeletConfigFetcher(native.KubeletConfiguration{})
 
 	meta.MachineInfo = &info.MachineInfo{
 		NumCores:       16,

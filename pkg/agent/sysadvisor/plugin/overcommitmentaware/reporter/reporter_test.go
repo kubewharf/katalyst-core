@@ -26,7 +26,6 @@ import (
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	v12 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	kubeletconfigv1beta1 "k8s.io/kubelet/config/v1beta1"
 	"k8s.io/kubernetes/pkg/features"
 	"k8s.io/kubernetes/pkg/kubelet/cm/cpumanager"
 
@@ -35,12 +34,13 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/kubeletconfig"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/pod"
+	"github.com/kubewharf/katalyst-core/pkg/util/native"
 )
 
 func TestGetReportContent(t *testing.T) {
 	t.Parallel()
 
-	fakeKubeletConfig := kubeletconfigv1beta1.KubeletConfiguration{
+	fakeKubeletConfig := native.KubeletConfiguration{
 		FeatureGates: map[string]bool{
 			string(features.CPUManager):    true,
 			string(features.MemoryManager): false,
