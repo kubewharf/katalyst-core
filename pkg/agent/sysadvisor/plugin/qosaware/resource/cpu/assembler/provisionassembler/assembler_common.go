@@ -241,6 +241,11 @@ func (pa *ProvisionAssemblerCommon) AssembleProvision() (types.InternalCPUCalcul
 		isolationPoolSizes = isolationLowerSizes
 	}
 
+	if size, ok := sharePoolRequirements["bmq"]; ok {
+		isolationPoolSizes["bmq"] = size
+		delete(sharePoolRequirements, "bmq")
+	}
+
 	shareAndIsolatePoolSizes, poolThrottled := regulatePoolSizes(sharePoolRequirements, isolationPoolSizes, shareAndIsolatedPoolAvailable, nodeEnableReclaim, *pa.allowSharedCoresOverlapReclaimedCores)
 	for _, r := range *pa.regionMap {
 		if r.Type() == configapi.QoSRegionTypeShare && !r.IsNumaBinding() {
