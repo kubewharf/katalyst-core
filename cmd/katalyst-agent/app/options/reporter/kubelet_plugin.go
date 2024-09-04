@@ -22,15 +22,17 @@ import (
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/reporter"
+	"github.com/kubewharf/katalyst-core/pkg/consts"
 )
 
 type KubeletPluginOptions struct {
-	PodResourcesServerEndpoints []string
-	KubeletResourcePluginPaths  []string
-	EnableReportTopologyPolicy  bool
-	ResourceNameToZoneTypeMap   map[string]string
-	NeedValidationResources     []string
-	EnablePodResourcesFilter    bool
+	PodResourcesServerEndpoints    []string
+	KubeletResourcePluginPaths     []string
+	KubeletResourcePluginStateFile string
+	EnableReportTopologyPolicy     bool
+	ResourceNameToZoneTypeMap      map[string]string
+	NeedValidationResources        []string
+	EnablePodResourcesFilter       bool
 }
 
 func NewKubeletPluginOptions() *KubeletPluginOptions {
@@ -41,8 +43,9 @@ func NewKubeletPluginOptions() *KubeletPluginOptions {
 		KubeletResourcePluginPaths: []string{
 			pluginapi.ResourcePluginPath,
 		},
-		EnableReportTopologyPolicy: false,
-		ResourceNameToZoneTypeMap:  make(map[string]string),
+		KubeletResourcePluginStateFile: consts.KubeletQoSResourceManagerCheckpoint,
+		EnableReportTopologyPolicy:     false,
+		ResourceNameToZoneTypeMap:      make(map[string]string),
 		NeedValidationResources: []string{
 			string(v1.ResourceCPU),
 			string(v1.ResourceMemory),
@@ -58,6 +61,8 @@ func (o *KubeletPluginOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 		"the endpoint of pod resource api server")
 	fs.StringSliceVar(&o.KubeletResourcePluginPaths, "kubelet-resource-plugin-path", o.KubeletResourcePluginPaths,
 		"the path of kubelet resource plugin")
+	fs.StringVar(&o.KubeletResourcePluginStateFile, "kubelet-resource-plugin-state-file", o.KubeletResourcePluginStateFile,
+		"the state file of kubelet resource plugin")
 	fs.BoolVar(&o.EnableReportTopologyPolicy, "enable-report-topology-policy", o.EnableReportTopologyPolicy,
 		"whether to report topology policy")
 	fs.StringToStringVar(&o.ResourceNameToZoneTypeMap, "resource-name-to-zone-type-map", o.ResourceNameToZoneTypeMap,
@@ -71,6 +76,7 @@ func (o *KubeletPluginOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 func (o *KubeletPluginOptions) ApplyTo(c *reporter.KubeletPluginConfiguration) error {
 	c.PodResourcesServerEndpoints = o.PodResourcesServerEndpoints
 	c.KubeletResourcePluginPaths = o.KubeletResourcePluginPaths
+	c.KubeletResourcePluginStateFile = o.KubeletResourcePluginStateFile
 	c.EnableReportTopologyPolicy = o.EnableReportTopologyPolicy
 	c.ResourceNameToZoneTypeMap = o.ResourceNameToZoneTypeMap
 	c.NeedValidationResources = o.NeedValidationResources

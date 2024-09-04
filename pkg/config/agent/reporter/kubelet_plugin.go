@@ -17,12 +17,13 @@ limitations under the License.
 package reporter
 
 type KubeletPluginConfiguration struct {
-	PodResourcesServerEndpoints []string
-	KubeletResourcePluginPaths  []string
-	EnableReportTopologyPolicy  bool
-	ResourceNameToZoneTypeMap   map[string]string
-	NeedValidationResources     []string
-	EnablePodResourcesFilter    bool
+	PodResourcesServerEndpoints    []string
+	KubeletResourcePluginPaths     []string
+	KubeletResourcePluginStateFile string
+	EnableReportTopologyPolicy     bool
+	ResourceNameToZoneTypeMap      map[string]string
+	NeedValidationResources        []string
+	EnablePodResourcesFilter       bool
 }
 
 func NewKubeletPluginConfiguration() *KubeletPluginConfiguration {
