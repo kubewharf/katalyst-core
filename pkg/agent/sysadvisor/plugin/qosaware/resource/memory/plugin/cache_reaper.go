@@ -17,7 +17,6 @@ limitations under the License.
 package plugin
 
 import (
-	"strconv"
 	"sync"
 
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -120,7 +119,7 @@ func (cp *cacheReaper) reclaimedContainersFilter(ci *types.ContainerInfo, numaID
 			general.ErrorS(err, "failed to get MetricMemTotalNuma")
 			return true
 		}
-		cache, err = cp.metaServer.GetContainerNumaMetric(ci.PodUID, ci.ContainerName, strconv.Itoa(numaID), consts.MetricsMemFilePerNumaContainer)
+		cache, err = cp.metaServer.GetContainerNumaMetric(ci.PodUID, ci.ContainerName, numaID, consts.MetricsMemFilePerNumaContainer)
 		if err != nil {
 			general.ErrorS(err, "failed to get MetricsMemFilePerNumaContainer", "podName", ci.PodName, "containerName", ci.ContainerName, "numaID", numaID)
 			return true

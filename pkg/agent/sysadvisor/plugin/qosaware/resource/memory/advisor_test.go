@@ -2441,7 +2441,7 @@ func TestUpdate(t *testing.T) {
 				metricsFetcher.SetContainerMetric(containerMetric.podUID, containerMetric.containerName, containerMetric.metricName, containerMetric.metricValue)
 			}
 			for _, containerNUMAMetric := range tt.containerNUMAMetrics {
-				metricsFetcher.SetContainerNumaMetric(containerNUMAMetric.podUID, containerNUMAMetric.containerName, strconv.Itoa(containerNUMAMetric.numaID), containerNUMAMetric.metricName, containerNUMAMetric.metricValue)
+				metricsFetcher.SetContainerNumaMetric(containerNUMAMetric.podUID, containerNUMAMetric.containerName, containerNUMAMetric.numaID, containerNUMAMetric.metricName, containerNUMAMetric.metricValue)
 			}
 			for _, qosClassMetric := range tt.cgroupMetrics {
 				metricsFetcher.SetCgroupMetric(qosClassMetric.cgroupPath, qosClassMetric.metricName, qosClassMetric.metricValue)

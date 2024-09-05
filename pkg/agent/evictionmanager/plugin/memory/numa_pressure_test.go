@@ -18,7 +18,6 @@ package memory
 
 import (
 	"context"
-	"strconv"
 	"testing"
 	"time"
 
@@ -311,7 +310,7 @@ func TestNumaMemoryPressurePlugin_GetTopEvictionPods(t *testing.T) {
 	now := time.Now()
 	for i, pod := range bePods {
 		for numaID, usage := range bePodUsageNuma[i] {
-			fakeMetricsFetcher.SetContainerNumaMetric(string(pod.UID), pod.Spec.Containers[0].Name, strconv.Itoa(numaID), consts.MetricsMemTotalPerNumaContainer, utilMetric.MetricData{Value: usage, Time: &now})
+			fakeMetricsFetcher.SetContainerNumaMetric(string(pod.UID), pod.Spec.Containers[0].Name, numaID, consts.MetricsMemTotalPerNumaContainer, utilMetric.MetricData{Value: usage, Time: &now})
 		}
 	}
 	for numaID, numaTotal := range numaTotalMap {

@@ -18,8 +18,8 @@ package metric
 
 import (
 	"context"
-	"fmt"
 	"math/rand"
+	"strconv"
 	"sync"
 	"time"
 
@@ -209,7 +209,12 @@ func (m *MetricsNotifierManagerImpl) notifyPods() {
 			continue
 		}
 
-		v, err := m.metricStore.GetContainerNumaMetric(reg.Req.PodUID, reg.Req.ContainerName, fmt.Sprintf("%v", reg.Req.NumaNode), reg.Req.MetricName)
+		numaID, err := strconv.Atoi(reg.Req.NumaNode)
+		if err != nil {
+			continue
+		}
+
+		v, err := m.metricStore.GetContainerNumaMetric(reg.Req.PodUID, reg.Req.ContainerName, numaID, reg.Req.MetricName)
 		if err != nil {
 			continue
 		} else if v.Time == nil {
@@ -320,8 +325,19 @@ func (f *MetricsFetcherImpl) GetContainerMetric(podUID, containerName, metricNam
 	return f.checkMetricDataExpire(f.metricStore.GetContainerMetric(podUID, containerName, metricName))
 }
 
-func (f *MetricsFetcherImpl) GetContainerNumaMetric(podUID, containerName, numaNode, metricName string) (utilmetric.MetricData, error) {
-	return f.checkMetricDataExpire(f.metricStore.GetContainerNumaMetric(podUID, containerName, numaNode, metricName))
+func (f *MetricsFetcherImpl) GetContainerNumaMetric(podUID, containerName string, numaID int, metricName string) (utilmetric.MetricData, error) {
+	return f.checkMetricDataExpire(f.metricStore.GetContainerNumaMetric(podUID, containerName, numaID, metricName))
+}
+
+func (f *MetricsFetcherImpl) GetContainerNumaMetrics(podUID, containerName, metricName string) (map[int]utilmetric.MetricData, error) {
+	numaMetrics, err := f.metricStore.GetContainerNumaMetrics(podUID, containerName, metricName)
+	for _, metric := range numaMetrics {
+		_, err := f.checkMetricDataExpire(metric, err)
+		if err != nil {
+			return nil, err
+		}
+	}
+	return numaMetrics, err
 }
 
 func (f *MetricsFetcherImpl) GetPodVolumeMetric(podUID, volumeName, metricName string) (utilmetric.MetricData, error) {
@@ -336,10 +352,10 @@ func (f *MetricsFetcherImpl) GetCgroupNumaMetric(cgroupPath string, numaNode int
 	return f.checkMetricDataExpire(f.metricStore.GetCgroupNumaMetric(cgroupPath, numaNode, metricName))
 }
 
-func (f *MetricsFetcherImpl) AggregatePodNumaMetric(podList []*v1.Pod, numaNode, metricName string,
+func (f *MetricsFetcherImpl) AggregatePodNumaMetric(podList []*v1.Pod, numaID int, metricName string,
 	agg utilmetric.Aggregator, filter utilmetric.ContainerMetricFilter,
 ) utilmetric.MetricData {
-	return f.metricStore.AggregatePodNumaMetric(podList, numaNode, metricName, agg, filter)
+	return f.metricStore.AggregatePodNumaMetric(podList, numaID, metricName, agg, filter)
 }
 
 func (f *MetricsFetcherImpl) AggregatePodMetric(podList []*v1.Pod, metricName string,

@@ -40,7 +40,7 @@ type ContainerMetricFilter func(pod *v1.Pod, container *v1.Container) bool
 var DefaultContainerMetricFilter = func(_ *v1.Pod, _ *v1.Container) bool { return true }
 
 // AggregatePodNumaMetric handles numa-level metric for all pods
-func (c *MetricStore) AggregatePodNumaMetric(podList []*v1.Pod, numa, metricName string, agg Aggregator, filter ContainerMetricFilter) MetricData {
+func (c *MetricStore) AggregatePodNumaMetric(podList []*v1.Pod, numa int, metricName string, agg Aggregator, filter ContainerMetricFilter) MetricData {
 	now := time.Now()
 	data := MetricData{Value: .0, Time: &now}
 

@@ -160,6 +160,8 @@ const (
 	MetricMemLatencyReadNuma      = "mem.latency.read.numa"
 	MetricMemLatencyWriteNuma     = "mem.latency.write.numa"
 	MetricMemAMDL3MissLatencyNuma = "mem.latency.amd.l3.miss"
+
+	MetricCPUUsageNuma = "cpu.usage.numa"
 )
 
 // System cpu compute metrics
@@ -287,9 +289,11 @@ const (
 
 // container per numa metrics
 const (
-	MetricsMemTotalPerNumaContainer = "mem.total.numa.container"
-	MetricsMemFilePerNumaContainer  = "mem.file.numa.container"
-	MetricsMemAnonPerNumaContainer  = "mem.anon.numa.container"
+	MetricsMemTotalPerNumaContainer   = "mem.total.numa.container"
+	MetricsMemFilePerNumaContainer    = "mem.file.numa.container"
+	MetricsMemAnonPerNumaContainer    = "mem.anon.numa.container"
+	MetricsCPUUsageCountNUMAContainer = "cpu.usage.count.numa.container"
+	MetricsCPUUsageNUMAContainer      = "cpu.usage.numa.container"
 )
 
 // container rootfs metrics
