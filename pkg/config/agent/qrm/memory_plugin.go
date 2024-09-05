@@ -16,6 +16,10 @@ limitations under the License.
 
 package qrm
 
+import (
+	"time"
+)
+
 type MemoryQRMPluginConfig struct {
 	// PolicyName is used to switch between several strategies
 	PolicyName string
@@ -36,6 +40,8 @@ type MemoryQRMPluginConfig struct {
 
 	// SockMemQRMPluginConfig: the configuration for sockmem limitation in cgroup and host level
 	SockMemQRMPluginConfig
+	// LogCacheQRMPluginConfig: the configuration for logcache evicting
+	LogCacheQRMPluginConfig
 }
 
 type SockMemQRMPluginConfig struct {
@@ -45,6 +51,23 @@ type SockMemQRMPluginConfig struct {
 	SetGlobalTCPMemRatio int
 	// SetCgroupTCPMemRatio limit cgroup max tcp memory usage.
 	SetCgroupTCPMemRatio int
+}
+
+type LogCacheQRMPluginConfig struct {
+	// EnableEvictingLogCache is used to enable evicting log cache by advise kernel to throw page cache for log files
+	EnableEvictingLogCache bool
+	// If the change value of the page cache between two operations exceeds this threshold, then increase the frequency of subsequent eviction operations.
+	HighThreshold uint64
+	// If the change value of the page cache between two operations is lower than this value, then slow down the frequency of subsequent eviction operations.
+	LowThreshold uint64
+	// The minimum time interval between two operations
+	MinInterval time.Duration
+	// The maximum time interval between two operations
+	MaxInterval time.Duration
+	// The file directory for evicting the log cache
+	PathList []string
+	// Keywords for recognizing log files
+	FileFilters []string
 }
 
 func NewMemoryQRMPluginConfig() *MemoryQRMPluginConfig {
