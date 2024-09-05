@@ -248,6 +248,22 @@ func (c *MetricStore) GetContainerNumaMetric(podUID, containerName, numaNode, me
 	return MetricData{}, errors.New(fmt.Sprintf("[MetricStore] empty map, metric=%v, podUID=%v, containerName=%v, numaNode=%v", metricName, podUID, containerName, numaNode))
 }
 
+func (c *MetricStore) GetContainerNumaMetrics(podUID, containerName, metricName string) (map[string]MetricData, error) {
+	c.mutex.RLock()
+	defer c.mutex.RUnlock()
+	res := make(map[string]MetricData)
+	if c.podContainerNumaMetricMap[podUID] != nil {
+		if c.podContainerNumaMetricMap[podUID][containerName] != nil {
+			for numaNode, metrics := range c.podContainerNumaMetricMap[podUID][containerName] {
+				if data, ok := metrics[metricName]; ok {
+					res[numaNode] = data
+				}
+			}
+		}
+	}
+	return res, nil
+}
+
 func (c *MetricStore) GetPodVolumeMetric(podUID, volumeName, metricName string) (MetricData, error) {
 	c.mutex.RLock()
 	defer c.mutex.RUnlock()

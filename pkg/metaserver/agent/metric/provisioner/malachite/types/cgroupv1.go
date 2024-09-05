@@ -82,6 +82,7 @@ type CPUCgDataV1 struct {
 	StoreAllIns           uint64         `json:"store_all_ins"`
 	ImcWrites             uint64         `json:"imc_writes"`
 	UpdateTime            int64          `json:"update_time"`
+	PercpuUsage           []uint64       `json:"percpu_usage"`
 }
 
 type MemoryCgDataV1 struct {

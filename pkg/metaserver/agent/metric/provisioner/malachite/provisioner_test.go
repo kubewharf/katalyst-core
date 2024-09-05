@@ -115,7 +115,7 @@ func Test_noneExistMetricsProvisioner(t *testing.T) {
 	implement.(*MalachiteMetricsProvisioner).processSystemComputeData(fakeSystemCompute)
 	implement.(*MalachiteMetricsProvisioner).processSystemMemoryData(fakeSystemMemory)
 	implement.(*MalachiteMetricsProvisioner).processSystemIOData(fakeSystemIO)
-	implement.(*MalachiteMetricsProvisioner).processSystemNumaData(fakeSystemMemory)
+	implement.(*MalachiteMetricsProvisioner).processSystemNumaData(fakeSystemMemory, fakeSystemCompute)
 	implement.(*MalachiteMetricsProvisioner).processSystemCPUComputeData(fakeSystemCompute)
 	implement.(*MalachiteMetricsProvisioner).processSystemNetData(fakeSystemNet)
 

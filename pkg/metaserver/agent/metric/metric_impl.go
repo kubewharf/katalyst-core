@@ -324,6 +324,17 @@ func (f *MetricsFetcherImpl) GetContainerNumaMetric(podUID, containerName, numaN
 	return f.checkMetricDataExpire(f.metricStore.GetContainerNumaMetric(podUID, containerName, numaNode, metricName))
 }
 
+func (f *MetricsFetcherImpl) GetContainerNumaMetrics(podUID, containerName, metricName string) (map[string]utilmetric.MetricData, error) {
+	numaMetrics, err := f.metricStore.GetContainerNumaMetrics(podUID, containerName, metricName)
+	for _, metric := range numaMetrics {
+		_, err := f.checkMetricDataExpire(metric, err)
+		if err != nil {
+			return nil, err
+		}
+	}
+	return numaMetrics, err
+}
+
 func (f *MetricsFetcherImpl) GetPodVolumeMetric(podUID, volumeName, metricName string) (utilmetric.MetricData, error) {
 	return f.checkMetricDataExpire(f.metricStore.GetPodVolumeMetric(podUID, volumeName, metricName))
 }
