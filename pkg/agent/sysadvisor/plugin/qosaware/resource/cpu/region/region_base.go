@@ -76,12 +76,14 @@ type internalHeadroomPolicy struct {
 
 type provisionPolicyResult struct {
 	essentials                 types.ResourceEssentials
+	regulatorOptions           regulator.RegulatorOptions
 	controlKnobValueRegulators map[v1alpha1.ControlKnobName]regulator.Regulator
 }
 
-func newProvisionPolicyResult(essentials types.ResourceEssentials) *provisionPolicyResult {
+func newProvisionPolicyResult(essentials types.ResourceEssentials, regulatorOptions regulator.RegulatorOptions) *provisionPolicyResult {
 	return &provisionPolicyResult{
 		essentials:                 essentials,
+		regulatorOptions:           regulatorOptions,
 		controlKnobValueRegulators: make(map[v1alpha1.ControlKnobName]regulator.Regulator),
 	}
 }
@@ -102,7 +104,6 @@ func (r *provisionPolicyResult) regulateControlKnob(currentControlKnob types.Con
 			reg, ok := r.controlKnobValueRegulators[name]
 			if !ok || reg == nil {
 				reg = r.newRegulator(name)
-				reg.SetEssentials(r.essentials)
 			}
 
 			reg.SetLatestControlKnobValue(knob)
@@ -114,7 +115,6 @@ func (r *provisionPolicyResult) regulateControlKnob(currentControlKnob types.Con
 		reg, ok := r.controlKnobValueRegulators[name]
 		if !ok || reg == nil {
 			reg = r.newRegulator(name)
-			reg.SetEssentials(r.essentials)
 		}
 
 		reg.Regulate(knob)
@@ -127,7 +127,7 @@ func (r *provisionPolicyResult) newRegulator(name v1alpha1.ControlKnobName) regu
 	switch name {
 	// only non-reclaimed cpu size need regulate now
 	case v1alpha1.ControlKnobNonReclaimedCPURequirement:
-		return regulator.NewCPURegulator()
+		return regulator.NewCPURegulator(r.essentials, r.regulatorOptions)
 	default:
 		return regulator.NewDummyRegulator()
 	}
@@ -172,6 +172,9 @@ type QoSRegionBase struct {
 	provisionPolicies        []*internalProvisionPolicy
 	provisionPolicyNameInUse types.CPUProvisionPolicyName
 	provisionPolicyResults   map[types.CPUProvisionPolicyName]*provisionPolicyResult
+
+	// cpuRegulatorOptions is the regulator options for cpu regulator
+	cpuRegulatorOptions regulator.RegulatorOptions
 
 	// headroomPolicies for comparing and merging different headroom policy results,
 	// the former has higher priority; headroomPolicyNameInUse indicates the headroom
@@ -219,6 +222,11 @@ func NewQoSRegionBase(name string, ownerPoolName string, regionType v1alpha1.QoS
 		headroomPolicyNameInUse:  types.CPUHeadroomPolicyNone,
 
 		provisionPolicyResults: make(map[types.CPUProvisionPolicyName]*provisionPolicyResult),
+		cpuRegulatorOptions: regulator.RegulatorOptions{
+			MaxRampUpStep:     conf.MaxRampUpStep,
+			MaxRampDownStep:   conf.MaxRampDownStep,
+			MinRampDownPeriod: conf.MinRampDownPeriod,
+		},
 
 		metaReader: metaReader,
 		metaServer: metaServer,
@@ -619,7 +627,7 @@ func (r *QoSRegionBase) regulateProvisionControlKnob(originControlKnob map[types
 
 		policyResult, ok := r.provisionPolicyResults[internal.name]
 		if !ok || policyResult == nil {
-			policyResult = newProvisionPolicyResult(r.ResourceEssentials)
+			policyResult = newProvisionPolicyResult(r.ResourceEssentials, r.cpuRegulatorOptions)
 			policyResult.regulateControlKnob(controlKnob, lastControlKnob)
 		} else {
 			policyResult.setEssentials(r.ResourceEssentials)
