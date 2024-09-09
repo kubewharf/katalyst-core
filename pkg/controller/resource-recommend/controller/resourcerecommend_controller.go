@@ -40,10 +40,13 @@ import (
 	k8stypes "k8s.io/apimachinery/pkg/types"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/apimachinery/pkg/util/wait"
-	appsv1 "k8s.io/client-go/kubernetes/typed/apps/v1"
+	memory "k8s.io/client-go/discovery/cached"
+	"k8s.io/client-go/dynamic"
+	"k8s.io/client-go/restmapper"
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog/v2"
+	"reflect"
 	"runtime/debug"
 	"time"
 )
@@ -61,14 +64,16 @@ type ResourceRecommendController struct {
 
 	recUpdater control.ResourceRecommendUpdater
 
-	recLister reclister.ResourceRecommendLister // 用于 Processor 获取当前全部 CR
+	recLister reclister.ResourceRecommendLister
 
-	recQueue       workqueue.RateLimitingInterface // 资源推荐队列
-	recSyncWorkers int                             // 同时处理队列的协程数量
+	recQueue       workqueue.RateLimitingInterface
+	recSyncWorkers int
+	recSyncPeriod  time.Duration
 
-	syncedFunc []cache.InformerSynced // 需要被同步的函数列表
+	syncedFunc []cache.InformerSynced
 
-	client appsv1.AppsV1Interface // 用于获取 Deployment
+	client     dynamic.Interface
+	restMapper *restmapper.DeferredDiscoveryRESTMapper
 
 	OOMRecorder        *oom.PodOOMRecorder
 	ProcessorManager   *processormanager.Manager
@@ -86,15 +91,11 @@ func NewResourceRecommendController(ctx context.Context,
 	}
 
 	recInformer := controlCtx.InternalInformerFactory.Recommendation().V1alpha1().ResourceRecommends()
-
-	// 初始化控制器结构体
 	recController := &ResourceRecommendController{
 		ctx: ctx,
 
 		recUpdater: &control.DummyResourceRecommendUpdater{},
-
-		recLister: recInformer.Lister(),
-
+		recLister:  recInformer.Lister(),
 		recQueue: workqueue.NewNamedRateLimitingQueue(
 			workqueue.NewMaxOfRateLimiter(
 				// For syncRec failures(i.e. doRecommend return err), the retry time is (2*minutes)*2^<num-failures>
@@ -105,38 +106,34 @@ func NewResourceRecommendController(ctx context.Context,
 			),
 			"resourceRecommend"),
 		recSyncWorkers: recConf.RecSyncWorkers,
+		recSyncPeriod:  recConf.RecSyncPeriod,
 
 		syncedFunc: []cache.InformerSynced{
 			recInformer.Informer().HasSynced,
 		},
 
-		client: controlCtx.Client.KubeClient.AppsV1(),
+		client:     controlCtx.Client.DynamicClient,
+		restMapper: restmapper.NewDeferredDiscoveryRESTMapper(memory.NewMemCacheClient(controlCtx.Client.DiscoveryClient)),
 	}
 
-	// 用于同步 katalyst 的其他动态资源
-	// todo: 似乎不需要 workloadLister ，在 vpa 中会用于获得 SPD 和 Pod List，暂时注释掉
 	for _, wf := range controlCtx.DynamicResourcesManager.GetDynamicInformers() {
-		//recController.workloadLister[wf.GVK] = wf.Informer.Lister()
 		recController.syncedFunc = append(recController.syncedFunc, wf.Informer.Informer().HasSynced)
 	}
 
-	// 注册相应的回调事件
-	recInformer.Informer().AddEventHandlerWithResyncPeriod(cache.ResourceEventHandlerFuncs{
+	recInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc:    recController.addRec,
 		UpdateFunc: recController.updateRec,
-	}, recConf.RecSyncPeriod)
+		DeleteFunc: recController.deleteRec,
+	})
 
-	// 检查是否是测试
 	if !genericConf.DryRun {
 		recController.recUpdater = control.NewRealResourceRecommendUpdater(controlCtx.Client.InternalClient)
 	}
 
-	// todo: 如果是和 vpa 协同工作，这里是否需要尝试给 vpa 构建索引呢？
-	// todo: 补充 metricsEmitter
+	// todo: add metricsEmitter
 
-	// 初始化数据源，创建新 ProcessorManager
 	dataProxy := initDataSources(recConf)
-	klog.Infof("successfully init data proxy %v", *dataProxy)
+	klog.Infof("[resource-recommend] successfully init data proxy %v", *dataProxy)
 
 	recController.ProcessorManager = processormanager.NewManager(dataProxy, recController.recLister)
 	recController.OOMRecorder = OOMRecorder
@@ -151,7 +148,6 @@ func (rrc *ResourceRecommendController) Run() {
 
 	defer klog.Infof("[resource-recommend] shutting down %s controller", resourceRecommendControllerName)
 
-	// 缓存同步
 	if !cache.WaitForCacheSync(rrc.ctx.Done(), rrc.syncedFunc...) {
 		utilruntime.HandleError(fmt.Errorf("unable to sync caches for %s controller", resourceRecommendControllerName))
 		return
@@ -172,7 +168,6 @@ func (rrc *ResourceRecommendController) Run() {
 	klog.Infof("[resource-recommend] caches are synced for %s controller", resourceRecommendControllerName)
 	klog.Infof("[resource-recommend] start %v recSyncWorkers", rrc.recSyncWorkers)
 
-	// 开多个协程进行并发接任务，为了提升吞吐率
 	for i := 0; i < rrc.recSyncWorkers; i++ {
 		go wait.Until(rrc.recWorker, time.Second, rrc.ctx.Done())
 	}
@@ -190,21 +185,42 @@ func (rrc *ResourceRecommendController) addRec(obj interface{}) {
 	rrc.enqueueRec(v)
 }
 
-// updateRec 似乎会因为我们使用了AddEventHandlerWithReSyncPeriod而被定时触发，需要进行测试
-func (rrc *ResourceRecommendController) updateRec(_, newObj interface{}) {
-	v, ok := newObj.(*v1alpha1.ResourceRecommend)
-	if !ok {
+func (rrc *ResourceRecommendController) updateRec(oldObj, newObj interface{}) {
+	oldRec, oldOk := oldObj.(*v1alpha1.ResourceRecommend)
+	newRec, newOk := newObj.(*v1alpha1.ResourceRecommend)
+	if !oldOk || !newOk {
 		klog.Errorf("[resource-recommend] cannot convert obj to *apis.ResourceRecommend: %v", newObj)
 		return
 	}
-	klog.V(4).Infof("[resource-recommend] notice update of ResourceRecommend %s", v.Name)
-	rrc.enqueueRec(v)
+
+	// Only enqueue when the spec changes, ignore status changes.
+	if !reflect.DeepEqual(oldRec.Spec, newRec.Spec) {
+		klog.V(4).Infof("[resource-recommend] notice spec update of ResourceRecommend %s", newRec.Name)
+		rrc.enqueueRec(newRec)
+	}
 }
 
-// 将资源推荐任务入队
+func (rrc *ResourceRecommendController) deleteRec(obj interface{}) {
+	v, ok := obj.(*v1alpha1.ResourceRecommend)
+	if !ok {
+		tombstone, ok := obj.(cache.DeletedFinalStateUnknown)
+		if !ok {
+			klog.Errorf("[resource-recommend] cannot convert obj to *apis.ResourceRecommend: %v", obj)
+			return
+		}
+		v, ok = tombstone.Obj.(*v1alpha1.ResourceRecommend)
+		if !ok {
+			klog.Errorf("[resource-recommend] cannot convert obj to *apis.ResourceRecommend: %v", obj)
+			return
+		}
+	}
+	klog.V(4).Infof("[resource-recommend] notice deletion of ResourceRecommend %s", v.Name)
+	rrc.dequeueRec(v)
+}
+
 func (rrc *ResourceRecommendController) enqueueRec(rec *v1alpha1.ResourceRecommend) {
 	if rec == nil {
-		klog.Warningf("[resource-recommend] trying to enqueue a nil vpaRec")
+		klog.Warningf("[resource-recommend] trying to enqueue a nil rec")
 	}
 	key, err := cache.DeletionHandlingMetaNamespaceKeyFunc(rec)
 	if err != nil {
@@ -214,7 +230,22 @@ func (rrc *ResourceRecommendController) enqueueRec(rec *v1alpha1.ResourceRecomme
 	rrc.recQueue.Add(key)
 }
 
-// recWorker 会不断地处理来自队列的任务，可以在 config 中配置多个 worker 以协程的形式同时运行，这样可以增加吞吐率
+func (rrc *ResourceRecommendController) dequeueRec(rec *v1alpha1.ResourceRecommend) {
+	if rec == nil {
+		klog.Warningf("[resource-recommend] trying to dequeue a nil rec")
+	}
+
+	key, err := cache.DeletionHandlingMetaNamespaceKeyFunc(rec)
+	if err != nil {
+		utilruntime.HandleError(err)
+		return
+	}
+	rrc.recQueue.Forget(key)
+	rrc.recQueue.Done(key)
+}
+
+// recWorker continuously processes tasks from the queue.
+// Multiple workers can be configured to run concurrently via goroutines in the config, enhancing throughput.
 func (rrc *ResourceRecommendController) recWorker() {
 	for rrc.ProcessNextResourceRecommend() {
 	}
@@ -228,9 +259,10 @@ func (rrc *ResourceRecommendController) ProcessNextResourceRecommend() bool {
 	}
 	defer rrc.recQueue.Done(key)
 
-	err := rrc.syncRec(key.(string))
+	timeAfter, err := rrc.syncRec(key.(string))
 	if err == nil {
 		rrc.recQueue.Forget(key)
+		rrc.recQueue.AddAfter(key, timeAfter)
 		return true
 	}
 	utilruntime.HandleError(fmt.Errorf("sync %q failed with %v", key, err))
@@ -238,19 +270,20 @@ func (rrc *ResourceRecommendController) ProcessNextResourceRecommend() bool {
 	return true
 }
 
-// syncRec 会进行资源推荐，如果成功则完成队列，失败则会不断重试
-func (rrc *ResourceRecommendController) syncRec(key string) error {
+// syncRec processes resource recommendations. On success, it clears the queue item; on failure, it retries.
+// Returns -1 upon error, otherwise the interval in seconds until the next execution for the same recommendation.
+func (rrc *ResourceRecommendController) syncRec(key string) (time.Duration, error) {
 	namespace, name, err := cache.SplitMetaNamespaceKey(key)
 	if err != nil {
 		klog.Errorf("[resource-recommend] failed to split namespace and name from key %s", key)
-		return err
+		return -1, err
 	}
 
 	begin := time.Now()
 	defer func() {
 		costs := time.Since(begin).Microseconds()
 		klog.Infof("[resource-recommend] syncing resource [%v/%v] costs %v us", namespace, name, costs)
-		// todo: 添加指标发送内容
+		// todo: add metricsEmitter
 	}()
 
 	resourceRecommend, err := rrc.recLister.ResourceRecommends(namespace).Get(name)
@@ -261,14 +294,14 @@ func (rrc *ResourceRecommendController) syncRec(key string) error {
 				Namespace: namespace,
 				Name:      name,
 			})
-			return nil
+			return rrc.recSyncPeriod, nil
 		}
-		return err
+		return -1, err
 	}
 	if recommender := resourceRecommend.Spec.ResourcePolicy.AlgorithmPolicy.Recommender; recommender != "" &&
 		recommender != recommendationtypes.DefaultRecommenderType {
 		klog.InfoS("ResourceRecommend is not controlled by the default controller")
-		return nil
+		return rrc.recSyncPeriod, nil
 	}
 
 	if lastRecommendationTime := resourceRecommend.Status.LastRecommendationTime; lastRecommendationTime != nil {
@@ -280,19 +313,18 @@ func (rrc *ResourceRecommendController) syncRec(key string) error {
 				"observedGeneration", observedGeneration,
 				"generation", resourceRecommend.GetGeneration(),
 				"resourceRecommendName", resourceRecommend.GetName())
-			return nil
+			return requeueAfter, nil
 		}
 	}
 
 	err = rrc.doRecommend(rrc.ctx, k8stypes.NamespacedName{Namespace: namespace, Name: name}, resourceRecommend)
 	if err != nil {
 		klog.ErrorS(err, "failed to sync recommendation ", namespace, "/", name)
-		return err
+		return -1, err
 	}
-	return nil
+	return rrc.recSyncPeriod, nil
 }
 
-// doRecommend 实现了和 doReconcile 类似的功能
 func (rrc *ResourceRecommendController) doRecommend(ctx context.Context, namespacedName k8stypes.NamespacedName,
 	resourceRecommend *v1alpha1.ResourceRecommend) (err error) {
 	recommendation := recommendationtypes.NewRecommendation(resourceRecommend)
@@ -308,7 +340,7 @@ func (rrc *ResourceRecommendController) doRecommend(ctx context.Context, namespa
 		}
 	}()
 
-	validationError := recommendation.SetConfig(ctx, rrc.client, resourceRecommend)
+	validationError := recommendation.SetConfig(ctx, rrc.client, resourceRecommend, rrc.restMapper)
 	if validationError != nil {
 		klog.ErrorS(validationError, "failed to get Recommendation", "resourceRecommend", namespacedName)
 		recommendation.Conditions.Set(*conditionstypes.ConvertCustomErrorToCondition(*validationError))
@@ -353,7 +385,6 @@ func (rrc *ResourceRecommendController) RegisterTasks(recommendation recommendat
 
 // CancelTasks Cancel all process task
 func (rrc *ResourceRecommendController) CancelTasks(namespacedName k8stypes.NamespacedName) *errortypes.CustomError {
-	// todo: 不应该写死用 Percentile
 	processor := rrc.ProcessorManager.GetProcessor(v1alpha1.AlgorithmPercentile)
 	err := processor.Cancel(&processortypes.ProcessKey{ResourceRecommendNamespacedName: namespacedName})
 	if err != nil {
@@ -363,14 +394,12 @@ func (rrc *ResourceRecommendController) CancelTasks(namespacedName k8stypes.Name
 }
 
 func (rrc *ResourceRecommendController) UpdateRecommendationStatus(namespacedName k8stypes.NamespacedName, recommendation *recommendationtypes.Recommendation) error {
-	// 获取旧的 Recommendation
 	oldRec, err := rrc.recLister.ResourceRecommends(namespacedName.Namespace).Get(namespacedName.Name)
 	if err != nil {
 		klog.ErrorS(err, "get old resourceRecommend failed")
 		return err
 	}
 
-	// 做拷贝，并设置新的内容
 	newRec := oldRec.DeepCopy()
 	newRec.Status = recommendation.AsStatus()
 	newRec.Status.ObservedGeneration = recommendation.ObservedGeneration

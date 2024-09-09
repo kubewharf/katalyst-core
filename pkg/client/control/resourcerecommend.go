@@ -27,7 +27,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/jsonmergepatch"
 )
 
-// ResourceRecommendUpdater is used to update resourcerecommend CR
+// ResourceRecommendUpdater is used to update ResourceRecommend CR
 type ResourceRecommendUpdater interface {
 	UpdateResourceRecommend(ctx context.Context, rec *apis.ResourceRecommend,
 		opts v1.UpdateOptions) (*apis.ResourceRecommend, error)
@@ -68,7 +68,7 @@ func NewRealResourceRecommendUpdater(client clientset.Interface) *RealResourceRe
 func (r *RealResourceRecommendUpdater) UpdateResourceRecommend(ctx context.Context, rec *apis.ResourceRecommend,
 	opts v1.UpdateOptions) (*apis.ResourceRecommend, error) {
 	if rec == nil {
-		return nil, fmt.Errorf("can't update a nil resourceRecommend")
+		return nil, fmt.Errorf("can't update a nil ResourceRecommend")
 	}
 
 	return r.client.RecommendationV1alpha1().ResourceRecommends(rec.Namespace).Update(ctx, rec, opts)
@@ -77,7 +77,7 @@ func (r *RealResourceRecommendUpdater) UpdateResourceRecommend(ctx context.Conte
 func (r *RealResourceRecommendUpdater) PatchResourceRecommend(ctx context.Context, oldRec *apis.ResourceRecommend,
 	newRec *apis.ResourceRecommend) error {
 	if oldRec == nil || newRec == nil {
-		return fmt.Errorf("can't patch a nil vpa")
+		return fmt.Errorf("can't patch a nil ResourceRecommend")
 	}
 
 	oldData, err := json.Marshal(oldRec)
@@ -91,7 +91,7 @@ func (r *RealResourceRecommendUpdater) PatchResourceRecommend(ctx context.Contex
 
 	patchBytes, err := jsonmergepatch.CreateThreeWayJSONMergePatch(oldData, newData, oldData)
 	if err != nil {
-		return fmt.Errorf("failed to create merge patch for vpa %q/%q: %v", oldRec.Namespace, oldRec.Name, err)
+		return fmt.Errorf("failed to create merge patch for ResourceRecommend %q/%q: %v", oldRec.Namespace, oldRec.Name, err)
 	}
 
 	_, err = r.client.RecommendationV1alpha1().ResourceRecommends(oldRec.Namespace).Patch(ctx, oldRec.Name, types.MergePatchType, patchBytes, v1.PatchOptions{}, "status")
@@ -100,7 +100,7 @@ func (r *RealResourceRecommendUpdater) PatchResourceRecommend(ctx context.Contex
 
 func (r *RealResourceRecommendUpdater) CreateResourceRecommend(ctx context.Context, rec *apis.ResourceRecommend, opts v1.CreateOptions) (*apis.ResourceRecommend, error) {
 	if rec == nil {
-		return nil, fmt.Errorf("can't update a nil resourceRecommend")
+		return nil, fmt.Errorf("can't update a nil ResourceRecommend")
 	}
 
 	return r.client.RecommendationV1alpha1().ResourceRecommends(rec.Namespace).Create(ctx, rec, opts)

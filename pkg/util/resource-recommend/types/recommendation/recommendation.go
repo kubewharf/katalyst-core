@@ -18,14 +18,14 @@ package recommendation
 
 import (
 	"context"
-	appsv1 "k8s.io/client-go/kubernetes/typed/apps/v1"
-
 	"github.com/kubewharf/katalyst-api/pkg/apis/recommendation/v1alpha1"
 	conditionstypes "github.com/kubewharf/katalyst-core/pkg/util/resource-recommend/types/conditions"
 	errortypes "github.com/kubewharf/katalyst-core/pkg/util/resource-recommend/types/error"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/dynamic"
+	"k8s.io/client-go/restmapper"
 	"k8s.io/klog/v2"
 )
 
@@ -95,8 +95,8 @@ func NewRecommendation(resourceRecommend *v1alpha1.ResourceRecommend) *Recommend
 	}
 }
 
-func (r *Recommendation) SetConfig(ctx context.Context, client appsv1.AppsV1Interface,
-	resourceRecommend *v1alpha1.ResourceRecommend) *errortypes.CustomError {
+func (r *Recommendation) SetConfig(ctx context.Context, client dynamic.Interface,
+	resourceRecommend *v1alpha1.ResourceRecommend, mapper *restmapper.DeferredDiscoveryRESTMapper) *errortypes.CustomError {
 	targetRef, customErr := ValidateAndExtractTargetRef(resourceRecommend.Spec.TargetRef)
 	if customErr != nil {
 		klog.Errorf("spec.targetRef validate error, "+
@@ -111,7 +111,8 @@ func (r *Recommendation) SetConfig(ctx context.Context, client appsv1.AppsV1Inte
 		return customErr
 	}
 
-	containers, customErr := ValidateAndExtractContainers(ctx, client, resourceRecommend.Namespace, targetRef, resourceRecommend.Spec.ResourcePolicy.ContainerPolicies)
+	containers, customErr := ValidateAndExtractContainers(ctx, client, resourceRecommend.Namespace,
+		targetRef, resourceRecommend.Spec.ResourcePolicy.ContainerPolicies, mapper)
 	if customErr != nil {
 		klog.Errorf("spec.resourcePolicy.containerPolicies validate error, "+
 			"reason: %s, msg: %s", customErr.Code, customErr.Message)

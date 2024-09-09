@@ -18,13 +18,17 @@ package resource
 
 import (
 	"context"
-	"fmt"
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
-	appsv1 "k8s.io/client-go/kubernetes/typed/apps/v1"
+	memory "k8s.io/client-go/discovery/cached"
+	discoveryfake "k8s.io/client-go/discovery/fake"
+	"k8s.io/client-go/dynamic"
 	corev1 "k8s.io/client-go/kubernetes/typed/core/v1"
+	"k8s.io/client-go/restmapper"
+	clientTesting "k8s.io/client-go/testing"
 
-	apiappsv1 "k8s.io/api/apps/v1"
 	v1 "k8s.io/api/core/v1"
 )
 
@@ -44,40 +48,34 @@ func CreateMockPod(labels, annotations map[string]string, name, namespace, nodeN
 	return err
 }
 
-func CreateMockDeployment(matchLabels map[string]string, containers []v1.Container, name, namespace, apiVersion, kind string, client appsv1.AppsV1Interface) error {
-	deployment := &apiappsv1.Deployment{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      name,
-			Namespace: namespace,
-		},
-		Spec: apiappsv1.DeploymentSpec{
-			Selector: &metav1.LabelSelector{
-				MatchLabels: matchLabels,
-			},
-			Template: v1.PodTemplateSpec{
-				ObjectMeta: metav1.ObjectMeta{
-					Labels: matchLabels,
-				},
-				Spec: v1.PodSpec{
-					Containers: containers,
-				},
-			},
-		},
-	}
+func CreateMockUnstructured(matchLabels, unstructuredTemplateSpec map[string]interface{}, name, namespace, apiVersion, kind string, client dynamic.Interface) error {
+	collectorObject := &unstructured.Unstructured{}
+	collectorObject.SetName(name)
+	collectorObject.SetNamespace(namespace)
+	collectorObject.SetKind(kind)
+	collectorObject.SetAPIVersion(apiVersion)
+	unstructured.SetNestedMap(collectorObject.Object, matchLabels, "spec", "selector", "matchLabels")
+	unstructured.SetNestedMap(collectorObject.Object, unstructuredTemplateSpec, "spec", "template", "spec")
 
-	groupVersion, err := schema.ParseGroupVersion(apiVersion)
-	if err != nil {
-		return fmt.Errorf("failed to parse apiVersion: %v", err)
-	}
-	deployment.SetGroupVersionKind(schema.GroupVersionKind{
-		Group:   groupVersion.Group,
-		Version: groupVersion.Version,
-		Kind:    kind,
-	})
+	gvk := schema.FromAPIVersionAndKind(apiVersion, kind)
+	gvr, _ := meta.UnsafeGuessKindToResource(gvk)
 
-	_, err = client.Deployments(namespace).Create(context.TODO(), deployment, metav1.CreateOptions{})
-	if err != nil {
-		return fmt.Errorf("failed to create deployment: %v", err)
+	_, err := client.Resource(gvr).Namespace(namespace).Create(context.TODO(), collectorObject, metav1.CreateOptions{})
+	return err
+}
+
+func CreateMockRESTMapper() *restmapper.DeferredDiscoveryRESTMapper {
+	fakeDiscoveryClient := &discoveryfake.FakeDiscovery{Fake: &clientTesting.Fake{}}
+	fakeDiscoveryClient.Resources = []*metav1.APIResourceList{
+		{
+			GroupVersion: "apps/v1",
+			APIResources: []metav1.APIResource{
+				{Name: "pods", SingularName: "pod", Namespaced: true, Kind: "Pod"},
+				{Name: "deployments", SingularName: "deployment", Namespaced: true, Kind: "Deployment"},
+				{Name: "kinds", SingularName: "kind", Namespaced: true, Kind: "Kind"},
+			},
+		},
 	}
-	return nil
+	restMapper := restmapper.NewDeferredDiscoveryRESTMapper(memory.NewMemCacheClient(fakeDiscoveryClient))
+	return restMapper
 }

@@ -18,74 +18,71 @@ package resource
 
 import (
 	"context"
-	"encoding/json"
-	"fmt"
-	v1 "k8s.io/api/apps/v1"
-	appsv1 "k8s.io/client-go/kubernetes/typed/apps/v1"
-
+	"github.com/kubewharf/katalyst-api/pkg/apis/recommendation/v1alpha1"
 	"github.com/pkg/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	k8stypes "k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/client-go/dynamic"
+	"k8s.io/client-go/restmapper"
 	"k8s.io/klog/v2"
-	k8sclient "sigs.k8s.io/controller-runtime/pkg/client"
-
-	"github.com/kubewharf/katalyst-api/pkg/apis/recommendation/v1alpha1"
 )
 
-func ConvertAndGetResource(ctx context.Context, client appsv1.AppsV1Interface, namespace string, targetRef v1alpha1.CrossVersionObjectReference) (*v1.Deployment, error) {
+func ConvertAndGetResource(ctx context.Context, client dynamic.Interface,
+	namespace string, targetRef v1alpha1.CrossVersionObjectReference,
+	mapper *restmapper.DeferredDiscoveryRESTMapper) (*unstructured.Unstructured, error) {
 	klog.V(5).Infof("get resource in targetRef: %v, namespace: %v", targetRef, namespace)
-	deployment, err := client.Deployments(namespace).Get(ctx, targetRef.Name, metav1.GetOptions{
-		TypeMeta: metav1.TypeMeta{
-			Kind:       targetRef.Kind,
-			APIVersion: targetRef.APIVersion,
-		},
-	})
+	gvk := schema.FromAPIVersionAndKind(targetRef.APIVersion, targetRef.Kind)
+	mapping, err := mapper.RESTMapping(gvk.GroupKind(), gvk.Version)
 	if err != nil {
 		return nil, err
 	}
-	return deployment, nil
-}
 
-func GetAllClaimedContainers(deployment *v1.Deployment) ([]string, error) {
-	if deployment == nil {
-		return nil, fmt.Errorf("get containers failed, deployment is nil object")
-	}
-	containerName := make([]string, 0, len(deployment.Spec.Template.Spec.Containers))
-	for _, v := range deployment.Spec.Template.Spec.Containers {
-		containerName = append(containerName, v.Name)
-	}
-	return containerName, nil
-}
-
-type patchRecord struct {
-	Op    string      `json:"op,inline"`
-	Path  string      `json:"path,inline"`
-	Value interface{} `json:"value"`
-}
-
-func PatchUpdateResourceRecommend(client k8sclient.Client, namespaceName k8stypes.NamespacedName,
-	resourceRecommend *v1alpha1.ResourceRecommend,
-) error {
-	obj := &v1alpha1.ResourceRecommend{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      namespaceName.Name,
-			Namespace: namespaceName.Namespace,
-		},
-	}
-	patches := []patchRecord{{
-		Op:    "replace",
-		Path:  "/status",
-		Value: resourceRecommend.Status,
-	}}
-
-	patch, err := json.Marshal(patches)
+	resource, err := client.Resource(schema.GroupVersionResource{
+		Group:    gvk.Group,
+		Version:  gvk.Version,
+		Resource: mapping.Resource.Resource,
+	}).Namespace(namespace).Get(ctx, targetRef.Name, metav1.GetOptions{
+		TypeMeta: metav1.TypeMeta{
+			APIVersion: targetRef.APIVersion,
+			Kind:       targetRef.Kind,
+		}})
 	if err != nil {
-		return errors.Wrapf(err, "failed to Marshal resourceRecommend: %+v", resourceRecommend)
+		return nil, err
 	}
-	patchDate := k8sclient.RawPatch(k8stypes.JSONPatchType, patch)
-	err = client.Status().Patch(context.TODO(), obj, patchDate)
+	return resource, nil
+}
+
+func GetAllClaimedContainers(resource *unstructured.Unstructured) ([]string, error) {
+	klog.V(5).InfoS("Get all controller claimed containers", "resource", resource)
+	templateSpec, found, err := unstructured.NestedMap(resource.Object, "spec", "template", "spec")
 	if err != nil {
-		return errors.Wrapf(err, "failed to patch resource")
+		return nil, errors.Wrapf(err, "unstructured.NestedMap err")
 	}
-	return nil
+	if !found {
+		return nil, errors.Errorf("spec.template.spec not found in the controller")
+	}
+	containersList, found, err := unstructured.NestedSlice(templateSpec, "containers")
+	if err != nil {
+		return nil, errors.Wrapf(err, "unstructured.NestedSlice err")
+	}
+	if !found {
+		return nil, errors.Errorf("failure to find containers in the controller")
+	}
+
+	containerNames := make([]string, 0, len(containersList))
+	for _, container := range containersList {
+		containerMap, ok := container.(map[string]interface{})
+		if !ok {
+			klog.Errorf("Unable to convert container:%v to map[string]interface{}", container)
+			continue
+		}
+		name, found, err := unstructured.NestedString(containerMap, "name")
+		if err != nil || !found {
+			klog.Errorf("Container name not found or get container name err:%v in the containerMap %v", err, containerMap)
+			continue
+		}
+		containerNames = append(containerNames, name)
+	}
+	return containerNames, nil
 }
