@@ -18,18 +18,19 @@ package recommendation
 
 import (
 	"context"
+	"github.com/bytedance/mockey"
 	resourceutils "github.com/kubewharf/katalyst-core/pkg/util/resource-recommend/resource"
+	"github.com/smartystreets/goconvey/convey"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/client-go/dynamic"
-	"k8s.io/client-go/restmapper"
 	"reflect"
 	"testing"
 	"time"
 
-	"bou.ke/monkey"
+	_ "github.com/bytedance/mockey"
 	"github.com/kubewharf/katalyst-api/pkg/apis/recommendation/v1alpha1"
 	conditionstypes "github.com/kubewharf/katalyst-core/pkg/util/resource-recommend/types/conditions"
 	errortypes "github.com/kubewharf/katalyst-core/pkg/util/resource-recommend/types/error"
+	_ "github.com/smartystreets/goconvey/convey"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	dynamicfake "k8s.io/client-go/dynamic/fake"
@@ -127,11 +128,10 @@ func TestRecommendation_AsStatus(t *testing.T) {
 			},
 		},
 	}
+
+	mockey.Mock(time.Now).Return(fakeTime1).Build()
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			defer monkey.UnpatchAll()
-
-			monkey.Patch(time.Now, func() time.Time { return fakeTime1 })
 
 			if got := tt.recommendation.AsStatus(); !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("AsStatus() = %v, want %v", got, tt.want)
@@ -218,45 +218,24 @@ func TestRecommendation_SetConfig(t *testing.T) {
 			wantErr: nil,
 		},
 	}
+	defer mockey.UnPatchAll()
 	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			defer monkey.UnpatchAll()
-
-			monkey.Patch(ValidateAndExtractTargetRef, func(targetRefReq v1alpha1.CrossVersionObjectReference) (
-				v1alpha1.CrossVersionObjectReference, *errortypes.CustomError,
-			) {
-				return tt.args.targetRef, tt.args.customErr1
-			})
-			monkey.Patch(ValidateAndExtractAlgorithmPolicy, func(algorithmPolicyReq v1alpha1.AlgorithmPolicy) (
-				v1alpha1.AlgorithmPolicy, *errortypes.CustomError,
-			) {
-				return tt.args.algorithmPolicy, tt.args.customErr2
-			})
-			monkey.Patch(ValidateAndExtractContainers, func(ctx context.Context, client dynamic.Interface, namespace string,
-				targetRef v1alpha1.CrossVersionObjectReference,
-				containerPolicies []v1alpha1.ContainerResourcePolicy,
-				mapper *restmapper.DeferredDiscoveryRESTMapper) (
-				[]Container, *errortypes.CustomError,
-			) {
-				return tt.args.containers, tt.args.customErr3
-			})
+		mockey.PatchConvey(tt.name, t, func() {
+			mockey.Mock(ValidateAndExtractTargetRef).Return(tt.args.targetRef, tt.args.customErr1).Build()
+			mockey.Mock(ValidateAndExtractAlgorithmPolicy).Return(tt.args.algorithmPolicy, tt.args.customErr2).Build()
+			mockey.Mock(ValidateAndExtractContainers).Return(tt.args.containers, tt.args.customErr3).Build()
 
 			r := NewRecommendation(&v1alpha1.ResourceRecommend{})
-
 			dynamicClient := dynamicfake.NewSimpleDynamicClient(runtime.NewScheme())
-
-			if gotErr := r.SetConfig(context.Background(), dynamicClient, &v1alpha1.ResourceRecommend{}, resourceutils.CreateMockRESTMapper()); !reflect.DeepEqual(gotErr, tt.wantErr) {
-				t.Errorf("SetConfig() = %v, want %v", gotErr, tt.wantErr)
-			}
+			gotErr := r.SetConfig(context.Background(), dynamicClient, &v1alpha1.ResourceRecommend{}, resourceutils.CreateMockRESTMapper())
+			convey.So(gotErr, convey.ShouldResemble, tt.wantErr)
 			if tt.wantErr == nil {
 				config := Config{
 					TargetRef:       tt.args.targetRef,
 					AlgorithmPolicy: tt.args.algorithmPolicy,
 					Containers:      tt.args.containers,
 				}
-				if !reflect.DeepEqual(config, r.Config) {
-					t.Errorf("SetConfig() failed, want config: %v, got: %v", config, r.Config)
-				}
+				convey.So(r.Config, convey.ShouldResemble, config)
 			}
 		})
 	}
