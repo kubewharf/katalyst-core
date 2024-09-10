@@ -20,16 +20,17 @@ import (
 	"context"
 	"fmt"
 
-	katalystbase "github.com/kubewharf/katalyst-core/cmd/base"
-	"github.com/kubewharf/katalyst-core/pkg/config/controller"
-	"github.com/kubewharf/katalyst-core/pkg/config/generic"
-	"github.com/kubewharf/katalyst-core/pkg/controller/resource-recommend/oom"
 	"github.com/pkg/errors"
 	core "k8s.io/api/core/v1"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog/v2"
+
+	katalystbase "github.com/kubewharf/katalyst-core/cmd/base"
+	"github.com/kubewharf/katalyst-core/pkg/config/controller"
+	"github.com/kubewharf/katalyst-core/pkg/config/generic"
+	"github.com/kubewharf/katalyst-core/pkg/controller/resource-recommend/oom"
 )
 
 const OOMRecorderControllerName = "oomRecorder"

@@ -26,6 +26,7 @@ import (
 	"k8s.io/klog/v2"
 
 	"github.com/kubewharf/katalyst-api/pkg/apis/recommendation/v1alpha1"
+
 	"github.com/kubewharf/katalyst-core/pkg/controller/resource-recommend/oom"
 	"github.com/kubewharf/katalyst-core/pkg/controller/resource-recommend/processor"
 	"github.com/kubewharf/katalyst-core/pkg/controller/resource-recommend/recommender"

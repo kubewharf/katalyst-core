@@ -25,15 +25,16 @@ import (
 	"github.com/bytedance/mockey"
 	_ "github.com/bytedance/mockey"
 	"github.com/kubewharf/katalyst-api/pkg/apis/recommendation/v1alpha1"
-	resourceutils "github.com/kubewharf/katalyst-core/pkg/util/resource-recommend/resource"
-	conditionstypes "github.com/kubewharf/katalyst-core/pkg/util/resource-recommend/types/conditions"
-	errortypes "github.com/kubewharf/katalyst-core/pkg/util/resource-recommend/types/error"
 	"github.com/smartystreets/goconvey/convey"
 	_ "github.com/smartystreets/goconvey/convey"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	dynamicfake "k8s.io/client-go/dynamic/fake"
+
+	resourceutils "github.com/kubewharf/katalyst-core/pkg/util/resource-recommend/resource"
+	conditionstypes "github.com/kubewharf/katalyst-core/pkg/util/resource-recommend/types/conditions"
+	errortypes "github.com/kubewharf/katalyst-core/pkg/util/resource-recommend/types/error"
 )
 
 func TestRecommendation_AsStatus(t *testing.T) {

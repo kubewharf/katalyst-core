@@ -20,14 +20,15 @@ import (
 	"context"
 
 	"github.com/kubewharf/katalyst-api/pkg/apis/recommendation/v1alpha1"
-	conditionstypes "github.com/kubewharf/katalyst-core/pkg/util/resource-recommend/types/conditions"
-	errortypes "github.com/kubewharf/katalyst-core/pkg/util/resource-recommend/types/error"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/restmapper"
 	"k8s.io/klog/v2"
+
+	conditionstypes "github.com/kubewharf/katalyst-core/pkg/util/resource-recommend/types/conditions"
+	errortypes "github.com/kubewharf/katalyst-core/pkg/util/resource-recommend/types/error"
 )
 
 const (

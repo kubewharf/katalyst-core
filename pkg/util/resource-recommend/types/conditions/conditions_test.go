@@ -28,6 +28,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/kubewharf/katalyst-api/pkg/apis/recommendation/v1alpha1"
+
 	errortypes "github.com/kubewharf/katalyst-core/pkg/util/resource-recommend/types/error"
 )
 

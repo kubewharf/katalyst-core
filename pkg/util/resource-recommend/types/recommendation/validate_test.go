@@ -26,11 +26,12 @@ import (
 	corev1 "k8s.io/client-go/kubernetes/typed/core/v1"
 
 	"github.com/kubewharf/katalyst-api/pkg/apis/recommendation/v1alpha1"
-	resourceutils "github.com/kubewharf/katalyst-core/pkg/util/resource-recommend/resource"
-	errortypes "github.com/kubewharf/katalyst-core/pkg/util/resource-recommend/types/error"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	dynamicfake "k8s.io/client-go/dynamic/fake"
+
+	resourceutils "github.com/kubewharf/katalyst-core/pkg/util/resource-recommend/resource"
+	errortypes "github.com/kubewharf/katalyst-core/pkg/util/resource-recommend/types/error"
 )
 
 func TestValidateAndExtractAlgorithmPolicy(t *testing.T) {

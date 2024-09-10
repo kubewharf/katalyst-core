@@ -25,6 +25,19 @@ import (
 
 	"github.com/kubewharf/katalyst-api/pkg/apis/recommendation/v1alpha1"
 	reclister "github.com/kubewharf/katalyst-api/pkg/client/listers/recommendation/v1alpha1"
+	"github.com/pkg/errors"
+	"golang.org/x/time/rate"
+	k8serrors "k8s.io/apimachinery/pkg/api/errors"
+	k8stypes "k8s.io/apimachinery/pkg/types"
+	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
+	"k8s.io/apimachinery/pkg/util/wait"
+	memory "k8s.io/client-go/discovery/cached"
+	"k8s.io/client-go/dynamic"
+	"k8s.io/client-go/restmapper"
+	"k8s.io/client-go/tools/cache"
+	"k8s.io/client-go/util/workqueue"
+	"k8s.io/klog/v2"
+
 	katalystbase "github.com/kubewharf/katalyst-core/cmd/base"
 	"github.com/kubewharf/katalyst-core/pkg/client/control"
 	"github.com/kubewharf/katalyst-core/pkg/config/controller"
@@ -38,18 +51,6 @@ import (
 	errortypes "github.com/kubewharf/katalyst-core/pkg/util/resource-recommend/types/error"
 	processortypes "github.com/kubewharf/katalyst-core/pkg/util/resource-recommend/types/processor"
 	recommendationtypes "github.com/kubewharf/katalyst-core/pkg/util/resource-recommend/types/recommendation"
-	"github.com/pkg/errors"
-	"golang.org/x/time/rate"
-	k8serrors "k8s.io/apimachinery/pkg/api/errors"
-	k8stypes "k8s.io/apimachinery/pkg/types"
-	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
-	"k8s.io/apimachinery/pkg/util/wait"
-	memory "k8s.io/client-go/discovery/cached"
-	"k8s.io/client-go/dynamic"
-	"k8s.io/client-go/restmapper"
-	"k8s.io/client-go/tools/cache"
-	"k8s.io/client-go/util/workqueue"
-	"k8s.io/klog/v2"
 )
 
 const (

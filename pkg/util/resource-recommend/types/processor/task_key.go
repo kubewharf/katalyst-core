@@ -23,6 +23,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 
 	"github.com/kubewharf/katalyst-api/pkg/apis/recommendation/v1alpha1"
+
 	datasourcetypes "github.com/kubewharf/katalyst-core/pkg/util/resource-recommend/types/datasource"
 )
 

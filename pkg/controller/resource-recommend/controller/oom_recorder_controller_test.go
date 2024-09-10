@@ -21,13 +21,14 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
+	"k8s.io/client-go/tools/cache"
+	cliflag "k8s.io/component-base/cli/flag"
+
 	katalystbase "github.com/kubewharf/katalyst-core/cmd/base"
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-controller/app/options"
 	"github.com/kubewharf/katalyst-core/pkg/config/controller"
 	"github.com/kubewharf/katalyst-core/pkg/config/generic"
-	"github.com/stretchr/testify/assert"
-	"k8s.io/client-go/tools/cache"
-	cliflag "k8s.io/component-base/cli/flag"
 )
 
 func TestOOMRecorderController_Run(t *testing.T) {
