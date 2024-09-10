@@ -23,8 +23,6 @@ import (
 	"runtime/debug"
 	"time"
 
-	"github.com/kubewharf/katalyst-api/pkg/apis/recommendation/v1alpha1"
-	reclister "github.com/kubewharf/katalyst-api/pkg/client/listers/recommendation/v1alpha1"
 	"github.com/pkg/errors"
 	"golang.org/x/time/rate"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
@@ -37,6 +35,9 @@ import (
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog/v2"
+
+	"github.com/kubewharf/katalyst-api/pkg/apis/recommendation/v1alpha1"
+	reclister "github.com/kubewharf/katalyst-api/pkg/client/listers/recommendation/v1alpha1"
 
 	katalystbase "github.com/kubewharf/katalyst-core/cmd/base"
 	"github.com/kubewharf/katalyst-core/pkg/client/control"

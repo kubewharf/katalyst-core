@@ -23,9 +23,10 @@ import (
 
 	"k8s.io/apimachinery/pkg/labels"
 
-	"github.com/kubewharf/katalyst-api/pkg/apis/recommendation/v1alpha1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/klog/v2"
+
+	"github.com/kubewharf/katalyst-api/pkg/apis/recommendation/v1alpha1"
 
 	"github.com/kubewharf/katalyst-core/pkg/controller/resource-recommend/processor/percentile/task"
 	"github.com/kubewharf/katalyst-core/pkg/util/resource-recommend/log"

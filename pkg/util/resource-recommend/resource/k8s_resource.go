@@ -19,7 +19,6 @@ package resource
 import (
 	"context"
 
-	"github.com/kubewharf/katalyst-api/pkg/apis/recommendation/v1alpha1"
 	"github.com/pkg/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -27,6 +26,8 @@ import (
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/restmapper"
 	"k8s.io/klog/v2"
+
+	"github.com/kubewharf/katalyst-api/pkg/apis/recommendation/v1alpha1"
 )
 
 func ConvertAndGetResource(ctx context.Context, client dynamic.Interface,
