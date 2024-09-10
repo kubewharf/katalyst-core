@@ -19,10 +19,11 @@ package controller
 import (
 	"context"
 
+	"k8s.io/klog/v2"
+
 	katalyst "github.com/kubewharf/katalyst-core/cmd/base"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/controller/resource-recommend/controller"
-	"k8s.io/klog/v2"
 )
 
 const (
