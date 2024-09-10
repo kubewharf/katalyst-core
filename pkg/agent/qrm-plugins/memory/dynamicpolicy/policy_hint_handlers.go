@@ -71,6 +71,17 @@ func (p *DynamicPolicy) sharedCoresHintHandler(ctx context.Context,
 		})
 }
 
+func (p *DynamicPolicy) systemCoresHintHandler(_ context.Context, req *pluginapi.ResourceRequest) (*pluginapi.ResourceHintsResponse, error) {
+	if req == nil {
+		return nil, fmt.Errorf("got nil request")
+	}
+
+	return util.PackResourceHintsResponse(req, string(v1.ResourceMemory),
+		map[string]*pluginapi.ListOfTopologyHints{
+			string(v1.ResourceMemory): nil, // indicates that there is no numa preference
+		})
+}
+
 func (p *DynamicPolicy) reclaimedCoresHintHandler(ctx context.Context,
 	req *pluginapi.ResourceRequest,
 ) (*pluginapi.ResourceHintsResponse, error) {

@@ -49,6 +49,14 @@ func (p *DynamicPolicy) sharedCoresAllocationHandler(ctx context.Context,
 	}
 }
 
+func (p *DynamicPolicy) systemCoresAllocationHandler(_ context.Context, req *pluginapi.ResourceRequest) (*pluginapi.ResourceAllocationResponse, error) {
+	if req == nil {
+		return nil, fmt.Errorf("systemCoresAllocationHandler got nil request")
+	}
+
+	return p.allocateAllNUMAs(req, apiconsts.PodAnnotationQoSLevelSystemCores)
+}
+
 func (p *DynamicPolicy) reclaimedCoresAllocationHandler(ctx context.Context,
 	req *pluginapi.ResourceRequest,
 ) (*pluginapi.ResourceAllocationResponse, error) {
