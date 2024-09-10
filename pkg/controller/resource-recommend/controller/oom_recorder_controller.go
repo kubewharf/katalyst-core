@@ -19,6 +19,7 @@ package controller
 import (
 	"context"
 	"fmt"
+
 	katalystbase "github.com/kubewharf/katalyst-core/cmd/base"
 	"github.com/kubewharf/katalyst-core/pkg/config/controller"
 	"github.com/kubewharf/katalyst-core/pkg/config/generic"

@@ -18,11 +18,12 @@ package recommendation
 
 import (
 	"context"
+	"reflect"
+	"testing"
+
 	"k8s.io/client-go/dynamic"
 	k8sfake "k8s.io/client-go/kubernetes/fake"
 	corev1 "k8s.io/client-go/kubernetes/typed/core/v1"
-	"reflect"
-	"testing"
 
 	"github.com/kubewharf/katalyst-api/pkg/apis/recommendation/v1alpha1"
 	resourceutils "github.com/kubewharf/katalyst-core/pkg/util/resource-recommend/resource"

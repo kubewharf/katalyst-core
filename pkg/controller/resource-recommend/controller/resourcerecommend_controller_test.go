@@ -17,10 +17,11 @@ limitations under the License.
 package controller
 
 import (
-	"github.com/bytedance/mockey"
-	"github.com/smartystreets/goconvey/convey"
 	"testing"
 	"time"
+
+	"github.com/bytedance/mockey"
+	"github.com/smartystreets/goconvey/convey"
 
 	promapiv1 "github.com/prometheus/client_golang/api/prometheus/v1"
 	"github.com/stretchr/testify/mock"

@@ -18,6 +18,7 @@ package resource
 
 import (
 	"context"
+
 	"github.com/kubewharf/katalyst-api/pkg/apis/recommendation/v1alpha1"
 	"github.com/pkg/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -30,7 +31,8 @@ import (
 
 func ConvertAndGetResource(ctx context.Context, client dynamic.Interface,
 	namespace string, targetRef v1alpha1.CrossVersionObjectReference,
-	mapper *restmapper.DeferredDiscoveryRESTMapper) (*unstructured.Unstructured, error) {
+	mapper *restmapper.DeferredDiscoveryRESTMapper,
+) (*unstructured.Unstructured, error) {
 	klog.V(5).Infof("get resource in targetRef: %v, namespace: %v", targetRef, namespace)
 	gvk := schema.FromAPIVersionAndKind(targetRef.APIVersion, targetRef.Kind)
 	mapping, err := mapper.RESTMapping(gvk.GroupKind(), gvk.Version)
@@ -46,7 +48,8 @@ func ConvertAndGetResource(ctx context.Context, client dynamic.Interface,
 		TypeMeta: metav1.TypeMeta{
 			APIVersion: targetRef.APIVersion,
 			Kind:       targetRef.Kind,
-		}})
+		},
+	})
 	if err != nil {
 		return nil, err
 	}

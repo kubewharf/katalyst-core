@@ -20,6 +20,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+
 	apis "github.com/kubewharf/katalyst-api/pkg/apis/recommendation/v1alpha1"
 	clientset "github.com/kubewharf/katalyst-api/pkg/client/clientset/versioned"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -41,17 +42,20 @@ type ResourceRecommendUpdater interface {
 type DummyResourceRecommendUpdater struct{}
 
 func (d *DummyResourceRecommendUpdater) UpdateResourceRecommend(_ context.Context, _ *apis.ResourceRecommend,
-	_ v1.UpdateOptions) (*apis.ResourceRecommend, error) {
+	_ v1.UpdateOptions,
+) (*apis.ResourceRecommend, error) {
 	return nil, nil
 }
 
 func (d *DummyResourceRecommendUpdater) PatchResourceRecommend(_ context.Context, _ *apis.ResourceRecommend,
-	_ *apis.ResourceRecommend) error {
+	_ *apis.ResourceRecommend,
+) error {
 	return nil
 }
 
 func (d *DummyResourceRecommendUpdater) CreateResourceRecommend(_ context.Context, _ *apis.ResourceRecommend,
-	_ v1.CreateOptions) (*apis.ResourceRecommend, error) {
+	_ v1.CreateOptions,
+) (*apis.ResourceRecommend, error) {
 	return nil, nil
 }
 
@@ -66,7 +70,8 @@ func NewRealResourceRecommendUpdater(client clientset.Interface) *RealResourceRe
 }
 
 func (r *RealResourceRecommendUpdater) UpdateResourceRecommend(ctx context.Context, rec *apis.ResourceRecommend,
-	opts v1.UpdateOptions) (*apis.ResourceRecommend, error) {
+	opts v1.UpdateOptions,
+) (*apis.ResourceRecommend, error) {
 	if rec == nil {
 		return nil, fmt.Errorf("can't update a nil ResourceRecommend")
 	}
@@ -75,7 +80,8 @@ func (r *RealResourceRecommendUpdater) UpdateResourceRecommend(ctx context.Conte
 }
 
 func (r *RealResourceRecommendUpdater) PatchResourceRecommend(ctx context.Context, oldRec *apis.ResourceRecommend,
-	newRec *apis.ResourceRecommend) error {
+	newRec *apis.ResourceRecommend,
+) error {
 	if oldRec == nil || newRec == nil {
 		return fmt.Errorf("can't patch a nil ResourceRecommend")
 	}

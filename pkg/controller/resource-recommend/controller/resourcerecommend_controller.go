@@ -19,6 +19,10 @@ package controller
 import (
 	"context"
 	"fmt"
+	"reflect"
+	"runtime/debug"
+	"time"
+
 	"github.com/kubewharf/katalyst-api/pkg/apis/recommendation/v1alpha1"
 	reclister "github.com/kubewharf/katalyst-api/pkg/client/listers/recommendation/v1alpha1"
 	katalystbase "github.com/kubewharf/katalyst-core/cmd/base"
@@ -46,9 +50,6 @@ import (
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog/v2"
-	"reflect"
-	"runtime/debug"
-	"time"
 )
 
 const (
@@ -85,7 +86,8 @@ func NewResourceRecommendController(ctx context.Context,
 	genericConf *generic.GenericConfiguration,
 	_ *controller.GenericControllerConfiguration,
 	recConf *controller.ResourceRecommenderConfig,
-	OOMRecorder *oom.PodOOMRecorder) (*ResourceRecommendController, error) {
+	OOMRecorder *oom.PodOOMRecorder,
+) (*ResourceRecommendController, error) {
 	if controlCtx == nil {
 		return nil, fmt.Errorf("controlCtx is invalid")
 	}
@@ -327,7 +329,8 @@ func (rrc *ResourceRecommendController) syncRec(key string) (time.Duration, erro
 }
 
 func (rrc *ResourceRecommendController) doRecommend(ctx context.Context, namespacedName k8stypes.NamespacedName,
-	resourceRecommend *v1alpha1.ResourceRecommend) (err error) {
+	resourceRecommend *v1alpha1.ResourceRecommend,
+) (err error) {
 	recommendation := recommendationtypes.NewRecommendation(resourceRecommend)
 	defer func() {
 		if r := recover(); r != nil {

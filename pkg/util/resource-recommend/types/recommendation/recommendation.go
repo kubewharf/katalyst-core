@@ -18,6 +18,7 @@ package recommendation
 
 import (
 	"context"
+
 	"github.com/kubewharf/katalyst-api/pkg/apis/recommendation/v1alpha1"
 	conditionstypes "github.com/kubewharf/katalyst-core/pkg/util/resource-recommend/types/conditions"
 	errortypes "github.com/kubewharf/katalyst-core/pkg/util/resource-recommend/types/error"
@@ -96,7 +97,8 @@ func NewRecommendation(resourceRecommend *v1alpha1.ResourceRecommend) *Recommend
 }
 
 func (r *Recommendation) SetConfig(ctx context.Context, client dynamic.Interface,
-	resourceRecommend *v1alpha1.ResourceRecommend, mapper *restmapper.DeferredDiscoveryRESTMapper) *errortypes.CustomError {
+	resourceRecommend *v1alpha1.ResourceRecommend, mapper *restmapper.DeferredDiscoveryRESTMapper,
+) *errortypes.CustomError {
 	targetRef, customErr := ValidateAndExtractTargetRef(resourceRecommend.Spec.TargetRef)
 	if customErr != nil {
 		klog.Errorf("spec.targetRef validate error, "+

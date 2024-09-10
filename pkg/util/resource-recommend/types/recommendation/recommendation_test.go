@@ -18,13 +18,14 @@ package recommendation
 
 import (
 	"context"
+	"reflect"
+	"testing"
+	"time"
+
 	"github.com/bytedance/mockey"
 	resourceutils "github.com/kubewharf/katalyst-core/pkg/util/resource-recommend/resource"
 	"github.com/smartystreets/goconvey/convey"
 	"k8s.io/apimachinery/pkg/runtime"
-	"reflect"
-	"testing"
-	"time"
 
 	_ "github.com/bytedance/mockey"
 	"github.com/kubewharf/katalyst-api/pkg/apis/recommendation/v1alpha1"
@@ -132,7 +133,6 @@ func TestRecommendation_AsStatus(t *testing.T) {
 	mockey.Mock(time.Now).Return(fakeTime1).Build()
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-
 			if got := tt.recommendation.AsStatus(); !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("AsStatus() = %v, want %v", got, tt.want)
 			}

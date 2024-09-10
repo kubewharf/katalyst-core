@@ -17,8 +17,9 @@ limitations under the License.
 package controller
 
 import (
-	"github.com/kubewharf/katalyst-core/pkg/util/datasource/prometheus"
 	"time"
+
+	"github.com/kubewharf/katalyst-core/pkg/util/datasource/prometheus"
 )
 
 type ResourceRecommenderConfig struct {

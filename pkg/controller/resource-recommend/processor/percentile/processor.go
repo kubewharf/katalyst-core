@@ -18,10 +18,11 @@ package percentile
 
 import (
 	"context"
-	"github.com/kubewharf/katalyst-api/pkg/client/listers/recommendation/v1alpha1"
 	"runtime/debug"
 	"sync"
 	"time"
+
+	"github.com/kubewharf/katalyst-api/pkg/client/listers/recommendation/v1alpha1"
 
 	"github.com/kubewharf/katalyst-core/pkg/controller/resource-recommend/datasource"
 	"github.com/kubewharf/katalyst-core/pkg/controller/resource-recommend/processor"

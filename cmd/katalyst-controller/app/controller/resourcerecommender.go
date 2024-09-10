@@ -18,6 +18,7 @@ package controller
 
 import (
 	"context"
+
 	katalyst "github.com/kubewharf/katalyst-core/cmd/base"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/controller/resource-recommend/controller"

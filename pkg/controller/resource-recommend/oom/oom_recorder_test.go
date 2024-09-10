@@ -18,9 +18,10 @@ package oom
 
 import (
 	"context"
-	k8sfake "k8s.io/client-go/kubernetes/fake"
 	"testing"
 	"time"
+
+	k8sfake "k8s.io/client-go/kubernetes/fake"
 
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"

@@ -18,9 +18,10 @@ package percentile
 
 import (
 	"context"
-	"k8s.io/apimachinery/pkg/labels"
 	"runtime/debug"
 	"time"
+
+	"k8s.io/apimachinery/pkg/labels"
 
 	"github.com/kubewharf/katalyst-api/pkg/apis/recommendation/v1alpha1"
 	"github.com/kubewharf/katalyst-core/pkg/controller/resource-recommend/processor/percentile/task"
