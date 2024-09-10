@@ -28,7 +28,6 @@ import (
 	corev1 "k8s.io/client-go/kubernetes/typed/core/v1"
 
 	"github.com/pkg/errors"
-	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog/v2"
@@ -144,8 +143,7 @@ func (r *PodOOMRecorder) updateOOMRecordConfigMap() error {
 	if err != nil {
 		return err
 	}
-	oomConfigMap := &v1.ConfigMap{}
-	oomConfigMap, err = r.Client.ConfigMaps(ConfigMapOOMRecordNameSpace).
+	oomConfigMap, err := r.Client.ConfigMaps(ConfigMapOOMRecordNameSpace).
 		Get(context.TODO(), ConfigMapOOMRecordName, metav1.GetOptions{})
 	if err != nil {
 		if apierrors.IsNotFound(err) {
@@ -215,7 +213,6 @@ func (r *PodOOMRecorder) Run(stopCh <-chan struct{}) error {
 }
 
 func (r *PodOOMRecorder) ListOOMRecordsFromConfigmap() ([]OOMRecord, error) {
-	oomConfigMap := &v1.ConfigMap{}
 	oomConfigMap, err := r.Client.ConfigMaps(ConfigMapOOMRecordNameSpace).
 		Get(context.TODO(), ConfigMapOOMRecordName, metav1.GetOptions{})
 	if err != nil {
