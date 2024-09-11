@@ -192,6 +192,7 @@ func TestUpdateResourceRecommend(t *testing.T) {
 }
 
 func TestDummyUpdater(t *testing.T) {
+	t.Parallel()
 	updater := DummyResourceRecommendUpdater{}
 
 	assert.NoError(t, updater.PatchResourceRecommend(nil, nil, nil))
