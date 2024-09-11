@@ -77,3 +77,83 @@ func TestPatchResourceRecommend(t *testing.T) {
 		})
 	}
 }
+
+func TestCreateResourceRecommend(t *testing.T) {
+	t.Parallel()
+
+	rec := &apis.ResourceRecommend{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "rec1",
+			Namespace: "default",
+		},
+	}
+
+	for _, tc := range []struct {
+		name string
+		rec  *apis.ResourceRecommend
+	}{
+		{
+			name: "create rec",
+			rec:  rec,
+		},
+	} {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			internalClient := externalfake.NewSimpleClientset()
+			updater := NewRealResourceRecommendUpdater(internalClient)
+			rec, err := updater.CreateResourceRecommend(context.TODO(), tc.rec, metav1.CreateOptions{})
+			assert.NoError(t, err)
+			assert.Equal(t, tc.rec, rec)
+		})
+	}
+}
+
+func TestUpdateResourceRecommend(t *testing.T) {
+	t.Parallel()
+
+	oldRec := &apis.ResourceRecommend{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "rec1",
+			Namespace: "default",
+		},
+	}
+
+	newRec := &apis.ResourceRecommend{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "rec1",
+			Namespace: "default",
+			Annotations: map[string]string{
+				"recommendation.katalyst.io/resource-recommend": "true",
+			},
+		},
+	}
+
+	for _, tc := range []struct {
+		name   string
+		oldRec *apis.ResourceRecommend
+		newRec *apis.ResourceRecommend
+	}{
+		{
+			name:   "add annotation",
+			oldRec: oldRec,
+			newRec: newRec,
+		},
+		{
+			name:   "remove annotation",
+			oldRec: oldRec,
+			newRec: newRec,
+		},
+	} {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			internalClient := externalfake.NewSimpleClientset(tc.oldRec)
+			updater := NewRealResourceRecommendUpdater(internalClient)
+			rec, err := updater.UpdateResourceRecommend(context.TODO(), tc.newRec, metav1.UpdateOptions{})
+			assert.NoError(t, err)
+			assert.Equal(t, tc.newRec, rec)
+		})
+	}
+}
