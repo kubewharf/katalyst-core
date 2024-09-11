@@ -224,6 +224,7 @@ const (
 	MetricMemPsiAvg60Container           = "mem.psiavg60.container"
 	MetricMemInactiveAnonContainer       = "mem.inactiveanon.container"
 	MetricMemInactiveFileContainer       = "mem.inactivefile.container"
+	MetricMemMappedContainer             = "mem.mapped.container"
 )
 
 // container blkio metrics
@@ -344,6 +345,7 @@ const (
 	MetricMemPsiAvg60Cgroup           = "mem.psiavg60.cgroup"
 	MetricMemInactiveAnonCgroup       = "mem.inactiveanon.cgroup"
 	MetricMemInactiveFileCgroup       = "mem.inactivefile.cgroup"
+	MetricMemMappedCgroup             = "mem.mapped.cgroup"
 )
 
 // Cgroup blkio metrics
