@@ -116,8 +116,10 @@ func TestHeadroomAssemblerCommon_GetHeadroom(t *testing.T) {
 			name: "normal report",
 			fields: fields{
 				entries: map[string]*types.RegionInfo{
-					"share-0": {
-						RegionType: configapi.QoSRegionTypeShare,
+					"share": {
+						RegionType:    configapi.QoSRegionTypeShare,
+						OwnerPoolName: "share",
+						BindingNumas:  machine.NewCPUSet(0, 1),
 					},
 				},
 				cnr: &v1alpha1.CustomNodeResource{
@@ -225,8 +227,10 @@ func TestHeadroomAssemblerCommon_GetHeadroom(t *testing.T) {
 			name: "disable util based",
 			fields: fields{
 				entries: map[string]*types.RegionInfo{
-					"share-0": {
-						RegionType: configapi.QoSRegionTypeShare,
+					"share": {
+						RegionType:    configapi.QoSRegionTypeShare,
+						OwnerPoolName: "share",
+						BindingNumas:  machine.NewCPUSet(0, 1),
 					},
 				},
 				cnr: &v1alpha1.CustomNodeResource{
@@ -271,8 +275,10 @@ func TestHeadroomAssemblerCommon_GetHeadroom(t *testing.T) {
 			name: "gap by oversold ratio",
 			fields: fields{
 				entries: map[string]*types.RegionInfo{
-					"share-0": {
-						RegionType: configapi.QoSRegionTypeShare,
+					"share": {
+						RegionType:    configapi.QoSRegionTypeShare,
+						OwnerPoolName: "share",
+						BindingNumas:  machine.NewCPUSet(0, 1),
 					},
 				},
 				cnr: &v1alpha1.CustomNodeResource{
@@ -317,8 +323,10 @@ func TestHeadroomAssemblerCommon_GetHeadroom(t *testing.T) {
 			name: "over maximum core utilization",
 			fields: fields{
 				entries: map[string]*types.RegionInfo{
-					"share-0": {
-						RegionType: configapi.QoSRegionTypeShare,
+					"share": {
+						RegionType:    configapi.QoSRegionTypeShare,
+						OwnerPoolName: "share",
+						BindingNumas:  machine.NewCPUSet(0, 1),
 					},
 				},
 				cnr: &v1alpha1.CustomNodeResource{
@@ -363,8 +371,10 @@ func TestHeadroomAssemblerCommon_GetHeadroom(t *testing.T) {
 			name: "limited by capacity",
 			fields: fields{
 				entries: map[string]*types.RegionInfo{
-					"share-0": {
-						RegionType: configapi.QoSRegionTypeShare,
+					"share": {
+						RegionType:    configapi.QoSRegionTypeShare,
+						OwnerPoolName: "share",
+						BindingNumas:  machine.NewCPUSet(0, 1),
 					},
 				},
 				cnr: &v1alpha1.CustomNodeResource{
@@ -407,6 +417,60 @@ func TestHeadroomAssemblerCommon_GetHeadroom(t *testing.T) {
 			},
 			want: *resource.NewQuantity(96, resource.DecimalSI),
 		},
+		{
+			name: "numa-exclusive region headroom",
+			fields: fields{
+				entries: map[string]*types.RegionInfo{
+					"dedicated": {
+						RegionType:    configapi.QoSRegionTypeDedicatedNumaExclusive,
+						OwnerPoolName: "dedicated",
+						BindingNumas:  machine.NewCPUSet(0),
+						Headroom:      10,
+						RegionStatus: types.RegionStatus{
+							BoundType: types.BoundUpper,
+						},
+					},
+				},
+				cnr: &v1alpha1.CustomNodeResource{
+					Status: v1alpha1.CustomNodeResourceStatus{
+						Resources: v1alpha1.Resources{
+							Allocatable: &v1.ResourceList{
+								consts.ReclaimedResourceMilliCPU: resource.MustParse("86000"),
+							},
+						},
+					},
+				},
+				reclaimedResourceConfiguration: &reclaimedresource.ReclaimedResourceConfiguration{
+					EnableReclaim: true,
+					CPUHeadroomConfiguration: &cpuheadroom.CPUHeadroomConfiguration{
+						CPUUtilBasedConfiguration: &cpuheadroom.CPUUtilBasedConfiguration{
+							Enable:                         false,
+							TargetReclaimedCoreUtilization: 0.6,
+							MaxReclaimedCoreUtilization:    0.8,
+							MaxOversoldRate:                1.5,
+							MaxHeadroomCapacityRate:        1.,
+						},
+					},
+				},
+				setFakeMetric: func(store *metric.FakeMetricsFetcher) {
+					now := time.Now()
+					for i := 0; i < 96; i++ {
+						store.SetCPUMetric(i, pkgconsts.MetricCPUUsageRatio, utilmetric.MetricData{Value: 0.3, Time: &now})
+					}
+					store.SetCgroupMetric("/kubepods/besteffort", pkgconsts.MetricCPUUsageCgroup, utilmetric.MetricData{Value: 28.8, Time: &now})
+				},
+				setMetaCache: func(cache *metacache.MetaCacheImp) {
+					err := cache.SetPoolInfo(state.PoolNameReclaim, &types.PoolInfo{
+						PoolName: state.PoolNameReclaim,
+						TopologyAwareAssignments: map[int]machine.CPUSet{
+							0: machine.MustParse("0-85"),
+						},
+					})
+					require.NoError(t, err)
+				},
+			},
+			want: *resource.NewQuantity(58, resource.DecimalSI),
+		},
 	}
 	for _, tt := range tests {
 		tt := tt
@@ -434,15 +498,17 @@ func TestHeadroomAssemblerCommon_GetHeadroom(t *testing.T) {
 
 			metaServer := generateTestMetaServer(t, tt.fields.cnr, tt.fields.podList, metricsFetcher)
 
-			if tt.fields.regions == nil {
-				shareRegion := region.NewQoSRegionBase("share", "share", configapi.QoSRegionTypeShare, conf, nil, false, metaCache, metaServer, metrics.DummyMetrics{})
-				shareRegion.SetBindingNumas(machine.NewCPUSet(0, 1))
+			for name, regionInfo := range tt.fields.entries {
+				r := region.NewQoSRegionBase(name, regionInfo.OwnerPoolName, regionInfo.RegionType, conf, nil, false, metaCache, metaServer, metrics.DummyMetrics{})
+				r.SetBindingNumas(regionInfo.BindingNumas)
 				tt.fields.regions = map[string]region.QoSRegion{
-					"share": shareRegion,
+					name: r,
 				}
 			}
+			reservedForReclaim := map[int]int{0: 2, 1: 2}
+			numaAvailable := map[int]int{0: 46, 1: 46}
 
-			ha := NewHeadroomAssemblerCommon(conf, nil, &tt.fields.regions, nil, nil, nil, metaCache, metaServer, metrics.DummyMetrics{})
+			ha := NewHeadroomAssemblerCommon(conf, nil, &tt.fields.regions, &reservedForReclaim, &numaAvailable, nil, metaCache, metaServer, metrics.DummyMetrics{})
 
 			store := metricsFetcher.(*metric.FakeMetricsFetcher)
 			tt.fields.setFakeMetric(store)

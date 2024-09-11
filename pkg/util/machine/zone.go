@@ -23,6 +23,14 @@ import (
 	"strings"
 )
 
+type NormalZoneInfo struct {
+	Node         int64
+	Free         uint64
+	Min          uint64
+	Low          uint64
+	FileInactive uint64
+}
+
 var nodeZoneRE = regexp.MustCompile(`(\d+), zone\s+(\w+)`)
 
 func parseNormalZoneInfo(zoneInfoData []byte) ([]NormalZoneInfo, error) {

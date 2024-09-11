@@ -110,6 +110,7 @@ func (fake *FakeRegion) IsNumaBinding() bool {
 	return fake.isNumaBinding
 }
 func (fake *FakeRegion) SetThrottled(throttled bool)                { fake.throttled = throttled }
+func (fake *FakeRegion) EnableReclaim() bool                        { return true }
 func (fake *FakeRegion) AddContainer(ci *types.ContainerInfo) error { return nil }
 func (fake *FakeRegion) TryUpdateProvision()                        {}
 func (fake *FakeRegion) TryUpdateHeadroom()                         {}
