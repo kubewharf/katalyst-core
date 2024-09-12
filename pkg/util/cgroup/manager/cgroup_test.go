@@ -26,15 +26,18 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"bou.ke/monkey"
 	"github.com/opencontainers/runc/libcontainer/cgroups"
 	"github.com/stretchr/testify/assert"
 
+	"github.com/kubewharf/katalyst-core/pkg/util/bitmask"
 	"github.com/kubewharf/katalyst-core/pkg/util/cgroup/common"
 	v1 "github.com/kubewharf/katalyst-core/pkg/util/cgroup/manager/v1"
 	v2 "github.com/kubewharf/katalyst-core/pkg/util/cgroup/manager/v2"
+	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
 func TestManager(t *testing.T) {
@@ -60,6 +63,7 @@ func testV2Manager(t *testing.T) {
 	testManager(t, "v2")
 	testSwapMax(t)
 	testMemPressure(t)
+	testMemoryOffloadingWithAbsolutePath(t)
 }
 
 func testManager(t *testing.T, version string) {
@@ -230,4 +234,78 @@ func testMemPressureV1(t *testing.T) {
 	assert.Equal(t, "0", fmt.Sprint(some.Avg10))
 	assert.Equal(t, "0", fmt.Sprint(some.Avg60))
 	assert.Equal(t, "0", fmt.Sprint(some.Avg300))
+}
+
+func TestMemoryPolicy(t *testing.T) {
+	t.Parallel()
+
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+
+	mode, mask, err := GetMemPolicy(nil, 0)
+	assert.NoError(t, err)
+
+	assert.Equal(t, MPOL_DEFAULT, mode)
+
+	t.Logf("mask: %v", mask)
+
+	mems := machine.NewCPUSet(0)
+	newMask := bitmask.NewEmptyBitMask()
+	newMask.Add(mems.ToSliceInt()...)
+
+	err = SetMemPolicy(MPOL_BIND, newMask)
+	assert.NoError(t, err)
+
+	mode, mask, err = GetMemPolicy(nil, 0)
+	assert.NoError(t, err)
+
+	assert.Equal(t, MPOL_BIND, mode)
+
+	expectMask, err := bitmask.NewBitMask(0)
+	assert.NoError(t, err)
+
+	assert.Equal(t, expectMask, mask)
+
+	t.Logf("mask: %v", mask)
+}
+
+func testMemoryOffloadingWithAbsolutePath(t *testing.T) {
+	defer monkey.UnpatchAll()
+	monkey.Patch(common.CheckCgroup2UnifiedMode, func() bool { return true })
+	monkey.Patch(GetManager, func() Manager { return v2.NewManager() })
+	monkey.Patch(cgroups.ReadFile, func(dir, file string) (string, error) {
+		f := filepath.Join(dir, file)
+		tmp, err := ioutil.ReadFile(f)
+		if err != nil {
+			return "", err
+		}
+		return string(tmp), nil
+	})
+	monkey.Patch(cgroups.WriteFile, func(dir, file, data string) error {
+		f := filepath.Join(dir, file)
+		return ioutil.WriteFile(f, []byte(data), 0o700)
+	})
+
+	rootDir := os.TempDir()
+	dir := filepath.Join(rootDir, "tmp")
+	err := os.Mkdir(dir, 0o700)
+	assert.NoError(t, err)
+
+	tmpDir, err := ioutil.TempDir(dir, "fake-cgroup")
+	assert.NoError(t, err)
+	defer os.RemoveAll(dir)
+
+	monkey.Patch(common.GetCgroupRootPath, func(s string) string {
+		t.Logf("rootDir=%v", rootDir)
+		return rootDir
+	})
+
+	err = MemoryOffloadingWithAbsolutePath(context.TODO(), tmpDir, 100, machine.NewCPUSet(0))
+	assert.NoError(t, err)
+
+	reclaimFile := filepath.Join(tmpDir, "memory.reclaim")
+
+	s, err := ioutil.ReadFile(reclaimFile)
+	assert.NoError(t, err)
+	assert.Equal(t, fmt.Sprintf("%v\n", 100), string(s))
 }
