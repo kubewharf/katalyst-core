@@ -136,6 +136,12 @@ func (ai *AllocationInfo) CheckNumaBinding() bool {
 		consts.PodAnnotationMemoryEnhancementNumaBindingEnable
 }
 
+// CheckNumaExclusive returns true if the AllocationInfo is for pod with numa-exclusive enhancement
+func (ai *AllocationInfo) CheckNumaExclusive() bool {
+	return ai.Annotations[consts.PodAnnotationMemoryEnhancementNumaExclusive] ==
+		consts.PodAnnotationMemoryEnhancementNumaExclusiveEnable
+}
+
 // CheckMainContainer returns true if the AllocationInfo is for main container
 func (ai *AllocationInfo) CheckMainContainer() bool {
 	return ai.ContainerType == pluginapi.ContainerType_MAIN.String()
@@ -283,6 +289,22 @@ func (ns *NUMANodeState) HasNUMABindingPods() bool {
 	return false
 }
 
+// HasNUMABindingAndNUMAExclusivePods returns true if any AllocationInfo in this NUMANodeState is for numa-exclusive
+func (ns *NUMANodeState) HasNUMABindingAndNUMAExclusivePods() bool {
+	if ns == nil {
+		return false
+	}
+
+	for _, containerEntries := range ns.PodEntries {
+		for _, allocationInfo := range containerEntries {
+			if allocationInfo != nil && allocationInfo.CheckNumaExclusive() && allocationInfo.CheckNumaBinding() {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // SetAllocationInfo adds a new AllocationInfo (for pod/container pairs) into the given NUMANodeState
 func (ns *NUMANodeState) SetAllocationInfo(podUID string, containerName string, allocationInfo *AllocationInfo) {
 	if ns == nil {
@@ -334,6 +356,18 @@ func (nm NUMANodeMap) GetNUMANodesWithoutNUMABindingPods() machine.CPUSet {
 	res := machine.NewCPUSet()
 	for numaId, numaNodeState := range nm {
 		if numaNodeState != nil && !numaNodeState.HasNUMABindingPods() {
+			res = res.Union(machine.NewCPUSet(numaId))
+		}
+	}
+	return res
+}
+
+// GetNUMANodesWithoutNUMABindingAndNUMAExclusivePods returns a set of numa nodes; for
+// those numa nodes, they all don't contain numa-exclusive pods
+func (nm NUMANodeMap) GetNUMANodesWithoutNUMABindingAndNUMAExclusivePods() machine.CPUSet {
+	res := machine.NewCPUSet()
+	for numaId, numaNodeState := range nm {
+		if numaNodeState != nil && !numaNodeState.HasNUMABindingAndNUMAExclusivePods() {
 			res = res.Union(machine.NewCPUSet(numaId))
 		}
 	}

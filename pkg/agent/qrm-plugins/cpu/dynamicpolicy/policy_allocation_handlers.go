@@ -1859,9 +1859,17 @@ func (p *DynamicPolicy) getSystemPoolCPUSetAndNumaAwareAssignments(podEntries st
 		}
 	}
 
-	// use default cpuset by default
+	// if pool set is empty, try to get default cpuset
 	if poolCPUSet.IsEmpty() {
-		poolCPUSet = p.state.GetMachineState().GetDefaultCPUSet()
+		// if the pod is numa binding, get the default cpuset from machine state
+		if state.CheckNUMABinding(allocationInfo) {
+			poolCPUSet = p.state.GetMachineState().GetAvailableCPUSet(p.reservedCPUs)
+		}
+
+		// if the default cpuset is empty or no numa binding, use all cpuset as default cpuset
+		if poolCPUSet.IsEmpty() {
+			poolCPUSet = p.machineInfo.CPUDetails.CPUs()
+		}
 		general.Infof("pod: %s/%s, container: %s get system pool cpuset from default cpuset: %s", allocationInfo.PodNamespace, allocationInfo.PodName,
 			allocationInfo.ContainerName, poolCPUSet.String())
 	}
