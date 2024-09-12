@@ -59,7 +59,7 @@ func (p *DynamicPolicy) systemCoresAllocationHandler(_ context.Context, req *plu
 		resourcesMachineState := p.state.GetMachineState()
 		defaultSystemCoresNUMAs := p.getDefaultSystemCoresNUMAs(resourcesMachineState[v1.ResourceMemory])
 		// allocate system_cores pod with NUMA binding
-		// todo: currently we only set cpuset.mems for system_cores pods with numa binding to NUMAs without NUMA exclusive pod,
+		// todo: currently we only set cpuset.mems for system_cores pods with numa binding to NUMAs without dedicated and NUMA binding and NUMA exclusive pod,
 		// 		in the future, we set them according to their cpuset_pool annotation.
 		return p.allocateTargetNUMAs(req, apiconsts.PodAnnotationQoSLevelSystemCores, defaultSystemCoresNUMAs)
 	default:
@@ -325,7 +325,7 @@ func (p *DynamicPolicy) allocateNUMAsWithoutNUMABindingPods(_ context.Context,
 
 	machineState := p.state.GetMachineState()
 	resourceState := machineState[v1.ResourceMemory]
-	numaWithoutNUMABindingPods := resourceState.GetNUMANodesWithoutNUMABindingPods()
+	numaWithoutNUMABindingPods := resourceState.GetNUMANodesWithoutSharedOrDedicatedNUMABindingPods()
 
 	allocationInfo := p.state.GetAllocationInfo(v1.ResourceMemory, req.PodUid, req.ContainerName)
 	if allocationInfo != nil {
@@ -672,7 +672,7 @@ func packAllocationResponse(allocationInfo *state.AllocationInfo, req *pluginapi
 func (p *DynamicPolicy) adjustAllocationEntriesForSharedCores(numaSetChangedContainers map[string]map[string]*state.AllocationInfo,
 	podEntries state.PodEntries, machineState state.NUMANodeMap,
 ) {
-	numaWithoutNUMABindingPods := machineState.GetNUMANodesWithoutNUMABindingPods()
+	numaWithoutNUMABindingPods := machineState.GetNUMANodesWithoutSharedOrDedicatedNUMABindingPods()
 	general.Infof("numaWithoutNUMABindingPods: %s", numaWithoutNUMABindingPods.String())
 
 	for podUID, containerEntries := range podEntries {
@@ -722,7 +722,7 @@ func (p *DynamicPolicy) adjustAllocationEntriesForSharedCores(numaSetChangedCont
 func (p *DynamicPolicy) adjustAllocationEntriesForDedicatedCores(numaSetChangedContainers map[string]map[string]*state.AllocationInfo,
 	podEntries state.PodEntries, machineState state.NUMANodeMap,
 ) {
-	numaWithoutNUMABindingPods := machineState.GetNUMANodesWithoutNUMABindingPods()
+	numaWithoutNUMABindingPods := machineState.GetNUMANodesWithoutSharedOrDedicatedNUMABindingPods()
 	general.Infof("numaWithoutNUMABindingPods: %s", numaWithoutNUMABindingPods.String())
 
 	for podUID, containerEntries := range podEntries {
@@ -766,8 +766,8 @@ func (p *DynamicPolicy) adjustAllocationEntriesForSystemCores(numaSetChangedCont
 
 			if allocationInfo.CheckNumaBinding() {
 				// update container to target numa set for system_cores pod with NUMA binding
-				// todo: currently we only update cpuset.mems for system_cores pods to NUMAs without NUMA binding and NUMA exclusive pod, in the future,
-				//      we will update cpuset.mems for system_cores according to their cpuset_pool annotation.
+				// todo: currently we only update cpuset.mems for system_cores pods to NUMAs without dedicated and NUMA binding and NUMA exclusive pod,
+				// 		in the future, we will update cpuset.mems for system_cores according to their cpuset_pool annotation.
 				p.updateNUMASetChangedContainers(numaSetChangedContainers, allocationInfo, defaultSystemCoresNUMAs)
 			}
 		}
@@ -849,7 +849,7 @@ func (p *DynamicPolicy) migratePagesForNUMASetChangedContainers(numaSetChangedCo
 
 // getDefaultSystemCoresNUMAs returns the default system cores NUMAs.
 func (p *DynamicPolicy) getDefaultSystemCoresNUMAs(machineState state.NUMANodeMap) machine.CPUSet {
-	numaNodesWithoutNUMABindingAndNUMAExclusivePods := machineState.GetNUMANodesWithoutNUMABindingAndNUMAExclusivePods()
+	numaNodesWithoutNUMABindingAndNUMAExclusivePods := machineState.GetNUMANodesWithoutDedicatedNUMABindingAndNUMAExclusivePods()
 	general.Infof("numaNodesWithoutNUMABindingAndNUMAExclusivePods: %s", numaNodesWithoutNUMABindingAndNUMAExclusivePods.String())
 	if numaNodesWithoutNUMABindingAndNUMAExclusivePods.IsEmpty() {
 		// if there is no numa nodes without NUMA binding and NUMA exclusive pods, we will use all numa nodes.

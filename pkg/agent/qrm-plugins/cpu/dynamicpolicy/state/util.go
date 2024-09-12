@@ -475,7 +475,7 @@ func GenerateMachineStateFromPodEntriesByPolicy(topology *machine.CPUTopology, p
 					// only modify allocated and default properties in NUMA node state if the policy is dynamic and the entry indicates numa_binding.
 					// shared_cores with numa_binding also contributes to numaNodeState.AllocatedCPUSet,
 					// it's convenient that we can skip NUMA with AllocatedCPUSet > 0 when allocating CPUs for dedicated_cores with numa_binding.
-					if CheckNUMABinding(allocationInfo) {
+					if CheckSharedOrDedicatedNUMABinding(allocationInfo) {
 						allocatedCPUsInNumaNode = allocatedCPUsInNumaNode.Union(allocationInfo.OriginalTopologyAwareAssignments[int(numaNode)])
 					}
 				case cpuconsts.CPUResourcePluginPolicyNameNative:

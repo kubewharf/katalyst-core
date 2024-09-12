@@ -1144,7 +1144,7 @@ func (p *DynamicPolicy) checkNormalShareCoresResource(req *pluginapi.ResourceReq
 
 	machineState := p.state.GetMachineState()
 	resourceState := machineState[v1.ResourceMemory]
-	numaWithoutNUMABindingPods := resourceState.GetNUMANodesWithoutNUMABindingPods()
+	numaWithoutNUMABindingPods := resourceState.GetNUMANodesWithoutSharedOrDedicatedNUMABindingPods()
 	numaAllocatableWithoutNUMABindingPods := uint64(0)
 	for _, numaID := range numaWithoutNUMABindingPods.ToSliceInt() {
 		numaAllocatableWithoutNUMABindingPods += resourceState[numaID].Allocatable

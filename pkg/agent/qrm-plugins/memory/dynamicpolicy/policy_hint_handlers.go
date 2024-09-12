@@ -172,7 +172,7 @@ func (p *DynamicPolicy) numaBindingHintHandler(_ context.Context,
 
 	// if hints exists in extra state-file, prefer to use them
 	if hints == nil {
-		availableNUMAs := resourcesMachineState[v1.ResourceMemory].GetNUMANodesWithoutNUMABindingPods()
+		availableNUMAs := resourcesMachineState[v1.ResourceMemory].GetNUMANodesWithoutSharedOrDedicatedNUMABindingPods()
 
 		var extraErr error
 		hints, extraErr = util.GetHintsFromExtraStateFile(req.PodName, string(v1.ResourceMemory),

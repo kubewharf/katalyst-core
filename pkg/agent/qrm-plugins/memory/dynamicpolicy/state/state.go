@@ -142,6 +142,17 @@ func (ai *AllocationInfo) CheckNumaExclusive() bool {
 		consts.PodAnnotationMemoryEnhancementNumaExclusiveEnable
 }
 
+// CheckSharedOrDedicatedNUMABinding returns true if the AllocationInfo is for pod with
+// shared-qos or dedicated-qos and numa-binding enhancement
+func (ai *AllocationInfo) CheckSharedOrDedicatedNUMABinding() bool {
+	if ai == nil {
+		return false
+	}
+
+	return (ai.QoSLevel == consts.PodAnnotationQoSLevelSharedCores && ai.CheckNumaBinding()) ||
+		(ai.QoSLevel == consts.PodAnnotationQoSLevelDedicatedCores && ai.CheckNumaBinding())
+}
+
 // CheckMainContainer returns true if the AllocationInfo is for main container
 func (ai *AllocationInfo) CheckMainContainer() bool {
 	return ai.ContainerType == pluginapi.ContainerType_MAIN.String()
@@ -273,15 +284,15 @@ func (ns *NUMANodeState) Clone() *NUMANodeState {
 	}
 }
 
-// HasNUMABindingPods returns true if any AllocationInfo in this NUMANodeState is for numa-binding
-func (ns *NUMANodeState) HasNUMABindingPods() bool {
+// HasSharedOrDedicatedNUMABindingPods returns true if any AllocationInfo in this NUMANodeState is for shared or dedicated numa-binding
+func (ns *NUMANodeState) HasSharedOrDedicatedNUMABindingPods() bool {
 	if ns == nil {
 		return false
 	}
 
 	for _, containerEntries := range ns.PodEntries {
 		for _, allocationInfo := range containerEntries {
-			if allocationInfo != nil && allocationInfo.CheckNumaBinding() {
+			if allocationInfo != nil && allocationInfo.CheckSharedOrDedicatedNUMABinding() {
 				return true
 			}
 		}
@@ -289,15 +300,17 @@ func (ns *NUMANodeState) HasNUMABindingPods() bool {
 	return false
 }
 
-// HasNUMABindingAndNUMAExclusivePods returns true if any AllocationInfo in this NUMANodeState is for numa-exclusive
-func (ns *NUMANodeState) HasNUMABindingAndNUMAExclusivePods() bool {
+// HasDedicatedNUMABindingAndNUMAExclusivePods returns true if any AllocationInfo in this NUMANodeState is for dedicated with numa-binding and
+// numa-exclusive
+func (ns *NUMANodeState) HasDedicatedNUMABindingAndNUMAExclusivePods() bool {
 	if ns == nil {
 		return false
 	}
 
 	for _, containerEntries := range ns.PodEntries {
 		for _, allocationInfo := range containerEntries {
-			if allocationInfo != nil && allocationInfo.CheckNumaExclusive() && allocationInfo.CheckNumaBinding() {
+			if allocationInfo != nil && allocationInfo.QoSLevel == consts.PodAnnotationQoSLevelDedicatedCores &&
+				allocationInfo.CheckNumaBinding() && allocationInfo.CheckNumaExclusive() {
 				return true
 			}
 		}
@@ -350,24 +363,24 @@ func (nm NUMANodeMap) BytesPerNUMA() (uint64, error) {
 	return 0, fmt.Errorf("getBytesPerNUMAFromMachineState doesn't get valid numaState")
 }
 
-// GetNUMANodesWithoutNUMABindingPods returns a set of numa nodes; for
-// those numa nodes, they all don't contain numa-binding pods
-func (nm NUMANodeMap) GetNUMANodesWithoutNUMABindingPods() machine.CPUSet {
+// GetNUMANodesWithoutSharedOrDedicatedNUMABindingPods returns a set of numa nodes; for
+// those numa nodes, they all don't contain shared or dedicated numa-binding pods
+func (nm NUMANodeMap) GetNUMANodesWithoutSharedOrDedicatedNUMABindingPods() machine.CPUSet {
 	res := machine.NewCPUSet()
 	for numaId, numaNodeState := range nm {
-		if numaNodeState != nil && !numaNodeState.HasNUMABindingPods() {
+		if numaNodeState != nil && !numaNodeState.HasSharedOrDedicatedNUMABindingPods() {
 			res = res.Union(machine.NewCPUSet(numaId))
 		}
 	}
 	return res
 }
 
-// GetNUMANodesWithoutNUMABindingAndNUMAExclusivePods returns a set of numa nodes; for
-// those numa nodes, they all don't contain numa-exclusive pods
-func (nm NUMANodeMap) GetNUMANodesWithoutNUMABindingAndNUMAExclusivePods() machine.CPUSet {
+// GetNUMANodesWithoutDedicatedNUMABindingAndNUMAExclusivePods returns a set of numa nodes; for
+// those numa nodes, they all don't contain dedicated with numa-binding and numa-exclusive pods
+func (nm NUMANodeMap) GetNUMANodesWithoutDedicatedNUMABindingAndNUMAExclusivePods() machine.CPUSet {
 	res := machine.NewCPUSet()
 	for numaId, numaNodeState := range nm {
-		if numaNodeState != nil && !numaNodeState.HasNUMABindingAndNUMAExclusivePods() {
+		if numaNodeState != nil && !numaNodeState.HasDedicatedNUMABindingAndNUMAExclusivePods() {
 			res = res.Union(machine.NewCPUSet(numaId))
 		}
 	}

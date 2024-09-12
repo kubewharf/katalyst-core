@@ -326,6 +326,16 @@ func CheckSharedNUMABinding(ai *AllocationInfo) bool {
 	return CheckShared(ai) && CheckNUMABinding(ai)
 }
 
+// CheckSharedOrDedicatedNUMABinding returns true if the AllocationInfo is for pod with
+// shared-qos or dedicated-qos and numa-binding enhancement
+func CheckSharedOrDedicatedNUMABinding(ai *AllocationInfo) bool {
+	if ai == nil {
+		return false
+	}
+
+	return CheckSharedNUMABinding(ai) || CheckDedicatedNUMABinding(ai)
+}
+
 // CheckDedicatedPool returns true if the AllocationInfo is for a container in the dedicated pool
 func CheckDedicatedPool(ai *AllocationInfo) bool {
 	if ai == nil {
