@@ -43,7 +43,8 @@ import (
 // nodeRawMetricNameMapping maps the raw metricName (collected from agent.MetricsFetcher)
 // to the standard metricName (used by custom-metric-api-server)
 var nodeRawMetricNameMapping = map[string]string{
-	consts.MetricLoad1MinSystem: apimetricnode.CustomMetricNodeCPULoad1Min,
+	consts.MetricLoad1MinSystem:      apimetricnode.CustomMetricNodeCPULoad1Min,
+	consts.MetricCPUUsageRatioSystem: apimetricnode.CustomMetricNodeCPUUsageRatio,
 
 	consts.MetricMemFreeSystem:      apimetricnode.CustomMetricNodeMemoryFree,
 	consts.MetricMemAvailableSystem: apimetricnode.CustomMetricNodeMemoryAvailable,

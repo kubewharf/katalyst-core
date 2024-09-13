@@ -30,6 +30,8 @@ const (
 
 // System compute metrics
 const (
+	MetricCPUUsageRatioSystem = "cpu.usage.ratio.system"
+
 	MetricLoad1MinSystem  = "cpu.load.1min.system"
 	MetricLoad5MinSystem  = "cpu.load.5min.system"
 	MetricLoad15MinSystem = "cpu.load.15min.system"
@@ -170,10 +172,11 @@ const (
 
 // container cpu metrics
 const (
-	MetricCPULimitContainer     = "cpu.limit.container"
-	MetricCPUUsageContainer     = "cpu.usage.container"
-	MetricCPUUsageUserContainer = "cpu.usage.user.container"
-	MetricCPUUsageSysContainer  = "cpu.usage.sys.container"
+	MetricCPULimitContainer      = "cpu.limit.container"
+	MetricCPUUsageContainer      = "cpu.usage.container"
+	MetricCPUUsageUserContainer  = "cpu.usage.user.container"
+	MetricCPUUsageSysContainer   = "cpu.usage.sys.container"
+	MetricCPUUsageRatioContainer = "cpu.usage.ratio.container"
 
 	MetricCPUShareContainer         = "cpu.share.container"
 	MetricCPUQuotaContainer         = "cpu.quota.container"

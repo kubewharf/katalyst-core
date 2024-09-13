@@ -234,6 +234,10 @@ func (m *MalachiteMetricsProvisioner) processSystemComputeData(systemComputeData
 	// todo, currently we only get a unified data for the whole system compute data
 	updateTime := time.Unix(systemComputeData.UpdateTime, 0)
 
+	globalCPU := systemComputeData.GlobalCPU
+	m.metricStore.SetNodeMetric(consts.MetricCPUUsageRatioSystem,
+		utilmetric.MetricData{Value: globalCPU.CPUUsage / 100, Time: &updateTime})
+
 	load := systemComputeData.Load
 	m.metricStore.SetNodeMetric(consts.MetricLoad1MinSystem,
 		utilmetric.MetricData{Value: load.One, Time: &updateTime})
@@ -742,6 +746,8 @@ func (m *MalachiteMetricsProvisioner) processContainerCPUData(podUID, containerN
 			utilmetric.MetricData{Value: cpu.CPUUserUsageRatio, Time: &updateTime})
 		m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricCPUUsageSysContainer,
 			utilmetric.MetricData{Value: cpu.CPUSysUsageRatio, Time: &updateTime})
+		m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricCPUUsageRatioContainer,
+			utilmetric.MetricData{Value: cpu.CPUUsageRatio / (float64(cpu.CfsQuotaUs) / float64(cpu.CfsPeriodUs)), Time: &updateTime})
 		m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricCPUShareContainer,
 			utilmetric.MetricData{Value: float64(cpu.CPUShares), Time: &updateTime})
 		m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricCPUQuotaContainer,
@@ -811,6 +817,8 @@ func (m *MalachiteMetricsProvisioner) processContainerCPUData(podUID, containerN
 			utilmetric.MetricData{Value: cpu.CPUUserUsageRatio, Time: &updateTime})
 		m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricCPUUsageSysContainer,
 			utilmetric.MetricData{Value: cpu.CPUSysUsageRatio, Time: &updateTime})
+		m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricCPUUsageRatioContainer,
+			utilmetric.MetricData{Value: cpu.CPUUsageRatio / (float64(cpu.Max) / float64(cpu.MaxPeriod)), Time: &updateTime})
 
 		m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricCPUNrRunnableContainer,
 			utilmetric.MetricData{Value: float64(cpu.TaskNrRunning), Time: &updateTime})

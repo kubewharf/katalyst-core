@@ -53,9 +53,10 @@ const (
 // podRawMetricNameMapping maps the raw metricName (collected from agent.MetricsFetcher)
 // to the standard metricName (used by custom-metric-api-server)
 var podRawMetricNameMapping = map[string]string{
-	consts.MetricLoad1MinContainer: apimetricpod.CustomMetricPodCPULoad1Min,
-	consts.MetricCPUUsageContainer: apimetricpod.CustomMetricPodCPUUsage,
-	consts.MetricCPUCPIContainer:   apimetricpod.CustomMetricPodCPUCPI,
+	consts.MetricLoad1MinContainer:      apimetricpod.CustomMetricPodCPULoad1Min,
+	consts.MetricCPUUsageContainer:      apimetricpod.CustomMetricPodCPUUsage,
+	consts.MetricCPUUsageRatioContainer: apimetricpod.CustomMetricPodCPUUsageRatio,
+	consts.MetricCPUCPIContainer:        apimetricpod.CustomMetricPodCPUCPI,
 
 	consts.MetricMemRssContainer:   apimetricpod.CustomMetricPodMemoryRSS,
 	consts.MetricMemUsageContainer: apimetricpod.CustomMetricPodMemoryUsage,
