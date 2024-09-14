@@ -57,6 +57,7 @@ func init() {
 	agentInitializers.Store(qrm.QRMPluginNameMemory, AgentStarter{Init: qrm.InitQRMMemoryPlugins})
 	agentInitializers.Store(qrm.QRMPluginNameNetwork, AgentStarter{Init: qrm.InitQRMNetworkPlugins})
 	agentInitializers.Store(qrm.QRMPluginNameIO, AgentStarter{Init: qrm.InitQRMIOPlugins})
+	agentInitializers.Store(qrm.QRMPluginNameMB, AgentStarter{Init: qrm.InitQRMMBPlugins})
 }
 
 // RegisterAgentInitializer is used to register user-defined agents

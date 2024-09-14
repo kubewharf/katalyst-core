@@ -26,8 +26,10 @@ import (
 	info "github.com/google/cadvisor/info/v1"
 	"github.com/google/cadvisor/machine"
 	"github.com/google/cadvisor/utils/sysfs"
+	"github.com/pkg/errors"
 
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/global"
+	"github.com/kubewharf/katalyst-core/pkg/util/general"
 )
 
 // GetKatalystMachineInfo returns KatalystMachineInfo by collecting machine info
@@ -58,9 +60,10 @@ func GetKatalystMachineInfo(conf *global.MachineInfoConfiguration) (*KatalystMac
 		return nil, err
 	}
 
+	general.InfofV(6, "mbm: creating die topology")
 	dieTopologyInfo, err := NewDieTopology(extraTopologyInfo.SiblingNumaMap)
 	if err != nil {
-		return nil, err
+		return nil, errors.Wrap(err, "failed to create die topology")
 	}
 
 	katalystMachineInfo := &KatalystMachineInfo{

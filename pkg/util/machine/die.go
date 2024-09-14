@@ -25,6 +25,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/spf13/afero"
 	"k8s.io/apimachinery/pkg/util/sets"
 )
@@ -51,8 +52,18 @@ type DieTopology struct {
 	Dies       int              // number of die(CCD)s on whole machine
 	DiesInNuma map[int]sets.Int // mapping from Numa to CCDs
 
-	DieSize   int           // how many cpu on a die(CCD)
+	DieSize   int // how many cpu on a die(CCD)
+	CPUs      int
 	CPUsInDie map[int][]int // mapping from CCD to cpus
+}
+
+func (d DieTopology) String() string {
+	return fmt.Sprintf("total nums: %d, dies %d, cpus %d\nnuma-die: %v\ndie-cpu: %v\n",
+		d.NUMAs,
+		d.Dies,
+		d.CPUs,
+		d.DiesInNuma,
+		d.CPUsInDie)
 }
 
 func NewDieTopology(siblingMap map[int]sets.Int) (*DieTopology, error) {
@@ -66,6 +77,7 @@ func NewDieTopology(siblingMap map[int]sets.Int) (*DieTopology, error) {
 	if err != nil {
 		return nil, err
 	}
+	topo.CPUs = len(cpus)
 	topo.DiesInNuma = getDiesInNuma(cpus)
 	topo.NUMAs = len(topo.DiesInNuma)
 	topo.CPUsInDie = getCPUsInDie(cpus)
@@ -110,20 +122,20 @@ func getCPU(fs afero.Fs, id int) (*cpuDev, error) {
 	// numa node is as of "nodeX/" folder
 	numaNode := -1
 	if err := afero.Walk(fs, cpuPath, func(path string, info os.FileInfo, err error) error {
-		if !info.IsDir() {
-			return nil
-		}
-
 		baseName := strings.TrimPrefix(path, cpuPath)
 		if len(baseName) == 0 {
 			return nil
 		}
 
 		if !strings.HasPrefix(baseName, "/node") {
-			return filepath.SkipDir
+			if info.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
 		}
 
 		node := strings.TrimPrefix(baseName, "/node")
+		general.InfofV(6, "mbm: locating cpu %d numa node %q", id, node)
 		if numaNode, err = parseInt(node); err != nil {
 			return err
 		}

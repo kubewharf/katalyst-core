@@ -32,6 +32,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/kcc"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/spd"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
+	"github.com/kubewharf/katalyst-core/pkg/util/general"
 )
 
 // MetaServer is used to fetch metadata that other components may need to obtain,
@@ -48,6 +49,7 @@ type MetaServer struct {
 
 // NewMetaServer returns the instance of MetaServer.
 func NewMetaServer(clientSet *client.GenericClientSet, emitter metrics.MetricEmitter, conf *pkgconfig.Configuration) (*MetaServer, error) {
+	general.InfofV(6, "mbm: NewMetaServer")
 	metaAgent, err := agent.NewMetaAgent(conf, clientSet, emitter)
 	if err != nil {
 		return nil, err
