@@ -19,6 +19,7 @@ package machine
 import (
 	"fmt"
 	"math"
+	"sync"
 
 	info "github.com/google/cadvisor/info/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -100,8 +101,75 @@ func (d MemoryDetails) FillNUMANodesWithZero(allNUMAs CPUSet) MemoryDetails {
 	return updatedDetails
 }
 
+// PMUInfo is the (memory controller related) Performance Metrics Units of the machine
+type PMUInfo struct {
+	UMC     UMCInfo
+	/* support Intel IMC later */
+}
+
+type UMCInfo struct {
+	CtlBase       uint32
+	CtlSize       uint32
+	CtrLowBase    uint32
+	CtrHighBase   uint32
+	CtrSize       uint32
+	NumPerSocket  int
+	NumPerPackage int
+}
+
+type CoreMB struct {
+	Package    int    // physical NUMA ID
+	LRMB       uint64 // local mb for read
+	LRMB_Delta uint64
+	RRMB_Delta uint64 // there is no remote read event on the hardware, we can calculate it by total_read - local_read
+	TRMB       uint64 // total read
+	TRMB_Delta uint64
+}
+
+type NumaMB struct {
+	Package int    // physical NUMA ID
+	LRMB    uint64 // total local read mb of all cores on this NUMA node
+	RRMB    uint64 // total remote read mb of all cores on this NUMA node
+	TRMB    uint64 // total read mb of all cores on this NUMA node
+	Total   uint64 // estimated total mb since we do not have the accurate write for now, unit is MBps
+}
+
+type PackageMB struct {
+	RMB       uint64
+	RMB_Delta uint64 // total local read mb of all cores on this physical NUMA node
+	WMB       uint64
+	WMB_Delta uint64 // total local write mb of all cores on this physical NUMA node
+	Total     uint64 // total mb in MBps: (RMB_Delta + WMB_Delta) / interval
+}
+
+type MemoryBandwidthInfo struct {
+	CoreLocker    sync.RWMutex
+	PackageLocker sync.RWMutex
+	Cores         []CoreMB
+	Numas         []NumaMB
+	Packages      []PackageMB
+}
+
+type MemoryLatencyInfo struct {
+	CCDLocker sync.RWMutex
+	L3Latency []L3PMCLatencyInfo
+}
+
+type L3PMCLatencyInfo struct {
+	Package             int
+	L3PMCLatency1       uint64
+	L3PMCLatency1_Delta uint64
+	L3PMCLatency2       uint64
+	L3PMCLatency2_Delta uint64
+	L3PMCLatency        float64
+}
+
 type MemoryTopology struct {
-	MemoryDetails MemoryDetails
+	MemoryDetails   MemoryDetails
+	PMU             PMUInfo
+	MemoryBandwidth MemoryBandwidthInfo
+	MemoryLatency   MemoryLatencyInfo
+	RMIDPerPackage  []uint32
 }
 
 // CPUsPerCore returns the number of logical CPUs
@@ -224,7 +292,10 @@ func GenerateDummyCPUTopology(cpuNum, socketNum, numaNum int) (*CPUTopology, err
 }
 
 func GenerateDummyMemoryTopology(numaNum int, memoryCapacity uint64) (*MemoryTopology, error) {
-	memoryTopology := &MemoryTopology{map[int]uint64{}}
+	memoryTopology := &MemoryTopology{
+		MemoryDetails: map[int]uint64{},
+		PMU:           PMUInfo{},
+	}
 	for i := 0; i < numaNum; i++ {
 		memoryTopology.MemoryDetails[i] = memoryCapacity / uint64(numaNum)
 	}
