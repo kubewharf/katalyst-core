@@ -58,7 +58,8 @@ type DieTopology struct {
 }
 
 func (d DieTopology) String() string {
-	return fmt.Sprintf("total nums: %d, dies %d, cpus %d\nnuma-die: %v\ndie-cpu: %v\n",
+	return fmt.Sprintf("fake numa enabled: %v\ntotal nums: %d, dies %d, cpus %d\nnuma-die: %v\ndie-cpu: %v\n",
+		d.FakeNUMAEnabled,
 		d.NUMAs,
 		d.Dies,
 		d.CPUs,
@@ -72,7 +73,11 @@ func NewDieTopology(siblingMap map[int]sets.Int) (*DieTopology, error) {
 
 	// in mbm-poc phase, discover other die topology info by looking at /sys/devices/system/cpu/ tree
 	// the critical for mbm-pod is numa node -> die -> cpu list
+	var err error
 	fs := afero.NewOsFs()
+	if topo.FakeNUMAEnabled, err = FakeNUMAEnabled(fs); err != nil {
+		general.Warningf("mbm: check for fake numa setting: %v", err)
+	}
 	cpus, err := getCPUs(fs)
 	if err != nil {
 		return nil, err
