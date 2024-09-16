@@ -25,9 +25,11 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/kubewharf/katalyst-core/pkg/util/general"
+	"github.com/pkg/errors"
 	"github.com/spf13/afero"
 	"k8s.io/apimachinery/pkg/util/sets"
+
+	"github.com/kubewharf/katalyst-core/pkg/util/general"
 )
 
 // DieTopology keeps the relationship of dies(CCDs), numa, package, and socket
@@ -121,6 +123,9 @@ type cpuDev struct {
 
 const rootPath = "/sys/devices/system/cpu/"
 
+// errSkipAll is not really an error, that the entry has been found and hence ignore all remainders
+var errSkipAll = errors.New("target found and no need to search more")
+
 func getCPU(fs afero.Fs, id int) (*cpuDev, error) {
 	cpuPath := path.Join(rootPath, fmt.Sprintf("cpu%d", id))
 
@@ -144,8 +149,8 @@ func getCPU(fs afero.Fs, id int) (*cpuDev, error) {
 		if numaNode, err = parseInt(node); err != nil {
 			return err
 		}
-		return filepath.SkipAll
-	}); err != nil && err != filepath.SkipAll {
+		return errSkipAll
+	}); err != nil && !errors.Is(err, errSkipAll) {
 		return nil, err
 	}
 
