@@ -17,34 +17,100 @@ limitations under the License.
 package mb
 
 import (
+	"github.com/pkg/errors"
+
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/agent"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/monitor"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/resctrl"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/resctrl/state"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/task"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
-type controller struct {
+type plugin struct {
 	dieTopology *machine.DieTopology
+
+	mbController *controller.Controller
 }
 
-func (c controller) Name() string {
+func (c *plugin) Name() string {
 	return "mb_plugin"
 }
 
-func (c controller) Start() error {
+func (c *plugin) Start() error {
 	general.InfofV(6, "mbm: plugin component starting ....")
 	general.InfofV(6, "mbm: numa-CCD-cpu topology: \n%s", c.dieTopology)
-	panic("timpl me")
+
+	var err error
+
+	dataKeeper, err := state.NewMBRawDataKeeper()
+	if err != nil {
+		return errors.Wrap(err, "mbm: failed to create raw data state keeper")
+	}
+
+	taskManager, err := task.New(c.dieTopology.DiesInNuma, dataKeeper)
+	if err != nil {
+		return errors.Wrap(err, "mbm: failed to create task manager")
+	}
+
+	taskMBReader, err := createTaskMBReader(dataKeeper)
+	if err != nil {
+		return errors.Wrap(err, "mbm: failed to create task mb reader")
+	}
+
+	podMBMonitor, err := monitor.New(taskManager, taskMBReader)
+	if err != nil {
+		return err
+	}
+	c.mbController, err = controller.New(podMBMonitor)
+	if err != nil {
+		return err
+	}
+
+	go func() {
+		defer func() {
+			err := recover()
+			if err != nil {
+				general.Errorf("mbm: background run exited, due to error: %v", err)
+			}
+		}()
+
+		c.mbController.Run()
+	}()
+
+	return nil
 }
 
-func (c controller) Stop() error {
-	panic("impl me")
+func createTaskMBReader(dataKeeper state.MBRawDataKeeper) (task.TaskMBReader, error) {
+	ccdMBCalc, err := resctrl.NewCCDMBCalculator(dataKeeper)
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to create ccd mb calculator")
+	}
+
+	ccdMBReader, err := resctrl.NewCCDMBReader(ccdMBCalc)
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to create resctrl ccd mb reader")
+	}
+
+	monGroupReader, err := resctrl.NewMonGroupReader(ccdMBReader)
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to create resctrl mon group mb reader")
+	}
+
+	return task.NewTaskMBReader(monGroupReader)
+}
+
+func (c *plugin) Stop() error {
+	return c.mbController.Stop()
 }
 
 func NewComponent(agentCtx *agent.GenericContext, conf *config.Configuration,
 	_ interface{}, agentName string,
 ) (bool, agent.Component, error) {
-	mbController := &controller{
+	mbController := &plugin{
 		dieTopology: agentCtx.DieTopology,
 	}
 
