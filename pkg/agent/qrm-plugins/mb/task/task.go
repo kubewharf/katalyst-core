@@ -58,13 +58,17 @@ func (t Task) GetID() string {
 	return t.PodUID
 }
 
-func (t Task) GetResctrlCtrlGroup() (string, error) {
-	qosFolder, ok := qosFolderLookup[t.QoSLevel]
+func GetResctrlCtrlGroupFolder(qos QoSLevel) (string, error) {
+	qosFolder, ok := qosFolderLookup[qos]
 	if !ok {
 		return "", errors.New("invalid qos level of task")
 	}
 
 	return path.Join(resctrlconsts.FsRoot, qosFolder), nil
+}
+
+func (t Task) GetResctrlCtrlGroup() (string, error) {
+	return GetResctrlCtrlGroupFolder(t.QoSLevel)
 }
 
 func (t Task) GetResctrlMonGroup() (string, error) {

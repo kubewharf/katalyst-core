@@ -18,6 +18,7 @@ package task
 
 import (
 	"reflect"
+	"sort"
 	"testing"
 
 	"k8s.io/apimachinery/pkg/util/sets"
@@ -132,7 +133,9 @@ func TestTask_GetCCDs(t1 *testing.T) {
 				NumaNode: tt.fields.NumaNode,
 				nodeCCDs: tt.fields.nodeCCDs,
 			}
-			if got := t.GetCCDs(); !reflect.DeepEqual(got, tt.want) {
+			got := t.GetCCDs()
+			sort.Slice(got, func(i, j int) bool { return i < j })
+			if !reflect.DeepEqual(got, tt.want) {
 				t1.Errorf("GetCCDs() = %v, want %v", got, tt.want)
 			}
 		})

@@ -22,6 +22,8 @@ import (
 
 	"k8s.io/apimachinery/pkg/util/wait"
 
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/allocator"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/policy"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/monitor"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 )
@@ -33,7 +35,11 @@ const (
 type Controller struct {
 	cancel context.CancelFunc
 
-	podMBMonitor monitor.MBMonitor
+	podMBMonitor    monitor.MBMonitor
+	mbPlanAllocator allocator.PlanAllocator
+
+	domainManager policy.MBDomainManager
+	policy        policy.PackageMBPolicy
 }
 
 func (c *Controller) Run() {
@@ -54,7 +60,14 @@ func (c *Controller) run(ctx context.Context) {
 
 	general.InfofV(6, "mbm: mb usage summary: %v", qosCCDMB)
 
-	panic("impl the rest logic")
+	for i, domain := range c.domainManager.Domains {
+		mbAlloc := c.policy.GetPlan(domain.CCDs, qosCCDMB)
+		general.InfofV(6, "mbm: domain %d mb alloc plan: %v", i, mbAlloc)
+
+		if err := c.mbPlanAllocator.Allocate(mbAlloc); err != nil {
+			general.Errorf("mbm: failed to allocate mb plan for domain %d", i)
+		}
+	}
 }
 
 func (c *Controller) Stop() error {
@@ -62,8 +75,9 @@ func (c *Controller) Stop() error {
 	return nil
 }
 
-func New(podMBMonitor monitor.MBMonitor) (*Controller, error) {
+func New(podMBMonitor monitor.MBMonitor, mbPlanAllocator allocator.PlanAllocator) (*Controller, error) {
 	return &Controller{
-		podMBMonitor: podMBMonitor,
+		podMBMonitor:    podMBMonitor,
+		mbPlanAllocator: mbPlanAllocator,
 	}, nil
 }

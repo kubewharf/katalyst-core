@@ -20,6 +20,7 @@ import (
 	"github.com/pkg/errors"
 
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/agent"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/allocator"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/monitor"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/resctrl"
@@ -65,7 +66,13 @@ func (c *plugin) Start() error {
 	if err != nil {
 		return err
 	}
-	c.mbController, err = controller.New(podMBMonitor)
+
+	mbPlanAllocator, err := createMBPlanAllocator()
+	if err != nil {
+		return err
+	}
+
+	c.mbController, err = controller.New(podMBMonitor, mbPlanAllocator)
 	if err != nil {
 		return err
 	}
@@ -82,6 +89,20 @@ func (c *plugin) Start() error {
 	}()
 
 	return nil
+}
+
+func createMBPlanAllocator() (allocator.PlanAllocator, error) {
+	schemataUpdater, err := resctrl.NewSchemataUpdater()
+	if err != nil {
+		return nil, err
+	}
+
+	ctrlGroupMBSetter, err := resctrl.NewCtrlGroupSetter(schemataUpdater)
+	if err != nil {
+		return nil, err
+	}
+
+	return allocator.NewPlanAllocator(ctrlGroupMBSetter)
 }
 
 func createTaskMBReader(dataKeeper state.MBRawDataKeeper) (task.TaskMBReader, error) {
