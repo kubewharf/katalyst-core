@@ -14,33 +14,14 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package policy
+package qospolicy
 
 import (
-	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/mbdomain"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/policy/plan"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/task"
 )
 
-type DomainMBPolicy interface {
-	GetPlan(domain *mbdomain.MBDomain, currQoSMB map[task.QoSLevel]map[int]int) *plan.MBAlloc
-}
-
-type domainMBPolicy struct {
-	preemptMBPolicy DomainMBPolicy
-}
-
-func (d domainMBPolicy) GetPlan(domain *mbdomain.MBDomain, currQoSMB map[task.QoSLevel]map[int]int) *plan.MBAlloc {
-	if len(domain.GetPreemptingNodes()) != 0 {
-		return d.preemptMBPolicy.GetPlan(domain, currQoSMB)
-	}
-
-	//TODO implement me
-	panic("implement me")
-}
-
-func NewDomainMBPolicy(preemptMBPolicy DomainMBPolicy) (DomainMBPolicy, error) {
-	return &domainMBPolicy{
-		preemptMBPolicy: preemptMBPolicy,
-	}, nil
+type QoSMBPolicy interface {
+	GetPlan(totalMB int, currQoSMB map[task.QoSLevel]map[int]int) *plan.MBAlloc
+	SetTopLink()
 }

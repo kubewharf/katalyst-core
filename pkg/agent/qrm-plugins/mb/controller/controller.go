@@ -23,6 +23,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/wait"
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/allocator"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/mbdomain"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/policy"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/monitor"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
@@ -38,8 +39,8 @@ type Controller struct {
 	podMBMonitor    monitor.MBMonitor
 	mbPlanAllocator allocator.PlanAllocator
 
-	domainManager policy.MBDomainManager
-	policy        policy.PackageMBPolicy
+	domainManager mbdomain.MBDomainManager
+	policy        policy.DomainMBPolicy
 }
 
 func (c *Controller) Run() {
@@ -61,7 +62,7 @@ func (c *Controller) run(ctx context.Context) {
 	general.InfofV(6, "mbm: mb usage summary: %v", qosCCDMB)
 
 	for i, domain := range c.domainManager.Domains {
-		mbAlloc := c.policy.GetPlan(domain.CCDs, qosCCDMB)
+		mbAlloc := c.policy.GetPlan(domain, qosCCDMB)
 		general.InfofV(6, "mbm: domain %d mb alloc plan: %v", i, mbAlloc)
 
 		if err := c.mbPlanAllocator.Allocate(mbAlloc); err != nil {

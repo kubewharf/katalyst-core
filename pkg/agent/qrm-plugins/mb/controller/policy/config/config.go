@@ -14,44 +14,41 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package plan
+package config
 
 import "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/task"
 
-// MBAlloc is the mb allocation plan for one sharing domain (package, or cpu socket in NPS1)
-type MBAlloc struct {
-	Plan map[task.QoSLevel]map[int]int
+var config = map[task.QoSLevel]map[string]int{
+	task.QoSLevelDedicatedCores: {
+		"lounge": 6_000,
+	},
+	task.QoSLevelSharedCores: {
+		"lounge": 2_000,
+		"min":    2_000,
+	},
+	task.QoSLevelSystemCores: {
+		"lounge": 2_000,
+		"min":    3_000,
+	},
+	task.QoSLevelReclaimedCores: {
+		"min": 0,
+	},
 }
 
-func (m MBAlloc) GetAllocatedMB() int {
-	sum := 0
-	for _, ccdMB := range m.Plan {
-		for _, mb := range ccdMB {
-			sum += mb
-		}
-	}
-	return sum
+func GetMins(qos ...task.QoSLevel) int {
+	return getValues("min", qos...)
 }
 
-func Merge(plans ...*MBAlloc) *MBAlloc {
-	result := &MBAlloc{
-		Plan: make(map[task.QoSLevel]map[int]int),
-	}
+func GetLounges(qos ...task.QoSLevel) int {
+	return getValues("lounge", qos...)
+}
 
-	for _, plan := range plans {
-		if plan == nil {
-			continue
-		}
-		for qos, ccdMB := range plan.Plan {
-			if _, ok := result.Plan[qos]; !ok {
-				result.Plan[qos] = make(map[int]int)
-			}
-
-			for ccd, mb := range ccdMB {
-				result.Plan[qos][ccd] += mb
-			}
+func getValues(name string, qos ...task.QoSLevel) int {
+	result := 0
+	for _, q := range qos {
+		if min, ok := config[q]["min"]; ok {
+			result += min
 		}
 	}
-
 	return result
 }

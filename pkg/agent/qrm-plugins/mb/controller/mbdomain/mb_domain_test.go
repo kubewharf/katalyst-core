@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package policy
+package mbdomain
 
 import (
 	"testing"
@@ -55,16 +55,17 @@ func TestNewMBDomainManager(t *testing.T) {
 					0: {
 						ID:        0,
 						NumaNodes: []int{0, 1, 2, 3},
-						ccdNode: map[int]int{
+						CCDNode: map[int]int{
 							0: 0, 1: 0, 2: 1, 3: 1, 4: 2, 5: 2, 6: 3, 7: 3,
 						},
-						nodeCCDs: map[int][]int{
+						NodeCCDs: map[int][]int{
 							0: {0, 1},
 							1: {2, 3},
 							2: {4, 5},
 							3: {6, 7},
 						},
-						CCDs: []int{0, 1, 2, 3, 4, 5, 6, 7},
+						CCDs:          []int{0, 1, 2, 3, 4, 5, 6, 7},
+						PreemptyNodes: make(sets.Int),
 					},
 				},
 			},

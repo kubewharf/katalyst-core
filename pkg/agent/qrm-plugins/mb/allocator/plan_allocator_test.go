@@ -45,7 +45,7 @@ func Test_planAllocator_Allocate(t *testing.T) {
 		ctrlGroupSetter resctrl.CtrlGroupMBSetter
 	}
 	type args struct {
-		alloc plan.MBAlloc
+		alloc *plan.MBAlloc
 	}
 	tests := []struct {
 		name    string
@@ -59,7 +59,7 @@ func Test_planAllocator_Allocate(t *testing.T) {
 				ctrlGroupSetter: ctrlGroupMBSetter,
 			},
 			args: args{
-				alloc: plan.MBAlloc{
+				alloc: &plan.MBAlloc{
 					Plan: map[task.QoSLevel]map[int]int{task.QoSLevelDedicatedCores: {2: 25_000, 3: 12_000}},
 				},
 			},

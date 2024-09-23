@@ -25,14 +25,14 @@ import (
 )
 
 type PlanAllocator interface {
-	Allocate(alloc plan.MBAlloc) error
+	Allocate(alloc *plan.MBAlloc) error
 }
 
 type planAllocator struct {
 	ctrlGroupMBSetter resctrl.CtrlGroupMBSetter
 }
 
-func (p planAllocator) Allocate(alloc plan.MBAlloc) error {
+func (p planAllocator) Allocate(alloc *plan.MBAlloc) error {
 	for qosLevel, ccdMB := range alloc.Plan {
 		qosCtrlGroup, err := task.GetResctrlCtrlGroupFolder(qosLevel)
 		if err != nil {
