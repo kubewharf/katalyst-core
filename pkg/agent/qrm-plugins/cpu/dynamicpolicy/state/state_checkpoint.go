@@ -40,13 +40,14 @@ type stateCheckpoint struct {
 	checkpointName    string
 	// when we add new properties to checkpoint,
 	// it will cause checkpoint corruption, and we should skip it
-	skipStateCorruption bool
+	skipStateCorruption                bool
+	GenerateMachineStateFromPodEntries GenerateMachineStateFromPodEntriesFunc
 }
 
 var _ State = &stateCheckpoint{}
 
 func NewCheckpointState(stateDir, checkpointName, policyName string,
-	topology *machine.CPUTopology, skipStateCorruption bool,
+	topology *machine.CPUTopology, skipStateCorruption bool, generateMachineStateFunc GenerateMachineStateFromPodEntriesFunc,
 ) (State, error) {
 	checkpointManager, err := checkpointmanager.NewCheckpointManager(stateDir)
 	if err != nil {
@@ -54,21 +55,22 @@ func NewCheckpointState(stateDir, checkpointName, policyName string,
 	}
 
 	sc := &stateCheckpoint{
-		cache:               NewCPUPluginState(topology),
-		policyName:          policyName,
-		checkpointManager:   checkpointManager,
-		checkpointName:      checkpointName,
-		skipStateCorruption: skipStateCorruption,
+		cache:                              NewCPUPluginState(topology),
+		policyName:                         policyName,
+		checkpointManager:                  checkpointManager,
+		checkpointName:                     checkpointName,
+		skipStateCorruption:                skipStateCorruption,
+		GenerateMachineStateFromPodEntries: generateMachineStateFunc,
 	}
 
-	if err := sc.restoreState(topology); err != nil {
+	if err := sc.RestoreState(topology); err != nil {
 		return nil, fmt.Errorf("could not restore state from checkpoint: %v, please drain this node and delete "+
 			"the cpu plugin checkpoint file %q before restarting Kubelet", err, path.Join(stateDir, checkpointName))
 	}
 	return sc, nil
 }
 
-func (sc *stateCheckpoint) restoreState(topology *machine.CPUTopology) error {
+func (sc *stateCheckpoint) RestoreState(topology *machine.CPUTopology) error {
 	sc.Lock()
 	defer sc.Unlock()
 	var err error
@@ -94,7 +96,7 @@ func (sc *stateCheckpoint) restoreState(topology *machine.CPUTopology) error {
 		return fmt.Errorf("[cpu_plugin] configured policy %q differs from state checkpoint policy %q", sc.policyName, checkpoint.PolicyName)
 	}
 
-	generatedMachineState, err := GenerateMachineStateFromPodEntries(topology, checkpoint.PodEntries, sc.policyName)
+	generatedMachineState, err := sc.GenerateMachineStateFromPodEntries(topology, checkpoint.PodEntries)
 	if err != nil {
 		return fmt.Errorf("GenerateMachineStateFromPodEntries failed with error: %v", err)
 	}

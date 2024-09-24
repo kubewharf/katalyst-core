@@ -25,7 +25,6 @@ import (
 	"k8s.io/klog/v2"
 
 	apiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
-	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/consts"
 	cpuconsts "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/consts"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
@@ -187,68 +186,9 @@ func GetNonBindingSharedRequestedQuantityFromPodEntries(podEntries PodEntries, n
 	return CPUPreciseCeil(reqFloat64)
 }
 
-// GenerateMachineStateFromPodEntries returns NUMANodeMap for given resource based on
-// machine info and reserved resources along with existed pod entries
-func GenerateMachineStateFromPodEntries(topology *machine.CPUTopology, podEntries PodEntries, policyName string) (NUMANodeMap, error) {
-	if topology == nil {
-		return nil, fmt.Errorf("GenerateMachineStateFromPodEntries got nil topology")
-	}
-
-	machineState := make(NUMANodeMap)
-	for _, numaNode := range topology.CPUDetails.NUMANodes().ToSliceInt64() {
-		numaNodeState := &NUMANodeState{}
-		numaNodeAllCPUs := topology.CPUDetails.CPUsInNUMANodes(int(numaNode)).Clone()
-		allocatedCPUsInNumaNode := machine.NewCPUSet()
-
-		for podUID, containerEntries := range podEntries {
-			if containerEntries.IsPoolEntry() {
-				continue
-			}
-			for containerName, allocationInfo := range containerEntries {
-				if allocationInfo == nil {
-					general.Warningf("nil allocationInfo in podEntries")
-					continue
-				}
-
-				// the container hasn't cpuset assignment in the current NUMA node
-				if allocationInfo.OriginalTopologyAwareAssignments[int(numaNode)].Size() == 0 &&
-					allocationInfo.TopologyAwareAssignments[int(numaNode)].Size() == 0 {
-					continue
-				}
-
-				switch policyName {
-				case consts.CPUResourcePluginPolicyNameDynamic:
-					// only modify allocated and default properties in NUMA node state if the policy is dynamic and the entry indicates numa_binding.
-					// shared_cores with numa_binding also contributes to numaNodeState.AllocatedCPUSet,
-					// it's convenient that we can skip NUMA with AllocatedCPUSet > 0 when allocating CPUs for dedicated_cores with numa_binding.
-					if CheckNUMABinding(allocationInfo) {
-						allocatedCPUsInNumaNode = allocatedCPUsInNumaNode.Union(allocationInfo.OriginalTopologyAwareAssignments[int(numaNode)])
-					}
-				case consts.CPUResourcePluginPolicyNameNative:
-					// only modify allocated and default properties in NUMA node state if the policy is native and the QoS class is Guaranteed
-					if CheckDedicatedPool(allocationInfo) {
-						allocatedCPUsInNumaNode = allocatedCPUsInNumaNode.Union(allocationInfo.OriginalTopologyAwareAssignments[int(numaNode)])
-					}
-				}
-
-				topologyAwareAssignments, _ := machine.GetNumaAwareAssignments(topology, allocationInfo.AllocationResult.Intersection(numaNodeAllCPUs))
-				originalTopologyAwareAssignments, _ := machine.GetNumaAwareAssignments(topology, allocationInfo.OriginalAllocationResult.Intersection(numaNodeAllCPUs))
-
-				numaNodeAllocationInfo := allocationInfo.Clone()
-				numaNodeAllocationInfo.AllocationResult = allocationInfo.AllocationResult.Intersection(numaNodeAllCPUs)
-				numaNodeAllocationInfo.OriginalAllocationResult = allocationInfo.OriginalAllocationResult.Intersection(numaNodeAllCPUs)
-				numaNodeAllocationInfo.TopologyAwareAssignments = topologyAwareAssignments
-				numaNodeAllocationInfo.OriginalTopologyAwareAssignments = originalTopologyAwareAssignments
-
-				numaNodeState.SetAllocationInfo(podUID, containerName, numaNodeAllocationInfo)
-			}
-		}
-
-		numaNodeState.AllocatedCPUSet = allocatedCPUsInNumaNode.Clone()
-		numaNodeState.DefaultCPUSet = numaNodeAllCPUs.Difference(numaNodeState.AllocatedCPUSet)
-		machineState[int(numaNode)] = numaNodeState
-	}
-	return machineState, nil
+// GenerateMachineStateFromPodEntries for dynamic policy
+func GenerateMachineStateFromPodEntries(topology *machine.CPUTopology, podEntries PodEntries) (NUMANodeMap, error) {
+	return GenerateMachineStateFromPodEntriesByPolicy(topology, podEntries, cpuconsts.CPUResourcePluginPolicyNameDynamic)
 }
 
 func IsIsolationPool(poolName string) bool {
@@ -489,4 +429,69 @@ func checkCPUSetMap(map1, map2 map[int]machine.CPUSet) bool {
 // 119 + 4 > 122, so qrm will reject the new pod.
 func CPUPreciseCeil(request float64) int {
 	return int(math.Ceil(float64(int(request*1000)) / 1000))
+}
+
+// GenerateMachineStateFromPodEntriesByPolicy returns NUMANodeMap for given resource based on
+// machine info and reserved resources along with existed pod entries and policy name
+// todo: extracting entire state package as a common standalone utility
+func GenerateMachineStateFromPodEntriesByPolicy(topology *machine.CPUTopology, podEntries PodEntries, policyName string) (NUMANodeMap, error) {
+	if topology == nil {
+		return nil, fmt.Errorf("GenerateMachineStateFromPodEntriesByPolicy got nil topology")
+	}
+
+	machineState := make(NUMANodeMap)
+	for _, numaNode := range topology.CPUDetails.NUMANodes().ToSliceInt64() {
+		numaNodeState := &NUMANodeState{}
+		numaNodeAllCPUs := topology.CPUDetails.CPUsInNUMANodes(int(numaNode)).Clone()
+		allocatedCPUsInNumaNode := machine.NewCPUSet()
+
+		for podUID, containerEntries := range podEntries {
+			if containerEntries.IsPoolEntry() {
+				continue
+			}
+			for containerName, allocationInfo := range containerEntries {
+				if allocationInfo == nil {
+					general.Warningf("nil allocationInfo in podEntries")
+					continue
+				}
+
+				// the container hasn't cpuset assignment in the current NUMA node
+				if allocationInfo.OriginalTopologyAwareAssignments[int(numaNode)].Size() == 0 &&
+					allocationInfo.TopologyAwareAssignments[int(numaNode)].Size() == 0 {
+					continue
+				}
+
+				switch policyName {
+				case cpuconsts.CPUResourcePluginPolicyNameDynamic:
+					// only modify allocated and default properties in NUMA node state if the policy is dynamic and the entry indicates numa_binding.
+					// shared_cores with numa_binding also contributes to numaNodeState.AllocatedCPUSet,
+					// it's convenient that we can skip NUMA with AllocatedCPUSet > 0 when allocating CPUs for dedicated_cores with numa_binding.
+					if CheckNUMABinding(allocationInfo) {
+						allocatedCPUsInNumaNode = allocatedCPUsInNumaNode.Union(allocationInfo.OriginalTopologyAwareAssignments[int(numaNode)])
+					}
+				case cpuconsts.CPUResourcePluginPolicyNameNative:
+					// only modify allocated and default properties in NUMA node state if the policy is native and the QoS class is Guaranteed
+					if CheckDedicatedPool(allocationInfo) {
+						allocatedCPUsInNumaNode = allocatedCPUsInNumaNode.Union(allocationInfo.OriginalTopologyAwareAssignments[int(numaNode)])
+					}
+				}
+
+				topologyAwareAssignments, _ := machine.GetNumaAwareAssignments(topology, allocationInfo.AllocationResult.Intersection(numaNodeAllCPUs))
+				originalTopologyAwareAssignments, _ := machine.GetNumaAwareAssignments(topology, allocationInfo.OriginalAllocationResult.Intersection(numaNodeAllCPUs))
+
+				numaNodeAllocationInfo := allocationInfo.Clone()
+				numaNodeAllocationInfo.AllocationResult = allocationInfo.AllocationResult.Intersection(numaNodeAllCPUs)
+				numaNodeAllocationInfo.OriginalAllocationResult = allocationInfo.OriginalAllocationResult.Intersection(numaNodeAllCPUs)
+				numaNodeAllocationInfo.TopologyAwareAssignments = topologyAwareAssignments
+				numaNodeAllocationInfo.OriginalTopologyAwareAssignments = originalTopologyAwareAssignments
+
+				numaNodeState.SetAllocationInfo(podUID, containerName, numaNodeAllocationInfo)
+			}
+		}
+
+		numaNodeState.AllocatedCPUSet = allocatedCPUsInNumaNode.Clone()
+		numaNodeState.DefaultCPUSet = numaNodeAllCPUs.Difference(numaNodeState.AllocatedCPUSet)
+		machineState[int(numaNode)] = numaNodeState
+	}
+	return machineState, nil
 }

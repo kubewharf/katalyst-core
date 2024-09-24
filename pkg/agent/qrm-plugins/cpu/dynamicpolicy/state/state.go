@@ -749,3 +749,5 @@ type State interface {
 type ReadonlyState interface {
 	reader
 }
+
+type GenerateMachineStateFromPodEntriesFunc func(topology *machine.CPUTopology, podEntries PodEntries) (NUMANodeMap, error)

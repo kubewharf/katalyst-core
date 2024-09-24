@@ -502,7 +502,7 @@ func TestGenerateCPUMachineStateByPodEntries(t *testing.T) {
 		tmpDir, err := ioutil.TempDir("", "checkpoint-TestGenerateCPUMachineStateByPodEntries")
 		as.Nil(err)
 
-		machineState, err := GenerateMachineStateFromPodEntries(tc.cpuTopology, tc.podEntries, cpuconsts.CPUResourcePluginPolicyNameDynamic)
+		machineState, err := GenerateMachineStateFromPodEntries(tc.cpuTopology, tc.podEntries)
 		as.Nil(err)
 
 		as.Equalf(tc.expectedMachineState, machineState, "failed in test case: %s", tc.description)
