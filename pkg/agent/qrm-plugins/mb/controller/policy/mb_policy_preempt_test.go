@@ -27,6 +27,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/mbdomain"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/policy/plan"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/policy/qospolicy"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/monitor"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/task"
 )
 
@@ -35,8 +36,8 @@ type mockQoSMBPolicy struct {
 	qospolicy.QoSMBPolicy
 }
 
-func (m *mockQoSMBPolicy) GetPlan(upperBoundMB int, currQoSMB map[task.QoSLevel]map[int]int) *plan.MBAlloc {
-	args := m.Called(upperBoundMB, currQoSMB)
+func (m *mockQoSMBPolicy) GetPlan(upperBoundMB int, currQoSMB map[task.QoSLevel]*monitor.MBQoSGroup, isTopTier bool) *plan.MBAlloc {
+	args := m.Called(upperBoundMB, currQoSMB, isTopTier)
 	return args.Get(0).(*plan.MBAlloc)
 }
 
@@ -46,12 +47,13 @@ func Test_preemptPolicy_GetPlan(t *testing.T) {
 	boundedPolicy := new(mockQoSMBPolicy)
 	boundedPolicy.On("GetPlan",
 		95000,
-		map[task.QoSLevel]map[int]int{
-			"dedicated_cores": {12: 10_000, 13: 10_000},
-			"shared_cores":    {8: 8_000, 9: 8_000},
-			"reclaimed_cores": {8: 1_000, 9: 1_000},
-			"system_cores":    {9: 3_000},
+		map[task.QoSLevel]*monitor.MBQoSGroup{
+			"dedicated_cores": {CCDMB: map[int]int{12: 10_000, 13: 10_000}},
+			"shared_cores":    {CCDMB: map[int]int{8: 8_000, 9: 8_000}},
+			"reclaimed_cores": {CCDMB: map[int]int{8: 1_000, 9: 1_000}},
+			"system_cores":    {CCDMB: map[int]int{9: 3_000}},
 		},
+		false,
 	).Return(&plan.MBAlloc{Plan: map[task.QoSLevel]map[int]int{
 		"dedicated_cores": {12: 25_000, 13: 14_414},
 		"shared_cores":    {8: 8_000, 9: 8_000},
@@ -64,7 +66,7 @@ func Test_preemptPolicy_GetPlan(t *testing.T) {
 	}
 	type args struct {
 		domain    *mbdomain.MBDomain
-		currQoSMB map[task.QoSLevel]map[int]int
+		currQoSMB map[task.QoSLevel]*monitor.MBQoSGroup
 	}
 	tests := []struct {
 		name   string
@@ -82,19 +84,21 @@ func Test_preemptPolicy_GetPlan(t *testing.T) {
 					NodeCCDs:      map[int][]int{4: {8, 9}, 5: {10, 11}, 6: {12, 13}},
 					PreemptyNodes: sets.Int{5: sets.Empty{}},
 				},
-				currQoSMB: map[task.QoSLevel]map[int]int{
-					"dedicated_cores": {12: 10_000, 13: 10_000},
-					"shared_cores":    {8: 8_000, 9: 8_000},
-					"reclaimed_cores": {8: 1_000, 9: 1_000},
-					"system_cores":    {9: 3_000},
+				currQoSMB: map[task.QoSLevel]*monitor.MBQoSGroup{
+					"dedicated_cores": {CCDMB: map[int]int{12: 10_000, 13: 10_000}},
+					"shared_cores":    {CCDMB: map[int]int{8: 8_000, 9: 8_000}},
+					"reclaimed_cores": {CCDMB: map[int]int{8: 1_000, 9: 1_000}},
+					"system_cores":    {CCDMB: map[int]int{9: 3_000}},
 				},
 			},
 			want: &plan.MBAlloc{
 				Plan: map[consts.QoSLevel]map[int]int{
-					"dedicated_cores": map[int]int{10: 12_500, 11: 12_500, 12: 25_000, 13: 14_414},
-					"reclaimed_cores": map[int]int{8: 2000, 9: 2000},
-					"shared_cores":    map[int]int{8: 8000, 9: 8000},
-					"system_cores":    map[int]int{9: 4000}}},
+					"dedicated_cores": {10: 12_500, 11: 12_500, 12: 25_000, 13: 14_414},
+					"reclaimed_cores": {8: 2000, 9: 2000},
+					"shared_cores":    {8: 8000, 9: 8000},
+					"system_cores":    {9: 4000},
+				},
+			},
 		},
 	}
 	for _, tt := range tests {

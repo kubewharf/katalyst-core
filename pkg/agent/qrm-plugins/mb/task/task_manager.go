@@ -27,7 +27,7 @@ import (
 
 type Manager interface {
 	GetTasks() []*Task
-	NewTask(podID string, qos QoSLevel) *Task
+	NewTask(podID string, qos QoSLevel) (*Task, error)
 	FindTask(id string) (*Task, error)
 	DeleteTask(task *Task)
 }
@@ -69,15 +69,21 @@ func (m *manager) FindTask(id string) (*Task, error) {
 	return task, nil
 }
 
-func (m *manager) NewTask(podID string, qos QoSLevel) *Task {
+func (m *manager) NewTask(podID string, qos QoSLevel) (*Task, error) {
+	nodes, err := getNumaNodes(podID, qos)
+	if err != nil {
+		return nil, err
+	}
+
 	task := &Task{
 		QoSLevel: qos,
 		PodUID:   podID,
+		NumaNode: nodes,
 		nodeCCDs: m.nodeCCDs,
 	}
 
 	m.addTask(task)
-	return task
+	return task, nil
 }
 
 func (m *manager) addTask(task *Task) {

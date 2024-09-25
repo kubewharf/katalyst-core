@@ -20,6 +20,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/mbdomain"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/policy/plan"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/policy/qospolicy"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/monitor"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/task"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 )
@@ -52,20 +53,25 @@ func getReservationPlan(domain *mbdomain.MBDomain, total int, preemptingNodes []
 	}
 }
 
-func (p preemptDomainMBPolicy) GetPlan(domain *mbdomain.MBDomain, currQoSMB map[task.QoSLevel]map[int]int) *plan.MBAlloc {
+func (p preemptDomainMBPolicy) GetPlan(domain *mbdomain.MBDomain, currQoSMB map[task.QoSLevel]*monitor.MBQoSGroup) *plan.MBAlloc {
 	preemptingNodes := domain.GetPreemptingNodes()
 	mbToServe := mbdomain.ReservedPerNuma * len(preemptingNodes)
 	reservationPlan := getReservationPlan(domain, mbToServe, preemptingNodes)
 	general.InfofV(6, "mbm: domain %d hard reservation mb plan: %v", domain.ID, reservationPlan)
 
 	mbAllocatable := mbdomain.DomainTotalMB - mbToServe
-	allocatablePlan := p.qosMBPolicy.GetPlan(mbAllocatable, currQoSMB)
+	allocatablePlan := p.qosMBPolicy.GetPlan(mbAllocatable, currQoSMB, false)
 
 	return plan.Merge(reservationPlan, allocatablePlan)
 }
 
-func NewPreemptPolicy(chainedPolicy qospolicy.QoSMBPolicy) DomainMBPolicy {
+func newPreemptDomainMBPolicy(chainedPolicy qospolicy.QoSMBPolicy) DomainMBPolicy {
 	return &preemptDomainMBPolicy{
 		qosMBPolicy: chainedPolicy,
 	}
+}
+
+func NewDefaultPreemptDomainMBPolicy() DomainMBPolicy {
+	qosMBPolicy := qospolicy.BuildDefaultChainedQoSMBPolicy()
+	return newPreemptDomainMBPolicy(qosMBPolicy)
 }

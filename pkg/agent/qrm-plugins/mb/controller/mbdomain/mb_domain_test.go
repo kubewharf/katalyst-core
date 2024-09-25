@@ -29,7 +29,7 @@ func TestNewMBDomainManager(t *testing.T) {
 	t.Parallel()
 
 	type args struct {
-		dieTopology machine.DieTopology
+		dieTopology *machine.DieTopology
 	}
 	tests := []struct {
 		name string
@@ -39,7 +39,7 @@ func TestNewMBDomainManager(t *testing.T) {
 		{
 			name: "happy path",
 			args: args{
-				dieTopology: machine.DieTopology{
+				dieTopology: &machine.DieTopology{
 					Packages:       1,
 					NUMAsInPackage: map[int][]int{0: {0, 1, 2, 3}},
 					DiesInNuma: map[int]sets.Int{

@@ -63,7 +63,7 @@ type MBDomainManager struct {
 	Domains map[int]*MBDomain
 }
 
-func NewMBDomainManager(dieTopology machine.DieTopology) *MBDomainManager {
+func NewMBDomainManager(dieTopology *machine.DieTopology) *MBDomainManager {
 	manager := &MBDomainManager{
 		Domains: make(map[int]*MBDomain),
 	}

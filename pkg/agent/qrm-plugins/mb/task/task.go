@@ -25,6 +25,7 @@ import (
 
 	"github.com/kubewharf/katalyst-api/pkg/consts"
 	resctrlconsts "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/resctrl/consts"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/task/cgnode"
 )
 
 type QoSLevel = consts.QoSLevel
@@ -41,6 +42,13 @@ var qosFolderLookup = map[QoSLevel]string{
 	QoSLevelSharedCores:    resctrlconsts.GroupSharedCore,
 	QoSLevelReclaimedCores: resctrlconsts.GroupReclaimed,
 	QoSLevelSystemCores:    resctrlconsts.GroupSystem,
+}
+
+var qosToCgroupv1GroupFolder = map[QoSLevel]string{
+	QoSLevelDedicatedCores: "burstable",
+	QoSLevelSharedCores:    "burstable",
+	QoSLevelReclaimedCores: "offline-besteffort",
+	QoSLevelSystemCores:    "burstable",
 }
 
 type Task struct {
@@ -81,23 +89,7 @@ func (t Task) GetResctrlMonGroup() (string, error) {
 	return path.Join(taskCtrlGroup, resctrlconsts.SubGroupMonRoot, taskFolder), nil
 }
 
-func getAllDies(nodeCCDs map[int]sets.Int) []int {
-	allDies := make([]int, 0)
-	for _, ccds := range nodeCCDs {
-		for ccd, _ := range ccds {
-			allDies = append(allDies, ccd)
-		}
-	}
-
-	return allDies
-}
-
 func (t Task) GetCCDs() []int {
-	// by default all CCDs
-	if len(t.NumaNode) == 0 {
-		return getAllDies(t.nodeCCDs)
-	}
-
 	ccds := make([]int, 0)
 	for _, node := range t.NumaNode {
 		for ccd, _ := range t.nodeCCDs[node] {
@@ -105,4 +97,14 @@ func (t Task) GetCCDs() []int {
 		}
 	}
 	return ccds
+}
+
+func getCgroupCPUSetPath(podUID string, qos QoSLevel) string {
+	// todo: support cgroup v2
+	// below assumes cgroup v1
+	return path.Join("/sys/fs/cgroup/cpuset/kubepods/", qosToCgroupv1GroupFolder[qos], "pod"+podUID)
+}
+
+func getNumaNodes(podUID string, qos QoSLevel) ([]int, error) {
+	return cgnode.GetNumaNodes(getCgroupCPUSetPath(podUID, qos))
 }

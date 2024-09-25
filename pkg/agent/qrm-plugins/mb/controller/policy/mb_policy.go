@@ -19,28 +19,34 @@ package policy
 import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/mbdomain"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/policy/plan"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/monitor"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/task"
 )
 
 type DomainMBPolicy interface {
-	GetPlan(domain *mbdomain.MBDomain, currQoSMB map[task.QoSLevel]map[int]int) *plan.MBAlloc
+	GetPlan(domain *mbdomain.MBDomain, currQoSMB map[task.QoSLevel]*monitor.MBQoSGroup) *plan.MBAlloc
 }
 
 type domainMBPolicy struct {
-	preemptMBPolicy DomainMBPolicy
+	preemptMBPolicy   DomainMBPolicy
+	softLimitMBPolicy DomainMBPolicy
 }
 
-func (d domainMBPolicy) GetPlan(domain *mbdomain.MBDomain, currQoSMB map[task.QoSLevel]map[int]int) *plan.MBAlloc {
+func (d domainMBPolicy) GetPlan(domain *mbdomain.MBDomain, currQoSMB map[task.QoSLevel]*monitor.MBQoSGroup) *plan.MBAlloc {
 	if len(domain.GetPreemptingNodes()) != 0 {
 		return d.preemptMBPolicy.GetPlan(domain, currQoSMB)
 	}
 
-	//TODO implement me
-	panic("implement me")
+	return d.softLimitMBPolicy.GetPlan(domain, currQoSMB)
 }
 
-func NewDomainMBPolicy(preemptMBPolicy DomainMBPolicy) (DomainMBPolicy, error) {
+func newDomainMBPolicy(preemptMBPolicy, softLimitMBPolicy DomainMBPolicy) (DomainMBPolicy, error) {
 	return &domainMBPolicy{
-		preemptMBPolicy: preemptMBPolicy,
+		preemptMBPolicy:   preemptMBPolicy,
+		softLimitMBPolicy: softLimitMBPolicy,
 	}, nil
+}
+
+func NewDefaultDomainMBPolicy() (DomainMBPolicy, error) {
+	return newDomainMBPolicy(NewDefaultPreemptDomainMBPolicy(), NewDefaultConstraintDomainMBPolicy())
 }

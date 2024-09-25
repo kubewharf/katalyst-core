@@ -21,7 +21,7 @@ import (
 )
 
 type MBMonitor interface {
-	GetQoSMBs() (map[task.QoSLevel]map[int]int, error)
+	GetMBQoSGroups() (map[task.QoSLevel]*MBQoSGroup, error)
 }
 
 func New(taskManager task.Manager, mbReader task.TaskMBReader) (MBMonitor, error) {
@@ -36,7 +36,23 @@ type mbMonitor struct {
 	mbReader    task.TaskMBReader
 }
 
-func (t mbMonitor) GetQoSMBs() (map[task.QoSLevel]map[int]int, error) {
+func (t mbMonitor) GetMBQoSGroups() (map[task.QoSLevel]*MBQoSGroup, error) {
+	qosCCDMB, err := t.getQoSMBs()
+	if err != nil {
+		return nil, err
+	}
+
+	groups := make(map[task.QoSLevel]*MBQoSGroup)
+	for qos, ccdMB := range qosCCDMB {
+		groups[qos] = &MBQoSGroup{
+			CCDMB: ccdMB,
+		}
+	}
+
+	return groups, nil
+}
+
+func (t mbMonitor) getQoSMBs() (map[task.QoSLevel]map[int]int, error) {
 	result := make(map[task.QoSLevel]map[int]int)
 
 	// todo: read in parallel to speed up

@@ -20,67 +20,62 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/policy/config"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/policy/plan"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/util"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/monitor"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/task"
 )
 
 type priorityChainedMBPolicy struct {
-	isTopLink bool
-	qosTier   map[task.QoSLevel]struct{}
-	tier      QoSMBPolicy
-	next      QoSMBPolicy
+	currQoSLevels map[task.QoSLevel]struct{}
+	current       QoSMBPolicy
+	next          QoSMBPolicy
 }
 
-func (p *priorityChainedMBPolicy) SetTopLink() {
-	p.isTopLink = true
-	p.tier.SetTopLink()
-}
-
-type mapQoSMB = map[task.QoSLevel]map[int]int
-
-func (p *priorityChainedMBPolicy) splitQoS(currQoSMB mapQoSMB) (tierQoS, otherQoS mapQoSMB) {
-	tierQoS = make(mapQoSMB)
-	otherQoS = make(mapQoSMB)
-	for qos, ccdMB := range currQoSMB {
-		if _, ok := p.qosTier[qos]; ok {
-			tierQoS[qos] = ccdMB
+func (p *priorityChainedMBPolicy) splitQoSGroups(groups map[task.QoSLevel]*monitor.MBQoSGroup) (
+	top, others map[task.QoSLevel]*monitor.MBQoSGroup,
+) {
+	top = make(map[task.QoSLevel]*monitor.MBQoSGroup)
+	others = make(map[task.QoSLevel]*monitor.MBQoSGroup)
+	for qos, ccdMB := range groups {
+		if _, ok := p.currQoSLevels[qos]; ok {
+			top[qos] = ccdMB
 		} else {
-			otherQoS[qos] = ccdMB
+			others[qos] = ccdMB
 		}
 	}
 	return
 }
 
-func (p *priorityChainedMBPolicy) getTopPrioPlan(totalMB int, currQoSMB map[task.QoSLevel]map[int]int) (
-	planTopTier *plan.MBAlloc, leftMB int, leftQoSMB map[task.QoSLevel]map[int]int,
+func (p *priorityChainedMBPolicy) processCurrentTier(isTopTier bool, totalMB int, qosGroups map[task.QoSLevel]*monitor.MBQoSGroup) (
+	planTopTier *plan.MBAlloc, leftMB int, nextGroups map[task.QoSLevel]*monitor.MBQoSGroup,
 ) {
-	topTierQoSMB := make(map[task.QoSLevel]map[int]int)
-	topTierQoSMB, leftQoSMB = p.splitQoS(currQoSMB)
+	topTierGroups := make(map[task.QoSLevel]*monitor.MBQoSGroup)
+	topTierGroups, nextGroups = p.splitQoSGroups(qosGroups)
 
-	topTierInUse := util.Sum(topTierQoSMB)
-	otherMins := config.GetMins(util.GetQoSKeys(leftQoSMB)...)
+	topTierInUse := monitor.SumMB(topTierGroups)
+	otherMins := config.GetMins(monitor.GetQoSKeys(nextGroups)...)
 	if topTierInUse >= totalMB-otherMins {
 		// the priority barely meets its needs; it should be always prioritized
-		// just take all MB for the top tier, besides the min MB for the left
+		// just take all MB for the top current, besides the min MB for the left
 		// todo: exclude qos that has no active pods at all (indicating by no traffic?)
 		leftMB = otherMins
-		planTopTier = p.tier.GetPlan(totalMB-leftMB, topTierQoSMB)
+		planTopTier = p.current.GetPlan(totalMB-leftMB, topTierGroups, isTopTier)
 		return
 	}
 
 	topTireUpperBound := totalMB - otherMins
-	// top tier has sufficient room for itself
+	// top current has sufficient room for itself
 	// its lounge zone (if applicable) should be honored,
 	// unless otherwise exceeding its upper bound, or the left min unable to hold
-	topTierToAllocate := topTierInUse + config.GetLounges(util.GetQoSKeys(topTierQoSMB)...)
+	topTierToAllocate := topTierInUse + config.GetLounges(monitor.GetQoSKeys(topTierGroups)...)
 	if topTireUpperBound < topTierToAllocate {
 		topTierToAllocate = topTireUpperBound
 	}
 
-	free := totalMB - topTierToAllocate - util.Sum(leftQoSMB)
+	free := totalMB - topTierToAllocate - monitor.SumMB(nextGroups)
 	// to identify how much free portion is for top tire
 	freeTopTierPortion := 0
 	if free > 0 && topTireUpperBound > topTierToAllocate {
-		totalInUse := util.Sum(currQoSMB)
+		totalInUse := monitor.SumMB(qosGroups)
 		freeTopTierPortion = int(float64(free) * float64(topTierInUse) / float64(totalInUse))
 		if freeTopTierPortion >= topTireUpperBound-topTierToAllocate {
 			freeTopTierPortion = topTireUpperBound - topTierToAllocate
@@ -88,23 +83,30 @@ func (p *priorityChainedMBPolicy) getTopPrioPlan(totalMB int, currQoSMB map[task
 	}
 	topTierToAllocate += freeTopTierPortion
 	leftMB = totalMB - topTierToAllocate
-	planTopTier = p.tier.GetPlan(topTierToAllocate, topTierQoSMB)
+	planTopTier = p.current.GetPlan(topTierToAllocate, topTierGroups, isTopTier)
 	return
 }
 
-func (p *priorityChainedMBPolicy) GetPlan(totalMB int, currQoSMB map[task.QoSLevel]map[int]int) *plan.MBAlloc {
-	planTopTier, leftMB, leftQoSMB := p.getTopPrioPlan(totalMB, currQoSMB)
+func (p *priorityChainedMBPolicy) GetPlan(totalMB int, qosGroups map[task.QoSLevel]*monitor.MBQoSGroup, isTopMost bool) *plan.MBAlloc {
+	planCurrentTier, leftMB, leftMBGroups := p.processCurrentTier(isTopMost, totalMB, qosGroups)
 
 	var planLeft *plan.MBAlloc
-	if p.next != nil && len(leftQoSMB) > 0 {
+	if p.next != nil && len(leftMBGroups) > 0 {
 		// ensure top level of qos process as next if not this one
-		if p.isTopLink && util.Sum(planTopTier.Plan) == 0 {
-			p.next.SetTopLink()
-		}
-		planLeft = p.next.GetPlan(leftMB, leftQoSMB)
+		nextIsTopMose := isTopMost && util.Sum(planCurrentTier.Plan) == 0
+		//if p.isEffectiveTopLink && util.Sum(planCurrentTier.Plan) == 0 {
+		//	p.next.SetTopLink()
+		//}
+		planLeft = p.next.GetPlan(leftMB, leftMBGroups, nextIsTopMose)
 	}
 
-	return plan.Merge(planTopTier, planLeft)
+	return plan.Merge(planCurrentTier, planLeft)
 }
 
-var _ QoSMBPolicy = &priorityChainedMBPolicy{}
+func NewChainedQoSMBPolicy(currQoSLevels map[task.QoSLevel]struct{}, current, next QoSMBPolicy) QoSMBPolicy {
+	return &priorityChainedMBPolicy{
+		currQoSLevels: currQoSLevels,
+		current:       current,
+		next:          next,
+	}
+}

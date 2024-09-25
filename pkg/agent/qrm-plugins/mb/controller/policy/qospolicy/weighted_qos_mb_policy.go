@@ -19,32 +19,26 @@ package qospolicy
 import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/mbdomain"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/policy/plan"
-	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/util"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/monitor"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/task"
 )
 
-type weightedQoSMBPolicy struct {
-	isTopLink bool
-}
+type weightedQoSMBPolicy struct{}
 
-func (w *weightedQoSMBPolicy) SetTopLink() {
-	w.isTopLink = true
-}
-
-func (w *weightedQoSMBPolicy) GetPlan(totalMB int, currQoSMB map[task.QoSLevel]map[int]int) *plan.MBAlloc {
-	if w.isTopLink {
-		return w.getTopLevelPlan(totalMB, currQoSMB)
+func (w *weightedQoSMBPolicy) GetPlan(totalMB int, qosGroupMBs map[task.QoSLevel]*monitor.MBQoSGroup, isTopTier bool) *plan.MBAlloc {
+	if isTopTier {
+		return w.getTopLevelPlan(totalMB, qosGroupMBs)
 	}
 
-	return w.getProportionalPlan(totalMB, currQoSMB)
+	return w.getProportionalPlan(totalMB, qosGroupMBs)
 }
 
-func (w *weightedQoSMBPolicy) getProportionalPlan(totalMB int, currQoSMB map[task.QoSLevel]map[int]int) *plan.MBAlloc {
-	totalUsage := util.Sum(currQoSMB)
+func (w *weightedQoSMBPolicy) getProportionalPlan(totalMB int, qosGroupMBs map[task.QoSLevel]*monitor.MBQoSGroup) *plan.MBAlloc {
+	totalUsage := monitor.SumMB(qosGroupMBs)
 
 	mbPlan := &plan.MBAlloc{Plan: make(map[task.QoSLevel]map[int]int)}
-	for qos, ccdMB := range currQoSMB {
-		for ccd, mb := range ccdMB {
+	for qos, groupMB := range qosGroupMBs {
+		for ccd, mb := range groupMB.CCDMB {
 			if _, ok := mbPlan.Plan[qos]; !ok {
 				mbPlan.Plan[qos] = make(map[int]int)
 			}
@@ -55,11 +49,11 @@ func (w *weightedQoSMBPolicy) getProportionalPlan(totalMB int, currQoSMB map[tas
 	return mbPlan
 }
 
-func (w *weightedQoSMBPolicy) getTopLevelPlan(totalMB int, currQoSMB map[task.QoSLevel]map[int]int) *plan.MBAlloc {
-	// don't set throttling at all for top level QoS CCDs
+func (w *weightedQoSMBPolicy) getTopLevelPlan(totalMB int, qosGroups map[task.QoSLevel]*monitor.MBQoSGroup) *plan.MBAlloc {
+	// don't set throttling at all for top level QoS group's CCDs; instead allow more than the totalMB
 	mbPlan := &plan.MBAlloc{Plan: make(map[task.QoSLevel]map[int]int)}
-	for qos, ccdMB := range currQoSMB {
-		for ccd, mb := range ccdMB {
+	for qos, group := range qosGroups {
+		for ccd, mb := range group.CCDMB {
 			if mb > 0 {
 				if _, ok := mbPlan.Plan[qos]; !ok {
 					mbPlan.Plan[qos] = make(map[int]int)

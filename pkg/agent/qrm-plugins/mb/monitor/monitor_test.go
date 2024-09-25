@@ -89,13 +89,13 @@ func Test_mbMonitor_GetQoSMBs(t1 *testing.T) {
 				taskManager: tt.fields.taskManager,
 				mbReader:    tt.fields.mbReader,
 			}
-			got, err := t.GetQoSMBs()
+			got, err := t.getQoSMBs()
 			if (err != nil) != tt.wantErr {
-				t1.Errorf("GetQoSMBs() error = %v, wantErr %v", err, tt.wantErr)
+				t1.Errorf("getQoSMBs() error = %v, wantErr %v", err, tt.wantErr)
 				return
 			}
 			if !reflect.DeepEqual(got, tt.want) {
-				t1.Errorf("GetQoSMBs() got = %v, want %v", got, tt.want)
+				t1.Errorf("getQoSMBs() got = %v, want %v", got, tt.want)
 			}
 		})
 	}

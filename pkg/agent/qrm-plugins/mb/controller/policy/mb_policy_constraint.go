@@ -20,6 +20,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/mbdomain"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/policy/plan"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/policy/qospolicy"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/monitor"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/task"
 )
 
@@ -28,13 +29,17 @@ type constraintDomainMBPolicy struct {
 	qosMBPolicy qospolicy.QoSMBPolicy
 }
 
-func (c constraintDomainMBPolicy) GetPlan(domain *mbdomain.MBDomain, currQoSMB map[task.QoSLevel]map[int]int) *plan.MBAlloc {
-	return c.qosMBPolicy.GetPlan(mbdomain.DomainTotalMB, currQoSMB)
+func (c constraintDomainMBPolicy) GetPlan(domain *mbdomain.MBDomain, currQoSMB map[task.QoSLevel]*monitor.MBQoSGroup) *plan.MBAlloc {
+	return c.qosMBPolicy.GetPlan(mbdomain.DomainTotalMB, currQoSMB, true)
 }
 
-func NewConstraintDomainMBPolicy(qosMBPolicy qospolicy.QoSMBPolicy) DomainMBPolicy {
-	qosMBPolicy.SetTopLink()
+func newConstraintDomainMBPolicy(qosMBPolicy qospolicy.QoSMBPolicy) DomainMBPolicy {
 	return &constraintDomainMBPolicy{
 		qosMBPolicy: qosMBPolicy,
 	}
+}
+
+func NewDefaultConstraintDomainMBPolicy() DomainMBPolicy {
+	qosMBPolicy := qospolicy.BuildDefaultChainedQoSMBPolicy()
+	return newConstraintDomainMBPolicy(qosMBPolicy)
 }

@@ -17,6 +17,8 @@ limitations under the License.
 package mb
 
 import (
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/mbdomain"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/policy"
 	"github.com/pkg/errors"
 
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/agent"
@@ -72,7 +74,13 @@ func (c *plugin) Start() error {
 		return err
 	}
 
-	c.mbController, err = controller.New(podMBMonitor, mbPlanAllocator)
+	domainManager := mbdomain.NewMBDomainManager(c.dieTopology)
+	domainPolicy, err := policy.NewDefaultDomainMBPolicy()
+	if err != nil {
+		return err
+	}
+
+	c.mbController, err = controller.New(podMBMonitor, mbPlanAllocator, domainManager, domainPolicy)
 	if err != nil {
 		return err
 	}
