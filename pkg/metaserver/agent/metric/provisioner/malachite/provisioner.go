@@ -349,6 +349,8 @@ func (m *MalachiteMetricsProvisioner) processSystemIOData(systemIOData *malachit
 			diskType = consts.DiskTypeSSD
 		} else if device.DiskType == "NVME" {
 			diskType = consts.DiskTypeNVME
+		} else if device.DiskType == "VIRTIO" {
+			diskType = consts.DiskTypeVIRTIO
 		}
 		m.metricStore.SetDeviceMetric(device.DeviceName, consts.MetricIODiskType,
 			utilmetric.MetricData{Value: float64(diskType), Time: &updateTime})

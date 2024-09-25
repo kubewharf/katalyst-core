@@ -25,12 +25,40 @@ import (
 	"os"
 
 	coreconfig "github.com/kubewharf/katalyst-core/pkg/config"
+	"github.com/kubewharf/katalyst-core/pkg/consts"
 	coreconsts "github.com/kubewharf/katalyst-core/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric/helper"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 )
+
+func getWBTValueForDiskType(diskType int, conf *coreconfig.Configuration) (int, bool) {
+	switch diskType {
+	case consts.DiskTypeHDD:
+		if conf.WBTValueHDD == -1 {
+			return 0, false
+		}
+		return conf.WBTValueHDD, true
+	case consts.DiskTypeSSD:
+		if conf.WBTValueSSD == -1 {
+			return 0, false
+		}
+		return conf.WBTValueSSD, true
+	case consts.DiskTypeNVME:
+		if conf.WBTValueNVME == -1 {
+			return 0, false
+		}
+		return conf.WBTValueNVME, true
+	case consts.DiskTypeVIRTIO:
+		if conf.WBTValueVIRTIO == -1 {
+			return 0, false
+		}
+		return conf.WBTValueVIRTIO, true
+	default:
+		return 0, false // Unsupported disk type
+	}
+}
 
 func SetWBTLimit(conf *coreconfig.Configuration,
 	emitter metrics.MetricEmitter, metaServer *metaserver.MetaServer,
@@ -56,27 +84,10 @@ func SetWBTLimit(conf *coreconfig.Configuration,
 		if err != nil {
 			continue
 		}
-		wbtValue := 0
-		if diskType == coreconsts.DiskTypeHDD {
-			// -1 means skip it.
-			if conf.WBTValueHDD == -1 {
-				continue
-			}
-			wbtValue = conf.WBTValueHDD
-		} else if diskType == coreconsts.DiskTypeSSD {
-			// -1 means skip it.
-			if conf.WBTValueSSD == -1 {
-				continue
-			}
-			wbtValue = conf.WBTValueSSD
-		} else if diskType == coreconsts.DiskTypeNVME {
-			// -1 means skip it.
-			if conf.WBTValueNVME == -1 {
-				continue
-			}
-			wbtValue = conf.WBTValueNVME
-		} else {
-			continue // currently, only SSD/HDD/NVME were supported.
+
+		wbtValue, shouldApply := getWBTValueForDiskType(int(diskType), conf)
+		if !shouldApply {
+			continue
 		}
 
 		oldWBTValue, err := helper.GetDeviceMetric(metaServer.MetricsFetcher, emitter, coreconsts.MetricIODiskWBTValue, entry.Name())

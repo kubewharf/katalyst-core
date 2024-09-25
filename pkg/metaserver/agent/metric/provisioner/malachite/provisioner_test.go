@@ -81,6 +81,13 @@ func Test_noneExistMetricsProvisioner(t *testing.T) {
 				DiskType:          "NVME",
 				WBTValue:          3234,
 			},
+			{
+				PrimaryDeviceID:   8,
+				SecondaryDeviceID: 48,
+				DeviceName:        "vdf",
+				DiskType:          "VIRTIO",
+				WBTValue:          75234,
+			},
 		},
 	}
 	fakeSystemNet := &malachitetypes.SystemNetworkData{

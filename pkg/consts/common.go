@@ -79,6 +79,7 @@ const (
 	DiskTypeHDD     = 1
 	DiskTypeSSD     = 2
 	DiskTypeNVME    = 3
+	DiskTypeVIRTIO  = 4
 )
 
 var (
