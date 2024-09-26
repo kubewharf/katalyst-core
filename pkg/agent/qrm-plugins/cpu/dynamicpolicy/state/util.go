@@ -38,6 +38,7 @@ const (
 	PoolNameDedicated       = "dedicated"
 	PoolNameReserve         = "reserve"
 	PoolNamePrefixIsolation = "isolation"
+	PoolNamePrefixSystem    = "system"
 
 	// PoolNameFallback is not a real pool, and is a union of
 	// all none-reclaimed pools to put pod should have been isolated
@@ -195,9 +196,15 @@ func IsIsolationPool(poolName string) bool {
 	return strings.HasPrefix(poolName, PoolNamePrefixIsolation)
 }
 
+func IsSystemPool(poolName string) bool {
+	return strings.HasPrefix(poolName, PoolNamePrefixSystem)
+}
+
 func GetPoolType(poolName string) string {
 	if IsIsolationPool(poolName) {
 		return PoolNamePrefixIsolation
+	} else if IsSystemPool(poolName) {
+		return PoolNamePrefixSystem
 	}
 	switch poolName {
 	case PoolNameReclaim, PoolNameDedicated, PoolNameReserve, PoolNameFallback:
@@ -215,6 +222,8 @@ func GetSpecifiedPoolName(qosLevel, cpusetEnhancementValue string) string {
 			return cpusetEnhancementValue
 		}
 		return PoolNameShare
+	case apiconsts.PodAnnotationQoSLevelSystemCores:
+		return cpusetEnhancementValue
 	case apiconsts.PodAnnotationQoSLevelReclaimedCores:
 		return PoolNameReclaim
 	case apiconsts.PodAnnotationQoSLevelDedicatedCores:
@@ -466,7 +475,7 @@ func GenerateMachineStateFromPodEntriesByPolicy(topology *machine.CPUTopology, p
 					// only modify allocated and default properties in NUMA node state if the policy is dynamic and the entry indicates numa_binding.
 					// shared_cores with numa_binding also contributes to numaNodeState.AllocatedCPUSet,
 					// it's convenient that we can skip NUMA with AllocatedCPUSet > 0 when allocating CPUs for dedicated_cores with numa_binding.
-					if CheckNUMABinding(allocationInfo) {
+					if CheckSharedOrDedicatedNUMABinding(allocationInfo) {
 						allocatedCPUsInNumaNode = allocatedCPUsInNumaNode.Union(allocationInfo.OriginalTopologyAwareAssignments[int(numaNode)])
 					}
 				case cpuconsts.CPUResourcePluginPolicyNameNative:

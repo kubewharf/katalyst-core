@@ -552,6 +552,14 @@ func TestGetSpecifiedPoolName(t *testing.T) {
 			},
 			want: PoolNameReclaim,
 		},
+		{
+			name: "system_cores with empty cpusetEnhancementValue",
+			args: args{
+				qosLevel:               consts.PodAnnotationQoSLevelSystemCores,
+				cpusetEnhancementValue: "reserve",
+			},
+			want: "reserve",
+		},
 	}
 	for _, tt := range tests {
 		tt := tt

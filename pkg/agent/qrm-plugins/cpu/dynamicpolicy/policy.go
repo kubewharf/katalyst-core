@@ -212,6 +212,7 @@ func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration
 		consts.PodAnnotationQoSLevelSharedCores:    policyImplement.sharedCoresAllocationHandler,
 		consts.PodAnnotationQoSLevelDedicatedCores: policyImplement.dedicatedCoresAllocationHandler,
 		consts.PodAnnotationQoSLevelReclaimedCores: policyImplement.reclaimedCoresAllocationHandler,
+		consts.PodAnnotationQoSLevelSystemCores:    policyImplement.systemCoresAllocationHandler,
 	}
 
 	// register hint providers for pods with different QoS level
@@ -219,6 +220,7 @@ func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration
 		consts.PodAnnotationQoSLevelSharedCores:    policyImplement.sharedCoresHintHandler,
 		consts.PodAnnotationQoSLevelDedicatedCores: policyImplement.dedicatedCoresHintHandler,
 		consts.PodAnnotationQoSLevelReclaimedCores: policyImplement.reclaimedCoresHintHandler,
+		consts.PodAnnotationQoSLevelSystemCores:    policyImplement.systemCoresHintHandler,
 	}
 
 	if err := policyImplement.cleanPools(); err != nil {
@@ -426,7 +428,7 @@ func (p *DynamicPolicy) GetResourcesAllocation(_ context.Context,
 	// pooledCPUs is the total available cpu cores minus those that are reserved
 	pooledCPUs := machineState.GetFilteredAvailableCPUSet(p.reservedCPUs,
 		func(ai *state.AllocationInfo) bool {
-			return state.CheckDedicated(ai) || state.CheckNUMABinding(ai)
+			return state.CheckDedicated(ai) || state.CheckSharedNUMABinding(ai)
 		},
 		state.CheckDedicatedNUMABinding)
 	pooledCPUsTopologyAwareAssignments, err := machine.GetNumaAwareAssignments(p.machineInfo.CPUTopology, pooledCPUs)
@@ -1067,7 +1069,7 @@ func (p *DynamicPolicy) initReclaimPool() error {
 		machineState := p.state.GetMachineState()
 		availableCPUs := machineState.GetFilteredAvailableCPUSet(p.reservedCPUs,
 			func(ai *state.AllocationInfo) bool {
-				return state.CheckDedicated(ai) || state.CheckNUMABinding(ai)
+				return state.CheckDedicated(ai) || state.CheckSharedNUMABinding(ai)
 			},
 			state.CheckDedicatedNUMABinding).Difference(noneResidentCPUs)
 
@@ -1182,7 +1184,7 @@ func (p *DynamicPolicy) checkNormalShareCoresCpuResource(req *pluginapi.Resource
 
 	machineState := p.state.GetMachineState()
 	pooledCPUs := machineState.GetFilteredAvailableCPUSet(p.reservedCPUs,
-		state.CheckDedicated, state.CheckNUMABinding)
+		state.CheckDedicated, state.CheckSharedOrDedicatedNUMABinding)
 
 	general.Infof("[checkNormalShareCoresCpuResource] node cpu allocated: %d, allocatable: %d", shareCoresAllocatedInt, pooledCPUs.Size())
 	if shareCoresAllocatedInt > pooledCPUs.Size() {

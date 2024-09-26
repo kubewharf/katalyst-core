@@ -142,12 +142,14 @@ func getTestDynamicPolicyWithInitialization(topology *machine.CPUTopology, machi
 		consts.PodAnnotationQoSLevelSharedCores:    policyImplement.sharedCoresAllocationHandler,
 		consts.PodAnnotationQoSLevelDedicatedCores: policyImplement.dedicatedCoresAllocationHandler,
 		consts.PodAnnotationQoSLevelReclaimedCores: policyImplement.reclaimedCoresAllocationHandler,
+		consts.PodAnnotationQoSLevelSystemCores:    policyImplement.systemCoresAllocationHandler,
 	}
 
 	policyImplement.hintHandlers = map[string]util.HintHandler{
 		consts.PodAnnotationQoSLevelSharedCores:    policyImplement.sharedCoresHintHandler,
 		consts.PodAnnotationQoSLevelDedicatedCores: policyImplement.dedicatedCoresHintHandler,
 		consts.PodAnnotationQoSLevelReclaimedCores: policyImplement.reclaimedCoresHintHandler,
+		consts.PodAnnotationQoSLevelSystemCores:    policyImplement.systemCoresHintHandler,
 	}
 
 	policyImplement.asyncWorkers = asyncworker.NewAsyncWorkers(memoryPluginAsyncWorkersName, policyImplement.emitter)
@@ -1101,6 +1103,44 @@ func TestGetTopologyHints(t *testing.T) {
 			},
 		},
 		{
+			description: "req for system_cores main container",
+			req: &pluginapi.ResourceRequest{
+				PodUid:         string(uuid.NewUUID()),
+				PodNamespace:   testName,
+				PodName:        testName,
+				ContainerName:  testName,
+				ContainerType:  pluginapi.ContainerType_MAIN,
+				ContainerIndex: 0,
+				ResourceName:   string(v1.ResourceMemory),
+				ResourceRequests: map[string]float64{
+					string(v1.ResourceMemory): 1073741824,
+				},
+				Labels: map[string]string{
+					consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSystemCores,
+				},
+				Annotations: map[string]string{
+					consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSystemCores,
+				},
+			},
+			expectedResp: &pluginapi.ResourceHintsResponse{
+				PodNamespace:   testName,
+				PodName:        testName,
+				ContainerName:  testName,
+				ContainerType:  pluginapi.ContainerType_MAIN,
+				ContainerIndex: 0,
+				ResourceName:   string(v1.ResourceMemory),
+				ResourceHints: map[string]*pluginapi.ListOfTopologyHints{
+					string(v1.ResourceMemory): nil,
+				},
+				Labels: map[string]string{
+					consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSystemCores,
+				},
+				Annotations: map[string]string{
+					consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSystemCores,
+				},
+			},
+		},
+		{
 			description: "req for dedicated_cores with numa_binding & numa_exclusive main container",
 			req: &pluginapi.ResourceRequest{
 				PodUid:         string(uuid.NewUUID()),
@@ -1732,13 +1772,13 @@ func TestGetResourcesAllocation(t *testing.T) {
 	as.NotNil(resp1.PodResources[req.PodUid])
 	as.NotNil(resp1.PodResources[req.PodUid].ContainerResources[testName])
 	as.NotNil(resp1.PodResources[req.PodUid].ContainerResources[testName].ResourceAllocation[string(v1.ResourceMemory)])
-	as.Equal(resp1.PodResources[req.PodUid].ContainerResources[testName].ResourceAllocation[string(v1.ResourceMemory)], &pluginapi.ResourceAllocationInfo{
+	as.Equal(&pluginapi.ResourceAllocationInfo{
 		OciPropertyName:   util.OCIPropertyNameCPUSetMems,
 		IsNodeResource:    false,
 		IsScalarResource:  true,
 		AllocatedQuantity: 1073741824,
 		AllocationResult:  machine.NewCPUSet(0, 1, 2, 3).String(),
-	})
+	}, resp1.PodResources[req.PodUid].ContainerResources[testName].ResourceAllocation[string(v1.ResourceMemory)])
 
 	// test for reclaimed_cores
 	req = &pluginapi.ResourceRequest{
@@ -1769,13 +1809,13 @@ func TestGetResourcesAllocation(t *testing.T) {
 	as.NotNil(resp2.PodResources[req.PodUid])
 	as.NotNil(resp2.PodResources[req.PodUid].ContainerResources[testName])
 	as.NotNil(resp2.PodResources[req.PodUid].ContainerResources[testName].ResourceAllocation[string(v1.ResourceMemory)])
-	as.Equal(resp2.PodResources[req.PodUid].ContainerResources[testName].ResourceAllocation[string(v1.ResourceMemory)], &pluginapi.ResourceAllocationInfo{
+	as.Equal(&pluginapi.ResourceAllocationInfo{
 		OciPropertyName:   util.OCIPropertyNameCPUSetMems,
 		IsNodeResource:    false,
 		IsScalarResource:  true,
 		AllocatedQuantity: 0,
 		AllocationResult:  machine.NewCPUSet(0, 1, 2, 3).String(),
-	})
+	}, resp2.PodResources[req.PodUid].ContainerResources[testName].ResourceAllocation[string(v1.ResourceMemory)])
 
 	os.RemoveAll(tmpDir)
 	dynamicPolicy, err = getTestDynamicPolicyWithInitialization(cpuTopology, machineInfo, tmpDir)
@@ -1815,13 +1855,98 @@ func TestGetResourcesAllocation(t *testing.T) {
 	as.NotNil(resp3.PodResources[req.PodUid])
 	as.NotNil(resp3.PodResources[req.PodUid].ContainerResources[testName])
 	as.NotNil(resp3.PodResources[req.PodUid].ContainerResources[testName].ResourceAllocation[string(v1.ResourceMemory)])
-	as.Equal(resp3.PodResources[req.PodUid].ContainerResources[testName].ResourceAllocation[string(v1.ResourceMemory)], &pluginapi.ResourceAllocationInfo{
+	as.Equal(&pluginapi.ResourceAllocationInfo{
 		OciPropertyName:   util.OCIPropertyNameCPUSetMems,
 		IsNodeResource:    false,
 		IsScalarResource:  true,
 		AllocatedQuantity: 7516192768,
 		AllocationResult:  machine.NewCPUSet(0).String(),
-	})
+	}, resp3.PodResources[req.PodUid].ContainerResources[testName].ResourceAllocation[string(v1.ResourceMemory)])
+
+	// test for system_cores with cpuset_pool reserve
+	req = &pluginapi.ResourceRequest{
+		PodUid:         string(uuid.NewUUID()),
+		PodNamespace:   testName,
+		PodName:        testName,
+		ContainerName:  testName,
+		ContainerType:  pluginapi.ContainerType_MAIN,
+		ContainerIndex: 0,
+		ResourceName:   string(v1.ResourceMemory),
+		Hint: &pluginapi.TopologyHint{
+			Nodes:     []uint64{0},
+			Preferred: true,
+		},
+		ResourceRequests: map[string]float64{
+			string(v1.ResourceMemory): 2147483648,
+		},
+		Annotations: map[string]string{
+			consts.PodAnnotationQoSLevelKey:       consts.PodAnnotationQoSLevelSystemCores,
+			consts.PodAnnotationCPUEnhancementKey: `{"cpuset_pool": "reserve"}`,
+		},
+		Labels: map[string]string{
+			consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSystemCores,
+		},
+	}
+
+	_, err = dynamicPolicy.Allocate(context.Background(), req)
+	as.Nil(err)
+
+	resp4, err := dynamicPolicy.GetResourcesAllocation(context.Background(), &pluginapi.GetResourcesAllocationRequest{})
+	as.Nil(err)
+
+	as.NotNil(resp4.PodResources[req.PodUid])
+	as.NotNil(resp4.PodResources[req.PodUid].ContainerResources[testName])
+	as.NotNil(resp4.PodResources[req.PodUid].ContainerResources[testName].ResourceAllocation[string(v1.ResourceMemory)])
+	as.Equal(&pluginapi.ResourceAllocationInfo{
+		OciPropertyName:   util.OCIPropertyNameCPUSetMems,
+		IsNodeResource:    false,
+		IsScalarResource:  true,
+		AllocatedQuantity: 0,
+		AllocationResult:  machine.NewCPUSet(0, 1, 2, 3).String(),
+	}, resp4.PodResources[req.PodUid].ContainerResources[testName].ResourceAllocation[string(v1.ResourceMemory)])
+
+	// test for system_cores with cpuset_pool reserve and with numa binding
+	req = &pluginapi.ResourceRequest{
+		PodUid:         string(uuid.NewUUID()),
+		PodNamespace:   testName,
+		PodName:        testName,
+		ContainerName:  testName,
+		ContainerType:  pluginapi.ContainerType_MAIN,
+		ContainerIndex: 0,
+		ResourceName:   string(v1.ResourceMemory),
+		Hint: &pluginapi.TopologyHint{
+			Nodes:     []uint64{0},
+			Preferred: true,
+		},
+		ResourceRequests: map[string]float64{
+			string(v1.ResourceMemory): 2147483648,
+		},
+		Annotations: map[string]string{
+			consts.PodAnnotationQoSLevelKey:          consts.PodAnnotationQoSLevelSystemCores,
+			consts.PodAnnotationCPUEnhancementKey:    `{"cpuset_pool": "reserve"}`,
+			consts.PodAnnotationMemoryEnhancementKey: `{"numa_binding": "true"}`,
+		},
+		Labels: map[string]string{
+			consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSystemCores,
+		},
+	}
+
+	_, err = dynamicPolicy.Allocate(context.Background(), req)
+	as.Nil(err)
+
+	resp5, err := dynamicPolicy.GetResourcesAllocation(context.Background(), &pluginapi.GetResourcesAllocationRequest{})
+	as.Nil(err)
+
+	as.NotNil(resp5.PodResources[req.PodUid])
+	as.NotNil(resp5.PodResources[req.PodUid].ContainerResources[testName])
+	as.NotNil(resp5.PodResources[req.PodUid].ContainerResources[testName].ResourceAllocation[string(v1.ResourceMemory)])
+	as.Equal(&pluginapi.ResourceAllocationInfo{
+		OciPropertyName:   util.OCIPropertyNameCPUSetMems,
+		IsNodeResource:    false,
+		IsScalarResource:  true,
+		AllocatedQuantity: 0,
+		AllocationResult:  machine.NewCPUSet(1, 2, 3).String(),
+	}, resp5.PodResources[req.PodUid].ContainerResources[testName].ResourceAllocation[string(v1.ResourceMemory)])
 }
 
 func TestGetReadonlyState(t *testing.T) {

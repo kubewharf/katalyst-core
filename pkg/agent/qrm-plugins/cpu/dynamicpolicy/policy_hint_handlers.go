@@ -165,7 +165,7 @@ func (p *DynamicPolicy) dedicatedCoresWithNUMABindingHintHandler(_ context.Conte
 
 	// if hints exists in extra state-file, prefer to use them
 	if hints == nil {
-		availableNUMAs := machineState.GetFilteredNUMASet(state.CheckNUMABinding)
+		availableNUMAs := machineState.GetFilteredNUMASet(state.CheckSharedOrDedicatedNUMABinding)
 
 		var extraErr error
 		hints, extraErr = util.GetHintsFromExtraStateFile(req.PodName, string(v1.ResourceCPU), p.extraStateFileAbsPath, availableNUMAs)
@@ -794,8 +794,8 @@ func (p *DynamicPolicy) calculateHintsForNUMABindingSharedCores(reqInt int, podE
 	machineState state.NUMANodeMap,
 	req *pluginapi.ResourceRequest,
 ) (map[string]*pluginapi.ListOfTopologyHints, error) {
-	nonBindingNUMAsCPUQuantity := machineState.GetFilteredAvailableCPUSet(p.reservedCPUs, nil, state.CheckNUMABinding).Size()
-	nonBindingNUMAs := machineState.GetFilteredNUMASet(state.CheckNUMABinding)
+	nonBindingNUMAsCPUQuantity := machineState.GetFilteredAvailableCPUSet(p.reservedCPUs, nil, state.CheckSharedOrDedicatedNUMABinding).Size()
+	nonBindingNUMAs := machineState.GetFilteredNUMASet(state.CheckSharedOrDedicatedNUMABinding)
 	nonBindingSharedRequestedQuantity := state.GetNonBindingSharedRequestedQuantityFromPodEntries(podEntries, nil, p.getContainerRequestedCores)
 
 	reqAnnotations := req.Annotations

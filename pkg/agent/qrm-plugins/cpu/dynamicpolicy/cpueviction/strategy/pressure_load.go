@@ -337,7 +337,10 @@ func (p *CPUPressureLoadEviction) collectMetrics(_ context.Context) {
 		for containerName, containerEntry := range entry {
 			if containerEntry == nil || containerEntry.IsPool {
 				continue
-			} else if containerEntry.OwnerPool == state.EmptyOwnerPoolName || p.skipPools.Has(p.configTranslator.Translate(containerEntry.OwnerPool)) {
+			} else if containerEntry.OwnerPool == state.EmptyOwnerPoolName ||
+				p.skipPools.Has(p.configTranslator.Translate(containerEntry.OwnerPool)) ||
+				// skip pod with system pool
+				state.IsSystemPool(containerEntry.OwnerPool) {
 				general.Infof("skip collecting metric for pod: %s, container: %s with owner pool name: %s",
 					podUID, containerName, containerEntry.OwnerPool)
 				continue
@@ -422,7 +425,7 @@ func (p *CPUPressureLoadEviction) checkSharedPressureByPoolSize(pod2Pool PodPool
 // accumulateSharedPoolsLimit calculates the cpu core limit used by shared core pool,
 // and it equals: machine-core - cores-for-dedicated-pods - reserved-cores-reclaim-pods - reserved-cores-system-pods.
 func (p *CPUPressureLoadEviction) accumulateSharedPoolsLimit() int {
-	availableCPUSet := p.state.GetMachineState().GetFilteredAvailableCPUSet(p.systemReservedCPUs, nil, state.CheckNUMABinding)
+	availableCPUSet := p.state.GetMachineState().GetFilteredAvailableCPUSet(p.systemReservedCPUs, nil, state.CheckSharedOrDedicatedNUMABinding)
 
 	coreNumReservedForReclaim := p.dynamicConf.GetDynamicConfiguration().MinReclaimedResourceForAllocate[v1.ResourceCPU]
 	if coreNumReservedForReclaim.Value() > int64(p.metaServer.NumCPUs) {
@@ -431,7 +434,7 @@ func (p *CPUPressureLoadEviction) accumulateSharedPoolsLimit() int {
 	reservedForReclaim := machine.GetCoreNumReservedForReclaim(int(coreNumReservedForReclaim.Value()), p.metaServer.NumNUMANodes)
 
 	reservedForReclaimInSharedNuma := 0
-	sharedCoresNUMAs := p.state.GetMachineState().GetFilteredNUMASet(state.CheckNUMABinding)
+	sharedCoresNUMAs := p.state.GetMachineState().GetFilteredNUMASet(state.CheckSharedOrDedicatedNUMABinding)
 	for _, numaID := range sharedCoresNUMAs.ToSliceInt() {
 		reservedForReclaimInSharedNuma += reservedForReclaim[numaID]
 	}

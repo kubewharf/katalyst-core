@@ -277,7 +277,7 @@ func (p *DynamicPolicy) checkMemorySet(_ *coreconfig.Configuration,
 				general.Warningf("skip memset checking for pod: %s/%s container: %s with zero memory request",
 					allocationInfo.PodNamespace, allocationInfo.PodName, containerName)
 				continue
-			} else if allocationInfo.CheckNumaBinding() {
+			} else if allocationInfo.CheckSharedOrDedicatedNUMABinding() {
 				unionNUMABindingStateMemorySet = unionNUMABindingStateMemorySet.Union(allocationInfo.NumaAllocationResult)
 			}
 
@@ -373,7 +373,7 @@ func (p *DynamicPolicy) checkMemorySet(_ *coreconfig.Configuration,
 	}
 
 	machineState := p.state.GetMachineState()[v1.ResourceMemory]
-	notAssignedMemSet := machineState.GetNUMANodesWithoutNUMABindingPods()
+	notAssignedMemSet := machineState.GetNUMANodesWithoutSharedOrDedicatedNUMABindingPods()
 	if !unionNUMABindingStateMemorySet.Union(notAssignedMemSet).Equals(p.topology.CPUDetails.NUMANodes()) {
 		general.Infof("found node memset invalid. unionNUMABindingStateMemorySet: %s, notAssignedMemSet: %s, topology: %s",
 			unionNUMABindingStateMemorySet.String(), notAssignedMemSet.String(), p.topology.CPUDetails.NUMANodes().String())
@@ -476,7 +476,7 @@ func (p *DynamicPolicy) clearResidualState(_ *coreconfig.Configuration,
 }
 
 // setMemoryMigrate is used to calculate and set memory migrate configuration, notice that
-// 1. not to set memory migrate for NUMA binding containers
+// 1. not to set memory migrate for shared or dedicated NUMA binding containers
 // 2. for a certain given pod/container, only one setting action is on the flight
 // 3. the setting action is done asynchronously to avoid hang
 func (p *DynamicPolicy) setMemoryMigrate() {
@@ -496,7 +496,7 @@ func (p *DynamicPolicy) setMemoryMigrate() {
 			} else if containerName == "" {
 				general.Errorf("pod: %s has empty containerName entry", podUID)
 				continue
-			} else if allocationInfo.CheckNumaBinding() {
+			} else if allocationInfo.CheckSharedOrDedicatedNUMABinding() {
 				continue
 			}
 

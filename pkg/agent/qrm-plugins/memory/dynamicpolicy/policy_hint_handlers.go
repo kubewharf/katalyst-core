@@ -71,6 +71,17 @@ func (p *DynamicPolicy) sharedCoresHintHandler(ctx context.Context,
 		})
 }
 
+func (p *DynamicPolicy) systemCoresHintHandler(_ context.Context, req *pluginapi.ResourceRequest) (*pluginapi.ResourceHintsResponse, error) {
+	if req == nil {
+		return nil, fmt.Errorf("got nil request")
+	}
+
+	return util.PackResourceHintsResponse(req, string(v1.ResourceMemory),
+		map[string]*pluginapi.ListOfTopologyHints{
+			string(v1.ResourceMemory): nil, // indicates that there is no numa preference
+		})
+}
+
 func (p *DynamicPolicy) reclaimedCoresHintHandler(ctx context.Context,
 	req *pluginapi.ResourceRequest,
 ) (*pluginapi.ResourceHintsResponse, error) {
@@ -161,7 +172,7 @@ func (p *DynamicPolicy) numaBindingHintHandler(_ context.Context,
 
 	// if hints exists in extra state-file, prefer to use them
 	if hints == nil {
-		availableNUMAs := resourcesMachineState[v1.ResourceMemory].GetNUMANodesWithoutNUMABindingPods()
+		availableNUMAs := resourcesMachineState[v1.ResourceMemory].GetNUMANodesWithoutSharedOrDedicatedNUMABindingPods()
 
 		var extraErr error
 		hints, extraErr = util.GetHintsFromExtraStateFile(req.PodName, string(v1.ResourceMemory),

@@ -49,6 +49,24 @@ func (p *DynamicPolicy) sharedCoresAllocationHandler(ctx context.Context,
 	}
 }
 
+func (p *DynamicPolicy) systemCoresAllocationHandler(_ context.Context, req *pluginapi.ResourceRequest) (*pluginapi.ResourceAllocationResponse, error) {
+	if req == nil {
+		return nil, fmt.Errorf("systemCoresAllocationHandler got nil request")
+	}
+
+	switch req.Annotations[apiconsts.PodAnnotationMemoryEnhancementNumaBinding] {
+	case apiconsts.PodAnnotationMemoryEnhancementNumaBindingEnable:
+		resourcesMachineState := p.state.GetMachineState()
+		defaultSystemCoresNUMAs := p.getDefaultSystemCoresNUMAs(resourcesMachineState[v1.ResourceMemory])
+		// allocate system_cores pod with NUMA binding
+		// todo: currently we only set cpuset.mems for system_cores pods with numa binding to NUMAs without dedicated and NUMA binding and NUMA exclusive pod,
+		// 		in the future, we set them according to their cpuset_pool annotation.
+		return p.allocateTargetNUMAs(req, apiconsts.PodAnnotationQoSLevelSystemCores, defaultSystemCoresNUMAs)
+	default:
+		return p.allocateTargetNUMAs(req, apiconsts.PodAnnotationQoSLevelSystemCores, p.topology.CPUDetails.NUMANodes())
+	}
+}
+
 func (p *DynamicPolicy) reclaimedCoresAllocationHandler(ctx context.Context,
 	req *pluginapi.ResourceRequest,
 ) (*pluginapi.ResourceAllocationResponse, error) {
@@ -66,7 +84,7 @@ func (p *DynamicPolicy) reclaimedCoresAllocationHandler(ctx context.Context,
 	// 	we will support adjusting cpuset.mems for reclaimed_cores dynamically according to memory advisor.
 	// Notice: before supporting dynamic adjustment, not to hybrid reclaimed_cores
 	//  with dedicated_cores numa_binding containers.
-	return p.allocateAllNUMAs(req, apiconsts.PodAnnotationQoSLevelReclaimedCores)
+	return p.allocateTargetNUMAs(req, apiconsts.PodAnnotationQoSLevelReclaimedCores, p.topology.CPUDetails.NUMANodes())
 }
 
 func (p *DynamicPolicy) dedicatedCoresAllocationHandler(ctx context.Context,
@@ -307,7 +325,7 @@ func (p *DynamicPolicy) allocateNUMAsWithoutNUMABindingPods(_ context.Context,
 
 	machineState := p.state.GetMachineState()
 	resourceState := machineState[v1.ResourceMemory]
-	numaWithoutNUMABindingPods := resourceState.GetNUMANodesWithoutNUMABindingPods()
+	numaWithoutNUMABindingPods := resourceState.GetNUMANodesWithoutSharedOrDedicatedNUMABindingPods()
 
 	allocationInfo := p.state.GetAllocationInfo(v1.ResourceMemory, req.PodUid, req.ContainerName)
 	if allocationInfo != nil {
@@ -358,20 +376,19 @@ func (p *DynamicPolicy) allocateNUMAsWithoutNUMABindingPods(_ context.Context,
 	return resp, nil
 }
 
-// allocateAllNUMAs returns all numa node as allocation results,
+// allocateTargetNUMAs returns target numa nodes as allocation results,
 // and it will store the allocation in states.
-func (p *DynamicPolicy) allocateAllNUMAs(req *pluginapi.ResourceRequest,
-	qosLevel string,
+func (p *DynamicPolicy) allocateTargetNUMAs(req *pluginapi.ResourceRequest,
+	qosLevel string, targetNUMAs machine.CPUSet,
 ) (*pluginapi.ResourceAllocationResponse, error) {
 	if !pluginapi.SupportedKatalystQoSLevels.Has(qosLevel) {
 		return nil, fmt.Errorf("invalid qosLevel: %s", qosLevel)
 	}
 
-	allNUMAs := p.topology.CPUDetails.NUMANodes()
 	allocationInfo := p.state.GetAllocationInfo(v1.ResourceMemory, req.PodUid, req.ContainerName)
-	if allocationInfo != nil && !allocationInfo.NumaAllocationResult.Equals(allNUMAs) {
+	if allocationInfo != nil && !allocationInfo.NumaAllocationResult.Equals(targetNUMAs) {
 		general.Infof("pod: %s/%s, container: %s change cpuset.mems from: %s to %s",
-			req.PodNamespace, req.PodName, req.ContainerName, allocationInfo.NumaAllocationResult.String(), allNUMAs.String())
+			req.PodNamespace, req.PodName, req.ContainerName, allocationInfo.NumaAllocationResult.String(), targetNUMAs.String())
 	}
 
 	allocationInfo = &state.AllocationInfo{
@@ -383,7 +400,7 @@ func (p *DynamicPolicy) allocateAllNUMAs(req *pluginapi.ResourceRequest,
 		ContainerIndex:       req.ContainerIndex,
 		PodRole:              req.PodRole,
 		PodType:              req.PodType,
-		NumaAllocationResult: allNUMAs.Clone(),
+		NumaAllocationResult: targetNUMAs.Clone(),
 		Labels:               general.DeepCopyMap(req.Labels),
 		Annotations:          general.DeepCopyMap(req.Annotations),
 		QoSLevel:             qosLevel,
@@ -419,88 +436,14 @@ func (p *DynamicPolicy) adjustAllocationEntries() error {
 	machineState := resourcesMachineState[v1.ResourceMemory]
 	podEntries := podResourceEntries[v1.ResourceMemory]
 
-	numaWithoutNUMABindingPods := machineState.GetNUMANodesWithoutNUMABindingPods()
-	general.Infof("numaWithoutNUMABindingPods: %s", numaWithoutNUMABindingPods.String())
-
 	// for numaSetChangedContainers, we should reset their allocation info and
 	// trigger necessary Knob actions (like dropping caches or migrate memory
 	// to make sure already-allocated memory cooperate with the new numaset)
-	numaSetChangedContainers := make(map[string]map[string]bool)
-	for podUID, containerEntries := range podEntries {
-		for containerName, allocationInfo := range containerEntries {
-			if allocationInfo == nil {
-				general.Errorf("pod: %s, container: %s has nil allocationInfo", podUID, containerName)
-				continue
-			} else if containerName == "" {
-				general.Errorf("pod: %s has empty containerName entry", podUID)
-				continue
-			} else if allocationInfo.CheckNumaBinding() {
-				// not to adjust NUMA binding containers
-				continue
-			} else if allocationInfo.QoSLevel == apiconsts.PodAnnotationQoSLevelReclaimedCores {
-				// todo: consider strategy here after supporting cpuset.mems dynamic adjustment
-				continue
-			}
-
-			// todo: currently we only set cpuset.mems to NUMAs without NUMA binding for pods isn't NUMA binding
-			//  when cgroup memory policy becomes ready, we will allocate quantity for each pod meticulously.
-			if !allocationInfo.NumaAllocationResult.IsSubsetOf(numaWithoutNUMABindingPods) {
-				if numaSetChangedContainers[podUID] == nil {
-					numaSetChangedContainers[podUID] = make(map[string]bool)
-				}
-				numaSetChangedContainers[podUID][containerName] = true
-			}
-
-			if !allocationInfo.NumaAllocationResult.Equals(numaWithoutNUMABindingPods) {
-				general.Infof("pod: %s/%s, container: %s change cpuset.mems from: %s to %s",
-					allocationInfo.PodNamespace, allocationInfo.PodName, allocationInfo.ContainerName,
-					allocationInfo.NumaAllocationResult.String(), numaWithoutNUMABindingPods.String())
-			}
-
-			allocationInfo.NumaAllocationResult = numaWithoutNUMABindingPods.Clone()
-			allocationInfo.TopologyAwareAllocations = nil
-		}
-	}
-
-	// TODO: optimize this logic someday:
-	//	only for refresh memory request for old inplace update resized pods.
-	for podUID, containerEntries := range podEntries {
-		for containerName, allocationInfo := range containerEntries {
-			if allocationInfo == nil {
-				general.Errorf("pod: %s, container: %s has nil allocationInfo", podUID, containerName)
-				continue
-			} else if containerName == "" {
-				general.Errorf("pod: %s has empty containerName entry", podUID)
-				continue
-			} else if allocationInfo.QoSLevel != apiconsts.PodAnnotationQoSLevelSharedCores {
-				continue
-			}
-			if allocationInfo.QoSLevel == apiconsts.PodAnnotationQoSLevelSharedCores {
-				if allocationInfo.CheckNumaBinding() {
-					if allocationInfo.CheckSideCar() {
-						continue
-					}
-
-					if len(allocationInfo.TopologyAwareAllocations) != 1 {
-						general.Errorf("pod: %s/%s, container: %s topologyAwareAllocations length is not 1: %v",
-							allocationInfo.PodNamespace, allocationInfo.PodName, allocationInfo.ContainerName, allocationInfo.TopologyAwareAllocations)
-						continue
-					}
-
-					// update AggregatedQuantity && TopologyAwareAllocations for snb
-					allocationInfo.AggregatedQuantity = p.getContainerRequestedMemoryBytes(allocationInfo)
-					for numaId, quantity := range allocationInfo.TopologyAwareAllocations {
-						if quantity != allocationInfo.AggregatedQuantity {
-							allocationInfo.TopologyAwareAllocations[numaId] = allocationInfo.AggregatedQuantity
-						}
-					}
-				} else {
-					// update AggregatedQuantity for normal share cores
-					allocationInfo.AggregatedQuantity = p.getContainerRequestedMemoryBytes(allocationInfo)
-				}
-			}
-		}
-	}
+	numaSetChangedContainers := make(map[string]map[string]*state.AllocationInfo)
+	p.adjustAllocationEntriesForSharedCores(numaSetChangedContainers, podEntries, machineState)
+	p.adjustAllocationEntriesForDedicatedCores(numaSetChangedContainers, podEntries, machineState)
+	p.adjustAllocationEntriesForSystemCores(numaSetChangedContainers, podEntries, machineState)
+	// todo: adjust allocation entries for reclaimed cores
 
 	resourcesMachineState, err := state.GenerateMachineStateFromPodEntries(p.state.GetMachineInfo(), podResourceEntries, p.state.GetReservedMemory())
 	if err != nil {
@@ -510,47 +453,9 @@ func (p *DynamicPolicy) adjustAllocationEntries() error {
 	p.state.SetPodResourceEntries(podResourceEntries)
 	p.state.SetMachineState(resourcesMachineState)
 
-	movePagesWorkers, ok := p.asyncLimitedWorkersMap[memoryPluginAsyncWorkTopicMovePage]
-	if !ok {
-		return fmt.Errorf("asyncLimitedWorkers for %s not found", memoryPluginAsyncWorkTopicMovePage)
-	}
-
-	// drop cache and migrate pages for containers whose numaset changed
-	for podUID, containers := range numaSetChangedContainers {
-		for containerName := range containers {
-			containerID, err := p.metaServer.GetContainerID(podUID, containerName)
-			if err != nil {
-				general.Errorf("get container id of pod: %s container: %s failed with error: %v", podUID, containerName, err)
-				continue
-			}
-
-			container, err := p.metaServer.GetContainerSpec(podUID, containerName)
-			if err != nil || container == nil {
-				general.Errorf("get container spec for pod: %s, container: %s failed with error: %v", podUID, containerName, err)
-				continue
-			}
-
-			if !numaWithoutNUMABindingPods.IsEmpty() {
-				movePagesWorkName := util.GetContainerAsyncWorkName(podUID, containerName,
-					memoryPluginAsyncWorkTopicMovePage)
-				// start a asynchronous work to migrate pages for containers whose numaset changed and doesn't require numa_binding
-				err = movePagesWorkers.AddWork(
-					&asyncworker.Work{
-						Name: movePagesWorkName,
-						UID:  uuid.NewUUID(),
-						Fn:   MovePagesForContainer,
-						Params: []interface{}{
-							podUID, containerID,
-							p.topology.CPUDetails.NUMANodes(),
-							numaWithoutNUMABindingPods.Clone(),
-						},
-						DeliveredAt: time.Now(),
-					}, asyncworker.DuplicateWorkPolicyOverride)
-				if err != nil {
-					general.Errorf("add work: %s pod: %s container: %s failed with error: %v", movePagesWorkName, podUID, containerName, err)
-				}
-			}
-		}
+	err = p.migratePagesForNUMASetChangedContainers(numaSetChangedContainers)
+	if err != nil {
+		return fmt.Errorf("migratePagesForNUMASetChangedContainers failed with error: %v", err)
 	}
 
 	return nil
@@ -762,4 +667,193 @@ func packAllocationResponse(allocationInfo *state.AllocationInfo, req *pluginapi
 		Labels:      general.DeepCopyMap(req.Labels),
 		Annotations: general.DeepCopyMap(req.Annotations),
 	}, nil
+}
+
+func (p *DynamicPolicy) adjustAllocationEntriesForSharedCores(numaSetChangedContainers map[string]map[string]*state.AllocationInfo,
+	podEntries state.PodEntries, machineState state.NUMANodeMap,
+) {
+	numaWithoutNUMABindingPods := machineState.GetNUMANodesWithoutSharedOrDedicatedNUMABindingPods()
+	general.Infof("numaWithoutNUMABindingPods: %s", numaWithoutNUMABindingPods.String())
+
+	for podUID, containerEntries := range podEntries {
+		for containerName, allocationInfo := range containerEntries {
+			if allocationInfo == nil {
+				general.Errorf("pod: %s, container: %s has nil allocationInfo", podUID, containerName)
+				continue
+			} else if containerName == "" {
+				general.Errorf("pod: %s has empty containerName entry", podUID)
+				continue
+			} else if allocationInfo.QoSLevel != apiconsts.PodAnnotationQoSLevelSharedCores {
+				// not to adjust NUMA binding containers
+				continue
+			}
+
+			if !allocationInfo.CheckNumaBinding() {
+				// update container to target numa set for normal share cores
+				p.updateNUMASetChangedContainers(numaSetChangedContainers, allocationInfo, numaWithoutNUMABindingPods)
+
+				// update AggregatedQuantity for normal share cores
+				allocationInfo.AggregatedQuantity = p.getContainerRequestedMemoryBytes(allocationInfo)
+			} else {
+				// memory of sidecar in snb pod is belonged to main container so we don't need to adjust it
+				if allocationInfo.CheckSideCar() {
+					continue
+				}
+
+				if len(allocationInfo.TopologyAwareAllocations) != 1 {
+					general.Errorf("pod: %s/%s, container: %s topologyAwareAllocations length is not 1: %v",
+						allocationInfo.PodNamespace, allocationInfo.PodName, allocationInfo.ContainerName, allocationInfo.TopologyAwareAllocations)
+					continue
+				}
+
+				// only for refresh memory request for old inplace update resized pods.
+				// update AggregatedQuantity && TopologyAwareAllocations for snb
+				allocationInfo.AggregatedQuantity = p.getContainerRequestedMemoryBytes(allocationInfo)
+				for numaId, quantity := range allocationInfo.TopologyAwareAllocations {
+					if quantity != allocationInfo.AggregatedQuantity {
+						allocationInfo.TopologyAwareAllocations[numaId] = allocationInfo.AggregatedQuantity
+					}
+				}
+			}
+		}
+	}
+}
+
+func (p *DynamicPolicy) adjustAllocationEntriesForDedicatedCores(numaSetChangedContainers map[string]map[string]*state.AllocationInfo,
+	podEntries state.PodEntries, machineState state.NUMANodeMap,
+) {
+	numaWithoutNUMABindingPods := machineState.GetNUMANodesWithoutSharedOrDedicatedNUMABindingPods()
+	general.Infof("numaWithoutNUMABindingPods: %s", numaWithoutNUMABindingPods.String())
+
+	for podUID, containerEntries := range podEntries {
+		for containerName, allocationInfo := range containerEntries {
+			if allocationInfo == nil {
+				general.Errorf("pod: %s, container: %s has nil allocationInfo", podUID, containerName)
+				continue
+			} else if containerName == "" {
+				general.Errorf("pod: %s has empty containerName entry", podUID)
+				continue
+			} else if allocationInfo.QoSLevel != apiconsts.PodAnnotationQoSLevelDedicatedCores {
+				continue
+			}
+
+			if !allocationInfo.CheckNumaBinding() {
+				// not to adjust NUMA binding containers
+				// update container to target numa set for normal share cores
+				p.updateNUMASetChangedContainers(numaSetChangedContainers, allocationInfo, numaWithoutNUMABindingPods)
+			}
+		}
+	}
+}
+
+// adjustAllocationEntriesForSystemCores adjusts the allocation entries for system cores pods.
+func (p *DynamicPolicy) adjustAllocationEntriesForSystemCores(numaSetChangedContainers map[string]map[string]*state.AllocationInfo,
+	podEntries state.PodEntries, machineState state.NUMANodeMap,
+) {
+	defaultSystemCoresNUMAs := p.getDefaultSystemCoresNUMAs(machineState)
+
+	for podUID, containerEntries := range podEntries {
+		for containerName, allocationInfo := range containerEntries {
+			if allocationInfo == nil {
+				general.Errorf("pod: %s, container: %s has nil allocationInfo", podUID, containerName)
+				continue
+			} else if containerName == "" {
+				general.Errorf("pod: %s has empty containerName entry", podUID)
+				continue
+			} else if allocationInfo.QoSLevel != apiconsts.PodAnnotationQoSLevelSystemCores {
+				continue
+			}
+
+			if allocationInfo.CheckNumaBinding() {
+				// update container to target numa set for system_cores pod with NUMA binding
+				// todo: currently we only update cpuset.mems for system_cores pods to NUMAs without dedicated and NUMA binding and NUMA exclusive pod,
+				// 		in the future, we will update cpuset.mems for system_cores according to their cpuset_pool annotation.
+				p.updateNUMASetChangedContainers(numaSetChangedContainers, allocationInfo, defaultSystemCoresNUMAs)
+			}
+		}
+	}
+}
+
+func (p *DynamicPolicy) updateNUMASetChangedContainers(numaSetChangedContainers map[string]map[string]*state.AllocationInfo,
+	allocationInfo *state.AllocationInfo, targetNumaSet machine.CPUSet,
+) {
+	if numaSetChangedContainers == nil || allocationInfo == nil {
+		return
+	}
+
+	// todo: currently we only set cpuset.mems to NUMAs without NUMA binding for pods isn't NUMA binding
+	//  when cgroup memory policy becomes ready, we will allocate quantity for each pod meticulously.
+	if !allocationInfo.NumaAllocationResult.IsSubsetOf(targetNumaSet) {
+		if numaSetChangedContainers[allocationInfo.PodUid] == nil {
+			numaSetChangedContainers[allocationInfo.PodUid] = make(map[string]*state.AllocationInfo)
+		}
+		numaSetChangedContainers[allocationInfo.PodUid][allocationInfo.ContainerName] = allocationInfo
+	}
+
+	if !allocationInfo.NumaAllocationResult.Equals(targetNumaSet) {
+		general.Infof("pod: %s/%s, container: %s change cpuset.mems from: %s to %s",
+			allocationInfo.PodNamespace, allocationInfo.PodName, allocationInfo.ContainerName,
+			allocationInfo.NumaAllocationResult.String(), targetNumaSet.String())
+	}
+
+	allocationInfo.NumaAllocationResult = targetNumaSet.Clone()
+	allocationInfo.TopologyAwareAllocations = nil
+}
+
+func (p *DynamicPolicy) migratePagesForNUMASetChangedContainers(numaSetChangedContainers map[string]map[string]*state.AllocationInfo) error {
+	movePagesWorkers, ok := p.asyncLimitedWorkersMap[memoryPluginAsyncWorkTopicMovePage]
+	if !ok {
+		return fmt.Errorf("asyncLimitedWorkers for %s not found", memoryPluginAsyncWorkTopicMovePage)
+	}
+
+	// drop cache and migrate pages for containers whose numaset changed
+	for podUID, containers := range numaSetChangedContainers {
+		for containerName, allocationInfo := range containers {
+			containerID, err := p.metaServer.GetContainerID(podUID, containerName)
+			if err != nil {
+				general.Errorf("get container id of pod: %s container: %s failed with error: %v", podUID, containerName, err)
+				continue
+			}
+
+			container, err := p.metaServer.GetContainerSpec(podUID, containerName)
+			if err != nil || container == nil {
+				general.Errorf("get container spec for pod: %s, container: %s failed with error: %v", podUID, containerName, err)
+				continue
+			}
+
+			if !allocationInfo.NumaAllocationResult.IsEmpty() {
+				movePagesWorkName := util.GetContainerAsyncWorkName(podUID, containerName,
+					memoryPluginAsyncWorkTopicMovePage)
+				// start a asynchronous work to migrate pages for containers whose numaset changed and doesn't require numa_binding
+				err = movePagesWorkers.AddWork(
+					&asyncworker.Work{
+						Name: movePagesWorkName,
+						UID:  uuid.NewUUID(),
+						Fn:   MovePagesForContainer,
+						Params: []interface{}{
+							podUID, containerID,
+							p.topology.CPUDetails.NUMANodes(),
+							allocationInfo.NumaAllocationResult.Clone(),
+						},
+						DeliveredAt: time.Now(),
+					}, asyncworker.DuplicateWorkPolicyOverride)
+				if err != nil {
+					general.Errorf("add work: %s pod: %s container: %s failed with error: %v", movePagesWorkName, podUID, containerName, err)
+				}
+			}
+		}
+	}
+
+	return nil
+}
+
+// getDefaultSystemCoresNUMAs returns the default system cores NUMAs.
+func (p *DynamicPolicy) getDefaultSystemCoresNUMAs(machineState state.NUMANodeMap) machine.CPUSet {
+	numaNodesWithoutNUMABindingAndNUMAExclusivePods := machineState.GetNUMANodesWithoutDedicatedNUMABindingAndNUMAExclusivePods()
+	general.Infof("numaNodesWithoutNUMABindingAndNUMAExclusivePods: %s", numaNodesWithoutNUMABindingAndNUMAExclusivePods.String())
+	if numaNodesWithoutNUMABindingAndNUMAExclusivePods.IsEmpty() {
+		// if there is no numa nodes without NUMA binding and NUMA exclusive pods, we will use all numa nodes.
+		return p.topology.CPUDetails.NUMANodes()
+	}
+	return numaNodesWithoutNUMABindingAndNUMAExclusivePods
 }
