@@ -16,39 +16,7 @@ limitations under the License.
 
 package config
 
-import "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/task"
-
-var config = map[task.QoSLevel]map[string]int{
-	task.QoSLevelDedicatedCores: {
-		"lounge": 6_000,
-	},
-	task.QoSLevelSharedCores: {
-		"lounge": 2_000,
-		"min":    2_000,
-	},
-	task.QoSLevelSystemCores: {
-		"lounge": 2_000,
-		"min":    3_000,
-	},
-	task.QoSLevelReclaimedCores: {
-		"min": 0,
-	},
-}
-
-func GetMins(qos ...task.QoSLevel) int {
-	return getValues("min", qos...)
-}
-
-func GetLounges(qos ...task.QoSLevel) int {
-	return getValues("lounge", qos...)
-}
-
-func getValues(name string, qos ...task.QoSLevel) int {
-	result := 0
-	for _, q := range qos {
-		if min, ok := config[q]["min"]; ok {
-			result += min
-		}
-	}
-	return result
-}
+const (
+	CCDMBMin = 10_000 // per CCD 10 GB
+	CCDMBMax = 25_000 // per CCD 10 GB
+)

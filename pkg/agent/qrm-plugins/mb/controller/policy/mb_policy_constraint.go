@@ -40,6 +40,6 @@ func newConstraintDomainMBPolicy(qosMBPolicy qospolicy.QoSMBPolicy) DomainMBPoli
 }
 
 func NewDefaultConstraintDomainMBPolicy() DomainMBPolicy {
-	qosMBPolicy := qospolicy.BuildDefaultChainedQoSMBPolicy()
+	qosMBPolicy := qospolicy.BuildHiPrioDetectedQoSMBPolicy()
 	return newConstraintDomainMBPolicy(qosMBPolicy)
 }

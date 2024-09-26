@@ -28,12 +28,12 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/task"
 )
 
-type mockBoundedPolicy struct {
+type mockQoSPolicy struct {
 	mock.Mock
 	QoSMBPolicy
 }
 
-func (m *mockBoundedPolicy) GetPlan(upperBoundMB int, groups map[task.QoSLevel]*monitor.MBQoSGroup, isTopTier bool) *plan.MBAlloc {
+func (m *mockQoSPolicy) GetPlan(upperBoundMB int, groups map[task.QoSLevel]*monitor.MBQoSGroup, isTopTier bool) *plan.MBAlloc {
 	args := m.Called(upperBoundMB, groups, isTopTier)
 	return args.Get(0).(*plan.MBAlloc)
 }
@@ -41,22 +41,22 @@ func (m *mockBoundedPolicy) GetPlan(upperBoundMB int, groups map[task.QoSLevel]*
 func Test_priorityChainedMBPolicy_GetPlan(t *testing.T) {
 	t.Parallel()
 
-	weightedPolicy := new(mockBoundedPolicy)
-	weightedPolicy.On("GetPlan", 46341, map[task.QoSLevel]*monitor.MBQoSGroup{
-		"dedicated_cores": {CCDMB: map[int]int{12: 10_000, 13: 10_000}},
-	}, false).Return(&plan.MBAlloc{Plan: map[task.QoSLevel]map[int]int{
-		"dedicated_cores": {12: 25_000, 13: 14_414},
+	currPolicy := new(mockQoSPolicy)
+	currPolicy.On("GetPlan", 120_000, map[task.QoSLevel]*monitor.MBQoSGroup{
+		"dedicated": {CCDMB: map[int]int{2: 15_000, 3: 15_000, 4: 20_000, 5: 20_000}},
+		"shared_50": {CCDMB: map[int]int{0: 7_000, 1: 10_000, 7: 5_000}},
+		"system":    {CCDMB: map[int]int{0: 3_000, 7: 5_000}},
+	}, true).Return(&plan.MBAlloc{Plan: map[task.QoSLevel]map[int]int{
+		"dedicated": {2: 25_000, 3: 25_000, 4: 25_000, 5: 25_000},
+		"shared_50": {0: 25_000, 1: 25_000, 7: 25_000},
+		"system":    {0: 25_000, 7: 25000},
 	}})
 
-	nextPolicy := new(mockBoundedPolicy)
-	nextPolicy.On("GetPlan", 48659, map[task.QoSLevel]*monitor.MBQoSGroup{
-		"shared_cores":    {CCDMB: map[int]int{8: 8_000, 9: 8_000}},
-		"reclaimed_cores": {CCDMB: map[int]int{8: 1_000, 9: 1_000}},
-		"system_cores":    {CCDMB: map[int]int{9: 3_000}},
+	nextPolicy := new(mockQoSPolicy)
+	nextPolicy.On("GetPlan", 20_000, map[task.QoSLevel]*monitor.MBQoSGroup{
+		"shared_30": {CCDMB: map[int]int{6: 7_000}},
 	}, false).Return(&plan.MBAlloc{Plan: map[task.QoSLevel]map[int]int{
-		"shared_cores":    {8: 20_000, 9: 20_000},
-		"reclaimed_cores": {8: 1_000, 9: 1_000},
-		"system_cores":    {9: 3_000},
+		"shared_30": {6: 20_000},
 	}})
 
 	type fields struct {
@@ -78,26 +78,30 @@ func Test_priorityChainedMBPolicy_GetPlan(t *testing.T) {
 		{
 			name: "happy path",
 			fields: fields{
-				topTiers: map[task.QoSLevel]struct{}{"dedicated_cores": {}},
-				tier:     weightedPolicy,
-				next:     nextPolicy,
+				topTiers: map[task.QoSLevel]struct{}{
+					"dedicated": {},
+					"shared_50": {},
+					"system":    {},
+				},
+				tier: currPolicy,
+				next: nextPolicy,
 			},
 			args: args{
-				totalMB: 95_000,
+				totalMB: 120_000,
 				groups: map[task.QoSLevel]*monitor.MBQoSGroup{
-					"dedicated_cores": {CCDMB: map[int]int{12: 10_000, 13: 10_000}},
-					"shared_cores":    {CCDMB: map[int]int{8: 8_000, 9: 8_000}},
-					"reclaimed_cores": {CCDMB: map[int]int{8: 1_000, 9: 1_000}},
-					"system_cores":    {CCDMB: map[int]int{9: 3_000}},
+					"dedicated": {CCDMB: map[int]int{2: 15_000, 3: 15_000, 4: 20_000, 5: 20_000}},
+					"shared_50": {CCDMB: map[int]int{0: 7_000, 1: 10_000, 7: 5_000}},
+					"shared_30": {CCDMB: map[int]int{6: 7_000}},
+					"system":    {CCDMB: map[int]int{0: 3_000, 7: 5_000}},
 				},
-				isTopTier: false,
+				isTopTier: true,
 			},
 			want: &plan.MBAlloc{
 				Plan: map[consts.QoSLevel]map[int]int{
-					"dedicated_cores": {12: 25_000, 13: 14_414},
-					"shared_cores":    {8: 20_000, 9: 20_000},
-					"reclaimed_cores": {8: 1_000, 9: 1_000},
-					"system_cores":    {9: 3_000},
+					"dedicated": {2: 25_000, 3: 25_000, 4: 25_000, 5: 25_000},
+					"shared_50": {0: 25_000, 1: 25_000, 7: 25_000},
+					"shared_30": {6: 20_000},
+					"system":    {0: 25_000, 7: 25_000},
 				},
 			},
 		},
@@ -106,7 +110,7 @@ func Test_priorityChainedMBPolicy_GetPlan(t *testing.T) {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			p := priorityChainedMBPolicy{
+			p := chainedQosPolicy{
 				currQoSLevels: tt.fields.topTiers,
 				current:       tt.fields.tier,
 				next:          tt.fields.next,

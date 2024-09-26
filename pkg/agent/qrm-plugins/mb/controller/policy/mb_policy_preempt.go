@@ -18,6 +18,7 @@ package policy
 
 import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/mbdomain"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/policy/config"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/policy/plan"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/policy/qospolicy"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/monitor"
@@ -30,20 +31,16 @@ type preemptDomainMBPolicy struct {
 	qosMBPolicy qospolicy.QoSMBPolicy
 }
 
-func getReservationPlan(domain *mbdomain.MBDomain, total int, preemptingNodes []int) *plan.MBAlloc {
-	if len(preemptingNodes) == 0 {
-		return nil
-	}
-
+// todo： consider to work on CCDs instead of nodes?
+func getReservationPlan(domain *mbdomain.MBDomain, preemptingNodes []int) *plan.MBAlloc {
 	ccds := make([]int, 0)
 	for _, node := range preemptingNodes {
 		ccds = append(ccds, domain.NodeCCDs[node]...)
 	}
 
-	ccdAverage := total / len(ccds)
 	ccdMB := make(map[int]int)
 	for _, ccd := range ccds {
-		ccdMB[ccd] = ccdAverage
+		ccdMB[ccd] = config.CCDMBMax
 	}
 
 	return &plan.MBAlloc{
@@ -56,7 +53,7 @@ func getReservationPlan(domain *mbdomain.MBDomain, total int, preemptingNodes []
 func (p preemptDomainMBPolicy) GetPlan(domain *mbdomain.MBDomain, currQoSMB map[task.QoSLevel]*monitor.MBQoSGroup) *plan.MBAlloc {
 	preemptingNodes := domain.GetPreemptingNodes()
 	mbToServe := mbdomain.ReservedPerNuma * len(preemptingNodes)
-	reservationPlan := getReservationPlan(domain, mbToServe, preemptingNodes)
+	reservationPlan := getReservationPlan(domain, preemptingNodes)
 	general.InfofV(6, "mbm: domain %d hard reservation mb plan: %v", domain.ID, reservationPlan)
 
 	mbAllocatable := mbdomain.DomainTotalMB - mbToServe
@@ -72,6 +69,7 @@ func newPreemptDomainMBPolicy(chainedPolicy qospolicy.QoSMBPolicy) DomainMBPolic
 }
 
 func NewDefaultPreemptDomainMBPolicy() DomainMBPolicy {
-	qosMBPolicy := qospolicy.BuildDefaultChainedQoSMBPolicy()
+	// since there is admitting socket pod, the qos policy is {dedicated, shared_50, system} -> {shared_30}
+	qosMBPolicy := qospolicy.BuildFullyChainedQoSPolicy()
 	return newPreemptDomainMBPolicy(qosMBPolicy)
 }

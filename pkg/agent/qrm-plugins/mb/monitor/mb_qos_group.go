@@ -17,6 +17,8 @@ limitations under the License.
 package monitor
 
 import (
+	"k8s.io/apimachinery/pkg/util/sets"
+
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/util"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/task"
 )
@@ -24,8 +26,11 @@ import (
 // MBQoSGroup keeps MB of qos control group at level of CCD
 type MBQoSGroup struct {
 	//nodes []int
-	//ccds  sets.Int
 
+	// CCDs is the set of CCDs that this group has tasks allocated to
+	CCDs sets.Int
+
+	// CCDMB MUST be in line with CCDs
 	CCDMB map[int]int
 }
 
