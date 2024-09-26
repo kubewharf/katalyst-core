@@ -17,7 +17,9 @@ limitations under the License.
 package process
 
 import (
+	"bytes"
 	"fmt"
+	"os/exec"
 	"strconv"
 	"strings"
 
@@ -61,4 +63,19 @@ func CPUSetParse(s string) (sets.Int, error) {
 	}
 
 	return b, nil
+}
+
+// IsCommandInDState checks if the specified command is in the D (uninterruptible sleep) state.
+func IsCommandInDState(command string) bool {
+	// Execute the command: ps -aux | grep " D" | grep <command> | grep -v grep
+	cmd := exec.Command("sh", "-c", "ps -aux | grep ' D' | grep "+command+" | grep -v grep")
+	var out bytes.Buffer
+	cmd.Stdout = &out
+	err := cmd.Run()
+
+	// If the command runs successfully and output is not empty, the process is in D state
+	if err == nil && strings.TrimSpace(out.String()) != "" {
+		return true
+	}
+	return false
 }

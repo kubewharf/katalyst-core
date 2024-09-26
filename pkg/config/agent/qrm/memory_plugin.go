@@ -42,6 +42,8 @@ type MemoryQRMPluginConfig struct {
 	SockMemQRMPluginConfig
 	// LogCacheQRMPluginConfig: the configuration for logcache evicting
 	LogCacheQRMPluginConfig
+	// FragMemOptions: the configuration for memory compaction related features
+	FragMemOptions
 }
 
 type SockMemQRMPluginConfig struct {
@@ -68,6 +70,13 @@ type LogCacheQRMPluginConfig struct {
 	PathList []string
 	// Keywords for recognizing log files
 	FileFilters []string
+}
+
+type FragMemOptions struct {
+	EnableSettingFragMem bool
+	// SetMemFragScoreAsync sets the threashold of frag score for async memory compaction.
+	// The async compaction behavior will be triggered while exceeding this score.
+	SetMemFragScoreAsync int
 }
 
 func NewMemoryQRMPluginConfig() *MemoryQRMPluginConfig {

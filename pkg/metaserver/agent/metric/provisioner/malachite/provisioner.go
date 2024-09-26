@@ -140,6 +140,7 @@ func (m *MalachiteMetricsProvisioner) updateSystemStats() error {
 	} else {
 		m.processSystemMemoryData(systemMemoryData)
 		m.processSystemNumaData(systemMemoryData)
+		m.processSystemNumaMemFragData(systemMemoryData)
 	}
 
 	systemIOData, err := m.malachiteClient.GetSystemIOStats()
@@ -465,6 +466,15 @@ func (m *MalachiteMetricsProvisioner) processSystemNumaData(systemMemoryData *ma
 			utilmetric.MetricData{Value: numa.MemWriteLatency, Time: &updateTime})
 		m.metricStore.SetNumaMetric(numa.ID, consts.MetricMemAMDL3MissLatencyNuma,
 			utilmetric.MetricData{Value: numa.AMDL3MissLatencyMax, Time: &updateTime})
+	}
+}
+
+func (m *MalachiteMetricsProvisioner) processSystemNumaMemFragData(systemMemoryData *malachitetypes.SystemMemoryData) {
+	updateTime := time.Unix(systemMemoryData.UpdateTime, 0)
+
+	for _, numa := range systemMemoryData.ExtFrag {
+		m.metricStore.SetNumaMetric(numa.ID, consts.MetricMemFragScoreNuma,
+			utilmetric.MetricData{Value: float64(numa.MemFragScore), Time: &updateTime})
 	}
 }
 

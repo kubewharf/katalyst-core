@@ -122,9 +122,10 @@ type MalachiteSystemMemoryResponse struct {
 }
 
 type SystemMemoryData struct {
-	System     System `json:"system"`
-	Numa       []Numa `json:"numa"`
-	UpdateTime int64  `json:"update_time"`
+	System     System    `json:"system"`
+	Numa       []Numa    `json:"numa"`
+	ExtFrag    []ExtFrag `json:"extfrag"`
+	UpdateTime int64     `json:"update_time"`
 }
 
 type System struct {
@@ -168,6 +169,11 @@ type Numa struct {
 	MemWriteBandwidthMB     float64 `json:"mem_write_bandwidth_mb"`
 	MemWriteLatency         float64 `json:"mem_write_latency"`
 	AMDL3MissLatencyMax     float64 `json:"amd_l3_miss_latency_max"`
+}
+
+type ExtFrag struct {
+	ID           int    `json:"id"`
+	MemFragScore uint64 `json:"mem_frag_score"`
 }
 
 type Some struct {
