@@ -22,12 +22,13 @@ import (
 	"sync"
 	"time"
 
+	"github.com/kubewharf/katalyst-api/pkg/client/listers/recommendation/v1alpha1"
+
 	"github.com/pkg/errors"
 	"golang.org/x/time/rate"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog/v2"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/kubewharf/katalyst-core/pkg/controller/resource-recommend/datasource"
 	"github.com/kubewharf/katalyst-core/pkg/controller/resource-recommend/processor"
@@ -52,7 +53,7 @@ const (
 type Processor struct {
 	mutex sync.Mutex
 
-	client.Client
+	Lister v1alpha1.ResourceRecommendLister
 
 	DatasourceProxy *datasource.Proxy
 
@@ -70,11 +71,11 @@ var DefaultQueueRateLimiter = workqueue.NewMaxOfRateLimiter(
 	&workqueue.BucketRateLimiter{Limiter: rate.NewLimiter(rate.Limit(10), 100)},
 )
 
-func NewProcessor(datasourceProxy *datasource.Proxy, c client.Client) processor.Processor {
+func NewProcessor(datasourceProxy *datasource.Proxy, lister v1alpha1.ResourceRecommendLister) processor.Processor {
 	return &Processor{
 		DatasourceProxy:             datasourceProxy,
 		TaskQueue:                   workqueue.NewNamedRateLimitingQueue(DefaultQueueRateLimiter, ProcessorName),
-		Client:                      c,
+		Lister:                      lister,
 		AggregateTasks:              &sync.Map{},
 		ResourceRecommendTaskIDsMap: make(map[types.NamespacedName]*map[datasourcetypes.Metric]processortypes.TaskID),
 	}

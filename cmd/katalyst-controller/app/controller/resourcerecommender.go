@@ -32,19 +32,30 @@ const (
 
 func StartResourceRecommenderController(
 	ctx context.Context,
-	_ *katalyst.GenericContext,
+	controlCtx *katalyst.GenericContext,
 	conf *config.Configuration,
 	_ interface{},
 	_ string,
 ) (bool, error) {
-	resourceRecommenderController, err := controller.NewResourceRecommenderController(ctx,
+	oomRecorderController, err := controller.NewPodOOMRecorderController(ctx, controlCtx,
 		conf.GenericConfiguration,
+		conf.GenericControllerConfiguration,
 		conf.ControllersConfiguration.ResourceRecommenderConfig)
 	if err != nil {
-		klog.Errorf("failed to new ResourceRecommender controller")
+		klog.Errorf("failed to new PodOOMRecorder controller")
 		return false, err
 	}
+	recController, err := controller.NewResourceRecommendController(ctx, controlCtx,
+		conf.GenericConfiguration,
+		conf.GenericControllerConfiguration,
+		conf.ControllersConfiguration.ResourceRecommenderConfig,
+		oomRecorderController.Recorder)
+	if err != nil {
+		klog.Errorf("failed to new ResourceRecommend Controller")
+		return false, err
+	}
+	go oomRecorderController.Run()
+	go recController.Run()
 
-	go resourceRecommenderController.Run()
 	return true, nil
 }
