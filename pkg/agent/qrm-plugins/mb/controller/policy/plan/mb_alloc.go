@@ -20,7 +20,7 @@ import "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/task"
 
 // MBAlloc is the mb allocation plan for one sharing domain (package, or cpu socket in NPS1)
 type MBAlloc struct {
-	Plan map[task.QoSLevel]map[int]int
+	Plan map[task.QoSGroup]map[int]int
 }
 
 func (m MBAlloc) GetAllocatedMB() int {
@@ -35,7 +35,7 @@ func (m MBAlloc) GetAllocatedMB() int {
 
 func Merge(plans ...*MBAlloc) *MBAlloc {
 	result := &MBAlloc{
-		Plan: make(map[task.QoSLevel]map[int]int),
+		Plan: make(map[task.QoSGroup]map[int]int),
 	}
 
 	for _, plan := range plans {

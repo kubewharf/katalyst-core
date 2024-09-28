@@ -22,7 +22,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 
-	"github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/policy/plan"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/monitor"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/task"
@@ -33,7 +32,7 @@ type mockQoSPolicy struct {
 	QoSMBPolicy
 }
 
-func (m *mockQoSPolicy) GetPlan(upperBoundMB int, groups map[task.QoSLevel]*monitor.MBQoSGroup, isTopTier bool) *plan.MBAlloc {
+func (m *mockQoSPolicy) GetPlan(upperBoundMB int, groups map[task.QoSGroup]*monitor.MBQoSGroup, isTopTier bool) *plan.MBAlloc {
 	args := m.Called(upperBoundMB, groups, isTopTier)
 	return args.Get(0).(*plan.MBAlloc)
 }
@@ -42,31 +41,31 @@ func Test_priorityChainedMBPolicy_GetPlan(t *testing.T) {
 	t.Parallel()
 
 	currPolicy := new(mockQoSPolicy)
-	currPolicy.On("GetPlan", 120_000, map[task.QoSLevel]*monitor.MBQoSGroup{
-		"dedicated": {CCDMB: map[int]int{2: 15_000, 3: 15_000, 4: 20_000, 5: 20_000}},
-		"shared_50": {CCDMB: map[int]int{0: 7_000, 1: 10_000, 7: 5_000}},
-		"system":    {CCDMB: map[int]int{0: 3_000, 7: 5_000}},
-	}, true).Return(&plan.MBAlloc{Plan: map[task.QoSLevel]map[int]int{
+	currPolicy.On("GetPlan", 120_000, map[task.QoSGroup]*monitor.MBQoSGroup{
+		"dedicated": {CCDMB: map[int]*monitor.MBData{2: {ReadsMB: 15_000}, 3: {ReadsMB: 15_000}, 4: {ReadsMB: 20_000}, 5: {ReadsMB: 20_000}}},
+		"shared_50": {CCDMB: map[int]*monitor.MBData{0: {ReadsMB: 7_000}, 1: {ReadsMB: 10_000}, 7: {ReadsMB: 5_000}}},
+		"system":    {CCDMB: map[int]*monitor.MBData{0: {ReadsMB: 3_000}, 7: {ReadsMB: 5_000}}},
+	}, true).Return(&plan.MBAlloc{Plan: map[task.QoSGroup]map[int]int{
 		"dedicated": {2: 25_000, 3: 25_000, 4: 25_000, 5: 25_000},
 		"shared_50": {0: 25_000, 1: 25_000, 7: 25_000},
 		"system":    {0: 25_000, 7: 25000},
 	}})
 
 	nextPolicy := new(mockQoSPolicy)
-	nextPolicy.On("GetPlan", 20_000, map[task.QoSLevel]*monitor.MBQoSGroup{
-		"shared_30": {CCDMB: map[int]int{6: 7_000}},
-	}, false).Return(&plan.MBAlloc{Plan: map[task.QoSLevel]map[int]int{
+	nextPolicy.On("GetPlan", 20_000, map[task.QoSGroup]*monitor.MBQoSGroup{
+		"shared_30": {CCDMB: map[int]*monitor.MBData{6: {ReadsMB: 7_000}}},
+	}, false).Return(&plan.MBAlloc{Plan: map[task.QoSGroup]map[int]int{
 		"shared_30": {6: 20_000},
 	}})
 
 	type fields struct {
-		topTiers map[task.QoSLevel]struct{}
+		topTiers map[task.QoSGroup]struct{}
 		tier     QoSMBPolicy
 		next     QoSMBPolicy
 	}
 	type args struct {
 		totalMB   int
-		groups    map[task.QoSLevel]*monitor.MBQoSGroup
+		groups    map[task.QoSGroup]*monitor.MBQoSGroup
 		isTopTier bool
 	}
 	tests := []struct {
@@ -78,7 +77,7 @@ func Test_priorityChainedMBPolicy_GetPlan(t *testing.T) {
 		{
 			name: "happy path",
 			fields: fields{
-				topTiers: map[task.QoSLevel]struct{}{
+				topTiers: map[task.QoSGroup]struct{}{
 					"dedicated": {},
 					"shared_50": {},
 					"system":    {},
@@ -88,16 +87,16 @@ func Test_priorityChainedMBPolicy_GetPlan(t *testing.T) {
 			},
 			args: args{
 				totalMB: 120_000,
-				groups: map[task.QoSLevel]*monitor.MBQoSGroup{
-					"dedicated": {CCDMB: map[int]int{2: 15_000, 3: 15_000, 4: 20_000, 5: 20_000}},
-					"shared_50": {CCDMB: map[int]int{0: 7_000, 1: 10_000, 7: 5_000}},
-					"shared_30": {CCDMB: map[int]int{6: 7_000}},
-					"system":    {CCDMB: map[int]int{0: 3_000, 7: 5_000}},
+				groups: map[task.QoSGroup]*monitor.MBQoSGroup{
+					"dedicated": {CCDMB: map[int]*monitor.MBData{2: {ReadsMB: 15_000}, 3: {ReadsMB: 15_000}, 4: {ReadsMB: 20_000}, 5: {ReadsMB: 20_000}}},
+					"shared_50": {CCDMB: map[int]*monitor.MBData{0: {ReadsMB: 7_000}, 1: {ReadsMB: 10_000}, 7: {ReadsMB: 5_000}}},
+					"shared_30": {CCDMB: map[int]*monitor.MBData{6: {ReadsMB: 7_000}}},
+					"system":    {CCDMB: map[int]*monitor.MBData{0: {ReadsMB: 3_000}, 7: {ReadsMB: 5_000}}},
 				},
 				isTopTier: true,
 			},
 			want: &plan.MBAlloc{
-				Plan: map[consts.QoSLevel]map[int]int{
+				Plan: map[task.QoSGroup]map[int]int{
 					"dedicated": {2: 25_000, 3: 25_000, 4: 25_000, 5: 25_000},
 					"shared_50": {0: 25_000, 1: 25_000, 7: 25_000},
 					"shared_30": {6: 20_000},

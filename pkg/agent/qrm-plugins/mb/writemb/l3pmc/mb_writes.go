@@ -20,6 +20,11 @@ import "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/writemb"
 
 type writeMBReader struct{}
 
+func (w writeMBReader) GetMB(ccd int) (int, error) {
+	//TODO implement me
+	panic("implement me by calling amd-utils lib")
+}
+
 func NewWriteMBReader() (writemb.WriteMBReader, error) {
-	panic("impl")
+	return &writeMBReader{}, nil
 }

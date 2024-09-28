@@ -288,14 +288,14 @@ func Test_parseReportFieldToCNR(t *testing.T) {
 					    },
 					    "groupMetric":[
 					        {
-					            "QoSLevel":"reclaimed_cores",
+					            "QoSGroup":"reclaimed_cores",
 					            "genericUsage":{
 					                "cpu":"0",
 					                "memory":"0"
 					            }
 					        },
 					        {
-					            "QoSLevel":"shared_cores",
+					            "QoSGroup":"shared_cores",
 					            "genericUsage":{
 					                "cpu":"10",
 					                "memory":"1Gi"

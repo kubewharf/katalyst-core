@@ -17,17 +17,15 @@ limitations under the License.
 package mb
 
 import (
-	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/mbdomain"
-	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/policy"
 	"github.com/pkg/errors"
 
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/agent"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/allocator"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/mbdomain"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/policy"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/monitor"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/resctrl"
-	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/resctrl/state"
-	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/task"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
@@ -47,42 +45,30 @@ func (c *plugin) Start() error {
 	general.InfofV(6, "mbm: plugin component starting ....")
 	general.InfofV(6, "mbm: numa-CCD-cpu topology: \n%s", c.dieTopology)
 
+	if !c.dieTopology.FakeNUMAEnabled {
+		return errors.New("mbm: not virtual numa; no need to dynamically manage the memory bandwidth")
+	}
+
 	var err error
-
-	dataKeeper, err := state.NewMBRawDataKeeper()
+	podMBMonitor, err := monitor.NewDefaultMBMonitor(c.dieTopology.DiesInNuma, c.dieTopology.CPUsInDie)
 	if err != nil {
-		return errors.Wrap(err, "mbm: failed to create raw data state keeper")
-	}
-
-	taskManager, err := task.New(c.dieTopology.DiesInNuma, dataKeeper)
-	if err != nil {
-		return errors.Wrap(err, "mbm: failed to create task manager")
-	}
-
-	taskMBReader, err := createTaskMBReader(dataKeeper)
-	if err != nil {
-		return errors.Wrap(err, "mbm: failed to create task mb reader")
-	}
-
-	podMBMonitor, err := monitor.New(taskManager, taskMBReader)
-	if err != nil {
-		return err
+		return errors.Wrap(err, "mbm: failed to create default mb monitor")
 	}
 
 	mbPlanAllocator, err := createMBPlanAllocator()
 	if err != nil {
-		return err
+		return errors.Wrap(err, "mbm: failed to create mb plan allocator")
 	}
 
 	domainManager := mbdomain.NewMBDomainManager(c.dieTopology)
 	domainPolicy, err := policy.NewDefaultDomainMBPolicy()
 	if err != nil {
-		return err
+		return errors.Wrap(err, "mbm: failed to create domain manager")
 	}
 
 	c.mbController, err = controller.New(podMBMonitor, mbPlanAllocator, domainManager, domainPolicy)
 	if err != nil {
-		return err
+		return errors.Wrap(err, "mbm: failed to create mb controller")
 	}
 
 	go func() {
@@ -111,25 +97,6 @@ func createMBPlanAllocator() (allocator.PlanAllocator, error) {
 	}
 
 	return allocator.NewPlanAllocator(ctrlGroupMBSetter)
-}
-
-func createTaskMBReader(dataKeeper state.MBRawDataKeeper) (task.TaskMBReader, error) {
-	ccdMBCalc, err := resctrl.NewCCDMBCalculator(dataKeeper)
-	if err != nil {
-		return nil, errors.Wrap(err, "failed to create ccd mb calculator")
-	}
-
-	ccdMBReader, err := resctrl.NewCCDMBReader(ccdMBCalc)
-	if err != nil {
-		return nil, errors.Wrap(err, "failed to create resctrl ccd mb reader")
-	}
-
-	monGroupReader, err := resctrl.NewMonGroupReader(ccdMBReader)
-	if err != nil {
-		return nil, errors.Wrap(err, "failed to create resctrl mon group mb reader")
-	}
-
-	return task.NewTaskMBReader(monGroupReader)
 }
 
 func (c *plugin) Stop() error {

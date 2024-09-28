@@ -17,11 +17,14 @@ limitations under the License.
 package mbdomain
 
 import (
+	"fmt"
 	"sort"
+	"strings"
 	"sync"
 
 	"k8s.io/apimachinery/pkg/util/sets"
 
+	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
@@ -35,6 +38,23 @@ type MBDomain struct {
 	rwLock sync.RWMutex
 	// numa nodes that will be assigned to dedicated pods that still are in Admit state
 	PreemptyNodes sets.Int
+}
+
+func (m *MBDomain) String() string {
+	m.rwLock.RLock()
+	defer m.rwLock.RUnlock()
+
+	var sb strings.Builder
+	sb.WriteString("----- mb domain summary -----\n")
+	sb.WriteString(fmt.Sprintf("    id: %d\n", m.ID))
+	for _, node := range m.NumaNodes {
+		sb.WriteString(fmt.Sprintf("    numa node: %d\n", node))
+		for _, ccd := range m.NodeCCDs[node] {
+			sb.WriteString(fmt.Sprintf("      ccd %d\n", ccd))
+		}
+	}
+
+	return sb.String()
 }
 
 func (m *MBDomain) PreemptNodes(nodes []int) {
@@ -93,6 +113,7 @@ func NewMBDomainManager(dieTopology *machine.DieTopology) *MBDomainManager {
 		})
 
 		manager.Domains[packageID] = mbDomain
+		general.InfofV(6, "mbm: %s", mbDomain.String())
 	}
 
 	return manager

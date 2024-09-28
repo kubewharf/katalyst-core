@@ -59,7 +59,7 @@ func (c *Controller) run(ctx context.Context) {
 		general.Errorf("mbm: failed to get MB usages: %v", err)
 	}
 
-	general.InfofV(6, "mbm: mb usage summary: %v", qosCCDMB)
+	general.InfofV(6, "mbm: mb usage summary: %v", monitor.DisplayMBSummary(qosCCDMB))
 
 	for i, domain := range c.domainManager.Domains {
 		mbAlloc := c.policy.GetPlan(domain, qosCCDMB)

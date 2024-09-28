@@ -60,7 +60,7 @@ func Test_planAllocator_Allocate(t *testing.T) {
 			},
 			args: args{
 				alloc: &plan.MBAlloc{
-					Plan: map[task.QoSLevel]map[int]int{task.QoSLevelDedicatedCores: {2: 25_000, 3: 12_000}},
+					Plan: map[task.QoSGroup]map[int]int{task.QoSGroupDedicated: {2: 25_000, 3: 12_000}},
 				},
 			},
 			wantErr: false,

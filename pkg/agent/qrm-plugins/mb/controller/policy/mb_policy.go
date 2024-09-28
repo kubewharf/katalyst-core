@@ -24,7 +24,7 @@ import (
 )
 
 type DomainMBPolicy interface {
-	GetPlan(domain *mbdomain.MBDomain, currQoSMB map[task.QoSLevel]*monitor.MBQoSGroup) *plan.MBAlloc
+	GetPlan(domain *mbdomain.MBDomain, currQoSMB map[task.QoSGroup]*monitor.MBQoSGroup) *plan.MBAlloc
 }
 
 type domainMBPolicy struct {
@@ -32,7 +32,7 @@ type domainMBPolicy struct {
 	constraintMBPolicy DomainMBPolicy
 }
 
-func (d domainMBPolicy) GetPlan(domain *mbdomain.MBDomain, currQoSMB map[task.QoSLevel]*monitor.MBQoSGroup) *plan.MBAlloc {
+func (d domainMBPolicy) GetPlan(domain *mbdomain.MBDomain, currQoSMB map[task.QoSGroup]*monitor.MBQoSGroup) *plan.MBAlloc {
 	if len(domain.GetPreemptingNodes()) != 0 {
 		return d.preemptMBPolicy.GetPlan(domain, currQoSMB)
 	}

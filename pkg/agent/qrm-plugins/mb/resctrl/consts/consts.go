@@ -16,6 +16,8 @@ limitations under the License.
 
 package consts
 
+import "strings"
+
 const (
 	FsRoot          = "/sys/fs/resctrl"
 	SubGroupMonRoot = "mon_groups"
@@ -33,8 +35,21 @@ const (
 	MBRawFile    = "mbm_total_bytes"
 	SchemataFile = "schemata"
 
-	TmplTaskFolder   = "pod%s"
+	TmplTaskFolder   = "%s"
 	TmplCCDMonFolder = "mon_L3_%02d"
 
-	InvalidMB = -1
+	UninitializedMB = -1
 )
+
+func IsTopCtrlGroup(name string) bool {
+	switch name {
+	case GroupDedicated:
+		return true
+	case GroupSystem:
+		return true
+	case GroupReclaimed:
+		return true
+	default:
+		return strings.HasPrefix(name, GroupSharedCore)
+	}
+}

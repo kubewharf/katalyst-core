@@ -22,6 +22,8 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/resctrl/consts"
 )
 
+var ErrUninitialized = errors.New("uninitialized mb value")
+
 type CCDMBReader interface {
 	ReadMB(MonGroup string, ccd int) (int, error)
 }
@@ -38,8 +40,8 @@ type ccdMBReader struct {
 
 func (c ccdMBReader) ReadMB(MonGroup string, ccd int) (int, error) {
 	val := c.ccdMBCalc.CalcMB(MonGroup, ccd)
-	if val == consts.InvalidMB {
-		return val, errors.New("invalid mb value")
+	if val == consts.UninitializedMB {
+		return val, ErrUninitialized
 	}
 
 	return val, nil

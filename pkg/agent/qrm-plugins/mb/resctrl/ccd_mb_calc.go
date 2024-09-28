@@ -26,6 +26,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/resctrl/consts"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/resctrl/file"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/resctrl/state"
+	"github.com/kubewharf/katalyst-core/pkg/util/general"
 )
 
 type CCDMBCalculator interface {
@@ -52,8 +53,9 @@ func calcMB(fs afero.Fs, monGroup string, ccd int, tsCurr time.Time, dataKeeper 
 	monPath := path.Join(monGroup, consts.MonData, ccdMon, consts.MBRawFile)
 
 	valueCurr := file.ReadValueFromFile(fs, monPath)
+	general.InfofV(6, "mbm: resctrl: read value from file %s: %d", monPath, valueCurr)
 
-	mb := consts.InvalidMB
+	mb := consts.UninitializedMB
 	if prev, err := dataKeeper.Get(monPath); err == nil {
 		mb = calcAverageInMBps(valueCurr, tsCurr, prev.Value, prev.ReadTime)
 	}
@@ -65,8 +67,8 @@ func calcMB(fs afero.Fs, monGroup string, ccd int, tsCurr time.Time, dataKeeper 
 }
 
 func calcAverageInMBps(currV int64, nowTime time.Time, lastV int64, lastTime time.Time) int {
-	if currV == consts.InvalidMB || lastV == consts.InvalidMB || currV < lastV {
-		return consts.InvalidMB
+	if currV == consts.UninitializedMB || lastV == consts.UninitializedMB || currV < lastV {
+		return consts.UninitializedMB
 	}
 
 	elapsed := nowTime.Sub(lastTime)

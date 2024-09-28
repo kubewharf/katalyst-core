@@ -26,10 +26,10 @@ import (
 // its middle tier ("floating") combines to upper tier - if applicable, or falls back to lower tier
 type branchedQoSPolicy struct {
 	either, or QoSMBPolicy
-	filter     func(mbQoSGroups map[task.QoSLevel]*monitor.MBQoSGroup, isTopMost bool) bool
+	filter     func(mbQoSGroups map[task.QoSGroup]*monitor.MBQoSGroup, isTopMost bool) bool
 }
 
-func (v branchedQoSPolicy) GetPlan(totalMB int, mbQoSGroups map[task.QoSLevel]*monitor.MBQoSGroup, isTopMost bool) *plan.MBAlloc {
+func (v branchedQoSPolicy) GetPlan(totalMB int, mbQoSGroups map[task.QoSGroup]*monitor.MBQoSGroup, isTopMost bool) *plan.MBAlloc {
 	if v.filter(mbQoSGroups, isTopMost) {
 		return v.either.GetPlan(totalMB, mbQoSGroups, isTopMost)
 	}
@@ -37,7 +37,7 @@ func (v branchedQoSPolicy) GetPlan(totalMB int, mbQoSGroups map[task.QoSLevel]*m
 	return v.or.GetPlan(totalMB, mbQoSGroups, isTopMost)
 }
 
-func NewValveQoSMBPolicy(condition func(mbQoSGroups map[task.QoSLevel]*monitor.MBQoSGroup, isTopMost bool) bool,
+func NewValveQoSMBPolicy(condition func(mbQoSGroups map[task.QoSGroup]*monitor.MBQoSGroup, isTopMost bool) bool,
 	either, or QoSMBPolicy,
 ) QoSMBPolicy {
 	return &branchedQoSPolicy{

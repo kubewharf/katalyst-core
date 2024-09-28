@@ -22,6 +22,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -60,8 +61,10 @@ type DieTopology struct {
 }
 
 func (d DieTopology) String() string {
-	return fmt.Sprintf("fake numa enabled: %v\ntotal nums: %d, dies %d, cpus %d\nnuma-die: %v\ndie-cpu: %v\n",
+	return fmt.Sprintf("fake numa enabled: %v\ntotal packages: %d\npackage-numa nodes: %v\ntotal numa nodes: %d, dies %d, cpus %d\nnuma-die: %v\ndie-cpu: %v\n",
 		d.FakeNUMAEnabled,
+		d.Packages,
+		d.NUMAsInPackage,
 		d.NUMAs,
 		d.Dies,
 		d.CPUs,
@@ -69,9 +72,8 @@ func (d DieTopology) String() string {
 		d.CPUsInDie)
 }
 
-func NewDieTopology(siblingMap map[int]sets.Int) (*DieTopology, error) {
+func NewDieTopology(numaDistanceMap map[int][]NumaDistanceInfo) (*DieTopology, error) {
 	topo := &DieTopology{}
-	topo.NUMAsInPackage = GetNUMAsInPackage(siblingMap)
 
 	// in mbm-poc phase, discover other die topology info by looking at /sys/devices/system/cpu/ tree
 	// the critical for mbm-pod is numa node -> die -> cpu list
@@ -80,6 +82,9 @@ func NewDieTopology(siblingMap map[int]sets.Int) (*DieTopology, error) {
 	if topo.FakeNUMAEnabled, err = FakeNUMAEnabled(fs); err != nil {
 		general.Warningf("mbm: check for fake numa setting: %v", err)
 	}
+
+	topo.NUMAsInPackage = extractPackageNumaNodes(numaDistanceMap, topo.FakeNUMAEnabled)
+
 	cpus, err := getCPUs(fs)
 	if err != nil {
 		return nil, err
@@ -89,6 +94,7 @@ func NewDieTopology(siblingMap map[int]sets.Int) (*DieTopology, error) {
 	topo.NUMAs = len(topo.DiesInNuma)
 	topo.CPUsInDie = getCPUsInDie(cpus)
 	topo.Dies = len(topo.CPUsInDie)
+	topo.Packages = len(topo.NUMAsInPackage)
 
 	return topo, nil
 }
@@ -208,4 +214,81 @@ func getCPUs(fs afero.Fs) ([]*cpuDev, error) {
 
 func parseInt(s string) (int, error) {
 	return strconv.Atoi(strings.TrimSpace(s))
+}
+
+func getOnehotMap(numaDistanceMap map[int][]NumaDistanceInfo) map[int][]int {
+	onehots := make(map[int][]int)
+	for node, _ := range numaDistanceMap {
+		onehots[node] = []int{node}
+	}
+	return onehots
+}
+
+func extractVirtualNumaClusters(numaDistanceMap map[int][]NumaDistanceInfo) map[int][]int {
+	max := 0
+	for _, infos := range numaDistanceMap {
+		for _, info := range infos {
+			if max < info.Distance {
+				max = info.Distance
+			}
+		}
+	}
+
+	bar := max
+	for n, infos := range numaDistanceMap {
+		for _, info := range infos {
+			if info.NumaID == n {
+				continue
+			}
+			if bar > info.Distance {
+				bar = info.Distance
+			}
+		}
+	}
+
+	packages := make(map[int]sets.Int)
+	for n, infos := range numaDistanceMap {
+		pack := locatePackage(n, packages)
+		if pack == nil {
+			id := len(packages)
+			packages[id] = sets.Int{n: sets.Empty{}}
+			pack = packages[id]
+		}
+		for _, info := range infos {
+			if info.Distance == bar {
+				pack.Insert(info.NumaID)
+			}
+		}
+	}
+
+	packageNodes := make(map[int][]int)
+	for p, nodes := range packages {
+		list := nodes.List()
+		sort.Ints(list)
+		packageNodes[p] = list
+	}
+
+	return packageNodes
+}
+
+// extractPackageNumaNodes guesses out the package-numa nodes mappings
+// based on distances between numa nodes
+// distance to self is for sure the minimum one;
+// distance the maximum for sure is out of the package;
+// distance the second smallest and not the maximum is likely of the package (if it is virtual numa, almost certain it is the case)
+func extractPackageNumaNodes(numaDistanceMap map[int][]NumaDistanceInfo, isVirtualNuma bool) map[int][]int {
+	if !isVirtualNuma {
+		// all numa nodes are real
+		return getOnehotMap(numaDistanceMap)
+	}
+	return extractVirtualNumaClusters(numaDistanceMap)
+}
+
+func locatePackage(node int, packages map[int]sets.Int) sets.Int {
+	for _, nodes := range packages {
+		if nodes.Has(node) {
+			return nodes
+		}
+	}
+	return nil
 }

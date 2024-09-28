@@ -23,16 +23,16 @@ import (
 )
 
 type chainedQosPolicy struct {
-	currQoSLevels map[task.QoSLevel]struct{}
+	currQoSLevels map[task.QoSGroup]struct{}
 	current       QoSMBPolicy
 	next          QoSMBPolicy
 }
 
-func (p *chainedQosPolicy) splitQoSGroups(groups map[task.QoSLevel]*monitor.MBQoSGroup) (
-	curr, others map[task.QoSLevel]*monitor.MBQoSGroup,
+func (p *chainedQosPolicy) splitQoSGroups(groups map[task.QoSGroup]*monitor.MBQoSGroup) (
+	curr, others map[task.QoSGroup]*monitor.MBQoSGroup,
 ) {
-	curr = make(map[task.QoSLevel]*monitor.MBQoSGroup)
-	others = make(map[task.QoSLevel]*monitor.MBQoSGroup)
+	curr = make(map[task.QoSGroup]*monitor.MBQoSGroup)
+	others = make(map[task.QoSGroup]*monitor.MBQoSGroup)
 	for qos, ccdMB := range groups {
 		if _, ok := p.currQoSLevels[qos]; ok {
 			curr[qos] = ccdMB
@@ -43,7 +43,7 @@ func (p *chainedQosPolicy) splitQoSGroups(groups map[task.QoSLevel]*monitor.MBQo
 	return
 }
 
-func (p *chainedQosPolicy) GetPlan(totalMB int, qosGroups map[task.QoSLevel]*monitor.MBQoSGroup, isTopMost bool) *plan.MBAlloc {
+func (p *chainedQosPolicy) GetPlan(totalMB int, qosGroups map[task.QoSGroup]*monitor.MBQoSGroup, isTopMost bool) *plan.MBAlloc {
 	currGroups, nextGroups := p.splitQoSGroups(qosGroups)
 	planCurrTier := p.current.GetPlan(totalMB, currGroups, isTopMost)
 	leftMB := totalMB - monitor.SumMB(currGroups)
@@ -51,7 +51,7 @@ func (p *chainedQosPolicy) GetPlan(totalMB int, qosGroups map[task.QoSLevel]*mon
 	return plan.Merge(planCurrTier, planNextTiers)
 }
 
-func NewChainedQoSMBPolicy(currQoSLevels map[task.QoSLevel]struct{}, current, next QoSMBPolicy) QoSMBPolicy {
+func NewChainedQoSMBPolicy(currQoSLevels map[task.QoSGroup]struct{}, current, next QoSMBPolicy) QoSMBPolicy {
 	return &chainedQosPolicy{
 		currQoSLevels: currQoSLevels,
 		current:       current,

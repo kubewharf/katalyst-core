@@ -16,6 +16,7 @@ limitations under the License.
 
 package writemb
 
+// WriteMBReader is the interface to get MB usage of memory writes, in MBps
 type WriteMBReader interface {
-	GetMB(cpu int) (int, error)
+	GetMB(ccd int) (int, error)
 }

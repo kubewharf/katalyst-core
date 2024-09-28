@@ -38,12 +38,12 @@ func TestMerge(t *testing.T) {
 			args: args{
 				plans: []*MBAlloc{
 					{
-						Plan: map[task.QoSLevel]map[int]int{
+						Plan: map[task.QoSGroup]map[int]int{
 							"dedicated": {4: 12, 5: 13},
 						},
 					},
 					{
-						Plan: map[task.QoSLevel]map[int]int{
+						Plan: map[task.QoSGroup]map[int]int{
 							"dedicated": {2: 20, 3: 21},
 							"shared":    {0: 2, 1: 3, 6: 5, 7: 5},
 							"relaimed":  {0: 2, 1: 2},
@@ -52,7 +52,7 @@ func TestMerge(t *testing.T) {
 				},
 			},
 			want: &MBAlloc{
-				Plan: map[task.QoSLevel]map[int]int{
+				Plan: map[task.QoSGroup]map[int]int{
 					"dedicated": {2: 20, 3: 21, 4: 12, 5: 13},
 					"shared":    {0: 2, 1: 3, 6: 5, 7: 5},
 					"relaimed":  {0: 2, 1: 2},

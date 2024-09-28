@@ -18,20 +18,19 @@ package qospolicy
 
 import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/policy/plan"
-	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/util"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/monitor"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/task"
 )
 
 // QoSMBPolicy abstracts planning to distribute given MB to various QoS groups
 type QoSMBPolicy interface {
-	GetPlan(totalMB int, mbQoSGroups map[task.QoSLevel]*monitor.MBQoSGroup, isTopMost bool) *plan.MBAlloc
+	GetPlan(totalMB int, mbQoSGroups map[task.QoSGroup]*monitor.MBQoSGroup, isTopMost bool) *plan.MBAlloc
 }
 
 // BuildFullyChainedQoSPolicy builds up the full chain of {dedicated, shared_50, system} -> {shared_30}
 func BuildFullyChainedQoSPolicy() QoSMBPolicy {
 	return NewChainedQoSMBPolicy(
-		map[task.QoSLevel]struct{}{
+		map[task.QoSGroup]struct{}{
 			"dedicated": {},
 			"shared_50": {},
 			"system":    {},
@@ -53,13 +52,13 @@ func BuildHiPrioDetectedQoSMBPolicy() QoSMBPolicy {
 
 	// todo: check by pods instead of mb traffic
 	// isTopMost arg is ignored as always true being the root branching in POC scenario
-	anyDedicatedShared50PodExist := func(mbQoSGroups map[task.QoSLevel]*monitor.MBQoSGroup, _ bool) bool {
+	anyDedicatedShared50PodExist := func(mbQoSGroups map[task.QoSGroup]*monitor.MBQoSGroup, _ bool) bool {
 		mbTraffic := 0
 		if shared50, ok := mbQoSGroups["shared_50"]; ok {
-			mbTraffic += util.SumCCDMB(shared50.CCDMB)
+			mbTraffic += monitor.SumCCDMB(shared50.CCDMB)
 		}
 		if dedicated, ok := mbQoSGroups["dedicated"]; ok {
-			mbTraffic += util.SumCCDMB(dedicated.CCDMB)
+			mbTraffic += monitor.SumCCDMB(dedicated.CCDMB)
 		}
 		return mbTraffic > 0
 	}

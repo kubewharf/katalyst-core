@@ -186,3 +186,125 @@ func Test_getDiesInNuma(t *testing.T) {
 		})
 	}
 }
+
+func Test_extractPackageNumaNodes(t *testing.T) {
+	t.Parallel()
+	type args struct {
+		numaDistanceMap map[int][]NumaDistanceInfo
+		isVirtualNuma   bool
+	}
+	tests := []struct {
+		name string
+		args args
+		want []map[int][]int
+	}{
+		{
+			name: "happy path of milan NPS1",
+			args: args{
+				numaDistanceMap: map[int][]NumaDistanceInfo{
+					0: {
+						{NumaID: 0, Distance: 10},
+						{NumaID: 1, Distance: 11},
+						{NumaID: 2, Distance: 11},
+						{NumaID: 3, Distance: 11},
+						{NumaID: 4, Distance: 32},
+						{NumaID: 5, Distance: 32},
+						{NumaID: 6, Distance: 32},
+						{NumaID: 7, Distance: 32},
+					},
+					1: {
+						{NumaID: 0, Distance: 11},
+						{NumaID: 1, Distance: 10},
+						{NumaID: 2, Distance: 11},
+						{NumaID: 3, Distance: 11},
+						{NumaID: 4, Distance: 32},
+						{NumaID: 5, Distance: 32},
+						{NumaID: 6, Distance: 32},
+						{NumaID: 7, Distance: 32},
+					},
+					2: {
+						{NumaID: 0, Distance: 11},
+						{NumaID: 1, Distance: 11},
+						{NumaID: 2, Distance: 10},
+						{NumaID: 3, Distance: 11},
+						{NumaID: 4, Distance: 32},
+						{NumaID: 5, Distance: 32},
+						{NumaID: 6, Distance: 32},
+						{NumaID: 7, Distance: 32},
+					},
+					3: {
+						{NumaID: 0, Distance: 11},
+						{NumaID: 1, Distance: 11},
+						{NumaID: 2, Distance: 11},
+						{NumaID: 3, Distance: 10},
+						{NumaID: 4, Distance: 32},
+						{NumaID: 5, Distance: 32},
+						{NumaID: 6, Distance: 32},
+						{NumaID: 7, Distance: 32},
+					},
+					4: {
+						{NumaID: 0, Distance: 32},
+						{NumaID: 1, Distance: 32},
+						{NumaID: 2, Distance: 32},
+						{NumaID: 3, Distance: 32},
+						{NumaID: 4, Distance: 10},
+						{NumaID: 5, Distance: 11},
+						{NumaID: 6, Distance: 11},
+						{NumaID: 7, Distance: 11},
+					},
+					5: {
+						{NumaID: 0, Distance: 32},
+						{NumaID: 1, Distance: 32},
+						{NumaID: 2, Distance: 32},
+						{NumaID: 3, Distance: 32},
+						{NumaID: 4, Distance: 11},
+						{NumaID: 5, Distance: 10},
+						{NumaID: 6, Distance: 11},
+						{NumaID: 7, Distance: 11},
+					},
+					6: {
+						{NumaID: 0, Distance: 32},
+						{NumaID: 1, Distance: 32},
+						{NumaID: 2, Distance: 32},
+						{NumaID: 3, Distance: 32},
+						{NumaID: 4, Distance: 11},
+						{NumaID: 5, Distance: 11},
+						{NumaID: 6, Distance: 10},
+						{NumaID: 7, Distance: 11},
+					},
+					7: {
+						{NumaID: 0, Distance: 32},
+						{NumaID: 1, Distance: 32},
+						{NumaID: 2, Distance: 32},
+						{NumaID: 3, Distance: 32},
+						{NumaID: 4, Distance: 11},
+						{NumaID: 5, Distance: 11},
+						{NumaID: 6, Distance: 11},
+						{NumaID: 7, Distance: 10},
+					},
+				},
+				isVirtualNuma: true,
+			},
+			want: []map[int][]int{
+				{
+					0: {0, 1, 2, 3},
+					1: {4, 5, 6, 7},
+				},
+				{
+					1: {0, 1, 2, 3},
+					0: {4, 5, 6, 7},
+				},
+			},
+		},
+	}
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			result := extractPackageNumaNodes(tt.args.numaDistanceMap, tt.args.isVirtualNuma)
+			if !reflect.DeepEqual(tt.want[0], result) && !reflect.DeepEqual(tt.want[1], result) {
+				t.Errorf("uexpected result %v", result)
+			}
+		})
+	}
+}

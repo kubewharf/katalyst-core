@@ -17,58 +17,174 @@ limitations under the License.
 package monitor
 
 import (
+	"fmt"
+	"strings"
+
+	"github.com/pkg/errors"
+	"k8s.io/apimachinery/pkg/util/sets"
+
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/resctrl"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/resctrl/state"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/task"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/writemb"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/writemb/l3pmc"
 )
 
 type MBMonitor interface {
-	GetMBQoSGroups() (map[task.QoSLevel]*MBQoSGroup, error)
+	GetMBQoSGroups() (map[task.QoSGroup]*MBQoSGroup, error)
 }
 
-func New(taskManager task.Manager, mbReader task.TaskMBReader) (MBMonitor, error) {
+func newMBMonitor(taskManager task.Manager, rmbReader task.TaskMBReader, wmbReader writemb.WriteMBReader) (MBMonitor, error) {
 	return &mbMonitor{
 		taskManager: taskManager,
-		mbReader:    mbReader,
+		rmbReader:   rmbReader,
+		wmbReader:   wmbReader,
 	}, nil
+}
+
+func NewDefaultMBMonitor(numaDies map[int]sets.Int, dieCPUs map[int][]int) (MBMonitor, error) {
+	dataKeeper, err := state.NewMBRawDataKeeper()
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to create raw data state keeper")
+	}
+
+	taskManager, err := task.New(numaDies, dieCPUs, dataKeeper)
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to create task manager")
+	}
+
+	taskMBReader, err := task.CreateTaskMBReader(dataKeeper)
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to create task mb reader")
+	}
+
+	wmbReader, err := l3pmc.NewWriteMBReader()
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to create writes mb reader")
+	}
+	podMBMonitor, err := newMBMonitor(taskManager, taskMBReader, wmbReader)
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to create pod mb monitor")
+	}
+
+	return podMBMonitor, nil
 }
 
 type mbMonitor struct {
 	taskManager task.Manager
-	mbReader    task.TaskMBReader
+	rmbReader   task.TaskMBReader
+	wmbReader   writemb.WriteMBReader
 }
 
-func (t mbMonitor) GetMBQoSGroups() (map[task.QoSLevel]*MBQoSGroup, error) {
-	qosCCDMB, err := t.getQoSMBs()
-	if err != nil {
-		return nil, err
+func (m mbMonitor) GetMBQoSGroups() (map[task.QoSGroup]*MBQoSGroup, error) {
+	if err := m.refreshTasks(); err != nil {
+		return nil, errors.Wrap(err, "failed to refresh task")
 	}
 
-	groups := make(map[task.QoSLevel]*MBQoSGroup)
-	for qos, ccdMB := range qosCCDMB {
-		groups[qos] = &MBQoSGroup{
-			CCDMB: ccdMB,
-		}
+	rQoSCCDMB, err := m.getReadsMBs()
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to get reads mb")
+	}
+
+	wQoSCCDMB, err := m.getWritesMBs(getCCDQoSGroups(rQoSCCDMB))
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to get writes mb")
+	}
+
+	groupCCDMBs := getGroupCCDMBs(rQoSCCDMB, wQoSCCDMB)
+	groups := make(map[task.QoSGroup]*MBQoSGroup)
+	for qos, ccdMB := range groupCCDMBs {
+		groups[qos] = newMBQoSGroup(ccdMB)
 	}
 
 	return groups, nil
 }
 
-func (t mbMonitor) getQoSMBs() (map[task.QoSLevel]map[int]int, error) {
-	result := make(map[task.QoSLevel]map[int]int)
+func getGroupCCDMBs(rGroupCCDMB, wGroupCCDMB map[task.QoSGroup]map[int]int) map[task.QoSGroup]map[int]*MBData {
+	// precondition: rGroupCCDMB, wGroupCCDMB have identical keys of qos group
+	groupCCDMBs := make(map[task.QoSGroup]map[int]*MBData)
+	for qos, ccdMB := range rGroupCCDMB {
+		groupCCDMBs[qos] = make(map[int]*MBData)
+		for ccd, mb := range ccdMB {
+			groupCCDMBs[qos][ccd] = &MBData{ReadsMB: mb}
+		}
+	}
+	for qos, ccdMB := range wGroupCCDMB {
+		for ccd, mb := range ccdMB {
+			groupCCDMBs[qos][ccd].WritesMB = mb
+		}
+	}
+
+	return groupCCDMBs
+}
+
+func getCCDQoSGroups(qosMBs map[task.QoSGroup]map[int]int) map[int][]task.QoSGroup {
+	result := make(map[int][]task.QoSGroup)
+	for qos, ccdmb := range qosMBs {
+		for ccd, _ := range ccdmb {
+			result[ccd] = append(result[ccd], qos)
+		}
+	}
+	return result
+}
+
+func (m mbMonitor) getReadsMBs() (map[task.QoSGroup]map[int]int, error) {
+	result := make(map[task.QoSGroup]map[int]int)
 
 	// todo: read in parallel to speed up
-	for _, pod := range t.taskManager.GetTasks() {
-		ccdMB, err := t.mbReader.ReadMB(pod)
+	for _, pod := range m.taskManager.GetTasks() {
+		ccdMB, err := m.rmbReader.GetMB(pod)
 		if err != nil {
-			return nil, err
+			if errors.Is(err, resctrl.ErrUninitialized) {
+				continue
+			}
+			return nil, errors.Wrap(err, fmt.Sprintf("failed to get mb of pod %s", pod.PodUID))
 		}
 
-		if _, ok := result[pod.QoSLevel]; !ok {
-			result[pod.QoSLevel] = make(map[int]int)
+		if _, ok := result[pod.QoSGroup]; !ok {
+			result[pod.QoSGroup] = make(map[int]int)
 		}
 		for ccd, mb := range ccdMB {
-			result[pod.QoSLevel][ccd] += mb
+			result[pod.QoSGroup][ccd] += mb
 		}
 	}
 
 	return result, nil
+}
+
+func (m mbMonitor) getWritesMBs(ccdQoSGroup map[int][]task.QoSGroup) (map[task.QoSGroup]map[int]int, error) {
+	result := make(map[task.QoSGroup]map[int]int)
+	for ccd, groups := range ccdQoSGroup {
+		mb, err := m.wmbReader.GetMB(ccd)
+		if err != nil {
+			return nil, err
+		}
+		// theoretically there may have more than one qos ctrl group binding to a specific ccd
+		// for now it is fine to duplicate mb usages among them (as in POC shared_30 groups are exclusive)
+		// todo: figure out proper distributions of mb among qos ctrl groups binding to given ccd
+		for _, qos := range groups {
+			if _, ok := result[qos]; !ok {
+				result[qos] = make(map[int]int)
+			}
+			result[qos][ccd] = mb
+		}
+	}
+
+	return result, nil
+}
+
+func (m mbMonitor) refreshTasks() error {
+	return m.taskManager.RefreshTasks()
+}
+
+func DisplayMBSummary(qosCCDMB map[task.QoSGroup]*MBQoSGroup) string {
+	var sb strings.Builder
+	sb.WriteString("----- mb summary -----\n")
+	for qos, ccdmb := range qosCCDMB {
+		sb.WriteString(fmt.Sprintf("--QoS: %s\n", qos))
+		for ccd, mb := range ccdmb.CCDMB {
+			sb.WriteString(fmt.Sprintf("      ccd %d: r %d, w %d\n", ccd, mb.ReadsMB, mb.WritesMB))
+		}
+	}
+	return sb.String()
 }

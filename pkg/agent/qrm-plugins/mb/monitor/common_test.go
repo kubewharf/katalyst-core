@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package util
+package monitor
 
 import (
 	"reflect"
@@ -57,7 +57,7 @@ func TestWeightedSplit(t *testing.T) {
 func TestSum(t *testing.T) {
 	t.Parallel()
 	type args struct {
-		qosCCDMB map[task.QoSLevel]map[int]int
+		qosCCDMB map[task.QoSGroup]map[int]*MBData
 	}
 	tests := []struct {
 		name string
@@ -67,11 +67,11 @@ func TestSum(t *testing.T) {
 		{
 			name: "happy path",
 			args: args{
-				qosCCDMB: map[task.QoSLevel]map[int]int{
-					"dedicated": {2: 100, 3: 100},
-					"shared":    {0: 3, 1: 3, 4: 3, 5: 3},
-					"relaimed":  {0: 1, 1: 1},
-					"system":    {4: 2, 5: 2},
+				qosCCDMB: map[task.QoSGroup]map[int]*MBData{
+					"dedicated": {2: {ReadsMB: 100}, 3: {ReadsMB: 100}},
+					"shared":    {0: {ReadsMB: 3}, 1: {ReadsMB: 3}, 4: {ReadsMB: 3}, 5: {ReadsMB: 3}},
+					"relaimed":  {0: {ReadsMB: 1}, 1: {ReadsMB: 1}},
+					"system":    {4: {ReadsMB: 2}, 5: {ReadsMB: 2}},
 				},
 			},
 			want: 218,

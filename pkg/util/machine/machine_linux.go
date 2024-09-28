@@ -60,8 +60,12 @@ func GetKatalystMachineInfo(conf *global.MachineInfoConfiguration) (*KatalystMac
 		return nil, err
 	}
 
+	for node, dists := range extraTopologyInfo.NumaDistanceMap {
+		general.InfofV(6, "numa distance for node %d:  %v", node, dists)
+	}
+
 	general.InfofV(6, "mbm: creating die topology")
-	dieTopologyInfo, err := NewDieTopology(extraTopologyInfo.SiblingNumaMap)
+	dieTopologyInfo, err := NewDieTopology(extraTopologyInfo.NumaDistanceMap)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to create die topology")
 	}

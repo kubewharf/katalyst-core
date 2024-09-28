@@ -19,64 +19,35 @@ package task
 import (
 	"fmt"
 	"path"
+	"sort"
 
-	"github.com/pkg/errors"
 	"k8s.io/apimachinery/pkg/util/sets"
 
-	"github.com/kubewharf/katalyst-api/pkg/consts"
 	resctrlconsts "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/resctrl/consts"
-	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/task/cgnode"
 )
-
-type QoSLevel = consts.QoSLevel
-
-const (
-	QoSLevelReclaimedCores QoSLevel = consts.QoSLevelReclaimedCores
-	QoSLevelSharedCores    QoSLevel = consts.QoSLevelSharedCores
-	QoSLevelDedicatedCores QoSLevel = consts.QoSLevelDedicatedCores
-	QoSLevelSystemCores    QoSLevel = consts.QoSLevelSystemCores
-)
-
-var qosFolderLookup = map[QoSLevel]string{
-	QoSLevelDedicatedCores: resctrlconsts.GroupDedicated,
-	QoSLevelSharedCores:    resctrlconsts.GroupSharedCore,
-	QoSLevelReclaimedCores: resctrlconsts.GroupReclaimed,
-	QoSLevelSystemCores:    resctrlconsts.GroupSystem,
-}
-
-var qosToCgroupv1GroupFolder = map[QoSLevel]string{
-	QoSLevelDedicatedCores: "burstable",
-	QoSLevelSharedCores:    "burstable",
-	QoSLevelReclaimedCores: "offline-besteffort",
-	QoSLevelSystemCores:    "burstable",
-}
 
 type Task struct {
-	QoSLevel QoSLevel
-	PodUID   string
+	QoSGroup QoSGroup
 
-	pid   int
-	spids []int
+	// PodUID is the pod identifier that leverage host cgroup to locate the cpu/ccd/numa node info
+	// including pod prefix and uid string, like "poda47c5c03-cf94-4a36-b52f-c1cb17dc1675"
+	PodUID string
 
-	NumaNode []int
-	nodeCCDs map[int]sets.Int
+	NumaNodes []int // NumaNodes are the set of numa nodes associated to the task via its bound CCDs
+	CCDs      []int // CCDs are the set of CCDs bound to the task via CPUs the task is running on
+	CPUs      []int // CPUs are the set of cpus that task is running on
 }
 
 func (t Task) GetID() string {
 	return t.PodUID
 }
 
-func GetResctrlCtrlGroupFolder(qos QoSLevel) (string, error) {
-	qosFolder, ok := qosFolderLookup[qos]
-	if !ok {
-		return "", errors.New("invalid qos level of task")
-	}
-
-	return path.Join(resctrlconsts.FsRoot, qosFolder), nil
+func GetResctrlCtrlGroupFolder(qos QoSGroup) (string, error) {
+	return path.Join(resctrlconsts.FsRoot, string(qos)), nil
 }
 
 func (t Task) GetResctrlCtrlGroup() (string, error) {
-	return GetResctrlCtrlGroupFolder(t.QoSLevel)
+	return GetResctrlCtrlGroupFolder(t.QoSGroup)
 }
 
 func (t Task) GetResctrlMonGroup() (string, error) {
@@ -89,22 +60,33 @@ func (t Task) GetResctrlMonGroup() (string, error) {
 	return path.Join(taskCtrlGroup, resctrlconsts.SubGroupMonRoot, taskFolder), nil
 }
 
-func (t Task) GetCCDs() []int {
-	ccds := make([]int, 0)
-	for _, node := range t.NumaNode {
-		for ccd, _ := range t.nodeCCDs[node] {
-			ccds = append(ccds, ccd)
+func getCCDs(cpus []int, cpuCCD map[int]int) ([]int, error) {
+	ccds := make(sets.Int)
+	for _, cpu := range cpus {
+		ccd, ok := cpuCCD[cpu]
+		if !ok {
+			return nil, fmt.Errorf("cpu %d has no ccd", cpu)
 		}
+
+		ccds.Insert(ccd)
 	}
-	return ccds
+
+	result := make(sort.IntSlice, len(ccds))
+	i := 0
+	for ccd, _ := range ccds {
+		result[i] = ccd
+		i++
+	}
+	result.Sort()
+	return result, nil
 }
 
-func getCgroupCPUSetPath(podUID string, qos QoSLevel) string {
+func getCgroupCPUSetPath(podUID string, qosGroup QoSGroup) (string, error) {
 	// todo: support cgroup v2
 	// below assumes cgroup v1
-	return path.Join("/sys/fs/cgroup/cpuset/kubepods/", qosToCgroupv1GroupFolder[qos], "pod"+podUID)
-}
-
-func getNumaNodes(podUID string, qos QoSLevel) ([]int, error) {
-	return cgnode.GetNumaNodes(getCgroupCPUSetPath(podUID, qos))
+	qos, err := NewQoS(qosGroup)
+	if err != nil {
+		return "", err
+	}
+	return path.Join("/sys/fs/cgroup/cpuset/kubepods/", qosLevelToCgroupv1GroupFolder[qos.Level], podUID), nil
 }

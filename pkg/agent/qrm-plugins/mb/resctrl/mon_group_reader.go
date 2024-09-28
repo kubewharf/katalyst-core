@@ -16,6 +16,12 @@ limitations under the License.
 
 package resctrl
 
+import (
+	"fmt"
+
+	"github.com/pkg/errors"
+)
+
 type MonGroupReader interface {
 	ReadMB(monGroup string, dies []int) (map[int]int, error)
 }
@@ -29,7 +35,7 @@ func (m monGroupReader) ReadMB(monGroup string, dies []int) (map[int]int, error)
 	for _, ccd := range dies {
 		mb, err := m.ccdReader.ReadMB(monGroup, ccd)
 		if err != nil {
-			return nil, err
+			return nil, errors.Wrap(err, fmt.Sprintf("failed to get mb for mon group %s, ccd %d", monGroup, ccd))
 		}
 		result[ccd] = mb
 	}

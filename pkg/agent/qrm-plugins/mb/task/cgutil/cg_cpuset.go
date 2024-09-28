@@ -14,22 +14,32 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package cgnode
+package cgutil
 
 import (
+	"path"
 	"strconv"
 	"strings"
 
-	"github.com/opencontainers/runc/libcontainer/cgroups"
+	"github.com/spf13/afero"
 )
 
-func GetNumaNodes(cpusetPath string) ([]int, error) {
-	content, err := cgroups.ReadFile(cpusetPath, "cpuset.mems")
+func GetCPUs(fs afero.Fs, cpusetPath string) ([]int, error) {
+	return getValues(fs, cpusetPath, "cpuset.cpus")
+}
+
+func GetNumaNodes(fs afero.Fs, cpusetPath string) ([]int, error) {
+	return getValues(fs, cpusetPath, "cpuset.mems")
+}
+
+func getValues(fs afero.Fs, cpusetPath string, cgfile string) ([]int, error) {
+	cgPath := path.Join(cpusetPath, cgfile)
+	content, err := afero.ReadFile(fs, cgPath)
 	if err != nil {
 		return nil, err
 	}
 
-	return parse(content)
+	return parse(string(content))
 }
 
 func parse(content string) ([]int, error) {

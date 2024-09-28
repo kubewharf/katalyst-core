@@ -74,11 +74,11 @@ func Test_monGroupReader_ReadMB(t *testing.T) {
 			}
 			got, err := m.ReadMB(tt.args.monGroup, tt.args.dies)
 			if (err != nil) != tt.wantErr {
-				t.Errorf("ReadMB() error = %v, wantErr %v", err, tt.wantErr)
+				t.Errorf("GetMB() error = %v, wantErr %v", err, tt.wantErr)
 				return
 			}
 			if !reflect.DeepEqual(got, tt.want) {
-				t.Errorf("ReadMB() got = %v, want %v", got, tt.want)
+				t.Errorf("GetMB() got = %v, want %v", got, tt.want)
 			}
 		})
 	}

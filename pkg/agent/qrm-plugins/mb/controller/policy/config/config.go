@@ -17,6 +17,9 @@ limitations under the License.
 package config
 
 const (
-	CCDMBMin = 10_000 // per CCD 10 GB
+	DomainTotalMB   = 120_000 //120 GBps in one mb sharing domain
+	ReservedPerNuma = 35_000  // 35 GBps reserved per node for dedicated pod
+
+	CCDMBMin = 8_000  // per CCD 10 GB
 	CCDMBMax = 25_000 // per CCD 10 GB
 )

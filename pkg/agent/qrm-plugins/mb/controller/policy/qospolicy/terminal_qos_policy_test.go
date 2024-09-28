@@ -31,7 +31,7 @@ func Test_getTopMostPlan(t *testing.T) {
 	t.Parallel()
 	type args struct {
 		totalMB     int
-		mbQoSGroups map[task.QoSLevel]*monitor.MBQoSGroup
+		mbQoSGroups map[task.QoSGroup]*monitor.MBQoSGroup
 	}
 	tests := []struct {
 		name string
@@ -42,13 +42,13 @@ func Test_getTopMostPlan(t *testing.T) {
 			name: "happy path",
 			args: args{
 				totalMB: 1_000,
-				mbQoSGroups: map[task.QoSLevel]*monitor.MBQoSGroup{
+				mbQoSGroups: map[task.QoSGroup]*monitor.MBQoSGroup{
 					"dedicated": {CCDs: sets.Int{4: sets.Empty{}, 5: sets.Empty{}}},
 					"shared_50": {CCDs: sets.Int{0: sets.Empty{}, 1: sets.Empty{}}},
 					"system":    {CCDs: sets.Int{1: sets.Empty{}}},
 				},
 			},
-			want: &plan.MBAlloc{Plan: map[task.QoSLevel]map[int]int{
+			want: &plan.MBAlloc{Plan: map[task.QoSGroup]map[int]int{
 				"dedicated": {4: 25_000, 5: 25_000},
 				"shared_50": {0: 25_000, 1: 25_000},
 				"system":    {1: 25_000},
@@ -68,7 +68,7 @@ func Test_getProportionalPlan(t *testing.T) {
 	t.Parallel()
 	type args struct {
 		total       int
-		mbQoSGroups map[task.QoSLevel]*monitor.MBQoSGroup
+		mbQoSGroups map[task.QoSGroup]*monitor.MBQoSGroup
 	}
 	tests := []struct {
 		name string
@@ -78,18 +78,18 @@ func Test_getProportionalPlan(t *testing.T) {
 		{
 			name: "happy path",
 			args: args{
-				total: 24_000,
-				mbQoSGroups: map[task.QoSLevel]*monitor.MBQoSGroup{
-					"shared_30": {CCDMB: map[int]int{
-						6: 20_000,
-						7: 10_000,
+				total: 21_000,
+				mbQoSGroups: map[task.QoSGroup]*monitor.MBQoSGroup{
+					"shared_30": {CCDMB: map[int]*monitor.MBData{
+						6: {ReadsMB: 20_000},
+						7: {ReadsMB: 10_000},
 					}},
 				},
 			},
-			want: &plan.MBAlloc{Plan: map[task.QoSLevel]map[int]int{
+			want: &plan.MBAlloc{Plan: map[task.QoSGroup]map[int]int{
 				"shared_30": {
-					6: 16_000,
-					7: 10_000,
+					6: 14_000,
+					7: 8_000,
 				},
 			}},
 		},

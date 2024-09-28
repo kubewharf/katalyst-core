@@ -18,6 +18,7 @@ package file
 
 import (
 	"strconv"
+	"strings"
 
 	"github.com/spf13/afero"
 
@@ -28,16 +29,17 @@ import (
 func ReadValueFromFile(fs afero.Fs, path string) int64 {
 	buffer, err := afero.ReadFile(fs, path)
 	if err != nil {
-		return consts.InvalidMB
+		return consts.UninitializedMB
 	}
 
-	if string(buffer) == "Unavailable" {
-		return consts.InvalidMB
+	trimmed := strings.TrimSpace(string(buffer))
+	if trimmed == "Unavailable" {
+		return consts.UninitializedMB
 	}
 
-	v, err := strconv.ParseInt(string(buffer), 10, 64)
+	v, err := strconv.ParseInt(trimmed, 10, 64)
 	if err != nil {
-		return consts.InvalidMB
+		return consts.UninitializedMB
 	}
 
 	return v
