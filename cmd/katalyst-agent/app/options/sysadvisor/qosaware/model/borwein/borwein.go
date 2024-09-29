@@ -26,23 +26,27 @@ import (
 )
 
 type BorweinOptions struct {
-	InferenceServiceSocketAbsPath string
-	FeatureDescriptionFilePath    string
-	NodeFeatureNames              []string
-	ContainerFeatureNames         []string
+	InferenceServiceSocketAbsPath      string
+	ModelNameToInferenceSvcSockAbsPath map[string]string
+	FeatureDescriptionFilePath         string
+	NodeFeatureNames                   []string
+	ContainerFeatureNames              []string
 }
 
 func NewBorweinOptions() *BorweinOptions {
 	return &BorweinOptions{
-		NodeFeatureNames:      []string{},
-		ContainerFeatureNames: []string{},
+		ModelNameToInferenceSvcSockAbsPath: map[string]string{},
+		NodeFeatureNames:                   []string{},
+		ContainerFeatureNames:              []string{},
 	}
 }
 
 // AddFlags adds flags to the specified FlagSet.
 func (o *BorweinOptions) AddFlags(fs *pflag.FlagSet) {
 	fs.StringVar(&o.InferenceServiceSocketAbsPath, "borwein-inference-svc-socket-path", o.InferenceServiceSocketAbsPath,
-		"socket path which borwein inference server listens at")
+		"socket path which borwein inference server listens at. it's deprecated, use borwein-inference-model-to-svc-socket-path intead")
+	fs.StringToStringVar(&o.ModelNameToInferenceSvcSockAbsPath, "borwein-inference-model-to-svc-socket-path", o.ModelNameToInferenceSvcSockAbsPath,
+		"model name to socket path which its borwein inference server listens at")
 	fs.StringVar(&o.FeatureDescriptionFilePath, "feature-description-filepath", o.FeatureDescriptionFilePath,
 		"file path to feature descriptions, the option has lower priority to borwein-node-feature-names and borwein-container-feature-names")
 	fs.StringSliceVar(&o.NodeFeatureNames, "borwein-node-feature-names", o.NodeFeatureNames,
@@ -60,6 +64,8 @@ func (o *BorweinOptions) ApplyTo(c *borwein.BorweinConfiguration) error {
 	}{}
 
 	c.InferenceServiceSocketAbsPath = o.InferenceServiceSocketAbsPath
+	c.ModelNameToInferenceSvcSockAbsPath = o.ModelNameToInferenceSvcSockAbsPath
+
 	if len(o.NodeFeatureNames)+len(o.ContainerFeatureNames) > 0 {
 		c.NodeFeatureNames = o.NodeFeatureNames
 		c.ContainerFeatureNames = o.ContainerFeatureNames

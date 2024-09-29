@@ -18,6 +18,7 @@ package pod
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 	"time"
 
@@ -28,6 +29,11 @@ import (
 
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/options"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
+	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/inference/modelresultfetcher/borwein/trainingtpreg"
+	borweinconsts "github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/inference/models/borwein/consts"
+	borweininfsvc "github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/inference/models/borwein/inferencesvc"
+	borweintypes "github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/inference/models/borwein/types"
+	borweinutils "github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/inference/models/borwein/utils"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent"
@@ -103,7 +109,25 @@ func TestPodAddAndRemoved(t *testing.T) {
 			MetricsFetcher: metric.NewFakeMetricsFetcher(metrics.DummyMetrics{}),
 		},
 	}
-	si, err := NewMetricSyncerPod(conf, struct{}{}, metrics.DummyMetrics{}, metricspool.DummyMetricsEmitterPool{}, meta, &metacache.MetaCacheImp{})
+	timeNow := time.Now().Unix()
+	res := &trainingtpreg.TrainingThroughputRegression{
+		PredictValue: 0.5,
+	}
+	bs, _ := json.Marshal(res)
+	reader := metacache.NewDummyMetaCacheImp()
+	reader.SetInferenceResult(borweinutils.GetInferenceResultKey(borweinconsts.ModelNameBorweinTrainingThroughput), &borweintypes.BorweinInferenceResults{
+		Timestamp: timeNow,
+		Results: map[string]map[string][]*borweininfsvc.InferenceResult{
+			"000002": {
+				"c-1": []*borweininfsvc.InferenceResult{
+					{
+						GenericOutput: string(bs),
+					},
+				},
+			},
+		},
+	})
+	si, err := NewMetricSyncerPod(conf, struct{}{}, metrics.DummyMetrics{}, metricspool.DummyMetricsEmitterPool{}, meta, reader)
 	assert.NoError(t, err)
 
 	s := si.(*MetricSyncerPod)
@@ -111,6 +135,7 @@ func TestPodAddAndRemoved(t *testing.T) {
 
 	t.Logf("run with non-empty pod fetcher")
 	s.syncChanel()
+	s.modelMetric()
 	assert.Equal(t, len(s.rawNotifier), 1)
 
 	metaEmpty := &metaserver.MetaServer{
@@ -125,5 +150,6 @@ func TestPodAddAndRemoved(t *testing.T) {
 
 	t.Logf("reset pod fecther with empty")
 	s.syncChanel()
+	s.modelMetric()
 	assert.Equal(t, len(s.rawNotifier), 0)
 }

@@ -29,6 +29,7 @@ import (
 	borweinconsts "github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/inference/models/borwein/consts"
 	borweininfsvc "github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/inference/models/borwein/inferencesvc"
 	borweintypes "github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/inference/models/borwein/types"
+	borweinutils "github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/inference/models/borwein/utils"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
@@ -115,7 +116,7 @@ func updateCPUSchedWaitIndicatorOffset(podSet types.PodSet, currentIndicatorOffs
 		}
 
 		return filteredResults, nil
-	}, borweinconsts.ModelNameBorwein)
+	}, borweinutils.GetInferenceResultKey(borweinconsts.ModelNameBorwein))
 	if err != nil {
 		return 0, fmt.Errorf("GetFilteredInferenceResult failed with error: %v", err)
 	}
