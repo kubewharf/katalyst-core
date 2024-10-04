@@ -19,6 +19,7 @@ package state
 import (
 	"encoding/json"
 	"fmt"
+	"strconv"
 
 	info "github.com/google/cadvisor/info/v1"
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
@@ -39,8 +40,11 @@ type AllocationInfo struct {
 	PodType        string         `json:"pod_type,omitempty"`
 	Egress         uint32         `json:"egress"`
 	Ingress        uint32         `json:"ingress"`
-	IfName         string         `json:"if_name"`   // we do not support cross-nic bandwidth
+	IfName         string         `json:"if_name"` // we do not support cross-nic bandwidth
+	NSName         string         `json:"ns_name"`
 	NumaNodes      machine.CPUSet `json:"numa_node"` // associated numa nodes of the socket connecting to the selected NIC
+	QoSLevel       string         `json:"qosLevel"`
+	NetClassID     string         `json:"net_class_id"`
 
 	Labels      map[string]string `json:"labels"`
 	Annotations map[string]string `json:"annotations"`
@@ -109,6 +113,8 @@ func (ai *AllocationInfo) Clone() *AllocationInfo {
 		Ingress:        ai.Ingress,
 		IfName:         ai.IfName,
 		NumaNodes:      ai.NumaNodes.Clone(),
+		QoSLevel:       ai.QoSLevel,
+		NetClassID:     ai.NetClassID,
 		Labels:         general.DeepCopyMap(ai.Labels),
 		Annotations:    general.DeepCopyMap(ai.Annotations),
 	}
@@ -124,6 +130,29 @@ func (ai *AllocationInfo) CheckMainContainer() bool {
 // CheckSideCar returns true if the AllocationInfo is for side-car container
 func (ai *AllocationInfo) CheckSideCar() bool {
 	return ai.ContainerType == pluginapi.ContainerType_SIDECAR.String()
+}
+
+func (ai *AllocationInfo) GetRequestedEgress() (uint32, error) {
+	if ai == nil {
+		return 0, fmt.Errorf("nil AllocationInfo")
+	}
+
+	if ai.Egress > 0 && ai.Annotations[NetBandwidthImplicitAnnotationKey] != "" {
+		return 0, fmt.Errorf("ambiguous ai.Egress: %d, %s: %s",
+			ai.Egress, NetBandwidthImplicitAnnotationKey, ai.Annotations[NetBandwidthImplicitAnnotationKey])
+	} else if ai.Egress > 0 {
+		return ai.Egress, nil
+	} else if ai.Annotations[NetBandwidthImplicitAnnotationKey] != "" {
+		ret, err := strconv.Atoi(ai.Annotations[NetBandwidthImplicitAnnotationKey])
+		if err != nil {
+			return 0, fmt.Errorf("parse %s: %s failed with error: %v",
+				NetBandwidthImplicitAnnotationKey, ai.Annotations[NetBandwidthImplicitAnnotationKey], err)
+		}
+
+		return uint32(ret), nil
+	}
+
+	return 0, nil
 }
 
 func (pe PodEntries) Clone() PodEntries {
