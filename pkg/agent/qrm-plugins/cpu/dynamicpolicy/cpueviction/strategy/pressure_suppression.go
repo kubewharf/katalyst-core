@@ -28,6 +28,7 @@ import (
 
 	"github.com/kubewharf/katalyst-api/pkg/protocol/evictionplugin/v1alpha1"
 	pluginapi "github.com/kubewharf/katalyst-api/pkg/protocol/evictionplugin/v1alpha1"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
@@ -81,7 +82,7 @@ func (p *CPUPressureSuppression) GetEvictPods(_ context.Context, request *plugin
 
 	// only reclaim pool support suppression tolerance eviction
 	entries := p.state.GetPodEntries()
-	poolCPUSet, err := entries.GetCPUSetForPool(state.PoolNameReclaim)
+	poolCPUSet, err := entries.GetCPUSetForPool(commonstate.PoolNameReclaim)
 	if err != nil {
 		return nil, fmt.Errorf("get reclaim pool failed: %s", err)
 	}

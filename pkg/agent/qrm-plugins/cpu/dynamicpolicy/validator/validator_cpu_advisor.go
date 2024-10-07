@@ -21,6 +21,7 @@ import (
 
 	"k8s.io/apimachinery/pkg/util/errors"
 
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
 	advisorapi "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/cpuadvisor"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
@@ -61,8 +62,8 @@ func (c *CPUAdvisorValidator) validateEntries(resp *advisorapi.ListAndWatchRespo
 	entries := c.state.GetPodEntries()
 
 	// validate dedicated_cores entries
-	dedicatedAllocationInfos := entries.GetFilteredPodEntries(state.CheckDedicated)
-	dedicatedCalculationInfos := resp.FilterCalculationInfo(state.PoolNameDedicated)
+	dedicatedAllocationInfos := entries.GetFilteredPodEntries(state.WrapAllocationMetaFilter((*commonstate.AllocationMeta).CheckDedicated))
+	dedicatedCalculationInfos := resp.FilterCalculationInfo(commonstate.PoolNameDedicated)
 	if len(dedicatedAllocationInfos) != len(dedicatedCalculationInfos) {
 		return fmt.Errorf("dedicatedAllocationInfos length: %d and dedicatedCalculationInfos length: %d mismatch",
 			len(dedicatedAllocationInfos), len(dedicatedCalculationInfos))
@@ -75,7 +76,7 @@ func (c *CPUAdvisorValidator) validateEntries(resp *advisorapi.ListAndWatchRespo
 				return fmt.Errorf("missing CalculationInfo for pod: %s container: %s", podUID, containerName)
 			}
 
-			if !state.CheckDedicatedNUMABinding(allocationInfo) {
+			if !allocationInfo.CheckDedicatedNUMABinding() {
 				numaCalculationQuantities, err := calculationInfo.GetNUMAQuantities()
 				if err != nil {
 					return fmt.Errorf("GetNUMAQuantities failed with error: %v, pod: %s container: %s",
@@ -115,7 +116,7 @@ func (c *CPUAdvisorValidator) validateEntries(resp *advisorapi.ListAndWatchRespo
 	}
 
 	// validate shared_cores with numa_binding entries
-	sharedNUMABindingAllocationInfos := entries.GetFilteredPodEntries(state.CheckSharedNUMABinding)
+	sharedNUMABindingAllocationInfos := entries.GetFilteredPodEntries(state.WrapAllocationMetaFilter((*commonstate.AllocationMeta).CheckSharedNUMABinding))
 
 	for podUID, containerEntries := range sharedNUMABindingAllocationInfos {
 		for containerName := range containerEntries {
@@ -125,7 +126,7 @@ func (c *CPUAdvisorValidator) validateEntries(resp *advisorapi.ListAndWatchRespo
 				return fmt.Errorf("missing CalculationInfo for pod: %s container: %s", podUID, containerName)
 			}
 
-			if calculationInfo.OwnerPoolName == state.EmptyOwnerPoolName {
+			if calculationInfo.OwnerPoolName == commonstate.EmptyOwnerPoolName {
 				return fmt.Errorf("shared_cores with numa_biding pod: %s container: %s has empty pool name", podUID, containerName)
 			}
 		}
@@ -138,10 +139,10 @@ func (c *CPUAdvisorValidator) validateStaticPools(resp *advisorapi.ListAndWatchR
 
 	for _, poolName := range state.StaticPools.List() {
 		var nilStateEntry, nilRespEntry bool
-		if entries[poolName] == nil || entries[poolName][state.FakedContainerName] == nil {
+		if entries[poolName] == nil || entries[poolName][commonstate.FakedContainerName] == nil {
 			nilStateEntry = true
 		}
-		if resp.Entries[poolName] == nil || resp.Entries[poolName].Entries[state.FakedContainerName] == nil {
+		if resp.Entries[poolName] == nil || resp.Entries[poolName].Entries[commonstate.FakedContainerName] == nil {
 			nilRespEntry = true
 		}
 
@@ -154,16 +155,16 @@ func (c *CPUAdvisorValidator) validateStaticPools(resp *advisorapi.ListAndWatchR
 			continue
 		}
 
-		allocationInfo := entries[poolName][state.FakedContainerName]
-		calculationInfo := resp.Entries[poolName].Entries[state.FakedContainerName]
+		allocationInfo := entries[poolName][commonstate.FakedContainerName]
+		calculationInfo := resp.Entries[poolName].Entries[commonstate.FakedContainerName]
 		if calculationInfo.OwnerPoolName != poolName {
 			return fmt.Errorf("pool: %s has invalid owner pool name: %s in cpu advisor resp",
 				poolName, calculationInfo.OwnerPoolName)
 		}
 
 		if len(calculationInfo.CalculationResultsByNumas) != 1 ||
-			calculationInfo.CalculationResultsByNumas[state.FakedNUMAID] == nil ||
-			len(calculationInfo.CalculationResultsByNumas[state.FakedNUMAID].Blocks) != 1 {
+			calculationInfo.CalculationResultsByNumas[commonstate.FakedNUMAID] == nil ||
+			len(calculationInfo.CalculationResultsByNumas[commonstate.FakedNUMAID].Blocks) != 1 {
 			return fmt.Errorf("static pool: %s has invalid calculationInfo", poolName)
 		}
 
@@ -196,7 +197,7 @@ func (c *CPUAdvisorValidator) validateBlocks(resp *advisorapi.ListAndWatchRespon
 	totalQuantity := 0
 	numas := c.machineInfo.CPUTopology.CPUDetails.NUMANodes()
 	for numaId, blocks := range numaToBlocks {
-		if numaId != state.FakedNUMAID && !numas.Contains(numaId) {
+		if numaId != commonstate.FakedNUMAID && !numas.Contains(numaId) {
 			return fmt.Errorf("NUMA: %d referred by blocks isn't in topology", numaId)
 		}
 
@@ -214,7 +215,7 @@ func (c *CPUAdvisorValidator) validateBlocks(resp *advisorapi.ListAndWatchRespon
 			numaQuantity += quantityInt
 		}
 
-		if numaId != state.FakedNUMAID {
+		if numaId != commonstate.FakedNUMAID {
 			numaCapacity := c.machineInfo.CPUTopology.CPUDetails.CPUsInNUMANodes(numaId).Size()
 			if numaQuantity > numaCapacity {
 				return fmt.Errorf("numaQuantity: %d exceeds NUMA capacity: %d in NUMA: %d", numaQuantity, numaCapacity, numaId)

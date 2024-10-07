@@ -19,8 +19,8 @@ package qrm
 import (
 	cliflag "k8s.io/component-base/cli/flag"
 
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
 	cpuconsts "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/consts"
-	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
 	qrmconfig "github.com/kubewharf/katalyst-core/pkg/config/agent/qrm"
 )
 
@@ -60,10 +60,10 @@ func NewCPUOptions() *CPUOptions {
 			EnableCPUIdle:             false,
 			CPUNUMAHintPreferPolicy:   cpuconsts.CPUNUMAHintPreferPolicySpreading,
 			LoadPressureEvictionSkipPools: []string{
-				state.PoolNameReclaim,
-				state.PoolNameDedicated,
-				state.PoolNameFallback,
-				state.PoolNameReserve,
+				commonstate.PoolNameReclaim,
+				commonstate.PoolNameDedicated,
+				commonstate.PoolNameFallback,
+				commonstate.PoolNameReserve,
 			},
 		},
 		CPUNativePolicyOptions: CPUNativePolicyOptions{

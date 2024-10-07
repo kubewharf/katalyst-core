@@ -35,6 +35,7 @@ import (
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/agent"
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/agent/qrm"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/advisorsvc"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
 	cpuconsts "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/consts"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/calculator"
 	advisorapi "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/cpuadvisor"
@@ -428,9 +429,9 @@ func (p *DynamicPolicy) GetResourcesAllocation(_ context.Context,
 	// pooledCPUs is the total available cpu cores minus those that are reserved
 	pooledCPUs := machineState.GetFilteredAvailableCPUSet(p.reservedCPUs,
 		func(ai *state.AllocationInfo) bool {
-			return state.CheckDedicated(ai) || state.CheckSharedNUMABinding(ai)
+			return ai.CheckDedicated() || ai.CheckSharedNUMABinding()
 		},
-		state.CheckDedicatedNUMABinding)
+		state.WrapAllocationMetaFilter((*commonstate.AllocationMeta).CheckDedicatedNUMABinding))
 	pooledCPUsTopologyAwareAssignments, err := machine.GetNumaAwareAssignments(p.machineInfo.CPUTopology, pooledCPUs)
 	if err != nil {
 		return nil, fmt.Errorf("GetNumaAwareAssignments err: %v", err)
@@ -463,7 +464,7 @@ func (p *DynamicPolicy) GetResourcesAllocation(_ context.Context,
 
 			initTs, tsErr := time.Parse(util.QRMTimeFormat, allocationInfo.InitTimestamp)
 			if tsErr != nil {
-				if state.CheckShared(allocationInfo) && !state.CheckNUMABinding(allocationInfo) {
+				if allocationInfo.CheckShared() && !allocationInfo.CheckNUMABinding() {
 					general.Errorf("pod: %s/%s, container: %s init timestamp parsed failed with error: %v, re-ramp-up it",
 						allocationInfo.PodNamespace, allocationInfo.PodName, allocationInfo.ContainerName, tsErr)
 
@@ -475,7 +476,7 @@ func (p *DynamicPolicy) GetResourcesAllocation(_ context.Context,
 					allocationInfo.TopologyAwareAssignments = clonedPooledCPUsTopologyAwareAssignments
 					allocationInfo.OriginalTopologyAwareAssignments = clonedPooledCPUsTopologyAwareAssignments
 					// fill OwnerPoolName with empty string when ramping up
-					allocationInfo.OwnerPoolName = state.EmptyOwnerPoolName
+					allocationInfo.OwnerPoolName = commonstate.EmptyOwnerPoolName
 					allocationInfo.RampUp = true
 				}
 
@@ -486,7 +487,7 @@ func (p *DynamicPolicy) GetResourcesAllocation(_ context.Context,
 				allocationInfo.RampUp = false
 				p.state.SetAllocationInfo(podUID, containerName, allocationInfo)
 
-				if state.CheckShared(allocationInfo) {
+				if allocationInfo.CheckShared() {
 					allocationInfosJustFinishRampUp = append(allocationInfosJustFinishRampUp, allocationInfo)
 				}
 			}
@@ -994,7 +995,7 @@ func (p *DynamicPolicy) cleanPools() error {
 
 		for _, allocationInfo := range entries {
 			ownerPool := allocationInfo.GetOwnerPoolName()
-			if ownerPool != state.EmptyOwnerPoolName {
+			if ownerPool != commonstate.EmptyOwnerPoolName {
 				remainPools[ownerPool] = true
 			}
 		}
@@ -1032,28 +1033,27 @@ func (p *DynamicPolicy) cleanPools() error {
 
 // initReservePool initializes reserve pool for system cores workload
 func (p *DynamicPolicy) initReservePool() error {
-	reserveAllocationInfo := p.state.GetAllocationInfo(state.PoolNameReserve, state.FakedContainerName)
+	reserveAllocationInfo := p.state.GetAllocationInfo(commonstate.PoolNameReserve, commonstate.FakedContainerName)
 	if reserveAllocationInfo != nil && !reserveAllocationInfo.AllocationResult.IsEmpty() {
 		general.Infof("pool: %s allocation result transform from %s to %s",
-			state.PoolNameReserve, reserveAllocationInfo.AllocationResult.String(), p.reservedCPUs)
+			commonstate.PoolNameReserve, reserveAllocationInfo.AllocationResult.String(), p.reservedCPUs)
 	}
 
-	general.Infof("initReservePool %s: %s", state.PoolNameReserve, p.reservedCPUs)
+	general.Infof("initReservePool %s: %s", commonstate.PoolNameReserve, p.reservedCPUs)
 	topologyAwareAssignments, err := machine.GetNumaAwareAssignments(p.machineInfo.CPUTopology, p.reservedCPUs)
 	if err != nil {
 		return fmt.Errorf("unable to calculate topologyAwareAssignments for pool: %s, result cpuset: %s, error: %v",
-			state.PoolNameReserve, p.reservedCPUs.String(), err)
+			commonstate.PoolNameReserve, p.reservedCPUs.String(), err)
 	}
 
 	curReserveAllocationInfo := &state.AllocationInfo{
-		PodUid:                           state.PoolNameReserve,
-		OwnerPoolName:                    state.PoolNameReserve,
+		AllocationMeta:                   commonstate.GenerateGenericPoolAllocationMeta(commonstate.PoolNameReserve),
 		AllocationResult:                 p.reservedCPUs.Clone(),
 		OriginalAllocationResult:         p.reservedCPUs.Clone(),
 		TopologyAwareAssignments:         topologyAwareAssignments,
 		OriginalTopologyAwareAssignments: machine.DeepcopyCPUAssignment(topologyAwareAssignments),
 	}
-	p.state.SetAllocationInfo(state.PoolNameReserve, state.FakedContainerName, curReserveAllocationInfo)
+	p.state.SetAllocationInfo(commonstate.PoolNameReserve, commonstate.FakedContainerName, curReserveAllocationInfo)
 
 	return nil
 }
@@ -1061,7 +1061,7 @@ func (p *DynamicPolicy) initReservePool() error {
 // initReclaimPool initializes pools for reclaimed-cores.
 // if this info already exists in state-file, just use it, otherwise calculate right away
 func (p *DynamicPolicy) initReclaimPool() error {
-	reclaimedAllocationInfo := p.state.GetAllocationInfo(state.PoolNameReclaim, state.FakedContainerName)
+	reclaimedAllocationInfo := p.state.GetAllocationInfo(commonstate.PoolNameReclaim, commonstate.FakedContainerName)
 	if reclaimedAllocationInfo == nil {
 		podEntries := p.state.GetPodEntries()
 		noneResidentCPUs := podEntries.GetFilteredPoolsCPUSet(state.ResidentPools)
@@ -1069,9 +1069,9 @@ func (p *DynamicPolicy) initReclaimPool() error {
 		machineState := p.state.GetMachineState()
 		availableCPUs := machineState.GetFilteredAvailableCPUSet(p.reservedCPUs,
 			func(ai *state.AllocationInfo) bool {
-				return state.CheckDedicated(ai) || state.CheckSharedNUMABinding(ai)
+				return ai.CheckDedicated() || ai.CheckSharedNUMABinding()
 			},
-			state.CheckDedicatedNUMABinding).Difference(noneResidentCPUs)
+			state.WrapAllocationMetaFilter((*commonstate.AllocationMeta).CheckDedicatedNUMABinding)).Difference(noneResidentCPUs)
 
 		var initReclaimedCPUSetSize int
 		if availableCPUs.Size() >= reservedReclaimedCPUsSize {
@@ -1083,7 +1083,7 @@ func (p *DynamicPolicy) initReclaimPool() error {
 		reclaimedCPUSet, _, err := calculator.TakeByNUMABalance(p.machineInfo, availableCPUs, initReclaimedCPUSetSize)
 		if err != nil {
 			return fmt.Errorf("takeByNUMABalance faild in initReclaimPool for %s and %s with error: %v",
-				state.PoolNameShare, state.PoolNameReclaim, err)
+				commonstate.PoolNameShare, commonstate.PoolNameReclaim, err)
 		}
 
 		// for residual pools, we must make them exist even if cause overlap
@@ -1093,11 +1093,11 @@ func (p *DynamicPolicy) initReclaimPool() error {
 			reclaimedCPUSet, _, err = calculator.TakeByNUMABalance(p.machineInfo, allAvailableCPUs, reservedReclaimedCPUsSize)
 			if err != nil {
 				return fmt.Errorf("fallback takeByNUMABalance faild in initReclaimPool for %s with error: %v",
-					state.PoolNameReclaim, err)
+					commonstate.PoolNameReclaim, err)
 			}
 		}
 
-		for poolName, cset := range map[string]machine.CPUSet{state.PoolNameReclaim: reclaimedCPUSet} {
+		for poolName, cset := range map[string]machine.CPUSet{commonstate.PoolNameReclaim: reclaimedCPUSet} {
 			general.Infof("initReclaimPool %s: %s", poolName, cset.String())
 			topologyAwareAssignments, err := machine.GetNumaAwareAssignments(p.machineInfo.CPUTopology, cset)
 			if err != nil {
@@ -1106,17 +1106,16 @@ func (p *DynamicPolicy) initReclaimPool() error {
 			}
 
 			curPoolAllocationInfo := &state.AllocationInfo{
-				PodUid:                           poolName,
-				OwnerPoolName:                    poolName,
+				AllocationMeta:                   commonstate.GenerateGenericPoolAllocationMeta(poolName),
 				AllocationResult:                 cset.Clone(),
 				OriginalAllocationResult:         cset.Clone(),
 				TopologyAwareAssignments:         topologyAwareAssignments,
 				OriginalTopologyAwareAssignments: machine.DeepcopyCPUAssignment(topologyAwareAssignments),
 			}
-			p.state.SetAllocationInfo(poolName, state.FakedContainerName, curPoolAllocationInfo)
+			p.state.SetAllocationInfo(poolName, commonstate.FakedContainerName, curPoolAllocationInfo)
 		}
 	} else {
-		general.Infof("exist initial %s: %s", state.PoolNameReclaim, reclaimedAllocationInfo.AllocationResult.String())
+		general.Infof("exist initial %s: %s", commonstate.PoolNameReclaim, reclaimedAllocationInfo.AllocationResult.String())
 	}
 
 	return nil
@@ -1145,14 +1144,14 @@ func (p *DynamicPolicy) getContainerRequestedCores(allocationInfo *state.Allocat
 
 	// optimize this logic someday:
 	//	only for refresh cpu request for old pod with cpu ceil and old inplace update resized pods.
-	if state.CheckShared(allocationInfo) {
+	if allocationInfo.CheckShared() {
 		// if there is these two annotations in memory state, it is a new pod,
 		// we don't need to check the pod request from podWatcher
 		if allocationInfo.Annotations[consts.PodAnnotationAggregatedRequestsKey] != "" ||
 			allocationInfo.Annotations[consts.PodAnnotationInplaceUpdateResizingKey] != "" {
 			return allocationInfo.RequestQuantity
 		}
-		if state.CheckNUMABinding(allocationInfo) {
+		if allocationInfo.CheckNUMABinding() {
 			if metaValue < allocationInfo.RequestQuantity {
 				general.Infof("[snb] get cpu request quantity: (%.3f->%.3f) for pod: %s/%s container: %s from podWatcher",
 					allocationInfo.RequestQuantity, metaValue, allocationInfo.PodNamespace, allocationInfo.PodName, allocationInfo.ContainerName)
@@ -1184,7 +1183,8 @@ func (p *DynamicPolicy) checkNormalShareCoresCpuResource(req *pluginapi.Resource
 
 	machineState := p.state.GetMachineState()
 	pooledCPUs := machineState.GetFilteredAvailableCPUSet(p.reservedCPUs,
-		state.CheckDedicated, state.CheckSharedOrDedicatedNUMABinding)
+		state.WrapAllocationMetaFilter((*commonstate.AllocationMeta).CheckDedicated),
+		state.WrapAllocationMetaFilter((*commonstate.AllocationMeta).CheckSharedOrDedicatedNUMABinding))
 
 	general.Infof("[checkNormalShareCoresCpuResource] node cpu allocated: %d, allocatable: %d", shareCoresAllocatedInt, pooledCPUs.Size())
 	if shareCoresAllocatedInt > pooledCPUs.Size() {

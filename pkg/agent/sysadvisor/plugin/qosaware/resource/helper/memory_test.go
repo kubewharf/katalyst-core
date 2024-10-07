@@ -29,7 +29,7 @@ import (
 
 	"github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/options"
-	qrmstate "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
 	"github.com/kubewharf/katalyst-core/pkg/config"
@@ -45,10 +45,10 @@ import (
 )
 
 var qosLevel2PoolName = map[string]string{
-	consts.PodAnnotationQoSLevelSharedCores:    qrmstate.PoolNameShare,
-	consts.PodAnnotationQoSLevelReclaimedCores: qrmstate.PoolNameReclaim,
-	consts.PodAnnotationQoSLevelSystemCores:    qrmstate.PoolNameReserve,
-	consts.PodAnnotationQoSLevelDedicatedCores: qrmstate.PoolNameDedicated,
+	consts.PodAnnotationQoSLevelSharedCores:    commonstate.PoolNameShare,
+	consts.PodAnnotationQoSLevelReclaimedCores: commonstate.PoolNameReclaim,
+	consts.PodAnnotationQoSLevelSystemCores:    commonstate.PoolNameReserve,
+	consts.PodAnnotationQoSLevelDedicatedCores: commonstate.PoolNameDedicated,
 }
 
 func makeContainerInfo(podUID, namespace, podName, containerName, qoSLevel string, annotations map[string]string,

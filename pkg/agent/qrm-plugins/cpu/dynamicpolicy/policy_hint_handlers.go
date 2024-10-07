@@ -29,6 +29,7 @@ import (
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 
 	apiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
 	cpuconsts "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/consts"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
 	cpuutil "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/util"
@@ -165,7 +166,8 @@ func (p *DynamicPolicy) dedicatedCoresWithNUMABindingHintHandler(_ context.Conte
 
 	// if hints exists in extra state-file, prefer to use them
 	if hints == nil {
-		availableNUMAs := machineState.GetFilteredNUMASet(state.CheckSharedOrDedicatedNUMABinding)
+		availableNUMAs := machineState.GetFilteredNUMASet(state.WrapAllocationMetaFilter(
+			(*commonstate.AllocationMeta).CheckSharedOrDedicatedNUMABinding))
 
 		var extraErr error
 		hints, extraErr = util.GetHintsFromExtraStateFile(req.PodName, string(v1.ResourceCPU), p.extraStateFileAbsPath, availableNUMAs)
@@ -351,7 +353,7 @@ func getNUMAAllocatedMemBW(machineState state.NUMANodeMap, metaServer *metaserve
 
 		for _, entries := range numaState.PodEntries {
 			for _, allocationInfo := range entries {
-				if !(state.CheckDedicatedNUMABinding(allocationInfo) && allocationInfo.CheckMainContainer()) {
+				if !(allocationInfo.CheckDedicatedNUMABinding() && allocationInfo.CheckMainContainer()) {
 					continue
 				}
 
@@ -794,14 +796,15 @@ func (p *DynamicPolicy) calculateHintsForNUMABindingSharedCores(reqInt int, podE
 	machineState state.NUMANodeMap,
 	req *pluginapi.ResourceRequest,
 ) (map[string]*pluginapi.ListOfTopologyHints, error) {
-	nonBindingNUMAsCPUQuantity := machineState.GetFilteredAvailableCPUSet(p.reservedCPUs, nil, state.CheckSharedOrDedicatedNUMABinding).Size()
-	nonBindingNUMAs := machineState.GetFilteredNUMASet(state.CheckSharedOrDedicatedNUMABinding)
+	nonBindingNUMAsCPUQuantity := machineState.GetFilteredAvailableCPUSet(p.reservedCPUs, nil,
+		state.WrapAllocationMetaFilter((*commonstate.AllocationMeta).CheckSharedOrDedicatedNUMABinding)).Size()
+	nonBindingNUMAs := machineState.GetFilteredNUMASet(state.WrapAllocationMetaFilter((*commonstate.AllocationMeta).CheckSharedOrDedicatedNUMABinding))
 	nonBindingSharedRequestedQuantity := state.GetNonBindingSharedRequestedQuantityFromPodEntries(podEntries, nil, p.getContainerRequestedCores)
 
 	reqAnnotations := req.Annotations
 	numaNodes := p.filterNUMANodesByNonBindingSharedRequestedQuantity(nonBindingSharedRequestedQuantity,
 		nonBindingNUMAsCPUQuantity, nonBindingNUMAs, machineState,
-		machineState.GetFilteredNUMASetWithAnnotations(state.CheckNUMABindingSharedCoresAntiAffinity, reqAnnotations).ToSliceInt())
+		machineState.GetFilteredNUMASetWithAnnotations(state.WrapAllocationMetaFilterWithAnnotations(commonstate.CheckNUMABindingSharedCoresAntiAffinity), reqAnnotations).ToSliceInt())
 
 	hints := map[string]*pluginapi.ListOfTopologyHints{
 		string(v1.ResourceCPU): {

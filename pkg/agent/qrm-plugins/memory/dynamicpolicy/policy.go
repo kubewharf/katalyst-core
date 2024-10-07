@@ -1020,7 +1020,7 @@ func (p *DynamicPolicy) getContainerRequestedMemoryBytes(allocationInfo *state.A
 	// TODO optimize this logic someday:
 	//	only for refresh cpu request for old pod with cpu ceil and old VPA pods.
 	//  we can remove refresh logic after upgrade all kubelet and qrm.
-	if allocationInfo.QoSLevel == apiconsts.PodAnnotationQoSLevelSharedCores {
+	if allocationInfo.CheckShared() {
 		// if there is these two annotations in memory state, it is a new pod,
 		// we don't need to check the pod request from podWatcher
 		if allocationInfo.Annotations[apiconsts.PodAnnotationAggregatedRequestsKey] != "" ||
@@ -1028,7 +1028,7 @@ func (p *DynamicPolicy) getContainerRequestedMemoryBytes(allocationInfo *state.A
 			return allocationInfo.AggregatedQuantity
 		}
 
-		if allocationInfo.CheckNumaBinding() {
+		if allocationInfo.CheckNUMABinding() {
 			// snb count all memory into main container, sidecar is zero
 			if allocationInfo.CheckSideCar() {
 				// sidecar container always is zero
@@ -1136,7 +1136,7 @@ func (p *DynamicPolicy) checkNormalShareCoresResource(req *pluginapi.ResourceReq
 				continue
 			}
 			// shareCoresAllocated should involve both main and sidecar containers
-			if containerAllocation.QoSLevel == apiconsts.PodAnnotationQoSLevelSharedCores && !containerAllocation.CheckNumaBinding() {
+			if containerAllocation.CheckDedicated() && !containerAllocation.CheckNUMABinding() {
 				shareCoresAllocated += p.getContainerRequestedMemoryBytes(containerAllocation)
 			}
 		}

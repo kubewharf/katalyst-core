@@ -32,7 +32,7 @@ import (
 	"github.com/kubewharf/katalyst-api/pkg/consts"
 	katalyst_base "github.com/kubewharf/katalyst-core/cmd/base"
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/options"
-	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
@@ -183,7 +183,7 @@ func TestIsNumaBinding(t *testing.T) {
 		QoSLevel:    consts.PodAnnotationQoSLevelSharedCores,
 		RegionNames: sets.NewString("share"),
 	}
-	share2 := NewQoSRegionShare(&ci2, conf, nil, state.FakedNUMAID, metaCache, metaServer, metrics.DummyMetrics{})
+	share2 := NewQoSRegionShare(&ci2, conf, nil, commonstate.FakedNUMAID, metaCache, metaServer, metrics.DummyMetrics{})
 	require.False(t, share2.IsNumaBinding(), "test IsNumaBinding failed")
 
 	ci3 := types.ContainerInfo{
@@ -199,7 +199,7 @@ func TestIsNumaBinding(t *testing.T) {
 		RegionNames: sets.NewString("isolation-1"),
 		Isolated:    true,
 	}
-	isolation2 := NewQoSRegionIsolation(&ci4, "isolation-1", conf, nil, state.FakedNUMAID, metaCache, metaServer, metrics.DummyMetrics{})
+	isolation2 := NewQoSRegionIsolation(&ci4, "isolation-1", conf, nil, commonstate.FakedNUMAID, metaCache, metaServer, metrics.DummyMetrics{})
 	require.False(t, isolation2.IsNumaBinding(), "test IsNumaBinding failed")
 }
 
@@ -269,7 +269,7 @@ func TestRestrictProvisionControlKnob(t *testing.T) {
 				QoSLevel:    consts.PodAnnotationQoSLevelSharedCores,
 				RegionNames: sets.NewString("share"),
 			}
-			share := NewQoSRegionShare(&ci, conf, nil, state.FakedNUMAID, metaCache, metaServer, metrics.DummyMetrics{})
+			share := NewQoSRegionShare(&ci, conf, nil, commonstate.FakedNUMAID, metaCache, metaServer, metrics.DummyMetrics{})
 			restrictedControlKnobs := share.(*QoSRegionShare).restrictProvisionControlKnob(tt.originControlKnob)
 			assert.Equal(t, tt.wantControlKnob, restrictedControlKnobs)
 		})

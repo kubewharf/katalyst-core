@@ -37,6 +37,7 @@ import (
 
 	apiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
 	evictionpluginapi "github.com/kubewharf/katalyst-api/pkg/protocol/evictionplugin/v1alpha1"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
 	qrmstate "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/consts"
@@ -91,10 +92,10 @@ func makeConf(metricRingSize int, gracePeriod int64, loadUpperBoundRatio, loadLo
 	}
 	conf.ReservedCPUCores = reservedForSystem
 	conf.LoadPressureEvictionSkipPools = []string{
-		qrmstate.PoolNameReclaim,
-		qrmstate.PoolNameDedicated,
-		qrmstate.PoolNameFallback,
-		qrmstate.PoolNameReserve,
+		commonstate.PoolNameReclaim,
+		commonstate.PoolNameDedicated,
+		commonstate.PoolNameFallback,
+		commonstate.PoolNameReserve,
 	}
 	return conf
 }
@@ -166,14 +167,23 @@ func TestThresholdMet(t *testing.T) {
 			podEntries: qrmstate.PodEntries{
 				pod1UID: qrmstate.ContainerEntries{
 					testName: &qrmstate.AllocationInfo{
-						PodUid:                   pod1UID,
-						PodNamespace:             testName,
-						PodName:                  testName,
-						ContainerName:            testName,
-						ContainerType:            pluginapi.ContainerType_MAIN.String(),
-						ContainerIndex:           0,
+						AllocationMeta: &commonstate.AllocationMeta{
+							PodUid:         pod1UID,
+							PodNamespace:   testName,
+							PodName:        testName,
+							ContainerName:  testName,
+							ContainerType:  pluginapi.ContainerType_MAIN.String(),
+							ContainerIndex: 0,
+							OwnerPoolName:  commonstate.PoolNameShare,
+							Labels: map[string]string{
+								apiconsts.PodAnnotationQoSLevelKey: apiconsts.PodAnnotationQoSLevelSharedCores,
+							},
+							Annotations: map[string]string{
+								apiconsts.PodAnnotationQoSLevelKey: apiconsts.PodAnnotationQoSLevelSharedCores,
+							},
+							QoSLevel: apiconsts.PodAnnotationQoSLevelSharedCores,
+						},
 						RampUp:                   false,
-						OwnerPoolName:            qrmstate.PoolNameShare,
 						AllocationResult:         machine.MustParse("1,3-6,9,11-14"),
 						OriginalAllocationResult: machine.MustParse("1,3-6,9,11-14"),
 						TopologyAwareAssignments: map[int]machine.CPUSet{
@@ -188,20 +198,12 @@ func TestThresholdMet(t *testing.T) {
 							2: machine.NewCPUSet(4, 5, 11, 12),
 							3: machine.NewCPUSet(6, 14),
 						},
-						Labels: map[string]string{
-							apiconsts.PodAnnotationQoSLevelKey: apiconsts.PodAnnotationQoSLevelSharedCores,
-						},
-						Annotations: map[string]string{
-							apiconsts.PodAnnotationQoSLevelKey: apiconsts.PodAnnotationQoSLevelSharedCores,
-						},
-						QoSLevel:        apiconsts.PodAnnotationQoSLevelSharedCores,
 						RequestQuantity: 2,
 					},
 				},
-				qrmstate.PoolNameShare: qrmstate.ContainerEntries{
+				commonstate.PoolNameShare: qrmstate.ContainerEntries{
 					"": &qrmstate.AllocationInfo{
-						PodUid:                   qrmstate.PoolNameShare,
-						OwnerPoolName:            qrmstate.PoolNameShare,
+						AllocationMeta:           commonstate.GenerateGenericPoolAllocationMeta(commonstate.PoolNameShare),
 						AllocationResult:         machine.MustParse("1,3-6,9,11-14"),
 						OriginalAllocationResult: machine.MustParse("1,3-6,9,11-14"),
 						TopologyAwareAssignments: map[int]machine.CPUSet{
@@ -238,14 +240,23 @@ func TestThresholdMet(t *testing.T) {
 			podEntries: qrmstate.PodEntries{
 				pod1UID: qrmstate.ContainerEntries{
 					testName: &qrmstate.AllocationInfo{
-						PodUid:                   pod1UID,
-						PodNamespace:             testName,
-						PodName:                  testName,
-						ContainerName:            testName,
-						ContainerType:            pluginapi.ContainerType_MAIN.String(),
-						ContainerIndex:           0,
+						AllocationMeta: &commonstate.AllocationMeta{
+							PodUid:         pod1UID,
+							PodNamespace:   testName,
+							PodName:        testName,
+							ContainerName:  testName,
+							ContainerType:  pluginapi.ContainerType_MAIN.String(),
+							ContainerIndex: 0,
+							OwnerPoolName:  commonstate.PoolNameShare,
+							Labels: map[string]string{
+								apiconsts.PodAnnotationQoSLevelKey: apiconsts.PodAnnotationQoSLevelSharedCores,
+							},
+							Annotations: map[string]string{
+								apiconsts.PodAnnotationQoSLevelKey: apiconsts.PodAnnotationQoSLevelSharedCores,
+							},
+							QoSLevel: apiconsts.PodAnnotationQoSLevelSharedCores,
+						},
 						RampUp:                   false,
-						OwnerPoolName:            qrmstate.PoolNameShare,
 						AllocationResult:         machine.MustParse("1,3-6,9,11-14"),
 						OriginalAllocationResult: machine.MustParse("1,3-6,9,11-14"),
 						TopologyAwareAssignments: map[int]machine.CPUSet{
@@ -260,20 +271,12 @@ func TestThresholdMet(t *testing.T) {
 							2: machine.NewCPUSet(4, 5, 11, 12),
 							3: machine.NewCPUSet(6, 14),
 						},
-						Labels: map[string]string{
-							apiconsts.PodAnnotationQoSLevelKey: apiconsts.PodAnnotationQoSLevelSharedCores,
-						},
-						Annotations: map[string]string{
-							apiconsts.PodAnnotationQoSLevelKey: apiconsts.PodAnnotationQoSLevelSharedCores,
-						},
-						QoSLevel:        apiconsts.PodAnnotationQoSLevelSharedCores,
 						RequestQuantity: 2,
 					},
 				},
-				qrmstate.PoolNameShare: qrmstate.ContainerEntries{
+				commonstate.PoolNameShare: qrmstate.ContainerEntries{
 					"": &qrmstate.AllocationInfo{
-						PodUid:                   qrmstate.PoolNameShare,
-						OwnerPoolName:            qrmstate.PoolNameShare,
+						AllocationMeta:           commonstate.GenerateGenericPoolAllocationMeta(commonstate.PoolNameShare),
 						AllocationResult:         machine.MustParse("1,3-6,9,11-14"),
 						OriginalAllocationResult: machine.MustParse("1,3-6,9,11-14"),
 						TopologyAwareAssignments: map[int]machine.CPUSet{
@@ -310,14 +313,23 @@ func TestThresholdMet(t *testing.T) {
 			podEntries: qrmstate.PodEntries{
 				pod1UID: qrmstate.ContainerEntries{
 					testName: &qrmstate.AllocationInfo{
-						PodUid:                   pod1UID,
-						PodNamespace:             testName,
-						PodName:                  testName,
-						ContainerName:            testName,
-						ContainerType:            pluginapi.ContainerType_MAIN.String(),
-						ContainerIndex:           0,
+						AllocationMeta: &commonstate.AllocationMeta{
+							PodUid:         pod1UID,
+							PodNamespace:   testName,
+							PodName:        testName,
+							ContainerName:  testName,
+							ContainerType:  pluginapi.ContainerType_MAIN.String(),
+							ContainerIndex: 0,
+							OwnerPoolName:  commonstate.PoolNameShare,
+							Labels: map[string]string{
+								apiconsts.PodAnnotationQoSLevelKey: apiconsts.PodAnnotationQoSLevelSharedCores,
+							},
+							Annotations: map[string]string{
+								apiconsts.PodAnnotationQoSLevelKey: apiconsts.PodAnnotationQoSLevelSharedCores,
+							},
+							QoSLevel: apiconsts.PodAnnotationQoSLevelSharedCores,
+						},
 						RampUp:                   false,
-						OwnerPoolName:            qrmstate.PoolNameShare,
 						AllocationResult:         machine.MustParse("1,3-6,9,11-14"),
 						OriginalAllocationResult: machine.MustParse("1,3-6,9,11-14"),
 						TopologyAwareAssignments: map[int]machine.CPUSet{
@@ -332,20 +344,12 @@ func TestThresholdMet(t *testing.T) {
 							2: machine.NewCPUSet(4, 5, 11, 12),
 							3: machine.NewCPUSet(6, 14),
 						},
-						Labels: map[string]string{
-							apiconsts.PodAnnotationQoSLevelKey: apiconsts.PodAnnotationQoSLevelSharedCores,
-						},
-						Annotations: map[string]string{
-							apiconsts.PodAnnotationQoSLevelKey: apiconsts.PodAnnotationQoSLevelSharedCores,
-						},
-						QoSLevel:        apiconsts.PodAnnotationQoSLevelSharedCores,
 						RequestQuantity: 2,
 					},
 				},
-				qrmstate.PoolNameShare: qrmstate.ContainerEntries{
+				commonstate.PoolNameShare: qrmstate.ContainerEntries{
 					"": &qrmstate.AllocationInfo{
-						PodUid:                   qrmstate.PoolNameShare,
-						OwnerPoolName:            qrmstate.PoolNameShare,
+						AllocationMeta:           commonstate.GenerateGenericPoolAllocationMeta(commonstate.PoolNameShare),
 						AllocationResult:         machine.MustParse("1,3-6,9,11-14"),
 						OriginalAllocationResult: machine.MustParse("1,3-6,9,11-14"),
 						TopologyAwareAssignments: map[int]machine.CPUSet{
@@ -452,14 +456,23 @@ func TestGetTopEvictionPods(t *testing.T) {
 			podEntries: qrmstate.PodEntries{
 				pod1UID: qrmstate.ContainerEntries{
 					testName: &qrmstate.AllocationInfo{
-						PodUid:                   pod1UID,
-						PodNamespace:             testName,
-						PodName:                  testName,
-						ContainerName:            testName,
-						ContainerType:            pluginapi.ContainerType_MAIN.String(),
-						ContainerIndex:           0,
+						AllocationMeta: &commonstate.AllocationMeta{
+							PodUid:         pod1UID,
+							PodNamespace:   testName,
+							PodName:        testName,
+							ContainerName:  testName,
+							ContainerType:  pluginapi.ContainerType_MAIN.String(),
+							ContainerIndex: 0,
+							OwnerPoolName:  commonstate.PoolNameShare,
+							Labels: map[string]string{
+								apiconsts.PodAnnotationQoSLevelKey: apiconsts.PodAnnotationQoSLevelSharedCores,
+							},
+							Annotations: map[string]string{
+								apiconsts.PodAnnotationQoSLevelKey: apiconsts.PodAnnotationQoSLevelSharedCores,
+							},
+							QoSLevel: apiconsts.PodAnnotationQoSLevelSharedCores,
+						},
 						RampUp:                   false,
-						OwnerPoolName:            qrmstate.PoolNameShare,
 						AllocationResult:         machine.MustParse("1,3-6,9,11-14"),
 						OriginalAllocationResult: machine.MustParse("1,3-6,9,11-14"),
 						TopologyAwareAssignments: map[int]machine.CPUSet{
@@ -474,20 +487,12 @@ func TestGetTopEvictionPods(t *testing.T) {
 							2: machine.NewCPUSet(4, 5, 11, 12),
 							3: machine.NewCPUSet(6, 14),
 						},
-						Labels: map[string]string{
-							apiconsts.PodAnnotationQoSLevelKey: apiconsts.PodAnnotationQoSLevelSharedCores,
-						},
-						Annotations: map[string]string{
-							apiconsts.PodAnnotationQoSLevelKey: apiconsts.PodAnnotationQoSLevelSharedCores,
-						},
-						QoSLevel:        apiconsts.PodAnnotationQoSLevelSharedCores,
 						RequestQuantity: 2,
 					},
 				},
-				qrmstate.PoolNameShare: qrmstate.ContainerEntries{
+				commonstate.PoolNameShare: qrmstate.ContainerEntries{
 					"": &qrmstate.AllocationInfo{
-						PodUid:                   qrmstate.PoolNameShare,
-						OwnerPoolName:            qrmstate.PoolNameShare,
+						AllocationMeta:           commonstate.GenerateGenericPoolAllocationMeta(commonstate.PoolNameShare),
 						AllocationResult:         machine.MustParse("1,3-6,9,11-14"),
 						OriginalAllocationResult: machine.MustParse("1,3-6,9,11-14"),
 						TopologyAwareAssignments: map[int]machine.CPUSet{
@@ -517,14 +522,23 @@ func TestGetTopEvictionPods(t *testing.T) {
 			podEntries: qrmstate.PodEntries{
 				pod1UID: qrmstate.ContainerEntries{
 					testName: &qrmstate.AllocationInfo{
-						PodUid:                   pod1UID,
-						PodNamespace:             testName,
-						PodName:                  testName,
-						ContainerName:            testName,
-						ContainerType:            pluginapi.ContainerType_MAIN.String(),
-						ContainerIndex:           0,
+						AllocationMeta: &commonstate.AllocationMeta{
+							PodUid:         pod1UID,
+							PodNamespace:   testName,
+							PodName:        testName,
+							ContainerName:  testName,
+							ContainerType:  pluginapi.ContainerType_MAIN.String(),
+							ContainerIndex: 0,
+							OwnerPoolName:  commonstate.PoolNameShare,
+							Labels: map[string]string{
+								apiconsts.PodAnnotationQoSLevelKey: apiconsts.PodAnnotationQoSLevelSharedCores,
+							},
+							Annotations: map[string]string{
+								apiconsts.PodAnnotationQoSLevelKey: apiconsts.PodAnnotationQoSLevelSharedCores,
+							},
+							QoSLevel: apiconsts.PodAnnotationQoSLevelSharedCores,
+						},
 						RampUp:                   false,
-						OwnerPoolName:            qrmstate.PoolNameShare,
 						AllocationResult:         machine.MustParse("1,3-6,9,11-14"),
 						OriginalAllocationResult: machine.MustParse("1,3-6,9,11-14"),
 						TopologyAwareAssignments: map[int]machine.CPUSet{
@@ -539,20 +553,12 @@ func TestGetTopEvictionPods(t *testing.T) {
 							2: machine.NewCPUSet(4, 5, 11, 12),
 							3: machine.NewCPUSet(6, 14),
 						},
-						Labels: map[string]string{
-							apiconsts.PodAnnotationQoSLevelKey: apiconsts.PodAnnotationQoSLevelSharedCores,
-						},
-						Annotations: map[string]string{
-							apiconsts.PodAnnotationQoSLevelKey: apiconsts.PodAnnotationQoSLevelSharedCores,
-						},
-						QoSLevel:        apiconsts.PodAnnotationQoSLevelSharedCores,
 						RequestQuantity: 2,
 					},
 				},
-				qrmstate.PoolNameShare: qrmstate.ContainerEntries{
+				commonstate.PoolNameShare: qrmstate.ContainerEntries{
 					"": &qrmstate.AllocationInfo{
-						PodUid:                   qrmstate.PoolNameShare,
-						OwnerPoolName:            qrmstate.PoolNameShare,
+						AllocationMeta:           commonstate.GenerateGenericPoolAllocationMeta(commonstate.PoolNameShare),
 						AllocationResult:         machine.MustParse("1,3-6,9,11-14"),
 						OriginalAllocationResult: machine.MustParse("1,3-6,9,11-14"),
 						TopologyAwareAssignments: map[int]machine.CPUSet{
@@ -585,14 +591,23 @@ func TestGetTopEvictionPods(t *testing.T) {
 			podEntries: qrmstate.PodEntries{
 				pod1UID: qrmstate.ContainerEntries{
 					testName: &qrmstate.AllocationInfo{
-						PodUid:                   pod1UID,
-						PodNamespace:             testName,
-						PodName:                  testName,
-						ContainerName:            testName,
-						ContainerType:            pluginapi.ContainerType_MAIN.String(),
-						ContainerIndex:           0,
+						AllocationMeta: &commonstate.AllocationMeta{
+							PodUid:         pod1UID,
+							PodNamespace:   testName,
+							PodName:        testName,
+							ContainerName:  testName,
+							ContainerType:  pluginapi.ContainerType_MAIN.String(),
+							ContainerIndex: 0,
+							OwnerPoolName:  commonstate.PoolNameShare,
+							Labels: map[string]string{
+								apiconsts.PodAnnotationQoSLevelKey: apiconsts.PodAnnotationQoSLevelSharedCores,
+							},
+							Annotations: map[string]string{
+								apiconsts.PodAnnotationQoSLevelKey: apiconsts.PodAnnotationQoSLevelSharedCores,
+							},
+							QoSLevel: apiconsts.PodAnnotationQoSLevelSharedCores,
+						},
 						RampUp:                   false,
-						OwnerPoolName:            qrmstate.PoolNameShare,
 						AllocationResult:         machine.MustParse("1,3-6,9,11-14"),
 						OriginalAllocationResult: machine.MustParse("1,3-6,9,11-14"),
 						TopologyAwareAssignments: map[int]machine.CPUSet{
@@ -607,26 +622,28 @@ func TestGetTopEvictionPods(t *testing.T) {
 							2: machine.NewCPUSet(4, 5, 11, 12),
 							3: machine.NewCPUSet(6, 14),
 						},
-						Labels: map[string]string{
-							apiconsts.PodAnnotationQoSLevelKey: apiconsts.PodAnnotationQoSLevelSharedCores,
-						},
-						Annotations: map[string]string{
-							apiconsts.PodAnnotationQoSLevelKey: apiconsts.PodAnnotationQoSLevelSharedCores,
-						},
-						QoSLevel:        apiconsts.PodAnnotationQoSLevelSharedCores,
 						RequestQuantity: 2,
 					},
 				},
 				pod2UID: qrmstate.ContainerEntries{
 					testName: &qrmstate.AllocationInfo{
-						PodUid:                   pod2UID,
-						PodNamespace:             testName,
-						PodName:                  testName,
-						ContainerName:            testName,
-						ContainerType:            pluginapi.ContainerType_MAIN.String(),
-						ContainerIndex:           0,
+						AllocationMeta: &commonstate.AllocationMeta{
+							PodUid:         pod2UID,
+							PodNamespace:   testName,
+							PodName:        testName,
+							ContainerName:  testName,
+							ContainerType:  pluginapi.ContainerType_MAIN.String(),
+							ContainerIndex: 0,
+							OwnerPoolName:  commonstate.PoolNameShare,
+							Labels: map[string]string{
+								apiconsts.PodAnnotationQoSLevelKey: apiconsts.PodAnnotationQoSLevelSharedCores,
+							},
+							Annotations: map[string]string{
+								apiconsts.PodAnnotationQoSLevelKey: apiconsts.PodAnnotationQoSLevelSharedCores,
+							},
+							QoSLevel: apiconsts.PodAnnotationQoSLevelSharedCores,
+						},
 						RampUp:                   false,
-						OwnerPoolName:            qrmstate.PoolNameShare,
 						AllocationResult:         machine.MustParse("1,3-6,9,11-14"),
 						OriginalAllocationResult: machine.MustParse("1,3-6,9,11-14"),
 						TopologyAwareAssignments: map[int]machine.CPUSet{
@@ -641,26 +658,28 @@ func TestGetTopEvictionPods(t *testing.T) {
 							2: machine.NewCPUSet(4, 5, 11, 12),
 							3: machine.NewCPUSet(6, 14),
 						},
-						Labels: map[string]string{
-							apiconsts.PodAnnotationQoSLevelKey: apiconsts.PodAnnotationQoSLevelSharedCores,
-						},
-						Annotations: map[string]string{
-							apiconsts.PodAnnotationQoSLevelKey: apiconsts.PodAnnotationQoSLevelSharedCores,
-						},
-						QoSLevel:        apiconsts.PodAnnotationQoSLevelSharedCores,
 						RequestQuantity: 2,
 					},
 				},
 				pod3UID: qrmstate.ContainerEntries{
 					testName: &qrmstate.AllocationInfo{
-						PodUid:                   pod3UID,
-						PodNamespace:             testName,
-						PodName:                  testName,
-						ContainerName:            testName,
-						ContainerType:            pluginapi.ContainerType_MAIN.String(),
-						ContainerIndex:           0,
+						AllocationMeta: &commonstate.AllocationMeta{
+							PodUid:         pod3UID,
+							PodNamespace:   testName,
+							PodName:        testName,
+							ContainerName:  testName,
+							ContainerType:  pluginapi.ContainerType_MAIN.String(),
+							ContainerIndex: 0,
+							OwnerPoolName:  commonstate.PoolNameReclaim,
+							Labels: map[string]string{
+								apiconsts.PodAnnotationQoSLevelKey: apiconsts.PodAnnotationQoSLevelReclaimedCores,
+							},
+							Annotations: map[string]string{
+								apiconsts.PodAnnotationQoSLevelKey: apiconsts.PodAnnotationQoSLevelReclaimedCores,
+							},
+							QoSLevel: apiconsts.PodAnnotationQoSLevelReclaimedCores,
+						},
 						RampUp:                   false,
-						OwnerPoolName:            qrmstate.PoolNameReclaim,
 						AllocationResult:         machine.NewCPUSet(7, 8, 10, 15),
 						OriginalAllocationResult: machine.NewCPUSet(7, 8, 10, 15),
 						TopologyAwareAssignments: map[int]machine.CPUSet{
@@ -673,20 +692,12 @@ func TestGetTopEvictionPods(t *testing.T) {
 							1: machine.NewCPUSet(10),
 							3: machine.NewCPUSet(7, 15),
 						},
-						Labels: map[string]string{
-							apiconsts.PodAnnotationQoSLevelKey: apiconsts.PodAnnotationQoSLevelReclaimedCores,
-						},
-						Annotations: map[string]string{
-							apiconsts.PodAnnotationQoSLevelKey: apiconsts.PodAnnotationQoSLevelReclaimedCores,
-						},
-						QoSLevel:        apiconsts.PodAnnotationQoSLevelReclaimedCores,
 						RequestQuantity: 2,
 					},
 				},
-				qrmstate.PoolNameShare: qrmstate.ContainerEntries{
+				commonstate.PoolNameShare: qrmstate.ContainerEntries{
 					"": &qrmstate.AllocationInfo{
-						PodUid:                   qrmstate.PoolNameShare,
-						OwnerPoolName:            qrmstate.PoolNameShare,
+						AllocationMeta:           commonstate.GenerateGenericPoolAllocationMeta(commonstate.PoolNameShare),
 						AllocationResult:         machine.MustParse("1,3-6,9,11-14"),
 						OriginalAllocationResult: machine.MustParse("1,3-6,9,11-14"),
 						TopologyAwareAssignments: map[int]machine.CPUSet{
@@ -703,10 +714,9 @@ func TestGetTopEvictionPods(t *testing.T) {
 						},
 					},
 				},
-				qrmstate.PoolNameReclaim: qrmstate.ContainerEntries{
+				commonstate.PoolNameReclaim: qrmstate.ContainerEntries{
 					"": &qrmstate.AllocationInfo{
-						PodUid:                   qrmstate.PoolNameReclaim,
-						OwnerPoolName:            qrmstate.PoolNameReclaim,
+						AllocationMeta:           commonstate.GenerateGenericPoolAllocationMeta(commonstate.PoolNameReclaim),
 						AllocationResult:         machine.MustParse("7-8,10,15"),
 						OriginalAllocationResult: machine.MustParse("7-8,10,15"),
 						TopologyAwareAssignments: map[int]machine.CPUSet{
@@ -804,12 +814,12 @@ func TestGetTopEvictionPods(t *testing.T) {
 		assert.NotNil(t, resp)
 
 		if metResp.MetType == evictionpluginapi.ThresholdMetType_HARD_MET {
-			as.Equal(candidatePods, resp.TargetPods)
+			as.Equalf(candidatePods, resp.TargetPods, tt.name)
 			tt.wantResp = &evictionpluginapi.GetTopEvictionPodsResponse{
 				TargetPods: candidatePods,
 			}
 		}
-		as.Equal(tt.wantResp, resp)
+		as.Equalf(tt.wantResp, resp, tt.name)
 	}
 }
 
@@ -840,14 +850,23 @@ func TestCPUPressureLoadEviction_collectMetrics(t *testing.T) {
 			podEntries: qrmstate.PodEntries{
 				pod1UID: qrmstate.ContainerEntries{
 					testName: &qrmstate.AllocationInfo{
-						PodUid:                   pod1UID,
-						PodNamespace:             testName,
-						PodName:                  testName,
-						ContainerName:            testName,
-						ContainerType:            pluginapi.ContainerType_MAIN.String(),
-						ContainerIndex:           0,
+						AllocationMeta: &commonstate.AllocationMeta{
+							PodUid:         pod1UID,
+							PodNamespace:   testName,
+							PodName:        testName,
+							ContainerName:  testName,
+							ContainerType:  pluginapi.ContainerType_MAIN.String(),
+							ContainerIndex: 0,
+							OwnerPoolName:  commonstate.PoolNameShare,
+							Labels: map[string]string{
+								apiconsts.PodAnnotationQoSLevelKey: apiconsts.PodAnnotationQoSLevelSharedCores,
+							},
+							Annotations: map[string]string{
+								apiconsts.PodAnnotationQoSLevelKey: apiconsts.PodAnnotationQoSLevelSharedCores,
+							},
+							QoSLevel: apiconsts.PodAnnotationQoSLevelSharedCores,
+						},
 						RampUp:                   false,
-						OwnerPoolName:            qrmstate.PoolNameShare,
 						AllocationResult:         machine.MustParse("1,3-6,9,11-14"),
 						OriginalAllocationResult: machine.MustParse("1,3-6,9,11-14"),
 						TopologyAwareAssignments: map[int]machine.CPUSet{
@@ -862,26 +881,28 @@ func TestCPUPressureLoadEviction_collectMetrics(t *testing.T) {
 							2: machine.NewCPUSet(4, 5, 11, 12),
 							3: machine.NewCPUSet(6, 14),
 						},
-						Labels: map[string]string{
-							apiconsts.PodAnnotationQoSLevelKey: apiconsts.PodAnnotationQoSLevelSharedCores,
-						},
-						Annotations: map[string]string{
-							apiconsts.PodAnnotationQoSLevelKey: apiconsts.PodAnnotationQoSLevelSharedCores,
-						},
-						QoSLevel:        apiconsts.PodAnnotationQoSLevelSharedCores,
 						RequestQuantity: 2,
 					},
 				},
 				pod2UID: qrmstate.ContainerEntries{
 					testName: &qrmstate.AllocationInfo{
-						PodUid:                   pod2UID,
-						PodNamespace:             testName,
-						PodName:                  testName,
-						ContainerName:            testName,
-						ContainerType:            pluginapi.ContainerType_MAIN.String(),
-						ContainerIndex:           0,
+						AllocationMeta: &commonstate.AllocationMeta{
+							PodUid:         pod2UID,
+							PodNamespace:   testName,
+							PodName:        testName,
+							ContainerName:  testName,
+							ContainerType:  pluginapi.ContainerType_MAIN.String(),
+							ContainerIndex: 0,
+							OwnerPoolName:  commonstate.PoolNameShare,
+							Labels: map[string]string{
+								apiconsts.PodAnnotationQoSLevelKey: apiconsts.PodAnnotationQoSLevelSharedCores,
+							},
+							Annotations: map[string]string{
+								apiconsts.PodAnnotationQoSLevelKey: apiconsts.PodAnnotationQoSLevelSharedCores,
+							},
+							QoSLevel: apiconsts.PodAnnotationQoSLevelSharedCores,
+						},
 						RampUp:                   false,
-						OwnerPoolName:            qrmstate.PoolNameShare,
 						AllocationResult:         machine.MustParse("1,3-6,9,11-14"),
 						OriginalAllocationResult: machine.MustParse("1,3-6,9,11-14"),
 						TopologyAwareAssignments: map[int]machine.CPUSet{
@@ -896,26 +917,28 @@ func TestCPUPressureLoadEviction_collectMetrics(t *testing.T) {
 							2: machine.NewCPUSet(4, 5, 11, 12),
 							3: machine.NewCPUSet(6, 14),
 						},
-						Labels: map[string]string{
-							apiconsts.PodAnnotationQoSLevelKey: apiconsts.PodAnnotationQoSLevelSharedCores,
-						},
-						Annotations: map[string]string{
-							apiconsts.PodAnnotationQoSLevelKey: apiconsts.PodAnnotationQoSLevelSharedCores,
-						},
-						QoSLevel:        apiconsts.PodAnnotationQoSLevelSharedCores,
 						RequestQuantity: 2,
 					},
 				},
 				pod3UID: qrmstate.ContainerEntries{
 					testName: &qrmstate.AllocationInfo{
-						PodUid:                   pod3UID,
-						PodNamespace:             testName,
-						PodName:                  testName,
-						ContainerName:            testName,
-						ContainerType:            pluginapi.ContainerType_MAIN.String(),
-						ContainerIndex:           0,
+						AllocationMeta: &commonstate.AllocationMeta{
+							PodUid:         pod3UID,
+							PodNamespace:   testName,
+							PodName:        testName,
+							ContainerName:  testName,
+							ContainerType:  pluginapi.ContainerType_MAIN.String(),
+							ContainerIndex: 0,
+							OwnerPoolName:  commonstate.PoolNameReclaim,
+							Labels: map[string]string{
+								apiconsts.PodAnnotationQoSLevelKey: apiconsts.PodAnnotationQoSLevelReclaimedCores,
+							},
+							Annotations: map[string]string{
+								apiconsts.PodAnnotationQoSLevelKey: apiconsts.PodAnnotationQoSLevelReclaimedCores,
+							},
+							QoSLevel: apiconsts.PodAnnotationQoSLevelReclaimedCores,
+						},
 						RampUp:                   false,
-						OwnerPoolName:            qrmstate.PoolNameReclaim,
 						AllocationResult:         machine.NewCPUSet(7, 8, 10, 15),
 						OriginalAllocationResult: machine.NewCPUSet(7, 8, 10, 15),
 						TopologyAwareAssignments: map[int]machine.CPUSet{
@@ -928,20 +951,12 @@ func TestCPUPressureLoadEviction_collectMetrics(t *testing.T) {
 							1: machine.NewCPUSet(10),
 							3: machine.NewCPUSet(7, 15),
 						},
-						Labels: map[string]string{
-							apiconsts.PodAnnotationQoSLevelKey: apiconsts.PodAnnotationQoSLevelReclaimedCores,
-						},
-						Annotations: map[string]string{
-							apiconsts.PodAnnotationQoSLevelKey: apiconsts.PodAnnotationQoSLevelReclaimedCores,
-						},
-						QoSLevel:        apiconsts.PodAnnotationQoSLevelReclaimedCores,
 						RequestQuantity: 2,
 					},
 				},
-				qrmstate.PoolNameShare: qrmstate.ContainerEntries{
+				commonstate.PoolNameShare: qrmstate.ContainerEntries{
 					"": &qrmstate.AllocationInfo{
-						PodUid:                   qrmstate.PoolNameShare,
-						OwnerPoolName:            qrmstate.PoolNameShare,
+						AllocationMeta:           commonstate.GenerateGenericPoolAllocationMeta(commonstate.PoolNameShare),
 						AllocationResult:         machine.MustParse("1,3-6,9,11-14"),
 						OriginalAllocationResult: machine.MustParse("1,3-6,9,11-14"),
 						TopologyAwareAssignments: map[int]machine.CPUSet{
@@ -958,10 +973,9 @@ func TestCPUPressureLoadEviction_collectMetrics(t *testing.T) {
 						},
 					},
 				},
-				qrmstate.PoolNameReclaim: qrmstate.ContainerEntries{
+				commonstate.PoolNameReclaim: qrmstate.ContainerEntries{
 					"": &qrmstate.AllocationInfo{
-						PodUid:                   qrmstate.PoolNameReclaim,
-						OwnerPoolName:            qrmstate.PoolNameReclaim,
+						AllocationMeta:           commonstate.GenerateGenericPoolAllocationMeta(commonstate.PoolNameReclaim),
 						AllocationResult:         machine.MustParse("7-8,10,15"),
 						OriginalAllocationResult: machine.MustParse("7-8,10,15"),
 						TopologyAwareAssignments: map[int]machine.CPUSet{
@@ -1006,14 +1020,23 @@ func TestCPUPressureLoadEviction_collectMetrics(t *testing.T) {
 			podEntries: qrmstate.PodEntries{
 				pod1UID: qrmstate.ContainerEntries{
 					testName: &qrmstate.AllocationInfo{
-						PodUid:                   pod1UID,
-						PodNamespace:             testName,
-						PodName:                  testName,
-						ContainerName:            testName,
-						ContainerType:            pluginapi.ContainerType_MAIN.String(),
-						ContainerIndex:           0,
+						AllocationMeta: &commonstate.AllocationMeta{
+							PodUid:         pod1UID,
+							PodNamespace:   testName,
+							PodName:        testName,
+							ContainerName:  testName,
+							ContainerType:  pluginapi.ContainerType_MAIN.String(),
+							ContainerIndex: 0,
+							OwnerPoolName:  commonstate.PoolNameShare,
+							Labels: map[string]string{
+								apiconsts.PodAnnotationQoSLevelKey: apiconsts.PodAnnotationQoSLevelSharedCores,
+							},
+							Annotations: map[string]string{
+								apiconsts.PodAnnotationQoSLevelKey: apiconsts.PodAnnotationQoSLevelSharedCores,
+							},
+							QoSLevel: apiconsts.PodAnnotationQoSLevelSharedCores,
+						},
 						RampUp:                   false,
-						OwnerPoolName:            qrmstate.PoolNameShare,
 						AllocationResult:         machine.MustParse("3-6,11-14"),
 						OriginalAllocationResult: machine.MustParse("3-6,11-14"),
 						TopologyAwareAssignments: map[int]machine.CPUSet{
@@ -1028,26 +1051,28 @@ func TestCPUPressureLoadEviction_collectMetrics(t *testing.T) {
 							2: machine.NewCPUSet(4, 5, 11, 12),
 							3: machine.NewCPUSet(6, 14),
 						},
-						Labels: map[string]string{
-							apiconsts.PodAnnotationQoSLevelKey: apiconsts.PodAnnotationQoSLevelSharedCores,
-						},
-						Annotations: map[string]string{
-							apiconsts.PodAnnotationQoSLevelKey: apiconsts.PodAnnotationQoSLevelSharedCores,
-						},
-						QoSLevel:        apiconsts.PodAnnotationQoSLevelSharedCores,
 						RequestQuantity: 2,
 					},
 				},
 				pod2UID: qrmstate.ContainerEntries{
 					testName: &qrmstate.AllocationInfo{
-						PodUid:                   pod2UID,
-						PodNamespace:             testName,
-						PodName:                  testName,
-						ContainerName:            testName,
-						ContainerType:            pluginapi.ContainerType_MAIN.String(),
-						ContainerIndex:           0,
+						AllocationMeta: &commonstate.AllocationMeta{
+							PodUid:         pod2UID,
+							PodNamespace:   testName,
+							PodName:        testName,
+							ContainerName:  testName,
+							ContainerType:  pluginapi.ContainerType_MAIN.String(),
+							ContainerIndex: 0,
+							OwnerPoolName:  commonstate.PoolNameShare,
+							Labels: map[string]string{
+								apiconsts.PodAnnotationQoSLevelKey: apiconsts.PodAnnotationQoSLevelSharedCores,
+							},
+							Annotations: map[string]string{
+								apiconsts.PodAnnotationQoSLevelKey: apiconsts.PodAnnotationQoSLevelSharedCores,
+							},
+							QoSLevel: apiconsts.PodAnnotationQoSLevelSharedCores,
+						},
 						RampUp:                   false,
-						OwnerPoolName:            qrmstate.PoolNameShare,
 						AllocationResult:         machine.MustParse("3-6,11-14"),
 						OriginalAllocationResult: machine.MustParse("3-6,11-14"),
 						TopologyAwareAssignments: map[int]machine.CPUSet{
@@ -1062,26 +1087,28 @@ func TestCPUPressureLoadEviction_collectMetrics(t *testing.T) {
 							2: machine.NewCPUSet(4, 5, 11, 12),
 							3: machine.NewCPUSet(6, 14),
 						},
-						Labels: map[string]string{
-							apiconsts.PodAnnotationQoSLevelKey: apiconsts.PodAnnotationQoSLevelSharedCores,
-						},
-						Annotations: map[string]string{
-							apiconsts.PodAnnotationQoSLevelKey: apiconsts.PodAnnotationQoSLevelSharedCores,
-						},
-						QoSLevel:        apiconsts.PodAnnotationQoSLevelSharedCores,
 						RequestQuantity: 2,
 					},
 				},
 				pod3UID: qrmstate.ContainerEntries{
 					testName: &qrmstate.AllocationInfo{
-						PodUid:                   pod3UID,
-						PodNamespace:             testName,
-						PodName:                  testName,
-						ContainerName:            testName,
-						ContainerType:            pluginapi.ContainerType_MAIN.String(),
-						ContainerIndex:           0,
+						AllocationMeta: &commonstate.AllocationMeta{
+							PodUid:         pod3UID,
+							PodNamespace:   testName,
+							PodName:        testName,
+							ContainerName:  testName,
+							ContainerType:  pluginapi.ContainerType_MAIN.String(),
+							ContainerIndex: 0,
+							OwnerPoolName:  commonstate.PoolNameReclaim,
+							Labels: map[string]string{
+								apiconsts.PodAnnotationQoSLevelKey: apiconsts.PodAnnotationQoSLevelReclaimedCores,
+							},
+							Annotations: map[string]string{
+								apiconsts.PodAnnotationQoSLevelKey: apiconsts.PodAnnotationQoSLevelReclaimedCores,
+							},
+							QoSLevel: apiconsts.PodAnnotationQoSLevelReclaimedCores,
+						},
 						RampUp:                   false,
-						OwnerPoolName:            qrmstate.PoolNameReclaim,
 						AllocationResult:         machine.NewCPUSet(7, 10, 15),
 						OriginalAllocationResult: machine.NewCPUSet(7, 10, 15),
 						TopologyAwareAssignments: map[int]machine.CPUSet{
@@ -1092,26 +1119,28 @@ func TestCPUPressureLoadEviction_collectMetrics(t *testing.T) {
 							1: machine.NewCPUSet(10),
 							3: machine.NewCPUSet(7, 15),
 						},
-						Labels: map[string]string{
-							apiconsts.PodAnnotationQoSLevelKey: apiconsts.PodAnnotationQoSLevelReclaimedCores,
-						},
-						Annotations: map[string]string{
-							apiconsts.PodAnnotationQoSLevelKey: apiconsts.PodAnnotationQoSLevelReclaimedCores,
-						},
-						QoSLevel:        apiconsts.PodAnnotationQoSLevelReclaimedCores,
 						RequestQuantity: 2,
 					},
 				},
 				pod4UID: qrmstate.ContainerEntries{
 					testName: &qrmstate.AllocationInfo{
-						PodUid:                   pod4UID,
-						PodNamespace:             testName,
-						PodName:                  testName,
-						ContainerName:            testName,
-						ContainerType:            pluginapi.ContainerType_MAIN.String(),
-						ContainerIndex:           0,
+						AllocationMeta: &commonstate.AllocationMeta{
+							PodUid:         pod4UID,
+							PodNamespace:   testName,
+							PodName:        testName,
+							ContainerName:  testName,
+							ContainerType:  pluginapi.ContainerType_MAIN.String(),
+							ContainerIndex: 0,
+							OwnerPoolName:  commonstate.PoolNameDedicated,
+							Labels: map[string]string{
+								apiconsts.PodAnnotationQoSLevelKey: apiconsts.PodAnnotationQoSLevelDedicatedCores,
+							},
+							Annotations: map[string]string{
+								apiconsts.PodAnnotationQoSLevelKey: apiconsts.PodAnnotationQoSLevelDedicatedCores,
+							},
+							QoSLevel: apiconsts.PodAnnotationQoSLevelDedicatedCores,
+						},
 						RampUp:                   false,
-						OwnerPoolName:            qrmstate.PoolNameDedicated,
 						AllocationResult:         machine.NewCPUSet(0-1, 8-9),
 						OriginalAllocationResult: machine.NewCPUSet(0-1, 8-9),
 						TopologyAwareAssignments: map[int]machine.CPUSet{
@@ -1120,21 +1149,13 @@ func TestCPUPressureLoadEviction_collectMetrics(t *testing.T) {
 						OriginalTopologyAwareAssignments: map[int]machine.CPUSet{
 							0: machine.NewCPUSet(0, 1, 8, 9),
 						},
-						Labels: map[string]string{
-							apiconsts.PodAnnotationQoSLevelKey: apiconsts.PodAnnotationQoSLevelDedicatedCores,
-						},
-						Annotations: map[string]string{
-							apiconsts.PodAnnotationQoSLevelKey: apiconsts.PodAnnotationQoSLevelDedicatedCores,
-						},
-						QoSLevel:        apiconsts.PodAnnotationQoSLevelDedicatedCores,
 						RequestQuantity: 2,
 					},
 				},
 
-				qrmstate.PoolNameShare: qrmstate.ContainerEntries{
+				commonstate.PoolNameShare: qrmstate.ContainerEntries{
 					"": &qrmstate.AllocationInfo{
-						PodUid:                   qrmstate.PoolNameShare,
-						OwnerPoolName:            qrmstate.PoolNameShare,
+						AllocationMeta:           commonstate.GenerateGenericPoolAllocationMeta(commonstate.PoolNameShare),
 						AllocationResult:         machine.MustParse("3-6,11-14"),
 						OriginalAllocationResult: machine.MustParse("3-6,11-14"),
 						TopologyAwareAssignments: map[int]machine.CPUSet{
@@ -1151,10 +1172,9 @@ func TestCPUPressureLoadEviction_collectMetrics(t *testing.T) {
 						},
 					},
 				},
-				qrmstate.PoolNameReclaim: qrmstate.ContainerEntries{
+				commonstate.PoolNameReclaim: qrmstate.ContainerEntries{
 					"": &qrmstate.AllocationInfo{
-						PodUid:                   qrmstate.PoolNameReclaim,
-						OwnerPoolName:            qrmstate.PoolNameReclaim,
+						AllocationMeta:           commonstate.GenerateGenericPoolAllocationMeta(commonstate.PoolNameReclaim),
 						AllocationResult:         machine.MustParse("7,10,15"),
 						OriginalAllocationResult: machine.MustParse("7,10,15"),
 						TopologyAwareAssignments: map[int]machine.CPUSet{
@@ -1198,14 +1218,23 @@ func TestCPUPressureLoadEviction_collectMetrics(t *testing.T) {
 			podEntries: qrmstate.PodEntries{
 				pod1UID: qrmstate.ContainerEntries{
 					testName: &qrmstate.AllocationInfo{
-						PodUid:                   pod1UID,
-						PodNamespace:             testName,
-						PodName:                  testName,
-						ContainerName:            testName,
-						ContainerType:            pluginapi.ContainerType_MAIN.String(),
-						ContainerIndex:           0,
+						AllocationMeta: &commonstate.AllocationMeta{
+							PodUid:         pod1UID,
+							PodNamespace:   testName,
+							PodName:        testName,
+							ContainerName:  testName,
+							ContainerType:  pluginapi.ContainerType_MAIN.String(),
+							ContainerIndex: 0,
+							OwnerPoolName:  commonstate.PoolNameShare,
+							Labels: map[string]string{
+								apiconsts.PodAnnotationQoSLevelKey: apiconsts.PodAnnotationQoSLevelSharedCores,
+							},
+							Annotations: map[string]string{
+								apiconsts.PodAnnotationQoSLevelKey: apiconsts.PodAnnotationQoSLevelSharedCores,
+							},
+							QoSLevel: apiconsts.PodAnnotationQoSLevelSharedCores,
+						},
 						RampUp:                   false,
-						OwnerPoolName:            qrmstate.PoolNameShare,
 						AllocationResult:         machine.MustParse("3-6,11-14"),
 						OriginalAllocationResult: machine.MustParse("3-6,11-14"),
 						TopologyAwareAssignments: map[int]machine.CPUSet{
@@ -1220,26 +1249,28 @@ func TestCPUPressureLoadEviction_collectMetrics(t *testing.T) {
 							2: machine.NewCPUSet(4, 5, 11, 12),
 							3: machine.NewCPUSet(6, 14),
 						},
-						Labels: map[string]string{
-							apiconsts.PodAnnotationQoSLevelKey: apiconsts.PodAnnotationQoSLevelSharedCores,
-						},
-						Annotations: map[string]string{
-							apiconsts.PodAnnotationQoSLevelKey: apiconsts.PodAnnotationQoSLevelSharedCores,
-						},
-						QoSLevel:        apiconsts.PodAnnotationQoSLevelSharedCores,
 						RequestQuantity: 2,
 					},
 				},
 				pod2UID: qrmstate.ContainerEntries{
 					testName: &qrmstate.AllocationInfo{
-						PodUid:                   pod2UID,
-						PodNamespace:             testName,
-						PodName:                  testName,
-						ContainerName:            testName,
-						ContainerType:            pluginapi.ContainerType_MAIN.String(),
-						ContainerIndex:           0,
+						AllocationMeta: &commonstate.AllocationMeta{
+							PodUid:         pod2UID,
+							PodNamespace:   testName,
+							PodName:        testName,
+							ContainerName:  testName,
+							ContainerType:  pluginapi.ContainerType_MAIN.String(),
+							ContainerIndex: 0,
+							OwnerPoolName:  commonstate.PoolNameShare,
+							Labels: map[string]string{
+								apiconsts.PodAnnotationQoSLevelKey: apiconsts.PodAnnotationQoSLevelSharedCores,
+							},
+							Annotations: map[string]string{
+								apiconsts.PodAnnotationQoSLevelKey: apiconsts.PodAnnotationQoSLevelSharedCores,
+							},
+							QoSLevel: apiconsts.PodAnnotationQoSLevelSharedCores,
+						},
 						RampUp:                   false,
-						OwnerPoolName:            qrmstate.PoolNameShare,
 						AllocationResult:         machine.MustParse("3-6,11-14"),
 						OriginalAllocationResult: machine.MustParse("3-6,11-14"),
 						TopologyAwareAssignments: map[int]machine.CPUSet{
@@ -1254,26 +1285,28 @@ func TestCPUPressureLoadEviction_collectMetrics(t *testing.T) {
 							2: machine.NewCPUSet(4, 5, 11, 12),
 							3: machine.NewCPUSet(6, 14),
 						},
-						Labels: map[string]string{
-							apiconsts.PodAnnotationQoSLevelKey: apiconsts.PodAnnotationQoSLevelSharedCores,
-						},
-						Annotations: map[string]string{
-							apiconsts.PodAnnotationQoSLevelKey: apiconsts.PodAnnotationQoSLevelSharedCores,
-						},
-						QoSLevel:        apiconsts.PodAnnotationQoSLevelSharedCores,
 						RequestQuantity: 2,
 					},
 				},
 				pod3UID: qrmstate.ContainerEntries{
 					testName: &qrmstate.AllocationInfo{
-						PodUid:                   pod3UID,
-						PodNamespace:             testName,
-						PodName:                  testName,
-						ContainerName:            testName,
-						ContainerType:            pluginapi.ContainerType_MAIN.String(),
-						ContainerIndex:           0,
+						AllocationMeta: &commonstate.AllocationMeta{
+							PodUid:         pod3UID,
+							PodNamespace:   testName,
+							PodName:        testName,
+							ContainerName:  testName,
+							ContainerType:  pluginapi.ContainerType_MAIN.String(),
+							ContainerIndex: 0,
+							OwnerPoolName:  commonstate.PoolNameReclaim,
+							Labels: map[string]string{
+								apiconsts.PodAnnotationQoSLevelKey: apiconsts.PodAnnotationQoSLevelReclaimedCores,
+							},
+							Annotations: map[string]string{
+								apiconsts.PodAnnotationQoSLevelKey: apiconsts.PodAnnotationQoSLevelReclaimedCores,
+							},
+							QoSLevel: apiconsts.PodAnnotationQoSLevelReclaimedCores,
+						},
 						RampUp:                   false,
-						OwnerPoolName:            qrmstate.PoolNameReclaim,
 						AllocationResult:         machine.NewCPUSet(7, 10, 15),
 						OriginalAllocationResult: machine.NewCPUSet(7, 10, 15),
 						TopologyAwareAssignments: map[int]machine.CPUSet{
@@ -1284,26 +1317,28 @@ func TestCPUPressureLoadEviction_collectMetrics(t *testing.T) {
 							1: machine.NewCPUSet(10),
 							3: machine.NewCPUSet(7, 15),
 						},
-						Labels: map[string]string{
-							apiconsts.PodAnnotationQoSLevelKey: apiconsts.PodAnnotationQoSLevelReclaimedCores,
-						},
-						Annotations: map[string]string{
-							apiconsts.PodAnnotationQoSLevelKey: apiconsts.PodAnnotationQoSLevelReclaimedCores,
-						},
-						QoSLevel:        apiconsts.PodAnnotationQoSLevelReclaimedCores,
 						RequestQuantity: 2,
 					},
 				},
 				pod4UID: qrmstate.ContainerEntries{
 					testName: &qrmstate.AllocationInfo{
-						PodUid:                   pod4UID,
-						PodNamespace:             testName,
-						PodName:                  testName,
-						ContainerName:            testName,
-						ContainerType:            pluginapi.ContainerType_MAIN.String(),
-						ContainerIndex:           0,
+						AllocationMeta: &commonstate.AllocationMeta{
+							PodUid:         pod4UID,
+							PodNamespace:   testName,
+							PodName:        testName,
+							ContainerName:  testName,
+							ContainerType:  pluginapi.ContainerType_MAIN.String(),
+							ContainerIndex: 0,
+							OwnerPoolName:  commonstate.PoolNameDedicated,
+							Labels: map[string]string{
+								apiconsts.PodAnnotationQoSLevelKey: apiconsts.PodAnnotationQoSLevelDedicatedCores,
+							},
+							Annotations: map[string]string{
+								apiconsts.PodAnnotationQoSLevelKey: apiconsts.PodAnnotationQoSLevelDedicatedCores,
+							},
+							QoSLevel: apiconsts.PodAnnotationQoSLevelDedicatedCores,
+						},
 						RampUp:                   false,
-						OwnerPoolName:            qrmstate.PoolNameDedicated,
 						AllocationResult:         machine.NewCPUSet(0-1, 8-9),
 						OriginalAllocationResult: machine.NewCPUSet(0-1, 8-9),
 						TopologyAwareAssignments: map[int]machine.CPUSet{
@@ -1312,21 +1347,13 @@ func TestCPUPressureLoadEviction_collectMetrics(t *testing.T) {
 						OriginalTopologyAwareAssignments: map[int]machine.CPUSet{
 							0: machine.NewCPUSet(0, 1, 8, 9),
 						},
-						Labels: map[string]string{
-							apiconsts.PodAnnotationQoSLevelKey: apiconsts.PodAnnotationQoSLevelDedicatedCores,
-						},
-						Annotations: map[string]string{
-							apiconsts.PodAnnotationQoSLevelKey: apiconsts.PodAnnotationQoSLevelDedicatedCores,
-						},
-						QoSLevel:        apiconsts.PodAnnotationQoSLevelDedicatedCores,
 						RequestQuantity: 2,
 					},
 				},
 
-				qrmstate.PoolNameShare: qrmstate.ContainerEntries{
+				commonstate.PoolNameShare: qrmstate.ContainerEntries{
 					"": &qrmstate.AllocationInfo{
-						PodUid:                   qrmstate.PoolNameShare,
-						OwnerPoolName:            qrmstate.PoolNameShare,
+						AllocationMeta:           commonstate.GenerateGenericPoolAllocationMeta(commonstate.PoolNameShare),
 						AllocationResult:         machine.MustParse("3-6,11-14"),
 						OriginalAllocationResult: machine.MustParse("3-6,11-14"),
 						TopologyAwareAssignments: map[int]machine.CPUSet{
@@ -1343,10 +1370,9 @@ func TestCPUPressureLoadEviction_collectMetrics(t *testing.T) {
 						},
 					},
 				},
-				qrmstate.PoolNameReclaim: qrmstate.ContainerEntries{
+				commonstate.PoolNameReclaim: qrmstate.ContainerEntries{
 					"": &qrmstate.AllocationInfo{
-						PodUid:                   qrmstate.PoolNameReclaim,
-						OwnerPoolName:            qrmstate.PoolNameReclaim,
+						AllocationMeta:           commonstate.GenerateGenericPoolAllocationMeta(commonstate.PoolNameReclaim),
 						AllocationResult:         machine.MustParse("7,10,15"),
 						OriginalAllocationResult: machine.MustParse("7,10,15"),
 						TopologyAwareAssignments: map[int]machine.CPUSet{
@@ -1390,14 +1416,23 @@ func TestCPUPressureLoadEviction_collectMetrics(t *testing.T) {
 			podEntries: qrmstate.PodEntries{
 				pod1UID: qrmstate.ContainerEntries{
 					testName: &qrmstate.AllocationInfo{
-						PodUid:                   pod1UID,
-						PodNamespace:             testName,
-						PodName:                  testName,
-						ContainerName:            testName,
-						ContainerType:            pluginapi.ContainerType_MAIN.String(),
-						ContainerIndex:           0,
+						AllocationMeta: &commonstate.AllocationMeta{
+							PodUid:         pod1UID,
+							PodNamespace:   testName,
+							PodName:        testName,
+							ContainerName:  testName,
+							ContainerType:  pluginapi.ContainerType_MAIN.String(),
+							ContainerIndex: 0,
+							OwnerPoolName:  commonstate.PoolNameShare,
+							Labels: map[string]string{
+								apiconsts.PodAnnotationQoSLevelKey: apiconsts.PodAnnotationQoSLevelSharedCores,
+							},
+							Annotations: map[string]string{
+								apiconsts.PodAnnotationQoSLevelKey: apiconsts.PodAnnotationQoSLevelSharedCores,
+							},
+							QoSLevel: apiconsts.PodAnnotationQoSLevelSharedCores,
+						},
 						RampUp:                   false,
-						OwnerPoolName:            qrmstate.PoolNameShare,
 						AllocationResult:         machine.MustParse("3-6,11-14"),
 						OriginalAllocationResult: machine.MustParse("3-6,11-14"),
 						TopologyAwareAssignments: map[int]machine.CPUSet{
@@ -1412,26 +1447,28 @@ func TestCPUPressureLoadEviction_collectMetrics(t *testing.T) {
 							2: machine.NewCPUSet(4, 5, 11, 12),
 							3: machine.NewCPUSet(6, 14),
 						},
-						Labels: map[string]string{
-							apiconsts.PodAnnotationQoSLevelKey: apiconsts.PodAnnotationQoSLevelSharedCores,
-						},
-						Annotations: map[string]string{
-							apiconsts.PodAnnotationQoSLevelKey: apiconsts.PodAnnotationQoSLevelSharedCores,
-						},
-						QoSLevel:        apiconsts.PodAnnotationQoSLevelSharedCores,
 						RequestQuantity: 2,
 					},
 				},
 				pod2UID: qrmstate.ContainerEntries{
 					testName: &qrmstate.AllocationInfo{
-						PodUid:                   pod2UID,
-						PodNamespace:             testName,
-						PodName:                  testName,
-						ContainerName:            testName,
-						ContainerType:            pluginapi.ContainerType_MAIN.String(),
-						ContainerIndex:           0,
+						AllocationMeta: &commonstate.AllocationMeta{
+							PodUid:         pod2UID,
+							PodNamespace:   testName,
+							PodName:        testName,
+							ContainerName:  testName,
+							ContainerType:  pluginapi.ContainerType_MAIN.String(),
+							ContainerIndex: 0,
+							OwnerPoolName:  commonstate.PoolNameShare,
+							Labels: map[string]string{
+								apiconsts.PodAnnotationQoSLevelKey: apiconsts.PodAnnotationQoSLevelSharedCores,
+							},
+							Annotations: map[string]string{
+								apiconsts.PodAnnotationQoSLevelKey: apiconsts.PodAnnotationQoSLevelSharedCores,
+							},
+							QoSLevel: apiconsts.PodAnnotationQoSLevelSharedCores,
+						},
 						RampUp:                   false,
-						OwnerPoolName:            qrmstate.PoolNameShare,
 						AllocationResult:         machine.MustParse("3-6,11-14"),
 						OriginalAllocationResult: machine.MustParse("3-6,11-14"),
 						TopologyAwareAssignments: map[int]machine.CPUSet{
@@ -1446,26 +1483,28 @@ func TestCPUPressureLoadEviction_collectMetrics(t *testing.T) {
 							2: machine.NewCPUSet(4, 5, 11, 12),
 							3: machine.NewCPUSet(6, 14),
 						},
-						Labels: map[string]string{
-							apiconsts.PodAnnotationQoSLevelKey: apiconsts.PodAnnotationQoSLevelSharedCores,
-						},
-						Annotations: map[string]string{
-							apiconsts.PodAnnotationQoSLevelKey: apiconsts.PodAnnotationQoSLevelSharedCores,
-						},
-						QoSLevel:        apiconsts.PodAnnotationQoSLevelSharedCores,
 						RequestQuantity: 2,
 					},
 				},
 				pod3UID: qrmstate.ContainerEntries{
 					testName: &qrmstate.AllocationInfo{
-						PodUid:                   pod3UID,
-						PodNamespace:             testName,
-						PodName:                  testName,
-						ContainerName:            testName,
-						ContainerType:            pluginapi.ContainerType_MAIN.String(),
-						ContainerIndex:           0,
+						AllocationMeta: &commonstate.AllocationMeta{
+							PodUid:         pod3UID,
+							PodNamespace:   testName,
+							PodName:        testName,
+							ContainerName:  testName,
+							ContainerType:  pluginapi.ContainerType_MAIN.String(),
+							ContainerIndex: 0,
+							OwnerPoolName:  commonstate.PoolNameReclaim,
+							Labels: map[string]string{
+								apiconsts.PodAnnotationQoSLevelKey: apiconsts.PodAnnotationQoSLevelReclaimedCores,
+							},
+							Annotations: map[string]string{
+								apiconsts.PodAnnotationQoSLevelKey: apiconsts.PodAnnotationQoSLevelReclaimedCores,
+							},
+							QoSLevel: apiconsts.PodAnnotationQoSLevelReclaimedCores,
+						},
 						RampUp:                   false,
-						OwnerPoolName:            qrmstate.PoolNameReclaim,
 						AllocationResult:         machine.NewCPUSet(7, 10, 15),
 						OriginalAllocationResult: machine.NewCPUSet(7, 10, 15),
 						TopologyAwareAssignments: map[int]machine.CPUSet{
@@ -1476,26 +1515,28 @@ func TestCPUPressureLoadEviction_collectMetrics(t *testing.T) {
 							1: machine.NewCPUSet(10),
 							3: machine.NewCPUSet(7, 15),
 						},
-						Labels: map[string]string{
-							apiconsts.PodAnnotationQoSLevelKey: apiconsts.PodAnnotationQoSLevelReclaimedCores,
-						},
-						Annotations: map[string]string{
-							apiconsts.PodAnnotationQoSLevelKey: apiconsts.PodAnnotationQoSLevelReclaimedCores,
-						},
-						QoSLevel:        apiconsts.PodAnnotationQoSLevelReclaimedCores,
 						RequestQuantity: 2,
 					},
 				},
 				pod4UID: qrmstate.ContainerEntries{
 					testName: &qrmstate.AllocationInfo{
-						PodUid:                   pod4UID,
-						PodNamespace:             testName,
-						PodName:                  testName,
-						ContainerName:            testName,
-						ContainerType:            pluginapi.ContainerType_MAIN.String(),
-						ContainerIndex:           0,
+						AllocationMeta: &commonstate.AllocationMeta{
+							PodUid:         pod4UID,
+							PodNamespace:   testName,
+							PodName:        testName,
+							ContainerName:  testName,
+							ContainerType:  pluginapi.ContainerType_MAIN.String(),
+							ContainerIndex: 0,
+							OwnerPoolName:  commonstate.PoolNameDedicated,
+							Labels: map[string]string{
+								apiconsts.PodAnnotationQoSLevelKey: apiconsts.PodAnnotationQoSLevelDedicatedCores,
+							},
+							Annotations: map[string]string{
+								apiconsts.PodAnnotationQoSLevelKey: apiconsts.PodAnnotationQoSLevelDedicatedCores,
+							},
+							QoSLevel: apiconsts.PodAnnotationQoSLevelDedicatedCores,
+						},
 						RampUp:                   false,
-						OwnerPoolName:            qrmstate.PoolNameDedicated,
 						AllocationResult:         machine.NewCPUSet(0-1, 8-9),
 						OriginalAllocationResult: machine.NewCPUSet(0-1, 8-9),
 						TopologyAwareAssignments: map[int]machine.CPUSet{
@@ -1504,21 +1545,13 @@ func TestCPUPressureLoadEviction_collectMetrics(t *testing.T) {
 						OriginalTopologyAwareAssignments: map[int]machine.CPUSet{
 							0: machine.NewCPUSet(0, 1, 8, 9),
 						},
-						Labels: map[string]string{
-							apiconsts.PodAnnotationQoSLevelKey: apiconsts.PodAnnotationQoSLevelDedicatedCores,
-						},
-						Annotations: map[string]string{
-							apiconsts.PodAnnotationQoSLevelKey: apiconsts.PodAnnotationQoSLevelDedicatedCores,
-						},
-						QoSLevel:        apiconsts.PodAnnotationQoSLevelDedicatedCores,
 						RequestQuantity: 2,
 					},
 				},
 
-				qrmstate.PoolNameShare: qrmstate.ContainerEntries{
+				commonstate.PoolNameShare: qrmstate.ContainerEntries{
 					"": &qrmstate.AllocationInfo{
-						PodUid:                   qrmstate.PoolNameShare,
-						OwnerPoolName:            qrmstate.PoolNameShare,
+						AllocationMeta:           commonstate.GenerateGenericPoolAllocationMeta(commonstate.PoolNameShare),
 						AllocationResult:         machine.MustParse("3-6,11-14"),
 						OriginalAllocationResult: machine.MustParse("3-6,11-14"),
 						TopologyAwareAssignments: map[int]machine.CPUSet{
@@ -1535,10 +1568,9 @@ func TestCPUPressureLoadEviction_collectMetrics(t *testing.T) {
 						},
 					},
 				},
-				qrmstate.PoolNameReclaim: qrmstate.ContainerEntries{
+				commonstate.PoolNameReclaim: qrmstate.ContainerEntries{
 					"": &qrmstate.AllocationInfo{
-						PodUid:                   qrmstate.PoolNameReclaim,
-						OwnerPoolName:            qrmstate.PoolNameReclaim,
+						AllocationMeta:           commonstate.GenerateGenericPoolAllocationMeta(commonstate.PoolNameReclaim),
 						AllocationResult:         machine.MustParse("7,10,15"),
 						OriginalAllocationResult: machine.MustParse("7,10,15"),
 						TopologyAwareAssignments: map[int]machine.CPUSet{
@@ -1616,7 +1648,7 @@ func TestCPUPressureLoadEviction_collectMetrics(t *testing.T) {
 			as.NotNil(plugin)
 			p := plugin.(*CPUPressureLoadEviction)
 			p.collectMetrics(context.TODO())
-			metricRing := p.metricsHistory[consts.MetricLoad1MinContainer][qrmstate.PoolNameShare][""]
+			metricRing := p.metricsHistory[consts.MetricLoad1MinContainer][commonstate.PoolNameShare][""]
 
 			snapshot := metricRing.Queue[metricRing.CurrentIndex]
 			as.True(math.Abs(tt.wantSharedPoolSnapshots.Value-snapshot.Info.Value) < 0.01)

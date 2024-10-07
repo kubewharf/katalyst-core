@@ -20,7 +20,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/uuid"
 
 	configapi "github.com/kubewharf/katalyst-api/pkg/apis/config/v1alpha1"
-	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
 	"github.com/kubewharf/katalyst-core/pkg/config"
@@ -50,7 +50,7 @@ func NewQoSRegionIsolation(ci *types.ContainerInfo, customRegionName string, con
 		}
 	}
 
-	isNumaBinding := numaID != state.FakedNUMAID
+	isNumaBinding := numaID != commonstate.FakedNUMAID
 	ownerPoolName := isolationRegionDefaultOwnerPoolName
 	if isNumaBinding {
 		ownerPoolName = isolationRegionNUMAOwnerPoolName

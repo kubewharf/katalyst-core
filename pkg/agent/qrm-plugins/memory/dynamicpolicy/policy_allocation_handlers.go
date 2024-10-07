@@ -207,20 +207,10 @@ func (p *DynamicPolicy) numaBindingAllocationHandler(ctx context.Context,
 		"numaAllocationResult", result.String())
 
 	allocationInfo = &state.AllocationInfo{
-		PodUid:                   req.PodUid,
-		PodNamespace:             req.PodNamespace,
-		PodName:                  req.PodName,
-		ContainerName:            req.ContainerName,
-		ContainerType:            req.ContainerType.String(),
-		ContainerIndex:           req.ContainerIndex,
-		PodRole:                  req.PodRole,
-		PodType:                  req.PodType,
+		AllocationMeta:           state.GenerateMemoryContainerAllocationMeta(req, qosLevel),
 		AggregatedQuantity:       aggregatedQuantity,
 		NumaAllocationResult:     result.Clone(),
 		TopologyAwareAllocations: topologyAwareAllocations,
-		Labels:                   general.DeepCopyMap(req.Labels),
-		Annotations:              general.DeepCopyMap(req.Annotations),
-		QoSLevel:                 qosLevel,
 	}
 	p.state.SetAllocationInfo(v1.ResourceMemory, req.PodUid, req.ContainerName, allocationInfo)
 
@@ -277,20 +267,11 @@ func (p *DynamicPolicy) numaBindingAllocationSidecarHandler(_ context.Context,
 	}
 
 	allocationInfo := &state.AllocationInfo{
-		PodUid:                   req.PodUid,
-		PodNamespace:             req.PodNamespace,
-		PodName:                  req.PodName,
-		ContainerName:            req.ContainerName,
-		ContainerType:            req.ContainerType.String(),
-		ContainerIndex:           req.ContainerIndex,
-		PodRole:                  req.PodRole,
-		PodType:                  req.PodType,
+		AllocationMeta:           state.GenerateMemoryContainerAllocationMeta(req, qosLevel),
 		AggregatedQuantity:       0,   // not count sidecar quantity
 		TopologyAwareAllocations: nil, // not count sidecar quantity
-		Labels:                   general.DeepCopyMap(req.Labels),
-		Annotations:              general.DeepCopyMap(req.Annotations),
-		QoSLevel:                 qosLevel,
 	}
+
 	applySidecarAllocationInfoFromMainContainer(allocationInfo, mainContainerAllocationInfo)
 
 	// update pod entries directly. if one of subsequent steps is failed,
@@ -340,18 +321,8 @@ func (p *DynamicPolicy) allocateNUMAsWithoutNUMABindingPods(_ context.Context,
 	}
 
 	allocationInfo = &state.AllocationInfo{
-		PodUid:               req.PodUid,
-		PodNamespace:         req.PodNamespace,
-		PodName:              req.PodName,
-		ContainerName:        req.ContainerName,
-		ContainerType:        req.ContainerType.String(),
-		ContainerIndex:       req.ContainerIndex,
-		PodRole:              req.PodRole,
-		PodType:              req.PodType,
+		AllocationMeta:       state.GenerateMemoryContainerAllocationMeta(req, qosLevel),
 		NumaAllocationResult: numaWithoutNUMABindingPods.Clone(),
-		Labels:               general.DeepCopyMap(req.Labels),
-		Annotations:          general.DeepCopyMap(req.Annotations),
-		QoSLevel:             qosLevel,
 		AggregatedQuantity:   uint64(reqInt),
 	}
 
@@ -392,18 +363,8 @@ func (p *DynamicPolicy) allocateTargetNUMAs(req *pluginapi.ResourceRequest,
 	}
 
 	allocationInfo = &state.AllocationInfo{
-		PodUid:               req.PodUid,
-		PodNamespace:         req.PodNamespace,
-		PodName:              req.PodName,
-		ContainerName:        req.ContainerName,
-		ContainerType:        req.ContainerType.String(),
-		ContainerIndex:       req.ContainerIndex,
-		PodRole:              req.PodRole,
-		PodType:              req.PodType,
+		AllocationMeta:       state.GenerateMemoryContainerAllocationMeta(req, qosLevel),
 		NumaAllocationResult: targetNUMAs.Clone(),
-		Labels:               general.DeepCopyMap(req.Labels),
-		Annotations:          general.DeepCopyMap(req.Annotations),
-		QoSLevel:             qosLevel,
 	}
 
 	p.state.SetAllocationInfo(v1.ResourceMemory, allocationInfo.PodUid, allocationInfo.ContainerName, allocationInfo)
@@ -547,22 +508,12 @@ func calculateExclusiveMemory(req *pluginapi.ResourceRequest,
 		}
 
 		numaNodeState.PodEntries[req.PodUid][req.ContainerName] = &state.AllocationInfo{
-			PodUid:               req.PodUid,
-			PodNamespace:         req.PodNamespace,
-			PodName:              req.PodName,
-			ContainerName:        req.ContainerName,
-			ContainerType:        req.ContainerType.String(),
-			ContainerIndex:       req.ContainerIndex,
-			PodRole:              req.PodRole,
-			PodType:              req.PodType,
+			AllocationMeta:       state.GenerateMemoryContainerAllocationMeta(req, qosLevel),
 			AggregatedQuantity:   curNumaNodeAllocated,
 			NumaAllocationResult: machine.NewCPUSet(numaNode),
 			TopologyAwareAllocations: map[int]uint64{
 				numaNode: curNumaNodeAllocated,
 			},
-			Labels:      general.DeepCopyMap(req.Labels),
-			Annotations: general.DeepCopyMap(req.Annotations),
-			QoSLevel:    qosLevel,
 		}
 	}
 
@@ -608,22 +559,12 @@ func calculateMemoryInNumaNodes(req *pluginapi.ResourceRequest,
 		}
 
 		numaNodeState.PodEntries[req.PodUid][req.ContainerName] = &state.AllocationInfo{
-			PodUid:               req.PodUid,
-			PodNamespace:         req.PodNamespace,
-			PodName:              req.PodName,
-			ContainerName:        req.ContainerName,
-			ContainerType:        req.ContainerType.String(),
-			ContainerIndex:       req.ContainerIndex,
-			PodRole:              req.PodRole,
-			PodType:              req.PodType,
+			AllocationMeta:       state.GenerateMemoryContainerAllocationMeta(req, qosLevel),
 			AggregatedQuantity:   curNumaNodeAllocated,
 			NumaAllocationResult: machine.NewCPUSet(numaNode),
 			TopologyAwareAllocations: map[int]uint64{
 				numaNode: curNumaNodeAllocated,
 			},
-			Labels:      general.DeepCopyMap(req.Labels),
-			Annotations: general.DeepCopyMap(req.Annotations),
-			QoSLevel:    qosLevel,
 		}
 	}
 
@@ -683,12 +624,11 @@ func (p *DynamicPolicy) adjustAllocationEntriesForSharedCores(numaSetChangedCont
 			} else if containerName == "" {
 				general.Errorf("pod: %s has empty containerName entry", podUID)
 				continue
-			} else if allocationInfo.QoSLevel != apiconsts.PodAnnotationQoSLevelSharedCores {
-				// not to adjust NUMA binding containers
+			} else if !allocationInfo.CheckShared() {
 				continue
 			}
 
-			if !allocationInfo.CheckNumaBinding() {
+			if !allocationInfo.CheckNUMABinding() {
 				// update container to target numa set for normal share cores
 				p.updateNUMASetChangedContainers(numaSetChangedContainers, allocationInfo, numaWithoutNUMABindingPods)
 
@@ -733,11 +673,11 @@ func (p *DynamicPolicy) adjustAllocationEntriesForDedicatedCores(numaSetChangedC
 			} else if containerName == "" {
 				general.Errorf("pod: %s has empty containerName entry", podUID)
 				continue
-			} else if allocationInfo.QoSLevel != apiconsts.PodAnnotationQoSLevelDedicatedCores {
+			} else if !allocationInfo.CheckDedicated() {
 				continue
 			}
 
-			if !allocationInfo.CheckNumaBinding() {
+			if !allocationInfo.CheckNUMABinding() {
 				// not to adjust NUMA binding containers
 				// update container to target numa set for normal share cores
 				p.updateNUMASetChangedContainers(numaSetChangedContainers, allocationInfo, numaWithoutNUMABindingPods)
@@ -760,11 +700,11 @@ func (p *DynamicPolicy) adjustAllocationEntriesForSystemCores(numaSetChangedCont
 			} else if containerName == "" {
 				general.Errorf("pod: %s has empty containerName entry", podUID)
 				continue
-			} else if allocationInfo.QoSLevel != apiconsts.PodAnnotationQoSLevelSystemCores {
+			} else if !allocationInfo.CheckSystem() {
 				continue
 			}
 
-			if allocationInfo.CheckNumaBinding() {
+			if allocationInfo.CheckNUMABinding() {
 				// update container to target numa set for system_cores pod with NUMA binding
 				// todo: currently we only update cpuset.mems for system_cores pods to NUMAs without dedicated and NUMA binding and NUMA exclusive pod,
 				// 		in the future, we will update cpuset.mems for system_cores according to their cpuset_pool annotation.
